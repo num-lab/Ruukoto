@@ -1,0 +1,25 @@
+{
+  "name": "ruukoto-foundation-verification",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "阶段 0 基础验证：pi 0.85.1 SDK 复用边界与 Linux 受限执行探针。验证用代码，不是应用框架。",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:model": "RUN_MODEL_CHECK=1 tsx --test test/06-connectivity.test.ts",
+    "linux:probes": "bash scripts/linux-isolation/run-probes.sh"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-session-backend-sqlite-node": "0.85.1",
+    "typebox": "1.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  }
+}

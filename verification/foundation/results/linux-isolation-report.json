@@ -1,0 +1,226 @@
+{
+  "timestamp": "2026-09-19T22:26:07",
+  "host": "宿主: Darwin 27.0.0\n容器引擎: Docker version 29.4.1, build 055a478",
+  "container_env": "Linux 6.12.76-linuxkit\nPRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"",
+  "caveat": "在 Docker Desktop（macOS 上的 Linux VM）验证容器边界本身；目标服务器的宿主前提（发行版、内核版本、rootless 运行时、sysctl）未验证。",
+  "probes": [
+    {
+      "probe": "workspace.write",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "touch /workspace: "
+    },
+    {
+      "probe": "hostfs.absent:/Users",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/home/eitrous",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/root/.pi",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/etc/ruukoto-backend",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/var/run/docker.sock",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "rootfs.write-outside-workspace",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "root 容器可写容器层（宿主隔离见 hostfs.absent.*）"
+    },
+    {
+      "probe": "credentials.env-clean",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "环境变量无凭据"
+    },
+    {
+      "probe": "credentials.no-pi-config",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "容器内无 ~/.pi 配置与凭据"
+    },
+    {
+      "probe": "subprocess.spawn",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "subprocess-ok"
+    },
+    {
+      "probe": "subprocess.capabilities",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "CapEff=00000000a80425fb (plain)"
+    },
+    {
+      "probe": "subprocess.mount-denied",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "mount: /mnt: permission denied.\n       dmesg(1) may have more information after failed mount system call."
+    },
+    {
+      "probe": "control-plane.loopback-not-reachable",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主回环监听的控制面端口从容器不可达"
+    },
+    {
+      "probe": "control-plane.gateway-loopback-service",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "网关 172.17.0.1:18973 不可达（宿主只绑回环时的预期）"
+    },
+    {
+      "probe": "workspace.write",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "touch /workspace: "
+    },
+    {
+      "probe": "hostfs.absent:/Users",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/home/eitrous",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/root/.pi",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/etc/ruukoto-backend",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "hostfs.absent:/var/run/docker.sock",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主路径在容器内不可见"
+    },
+    {
+      "probe": "rootfs.write-outside-workspace",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "touch: cannot touch '/etc/escape-write': Permission denied"
+    },
+    {
+      "probe": "credentials.env-clean",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "环境变量无凭据"
+    },
+    {
+      "probe": "credentials.no-pi-config",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "容器内无 ~/.pi 配置与凭据"
+    },
+    {
+      "probe": "subprocess.spawn",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "subprocess-ok"
+    },
+    {
+      "probe": "subprocess.capabilities",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "CapEff=0000000000000000 (restricted)"
+    },
+    {
+      "probe": "subprocess.mount-denied",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "mount: /mnt: must be superuser to use mount.\n       dmesg(1) may have more information after failed mount system call."
+    },
+    {
+      "probe": "network.egress-blocked",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "--network none 下外网 1.1.1.1:443 不可达"
+    },
+    {
+      "probe": "control-plane.loopback-not-reachable",
+      "expect": "fail",
+      "result": "fail",
+      "consistent": true,
+      "detail": "宿主回环监听的控制面端口从容器不可达"
+    },
+    {
+      "probe": "identity.root-reads-own-state",
+      "expect": "pass",
+      "result": "pass",
+      "consistent": true,
+      "detail": "root 可读自己的状态文件"
+    },
+    {
+      "probe": "identity.task-uid-reads-backend-state",
+      "expect": "fail",
+      "result": "pass",
+      "consistent": true,
+      "detail": "uid 1000 读取控制面状态被内核拒绝（EACCES）"
+    },
+    {
+      "probe": "identity.task-uid-writes-backend-state",
+      "expect": "fail",
+      "result": "pass",
+      "consistent": true,
+      "detail": "uid 1000 写控制面状态被内核拒绝（EACCES）"
+    }
+  ],
+  "inconsistent": []
+}

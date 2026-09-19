@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: needs-triage
 Depends on: 无
 
 # 验证 pi 复用与 Linux 权限基础
@@ -19,3 +19,19 @@ Depends on: 无
 提交可运行的最小示例、固定版本和简短选型记录，说明 Linux 环境前提。使用模拟消息和临时目录验证历史未被上下文筛选修改、多会话状态不串用，以及子进程不能越过权限边界；真实模型只需少量连通性检查。不以生成代码的成功率设置产品门槛。
 
 如果缺少 Linux 测试环境或模型凭据，应准确记录未验证项，不将本机其他操作系统测试写成 Linux 已通过。
+
+## Comments
+
+### 2026-09-19：验证完成
+
+验证工程：[verification/foundation](../../../verification/foundation/README.md)（pi 0.85.1 固定版本，全部离线测试通过，typecheck 通过）。
+结论与选型记录：[foundation-findings.md](../foundation-findings.md)。
+
+要点：
+
+- coding-agent SDK 公开 API 覆盖全部已知需求（关压缩、拦摘要、全量历史、逐轮上下文、自定义工具、后台多会话+事件），不需要降到 agent-core 重写。
+- 权威历史 = pi JSONL 会话文件（唯一副本）；索引/检索读它，不重复存储。sqlite backend 属 agent-core 层，不采用。
+- 可信插件扩展点最小示例已验证（工具 / tool_call 阻断 / 生命周期 / appendEntry 持久化）；宿主维护的不变量已列清单。
+- Linux 受限执行选定容器方案（只挂工作区、无凭据、无网络、非 root、cap-drop、独立系统身份的控制面）；31/31 边界探针在 Docker Desktop 的 Linux VM 中通过。**目标服务器的宿主前提未验证**（本机为 macOS），部署时需在目标机重跑探针，完整未验证项清单见 findings 文档。
+- 真实模型仅一次连通性检查（deepseek-v4-flash，成功）。
+- 待维护者复核后，02（后台任务与持久化）可直接引用其复用层级与持久化结论。

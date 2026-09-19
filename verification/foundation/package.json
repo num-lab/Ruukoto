@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "test:model": "RUN_MODEL_CHECK=1 tsx --test test/06-connectivity.test.ts",
+    "test:model": "RUN_MODEL_CHECK=1 tsx --test test/07-connectivity.test.ts",
     "linux:probes": "bash scripts/linux-isolation/run-probes.sh"
   },
   "dependencies": {

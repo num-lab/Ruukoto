@@ -21,7 +21,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 | --- | --- | --- |
 | `test/01-compaction.test.ts` | 自动压缩可关闭；扩展可拦截压缩；磁盘历史完整 | ✅ |
 | `test/02-context.test.ts` | `context` 事件逐轮选取模型输入，磁盘原文不动 | ✅ |
-| `test/03-tools.test.ts` | `customTools` 注册工具、执行、结果合法回传 | ✅ |
+| `test/03-tools.test.ts` | `customTools` 注册工具与结果回传；内置 `bash` 直接复用 | ✅ |
 | `test/04-sessions.test.ts` | 同进程并行多会话、事件独立、状态互不串用 | ✅ |
 | `test/05-plugin.test.ts` | 可信插件四类扩展点（工具/权限/生命周期/存储） | ✅ |
 | `test/06-rpc.test.ts` | 子进程 RPC（JSONL over stdio）驱动与事件流 | ✅ |
@@ -45,7 +45,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 `scripts/linux-isolation/run-probes.sh` 在容器内运行 `probe.py`，覆盖：
 
 - 文件：工作区可写、宿主路径不可见、工作区外写入拒绝
-- 子进程：可正常 spawn；能力位记录；mount 被拒绝
+- 子进程：可正常 spawn；restricted 变体断言 CapEff=0；mount 被拒绝
 - 网络：`--network none` 下外网不可达
 - 凭据：环境变量无凭据、无 `~/.pi` 配置
 - 控制面：宿主回环监听端口从容器不可达（回环与网关两种路径）

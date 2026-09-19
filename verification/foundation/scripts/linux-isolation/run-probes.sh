@@ -93,10 +93,15 @@ docker run --rm "$IMAGE" sh -c 'uname -sr; cat /etc/os-release | head -2' > "$WO
   echo "容器引擎: $(docker --version)"
 } > "$WORK/host.txt"
 
-# 汇总 JSON
-python3 - "$WORK" "$STAMP" "$REPORT_JSON" <<'EOF'
+# 汇总：一次解析 probes.jsonl，同时产出 JSON 与 Markdown 报告
+python3 - "$WORK" "$STAMP" "$REPORT_JSON" "$REPORT_MD" <<'EOF'
 import json, sys, pathlib
-work, stamp, out = pathlib.Path(sys.argv[1]), sys.argv[2], pathlib.Path(sys.argv[3])
+
+work = pathlib.Path(sys.argv[1])
+stamp = sys.argv[2]
+json_out = pathlib.Path(sys.argv[3])
+md_out = pathlib.Path(sys.argv[4])
+
 probes = []
 for line in (work / "probes.jsonl").read_text().splitlines():
     line = line.strip()
@@ -105,6 +110,7 @@ for line in (work / "probes.jsonl").read_text().splitlines():
 env = (work / "env.txt").read_text().strip()
 host = (work / "host.txt").read_text().strip()
 inconsistent = [p for p in probes if p.get("consistent") is False]
+
 doc = {
   "timestamp": stamp,
   "host": host,
@@ -113,30 +119,15 @@ doc = {
   "probes": probes,
   "inconsistent": inconsistent,
 }
-out.write_text(json.dumps(doc, ensure_ascii=False, indent=2))
-print(f"探针总数: {len(probes)}，不一致: {len(inconsistent)}")
-for p in probes:
-    mark = "OK " if p.get("consistent", False) else "!!!"
-    print(f"{mark} [{p.get('result','?'):>4}] {p.get('probe','?')} —— {p.get('detail','')[:80]}")
-EOF
+json_out.write_text(json.dumps(doc, ensure_ascii=False, indent=2))
 
-# Markdown 报告
-python3 - "$WORK" "$STAMP" "$REPORT_MD" <<'EOF'
-import sys, pathlib, json
-work, stamp, out = pathlib.Path(sys.argv[1]), sys.argv[2], pathlib.Path(sys.argv[3])
-probes = []
-for line in (work / "probes.jsonl").read_text().splitlines():
-    line = line.strip()
-    if line.startswith('{"probe"'):
-        probes.append(json.loads(line))
-env = (work / "env.txt").read_text().strip()
-host = (work / "host.txt").read_text().strip()
+env_lines = env.splitlines()
 lines = [
   "# Linux 受限执行探针报告",
   "",
   f"- 时间：{stamp}",
   f"- {host}",
-  f"- 容器环境：{env.splitlines()[0] if env else '?'} / {env.splitlines()[-1] if env else '?'}",
+  f"- 容器环境：{env_lines[0] if env_lines else '?'} / {env_lines[-1] if env_lines else '?'}",
   "- 注意：本次在 Docker Desktop（macOS 上的 Linux VM）中验证容器边界本身；",
   "  目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时）未验证，见 issue 记录。",
   "",
@@ -144,10 +135,13 @@ lines = [
   "| --- | --- | --- | --- |",
 ]
 for p in probes:
-    if "probe" not in p:
-        continue
     lines.append(f"| {p['probe']} | {p['expect']} | {p['result']} | {p['detail'].replace('|','/')} |")
-out.write_text("\n".join(lines) + "\n")
+md_out.write_text("\n".join(lines) + "\n")
+
+print(f"探针总数: {len(probes)}，不一致: {len(inconsistent)}")
+for p in probes:
+    mark = "OK " if p.get("consistent", False) else "!!!"
+    print(f"{mark} [{p.get('result','?'):>4}] {p.get('probe','?')} —— {p.get('detail','')[:80]}")
 EOF
 
 echo "== 完成 =="

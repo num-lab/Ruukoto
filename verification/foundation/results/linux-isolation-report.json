@@ -1,9 +1,16 @@
 {
-  "timestamp": "2026-09-19T22:26:07",
+  "timestamp": "2026-09-19T22:42:08",
   "host": "宿主: Darwin 27.0.0\n容器引擎: Docker version 29.4.1, build 055a478",
   "container_env": "Linux 6.12.76-linuxkit\nPRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"",
   "caveat": "在 Docker Desktop（macOS 上的 Linux VM）验证容器边界本身；目标服务器的宿主前提（发行版、内核版本、rootless 运行时、sysctl）未验证。",
   "probes": [
+    {
+      "probe": "subprocess.capabilities",
+      "expect": "info",
+      "result": "00000000a80425fb",
+      "consistent": true,
+      "detail": "默认容器能力位（记录用）"
+    },
     {
       "probe": "workspace.write",
       "expect": "pass",
@@ -73,13 +80,6 @@
       "result": "pass",
       "consistent": true,
       "detail": "subprocess-ok"
-    },
-    {
-      "probe": "subprocess.capabilities",
-      "expect": "pass",
-      "result": "pass",
-      "consistent": true,
-      "detail": "CapEff=00000000a80425fb (plain)"
     },
     {
       "probe": "subprocess.mount-denied",
@@ -173,11 +173,11 @@
       "detail": "subprocess-ok"
     },
     {
-      "probe": "subprocess.capabilities",
+      "probe": "subprocess.capabilities-zero",
       "expect": "pass",
       "result": "pass",
       "consistent": true,
-      "detail": "CapEff=0000000000000000 (restricted)"
+      "detail": "CapEff=0000000000000000"
     },
     {
       "probe": "subprocess.mount-denied",

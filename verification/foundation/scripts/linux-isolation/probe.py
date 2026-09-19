@@ -76,7 +76,12 @@ record("subprocess.spawn", "pass", rc == 0, detail)
 
 rc, detail = run("cat /proc/self/status | grep CapEff")
 cap_eff = detail.split()[-1] if detail else "?"
-record("subprocess.capabilities", "pass", True, f"CapEff={cap_eff} ({variant})")
+if variant == "restricted":
+    # cap-drop ALL 后有效能力位必须为 0
+    record("subprocess.capabilities-zero", "pass", cap_eff == "0000000000000000", f"CapEff={cap_eff}")
+else:
+    # plain 变体仅记录默认能力位（信息项，不作为断言）
+    print(json.dumps({"probe": "subprocess.capabilities", "expect": "info", "result": cap_eff, "consistent": True, "detail": "默认容器能力位（记录用）"}, ensure_ascii=False))
 
 rc, detail = run("mount -t tmpfs none /mnt 2>&1")
 record("subprocess.mount-denied", "fail", rc == 0, detail or "mount 被拒绝")

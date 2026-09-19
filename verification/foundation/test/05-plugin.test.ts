@@ -38,6 +38,7 @@ test("可信插件：宿主数据工具、tool_call 阻断、生命周期订阅�
           pi.on("before_agent_start", async () => lifecycle.push("before_agent_start"));
           pi.on("agent_start", async () => lifecycle.push("agent_start"));
           pi.on("agent_end", async () => lifecycle.push("agent_end"));
+          pi.on("agent_settled", async () => lifecycle.push("agent_settled"));
 
           // 状态持久化：插件状态条目（不进模型上下文）
           pi.on("before_agent_start", async () => {
@@ -90,6 +91,7 @@ test("可信插件：宿主数据工具、tool_call 阻断、生命周期订阅�
     assert.ok(lifecycle.includes("before_agent_start"), "应收到 before_agent_start");
     assert.ok(lifecycle.includes("agent_start"), "应收到 agent_start");
     assert.ok(lifecycle.includes("agent_end"), "应收到 agent_end");
+    assert.ok(lifecycle.includes("agent_settled"), "应收到 agent_settled");
 
     // 4. 存储扩展点：appendEntry 写入磁盘，且类型为 custom（不进模型上下文）
     const entries = await readSessionFile(s.sessionFile());

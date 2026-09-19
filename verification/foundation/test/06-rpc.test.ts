@@ -11,10 +11,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import * as path from "node:path";
+import { rm } from "node:fs/promises";
 import { MockModelServer } from "../src/mock-provider.ts";
+import { makeTestDirs, writeModelsJson } from "../src/helpers.ts";
 
 const CLI = new URL("../node_modules/.bin/pi", import.meta.url).pathname;
 
@@ -41,28 +40,9 @@ function readLines(stream: NodeJS.ReadableStream, onLine: (obj: any) => void) {
 test("RPC 子进程模式：prompt 命令与事件流", async () => {
   const server = new MockModelServer(() => ({ kind: "text", text: "RPC 回复正常" }));
   const baseUrl = await server.start();
-  const root = await mkdtemp(path.join(tmpdir(), "pi-verify-rpc-"));
-  const agentDir = path.join(root, "agent");
-  await mkdir(agentDir, { recursive: true });
-  await writeFile(path.join(agentDir, "models.json"), JSON.stringify({
-    providers: {
-      mock: {
-        name: "Mock",
-        baseUrl,
-        apiKey: "mock-key",
-        api: "openai-completions",
-        models: [{
-          id: "mock-model",
-          name: "Mock Model",
-          reasoning: false,
-          input: ["text"],
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 200000,
-          maxTokens: 1024,
-        }],
-      },
-    },
-  }));
+  const dirs = await makeTestDirs("rpc");
+  await writeModelsJson(dirs, baseUrl, 200_000);
+  const agentDir = dirs.agentDir;
 
   const child = spawn(CLI, ["--mode", "rpc", "--no-session", "--provider", "mock", "--model", "mock-model"], {
     env: {
@@ -125,5 +105,5 @@ test("RPC 子进程模式：prompt 命令与事件流", async () => {
 
   child.kill("SIGTERM");
   server.close();
-  await rm(root, { recursive: true, force: true });
+  await rm(dirs.root, { recursive: true, force: true });
 });

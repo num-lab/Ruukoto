@@ -1,6 +1,6 @@
 # Linux 受限执行探针报告
 
-- 时间：2026-09-19T22:26:07
+- 时间：2026-09-19T22:42:08
 - 宿主: Darwin 27.0.0
 容器引擎: Docker version 29.4.1, build 055a478
 - 容器环境：Linux 6.12.76-linuxkit / NAME="Debian GNU/Linux"
@@ -9,6 +9,7 @@
 
 | 探针 | 预期 | 结果 | 说明 |
 | --- | --- | --- | --- |
+| subprocess.capabilities | info | 00000000a80425fb | 默认容器能力位（记录用） |
 | workspace.write | pass | pass | touch /workspace:  |
 | hostfs.absent:/Users | fail | fail | 宿主路径在容器内不可见 |
 | hostfs.absent:/home/eitrous | fail | fail | 宿主路径在容器内不可见 |
@@ -19,7 +20,6 @@
 | credentials.env-clean | pass | pass | 环境变量无凭据 |
 | credentials.no-pi-config | fail | fail | 容器内无 ~/.pi 配置与凭据 |
 | subprocess.spawn | pass | pass | subprocess-ok |
-| subprocess.capabilities | pass | pass | CapEff=00000000a80425fb (plain) |
 | subprocess.mount-denied | fail | fail | mount: /mnt: permission denied.
        dmesg(1) may have more information after failed mount system call. |
 | control-plane.loopback-not-reachable | fail | fail | 宿主回环监听的控制面端口从容器不可达 |
@@ -34,7 +34,7 @@
 | credentials.env-clean | pass | pass | 环境变量无凭据 |
 | credentials.no-pi-config | fail | fail | 容器内无 ~/.pi 配置与凭据 |
 | subprocess.spawn | pass | pass | subprocess-ok |
-| subprocess.capabilities | pass | pass | CapEff=0000000000000000 (restricted) |
+| subprocess.capabilities-zero | pass | pass | CapEff=0000000000000000 |
 | subprocess.mount-denied | fail | fail | mount: /mnt: must be superuser to use mount.
        dmesg(1) may have more information after failed mount system call. |
 | network.egress-blocked | fail | fail | --network none 下外网 1.1.1.1:443 不可达 |

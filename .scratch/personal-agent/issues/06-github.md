@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: ready-for-human
 Depends on: 04, 05
 
 # GitHub 项目维护
@@ -86,3 +86,27 @@ Depends on: 04, 05
 ## 交付与验证
 
 用记录样例或模拟 API 检查日志归因、差异定位、修订变化和审批；配置实际仓库后完成只读连通性验证。真实评论发布仅在拥有者明确要求且符合当前任务模式时进行。
+
+## Comments
+
+2026-09-21：实现完成并合入（agent: GitHub 项目维护，issue 06）。交付：薄层
+REST 客户端（API 版本头 2026-03-10）、项目↔仓库绑定（含 repository ID、读取
+范围、读/写凭据引用、可比较配置版本）、PR/run 采集（分页、diff、attempt 固定、
+失败作业日志 302 受控跟随、checks+statuses）、ArtifactStore 证据落盘、草稿
+（版本化+正文哈希+修订）、发布（reviews API event=COMMENT 固定 commit_id /
+issue 评论；github_publish 结构化审批单次消费；发送前复核；effect_unknown 不
+自动重发）。迁移 SQLite schema v3→v4。CLI `github …` 与 TUI `/github …` 入口。
+docs/runtime.md 新增「GitHub 项目维护」节。
+
+验证：npm run typecheck 干净；npm test 125 项（124 通过，0 失败，1 项既有
+skip），其中 test/17-github.test.ts 19 项全部经进程内模拟 GitHub API 与真实
+宿主工具/审批路径。code-review 修复（15 项）已回归：SSRF 重定向防护（IPv6/
+映射地址/同主机降级）、凭据 scope 收紧在生产生效（github bind 时收紧、同名
+更新保留）、配置版本重读（撤销即时生效）、pending 发布操作按 kind/target 幂等、
+发送前按草稿实际修订复核（不依赖自报类型）、草稿防复活/跨绑定/缺修订校验、
+已结束任务 confirm 发布拒绝且不产生伪任务、绑定事件与状态同事务、发布目标
+编号校验。
+
+未验证（如实记录）：真实仓库 + 读取凭据的显式触发只读连通性验证（未配置，
+不申请写权限完成只读验收）；真实发布需拥有者明确要求。留待人工验收，故置
+ready-for-human。

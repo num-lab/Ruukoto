@@ -164,6 +164,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
   { name: "context", description: "查看本轮上下文选择记录（预算组成与排除原因）" },
+  { name: "github", description: "GitHub：drafts | show <id> | publish <id> pr <n> | publish <id> issue <n>", argumentHint: "<子命令>" },
 ];
 
 export interface TuiAppOptions {
@@ -587,6 +588,9 @@ export class TuiApp {
       case "context":
         await this.cmdContext();
         return;
+      case "github":
+        await this.cmdGithub(rest);
+        return;
       default:
         this.notify(`未知命令：/${name}（/help 查看命令列表）`);
         return;
@@ -948,6 +952,106 @@ export class TuiApp {
     return matches.length === 1 ? matches[0]! : null;
   }
 
+  // ---------- GitHub（issue 06：草稿查看与发布入口；发布意图只能由拥有者发起） ----------
+
+  private async cmdGithub(rest: string[]): Promise<void> {
+    const sub = rest[0] ?? "drafts";
+    const view = this.currentView();
+    if (sub === "drafts") {
+      try {
+        const result = await this.connection.request<{
+          drafts: Array<{ id: string; version: number; kind: string; status: string; staleReason: string | null; bodyBytes: number; updatedAt: string; revisions: Record<string, unknown> }>;
+        }>("github_list_drafts", view ? { project_id: view.projectId } : {});
+        if (result.drafts.length === 0) {
+          this.notify("没有 GitHub 草稿（代理在任务中经 github_save_draft 创建）");
+          return;
+        }
+        const lines = result.drafts.map((d) => {
+          const rev = d.revisions["headSha"] ? ` head ${String(d.revisions["headSha"]).slice(0, 8)}` : d.revisions["runId"] ? ` run ${d.revisions["runId"]}` : "";
+          return `  [${d.id.slice(0, 12)}] ${d.kind} v${d.version} ${d.status}${d.staleReason ? `（${d.staleReason}）` : ""} ${d.bodyBytes} 字节${rev}  ${d.updatedAt}`;
+        });
+        this.notify(`GitHub 草稿（${result.drafts.length} 份）：\n${lines.join("\n")}\n/github show <id> 查看正文；/github publish <id> pr|issue <n> 发布`);
+      } catch (err) {
+        this.notify(red(`查询失败：${(err as Error).message}`));
+      }
+      return;
+    }
+    if (sub === "show") {
+      const prefix = rest[1];
+      if (!prefix) {
+        this.notify("用法：/github show <草稿 id 前缀>");
+        return;
+      }
+      try {
+        const { drafts } = await this.connection.request<{ drafts: Array<{ id: string }> }>("github_list_drafts", {});
+        const matches = drafts.filter((d) => d.id.startsWith(prefix));
+        if (matches.length !== 1) {
+          this.notify(matches.length === 0 ? `找不到草稿：${prefix}` : `草稿 id 前缀不唯一：${prefix}`);
+          return;
+        }
+        const draft = await this.connection.request<{
+          id: string; version: number; kind: string; status: string; staleReason: string | null;
+          body: string; bodySha256: string; revisions: Record<string, unknown>; evidenceArtifactIds: string[];
+        }>("github_get_draft", { draft_id: matches[0]!.id });
+        const revLines = Object.entries(draft.revisions).map(([k, v]) => `  ${k}: ${String(v)}`);
+        await this.openPager({
+          title: `草稿 ${draft.id.slice(0, 12)} v${draft.version}`,
+          header:
+            `${bold(`GitHub 草稿 ${draft.id} v${draft.version}`)}（${draft.kind}，${draft.status}${draft.staleReason ? `：${draft.staleReason}` : ""}）\n` +
+            `正文 sha256 ${draft.bodySha256.slice(0, 16)}… · 证据产物：${draft.evidenceArtifactIds.join(", ") || "无"}\n` +
+            `分析修订：\n${revLines.join("\n")}\n` +
+            dim("本地草稿与证据 ≠ 公开来源；发布经 /github publish 或 CLI（默认只交付草稿）"),
+          fetch: async (offset, length) => ({
+            text: draft.body.slice(offset, offset + length),
+            offset,
+            totalBytes: Buffer.byteLength(draft.body, "utf8"),
+            truncated: offset + length < Buffer.byteLength(draft.body, "utf8"),
+          }),
+        });
+      } catch (err) {
+        this.notify(red(`查询失败：${(err as Error).message}`));
+      }
+      return;
+    }
+    if (sub === "publish") {
+      const prefix = rest[1];
+      const kindArg = rest[2];
+      const num = Number(rest[3]);
+      if (!prefix || (kindArg !== "pr" && kindArg !== "issue") || !Number.isInteger(num) || num <= 0) {
+        this.notify("用法：/github publish <草稿 id 前缀> pr <PR 编号> | /github publish <草稿 id 前缀> issue <编号>");
+        return;
+      }
+      try {
+        const { drafts } = await this.connection.request<{ drafts: Array<{ id: string; status: string }> }>("github_list_drafts", {});
+        const matches = drafts.filter((d) => d.id.startsWith(prefix));
+        if (matches.length !== 1) {
+          this.notify(matches.length === 0 ? `找不到草稿：${prefix}` : `草稿 id 前缀不唯一：${prefix}`);
+          return;
+        }
+        const draftId = matches[0]!.id;
+        const op = await this.connection.request<{ id: string; status: string; remoteUrl: string | null; errorMessage: string | null }>(
+          "github_publish",
+          {
+            draft_id: draftId,
+            kind: kindArg === "pr" ? "pr_review_comment" : "issue_comment",
+            target: kindArg === "pr" ? { prNumber: num } : { issueNumber: num },
+          },
+        );
+        if (op.status === "sent") {
+          this.notify(`已发布：${op.remoteUrl ?? op.id}`);
+        } else if (op.status === "effect_unknown") {
+          this.notify(yellow(`发布结果未知（${op.errorMessage ?? ""}）：已按 effect_unknown 记录，不会自动重发；请人工核实远端`));
+        } else {
+          this.notify(red(`发布未完成（${op.status}）：${op.errorMessage ?? ""}`));
+        }
+      } catch (err) {
+        this.notify(red(`发布失败：${(err as Error).message}`));
+      }
+      return;
+    }
+    this.notify("用法：/github [drafts | show <id 前缀> | publish <id 前缀> pr|issue <编号>]");
+  }
+
   // ---------- 展开查看 ----------
 
   private async cmdExpand(arg: string): Promise<void> {
@@ -1174,6 +1278,8 @@ export class TuiApp {
         return `文件 ${c.scope.access === "read" ? "读取" : "写入"}：${c.scope.path}`;
       case "http_request":
         return `HTTP ${c.scope.method} ${c.scope.url}`;
+      case "github_publish":
+        return `GitHub 发布：${c.scope.owner}/${c.scope.repo} ${c.scope.publishKind === "pr_review_comment" ? `PR #${c.scope.target["prNumber"]} 评审评论` : `issue #${c.scope.target["issueNumber"]} 评论`}（草稿 ${c.scope.draftId} v${c.scope.draftVersion}，${c.scope.bodyBytes} 字节）`;
     }
   }
 

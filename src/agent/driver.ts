@@ -55,6 +55,7 @@ import {
   type SelectorOutput,
 } from "./context-selector.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
+import { createGitHubTools, GITHUB_TOOL_NAMES, type GitHubToolsDeps } from "./github/tools.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
 
@@ -120,6 +121,8 @@ export interface DriverDeps {
   memories: MemoryStore;
   /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留）。 */
   budgetOverrides?: Partial<SelectorBudgetConfig>;
+  /** GitHub 集成（issue 06）：未配置时 GitHub 宿主工具不注册。 */
+  github?: Omit<GitHubToolsDeps, "store" | "artifacts" | "credentials" | "taskContext" | "bindCall" | "emit">;
 }
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -234,6 +237,27 @@ export class Driver {
         return { unindexed: !this.deps.historyIndex.isIndexed(sessionId) };
       },
     });
+    // GitHub 宿主工具（issue 06）：与资料工具同一身份注入/绑定机制
+    const githubTools = this.deps.github
+      ? createGitHubTools({
+          store: this.deps.store,
+          artifacts: this.deps.artifacts,
+          credentials: this.deps.credentials,
+          taskContext: () => this.hostToolCtx,
+          bindCall: (sdkCallId) => {
+            const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
+            this.hostToolCtx = ctx;
+            return () => {
+              this.hostToolCtx = null;
+              this.hostToolCalls.delete(sdkCallId);
+            };
+          },
+          emit: (body, refs) => {
+            this.deps.store.withTx(() => this.deps.store.appendEvent(body, refs));
+          },
+          ...this.deps.github,
+        })
+      : [];
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -241,7 +265,7 @@ export class Driver {
       modelRuntime: this.deps.modelRuntime,
       model: this.deps.model,
       thinkingLevel: this.deps.thinkingLevel,
-      tools: [...this.deps.toolFactory({ registry: this.registry, router: this.router }), ...hostDataTools],
+      tools: [...this.deps.toolFactory({ registry: this.registry, router: this.router }), ...hostDataTools, ...githubTools],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -878,8 +902,12 @@ export class Driver {
       return undefined;
     }
 
-    // 资料与记忆宿主工具（issue 05）：身份由宿主注入，不经路由器/工作进程
-    if ((HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName)) {
+    // 资料与记忆宿主工具（issue 05）与 GitHub 宿主工具（issue 06）：
+    // 身份由宿主注入，不经路由器/工作进程
+    if (
+      (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (GITHUB_TOOL_NAMES as readonly string[]).includes(event.toolName)
+    ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,
         sessionId: task.sessionId,
@@ -1024,6 +1052,12 @@ export class Driver {
   /** 运行时入口：等待中的审批因模式切换立即失效（Runtime 调用）。 */
   supersedeWaiters(): void {
     this.supersedeAllWaiters();
+  }
+
+  /** 当前任务运行的完成信号（无任务运行时 resolve）。用于审批桥外的等待方
+   * 在任务自然结束时回落（避免控制面请求永久悬挂）。 */
+  taskCompletion(): Promise<void> {
+    return this.runPromise ?? Promise.resolve();
   }
 
   /** 控制面应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */

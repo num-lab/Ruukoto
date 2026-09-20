@@ -20,6 +20,18 @@ export interface CredentialBinding {
   purpose: string;
   /** 秘密值；任何展示/日志路径都不得包含。 */
   secret: string;
+  /**
+   * 可选使用范围（issue 06）：限定项目 / 仓库 / 操作类别。
+   * 设置后，通用 http_request 不得借用该凭据（防止同名写凭据绕过 GitHub 发布边界）；
+   * 仅匹配全部限定条件的调用方可注入。
+   */
+  scope?: {
+    projectId?: string;
+    /** 核实的 GitHub repository ID。 */
+    repoId?: number;
+    /** 允许的操作类别（如 "github_read" / "github_publish"）。 */
+    operations?: string[];
+  };
 }
 
 export interface CredentialBindingView {
@@ -63,6 +75,25 @@ export class CredentialStore {
 
   get(name: string): CredentialBinding | null {
     return this.load().bindings.find((b) => b.name === name) ?? null;
+  }
+
+  /**
+   * 按名称取凭据并核对使用范围：带 scope 的绑定仅允许匹配全部限定条件的调用；
+   * 通用 http_request（无 scope 上下文）一律不得使用带 scope 的凭据。
+   */
+  getForUse(
+    name: string,
+    use?: { projectId?: string; repoId?: number; operation?: string },
+  ): CredentialBinding | null {
+    const binding = this.get(name);
+    if (!binding) return null;
+    if (!binding.scope) return binding;
+    if (!use) return null;
+    const s = binding.scope;
+    if (s.projectId !== undefined && s.projectId !== use.projectId) return null;
+    if (s.repoId !== undefined && s.repoId !== use.repoId) return null;
+    if (s.operations !== undefined && (use.operation === undefined || !s.operations.includes(use.operation))) return null;
+    return binding;
   }
 
   upsert(binding: CredentialBinding): void {

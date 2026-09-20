@@ -290,6 +290,91 @@ async function main(argv: string[]): Promise<number> {
       console.error("用法：ruukoto credentials list | add --name N --host H --header H --purpose P --secret-env VAR | remove <name>");
       return 1;
     }
+    case "github": {
+      const sub = positional[0];
+      if (sub === "bind") {
+        print(
+          await withClient((c) =>
+            c.request("github_bind", {
+              project_id: flags["project"] ?? "",
+              owner: flags["owner"] ?? "",
+              repo: flags["repo"] ?? "",
+              api_host: flags["api-host"],
+              scheme: flags["scheme"] === "http" ? "http" : undefined,
+              read_credential: flags["read-credential"],
+              publish_credential: flags["publish-credential"],
+              read_scopes: (flags["scopes"] ?? "pulls,actions,checks").split(",").map((s) => s.trim()).filter(Boolean),
+              allow_fork_content: flags["allow-fork-content"] !== undefined,
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "bindings") {
+        print(await withClient((c) => c.request("github_list_bindings", { project_id: flags["project"] })));
+        return 0;
+      }
+      if (sub === "unbind") {
+        print(await withClient((c) => c.request("github_unbind", { binding_id: positional[1] ?? "" })));
+        return 0;
+      }
+      if (sub === "drafts") {
+        print(
+          await withClient((c) =>
+            c.request("github_list_drafts", { project_id: flags["project"], task_id: flags["task"], status: flags["status"] }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "draft") {
+        print(
+          await withClient((c) =>
+            c.request("github_get_draft", {
+              draft_id: positional[1] ?? "",
+              version: flags["version"] === undefined ? undefined : Number(flags["version"]),
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "publish-ops") {
+        print(await withClient((c) => c.request("github_list_publish_ops", { draft_id: flags["draft"] })));
+        return 0;
+      }
+      if (sub === "publish") {
+        const kind = flags["kind"] ?? "";
+        const target: Record<string, unknown> = {};
+        const numFlag = kind === "pr_review_comment" ? flags["pr"] : kind === "issue_comment" ? flags["issue"] : undefined;
+        if (kind !== "pr_review_comment" && kind !== "issue_comment") throw new Error("publish 需要 --kind pr_review_comment|issue_comment");
+        const num = Number(numFlag);
+        if (numFlag === undefined || !Number.isInteger(num) || num < 1) {
+          throw new Error(`publish 需要 ${kind === "pr_review_comment" ? "--pr" : "--issue"} <正整数>`);
+        }
+        if (kind === "pr_review_comment") target.prNumber = num;
+        else target.issueNumber = num;
+        print(
+          await withClient((c) =>
+            c.request("github_publish", {
+              draft_id: positional[1] ?? "",
+              version: flags["version"] === undefined ? undefined : Number(flags["version"]),
+              kind,
+              target,
+              access_mode: flags["access-mode"],
+            }),
+          ),
+        );
+        return 0;
+      }
+      console.error(
+        "用法：\n" +
+          "  ruukoto github bind --project <id> --owner O --repo R [--api-host H] [--read-credential N] [--publish-credential N] [--scopes pulls,actions,checks] [--allow-fork-content]\n" +
+          "  ruukoto github bindings [--project <id>] | unbind <binding-id>\n" +
+          "  ruukoto github drafts [--project <id>] [--task <id>] [--status draft|stale|published]\n" +
+          "  ruukoto github draft <draft-id> [--version N] | publish-ops [--draft <id>]\n" +
+          "  ruukoto github publish <draft-id> --kind pr_review_comment --pr <n> | --kind issue_comment --issue <n> [--version N] [--access-mode confirm|full_access]",
+      );
+      return 1;
+    }
     case "stop":
       print(await withClient((c) => c.request("stop", {})));
       return 0;

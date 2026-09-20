@@ -132,6 +132,26 @@ export type ApprovalScope =
       url: string;
       /** 引用的凭据绑定名称与用途；不含凭据值。 */
       credentials: Array<{ name: string; purpose: string }>;
+    }
+  | {
+      kind: "github_publish";
+      /** 发布操作 id（github_publish_ops.id）。 */
+      publishOpId: string;
+      draftId: string;
+      draftVersion: number;
+      /** 仓库身份（apiHost/owner/repo + 核实的 repository ID）。 */
+      apiHost: string;
+      owner: string;
+      repo: string;
+      repoId: number | null;
+      /** 发布类型与目标（PR 评审评论 / issue 评论）。 */
+      publishKind: "pr_review_comment" | "issue_comment";
+      target: Record<string, unknown>;
+      /** 待发布正文字节数与指纹（正文经 get_confirmation 分段读取）。 */
+      bodySha256: string;
+      bodyBytes: number;
+      /** 分析修订（head/base SHA、run/attempt 等，按发布类型取用）。 */
+      revisions: Record<string, unknown>;
     };
 
 export interface ConfirmationRequest {
@@ -231,6 +251,11 @@ export type PersistentEventBody =
   | { type: "memory.saved"; memoryId: string; projectId: string | null; version: number; author: "agent" | "owner"; taskId: string | null }
   | { type: "memory.revoked"; memoryId: string; projectId: string | null; version: number; author: "agent" | "owner"; taskId: string | null }
   | { type: "memory.restored"; memoryId: string; projectId: string | null; fromVersion: number; newVersion: number; author: "agent" | "owner"; taskId: string | null }
+  | { type: "github.binding_changed"; bindingId: string; projectId: string; apiHost: string; owner: string; repo: string; configVersion: number; action: "upsert" | "removed" }
+  | { type: "github.draft_saved"; draftId: string; version: number; taskId: string; sessionId: string; kind: string; bodySha256: string; bodyBytes: number }
+  | { type: "github.draft_stale"; draftId: string; version: number; reason: string }
+  | { type: "github.publish_requested"; publishOpId: string; draftId: string; draftVersion: number; taskId: string; sessionId: string }
+  | { type: "github.publish_settled"; publishOpId: string; draftId: string; status: "sent" | "failed" | "effect_unknown" | "canceled"; remoteUrl: string | null; errorMessage: string | null }
   | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }

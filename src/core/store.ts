@@ -545,6 +545,10 @@ export class Store {
    * 单次消费批准（条件更新原子完成资格校验与消费登记）：
    * 仅当批准未消费、权限版本仍匹配、任务仍活动时生效；返回是否消费成功。
    * 真正启动执行前由调用方在同一事务内记录执行开始（consumed_at 即执行开始）。
+   *
+   * 权限版本核对两处（issue 06 §5）：批准记录保存的版本 = 请求方传入的期望版本，
+   * 且任务的当前权限版本 = 期望版本——覆盖异步复核期间任务被取消/切换模式
+   * （permission_version 递增）后旧批准被误消费的场景。
    */
   consumeApproval(input: {
     confirmationId: string;
@@ -554,15 +558,16 @@ export class Store {
     const placeholders = input.activeStatuses.map(() => "?").join(",");
     const info = this.db
       .prepare(
-        `UPDATE confirmations SET consumed_at = ? 
+        `UPDATE confirmations SET consumed_at = ?
          WHERE id = ? AND status = 'approved' AND consumed_at IS NULL AND permission_version = ?
-           AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
+           AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}) AND permission_version = ?)`,
       )
       .run(
         new Date().toISOString(),
         input.confirmationId,
         input.expectedPermissionVersion,
         ...input.activeStatuses,
+        input.expectedPermissionVersion,
       );
     return Number(info.changes) === 1;
   }

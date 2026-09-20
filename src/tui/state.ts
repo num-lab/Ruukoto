@@ -362,6 +362,28 @@ export class ViewState {
       case "session.history_unreadable":
         this.note(body.sessionId, `历史读取异常：${body.error}`);
         return;
+      case "github.draft_saved":
+        this.note(body.sessionId, `GitHub 草稿已保存：${body.draftId.slice(0, 12)} v${body.version}（${body.kind}，${body.bodyBytes} 字节）——/github show ${body.draftId.slice(0, 12)} 查看`);
+        return;
+      case "github.draft_stale":
+        this.note(null, `GitHub 草稿 ${body.draftId.slice(0, 12)} v${body.version} 已标记过时：${body.reason}`);
+        return;
+      case "github.publish_requested":
+        this.note(body.sessionId, `GitHub 发布已请求：${body.publishOpId.slice(0, 12)}（草稿 ${body.draftId.slice(0, 12)} v${body.draftVersion}）`);
+        return;
+      case "github.publish_settled": {
+        const text =
+          body.status === "sent"
+            ? `GitHub 发布完成：${body.remoteUrl ?? body.publishOpId.slice(0, 12)}`
+            : body.status === "effect_unknown"
+              ? `GitHub 发布结果未知（${body.errorMessage ?? ""}）：不会自动重发，请人工核实远端`
+              : `GitHub 发布${body.status === "failed" ? "失败" : "取消"}：${body.errorMessage ?? ""}`;
+        this.note(null, text);
+        return;
+      }
+      case "github.binding_changed":
+        this.note(null, `GitHub 仓库绑定${body.action === "removed" ? "已撤销" : "已更新"}：${body.owner}/${body.repo}（配置版本 ${body.configVersion}）`);
+        return;
       case "backend.stopping":
       case "backend.stopped":
         // 连接会随即断开；状态由连接层展示

@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -191,6 +191,64 @@ CREATE TABLE IF NOT EXISTS selection_records (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_selection_records_task ON selection_records (task_id, call_index);
+
+-- v4：GitHub 集成（issue 06）——仓库绑定、草稿与发布操作
+CREATE TABLE IF NOT EXISTS github_repo_bindings (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  api_host TEXT NOT NULL,
+  scheme TEXT NOT NULL DEFAULT 'https',
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  repo_id INTEGER,
+  read_credential TEXT,
+  publish_credential TEXT,
+  read_scopes TEXT NOT NULL,
+  allow_fork_content INTEGER NOT NULL DEFAULT 0,
+  config_version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, api_host, owner, repo)
+);
+CREATE TABLE IF NOT EXISTS github_drafts (
+  id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  binding_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  body TEXT NOT NULL,
+  body_sha256 TEXT NOT NULL,
+  revisions TEXT NOT NULL,
+  evidence_artifact_ids TEXT NOT NULL,
+  config_version INTEGER NOT NULL,
+  stale_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_github_drafts_task ON github_drafts (task_id);
+CREATE TABLE IF NOT EXISTS github_publish_ops (
+  id TEXT PRIMARY KEY,
+  draft_id TEXT NOT NULL,
+  draft_version INTEGER NOT NULL,
+  binding_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  target TEXT NOT NULL,
+  body_sha256 TEXT NOT NULL,
+  revisions TEXT NOT NULL,
+  config_version INTEGER NOT NULL,
+  permission_version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  remote_id INTEGER,
+  remote_url TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_github_publish_ops_draft ON github_publish_ops (draft_id, draft_version);
 `;
 
 /**
@@ -285,9 +343,9 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version === 2) {
-      // v2 → v3：新增授权/记忆/历史索引/选择记录表（SCHEMA_SQL 幂等建表已覆盖），
-      // 并为既有表补列；无既有数据需要改写。
+    } else if (version === 2 || version === 3) {
+      // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表。
+      // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；无既有数据需要改写。
       this.ensureColumns();
     } else {
       throw new Error(`不支持从 schema v${version} 迁移`);

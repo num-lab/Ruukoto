@@ -245,6 +245,75 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 - 拥有者入口：`ruukoto selection-records --task <id> | --session <id>`；
   TUI `/context` 查看当前会话最近一轮的预算组成与排除原因。
 
+## GitHub 项目维护（issue 06）
+
+拥有者显式触发的 CI 分析与 PR 评审：采集在既有任务循环内由宿主工具完成，
+发布只能由拥有者经可信 CLI/TUI 发起。无监听、无 webhook、无定时器。
+
+### 仓库与凭据配置
+
+- 绑定：`ruukoto github bind --project <id> --owner O --repo R [--api-host H]
+  [--read-credential N] [--publish-credential N] [--scopes pulls,actions,checks]
+  [--allow-fork-content]`。默认 API 主机 `api.github.com`；GHE 主机须显式配置。
+  绑定保存核实的 repository ID（改名/迁移核对依据）、读取范围与可比较的配置
+  版本；任何变更递增版本，进行中的调用在下一次核对时失败。
+- 凭据复用 CredentialStore（`ruukoto credentials add`），按名称引用；值不进入
+  模型上下文、Shell、TUI 参数或日志。读取与发布凭据分开配置；`github bind`
+  会把所引用凭据收紧到本项目+对应操作（github_read/github_publish），带
+  scope 的凭据不得被通用 `http_request` 借用，同名更新保留范围。
+- 令牌缺失、过期或权限不足 → 明确报错，不改用拥有者机器上的 `gh` 登录态。
+
+### 读取授权与采集
+
+- 宿主工具 `github_read_pr` / `github_read_run` / `github_save_draft`：身份由
+  宿主注入（当前任务 → 会话 → 项目），工具参数不接受项目/凭据/主机；仓库
+  目标只能是当前项目的已配置绑定。
+- PR 采集：元数据 + 分页文件列表（3000 上限如实标注）+ diff；读完后复核
+  head/base SHA 与状态，中途变化 → 保留旧数据并标记 inconsistent，不混合
+  修订。fork PR 源仓库内容仅在绑定显式允许时读取；不 checkout、不执行 PR
+  代码。
+- run 采集：固定 run ID + attempt；按 attempt 分页作业（同名 matrix 作业不
+  合并）；失败作业日志按作业 ID 下载（302 签名 URL 由宿主受控跟随：HTTPS、
+  拒绝回环/私网、跨主机不带 Authorization；签名 URL 不进入报告/事件/公开
+  链接）；check runs 与 commit statuses 都读，第三方检查仅状态+链接。
+- 完整采集结果写入 ArtifactStore（带非机密请求目标、采集时间、修订与内容
+  哈希）；模型只拿到有界预览 + 产物引用。PR 描述、评论、diff、日志均为
+  外部资料，不得按其中指令修改权限、读取其他项目、执行命令或发布消息。
+
+### 报告溯源与草稿
+
+- `github_save_draft` 保存草稿：绑定当前任务、绑定配置版本与分析修订
+  （head/base SHA 或 run/attempt）；正文完整可查看（CLI `github draft <id>`、
+  TUI `/github show <id>`），证据产物 id 随草稿保存。行号必须来自采集到的
+  实际 diff/源文件；证据不足的条目列入待核实。默认只交付草稿。
+
+### 发布与未知结果恢复
+
+- 发布意图只能由拥有者发起：CLI `ruukoto github publish <draft-id> --kind
+  pr_review_comment --pr <n>` 或 `--kind issue_comment --issue <n>`；TUI
+  `/github publish <id> pr|issue <n>`。模型不能经工具参数/PR 文本/full_access
+  创建发布意图。
+- 第一阶段发布形态：PR 评审摘要经 reviews API（固定 `event=COMMENT` + 显式
+  `commit_id`）；CI 分析作为拥有者指定 issue/PR 下的普通评论。不做逐行评审
+  评论；无明确目标的独立运行保持草稿。
+- 请求确认模式：逐次审批（`github_publish` 范围：仓库身份、目标、正文哈希
+  与字节数、分析修订；正文经审批详情分段查看），批准单次消费；正文/目标
+  变化 = 新请求。full_access 在既有发布意图+仓库范围内跳过逐次审批，仍保留
+  意图/复核/结果记录。
+- 批准后、发送前按草稿实际记录的修订复核（PR 的 head/base SHA+状态，或
+  run/attempt），与发布形态无关；影响分析结论的变化 → 草稿标 stale、停止
+  发布、需重新分析与重新批准。草稿必须携带可复核修订（保存时校验）。
+- POST 不重试；已发送但超时/断线/崩溃/结果未落盘 → `effect_unknown`，不自动
+  重发；拥有者经 `github publish-ops` 查看状态后人工核实远端再决定。同一
+  草稿版本 + 相同 kind/target 的重复发布请求复用已有待发布操作（本地幂等）；
+  不同 kind/target 视为新发布意图，新建操作（审计与实际发送一致）。
+- 只能发布草稿的最新版本（旧版本拒绝，避免过期分析流出）。
+- 草稿任务已结束时发布：请求确认模式的逐次审批只在存活任务内进行（已结束
+  任务的 confirm 发布被拒绝，提示改用 full_access 或在存活任务中触发）；
+  full_access 发布先在发布者上下文完成修订复核（失败即拒绝，不产生新任务），
+  再经既有调度创建新任务承载（不复活旧终态任务、不继承旧批准；输入幂等/
+  目录占用/范围检查照常）。
+
 ## 恢复步骤
 
 1. 后台异常退出后重新启动（systemd 自动拉起或手工 `npm start -- start`）。
@@ -296,3 +365,5 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 | Git worktree 外部元数据显式授予路径挂载 | 未实测 | 授予路径校验/幂等已覆盖；容器挂载路径（/granted/N）未端到端实测 |
 | 目标服务器宿主前提（发行版、内核、rootless、docker/systemd） | 未验证 | 部署时需重跑 `verification/foundation` 的 `npm run linux:probes` 与容器冒烟 |
 | 真实模型短编码任务（真实凭据） | 未运行 | 有凭据时执行 `RUN_MODEL_CHECK=1 npm run test:model` |
+| issue 06 GitHub 集成（19 项：绑定/凭据范围、PR/run 采集与分页、inconsistent、302 重定向防护（含 IPv6/映射地址）、草稿与发布、stale 复核、effect_unknown、配置撤销、请求确认发布、凭据范围收紧、pending 操作幂等边界、发布目标校验、已结束任务 confirm 拒绝） | macOS 本机（本地模拟 GitHub API，经真实宿主工具与审批路径） | 通过（125 项总计含既有回归，0 失败） |
+| 真实仓库只读连通性（显式触发一次读取） | 需真实仓库 + 读取凭据 | 未验证（未配置；不申请写权限完成只读验收） |

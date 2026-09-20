@@ -57,6 +57,10 @@ import {
 } from "../core/memory.ts";
 import type { DataCategory, DataGrant, Memory, MemorySourceRef, MemoryVersion, SelectionRecord } from "../core/types.ts";
 import type { SelectorBudgetConfig } from "../agent/context-selector.ts";
+import { GitHubStore, GITHUB_READ_SCOPES, type GitHubDraft, type GitHubPublishOp, type GitHubRepoBinding, type GitHubReadScope } from "../agent/github/store.ts";
+import { GitHubClient, GitHubError } from "../agent/github/client.ts";
+import { defaultClientFor } from "../agent/github/tools.ts";
+import { publishDraft, precheckDraft, PublishError, GITHUB_BODY_LIMIT } from "../agent/github/publish.ts";
 import {
   readHistoryEntryText,
   readHistoryPage,
@@ -107,6 +111,8 @@ export interface RuntimeConfig {
   toolFactory?: (ctx: { registry: import("../agent/managed-processes.ts").ManagedProcessRegistry; router: import("../agent/tool-router.ts").ToolRouter }) => ToolDefinition[];
   /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留；测试用小窗口时收紧预留）。 */
   budgetOverrides?: Partial<SelectorBudgetConfig>;
+  /** 测试注入：GitHub 客户端构造（指向模拟服务；生产缺省走 defaultClientFor）。 */
+  githubClientFor?: (binding: GitHubRepoBinding, operation: "github_read" | "github_publish", credentials: CredentialStore, currentBinding: () => GitHubRepoBinding | null) => GitHubClient;
 }
 
 export class RuntimeApiError extends Error {
@@ -155,6 +161,8 @@ export class Runtime {
   readonly historyIndex: HistoryIndex;
   /** 长期记忆存储（issue 05 §5）。 */
   readonly memories: MemoryStore;
+  /** GitHub 集成（issue 06）：仓库绑定、草稿与发布操作。 */
+  readonly github: GitHubStore;
   private readonly lock: AcquiredLock;
   modelRuntime!: ModelRuntime;
   private model: any;
@@ -178,6 +186,7 @@ export class Runtime {
     this.access = new AccessScope(db);
     this.historyIndex = new HistoryIndex(db);
     this.memories = new MemoryStore(db);
+    this.github = new GitHubStore(db);
     store.onCommitted = (events) => this.onEventBroadcast?.(events);
   }
 
@@ -653,12 +662,243 @@ export class Runtime {
     if (!input.name.trim() || !input.host.trim() || !input.header.trim() || !input.secret) {
       throw new RuntimeApiError("invalid_params", "凭据绑定的名称、主机、头与秘密值都不能为空");
     }
-    this.credentials.upsert({ ...input, host: input.host.toLowerCase() });
+    // 同名更新保留既有使用范围（github bind 收紧的 scope 不因轮换令牌而丢失）
+    const existing = this.credentials.get(input.name);
+    this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope: existing?.scope });
     return { name: input.name, host: input.host.toLowerCase(), header: input.header, purpose: input.purpose };
   }
 
   removeCredentialBinding(name: string): boolean {
     return this.credentials.remove(name);
+  }
+
+  // ---------- GitHub 集成（issue 06） ----------
+
+  /**
+   * 配置/更新项目 ↔ GitHub 仓库绑定（拥有者操作）。读取范围须显式列出；
+   * 凭据按名称引用 CredentialStore 绑定（值不经过本端点的返回）。
+   * 生产默认 api.github.com；GHE 主机须拥有者显式配置。
+   */
+  githubBind(input: {
+    projectId: string;
+    owner: string;
+    repo: string;
+    apiHost?: string;
+    scheme?: "https" | "http";
+    readCredential?: string | null;
+    publishCredential?: string | null;
+    readScopes: string[];
+    allowForkContent?: boolean;
+  }): GitHubRepoBinding {
+    const project = this.store.getProject(input.projectId);
+    if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    if (!input.owner.trim() || !input.repo.trim()) throw new RuntimeApiError("invalid_params", "owner 与 repo 不能为空");
+    const apiHost = (input.apiHost ?? "api.github.com").toLowerCase();
+    if (!/^[a-z0-9.-]+(:\d+)?$/.test(apiHost)) throw new RuntimeApiError("invalid_params", `API 主机不合法：${apiHost}`);
+    const readScopes = input.readScopes as GitHubReadScope[];
+    for (const s of readScopes) {
+      if (!GITHUB_READ_SCOPES.includes(s)) throw new RuntimeApiError("invalid_params", `未知读取范围：${s}（可选：${GITHUB_READ_SCOPES.join("/")}）`);
+    }
+    for (const cred of [input.readCredential, input.publishCredential]) {
+      if (cred && !this.credentials.get(cred)) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${cred}`);
+    }
+    // 绑定变更与事件同事务：状态变化不留无事件的洞（审计与 TUI 依赖事件流）
+    const binding = this.store.withTx(() => {
+      const b = this.github.upsertBinding({
+        projectId: input.projectId,
+        apiHost,
+        scheme: input.scheme,
+        owner: input.owner,
+        repo: input.repo,
+        readCredential: input.readCredential ?? null,
+        publishCredential: input.publishCredential ?? null,
+        readScopes,
+        allowForkContent: input.allowForkContent ?? false,
+      });
+      this.store.appendEvent(
+        { type: "github.binding_changed", bindingId: b.id, projectId: b.projectId, apiHost: b.apiHost, owner: b.owner, repo: b.repo, configVersion: b.configVersion, action: "upsert" },
+        {},
+      );
+      return b;
+    });
+    // 凭据绑定收紧使用范围（§1）：读取/发布凭据绑定到本项目+对应操作后，
+    // 通用 http_request 与越权项目不得借用同名凭据。已有 scope 冲突时拒绝，
+    // 避免静默改变既有授权的边界。
+    for (const [credName, operation] of [
+      [binding.readCredential, "github_read"],
+      [binding.publishCredential, "github_publish"],
+    ] as const) {
+      if (!credName) continue;
+      const cred = this.credentials.get(credName)!;
+      const want = { projectId: binding.projectId, operations: [operation] as string[] };
+      if (cred.scope) {
+        const sameProject = cred.scope.projectId === undefined || cred.scope.projectId === want.projectId;
+        const ops = cred.scope.operations;
+        const coversOp = ops === undefined || ops.includes(operation);
+        if (!sameProject || !coversOp) {
+          throw new RuntimeApiError(
+            "invalid_params",
+            `凭据 ${credName} 已有使用范围（项目 ${cred.scope.projectId ?? "不限"}/操作 ${ops?.join(",") ?? "不限"}），与 ${operation} 冲突；请先调整凭据范围或另建凭据`,
+          );
+        }
+        // 已兼容：合并操作范围（同项目下读+写可共用一条凭据时仍受限）
+        if (ops !== undefined && !ops.includes(operation)) ops.push(operation);
+        this.credentials.upsert({ ...cred, scope: { ...cred.scope, projectId: want.projectId, operations: ops } });
+      } else {
+        this.credentials.upsert({ ...cred, scope: { projectId: want.projectId, operations: [operation] } });
+      }
+    }
+    return binding;
+  }
+
+  githubListBindings(projectId?: string): GitHubRepoBinding[] {
+    return this.github.listBindings(projectId);
+  }
+
+  githubUnbind(bindingId: string): boolean {
+    const binding = this.github.getBinding(bindingId);
+    if (!binding) return false;
+    return this.store.withTx(() => {
+      const removed = this.github.removeBinding(bindingId);
+      if (removed) {
+        this.store.appendEvent(
+          { type: "github.binding_changed", bindingId, projectId: binding.projectId, apiHost: binding.apiHost, owner: binding.owner, repo: binding.repo, configVersion: binding.configVersion + 1, action: "removed" },
+          {},
+        );
+      }
+      return removed;
+    });
+  }
+
+  githubListDrafts(opts: { projectId?: string; taskId?: string; status?: "draft" | "stale" | "published" } = {}): Array<Omit<GitHubDraft, "body"> & { bodyBytes: number }> {
+    return this.github.listDrafts(opts).map((d) => {
+      const { body, ...rest } = d;
+      return { ...rest, bodyBytes: Buffer.byteLength(body, "utf8") };
+    });
+  }
+
+  githubGetDraft(draftId: string, version?: number): GitHubDraft {
+    const draft = version === undefined ? this.github.getDraft(draftId) : this.github.getDraftVersion(draftId, version);
+    if (!draft) throw new RuntimeApiError("not_found", `草稿不存在：${draftId}${version !== undefined ? ` v${version}` : ""}`);
+    return draft;
+  }
+
+  githubListPublishOps(opts: { draftId?: string } = {}): GitHubPublishOp[] {
+    return this.github.listPublishOps(opts);
+  }
+
+  /**
+   * 拥有者发起发布（可信入口）：为指定草稿版本建立发布操作。
+   * - 草稿任务仍活动：在该任务内走审批桥（请求确认模式逐次审批；full_access
+   *   在既有发布意图+仓库范围内跳过逐次审批，仍保留意图/复核/结果记录）；
+   * - 草稿任务已结束：经既有调度创建新任务执行发布（不复活旧终态任务、
+   *   不继承旧批准）；新任务走正常占用/幂等/范围检查。
+   */
+  async githubPublish(input: {
+    draftId: string;
+    version?: number;
+    kind: "pr_review_comment" | "issue_comment";
+    target: Record<string, unknown>;
+    accessMode?: AccessMode;
+  }): Promise<GitHubPublishOp> {
+    const draft = this.githubGetDraft(input.draftId, input.version);
+    if (draft.status !== "draft") {
+      throw new RuntimeApiError("invalid_state", `草稿状态为 ${draft.status}${draft.staleReason ? `（${draft.staleReason}）` : ""}，不能发布；请重新分析`);
+    }
+    const latest = this.github.getDraft(draft.id);
+    if (latest && latest.version !== draft.version) {
+      throw new RuntimeApiError("invalid_state", `草稿 ${draft.id} 最新版本为 v${latest.version}；不能发布旧版本 v${draft.version}（避免过期分析流出）`);
+    }
+    // 发布目标校验（创建发布操作前；防止 /pulls/0 之类无效请求落盘）
+    const num = input.kind === "pr_review_comment" ? input.target["prNumber"] : input.target["issueNumber"];
+    if (!Number.isInteger(num) || (num as number) < 1) {
+      throw new RuntimeApiError("invalid_params", `发布目标无效：${input.kind} 需要正整数 ${input.kind === "pr_review_comment" ? "prNumber" : "issueNumber"}`);
+    }
+    const binding = this.github.getBinding(draft.bindingId);
+    if (!binding) throw new RuntimeApiError("invalid_state", "仓库绑定已撤销，不能发布");
+    if (!binding.publishCredential) throw new RuntimeApiError("invalid_state", "绑定未配置发布凭据");
+    const task = this.store.getTask(draft.taskId);
+    if (!task) throw new RuntimeApiError("not_found", `草稿所属任务不存在：${draft.taskId}`);
+
+    const mode = input.accessMode ?? "confirm";
+    const publishDeps = {
+      store: this.store,
+      github: this.github,
+      getTask: (id: string) => this.store.getTask(id),
+      clientFor: (b: GitHubRepoBinding, op: "github_read" | "github_publish") =>
+        this.config.githubClientFor?.(b, op, this.credentials, () => this.github.getBinding(b.id)) ??
+        defaultClientFor(b, op, this.credentials, () => this.github.getBinding(b.id)),
+      emit: (body: Parameters<Store["appendEvent"]>[0], refs: { taskId?: string | null; sessionId?: string | null }) =>
+        this.store.withTx(() => this.store.appendEvent(body, refs)),
+    };
+    const mapErr = (err: unknown): RuntimeApiError =>
+      err instanceof RuntimeApiError ? err : new RuntimeApiError(err instanceof PublishError || err instanceof GitHubError ? err.code : "internal", (err as Error).message);
+    const active = task.status === "running" || task.status === "awaiting_confirmation";
+    if (active) {
+      const driver = await this.getDriver(this.store.getSession(task.sessionId)!);
+      try {
+        // 审批桥外的等待：任务可能在确认待决期间自然结束 → 回落 superseded，
+        // 避免控制面请求永久悬挂（发布操作保持 pending，可在存活任务上重试）
+        return await publishDraft(
+          {
+            ...publishDeps,
+            awaitApproval: async (req) => {
+              const decision = await Promise.race([
+                (driver as any).awaitApproval(req) as Promise<"approved" | "rejected" | "superseded">,
+                // 任务在确认待决期间自然结束 → 回落 superseded，避免控制面请求永久悬挂
+                driver.taskCompletion().then(() => "superseded" as const),
+              ]);
+              return decision;
+            },
+          },
+          { draft, binding, task, kind: input.kind, target: input.target, mode },
+        );
+      } catch (err) {
+        throw mapErr(err);
+      }
+    }
+
+    // 草稿任务已结束：先在发布者上下文完成修订复核（失败即拒绝，不产生新任务），
+    // 再经既有调度创建新任务承载发布（不复活旧终态任务、不继承旧批准；
+    // 输入幂等/占用/范围检查照常）。
+    const session = this.store.getSession(task.sessionId);
+    if (!session) throw new RuntimeApiError("not_found", `会话不存在：${task.sessionId}`);
+    if (mode !== "full_access") {
+      throw new RuntimeApiError(
+        "invalid_state",
+        "草稿任务已结束：请求确认模式的逐次审批只能在存活任务内进行；请以 --access-mode full_access 发布（保留完整审计），或在存活任务中触发发布",
+      );
+    }
+    // 复核先行：复核失败的发布不建立审计任务
+    try {
+      const client = publishDeps.clientFor(binding, "github_publish");
+      await precheckDraft(client, binding, `${binding.id}:${binding.configVersion}`, draft, input.target);
+    } catch (err) {
+      if (err instanceof PublishError) {
+        this.github.markDraftStale(draft.id, draft.version, err.message);
+        this.store.withTx(() =>
+          this.store.appendEvent({ type: "github.draft_stale", draftId: draft.id, version: draft.version, reason: err.message }, { taskId: task.id, sessionId: task.sessionId }),
+        );
+      }
+      throw mapErr(err);
+    }
+    const kindLabel = input.kind === "pr_review_comment" ? `PR #${input.target["prNumber"]} 评审评论` : `issue #${input.target["issueNumber"]} 评论`;
+    const newTask = this.submit({
+      sessionId: session.id,
+      requestId: randomId("req"),
+      input:
+        `发布 GitHub 草稿 ${draft.id} v${draft.version}（${kindLabel}）。` +
+        `草稿与证据已在后台；按发布流程复核修订后发送，不要修改正文。`,
+      accessMode: mode,
+    });
+    try {
+      return await publishDraft(
+        { ...publishDeps, awaitApproval: async () => "approved" as const },
+        { draft, binding, task: this.store.getTask(newTask.id)!, kind: input.kind, target: input.target, mode },
+      );
+    } catch (err) {
+      throw mapErr(err);
+    }
   }
 
   // ---------- 调度 ----------
@@ -789,6 +1029,7 @@ export class Runtime {
         historyIndex: this.historyIndex,
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
+        github: { github: this.github, clientFor: this.config.githubClientFor },
       });
       this.drivers.set(session.id, driver);
     } else {

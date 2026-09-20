@@ -8,7 +8,7 @@
 
 import { randomBytes } from "node:crypto";
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /**
  * 任务访问模式（ADR 0003）。
@@ -48,6 +48,11 @@ export function isTerminalTaskStatus(status: TaskStatus): boolean {
 export interface Project {
   id: string;
   name: string;
+  /**
+   * 项目指令文件（工作区相对路径，拥有者显式配置；issue 05 §3）。
+   * 任务开始时经受限路径读取并钉版本；空数组 = 无项目指令。
+   */
+  instructionFiles: string[];
   createdAt: string;
 }
 
@@ -221,6 +226,11 @@ export type PersistentEventBody =
   | { type: "session.queue_resumed"; sessionId: string }
   | { type: "occupancy.stale"; sessionId: string; taskId: string; cwdReal: string }
   | { type: "session.history_unreadable"; sessionId: string; sessionFile: string; error: string }
+  | { type: "data_grant.created"; grantId: string; fromProjectId: string; toProjectId: string; category: DataCategory }
+  | { type: "data_grant.revoked"; grantId: string; fromProjectId: string; toProjectId: string; category: DataCategory }
+  | { type: "memory.saved"; memoryId: string; projectId: string | null; version: number; author: "agent" | "owner"; taskId: string | null }
+  | { type: "memory.revoked"; memoryId: string; projectId: string | null; version: number; author: "agent" | "owner"; taskId: string | null }
+  | { type: "memory.restored"; memoryId: string; projectId: string | null; fromVersion: number; newVersion: number; author: "agent" | "owner"; taskId: string | null }
   | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }
@@ -234,6 +244,110 @@ export interface PersistentEvent {
   createdAt: string;
 }
 
+/** 资料类别（跨项目授权与范围判定的粒度）。 */
+export type DataCategory = "history" | "artifact" | "memory";
+
+export const DATA_CATEGORIES: readonly DataCategory[] = ["history", "artifact", "memory"];
+
+/**
+ * 跨项目资料授权（issue 05 §1）：拥有者在可信入口显式设置来源项目、目标
+ * 项目与资料类别；模型只能请求读取已有范围，不能自行创建授权。
+ */
+export interface DataGrant {
+  id: string;
+  /** 资料所属项目（来源）。 */
+  fromProjectId: string;
+  /** 允许读取的项目（目标）。 */
+  toProjectId: string;
+  category: DataCategory;
+  /** 用途说明（展示与审计）。 */
+  purpose: string;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+/** 长期记忆类别（CONTEXT.md：个人偏好、项目约定、已确认决策、经验）。 */
+export type MemoryCategory = "preference" | "convention" | "decision" | "experience";
+
+export const MEMORY_CATEGORIES: readonly MemoryCategory[] = ["preference", "convention", "decision", "experience"];
+
+/** 记忆来源引用（必须存在且可访问；owner_note 由控制面记录可信操作）。 */
+export type MemorySourceRef =
+  | { kind: "history_entry"; sessionId: string; entryId: string }
+  | { kind: "artifact"; artifactId: string }
+  | { kind: "owner_note"; note: string };
+
+/** 长期记忆当前状态（生效版本在 memory_versions 中按版本号查询）。 */
+export interface Memory {
+  id: string;
+  /** 适用项目；personal 共享范围为 null。 */
+  projectId: string | null;
+  /** personal = 拥有者明确设为个人共享；project = 仅本项目。 */
+  scope: "project" | "personal";
+  category: MemoryCategory;
+  /** 当前版本号（1 起）。 */
+  currentVersion: number;
+  status: "active" | "revoked";
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 记忆的一次修订（追加式，不删除旧版本）。 */
+export interface MemoryVersion {
+  memoryId: string;
+  version: number;
+  content: string;
+  sourceRefs: MemorySourceRef[];
+  /** agent = Agent 工具写入（不能伪称拥有者确认）；owner = 控制面操作。 */
+  author: "agent" | "owner";
+  /** 关联的宿主操作 id（Agent 写入时；结果查询可据此核实是否已提交）。 */
+  toolOpId: string | null;
+  /** 写入时的任务（Agent 作者）。 */
+  taskId: string | null;
+  reason: string;
+  createdAt: string;
+}
+
+/** 一次模型调用的上下文选择记录（调试与 Jev 对比用）。 */
+export interface SelectionRecord {
+  id: string;
+  taskId: string;
+  sessionId: string;
+  /** 任务内第几次模型调用（1 起）。 */
+  callIndex: number;
+  strategy: string;
+  configVersion: number;
+  model: string;
+  /** 输入消息总数（当前分支）。 */
+  totalMessages: number;
+  /** 选入消息的宿主临时序号（与 inputMessageIds 对应）。 */
+  includedIndices: number[];
+  /** 排除消息的序号与原因。 */
+  excluded: Array<{ index: number; reason: string }>;
+  /** 选入的记忆（id@version）与未选入原因。 */
+  includedMemories: Array<{ memoryId: string; version: number }>;
+  excludedMemories: Array<{ memoryId: string; version: number; reason: string }>;
+  /** 项目指令来源版本（内容哈希 + 捕获产物 id；空串 = 本项目无配置指令）。 */
+  instructionVersion: string;
+  /** 模型视图中被有界替换的工具结果（原消息序号 + 原/视图字符数；原文不动）。 */
+  cappedToolResults: Array<{ index: number; originalChars: number; viewChars: number }>;
+  /** 估算明细（分类 token 估计）。 */
+  estimates: Record<string, number>;
+  /** 总预算与估算合计。 */
+  budget: number;
+  estimatedTotal: number;
+  /** 发送后补记的实际 provider usage（可空：失败/中断时无）。 */
+  usage: { input: number; output: number } | null;
+  createdAt: string;
+}
+
 export function randomId(prefix: string): string {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
 }
+
+/**
+ * 任务边界标记条目（pi JSONL 中的 custom 条目 customType；不进模型上下文）。
+ * 历史索引据此推导任务的字节范围（按任务过滤搜索）。
+ */
+export const TASK_START_MARKER = "ruukoto_task_start";
+export const TASK_END_MARKER = "ruukoto_task_end";

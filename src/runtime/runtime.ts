@@ -46,6 +46,17 @@ import { sessionsDirFor } from "../agent/session-factory.ts";
 import { fileURLToPath } from "node:url";
 import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
 import { grantCoversPath, resolveWorktreeCommonGitDir } from "../core/worktree.ts";
+import { AccessScope, AccessDeniedError } from "../core/access.ts";
+import { HistoryIndex, readRawEntryAt, searchHistory, type HistorySearchOptions } from "../core/history-index.ts";
+import {
+  MemoryConflictError,
+  MemoryNotFoundError,
+  MemoryStore,
+  MemoryValidationError,
+  type MemoryWithContent,
+} from "../core/memory.ts";
+import type { DataCategory, DataGrant, Memory, MemorySourceRef, MemoryVersion, SelectionRecord } from "../core/types.ts";
+import type { SelectorBudgetConfig } from "../agent/context-selector.ts";
 import {
   readHistoryEntryText,
   readHistoryPage,
@@ -94,6 +105,8 @@ export interface RuntimeConfig {
   execution?: ExecutionBackendConfig;
   /** 默认注册真实编码工具（路由器 + 工具工作进程）；模拟测试可覆盖。 */
   toolFactory?: (ctx: { registry: import("../agent/managed-processes.ts").ManagedProcessRegistry; router: import("../agent/tool-router.ts").ToolRouter }) => ToolDefinition[];
+  /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留；测试用小窗口时收紧预留）。 */
+  budgetOverrides?: Partial<SelectorBudgetConfig>;
 }
 
 export class RuntimeApiError extends Error {
@@ -136,6 +149,12 @@ export class Runtime {
   readonly store: Store;
   readonly artifacts: ArtifactStore;
   readonly credentials: CredentialStore;
+  /** 统一数据访问范围（issue 05 §1）：身份由宿主注入，跨项目仅经拥有者授权。 */
+  readonly access: AccessScope;
+  /** pi JSONL 历史的可重建位置索引（issue 05 §2）。 */
+  readonly historyIndex: HistoryIndex;
+  /** 长期记忆存储（issue 05 §5）。 */
+  readonly memories: MemoryStore;
   private readonly lock: AcquiredLock;
   modelRuntime!: ModelRuntime;
   private model: any;
@@ -156,6 +175,9 @@ export class Runtime {
     this.lock = lock;
     this.artifacts = new ArtifactStore(config.dataDir, store);
     this.credentials = new CredentialStore(config.agentDir);
+    this.access = new AccessScope(db);
+    this.historyIndex = new HistoryIndex(db);
+    this.memories = new MemoryStore(db);
     store.onCommitted = (events) => this.onEventBroadcast?.(events);
   }
 
@@ -763,6 +785,10 @@ export class Runtime {
         launcherFor: (mode) => this.launcherFor(mode),
         protectedRoots: this.protectedRoots(),
         onOccupancyReleased: () => this.kickAll(),
+        access: this.access,
+        historyIndex: this.historyIndex,
+        memories: this.memories,
+        budgetOverrides: this.config.budgetOverrides,
       });
       this.drivers.set(session.id, driver);
     } else {
@@ -1079,6 +1105,290 @@ export class Runtime {
 
   getEventLog(afterSeq: number, limit?: number): PersistentEvent[] {
     return this.store.getEventsAfter(afterSeq, limit);
+  }
+
+  // ---------- 跨项目资料授权（issue 05 §1；拥有者入口） ----------
+
+  createDataGrant(input: { fromProjectId: string; toProjectId: string; category: DataCategory; purpose?: string }): DataGrant {
+    try {
+      const grant = this.access.createGrant(input);
+      this.store.withTx(() => {
+        this.store.appendEvent({
+          type: "data_grant.created",
+          grantId: grant.id,
+          fromProjectId: grant.fromProjectId,
+          toProjectId: grant.toProjectId,
+          category: grant.category,
+        });
+      });
+      return grant;
+    } catch (err) {
+      if (err instanceof AccessDeniedError) throw new RuntimeApiError("invalid_params", err.message);
+      throw err;
+    }
+  }
+
+  revokeDataGrant(grantId: string): DataGrant {
+    const grant = this.access.revokeGrant(grantId);
+    if (!grant) throw new RuntimeApiError("not_found", `授权不存在或已撤销：${grantId}`);
+    this.store.withTx(() => {
+      this.store.appendEvent({
+        type: "data_grant.revoked",
+        grantId: grant.id,
+        fromProjectId: grant.fromProjectId,
+        toProjectId: grant.toProjectId,
+        category: grant.category,
+      });
+    });
+    return grant;
+  }
+
+  listDataGrants(opts: { includeRevoked?: boolean } = {}): DataGrant[] {
+    return this.access.listGrants(opts);
+  }
+
+  // ---------- 历史检索（issue 05 §2；拥有者入口，全范围） ----------
+
+  /**
+   * 同步会话历史索引并做字面关键词搜索（拥有者范围 = 全部项目）。
+   * 索引是派生数据：文件替换/截断时重建索引，绝不改写源 JSONL。
+   */
+  searchHistory(input: {
+    query: string;
+    projectId?: string;
+    sessionId?: string;
+    taskId?: string;
+    role?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+    scanLimit?: number;
+    cursor?: { sessionId: string; byteOffset: number } | null;
+    contextChars?: number;
+  }): {
+    hits: import("../core/history-index.ts").HistorySearchHit[];
+    complete: boolean;
+    cursor: { sessionId: string; byteOffset: number } | null;
+    scanned: number;
+    unindexedSessionIds: string[];
+  } {
+    if (!input.query || input.query.length === 0) {
+      throw new RuntimeApiError("invalid_params", "搜索关键词不能为空");
+    }
+    let sessions = this.store.listSessions();
+    if (input.taskId) {
+      const task = this.store.getTask(input.taskId);
+      if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+      sessions = sessions.filter((s) => s.id === task.sessionId);
+    }
+    if (input.sessionId) {
+      sessions = sessions.filter((s) => s.id === input.sessionId);
+      if (sessions.length === 0) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+    }
+    if (input.projectId) {
+      if (!this.store.getProject(input.projectId)) {
+        throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+      }
+      sessions = sessions.filter((s) => s.projectId === input.projectId);
+    }
+    const indexed: Array<{ sessionId: string; filePath: string }> = [];
+    const unindexedSessionIds: string[] = [];
+    for (const session of sessions) {
+      if (!session.sessionFile || !fs.existsSync(session.sessionFile)) {
+        unindexedSessionIds.push(session.id);
+        continue;
+      }
+      try {
+        this.historyIndex.sync(session.id, session.sessionFile);
+      } catch (err) {
+        if (err instanceof HistoryReadError) throw new RuntimeApiError(err.code, err.message);
+        throw err;
+      }
+      indexed.push({ sessionId: session.id, filePath: session.sessionFile });
+    }
+    const result = searchHistory(this.db, indexed, {
+      query: input.query,
+      taskId: input.taskId,
+      role: input.role,
+      since: input.since,
+      until: input.until,
+      limit: input.limit,
+      scanLimit: input.scanLimit,
+      cursor: input.cursor ?? undefined,
+      contextChars: input.contextChars,
+    });
+    return { ...result, unindexedSessionIds };
+  }
+
+  /**
+   * 设置项目指令文件（issue 05 §3；拥有者入口）。工作区相对路径列表；
+   * 任务开始时经受限读取钉版。传空数组 = 清除项目指令。
+   */
+  setProjectInstructions(input: { projectId: string; files: string[] }): Project {
+    const project = this.store.getProject(input.projectId);
+    if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    for (const file of input.files) {
+      if (typeof file !== "string" || !file || path.isAbsolute(file) || file.split(/[\\/]/).includes("..")) {
+        throw new RuntimeApiError("invalid_params", `指令文件须为工作区相对路径且不含 ..：${String(file)}`);
+      }
+    }
+    this.store.setProjectInstructionFiles(project.id, input.files);
+    return this.store.getProject(project.id)!;
+  }
+
+  // ---------- 长期记忆（issue 05 §5；拥有者管理入口） ----------
+
+  /** 拥有者查看记忆（项目内 + 个人共享；含已撤销）。 */
+  listMemories(input: { projectId?: string; personal?: boolean } = {}): Memory[] {
+    if (input.personal) return this.memories.listPersonal();
+    if (input.projectId) {
+      if (!this.store.getProject(input.projectId)) {
+        throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+      }
+      return this.memories.listByProject(input.projectId);
+    }
+    // 未指定范围：全部项目 + 个人共享（管理视图）
+    const out: Memory[] = [];
+    for (const project of this.store.listProjects()) out.push(...this.memories.listByProject(project.id));
+    out.push(...this.memories.listPersonal());
+    return out;
+  }
+
+  getMemoryDetail(memoryId: string): { memory: MemoryWithContent; versions: MemoryVersion[] } {
+    const memory = this.memories.getCurrent(memoryId);
+    if (!memory) throw new RuntimeApiError("not_found", `记忆不存在：${memoryId}`);
+    return { memory, versions: this.memories.listVersions(memoryId) };
+  }
+
+  /**
+   * 拥有者保存记忆（新建或修订）。projectId=null 表示个人共享（仅拥有者
+   * 可设置）；owner_note 来源只接受拥有者入口（代理工具已另行拒绝）。
+   */
+  ownerSaveMemory(input: {
+    memoryId?: string;
+    expectedVersion?: number;
+    projectId: string | null;
+    category: Memory["category"];
+    content: string;
+    sourceRefs: MemorySourceRef[];
+    reason?: string;
+  }): MemoryWithContent {
+    if (input.projectId !== null && !this.store.getProject(input.projectId)) {
+      throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    }
+    try {
+      const saved = this.store.withTx(() => {
+        const memory = input.memoryId
+          ? this.memories.revise({
+              memoryId: input.memoryId,
+              expectedVersion: input.expectedVersion ?? -1,
+              content: input.content,
+              sourceRefs: input.sourceRefs,
+              author: "owner",
+              reason: input.reason,
+            })
+          : this.memories.create({
+              projectId: input.projectId,
+              category: input.category,
+              content: input.content,
+              sourceRefs: input.sourceRefs,
+              author: "owner",
+              reason: input.reason,
+            });
+        this.store.appendEvent({
+          type: "memory.saved",
+          memoryId: memory.id,
+          projectId: memory.projectId,
+          version: memory.currentVersion,
+          author: "owner",
+          taskId: null,
+        });
+        return memory;
+      });
+      return saved;
+    } catch (err) {
+      if (err instanceof MemoryConflictError || err instanceof MemoryNotFoundError || err instanceof MemoryValidationError) {
+        throw new RuntimeApiError(err.code, err.message);
+      }
+      throw err;
+    }
+  }
+
+  ownerRevokeMemory(input: { memoryId: string; expectedVersion: number; reason?: string }): Memory {
+    try {
+      const memory = this.store.withTx(() => {
+        const m = this.memories.revoke({
+          memoryId: input.memoryId,
+          expectedVersion: input.expectedVersion,
+          author: "owner",
+          reason: input.reason,
+        });
+        this.store.appendEvent({
+          type: "memory.revoked",
+          memoryId: m.id,
+          projectId: m.projectId,
+          version: m.currentVersion,
+          author: "owner",
+          taskId: null,
+        });
+        return m;
+      });
+      return memory;
+    } catch (err) {
+      if (err instanceof MemoryConflictError || err instanceof MemoryNotFoundError) {
+        throw new RuntimeApiError(err.code, err.message);
+      }
+      throw err;
+    }
+  }
+
+  ownerRestoreMemory(input: { memoryId: string; fromVersion: number; reason?: string }): MemoryWithContent {
+    try {
+      const memory = this.store.withTx(() => {
+        const m = this.memories.restore({
+          memoryId: input.memoryId,
+          fromVersion: input.fromVersion,
+          author: "owner",
+          reason: input.reason,
+        });
+        this.store.appendEvent({
+          type: "memory.restored",
+          memoryId: m.id,
+          projectId: m.projectId,
+          fromVersion: input.fromVersion,
+          newVersion: m.currentVersion,
+          author: "owner",
+          taskId: null,
+        });
+        return m;
+      });
+      return memory;
+    } catch (err) {
+      if (err instanceof MemoryConflictError || err instanceof MemoryNotFoundError) {
+        throw new RuntimeApiError(err.code, err.message);
+      }
+      throw err;
+    }
+  }
+
+  // ---------- 上下文选择记录（issue 05 §6；拥有者审计入口） ----------
+
+  listSelectionRecords(input: { taskId?: string; sessionId?: string; limit?: number } = {}): SelectionRecord[] {
+    if (input.taskId) {
+      if (!this.store.getTask(input.taskId)) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+      return this.store.listSelectionRecordsByTask(input.taskId, input.limit);
+    }
+    if (input.sessionId) {
+      if (!this.store.getSession(input.sessionId)) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+      return this.store.listSelectionRecordsBySession(input.sessionId, input.limit);
+    }
+    throw new RuntimeApiError("invalid_params", "必须指定 taskId 或 sessionId");
+  }
+
+  getSelectionRecord(recordId: string): SelectionRecord {
+    const record = this.store.getSelectionRecord(recordId);
+    if (!record) throw new RuntimeApiError("not_found", `选择记录不存在：${recordId}`);
+    return record;
   }
 
   // ---------- 停止 ----------

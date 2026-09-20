@@ -178,7 +178,7 @@ test("产物查询按任务归属：其他任务与其他会话读不到本任�
     const detailB = await taskStatus(t.client, taskB.id);
     const stealOp = detailB.toolOps.find((op: any) => op.sdkCallId === "c_steal");
     assert.equal(stealOp.isError, true);
-    assert.match(stealOp.resultSummary, /不属于当前任务/, "其他任务不得读取本任务产物");
+    assert.match(stealOp.resultSummary, /不属于可读取范围/, "跨项目任务不得读取本任务产物（issue 05：同项目旧任务需有效范围，跨项目需拥有者授权）");
 
     // 控制接口：任务归属不匹配同样拒绝
     await assert.rejects(

@@ -17,15 +17,23 @@ import {
 import { parseSessionFile } from "../src/core/history.ts";
 
 test("上下文超限：任务中断并暂停会话队列，不摘要不重试", async () => {
-  // mock 固定 usage：input=100, output=10；contextWindow=50 → input 100 > 50，
-  // 命中 isContextOverflow 的静默超限分支（stopReason=stop）
+  // contextWindow=50（远小于系统提示+工具定义）：issue 05 的选择器在请求
+  // 前判定必留内容超预算 → context_budget_exceeded 中断；若请求被发出，
+  // mock 固定 usage（input=100 > 50）也会命中 isContextOverflow →
+  // context_overflow。两条路径语义一致：中断、暂停队列、不摘要、不重试。
   const t = await startTestRuntime(
     "overflow",
     routeResponder([
       { match: /OVER/, respond: () => ({ kind: "text", text: "ok" }) },
       { match: /QUICK/, respond: () => ({ kind: "text", text: "done" }) },
     ]),
-    { contextWindow: 50 },
+    {
+      contextWindow: 50,
+      // 收紧预留使极小窗口的预算配置合法（本用例故意验证超限路径）
+      config: {
+        budgetOverrides: { maxTokens: 20, toolResultReserve: 0, safetyMargin: 0, memoryBudget: 0 },
+      },
+    },
   );
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -36,11 +44,14 @@ test("上下文超限：任务中断并暂停会话队列，不摘要不重试",
     });
     await waitFor("任务因超限中断", async () => {
       const { task: st } = await taskStatus(t.client, task.id);
-      return st.status === "interrupted" && st.interruptReason === "context_overflow";
+      return (
+        st.status === "interrupted" &&
+        (st.interruptReason === "context_overflow" || String(st.interruptReason).startsWith("context_budget_exceeded"))
+      );
     });
 
-    // 模型只被调用一次：不循环重试
-    assert.equal(t.server.calls.length, 1, "超限后不得反复调用模型");
+    // 模型至多被调用一次：不循环重试（请求前阻断时为 0 次）
+    assert.ok(t.server.calls.length <= 1, "超限后不得反复调用模型");
 
     // 该会话队列暂停：新提交排队不启动
     const next = await t.client.request<any>("submit", {

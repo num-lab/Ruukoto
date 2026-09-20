@@ -55,6 +55,11 @@ export interface ToolRouterDeps {
   launcherFor: (mode: AccessMode) => WorkerLauncher;
   /** 始终排除的保护根目录（后台数据、服务凭据、控制面）。 */
   protectedRoots: string[];
+  /**
+   * 产物读取的范围判定（issue 05 §1）：同项目旧任务的产物在授权范围内可读，
+   * 跨项目需有效授权；未提供时退回"仅当前任务"（兼容旧装配）。
+   */
+  artifactAccess?: (task: Task, artifact: { taskId: string; sessionId: string }) => boolean;
   /** 驱动器桥：审批等待与等待解除由 Driver 统一持有。 */
   bridge: {
     awaitApproval(input: {
@@ -523,8 +528,14 @@ export class ToolRouter {
     const offset = Number(input.params["offset"] ?? 0);
     const length = Math.min(Number(input.params["length"] ?? 64 * 1024), 256 * 1024);
     const artifact = this.deps.store.getArtifact(artifactId);
-    if (!artifact || artifact.taskId !== task.id) {
-      return textResult(`产物不存在或不属于当前任务：${artifactId}`, true);
+    if (!artifact) {
+      return textResult(`产物不存在：${artifactId}`, true);
+    }
+    const allowed = this.deps.artifactAccess
+      ? this.deps.artifactAccess(task, artifact)
+      : artifact.taskId === task.id;
+    if (!allowed) {
+      return textResult(`产物不属于可读取范围：${artifactId}（同项目旧任务需有效范围，跨项目需拥有者授权）`, true);
     }
     const buf = this.deps.artifacts.read(artifactId, Math.max(0, offset), Math.max(1, length));
     const encoding = input.params["encoding"] === "base64" ? "base64" : "utf8";

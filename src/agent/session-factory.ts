@@ -33,6 +33,12 @@ export interface SessionHostHooks {
   onSessionEvent(event: AgentSessionEvent): void;
   /** 扩展绑定后注入宿主 API（标记条目等）。 */
   bindHostApi(api: { appendEntry: (customType: string, data: unknown) => void }): void;
+  /**
+   * 上下文选择钩子（issue 05 §3）：每次模型调用前返回新消息视图。
+   * pi 会捕获扩展异常并继续运行，因此实现不得抛错——失败原因由调用方
+   * （Driver）保存，最终检查在 streamFunction 包装中阻断发送。
+   */
+  onContext?(messages: any[]): { messages: any[] } | undefined;
 }
 
 export interface CreateSdkSessionOptions {
@@ -72,6 +78,9 @@ export async function createSdkSession(opts: CreateSdkSessionOptions): Promise<A
         factory: (pi: any) => {
           pi.on("tool_call", async (event: ToolCallEvent) => hooks.onToolCall(event));
           pi.on("session_before_compact", async () => ({ cancel: true }));
+          if (hooks.onContext) {
+            pi.on("context", (event: { messages: any[] }) => hooks.onContext!(event.messages));
+          }
           hooks.bindHostApi({ appendEntry: (customType, data) => pi.appendEntry(customType, data) });
           hostApiBound = true;
         },

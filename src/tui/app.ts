@@ -161,6 +161,9 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "resume-queue", description: "恢复已暂停的会话队列" },
   { name: "mode", description: "切换任务访问模式", argumentHint: "<confirm|full_access> [taskId]" },
   { name: "status", description: "刷新并查看当前任务详情" },
+  { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
+  { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
+  { name: "context", description: "查看本轮上下文选择记录（预算组成与排除原因）" },
 ];
 
 export interface TuiAppOptions {
@@ -575,6 +578,15 @@ export class TuiApp {
         await this.refreshTaskDetails();
         this.notify("已刷新任务状态");
         return;
+      case "search":
+        await this.cmdSearch(arg);
+        return;
+      case "memory":
+        await this.cmdMemory(rest);
+        return;
+      case "context":
+        await this.cmdContext();
+        return;
       default:
         this.notify(`未知命令：/${name}（/help 查看命令列表）`);
         return;
@@ -758,6 +770,176 @@ export class TuiApp {
       // 切换失败展示后台原因，不乐观宣称已获得或收回权限
       this.notify(red(`模式切换失败：${(err as Error).message}`));
     }
+  }
+
+  // ---------- 历史搜索与记忆（issue 05 §6 入口） ----------
+
+  /** 本轮上下文：最近一次模型调用的选择记录（预算组成、排除原因、来源版本）。 */
+  private async cmdContext(): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    try {
+      const records = await this.connection.request<
+        Array<{
+          id: string;
+          taskId: string;
+          callIndex: number;
+          strategy: string;
+          configVersion: number;
+          model: string;
+          totalMessages: number;
+          includedIndices: number[];
+          excluded: Array<{ index: number; reason: string }>;
+          includedMemories: Array<{ memoryId: string; version: number }>;
+          excludedMemories: Array<{ memoryId: string; version: number; reason: string }>;
+          instructionVersion: string;
+          cappedToolResults: Array<{ index: number; originalChars: number; viewChars: number }>;
+          estimates: Record<string, number>;
+          budget: number;
+          estimatedTotal: number;
+          usage: { input: number; output: number } | null;
+        }>
+      >("list_selection_records", { session_id: view.sessionId, limit: 1 });
+      const record = records[0];
+      if (!record) {
+        this.notify("本会话还没有选择记录（任务发出第一次模型调用后生成）");
+        return;
+      }
+      const lines: string[] = [
+        `本轮上下文（任务 ${record.taskId.slice(0, 12)} 第 ${record.callIndex} 次调用，${record.strategy}@${record.configVersion}，${record.model}）：`,
+        `  预算 ${record.budget} · 估算 ${record.estimatedTotal}${record.usage ? ` · 实际 ${record.usage.input}+${record.usage.output}` : " · 实际 usage 未回填"}`,
+        `  估算明细：${Object.entries(record.estimates)
+          .map(([k, v]) => `${k}=${v}`)
+          .join("，")}`,
+        `  消息：选入 ${record.includedIndices.length} / 共 ${record.totalMessages}；排除 ${record.excluded.length}`,
+      ];
+      if (record.excluded.length > 0) {
+        const reasons = new Map<string, number>();
+        for (const e of record.excluded) reasons.set(e.reason, (reasons.get(e.reason) ?? 0) + 1);
+        lines.push(`  排除原因：${[...reasons.entries()].map(([r, n]) => `${r} ×${n}`).join("，")}`);
+      }
+      if (record.instructionVersion) lines.push(`  项目指令版本：${record.instructionVersion}`);
+      if (record.includedMemories.length > 0) {
+        lines.push(`  注入记忆：${record.includedMemories.map((m) => `${m.memoryId.slice(0, 10)}@v${m.version}`).join("，")}`);
+      }
+      for (const m of record.excludedMemories) {
+        lines.push(`  未注入记忆 ${m.memoryId.slice(0, 10)}@v${m.version}（${m.reason}）`);
+      }
+      if (record.cappedToolResults.length > 0) {
+        lines.push(
+          `  有界视图：${record.cappedToolResults.map((c) => `#${c.index} ${c.originalChars}→${c.viewChars} 字符`).join("，")}（原文可用 history_read / read_artifact 读取）`,
+        );
+      }
+      this.notify(lines.join("\n"));
+    } catch (err) {
+      this.notify(red(`查询失败：${(err as Error).message}`));
+    }
+  }
+
+  private async cmdSearch(query: string): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    if (!query) {
+      this.notify("用法：/search <关键词>（在当前会话历史原文中做字面搜索）");
+      return;
+    }
+    try {
+      const result = await this.connection.request<{
+        hits: Array<{ entryId: string; role: string | null; timestamp: string | null; snippet: string; matchCount: number }>;
+        complete: boolean;
+        scanned: number;
+      }>("search_history", { query, session_id: view.sessionId, limit: 20 });
+      if (result.hits.length === 0) {
+        this.notify(`没有命中：「${query}」（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整"}）`);
+        return;
+      }
+      const lines = result.hits.map(
+        (h) =>
+          `  [${h.entryId.slice(0, 8)}] ${h.role ?? "?"} ×${h.matchCount}  ${h.snippet.replace(/\n/g, " ")}`,
+      );
+      this.notify(
+        `命中 ${result.hits.length} 条（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整，可缩小范围"}）：\n${lines.join("\n")}`,
+      );
+    } catch (err) {
+      this.notify(red(`搜索失败：${(err as Error).message}`));
+    }
+  }
+
+  private async cmdMemory(rest: string[]): Promise<void> {
+    const sub = rest[0] ?? "list";
+    const view = this.currentView();
+    if (sub === "list") {
+      try {
+        const result = await this.connection.request<{
+          memories: Array<{ id: string; category: string; status: string; currentVersion: number; scope: string; updatedAt: string }>;
+        }>("list_memories", view ? { project_id: view.projectId } : {});
+        if (result.memories.length === 0) {
+          this.notify("当前项目没有记忆（代理可在任务中经 memory_save 创建；拥有者经 CLI memory save 管理）");
+          return;
+        }
+        const lines = result.memories.map(
+          (m) => `  [${m.id.slice(0, 10)}] ${m.category} v${m.currentVersion} ${m.status}${m.scope === "personal" ? "（个人共享）" : ""}  ${m.updatedAt}`,
+        );
+        this.notify(`记忆（${result.memories.length} 条）：\n${lines.join("\n")}\n/memory show <id> 查看正文与版本`);
+      } catch (err) {
+        this.notify(red(`查询失败：${(err as Error).message}`));
+      }
+      return;
+    }
+    if (sub === "show") {
+      const id = rest[1];
+      if (!id) {
+        this.notify("用法：/memory show <id>");
+        return;
+      }
+      try {
+        const detail = await this.connection.request<{
+          memory: { id: string; category: string; status: string; currentVersion: number; content: string; sourceRefs: unknown[] };
+          versions: Array<{ version: number; author: string; reason: string; createdAt: string }>;
+        }>("get_memory", { memory_id: id });
+        const m = detail.memory;
+        const history = detail.versions
+          .map((v) => `  v${v.version} ${v.author} ${v.createdAt}${v.reason ? `（${v.reason}）` : ""}`)
+          .join("\n");
+        this.notify(
+          `记忆 ${m.id}（${m.category}，${m.status}，当前 v${m.currentVersion}）：\n${m.content}\n版本历史：\n${history}`,
+        );
+      } catch (err) {
+        this.notify(red(`查询失败：${(err as Error).message}`));
+      }
+      return;
+    }
+    if (sub === "revoke" || sub === "restore") {
+      const id = rest[1];
+      const versionArg = rest[2];
+      if (!id || !versionArg || !/^\d+$/.test(versionArg)) {
+        this.notify(
+          sub === "revoke"
+            ? "用法：/memory revoke <id> <当前版本号>（条件更新，版本不符会拒绝）"
+            : "用法：/memory restore <id> <恢复自版本号>（创建新修订）",
+        );
+        return;
+      }
+      try {
+        if (sub === "revoke") {
+          await this.connection.request("revoke_memory", { memory_id: id, expected_version: Number(versionArg) });
+          this.notify(`记忆 ${id} 已撤销（历史版本保留可查；/memory restore 可恢复）`);
+        } else {
+          await this.connection.request("restore_memory", { memory_id: id, from_version: Number(versionArg) });
+          this.notify(`记忆 ${id} 已自 v${versionArg} 恢复（创建了新修订）`);
+        }
+      } catch (err) {
+        this.notify(red(`操作失败：${(err as Error).message}`));
+      }
+      return;
+    }
+    this.notify("用法：/memory [list | show <id> | revoke <id> <当前版本> | restore <id> <自版本>]");
   }
 
   private resolveTaskId(prefix: string): string | null {

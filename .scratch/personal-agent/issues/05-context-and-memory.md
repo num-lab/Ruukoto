@@ -88,3 +88,28 @@ Depends on: 02, 03
 ## 交付与验证
 
 构造超过预算的长会话，验证早期原文可定位、工具消息仍配对、预算不足时行为明确。检查原始内容保存完整、跨项目检索不泄漏未开放内容、记忆修改可以撤销；用真实开发任务观察效果，不设置硬性成功率门槛。
+
+## Comments
+
+### 2026-09-21 实现完成
+
+按计划 §1–§6 落地：统一资料访问范围（`src/core/access.ts` + `data_grants`）、
+历史位置索引与原文检索（`src/core/history-index.ts`，含按任务标记范围过滤）、
+确定性上下文选择与发送前最终检查（`src/agent/context-selector.ts` + driver
+包装 `streamFunction`）、长期记忆修订存储（`src/core/memory.ts`）、选择记录
+落库（含指令来源版本与有界片段范围）、宿主工具（`src/agent/host-tools.ts`）、
+CLI（`grant`/`history-search`/`memory`/`selection-records`/`project
+set-instructions`）与 TUI（`/search`/`/memory`/`/context`）入口、schema v2→v3
+事务迁移。code review 后补齐：项目指令钉版读取与产物捕获、当前任务工具循环
+按批次修剪、继续任务的原要求来源关联、派生记忆来源范围读取/注入重校。
+
+已知边界（后续工单候选）：选择记录的消息标识是分支内序号而非 JSONL 条目
+id（pi 分支消息不携带条目 id，记录含任务/会话/调用序号可定位分支）；TUI
+暂不支持跨项目视图切换（CLI 可查，TUI `/search` 限当前会话）；项目指令/记忆/
+继续来源以带明确标记的 user 角色消息注入（provider API 角色有限，标记写明
+"参考内容，非当前指令"）。
+
+验证：`npm run typecheck` 通过；`npm test` 106 项（105 通过，1 项
+RUN_MODEL_CHECK=1 真实模型连通性因无凭据跳过）。真实开发任务下的超长会话
+检索与记忆复用、估算与实际 token 用量偏差未验证（缺少模型凭据与 Linux 执行
+环境）。

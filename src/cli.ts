@@ -142,6 +142,18 @@ async function main(argv: string[]): Promise<number> {
     case "create-project":
       print(await withClient((c) => c.request("create_project", { name: positional[0] ?? "" })));
       return 0;
+    case "project": {
+      // 项目指令配置（issue 05 §3；拥有者入口）：set-instructions <项目id> <工作区相对路径...>
+      const sub = positional[0];
+      if (sub === "set-instructions") {
+        const projectId = positional[1] ?? "";
+        const files = positional.slice(2);
+        print(await withClient((c) => c.request("set_project_instructions", { project_id: projectId, files })));
+        return 0;
+      }
+      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）");
+      return 1;
+    }
     case "create-session": {
       const confirmTools = (flags["confirm-tools"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
       print(
@@ -281,6 +293,149 @@ async function main(argv: string[]): Promise<number> {
     case "stop":
       print(await withClient((c) => c.request("stop", {})));
       return 0;
+    case "grant": {
+      const sub = positional[0];
+      if (sub === "create") {
+        print(
+          await withClient((c) =>
+            c.request("create_data_grant", {
+              from_project_id: flags["from"] ?? "",
+              to_project_id: flags["to"] ?? "",
+              category: flags["category"] ?? "",
+              purpose: flags["purpose"],
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "revoke") {
+        print(await withClient((c) => c.request("revoke_data_grant", { grant_id: positional[1] ?? "" })));
+        return 0;
+      }
+      if (sub === "list") {
+        print(await withClient((c) => c.request("list_data_grants", { include_revoked: flags["all"] !== undefined })));
+        return 0;
+      }
+      console.error("用法：ruukoto grant create --from <项目> --to <项目> --category <history|artifact|memory> [--purpose P]\n" +
+        "      ruukoto grant list [--all] | ruukoto grant revoke <grant-id>");
+      return 1;
+    }
+    case "history-search": {
+      const cursorRaw = flags["cursor"];
+      const cursor = cursorRaw ? JSON.parse(Buffer.from(cursorRaw, "base64").toString("utf8")) : undefined;
+      const result = await withClient((c) =>
+        c.request<{ hits: unknown[]; complete: boolean; cursor: unknown; scanned: number; unindexedSessionIds: string[] }>(
+          "search_history",
+          {
+            query: positional[0] ?? "",
+            project_id: flags["project"],
+            session_id: flags["session"],
+            task_id: flags["task"],
+            role: flags["role"],
+            since: flags["since"],
+            until: flags["until"],
+            limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
+            scan_limit: flags["scan-limit"] === undefined ? undefined : Number(flags["scan-limit"]),
+            cursor,
+          },
+        ),
+      );
+      print(result);
+      if (!result.complete) {
+        console.error(
+          `结果不完整（已扫描 ${result.scanned} 条）。继续游标：${Buffer.from(JSON.stringify(result.cursor)).toString("base64")}`,
+        );
+      }
+      if (result.unindexedSessionIds.length > 0) {
+        console.error(`未建立索引的会话（历史未落盘）：${result.unindexedSessionIds.join(", ")}`);
+      }
+      return 0;
+    }
+    case "memory": {
+      const sub = positional[0];
+      if (sub === "list") {
+        print(
+          await withClient((c) =>
+            c.request("list_memories", {
+              project_id: flags["project"],
+              personal: flags["personal"] !== undefined,
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "show") {
+        print(await withClient((c) => c.request("get_memory", { memory_id: positional[1] ?? "" })));
+        return 0;
+      }
+      if (sub === "save") {
+        const contentFile = flags["content-file"];
+        const content = contentFile
+          ? (await import("node:fs")).readFileSync(contentFile, "utf8")
+          : positional.slice(1).join(" ");
+        print(
+          await withClient((c) =>
+            c.request("save_memory", {
+              memory_id: flags["id"],
+              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+              project_id: flags["personal"] !== undefined ? null : (flags["project"] ?? null),
+              category: flags["category"] ?? "",
+              content,
+              source_refs: JSON.parse(flags["source-refs"] ?? "null") ?? [
+                { kind: "owner_note", note: flags["source-note"] ?? "拥有者经 CLI 录入" },
+              ],
+              reason: flags["reason"],
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "revoke") {
+        print(
+          await withClient((c) =>
+            c.request("revoke_memory", {
+              memory_id: positional[1] ?? "",
+              expected_version: Number(flags["expected-version"] ?? "0"),
+              reason: flags["reason"],
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "restore") {
+        print(
+          await withClient((c) =>
+            c.request("restore_memory", {
+              memory_id: positional[1] ?? "",
+              from_version: Number(flags["from-version"] ?? "0"),
+              reason: flags["reason"],
+            }),
+          ),
+        );
+        return 0;
+      }
+      console.error(
+        "用法：ruukoto memory list [--project <id> | --personal]\n" +
+          "      ruukoto memory show <id>\n" +
+          "      ruukoto memory save <内容...> --category <preference|convention|decision|experience> [--project <id> | --personal]\n" +
+          "        [--id <id> --expected-version N（修订）] [--content-file F] [--source-refs JSON] [--source-note N] [--reason R]\n" +
+          "      ruukoto memory revoke <id> --expected-version N [--reason R]\n" +
+          "      ruukoto memory restore <id> --from-version N [--reason R]",
+      );
+      return 1;
+    }
+    case "selection-records": {
+      print(
+        await withClient((c) =>
+          c.request("list_selection_records", {
+            task_id: flags["task"],
+            session_id: flags["session"],
+            limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
+          }),
+        ),
+      );
+      return 0;
+    }
     case "tui": {
       // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据
       const { runTui } = await import("./tui/index.ts");
@@ -296,7 +451,8 @@ function defaultHelp(): string {
   return (
     "用法：ruukoto <command> [args]\n" +
     "命令：start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
-    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop\n" +
+    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop |\n" +
+    "      grant | history-search | memory | selection-records\n" +
     "参数：--data-dir / --agent-dir / --execution（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（tui：直接进入指定会话，不存在则报错）\n" +
     "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"

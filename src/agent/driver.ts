@@ -16,6 +16,8 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
+import { createHash } from "node:crypto";
 import {
   type AgentSession,
   type AgentSessionEvent,
@@ -26,10 +28,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import type { AccessMode, Session, Task } from "../core/types.ts";
-import { randomId } from "../core/types.ts";
+import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
 import { parseSessionFile, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "../core/views.ts";
+import { grantCoversPath } from "../core/worktree.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ExecutionError } from "./execution/launchers.ts";
@@ -38,10 +41,57 @@ import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./man
 import { createSdkSession } from "./session-factory.ts";
 import { ToolRouter, ROUTED_TOOL_NAMES } from "./tool-router.ts";
 import type { ApprovalScope } from "../core/types.ts";
+import type { AccessScope } from "../core/access.ts";
+import type { HistoryIndex } from "../core/history-index.ts";
+import type { MemoryStore, MemoryWithContent } from "../core/memory.ts";
+import {
+  DEFAULT_BUDGET_CONFIG,
+  SELECTOR_STRATEGY,
+  budgetConfigVersion,
+  estimateMessageTokens,
+  selectContext,
+  validateBudgetConfig,
+  type SelectorBudgetConfig,
+  type SelectorOutput,
+} from "./context-selector.ts";
+import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
 
-const TASK_START_MARKER = "ruukoto_task_start";
-const TASK_END_MARKER = "ruukoto_task_end";
 const FRAGMENT_INTERVAL_MS = 250;
+
+/** 请求前最终检查失败（预算/配对/选择缺失/记录落盘失败）：阻断发送。 */
+export class ContextSendBlocked extends Error {
+  readonly code: string;
+  constructor(reason: string) {
+    super(reason);
+    this.code = reason.split(":", 1)[0] ?? "context_send_blocked";
+  }
+}
+
+/**
+ * 配对完整性：视图内 assistant 的每个 toolCall 必须有对应 toolResult，
+ * 每个 toolResult 必须能回溯到同视图内的 toolCall（不可拆分组）。
+ */
+export function checkToolPairing(messages: any[], exemptCallIds?: Set<string>): string | null {
+  const exempt = exemptCallIds ?? new Set<string>();
+  const callIds = new Set<string>();
+  for (const m of messages) {
+    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
+    for (const part of m.content) {
+      if (part?.type === "toolCall" && typeof part.id === "string" && !exempt.has(part.id)) callIds.add(part.id);
+    }
+  }
+  const resultIds = new Set<string>();
+  for (const m of messages) {
+    if (m?.role === "toolResult" && typeof m.toolCallId === "string" && !exempt.has(m.toolCallId)) {
+      if (!callIds.has(m.toolCallId)) return `toolResult 缺少对应 toolCall：${m.toolCallId}`;
+      resultIds.add(m.toolCallId);
+    }
+  }
+  for (const id of callIds) {
+    if (!resultIds.has(id)) return `toolCall 缺少对应 toolResult：${id}`;
+  }
+  return null;
+}
 
 export interface DriverDeps {
   store: Store;
@@ -62,6 +112,14 @@ export interface DriverDeps {
   protectedRoots: string[];
   /** 占用释放后的唤醒回调（Runtime 注入，用于调度等待同目录的会话）。 */
   onOccupancyReleased: () => void;
+  /** 资料访问范围判定（issue 05 §1）。 */
+  access: AccessScope;
+  /** 历史条目索引（issue 05 §2）。 */
+  historyIndex: HistoryIndex;
+  /** 长期记忆存储（issue 05 §5）。 */
+  memories: MemoryStore;
+  /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留）。 */
+  budgetOverrides?: Partial<SelectorBudgetConfig>;
 }
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -92,6 +150,24 @@ export class Driver {
   private runPromise: Promise<void> | null = null;
   /** SDK 扩展桥注入的 appendEntry（宿主标记条目，custom，不进模型上下文）。 */
   private markerApi: ((customType: string, data: unknown) => void) | null = null;
+  /** 当前正在执行的宿主数据工具上下文（taskContext 注入用）。 */
+  private hostToolCtx: HostToolContext | null = null;
+  /** 本任务内 sdkCallId → 宿主数据工具上下文（并发调用各自独立）。 */
+  private hostToolCalls = new Map<string, HostToolContext>();
+  /** 本轮模型调用的选择结果（context 钩子填充；最终检查核对）。 */
+  private pendingSelection: SelectorOutput | null = null;
+  /** 选择/资料读取失败的阻断原因（最终检查发现即拒绝发送）。 */
+  private selectionBlockReason: string | null = null;
+  /** 原始 streamFunction（包装前保存；最终检查在委托前执行）。 */
+  private originalStreamFn: any = null;
+  /**
+   * 任务开始时钉版的上下文前缀：项目指令（受限读取 + 捕获产物）与继续
+   * 来源任务要求。任务内不变；下一任务开始时重新读取（= 拥有者刷新入口）。
+   */
+  private pinnedContext: {
+    instructions: { text: string; version: string; problems: string[] } | null;
+    resumedFrom: { taskId: string; input: string } | null;
+  } = { instructions: null, resumedFrom: null };
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
@@ -104,6 +180,12 @@ export class Driver {
       registry: this.registry,
       launcherFor: deps.launcherFor,
       protectedRoots: deps.protectedRoots,
+      artifactAccess: (task, artifact) => {
+        if (artifact.taskId === task.id) return true;
+        const artifactSession = deps.store.getSession(artifact.sessionId);
+        if (!artifactSession) return false;
+        return deps.access.canAccess({ kind: "agent", projectId: this.session.projectId }, artifactSession.projectId, "artifact");
+      },
       bridge: {
         awaitApproval: (input) => this.awaitApproval(input),
         supersedeAllWaiters: () => this.supersedeAllWaiters(),
@@ -128,6 +210,30 @@ export class Driver {
 
   private async ensureSdk(): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
+    const hostDataTools = createHostDataTools({
+      store: this.deps.store,
+      access: this.deps.access,
+      historyIndex: this.deps.historyIndex,
+      memories: this.deps.memories,
+      taskContext: () => this.hostToolCtx,
+      /** 工具执行入口按 sdkCallId 绑定上下文（execute 包装时调用）。 */
+      bindCall: (sdkCallId) => {
+        const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
+        this.hostToolCtx = ctx;
+        return () => {
+          this.hostToolCtx = null;
+          this.hostToolCalls.delete(sdkCallId);
+        };
+      },
+      sessionFileFor: (sessionId) => this.deps.store.getSession(sessionId)?.sessionFile ?? null,
+      projectOfSession: (sessionId) => this.deps.store.getSession(sessionId)?.projectId ?? null,
+      syncSession: (sessionId) => {
+        const file = this.deps.store.getSession(sessionId)?.sessionFile;
+        if (!file) return { unindexed: true };
+        this.deps.historyIndex.sync(sessionId, file);
+        return { unindexed: !this.deps.historyIndex.isIndexed(sessionId) };
+      },
+    });
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -135,16 +241,295 @@ export class Driver {
       modelRuntime: this.deps.modelRuntime,
       model: this.deps.model,
       thinkingLevel: this.deps.thinkingLevel,
-      tools: this.deps.toolFactory({ registry: this.registry, router: this.router }),
+      tools: [...this.deps.toolFactory({ registry: this.registry, router: this.router }), ...hostDataTools],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
         bindHostApi: (api) => {
           this.markerApi = api.appendEntry;
         },
+        onContext: (messages) => this.handleContext(messages),
       },
     });
+    this.wrapStreamFunction(this.sdk);
     return this.sdk;
+  }
+
+  // ---------- 上下文选择与请求前最终检查（issue 05 §3/§4） ----------
+
+  private budgetConfig(): SelectorBudgetConfig {
+    const model = this.deps.model;
+    const contextWindow = Number(model?.contextWindow ?? 0);
+    const maxTokens = Number(model?.maxTokens ?? 0);
+    return validateBudgetConfig({
+      ...DEFAULT_BUDGET_CONFIG,
+      contextWindow,
+      maxTokens,
+      ...this.deps.budgetOverrides,
+    });
+  }
+
+  /**
+   * context 扩展钩子：每次模型调用前返回新消息视图。
+   * pi 会捕获扩展异常继续运行，因此这里不抛错：失败原因记入
+   * selectionBlockReason，由 streamFunction 包装（最终检查）拒绝发送。
+   */
+  private handleContext(messages: any[]): { messages: any[] } | undefined {
+    const task = this.currentTask;
+    if (!task || !this.sdk) return undefined;
+    try {
+      // 记忆注入前重校来源范围（§5：引用受限来源的派生记忆在授权撤销后
+      // 不再注入；只记录可访问候选，排除原因不含他项目内容）
+      const accessor = { kind: "agent", projectId: this.session.projectId } as const;
+      const memories: MemoryWithContent[] = [];
+      const preExcludedMemories: Array<{ memoryId: string; version: number; reason: string }> = [];
+      for (const memory of this.deps.memories.listActiveFor(this.session.projectId)) {
+        const version = this.deps.memories.getVersion(memory.id, memory.currentVersion);
+        const refs = version?.sourceRefs ?? [];
+        if (refs.every((ref) => this.deps.access.sourceRefAccessible(accessor, ref))) {
+          memories.push(memory);
+        } else {
+          preExcludedMemories.push({
+            memoryId: memory.id,
+            version: memory.currentVersion,
+            reason: "source_scope_revoked",
+          });
+        }
+      }
+      const selection = selectContext({
+        messages,
+        systemPrompt: this.sdk.systemPrompt ?? "",
+        tools: (this.sdk.agent.state.tools ?? []) as any[],
+        projectInstructions: this.pinnedContext.instructions,
+        resumedFrom: this.pinnedContext.resumedFrom,
+        memories,
+        preExcludedMemories,
+        budget: this.budgetConfig(),
+      });
+      if (!selection.ok) {
+        this.pendingSelection = null;
+        this.selectionBlockReason = selection.failure ?? "上下文预算不足";
+        return undefined; // 返回 undefined = 不修改；最终检查会阻断
+      }
+      this.pendingSelection = selection;
+      this.selectionBlockReason = null;
+      return { messages: selection.messages };
+    } catch (err) {
+      this.pendingSelection = null;
+      this.selectionBlockReason = `上下文选择失败：${(err as Error).message}`;
+      return undefined;
+    }
+  }
+
+  /**
+   * 任务开始时钉版上下文前缀（§3）：
+   * - 项目指令：从显式配置的工作区相对路径经受限读取（realpath 后必须仍在
+   *   工作区内；缺失/不可读/超大分别说明，不偷偷取祖先目录文件）；内容
+   *   捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定；
+   * - 继续来源：人工继续已中断任务时，原任务要求作为必留参考注入，
+   *   不能只发一句"继续"就丢失原要求（§4）。
+   */
+  private loadPinnedContext(task: Task): {
+    instructions: { text: string; version: string; problems: string[] } | null;
+    resumedFrom: { taskId: string; input: string } | null;
+  } {
+    let resumedFrom: { taskId: string; input: string } | null = null;
+    try {
+      if (task.resumesTaskId) {
+        const old = this.deps.store.getTask(task.resumesTaskId);
+        if (old) resumedFrom = { taskId: old.id, input: old.input };
+      }
+      return { instructions: this.loadProjectInstructions(task), resumedFrom };
+    } catch (err) {
+      // 钉版读取失败不阻断任务：以明确说明注入，不静默省略
+      return {
+        instructions: { text: "", version: "", problems: [`项目指令/继续来源读取失败：${(err as Error).message}`] },
+        resumedFrom,
+      };
+    }
+  }
+
+  private loadProjectInstructions(task: Task): { text: string; version: string; problems: string[] } | null {
+    const project = this.deps.store.getProject(this.session.projectId);
+    const files = project?.instructionFiles ?? [];
+    if (files.length === 0) return null;
+    const MAX_INSTRUCTION_BYTES = 256 * 1024;
+    const problems: string[] = [];
+    const parts: string[] = [];
+    for (const file of files) {
+      if (path.isAbsolute(file) || file.split(/[\\/]/).includes("..")) {
+        problems.push(`项目指令文件 ${file}：须为工作区相对路径且不含 ..（已跳过）`);
+        continue;
+      }
+      let real: string;
+      try {
+        real = fs.realpathSync(path.resolve(this.session.cwdReal, file));
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        problems.push(`项目指令文件 ${file}：${code === "ENOENT" ? "缺失" : `不可读（${(err as Error).message}）`}`);
+        continue;
+      }
+      if (!grantCoversPath(this.session.cwdReal, real)) {
+        problems.push(`项目指令文件 ${file}：越出工作区（符号链接逃逸），已拒绝`);
+        continue;
+      }
+      try {
+        const stat = fs.statSync(real);
+        if (stat.size > MAX_INSTRUCTION_BYTES) {
+          problems.push(`项目指令文件 ${file}：超大（${stat.size} 字节 > ${MAX_INSTRUCTION_BYTES}），未注入`);
+          continue;
+        }
+        parts.push(`--- ${file} ---\n${fs.readFileSync(real, "utf8")}`);
+      } catch (err) {
+        problems.push(`项目指令文件 ${file}：不可读（${(err as Error).message}）`);
+      }
+    }
+    const text = parts.join("\n\n");
+    let version = `sha256:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
+    try {
+      // 任务实际使用的指令内容须可追溯到捕获产物，而非日后可能变化的工作区路径
+      const artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name: "project-instructions" });
+      this.deps.artifacts.append(artifact.id, Buffer.from(text, "utf8"));
+      this.deps.artifacts.complete(artifact.id);
+      version += `;artifact:${artifact.id}`;
+    } catch (err) {
+      // 捕获失败 = 无法追溯：不注入正文，只留明确说明
+      problems.push(`项目指令捕获产物失败（未注入正文）：${(err as Error).message}`);
+      return { text: "", version, problems };
+    }
+    return { text, version, problems };
+  }
+
+  /**
+   * 包装公开的 sdk.agent.streamFunction：委托原发送函数前做最终核对
+   * （选择记录落盘、阻断原因、配对与预算）。扩展异常被 pi 吞掉，只有这里
+   * 能可靠阻止发送；不重写模型循环，保留取消信号与事件语义。
+   */
+  private wrapStreamFunction(sdk: AgentSession): void {
+    const agent = sdk.agent as any;
+    if (this.originalStreamFn) return; // 已包装
+    this.originalStreamFn = agent.streamFunction;
+    const original = this.originalStreamFn;
+    agent.streamFunction = async (model: any, context: any, options: any) => {
+      const task = this.currentTask;
+      if (task) {
+        try {
+          this.finalCheckBeforeSend(task, model, context);
+        } catch (err) {
+          if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
+          throw err;
+        }
+      }
+      const stream = await original.call(agent, model, context, options);
+      this.noteUsageAfterSend(stream);
+      return stream;
+    };
+  }
+
+  /** 最终检查：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
+  private finalCheckBeforeSend(task: Task, model: any, context: any): void {
+    if (this.selectionBlockReason) {
+      const reason = this.selectionBlockReason;
+      throw new ContextSendBlocked(`context_budget_exceeded:${reason}`);
+    }
+    const selection = this.pendingSelection;
+    if (!selection || !selection.ok) {
+      // context 钩子未运行（异常被吞）或策略未产生结果：拒绝发送，不退回全量
+      throw new ContextSendBlocked("context_selection_missing:上下文选择未产生有效结果（扩展异常或策略失败），拒绝发送");
+    }
+    // 配对完整性：视图内每个 toolResult 必须有对应 toolCall，反之亦然。
+    // 选择器已剔除的缺配对消息（崩溃恢复残留的孤儿 toolCall/toolResult）
+    // 豁免——它们不在视图中，但 convertToLlm 可能保留引用（如 details）。
+    const exemptIds = new Set((selection.droppedUnpaired ?? []).map((d) => d.toolCallId));
+    const pairingError = checkToolPairing(context?.messages ?? [], exemptIds);
+    if (pairingError) {
+      throw new ContextSendBlocked(`context_pairing_invalid:${pairingError}`);
+    }
+    // 预算复核：对实际发送的消息重新估算（含系统提示与工具定义）
+    const config = this.budgetConfig();
+    let total = selection.estimates.systemPrompt + selection.estimates.toolSchemas;
+    for (const message of context?.messages ?? []) {
+      total += estimateMessageTokens(message, config.calibration);
+    }
+    if (total > selection.budget) {
+      throw new ContextSendBlocked(
+        `context_budget_exceeded:最终检查估算 ${total} 超过输入预算 ${selection.budget}（选择时估算 ${selection.estimatedTotal}）`,
+      );
+    }
+    // 选择记录先于请求落盘；落盘失败即拒绝发送
+    const recordId = randomId("sel");
+    this.pendingRecordId = recordId;
+    this.deps.store.withTx(() => {
+      this.deps.store.insertSelectionRecord({
+        id: recordId,
+        taskId: task.id,
+        sessionId: task.sessionId,
+        callIndex: this.deps.store.countSelectionRecords(task.id) + 1,
+        strategy: SELECTOR_STRATEGY,
+        configVersion: budgetConfigVersion(config),
+        model: `${model?.provider ?? "?"}/${model?.id ?? "?"}`,
+        totalMessages: selection.includedIndices.length + selection.excluded.length,
+        includedIndices: selection.includedIndices,
+        excluded: [
+          ...selection.excluded,
+          ...(selection.droppedUnpaired ?? []).map((d) => ({
+            index: d.index,
+            reason: `unpaired_tool_call:${d.toolCallId}`,
+          })),
+        ],
+        includedMemories: selection.includedMemories,
+        excludedMemories: selection.excludedMemories,
+        instructionVersion: selection.instructionVersion,
+        cappedToolResults: selection.cappedToolResults,
+        estimates: selection.estimates,
+        budget: selection.budget,
+        estimatedTotal: selection.estimatedTotal,
+        createdAt: new Date().toISOString(),
+      });
+    });
+  }
+
+  private pendingRecordId: string | null = null;
+  /** 最终检查抛出的阻断原因（发送侧记录，任务结束路径据此识别）。 */
+  private lastBlockedReason: string | null = null;
+
+  /**
+   * 识别任务结束是否由最终检查阻断引起：优先取发送侧记录的原因；
+   * 兜底匹配最后 assistant 的错误消息（SDK 可能把发送前异常转成
+   * stopReason=error）。返回 null = 非阻断结束。
+   */
+  private consumeBlockedReason(lastAssistant: any): string | null {
+    const recorded = this.lastBlockedReason;
+    this.lastBlockedReason = null;
+    if (recorded) return recorded;
+    const message: string = lastAssistant?.errorMessage ?? "";
+    if (lastAssistant?.stopReason === "error") {
+      for (const prefix of ["context_budget_exceeded", "context_selection_missing", "context_pairing_invalid"]) {
+        if (message.includes(prefix)) {
+          const idx = message.indexOf(prefix);
+          return message.slice(idx).split("\n", 1)[0] ?? prefix;
+        }
+      }
+    }
+    return null;
+  }
+
+  /** 发送后补记实际 usage（流结束时从最终消息读取；失败时留空）。 */
+  private noteUsageAfterSend(stream: any): void {
+    const recordId = this.pendingRecordId;
+    this.pendingRecordId = null;
+    if (!recordId || !stream?.result) return;
+    void Promise.resolve(stream.result())
+      .then((message: any) => {
+        const usage = message?.usage;
+        if (!usage) return;
+        const input = Number(usage.input ?? usage.inputTokens ?? 0);
+        const output = Number(usage.output ?? usage.outputTokens ?? 0);
+        if (input > 0 || output > 0) {
+          this.deps.store.withTx(() => this.deps.store.setSelectionRecordUsage(recordId, { input, output }));
+        }
+      })
+      .catch(() => {});
   }
 
   private appendMarker(customType: string, data: unknown): void {
@@ -166,6 +551,13 @@ export class Driver {
     this.pendingEntryMsgIds = [];
     this.currentPreview = null;
     this.registry.clear();
+    this.hostToolCtx = null;
+    this.hostToolCalls = new Map();
+    this.pendingSelection = null;
+    this.selectionBlockReason = null;
+    this.lastBlockedReason = null;
+    this.pendingRecordId = null;
+    this.pinnedContext = this.loadPinnedContext(task);
     this.runPromise = this.runInner(task);
     try {
       await this.runPromise;
@@ -219,6 +611,16 @@ export class Driver {
 
     const lastAssistant = findLastAssistant(sdk.messages as any[]);
     const stopReason: string = lastAssistant?.stopReason ?? "error";
+
+    // 请求前最终检查阻断（预算/配对/选择缺失）：中断并暂停队列，不摘要、
+    // 不缩短输入后重试。依据宿主保存的原因识别，不靠 prompt() reject 文案。
+    const blockedReason = this.consumeBlockedReason(lastAssistant);
+    if (blockedReason !== null) {
+      this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: blockedReason });
+      this.pauseQueue(blockedReason);
+      this.finalize(task, "interrupted", { interruptReason: blockedReason });
+      return;
+    }
 
     if (stopReason === "aborted") {
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: "aborted" });
@@ -473,6 +875,17 @@ export class Driver {
       // 真实编码工具/结构化审批/产物查询：模式绑定的路由器执行。
       // 工具定义的 execute 经 registerRoutedCall 拿到宿主操作 id 与任务。
       this.router.registerRoutedCall(event.toolCallId, hostOpId, task, event.toolName);
+      return undefined;
+    }
+
+    // 资料与记忆宿主工具（issue 05）：身份由宿主注入，不经路由器/工作进程
+    if ((HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName)) {
+      this.hostToolCalls.set(event.toolCallId, {
+        taskId: task.id,
+        sessionId: task.sessionId,
+        projectId: this.session.projectId,
+        hostOpId,
+      });
       return undefined;
     }
 

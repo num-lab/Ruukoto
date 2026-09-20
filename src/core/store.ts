@@ -19,6 +19,7 @@ import {
   type PersistentEvent,
   type PersistentEventBody,
   type Project,
+  type SelectionRecord,
   type Session,
   type Task,
   type TaskStatus,
@@ -77,12 +78,19 @@ export class Store {
   // ---------- 项目 ----------
 
   createProject(name: string): Project {
-    const project: Project = { id: randomId("proj"), name, createdAt: new Date().toISOString() };
+    const project: Project = { id: randomId("proj"), name, instructionFiles: [], createdAt: new Date().toISOString() };
     this.db
       .prepare("INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)")
       .run(project.id, project.name, project.createdAt);
     this.appendEvent({ type: "project.created", projectId: project.id, name: project.name });
     return project;
+  }
+
+  /** 设置项目指令文件列表（工作区相对路径；拥有者入口，调用方负责校验）。 */
+  setProjectInstructionFiles(projectId: string, files: string[]): void {
+    this.db
+      .prepare("UPDATE projects SET instruction_files = ? WHERE id = ?")
+      .run(JSON.stringify(files), projectId);
   }
 
   getProject(id: string): Project | null {
@@ -101,7 +109,12 @@ export class Store {
   }
 
   private rowToProject(row: any): Project {
-    return { id: row.id, name: row.name, createdAt: row.created_at };
+    return {
+      id: row.id,
+      name: row.name,
+      instructionFiles: JSON.parse(row.instruction_files ?? "[]") as string[],
+      createdAt: row.created_at,
+    };
   }
 
   // ---------- 会话 ----------
@@ -865,6 +878,102 @@ export class Store {
     return { tasks: rows.slice(0, limit).map((r) => this.rowToTask(r)), hasMore };
   }
 
+  // ---------- 上下文选择记录（issue 05 §6） ----------
+
+  insertSelectionRecord(record: Omit<SelectionRecord, "usage">): void {
+    this.db
+      .prepare(
+        `INSERT INTO selection_records
+         (id, task_id, session_id, call_index, strategy, config_version, model, total_messages,
+          included_indices, excluded, included_memories, excluded_memories, instruction_version,
+          capped_tool_results, estimates, budget, estimated_total, usage, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(
+        record.id,
+        record.taskId,
+        record.sessionId,
+        record.callIndex,
+        record.strategy,
+        record.configVersion,
+        record.model,
+        record.totalMessages,
+        JSON.stringify(record.includedIndices),
+        JSON.stringify(record.excluded),
+        JSON.stringify(record.includedMemories),
+        JSON.stringify(record.excludedMemories),
+        record.instructionVersion,
+        JSON.stringify(record.cappedToolResults),
+        JSON.stringify(record.estimates),
+        record.budget,
+        record.estimatedTotal,
+        record.createdAt,
+      );
+  }
+
+  /** 发送后补记实际 provider usage（估算偏差分析用）。 */
+  setSelectionRecordUsage(id: string, usage: { input: number; output: number }): void {
+    this.db.prepare("UPDATE selection_records SET usage = ? WHERE id = ?").run(JSON.stringify(usage), id);
+  }
+
+  getSelectionRecord(id: string): SelectionRecord | null {
+    const row = this.db.prepare("SELECT * FROM selection_records WHERE id = ?").get(id) as any;
+    return row ? rowToSelectionRecord(row) : null;
+  }
+
+  listSelectionRecordsByTask(taskId: string, limit?: number): SelectionRecord[] {
+    const cap = Math.min(Math.max(1, limit ?? 200), 1000);
+    const rows = this.db
+      .prepare("SELECT * FROM selection_records WHERE task_id = ? ORDER BY call_index LIMIT ?")
+      .all(taskId, cap) as any[];
+    return rows.map(rowToSelectionRecord);
+  }
+
+  /** 会话维度的选择记录（新 → 旧；审计入口分页）。 */
+  listSelectionRecordsBySession(sessionId: string, limit?: number): SelectionRecord[] {
+    const cap = Math.min(Math.max(1, limit ?? 100), 1000);
+    const rows = this.db
+      .prepare("SELECT * FROM selection_records WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?")
+      .all(sessionId, cap) as any[];
+    return rows.map(rowToSelectionRecord);
+  }
+
+  /** 任务内已有的选择记录数（下一次调用的 callIndex = 数量 + 1）。 */
+  countSelectionRecords(taskId: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM selection_records WHERE task_id = ?")
+      .get(taskId) as any;
+    return Number(row.n);
+  }
+
+}
+
+function rowToSelectionRecord(row: any): SelectionRecord {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    sessionId: row.session_id,
+    callIndex: Number(row.call_index),
+    strategy: row.strategy,
+    configVersion: Number(row.config_version),
+    model: row.model,
+    totalMessages: Number(row.total_messages),
+    includedIndices: JSON.parse(row.included_indices) as number[],
+    excluded: JSON.parse(row.excluded) as Array<{ index: number; reason: string }>,
+    includedMemories: JSON.parse(row.included_memories) as Array<{ memoryId: string; version: number }>,
+    excludedMemories: JSON.parse(row.excluded_memories) as Array<{ memoryId: string; version: number; reason: string }>,
+    instructionVersion: row.instruction_version ?? "",
+    cappedToolResults: JSON.parse(row.capped_tool_results ?? "[]") as Array<{
+      index: number;
+      originalChars: number;
+      viewChars: number;
+    }>,
+    estimates: JSON.parse(row.estimates) as Record<string, number>,
+    budget: Number(row.budget),
+    estimatedTotal: Number(row.estimated_total),
+    usage: row.usage ? (JSON.parse(row.usage) as { input: number; output: number }) : null,
+    createdAt: row.created_at,
+  };
 }
 
 // ---------- 结果未知判定 ----------

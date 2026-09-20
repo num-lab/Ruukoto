@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
+  instruction_files TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -116,6 +117,80 @@ CREATE TABLE IF NOT EXISTS events (
   body TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS data_grants (
+  id TEXT PRIMARY KEY,
+  from_project_id TEXT NOT NULL REFERENCES projects(id),
+  to_project_id TEXT NOT NULL REFERENCES projects(id),
+  category TEXT NOT NULL CHECK (category IN ('history','artifact','memory')),
+  purpose TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_data_grants_to ON data_grants (to_project_id, category, revoked_at);
+CREATE TABLE IF NOT EXISTS memories (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id),
+  scope TEXT NOT NULL CHECK (scope IN ('project','personal')),
+  category TEXT NOT NULL CHECK (category IN ('preference','convention','decision','experience')),
+  current_version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active','revoked')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memories_project ON memories (project_id, status);
+CREATE TABLE IF NOT EXISTS memory_versions (
+  memory_id TEXT NOT NULL REFERENCES memories(id),
+  version INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  source_refs TEXT NOT NULL,
+  author TEXT NOT NULL CHECK (author IN ('agent','owner')),
+  tool_op_id TEXT,
+  task_id TEXT,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (memory_id, version)
+);
+CREATE TABLE IF NOT EXISTS history_index (
+  session_id TEXT NOT NULL,
+  entry_id TEXT NOT NULL,
+  parent_id TEXT,
+  role TEXT,
+  entry_type TEXT NOT NULL,
+  timestamp TEXT,
+  byte_offset INTEGER NOT NULL,
+  byte_length INTEGER NOT NULL,
+  PRIMARY KEY (session_id, entry_id)
+);
+CREATE TABLE IF NOT EXISTS history_index_state (
+  session_id TEXT PRIMARY KEY,
+  file_path TEXT NOT NULL,
+  file_dev INTEGER NOT NULL,
+  file_ino INTEGER NOT NULL,
+  processed_bytes INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS selection_records (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  call_index INTEGER NOT NULL,
+  strategy TEXT NOT NULL,
+  config_version INTEGER NOT NULL,
+  model TEXT NOT NULL,
+  total_messages INTEGER NOT NULL,
+  included_indices TEXT NOT NULL,
+  excluded TEXT NOT NULL,
+  included_memories TEXT NOT NULL,
+  excluded_memories TEXT NOT NULL,
+  instruction_version TEXT NOT NULL DEFAULT '',
+  capped_tool_results TEXT NOT NULL DEFAULT '[]',
+  estimates TEXT NOT NULL,
+  budget INTEGER NOT NULL,
+  estimated_total INTEGER NOT NULL,
+  usage TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_selection_records_task ON selection_records (task_id, call_index);
 `;
 
 /**
@@ -166,6 +241,7 @@ export class Db {
     if (row && version === SCHEMA_VERSION) {
       // v2 及以后：仅补齐缺失对象（幂等）
       this.db.exec(SCHEMA_SQL);
+      this.ensureColumns();
     } else {
       // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
       this.db.exec("BEGIN IMMEDIATE");
@@ -209,9 +285,26 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
+    } else if (version === 2) {
+      // v2 → v3：新增授权/记忆/历史索引/选择记录表（SCHEMA_SQL 幂等建表已覆盖），
+      // 并为既有表补列；无既有数据需要改写。
+      this.ensureColumns();
     } else {
       throw new Error(`不支持从 schema v${version} 迁移`);
     }
+  }
+
+  /** 幂等补列（CREATE TABLE IF NOT EXISTS 不会给既有表加列）。 */
+  private ensureColumns(): void {
+    const add = (table: string, column: string, ddl: string): void => {
+      const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+      if (!cols.some((c) => c.name === column)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      }
+    };
+    add("projects", "instruction_files", "instruction_files TEXT NOT NULL DEFAULT '[]'");
+    add("selection_records", "instruction_version", "instruction_version TEXT NOT NULL DEFAULT ''");
+    add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

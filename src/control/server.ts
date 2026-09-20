@@ -23,7 +23,7 @@ import {
 import { capEventForWire, frameBytes } from "../core/views.ts";
 import { ensureOwnerToken, tokenMatches } from "./owner-token.ts";
 import type { Runtime } from "../runtime/runtime.ts";
-import type { AccessMode, GrantedPath, PersistentEvent } from "../core/types.ts";
+import type { AccessMode, DataCategory, GrantedPath, Memory, MemorySourceRef, PersistentEvent } from "../core/types.ts";
 
 const REPLAY_LIMIT = 5000;
 
@@ -373,6 +373,134 @@ export class ControlServer {
       }
       case "list_credentials":
         return runtime.listCredentialBindings();
+      // ---------- issue 05：资料授权 / 历史检索 / 记忆 / 选择记录 ----------
+      case "create_data_grant":
+        return runtime.createDataGrant({
+          fromProjectId: requireString("from_project_id"),
+          toProjectId: requireString("to_project_id"),
+          category: requireString("category") as DataCategory,
+          purpose: typeof params["purpose"] === "string" ? params["purpose"] : undefined,
+        });
+      case "revoke_data_grant":
+        return runtime.revokeDataGrant(requireString("grant_id"));
+      case "list_data_grants":
+        return { grants: runtime.listDataGrants({ includeRevoked: params["include_revoked"] === true }) };
+      case "search_history": {
+        const num = (key: string): number | undefined => {
+          const v = params[key];
+          if (v === undefined) return undefined;
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 0) {
+            throw Object.assign(new Error(`${key} 必须是非负数字`), { code: "invalid_params" });
+          }
+          return n;
+        };
+        const rawCursor = params["cursor"];
+        let cursor: { sessionId: string; byteOffset: number } | null | undefined;
+        if (rawCursor === undefined) {
+          cursor = undefined;
+        } else if (rawCursor === null) {
+          cursor = null;
+        } else {
+          const c = rawCursor as Record<string, unknown>;
+          if (typeof c?.["session_id"] !== "string" || typeof c?.["byte_offset"] !== "number") {
+            throw Object.assign(new Error("cursor 必须含 session_id 与 byte_offset"), { code: "invalid_params" });
+          }
+          cursor = { sessionId: c["session_id"], byteOffset: c["byte_offset"] };
+        }
+        return runtime.searchHistory({
+          query: requireString("query"),
+          projectId: typeof params["project_id"] === "string" ? params["project_id"] : undefined,
+          sessionId: typeof params["session_id"] === "string" ? params["session_id"] : undefined,
+          taskId: typeof params["task_id"] === "string" ? params["task_id"] : undefined,
+          role: typeof params["role"] === "string" ? params["role"] : undefined,
+          since: typeof params["since"] === "string" ? params["since"] : undefined,
+          until: typeof params["until"] === "string" ? params["until"] : undefined,
+          limit: num("limit"),
+          scanLimit: num("scan_limit"),
+          cursor,
+          contextChars: num("context_chars"),
+        });
+      }
+      case "set_project_instructions": {
+        const files = params["files"];
+        if (!Array.isArray(files) || files.some((f) => typeof f !== "string")) {
+          throw Object.assign(new Error("files 必须是字符串数组"), { code: "invalid_params" });
+        }
+        return runtime.setProjectInstructions({
+          projectId: requireString("project_id"),
+          files: files as string[],
+        });
+      }
+      case "list_memories":
+        return {
+          memories: runtime.listMemories({
+            projectId: typeof params["project_id"] === "string" ? params["project_id"] : undefined,
+            personal: params["personal"] === true,
+          }),
+        };
+      case "get_memory":
+        return runtime.getMemoryDetail(requireString("memory_id"));
+      case "save_memory": {
+        const refs = params["source_refs"];
+        if (!Array.isArray(refs)) {
+          throw Object.assign(new Error("source_refs 必须是数组"), { code: "invalid_params" });
+        }
+        const expected = params["expected_version"];
+        if (expected !== undefined && (!Number.isInteger(expected) || (expected as number) < 1)) {
+          throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });
+        }
+        const projectId = params["project_id"];
+        if (projectId !== null && typeof projectId !== "string") {
+          throw Object.assign(new Error("project_id 必须是字符串或 null（个人共享）"), { code: "invalid_params" });
+        }
+        return runtime.ownerSaveMemory({
+          memoryId: typeof params["memory_id"] === "string" ? params["memory_id"] : undefined,
+          expectedVersion: expected as number | undefined,
+          projectId: projectId === undefined ? null : (projectId as string | null),
+          category: requireString("category") as Memory["category"],
+          content: requireString("content"),
+          sourceRefs: refs as MemorySourceRef[],
+          reason: typeof params["reason"] === "string" ? params["reason"] : undefined,
+        });
+      }
+      case "revoke_memory": {
+        const expected = params["expected_version"];
+        if (!Number.isInteger(expected) || (expected as number) < 1) {
+          throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.ownerRevokeMemory({
+          memoryId: requireString("memory_id"),
+          expectedVersion: expected as number,
+          reason: typeof params["reason"] === "string" ? params["reason"] : undefined,
+        });
+      }
+      case "restore_memory": {
+        const from = params["from_version"];
+        if (!Number.isInteger(from) || (from as number) < 1) {
+          throw Object.assign(new Error("from_version 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.ownerRestoreMemory({
+          memoryId: requireString("memory_id"),
+          fromVersion: from as number,
+          reason: typeof params["reason"] === "string" ? params["reason"] : undefined,
+        });
+      }
+      case "list_selection_records": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return {
+          records: runtime.listSelectionRecords({
+            taskId: typeof params["task_id"] === "string" ? params["task_id"] : undefined,
+            sessionId: typeof params["session_id"] === "string" ? params["session_id"] : undefined,
+            limit,
+          }),
+        };
+      }
+      case "get_selection_record":
+        return runtime.getSelectionRecord(requireString("record_id"));
       case "add_credential":
         return runtime.addCredentialBinding({
           name: requireString("name"),

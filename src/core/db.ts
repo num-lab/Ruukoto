@@ -9,6 +9,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
 export const SCHEMA_VERSION = 2;
@@ -159,35 +160,46 @@ export class Db {
       row = undefined;
     }
     const version = row ? Number(row.value) : SCHEMA_VERSION;
-    if (row && version === SCHEMA_VERSION) {
-      // v2 及以后：仅补齐缺失对象（幂等）
-      this.db.exec(SCHEMA_SQL);
-      return;
-    }
     if (row && version > SCHEMA_VERSION) {
       throw new Error(`schema 版本过新：文件 ${row.value}，程序 ${SCHEMA_VERSION}（需升级程序）`);
     }
-    // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
+    if (row && version === SCHEMA_VERSION) {
+      // v2 及以后：仅补齐缺失对象（幂等）
       this.db.exec(SCHEMA_SQL);
-      if (row && version < SCHEMA_VERSION) {
-        this.migrateFrom(version);
-      }
-      this.db
-        .prepare(
-          "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .run(String(SCHEMA_VERSION));
-      this.db.exec("COMMIT");
-    } catch (err) {
+    } else {
+      // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
+      this.db.exec("BEGIN IMMEDIATE");
       try {
-        this.db.exec("ROLLBACK");
-      } catch {
-        // 事务可能已因错误自动回滚
+        this.db.exec(SCHEMA_SQL);
+        if (row && version < SCHEMA_VERSION) {
+          this.migrateFrom(version);
+        }
+        this.db
+          .prepare(
+            "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+          )
+          .run(String(SCHEMA_VERSION));
+        this.db.exec("COMMIT");
+      } catch (err) {
+        try {
+          this.db.exec("ROLLBACK");
+        } catch {
+          // 事务可能已因错误自动回滚
+        }
+        throw new Error(`schema 迁移失败（v${version} → v${SCHEMA_VERSION}）：${(err as Error).message}`);
       }
-      throw new Error(`schema 迁移失败（v${version} → v${SCHEMA_VERSION}）：${(err as Error).message}`);
     }
+    // 数据实例标识：首次打开分配并持久化；重启保留，新数据库分配新标识。
+    // 客户端待确认请求绑定该标识，换库后不会向空后台重发。
+    this.db
+      .prepare("INSERT INTO meta (key, value) VALUES ('instance_id', ?) ON CONFLICT(key) DO NOTHING")
+      .run(randomUUID());
+  }
+
+  /** 数据实例稳定标识（跨重启保留）。 */
+  getInstanceId(): string {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'instance_id'").get() as { value: string };
+    return row.value;
   }
 
   private migrateFrom(version: number): void {

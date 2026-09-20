@@ -8,7 +8,7 @@
 
 import { randomBytes } from "node:crypto";
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /**
  * 任务访问模式（ADR 0003）。
@@ -189,15 +189,26 @@ export type PersistentEventBody =
   | { type: "session.created"; sessionId: string; projectId: string; cwd: string }
   | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode }
   | { type: "task.started"; taskId: string; sessionId: string }
-  | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; scope: ApprovalScope }
+  | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean; scope: ApprovalScope; permissionVersion?: number }
   | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected" }
   | { type: "task.approval_consumed"; taskId: string; confirmationId: string; toolOpId: string; toolName: string }
   | { type: "task.mode_switch_requested"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode }
   | { type: "task.mode_switched"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode; permissionVersion: number }
   | { type: "task.mode_switch_failed"; taskId: string; sessionId: string; to: AccessMode; reason: string }
-  | { type: "task.output_fragment"; taskId: string; sessionId: string; text: string; partial: true }
-  | { type: "task.output_entry"; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string }
-  | { type: "task.tool_intent"; taskId: string; toolOpId: string; sdkCallId: string | null; toolName: string; params: Record<string, unknown> }
+  /**
+   * 运行中输出的有界预览（v3）：text 为截至当时的累计文本尾部
+   * （FRAGMENT_TEXT_CAP），totalBytes/truncated 标明完整规模；messageId 是
+   * 后台分配的消息标识，同一消息的片段替换同一预览，最终条目经
+   * task.output_entry.messageId 关联后取代预览。
+   */
+  | { type: "task.output_fragment"; taskId: string; sessionId: string; messageId: string; text: string; totalBytes: number; truncated: boolean; partial: true }
+  | { type: "task.output_entry"; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string; messageId: string | null }
+  /**
+   * 工具/审批事件（线上载荷）：params 可能被替换为有界预览
+   * （paramsTruncated=true，paramsBytes 为完整序列化字节数）；完整参数经
+   * get_confirmation / get_tool_op 按 ID 分段读取。持久化的事件正文保持完整。
+   */
+  | { type: "task.tool_intent"; taskId: string; toolOpId: string; sdkCallId: string | null; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean }
   | { type: "task.tool_result"; taskId: string; toolOpId: string; summary: string; isError: boolean; artifactIds: string[] }
   | { type: "task.tool_effect_unknown"; taskId: string; toolOpId: string; toolName: string }
   | { type: "task.tool_process_unreaped"; taskId: string; sessionId: string; reason: string }

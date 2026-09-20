@@ -20,6 +20,7 @@ import {
   type ControlResponse,
   encodeFrame,
 } from "./protocol.ts";
+import { capEventForWire, frameBytes } from "../core/views.ts";
 import { ensureOwnerToken, tokenMatches } from "./owner-token.ts";
 import type { Runtime } from "../runtime/runtime.ts";
 import type { AccessMode, GrantedPath, PersistentEvent } from "../core/types.ts";
@@ -29,6 +30,8 @@ const REPLAY_LIMIT = 5000;
 export class ControlServer {
   private server: net.Server;
   private subscribers = new Set<net.Socket>();
+  /** 全部连接（含未订阅/未认证的）；停止时强制关闭，避免 close 等待悬挂。 */
+  private connections = new Set<net.Socket>();
   private authed = new WeakSet<net.Socket>();
   private runtime: Runtime;
   private readonly ownerToken: string;
@@ -71,6 +74,7 @@ export class ControlServer {
   }
 
   private handleConnection(socket: net.Socket): void {
+    this.connections.add(socket);
     let buffer = "";
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => {
@@ -94,6 +98,7 @@ export class ControlServer {
     });
     socket.on("close", () => {
       this.subscribers.delete(socket);
+      this.connections.delete(socket);
     });
   }
 
@@ -105,11 +110,19 @@ export class ControlServer {
       this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: "", ok: false, error: { code: "bad_frame", message: "非法 JSON 帧" } });
       return;
     }
-    if (
-      request.v !== CONTROL_PROTOCOL_VERSION ||
-      typeof request.id !== "string" ||
-      typeof request.op !== "string"
-    ) {
+    if (request.v !== CONTROL_PROTOCOL_VERSION) {
+      this.reply(socket, {
+        v: CONTROL_PROTOCOL_VERSION,
+        id: String((request as any)?.id ?? ""),
+        ok: false,
+        error: {
+          code: "protocol_version",
+          message: `协议版本不兼容：服务端 v${CONTROL_PROTOCOL_VERSION}，请求 v${String((request as any)?.v)}；请升级客户端`,
+        },
+      });
+      return;
+    }
+    if (typeof request.id !== "string" || typeof request.op !== "string") {
       this.reply(socket, {
         v: CONTROL_PROTOCOL_VERSION,
         id: String((request as any)?.id ?? ""),
@@ -213,13 +226,17 @@ export class ControlServer {
         }
         const result: ConnectResult = {
           seq: snapshot.seq,
-          replay,
+          // 补发事件同样经有界视图转换（线上载荷不携带完整大参数）
+          replay: replay.map(capEventForWire),
           snapshot: {
             projects: snapshot.projects,
             sessions: snapshot.sessions,
             tasks: snapshot.tasks,
             confirmations: snapshot.confirmations,
             artifacts: snapshot.artifacts,
+            previews: snapshot.previews,
+            instanceId: snapshot.instanceId,
+            execution: snapshot.execution,
           },
         };
         this.subscribers.add(socket);
@@ -273,13 +290,74 @@ export class ControlServer {
         if (decision !== "approve" && decision !== "reject") {
           throw Object.assign(new Error('decision 必须是 "approve" 或 "reject"'), { code: "invalid_params" });
         }
-        return runtime.respondConfirmation(requireString("confirmation_id"), decision === "approve" ? "approved" : "rejected");
+        const version = params["permission_version"];
+        if (version !== undefined && (!Number.isInteger(version) || (version as number) < 1)) {
+          throw Object.assign(new Error("permission_version 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.respondConfirmation(
+          requireString("confirmation_id"),
+          decision === "approve" ? "approved" : "rejected",
+          version as number | undefined,
+        );
       }
       case "get_task": {
         const detail = runtime.getTaskDetail(requireString("task_id"));
         if (!detail) throw Object.assign(new Error("任务不存在"), { code: "not_found" });
         return detail;
       }
+      case "find_task":
+        return runtime.findTaskByRequest({
+          sessionId: requireString("session_id"),
+          requestId: requireString("request_id"),
+        });
+      case "list_tasks": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.listTasks({
+          sessionId: requireString("session_id"),
+          before: typeof params["before"] === "string" ? params["before"] : undefined,
+          limit,
+        });
+      }
+      case "read_history": {
+        const num = (key: string): number | undefined => {
+          const v = params[key];
+          if (v === undefined) return undefined;
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 0) {
+            throw Object.assign(new Error(`${key} 必须是非负数字`), { code: "invalid_params" });
+          }
+          return n;
+        };
+        return runtime.readHistory({
+          sessionId: requireString("session_id"),
+          before: typeof params["before"] === "string" ? params["before"] : undefined,
+          limit: num("limit"),
+          entryTextCap: num("entry_text_cap"),
+          pageTextBudget: num("page_text_budget"),
+        });
+      }
+      case "read_history_entry":
+        return runtime.readHistoryEntry({
+          sessionId: requireString("session_id"),
+          entryId: requireString("entry_id"),
+          offset: params["offset"] === undefined ? undefined : Number(params["offset"]),
+          length: params["length"] === undefined ? undefined : Number(params["length"]),
+        });
+      case "get_confirmation_params":
+        return runtime.getConfirmationParams({
+          confirmationId: requireString("confirmation_id"),
+          offset: params["offset"] === undefined ? undefined : Number(params["offset"]),
+          length: params["length"] === undefined ? undefined : Number(params["length"]),
+        });
+      case "get_tool_op_params":
+        return runtime.getToolOpParams({
+          toolOpId: requireString("tool_op_id"),
+          offset: params["offset"] === undefined ? undefined : Number(params["offset"]),
+          length: params["length"] === undefined ? undefined : Number(params["length"]),
+        });
       case "read_artifact": {
         const offset = params["offset"] === undefined ? undefined : Number(params["offset"]);
         const length = params["length"] === undefined ? undefined : Number(params["length"]);
@@ -316,16 +394,31 @@ export class ControlServer {
 
   private reply(socket: net.Socket, response: ControlResponse): void {
     if (socket.destroyed) return;
+    // 序列化字节数兜底：分页接口按构造应远小于帧上限；超限说明实现回归，
+    // 明确报错而不是发送半截帧或静默断开
+    if (frameBytes(response) > MAX_FRAME_BYTES) {
+      socket.write(
+        encodeFrame({
+          v: CONTROL_PROTOCOL_VERSION,
+          id: response.id,
+          ok: false,
+          error: { code: "response_too_large", message: "应答超过帧上限：请缩小分页范围重试" },
+        } satisfies ControlResponse),
+      );
+      return;
+    }
     socket.write(encodeFrame(response));
   }
 
   /** 事务提交后的事件广播（持久事件先落库，提交成功才到达这里）。 */
   broadcast(events: PersistentEvent[]): void {
     if (events.length === 0) return;
+    // 线上载荷有界化：大参数替换为预览 + 可查询引用
+    const frames = events.map((event) => encodeFrame({ v: CONTROL_PROTOCOL_VERSION, push: "event", event: capEventForWire(event) }));
     for (const socket of this.subscribers) {
-      for (const event of events) {
+      for (const frame of frames) {
         if (socket.destroyed) break;
-        socket.write(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, push: "event", event }));
+        socket.write(frame);
       }
     }
   }
@@ -333,6 +426,9 @@ export class ControlServer {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    // 强制关闭全部连接：server.close() 会等待已建立的连接，不主动销毁
+    // 则任何仍在线的客户端都会让停止悬挂
+    for (const socket of this.connections) socket.destroy();
     this.subscribers.clear();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
     try {

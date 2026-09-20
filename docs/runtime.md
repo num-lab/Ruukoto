@@ -1,9 +1,11 @@
-# 后台任务运行时（issue 02/03）
+# 后台任务运行时（issue 02/03/04）
 
 任务生命周期独立于交互终端的实现：单个后台进程负责调度、状态与事件，
 每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](../adr/0002-detach-terminal-from-task-runtime.md)）。
 issue 03 接入真实编码工具与两种权限模式（[ADR 0003](../adr/0003-enforce-explicit-access-modes.md)、
 [ADR 0004](../adr/0004-tool-worker-per-task-container-exec-account.md)）。
+issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读取、断开重连与
+输入去重（协议 v3）。
 
 ## 架构要点
 
@@ -60,7 +62,56 @@ npm start -- confirm <confirmationId> approve|reject
 npm start -- read-artifact <taskId> <artifactId> [--offset N] [--length N]
 npm start -- credentials list | add --name N --host H --header H --purpose P --secret-env VAR | remove <name>
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
+npm start -- tui [--session <id>]     # 交互终端（见下文"TUI"）
 ```
+
+## TUI（issue 04）
+
+`ruukoto tui` 启动全屏交互终端：顶部为项目/会话/工作目录/连接状态/任务权限
+模式/执行后端，中间滚动显示消息与工具记录，底部为多行输入与任务/队列状态。
+TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不创建 SDK 会话、
+不加载模型凭据、不直接读取后台数据库或 JSONL；后台不可达时显示连接状态并
+按有上限的退避重连，不会悄悄另起同一任务。
+
+- **输入**：`Enter` 提交，`Alt+Enter`（或 `Shift+Enter` / `Ctrl+J`）换行；
+  支持中文与 bracketed paste，大段粘贴在编辑器内折叠显示，草稿与提交保留
+  展开后的原文。补全仅覆盖 `/` 固定命令，不扫描本地文件。
+- **命令**：`/sessions` 切换会话；`/new-project`、`/new-session <目录>` 创建；
+  `/older` 向前翻页历史；`/expand <id 前缀>` 展开完整消息/工具参数；
+  `/artifact <id 前缀>` 按字节分页查看产物正文；`/approvals` 待处理审批
+  （详情内 `a` 批准 / `r` 拒绝，Esc 关闭不等于拒绝）；`/interrupt`、
+  `/cancel <taskId>`、`/continue [taskId]`、`/resume-queue` 为明确的任务
+  操作；`/mode full_access` 经显式确认覆盖层按任务切换；`/quit` 或
+  `Ctrl+C`（空草稿时）退出客户端。
+- **断开与重连**：退出/断开只关闭客户端，后台任务继续执行；重连后从后台
+  重建快照、历史与最新输出预览（生成中/中断前已捕获部分分别标注），不自动
+  新建任务、不恢复暂停队列。事件序号缺口或游标过旧时自动重新同步。
+- **输入去重**：提交前生成 `request_id` 并把完整请求原子保存到拥有者私有
+  目录（默认 `~/.ruukoto/pending/`，`RUUKOTO_PENDING_DIR` 可覆盖，0600）；
+  应答丢失时显示"接收结果待核实"，重连后按 `session_id + request_id` 核实：
+  已接收则关联原任务，明确未接收才以原键原参数重试；记录绑定数据实例标识，
+  换新数据库后不会向空后台重发。
+- **终端安全**：消息、工具日志与审批参数渲染前剥离终端控制序列（CSI/OSC/
+  APC，含 OSC 52 剪贴板写入与擦屏/光标控制），不可见控制字符显示为转义
+  形式；只改变展示，不改动历史与执行参数。
+- **退出与终端恢复**：正常退出、`SIGTERM`、`SIGHUP` 与可处理异常都会关闭
+  socket、恢复 raw mode/光标/屏幕，不发送 `stop` 或取消任务。进程被强杀
+  （SIGKILL）时无法执行清理回调：如终端显示异常，执行 `reset` 或
+  `stty sane` 恢复。
+- 非 TTY 环境不启动交互页面，改用 `status`/`events`/`submit` 等 CLI 命令；
+  远程使用沿用登录服务器后启动 TUI 的方式，不新增远程协议。
+
+协议 v3 新增接口：`read_history` / `read_history_entry`（按会话分页与分段
+读取消息历史，唯一权威历史的投影）、`list_tasks`（已结束任务按会话分页）、
+`find_task`（按 `session_id + request_id` 核实已接收请求）、
+`get_confirmation_params` / `get_tool_op_params`（大参数按 ID 分段读取）。
+握手返回数据实例标识与执行后端说明；快照有界（活动任务 + 每会话近期结束
+任务）；事件中的大参数与累计输出片段以有界预览传输。拥有者令牌文件路径可
+经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（拥有者与后台不同 UID 的部署）。
+`respond_confirmation` 可携带 `permission_version` 绑定审批时的权限版本
+（不匹配返回 `permission_version_mismatch`）；`read_artifact` 单次上限
+720 KiB（base64 开销后仍在 1 MiB 帧上限内）。
+
 
 `request_id` 由客户端保存、唯一范围为会话：提交落盘但应答丢失时，同键同
 参数（含模式与授权范围）重试返回原任务，同键异参返回 `request_conflict`。
@@ -139,6 +190,9 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 | 检查 | 环境 | 结果 |
 | --- | --- | --- |
 | 全部离线集成验证（43 项：issue 02 的 16 项 + 真实工具路由×3、审批×11（含崩溃恢复区分、DNS 前置、v1→v2 迁移）、产物×5、模式与认证×8） | macOS 本机（Node 24.15.0，local 执行后端） | 通过 |
+| issue 04 离线验证（37 项：历史读取×11、连接恢复与待确认×13、TUI 状态与终端安全×7、TUI 应用集成×5、PTY 端到端×1） | macOS 本机（mock 模型 + 假终端 + pty） | 通过（81 项总计含 issue 02/03 回归） |
+| TUI 真实终端人工检查（80×24 布局、中文输入法、缩放、滚动） | macOS 终端 | 部分：PTY 自动化覆盖输入/流式/退出/终端恢复；人工交互细节（IME 候选窗、缩放重排）未逐项人工核对 |
+| Linux 真实工具后端的"提交—查看—退出—重连—检查"全流程 | 目标 Linux 服务器 | 未运行（依赖 03 的容器/systemd 部署验证） |
 | 真实模型连通性（经完整运行时路径，一次短往返） | macOS 本机 | 未在本次运行（凭据缺失时跳过） |
 | node:sqlite v1→v2 事务迁移 + 崩溃后重开 | macOS 本机 | 通过（08 的迁移用例：旧任务默认请求确认、旧未决审批失效、历史与事件保留） |
 | Linux 容器边界探针（32 项：文件/子进程/网络/凭据/控制面/身份） | Docker Desktop Linux VM | 32/32 通过（`npm run linux:probes`，含就绪与完整性判定） |

@@ -492,6 +492,7 @@ export class Store {
         toolName: confirmation.toolName,
         params: confirmation.params,
         scope: confirmation.scope,
+        permissionVersion: confirmation.permissionVersion,
       },
       { taskId: confirmation.taskId, sessionId: confirmation.sessionId },
     );
@@ -584,6 +585,7 @@ export class Store {
   recordToolIntent(input: {
     id: string;
     taskId: string;
+    sessionId: string;
     toolName: string;
     sdkCallId?: string | null;
     params: Record<string, unknown>;
@@ -603,7 +605,7 @@ export class Store {
         toolName: input.toolName,
         params: input.params,
       },
-      { taskId: input.taskId },
+      { taskId: input.taskId, sessionId: input.sessionId },
     );
   }
 
@@ -783,6 +785,84 @@ export class Store {
       body: JSON.parse(row.body) as PersistentEventBody,
       createdAt: row.created_at,
     }));
+  }
+
+  /** 任务最新一条输出片段事件（重连预览重建的持久来源）。 */
+  getLatestOutputFragment(taskId: string): {
+    seq: number;
+    messageId: string;
+    text: string;
+    totalBytes: number;
+    truncated: boolean;
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT seq, body FROM events
+         WHERE task_id = ? AND json_extract(body, '$.type') = 'task.output_fragment'
+         ORDER BY seq DESC LIMIT 1`,
+      )
+      .get(taskId) as any;
+    if (!row) return null;
+    const body = JSON.parse(row.body) as Extract<PersistentEventBody, { type: "task.output_fragment" }>;
+    return {
+      seq: Number(row.seq),
+      messageId: body.messageId,
+      text: body.text,
+      totalBytes: body.totalBytes,
+      truncated: body.truncated,
+    };
+  }
+
+  /** 指定消息标识是否已有最终条目事件（预览是否已被正式条目取代）。 */
+  hasOutputEntryForMessage(taskId: string, messageId: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM events
+         WHERE task_id = ? AND json_extract(body, '$.type') = 'task.output_entry'
+           AND json_extract(body, '$.messageId') = ?
+         LIMIT 1`,
+      )
+      .get(taskId, messageId);
+    return row !== undefined;
+  }
+
+  /** 按 会话 + request_id 精确查询任务（重连幂等核实用；含已结束任务）。 */
+  findTaskByRequest(sessionId: string, requestId: string): Task | null {
+    const row = this.db
+      .prepare("SELECT * FROM tasks WHERE session_id = ? AND request_id = ?")
+      .get(sessionId, requestId) as any;
+    return row ? this.rowToTask(row) : null;
+  }
+
+  /**
+   * 会话内任务的分页查询（新 → 旧，键集分页）。
+   * before 为上一页最后一条任务的 id；返回 hasMore 表示还有更旧任务。
+   */
+  listTasksBySessionPaged(
+    sessionId: string,
+    opts: { before?: string; limit?: number } = {},
+  ): { tasks: Task[]; hasMore: boolean } {
+    const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);
+    let rows: any[];
+    if (opts.before !== undefined) {
+      const cursor = this.getTask(opts.before);
+      if (!cursor || cursor.sessionId !== sessionId) {
+        throw new StoreConflictError(`分页游标任务不存在：${opts.before}`, "invalid_cursor");
+      }
+      rows = this.db
+        .prepare(
+          `SELECT * FROM tasks WHERE session_id = ?
+           AND (created_at < ? OR (created_at = ? AND id < ?))
+           ORDER BY created_at DESC, id DESC LIMIT ?`,
+        )
+        .all(sessionId, cursor.createdAt, cursor.createdAt, cursor.id, limit + 1) as any[];
+    } else {
+      rows = this.db
+        .prepare("SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?")
+        .all(sessionId, limit + 1) as any[];
+    }
+    const hasMore = rows.length > limit;
+    return { tasks: rows.slice(0, limit).map((r) => this.rowToTask(r)), hasMore };
   }
 
 }

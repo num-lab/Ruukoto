@@ -16,7 +16,7 @@ import {
   taskStatus,
   connectAuthedClient,
 } from "./helpers/testkit.ts";
-import { parseSessionFile } from "../src/agent/driver.ts";
+import { parseSessionFile } from "../src/core/history.ts";
 
 test("幂等提交：重试返回原任务；同键异参冲突", async () => {
   const t = await startTestRuntime(

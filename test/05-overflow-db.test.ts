@@ -14,7 +14,7 @@ import {
   createProjectSession,
   taskStatus,
 } from "./helpers/testkit.ts";
-import { parseSessionFile } from "../src/agent/driver.ts";
+import { parseSessionFile } from "../src/core/history.ts";
 
 test("上下文超限：任务中断并暂停会话队列，不摘要不重试", async () => {
   // mock 固定 usage：input=100, output=10；contextWindow=50 → input 100 > 50，

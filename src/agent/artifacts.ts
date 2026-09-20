@@ -18,6 +18,14 @@ import { randomId } from "../core/types.ts";
 
 export class ArtifactWriteError extends Error {}
 
+/** 产物正文不可读（元数据存在但文件缺失/损坏）：明确错误，不伪装成空内容。 */
+export class ArtifactReadError extends Error {
+  readonly code = "artifact_unavailable";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 export class ArtifactStore {
   private readonly root: string;
 
@@ -55,9 +63,28 @@ export class ArtifactStore {
     this.store.setArtifactStatus(artifactId, "complete");
   }
 
-  /** 读取产物正文片段（offset/length 字节；跨重启可查）。 */
+  /**
+   * 读取产物正文片段（offset/length 字节；跨重启可查）。
+   * 按偏移读取，不把整个大文件加载进内存后切片。
+   */
   read(artifactId: string, offset = 0, length = 256 * 1024): Buffer {
-    return fs.readFileSync(this.fileFor(artifactId)).subarray(offset, offset + length);
+    const file = this.fileFor(artifactId);
+    let fd: number;
+    try {
+      fd = fs.openSync(file, "r");
+    } catch (err) {
+      throw new ArtifactReadError(`产物正文不可读：${artifactId}（${(err as Error).message}）`);
+    }
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = Math.min(Math.max(0, offset), size);
+      const len = Math.min(Math.max(0, length), size - start);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, start);
+      return buf;
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 
   byteLength(artifactId: string): number {

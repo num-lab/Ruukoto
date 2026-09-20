@@ -26,7 +26,7 @@
 import * as path from "node:path";
 import * as os from "node:os";
 import { ControlClient } from "./control/client.ts";
-import { readOwnerToken } from "./control/owner-token.ts";
+import { controlDirFor, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
 import type { GrantedPath } from "./core/types.ts";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
@@ -52,30 +52,16 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; positional:
 export function defaultDirs(): { dataDir: string; agentDir: string } {
   const base = path.join(os.homedir(), ".ruukoto");
   return {
-    dataDir: process.env.RUUKOTO_DATA_DIR ?? path.join(base, "data"),
+    dataDir: defaultDataDir(),
     agentDir: process.env.RUUKOTO_AGENT_DIR ?? path.join(base, "agent"),
   };
 }
 
-/** 控制面目录：与运行时默认一致（数据目录的兄弟目录 control/）。 */
-export function controlDirFor(dataDir: string): string {
-  return process.env.RUUKOTO_CONTROL_DIR ?? path.join(path.dirname(path.resolve(dataDir)), "control");
-}
-
-function ownerToken(controlDir: string): string {
-  const fromEnv = process.env.RUUKOTO_OWNER_TOKEN;
-  if (fromEnv && fromEnv.trim().length >= 32) return fromEnv.trim();
-  const fromFile = readOwnerToken(controlDir);
-  if (fromFile) return fromFile;
-  throw new Error(`无法读取拥有者令牌（${controlDir}/owner.token 或 RUUKOTO_OWNER_TOKEN）`);
-}
-
 async function withClient<T>(fn: (client: ControlClient) => Promise<T>): Promise<T> {
-  const { dataDir } = defaultDirs();
-  const controlDir = controlDirFor(dataDir);
-  const client = await ControlClient.connect(path.join(controlDir, "control.sock"));
+  const config = resolveClientConfig();
+  const client = await ControlClient.connect(config.socketPath);
   try {
-    await client.authenticate(ownerToken(controlDir));
+    await client.authenticate(config.token);
     return await fn(client);
   } finally {
     client.close();
@@ -216,10 +202,9 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "events": {
-      const { dataDir } = defaultDirs();
-      const controlDir = controlDirFor(dataDir);
+      const controlDir = controlDirFor(defaultDataDir());
       const client = await ControlClient.connect(path.join(controlDir, "control.sock"));
-      await client.authenticate(ownerToken(controlDir));
+      await client.authenticate(resolveOwnerToken(controlDir));
       const handshake = await client.handshake();
       console.error(`已连接（seq=${handshake.seq}），等待事件… Ctrl+C 退出`);
       client.onEvent((event) => console.log(JSON.stringify(event)));
@@ -296,6 +281,11 @@ async function main(argv: string[]): Promise<number> {
     case "stop":
       print(await withClient((c) => c.request("stop", {})));
       return 0;
+    case "tui": {
+      // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据
+      const { runTui } = await import("./tui/index.ts");
+      return await runTui({ sessionId: flags["session"] });
+    }
     default:
       console.error(defaultHelp());
       return cmd === undefined ? 0 : 1;
@@ -305,10 +295,11 @@ async function main(argv: string[]): Promise<number> {
 function defaultHelp(): string {
   return (
     "用法：ruukoto <command> [args]\n" +
-    "命令：start | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
+    "命令：start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop\n" +
-    "参数：--data-dir / --agent-dir / --execution（start）；--mode / --grant（submit/continue/switch-mode）\n" +
-    "认证：RUUKOTO_OWNER_TOKEN 或 <数据目录>/../control/owner.token"
+    "参数：--data-dir / --agent-dir / --execution（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
+    "      --session <id>（tui：直接进入指定会话，不存在则报错）\n" +
+    "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"
   );
 }
 

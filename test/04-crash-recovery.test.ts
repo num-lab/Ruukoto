@@ -26,7 +26,7 @@ import {
   authenticateClient,
 } from "./helpers/testkit.ts";
 import { ControlClient } from "../src/control/client.ts";
-import { parseSessionFile } from "../src/agent/driver.ts";
+import { parseSessionFile } from "../src/core/history.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");

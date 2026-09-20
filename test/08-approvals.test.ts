@@ -639,8 +639,8 @@ test("崩溃恢复区分审批消费状态：已消费标 effect_unknown，未�
     );
     store.withTx(() => {
       store.transitionTask(task.id, ["queued"], "running", { startedAt: new Date().toISOString() });
-      store.recordToolIntent({ id: "op_consumed", taskId: task.id, toolName: "http_request", sdkCallId: "c_1", params: {} });
-      store.recordToolIntent({ id: "op_pending", taskId: task.id, toolName: "request_file_access", sdkCallId: "c_2", params: {} });
+      store.recordToolIntent({ id: "op_consumed", taskId: task.id, sessionId: session.id, toolName: "http_request", sdkCallId: "c_1", params: {} });
+      store.recordToolIntent({ id: "op_pending", taskId: task.id, sessionId: session.id, toolName: "request_file_access", sdkCallId: "c_2", params: {} });
       const consumed = store.createConfirmation({
         taskId: task.id,
         sessionId: session.id,
@@ -827,5 +827,46 @@ test("SQLite v1→v2 事务迁移：旧任务默认请求确认，旧未决审�
   } catch (err) {
     fs.rmSync(root, { recursive: true, force: true });
     throw err;
+  }
+});
+
+test("批准绑定权限版本：版本不匹配的应答被拒绝", async () => {
+  const responder: Responder = (req) => {
+    const done = req.messages.filter((m) => m?.role === "tool").length;
+    if (done === 0) {
+      return {
+        kind: "tool_calls",
+        calls: [{ id: "c_pv", name: "mock_gate", arguments: { note: "版本绑定" } }],
+      };
+    }
+    return { kind: "text", text: "收尾" };
+  };
+  const t = await startTestRuntime("perm-version", responder, { workDirs: 1 });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!, { confirmTools: ["mock_gate"] });
+    const task = await t.client.request<any>("submit", { session_id: sessionId, request_id: "pv-1", input: "触发审批" });
+    const conf = await pendingConfirmation(t.client, task.id);
+    assert.ok(conf.permissionVersion >= 1);
+    // 错误的权限版本：明确拒绝，不消费批准
+    await assert.rejects(
+      () =>
+        t.client.request("respond_confirmation", {
+          confirmation_id: conf.id,
+          decision: "approve",
+          permission_version: conf.permissionVersion + 1,
+        }),
+      (err: any) => err.code === "permission_version_mismatch",
+    );
+    const still = await taskStatus(t.client, task.id);
+    assert.equal(still.confirmations[0].status, "pending", "版本不匹配的应答不得消费审批");
+    // 正确版本：正常批准
+    await t.client.request("respond_confirmation", {
+      confirmation_id: conf.id,
+      decision: "approve",
+      permission_version: conf.permissionVersion,
+    });
+    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+  } finally {
+    await t.shutdown();
   }
 });

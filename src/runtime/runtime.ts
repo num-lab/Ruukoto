@@ -46,6 +46,31 @@ import { sessionsDirFor } from "../agent/session-factory.ts";
 import { fileURLToPath } from "node:url";
 import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
 import { grantCoversPath, resolveWorktreeCommonGitDir } from "../core/worktree.ts";
+import {
+  readHistoryEntryText,
+  readHistoryPage,
+  sliceTextByBytes,
+  tailTextByBytes,
+  HistoryReadError,
+  type HistoryEntryView,
+  type HistoryPage,
+} from "../core/history.ts";
+import {
+  confirmationToView,
+  toolOpToView,
+  FRAGMENT_TEXT_CAP,
+  SEGMENT_DEFAULT_BYTES,
+  SEGMENT_MAX_BYTES,
+  type BoundedText,
+  type ConfirmationRequestView,
+  type OutputPreview,
+  type ToolOpView,
+} from "../core/views.ts";
+
+/** 快照中每个会话保留的近期已结束任务数（更早的经 list_tasks 分页查询）。 */
+const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20;
+/** 快照/get_task 中输出预览的字节上限。 */
+const FRAGMENT_PREVIEW_CAP = FRAGMENT_TEXT_CAP;
 
 /** 服务代码根目录（本模块位于 <codeRoot>/src/runtime/）。 */
 const CODE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -228,7 +253,7 @@ export class Runtime {
             store.recordToolResult(op.id, "已知未执行：审批未消费即发生后台重启（批准不跨重启执行）", true);
             store.appendEvent(
               { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary: "已知未执行：审批未消费即发生后台重启", isError: true, artifactIds: [] },
-              { taskId: task.id },
+              { taskId: task.id, sessionId: task.sessionId },
             );
             continue;
           }
@@ -592,7 +617,8 @@ export class Runtime {
       throw new RuntimeApiError("not_found", `产物不存在或不属于该任务：${input.artifactId}`);
     }
     const offset = Math.max(0, input.offset ?? 0);
-    const length = Math.min(Math.max(1, input.length ?? 256 * 1024), 1024 * 1024);
+    // 上限按线上帧约束：base64 膨胀 4/3 + JSON 开销必须留在 MAX_FRAME_BYTES 内
+    const length = Math.min(Math.max(1, input.length ?? 256 * 1024), 720 * 1024);
     const buf = this.artifacts.read(artifact.id, offset, length);
     return { artifact, encoding: "base64", data: buf.toString("base64") };
   }
@@ -784,9 +810,20 @@ export class Runtime {
     throw new RuntimeApiError("invalid_state", `任务已结束（${task.status}），不能取消`);
   }
 
-  respondConfirmation(confirmationId: string, decision: "approved" | "rejected"): ConfirmationRequest {
+  respondConfirmation(
+    confirmationId: string,
+    decision: "approved" | "rejected",
+    expectedPermissionVersion?: number,
+  ): ConfirmationRequest {
     const confirmation = this.store.getConfirmation(confirmationId);
     if (!confirmation) throw new RuntimeApiError("not_found", `确认请求不存在：${confirmationId}`);
+    // 批准绑定原请求的权限版本：版本变化时拒绝旧选择，要求重新查看
+    if (expectedPermissionVersion !== undefined && confirmation.permissionVersion !== expectedPermissionVersion) {
+      throw new RuntimeApiError(
+        "permission_version_mismatch",
+        `审批的权限版本已变化（当前 ${confirmation.permissionVersion}，请求 ${expectedPermissionVersion}）：请刷新详情后重新决定`,
+      );
+    }
     const task = this.store.getTask(confirmation.taskId)!;
     if (task.status !== "awaiting_confirmation") {
       throw new RuntimeApiError("stale_confirmation", `确认请求已失效（任务状态 ${task.status}）`);
@@ -824,28 +861,95 @@ export class Runtime {
 
   // ---------- 快照 ----------
 
+  /** 数据实例稳定标识（待确认请求绑定；新数据库分配新标识）。 */
+  instanceId(): string {
+    return this.db.getInstanceId();
+  }
+
+  /** 执行后端说明（local 无隔离必须显式标记，不得暗示隔离已生效）。 */
+  executionInfo(): { backend: string; note: string } {
+    const backend = this.config.execution?.backend ?? "local";
+    const note =
+      backend === "local"
+        ? "local 执行后端：无隔离，仅用于开发/验证；不得据此声明请求确认模式的执行边界"
+        : backend === "container"
+          ? "container 执行后端：请求确认任务在 Linux 容器边界内执行"
+          : "systemd 执行账户入口：完全访问任务以固定执行 UID 运行";
+    return { backend, note };
+  }
+
+  /**
+   * 任务输出预览：活动任务优先取 Driver 当前状态（最新、未必已发事件），
+   * 否则回退到持久化的最新片段；片段所属消息已有最终条目 → 无预览。
+   * 中断/失败任务的残留片段标为 captured_partial（中断前已捕获部分）。
+   */
+  outputPreviewFor(task: Task): OutputPreview | null {
+    if (task.status === "running" || task.status === "awaiting_confirmation") {
+      const live = this.drivers.get(task.sessionId)?.currentOutputPreview(task.id);
+      if (live) {
+        const capped = tailTextByBytes(live.text, FRAGMENT_PREVIEW_CAP);
+        const latest = this.store.getLatestOutputFragment(task.id);
+        return {
+          messageId: live.messageId,
+          text: capped.text,
+          totalBytes: capped.totalBytes,
+          truncated: capped.truncated,
+          seq: latest?.messageId === live.messageId ? latest.seq : this.store.getMaxSeq(),
+          state: "generating",
+        };
+      }
+      const persisted = this.store.getLatestOutputFragment(task.id);
+      if (persisted && !this.store.hasOutputEntryForMessage(task.id, persisted.messageId)) {
+        return { ...persisted, state: "generating" };
+      }
+      return null;
+    }
+    if (task.status === "interrupted" || task.status === "failed" || task.status === "canceled") {
+      const persisted = this.store.getLatestOutputFragment(task.id);
+      if (persisted && !this.store.hasOutputEntryForMessage(task.id, persisted.messageId)) {
+        return { ...persisted, state: "captured_partial" };
+      }
+    }
+    return null;
+  }
+
   snapshot(): {
     projects: Project[];
     sessions: Session[];
     tasks: Task[];
-    confirmations: ConfirmationRequest[];
+    confirmations: ConfirmationRequestView[];
     artifacts: Artifact[];
+    previews: Record<string, OutputPreview>;
+    instanceId: string;
+    execution: { backend: string; note: string };
     seq: number;
   } {
+    // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
+    const sessions = this.store.listSessions();
+    const tasks: Task[] = [];
+    for (const session of sessions) {
+      const all = this.store.listTasksBySession(session.id);
+      const active = all.filter((t) => ACTIVE_TASK_STATUSES.includes(t.status));
+      const ended = all
+        .filter((t) => !ACTIVE_TASK_STATUSES.includes(t.status))
+        .sort((a, b) => (a.endedAt ?? a.createdAt).localeCompare(b.endedAt ?? b.createdAt) || b.id.localeCompare(a.id))
+        .slice(0, SNAPSHOT_ENDED_TASKS_PER_SESSION);
+      tasks.push(...active, ...ended);
+    }
+    const previews: Record<string, OutputPreview> = {};
+    for (const task of tasks) {
+      const preview = this.outputPreviewFor(task);
+      if (preview) previews[task.id] = preview;
+    }
     return {
       projects: this.store.listProjects(),
-      sessions: this.store.listSessions(),
-      tasks: this.store.listTasksByStatus([
-        "queued",
-        "running",
-        "awaiting_confirmation",
-        "completed",
-        "failed",
-        "canceled",
-        "interrupted",
-      ]),
-      confirmations: this.store.listConfirmationsByStatus("pending"),
+      sessions,
+      tasks,
+      confirmations: this.store.listConfirmationsByStatus("pending").map(confirmationToView),
       artifacts: this.listRecentArtifacts(),
+      previews,
+      instanceId: this.db.getInstanceId(),
+      execution: this.executionInfo(),
       seq: this.store.getMaxSeq(),
     };
   }
@@ -866,16 +970,111 @@ export class Runtime {
     return out;
   }
 
-  /** 单任务详情：任务、工具操作、确认请求（含完整参数与权限范围）、产物。 */
-  getTaskDetail(taskId: string): { task: Task; toolOps: ToolOp[]; confirmations: ConfirmationRequest[]; artifacts: Artifact[] } | null {
+  /**
+   * 单任务详情：任务、工具操作、确认请求（参数有界预览，超限经
+   * getConfirmationParams / getToolOpParams 分段读取）、产物、输出预览。
+   */
+  getTaskDetail(taskId: string): {
+    task: Task;
+    toolOps: ToolOpView[];
+    confirmations: ConfirmationRequestView[];
+    artifacts: Artifact[];
+    outputPreview: OutputPreview | null;
+  } | null {
     const task = this.store.getTask(taskId);
     if (!task) return null;
     return {
       task,
-      toolOps: this.store.listToolOpsByTask(task.id),
-      confirmations: this.store.listConfirmationsByTask(task.id),
+      toolOps: this.store.listToolOpsByTask(task.id).map(toolOpToView),
+      confirmations: this.store.listConfirmationsByTask(task.id).map(confirmationToView),
       artifacts: this.store.listArtifactsByTask(task.id),
+      outputPreview: this.outputPreviewFor(task),
     };
+  }
+
+  /** 按 会话 + request_id 精确查询（重连幂等核实；含已离开快照的完成任务）。 */
+  findTaskByRequest(input: { sessionId: string; requestId: string }): { task: Task | null } {
+    const session = this.store.getSession(input.sessionId);
+    if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+    if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
+    return { task: this.store.findTaskByRequest(input.sessionId, input.requestId) };
+  }
+
+  /** 会话内任务分页（新 → 旧；已结束任务的历史查询入口）。 */
+  listTasks(input: { sessionId: string; before?: string; limit?: number }): { tasks: Task[]; hasMore: boolean } {
+    const session = this.store.getSession(input.sessionId);
+    if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+    try {
+      return this.store.listTasksBySessionPaged(input.sessionId, { before: input.before, limit: input.limit });
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+  }
+
+  // ---------- 历史读取（与 05 历史工具共用的读取边界） ----------
+
+  /** 历史读取的公共边界：会话归属校验 + 错误码传递（损坏 vs 未落盘）。 */
+  private withSessionHistory<T>(sessionId: string, fn: (sessionFile: string | null) => T): T {
+    const session = this.store.getSession(sessionId);
+    if (!session) throw new RuntimeApiError("not_found", `会话不存在：${sessionId}`);
+    try {
+      return fn(session.sessionFile);
+    } catch (err) {
+      if (err instanceof HistoryReadError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * 分页读取会话消息历史。文件路径由后台按会话归属查找，客户端不能传
+   * 任意宿主路径；损坏与尚未落盘明确区分（HistoryReadError /
+   * fileAvailable=false）。
+   */
+  readHistory(input: {
+    sessionId: string;
+    before?: string;
+    limit?: number;
+    entryTextCap?: number;
+    pageTextBudget?: number;
+  }): HistoryPage {
+    return this.withSessionHistory(input.sessionId, (file) => readHistoryPage(file, input));
+  }
+
+  /** 指定历史条目的正文分段（字节偏移，UTF-8 边界对齐）。 */
+  readHistoryEntry(input: { sessionId: string; entryId: string; offset?: number; length?: number }): HistoryEntryView {
+    return this.withSessionHistory(input.sessionId, (file) =>
+      readHistoryEntryText(file, input.entryId, input.offset, input.length),
+    );
+  }
+
+  /** 序列化参数 JSON 的有界分段（UTF-8 边界对齐）。 */
+  private pagedParams(params: Record<string, unknown>, offset?: number, length?: number): BoundedText {
+    const json = JSON.stringify(params);
+    const cap = Math.min(Math.max(1, length ?? SEGMENT_DEFAULT_BYTES), SEGMENT_MAX_BYTES);
+    return sliceTextByBytes(json, Math.max(0, offset ?? 0), cap);
+  }
+
+  /** 审批完整参数的分段读取（序列化 JSON 的字节切片，UTF-8 边界对齐）。 */
+  getConfirmationParams(input: { confirmationId: string; offset?: number; length?: number }): {
+    confirmation: Omit<ConfirmationRequest, "params">;
+    params: BoundedText;
+  } {
+    const confirmation = this.store.getConfirmation(input.confirmationId);
+    if (!confirmation) throw new RuntimeApiError("not_found", `确认请求不存在：${input.confirmationId}`);
+    const { params: _params, ...rest } = confirmation;
+    return { confirmation: rest, params: this.pagedParams(confirmation.params, input.offset, input.length) };
+  }
+
+  /** 工具操作完整参数的分段读取（同上）。 */
+  getToolOpParams(input: { toolOpId: string; offset?: number; length?: number }): {
+    toolOp: Omit<ToolOp, "params">;
+    params: BoundedText;
+  } {
+    const op = this.store.getToolOp(input.toolOpId);
+    if (!op) throw new RuntimeApiError("not_found", `工具操作不存在：${input.toolOpId}`);
+    const { params: _params, ...rest } = op;
+    return { toolOp: rest, params: this.pagedParams(op.params, input.offset, input.length) };
   }
 
   getEventLog(afterSeq: number, limit?: number): PersistentEvent[] {

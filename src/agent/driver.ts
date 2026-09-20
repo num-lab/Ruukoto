@@ -28,6 +28,8 @@ import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import type { AccessMode, Session, Task } from "../core/types.ts";
 import { randomId } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
+import { parseSessionFile, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
+import { FRAGMENT_TEXT_CAP } from "../core/views.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ExecutionError } from "./execution/launchers.ts";
@@ -78,6 +80,15 @@ export class Driver {
   private callMap = new Map<string, string>();
   private flushedEntryIds = new Set<string>();
   private lastFragmentAt = 0;
+  /**
+   * 流式 assistant 消息标识：SDK 的 message_update 每次携带新的对象副本，
+   * 不能按引用识别；改为 message_start 时按序分配，flushEntryRefs 按条目
+   * 顺序消费（条目落盘顺序与 message_start 顺序一致）。
+   */
+  private currentMsgId: string | null = null;
+  private pendingEntryMsgIds: string[] = [];
+  /** 当前任务的最新输出预览（全量在内存；事件只发有界尾部）。 */
+  private currentPreview: { messageId: string; text: string } | null = null;
   private runPromise: Promise<void> | null = null;
   /** SDK 扩展桥注入的 appendEntry（宿主标记条目，custom，不进模型上下文）。 */
   private markerApi: ((customType: string, data: unknown) => void) | null = null;
@@ -151,6 +162,9 @@ export class Driver {
     this.stopRequested = false;
     this.flushedEntryIds = new Set();
     this.callMap = new Map();
+    this.currentMsgId = null;
+    this.pendingEntryMsgIds = [];
+    this.currentPreview = null;
     this.registry.clear();
     this.runPromise = this.runInner(task);
     try {
@@ -330,7 +344,7 @@ export class Driver {
           store.markToolOpEffectUnknown(opId);
           store.appendEvent(
             { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: opId, toolName: op.toolName },
-            { taskId: task.id },
+            { taskId: task.id, sessionId: task.sessionId },
           );
         }
         store.setEffectUnknown(task.id);
@@ -448,6 +462,7 @@ export class Driver {
       store.recordToolIntent({
         id: hostOpId,
         taskId: task.id,
+        sessionId: task.sessionId,
         toolName: event.toolName,
         sdkCallId: event.toolCallId,
         params,
@@ -500,7 +515,7 @@ export class Driver {
         if (recorded) {
           store.appendEvent(
             { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: true, artifactIds: [] },
-            { taskId: task.id },
+            { taskId: task.id, sessionId: task.sessionId },
           );
         }
       });
@@ -572,7 +587,7 @@ export class Driver {
         if (recorded) {
           store.appendEvent(
             { type: "task.tool_result", taskId: input.task.id, toolOpId: input.hostOpId, summary, isError: true, artifactIds: [] },
-            { taskId: input.task.id },
+            { taskId: input.task.id, sessionId: input.task.sessionId },
           );
         }
       });
@@ -620,21 +635,57 @@ export class Driver {
 
   // ---------- 会话事件观察 ----------
 
+  /** 任务当前的输出预览（全量在内存；供重连重建，事件只发有界尾部）。 */
+  currentOutputPreview(taskId: string): { messageId: string; text: string } | null {
+    if (this.currentTask?.id !== taskId || !this.currentPreview) return null;
+    return this.currentPreview;
+  }
+
   private handleSessionEvent(event: AgentSessionEvent): void {
     const task = this.currentTask;
     if (!task) return;
 
     switch (event.type) {
+      case "message_start": {
+        // 新 assistant 消息开始：按序分配消息标识（片段与最终条目的关联键）
+        const message = (event as any).message;
+        if (message?.role === "assistant") {
+          const id = randomId("msg");
+          this.pendingEntryMsgIds.push(id);
+          this.currentMsgId = id;
+        }
+        return;
+      }
       case "message_update": {
-        // 流式片段：节流后按未完成输出发出（partial），不预支完整消息
+        const message = (event as any).message;
+        if (message?.role !== "assistant") return;
+        if (!this.currentMsgId) {
+          // 防御：未观察到 message_start（如直接 done 路径）
+          this.currentMsgId = randomId("msg");
+          this.pendingEntryMsgIds.push(this.currentMsgId);
+        }
+        const messageId = this.currentMsgId;
+        const text = extractText(message?.content);
+        if (text.length === 0) return;
+        // 内存中的预览每次都更新（重连重建取最新）；事件发送保持节流
+        this.currentPreview = { messageId, text };
         const now = Date.now();
         if (now - this.lastFragmentAt < FRAGMENT_INTERVAL_MS) return;
         this.lastFragmentAt = now;
-        const text = extractText((event.message as any)?.content);
-        if (text.length === 0) return;
+        // 有界预览：只保留尾部；完整文本落盘后由历史条目提供
+        const capped = tailTextByBytes(text, FRAGMENT_TEXT_CAP);
         this.deps.store.withTx(() => {
           this.deps.store.appendEvent(
-            { type: "task.output_fragment", taskId: task.id, sessionId: task.sessionId, text, partial: true },
+            {
+              type: "task.output_fragment",
+              taskId: task.id,
+              sessionId: task.sessionId,
+              messageId,
+              text: capped.text,
+              totalBytes: capped.totalBytes,
+              truncated: capped.truncated,
+              partial: true,
+            },
             { taskId: task.id, sessionId: task.sessionId },
           );
         });
@@ -650,7 +701,7 @@ export class Driver {
           if (recorded) {
             this.deps.store.appendEvent(
               { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds },
-              { taskId: task.id },
+              { taskId: task.id, sessionId: task.sessionId },
             );
           }
         });
@@ -664,6 +715,12 @@ export class Driver {
       default:
         return;
     }
+  }
+
+  /** 条目 → 流式消息标识：assistant 条目按落盘顺序消费分配的标识队列。 */
+  private takeMessageId(entry: ParsedSessionEntry): string | null {
+    if ((entry.message as any)?.role !== "assistant") return null;
+    return this.pendingEntryMsgIds.shift() ?? null;
   }
 
   /** 读 JSONL，把本次任务尚未引用过的消息条目补发为 output_entry（先核实落盘）。 */
@@ -682,6 +739,7 @@ export class Driver {
         if (entry.type !== "message") continue;
         if (this.flushedEntryIds.has(entry.id)) continue;
         this.flushedEntryIds.add(entry.id);
+        const messageId = this.takeMessageId(entry);
         this.deps.store.withTx(() => {
           this.deps.store.addHistoryEntryIds(task.id, [entry.id]);
           this.deps.store.appendEvent(
@@ -692,6 +750,7 @@ export class Driver {
               entryId: entry.id,
               sessionFile: file,
               role: String(entry.message?.role ?? "unknown"),
+              messageId,
             },
             { taskId: task.id, sessionId: task.sessionId },
           );
@@ -796,23 +855,4 @@ function summarizeToolResult(result: any): string {
   } catch {
     return String(result).slice(0, 300);
   }
-}
-
-export interface ParsedSessionEntry {
-  type: string;
-  id: string;
-  [key: string]: unknown;
-}
-
-/** 严格解析 JSONL：任何一行损坏都抛错（不静默跳过、不覆盖原文件）。 */
-export function parseSessionFile(file: string): ParsedSessionEntry[] {
-  const text = fs.readFileSync(file, "utf8");
-  const lines = text.split("\n").filter((l) => l.trim().length > 0);
-  return lines.map((line, i) => {
-    try {
-      return JSON.parse(line) as ParsedSessionEntry;
-    } catch (err) {
-      throw new Error(`会话文件第 ${i + 1} 行解析失败：${(err as Error).message}`);
-    }
-  });
 }

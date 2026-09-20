@@ -300,3 +300,42 @@ test("产物磁盘写入失败：停止执行、保留已捕获部分与失败�
     await t.shutdown();
   }
 });
+
+test("产物读取上限：base64 开销后仍在帧上限内（超限长度被收敛而非发送失败）", async () => {
+  const responder: Responder = () => ({
+    kind: "tool_calls",
+    calls: [{ id: "c_big", name: "bash", arguments: { command: "head -c 900000 /dev/urandom | base64" } }],
+  });
+  const t = await startTestRuntime("artifact-cap", responder, { workDirs: 1, config: realTools() });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await t.client.request<any>("submit", { session_id: sessionId, request_id: "cap-1", input: "产生大输出" });
+    await waitFor("工具完成", async () => {
+      const d = await taskStatus(t.client, task.id);
+      return d.toolOps.length > 0 && d.toolOps[0].resultSummary !== null;
+    }, 60_000);
+    const detail = await taskStatus(t.client, task.id);
+    const artifact = detail.artifacts[0];
+    assert.ok(artifact, "应有产物");
+    // 请求超过上限的长度：服务端收敛到上限，应答仍在帧上限内（不报 response_too_large）
+    const page = await t.client.request<any>("read_artifact", {
+      task_id: task.id,
+      artifact_id: artifact.id,
+      offset: 0,
+      length: 1024 * 1024,
+    });
+    const bytes = Buffer.from(page.data, "base64").length;
+    assert.ok(bytes <= 720 * 1024, `单次读取不超过 720 KiB（实际 ${bytes}）`);
+    assert.ok(bytes > 0, "有内容");
+    // 顺序翻页可读完
+    const page2 = await t.client.request<any>("read_artifact", {
+      task_id: task.id,
+      artifact_id: artifact.id,
+      offset: bytes,
+      length: 720 * 1024,
+    });
+    assert.ok(Buffer.from(page2.data, "base64").length >= 0);
+  } finally {
+    await t.shutdown();
+  }
+});

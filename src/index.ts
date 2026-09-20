@@ -9,6 +9,7 @@ export { Db } from "./core/db.ts";
 export { Store, StoreConflictError } from "./core/store.ts";
 export { acquireInstanceLock, InstanceLockError } from "./core/instance-lock.ts";
 export { resolveDirIdentity, verifyDirIdentity, DirIdentityError, type DirIdentity } from "./core/dir-identity.ts";
-export { Driver, parseSessionFile } from "./agent/driver.ts";
+export { Driver } from "./agent/driver.ts";
+export { parseSessionFile } from "./core/history.ts";
 export { createMockTools, MOCK_TOOL_NAMES } from "./agent/mock-tools.ts";
 export * from "./core/types.ts";

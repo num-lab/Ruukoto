@@ -1,29 +1,42 @@
 /**
- * 受管工具进程登记表（每会话一份）。
+ * 受管执行单元登记表（每会话一份）。
  *
- * 工具执行期间产生的子进程在此登记 pid（POSIX 进程组，detached spawn）。
- * 中断/取消路径对进程组先发 SIGTERM，超时升级 SIGKILL；只有确认进程退出
- * 后才允许释放目录占用。无法确认退出时保留占用并报错。
+ * 工具执行环境在此登记可回收身份：POSIX 进程组（本地工作进程）、容器
+ * （任务容器）或 systemd 单元（完全访问的执行账户，issue 03）。停止路径对
+ * 执行单元先 TERM 后 KILL（或等价的整单元停止），只有确认整个单元（含其
+ * 子进程/cgroup）已退出才允许释放目录占用。无法确认退出时保留占用并报错
+ * ——仅杀主进程或等待主 PID 消失不足以证明后代已退出。
  */
 
 import * as childProcess from "node:child_process";
 
+export type ManagedUnitKind = "process_group" | "container" | "systemd_unit";
+
+export interface ManagedEntry {
+  kind: ManagedUnitKind;
+  /** 进程组 id（=主 pid）或容器名/容器 id。 */
+  id: string;
+  label: string;
+  /** 停止并核实整个执行单元已退出；false = 无法确认。 */
+  stop: () => Promise<boolean>;
+}
+
 export interface ManagedProcessRegistry {
-  /** 工具在 spawn 后登记 pid（已 detach 成独立进程组，pgid == pid）。 */
-  register(pid: number, label: string): void;
-  /** 任务结束清扫：登记表内容（正常结束的工具应已自行等待子进程退出）。 */
-  list(): Array<{ pid: number; label: string }>;
+  /** 登记一个可回收的执行单元（工具进程组或任务容器）。 */
+  register(entry: ManagedEntry): void;
+  /** 任务结束清扫：登记表内容（正常结束的执行单元应已自行退出）。 */
+  list(): ManagedEntry[];
   clear(): void;
 }
 
 export function createManagedProcessRegistry(): ManagedProcessRegistry {
-  const entries = new Map<number, string>();
+  const entries = new Map<string, ManagedEntry>();
   return {
-    register(pid, label) {
-      entries.set(pid, label);
+    register(entry) {
+      entries.set(`${entry.kind}:${entry.id}`, entry);
     },
     list() {
-      return Array.from(entries, ([pid, label]) => ({ pid, label }));
+      return Array.from(entries.values());
     },
     clear() {
       entries.clear();

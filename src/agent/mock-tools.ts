@@ -14,7 +14,7 @@ import * as fs from "node:fs/promises";
 import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { ManagedProcessRegistry } from "./managed-processes.ts";
+import { killProcessGroup, type ManagedProcessRegistry } from "./managed-processes.ts";
 
 export interface MockToolContext {
   registry: ManagedProcessRegistry;
@@ -59,7 +59,12 @@ export function createMockTools(ctx: MockToolContext): ToolDefinition[] {
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      ctx.registry.register(child.pid!, `${params.file} ${params.args.join(" ")}`.trim());
+      ctx.registry.register({
+        kind: "process_group",
+        id: String(child.pid!),
+        label: `${params.file} ${params.args.join(" ")}`.trim(),
+        stop: () => killProcessGroup(child.pid!),
+      });
       const stdout = await new Promise<{ code: number | null; out: string }>((resolve) => {
         let out = "";
         child.stdout!.on("data", (c: Buffer) => {

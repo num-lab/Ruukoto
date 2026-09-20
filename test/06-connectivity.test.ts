@@ -14,7 +14,7 @@ import * as os from "node:os";
 import { Runtime } from "../src/runtime/runtime.ts";
 import { ControlServer } from "../src/control/server.ts";
 import { ControlClient } from "../src/control/client.ts";
-import { waitFor, taskStatus } from "./helpers/testkit.ts";
+import { waitFor, taskStatus, authenticateClient } from "./helpers/testkit.ts";
 
 interface ProviderAttempt {
   provider: string;
@@ -57,6 +57,7 @@ test("真实模型连通性（RUN_MODEL_CHECK=1 开启）", { skip: process.env.
       });
       await ControlServer.start(runtime);
       const client = await ControlClient.connect(runtime.socketPath());
+      await authenticateClient(client, runtime.controlDir());
       await client.handshake();
       const project = await client.request<any>("create_project", { name: "model-check" });
       const session = await client.request<any>("create_session", {

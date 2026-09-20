@@ -15,34 +15,60 @@ import { randomUUID } from "node:crypto";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Db } from "../core/db.ts";
-import { Store, StoreConflictError } from "../core/store.ts";
+import { isToolOpExecutionUncertain, Store, StoreConflictError } from "../core/store.ts";
 import {
   ACTIVE_TASK_STATUSES,
   isTerminalTaskStatus,
+  type AccessMode,
+  type Artifact,
   type ConfirmationRequest,
+  type GrantedPath,
   type PersistentEvent,
   type Project,
   type Session,
   type Task,
+  type ToolOp,
   randomId,
 } from "../core/types.ts";
 import { acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
 import { resolveDirIdentity, verifyDirIdentity, DirIdentityError } from "../core/dir-identity.ts";
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
+import { createCodingTools } from "../agent/tool-router.ts";
+import { ArtifactStore } from "../agent/artifacts.ts";
+import { CredentialStore } from "../agent/execution/credentials.ts";
+import {
+  createLauncherFor,
+  ExecutionError,
+  type ExecutionBackendConfig,
+} from "../agent/execution/launchers.ts";
 import { sessionsDirFor } from "../agent/session-factory.ts";
+import { fileURLToPath } from "node:url";
+import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
+import { grantCoversPath, resolveWorktreeCommonGitDir } from "../core/worktree.ts";
+
+/** 服务代码根目录（本模块位于 <codeRoot>/src/runtime/）。 */
+const CODE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 export interface RuntimeConfig {
   dataDir: string;
   /** pi 凭据与模型配置目录（显式指定，不读 ~/.pi/agent）。 */
   agentDir: string;
+  /** 控制面目录（socket 与拥有者令牌；默认数据目录的兄弟目录 control/）。 */
+  controlDir?: string;
   socketPath?: string;
   thinkingLevel?: "off" | "minimal" | "medium" | "high" | "xhigh";
   /** 默认取 models.json 的第一个模型；可显式指定 provider/id。 */
   modelProvider?: string;
   modelId?: string;
-  /** 默认使用模拟工具；真实编码工具由 issue 03 沿用同一执行路径接入。 */
-  toolFactory?: (ctx: { registry: import("../agent/managed-processes.ts").ManagedProcessRegistry }) => ToolDefinition[];
+  /**
+   * 工具执行后端：local（开发/验证，无隔离，禁止用于声明请求确认模式的
+   * 边界）| container（Linux 容器边界）| systemd（执行账户入口）。
+   * 省略时取 local：只适用于开发与模拟验证，生产部署必须显式配置。
+   */
+  execution?: ExecutionBackendConfig;
+  /** 默认注册真实编码工具（路由器 + 工具工作进程）；模拟测试可覆盖。 */
+  toolFactory?: (ctx: { registry: import("../agent/managed-processes.ts").ManagedProcessRegistry; router: import("../agent/tool-router.ts").ToolRouter }) => ToolDefinition[];
 }
 
 export class RuntimeApiError extends Error {
@@ -83,6 +109,8 @@ export class Runtime {
   readonly config: RuntimeConfig;
   private readonly db: Db;
   readonly store: Store;
+  readonly artifacts: ArtifactStore;
+  readonly credentials: CredentialStore;
   private readonly lock: AcquiredLock;
   modelRuntime!: ModelRuntime;
   private model: any;
@@ -101,32 +129,61 @@ export class Runtime {
     this.db = db;
     this.store = store;
     this.lock = lock;
+    this.artifacts = new ArtifactStore(config.dataDir, store);
+    this.credentials = new CredentialStore(config.agentDir);
     store.onCommitted = (events) => this.onEventBroadcast?.(events);
   }
 
-  static async start(config: RuntimeConfig): Promise<Runtime> {
-    fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
-    fs.mkdirSync(config.agentDir, { recursive: true, mode: 0o700 });
-    fs.mkdirSync(sessionsDirFor(config.dataDir), { recursive: true, mode: 0o700 });
+  /** 控制面目录（socket 与拥有者令牌所在）。 */
+  controlDir(): string {
+    return this.config.controlDir ?? path.join(path.dirname(path.resolve(this.config.dataDir)), "control");
+  }
 
-    const lock = acquireInstanceLock(config.dataDir);
+  /** 始终排除的保护根目录：后台数据、服务凭据、控制面与服务代码（realpath 规范化）。 */
+  protectedRoots(): string[] {
+    const canonical = (p: string): string => {
+      try {
+        return fs.realpathSync(p);
+      } catch {
+        return path.resolve(p);
+      }
+    };
+    return [
+      canonical(this.config.dataDir),
+      canonical(this.config.agentDir),
+      canonical(this.controlDir()),
+      canonical(CODE_ROOT),
+    ];
+  }
+
+  launcherFor(mode: AccessMode) {
+    return createLauncherFor(this.config.execution ?? { backend: "local" }, mode);
+  }
+
+  static async start(config: RuntimeConfig): Promise<Runtime> {
+    const fullConfig: RuntimeConfig = { ...config, execution: config.execution ?? { backend: "local" } };
+    fs.mkdirSync(fullConfig.dataDir, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(fullConfig.agentDir, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(sessionsDirFor(fullConfig.dataDir), { recursive: true, mode: 0o700 });
+
+    const lock = acquireInstanceLock(fullConfig.dataDir);
     let runtime: Runtime;
     try {
-      const db = new Db(config.dataDir);
+      const db = new Db(fullConfig.dataDir);
       const store = new Store(db);
-      runtime = new Runtime(config, db, store, lock);
+      runtime = new Runtime(fullConfig, db, store, lock);
     } catch (err) {
       lock.release();
       throw err;
     }
 
     runtime.modelRuntime = await ModelRuntime.create({
-      authPath: path.join(config.agentDir, "auth.json"),
-      modelsPath: path.join(config.agentDir, "models.json"),
+      authPath: path.join(fullConfig.agentDir, "auth.json"),
+      modelsPath: path.join(fullConfig.agentDir, "models.json"),
       modelsStore: new InMemoryModelsStore(),
       refreshOnCreate: false,
     });
-    const model = await resolveConfiguredModel(runtime, config);
+    const model = await resolveConfiguredModel(runtime, fullConfig);
     if (!model) {
       lock.release();
       throw new RuntimeApiError(
@@ -138,13 +195,13 @@ export class Runtime {
 
     runtime.recover();
     runtime.store.withTx(() => {
-      runtime.store.appendEvent({ type: "backend.started", dataDir: config.dataDir });
+      runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend });
     });
     return runtime;
   }
 
   socketPath(): string {
-    return this.config.socketPath ?? path.join(this.config.dataDir, "control.sock");
+    return this.config.socketPath ?? path.join(this.controlDir(), "control.sock");
   }
 
   // ---------- 恢复 ----------
@@ -157,10 +214,25 @@ export class Runtime {
       const interruptedTaskIds: string[] = [];
       const pausedSessionIds: string[] = [];
 
-      // 1. 未完成执行 → interrupted；结果缺失的工具操作保留 effect_unknown 事实
+      // 1. 未完成执行 → interrupted；结果缺失的工具操作区分两种事实：
+      //    - 审批未消费（pending/stale/rejected，或 approved 但未消费）→
+      //      已知未执行，记录明确结果，不算效果未知；
+      //    - 批准已消费（执行已开始）或无审批的直接执行 → 结果缺失且可能
+      //      已产生外部效果 → effect_unknown，不重放。
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const unresolved = store.listUnresolvedToolOps(task.id);
+        const confirmations = store.listConfirmationsByTask(task.id);
+        let effectUnknownCount = 0;
         for (const op of unresolved) {
+          if (!isToolOpExecutionUncertain(op, confirmations)) {
+            store.recordToolResult(op.id, "已知未执行：审批未消费即发生后台重启（批准不跨重启执行）", true);
+            store.appendEvent(
+              { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary: "已知未执行：审批未消费即发生后台重启", isError: true, artifactIds: [] },
+              { taskId: task.id },
+            );
+            continue;
+          }
+          effectUnknownCount++;
           store.markToolOpEffectUnknown(op.id);
           store.appendEvent(
             { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: op.id, toolName: op.toolName },
@@ -172,7 +244,7 @@ export class Runtime {
           endedAt: new Date().toISOString(),
         });
         if (changed) {
-          if (unresolved.length > 0) store.setEffectUnknown(task.id);
+          if (effectUnknownCount > 0) store.setEffectUnknown(task.id);
           store.stalePendingConfirmations(task.id);
           store.appendEvent(
             {
@@ -181,7 +253,7 @@ export class Runtime {
               sessionId: task.sessionId,
               reason: "backend_restart",
               cancelRequested: task.cancelRequested,
-              effectUnknown: unresolved.length > 0,
+              effectUnknown: effectUnknownCount > 0,
             },
             { taskId: task.id, sessionId: task.sessionId },
           );
@@ -291,6 +363,12 @@ export class Runtime {
     const identity = await resolveDirIdentity(input.cwd).catch((err: DirIdentityError) =>
       Promise.reject(new RuntimeApiError("invalid_params", err.message)),
     );
+    // 工作区不得是保护根（后台数据、凭据、控制面、服务代码）本身、其子级或其祖先
+    try {
+      assertGrantNotProtected(identity.cwdReal, this.protectedRoots());
+    } catch (err) {
+      throw new RuntimeApiError("invalid_params", `工作区不可用：${(err as Error).message}`);
+    }
     return this.store.withTx(() =>
       this.store.createSession({
         projectId: input.projectId,
@@ -306,12 +384,75 @@ export class Runtime {
 
   // ---------- 提交与排队 ----------
 
-  submit(input: { sessionId: string; requestId: string; input: string; resumesTaskId?: string }): Task {
+  /**
+   * 校验拥有者为任务显式授予的工作区外路径：必须存在，且不得是保护根
+   * （后台数据、凭据、控制面、服务代码）本身、其子级或其祖先。
+   */
+  private validateGrantedPaths(paths: GrantedPath[]): GrantedPath[] {
+    const resolved: GrantedPath[] = [];
+    for (const p of paths) {
+      if (!p.path.trim()) throw new RuntimeApiError("invalid_params", "授予路径不能为空");
+      if (p.access !== "read" && p.access !== "read_write") {
+        throw new RuntimeApiError("invalid_params", `授予路径访问级别无效：${p.access}`);
+      }
+      let real: string;
+      try {
+        real = fs.realpathSync(p.path);
+      } catch {
+        throw new RuntimeApiError("invalid_params", `授予路径不存在：${p.path}`);
+      }
+      try {
+        assertGrantNotProtected(real, this.protectedRoots());
+      } catch (err) {
+        throw new RuntimeApiError("invalid_params", (err as Error).message);
+      }
+      resolved.push({ path: real, access: p.access, purpose: p.purpose || "未说明" });
+    }
+    return resolved;
+  }
+
+  /**
+   * worktree 的共享 Git 元数据在工作区之外：授予路径覆盖它时在用途中展示
+   * 共享影响（不自动挂载主仓库或父目录——只有拥有者显式给出的路径进入边界）。
+   */
+  private annotateSharedGitMetadata(cwdReal: string, granted: GrantedPath[]): GrantedPath[] {
+    const commonGitDir = resolveWorktreeCommonGitDir(cwdReal);
+    if (!commonGitDir) return granted;
+    return granted.map((p) =>
+      grantCoversPath(p.path, commonGitDir) && !p.purpose.includes("共享 Git 元数据")
+        ? { ...p, purpose: `${p.purpose}（共享 Git 元数据：${commonGitDir}）` }
+        : p,
+    );
+  }
+
+  submit(input: {
+    sessionId: string;
+    requestId: string;
+    input: string;
+    accessMode?: AccessMode;
+    grantedPaths?: GrantedPath[];
+    resumesTaskId?: string;
+  }): Task {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
+    const accessMode = input.accessMode ?? "confirm";
+    if (accessMode !== "confirm" && accessMode !== "full_access") {
+      throw new RuntimeApiError("invalid_params", `访问模式无效：${accessMode}`);
+    }
+    // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
+    try {
+      this.launcherFor(accessMode);
+    } catch (err) {
+      const code = err instanceof ExecutionError ? err.code : "execution_unavailable";
+      throw new RuntimeApiError(code, `${accessMode} 模式的执行入口不可用：${(err as Error).message}`);
+    }
+    const grantedPaths = this.annotateSharedGitMetadata(
+      session.cwdReal,
+      this.validateGrantedPaths(input.grantedPaths ?? []),
+    );
 
     let task: Task;
     let duplicate: boolean;
@@ -321,6 +462,8 @@ export class Runtime {
           sessionId: input.sessionId,
           requestId: input.requestId,
           input: input.input,
+          accessMode,
+          grantedPaths,
           resumesTaskId: input.resumesTaskId,
         }),
       ));
@@ -334,8 +477,12 @@ export class Runtime {
     return task;
   }
 
-  /** 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。 */
-  continueTask(input: { taskId: string; requestId: string; input: string }): Task {
+  /**
+   * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
+   * 新任务默认请求确认；旧批准不继承，拥有者可在提交时重新明确选择
+   * 完全访问。
+   */
+  continueTask(input: { taskId: string; requestId: string; input: string; accessMode?: AccessMode; grantedPaths?: GrantedPath[] }): Task {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
     if (old.status !== "interrupted") {
@@ -345,8 +492,125 @@ export class Runtime {
       sessionId: old.sessionId,
       requestId: input.requestId,
       input: input.input,
+      accessMode: input.accessMode ?? "confirm",
+      grantedPaths: input.grantedPaths,
       resumesTaskId: old.id,
     });
+  }
+
+  /**
+   * 拥有者显式切换任务访问模式（完全访问只能由此入口或提交参数选择）。
+   * - queued/awaiting_confirmation（无执行中工具）：立即应用——停止并核实
+   *   旧执行单元退出后落库；awaiting 的等待审批一并失效；
+   * - running（工具执行中）：登记待生效模式，在下一个工具边界应用；
+   *   执行中的调用继续使用开始时的范围；需要立即停止请用中断。
+   */
+  async switchTaskMode(input: { taskId: string; mode: AccessMode; grantedPaths?: GrantedPath[] }): Promise<Task> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
+    const task = this.store.getTask(input.taskId);
+    if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    if (input.mode !== "confirm" && input.mode !== "full_access") {
+      throw new RuntimeApiError("invalid_params", `访问模式无效：${input.mode}`);
+    }
+    if (task.accessMode === input.mode && !input.grantedPaths) {
+      throw new RuntimeApiError("invalid_state", `任务已是 ${input.mode} 模式`);
+    }
+    // 目标模式的执行入口必须可用（明确失败，不回退）
+    try {
+      this.launcherFor(input.mode);
+    } catch (err) {
+      const code = err instanceof ExecutionError ? err.code : "execution_unavailable";
+      throw new RuntimeApiError(code, `目标模式的执行入口不可用：${(err as Error).message}`);
+    }
+    if (input.grantedPaths) {
+      this.validateGrantedPaths(input.grantedPaths);
+    }
+    if (isTerminalTaskStatus(task.status)) {
+      throw new RuntimeApiError("invalid_state", `任务已结束（${task.status}），不能切换模式`);
+    }
+    if (task.status === "queued" || task.status === "awaiting_confirmation") {
+      // 无执行中工具的边界：立即应用
+      const driver = this.drivers.get(task.sessionId);
+      const reaped = driver ? await driver.router.stopWorker() : true;
+      if (!reaped) {
+        // 无法核实旧执行单元退出：任务中断、占用保留（不可安全继续）
+        this.store.withTx(() => {
+          if (this.store.transitionTask(task.id, ["queued", "running", "awaiting_confirmation"], "interrupted", {
+            interruptReason: "mode_switch_unverified",
+            endedAt: new Date().toISOString(),
+          })) {
+            this.store.stalePendingConfirmations(task.id);
+            this.store.appendEvent(
+              { type: "task.mode_switch_failed", taskId: task.id, sessionId: task.sessionId, to: input.mode, reason: "无法核实旧执行单元已退出" },
+              { taskId: task.id, sessionId: task.sessionId },
+            );
+          }
+        });
+        throw new RuntimeApiError("mode_switch_unverified", "无法核实旧执行单元已退出，任务已中断（占用保留待核实）");
+      }
+      this.store.withTx(() => {
+        let version = task.permissionVersion;
+        if (input.grantedPaths) {
+          const session = this.store.getSession(task.sessionId)!;
+          const annotated = this.annotateSharedGitMetadata(session.cwdReal, this.validateGrantedPaths(input.grantedPaths));
+          version = this.store.updateGrantedPaths(task.id, annotated);
+        }
+        version = this.store.applyModeSwitch(task.id, input.mode);
+        this.store.appendEvent(
+          { type: "task.mode_switched", taskId: task.id, sessionId: task.sessionId, from: task.accessMode, to: input.mode, permissionVersion: version },
+          { taskId: task.id, sessionId: task.sessionId },
+        );
+      });
+      if (driver && task.status === "awaiting_confirmation") {
+        driver.supersedeWaiters();
+      }
+      return this.store.getTask(task.id)!;
+    }
+    // running：登记待生效，工具边界处应用
+    this.store.withTx(() => {
+      if (this.store.requestModeSwitch(task.id, input.mode)) {
+        this.store.appendEvent(
+          { type: "task.mode_switch_requested", taskId: task.id, sessionId: task.sessionId, from: task.accessMode, to: input.mode },
+          { taskId: task.id, sessionId: task.sessionId },
+        );
+      }
+    });
+    return this.store.getTask(task.id)!;
+  }
+
+  // ---------- 审批 / 产物 / 凭据 ----------
+
+  /**
+   * 拥有者查询任务产物正文（按 id、偏移、长度）。宿主依据任务归属查找，
+   * 不接受任意宿主路径，不跨任务返回正文。
+   */
+  queryArtifact(input: { taskId: string; artifactId: string; offset?: number; length?: number }): { artifact: Artifact; encoding: "base64"; data: string } {
+    const task = this.store.getTask(input.taskId);
+    if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    const artifact = this.store.getArtifact(input.artifactId);
+    if (!artifact || artifact.taskId !== input.taskId) {
+      throw new RuntimeApiError("not_found", `产物不存在或不属于该任务：${input.artifactId}`);
+    }
+    const offset = Math.max(0, input.offset ?? 0);
+    const length = Math.min(Math.max(1, input.length ?? 256 * 1024), 1024 * 1024);
+    const buf = this.artifacts.read(artifact.id, offset, length);
+    return { artifact, encoding: "base64", data: buf.toString("base64") };
+  }
+
+  listCredentialBindings() {
+    return this.credentials.list();
+  }
+
+  addCredentialBinding(input: { name: string; host: string; header: string; purpose: string; secret: string }) {
+    if (!input.name.trim() || !input.host.trim() || !input.header.trim() || !input.secret) {
+      throw new RuntimeApiError("invalid_params", "凭据绑定的名称、主机、头与秘密值都不能为空");
+    }
+    this.credentials.upsert({ ...input, host: input.host.toLowerCase() });
+    return { name: input.name, host: input.host.toLowerCase(), header: input.header, purpose: input.purpose };
+  }
+
+  removeCredentialBinding(name: string): boolean {
+    return this.credentials.remove(name);
   }
 
   // ---------- 调度 ----------
@@ -465,7 +729,13 @@ export class Runtime {
         modelRuntime: this.modelRuntime,
         model: this.model,
         thinkingLevel: this.config.thinkingLevel ?? "off",
-        toolFactory: this.config.toolFactory ?? ((ctx) => createMockTools(ctx)),
+        toolFactory:
+          this.config.toolFactory ??
+          ((ctx) => createCodingTools(ctx.router)),
+        artifacts: this.artifacts,
+        credentials: this.credentials,
+        launcherFor: (mode) => this.launcherFor(mode),
+        protectedRoots: this.protectedRoots(),
         onOccupancyReleased: () => this.kickAll(),
       });
       this.drivers.set(session.id, driver);
@@ -554,7 +824,14 @@ export class Runtime {
 
   // ---------- 快照 ----------
 
-  snapshot(): { projects: Project[]; sessions: Session[]; tasks: Task[]; confirmations: ConfirmationRequest[]; seq: number } {
+  snapshot(): {
+    projects: Project[];
+    sessions: Session[];
+    tasks: Task[];
+    confirmations: ConfirmationRequest[];
+    artifacts: Artifact[];
+    seq: number;
+  } {
     return {
       projects: this.store.listProjects(),
       sessions: this.store.listSessions(),
@@ -568,7 +845,36 @@ export class Runtime {
         "interrupted",
       ]),
       confirmations: this.store.listConfirmationsByStatus("pending"),
+      artifacts: this.listRecentArtifacts(),
       seq: this.store.getMaxSeq(),
+    };
+  }
+
+  /** 活动任务与最近结束任务的产物元数据（正文在产物文件，按 id 查询）。 */
+  private listRecentArtifacts(): Artifact[] {
+    const active = this.store.listTasksByStatus(["queued", "running", "awaiting_confirmation"]);
+    const ids = new Set<string>();
+    const out: Artifact[] = [];
+    for (const task of active) {
+      for (const artifact of this.store.listArtifactsByTask(task.id)) {
+        if (!ids.has(artifact.id)) {
+          ids.add(artifact.id);
+          out.push(artifact);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** 单任务详情：任务、工具操作、确认请求（含完整参数与权限范围）、产物。 */
+  getTaskDetail(taskId: string): { task: Task; toolOps: ToolOp[]; confirmations: ConfirmationRequest[]; artifacts: Artifact[] } | null {
+    const task = this.store.getTask(taskId);
+    if (!task) return null;
+    return {
+      task,
+      toolOps: this.store.listToolOpsByTask(task.id),
+      confirmations: this.store.listConfirmationsByTask(task.id),
+      artifacts: this.store.listArtifactsByTask(task.id),
     };
   }
 

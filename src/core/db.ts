@@ -11,7 +11,7 @@
 import { DatabaseSync } from "node:sqlite";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   input TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN
     ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
+  access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access')),
+  permission_version INTEGER NOT NULL DEFAULT 1,
+  granted_paths TEXT NOT NULL DEFAULT '[]',
+  pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access')),
   interrupt_reason TEXT,
   cancel_requested INTEGER NOT NULL DEFAULT 0,
   effect_unknown INTEGER NOT NULL DEFAULT 0,
@@ -72,14 +76,20 @@ CREATE TABLE IF NOT EXISTS confirmations (
   tool_op_id TEXT NOT NULL,
   tool_name TEXT NOT NULL,
   params TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT '{"kind":"tool","workspaceOnly":true}',
+  cwd_dev INTEGER NOT NULL DEFAULT 0,
+  cwd_ino INTEGER NOT NULL DEFAULT 0,
+  permission_version INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected','stale')),
   created_at TEXT NOT NULL,
-  responded_at TEXT
+  responded_at TEXT,
+  consumed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS tool_ops (
   id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL REFERENCES tasks(id),
   tool_name TEXT NOT NULL,
+  sdk_call_id TEXT,
   params TEXT NOT NULL,
   intent_recorded_at TEXT NOT NULL,
   result_summary TEXT,
@@ -88,6 +98,16 @@ CREATE TABLE IF NOT EXISTS tool_ops (
   recorded_result_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tool_ops_task ON tool_ops (task_id);
+CREATE TABLE IF NOT EXISTS artifacts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  session_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  byte_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'partial' CHECK (status IN ('partial','complete')),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts (task_id);
 CREATE TABLE IF NOT EXISTS events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id TEXT,
@@ -95,6 +115,26 @@ CREATE TABLE IF NOT EXISTS events (
   body TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+`;
+
+/**
+ * v1 → v2 迁移（单事务）：任务补访问模式与权限版本（旧任务默认请求确认）、
+ * 工具操作补 SDK 调用 id 列（宿主操作 id 不再复用模型调用 id）、确认请求补
+ * 权限范围/版本/消费时间，旧未决审批一律失效；新增产物表。历史、任务与事件
+ * 全部保留。
+ */
+const MIGRATION_V2_SQL = `
+ALTER TABLE tasks ADD COLUMN access_mode TEXT NOT NULL DEFAULT 'confirm';
+ALTER TABLE tasks ADD COLUMN permission_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE tasks ADD COLUMN granted_paths TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE tasks ADD COLUMN pending_access_mode TEXT;
+ALTER TABLE tool_ops ADD COLUMN sdk_call_id TEXT;
+UPDATE tool_ops SET sdk_call_id = id WHERE sdk_call_id IS NULL;
+ALTER TABLE confirmations ADD COLUMN scope TEXT NOT NULL DEFAULT '{"kind":"tool","workspaceOnly":true}';
+ALTER TABLE confirmations ADD COLUMN cwd_dev INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE confirmations ADD COLUMN cwd_ino INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE confirmations ADD COLUMN permission_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE confirmations ADD COLUMN consumed_at TEXT;
 `;
 
 export class Db {
@@ -109,16 +149,56 @@ export class Db {
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = FULL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
-    this.db.exec(SCHEMA_SQL);
-    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
-      | { value: string }
-      | undefined;
-    if (!row) {
+    // 全新数据库尚无 meta 表：查询失败按"无版本记录"处理，进入建表事务
+    let row: { value: string } | undefined;
+    try {
+      row = this.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
+        | { value: string }
+        | undefined;
+    } catch {
+      row = undefined;
+    }
+    const version = row ? Number(row.value) : SCHEMA_VERSION;
+    if (row && version === SCHEMA_VERSION) {
+      // v2 及以后：仅补齐缺失对象（幂等）
+      this.db.exec(SCHEMA_SQL);
+      return;
+    }
+    if (row && version > SCHEMA_VERSION) {
+      throw new Error(`schema 版本过新：文件 ${row.value}，程序 ${SCHEMA_VERSION}（需升级程序）`);
+    }
+    // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(SCHEMA_SQL);
+      if (row && version < SCHEMA_VERSION) {
+        this.migrateFrom(version);
+      }
       this.db
-        .prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?)")
+        .prepare(
+          "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
         .run(String(SCHEMA_VERSION));
-    } else if (Number(row.value) !== SCHEMA_VERSION) {
-      throw new Error(`schema 版本不匹配：文件 ${row.value}，程序 ${SCHEMA_VERSION}（需人工迁移）`);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // 事务可能已因错误自动回滚
+      }
+      throw new Error(`schema 迁移失败（v${version} → v${SCHEMA_VERSION}）：${(err as Error).message}`);
+    }
+  }
+
+  private migrateFrom(version: number): void {
+    if (version === 1) {
+      this.db.exec(MIGRATION_V2_SQL);
+      // 旧未决审批一律失效（批准不得跨 schema 版本消费）
+      this.db
+        .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
+        .run(new Date().toISOString());
+    } else {
+      throw new Error(`不支持从 schema v${version} 迁移`);
     }
   }
 

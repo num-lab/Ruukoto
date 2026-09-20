@@ -1,8 +1,49 @@
 {
-  "timestamp": "2026-09-19T22:42:08",
+  "timestamp": "2026-09-20T09:29:10",
   "host": "宿主: Darwin 27.0.0\n容器引擎: Docker version 29.4.1, build 055a478",
   "container_env": "Linux 6.12.76-linuxkit\nPRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"",
   "caveat": "在 Docker Desktop（macOS 上的 Linux VM）验证容器边界本身；目标服务器的宿主前提（发行版、内核版本、rootless 运行时、sysctl）未验证。",
+  "expected": {
+    "plain": [
+      "workspace.write",
+      "hostfs.absent:/Users",
+      "hostfs.absent:/home/eitrous",
+      "hostfs.absent:/root/.pi",
+      "hostfs.absent:/etc/ruukoto-backend",
+      "hostfs.absent:/var/run/docker.sock",
+      "rootfs.write-outside-workspace",
+      "credentials.env-clean",
+      "credentials.no-pi-config",
+      "subprocess.spawn",
+      "subprocess.mount-denied",
+      "control-plane.loopback-not-reachable",
+      "workspace.host-secret-absent",
+      "subprocess.capabilities"
+    ],
+    "restricted": [
+      "workspace.write",
+      "hostfs.absent:/Users",
+      "hostfs.absent:/home/eitrous",
+      "hostfs.absent:/root/.pi",
+      "hostfs.absent:/etc/ruukoto-backend",
+      "hostfs.absent:/var/run/docker.sock",
+      "rootfs.write-outside-workspace",
+      "credentials.env-clean",
+      "credentials.no-pi-config",
+      "subprocess.spawn",
+      "subprocess.mount-denied",
+      "control-plane.loopback-not-reachable",
+      "workspace.host-secret-absent",
+      "subprocess.capabilities-zero",
+      "network.egress-blocked"
+    ],
+    "identity": [
+      "identity.root-reads-own-state",
+      "identity.task-uid-reads-backend-state",
+      "identity.task-uid-writes-backend-state"
+    ]
+  },
+  "missing_probes": [],
   "probes": [
     {
       "probe": "subprocess.capabilities",
@@ -201,11 +242,18 @@
       "detail": "宿主回环监听的控制面端口从容器不可达"
     },
     {
+      "probe": "workspace.host-secret-absent",
+      "expect": "fail",
+      "result": "pass",
+      "consistent": true,
+      "detail": "宿主真实存在的 $WORK/host-only-secret.txt 在容器内不可见（边界生效，非目标不存在）"
+    },
+    {
       "probe": "identity.root-reads-own-state",
       "expect": "pass",
       "result": "pass",
       "consistent": true,
-      "detail": "root 可读自己的状态文件"
+      "detail": "root 可读自己的状态文件（对照：文件真实可读）"
     },
     {
       "probe": "identity.task-uid-reads-backend-state",

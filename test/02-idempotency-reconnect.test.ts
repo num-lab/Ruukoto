@@ -14,8 +14,8 @@ import {
   waitFor,
   createProjectSession,
   taskStatus,
+  connectAuthedClient,
 } from "./helpers/testkit.ts";
-import { ControlClient } from "../src/control/client.ts";
 import { parseSessionFile } from "../src/agent/driver.ts";
 
 test("幂等提交：重试返回原任务；同键异参冲突", async () => {
@@ -93,7 +93,7 @@ test("断开重连：游标补发无缺口；片段与条目引用可恢复", as
     t.client.close();
 
     // 重连：从 A 的游标补发；断开握手期间产生的事件必须完整
-    const clientB = await ControlClient.connect(t.runtime.socketPath());
+    const clientB = await connectAuthedClient(t.runtime);
     const handshake = await clientB.handshake(cursor);
     try {
       const seqs: number[] = [];

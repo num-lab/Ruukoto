@@ -86,9 +86,11 @@ test("显式中断：模型调用被取消，不自动重试，终态 interrupte
       request_id: "i1",
       input: "SLOWRESP:请回答",
     });
-    await waitFor("任务运行中", async () => (await taskStatus(t.client, task.id)).task.status === "running");
+    await waitFor(
+      "任务运行中且模型已调用",
+      async () => (await taskStatus(t.client, task.id)).task.status === "running" && t.server.calls.length >= 1,
+    );
     const callsBefore = t.server.calls.length;
-    assert.ok(callsBefore >= 1, "模型应已被调用");
 
     await t.client.request("interrupt", { task_id: task.id });
     await waitFor("任务进入中断", async () => (await taskStatus(t.client, task.id)).task.status === "interrupted");
@@ -183,7 +185,7 @@ test("拒绝确认：只阻止该操作，模型按拒绝结果继续；失效�
     await waitFor("任务完成（模型继续）", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
 
     const detail = await taskStatus(t.client, task.id);
-    const gateOp = detail.toolOps.find((op: any) => op.id === "call_gate_rej");
+    const gateOp = detail.toolOps.find((op: any) => op.sdkCallId === "call_gate_rej");
     assert.ok(gateOp, "应有 mock_gate 的执行意图记录");
     assert.equal(gateOp.isError, true, "被拒绝的操作记录为已知错误结果");
     assert.ok(gateOp.resultSummary.includes("拒绝"), "结果应说明被拒绝");

@@ -1,0 +1,2 @@
+# ruukoto：systemd 后端单元。仅后台账户（ruukoto-backend）能调用提权启动入口。
+ruukoto-backend ALL=(root) NOPASSWD: /usr/local/libexec/ruukoto/ruukoto-exec-launch, /usr/local/libexec/ruukoto/ruukoto-exec-stop

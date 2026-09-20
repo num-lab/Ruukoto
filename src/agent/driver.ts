@@ -25,10 +25,17 @@ import {
   type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { Session, Task } from "../core/types.ts";
-import type { Store } from "../core/store.ts";
-import { killProcessGroup, type ManagedProcessRegistry, createManagedProcessRegistry } from "./managed-processes.ts";
+import type { AccessMode, Session, Task } from "../core/types.ts";
+import { randomId } from "../core/types.ts";
+import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
+import type { ArtifactStore } from "./artifacts.ts";
+import type { CredentialStore } from "./execution/credentials.ts";
+import type { ExecutionError } from "./execution/launchers.ts";
+import type { WorkerLauncher } from "./execution/launchers.ts";
+import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./managed-processes.ts";
 import { createSdkSession } from "./session-factory.ts";
+import { ToolRouter, ROUTED_TOOL_NAMES } from "./tool-router.ts";
+import type { ApprovalScope } from "../core/types.ts";
 
 const TASK_START_MARKER = "ruukoto_task_start";
 const TASK_END_MARKER = "ruukoto_task_end";
@@ -41,20 +48,34 @@ export interface DriverDeps {
   modelRuntime: ModelRuntime;
   model: any;
   thinkingLevel: "off" | "minimal" | "medium" | "high" | "xhigh";
-  toolFactory: (ctx: { registry: ManagedProcessRegistry }) => ToolDefinition[];
+  /** 工具装配：注册路由工具（真实编码工具）或 mock 工具（模拟测试）。 */
+  toolFactory: (ctx: { registry: ManagedProcessRegistry; router: ToolRouter }) => ToolDefinition[];
+  /** 工具正文产物存储（后台数据目录内受保护）。 */
+  artifacts: ArtifactStore;
+  /** 拥有者预配置的凭据绑定（服务凭据）。 */
+  credentials: CredentialStore;
+  /** 按访问模式返回工作进程启动器；未配置时抛 ExecutionError（不回退）。 */
+  launcherFor: (mode: AccessMode) => WorkerLauncher;
+  /** 始终排除的保护根目录（后台数据、服务凭据、控制面）。 */
+  protectedRoots: string[];
   /** 占用释放后的唤醒回调（Runtime 注入，用于调度等待同目录的会话）。 */
   onOccupancyReleased: () => void;
 }
+
+type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
 
 export class Driver {
   readonly session: Session;
   private readonly deps: DriverDeps;
   private sdk: AgentSession | null = null;
   private registry: ManagedProcessRegistry;
+  readonly router: ToolRouter;
   private currentTask: Task | null = null;
   private stopRequested = false;
-  private confirmationWaiters = new Map<string, (decision: "approved" | "rejected" | "canceled") => void>();
+  private confirmationWaiters = new Map<string, (decision: ConfirmationDecision) => void>();
   private pendingConfirmationCount = 0;
+  /** 本次任务中 sdkCallId → 宿主操作 id（结果记录与事件引用的关联键）。 */
+  private callMap = new Map<string, string>();
   private flushedEntryIds = new Set<string>();
   private lastFragmentAt = 0;
   private runPromise: Promise<void> | null = null;
@@ -65,6 +86,18 @@ export class Driver {
     this.session = session;
     this.deps = deps;
     this.registry = createManagedProcessRegistry();
+    this.router = new ToolRouter({
+      store: deps.store,
+      artifacts: deps.artifacts,
+      credentials: deps.credentials,
+      registry: this.registry,
+      launcherFor: deps.launcherFor,
+      protectedRoots: deps.protectedRoots,
+      bridge: {
+        awaitApproval: (input) => this.awaitApproval(input),
+        supersedeAllWaiters: () => this.supersedeAllWaiters(),
+      },
+    });
   }
 
   get busy(): boolean {
@@ -91,7 +124,7 @@ export class Driver {
       modelRuntime: this.deps.modelRuntime,
       model: this.deps.model,
       thinkingLevel: this.deps.thinkingLevel,
-      tools: this.deps.toolFactory({ registry: this.registry }),
+      tools: this.deps.toolFactory({ registry: this.registry, router: this.router }),
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -117,6 +150,7 @@ export class Driver {
     this.currentTask = task;
     this.stopRequested = false;
     this.flushedEntryIds = new Set();
+    this.callMap = new Map();
     this.registry.clear();
     this.runPromise = this.runInner(task);
     try {
@@ -223,6 +257,14 @@ export class Driver {
       this.deps.store.setCancelRequested(task.id, opts.cancelIntent);
     });
 
+    // 在中止与回收之前快照"结果未知"的操作：审批未消费 = 已知未执行（排除），
+    // 已经开始执行的命令是否已产生外部效果不确定，必须沿用 effect_unknown
+    const confirmations = this.deps.store.listConfirmationsByTask(task.id);
+    const uncertainAtStop = this.deps.store
+      .listUnresolvedToolOps(task.id)
+      .filter((op) => isToolOpExecutionUncertain(op, confirmations))
+      .map((op) => op.id);
+
     // 2. 解除确认等待（门以 block 结束，不执行该操作）
     for (const resolve of this.confirmationWaiters.values()) resolve("canceled");
     this.confirmationWaiters.clear();
@@ -235,10 +277,9 @@ export class Driver {
     if (abortPromise) await abortPromise;
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
-    const unresolved = this.deps.store.listUnresolvedToolOps(task.id);
     this.finalize(task, opts.terminal, {
       interruptReason: opts.reason,
-      extraEffectUnknown: unresolved.length > 0,
+      effectUnknownOpIds: uncertainAtStop,
       keepOccupancy: !reaped,
       occupancyIssueReason: reaped ? null : "tool_process_unreaped",
     });
@@ -250,7 +291,7 @@ export class Driver {
     if (processes.length === 0) return true;
     let allReaped = true;
     for (const proc of processes) {
-      const ok = await killProcessGroup(proc.pid);
+      const ok = await proc.stop();
       if (!ok) allReaped = false;
     }
     this.registry.clear();
@@ -265,7 +306,8 @@ export class Driver {
     extra: {
       interruptReason?: string;
       errorMessage?: string;
-      extraEffectUnknown?: boolean;
+      /** 已开始但结果未知的操作（在停止前快照）；拒绝/未执行的审批不在其中。 */
+      effectUnknownOpIds?: string[];
       keepOccupancy?: boolean;
       occupancyIssueReason?: string | null;
     },
@@ -278,12 +320,16 @@ export class Driver {
         endedAt: new Date().toISOString(),
       });
       if (!ok) return; // 已被竞争路径定态
+      store.clearPendingModeSwitch(task.id);
 
-      if (extra.extraEffectUnknown) {
-        for (const op of store.listUnresolvedToolOps(task.id)) {
-          store.markToolOpEffectUnknown(op.id);
+      const unknownOps = extra.effectUnknownOpIds ?? [];
+      if (unknownOps.length > 0) {
+        for (const opId of unknownOps) {
+          const op = store.getToolOp(opId);
+          if (!op || op.effectUnknown) continue;
+          store.markToolOpEffectUnknown(opId);
           store.appendEvent(
-            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: op.id, toolName: op.toolName },
+            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: opId, toolName: op.toolName },
             { taskId: task.id },
           );
         }
@@ -355,28 +401,82 @@ export class Driver {
 
   // ---------- tool_call 门 ----------
 
+  /**
+   * 模式切换等已请求待生效的变化在此边界应用：没有执行中的工具时，先
+   * 应用切换（解除旧等待、回收旧执行单元），再让新调用按当前模式执行。
+   */
+  private async boundaryTask(task: Task): Promise<Task> {
+    if (!task.pendingAccessMode || task.pendingAccessMode === task.accessMode) return task;
+    try {
+      return await this.router.prepareToolBoundary(task);
+    } catch (err) {
+      // 切换失败（无法核实旧执行单元退出）：任务无法安全继续
+      await this.killManagedProcesses();
+      const reaped = await this.router.stopWorker();
+      this.finalize(task, "interrupted", {
+        interruptReason: `mode_switch_failed:${(err as Error).message}`,
+        effectUnknownOpIds: [],
+        keepOccupancy: !reaped,
+        occupancyIssueReason: reaped ? null : "mode_switch_unverified",
+      });
+      throw err;
+    }
+  }
+
   private async handleToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
-    const task = this.currentTask;
-    if (!task) return undefined;
+    const current = this.currentTask;
+    if (!current) return undefined;
     const store = this.deps.store;
 
+    // 每次调用读取当前任务（模式/权限版本/授予路径），不使用缓存
+    let task = store.getTask(current.id) ?? current;
     const params = { ...(event.input as Record<string, unknown>) };
+
+    try {
+      task = await this.boundaryTask(task);
+    } catch {
+      return { block: true, reason: "模式切换失败，任务已停止" };
+    }
+    if (this.stopRequested) {
+      return { block: true, reason: "任务已停止，确认等待解除" };
+    }
+
+    // 宿主操作 id 与模型调用 id 分开：不同任务复用调用 id 不串用批准
+    const hostOpId = randomId("op");
+    this.callMap.set(event.toolCallId, hostOpId);
     store.withTx(() => {
-      store.recordToolIntent({ id: event.toolCallId, taskId: task.id, toolName: event.toolName, params });
+      store.recordToolIntent({
+        id: hostOpId,
+        taskId: task.id,
+        toolName: event.toolName,
+        sdkCallId: event.toolCallId,
+        params,
+      });
     });
 
+    if (ROUTED_TOOL_NAMES.has(event.toolName)) {
+      // 真实编码工具/结构化审批/产物查询：模式绑定的路由器执行。
+      // 工具定义的 execute 经 registerRoutedCall 拿到宿主操作 id 与任务。
+      this.router.registerRoutedCall(event.toolCallId, hostOpId, task, event.toolName);
+      return undefined;
+    }
+
+    // mock 测试路径：confirmTools 门（仅模拟测试使用，不决定生产权限）
     if (!this.session.confirmTools.includes(event.toolName)) {
       return undefined;
     }
 
     // 需要确认：登记请求、任务转入等待确认、阻塞到应答
     const confirmation = store.withTx(() => {
+      const scope: ApprovalScope = { kind: "tool", workspaceOnly: true };
       const c = store.createConfirmation({
         taskId: task.id,
         sessionId: task.sessionId,
-        toolOpId: event.toolCallId,
+        toolOpId: hostOpId,
         toolName: event.toolName,
         params,
+        scope,
+        permissionVersion: task.permissionVersion,
       });
       store.transitionTask(task.id, ["running"], "awaiting_confirmation", {});
       return c;
@@ -384,20 +484,22 @@ export class Driver {
 
     this.pendingConfirmationCount++;
     try {
-      const decision = await new Promise<"approved" | "rejected" | "canceled">((resolve) => {
+      const decision = await new Promise<ConfirmationDecision>((resolve) => {
         this.confirmationWaiters.set(confirmation.id, resolve);
       });
       if (decision === "approved") return undefined;
-      // 拒绝/取消：工具未执行，结果是已知的（不产生 effect_unknown）
+      // 拒绝/取消/失效：工具未执行，结果是已知的（不产生 effect_unknown）
       store.withTx(() => {
         const summary =
           decision === "rejected"
             ? `拥有者拒绝执行 ${event.toolName}`
-            : `任务停止，确认等待解除（${event.toolName} 未执行）`;
-        const recorded = store.recordToolResult(event.toolCallId, summary, true);
+            : decision === "superseded"
+              ? `模式已切换，${event.toolName} 审批失效（未执行）`
+              : `任务停止，确认等待解除（${event.toolName} 未执行）`;
+        const recorded = store.recordToolResult(hostOpId, summary, true);
         if (recorded) {
           store.appendEvent(
-            { type: "task.tool_result", taskId: task.id, toolOpId: event.toolCallId, summary, isError: true },
+            { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: true, artifactIds: [] },
             { taskId: task.id },
           );
         }
@@ -414,6 +516,86 @@ export class Driver {
         });
       }
     }
+  }
+
+  /** 结构化审批操作的路由器桥：登记请求并等待拥有者决定。 */
+  private async awaitApproval(input: {
+    task: Task;
+    hostOpId: string;
+    toolName: string;
+    params: Record<string, unknown>;
+    scope: ApprovalScope;
+    signal?: AbortSignal;
+  }): Promise<"approved" | "rejected" | "superseded"> {
+    const store = this.deps.store;
+    const confirmation = store.withTx(() => {
+      const c = store.createConfirmation({
+        taskId: input.task.id,
+        sessionId: input.task.sessionId,
+        toolOpId: input.hostOpId,
+        toolName: input.toolName,
+        params: input.params,
+        scope: input.scope,
+        permissionVersion: input.task.permissionVersion,
+      });
+      store.transitionTask(input.task.id, ["running"], "awaiting_confirmation", {});
+      return c;
+    });
+
+    if (input.signal?.aborted) {
+      store.withTx(() => {
+        store.stalePendingConfirmations(input.task.id);
+        store.transitionTask(input.task.id, ["awaiting_confirmation"], "running", {});
+      });
+      return "superseded";
+    }
+
+    this.pendingConfirmationCount++;
+    try {
+      const decision = await new Promise<ConfirmationDecision>((resolve) => {
+        this.confirmationWaiters.set(confirmation.id, resolve);
+        if (input.signal) {
+          const onAbort = () => resolve("superseded");
+          input.signal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
+      if (decision === "approved") return "approved";
+      // 未批准 = 已知未执行（拒绝/取消/失效都不产生外部效果）
+      store.withTx(() => {
+        const summary =
+          decision === "rejected"
+            ? `拥有者拒绝执行 ${input.toolName}`
+            : decision === "superseded"
+              ? `审批已失效（模式切换或任务停止），${input.toolName} 未执行`
+              : `任务停止，确认等待解除（${input.toolName} 未执行）`;
+        const recorded = store.recordToolResult(input.hostOpId, summary, true);
+        if (recorded) {
+          store.appendEvent(
+            { type: "task.tool_result", taskId: input.task.id, toolOpId: input.hostOpId, summary, isError: true, artifactIds: [] },
+            { taskId: input.task.id },
+          );
+        }
+      });
+      return decision === "rejected" ? "rejected" : "superseded";
+    } finally {
+      this.pendingConfirmationCount--;
+      if (this.pendingConfirmationCount === 0) {
+        store.withTx(() => {
+          store.transitionTask(input.task.id, ["awaiting_confirmation"], "running", {});
+        });
+      }
+    }
+  }
+
+  /** 模式切换应用前解除全部等待：审批失效，后续执行重新判定。 */
+  private supersedeAllWaiters(): void {
+    for (const resolve of this.confirmationWaiters.values()) resolve("superseded");
+    this.confirmationWaiters.clear();
+  }
+
+  /** 运行时入口：等待中的审批因模式切换立即失效（Runtime 调用）。 */
+  supersedeWaiters(): void {
+    this.supersedeAllWaiters();
   }
 
   /** 控制面应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
@@ -460,11 +642,14 @@ export class Driver {
       }
       case "tool_execution_end": {
         const summary = summarizeToolResult(event.result);
+        // SDK 调用 id → 宿主操作 id（不同任务复用调用 id 时不串用记录）
+        const hostOpId = this.callMap.get(event.toolCallId) ?? event.toolCallId;
+        const artifactIds = this.deps.store.getToolOp(hostOpId) ? this.router.artifactIdsFor(hostOpId) : [];
         this.deps.store.withTx(() => {
-          const recorded = this.deps.store.recordToolResult(event.toolCallId, summary, event.isError);
+          const recorded = this.deps.store.recordToolResult(hostOpId, summary, event.isError);
           if (recorded) {
             this.deps.store.appendEvent(
-              { type: "task.tool_result", taskId: task.id, toolOpId: event.toolCallId, summary, isError: event.isError },
+              { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds },
               { taskId: task.id },
             );
           }

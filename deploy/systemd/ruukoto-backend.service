@@ -1,0 +1,25 @@
+[Unit]
+Description=ruukoto personal agent backend
+After=network-online.target
+
+[Service]
+Type=simple
+# 独立系统身份运行控制面并持有数据目录（0700）；拥有者经本机 socket + 拥有者
+# 令牌访问。同一 UID 部署不满足 ADR 0003 的控制面分离要求。
+User=ruukoto-backend
+Group=ruukoto-backend
+Environment=RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
+Environment=RUUKOTO_AGENT_DIR=/var/lib/ruukoto/agent
+Environment=RUUKOTO_EXECUTION_BACKEND=container
+# 容器镜像与 docker CLI 固定（可选覆盖）
+# Environment=RUUKOTO_WORKER_IMAGE=ruukoto-worker:0.85.1
+ExecStart=/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts start
+Restart=on-failure
+RestartSec=3
+# 子进程随服务终止：崩溃后不会有残留执行进程继续写工作目录（容器按任务
+# 另行登记回收；本设置覆盖后台进程树的直接子进程）
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

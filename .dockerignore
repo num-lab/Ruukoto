@@ -1,0 +1,10 @@
+.git
+.gitignore
+node_modules
+.scratch
+docs
+test
+verification
+scratch*
+*.log
+.DS_Store

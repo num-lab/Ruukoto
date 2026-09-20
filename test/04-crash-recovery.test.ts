@@ -23,6 +23,7 @@ import {
   taskStatus,
   waitFor,
   lastUserText,
+  authenticateClient,
 } from "./helpers/testkit.ts";
 import { ControlClient } from "../src/control/client.ts";
 import { parseSessionFile } from "../src/agent/driver.ts";
@@ -48,14 +49,15 @@ function killProcessTree(child: childProcess.ChildProcess): void {
 async function spawnBackend(dataDir: string, agentDir: string): Promise<Backend> {
   const child = childProcess.spawn(
     tsxBin,
-    ["src/cli.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir],
+    ["src/cli.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
     { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
   let stderr = "";
   child.stderr!.on("data", (c: Buffer) => {
     stderr += c.toString("utf8");
   });
-  const socketPath = path.join(dataDir, "control.sock");
+  const controlDir = path.join(path.dirname(path.resolve(dataDir)), "control");
+  const socketPath = path.join(controlDir, "control.sock");
   const deadline = Date.now() + 60_000;
   for (;;) {
     if (child.exitCode !== null || child.signalCode !== null) {
@@ -63,6 +65,7 @@ async function spawnBackend(dataDir: string, agentDir: string): Promise<Backend>
     }
     try {
       const client = await ControlClient.connect(socketPath, 1500);
+      await authenticateClient(client, controlDir);
       await client.handshake();
       return { child, client };
     } catch (err) {
@@ -163,7 +166,7 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     assert.equal(snapshot.task.status, "interrupted", "活动任务重启后标为中断");
     assert.equal(snapshot.task.interruptReason, "backend_restart");
     assert.equal(snapshot.task.effectUnknown, true, "结果缺失的标记操作应保留效果不明事实");
-    const markOp = snapshot.toolOps.find((op: any) => op.id === "call_mark_1");
+    const markOp = snapshot.toolOps.find((op: any) => op.sdkCallId === "call_mark_1");
     assert.ok(markOp, "应保留工具执行意图");
     assert.equal(markOp.resultSummary, null, "结果缺失");
     assert.equal(markOp.effectUnknown, true, "效果不明标记在工具操作上");

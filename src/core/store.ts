@@ -10,8 +10,12 @@
 
 import type { Db } from "./db.ts";
 import {
+  type AccessMode,
+  type ApprovalScope,
+  type Artifact,
   type ConfirmationRequest,
   type ConfirmationStatus,
+  type GrantedPath,
   type PersistentEvent,
   type PersistentEventBody,
   type Project,
@@ -192,24 +196,31 @@ export class Store {
 
   /**
    * 提交新任务（幂等）。同 (session_id, request_id)：
-   * - 相同输入 → 返回已存在任务（duplicate=false 不新建）；
-   * - 不同输入 → 抛 ConflictError。
+   * - 相同输入与权限参数（模式、授予路径）→ 返回已存在任务（duplicate=false 不新建）；
+   * - 输入或任一权限参数不同 → 抛 ConflictError（复用幂等键修改模式必须冲突）。
    * 只有本函数在调用方事务内成功返回，提交才算接收成功。
    */
   insertQueuedTask(input: {
     sessionId: string;
     requestId: string;
     input: string;
+    accessMode?: AccessMode;
+    grantedPaths?: GrantedPath[];
     resumesTaskId?: string | null;
   }): { task: Task; duplicate: boolean } {
+    const accessMode = input.accessMode ?? "confirm";
+    const grantedPaths = input.grantedPaths ?? [];
     const existing = this.db
       .prepare("SELECT * FROM tasks WHERE session_id = ? AND request_id = ?")
       .get(input.sessionId, input.requestId) as any;
     if (existing) {
-      const sameInput = existing.input === input.input;
-      if (!sameInput) {
+      const same =
+        existing.input === input.input &&
+        existing.access_mode === accessMode &&
+        existing.granted_paths === JSON.stringify(grantedPaths);
+      if (!same) {
         throw new StoreConflictError(
-          `request_id 已存在且输入不同：task=${existing.id}`,
+          `request_id 已存在且输入或权限参数不同：task=${existing.id}`,
           "request_conflict",
         );
       }
@@ -221,6 +232,10 @@ export class Store {
       requestId: input.requestId,
       input: input.input,
       status: "queued",
+      accessMode,
+      permissionVersion: 1,
+      grantedPaths,
+      pendingAccessMode: null,
       interruptReason: null,
       cancelRequested: false,
       effectUnknown: false,
@@ -233,21 +248,30 @@ export class Store {
     };
     this.db
       .prepare(
-        `INSERT INTO tasks (id, session_id, request_id, input, status, interrupt_reason,
+        `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version,
+         granted_paths, pending_access_mode, interrupt_reason,
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
          created_at, started_at, ended_at)
-         VALUES (?, ?, ?, ?, 'queued', NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL)`,
+         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL)`,
       )
       .run(
         task.id,
         task.sessionId,
         task.requestId,
         task.input,
+        task.accessMode,
+        JSON.stringify(task.grantedPaths),
         task.resumesTaskId,
         task.createdAt,
       );
     this.appendEvent(
-      { type: "task.queued", taskId: task.id, sessionId: task.sessionId, requestId: task.requestId },
+      {
+        type: "task.queued",
+        taskId: task.id,
+        sessionId: task.sessionId,
+        requestId: task.requestId,
+        accessMode: task.accessMode,
+      },
       { taskId: task.id, sessionId: task.sessionId },
     );
     if (task.resumesTaskId) {
@@ -353,6 +377,10 @@ export class Store {
       requestId: row.request_id,
       input: row.input,
       status: row.status as TaskStatus,
+      accessMode: (row.access_mode ?? "confirm") as AccessMode,
+      permissionVersion: Number(row.permission_version ?? 1),
+      grantedPaths: JSON.parse(row.granted_paths ?? "[]") as GrantedPath[],
+      pendingAccessMode: (row.pending_access_mode ?? null) as AccessMode | null,
       interruptReason: row.interrupt_reason,
       cancelRequested: Number(row.cancel_requested) === 1,
       effectUnknown: Number(row.effect_unknown) === 1,
@@ -365,6 +393,50 @@ export class Store {
     };
   }
 
+  // ---------- 访问模式与权限版本 ----------
+
+  /** 请求模式切换（记录待生效模式；不改变当前模式）。 */
+  requestModeSwitch(taskId: string, to: AccessMode): boolean {
+    const info = this.db
+      .prepare("UPDATE tasks SET pending_access_mode = ? WHERE id = ? AND status IN ('queued','running','awaiting_confirmation')")
+      .run(to, taskId);
+    return Number(info.changes) === 1;
+  }
+
+  /** 清除待生效模式标记（任务到达终态或切换已应用时）。 */
+  clearPendingModeSwitch(taskId: string): void {
+    this.db.prepare("UPDATE tasks SET pending_access_mode = NULL WHERE id = ?").run(taskId);
+  }
+
+  /**
+   * 应用模式切换（工具边界处调用）：切换模式、递增权限版本、清除待生效
+   * 标记、失效本任务未决审批（不自动执行旧待批准操作）。返回新权限版本。
+   */
+  applyModeSwitch(taskId: string, to: AccessMode): number {
+    const task = this.getTask(taskId);
+    if (!task) throw new StoreConflictError(`任务不存在：${taskId}`, "not_found");
+    const newVersion = task.permissionVersion + 1;
+    this.db
+      .prepare(
+        "UPDATE tasks SET access_mode = ?, pending_access_mode = NULL, permission_version = ? WHERE id = ?",
+      )
+      .run(to, newVersion, taskId);
+    this.stalePendingConfirmations(taskId);
+    return newVersion;
+  }
+
+  /** 更新任务的授予路径并递增权限版本（旧审批随之失效）。 */
+  updateGrantedPaths(taskId: string, paths: GrantedPath[]): number {
+    const task = this.getTask(taskId);
+    if (!task) throw new StoreConflictError(`任务不存在：${taskId}`, "not_found");
+    const newVersion = task.permissionVersion + 1;
+    this.db
+      .prepare("UPDATE tasks SET granted_paths = ?, permission_version = ? WHERE id = ?")
+      .run(JSON.stringify(paths), newVersion, taskId);
+    this.stalePendingConfirmations(taskId);
+    return newVersion;
+  }
+
   // ---------- 确认请求 ----------
 
   createConfirmation(input: {
@@ -373,7 +445,10 @@ export class Store {
     toolOpId: string;
     toolName: string;
     params: Record<string, unknown>;
+    scope: ApprovalScope;
+    permissionVersion: number;
   }): ConfirmationRequest {
+    const session = this.getSession(input.sessionId);
     const confirmation: ConfirmationRequest = {
       id: randomId("conf"),
       taskId: input.taskId,
@@ -381,14 +456,19 @@ export class Store {
       toolOpId: input.toolOpId,
       toolName: input.toolName,
       params: input.params,
+      scope: input.scope,
+      cwdDev: session?.cwdDev ?? 0,
+      cwdIno: session?.cwdIno ?? 0,
+      permissionVersion: input.permissionVersion,
       status: "pending",
       createdAt: new Date().toISOString(),
       respondedAt: null,
+      consumedAt: null,
     };
     this.db
       .prepare(
-        `INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, status, created_at, responded_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, NULL)`,
+        `INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, scope, cwd_dev, cwd_ino, permission_version, status, created_at, responded_at, consumed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
       )
       .run(
         confirmation.id,
@@ -397,6 +477,10 @@ export class Store {
         confirmation.toolOpId,
         confirmation.toolName,
         JSON.stringify(confirmation.params),
+        JSON.stringify(confirmation.scope),
+        confirmation.cwdDev,
+        confirmation.cwdIno,
+        confirmation.permissionVersion,
         confirmation.createdAt,
       );
     this.appendEvent(
@@ -407,6 +491,7 @@ export class Store {
         toolOpId: confirmation.toolOpId,
         toolName: confirmation.toolName,
         params: confirmation.params,
+        scope: confirmation.scope,
       },
       { taskId: confirmation.taskId, sessionId: confirmation.sessionId },
     );
@@ -442,6 +527,32 @@ export class Store {
     return Number(info.changes) === 1;
   }
 
+  /**
+   * 单次消费批准（条件更新原子完成资格校验与消费登记）：
+   * 仅当批准未消费、权限版本仍匹配、任务仍活动时生效；返回是否消费成功。
+   * 真正启动执行前由调用方在同一事务内记录执行开始（consumed_at 即执行开始）。
+   */
+  consumeApproval(input: {
+    confirmationId: string;
+    expectedPermissionVersion: number;
+    activeStatuses: TaskStatus[];
+  }): boolean {
+    const placeholders = input.activeStatuses.map(() => "?").join(",");
+    const info = this.db
+      .prepare(
+        `UPDATE confirmations SET consumed_at = ? 
+         WHERE id = ? AND status = 'approved' AND consumed_at IS NULL AND permission_version = ?
+           AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
+      )
+      .run(
+        new Date().toISOString(),
+        input.confirmationId,
+        input.expectedPermissionVersion,
+        ...input.activeStatuses,
+      );
+    return Number(info.changes) === 1;
+  }
+
   /** 任务中断/取消时，其未决确认请求标记 stale（失效批准不得再执行）。 */
   stalePendingConfirmations(taskId: string): void {
     this.db
@@ -457,26 +568,38 @@ export class Store {
       toolOpId: row.tool_op_id,
       toolName: row.tool_name,
       params: JSON.parse(row.params) as Record<string, unknown>,
+      scope: JSON.parse(row.scope ?? '{"kind":"tool","workspaceOnly":true}') as ApprovalScope,
+      cwdDev: Number(row.cwd_dev ?? 0),
+      cwdIno: Number(row.cwd_ino ?? 0),
+      permissionVersion: Number(row.permission_version ?? 1),
       status: row.status as ConfirmationStatus,
       createdAt: row.created_at,
       respondedAt: row.responded_at,
+      consumedAt: row.consumed_at,
     };
   }
 
   // ---------- 工具操作（执行意图 / 已知结果） ----------
 
-  recordToolIntent(input: { id: string; taskId: string; toolName: string; params: Record<string, unknown> }): void {
+  recordToolIntent(input: {
+    id: string;
+    taskId: string;
+    toolName: string;
+    sdkCallId?: string | null;
+    params: Record<string, unknown>;
+  }): void {
     this.db
       .prepare(
-        `INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, result_summary, is_error, effect_unknown, recorded_result_at)
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, NULL)`,
+        `INSERT INTO tool_ops (id, task_id, tool_name, sdk_call_id, params, intent_recorded_at, result_summary, is_error, effect_unknown, recorded_result_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL)`,
       )
-      .run(input.id, input.taskId, input.toolName, JSON.stringify(input.params), new Date().toISOString());
+      .run(input.id, input.taskId, input.toolName, input.sdkCallId ?? null, JSON.stringify(input.params), new Date().toISOString());
     this.appendEvent(
       {
         type: "task.tool_intent",
         taskId: input.taskId,
         toolOpId: input.id,
+        sdkCallId: input.sdkCallId ?? null,
         toolName: input.toolName,
         params: input.params,
       },
@@ -503,6 +626,7 @@ export class Store {
       id: row.id,
       taskId: row.task_id,
       toolName: row.tool_name,
+      sdkCallId: row.sdk_call_id ?? row.id,
       params: JSON.parse(row.params) as Record<string, unknown>,
       intentRecordedAt: row.intent_recorded_at,
       resultSummary: row.result_summary,
@@ -526,6 +650,59 @@ export class Store {
 
   markToolOpEffectUnknown(toolOpId: string): void {
     this.db.prepare("UPDATE tool_ops SET effect_unknown = 1 WHERE id = ?").run(toolOpId);
+  }
+
+  // ---------- 工具正文产物 ----------
+
+  createArtifact(input: { id: string; taskId: string; sessionId: string; name: string }): Artifact {
+    const artifact: Artifact = {
+      id: input.id,
+      taskId: input.taskId,
+      sessionId: input.sessionId,
+      name: input.name,
+      byteCount: 0,
+      status: "partial",
+      createdAt: new Date().toISOString(),
+    };
+    this.db
+      .prepare(
+        "INSERT INTO artifacts (id, task_id, session_id, name, byte_count, status, created_at) VALUES (?, ?, ?, ?, 0, 'partial', ?)",
+      )
+      .run(artifact.id, artifact.taskId, artifact.sessionId, artifact.name, artifact.createdAt);
+    return artifact;
+  }
+
+  /** 追加捕获字节数（元数据；正文写在产物文件里，SQLite 不复制内容）。 */
+  addArtifactBytes(id: string, bytes: number): void {
+    this.db.prepare("UPDATE artifacts SET byte_count = byte_count + ? WHERE id = ?").run(bytes, id);
+  }
+
+  setArtifactStatus(id: string, status: "complete" | "partial"): void {
+    this.db.prepare("UPDATE artifacts SET status = ? WHERE id = ?").run(status, id);
+  }
+
+  getArtifact(id: string): Artifact | null {
+    const row = this.db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id) as any;
+    return row ? this.rowToArtifact(row) : null;
+  }
+
+  listArtifactsByTask(taskId: string): Artifact[] {
+    const rows = this.db
+      .prepare("SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at, id")
+      .all(taskId) as any[];
+    return rows.map(this.rowToArtifact);
+  }
+
+  private rowToArtifact(row: any): Artifact {
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      sessionId: row.session_id,
+      name: row.name,
+      byteCount: Number(row.byte_count),
+      status: row.status as "complete" | "partial",
+      createdAt: row.created_at,
+    };
   }
 
   // ---------- 目录占用 ----------
@@ -608,6 +785,18 @@ export class Store {
     }));
   }
 
+}
+
+// ---------- 结果未知判定 ----------
+
+/**
+ * 结果未知判定（已知未执行 vs effect_unknown 的唯一判定点）：
+ * 审批存在且全部未消费 → 已知未执行；批准已消费或无审批的直接执行 →
+ * 执行可能已开始，外部效果不确定（沿用 effect_unknown，不重放）。
+ */
+export function isToolOpExecutionUncertain(op: ToolOp, confirmations: ConfirmationRequest[]): boolean {
+  const opConfirmations = confirmations.filter((c) => c.toolOpId === op.id);
+  return opConfirmations.length === 0 || opConfirmations.some((c) => c.consumedAt !== null);
 }
 
 export class StoreConflictError extends Error {

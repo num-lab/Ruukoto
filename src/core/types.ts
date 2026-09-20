@@ -8,7 +8,24 @@
 
 import { randomBytes } from "node:crypto";
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
+
+/**
+ * 任务访问模式（ADR 0003）。
+ * - confirm：请求确认模式。在已授权范围内自主执行（Linux 容器边界内），
+ *   越界文件操作与外部网络以结构化审批请求逐次授权。
+ * - full_access：完全访问模式。拥有者显式选择后，任务在容器外使用专用执行
+ *   账户已有权限，不逐次确认。不额外赋权，也不提供执行账户内部的文件隔离。
+ */
+export type AccessMode = "confirm" | "full_access";
+
+/** 已授权工作区外的具体路径权限（拥有者在可信入口为任务显式配置）。 */
+export interface GrantedPath {
+  path: string;
+  access: "read" | "read_write";
+  /** 用途说明（审批与快照展示）。 */
+  purpose: string;
+}
 
 export type TaskStatus =
   | "queued"
@@ -64,6 +81,14 @@ export interface Task {
   /** 任务输入原文；送入 SDK 前是唯一副本，写入历史后关联对应条目。 */
   input: string;
   status: TaskStatus;
+  /** 任务访问模式；默认请求确认。只有已认证拥有者能选择完全访问。 */
+  accessMode: AccessMode;
+  /** 提交时会话权限版本快照；切换/授权变化递增，旧审批消费时核对。 */
+  permissionVersion: number;
+  /** 拥有者为本任务显式授予的工作区外路径（如 worktree 的 Git 元数据）。 */
+  grantedPaths: GrantedPath[];
+  /** 模式切换已被请求、待在工具边界应用（应用前执行仍用旧模式）。 */
+  pendingAccessMode: AccessMode | null;
   /** 中断原因（interrupted 时有值）。 */
   interruptReason: string | null;
   /** 显式取消意图（与中断原因分开记录）。 */
@@ -83,24 +108,56 @@ export interface Task {
 
 export type ConfirmationStatus = "pending" | "approved" | "rejected" | "stale";
 
+/** 审批展示的权限范围（结构化、可验证；凭据只出现名称与用途，不含原值）。 */
+export type ApprovalScope =
+  | { kind: "tool"; workspaceOnly: boolean }
+  | {
+      kind: "file_operation";
+      path: string;
+      access: "read" | "read_write";
+      /** 待写内容的原文件版本指纹（写入前置条件）；读操作为 null。 */
+      originalSha256: string | null;
+      /** 待写入内容的字节数与指纹（展示内容本身，不含凭据）。 */
+      contentSha256: string | null;
+      contentBytes: number | null;
+    }
+  | {
+      kind: "http_request";
+      method: string;
+      url: string;
+      /** 引用的凭据绑定名称与用途；不含凭据值。 */
+      credentials: Array<{ name: string; purpose: string }>;
+    };
+
 export interface ConfirmationRequest {
   id: string;
   taskId: string;
   sessionId: string;
-  /** 工具操作 id（toolCallId）。 */
+  /** 宿主分配的工具操作 id（不信任模型生成的 toolCallId）。 */
   toolOpId: string;
   toolName: string;
   params: Record<string, unknown>;
+  /** 结构化权限范围；审批展示与消费校验依据。 */
+  scope: ApprovalScope;
+  /** 请求时的工作目录身份（会话 cwd 的 dev/ino；展示与核对用）。 */
+  cwdDev: number;
+  cwdIno: number;
+  /** 请求时的任务权限版本；版本不匹配的批准不得消费。 */
+  permissionVersion: number;
   status: ConfirmationStatus;
   createdAt: string;
   respondedAt: string | null;
+  /** 批准后实际启动执行的时间；null 表示已批准但尚未开始（崩溃窗口）。 */
+  consumedAt: string | null;
 }
 
 export interface ToolOp {
-  /** 工具调用 id。 */
+  /** 宿主分配的操作 id（与模型生成的 SDK 调用 id 分开存储）。 */
   id: string;
   taskId: string;
   toolName: string;
+  /** 模型生成的调用 id，仅供关联展示；不作为操作身份。 */
+  sdkCallId: string | null;
   params: Record<string, unknown>;
   /** 执行意图已记录（创建即 true）。 */
   intentRecordedAt: string;
@@ -112,18 +169,36 @@ export interface ToolOp {
   recordedResultAt: string | null;
 }
 
+/** 工具正文产物：捕获于上游截断之前，供限长模型视图之外的按需查询。 */
+export interface Artifact {
+  id: string;
+  taskId: string;
+  sessionId: string;
+  /** 来源描述（工具名 + 对象，如 bash stdout / 文件路径）。 */
+  name: string;
+  /** 已捕获字节数（部分捕获时小于全量）。 */
+  byteCount: number;
+  /** complete：结果已回收后定稿；partial：中断/写入失败等场景的已捕获部分。 */
+  status: "complete" | "partial";
+  createdAt: string;
+}
+
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
   | { type: "project.created"; projectId: string; name: string }
   | { type: "session.created"; sessionId: string; projectId: string; cwd: string }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string }
+  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode }
   | { type: "task.started"; taskId: string; sessionId: string }
-  | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown> }
+  | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; scope: ApprovalScope }
   | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected" }
+  | { type: "task.approval_consumed"; taskId: string; confirmationId: string; toolOpId: string; toolName: string }
+  | { type: "task.mode_switch_requested"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode }
+  | { type: "task.mode_switched"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode; permissionVersion: number }
+  | { type: "task.mode_switch_failed"; taskId: string; sessionId: string; to: AccessMode; reason: string }
   | { type: "task.output_fragment"; taskId: string; sessionId: string; text: string; partial: true }
   | { type: "task.output_entry"; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string }
-  | { type: "task.tool_intent"; taskId: string; toolOpId: string; toolName: string; params: Record<string, unknown> }
-  | { type: "task.tool_result"; taskId: string; toolOpId: string; summary: string; isError: boolean }
+  | { type: "task.tool_intent"; taskId: string; toolOpId: string; sdkCallId: string | null; toolName: string; params: Record<string, unknown> }
+  | { type: "task.tool_result"; taskId: string; toolOpId: string; summary: string; isError: boolean; artifactIds: string[] }
   | { type: "task.tool_effect_unknown"; taskId: string; toolOpId: string; toolName: string }
   | { type: "task.tool_process_unreaped"; taskId: string; sessionId: string; reason: string }
   | { type: "task.completed"; taskId: string; sessionId: string }
@@ -135,7 +210,7 @@ export type PersistentEventBody =
   | { type: "session.queue_resumed"; sessionId: string }
   | { type: "occupancy.stale"; sessionId: string; taskId: string; cwdReal: string }
   | { type: "session.history_unreadable"; sessionId: string; sessionFile: string; error: string }
-  | { type: "backend.started"; dataDir: string }
+  | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }
   | { type: "backend.recovered"; interruptedTaskIds: string[]; pausedSessionIds: string[] };

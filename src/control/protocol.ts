@@ -6,21 +6,23 @@
  * - 帧大小上限 MAX_FRAME_BYTES，超限断开；
  * - connect 返回快照 + (since, seq] 补发，随后无缝转入实时推送。
  *
- * 权限说明（ADR 0003）：数据目录 0700、socket 0600 只能做到同 UID 可达，
- * 无法区分拥有者终端与完全访问命令。issue 02 仅开放可信客户端与模拟工具；
- * 客户端授权凭据与身份隔离由 issue 03 完成并验证，不以 Unix socket 宣称
- * 满足权限保证。
+ * 拥有者认证（v2，ADR 0003）：连接建立后首个操作必须是 auth（携带拥有者
+ * 令牌）；认证成功前不返回快照、不执行任何请求。令牌只经控制面受控目录的
+ * 令牌文件或拥有者自己的环境变量传递，不出现在命令行、工具环境或日志中。
  */
 
-import type { ConfirmationRequest, PersistentEvent, Project, Session, Task } from "../core/types.ts";
+import { PROTOCOL_VERSION, type Artifact, type ConfirmationRequest, type PersistentEvent, type Project, type Session, type Task } from "../core/types.ts";
 
 export const MAX_FRAME_BYTES = 1024 * 1024;
+
+export const CONTROL_PROTOCOL_VERSION = PROTOCOL_VERSION;
 
 export interface ConnectSnapshot {
   projects: Project[];
   sessions: Session[];
   tasks: Task[];
   confirmations: ConfirmationRequest[];
+  artifacts: Artifact[];
 }
 
 export interface ConnectResult {

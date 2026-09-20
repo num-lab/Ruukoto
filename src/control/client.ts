@@ -8,6 +8,7 @@
 
 import * as net from "node:net";
 import {
+  CONTROL_PROTOCOL_VERSION,
   MAX_FRAME_BYTES,
   type ConnectResult,
   type ControlPush,
@@ -114,8 +115,13 @@ export class ControlClient {
         reject(new ControlClientError("request_timeout", `请求超时：${op}`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.socket.write(encodeFrame({ v: 1, id, op, params: params ?? {} }));
+      this.socket.write(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id, op, params: params ?? {} }));
     });
+  }
+
+  /** 拥有者认证：连接后必须先成功认证才能执行其他操作。 */
+  async authenticate(token: string, timeoutMs = 10_000): Promise<void> {
+    await this.request("auth", { token }, timeoutMs);
   }
 
   /** connect 握手：since 传游标可补发；返回快照与序号。 */

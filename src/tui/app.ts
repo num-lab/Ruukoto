@@ -103,6 +103,25 @@ class BorderText extends Text {
   }
 }
 
+/**
+ * 把编辑器自己渲染的补全候选行搬到输入框上方（pi-tui 的 Editor 固定画在下方，
+ * 没有位置选项）。只搬它自己画的那几行：边框、内容行与光标标记都不动。
+ * 搬动后编辑器总高度不变，父布局的尺寸分配不受影响。
+ */
+class AboveEditor extends Editor {
+  render(width: number): string[] {
+    const lines = super.render(width);
+    // pi-tui 没暴露这个高度，只有私有字段；取不到就按原样渲染（候选仍在下方）
+    const height = (this as unknown as { renderedAutocompleteHeight?: number }).renderedAutocompleteHeight;
+    if (!Number.isFinite(height) || height! <= 0 || lines.length <= height! + 2) return lines;
+    const list = lines.slice(lines.length - height!);
+    const body = lines.slice(0, lines.length - height!);
+    // 先摘掉底部边框，再放候选列表，最后把边框补回最下
+    const bottomBorder = body.pop()!;
+    return [...list, ...body, bottomBorder];
+  }
+}
+
 /** 覆盖层容器：TUI 把焦点给覆盖层根组件，这里把按键转发给目标（列表或自定义键处理）。 */
 class OverlayBox extends VStack {
   focused = false;
@@ -237,7 +256,7 @@ export class TuiApp {
     this.scroll = new ScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
     this.statusLine = new Text("", 1, 0);
     this.footer = new Text(dim("Enter 提交 · Alt+Enter 换行 · End 回到底部 · /help 查看命令 · Ctrl+C 退出"), 1, 0);
-    this.editor = new Editor(this.tui, editorTheme, {});
+    this.editor = new AboveEditor(this.tui, editorTheme, {});
     this.editor.setAutocompleteProvider(new SlashCommandAutocomplete(SLASH_COMMANDS));
     this.editor.onSubmit = (text) => void this.handleSubmit(text);
     this.editor.onChange = () => {

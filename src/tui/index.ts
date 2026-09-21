@@ -10,6 +10,7 @@
  *   或 raw mode，可用 `reset` 或 `stty sane` 恢复（见 docs/runtime.md）。
  */
 
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { resolveClientConfig } from "../control/connect.ts";
 import { ControlConnection } from "../control/connection.ts";
 import { PendingRequestStore } from "../control/pending-requests.ts";
@@ -37,6 +38,9 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
     console.error((err as Error).message);
     return 1;
   }
+
+  // 代码块语法高亮的主题：只用包内自带的 dark 主题（不读 ~/.pi，不写文件）
+  initTheme("dark");
 
   const state = new ViewState();
   let app: TuiApp | null = null;

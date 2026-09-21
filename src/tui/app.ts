@@ -18,6 +18,7 @@ import {
   ProcessTerminal,
   ScrollView,
   SelectList,
+  Spacer,
   setKeybindings,
   Text,
   TUI_KEYBINDINGS,
@@ -28,11 +29,13 @@ import {
   type AutocompleteProvider,
   type Component,
   type Container as ContainerType,
+  type OverlayHandle,
   type SelectItem,
   type Terminal,
   type TUI,
 } from "@earendil-works/pi-tui";
 import { Container } from "@earendil-works/pi-tui";
+import { highlightCode } from "@earendil-works/pi-coding-agent";
 import type { ControlConnection } from "../control/connection.ts";
 import type { ConnectResult } from "../control/protocol.ts";
 import type { SubmissionGuard } from "../control/submission.ts";
@@ -61,13 +64,27 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
+/** 拥有者输入的底色：与终端背景区分，整行铺满。用 256 色而非基础色，避免被终端主题改色。 */
+const userBg = (s: string) => `\x1b[48;5;236m${s}\x1b[0m`;
+/** 标记列（❯ / ⚙ / ● 同列）与正文列。 */
+const MARKER_COL = 1;
+const BODY_COL = 3;
+const ASSISTANT_BULLET = "●";
+/** 转录区右侧留白（约两个中文字符宽），给滚动条腾出位置。 */
+const RIGHT_GUTTER = 4;
+
 const markdownTheme = {
   heading: bold,
-  link: cyan,
+  // 链接：蓝色字体（256 色 75，深色/浅色终端都可读），URL 用暗色跟在后面
+  link: (s: string) => `\x1b[38;5;75m${s}\x1b[0m`,
   linkUrl: dim,
-  code: (s: string) => `\x1b[7m${s}\x1b[0m`,
-  codeBlock: (s: string) => s,
+  code: (s: string) => `\x1b[38;5;79m${s}\x1b[0m`,
+  // 围栏代码块：正文用亮色与普通文本区分，边界行加语言标注
+  codeBlock: (s: string) => `\x1b[38;5;252m${s}\x1b[0m`,
   codeBlockBorder: dim,
+  codeBlockIndent: "  ",
+  // 语法高亮由 pi 自带的高亮器提供（256 色；未知语言回退为纯文本着色）
+  highlightCode,
   quote: dim,
   quoteBorder: dim,
   hr: dim,
@@ -104,21 +121,127 @@ class BorderText extends Text {
 }
 
 /**
- * 把编辑器自己渲染的补全候选行搬到输入框上方（pi-tui 的 Editor 固定画在下方，
- * 没有位置选项）。只搬它自己画的那几行：边框、内容行与光标标记都不动。
- * 搬动后编辑器总高度不变，父布局的尺寸分配不受影响。
+ * 编辑器 + 悬浮的补全候选。
+ *
+ * pi-tui 的 Editor 把候选列表画在自己的 render 输出里（位置固定、必然占行），
+ * 所以它一定会挤占上方内容。这里把候选行从布局输出里摘掉（布局不再为它留行），
+ * 交给 TUI 的覆盖层绘制——覆盖层在布局之后合成，是真正叠在内容之上。
+ * 列表仍由 Editor 渲染并响应按键（上下选择、Tab/Enter 采用），只是不再占位。
  */
 class AboveEditor extends Editor {
+  /** 最近一次渲染出的候选行；由宿主取走画到覆盖层。 */
+  overlayLines: string[] = [];
+  /** 编辑器在布局中的高度，用于把覆盖层定位到它正上方。 */
+  lastHeight = 0;
+  /** 候选行变化时通知宿主重画覆盖层。 */
+  onOverlayChange: (() => void) | null = null;
+
   render(width: number): string[] {
     const lines = super.render(width);
-    // pi-tui 没暴露这个高度，只有私有字段；取不到就按原样渲染（候选仍在下方）
+    // pi-tui 没暴露这个高度，只有私有字段；取不到就按原样渲染（候选留在下方）
     const height = (this as unknown as { renderedAutocompleteHeight?: number }).renderedAutocompleteHeight;
-    if (!Number.isFinite(height) || height! <= 0 || lines.length <= height! + 2) return lines;
+    if (!Number.isFinite(height) || height! <= 0 || lines.length <= height! + 2) {
+      this.lastHeight = lines.length;
+      if (this.overlayLines.length > 0) {
+        this.overlayLines = [];
+        this.onOverlayChange?.();
+      }
+      return lines;
+    }
     const list = lines.slice(lines.length - height!);
     const body = lines.slice(0, lines.length - height!);
-    // 先摘掉底部边框，再放候选列表，最后把边框补回最下
     const bottomBorder = body.pop()!;
-    return [...list, ...body, bottomBorder];
+    const result = [...body, bottomBorder];
+    this.lastHeight = result.length;
+    if (list.join("\n") !== this.overlayLines.join("\n")) {
+      this.overlayLines = list;
+      this.onOverlayChange?.();
+    }
+    return result;
+  }
+}
+
+/** 记录自身渲染高度的 Text：覆盖层按输入框与底栏的实际高度从底部定位。 */
+class MeasuredText extends Text {
+  lastHeight = 0;
+
+  render(width: number): string[] {
+    const lines = super.render(width);
+    this.lastHeight = lines.length;
+    return lines;
+  }
+}
+
+/**
+ * 右对齐的 Text：模型信息贴在右下角。
+ * Text 已把每行右侧补齐到整宽（补的是普通空格），这里去掉补齐再前置缩进。
+ */
+class RightText extends Text {
+  lastHeight = 0;
+
+  render(width: number): string[] {
+    const lines = super.render(width).map((line) => {
+      const trimmed = line.replace(/ +$/, "");
+      const pad = Math.max(0, width - visibleWidth(trimmed));
+      return pad === 0 ? trimmed : " ".repeat(pad) + trimmed;
+    });
+    this.lastHeight = lines.length;
+    return lines;
+  }
+}
+
+/** 原样输出给定行的组件：候选列表的绘制载体。 */
+class LinesComponent implements Component {
+  private lines: string[] = [];
+
+  setLines(lines: string[]): void {
+    this.lines = lines;
+  }
+
+  invalidate(): void {}
+
+  render(_width: number): string[] {
+    return this.lines;
+  }
+}
+
+/**
+ * 模型输出：圆点画在标记列（与 ❯ / ⚙ 同列），正文缩进到正文列并整体对齐。
+ * 用 Markdown 渲染正文（保留标题/列表/代码块），只在渲染结果上补标记与缩进，
+ * 不往 markdown 源里塞字符——否则列表与代码块会被解析成别的东西。
+ */
+class AssistantOutput implements Component {
+  private readonly markdown: Markdown;
+  private readonly label?: string;
+
+  constructor(text: string, label?: string) {
+    this.markdown = new Markdown(text, 0, 0, markdownTheme);
+    this.label = label;
+  }
+
+  invalidate(): void {
+    this.markdown.invalidate();
+  }
+
+  render(width: number): string[] {
+    // Markdown 已把每行补齐到给定宽度，前缀宽度与 BODY_COL 一致，总宽不变
+    const lines = this.markdown.render(Math.max(1, width - BODY_COL));
+    const head = this.label ? [`${" ".repeat(MARKER_COL)}${dim(`[${this.label}]`)}`] : [];
+    if (lines.length === 0) return head;
+    const marker = `${" ".repeat(MARKER_COL)}${cyan(ASSISTANT_BULLET)} `;
+    const indent = " ".repeat(BODY_COL);
+    return [...head, ...lines.map((line, i) => `${i === 0 ? marker : indent}${line}`)];
+  }
+}
+
+/**
+ * 转录区右侧留白：内容按窄 RIGHT_GUTTER 列渲染，再补齐回来，
+ * 文字不会顶到滚动条底下（滚动条画在 ScrollView 的最后一列）。
+ */
+class GutterContainer extends Container {
+  render(width: number): string[] {
+    const inner = Math.max(1, width - RIGHT_GUTTER);
+    return super.render(inner).map((line) => line + " ".repeat(Math.max(0, width - visibleWidth(line))));
   }
 }
 
@@ -222,12 +345,17 @@ export class TuiApp {
   private readonly onExit: (code: number, message?: string) => void;
   private readonly initialSessionId?: string;
 
+  private readonly autocompleteOverlayComponent = new LinesComponent();
+  private autocompleteOverlay: OverlayHandle | null = null;
+  private overlaySyncPending = false;
+  /** 已补种过输入历史的会话（每个会话只补一次）。 */
+  private readonly seededHistorySessions = new Set<string>();
   private header: Text;
   private transcriptContainer: ContainerType;
   private scroll: ScrollView;
-  private statusLine: Text;
-  private footer: Text;
-  private editor: Editor;
+  private statusLine: MeasuredText;
+  private footer: RightText;
+  private editor: AboveEditor;
 
   /** 连接批次：每次快照安装递增；异步查询结果按 会话+批次 匹配后更新。 */
   private generation = 0;
@@ -252,10 +380,11 @@ export class TuiApp {
     this.tui = new TuiAltScreen(this.terminal, true);
 
     this.header = new Text("", 1, 0);
-    this.transcriptContainer = new Container();
+    this.transcriptContainer = new GutterContainer();
     this.scroll = new ScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
-    this.statusLine = new Text("", 1, 0);
-    this.footer = new Text(dim("Enter 提交 · Alt+Enter 换行 · End 回到底部 · /help 查看命令 · Ctrl+C 退出"), 1, 0);
+    this.statusLine = new MeasuredText("", 1, 0);
+    // 底栏：右下角显示生效的模型来源/模型名/思考强度（按键提示改由 /help 提供）
+    this.footer = new RightText("", 1, 0);
     this.editor = new AboveEditor(this.tui, editorTheme, {});
     this.editor.setAutocompleteProvider(new SlashCommandAutocomplete(SLASH_COMMANDS));
     this.editor.onSubmit = (text) => void this.handleSubmit(text);
@@ -263,6 +392,16 @@ export class TuiApp {
       const view = this.currentView();
       // 草稿保留展开后的原文（大段粘贴的折叠标记只用于展示）
       if (view) view.draft = this.editor.getExpandedText();
+    };
+    // 候选列表经覆盖层绘制：覆盖层在布局之后合成，叠在转录区之上而不挤占它。
+    // 回调来自 render 内部，showOverlay 会触发重渲染，必须推到下一 tick 再调。
+    this.editor.onOverlayChange = () => {
+      if (this.overlaySyncPending) return;
+      this.overlaySyncPending = true;
+      process.nextTick(() => {
+        this.overlaySyncPending = false;
+        this.syncAutocompleteOverlay();
+      });
     };
 
     const root = new VStack([
@@ -288,6 +427,42 @@ export class TuiApp {
         return { consume: true };
       }
       return undefined;
+    });
+  }
+
+  /** 右下角信息：模型来源 · 模型名 · 思考强度（未握手完成时显示占位）。 */
+  private modelInfoText(): string {
+    const m = this.state.model;
+    if (!m.provider && !m.id) return "模型：连接中…";
+    const thinking = m.thinkingLevel || "off";
+    return `${m.provider} · ${m.name || m.id} · 思考 ${thinking}`;
+  }
+
+  /**
+   * 把候选列表画到输入框正上方（覆盖层，不占布局行）。
+   * 位置从底部反推：底栏 + 编辑器高度之上的那一行起画。
+   */
+  private syncAutocompleteOverlay(): void {
+    const lines = this.editor.overlayLines;
+    if (lines.length === 0) {
+      this.autocompleteOverlay?.hide();
+      this.autocompleteOverlay = null;
+      return;
+    }
+    this.autocompleteOverlayComponent.setLines(lines);
+    if (this.autocompleteOverlay) {
+      // 已显示：内容就地更新，并请求重画（否则新选中项要等下一次按键才出现）
+      this.tui.requestRender();
+      return;
+    }
+    // 从底部反推：底栏 + 输入框之上的那一行起画
+    const fromBottom = this.editor.lastHeight + this.footer.lastHeight;
+    this.autocompleteOverlay = this.tui.showOverlay(this.autocompleteOverlayComponent, {
+      width: "100%",
+      anchor: "bottom-left",
+      offsetY: -fromBottom,
+      margin: 0,
+      nonCapturing: true, // 焦点留在输入框，按键仍由 Editor 处理
     });
   }
 
@@ -427,6 +602,23 @@ export class TuiApp {
     if (view.scrollTop !== null) this.scroll.scrollTo(view.scrollTop, { disableFollow: true });
   }
 
+  /**
+   * 用会话已落盘的历史消息补种输入框的上下键历史。
+   *
+   * Editor 的历史只在内存里（提交时 addToHistory），重开 TUI 就空了，其他
+   * 客户端（CLI）提交的消息也进不来。这里按会话把用户消息补进去：编辑器按
+   * 时间倒序保存（unshift），所以从最早一条开始喂，最新一条才会落在最前。
+   * 补种只在每个会话首次加载历史时做一次，避免翻页重复灌入。
+   */
+  private seedInputHistory(sessionId: string, page: HistoryPage): void {
+    if (this.seededHistorySessions.has(sessionId)) return;
+    this.seededHistorySessions.add(sessionId);
+    const userTexts = page.entries
+      .filter((e) => e.role === "user" && e.text.trim().length > 0)
+      .map((e) => e.text);
+    for (const text of userTexts) this.editor.addToHistory(text);
+  }
+
   private async loadHistory(sessionId: string, mode: "replace" | "prepend"): Promise<void> {
     const generation = this.generation;
     const view = this.state.openSession(sessionId);
@@ -439,6 +631,7 @@ export class TuiApp {
       // 异步结果按 会话+连接批次 匹配：过期结果不得覆盖新页面
       if (generation !== this.generation) return;
       this.state.installHistoryPage(sessionId, page, mode);
+      this.seedInputHistory(sessionId, page);
       this.refreshTranscript();
     } catch (err) {
       if (generation !== this.generation) return;
@@ -1562,6 +1755,7 @@ export class TuiApp {
             ? `离线：${conn.detail ?? ""}`
             : "连接中…";
     const lastSync = conn.lastSyncAt ? conn.lastSyncAt.toLocaleTimeString() : "从未";
+    this.footer.setText(dim(this.modelInfoText()));
     if (!view) {
       this.header.setText(
         `${bold("ruukoto")} · 未选择会话 · 连接：${connText}\n` +
@@ -1606,9 +1800,14 @@ export class TuiApp {
       }
       if (view.preview) {
         const p = view.preview;
-        const label = p.state === "generating" ? "生成中…" : "中断前已捕获部分";
-        const text = `${dim(`[${label}${p.truncated ? " · 预览截断" : ""}]`)}\n${sanitizeForDisplay(p.text)}`;
-        desired.push([`$preview:${p.messageId}`, this.cached(`$preview:${p.messageId}`, text, () => new Markdown(text, 1, 0, markdownTheme))]);
+        const stateLabel = p.state === "generating" ? "生成中…" : "中断前已捕获部分";
+        // 流式预览与最终条目同款标记，到达时不跳版
+        const text = sanitizeForDisplay(p.text);
+        const label = `${stateLabel}${p.truncated ? " · 预览截断" : ""}`;
+        desired.push([
+          `$preview:${p.messageId}`,
+          this.cached(`$preview:${p.messageId}`, text, () => new AssistantOutput(text, label)),
+        ]);
       }
       for (const tool of view.tools) {
         const key = `$tool:${tool.toolOpId}`;
@@ -1621,8 +1820,13 @@ export class TuiApp {
                 ? "失败"
                 : "效果未知";
         const summary = tool.resultSummary ? `：${sanitizeForDisplay(tool.resultSummary).slice(0, 120)}` : "";
-        const text = `⚙ ${sanitizeForDisplay(tool.toolName)} · ${statusText}${summary}${tool.artifactIds.length > 0 ? ` · 产物 ${tool.artifactIds.length} 个` : ""}${tool.paramsTruncated ? " · 参数过大（/expand 查看）" : ""}`;
-        desired.push([key, this.cached(key, text, () => new Text(dim(text), 1, 0))]);
+        const tail = `${summary}${tool.artifactIds.length > 0 ? ` · 产物 ${tool.artifactIds.length} 个` : ""}${tool.paramsTruncated ? " · 参数过大（/expand 查看）" : ""}`;
+        // 工具调用整体虚化，失败状态保持醒目
+        const text =
+          dim(`⚙ ${sanitizeForDisplay(tool.toolName)} · `) +
+          (tool.status === "error" ? red(statusText) : dim(statusText)) +
+          dim(tail);
+        desired.push([key, this.cached(key, text, () => new Text(text, 1, 0))]);
       }
       for (const note of view.notes) {
         desired.push([note.key, this.cached(note.key, note.text, () => new Text(dim(sanitizeForDisplay(note.text)), 1, 0))]);
@@ -1657,7 +1861,10 @@ export class TuiApp {
     const keys = desired.map(([k]) => k);
     if (keys.join("") !== this.itemOrder.join("")) {
       this.transcriptContainer.clear();
-      for (const [, component] of desired) this.transcriptContainer.addChild(component);
+      desired.forEach(([, component], i) => {
+        if (i > 0) this.transcriptContainer.addChild(new Spacer(1)); // 条目之间留一行间距
+        this.transcriptContainer.addChild(component);
+      });
       this.itemOrder = keys;
       const alive = new Set(keys);
       for (const key of this.itemComponents.keys()) {
@@ -1680,16 +1887,27 @@ export class TuiApp {
 
   private componentForItem(item: TranscriptItem): Component {
     if (item.kind === "message") {
-      const prefix = item.role === "user" ? "❯ " : item.role === "assistant" ? "" : `${item.role}: `;
-      const text = `${prefix}${sanitizeForDisplay(item.text)}${item.truncated ? dim(`\n[正文 ${item.totalBytes} 字节，/expand ${item.entryId.slice(0, 8)} 展开]`) : ""}`;
-      return this.cached(item.entryId, text, () =>
-        item.role === "assistant" ? new Markdown(text, 1, 0, markdownTheme) : new Text(text, 1, 0),
-      );
+      const truncatedNote = item.truncated
+        ? dim(`\n[正文 ${item.totalBytes} 字节，/expand ${item.entryId.slice(0, 8)} 展开]`)
+        : "";
+      const body = `${sanitizeForDisplay(item.text)}${truncatedNote}`;
+      if (item.role === "user") {
+        // 拥有者输入：整行底色 + 起始标记（与模型输出区分）
+        const text = `❯ ${body}`;
+        return this.cached(item.entryId, text, () => new Text(text, 1, 0, userBg));
+      }
+      if (item.role === "assistant") {
+        // 模型输出：圆点在标记列，正文缩进到正文列（续行对齐）
+        return this.cached(item.entryId, body, () => new AssistantOutput(body));
+      }
+      const text = `${item.role}: ${body}`;
+      return this.cached(item.entryId, text, () => new Text(text, 1, 0));
     }
-    // 工具结果条目：默认折叠为操作与结果摘要
+    // 工具结果条目：默认折叠为操作与结果摘要；整体虚化，只有失败标记保持醒目
     const text =
-      `⚙ ${sanitizeForDisplay(item.toolName)} ${item.isError ? red("失败") : "完成"} · ${item.totalBytes} 字节` +
-      dim(` · /expand ${item.entryId.slice(0, 8)} 展开`);
+      dim(`⚙ ${sanitizeForDisplay(item.toolName)} `) +
+      (item.isError ? red("失败") : dim("完成")) +
+      dim(` · ${item.totalBytes} 字节 · /expand ${item.entryId.slice(0, 8)} 展开`);
     return this.cached(item.entryId, text, () => new Text(text, 1, 0));
   }
 }

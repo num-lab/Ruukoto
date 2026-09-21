@@ -45,6 +45,8 @@ export interface ConnectSnapshot {
   instanceId: string;
   /** 执行后端与说明（local 无隔离必须显式展示）。 */
   execution: { backend: string; note: string };
+  /** 生效的模型来源、模型名与思考强度（只读展示）。 */
+  model: { provider: string; id: string; name: string; thinkingLevel: string };
 }
 
 export interface ConnectResult {

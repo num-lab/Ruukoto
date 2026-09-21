@@ -139,6 +139,12 @@ export class ViewState {
   artifacts = new Map<string, Artifact>();
   instanceId: string | null = null;
   execution: { backend: string; note: string } = { backend: "", note: "" };
+  model: { provider: string; id: string; name: string; thinkingLevel: string } = {
+    provider: "",
+    id: "",
+    name: "",
+    thinkingLevel: "",
+  };
   connection: ConnectionInfo = { state: "connecting", detail: null, lastSyncAt: null };
   sessionViews = new Map<string, SessionView>();
   currentSessionId: string | null = null;
@@ -162,6 +168,7 @@ export class ViewState {
     this.artifacts = new Map(result.snapshot.artifacts.map((a) => [a.id, a]));
     this.instanceId = result.snapshot.instanceId;
     this.execution = result.snapshot.execution;
+    this.model = result.snapshot.model ?? this.model;
     if (instanceChanged) {
       this.sessionViews.clear();
       this.currentSessionId = null;

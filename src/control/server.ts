@@ -237,6 +237,7 @@ export class ControlServer {
             previews: snapshot.previews,
             instanceId: snapshot.instanceId,
             execution: snapshot.execution,
+            model: snapshot.model,
           },
         };
         this.subscribers.add(socket);

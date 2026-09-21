@@ -39,6 +39,7 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
     previews: {},
     instanceId: "inst-1",
     execution: { backend: "local", note: "local 执行后端：无隔离" },
+    model: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
     ...overrides,
   };
 }

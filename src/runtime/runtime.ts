@@ -1133,6 +1133,19 @@ export class Runtime {
     return this.db.getInstanceId();
   }
 
+  /**
+   * 生效的模型来源与思考强度（供 TUI 展示；只读信息，不可经此改变配置）。
+   * provider/id 来自实际解析到的模型对象，不是配置文件的原始文本。
+   */
+  modelInfo(): { provider: string; id: string; name: string; thinkingLevel: string } {
+    return {
+      provider: String(this.model?.provider ?? ""),
+      id: String(this.model?.id ?? ""),
+      name: String(this.model?.name ?? ""),
+      thinkingLevel: this.config.thinkingLevel ?? "off",
+    };
+  }
+
   /** 执行后端说明（local 无隔离必须显式标记，不得暗示隔离已生效）。 */
   executionInfo(): { backend: string; note: string } {
     const backend = this.config.execution?.backend ?? "local";
@@ -1189,6 +1202,7 @@ export class Runtime {
     previews: Record<string, OutputPreview>;
     instanceId: string;
     execution: { backend: string; note: string };
+    model: { provider: string; id: string; name: string; thinkingLevel: string };
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -1217,6 +1231,7 @@ export class Runtime {
       previews,
       instanceId: this.db.getInstanceId(),
       execution: this.executionInfo(),
+      model: this.modelInfo(),
       seq: this.store.getMaxSeq(),
     };
   }

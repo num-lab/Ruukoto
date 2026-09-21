@@ -23,6 +23,7 @@ import {
   TUI_KEYBINDINGS,
   TuiAltScreen,
   VStack,
+  visibleWidth,
   type AutocompleteItem,
   type AutocompleteProvider,
   type Component,
@@ -86,6 +87,21 @@ const selectTheme = {
 };
 
 const editorTheme = { borderColor: dim, selectList: selectTheme };
+
+/**
+ * 带边框的文本块：圆角边框 + 左右各 1 列留白。宽度按显示宽度计算
+ * （中文行不被算宽），在整块内容的最宽行上对齐。
+ */
+class BorderText extends Text {
+  render(width: number): string[] {
+    const inner = super.render(Math.max(1, width - 4));
+    const innerWidth = inner.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
+    const top = `╭${"─".repeat(innerWidth + 2)}╮`;
+    const bottom = `╰${"─".repeat(innerWidth + 2)}╯`;
+    const body = inner.map((line) => `│ ${line}${" ".repeat(Math.max(0, innerWidth - visibleWidth(line)))} │`);
+    return [dim(top), ...body, dim(bottom)];
+  }
+}
 
 /** 覆盖层容器：TUI 把焦点给覆盖层根组件，这里把按键转发给目标（列表或自定义键处理）。 */
 class OverlayBox extends VStack {
@@ -1487,7 +1503,7 @@ export class TuiApp {
       "  中文输入法候选窗位置依赖终端的 Kitty 键盘协议支持；",
       "  链接不自动打开；状态不只靠颜色表达（均有文字标注）。",
     ];
-    const box = new OverlayBox([{ component: new Text(lines.join("\n"), 1, 1), grow: 1 }]);
+    const box = new OverlayBox([{ component: new BorderText(lines.join("\n"), 1, 1), grow: 1 }]);
     const handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "85%" });
     box.onKey = (data: string) => {
       if (data === "\x1b" || data === "q") {

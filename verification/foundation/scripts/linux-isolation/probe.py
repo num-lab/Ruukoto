@@ -47,7 +47,9 @@ def run(cmd, timeout=8):
 
 
 # ---------- 文件隔离 ----------
-rc, detail = run("touch /workspace/.probe-write")
+# 按变体分名：plain（root）先写的文件若同名，restricted（uid 1000）在原生
+# Linux 上无权 touch（Docker Desktop macOS 的 uid 代管掩盖了这一点）。
+rc, detail = run(f"touch /workspace/.probe-write-{variant}")
 record("workspace.write", "pass", rc == 0, f"touch /workspace: {detail}")
 
 for host_path in ["/Users", "/home/eitrous", "/root/.pi", "/etc/ruukoto-backend", "/var/run/docker.sock"]:

@@ -96,6 +96,9 @@ fi
 echo "对照控制面服务已在宿主 127.0.0.1:$CP_PORT 监听"
 
 mkdir -p "$WORK/workspace"
+# 原生 Linux 的 bind mount 不做 uid 映射：restricted 变体以 uid 1000 运行，
+# 工作区须对其可写（Docker Desktop macOS 会代管权限，原生 Linux 不会）。
+chmod 0777 "$WORK/workspace"
 # 真实存在的工作区外秘密文件（不挂载进容器）：用于验证拒绝原因是边界生效，
 # 而不是目标不存在
 echo "host-secret" > "$WORK/host-only-secret.txt"
@@ -216,7 +219,7 @@ doc = {
   "timestamp": stamp,
   "host": host,
   "container_env": env,
-  "caveat": "在 Docker Desktop（macOS 上的 Linux VM）验证容器边界本身；目标服务器的宿主前提（发行版、内核版本、rootless 运行时、sysctl）未验证。",
+  "caveat": "探针验证容器边界本身；宿主信息见 host 字段（macOS Docker Desktop 的 Linux VM 与原生 Linux 均已跑过，原生 Linux 的 bind mount 无 uid 映射，工作区写权限需按部署文档处理）。",
   "expected": expected,
   "missing_probes": missing,
   "probes": probes,
@@ -231,8 +234,9 @@ lines = [
   f"- 时间：{stamp}",
   f"- {host}",
   f"- 容器环境：{env_lines[0] if env_lines else '?'} / {env_lines[-1] if env_lines else '?'}",
-  "- 注意：本次在 Docker Desktop（macOS 上的 Linux VM）中验证容器边界本身；",
-  "  目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时）未验证，见 issue 记录。",
+  "- 注意：探针验证容器边界本身；宿主环境见上方宿主信息行（macOS Docker Desktop",
+  "  的 Linux VM 与原生 Linux 均已验证；原生 Linux 的 bind mount 无 uid 映射，",
+  "  工作区写权限处理见 deploy/systemd/README.md 第 5 步）。",
   "",
   "| 探针 | 预期 | 结果 | 说明 |",
   "| --- | --- | --- | --- |",

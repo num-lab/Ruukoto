@@ -9,4 +9,8 @@ if [ "$#" -ne 1 ] || ! [[ "$1" =~ ^ruukoto-exec-[a-z0-9_-]+$ ]]; then
 fi
 
 /usr/bin/systemctl stop "$1" || true
-exec /usr/bin/systemctl is-active "$1"
+# 与调用方约定：退出码 0 = 单元已不在活动（is-active 在活动时为 0，反转换取）
+if /usr/bin/systemctl is-active --quiet "$1"; then
+  exit 1
+fi
+exit 0

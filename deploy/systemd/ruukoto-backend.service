@@ -11,6 +11,16 @@ Group=ruukoto-backend
 Environment=RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
 Environment=RUUKOTO_AGENT_DIR=/var/lib/ruukoto/agent
 Environment=RUUKOTO_EXECUTION_BACKEND=container
+# 完全访问执行入口指向受保护包装（生产配置）；不设置则直连 systemd-run（仅开发/单机验证）
+Environment=RUUKOTO_EXEC_LAUNCH_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-launch
+Environment=RUUKOTO_EXEC_STOP_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-stop
+# 执行账户 uid/gid（默认 1002；目标机 1002 被占用时用 drop-in 覆盖，见 README 第 5 步）
+Environment=RUUKOTO_EXEC_UID=1002
+Environment=RUUKOTO_EXEC_GID=1002
+# 容器内进程 uid/gid（默认 1000）。原生 Linux 的 bind mount 不做 uid 映射：容器
+# uid 必须能写任务工作区。单拥有者服务器建议用 drop-in 设为拥有者 uid/gid。
+# Environment=RUUKOTO_CONTAINER_UID=1003
+# Environment=RUUKOTO_CONTAINER_GID=1003
 # 容器镜像与 docker CLI 固定（可选覆盖）
 # Environment=RUUKOTO_WORKER_IMAGE=ruukoto-worker:0.85.1
 ExecStart=/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts start

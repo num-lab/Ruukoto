@@ -2,13 +2,10 @@
 #
 # - 固定 pi 0.85.1 依赖（package-lock.json 安装），工作进程由 esbuild 打成
 #   单文件 worker.mjs（pi 依赖保持 external，经 node_modules 解析）；
-# - 工具链：node 24 + bash + coreutils（slim 基础镜像自带）。
-#   本仓库开发机的网络无法访问 apt 源，git 未装入；在目标服务器（可访问
-#   apt）构建时，把下方注释的 git 安装步骤恢复即可：
-#
-#     RUN apt-get update \
-#      && apt-get install -y --no-install-recommends git ca-certificates \
-#      && rm -rf /var/lib/apt/lists/*
+# - 工具链：node 24 + bash + coreutils + git（slim 基础镜像自带前三者）。
+#   本仓库开发机的网络无法访问 apt 源；git 安装段在目标服务器构建时恢复
+#   （保持下方 RUN 不被注释）。若目标机仍无法访问 deb.debian.org，先在
+#   构建环境把 deb 源替换为可用镜像站再构建。
 #
 # - 容器由后台以 --user 1000:1000 启动（见 src/agent/execution/launchers.ts），
 #   镜像不内置特权入口。
@@ -24,6 +21,9 @@ RUN npx esbuild src/agent/tool-worker/worker.ts \
       --outfile=worker.mjs
 
 FROM node:24-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 # uid/gid 1000 已由基础镜像的 node 用户占用：容器以 --user 1000:1000 启动即映射到它
 WORKDIR /opt/ruukoto/worker
 COPY package.json package-lock.json ./

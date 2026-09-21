@@ -169,6 +169,7 @@ async function startBackendProcess(dirs: { root: string; dataDir: string; agentD
   const child = spawn("npx", ["tsx", "src/cli.ts", "start", "--execution", "local", "--tools", "mock", "--model", "mock/mock-model"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿
   });
   let stderr = "";
   child.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
@@ -250,7 +251,13 @@ test(
     } finally {
       backend.kill("SIGTERM");
       await new Promise((r) => setTimeout(r, 500));
-      backend.kill("SIGKILL");
+      try {
+        process.kill(-backend.pid!, "SIGKILL"); // 整组：覆盖 npx 垫片下的真实后台
+      } catch {
+        backend.kill("SIGKILL");
+      }
+      backend.stdout?.destroy();
+      backend.stderr?.destroy();
       await server.close();
       await cleanupDirs(dirs);
     }

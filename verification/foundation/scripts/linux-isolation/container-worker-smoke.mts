@@ -83,7 +83,8 @@ async function main(): Promise<number> {
     // 1. 工具在容器内执行：可见工作区、可写工作区，结果回传宿主
     const r1 = await bash(host, "smoke-1", "echo container-ok && touch made-in-container.txt && id -u");
     check("容器内 bash 工具执行", /container-ok/.test(r1.text) && !r1.isError, r1.text.trim().split("\n")[0] ?? "");
-    check("非 root 身份", /\b1000\b/.test(r1.text), `id -u=${r1.text.match(/^\d+$/m)?.[0] ?? "?"}`);
+    const uidLine = r1.text.match(/^\d+$/m)?.[0] ?? "?";
+    check("非 root 身份", uidLine === String(DEFAULT_CONTAINER_CONFIG.uid) && DEFAULT_CONTAINER_CONFIG.uid !== 0, `id -u=${uidLine}`);
     check("工作区写入对宿主可见", fs.existsSync(path.join(workspace, "made-in-container.txt")), "made-in-container.txt");
 
     // 2. 网络默认关闭（直接与间接都不可达）

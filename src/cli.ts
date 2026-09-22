@@ -218,6 +218,14 @@ async function main(argv: string[]): Promise<number> {
         ),
       );
       return 0;
+    case "set-session-mode":
+      print(
+        await withClient(async (c) => {
+          const session = await c.request<Session>("get_session", { session_id: positional[0] ?? "" });
+          return c.request("set_session_mode", { session_id: session.id, mode: positional[1] ?? "", expected_version: session.defaultAccessModeVersion });
+        }),
+      );
+      return 0;
     case "status": {
       if (positional[0]) {
         print(await withClient((c) => c.request("get_task", { task_id: positional[0] })));
@@ -553,7 +561,7 @@ async function main(argv: string[]): Promise<number> {
 function defaultHelp(): string {
   return (
     "用法：ruukoto <command> [args]\n" +
-    "命令：models | set-model <session> <provider/model> --thinking <level> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
+    "命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking（start）；--mode / --grant（submit/continue/switch-mode）；\n" +

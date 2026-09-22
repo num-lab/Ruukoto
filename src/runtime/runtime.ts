@@ -540,7 +540,9 @@ export class Runtime {
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
-    const accessMode = input.accessMode ?? "confirm";
+    // 未显式指定时固定为提交瞬间的会话默认模式（issue 12）；幂等摘要据此计算，
+    // 默认值之后的变更不会漂移已接收任务。
+    const accessMode = input.accessMode ?? session.defaultAccessMode;
     if (accessMode !== "confirm" && accessMode !== "full_access") {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${accessMode}`);
     }
@@ -593,8 +595,7 @@ export class Runtime {
 
   /**
    * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
-   * 新任务默认请求确认；旧批准不继承，拥有者可在提交时重新明确选择
-   * 完全访问。
+   * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
    */
   async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: AccessMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
     const old = this.store.getTask(input.taskId);
@@ -607,11 +608,30 @@ export class Runtime {
       sessionId: old.sessionId,
       requestId: input.requestId,
       input: input.input,
-      accessMode: input.accessMode ?? "confirm",
+      accessMode: input.accessMode,
       grantedPaths: input.grantedPaths,
       resumesTaskId: old.id,
       modelSelection: input.modelSelection,
     });
+  }
+
+  /**
+   * 拥有者设置会话默认访问模式（issue 12）：只影响之后新建且未显式指定
+   * 模式的任务；不改写既有任务、待生效模式或待处理审批。
+   */
+  async setSessionDefaultMode(input: { sessionId: string; mode: AccessMode; expectedVersion: number }): Promise<Session> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    this.getSession(input.sessionId);
+    if (input.mode !== "confirm" && input.mode !== "full_access") {
+      throw new RuntimeApiError("invalid_params", `会话默认模式无效：${input.mode}（confirm | full_access）`);
+    }
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
+    try {
+      return this.store.withTx(() => this.store.setSessionDefaultMode(input.sessionId, input.mode, input.expectedVersion));
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   /**

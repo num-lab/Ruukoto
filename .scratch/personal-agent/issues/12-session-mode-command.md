@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: resolved
 Depends on: 03, 04
 
 # 将 `/mode` 改为当前 session 的模式选择
@@ -47,3 +47,14 @@ Depends on: 03, 04
 ### 2026-09-22：创建工单
 
 用户要求将现有 `/mode` 改为无 task 参数的列表选择，并作用于当前 session。当前实现仅支持任务级 `confirm|full_access`；用户描述中的 `manul` 与 `auto-review` 尚需确认具体名称和权限语义。
+
+### 2026-09-22：实现完成
+
+按实施计划落地，未确认部分按工单要求收窄：
+
+- `manul` 视为 `manual` 笔误，对应现有 `confirm`（请求确认）；`auto-review` 语义未确认，未实现为任何模式，`set_session_mode` 只接受 `confirm | full_access`，ADR 0003 边界不变。
+- Session 增加 `defaultAccessMode` + `defaultAccessModeVersion`（SQLite 补列迁移，旧会话默认 `confirm`，历史任务不改写）；`set_session_mode` 控制接口走拥有者认证与期望版本 CAS，事务内广播 `session.default_mode_changed`。
+- `submit`/`continue` 未显式传模式时固定提交瞬间的会话默认值（幂等摘要按解析后的模式计算，默认值后续变更不漂移已接收任务）；显式传入的一次性模式优先。
+- TUI `/mode` 改为无参数列表选择（Esc 取消），`full_access` 需二次确认；状态栏同时显示当前任务模式与会话默认模式；冲突/断线时刷新后台真实值，不自动重放。
+- 任务级 `switch_mode`（控制协议与 CLI `switch-mode`）按第 6 条保留，未删除。
+- 协议版本升至 v6；新增集成测试覆盖 CAS、默认值固定、既有任务不改写与非法模式拒绝。全部 139 个测试通过。

@@ -155,6 +155,62 @@ test("continue 新任务默认请求确认，拥有者可显式选择完全访�
   }
 });
 
+test("会话默认模式：CAS 更新、新任务固定提交瞬间的默认值、既有任务不改写", async () => {
+  const t = await startTestRuntime("session-mode", modeRoutes(), { workDirs: 1 });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const model = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
+
+    // 新会话默认请求确认
+    let session = await t.client.request<any>("get_session", { session_id: sessionId });
+    assert.equal(session.defaultAccessMode, "confirm");
+    assert.equal(session.defaultAccessModeVersion, 0);
+
+    // 非法模式与版本冲突被拒绝，旧值不变
+    await assert.rejects(
+      t.client.request("set_session_mode", { session_id: sessionId, mode: "auto-review", expected_version: 0 }),
+      (err: any) => err.code === "invalid_params",
+    );
+    await assert.rejects(
+      t.client.request("set_session_mode", { session_id: sessionId, mode: "full_access", expected_version: 7 }),
+      (err: any) => err.code === "default_mode_conflict",
+    );
+    session = await t.client.request<any>("get_session", { session_id: sessionId });
+    assert.equal(session.defaultAccessMode, "confirm");
+
+    // 排队任务固定创建时的模式；切换会话默认值不改写它
+    const slow = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "sm-1", input: "SLOW:占位" });
+    await waitFor("占位任务运行中", async () => (await taskStatus(t.client, slow.id)).task.status === "running", 30_000);
+    const queued = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "sm-2", input: "QUICK:排队" });
+    assert.equal(queued.accessMode, "confirm");
+
+    const saved = await t.client.request<any>("set_session_mode", { session_id: sessionId, mode: "full_access", expected_version: 0 });
+    assert.equal(saved.defaultAccessMode, "full_access");
+    assert.equal(saved.defaultAccessModeVersion, 1);
+    assert.equal((await taskStatus(t.client, queued.id)).task.accessMode, "confirm", "已排队任务保留创建时的模式");
+
+    // 之后提交且未显式指定模式的新任务沿用会话默认值
+    const after = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "sm-3", input: "QUICK:默认模式任务" });
+    assert.equal(after.accessMode, "full_access", "新任务固定提交瞬间的会话默认模式");
+
+    // 显式传入的一次性任务模式优先于会话默认值
+    const explicit = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "sm-4", input: "QUICK:显式", access_mode: "confirm" });
+    assert.equal(explicit.accessMode, "confirm");
+
+    // 同值设置不递增版本
+    const same = await t.client.request<any>("set_session_mode", { session_id: sessionId, mode: "full_access", expected_version: 1 });
+    assert.equal(same.defaultAccessModeVersion, 1);
+
+    await t.client.request("cancel", { task_id: slow.id });
+    await waitFor("任务收尾", async () => {
+      const statuses = await Promise.all([slow, queued, after, explicit].map((task) => taskStatus(t.client, task.id)));
+      return statuses.every((item) => ["completed", "canceled"].includes(item.task.status));
+    }, 30_000);
+  } finally {
+    await t.shutdown();
+  }
+});
+
 test("switch-mode 在无执行中工具的边界生效；任务结束后拒绝切换", async () => {
   const t = await startTestRuntime("mode-switch", modeRoutes(), { workDirs: 1 });
   try {

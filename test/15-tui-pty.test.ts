@@ -215,7 +215,7 @@ test(
           [9, "\r"],
           [16, "/quit\r"],
         ],
-        expect: ["会话", "请求确认", "你好，PTY", "回声：", "已退出 TUI"],
+        expect: ["会话", "Ask for approval", "你好，PTY", "回声：", "已退出 TUI"],
         timeout: 60,
       });
       assert.equal(run1.expectSeen, run1.expectTotal, `未看到全部期望内容：${run1.tail}`);

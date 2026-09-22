@@ -266,6 +266,13 @@ export class ControlServer {
       }
       case "set_session_model":
         return runtime.setSessionModel({ sessionId: requireString("session_id"), modelSelection: parseModelSelection(params["model_selection"]), expectedVersion: params["expected_version"] as number });
+      case "set_session_mode": {
+        const mode = params["mode"];
+        if (mode !== "confirm" && mode !== "full_access") {
+          throw Object.assign(new Error("mode 必须是 confirm 或 full_access"), { code: "invalid_params" });
+        }
+        return runtime.setSessionDefaultMode({ sessionId: requireString("session_id"), mode, expectedVersion: params["expected_version"] as number });
+      }
       case "submit":
         return runtime.submit({
           sessionId: requireString("session_id"),

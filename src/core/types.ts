@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 export interface ModelSelection {
   provider: string;
@@ -27,6 +27,16 @@ export interface ModelSelection {
  *   账户已有权限，不逐次确认。不额外赋权，也不提供执行账户内部的文件隔离。
  */
 export type AccessMode = "confirm" | "full_access";
+
+/**
+ * 会话默认访问模式（issue 12）：新建任务在未显式指定模式时沿用。
+ * 取值与 AccessMode 相同（ADR 0003 首期两种模式）；`auto-review` 等
+ * 自动审批语义确认前不加入取值，不能作为绕过确认的入口。
+ */
+export type SessionDefaultMode = AccessMode;
+
+/** 会话默认模式的取值列表（显示与入参校验共用）。 */
+export const SESSION_DEFAULT_MODES: readonly SessionDefaultMode[] = ["confirm", "full_access"];
 
 /** 已授权工作区外的具体路径权限（拥有者在可信入口为任务显式配置）。 */
 export interface GrantedPath {
@@ -84,6 +94,10 @@ export interface Session {
   confirmTools: string[];
   modelSelection: ModelSelection | null;
   modelSelectionVersion: number;
+  /** 会话默认访问模式；新建任务未显式指定时固定为提交瞬间的该值。 */
+  defaultAccessMode: SessionDefaultMode;
+  /** 默认模式版本号：条件更新（CAS）与冲突检测用。 */
+  defaultAccessModeVersion: number;
   queueState: SessionQueueState;
   queuePauseReason: string | null;
   createdAt: string;
@@ -227,6 +241,7 @@ export type PersistentEventBody =
   | { type: "project.created"; projectId: string; name: string }
   | { type: "session.created"; sessionId: string; projectId: string; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
+  | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }

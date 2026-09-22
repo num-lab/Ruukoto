@@ -22,6 +22,7 @@ import {
   type Project,
   type SelectionRecord,
   type Session,
+  type SessionDefaultMode,
   type Task,
   type TaskStatus,
   type ToolOp,
@@ -143,6 +144,8 @@ export class Store {
       confirmTools: input.confirmTools,
       modelSelection: input.modelSelection ?? null,
       modelSelectionVersion: input.modelSelection ? 1 : 0,
+      defaultAccessMode: "confirm",
+      defaultAccessModeVersion: 0,
       queueState: "active",
       queuePauseReason: null,
       createdAt: new Date().toISOString(),
@@ -150,8 +153,9 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO sessions (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
-         session_file, confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?)`,
+         session_file, confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
+         default_access_mode, default_access_mode_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'confirm', 0)`,
       )
       .run(
         session.id,
@@ -221,6 +225,21 @@ export class Store {
     return Number(row.n);
   }
 
+  /** 调用方在事务内执行版本检查、更新及事件写入；同值不递增版本、不发事件。 */
+  setSessionDefaultMode(sessionId: string, mode: SessionDefaultMode, expectedVersion: number): Session {
+    const session = this.getSession(sessionId);
+    if (!session) throw new StoreConflictError(`会话不存在：${sessionId}`, "not_found");
+    if (session.defaultAccessModeVersion !== expectedVersion) {
+      throw new StoreConflictError("会话默认模式已被其他客户端修改，请刷新后重试", "default_mode_conflict");
+    }
+    if (session.defaultAccessMode === mode) return session;
+    const defaultAccessModeVersion = expectedVersion + 1;
+    this.db.prepare("UPDATE sessions SET default_access_mode = ?, default_access_mode_version = ? WHERE id = ?")
+      .run(mode, defaultAccessModeVersion, sessionId);
+    this.appendEvent({ type: "session.default_mode_changed", sessionId, defaultAccessMode: mode, defaultAccessModeVersion }, { sessionId });
+    return this.getSession(sessionId)!;
+  }
+
   /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
   fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
     const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
@@ -255,6 +274,8 @@ export class Store {
       confirmTools: JSON.parse(row.confirm_tools) as string[],
       modelSelection: row.model_selection ? JSON.parse(row.model_selection) as ModelSelection : null,
       modelSelectionVersion: Number(row.model_selection_version),
+      defaultAccessMode: (row.default_access_mode ?? "confirm") as SessionDefaultMode,
+      defaultAccessModeVersion: Number(row.default_access_mode_version ?? 0),
       queueState: row.queue_state as "active" | "paused",
       queuePauseReason: row.queue_pause_reason,
       createdAt: row.created_at,

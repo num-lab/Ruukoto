@@ -363,6 +363,8 @@ export class Db {
     };
     add("sessions", "model_selection", "model_selection TEXT");
     add("sessions", "model_selection_version", "model_selection_version INTEGER NOT NULL DEFAULT 0");
+    add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access'))");
+    add("sessions", "default_access_mode_version", "default_access_mode_version INTEGER NOT NULL DEFAULT 0");
     add("tasks", "model_selection", "model_selection TEXT");
     add("tasks", "submission_digest", "submission_digest TEXT");
     add("projects", "instruction_files", "instruction_files TEXT NOT NULL DEFAULT '[]'");

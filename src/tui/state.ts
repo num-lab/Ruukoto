@@ -234,6 +234,8 @@ export class ViewState {
             confirmTools: [],
             modelSelection: body.modelSelection,
             modelSelectionVersion: body.modelSelectionVersion,
+            defaultAccessMode: "confirm",
+            defaultAccessModeVersion: 0,
             queueState: "active",
             queuePauseReason: null,
             createdAt: event.createdAt,
@@ -266,6 +268,9 @@ export class ViewState {
         return;
       case "session.model_selection_changed":
         this.applySessionModel(body.sessionId, body.modelSelection, body.modelSelectionVersion);
+        return;
+      case "session.default_mode_changed":
+        this.applySessionDefaultMode(body.sessionId, body.defaultAccessMode, body.defaultAccessModeVersion);
         return;
       case "tasks.model_selection_recorded":
         for (const taskId of body.taskIds) this.patchTask(taskId, { modelSelection: body.modelSelection });
@@ -574,6 +579,14 @@ export class ViewState {
     }
   }
 
+  applySessionDefaultMode(sessionId: string, mode: AccessMode, version: number): void {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session && version >= session.defaultAccessModeVersion) {
+      session.defaultAccessMode = mode;
+      session.defaultAccessModeVersion = version;
+    }
+  }
+
   upsertTask(task: Task): void {
     this.tasks.set(task.id, task);
   }
@@ -641,8 +654,8 @@ function viewForTask(views: Map<string, SessionView>, taskId: string): SessionVi
 }
 
 export function formatAccessMode(mode: AccessMode, pending: AccessMode | null): string {
-  const base = mode === "full_access" ? "完全访问" : "请求确认";
-  return pending ? `${base}（待切换：${pending === "full_access" ? "完全访问" : "请求确认"}）` : base;
+  const base = mode === "full_access" ? "完全访问" : "Ask for approval";
+  return pending ? `${base}（待切换：${pending === "full_access" ? "完全访问" : "Ask for approval"}）` : base;
 }
 
 export function formatTaskStatus(status: TaskStatus): string {

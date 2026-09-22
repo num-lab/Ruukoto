@@ -44,7 +44,7 @@ import type { SubmissionGuard } from "../control/submission.ts";
 import type { PendingRequestStore } from "../control/pending-requests.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
-import type { ModelSelection, Session, PersistentEvent, Task } from "../core/types.ts";
+import type { AccessMode, ModelSelection, Session, PersistentEvent, Task } from "../core/types.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
 import { snapUtf8End, snapUtf8Start } from "../core/history.ts";
 import {
@@ -594,7 +594,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "thinking", description: "同上：模型切换面板（可直接切到思考强度列）" },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]" },
   { name: "resume-queue", description: "恢复已暂停的会话队列" },
-  { name: "mode", description: "切换任务访问模式", argumentHint: "<confirm|full_access> [taskId]" },
+  { name: "mode", description: "选择当前会话的默认访问模式（新任务生效）" },
   { name: "status", description: "刷新并查看当前任务详情" },
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
@@ -1242,7 +1242,7 @@ export class TuiApp {
     const effectNote = task.effectUnknown ? "；存在效果未知的工具操作（不能当作可安全重试）" : "";
     this.notify(
       `继续任务 ${task.id}：中断原因 ${task.interruptReason ?? "未知"}${effectNote}。\n` +
-        `原任务模型：${this.selectionText(task.modelSelection)}。下一条输入使用后续任务选择：${this.selectionText(this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection)}（新任务默认请求确认）。输入 /continue 取消继续模式。`,
+        `原任务模型：${this.selectionText(task.modelSelection)}。下一条输入使用后续任务选择：${this.selectionText(this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection)}（新任务沿用会话默认模式）。输入 /continue 取消继续模式。`,
     );
     // 展示旧任务的已完成操作，供继续决策参考
     try {
@@ -1293,53 +1293,68 @@ export class TuiApp {
   }
 
   private async cmdMode(rest: string[]): Promise<void> {
-    const mode = rest[0];
-    if (mode !== "confirm" && mode !== "full_access") {
-      this.notify("用法：/mode <confirm|full_access> [taskId]");
+    if (rest.length > 0) {
+      this.notify("用法：/mode（无参数，列表选择当前会话的默认模式；作用于之后新建的任务）");
       return;
     }
     const view = this.currentView();
-    const task = rest[1]
-      ? this.state.getTask(this.resolveTaskId(rest[1]) ?? "")
-      : view
-        ? (this.state.activeTaskFor(view.sessionId) ?? this.state.queuedTasksFor(view.sessionId).at(-1) ?? null)
-        : null;
-    if (!task) {
-      this.notify("没有可切换模式的任务");
+    const session = view ? this.state.sessions.find((s) => s.id === view.sessionId) : undefined;
+    if (!session) {
+      this.notify("尚未选择会话");
       return;
     }
-    if (mode === "full_access") {
-      // 完全访问必须经明确的模式操作选择：展示目标任务与权限范围
-      this.openModeConfirm(task, mode);
-      return;
-    }
-    await this.sendModeSwitch(task.id, mode);
+    const sessionId = session.id;
+    const version = session.defaultAccessModeVersion;
+    const current = session.defaultAccessMode;
+    const label = (mode: AccessMode) => (mode === "full_access" ? "完全访问" : "Ask for approval");
+    const items: SelectItem[] = (["confirm", "full_access"] as const).map((mode) => ({
+      value: mode,
+      label: `${label(mode)}${mode === current ? "（当前）" : ""}`,
+      description:
+        mode === "confirm"
+          ? "已授权范围内自主执行，越界操作逐次确认"
+          : "使用执行账户已有权限，不再逐次确认；不额外赋权",
+    }));
+    this.showSelection(`会话默认模式（当前：${label(current)}；作用于之后新建的任务，Esc 取消）`, items, (item) => {
+      const mode = item.value as AccessMode;
+      if (mode === "full_access") {
+        // 完全访问必须经明确的模式操作选择：展示权限范围后二次确认
+        this.openSessionModeConfirm(sessionId, version, mode);
+        return;
+      }
+      void this.sendSessionMode(sessionId, version, mode);
+    });
   }
 
-  private async sendModeSwitch(taskId: string, mode: "confirm" | "full_access"): Promise<void> {
+  private async sendSessionMode(sessionId: string, version: number, mode: AccessMode): Promise<void> {
+    const label = mode === "full_access" ? "完全访问" : "Ask for approval";
     try {
-      await this.connection.request("switch_mode", { task_id: taskId, mode });
-      this.notify(`已请求切换为 ${mode === "full_access" ? "完全访问" : "请求确认"}；生效以模式事件为准`);
+      const saved = await this.connection.request<Session>("set_session_mode", { session_id: sessionId, mode, expected_version: version });
+      this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
+      this.state.note(sessionId, `会话默认模式已切换为 ${label}；之后新建的任务生效`);
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code === "connection_unavailable" || code === "closed" || code === "request_timeout") {
-        // 应答丢失：先查询实际状态，不盲目重放
+        // 应答丢失：先查询后台实际状态，不盲目重放
+        this.state.note(sessionId, `默认模式设置应答丢失；正在查询后台状态（未自动重发）`);
         try {
-          const detail = await this.connection.request<{ task: Task }>("get_task", { task_id: taskId });
-          const actual = detail.task.accessMode;
-          const pending = detail.task.pendingAccessMode;
-          this.notify(
-            `模式切换应答丢失；后台实际状态：${actual === "full_access" ? "完全访问" : "请求确认"}` +
-              `${pending ? `（待切换：${pending === "full_access" ? "完全访问" : "请求确认"}）` : ""}（未自动重放请求）`,
-          );
+          const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
+          this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
         } catch {
-          this.notify(yellow("模式切换应答丢失且暂时无法查询；恢复在线后核实"));
+          this.state.note(sessionId, "状态查询失败，重连后恢复");
         }
-        return;
+      } else if (code === "default_mode_conflict") {
+        // 版本冲突：刷新后台真实值，不覆盖其他客户端的新选择
+        this.state.note(sessionId, `默认模式已被其他客户端修改：${(err as Error).message}`);
+        try {
+          const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
+          this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
+        } catch { /* 重连后由快照恢复 */ }
+      } else {
+        this.state.note(sessionId, `默认模式设置失败：${(err as Error).message}`);
       }
-      // 切换失败展示后台原因，不乐观宣称已获得或收回权限
-      this.notify(red(`模式切换失败：${(err as Error).message}`));
     }
+    this.refreshAll();
   }
 
   // ---------- 历史搜索与记忆（issue 05 §6 入口） ----------
@@ -1964,17 +1979,14 @@ export class TuiApp {
     };
   }
 
-  // ---------- 模式切换确认 ----------
+  // ---------- 会话默认模式确认 ----------
 
-  private openModeConfirm(task: Task, mode: "full_access"): void {
+  private openSessionModeConfirm(sessionId: string, version: number, mode: "full_access"): void {
     const lines = [
-      bold("切换为完全访问模式"),
-      `目标任务：${task.id}（会话 ${task.sessionId}）`,
-      "范围：任务在容器外使用专用执行账户已有权限，不再逐次确认；不额外赋权。",
-      "该选择只作用于本任务，不扩散到下一个任务或其他会话。",
-      task.grantedPaths.length > 0
-        ? `工作区外授予路径：${task.grantedPaths.map((g) => `${g.path}（${g.access}，${g.purpose}）`).join("；")}`
-        : "无工作区外授予路径。",
+      bold("将会话默认模式切换为完全访问"),
+      `目标会话：${sessionId}`,
+      "范围：之后新建的任务在容器外使用专用执行账户已有权限，不再逐次确认；不额外赋权。",
+      "该选择只作用于本会话之后新建的任务；已运行、排队和等待审批的任务保留创建时的模式。",
     ];
     const items: SelectItem[] = [
       { value: "confirm", label: "确认切换为完全访问" },
@@ -1990,7 +2002,7 @@ export class TuiApp {
     list.onSelect = (item) => {
       handle.hide();
       this.tui.setFocus(this.editor);
-      if (item.value === "confirm") void this.sendModeSwitch(task.id, mode);
+      if (item.value === "confirm") void this.sendSessionMode(sessionId, version, mode);
     };
     list.onCancel = () => {
       handle.hide();
@@ -2234,12 +2246,14 @@ export class TuiApp {
     const session = this.state.sessions.find((s) => s.id === view.sessionId);
     const active = this.state.activeTaskFor(view.sessionId);
     const modeTask = active ?? this.state.queuedTasksFor(view.sessionId).at(-1) ?? null;
-    const modeText = modeTask ? formatAccessMode(modeTask.accessMode, modeTask.pendingAccessMode) : "—";
+    const modeText = modeTask ? formatAccessMode(modeTask.accessMode, modeTask.pendingAccessMode) : null;
+    const defaultText = `${session?.defaultAccessMode === "full_access" ? "完全访问" : "Ask for approval"}`;
+    const modeDisplay = modeText ? `${modeText} · ${defaultText}` : defaultText;
     // 左下角：当前模式与工作区；右上角已有连接/执行信息，这里不重复
-    this.footer.set(dim(`${modeText} · ${sanitizeForDisplay(view.cwd)}`), dim(this.modelInfoText()));
+    this.footer.set(dim(`${modeDisplay} · ${sanitizeForDisplay(view.cwd)}`), dim(this.modelInfoText()));
     this.header.setText(
       `${bold(this.state.projectName(view.projectId))} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
-        `连接：${connText} · 模式：${modeText} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,
+        `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,
     );
     const queued = this.state.queuedTasksFor(view.sessionId);
     const parts = [

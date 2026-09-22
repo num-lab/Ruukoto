@@ -30,6 +30,8 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
         confirmTools: [],
         modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         modelSelectionVersion: 1,
+        defaultAccessMode: "confirm",
+        defaultAccessModeVersion: 0,
         queueState: "active",
         queuePauseReason: null,
         createdAt: "2026-09-20T00:00:00Z",

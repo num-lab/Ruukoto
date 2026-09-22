@@ -162,6 +162,14 @@
 
 新增功能工单：[10 — 提供方、模型与思考强度切换](issues/10-model-selection.md)。
 
+新增功能工单：[11 — 添加 `/new` 命令，在当前工作区新建 session](issues/11-new-session-command.md)。
+
+新增功能工单：[12 — 将 `/mode` 改为当前 session 的模式选择](issues/12-session-mode-command.md)。
+
+新增功能工单：[13 — 添加 `/prompt` 命令，查看模型请求列表与 prompt 详情](issues/13-prompt-inspector.md)。
+
+新增功能工单：[14 — 完善 `/context` 命令，查看上下文窗口各部分占比](issues/14-context-breakdown.md)。
+
 ## Comments
 
 ### 2026-09-19：第 1 轮回答

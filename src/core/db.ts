@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS selection_records (
   budget INTEGER NOT NULL,
   estimated_total INTEGER NOT NULL,
   usage TEXT,
+  window_snapshot TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_selection_records_task ON selection_records (task_id, call_index);
@@ -371,6 +372,7 @@ export class Db {
     add("selection_records", "instruction_version", "instruction_version TEXT NOT NULL DEFAULT ''");
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "prompt_artifact", "prompt_artifact TEXT");
+    add("selection_records", "window_snapshot", "window_snapshot TEXT");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

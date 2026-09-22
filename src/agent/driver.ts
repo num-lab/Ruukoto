@@ -523,6 +523,13 @@ export class Driver {
         budget: selection.budget,
         estimatedTotal: selection.estimatedTotal,
         promptArtifactId: null,
+        windowSnapshot: {
+          contextWindow: config.contextWindow,
+          maxTokens: config.maxTokens,
+          thinkingBudget: config.thinkingBudget,
+          toolResultReserve: config.toolResultReserve,
+          safetyMargin: config.safetyMargin,
+        },
         createdAt: new Date().toISOString(),
       });
     });

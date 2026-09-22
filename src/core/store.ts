@@ -976,8 +976,8 @@ export class Store {
         `INSERT INTO selection_records
          (id, task_id, session_id, call_index, strategy, config_version, model, total_messages,
           included_indices, excluded, included_memories, excluded_memories, instruction_version,
-          capped_tool_results, estimates, budget, estimated_total, usage, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+          capped_tool_results, estimates, budget, estimated_total, usage, window_snapshot, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       )
       .run(
         record.id,
@@ -997,6 +997,7 @@ export class Store {
         JSON.stringify(record.estimates),
         record.budget,
         record.estimatedTotal,
+        record.windowSnapshot ? JSON.stringify(record.windowSnapshot) : null,
         record.createdAt,
       );
   }
@@ -1094,6 +1095,7 @@ function rowToSelectionRecord(row: any): SelectionRecord {
     estimatedTotal: Number(row.estimated_total),
     usage: row.usage ? (JSON.parse(row.usage) as { input: number; output: number }) : null,
     promptArtifactId: (row.prompt_artifact as string | null) ?? null,
+    windowSnapshot: row.window_snapshot ? (JSON.parse(row.window_snapshot) as SelectionRecord["windowSnapshot"]) : null,
     createdAt: row.created_at,
   };
 }

@@ -437,3 +437,77 @@ test("/new：未选择会话时不创建，提示下一步操作", async () => {
     await t.shutdown();
   }
 });
+
+test("/context：默认展示最近一次调用的窗口分解，可切换其他调用", async () => {
+  const t = await startTestRuntime("tui-context", async (req, callIndex) => {
+    if (callIndex === 0) {
+      return { kind: "tool_calls", calls: [{ id: "c1", name: "mock_mark", arguments: { path: "/tmp/ruukoto-tui-ctx.txt", content: "数据" } }] };
+    }
+    return { kind: "text", text: "总结完成" };
+  });
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    await submitViaEditor(h, "写入标记然后总结");
+    await waitFor("任务完成", () => [...h.state.tasks.values()][0]?.status === "completed");
+    await waitFor("两条选择记录", async () => {
+      const list = await h.connection.request<any>("list_selection_records", { session_id: sessionId, limit: 5 });
+      return list.records.length === 2;
+    });
+
+    // 默认：最近一次调用（第 2 次）的分解
+    h.terminal.clearOutput();
+    h.terminal.send("/context");
+    h.terminal.send("\r");
+    await waitFor("分解展示", () => h.terminal.output().includes("总窗口"));
+    const detail = h.terminal.output();
+    assert.ok(detail.includes("第 2 次调用"), "默认展示最近一次调用");
+    assert.ok(detail.includes("系统提示") && detail.includes("历史轮次"), "分类齐全");
+    assert.ok(detail.includes("输入预算") && detail.includes("预留"), "预算与预留展示");
+    assert.ok(detail.includes("估算"), "估算值如实标注");
+
+    // 切到列表，选择第一次调用
+    h.terminal.send("l");
+    await waitFor("记录列表", () => h.terminal.output().includes("第 1 次调用"));
+    h.terminal.clearOutput();
+    h.terminal.send("\x1b[B"); // 列表新 → 旧：下移选中第 1 次调用
+    h.terminal.send("\r");
+    await waitFor("详情切换", () => {
+      const out = h.terminal.output();
+      return out.includes("总窗口") && out.includes("第 1 次调用");
+    });
+    assert.ok(!h.terminal.output().includes("第 2 次调用"), "详情与所选记录匹配");
+
+    // Esc 关闭，不再渲染分解
+    h.terminal.send("\x1b");
+    await renderFlush();
+    h.terminal.clearOutput();
+    await renderFlush();
+    assert.ok(!h.terminal.output().includes("总窗口"), "Esc 关闭悬浮层");
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("/context：无记录时明确提示，不打开悬浮层", async () => {
+  const t = await startTestRuntime("tui-context-empty", async () => ({ kind: "text", text: "x" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    h.terminal.send("/context");
+    h.terminal.send("\r");
+    await renderFlush();
+    const notes = h.state.sessionViews.get(sessionId)!.notes.map((n) => n.text).join("\n");
+    assert.ok(notes.includes("还没有模型调用记录"), `实际提示：${notes}`);
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});

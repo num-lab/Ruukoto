@@ -364,6 +364,16 @@ export interface MemoryVersion {
   createdAt: string;
 }
 
+/** 请求当时的窗口与预留配置快照（issue 14；记录创建后配置变化不影响还原）。 */
+export interface WindowSnapshot {
+  contextWindow: number;
+  /** 输出上限（思考已计入，不重复预留）。 */
+  maxTokens: number;
+  thinkingBudget: number;
+  toolResultReserve: number;
+  safetyMargin: number;
+}
+
 /** 一次模型调用的上下文选择记录（调试与 Jev 对比用）。 */
 export interface SelectionRecord {
   id: string;
@@ -396,6 +406,8 @@ export interface SelectionRecord {
   usage: { input: number; output: number } | null;
   /** 发送前捕获的不可变输入快照（产物 id；空 = 该次 prompt 正文未记录）。 */
   promptArtifactId: string | null;
+  /** 窗口与预留快照（null = 旧记录无快照，无法计算总窗口占比）。 */
+  windowSnapshot: WindowSnapshot | null;
   createdAt: string;
 }
 

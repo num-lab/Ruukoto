@@ -59,6 +59,7 @@ import {
 } from "../core/memory.ts";
 import type { DataCategory, DataGrant, Memory, MemorySourceRef, MemoryVersion, SelectionRecord } from "../core/types.ts";
 import type { SelectorBudgetConfig } from "../agent/context-selector.ts";
+import { selectionBreakdown, SelectionRecordCorrupt, type ContextBreakdown } from "../agent/context-selector.ts";
 import { GitHubStore, GITHUB_READ_SCOPES, type GitHubDraft, type GitHubPublishOp, type GitHubRepoBinding, type GitHubReadScope } from "../agent/github/store.ts";
 import { GitHubClient, GitHubError } from "../agent/github/client.ts";
 import { defaultClientFor } from "../agent/github/tools.ts";
@@ -1735,6 +1736,23 @@ export class Runtime {
     const record = this.store.getSelectionRecord(recordId);
     if (!record) throw new RuntimeApiError("not_found", `选择记录不存在：${recordId}`);
     return record;
+  }
+
+  /**
+   * 单次调用的上下文窗口预算分解（issue 14）。校验记录属于指定会话；
+   * 占比由 selectionBreakdown 统一计算。只读：不触发模型请求，不重读历史。
+   */
+  getContextBreakdown(input: { sessionId: string; recordId: string }): { record: SelectionRecord; breakdown: ContextBreakdown } {
+    const record = this.store.getSelectionRecord(input.recordId);
+    if (!record || record.sessionId !== input.sessionId) {
+      throw new RuntimeApiError("not_found", `选择记录不存在或不属于该会话：${input.recordId}`);
+    }
+    try {
+      return { record, breakdown: selectionBreakdown(record) };
+    } catch (err) {
+      if (err instanceof SelectionRecordCorrupt) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   // ---------- 模型请求 prompt 快照（issue 13；拥有者审计入口） ----------

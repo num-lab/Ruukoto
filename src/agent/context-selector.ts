@@ -25,6 +25,7 @@
 
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import type { MemoryWithContent } from "../core/memory.ts";
+import type { SelectionRecord, WindowSnapshot } from "../core/types.ts";
 
 /** 选择策略版本（配置变化时递增并记录）。 */
 export const SELECTOR_STRATEGY = "deterministic-v1";
@@ -109,6 +110,112 @@ export class ContextBudgetExceeded extends Error {
     super(`上下文预算不足：${detail}`);
     this.detail = detail;
   }
+}
+
+// ---------- 上下文窗口预算分解（issue 14；占比在后台统一计算，TUI 只渲染） ----------
+
+export interface ContextBreakdownCategory {
+  /** estimates 中的分类键。 */
+  key: string;
+  label: string;
+  tokens: number;
+  /** 占输入预算百分比（一位小数；预算非正时为 null）。 */
+  pctOfBudget: number | null;
+  /** 占总窗口百分比（无窗口快照时为 null）。 */
+  pctOfWindow: number | null;
+}
+
+export interface ContextBreakdown {
+  budget: number;
+  estimatedTotal: number;
+  /** 尚余输入空间（budget − estimatedTotal）。 */
+  remainingInput: number;
+  /** 总窗口与预留快照（null = 旧记录无快照或窗口值不可靠）。 */
+  window: WindowSnapshot | null;
+  windowUnavailableReason: string | null;
+  categories: ContextBreakdownCategory[];
+  /** 未分类/其他估算项（估算总量 − 已知分类合计；为 0 时省略）。 */
+  other: ContextBreakdownCategory | null;
+}
+
+/** 已知分类键与展示标签（与 selectContext 写入的 estimates 键一一对应）。 */
+const BREAKDOWN_CATEGORIES: Array<[string, string]> = [
+  ["systemPrompt", "系统提示"],
+  ["toolSchemas", "工具定义"],
+  ["projectInstructions", "项目指令"],
+  ["memories", "长期记忆"],
+  ["resumedFrom", "继续来源"],
+  ["mandatoryTurn", "当前任务"],
+  ["currentTaskBatches", "当前任务工具批次"],
+  ["historyTurns", "历史轮次"],
+];
+
+/** 记录损坏（估算或快照自相矛盾）：调用方映射为明确错误，不展示可疑数字。 */
+export class SelectionRecordCorrupt extends Error {
+  readonly code = "selection_record_corrupt";
+  constructor(detail: string) {
+    super(`选择记录损坏：${detail}`);
+  }
+}
+
+const pct = (tokens: number, denom: number | null): number | null =>
+  denom !== null && denom > 0 ? Math.round((tokens / denom) * 1000) / 10 : null;
+
+/** 输入侧预算：总窗口 − 各项预留（选择器与分解共用同一口径）。 */
+function inputBudgetFor(c: WindowSnapshot): number {
+  return c.contextWindow - c.maxTokens - c.thinkingBudget - c.toolResultReserve - c.safetyMargin;
+}
+
+/**
+ * 由选择记录计算预算分解。分母固定为记录创建时的窗口快照；分类互斥，
+ * 已用输入 + 尚余输入 + 各项预留 = 总窗口（仅舍入误差）。估算口径与
+ * 选择器一致（同一校准系数），不据 provider usage 反推分类精确用量。
+ */
+export function selectionBreakdown(record: SelectionRecord): ContextBreakdown {
+  const snapshot = record.windowSnapshot;
+  let window: ContextBreakdown["window"] = null;
+  let windowUnavailableReason: string | null = null;
+  if (snapshot) {
+    if (!Number.isFinite(snapshot.contextWindow) || snapshot.contextWindow <= 0) {
+      windowUnavailableReason = "模型或 SDK 缺少可靠的上下文窗口值，无法计算总窗口占比";
+    } else if (inputBudgetFor(snapshot) !== record.budget) {
+      throw new SelectionRecordCorrupt(`窗口快照与输入预算不一致（记录 ${record.id}）`);
+    } else {
+      window = snapshot;
+    }
+  } else {
+    windowUnavailableReason = "该记录缺少窗口快照（创建于快照上线之前），无法计算总窗口占比";
+  }
+
+  const categories: ContextBreakdownCategory[] = BREAKDOWN_CATEGORIES.map(([key, label]) => {
+    const tokens = record.estimates[key] ?? 0;
+    return { key, label, tokens, pctOfBudget: pct(tokens, record.budget), pctOfWindow: pct(tokens, window?.contextWindow ?? null) };
+  });
+  const known = categories.reduce((n, c) => n + c.tokens, 0);
+  const otherTokens = record.estimatedTotal - known;
+  if (otherTokens < 0) {
+    throw new SelectionRecordCorrupt(`分类估算合计 ${known} 超过估算总量 ${record.estimatedTotal}（记录 ${record.id}）`);
+  }
+  const other: ContextBreakdownCategory | null =
+    otherTokens > 0
+      ? {
+          key: "other",
+          label: "其他（未分类）",
+          tokens: otherTokens,
+          pctOfBudget: pct(otherTokens, record.budget),
+          pctOfWindow: pct(otherTokens, window?.contextWindow ?? null),
+        }
+      : null;
+
+  return {
+    budget: record.budget,
+    estimatedTotal: record.estimatedTotal,
+    remainingInput: record.budget - record.estimatedTotal,
+    window,
+    windowUnavailableReason,
+    categories,
+    other,
+  };
 }
 
 export interface SelectorInput {
@@ -294,7 +401,7 @@ function capToolResultView(
 export function selectContext(input: SelectorInput): SelectorOutput {
   const config = validateBudgetConfig(input.budget);
   const { calibration } = config;
-  const budget = config.contextWindow - config.maxTokens - config.thinkingBudget - config.toolResultReserve - config.safetyMargin;
+  const budget = inputBudgetFor(config);
 
   const estimates: Record<string, number> = {};
   estimates.systemPrompt = estimateTextTokens(input.systemPrompt, calibration);

@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: resolved
 Depends on: 04, 05
 
 # 完善 `/context` 命令，查看上下文窗口各部分占比
@@ -48,3 +48,11 @@ Depends on: 04, 05
 用户要求新增 `/context` 命令以查看当前上下文窗口各部分占比。核对发现 `/context` 已存在，因此本工单记录为增强现有命令：补充请求选择、窗口分母、预留项和比例展示，不创建第二个同名命令。
 
 关联 [10：模型选择](10-model-selection.md) 和 [13：prompt 详情](13-prompt-inspector.md)。本工单不依赖完整 prompt 快照，可以基于分类统计与预算快照独立交付。
+
+### 2026-09-22：实现完成
+
+- 快照：`SelectionRecord.windowSnapshot`（contextWindow/maxTokens/thinkingBudget/toolResultReserve/safetyMargin）在发送前最终检查时随记录落盘（`selection_records.window_snapshot`，幂等补列）；旧记录为 NULL 时降级为"无法计算总窗口占比"，仍显示输入预算与分类估算。
+- 分解：`selectionBreakdown()`（context-selector.ts）按记录创建时的快照计算八类互斥分类 + 未分类项的 token、占总窗口与占输入预算百分比（一位小数，后台统一舍入）；已用 + 尚余 + 预留 = 总窗口。窗口值不可靠时返回明确不可用原因；分类合计超过估算总量或快照与预算不一致时报 `selection_record_corrupt`。输入预算口径与选择器共用 `inputBudgetFor()`。
+- 端点：`get_context_breakdown`（session_id + record_id，校验记录归属会话；未认证连接在 auth 前被拒绝）。修正了旧 `cmdContext` 把 `{ records }` 响应当数组解包的问题。
+- TUI：`/context` 打开悬浮层，默认展示最近一次调用的分解（ScrollView 滚动，↑/↓/j/k/PgUp/PgDn）；`l` 打开记录列表（复用 `list_prompt_requests` 游标分页与 SelectList/OverlayBox），Enter 切换详情，Esc 返回/关闭。估算值、usage 未回填、排除原因、有界视图等状态沿用原文展示；正文经 `sanitizeForDisplay`。
+- 测试：`test/21-context-breakdown.test.ts` 7 个用例（工作示例字面占比、未分类项、缺快照/窗口值不可靠降级、损坏记录报错、合计不变量、较小窗口快照、归属校验、未认证拒绝）；`test/14-tui-app.test.ts` 新增 2 个 `/context` 悬浮层用例（默认最近一次、列表切换、Esc 关闭、无记录提示）。

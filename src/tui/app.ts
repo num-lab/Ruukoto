@@ -44,7 +44,8 @@ import type { SubmissionGuard } from "../control/submission.ts";
 import type { PendingRequestStore } from "../control/pending-requests.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
-import type { AccessMode, ModelSelection, Session, PersistentEvent, Task } from "../core/types.ts";
+import type { AccessMode, ModelSelection, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
+import type { ContextBreakdown } from "../agent/context-selector.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
 import { snapUtf8End, snapUtf8Start } from "../core/history.ts";
 import {
@@ -598,7 +599,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "status", description: "刷新并查看当前任务详情" },
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
-  { name: "context", description: "查看本轮上下文选择记录（预算组成与排除原因）" },
+  { name: "context", description: "查看上下文窗口预算分解（各部分占比，可选择其他调用）" },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情" },
   { name: "github", description: "GitHub：drafts | show <id> | publish <id> pr <n> | publish <id> issue <n>", argumentHint: "<子命令>" },
 ];
@@ -1363,69 +1364,242 @@ export class TuiApp {
 
   // ---------- 历史搜索与记忆（issue 05 §6 入口） ----------
 
-  /** 本轮上下文：最近一次模型调用的选择记录（预算组成、排除原因、来源版本）。 */
+  // ---------- /context：上下文窗口预算分解（issue 14） ----------
+
+  /**
+   * 当前会话的上下文窗口分解悬浮层。默认展示最近一次模型调用；l 打开
+   * 记录列表（新 → 旧，分页加载）选择其他调用，Enter 查看其分解，
+   * Esc 返回详情，再 Esc 关闭并恢复编辑器焦点。占比由后台统一计算
+   * （get_context_breakdown）；查看只读，不触发模型请求或任务变更。
+   */
   private async cmdContext(): Promise<void> {
     const view = this.currentView();
     if (!view) {
       this.notify("尚未选择会话");
       return;
     }
-    try {
-      const records = await this.connection.request<
-        Array<{
-          id: string;
-          taskId: string;
-          callIndex: number;
-          strategy: string;
-          configVersion: number;
-          model: string;
-          totalMessages: number;
-          includedIndices: number[];
-          excluded: Array<{ index: number; reason: string }>;
-          includedMemories: Array<{ memoryId: string; version: number }>;
-          excludedMemories: Array<{ memoryId: string; version: number; reason: string }>;
-          instructionVersion: string;
-          cappedToolResults: Array<{ index: number; originalChars: number; viewChars: number }>;
-          estimates: Record<string, number>;
-          budget: number;
-          estimatedTotal: number;
-          usage: { input: number; output: number } | null;
-        }>
-      >("list_selection_records", { session_id: view.sessionId, limit: 1 });
-      const record = records[0];
-      if (!record) {
-        this.notify("本会话还没有选择记录（任务发出第一次模型调用后生成）");
+    const sessionId = view.sessionId;
+    const generation = this.generation;
+    const stale = () => closed || generation !== this.generation || this.state.currentSessionId !== sessionId;
+
+    interface ContextRecordRow {
+      id: string;
+      taskId: string;
+      callIndex: number;
+      model: string;
+      usage: { input: number; output: number } | null;
+      createdAt: string;
+    }
+
+    const PAGE = 30;
+    let closed = false;
+    let records: ContextRecordRow[] = [];
+    let hasMore = false;
+    let loadingMore = false;
+    let loadError: string | null = null;
+    let selectedIndex = 0;
+    let list: SelectList | null = null;
+    let listMode = false;
+
+    const title = new Text("加载中…", 1, 0);
+    const detailText = new Text("", 1, 0);
+    const detailScroll = new ScrollView(detailText, { follow: "none", scrollbar: "auto" });
+    const hint = new Text("", 1, 0);
+    const middle = new Container();
+    middle.addChild(detailScroll);
+    const box = new OverlayBox([
+      { component: title, grow: 0 },
+      { component: middle, grow: 1 },
+      { component: hint, grow: 0 },
+    ]);
+    const handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "75%" });
+
+    const closeAll = () => {
+      closed = true;
+      handle.hide();
+      this.tui.setFocus(this.editor);
+    };
+
+    const showDetail = async (record: ContextRecordRow) => {
+      if (listMode) {
+        if (list) middle.removeChild(list);
+        list = null;
+        middle.addChild(detailScroll);
+        listMode = false;
+      }
+      box.onKey = detailKey;
+      box.forwardTo = null;
+      title.setText(sanitizeForDisplay(`上下文窗口分解 · 任务 ${record.taskId.slice(0, 12)} · 第 ${record.callIndex} 次调用`));
+      hint.setText(dim("l 选择其他调用 · ↑/↓ 滚动 · Esc 关闭"));
+      detailText.setText("加载中…");
+      detailScroll.scrollToStart();
+      this.tui.requestRender();
+      try {
+        const result = await this.connection.request<{ record: SelectionRecord; breakdown: ContextBreakdown }>(
+          "get_context_breakdown",
+          { session_id: sessionId, record_id: record.id },
+        );
+        if (stale()) return;
+        detailText.setText(sanitizeForDisplay(this.contextBreakdownText(result.record, result.breakdown)));
+        this.tui.requestRender();
+      } catch (err) {
+        if (stale()) return;
+        detailText.setText(red(`读取失败：${(err as Error).message}`));
+        this.tui.requestRender();
+      }
+    };
+
+    const detailKey = (data: string) => {
+      if (data === "\x1b" || data === "q") {
+        closeAll();
         return;
       }
-      const lines: string[] = [
-        `本轮上下文（任务 ${record.taskId.slice(0, 12)} 第 ${record.callIndex} 次调用，${record.strategy}@${record.configVersion}，${record.model}）：`,
-        `  预算 ${record.budget} · 估算 ${record.estimatedTotal}${record.usage ? ` · 实际 ${record.usage.input}+${record.usage.output}` : " · 实际 usage 未回填"}`,
-        `  估算明细：${Object.entries(record.estimates)
-          .map(([k, v]) => `${k}=${v}`)
-          .join("，")}`,
-        `  消息：选入 ${record.includedIndices.length} / 共 ${record.totalMessages}；排除 ${record.excluded.length}`,
-      ];
-      if (record.excluded.length > 0) {
-        const reasons = new Map<string, number>();
-        for (const e of record.excluded) reasons.set(e.reason, (reasons.get(e.reason) ?? 0) + 1);
-        lines.push(`  排除原因：${[...reasons.entries()].map(([r, n]) => `${r} ×${n}`).join("，")}`);
+      if (data === "l") {
+        showList();
+        return;
       }
-      if (record.instructionVersion) lines.push(`  项目指令版本：${record.instructionVersion}`);
-      if (record.includedMemories.length > 0) {
-        lines.push(`  注入记忆：${record.includedMemories.map((m) => `${m.memoryId.slice(0, 10)}@v${m.version}`).join("，")}`);
+      if (data === "\x1b[A" || data === "k") detailScroll.scrollBy(-1);
+      else if (data === "\x1b[B" || data === "j") detailScroll.scrollBy(1);
+      else if (data === "\x1b[5~") detailScroll.scrollBy(-10);
+      else if (data === "\x1b[6~") detailScroll.scrollBy(10);
+    };
+
+    const rowLabel = (r: ContextRecordRow): SelectItem => ({
+      value: r.id,
+      // 调用序号放最前：行标签按宽度截断时关键标识仍可见
+      label: `第 ${r.callIndex} 次调用 · ${r.createdAt.slice(5, 19).replace("T", " ")} · 任务 ${r.taskId.slice(0, 12)}`,
+      description: `${r.model}${r.usage ? ` · usage ${r.usage.input}+${r.usage.output}` : " · 发送结果未回填（失败/中断或未知）"}`,
+    });
+
+    const showList = () => {
+      const items = records.map(rowLabel);
+      if (hasMore) items.push({ value: "$more", label: dim("加载更多…"), description: "Enter 加载下一页" });
+      // SelectList 不支持动态增项：进入列表/翻页时重建实例并恢复选中位置
+      const oldList = list;
+      list = new SelectList(items, 12, selectTheme);
+      list.onSelectionChange = (item) => {
+        const idx = items.indexOf(item);
+        if (idx >= 0) selectedIndex = idx;
+      };
+      list.onSelect = (item) => {
+        if (item.value === "$more") {
+          void loadPage().then(() => {
+            if (!stale() && listMode) showList();
+          });
+          return;
+        }
+        const record = records.find((r) => r.id === item.value);
+        if (record) void showDetail(record);
+      };
+      list.onCancel = () => {
+        // 返回当前详情（不关闭整个面板）
+        const current = records[selectedIndex] ?? records[0];
+        if (current) void showDetail(current);
+        else closeAll();
+      };
+      list.setSelectedIndex(Math.min(selectedIndex, Math.max(0, items.length - 1)));
+      if (!listMode) {
+        middle.removeChild(detailScroll);
+        listMode = true;
+      } else if (oldList) {
+        middle.removeChild(oldList);
       }
-      for (const m of record.excludedMemories) {
-        lines.push(`  未注入记忆 ${m.memoryId.slice(0, 10)}@v${m.version}（${m.reason}）`);
-      }
-      if (record.cappedToolResults.length > 0) {
-        lines.push(
-          `  有界视图：${record.cappedToolResults.map((c) => `#${c.index} ${c.originalChars}→${c.viewChars} 字符`).join("，")}（原文可用 history_read / read_artifact 读取）`,
+      middle.addChild(list);
+      box.onKey = null;
+      box.forwardTo = list;
+      title.setText(`选择调用（${records.length} 条${hasMore ? "，还有更多" : ""}）`);
+      hint.setText(dim("Enter 查看分解 · Esc 返回详情"));
+      this.tui.requestRender();
+    };
+
+    const loadPage = async () => {
+      if (loadingMore) return;
+      loadingMore = true;
+      try {
+        const last = records[records.length - 1];
+        const page = await this.connection.request<{ records: ContextRecordRow[]; hasMore: boolean }>(
+          "list_prompt_requests",
+          { session_id: sessionId, limit: PAGE, cursor: last ? { createdAt: last.createdAt, id: last.id } : undefined },
         );
+        if (stale()) return;
+        records = records.concat(page.records);
+        hasMore = page.hasMore;
+      } catch (err) {
+        if (stale()) return;
+        loadError = (err as Error).message;
+        hint.setText(red(`读取失败：${loadError}`));
+        this.tui.requestRender();
+      } finally {
+        loadingMore = false;
       }
-      this.notify(lines.join("\n"));
-    } catch (err) {
-      this.notify(red(`查询失败：${(err as Error).message}`));
+    };
+
+    await loadPage();
+    if (stale()) return;
+    if (records.length === 0) {
+      closeAll();
+      if (loadError) this.notify(red(`查询失败：${loadError}`));
+      else this.notify("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+      return;
     }
+    await showDetail(records[0]!);
+  }
+
+  /** 单次调用的分解正文：分类 token、总窗口/输入预算占比、预留与合计（值均为选择时估算）。 */
+  private contextBreakdownText(record: SelectionRecord, b: ContextBreakdown): string {
+    const pctText = (v: number | null): string => (v === null ? "—" : `${v.toFixed(1)}%`);
+    const lines: string[] = [
+      `任务 ${record.taskId} · 第 ${record.callIndex} 次调用 · ${record.model}`,
+      `${record.strategy}@${record.configVersion} · ${record.createdAt.slice(0, 19).replace("T", " ")}`,
+      `以下为选择时的分类估算（非 provider 精确用量）：`,
+    ];
+    if (b.window) {
+      lines.push(
+        `总窗口 ${b.window.contextWindow} · 输入预算 ${b.budget} · 已估输入 ${b.estimatedTotal}（估算）· 尚余输入 ${b.remainingInput}`,
+      );
+    } else {
+      lines.push(`输入预算 ${b.budget} · 已估输入 ${b.estimatedTotal}（估算）· 尚余输入 ${b.remainingInput}`);
+      lines.push(`总窗口占比不可用：${b.windowUnavailableReason ?? "窗口快照缺失"}`);
+    }
+    lines.push(b.window ? `分类估算（token · 占总窗口 · 占输入预算）：` : `分类估算（token · 占输入预算）：`);
+    for (const c of [...b.categories, ...(b.other ? [b.other] : [])]) {
+      lines.push(
+        b.window
+          ? `  ${c.label}：${c.tokens}（${pctText(c.pctOfWindow)} · ${pctText(c.pctOfBudget)}）`
+          : `  ${c.label}：${c.tokens}（${pctText(c.pctOfBudget)}）`,
+      );
+    }
+    if (b.window) {
+      const reserves = b.window.maxTokens + b.window.thinkingBudget + b.window.toolResultReserve + b.window.safetyMargin;
+      lines.push(
+        `预留：输出上限 ${b.window.maxTokens} · 思考预留 ${b.window.thinkingBudget}${b.window.thinkingBudget === 0 ? "（思考已计入输出上限，不重复预留）" : ""} · 下一批工具结果 ${b.window.toolResultReserve} · 安全余量 ${b.window.safetyMargin}`,
+        `合计：已估输入 ${b.estimatedTotal} + 尚余输入 ${b.remainingInput} + 预留 ${reserves} = ${b.estimatedTotal + b.remainingInput + reserves}（= 总窗口 ${b.window.contextWindow}）`,
+      );
+    }
+    lines.push(
+      record.usage
+        ? `实际 usage：输入 ${record.usage.input} · 输出 ${record.usage.output}（provider 返回的总量，不按分类拆分）`
+        : `实际 usage 未回填（请求失败、被中断或结果未知）`,
+      `消息：选入 ${record.includedIndices.length} / 共 ${record.totalMessages}；排除 ${record.excluded.length}`,
+    );
+    if (record.excluded.length > 0) {
+      const reasons = new Map<string, number>();
+      for (const e of record.excluded) reasons.set(e.reason, (reasons.get(e.reason) ?? 0) + 1);
+      lines.push(`排除原因：${[...reasons.entries()].map(([r, n]) => `${r} ×${n}`).join("，")}`);
+    }
+    if (record.instructionVersion) lines.push(`项目指令版本：${record.instructionVersion}`);
+    if (record.includedMemories.length > 0) {
+      lines.push(`注入记忆：${record.includedMemories.map((m) => `${m.memoryId.slice(0, 10)}@v${m.version}`).join("，")}`);
+    }
+    for (const m of record.excludedMemories) {
+      lines.push(`未注入记忆 ${m.memoryId.slice(0, 10)}@v${m.version}（${m.reason}）`);
+    }
+    if (record.cappedToolResults.length > 0) {
+      lines.push(
+        `有界视图：${record.cappedToolResults.map((c) => `#${c.index} ${c.originalChars}→${c.viewChars} 字符`).join("，")}（原文可用 history_read / read_artifact 读取）`,
+      );
+    }
+    return lines.join("\n");
   }
 
   // ---------- /prompt：模型请求列表与 prompt 详情（issue 13） ----------

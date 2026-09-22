@@ -2,10 +2,11 @@
  * 工具进程启动器：把工具工作进程放进对应的执行边界。
  *
  * - local：直接以当前账户 spawn（开发/验证专用，无隔离；生产禁止用于
- *   请求确认模式的边界声明）；
+ *   请求确认/自动审查模式的边界声明）；
  * - container：按任务建立 Linux 容器（固定镜像、非 root、cap-drop ALL、
  *   no-new-privileges、只读基础文件系统、独立可写 /tmp、默认无网络、
- *   只挂授权工作区与拥有者显式授予的路径）；
+ *   只挂授权工作区与拥有者显式授予的路径）；confirm 与 auto-review 共用
+ *   该受限边界（ADR 0005）；
  * - systemd：完全访问任务的执行账户启动入口（systemd-run --pipe，固定
  *   UID，KillMode=control-group）。目标服务器的 systemd 路径未实测。
  *
@@ -120,7 +121,7 @@ export function createLocalLauncher(opts: LocalLauncherOptions = {}): WorkerLaun
   };
 }
 
-// ---------- container（请求确认模式的执行边界） ----------
+// ---------- container（受限执行模式 confirm/auto-review 的执行边界） ----------
 
 export interface ContainerLauncherConfig {
   /** 固定工具镜像（由可信身份构建与维护，见 deploy/worker-image）。 */
@@ -148,9 +149,9 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
   return {
     kind: "container",
     async launch(spec: LaunchSpec): Promise<LaunchedUnit> {
-      if (spec.mode !== "confirm") {
+      if (spec.mode === "full_access") {
         // 完全访问不进容器：由 systemd/执行账户路径负责
-        throw new ExecutionError("invalid_state", "容器启动器只用于请求确认模式");
+        throw new ExecutionError("invalid_state", "容器启动器只用于受限执行模式（confirm/auto-review）");
       }
       // 缺少容器后端时明确失败（不回退到其他执行方式）
       if (config.dockerPath.includes("/") && !fs.existsSync(config.dockerPath)) {
@@ -335,8 +336,9 @@ export function createLauncherFor(
     case "local":
       return createLocalLauncher();
     case "container":
-      if (mode !== "confirm") {
+      if (mode === "full_access") {
         // 容器后端下完全访问需要执行账户入口；未配置时明确失败，不回退
+        // （auto-review 与 confirm 共用受限容器边界）
         if (!config.systemd) {
           throw new ExecutionError(
             "execution_unavailable",

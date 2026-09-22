@@ -1136,7 +1136,7 @@ test("迁移：v2 库升级到 v3 补列建表，既有数据保留", async () =
     const pb = store.createProject("B");
     const grant = access.createGrant({ fromProjectId: pb.id, toProjectId: "proj_old", category: "history" });
     assert.ok(grant.id);
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "5");
+    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "6");
     db.close();
   } finally {
     await cleanupDirs(dirs);

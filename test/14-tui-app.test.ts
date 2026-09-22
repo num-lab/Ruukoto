@@ -511,3 +511,38 @@ test("/context：无记录时明确提示，不打开悬浮层", async () => {
     await t.shutdown();
   }
 });
+
+test("/mode：列表含自动审查并可选择，状态栏显示自动审查", async () => {
+  const t = await startTestRuntime("tui-mode", async () => ({ kind: "text", text: "done" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+
+    h.terminal.send("/mode\r");
+    await waitFor("模式列表", () => h.terminal.output().includes("自动审查"));
+    const listOut = h.terminal.output();
+    assert.ok(listOut.includes("Ask for approval") && listOut.includes("完全访问"), "三种模式都在列表中");
+
+    // 列表顺序 confirm / full_access / auto-review：下移两项选中自动审查
+    // （full_access 会弹二次确认浮层，自动审查直接发送）
+    h.terminal.clearOutput();
+    h.terminal.send("\x1b[B");
+    h.terminal.send("\x1b[B");
+    await renderFlush();
+    h.terminal.send("\r");
+    await waitFor("模式已切换", () => h.state.sessions.find((s) => s.id === sessionId)?.defaultAccessMode === "auto-review");
+    const session = await t.client.request<any>("get_session", { session_id: sessionId });
+    assert.equal(session.defaultAccessMode, "auto-review", "set_session_mode 落库");
+
+    // 选择后的渲染帧里，状态区（模式：X · 工作区）显示自动审查
+    await waitFor("状态栏显示自动审查", () => h.terminal.output().includes("自动审查 ·"));
+    h.app.quit(0);
+    await waitFor("退出", () => h.exitCode() === 0);
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});

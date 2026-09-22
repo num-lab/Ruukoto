@@ -59,7 +59,7 @@ test("会话模型 CAS、不可变提交摘要及旧队列配置都与持久事�
 });
 
 for (const version of [2, 3, 4]) {
-  test(`v${version} 升级到 v5 保留旧任务、历史事件及空模型记录`, () => {
+  test(`v${version} 升级到 v6 保留旧任务、历史事件及空模型记录`, () => {
     const f = fixture();
     const { db, store, session, root } = f;
     const task = store.withTx(() => store.insertQueuedTask({ sessionId: session.id, requestId: "old", input: "original", modelSelection: a, submissionDigest: "digest" })).task;
@@ -77,7 +77,7 @@ for (const version of [2, 3, 4]) {
       assert.equal(current.getTask(task.id)!.submissionDigest, null);
       assert.equal(current.getSession(session.id)!.modelSelectionVersion, 0);
       assert.deepEqual(current.getEventsAfter(0), events);
-      assert.equal((upgraded.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "5");
+      assert.equal((upgraded.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "6");
     } finally { upgraded.close(); fs.rmSync(root, { recursive: true, force: true }); }
   });
 }

@@ -45,11 +45,13 @@ import type { PendingRequestStore } from "../control/pending-requests.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
 import type { AccessMode, ModelSelection, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
+import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { ContextBreakdown } from "../agent/context-selector.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
 import { snapUtf8End, snapUtf8Start } from "../core/history.ts";
 import {
   ViewState,
+  accessModeLabel,
   formatAccessMode,
   formatTaskStatus,
   isActiveStatus,
@@ -1311,16 +1313,17 @@ export class TuiApp {
     const sessionId = session.id;
     const version = session.defaultAccessModeVersion;
     const current = session.defaultAccessMode;
-    const label = (mode: AccessMode) => (mode === "full_access" ? "完全访问" : "Ask for approval");
-    const items: SelectItem[] = (["confirm", "full_access"] as const).map((mode) => ({
+    const items: SelectItem[] = SESSION_DEFAULT_MODES.map((mode) => ({
       value: mode,
-      label: `${label(mode)}${mode === current ? "（当前）" : ""}`,
+      label: `${accessModeLabel(mode)}${mode === current ? "（当前）" : ""}`,
       description:
         mode === "confirm"
           ? "已授权范围内自主执行，越界操作逐次确认"
-          : "使用执行账户已有权限，不再逐次确认；不额外赋权",
+          : mode === "auto-review"
+            ? "与请求确认相同的受限执行环境；越界读取由独立审查自动审批，无法确认的转拥有者确认"
+            : "使用执行账户已有权限，不再逐次确认；不额外赋权",
     }));
-    this.showSelection(`会话默认模式（当前：${label(current)}；作用于之后新建的任务，Esc 取消）`, items, (item) => {
+    this.showSelection(`会话默认模式（当前：${accessModeLabel(current)}；作用于之后新建的任务，Esc 取消）`, items, (item) => {
       const mode = item.value as AccessMode;
       if (mode === "full_access") {
         // 完全访问必须经明确的模式操作选择：展示权限范围后二次确认
@@ -1332,7 +1335,7 @@ export class TuiApp {
   }
 
   private async sendSessionMode(sessionId: string, version: number, mode: AccessMode): Promise<void> {
-    const label = mode === "full_access" ? "完全访问" : "Ask for approval";
+    const label = accessModeLabel(mode);
     try {
       const saved = await this.connection.request<Session>("set_session_mode", { session_id: sessionId, mode, expected_version: version });
       this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
@@ -2189,7 +2192,7 @@ export class TuiApp {
     }
     const items: SelectItem[] = pending.map((c) => ({
       value: c.id,
-      label: `${c.toolName} · 任务 ${c.taskId.slice(0, 12)}…`,
+      label: `${c.reviewStatus === "in_progress" ? "审查中 · " : ""}${c.toolName} · 任务 ${c.taskId.slice(0, 12)}…`,
       description: `会话 ${c.sessionId.slice(0, 12)}… · ${this.scopeSummary(c)}`,
     }));
     const list = new SelectList(items, Math.min(items.length, 10), selectTheme);
@@ -2240,6 +2243,29 @@ export class TuiApp {
       }
       if (c.scope.kind === "file_operation" && c.scope.contentBytes !== null) {
         lines.push(`待写内容：${c.scope.contentBytes} 字节（sha256 ${c.scope.contentSha256?.slice(0, 16)}…）`);
+      }
+      // 自动审查信息（issue 15）：无审查字段的旧记录按历史人工审批展示，不加审查行
+      if (c.reviewStatus !== null) {
+        const policy = `策略 ${c.reviewPolicyVersion ?? "未知"}`;
+        const model = `模型 ${c.reviewModel ?? "未知"}`;
+        if (c.reviewStatus === "in_progress") {
+          lines.push(`审查：自动审查中（${model}，${policy}）`);
+        } else if (c.reviewStatus === "asked_owner") {
+          lines.push(`审查：待拥有者确认（自动审查无法确认：${c.reviewReason ?? "未说明"}）`);
+        } else {
+          const conclusion =
+            c.reviewStatus === "superseded"
+              ? "已被人工决定/取消取代"
+              : c.reviewDecision === "approve"
+                ? "自动批准"
+                : c.reviewDecision === "reject"
+                  ? "自动拒绝"
+                  : "转人工";
+          lines.push(`审查：${conclusion}${c.reviewReason ? `（${c.reviewReason}）` : ""} · ${model} · ${policy}`);
+        }
+      }
+      if (c.decisionSource !== null) {
+        lines.push(`决定来源：${c.decisionSource === "auto_review" ? "自动审查" : "拥有者"}`);
       }
       header.setText(lines.join("\n"));
     };
@@ -2606,7 +2632,7 @@ export class TuiApp {
     const active = this.state.activeTaskFor(view.sessionId);
     const modeTask = active ?? this.state.queuedTasksFor(view.sessionId).at(-1) ?? null;
     const modeText = modeTask ? formatAccessMode(modeTask.accessMode, modeTask.pendingAccessMode) : null;
-    const defaultText = `${session?.defaultAccessMode === "full_access" ? "完全访问" : "Ask for approval"}`;
+    const defaultText = session ? accessModeLabel(session.defaultAccessMode) : "Ask for approval";
     const modeDisplay = modeText ? `${modeText} · ${defaultText}` : defaultText;
     // 左下角：当前模式与工作区；右上角已有连接/执行信息，这里不重复
     this.footer.set(dim(`${modeDisplay} · ${sanitizeForDisplay(view.cwd)}`), dim(this.modelInfoText()));
@@ -2615,12 +2641,16 @@ export class TuiApp {
         `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,
     );
     const queued = this.state.queuedTasksFor(view.sessionId);
+    const pending = this.state.pendingApprovals();
     const parts = [
       active ? `任务 ${formatTaskStatus(active.status)} ${active.id.slice(0, 12)}… · 使用 ${this.selectionText(active.modelSelection)}` : "无活动任务",
       `排队 ${queued.length}`,
       view.queueState === "paused" ? yellow(`队列已暂停（${view.queuePauseReason ?? ""}）`) : "队列正常",
-      `待审批 ${this.state.pendingApprovals().length}`,
+      `待审批 ${pending.length}`,
     ];
+    // 自动审查进行中的审批单独计数（仍属待审批，但暂不需要拥有者操作）
+    const reviewing = pending.filter((c) => c.reviewStatus === "in_progress").length;
+    if (reviewing > 0) parts.push(`审查中 ${reviewing}`);
     if (this.state.pendingInputs.length > 0) parts.push(yellow(`待核实输入 ${this.state.pendingInputs.length}`));
     if (this.continueForTaskId) parts.push(cyan(`继续模式：${this.continueForTaskId.slice(0, 12)}…`));
     parts.push(`最后同步 ${lastSync}`);

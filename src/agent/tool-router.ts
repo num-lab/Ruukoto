@@ -69,7 +69,7 @@ export interface ToolRouterDeps {
       params: Record<string, unknown>;
       scope: ApprovalScope;
       signal?: AbortSignal;
-    }): Promise<"approved" | "rejected" | "superseded">;
+    }): Promise<ApprovalOutcome>;
     supersedeAllWaiters(): void;
   };
 }
@@ -81,6 +81,13 @@ export interface RoutedCallInput {
   name: string;
   params: Record<string, unknown>;
   signal?: AbortSignal;
+}
+
+/** 审批桥结果：决定 + 来源与审查理由（自动拒绝不得显示成"拥有者拒绝"）。 */
+export interface ApprovalOutcome {
+  decision: "approved" | "rejected" | "superseded";
+  source: "owner" | "auto_review" | null;
+  reviewReason: string | null;
 }
 
 export interface RoutedCallOutput {
@@ -334,7 +341,7 @@ export class ToolRouter {
     if ("error" in scopeResult) {
       return textResult(scopeResult.error, true);
     }
-    const decision = await this.deps.bridge.awaitApproval({
+    const approval = await this.deps.bridge.awaitApproval({
       task,
       hostOpId: input.hostOpId,
       toolName: input.name,
@@ -342,10 +349,13 @@ export class ToolRouter {
       scope: scopeResult.scope,
       signal: input.signal,
     });
-    if (decision !== "approved") {
+    if (approval.decision !== "approved") {
+      // 自动拒绝不能显示成"拥有者拒绝"：按决定来源区分文案
       const reason =
-        decision === "rejected"
-          ? "拥有者拒绝执行该操作"
+        approval.decision === "rejected"
+          ? approval.source === "auto_review"
+            ? `自动审查拒绝执行该操作：${approval.reviewReason ?? "未给出理由"}`
+            : "拥有者拒绝执行该操作"
           : "模式已切换或任务已停止，该审批已失效；如仍需要请重新申请";
       return textResult(reason, true);
     }

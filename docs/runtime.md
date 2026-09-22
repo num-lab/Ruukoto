@@ -12,7 +12,7 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
 - **工具工作进程**：read/edit/write/bash 的完整执行（含路径解析与 Shell
   子进程）在独立工作进程内完成；SDK、模型调用、审批与持久化留在后台。
   进程间为换行分帧 JSON 协议（单帧 4MB 上限、数据分块 512KB、背压）。
-- **执行边界**：请求确认模式 → 按任务建立的 Linux 容器（固定镜像
+- **执行边界**：请求确认与自动审查模式 → 按任务建立的 Linux 容器（固定镜像
   `ruukoto-worker`，非 root、cap-drop ALL、no-new-privileges、只读根文件
   系统、tmpfs /tmp、默认无网络、只挂载授权工作区与任务级授予路径），任务
   结束回收容器；完全访问 → 容器外由 systemd 以固定执行 UID 启动
@@ -21,6 +21,11 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
 - **模式绑定任务**：任务携带 accessMode（默认请求确认）、权限版本与
   授予路径；模式/范围进入提交幂等比较；切换只在无执行中工具的边界生效，
   递增权限版本并使等待中的审批失效。
+- **自动审查（auto-review，ADR 0005）**：与请求确认同一受限执行环境；
+  越界的外部文件读取与无凭据 HTTP GET/HEAD 先经一次独立的无工具审查调用
+  裁决（approve/reject/ask_owner，30s 时限、输入上限 8KB、策略版本
+  auto-review-v1），失败或无法确认一律转拥有者；审查结论、理由、模型与
+  策略版本随审批记录落盘（decision_source 区分自动审查与拥有者）。
 - **结构化审批**：越界文件读写与单次 HTTP 请求形成不可变审批（目标、内容
   指纹、方法、完整 URL、凭据名称与用途）；批准经 SQLite 条件更新单次消费，
   其他 URL/方法/正文/任务不能复用；HTTP 不自动跟随重定向，连接固定到批准
@@ -50,8 +55,8 @@ export RUUKOTO_DATA_DIR=~/.ruukoto/data
 npm start -- create-project my-project
 npm start -- create-session my-project /path/to/workdir
 npm start -- submit <sessionId> <requestId> "任务输入" \
-  [--mode confirm|full_access] [--grant <path>:<read|read_write>[:用途];...]
-npm start -- switch-mode <taskId> confirm|full_access [--grant ...]
+  [--mode confirm|full_access|auto-review] [--grant <path>:<read|read_write>[:用途];...]
+npm start -- switch-mode <taskId> confirm|full_access|auto-review [--grant ...]
 npm start -- status [taskId]          # 快照或单任务（工具操作、审批、产物引用）
 npm start -- events                   # 订阅持久事件流（seq 单调递增）
 npm start -- interrupt <taskId>       # 显式中断运行中/等待确认的任务

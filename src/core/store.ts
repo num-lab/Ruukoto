@@ -545,6 +545,8 @@ export class Store {
     params: Record<string, unknown>;
     scope: ApprovalScope;
     permissionVersion: number;
+    /** 自动审查初始标记（issue 15）：给出时记录进入"审查中"。 */
+    review?: { model: string; policyVersion: string };
   }): ConfirmationRequest {
     const session = this.getSession(input.sessionId);
     const confirmation: ConfirmationRequest = {
@@ -562,11 +564,18 @@ export class Store {
       createdAt: new Date().toISOString(),
       respondedAt: null,
       consumedAt: null,
+      reviewStatus: input.review ? "in_progress" : null,
+      reviewDecision: null,
+      reviewReason: null,
+      reviewModel: input.review?.model ?? null,
+      reviewPolicyVersion: input.review?.policyVersion ?? null,
+      decisionSource: null,
     };
     this.db
       .prepare(
-        `INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, scope, cwd_dev, cwd_ino, permission_version, status, created_at, responded_at, consumed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL)`,
+        `INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, scope, cwd_dev, cwd_ino, permission_version, status, created_at, responded_at, consumed_at,
+         review_status, review_model, review_policy_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, ?, ?, ?)`,
       )
       .run(
         confirmation.id,
@@ -580,6 +589,9 @@ export class Store {
         confirmation.cwdIno,
         confirmation.permissionVersion,
         confirmation.createdAt,
+        confirmation.reviewStatus,
+        confirmation.reviewModel,
+        confirmation.reviewPolicyVersion,
       );
     this.appendEvent(
       {
@@ -591,6 +603,10 @@ export class Store {
         params: confirmation.params,
         scope: confirmation.scope,
         permissionVersion: confirmation.permissionVersion,
+        // 新建审批的审查状态只会是 in_progress（自动审查）或 null（纯人工）
+        reviewStatus: confirmation.reviewStatus as "in_progress" | null,
+        reviewModel: confirmation.reviewModel,
+        reviewPolicyVersion: confirmation.reviewPolicyVersion,
       },
       { taskId: confirmation.taskId, sessionId: confirmation.sessionId },
     );
@@ -616,13 +632,60 @@ export class Store {
     return rows.map((r) => this.rowToConfirmation(r));
   }
 
-  /** 条件应答：仅 pending 生效；重复批准、失效批准在此被拒绝。 */
-  respondConfirmation(id: string, decision: "approved" | "rejected"): boolean {
+  /**
+   * 条件应答：仅 pending 生效；重复批准、失效批准在此被拒绝。
+   * - 人工路径（source 'owner'，默认）：记录决定来源；进行中的自动审查标记
+   *   superseded（人工抢先，迟到的审查结果不得再落盘）。
+   * - 自动审查路径（source 'auto_review'）：额外要求权限版本仍匹配且任务仍
+   *   活动（审查期间的模式切换/任务结束使结果失效），并写入审查结论与理由。
+   */
+  respondConfirmation(
+    id: string,
+    decision: "approved" | "rejected",
+    opts: {
+      source?: "owner" | "auto_review";
+      expectedPermissionVersion?: number;
+      reviewDecision?: string;
+      reviewReason?: string;
+    } = {},
+  ): boolean {
+    const now = new Date().toISOString();
+    if (opts.source === "auto_review") {
+      const info = this.db
+        .prepare(
+          `UPDATE confirmations SET status = ?, responded_at = ?, decision_source = 'auto_review',
+             review_status = 'done', review_decision = ?, review_reason = ?
+           WHERE id = ? AND status = 'pending' AND permission_version = ?
+             AND task_id IN (SELECT id FROM tasks WHERE status IN ('running','awaiting_confirmation'))`,
+        )
+        .run(decision, now, opts.reviewDecision ?? null, opts.reviewReason ?? null, id, opts.expectedPermissionVersion ?? -1);
+      return Number(info.changes) === 1;
+    }
     const info = this.db
       .prepare(
-        "UPDATE confirmations SET status = ?, responded_at = ? WHERE id = ? AND status = 'pending'",
+        `UPDATE confirmations SET status = ?, responded_at = ?, decision_source = 'owner',
+           review_status = CASE WHEN review_status = 'in_progress' THEN 'superseded' ELSE review_status END
+         WHERE id = ? AND status = 'pending'`,
       )
-      .run(decision, new Date().toISOString(), id);
+      .run(decision, now, id);
+    return Number(info.changes) === 1;
+  }
+
+  /** 自动审查转人工（条件：仍 pending；人工已抢先时不覆盖其决定）。 */
+  markConfirmationAskedOwner(id: string, reason: string): boolean {
+    const info = this.db
+      .prepare(
+        "UPDATE confirmations SET review_status = 'asked_owner', review_decision = 'ask_owner', review_reason = ? WHERE id = ? AND status = 'pending'",
+      )
+      .run(reason, id);
+    return Number(info.changes) === 1;
+  }
+
+  /** 审查结果被取代（人工抢先/取消/模式切换）：仅"审查中"可转，不动审批状态。 */
+  markConfirmationReviewSuperseded(id: string): boolean {
+    const info = this.db
+      .prepare("UPDATE confirmations SET review_status = 'superseded' WHERE id = ? AND review_status = 'in_progress'")
+      .run(id);
     return Number(info.changes) === 1;
   }
 
@@ -657,10 +720,14 @@ export class Store {
     return Number(info.changes) === 1;
   }
 
-  /** 任务中断/取消时，其未决确认请求标记 stale（失效批准不得再执行）。 */
+  /** 任务中断/取消时，其未决确认请求标记 stale（失效批准不得再执行）；进行中的自动审查一并标记 superseded（后台重启后不再有审查结果到达，不能永远显示"审查中"）。 */
   stalePendingConfirmations(taskId: string): void {
     this.db
-      .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE task_id = ? AND status = 'pending'")
+      .prepare(
+        `UPDATE confirmations SET status = 'stale', responded_at = ?,
+           review_status = CASE WHEN review_status = 'in_progress' THEN 'superseded' ELSE review_status END
+         WHERE task_id = ? AND status = 'pending'`,
+      )
       .run(new Date().toISOString(), taskId);
   }
 
@@ -680,6 +747,12 @@ export class Store {
       createdAt: row.created_at,
       respondedAt: row.responded_at,
       consumedAt: row.consumed_at,
+      reviewStatus: (row.review_status ?? null) as ConfirmationRequest["reviewStatus"],
+      reviewDecision: (row.review_decision ?? null) as ConfirmationRequest["reviewDecision"],
+      reviewReason: row.review_reason ?? null,
+      reviewModel: row.review_model ?? null,
+      reviewPolicyVersion: row.review_policy_version ?? null,
+      decisionSource: (row.decision_source ?? null) as ConfirmationRequest["decisionSource"],
     };
   }
 

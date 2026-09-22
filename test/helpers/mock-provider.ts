@@ -86,6 +86,9 @@ export class MockModelServer {
   constructor(responder: Responder) {
     this.respond = responder;
     this.server = http.createServer(async (req, res) => {
+      // 客户端可能在响应前中止（如自动审查超时/人工接管）：写入已断开的
+      // socket 会触发 error 事件，测试服务静默忽略，按记录到的请求继续
+      res.on("error", () => {});
       const chunks: Buffer[] = [];
       req.on("data", (c: Buffer) => chunks.push(c));
       req.on("end", async () => {

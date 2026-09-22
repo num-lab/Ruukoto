@@ -29,6 +29,7 @@ import {
 } from "./helpers/testkit.ts";
 import { ControlClient } from "../src/control/client.ts";
 import { readOwnerToken, TOKEN_FILE_NAME } from "../src/control/owner-token.ts";
+import { createMockTools } from "../src/agent/mock-tools.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 
 function modeRoutes() {
@@ -168,7 +169,7 @@ test("会话默认模式：CAS 更新、新任务固定提交瞬间的默认值�
 
     // 非法模式与版本冲突被拒绝，旧值不变
     await assert.rejects(
-      t.client.request("set_session_mode", { session_id: sessionId, mode: "auto-review", expected_version: 0 }),
+      t.client.request("set_session_mode", { session_id: sessionId, mode: "autoreview", expected_version: 0 }),
       (err: any) => err.code === "invalid_params",
     );
     await assert.rejects(
@@ -206,6 +207,67 @@ test("会话默认模式：CAS 更新、新任务固定提交瞬间的默认值�
       const statuses = await Promise.all([slow, queued, after, explicit].map((task) => taskStatus(t.client, task.id)));
       return statuses.every((item) => ["completed", "canceled"].includes(item.task.status));
     }, 30_000);
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("会话默认模式支持 auto-review：CAS 接受、任务固定、显式覆盖、任务级切换、跨重启保留", async () => {
+  const t = await startTestRuntime("mode-autoreview", modeRoutes(), { workDirs: 1 });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const model = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
+
+    // auto-review 是合法模式：CAS 成功、版本递增
+    const saved = await t.client.request<any>("set_session_mode", { session_id: sessionId, mode: "auto-review", expected_version: 0 });
+    assert.equal(saved.defaultAccessMode, "auto-review");
+    assert.equal(saved.defaultAccessModeVersion, 1);
+
+    // 新任务固定提交瞬间的会话默认模式
+    const pinned = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "ar-1", input: "QUICK:自动审查任务" });
+    assert.equal(pinned.accessMode, "auto-review");
+
+    // 显式传入的一次性任务模式优先于会话默认值
+    const explicit = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "ar-2", input: "QUICK:显式", access_mode: "confirm" });
+    assert.equal(explicit.accessMode, "confirm");
+    await waitFor("两个任务完成", async () => {
+      const a = (await taskStatus(t.client, pinned.id)).task.status;
+      const b = (await taskStatus(t.client, explicit.id)).task.status;
+      return a === "completed" && b === "completed";
+    }, 60_000);
+
+    // 排队任务可经 switch_mode 切到 auto-review（无执行中工具的边界立即生效）
+    const slow = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "ar-3", input: "SLOW:占位" });
+    await waitFor("占位任务运行中", async () => (await taskStatus(t.client, slow.id)).task.status === "running", 30_000);
+    const queued = await t.client.request<any>("submit", { model_selection: model, session_id: sessionId, request_id: "ar-4", input: "QUICK:排队", access_mode: "confirm" });
+    assert.equal(queued.accessMode, "confirm");
+    const switched = await t.client.request<any>("switch_mode", { task_id: queued.id, mode: "auto-review" });
+    assert.equal(switched.accessMode, "auto-review");
+    assert.equal(switched.permissionVersion, 2, "切换递增权限版本");
+    await t.client.request("cancel", { task_id: slow.id });
+    await waitFor("任务收尾", async () => {
+      const a = (await taskStatus(t.client, slow.id)).task.status;
+      const b = (await taskStatus(t.client, queued.id)).task.status;
+      return ["canceled", "completed"].includes(a) && b === "completed";
+    }, 60_000);
+
+    // 跨重启保留会话默认值
+    await t.runtime.stop("test_restart");
+    const { Runtime } = await import("../src/runtime/runtime.ts");
+    const runtime2 = await Runtime.start({
+      dataDir: t.dirs.dataDir,
+      agentDir: t.dirs.agentDir,
+      socketPath: t.runtime.socketPath(),
+      thinkingLevel: "off",
+      modelProvider: "mock",
+      modelId: "mock-model",
+      toolFactory: (ctx) => createMockTools(ctx),
+    });
+    try {
+      assert.equal(runtime2.store.getSession(sessionId)!.defaultAccessMode, "auto-review", "重启后保留会话默认模式");
+    } finally {
+      await runtime2.stop("test_end");
+    }
   } finally {
     await t.shutdown();
   }

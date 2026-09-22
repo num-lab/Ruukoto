@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { GitHubError, type GitHubClient } from "./client.ts";
 import type { GitHubStore, GitHubDraft, GitHubPublishOp, GitHubRepoBinding } from "./store.ts";
 import type { Store } from "../../core/store.ts";
-import type { Task, ApprovalScope } from "../../core/types.ts";
+import type { AccessMode, Task, ApprovalScope } from "../../core/types.ts";
 
 /** GitHub 评论正文实际上限（65536 字符）；超限不静默截断/拆分。 */
 export const GITHUB_BODY_LIMIT = 65536;
@@ -58,7 +58,9 @@ export class PublishError extends Error {
 
 /**
  * 发布一个草稿版本。返回最终落盘的发布操作。
- * mode = "confirm" 时逐次审批；mode = "full_access" 时在既有发布意图范围内跳过逐次审批。
+ * mode = "full_access" 时在既有发布意图范围内跳过逐次审批；其余模式（confirm /
+ * auto-review）逐次审批（auto-review 由审批桥自动审查，github_publish 范围按
+ * 确定性策略转人工，审查轨迹照常落库）。
  */
 export async function publishDraft(
   deps: PublishDeps,
@@ -68,7 +70,7 @@ export async function publishDraft(
     task: Task;
     kind: "pr_review_comment" | "issue_comment";
     target: Record<string, unknown>;
-    mode: "confirm" | "full_access";
+    mode: AccessMode;
   },
 ): Promise<GitHubPublishOp> {
   const { draft, binding, task } = input;
@@ -105,8 +107,8 @@ export async function publishDraft(
     { taskId: task.id, sessionId: task.sessionId },
   );
 
-  // 请求确认模式：结构化审批（github_publish 范围；正文经审批记录可分段查看）
-  if (input.mode === "confirm") {
+  // 非完全访问模式：结构化审批（github_publish 范围；正文经审批记录可分段查看）
+  if (input.mode !== "full_access") {
     const scope: ApprovalScope = {
       kind: "github_publish",
       publishOpId: op.id,

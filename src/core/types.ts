@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export interface ModelSelection {
   provider: string;
@@ -20,23 +20,30 @@ export interface ModelSelection {
 }
 
 /**
- * 任务访问模式（ADR 0003）。
+ * 任务访问模式（ADR 0003；auto-review 见 ADR 0005）。
  * - confirm：请求确认模式。在已授权范围内自主执行（Linux 容器边界内），
  *   越界文件操作与外部网络以结构化审批请求逐次授权。
  * - full_access：完全访问模式。拥有者显式选择后，任务在容器外使用专用执行
  *   账户已有权限，不逐次确认。不额外赋权，也不提供执行账户内部的文件隔离。
+ * - auto-review：自动审查模式。与 confirm 同一受限执行环境；越界的外部文件
+ *   读取与无凭据 HTTP 读取先经独立审查调用自动审批（approve/reject/ask_owner），
+ *   无法确认或审查失败一律转拥有者；不扩大授权范围，不升级为完全访问。
  */
-export type AccessMode = "confirm" | "full_access";
+export type AccessMode = "confirm" | "full_access" | "auto-review";
 
 /**
  * 会话默认访问模式（issue 12）：新建任务在未显式指定模式时沿用。
- * 取值与 AccessMode 相同（ADR 0003 首期两种模式）；`auto-review` 等
- * 自动审批语义确认前不加入取值，不能作为绕过确认的入口。
+ * 取值与 AccessMode 相同。
  */
 export type SessionDefaultMode = AccessMode;
 
 /** 会话默认模式的取值列表（显示与入参校验共用）。 */
-export const SESSION_DEFAULT_MODES: readonly SessionDefaultMode[] = ["confirm", "full_access"];
+export const SESSION_DEFAULT_MODES: readonly SessionDefaultMode[] = ["confirm", "full_access", "auto-review"];
+
+/** 访问模式入参校验（CLI/控制面/运行时共用的类型守卫，消除字面量重复）。 */
+export function isAccessMode(value: unknown): value is AccessMode {
+  return typeof value === "string" && (SESSION_DEFAULT_MODES as readonly string[]).includes(value);
+}
 
 /** 已授权工作区外的具体路径权限（拥有者在可信入口为任务显式配置）。 */
 export interface GrantedPath {
@@ -202,6 +209,22 @@ export interface ConfirmationRequest {
   respondedAt: string | null;
   /** 批准后实际启动执行的时间；null 表示已批准但尚未开始（崩溃窗口）。 */
   consumedAt: string | null;
+  /**
+   * 自动审查状态（issue 15；null = 未经自动审查的历史/纯人工记录）：
+   * in_progress 审查中 → done（自动批准/拒绝）| asked_owner（转人工）|
+   * superseded（人工抢先或取消，迟到结果忽略）。
+   */
+  reviewStatus: "in_progress" | "done" | "asked_owner" | "superseded" | null;
+  /** 审查结论（approve/reject/ask_owner）；与最终 status 分开，最终批准者看 decisionSource。 */
+  reviewDecision: "approve" | "reject" | "ask_owner" | null;
+  /** 审查理由（转人工时说明原因）。 */
+  reviewReason: string | null;
+  /** 实际执行审查的模型（provider/modelId）。 */
+  reviewModel: string | null;
+  /** 审查策略版本（随规则演进递增，供审计核对）。 */
+  reviewPolicyVersion: string | null;
+  /** 最终决定来源：owner = 拥有者；auto_review = 自动审查。 */
+  decisionSource: "owner" | "auto_review" | null;
 }
 
 export interface ToolOp {
@@ -245,8 +268,10 @@ export type PersistentEventBody =
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }
-  | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean; scope: ApprovalScope; permissionVersion?: number }
-  | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected" }
+  | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean; scope: ApprovalScope; permissionVersion?: number; reviewStatus?: "in_progress" | null; reviewModel?: string | null; reviewPolicyVersion?: string | null }
+  | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected"; source?: "owner" | "auto_review"; reason?: string }
+  /** 自动审查转人工（issue 15）：审批仍 pending，等待拥有者决定。 */
+  | { type: "task.confirmation_reviewed"; taskId: string; confirmationId: string; decision: "ask_owner"; reason: string }
   | { type: "task.approval_consumed"; taskId: string; confirmationId: string; toolOpId: string; toolName: string }
   | { type: "task.mode_switch_requested"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode }
   | { type: "task.mode_switched"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode; permissionVersion: number }

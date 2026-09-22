@@ -61,7 +61,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
 function demoTasks(): Task[] {
   return [
     task({ id: "task_running000000", status: "running", input: "正在执行的任务（流式输出中）", createdAt: ts(2), startedAt: ts(2), endedAt: null }),
-    task({ id: "task_awaiting0000", status: "awaiting_confirmation", input: "等待审批的任务", createdAt: ts(5), startedAt: ts(5), endedAt: null }),
+    task({ id: "task_awaiting0000", status: "awaiting_confirmation", input: "等待审批的任务（自动审查已转人工）", accessMode: "auto-review", createdAt: ts(5), startedAt: ts(5), endedAt: null }),
     task({ id: "task_queued000000", status: "queued", input: "排队中的任务", createdAt: ts(1), startedAt: null, endedAt: null }),
     task({ id: "task_completed000", status: "completed", input: "已完成的任务", accessMode: "full_access" }),
     task({ id: "task_failed00000", status: "failed", input: "失败的任务", errorMessage: "模型返回 429：速率限制" }),
@@ -119,6 +119,13 @@ const CONFIRMATION: ConfirmationRequest = {
   createdAt: ts(5),
   respondedAt: null,
   consumedAt: null,
+  // 自动审查已转人工的演示记录（审查结论与理由随审批展示）
+  reviewStatus: "asked_owner",
+  reviewDecision: "ask_owner",
+  reviewReason: "带凭据的写入不属于自动批准范围",
+  reviewModel: "demo/demo-model",
+  reviewPolicyVersion: "auto-review-v1",
+  decisionSource: null,
 };
 
 /** 历史条目：覆盖各角色与边界（截断、工具错误、含非文本内容）。 */
@@ -226,7 +233,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.tool_effect_unknown", taskId: "task_interrupt00", toolOpId: "toolop_demo000003", toolName: "bash" },
     { type: "task.output_entry", taskId: "task_completed000", sessionId: SESSION_ID, entryId: "entry_0002", sessionFile: SESSION.sessionFile!, role: "assistant", messageId: "msg_1" },
     { type: "task.completed", taskId: "task_completed000", sessionId: SESSION_ID },
-    { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "confirm", modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "auto-review", modelSelection: MODEL },
     { type: "task.started", taskId: "task_awaiting0000", sessionId: SESSION_ID },
     {
       type: "task.awaiting_confirmation",
@@ -237,7 +244,11 @@ function demoEvents(): PersistentEvent[] {
       params: CONFIRMATION.params,
       scope: CONFIRMATION.scope,
       permissionVersion: 1,
+      reviewStatus: "in_progress",
+      reviewModel: "demo/demo-model",
+      reviewPolicyVersion: "auto-review-v1",
     },
+    { type: "task.confirmation_reviewed", taskId: "task_awaiting0000", confirmationId: CONFIRMATION.id, decision: "ask_owner", reason: "带凭据的写入不属于自动批准范围" },
     { type: "task.confirmation_resolved", taskId: "task_awaiting0000", confirmationId: "conf_old000000000", decision: "rejected" },
     { type: "task.approval_consumed", taskId: "task_completed000", confirmationId: "conf_old000000001", toolOpId: "toolop_demo000001", toolName: "read" },
     { type: "task.mode_switch_requested", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access" },

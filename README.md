@@ -94,7 +94,7 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 | `/approvals` | 待处理审批列表；详情内 `a` 批准、`r` 拒绝，`Esc` 关闭不等于拒绝 |
 | `/interrupt [taskId]`、`/cancel <taskId>`、`/continue [taskId]` | 中断 / 取消 / 继续任务 |
 | `/resume-queue` | 恢复已暂停的会话队列 |
-| `/mode <confirm\|full_access> [taskId]` | 经显式确认覆盖层按任务切换访问模式 |
+| `/mode <confirm\|full_access\|auto-review> [taskId]` | 经显式确认覆盖层按任务切换访问模式 |
 | `/status` | 刷新并查看当前任务详情 |
 | `/search <关键词>` | 搜索会话历史原文（字面匹配） |
 | `/memory <子命令>` | 长期记忆：list / show / revoke / restore |
@@ -122,9 +122,9 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 ruukoto start [--data-dir D] [--agent-dir A] [--execution local|container] [--model provider/model]
 ruukoto create-project <名称>                 # 返回项目 id（后续命令用 id，不是名称）
 ruukoto create-session <项目 id> <工作目录>
-ruukoto submit <会话 id> <request-id> "任务输入" [--mode confirm|full_access] [--grant <路径>:<read|read_write>[:用途];...]
+ruukoto submit <会话 id> <request-id> "任务输入" [--mode confirm|full_access|auto-review] [--grant <路径>:<read|read_write>[:用途];...]
 ruukoto continue <任务 id> <request-id> "继续输入" [--mode ...] [--grant ...]
-ruukoto switch-mode <任务 id> confirm|full_access [--grant ...]
+ruukoto switch-mode <任务 id> confirm|full_access|auto-review [--grant ...]
 ruukoto status [任务 id]                      # 无参数 = 全局快照
 ruukoto events                                # 订阅持久事件流（seq 单调递增）
 ruukoto interrupt <任务 id> | cancel <任务 id> | resume-queue <会话 id>
@@ -201,7 +201,12 @@ CI 分析与 PR 评审由拥有者显式触发：采集在任务循环内由宿�
 权限。它不额外赋予系统权限，也不让其他会话或群成员获得同样授权；模型、工具、记忆
 内容或 QQ 消息都不能开启它。模式改变只作用于后续操作，不能撤销已经执行的外部效果。
 
-请求确认模式下，任务的编码工具在按任务建立的容器内执行：非 root、cap-drop ALL、
+**自动审查**：与请求确认同一受限执行环境；越界的外部文件读取与无凭据 HTTP 读取
+（GET/HEAD）先经一次独立的无工具审查调用自动审批，结论为批准、拒绝或转拥有者确认。
+写操作、带凭据请求与其他越界操作仍需拥有者确认；审查失败、超时或上下文不足一律转
+拥有者。审查结论、理由、模型与策略版本随审批记录保存，可在审批详情查看。
+
+请求确认与自动审查模式下，任务的编码工具在按任务建立的容器内执行：非 root、cap-drop ALL、
 no-new-privileges、只读根文件系统、默认无网络，只挂载授权的工作区与任务级授予路径，
 任务结束回收容器。完全访问在容器外由 systemd 以固定执行账户启动。缺少执行后端或
 身份配置时明确失败，不回退到后台账户执行。

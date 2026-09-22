@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 03, 12
 
 # 添加 auto-review 模式
@@ -103,3 +103,25 @@ GitHub 专用模块按 Issue 17 退役。auto-review 以公共审批桥为接入
 ### 2026-09-22：访谈确认
 
 本轮保留既有已确认策略，修正正文仍写“建议/needs-triage”的过时表述。按 Issue 17 的替换方向移除最终交付中的 GitHub 专用发布要求；普通 MCP 写工具在 Issue 18 通过公共审批桥接入。
+
+### 2026-09-22：实现完成
+
+按 `.scratch/personal-agent/15-auto-review-plan.md` 实施完成：
+
+- 模式值：`AccessMode`/`SESSION_DEFAULT_MODES` 加入 `auto-review`；runtime/server/cli 全部校验入口复用该常量；协议版本 6 → 7。
+- 数据库：SCHEMA_VERSION 5 → 6。新库 CHECK 直接含新模式；旧库（v1–v5）在迁移事务外关闭外键、事务内重建 tasks/sessions（显式列清单保留原模式与权限版本，重建任务索引）；confirmations 经 ensureColumns 追加 6 个可空审查列（review_status/review_decision/review_reason/review_model/review_policy_version/decision_source）。
+- 审查模块 `src/agent/review.ts`：确定性策略先行（仅越界文件读取与无凭据 HTTP GET/HEAD 可审查），无工具 `streamSimple` 调用，30s 自管超时 + 外部中止联动，输出严格校验（枚举 + 非空理由，容忍 code fence），一切失败/超限/超时转 ask_owner；外部中止抛 ReviewAbortedError 不转人工。首版配置：30s、maxTokens 1024、输入上限 8KB、策略版本 auto-review-v1。
+- Driver 接入：awaitApproval 先注册等待者再启动单次审查；approve/reject 走条件更新（pending + 权限版本 + 任务仍活动），与人工决定/取消/模式切换竞争只有一次成功，迟到结果标 superseded；人工路径同事务把 in_progress 审查标 superseded 并记 decision_source='owner'；自动拒绝文案与“拥有者拒绝”区分（driver 与 tool-router 两处）。
+- 启动器：auto-review 路由到受限容器（与 confirm 同边界）；systemd 入口拒绝；缺 docker 报 execution_unavailable 不回退。
+- TUI/展示：/mode 列表加“自动审查”（二次确认浮层仍只对 full_access）；状态栏显示模式与“审查中 N”；审批详情按 reviewStatus 展示审查中/转人工/结论与来源；新增 task.confirmation_reviewed 事件，confirmation_resolved 携带 source/reason。
+- 文档：新增 ADR 0005；CONTEXT.md 补“自动审查模式”术语；README/docs/runtime.md 的模式表述同步。
+- 测试：新增 test/22-auto-review.test.ts（17 项：端到端批准/拒绝/转人工/非法输出/超时/人工抢先/取消/权限版本变化/重启/重连/注入防护，自动批准单次消费复核，review.ts 单元，v5→v6 迁移，启动器路由）；10/13/14 扩展新模式断言。`npm run typecheck` 通过；全量 `npm test` 175 项：174 通过、0 失败、1 跳过（既有 RUN_MODEL_CHECK 门控的连通性测试）。
+
+评审修复（2026-09-22 第二轮）：githubPublish 不再把显式 auto-review 静默改写为 confirm（模式原样传递，publishDraft 的 mode 类型放宽为 AccessMode，非 full_access 均逐次审批）；stalePendingConfirmations 同事务把 in_progress 审查标记 superseded（重启后不再残留"审查中"）；runAutoReview 的转人工块收敛为 markReviewAskedOwner；新增 isAccessMode 类型守卫替换六处手工校验；补齐取消、单次消费、重连三项测试。
+
+偏差与未验证项：
+
+- 计划称 awaitApproval “唯一调用点 tool-router.ts:337”，实际还有 runtime.ts githubPublish 适配器；已同步改为取 `.decision`（github_publish 范围按确定性策略一律转人工，行为不变）。
+- 为让 TUI 实时显示“审查中”，task.awaiting_confirmation 事件载荷补充了 reviewStatus/reviewModel/reviewPolicyVersion 可选字段（计划未列出，属最小补充）。
+- mock-provider 增加 res error 兜底（客户端中止审查请求后写已断开 socket 不再砸测试进程）。
+- 真实容器边界（Linux/Docker）本机不具备，未验证；启动器测试只断言路由与报错（构造/早期启动级），未在真实容器内跑过 auto-review 任务。

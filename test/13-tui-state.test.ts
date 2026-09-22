@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ViewState, MAX_LOADED_ENTRIES, type SessionView } from "../src/tui/state.ts";
+import { ViewState, MAX_LOADED_ENTRIES, accessModeLabel, formatAccessMode, type SessionView } from "../src/tui/state.ts";
 import { sanitizeForDisplay } from "../src/tui/sanitize.ts";
 import type { ConnectResult } from "../src/control/protocol.ts";
 import type { PersistentEvent, Task } from "../src/core/types.ts";
@@ -225,4 +225,69 @@ test("模型选择只接受非旧版本，replay 不回滚，旧排队补配置�
   assert.equal(state.sessions[0]!.modelSelectionVersion, 3);
   state.applyEvent(ev(11, { type: "tasks.model_selection_recorded", sessionId: "sess_1", taskIds: ["queued"], modelSelection: selection }), "live");
   assert.deepEqual(state.getTask("queued")!.modelSelection, selection);
+});
+
+// ---------- 自动审查（issue 15） ----------
+
+test("accessModeLabel/formatAccessMode：auto-review 显示为自动审查", () => {
+  assert.equal(accessModeLabel("auto-review"), "自动审查");
+  assert.equal(accessModeLabel("confirm"), "Ask for approval");
+  assert.equal(accessModeLabel("full_access"), "完全访问");
+  assert.equal(formatAccessMode("auto-review", null), "自动审查");
+  assert.equal(formatAccessMode("confirm", "auto-review"), "Ask for approval（待切换：自动审查）");
+});
+
+test("自动审查事件：awaiting 携带审查状态，reviewed 转人工更新视图，resolved 标注来源", () => {
+  const state = new ViewState();
+  state.applySnapshot({ seq: 1, replay: [], snapshot: snapshot({ tasks: [task("task_1")] }) }, false);
+  state.applyEvent(
+    ev(2, {
+      type: "task.awaiting_confirmation",
+      taskId: "task_1",
+      confirmationId: "conf_1",
+      toolOpId: "op_1",
+      toolName: "request_file_access",
+      params: { path: "/x" },
+      scope: { kind: "file_operation", path: "/x", access: "read", originalSha256: null, contentSha256: null, contentBytes: null },
+      permissionVersion: 1,
+      reviewStatus: "in_progress",
+      reviewModel: "mock/mock-model",
+      reviewPolicyVersion: "auto-review-v1",
+    }),
+    "live",
+  );
+  const pending = state.pendingApprovals();
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0]!.reviewStatus, "in_progress", "审查中的审批进入待决列表并带审查状态");
+  assert.equal(pending[0]!.reviewModel, "mock/mock-model");
+
+  // 转人工：审批仍 pending，审查状态与理由更新，提示原因
+  state.applyEvent(ev(3, { type: "task.confirmation_reviewed", taskId: "task_1", confirmationId: "conf_1", decision: "ask_owner", reason: "无法确认用途" }), "live");
+  assert.equal(state.confirmations[0]!.reviewStatus, "asked_owner");
+  assert.equal(state.confirmations[0]!.reviewReason, "无法确认用途");
+  assert.ok(state.globalNotes.some((n) => n.text.includes("自动审查转人工：无法确认用途")));
+
+  // 自动审查的决定：移除待决并提示来源与理由
+  state.applyEvent(ev(4, { type: "task.confirmation_resolved", taskId: "task_1", confirmationId: "conf_1", decision: "approved", source: "auto_review", reason: "与请求相关" }), "live");
+  assert.equal(state.pendingApprovals().length, 0);
+  assert.ok(state.globalNotes.some((n) => n.text.includes("自动审查已批准：与请求相关")));
+
+  // 人工决定不额外提示（现有行为）
+  state.applyEvent(
+    ev(5, {
+      type: "task.awaiting_confirmation",
+      taskId: "task_1",
+      confirmationId: "conf_2",
+      toolOpId: "op_2",
+      toolName: "bash",
+      params: {},
+      scope: { kind: "tool", workspaceOnly: true },
+      permissionVersion: 1,
+    }),
+    "live",
+  );
+  const notesBefore = state.globalNotes.length;
+  state.applyEvent(ev(6, { type: "task.confirmation_resolved", taskId: "task_1", confirmationId: "conf_2", decision: "approved", source: "owner" }), "live");
+  assert.equal(state.pendingApprovals().length, 0);
+  assert.equal(state.globalNotes.length, notesBefore, "人工决定不新增来源提示");
 });

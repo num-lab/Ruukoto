@@ -4,10 +4,10 @@
  *   ruukoto start [--data-dir D] [--agent-dir A] [--execution local|container]
  *   ruukoto create-project <name>
  *   ruukoto create-session <project> <cwd> [--confirm-tools a,b]
- *   ruukoto submit <session> <request-id> [--mode confirm|full_access]
+ *   ruukoto submit <session> <request-id> [--mode confirm|full_access|auto-review]
  *                  [--grant <path>:<read|read_write>[:<用途>];...] <input...>
  *   ruukoto continue <task> <request-id> [--mode ...] [--grant ...] <input...>
- *   ruukoto switch-mode <task> <confirm|full_access> [--grant ...]
+ *   ruukoto switch-mode <task> <confirm|full_access|auto-review> [--grant ...]
  *   ruukoto status [task]                             任务/快照查询
  *   ruukoto events                                    订阅并打印事件流
  *   ruukoto interrupt <task> | cancel <task> | resume-queue <session>
@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { ControlClient } from "./control/client.ts";
 import { controlDirFor, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
-import type { GrantedPath, ModelSelection, Session, Task } from "./core/types.ts";
+import { SESSION_DEFAULT_MODES, isAccessMode, type AccessMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
   const flags: Record<string, string> = {};
@@ -89,10 +89,10 @@ function parseSelection(raw: string | undefined, thinking: string | undefined): 
   return { provider: raw.slice(0, split), modelId: raw.slice(split + 1), thinkingLevel: thinking as ModelSelection["thinkingLevel"] };
 }
 
-function parseMode(raw: string | undefined): "confirm" | "full_access" | undefined {
+function parseMode(raw: string | undefined): AccessMode | undefined {
   if (!raw) return undefined;
-  if (raw === "confirm" || raw === "full_access") return raw;
-  throw new Error(`--mode 无效：${raw}（confirm | full_access）`);
+  if (isAccessMode(raw)) return raw;
+  throw new Error(`--mode 无效：${raw}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -393,7 +393,7 @@ async function main(argv: string[]): Promise<number> {
           "  ruukoto github bindings [--project <id>] | unbind <binding-id>\n" +
           "  ruukoto github drafts [--project <id>] [--task <id>] [--status draft|stale|published]\n" +
           "  ruukoto github draft <draft-id> [--version N] | publish-ops [--draft <id>]\n" +
-          "  ruukoto github publish <draft-id> --kind pr_review_comment --pr <n> | --kind issue_comment --issue <n> [--version N] [--access-mode confirm|full_access]",
+          "  ruukoto github publish <draft-id> --kind pr_review_comment --pr <n> | --kind issue_comment --issue <n> [--version N] [--access-mode confirm|full_access|auto-review]",
       );
       return 1;
     }
@@ -561,7 +561,7 @@ async function main(argv: string[]): Promise<number> {
 function defaultHelp(): string {
   return (
     "用法：ruukoto <command> [args]\n" +
-    "命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
+    "命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking（start）；--mode / --grant（submit/continue/switch-mode）；\n" +

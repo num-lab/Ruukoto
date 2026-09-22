@@ -18,7 +18,9 @@ import { Db } from "../core/db.ts";
 import { isToolOpExecutionUncertain, Store, StoreConflictError } from "../core/store.ts";
 import {
   ACTIVE_TASK_STATUSES,
+  isAccessMode,
   isTerminalTaskStatus,
+  SESSION_DEFAULT_MODES,
   type AccessMode,
   type Artifact,
   type ConfirmationRequest,
@@ -34,9 +36,10 @@ import {
 import { acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
 import { resolveDirIdentity, verifyDirIdentity, DirIdentityError } from "../core/dir-identity.ts";
 import { createModelCatalog, type ModelCatalog } from "../agent/model-selection.ts";
+import { createApprovalReviewer, type ApprovalReviewer } from "../agent/review.ts";
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
-import { createCodingTools } from "../agent/tool-router.ts";
+import { createCodingTools, type ApprovalOutcome } from "../agent/tool-router.ts";
 import { ArtifactStore } from "../agent/artifacts.ts";
 import { CredentialStore } from "../agent/execution/credentials.ts";
 import {
@@ -116,6 +119,8 @@ export interface RuntimeConfig {
   budgetOverrides?: Partial<SelectorBudgetConfig>;
   /** 测试注入：GitHub 客户端构造（指向模拟服务；生产缺省走 defaultClientFor）。 */
   githubClientFor?: (binding: GitHubRepoBinding, operation: "github_read" | "github_publish", credentials: CredentialStore, currentBinding: () => GitHubRepoBinding | null) => GitHubClient;
+  /** 自动审查配置（issue 15）：仅测试用来压短时限/输出上限。 */
+  autoReview?: { timeoutMs?: number; maxTokens?: number };
 }
 
 export class RuntimeApiError extends Error {
@@ -181,6 +186,8 @@ export class Runtime {
   private model: any;
   modelCatalog!: ModelCatalog;
   defaultSelection!: ModelSelection;
+  /** 自动审查调用（issue 15）：start 建好模型目录后创建；auto-review 任务的审批桥使用。 */
+  private reviewer!: ApprovalReviewer;
   private drivers = new Map<string, Driver>();
   private loopActive = new Set<string>();
   private loopPromises = new Map<string, Promise<void>>();
@@ -267,6 +274,12 @@ export class Runtime {
     try {
       runtime.modelCatalog = await createModelCatalog(runtime.modelRuntime, config.agentDir, model);
       await runtime.modelCatalog.resolve(runtime.defaultSelection);
+      runtime.reviewer = createApprovalReviewer({
+        modelRuntime: runtime.modelRuntime,
+        modelCatalog: runtime.modelCatalog,
+        timeoutMs: fullConfig.autoReview?.timeoutMs,
+        maxTokens: fullConfig.autoReview?.maxTokens,
+      });
       runtime.store.withTx(() => runtime.store.initializeSessionModelSelections(runtime.defaultSelection));
     } catch (err) {
       runtime.db.close();
@@ -544,7 +557,7 @@ export class Runtime {
     // 未显式指定时固定为提交瞬间的会话默认模式（issue 12）；幂等摘要据此计算，
     // 默认值之后的变更不会漂移已接收任务。
     const accessMode = input.accessMode ?? session.defaultAccessMode;
-    if (accessMode !== "confirm" && accessMode !== "full_access") {
+    if (!isAccessMode(accessMode)) {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${accessMode}`);
     }
     const selection = parseModelSelection(input.modelSelection);
@@ -623,8 +636,8 @@ export class Runtime {
   async setSessionDefaultMode(input: { sessionId: string; mode: AccessMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
-    if (input.mode !== "confirm" && input.mode !== "full_access") {
-      throw new RuntimeApiError("invalid_params", `会话默认模式无效：${input.mode}（confirm | full_access）`);
+    if (!isAccessMode(input.mode)) {
+      throw new RuntimeApiError("invalid_params", `会话默认模式无效：${input.mode}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
     }
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
     try {
@@ -646,7 +659,7 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
-    if (input.mode !== "confirm" && input.mode !== "full_access") {
+    if (!isAccessMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${input.mode}`);
     }
     if (task.accessMode === input.mode && !input.grantedPaths) {
@@ -901,6 +914,7 @@ export class Runtime {
     const task = this.store.getTask(draft.taskId);
     if (!task) throw new RuntimeApiError("not_found", `草稿所属任务不存在：${draft.taskId}`);
 
+    // 模式原样传递（默认 confirm）：auto-review 走审批桥自动审查，不改写为 confirm
     const mode = input.accessMode ?? "confirm";
     const publishDeps = {
       store: this.store,
@@ -924,12 +938,12 @@ export class Runtime {
           {
             ...publishDeps,
             awaitApproval: async (req) => {
-              const decision = await Promise.race([
-                (driver as any).awaitApproval(req) as Promise<"approved" | "rejected" | "superseded">,
+              const outcome = await Promise.race([
+                (driver as any).awaitApproval(req) as Promise<ApprovalOutcome>,
                 // 任务在确认待决期间自然结束 → 回落 superseded，避免控制面请求永久悬挂
-                driver.taskCompletion().then(() => "superseded" as const),
+                driver.taskCompletion().then(() => ({ decision: "superseded" as const, source: null, reviewReason: null })),
               ]);
-              return decision;
+              return outcome.decision;
             },
           },
           { draft, binding, task, kind: input.kind, target: input.target, mode },
@@ -947,7 +961,7 @@ export class Runtime {
     if (mode !== "full_access") {
       throw new RuntimeApiError(
         "invalid_state",
-        "草稿任务已结束：请求确认模式的逐次审批只能在存活任务内进行；请以 --access-mode full_access 发布（保留完整审计），或在存活任务中触发发布",
+        "草稿任务已结束：逐次审批（含自动审查）只能在存活任务内进行；请以 --access-mode full_access 发布（保留完整审计），或在存活任务中触发发布",
       );
     }
     // 复核先行：复核失败的发布不建立审计任务
@@ -1113,6 +1127,7 @@ export class Runtime {
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
         github: { github: this.github, clientFor: this.config.githubClientFor },
+        reviewer: this.reviewer,
       });
       this.drivers.set(session.id, driver);
     } else {

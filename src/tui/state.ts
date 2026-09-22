@@ -343,6 +343,12 @@ export class ViewState {
             createdAt: event.createdAt,
             respondedAt: null,
             consumedAt: null,
+            reviewStatus: body.reviewStatus ?? null,
+            reviewDecision: null,
+            reviewReason: null,
+            reviewModel: body.reviewModel ?? null,
+            reviewPolicyVersion: body.reviewPolicyVersion ?? null,
+            decisionSource: null,
           });
           // 新审批提示（不抢输入焦点；计数同时显示在状态行）
           this.note(
@@ -352,9 +358,29 @@ export class ViewState {
         }
         return;
       }
-      case "task.confirmation_resolved":
+      case "task.confirmation_resolved": {
+        const resolved = this.confirmations.find((c) => c.id === body.confirmationId);
         this.confirmations = this.confirmations.filter((c) => c.id !== body.confirmationId);
+        // 自动审查的决定提示来源与理由（人工决定沿用现有行为，不额外提示）
+        if (body.source === "auto_review") {
+          this.note(
+            resolved?.sessionId ?? this.tasks.get(body.taskId)?.sessionId ?? null,
+            `自动审查已${body.decision === "approved" ? "批准" : "拒绝"}：${body.reason ?? ""}（${resolved?.toolName ?? body.confirmationId}）`,
+          );
+        }
         return;
+      }
+      case "task.confirmation_reviewed": {
+        // 自动审查转人工：审批仍 pending，更新审查状态并提示原因
+        const view = this.confirmations.find((c) => c.id === body.confirmationId);
+        if (view) {
+          view.reviewStatus = "asked_owner";
+          view.reviewDecision = "ask_owner";
+          view.reviewReason = body.reason;
+        }
+        this.noteForTask(body.taskId, `自动审查转人工：${body.reason}`);
+        return;
+      }
       case "session.queue_paused": {
         const session = this.sessions.find((s) => s.id === body.sessionId);
         if (session) {
@@ -653,9 +679,21 @@ function viewForTask(views: Map<string, SessionView>, taskId: string): SessionVi
   return undefined;
 }
 
+/** 访问模式显示名（/mode 列表、状态栏、模式提示共用）。 */
+export function accessModeLabel(mode: AccessMode): string {
+  switch (mode) {
+    case "full_access":
+      return "完全访问";
+    case "auto-review":
+      return "自动审查";
+    default:
+      return "Ask for approval";
+  }
+}
+
 export function formatAccessMode(mode: AccessMode, pending: AccessMode | null): string {
-  const base = mode === "full_access" ? "完全访问" : "Ask for approval";
-  return pending ? `${base}（待切换：${pending === "full_access" ? "完全访问" : "Ask for approval"}）` : base;
+  const base = accessModeLabel(mode);
+  return pending ? `${base}（待切换：${accessModeLabel(pending)}）` : base;
 }
 
 export function formatTaskStatus(status: TaskStatus): string {

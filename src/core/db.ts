@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -46,10 +46,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   input TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN
     ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
-  access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access')),
+  access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access','auto-review')),
   permission_version INTEGER NOT NULL DEFAULT 1,
   granted_paths TEXT NOT NULL DEFAULT '[]',
-  pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access')),
+  pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access','auto-review')),
   interrupt_reason TEXT,
   cancel_requested INTEGER NOT NULL DEFAULT 0,
   effect_unknown INTEGER NOT NULL DEFAULT 0,
@@ -302,6 +302,10 @@ export class Db {
       this.db.exec(SCHEMA_SQL);
       this.ensureColumns();
     } else {
+      // v6 起旧库的 tasks/sessions 访问模式 CHECK 需重建表；FK pragma 在事务内
+      // 无效，必须在事务外关闭（tasks 引用 sessions，重建期间不强制），结束后恢复。
+      const rebuildModeChecks = row !== undefined && version < SCHEMA_VERSION;
+      if (rebuildModeChecks) this.db.exec("PRAGMA foreign_keys = OFF;");
       // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
       this.db.exec("BEGIN IMMEDIATE");
       try {
@@ -310,6 +314,9 @@ export class Db {
           this.migrateFrom(version);
         }
         this.ensureColumns();
+        if (rebuildModeChecks) {
+          this.rebuildModeCheckedTables();
+        }
         this.db
           .prepare(
             "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -323,6 +330,8 @@ export class Db {
           // 事务可能已因错误自动回滚
         }
         throw new Error(`schema 迁移失败（v${version} → v${SCHEMA_VERSION}）：${(err as Error).message}`);
+      } finally {
+        if (rebuildModeChecks) this.db.exec("PRAGMA foreign_keys = ON;");
       }
     }
     // 数据实例标识：首次打开分配并持久化；重启保留，新数据库分配新标识。
@@ -345,13 +354,86 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version === 2 || version === 3 || version === 4) {
-      // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表。
-      // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；无既有数据需要改写。
+    } else if (version >= 2 && version <= 5) {
+      // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
+      // v4 → v5：模型选择补列。均为 SCHEMA_SQL 幂等建表覆盖 + 补列；
+      // v5 → v6 的 CHECK 变更由重建步骤统一处理，无既有数据需要改写。
       this.ensureColumns();
     } else {
       throw new Error(`不支持从 schema v${version} 迁移`);
     }
+  }
+
+  /**
+   * v6：tasks/sessions 的访问模式 CHECK 加入 'auto-review'。SQLite 不能修改
+   * CHECK 约束，按官方推荐流程重建表：显式列清单复制（保留原模式与权限版本
+   * 等全部取值）→ 换名 → 重建索引。调用前外键已在事务外关闭。
+   */
+  private rebuildModeCheckedTables(): void {
+    this.db.exec(`
+CREATE TABLE tasks_new (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  request_id TEXT NOT NULL,
+  input TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN
+    ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
+  access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access','auto-review')),
+  permission_version INTEGER NOT NULL DEFAULT 1,
+  granted_paths TEXT NOT NULL DEFAULT '[]',
+  pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access','auto-review')),
+  interrupt_reason TEXT,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  effect_unknown INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  history_entry_ids TEXT NOT NULL DEFAULT '[]',
+  resumes_task_id TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  ended_at TEXT,
+  model_selection TEXT,
+  submission_digest TEXT,
+  UNIQUE (session_id, request_id)
+);
+INSERT INTO tasks_new (id, session_id, request_id, input, status, access_mode, permission_version,
+  granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
+  history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest)
+SELECT id, session_id, request_id, input, status, access_mode, permission_version,
+  granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
+  history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest
+FROM tasks;
+DROP TABLE tasks;
+ALTER TABLE tasks_new RENAME TO tasks;
+CREATE INDEX IF NOT EXISTS idx_tasks_session_created ON tasks (session_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
+CREATE TABLE sessions_new (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  cwd TEXT NOT NULL,
+  cwd_real TEXT NOT NULL,
+  cwd_dev INTEGER NOT NULL,
+  cwd_ino INTEGER NOT NULL,
+  pi_session_id TEXT NOT NULL,
+  session_file TEXT,
+  confirm_tools TEXT NOT NULL DEFAULT '[]',
+  queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
+  queue_pause_reason TEXT,
+  created_at TEXT NOT NULL,
+  model_selection TEXT,
+  model_selection_version INTEGER NOT NULL DEFAULT 0,
+  default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review')),
+  default_access_mode_version INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO sessions_new (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
+  confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
+  default_access_mode, default_access_mode_version)
+SELECT id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
+  confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
+  default_access_mode, default_access_mode_version
+FROM sessions;
+DROP TABLE sessions;
+ALTER TABLE sessions_new RENAME TO sessions;
+`);
   }
 
   /** 幂等补列（CREATE TABLE IF NOT EXISTS 不会给既有表加列）。 */
@@ -364,7 +446,7 @@ export class Db {
     };
     add("sessions", "model_selection", "model_selection TEXT");
     add("sessions", "model_selection_version", "model_selection_version INTEGER NOT NULL DEFAULT 0");
-    add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access'))");
+    add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review'))");
     add("sessions", "default_access_mode_version", "default_access_mode_version INTEGER NOT NULL DEFAULT 0");
     add("tasks", "model_selection", "model_selection TEXT");
     add("tasks", "submission_digest", "submission_digest TEXT");
@@ -373,6 +455,13 @@ export class Db {
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "prompt_artifact", "prompt_artifact TEXT");
     add("selection_records", "window_snapshot", "window_snapshot TEXT");
+    // v6（issue 15）：审批记录上的自动审查字段；可空，旧记录按历史人工审批展示
+    add("confirmations", "review_status", "review_status TEXT");
+    add("confirmations", "review_decision", "review_decision TEXT");
+    add("confirmations", "review_reason", "review_reason TEXT");
+    add("confirmations", "review_model", "review_model TEXT");
+    add("confirmations", "review_policy_version", "review_policy_version TEXT");
+    add("confirmations", "decision_source", "decision_source TEXT");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

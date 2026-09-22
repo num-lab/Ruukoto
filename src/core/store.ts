@@ -1006,6 +1006,11 @@ export class Store {
     this.db.prepare("UPDATE selection_records SET usage = ? WHERE id = ?").run(JSON.stringify(usage), id);
   }
 
+  /** 关联发送前捕获的输入快照产物（issue 13；与记录同事务写入）。 */
+  setSelectionRecordPromptArtifact(id: string, artifactId: string | null): void {
+    this.db.prepare("UPDATE selection_records SET prompt_artifact = ? WHERE id = ?").run(artifactId, id);
+  }
+
   getSelectionRecord(id: string): SelectionRecord | null {
     const row = this.db.prepare("SELECT * FROM selection_records WHERE id = ?").get(id) as any;
     return row ? rowToSelectionRecord(row) : null;
@@ -1026,6 +1031,32 @@ export class Store {
       .prepare("SELECT * FROM selection_records WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?")
       .all(sessionId, cap) as any[];
     return rows.map(rowToSelectionRecord);
+  }
+
+  /** 会话维度游标分页（新 → 旧；游标 = 上一页最后一条的 createdAt/id）。 */
+  listSelectionRecordsPage(
+    sessionId: string,
+    limit: number,
+    cursor?: { createdAt: string; id: string },
+  ): { records: SelectionRecord[]; hasMore: boolean } {
+    const cap = Math.min(Math.max(1, limit), 200);
+    const rows = (
+      cursor
+        ? this.db
+            .prepare(
+              `SELECT * FROM selection_records
+               WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))
+               ORDER BY created_at DESC, id DESC LIMIT ?`,
+            )
+            .all(sessionId, cursor.createdAt, cursor.createdAt, cursor.id, cap + 1)
+        : this.db
+            .prepare(
+              `SELECT * FROM selection_records WHERE session_id = ?
+               ORDER BY created_at DESC, id DESC LIMIT ?`,
+            )
+            .all(sessionId, cap + 1)
+    ) as any[];
+    return { records: rows.slice(0, cap).map(rowToSelectionRecord), hasMore: rows.length > cap };
   }
 
   /** 任务内已有的选择记录数（下一次调用的 callIndex = 数量 + 1）。 */
@@ -1062,6 +1093,7 @@ function rowToSelectionRecord(row: any): SelectionRecord {
     budget: Number(row.budget),
     estimatedTotal: Number(row.estimated_total),
     usage: row.usage ? (JSON.parse(row.usage) as { input: number; output: number }) : null,
+    promptArtifactId: (row.prompt_artifact as string | null) ?? null,
     createdAt: row.created_at,
   };
 }

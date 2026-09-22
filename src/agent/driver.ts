@@ -447,6 +447,7 @@ export class Driver {
           // 部分适配器会在显式 maxTokens 上追加思考预算；同时限定模型总响应上限。
           model = { ...model, maxTokens: config.maxTokens };
           this.finalCheckBeforeSend(task, model, context, options);
+          this.capturePromptSnapshot(task, model, context, options);
         } catch (err) {
           if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
           throw err;
@@ -521,6 +522,7 @@ export class Driver {
         estimates: selection.estimates,
         budget: selection.budget,
         estimatedTotal: selection.estimatedTotal,
+        promptArtifactId: null,
         createdAt: new Date().toISOString(),
       });
     });
@@ -529,6 +531,44 @@ export class Driver {
   private pendingRecordId: string | null = null;
   /** 最终检查抛出的阻断原因（发送侧记录，任务结束路径据此识别）。 */
   private lastBlockedReason: string | null = null;
+
+  /**
+   * 发送前输入快照（issue 13）：把交给 SDK 提供方发送函数的
+   * systemPrompt/messages/tools 原样序列化为受保护产物，并与刚落盘的
+   * 选择记录同事务关联。快照在委托发送函数之前捕获；发送失败/中断时
+   * 快照保留，usage 留空表示发送结果未回填。捕获失败即拒绝发送——
+   * 不能在没有可追溯输入的情况下发出请求。
+   */
+  private capturePromptSnapshot(task: Task, model: any, context: any, options: any): void {
+    const recordId = this.pendingRecordId;
+    if (!recordId) return;
+    const snapshot = {
+      v: 1,
+      capturedAt: new Date().toISOString(),
+      capturePoint: "sdk.agent.streamFunction 委托提供方发送函数之前（systemPrompt/messages/tools 为模型上下文范围；不等同于适配器转换后的 HTTP 请求体）",
+      recordId,
+      taskId: task.id,
+      sessionId: task.sessionId,
+      callIndex: this.deps.store.countSelectionRecords(task.id),
+      model: { provider: model?.provider ?? "?", id: model?.id ?? "?" },
+      thinkingLevel: this.sdk?.thinkingLevel ?? task.modelSelection?.thinkingLevel ?? null,
+      reasoning: options?.reasoning ?? "off",
+      maxTokens: options?.maxTokens ?? null,
+      systemPrompt: typeof context?.systemPrompt === "string" ? context.systemPrompt : "",
+      messages: Array.isArray(context?.messages) ? context.messages : [],
+      tools: Array.isArray(context?.tools) ? context.tools : [],
+    };
+    try {
+      const artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name: `prompt-snapshot:${recordId}` });
+      this.deps.artifacts.append(artifact.id, Buffer.from(JSON.stringify(snapshot), "utf8"));
+      this.deps.artifacts.complete(artifact.id);
+      this.deps.store.setSelectionRecordPromptArtifact(recordId, artifact.id);
+    } catch (err) {
+      // 快照捕获失败不阻断发送：记录保留，详情如实显示"快照缺失"；
+      // 失败原因写 stderr（后台诊断输出，不含正文内容）
+      process.stderr.write(`[ruukoto] prompt 快照捕获失败（记录 ${recordId}）：${(err as Error).message}\n`);
+    }
+  }
 
   /**
    * 识别任务结束是否由最终检查阻断引起：优先取发送侧记录的原因；

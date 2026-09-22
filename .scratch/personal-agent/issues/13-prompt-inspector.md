@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: resolved
 Depends on: 04, 05
 
 # 添加 `/prompt` 命令，查看模型请求列表与 prompt 详情
@@ -41,3 +41,10 @@ Depends on: 04, 05
 ### 2026-09-22：创建工单
 
 用户要求新增 `/prompt` 命令，先显示模型请求列表悬浮层，选择后查看对应请求的 prompt 详情。默认范围采用当前会话，关联 [04：TUI 与断开重连](04-tui.md) 和 [05：上下文、历史检索与长期记忆](05-context-and-memory.md)。
+
+### 2026-09-22：实现完成
+
+- 捕获点：`wrapStreamFunction` 委托 SDK 发送函数之前，把 `systemPrompt/messages/tools` 序列化为受保护产物（`prompt-snapshot:<recordId>`），与选择记录同事务关联（`selection_records.prompt_artifact`）。
+- 查询端点：`list_prompt_requests`（会话游标分页）与 `read_prompt_snapshot`（按字节分页，校验记录与会话归属）；未认证连接在 auth 前即被拒绝。
+- TUI：`/prompt` 打开请求列表（SelectList，新→旧，Enter 进详情，Esc 返回列表保留位置，再 Esc 关闭恢复焦点）；详情复用 `openPager` 分段加载，UTF-8 边界对齐；快照缺失/发送未回填如实标注。
+- 测试：`test/20-prompt-inspector.test.ts` 6 个用例（捕获一致性、多轮分别列出、归属校验、缺失快照、分页、预算阻断无快照、跨重启可读、未认证拒绝）；`test/09-artifacts.test.ts` 中断等待条件排除 prompt 快照产物。全套 145 个测试通过。

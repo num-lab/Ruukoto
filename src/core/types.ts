@@ -394,6 +394,8 @@ export interface SelectionRecord {
   estimatedTotal: number;
   /** 发送后补记的实际 provider usage（可空：失败/中断时无）。 */
   usage: { input: number; output: number } | null;
+  /** 发送前捕获的不可变输入快照（产物 id；空 = 该次 prompt 正文未记录）。 */
+  promptArtifactId: string | null;
   createdAt: string;
 }
 

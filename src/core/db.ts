@@ -370,6 +370,7 @@ export class Db {
     add("projects", "instruction_files", "instruction_files TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "instruction_version", "instruction_version TEXT NOT NULL DEFAULT ''");
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
+    add("selection_records", "prompt_artifact", "prompt_artifact TEXT");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

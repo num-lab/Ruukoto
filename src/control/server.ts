@@ -525,6 +525,36 @@ export class ControlServer {
       }
       case "get_selection_record":
         return runtime.getSelectionRecord(requireString("record_id"));
+      // ---------- issue 13：模型请求 prompt 快照（拥有者审计；分页 + 有界读取） ----------
+      case "list_prompt_requests": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        const cursorRaw = params["cursor"];
+        let cursor: { createdAt: string; id: string } | undefined;
+        if (cursorRaw !== undefined) {
+          const c = cursorRaw as Record<string, unknown>;
+          if (typeof c?.["createdAt"] !== "string" || typeof c?.["id"] !== "string") {
+            throw Object.assign(new Error("cursor 必须含 createdAt 与 id"), { code: "invalid_params" });
+          }
+          cursor = { createdAt: c["createdAt"], id: c["id"] };
+        }
+        return runtime.listPromptRequests({ sessionId: requireString("session_id"), limit, cursor });
+      }
+      case "read_prompt_snapshot": {
+        const offset = params["offset"] === undefined ? undefined : Number(params["offset"]);
+        const length = params["length"] === undefined ? undefined : Number(params["length"]);
+        if ((offset !== undefined && !Number.isFinite(offset)) || (length !== undefined && !Number.isFinite(length))) {
+          throw Object.assign(new Error("offset/length 必须是数字"), { code: "invalid_params" });
+        }
+        return runtime.readPromptSnapshot({
+          recordId: requireString("record_id"),
+          sessionId: requireString("session_id"),
+          offset,
+          length,
+        });
+      }
       case "add_credential":
         return runtime.addCredentialBinding({
           name: requireString("name"),

@@ -108,13 +108,13 @@ test("中断保留已捕获部分（partial）与失败原因，不报告完整�
       request_id: "art-2",
       input: "运行长命令",
     });
-    // 等 stdout 的 partial-marker 已经进产物
+    // 等 stdout 的 partial-marker 已经进产物（跳过 issue 13 的 prompt 快照产物）
     await waitFor(
       "已捕获部分输出",
       () =>
         t.runtime.store
           .listArtifactsByTask(task.id)
-          .some((a) => a.byteCount >= "partial-marker\n".length),
+          .some((a) => a.name.includes("stdout") && a.byteCount >= "partial-marker\n".length),
       60_000,
     );
 

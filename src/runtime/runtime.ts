@@ -1737,6 +1737,48 @@ export class Runtime {
     return record;
   }
 
+  // ---------- 模型请求 prompt 快照（issue 13；拥有者审计入口） ----------
+
+  /** 当前会话的模型请求列表（新 → 旧；分页游标 = 上一页最后一条的 createdAt/id）。 */
+  listPromptRequests(input: { sessionId: string; limit?: number; cursor?: { createdAt: string; id: string } }): {
+    records: SelectionRecord[];
+    hasMore: boolean;
+  } {
+    if (!this.store.getSession(input.sessionId)) {
+      throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+    }
+    const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
+    return this.store.listSelectionRecordsPage(input.sessionId, limit, input.cursor);
+  }
+
+  /**
+   * 读取某次请求的 prompt 快照片段（按字节分页；base64）。
+   * 校验记录存在且属于指定会话；快照缺失（旧记录）如实报错，不重新拼接。
+   */
+  readPromptSnapshot(input: { recordId: string; sessionId: string; offset?: number; length?: number }): {
+    record: SelectionRecord;
+    artifact: Artifact;
+    encoding: "base64";
+    data: string;
+  } {
+    const record = this.store.getSelectionRecord(input.recordId);
+    if (!record || record.sessionId !== input.sessionId) {
+      throw new RuntimeApiError("not_found", `请求记录不存在或不属于该会话：${input.recordId}`);
+    }
+    if (!record.promptArtifactId) {
+      throw new RuntimeApiError("snapshot_missing", "该次 prompt 正文未记录（记录创建于快照捕获上线之前）");
+    }
+    const artifact = this.store.getArtifact(record.promptArtifactId);
+    if (!artifact) {
+      throw new RuntimeApiError("snapshot_missing", "该次 prompt 快照产物元数据缺失");
+    }
+    const offset = Math.max(0, input.offset ?? 0);
+    // 上限按线上帧约束：base64 膨胀 4/3 + JSON 开销必须留在 MAX_FRAME_BYTES 内
+    const length = Math.min(Math.max(1, input.length ?? 256 * 1024), 720 * 1024);
+    const buf = this.artifacts.read(artifact.id, offset, length);
+    return { record, artifact, encoding: "base64", data: buf.toString("base64") };
+  }
+
   // ---------- 停止 ----------
 
   stop(reason: string): Promise<void> {

@@ -599,6 +599,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
   { name: "context", description: "查看本轮上下文选择记录（预算组成与排除原因）" },
+  { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情" },
   { name: "github", description: "GitHub：drafts | show <id> | publish <id> pr <n> | publish <id> issue <n>", argumentHint: "<子命令>" },
 ];
 
@@ -1131,6 +1132,9 @@ export class TuiApp {
       case "context":
         await this.cmdContext();
         return;
+      case "prompt":
+        await this.cmdPrompt();
+        return;
       case "github":
         await this.cmdGithub(rest);
         return;
@@ -1422,6 +1426,179 @@ export class TuiApp {
     } catch (err) {
       this.notify(red(`查询失败：${(err as Error).message}`));
     }
+  }
+
+  // ---------- /prompt：模型请求列表与 prompt 详情（issue 13） ----------
+
+  /**
+   * 打开当前会话的模型请求列表悬浮层。列表按时间从新到旧分页加载；
+   * Enter 进入该次调用的 prompt 详情（分段加载），Esc 返回列表并保留位置，
+   * 再 Esc 关闭并恢复编辑器焦点。所有读取经拥有者认证通道；查看不触发
+   * 任何模型调用或任务变更。
+   */
+  private async cmdPrompt(): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    const sessionId = view.sessionId;
+    const generation = this.generation;
+    const stale = () => closed || generation !== this.generation || this.state.currentSessionId !== sessionId;
+
+    interface PromptRecordRow {
+      id: string;
+      taskId: string;
+      callIndex: number;
+      model: string;
+      usage: { input: number; output: number } | null;
+      promptArtifactId: string | null;
+      createdAt: string;
+    }
+
+    const PAGE = 30;
+    let closed = false;
+    let records: PromptRecordRow[] = [];
+    let hasMore = false;
+    let loadingMore = false;
+    let selectedIndex = 0;
+
+    const title = new Text("", 1, 0);
+    const hint = new Text("", 1, 0);
+    let list: SelectList | null = null;
+    let box: OverlayBox | null = null;
+    let handle: OverlayHandle | null = null;
+
+    const closeAll = () => {
+      closed = true;
+      handle?.hide();
+      this.tui.setFocus(this.editor);
+    };
+
+    const rowLabel = (r: PromptRecordRow): SelectItem => ({
+      value: r.id,
+      label: `${r.createdAt.slice(0, 19).replace("T", " ")} · 任务 ${r.taskId.slice(0, 12)} · 第 ${r.callIndex} 次调用`,
+      description: `${r.model}${r.usage ? ` · usage ${r.usage.input}+${r.usage.output}` : " · 发送结果未回填（失败/中断或未知）"}${r.promptArtifactId ? "" : " · prompt 正文未记录"}`,
+    });
+
+    const rebuildItems = () => {
+      const items = records.map(rowLabel);
+      if (hasMore) items.push({ value: "$more", label: dim("加载更多…"), description: "Enter 加载下一页" });
+      // SelectList 不支持动态增项：追加一页后重建列表并恢复选中位置
+      const oldList = list;
+      list = new SelectList(items, 12, selectTheme);
+      list.onSelectionChange = (item) => {
+        const idx = items.indexOf(item);
+        if (idx >= 0) selectedIndex = idx;
+      };
+      list.onSelect = (item) => {
+        if (item.value === "$more") {
+          void loadPage();
+          return;
+        }
+        const record = records.find((r) => r.id === item.value);
+        if (record) void this.openPromptDetail(sessionId, record, generation, () => stale());
+      };
+      list.onCancel = () => closeAll();
+      list.setSelectedIndex(Math.min(selectedIndex, Math.max(0, items.length - 1)));
+      if (!box) {
+        box = new OverlayBox([
+          { component: title, grow: 0 },
+          { component: list, grow: 1 },
+          { component: hint, grow: 0 },
+        ]);
+        handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "70%" });
+      } else {
+        // SelectList 不支持动态增项：换实例后替换栈中子组件
+        box.removeChild(oldList!);
+        box.addChild(list, { grow: 1 });
+      }
+      box.forwardTo = list;
+      title.setText(bold(`模型请求（${records.length} 条${hasMore ? "，还有更多" : ""}）`));
+      hint.setText(dim("Enter 查看 prompt 详情 · Esc 关闭"));
+      this.tui.requestRender();
+    };
+
+    const loadPage = async () => {
+      if (loadingMore) return;
+      loadingMore = true;
+      try {
+        const last = records[records.length - 1];
+        const page = await this.connection.request<{ records: PromptRecordRow[]; hasMore: boolean }>(
+          "list_prompt_requests",
+          { session_id: sessionId, limit: PAGE, cursor: last ? { createdAt: last.createdAt, id: last.id } : undefined },
+        );
+        if (stale()) return;
+        records = records.concat(page.records);
+        hasMore = page.hasMore;
+        rebuildItems();
+      } catch (err) {
+        if (stale()) return;
+        hint.setText(red(`读取失败：${(err as Error).message}`));
+        this.tui.requestRender();
+      } finally {
+        loadingMore = false;
+      }
+    };
+
+    title.setText("加载中…");
+    await loadPage();
+    if (stale()) return;
+    if (records.length === 0 && !hasMore) {
+      closeAll();
+      this.notify("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+    }
+  }
+
+  /**
+   * 单次调用的 prompt 详情：快照 JSON 按字节分页展示（UTF-8 边界对齐，
+   * 长正文不静默截断）。快照在发送前捕获；usage 为空表示发送结果未回填。
+   * Esc 返回列表（由 onBack 回调处理），不关闭整个面板。
+   */
+  private async openPromptDetail(
+    sessionId: string,
+    record: { id: string; taskId: string; callIndex: number; model: string; usage: { input: number; output: number } | null; promptArtifactId: string | null; createdAt: string },
+    generation: number,
+    isStale: () => boolean,
+  ): Promise<void> {
+    const headerLines = [
+      `任务 ${record.taskId} · 第 ${record.callIndex} 次调用 · ${record.model}`,
+      `捕获位置：SDK 发送函数之前（systemPrompt/messages/tools；不等同于适配器转换后的 HTTP 请求体）`,
+      record.usage
+        ? `发送结果：usage 已回填（输入 ${record.usage.input} · 输出 ${record.usage.output}）`
+        : yellow("发送结果未回填：请求失败、被中断或结果未知；以下为发送前捕获的输入"),
+    ];
+    if (!record.promptArtifactId) {
+      this.notify(`该次 prompt 正文未记录（记录创建于快照捕获上线之前）；任务 ${record.taskId.slice(0, 12)} 第 ${record.callIndex} 次调用`);
+      return;
+    }
+    await this.openPager({
+      title: `prompt ${record.id.slice(0, 12)}…`,
+      header: headerLines.join("\n"),
+      pageBytes: ENTRY_PAGE_BYTES,
+      onBack: () => {
+        // 返回列表：只关闭详情页（列表悬浮层仍在，位置保留）
+        this.tui.hideOverlay();
+      },
+      fetch: async (offset, length) => {
+        if (isStale() || generation !== this.generation) throw new Error("视图已切换");
+        const result = await this.connection.request<{
+          artifact: { byteCount: number };
+          encoding: "base64";
+          data: string;
+        }>("read_prompt_snapshot", { record_id: record.id, session_id: sessionId, offset, length });
+        const buf = Buffer.from(result.data, "base64");
+        const start = snapUtf8Start(buf, 0);
+        const end = snapUtf8End(buf, buf.length);
+        return {
+          text: buf.subarray(start, end).toString("utf8"),
+          offset,
+          totalBytes: result.artifact.byteCount,
+          truncated: offset + buf.length < result.artifact.byteCount,
+          nextOffset: offset + end,
+        };
+      },
+    });
   }
 
   private async cmdSearch(query: string): Promise<void> {
@@ -1764,6 +1941,8 @@ export class TuiApp {
     title: string;
     header?: string;
     pageBytes?: number;
+    /** Esc/q 时的额外行为（默认关闭悬浮层并还焦点；详情→列表场景覆盖）。 */
+    onBack?: () => void;
     fetch: (offset: number, length: number) => Promise<{
       text: string;
       offset: number;
@@ -1778,6 +1957,7 @@ export class TuiApp {
     let offset = 0;
     let total = 0;
     let nextOffset = 0;
+    let closed = false;
     const children: Array<{ component: Component; grow?: number }> = [];
     if (opts.header) children.push({ component: new Text(opts.header, 1, 0), grow: 0 });
     const content = new Text("加载中…", 1, 0);
@@ -1788,7 +1968,7 @@ export class TuiApp {
     const load = async (off: number) => {
       try {
         const slice = await opts.fetch(off, pageBytes);
-        if (generation !== this.generation) return;
+        if (closed || generation !== this.generation) return;
         offset = slice.offset;
         total = slice.totalBytes;
         // 前进按实际消费的字节数（UTF-8 边界对齐后可能小于 pageBytes），
@@ -1804,6 +1984,11 @@ export class TuiApp {
     };
     box.onKey = (data: string) => {
       if (data === "\x1b" || data === "q") {
+        closed = true;
+        if (opts.onBack) {
+          opts.onBack();
+          return;
+        }
         handle.hide();
         this.tui.setFocus(this.editor);
         return;

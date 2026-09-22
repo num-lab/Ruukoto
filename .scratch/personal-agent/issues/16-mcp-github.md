@@ -1,9 +1,9 @@
-Status: needs-triage
+Status: ready-for-agent
 Depends on: 03
 
 # 增加 MCP 支持，并首次接入 GitHub MCP
 
-后续方向更新：用户已在 [17：用 GitHub MCP 替换现有模块](17-replace-github-module-with-mcp.md) 中明确要求 GitHub 作为普通 MCP 工具。下文保留 REST 采集/发布及增加 GitHub 专用授权适配层的建议已被该决定取代；实施以通用 MCP 接入及 Issue 17 的替换目标为准。
+后续方向更新：用户已在 [17：用 GitHub MCP 替换现有模块](17-replace-github-module-with-mcp.md) 中明确要求 GitHub 作为普通 MCP 工具。原保留 REST 采集/发布及增加 GitHub 专用授权适配层的建议已被取代并从当前计划移除；实施以通用 MCP 接入及 Issue 17 的替换目标为准。
 
 ## 目标
 
@@ -19,24 +19,26 @@ Depends on: 03
 - 支持连接初始化、工具发现、参数校验及调用，将 MCP 工具接入现有任务生命周期、操作记录、结果展示和产物存储。不同服务的同名工具需可区分。
 - 处理连接失败、认证失败、超时、取消和后台重启；服务不可用时明确说明受影响能力，已发出的写操作结果不明时不得自动重试。
 - 首次接入 GitHub MCP，提供配置说明和可复现的只读验证，核实可用工具及所需权限，确定与现有 GitHub REST 工具的并存或替换范围。
-- MCP 调用遵守现有访问模式及审批机制。GitHub 写操作仍需符合拥有者意图、仓库范围和具体操作授权；工具的描述或只读标注不能单独作为权限依据。凭据原值不得进入模型上下文、工具结果或日志。
+- MCP 调用遵守现有访问模式及审批机制。首版不启用写操作；工具的描述或只读标注不能单独作为权限依据。凭据原值不得进入模型上下文、工具结果或日志。
 - 若启用本地 MCP 子进程，明确其执行身份、文件与网络权限及回收方式，不能使受限任务通过 MCP 获得宿主完整权限；远程服务按配置限定连接目标与凭据用途。
 
-## 待明确
+## 已确认范围
 
-- 首版支持的传输方式，以及 GitHub MCP 采用远程服务还是本地进程；实施前核实官方支持方式和认证要求。
-- 服务配置按全局还是项目管理，以及任务启动时固定配置或运行中更新的规则。
-- 首版开放哪些 GitHub 工具，是否先只读；若开放写入，逐项定义审批和发布意图的接入方式。
-- MCP resources、prompts 等能力是否纳入首版；本工单先以工具发现和调用为主要验收范围。
+- 首版仅 Streamable HTTP、手动配置凭据、工具发现与调用。stdio、OAuth 登录、resources、prompts 及客户端代执行能力暂缓。
+- 使用官方远程 GitHub MCP，独立只读凭据，作为普通 MCP 服务；不复用旧 REST 模块或仓库绑定，不增加 GitHub 专属运行分支。
+- 开放身份查询（如 get_me）、仓库文件、PR、Issue、Actions 与 Checks 读取类别。实施时核实实际工具名及能力，形成精确允许列表；缺失类别如实记录，不开放写工具或动态启用工具来补齐。
+- 服务按项目显式启用；任务开始固定工具清单。撤销或禁用立即阻止后续调用，新增工具从下一任务生效。
+- GitHub 与另一模拟 MCP 服务使用相同发现、调用、授权、产物及展示路径。仓库范围由远端凭据权限约束，通用客户端未实现参数级限制时不得宣称具有额外仓库隔离。
+- 写工具在 Issue 18 实现。Issue 17 可在只读接入后移除旧模块，接受过渡期 GitHub 写功能不可用。
 
 ## 实施计划
 
-计划日期：2026-09-22。以下按“远程 MCP 工具调用 + GitHub 首次只读接入”编写，作为首版范围建议；连接方式及工具范围定稿前保持 `needs-triage`。本计划不以 Issue 15 的 auto-review 为前置条件。
+2026-09-22 两轮访谈已确认以上范围。部署凭据和真实接口可用性在实施及验收时核实，不再作为未定产品规则。
 
 ### 1. 确定首版范围与依赖
 
-- 首版建议支持 Streamable HTTP，接入官方 GitHub 远程服务 `https://api.githubcopilot.com/mcp/`，使用拥有者配置的 PAT 凭据引用。官方说明远程服务支持 PAT，且不要求在本机运行 GitHub MCP 进程。[GitHub MCP README](https://github.com/github/github-mcp-server)、[远程服务文档](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)。
-- 通用能力包括服务配置、工具发现、参数校验、调用与结果保存；GitHub 只开放明确允许的读取工具。stdio、交互式 OAuth、resources/prompts、sampling、elicitation 和服务端要求客户端执行命令不纳入本轮建议范围，不宣告不支持的能力。需要本地 MCP 时，再补齐执行账户、容器与子进程回收设计后启用，不能直接以后台身份 spawn。
+- 首版支持 Streamable HTTP，接入官方 GitHub 远程服务 `https://api.githubcopilot.com/mcp/`，使用拥有者配置的 PAT 凭据引用。官方说明远程服务支持 PAT，且不要求在本机运行 GitHub MCP 进程。[GitHub MCP README](https://github.com/github/github-mcp-server)、[远程服务文档](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)。
+- 通用能力包括服务配置、工具发现、参数校验、调用与结果保存；GitHub 只开放明确允许的读取工具。stdio、交互式 OAuth、resources/prompts、sampling、elicitation 和服务端要求客户端执行命令不纳入本轮范围，不宣告不支持的能力。需要本地 MCP 时，再补齐执行账户、容器与子进程回收设计后启用，不能直接以后台身份 spawn。
 - 项目目前没有 MCP 依赖。使用官方 TypeScript 客户端，避免自行实现协议、传输与取消机制。官方当前将客户端发布为 `@modelcontextprotocol/client`；实施时锁定与本项目 Node 版本及 GitHub 实际协商协议兼容的稳定版本，先完成初始化、列工具和调用的最小验证，再接入运行时。[官方 TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)。
 - 补充领域术语及一份 ADR，记录 MCP 是受控的外部工具入口，沿用 ADR 0003/0004 的权限与控制面边界，不等同于授予项目命令任意网络或凭据访问权。
 
@@ -63,14 +65,13 @@ Depends on: 03
 - 新工具定义必须进入现有上下文预算统计；工具数量增加导致预算不足时明确报错，不能静默漏掉业务工具。结果与产物带原任务归属，继续遵守 `AccessScope` 的跨项目资料授权。
 - MCP 取消只表明本地停止等待，不能承诺远端操作已停止。关闭或超时后忽略迟到结果，确保任务终态、历史工具配对和产物状态一致，不因断线重连再次发出同一调用。
 
-### 5. 接入 GitHub MCP 并限制仓库范围
+### 5. 首次配置 GitHub MCP
 
-- 在通用适配层外增加小型 GitHub 参数与授权校验。复用 `GitHubStore` 的项目仓库绑定、repository ID、读取范围和配置版本；每次调用前核对实际 owner/repo，不能把 PAT 可访问的全部仓库视为该项目已授权。涉及 fork 源内容时继续检查 `allowForkContent` 和已核实的 PR 来源，远端工具不能成为任意仓库或 URL 的读取代理。
-- 首个端到端工具建议为 `pull_request_read`，只允许官方实际 schema 中经过核实的读取方法，要求当前绑定具备 `pulls` 范围。若增加 issue 或独立文件读取，须显式扩展现有 `GitHubReadScope`（当前只有 `pulls/actions/checks`）及配置入口，不从已有 PR 授权推导额外权限。无法可靠限定仓库的全局搜索及动态工具启用入口先不开放。
-- 远程请求配置 `X-MCP-Readonly: true` 和精确的 `X-MCP-Tools` 列表，同时在客户端检查调用范围；服务端只读过滤与客户端授权各自生效。不要启用 `all` 后将返回的全部工具交给模型。[官方服务配置](https://github.com/github/github-mcp-server/blob/main/docs/server-configuration.md)。
-- 为 `api.githubcopilot.com` 配置独立凭据绑定和 `github_mcp_read` 用途；现有 REST 凭据绑定在 `api.github.com`，不能直接修改其 host 或放宽作用域。复用 `CredentialStore.getForUse()` 校验项目、仓库和操作类别；该方法不检查 host，必须由 MCP 传输层额外校验凭据绑定与目标主机一致后才注入。缺失凭据时明确报错，不借用发布凭据或本机 gh 登录态。PAT 的仓库和只读权限按实际工具需求核实。
-- 现有 REST 继续提供固定修订的 PR/CI 采集、草稿及发布；MCP 提供明确命名的按需读取入口，工具说明写清用途。MCP 结果不能自动冒充已完成修订复核的采集报告。现有发布意图、正文审批和 `effect_unknown` 处理继续由原发布流程执行。
-- GitHub 远程服务会升级，保存每次任务所见工具定义的指纹、服务信息及调用时间。真实验证使用已授权仓库中的 PR，记录仓库 ID、PR 编号和返回的修订信息，核对结果来源与 REST 查询一致；这一步不发送评论或创建远端工单。
+- 仅通过通用服务配置接入官方远程端点，采用独立只读凭据引用。客户端负责严格核对凭据 host、用途、项目与服务范围，不复制旧 REST 凭据或放宽其 scope。
+- 根据实际 tools/list 核实已确认读取类别的工具名、schema 和方法，保存精确允许列表。通过配置启用服务端只读与工具筛选，再经过通用客户端授权校验；不在代码中按 GitHub 服务名分支。
+- 不创建 GitHubStore 依赖或 github_mcp_read 专用操作类别。令牌权限是远端可访问范围，项目级启用不等于令牌内的单仓库隔离。原仓库授权不自动迁移。
+- 验证一次已授权仓库的真实读取，记录服务、工具、参数范围、版本及结果；不发送评论。旧 REST 按 Issue 17 退役，不作为 MCP 失败回退。
+- 参考 [官方服务配置](https://github.com/github/github-mcp-server/blob/main/docs/server-configuration.md) 核实只读与工具过滤选项。实际接口或权限不支持时报告具体缺口，不把所有工具自动注册给模型。
 
 ### 6. 提供状态、文档与失败提示
 
@@ -83,7 +84,7 @@ Depends on: 03
 
 - 新增 MCP 集成测试，覆盖初始化、分页发现、工具重名、schema 校验、普通与结构化结果、工具错误、超大响应、断线、认证失败、超时、取消及连接回收，断言远端实际收到的调用次数。
 - 覆盖任务间工具刷新、运行中禁用/凭据撤销、同一 session 后续任务、跨项目并发、后台重启和迟到结果；新增工具不会在旧任务中自动启用，未授权调用不会发送网络请求。
-- 扩展 `test/17-github.test.ts`，验证仓库越界、只读方法白名单、独立 MCP 凭据 host/operation 限制、伪造只读标注及写工具拒绝；既有 REST 发布审批不回归。
+- 新增通用 MCP 测试，验证项目越界、读取方法允许列表、凭据 host/用途限制、伪造只读标注及写工具拒绝；另一模拟服务同样通过测试，不依赖旧 GitHub 模块。
 - 扩展相关上下文、生命周期及 TUI 测试，核对 MCP 工具定义计入预算、历史工具配对、产物权限、脱敏和重连展示。增加数据库升级及服务配置版本冲突验证。
 - 运行 `npm run typecheck` 和受影响测试；由于改动涉及工具装配与任务生命周期，合并前运行一次 `npm test`。配置具备后进行真实 GitHub 只读连通验证，记录 SDK 版本、协商协议、工具清单和结果；缺少凭据或网络条件时单列未验证项。
 
@@ -94,8 +95,8 @@ Depends on: 03
 - 拥有者可以配置并启用 GitHub MCP，任务能发现允许使用的工具并完成一次针对已授权仓库的只读调用，结果可查看、可追溯。
 - 使用本地模拟 MCP 服务覆盖初始化、工具发现与调用、重名工具、参数错误、超时、断线、取消和认证失败；后台停止后无遗留连接或子进程。
 - 未启用的服务、未授权的工具和仓库不能被任务调用；认证材料不出现在模型上下文和用户可见日志中。
-- 若启用写工具，验证未批准不执行、批准仅用于绑定操作、取消或权限变化后旧批准失效、结果不明不自动重发；现有 GitHub 发布边界不被绕过。
-- 现有 GitHub REST 能力按明确分工继续工作；运行类型检查与受影响测试，并提供 GitHub MCP 配置及故障处理文档。
+- 首版写工具不注册且无法执行；后续通用写工具验收见 Issue 18。
+- GitHub MCP 与另一模拟服务走相同工具路径；运行类型检查与受影响测试，提供配置及故障文档。旧 REST 退役见 Issue 17。
 - 真实只读连通验证记录实际服务、认证方式和调用结果；缺少配置或凭据时明确列为未验证，不用模拟测试宣称真实接入完成。
 
 ## Comments
@@ -107,3 +108,8 @@ Depends on: 03
 ### 2026-09-22：补充实施计划
 
 已核对 SDK 会话的工具缓存、宿主调用身份绑定、GitHub 仓库读取范围及凭据 host 限制，并参考官方 MCP 客户端和 GitHub MCP 文档补充七步计划。建议首版为远程 Streamable HTTP 与受限 GitHub 只读工具，现有 REST 负责采集与发布；建议范围尚未作为已确认产品规则，状态保持 `needs-triage`。
+
+
+### 2026-09-22：访谈确认
+
+Q6、Q7、Q16、Q17 已确认，按项目启用远程只读 MCP 工具；通用写工具延后到 Issue 18。清理旧 GitHub 专用适配建议，转为 ready-for-agent。

@@ -65,6 +65,8 @@ export interface ToolRecord {
   status: "running" | "done" | "error" | "effect_unknown";
   resultSummary: string | null;
   artifactIds: string[];
+  /** 最近一次状态变化的事件时间（与提示、结束标记同源，用于事件流排序）。 */
+  at: string;
 }
 
 export interface ActivityNote {
@@ -94,6 +96,14 @@ export interface SessionView {
   previewSeq: number;
   tools: ToolRecord[];
   notes: ActivityNote[];
+  /**
+   * 本客户端已提交但尚未在历史里出现的用户输入（任务 id → 原文）。
+   *
+   * 提交后后台要过一会儿才把用户消息写进 JSONL、再经历史读取回传；这段
+   * 空窗期里界面只有「Sweeping」，看不到刚发出的消息。先用任务携带的
+   * input 占位显示，历史条目到达后按内容匹配移除。
+   */
+  pendingInputs: Map<string, { text: string; at: string }>;
   draft: string;
   /** 离开时的滚动位置（null = 跟随底部）。 */
   scrollTop: number | null;
@@ -279,16 +289,19 @@ export class ViewState {
         this.patchTask(body.taskId, { status: "running", startedAt: event.createdAt });
         return;
       case "task.completed":
+        // 不加提示行：结束已由转录区末尾的「耗时 … · 结束 …」标注
         this.patchTask(body.taskId, { status: "completed", endedAt: event.createdAt });
-        this.noteForTask(body.taskId, "任务已完成");
+        this.clearPendingInputForTask(body.taskId);
         return;
       case "task.failed":
         this.patchTask(body.taskId, { status: "failed", endedAt: event.createdAt, errorMessage: body.errorMessage });
-        this.noteForTask(body.taskId, `任务失败：${body.errorMessage}`);
+        this.clearPendingInputForTask(body.taskId);
+        this.noteForTask(body.taskId, `任务失败：${body.errorMessage}`, event.createdAt);
         return;
       case "task.canceled":
         this.patchTask(body.taskId, { status: "canceled", endedAt: event.createdAt, cancelRequested: true });
-        this.noteForTask(body.taskId, "任务已取消");
+        this.clearPendingInputForTask(body.taskId);
+        this.noteForTask(body.taskId, "任务已取消", event.createdAt);
         return;
       case "task.interrupted":
         this.patchTask(body.taskId, {
@@ -298,15 +311,17 @@ export class ViewState {
           cancelRequested: body.cancelRequested,
           effectUnknown: body.effectUnknown,
         });
+        this.clearPendingInputForTask(body.taskId);
         this.noteForTask(
           body.taskId,
           `任务已中断（${body.reason}）${body.effectUnknown ? "；存在效果未知的工具操作，不能当作可安全重试" : ""}`,
+          event.createdAt,
         );
         return;
       case "task.continued": {
         const resumed = this.tasks.get(body.resumesTaskId);
         this.patchTask(body.taskId, { resumesTaskId: body.resumesTaskId });
-        if (resumed) this.noteForTask(body.taskId, `继续自中断任务 ${body.resumesTaskId}`);
+        if (resumed) this.noteForTask(body.taskId, `继续自中断任务 ${body.resumesTaskId}`, event.createdAt);
         return;
       }
       case "task.mode_switch_requested":
@@ -318,11 +333,11 @@ export class ViewState {
           pendingAccessMode: null,
           permissionVersion: body.permissionVersion,
         });
-        this.noteForTask(body.taskId, `访问模式已生效：${body.to}（权限版本 ${body.permissionVersion}）`);
+        this.noteForTask(body.taskId, `访问模式已生效：${body.to}（权限版本 ${body.permissionVersion}）`, event.createdAt);
         return;
       case "task.mode_switch_failed":
         this.patchTask(body.taskId, { pendingAccessMode: null });
-        this.noteForTask(body.taskId, `模式切换失败：${body.reason}`);
+        this.noteForTask(body.taskId, `模式切换失败：${body.reason}`, event.createdAt);
         return;
       case "task.awaiting_confirmation": {
         if (!this.confirmations.some((c) => c.id === body.confirmationId)) {
@@ -378,7 +393,7 @@ export class ViewState {
           view.reviewDecision = "ask_owner";
           view.reviewReason = body.reason;
         }
-        this.noteForTask(body.taskId, `自动审查转人工：${body.reason}`);
+        this.noteForTask(body.taskId, `自动审查转人工：${body.reason}`, event.createdAt);
         return;
       }
       case "session.queue_paused": {
@@ -486,6 +501,7 @@ export class ViewState {
             status: "running",
             resultSummary: null,
             artifactIds: [],
+            at: event.createdAt,
           });
         }
         return;
@@ -497,13 +513,17 @@ export class ViewState {
           tool.status = body.isError ? "error" : "done";
           tool.resultSummary = body.summary;
           tool.artifactIds = body.artifactIds;
+          tool.at = event.createdAt;
         }
         return;
       }
       case "task.tool_effect_unknown": {
         const view = (event.sessionId && this.sessionViews.get(event.sessionId)) || viewForTask(this.sessionViews, body.taskId);
         const tool = view?.tools.find((t) => t.toolOpId === body.toolOpId);
-        if (tool) tool.status = "effect_unknown";
+        if (tool) {
+          tool.status = "effect_unknown";
+          tool.at = event.createdAt;
+        }
         return;
       }
       default:
@@ -534,6 +554,7 @@ export class ViewState {
         previewSeq: 0,
         tools: [],
         notes: [],
+        pendingInputs: new Map(),
         draft: "",
         scrollTop: null,
       };
@@ -567,6 +588,8 @@ export class ViewState {
     view.historyCursor = page.nextBefore;
     view.historyLoaded = true;
     view.hasPartialTail = page.hasPartialTail;
+    // 历史回传后清理已落盘的用户输入占位（按正文匹配）
+    this.clearPendingInputs(sessionId, page.entries);
     this.trimTranscript(view);
   }
 
@@ -580,6 +603,8 @@ export class ViewState {
     if (entry.role === "toolResult" && entry.toolCallId) {
       view.tools = view.tools.filter((t) => t.sdkCallId !== entry.toolCallId);
     }
+    // 用户输入落盘：撤掉本地占位
+    if (entry.role === "user") this.clearPendingInputs(sessionId, [entry]);
     this.trimTranscript(view);
     return true;
   }
@@ -617,6 +642,35 @@ export class ViewState {
     this.tasks.set(task.id, task);
   }
 
+  /**
+   * 登记本客户端刚提交的用户输入：在历史条目回传前先占位显示。
+   * 只有带正文的任务才有意义（事件驱动创建的任务 input 为空）。
+   */
+  addPendingInput(task: Task): void {
+    if (!task.input.trim()) return;
+    const view = this.sessionViews.get(task.sessionId);
+    if (!view) return;
+    view.pendingInputs.set(task.id, { text: task.input, at: task.startedAt ?? task.createdAt });
+  }
+
+  /**
+   * 历史条目到达后清理占位：按会话内的用户消息正文匹配。
+   * 匹配不到也保留（正文可能被截断或有细微差异），由任务终态兜底清理。
+   */
+  clearPendingInputs(sessionId: string, entries: HistoryEntryView[]): void {
+    const view = this.sessionViews.get(sessionId);
+    if (!view || view.pendingInputs.size === 0) return;
+    const userTexts = new Set(entries.filter((e) => e.role === "user").map((e) => e.text.trim()));
+    for (const [taskId, pending] of view.pendingInputs) {
+      if (userTexts.has(pending.text.trim())) view.pendingInputs.delete(taskId);
+    }
+  }
+
+  /** 任务进入终态：无论历史是否回传，占位都不该继续显示。 */
+  clearPendingInputForTask(taskId: string): void {
+    for (const view of this.sessionViews.values()) view.pendingInputs.delete(taskId);
+  }
+
   private patchTask(taskId: string, patch: Partial<Task>): void {
     const task = this.tasks.get(taskId);
     if (task) Object.assign(task, patch);
@@ -649,13 +703,21 @@ export class ViewState {
     return this.projects.find((p) => p.id === projectId)?.name ?? projectId;
   }
 
-  private noteForTask(taskId: string, text: string): void {
+  private noteForTask(taskId: string, text: string, at?: string): void {
     const task = this.tasks.get(taskId);
-    this.note(task?.sessionId ?? null, text);
+    this.note(task?.sessionId ?? null, text, at);
   }
 
-  note(sessionId: string | null, text: string): void {
-    const note = { key: `note-${++this.noteCounter}`, text, at: new Date().toISOString() };
+  /**
+   * 追加一条提示。
+   *
+   * at 必须传事件自身的 createdAt（由 noteForTask 透传），不能在这里取
+   * 本地时间：提示与同一事件产生的任务结束标记要按时间排序，两个时钟
+   * （服务器事件时间 vs 客户端本地时间）不一致时顺序会翻转。
+   * 只有没有对应事件的本地提示（如提交失败）才回退到当前时间。
+   */
+  note(sessionId: string | null, text: string, at?: string): void {
+    const note = { key: `note-${++this.noteCounter}`, text, at: at ?? new Date().toISOString() };
     if (!sessionId) {
       this.globalNotes.push(note);
       if (this.globalNotes.length > 8) this.globalNotes.splice(0, this.globalNotes.length - 8);

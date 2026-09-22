@@ -461,14 +461,13 @@ test("/context：展示当前上下文窗口分解（不提供切换）", async 
     h.terminal.clearOutput();
     h.terminal.send("/context");
     h.terminal.send("\r");
-    await waitFor("分解展示", () => h.terminal.output().includes("总窗口"));
+    // 只展示长条与图例：标题为「上下文窗口」，明细文字已移除
+    await waitFor("分解展示", () => h.terminal.output().includes("上下文窗口"));
     const detail = h.terminal.output();
-    assert.ok(detail.includes("第 2 次调用"), "展示最近一次调用");
-    // 长条 + 图例：出现过的分类都要在图例里（本次消息少，不一定有历史轮次）
-    assert.ok(detail.includes("系统提示") && detail.includes("工具定义"), "分类图例齐全");
     assert.ok(detail.includes("█"), "长条已渲染");
-    assert.ok(detail.includes("输入预算") && detail.includes("预留"), "预算与预留展示");
-    assert.ok(detail.includes("估算"), "估算值如实标注");
+    // 出现过的分类都要在图例里（本次消息少，不一定有历史轮次）
+    assert.ok(detail.includes("系统提示") && detail.includes("工具定义"), "分类图例齐全");
+    assert.ok(detail.includes("预留") && detail.includes("尚余输入"), "预留与余量在图例中");
     // 不再提供切换：按 l 不应打开任何列表
     h.terminal.clearOutput();
     h.terminal.send("l");
@@ -480,7 +479,7 @@ test("/context：展示当前上下文窗口分解（不提供切换）", async 
     await renderFlush();
     h.terminal.clearOutput();
     await renderFlush();
-    assert.ok(!h.terminal.output().includes("总窗口"), "Esc 关闭悬浮层");
+    assert.ok(!h.terminal.output().includes("上下文窗口"), "Esc 关闭悬浮层");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));

@@ -72,10 +72,15 @@ const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
 /** 拥有者输入的底色：与终端背景区分，整行铺满。用 256 色而非基础色，避免被终端主题改色。 */
 const userBg = (s: string) => `\x1b[48;5;236m${s}\x1b[0m`;
-/** 标记列（❯ / ⚙ / ● 同列）与正文列。 */
+/** 标记列（❯ / ⚙ / ● / ✓ 同列）与正文列。 */
 const MARKER_COL = 1;
 const BODY_COL = 3;
+/** 模型输出的圆点：普通输出用默认前景色，运行中统计行用蓝绿色。 */
 const ASSISTANT_BULLET = "●";
+/** 任务结束统计行的图标。 */
+const DONE_MARK = "✓";
+/** 运行中统计行的圆点色（蓝绿 256 色）。 */
+const sweeping = (s: string) => `\x1b[38;5;79m${s}\x1b[0m`;
 /** 转录区右侧留白（约两个中文字符宽），给滚动条腾出位置。 */
 const RIGHT_GUTTER = 4;
 
@@ -243,6 +248,32 @@ class MeasuredText extends Text {
     this.lastHeight = lines.length;
     return lines;
   }
+}
+
+/**
+ * 处理时长：秒级以下不显示小数，分钟级用 m s，小时级用 h m。
+ * 只做粗粒度展示，不追求精确到毫秒。
+ */
+function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/**
+ * 结束时刻：Weekday hh:mm AM/PM（如 Tue 03:07 PM）。
+ * 用固定英文星期与时制，不随系统 locale 变——日志式的行内标注保持一致。
+ */
+function formatEndTime(date: Date): string {
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()]!;
+  const h24 = date.getHours();
+  const suffix = h24 < 12 ? "AM" : "PM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${weekday} ${String(h12).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} ${suffix}`;
 }
 
 /** 模型面板列宽比例：提供方 / 模型 / 思考强度。 */
@@ -581,11 +612,12 @@ class BareList implements Component {
  */
 class AssistantOutput implements Component {
   private readonly markdown: Markdown;
-  private readonly label?: string;
+  /** 圆点着色：普通输出用默认前景色（白），运行中统计行传蓝绿。 */
+  private readonly bulletStyle: (s: string) => string;
 
-  constructor(text: string, label?: string) {
+  constructor(text: string, bulletStyle: (s: string) => string = (s) => s) {
     this.markdown = new Markdown(text, 0, 0, markdownTheme);
-    this.label = label;
+    this.bulletStyle = bulletStyle;
   }
 
   invalidate(): void {
@@ -595,11 +627,10 @@ class AssistantOutput implements Component {
   render(width: number): string[] {
     // Markdown 已把每行补齐到给定宽度，前缀宽度与 BODY_COL 一致，总宽不变
     const lines = this.markdown.render(Math.max(1, width - BODY_COL));
-    const head = this.label ? [`${" ".repeat(MARKER_COL)}${dim(`[${this.label}]`)}`] : [];
-    if (lines.length === 0) return head;
-    const marker = `${" ".repeat(MARKER_COL)}${cyan(ASSISTANT_BULLET)} `;
+    if (lines.length === 0) return [];
+    const marker = `${" ".repeat(MARKER_COL)}${this.bulletStyle(ASSISTANT_BULLET)} `;
     const indent = " ".repeat(BODY_COL);
-    return [...head, ...lines.map((line, i) => `${i === 0 ? marker : indent}${line}`)];
+    return lines.map((line, i) => `${i === 0 ? marker : indent}${line}`);
   }
 }
 
@@ -739,6 +770,10 @@ export class TuiApp {
   private overlaySyncPending = false;
   /** 已补种过输入历史的会话（每个会话只补一次）。 */
   private readonly seededHistorySessions = new Set<string>();
+  /** 运行中任务的走表定时器（无活动任务时为 null）。 */
+  private timingTimer: NodeJS.Timeout | null = null;
+  /** 每个任务的处理时间统计行组件（就地改文本以支持走表；见 refreshTranscript）。 */
+  private readonly timingTexts = new Map<string, Text>();
   private header: Text;
   private transcriptContainer: ContainerType;
   private scroll: ScrollView;
@@ -828,9 +863,67 @@ export class TuiApp {
   }
 
   /**
-   * 把候选列表画到输入框正上方（覆盖层，不占布局行）。
-   * 位置从底部反推：底栏 + 编辑器高度之上的那一行起画。
+   * 每个任务一条处理时间统计行（含标记列图标），按任务分别产出。
+   *
+   * 运行中：`● Sweeping · Elapsed 42s`（圆点蓝绿，每秒走表）。
+   * 已结束：`✓ Done in 3s · At Tue 08:09 PM`。
+   *
+   * 每个任务都要有自己的结束标记——不能只显示最后一个，否则新任务一开
+   * 始前一个任务的结束标记就消失了。at 是这一行在事件流中的时间位置
+   * （结束时刻），调用方据此与消息、提示统一排序。
    */
+  private taskTimingLines(sessionId: string): Array<{ key: string; text: string; at: string }> {
+    const marker = `${" ".repeat(MARKER_COL)}`;
+    const lines: Array<{ key: string; text: string; at: string }> = [];
+    for (const task of this.state.tasksFor(sessionId)) {
+      const start = Date.parse(task.startedAt ?? task.createdAt);
+      if (!Number.isFinite(start)) continue;
+      if (task.endedAt) {
+        const end = Date.parse(task.endedAt);
+        if (!Number.isFinite(end)) continue;
+        lines.push({
+          key: `$timing:${task.id}`,
+          text: `${marker}${sweeping(DONE_MARK)} Done in ${formatDuration(end - start)} · At ${formatEndTime(new Date(end))}`,
+          at: task.endedAt,
+        });
+        continue;
+      }
+      if (task.status !== "running" && task.status !== "awaiting_confirmation") continue;
+      // 运行中：已处理时长（awaiting_confirmation 也算在处理中，任务未结束）。
+      // 用「现在」定位，排在所有已产生内容之后。
+      const waiting = task.status === "awaiting_confirmation" ? " · waiting for approval" : "";
+      lines.push({
+        key: `$timing:${task.id}`,
+        text: `${marker}${sweeping(ASSISTANT_BULLET)} Sweeping · Elapsed ${formatDuration(Date.now() - start)}${waiting}`,
+        at: new Date().toISOString(),
+      });
+    }
+    return lines;
+  }
+
+  /** 运行中每秒走表：没有计时需求时不保留定时器。 */
+  private tickTiming(): void {
+    const sessionId = this.state.currentSessionId;
+    const needsTick = sessionId ? this.state.activeTaskFor(sessionId) !== null : false;
+    if (needsTick && !this.timingTimer) {
+      this.timingTimer = setInterval(() => {
+        if (!this.state.currentSessionId || !this.state.activeTaskFor(this.state.currentSessionId)) {
+          this.stopTimingTick();
+          return;
+        }
+        this.refreshTranscript();
+      }, 1000);
+    } else if (!needsTick) {
+      this.stopTimingTick();
+    }
+  }
+
+  private stopTimingTick(): void {
+    if (this.timingTimer) clearInterval(this.timingTimer);
+    this.timingTimer = null;
+  }
+
+
   private syncAutocompleteOverlay(): void {
     const lines = this.editor.overlayLines;
     if (lines.length === 0) {
@@ -971,6 +1064,7 @@ export class TuiApp {
   quit(code = 0, message?: string): void {
     if (this.exiting) return;
     this.exiting = true;
+    this.stopTimingTick();
     // 退出前保留尚未确认接收的请求（pendingStore 已在磁盘）；不发送 stop/取消
     this.connection.close();
     const pending = this.pendingStore.list();
@@ -1129,6 +1223,8 @@ export class TuiApp {
       switch (outcome.kind) {
         case "accepted": {
           this.state.upsertTask(outcome.task);
+          // 立即显示刚发出的输入：不等后台落盘、经历史回传才出现
+          this.state.addPendingInput(outcome.task);
           const wasContinue = this.continueForTaskId !== null;
           this.continueForTaskId = null;
           const current = this.currentView();
@@ -2625,6 +2721,7 @@ export class TuiApp {
   private refreshAll(): void {
     this.refreshChrome();
     this.refreshTranscript();
+    this.tickTiming();
   }
 
   /** 顶部与底部状态行（连接状态、权限模式、任务/队列/审批计数）。 */
@@ -2687,7 +2784,13 @@ export class TuiApp {
     this.tui.requestRender();
   }
 
-  /** 转录区：历史条目 + 当前活动（预览/工具/提示）。按键缓存组件。 */
+  /**
+   * 转录区：历史条目 + 当前活动（预览/工具/提示/处理时间统计）。
+   *
+   * 全部条目按时间合并成一条时间线——历史与活动不是两个块：发生在两条
+   * 消息之间的模式切换等提示，要排在这两条消息之间，而不是被挤到末尾。
+   * 时间戳缺失的条目（旧记录）排在已有时间戳的条目之后，保持相对顺序。
+   */
   private refreshTranscript(): void {
     const view = this.currentView();
     const desired: Array<[string, Component]> = [];
@@ -2695,19 +2798,39 @@ export class TuiApp {
       if (view.trimmedOlder || view.historyCursor) {
         desired.push(["$top", new Text(dim("— 更早历史可经 /older 翻页加载 —"), 1, 0)]);
       }
+
+      /**
+       * 时间线条目：at 为空串表示无时间戳（排最后，靠 seq 保持相对顺序）。
+       * tie 是同刻排序的次级键：结束标记要排在同一任务同时刻产生的提示之后。
+       */
+      const timeline: Array<{ key: string; at: string; seq: number; tie: number; render: () => Component }> = [];
+      let seq = 0;
       for (const item of view.transcript) {
-        desired.push([item.entryId, this.componentForItem(item)]);
+        timeline.push({ key: item.entryId, at: item.timestamp, seq: seq++, tie: 0, render: () => this.componentForItem(item) });
+      }
+      // 已提交但尚未落盘的用户输入：立即显示，不等历史回传
+      for (const [taskId, pending] of view.pendingInputs) {
+        const text = `❯ ${sanitizeForDisplay(pending.text)}`;
+        timeline.push({
+          key: `$pending:${taskId}`,
+          at: pending.at,
+          seq: seq++,
+          tie: 0,
+          render: () => this.cached(`$pending:${taskId}`, text, () => new Text(text, 1, 0, userBg)),
+        });
       }
       if (view.preview) {
         const p = view.preview;
-        const stateLabel = p.state === "generating" ? "生成中…" : "中断前已捕获部分";
-        // 流式预览与最终条目同款标记，到达时不跳版
+        // 流式预览与最终条目同款标记，到达时不跳版；不再单列「生成中」标签
         const text = sanitizeForDisplay(p.text);
-        const label = `${stateLabel}${p.truncated ? " · 预览截断" : ""}`;
-        desired.push([
-          `$preview:${p.messageId}`,
-          this.cached(`$preview:${p.messageId}`, text, () => new AssistantOutput(text, label)),
-        ]);
+        // 预览是「正在生成的最后一条」，排在所有已落盘条目之后
+        timeline.push({
+          key: `$preview:${p.messageId}`,
+          at: "",
+          seq: Number.MAX_SAFE_INTEGER - 1,
+          tie: 0,
+          render: () => this.cached(`$preview:${p.messageId}`, text, () => new AssistantOutput(text)),
+        });
       }
       for (const tool of view.tools) {
         const key = `$tool:${tool.toolOpId}`;
@@ -2720,17 +2843,52 @@ export class TuiApp {
                 ? "失败"
                 : "效果未知";
         const summary = tool.resultSummary ? `：${sanitizeForDisplay(tool.resultSummary).slice(0, 120)}` : "";
-        const tail = `${summary}${tool.artifactIds.length > 0 ? ` · 产物 ${tool.artifactIds.length} 个` : ""}${tool.paramsTruncated ? " · 参数过大（/expand 查看）" : ""}`;
+        const extra = `${summary}${tool.artifactIds.length > 0 ? ` · 产物 ${tool.artifactIds.length} 个` : ""}${tool.paramsTruncated ? " · 参数过大（/expand 查看）" : ""}`;
         // 工具调用整体虚化，失败状态保持醒目
         const text =
           dim(`⚙ ${sanitizeForDisplay(tool.toolName)} · `) +
           (tool.status === "error" ? red(statusText) : dim(statusText)) +
-          dim(tail);
-        desired.push([key, this.cached(key, text, () => new Text(text, 1, 0))]);
+          dim(extra);
+        timeline.push({ key, at: tool.at, seq: seq++, tie: 0, render: () => this.cached(key, text, () => new Text(text, 1, 0)) });
       }
       for (const note of view.notes) {
-        desired.push([note.key, this.cached(note.key, note.text, () => new Text(dim(sanitizeForDisplay(note.text)), 1, 0))]);
+        timeline.push({
+          key: note.key,
+          at: note.at,
+          seq: seq++,
+          tie: 0,
+          render: () => this.cached(note.key, note.text, () => new Text(dim(sanitizeForDisplay(note.text)), 1, 0)),
+        });
       }
+      // 每个任务一条统计行：结束标记是该任务的终止行，同刻排最后（tie=1）
+      for (const line of this.taskTimingLines(view.sessionId)) {
+        timeline.push({
+          key: line.key,
+          at: line.at,
+          seq: seq++,
+          tie: 1,
+          // 每个任务各自的 Text 实例就地改文本——容器只在 key 序列变化时重建，
+          // 用 cached() 换新实例的话走表内容进不了屏幕。paddingX 0：缩进已自带。
+          render: () => {
+            let text = this.timingTexts.get(line.key);
+            if (!text) {
+              text = new Text("", 0, 0);
+              this.timingTexts.set(line.key, text);
+            }
+            text.setText(line.text);
+            return text;
+          },
+        });
+      }
+      timeline.sort((a, b) => {
+        // 无时间戳的排最后（seq 兜底保持稳定）；其余按时间，同刻先 tie 再 seq
+        if (a.at === "" || b.at === "") {
+          if (a.at === "" && b.at === "") return a.seq - b.seq;
+          return a.at === "" ? 1 : -1;
+        }
+        return a.at.localeCompare(b.at) || a.tie - b.tie || a.seq - b.seq;
+      });
+      for (const item of timeline) desired.push([item.key, item.render()]);
       if (view.transcript.length === 0 && !view.preview) {
         desired.push([
           "$empty",

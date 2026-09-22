@@ -683,9 +683,9 @@ function viewForTask(views: Map<string, SessionView>, taskId: string): SessionVi
 export function accessModeLabel(mode: AccessMode): string {
   switch (mode) {
     case "full_access":
-      return "完全访问";
+      return "Full access";
     case "auto-review":
-      return "自动审查";
+      return "Auto review";
     default:
       return "Ask for approval";
   }
@@ -694,6 +694,21 @@ export function accessModeLabel(mode: AccessMode): string {
 export function formatAccessMode(mode: AccessMode, pending: AccessMode | null): string {
   const base = accessModeLabel(mode);
   return pending ? `${base}（待切换：${accessModeLabel(pending)}）` : base;
+}
+
+/**
+ * 模式名的着色（左下角状态栏）。返回样式函数，调用方决定包裹范围。
+ * 颜色只在状态栏用，不进入 /mode 列表与事件文案（那些地方靠文字区分）。
+ */
+export function accessModeStyle(mode: AccessMode): (s: string) => string {
+  switch (mode) {
+    case "auto-review":
+      return (s) => `\x1b[38;5;75m${s}\x1b[0m`; // 蓝：自动审查
+    case "full_access":
+      return (s) => `\x1b[38;5;214m${s}\x1b[0m`; // 橙黄：完全访问
+    default:
+      return (s) => s; // 请求确认：默认前景色
+  }
 }
 
 export function formatTaskStatus(status: TaskStatus): string {

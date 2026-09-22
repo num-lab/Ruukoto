@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ViewState, MAX_LOADED_ENTRIES, accessModeLabel, formatAccessMode, type SessionView } from "../src/tui/state.ts";
+import { ViewState, MAX_LOADED_ENTRIES, accessModeLabel, accessModeStyle, formatAccessMode, type SessionView } from "../src/tui/state.ts";
 import { sanitizeForDisplay } from "../src/tui/sanitize.ts";
 import type { ConnectResult } from "../src/control/protocol.ts";
 import type { PersistentEvent, Task } from "../src/core/types.ts";
@@ -229,12 +229,16 @@ test("模型选择只接受非旧版本，replay 不回滚，旧排队补配置�
 
 // ---------- 自动审查（issue 15） ----------
 
-test("accessModeLabel/formatAccessMode：auto-review 显示为自动审查", () => {
-  assert.equal(accessModeLabel("auto-review"), "自动审查");
+test("accessModeLabel/formatAccessMode：三种模式的显示名", () => {
+  assert.equal(accessModeLabel("auto-review"), "Auto review");
   assert.equal(accessModeLabel("confirm"), "Ask for approval");
-  assert.equal(accessModeLabel("full_access"), "完全访问");
-  assert.equal(formatAccessMode("auto-review", null), "自动审查");
-  assert.equal(formatAccessMode("confirm", "auto-review"), "Ask for approval（待切换：自动审查）");
+  assert.equal(accessModeLabel("full_access"), "Full access");
+  assert.equal(formatAccessMode("auto-review", null), "Auto review");
+  assert.equal(formatAccessMode("confirm", "auto-review"), "Ask for approval（待切换：Auto review）");
+  // 着色：Auto review 蓝、Full access 橙黄、Ask for approval 不改色
+  assert.match(accessModeStyle("auto-review")("X"), /^\x1b\[38;5;75mX\x1b\[0m$/);
+  assert.match(accessModeStyle("full_access")("X"), /^\x1b\[38;5;214mX\x1b\[0m$/);
+  assert.equal(accessModeStyle("confirm")("X"), "X");
 });
 
 test("自动审查事件：awaiting 携带审查状态，reviewed 转人工更新视图，resolved 标注来源", () => {

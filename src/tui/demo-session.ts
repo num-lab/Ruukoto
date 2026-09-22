@@ -11,12 +11,14 @@
 
 import type { ControlClient } from "../control/client.ts";
 import type { ConnectResult } from "../control/protocol.ts";
+import type { ContextBreakdown } from "../agent/context-selector.ts";
 import type {
   ConfirmationRequest,
   ModelSelection,
   PersistentEvent,
   PersistentEventBody,
   Project,
+  SelectionRecord,
   Session,
   Task,
 } from "../core/types.ts";
@@ -216,6 +218,60 @@ function historyEntries(): HistoryEntryView[] {
   ];
 }
 
+/** 合成选择记录：callIndex 与 usage 可变，其余为固定示例值。 */
+function demoRecord(callIndex: number, usage: { input: number; output: number } | null): SelectionRecord {
+  return {
+    id: `rec_demo0000000${callIndex}`,
+    taskId: "task_completed000",
+    sessionId: SESSION_ID,
+    callIndex,
+    strategy: "deterministic-v1",
+    configVersion: 1234567,
+    model: "demo-model",
+    totalMessages: 50,
+    includedIndices: Array.from({ length: 42 }, (_, i) => i),
+    excluded: [
+      { index: 42, reason: "budget_exceeded" },
+      { index: 43, reason: "budget_exceeded" },
+      { index: 44, reason: "unpaired_tool_call:call_x" },
+    ],
+    includedMemories: [
+      { memoryId: "mem_demo0001", version: 2 },
+      { memoryId: "mem_demo0002", version: 1 },
+    ],
+    excludedMemories: [{ memoryId: "mem_demo0003", version: 4, reason: "budget_exceeded" }],
+    instructionVersion: "a1b2c3d4",
+    cappedToolResults: [{ index: 17, originalChars: 98304, viewChars: 4096 }],
+    estimates: { systemPrompt: 3000, toolSchemas: 12000, projectInstructions: 1000, memories: 900, mandatoryTurn: 8000, historyTurns: 45000 },
+    budget: 178000,
+    estimatedTotal: 69900,
+    usage,
+    promptArtifactId: "art_demo0000000001",
+    windowSnapshot: { contextWindow: 200000, maxTokens: 8000, thinkingBudget: 0, toolResultReserve: 4000, safetyMargin: 2000 },
+    createdAt: ts(35 - callIndex),
+  };
+}
+
+/** 合成分解：当前窗口状态（含窗口快照）。 */
+function demoBreakdown(): ContextBreakdown {
+  return {
+    budget: 178000,
+    estimatedTotal: 69900,
+    remainingInput: 108100,
+    window: { contextWindow: 200000, maxTokens: 8000, thinkingBudget: 0, toolResultReserve: 4000, safetyMargin: 2000 },
+    windowUnavailableReason: null,
+    categories: [
+      { key: "systemPrompt", label: "系统提示", tokens: 3000, pctOfBudget: 1.7, pctOfWindow: 1.5 },
+      { key: "toolSchemas", label: "工具定义", tokens: 12000, pctOfBudget: 6.7, pctOfWindow: 6.0 },
+      { key: "projectInstructions", label: "项目指令", tokens: 1000, pctOfBudget: 0.6, pctOfWindow: 0.5 },
+      { key: "memories", label: "长期记忆", tokens: 900, pctOfBudget: 0.5, pctOfWindow: 0.5 },
+      { key: "mandatoryTurn", label: "当前任务", tokens: 8000, pctOfBudget: 4.5, pctOfWindow: 4.0 },
+      { key: "historyTurns", label: "历史轮次", tokens: 45000, pctOfBudget: 25.3, pctOfWindow: 22.5 },
+    ],
+    other: null,
+  };
+}
+
 /** 覆盖全部事件类型的事件流（seq 从 1 连续递增）。 */
 function demoEvents(): PersistentEvent[] {
   const bodies: PersistentEventBody[] = [
@@ -367,6 +423,16 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
           return reply(SESSION);
         case "set_session_model":
           return reply({ ...SESSION, modelSelection: params?.["model_selection"] as ModelSelection });
+        case "list_selection_records":
+          // /context 只取最近一条（当前窗口状态）
+          return reply({
+            records: [
+              { id: "rec_demo00000003", taskId: "task_completed000", callIndex: 3, model: "demo-model", usage: { input: 70123, output: 512 }, createdAt: ts(30) },
+            ],
+            hasMore: false,
+          });
+        case "get_context_breakdown":
+          return reply({ record: demoRecord(3, { input: 70123, output: 512 }), breakdown: demoBreakdown() });
         default:
           // 写操作在合成会话里一律拒绝：它不该产生真实副作用
           throw new Error(`合成会话不支持写操作：${op}`);

@@ -52,6 +52,7 @@ import { snapUtf8End, snapUtf8Start } from "../core/history.ts";
 import {
   ViewState,
   accessModeLabel,
+  accessModeStyle,
   formatAccessMode,
   formatTaskStatus,
   isActiveStatus,
@@ -467,6 +468,113 @@ class LinesComponent implements Component {
 }
 
 /**
+ * 上下文窗口分解条：一条长条表示总窗口，各段按占比着色，
+ * 下方一行图例说明每种颜色代表什么。
+ *
+ * 段与总窗口等长：分类估算 + 预留（输出/思考/工具结果/安全余量）+ 尚余输入。
+ * 预留与余量按同一口径计入，所以各段之和 = 总窗口，长条正好铺满。
+ */
+interface WindowSegment {
+  label: string;
+  tokens: number;
+  style: (s: string) => string;
+  /** 图例里的补充说明（如百分比、绝对值）。 */
+  note: string;
+}
+
+class ContextBar implements Component {
+  constructor(
+    private readonly title: string,
+    private readonly total: number,
+    private readonly segments: WindowSegment[],
+    private readonly footer: string[],
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const lines: string[] = [bold(truncateToWidth(this.title, width, "…"))];
+    // 长条：按 token 占比分配列数，至少 1 列（否则小段完全看不见）
+    const barWidth = Math.max(1, width);
+    const counts = this.segments.map((s) => Math.max(s.tokens > 0 ? 1 : 0, Math.round((s.tokens / this.total) * barWidth)));
+    // 取整误差：从最长的段上增减，保证长条正好等于可用宽度
+    let diff = barWidth - counts.reduce((a, b) => a + b, 0);
+    while (diff !== 0 && counts.length > 0) {
+      const idx = counts.indexOf(Math.max(...counts));
+      if (diff > 0) { counts[idx]! += 1; diff -= 1; }
+      else if (counts[idx]! > 1) { counts[idx]! -= 1; diff += 1; }
+      else break;
+    }
+    lines.push(this.segments.map((s, i) => s.style("█".repeat(counts[i]!))).join(""));
+
+    // 图例：每段「色块 名称 值」，按宽度折行
+    const legend = this.segments
+      .filter((s) => s.tokens > 0)
+      .map((s) => `${s.style("■")} ${s.label} ${s.note}`);
+    let current = "";
+    for (const item of legend) {
+      const candidate = current ? `${current}  ${item}` : item;
+      if (visibleWidth(candidate) > width && current) {
+        lines.push(current);
+        current = item;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) lines.push(current);
+    for (const line of this.footer) lines.push(dim(truncateToWidth(line, width, "…")));
+    return lines;
+  }
+}
+
+/**
+ * 裸列表：与 `/` 候选命令列表同款观感——无边框、占满宽度，
+ * 上方一行标题，下面是 SelectList 自己渲染的行。
+ *
+ * SelectList 仍负责按键（↑↓/Enter/Tab）与选中态，这里只把它的渲染结果
+ * 取出来按可用宽度重排，所以外观与候选列表一致而交互不变。
+ */
+class BareList implements Component {
+  private readonly list: SelectList;
+  private readonly title: string;
+
+  constructor(title: string, items: SelectItem[]) {
+    this.title = title;
+    this.list = new SelectList(items, Math.min(items.length, 10), selectTheme);
+  }
+
+  /** 内部列表：调用方接 onSelect/onCancel 或直接转发按键。 */
+  get inputTarget(): SelectList {
+    return this.list;
+  }
+
+  get onSelect(): ((item: SelectItem) => void) | undefined {
+    return this.list.onSelect;
+  }
+
+  set onSelect(handler: ((item: SelectItem) => void) | undefined) {
+    this.list.onSelect = handler;
+  }
+
+  set onCancel(handler: (() => void) | undefined) {
+    this.list.onCancel = handler;
+  }
+
+  invalidate(): void {
+    this.list.invalidate();
+  }
+
+  render(width: number): string[] {
+    // 标题与列表都按整宽渲染：与候选列表一样顶到两侧，不额外留边
+    const lines = [dim(truncateToWidth(sanitizeForDisplay(this.title), width, "…"))];
+    for (const line of this.list.render(width)) {
+      lines.push(line + " ".repeat(Math.max(0, width - visibleWidth(line))));
+    }
+    return lines;
+  }
+}
+
+/**
  * 模型输出：圆点画在标记列（与 ❯ / ⚙ 同列），正文缩进到正文列并整体对齐。
  * 用 Markdown 渲染正文（保留标题/列表/代码块），只在渲染结果上补标记与缩进，
  * 不往 markdown 源里塞字符——否则列表与代码块会被解析成别的东西。
@@ -601,7 +709,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "status", description: "刷新并查看当前任务详情" },
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
-  { name: "context", description: "查看上下文窗口预算分解（各部分占比，可选择其他调用）" },
+  { name: "context", description: "查看当前上下文窗口分解（各部分占比）" },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情" },
   { name: "github", description: "GitHub：drafts | show <id> | publish <id> pr <n> | publish <id> issue <n>", argumentHint: "<子命令>" },
 ];
@@ -1315,22 +1423,16 @@ export class TuiApp {
     const current = session.defaultAccessMode;
     const items: SelectItem[] = SESSION_DEFAULT_MODES.map((mode) => ({
       value: mode,
-      label: `${accessModeLabel(mode)}${mode === current ? "（当前）" : ""}`,
+      label: `${accessModeLabel(mode)}`,
       description:
         mode === "confirm"
-          ? "已授权范围内自主执行，越界操作逐次确认"
+          ? "编辑外部文件和访问网络时始终询问"
           : mode === "auto-review"
-            ? "与请求确认相同的受限执行环境；越界读取由独立审查自动审批，无法确认的转拥有者确认"
-            : "使用执行账户已有权限，不再逐次确认；不额外赋权",
+            ? "自动审查操作"
+            : "完全访问",
     }));
-    this.showSelection(`会话默认模式（当前：${accessModeLabel(current)}；作用于之后新建的任务，Esc 取消）`, items, (item) => {
-      const mode = item.value as AccessMode;
-      if (mode === "full_access") {
-        // 完全访问必须经明确的模式操作选择：展示权限范围后二次确认
-        this.openSessionModeConfirm(sessionId, version, mode);
-        return;
-      }
-      void this.sendSessionMode(sessionId, version, mode);
+    this.showBareList(`审批模式`, items, (item) => {
+      void this.sendSessionMode(sessionId, version, item.value as AccessMode);
     });
   }
 
@@ -1339,7 +1441,7 @@ export class TuiApp {
     try {
       const saved = await this.connection.request<Session>("set_session_mode", { session_id: sessionId, mode, expected_version: version });
       this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
-      this.state.note(sessionId, `会话默认模式已切换为 ${label}；之后新建的任务生效`);
+      this.state.note(sessionId, `审批模式已切换为 ${label}`);
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code === "connection_unavailable" || code === "closed" || code === "request_timeout") {
@@ -1370,10 +1472,11 @@ export class TuiApp {
   // ---------- /context：上下文窗口预算分解（issue 14） ----------
 
   /**
-   * 当前会话的上下文窗口分解悬浮层。默认展示最近一次模型调用；l 打开
-   * 记录列表（新 → 旧，分页加载）选择其他调用，Enter 查看其分解，
-   * Esc 返回详情，再 Esc 关闭并恢复编辑器焦点。占比由后台统一计算
-   * （get_context_breakdown）；查看只读，不触发模型请求或任务变更。
+   * 当前上下文窗口分解：贴输入框上沿的裸覆盖层（与候选命令列表同款），
+   * 一条长条表示总窗口、按占比着色，下方图例说明各色含义。
+   *
+   * 只看当前状态：取本会话最近一次模型调用的选择记录，不提供切换历史调用。
+   * 占比由后台统一计算（get_context_breakdown）；查看只读，不触发模型请求。
    */
   private async cmdContext(): Promise<void> {
     const view = this.currentView();
@@ -1383,226 +1486,130 @@ export class TuiApp {
     }
     const sessionId = view.sessionId;
     const generation = this.generation;
+    let closed = false;
     const stale = () => closed || generation !== this.generation || this.state.currentSessionId !== sessionId;
 
-    interface ContextRecordRow {
-      id: string;
-      taskId: string;
-      callIndex: number;
-      model: string;
-      usage: { input: number; output: number } | null;
-      createdAt: string;
-    }
-
-    const PAGE = 30;
-    let closed = false;
-    let records: ContextRecordRow[] = [];
-    let hasMore = false;
-    let loadingMore = false;
-    let loadError: string | null = null;
-    let selectedIndex = 0;
-    let list: SelectList | null = null;
-    let listMode = false;
-
-    const title = new Text("加载中…", 1, 0);
-    const detailText = new Text("", 1, 0);
-    const detailScroll = new ScrollView(detailText, { follow: "none", scrollbar: "auto" });
+    const bar = new LinesComponent();
     const hint = new Text("", 1, 0);
-    const middle = new Container();
-    middle.addChild(detailScroll);
-    const box = new OverlayBox([
-      { component: title, grow: 0 },
-      { component: middle, grow: 1 },
+    const body = new VStack([
+      { component: bar, grow: 1 },
       { component: hint, grow: 0 },
     ]);
-    const handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "75%" });
 
-    const closeAll = () => {
+    const handle = this.openAboveInput(body, () => {}, () => {
       closed = true;
-      handle.hide();
-      this.tui.setFocus(this.editor);
-    };
-
-    const showDetail = async (record: ContextRecordRow) => {
-      if (listMode) {
-        if (list) middle.removeChild(list);
-        list = null;
-        middle.addChild(detailScroll);
-        listMode = false;
-      }
-      box.onKey = detailKey;
-      box.forwardTo = null;
-      title.setText(sanitizeForDisplay(`上下文窗口分解 · 任务 ${record.taskId.slice(0, 12)} · 第 ${record.callIndex} 次调用`));
-      hint.setText(dim("l 选择其他调用 · ↑/↓ 滚动 · Esc 关闭"));
-      detailText.setText("加载中…");
-      detailScroll.scrollToStart();
-      this.tui.requestRender();
-      try {
-        const result = await this.connection.request<{ record: SelectionRecord; breakdown: ContextBreakdown }>(
-          "get_context_breakdown",
-          { session_id: sessionId, record_id: record.id },
-        );
-        if (stale()) return;
-        detailText.setText(sanitizeForDisplay(this.contextBreakdownText(result.record, result.breakdown)));
-        this.tui.requestRender();
-      } catch (err) {
-        if (stale()) return;
-        detailText.setText(red(`读取失败：${(err as Error).message}`));
-        this.tui.requestRender();
-      }
-    };
-
-    const detailKey = (data: string) => {
-      if (data === "\x1b" || data === "q") {
-        closeAll();
-        return;
-      }
-      if (data === "l") {
-        showList();
-        return;
-      }
-      if (data === "\x1b[A" || data === "k") detailScroll.scrollBy(-1);
-      else if (data === "\x1b[B" || data === "j") detailScroll.scrollBy(1);
-      else if (data === "\x1b[5~") detailScroll.scrollBy(-10);
-      else if (data === "\x1b[6~") detailScroll.scrollBy(10);
-    };
-
-    const rowLabel = (r: ContextRecordRow): SelectItem => ({
-      value: r.id,
-      // 调用序号放最前：行标签按宽度截断时关键标识仍可见
-      label: `第 ${r.callIndex} 次调用 · ${r.createdAt.slice(5, 19).replace("T", " ")} · 任务 ${r.taskId.slice(0, 12)}`,
-      description: `${r.model}${r.usage ? ` · usage ${r.usage.input}+${r.usage.output}` : " · 发送结果未回填（失败/中断或未知）"}`,
     });
+    bar.setLines([dim("加载中…")]);
+    this.tui.requestRender();
 
-    const showList = () => {
-      const items = records.map(rowLabel);
-      if (hasMore) items.push({ value: "$more", label: dim("加载更多…"), description: "Enter 加载下一页" });
-      // SelectList 不支持动态增项：进入列表/翻页时重建实例并恢复选中位置
-      const oldList = list;
-      list = new SelectList(items, 12, selectTheme);
-      list.onSelectionChange = (item) => {
-        const idx = items.indexOf(item);
-        if (idx >= 0) selectedIndex = idx;
-      };
-      list.onSelect = (item) => {
-        if (item.value === "$more") {
-          void loadPage().then(() => {
-            if (!stale() && listMode) showList();
-          });
-          return;
-        }
-        const record = records.find((r) => r.id === item.value);
-        if (record) void showDetail(record);
-      };
-      list.onCancel = () => {
-        // 返回当前详情（不关闭整个面板）
-        const current = records[selectedIndex] ?? records[0];
-        if (current) void showDetail(current);
-        else closeAll();
-      };
-      list.setSelectedIndex(Math.min(selectedIndex, Math.max(0, items.length - 1)));
-      if (!listMode) {
-        middle.removeChild(detailScroll);
-        listMode = true;
-      } else if (oldList) {
-        middle.removeChild(oldList);
+    try {
+      // 最近一次调用即当前窗口状态：只取一条，不做列表与分页
+      const list = await this.connection.request<{ records: Array<{ id: string }> }>("list_selection_records", {
+        session_id: sessionId,
+        limit: 1,
+      });
+      if (stale()) return;
+      const recordId = list.records[0]?.id;
+      if (!recordId) {
+        handle.hide();
+        this.notify("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+        return;
       }
-      middle.addChild(list);
-      box.onKey = null;
-      box.forwardTo = list;
-      title.setText(`选择调用（${records.length} 条${hasMore ? "，还有更多" : ""}）`);
-      hint.setText(dim("Enter 查看分解 · Esc 返回详情"));
+      const result = await this.connection.request<{ record: SelectionRecord; breakdown: ContextBreakdown }>(
+        "get_context_breakdown",
+        { session_id: sessionId, record_id: recordId },
+      );
+      if (stale()) return;
+      bar.setLines(this.contextBarLines(result.record, result.breakdown, this.terminal.columns || 80));
       this.tui.requestRender();
-    };
-
-    const loadPage = async () => {
-      if (loadingMore) return;
-      loadingMore = true;
-      try {
-        const last = records[records.length - 1];
-        const page = await this.connection.request<{ records: ContextRecordRow[]; hasMore: boolean }>(
-          "list_prompt_requests",
-          { session_id: sessionId, limit: PAGE, cursor: last ? { createdAt: last.createdAt, id: last.id } : undefined },
-        );
-        if (stale()) return;
-        records = records.concat(page.records);
-        hasMore = page.hasMore;
-      } catch (err) {
-        if (stale()) return;
-        loadError = (err as Error).message;
-        hint.setText(red(`读取失败：${loadError}`));
-        this.tui.requestRender();
-      } finally {
-        loadingMore = false;
-      }
-    };
-
-    await loadPage();
-    if (stale()) return;
-    if (records.length === 0) {
-      closeAll();
-      if (loadError) this.notify(red(`查询失败：${loadError}`));
-      else this.notify("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
-      return;
+    } catch (err) {
+      if (stale()) return;
+      bar.setLines([red(`读取失败：${(err as Error).message}`)]);
+      this.tui.requestRender();
     }
-    await showDetail(records[0]!);
   }
 
-  /** 单次调用的分解正文：分类 token、总窗口/输入预算占比、预留与合计（值均为选择时估算）。 */
-  private contextBreakdownText(record: SelectionRecord, b: ContextBreakdown): string {
-    const pctText = (v: number | null): string => (v === null ? "—" : `${v.toFixed(1)}%`);
-    const lines: string[] = [
-      `任务 ${record.taskId} · 第 ${record.callIndex} 次调用 · ${record.model}`,
-      `${record.strategy}@${record.configVersion} · ${record.createdAt.slice(0, 19).replace("T", " ")}`,
-      `以下为选择时的分类估算（非 provider 精确用量）：`,
+  /**
+   * 单次调用的窗口分解：一条长条 + 图例。
+   *
+   * 各段与总窗口等长：分类估算 + 预留（输出/思考/工具结果/安全余量）+ 尚余输入。
+   * 无窗口快照（旧记录）时退化为按输入预算画条，并在页脚说明原因——不假装
+   * 有总窗口数据。
+   */
+  private contextBarLines(record: SelectionRecord, b: ContextBreakdown, width: number): string[] {
+    const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`);
+    const w = b.window;
+    const total = w ? w.contextWindow : b.budget;
+    const categories = [...b.categories, ...(b.other ? [b.other] : [])];
+
+    // 每段一个颜色；分类用同一族的深浅，预留与余量用区分度高的色
+    const CATEGORY_STYLES = [
+      (s: string) => `\x1b[38;5;75m${s}\x1b[0m`, // 蓝
+      (s: string) => `\x1b[38;5;79m${s}\x1b[0m`, // 青绿
+      (s: string) => `\x1b[38;5;114m${s}\x1b[0m`, // 绿
+      (s: string) => `\x1b[38;5;179m${s}\x1b[0m`, // 黄
+      (s: string) => `\x1b[38;5;209m${s}\x1b[0m`, // 橙
+      (s: string) => `\x1b[38;5;168m${s}\x1b[0m`, // 粉
+      (s: string) => `\x1b[38;5;141m${s}\x1b[0m`, // 紫
+      (s: string) => `\x1b[38;5;109m${s}\x1b[0m`, // 灰蓝
     ];
-    if (b.window) {
-      lines.push(
-        `总窗口 ${b.window.contextWindow} · 输入预算 ${b.budget} · 已估输入 ${b.estimatedTotal}（估算）· 尚余输入 ${b.remainingInput}`,
-      );
-    } else {
-      lines.push(`输入预算 ${b.budget} · 已估输入 ${b.estimatedTotal}（估算）· 尚余输入 ${b.remainingInput}`);
-      lines.push(`总窗口占比不可用：${b.windowUnavailableReason ?? "窗口快照缺失"}`);
+    const segments: WindowSegment[] = categories
+      .filter((c) => c.tokens > 0)
+      .map((c, i) => ({
+        label: c.label,
+        tokens: c.tokens,
+        style: CATEGORY_STYLES[i % CATEGORY_STYLES.length]!,
+        note: `${c.tokens}${w ? ` · ${pct(c.pctOfWindow)}` : ` · ${pct(c.pctOfBudget)}`}`,
+      }));
+    if (w) {
+      // 预留合并为一段：输出上限/思考/工具结果/安全余量同属「留给后续」，
+      // 分三段同色会在长条上无法区分，分开上色又占满色板。明细写在页脚。
+      const reserves = w.maxTokens + w.thinkingBudget + w.toolResultReserve + w.safetyMargin;
+      if (reserves > 0) {
+        segments.push({
+          label: "预留",
+          tokens: reserves,
+          style: (s) => `\x1b[38;5;131m${s}\x1b[0m`,
+          note: `${reserves}`,
+        });
+      }
+      if (b.remainingInput > 0) {
+        segments.push({ label: "尚余输入", tokens: b.remainingInput, style: dim, note: `${b.remainingInput}` });
+      }
     }
-    lines.push(b.window ? `分类估算（token · 占总窗口 · 占输入预算）：` : `分类估算（token · 占输入预算）：`);
-    for (const c of [...b.categories, ...(b.other ? [b.other] : [])]) {
-      lines.push(
-        b.window
-          ? `  ${c.label}：${c.tokens}（${pctText(c.pctOfWindow)} · ${pctText(c.pctOfBudget)}）`
-          : `  ${c.label}：${c.tokens}（${pctText(c.pctOfBudget)}）`,
-      );
-    }
-    if (b.window) {
-      const reserves = b.window.maxTokens + b.window.thinkingBudget + b.window.toolResultReserve + b.window.safetyMargin;
-      lines.push(
-        `预留：输出上限 ${b.window.maxTokens} · 思考预留 ${b.window.thinkingBudget}${b.window.thinkingBudget === 0 ? "（思考已计入输出上限，不重复预留）" : ""} · 下一批工具结果 ${b.window.toolResultReserve} · 安全余量 ${b.window.safetyMargin}`,
-        `合计：已估输入 ${b.estimatedTotal} + 尚余输入 ${b.remainingInput} + 预留 ${reserves} = ${b.estimatedTotal + b.remainingInput + reserves}（= 总窗口 ${b.window.contextWindow}）`,
-      );
-    }
-    lines.push(
-      record.usage
-        ? `实际 usage：输入 ${record.usage.input} · 输出 ${record.usage.output}（provider 返回的总量，不按分类拆分）`
-        : `实际 usage 未回填（请求失败、被中断或结果未知）`,
-      `消息：选入 ${record.includedIndices.length} / 共 ${record.totalMessages}；排除 ${record.excluded.length}`,
-    );
-    if (record.excluded.length > 0) {
-      const reasons = new Map<string, number>();
-      for (const e of record.excluded) reasons.set(e.reason, (reasons.get(e.reason) ?? 0) + 1);
-      lines.push(`排除原因：${[...reasons.entries()].map(([r, n]) => `${r} ×${n}`).join("，")}`);
-    }
-    if (record.instructionVersion) lines.push(`项目指令版本：${record.instructionVersion}`);
-    if (record.includedMemories.length > 0) {
-      lines.push(`注入记忆：${record.includedMemories.map((m) => `${m.memoryId.slice(0, 10)}@v${m.version}`).join("，")}`);
-    }
-    for (const m of record.excludedMemories) {
-      lines.push(`未注入记忆 ${m.memoryId.slice(0, 10)}@v${m.version}（${m.reason}）`);
-    }
-    if (record.cappedToolResults.length > 0) {
-      lines.push(
-        `有界视图：${record.cappedToolResults.map((c) => `#${c.index} ${c.originalChars}→${c.viewChars} 字符`).join("，")}（原文可用 history_read / read_artifact 读取）`,
-      );
-    }
-    return lines.join("\n");
+
+    const title = `上下文窗口`;
+    const footer: string[] = [];
+    // footer.push(
+    //   w
+    //     ? `总窗口 ${total} · 输入预算 ${b.budget} · 已估输入 ${b.estimatedTotal} · 尚余 ${b.remainingInput}（选择时估算，非 provider 用量）`
+    //     : `输入预算 ${total} · 已估输入 ${b.estimatedTotal} · 尚余 ${b.remainingInput}；总窗口不可用：${b.windowUnavailableReason ?? "窗口快照缺失"}`,
+    // );
+    // if (w) {
+    //   footer.push(
+    //     `预留明细：输出上限 ${w.maxTokens} · 思考 ${w.thinkingBudget}${w.thinkingBudget === 0 ? "（已计入输出上限）" : ""} · 工具结果 ${w.toolResultReserve} · 安全余量 ${w.safetyMargin}`,
+    //   );
+    // }
+    // footer.push(
+    //   record.usage
+    //     ? `实际 usage：输入 ${record.usage.input} · 输出 ${record.usage.output}（provider 总量，不按分类拆分）`
+    //     : `实际 usage 未回填（请求失败、被中断或结果未知）`,
+    // );
+    // const extras: string[] = [`消息 选入 ${record.includedIndices.length}/${record.totalMessages} · 排除 ${record.excluded.length}`];
+    // if (record.instructionVersion) extras.push(`项目指令 ${record.instructionVersion}`);
+    // if (record.includedMemories.length > 0) extras.push(`注入记忆 ${record.includedMemories.length}`);
+    // if (record.cappedToolResults.length > 0) extras.push(`有界视图 ${record.cappedToolResults.length}`);
+    // footer.push(extras.join(" · "));
+    // if (record.excluded.length > 0) {
+    //   const reasons = new Map<string, number>();
+    //   for (const e of record.excluded) reasons.set(e.reason, (reasons.get(e.reason) ?? 0) + 1);
+    //   footer.push(`排除原因：${[...reasons.entries()].map(([r, n]) => `${r} ×${n}`).join("，")}`);
+    // }
+    // for (const m of record.excludedMemories) {
+    //   footer.push(`未注入记忆 ${m.memoryId.slice(0, 10)}@v${m.version}（${m.reason}）`);
+    // }
+    void width;
+    return new ContextBar(title, total, segments, footer).render(width);
   }
 
   // ---------- /prompt：模型请求列表与 prompt 详情（issue 13） ----------
@@ -2364,37 +2371,6 @@ export class TuiApp {
     };
   }
 
-  // ---------- 会话默认模式确认 ----------
-
-  private openSessionModeConfirm(sessionId: string, version: number, mode: "full_access"): void {
-    const lines = [
-      bold("将会话默认模式切换为完全访问"),
-      `目标会话：${sessionId}`,
-      "范围：之后新建的任务在容器外使用专用执行账户已有权限，不再逐次确认；不额外赋权。",
-      "该选择只作用于本会话之后新建的任务；已运行、排队和等待审批的任务保留创建时的模式。",
-    ];
-    const items: SelectItem[] = [
-      { value: "confirm", label: "确认切换为完全访问" },
-      { value: "cancel", label: "取消" },
-    ];
-    const list = new SelectList(items, 2, selectTheme);
-    const box = new OverlayBox([
-      { component: new Text(lines.join("\n"), 1, 0), grow: 0 },
-      { component: list, grow: 0 },
-    ]);
-    box.forwardTo = list;
-    const handle = this.tui.showOverlay(box, { width: "80%", anchor: "center" });
-    list.onSelect = (item) => {
-      handle.hide();
-      this.tui.setFocus(this.editor);
-      if (item.value === "confirm") void this.sendSessionMode(sessionId, version, mode);
-    };
-    list.onCancel = () => {
-      handle.hide();
-      this.tui.setFocus(this.editor);
-    };
-  }
-
   private selectionText(selection: ModelSelection | null | undefined): string {
     return selection ? sanitizeForDisplay(`${selection.provider}/${selection.modelId} · ${selection.thinkingLevel}`) : "模型配置未记录";
   }
@@ -2431,7 +2407,7 @@ export class TuiApp {
         return;
       }
       // 内容超高时滚动；带 forwardTo 的面板由内容自己处理方向键
-      if (!opts.forwardTo && (matchesKey(data, "up") || matchesKey(data, "down") || matchesKey(data, "pageUp") || matchesKey(data, "pageDown"))) {
+      if (frame && !opts.forwardTo && (matchesKey(data, "up") || matchesKey(data, "down") || matchesKey(data, "pageUp") || matchesKey(data, "pageDown"))) {
         const up = matchesKey(data, "up") || matchesKey(data, "pageUp");
         const step = matchesKey(data, "pageUp") || matchesKey(data, "pageDown") ? 5 : 1;
         frame.scrollBy(up ? -step : step);
@@ -2442,6 +2418,52 @@ export class TuiApp {
       opts.forwardTo?.handleInput(data);
     };
     return { ...handle, hide: close };
+  }
+
+  /**
+   * 打开贴在输入框上沿的裸覆盖层（与 `/` 候选命令列表同款容器）：
+   * 无边框、占满宽度、随输入框高度浮动。覆盖层拿焦点，按键交给 onKey。
+   */
+  private openAboveInput(content: Component, onKey: (data: string) => void, onClose: () => void): OverlayHandle {
+    const box = new OverlayBox([{ component: content, grow: 1 }]);
+    const handle = this.tui.showOverlay(box, {
+      width: "100%",
+      anchor: "bottom-left",
+      offsetY: -(this.editor.lastHeight + this.footer.lastHeight),
+      margin: 0,
+    });
+    const close = () => {
+      handle.hide();
+      this.tui.setFocus(this.editor);
+      onClose();
+    };
+    box.onKey = (data: string) => {
+      if (data === "\x1b" || data === "q") {
+        close();
+        return;
+      }
+      onKey(data);
+    };
+    return { ...handle, hide: close };
+  }
+
+  /**
+   * 裸列表选择（与 `/` 候选命令列表同款容器）：无边框、占满宽度、
+   * 贴在输入框上沿。覆盖层拿焦点，按键经 box.onKey 转给列表。
+   */
+  private showBareList(title: string, items: SelectItem[], select: (item: SelectItem) => void): void {
+    const bare = new BareList(title, items);
+    const list = bare.inputTarget;
+    const handle = this.openAboveInput(
+      bare,
+      (data) => {
+        list.handleInput(data);
+        this.tui.requestRender();
+      },
+      () => {},
+    );
+    bare.onSelect = (item) => { handle.hide(); select(item); };
+    bare.onCancel = () => handle.hide();
   }
 
   private showSelection(title: string, items: SelectItem[], select: (item: SelectItem) => void): void {
@@ -2632,10 +2654,17 @@ export class TuiApp {
     const active = this.state.activeTaskFor(view.sessionId);
     const modeTask = active ?? this.state.queuedTasksFor(view.sessionId).at(-1) ?? null;
     const modeText = modeTask ? formatAccessMode(modeTask.accessMode, modeTask.pendingAccessMode) : null;
-    const defaultText = session ? accessModeLabel(session.defaultAccessMode) : "Ask for approval";
-    const modeDisplay = modeText ? `${modeText} · ${defaultText}` : defaultText;
-    // 左下角：当前模式与工作区；右上角已有连接/执行信息，这里不重复
-    this.footer.set(dim(`${modeDisplay} · ${sanitizeForDisplay(view.cwd)}`), dim(this.modelInfoText()));
+    const mode: AccessMode = modeTask?.accessMode ?? session?.defaultAccessMode ?? "confirm";
+    const defaultText = session ? accessModeLabel(session.defaultAccessMode) : accessModeLabel("confirm");
+    // 任务模式与会话默认相同时不重复显示（同一句话打两遍看不出差别）
+    const sameAsDefault = !modeText || modeText === defaultText;
+    const modeDisplay = sameAsDefault ? (modeText ?? defaultText) : `${modeText} · 会话默认 ${defaultText}`;
+    // 左下角：当前模式与工作区。模式名按模式着色（颜色只在这里用），
+    // 工作区仍是暗色；模式名不能包在 dim 里，否则颜色被压暗。
+    const modeStyled = sameAsDefault
+      ? accessModeStyle(mode)(modeDisplay)
+      : `${accessModeStyle(mode)(modeText!)}${dim(` · 会话默认 ${defaultText}`)}`;
+    this.footer.set(`${modeStyled}${dim(` · ${sanitizeForDisplay(view.cwd)}`)}`, dim(this.modelInfoText()));
     this.header.setText(
       `${bold(this.state.projectName(view.projectId))} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
         `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,

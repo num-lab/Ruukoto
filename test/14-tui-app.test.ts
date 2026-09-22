@@ -438,7 +438,7 @@ test("/new：未选择会话时不创建，提示下一步操作", async () => {
   }
 });
 
-test("/context：默认展示最近一次调用的窗口分解，可切换其他调用", async () => {
+test("/context：展示当前上下文窗口分解（不提供切换）", async () => {
   const t = await startTestRuntime("tui-context", async (req, callIndex) => {
     if (callIndex === 0) {
       return { kind: "tool_calls", calls: [{ id: "c1", name: "mock_mark", arguments: { path: "/tmp/ruukoto-tui-ctx.txt", content: "数据" } }] };
@@ -457,28 +457,23 @@ test("/context：默认展示最近一次调用的窗口分解，可切换其他
       return list.records.length === 2;
     });
 
-    // 默认：最近一次调用（第 2 次）的分解
+    // 当前状态：最近一次调用（第 2 次）的分解
     h.terminal.clearOutput();
     h.terminal.send("/context");
     h.terminal.send("\r");
     await waitFor("分解展示", () => h.terminal.output().includes("总窗口"));
     const detail = h.terminal.output();
-    assert.ok(detail.includes("第 2 次调用"), "默认展示最近一次调用");
-    assert.ok(detail.includes("系统提示") && detail.includes("历史轮次"), "分类齐全");
+    assert.ok(detail.includes("第 2 次调用"), "展示最近一次调用");
+    // 长条 + 图例：出现过的分类都要在图例里（本次消息少，不一定有历史轮次）
+    assert.ok(detail.includes("系统提示") && detail.includes("工具定义"), "分类图例齐全");
+    assert.ok(detail.includes("█"), "长条已渲染");
     assert.ok(detail.includes("输入预算") && detail.includes("预留"), "预算与预留展示");
     assert.ok(detail.includes("估算"), "估算值如实标注");
-
-    // 切到列表，选择第一次调用
-    h.terminal.send("l");
-    await waitFor("记录列表", () => h.terminal.output().includes("第 1 次调用"));
+    // 不再提供切换：按 l 不应打开任何列表
     h.terminal.clearOutput();
-    h.terminal.send("\x1b[B"); // 列表新 → 旧：下移选中第 1 次调用
-    h.terminal.send("\r");
-    await waitFor("详情切换", () => {
-      const out = h.terminal.output();
-      return out.includes("总窗口") && out.includes("第 1 次调用");
-    });
-    assert.ok(!h.terminal.output().includes("第 2 次调用"), "详情与所选记录匹配");
+    h.terminal.send("l");
+    await renderFlush();
+    assert.ok(!h.terminal.output().includes("第 1 次调用"), "不提供切换历史调用");
 
     // Esc 关闭，不再渲染分解
     h.terminal.send("\x1b");
@@ -512,7 +507,7 @@ test("/context：无记录时明确提示，不打开悬浮层", async () => {
   }
 });
 
-test("/mode：列表含自动审查并可选择，状态栏显示自动审查", async () => {
+test("/mode：列表含 Auto review 并可选择，状态栏显示 Auto review", async () => {
   const t = await startTestRuntime("tui-mode", async () => ({ kind: "text", text: "done" }));
   const apps: AppHarness[] = [];
   try {
@@ -521,12 +516,11 @@ test("/mode：列表含自动审查并可选择，状态栏显示自动审查", 
     apps.push(h);
 
     h.terminal.send("/mode\r");
-    await waitFor("模式列表", () => h.terminal.output().includes("自动审查"));
+    await waitFor("模式列表", () => h.terminal.output().includes("Auto review"));
     const listOut = h.terminal.output();
-    assert.ok(listOut.includes("Ask for approval") && listOut.includes("完全访问"), "三种模式都在列表中");
+    assert.ok(listOut.includes("Ask for approval") && listOut.includes("Full access") && listOut.includes("Auto review"), "三种模式都在列表中");
 
-    // 列表顺序 confirm / full_access / auto-review：下移两项选中自动审查
-    // （full_access 会弹二次确认浮层，自动审查直接发送）
+    // 列表顺序 confirm / full_access / auto-review：下移两项选中 Auto review
     h.terminal.clearOutput();
     h.terminal.send("\x1b[B");
     h.terminal.send("\x1b[B");
@@ -536,8 +530,8 @@ test("/mode：列表含自动审查并可选择，状态栏显示自动审查", 
     const session = await t.client.request<any>("get_session", { session_id: sessionId });
     assert.equal(session.defaultAccessMode, "auto-review", "set_session_mode 落库");
 
-    // 选择后的渲染帧里，状态区（模式：X · 工作区）显示自动审查
-    await waitFor("状态栏显示自动审查", () => h.terminal.output().includes("自动审查 ·"));
+    // 选择后的渲染帧里，状态区（模式：X · 工作区）显示 Auto review
+    await waitFor("状态栏显示 Auto review", () => h.terminal.output().includes("Auto review ·"));
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);
   } finally {

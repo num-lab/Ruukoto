@@ -1,8 +1,8 @@
-- [ ] auto-review
 - [ ] sub-agent
 - [ ] ruukoto .
 - [ ] MCP
-- [ ] 
+- [ ] tavily
+- [ ] 命令也加入事件流
 
 ## TUI
 - [ ] thinking
@@ -15,5 +15,4 @@
 - [ ] diff
 - [ ] 上下文构成
 - [ ] prompt查看
-- [ ] 模式切换字体
 

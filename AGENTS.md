@@ -1,6 +1,10 @@
+## AGENTS.md for Ruukoto
+
+当测试需要 Linux 环境时，可通过 `ssh tx` 访问服务器。
+
 ## Agent skills
 
-编写计划和执行时都需要使用 `ponytail` skill
+编写计划和执行时都需要使用 `ponytail` skill。
 
 ### Issue tracker
 

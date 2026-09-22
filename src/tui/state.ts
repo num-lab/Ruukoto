@@ -227,7 +227,7 @@ export class ViewState {
     switch (body.type) {
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
-          this.projects.push({ id: body.projectId, name: body.name, instructionFiles: [], createdAt: event.createdAt });
+          this.projects.push({ id: body.projectId, name: body.name, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt });
         }
         return;
       case "session.created":

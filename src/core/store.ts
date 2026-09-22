@@ -80,7 +80,7 @@ export class Store {
   // ---------- 项目 ----------
 
   createProject(name: string): Project {
-    const project: Project = { id: randomId("proj"), name, instructionFiles: [], createdAt: new Date().toISOString() };
+    const project: Project = { id: randomId("proj"), name, instructionFiles: [], webSearch: "enabled", createdAt: new Date().toISOString() };
     this.db
       .prepare("INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)")
       .run(project.id, project.name, project.createdAt);
@@ -93,6 +93,11 @@ export class Store {
     this.db
       .prepare("UPDATE projects SET instruction_files = ? WHERE id = ?")
       .run(JSON.stringify(files), projectId);
+  }
+
+  /** 按项目启用/禁用 Web Search（issue 20；拥有者入口，调用方负责校验）。 */
+  setProjectWebSearch(projectId: string, value: "enabled" | "disabled"): void {
+    this.db.prepare("UPDATE projects SET web_search = ? WHERE id = ?").run(value, projectId);
   }
 
   getProject(id: string): Project | null {
@@ -115,6 +120,7 @@ export class Store {
       id: row.id,
       name: row.name,
       instructionFiles: JSON.parse(row.instruction_files ?? "[]") as string[],
+      webSearch: row.web_search === "disabled" ? "disabled" : "enabled",
       createdAt: row.created_at,
     };
   }

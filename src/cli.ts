@@ -160,7 +160,18 @@ async function main(argv: string[]): Promise<number> {
         print(await withClient((c) => c.request("set_project_instructions", { project_id: projectId, files })));
         return 0;
       }
-      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）");
+      // Web Search 项目开关（issue 20；拥有者入口）：web-search <项目id> <on|off>
+      if (sub === "web-search") {
+        const projectId = positional[1] ?? "";
+        const state = positional[2] ?? "";
+        if (!projectId || (state !== "on" && state !== "off")) {
+          console.error("用法：ruukoto project web-search <项目id> <on|off>");
+          return 1;
+        }
+        print(await withClient((c) => c.request("set_project_web_search", { project_id: projectId, enabled: state === "on" })));
+        return 0;
+      }
+      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）；ruukoto project web-search <项目id> <on|off>");
       return 1;
     }
     case "create-session": {

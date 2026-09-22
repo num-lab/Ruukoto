@@ -840,16 +840,16 @@ INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, param
   raw.close();
 }
 
-test("schema v5 → v6 迁移：重建 CHECK、保留数据/索引/外键；新库直写 auto-review", () => {
+test("schema v5 → v7 迁移：重建 CHECK、保留数据/索引/外键；新库直写 auto-review", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-v5-"));
-  const freshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-v6-"));
+  const freshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-fresh-"));
   try {
     buildV5Database(root);
     const db = new Db(root);
     try {
       const store = new Store(db);
       const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
-      assert.equal(version.value, "6", "迁移到 v6");
+      assert.equal(version.value, "7", "迁移到当前版本");
 
       // 数据保留：原模式、权限版本、审批状态与消费时间
       const task = store.getTask("task_old")!;

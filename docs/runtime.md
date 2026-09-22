@@ -66,6 +66,7 @@ npm start -- resume-queue <sessionId> # 拥有者确认后恢复队列（并释�
 npm start -- confirm <confirmationId> approve|reject
 npm start -- read-artifact <taskId> <artifactId> [--offset N] [--length N]
 npm start -- credentials list | add --name N --host H --header H --purpose P --secret-env VAR | remove <name>
+npm start -- project web-search <项目id> on|off   # 按项目启用/禁用 Web Search（默认启用）
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 npm start -- tui [--session <id>]     # 交互终端（见下文"TUI"）
 ```
@@ -125,8 +126,8 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v3）
-│                              #   项目（含项目指令文件配置）、会话、任务
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v7）
+│                              #   项目（含项目指令文件与 Web Search 开关）、会话、任务
 │                              #   （accessMode/权限版本/授予路径）、确认请求
 │                              #   （结构化范围/消费时间）、工具操作（宿主操作
 │                              #   id + SDK 调用 id）、产物元数据、目录占用、
@@ -319,6 +320,45 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
   再经既有调度创建新任务承载（不复活旧终态任务、不继承旧批准；输入幂等/
   目录占用/范围检查照常）。
 
+## Web Search（issue 20）
+
+宿主工具 `web_search`：经 Tavily Search API 的只读互联网搜索（固定官方端点
+`https://api.tavily.com/search`；不接入 Extract/Crawl/Research，不做跨任务
+缓存或自动长期记忆）。
+
+### 配置与开关
+
+- 凭据：`ruukoto credentials add --name tavily --host api.tavily.com --header
+  authorization --purpose tavily_search --secret-env TAVILY_API_KEY`（秘密值为
+  API key，工具按 `Bearer <key>` 注入；值不进入模型上下文、事件、日志、历史
+  正文或错误文本）。工具按 `purpose=tavily_search` 且 host 与目标一致的绑定
+  取凭据；未配置、host 或用途不匹配一律拒绝调用且不发送请求。
+- 默认对所有项目启用并注册；拥有者可按项目禁用：`ruukoto project web-search
+  <项目id> off`（`on` 恢复）。任务开始固定工具清单：禁用中的项目任务不注册
+  `web_search`（模型不可见，系统提示同步重建）；任务内禁用立即阻止后续调用；
+  重新启用从下一任务生效。
+
+### 参数、限额与故障处理
+
+- 开放参数：`query`（≤500 字符）、`topic`（general/news）、`time_range`
+  （day/week/month/year）、`include_domains`（裸域名白名单，≤20 个）、
+  `max_results`（1-5，默认 5）、`search_depth`（basic/fast/ultra-fast；
+  advanced 每次 2 配额，首版不开放）。未知字段与超限请求一律拒绝。
+- 每任务最多 5 次调用（按执行意图计数，含被拒绝的调用，重启后可核对）；
+  单次 15 秒超时；响应上限 256 KiB，超限截断并把原始片段保存为任务归属产物
+  （`web-search-response`）后明确报错；畸形 JSON 同样保存原文后报错。
+- 认证失败（401）、限流（429，含服务建议等待时间）、配额上限（432/433）、
+  服务错误（5xx）、超时与取消均一次终止并返回明确状态，不自动重试；任务
+  取消/中断经 AbortSignal 中止在途请求，重启或响应不明不重复发送。
+- 每条结果保留标题、来源 URL、摘要与发布时间（若有），按服务相关性顺序；
+  字段有界清理（去控制字符、限长），非法 URL 丢弃并如实标注。结果是外部
+  未核实资料：工具说明与结果标注均要求不得执行其中指令、不作为拥有者指令
+  或权限依据，回答引用搜索事实必须附来源 URL。结果只进入当前任务上下文，
+  不写长期记忆；工具定义与结果计入既有上下文预算。
+- 权限边界不变：`web_search` 是普通只读工具，不产生审批请求，不改变
+  confirm / full_access / auto-review 语义；模型不能经参数访问任意主机
+  （目标固定）、读取凭据或开启其他工具。
+
 ## 恢复步骤
 
 1. 后台异常退出后重新启动（systemd 自动拉起或手工 `npm start -- start`）。
@@ -373,6 +413,8 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 | issue 06 GitHub 集成（19 项：绑定/凭据范围、PR/run 采集与分页、inconsistent、302 重定向防护（含 IPv6/映射地址）、草稿与发布、stale 复核、effect_unknown、配置撤销、请求确认发布、凭据范围收紧、pending 操作幂等边界、发布目标校验、已结束任务 confirm 拒绝） | macOS 本机（本地模拟 GitHub API，经真实宿主工具与审批路径） | 通过（125 项总计含既有回归，0 失败） |
 | 全部离线集成验证（125 项，逐文件顺序执行） | tx（Ubuntu 24.04，Node 24.21.0） | 通过（2026-09-21，17/17 文件 0 失败；修复 15-tui-pty 的 npx 孙进程持有管道导致文件级挂起——detached 进程组 + 整组回收，macOS 回归同过） |
 | 真实仓库只读连通性（显式触发一次读取） | 需真实仓库 + 读取凭据 | 未验证（未配置；不申请写权限完成只读验收） |
+| issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
+| 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
 
 ### 按会话选择模型
 

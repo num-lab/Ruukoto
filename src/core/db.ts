@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   instruction_files TEXT NOT NULL DEFAULT '[]',
+  web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled')),
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -302,9 +303,9 @@ export class Db {
       this.db.exec(SCHEMA_SQL);
       this.ensureColumns();
     } else {
-      // v6 起旧库的 tasks/sessions 访问模式 CHECK 需重建表；FK pragma 在事务内
+      // v6 起旧库（< v6）的 tasks/sessions 访问模式 CHECK 需重建表；FK pragma 在事务内
       // 无效，必须在事务外关闭（tasks 引用 sessions，重建期间不强制），结束后恢复。
-      const rebuildModeChecks = row !== undefined && version < SCHEMA_VERSION;
+      const rebuildModeChecks = row !== undefined && version < 6;
       if (rebuildModeChecks) this.db.exec("PRAGMA foreign_keys = OFF;");
       // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
       this.db.exec("BEGIN IMMEDIATE");
@@ -354,10 +355,11 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 5) {
+    } else if (version >= 2 && version <= 6) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
-      // v4 → v5：模型选择补列。均为 SCHEMA_SQL 幂等建表覆盖 + 补列；
-      // v5 → v6 的 CHECK 变更由重建步骤统一处理，无既有数据需要改写。
+      // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列。
+      // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
+      // 统一处理，无既有数据需要改写。
       this.ensureColumns();
     } else {
       throw new Error(`不支持从 schema v${version} 迁移`);
@@ -451,6 +453,8 @@ ALTER TABLE sessions_new RENAME TO sessions;
     add("tasks", "model_selection", "model_selection TEXT");
     add("tasks", "submission_digest", "submission_digest TEXT");
     add("projects", "instruction_files", "instruction_files TEXT NOT NULL DEFAULT '[]'");
+    // v7（issue 20）：项目级 Web Search 开关，默认启用，拥有者可显式禁用
+    add("projects", "web_search", "web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled'))");
     add("selection_records", "instruction_version", "instruction_version TEXT NOT NULL DEFAULT ''");
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "prompt_artifact", "prompt_artifact TEXT");

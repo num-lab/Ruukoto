@@ -457,6 +457,13 @@ export class ControlServer {
           files: files as string[],
         });
       }
+      case "set_project_web_search": {
+        const enabled = params["enabled"];
+        if (typeof enabled !== "boolean") {
+          throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
+        }
+        return runtime.setProjectWebSearch({ projectId: requireString("project_id"), enabled });
+      }
       case "list_memories":
         return {
           memories: runtime.listMemories({

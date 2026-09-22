@@ -119,6 +119,8 @@ export interface RuntimeConfig {
   budgetOverrides?: Partial<SelectorBudgetConfig>;
   /** 测试注入：GitHub 客户端构造（指向模拟服务；生产缺省走 defaultClientFor）。 */
   githubClientFor?: (binding: GitHubRepoBinding, operation: "github_read" | "github_publish", credentials: CredentialStore, currentBinding: () => GitHubRepoBinding | null) => GitHubClient;
+  /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点与 15s 超时）。 */
+  webSearch?: import("../agent/web-search.ts").WebSearchConfig;
   /** 自动审查配置（issue 15）：仅测试用来压短时限/输出上限。 */
   autoReview?: { timeoutMs?: number; maxTokens?: number };
 }
@@ -1127,6 +1129,7 @@ export class Runtime {
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
         github: { github: this.github, clientFor: this.config.githubClientFor },
+        webSearch: this.config.webSearch,
         reviewer: this.reviewer,
       });
       this.drivers.set(session.id, driver);
@@ -1595,6 +1598,18 @@ export class Runtime {
       }
     }
     this.store.setProjectInstructionFiles(project.id, input.files);
+    return this.store.getProject(project.id)!;
+  }
+
+  /**
+   * 按项目启用/禁用 Web Search（issue 20；拥有者入口）。默认启用；
+   * 禁用立即阻止后续调用（工具按调用新鲜检查），启用从下一任务生效
+   * （任务开始固定工具清单）。
+   */
+  setProjectWebSearch(input: { projectId: string; enabled: boolean }): Project {
+    const project = this.store.getProject(input.projectId);
+    if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    this.store.setProjectWebSearch(project.id, input.enabled ? "enabled" : "disabled");
     return this.store.getProject(project.id)!;
   }
 

@@ -79,6 +79,11 @@ export interface Project {
    * 任务开始时经受限路径读取并钉版本；空数组 = 无项目指令。
    */
   instructionFiles: string[];
+  /**
+   * Web Search 开关（issue 20）：默认 enabled；拥有者可按项目显式禁用。
+   * 任务开始固定工具清单；禁用立即阻止后续调用，启用从下一任务生效。
+   */
+  webSearch: "enabled" | "disabled";
   createdAt: string;
 }
 

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 03, 05, 10
 
 # 添加 Web Search 工具，首版适配 Tavily
@@ -89,3 +89,18 @@ Q1–Q8 已确认：直接调用 Tavily Search API；Web Search 默认启用但�
 ### 2026-09-22：补充实施计划
 
 已核对现有工具装配、任务身份、凭据存储、上下文预算、产物和测试入口；计划复用公共能力，采用单一 Tavily API 适配层与本地模拟服务验证。
+
+### 2026-09-22：实现完成
+
+按计划落地，代码落点：
+
+1. **Tavily 适配层**：`src/agent/web-search.ts`（`web_search` 普通宿主工具）。Node 标准 `fetch`，目标固定 `https://api.tavily.com/search`（生产强制 https，http 仅限 loopback 测试注入）；凭据经 `CredentialStore` 按 `purpose=tavily_search` + host 一致匹配，并走 `getForUse` 核对使用范围（scope 绑定只对匹配项目/操作注入）；秘密值只拼入 `Authorization: Bearer` 头。开放 `query/topic(general|news)/time_range/include_domains/max_results/search_depth(basic|fast|ultra-fast)`；advanced 每次 2 配额不开放。限额：查询 ≤500 字符、每次 ≤5 条、每任务 ≤5 次（按 `tool_ops` 执行意图计数，含被拒绝调用，重启可核对）、15s `AbortSignal` 超时（透传任务取消信号）、响应 256 KiB 上限。未知字段/超限/非法域名一律拒绝且不发请求。401/429(含 Retry-After)/432/433/5xx/超时/取消/畸形 JSON 均一次终止、明确错误码、不自动重试；截断与畸形响应原文保存为任务归属产物（`web-search-response`）。结果保留标题/URL/摘要/发布时间与顺序，字段有界清理（去控制字符、限长、非法 URL 丢弃并标注），结果头带服务名、查询时间、参数摘要、截断状态与不可信标注。
+2. **项目开关**：`projects.web_search`（schema v6→v7，`ensureColumns` 幂等补列，旧项目默认 enabled；v5→v6 的 CHECK 重建门控改为 `version < 6`）。任务开始在 `runInner` 用 SDK 公开 `setActiveToolsByName` 钉版工具清单（禁用项目的任务模型不可见 `web_search`，系统提示同步重建）；工具内每次调用新鲜读项目标志，任务内禁用立即阻止后续调用；启用从下一任务生效。未新增 tasks 列/配置版本：钉版 + 按调用新鲜检查行为等价（见下"偏差"）。
+3. **装配与入口**：`driver.ts`（`ensureSdk` 注册 + `bindHostCall` 收敛三处重复闭包 + 门含 `WEB_SEARCH_TOOL_NAMES`，不落 mock `confirmTools`）；`RuntimeConfig.webSearch`（baseUrl/timeoutMs 仅测试注入）；控制面 `set_project_web_search`；CLI `project web-search <id> on|off`。TUI 复用通用工具事件展示（工具名/状态/结果摘要含来源），无独立命令。
+4. **测试**：`test/23-web-search.test.ts`（20 已被 prompt-inspector 占用，取 23）9 项：默认启用与来源/查询时间/参数摘要保留、凭据注入与脱敏（模型上下文/工具记录均无秘密值）、参数校验（超长/超量/未知字段/URL 改写参数/非法域名/非法深度，均零请求）、域名规范化透传、每任务上限与意图计数、项目禁用三态（任务开始不注册/任务内禁用立即生效/启用下一任务生效）、401/429/500/畸形/超大响应（不自动重试、产物归属与可读回）、超时与取消（不重复发送）、提示注入有界处理、凭据缺失/host/用途不匹配拒绝、v6→v7 迁移。既有 16/18/22 迁移用例的版本断言同步到 v7。
+
+验证：`npm run typecheck` 通过；`npm test` 184 项（183 通过、0 失败、1 项真实模型门控跳过）。**真实 Tavily 连通性未验证**（未配置凭据；按验收标准保留为未验证项，不以模拟结果宣称真实接入完成）。配置凭据后的人工验收：一次受控查询，记录端点/调用次数/限制与来源。
+
+与计划的偏差（行为等价，已核对）：未持久化"配置版本"（任务开始钉版 + 按调用新鲜检查已覆盖"任务内固定、禁用立即生效、启用下一任务生效"）；"结果计入上下文预算"与"重启不重放"复用既有机制（工具定义经 `state.tools` 计入选择器估算、结果为普通 toolResult 消息；重启恢复对全部 tool_ops 不重放，见 04 崩溃恢复套件），未单列测试。
+
+Code review（Standards + Spec 双轴）后修正：凭据解析改走 `getForUse`（scope 契约）；错误分类先判状态码再判截断（超大错误页不再掩盖 401/5xx）；超时/取消竞争优先标取消；`WebSearchConfig` 类型收敛重复字面量；补 URL 改写参数用例。

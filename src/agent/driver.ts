@@ -65,6 +65,7 @@ import {
 } from "./context-selector.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
 import { createGitHubTools, GITHUB_TOOL_NAMES, type GitHubToolsDeps } from "./github/tools.ts";
+import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
 
@@ -133,6 +134,8 @@ export interface DriverDeps {
   budgetOverrides?: Partial<SelectorBudgetConfig>;
   /** GitHub 集成（issue 06）：未配置时 GitHub 宿主工具不注册。 */
   github?: Omit<GitHubToolsDeps, "store" | "artifacts" | "credentials" | "taskContext" | "bindCall" | "emit">;
+  /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点）。 */
+  webSearch?: WebSearchConfig;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
 }
@@ -171,6 +174,8 @@ export class Driver {
   private hostToolCtx: HostToolContext | null = null;
   /** 本任务内 sdkCallId → 宿主数据工具上下文（并发调用各自独立）。 */
   private hostToolCalls = new Map<string, HostToolContext>();
+  /** SDK 会话登记的全部工具名（任务开始钉版工具清单的基准）。 */
+  private allToolNames: string[] = [];
   /** 本轮模型调用的选择结果（context 钩子填充；最终检查核对）。 */
   private pendingSelection: SelectorOutput | null = null;
   /** 选择/资料读取失败的阻断原因（最终检查发现即拒绝发送）。 */
@@ -233,15 +238,7 @@ export class Driver {
       historyIndex: this.deps.historyIndex,
       memories: this.deps.memories,
       taskContext: () => this.hostToolCtx,
-      /** 工具执行入口按 sdkCallId 绑定上下文（execute 包装时调用）。 */
-      bindCall: (sdkCallId) => {
-        const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
-        this.hostToolCtx = ctx;
-        return () => {
-          this.hostToolCtx = null;
-          this.hostToolCalls.delete(sdkCallId);
-        };
-      },
+      bindCall: this.bindHostCall,
       sessionFileFor: (sessionId) => this.deps.store.getSession(sessionId)?.sessionFile ?? null,
       projectOfSession: (sessionId) => this.deps.store.getSession(sessionId)?.projectId ?? null,
       syncSession: (sessionId) => {
@@ -258,20 +255,31 @@ export class Driver {
           artifacts: this.deps.artifacts,
           credentials: this.deps.credentials,
           taskContext: () => this.hostToolCtx,
-          bindCall: (sdkCallId) => {
-            const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
-            this.hostToolCtx = ctx;
-            return () => {
-              this.hostToolCtx = null;
-              this.hostToolCalls.delete(sdkCallId);
-            };
-          },
+          bindCall: this.bindHostCall,
           emit: (body, refs) => {
             this.deps.store.withTx(() => this.deps.store.appendEvent(body, refs));
           },
           ...this.deps.github,
         })
       : [];
+    // Web Search 宿主工具（issue 20）：同一身份注入；项目禁用与否在任务开始
+    // 钉版工具清单时判定（runInner），调用时另有新鲜检查
+    const webSearchTools = createWebSearchTools({
+      store: this.deps.store,
+      artifacts: this.deps.artifacts,
+      credentials: this.deps.credentials,
+      taskContext: () => this.hostToolCtx,
+      bindCall: this.bindHostCall,
+      baseUrl: this.deps.webSearch?.baseUrl,
+      timeoutMs: this.deps.webSearch?.timeoutMs,
+    });
+    const allTools = [
+      ...this.deps.toolFactory({ registry: this.registry, router: this.router }),
+      ...hostDataTools,
+      ...githubTools,
+      ...webSearchTools,
+    ];
+    this.allToolNames = allTools.map((t) => t.name);
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -279,7 +287,7 @@ export class Driver {
       modelRuntime: this.deps.modelRuntime,
       model,
       thinkingLevel,
-      tools: [...this.deps.toolFactory({ registry: this.registry, router: this.router }), ...hostDataTools, ...githubTools],
+      tools: allTools,
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -292,6 +300,16 @@ export class Driver {
     this.wrapStreamFunction(this.sdk);
     return this.sdk;
   }
+
+  /** 工具执行入口按 sdkCallId 绑定宿主上下文（execute 包装时调用）。 */
+  private readonly bindHostCall = (sdkCallId: string): (() => void) => {
+    const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
+    this.hostToolCtx = ctx;
+    return () => {
+      this.hostToolCtx = null;
+      this.hostToolCalls.delete(sdkCallId);
+    };
+  };
 
   // ---------- 上下文选择与请求前最终检查（issue 05 §3/§4） ----------
 
@@ -678,6 +696,16 @@ export class Driver {
       return;
     }
 
+    // 任务开始固定工具清单（issue 20）：项目禁用 Web Search 时本任务不注册
+    // web_search（模型不可见、系统提示同步重建）；任务内不随配置变化，新配置
+    // 从下一任务生效。任务内的禁用由工具按调用新鲜检查立即阻止。
+    const webSearchEnabled = this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled";
+    sdk.setActiveToolsByName(
+      webSearchEnabled
+        ? this.allToolNames
+        : this.allToolNames.filter((n) => !(WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(n)),
+    );
+
     // 会话文件路径尽早落库：崩溃后重启才能打开同一份 JSONL 而不是另起新文件
     const currentFile = sdk.sessionFile;
     if (currentFile && currentFile !== this.session.sessionFile) {
@@ -982,11 +1010,12 @@ export class Driver {
       return undefined;
     }
 
-    // 资料与记忆宿主工具（issue 05）与 GitHub 宿主工具（issue 06）：
-    // 身份由宿主注入，不经路由器/工作进程
+    // 资料与记忆宿主工具（issue 05）、GitHub 宿主工具（issue 06）与
+    // Web Search 宿主工具（issue 20）：身份由宿主注入，不经路由器/工作进程
     if (
       (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (GITHUB_TOOL_NAMES as readonly string[]).includes(event.toolName)
+      (GITHUB_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,

@@ -79,7 +79,7 @@ function demoTasks(): Task[] {
   ];
 }
 
-const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", instructionFiles: ["AGENTS.md"], createdAt: ts(120) };
+const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", instructionFiles: ["AGENTS.md"], webSearch: "enabled", createdAt: ts(120) };
 
 const SESSION: Session = {
   id: SESSION_ID,

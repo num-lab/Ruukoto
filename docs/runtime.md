@@ -359,6 +359,80 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
   confirm / full_access / auto-review 语义；模型不能经参数访问任意主机
   （目标固定）、读取凭据或开启其他工具。
 
+## MCP 服务（issue 16）
+
+拥有者按项目配置的 Model Context Protocol 服务，首版仅 Streamable HTTP
+传输、手动配置凭据、工具发现与调用；stdio、OAuth 登录、resources/prompts
+与客户端代执行能力（sampling/elicitation）不启用。首个接入对象为官方远程
+GitHub MCP。MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
+权限与控制面边界，不等同于授予项目命令任意网络或凭据访问权。
+
+### 服务配置与管理
+
+- 配置存后台 SQLite（`mcp_services` 表，schema v8）：服务 ID、名称（项目内
+  唯一的小写 slug）、HTTPS 端点、凭据绑定名、工具允许列表、启用状态与
+  可比较配置版本；秘密值仍在 CredentialStore，不进入本表、事件或日志。
+- 拥有者入口（模型工具不能调用）：
+  - `ruukoto credentials add --name github-mcp --host api.githubcopilot.com
+    --header authorization --purpose mcp --secret-env GITHUB_MCP_PAT`
+    （MCP 凭据用途固定为 `mcp`，host 须与服务端点一致，经 authorization
+    头以 Bearer 注入；配置服务时 scope 自动收紧到该项目 + mcp 操作，已有
+    冲突 scope 拒绝配置）
+  - `ruukoto mcp configure --project <id> --name github --endpoint
+    https://api.githubcopilot.com/mcp/readonly --credential github-mcp
+    --tools get_me,get_file_contents [--expected-version N]`
+  - `ruukoto mcp list [--project <id>]`（脱敏视图）
+  - `ruukoto mcp check <service-id>`（连接检查 + 工具发现，标注每个远端工具
+    是否在允许列表；先打印将联系的端点）
+  - `ruukoto mcp disable <service-id>` / `enable` / `remove`
+- 端点校验：生产固定 https，http 仅限回环模拟服务；拒绝 userinfo；客户端
+  钉住端点源，拒绝跨源重定向，不向非配置目标转发认证。变更采用期望版本
+  校验；任何变化递增配置版本并发 `mcp.service_changed` 事件。
+
+### 任务内行为
+
+- 任务开始重读项目配置并逐个连接启用的服务做工具发现，钉版本任务工具
+  清单；清单签名（服务配置版本 + 工具名/描述/schema 摘要）变化时从同一
+  历史文件重建 SDK 会话。新增工具与扩大范围只在下一任务生效；任务内禁用、
+  撤销或版本变化立即阻止后续调用（不发送网络请求）。
+- 暴露给模型的工具名带稳定命名空间 `mcp_<服务名>_<远端工具名>`（≤64 字符，
+  截断带哈希后缀；转义后冲突的工具禁用并记录）。只注册允许列表内且通过
+  校验的工具：远端 JSON Schema 须为普通对象、根类型 object、≤16 KiB 并经
+  TypeBox 预检；工具的只读标注/描述不作为权限依据。首版只允许拥有者显式
+  开放的只读工具，写工具与未分类工具不注册、不执行（通用写工具见
+  issue 18）。
+- 结果区分传输错误与工具执行错误（isError 保留）；文本与结构化结果保留，
+  图片/音频/资源链接等内容类型明确说明且不自动打开或下载；超过 32 KiB 的
+  结果正文入 ArtifactStore（硬上限 1 MiB，超限明确标记截断），模型只收
+  预览与产物引用。工具定义计入既有上下文预算。
+- 初始化/发现/调用各有有界超时（默认 15s/15s/60s）；连接失效由下一任务
+  重新初始化，不自动重放已发出的调用；任务取消只表示本地停止等待，不承诺
+  远端操作已停止。显式启用但初始化失败的服务发 `mcp.service_unavailable`
+  事件并列为不可用，任务不带其工具继续；无 MCP 配置的项目保持可启动。
+
+### GitHub MCP 首次配置
+
+- 端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly`
+  为服务端只读开关，见官方 remote-server 文档）；凭据为独立只读 PAT
+  （purpose=mcp，host=api.githubcopilot.com），不复用旧 REST 模块凭据。
+- 允许列表按 `mcp check` 实际发现的工具名精确填写（服务端工具集随版本
+  变化，以发现结果为准）；建议只开放身份查询、仓库文件、PR、Issue、
+  Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端
+  未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。
+- 验收记录：真实只读连通验证（SDK 版本、协商协议、工具清单与结果）在配置
+  具备时进行；缺少凭据或网络条件时如实列为未验证，不以模拟测试冒充。
+
+### 故障排查
+
+- 认证失败（401/403）：凭据无效、已撤销或权限不足 —— 核对
+  `credentials list` 中 host/用途/scope 与 PAT 权限。
+- 服务不可用事件：按事件中的 reason 区分连接失败、超时、协议不兼容
+  （SDK 结果校验失败说明服务端违反 MCP 规范）与工具数/分页超限。
+- 工具缺失：`mcp check` 对比远端实际工具与允许列表；远端改名须更新配置
+  （下一任务生效）。
+- 限流（429）与超时：一次终止并明确报错，不自动重试；由拥有者决定重试
+  时机。任务取消/中断后迟到结果被忽略，终态与操作记录保持一致。
+
 ## 恢复步骤
 
 1. 后台异常退出后重新启动（systemd 自动拉起或手工 `npm start -- start`）。

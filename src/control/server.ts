@@ -205,6 +205,15 @@ export class ControlServer {
       }
       return value;
     };
+    /** 可选期望版本（乐观并发）：非负整数，缺省 undefined。 */
+    const optionalExpectedVersion = (): number | undefined => {
+      const value = params["expected_version"];
+      if (value === undefined) return undefined;
+      if (!Number.isInteger(value) || (value as number) < 0) {
+        throw Object.assign(new Error("expected_version 必须是非负整数"), { code: "invalid_params" });
+      }
+      return value as number;
+    };
     switch (request.op) {
       case "ping":
         return { pong: true, stopping: runtime.stopping };
@@ -639,6 +648,35 @@ export class ControlServer {
           accessMode,
         });
       }
+      // ---------- issue 16：MCP 服务配置 ----------
+      case "mcp_configure": {
+        const allowlist = params["tool_allowlist"];
+        if (!Array.isArray(allowlist) || allowlist.some((s) => typeof s !== "string")) {
+          throw Object.assign(new Error("tool_allowlist 必须是字符串数组"), { code: "invalid_params" });
+        }
+        return runtime.mcpConfigure({
+          projectId: requireString("project_id"),
+          name: requireString("name"),
+          endpoint: requireString("endpoint"),
+          // 未提供 = 更新时保留现有凭据引用；显式 null = 清除
+          credential: typeof params["credential"] === "string" ? params["credential"] : params["credential"] === null ? null : undefined,
+          toolAllowlist: allowlist as string[],
+          enabled: typeof params["enabled"] === "boolean" ? params["enabled"] : undefined,
+          expectedVersion: optionalExpectedVersion(),
+        });
+      }
+      case "mcp_list":
+        return { services: runtime.mcpListServices(typeof params["project_id"] === "string" ? params["project_id"] : undefined) };
+      case "mcp_set_enabled": {
+        if (typeof params["enabled"] !== "boolean") {
+          throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
+        }
+        return runtime.mcpSetEnabled(requireString("service_id"), params["enabled"] as boolean, optionalExpectedVersion());
+      }
+      case "mcp_remove":
+        return { removed: runtime.mcpRemoveService(requireString("service_id")) };
+      case "mcp_check":
+        return runtime.mcpCheckService(requireString("service_id"));
       case "stop": {
         void runtime.stop("control_plane").catch(() => {});
         return { accepted: true };

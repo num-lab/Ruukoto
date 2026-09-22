@@ -408,6 +408,64 @@ async function main(argv: string[]): Promise<number> {
       );
       return 1;
     }
+    case "mcp": {
+      const sub = positional[0];
+      if (sub === "configure") {
+        print(
+          await withClient((c) =>
+            c.request("mcp_configure", {
+              project_id: flags["project"] ?? "",
+              name: flags["name"] ?? "",
+              endpoint: flags["endpoint"] ?? "",
+              credential: flags["credential"],
+              tool_allowlist: (flags["tools"] ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+              enabled: flags["disabled"] !== undefined ? false : undefined,
+              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "list") {
+        print(await withClient((c) => c.request("mcp_list", { project_id: flags["project"] })));
+        return 0;
+      }
+      if (sub === "enable" || sub === "disable") {
+        print(
+          await withClient((c) =>
+            c.request("mcp_set_enabled", {
+              service_id: positional[1] ?? "",
+              enabled: sub === "enable",
+              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "remove") {
+        print(await withClient((c) => c.request("mcp_remove", { service_id: positional[1] ?? "" })));
+        return 0;
+      }
+      if (sub === "check") {
+        // 检查连接前明确展示将联系的服务（端点），再发请求
+        print(
+          await withClient(async (c) => {
+            const list = (await c.request("mcp_list", {})) as any;
+            const target = (list.services as any[]).find((s) => s.id === positional[1]);
+            if (target) console.error(`连接检查：${target.name}（${target.endpoint}）`);
+            return c.request("mcp_check", { service_id: positional[1] ?? "" });
+          }),
+        );
+        return 0;
+      }
+      console.error(
+        "用法：\n" +
+          "  ruukoto mcp configure --project <id> --name <slug> --endpoint <url> [--credential <name>] [--tools a,b,c] [--disabled] [--expected-version N]\n" +
+          "  ruukoto mcp list [--project <id>] | enable <service-id> | disable <service-id> | remove <service-id>\n" +
+          "  ruukoto mcp check <service-id>（连接检查 + 工具列表，标注允许/未允许）",
+      );
+      return 1;
+    }
     case "stop":
       print(await withClient((c) => c.request("stop", {})));
       return 0;
@@ -573,7 +631,7 @@ function defaultHelp(): string {
   return (
     "用法：ruukoto <command> [args]\n" +
     "命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
-    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop |\n" +
+    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | github | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（tui：直接进入指定会话，不存在则报错）；--demo（tui：合成调试会话，不连后台）\n" +

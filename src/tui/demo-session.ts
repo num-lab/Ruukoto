@@ -332,6 +332,8 @@ function demoEvents(): PersistentEvent[] {
     { type: "github.draft_stale", draftId: "draft_demo000000", version: 1, reason: "PR head SHA 已变化" },
     { type: "github.publish_requested", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", draftVersion: 1, taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "github.publish_settled", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", status: "effect_unknown", remoteUrl: null, errorMessage: "发送后超时" },
+    { type: "mcp.service_changed", serviceId: "mcps_demo000000", projectId: PROJECT_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
+    { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", projectId: PROJECT_ID, taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
     { type: "tasks.model_selection_recorded", sessionId: SESSION_ID, taskIds: ["task_queued000000"], modelSelection: MODEL },
     { type: "backend.recovered", interruptedTaskIds: ["task_interrupt00"], pausedSessionIds: [SESSION_ID] },
     { type: "backend.stopping", reason: "signal_sigterm" },

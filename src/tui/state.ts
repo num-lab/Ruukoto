@@ -448,6 +448,14 @@ export class ViewState {
       case "github.binding_changed":
         this.note(null, `GitHub 仓库绑定${body.action === "removed" ? "已撤销" : "已更新"}：${body.owner}/${body.repo}（配置版本 ${body.configVersion}）`);
         return;
+      case "mcp.service_changed": {
+        const action = body.action === "removed" ? "已移除" : body.action === "disabled" ? "已禁用" : body.action === "enabled" ? "已启用" : "已更新";
+        this.note(null, `MCP 服务 ${body.name}（${body.endpoint}）${action}（配置版本 ${body.configVersion}）`);
+        return;
+      }
+      case "mcp.service_unavailable":
+        this.noteForTask(body.taskId, `MCP 服务 ${body.name}（${body.endpoint}）不可用：${body.reason}；本任务缺少其工具能力`, event.createdAt);
+        return;
       case "backend.stopping":
       case "backend.stopped":
         // 连接会随即断开；状态由连接层展示

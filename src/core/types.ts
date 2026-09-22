@@ -317,6 +317,9 @@ export type PersistentEventBody =
   | { type: "github.draft_stale"; draftId: string; version: number; reason: string }
   | { type: "github.publish_requested"; publishOpId: string; draftId: string; draftVersion: number; taskId: string; sessionId: string }
   | { type: "github.publish_settled"; publishOpId: string; draftId: string; status: "sent" | "failed" | "effect_unknown" | "canceled"; remoteUrl: string | null; errorMessage: string | null }
+  | { type: "mcp.service_changed"; serviceId: string; projectId: string; name: string; endpoint: string; configVersion: number; action: "upsert" | "enabled" | "disabled" | "removed" }
+  /** 任务开始时显式启用的服务初始化失败（连接/认证/超时等）：本任务缺少其工具能力。 */
+  | { type: "mcp.service_unavailable"; serviceId: string; projectId: string; taskId: string; sessionId: string; name: string; endpoint: string; reason: string }
   | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }

@@ -18,7 +18,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Db } from "../src/core/db.ts";
+import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 import { AccessScope, AccessDeniedError } from "../src/core/access.ts";
 import {
@@ -1136,7 +1136,7 @@ test("迁移：v2 库升级到 v3 补列建表，既有数据保留", async () =
     const pb = store.createProject("B");
     const grant = access.createGrant({ fromProjectId: pb.id, toProjectId: "proj_old", category: "history" });
     assert.ok(grant.id);
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "7");
+    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
     db.close();
   } finally {
     await cleanupDirs(dirs);

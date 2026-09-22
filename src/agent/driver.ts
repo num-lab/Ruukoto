@@ -66,6 +66,9 @@ import {
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
 import { createGitHubTools, GITHUB_TOOL_NAMES, type GitHubToolsDeps } from "./github/tools.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
+import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
+import type { McpConnection, McpTimeouts } from "./mcp/client.ts";
+import type { McpStore } from "./mcp/store.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
 
@@ -136,6 +139,8 @@ export interface DriverDeps {
   github?: Omit<GitHubToolsDeps, "store" | "artifacts" | "credentials" | "taskContext" | "bindCall" | "emit">;
   /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点）。 */
   webSearch?: WebSearchConfig;
+  /** MCP（issue 16）：服务配置存储与超时覆盖；未配置时 MCP 工具不注册。 */
+  mcp?: { store: McpStore } & McpTimeouts;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
 }
@@ -176,6 +181,14 @@ export class Driver {
   private hostToolCalls = new Map<string, HostToolContext>();
   /** SDK 会话登记的全部工具名（任务开始钉版工具清单的基准）。 */
   private allToolNames: string[] = [];
+  /** 当前任务钉版的 MCP 工具名集合（handleToolCall 分派依据；任务间比对签名）。 */
+  private mcpToolNames = new Set<string>();
+  /** 当前任务持有的 MCP 连接（按服务 ID；任务结束/取消/后台关闭时回收）。 */
+  private mcpConns = new Map<string, McpConnection>();
+  /** 上次 SDK 会话创建时的 MCP 工具清单签名（不一致则重建会话换工具定义）。 */
+  private mcpSignature: string | null = null;
+  /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
+  private pendingMcpToolDefs: ToolDefinition[] = [];
   /** 本轮模型调用的选择结果（context 钩子填充；最终检查核对）。 */
   private pendingSelection: SelectorOutput | null = null;
   /** 选择/资料读取失败的阻断原因（最终检查发现即拒绝发送）。 */
@@ -278,7 +291,11 @@ export class Driver {
       ...hostDataTools,
       ...githubTools,
       ...webSearchTools,
+      // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
+      // 固定，工具集合变化由 runInner 先重建会话再走到这里
+      ...this.pendingMcpToolDefs,
     ];
+    this.pendingMcpToolDefs = [];
     this.allToolNames = allTools.map((t) => t.name);
     this.sdk = await createSdkSession({
       session: this.session,
@@ -675,9 +692,49 @@ export class Driver {
     try {
       await this.runPromise;
     } finally {
+      // 任务终态后回收本任务持有的 MCP 连接（所有退出路径统一兜底）
+      await this.closeMcpConns();
+      this.mcpToolNames = new Set();
       this.runPromise = null;
       this.currentTask = null;
     }
+  }
+
+  /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
+  private async planMcp(): Promise<McpTaskPlan> {
+    if (!this.deps.mcp) return EMPTY_MCP_PLAN;
+    return planMcpTaskTools({
+      mcpStore: this.deps.mcp.store,
+      credentials: this.deps.credentials,
+      artifacts: this.deps.artifacts,
+      projectId: this.session.projectId,
+      taskContext: () => this.hostToolCtx,
+      bindCall: this.bindHostCall,
+      connectionFor: (serviceId) => this.mcpConns.get(serviceId) ?? null,
+      connectTimeoutMs: this.deps.mcp.connectTimeoutMs,
+      listTimeoutMs: this.deps.mcp.listTimeoutMs,
+      callTimeoutMs: this.deps.mcp.callTimeoutMs,
+    });
+  }
+
+  /**
+   * 工具清单签名变化时丢弃 SDK 会话（issue 16 §4 既定回退路径）：SDK 的
+   * 工具白名单在创建时固定（session-factory 封闭运行时），无法安全替换定义；
+   * ensureSdk 随后从同一历史文件重开会话并重新绑定宿主钩子，历史不丢。
+   */
+  private dropSdkForToolChange(): void {
+    if (!this.sdk) return;
+    this.sdk.dispose();
+    this.sdk = null;
+    this.originalStreamFn = null;
+    this.markerApi = null;
+  }
+
+  /** 回收当前任务持有的 MCP 连接（幂等；迟到结果由 SDK 丢弃）。 */
+  private async closeMcpConns(): Promise<void> {
+    const conns = [...this.mcpConns.values()];
+    this.mcpConns = new Map();
+    await Promise.all(conns.map((c) => c.close()));
   }
 
   private async runInner(task: Task): Promise<void> {
@@ -685,13 +742,41 @@ export class Driver {
     try {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
       const model = await this.deps.modelCatalog.resolve(task.modelSelection);
+      // MCP（issue 16）：任务开始重读配置并发现工具，钉版本任务工具清单；
+      // 单个服务初始化失败降级为不可用事件，不阻断任务
+      const mcpPlan = await this.planMcp();
+      if (this.sdk && mcpPlan.signature !== this.mcpSignature) this.dropSdkForToolChange();
+      this.pendingMcpToolDefs = mcpPlan.toolDefs;
+      // 连接先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收它们
+      this.mcpConns = mcpPlan.connections;
       sdk = await this.ensureSdk(model, task.modelSelection.thinkingLevel);
+      this.pendingMcpToolDefs = [];
+      this.mcpSignature = mcpPlan.signature;
+      this.mcpToolNames = new Set(mcpPlan.toolDefs.map((t) => t.name));
+      for (const u of mcpPlan.unavailable) {
+        this.deps.store.withTx(() => {
+          this.deps.store.appendEvent(
+            {
+              type: "mcp.service_unavailable",
+              serviceId: u.service.id,
+              projectId: u.service.projectId,
+              taskId: task.id,
+              sessionId: task.sessionId,
+              name: u.service.name,
+              endpoint: u.service.endpoint,
+              reason: u.reason,
+            },
+            { taskId: task.id, sessionId: task.sessionId },
+          );
+        });
+      }
       if (sdk.model?.provider !== model.provider || sdk.model?.id !== model.id) await sdk.setModel(model);
       sdk.setThinkingLevel(task.modelSelection.thinkingLevel);
       if (sdk.model?.provider !== model.provider || sdk.model?.id !== model.id || sdk.thinkingLevel !== task.modelSelection.thinkingLevel) {
         throw new Error("model_selection_mismatch:SDK 未应用任务模型配置");
       }
     } catch (err) {
+      await this.closeMcpConns();
       this.finalize(task, "failed", { errorMessage: `SDK 会话创建失败：${(err as Error).message}` });
       return;
     }
@@ -823,6 +908,8 @@ export class Driver {
     const abortPromise = this.sdk?.isStreaming ? this.sdk.abort().catch(() => {}) : null;
     const reaped = await this.killManagedProcesses();
     if (abortPromise) await abortPromise;
+    // MCP 连接随任务停止回收：在途调用已被 abort 中断，迟到结果由 SDK 丢弃
+    await this.closeMcpConns();
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
     this.finalize(task, opts.terminal, {
@@ -1017,6 +1104,18 @@ export class Driver {
       (GITHUB_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
+      this.hostToolCalls.set(event.toolCallId, {
+        taskId: task.id,
+        sessionId: task.sessionId,
+        projectId: this.session.projectId,
+        hostOpId,
+      });
+      return undefined;
+    }
+
+    // MCP 动态工具（issue 16）：按任务钉版的工具名集合判定，身份绑定同宿主
+    // 数据工具；必须在 mock confirmTools 路径之前，未登记的工具不得落入放行
+    if (this.mcpToolNames.has(event.toolName)) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,
         sessionId: task.sessionId,
@@ -1492,6 +1591,7 @@ export class Driver {
 
   async dispose(): Promise<void> {
     if (this.runPromise) await this.runPromise.catch(() => {});
+    await this.closeMcpConns();
     this.sdk?.dispose();
     this.sdk = null;
   }

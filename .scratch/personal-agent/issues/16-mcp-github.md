@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 Depends on: 03
 
 # 增加 MCP 支持，并首次接入 GitHub MCP
@@ -113,3 +113,40 @@ Depends on: 03
 ### 2026-09-22：访谈确认
 
 Q6、Q7、Q16、Q17 已确认，按项目启用远程只读 MCP 工具；通用写工具延后到 Issue 18。清理旧 GitHub 专用适配建议，转为 ready-for-agent。
+
+### 2026-09-23：实现完成（agent：issue 16）
+
+交付：通用 MCP 客户端（`@modelcontextprotocol/client` 2.0.0，仅 Streamable HTTP，
+不声明 sampling/elicitation 等客户端能力）；`mcp_services` 表（schema v7→v8，
+期望版本校验 + `mcp.service_changed` 事件同事务）；`src/agent/mcp/`（store /
+client / tools）：端点钉源（https，http 仅回环；同源同路径；拒绝重定向）、
+凭据 purpose=mcp + host 一致 + scope 收紧到项目+mcp 操作、authProvider 每次
+请求新鲜解析（撤销即时生效）；任务开始发现并钉版工具清单，签名变化从同一
+历史文件重建 SDK 会话（SDK 白名单创建时固定，无法用其更新接口安全替换）；
+暴露名 `mcp_<服务>_<工具>`（≤64 字符、冲突禁用）；schema 预检（普通对象 +
+根类型 object + ≤16 KiB + TypeBox Compile）；每次调用重读配置（禁用/撤销/
+版本变化立即阻止且不发请求）；结果区分传输错误与 isError，文本+结构化结果
+（SDK 按 outputSchema 校验），图片/音频/资源链接明确不展示，>32 KiB 入
+ArtifactStore（硬上限 1 MiB 标记截断）；连接按任务持有，结束/取消/停止回收，
+不重放在途调用。控制面 `mcp_configure/list/set_enabled/remove/check`，CLI
+`mcp …`，TUI 复用工具活动展示并新增 mcp 事件提示。docs/runtime.md 新增
+「MCP 服务」节（GitHub MCP 配置步骤、只读范围、禁用与排查），新增
+ADR 0006，CONTEXT.md 收录「MCP 服务」。
+
+验证：npm run typecheck 干净；npm test 205 项（204 通过，0 失败，1 项既有
+skip），其中 test/24-mcp.test.ts 22 项经进程内模拟 Streamable HTTP 服务覆盖
+初始化、分页发现、重名、schema 校验、结构化结果、isError/传输错误、超大
+响应、断线、认证失败、超时、取消、任务间刷新、运行中禁用/撤销凭据、跨项目
+并发、后台 SIGKILL 重启（effect_unknown 不重放）、重连补发脱敏、上下文预算
+计入、配置面校验/版本冲突/迁移；另有 TUI 状态测试覆盖 mcp 事件提示。
+code-review 两轮修复：ensureSdk 失败时连接泄漏、凭据引用更新语义
+（缺省保留/显式清除）、端点路径钉定、check 逐工具原因、跨项目并发测试。
+
+说明（对审查问题的处置）：「已固定工具的 schema 变化时停止旧调用」按任务
+粒度落实——发现只在任务开始，签名变化即重建会话，任务内不重发现（与
+「任务开始固定工具清单」一致）；hostToolCtx 复用既有宿主工具身份绑定机制
+（按 sdkCallId 登记、同步绑定读取），非共享可变状态。
+
+未验证（如实记录）：真实 GitHub MCP 只读连通（需拥有者配置独立只读 PAT；
+docs/runtime.md 已给出配置步骤与以 `mcp check` 核实实际工具名的流程，允许
+列表须按真实 tools/list 填写）。留待人工验收，故置 ready-for-human。

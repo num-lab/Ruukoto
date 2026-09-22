@@ -32,7 +32,7 @@ import {
   lastUserText,
 } from "./helpers/testkit.ts";
 import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
-import { Db } from "../src/core/db.ts";
+import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 import { Runtime } from "../src/runtime/runtime.ts";
 import {
@@ -840,7 +840,7 @@ INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, param
   raw.close();
 }
 
-test("schema v5 → v7 迁移：重建 CHECK、保留数据/索引/外键；新库直写 auto-review", () => {
+test("schema v5 → 当前版本迁移：重建 CHECK、保留数据/索引/外键；新库直写 auto-review", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-v5-"));
   const freshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-fresh-"));
   try {
@@ -849,7 +849,7 @@ test("schema v5 → v7 迁移：重建 CHECK、保留数据/索引/外键；新�
     try {
       const store = new Store(db);
       const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
-      assert.equal(version.value, "7", "迁移到当前版本");
+      assert.equal(version.value, String(SCHEMA_VERSION), "迁移到当前版本");
 
       // 数据保留：原模式、权限版本、审批状态与消费时间
       const task = store.getTask("task_old")!;

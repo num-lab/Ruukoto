@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -251,6 +251,23 @@ CREATE TABLE IF NOT EXISTS github_publish_ops (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_github_publish_ops_draft ON github_publish_ops (draft_id, draft_version);
+
+-- v8：MCP 服务配置（issue 16）——拥有者按项目管理的 MCP 服务；秘密值仍在
+-- CredentialStore，本表只存凭据绑定名。config_version 随任何变化递增，
+-- 任务开始钉版工具清单，调用前重读核对。
+CREATE TABLE IF NOT EXISTS mcp_services (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  credential TEXT,
+  tool_allowlist TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  config_version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, name)
+);
 `;
 
 /**
@@ -355,9 +372,10 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 6) {
+    } else if (version >= 2 && version <= 7) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
-      // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列。
+      // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
+      // v7 → v8：新增 MCP 服务配置表。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理，无既有数据需要改写。
       this.ensureColumns();

@@ -24,7 +24,7 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
-import { Db } from "../src/core/db.ts";
+import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 
 const SECRET = "tvly-test-secret";
@@ -487,7 +487,7 @@ test("未配置凭据、凭据 host 或用途不匹配时拒绝调用，不发�
   }
 });
 
-test("schema v6 → v7 迁移：projects 补 web_search 列，旧项目默认 enabled", () => {
+test("schema v6 → 当前版本迁移：projects 补 web_search 列，旧项目默认 enabled", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-v6-"));
   try {
     const raw = new DatabaseSync(path.join(root, "ruukoto.db"));
@@ -502,7 +502,7 @@ INSERT INTO projects (id, name, created_at) VALUES ('proj_old', '旧项目', '20
     try {
       const store = new Store(db);
       const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
-      assert.equal(version.value, "7", "迁移到 v7");
+      assert.equal(version.value, String(SCHEMA_VERSION), "迁移到当前 schema 版本");
       assert.equal(store.getProject("proj_old")!.webSearch, "enabled", "旧项目默认启用 Web Search");
       store.setProjectWebSearch("proj_old", "disabled");
       assert.equal(store.getProject("proj_old")!.webSearch, "disabled", "新库可读写开关");

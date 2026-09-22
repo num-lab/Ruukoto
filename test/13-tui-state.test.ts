@@ -295,3 +295,20 @@ test("自动审查事件：awaiting 携带审查状态，reviewed 转人工更�
   assert.equal(state.pendingApprovals().length, 0);
   assert.equal(state.globalNotes.length, notesBefore, "人工决定不新增来源提示");
 });
+
+test("MCP 事件：服务变更全局提示与任务内不可用提示（issue 16）", () => {
+  const state = new ViewState();
+  state.applySnapshot({ seq: 1, replay: [], snapshot: snapshot({ tasks: [task("task_1")] }) }, false);
+  state.openSession("sess_1");
+  state.applyEvent(
+    ev(2, { type: "mcp.service_changed", serviceId: "s1", projectId: "proj_1", name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 2, action: "disabled" }),
+    "live",
+  );
+  state.applyEvent(
+    ev(3, { type: "mcp.service_unavailable", serviceId: "s1", projectId: "proj_1", taskId: "task_1", sessionId: "sess_1", name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" }),
+    "live",
+  );
+  assert.ok(state.globalNotes.some((n) => n.text.includes("MCP 服务 docs") && n.text.includes("已禁用")), "服务变更进全局提示");
+  const view = state.openSession("sess_1");
+  assert.ok(view.notes.some((n) => n.text.includes("MCP 服务 docs") && n.text.includes("不可用") && n.text.includes("连接超时")), "不可用原因进会话提示");
+});

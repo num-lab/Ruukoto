@@ -64,6 +64,9 @@ import type { DataCategory, DataGrant, Memory, MemorySourceRef, MemoryVersion, S
 import type { SelectorBudgetConfig } from "../agent/context-selector.ts";
 import { selectionBreakdown, SelectionRecordCorrupt, type ContextBreakdown } from "../agent/context-selector.ts";
 import { GitHubStore, GITHUB_READ_SCOPES, type GitHubDraft, type GitHubPublishOp, type GitHubRepoBinding, type GitHubReadScope } from "../agent/github/store.ts";
+import { McpStore, McpVersionConflictError, type McpServiceConfig } from "../agent/mcp/store.ts";
+import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpConnection, type McpTimeouts } from "../agent/mcp/client.ts";
+import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { GitHubClient, GitHubError } from "../agent/github/client.ts";
 import { defaultClientFor } from "../agent/github/tools.ts";
 import { publishDraft, precheckDraft, PublishError, GITHUB_BODY_LIMIT } from "../agent/github/publish.ts";
@@ -121,6 +124,8 @@ export interface RuntimeConfig {
   githubClientFor?: (binding: GitHubRepoBinding, operation: "github_read" | "github_publish", credentials: CredentialStore, currentBinding: () => GitHubRepoBinding | null) => GitHubClient;
   /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点与 15s 超时）。 */
   webSearch?: import("../agent/web-search.ts").WebSearchConfig;
+  /** MCP（issue 16）：超时覆盖（仅测试注入；生产缺省 MCP_LIMITS）。 */
+  mcp?: McpTimeouts;
   /** 自动审查配置（issue 15）：仅测试用来压短时限/输出上限。 */
   autoReview?: { timeoutMs?: number; maxTokens?: number };
 }
@@ -183,6 +188,8 @@ export class Runtime {
   readonly memories: MemoryStore;
   /** GitHub 集成（issue 06）：仓库绑定、草稿与发布操作。 */
   readonly github: GitHubStore;
+  /** MCP 服务配置（issue 16）：拥有者按项目管理的 MCP 服务。 */
+  readonly mcp: McpStore;
   private readonly lock: AcquiredLock;
   modelRuntime!: ModelRuntime;
   private model: any;
@@ -211,6 +218,7 @@ export class Runtime {
     this.historyIndex = new HistoryIndex(db);
     this.memories = new MemoryStore(db);
     this.github = new GitHubStore(db);
+    this.mcp = new McpStore(db);
     store.onCommitted = (events) => this.onEventBroadcast?.(events);
   }
 
@@ -768,6 +776,197 @@ export class Runtime {
     return this.credentials.remove(name);
   }
 
+  // ---------- MCP 服务配置（issue 16 §2/§6） ----------
+
+  /**
+   * 配置/更新项目的 MCP 服务（拥有者操作）。端点生产固定 https（http 仅限
+   * 回环模拟服务）；凭据按名称引用 CredentialStore 绑定（host 须与端点一致、
+   * 用途须为 mcp），配置后 scope 收紧到本项目 + mcp 操作；变更采用期望版本
+   * 校验，任何变化递增 configVersion（任务内调用前重读核对）。
+   */
+  mcpConfigure(input: {
+    projectId: string;
+    name: string;
+    endpoint: string;
+    /** 凭据绑定名；undefined = 更新时保留现有引用，null = 清除。 */
+    credential?: string | null;
+    toolAllowlist: string[];
+    enabled?: boolean;
+    expectedVersion?: number;
+  }): McpServiceConfig {
+    const project = this.store.getProject(input.projectId);
+    if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    if (!/^[a-z0-9][a-z0-9_-]{0,29}$/.test(input.name)) {
+      throw new RuntimeApiError("invalid_params", `服务名必须是小写 slug（^[a-z0-9][a-z0-9_-]{0,29}$）：${input.name}`);
+    }
+    let endpoint: URL;
+    try {
+      endpoint = parseMcpEndpoint(input.endpoint);
+    } catch (err) {
+      throw new RuntimeApiError("invalid_params", (err as Error).message);
+    }
+    if (!Array.isArray(input.toolAllowlist) || input.toolAllowlist.some((t) => typeof t !== "string" || !t.trim() || t.length > 128)) {
+      throw new RuntimeApiError("invalid_params", "tool_allowlist 必须是非空字符串数组（每项 ≤128 字符）");
+    }
+    const toolAllowlist = [...new Set(input.toolAllowlist.map((t) => t.trim()))];
+    if (toolAllowlist.length > 128) throw new RuntimeApiError("invalid_params", "tool_allowlist 最多 128 项");
+    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
+    }
+    if (input.credential) {
+      const cred = this.credentials.get(input.credential);
+      if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${input.credential}`);
+      if (cred.host !== endpoint.host) {
+        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的 host（${cred.host}）与端点 host（${endpoint.host}）不一致`);
+      }
+      if (cred.purpose !== MCP_CREDENTIAL_PURPOSE) {
+        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 用途是 ${cred.purpose}，MCP 服务需要 purpose=${MCP_CREDENTIAL_PURPOSE} 的凭据`);
+      }
+      if (cred.header.toLowerCase() !== "authorization") {
+        throw new RuntimeApiError("invalid_params", `MCP 凭据须使用 authorization 头（Bearer）：${input.credential}`);
+      }
+      // scope 兼容性先校验（写操作前）：已有 scope 冲突时拒绝，避免静默改变
+      // 既有授权的边界，也避免配置已落库但凭据收紧失败的半截状态
+      if (cred.scope) {
+        const sameProject = cred.scope.projectId === undefined || cred.scope.projectId === input.projectId;
+        const coversOp = cred.scope.operations === undefined || cred.scope.operations.includes(MCP_CREDENTIAL_PURPOSE);
+        if (!sameProject || !coversOp) {
+          throw new RuntimeApiError(
+            "invalid_params",
+            `凭据 ${input.credential} 已有使用范围（项目 ${cred.scope.projectId ?? "不限"}/操作 ${cred.scope.operations?.join(",") ?? "不限"}），与 mcp 冲突；请先调整凭据范围或另建凭据`,
+          );
+        }
+      }
+    }
+    let service: McpServiceConfig;
+    try {
+      // 配置变更与事件同事务：状态变化不留无事件的洞（审计与 TUI 依赖事件流）
+      service = this.store.withTx(() => {
+        const s = this.mcp.upsertService({
+          projectId: input.projectId,
+          name: input.name,
+          endpoint: endpoint.toString(),
+          credential: input.credential,
+          toolAllowlist,
+          enabled: input.enabled,
+          expectedVersion: input.expectedVersion,
+        });
+        this.store.appendEvent(
+          { type: "mcp.service_changed", serviceId: s.id, projectId: s.projectId, name: s.name, endpoint: s.endpoint, configVersion: s.configVersion, action: "upsert" },
+          {},
+        );
+        return s;
+      });
+    } catch (err) {
+      if (err instanceof McpVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    // 凭据 scope 收紧到本项目 + mcp 操作（兼容性已在写操作前校验）：
+    // 通用 http_request 与越权项目不得借用同名凭据
+    if (service.credential) {
+      const cred = this.credentials.get(service.credential)!;
+      const ops = cred.scope?.operations;
+      this.credentials.upsert({
+        ...cred,
+        scope: { ...cred.scope, projectId: service.projectId, operations: ops ? [...ops] : [MCP_CREDENTIAL_PURPOSE] },
+      });
+    }
+    return service;
+  }
+
+  mcpListServices(projectId?: string): McpServiceConfig[] {
+    return this.mcp.listServices(projectId);
+  }
+
+  mcpSetEnabled(serviceId: string, enabled: boolean, expectedVersion?: number): McpServiceConfig {
+    let service: McpServiceConfig | null;
+    try {
+      service = this.mcp.setEnabled(serviceId, enabled, expectedVersion);
+    } catch (err) {
+      if (err instanceof McpVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    if (!service) throw new RuntimeApiError("not_found", `MCP 服务不存在：${serviceId}`);
+    this.store.withTx(() => {
+      this.store.appendEvent(
+        { type: "mcp.service_changed", serviceId: service.id, projectId: service.projectId, name: service.name, endpoint: service.endpoint, configVersion: service.configVersion, action: enabled ? "enabled" : "disabled" },
+        {},
+      );
+    });
+    return service;
+  }
+
+  mcpRemoveService(serviceId: string): boolean {
+    const service = this.mcp.getService(serviceId);
+    if (!service) return false;
+    return this.store.withTx(() => {
+      const removed = this.mcp.removeService(serviceId);
+      if (removed) {
+        this.store.appendEvent(
+          { type: "mcp.service_changed", serviceId, projectId: service.projectId, name: service.name, endpoint: service.endpoint, configVersion: service.configVersion + 1, action: "removed" },
+          {},
+        );
+      }
+      return removed;
+    });
+  }
+
+  /**
+   * 连接检查（拥有者诊断入口）：连接服务、发现工具并按当前允许列表标注
+   * allowed/blocked；返回脱敏视图（端点与服务信息可见，秘密值不出现）。
+   * 失败返回 ok:false 与错误说明，不抛错（区别于配置不存在）。
+   */
+  async mcpCheckService(serviceId: string): Promise<{
+    service: McpServiceConfig;
+    ok: boolean;
+    serverInfo: { name?: string; version?: string } | null;
+    protocolVersion: string | null;
+    tools: Array<{ name: string; allowed: boolean; reason?: string }>;
+    error?: string;
+    errorCode?: string;
+  }> {
+    const service = this.mcp.getService(serviceId);
+    if (!service) throw new RuntimeApiError("not_found", `MCP 服务不存在：${serviceId}`);
+    let conn: McpConnection | null = null;
+    try {
+      conn = await connectMcpService(service, {
+        credentials: this.credentials,
+        projectId: service.projectId,
+        connectTimeoutMs: this.config.mcp?.connectTimeoutMs,
+        listTimeoutMs: this.config.mcp?.listTimeoutMs,
+        callTimeoutMs: this.config.mcp?.callTimeoutMs,
+      });
+      const tools = await conn.listTools();
+      return {
+        service,
+        ok: true,
+        serverInfo: conn.serverInfo,
+        protocolVersion: conn.protocolVersion,
+        // 逐工具标注：allowed = 在允许列表且通过客户端校验；reason 说明不可注册原因
+        tools: tools.map((t) => {
+          const allowed = service.toolAllowlist.includes(t.name);
+          if (!allowed) return { name: t.name, allowed, reason: "不在允许列表" };
+          const validated = validateRemoteTool(t);
+          return "disabledReason" in validated
+            ? { name: t.name, allowed: false, reason: validated.disabledReason }
+            : { name: t.name, allowed, reason: undefined };
+        }),
+      };
+    } catch (err) {
+      return {
+        service,
+        ok: false,
+        serverInfo: null,
+        protocolVersion: null,
+        tools: [],
+        error: (err as Error).message,
+        errorCode: (err as { code?: string }).code,
+      };
+    } finally {
+      await conn?.close();
+    }
+  }
+
   // ---------- GitHub 集成（issue 06） ----------
 
   /**
@@ -1130,6 +1329,7 @@ export class Runtime {
         budgetOverrides: this.config.budgetOverrides,
         github: { github: this.github, clientFor: this.config.githubClientFor },
         webSearch: this.config.webSearch,
+        mcp: { store: this.mcp, ...this.config.mcp },
         reviewer: this.reviewer,
       });
       this.drivers.set(session.id, driver);

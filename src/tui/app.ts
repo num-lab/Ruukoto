@@ -24,6 +24,8 @@ import {
   TUI_KEYBINDINGS,
   TuiAltScreen,
   VStack,
+  matchesKey,
+  truncateToWidth,
   visibleWidth,
   type AutocompleteItem,
   type AutocompleteProvider,
@@ -106,17 +108,84 @@ const selectTheme = {
 const editorTheme = { borderColor: dim, selectList: selectTheme };
 
 /**
- * 带边框的文本块：圆角边框 + 左右各 1 列留白。宽度按显示宽度计算
- * （中文行不被算宽），在整块内容的最宽行上对齐。
+ * 悬浮层：圆角边框 + 内边距，包住任意组件（列表、文本、自定义面板）。
+ *
+ * 边框在容器层绘制，内容按（宽度 − 边框与留白）渲染后逐行补齐，所以内容
+ * 多宽都能对齐；中文按显示宽度算，不会被当成两倍宽。不强制撑满宽度。
+ * 高度由覆盖层给定（maxHeight）：内容超出时开窗滚动，上下边框始终保留。
  */
-class BorderText extends Text {
+class FloatingPanel implements Component {
+  /** 内边距：左右各 1 列，上下各 1 行。 */
+  private static readonly PAD_X = 1;
+  private static readonly PAD_Y = 1;
+  /** 边框占宽：左右竖线 + 两侧内边距。 */
+  private static readonly CHROME_X = 2 * (FloatingPanel.PAD_X + 1);
+  /** 内容区可见行数上限（0 = 不限制，按内容全展开）。 */
+  private maxRows = 0;
+  /** 内容区滚动起点：内容超出时由 setScroll 调整。 */
+  private scrollTop = 0;
+  /** 内容区总行数（最近一次渲染记录），用于判断是否需要滚动提示。 */
+  private contentRows = 0;
+
+  constructor(private readonly content: Component) {}
+
+  invalidate(): void {
+    this.content.invalidate?.();
+  }
+
+  /** 内容区可用行数 = 总高 − 上下边框与内边距。 */
+  private bodyRows(height: number): number {
+    return Math.max(1, height - 2 * (FloatingPanel.PAD_Y + 1));
+  }
+
+  /**
+   * 由覆盖层在定高后调用：把面板高度钉死，内容超出即开窗。
+   * 返回内容区实际可见行数，供调用方判断是否需要滚动提示。
+   */
+  setHeight(height: number): void {
+    this.maxRows = this.bodyRows(height);
+  }
+
+  /** 内容区行数（含上下内边距与边框）——覆盖层定高用。 */
+  heightFor(width: number): number {
+    const inner = Math.max(1, width - FloatingPanel.CHROME_X);
+    return this.content.render(inner).length + 2 * FloatingPanel.PAD_Y + 2;
+  }
+
+  /** 滚动内容区：delta 为行数（正数向下）。 */
+  scrollBy(delta: number): void {
+    const max = Math.max(0, this.contentRows - this.maxRows);
+    this.scrollTop = Math.max(0, Math.min(max, this.scrollTop + delta));
+  }
+
+  /** 是否还有未显示的内容（用于滚动提示）。 */
+  overflow(): { above: number; below: number } {
+    const max = Math.max(0, this.contentRows - this.maxRows);
+    return { above: this.scrollTop, below: max - this.scrollTop };
+  }
+
   render(width: number): string[] {
-    const inner = super.render(Math.max(1, width - 4));
-    const innerWidth = inner.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
-    const top = `╭${"─".repeat(innerWidth + 2)}╮`;
-    const bottom = `╰${"─".repeat(innerWidth + 2)}╯`;
-    const body = inner.map((line) => `│ ${line}${" ".repeat(Math.max(0, innerWidth - visibleWidth(line)))} │`);
-    return [dim(top), ...body, dim(bottom)];
+    const inner = Math.max(1, width - FloatingPanel.CHROME_X);
+    const pad = " ".repeat(FloatingPanel.PAD_X);
+    const all = this.content.render(inner);
+    this.contentRows = all.length;
+    // 内容超出可见区时开窗；边框永远保留，不随内容被裁掉
+    const visible = this.maxRows > 0 ? Math.min(all.length, this.maxRows) : all.length;
+    this.scrollTop = Math.max(0, Math.min(this.scrollTop, Math.max(0, all.length - visible)));
+    const body = all.slice(this.scrollTop, this.scrollTop + visible).map((line) => {
+      const padded = line + " ".repeat(Math.max(0, inner - visibleWidth(line)));
+      return `${dim("│")}${pad}${padded}${pad}${dim("│")}`;
+    });
+    const innerWidth = inner + 2 * FloatingPanel.PAD_X;
+    const blank = `${dim("│")}${" ".repeat(innerWidth)}${dim("│")}`;
+    const edge = (left: string, right: string) => dim(`${left}${"─".repeat(innerWidth)}${right}`);
+    return [
+      edge("╭", "╮"),
+      ...Array.from({ length: FloatingPanel.PAD_Y }, () => blank),
+      ...body,
+      ...Array.from({ length: FloatingPanel.PAD_Y }, () => blank),
+      edge("╰", "╯"),
+    ];
   }
 }
 
@@ -172,19 +241,208 @@ class MeasuredText extends Text {
   }
 }
 
+/** 模型面板列宽比例：提供方 / 模型 / 思考强度。 */
+const MODEL_PANEL_RATIO = [0.3, 0.45, 0.25];
+const MODEL_PANEL_GAP = 3;
+
 /**
- * 右对齐的 Text：模型信息贴在右下角。
- * Text 已把每行右侧补齐到整宽（补的是普通空格），这里去掉补齐再前置缩进。
+ * 按固定比例把可用宽度分给三列，总和（含列间距）不超过给定宽度。
+ * 先扣掉列间距再按比例分，避免窄终端下溢出被终端截断。
  */
-class RightText extends Text {
-  lastHeight = 0;
+function columnWidths(width: number, ratio: number[] = MODEL_PANEL_RATIO): number[] {
+  const usable = Math.max(3, width - MODEL_PANEL_GAP * (ratio.length - 1));
+  const raw = ratio.map((r) => Math.max(1, Math.floor(usable * r)));
+  // 取整误差：把差额补给最宽的一列，保证总和正好等于 usable
+  const diff = usable - raw.reduce((a, b) => a + b, 0);
+  if (diff !== 0) {
+    const widest = raw.indexOf(Math.max(...raw));
+    raw[widest] = Math.max(1, raw[widest]! + diff);
+  }
+  return raw;
+}
+
+/** 后台 list_models 返回的单个模型选项。 */
+interface ModelChoice {
+  provider: string;
+  modelId: string;
+  name: string;
+  contextWindow: number;
+  maxTokens: number;
+  thinkingLevels: ModelSelection["thinkingLevel"][];
+  available: boolean;
+}
+
+/**
+ * 模型切换面板：三列（提供方 / 模型 / 思考强度），左右键切列，上下键列内切换。
+ *
+ * 三列互相约束：模型列表随所选提供方过滤，思考强度随所选模型变化。列宽按各列
+ * 最长项计算（中文按显示宽度），不足时截断并加省略号。回车确认，Esc 取消。
+ */
+class ModelPanel implements Component {
+  /** 各列的当前光标位置（列内索引）。 */
+  private cursor = [0, 0, 0];
+  private activeCol = 0;
+  private rows: string[][] = [[], [], []];
+
+  constructor(
+    private readonly providers: string[],
+    private readonly modelsByProvider: Map<string, ModelChoice[]>,
+    private readonly onPick: (provider: string, model: ModelChoice, thinkingLevel: string) => void,
+    private readonly onCancel: () => void,
+    /** 会话当前生效的选择，用于打 ✓ 标记。 */
+    private readonly isCurrent: (provider: string, modelId: string, level: string) => boolean,
+    /** 当前光标所指模型的状态说明（可用性或预算）。 */
+    private readonly note: (model: ModelChoice) => string,
+  ) {
+    this.rows[0] = providers;
+    this.refresh();
+  }
+
+  invalidate(): void {}
+
+  /** 面板固定占用的行数（构造时注入）：粗边框 + 表头 + 分隔 + 内容区 + 空行 + 说明。 */
+  viewportRows = 0;
+
+  /** 内容区可见行数 = 固定高度 − 边框、表头、分隔、空行与说明。 */
+  private visibleRows(): number {
+    return Math.max(1, this.viewportRows - 5);
+  }
+
+  /** 某列的可见窗口起点：光标在窗口外时把窗口滚动到光标处。 */
+  private windowStart(col: number, visible: number): number {
+    const len = this.rows[col]!.length;
+    if (len <= visible) return 0;
+    const cursor = this.cursor[col]!;
+    if (cursor < visible) return 0;
+    return Math.min(cursor - visible + 1, len - visible);
+  }
+
+  /** 光标所指的模型（模型列为空时返回 undefined）。 */
+  private selected(): { provider: string; model: ModelChoice; level: string } | undefined {
+    const provider = this.providers[this.cursor[0]!];
+    const model = provider ? (this.modelsByProvider.get(provider) ?? [])[this.cursor[1]!] : undefined;
+    const level = model?.thinkingLevels[this.cursor[2]!];
+    return provider && model && level ? { provider, model, level } : undefined;
+  }
+
+  /** 按当前光标重建各列内容（模型列随提供方、思考强度列随模型变化）。 */
+  private refresh(): void {
+    const provider = this.providers[this.cursor[0]!];
+    const models = provider ? (this.modelsByProvider.get(provider) ?? []) : [];
+    this.cursor[1] = Math.max(0, Math.min(this.cursor[1]!, models.length - 1));
+    const levels = models[this.cursor[1]!]?.thinkingLevels ?? [];
+    this.cursor[2] = Math.max(0, Math.min(this.cursor[2]!, levels.length - 1));
+    this.rows = [this.providers, models.map((m) => m.name), levels];
+  }
+
+  /** 光标移动：左右换列，上下列内移动；越界不循环。 */
+  handleInput(data: string): void {
+    if (matchesKey(data, "left")) {
+      this.activeCol = Math.max(0, this.activeCol - 1);
+    } else if (matchesKey(data, "right")) {
+      this.activeCol = Math.min(2, this.activeCol + 1);
+    } else if (matchesKey(data, "up") || matchesKey(data, "down")) {
+      const col = this.rows[this.activeCol]!;
+      if (col.length === 0) return;
+      const delta = matchesKey(data, "up") ? -1 : 1;
+      this.cursor[this.activeCol] = Math.max(0, Math.min(col.length - 1, this.cursor[this.activeCol]! + delta));
+      // 换提供方要重置模型列；换模型要重置思考强度列
+      if (this.activeCol === 0) this.cursor[1] = 0;
+      if (this.activeCol < 2) {
+        this.cursor[2] = 0;
+        this.refresh();
+      }
+    } else if (matchesKey(data, "enter") || matchesKey(data, "return")) {
+      const picked = this.selected();
+      if (picked) this.onPick(picked.provider, picked.model, picked.level);
+    } else if (matchesKey(data, "escape") || matchesKey(data, "esc") || data === "q") {
+      this.onCancel();
+    }
+  }
 
   render(width: number): string[] {
-    const lines = super.render(width).map((line) => {
-      const trimmed = line.replace(/ +$/, "");
-      const pad = Math.max(0, width - visibleWidth(trimmed));
-      return pad === 0 ? trimmed : " ".repeat(pad) + trimmed;
-    });
+    const gap = MODEL_PANEL_GAP;
+    // 固定比例分配宽度：列宽不随内容变化，切换提供方时右侧列不会左右跳。
+    // 内容超出列宽就截断加省略号（长模型名会被截，但占位始终可预测）。
+    const widths = columnWidths(width);
+
+    // 光标所在的提供方与模型：✓ 标记只在这两个上下文里判断
+    const curProvider = this.providers[this.cursor[0]!] ?? "";
+    const curModels = this.modelsByProvider.get(curProvider) ?? [];
+    const curModel = curModels[this.cursor[1]!];
+
+    /** 该项是否为会话当前生效的选择。 */
+    const inEffect = (col: number, row: number): boolean => {
+      if (col === 0) return this.isCurrent(this.providers[row] ?? "", "", "");
+      if (col === 1) return this.isCurrent(curProvider, curModels[row]?.modelId ?? "", "");
+      return this.isCurrent(curProvider, curModel?.modelId ?? "", this.rows[2]![row] ?? "");
+    };
+
+    const cell = (text: string, w: number, col: number, row: number): string => {
+      const selected = this.cursor[col] === row;
+      const active = this.activeCol === col;
+      // 光标位与 ✓ 位各占固定一列：选项名在所有行都从同一列开始，列表不会参差
+      const prefix = `${selected ? "▸" : " "}${inEffect(col, row) ? "✓" : " "} `;
+      const body = truncateToWidth(`${prefix}${text}`, w, "…");
+      const pad = " ".repeat(Math.max(0, w - visibleWidth(body)));
+      // 未选中列整体变灰；选中列里光标项高亮、其余正常
+      const styled = !active ? dim(body) : selected ? `${cyan("▸")}${bold(body.slice(1))}` : body;
+      return styled + pad;
+    };
+
+    const header = [0, 1, 2]
+      .map((i) => {
+        const text = truncateToWidth(["提供方", "模型", "思考强度"][i]!, widths[i]!, "…");
+        const padded = text + " ".repeat(Math.max(0, widths[i]! - visibleWidth(text)));
+        return this.activeCol === i ? bold(padded) : dim(padded);
+      })
+      .join(" ".repeat(gap));
+
+    // 粗边框压在面板顶部，与上方内容明确分开
+    const lines: string[] = [dim("━".repeat(width)), header, dim("─".repeat(width))];
+    // 固定高度：内容不足补空行，超出则按窗口滚动（光标所在行始终可见）
+    const visible = this.visibleRows();
+    const starts = [0, 1, 2].map((col) => this.windowStart(col, visible));
+    for (let i = 0; i < visible; i++) {
+      const parts = [0, 1, 2].map((col) => {
+        const text = this.rows[col]![starts[col]! + i];
+        return text === undefined ? " ".repeat(widths[col]!) : cell(text, widths[col]!, col, starts[col]! + i);
+      });
+      lines.push(parts.join(" ".repeat(gap)));
+    }
+    lines.push("");
+    lines.push(dim(truncateToWidth(curModel ? this.note(curModel) : "←→ 切列 · ↑↓ 列内切换 · Enter 确认 · Esc 取消", width, "…")));
+    return lines;
+  }
+}
+
+/**
+ * 底栏：左侧模式与工作区，右侧模型信息，各占一端。
+ * 两边内容都按显示宽度算，中间用空格补齐；总宽不够时右侧优先截断。
+ */
+class FooterLine implements Component {
+  private left = "";
+  private right = "";
+  lastHeight = 0;
+
+  set(left: string, right: string): void {
+    this.left = left;
+    this.right = right;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    // 左侧优先保留（模式与工作区是当前状态）：超宽时先截左侧，再截右侧。
+    // 右侧被截空时不补间隔空格，否则总宽会超出。
+    const left = visibleWidth(this.left) > width ? truncateToWidth(this.left, width, "…") : this.left;
+    const leftWidth = visibleWidth(left);
+    const room = Math.max(0, width - leftWidth - 1);
+    const right = visibleWidth(this.right) > room ? truncateToWidth(this.right, room, "…") : this.right;
+    const rightWidth = visibleWidth(right);
+    const gap = rightWidth === 0 ? Math.max(0, width - leftWidth) : Math.max(1, width - leftWidth - rightWidth);
+    const line = left + " ".repeat(gap) + right;
+    const lines = [line + " ".repeat(Math.max(0, width - visibleWidth(line)))];
     this.lastHeight = lines.length;
     return lines;
   }
@@ -260,6 +518,22 @@ class OverlayBox extends VStack {
   }
 }
 
+/** 悬浮层尺寸：按可用宽度取比例，并按内容定高（不超过终端）。 */
+interface FloatingOptions {
+  /** 占终端宽度的比例（0–1）。 */
+  widthRatio: number;
+  /** 内容组件；会被包进边框。 */
+  content: Component;
+  /** 按键转发目标（如 SelectList）；给了它就不再用 onKey。 */
+  forwardTo?: { handleInput(data: string): void };
+  /** 自定义按键处理（Esc 关闭之外）。 */
+  onKey?: (data: string) => void;
+  /** 关闭时的额外回调（如取消请求）。 */
+  onClose?: () => void;
+  /** 高度上限占终端行数的比例（默认 0.85）。 */
+  maxHeightRatio?: number;
+}
+
 /** 只做固定操作（斜杠命令）的补全；不扫描拥有者本地文件。 */
 class SlashCommandAutocomplete implements AutocompleteProvider {
   readonly triggerCharacters = ["/"];
@@ -315,8 +589,8 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "approvals", description: "待处理审批列表" },
   { name: "interrupt", description: "中断当前任务", argumentHint: "[taskId]" },
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>" },
-  { name: "model", description: "选择提供方、模型及思考强度" },
-  { name: "thinking", description: "选择当前模型支持的思考强度" },
+  { name: "model", description: "模型切换面板（提供方 / 模型 / 思考强度）" },
+  { name: "thinking", description: "同上：模型切换面板（可直接切到思考强度列）" },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]" },
   { name: "resume-queue", description: "恢复已暂停的会话队列" },
   { name: "mode", description: "切换任务访问模式", argumentHint: "<confirm|full_access> [taskId]" },
@@ -356,7 +630,7 @@ export class TuiApp {
   private transcriptContainer: ContainerType;
   private scroll: ScrollView;
   private statusLine: MeasuredText;
-  private footer: RightText;
+  private footer: FooterLine;
   private editor: AboveEditor;
 
   /** 连接批次：每次快照安装递增；异步查询结果按 会话+批次 匹配后更新。 */
@@ -385,8 +659,8 @@ export class TuiApp {
     this.transcriptContainer = new GutterContainer();
     this.scroll = new ScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
     this.statusLine = new MeasuredText("", 1, 0);
-    // 底栏：右下角显示生效的模型来源/模型名/思考强度（按键提示改由 /help 提供）
-    this.footer = new RightText("", 1, 0);
+    // 底栏：左侧模式与工作区，右侧模型来源/模型名/思考强度（按键提示由 /help 提供）
+    this.footer = new FooterLine();
     this.editor = new AboveEditor(this.tui, editorTheme, {});
     this.editor.setAutocompleteProvider(new SlashCommandAutocomplete(SLASH_COMMANDS));
     this.editor.onSubmit = (text) => void this.handleSubmit(text);
@@ -435,9 +709,9 @@ export class TuiApp {
   /** 右下角信息：模型来源 · 模型名 · 思考强度（未握手完成时显示占位）。 */
   private modelInfoText(): string {
     const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
-    if (session) return `后续任务：${this.selectionText(session.modelSelection)} · /model /thinking`;
+    if (session) return `${this.selectionText(session.modelSelection)}`;
     const m = this.state.defaultModel;
-    return m.provider ? `启动默认：${m.provider}/${m.id} · 思考 ${m.thinkingLevel}` : "模型：连接中…";
+    return m.provider ? `${m.provider}/${m.id} · ${m.thinkingLevel}` : "connecting";
   }
 
   /**
@@ -835,7 +1109,7 @@ export class TuiApp {
         return;
       case "model":
       case "thinking":
-        await this.openModelPicker(name === "thinking");
+        await this.openModelPicker();
         return;
       case "mode":
         await this.cmdMode(rest);
@@ -1708,61 +1982,132 @@ export class TuiApp {
   }
 
   private selectionText(selection: ModelSelection | null | undefined): string {
-    return selection ? sanitizeForDisplay(`${selection.provider}/${selection.modelId} · 思考 ${selection.thinkingLevel}`) : "模型配置未记录";
+    return selection ? sanitizeForDisplay(`${selection.provider}/${selection.modelId} · ${selection.thinkingLevel}`) : "模型配置未记录";
+  }
+
+  /**
+   * 打开一个悬浮层：内容包进圆角边框，居中显示，Esc 关闭并把焦点还给输入框。
+   *
+   * 高度按内容算（含边框两行），并夹在终端行数的上限内；宽度按比例取。
+   * 返回 handle 供调用方在选中后主动关闭。
+   */
+  private openFloating(opts: FloatingOptions): OverlayHandle {
+    const termWidth = this.terminal.columns || 80;
+    const termRows = this.terminal.rows || 24;
+    const width = Math.max(12, Math.floor(termWidth * opts.widthRatio));
+    const frame = new FloatingPanel(opts.content);
+    const maxHeight = Math.max(3, Math.floor(termRows * (opts.maxHeightRatio ?? 0.85)));
+    const height = Math.min(frame.heightFor(width), maxHeight);
+    // 内容超出给定高度时开窗滚动：上下边框始终保留，不被裁掉
+    frame.setHeight(height);
+
+    const box = new OverlayBox([{ component: frame, grow: 1 }]);
+    const handle = this.tui.showOverlay(box, { width, anchor: "center", maxHeight: height });
+
+    const close = () => {
+      handle.hide();
+      this.tui.setFocus(this.editor);
+      opts.onClose?.();
+    };
+    // 按键先经这里：Esc/q 关闭，无转发目标时方向键滚动内容，
+    // 其余一律交给内容组件（列表的 Enter/Tab/方向键不能在这里被吞掉）。
+    box.onKey = (data: string) => {
+      if (data === "\x1b" || data === "q") {
+        close();
+        return;
+      }
+      // 内容超高时滚动；带 forwardTo 的面板由内容自己处理方向键
+      if (!opts.forwardTo && (matchesKey(data, "up") || matchesKey(data, "down") || matchesKey(data, "pageUp") || matchesKey(data, "pageDown"))) {
+        const up = matchesKey(data, "up") || matchesKey(data, "pageUp");
+        const step = matchesKey(data, "pageUp") || matchesKey(data, "pageDown") ? 5 : 1;
+        frame.scrollBy(up ? -step : step);
+        this.tui.requestRender();
+        return;
+      }
+      opts.onKey?.(data);
+      opts.forwardTo?.handleInput(data);
+    };
+    return { ...handle, hide: close };
   }
 
   private showSelection(title: string, items: SelectItem[], select: (item: SelectItem) => void): void {
     const list = new SelectList(items, Math.min(items.length, 10), selectTheme);
-    const box = new OverlayBox([
-      { component: new Text(sanitizeForDisplay(title), 1, 0), grow: 0 },
+    const body = new VStack([
+      { component: new Text(sanitizeForDisplay(title), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
-    box.forwardTo = list;
-    const handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "70%" });
-    const close = () => { handle.hide(); this.tui.setFocus(this.editor); };
-    list.onCancel = close;
-    list.onSelect = (item) => { close(); select(item); };
+    const handle = this.openFloating({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
+    list.onCancel = () => handle.hide();
+    list.onSelect = (item) => { handle.hide(); select(item); };
   }
 
-  private async openModelPicker(thinkingOnly: boolean): Promise<void> {
+  /** /model 与 /thinking：三列面板（提供方 / 模型 / 思考强度）。 */
+  private async openModelPicker(): Promise<void> {
     const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
     if (!session) { this.notify("尚未选择会话"); return; }
     const sessionId = session.id;
     const version = session.modelSelectionVersion;
     const current = session.modelSelection;
-    type Choice = { provider: string; modelId: string; name: string; thinkingLevels: ModelSelection["thinkingLevel"][]; available: boolean };
     try {
-      const models: Choice[] = [];
+      const models: ModelChoice[] = [];
       let offset: number | null = 0;
       do {
-        const page: { models: Choice[]; nextOffset: number | null } = await this.connection.request("list_models", { offset, limit: 100, ...(thinkingOnly ? { provider: current?.provider } : {}) });
+        const page: { models: ModelChoice[]; nextOffset: number | null } = await this.connection.request("list_models", { offset, limit: 100 });
         models.push(...page.models);
         offset = page.nextOffset;
       } while (offset !== null);
       if (this.state.currentSessionId !== sessionId) return;
-      const chooseThinking = (model: Choice) => {
-        if (!model.available) { this.notify("此模型认证材料不可用，请在后台配置后重试"); return; }
-        this.showSelection(`${model.provider} · ${model.name}：选择思考强度（Esc 取消）`, model.thinkingLevels.map((level) => ({ value: level, label: `${level}${current?.provider === model.provider && current?.modelId === model.modelId && current.thinkingLevel === level ? " ✓" : ""}` })), (item) => {
-          void this.saveModelSelection(sessionId, version, { provider: model.provider, modelId: model.modelId, thinkingLevel: item.value as ModelSelection["thinkingLevel"] });
-        });
-      };
-      if (thinkingOnly) {
-        const model = models.find((m) => m.provider === current?.provider && m.modelId === current?.modelId);
-        if (!model) { this.notify("当前模型不在可用目录中，请通过 /model 重新选择"); return; }
-        chooseThinking(model);
-      } else if (models.length) {
-        this.showSelection("选择提供方与模型（Esc 取消）", models.map((m, i) => ({ value: String(i), label: sanitizeForDisplay(`${m.provider} · ${m.name}（${m.modelId}）${m.provider === current?.provider && m.modelId === current?.modelId ? " ✓" : ""}`), description: m.available ? "认证材料可用；远程连通性未验证" : "认证材料不可用" })), (item) => chooseThinking(models[Number(item.value)]!));
-      } else this.notify("后台未配置模型");
+      if (models.length === 0) { this.notify("后台未配置模型"); return; }
+
+      // 按提供方分组，保留后台返回的顺序
+      const providers: string[] = [];
+      const byProvider = new Map<string, ModelChoice[]>();
+      for (const model of models) {
+        if (!byProvider.has(model.provider)) { byProvider.set(model.provider, []); providers.push(model.provider); }
+        byProvider.get(model.provider)!.push(model);
+      }
+
+      const close = () => { handle.hide(); this.tui.setFocus(this.editor); };
+      const panel = new ModelPanel(
+        providers,
+        byProvider,
+        (provider, model, level) => {
+          close();
+          if (!model.available) { this.notify("此模型认证材料不可用，请在后台配置后重试"); return; }
+          void this.saveModelSelection(sessionId, version, {
+            provider,
+            modelId: model.modelId,
+            thinkingLevel: level as ModelSelection["thinkingLevel"],
+          });
+        },
+        close,
+        // ✓ 标记：会话当前生效的选择（空串表示该列不参与比较）
+        (provider, modelId, level) =>
+          (!provider || current?.provider === provider) &&
+          (!modelId || current?.modelId === modelId) &&
+          (!level || current?.thinkingLevel === level),
+        (model) => (model.available ? `上下文 ${model.contextWindow} · 输出上限 ${model.maxTokens}；远程连通性未验证` : "认证材料不可用，无法选择"),
+      );
+      const box = new OverlayBox([{ component: panel, grow: 1 }]);
+      box.forwardTo = panel;
+      // 锚在底部、占满宽度，浮在下方：高度取终端行数的 1/4，但至少留出
+      // 面板自身需要的行数（否则思考强度等靠下的行会被裁掉、选不到）
+      // 固定高度：终端行数的 1/4，最少 9 行（边框 + 表头 + 分隔 + 3 行内容 + 说明）。
+      // 不随内容或光标变化，面板占位始终一致。
+      const rows = this.terminal.rows || 24;
+      const height = Math.max(9, Math.floor(rows / 4));
+      panel.viewportRows = height;
+      const handle = this.tui.showOverlay(box, { width: "100%", anchor: "bottom-left", maxHeight: height, margin: 0 });
     } catch (err) { this.notify(`模型目录读取失败：${(err as Error).message}`); }
   }
 
   private async saveModelSelection(sessionId: string, version: number, selection: ModelSelection): Promise<void> {
-    this.state.note(sessionId, "模型选择保存中，等待后台确认…");
+    // this.state.note(sessionId, "模型选择保存中，等待后台确认…");
     this.refreshAll();
     try {
       const saved = await this.connection.request<Session>("set_session_model", { session_id: sessionId, expected_version: version, model_selection: selection });
       this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
-      this.state.note(sessionId, `后续任务选择已保存：${this.selectionText(saved.modelSelection)}；已提交任务保持原配置`);
+      this.state.note(sessionId, `Switched to: ${this.selectionText(saved.modelSelection)}`);
     } catch (err) {
       this.state.note(sessionId, `模型设置未确认：${(err as Error).message}；正在查询后台状态`);
       try {
@@ -1790,21 +2135,16 @@ export class TuiApp {
       return;
     }
     const list = new SelectList(items, Math.min(items.length, 12), selectTheme);
-    const box = new OverlayBox([
-      { component: new Text(bold("选择会话（项目 · 会话 · 工作目录 · 状态）"), 1, 0), grow: 0 },
+    const body = new VStack([
+      { component: new Text(bold("选择会话（项目 · 会话 · 工作目录 · 状态）"), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
-    box.forwardTo = list;
-    const handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "70%" });
+    const handle = this.openFloating({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
     list.onSelect = (item) => {
       handle.hide();
-      this.tui.setFocus(this.editor);
       this.switchSession(item.value);
     };
-    list.onCancel = () => {
-      handle.hide();
-      this.tui.setFocus(this.editor);
-    };
+    list.onCancel = () => handle.hide();
   }
 
   // ---------- 帮助 ----------
@@ -1827,15 +2167,11 @@ export class TuiApp {
       "  部分终端不支持 Shift+Enter 修饰键上报，可用 Alt+Enter 或 Ctrl+J 换行；",
       "  中文输入法候选窗位置依赖终端的 Kitty 键盘协议支持；",
       "  链接不自动打开；状态不只靠颜色表达（均有文字标注）。",
+      "",
+      dim("  ↑↓ / PageUp·PageDown 滚动本页 · Esc 关闭"),
     ];
-    const box = new OverlayBox([{ component: new BorderText(lines.join("\n"), 1, 1), grow: 1 }]);
-    const handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "85%" });
-    box.onKey = (data: string) => {
-      if (data === "\x1b" || data === "q") {
-        handle.hide();
-        this.tui.setFocus(this.editor);
-      }
-    };
+    // 帮助页：长文本按可用宽度换行，超出部分由覆盖层高度裁切
+    this.openFloating({ widthRatio: 0.85, content: new Text(lines.join("\n"), 0, 0), maxHeightRatio: 0.85 });
   }
 
   // ---------- 渲染 ----------
@@ -1868,8 +2204,8 @@ export class TuiApp {
             ? `离线：${conn.detail ?? ""}`
             : "连接中…";
     const lastSync = conn.lastSyncAt ? conn.lastSyncAt.toLocaleTimeString() : "从未";
-    this.footer.setText(dim(this.modelInfoText()));
     if (!view) {
+      this.footer.set(dim(""), dim(this.modelInfoText()));
       this.header.setText(
         `${bold("ruukoto")} · 未选择会话 · 连接：${connText}\n` +
           dim(`执行后端：${this.state.execution.backend || "未知"}（${this.state.execution.note || "握手后显示"}）`),
@@ -1882,6 +2218,8 @@ export class TuiApp {
     const active = this.state.activeTaskFor(view.sessionId);
     const modeTask = active ?? this.state.queuedTasksFor(view.sessionId).at(-1) ?? null;
     const modeText = modeTask ? formatAccessMode(modeTask.accessMode, modeTask.pendingAccessMode) : "—";
+    // 左下角：当前模式与工作区；右上角已有连接/执行信息，这里不重复
+    this.footer.set(dim(`${modeText} · ${sanitizeForDisplay(view.cwd)}`), dim(this.modelInfoText()));
     this.header.setText(
       `${bold(this.state.projectName(view.projectId))} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
         `连接：${connText} · 模式：${modeText} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,

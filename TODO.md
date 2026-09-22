@@ -13,6 +13,5 @@
 - [ ] /expand
 - [ ] header
 - [ ] diff
-- [ ] 上下文构成
 - [ ] prompt查看
 

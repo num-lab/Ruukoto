@@ -582,6 +582,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "sessions", description: "切换项目与会话" },
   { name: "new-project", description: "创建项目", argumentHint: "<名称>" },
   { name: "new-session", description: "在当前项目创建会话", argumentHint: "<工作目录>" },
+  { name: "new", description: "在当前工作区创建会话" },
   { name: "older", description: "向前翻页加载更早的历史" },
   { name: "history", description: "重新加载当前会话历史" },
   { name: "expand", description: "展开完整条目/工具输出", argumentHint: "<id 前缀>" },
@@ -1072,6 +1073,9 @@ export class TuiApp {
       case "new-session":
         await this.cmdNewSession(arg);
         return;
+      case "new":
+        await this.cmdNew();
+        return;
       case "older": {
         const view = this.currentView();
         if (!view?.historyCursor) {
@@ -1150,16 +1154,29 @@ export class TuiApp {
   }
 
   private async cmdNewSession(cwd: string): Promise<void> {
+    if (!cwd) {
+      this.notify("用法：/new-session <工作目录>（目录属于后台工作区，不做本地路径补全）");
+      return;
+    }
     const view = this.currentView();
     const projectId = view?.projectId ?? this.state.projects[0]?.id;
     if (!projectId) {
       this.notify("尚无项目：先 /new-project <名称>");
       return;
     }
-    if (!cwd) {
-      this.notify("用法：/new-session <工作目录>（目录属于后台工作区，不做本地路径补全）");
+    await this.createAndSwitch(projectId, cwd);
+  }
+
+  private async cmdNew(): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话：/new-project <名称> 创建项目，或 /new-session <工作目录> 创建会话");
       return;
     }
+    await this.createAndSwitch(view.projectId, view.cwd);
+  }
+
+  private async createAndSwitch(projectId: string, cwd: string): Promise<void> {
     try {
       const session = await this.connection.request<{ id: string }>("create_session", { project_id: projectId, cwd });
       this.notify(`会话已创建：${session.id}`);

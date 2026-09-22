@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: resolved
 Depends on: 04
 
 # 添加 `/new` 命令，在当前工作区新建 session
@@ -44,3 +44,7 @@ Depends on: 04
 ### 2026-09-22：创建工单
 
 用户要求增加 `/new` 命令，在当前工作区新建一个 session。现有 `/new-session` 和 `create_session` 能覆盖后台能力，本工单只补充快捷交互入口。
+
+### 2026-09-22：已实现
+
+在 `src/tui/app.ts` 增加 `/new` 命令：从当前视图取 `projectId` 与 `cwd`，与 `/new-session` 共享 `createAndSwitch` 创建路径；未选择会话时提示 `/new-project` 或 `/new-session`，不再从 `state.projects[0]` 猜测。`test/14-tui-app.test.ts` 新增两个用例（创建并切换、可重复创建；无会话时不创建且提示正确）。`npm run typecheck` 与 `test/14-tui-app.test.ts` 全部通过。

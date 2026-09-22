@@ -379,3 +379,61 @@ test("--session 指定不存在的会话：明确报错退出，不新建", asyn
     await t.shutdown();
   }
 });
+
+test("/new：在当前工作区创建并切换会话，可重复创建独立会话", async () => {
+  const t = await startTestRuntime("tui-new", async () => ({ kind: "text", text: "x" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+
+    h.terminal.send("/new\r");
+    await waitFor("新会话出现", () => h.state.sessions.length === 2);
+    const first = h.state.currentSessionId!;
+    assert.notEqual(first, sessionId);
+    const firstInfo = h.state.sessions.find((s) => s.id === first)!;
+    assert.equal(firstInfo.projectId, projectId);
+    assert.equal(firstInfo.cwd, t.work[0]!);
+
+    // 重复执行：再创建一个独立会话
+    h.terminal.send("/new\r");
+    await waitFor("第二个新会话出现", () => h.state.sessions.length === 3);
+    const second = h.state.currentSessionId!;
+    assert.notEqual(second, first);
+    assert.notEqual(second, sessionId);
+
+    // 旧会话仍在，可切回
+    (h.app as any).switchSession(sessionId);
+    assert.equal(h.state.currentSessionId, sessionId);
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("/new：未选择会话时不创建，提示下一步操作", async () => {
+  const t = await startTestRuntime("tui-new-nosession", async () => ({ kind: "text", text: "x" }));
+  const apps: AppHarness[] = [];
+  try {
+    await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t);
+    apps.push(h);
+    // 启动后默认进入会话选择，不选中任何会话
+    assert.equal(h.state.currentSessionId, null);
+    h.terminal.send("\x1b"); // 关闭选择面板，避免拦截后续输入
+    await renderFlush();
+
+    h.terminal.send("/new\r");
+    await renderFlush();
+    assert.equal(h.state.sessions.length, 1, "不应创建新会话");
+    assert.equal(h.state.currentSessionId, null);
+    const notes = h.state.globalNotes.map((n) => n.text).join("\n");
+    assert.ok(notes.includes("尚未选择会话"), `提示应指向 /new-project 或 /new-session，实际：${notes}`);
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});

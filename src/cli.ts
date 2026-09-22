@@ -536,9 +536,13 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "tui": {
-      // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据
+      // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据。
+      // --demo：合成调试会话，不连后台、不需要令牌、不产生真实副作用。
       const { runTui } = await import("./tui/index.ts");
-      return await runTui({ sessionId: flags["session"] });
+      if (flags["demo"] !== undefined) {
+        console.error("合成调试会话：不连接后台，数据为静态构造，仅用于调试界面渲染");
+      }
+      return await runTui({ sessionId: flags["session"], demo: flags["demo"] !== undefined });
     }
     default:
       console.error(defaultHelp());
@@ -553,7 +557,7 @@ function defaultHelp(): string {
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
-    "      --session <id>（tui：直接进入指定会话，不存在则报错）\n" +
+    "      --session <id>（tui：直接进入指定会话，不存在则报错）；--demo（tui：合成调试会话，不连后台）\n" +
     "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"
   );
 }

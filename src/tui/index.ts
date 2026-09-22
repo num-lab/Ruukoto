@@ -12,6 +12,7 @@
 
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { resolveClientConfig } from "../control/connect.ts";
+import { createDemoClient } from "./demo-session.ts";
 import { ControlConnection } from "../control/connection.ts";
 import { PendingRequestStore } from "../control/pending-requests.ts";
 import { SubmissionGuard } from "../control/submission.ts";
@@ -20,6 +21,8 @@ import { TuiApp } from "./app.ts";
 
 export interface TuiOptions {
   sessionId?: string;
+  /** 合成调试会话：不连后台，用假客户端喂出覆盖全部事件类型的静态数据。 */
+  demo?: boolean;
 }
 
 export async function runTui(opts: TuiOptions = {}): Promise<number> {
@@ -31,12 +34,15 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
     return 1;
   }
 
-  let config;
-  try {
-    config = resolveClientConfig();
-  } catch (err) {
-    console.error((err as Error).message);
-    return 1;
+  // 合成调试会话不读配置、不需要令牌（也不产生任何真实副作用）
+  let config: { socketPath: string; token: string } | null = null;
+  if (!opts.demo) {
+    try {
+      config = resolveClientConfig();
+    } catch (err) {
+      console.error((err as Error).message);
+      return 1;
+    }
   }
 
   // 代码块语法高亮的主题：只用包内自带的 dark 主题（不读 ~/.pi，不写文件）
@@ -45,7 +51,9 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
   const state = new ViewState();
   let app: TuiApp | null = null;
   const connection = new ControlConnection(
-    { socketPath: config.socketPath, token: config.token },
+    opts.demo
+      ? { socketPath: "(demo)", token: "(demo)", clientFactory: async () => createDemoClient((text) => app?.log(text)) }
+      : { socketPath: config!.socketPath, token: config!.token },
     {
       onState: (s, detail) => app?.onConnectionState(s, detail),
       onSnapshot: (result, ctx) => app?.onSnapshot(result, ctx),

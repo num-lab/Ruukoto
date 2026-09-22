@@ -41,7 +41,7 @@ function snapshot(seq: number, instanceId = "inst-1"): ConnectResult["snapshot"]
     previews: {},
     instanceId,
     execution: { backend: "local", note: "local 执行后端：无隔离" },
-    model: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
+    defaultModel: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
   };
 }
 
@@ -314,7 +314,7 @@ test("提交成功：记录清除；同一输入只产生一个任务", async ()
   const { t, store, conn, guard } = await startGuardRuntime();
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const outcome = await guard.submit("submit", { session_id: sessionId, input: "写一个文件" });
+    const outcome = await guard.submit("submit", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, input: "写一个文件" });
     assert.equal(outcome.kind, "accepted");
     assert.equal(store.list().records.length, 0, "确认接收后清除记录");
     await waitFor("任务完成", async () => (await taskStatus(t.client, (outcome as any).task.id)).task.status === "completed");
@@ -330,7 +330,7 @@ test("待确认记录写入失败：不得发送请求", async () => {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     // 让保存失败：记录目录只读
     fs.chmodSync((guard as any).store.dir, 0o500);
-    await assert.rejects(() => guard.submit("submit", { session_id: sessionId, input: "不应发送" }));
+    await assert.rejects(() => guard.submit("submit", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, input: "不应发送" }));
     fs.chmodSync((guard as any).store.dir, 0o700);
     const found = await conn.request<{ task: unknown }>("find_task", { session_id: sessionId, request_id: "never" });
     assert.equal(found.task, null);
@@ -349,6 +349,7 @@ test("应答丢失：重连核实关联原任务，不重复启动", async () =>
     // 模拟"提交落盘但应答丢失"：任务已由后台接收，客户端只留下了待确认记录
     const task = await t.client.request<any>("submit", {
       session_id: sessionId,
+      model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       request_id: "lost-ack-1",
       input: "丢失应答的输入",
     });
@@ -378,7 +379,7 @@ test("明确未接收：以原键原参数重试；同键异参展示冲突", as
     store.save({
       requestId: "never-sent-1",
       op: "submit",
-      params: { session_id: sessionId, request_id: "never-sent-1", input: "重发的输入" },
+      params: { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, request_id: "never-sent-1", input: "重发的输入" },
       instanceId: conn.instanceId!,
       createdAt: new Date().toISOString(),
     });
@@ -390,7 +391,7 @@ test("明确未接收：以原键原参数重试；同键异参展示冲突", as
     assert.equal(detail.task.requestId, "never-sent-1", "必须以原键重发");
 
     // 同键异参：冲突展示，不换新键
-    const conflict = await guard.submit("submit", { session_id: sessionId, input: "不同的输入" }, { requestId: "never-sent-1" });
+    const conflict = await guard.submit("submit", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, input: "不同的输入" }, { requestId: "never-sent-1" });
     assert.equal(conflict.kind, "conflict");
     conn.close();
   } finally {
@@ -477,7 +478,8 @@ test("后台重启：重连后看到中断任务与真实状态，不自动恢�
   });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", { session_id: sessionId, request_id: "rr-1", input: "长跑任务" });
+    const task = await t.client.request<any>("submit", { session_id: sessionId, request_id: "rr-1", input: "长跑任务",
+      model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
     await waitFor("任务运行", async () => (await taskStatus(t.client, task.id)).task.status === "running");
 
     // 停止后台（优雅停止即中断任务）；随后在同一数据目录重启（实例标识保留）

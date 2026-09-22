@@ -146,12 +146,12 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     assert.notEqual(secondCode, -999, "第二个实例应快速退出而非超时");
 
     // 任务 A：写外部标记后进入长延迟（结果未记录窗口）；任务 B 排队
-    const taskA = await backend.client.request<any>("submit", {
+    const taskA = await backend.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "crash-a",
       input: `MARKCRASH:${markerPath}`,
     });
-    const taskB = await backend.client.request<any>("submit", {
+    const taskB = await backend.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "crash-b",
       input: "QUICK:排队任务B",
@@ -226,7 +226,7 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
 
     backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
     const { sessionId } = await createProjectSession(backend.client, made.work[0]!);
-    const task = await backend.client.request<any>("submit", {
+    const task = await backend.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "first-1",
       input: "SLOWFIRST:第一个请求",
@@ -248,7 +248,7 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
     }
     // 拥有者恢复队列后可继续使用该会话（新任务正常执行）
     await backend.client.request("resume_queue", { session_id: sessionId });
-    const next = await backend.client.request<any>("submit", {
+    const next = await backend.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "first-2",
       input: "QUICK:恢复后的新任务",

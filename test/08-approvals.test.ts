@@ -116,7 +116,7 @@ test("越界文件读取/写入：形成具体审批，批准后按批准的对�
     const t = await startTestRuntime("approve-file", responder, { workDirs: 1, config: realTools() });
     try {
       const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-      const task = await t.client.request<any>("submit", {
+      const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         session_id: sessionId,
         request_id: "af-1",
         input: "读取并更新外部配置",
@@ -190,7 +190,7 @@ test("符号链接组件与控制面/数据目录目标：提出审批前即拒�
     try {
       protectedTarget = path.join(fs.realpathSync(t.dirs.dataDir), "ruukoto.db");
       const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-      const task = await t.client.request<any>("submit", {
+      const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         session_id: sessionId,
         request_id: "df-1",
         input: "读取被拒目标",
@@ -302,7 +302,7 @@ test("单次 HTTP 请求：批准前零调用、批准后仅一次；其他目�
   const t = await startTestRuntime("approve-http", responder, { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "ah-1",
       input: "访问外部服务",
@@ -370,7 +370,7 @@ test("重定向不自动跟随；凭据按目标绑定注入，不转发到其�
       secret: "Bearer s3cret",
     });
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "ah-2",
       input: "带凭据与跳转的访问",
@@ -409,7 +409,7 @@ test("重定向不自动跟随；凭据按目标绑定注入，不转发到其�
         secret: "Bearer s3cret",
       });
       const { sessionId: sid2 } = await createProjectSession(mismatch.client, mismatch.work[0]!);
-      const task2 = await mismatch.client.request<any>("submit", {
+      const task2 = await mismatch.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         session_id: sid2,
         request_id: "ah-3",
         input: "转发凭据",
@@ -442,7 +442,7 @@ test("拒绝只阻止该操作；无客户端时保持等待，重连后参数�
   const t = await startTestRuntime("approve-reject", responder, { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "arej-1",
       input: "删除远端数据",
@@ -493,7 +493,7 @@ test("任务结束后的迟到批准被拒绝，操作不执行", async () => {
   );
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "alate-1",
       input: "等待批准的操作",
@@ -535,7 +535,7 @@ test("批准消费：重复消费、权限版本变化、任务结束后都拒�
       piSessionId: "pi-1",
       confirmTools: [],
     });
-    const { task } = store.insertQueuedTask({ sessionId: session.id, requestId: "r1", input: "i" });
+    const { task } = store.insertQueuedTask({ sessionId: session.id, requestId: "r1", input: "i", modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "r1" });
     store.transitionTask(task.id, ["queued"], "running", {});
     const confirmation = store.createConfirmation({
       taskId: task.id,
@@ -635,7 +635,7 @@ test("崩溃恢复区分审批消费状态：已消费标 effect_unknown，未�
       }),
     );
     const { task } = store.withTx(() =>
-      store.insertQueuedTask({ sessionId: session.id, requestId: "r-rec", input: "注入恢复场景" }),
+      store.insertQueuedTask({ sessionId: session.id, requestId: "r-rec", input: "注入恢复场景", modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "r-rec" }),
     );
     store.withTx(() => {
       store.transitionTask(task.id, ["queued"], "running", { startedAt: new Date().toISOString() });
@@ -724,7 +724,7 @@ test("DNS 在批准时固定：不可解析目标在提出审批前失败（防�
   const t = await startTestRuntime("approve-dns", responder, { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "adns-1",
       input: "访问不可解析目标",
@@ -805,6 +805,10 @@ test("SQLite v1→v2 事务迁移：旧任务默认请求确认，旧未决审�
       assert.equal(task.accessMode, "confirm", "旧任务默认请求确认");
       assert.equal(task.permissionVersion, 1);
       assert.deepEqual(task.grantedPaths, []);
+      assert.equal(task.modelSelection, null);
+      assert.equal(task.submissionDigest, null);
+      assert.equal(store.getSession("s1")!.modelSelection, null);
+      assert.equal(store.getSession("s1")!.modelSelectionVersion, 0);
       assert.equal(task.input, "旧任务输入", "历史任务内容保留");
 
       const op = store.getToolOp("old-op-1")!;
@@ -844,7 +848,7 @@ test("批准绑定权限版本：版本不匹配的应答被拒绝", async () =>
   const t = await startTestRuntime("perm-version", responder, { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!, { confirmTools: ["mock_gate"] });
-    const task = await t.client.request<any>("submit", { session_id: sessionId, request_id: "pv-1", input: "触发审批" });
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: sessionId, request_id: "pv-1", input: "触发审批" });
     const conf = await pendingConfirmation(t.client, task.id);
     assert.ok(conf.permissionVersion >= 1);
     // 错误的权限版本：明确拒绝，不消费批准

@@ -37,7 +37,7 @@ test("上下文超限：任务中断并暂停会话队列，不摘要不重试",
   );
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "ov1",
       input: "OVER:会超限的任务",
@@ -54,7 +54,7 @@ test("上下文超限：任务中断并暂停会话队列，不摘要不重试",
     assert.ok(t.server.calls.length <= 1, "超限后不得反复调用模型");
 
     // 该会话队列暂停：新提交排队不启动
-    const next = await t.client.request<any>("submit", {
+    const next = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "ov2",
       input: "QUICK:暂停期间提交",
@@ -98,7 +98,7 @@ test("数据库写入失败：不应答成功、不启动外部操作", async ()
     // 注入写入失败（测试专用故障点）：提交事务失败，请求必须报错而非确认成功
     t.runtime.store.db.faultNextWrite = new Error("injected: disk on fire");
     const outcome = await t.client
-      .request("submit", {
+      .request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         session_id: sessionId,
         request_id: "dbfail-1",
         input: "EXT:外部操作",
@@ -111,7 +111,7 @@ test("数据库写入失败：不应答成功、不启动外部操作", async ()
     assert.equal(t.server.calls.length, 0, "任何外部操作都不得启动");
 
     // 故障清除后同一 request_id 可正常提交（此前未落库）
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "dbfail-1",
       input: "QUICK:故障恢复后的普通任务",

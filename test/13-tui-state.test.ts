@@ -28,6 +28,8 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
         piSessionId: "pi-1",
         sessionFile: null,
         confirmTools: [],
+        modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+        modelSelectionVersion: 1,
         queueState: "active",
         queuePauseReason: null,
         createdAt: "2026-09-20T00:00:00Z",
@@ -39,7 +41,7 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
     previews: {},
     instanceId: "inst-1",
     execution: { backend: "local", note: "local 执行后端：无隔离" },
-    model: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
+    defaultModel: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
     ...overrides,
   };
 }
@@ -50,6 +52,8 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     sessionId: "sess_1",
     requestId: `req-${id}`,
     input: "输入",
+    modelSelection: null,
+    submissionDigest: null,
     status: "running",
     accessMode: "confirm",
     permissionVersion: 1,
@@ -205,4 +209,18 @@ test("sanitizeForDisplay：不可见控制字符显示为转义形式；换行�
   assert.equal(sanitizeForDisplay("多行\n制表\t保留"), "多行\n制表\t保留");
   assert.equal(sanitizeForDisplay("C1\x85控制"), "C1\\x85控制");
   assert.equal(sanitizeForDisplay("裸 ESC\x1b 残留"), "裸 ESC\\x1b 残留");
+});
+
+
+test("模型选择只接受非旧版本，replay 不回滚，旧排队补配置事件同步", () => {
+  const state = new ViewState();
+  state.applySnapshot({ seq: 10, replay: [], snapshot: snapshot({ tasks: [task("queued", { status: "queued" })] }) }, false);
+  const selection = { provider: "other", modelId: "model", thinkingLevel: "off" as const };
+  state.applySessionModel("sess_1", selection, 3);
+  state.applySessionModel("sess_1", { ...selection, modelId: "stale" }, 2);
+  state.applyEvent(ev(2, { type: "session.model_selection_changed", sessionId: "sess_1", modelSelection: { ...selection, modelId: "replay" }, modelSelectionVersion: 4 }), "replay");
+  assert.deepEqual(state.sessions[0]!.modelSelection, selection);
+  assert.equal(state.sessions[0]!.modelSelectionVersion, 3);
+  state.applyEvent(ev(11, { type: "tasks.model_selection_recorded", sessionId: "sess_1", taskIds: ["queued"], modelSelection: selection }), "live");
+  assert.deepEqual(state.getTask("queued")!.modelSelection, selection);
 });

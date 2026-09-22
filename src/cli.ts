@@ -27,7 +27,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { ControlClient } from "./control/client.ts";
 import { controlDirFor, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
-import type { GrantedPath } from "./core/types.ts";
+import type { GrantedPath, ModelSelection, Session, Task } from "./core/types.ts";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
   const flags: Record<string, string> = {};
@@ -83,6 +83,12 @@ function parseGrants(raw: string | undefined): GrantedPath[] | undefined {
   });
 }
 
+function parseSelection(raw: string | undefined, thinking: string | undefined): ModelSelection {
+  const split = raw?.indexOf("/") ?? -1;
+  if (!raw || split <= 0 || split === raw.length - 1 || !thinking) throw new Error("必须指定 provider/model 和 --thinking（含 off）；旧队列恢复用 --model provider/model --thinking off 显式确认");
+  return { provider: raw.slice(0, split), modelId: raw.slice(split + 1), thinkingLevel: thinking as ModelSelection["thinkingLevel"] };
+}
+
 function parseMode(raw: string | undefined): "confirm" | "full_access" | undefined {
   if (!raw) return undefined;
   if (raw === "confirm" || raw === "full_access") return raw;
@@ -100,7 +106,10 @@ async function main(argv: string[]): Promise<number> {
       const dataDir = flags["data-dir"] ?? dirs.dataDir;
       const agentDir = flags["agent-dir"] ?? dirs.agentDir;
       const modelFlag = flags["model"] ?? "";
-      const [modelProvider, modelId] = modelFlag.includes("/") ? modelFlag.split("/", 2) : [undefined, undefined];
+      const split = modelFlag.indexOf("/");
+      if (modelFlag && (split <= 0 || split === modelFlag.length - 1)) throw new Error("--model 格式为 provider/model");
+      const modelProvider = split < 0 ? undefined : modelFlag.slice(0, split);
+      const modelId = split < 0 ? undefined : modelFlag.slice(split + 1);
       const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? "local";
       if (execFlag !== "local" && execFlag !== "container") {
         console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
@@ -124,7 +133,7 @@ async function main(argv: string[]): Promise<number> {
       const runtime = await Runtime.start({
         dataDir,
         agentDir,
-        thinkingLevel: "off",
+        thinkingLevel: (flags["thinking"] ?? "off") as ModelSelection["thinkingLevel"],
         modelProvider,
         modelId,
         execution: { backend: execFlag },
@@ -167,31 +176,36 @@ async function main(argv: string[]): Promise<number> {
       );
       return 0;
     }
-    case "submit":
-      print(
-        await withClient((c) =>
-          c.request("submit", {
-            session_id: positional[0] ?? "",
-            request_id: positional[1] ?? "",
-            input: positional.slice(2).join(" "),
-            access_mode: parseMode(flags["mode"]),
-            granted_paths: parseGrants(flags["grant"]),
-          }),
-        ),
-      );
+    case "models":
+      print(await withClient((c) => c.request("list_models", { provider: flags["provider"], offset: Number(flags["offset"] ?? 0), limit: Number(flags["limit"] ?? 100) })));
       return 0;
+    case "set-model":
+      print(await withClient(async (c) => {
+        const session = await c.request<Session>("get_session", { session_id: positional[0] ?? "" });
+        return c.request("set_session_model", { session_id: session.id, expected_version: session.modelSelectionVersion, model_selection: parseSelection(positional[1], flags["thinking"]) });
+      }));
+      return 0;
+    case "submit":
     case "continue":
-      print(
-        await withClient((c) =>
-          c.request("continue", {
-            task_id: positional[0] ?? "",
-            request_id: positional[1] ?? "",
-            input: positional.slice(2).join(" "),
-            access_mode: parseMode(flags["mode"]),
-            granted_paths: parseGrants(flags["grant"]),
-          }),
-        ),
-      );
+      print(await withClient(async (c) => {
+        const source = cmd === "continue" ? await c.request<{ task: Task }>("get_task", { task_id: positional[0] ?? "" }) : null;
+        const sessionId = source?.task.sessionId ?? positional[0] ?? "";
+        const requestId = positional[1] ?? "";
+        const existing = await c.request<{ task: Task | null }>("find_task", { session_id: sessionId, request_id: requestId });
+        if (existing.task && !existing.task.modelSelection) {
+          console.error("旧任务已接收，关联原任务；旧记录无法还原完整提交参数");
+          return existing.task;
+        }
+        const session = existing.task ? null : await c.request<Session>("get_session", { session_id: sessionId });
+        const selection = flags["model"] ? parseSelection(flags["model"], flags["thinking"]) : existing.task?.modelSelection ?? session?.modelSelection;
+        if (!selection) throw new Error("会话缺少模型选择，请先 set-model");
+        try {
+          return await c.request(cmd, { session_id: sessionId, ...(source ? { task_id: source.task.id } : {}), request_id: requestId, input: positional.slice(2).join(" "), access_mode: parseMode(flags["mode"]), granted_paths: parseGrants(flags["grant"]), model_selection: selection });
+        } catch (err) {
+          console.error(`提交失败或接收结果未确认；请用原 request-id ${requestId} 核实，勿换键重试`);
+          throw err;
+        }
+      }));
       return 0;
     case "switch-mode":
       print(
@@ -229,7 +243,7 @@ async function main(argv: string[]): Promise<number> {
       print(await withClient((c) => c.request("cancel", { task_id: positional[0] ?? "" })));
       return 0;
     case "resume-queue":
-      print(await withClient((c) => c.request("resume_queue", { session_id: positional[0] ?? "" })));
+      print(await withClient((c) => c.request("resume_queue", { session_id: positional[0] ?? "", ...(flags["model"] ? { model_selection: parseSelection(flags["model"], flags["thinking"]) } : {}) })));
       return 0;
     case "confirm":
       print(
@@ -535,10 +549,10 @@ async function main(argv: string[]): Promise<number> {
 function defaultHelp(): string {
   return (
     "用法：ruukoto <command> [args]\n" +
-    "命令：start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
+    "命令：models | set-model <session> <provider/model> --thinking <level> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
-    "参数：--data-dir / --agent-dir / --execution（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
+    "参数：--data-dir / --agent-dir / --execution / --model / --thinking（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（tui：直接进入指定会话，不存在则报错）\n" +
     "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"
   );

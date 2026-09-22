@@ -52,7 +52,7 @@ test("同会话 FIFO：后提交任务排队，按序执行", async () => {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const ids: string[] = [];
     for (let i = 1; i <= 3; i++) {
-      const task = await t.client.request<any>("submit", {
+      const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         session_id: sessionId,
         request_id: `r${i}`,
         input: `SLOW:任务${i}`,
@@ -86,7 +86,7 @@ test("不同目录并行执行；同目录符号链接别名互斥", async () =>
     const sAlias = await createProjectSession(t.client, aliasA, { projectName: "p-alias" });
     const sB = await createProjectSession(t.client, dirB, { projectName: "p-b" });
 
-    const taskA = await t.client.request<any>("submit", {
+    const taskA = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sA.sessionId,
       request_id: "a1",
       input: "SLOW:目录A长任务",
@@ -94,7 +94,7 @@ test("不同目录并行执行；同目录符号链接别名互斥", async () =>
     await waitFor("任务A进入运行", async () => (await taskStatus(t.client, taskA.id)).task.status === "running");
 
     // 独立目录 B 可并行
-    const taskB = await t.client.request<any>("submit", {
+    const taskB = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sB.sessionId,
       request_id: "b1",
       input: "QUICK:目录B",
@@ -103,7 +103,7 @@ test("不同目录并行执行；同目录符号链接别名互斥", async () =>
     assert.equal((await taskStatus(t.client, taskA.id)).task.status, "running", "A 应仍在运行（并行证据）");
 
     // 同一目录的符号链接别名：占用互斥，别名会话的任务只能等待
-    const taskAlias = await t.client.request<any>("submit", {
+    const taskAlias = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sAlias.sessionId,
       request_id: "alias1",
       input: "QUICK:别名目录",
@@ -126,7 +126,7 @@ test("等待确认期间保留目录占用", async () => {
     const s1 = await createProjectSession(t.client, dirA, { projectName: "g1", confirmTools: ["mock_gate"] });
     const s2 = await createProjectSession(t.client, dirA, { projectName: "g2", confirmTools: [] });
 
-    const task1 = await t.client.request<any>("submit", {
+    const task1 = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: s1.sessionId,
       request_id: "g-1",
       input: "GATE:需要确认",
@@ -141,7 +141,7 @@ test("等待确认期间保留目录占用", async () => {
     });
 
     // 同目录第二个会话的任务必须等待（占用未释放）
-    const task2 = await t.client.request<any>("submit", {
+    const task2 = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: s2.sessionId,
       request_id: "g-2",
       input: "QUICK:同目录第二任务",

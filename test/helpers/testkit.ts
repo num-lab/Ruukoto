@@ -63,7 +63,7 @@ export async function writeModelsJson(dirs: TestDirs, baseUrl: string, contextWi
             input: ["text"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
             contextWindow,
-            maxTokens: 1024,
+            maxTokens: Math.min(1024, contextWindow),
             compat: { supportsUsageInStreaming: true },
           },
         ],

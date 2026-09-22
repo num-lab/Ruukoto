@@ -1,3 +1,4 @@
+import { parseModelSelection } from "../runtime/runtime.ts";
 /**
  * 控制面服务：Unix socket 上的换行分帧 JSON。
  *
@@ -237,7 +238,7 @@ export class ControlServer {
             previews: snapshot.previews,
             instanceId: snapshot.instanceId,
             execution: snapshot.execution,
-            model: snapshot.model,
+            defaultModel: snapshot.defaultModel,
           },
         };
         this.subscribers.add(socket);
@@ -253,18 +254,33 @@ export class ControlServer {
             ? (params["confirm_tools"] as unknown[]).map(String)
             : undefined,
         });
+      case "get_session":
+        return runtime.getSession(requireString("session_id"));
+      case "list_models": {
+        for (const key of ["offset", "limit"]) {
+          if (params[key] !== undefined && (!Number.isInteger(params[key]) || Number(params[key]) < (key === "limit" ? 1 : 0))) {
+            throw Object.assign(new Error(`${key} 必须是有效整数`), { code: "invalid_params" });
+          }
+        }
+        return runtime.listModels({ provider: params["provider"] === undefined ? undefined : requireString("provider"), offset: params["offset"] as number | undefined, limit: params["limit"] as number | undefined });
+      }
+      case "set_session_model":
+        return runtime.setSessionModel({ sessionId: requireString("session_id"), modelSelection: parseModelSelection(params["model_selection"]), expectedVersion: params["expected_version"] as number });
       case "submit":
         return runtime.submit({
           sessionId: requireString("session_id"),
           requestId: requireString("request_id"),
+          modelSelection: parseModelSelection(params["model_selection"]),
           input: requireString("input"),
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
         });
       case "continue":
         return runtime.continueTask({
+          sessionId: requireString("session_id"),
           taskId: requireString("task_id"),
           requestId: requireString("request_id"),
+          modelSelection: parseModelSelection(params["model_selection"]),
           input: requireString("input"),
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
@@ -285,7 +301,7 @@ export class ControlServer {
         await runtime.cancelTask(requireString("task_id"));
         return { accepted: true };
       case "resume_queue":
-        return runtime.resumeQueue(requireString("session_id"));
+        return runtime.resumeQueue(requireString("session_id"), params["model_selection"] === undefined ? undefined : parseModelSelection(params["model_selection"]));
       case "respond_confirmation": {
         const decision = params["decision"];
         if (decision !== "approve" && decision !== "reject") {

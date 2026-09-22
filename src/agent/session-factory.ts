@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 /**
  * SDK 会话装配（封闭配置）。
  *
@@ -47,7 +48,7 @@ export interface CreateSdkSessionOptions {
   agentDir: string;
   modelRuntime: ModelRuntime;
   model: any;
-  thinkingLevel: "off" | "minimal" | "medium" | "high" | "xhigh";
+  thinkingLevel: ThinkingLevel;
   tools: ToolDefinition[];
   hooks: SessionHostHooks;
 }

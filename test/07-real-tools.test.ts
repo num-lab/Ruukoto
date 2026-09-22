@@ -69,7 +69,7 @@ test("真实工具：读取—修改—检查失败—修复—检查通过，�
     fs.writeFileSync(path.join(dir, "answer.txt"), "41\n", "utf8");
     const { sessionId } = await createProjectSession(t.client, dir);
 
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "rt-1",
       input: "修复 answer.txt 让检查通过",
@@ -131,7 +131,7 @@ test("断开客户端后任务继续；重连可见改动、检查结果与产�
     fs.writeFileSync(path.join(dir, "answer.txt"), "41\n", "utf8");
     const { sessionId } = await createProjectSession(client, dir);
 
-    const task = await client.request<any>("submit", {
+    const task = await client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "rt-2",
       input: "修复 answer.txt 让检查通过",
@@ -200,7 +200,7 @@ test("执行入口不可用：明确失败，不回退到后台账户执行", as
   try {
     const dir = t.work[0]!;
     const { sessionId } = await createProjectSession(t.client, dir);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "rt-3",
       input: "执行命令",

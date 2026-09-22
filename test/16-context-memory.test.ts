@@ -445,7 +445,7 @@ test("集成：多工具轮次后早期消息离开上下文，配对保持有�
   try {
     const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
     void projectId;
-    const task = (await t.client.request<any>("submit", {
+    const task = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "r-long",
       input: "step0 开始",
@@ -488,7 +488,7 @@ test("集成：必须项超过预算 → 零 provider 请求、任务 interrupte
   });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = (await t.client.request<any>("submit", {
+    const task = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "r-huge",
       input: "x".repeat(50_000),
@@ -503,7 +503,7 @@ test("集成：必须项超过预算 → 零 provider 请求、任务 interrupte
     const queue = await t.client.request<any>("read_history", { session_id: sessionId, limit: 1 }).catch(() => null);
     void queue;
     // 队列已暂停：后续任务保持 queued
-    const task2 = (await t.client.request<any>("submit", {
+    const task2 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "r-after",
       input: "后续",
@@ -554,7 +554,7 @@ test("集成：无授权时代理 history_search 看不到他项目内容；授�
     const b = await createProjectSession(t.client, t.work[1]!, { projectName: "proj-B" });
 
     // 项目 B 的会话里留下"暗号"
-    const taskB = (await t.client.request<any>("submit", {
+    const taskB = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: b.sessionId,
       request_id: "rB",
       input: "记住暗号：蓝色灯塔",
@@ -562,7 +562,7 @@ test("集成：无授权时代理 history_search 看不到他项目内容；授�
     await waitFor("B 完成", async () => (await taskStatus(t.client, taskB.id)).task.status === "completed");
 
     // 项目 A 的代理搜索"暗号"：无授权 → 结果不含 B 的内容
-    const taskA1 = (await t.client.request<any>("submit", {
+    const taskA1 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: a.sessionId,
       request_id: "rA1",
       input: "查找暗号",
@@ -590,7 +590,7 @@ test("集成：无授权时代理 history_search 看不到他项目内容；授�
     })) as any;
 
     const callCountBeforeA2 = t.server.calls.length;
-    const taskA2 = (await t.client.request<any>("submit", {
+    const taskA2 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: a.sessionId,
       request_id: "rA2",
       input: "再查暗号",
@@ -608,7 +608,7 @@ test("集成：无授权时代理 history_search 看不到他项目内容；授�
     // 撤销后再搜：恢复不可见
     await t.client.request("revoke_data_grant", { grant_id: grant.id });
     const callCountBeforeA3 = t.server.calls.length;
-    const taskA3 = (await t.client.request<any>("submit", {
+    const taskA3 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: a.sessionId,
       request_id: "rA3",
       input: "三查暗号",
@@ -673,7 +673,7 @@ test("集成：代理 memory_save 写本项目记忆并在后续注入；个人�
   );
   try {
     const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = (await t.client.request<any>("submit", {
+    const task = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "r-mem",
       input: "记住偏好",
@@ -695,7 +695,7 @@ test("集成：代理 memory_save 写本项目记忆并在后续注入；个人�
       content: "本项目测试用 node:test",
       source_refs: [{ kind: "owner_note", note: "约定" }],
     });
-    const task2 = (await t.client.request<any>("submit", {
+    const task2 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "r-mem2",
       input: "写个测试",
@@ -889,7 +889,7 @@ test("集成：项目指令任务开始时钉版注入一次，内容捕获为�
     );
 
     await t.client.request("set_project_instructions", { project_id: projectId, files: ["TEAM.md", "缺失.md"] });
-    const task = (await t.client.request<any>("submit", {
+    const task = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "r-instr",
       input: "你好",
@@ -935,7 +935,7 @@ test("集成：继续已中断任务时原任务要求作为必留参考注入",
   );
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task1 = (await t.client.request<any>("submit", {
+    const task1 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "r-orig",
       input: "原始要求：给登录页加验证码",
@@ -946,7 +946,7 @@ test("集成：继续已中断任务时原任务要求作为必留参考注入",
     release();
 
     const callsBefore = t.server.calls.length;
-    const task2 = (await t.client.request<any>("continue", {
+    const task2 = (await t.client.request<any>("continue", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       task_id: task1.id,
       request_id: "r-cont",
       input: "继续",
@@ -1028,7 +1028,7 @@ test("集成：授权撤销后引用受限来源的记忆不再注入，memory_r
     const a = await createProjectSession(t.client, t.work[0]!, { projectName: "memA" });
     const b = await createProjectSession(t.client, t.work[1]!, { projectName: "memB" });
 
-    const taskB = (await t.client.request<any>("submit", {
+    const taskB = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: b.sessionId,
       request_id: "r-mb",
       input: "记暗号：蓝色灯塔",
@@ -1047,7 +1047,7 @@ test("集成：授权撤销后引用受限来源的记忆不再注入，memory_r
       to_project_id: a.projectId,
       category: "history",
     })) as any;
-    const taskA1 = (await t.client.request<any>("submit", {
+    const taskA1 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: a.sessionId,
       request_id: "r-ma1",
       input: "存记忆",
@@ -1061,7 +1061,7 @@ test("集成：授权撤销后引用受限来源的记忆不再注入，memory_r
     // 撤销授权：后续任务不再注入该记忆；memory_read 拒绝
     await t.client.request("revoke_data_grant", { grant_id: grant.id });
     const callsBefore = t.server.calls.length;
-    const taskA2 = (await t.client.request<any>("submit", {
+    const taskA2 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: a.sessionId,
       request_id: "r-ma2",
       input: "读记忆",
@@ -1136,7 +1136,7 @@ test("迁移：v2 库升级到 v3 补列建表，既有数据保留", async () =
     const pb = store.createProject("B");
     const grant = access.createGrant({ fromProjectId: pb.id, toProjectId: "proj_old", category: "history" });
     assert.ok(grant.id);
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "4");
+    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "5");
     db.close();
   } finally {
     await cleanupDirs(dirs);

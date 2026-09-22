@@ -25,14 +25,14 @@ test("幂等提交：重试返回原任务；同键异参冲突", async () => {
   );
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const first = await t.client.request<any>("submit", {
+    const first = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "client-key-1",
       input: "帮我写代码",
     });
 
     // 模拟应答丢失：不等任务完成就重发相同键
-    const retry = await t.client.request<any>("submit", {
+    const retry = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "client-key-1",
       input: "帮我写代码",
@@ -41,7 +41,7 @@ test("幂等提交：重试返回原任务；同键异参冲突", async () => {
 
     await assert.rejects(
       () =>
-        t.client.request("submit", {
+        t.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
           session_id: sessionId,
           request_id: "client-key-1",
           input: "改成别的输入",
@@ -73,7 +73,7 @@ test("断开重连：游标补发无缺口；片段与条目引用可恢复", as
   );
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "conn-1",
       input: "第一段长回复",
@@ -84,7 +84,7 @@ test("断开重连：游标补发无缺口；片段与条目引用可恢复", as
     const cursor = t.client.getSeq();
     const seenByA: number[] = [];
     t.client.onEvent((e) => seenByA.push(e.seq));
-    const task2 = await t.client.request<any>("submit", {
+    const task2 = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "conn-2",
       input: "第二段长回复",
@@ -108,7 +108,7 @@ test("断开重连：游标补发无缺口；片段与条目引用可恢复", as
       // 实时推送继续且不重复
       const live: number[] = [];
       clientB.onEvent((e) => live.push(e.seq));
-      const task3 = await clientB.request<any>("submit", {
+      const task3 = await clientB.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         session_id: sessionId,
         request_id: "conn-3",
         input: "第三段长回复",
@@ -154,4 +154,25 @@ test("断开重连：游标补发无缺口；片段与条目引用可恢复", as
   } finally {
     await t.shutdown();
   }
+});
+
+test("已接收请求以不可变提交参数核实，不重新验证认证或任务当前权限", async () => {
+  const t = await startTestRuntime("model-retry", routeResponder([]));
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    t.runtime.store.withTx(() => t.runtime.store.setSessionQueueState(sessionId, "paused", "test"));
+    const params = { session_id: sessionId, request_id: "immutable", input: "原始要求",
+      model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } };
+    const first = await t.client.request<any>("submit", params);
+    await t.client.request("switch_mode", { task_id: first.id, mode: "full_access" });
+    const original = t.runtime.modelRuntime.checkAuth;
+    t.runtime.modelRuntime.checkAuth = async () => { throw new Error("SECRET must not escape"); };
+    try {
+      assert.equal((await t.client.request<any>("submit", params)).id, first.id);
+      await assert.rejects(t.client.request("submit", { ...params, access_mode: "full_access" }), { code: "request_conflict" });
+      await assert.rejects(t.client.request("submit", { ...params, model_selection: { ...params.model_selection, modelId: "other" } }), { code: "request_conflict" });
+      await assert.rejects(t.client.request("submit", { ...params, request_id: "new" }), (err: any) => err.code === "model_auth_error" && !err.message.includes("SECRET"));
+    } finally { t.runtime.modelRuntime.checkAuth = original; }
+    await assert.rejects(t.client.request("submit", { session_id: sessionId, request_id: "missing", input: "不能推断配置" }), { code: "invalid_params" });
+  } finally { await t.shutdown(); }
 });

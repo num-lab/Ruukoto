@@ -65,6 +65,7 @@ test("真实模型连通性（RUN_MODEL_CHECK=1 开启）", { skip: process.env.
         cwd: root,
       });
       const task = await client.request<any>("submit", {
+        model_selection: session.modelSelection,
         session_id: session.id,
         request_id: `model-check-${provider}`,
         input: "请只回复两个字母：OK",

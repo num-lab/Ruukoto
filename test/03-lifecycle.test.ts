@@ -81,7 +81,7 @@ test("显式中断：模型调用被取消，不自动重试，终态 interrupte
   const t = await startTestRuntime("interrupt", lifecycleRoutes());
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "i1",
       input: "SLOWRESP:请回答",
@@ -110,12 +110,12 @@ test("取消排队任务不执行；取消活动任务记录取消意图", async
   const t = await startTestRuntime("cancel", lifecycleRoutes());
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const t1 = await t.client.request<any>("submit", {
+    const t1 = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "c1",
       input: "SLOWRESP:长任务",
     });
-    const t2 = await t.client.request<any>("submit", {
+    const t2 = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "c2",
       input: "QUICK:排队任务",
@@ -138,7 +138,7 @@ test("取消与自然完成竞争：只有一个终态，重复取消无额外�
   const t = await startTestRuntime("race", lifecycleRoutes());
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "race1",
       input: "QUICK:极快任务",
@@ -168,7 +168,7 @@ test("拒绝确认：只阻止该操作，模型按拒绝结果继续；失效�
     const { sessionId } = await createProjectSession(t.client, t.work[0]!, {
       confirmTools: ["mock_gate"],
     });
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "rej1",
       input: "GATEREJ:请执行需要确认的操作",
@@ -208,7 +208,7 @@ test("等待确认时中断：任务中断、确认失效、被确认的工具�
     const { sessionId } = await createProjectSession(t.client, t.work[0]!, {
       confirmTools: ["mock_gate"],
     });
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "gi1",
       input: "GATEREJ:需要确认后执行",
@@ -244,7 +244,7 @@ test("拒绝正常终止的子进程：中断时升级强制回收，占用随�
       projectName: "reap-p",
     });
     // 通过 submit 的输入把 pidFile 传给 responder 生成的工具参数
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "spawn1",
       input: `SPAWN:${pidFile}`,
@@ -272,7 +272,7 @@ test("拒绝正常终止的子进程：中断时升级强制回收，占用随�
     assert.ok(gone, "忽略 SIGTERM 的子进程必须被 SIGKILL 回收");
 
     // 占用已释放：同目录新任务可以启动
-    const next = await t.client.request<any>("submit", {
+    const next = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "spawn2",
       input: "QUICK:占用回收后的新任务",

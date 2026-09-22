@@ -8,7 +8,16 @@
 
 import { randomBytes } from "node:crypto";
 
-export const PROTOCOL_VERSION = 4;
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+
+export const PROTOCOL_VERSION = 5;
+
+export interface ModelSelection {
+  provider: string;
+  modelId: string;
+  thinkingLevel: ThinkingLevel;
+}
 
 /**
  * 任务访问模式（ADR 0003）。
@@ -73,6 +82,8 @@ export interface Session {
   sessionFile: string | null;
   /** 需要拥有者确认的工具名列表（issue 03 接入真实权限判定）。 */
   confirmTools: string[];
+  modelSelection: ModelSelection | null;
+  modelSelectionVersion: number;
   queueState: SessionQueueState;
   queuePauseReason: string | null;
   createdAt: string;
@@ -85,6 +96,9 @@ export interface Task {
   requestId: string;
   /** 任务输入原文；送入 SDK 前是唯一副本，写入历史后关联对应条目。 */
   input: string;
+  modelSelection: ModelSelection | null;
+  /** 原始提交的不可变摘要；旧任务无法还原时为 null。 */
+  submissionDigest: string | null;
   status: TaskStatus;
   /** 任务访问模式；默认请求确认。只有已认证拥有者能选择完全访问。 */
   accessMode: AccessMode;
@@ -211,8 +225,10 @@ export interface Artifact {
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
   | { type: "project.created"; projectId: string; name: string }
-  | { type: "session.created"; sessionId: string; projectId: string; cwd: string }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode }
+  | { type: "session.created"; sessionId: string; projectId: string; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number }
+  | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
+  | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
+  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }
   | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean; scope: ApprovalScope; permissionVersion?: number }
   | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected" }

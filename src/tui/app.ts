@@ -42,7 +42,7 @@ import type { SubmissionGuard } from "../control/submission.ts";
 import type { PendingRequestStore } from "../control/pending-requests.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
-import type { PersistentEvent, Task } from "../core/types.ts";
+import type { ModelSelection, Session, PersistentEvent, Task } from "../core/types.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
 import { snapUtf8End, snapUtf8Start } from "../core/history.ts";
 import {
@@ -315,6 +315,8 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "approvals", description: "待处理审批列表" },
   { name: "interrupt", description: "中断当前任务", argumentHint: "[taskId]" },
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>" },
+  { name: "model", description: "选择提供方、模型及思考强度" },
+  { name: "thinking", description: "选择当前模型支持的思考强度" },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]" },
   { name: "resume-queue", description: "恢复已暂停的会话队列" },
   { name: "mode", description: "切换任务访问模式", argumentHint: "<confirm|full_access> [taskId]" },
@@ -432,10 +434,10 @@ export class TuiApp {
 
   /** 右下角信息：模型来源 · 模型名 · 思考强度（未握手完成时显示占位）。 */
   private modelInfoText(): string {
-    const m = this.state.model;
-    if (!m.provider && !m.id) return "模型：连接中…";
-    const thinking = m.thinkingLevel || "off";
-    return `${m.provider} · ${m.name || m.id} · 思考 ${thinking}`;
+    const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
+    if (session) return `后续任务：${this.selectionText(session.modelSelection)} · /model /thinking`;
+    const m = this.state.defaultModel;
+    return m.provider ? `启动默认：${m.provider}/${m.id} · 思考 ${m.thinkingLevel}` : "模型：连接中…";
   }
 
   /**
@@ -544,6 +546,30 @@ export class TuiApp {
           case "kept":
             this.notify(`输入 ${outcome.requestId} 仍待核实：${outcome.reason}`);
             break;
+          case "needs_resubmit": {
+            const sessionId = String(outcome.params["session_id"] ?? "");
+            this.showSelection("旧请求明确未接收且缺少模型：恢复原文后通过 /model 选择并提交（Esc 保留记录）", [{ value: "restore", label: "恢复原文到所属会话并清除旧待确认记录" }], () => {
+              const view = this.state.openSession(sessionId);
+              const text = String(outcome.params["input"] ?? "");
+              view.draft = view.draft ? `${view.draft}\n${text}` : text;
+              this.pendingStore.clear(outcome.requestId);
+              this.state.pendingInputs = this.pendingStore.list().records;
+              this.switchSession(sessionId);
+              if (typeof outcome.params["task_id"] === "string") this.continueForTaskId = outcome.params["task_id"];
+              this.editor.setText(view.draft);
+              this.notify("原文已恢复，请通过 /model 选择后提交");
+            });
+            break;
+          }
+          case "rejected": {
+            const sessionId = String(outcome.params["session_id"] ?? "");
+            const view = this.state.openSession(sessionId);
+            const text = String(outcome.params["input"] ?? "");
+            view.draft = view.draft ? `${view.draft}\n${text}` : text;
+            if (this.state.currentSessionId === sessionId) this.editor.setText(view.draft);
+            this.state.note(sessionId, `后台明确拒绝：${outcome.reason}；输入已恢复`);
+            break;
+          }
           case "foreign_instance":
             this.notify(red(`输入 ${outcome.requestId} 属于其他数据实例：保留待拥有者处理，未重发`));
             break;
@@ -708,9 +734,11 @@ export class TuiApp {
     this.editor.addToHistory(text);
     try {
       const continueTaskId = this.continueForTaskId;
+      const modelSelection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
+      if (!modelSelection) throw new Error("请先通过 /model 选择模型");
       const outcome = continueTaskId
-        ? await this.guard.submit("continue", { task_id: continueTaskId, input: text })
-        : await this.guard.submit("submit", { session_id: view.sessionId, input: text });
+        ? await this.guard.submit("continue", { task_id: continueTaskId, session_id: view.sessionId, input: text, model_selection: modelSelection })
+        : await this.guard.submit("submit", { session_id: view.sessionId, input: text, model_selection: modelSelection });
       switch (outcome.kind) {
         case "accepted": {
           this.state.upsertTask(outcome.task);
@@ -730,6 +758,11 @@ export class TuiApp {
         case "pending_verification":
           this.state.pendingInputs = this.pendingStore.list().records;
           this.notify(yellow(`应答丢失：输入 ${outcome.requestId} 接收结果待核实（不会重复发送）`));
+          break;
+        case "rejected":
+          view.draft = text;
+          if (this.state.currentSessionId === view.sessionId) this.editor.setText(text);
+          this.state.note(view.sessionId, `提交被拒绝：${outcome.message}`);
           break;
         case "conflict":
           this.notify(red(`提交冲突：${outcome.message}；请核实原任务，不会换新键重发`));
@@ -799,6 +832,10 @@ export class TuiApp {
         return;
       case "resume-queue":
         await this.cmdResumeQueue();
+        return;
+      case "model":
+      case "thinking":
+        await this.openModelPicker(name === "thinking");
         return;
       case "mode":
         await this.cmdMode(rest);
@@ -906,7 +943,7 @@ export class TuiApp {
       const interrupted = this.state.tasksFor(view.sessionId).filter((t) => t.status === "interrupted");
       task = interrupted.at(-1) ?? null;
     }
-    if (!task || task.status !== "interrupted") {
+    if (!task || task.sessionId !== view.sessionId || task.status !== "interrupted") {
       this.notify("没有可继续的中断任务（/continue [taskId]）");
       return;
     }
@@ -914,7 +951,7 @@ export class TuiApp {
     const effectNote = task.effectUnknown ? "；存在效果未知的工具操作（不能当作可安全重试）" : "";
     this.notify(
       `继续任务 ${task.id}：中断原因 ${task.interruptReason ?? "未知"}${effectNote}。\n` +
-        `下一条输入将作为继续指令提交（新任务默认请求确认；/mode 可显式切换）。输入 /continue 取消继续模式。`,
+        `原任务模型：${this.selectionText(task.modelSelection)}。下一条输入使用后续任务选择：${this.selectionText(this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection)}（新任务默认请求确认）。输入 /continue 取消继续模式。`,
     );
     // 展示旧任务的已完成操作，供继续决策参考
     try {
@@ -947,6 +984,16 @@ export class TuiApp {
       return;
     }
     try {
+      const legacy = this.state.queuedTasksFor(view.sessionId).filter((t) => !t.modelSelection);
+      const selection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
+      if (legacy.length) {
+        this.showSelection(`为 ${legacy.length} 个旧排队任务补配置：${this.selectionText(selection)}`, [{ value: "yes", label: "确认补齐并恢复队列" }], () => {
+          void this.connection.request("resume_queue", { session_id: view.sessionId, model_selection: selection })
+            .then(() => { this.state.note(view.sessionId, "队列已恢复"); this.refreshAll(); })
+            .catch((err) => { this.state.note(view.sessionId, `恢复失败：${err.message}`); this.refreshAll(); });
+        });
+        return;
+      }
       await this.connection.request("resume_queue", { session_id: view.sessionId });
       this.notify("队列已恢复");
     } catch (err) {
@@ -1660,6 +1707,72 @@ export class TuiApp {
     };
   }
 
+  private selectionText(selection: ModelSelection | null | undefined): string {
+    return selection ? sanitizeForDisplay(`${selection.provider}/${selection.modelId} · 思考 ${selection.thinkingLevel}`) : "模型配置未记录";
+  }
+
+  private showSelection(title: string, items: SelectItem[], select: (item: SelectItem) => void): void {
+    const list = new SelectList(items, Math.min(items.length, 10), selectTheme);
+    const box = new OverlayBox([
+      { component: new Text(sanitizeForDisplay(title), 1, 0), grow: 0 },
+      { component: list, grow: 1 },
+    ]);
+    box.forwardTo = list;
+    const handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "70%" });
+    const close = () => { handle.hide(); this.tui.setFocus(this.editor); };
+    list.onCancel = close;
+    list.onSelect = (item) => { close(); select(item); };
+  }
+
+  private async openModelPicker(thinkingOnly: boolean): Promise<void> {
+    const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
+    if (!session) { this.notify("尚未选择会话"); return; }
+    const sessionId = session.id;
+    const version = session.modelSelectionVersion;
+    const current = session.modelSelection;
+    type Choice = { provider: string; modelId: string; name: string; thinkingLevels: ModelSelection["thinkingLevel"][]; available: boolean };
+    try {
+      const models: Choice[] = [];
+      let offset: number | null = 0;
+      do {
+        const page: { models: Choice[]; nextOffset: number | null } = await this.connection.request("list_models", { offset, limit: 100, ...(thinkingOnly ? { provider: current?.provider } : {}) });
+        models.push(...page.models);
+        offset = page.nextOffset;
+      } while (offset !== null);
+      if (this.state.currentSessionId !== sessionId) return;
+      const chooseThinking = (model: Choice) => {
+        if (!model.available) { this.notify("此模型认证材料不可用，请在后台配置后重试"); return; }
+        this.showSelection(`${model.provider} · ${model.name}：选择思考强度（Esc 取消）`, model.thinkingLevels.map((level) => ({ value: level, label: `${level}${current?.provider === model.provider && current?.modelId === model.modelId && current.thinkingLevel === level ? " ✓" : ""}` })), (item) => {
+          void this.saveModelSelection(sessionId, version, { provider: model.provider, modelId: model.modelId, thinkingLevel: item.value as ModelSelection["thinkingLevel"] });
+        });
+      };
+      if (thinkingOnly) {
+        const model = models.find((m) => m.provider === current?.provider && m.modelId === current?.modelId);
+        if (!model) { this.notify("当前模型不在可用目录中，请通过 /model 重新选择"); return; }
+        chooseThinking(model);
+      } else if (models.length) {
+        this.showSelection("选择提供方与模型（Esc 取消）", models.map((m, i) => ({ value: String(i), label: sanitizeForDisplay(`${m.provider} · ${m.name}（${m.modelId}）${m.provider === current?.provider && m.modelId === current?.modelId ? " ✓" : ""}`), description: m.available ? "认证材料可用；远程连通性未验证" : "认证材料不可用" })), (item) => chooseThinking(models[Number(item.value)]!));
+      } else this.notify("后台未配置模型");
+    } catch (err) { this.notify(`模型目录读取失败：${(err as Error).message}`); }
+  }
+
+  private async saveModelSelection(sessionId: string, version: number, selection: ModelSelection): Promise<void> {
+    this.state.note(sessionId, "模型选择保存中，等待后台确认…");
+    this.refreshAll();
+    try {
+      const saved = await this.connection.request<Session>("set_session_model", { session_id: sessionId, expected_version: version, model_selection: selection });
+      this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
+      this.state.note(sessionId, `后续任务选择已保存：${this.selectionText(saved.modelSelection)}；已提交任务保持原配置`);
+    } catch (err) {
+      this.state.note(sessionId, `模型设置未确认：${(err as Error).message}；正在查询后台状态`);
+      try {
+        const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
+        this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
+      } catch { this.state.note(sessionId, "状态查询失败，重连后恢复；未自动重发设置"); }
+    }
+    this.refreshAll();
+  }
+
   // ---------- 会话选择 ----------
 
   private openSessionPicker(): void {
@@ -1775,7 +1888,7 @@ export class TuiApp {
     );
     const queued = this.state.queuedTasksFor(view.sessionId);
     const parts = [
-      active ? `任务 ${formatTaskStatus(active.status)} ${active.id.slice(0, 12)}…` : "无活动任务",
+      active ? `任务 ${formatTaskStatus(active.status)} ${active.id.slice(0, 12)}… · 使用 ${this.selectionText(active.modelSelection)}` : "无活动任务",
       `排队 ${queued.length}`,
       view.queueState === "paused" ? yellow(`队列已暂停（${view.queuePauseReason ?? ""}）`) : "队列正常",
       `待审批 ${this.state.pendingApprovals().length}`,

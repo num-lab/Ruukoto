@@ -368,7 +368,7 @@ test("github: PR 采集（分页文件 + diff + 缺失 patch 标记 + 产物落�
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r1", input: "分析 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r1", input: "分析 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     // 文件列表走了两页
     const fileReqs = f.state.requests.filter((r) => r.path.includes("/pulls/7/files"));
@@ -419,7 +419,7 @@ test("github: 采集期间修订变化 → 标记 inconsistent，不混合修订
       return origPush(r);
     }) as any;
 
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r2", input: "分析 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r2", input: "分析 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const detail = await taskStatus(f.t.client, task.id);
     const op = detail.toolOps.find((o: any) => o.toolName === "github_read_pr");
@@ -438,7 +438,7 @@ test("github: run 采集（attempt 固定、同名作业不合并、日志 302 �
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r3", input: "分析 run 555" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r3", input: "分析 run 555" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const detail = await taskStatus(f.t.client, task.id);
     const op = detail.toolOps.find((o: any) => o.toolName === "github_read_run");
@@ -468,7 +468,7 @@ test("github: 日志重定向到私网/回环被拒绝", async () => {
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r4", input: "分析 run 555" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r4", input: "分析 run 555" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const detail = await taskStatus(f.t.client, task.id);
     const op = detail.toolOps.find((o: any) => o.toolName === "github_read_run");
@@ -492,7 +492,7 @@ test("github: 无读取凭据 → 明确报错（不回退 gh 登录态）", asy
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r5", input: "分析 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r5", input: "分析 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const detail = await taskStatus(f.t.client, task.id);
     const op = detail.toolOps.find((o: any) => o.toolName === "github_read_pr");
@@ -513,7 +513,7 @@ test("github: 范围外读取拒绝（绑定未开放 actions）", async () => {
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r6", input: "分析 run 555" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r6", input: "分析 run 555" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const detail = await taskStatus(f.t.client, task.id);
     const op = detail.toolOps.find((o: any) => o.toolName === "github_read_run");
@@ -569,7 +569,7 @@ test("github: 草稿保存 → 拥有者发布（confirm 模式逐次审批 → 
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r7", input: "评审 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r7", input: "评审 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const drafts = (await f.t.client.request<any>("github_list_drafts", { project_id: f.projectId })) as any;
     assert.equal(drafts.drafts.length, 1);
@@ -615,7 +615,7 @@ test("github: 发布前复核发现修订变化 → 草稿标 stale，不发送"
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r8", input: "评审 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r8", input: "评审 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const drafts = (await f.t.client.request<any>("github_list_drafts", {})) as any;
     const draft = drafts.drafts[0];
@@ -652,7 +652,7 @@ test("github: 发送后断线 → effect_unknown，不自动重发", async () =>
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r9", input: "评审 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r9", input: "评审 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const drafts = (await f.t.client.request<any>("github_list_drafts", {})) as any;
     const draft = drafts.drafts[0];
@@ -681,7 +681,7 @@ test("github: 绑定撤销后进行中的调用在版本核对时失败", async 
   try {
     // 撤销绑定后客户端 configVersion() 返回 null → 调用抛 github_config_revoked
     await f.t.client.request("github_unbind", { binding_id: f.binding.id });
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r10", input: "分析 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r10", input: "分析 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const detail = await taskStatus(f.t.client, task.id);
     const op = detail.toolOps.find((o: any) => o.toolName === "github_read_pr");
@@ -714,7 +714,7 @@ test("github: confirm 模式发布经逐次审批（github_publish scope），�
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r12", input: "评审 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r12", input: "评审 PR 7" })) as any;
     // 等草稿保存（任务仍 running：第三次模型调用挂起）
     let draft: any = null;
     await waitFor("草稿出现", async () => {
@@ -777,7 +777,7 @@ test("github: 模型伪造他项目绑定 id 被拦（身份由宿主注入）",
   foreignBindingId = g.binding.id;
   try {
     // 项目 A 的任务尝试用项目 B 的绑定 id
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r11", input: "分析 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r11", input: "分析 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const detail = await taskStatus(f.t.client, task.id);
     const op = detail.toolOps.find((o: any) => o.toolName === "github_read_pr");
@@ -828,7 +828,7 @@ test("github: 不同 kind/target 的发布不复用 pending 操作（审计与�
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r12", input: "评审 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r12", input: "评审 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const draft = ((await f.t.client.request<any>("github_list_drafts", {})) as any).drafts[0];
     // pr_review 草稿以 issue_comment 形态发布：复核按 PR 修订执行，目标必须是该 PR
@@ -856,7 +856,7 @@ test("github: 发布目标编号必须为正整数（/pulls/0 不落盘）", asy
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r13", input: "评审 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r13", input: "评审 PR 7" })) as any;
     await waitFor("任务完成", async () => (await taskStatus(f.t.client, task.id)).task.status === "completed");
     const draft = ((await f.t.client.request<any>("github_list_drafts", {})) as any).drafts[0];
     await assert.rejects(
@@ -896,7 +896,7 @@ test("github: 已结束任务的 confirm 发布被拒绝且不产生新任务；
     },
   });
   try {
-    const task = (await f.t.client.request<any>("submit", { session_id: f.sessionId, request_id: "r14", input: "评审 PR 7" })) as any;
+    const task = (await f.t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: f.sessionId, request_id: "r14", input: "评审 PR 7" })) as any;
     await waitFor("草稿 v1", async () => ((await f.t.client.request<any>("github_list_drafts", {})) as any).drafts.length >= 1);
     draftId = ((await f.t.client.request<any>("github_list_drafts", {})) as any).drafts[0].id;
     const v2 = await f.t.client.request<any>("github_get_draft", { draft_id: draftId });

@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: ready-for-human
 Depends on: 02, 04, 05
 
 # 提供方、模型与思考强度切换
@@ -142,3 +142,7 @@ CLI 复用同一控制接口提供最小的 `models`、`set-model` 操作，并�
 ### 2026-09-21：补充实施计划
 
 按用户要求和 `ponytail` 技能补充计划，依据当前工作区与本地 pi `0.85.1` 的实现核对。计划复用 SDK 切换能力、现有会话/任务表、选择框、认证协议和待确认请求机制；补入任务配置冻结、旧库迁移、继续任务核实及多客户端一致性要求。本次只更新工单，状态保持 `needs-triage`。
+
+### 2026-09-22：实施落地
+
+按计划完成按会话模型选择：协议升级到 v5；任务提交时冻结 `ModelSelection`（provider、modelId、thinkingLevel）并记录不可变摘要，排队/运行任务不随切换变化，继续任务沿用新建语义。`list_models`/`set_session_model`/`get_session` 控制接口就绪；TUI 提供 `/model`、`/thinking` 选择器与状态栏区分“后续选择/运行实际”；CLI 增加 `models`、`set-model`、`--thinking` 及旧队列恢复显式确认。SDK 执行路径按任务记录解析模型并核对生效（档位静默钳制即失败），上下文预算改用任务模型的实际上限。旧库 v1–v4 迁移补列，旧会话/排队任务配置经启动初始化或拥有者显式确认补齐，多个事件分块落盘保证原子性与有界大小。模拟验证：`npm run typecheck` 通过；`npm test` 133 通过、0 失败（1 项跳过为真实凭据用例）。真实模型连通性未验证（未配置提供方凭据），留待人工验收，故置 ready-for-human。

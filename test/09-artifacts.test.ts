@@ -53,7 +53,7 @@ test("超长 stdout 与跨分块 UTF-8：完整捕获、按偏移读取、切片
   const t = await startTestRuntime("artifact-big", bigOutputResponder(), { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "art-1",
       input: "产生大输出",
@@ -103,7 +103,7 @@ test("中断保留已捕获部分（partial）与失败原因，不报告完整�
   const t = await startTestRuntime("artifact-partial", responder, { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "art-2",
       input: "运行长命令",
@@ -157,7 +157,7 @@ test("产物查询按任务归属：其他任务与其他会话读不到本任�
   const t = await startTestRuntime("artifact-scope", responder, { workDirs: 2, config: realTools() });
   try {
     const { sessionId: sA } = await createProjectSession(t.client, t.work[0]!, { projectName: "art-a" });
-    const taskA = await t.client.request<any>("submit", {
+    const taskA = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sA,
       request_id: "art-a1",
       input: "产生输出",
@@ -169,7 +169,7 @@ test("产物查询按任务归属：其他任务与其他会话读不到本任�
 
     // 另一个会话的任务尝试用 read_artifact 读 A 的产物 → 拒绝
     const { sessionId: sB } = await createProjectSession(t.client, t.work[1]!, { projectName: "art-b" });
-    const taskB = await t.client.request<any>("submit", {
+    const taskB = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sB,
       request_id: "art-b1",
       input: `读别的任务产物 ARTID:${artifactA.id}`,
@@ -215,7 +215,7 @@ test("产物跨后台重启可读", async () => {
     await c1.handshake();
     const project = (await c1.request<any>("create_project", { name: "art-restart" })) as any;
     const session = (await c1.request<any>("create_session", { project_id: project.id, cwd: work[0]! })) as any;
-    const task = (await c1.request<any>("submit", {
+    const task = (await c1.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: session.id,
       request_id: "art-r1",
       input: "产生大输出",
@@ -280,7 +280,7 @@ test("产物磁盘写入失败：停止执行、保留已捕获部分与失败�
     // 注入存储失败：产物目录只读（同 UID 的 EACCES）
     fs.chmodSync(artifactsDir, 0o500);
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "art-fail-1",
       input: "产生输出",
@@ -309,7 +309,7 @@ test("产物读取上限：base64 开销后仍在帧上限内（超限长度被�
   const t = await startTestRuntime("artifact-cap", responder, { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", { session_id: sessionId, request_id: "cap-1", input: "产生大输出" });
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: sessionId, request_id: "cap-1", input: "产生大输出" });
     await waitFor("工具完成", async () => {
       const d = await taskStatus(t.client, task.id);
       return d.toolOps.length > 0 && d.toolOps[0].resultSummary !== null;

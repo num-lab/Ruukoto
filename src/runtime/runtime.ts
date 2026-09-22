@@ -11,7 +11,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Db } from "../core/db.ts";
@@ -23,6 +23,7 @@ import {
   type Artifact,
   type ConfirmationRequest,
   type GrantedPath,
+  type ModelSelection,
   type PersistentEvent,
   type Project,
   type Session,
@@ -32,6 +33,7 @@ import {
 } from "../core/types.ts";
 import { acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
 import { resolveDirIdentity, verifyDirIdentity, DirIdentityError } from "../core/dir-identity.ts";
+import { createModelCatalog, type ModelCatalog } from "../agent/model-selection.ts";
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
 import { createCodingTools } from "../agent/tool-router.ts";
@@ -97,7 +99,7 @@ export interface RuntimeConfig {
   /** 控制面目录（socket 与拥有者令牌；默认数据目录的兄弟目录 control/）。 */
   controlDir?: string;
   socketPath?: string;
-  thinkingLevel?: "off" | "minimal" | "medium" | "high" | "xhigh";
+  thinkingLevel?: ModelSelection["thinkingLevel"];
   /** 默认取 models.json 的第一个模型；可显式指定 provider/id。 */
   modelProvider?: string;
   modelId?: string;
@@ -121,6 +123,16 @@ export class RuntimeApiError extends Error {
     super(message);
     this.code = code;
   }
+}
+
+/** 先核对结构，再进行幂等核实；模型能力与认证只检查尚未接收的请求。 */
+export function parseModelSelection(value: unknown): ModelSelection {
+  const v = value as Partial<ModelSelection> | null;
+  if (!v || typeof v.provider !== "string" || !v.provider.trim() || typeof v.modelId !== "string" || !v.modelId.trim()
+    || !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(v.thinkingLevel as string)) {
+    throw new RuntimeApiError("invalid_params", "model_selection 必须包含 provider、modelId 和合法 thinkingLevel");
+  }
+  return { provider: v.provider, modelId: v.modelId, thinkingLevel: v.thinkingLevel! };
 }
 
 class DirOccupiedError extends Error {}
@@ -166,6 +178,8 @@ export class Runtime {
   private readonly lock: AcquiredLock;
   modelRuntime!: ModelRuntime;
   private model: any;
+  modelCatalog!: ModelCatalog;
+  defaultSelection!: ModelSelection;
   private drivers = new Map<string, Driver>();
   private loopActive = new Set<string>();
   private loopPromises = new Map<string, Promise<void>>();
@@ -248,6 +262,16 @@ export class Runtime {
       );
     }
     runtime.model = model;
+    runtime.defaultSelection = { provider: model.provider, modelId: model.id, thinkingLevel: config.thinkingLevel ?? "off" };
+    try {
+      runtime.modelCatalog = await createModelCatalog(runtime.modelRuntime, config.agentDir, model);
+      await runtime.modelCatalog.resolve(runtime.defaultSelection);
+      runtime.store.withTx(() => runtime.store.initializeSessionModelSelections(runtime.defaultSelection));
+    } catch (err) {
+      runtime.db.close();
+      lock.release();
+      throw err;
+    }
 
     runtime.recover();
     runtime.store.withTx(() => {
@@ -434,8 +458,29 @@ export class Runtime {
         cwdIno: identity.ino,
         piSessionId: randomUUID(),
         confirmTools: input.confirmTools ?? [],
+        modelSelection: this.defaultSelection,
       }),
     );
+  }
+
+  async listModels(input: { provider?: string; offset?: number; limit?: number } = {}) {
+    return this.modelCatalog.list(input);
+  }
+
+  getSession(sessionId: string): Session {
+    const session = this.store.getSession(sessionId);
+    if (!session) throw new RuntimeApiError("not_found", "会话不存在");
+    return session;
+  }
+
+  async setSessionModel(input: { sessionId: string; modelSelection: ModelSelection; expectedVersion: number }): Promise<Session> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    this.getSession(input.sessionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
+    const selection = parseModelSelection(input.modelSelection);
+    await this.modelCatalog.resolve(selection);
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    return this.store.withTx(() => this.store.setSessionModel(input.sessionId, selection, input.expectedVersion));
   }
 
   // ---------- 提交与排队 ----------
@@ -481,14 +526,15 @@ export class Runtime {
     );
   }
 
-  submit(input: {
+  async submit(input: {
     sessionId: string;
     requestId: string;
     input: string;
     accessMode?: AccessMode;
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string;
-  }): Task {
+    modelSelection: ModelSelection;
+  }): Promise<Task> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
@@ -498,6 +544,16 @@ export class Runtime {
     if (accessMode !== "confirm" && accessMode !== "full_access") {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${accessMode}`);
     }
+    const selection = parseModelSelection(input.modelSelection);
+    const submissionDigest = createHash("sha256").update(JSON.stringify({
+      input: input.input, accessMode,
+      grantedPaths: (input.grantedPaths ?? []).map(p => ({ path: p.path, access: p.access, purpose: p.purpose || "未说明" })),
+      resumesTaskId: input.resumesTaskId ?? null, modelSelection: selection,
+    })).digest("hex");
+    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
+    if (existing) return existing;
+    await this.modelCatalog.resolve(selection);
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
     try {
       this.launcherFor(accessMode);
@@ -521,6 +577,8 @@ export class Runtime {
           accessMode,
           grantedPaths,
           resumesTaskId: input.resumesTaskId,
+          modelSelection: selection,
+          submissionDigest,
         }),
       ));
     } catch (err) {
@@ -538,9 +596,10 @@ export class Runtime {
    * 新任务默认请求确认；旧批准不继承，拥有者可在提交时重新明确选择
    * 完全访问。
    */
-  continueTask(input: { taskId: string; requestId: string; input: string; accessMode?: AccessMode; grantedPaths?: GrantedPath[] }): Task {
+  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: AccessMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    if (input.sessionId !== undefined && input.sessionId !== old.sessionId) throw new RuntimeApiError("invalid_params", "源任务不属于指定会话");
     if (old.status !== "interrupted") {
       throw new RuntimeApiError("invalid_state", `只能继续已中断的任务，当前状态 ${old.status}`);
     }
@@ -551,6 +610,7 @@ export class Runtime {
       accessMode: input.accessMode ?? "confirm",
       grantedPaths: input.grantedPaths,
       resumesTaskId: old.id,
+      modelSelection: input.modelSelection,
     });
   }
 
@@ -883,8 +943,9 @@ export class Runtime {
       throw mapErr(err);
     }
     const kindLabel = input.kind === "pr_review_comment" ? `PR #${input.target["prNumber"]} 评审评论` : `issue #${input.target["issueNumber"]} 评论`;
-    const newTask = this.submit({
+    const newTask = await this.submit({
       sessionId: session.id,
+      modelSelection: session.modelSelection!,
       requestId: randomId("req"),
       input:
         `发布 GitHub 草稿 ${draft.id} v${draft.version}（${kindLabel}）。` +
@@ -984,9 +1045,9 @@ export class Runtime {
         throw err;
       }
 
-      const driver = await this.getDriver(session);
       const fresh = this.store.getTask(task.id)!;
       try {
+        const driver = await this.getDriver(session);
         await driver.run(fresh);
       } catch (err) {
         // driver.run 内部已兜底；此处防御性记录，避免调度循环中断
@@ -1015,6 +1076,7 @@ export class Runtime {
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,
         modelRuntime: this.modelRuntime,
+        modelCatalog: this.modelCatalog,
         model: this.model,
         thinkingLevel: this.config.thinkingLevel ?? "off",
         toolFactory:
@@ -1103,10 +1165,18 @@ export class Runtime {
   }
 
   /** 拥有者确认旧执行已停止：释放该会话遗留占用并恢复队列。 */
-  resumeQueue(sessionId: string): Session {
+  async resumeQueue(sessionId: string, selection?: ModelSelection): Promise<Session> {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${sessionId}`);
+    if (this.store.countLegacyQueuedTasks(sessionId) > 0 && !selection) {
+      throw new RuntimeApiError("model_selection_required", "旧排队任务未记录模型配置；请显式确认 model_selection 后恢复队列");
+    }
+    if (selection) await this.modelCatalog.resolve(parseModelSelection(selection));
     this.store.withTx(() => {
+      if (this.store.countLegacyQueuedTasks(sessionId) > 0) {
+        if (!selection) throw new RuntimeApiError("model_selection_required", "请显式确认旧任务的模型配置");
+        this.store.fillLegacyQueuedModelSelections(sessionId, selection);
+      }
       // 仅释放遗留（所属任务已结束）的占用；活动任务持有的占用不得被此操作破坏
       for (const occ of this.store.listAllOccupancy()) {
         if (occ.sessionId !== sessionId) continue;
@@ -1202,7 +1272,7 @@ export class Runtime {
     previews: Record<string, OutputPreview>;
     instanceId: string;
     execution: { backend: string; note: string };
-    model: { provider: string; id: string; name: string; thinkingLevel: string };
+    defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -1231,7 +1301,7 @@ export class Runtime {
       previews,
       instanceId: this.db.getInstanceId(),
       execution: this.executionInfo(),
-      model: this.modelInfo(),
+      defaultModel: this.modelInfo(),
       seq: this.store.getMaxSeq(),
     };
   }

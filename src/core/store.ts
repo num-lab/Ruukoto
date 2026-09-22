@@ -16,6 +16,7 @@ import {
   type ConfirmationRequest,
   type ConfirmationStatus,
   type GrantedPath,
+  type ModelSelection,
   type PersistentEvent,
   type PersistentEventBody,
   type Project,
@@ -128,6 +129,7 @@ export class Store {
     piSessionId: string;
     sessionFile?: string | null;
     confirmTools: string[];
+    modelSelection?: ModelSelection | null;
   }): Session {
     const session: Session = {
       id: randomId("sess"),
@@ -139,6 +141,8 @@ export class Store {
       piSessionId: input.piSessionId,
       sessionFile: input.sessionFile ?? null,
       confirmTools: input.confirmTools,
+      modelSelection: input.modelSelection ?? null,
+      modelSelectionVersion: input.modelSelection ? 1 : 0,
       queueState: "active",
       queuePauseReason: null,
       createdAt: new Date().toISOString(),
@@ -146,8 +150,8 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO sessions (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
-         session_file, confirm_tools, queue_state, queue_pause_reason, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?)`,
+         session_file, confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?)`,
       )
       .run(
         session.id,
@@ -160,9 +164,11 @@ export class Store {
         session.sessionFile,
         JSON.stringify(session.confirmTools),
         session.createdAt,
+        session.modelSelection ? JSON.stringify(session.modelSelection) : null,
+        session.modelSelectionVersion,
       );
     this.appendEvent(
-      { type: "session.created", sessionId: session.id, projectId: session.projectId, cwd: session.cwd },
+      { type: "session.created", sessionId: session.id, projectId: session.projectId, cwd: session.cwd, modelSelection: session.modelSelection, modelSelectionVersion: session.modelSelectionVersion },
       { sessionId: session.id },
     );
     return session;
@@ -188,6 +194,54 @@ export class Store {
       .run(state, reason, id);
   }
 
+  /** 调用方在事务中执行；启动默认值仅初始化没有记录的旧会话。 */
+  initializeSessionModelSelections(selection: ModelSelection): void {
+    for (const session of this.listSessions()) {
+      if (session.modelSelection === null) this.setSessionModel(session.id, selection, session.modelSelectionVersion);
+    }
+  }
+
+  /** 调用方在事务中执行版本检查、整组更新及事件写入。 */
+  setSessionModel(sessionId: string, selection: ModelSelection, expectedVersion: number): Session {
+    const session = this.getSession(sessionId);
+    if (!session) throw new StoreConflictError(`会话不存在：${sessionId}`, "not_found");
+    if (session.modelSelectionVersion !== expectedVersion) {
+      throw new StoreConflictError("会话模型选择已被其他客户端修改，请刷新后重试", "model_selection_conflict");
+    }
+    if (session.modelSelection?.provider === selection.provider && session.modelSelection.modelId === selection.modelId && session.modelSelection.thinkingLevel === selection.thinkingLevel) return session;
+    const modelSelectionVersion = expectedVersion + 1;
+    this.db.prepare("UPDATE sessions SET model_selection = ?, model_selection_version = ? WHERE id = ?")
+      .run(JSON.stringify(selection), modelSelectionVersion, sessionId);
+    this.appendEvent({ type: "session.model_selection_changed", sessionId, modelSelection: selection, modelSelectionVersion }, { sessionId });
+    return this.getSession(sessionId)!;
+  }
+
+  countLegacyQueuedTasks(sessionId: string): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL").get(sessionId) as { n: number };
+    return Number(row.n);
+  }
+
+  /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
+  fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
+    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
+    const encoded = JSON.stringify(selection);
+    let taskIds: string[] = [];
+    let bytes = Buffer.byteLength(encoded) + Buffer.byteLength(sessionId) + 256;
+    const flush = (): void => {
+      if (taskIds.length) this.appendEvent({ type: "tasks.model_selection_recorded", sessionId, taskIds, modelSelection: selection }, { sessionId });
+      taskIds = [];
+      bytes = Buffer.byteLength(encoded) + Buffer.byteLength(sessionId) + 256;
+    };
+    for (const row of rows) {
+      const size = Buffer.byteLength(JSON.stringify(row.id)) + 1;
+      if (bytes + size > 32 * 1024) flush();
+      this.db.prepare("UPDATE tasks SET model_selection = ? WHERE id = ? AND model_selection IS NULL").run(encoded, row.id);
+      taskIds.push(row.id);
+      bytes += size;
+    }
+    flush();
+  }
+
   private rowToSession(row: any): Session {
     return {
       id: row.id,
@@ -199,6 +253,8 @@ export class Store {
       piSessionId: row.pi_session_id,
       sessionFile: row.session_file,
       confirmTools: JSON.parse(row.confirm_tools) as string[],
+      modelSelection: row.model_selection ? JSON.parse(row.model_selection) as ModelSelection : null,
+      modelSelectionVersion: Number(row.model_selection_version),
       queueState: row.queue_state as "active" | "paused",
       queuePauseReason: row.queue_pause_reason,
       createdAt: row.created_at,
@@ -220,30 +276,20 @@ export class Store {
     accessMode?: AccessMode;
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string | null;
+    modelSelection: ModelSelection;
+    submissionDigest: string;
   }): { task: Task; duplicate: boolean } {
     const accessMode = input.accessMode ?? "confirm";
     const grantedPaths = input.grantedPaths ?? [];
-    const existing = this.db
-      .prepare("SELECT * FROM tasks WHERE session_id = ? AND request_id = ?")
-      .get(input.sessionId, input.requestId) as any;
-    if (existing) {
-      const same =
-        existing.input === input.input &&
-        existing.access_mode === accessMode &&
-        existing.granted_paths === JSON.stringify(grantedPaths);
-      if (!same) {
-        throw new StoreConflictError(
-          `request_id 已存在且输入或权限参数不同：task=${existing.id}`,
-          "request_conflict",
-        );
-      }
-      return { task: this.rowToTask(existing), duplicate: true };
-    }
+    const existing = this.findMatchingSubmission(input);
+    if (existing) return { task: existing, duplicate: true };
     const task: Task = {
       id: randomId("task"),
       sessionId: input.sessionId,
       requestId: input.requestId,
       input: input.input,
+      modelSelection: input.modelSelection,
+      submissionDigest: input.submissionDigest,
       status: "queued",
       accessMode,
       permissionVersion: 1,
@@ -264,8 +310,8 @@ export class Store {
         `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version,
          granted_paths, pending_access_mode, interrupt_reason,
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
-         created_at, started_at, ended_at)
-         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL)`,
+         created_at, started_at, ended_at, model_selection, submission_digest)
+         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?)`,
       )
       .run(
         task.id,
@@ -276,6 +322,8 @@ export class Store {
         JSON.stringify(task.grantedPaths),
         task.resumesTaskId,
         task.createdAt,
+        JSON.stringify(task.modelSelection),
+        task.submissionDigest,
       );
     this.appendEvent(
       {
@@ -284,6 +332,7 @@ export class Store {
         sessionId: task.sessionId,
         requestId: task.requestId,
         accessMode: task.accessMode,
+        modelSelection: input.modelSelection,
       },
       { taskId: task.id, sessionId: task.sessionId },
     );
@@ -294,6 +343,19 @@ export class Store {
       );
     }
     return { task, duplicate: false };
+  }
+
+  /** 在异步模型检查之前核实；同一检查也在入队事务内重复，仲裁并发提交。 */
+  findMatchingSubmission(input: { sessionId: string; requestId: string; submissionDigest: string }): Task | null {
+    const task = this.findTaskByRequest(input.sessionId, input.requestId);
+    if (!task) return null;
+    if (!task.submissionDigest || task.submissionDigest !== input.submissionDigest) {
+      throw new StoreConflictError(
+        task.submissionDigest ? `request_id 已存在且提交参数不同：task=${task.id}` : `旧任务未记录原始提交参数，请通过 find_task 核实：task=${task.id}`,
+        "request_conflict",
+      );
+    }
+    return task;
   }
 
   getTask(id: string): Task | null {
@@ -389,6 +451,8 @@ export class Store {
       sessionId: row.session_id,
       requestId: row.request_id,
       input: row.input,
+      modelSelection: row.model_selection ? JSON.parse(row.model_selection) as ModelSelection : null,
+      submissionDigest: row.submission_digest ?? null,
       status: row.status as TaskStatus,
       accessMode: (row.access_mode ?? "confirm") as AccessMode,
       permissionVersion: Number(row.permission_version ?? 1),

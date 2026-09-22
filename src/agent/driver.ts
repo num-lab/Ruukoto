@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 /**
  * 会话驱动器：把 SDK 会话接到任务状态机上。
  *
@@ -26,6 +27,7 @@ import {
   type ToolDefinition,
   type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import type { AccessMode, Session, Task } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
@@ -100,7 +102,8 @@ export interface DriverDeps {
   agentDir: string;
   modelRuntime: ModelRuntime;
   model: any;
-  thinkingLevel: "off" | "minimal" | "medium" | "high" | "xhigh";
+  thinkingLevel: ThinkingLevel;
+  modelCatalog: ModelCatalog;
   /** 工具装配：注册路由工具（真实编码工具）或 mock 工具（模拟测试）。 */
   toolFactory: (ctx: { registry: ManagedProcessRegistry; router: ToolRouter }) => ToolDefinition[];
   /** 工具正文产物存储（后台数据目录内受保护）。 */
@@ -211,7 +214,7 @@ export class Driver {
     this.session.confirmTools = latest.confirmTools;
   }
 
-  private async ensureSdk(): Promise<AgentSession> {
+  private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
     const hostDataTools = createHostDataTools({
       store: this.deps.store,
@@ -263,8 +266,8 @@ export class Driver {
       sessionsDir: this.deps.sessionsDir,
       agentDir: this.deps.agentDir,
       modelRuntime: this.deps.modelRuntime,
-      model: this.deps.model,
-      thinkingLevel: this.deps.thinkingLevel,
+      model,
+      thinkingLevel,
       tools: [...this.deps.toolFactory({ registry: this.registry, router: this.router }), ...hostDataTools, ...githubTools],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
@@ -282,14 +285,15 @@ export class Driver {
   // ---------- 上下文选择与请求前最终检查（issue 05 §3/§4） ----------
 
   private budgetConfig(): SelectorBudgetConfig {
-    const model = this.deps.model;
-    const contextWindow = Number(model?.contextWindow ?? 0);
-    const maxTokens = Number(model?.maxTokens ?? 0);
+    const model = this.sdk?.model;
+    if (!model) throw new Error("model_not_applied:任务模型尚未应用");
+    const response = modelResponseBudget(model);
     return validateBudgetConfig({
       ...DEFAULT_BUDGET_CONFIG,
-      contextWindow,
-      maxTokens,
+      ...response,
       ...this.deps.budgetOverrides,
+      contextWindow: Math.min(response.contextWindow, this.deps.budgetOverrides?.contextWindow ?? response.contextWindow),
+      maxTokens: Math.min(response.maxTokens, this.deps.budgetOverrides?.maxTokens ?? response.maxTokens),
     });
   }
 
@@ -438,7 +442,11 @@ export class Driver {
       const task = this.currentTask;
       if (task) {
         try {
-          this.finalCheckBeforeSend(task, model, context);
+          const config = this.budgetConfig();
+          options = { ...options, maxTokens: config.maxTokens };
+          // 部分适配器会在显式 maxTokens 上追加思考预算；同时限定模型总响应上限。
+          model = { ...model, maxTokens: config.maxTokens };
+          this.finalCheckBeforeSend(task, model, context, options);
         } catch (err) {
           if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
           throw err;
@@ -451,7 +459,12 @@ export class Driver {
   }
 
   /** 最终检查：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
-  private finalCheckBeforeSend(task: Task, model: any, context: any): void {
+  private finalCheckBeforeSend(task: Task, model: any, context: any, options: any): void {
+    const expected = task.modelSelection;
+    if (!expected || model?.provider !== expected.provider || model?.id !== expected.modelId ||
+        this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
+      throw new ContextSendBlocked("model_selection_mismatch:实际模型或思考强度与任务记录不一致");
+    }
     if (this.selectionBlockReason) {
       const reason = this.selectionBlockReason;
       throw new ContextSendBlocked(`context_budget_exceeded:${reason}`);
@@ -594,7 +607,14 @@ export class Driver {
   private async runInner(task: Task): Promise<void> {
     let sdk: AgentSession;
     try {
-      sdk = await this.ensureSdk();
+      if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
+      const model = await this.deps.modelCatalog.resolve(task.modelSelection);
+      sdk = await this.ensureSdk(model, task.modelSelection.thinkingLevel);
+      if (sdk.model?.provider !== model.provider || sdk.model?.id !== model.id) await sdk.setModel(model);
+      sdk.setThinkingLevel(task.modelSelection.thinkingLevel);
+      if (sdk.model?.provider !== model.provider || sdk.model?.id !== model.id || sdk.thinkingLevel !== task.modelSelection.thinkingLevel) {
+        throw new Error("model_selection_mismatch:SDK 未应用任务模型配置");
+      }
     } catch (err) {
       this.finalize(task, "failed", { errorMessage: `SDK 会话创建失败：${(err as Error).message}` });
       return;
@@ -652,7 +672,7 @@ export class Driver {
       return;
     }
 
-    const contextWindow: number = this.deps.model?.contextWindow ?? 0;
+    const contextWindow: number = sdk.model?.contextWindow ?? 0;
     if (lastAssistant && isContextOverflow(lastAssistant, contextWindow)) {
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: "context_overflow" });
       this.pauseQueue("context_overflow");

@@ -14,6 +14,7 @@
 
 import type {
   AccessMode,
+  ModelSelection,
   Artifact,
   PersistentEvent,
   Project,
@@ -139,7 +140,7 @@ export class ViewState {
   artifacts = new Map<string, Artifact>();
   instanceId: string | null = null;
   execution: { backend: string; note: string } = { backend: "", note: "" };
-  model: { provider: string; id: string; name: string; thinkingLevel: string } = {
+  defaultModel: { provider: string; id: string; name: string; thinkingLevel: string } = {
     provider: "",
     id: "",
     name: "",
@@ -168,7 +169,7 @@ export class ViewState {
     this.artifacts = new Map(result.snapshot.artifacts.map((a) => [a.id, a]));
     this.instanceId = result.snapshot.instanceId;
     this.execution = result.snapshot.execution;
-    this.model = result.snapshot.model ?? this.model;
+    this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
     if (instanceChanged) {
       this.sessionViews.clear();
       this.currentSessionId = null;
@@ -231,6 +232,8 @@ export class ViewState {
             piSessionId: "",
             sessionFile: null,
             confirmTools: [],
+            modelSelection: body.modelSelection,
+            modelSelectionVersion: body.modelSelectionVersion,
             queueState: "active",
             queuePauseReason: null,
             createdAt: event.createdAt,
@@ -243,6 +246,8 @@ export class ViewState {
           sessionId: body.sessionId,
           requestId: body.requestId,
           input: "",
+          modelSelection: body.modelSelection,
+          submissionDigest: null,
           status: "queued",
           accessMode: body.accessMode,
           permissionVersion: 1,
@@ -258,6 +263,12 @@ export class ViewState {
           startedAt: null,
           endedAt: null,
         });
+        return;
+      case "session.model_selection_changed":
+        this.applySessionModel(body.sessionId, body.modelSelection, body.modelSelectionVersion);
+        return;
+      case "tasks.model_selection_recorded":
+        for (const taskId of body.taskIds) this.patchTask(taskId, { modelSelection: body.modelSelection });
         return;
       case "task.started":
         this.patchTask(body.taskId, { status: "running", startedAt: event.createdAt });
@@ -554,6 +565,14 @@ export class ViewState {
   }
 
   // ---------- 查询 ----------
+
+  applySessionModel(sessionId: string, selection: ModelSelection | null, version: number): void {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session && version >= session.modelSelectionVersion) {
+      session.modelSelection = selection;
+      session.modelSelectionVersion = version;
+    }
+  }
 
   upsertTask(task: Task): void {
     this.tasks.set(task.id, task);

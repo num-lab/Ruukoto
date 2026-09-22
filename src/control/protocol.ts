@@ -45,8 +45,8 @@ export interface ConnectSnapshot {
   instanceId: string;
   /** 执行后端与说明（local 无隔离必须显式展示）。 */
   execution: { backend: string; note: string };
-  /** 生效的模型来源、模型名与思考强度（只读展示）。 */
-  model: { provider: string; id: string; name: string; thinkingLevel: string };
+  /** 后台启动默认模型；会话选择和任务实际配置分别随会话、任务返回。 */
+  defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
 }
 
 export interface ConnectResult {

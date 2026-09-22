@@ -54,7 +54,7 @@ test("提交幂等比较包含访问模式与授权范围", async () => {
     fs.mkdirSync(granted, { recursive: true });
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
 
-    const first = await t.client.request<any>("submit", {
+    const first = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "idem-1",
       input: "任务输入",
@@ -62,7 +62,7 @@ test("提交幂等比较包含访问模式与授权范围", async () => {
     assert.equal(first.accessMode, "confirm", "默认请求确认");
     assert.equal(first.permissionVersion, 1);
 
-    const retry = await t.client.request<any>("submit", {
+    const retry = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "idem-1",
       input: "任务输入",
@@ -71,7 +71,7 @@ test("提交幂等比较包含访问模式与授权范围", async () => {
 
     await assert.rejects(
       () =>
-        t.client.request("submit", {
+        t.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
           session_id: sessionId,
           request_id: "idem-1",
           input: "任务输入",
@@ -81,7 +81,7 @@ test("提交幂等比较包含访问模式与授权范围", async () => {
       "同键改模式必须冲突",
     );
 
-    const withGrant = await t.client.request<any>("submit", {
+    const withGrant = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "idem-2",
       input: "带授权范围的任务",
@@ -92,7 +92,7 @@ test("提交幂等比较包含访问模式与授权范围", async () => {
 
     await assert.rejects(
       () =>
-        t.client.request("submit", {
+        t.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
           session_id: sessionId,
           request_id: "idem-2",
           input: "带授权范围的任务",
@@ -105,7 +105,7 @@ test("提交幂等比较包含访问模式与授权范围", async () => {
     // 保护目录不得作为授权工作区
     await assert.rejects(
       () =>
-        t.client.request("submit", {
+        t.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
           session_id: sessionId,
           request_id: "idem-3",
           input: "越界授权",
@@ -123,7 +123,7 @@ test("continue 新任务默认请求确认，拥有者可显式选择完全访�
   const t = await startTestRuntime("mode-continue", modeRoutes(), { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "cont-1",
       input: "SLOW:长任务",
@@ -132,7 +132,7 @@ test("continue 新任务默认请求确认，拥有者可显式选择完全访�
     await t.client.request("interrupt", { task_id: task.id });
     await waitFor("任务中断", async () => (await taskStatus(t.client, task.id)).task.status === "interrupted", 30_000);
 
-    const continued = await t.client.request<any>("continue", {
+    const continued = await t.client.request<any>("continue", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       task_id: task.id,
       request_id: "cont-2",
       input: "继续处理",
@@ -141,7 +141,7 @@ test("continue 新任务默认请求确认，拥有者可显式选择完全访�
     assert.equal(continued.permissionVersion, 1);
     assert.equal(continued.resumesTaskId, task.id);
 
-    const escalated = await t.client.request<any>("continue", {
+    const escalated = await t.client.request<any>("continue", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       task_id: task.id,
       request_id: "cont-3",
       input: "继续并以完全访问处理",
@@ -159,13 +159,13 @@ test("switch-mode 在无执行中工具的边界生效；任务结束后拒绝�
   const t = await startTestRuntime("mode-switch", modeRoutes(), { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const running = await t.client.request<any>("submit", {
+    const running = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "sw-1",
       input: "SLOW:占住会话",
     });
     await waitFor("任务运行中", async () => (await taskStatus(t.client, running.id)).task.status === "running", 30_000);
-    const queued = await t.client.request<any>("submit", {
+    const queued = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "sw-2",
       input: "QUICK:排队任务",
@@ -221,7 +221,7 @@ test("完全访问任务不逐次确认；缺少执行入口时不静默降级",
   const t = await startTestRuntime("mode-full", responder, { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "fa-1",
       input: "以完全访问执行",
@@ -234,7 +234,7 @@ test("完全访问任务不逐次确认；缺少执行入口时不静默降级",
     assert.equal(detail.confirmations.length, 0, "完全访问不逐次确认");
 
     // 后续任务仍默认请求确认（模式按任务生效，不继承）
-    const next = await t.client.request<any>("submit", {
+    const next = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "fa-2",
       input: "普通任务",
@@ -253,7 +253,7 @@ test("完全访问任务不逐次确认；缺少执行入口时不静默降级",
     const { sessionId } = await createProjectSession(strict.client, strict.work[0]!);
     await assert.rejects(
       () =>
-        strict.client.request("submit", {
+        strict.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
           session_id: sessionId,
           request_id: "fa-3",
           input: "以完全访问执行",
@@ -316,7 +316,7 @@ test("模型不能提升任务模式：不存在这种工具", async () => {  co
   const t = await startTestRuntime("mode-escalate", responder, { workDirs: 1, config: realTools() });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task = await t.client.request<any>("submit", {
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "esc-1",
       input: "尝试提升模式",
@@ -341,7 +341,7 @@ test("保护根双向排除：授予保护根的祖先或服务代码目录被�
     // 授予数据目录的父目录（保护根的祖先）——会把受保护内容挂进边界，必须拒绝
     await assert.rejects(
       () =>
-        t.client.request("submit", {
+        t.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
           session_id: sessionId,
           request_id: "prot-1",
           input: "授予父目录",
@@ -353,7 +353,7 @@ test("保护根双向排除：授予保护根的祖先或服务代码目录被�
     // 授予服务代码目录（服务代码本身不可作为授权范围）
     await assert.rejects(
       () =>
-        t.client.request("submit", {
+        t.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
           session_id: sessionId,
           request_id: "prot-2",
           input: "授予服务代码",
@@ -403,7 +403,7 @@ test("Git worktree：授予共享 Git 元数据时用途标注其影响；不授
 
     const { sessionId } = await createProjectSession(t.client, wtReal);
     // 不授予：任务照常成立，但 grantedPaths 为空——共享 Git 元数据不被自动挂载
-    const plain = await t.client.request<any>("submit", {
+    const plain = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "wt-1",
       input: "QUICK:worktree 任务",
@@ -411,7 +411,7 @@ test("Git worktree：授予共享 Git 元数据时用途标注其影响；不授
     assert.equal(plain.grantedPaths.length, 0, "不授予就不自动挂载主仓库或父目录");
 
     // 授予 worktree 的共享 Git 目录：用途自动标注共享 Git 元数据的影响
-    const withGrant = await t.client.request<any>("submit", {
+    const withGrant = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "wt-2",
       input: "QUICK:worktree 元数据任务",

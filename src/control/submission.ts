@@ -17,12 +17,15 @@ import type { PendingRequest, PendingRequestStore } from "./pending-requests.ts"
 export type SubmitOutcome =
   | { kind: "accepted"; requestId: string; task: Task }
   | { kind: "pending_verification"; requestId: string; reason: string }
+  | { kind: "rejected"; requestId: string; message: string }
   | { kind: "conflict"; requestId: string; message: string };
 
 export type ReconcileOutcome =
   | { kind: "linked"; requestId: string; taskId: string }
   | { kind: "resent"; requestId: string; taskId: string }
   | { kind: "kept"; requestId: string; reason: string }
+  | { kind: "rejected"; requestId: string; params: Record<string, unknown>; reason: string }
+  | { kind: "needs_resubmit"; requestId: string; params: Record<string, unknown> }
   | { kind: "foreign_instance"; requestId: string };
 
 export class SubmissionGuard {
@@ -57,6 +60,10 @@ export class SubmissionGuard {
         // 同键异参：不换新键，核实后展示冲突
         return { kind: "conflict", requestId, message: err.message };
       }
+      if (isDefiniteRejection(err)) {
+        this.store.clear(requestId);
+        return { kind: "rejected", requestId, message: (err as Error).message };
+      }
       return { kind: "pending_verification", requestId, reason: (err as Error).message };
     }
   }
@@ -70,7 +77,15 @@ export class SubmissionGuard {
     if (record.instanceId !== this.connection.instanceId) {
       return { kind: "foreign_instance", requestId: record.requestId };
     }
-    const sessionId = String(record.params["session_id"] ?? "");
+    let sessionId = String(record.params["session_id"] ?? "");
+    if (!sessionId && record.op === "continue") {
+      try {
+        const detail = await this.connection.request<{ task: Task }>("get_task", { task_id: record.params["task_id"] });
+        sessionId = detail.task.sessionId;
+      } catch (err) {
+        return { kind: "kept", requestId: record.requestId, reason: `无法读取继续来源：${(err as Error).message}` };
+      }
+    }
     let found: Task | null;
     try {
       const result = await this.connection.request<{ task: Task | null }>("find_task", {
@@ -85,9 +100,12 @@ export class SubmissionGuard {
       this.store.clear(record.requestId);
       return { kind: "linked", requestId: record.requestId, taskId: found.id };
     }
+    if (!record.params["model_selection"]) {
+      return { kind: "needs_resubmit", requestId: record.requestId, params: { ...record.params, session_id: sessionId } };
+    }
     // 明确未接收：以原键和原参数重试
     try {
-      const task = await this.connection.request<Task>(record.op, record.params);
+      const task = await this.connection.request<Task>(record.op, { ...record.params, session_id: sessionId });
       this.store.clear(record.requestId);
       return { kind: "resent", requestId: record.requestId, taskId: task.id };
     } catch (err) {
@@ -106,6 +124,10 @@ export class SubmissionGuard {
           // 保留待核实
         }
       }
+      if (isDefiniteRejection(err) && (err as ControlClientError).code !== "request_conflict") {
+        this.store.clear(record.requestId);
+        return { kind: "rejected", requestId: record.requestId, params: record.params, reason: (err as Error).message };
+      }
       return { kind: "kept", requestId: record.requestId, reason: (err as Error).message };
     }
   }
@@ -119,4 +141,8 @@ export class SubmissionGuard {
     }
     return outcomes;
   }
+}
+
+function isDefiniteRejection(err: unknown): boolean {
+  return err instanceof ControlClientError && !["request_timeout", "connect_timeout", "connection_error", "connection_closed", "connection_unavailable", "closed", "unterminated_frame", "frame_too_large", "invalid_frame", "protocol_error", "error", "internal_error"].includes(err.code);
 }

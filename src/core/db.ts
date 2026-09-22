@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -308,6 +308,7 @@ export class Db {
         if (row && version < SCHEMA_VERSION) {
           this.migrateFrom(version);
         }
+        this.ensureColumns();
         this.db
           .prepare(
             "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -343,7 +344,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version === 2 || version === 3) {
+    } else if (version === 2 || version === 3 || version === 4) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；无既有数据需要改写。
       this.ensureColumns();
@@ -360,6 +361,10 @@ export class Db {
         this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
       }
     };
+    add("sessions", "model_selection", "model_selection TEXT");
+    add("sessions", "model_selection_version", "model_selection_version INTEGER NOT NULL DEFAULT 0");
+    add("tasks", "model_selection", "model_selection TEXT");
+    add("tasks", "submission_digest", "submission_digest TEXT");
     add("projects", "instruction_files", "instruction_files TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "instruction_version", "instruction_version TEXT NOT NULL DEFAULT ''");
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");

@@ -56,6 +56,7 @@ import {
   formatAccessMode,
   formatTaskStatus,
   isActiveStatus,
+  toolTargetFromParams,
   type SessionView,
   type TranscriptItem,
 } from "./state.ts";
@@ -72,9 +73,13 @@ const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
 /** 拥有者输入的底色：与终端背景区分，整行铺满。用 256 色而非基础色，避免被终端主题改色。 */
 const userBg = (s: string) => `\x1b[48;5;236m${s}\x1b[0m`;
-/** 标记列（❯ / ⚙ / ● / ✓ 同列）与正文列。 */
+/** 标记列（❯ / ⚙︎ / ● / ✓ 同列）与正文列。 */
 const MARKER_COL = 1;
 const BODY_COL = 3;
+/** 工具调用标记：U+2699 + U+FE0E 强制文本呈现，保证标记列宽为 1（裸 U+2699 在部分终端渲染成两格宽的 emoji）。 */
+const TOOL_MARK = "⚙︎";
+/** 子行前缀（命令结果、工具目标）：⎿ 落在正文列，细节再缩进两列。 */
+const SUB_LINE = `${" ".repeat(BODY_COL)}⎿ `;
 /** 模型输出的圆点：普通输出用默认前景色，运行中统计行用蓝绿色。 */
 const ASSISTANT_BULLET = "●";
 /** 任务结束统计行的图标。 */
@@ -606,7 +611,7 @@ class BareList implements Component {
 }
 
 /**
- * 模型输出：圆点画在标记列（与 ❯ / ⚙ 同列），正文缩进到正文列并整体对齐。
+ * 模型输出：圆点画在标记列（与 ❯ / ⚙︎ 同列），正文缩进到正文列并整体对齐。
  * 用 Markdown 渲染正文（保留标题/列表/代码块），只在渲染结果上补标记与缩进，
  * 不往 markdown 源里塞字符——否则列表与代码块会被解析成别的东西。
  */
@@ -772,8 +777,12 @@ export class TuiApp {
   private readonly seededHistorySessions = new Set<string>();
   /** 运行中任务的走表定时器（无活动任务时为 null）。 */
   private timingTimer: NodeJS.Timeout | null = null;
-  /** 每个任务的处理时间统计行组件（就地改文本以支持走表；见 refreshTranscript）。 */
-  private readonly timingTexts = new Map<string, Text>();
+  /**
+   * 可变流式行（时间统计 / 工具记录 / 命令结果）的持久 Text 实例：
+   * 容器只在 key 序列变化时重建，内容更新必须就地对同一实例 setText，
+   * 换新实例进不了屏幕。
+   */
+  private readonly streamTexts = new Map<string, Text>();
   private header: Text;
   private transcriptContainer: ContainerType;
   private scroll: ScrollView;
@@ -1265,6 +1274,8 @@ export class TuiApp {
   private async handleCommand(line: string): Promise<void> {
     const [name, ...rest] = line.slice(1).split(/\s+/);
     const arg = rest.join(" ").trim();
+    // 命令回显进事件流（❯ /mode + 完成后的 ⎿ 结果行）；/quit 不留痕
+    const echoKey = name === "quit" ? null : this.state.echoCommand(this.state.currentSessionId, line);
     switch (name) {
       case "quit":
         this.quit(0);
@@ -1321,10 +1332,10 @@ export class TuiApp {
         return;
       case "model":
       case "thinking":
-        await this.openModelPicker();
+        await this.openModelPicker(echoKey);
         return;
       case "mode":
-        await this.cmdMode(rest);
+        await this.cmdMode(rest, echoKey);
         return;
       case "status":
         await this.refreshTaskDetails();
@@ -1509,7 +1520,7 @@ export class TuiApp {
     }
   }
 
-  private async cmdMode(rest: string[]): Promise<void> {
+  private async cmdMode(rest: string[], echoKey: string | null): Promise<void> {
     if (rest.length > 0) {
       this.notify("用法：/mode（无参数，列表选择当前会话的默认模式；作用于之后新建的任务）");
       return;
@@ -1534,36 +1545,36 @@ export class TuiApp {
             : "完全访问",
     }));
     this.showBareList(`审批模式`, items, (item) => {
-      void this.sendSessionMode(sessionId, version, item.value as AccessMode);
+      void this.sendSessionMode(sessionId, version, item.value as AccessMode, echoKey);
     });
   }
 
-  private async sendSessionMode(sessionId: string, version: number, mode: AccessMode): Promise<void> {
+  private async sendSessionMode(sessionId: string, version: number, mode: AccessMode, echoKey: string | null): Promise<void> {
     const label = accessModeLabel(mode);
     try {
       const saved = await this.connection.request<Session>("set_session_mode", { session_id: sessionId, mode, expected_version: version });
       this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
-      this.state.note(sessionId, `审批模式已切换为 ${label}`);
+      this.state.setCommandResult(sessionId, echoKey, `Switched to ${label}`);
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code === "connection_unavailable" || code === "closed" || code === "request_timeout") {
         // 应答丢失：先查询后台实际状态，不盲目重放
-        this.state.note(sessionId, `默认模式设置应答丢失；正在查询后台状态（未自动重发）`);
+        this.state.setCommandResult(sessionId, echoKey, "设置应答丢失；正在查询后台状态（未自动重发）", true);
         try {
           const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
           this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
         } catch {
-          this.state.note(sessionId, "状态查询失败，重连后恢复");
+          this.state.setCommandResult(sessionId, echoKey, "状态查询失败，重连后恢复", true);
         }
       } else if (code === "default_mode_conflict") {
         // 版本冲突：刷新后台真实值，不覆盖其他客户端的新选择
-        this.state.note(sessionId, `默认模式已被其他客户端修改：${(err as Error).message}`);
+        this.state.setCommandResult(sessionId, echoKey, `默认模式已被其他客户端修改：${(err as Error).message}`, true);
         try {
           const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
           this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
         } catch { /* 重连后由快照恢复 */ }
       } else {
-        this.state.note(sessionId, `默认模式设置失败：${(err as Error).message}`);
+        this.state.setCommandResult(sessionId, echoKey, `默认模式设置失败：${(err as Error).message}`, true);
       }
     }
     this.refreshAll();
@@ -2565,7 +2576,7 @@ export class TuiApp {
   }
 
   /** /model 与 /thinking：三列面板（提供方 / 模型 / 思考强度）。 */
-  private async openModelPicker(): Promise<void> {
+  private async openModelPicker(echoKey: string | null): Promise<void> {
     const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
     if (!session) { this.notify("尚未选择会话"); return; }
     const sessionId = session.id;
@@ -2601,7 +2612,7 @@ export class TuiApp {
             provider,
             modelId: model.modelId,
             thinkingLevel: level as ModelSelection["thinkingLevel"],
-          });
+          }, echoKey);
         },
         close,
         // ✓ 标记：会话当前生效的选择（空串表示该列不参与比较）
@@ -2624,19 +2635,18 @@ export class TuiApp {
     } catch (err) { this.notify(`模型目录读取失败：${(err as Error).message}`); }
   }
 
-  private async saveModelSelection(sessionId: string, version: number, selection: ModelSelection): Promise<void> {
-    // this.state.note(sessionId, "模型选择保存中，等待后台确认…");
+  private async saveModelSelection(sessionId: string, version: number, selection: ModelSelection, echoKey: string | null): Promise<void> {
     this.refreshAll();
     try {
       const saved = await this.connection.request<Session>("set_session_model", { session_id: sessionId, expected_version: version, model_selection: selection });
       this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
-      this.state.note(sessionId, `Switched to: ${this.selectionText(saved.modelSelection)}`);
+      this.state.setCommandResult(sessionId, echoKey, `Switched to ${this.selectionText(saved.modelSelection)}`);
     } catch (err) {
-      this.state.note(sessionId, `模型设置未确认：${(err as Error).message}；正在查询后台状态`);
+      this.state.setCommandResult(sessionId, echoKey, `模型设置未确认：${(err as Error).message}；正在查询后台状态`, true);
       try {
         const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
         this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
-      } catch { this.state.note(sessionId, "状态查询失败，重连后恢复；未自动重发设置"); }
+      } catch { this.state.setCommandResult(sessionId, echoKey, "状态查询失败，重连后恢复；未自动重发设置", true); }
     }
     this.refreshAll();
   }
@@ -2825,22 +2835,39 @@ export class TuiApp {
       }
       for (const tool of view.tools) {
         const key = `$tool:${tool.toolOpId}`;
-        const statusText =
-          tool.status === "running"
-            ? "执行中"
-            : tool.status === "done"
-              ? "完成"
-              : tool.status === "error"
-                ? "失败"
-                : "效果未知";
-        const summary = tool.resultSummary ? `：${sanitizeForDisplay(tool.resultSummary).slice(0, 120)}` : "";
-        const extra = `${summary}${tool.artifactIds.length > 0 ? ` · 产物 ${tool.artifactIds.length} 个` : ""}${tool.paramsTruncated ? " · 参数过大（/expand 查看）" : ""}`;
-        // 工具调用整体虚化，失败状态保持醒目
-        const text =
-          dim(`⚙ ${sanitizeForDisplay(tool.toolName)} · `) +
-          (tool.status === "error" ? red(statusText) : dim(statusText)) +
-          dim(extra);
-        timeline.push({ key, at: tool.at, seq: seq++, tie: 0, render: () => this.cached(key, text, () => new Text(text, 1, 0)) });
+        // 两行：⚙︎ 工具名 / ⎿ 目标（取自参数）。状态不再占行——运行中与完成
+        // 同款（活动由 Sweeping 行表达），失败/效果未知在目标后追加醒目状态。
+        const target = dim(sanitizeForDisplay(toolTargetFromParams(tool.paramsPreview)));
+        const detail =
+          tool.status === "error"
+            ? `${target}${dim(" · ")}${red(sanitizeForDisplay(tool.resultSummary ?? "失败").split("\n")[0]!)}`
+            : tool.status === "effect_unknown"
+              ? `${target}${dim(" · ")}${yellow("效果未知")}`
+              : target;
+        const text = `${dim(`${" ".repeat(MARKER_COL)}${TOOL_MARK} ${sanitizeForDisplay(tool.toolName)}`)}\n${SUB_LINE}${detail}`;
+        timeline.push({ key, at: tool.at, seq: seq++, tie: 0, render: () => this.streamText(key, text) });
+      }
+      for (const cmd of view.commands) {
+        // 命令回显与拥有者输入同款（❯ + 底色）；结果行挂在同一时刻之下（tie 区分）
+        const echoText = `❯ ${sanitizeForDisplay(cmd.line)}`;
+        timeline.push({
+          key: cmd.key,
+          at: cmd.at,
+          seq: seq++,
+          tie: 0,
+          render: () => this.cached(cmd.key, echoText, () => new Text(echoText, 1, 0, userBg)),
+        });
+        if (cmd.result !== null) {
+          const resultText = `${SUB_LINE}${cmd.resultIsError ? red(sanitizeForDisplay(cmd.result)) : dim(sanitizeForDisplay(cmd.result))}`;
+          // 与回显同一时刻、同一 tie：两者在构造序列中相邻，任何条目都插不进来
+          timeline.push({
+            key: `${cmd.key}:r`,
+            at: cmd.at,
+            seq: seq++,
+            tie: 0,
+            render: () => this.streamText(`${cmd.key}:r`, resultText),
+          });
+        }
       }
       for (const note of view.notes) {
         timeline.push({
@@ -2858,17 +2885,8 @@ export class TuiApp {
           at: line.at,
           seq: seq++,
           tie: 1,
-          // 每个任务各自的 Text 实例就地改文本——容器只在 key 序列变化时重建，
-          // 用 cached() 换新实例的话走表内容进不了屏幕。paddingX 0：缩进已自带。
-          render: () => {
-            let text = this.timingTexts.get(line.key);
-            if (!text) {
-              text = new Text("", 0, 0);
-              this.timingTexts.set(line.key, text);
-            }
-            text.setText(line.text);
-            return text;
-          },
+          // paddingX 0：缩进已自带（见 streamText 的存续说明）
+          render: () => this.streamText(line.key, line.text),
         });
       }
       timeline.sort((a, b) => {
@@ -2919,6 +2937,9 @@ export class TuiApp {
       for (const key of this.itemComponents.keys()) {
         if (!alive.has(key) && !key.startsWith("$")) this.itemComponents.delete(key);
       }
+      for (const key of this.streamTexts.keys()) {
+        if (!alive.has(key)) this.streamTexts.delete(key);
+      }
     }
     this.tui.requestRender();
   }
@@ -2931,6 +2952,17 @@ export class TuiApp {
     const component = make() as Component & { __hash?: string };
     component.__hash = hash;
     this.itemComponents.set(key, component);
+    return component;
+  }
+
+  /** 可变流式行：返回该 key 的持久 Text 实例并就地更新内容。 */
+  private streamText(key: string, text: string): Text {
+    let component = this.streamTexts.get(key);
+    if (!component) {
+      component = new Text("", 0, 0);
+      this.streamTexts.set(key, component);
+    }
+    component.setText(text);
     return component;
   }
 
@@ -2952,11 +2984,13 @@ export class TuiApp {
       const text = `${item.role}: ${body}`;
       return this.cached(item.entryId, text, () => new Text(text, 1, 0));
     }
-    // 工具结果条目：默认折叠为操作与结果摘要；整体虚化，只有失败标记保持醒目
-    const text =
-      dim(`⚙ ${sanitizeForDisplay(item.toolName)} `) +
-      (item.isError ? red("失败") : dim("完成")) +
-      dim(` · ${item.totalBytes} 字节 · /expand ${item.entryId.slice(0, 8)} 展开`);
-    return this.cached(item.entryId, text, () => new Text(text, 1, 0));
+    // 工具结果条目（历史）：与活动区工具记录同款两行——⚙︎ 工具名 / ⎿ 摘要。
+    // ⎿ 行给调用目标（活动区记录落盘时带过来的）+ 结果体量与展开入口；失败保持醒目。
+    const target = item.target ? `${sanitizeForDisplay(item.target)} · ` : "";
+    const detail = item.isError
+      ? `${red("失败")}${dim(` · ${target}${item.totalBytes} 字节 · /expand ${item.entryId.slice(0, 8)} 展开`)}`
+      : dim(`${target}${item.totalBytes} 字节 · /expand ${item.entryId.slice(0, 8)} 展开`);
+    const text = `${dim(`${" ".repeat(MARKER_COL)}${TOOL_MARK} ${sanitizeForDisplay(item.toolName)}`)}\n${SUB_LINE}${detail}`;
+    return this.cached(item.entryId, text, () => new Text(text, 0, 0));
   }
 }

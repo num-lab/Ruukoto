@@ -53,6 +53,8 @@ export type TranscriptItem =
       truncated: boolean;
       totalBytes: number;
       timestamp: string;
+      /** 调用目标（path/command/…）：活动区记录落盘时带过来；纯历史加载为 null。 */
+      target: string | null;
     };
 
 export interface ToolRecord {
@@ -72,6 +74,17 @@ export interface ToolRecord {
 export interface ActivityNote {
   key: string;
   text: string;
+  at: string;
+}
+
+/** 斜杠命令回显：❯ /mode 行 + 完成后的 ⎿ 结果行，按时间进事件流。 */
+export interface CommandEcho {
+  key: string;
+  /** 原始命令行（含斜杠与参数）。 */
+  line: string;
+  /** 命令结果（null = 尚无结果或不产生结果）。 */
+  result: string | null;
+  resultIsError: boolean;
   at: string;
 }
 
@@ -104,6 +117,8 @@ export interface SessionView {
    * input 占位显示，历史条目到达后按内容匹配移除。
    */
   pendingInputs: Map<string, { text: string; at: string }>;
+  /** 斜杠命令回显（旧 → 新）；有界，超出丢弃最旧。 */
+  commands: CommandEcho[];
   draft: string;
   /** 离开时的滚动位置（null = 跟随底部）。 */
   scrollTop: number | null;
@@ -113,6 +128,30 @@ export interface ConnectionInfo {
   state: "connecting" | "online" | "reconnecting" | "failed" | "closed";
   detail: string | null;
   lastSyncAt: Date | null;
+}
+
+/**
+ * 工具调用的「目标」（⎿ 之后显示）：按已知工具的参数名取最能说明操作对象的值
+ * （read/edit/write → path，bash → command，http_request → url，…），
+ * 未知工具取第一个非空字符串参数。多行命令只取首行。
+ * ponytail: 参数名优先级是启发式，新工具的目标列不对时往 TARGET_KEYS 里加。
+ */
+const TOOL_TARGET_KEYS = ["path", "command", "url", "pattern", "query", "name"];
+export function toolTargetFromParams(params: Record<string, unknown>): string {
+  const firstLine = (v: unknown): string | null => {
+    if (typeof v !== "string" || !v.trim()) return null;
+    const line = v.trim().split("\n")[0]!;
+    return v.trim().includes("\n") ? `${line} …` : line;
+  };
+  for (const key of TOOL_TARGET_KEYS) {
+    const line = firstLine(params[key]);
+    if (line) return line;
+  }
+  for (const value of Object.values(params)) {
+    const line = firstLine(value);
+    if (line) return line;
+  }
+  return "";
 }
 
 function entryToTranscriptItem(view: HistoryEntryView): TranscriptItem {
@@ -127,6 +166,7 @@ function entryToTranscriptItem(view: HistoryEntryView): TranscriptItem {
       truncated: view.truncated,
       totalBytes: view.totalBytes,
       timestamp: view.timestamp,
+      target: null,
     };
   }
   return {
@@ -167,6 +207,7 @@ export class ViewState {
   /** 快照中的任务预览（按任务）；会话视图打开时应用。 */
   private snapshotPreviews = new Map<string, OutputPreview>();
   private noteCounter = 0;
+  private commandCounter = 0;
 
   // ---------- 快照 ----------
 
@@ -506,6 +547,8 @@ export class ViewState {
       case "task.tool_intent": {
         const view = (event.sessionId && this.sessionViews.get(event.sessionId)) || viewForTask(this.sessionViews, body.taskId);
         if (!view) return;
+        // 该调用的结果已在历史里（重放/迟到事件）：不再产生活动区记录，避免与历史条目双份显示
+        if (body.sdkCallId && view.transcript.some((t) => t.kind === "toolEntry" && t.toolCallId === body.sdkCallId)) return;
         if (!view.tools.some((t) => t.toolOpId === body.toolOpId)) {
           view.tools.push({
             toolOpId: body.toolOpId,
@@ -571,6 +614,7 @@ export class ViewState {
         tools: [],
         notes: [],
         pendingInputs: new Map(),
+        commands: [],
         draft: "",
         scrollTop: null,
       };
@@ -590,14 +634,16 @@ export class ViewState {
   /** 安装历史页：replace（初次/重同步）或 prepend（向前翻页）。 */
   installHistoryPage(sessionId: string, page: HistoryPage, mode: "replace" | "prepend"): void {
     const view = this.openSession(sessionId);
-    const items = page.entries
-      .filter((e) => !view.loadedEntryIds.has(e.entryId))
-      .map(entryToTranscriptItem);
     if (mode === "replace") {
-      view.transcript = items;
+      // replace 语义是「这一页就是当前转录」：不能按旧 loadedEntryIds 过滤，
+      // 否则 replace 与 appendEntryView/另一次 replace 交错时会把整页滤空
+      view.transcript = page.entries.map(entryToTranscriptItem);
       view.loadedEntryIds = new Set(page.entries.map((e) => e.entryId));
       view.trimmedOlder = false;
     } else {
+      const items = page.entries
+        .filter((e) => !view.loadedEntryIds.has(e.entryId))
+        .map(entryToTranscriptItem);
       view.transcript = [...items, ...view.transcript];
       for (const e of page.entries) view.loadedEntryIds.add(e.entryId);
     }
@@ -614,13 +660,20 @@ export class ViewState {
     const view = this.openSession(sessionId);
     if (view.loadedEntryIds.has(entry.entryId)) return false;
     view.loadedEntryIds.add(entry.entryId);
-    view.transcript.push(entryToTranscriptItem(entry));
-    // 落盘的 toolResult 条目取代活动区的同名工具记录（避免重复显示）
+    const item = entryToTranscriptItem(entry);
+    // 落盘的 toolResult 条目取代活动区的同名工具记录（避免重复显示）；
+    // 取代前把调用目标带过去——历史条目本身不含参数，目标只在活动记录里有
     if (entry.role === "toolResult" && entry.toolCallId) {
+      const live = view.tools.find((t) => t.sdkCallId === entry.toolCallId);
+      if (live && item.kind === "toolEntry") {
+        const target = toolTargetFromParams(live.paramsPreview);
+        item.target = target || null;
+      }
       view.tools = view.tools.filter((t) => t.sdkCallId !== entry.toolCallId);
     }
     // 用户输入落盘：撤掉本地占位
     if (entry.role === "user") this.clearPendingInputs(sessionId, [entry]);
+    view.transcript.push(item);
     this.trimTranscript(view);
     return true;
   }
@@ -685,6 +738,33 @@ export class ViewState {
   /** 任务进入终态：无论历史是否回传，占位都不该继续显示。 */
   clearPendingInputForTask(taskId: string): void {
     for (const view of this.sessionViews.values()) view.pendingInputs.delete(taskId);
+  }
+
+  /**
+   * 回显一条斜杠命令（❯ /mode），返回结果行的挂载键。
+   * 无会话视图（未选会话）时不回显，返回 null。
+   */
+  echoCommand(sessionId: string | null, line: string): string | null {
+    const view = sessionId ? this.sessionViews.get(sessionId) : undefined;
+    if (!view) return null;
+    const key = `$cmd-${++this.commandCounter}`;
+    view.commands.push({ key, line, result: null, resultIsError: false, at: new Date().toISOString() });
+    if (view.commands.length > 50) view.commands.splice(0, view.commands.length - 50);
+    return key;
+  }
+
+  /**
+   * 设置命令的结果行（⎿ …；多次调用以最后一次为准，供异步核实路径更新）。
+   * 拿不到回显键时退化为普通提示，不丢信息。
+   */
+  setCommandResult(sessionId: string, key: string | null, text: string, isError = false): void {
+    const cmd = key ? this.sessionViews.get(sessionId)?.commands.find((c) => c.key === key) : undefined;
+    if (!cmd) {
+      this.note(sessionId, text);
+      return;
+    }
+    cmd.result = text;
+    cmd.resultIsError = isError;
   }
 
   private patchTask(taskId: string, patch: Partial<Task>): void {

@@ -290,9 +290,12 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", modelSelection: MODEL },
     { type: "task.started", taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: "我先读一下布局代码…", totalBytes: 20, truncated: false, partial: true },
-    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000001", sdkCallId: "call_1", toolName: "read", params: { path: "src/tui/app.ts" } },
+    // 活动区工具记录用独立的调用 id：结果不在静态历史里，否则按 sdkCallId 去重后不显示
+    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000001", sdkCallId: "call_live_1", toolName: "read", params: { path: "src/tui/app.ts" } },
     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000001", summary: "读取 1660 行", isError: false, artifactIds: [] },
+    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000002", sdkCallId: "call_live_2", toolName: "bash", params: { command: "npm run typecheck" } },
     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000002", summary: "命令失败：退出码 1", isError: true, artifactIds: ["art_demo0000000001"] },
+    { type: "task.tool_intent", taskId: "task_interrupt00", toolOpId: "toolop_demo000003", sdkCallId: "call_live_3", toolName: "bash", params: { command: "rm -rf /srv/work/tmp" } },
     { type: "task.tool_effect_unknown", taskId: "task_interrupt00", toolOpId: "toolop_demo000003", toolName: "bash" },
     { type: "task.output_entry", taskId: "task_completed000", sessionId: SESSION_ID, entryId: "entry_0002", sessionFile: SESSION.sessionFile!, role: "assistant", messageId: "msg_1" },
     { type: "task.completed", taskId: "task_completed000", sessionId: SESSION_ID },
@@ -363,7 +366,9 @@ function demoEvents(): PersistentEvent[] {
   return bodies.map((body, i) => ({
     seq: i + 1,
     taskId: "taskId" in body ? (body.taskId as string) : null,
-    sessionId: "sessionId" in body ? (body.sessionId as string) : null,
+    // 任务域事件的身体不带 sessionId，但信封要带（真实后台如此）——否则 TUI
+    // 无法定位会话视图，tool_intent 等显示事件会被静默丢弃
+    sessionId: "sessionId" in body ? (body.sessionId as string) : "taskId" in body ? SESSION_ID : null,
     body,
     createdAt: ts(60 - i),
   }));
@@ -446,6 +451,12 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
           return reply(SESSION);
         case "set_session_model":
           return reply({ ...SESSION, modelSelection: params?.["model_selection"] as ModelSelection });
+        case "set_session_mode":
+          return reply({
+            ...SESSION,
+            defaultAccessMode: params?.["mode"] as Session["defaultAccessMode"],
+            defaultAccessModeVersion: SESSION.defaultAccessModeVersion + 1,
+          });
         case "list_selection_records":
           // /context 只取最近一条（当前窗口状态）
           return reply({
@@ -457,7 +468,8 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
         case "get_context_breakdown":
           return reply({ record: demoRecord(3, { input: 70123, output: 512 }), breakdown: demoBreakdown() });
         default:
-          // 写操作在合成会话里一律拒绝：它不该产生真实副作用
+          // 其余写操作在合成会话里一律拒绝：它们不该产生真实副作用
+          // （set_session_model / set_session_mode 例外：返回静态应答，供 /model、/mode 回显结果行）
           throw new Error(`合成会话不支持写操作：${op}`);
       }
     },

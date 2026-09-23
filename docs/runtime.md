@@ -146,6 +146,8 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 │                              #   MCP 服务配置、QQ 入口配置/群会话映射/收件登记/
 │                              #   发送记录（qq_config/qq_sessions/qq_inbox/qq_outbox）
 ├── ruukoto.db-wal / -shm
+├── agent-data/main.db         # main 应用数据空间（issue 02，ADR 0009；独立库，
+│                              #   实例 ID 登记在核心库 meta；丢失/身份不符即停止能力）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
 └── runtime.lock/              # 实例锁（mkdir 原子创建；owner.json 记录 pid）
 
@@ -264,6 +266,47 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 - 排除原因只记录索引与类别，不含其他项目的标题/片段。
 - 拥有者入口：`ruukoto selection-records --task <id> | --session <id>`；
   TUI `/context` 查看当前会话最近一轮的预算组成与排除原因。
+
+## main 应用数据空间（issue 02，ADR 0009）
+
+main 角色按需声明的个人结构化数据（待办、提醒、习惯等）保存在独立的
+`<dataDir>/agent-data/main.db`，与核心 `ruukoto.db` 分离；核心任务、审批、
+事件与凭据表不对应用数据工具开放。
+
+- **工具**：`app_data_define_table / migrate / query / insert / update / delete`，
+  仅 main 角色会话装配（`ToolCategory` 含 `app_data`；装配、发送前检查与
+  调用门三层共用白名单，执行入口每次重新核实宿主任务/会话/项目与 main 绑定）。
+  coding/chat/QQ 会话与普通开发会话不获得这些工具；资料授权、grantedPaths
+  与完全访问模式不扩大应用数据 API 范围。
+- **校验在存储边界**：名称限 `[a-z][a-z0-9_]{0,47}`（拒绝 `sqlite_`/`app_`
+  前缀与 `_id`/`_version` 保留名）；字段类型限 text/integer/real/boolean/
+  json/datetime；整数限安全整数、浮点须有限、datetime 统一 UTC ISO、JSON
+  受字节与嵌套限制。每表固定宿主维护的 `_id`（单调不复用）与 `_version`；
+  关系只能指向同空间已登记表的 `_id`，外键固定 RESTRICT。上限：64 表、
+  每表 32 字段/8 索引/10,000 行、单字段 16 KiB、单行 32 KiB、单次写入
+  64 KiB/100 行/16 迁移步、理由 1 KiB（宿主常量，模型不可调大）。
+- **版本与审计**：存储格式版本（宿主）独立于 main 管理的 `schema_version`
+  与每次变更递增的 `revision`。所有写入在单事务内提交业务变更、版本递增
+  与追加审计回执（`hostOpId` 唯一：同参重放返回原结果，异参冲突）；审计/
+  约束/磁盘失败回滚业务变更。版本不一致返回可识别冲突与当前版本，不自动
+  覆盖。
+- **破坏性确认**：删表、删字段、删唯一索引、多行写与批量重写进入统一审批
+  （`ApprovalScope.kind = app_data_change` 固定应用库身份、任务与操作 ID、
+  表与类别、schema/revision、参数摘要、行 ID 与行版本）；批准后重核身份与
+  版本、单次消费、按不可变快照执行。完全访问模式不免除此确认（ADR 0003 的
+  特定例外）；auto-review 对此范围直接转拥有者。
+- **有界查询**：主键游标分页，不开放任意 SQL/JOIN/聚合；AND 条件限标量
+  比较/空值检查/有限集合匹配。默认 50 行/硬上限 100 行/64 KiB 结果，单次
+  最多扫描 1,000 候选行/1 MiB；游标绑定表、参数摘要与版本，跨页变化返回
+  游标冲突。每次查询启动固定入口的只读子进程（总时限 2 秒，超时 SIGKILL
+  并等待退出）；写事务全部留在宿主。
+- **恢复**：启动恢复在通用未知效果判断之前按应用库回执核实未落结果的
+  应用数据写操作——有回执补记已提交、可核实无回执记未提交、应用库丢失/
+  损坏/身份不符保留 `effect_unknown` 并停止能力（`app_data.unavailable`
+  事件，不自动重建、不覆盖既有实例绑定）。重启只补记结果与事件，不自动
+  重放修改。拒绝与超时留 `app_data.rejected` 事件（只记来源/类别/错误码）。
+- **分工**：偏好、约定、决策、经验仍进入长期记忆（MemoryStore）；应用记录
+  不自动提升为长期记忆或控制指令。
 
 ## GitHub（专用模块已退役，issue 17）
 

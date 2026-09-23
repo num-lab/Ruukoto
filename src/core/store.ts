@@ -617,6 +617,19 @@ export class Store {
       );
   }
 
+  /**
+   * 幂等升级既有角色的工具白名单（issue 02）：只为已存在的角色更新工具清单，
+   * 保留其 Project、Session、工作目录与模型绑定；同清单不重复写入。
+   */
+  updateAgentRoleTools(roleId: AgentRoleId, tools: ToolCategory[]): boolean {
+    const role = this.getAgentRole(roleId);
+    if (!role) return false;
+    const same = role.tools.length === tools.length && role.tools.every((t) => tools.includes(t));
+    if (same) return false;
+    this.db.prepare("UPDATE agent_roles SET tools = ? WHERE id = ?").run(JSON.stringify(tools), roleId);
+    return true;
+  }
+
   getAgentRole(id: AgentRoleId): AgentRole | null {
     const row = this.db.prepare("SELECT * FROM agent_roles WHERE id = ?").get(id) as any;
     return row ? this.rowToAgentRole(row) : null;
@@ -643,6 +656,19 @@ export class Store {
       tools: JSON.parse(row.tools) as ToolCategory[],
       createdAt: row.created_at,
     };
+  }
+
+  // ---------- 元数据键值（应用数据实例绑定等宿主登记） ----------
+
+  getMetaValue(key: string): string | null {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setMetaValue(key: string, value: string): void {
+    this.db
+      .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(key, value);
   }
 
   // ---------- 入站事件（issue 01；先持久化再建任务） ----------

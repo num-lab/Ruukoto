@@ -354,6 +354,9 @@ function demoEvents(): PersistentEvent[] {
     { type: "child_task.failed", taskId: "task_failed00000", parentTaskId: "task_running000000", agentId: "coding", errorMessage: "模型返回 429：速率限制" },
     { type: "child_task.timeout", taskId: "task_canceled000", parentTaskId: "task_running000000", agentId: "coding", deadline: ts(5) },
     { type: "child_task.result_unknown", taskId: "task_interrupt00", parentTaskId: null, agentId: "main", reason: "backend_restart" },
+    // issue 02：main 应用数据空间（能力停止与操作拒绝）
+    { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },
+    { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },
     { type: "backend.stopping", reason: "signal_sigterm" },
     { type: "backend.stopped", reason: "signal_sigterm" },
   ];

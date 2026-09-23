@@ -54,8 +54,8 @@ test("角色引导：main/coding/chat 绑定独立项目、会话与工作目录
       assert.equal(session.projectId, role.projectId);
       assert.equal(session.cwdReal, fs.realpathSync(role.workDir));
     }
-    // 白名单：main 无编码工具，coding 全量，chat 空
-    assert.deepEqual(roles.find((r) => r.id === "main")!.tools, ["host_data", "web_search"]);
+    // 白名单：main 无编码工具（issue 02 起含应用数据空间），coding 全量，chat 空
+    assert.deepEqual(roles.find((r) => r.id === "main")!.tools, ["host_data", "web_search", "app_data"]);
     assert.deepEqual(roles.find((r) => r.id === "coding")!.tools, ["coding", "host_data", "web_search", "mcp"]);
     assert.deepEqual(roles.find((r) => r.id === "chat")!.tools, []);
   } finally {
@@ -407,6 +407,7 @@ test("角色工具白名单：chat 空工具、main 无编码工具、coding 全
     const mainCall = t.server.calls.find((c) => lastUserText(c).includes("MAIN-MARK"))!;
     const mainTools = toolNamesOf(mainCall);
     assert.ok(mainTools.includes("history_search") && mainTools.includes("web_search"));
+    assert.ok(mainTools.includes("app_data_query"), "main 有应用数据工具（issue 02）");
     assert.ok(!mainTools.includes("mock_delay"), "main 无编码工具");
 
     const codingCall = t.server.calls.find((c) => lastUserText(c).includes("CODING-MARK"))!;

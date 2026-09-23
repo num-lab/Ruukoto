@@ -61,8 +61,9 @@ export interface OrchestratorDeps {
 
 /** 角色静态定义：工具白名单按注册来源类别给出（Driver 三层强制）。 */
 const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string; tools: ToolCategory[] }> = [
-  // main：日常对话/信息整理/编排——资料与记忆、Web Search；不持有编码工具
-  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search"] },
+  // main：日常对话/信息整理/编排——资料与记忆、Web Search、应用数据空间（issue 02）；
+  // 不持有编码工具
+  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data"] },
   // coding：仓库/测试/PR 分析——编码工具 + 资料 + Web Search + MCP
   { id: "coding", projectName: "agent-coding", tools: ["coding", "host_data", "web_search", "mcp"] },
   // chat：群聊——空工具集合（与 qq_group 同一约束口径）
@@ -159,10 +160,14 @@ export class Orchestrator {
 
   // ---------- 角色引导 ----------
 
-  /** 幂等：已有角色行直接跳过（重启不重建项目/会话，身份保持稳定）。 */
+  /** 幂等：已有角色行跳过重建；仅工具清单按定义幂等升级（issue 02：既有 main 获得 app_data，身份不变）。 */
   private async ensureRoles(): Promise<void> {
     for (const def of ROLE_DEFINITIONS) {
-      if (this.store.getAgentRole(def.id)) continue;
+      const existing = this.store.getAgentRole(def.id);
+      if (existing) {
+        this.store.updateAgentRoleTools(def.id, def.tools);
+        continue;
+      }
       const project = this.deps.bridge.findProjectByName(def.projectName) ?? this.deps.bridge.createProject(def.projectName);
       const workDir = path.join(path.dirname(path.resolve(this.deps.dataDir)), "agent-work", def.id);
       fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });

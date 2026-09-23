@@ -2289,6 +2289,16 @@ export class TuiApp {
         return `HTTP ${c.scope.method} ${c.scope.url}`;
       case "mcp_tool":
         return `MCP ${c.scope.operationCategory === "write" ? "写" : "副作用不明"}工具：${c.scope.serviceName}/${c.scope.remoteName}（配置 v${c.scope.configVersion}）`;
+      case "app_data_change": {
+        const label: Record<string, string> = {
+          drop_table: "删除表",
+          drop_field: "删除字段",
+          drop_unique_index: "删除唯一索引",
+          multi_row_write: "多行写入",
+          rewrite_rows: "批量重写",
+        };
+        return `应用数据${label[c.scope.change] ?? c.scope.change}：表 ${c.scope.table ?? "（多表）"} · schema v${c.scope.schemaVersion}/rev ${c.scope.revision} · 影响 ${c.scope.affected}`;
+      }
       // issue 17：github_publish 范围已退役，仅为历史审批记录的只读展示保留
       case "github_publish":
         return `GitHub 发布（已退役模块的历史记录）：${c.scope.owner}/${c.scope.repo} ${c.scope.publishKind === "pr_review_comment" ? `PR #${c.scope.target["prNumber"]} 评审评论` : `issue #${c.scope.target["issueNumber"]} 评论`}（草稿 ${c.scope.draftId} v${c.scope.draftVersion}，${c.scope.bodyBytes} 字节）`;
@@ -2317,6 +2327,16 @@ export class TuiApp {
       }
       if (c.scope.kind === "file_operation" && c.scope.contentBytes !== null) {
         lines.push(`待写内容：${c.scope.contentBytes} 字节（sha256 ${c.scope.contentSha256?.slice(0, 16)}…）`);
+      }
+      if (c.scope.kind === "app_data_change") {
+        // issue 02：范围、数量、版本与理由；完整参数经分页详情读取
+        lines.push(`应用库：${c.scope.appDbInstanceId.slice(0, 18)}… · 操作 ${c.scope.operation} · 参数 sha256 ${c.scope.paramsSha256.slice(0, 16)}…`);
+        if (c.scope.rowIds.length > 0) {
+          lines.push(`固定行：${c.scope.rowIds.slice(0, 20).join(", ")}${c.scope.rowIds.length > 20 ? ` … 共 ${c.scope.rowIds.length} 行` : ""}（行版本见参数）`);
+        }
+        if (c.scope.definitionBefore || c.scope.definitionAfter) {
+          lines.push(`定义变更：${c.scope.definitionBefore ? "含旧定义" : "无旧定义"} → ${c.scope.definitionAfter ? "含新定义" : "删除"}`);
+        }
       }
       // 自动审查信息（issue 15）：无审查字段的旧记录按历史人工审批展示，不加审查行
       if (c.reviewStatus !== null) {

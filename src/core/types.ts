@@ -110,9 +110,10 @@ export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"]
 
 /**
  * 角色工具白名单的粒度：按工具注册来源划分类别（编码工具/宿主资料与记忆/
- * Web Search/MCP）。装配、发送前最终检查与调用门三层共用同一份名单。
+ * Web Search/MCP/应用数据）。装配、发送前最终检查与调用门三层共用同一份名单。
+ * app_data 仅 main 角色包含（issue 02：应用数据空间，仅宿主可信绑定）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data";
 
 /** 角色配置（宿主管理；agent_roles 表）。modelSelection 为 null 时用后台默认模型。 */
 export interface AgentRole {
@@ -273,6 +274,39 @@ export type ApprovalScope =
       credential: string | null;
       /** 本地副作用类别（拥有者声明；远端注解不作依据）。 */
       operationCategory: "write" | "unknown";
+    }
+  | {
+      /**
+       * 应用数据破坏性变更（issue 02）：固定应用数据库身份、任务与操作 ID、
+       * 表与操作类别、schema/revision、规范化参数摘要与受影响数量。行操作固定
+       * 准确的行 ID 与行版本；schema 操作固定旧定义与新定义。批准仅消费一次，
+       * 消费前重核 main 身份、任务状态、权限版本与应用数据版本。
+       */
+      kind: "app_data_change";
+      /** 应用数据库实例身份（绑定 main.db，换库后旧批准不得消费）。 */
+      appDbInstanceId: string;
+      /** 发起任务与宿主操作（审批范围的固定锚点）。 */
+      taskId: string;
+      toolOpId: string;
+      /** 目标表（跨表迁移时为 null，明细在 params）。 */
+      table: string | null;
+      /** 工具操作（define_table / migrate / insert / update / delete）。 */
+      operation: string;
+      /** 破坏性类别（展示与审计）：删表/删字段/删唯一索引/多行写/批量重写。 */
+      change: "drop_table" | "drop_field" | "drop_unique_index" | "multi_row_write" | "rewrite_rows";
+      /** 请求时的应用数据版本；消费前重读核对，变化即失效。 */
+      schemaVersion: number;
+      revision: number;
+      /** 规范化参数的 sha256 摘要；完整参数见审批 params（不可变快照）。 */
+      paramsSha256: string;
+      /** 受影响数量（行数或迁移步数）。 */
+      affected: number;
+      /** 行操作固定的准确行 ID 与预期行版本。 */
+      rowIds: number[];
+      rowVersions: Record<string, number>;
+      /** schema 操作的旧定义与新定义（删表/删字段只有旧定义）。 */
+      definitionBefore: Record<string, unknown> | null;
+      definitionAfter: Record<string, unknown> | null;
     }
   | {
       /**
@@ -451,7 +485,17 @@ export type PersistentEventBody =
   /** 子任务超过截止时间被编排器取消。 */
   | { type: "child_task.timeout"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; deadline: string }
   /** 子任务结果未知（如后台重启中断）；不自动重放任何外部副作用。 */
-  | { type: "child_task.result_unknown"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; reason: string };
+  | { type: "child_task.result_unknown"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; reason: string }
+  /**
+   * 应用数据能力不可用（issue 02）：main.db 丢失、实例身份不符、损坏或存储
+   * 格式过新/迁移失败。不自动重建、不覆盖既有实例绑定；工具保持关闭。
+   */
+  | { type: "app_data.unavailable"; reason: string }
+  /**
+   * 应用数据操作被拒绝（issue 02）：调用门/身份校验/参数校验/预算超限/超时。
+   * 只记来源、操作类别与错误码，不复制无限长输入或整条个人数据。
+   */
+  | { type: "app_data.rejected"; taskId: string | null; sessionId: string | null; source: "tool_call_gate" | "identity" | "validation" | "budget" | "timeout"; toolName: string; code: string };
 
 export interface PersistentEvent {
   seq: number;

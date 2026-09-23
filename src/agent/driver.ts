@@ -64,6 +64,9 @@ import {
   type SelectorOutput,
 } from "./context-selector.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
+import { createAppDataTools, APP_DATA_TOOL_NAMES, APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp, type AppToolContext } from "./app-data/tools.ts";
+import type { AppDataStore } from "./app-data/store.ts";
+import type { AppDataQueryRunner } from "./app-data/query.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
@@ -146,6 +149,18 @@ export interface DriverDeps {
    * （只改模型视图，不改写历史）。仅 kind=qq_group 会话调用。
    */
   qqRecalledFilter?: (sessionId: string, messages: any[]) => any[];
+  /**
+   * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具；
+   * 停止/恢复路径按应用库回执核实未落结果的应用数据操作。
+   */
+  appData?: {
+    store: AppDataStore;
+    runner: AppDataQueryRunner;
+    /** 按宿主操作 ID 核实应用库提交状态（恢复与停止路径共用）。 */
+    writeVerdict(hostOpId: string): "committed" | "not_committed" | "unverifiable";
+    /** 查询子进程挂点（仅测试注入；模型不可达）。 */
+    queryStallMs?: number;
+  };
 }
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -264,6 +279,24 @@ export class Driver {
     return role === null || role.tools.includes(category);
   }
 
+  /**
+   * 应用数据工具的身份重核（issue 02）：每次调用重新核实宿主任务、会话、
+   * 项目与 main 角色绑定，以及任务归属；模型参数不能提供这些身份。
+   * 绑定在会话级：main 的持久会话中的任务（编排器创建或拥有者直接提交）
+   * 都是 main 的任务；角色配置只由宿主写入 agent_roles 表。
+   */
+  private verifyMainBinding(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
+    if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
+    if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
+    const role = this.deps.store.getAgentRoleBySession(ctx.sessionId);
+    if (!role || role.id !== "main") return "会话未绑定 main 角色";
+    if (role.projectId !== this.session.projectId) return "main 角色项目绑定不匹配";
+    if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
+    const task = this.deps.store.getTask(ctx.taskId);
+    if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
+    return null;
+  }
+
   /** 宿主注入的资料访问身份（qq_group 与 chat 角色不适用跨项目授权与 owner_note 默认放行）。 */
   private accessor(): Accessor {
     if (this.isQqGroup) return { kind: "qq_group", projectId: this.session.projectId };
@@ -327,12 +360,29 @@ export class Driver {
           baseUrl: this.deps.webSearch?.baseUrl,
           timeoutMs: this.deps.webSearch?.timeoutMs,
         });
+    // main 应用数据工具（issue 02）：仅宿主引导的 main 角色会话装配——
+    // 普通开发会话即使 roleAllows() 默认放行也不得获得这些工具；QQ 群聊与
+    // coding/chat 角色同样不装配。执行入口每次调用仍重新核实 main 绑定。
+    const appDataTools =
+      this.role()?.id === "main" && this.deps.appData
+        ? createAppDataTools({
+            store: this.deps.appData.store,
+            runner: this.deps.appData.runner,
+            coreStore: this.deps.store,
+            taskContext: () => this.hostToolCtx,
+            bindCall: this.bindHostCall,
+            verifyMain: (ctx) => this.verifyMainBinding(ctx),
+            awaitApproval: (input) => this.awaitApproval(input),
+            queryStallMs: () => this.deps.appData?.queryStallMs,
+          })
+        : [];
     const allTools = this.isQqGroup
       ? []
       : [
           ...(this.roleAllows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
           ...hostDataTools,
           ...webSearchTools,
+          ...appDataTools,
           // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
           // 固定，工具集合变化由 runInner 先重建会话再走到这里
           ...this.pendingMcpToolDefs,
@@ -958,12 +1008,17 @@ export class Driver {
       this.deps.store.setCancelRequested(task.id, opts.cancelIntent);
     });
 
-    // 在中止与回收之前快照"结果未知"的操作：审批未消费 = 已知未执行（排除），
-    // 已经开始执行的命令是否已产生外部效果不确定，必须沿用 effect_unknown
+    // 在中止与回收之前快照"结果未知"的操作：审批未消费 = 已知未执行（排除）；
+    // 应用数据写操作在中止完成后按回执核实（3b），不在预快照中标记。
+    // 其余已开始执行的命令是否已产生外部效果不确定，必须沿用 effect_unknown
     const confirmations = this.deps.store.listConfirmationsByTask(task.id);
     const uncertainAtStop = this.deps.store
       .listUnresolvedToolOps(task.id)
-      .filter((op) => isToolOpExecutionUncertain(op, confirmations))
+      .filter(
+        (op) =>
+          isToolOpExecutionUncertain(op, confirmations) &&
+          !(this.deps.appData && APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)),
+      )
       .map((op) => op.id);
 
     // 2. 解除确认等待（门以 block 结束，不执行该操作）；进行中的自动审查一并中止
@@ -981,10 +1036,26 @@ export class Driver {
     // MCP 连接随任务停止回收：在途调用已被 abort 中断，迟到结果由 SDK 丢弃
     await this.closeMcpConns();
 
+    // 3b. 应用数据写操作（issue 02）：中止完成后按应用库回执核实真实状态——
+    //     有回执 = 已提交（补记结果）；无回执且应用库可核实 = 已知未提交；
+    //     应用库丢失/损坏/无法核实才保留 effect_unknown。只读查询不在此列。
+    const appDataUncertain: string[] = [];
+    if (this.deps.appData) {
+      for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
+        if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) continue;
+        const verdict = this.deps.appData.writeVerdict(op.id);
+        if (verdict === "unverifiable") {
+          appDataUncertain.push(op.id);
+          continue;
+        }
+        this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, op, "后台停止前"));
+      }
+    }
+
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
     this.finalize(task, opts.terminal, {
       interruptReason: opts.reason,
-      effectUnknownOpIds: uncertainAtStop,
+      effectUnknownOpIds: [...uncertainAtStop, ...appDataUncertain],
       keepOccupancy: !reaped,
       occupancyIssueReason: reaped ? null : "tool_process_unreaped",
     });
@@ -1136,6 +1207,25 @@ export class Driver {
     if (this.isQqGroup) {
       return { block: true, reason: "QQ 群聊任务不开放工具调用" };
     }
+    // 应用数据工具（issue 02）：仅宿主引导的 main 角色会话可调用。普通开发
+    // 会话即使 roleAllows() 默认放行也不装配这些工具；此处兜底伪造/泄漏的
+    // 调用（不记录执行意图），并留下可识别的 app_data.rejected 事件。
+    if ((APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
+      this.deps.store.withTx(() => {
+        this.deps.store.appendEvent(
+          {
+            type: "app_data.rejected",
+            taskId: current.id,
+            sessionId: current.sessionId,
+            source: "tool_call_gate",
+            toolName: event.toolName,
+            code: "role_not_allowed",
+          },
+          { taskId: current.id, sessionId: current.sessionId },
+        );
+      });
+      return { block: true, reason: "应用数据工具仅 main 角色会话可用" };
+    }
     // 角色任务（issue 01）：白名单外的工具调用一律阻止（装配侧已过滤，
     // 此处兜底注册泄漏/未知路径；不记录执行意图）
     if (this.roleAllowedToolNames && !this.roleAllowedToolNames.has(event.toolName)) {
@@ -1177,11 +1267,12 @@ export class Driver {
       return undefined;
     }
 
-    // 资料与记忆宿主工具（issue 05）与 Web Search 宿主工具（issue 20）：
-    // 身份由宿主注入，不经路由器/工作进程
+    // 资料与记忆宿主工具（issue 05）、Web Search 宿主工具（issue 20）与
+    // main 应用数据工具（issue 02）：身份由宿主注入，不经路由器/工作进程
     if (
       (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName)
+      (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,
@@ -1542,15 +1633,33 @@ export class Driver {
         // SDK 调用 id → 宿主操作 id（不同任务复用调用 id 时不串用记录）
         const hostOpId = this.callMap.get(event.toolCallId) ?? event.toolCallId;
         const artifactIds = this.deps.store.getToolOp(hostOpId) ? this.router.artifactIdsFor(hostOpId) : [];
-        this.deps.store.withTx(() => {
-          const recorded = this.deps.store.recordToolResult(hostOpId, summary, event.isError);
-          if (recorded) {
-            this.deps.store.appendEvent(
-              { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
+        try {
+          this.deps.store.withTx(() => {
+            const recorded = this.deps.store.recordToolResult(hostOpId, summary, event.isError);
+            if (recorded) {
+              this.deps.store.appendEvent(
+                { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds },
+                { taskId: task.id, sessionId: task.sessionId },
+              );
+            }
+          });
+        } catch (err) {
+          // 核心结果写入失败（issue 02）：应用数据写操作立即按操作 ID 核实应用库
+          // 回执并保留真实状态——已提交不能报成"未执行"，也不自动再次写入；
+          // 无法核实则保持结果缺失，由重启恢复按 effect_unknown 处理。
+          const toolName = this.deps.store.getToolOp(hostOpId)?.toolName ?? "";
+          if (this.deps.appData && APP_DATA_WRITE_TOOL_NAMES.has(toolName)) {
+            const verdict = this.deps.appData.writeVerdict(hostOpId);
+            if (verdict !== "unverifiable") {
+              try {
+                this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, { id: hostOpId }, "结果写入失败前"));
+              } catch {
+                // 补记也失败：保持结果缺失，交重启恢复
+              }
+            }
           }
-        });
+          process.stderr.write(`[ruukoto] 工具结果落盘失败（${hostOpId}）：${(err as Error).message}\n`);
+        }
         return;
       }
       case "turn_end": {

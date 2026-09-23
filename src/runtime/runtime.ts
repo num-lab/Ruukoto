@@ -72,6 +72,9 @@ import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpCo
 import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { retireGitHubModule } from "./github-retirement.ts";
 import { Orchestrator } from "./orchestrator.ts";
+import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
+import { AppDataQueryRunner } from "../agent/app-data/query.ts";
+import { APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp } from "../agent/app-data/tools.ts";
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
@@ -134,6 +137,8 @@ export interface RuntimeConfig {
   qq?: QqAdapterTimeouts;
   /** 编排器（issue 01）：超时巡检间隔覆盖（仅测试注入；生产取默认）。 */
   orchestrator?: { deadlineCheckMs?: number };
+  /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
+  appData?: { queryStallMs?: number };
 }
 
 export class RuntimeApiError extends Error {
@@ -198,6 +203,14 @@ export class Runtime {
   readonly qqStore: QqStore;
   /** QQ 群聊适配器（start 时创建并启动；null = 尚未启动）。 */
   private qqAdapter: QqAdapter | null = null;
+  /**
+   * main 应用数据空间（issue 02）：独立 main.db + 只读查询子进程运行器。
+   * unavailableReason 非空时能力停止（丢失/身份不符/损坏/格式过新），
+   * 不自动重建、不覆盖既有实例绑定。
+   */
+  private appDataStore: AppDataStore | null = null;
+  private readonly appDataRunner = new AppDataQueryRunner();
+  private appDataUnavailableReason: string | null = null;
   /** 后台编排器（issue 01）：角色引导、入站事件派发、子任务结果回传与超时。 */
   orchestrator: Orchestrator | null = null;
   /** 额外事件监听（QQ 适配器等宿主内订阅者；控制面广播仍走 onEventBroadcast）。 */
@@ -327,6 +340,9 @@ export class Runtime {
       throw err;
     }
 
+    // main 应用数据空间（issue 02）：先于恢复打开/登记 main.db 并核对实例绑定
+    // （恢复要按应用库回执核实未落结果的应用数据操作）；不可用则能力停止
+    runtime.initAppData();
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
@@ -381,6 +397,110 @@ export class Runtime {
     return this.config.socketPath ?? path.join(this.controlDir(), "control.sock");
   }
 
+  // ---------- 应用数据空间（issue 02） ----------
+
+  /**
+   * 打开 main.db 并核对核心库登记的实例绑定：
+   * - 未登记（全新部署）→ 建立并把稳定实例 ID 登记到核心库 meta（同事务）；
+   * - 已登记但文件丢失/身份不符/损坏/格式过新 → 能力停止，不自动创建空库，
+   *   不据此把旧操作判为未提交；保留未知效果并留下 app_data.unavailable。
+   */
+  private initAppData(): void {
+    const dataDir = path.resolve(this.config.dataDir);
+    const appDir = path.join(dataDir, "agent-data");
+    const file = path.join(appDir, "main.db");
+    const registered = this.store.getMetaValue("app_data.main_instance_id");
+    if (!registered) {
+      // 首次初始化（或上次初始化在"建库后、登记前"崩溃）：打开/建立库并登记
+      // 其实例 ID。跨库失败可恢复——下次启动重试；不覆盖既有实例绑定。
+      let store: AppDataStore | null = null;
+      try {
+        store = new AppDataStore(file);
+        const instanceId = store.getInstanceId();
+        this.store.withTx(() => this.store.setMetaValue("app_data.main_instance_id", instanceId));
+        this.appDataStore = store;
+        this.appDataUnavailableReason = null;
+      } catch (err) {
+        try {
+          store?.close();
+        } catch {
+          // 关闭失败不阻断能力停止
+        }
+        this.appDataUnavailableReason = `应用数据库初始化/登记失败：${(err as Error).message}`;
+        this.markAppDataUnavailable(this.appDataUnavailableReason);
+      }
+      return;
+    }
+    if (!fs.existsSync(file)) {
+      this.appDataUnavailableReason = "应用数据库已登记但文件丢失：保留未知效果，能力停止（不自动创建空库）";
+      this.markAppDataUnavailable(this.appDataUnavailableReason);
+      return;
+    }
+    try {
+      const store = new AppDataStore(file);
+      const instanceId = store.getInstanceId();
+      if (instanceId !== registered) {
+        try {
+          store.close();
+        } catch {
+          // 关闭失败不阻断能力停止
+        }
+        this.appDataUnavailableReason = "应用数据库实例标识与登记不符：保留未知效果，能力停止（不覆盖既有实例绑定）";
+        this.markAppDataUnavailable(this.appDataUnavailableReason);
+        return;
+      }
+      this.appDataStore = store;
+      this.appDataUnavailableReason = null;
+    } catch (err) {
+      this.appDataUnavailableReason = `应用数据库不可用（${err instanceof AppDataError ? err.code : "open_failed"}）：${(err as Error).message}`;
+      this.markAppDataUnavailable(this.appDataUnavailableReason);
+    }
+  }
+
+  private markAppDataUnavailable(reason: string): void {
+    this.appDataStore = null;
+    try {
+      this.store.withTx(() => {
+        this.store.appendEvent({ type: "app_data.unavailable", reason });
+      });
+    } catch {
+      // 启动早期事件落盘失败不阻断后台启动；能力保持停止
+    }
+  }
+
+  /** main 应用数据能力的当前状态（Driver 装配与恢复判定共用）。 */
+  appDataStatus(): { available: boolean; reason: string | null } {
+    return { available: this.appDataStore !== null, reason: this.appDataUnavailableReason };
+  }
+
+  /** 按宿主操作 ID 核实应用库提交状态（恢复与停止路径共用；单例连接）。 */
+  private appDataWriteVerdict(hostOpId: string): "committed" | "not_committed" | "unverifiable" {
+    if (!this.appDataStore) return "unverifiable";
+    try {
+      return this.appDataStore.getReceipt(hostOpId) ? "committed" : "not_committed";
+    } catch {
+      return "unverifiable";
+    }
+  }
+
+  /**
+   * 恢复时的应用数据操作核实（issue 02）：在现有未知效果判断之前，
+   * 未落结果的应用数据写操作按应用库回执核实——有回执则补记已提交结果；
+   * 批准已消费但无回执、且应用库正常可核实时记录未提交；应用库丢失/损坏/
+   * 无法核实保留 effect_unknown。只读查询（app_data_query）不适用，走通用
+   * 已知未执行路径。恢复补记沿用 tool_ops 条件更新并在同一核心事务中写事件。
+   */
+  private recoverAppDataOps(): void {
+    for (const task of this.store.listTasksByStatus(["running", "awaiting_confirmation"])) {
+      for (const op of this.store.listUnresolvedToolOps(task.id)) {
+        if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) continue;
+        const verdict = this.appDataWriteVerdict(op.id);
+        if (verdict === "unverifiable") continue; // 由通用 effect_unknown 路径标记
+        settleAppDataOp(this.store, verdict, task, op, "后台重启前");
+      }
+    }
+  }
+
   // ---------- 恢复 ----------
 
   private recover(): void {
@@ -396,6 +516,9 @@ export class Runtime {
       //      已知未执行，记录明确结果，不算效果未知；
       //    - 批准已消费（执行已开始）或无审批的直接执行 → 结果缺失且可能
       //      已产生外部效果 → effect_unknown，不重放。
+      //    应用数据写操作先按应用库回执核实（issue 02）：有回执补记已提交，
+      //      可核实无回执记未提交，无法核实才落入 effect_unknown。
+      this.recoverAppDataOps();
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const unresolved = store.listUnresolvedToolOps(task.id);
         const confirmations = store.listConfirmationsByTask(task.id);
@@ -1241,6 +1364,16 @@ export class Runtime {
         // QQ 群聊会话（issue 07）：每次模型调用前移出已撤回交互（只改视图）
         qqRecalledFilter: (sessionId, messages) =>
           filterRecalledQqMessages(messages, this.qqStore.recalledTagsForSession(sessionId)),
+        // main 应用数据空间（issue 02）：仅 main 角色会话装配；不可用时缺省
+        // （能力停止，事件已记录），不装配工具
+        appData: this.appDataStore
+          ? {
+              store: this.appDataStore,
+              runner: this.appDataRunner,
+              writeVerdict: (opId) => this.appDataWriteVerdict(opId),
+              queryStallMs: this.config.appData?.queryStallMs,
+            }
+          : undefined,
       });
       this.drivers.set(session.id, driver);
     } else {
@@ -2191,6 +2324,16 @@ export class Runtime {
 
     if (this.onCloseServer) {
       await this.onCloseServer().catch(() => {});
+    }
+    // 应用数据空间（issue 02）：回收在途只读查询子进程，checkpoint 后关闭
+    await this.appDataRunner.dispose().catch(() => {});
+    if (this.appDataStore) {
+      try {
+        this.appDataStore.close();
+      } catch {
+        // 关闭失败不阻断退出
+      }
+      this.appDataStore = null;
     }
     this.store.withTx(() => {
       this.store.appendEvent({ type: "backend.stopped", reason });

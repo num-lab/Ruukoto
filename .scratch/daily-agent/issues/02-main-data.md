@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 01
 
 # main 应用数据空间
@@ -113,3 +113,16 @@ schema 校验放在存储边界，工具 JSON schema 只承担输入提示，不
 ### 2026-09-23：补充实施计划
 
 已核对 issue 01 的角色引导与隔离、Runtime 恢复、Driver 工具装配、公共审批桥、MemoryStore 和 SQLite 接口，并经独立子代理检查。计划明确独立应用库、六个结构化工具、扫描与耗时预算、版本及审计事务、破坏性审批和双库恢复窗口；本次仅编写计划，未实施功能或运行代码测试。
+
+### 2026-09-23：实现交付
+
+已实现并交付。落点与计划一致：
+
+- **新增模块**：`src/agent/app-data/store.ts`（独立 `main.db`、目录/校验/事务/审计回执/版本）、`query.ts`（有界查询 + 只读子进程运行器）、`query-child.ts`（固定子进程入口）、`tools.ts`（六个 `app_data_` 工具 + 审批范围构造 + 恢复共用的 `settleAppDataOp`）。
+- **接线**：`ToolCategory` 新增 `app_data`（仅 main）；`Orchestrator.ensureRoles()` 幂等升级既有 main 的工具清单（保留项目/会话/工作目录/模型绑定）；Driver 三层（装配仅 main、发送前检查、调用门 + 执行入口每次重核 main 绑定）；`ApprovalScope.kind = app_data_change`；TUI 审批摘要/详情展示；Runtime 管理 main.db 生命周期（实例绑定登记在核心库 meta、丢失/身份不符/损坏即停止能力并留 `app_data.unavailable`）、`recover()` 在通用未知效果判断前按回执核实应用数据写操作、停止路径（Driver 3b）与结果写入失败路径同样按回执核实。
+- **审计**：`app_audit` 记录 hostOpId（唯一，重放同参返回原结果/异参冲突）、任务/会话/agent、schema 版本、revision、理由、规范化操作、受影响范围与结果摘要；schema 变更另存前后定义（`definitions` 列）。审计/约束/磁盘失败回滚业务变更（故障注入测试覆盖）。
+- **评审修复**（双轴评审后）：多表迁移删除唯一索引不再逃逸确认；首次初始化"建库后、登记前"崩溃可恢复（按文件自身实例 ID 补登记，不覆盖既有绑定）；查询改 `iterate()` 逐行累计且版本读取与行扫描在同一只读事务；migrate 整次事务只递增一次 revision；insert/update/delete 支持可选 `expected_schema_version` 校验；查询子进程 dispose 等待退出、stdin EPIPE 兜底；审批卡片行 ID/版本先校验（不出现 NaN）。
+
+**验证结果**（本机 macOS，Node 24）：`npm run typecheck` 通过；`npx tsx --test test/28-main-data.test.ts test/27-orchestration.test.ts test/14-tui-app.test.ts` 全绿；`npm test` 全绿（276 项，275 通过，1 项按默认跳过）。test/28 共 29 项，覆盖：建表/增删改查/跨重启读写、版本冲突不覆盖、关系与 RESTRICT、原子回滚、hostOpId 幂等、恶意名称、超大字段/行/参数、行版本冲突、唯一索引回滚、审计回执、稀疏命中分页不漏行、字节预算截断、游标冲突、schema/changes 分页、子进程超时真实终止、装配与三层门控、端到端建表/插入/查询、三种权限模式的破坏性确认、陈旧版本失效、伪造身份不执行不读数据、核心表/内部元表不可访问、校验失败留事件、审计失败回滚、停止路径回执核实、恢复三态（已提交/未提交/不可核实）、重复恢复不重复发布、应用库丢失/损坏/身份不符、角色幂等升级、阻塞期间控制面应答、`PRAGMA integrity_check`/`foreign_key_check`。
+
+**未执行的真实环境检查**：Linux 容器/专用执行账户下的文件读取隔离（按 ADR 0004 属部署侧边界，local 后端不作为跨账户隔离依据）未在 `ssh tx` 上执行；TUI 的 `app_data_change` 审批展示已实现但 test/14 无 scope 展示断言 seam，未单独加测试。存储格式版本为首版（1），无既有应用库需要迁移。

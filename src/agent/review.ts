@@ -62,7 +62,8 @@ export class ReviewAbortedError extends Error {
  * 确定性策略（先于模型，不经过模型）：
  * - 越界文件读取、无凭据的 HTTP GET/HEAD 读取 → 可交审查模型裁决；
  * - 写文件、带凭据请求、非 GET/HEAD（HTTP 方法不能单独证明安全）、
- *   历史遗留的 github_publish 范围、通用 tool 门 → 直接转人工。
+ *   历史遗留的 github_publish 范围、MCP 工具（issue 18：本工单不扩大自动
+ *   批准范围，一律转拥有者）、通用 tool 门 → 直接转人工。
  */
 export function classifyForReview(scope: ApprovalScope): "reviewable" | "ask_owner" {
   if (scope.kind === "file_operation" && scope.access === "read") return "reviewable";

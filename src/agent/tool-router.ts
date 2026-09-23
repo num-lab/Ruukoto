@@ -15,7 +15,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AccessMode, ApprovalScope, Task } from "../core/types.ts";
+import type { AccessMode, ApprovalScope, ConfirmationRequest, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
@@ -34,6 +34,9 @@ import * as dns from "node:dns";
 import { ToolWorkerHost } from "./tool-worker/host.ts";
 import { CONTAINER_WORKSPACE } from "./execution/launchers.ts";
 import type { DataStream } from "./tool-worker/protocol.ts";
+import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
+import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";
+import { McpError } from "./mcp/client.ts";
 
 /** 编码工具（工作进程执行）。 */
 export const CODING_TOOL_NAMES = ["read", "edit", "write", "bash"] as const;
@@ -71,6 +74,15 @@ export interface ToolRouterDeps {
       signal?: AbortSignal;
     }): Promise<ApprovalOutcome>;
     supersedeAllWaiters(): void;
+  };
+  /**
+   * MCP 动态工具（issue 16/18）：服务配置存储与当前任务钉版的工具计划。
+   * 未配置时 MCP 工具名按未知工具拒绝（不落入其他路径）。
+   */
+  mcp?: {
+    store: McpStore;
+    /** 当前任务钉版的 MCP 计划（Driver 在任务边界设置；null = 本任务无 MCP 工具）。 */
+    plan(): McpTaskPlan | null;
   };
 }
 
@@ -250,7 +262,8 @@ export class ToolRouter {
       case ARTIFACT_TOOL_NAME:
         return this.readArtifact(input.task, input);
       default:
-        return textResult(`未知工具：${input.name}`, true);
+        // MCP 动态工具（issue 16/18）：按任务钉版计划解析；未登记的名字按未知工具拒绝
+        return this.executeMcpOp(input.task, input);
     }
   }
 
@@ -335,38 +348,33 @@ export class ToolRouter {
 
   // ---------- 结构化审批操作 ----------
 
-  private async executeApprovalOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
-    const scopeResult =
-      input.name === "request_file_access" ? this.fileOpScope(input.params) : await this.httpOpScope(input.params);
-    if ("error" in scopeResult) {
-      return textResult(scopeResult.error, true);
-    }
-    const approval = await this.deps.bridge.awaitApproval({
-      task,
-      hostOpId: input.hostOpId,
-      toolName: input.name,
-      params: input.params,
-      scope: scopeResult.scope,
-      signal: input.signal,
-    });
-    if (approval.decision !== "approved") {
-      // 自动拒绝不能显示成"拥有者拒绝"：按决定来源区分文案
-      const reason =
-        approval.decision === "rejected"
-          ? approval.source === "auto_review"
-            ? `自动审查拒绝执行该操作：${approval.reviewReason ?? "未给出理由"}`
-            : "拥有者拒绝执行该操作"
-          : "模式已切换或任务已停止，该审批已失效；如仍需要请重新申请";
-      return textResult(reason, true);
-    }
+  /** 审批未通过的统一文案（自动拒绝不能显示成"拥有者拒绝"：按决定来源区分）。 */
+  private approvalFailureText(approval: ApprovalOutcome): string {
+    return approval.decision === "rejected"
+      ? approval.source === "auto_review"
+        ? `自动审查拒绝执行该操作：${approval.reviewReason ?? "未给出理由"}`
+        : "拥有者拒绝执行该操作"
+      : "模式已切换或任务已停止，该审批已失效；如仍需要请重新申请";
+  }
 
-    // 单次消费：条件更新校验批准未消费、权限版本匹配、任务仍活动，
-    // 原子记录消费（= 执行开始）
+  /**
+   * 单次消费已批准的请求（审批操作共用）：条件更新校验批准未消费、权限版本
+   * 匹配、任务仍活动，原子记录消费（= 执行开始）与事件。preConsume 在同一
+   * 事务内做调用方前置重核（如 MCP 服务配置/凭据），返回原因即放弃消费。
+   */
+  private consumeApproved(
+    task: Task,
+    input: RoutedCallInput,
+    preConsume?: () => string | null,
+  ): { confirmation: ConfirmationRequest } | { error: string } {
     const confirmation = this.deps.store
       .listConfirmationsByTask(task.id)
       .find((c) => c.toolOpId === input.hostOpId && c.status === "approved");
-    if (!confirmation) return textResult("审批记录缺失或已失效，操作未执行", true);
+    if (!confirmation) return { error: "审批记录缺失或已失效，操作未执行" };
+    let blockReason: string | null = null;
     const consumed = this.deps.store.withTx(() => {
+      blockReason = preConsume?.() ?? null;
+      if (blockReason) return false;
       const ok = this.deps.store.consumeApproval({
         confirmationId: confirmation.id,
         expectedPermissionVersion: confirmation.permissionVersion,
@@ -387,7 +395,34 @@ export class ToolRouter {
       return ok;
     });
     if (!consumed) {
-      return textResult("批准已失效（任务结束、权限版本变化或已被消费），操作未执行", true);
+      return { error: blockReason ?? "批准已失效（任务结束、权限版本变化或已被消费），操作未执行" };
+    }
+    return { confirmation };
+  }
+
+  private async executeApprovalOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
+    const scopeResult =
+      input.name === "request_file_access" ? this.fileOpScope(input.params) : await this.httpOpScope(input.params);
+    if ("error" in scopeResult) {
+      return textResult(scopeResult.error, true);
+    }
+    const approval = await this.deps.bridge.awaitApproval({
+      task,
+      hostOpId: input.hostOpId,
+      toolName: input.name,
+      params: input.params,
+      scope: scopeResult.scope,
+      signal: input.signal,
+    });
+    if (approval.decision !== "approved") {
+      return textResult(this.approvalFailureText(approval), true);
+    }
+
+    // 单次消费：条件更新校验批准未消费、权限版本匹配、任务仍活动，
+    // 原子记录消费（= 执行开始）
+    const consumed = this.consumeApproved(task, input);
+    if ("error" in consumed) {
+      return textResult(consumed.error, true);
     }
 
     // 执行参数完全取自审批保存的不可变请求
@@ -529,6 +564,139 @@ export class ToolRouter {
       scope,
       httpRequest: { method: scope.method, url: scope.url, headers, body, credentialName, pinnedAddress, pinnedFamily },
     };
+  }
+
+  // ---------- MCP 工具（issue 18：统一审批 + 单次消费） ----------
+
+  /**
+   * MCP 调用统一入口：先由 Driver 在 tool_call 门记录宿主操作意图，这里按
+   * 模式执行——只读工具（拥有者声明）直接执行；full_access 跳过逐次审批但仍
+   * 过服务/工具/凭据范围校验；confirm/auto-review 的写与副作用不明工具进入
+   * 统一审批桥，批准后在真正发送前原子消费（消费前重读配置与凭据绑定）。
+   */
+  private async executeMcpOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
+    const mcp = this.deps.mcp;
+    const meta = mcp?.plan()?.tools.get(input.name);
+    if (!mcp || !meta) return textResult(`未知工具：${input.name}`, true);
+
+    // 调用前重读当前配置与凭据绑定：禁用/撤销/版本变化/移出允许列表立即阻止
+    const blocked = this.mcpConfigBlock(mcp.store, meta);
+    if (blocked) return textResult(blocked, true);
+
+    if (meta.effect === "read" || task.accessMode === "full_access") {
+      return this.mcpSend(mcp, task, meta, input.params, input);
+    }
+
+    const scope: ApprovalScope = {
+      kind: "mcp_tool",
+      serviceId: meta.service.id,
+      serviceName: meta.service.name,
+      endpoint: meta.service.endpoint,
+      configVersion: meta.service.configVersion,
+      remoteName: meta.remoteName,
+      toolSignature: meta.toolSignature,
+      paramsSha256: canonicalParamsDigest(input.params),
+      credential: meta.service.credential,
+      operationCategory: meta.effect,
+    };
+    const approval = await this.deps.bridge.awaitApproval({
+      task,
+      hostOpId: input.hostOpId,
+      toolName: input.name,
+      params: input.params,
+      scope,
+      signal: input.signal,
+    });
+    if (approval.decision !== "approved") {
+      return textResult(this.approvalFailureText(approval), true);
+    }
+
+    // 单次消费 + 消费前重核：批准等待期间的配置/凭据变化使旧批准失效
+    // （不消费、不发送，操作按已知未执行记录）。服务配置与批准消费在同一
+    // SQLite 事务内核对；凭据绑定为文件存储，在消费前重读、发送时由
+    // getForUse 再核对一次（撤销即时生效）。
+    const consumed = this.consumeApproved(task, input, () => this.mcpConfigBlock(mcp.store, meta));
+    if ("error" in consumed) {
+      return textResult(consumed.error, true);
+    }
+
+    // 执行参数完全取自审批保存的不可变请求
+    return this.mcpSend(mcp, task, meta, consumed.confirmation.params, input);
+  }
+
+  /** 调用前/批准消费前的配置与凭据核对：任何变化即阻止（返回原因；null = 通过）。 */
+  private mcpConfigBlock(mcpStore: McpStore, meta: PlannedTool): string | null {
+    const { service, remoteName } = meta;
+    const fresh = mcpStore.getService(service.id);
+    if (!fresh || fresh.projectId !== service.projectId) {
+      return `MCP 服务 ${service.name} 已被移除，本次调用未发送网络请求`;
+    }
+    if (!fresh.enabled) {
+      return `MCP 服务 ${service.name} 已被拥有者禁用，本次调用未发送网络请求（重新启用从下一任务生效）`;
+    }
+    if (fresh.configVersion !== service.configVersion) {
+      return `MCP 服务 ${service.name} 配置已变化（v${service.configVersion} → v${fresh.configVersion}），本任务钉版工具清单已失效；未发送网络请求，新配置从下一任务生效`;
+    }
+    if (allowlistEffectFor(fresh.toolAllowlist, remoteName) !== meta.effect) {
+      return `工具 ${remoteName} 已不在服务 ${service.name} 的允许列表（或副作用类别已变化），本次调用未发送网络请求`;
+    }
+    if (service.credential) {
+      const binding = this.deps.credentials.get(service.credential);
+      if (!binding) return `凭据 ${service.credential} 已被撤销，本次调用未发送网络请求`;
+      if (binding.host !== new URL(fresh.endpoint).host) {
+        return `凭据 ${service.credential} 的 host 与服务端点不一致，本次调用未发送网络请求`;
+      }
+    }
+    return null;
+  }
+
+  /** 真正发送：连接按任务钉版；结果沿用既有有界捕获、归属与事件记录。 */
+  private async mcpSend(
+    mcp: NonNullable<ToolRouterDeps["mcp"]>,
+    task: Task,
+    meta: PlannedTool,
+    params: Record<string, unknown>,
+    input: RoutedCallInput,
+  ): Promise<RoutedCallOutput> {
+    const conn = mcp.plan()?.connections.get(meta.service.id);
+    if (!conn) return textResult(`MCP 服务 ${meta.service.name} 连接不可用（初始化失败或已关闭）`, true);
+    try {
+      const result = await conn.callTool(meta.remoteName, params, input.signal);
+      const formatted = formatMcpResult(
+        { taskId: task.id, sessionId: task.sessionId },
+        this.deps.artifacts,
+        meta.service.name,
+        meta.remoteName,
+        result,
+      );
+      return { content: formatted.content, isError: false };
+    } catch (err) {
+      // 写/副作用不明工具的传输类失败（超时/断线/取消）：请求可能已发出而结果
+      // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态）
+      // 与发送前失败（凭据/校验）是已知结果，不标。
+      if (
+        meta.effect !== "read" &&
+        err instanceof McpError &&
+        (err.code === "timeout" || err.code === "connect_failed" || err.code === "canceled")
+      ) {
+        this.markMcpEffectUnknown(task, input.hostOpId, meta.exposedName);
+      }
+      return textResult((err as Error).message, true);
+    }
+  }
+
+  /** 已发出但结果无法确认的写调用：标 effect_unknown（停止/重启路径对已标记操作幂等跳过）。 */
+  private markMcpEffectUnknown(task: Task, hostOpId: string, toolName: string): void {
+    this.deps.store.withTx(() => {
+      const op = this.deps.store.getToolOp(hostOpId);
+      if (!op || op.effectUnknown) return;
+      this.deps.store.markToolOpEffectUnknown(hostOpId);
+      this.deps.store.setEffectUnknown(task.id);
+      this.deps.store.appendEvent(
+        { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: hostOpId, toolName },
+        { taskId: task.id, sessionId: task.sessionId },
+      );
+    });
   }
 
   // ---------- 产物查询 ----------

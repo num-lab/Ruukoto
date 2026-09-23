@@ -334,6 +334,16 @@ async function main(argv: string[]): Promise<number> {
     case "mcp": {
       const sub = positional[0];
       if (sub === "configure") {
+        // --tools 条目：name = 只读工具；name:write / name:unknown = 有副作用/副作用不明（逐次审批）
+        const toolAllowlist = (flags["tools"] ?? "").split(",").map((s) => s.trim()).filter(Boolean).map((entry) => {
+          const idx = entry.lastIndexOf(":");
+          if (idx === -1) return entry;
+          const effect = entry.slice(idx + 1);
+          if (!["read", "write", "unknown"].includes(effect)) {
+            throw new Error(`--tools 条目 ${entry} 的副作用类别必须是 read | write | unknown`);
+          }
+          return { name: entry.slice(0, idx), effect };
+        });
         print(
           await withClient((c) =>
             c.request("mcp_configure", {
@@ -341,7 +351,7 @@ async function main(argv: string[]): Promise<number> {
               name: flags["name"] ?? "",
               endpoint: flags["endpoint"] ?? "",
               credential: flags["credential"],
-              tool_allowlist: (flags["tools"] ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+              tool_allowlist: toolAllowlist,
               enabled: flags["disabled"] !== undefined ? false : undefined,
               expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
             }),
@@ -383,9 +393,10 @@ async function main(argv: string[]): Promise<number> {
       }
       console.error(
         "用法：\n" +
-          "  ruukoto mcp configure --project <id> --name <slug> --endpoint <url> [--credential <name>] [--tools a,b,c] [--disabled] [--expected-version N]\n" +
+          "  ruukoto mcp configure --project <id> --name <slug> --endpoint <url> [--credential <name>] [--tools a,b:write,c:unknown] [--disabled] [--expected-version N]\n" +
+          "    （--tools 条目：name = 只读工具；name:write / name:unknown = 有副作用/副作用不明，confirm 模式逐次审批）\n" +
           "  ruukoto mcp list [--project <id>] | enable <service-id> | disable <service-id> | remove <service-id>\n" +
-          "  ruukoto mcp check <service-id>（连接检查 + 工具列表，标注允许/未允许）",
+          "  ruukoto mcp check <service-id>（连接检查 + 工具列表，标注允许/未允许与副作用类别）",
       );
       return 1;
     }

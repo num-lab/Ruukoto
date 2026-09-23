@@ -63,7 +63,7 @@ import {
 import type { DataCategory, DataGrant, Memory, MemorySourceRef, MemoryVersion, SelectionRecord } from "../core/types.ts";
 import type { SelectorBudgetConfig } from "../agent/context-selector.ts";
 import { selectionBreakdown, SelectionRecordCorrupt, type ContextBreakdown } from "../agent/context-selector.ts";
-import { McpStore, McpVersionConflictError, type McpServiceConfig } from "../agent/mcp/store.ts";
+import { McpStore, McpVersionConflictError, allowlistEffectFor, normalizeToolAllowlist, type McpServiceConfig, type McpToolEffect } from "../agent/mcp/store.ts";
 import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpConnection, type McpTimeouts } from "../agent/mcp/client.ts";
 import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { retireGitHubModule } from "./github-retirement.ts";
@@ -784,7 +784,8 @@ export class Runtime {
     endpoint: string;
     /** 凭据绑定名；undefined = 更新时保留现有引用，null = 清除。 */
     credential?: string | null;
-    toolAllowlist: string[];
+    /** 允许列表条目：工具名字符串（= 只读）或 { name, effect: read|write|unknown }。 */
+    toolAllowlist: unknown[];
     enabled?: boolean;
     expectedVersion?: number;
   }): McpServiceConfig {
@@ -799,11 +800,12 @@ export class Runtime {
     } catch (err) {
       throw new RuntimeApiError("invalid_params", (err as Error).message);
     }
-    if (!Array.isArray(input.toolAllowlist) || input.toolAllowlist.some((t) => typeof t !== "string" || !t.trim() || t.length > 128)) {
-      throw new RuntimeApiError("invalid_params", "tool_allowlist 必须是非空字符串数组（每项 ≤128 字符）");
+    if (!Array.isArray(input.toolAllowlist)) {
+      throw new RuntimeApiError("invalid_params", "tool_allowlist 必须是数组（工具名字符串或 { name, effect } 对象）");
     }
-    const toolAllowlist = [...new Set(input.toolAllowlist.map((t) => t.trim()))];
-    if (toolAllowlist.length > 128) throw new RuntimeApiError("invalid_params", "tool_allowlist 最多 128 项");
+    const normalized = normalizeToolAllowlist(input.toolAllowlist);
+    if ("error" in normalized) throw new RuntimeApiError("invalid_params", normalized.error);
+    const toolAllowlist = normalized.entries;
     if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
       throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
     }
@@ -915,7 +917,7 @@ export class Runtime {
     ok: boolean;
     serverInfo: { name?: string; version?: string } | null;
     protocolVersion: string | null;
-    tools: Array<{ name: string; allowed: boolean; reason?: string }>;
+    tools: Array<{ name: string; allowed: boolean; effect?: McpToolEffect; reason?: string }>;
     error?: string;
     errorCode?: string;
   }> {
@@ -936,14 +938,15 @@ export class Runtime {
         ok: true,
         serverInfo: conn.serverInfo,
         protocolVersion: conn.protocolVersion,
-        // 逐工具标注：allowed = 在允许列表且通过客户端校验；reason 说明不可注册原因
+        // 逐工具标注：allowed = 在允许列表且通过客户端校验；effect = 本地副作用
+        // 类别（issue 18；决定是否逐次审批）；reason 说明不可注册原因
         tools: tools.map((t) => {
-          const allowed = service.toolAllowlist.includes(t.name);
-          if (!allowed) return { name: t.name, allowed, reason: "不在允许列表" };
+          const effect = allowlistEffectFor(service.toolAllowlist, t.name);
+          if (effect === null) return { name: t.name, allowed: false, reason: "不在允许列表" };
           const validated = validateRemoteTool(t);
           return "disabledReason" in validated
             ? { name: t.name, allowed: false, reason: validated.disabledReason }
-            : { name: t.name, allowed, reason: undefined };
+            : { name: t.name, allowed: true, effect, reason: undefined };
         }),
       };
     } catch (err) {

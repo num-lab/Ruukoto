@@ -66,7 +66,7 @@ import {
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
-import type { McpConnection, McpTimeouts } from "./mcp/client.ts";
+import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore } from "./mcp/store.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
@@ -180,8 +180,8 @@ export class Driver {
   private allToolNames: string[] = [];
   /** 当前任务钉版的 MCP 工具名集合（handleToolCall 分派依据；任务间比对签名）。 */
   private mcpToolNames = new Set<string>();
-  /** 当前任务持有的 MCP 连接（按服务 ID；任务结束/取消/后台关闭时回收）。 */
-  private mcpConns = new Map<string, McpConnection>();
+  /** 当前任务钉版的 MCP 计划（工具元数据 + 按服务持有的连接；结束/取消/关闭时回收）。 */
+  private currentMcpPlan: McpTaskPlan | null = null;
   /** 上次 SDK 会话创建时的 MCP 工具清单签名（不一致则重建会话换工具定义）。 */
   private mcpSignature: string | null = null;
   /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
@@ -222,6 +222,8 @@ export class Driver {
         awaitApproval: (input) => this.awaitApproval(input),
         supersedeAllWaiters: () => this.supersedeAllWaiters(),
       },
+      // MCP 动态工具经路由器统一处理（issue 18）：计划按任务钉版，执行时读取
+      mcp: deps.mcp ? { store: deps.mcp.store, plan: () => this.currentMcpPlan } : undefined,
     });
   }
 
@@ -688,11 +690,8 @@ export class Driver {
     return planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
-      artifacts: this.deps.artifacts,
       projectId: this.session.projectId,
-      taskContext: () => this.hostToolCtx,
-      bindCall: this.bindHostCall,
-      connectionFor: (serviceId) => this.mcpConns.get(serviceId) ?? null,
+      dispatch: (sdkCallId, params, signal) => this.router.executeRouted(sdkCallId, params, signal),
       connectTimeoutMs: this.deps.mcp.connectTimeoutMs,
       listTimeoutMs: this.deps.mcp.listTimeoutMs,
       callTimeoutMs: this.deps.mcp.callTimeoutMs,
@@ -714,9 +713,10 @@ export class Driver {
 
   /** 回收当前任务持有的 MCP 连接（幂等；迟到结果由 SDK 丢弃）。 */
   private async closeMcpConns(): Promise<void> {
-    const conns = [...this.mcpConns.values()];
-    this.mcpConns = new Map();
-    await Promise.all(conns.map((c) => c.close()));
+    const plan = this.currentMcpPlan;
+    this.currentMcpPlan = null;
+    if (!plan) return;
+    await Promise.all([...plan.connections.values()].map((c) => c.close()));
   }
 
   private async runInner(task: Task): Promise<void> {
@@ -729,8 +729,8 @@ export class Driver {
       const mcpPlan = await this.planMcp();
       if (this.sdk && mcpPlan.signature !== this.mcpSignature) this.dropSdkForToolChange();
       this.pendingMcpToolDefs = mcpPlan.toolDefs;
-      // 连接先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收它们
-      this.mcpConns = mcpPlan.connections;
+      // 计划先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收连接
+      this.currentMcpPlan = mcpPlan;
       sdk = await this.ensureSdk(model, task.modelSelection.thinkingLevel);
       this.pendingMcpToolDefs = [];
       this.mcpSignature = mcpPlan.signature;
@@ -1094,15 +1094,11 @@ export class Driver {
       return undefined;
     }
 
-    // MCP 动态工具（issue 16）：按任务钉版的工具名集合判定，身份绑定同宿主
-    // 数据工具；必须在 mock confirmTools 路径之前，未登记的工具不得落入放行
+    // MCP 动态工具（issue 16/18）：按任务钉版的工具名集合判定，经路由器统一
+    // 处理（配置核对、模式判定、审批与单次消费、发送）；必须在 mock
+    // confirmTools 路径之前，未登记的工具不得落入放行
     if (this.mcpToolNames.has(event.toolName)) {
-      this.hostToolCalls.set(event.toolCallId, {
-        taskId: task.id,
-        sessionId: task.sessionId,
-        projectId: this.session.projectId,
-        hostOpId,
-      });
+      this.router.registerRoutedCall(event.toolCallId, hostOpId, task, event.toolName);
       return undefined;
     }
 

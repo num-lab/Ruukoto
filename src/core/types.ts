@@ -175,6 +175,31 @@ export type ApprovalScope =
     }
   | {
       /**
+       * 普通 MCP 工具操作（issue 18）：有副作用或副作用不明的 MCP 工具统一
+       * 审批范围。批准绑定任务、服务、工具、不可变参数、权限与配置版本；
+       * 凭据只出现引用名，值不进入审批视图或事件。
+       */
+      kind: "mcp_tool";
+      /** 服务 ID 与拥有者命名（展示用）。 */
+      serviceId: string;
+      serviceName: string;
+      /** 服务端点（审批展示核对目标；不含 userinfo，凭据值不出现）。 */
+      endpoint: string;
+      /** 请求时的服务配置版本；消费前重读核对，变化即失效。 */
+      configVersion: number;
+      /** 远端工具名（暴露名见 ConfirmationRequest.toolName）。 */
+      remoteName: string;
+      /** 工具定义版本：任务钉版的名称/描述/schema/副作用类别摘要。 */
+      toolSignature: string;
+      /** 规范化参数的 sha256 摘要；完整参数见审批 params（同一份不可变快照）。 */
+      paramsSha256: string;
+      /** 凭据引用名（CredentialStore 绑定名；null = 无认证）。 */
+      credential: string | null;
+      /** 本地副作用类别（拥有者声明；远端注解不作依据）。 */
+      operationCategory: "write" | "unknown";
+    }
+  | {
+      /**
        * 已退役（issue 17）：专用 GitHub 发布模块已删除，新任务不再产生此范围。
        * 仅为历史审批记录的只读展示保留（迁移已将未消费的旧审批失效）。
        */

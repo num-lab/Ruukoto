@@ -2226,6 +2226,8 @@ export class TuiApp {
         return `文件 ${c.scope.access === "read" ? "读取" : "写入"}：${c.scope.path}`;
       case "http_request":
         return `HTTP ${c.scope.method} ${c.scope.url}`;
+      case "mcp_tool":
+        return `MCP ${c.scope.operationCategory === "write" ? "写" : "副作用不明"}工具：${c.scope.serviceName}/${c.scope.remoteName}（配置 v${c.scope.configVersion}）`;
       // issue 17：github_publish 范围已退役，仅为历史审批记录的只读展示保留
       case "github_publish":
         return `GitHub 发布（已退役模块的历史记录）：${c.scope.owner}/${c.scope.repo} ${c.scope.publishKind === "pr_review_comment" ? `PR #${c.scope.target["prNumber"]} 评审评论` : `issue #${c.scope.target["issueNumber"]} 评论`}（草稿 ${c.scope.draftId} v${c.scope.draftVersion}，${c.scope.bodyBytes} 字节）`;
@@ -2246,6 +2248,11 @@ export class TuiApp {
       lines.push(`范围：${sanitizeForDisplay(this.scopeSummary(c))}`);
       if (c.scope.kind === "http_request") {
         lines.push(`凭据：${c.scope.credentials.map((cred) => `${cred.name}（${cred.purpose}）`).join(", ") || "无"}（值不展示）`);
+      }
+      if (c.scope.kind === "mcp_tool") {
+        lines.push(`目标服务：${sanitizeForDisplay(c.scope.endpoint)} · 工具定义 ${c.scope.toolSignature}`);
+        lines.push(`凭据：${c.scope.credential ?? "无"}（值不展示）`);
+        lines.push(`参数摘要：sha256 ${c.scope.paramsSha256.slice(0, 16)}…（完整参数见下方，执行以批准的参数为准）`);
       }
       if (c.scope.kind === "file_operation" && c.scope.contentBytes !== null) {
         lines.push(`待写内容：${c.scope.contentBytes} 字节（sha256 ${c.scope.contentSha256?.slice(0, 16)}…）`);

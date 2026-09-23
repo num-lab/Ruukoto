@@ -217,6 +217,17 @@ export async function taskStatus(client: ControlClient, taskId: string): Promise
   return client.request<any>("get_task", { task_id: taskId });
 }
 
+/** 等待任务出现待审批操作（excludeIds 排除已处理的审批）。 */
+export async function pendingConfirmation(client: ControlClient, taskId: string, excludeIds: string[] = []): Promise<any> {
+  let found: any = null;
+  await waitFor("出现待审批操作", async () => {
+    const status = await taskStatus(client, taskId);
+    found = status.confirmations.find((c: any) => c.status === "pending" && !excludeIds.includes(c.id)) ?? null;
+    return found !== null;
+  }, 60_000);
+  return found;
+}
+
 export function readMarkerCount(file: string): number {
   try {
     const text = fs.readFileSync(file, "utf8");

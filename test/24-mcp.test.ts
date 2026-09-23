@@ -9,28 +9,24 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as http from "node:http";
-import type { AddressInfo } from "node:net";
-import * as childProcess from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { ControlClient } from "../src/control/client.ts";
 import {
   startTestRuntime,
   createProjectSession,
   waitFor,
   taskStatus,
   writeModelsJson,
-  authenticateClient,
   connectAuthedClient,
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { startMockMcp, MOCK_MCP_SECRET, type MockMcp } from "./helpers/mock-mcp.ts";
+import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
 
-const SECRET = "mcp-test-secret-7f3a9b";
+const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });
 
 /** 直接写凭据库（同 23-web-search 测试方式）；scope 由配置入口收紧。 */
@@ -226,148 +222,7 @@ test("mcp：schema v7 → 当前版本迁移（建表 + 版本号）", async () 
   }
 });
 
-// ---------- 模拟 Streamable HTTP MCP 服务 ----------
-
-interface MockMcpToolSpec {
-  name: string;
-  description?: string;
-  inputSchema?: Record<string, unknown>;
-  outputSchema?: Record<string, unknown>;
-  annotations?: Record<string, unknown>;
-  result?: { content?: unknown[]; structuredContent?: unknown; isError?: boolean };
-  rpcError?: { code: number; message: string };
-  delayMs?: number;
-}
-
-interface MockMcpHit {
-  rpcMethod: string | null;
-  toolName: string | null;
-  hasAuth: boolean;
-}
-
-interface MockMcp {
-  url: string;
-  host: string;
-  hits: MockMcpHit[];
-  close(): Promise<void>;
-}
-
-/** 进程内模拟 MCP 服务：JSON 响应（非 SSE），支持分页、认证、延迟与断线注入。 */
-async function startMockMcp(opts: {
-  tools: MockMcpToolSpec[];
-  requireAuth?: boolean;
-  pageSize?: number;
-  dropOnCall?: boolean;
-}): Promise<MockMcp> {
-  const hits: MockMcpHit[] = [];
-  const server = http.createServer((req, res) => {
-    const u = new URL(req.url ?? "/", "http://localhost");
-    if (req.method === "GET") {
-      res.writeHead(405).end();
-      return;
-    }
-    if (req.method !== "POST" || u.pathname !== "/mcp") {
-      res.writeHead(404).end();
-      return;
-    }
-    const chunks: Buffer[] = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", () => {
-      void (async () => {
-        let body: any;
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-        } catch {
-          res.writeHead(400).end();
-          return;
-        }
-        const rpcMethod = typeof body?.method === "string" ? body.method : null;
-        const toolName = rpcMethod === "tools/call" ? String(body?.params?.name ?? "") : null;
-        const hasAuth = req.headers.authorization === `Bearer ${SECRET}`;
-        hits.push({ rpcMethod, toolName, hasAuth });
-        if (opts.requireAuth && !hasAuth) {
-          res
-            .writeHead(401, { "content-type": "application/json" })
-            .end(JSON.stringify({ jsonrpc: "2.0", id: body?.id ?? null, error: { code: -32001, message: "unauthorized" } }));
-          return;
-        }
-        const reply = (result: unknown) => {
-          res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: body?.id ?? null, result }));
-        };
-        const replyError = (code: number, message: string) => {
-          res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: body?.id ?? null, error: { code, message } }));
-        };
-        switch (rpcMethod) {
-          case "initialize":
-            reply({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "mock-mcp", version: "1.0.0" } });
-            return;
-          case "ping":
-            reply({});
-            return;
-          case "tools/list": {
-            const pageSize = opts.pageSize ?? 100;
-            const start = body?.params?.cursor ? Number(body.params.cursor) : 0;
-            const page = opts.tools.slice(start, start + pageSize).map((t) => ({
-              name: t.name,
-              ...(t.description !== undefined ? { description: t.description } : {}),
-              inputSchema: t.inputSchema ?? { type: "object", properties: {} },
-              ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
-              ...(t.annotations ? { annotations: t.annotations } : {}),
-            }));
-            const next = start + pageSize < opts.tools.length ? String(start + pageSize) : undefined;
-            reply({ tools: page, ...(next ? { nextCursor: next } : {}) });
-            return;
-          }
-          case "tools/call": {
-            const tool = opts.tools.find((t) => t.name === toolName);
-            if (!tool) {
-              replyError(-32602, `unknown tool ${toolName}`);
-              return;
-            }
-            if (opts.dropOnCall) {
-              req.socket.destroy();
-              return;
-            }
-            const send = () => {
-              if (tool.rpcError) {
-                replyError(tool.rpcError.code, tool.rpcError.message);
-                return;
-              }
-              reply(tool.result ?? { content: [{ type: "text", text: `ok:${tool.name}` }] });
-            };
-            if (tool.delayMs) setTimeout(send, tool.delayMs);
-            else send();
-            return;
-          }
-          default:
-            // 通知（如 notifications/initialized）：202 无正文
-            if (body?.id === undefined) {
-              res.writeHead(202).end();
-              return;
-            }
-            replyError(-32601, `method not found: ${rpcMethod}`);
-        }
-      })().catch(() => {
-        try {
-          res.writeHead(500).end();
-        } catch {
-          // 连接可能已断开
-        }
-      });
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  return {
-    url: `http://127.0.0.1:${port}/mcp`,
-    host: `127.0.0.1:${port}`,
-    hits,
-    async close() {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    },
-  };
-}
+// ---------- 模拟 Streamable HTTP MCP 服务（helpers/mock-mcp.ts） ----------
 
 // ---------- 任务路径集成 ----------
 
@@ -965,51 +820,7 @@ test("mcp：工具定义计入上下文预算", async () => {
   }
 });
 
-// ---------- 后台重启（真实子进程 + SIGKILL） ----------
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
-
-function killProcessTree(child: childProcess.ChildProcess): void {
-  // tsx 包装器会再 spawn 内层 node 进程；终止必须按进程组
-  try {
-    if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-  } catch {
-    // 进程组已退出
-  }
-}
-
-async function spawnBackend(dataDir: string, agentDir: string): Promise<{ child: childProcess.ChildProcess; client: ControlClient }> {
-  const child = childProcess.spawn(
-    tsxBin,
-    ["src/cli.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
-    { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"], detached: true },
-  );
-  let stderr = "";
-  child.stderr!.on("data", (c: Buffer) => {
-    stderr += c.toString("utf8");
-  });
-  const controlDir = path.join(path.dirname(path.resolve(dataDir)), "control");
-  const socketPath = path.join(controlDir, "control.sock");
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`后台进程提前退出（code=${child.exitCode ?? child.signalCode}）：${stderr.slice(0, 2000)}`);
-    }
-    try {
-      const client = await ControlClient.connect(socketPath, 1500);
-      await authenticateClient(client, controlDir);
-      await client.handshake();
-      return { child, client };
-    } catch (err) {
-      if (Date.now() > deadline) {
-        killProcessTree(child);
-        throw new Error(`连接后台超时：${(err as Error).message}\n${stderr.slice(0, 2000)}`);
-      }
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  }
-}
+// ---------- 后台重启（真实子进程 + SIGKILL，helpers/backend.ts） ----------
 
 test("mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "slow", delayMs: 30_000 }] });

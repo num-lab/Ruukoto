@@ -28,6 +28,7 @@ import {
   createProjectSession,
   taskStatus,
   connectAuthedClient,
+  pendingConfirmation,
   realTools,
   writeModelsJson,
 } from "./helpers/testkit.ts";
@@ -77,16 +78,6 @@ function oneToolResponder(name: string, args: Record<string, unknown>): Responde
     if (done === 0) return { kind: "tool_calls", calls: [{ id: `c_${name}`, name, arguments: args }] };
     return { kind: "text", text: "已根据工具结果继续" };
   };
-}
-
-async function pendingConfirmation(client: any, taskId: string): Promise<any> {
-  let found: any = null;
-  await waitFor("出现待审批操作", async () => {
-    const status = await taskStatus(client, taskId);
-    found = status.confirmations.find((c: any) => c.status === "pending") ?? null;
-    return found !== null;
-  }, 60_000);
-  return found;
 }
 
 // ---------- 越界文件操作 ----------

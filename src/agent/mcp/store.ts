@@ -11,6 +11,71 @@
 import type { Db } from "../../core/db.ts";
 import { randomId } from "../../core/types.ts";
 
+/**
+ * 本地副作用类别（issue 18；远端 readOnly 等注解不可信，不作权限依据）：
+ * - read：拥有者声明的只读工具，各模式直接执行（issue 16 行为）；
+ * - write：拥有者声明的有副作用工具，confirm/auto-review 逐次审批；
+ * - unknown：副作用不明，默认与 write 同样逐次审批。
+ */
+export type McpToolEffect = "read" | "write" | "unknown";
+
+/** 允许列表条目：字符串 = 拥有者声明的只读工具（issue 16 兼容）；对象显式给出类别。 */
+export type McpAllowlistEntry = string | { name: string; effect: McpToolEffect };
+
+export const MCP_TOOL_EFFECTS: readonly McpToolEffect[] = ["read", "write", "unknown"];
+
+/** 归一化条目 → 远端工具名 + 副作用类别（字符串条目为 read）。 */
+export function normalizeAllowlistEntry(entry: McpAllowlistEntry): { name: string; effect: McpToolEffect } {
+  return typeof entry === "string" ? { name: entry, effect: "read" } : entry;
+}
+
+/** 工具在允许列表中的副作用类别；不在列表返回 null（未允许，直接拒绝）。 */
+export function allowlistEffectFor(list: McpAllowlistEntry[], remoteName: string): McpToolEffect | null {
+  for (const entry of list) {
+    const normalized = normalizeAllowlistEntry(entry);
+    if (normalized.name === remoteName) return normalized.effect;
+  }
+  return null;
+}
+
+/**
+ * 拥有者输入的允许列表 → 规范条目：字符串/对象两种形态，名称去重（同名的
+ * 副作用类别冲突 = 拥有者意图不明，拒绝）；条目形态保留（字符串仍是字符串）。
+ */
+export function normalizeToolAllowlist(input: unknown[]): { entries: McpAllowlistEntry[] } | { error: string } {
+  const byName = new Map<string, McpAllowlistEntry>();
+  for (const raw of input) {
+    let entry: McpAllowlistEntry;
+    if (typeof raw === "string") {
+      entry = raw.trim();
+    } else if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+      const obj = raw as Record<string, unknown>;
+      if (typeof obj["name"] !== "string" || !obj["name"].trim()) {
+        return { error: "tool_allowlist 对象条目必须含非空 name" };
+      }
+      if (typeof obj["effect"] !== "string" || !(MCP_TOOL_EFFECTS as readonly string[]).includes(obj["effect"])) {
+        return { error: `tool_allowlist 条目 effect 必须是 ${MCP_TOOL_EFFECTS.join(" | ")}` };
+      }
+      entry = { name: obj["name"].trim(), effect: obj["effect"] as McpToolEffect };
+    } else {
+      return { error: "tool_allowlist 条目必须是工具名字符串或 { name, effect } 对象" };
+    }
+    const name = normalizeAllowlistEntry(entry).name;
+    if (!name || name.length > 128) return { error: `tool_allowlist 工具名须为 1–128 字符：${name || "（空）"}` };
+    const existing = byName.get(name);
+    if (existing) {
+      if (normalizeAllowlistEntry(existing).effect !== normalizeAllowlistEntry(entry).effect) {
+        return { error: `工具 ${name} 的副作用类别冲突（同一工具只能声明一种类别）` };
+      }
+      continue;
+    }
+    byName.set(name, entry);
+  }
+  const entries = [...byName.values()];
+  if (entries.length > 128) return { error: "tool_allowlist 最多 128 项" };
+  return { entries };
+}
+
 export interface McpServiceConfig {
   id: string;
   projectId: string;
@@ -20,8 +85,8 @@ export interface McpServiceConfig {
   endpoint: string;
   /** 凭据绑定名（CredentialStore；值不进入本表；null = 无认证）。 */
   credential: string | null;
-  /** 允许暴露的远端工具名（精确匹配；首版仅只读工具）。 */
-  toolAllowlist: string[];
+  /** 允许暴露的远端工具及本地副作用类别（精确匹配；未允许的工具不注册）。 */
+  toolAllowlist: McpAllowlistEntry[];
   enabled: boolean;
   /** 可比较版本：任何字段变化递增；调用前核对。 */
   configVersion: number;
@@ -44,7 +109,7 @@ export class McpStore {
     name: string;
     endpoint: string;
     credential?: string | null;
-    toolAllowlist: string[];
+    toolAllowlist: McpAllowlistEntry[];
     enabled?: boolean;
     expectedVersion?: number;
   }): McpServiceConfig {
@@ -148,7 +213,7 @@ function rowToService(row: any): McpServiceConfig {
     name: row.name,
     endpoint: row.endpoint,
     credential: row.credential,
-    toolAllowlist: JSON.parse(row.tool_allowlist) as string[],
+    toolAllowlist: JSON.parse(row.tool_allowlist) as McpAllowlistEntry[],
     enabled: Number(row.enabled) === 1,
     configVersion: Number(row.config_version),
     createdAt: row.created_at,

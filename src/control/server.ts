@@ -587,8 +587,14 @@ export class ControlServer {
       // ---------- issue 16：MCP 服务配置 ----------
       case "mcp_configure": {
         const allowlist = params["tool_allowlist"];
-        if (!Array.isArray(allowlist) || allowlist.some((s) => typeof s !== "string")) {
-          throw Object.assign(new Error("tool_allowlist 必须是字符串数组"), { code: "invalid_params" });
+        // 条目形态：工具名字符串，或 { name, effect } 对象（effect 取值由运行层校验）
+        const isEntryShape = (s: unknown): boolean =>
+          typeof s === "string" ||
+          (typeof s === "object" && s !== null && !Array.isArray(s) &&
+            typeof (s as Record<string, unknown>)["name"] === "string" &&
+            typeof (s as Record<string, unknown>)["effect"] === "string");
+        if (!Array.isArray(allowlist) || allowlist.some((s) => !isEntryShape(s))) {
+          throw Object.assign(new Error("tool_allowlist 必须是数组（工具名字符串或 { name, effect } 对象）"), { code: "invalid_params" });
         }
         return runtime.mcpConfigure({
           projectId: requireString("project_id"),
@@ -596,7 +602,7 @@ export class ControlServer {
           endpoint: requireString("endpoint"),
           // 未提供 = 更新时保留现有凭据引用；显式 null = 清除
           credential: typeof params["credential"] === "string" ? params["credential"] : params["credential"] === null ? null : undefined,
-          toolAllowlist: allowlist as string[],
+          toolAllowlist: allowlist as unknown[],
           enabled: typeof params["enabled"] === "boolean" ? params["enabled"] : undefined,
           expectedVersion: optionalExpectedVersion(),
         });

@@ -11,8 +11,6 @@ import assert from "node:assert/strict";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as childProcess from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import {
   makeTestDirs,
@@ -23,71 +21,9 @@ import {
   taskStatus,
   waitFor,
   lastUserText,
-  authenticateClient,
 } from "./helpers/testkit.ts";
-import { ControlClient } from "../src/control/client.ts";
+import { killBackend, spawnBackend, spawnBackendRaw, type Backend } from "./helpers/backend.ts";
 import { parseSessionFile } from "../src/core/history.ts";
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
-
-interface Backend {
-  child: childProcess.ChildProcess;
-  client: ControlClient;
-}
-
-function killProcessTree(child: childProcess.ChildProcess): void {
-  // tsx 包装器会再 spawn 内层 node 进程；终止必须按进程组，否则内层进程
-  // 带走的管道会挂住测试进程
-  try {
-    if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-  } catch {
-    // 进程组已退出
-  }
-}
-
-async function spawnBackend(dataDir: string, agentDir: string): Promise<Backend> {
-  const child = childProcess.spawn(
-    tsxBin,
-    ["src/cli.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
-    { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"], detached: true },
-  );
-  let stderr = "";
-  child.stderr!.on("data", (c: Buffer) => {
-    stderr += c.toString("utf8");
-  });
-  const controlDir = path.join(path.dirname(path.resolve(dataDir)), "control");
-  const socketPath = path.join(controlDir, "control.sock");
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`后台进程提前退出（code=${child.exitCode ?? child.signalCode}）：${stderr.slice(0, 2000)}`);
-    }
-    try {
-      const client = await ControlClient.connect(socketPath, 1500);
-      await authenticateClient(client, controlDir);
-      await client.handshake();
-      return { child, client };
-    } catch (err) {
-      if (Date.now() > deadline) {
-        killProcessTree(child);
-        throw new Error(`连接后台超时：${(err as Error).message}\n${stderr.slice(0, 2000)}`);
-      }
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  }
-}
-
-async function killBackend(backend: Backend): Promise<void> {
-  backend.client.close();
-  if (backend.child.exitCode === null && backend.child.signalCode === null) {
-    killProcessTree(backend.child);
-    await new Promise<void>((resolve) => {
-      backend.child.once("exit", () => resolve());
-      setTimeout(resolve, 5000);
-    });
-  }
-}
 
 test("工具已产生标记但未记录结果时崩溃：中断保留事实，不重放，排队不自动启动", async () => {
   const server = new MockModelServer(
@@ -133,11 +69,7 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     const { projectId, sessionId } = await createProjectSession(backend.client, workA);
 
     // 第二个实例必须被拒绝（进程级）
-    const second = childProcess.spawn(
-      tsxBin,
-      ["src/cli.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir],
-      { cwd: repoRoot, stdio: "ignore" },
-    );
+    const second = spawnBackendRaw(["src/cli.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir]);
     const secondCode: number | null = await new Promise((resolve) => {
       second.once("exit", (code) => resolve(code));
       setTimeout(() => resolve(-999), 30_000);

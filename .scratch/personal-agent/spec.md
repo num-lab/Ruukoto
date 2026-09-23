@@ -170,6 +170,8 @@
 
 新增功能工单：[14 — 完善 `/context` 命令，查看上下文窗口各部分占比](issues/14-context-breakdown.md)。
 
+新增功能工单：[21 — 重构交互入口与开发调试脚手架](issues/21-interaction-and-dev.md)，包含默认/路径 TUI 入口、独立配置中心、前台 server 与隔离的 dev 重载流程；承接 issue 19 的模型配置管理需求。
+
 ## Comments
 
 ### 2026-09-19：第 1 轮回答
@@ -199,5 +201,5 @@ Issue 07、16、17 已完成两轮产品决策确认，转为 ready-for-agent。
 - GitHub：只读接入后即可删除旧专用模块，接受写能力暂缺。旧入口显示迁移提示，历史只读归档，旧授权不转成 MCP 调用，结果未知不重发。
 - [18 — 普通 MCP 写工具与统一审批](issues/18-mcp-write-tools.md) 后续实施，不阻塞旧 GitHub 模块退役。
 - Issue 18 首批不指定真实写工具；先以模拟 MCP 服务实现公共审批框架，未来写凭据必须按服务、项目和操作类别独立绑定。
-- [19 — 提供方与模型凭据配置管理](issues/19-model-provider-management.md) 后续评估，Issue 10 仍只切换已有配置。
+- [19 — 提供方与模型凭据配置管理](issues/19-model-provider-management.md) 的后续需求已于 2026-09-23 确认并合并至 [issue 21](issues/21-interaction-and-dev.md)；Issue 10 仍只切换已有配置。
 - Jev 实验暂不启动，Issue 08 保持 needs-triage。部署配置与真实环境验收不能被描述为已完成，也不再当作未定产品规则反复询问。

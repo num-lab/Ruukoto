@@ -619,6 +619,47 @@ export class ControlServer {
         return { removed: runtime.mcpRemoveService(requireString("service_id")) };
       case "mcp_check":
         return runtime.mcpCheckService(requireString("service_id"));
+      // ---------- issue 07：QQ 群聊入口（NapCat OneBot） ----------
+      case "qq_configure": {
+        if (params["max_reply_chars"] !== undefined && !Number.isInteger(params["max_reply_chars"])) {
+          throw Object.assign(new Error("max_reply_chars 必须是整数"), { code: "invalid_params" });
+        }
+        return runtime.qqConfigure({
+          endpoint: requireString("endpoint"),
+          credential: typeof params["credential"] === "string" ? params["credential"] : params["credential"] === null ? null : undefined,
+          selfId: requireString("self_id"),
+          maxReplyChars: params["max_reply_chars"] as number | undefined,
+          expectedVersion: optionalExpectedVersion(),
+        });
+      }
+      case "qq_status":
+        return runtime.qqStatus();
+      case "qq_set_enabled": {
+        if (typeof params["enabled"] !== "boolean") {
+          throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
+        }
+        return runtime.qqSetEnabled(params["enabled"], optionalExpectedVersion());
+      }
+      case "qq_group_update": {
+        if (typeof params["allow"] !== "boolean") {
+          throw Object.assign(new Error("allow 必须是布尔值"), { code: "invalid_params" });
+        }
+        return runtime.qqGroupUpdate({ groupId: requireString("group_id"), allow: params["allow"], expectedVersion: optionalExpectedVersion() });
+      }
+      case "qq_inbox_list": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return { entries: runtime.qqListInbox({ groupId: typeof params["group_id"] === "string" ? params["group_id"] : undefined, limit }) };
+      }
+      case "qq_outbox_list": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return { entries: runtime.qqListOutbox({ groupId: typeof params["group_id"] === "string" ? params["group_id"] : undefined, limit }) };
+      }
       case "stop": {
         void runtime.stop("control_plane").catch(() => {});
         return { accepted: true };

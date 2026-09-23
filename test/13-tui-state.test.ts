@@ -21,6 +21,7 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
       {
         id: "sess_1",
         projectId: "proj_1",
+        kind: "dev",
         cwd: "/work/a",
         cwdReal: "/work/a",
         cwdDev: 1,

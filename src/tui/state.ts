@@ -235,6 +235,7 @@ export class ViewState {
           this.sessions.push({
             id: body.sessionId,
             projectId: body.projectId,
+            kind: body.kind ?? "dev",
             cwd: body.cwd,
             cwdReal: body.cwd,
             cwdDev: 0,

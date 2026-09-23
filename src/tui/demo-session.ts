@@ -84,6 +84,7 @@ const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", instructionFile
 const SESSION: Session = {
   id: SESSION_ID,
   projectId: PROJECT_ID,
+  kind: "dev",
   cwd: "/srv/demo/work",
   cwdReal: "/srv/demo/work",
   cwdDev: 1,
@@ -277,7 +278,7 @@ function demoEvents(): PersistentEvent[] {
   const bodies: PersistentEventBody[] = [
     { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container" },
     { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name },
-    { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1 },
+    { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1 },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", modelSelection: MODEL },
@@ -335,6 +336,9 @@ function demoEvents(): PersistentEvent[] {
     { type: "github.publish_settled", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", status: "effect_unknown", remoteUrl: null, errorMessage: "发送后超时" },
     { type: "mcp.service_changed", serviceId: "mcps_demo000000", projectId: PROJECT_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
     { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", projectId: PROJECT_ID, taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
+    // issue 07：QQ 群聊入口配置变化（群允许列表增删/启停/连接参数）
+    { type: "qq.config_changed", configVersion: 3, action: "group_added", groupId: "100001" },
+    { type: "qq.receive_gap", from: ts(70), to: ts(62) },
     { type: "tasks.model_selection_recorded", sessionId: SESSION_ID, taskIds: ["task_queued000000"], modelSelection: MODEL },
     { type: "backend.recovered", interruptedTaskIds: ["task_interrupt00"], pausedSessionIds: [SESSION_ID] },
     { type: "backend.stopping", reason: "signal_sigterm" },

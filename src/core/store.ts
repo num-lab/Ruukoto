@@ -23,6 +23,7 @@ import {
   type SelectionRecord,
   type Session,
   type SessionDefaultMode,
+  type SessionKind,
   type Task,
   type TaskStatus,
   type ToolOp,
@@ -129,6 +130,7 @@ export class Store {
 
   createSession(input: {
     projectId: string;
+    kind?: SessionKind;
     cwd: string;
     cwdReal: string;
     cwdDev: number;
@@ -141,6 +143,7 @@ export class Store {
     const session: Session = {
       id: randomId("sess"),
       projectId: input.projectId,
+      kind: input.kind ?? "dev",
       cwd: input.cwd,
       cwdReal: input.cwdReal,
       cwdDev: input.cwdDev,
@@ -158,14 +161,15 @@ export class Store {
     };
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
+        `INSERT INTO sessions (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
          session_file, confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
          default_access_mode, default_access_mode_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'confirm', 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'confirm', 0)`,
       )
       .run(
         session.id,
         session.projectId,
+        session.kind,
         session.cwd,
         session.cwdReal,
         session.cwdDev,
@@ -178,7 +182,7 @@ export class Store {
         session.modelSelectionVersion,
       );
     this.appendEvent(
-      { type: "session.created", sessionId: session.id, projectId: session.projectId, cwd: session.cwd, modelSelection: session.modelSelection, modelSelectionVersion: session.modelSelectionVersion },
+      { type: "session.created", sessionId: session.id, projectId: session.projectId, kind: session.kind, cwd: session.cwd, modelSelection: session.modelSelection, modelSelectionVersion: session.modelSelectionVersion },
       { sessionId: session.id },
     );
     return session;
@@ -271,6 +275,7 @@ export class Store {
     return {
       id: row.id,
       projectId: row.project_id,
+      kind: row.kind === "qq_group" ? "qq_group" : "dev",
       cwd: row.cwd,
       cwdReal: row.cwd_real,
       cwdDev: Number(row.cwd_dev),

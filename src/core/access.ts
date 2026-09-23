@@ -6,7 +6,9 @@
  * - 跨项目读取只来自拥有者在可信入口创建的 data_grants 授权；模型工具、
  *   grantedPaths 与完全访问模式都不隐含扩大资料 API 范围；
  * - 撤销从后续查询与上下文注入起生效；不承诺撤回已发送给模型的内容；
- * - QQ 等未识别入口没有项目身份，默认拒绝（本工单不开放）。
+ * - QQ 群聊入口（issue 07）使用 qq_group 身份：仅限本项目，不查 data_grants
+ *   （拥有者误配置授权也不生效），owner_note 来源不自动可读；个人共享记忆
+ *   由调用方（上下文注入/记忆工具）按身份排除。
  */
 
 import type { Db } from "./db.ts";
@@ -25,8 +27,12 @@ export class AccessDeniedError extends Error {
   }
 }
 
-/** 资料读取方的身份（宿主注入；owner = 已认证控制面连接）。 */
-export type Accessor = { kind: "owner" } | { kind: "agent"; projectId: string };
+/**
+ * 资料读取方的身份（宿主注入；owner = 已认证控制面连接）。
+ * qq_group：QQ 群聊入口的受宿主约束资料身份（issue 07 §3）——只读本项目，
+ * 不适用跨项目授权与 owner_note 默认放行。
+ */
+export type Accessor = { kind: "owner" } | { kind: "agent"; projectId: string } | { kind: "qq_group"; projectId: string };
 
 export class AccessScope {
   constructor(private readonly db: Db) {}
@@ -94,11 +100,13 @@ export class AccessScope {
 
   /**
    * 判定 accessor 是否可读取 projectId 项目的 category 资料。
-   * owner 始终可读（控制面可信入口）；agent 可读本项目或有效授权覆盖的项目。
+   * owner 始终可读（控制面可信入口）；agent 可读本项目或有效授权覆盖的项目；
+   * qq_group 只读本项目，不查授权表（授权不能扩大到群聊入口）。
    */
   canAccess(accessor: Accessor, projectId: string, category: DataCategory): boolean {
     if (accessor.kind === "owner") return true;
     if (accessor.projectId === projectId) return true;
+    if (accessor.kind === "qq_group") return false;
     const row = this.db
       .prepare(
         `SELECT 1 FROM data_grants
@@ -115,12 +123,13 @@ export class AccessScope {
     }
   }
 
-  /** agent 可读取的项目集合（本项目 + 有效授权的来源项目）。 */
+  /** agent 可读取的项目集合（本项目 + 有效授权的来源项目）；qq_group 仅本项目。 */
   accessibleProjects(accessor: Accessor, category: DataCategory): string[] {
     if (accessor.kind === "owner") {
       const rows = this.db.prepare("SELECT id FROM projects").all() as any[];
       return rows.map((r) => r.id as string);
     }
+    if (accessor.kind === "qq_group") return [accessor.projectId];
     const rows = this.db
       .prepare(
         `SELECT from_project_id FROM data_grants
@@ -137,7 +146,9 @@ export class AccessScope {
    */
   sourceRefAccessible(accessor: Accessor, ref: MemorySourceRef): boolean {
     if (accessor.kind === "owner") return true;
-    if (ref.kind === "owner_note") return true;
+    // owner_note 是拥有者可信操作的记录，对开发 agent 不依赖资料范围；
+    // qq_group 身份不享受该默认放行（群聊上下文不得自动带入拥有者笔记）
+    if (ref.kind === "owner_note") return accessor.kind !== "qq_group";
     if (ref.kind === "history_entry") {
       const row = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(ref.sessionId) as any;
       if (!row) return false;

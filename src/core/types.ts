@@ -89,9 +89,20 @@ export interface Project {
 
 export type SessionQueueState = "active" | "paused";
 
+/**
+ * 会话入口类别（issue 07）：
+ * - dev：拥有者可信 CLI/TUI 创建的开发会话（默认）；
+ * - qq_group：QQ 群聊入口会话（NapCat/OneBot），由宿主按“登录账号+群”创建；
+ *   空工具集合、资料范围宿主约束（排除开发历史/个人共享记忆/项目指令/跨项目
+ *   授权）、专用空工作目录、排队过期与发送控制由 QQ 适配器执行。
+ */
+export type SessionKind = "dev" | "qq_group";
+
 export interface Session {
   id: string;
   projectId: string;
+  /** 入口类别（默认 dev；不可经任务/工具参数变更）。 */
+  kind: SessionKind;
   /** 绑定的工作目录（创建时规范化）。 */
   cwd: string;
   /** 目录身份：realpath 规范化路径。 */
@@ -296,7 +307,7 @@ export interface Artifact {
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
   | { type: "project.created"; projectId: string; name: string }
-  | { type: "session.created"; sessionId: string; projectId: string; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number }
+  | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
@@ -351,6 +362,16 @@ export type PersistentEventBody =
   | { type: "mcp.service_changed"; serviceId: string; projectId: string; name: string; endpoint: string; configVersion: number; action: "upsert" | "enabled" | "disabled" | "removed" }
   /** 任务开始时显式启用的服务初始化失败（连接/认证/超时等）：本任务缺少其工具能力。 */
   | { type: "mcp.service_unavailable"; serviceId: string; projectId: string; taskId: string; sessionId: string; name: string; endpoint: string; reason: string }
+  /**
+   * QQ 入口配置变化（issue 07）：连接参数/群允许列表/启停。不含 token
+   * （凭据值只在 CredentialStore）；configVersion 随任何变化递增。
+   */
+  | { type: "qq.config_changed"; configVersion: number; action: "upsert" | "enabled" | "disabled" | "group_added" | "group_removed"; groupId?: string }
+  /**
+   * QQ 接收缺口（issue 07）：连接中断后重连成功时标记中断窗口——断线期间的
+   * 群消息不假定平台会重投，缺失如实记录，不补抓、不补发。
+   */
+  | { type: "qq.receive_gap"; from: string; to: string }
   | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }

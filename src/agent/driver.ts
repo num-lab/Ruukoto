@@ -68,6 +68,7 @@ import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } fro
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore } from "./mcp/store.ts";
+import type { Accessor } from "../core/access.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
 
@@ -140,6 +141,11 @@ export interface DriverDeps {
   mcp?: { store: McpStore } & McpTimeouts;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
+  /**
+   * QQ 群聊会话的撤回消息过滤（issue 07）：每次模型调用前移出已撤回交互
+   * （只改模型视图，不改写历史）。仅 kind=qq_group 会话调用。
+   */
+  qqRecalledFilter?: (sessionId: string, messages: any[]) => any[];
 }
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -216,7 +222,7 @@ export class Driver {
         if (artifact.taskId === task.id) return true;
         const artifactSession = deps.store.getSession(artifact.sessionId);
         if (!artifactSession) return false;
-        return deps.access.canAccess({ kind: "agent", projectId: this.session.projectId }, artifactSession.projectId, "artifact");
+        return deps.access.canAccess(this.accessor(), artifactSession.projectId, "artifact");
       },
       bridge: {
         awaitApproval: (input) => this.awaitApproval(input),
@@ -229,6 +235,18 @@ export class Driver {
 
   get busy(): boolean {
     return this.currentTask !== null;
+  }
+
+  /** QQ 群聊入口会话（issue 07）：空工具集合 + 宿主约束资料范围。 */
+  private get isQqGroup(): boolean {
+    return this.session.kind === "qq_group";
+  }
+
+  /** 宿主注入的资料访问身份（qq_group 不适用跨项目授权与 owner_note 默认放行）。 */
+  private accessor(): Accessor {
+    return this.isQqGroup
+      ? { kind: "qq_group", projectId: this.session.projectId }
+      : { kind: "agent", projectId: this.session.projectId };
   }
 
   get currentTaskId(): string | null {
@@ -244,41 +262,49 @@ export class Driver {
 
   private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
-    const hostDataTools = createHostDataTools({
-      store: this.deps.store,
-      access: this.deps.access,
-      historyIndex: this.deps.historyIndex,
-      memories: this.deps.memories,
-      taskContext: () => this.hostToolCtx,
-      bindCall: this.bindHostCall,
-      sessionFileFor: (sessionId) => this.deps.store.getSession(sessionId)?.sessionFile ?? null,
-      projectOfSession: (sessionId) => this.deps.store.getSession(sessionId)?.projectId ?? null,
-      syncSession: (sessionId) => {
-        const file = this.deps.store.getSession(sessionId)?.sessionFile;
-        if (!file) return { unindexed: true };
-        this.deps.historyIndex.sync(sessionId, file);
-        return { unindexed: !this.deps.historyIndex.isIndexed(sessionId) };
-      },
-    });
+    // QQ 群聊会话（issue 07 §3）：空工具集合——不注册编码工具、资料/记忆宿主
+    // 工具、Web Search 与 MCP 工具（覆盖全部注册来源；最终检查另有发送前核对）
+    const hostDataTools = this.isQqGroup
+      ? []
+      : createHostDataTools({
+          store: this.deps.store,
+          access: this.deps.access,
+          historyIndex: this.deps.historyIndex,
+          memories: this.deps.memories,
+          taskContext: () => this.hostToolCtx,
+          bindCall: this.bindHostCall,
+          sessionFileFor: (sessionId) => this.deps.store.getSession(sessionId)?.sessionFile ?? null,
+          projectOfSession: (sessionId) => this.deps.store.getSession(sessionId)?.projectId ?? null,
+          syncSession: (sessionId) => {
+            const file = this.deps.store.getSession(sessionId)?.sessionFile;
+            if (!file) return { unindexed: true };
+            this.deps.historyIndex.sync(sessionId, file);
+            return { unindexed: !this.deps.historyIndex.isIndexed(sessionId) };
+          },
+        });
     // Web Search 宿主工具（issue 20）：同一身份注入；项目禁用与否在任务开始
     // 钉版工具清单时判定（runInner），调用时另有新鲜检查
-    const webSearchTools = createWebSearchTools({
-      store: this.deps.store,
-      artifacts: this.deps.artifacts,
-      credentials: this.deps.credentials,
-      taskContext: () => this.hostToolCtx,
-      bindCall: this.bindHostCall,
-      baseUrl: this.deps.webSearch?.baseUrl,
-      timeoutMs: this.deps.webSearch?.timeoutMs,
-    });
-    const allTools = [
-      ...this.deps.toolFactory({ registry: this.registry, router: this.router }),
-      ...hostDataTools,
-      ...webSearchTools,
-      // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
-      // 固定，工具集合变化由 runInner 先重建会话再走到这里
-      ...this.pendingMcpToolDefs,
-    ];
+    const webSearchTools = this.isQqGroup
+      ? []
+      : createWebSearchTools({
+          store: this.deps.store,
+          artifacts: this.deps.artifacts,
+          credentials: this.deps.credentials,
+          taskContext: () => this.hostToolCtx,
+          bindCall: this.bindHostCall,
+          baseUrl: this.deps.webSearch?.baseUrl,
+          timeoutMs: this.deps.webSearch?.timeoutMs,
+        });
+    const allTools = this.isQqGroup
+      ? []
+      : [
+          ...this.deps.toolFactory({ registry: this.registry, router: this.router }),
+          ...hostDataTools,
+          ...webSearchTools,
+          // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
+          // 固定，工具集合变化由 runInner 先重建会话再走到这里
+          ...this.pendingMcpToolDefs,
+        ];
     this.pendingMcpToolDefs = [];
     this.allToolNames = allTools.map((t) => t.name);
     this.sdk = await createSdkSession({
@@ -336,12 +362,17 @@ export class Driver {
     const task = this.currentTask;
     if (!task || !this.sdk) return undefined;
     try {
+      // QQ 群聊会话（issue 07 §3）：不注入个人共享记忆/项目记忆/项目指令；
+      // 已撤回的群消息及其回复移出本轮模型视图（不改写历史原文）
+      if (this.isQqGroup && this.deps.qqRecalledFilter) {
+        messages = this.deps.qqRecalledFilter(this.session.id, messages);
+      }
       // 记忆注入前重校来源范围（§5：引用受限来源的派生记忆在授权撤销后
       // 不再注入；只记录可访问候选，排除原因不含他项目内容）
-      const accessor = { kind: "agent", projectId: this.session.projectId } as const;
+      const accessor = this.accessor();
       const memories: MemoryWithContent[] = [];
       const preExcludedMemories: Array<{ memoryId: string; version: number; reason: string }> = [];
-      for (const memory of this.deps.memories.listActiveFor(this.session.projectId)) {
+      for (const memory of this.isQqGroup ? [] : this.deps.memories.listActiveFor(this.session.projectId)) {
         const version = this.deps.memories.getVersion(memory.id, memory.currentVersion);
         const refs = version?.sourceRefs ?? [];
         if (refs.every((ref) => this.deps.access.sourceRefAccessible(accessor, ref))) {
@@ -358,7 +389,7 @@ export class Driver {
         messages,
         systemPrompt: this.sdk.systemPrompt ?? "",
         tools: (this.sdk.agent.state.tools ?? []) as any[],
-        projectInstructions: this.pinnedContext.instructions,
+        projectInstructions: this.isQqGroup ? null : this.pinnedContext.instructions,
         resumedFrom: this.pinnedContext.resumedFrom,
         memories,
         preExcludedMemories,
@@ -391,6 +422,8 @@ export class Driver {
     instructions: { text: string; version: string; problems: string[] } | null;
     resumedFrom: { taskId: string; input: string } | null;
   } {
+    // QQ 群聊会话（issue 07 §3）：不读取/注入项目指令（资料范围独立于开发项目）
+    if (this.isQqGroup) return { instructions: null, resumedFrom: null };
     let resumedFrom: { taskId: string; input: string } | null = null;
     try {
       if (task.resumesTaskId) {
@@ -495,6 +528,11 @@ export class Driver {
     if (!expected || model?.provider !== expected.provider || model?.id !== expected.modelId ||
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
       throw new ContextSendBlocked("model_selection_mismatch:实际模型或思考强度与任务记录不一致");
+    }
+    // QQ 群聊任务（issue 07 §3）：空工具集合的最终核对——按实际发送载荷检查，
+    // 覆盖现在与未来的全部注册来源（宿主数据工具/Web Search/MCP/任何新增）
+    if (this.isQqGroup && Array.isArray(context?.tools) && context.tools.length > 0) {
+      throw new ContextSendBlocked("qq_tools_forbidden:QQ 群聊任务不开放任何工具（发送载荷含工具定义，已阻断）");
     }
     if (this.selectionBlockReason) {
       const reason = this.selectionBlockReason;
@@ -687,6 +725,8 @@ export class Driver {
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
   private async planMcp(): Promise<McpTaskPlan> {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
+    // QQ 群聊会话（issue 07 §3）：不注册 MCP 工具（空工具集合覆盖该来源）
+    if (this.isQqGroup) return EMPTY_MCP_PLAN;
     return planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
@@ -766,11 +806,14 @@ export class Driver {
     // 任务开始固定工具清单（issue 20）：项目禁用 Web Search 时本任务不注册
     // web_search（模型不可见、系统提示同步重建）；任务内不随配置变化，新配置
     // 从下一任务生效。任务内的禁用由工具按调用新鲜检查立即阻止。
+    // QQ 群聊会话（issue 07）：空工具集合（SDK 注册表本身为空，无法再激活）。
     const webSearchEnabled = this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled";
     sdk.setActiveToolsByName(
-      webSearchEnabled
-        ? this.allToolNames
-        : this.allToolNames.filter((n) => !(WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(n)),
+      this.isQqGroup
+        ? []
+        : webSearchEnabled
+          ? this.allToolNames
+          : this.allToolNames.filter((n) => !(WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(n)),
     );
 
     // 会话文件路径尽早落库：崩溃后重启才能打开同一份 JSONL 而不是另起新文件
@@ -1043,6 +1086,11 @@ export class Driver {
   private async handleToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
     const current = this.currentTask;
     if (!current) return undefined;
+    // QQ 群聊任务（issue 07 §3）：任何工具调用一律阻止（装配侧已为空集合，
+    // 此处兜底注册泄漏/未知路径；不记录执行意图——意图本身也不产生）
+    if (this.isQqGroup) {
+      return { block: true, reason: "QQ 群聊任务不开放工具调用" };
+    }
     const store = this.deps.store;
 
     // 每次调用读取当前任务（模式/权限版本/授予路径），不使用缓存

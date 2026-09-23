@@ -16,6 +16,8 @@
  *   ruukoto credentials list
  *   ruukoto credentials add --name N --host H --header H --purpose P --secret-env VAR
  *   ruukoto credentials remove <name>
+ *   ruukoto qq configure --endpoint ws://... --self-id N [--credential N] | status | enable | disable
+ *   ruukoto qq group add|remove <群号> | qq inbox|outbox [--group G] [--limit N]
  *   ruukoto stop
  *
  * 数据目录默认 ~/.ruukoto；控制面目录为其兄弟目录 control/（socket 与拥有者
@@ -403,6 +405,78 @@ async function main(argv: string[]): Promise<number> {
     case "stop":
       print(await withClient((c) => c.request("stop", {})));
       return 0;
+    case "qq": {
+      // QQ 群聊入口（issue 07，NapCat OneBot v11）：token 凭据先经
+      // credentials add --purpose qq_onebot 登记，再以 --credential 引用名称
+      const sub = positional[0];
+      if (sub === "configure") {
+        print(
+          await withClient((c) =>
+            c.request("qq_configure", {
+              endpoint: flags["endpoint"] ?? "",
+              // --no-credential 显式清除凭据引用；缺省 --credential 则保留现有
+              credential: flags["no-credential"] !== undefined ? null : flags["credential"],
+              self_id: flags["self-id"] ?? "",
+              max_reply_chars: flags["max-reply-chars"] === undefined ? undefined : Number(flags["max-reply-chars"]),
+              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "status") {
+        print(await withClient((c) => c.request("qq_status", {})));
+        return 0;
+      }
+      if (sub === "enable" || sub === "disable") {
+        print(
+          await withClient((c) =>
+            c.request("qq_set_enabled", {
+              enabled: sub === "enable",
+              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+            }),
+          ),
+        );
+        return 0;
+      }
+      if (sub === "group") {
+        const action = positional[1];
+        if (action === "add" || action === "remove") {
+          print(
+            await withClient((c) =>
+              c.request("qq_group_update", {
+                group_id: positional[2] ?? "",
+                allow: action === "add",
+                expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+              }),
+            ),
+          );
+          return 0;
+        }
+        console.error("用法：ruukoto qq group add <群号> | remove <群号>");
+        return 1;
+      }
+      if (sub === "inbox" || sub === "outbox") {
+        print(
+          await withClient((c) =>
+            c.request(sub === "inbox" ? "qq_inbox_list" : "qq_outbox_list", {
+              group_id: flags["group"],
+              limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
+            }),
+          ),
+        );
+        return 0;
+      }
+      console.error(
+        "用法：\n" +
+          "  ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <QQ号> [--credential <名称> | --no-credential] [--max-reply-chars N] [--expected-version N]\n" +
+          "    （token 先经 ruukoto credentials add --name N --host H --header authorization --purpose qq_onebot --secret-env VAR 登记）\n" +
+          "  ruukoto qq status | enable | disable\n" +
+          "  ruukoto qq group add <群号> | remove <群号>\n" +
+          "  ruukoto qq inbox [--group <群号>] [--limit N] | outbox [--group <群号>] [--limit N]",
+      );
+      return 1;
+    }
     case "grant": {
       const sub = positional[0];
       if (sub === "create") {
@@ -565,7 +639,7 @@ function defaultHelp(): string {
   return (
     "用法：ruukoto <command> [args]\n" +
     "命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
-    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | stop |\n" +
+    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（tui：直接进入指定会话，不存在则报错）；--demo（tui：合成调试会话，不连后台）\n" +

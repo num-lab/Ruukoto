@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id),
+  kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group')),
   cwd TEXT NOT NULL,
   cwd_real TEXT NOT NULL,
   cwd_dev INTEGER NOT NULL,
@@ -215,6 +216,71 @@ CREATE TABLE IF NOT EXISTS mcp_services (
   updated_at TEXT NOT NULL,
   UNIQUE (project_id, name)
 );
+
+-- v10：QQ 群聊入口（issue 07，NapCat OneBot v11 正向 WebSocket）。
+-- qq_config 单行配置：端点、凭据绑定名（秘密值只在 CredentialStore）、预期
+-- 登录账号、群允许列表、启停与运行保护参数；config_version 随任何变化递增。
+CREATE TABLE IF NOT EXISTS qq_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  endpoint TEXT NOT NULL,
+  credential_name TEXT,
+  self_id TEXT NOT NULL,
+  groups TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 0,
+  max_reply_chars INTEGER NOT NULL DEFAULT 1500,
+  queue_ttl_ms INTEGER NOT NULL DEFAULT 300000,
+  config_version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+-- 登录账号+群 → 独立会话/项目/专用工作目录的映射（不同群相互隔离）。
+CREATE TABLE IF NOT EXISTS qq_sessions (
+  account TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  work_dir TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (account, group_id)
+);
+-- 收件登记：先持久化再入队；dedup_key = account:group:message_id。
+-- status：registered（已登记未入队）→ queued → done / reply_failed /
+-- reply_unknown / skipped（过期/停用/越权）；recalled 独立标记撤回。
+CREATE TABLE IF NOT EXISTS qq_inbox (
+  dedup_key TEXT PRIMARY KEY,
+  account TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  sender_name TEXT NOT NULL DEFAULT '',
+  message_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  session_id TEXT,
+  task_id TEXT,
+  text TEXT NOT NULL,
+  input TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('registered','queued','done','reply_failed','reply_unknown','skipped')),
+  recalled INTEGER NOT NULL DEFAULT 0,
+  message_time TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qq_inbox_task ON qq_inbox (task_id);
+CREATE INDEX IF NOT EXISTS idx_qq_inbox_session ON qq_inbox (session_id);
+-- 发送记录：先保存固定目标/正文/本地操作 id 再发送；结果区分
+-- sent / failed / unknown（effect_unknown，不自动重发）/ canceled（撤回/停用）。
+CREATE TABLE IF NOT EXISTS qq_outbox (
+  op_id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  account TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  reply_to_message_id TEXT,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','sent','failed','unknown','canceled')),
+  sent_message_id TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qq_outbox_task ON qq_outbox (task_id);
 `;
 
 /**
@@ -319,11 +385,12 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 8) {
+    } else if (version >= 2 && version <= 9) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
-      // 移除，旧库的表原样保留；退役迁移由 Runtime 启动时按表存在性执行）。
+      // 移除，旧库的表原样保留；退役迁移由 Runtime 启动时按表存在性执行）；
+      // v9 → v10：新增 QQ 入口四表 + sessions.kind 补列（ensureColumns）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理，无既有数据需要改写。
       this.ensureColumns();
@@ -377,6 +444,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
 CREATE TABLE sessions_new (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id),
+  kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group')),
   cwd TEXT NOT NULL,
   cwd_real TEXT NOT NULL,
   cwd_dev INTEGER NOT NULL,
@@ -425,6 +493,8 @@ ALTER TABLE sessions_new RENAME TO sessions;
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "prompt_artifact", "prompt_artifact TEXT");
     add("selection_records", "window_snapshot", "window_snapshot TEXT");
+    // v10（issue 07）：会话入口类别（dev / qq_group）
+    add("sessions", "kind", "kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group'))");
     // v6（issue 15）：审批记录上的自动审查字段；可空，旧记录按历史人工审批展示
     add("confirmations", "review_status", "review_status TEXT");
     add("confirmations", "review_decision", "review_decision TEXT");

@@ -29,6 +29,7 @@ import {
   type PersistentEvent,
   type Project,
   type Session,
+  type SessionKind,
   type Task,
   type ToolOp,
   randomId,
@@ -67,6 +68,8 @@ import { McpStore, McpVersionConflictError, allowlistEffectFor, normalizeToolAll
 import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpConnection, type McpTimeouts } from "../agent/mcp/client.ts";
 import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { retireGitHubModule } from "./github-retirement.ts";
+import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, type QqAdapterTimeouts } from "../qq/adapter.ts";
+import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
   readHistoryEntryText,
   readHistoryPage,
@@ -123,6 +126,8 @@ export interface RuntimeConfig {
   mcp?: McpTimeouts;
   /** 自动审查配置（issue 15）：仅测试用来压短时限/输出上限。 */
   autoReview?: { timeoutMs?: number; maxTokens?: number };
+  /** QQ 群聊入口（issue 07）：超时/巡检间隔覆盖（仅测试注入；生产取默认）。 */
+  qq?: QqAdapterTimeouts;
 }
 
 export class RuntimeApiError extends Error {
@@ -183,6 +188,12 @@ export class Runtime {
   readonly memories: MemoryStore;
   /** MCP 服务配置（issue 16）：拥有者按项目管理的 MCP 服务。 */
   readonly mcp: McpStore;
+  /** QQ 群聊入口配置与收发记录（issue 07）。 */
+  readonly qqStore: QqStore;
+  /** QQ 群聊适配器（start 时创建并启动；null = 尚未启动）。 */
+  private qqAdapter: QqAdapter | null = null;
+  /** 额外事件监听（QQ 适配器等宿主内订阅者；控制面广播仍走 onEventBroadcast）。 */
+  private readonly eventListeners = new Set<(events: PersistentEvent[]) => void>();
   private readonly lock: AcquiredLock;
   modelRuntime!: ModelRuntime;
   private model: any;
@@ -211,7 +222,26 @@ export class Runtime {
     this.historyIndex = new HistoryIndex(db);
     this.memories = new MemoryStore(db);
     this.mcp = new McpStore(db);
-    store.onCommitted = (events) => this.onEventBroadcast?.(events);
+    this.qqStore = new QqStore(db);
+    store.onCommitted = (events) => {
+      this.onEventBroadcast?.(events);
+      for (const listener of this.eventListeners) {
+        try {
+          listener(events);
+        } catch {
+          // 宿主内监听者异常不影响提交路径
+        }
+      }
+    };
+  }
+
+  /** 订阅持久事件（宿主内组件，如 QQ 适配器；控制面广播用 onEventBroadcast）。 */
+  addEventListener(listener: (events: PersistentEvent[]) => void): void {
+    this.eventListeners.add(listener);
+  }
+
+  removeEventListener(listener: (events: PersistentEvent[]) => void): void {
+    this.eventListeners.delete(listener);
   }
 
   /** 控制面目录（socket 与拥有者令牌所在）。 */
@@ -292,6 +322,28 @@ export class Runtime {
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
+    // QQ 群聊入口（issue 07）：恢复收件登记、自动恢复群会话队列，按配置连接
+    // NapCat（未配置/未启用时保持禁用，不猜测端点与群号）
+    runtime.qqAdapter = new QqAdapter({
+      store: runtime.store,
+      qqStore: runtime.qqStore,
+      credentials: runtime.credentials,
+      dataDir: fullConfig.dataDir,
+      timeouts: fullConfig.qq,
+      bridge: {
+        submit: (input) => runtime.submit(input),
+        cancelTask: (taskId) => runtime.cancelTask(taskId),
+        findProjectByName: (name) => runtime.store.findProjectByName(name),
+        createProject: (name) => runtime.createProject(name),
+        createSession: (input) => runtime.createSession(input),
+        readLastAssistantText: (sessionId) => runtime.readLastAssistantText(sessionId),
+        resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
+        kickSession: (sessionId) => runtime.kick(sessionId),
+        defaultModelSelection: () => runtime.defaultSelection,
+      },
+    });
+    runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
+    await runtime.qqAdapter.start();
     runtime.store.withTx(() => {
       runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend });
     });
@@ -454,6 +506,8 @@ export class Runtime {
     projectId: string;
     cwd: string;
     confirmTools?: string[];
+    /** 入口类别（默认 dev；qq_group 仅由 QQ 适配器经窄接口创建）。 */
+    kind?: SessionKind;
   }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     const project = this.store.getProject(input.projectId);
@@ -470,6 +524,7 @@ export class Runtime {
     return this.store.withTx(() =>
       this.store.createSession({
         projectId: input.projectId,
+        kind: input.kind ?? "dev",
         cwd: identity.cwd,
         cwdReal: identity.cwdReal,
         cwdDev: identity.dev,
@@ -997,6 +1052,29 @@ export class Runtime {
       const task = this.store.listQueuedTasksFifo(sessionId)[0];
       if (!task) return;
 
+      // QQ 群聊会话（issue 07 §4）：入队后、模型调用前核对启停/群范围/账号
+      // 在线/排队过期。wait = 暂不启动（上线或巡检时重新 kick）；drop = 过期
+      // 或越权，取消跳过（不回复），继续取下一个。
+      if (session.kind === "qq_group" && this.qqAdapter) {
+        const decision = this.qqAdapter.gate(session, task);
+        if (decision === "wait") return;
+        if (decision !== "run") {
+          this.store.withTx(() => {
+            const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
+              errorMessage: decision.drop,
+              endedAt: new Date().toISOString(),
+            });
+            if (ok) {
+              this.store.appendEvent(
+                { type: "task.canceled", taskId: task.id, sessionId },
+                { taskId: task.id, sessionId },
+              );
+            }
+          });
+          continue;
+        }
+      }
+
       // 任务开始前核对目录身份：排队期间被替换或失效的目录拒绝执行
       try {
         await verifyDirIdentity({
@@ -1096,6 +1174,9 @@ export class Runtime {
         webSearch: this.config.webSearch,
         mcp: { store: this.mcp, ...this.config.mcp },
         reviewer: this.reviewer,
+        // QQ 群聊会话（issue 07）：每次模型调用前移出已撤回交互（只改视图）
+        qqRecalledFilter: (sessionId, messages) =>
+          filterRecalledQqMessages(messages, this.qqStore.recalledTagsForSession(sessionId)),
       });
       this.drivers.set(session.id, driver);
     } else {
@@ -1402,6 +1483,19 @@ export class Runtime {
     return this.withSessionHistory(input.sessionId, (file) =>
       readHistoryEntryText(file, input.entryId, input.offset, input.length),
     );
+  }
+
+  /**
+   * QQ 适配器专用（issue 07）：会话最新一条 assistant 文本（回复候选）。
+   * 有界读取（条目上限 256 KiB）；无文本或历史未落盘返回 null。
+   */
+  readLastAssistantText(sessionId: string): string | null {
+    const page = this.readHistory({ sessionId, limit: 30, entryTextCap: 256 * 1024 });
+    for (let i = page.entries.length - 1; i >= 0; i--) {
+      const entry = page.entries[i]!;
+      if (entry.role === "assistant" && entry.text.trim()) return entry.text;
+    }
+    return null;
   }
 
   /** 序列化参数 JSON 的有界分段（UTF-8 边界对齐）。 */
@@ -1792,6 +1886,177 @@ export class Runtime {
     return { record, artifact, encoding: "base64", data: buf.toString("base64") };
   }
 
+  // ---------- QQ 群聊入口（issue 07；拥有者管理入口） ----------
+
+  /**
+   * 配置/更新 NapCat OneBot 连接（拥有者操作）。端点 ws/wss：ws 仅限回环或
+   * 受控私网地址，跨主机须 wss 受保护传输；非回环端点必须配置 token 凭据
+   * （CredentialStore 绑定，purpose=qq_onebot，host 与端点一致；配置后 scope
+   * 收紧到 qq_onebot 操作）。任何变化递增 configVersion 并即时重建连接。
+   */
+  async qqConfigure(input: {
+    endpoint: string;
+    credential?: string | null;
+    selfId: string;
+    maxReplyChars?: number;
+    expectedVersion?: number;
+  }): Promise<QqConfig> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    let endpoint: URL;
+    try {
+      endpoint = new URL(input.endpoint);
+    } catch {
+      throw new RuntimeApiError("invalid_params", `端点不是合法 URL：${input.endpoint}`);
+    }
+    if (endpoint.protocol !== "ws:" && endpoint.protocol !== "wss:") {
+      throw new RuntimeApiError("invalid_params", `端点必须是 ws:// 或 wss://：${input.endpoint}`);
+    }
+    const host = endpoint.hostname.toLowerCase();
+    const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+    const isPrivate =
+      /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.endsWith(".local");
+    if (endpoint.protocol === "ws:" && !isLoopback && !isPrivate) {
+      throw new RuntimeApiError("invalid_params", "ws:// 明文连接仅限回环或受控私网地址；跨主机请使用 wss:// 受保护传输");
+    }
+    if (!/^\d{4,20}$/.test(input.selfId)) {
+      throw new RuntimeApiError("invalid_params", `self_id 必须是 QQ 号数字串：${input.selfId}`);
+    }
+    if (input.maxReplyChars !== undefined && (!Number.isInteger(input.maxReplyChars) || input.maxReplyChars < 100 || input.maxReplyChars > 20000)) {
+      throw new RuntimeApiError("invalid_params", "max_reply_chars 必须是 100–20000 的整数");
+    }
+    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
+    }
+    if (input.credential) {
+      const cred = this.credentials.get(input.credential);
+      if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${input.credential}`);
+      if (cred.host !== endpoint.host) {
+        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的 host（${cred.host}）与端点 host（${endpoint.host}）不一致`);
+      }
+      if (cred.purpose !== QQ_CREDENTIAL_PURPOSE) {
+        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 用途是 ${cred.purpose}，QQ 入口需要 purpose=${QQ_CREDENTIAL_PURPOSE} 的凭据`);
+      }
+      if (cred.header.toLowerCase() !== "authorization") {
+        throw new RuntimeApiError("invalid_params", `QQ 凭据须使用 authorization 头（Bearer）：${input.credential}`);
+      }
+      if (cred.scope && cred.scope.operations !== undefined && !cred.scope.operations.includes(QQ_CREDENTIAL_PURPOSE)) {
+        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已有使用范围（操作 ${cred.scope.operations.join(",")}），与 qq_onebot 冲突；请另建凭据`);
+      }
+      if (cred.scope?.projectId !== undefined) {
+        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已绑定项目范围（QQ 入口凭据不按项目限定）；请另建凭据`);
+      }
+    }
+    if (!isLoopback && !input.credential) {
+      throw new RuntimeApiError("invalid_params", "非回环端点必须配置 token 凭据（credential）");
+    }
+    let config: QqConfig;
+    try {
+      config = this.store.withTx(() => {
+        const c = this.qqStore.upsertConfig({
+          endpoint: endpoint.toString(),
+          credentialName: input.credential,
+          selfId: input.selfId,
+          maxReplyChars: input.maxReplyChars,
+          expectedVersion: input.expectedVersion,
+        });
+        this.store.appendEvent({ type: "qq.config_changed", configVersion: c.configVersion, action: "upsert" }, {});
+        return c;
+      });
+    } catch (err) {
+      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    // 凭据 scope 收紧到 qq_onebot 操作：通用 http_request 与其他入口不得借用
+    if (config.credentialName) {
+      const cred = this.credentials.get(config.credentialName)!;
+      const ops = cred.scope?.operations;
+      this.credentials.upsert({
+        ...cred,
+        scope: { ...cred.scope, operations: ops ? [...new Set([...ops, QQ_CREDENTIAL_PURPOSE])] : [QQ_CREDENTIAL_PURPOSE] },
+      });
+    }
+    await this.qqAdapter?.onConfigChanged();
+    return config;
+  }
+
+  /** QQ 入口状态（配置视图 + 运行期连接状态；不含 token 与消息正文）。 */
+  qqStatus(): Record<string, unknown> {
+    return (
+      this.qqAdapter?.status() ?? {
+        configured: this.qqStore.getConfig() !== null,
+        enabled: false,
+        online: false,
+        stateDetail: "适配器未启动",
+      }
+    );
+  }
+
+  /** 一键停用/启用：停用即断开连接、阻止新接收与后续发送，运行中任务按取消机制收尾。 */
+  async qqSetEnabled(enabled: boolean, expectedVersion?: number): Promise<QqConfig> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    let config: QqConfig | null;
+    try {
+      config = this.store.withTx(() => {
+        const prev = this.qqStore.getConfig();
+        const c = this.qqStore.setEnabled(enabled, expectedVersion);
+        // 同值调用不递增版本（无变化），也不产生无变化的配置事件
+        if (c && c.configVersion !== prev?.configVersion) {
+          this.store.appendEvent({ type: "qq.config_changed", configVersion: c.configVersion, action: enabled ? "enabled" : "disabled" }, {});
+        }
+        return c;
+      });
+    } catch (err) {
+      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
+    await this.qqAdapter?.onConfigChanged();
+    return config;
+  }
+
+  /** 群允许列表增删（配置版本递增；移除即取消该群排队/运行任务与未发送回复）。 */
+  async qqGroupUpdate(input: { groupId: string; allow: boolean; expectedVersion?: number }): Promise<QqConfig> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    if (!/^\d{4,20}$/.test(input.groupId)) {
+      throw new RuntimeApiError("invalid_params", `群号必须是数字串：${input.groupId}`);
+    }
+    let config: QqConfig | null;
+    try {
+      config = this.store.withTx(() => {
+        const current = this.qqStore.getConfig();
+        if (!current) return null;
+        const groups = input.allow
+          ? [...new Set([...current.groups, input.groupId])]
+          : current.groups.filter((g) => g !== input.groupId);
+        const c = this.qqStore.setGroups(groups, input.expectedVersion);
+        if (c) {
+          this.store.appendEvent(
+            { type: "qq.config_changed", configVersion: c.configVersion, action: input.allow ? "group_added" : "group_removed", groupId: input.groupId },
+            {},
+          );
+        }
+        return c;
+      });
+    } catch (err) {
+      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
+    if (!input.allow) await this.qqAdapter?.onGroupRemoved(input.groupId);
+    else await this.qqAdapter?.onConfigChanged();
+    return config;
+  }
+
+  /** 收件登记查看（新 → 旧；含状态与撤回标记，供队列与错误排查）。 */
+  qqListInbox(input: { groupId?: string; limit?: number } = {}): QqInboxRow[] {
+    return this.qqStore.listInbox(input);
+  }
+
+  /** 发送记录查看（新 → 旧；含 sent/failed/unknown/canceled 与平台消息 id）。 */
+  qqListOutbox(input: { groupId?: string; limit?: number } = {}): QqOutboxRow[] {
+    return this.qqStore.listOutbox(input);
+  }
+
   // ---------- 停止 ----------
 
   stop(reason: string): Promise<void> {
@@ -1805,6 +2070,13 @@ export class Runtime {
     this.store.withTx(() => {
       this.store.appendEvent({ type: "backend.stopping", reason });
     });
+
+    // QQ 适配器先行停止：断开 NapCat 连接、停止接收新事件（在途任务由下方
+    // 统一中断路径收尾；未发送回复保留 pending 事实，不在停止路径补发）
+    if (this.qqAdapter) {
+      await this.qqAdapter.stop().catch(() => {});
+      this.qqAdapter = null;
+    }
 
     // 中断活动任务（queued 保留）；requestStop 内部完成终态、占用与事件
     const active = this.store.listTasksByStatus(ACTIVE_TASK_STATUSES.filter((s) => s !== "queued"));

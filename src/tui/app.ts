@@ -742,6 +742,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
   { name: "context", description: "查看当前上下文窗口分解（各部分占比）" },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情" },
+  { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>" },
 ];
 
 export interface TuiAppOptions {
@@ -1340,6 +1341,9 @@ export class TuiApp {
         return;
       case "prompt":
         await this.cmdPrompt();
+        return;
+      case "qq":
+        await this.cmdQq(rest);
         return;
       case "github":
         // issue 17：专用 GitHub 模块已退役；旧命令只保留静态迁移提示（不进补全/帮助）
@@ -1984,6 +1988,63 @@ export class TuiApp {
       return;
     }
     this.notify("用法：/memory [list | show <id> | revoke <id> <当前版本> | restore <id> <自版本>]");
+  }
+
+  /**
+   * QQ 群聊入口（issue 07）：连接/登录状态、群配置、启停、队列与发送结果
+   * 查看。连接参数与群允许列表的修改经 CLI（ruukoto qq configure …）。
+   */
+  private async cmdQq(rest: string[]): Promise<void> {
+    const sub = rest[0] ?? "status";
+    try {
+      if (sub === "status") {
+        const s = await this.connection.request<Record<string, any>>("qq_status", {});
+        if (!s.configured) {
+          this.notify("QQ 入口未配置（拥有者经 CLI：ruukoto qq configure --endpoint … --self-id …）");
+          return;
+        }
+        const sessions = (s.sessions as Array<Record<string, unknown>>).map(
+          (g) => `  群 ${g.groupId}：会话 ${String(g.sessionId).slice(0, 10)}… 排队 ${g.queued}${g.active ? "，执行中" : ""}`,
+        );
+        this.notify(
+          `QQ 入口：${s.enabled ? "已启用" : "已停用"}；连接 ${s.online ? `在线（账号 ${s.actualSelfId}）` : `离线（${s.stateDetail}）`}\n` +
+            `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${(s.groups as string[]).join("、") || "（空）"}\n` +
+            `回复上限 ${s.maxReplyChars} 字符；排队过期 ${s.queueTtlMs}ms\n` +
+            (sessions.length ? sessions.join("\n") : "  （尚无群会话）"),
+        );
+        return;
+      }
+      if (sub === "enable" || sub === "disable") {
+        const c = await this.connection.request<{ configVersion: number }>("qq_set_enabled", { enabled: sub === "enable" });
+        this.notify(`QQ 入口已${sub === "enable" ? "启用" : "停用"}（配置 v${c.configVersion}）`);
+        return;
+      }
+      if (sub === "groups") {
+        const s = await this.connection.request<Record<string, any>>("qq_status", {});
+        this.notify(`允许的群：${((s.groups as string[]) ?? []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
+        return;
+      }
+      if (sub === "inbox" || sub === "outbox") {
+        const result = await this.connection.request<{ entries: Array<Record<string, any>> }>(
+          sub === "inbox" ? "qq_inbox_list" : "qq_outbox_list",
+          { group_id: rest[1], limit: 20 },
+        );
+        if (result.entries.length === 0) {
+          this.notify(sub === "inbox" ? "暂无收件登记" : "暂无发送记录");
+          return;
+        }
+        const lines = result.entries.map((e) =>
+          sub === "inbox"
+            ? `  群 ${e.groupId} ${e.userId}：${String(e.text).slice(0, 40)} [${e.status}${e.recalled ? "/已撤回" : ""}] ${e.createdAt}`
+            : `  群 ${e.groupId}：${String(e.text).slice(0, 40)} [${e.status}]${e.error ? ` ${String(e.error).slice(0, 60)}` : ""} ${e.createdAt}`,
+        );
+        this.notify(`${sub === "inbox" ? "收件登记" : "发送记录"}（最近 ${result.entries.length} 条）：\n${lines.join("\n")}`);
+        return;
+      }
+      this.notify("用法：/qq [status | enable | disable | groups | inbox [群号] | outbox [群号]]");
+    } catch (err) {
+      this.notify(red(`QQ 操作失败：${(err as Error).message}`));
+    }
   }
 
   private resolveTaskId(prefix: string): string | null {

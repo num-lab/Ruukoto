@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 Depends on: 16
 
 # 支持普通 MCP 写工具与统一审批
@@ -61,3 +61,39 @@ Q9–Q10 已确认：所有有副作用或副作用不明的 MCP 工具统一进
 ### 2026-09-22：补充实施计划
 
 已核对现有审批持久化、单次消费、工具路由和凭据 scope；计划复用公共路径，先完成模拟服务与生命周期验证，再由拥有者指定真实写工具。
+
+### 2026-09-23：实现完成（agent：issue 18）
+
+交付：允许列表条目携带本地副作用类别（字符串 = 只读，issue 16 兼容；
+`{ name, effect: write|unknown }` = 逐次审批；远端 readOnly 注解不作权限依据）；
+`ApprovalScope` 新增 `mcp_tool`（服务 ID/配置版本/远端工具名/任务钉版工具定义
+签名/规范化参数摘要/凭据引用名/操作类别，凭据值不进入审批或事件）；MCP 调用
+统一经 tool-router：confirm/auto-review 的写与副作用不明工具走
+`Driver.awaitApproval`，批准后发送前 `Store.consumeApproval()` 原子消费并在
+同事务重读服务配置（凭据绑定消费前重读、发送时 getForUse 再核对），执行参数
+取自审批快照；full_access 跳过逐次审批但保留范围校验；auto-review 对
+`mcp_tool` 一律转拥有者（不扩大自动批准范围）。写调用的超时/断线/取消在已
+发出后标 effect_unknown（远端已应答的错误不标）；取消、模式切换、崩溃恢复
+沿用既有机制（未消费 = 已知未执行，已消费 = effect_unknown，不重发）。无
+SQLite 迁移（JSON 列承载新形态）。CLI `--tools name:write`、mcp check 标注
+类别、TUI 审批详情、ADR 0008、docs/runtime.md 与 CONTEXT.md 已更新。
+
+验证：npm run typecheck 干净；npm test 214 项（213 通过，0 失败，1 项既有
+skip）。test/25-mcp-write.test.ts 19 项经两个模拟服务覆盖：批准执行一次
+（范围字段 + 参数快照 + 脱敏）、拒绝零次、重复响应只一次成功、配置版本变化
+使旧批准失效、参数变化需新审批、full_access 跳过审批不越允许列表、
+auto-review 转人工、副作用不明默认审批、两服务同名工具各自独立、取消（待决
+/在途）、断线与超时标 effect_unknown、模式切换使待决审批失效、工具定义变化
+钉版新签名、崩溃重启（已消费 → effect_unknown 不重放；未消费 → 已知未执行）。
+code-review 两轮：抽出共用审批消费/拒绝文案（executeApprovalOp 与
+executeMcpOp 同源），补齐断线/超时/模式切换/定义变化测试，共享测试设施
+（mock-mcp.ts / backend.ts / pendingConfirmation）。
+
+说明（对审查问题的处置）：「工具定义变化使旧批准失效」按任务粒度落实——
+定义只在任务开始发现，变化即新签名并重建会话，旧批准随任务终态不可消费
+（测试断言签名变化）；凭据重读为文件存储，不与 SQLite 同事务（发送时
+getForUse 兜底，撤销即时生效），注释已如实修正。
+
+未验证（如实记录）：真实写工具不启用（本轮既定范围）。首次启用真实写工具
+须由拥有者指定服务、目标与凭据范围（按服务/项目/操作类别独立绑定，禁止复用
+Tavily/旧 GitHub/无 scope 凭据）后单独验收，故置 ready-for-human。

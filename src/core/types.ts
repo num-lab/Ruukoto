@@ -98,6 +98,59 @@ export type SessionQueueState = "active" | "paused";
  */
 export type SessionKind = "dev" | "qq_group";
 
+/**
+ * 逻辑角色（issue 01 日常助手编排）：main 负责日常对话与编排，coding 处理
+ * 仓库/代码，chat 处理群聊。角色绑定独立的 Project/Session/工作目录/模型/
+ * 工具白名单；配置只由宿主（编排器）设置，输入正文、项目指令与模型结果
+ * 不能修改。
+ */
+export type AgentRoleId = "main" | "coding" | "chat";
+
+export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"];
+
+/**
+ * 角色工具白名单的粒度：按工具注册来源划分类别（编码工具/宿主资料与记忆/
+ * Web Search/MCP）。装配、发送前最终检查与调用门三层共用同一份名单。
+ */
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp";
+
+/** 角色配置（宿主管理；agent_roles 表）。modelSelection 为 null 时用后台默认模型。 */
+export interface AgentRole {
+  id: AgentRoleId;
+  projectId: string;
+  sessionId: string;
+  workDir: string;
+  modelSelection: ModelSelection | null;
+  tools: ToolCategory[];
+  createdAt: string;
+}
+
+/** 入站事件处理状态：registered（已登记未建任务）→ queued → done / failed。 */
+export type InboundEventStatus = "registered" | "queued" | "done" | "failed";
+
+/**
+ * 持久入站事件（issue 01）：外部消息/定时器/子任务结果进入编排器的统一
+ * 入口。先持久化再建任务；(source, externalId) 唯一即幂等键，重复登记不
+ * 重复建任务。正文在登记时截断封顶。
+ */
+export interface InboundEvent {
+  id: string;
+  /** 来源入口（如 telegram / qq / scheduler / github / internal）。 */
+  source: string;
+  /** 来源内的外部 id（与 source 组成幂等键）。 */
+  externalId: string;
+  /** 触发者标识（不含凭据；null = 未知/系统）。 */
+  actor: string | null;
+  targetRole: AgentRoleId;
+  body: string;
+  /** 正文引用的产物 id 列表（引用传递，不复制内容）。 */
+  artifactRefs: string[];
+  receivedAt: string;
+  status: InboundEventStatus;
+  /** 由本事件创建的任务（queued 时回填）。 */
+  taskId: string | null;
+}
+
 export interface Session {
   id: string;
   projectId: string;
@@ -157,6 +210,18 @@ export interface Task {
   historyEntryIds: string[];
   /** 本任务继续自哪个被中断的任务。 */
   resumesTaskId: string | null;
+  /** 执行该任务的逻辑角色（issue 01；null = 拥有者直接提交的任务）。 */
+  agentId: AgentRoleId | null;
+  /** 父任务 id（编排器委派的子任务；null = 无父任务）。 */
+  parentTaskId: string | null;
+  /** 来源入站事件 id（null = 非事件触发）。 */
+  sourceEventId: string | null;
+  /** 截止时间（ISO；超时由编排器取消；null = 无期限）。 */
+  deadline: string | null;
+  /** 结构化结果摘要（终态后由编排器记录，一次写入；null = 尚未记录）。 */
+  resultSummary: string | null;
+  /** 结果引用（JSON：完整结果的查询位置，如 {"sessionId","taskId"}）。 */
+  resultRef: string | null;
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
@@ -375,7 +440,18 @@ export type PersistentEventBody =
   | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }
-  | { type: "backend.recovered"; interruptedTaskIds: string[]; pausedSessionIds: string[] };
+  | { type: "backend.recovered"; interruptedTaskIds: string[]; pausedSessionIds: string[] }
+  /** 入站事件已登记（issue 01；先持久化再建任务，重复登记不产生新事件）。 */
+  | { type: "inbound.registered"; eventId: string; source: string; externalId: string; targetRole: AgentRoleId; actor: string | null }
+  /** 入站事件已建任务并入队。 */
+  | { type: "inbound.queued"; eventId: string; taskId: string; targetRole: AgentRoleId }
+  /** 子任务完成（结果摘要与引用已记录在任务上）。 */
+  | { type: "child_task.completed"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; summary: string; resultRef: string }
+  | { type: "child_task.failed"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; errorMessage: string }
+  /** 子任务超过截止时间被编排器取消。 */
+  | { type: "child_task.timeout"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; deadline: string }
+  /** 子任务结果未知（如后台重启中断）；不自动重放任何外部副作用。 */
+  | { type: "child_task.result_unknown"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; reason: string };
 
 export interface PersistentEvent {
   seq: number;

@@ -18,10 +18,12 @@ import { Db } from "../core/db.ts";
 import { isToolOpExecutionUncertain, Store, StoreConflictError } from "../core/store.ts";
 import {
   ACTIVE_TASK_STATUSES,
+  AGENT_ROLE_IDS,
   isAccessMode,
   isTerminalTaskStatus,
   SESSION_DEFAULT_MODES,
   type AccessMode,
+  type AgentRoleId,
   type Artifact,
   type ConfirmationRequest,
   type GrantedPath,
@@ -68,6 +70,7 @@ import { McpStore, McpVersionConflictError, allowlistEffectFor, normalizeToolAll
 import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpConnection, type McpTimeouts } from "../agent/mcp/client.ts";
 import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { retireGitHubModule } from "./github-retirement.ts";
+import { Orchestrator } from "./orchestrator.ts";
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
@@ -128,6 +131,8 @@ export interface RuntimeConfig {
   autoReview?: { timeoutMs?: number; maxTokens?: number };
   /** QQ 群聊入口（issue 07）：超时/巡检间隔覆盖（仅测试注入；生产取默认）。 */
   qq?: QqAdapterTimeouts;
+  /** 编排器（issue 01）：超时巡检间隔覆盖（仅测试注入；生产取默认）。 */
+  orchestrator?: { deadlineCheckMs?: number };
 }
 
 export class RuntimeApiError extends Error {
@@ -192,6 +197,8 @@ export class Runtime {
   readonly qqStore: QqStore;
   /** QQ 群聊适配器（start 时创建并启动；null = 尚未启动）。 */
   private qqAdapter: QqAdapter | null = null;
+  /** 后台编排器（issue 01）：角色引导、入站事件派发、子任务结果回传与超时。 */
+  orchestrator: Orchestrator | null = null;
   /** 额外事件监听（QQ 适配器等宿主内订阅者；控制面广播仍走 onEventBroadcast）。 */
   private readonly eventListeners = new Set<(events: PersistentEvent[]) => void>();
   private readonly lock: AcquiredLock;
@@ -344,6 +351,25 @@ export class Runtime {
     });
     runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
     await runtime.qqAdapter.start();
+    // 编排器（issue 01）：引导 main/coding/chat 角色、恢复已登记未建任务的
+    // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
+    runtime.orchestrator = new Orchestrator({
+      store: runtime.store,
+      dataDir: fullConfig.dataDir,
+      deadlineCheckMs: fullConfig.orchestrator?.deadlineCheckMs,
+      bridge: {
+        submit: (input) => runtime.submit(input),
+        cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
+        findProjectByName: (name) => runtime.store.findProjectByName(name),
+        createProject: (name) => runtime.createProject(name),
+        createSession: (input) => runtime.createSession(input),
+        readLastAssistantText: (sessionId) => runtime.readLastAssistantText(sessionId),
+        resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
+        defaultModelSelection: () => runtime.defaultSelection,
+      },
+    });
+    runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
+    await runtime.orchestrator.start();
     runtime.store.withTx(() => {
       runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend });
     });
@@ -607,12 +633,26 @@ export class Runtime {
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string;
     modelSelection: ModelSelection;
+    /**
+     * 编排字段（issue 01）：仅后台编排器经窄接口传递（子任务/事件任务/唤醒）。
+     * 控制面 ops 不接受这些字段，模型与客户端无法设置。
+     */
+    agentId?: AgentRoleId | null;
+    parentTaskId?: string | null;
+    sourceEventId?: string | null;
+    deadline?: string | null;
   }): Promise<Task> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
+    if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
+      throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
+    }
+    if (input.deadline != null && Number.isNaN(Date.parse(input.deadline))) {
+      throw new RuntimeApiError("invalid_params", `截止时间无效：${input.deadline}`);
+    }
     // 未显式指定时固定为提交瞬间的会话默认模式（issue 12）；幂等摘要据此计算，
     // 默认值之后的变更不会漂移已接收任务。
     const accessMode = input.accessMode ?? session.defaultAccessMode;
@@ -624,6 +664,8 @@ export class Runtime {
       input: input.input, accessMode,
       grantedPaths: (input.grantedPaths ?? []).map(p => ({ path: p.path, access: p.access, purpose: p.purpose || "未说明" })),
       resumesTaskId: input.resumesTaskId ?? null, modelSelection: selection,
+      agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null,
+      sourceEventId: input.sourceEventId ?? null, deadline: input.deadline ?? null,
     })).digest("hex");
     const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
     if (existing) return existing;
@@ -654,6 +696,10 @@ export class Runtime {
           resumesTaskId: input.resumesTaskId,
           modelSelection: selection,
           submissionDigest,
+          agentId: input.agentId ?? null,
+          parentTaskId: input.parentTaskId ?? null,
+          sourceEventId: input.sourceEventId ?? null,
+          deadline: input.deadline ?? null,
         }),
       ));
     } catch (err) {
@@ -1199,13 +1245,15 @@ export class Runtime {
     return this.store.getTask(taskId)!;
   }
 
-  async cancelTask(taskId: string): Promise<Task> {
+  async cancelTask(taskId: string, opts?: { reason?: string }): Promise<Task> {
     const task = this.store.getTask(taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${taskId}`);
     if (task.status === "queued") {
       this.store.withTx(() => {
         const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
           endedAt: new Date().toISOString(),
+          // 编排器超时取消等场景持久化原因（undefined 时保持原状不写入）
+          errorMessage: opts?.reason,
         });
         if (ok) {
           this.store.appendEvent(
@@ -1218,7 +1266,7 @@ export class Runtime {
     }
     if (task.status === "running" || task.status === "awaiting_confirmation") {
       const driver = await this.getDriver(this.store.getSession(task.sessionId)!);
-      await driver.requestStop(task, { terminal: "canceled", reason: "owner_cancel", cancelIntent: true });
+      await driver.requestStop(task, { terminal: "canceled", reason: opts?.reason ?? "owner_cancel", cancelIntent: true });
       return this.store.getTask(taskId)!;
     }
     throw new RuntimeApiError("invalid_state", `任务已结束（${task.status}），不能取消`);
@@ -2070,6 +2118,12 @@ export class Runtime {
     this.store.withTx(() => {
       this.store.appendEvent({ type: "backend.stopping", reason });
     });
+
+    // 编排器先行停止：停超时巡检，停止路径不再产生新的取消/唤醒
+    if (this.orchestrator) {
+      await this.orchestrator.stop().catch(() => {});
+      this.orchestrator = null;
+    }
 
     // QQ 适配器先行停止：断开 NapCat 连接、停止接收新事件（在途任务由下方
     // 统一中断路径收尾；未发送回复保留 pending 事实，不在停止路径补发）

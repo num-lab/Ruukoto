@@ -36,7 +36,7 @@ import {
   type ApprovalReviewer,
 } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, ConfirmationRequest, Session, Task } from "../core/types.ts";
+import type { AccessMode, AgentRole, ConfirmationRequest, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
 import { parseSessionFile, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
@@ -192,6 +192,10 @@ export class Driver {
   private mcpSignature: string | null = null;
   /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
   private pendingMcpToolDefs: ToolDefinition[] = [];
+  /** 角色配置缓存（undefined = 未查询；null = 非角色会话）。 */
+  private roleConfig: AgentRole | null | undefined = undefined;
+  /** 角色会话装配后允许的工具名（发送前最终检查与调用门共用；null = 非角色会话）。 */
+  private roleAllowedToolNames: Set<string> | null = null;
   /** 本轮模型调用的选择结果（context 钩子填充；最终检查核对）。 */
   private pendingSelection: SelectorOutput | null = null;
   /** 选择/资料读取失败的阻断原因（最终检查发现即拒绝发送）。 */
@@ -242,6 +246,24 @@ export class Driver {
     return this.session.kind === "qq_group";
   }
 
+  /**
+   * 角色会话（issue 01）：宿主引导的角色配置（agent_roles 表，按会话反查）
+   * 决定工具白名单；非角色会话为 null（不施加角色限制）。配置只由宿主
+   * 设置，任务/工具参数与模型结果不能修改。
+   */
+  private role(): AgentRole | null {
+    if (this.roleConfig === undefined) {
+      this.roleConfig = this.deps.store.getAgentRoleBySession(this.session.id);
+    }
+    return this.roleConfig;
+  }
+
+  /** 角色工具白名单判定（按注册来源类别）；非角色会话一律放行。 */
+  private roleAllows(category: ToolCategory): boolean {
+    const role = this.role();
+    return role === null || role.tools.includes(category);
+  }
+
   /** 宿主注入的资料访问身份（qq_group 不适用跨项目授权与 owner_note 默认放行）。 */
   private accessor(): Accessor {
     return this.isQqGroup
@@ -264,7 +286,8 @@ export class Driver {
     if (this.sdk) return this.sdk;
     // QQ 群聊会话（issue 07 §3）：空工具集合——不注册编码工具、资料/记忆宿主
     // 工具、Web Search 与 MCP 工具（覆盖全部注册来源；最终检查另有发送前核对）
-    const hostDataTools = this.isQqGroup
+    // 角色会话（issue 01）：按角色白名单类别过滤各注册来源（同一三层口径）
+    const hostDataTools = this.isQqGroup || !this.roleAllows("host_data")
       ? []
       : createHostDataTools({
           store: this.deps.store,
@@ -284,7 +307,7 @@ export class Driver {
         });
     // Web Search 宿主工具（issue 20）：同一身份注入；项目禁用与否在任务开始
     // 钉版工具清单时判定（runInner），调用时另有新鲜检查
-    const webSearchTools = this.isQqGroup
+    const webSearchTools = this.isQqGroup || !this.roleAllows("web_search")
       ? []
       : createWebSearchTools({
           store: this.deps.store,
@@ -298,7 +321,7 @@ export class Driver {
     const allTools = this.isQqGroup
       ? []
       : [
-          ...this.deps.toolFactory({ registry: this.registry, router: this.router }),
+          ...(this.roleAllows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
           ...hostDataTools,
           ...webSearchTools,
           // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
@@ -307,6 +330,8 @@ export class Driver {
         ];
     this.pendingMcpToolDefs = [];
     this.allToolNames = allTools.map((t) => t.name);
+    // 角色会话：记录允许的工具名集合，供发送前最终检查与调用门兜底
+    this.roleAllowedToolNames = this.role() !== null ? new Set(this.allToolNames) : null;
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -534,6 +559,14 @@ export class Driver {
     if (this.isQqGroup && Array.isArray(context?.tools) && context.tools.length > 0) {
       throw new ContextSendBlocked("qq_tools_forbidden:QQ 群聊任务不开放任何工具（发送载荷含工具定义，已阻断）");
     }
+    // 角色任务（issue 01）：发送载荷中的每个工具都必须在角色白名单装配结果内
+    if (this.roleAllowedToolNames && Array.isArray(context?.tools)) {
+      const names = context.tools.map((t: any) => t?.name ?? t?.function?.name).filter((n: unknown) => typeof n === "string");
+      const forbidden = names.filter((n: string) => !this.roleAllowedToolNames!.has(n));
+      if (forbidden.length > 0) {
+        throw new ContextSendBlocked(`role_tools_forbidden:角色 ${this.role()!.id} 的工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
+      }
+    }
     if (this.selectionBlockReason) {
       const reason = this.selectionBlockReason;
       throw new ContextSendBlocked(`context_budget_exceeded:${reason}`);
@@ -727,6 +760,8 @@ export class Driver {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
     // QQ 群聊会话（issue 07 §3）：不注册 MCP 工具（空工具集合覆盖该来源）
     if (this.isQqGroup) return EMPTY_MCP_PLAN;
+    // 角色会话（issue 01）：角色白名单不含 mcp 类别时不注册 MCP 工具
+    if (!this.roleAllows("mcp")) return EMPTY_MCP_PLAN;
     return planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
@@ -1090,6 +1125,11 @@ export class Driver {
     // 此处兜底注册泄漏/未知路径；不记录执行意图——意图本身也不产生）
     if (this.isQqGroup) {
       return { block: true, reason: "QQ 群聊任务不开放工具调用" };
+    }
+    // 角色任务（issue 01）：白名单外的工具调用一律阻止（装配侧已过滤，
+    // 此处兜底注册泄漏/未知路径；不记录执行意图）
+    if (this.roleAllowedToolNames && !this.roleAllowedToolNames.has(event.toolName)) {
+      return { block: true, reason: `角色 ${this.role()!.id} 的工具白名单不包含 ${event.toolName}` };
     }
     const store = this.deps.store;
 

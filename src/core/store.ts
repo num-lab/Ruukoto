@@ -11,11 +11,15 @@
 import type { Db } from "./db.ts";
 import {
   type AccessMode,
+  type AgentRole,
+  type AgentRoleId,
   type ApprovalScope,
   type Artifact,
   type ConfirmationRequest,
   type ConfirmationStatus,
   type GrantedPath,
+  type InboundEvent,
+  type InboundEventStatus,
   type ModelSelection,
   type PersistentEvent,
   type PersistentEventBody,
@@ -26,6 +30,7 @@ import {
   type SessionKind,
   type Task,
   type TaskStatus,
+  type ToolCategory,
   type ToolOp,
   randomId,
 } from "./types.ts";
@@ -310,6 +315,11 @@ export class Store {
     resumesTaskId?: string | null;
     modelSelection: ModelSelection;
     submissionDigest: string;
+    /** 编排字段（issue 01）：仅编排器提交时携带；控制面提交恒为 null。 */
+    agentId?: AgentRoleId | null;
+    parentTaskId?: string | null;
+    sourceEventId?: string | null;
+    deadline?: string | null;
   }): { task: Task; duplicate: boolean } {
     const accessMode = input.accessMode ?? "confirm";
     const grantedPaths = input.grantedPaths ?? [];
@@ -333,6 +343,12 @@ export class Store {
       errorMessage: null,
       historyEntryIds: [],
       resumesTaskId: input.resumesTaskId ?? null,
+      agentId: input.agentId ?? null,
+      parentTaskId: input.parentTaskId ?? null,
+      sourceEventId: input.sourceEventId ?? null,
+      deadline: input.deadline ?? null,
+      resultSummary: null,
+      resultRef: null,
       createdAt: new Date().toISOString(),
       startedAt: null,
       endedAt: null,
@@ -342,8 +358,9 @@ export class Store {
         `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version,
          granted_paths, pending_access_mode, interrupt_reason,
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
-         created_at, started_at, ended_at, model_selection, submission_digest)
-         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?)`,
+         created_at, started_at, ended_at, model_selection, submission_digest,
+         agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref)
+         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
       )
       .run(
         task.id,
@@ -356,6 +373,10 @@ export class Store {
         task.createdAt,
         JSON.stringify(task.modelSelection),
         task.submissionDigest,
+        task.agentId,
+        task.parentTaskId,
+        task.sourceEventId,
+        task.deadline,
       );
     this.appendEvent(
       {
@@ -496,9 +517,207 @@ export class Store {
       errorMessage: row.error_message,
       historyEntryIds: JSON.parse(row.history_entry_ids) as string[],
       resumesTaskId: row.resumes_task_id,
+      agentId: (row.agent_id ?? null) as AgentRoleId | null,
+      parentTaskId: row.parent_task_id ?? null,
+      sourceEventId: row.source_event_id ?? null,
+      deadline: row.deadline ?? null,
+      resultSummary: row.result_summary ?? null,
+      resultRef: row.result_ref ?? null,
       createdAt: row.created_at,
       startedAt: row.started_at,
       endedAt: row.ended_at,
+    };
+  }
+
+  /**
+   * 记录任务结构化结果（issue 01；编排器在终态后调用）。一次写入：
+   * 已记录结果的重复回传（事件监听与启动巡检竞争）只有第一个生效。
+   */
+  setTaskResult(taskId: string, summary: string, resultRef: string): boolean {
+    const info = this.db
+      .prepare("UPDATE tasks SET result_summary = ?, result_ref = ? WHERE id = ? AND result_summary IS NULL")
+      .run(summary, resultRef, taskId);
+    return Number(info.changes) === 1;
+  }
+
+  /** 截止时间在 now 之前的活动任务（编排器超时巡检）。 */
+  listOverdueTasks(nowIso: string): Task[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM tasks WHERE deadline IS NOT NULL AND deadline < ? AND status IN ('queued','running','awaiting_confirmation') ORDER BY created_at, id",
+      )
+      .all(nowIso) as any[];
+    return rows.map((r) => this.rowToTask(r));
+  }
+
+  /** 已到终态但结果尚未记录的角色任务（启动巡检补记结果与事件）。 */
+  listRoleTasksPendingResult(): Task[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM tasks WHERE agent_id IS NOT NULL AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted') ORDER BY created_at, id",
+      )
+      .all() as any[];
+    return rows.map((r) => this.rowToTask(r));
+  }
+
+  // ---------- 逻辑角色（issue 01；宿主管理） ----------
+
+  /** 登记角色配置（编排器引导时调用；同 id 已存在即冲突，不覆盖）。 */
+  insertAgentRole(role: AgentRole): void {
+    this.db
+      .prepare(
+        `INSERT INTO agent_roles (id, project_id, session_id, work_dir, model_selection, tools, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        role.id,
+        role.projectId,
+        role.sessionId,
+        role.workDir,
+        role.modelSelection ? JSON.stringify(role.modelSelection) : null,
+        JSON.stringify(role.tools),
+        role.createdAt,
+      );
+  }
+
+  getAgentRole(id: AgentRoleId): AgentRole | null {
+    const row = this.db.prepare("SELECT * FROM agent_roles WHERE id = ?").get(id) as any;
+    return row ? this.rowToAgentRole(row) : null;
+  }
+
+  /** 按会话反查角色（Driver 工具白名单判定；非角色会话返回 null）。 */
+  getAgentRoleBySession(sessionId: string): AgentRole | null {
+    const row = this.db.prepare("SELECT * FROM agent_roles WHERE session_id = ?").get(sessionId) as any;
+    return row ? this.rowToAgentRole(row) : null;
+  }
+
+  listAgentRoles(): AgentRole[] {
+    const rows = this.db.prepare("SELECT * FROM agent_roles ORDER BY created_at, id").all() as any[];
+    return rows.map((r) => this.rowToAgentRole(r));
+  }
+
+  private rowToAgentRole(row: any): AgentRole {
+    return {
+      id: row.id as AgentRoleId,
+      projectId: row.project_id,
+      sessionId: row.session_id,
+      workDir: row.work_dir,
+      modelSelection: row.model_selection ? (JSON.parse(row.model_selection) as ModelSelection) : null,
+      tools: JSON.parse(row.tools) as ToolCategory[],
+      createdAt: row.created_at,
+    };
+  }
+
+  // ---------- 入站事件（issue 01；先持久化再建任务） ----------
+
+  /**
+   * 登记入站事件（幂等）：(source, externalId) 唯一；重复登记返回已存在
+   * 事件（created=false），不产生新事件、不新建任务。
+   */
+  registerInboundEvent(input: {
+    source: string;
+    externalId: string;
+    actor: string | null;
+    targetRole: AgentRoleId;
+    body: string;
+    artifactRefs?: string[];
+  }): { event: InboundEvent; created: boolean } {
+    const event: InboundEvent = {
+      id: randomId("evt"),
+      source: input.source,
+      externalId: input.externalId,
+      actor: input.actor,
+      targetRole: input.targetRole,
+      body: input.body,
+      artifactRefs: input.artifactRefs ?? [],
+      receivedAt: new Date().toISOString(),
+      status: "registered",
+      taskId: null,
+    };
+    const info = this.db
+      .prepare(
+        `INSERT INTO inbound_events (id, source, external_id, actor, target_role, body, artifact_refs, received_at, status, task_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'registered', NULL)
+         ON CONFLICT (source, external_id) DO NOTHING`,
+      )
+      .run(
+        event.id,
+        event.source,
+        event.externalId,
+        event.actor,
+        event.targetRole,
+        event.body,
+        JSON.stringify(event.artifactRefs),
+        event.receivedAt,
+      );
+    if (Number(info.changes) !== 1) {
+      return { event: this.findInboundEvent(input.source, input.externalId)!, created: false };
+    }
+    this.appendEvent({
+      type: "inbound.registered",
+      eventId: event.id,
+      source: event.source,
+      externalId: event.externalId,
+      targetRole: event.targetRole,
+      actor: event.actor,
+    });
+    return { event, created: true };
+  }
+
+  getInboundEvent(id: string): InboundEvent | null {
+    const row = this.db.prepare("SELECT * FROM inbound_events WHERE id = ?").get(id) as any;
+    return row ? this.rowToInboundEvent(row) : null;
+  }
+
+  findInboundEvent(source: string, externalId: string): InboundEvent | null {
+    const row = this.db
+      .prepare("SELECT * FROM inbound_events WHERE source = ? AND external_id = ?")
+      .get(source, externalId) as any;
+    return row ? this.rowToInboundEvent(row) : null;
+  }
+
+  listInboundByStatus(statuses: InboundEventStatus[]): InboundEvent[] {
+    const placeholders = statuses.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(`SELECT * FROM inbound_events WHERE status IN (${placeholders}) ORDER BY received_at, id`)
+      .all(...statuses) as any[];
+    return rows.map((r) => this.rowToInboundEvent(r));
+  }
+
+  /** 事件已建任务（registered → queued 条件转换；重复处理不覆盖原任务）。 */
+  markInboundQueued(eventId: string, taskId: string): boolean {
+    const info = this.db
+      .prepare("UPDATE inbound_events SET status = 'queued', task_id = ? WHERE id = ? AND status = 'registered'")
+      .run(taskId, eventId);
+    if (Number(info.changes) !== 1) return false;
+    const event = this.getInboundEvent(eventId)!;
+    this.appendEvent(
+      { type: "inbound.queued", eventId, taskId, targetRole: event.targetRole },
+      { taskId, sessionId: null },
+    );
+    return true;
+  }
+
+  /** 事件处理终态（queued → done / failed；不覆盖已定的终态）。 */
+  setInboundTerminal(eventId: string, status: "done" | "failed"): boolean {
+    const info = this.db
+      .prepare("UPDATE inbound_events SET status = ? WHERE id = ? AND status = 'queued'")
+      .run(status, eventId);
+    return Number(info.changes) === 1;
+  }
+
+  private rowToInboundEvent(row: any): InboundEvent {
+    return {
+      id: row.id,
+      source: row.source,
+      externalId: row.external_id,
+      actor: row.actor ?? null,
+      targetRole: row.target_role as AgentRoleId,
+      body: row.body,
+      artifactRefs: JSON.parse(row.artifact_refs ?? "[]") as string[],
+      receivedAt: row.received_at,
+      status: row.status as InboundEventStatus,
+      taskId: row.task_id ?? null,
     };
   }
 

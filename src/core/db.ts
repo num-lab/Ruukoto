@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   error_message TEXT,
   history_entry_ids TEXT NOT NULL DEFAULT '[]',
   resumes_task_id TEXT,
+  agent_id TEXT CHECK (agent_id IS NULL OR agent_id IN ('main','coding','chat')),
+  parent_task_id TEXT,
+  source_event_id TEXT,
+  deadline TEXT,
+  result_summary TEXT,
+  result_ref TEXT,
   created_at TEXT NOT NULL,
   started_at TEXT,
   ended_at TEXT,
@@ -281,6 +287,36 @@ CREATE TABLE IF NOT EXISTS qq_outbox (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_qq_outbox_task ON qq_outbox (task_id);
+
+-- v11：角色、入站事件与子任务编排（issue 01 日常助手）。
+-- agent_roles：宿主管理的角色配置——每个角色绑定独立项目/会话/工作目录/
+-- 模型与工具白名单（按注册来源类别）；只能由编排器引导写入，模型与输入
+-- 正文不能修改。
+CREATE TABLE IF NOT EXISTS agent_roles (
+  id TEXT PRIMARY KEY CHECK (id IN ('main','coding','chat')),
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+  work_dir TEXT NOT NULL,
+  model_selection TEXT,
+  tools TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+-- 入站事件：先持久化再建任务；(source, external_id) 唯一即幂等键。
+-- status：registered（已登记未建任务）→ queued → done / failed。
+CREATE TABLE IF NOT EXISTS inbound_events (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  actor TEXT,
+  target_role TEXT NOT NULL CHECK (target_role IN ('main','coding','chat')),
+  body TEXT NOT NULL,
+  artifact_refs TEXT NOT NULL DEFAULT '[]',
+  received_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('registered','queued','done','failed')),
+  task_id TEXT,
+  UNIQUE (source, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_inbound_events_status ON inbound_events (status);
 `;
 
 /**
@@ -385,12 +421,14 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 9) {
+    } else if (version >= 2 && version <= 10) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
       // 移除，旧库的表原样保留；退役迁移由 Runtime 启动时按表存在性执行）；
-      // v9 → v10：新增 QQ 入口四表 + sessions.kind 补列（ensureColumns）。
+      // v9 → v10：新增 QQ 入口四表 + sessions.kind 补列（ensureColumns）；
+      // v10 → v11：新增 agent_roles / inbound_events 两表 + tasks 编排补列
+      // （ensureColumns）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理，无既有数据需要改写。
       this.ensureColumns();
@@ -428,19 +466,29 @@ CREATE TABLE tasks_new (
   ended_at TEXT,
   model_selection TEXT,
   submission_digest TEXT,
+  agent_id TEXT CHECK (agent_id IS NULL OR agent_id IN ('main','coding','chat')),
+  parent_task_id TEXT,
+  source_event_id TEXT,
+  deadline TEXT,
+  result_summary TEXT,
+  result_ref TEXT,
   UNIQUE (session_id, request_id)
 );
 INSERT INTO tasks_new (id, session_id, request_id, input, status, access_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
-  history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest)
+  history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
+  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref)
 SELECT id, session_id, request_id, input, status, access_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
-  history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest
+  history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
+  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref
 FROM tasks;
 DROP TABLE tasks;
 ALTER TABLE tasks_new RENAME TO tasks;
 CREATE INDEX IF NOT EXISTS idx_tasks_session_created ON tasks (session_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline);
 CREATE TABLE sessions_new (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id),
@@ -495,6 +543,16 @@ ALTER TABLE sessions_new RENAME TO sessions;
     add("selection_records", "window_snapshot", "window_snapshot TEXT");
     // v10（issue 07）：会话入口类别（dev / qq_group）
     add("sessions", "kind", "kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group'))");
+    // v11（issue 01）：任务编排字段（逻辑角色 / 父任务 / 来源事件 / 截止 / 结果）
+    add("tasks", "agent_id", "agent_id TEXT CHECK (agent_id IS NULL OR agent_id IN ('main','coding','chat'))");
+    add("tasks", "parent_task_id", "parent_task_id TEXT");
+    add("tasks", "source_event_id", "source_event_id TEXT");
+    add("tasks", "deadline", "deadline TEXT");
+    add("tasks", "result_summary", "result_summary TEXT");
+    add("tasks", "result_ref", "result_ref TEXT");
+    // 新列索引只能在补列之后创建（旧库先 ALTER 才有列；重建路径自带索引重建）
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline)");
     // v6（issue 15）：审批记录上的自动审查字段；可空，旧记录按历史人工审批展示
     add("confirmations", "review_status", "review_status TEXT");
     add("confirmations", "review_decision", "review_decision TEXT");

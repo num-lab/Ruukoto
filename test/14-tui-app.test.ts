@@ -388,8 +388,10 @@ test("/new：在当前工作区创建并切换会话，可重复创建独立会�
     const h = await startApp(t, { sessionId });
     apps.push(h);
 
+    // 后台另有编排器角色会话（issue 01），断言相对变化而非绝对数量
+    const base = h.state.sessions.length;
     h.terminal.send("/new\r");
-    await waitFor("新会话出现", () => h.state.sessions.length === 2);
+    await waitFor("新会话出现", () => h.state.sessions.length === base + 1);
     const first = h.state.currentSessionId!;
     assert.notEqual(first, sessionId);
     const firstInfo = h.state.sessions.find((s) => s.id === first)!;
@@ -398,7 +400,7 @@ test("/new：在当前工作区创建并切换会话，可重复创建独立会�
 
     // 重复执行：再创建一个独立会话
     h.terminal.send("/new\r");
-    await waitFor("第二个新会话出现", () => h.state.sessions.length === 3);
+    await waitFor("第二个新会话出现", () => h.state.sessions.length === base + 2);
     const second = h.state.currentSessionId!;
     assert.notEqual(second, first);
     assert.notEqual(second, sessionId);
@@ -424,10 +426,12 @@ test("/new：未选择会话时不创建，提示下一步操作", async () => {
     assert.equal(h.state.currentSessionId, null);
     h.terminal.send("\x1b"); // 关闭选择面板，避免拦截后续输入
     await renderFlush();
+    const before = h.state.sessions.length;
 
     h.terminal.send("/new\r");
     await renderFlush();
-    assert.equal(h.state.sessions.length, 1, "不应创建新会话");
+    // 不创建新会话（后台另有编排器角色会话，断言相对变化而非绝对数量）
+    assert.equal(h.state.sessions.length, before, "不应创建新会话");
     assert.equal(h.state.currentSessionId, null);
     const notes = h.state.globalNotes.map((n) => n.text).join("\n");
     assert.ok(notes.includes("尚未选择会话"), `提示应指向 /new-project 或 /new-session，实际：${notes}`);

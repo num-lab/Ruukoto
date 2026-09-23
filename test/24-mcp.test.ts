@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { Db } from "../src/core/db.ts";
+import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
 import { ControlClient } from "../src/control/client.ts";
 import {
   startTestRuntime,
@@ -203,7 +203,7 @@ test("mcp：禁用/启用与删除（事件 + 凭据 scope 收紧）", async () 
   }
 });
 
-test("mcp：schema v7 → v8 迁移（建表 + 版本号）", async () => {
+test("mcp：schema v7 → 当前版本迁移（建表 + 版本号）", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "ruukoto-it-mcp-mig-"));
   try {
     const dataDir = path.join(root, "data");
@@ -216,7 +216,7 @@ test("mcp：schema v7 → v8 迁移（建表 + 版本号）", async () => {
 
     const migrated = new Db(dataDir);
     const version = migrated.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any;
-    assert.equal(version.value, "8");
+    assert.equal(version.value, String(SCHEMA_VERSION));
     migrated.prepare("INSERT INTO mcp_services (id, project_id, name, endpoint, tool_allowlist, enabled, config_version, created_at, updated_at) VALUES ('s1', 'p1', 'docs', 'https://mcp.example.com/mcp/', '[]', 1, 1, 'now', 'now')").run();
     const row = migrated.prepare("SELECT * FROM mcp_services WHERE id = 's1'").get() as any;
     assert.equal(row.name, "docs");

@@ -478,7 +478,7 @@ test("未配置凭据、凭据 host 或用途不匹配时拒绝调用，不发�
     assert.equal(tavily.hits.length, 0, "host 不匹配不得注入凭据或发送请求");
 
     // 用途不匹配（凭据不得被其他用途借用）
-    t.runtime.credentials.upsert({ name: "tavily-wrong-purpose", host: tavily.host, header: "authorization", purpose: "github_read", secret: SECRET });
+    t.runtime.credentials.upsert({ name: "tavily-wrong-purpose", host: tavily.host, header: "authorization", purpose: "other_purpose", secret: SECRET });
     await submitAndWait(t, sessionId, "r3", "再再搜索");
     assert.equal(tavily.hits.length, 0, "用途不匹配不得注入凭据或发送请求");
   } finally {

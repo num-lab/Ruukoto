@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 Depends on: 16
 
 # 弃用现有 GitHub 模块，用 GitHub MCP 替换并视为普通工具
@@ -104,3 +104,38 @@ Depends on: 16
 ### 2026-09-22：访谈确认
 
 Q8、Q18 已确认：只读替换后即可退役旧模块，接受写功能暂缺；无需等待通用写工具完成。旧记录只读保留，旧授权失效，未知效果不重发。转为 ready-for-agent。
+
+### 2026-09-23：实现完成（agent：issue 17）
+
+交付：删除 `src/agent/github/`（client/collect/store/tools/publish，约 2100 行）及
+其在 Runtime（githubBind/Publish 等方法、`githubClientFor` 注入）、Driver（工具装配
+与固定名分派）、控制协议（`github_*` 接口）、CLI、TUI 的专用接线；协议版本 v7→v8，
+旧客户端调用已移除接口被拒绝。schema v8→v9：新库不再创建 github_* 三表，旧库表
+保留为只读归档（不 DROP）。新增 `src/runtime/github-retirement.ts`：升级后首次启动
+执行一次性可重复迁移——github_publish 审批（pending/approved 未消费）失效；
+未决发布操作按证据定终态（批准已消费或无审批记录 → effect_unknown 绝不重发；
+审批未消费 → canceled），逐操作落 publish_settled 事件记录核对依据；草稿各版本
+正文+证据引用+发布记录导出为原任务产物（github-draft-archive-<id>-v<n>，中断留下
+的 partial 产物不改写、重跑补齐完整导出）；绑定仅导出无秘密配置；清单落盘
+github-archive-manifest.json。旧凭据 host/scope/秘密不动，同名轮换保留 scope。
+旧 CLI/TUI github 命令只返回静态退役提示（移出补全与帮助）；github.* 事件与
+github_publish 审批范围保留为只读历史展示（demo-session 保留渲染样例并注明）。
+新增 ADR 0007；runtime.md 的 GitHub 节改写为退役说明，README 同步；Issue 06/15
+已加关联说明。
+
+验证：npm run typecheck 干净；npm test 195 项（194 通过，0 失败，1 项既有 skip）。
+test/17-github-retirement.test.ts 5 项经 v8 样本库（多版本草稿、pending/approved/
+consumed 审批、四类发布结果、历史事件、带 scope 旧凭据）覆盖升级迁移、归档可读
+（read_artifact）、重跑幂等、旧入口 unknown_op、凭据不变、事件重放；仍适用的通用
+保障迁移至 test/08（带 scope 凭据不得被 http_request 借用、轮换保留 scope）与
+test/13（github 事件归档展示）；test/24 的 v7 迁移断言改用 SCHEMA_VERSION 常量。
+code-review 两轮（standards/spec 双轴）：修复清单文件名常量复用、注释残留、
+demo-session 标注、partial 中断恢复测试；确认终态映射与旧入口封闭无误。
+
+说明（对审查问题的处置）：审批记录无 reason 列，退役原因记录在发布操作
+error_message、逐操作事件与清单 retiredConfirmations 计数；demo-session 的 github
+事件保留（test/19 要求覆盖全部已声明事件类型），已标注为历史渲染样例。
+
+未验证（如实记录）：真实 GitHub MCP 只读连通（需拥有者配置独立只读 PAT，同
+issue 16 遗留项；docs/runtime.md 已记录配置与验收步骤）。留待人工验收，故置
+ready-for-human。

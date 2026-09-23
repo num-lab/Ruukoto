@@ -21,15 +21,16 @@ export interface CredentialBinding {
   /** 秘密值；任何展示/日志路径都不得包含。 */
   secret: string;
   /**
-   * 可选使用范围（issue 06）：限定项目 / 仓库 / 操作类别。
-   * 设置后，通用 http_request 不得借用该凭据（防止同名写凭据绕过 GitHub 发布边界）；
+   * 可选使用范围（issue 06 引入，issue 16/17 后由 MCP 等通用入口使用）：
+   * 限定项目 / 仓库 / 操作类别。
+   * 设置后，通用 http_request 不得借用该凭据（防止同名凭据绕过专用边界）；
    * 仅匹配全部限定条件的调用方可注入。
    */
   scope?: {
     projectId?: string;
-    /** 核实的 GitHub repository ID。 */
+    /** 核实的远端仓库/资源 ID（如 GitHub repository ID）。 */
     repoId?: number;
-    /** 允许的操作类别（如 "github_read" / "github_publish"）。 */
+    /** 允许的操作类别（如 "mcp" / 历史遗留的 "github_read" / "github_publish"）。 */
     operations?: string[];
   };
 }

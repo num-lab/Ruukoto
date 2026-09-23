@@ -14,7 +14,8 @@
 - 面向代理的仓库约定：[AGENTS.md](AGENTS.md)
 
 当前状态：首期（后台运行时、编码工具与两种权限模式、TUI、上下文与长期记忆、
-GitHub 项目维护、目标服务器部署）已完成。QQ 接入与 Jev 上下文筛选实验尚未开始。
+目标服务器部署）已完成。GitHub 接入经通用 MCP 服务（专用模块已退役，见
+docs/runtime.md）；QQ 接入与 Jev 上下文筛选实验尚未开始。
 
 ## 快速开始（本机，开发用）
 
@@ -99,7 +100,6 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 | `/search <关键词>` | 搜索会话历史原文（字面匹配） |
 | `/memory <子命令>` | 长期记忆：list / show / revoke / restore |
 | `/context` | 查看本轮上下文选择记录（预算组成与排除原因） |
-| `/github <子命令>` | drafts / show / publish |
 | `/quit` | 退出客户端（后台任务继续运行） |
 
 **断开与重连**：退出只关闭客户端，后台任务继续执行。重连后从后台重建快照、历史与
@@ -169,23 +169,21 @@ ruukoto credentials add --name N --host H --header H --purpose P --secret-env VA
 ruukoto credentials remove <name>
 ```
 
-### GitHub 项目维护
+### GitHub（经 MCP 接入）
+
+专用 GitHub 模块已退役（issue 17）：PR / issue / CI 等读取操作在普通任务中经
+GitHub MCP 工具完成，配置与发现走通用 MCP 入口：
 
 ```bash
-ruukoto github bind --project <id> --owner O --repo R [--api-host H]
-                    [--read-credential N] [--publish-credential N] [--scopes pulls,actions,checks]
-                    [--allow-fork-content]
-ruukoto github bindings [--project <id>] | unbind <binding-id>
-ruukoto github drafts [--project <id>] [--task <id>] [--status draft|stale|published]
-ruukoto github draft <draft-id> [--version N] | publish-ops [--draft <id>]
-ruukoto github publish <draft-id> --kind pr_review_comment --pr <n> | --kind issue_comment --issue <n>
+ruukoto credentials add --name github-mcp --host api.githubcopilot.com --header authorization --purpose mcp --secret-env GITHUB_MCP_PAT
+ruukoto mcp configure --project <id> --name github --endpoint https://api.githubcopilot.com/mcp/readonly --credential github-mcp --tools get_me,get_file_contents
+ruukoto mcp list [--project <id>] | check <service-id> | disable <service-id> | enable | remove
 ```
 
-CI 分析与 PR 评审由拥有者显式触发：采集在任务循环内由宿主工具完成，**发布只能由
-拥有者经可信 CLI/TUI 发起**，模型不能经工具参数或 PR 文本创建发布意图。默认只交付
-草稿，草稿正文完整可查看、证据产物随草稿保存。只能发布草稿的最新版本；发送前按草稿
-记录的修订复核，分析依据已变化时草稿标为 `stale` 并停止发布。POST 不重试，结果未
-落盘时记为 `effect_unknown`，需人工核实远端后再决定。
+首版只读（写工具不注册；通用写工具见 issue 18）。旧模块的历史草稿与发布记录在
+升级后首次启动时归档为原任务产物，清单见 `<数据目录>/github-archive-manifest.json`；
+旧 `ruukoto github …` 命令只保留退役提示。详见 docs/runtime.md「GitHub（专用模块
+已退役）」与「MCP 服务」两节。
 
 ## 权限模式
 

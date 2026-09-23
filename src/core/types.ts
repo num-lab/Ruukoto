@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 export interface ModelSelection {
   provider: string;
@@ -174,6 +174,10 @@ export type ApprovalScope =
       credentials: Array<{ name: string; purpose: string }>;
     }
   | {
+      /**
+       * 已退役（issue 17）：专用 GitHub 发布模块已删除，新任务不再产生此范围。
+       * 仅为历史审批记录的只读展示保留（迁移已将未消费的旧审批失效）。
+       */
       kind: "github_publish";
       /** 发布操作 id（github_publish_ops.id）。 */
       publishOpId: string;
@@ -312,6 +316,8 @@ export type PersistentEventBody =
   | { type: "memory.saved"; memoryId: string; projectId: string | null; version: number; author: "agent" | "owner"; taskId: string | null }
   | { type: "memory.revoked"; memoryId: string; projectId: string | null; version: number; author: "agent" | "owner"; taskId: string | null }
   | { type: "memory.restored"; memoryId: string; projectId: string | null; fromVersion: number; newVersion: number; author: "agent" | "owner"; taskId: string | null }
+  // github.* 事件类型已随专用模块退役（issue 17）：不再产生新事件，仅为
+  // 历史事件重放/只读展示与退役迁移的终结事件保留。
   | { type: "github.binding_changed"; bindingId: string; projectId: string; apiHost: string; owner: string; repo: string; configVersion: number; action: "upsert" | "removed" }
   | { type: "github.draft_saved"; draftId: string; version: number; taskId: string; sessionId: string; kind: string; bodySha256: string; bodyBytes: number }
   | { type: "github.draft_stale"; draftId: string; version: number; reason: string }

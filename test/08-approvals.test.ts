@@ -34,7 +34,7 @@ import {
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
-import { executeApprovedFileOp, sha256Hex, type FileOpRequest } from "../src/agent/execution/approved-ops.ts";
+import { executeApprovedFileOp, executeApprovedHttpRequest, sha256Hex, type FileOpRequest } from "../src/agent/execution/approved-ops.ts";
 
 // ---------- 本地模拟外部服务 ----------
 
@@ -870,6 +870,30 @@ test("批准绑定权限版本：版本不匹配的应答被拒绝", async () =>
       permission_version: conf.permissionVersion,
     });
     await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+// issue 17：自旧 GitHub 模块测试迁移的通用凭据保障（专用模块已退役，约束由公共凭据层承载）
+test("带 scope 的凭据不得被通用 http_request 借用；同名轮换保留 scope", async () => {
+  const t = await startTestRuntime("approve-scoped-cred", async () => ({ kind: "text" as const, text: "done" }), { workDirs: 1 });
+  try {
+    const { projectId } = await createProjectSession(t.client, t.work[0]!);
+    await t.client.request("add_credential", { name: "svc-scoped", host: "api.example.com", header: "authorization", purpose: "mcp", secret: "scoped-secret" });
+    // 带使用范围的凭据（如 MCP 配置收紧后）：通用 http_request 一律不得借用
+    t.runtime.credentials.upsert({ ...t.runtime.credentials.get("svc-scoped")!, scope: { projectId, operations: ["mcp"] } });
+    const outcome = await executeApprovedHttpRequest(
+      { method: "POST", url: "https://api.example.com/x", headers: {}, credentialName: "svc-scoped", body: "" } as any,
+      t.runtime.credentials,
+    );
+    assert.equal(outcome.ok, false);
+    assert.match(outcome.message, /范围/);
+    // 同名轮换（更新秘密值）保留既有 scope，不得清空限制字段
+    await t.client.request("add_credential", { name: "svc-scoped", host: "api.example.com", header: "authorization", purpose: "mcp", secret: "rotated" });
+    const rotated = t.runtime.credentials.get("svc-scoped")!;
+    assert.equal(rotated.secret, "rotated");
+    assert.deepEqual(rotated.scope, { projectId, operations: ["mcp"] }, "轮换不得清空 scope");
   } finally {
     await t.shutdown();
   }

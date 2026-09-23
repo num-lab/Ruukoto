@@ -64,7 +64,6 @@ import {
   type SelectorOutput,
 } from "./context-selector.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
-import { createGitHubTools, GITHUB_TOOL_NAMES, type GitHubToolsDeps } from "./github/tools.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpConnection, McpTimeouts } from "./mcp/client.ts";
@@ -135,8 +134,6 @@ export interface DriverDeps {
   memories: MemoryStore;
   /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留）。 */
   budgetOverrides?: Partial<SelectorBudgetConfig>;
-  /** GitHub 集成（issue 06）：未配置时 GitHub 宿主工具不注册。 */
-  github?: Omit<GitHubToolsDeps, "store" | "artifacts" | "credentials" | "taskContext" | "bindCall" | "emit">;
   /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点）。 */
   webSearch?: WebSearchConfig;
   /** MCP（issue 16）：服务配置存储与超时覆盖；未配置时 MCP 工具不注册。 */
@@ -261,20 +258,6 @@ export class Driver {
         return { unindexed: !this.deps.historyIndex.isIndexed(sessionId) };
       },
     });
-    // GitHub 宿主工具（issue 06）：与资料工具同一身份注入/绑定机制
-    const githubTools = this.deps.github
-      ? createGitHubTools({
-          store: this.deps.store,
-          artifacts: this.deps.artifacts,
-          credentials: this.deps.credentials,
-          taskContext: () => this.hostToolCtx,
-          bindCall: this.bindHostCall,
-          emit: (body, refs) => {
-            this.deps.store.withTx(() => this.deps.store.appendEvent(body, refs));
-          },
-          ...this.deps.github,
-        })
-      : [];
     // Web Search 宿主工具（issue 20）：同一身份注入；项目禁用与否在任务开始
     // 钉版工具清单时判定（runInner），调用时另有新鲜检查
     const webSearchTools = createWebSearchTools({
@@ -289,7 +272,6 @@ export class Driver {
     const allTools = [
       ...this.deps.toolFactory({ registry: this.registry, router: this.router }),
       ...hostDataTools,
-      ...githubTools,
       ...webSearchTools,
       // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
       // 固定，工具集合变化由 runInner 先重建会话再走到这里
@@ -1097,11 +1079,10 @@ export class Driver {
       return undefined;
     }
 
-    // 资料与记忆宿主工具（issue 05）、GitHub 宿主工具（issue 06）与
-    // Web Search 宿主工具（issue 20）：身份由宿主注入，不经路由器/工作进程
+    // 资料与记忆宿主工具（issue 05）与 Web Search 宿主工具（issue 20）：
+    // 身份由宿主注入，不经路由器/工作进程
     if (
       (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (GITHUB_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {

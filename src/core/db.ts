@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -194,63 +194,10 @@ CREATE TABLE IF NOT EXISTS selection_records (
 );
 CREATE INDEX IF NOT EXISTS idx_selection_records_task ON selection_records (task_id, call_index);
 
--- v4：GitHub 集成（issue 06）——仓库绑定、草稿与发布操作
-CREATE TABLE IF NOT EXISTS github_repo_bindings (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  api_host TEXT NOT NULL,
-  scheme TEXT NOT NULL DEFAULT 'https',
-  owner TEXT NOT NULL,
-  repo TEXT NOT NULL,
-  repo_id INTEGER,
-  read_credential TEXT,
-  publish_credential TEXT,
-  read_scopes TEXT NOT NULL,
-  allow_fork_content INTEGER NOT NULL DEFAULT 0,
-  config_version INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE (project_id, api_host, owner, repo)
-);
-CREATE TABLE IF NOT EXISTS github_drafts (
-  id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  task_id TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  binding_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  version INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  body TEXT NOT NULL,
-  body_sha256 TEXT NOT NULL,
-  revisions TEXT NOT NULL,
-  evidence_artifact_ids TEXT NOT NULL,
-  config_version INTEGER NOT NULL,
-  stale_reason TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (id, version)
-);
-CREATE INDEX IF NOT EXISTS idx_github_drafts_task ON github_drafts (task_id);
-CREATE TABLE IF NOT EXISTS github_publish_ops (
-  id TEXT PRIMARY KEY,
-  draft_id TEXT NOT NULL,
-  draft_version INTEGER NOT NULL,
-  binding_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  target TEXT NOT NULL,
-  body_sha256 TEXT NOT NULL,
-  revisions TEXT NOT NULL,
-  config_version INTEGER NOT NULL,
-  permission_version INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  remote_id INTEGER,
-  remote_url TEXT,
-  error_message TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_github_publish_ops_draft ON github_publish_ops (draft_id, draft_version);
+-- v4 曾新增 GitHub 集成三表（github_repo_bindings / github_drafts /
+-- github_publish_ops，issue 06）；v9（issue 17）起专用模块退役，新库不再创建。
+-- 旧库的表保留为只读归档（不 DROP），退役迁移由 Runtime 启动时按表存在性执行
+-- （src/runtime/github-retirement.ts），不依赖建表 SQL。
 
 -- v8：MCP 服务配置（issue 16）——拥有者按项目管理的 MCP 服务；秘密值仍在
 -- CredentialStore，本表只存凭据绑定名。config_version 随任何变化递增，
@@ -372,10 +319,11 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 7) {
+    } else if (version >= 2 && version <= 8) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
-      // v7 → v8：新增 MCP 服务配置表。
+      // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
+      // 移除，旧库的表原样保留；退役迁移由 Runtime 启动时按表存在性执行）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理，无既有数据需要改写。
       this.ensureColumns();

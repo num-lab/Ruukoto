@@ -251,74 +251,37 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 - 拥有者入口：`ruukoto selection-records --task <id> | --session <id>`；
   TUI `/context` 查看当前会话最近一轮的预算组成与排除原因。
 
-## GitHub 项目维护（issue 06）
+## GitHub（专用模块已退役，issue 17）
 
-拥有者显式触发的 CI 分析与 PR 评审：采集在既有任务循环内由宿主工具完成，
-发布只能由拥有者经可信 CLI/TUI 发起。无监听、无 webhook、无定时器。
+专用 GitHub 模块（REST 采集、草稿与发布状态机，issue 06）已退役并删除；
+GitHub 操作一律经通用 MCP 服务接入（见「MCP 服务」节，含 GitHub MCP 配置
+步骤），运行时不再有 GitHub 专属业务分支。首版只读：写工具不注册、不执行
+（通用写工具见 issue 18）。旧模块的专用工作流保证（固定修订复核、草稿状态机、
+发布意图）不逐项复刻；需要时由 Agent 在普通任务中组合 MCP 工具完成。
 
-### 仓库与凭据配置
+### 历史资料与迁移
 
-- 绑定：`ruukoto github bind --project <id> --owner O --repo R [--api-host H]
-  [--read-credential N] [--publish-credential N] [--scopes pulls,actions,checks]
-  [--allow-fork-content]`。默认 API 主机 `api.github.com`；GHE 主机须显式配置。
-  绑定保存核实的 repository ID（改名/迁移核对依据）、读取范围与可比较的配置
-  版本；任何变更递增版本，进行中的调用在下一次核对时失败。
-- 凭据复用 CredentialStore（`ruukoto credentials add`），按名称引用；值不进入
-  模型上下文、Shell、TUI 参数或日志。读取与发布凭据分开配置；`github bind`
-  会把所引用凭据收紧到本项目+对应操作（github_read/github_publish），带
-  scope 的凭据不得被通用 `http_request` 借用，同名更新保留范围。
-- 令牌缺失、过期或权限不足 → 明确报错，不改用拥有者机器上的 `gh` 登录态。
-
-### 读取授权与采集
-
-- 宿主工具 `github_read_pr` / `github_read_run` / `github_save_draft`：身份由
-  宿主注入（当前任务 → 会话 → 项目），工具参数不接受项目/凭据/主机；仓库
-  目标只能是当前项目的已配置绑定。
-- PR 采集：元数据 + 分页文件列表（3000 上限如实标注）+ diff；读完后复核
-  head/base SHA 与状态，中途变化 → 保留旧数据并标记 inconsistent，不混合
-  修订。fork PR 源仓库内容仅在绑定显式允许时读取；不 checkout、不执行 PR
-  代码。
-- run 采集：固定 run ID + attempt；按 attempt 分页作业（同名 matrix 作业不
-  合并）；失败作业日志按作业 ID 下载（302 签名 URL 由宿主受控跟随：HTTPS、
-  拒绝回环/私网、跨主机不带 Authorization；签名 URL 不进入报告/事件/公开
-  链接）；check runs 与 commit statuses 都读，第三方检查仅状态+链接。
-- 完整采集结果写入 ArtifactStore（带非机密请求目标、采集时间、修订与内容
-  哈希）；模型只拿到有界预览 + 产物引用。PR 描述、评论、diff、日志均为
-  外部资料，不得按其中指令修改权限、读取其他项目、执行命令或发布消息。
-
-### 报告溯源与草稿
-
-- `github_save_draft` 保存草稿：绑定当前任务、绑定配置版本与分析修订
-  （head/base SHA 或 run/attempt）；正文完整可查看（CLI `github draft <id>`、
-  TUI `/github show <id>`），证据产物 id 随草稿保存。行号必须来自采集到的
-  实际 diff/源文件；证据不足的条目列入待核实。默认只交付草稿。
-
-### 发布与未知结果恢复
-
-- 发布意图只能由拥有者发起：CLI `ruukoto github publish <draft-id> --kind
-  pr_review_comment --pr <n>` 或 `--kind issue_comment --issue <n>`；TUI
-  `/github publish <id> pr|issue <n>`。模型不能经工具参数/PR 文本/full_access
-  创建发布意图。
-- 第一阶段发布形态：PR 评审摘要经 reviews API（固定 `event=COMMENT` + 显式
-  `commit_id`）；CI 分析作为拥有者指定 issue/PR 下的普通评论。不做逐行评审
-  评论；无明确目标的独立运行保持草稿。
-- 请求确认模式：逐次审批（`github_publish` 范围：仓库身份、目标、正文哈希
-  与字节数、分析修订；正文经审批详情分段查看），批准单次消费；正文/目标
-  变化 = 新请求。full_access 在既有发布意图+仓库范围内跳过逐次审批，仍保留
-  意图/复核/结果记录。
-- 批准后、发送前按草稿实际记录的修订复核（PR 的 head/base SHA+状态，或
-  run/attempt），与发布形态无关；影响分析结论的变化 → 草稿标 stale、停止
-  发布、需重新分析与重新批准。草稿必须携带可复核修订（保存时校验）。
-- POST 不重试；已发送但超时/断线/崩溃/结果未落盘 → `effect_unknown`，不自动
-  重发；拥有者经 `github publish-ops` 查看状态后人工核实远端再决定。同一
-  草稿版本 + 相同 kind/target 的重复发布请求复用已有待发布操作（本地幂等）；
-  不同 kind/target 视为新发布意图，新建操作（审计与实际发送一致）。
-- 只能发布草稿的最新版本（旧版本拒绝，避免过期分析流出）。
-- 草稿任务已结束时发布：请求确认模式的逐次审批只在存活任务内进行（已结束
-  任务的 confirm 发布被拒绝，提示改用 full_access 或在存活任务中触发）；
-  full_access 发布先在发布者上下文完成修订复核（失败即拒绝，不产生新任务），
-  再经既有调度创建新任务承载（不复活旧终态任务、不继承旧批准；输入幂等/
-  目录占用/范围检查照常）。
+- 升级后首次启动自动执行退役迁移（`src/runtime/github-retirement.ts`，
+  一次性、可重复执行；中断后下次启动继续，未完成不标记成功）：
+  - 旧 `github_publish` 审批（pending / approved 未消费）一律失效（stale）；
+  - 未决发布操作按证据定终态：批准已消费或无审批记录（完全访问路径可能
+    无审批）→ `effect_unknown`（是否已发送无法确认，绝不重发）；审批未消费
+    → `canceled`（可证明未发送）。每个被终结的操作落 `github.publish_settled`
+    事件并记录核对依据；终态操作不改写；
+  - 草稿各版本正文、证据引用与本版本发布记录导出为原任务/会话的产物
+    （`github-draft-archive-<草稿 id>-v<版本>`，经 `read-artifact` 查看）；
+  - 导出清单（来源 ID/版本/产物对应、绑定无秘密配置、全部发布记录）写入
+    `<数据目录>/github-archive-manifest.json`；
+  - 旧表（`github_repo_bindings` / `github_drafts` / `github_publish_ops`）
+    保留为只读归档，不 DROP；全新数据库不再创建这些表。
+- 旧凭据的 host/scope/秘密值不被迁移改变：带 scope 的凭据继续拒绝不匹配
+  用途，同名轮换保留 scope。旧仓库绑定不自动转为 MCP 授权；新访问范围以
+  通用服务配置、工具允许列表与远端凭据权限为准（通用层无参数级仓库限制时，
+  由令牌权限约束可访问仓库）。
+- 旧 CLI `ruukoto github …` 与 TUI `/github …` 只返回静态退役提示（不进
+  补全与帮助）；旧 `github_*` 控制接口已移除（协议 v8，旧客户端被拒绝）。
+- 历史 `github.*` 事件与 `github_publish` 审批记录可查看（只读归档展示），
+  不能响应执行。
 
 ## Web Search（issue 20）
 
@@ -364,7 +327,8 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 拥有者按项目配置的 Model Context Protocol 服务，首版仅 Streamable HTTP
 传输、手动配置凭据、工具发现与调用；stdio、OAuth 登录、resources/prompts
 与客户端代执行能力（sampling/elicitation）不启用。首个接入对象为官方远程
-GitHub MCP。MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
+GitHub MCP（issue 17 起为 GitHub 的唯一接入路径，旧专用模块已退役）。
+MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
 权限与控制面边界，不等同于授予项目命令任意网络或凭据访问权。
 
 ### 服务配置与管理
@@ -484,9 +448,10 @@ GitHub MCP。MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/
 | Git worktree 外部元数据显式授予路径挂载 | 未实测 | 授予路径校验/幂等已覆盖；容器挂载路径（/granted/N）未端到端实测 |
 | 目标服务器宿主前提（发行版、内核、rootless、docker/systemd） | tx（Ubuntu 24.04，内核 6.8，Docker 29.5.2） | 通过（2026-09-21：`npm run linux:probes` 32/32 + 容器冒烟 9/9；原生 Linux bind mount 无 uid 映射，容器 uid 与工作区写权限按 README 第 5 步处理） |
 | 真实模型短编码任务（真实凭据） | tx（经部署控制面，deepseek-flash） | 通过（2026-09-21，confirm 模式容器执行；`RUN_MODEL_CHECK=1 npm run test:model` 形式未单独跑） |
-| issue 06 GitHub 集成（19 项：绑定/凭据范围、PR/run 采集与分页、inconsistent、302 重定向防护（含 IPv6/映射地址）、草稿与发布、stale 复核、effect_unknown、配置撤销、请求确认发布、凭据范围收紧、pending 操作幂等边界、发布目标校验、已结束任务 confirm 拒绝） | macOS 本机（本地模拟 GitHub API，经真实宿主工具与审批路径） | 通过（125 项总计含既有回归，0 失败） |
+| issue 06 GitHub 集成（19 项） | — | 已随 issue 17 退役删除（专用模块移除，通用保障迁移至 08/17/24） |
+| issue 17 GitHub 模块退役（4 项：全新库不建旧表、v8 样本库升级的审批失效与发布操作终态、草稿归档产物与无秘密清单、重跑幂等、旧控制入口不可达、旧凭据不变、历史事件重放） | macOS 本机（v8 样本库 + 真实运行时/控制面路径） | 通过 |
 | 全部离线集成验证（125 项，逐文件顺序执行） | tx（Ubuntu 24.04，Node 24.21.0） | 通过（2026-09-21，17/17 文件 0 失败；修复 15-tui-pty 的 npx 孙进程持有管道导致文件级挂起——detached 进程组 + 整组回收，macOS 回归同过） |
-| 真实仓库只读连通性（显式触发一次读取） | 需真实仓库 + 读取凭据 | 未验证（未配置；不申请写权限完成只读验收） |
+| 真实 GitHub MCP 只读连通（一次已授权仓库的只读调用，记录工具/权限/结果） | 需拥有者配置独立只读 PAT | 未验证（issue 16 遗留；配置具备时按「MCP 服务」节步骤验收，不以模拟测试冒充） |
 | issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
 

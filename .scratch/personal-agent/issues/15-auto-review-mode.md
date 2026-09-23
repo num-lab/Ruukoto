@@ -125,3 +125,10 @@ GitHub 专用模块按 Issue 17 退役。auto-review 以公共审批桥为接入
 - 为让 TUI 实时显示“审查中”，task.awaiting_confirmation 事件载荷补充了 reviewStatus/reviewModel/reviewPolicyVersion 可选字段（计划未列出，属最小补充）。
 - mock-provider 增加 res error 兜底（客户端中止审查请求后写已断开 socket 不再砸测试进程）。
 - 真实容器边界（Linux/Docker）本机不具备，未验证；启动器测试只断言路由与报错（构造/早期启动级），未在真实容器内跑过 auto-review 任务。
+
+### 2026-09-23：关联更新（issue 17 实施完成）
+
+GitHub 专用模块已按 Issue 17 退役删除（含 runtime.ts 的 githubPublish 适配器与
+github_publish 审批范围；上文评论中的相关描述为历史记录）。auto-review 的接入点
+保持公共审批桥；历史 github_publish 审批记录只读展示、按确定性策略视同转人工。
+通用 MCP 写工具的自动审查由 Issue 18 接入。

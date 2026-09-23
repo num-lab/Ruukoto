@@ -260,7 +260,7 @@ export async function executeApprovedHttpRequest(
       return { ok: false, status: null, message: `凭据绑定不存在：${req.credentialName}`, body: "", responseHeaders: {} };
     }
     if (binding.scope) {
-      // 带使用范围的凭据（如 GitHub 发布凭据）不得被通用 http_request 借用（issue 06）
+      // 带使用范围的凭据（如 MCP 服务凭据）不得被通用 http_request 借用（issue 06/16）
       return {
         ok: false,
         status: null,

@@ -17,6 +17,7 @@ import * as path from "node:path";
 import type { Store } from "../core/store.ts";
 import {
   AGENT_ROLE_IDS,
+  normalizeIsoInstant,
   type AccessMode,
   type AgentRole,
   type AgentRoleId,
@@ -91,6 +92,18 @@ function capInput(text: string): string {
     : text;
 }
 
+/** 一次委派的已核实参数（delegate 校验后经串行链交给 delegateChecked）。 */
+interface DelegateArgs {
+  parentTaskId: string;
+  requestId: string;
+  roleId: AgentRoleId;
+  sessionId: string;
+  modelSelection: ModelSelection;
+  body: string;
+  deadline: string | null;
+  sourceEventId: string | null;
+}
+
 export class Orchestrator {
   private readonly deps: OrchestratorDeps;
   private started = false;
@@ -119,11 +132,13 @@ export class Orchestrator {
     // 崩溃窗口恢复②：重启期间到达终态的角色任务补记结果与事件、补唤醒；
     // interrupted 一律按结果未知处理，不自动重放任何外部副作用
     await this.sweepPendingResults();
-    // 角色会话由编排器持有（无拥有者交互入口），后台重启后的队列暂停
-    // 自动恢复，不要求拥有者逐角色 resume_queue
+    // 角色会话的队列暂停由编排器自动恢复，但仅限 backend_restart（排队任务
+    // 在重启后继续）；occupancy_unverified 等涉及未核实旧执行的暂停必须保留
+    // 给拥有者核实（docs/runtime.md 恢复约定——角色任务有工具执行，不同于
+    // 无工具的 QQ 会话，不能沿用其无条件恢复前提）
     for (const role of this.store.listAgentRoles()) {
       const session = this.store.getSession(role.sessionId);
-      if (session && session.queueState === "paused") {
+      if (session && session.queueState === "paused" && session.queuePauseReason === "backend_restart") {
         await this.deps.bridge
           .resumeQueue(session.id)
           .catch((err) => this.log(`恢复角色 ${role.id} 队列失败：${(err as Error).message}`));
@@ -197,9 +212,10 @@ export class Orchestrator {
   }
 
   /**
-   * 内部委派（issue 01）：只有编排器能创建子任务。幂等键在父任务内唯一
-   * （请求键 deleg:<parentTaskId>:<key>）；同一父任务重复委派返回同一子任务，
-   * 不同父任务复用键互不影响。
+   * 内部委派（issue 01）：只有编排器能创建子任务。幂等键在父任务范围内唯一
+   * （请求键 deleg:<parentTaskId>:<key>）：同一父任务重复委派同参返回同一
+   * 子任务；同键换参数（如更换目标角色，会落到另一角色会话）明确冲突，不
+   * 产生第二个子任务。查重与提交串行执行（跨会话的唯一约束覆盖不到同键）。
    */
   async delegate(input: {
     parentTaskId: string;
@@ -213,16 +229,50 @@ export class Orchestrator {
     if (!parent) throw new Error(`父任务不存在：${input.parentTaskId}`);
     const role = this.store.getAgentRole(input.targetRole);
     if (!role) throw new Error(`角色未引导：${input.targetRole}`);
-    // 跨角色传递只带固定字段：委派正文 + 截止；不复制父任务的会话历史
-    return this.deps.bridge.submit({
-      sessionId: role.sessionId,
-      requestId: `deleg:${parent.id}:${input.idempotencyKey}`,
-      input: capInput(input.input),
-      modelSelection: role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
-      agentId: role.id,
+    if (!input.idempotencyKey.trim()) throw new Error("委派幂等键不能为空");
+    let deadline: string | null = null;
+    if (input.deadline != null) {
+      deadline = normalizeIsoInstant(input.deadline);
+      if (deadline === null) throw new Error(`截止时间无效：${input.deadline}`);
+    }
+    const args: DelegateArgs = {
       parentTaskId: parent.id,
+      requestId: `deleg:${parent.id}:${input.idempotencyKey}`,
+      roleId: role.id,
+      sessionId: role.sessionId,
+      modelSelection: role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
+      // 跨角色传递只带固定字段：委派正文 + 截止；不复制父任务的会话历史
+      body: capInput(input.input),
+      deadline,
       sourceEventId: input.sourceEventId ?? null,
-      deadline: input.deadline ?? null,
+    };
+    const run = this.dispatchChain.then(() => this.delegateChecked(args));
+    this.dispatchChain = run.then(() => {}, () => {});
+    return run;
+  }
+
+  private async delegateChecked(args: DelegateArgs): Promise<Task> {
+    const existing = this.store.findChildTask(args.parentTaskId, args.requestId);
+    if (existing) {
+      const same =
+        existing.agentId === args.roleId &&
+        existing.input === args.body &&
+        (existing.deadline ?? null) === args.deadline &&
+        (existing.sourceEventId ?? null) === args.sourceEventId;
+      if (!same) {
+        throw new Error(`委派幂等键冲突：${args.requestId} 已绑定参数不同的子任务 ${existing.id}`);
+      }
+      return existing;
+    }
+    return this.deps.bridge.submit({
+      sessionId: args.sessionId,
+      requestId: args.requestId,
+      input: args.body,
+      modelSelection: args.modelSelection,
+      agentId: args.roleId,
+      parentTaskId: args.parentTaskId,
+      sourceEventId: args.sourceEventId,
+      deadline: args.deadline,
     });
   }
 
@@ -308,18 +358,29 @@ export class Orchestrator {
     return task.errorMessage === DEADLINE_REASON || task.interruptReason === DEADLINE_REASON;
   }
 
-  /** 启动巡检：补记重启窗口内终态角色任务的结果（与事件监听竞争时一次写入生效）。 */
+  /** 由任务持久状态推导终态口径（启动巡检与补发唤醒共用）。 */
+  private outcomeFromStatus(task: Task): ChildOutcome {
+    if (task.status === "completed") return "completed";
+    if (task.status === "interrupted") return "unknown";
+    if (task.status === "canceled" && this.isDeadlineCancel(task)) return "timeout";
+    return "failed";
+  }
+
+  /**
+   * 启动巡检：
+   * ① 重启窗口内到达终态的角色任务补记结果与事件（handleTerminal 内含唤醒）；
+   * ② 结果已落库但唤醒缺失（提交失败或①之前的崩溃窗口）的子任务，按原
+   *   幂等键 wake:<childId> 补发——唤醒任务的存在即投递记录，重复恢复不重复
+   *   投递。
+   */
   private async sweepPendingResults(): Promise<void> {
     for (const task of this.store.listRoleTasksPendingResult()) {
-      const outcome: ChildOutcome =
-        task.status === "completed"
-          ? "completed"
-          : task.status === "interrupted"
-            ? "unknown"
-            : task.status === "canceled" && this.isDeadlineCancel(task)
-              ? "timeout"
-              : "failed";
-      await this.handleTerminal(task, outcome);
+      await this.handleTerminal(task, this.outcomeFromStatus(task));
+    }
+    for (const task of this.store.listRoleTasksPendingWake()) {
+      const parent = this.store.getTask(task.parentTaskId!);
+      if (!parent || !this.store.getAgentRoleBySession(parent.sessionId)) continue; // 与 wakeParent 同一口径
+      await this.wakeParent(task, this.outcomeFromStatus(task), task.resultSummary!);
     }
   }
 

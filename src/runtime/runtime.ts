@@ -21,6 +21,7 @@ import {
   AGENT_ROLE_IDS,
   isAccessMode,
   isTerminalTaskStatus,
+  normalizeIsoInstant,
   SESSION_DEFAULT_MODES,
   type AccessMode,
   type AgentRoleId,
@@ -650,8 +651,12 @@ export class Runtime {
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
     }
-    if (input.deadline != null && Number.isNaN(Date.parse(input.deadline))) {
-      throw new RuntimeApiError("invalid_params", `截止时间无效：${input.deadline}`);
+    // 截止时间入库前统一为 UTC ISO 表示：不同偏移/写法表示同一时刻时幂等
+    // 摘要一致，超时巡检的字符串比较即时间比较
+    let deadline: string | null = null;
+    if (input.deadline != null) {
+      deadline = normalizeIsoInstant(input.deadline);
+      if (deadline === null) throw new RuntimeApiError("invalid_params", `截止时间无效：${input.deadline}`);
     }
     // 未显式指定时固定为提交瞬间的会话默认模式（issue 12）；幂等摘要据此计算，
     // 默认值之后的变更不会漂移已接收任务。
@@ -660,14 +665,26 @@ export class Runtime {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${accessMode}`);
     }
     const selection = parseModelSelection(input.modelSelection);
-    const submissionDigest = createHash("sha256").update(JSON.stringify({
+    // 摘要键序固定（v11 前的旧算法为前五个键）：旧格式摘要据同一对象核对
+    const digestBase = {
       input: input.input, accessMode,
       grantedPaths: (input.grantedPaths ?? []).map(p => ({ path: p.path, access: p.access, purpose: p.purpose || "未说明" })),
       resumesTaskId: input.resumesTaskId ?? null, modelSelection: selection,
+    };
+    const submissionDigest = createHash("sha256").update(JSON.stringify({
+      ...digestBase,
       agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null,
-      sourceEventId: input.sourceEventId ?? null, deadline: input.deadline ?? null,
+      sourceEventId: input.sourceEventId ?? null, deadline,
     })).digest("hex");
-    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
+    // 升级兼容（schema v11 引入编排字段前的已接收请求）：编排字段全空的提交
+    // 附带旧格式摘要，同参重试仍可核实；编排字段非空时不提供旧格式，同键异参
+    // 校验不放宽
+    const legacyDigest =
+      (input.agentId ?? null) === null && (input.parentTaskId ?? null) === null &&
+      (input.sourceEventId ?? null) === null && deadline === null
+        ? createHash("sha256").update(JSON.stringify(digestBase)).digest("hex")
+        : undefined;
+    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
     if (existing) return existing;
     await this.modelCatalog.resolve(selection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
@@ -696,10 +713,11 @@ export class Runtime {
           resumesTaskId: input.resumesTaskId,
           modelSelection: selection,
           submissionDigest,
+          legacyDigest,
           agentId: input.agentId ?? null,
           parentTaskId: input.parentTaskId ?? null,
           sourceEventId: input.sourceEventId ?? null,
-          deadline: input.deadline ?? null,
+          deadline,
         }),
       ));
     } catch (err) {

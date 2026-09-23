@@ -264,11 +264,20 @@ export class Driver {
     return role === null || role.tools.includes(category);
   }
 
-  /** 宿主注入的资料访问身份（qq_group 不适用跨项目授权与 owner_note 默认放行）。 */
+  /** 宿主注入的资料访问身份（qq_group 与 chat 角色不适用跨项目授权与 owner_note 默认放行）。 */
   private accessor(): Accessor {
-    return this.isQqGroup
-      ? { kind: "qq_group", projectId: this.session.projectId }
-      : { kind: "agent", projectId: this.session.projectId };
+    if (this.isQqGroup) return { kind: "qq_group", projectId: this.session.projectId };
+    if (this.role()?.id === "chat") return { kind: "role_restricted", projectId: this.session.projectId };
+    return { kind: "agent", projectId: this.session.projectId };
+  }
+
+  /**
+   * 资料范围受宿主约束的会话（issue 07 qq_group；issue 01 chat 角色）：
+   * 上下文注入排除个人共享记忆与项目指令，记忆/资料工具按受限身份判定。
+   * 工具白名单管工具可见性，本约束管资料范围，两者独立生效。
+   */
+  private get dataScopeRestricted(): boolean {
+    return this.isQqGroup || this.role()?.id === "chat";
   }
 
   get currentTaskId(): string | null {
@@ -393,11 +402,12 @@ export class Driver {
         messages = this.deps.qqRecalledFilter(this.session.id, messages);
       }
       // 记忆注入前重校来源范围（§5：引用受限来源的派生记忆在授权撤销后
-      // 不再注入；只记录可访问候选，排除原因不含他项目内容）
+      // 不再注入；只记录可访问候选，排除原因不含他项目内容）；
+      // 资料受限会话（qq_group / chat 角色）不注入任何记忆
       const accessor = this.accessor();
       const memories: MemoryWithContent[] = [];
       const preExcludedMemories: Array<{ memoryId: string; version: number; reason: string }> = [];
-      for (const memory of this.isQqGroup ? [] : this.deps.memories.listActiveFor(this.session.projectId)) {
+      for (const memory of this.dataScopeRestricted ? [] : this.deps.memories.listActiveFor(this.session.projectId)) {
         const version = this.deps.memories.getVersion(memory.id, memory.currentVersion);
         const refs = version?.sourceRefs ?? [];
         if (refs.every((ref) => this.deps.access.sourceRefAccessible(accessor, ref))) {
@@ -414,7 +424,7 @@ export class Driver {
         messages,
         systemPrompt: this.sdk.systemPrompt ?? "",
         tools: (this.sdk.agent.state.tools ?? []) as any[],
-        projectInstructions: this.isQqGroup ? null : this.pinnedContext.instructions,
+        projectInstructions: this.dataScopeRestricted ? null : this.pinnedContext.instructions,
         resumedFrom: this.pinnedContext.resumedFrom,
         memories,
         preExcludedMemories,
@@ -447,8 +457,8 @@ export class Driver {
     instructions: { text: string; version: string; problems: string[] } | null;
     resumedFrom: { taskId: string; input: string } | null;
   } {
-    // QQ 群聊会话（issue 07 §3）：不读取/注入项目指令（资料范围独立于开发项目）
-    if (this.isQqGroup) return { instructions: null, resumedFrom: null };
+    // 资料受限会话（issue 07 qq_group；issue 01 chat 角色）：不读取/注入项目指令
+    if (this.dataScopeRestricted) return { instructions: null, resumedFrom: null };
     let resumedFrom: { taskId: string; input: string } | null = null;
     try {
       if (task.resumesTaskId) {

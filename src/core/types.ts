@@ -577,6 +577,15 @@ export function randomId(prefix: string): string {
 }
 
 /**
+ * 时间表示统一为 UTC ISO 字符串（入库与比较的唯一形式）：ISO  UTC 字符串的
+ * 字典序即时间序，超时巡检可按字符串比较。非法输入返回 null（调用方拒绝）。
+ */
+export function normalizeIsoInstant(value: string): string | null {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
+/**
  * 任务边界标记条目（pi JSONL 中的 custom 条目 customType；不进模型上下文）。
  * 历史索引据此推导任务的字节范围（按任务过滤搜索）。
  */

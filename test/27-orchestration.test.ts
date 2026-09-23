@@ -12,6 +12,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
@@ -20,6 +21,7 @@ import { createMockTools } from "../src/agent/mock-tools.ts";
 import type { PersistentEvent } from "../src/core/types.ts";
 import {
   cleanupDirs,
+  createProjectSession,
   lastUserText,
   makeTestDirs,
   realTools,
@@ -496,6 +498,249 @@ test("资料隔离：owner token 审批入口硬拒绝（保护根）；coding �
     const hitLine = history.split("\n").find((l) => l.includes("命中") && l.includes("已覆盖范围内"));
     assert.ok(hitLine, "搜索工具已执行");
     assert.ok(!hitLine!.includes("主会话私密内容"), "命中结果不含 main 的内容");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+// ---------- 评审修复回归（2026-09-23 提交评审：3×P1 + 3×P2） ----------
+
+function runtimeConfigFor(dirs: { dataDir: string; agentDir: string; root: string }): RuntimeConfig {
+  return {
+    dataDir: dirs.dataDir,
+    agentDir: dirs.agentDir,
+    socketPath: path.join(dirs.root, "c.sock"),
+    thinkingLevel: "off",
+    modelProvider: "mock",
+    modelId: "mock-model",
+    toolFactory: (ctx) => createMockTools(ctx),
+  };
+}
+
+test("P1：occupancy_unverified 的角色会话不自动恢复（保留占用，拥有者核实后才放行）", async () => {
+  const { dirs } = await makeTestDirs("orch-occ", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  const baseUrl = await server.start();
+  await writeModelsJson(dirs, baseUrl);
+  let rt = await Runtime.start(runtimeConfigFor(dirs));
+  try {
+    const coding = rt.store.getAgentRole("coding")!;
+    const first = await rt.submit({
+      sessionId: coding.sessionId,
+      requestId: "occ-first",
+      input: "先跑一个任务",
+      modelSelection: rt.defaultSelection,
+    });
+    await waitFor("首个任务完成", () => rt.store.getTask(first.id)!.status === "completed");
+    // 模拟崩溃遗留：占用未释放 + 会话按 occupancy_unverified 暂停
+    const session = rt.store.getSession(coding.sessionId)!;
+    const acquired = rt.store.tryAcquireOccupancy({
+      cwdReal: session.cwdReal,
+      cwdDev: session.cwdDev,
+      cwdIno: session.cwdIno,
+      sessionId: session.id,
+      taskId: first.id,
+    });
+    assert.ok(acquired, "遗留占用已登记");
+    rt.store.setSessionQueueState(session.id, "paused", "occupancy_unverified");
+    const next = await rt.submit({
+      sessionId: coding.sessionId,
+      requestId: "occ-next",
+      input: "后续任务",
+      modelSelection: rt.defaultSelection,
+    });
+    await rt.stop("test_restart");
+
+    rt = await Runtime.start(runtimeConfigFor(dirs));
+    const after = rt.store.getSession(coding.sessionId)!;
+    assert.equal(after.queueState, "paused");
+    assert.equal(after.queuePauseReason, "occupancy_unverified");
+    assert.equal(rt.store.listAllOccupancy().length, 1, "旧执行未核实：占用保留");
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(rt.store.listQueuedTasksFifo(coding.sessionId).length, 1, "未核实前后续任务不运行");
+
+    // 拥有者核实并恢复后才允许后续任务运行
+    await rt.resumeQueue(coding.sessionId);
+    assert.equal(rt.store.listAllOccupancy().length, 0, "核实后遗留占用释放");
+    await waitFor("后续任务完成", () => rt.store.getTask(next.id)!.status === "completed");
+  } finally {
+    await rt.stop("test_end").catch(() => {});
+    await server.close();
+    await cleanupDirs(dirs);
+  }
+});
+
+test("P1：chat 不注入个人共享记忆与项目指令（main 正常注入）", async () => {
+  const t = await startTestRuntime("orch-chatmem", async () => ({ kind: "text", text: "ok" }));
+  try {
+    // 经拥有者可信入口保存个人共享记忆（唯一标记）
+    await t.client.request("save_memory", {
+      project_id: null,
+      category: "preference",
+      content: "PERSONAL-MARK-4451 拥有者偏好",
+      source_refs: [{ kind: "owner_note", note: "测试注入" }],
+    });
+    const orch = t.runtime.orchestrator!;
+    await orch.registerInboundEvent({ source: "test", externalId: "chat-mem", targetRole: "chat", body: "CHAT-CTX-MARK 打个招呼" });
+    await orch.registerInboundEvent({ source: "test", externalId: "main-mem", targetRole: "main", body: "MAIN-CTX-MARK 整理一下" });
+    await waitFor("chat 事件完成", () => t.runtime.store.getInboundEvent(
+      t.runtime.store.findInboundEvent("test", "chat-mem")!.id,
+    )!.status === "done");
+    await waitFor("main 事件完成", () => t.runtime.store.getInboundEvent(
+      t.runtime.store.findInboundEvent("test", "main-mem")!.id,
+    )!.status === "done");
+
+    const payloadOf = (c: { messages: unknown; system: unknown }) => JSON.stringify(c.messages) + JSON.stringify(c.system ?? "");
+    const chatCall = t.server.calls.find((c) => lastUserText(c).includes("CHAT-CTX-MARK"))!;
+    assert.ok(chatCall, "chat 任务已调用模型");
+    assert.ok(!payloadOf(chatCall).includes("PERSONAL-MARK-4451"), "个人共享记忆不得进入 chat 上下文");
+    const mainCall = t.server.calls.find((c) => lastUserText(c).includes("MAIN-CTX-MARK"))!;
+    assert.ok(payloadOf(mainCall).includes("PERSONAL-MARK-4451"), "main 正常注入个人共享记忆");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("P1：结果已落库但唤醒缺失时重启补发（原幂等键），重复恢复不重复投递", async () => {
+  const { dirs } = await makeTestDirs("orch-wake-rcv", 0);
+  const server = new MockModelServer(async (req) => ({ kind: "text", text: `ok:${lastUserText(req).slice(0, 20)}` }));
+  const baseUrl = await server.start();
+  await writeModelsJson(dirs, baseUrl);
+  let rt = await Runtime.start(runtimeConfigFor(dirs));
+  try {
+    const orch = rt.orchestrator!;
+    const main = rt.store.getAgentRole("main")!;
+    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "pw", input: "父任务", modelSelection: rt.defaultSelection });
+    await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const child = await orch.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "子任务", idempotencyKey: "wk1" });
+    await waitFor("唤醒完成", () =>
+      rt.store.listTasksBySession(main.sessionId).some((x) => x.requestId === `wake:${child.id}` && x.status === "completed"),
+    );
+    // 模拟“结果已落库、唤醒未提交”的崩溃窗口：抹掉唤醒任务行（结果保留）
+    const wake = rt.store.listTasksBySession(main.sessionId).find((x) => x.requestId === `wake:${child.id}`)!;
+    for (const table of ["artifacts", "tool_ops", "confirmations"] as const) {
+      rt.store.db.prepare(`DELETE FROM ${table} WHERE task_id = ?`).run(wake.id);
+    }
+    rt.store.db.prepare("DELETE FROM tasks WHERE id = ?").run(wake.id);
+    await rt.stop("test_restart");
+
+    rt = await Runtime.start(runtimeConfigFor(dirs));
+    await waitFor("唤醒补发完成", () =>
+      rt.store.listTasksBySession(main.sessionId).some((x) => x.requestId === `wake:${child.id}` && x.status === "completed"),
+    );
+    const wakes = () => rt.store.listTasksBySession(main.sessionId).filter((x) => x.requestId === `wake:${child.id}`);
+    assert.equal(wakes().length, 1, "只补发一个唤醒任务");
+    await rt.stop("test_restart");
+
+    rt = await Runtime.start(runtimeConfigFor(dirs));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(wakes().length, 1, "重复恢复不重复投递");
+  } finally {
+    await rt.stop("test_end").catch(() => {});
+    await server.close();
+    await cleanupDirs(dirs);
+  }
+});
+
+test("P2：委派幂等键在父任务范围内唯一——同参返回原任务，异参（换角色/换正文）冲突", async () => {
+  const t = await startTestRuntime("orch-deleg", async () => ({ kind: "text", text: "ok" }));
+  try {
+    const orch = t.runtime.orchestrator!;
+    const main = t.runtime.store.getAgentRole("main")!;
+    const parent = await t.runtime.submit({ sessionId: main.sessionId, requestId: "pd", input: "父任务", modelSelection: t.runtime.defaultSelection });
+    const c1 = await orch.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "同一份正文", idempotencyKey: "dup1" });
+    const c2 = await orch.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "同一份正文", idempotencyKey: "dup1" });
+    assert.equal(c2.id, c1.id, "同键同参返回原任务");
+    await assert.rejects(
+      () => orch.delegate({ parentTaskId: parent.id, targetRole: "chat", input: "同一份正文", idempotencyKey: "dup1" }),
+      /幂等键冲突/,
+      "同键换角色（会话不同）必须冲突",
+    );
+    await assert.rejects(
+      () => orch.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "另一份正文", idempotencyKey: "dup1" }),
+      /幂等键冲突/,
+      "同键换正文必须冲突",
+    );
+    // 冲突未产生第二个子任务：父任务名下仍只有一个
+    await waitFor("子任务完成", () => t.runtime.store.getTask(c1.id)!.status === "completed");
+    const children = t.runtime.store.listTasksBySession(t.runtime.store.getAgentRole("coding")!.sessionId)
+      .filter((x) => x.parentTaskId === parent.id);
+    assert.equal(children.length, 1);
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("P2：截止时间统一为 UTC 表示——不同时区写法等价幂等，未到/已到两侧边界正确", async () => {
+  const t = await startTestRuntime("orch-tz", async () => ({ kind: "text", text: "ok" }));
+  try {
+    const orch = t.runtime.orchestrator!;
+    const main = t.runtime.store.getAgentRole("main")!;
+    const parent = await t.runtime.submit({ sessionId: main.sessionId, requestId: "ptz", input: "父任务", modelSelection: t.runtime.defaultSelection });
+    const c1 = await orch.delegate({
+      parentTaskId: parent.id,
+      targetRole: "coding",
+      input: "带截止",
+      idempotencyKey: "tz1",
+      deadline: "2038-01-19T03:14:07Z",
+    });
+    assert.equal(t.runtime.store.getTask(c1.id)!.deadline, "2038-01-19T03:14:07.000Z", "入库为 UTC ISO");
+    // 等价的 -08:00 写法 → 同一时刻，幂等去重为同一子任务
+    const c2 = await orch.delegate({
+      parentTaskId: parent.id,
+      targetRole: "coding",
+      input: "带截止",
+      idempotencyKey: "tz1",
+      deadline: "2038-01-18T19:14:07-08:00",
+    });
+    assert.equal(c2.id, c1.id, "等价时刻不同时区写法去重");
+    const now = new Date().toISOString();
+    assert.ok(!t.runtime.store.listOverdueTasks(now).some((x) => x.id === c1.id), "远未到期不误判");
+    const c3 = await orch.delegate({
+      parentTaskId: parent.id,
+      targetRole: "coding",
+      input: "已过期",
+      idempotencyKey: "tz2",
+      deadline: new Date(Date.now() - 60_000).toISOString(),
+    });
+    assert.ok(t.runtime.store.listOverdueTasks(now).some((x) => x.id === c3.id), "已到期正确选中");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("P2：旧提交摘要兼容——升级前已接收请求同参重试返回原任务，异参仍冲突", async () => {
+  const t = await startTestRuntime("orch-legacy", async () => ({ kind: "text", text: "ok" }));
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const first = await t.runtime.submit({
+      sessionId,
+      requestId: "legacy-1",
+      input: "原始输入",
+      modelSelection: t.runtime.defaultSelection,
+    });
+    // 把任务摘要改写为 v11 前的旧格式（无编排字段），模拟升级前已接收的任务
+    const legacyDigest = createHash("sha256").update(JSON.stringify({
+      input: "原始输入",
+      accessMode: "confirm",
+      grantedPaths: [],
+      resumesTaskId: null,
+      modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+    })).digest("hex");
+    t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?").run(legacyDigest, first.id);
+    // 同参重试：返回原任务，不误判 request_conflict
+    const retry = await t.runtime.submit({
+      sessionId,
+      requestId: "legacy-1",
+      input: "原始输入",
+      modelSelection: t.runtime.defaultSelection,
+    });
+    assert.equal(retry.id, first.id);
+    // 异参仍冲突（同键异参校验不放宽）
+    await assert.rejects(
+      () => t.runtime.submit({ sessionId, requestId: "legacy-1", input: "改动后的输入", modelSelection: t.runtime.defaultSelection }),
+      /提交参数不同/,
+    );
   } finally {
     await t.shutdown();
   }

@@ -315,6 +315,8 @@ export class Store {
     resumesTaskId?: string | null;
     modelSelection: ModelSelection;
     submissionDigest: string;
+    /** 旧格式摘要（升级兼容；见 findMatchingSubmission）。 */
+    legacyDigest?: string;
     /** 编排字段（issue 01）：仅编排器提交时携带；控制面提交恒为 null。 */
     agentId?: AgentRoleId | null;
     parentTaskId?: string | null;
@@ -399,16 +401,33 @@ export class Store {
   }
 
   /** 在异步模型检查之前核实；同一检查也在入队事务内重复，仲裁并发提交。 */
-  findMatchingSubmission(input: { sessionId: string; requestId: string; submissionDigest: string }): Task | null {
+  findMatchingSubmission(input: {
+    sessionId: string;
+    requestId: string;
+    submissionDigest: string;
+    /** 升级前的旧格式摘要（schema v11 前，无编排字段）；仅全空编排字段的提交提供。 */
+    legacyDigest?: string;
+  }): Task | null {
     const task = this.findTaskByRequest(input.sessionId, input.requestId);
     if (!task) return null;
-    if (!task.submissionDigest || task.submissionDigest !== input.submissionDigest) {
+    const matched =
+      task.submissionDigest === input.submissionDigest ||
+      (input.legacyDigest !== undefined && task.submissionDigest === input.legacyDigest);
+    if (!task.submissionDigest || !matched) {
       throw new StoreConflictError(
         task.submissionDigest ? `request_id 已存在且提交参数不同：task=${task.id}` : `旧任务未记录原始提交参数，请通过 find_task 核实：task=${task.id}`,
         "request_conflict",
       );
     }
     return task;
+  }
+
+  /** 按父任务与请求键查子任务（委派幂等键在父任务范围内的唯一性核实）。 */
+  findChildTask(parentTaskId: string, requestId: string): Task | null {
+    const row = this.db
+      .prepare("SELECT * FROM tasks WHERE parent_task_id = ? AND request_id = ?")
+      .get(parentTaskId, requestId) as any;
+    return row ? this.rowToTask(row) : null;
   }
 
   getTask(id: string): Task | null {
@@ -555,6 +574,24 @@ export class Store {
     const rows = this.db
       .prepare(
         "SELECT * FROM tasks WHERE agent_id IS NOT NULL AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted') ORDER BY created_at, id",
+      )
+      .all() as any[];
+    return rows.map((r) => this.rowToTask(r));
+  }
+
+  /**
+   * 终态、结果已记录、但父会话中尚无对应唤醒任务的角色子任务（唤醒投递的
+   * 持久核对）：唤醒任务的请求键 wake:<childId> 即投递记录——结果已落库而
+   * 唤醒缺失（提交失败或崩溃窗口）时，启动巡检按原幂等键补发。
+   */
+  listRoleTasksPendingWake(): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.* FROM tasks t JOIN tasks p ON p.id = t.parent_task_id
+         WHERE t.agent_id IS NOT NULL AND t.parent_task_id IS NOT NULL AND t.result_summary IS NOT NULL
+           AND t.status IN ('completed','failed','canceled','interrupted')
+           AND NOT EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = p.session_id AND w.request_id = 'wake:' || t.id)
+         ORDER BY t.created_at, t.id`,
       )
       .all() as any[];
     return rows.map((r) => this.rowToTask(r));

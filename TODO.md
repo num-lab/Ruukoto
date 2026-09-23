@@ -1,11 +1,8 @@
 - [ ] sub-agent
 - [ ] ruukoto .
-- [ ] MCP
-- [ ] tavily
-- [ ] 命令也加入事件流
+- [ ] 思维链
 
 ## TUI
-- [ ] thinking
 - [ ] token计数
 - [ ] 流式传输
 - [ ] 链接点击
@@ -13,4 +10,4 @@
 - [ ] header
 - [ ] diff
 - [ ] prompt查看
-
+- [ ] 命令也加入事件流

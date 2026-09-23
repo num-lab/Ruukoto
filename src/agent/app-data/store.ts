@@ -294,6 +294,15 @@ export class AppDataStore {
   }
 
   private initStorage(): void {
+    // 区分首次初始化与既有库验证：既有库缺少目录/审计表即损坏——停止能力，
+    // 不静默重建（新建空审计表会被误当作"旧操作未提交"的证据）
+    const tables = (
+      this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    const isNew = !tables.includes("app_meta");
+    if (!isNew && (!tables.includes("app_tables") || !tables.includes("app_audit"))) {
+      throw new AppDataError("storage_corrupt", "应用数据库缺少目录或审计表（损坏），能力停止，不重建");
+    }
     let row: { value: string } | undefined;
     try {
       row = this.db.prepare("SELECT value FROM app_meta WHERE key = 'storage_version'").get() as
@@ -301,6 +310,9 @@ export class AppDataStore {
         | undefined;
     } catch {
       row = undefined;
+    }
+    if (!isNew && !row) {
+      throw new AppDataError("storage_corrupt", "应用数据库缺少存储格式版本记录（损坏），能力停止，不重建");
     }
     const version = row ? Number(row.value) : APP_DATA_STORAGE_VERSION;
     if (row && version > APP_DATA_STORAGE_VERSION) {
@@ -1053,6 +1065,14 @@ export class AppDataStore {
       const field = table.fields.find((f) => f.name === key)!;
       assignments.push(`${quoteIdent(key)} = ?`);
       values.push(this.encodeValue(field, value));
+    }
+    // 合并后的整行同样受单行上限约束（只校验更新字段会绕过 32 KiB 限制）
+    const merged: Record<string, unknown> = {};
+    for (const field of table.fields) {
+      merged[field.name] = field.name in set ? set[field.name] : existing[field.name];
+    }
+    if (byteLength(JSON.stringify(merged)) > LIMITS.maxRowBytes) {
+      throw new AppDataError("row_too_large", `合并后的整行超过 ${LIMITS.maxRowBytes} 字节`);
     }
     const info = this.db
       .prepare(

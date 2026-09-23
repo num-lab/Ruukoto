@@ -1009,15 +1009,16 @@ export class Driver {
     });
 
     // 在中止与回收之前快照"结果未知"的操作：审批未消费 = 已知未执行（排除）；
-    // 应用数据写操作在中止完成后按回执核实（3b），不在预快照中标记。
-    // 其余已开始执行的命令是否已产生外部效果不确定，必须沿用 effect_unknown
+    // 应用数据操作在中止完成后统一核实（3b：写操作按回执，只读查询无写入效果），
+    // 不在预快照中标记。其余已开始执行的命令是否已产生外部效果不确定，必须沿用
+    // effect_unknown
     const confirmations = this.deps.store.listConfirmationsByTask(task.id);
     const uncertainAtStop = this.deps.store
       .listUnresolvedToolOps(task.id)
       .filter(
         (op) =>
           isToolOpExecutionUncertain(op, confirmations) &&
-          !(this.deps.appData && APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)),
+          !(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName),
       )
       .map((op) => op.id);
 
@@ -1036,20 +1037,34 @@ export class Driver {
     // MCP 连接随任务停止回收：在途调用已被 abort 中断，迟到结果由 SDK 丢弃
     await this.closeMcpConns();
 
-    // 3b. 应用数据写操作（issue 02）：中止完成后按应用库回执核实真实状态——
-    //     有回执 = 已提交（补记结果）；无回执且应用库可核实 = 已知未提交；
-    //     应用库丢失/损坏/无法核实才保留 effect_unknown。只读查询不在此列。
+    // 3b. 应用数据操作（issue 02）：中止完成后统一核实——写操作按应用库回执
+    //     （有回执 = 已提交；可核实无回执 = 已知未提交；无法核实才保留
+    //     effect_unknown）；只读查询不产生写入效果，结果缺失按已知未执行补记。
     const appDataUncertain: string[] = [];
-    if (this.deps.appData) {
-      for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
-        if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) continue;
-        const verdict = this.deps.appData.writeVerdict(op.id);
-        if (verdict === "unverifiable") {
-          appDataUncertain.push(op.id);
-          continue;
-        }
-        this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, op, "后台停止前"));
+    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
+      if (!(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
+      if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) {
+        this.deps.store.withTx(() => {
+          const recorded = this.deps.store.recordToolResult(op.id, "已知未执行：只读查询在停止前未产生写入效果", true);
+          if (recorded) {
+            this.deps.store.appendEvent(
+              { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary: "已知未执行：只读查询在停止前未产生写入效果", isError: true, artifactIds: [] },
+              { taskId: task.id, sessionId: task.sessionId },
+            );
+          }
+        });
+        continue;
       }
+      if (!this.deps.appData) {
+        appDataUncertain.push(op.id);
+        continue;
+      }
+      const verdict = this.deps.appData.writeVerdict(op.id);
+      if (verdict === "unverifiable") {
+        appDataUncertain.push(op.id);
+        continue;
+      }
+      this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, op, "后台停止前"));
     }
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）

@@ -353,7 +353,11 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       const ctx = requireCtx();
       try {
         checkIdentity(ctx, "app_data_query");
-        const request = validateQueryRequest(params);
+        // 工具契约的 op_id 映射到内部请求的 opId（直接透传会丢失过滤条件）
+        const raw = { ...(params as Record<string, unknown>) };
+        if (raw.op_id !== undefined && raw.opId === undefined) raw.opId = raw.op_id;
+        delete raw.op_id;
+        const request = validateQueryRequest(raw);
         const opts: RunnerOptions = {};
         const stall = deps.queryStallMs?.();
         if (stall) opts.stallMs = stall;
@@ -602,5 +606,9 @@ function formatQueryResult(result: Record<string, unknown>): string {
   }
   if (result.table) return `${head}\n${JSON.stringify(result.table)}`;
   const tables = (result.tables as unknown[]) ?? [];
-  return [`${head} · ${tables.length} 张表`, ...tables.map((t) => JSON.stringify(t))].join("\n");
+  return [
+    `${head} · ${tables.length} 张表`,
+    ...tables.map((t) => JSON.stringify(t)),
+    result.next_cursor ? `next_cursor=${result.next_cursor}` : "（无更多结果）",
+  ].join("\n");
 }

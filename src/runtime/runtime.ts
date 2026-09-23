@@ -487,17 +487,40 @@ export class Runtime {
    * 恢复时的应用数据操作核实（issue 02）：在现有未知效果判断之前，
    * 未落结果的应用数据写操作按应用库回执核实——有回执则补记已提交结果；
    * 批准已消费但无回执、且应用库正常可核实时记录未提交；应用库丢失/损坏/
-   * 无法核实保留 effect_unknown。只读查询（app_data_query）不适用，走通用
-   * 已知未执行路径。恢复补记沿用 tool_ops 条件更新并在同一核心事务中写事件。
+   * 无法核实保留 effect_unknown。只读查询不产生写入效果，结果缺失按已知
+   * 未执行补记。覆盖活动任务与已进入终态但仍缺结果的操作（核心结果写入
+   * 失败窗口）。恢复补记沿用 tool_ops 条件更新并在同一核心事务中写事件，
+   * 重复恢复不重复发布。
    */
   private recoverAppDataOps(): void {
-    for (const task of this.store.listTasksByStatus(["running", "awaiting_confirmation"])) {
-      for (const op of this.store.listUnresolvedToolOps(task.id)) {
-        if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) continue;
-        const verdict = this.appDataWriteVerdict(op.id);
-        if (verdict === "unverifiable") continue; // 由通用 effect_unknown 路径标记
-        settleAppDataOp(this.store, verdict, task, op, "后台重启前");
+    for (const op of this.store.listUnresolvedAppDataOps()) {
+      const task = this.store.getTask(op.taskId);
+      if (!task) continue;
+      if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) {
+        const summary = "已知未执行：只读查询在重启前未产生写入效果";
+        const recorded = this.store.recordToolResult(op.id, summary, true);
+        if (recorded) {
+          this.store.appendEvent(
+            { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError: true, artifactIds: [] },
+            { taskId: task.id, sessionId: task.sessionId },
+          );
+        }
+        continue;
       }
+      const verdict = this.appDataWriteVerdict(op.id);
+      if (verdict === "unverifiable") {
+        // 活动任务由通用路径标记；终态任务在此补标（结果缺失且无法核实）
+        if (isTerminalTaskStatus(task.status)) {
+          this.store.markToolOpEffectUnknown(op.id);
+          this.store.appendEvent(
+            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: op.id, toolName: op.toolName },
+            { taskId: task.id },
+          );
+          this.store.setEffectUnknown(task.id);
+        }
+        continue;
+      }
+      settleAppDataOp(this.store, verdict, task, op, "后台重启前");
     }
   }
 

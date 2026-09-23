@@ -1122,6 +1122,10 @@ test("恢复：回执补记已提交 / 无回执记未提交 / 应用库丢失�
         `INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown)
          VALUES ('op_crash', 'task_crash', 'app_data_insert', '{}', ?, 0)`,
       ).run(new Date().toISOString());
+      db.prepare(
+        `INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown)
+         VALUES ('op_crash_query', 'task_crash', 'app_data_query', '{}', ?, 0)`,
+      ).run(new Date().toISOString());
     } finally {
       db.close();
     }
@@ -1175,6 +1179,10 @@ test("恢复：回执补记已提交 / 无回执记未提交 / 应用库丢失�
         assert.ok(op.resultSummary!.includes("已知未提交"), "无回执：记未提交");
         assert.equal(op.effectUnknown, false);
         assert.equal(appDataStoreOf(rt).countRows("todos"), 0);
+        // 只读查询：不误标未知写入效果，按已知未执行补记
+        const queryOp = rt.store.getToolOp("op_crash_query")!;
+        assert.ok(queryOp.resultSummary!.includes("只读查询"), "只读查询按已知未执行补记");
+        assert.equal(queryOp.effectUnknown, false);
       } finally {
         await rt.stop("s2");
         await cleanupDirs(dirs);
@@ -1336,6 +1344,325 @@ test("查询阻塞期间控制面请求仍能应答；超时后任务以错误�
     assert.ok(queryOp.resultSummary!.includes("子进程已终止"), "超时如实报告");
     const rejected = t.runtime.store.getEventsAfter(0).filter((e) => e.body.type === "app_data.rejected" && (e.body as any).source === "timeout");
     assert.equal(rejected.length, 1, "超时留 app_data.rejected 事件");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+// ---------- 评审修复回归（提交 b008508 评审：2×P1 + 5×P2） ----------
+
+test("P1：连续空窗口后游标仍推进——稀疏命中在候选预算边界后可达", async () => {
+  const { store, cleanup } = await tempStore();
+  try {
+    defineTodos(store, "op_c");
+    // 1,100 行，仅最后一行匹配（候选预算 1,000）
+    for (let i = 0; i < 1100; i += 100) {
+      store.insert({
+        table: "todos",
+        records: Array.from({ length: 100 }, (_, j) => ({ title: `t-${i + j}`, done: i + j === 1099 })),
+        reason: "造数",
+        opId: `op_s${i}`,
+        ctx: CTX,
+      });
+    }
+    const seen: number[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    for (; pages < 10; ) {
+      pages += 1;
+      const result = runQuery(store, validateQueryRequest({
+        mode: "rows", table: "todos", fields: ["title"],
+        where: [{ field: "done", op: "eq", value: true }],
+        cursor,
+      }));
+      for (const row of result.rows as Array<{ _id: number }>) seen.push(row._id);
+      if (result.complete) break;
+      cursor = result.next_cursor as string;
+      assert.ok(cursor, `第 ${pages} 页不完整必须带游标`);
+    }
+    assert.deepEqual(seen, [1100], "唯一匹配行（最后一行）可达");
+    assert.ok(pages >= 2, "空窗口页也推进");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("P2：结果预算截断时不越过未返回的匹配行（与候选推进并存）", async () => {
+  const { store, cleanup } = await tempStore();
+  try {
+    store.defineTable({
+      table: "wide",
+      fields: [{ name: "a", type: "text" }, { name: "b", type: "text" }, { name: "c", type: "text" }, { name: "d", type: "text" }],
+      expected_schema_version: 0,
+      reason: "大行表",
+      opId: "op_w",
+      ctx: CTX,
+    });
+    const chunk = "7".repeat(7 * 1024);
+    for (const opId of ["op_w1", "op_w2", "op_w3"]) {
+      store.insert({ table: "wide", records: [{ a: chunk, b: chunk, c: chunk, d: chunk }], reason: "造数", opId, ctx: CTX });
+    }
+    // 三行各约 28 KiB：第一页返回两行，第三行（已匹配但未返回）留给下一页
+    const page1 = runQuery(store, validateQueryRequest({ mode: "rows", table: "wide", limit: 100 }));
+    assert.equal((page1.rows as unknown[]).length, 2);
+    assert.equal(page1.complete, false);
+    const page2 = runQuery(store, validateQueryRequest({ mode: "rows", table: "wide", limit: 100, cursor: page1.next_cursor as string }));
+    assert.deepEqual((page2.rows as Array<{ _id: number }>).map((r) => r._id), [3], "未返回的匹配行不丢");
+    assert.equal(page2.complete, true);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("P2：update/rewrite_rows 合并后整行超 32 KiB 被拒绝并整体回滚", async () => {
+  const { store, cleanup } = await tempStore();
+  try {
+    store.defineTable({
+      table: "docs",
+      fields: [
+        { name: "a", type: "text", nullable: true },
+        { name: "b", type: "text", nullable: true },
+        { name: "c", type: "text", nullable: true },
+        { name: "d", type: "text", nullable: true },
+        { name: "e", type: "text", nullable: true },
+      ],
+      expected_schema_version: 0,
+      reason: "文档表",
+      opId: "op_d",
+      ctx: CTX,
+    });
+    store.insert({ table: "docs", records: [{ a: "1".repeat(16 * 1024 - 100) }], reason: "r", opId: "op_di", ctx: CTX });
+    // 逐字段写入合法值，合并后整行将超 32 KiB
+    store.updateRows({ table: "docs", rows: [{ id: 1, expected_version: 1, set: { b: "2".repeat(16 * 1024 - 100) } }], reason: "r", opId: "op_du1", ctx: CTX });
+    const before = store.getVersions();
+    const beforeRow = store.getRow(store.getTable("docs")!, 1)!;
+    assert.throws(
+      () => store.updateRows({ table: "docs", rows: [{ id: 1, expected_version: 2, set: { c: "3".repeat(16 * 1024 - 100) } }], reason: "r", opId: "op_du2", ctx: CTX }),
+      (err) => err instanceof AppDataError && err.code === "row_too_large",
+    );
+    assert.deepEqual(store.getVersions(), before, "revision 不推进");
+    assert.deepEqual(store.getRow(store.getTable("docs")!, 1), beforeRow, "行内容不变");
+    assert.equal(store.getReceipt("op_du2"), null, "无审计回执");
+    // rewrite_rows 同一路径
+    assert.throws(
+      () =>
+        store.migrate({
+          expected_schema_version: 1,
+          steps: [{ op: "rewrite_rows", table: "docs", rows: [{ id: 1, expected_version: 2, set: { c: "3".repeat(16 * 1024 - 100) } }] }],
+          reason: "重写",
+          opId: "op_rw",
+          ctx: CTX,
+        }),
+      (err) => err instanceof AppDataError && err.code === "row_too_large",
+    );
+    assert.deepEqual(store.getVersions(), before);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("P2：既有库缺失审计表即损坏——停止能力，不静默重建", async () => {
+  const { dir, store, cleanup } = await tempStore();
+  try {
+    defineTodos(store, "op_c");
+    store.insert({ table: "todos", records: [{ title: "a" }], reason: "r", opId: "op_i", ctx: CTX });
+    store.close();
+    // 移除审计表（模拟不完整恢复/损坏）
+    const { DatabaseSync } = await import("node:sqlite");
+    const raw = new DatabaseSync(path.join(dir, "main.db"));
+    raw.exec("DROP TABLE app_audit");
+    raw.close();
+    assert.throws(
+      () => new AppDataStore(path.join(dir, "main.db")),
+      (err) => err instanceof AppDataError && err.code === "storage_corrupt",
+    );
+    // 业务行仍在（文件未被重建/清空）
+    const raw2 = new DatabaseSync(path.join(dir, "main.db"));
+    const n = raw2.prepare("SELECT COUNT(*) AS n FROM todos").get() as { n: number };
+    assert.equal(Number(n.n), 1);
+    raw2.close();
+  } finally {
+    await cleanup();
+  }
+});
+
+test("P2：op_id 经工具入口过滤审计；schema 分页输出带继续游标", async () => {
+  let step = 0;
+  let secondCursor: string | null = null;
+  const responder: Responder = async (req) => {
+    const text = lastUserText(req);
+    if (text.includes("AUDIT-LOOKUP")) {
+      step += 1;
+      if (step === 1) {
+        return { kind: "tool_calls", calls: [{ id: "c1", name: "app_data_query", arguments: { mode: "changes", op_id: "op_known" } }] };
+      }
+      if (step === 2) {
+        return { kind: "tool_calls", calls: [{ id: "c2", name: "app_data_query", arguments: { mode: "changes", op_id: "op_missing" } }] };
+      }
+      if (step === 3) {
+        return { kind: "tool_calls", calls: [{ id: "c3", name: "app_data_query", arguments: { mode: "schema", limit: 1 } }] };
+      }
+      if (step === 4) {
+        // 从上一页工具输出提取游标继续（验证输出确实可遍历）
+        const serialized = JSON.stringify(req.messages);
+        const m = serialized.match(/next_cursor=([a-z0-9_]+)/);
+        secondCursor = m?.[1] ?? null;
+        return { kind: "tool_calls", calls: [{ id: "c4", name: "app_data_query", arguments: { mode: "schema", limit: 1, cursor: secondCursor } }] };
+      }
+      return { kind: "text", text: "done" };
+    }
+    return { kind: "text", text: "done" };
+  };
+  const t = await startTestRuntime("appdata-opid", responder);
+  try {
+    const main = t.runtime.store.getAgentRole("main")!;
+    const appStore = appDataStoreOf(t.runtime);
+    // 造三张表 + 一条已知回执
+    for (const name of ["table_a", "table_b", "table_c"]) {
+      appStore.defineTable({
+        table: name, fields: [{ name: "f", type: "text" }],
+        expected_schema_version: appStore.getVersions().schemaVersion, reason: "建表",
+        opId: `op_mk_${name}`, ctx: CTX,
+      });
+    }
+    appStore.insert({ table: "table_a", records: [{ f: "x" }], reason: "r", opId: "op_known", ctx: CTX });
+
+    const task = await t.runtime.submit({ sessionId: main.sessionId, requestId: "audit", input: "AUDIT-LOOKUP", modelSelection: t.runtime.defaultSelection });
+    await waitFor("任务完成", () => t.runtime.store.getTask(task.id)!.status === "completed");
+    const ops = t.runtime.store.listToolOpsByTask(task.id).filter((o) => o.toolName === "app_data_query");
+    assert.equal(ops.length, 4);
+    // op_id 过滤：只返回指定操作的回执
+    assert.ok(ops[0]!.resultSummary!.includes("op_known"), "按 op_id 命中");
+    assert.ok(!ops[0]!.resultSummary!.includes("op_mk_table_a"), "不混入其他操作");
+    // 不存在的 op_id：明确错误
+    assert.equal(ops[1]!.isError, true);
+    assert.ok(ops[1]!.resultSummary!.includes("没有该操作的审计回执"));
+    // schema 分页：第一页带 next_cursor，第二页含下一张表
+    assert.ok(ops[2]!.resultSummary!.includes("next_cursor=table_a"), "schema 分页输出继续游标");
+    assert.ok(ops[2]!.resultSummary!.includes("table_a") && !ops[2]!.resultSummary!.includes("table_b"));
+    assert.ok(secondCursor === "table_a", "模型侧从输出取到游标");
+    assert.ok(ops[3]!.resultSummary!.includes("table_b"), "游标翻页有效");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("P1：终态任务缺结果的应用数据操作在重启时按回执补记", async () => {
+  const { dirs } = await makeTestDirs("appdata-terminal", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  const baseUrl = await server.start();
+  await writeModelsJson(dirs, baseUrl);
+  const config: RuntimeConfig = {
+    dataDir: dirs.dataDir,
+    agentDir: dirs.agentDir,
+    socketPath: path.join(dirs.root, "c.sock"),
+    thinkingLevel: "off",
+    modelProvider: "mock",
+    modelId: "mock-model",
+    toolFactory: (ctx) => createMockTools(ctx),
+  };
+  try {
+    let rt = await Runtime.start(config);
+    const main = rt.store.getAgentRole("main")!;
+    await rt.stop("prep");
+    // 构造"任务已完成、核心结果缺失、应用库已提交"的现场（连续落盘失败的终态）
+    const { Db } = await import("../src/core/db.ts");
+    const db = new Db(dirs.dataDir);
+    try {
+      db.prepare(
+        `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version, granted_paths,
+           cancel_requested, effect_unknown, history_entry_ids, created_at, started_at, ended_at, agent_id)
+         VALUES ('task_done', ?, 'req_done', '已完成任务', 'completed', 'confirm', 1, '[]', 0, 0, '[]', ?, ?, ?, 'main')`,
+      ).run(main.sessionId, new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
+      db.prepare(
+        `INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown)
+         VALUES ('op_done', 'task_done', 'app_data_insert', '{}', ?, 0)`,
+      ).run(new Date().toISOString());
+    } finally {
+      db.close();
+    }
+    const app = new AppDataStore(appDataDbFile(dirs.dataDir));
+    try {
+      app.defineTable({ table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "建表", opId: "op_seed_t", ctx: { taskId: "task_done", sessionId: main.sessionId, agentId: "main" } });
+      app.insert({ table: "todos", records: [{ title: "已提交" }], reason: "r", opId: "op_done", ctx: { taskId: "task_done", sessionId: main.sessionId, agentId: "main" } });
+    } finally {
+      app.close();
+    }
+    rt = await Runtime.start(config);
+    try {
+      const op = rt.store.getToolOp("op_done")!;
+      assert.ok(op.resultSummary!.includes("已提交"), "终态任务的缺失结果按回执补记");
+      assert.equal(op.effectUnknown, false);
+      assert.equal(rt.store.getTask("task_done")!.effectUnknown, false);
+    } finally {
+      await rt.stop("end");
+    }
+  } finally {
+    await server.close();
+    await cleanupDirs(dirs);
+  }
+});
+
+test("P1：核心结果写入失败时立即按回执核实（不等到重启）", async () => {
+  const responder = seedAndDeleteResponder();
+  const t = await startTestRuntime("appdata-writefail", responder);
+  try {
+    const main = t.runtime.store.getAgentRole("main")!;
+    const appStore = appDataStoreOf(t.runtime);
+    const seed = await t.runtime.submit({ sessionId: main.sessionId, requestId: "seed", input: "SEED3", modelSelection: t.runtime.defaultSelection });
+    await waitFor("造数完成", () => t.runtime.store.getTask(seed.id)!.status === "completed");
+
+    const del = await t.runtime.submit({ sessionId: main.sessionId, requestId: "del", input: "DEL2-APPROVE", modelSelection: t.runtime.defaultSelection });
+    const conf = await pendingConfirmation(t.client, del.id);
+    // 确定性故障注入：approval_consumed 事件提交（consume 事务落盘）的同一同步
+    // 窗口内设置核心库写失败——下一次核心写就是该工具的结果落盘
+    const origBroadcast = t.runtime.store.onCommitted;
+    t.runtime.store.onCommitted = (events) => {
+      origBroadcast?.(events);
+      if (events.some((e) => e.body.type === "task.approval_consumed" && (e.body as any).confirmationId === conf.id)) {
+        t.runtime.store.db.faultNextWrite = new Error("injected core write failure");
+      }
+    };
+    await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
+    await waitFor("删除任务完成", () => t.runtime.store.getTask(del.id)!.status === "completed");
+    const delOp = t.runtime.store.listToolOpsByTask(del.id).find((o) => o.toolName === "app_data_delete")!;
+    assert.ok(delOp.resultSummary !== null, "结果写入失败后立即补记，不留缺失");
+    assert.ok(delOp.resultSummary!.includes("已提交"), "按回执核实为已提交");
+    assert.equal(delOp.effectUnknown, false);
+    assert.equal(appStore.countRows("todos"), 1, "应用库变更已生效");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("P2：停止在途只读查询不标 effect_unknown", async () => {
+  let queried = false;
+  const responder: Responder = async (req) => {
+    const text = lastUserText(req);
+    if (text.includes("SLOW-STOP") && !queried) {
+      queried = true;
+      return { kind: "tool_calls", calls: [{ id: "q1", name: "app_data_query", arguments: { mode: "schema" } }] };
+    }
+    return { kind: "text", text: "done" };
+  };
+  const t = await startTestRuntime("appdata-qstop", responder, { config: { appData: { queryStallMs: 30_000 } } });
+  try {
+    const main = t.runtime.store.getAgentRole("main")!;
+    appDataStoreOf(t.runtime).defineTable({ table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "建表", opId: "op_pre_q", ctx: CTX });
+    const task = await t.runtime.submit({ sessionId: main.sessionId, requestId: "qs", input: "SLOW-STOP", modelSelection: t.runtime.defaultSelection });
+    await waitFor("查询在途", () =>
+      t.runtime.store.listToolOpsByTask(task.id).some((o) => o.toolName === "app_data_query"),
+    );
+    await t.runtime.stop("test_restart");
+    const db = new (await import("../src/core/db.ts")).Db(t.dirs.dataDir);
+    try {
+      const op = db.prepare("SELECT result_summary, effect_unknown FROM tool_ops WHERE task_id = ? AND tool_name = 'app_data_query'").get(task.id) as any;
+      assert.ok(op, "查询操作已记录");
+      assert.equal(Number(op.effect_unknown), 0, "只读查询不标未知效果");
+      assert.ok(op.result_summary !== null, "结果已补记（超时结果或已知未执行）");
+    } finally {
+      db.close();
+    }
   } finally {
     await t.shutdown();
   }

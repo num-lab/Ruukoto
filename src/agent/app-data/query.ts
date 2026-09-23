@@ -316,19 +316,23 @@ function runRows(
   let scanned = 0;
   let candidateBytes = 0;
   let lastProcessed = afterId;
-  let lastReturned = afterId; // 游标只推进到最后已返回的位置
+  let lastReturned = afterId;
+  /** 结果预算截断时有已匹配但未返回的行：游标留在最后已返回位置（下页重试）；
+   *  其余截断（候选预算/行数上限）推进到最后已处理位置（空页也能继续）。 */
+  let pendingMatched = false;
   let budgetExhausted = false;
 
   // 主键窗口推进（iterate 逐行累计）：少量命中也不能把 SELECT...WHERE 任意
   // 条件 LIMIT 当扫描上限
   for (const candidate of store.scanRows(table, lastProcessed, QUERY_LIMITS.maxCandidates)) {
+    const candidateSize = Buffer.byteLength(JSON.stringify(candidate), "utf8");
+    if (scanned + 1 > QUERY_LIMITS.maxCandidates || candidateBytes + candidateSize > QUERY_LIMITS.maxCandidateBytes) {
+      budgetExhausted = true;
+      break; // 候选预算耗尽：不处理该候选，游标不越过它
+    }
     scanned += 1;
     lastProcessed = Number(candidate._id);
-    candidateBytes += Buffer.byteLength(JSON.stringify(candidate), "utf8");
-    if (candidateBytes > QUERY_LIMITS.maxCandidateBytes || scanned >= QUERY_LIMITS.maxCandidates) {
-      budgetExhausted = true;
-      break;
-    }
+    candidateBytes += candidateSize;
     if (!where.every((c) => matches(candidate, c))) continue;
     const projected: Record<string, unknown> = { _id: candidate._id, _version: candidate._version };
     for (const field of projection) projected[field] = candidate[field];
@@ -338,6 +342,7 @@ function runRows(
     }
     if (resultBytes + recordBytes > QUERY_LIMITS.maxResultBytes) {
       budgetExhausted = true;
+      pendingMatched = true;
       break; // 未返回的匹配行留给下一页（游标留在最后已返回位置，不越过它）
     }
     rows.push(projected);
@@ -350,12 +355,13 @@ function runRows(
   }
 
   const complete = !budgetExhausted && scanned < QUERY_LIMITS.maxCandidates && candidateBytes <= QUERY_LIMITS.maxCandidateBytes;
+  const cursorPos = pendingMatched ? lastReturned : lastProcessed;
   return {
     ...base,
     scanned,
     complete,
     rows,
-    next_cursor: complete && rows.length === 0 ? null : encodeCursor({ table: request.table, digest, sv: base.schema_version, rev: base.revision, last: lastReturned }),
+    next_cursor: complete && rows.length === 0 ? null : encodeCursor({ table: request.table, digest, sv: base.schema_version, rev: base.revision, last: cursorPos }),
   };
 }
 

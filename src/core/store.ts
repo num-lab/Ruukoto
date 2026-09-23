@@ -1119,6 +1119,19 @@ export class Store {
     return this.listToolOpsByTask(taskId).filter((op) => op.resultSummary === null && !op.effectUnknown);
   }
 
+  /**
+   * 全部任务中结果缺失且未标记未知效果的应用数据操作（issue 02 恢复用）：
+   * 覆盖已进入终态但仍缺结果的操作（核心结果写入失败窗口），不限于活动任务。
+   */
+  listUnresolvedAppDataOps(): ToolOp[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM tool_ops WHERE result_summary IS NULL AND effect_unknown = 0 AND tool_name LIKE 'app_data_%' ORDER BY intent_recorded_at, id",
+      )
+      .all() as any[];
+    return rows.map(Store.rowToToolOp);
+  }
+
   markToolOpEffectUnknown(toolOpId: string): void {
     this.db.prepare("UPDATE tool_ops SET effect_unknown = 1 WHERE id = ?").run(toolOpId);
   }

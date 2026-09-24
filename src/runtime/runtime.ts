@@ -99,7 +99,7 @@ import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type S
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SourceResolver } from "../agent/scheduler-tools.ts";
 import { settleDelegationOp, DELEGATION_TOOL_NAMES } from "../agent/delegation-tools.ts";
-import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, type QqAdapterTimeouts } from "../qq/adapter.ts";
+import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
   capReply,
@@ -171,7 +171,7 @@ export interface RuntimeConfig {
   mcp?: McpTimeouts;
   /** 自动审查配置（issue 15）：仅测试用来压短时限/输出上限。 */
   autoReview?: { timeoutMs?: number; maxTokens?: number };
-  /** QQ 群聊入口（issue 07）：超时/巡检间隔覆盖（仅测试注入；生产取默认）。 */
+  /** QQ 入口：超时/巡检间隔覆盖（仅测试注入；生产取默认）。 */
   qq?: QqAdapterTimeouts;
   /**
    * 停用真实 QQ 通道（issue 21 §1，dev 开发实例经 RUUKOTO_DISABLE_QQ=1 注入）：
@@ -190,8 +190,8 @@ export interface RuntimeConfig {
   /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
   appData?: { queryStallMs?: number };
   /**
-   * 调度器与通知（issue 03）：渠道仅测试注入（缺省为 Telegram 适配器；两者都没有
-   * = 发送器未加载，操作保留 pending）；时钟/间隔/发送时限仅测试覆盖。
+   * 调度器与通知：测试可替换默认 Telegram 渠道，QQ 按操作目标走自身适配器；
+   * 未加载发送器时保留 pending。时钟/间隔/发送时限仅测试覆盖。
    */
   scheduler?: { channel?: NotifyChannel; now?: () => number; tickMs?: number; sendTimeoutMs?: number };
 }
@@ -231,9 +231,9 @@ export class Runtime {
   readonly memories: MemoryStore;
   /** MCP 服务配置（issue 16）：拥有者按项目管理的 MCP 服务。 */
   readonly mcp: McpStore;
-  /** QQ 群聊入口配置与收发记录（issue 07）。 */
+  /** QQ 连接配置与群聊收发记录（私聊使用编排器与公共 outbox）。 */
   readonly qqStore: QqStore;
-  /** QQ 群聊适配器（start 时创建并启动；null = 尚未启动）。 */
+  /** QQ 群聊与 owner 私聊适配器（null = 尚未启动或开发实例停用）。 */
   private qqAdapter: QqAdapter | null = null;
   /**
    * main 应用数据空间（issue 02）：独立 main.db + 只读查询子进程运行器。
@@ -423,10 +423,16 @@ export class Runtime {
       runtime.qqAdapter = new QqAdapter({
         store: runtime.store,
         qqStore: runtime.qqStore,
+        sched: runtime.sched,
         credentials: runtime.credentials,
         dataDir: fullConfig.dataDir,
         timeouts: fullConfig.qq,
         bridge: {
+          registerPrivate: async (input) => {
+            if (runtime.stopping || !runtime.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
+            return runtime.orchestrator.registerInboundEvent({ source: QQ_PRIVATE_SOURCE, targetRole: "main", ...input });
+          },
+          dispatchPrivate: () => runtime.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
           submit: (input) => runtime.submitInternal(input),
           cancelTask: (taskId) => runtime.cancelTask(taskId),
           findProjectByName: (name) => runtime.store.findProjectByName(name),
@@ -439,7 +445,6 @@ export class Runtime {
         },
       });
       runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
-      await runtime.qqAdapter.start();
     }
     // Telegram owner 入口（issue 04）：先创建（编排器启动巡检补登 owner 回复要读
     // 固定目标），编排器启动后才开始轮询；dev 开发实例不创建
@@ -474,9 +479,11 @@ export class Runtime {
         defaultModelSelection: () => runtime.defaultSelection,
       },
       onInboundTerminal: (event, task, outcome) => runtime.enqueueOwnerReply(event, task, outcome),
+      inboundGate: (event) => runtime.qqPrivateGate(event),
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
+    await runtime.qqAdapter?.start();
     runtime.telegram?.start();
     // 恢复与角色引导完成后才开放调度事件派发与发送
     runtime.scheduler.start();
@@ -494,7 +501,7 @@ export class Runtime {
 
   private initScheduler(): void {
     const now = this.config.scheduler?.now ?? (() => Date.now());
-    const channel = () => this.notifyChannel();
+    const channel = (source: string) => this.notifyChannel(source);
     this.sources = createSourceResolver({
       store: this.store,
       access: this.access,
@@ -520,23 +527,32 @@ export class Runtime {
     });
   }
 
-  /** 可信 owner 发送渠道：测试注入的模拟渠道优先，否则为 Telegram 适配器。 */
-  private notifyChannel(): NotifyChannel | null {
-    return this.config.scheduler?.channel ?? this.telegram;
+  /** 按已固定的渠道选择发送器；缺省通知仍沿用 Telegram，不能把旧操作改发到另一平台。 */
+  private notifyChannel(source?: string): NotifyChannel | null {
+    if (source === QQ_PRIVATE_SOURCE) return this.qqAdapter;
+    if (this.config.scheduler?.channel) return this.config.scheduler.channel;
+    return source === undefined || source === TELEGRAM_SOURCE ? this.telegram : null;
+  }
+
+  private qqPrivateGate(event: InboundEvent): "run" | "wait" | { drop: string } {
+    if (event.source !== QQ_PRIVATE_SOURCE) return "run";
+    return this.qqAdapter?.gatePrivate(event) ?? "wait";
   }
 
   /**
-   * owner 回复（issue 04）：Telegram 入站任务到达终态时，在编排器的结果事务内
+   * owner 回复（issue 04/06）：私聊入站任务到达终态时，在编排器的结果事务内
    * 登记一条发送操作——发送键为入站事件 id，目标由宿主固定，正文取本任务的
    * 最终回答（失败/超时/未知只发宿主固定提示）。定时唤醒与子任务唤醒产生的
-   * 任务没有 Telegram 来源事件，不会自动外发。
+   * 任务没有私聊来源事件，不会自动外发。
    */
   private enqueueOwnerReply(event: InboundEvent, task: Task, outcome: ChildOutcome): void {
-    if (event.source !== TELEGRAM_SOURCE) return;
-    const skip = (reason: string) => this.store.appendEvent({ type: "telegram.reply_skipped", eventId: event.id, taskId: task.id, reason }, { taskId: task.id });
-    const target = this.notifyChannel()?.target() ?? null;
+    if (event.source !== TELEGRAM_SOURCE && event.source !== QQ_PRIVATE_SOURCE) return;
+    const skip = (reason: string) => this.store.appendEvent({ type: event.source === QQ_PRIVATE_SOURCE ? "qq_private.reply_skipped" : "telegram.reply_skipped", eventId: event.id, taskId: task.id, reason }, { taskId: task.id });
+    const current = this.notifyChannel(event.source)?.target() ?? null;
+    const target = event.source === QQ_PRIVATE_SOURCE ? event.replyTarget : current;
+    const externalId = event.source === QQ_PRIVATE_SOURCE ? qqPrivateExternalId : telegramExternalId;
     // 目标只能是登记该消息的同一 bot + chat（配置换了 bot/chat 不改发到新目标）
-    if (!target || !event.externalId.startsWith(telegramExternalId(target.account, target.chatId, ""))) {
+    if (!target || !current || !isDeepStrictEqual(target, current) || !event.externalId.startsWith(externalId(target.account, target.chatId, ""))) {
       return skip(target ? "target_changed" : "target_unavailable");
     }
     const text =
@@ -544,7 +560,12 @@ export class Runtime {
         ? this.readTaskReplyText(task.id)?.trim() || "（无文本输出）"
         : `[ruukoto] 这条消息的处理${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
     try {
-      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: event.id, taskId: task.id, hostOpId: null, target, text: capReply(text), sourceRefs: [] });
+      const chars = [...text];
+      const cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
+      const reply = event.source === QQ_PRIVATE_SOURCE
+        ? (chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text)
+        : capReply(text);
+      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: event.id, taskId: task.id, hostOpId: null, target, text: reply, sourceRefs: [] });
     } catch (err) {
       skip(`enqueue_failed：${(err as Error).message}`.slice(0, 200));
     }
@@ -1857,6 +1878,17 @@ export class Runtime {
       const task = this.store.listQueuedTasksFifo(sessionId)[0];
       if (!task) return;
 
+      // 私聊与 Telegram 共用 main 队列，仍按这条消息的固定配置重核，不能凭会话身份放行。
+      const sourceEvent = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
+      if (sourceEvent?.source === QQ_PRIVATE_SOURCE) {
+        const decision = this.qqPrivateGate(sourceEvent);
+        if (decision === "wait") return;
+        if (decision !== "run") {
+          await this.cancelTask(task.id, { reason: decision.drop });
+          continue;
+        }
+      }
+
       // QQ 群聊会话（issue 07 §4）：入队后、模型调用前核对启停/群范围/账号
       // 在线/排队过期。wait = 暂不启动（上线或巡检时重新 kick）；drop = 过期
       // 或越权，取消跳过（不回复），继续取下一个。
@@ -1997,7 +2029,16 @@ export class Runtime {
           sched: this.sched,
           scheduler: this.scheduler,
           sources: this.sources,
-          target: () => this.notifyChannel()?.target() ?? null,
+          target: () => {
+            const taskId = this.drivers.get(session.id)?.currentTaskId;
+            const task = taskId ? this.store.getTask(taskId) : null;
+            const event = task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
+            if (event?.source === QQ_PRIVATE_SOURCE) {
+              const current = this.notifyChannel(QQ_PRIVATE_SOURCE)?.target() ?? null;
+              return isDeepStrictEqual(current, event.replyTarget) ? current : null;
+            }
+            return this.notifyChannel()?.target() ?? null;
+          },
           now: this.config.scheduler?.now ?? (() => Date.now()),
         },
         // 委派 coding（issue 05）：仅 main 角色会话装配；宿主固定参数在编排器
@@ -2787,6 +2828,7 @@ export class Runtime {
     endpoint: string;
     credential?: string | null;
     selfId: string;
+    ownerUserId?: string | null;
     maxReplyChars?: number;
     expectedVersion?: number;
   }): Promise<QqConfig> {
@@ -2807,8 +2849,17 @@ export class Runtime {
     if (endpoint.protocol === "ws:" && !isLoopback && !isPrivate) {
       throw new RuntimeApiError("invalid_params", "ws:// 明文连接仅限回环或受控私网地址；跨主机请使用 wss:// 受保护传输");
     }
-    if (!/^\d{4,20}$/.test(input.selfId)) {
+    if (!/^[1-9]\d{3,19}$/.test(input.selfId) || !Number.isSafeInteger(Number(input.selfId))) {
       throw new RuntimeApiError("invalid_params", `self_id 必须是 QQ 号数字串：${input.selfId}`);
+    }
+    const previous = this.qqStore.getConfig();
+    const credentialName = input.credential !== undefined ? input.credential : previous?.credentialName ?? null;
+    const ownerUserId = input.ownerUserId !== undefined ? input.ownerUserId : previous?.ownerUserId ?? null;
+    if (ownerUserId !== null && (typeof ownerUserId !== "string" || !/^[1-9]\d{3,19}$/.test(ownerUserId) || !Number.isSafeInteger(Number(ownerUserId)) || ownerUserId === input.selfId)) {
+      throw new RuntimeApiError("invalid_params", "owner_user_id 必须是与登录账号不同的 QQ 号数字串");
+    }
+    if (ownerUserId !== null && !credentialName) {
+      throw new RuntimeApiError("invalid_params", "QQ 私聊入口必须配置 token 凭据");
     }
     if (input.maxReplyChars !== undefined && (!Number.isInteger(input.maxReplyChars) || input.maxReplyChars < 100 || input.maxReplyChars > 20000)) {
       throw new RuntimeApiError("invalid_params", "max_reply_chars 必须是 100–20000 的整数");
@@ -2816,26 +2867,26 @@ export class Runtime {
     if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
       throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
     }
-    if (input.credential) {
-      const cred = this.credentials.get(input.credential);
-      if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${input.credential}`);
+    if (credentialName) {
+      const cred = this.credentials.get(credentialName);
+      if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${credentialName}`);
       if (cred.host !== endpoint.host) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的 host（${cred.host}）与端点 host（${endpoint.host}）不一致`);
+        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 的 host（${cred.host}）与端点 host（${endpoint.host}）不一致`);
       }
       if (cred.purpose !== QQ_CREDENTIAL_PURPOSE) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 用途是 ${cred.purpose}，QQ 入口需要 purpose=${QQ_CREDENTIAL_PURPOSE} 的凭据`);
+        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 用途是 ${cred.purpose}，QQ 入口需要 purpose=${QQ_CREDENTIAL_PURPOSE} 的凭据`);
       }
       if (cred.header.toLowerCase() !== "authorization") {
-        throw new RuntimeApiError("invalid_params", `QQ 凭据须使用 authorization 头（Bearer）：${input.credential}`);
+        throw new RuntimeApiError("invalid_params", `QQ 凭据须使用 authorization 头（Bearer）：${credentialName}`);
       }
       if (cred.scope && cred.scope.operations !== undefined && !cred.scope.operations.includes(QQ_CREDENTIAL_PURPOSE)) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已有使用范围（操作 ${cred.scope.operations.join(",")}），与 qq_onebot 冲突；请另建凭据`);
+        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 已有使用范围（操作 ${cred.scope.operations.join(",")}），与 qq_onebot 冲突；请另建凭据`);
       }
       if (cred.scope?.projectId !== undefined) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已绑定项目范围（QQ 入口凭据不按项目限定）；请另建凭据`);
+        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 已绑定项目范围（QQ 入口凭据不按项目限定）；请另建凭据`);
       }
     }
-    if (!isLoopback && !input.credential) {
+    if (!isLoopback && !credentialName) {
       throw new RuntimeApiError("invalid_params", "非回环端点必须配置 token 凭据（credential）");
     }
     let config: QqConfig;
@@ -2843,8 +2894,9 @@ export class Runtime {
       config = this.store.withTx(() => {
         const c = this.qqStore.upsertConfig({
           endpoint: endpoint.toString(),
-          credentialName: input.credential,
+          credentialName,
           selfId: input.selfId,
+          ownerUserId,
           maxReplyChars: input.maxReplyChars,
           expectedVersion: input.expectedVersion,
         });
@@ -2865,7 +2917,28 @@ export class Runtime {
       });
     }
     await this.qqAdapter?.onConfigChanged();
+    await this.reconcileQqPrivate();
     return config;
+  }
+
+  /** 配置变化立即撤销私聊旧授权；不能把同一 main 会话中 Telegram 的任务一并取消。 */
+  private async reconcileQqPrivate(): Promise<void> {
+    for (const event of this.store.listInboundByStatus(["registered", "queued"])) {
+      if (event.source !== QQ_PRIVATE_SOURCE) continue;
+      const gate = this.qqPrivateGate(event);
+      if (gate === "run" || gate === "wait") continue;
+      if (event.status === "registered") {
+        this.store.withTx(() => this.store.failRegisteredInbound(event.id));
+      } else if (event.taskId) {
+        const task = this.store.getTask(event.taskId);
+        if (task && (ACTIVE_TASK_STATUSES as readonly string[]).includes(task.status)) {
+          await this.cancelTask(task.id, { reason: gate.drop });
+        }
+      }
+    }
+    const main = this.store.getAgentRole("main");
+    if (main) this.kick(main.sessionId);
+    this.scheduler.kickSender();
   }
 
   /** QQ 入口状态（配置视图 + 运行期连接状态；不含 token 与消息正文）。 */
@@ -2902,6 +2975,7 @@ export class Runtime {
     }
     if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
     await this.qqAdapter?.onConfigChanged();
+    await this.reconcileQqPrivate();
     return config;
   }
 
@@ -2935,6 +3009,7 @@ export class Runtime {
     if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
     if (!input.allow) await this.qqAdapter?.onGroupRemoved(input.groupId);
     else await this.qqAdapter?.onConfigChanged();
+    await this.reconcileQqPrivate();
     return config;
   }
 

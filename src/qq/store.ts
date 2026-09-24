@@ -1,5 +1,6 @@
 /**
- * QQ 群聊入口的持久化（issue 07，NapCat OneBot v11）。
+ * QQ 连接配置与群聊持久化（issue 07，NapCat OneBot v11）。私聊 owner 绑定
+ * 进入 qq_config，私聊收发分别复用 inbound_events / notification_ops（issue 06）。
  *
  * - qq_config：单行连接配置（端点、凭据绑定名、预期登录账号、群允许列表、
  *   启停、运行保护参数）；任何变化递增 config_version 并随事件提交；
@@ -20,6 +21,8 @@ export interface QqConfig {
   credentialName: string | null;
   /** 预期登录账号（QQ 号字符串）；事件 self_id 不一致时不接纳。 */
   selfId: string;
+  /** 拥有者好友 QQ 号；null = 不接收私聊（群配置不隐含授权私聊）。 */
+  ownerUserId: string | null;
   /** 允许触发的群号列表（全体成员可 @ 触发；空 = 不接纳任何群）。 */
   groups: string[];
   enabled: boolean;
@@ -105,6 +108,7 @@ export class QqStore {
     endpoint: string;
     credentialName?: string | null;
     selfId: string;
+    ownerUserId?: string | null;
     maxReplyChars?: number;
     expectedVersion?: number;
   }): QqConfig {
@@ -120,19 +124,21 @@ export class QqStore {
         endpoint: input.endpoint,
         credentialName: input.credentialName !== undefined ? input.credentialName : existing.credentialName,
         selfId: input.selfId,
+        ownerUserId: input.ownerUserId !== undefined ? input.ownerUserId : existing.ownerUserId,
         maxReplyChars: input.maxReplyChars ?? existing.maxReplyChars,
         configVersion: existing.configVersion + 1,
         updatedAt: now,
       };
       this.db
-        .prepare("UPDATE qq_config SET endpoint = ?, credential_name = ?, self_id = ?, max_reply_chars = ?, config_version = ?, updated_at = ? WHERE id = 1")
-        .run(next.endpoint, next.credentialName, next.selfId, next.maxReplyChars, next.configVersion, now);
+        .prepare("UPDATE qq_config SET endpoint = ?, credential_name = ?, self_id = ?, owner_user_id = ?, max_reply_chars = ?, config_version = ?, updated_at = ? WHERE id = 1")
+        .run(next.endpoint, next.credentialName, next.selfId, next.ownerUserId, next.maxReplyChars, next.configVersion, now);
       return next;
     }
     const config: QqConfig = {
       endpoint: input.endpoint,
       credentialName: input.credentialName ?? null,
       selfId: input.selfId,
+      ownerUserId: input.ownerUserId ?? null,
       groups: [],
       enabled: false,
       maxReplyChars: input.maxReplyChars ?? 1500,
@@ -143,10 +149,10 @@ export class QqStore {
     };
     this.db
       .prepare(
-        `INSERT INTO qq_config (id, endpoint, credential_name, self_id, groups, enabled, max_reply_chars, queue_ttl_ms, config_version, created_at, updated_at)
-         VALUES (1, ?, ?, ?, '[]', 0, ?, 300000, 1, ?, ?)`,
+        `INSERT INTO qq_config (id, endpoint, credential_name, self_id, owner_user_id, groups, enabled, max_reply_chars, queue_ttl_ms, config_version, created_at, updated_at)
+         VALUES (1, ?, ?, ?, ?, '[]', 0, ?, 300000, 1, ?, ?)`,
       )
-      .run(config.endpoint, config.credentialName, config.selfId, config.maxReplyChars, now, now);
+      .run(config.endpoint, config.credentialName, config.selfId, config.ownerUserId, config.maxReplyChars, now, now);
     return config;
   }
 
@@ -395,6 +401,7 @@ function rowToConfig(row: any): QqConfig {
     endpoint: row.endpoint,
     credentialName: row.credential_name,
     selfId: row.self_id,
+    ownerUserId: row.owner_user_id ?? null,
     groups: JSON.parse(row.groups ?? "[]") as string[],
     enabled: Number(row.enabled) === 1,
     maxReplyChars: Number(row.max_reply_chars),

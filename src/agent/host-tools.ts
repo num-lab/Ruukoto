@@ -260,7 +260,9 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
     execute: bindExecute(async (params) => {
       try {
         const ctx = requireCtx();
-        const active = deps.memories.listActiveFor(ctx.projectId);
+        const accessor = accessorOf(ctx.projectId);
+        const active = deps.memories.listActiveFor(ctx.projectId)
+          .filter((m) => m.sourceRefs.every((ref) => deps.access.sourceRefAccessible(accessor, ref)));
         const lines: string[] = [`生效记忆 ${active.length} 条：`];
         for (const m of active) {
           const preview = m.content.length > 120 ? `${m.content.slice(0, 120)}…` : m.content;

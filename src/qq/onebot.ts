@@ -3,11 +3,25 @@
  *
  * - 使用 Node 内置 WebSocket（undici），token 经 Authorization: Bearer 头注入；
  * - 动作请求/响应按 echo 关联（echo 只用于匹配请求与应答，不作幂等键）；
- * - 心跳/任何入站帧都刷新活性时间；周期性 get_login_info 探测活性，
- *   失败即断开重连（指数退避，有上限）；
+ * - get_login_info 核实账号，get_status 与 heartbeat.status 核实 QQ 在线；
+ *   周期探测失败即断开重连（指数退避，有上限）；
  * - 连接中断时在途动作一律按"结果不明"拒绝（definite=false），由调用方
  *   按 effect_unknown 处理，不自动重发。
  */
+
+import { setTimeout as delay } from "node:timers/promises";
+
+/** OneBot 消息 ID 是有符号整数；不接受对象、空串或有损数字转换。 */
+export function oneBotMessageId(value: unknown): string | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && String(id) === String(value) ? String(id) : null;
+}
+
+export function oneBotAccountId(value: unknown): string | null {
+  const id = oneBotMessageId(value);
+  return id !== null && Number(id) > 0 ? id : null;
+}
 
 export class OneBotError extends Error {
   readonly code = "onebot_error";
@@ -50,6 +64,7 @@ export class OneBotClient {
   private ws: WebSocket | null = null;
   private stopped = false;
   private loopPromise: Promise<void> | null = null;
+  private aborter: AbortController | null = null;
   private pending = new Map<string, PendingAction>();
   private echoCounter = 0;
   private probeTimer: ReturnType<typeof setInterval> | null = null;
@@ -64,11 +79,15 @@ export class OneBotClient {
   start(): void {
     if (this.loopPromise) return;
     this.stopped = false;
-    this.loopPromise = this.runLoop();
+    this.aborter = new AbortController();
+    this.loopPromise = this.runLoop(this.aborter.signal);
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.aborter?.abort();
+    this.selfId = null;
+    this.setOnline(false, "已停止");
     this.clearProbe();
     this.failAllPending(new OneBotError("连接已停止", { definite: false }));
     const ws = this.ws;
@@ -107,12 +126,12 @@ export class OneBotClient {
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(echo);
-        reject(new OneBotError(`动作 ${action} 发送失败：${(err as Error).message}`, { definite: false }));
+        reject(new OneBotError(this.redact(`动作 ${action} 发送失败：${(err as Error).message}`), { definite: false }));
       }
     });
   }
 
-  private async runLoop(): Promise<void> {
+  private async runLoop(signal: AbortSignal): Promise<void> {
     const minMs = this.opts.reconnectMinMs ?? 1_000;
     const maxMs = this.opts.reconnectMaxMs ?? 30_000;
     let attempt = 0;
@@ -124,8 +143,7 @@ export class OneBotClient {
         this.setOnline(false, (err as Error).message);
       }
       if (this.stopped) break;
-      const delay = Math.min(maxMs, minMs * 2 ** attempt++);
-      await new Promise((r) => setTimeout(r, delay));
+      await delay(Math.min(maxMs, minMs * 2 ** attempt++), undefined, { signal }).catch(() => {});
     }
   }
 
@@ -134,13 +152,22 @@ export class OneBotClient {
     return new Promise((resolve, reject) => {
       let settled = false;
       let reachedOnline = false;
+      let probing = false;
+      let statusVersion = 0;
       const finish = (err: Error | null): void => {
         if (settled) return;
         settled = true;
+        clearTimeout(openTimeout);
         this.clearProbe();
         this.failAllPending(new OneBotError("OneBot 连接中断", { definite: false }));
         this.ws = null;
+        this.selfId = null;
         this.setOnline(false, err?.message ?? "连接已关闭");
+        try {
+          ws.close();
+        } catch {
+          // 关闭失败不影响重连。
+        }
         if (err) reject(err);
         else resolve();
       };
@@ -166,13 +193,14 @@ export class OneBotClient {
       }, this.opts.actionTimeoutMs ?? 15_000);
 
       ws.addEventListener("message", (ev) => {
-        if (typeof ev.data !== "string") return;
+        if (settled || this.stopped || typeof ev.data !== "string") return;
         let msg: Record<string, unknown>;
         try {
           msg = JSON.parse(ev.data) as Record<string, unknown>;
         } catch {
           return; // 非 JSON 帧：忽略
         }
+        if (!msg || typeof msg !== "object" || Array.isArray(msg)) return;
         // 动作响应：有 echo 且能匹配待决请求
         const echo = typeof msg["echo"] === "string" ? msg["echo"] : null;
         if (echo !== null) {
@@ -186,9 +214,10 @@ export class OneBotClient {
             } else {
               const detail = [msg["msg"], msg["wording"]].filter((s) => typeof s === "string" && s).join(" ");
               pending.reject(
-                new OneBotError(`动作失败（retcode=${retcode ?? "?"}）${detail ? `：${detail}` : ""}`, {
+                new OneBotError(this.redact(`动作未确认成功（retcode=${retcode ?? "?"}）${detail ? `：${detail}` : ""}`), {
                   retcode,
-                  definite: true,
+                  // async / 不完整响应不能证明未发送。
+                  definite: msg["status"] === "failed" && retcode !== null && retcode !== 0,
                 }),
               );
             }
@@ -196,6 +225,14 @@ export class OneBotClient {
           }
           // 未匹配的 echo（迟到/重复应答）：忽略
           return;
+        }
+        if (msg["post_type"] === "meta_event" && msg["meta_event_type"] === "heartbeat") {
+          statusVersion++;
+          const account = oneBotAccountId(msg["self_id"]);
+          if (account !== this.selfId) this.selfId = null;
+          const online = this.selfId !== null && isOnlineStatus(msg["status"]);
+          if (online) reachedOnline = true;
+          this.setOnline(online, online ? this.selfId! : "QQ 心跳未确认账号在线");
         }
         if (typeof msg["post_type"] === "string") {
           try {
@@ -219,44 +256,31 @@ export class OneBotClient {
 
       ws.addEventListener("open", () => {
         clearTimeout(openTimeout);
-        // 连接即核实登录账号（同时充当首次活性探测）
-        this.call("get_login_info", {})
-          .then((data) => {
-            const userId = (data as any)?.user_id;
-            this.selfId = userId === undefined || userId === null ? null : String(userId);
-            reachedOnline = true;
-            this.setOnline(true, this.selfId ?? "未知账号");
-            this.startProbe();
-          })
-          .catch((err: Error) => {
-            try {
-              ws.close();
-            } catch {
-              // 忽略
-            }
-            finish(err);
-          });
+        if (settled || this.stopped) return;
+        // 探测不重入；离线时仍探测，QQ 恢复后无需重新建立 WebSocket。
+        const probe = async (): Promise<void> => {
+          if (settled || this.stopped || probing) return;
+          probing = true;
+          const version = statusVersion;
+          try {
+            const [login, status] = await Promise.all([this.call("get_login_info", {}), this.call("get_status", {})]);
+            if (settled || this.stopped || version !== statusVersion) return;
+            const account = oneBotAccountId((login as any)?.user_id);
+            if (!account) throw new Error("OneBot 未返回有效登录账号");
+            this.selfId = account;
+            const online = isOnlineStatus(status);
+            if (online) reachedOnline = true;
+            this.setOnline(online, online ? account : "QQ 登录账号离线或状态未知");
+          } catch (err) {
+            finish(err as Error);
+          } finally {
+            probing = false;
+          }
+        };
+        this.probeTimer = setInterval(() => void probe(), this.opts.probeIntervalMs ?? 30_000);
+        void probe();
       });
     });
-  }
-
-  /** 周期探测：get_login_info 失败即断开（触发重连），不在探测失败时宣称在线。 */
-  private startProbe(): void {
-    this.clearProbe();
-    const interval = this.opts.probeIntervalMs ?? 30_000;
-    this.probeTimer = setInterval(() => {
-      if (!this.online) return;
-      this.call("get_login_info", {}).catch(() => {
-        const ws = this.ws;
-        if (ws) {
-          try {
-            ws.close();
-          } catch {
-            // 忽略
-          }
-        }
-      });
-    }, interval);
   }
 
   private clearProbe(): void {
@@ -275,10 +299,19 @@ export class OneBotClient {
   }
 
   private setOnline(online: boolean, detail: string): void {
-    const changed = this.online !== online;
+    detail = this.redact(detail);
+    const changed = this.online !== online || (online && this.stateDetail !== detail);
     this.online = online;
-    if (!online) this.selfId = null;
     this.stateDetail = detail;
     if (changed) this.opts.onStateChange?.(online, detail);
   }
+
+  private redact(message: string): string {
+    return this.opts.token ? message.split(this.opts.token).join("<token>") : message;
+  }
+}
+
+function isOnlineStatus(value: unknown): boolean {
+  const status = value as { online?: unknown; good?: unknown } | null;
+  return status?.online === true && status.good === true;
 }

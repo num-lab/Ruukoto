@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS qq_config (
   endpoint TEXT NOT NULL,
   credential_name TEXT,
   self_id TEXT NOT NULL,
+  owner_user_id TEXT,
   groups TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 0,
   max_reply_chars INTEGER NOT NULL DEFAULT 1500,
@@ -313,6 +314,7 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   target_role TEXT NOT NULL CHECK (target_role IN ('main','coding','chat')),
   body TEXT NOT NULL,
   artifact_refs TEXT NOT NULL DEFAULT '[]',
+  reply_target TEXT,
   received_at TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('registered','queued','done','failed')),
   task_id TEXT,
@@ -514,7 +516,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 13) {
+    } else if (version >= 2 && version <= 14) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -526,6 +528,7 @@ export class Db {
       // （ensureColumns，issue 21 创建幂等键）；
       // v12 → v13：新增 schedules / schedule_runs / notification_ops 三表（issue 03）；
       // v13 → v14：新增 telegram_config 表 + notification_ops.not_before 补列（issue 04）。
+      // v14 → v15：qq_config.owner_user_id 与 inbound_events.reply_target（issue 06）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理，无既有数据需要改写。
       this.ensureColumns();
@@ -651,6 +654,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("tasks", "result_ref", "result_ref TEXT");
     // v14（issue 04）：限流退回的发送操作最早再次领取时间
     add("notification_ops", "not_before", "not_before TEXT");
+    // v15（issue 06）：私聊身份与入站时钉版的固定回复目标，旧群配置默认不开私聊
+    add("qq_config", "owner_user_id", "owner_user_id TEXT");
+    add("inbound_events", "reply_target", "reply_target TEXT");
     // 新列索引只能在补列之后创建（旧库先 ALTER 才有列；重建路径自带索引重建）
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline)");

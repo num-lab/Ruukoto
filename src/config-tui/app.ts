@@ -1323,6 +1323,7 @@ export class ConfigTuiApp {
           description: `登录号 ${st.selfId ?? "?"} · 凭据 ${st.credentialName ?? "（无）"} · 回复上限 ${st.maxReplyChars ?? "默认"} · v${st.configVersion ?? 0}`,
         });
         items.push({ value: "groups", label: `允许群（${Array.isArray(st.groups) ? st.groups.length : 0}）` });
+        items.push({ value: "owner", label: `拥有者私聊：${st.ownerUserId ?? "未开启"}`, description: "固定好友 QQ 号，共享 main 会话；需要 token 凭据" });
         return items;
       },
       onSelect: async (item) => {
@@ -1360,6 +1361,18 @@ export class ConfigTuiApp {
           }
           case "groups":
             return this.pushScreen(this.qqGroupsScreen());
+          case "owner": {
+            const owner = await this.inputBox("拥有者 QQ 号（留空 = 关闭私聊）", { initial: st.ownerUserId ?? "" });
+            if (owner === null) return;
+            await client.request("qq_configure", {
+              endpoint: st.endpoint,
+              self_id: st.selfId,
+              owner_user_id: owner.trim() || null,
+              expected_version: version,
+            });
+            this.notify(owner.trim() ? "拥有者私聊已绑定" : "拥有者私聊已关闭");
+            return this.refresh();
+          }
         }
       },
     };

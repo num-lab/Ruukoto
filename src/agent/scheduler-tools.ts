@@ -96,7 +96,8 @@ function mainCanRead(deps: SourceResolverDeps, mainProjectId: string, projectId:
 
 function taskReadable(deps: SourceResolverDeps, mainProjectId: string, task: Task): boolean {
   const project = deps.store.getSession(task.sessionId)?.projectId;
-  if (!project) return false;
+  // 父子关系只开放结果传递，不能把原始群资料变成 main 可读资料。
+  if (!project || deps.access.isQqGroupProject(project)) return false;
   if (mainCanRead(deps, mainProjectId, project, "history")) return true;
   const parent = task.parentTaskId ? deps.store.getTask(task.parentTaskId) : null;
   return parent !== null && deps.store.getSession(parent.sessionId)?.projectId === mainProjectId;
@@ -402,11 +403,13 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       cursor: Type.Optional(Type.String()),
       limit: Type.Optional(Type.Number()),
     }),
-    execute: bindExecute(async (_ctx, params: any) => {
+    execute: bindExecute(async (ctx, params: any) => {
       const head = `通知目标：${targetText(deps.target())}`;
       if (typeof params.schedule_id === "string") {
         const s = deps.sched.getSchedule(params.schedule_id);
         if (!s) throw new Error(`计划不存在：${params.schedule_id}`);
+        const problem = deps.sources.verify(ctx.projectId, s.payload.sourceRefs);
+        if (problem) throw new Error(`计划资料不可读：${problem}`);
         const runs = deps.sched.listRuns(s.id, 20).map((r) =>
           `  运行 ${r.id} · 原定 ${r.localTime} · 延迟 ${Math.round(r.delayMs / 1000)}s${r.coalescedFrom ? ` · 合并 ${r.coalescedFrom}–${r.coalescedTo}` : ""} · ${r.closedAt ? "已关闭" : "未完成"} · ${r.inboundEventId ? `事件 ${r.inboundEventId}` : `发送 ${r.notificationOpId}`}`,
         );
@@ -502,10 +505,12 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       cursor: Type.Optional(Type.String()),
       limit: Type.Optional(Type.Number()),
     }),
-    execute: bindExecute(async (_ctx, params: any) => {
+    execute: bindExecute(async (ctx, params: any) => {
       if (typeof params.op_id === "string") {
         const op = deps.sched.getOp(params.op_id);
         if (!op) throw new Error(`发送操作不存在：${params.op_id}`);
+        const problem = deps.sources.verify(ctx.projectId, op.sourceRefs);
+        if (problem) throw new Error(`发送资料不可读：${problem}`);
         return okText([
           opLine(op),
           `目标：${targetText(op.target)} · 来源键 ${op.sourceKind}:${op.sourceKey}`,

@@ -4,7 +4,7 @@
  *
  * - 模型只给正文、模式（analyze/draft）、幂等键与资料引用；目标角色、工作目录、
  *   confirm 模式与截止时间由宿主（编排器 delegateCoding）固定；
- * - 只有拥有者发起的 main 任务可委派（拥有者直接提交，或 Telegram owner 入站）；
+ * - 只有拥有者发起的 main 任务可委派（直接提交，或 Telegram/QQ owner 入站）；
  *   定时唤醒与子任务唤醒触发的任务不能委派，外部内容无法借此连环创建任务；
  * - 资料引用在委派时解析为文本快照写入子任务正文（复用通知的来源解析），
  *   coding 拿不到 main 的原始资料引用；
@@ -20,6 +20,7 @@ import type { HistoryEntryView } from "../core/history.ts";
 import { delegationRequestDigest, type DelegationMode, type DelegationResult } from "../runtime/orchestrator.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { TELEGRAM_SOURCE } from "../telegram/adapter.ts";
+import { QQ_PRIVATE_SOURCE } from "../qq/adapter.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import type { SourceResolver } from "./scheduler-tools.ts";
 import { canonicalParamsDigest } from "./mcp/tools.ts";
@@ -87,9 +88,12 @@ export function createDelegationTools(deps: DelegationToolsDeps): ToolDefinition
       }
     };
 
-  /** 拥有者发起的任务：拥有者直接提交（无角色来源），或 Telegram owner 入站事件。 */
+  /** 拥有者发起的任务：直接提交（无角色来源），或已核实身份的 owner 私聊入站。 */
   const ownerOriginated = (task: Task): boolean => {
-    if (task.sourceEventId) return store.getInboundEvent(task.sourceEventId)?.source === TELEGRAM_SOURCE;
+    if (task.sourceEventId) {
+      const source = store.getInboundEvent(task.sourceEventId)?.source;
+      return source === TELEGRAM_SOURCE || source === QQ_PRIVATE_SOURCE;
+    }
     return task.agentId === null;
   };
 

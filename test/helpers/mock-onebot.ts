@@ -2,7 +2,7 @@
  * 进程内模拟 OneBot v11 正向 WebSocket 服务（issue 07 测试；模拟 NapCat 侧）。
  *
  * - token 鉴权（Authorization: Bearer 头，错误即关闭 4401）；
- * - get_login_info 返回可配置账号；send_group_msg 记录参数并按注入行为应答
+ * - get_login_info/get_status 返回可配置账号与在线状态；发送动作按注入行为应答
  *   （成功/平台明确失败/不应答=结果不明/延迟乱序）；
  * - 服务端可向客户端推送群消息与撤回事件；可主动断开连接模拟掉线。
  * 测试不得向真实 QQ/NapCat 发送消息——本服务只监听回环随机端口。
@@ -20,7 +20,7 @@ export interface MockOneBotAction {
 }
 
 /** send_group_msg 的行为注入：ok=正常返回 message_id；fail=平台明确失败（retcode≠0）；silent=不应答（客户端超时=结果不明）。 */
-export type MockSendBehavior = "ok" | "fail" | "silent";
+export type MockSendBehavior = "ok" | "fail" | "silent" | "missing_id" | "async";
 
 export interface MockOneBot {
   url: string;
@@ -33,11 +33,16 @@ export interface MockOneBot {
   pushEvent(event: Record<string, unknown>): void;
   /** 推送群消息的便捷构造（结构化消息段数组）。 */
   pushGroupMessage(input: { groupId: string; userId: string; messageId: number; segments: unknown[]; senderName?: string; time?: number }): void;
+  pushPrivateMessage(input: { userId: string; messageId: number; segments: unknown[]; subType?: string; time?: number }): void;
+  /** 仅改变查询结果；心跳可另行推送，覆盖 WebSocket 仍连接而 QQ 已离线。 */
+  setOnline(online: boolean): void;
+  setAccount(account: string): void;
+  pushHeartbeat(input?: { online?: boolean; good?: boolean; selfId?: string }): void;
   /** 推送群撤回事件。 */
   pushRecall(input: { groupId: string; messageId: number; userId?: string | number }): void;
   /** 主动断开全部连接（模拟账号掉线/服务端故障）。 */
   dropConnections(): void;
-  /** send_group_msg 应答行为（可运行期切换）。 */
+  /** 群聊/私聊发送应答行为（可运行期切换）。 */
   setSendBehavior(behavior: MockSendBehavior): void;
   /** send_group_msg 应答延迟（乱序/积压场景；0=立即）。 */
   setSendDelayMs(ms: number): void;
@@ -50,7 +55,8 @@ export async function startMockOneBot(opts: {
   account?: string;
 }): Promise<MockOneBot> {
   const secret = opts.secret === undefined ? MOCK_QQ_SECRET : opts.secret;
-  const account = opts.account ?? MOCK_QQ_ACCOUNT;
+  let account = opts.account ?? MOCK_QQ_ACCOUNT;
+  let online = true;
   const actions: MockOneBotAction[] = [];
   const sockets = new Set<WebSocket>();
   let sendBehavior: MockSendBehavior = "ok";
@@ -79,16 +85,31 @@ export async function startMockOneBot(opts: {
       if (!action) return;
       const echo = msg.echo;
       actions.push({ action, params: (msg.params ?? {}) as Record<string, unknown> });
-      const reply = (body: Record<string, unknown>) => ws.send(JSON.stringify({ ...body, echo }));
+      const reply = (body: Record<string, unknown>) => {
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ ...body, echo }));
+      };
       if (action === "get_login_info") {
         reply({ status: "ok", retcode: 0, data: { user_id: Number(account), nickname: "mock-bot" } });
         return;
       }
-      if (action === "send_group_msg") {
+      if (action === "get_status") {
+        reply({ status: "ok", retcode: 0, data: { online, good: online } });
+        return;
+      }
+      if (action === "send_group_msg" || action === "send_private_msg") {
+        const behavior = sendBehavior;
         const respond = () => {
-          if (sendBehavior === "silent") return; // 不应答：客户端超时 → 结果不明
-          if (sendBehavior === "fail") {
+          if (behavior === "silent") return; // 不应答：客户端超时 → 结果不明
+          if (behavior === "fail") {
             reply({ status: "failed", retcode: 100, msg: "SEND_FAILED", wording: "模拟平台明确失败" });
+            return;
+          }
+          if (behavior === "missing_id") {
+            reply({ status: "ok", retcode: 0, data: {} });
+            return;
+          }
+          if (behavior === "async") {
+            reply({ status: "async", retcode: 1, data: null });
             return;
           }
           reply({ status: "ok", retcode: 0, data: { message_id: ++sentMessageId } });
@@ -97,14 +118,13 @@ export async function startMockOneBot(opts: {
         else respond();
         return;
       }
-      // 其他动作（心跳探测等）：通用成功
-      reply({ status: "ok", retcode: 0, data: {} });
+      reply({ status: "failed", retcode: 1404, msg: "UNKNOWN_ACTION" });
     });
   });
 
   const pushEvent = (event: Record<string, unknown>): void => {
     const frame = JSON.stringify(event);
-    for (const ws of sockets) ws.send(frame);
+    for (const ws of sockets) if (ws.readyState === ws.OPEN) ws.send(frame);
   };
 
   return {
@@ -125,6 +145,35 @@ export async function startMockOneBot(opts: {
         message: input.segments,
         sender: { nickname: input.senderName ?? `user-${input.userId}`, card: "" },
         time: input.time ?? Math.floor(Date.now() / 1000),
+      });
+    },
+    pushPrivateMessage(input) {
+      pushEvent({
+        post_type: "message",
+        message_type: "private",
+        sub_type: input.subType ?? "friend",
+        self_id: Number(account),
+        user_id: Number(input.userId),
+        message_id: input.messageId,
+        message: input.segments,
+        sender: { user_id: Number(input.userId), nickname: `user-${input.userId}` },
+        time: input.time ?? Math.floor(Date.now() / 1000),
+      });
+    },
+    setOnline(value) {
+      online = value;
+    },
+    setAccount(value) {
+      account = value;
+    },
+    pushHeartbeat(input = {}) {
+      pushEvent({
+        post_type: "meta_event",
+        meta_event_type: "heartbeat",
+        self_id: Number(input.selfId ?? account),
+        status: { online: input.online ?? online, good: input.good ?? input.online ?? online },
+        interval: 100,
+        time: Math.floor(Date.now() / 1000),
       });
     },
     pushRecall(input) {

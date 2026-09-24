@@ -250,7 +250,7 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v12）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v15）
 │                              #   项目（含项目指令文件与 Web Search 开关）、会话
 │                              #   （含 kind：dev/qq_group）、任务
 │                              #   （accessMode/权限版本/授予路径）、确认请求
@@ -542,16 +542,66 @@ ruukoto telegram enable | disable | status
 - **查看**：`ruukoto telegram status`（配置视图、在线状态、最近错误、偏移，不含 token）；
   回复记录经 `ruukoto notify list|show`（`sourceKind = owner_reply`）。
 
+## QQ owner 私聊（daily-agent issue 06，ADR 0012）
+
+QQ 好友私聊与 Telegram 共用 main 会话。复用现有 NapCat OneBot v11 正向
+WebSocket 连接；群聊仍使用独立会话与群收发记录。
+
+```bash
+# QQ_ONEBOT_TOKEN 由可信环境提供，凭据只登记一次
+ruukoto credentials add --name qq-onebot --host 127.0.0.1:3001 \
+  --header authorization --purpose qq_onebot --secret-env QQ_ONEBOT_TOKEN
+ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <登录QQ号> \
+  --credential qq-onebot --owner-id <拥有者QQ号>
+ruukoto qq enable
+ruukoto qq status
+ruukoto notify list
+```
+
+配置中心的 QQ 页面也可绑定或清除拥有者 QQ 号。`--no-owner` 清除私聊绑定；
+`qq disable` 停用整个 QQ 入口。私聊必须有 token，登录号与 owner 必须不同。
+schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
+`inbound_events` 增加可空 `reply_target`；旧库的群配置和收发记录保留，默认不开私聊。
+
+- **接收与身份**：仅接收固定 owner 的 `private/friend` 结构化文本消息，可含
+  回复消息 ID；不读取引用原文。临时群私聊、陌生人、自身回声、图片、附件和
+  CQ 字符串格式不触发任务。登录账号和事件 `self_id` 必须匹配；
+  `get_status` 与 `heartbeat.status` 同时检查 QQ 在线状态，WebSocket 存活但
+  账号离线时也不接收新任务。token 不进入历史、日志或模型输入。
+- **持久化与恢复**：消息先登记 `source=qq_private`，按
+  `<登录账号>:<owner>:<message_id>` 去重，再以原事件键进入 main 队列。
+  接收时固定回复目标和配置版本，派发与任务启动前复核；配置变化取消旧授权，
+  离线保留已登记工作等待。断线期间未登记的消息没有持久投递保证；接收缺口
+  经 `qq.receive_gap` 如实记录，不补抓平台历史。main 队列沿用角色的恢复规则，
+  中断任务由拥有者决定继续，不套用无工具群会话的自动恢复规则。
+- **权限与资料**：任务固定 `confirm`；消息不能批准开发操作、开启完全访问、
+  修改角色或凭据。拥有者明确提出的编码请求可委派 coding，审批仍在可信 TUI。
+  main 和 coding 不能直接查询原始 QQ 群项目的历史、产物及带群来源的记忆，
+  也不能通过委派资料或旧通知正文绕过；已有主会话内容仍跨平台共享，不追溯
+  清洗已复制或转述的内容。
+- **回复**：只读取本任务的最终回答，在结果事务内登记公共 `notification_ops`
+  的 `owner_reply`，按原平台和原 owner 发送。QQ 回复按 `max_reply_chars`
+  截短后入账（默认 1500，实际平台上限待真实验收），单条纯文本，可引用原消息。
+  明确失败为 `failed`，超时、断线、异步接受或缺少有效消息 ID 的回执为
+  `effect_unknown`，均不自动重发。定时和子任务唤醒不自动外发。
+- **通知**：QQ 入站任务申请的新通知或定时发送绑定收件时的 QQ 目标，经统一
+  审批后发送；定时唤醒、子任务唤醒和直接 TUI 任务仍沿用 Telegram 默认目标。
+  目标版本变化使旧操作取消，不切换到其他平台。QQ 私聊记录用 `notify list/show`
+  查看；`qq inbox/outbox` 继续显示群记录。
+- **开发与验证**：`RUUKOTO_DISABLE_QQ=1` 同时关闭群和私聊连接。测试使用本地
+  模拟 OneBot 与模型，不向真实 QQ 账号发送；真实 NapCat 版本、消息格式与收发
+  闭环须拥有者另行授权后验收。
+
 ## main 委派 coding（daily-agent issue 05）
 
 main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，通过宿主工具
 `coding_delegate` 创建 coding 子任务；结果回到 main 会话，通过 `coding_result`
 读取。两个工具属于 `delegation` 类别，仅 main 装配，调用时重新核实任务、
-会话、项目与角色绑定；coding/chat/QQ 与普通开发会话不获得委派能力。
+会话、项目与角色绑定；coding/chat/QQ 群聊与普通开发会话不获得委派能力。
 
 ### 委派与执行范围
 
-- **触发来源**：只有拥有者在 main 会话直接提交的任务，或经 Telegram owner
+- **触发来源**：只有拥有者在 main 会话直接提交的任务，或经 Telegram/QQ owner
   入口核实身份的入站任务可以委派。定时唤醒、子任务结果唤醒及其他来源任务
   拒绝委派；消息正文、项目指令和资料中的身份声明不能替代宿主来源记录。
 - **输入与固定参数**：模型只提供 `request / mode（analyze|draft）/ key /

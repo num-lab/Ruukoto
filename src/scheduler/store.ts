@@ -312,10 +312,13 @@ export class SchedulerStore {
     return page(rows.map(rowToOp), limit);
   }
 
-  /** 可领取的 pending（限流退回的操作到 not_before 之后才可再领取）。 */
+  /** 每渠道取一批可领取操作；离线渠道的积压不能挡住另一渠道，限流仍遵守 not_before。 */
   listPending(nowIso: string, limit: number): NotificationOp[] {
     const rows = this.db
-      .prepare("SELECT * FROM notification_ops WHERE status = 'pending' AND (not_before IS NULL OR not_before <= ?) ORDER BY created_at, id LIMIT ?")
+      .prepare(`SELECT * FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY json_extract(target, '$.channel') ORDER BY created_at, id) AS channel_position
+        FROM notification_ops WHERE status = 'pending' AND (not_before IS NULL OR not_before <= ?)
+      ) WHERE channel_position <= ? ORDER BY created_at, id`)
       .all(nowIso, limit) as any[];
     return rows.map(rowToOp);
   }

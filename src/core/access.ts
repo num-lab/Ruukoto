@@ -9,6 +9,8 @@
  * - QQ 群聊入口（issue 07）与资料受限角色（issue 01 的 chat）使用受限身份：
  *   仅限本项目，不查 data_grants（拥有者误配置授权也不生效），owner_note
  *   来源不自动可读；个人共享记忆由调用方（上下文注入/记忆工具）按身份排除。
+ * - main 共享各私聊入口的历史，main/coding 统一禁止直接读取原始 QQ 群项目，
+ *   防止经委派绕过；该限制优先于资料授权，不追溯清除已有共享副本。
  */
 
 import type { Db } from "./db.ts";
@@ -104,14 +106,25 @@ export class AccessScope {
 
   // ---------- 范围判定 ----------
 
+  /** 群资料归属由宿主创建的会话类别确定，不依赖可改名的项目名称。 */
+  isQqGroupProject(projectId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM sessions WHERE project_id = ? AND kind = 'qq_group' LIMIT 1").get(projectId) !== undefined;
+  }
+
   /**
    * 判定 accessor 是否可读取 projectId 项目的 category 资料。
-   * owner 始终可读（控制面可信入口）；agent 可读本项目或有效授权覆盖的项目；
+   * owner 始终可读（控制面可信入口）；agent 可读本项目或有效授权覆盖的项目，
+   * 但 main/coding 角色不能借授权读取原始 QQ 群项目；
    * 受限身份（qq_group / role_restricted）只读本项目，不查授权表（授权不能
    * 扩大到群聊入口与受限角色）。
    */
   canAccess(accessor: Accessor, projectId: string, category: DataCategory): boolean {
     if (accessor.kind === "owner") return true;
+    if (
+      accessor.kind === "agent" &&
+      this.db.prepare("SELECT 1 FROM agent_roles WHERE id IN ('main', 'coding') AND project_id = ?").get(accessor.projectId) &&
+      this.isQqGroupProject(projectId)
+    ) return false;
     if (accessor.projectId === projectId) return true;
     if (accessor.kind !== "agent") return false;
     const row = this.db
@@ -143,7 +156,8 @@ export class AccessScope {
          WHERE to_project_id = ? AND category = ? AND revoked_at IS NULL`,
       )
       .all(accessor.projectId, category) as any[];
-    return [accessor.projectId, ...rows.map((r) => r.from_project_id as string)];
+    return [accessor.projectId, ...rows.map((r) => r.from_project_id as string)]
+      .filter((projectId) => this.canAccess(accessor, projectId, category));
   }
 
   /**

@@ -18,6 +18,7 @@ import { Runtime } from "../src/runtime/runtime.ts";
 import { ControlServer } from "../src/control/server.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { qqDedupKey } from "../src/qq/store.ts";
+import { OneBotClient, OneBotError } from "../src/qq/onebot.ts";
 import {
   startTestRuntime,
   waitFor,
@@ -36,6 +37,52 @@ const GROUP_A = "100001";
 const GROUP_B = "100002";
 const USER_1 = "880001";
 const USER_2 = "880002";
+
+test("OneBot：在线状态独立于连接、账号切换、异步回执与停止重连", async () => {
+  const onebot = await startMockOneBot({});
+  const client = new OneBotClient({
+    endpoint: onebot.url,
+    token: MOCK_QQ_SECRET,
+    onEvent() {},
+    probeIntervalMs: 80,
+    actionTimeoutMs: 200,
+    reconnectMinMs: 5_000,
+    reconnectMaxMs: 5_000,
+  });
+  try {
+    client.start();
+    client.start();
+    await waitFor("登录账号与 get_status 均已核实", () => client.online);
+    assert.equal(onebot.connectionCount(), 1);
+    onebot.setOnline(false);
+    await waitFor("get_status 发现 QQ 离线", () => !client.online);
+    assert.equal(onebot.connectionCount(), 1, "QQ 离线时 WebSocket 仍可保持连接");
+    onebot.setOnline(true);
+    onebot.pushHeartbeat();
+    await waitFor("心跳恢复在线", () => client.online);
+    onebot.setOnline(false);
+    onebot.pushHeartbeat();
+    await waitFor("离线心跳关闭接收门", () => !client.online);
+    onebot.setOnline(true);
+    onebot.setAccount(USER_2);
+    onebot.pushHeartbeat();
+    await waitFor("重新核实切换后的登录账号", () => client.online && client.selfId === USER_2);
+    onebot.setSendBehavior("async");
+    await assert.rejects(client.call("send_private_msg", { user_id: Number(USER_1), message: [] }), (err: unknown) => err instanceof OneBotError && !err.definite);
+    await assert.rejects(client.call("unknown_action", {}), (err: unknown) => err instanceof OneBotError && err.definite);
+    onebot.dropConnections();
+    await waitFor("连接断开", () => !client.online);
+    const started = Date.now();
+    await Promise.all([client.stop(), client.stop()]);
+    assert.ok(Date.now() - started < 1_000, "停止应中断 5 秒重连退避");
+    client.start();
+    await waitFor("停止后只建立一个新连接", () => client.online);
+    assert.equal(onebot.connectionCount(), 1);
+  } finally {
+    await client.stop();
+    await onebot.close();
+  }
+});
 
 /** 测试用压缩时限（生产默认：探测 30s / 巡检 15s / 动作 15s / 重连 1–30s）。 */
 const QQ_TIMEOUTS = {

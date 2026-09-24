@@ -24,6 +24,7 @@ import {
   type AgentRoleId,
   type InboundEvent,
   type ModelSelection,
+  type NotifyTarget,
   type PersistentEvent,
   type Task,
   type ToolCategory,
@@ -64,6 +65,8 @@ export interface OrchestratorDeps {
    * 同事务提交，重启巡检补记结果时一并补登，不会重复。
    */
   onInboundTerminal?(event: InboundEvent, task: Task, outcome: ChildOutcome): void;
+  /** 入站派发前复核宿主配置与在线状态；等待保留原事件，失效则作废。 */
+  inboundGate?(event: InboundEvent): "run" | "wait" | { drop: string };
 }
 
 /** 角色静态定义：工具白名单按注册来源类别给出（Driver 三层强制）。 */
@@ -271,6 +274,7 @@ export class Orchestrator {
     targetRole: AgentRoleId;
     body: string;
     artifactRefs?: string[];
+    replyTarget?: NotifyTarget | null;
   }): Promise<{ event: InboundEvent; created: boolean }> {
     if (!AGENT_ROLE_IDS.includes(input.targetRole)) throw new Error(`目标角色无效：${input.targetRole}`);
     if (!input.source.trim() || !input.externalId.trim()) throw new Error("入站事件的 source 与 external_id 不能为空");
@@ -282,6 +286,7 @@ export class Orchestrator {
         targetRole: input.targetRole,
         body: capInput(input.body),
         artifactRefs: input.artifactRefs,
+        replyTarget: input.replyTarget,
       }),
     );
     if (created) this.enqueueDispatch();
@@ -420,6 +425,15 @@ export class Orchestrator {
   private async dispatchEvent(event: InboundEvent): Promise<void> {
     // 列表读取后可能已被作废（如调度计划取消）：只派发仍为 registered 的事件
     if (this.store.getInboundEvent(event.id)?.status !== "registered") return;
+    const gate = this.deps.inboundGate?.(event) ?? "run";
+    if (gate === "wait") return;
+    if (gate !== "run") {
+      this.store.withTx(() => {
+        this.store.failRegisteredInbound(event.id);
+        this.store.appendEvent({ type: "inbound.skipped", eventId: event.id, source: event.source, reason: gate.drop });
+      });
+      return;
+    }
     const role = this.store.getAgentRole(event.targetRole);
     if (!role) {
       this.log(`事件 ${event.id} 目标角色 ${event.targetRole} 未引导，跳过`);

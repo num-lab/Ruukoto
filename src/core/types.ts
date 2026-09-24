@@ -161,6 +161,8 @@ export interface InboundEvent {
   body: string;
   /** 正文引用的产物 id 列表（引用传递，不复制内容）。 */
   artifactRefs: string[];
+  /** QQ 私聊由宿主在收件时固定的回复目标；其他来源可空，按各入口规则核对。 */
+  replyTarget: NotifyTarget | null;
   receivedAt: string;
   status: InboundEventStatus;
   /** 由本事件创建的任务（queued 时回填）。 */
@@ -521,8 +523,9 @@ export type PersistentEventBody =
   | { type: "telegram.config_changed"; configVersion: number; action: "upsert" | "enabled" | "disabled" }
   /** 非 owner / 非私聊 / 非文本消息被忽略（只记 id 与原因，不含正文，不建任务）。 */
   | { type: "telegram.rejected"; updateId: number; chatId: string | null; userId: string | null; reason: string }
-  /** Telegram 入站任务终态但未登记 owner 回复（目标未配置/已停用/已换 bot 或 chat）。 */
+  /** 私聊入站任务终态但未登记 owner 回复（目标未配置、停用或版本变化）。 */
   | { type: "telegram.reply_skipped"; eventId: string; taskId: string; reason: string }
+  | { type: "qq_private.reply_skipped"; eventId: string; taskId: string; reason: string }
   | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }
@@ -531,6 +534,7 @@ export type PersistentEventBody =
   | { type: "inbound.registered"; eventId: string; source: string; externalId: string; targetRole: AgentRoleId; actor: string | null }
   /** 入站事件已建任务并入队。 */
   | { type: "inbound.queued"; eventId: string; taskId: string; targetRole: AgentRoleId }
+  | { type: "inbound.skipped"; eventId: string; source: string; reason: string }
   /** 子任务完成（结果摘要与引用已记录在任务上）。 */
   | { type: "child_task.completed"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; summary: string; resultRef: string }
   | { type: "child_task.failed"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; errorMessage: string }

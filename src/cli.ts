@@ -468,6 +468,7 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
               // --no-credential 显式清除凭据引用；缺省 --credential 则保留现有
               credential: flags["no-credential"] !== undefined ? null : flags["credential"],
               self_id: flags["self-id"] ?? "",
+              owner_user_id: flags["no-owner"] !== undefined ? null : flags["owner-id"],
               max_reply_chars: flags["max-reply-chars"] === undefined ? undefined : Number(flags["max-reply-chars"]),
               expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
             }),
@@ -520,7 +521,8 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
       }
       console.error(
         "用法：\n" +
-          "  ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <QQ号> [--credential <名称> | --no-credential] [--max-reply-chars N] [--expected-version N]\n" +
+          "  ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <QQ号> [--credential <名称> | --no-credential] [--owner-id <拥有者QQ号> | --no-owner] [--max-reply-chars N] [--expected-version N]\n" +
+          "    （owner 私聊需 token；仅接好友纯文本，共享 main 会话；--no-owner 关闭私聊）\n" +
           "    （token 先经 ruukoto credentials add --name N --host H --header authorization --purpose qq_onebot --secret-env VAR 登记）\n" +
           "  ruukoto qq status | enable | disable\n" +
           "  ruukoto qq group add <群号> | remove <群号>\n" +

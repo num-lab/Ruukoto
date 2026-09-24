@@ -23,6 +23,7 @@ import {
   type InboundEvent,
   type InboundEventStatus,
   type ModelSelection,
+  type NotifyTarget,
   type PersistentEvent,
   type PersistentEventBody,
   type Project,
@@ -828,6 +829,7 @@ export class Store {
     targetRole: AgentRoleId;
     body: string;
     artifactRefs?: string[];
+    replyTarget?: NotifyTarget | null;
   }): { event: InboundEvent; created: boolean } {
     const event: InboundEvent = {
       id: randomId("evt"),
@@ -837,14 +839,15 @@ export class Store {
       targetRole: input.targetRole,
       body: input.body,
       artifactRefs: input.artifactRefs ?? [],
+      replyTarget: input.replyTarget ?? null,
       receivedAt: new Date().toISOString(),
       status: "registered",
       taskId: null,
     };
     const info = this.db
       .prepare(
-        `INSERT INTO inbound_events (id, source, external_id, actor, target_role, body, artifact_refs, received_at, status, task_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'registered', NULL)
+        `INSERT INTO inbound_events (id, source, external_id, actor, target_role, body, artifact_refs, reply_target, received_at, status, task_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'registered', NULL)
          ON CONFLICT (source, external_id) DO NOTHING`,
       )
       .run(
@@ -855,6 +858,7 @@ export class Store {
         event.targetRole,
         event.body,
         JSON.stringify(event.artifactRefs),
+        event.replyTarget ? JSON.stringify(event.replyTarget) : null,
         event.receivedAt,
       );
     if (Number(info.changes) !== 1) {
@@ -928,6 +932,7 @@ export class Store {
       targetRole: row.target_role as AgentRoleId,
       body: row.body,
       artifactRefs: JSON.parse(row.artifact_refs ?? "[]") as string[],
+      replyTarget: row.reply_target ? JSON.parse(row.reply_target) as NotifyTarget : null,
       receivedAt: row.received_at,
       status: row.status as InboundEventStatus,
       taskId: row.task_id ?? null,

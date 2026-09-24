@@ -1,5 +1,5 @@
 /**
- * QQ 群聊适配器（issue 07）：NapCat OneBot v11 正向 WebSocket → Runtime 任务。
+ * QQ 适配器：同一 NapCat 连接承载群聊与固定 owner 私聊；私聊经编排器与公共 outbox。
  *
  * 边界与纪律：
  * - 窄入口：只经 QqRuntimeBridge 调用 Runtime 的少量方法；不持有拥有者
@@ -20,17 +20,26 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Store } from "../core/store.ts";
-import type { AccessMode, ModelSelection, PersistentEvent, Project, Session, Task } from "../core/types.ts";
+import type { AccessMode, InboundEvent, ModelSelection, NotifyTarget, PersistentEvent, Project, Session, Task } from "../core/types.ts";
 import { ACTIVE_TASK_STATUSES } from "../core/types.ts";
 import type { CredentialStore } from "../agent/execution/credentials.ts";
-import { OneBotClient, OneBotError } from "./onebot.ts";
+import { OneBotClient, OneBotError, oneBotAccountId, oneBotMessageId } from "./onebot.ts";
 import { qqDedupKey, qqMessageTag, type QqConfig, type QqInboxRow, type QqStore } from "./store.ts";
+import type { SchedulerStore } from "../scheduler/store.ts";
+import { NotSentError, type NotifyChannel } from "../scheduler/runtime.ts";
 
 /** QQ 入口凭据用途（CredentialStore 绑定 purpose 与 scope.operations）。 */
 export const QQ_CREDENTIAL_PURPOSE = "qq_onebot";
+export const QQ_PRIVATE_SOURCE = "qq_private";
+
+export function qqPrivateExternalId(account: string, owner: string, messageId: string | number): string {
+  return `${account}:${owner}:${messageId}`;
+}
 
 /** 适配器需要的 Runtime 窄接口（宿主注入；除此之外的能力适配器不可见）。 */
 export interface QqRuntimeBridge {
+  registerPrivate(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget }): Promise<unknown>;
+  dispatchPrivate?(): Promise<unknown>;
   submit(input: {
     sessionId: string;
     requestId: string;
@@ -63,6 +72,7 @@ export interface QqAdapterTimeouts {
 export interface QqAdapterDeps {
   store: Store;
   qqStore: QqStore;
+  sched: SchedulerStore;
   credentials: CredentialStore;
   /** 后台数据目录（群工作目录在其兄弟目录 qq-work/ 下，避开保护根）。 */
   dataDir: string;
@@ -79,7 +89,7 @@ const QUOTE_TEXT_CAP = 200;
 /** 入站消息正文字符上限（事件大小校验；超出登记 skipped，不入队）。 */
 const MAX_INBOUND_TEXT_CHARS = 8192;
 
-export class QqAdapter {
+export class QqAdapter implements NotifyChannel {
   private client: OneBotClient | null = null;
   /** 已建连接的参数指纹（端点/凭据/账号不变则不重建）。 */
   private clientKey: string | null = null;
@@ -87,6 +97,7 @@ export class QqAdapter {
   private inbound: Promise<void> = Promise.resolve();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
+  private lifecycle: Promise<void> = Promise.resolve();
   /** 最近一次连接中断时间（重连成功时标记接收缺口）。 */
   private disconnectedAt: number | null = null;
 
@@ -98,10 +109,17 @@ export class QqAdapter {
 
   private log(message: string): void {
     // 后台诊断输出（不含消息正文与秘密）
-    process.stderr.write(`[ruukoto:qq] ${message}\n`);
+    const config = this.qqStore.getConfig();
+    const token = config ? this.resolveToken(config) : null;
+    process.stderr.write(`[ruukoto:qq] ${token ? message.split(token).join("<token>") : message}\n`);
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    return this.serial(() => this.startOnce());
+  }
+
+  private async startOnce(): Promise<void> {
+    if (this.started) return;
     this.started = true;
     // 崩溃窗口核对：遗留 pending 发送一律定 unknown（effect_unknown，不重发）
     const reconciled = this.qqStore.reconcilePendingOutboxOnBoot();
@@ -117,24 +135,37 @@ export class QqAdapter {
       }
     }
     await this.applyConfig();
+    if (!this.started) return;
     const sweepMs = this.deps.timeouts?.sweepIntervalMs ?? 15_000;
     this.sweepTimer = setInterval(() => this.kickAllQqSessions(), sweepMs);
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
     this.started = false;
-    if (this.sweepTimer) {
-      clearInterval(this.sweepTimer);
-      this.sweepTimer = null;
-    }
-    await this.disconnectClient();
+    return this.serial(async () => {
+      this.started = false;
+      if (this.sweepTimer) {
+        clearInterval(this.sweepTimer);
+        this.sweepTimer = null;
+      }
+      await this.disconnectClient();
+      await this.inbound;
+    });
   }
 
   /** 配置事务提交后由 Runtime 调用（含启停、群列表、连接参数变化）。 */
-  async onConfigChanged(): Promise<void> {
-    if (!this.started) return;
-    await this.applyConfig();
-    this.kickAllQqSessions();
+  onConfigChanged(): Promise<void> {
+    return this.serial(async () => {
+      if (!this.started) return;
+      await this.applyConfig();
+      this.kickAllQqSessions();
+    });
+  }
+
+  private serial(fn: () => Promise<void>): Promise<void> {
+    const run = this.lifecycle.then(fn);
+    this.lifecycle = run.catch(() => {});
+    return run;
   }
 
   /** 群被移出允许列表：该群排队/运行中任务按既有取消机制收尾，未发送回复取消。 */
@@ -152,6 +183,7 @@ export class QqAdapter {
   }
 
   private async applyConfig(): Promise<void> {
+    if (!this.started) return;
     const config = this.qqStore.getConfig();
     if (!config || !config.enabled) {
       const wasEnabled = this.client !== null;
@@ -161,20 +193,22 @@ export class QqAdapter {
       return;
     }
     const token = this.resolveToken(config);
-    if (config.credentialName && token === null) {
+    if ((config.credentialName || config.ownerUserId) && !token) {
       this.log(`凭据 ${config.credentialName} 不可用（不存在或范围不含 ${QQ_CREDENTIAL_PURPOSE}），保持未连接`);
       await this.disconnectClient();
       return;
     }
-    const key = JSON.stringify([config.endpoint, config.credentialName, token, config.selfId]);
+    const key = this.connectionKey(config, token);
     if (this.client && this.clientKey === key) return;
     await this.disconnectClient();
+    if (!this.started) return;
     const t = this.deps.timeouts;
-    this.client = new OneBotClient({
+    const client = new OneBotClient({
       endpoint: config.endpoint,
       token,
-      onEvent: (event) => this.onOneBotEvent(event),
+      onEvent: (event) => this.onOneBotEvent(event, client),
       onStateChange: (online) => {
+        if (!this.started || this.client !== client) return;
         if (online) {
           // 重连成功：如实标记接收缺口（断线期间的消息不假定平台重投，不补抓）
           if (this.disconnectedAt !== null) {
@@ -186,6 +220,9 @@ export class QqAdapter {
             });
           }
           this.kickAllQqSessions();
+          this.inbound = this.inbound.then(async () => {
+            if (this.started && this.client === client) await this.deps.bridge.dispatchPrivate?.();
+          }).catch((err) => this.log(`私聊入站恢复失败：${(err as Error).message}`));
         } else {
           this.disconnectedAt ??= Date.now();
         }
@@ -195,8 +232,13 @@ export class QqAdapter {
       reconnectMinMs: t?.reconnectMinMs,
       reconnectMaxMs: t?.reconnectMaxMs,
     });
+    this.client = client;
     this.clientKey = key;
     this.client.start();
+  }
+
+  private connectionKey(config: QqConfig, token: string | null): string {
+    return JSON.stringify([config.endpoint, config.credentialName, token, config.selfId]);
   }
 
   private async disconnectClient(): Promise<void> {
@@ -228,26 +270,111 @@ export class QqAdapter {
     return "run";
   }
 
+  /** 私聊来源钉住接收时的 owner 与配置版本；离线待恢复，配置变化不改发。 */
+  gatePrivate(event: InboundEvent): QqStartGateResult {
+    const target = this.target();
+    if (!target || !sameTarget(target, event.replyTarget) || event.source !== QQ_PRIVATE_SOURCE || event.actor !== `${QQ_PRIVATE_SOURCE}:${target.chatId}`) {
+      return { drop: "qq_private_target_changed:QQ 私聊入口已停用或固定身份发生变化" };
+    }
+    return this.available() ? "run" : "wait";
+  }
+
+  // ---------- 私聊通知渠道（公共 outbox） ----------
+
+  target(): NotifyTarget | null {
+    const config = this.qqStore.getConfig();
+    if (!config?.enabled || !config.ownerUserId || !this.resolveToken(config)) return null;
+    return { channel: QQ_PRIVATE_SOURCE, account: config.selfId, chatId: config.ownerUserId, configVersion: config.configVersion };
+  }
+
+  available(): boolean {
+    const config = this.qqStore.getConfig();
+    return !!(
+      this.started && config && this.target() && this.client?.online && this.client.selfId === config.selfId &&
+      this.clientKey === this.connectionKey(config, this.resolveToken(config))
+    );
+  }
+
+  async send(input: { opId: string; target: NotifyTarget; text: string; signal: AbortSignal }): Promise<{ platformMessageId: string }> {
+    if (input.signal.aborted) throw new NotSentError("canceled_before_send", "发送前已取消");
+    const target = this.target();
+    if (!target || !sameTarget(target, input.target)) throw new NotSentError("target_changed", "QQ 私聊固定目标已变化或停用");
+    const client = this.client;
+    if (!client || !this.available()) throw new NotSentError("qq_offline", "QQ 登录账号未确认在线，请求未发出");
+    const message: Array<{ type: string; data: Record<string, string> }> = [];
+    const op = this.deps.sched.getOp(input.opId);
+    const source = op?.sourceKind === "owner_reply" ? this.deps.store.getInboundEvent(op.sourceKey) : null;
+    const parts = source?.externalId.split(":");
+    const replyId = parts?.length === 3 ? oneBotMessageId(parts[2]) : null;
+    if (source?.source === QQ_PRIVATE_SOURCE && source.actor === `${QQ_PRIVATE_SOURCE}:${target.chatId}` &&
+        parts?.[0] === target.account && parts[1] === target.chatId && replyId !== null && sameTarget(target, source.replyTarget)) {
+      message.push({ type: "reply", data: { id: replyId } });
+    }
+    message.push({ type: "text", data: { text: input.text } });
+    try {
+      const data = await client.call("send_private_msg", { user_id: Number(target.chatId), message });
+      const id = oneBotMessageId((data as any)?.message_id);
+      if (id === null) throw new Error("QQ 发送回执缺少有效 message_id，结果未知");
+      return { platformMessageId: id };
+    } catch (err) {
+      if (err instanceof OneBotError && err.definite) throw new NotSentError(`onebot_${err.retcode}`, err.message);
+      throw err;
+    }
+  }
+
   // ---------- OneBot 事件 ----------
 
-  private onOneBotEvent(event: Record<string, unknown>): void {
+  private onOneBotEvent(event: Record<string, unknown>, client: OneBotClient): void {
     // 串行处理：同群会话创建/入队不并发，撤回与触发按到达顺序生效
-    this.inbound = this.inbound.then(() => this.handleEvent(event)).catch((err) => this.log(`事件处理失败：${(err as Error).message}`));
+    this.inbound = this.inbound.then(() => this.client === client ? this.handleEvent(event) : undefined)
+      .catch((err) => this.log(`事件处理失败：${(err as Error).message}`));
   }
 
   private async handleEvent(event: Record<string, unknown>): Promise<void> {
+    if (!this.started) return;
     const config = this.qqStore.getConfig();
     if (!config || !config.enabled) return;
     // 身份核对：连接核实账号与事件 self_id 都必须等于预期登录账号
     if (!this.client || !this.client.online || this.client.selfId !== config.selfId) return;
-    if (String(event["self_id"] ?? "") !== config.selfId) return;
+    if (this.clientKey !== this.connectionKey(config, this.resolveToken(config))) return;
+    if (oneBotAccountId(event["self_id"]) !== config.selfId) return;
 
     if (event["post_type"] === "message" && event["message_type"] === "group") {
       await this.handleGroupMessage(config, event);
+    } else if (event["post_type"] === "message" && event["message_type"] === "private") {
+      await this.handlePrivateMessage(config, event);
     } else if (event["post_type"] === "notice" && event["notice_type"] === "group_recall") {
       await this.handleRecall(config, event);
     }
     // message_sent（自身回声）/请求/元事件：不产生任务
+  }
+
+  private async handlePrivateMessage(config: QqConfig, event: Record<string, unknown>): Promise<void> {
+    const owner = oneBotAccountId(event["user_id"]);
+    const messageId = oneBotMessageId(event["message_id"]);
+    const target = this.target();
+    if (!target || !owner || !this.available() || event["sub_type"] !== "friend" || owner !== config.ownerUserId ||
+        owner === config.selfId || messageId === null || event["group_id"] != null) return;
+    const sender = event["sender"] as Record<string, unknown> | undefined;
+    if (sender?.["user_id"] !== undefined && oneBotAccountId(sender["user_id"]) !== owner) return;
+    // 只解析结构化文本与 reply ID；字符串中的 CQ 码没有可靠的类型边界。
+    const segments = event["message"];
+    if (!Array.isArray(segments)) return;
+    const texts: string[] = [];
+    let replyId: string | null = null;
+    for (const seg of segments) {
+      if (seg?.type === "text" && typeof seg.data?.text === "string") texts.push(seg.data.text);
+      else if (seg?.type === "reply" && replyId === null && oneBotMessageId(seg.data?.id) !== null) replyId = oneBotMessageId(seg.data.id);
+      else return;
+    }
+    const text = texts.join("");
+    if (!text.trim() || [...text].length > MAX_INBOUND_TEXT_CHARS) return;
+    const timestamp = typeof event["time"] === "number" ? new Date(event["time"] * 1000) : null;
+    const time = timestamp && Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : "未知";
+    const body = [`[QQ 私聊] account ${config.selfId} user ${owner} message ${messageId} 时间 ${time}`];
+    if (replyId !== null) body.push(`回复关联：message ${replyId}（未读取引用原文）`);
+    body.push("正文：", text);
+    await this.deps.bridge.registerPrivate({ externalId: qqPrivateExternalId(config.selfId, owner, messageId), actor: `${QQ_PRIVATE_SOURCE}:${owner}`, body: body.join("\n"), replyTarget: target });
   }
 
   private async handleGroupMessage(config: QqConfig, event: Record<string, unknown>): Promise<void> {
@@ -390,6 +517,7 @@ export class QqAdapter {
 
   /** Runtime 事件监听（持久事件提交后调用）。 */
   onRuntimeEvents(events: PersistentEvent[]): void {
+    if (!this.started) return;
     for (const ev of events) {
       const body = ev.body;
       if (body.type === "task.completed") {
@@ -458,6 +586,7 @@ export class QqAdapter {
         ],
       });
       const sentId = (data as any)?.message_id;
+      if (oneBotMessageId(sentId) === null) throw new Error("QQ 发送回执缺少有效 message_id，结果未知");
       if (!this.qqStore.settleOutbox(outbox.opId, "sent", { sentMessageId: sentId === undefined || sentId === null ? null : String(sentId) })) {
         this.qqStore.noteLateOutcome(outbox.opId, `取消后平台返回成功（message_id=${String(sentId)}）`);
       }
@@ -506,6 +635,8 @@ export class QqAdapter {
     for (const gs of this.qqStore.listGroupSessions()) {
       this.deps.bridge.kickSession(gs.sessionId);
     }
+    const main = this.deps.store.getAgentRole("main");
+    if (main) this.deps.bridge.kickSession(main.sessionId);
   }
 
   /** 管理视图（不含 token 与消息正文以外的秘密；连接状态为运行期事实）。 */
@@ -517,6 +648,7 @@ export class QqAdapter {
       endpoint: config?.endpoint ?? null,
       credentialName: config?.credentialName ?? null,
       selfId: config?.selfId ?? null,
+      ownerUserId: config?.ownerUserId ?? null,
       groups: config?.groups ?? [],
       maxReplyChars: config?.maxReplyChars ?? null,
       queueTtlMs: config?.queueTtlMs ?? null,
@@ -566,4 +698,8 @@ export function filterRecalledQqMessages(messages: any[], recalledTags: Set<stri
     if (!skipping) out.push(m);
   }
   return out;
+}
+
+function sameTarget(a: NotifyTarget, b: NotifyTarget | null | undefined): boolean {
+  return !!b && a.channel === b.channel && a.account === b.account && a.chatId === b.chatId && a.configVersion === b.configVersion;
 }

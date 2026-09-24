@@ -48,7 +48,7 @@ export interface SchedulerDeps {
   store: Store;
   sched: SchedulerStore;
   now(): number;
-  channel(): NotifyChannel | null;
+  channel(source: string): NotifyChannel | null;
   /** 编排器：派发已持久化的 registered 入站事件（原串行链，重复调用不重复建任务）。 */
   dispatchRegistered(): Promise<void>;
   /** 编排器串行边界（取消与派发在同一链上核对）。 */
@@ -300,7 +300,7 @@ export class Scheduler {
   }
 
   private async sendOne(op: NotificationOp): Promise<void> {
-    const channel = this.deps.channel();
+    const channel = this.deps.channel(op.target.channel);
     const cancel = (reason: string) => this.store.withTx(() => this.sched.cancelOp(op.id, reason, null));
     if (!channel) {
       this.store.withTx(() => this.sched.setWaitReason(op.id, "sender_unavailable：发送器未加载"));

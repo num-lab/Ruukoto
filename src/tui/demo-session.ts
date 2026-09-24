@@ -374,6 +374,7 @@ function demoEvents(): PersistentEvent[] {
     // issue 01：入站事件与子任务编排（角色任务结果回传与有界唤醒）
     { type: "inbound.registered", eventId: "evt_demo000000001", source: "telegram", externalId: "msg-42", targetRole: "main", actor: "owner" },
     { type: "inbound.queued", eventId: "evt_demo000000001", taskId: "task_completed000", targetRole: "main" },
+    { type: "inbound.skipped", eventId: "evt_demo000000002", source: "qq_private", reason: "qq_private_target_changed" },
     { type: "child_task.completed", taskId: "task_completed000", parentTaskId: "task_running000000", agentId: "coding", summary: "分析结论：仓库健康", resultRef: "{\"sessionId\":\"sess_demo0000000000000000\",\"taskId\":\"task_completed000\"}" },
     { type: "child_task.failed", taskId: "task_failed00000", parentTaskId: "task_running000000", agentId: "coding", errorMessage: "模型返回 429：速率限制" },
     { type: "child_task.timeout", taskId: "task_canceled000", parentTaskId: "task_running000000", agentId: "coding", deadline: ts(5) },
@@ -388,6 +389,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "telegram.config_changed", configVersion: 2, action: "enabled" },
     { type: "telegram.rejected", updateId: 101, chatId: "99", userId: "99", reason: "not_owner" },
     { type: "telegram.reply_skipped", eventId: "evt_demo00000001", taskId: "task_completed000", reason: "target_unavailable" },
+    { type: "qq_private.reply_skipped", eventId: "evt_demo00000002", taskId: "task_completed000", reason: "target_changed" },
     { type: "backend.stopping", reason: "signal_sigterm" },
     { type: "backend.stopped", reason: "signal_sigterm" },
   ];

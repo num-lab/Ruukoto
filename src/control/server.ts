@@ -663,6 +663,9 @@ export class ControlServer {
         return runtime.mcpCheckService(requireString("service_id"));
       // ---------- issue 07：QQ 群聊入口（NapCat OneBot） ----------
       case "qq_configure": {
+        if (params["owner_user_id"] !== undefined && params["owner_user_id"] !== null && typeof params["owner_user_id"] !== "string") {
+          throw Object.assign(new Error("owner_user_id 必须是 QQ 号字符串或 null"), { code: "invalid_params" });
+        }
         if (params["max_reply_chars"] !== undefined && !Number.isInteger(params["max_reply_chars"])) {
           throw Object.assign(new Error("max_reply_chars 必须是整数"), { code: "invalid_params" });
         }
@@ -670,6 +673,7 @@ export class ControlServer {
           endpoint: requireString("endpoint"),
           credential: typeof params["credential"] === "string" ? params["credential"] : params["credential"] === null ? null : undefined,
           selfId: requireString("self_id"),
+          ownerUserId: params["owner_user_id"] as string | null | undefined,
           maxReplyChars: params["max_reply_chars"] as number | undefined,
           expectedVersion: optionalExpectedVersion(),
         });

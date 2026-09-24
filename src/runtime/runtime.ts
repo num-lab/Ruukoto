@@ -91,6 +91,8 @@ import { McpStore, McpVersionConflictError, allowlistEffectFor, normalizeToolAll
 import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpConnection, type McpTimeouts } from "../agent/mcp/client.ts";
 import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { retireGitHubModule } from "./github-retirement.ts";
+import { GitHubWebhook, GITHUB_SOURCE } from "../github/webhook.ts";
+import { GitHubEvents, parseGitHubEventsConfig, webhookSecret, type GitHubEventsConfig } from "../github/events.ts";
 import { Orchestrator } from "./orchestrator.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
@@ -194,6 +196,8 @@ export interface RuntimeConfig {
    * 未加载发送器时保留 pending。时钟/间隔/发送时限仅测试覆盖。
    */
   scheduler?: { channel?: NotifyChannel; now?: () => number; tickMs?: number; sendTimeoutMs?: number };
+  /** 显式可信启动配置，缺省不监听；GitHub 操作仍经通用 MCP。 */
+  githubWebhook?: GitHubEventsConfig;
 }
 
 export class RuntimeApiError extends Error {
@@ -249,6 +253,8 @@ export class Runtime {
   readonly telegramStore: TelegramStore;
   /** Telegram 适配器（start 时创建；null = 未创建或 dev 停用）。 */
   private telegram: TelegramAdapter | null = null;
+  private githubWebhook: GitHubWebhook | null = null;
+  private readonly githubEvents: GitHubEvents;
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
   /** 调度器（issue 03）：扫描循环 + 发送循环；start 时创建。 */
@@ -297,6 +303,17 @@ export class Runtime {
     this.qqStore = new QqStore(db);
     this.sched = new SchedulerStore(store);
     this.telegramStore = new TelegramStore(store);
+    this.githubEvents = new GitHubEvents({
+      store, artifacts: this.artifacts, sched: this.sched, config: config.githubWebhook,
+      target: (channel) => this.notifyChannel(channel)?.target() ?? null,
+      readReply: (id, offset, length) => this.readTaskReply(id, offset, length),
+      dispatch: () => !this.stopping && this.orchestrator ? this.orchestrator.dispatchRegisteredEvents() : Promise.resolve(),
+      capReply: (target, text) => {
+        if (target.channel !== QQ_PRIVATE_SOURCE) return capReply(text);
+        const chars = [...text], cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
+        return chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text;
+      },
+    });
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
       for (const listener of this.eventListeners) {
@@ -345,7 +362,8 @@ export class Runtime {
   }
 
   static async start(config: RuntimeConfig): Promise<Runtime> {
-    const fullConfig: RuntimeConfig = { ...config, execution: config.execution ?? { backend: "local" } };
+    const fullConfig: RuntimeConfig = { ...config, execution: config.execution ?? { backend: "local" },
+      githubWebhook: config.githubWebhook ? parseGitHubEventsConfig(config.githubWebhook) : undefined };
     fs.mkdirSync(fullConfig.dataDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(fullConfig.agentDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(sessionsDirFor(fullConfig.dataDir), { recursive: true, mode: 0o700 });
@@ -369,6 +387,12 @@ export class Runtime {
       configLock.release();
       lock.release();
       throw err;
+    }
+
+    try {
+      if (fullConfig.githubWebhook) webhookSecret(runtime.credentials, fullConfig.githubWebhook, true);
+    } catch (err) {
+      runtime.db.close(); configLock.release(); lock.release(); throw err;
     }
 
     runtime.modelRuntime = await ModelRuntime.create({
@@ -478,8 +502,13 @@ export class Runtime {
         resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
         defaultModelSelection: () => runtime.defaultSelection,
       },
-      onInboundTerminal: (event, task, outcome) => runtime.enqueueOwnerReply(event, task, outcome),
-      inboundGate: (event) => runtime.qqPrivateGate(event),
+      onInboundTerminal: (event, task, outcome) => event.source === GITHUB_SOURCE
+        ? runtime.githubEvents.terminal(event, task, outcome)
+        : runtime.enqueueOwnerReply(event, task, outcome),
+      inboundGate: (event) => runtime.inboundGate(event),
+      reviewRequest: (event) => runtime.githubEvents.request(event),
+      resultData: (task, outcome) => runtime.githubEvents.resultData(task, outcome),
+      resultNotice: (task) => runtime.githubEvents.notice(task),
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
@@ -487,6 +516,21 @@ export class Runtime {
     runtime.telegram?.start();
     // 恢复与角色引导完成后才开放调度事件派发与发送
     runtime.scheduler.start();
+    if (fullConfig.githubWebhook) {
+      try {
+        runtime.githubWebhook = await GitHubWebhook.start({
+          ...fullConfig.githubWebhook,
+          secret: () => webhookSecret(runtime.credentials, fullConfig.githubWebhook!),
+          onPullRequest: (event) => {
+            if (runtime.stopping) throw new Error("后台正在停止");
+            return runtime.githubEvents.register(event);
+          },
+        });
+      } catch (err) {
+        await runtime.stop("github_webhook_start_failed");
+        throw err;
+      }
+    }
     runtime.store.withTx(() => {
       runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend });
     });
@@ -496,6 +540,8 @@ export class Runtime {
   socketPath(): string {
     return this.config.socketPath ?? path.join(this.controlDir(), "control.sock");
   }
+
+  githubWebhookAddress() { return this.githubWebhook?.address ?? null; }
 
   // ---------- 调度器与通知（issue 03） ----------
 
@@ -518,6 +564,8 @@ export class Runtime {
       serial: (fn) => (this.orchestrator ? this.orchestrator.serial(fn) : fn()),
       cancelTask: (taskId) => this.cancelTask(taskId),
       verifySources: (op) => {
+        const problem = this.githubEvents.verifyNotification(op);
+        if (problem) return problem;
         const main = this.store.getAgentRole("main");
         return main ? this.sources.verify(main.projectId, op.sourceRefs) : "main 角色未引导";
       },
@@ -537,6 +585,10 @@ export class Runtime {
   private qqPrivateGate(event: InboundEvent): "run" | "wait" | { drop: string } {
     if (event.source !== QQ_PRIVATE_SOURCE) return "run";
     return this.qqAdapter?.gatePrivate(event) ?? "wait";
+  }
+
+  private inboundGate(event: InboundEvent): "run" | "wait" | { drop: string } {
+    return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.qqPrivateGate(event);
   }
 
   /**
@@ -1880,8 +1932,8 @@ export class Runtime {
 
       // 私聊与 Telegram 共用 main 队列，仍按这条消息的固定配置重核，不能凭会话身份放行。
       const sourceEvent = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
-      if (sourceEvent?.source === QQ_PRIVATE_SOURCE) {
-        const decision = this.qqPrivateGate(sourceEvent);
+      if (sourceEvent) {
+        const decision = this.inboundGate(sourceEvent);
         if (decision === "wait") return;
         if (decision !== "run") {
           await this.cancelTask(task.id, { reason: decision.drop });
@@ -2010,6 +2062,7 @@ export class Runtime {
         budgetOverrides: this.config.budgetOverrides,
         webSearch: this.config.webSearch,
         mcp: { store: this.mcp, ...this.config.mcp },
+        allowTaskTool: (task, name, effect) => this.githubEvents.allowTool(task, name, effect),
         reviewer: this.reviewer,
         // QQ 群聊会话（issue 07）：每次模型调用前移出已撤回交互（只改视图）
         qqRecalledFilter: (sessionId, messages) =>
@@ -2049,6 +2102,7 @@ export class Runtime {
             return this.orchestrator.delegateCoding(input);
           },
           readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+          resultNotice: (task) => this.githubEvents.notice(task),
         },
       });
       this.drivers.set(session.id, driver);
@@ -3139,6 +3193,9 @@ export class Runtime {
     this.store.withTx(() => {
       this.store.appendEvent({ type: "backend.stopping", reason });
     });
+
+    await this.githubWebhook?.stop();
+    this.githubWebhook = null;
 
     // 调度器先行停止（issue 03）：停止扫描与领取，中止并等待在途发送收尾；
     // 之后编排器等待派发链，关闭数据库前不再有发送回调写库

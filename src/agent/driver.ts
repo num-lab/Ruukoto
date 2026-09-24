@@ -72,7 +72,7 @@ import { createDelegationTools, settleDelegationOp, DELEGATION_TOOL_NAMES, type 
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
-import type { McpStore } from "./mcp/store.ts";
+import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "../core/access.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
@@ -144,6 +144,8 @@ export interface DriverDeps {
   webSearch?: WebSearchConfig;
   /** MCP（issue 16）：服务配置存储与超时覆盖；未配置时 MCP 工具不注册。 */
   mcp?: { store: McpStore } & McpTimeouts;
+  /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
+  allowTaskTool?: (task: Task, name: string, mcpEffect?: McpToolEffect) => boolean;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
   /**
@@ -172,7 +174,7 @@ export interface DriverDeps {
    * 委派 coding（issue 05）：仅 main 角色会话装配；停止路径按子任务是否存在
    * 核实未落结果的委派操作（同库，恒可核实）。
    */
-  delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply">;
+  delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply" | "resultNotice">;
 }
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -297,6 +299,10 @@ export class Driver {
   private roleAllows(category: ToolCategory): boolean {
     const role = this.role();
     return role === null || role.tools.includes(category);
+  }
+
+  private taskAllowsTool(task: Task, name: string): boolean {
+    return this.deps.allowTaskTool?.(task, name, this.currentMcpPlan?.tools.get(name)?.effect) ?? true;
   }
 
   /**
@@ -690,6 +696,14 @@ export class Driver {
         throw new ContextSendBlocked(`role_tools_forbidden:角色 ${this.role()!.id} 的工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
       }
     }
+    if (this.deps.allowTaskTool && Array.isArray(context?.tools)) {
+      const forbidden = context.tools
+        .map((t: any) => t?.name ?? t?.function?.name)
+        .filter((name: unknown) => typeof name !== "string" || !this.taskAllowsTool(task, name));
+      if (forbidden.length > 0) {
+        throw new ContextSendBlocked(`task_tools_forbidden:任务工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
+      }
+    }
     if (this.selectionBlockReason) {
       const reason = this.selectionBlockReason;
       throw new ContextSendBlocked(`context_budget_exceeded:${reason}`);
@@ -978,14 +992,14 @@ export class Driver {
     // 任务开始固定工具清单（issue 20）：项目禁用 Web Search 时本任务不注册
     // web_search（模型不可见、系统提示同步重建）；任务内不随配置变化，新配置
     // 从下一任务生效。任务内的禁用由工具按调用新鲜检查立即阻止。
+    // 每次从完整注册表重算，宿主对当前任务的限制不带入下一任务。
     // QQ 群聊会话（issue 07）：空工具集合（SDK 注册表本身为空，无法再激活）。
     const webSearchEnabled = this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled";
     sdk.setActiveToolsByName(
       this.isQqGroup
         ? []
-        : webSearchEnabled
-          ? this.allToolNames
-          : this.allToolNames.filter((n) => !(WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(n)),
+        : this.allToolNames.filter((name) =>
+            (webSearchEnabled || !(WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name)) && this.taskAllowsTool(task, name)),
     );
 
     // 会话文件路径尽早落库：崩溃后重启才能打开同一份 JSONL 而不是另起新文件
@@ -1361,6 +1375,9 @@ export class Driver {
     }
     if (this.stopRequested) {
       return { block: true, reason: "任务已停止，确认等待解除" };
+    }
+    if (!this.taskAllowsTool(task, event.toolName)) {
+      return { block: true, reason: `任务工具白名单不包含 ${event.toolName}` };
     }
 
     // 宿主操作 id 与模型调用 id 分开：不同任务复用调用 id 不串用批准

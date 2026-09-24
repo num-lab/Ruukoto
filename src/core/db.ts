@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -371,7 +371,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_open ON schedule_runs (sched
 -- → sent / failed / effect_unknown（不自动重发）/ canceled。
 CREATE TABLE IF NOT EXISTS notification_ops (
   id TEXT PRIMARY KEY,
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','confirmation','owner_reply')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','confirmation','owner_reply','inbound_event')),
   source_key TEXT NOT NULL,
   task_id TEXT,
   host_op_id TEXT,
@@ -516,7 +516,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 14) {
+    } else if (version >= 2 && version <= 15) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -535,6 +535,50 @@ export class Db {
     } else {
       throw new Error(`不支持从 schema v${version} 迁移`);
     }
+    // v16：允许宿主为入站事件登记通知；旧发送账本的状态与逻辑键原样保留。
+    if (version >= 13 && version <= 15) this.rebuildNotificationSourceCheck();
+  }
+
+  /** SQLite 的 CHECK 变更需要重建表；限流时间与所有发送事实均显式复制。 */
+  private rebuildNotificationSourceCheck(): void {
+    this.db.exec(`
+CREATE TABLE notification_ops_new (
+  id TEXT PRIMARY KEY,
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','confirmation','owner_reply','inbound_event')),
+  source_key TEXT NOT NULL,
+  task_id TEXT,
+  host_op_id TEXT,
+  target TEXT NOT NULL,
+  text TEXT NOT NULL,
+  text_sha256 TEXT NOT NULL,
+  source_refs TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL CHECK (status IN ('pending','sending','sent','failed','effect_unknown','canceled')),
+  wait_reason TEXT,
+  error_kind TEXT,
+  error_message TEXT,
+  platform_message_id TEXT,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  cancel_op_id TEXT,
+  late_receipt TEXT,
+  created_at TEXT NOT NULL,
+  sending_at TEXT,
+  settled_at TEXT,
+  updated_at TEXT NOT NULL,
+  not_before TEXT,
+  UNIQUE (source_kind, source_key)
+);
+INSERT INTO notification_ops_new (id, source_kind, source_key, task_id, host_op_id, target, text,
+  text_sha256, source_refs, status, wait_reason, error_kind, error_message, platform_message_id,
+  cancel_requested, cancel_op_id, late_receipt, created_at, sending_at, settled_at, updated_at, not_before)
+SELECT id, source_kind, source_key, task_id, host_op_id, target, text,
+  text_sha256, source_refs, status, wait_reason, error_kind, error_message, platform_message_id,
+  cancel_requested, cancel_op_id, late_receipt, created_at, sending_at, settled_at, updated_at, not_before
+FROM notification_ops;
+DROP TABLE notification_ops;
+ALTER TABLE notification_ops_new RENAME TO notification_ops;
+CREATE INDEX idx_notification_ops_status ON notification_ops (status, created_at);
+CREATE INDEX idx_notification_ops_task ON notification_ops (task_id);
+`);
   }
 
   /**

@@ -15,7 +15,7 @@ import type { ScheduleRule } from "./time.ts";
 export type ScheduleAction = "wake_main" | "notify";
 export type ScheduleStatus = "active" | "completed" | "canceled";
 export type NotificationStatus = "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled";
-export type NotificationSourceKind = "schedule_run" | "confirmation" | "owner_reply";
+export type NotificationSourceKind = "schedule_run" | "confirmation" | "owner_reply" | "inbound_event";
 
 /** 来源快照引用（登记时解析为最终文本；发送前按引用复核可撤销的授权）。 */
 export interface SourceRef {

@@ -67,6 +67,11 @@ export interface OrchestratorDeps {
   onInboundTerminal?(event: InboundEvent, task: Task, outcome: ChildOutcome): void;
   /** 入站派发前复核宿主配置与在线状态；等待保留原事件，失效则作废。 */
   inboundGate?(event: InboundEvent): "run" | "wait" | { drop: string };
+  /** 宿主为已验证的入站事件安排固定 main 父任务与 coding review；模型不参与派发。 */
+  reviewRequest?(event: InboundEvent): string | null;
+  /** 结果落库前保存交付产物与来源元数据；重启补记走同一路径。 */
+  resultData?(task: Task, outcome: ChildOutcome): Record<string, unknown>;
+  resultNotice?(task: Task): string | null;
 }
 
 /** 角色静态定义：工具白名单按注册来源类别给出（Driver 三层强制）。 */
@@ -143,6 +148,18 @@ function capInput(text: string): string {
   return text.length > INPUT_TEXT_CAP
     ? `${text.slice(0, INPUT_TEXT_CAP)}…（截断，原 ${text.length} 字符）`
     : text;
+}
+
+function codingInput(parentId: string, mode: DelegationMode, request: string, digest?: string): string {
+  const body = `[委派 coding · ${mode}]\n` +
+    (digest ? `[委派参数 SHA-256：${digest}]\n` : "") +
+    `来自 main 的委派（父任务 ${parentId}）。工作目录由宿主固定为当前会话目录；需要仓库时在此目录内 git clone。\n` +
+    (mode === "analyze" ? "模式 analyze：只做读取、运行与分析，不修改文件。\n" : "模式 draft：可在工作目录内生成修改草稿（不提交、不推送）。\n") +
+    "不得发布到 GitHub 或其他外部服务（评论、PR、推送须拥有者在可信入口确认）。\n" +
+    "结束时最后两行按格式报告：\n测试：通过|失败|未运行\n需要拥有者：是（原因）|否\n" +
+    `---\n${request}`;
+  if (body.length > INPUT_TEXT_CAP) throw new Error(`委派正文（含资料）超过 ${INPUT_TEXT_CAP} 字符，请精简或改用引用`);
+  return body;
 }
 
 /** 一次委派的已核实参数（delegate 校验后经串行链交给 delegateChecked）。 */
@@ -346,17 +363,7 @@ export class Orchestrator {
   delegateCoding(input: { parentTaskId: string; mode: DelegationMode; request: string; idempotencyKey: string; requestDigest?: string }): Promise<Task> {
     const parent = this.store.getTask(input.parentTaskId);
     if (!parent) throw new Error(`父任务不存在：${input.parentTaskId}`);
-    const body =
-      `[委派 coding · ${input.mode}]\n` +
-      (input.requestDigest ? `[委派参数 SHA-256：${input.requestDigest}]\n` : "") +
-      `来自 main 的委派（父任务 ${parent.id}）。工作目录由宿主固定为当前会话目录；需要仓库时在此目录内 git clone。\n` +
-      (input.mode === "analyze"
-        ? "模式 analyze：只做读取、运行与分析，不修改文件。\n"
-        : "模式 draft：可在工作目录内生成修改草稿（不提交、不推送）。\n") +
-      "不得发布到 GitHub 或其他外部服务（评论、PR、推送须拥有者在可信入口确认）。\n" +
-      "结束时最后两行按格式报告：\n测试：通过|失败|未运行\n需要拥有者：是（原因）|否\n" +
-      `---\n${input.request}`;
-    if (body.length > INPUT_TEXT_CAP) throw new Error(`委派正文（含资料）超过 ${INPUT_TEXT_CAP} 字符，请精简或改用引用`);
+    const body = codingInput(parent.id, input.mode, input.request, input.requestDigest);
     return this.delegate({
       parentTaskId: parent.id,
       targetRole: "coding",
@@ -445,7 +452,25 @@ export class Orchestrator {
       (event.artifactRefs.length > 0 ? `\n产物引用：${JSON.stringify(event.artifactRefs)}` : "");
     let task: Task;
     try {
-      task = await this.deps.bridge.submit({
+      const review = this.deps.reviewRequest?.(event);
+      if (review !== undefined && review !== null) {
+        const main = this.store.getAgentRole("main")!;
+        const coding = this.store.getAgentRole("coding")!;
+        const deadline = new Date(Date.parse(event.receivedAt) + DELEGATION_LIMITS.deadlineMs).toISOString();
+        const parent = this.store.findTaskByRequest(main.sessionId, `evt:${event.id}:main`) ?? await this.deps.bridge.submit({
+          sessionId: main.sessionId, requestId: `evt:${event.id}:main`,
+          input: `[编排器] 已接纳 review 事件 ${event.id}。宿主负责创建 coding 子任务；本回合只确认接收，待结果唤醒后再摘要。`,
+          modelSelection: main.modelSelection ?? this.deps.bridge.defaultModelSelection(),
+          agentId: "main", sourceEventId: event.id, accessMode: "confirm", deadline,
+        });
+        // 已在派发串行链中，不能再次调用 delegate() 排到自己后面等待。
+        task = await this.delegateChecked({
+          parentTaskId: parent.id, requestId: `deleg:${parent.id}:review`, roleId: "coding", sessionId: coding.sessionId,
+          modelSelection: coding.modelSelection ?? this.deps.bridge.defaultModelSelection(),
+          body: codingInput(parent.id, "analyze", review), sourceEventId: event.id,
+          deadline,
+        });
+      } else task = await this.deps.bridge.submit({
         sessionId: role.sessionId,
         requestId: `evt:${event.id}`,
         input,
@@ -460,7 +485,12 @@ export class Orchestrator {
       this.log(`事件 ${event.id} 建任务失败：${(err as Error).message}`);
       return; // 保持 registered，下次启动恢复重提
     }
-    this.store.withTx(() => this.store.markInboundQueued(event.id, task.id));
+    this.store.withTx(() => {
+      this.store.markInboundQueued(event.id, task.id);
+      // 任务已落库/已结束、事件回填前崩溃的窗口也沿用原任务。
+      const recorded = this.store.getTask(task.id)!;
+      if (recorded.resultSummary !== null) this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
+    });
   }
 
   // ---------- 结果回传与唤醒 ----------
@@ -532,7 +562,7 @@ export class Orchestrator {
     const mode = delegationMode(task);
     const result = mode ? this.delegationResult(task, mode, outcome, replyPage) : null;
     if (
-      mode === "analyze" && task.parentTaskId && task.status === "failed" &&
+      mode === "analyze" && task.parentTaskId && !task.sourceEventId && task.status === "failed" &&
       !task.effectUnknown && !task.requestId.endsWith(":retry") &&
       !this.store.listConfirmationsByTask(task.id).some((c) => c.status === "approved" || c.consumedAt !== null) &&
       this.store.listToolOpsByTask(task.id).every((op) => RETRY_SAFE_TOOLS.has(op.toolName) && !op.effectUnknown && op.resultSummary !== null)
@@ -558,13 +588,19 @@ export class Orchestrator {
         }
       }
     }
-    const resultRef = JSON.stringify(result ?? { sessionId: task.sessionId, taskId: task.id });
+    const resultData = this.deps.resultData?.(task, outcome) ?? {};
+    if (result?.needsOwnerReason && typeof resultData.needsOwnerReason === "string") {
+      resultData.needsOwnerReason = `${result.needsOwnerReason}；${resultData.needsOwnerReason}`;
+    }
+    // 宿主保存的交付产物也进入现有结果清单。
+    if (result) result.artifactIds = this.store.listArtifactsByTask(task.id).filter((a) => !a.name.startsWith("prompt-snapshot:")).map((a) => a.id);
+    const resultRef = JSON.stringify({ ...(result ?? { sessionId: task.sessionId, taskId: task.id }), ...resultData });
     // 结果一次写入：重复回传（监听与巡检竞争、重启后重扫）只有第一个生效
     const recorded = this.store.withTx(() => {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
       if (task.sourceEventId) {
-        this.store.setInboundTerminal(task.sourceEventId, outcome === "completed" ? "done" : "failed");
         const event = this.store.getInboundEvent(task.sourceEventId);
+        if (event?.taskId === task.id) this.store.setInboundTerminal(event.id, outcome === "completed" ? "done" : "failed");
         if (event) this.deps.onInboundTerminal?.(event, task, outcome);
       }
       const refs = { taskId: task.id, sessionId: task.sessionId };
@@ -678,6 +714,9 @@ export class Orchestrator {
     if (!parentRole) return;
     const recorded = this.store.getTask(child.id) ?? child;
     const result = delegationMode(recorded) && recorded.resultRef ? (JSON.parse(recorded.resultRef) as DelegationResult) : null;
+    const source = child.sourceEventId ? this.store.getInboundEvent(child.sourceEventId) : null;
+    const reviewSource = source && this.deps.reviewRequest?.(source) ? source : null;
+    const notice = this.deps.resultNotice?.(child);
     const input = result
       ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
         `子任务：${child.id}（角色 coding · 模式 ${result.mode}${child.requestId.endsWith(":retry") ? " · 自动重试后" : ""}）\n` +
@@ -694,9 +733,12 @@ export class Orchestrator {
       await this.deps.bridge.submit({
         sessionId: parent.sessionId,
         requestId: `wake:${child.id}`,
-        input,
+        input: input + (notice ? `\n${notice}` : ""),
         modelSelection: parentRole.modelSelection ?? this.deps.bridge.defaultModelSelection(),
         agentId: parentRole.id,
+        // 入站 review 的摘要保留宿主来源；普通 owner 委派仍无自动外发授权。
+        sourceEventId: reviewSource?.id ?? null,
+        deadline: reviewSource ? new Date(Date.parse(child.endedAt!) + DELEGATION_LIMITS.deadlineMs).toISOString() : null,
         // 子任务结果属于外部内容，不能继承 main 会话默认的完全访问。
         accessMode: "confirm",
       });

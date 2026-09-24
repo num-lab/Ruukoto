@@ -470,6 +470,8 @@ v13）：`schedules`（计划）、`schedule_runs`（调度运行）、`notifica
   notification` 固定完整正文、目标与配置版本、规则/时区/DST、持续范围），
   full_access 与 auto-review 也须拥有者确认；获批后同一核心事务内重核并
   `consumeApproval()`、写入计划/操作。已批准计划后续触发不重复消费批准。
+  GitHub webhook 的一次固定 owner 摘要在启用入口时授权，使用独立的
+  `inbound_event` 来源（schema v16，ADR 0013），不经过模型通知工具。
 - **工具**（仅 main，`ToolCategory` 含 `scheduler`）：`schedule_create /
   schedule_query / schedule_cancel / notification_enqueue / notification_query /
   notification_cancel`。创建键 main 范围内唯一（同键同参返回原计划，异参
@@ -530,8 +532,9 @@ ruukoto telegram enable | disable | status
   发送操作（发送键 = 入站事件 id，目标 = 当前固定 owner 目标，且须与登记该消息的
   bot + chat 一致）。正文取**本任务**历史条目的最终回答（不取会话最新一条），超
   4000 字截短注明；失败/超时/未知只发宿主固定提示。重启时结果未落库的任务由编排器
-  巡检补记并补登回复。定时唤醒与子任务唤醒产生的任务不自动外发（需要时 main 用
-  `notification_enqueue` 另行确认）。目标不可用时记 `telegram.reply_skipped`。
+  巡检补记并补登回复。定时唤醒与普通子任务唤醒不产生 `owner_reply`（需要时 main 用
+  `notification_enqueue` 另行确认）；GitHub 结果通知按 ADR 0013 单独授权。
+  目标不可用时记 `telegram.reply_skipped`。
 - **发送**：`sendMessage` 纯文本，带 `reply_parameters` 关联原消息。结果分类：
   2xx 回执 → `sent`；429 → 退回 `pending` 按 `retry_after` 再发；其他 4xx 与连接
   未建立（ECONNREFUSED/ENOTFOUND 等）→ `failed`；5xx、超时、中途断开、回执不可
@@ -677,6 +680,8 @@ main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，�
 完整回答与产物通过上述工具按需读取。子任务不继承父任务的 Telegram 来源
 事件，子任务及其唤醒任务均不产生 `owner_reply`，结果不自动发回 Telegram
 （ADR 0011）；需要外发时由 main 经 `notification_enqueue` 另行请求确认。
+此处指 `coding_delegate` 的拥有者委派路径；GitHub webhook 由宿主固定委派，
+来源事件和一次摘要通知另按下节的 ADR 0013 处理。
 
 ### 自动重试与恢复
 
@@ -706,13 +711,104 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
 结果未知事实，不自动重放其执行。
 
-## GitHub（专用模块已退役，issue 17）
+## GitHub：MCP 操作与 PR webhook（ADR 0007/0013）
 
 专用 GitHub 模块（REST 采集、草稿与发布状态机，issue 06）已退役并删除；
 GitHub 操作一律经通用 MCP 服务接入（见「MCP 服务」节，含 GitHub MCP 配置
-步骤），运行时不再有 GitHub 专属业务分支。首版只读：写工具不注册、不执行
-（通用写工具见 issue 18）。旧模块的专用工作流保证（固定修订复核、草稿状态机、
-发布意图）不逐项复刻；需要时由 Agent 在普通任务中组合 MCP 工具完成。
+步骤）。daily-agent issue 08 新增 PR webhook 事件适配，复用入站事件、父子
+任务、普通 Artifact 和通知 outbox；不恢复旧模块或 REST 回退。Webhook
+评审只获得读取工具；其他拥有者任务中的通用 MCP 写工具继续遵守 issue 18
+审批边界。旧模块的固定修订发布复核、草稿状态机与发布意图保证不逐项复刻。
+
+### PR webhook 配置（daily-agent issue 08）
+
+先通过已运行后台的凭据入口登记独立签名秘密；`GITHUB_WEBHOOK_SECRET`
+由调用环境提供，值不写进启动 JSON、命令参数、任务正文或日志：
+
+```bash
+ruukoto credentials add --name github-events --host github.com \
+  --header x-hub-signature-256 --purpose github_webhook --secret-env GITHUB_WEBHOOK_SECRET
+```
+
+后台启动时通过 `--github-webhook-config /path/to/github-webhook.json` 显式
+启用；文件对应 `RuntimeConfig.githubWebhook`，例如：
+
+```json
+{
+  "port": 8787,
+  "host": "127.0.0.1",
+  "credential": "github-events",
+  "repositoryIds": [123456789],
+  "notifyChannel": "telegram"
+}
+```
+
+```bash
+ruukoto server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
+  --execution container --github-webhook-config /path/to/github-webhook.json
+```
+
+`port`、`credential` 和非空 `repositoryIds` 必填；仓库范围使用正整数 ID。
+`host` 默认 `127.0.0.1`，`notifyChannel` 可选 `telegram` 或 `qq_private`，
+默认 Telegram。未传文件即不开监听，开发实例不自动继承这项配置。监听路径
+固定为 `POST /github/webhook`；对外提供 HTTPS 时由部署侧反向代理到该入口。
+GitHub webhook 使用 JSON 与相同 secret，并订阅 Pull requests 事件。
+
+签名凭据的 purpose 固定为 `github_webhook`、host 为 `github.com`；启用时
+scope 收紧到该用途，通用 HTTP 工具不能借用。GitHub MCP 另行配置到 coding
+角色绑定的项目，使用自己的读取凭据和工具允许列表。Webhook 的仓库允许列表
+只限制事件接纳；MCP 可访问的仓库仍由其服务配置和远端令牌权限决定。未配置
+MCP、读取失败或资料缺失须在评审结果中说明，不经 REST 补抓。
+
+启用配置同时授权一次固定 owner 摘要，因此应先配置并启用所选 Telegram 或
+QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本；未配置目标时
+不发送摘要，后来配置目标也不会把旧事件改发给新目标。
+
+### 评审、修订与通知边界
+
+- **入口与持久化**：按原始字节校验 `X-Hub-Signature-256` 的 HMAC-SHA256，
+  校验 delivery ID、仓库和 PR 字段。请求正文最多 1 MiB，PR body 只保存
+  前 4000 字符并标记截断。支持 `opened / reopened / synchronize /
+  ready_for_review / edited / closed / converted_to_draft`；签名有效的
+  `ping` 返回 200，其他合法事件或未支持 action 返回 202 并忽略。接纳事件
+  先保存归一化 JSON 快照，`(github, delivery ID)` 去重；首次登记返回 202，
+  重复返回 200。响应不等待模型或子任务，登记失败返回 503。
+- **宿主固定委派**：入站事件异步创建 main 父任务与 coding 子任务，角色、
+  会话、工作目录和 `confirm` 模式由宿主决定。main 父任务只确认接纳且无
+  工具，coding 仅可使用 `read`、`read_artifact` 和本地 `effect = read`
+  的 MCP 工具；结果唤醒的 main 只获得 `coding_result`。PR 标题、正文和
+  工具结果按资料处理，不能修改权限、角色或发布策略，也不能执行 PR 代码。
+- **结果归属**：事件快照记录 head/base SHA、`updatedAt` 与 PR 状态；coding
+  完整最终回答保存为普通报告 Artifact。`result_ref.review` 保存事件 ID、
+  PR URL、仓库 ID、PR 编号、head/base SHA、`artifactId` 与 `staleReason`，
+  main 经 `coding_result` 读取，拥有者经任务详情或 `read-artifact` 查看。
+  产物保留原始分析，当前有效性以任务结果为准，不建立旧 GitHub 草稿版本表。
+  历史分页缺失或写入失败时保留 `partial`，结果记录 `captureError` 并要求拥有者
+  核实；只有完整读取到记录的总字节数才标记 `complete`。
+- **修订边界**：已接收的签名快照按 `updatedAt` 比较；同一 PR 出现相同或
+  更新时刻的不同 head/base、关闭或 draft 状态时，旧结果标记过期，尚未发送
+  的通知取消。同时间戳不同 SHA 也保守失效。模型须在 MCP 采集前后核对
+  head/base，不能核对、分页不完整或 patch 缺失时明确说明；本地未观察到变化
+  不保证远端仍未改变，缺失 webhook 不自动补抓。
+- **一次通知**：只有该事件 coding 结果对应的 main 摘要终态才登记通知；
+  公共 outbox 使用 `sourceKind = inbound_event` 和事件 ID 作为逻辑键，
+  独立于 `owner_reply`，模型不能换目标或另建发送槽。发送前复核事件仍有效、
+  入口仍启用且固定 owner 目标未变；过期、停用或配置变化时取消未发送操作。
+  已在途的操作按实际回执收尾；`failed / effect_unknown` 不自动重发，平台
+  明确限流沿用原操作延迟重试。通知可经 `ruukoto notify list|show` 查看。
+
+Webhook 链路不发表评论、合并或自动修复；这些操作须由拥有者从可信入口
+发起，并遵守既有工具与审批规则。上述修订检查不替代发布前核对远端状态。
+Webhook review 不自动重试模型执行；父子任务与结果唤醒都有固定的 60 分钟
+时限，包含排队等待。重启沿用原事件、父子任务、产物和通知键补记，不重新评审。
+
+schema v16 扩展公共通知的 `inbound_event` 来源，升级保留原有发送状态、目标、
+正文、幂等键、限流时间与索引。实际 GitHub webhook、GitHub MCP 和 owner 渠道
+部署需另行验收；本地模拟平台测试不代表真实接入已通过。
+
+本轮本地验证：`test/42` 至 `test/46` 覆盖入口、迁移、任务工具限制、MCP 评审到
+通知的闭环、修订失效、崩溃窗口恢复及 partial 归档。`npm run typecheck` 通过；
+全量 `npm test` 共 437 项，436 通过、0 失败、1 项真实模型测试按默认开关跳过。
 
 ### 历史资料与迁移
 
@@ -782,7 +878,7 @@ GitHub 操作一律经通用 MCP 服务接入（见「MCP 服务」节，含 Git
 拥有者按项目配置的 Model Context Protocol 服务，首版仅 Streamable HTTP
 传输、手动配置凭据、工具发现与调用；stdio、OAuth 登录、resources/prompts
 与客户端代执行能力（sampling/elicitation）不启用。首个接入对象为官方远程
-GitHub MCP（issue 17 起为 GitHub 的唯一接入路径，旧专用模块已退役）。
+GitHub MCP（issue 17 起为 GitHub 操作的唯一接入路径，旧专用模块已退役）。
 MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
 权限与控制面边界，不等同于授予项目命令任意网络或凭据访问权。
 

@@ -62,6 +62,7 @@ export interface DelegationToolsDeps {
   delegate(input: { parentTaskId: string; mode: DelegationMode; request: string; idempotencyKey: string; requestDigest: string }): Promise<Task>;
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
+  resultNotice?(task: Task): string | null;
   artifacts: ArtifactStore;
   taskContext(): HostToolContext | null;
   bindCall?(sdkCallId: string): () => void;
@@ -171,15 +172,17 @@ export function createDelegationTools(deps: DelegationToolsDeps): ToolDefinition
       if (!child || child.agentId !== "coding" || !parent || parent.sessionId !== ctx.sessionId) {
         throw new Error("只能读取 main 委派的 coding 子任务");
       }
+      const notice = deps.resultNotice?.(child);
+      const resultText = (text: string) => okText(notice ? `${notice}\n${text}` : text);
       const part = params.part ?? "result";
       if (part === "reply") {
         const offset = intParam(params.offset, 0, Number.MAX_SAFE_INTEGER, "offset");
         const length = intParam(params.length, READ_LIMITS.replyBytes, READ_LIMITS.replyBytes, "length");
         if (length < 256) throw new Error("reply length 必须至少为 256 字节");
         const page = deps.readReply(child.id, offset, length);
-        if (page === null) return okText(`子任务 ${child.id}（${child.status}）暂无最终回答`);
+        if (page === null) return resultText(`子任务 ${child.id}（${child.status}）暂无最终回答`);
         const end = page.offset + Buffer.byteLength(page.text);
-        return okText(`[最终回答 第 ${page.offset}–${end} 字节，共 ${page.totalBytes}${end < page.totalBytes ? `；继续用 offset=${end}` : ""}]\n${page.text}`);
+        return resultText(`[最终回答 第 ${page.offset}–${end} 字节，共 ${page.totalBytes}${end < page.totalBytes ? `；继续用 offset=${end}` : ""}]\n${page.text}`);
       }
       if (part === "artifact") {
         const artifact = typeof params.artifact_id === "string" ? store.getArtifact(params.artifact_id) : null;
@@ -197,7 +200,7 @@ export function createDelegationTools(deps: DelegationToolsDeps): ToolDefinition
           throw new Error("产物片段不是合法 UTF-8 文本，或 offset 未对齐字符边界");
         }
         const end = offset + Buffer.byteLength(text);
-        return okText(
+        return resultText(
           `[产物 ${artifact.id}（${artifact.name}，${artifact.status}）第 ${offset}–${end} 字节，共 ${artifact.byteCount}` +
             `${end < artifact.byteCount ? `；继续用 offset=${end}` : ""}]\n${text}`,
         );
@@ -215,7 +218,7 @@ export function createDelegationTools(deps: DelegationToolsDeps): ToolDefinition
       } else {
         lines.push("尚未结束或结果尚未记录");
       }
-      return okText(lines.join("\n"));
+      return resultText(lines.join("\n"));
     }),
   } as any);
 

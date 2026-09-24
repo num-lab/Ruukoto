@@ -196,10 +196,14 @@ ruukoto mcp configure --project <id> --name github --endpoint https://api.github
 ruukoto mcp list [--project <id>] | check <service-id> | disable <service-id> | enable | remove
 ```
 
-首版只读（写工具不注册；通用写工具见 issue 18）。旧模块的历史草稿与发布记录在
-升级后首次启动时归档为原任务产物，清单见 `<数据目录>/github-archive-manifest.json`；
-旧 `ruukoto github …` 命令只保留退役提示。详见 docs/runtime.md「GitHub（专用模块
-已退役）」与「MCP 服务」两节。
+上述配置只启用读取工具；通用写工具见 issue 18。旧模块的历史草稿与发布记录在
+升级后首次启动时归档为原任务产物，清单见 `<数据目录>/github-archive-manifest.json`。
+
+PR webhook 可经后台 `--github-webhook-config` 显式启用：固定仓库的事件触发只读
+review，报告留为任务产物，main 摘要经 outbox 通知固定 owner；不自动发布评论。
+
+旧 `ruukoto github …` 命令只保留退役提示。详见 [运行文档](docs/runtime.md) 中
+「GitHub：MCP 操作与 PR webhook」和「MCP 服务」两节。
 
 ## 权限模式
 

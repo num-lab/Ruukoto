@@ -34,6 +34,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { resolveEntry } from "./cli-entry.ts";
 import { ControlClient } from "./control/client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
@@ -186,6 +187,10 @@ async function runServer(rest: string[]): Promise<number> {
     qqDisabled: process.env.RUUKOTO_DISABLE_QQ === "1",
     // 同上（issue 04）：RUUKOTO_DISABLE_TELEGRAM=1 停用真实 Telegram 通道
     telegramDisabled: process.env.RUUKOTO_DISABLE_TELEGRAM === "1",
+    // 显式文件参数，不从环境继承；开发实例不会自动接纳生产 webhook。
+    githubWebhook: flags["github-webhook-config"]
+      ? JSON.parse(fs.readFileSync(flags["github-webhook-config"], "utf8"))
+      : undefined,
   });
   await ControlServer.start(runtime);
   const stopAndExit = (reason: string) => {
@@ -194,6 +199,8 @@ async function runServer(rest: string[]): Promise<number> {
   process.on("SIGINT", () => stopAndExit("signal_sigint"));
   process.on("SIGTERM", () => stopAndExit("signal_sigterm"));
   console.error(`ruukoto 后台已启动 dataDir=${dataDir} socket=${runtime.socketPath()} (pid ${process.pid})`);
+  const webhook = runtime.githubWebhookAddress();
+  if (webhook) console.error(`GitHub webhook http://${webhook.address}:${webhook.port}/github/webhook`);
   return 0;
 }
 
@@ -761,7 +768,7 @@ function defaultHelp(): string {
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
-    "参数：--data-dir / --agent-dir / --execution / --model / --thinking（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
+    "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +
     "旧拼法：ruukoto tui 仍可用，请迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo\n" +
     "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"

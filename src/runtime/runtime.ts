@@ -194,10 +194,10 @@ class TaskGoneError extends Error {}
  * pi 内置 provider 注册表也出现在那里，会静默选中无关的云端模型。
  * 返回模型与生效的思考档位（显式 thinkingLevel 配置始终优先）。
  */
-async function resolveConfiguredModel(
+function resolveConfiguredModel(
   modelRuntime: ModelRuntime,
   config: RuntimeConfig,
-): Promise<{ model: any; thinkingLevel: ModelSelection["thinkingLevel"] } | undefined> {
+): { model: any; thinkingLevel: ModelSelection["thinkingLevel"] } | undefined {
   if (config.modelProvider) {
     const model = modelRuntime.getModel(config.modelProvider, config.modelId ?? "");
     return model ? { model, thinkingLevel: config.thinkingLevel ?? "off" } : undefined;
@@ -379,7 +379,7 @@ export class Runtime {
       modelsStore: new InMemoryModelsStore(),
       refreshOnCreate: false,
     });
-    const configured = await resolveConfiguredModel(runtime.modelRuntime, fullConfig);
+    const configured = resolveConfiguredModel(runtime.modelRuntime, fullConfig);
     if (!configured) {
       runtime.db.close();
       configLock.release();
@@ -914,7 +914,7 @@ export class Runtime {
         }
       }
     }
-    const configured = await resolveConfiguredModel(modelRuntime, this.config);
+    const configured = resolveConfiguredModel(modelRuntime, this.config);
     if (!configured) {
       throw new RuntimeApiError("no_model", "应用该配置后将没有可用模型，已回滚");
     }
@@ -1096,8 +1096,12 @@ export class Runtime {
     if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
     this.assertConfigRevision(input.expectedRevision);
     saveDefaultModel(this.config.agentDir, selection);
-    this.model = this.modelRuntime.getModel(selection.provider, selection.modelId) ?? this.model;
-    this.defaultSelection = selection;
+    // 与启动/重建同一解析口径：显式 --model/--thinking 运行期间持久默认只落盘，不改运行时默认
+    const configured = resolveConfiguredModel(this.modelRuntime, this.config);
+    if (configured) {
+      this.model = configured.model;
+      this.defaultSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
+    }
     this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "default_model", provider: selection.provider }));
     return { revision: configRevision(this.config.agentDir), defaultModel: selection };
   }
@@ -1942,7 +1946,7 @@ export class Runtime {
       provider: String(this.model?.provider ?? ""),
       id: String(this.model?.id ?? ""),
       name: String(this.model?.name ?? ""),
-      thinkingLevel: this.config.thinkingLevel ?? "off",
+      thinkingLevel: this.defaultSelection.thinkingLevel,
     };
   }
 

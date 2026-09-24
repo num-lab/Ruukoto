@@ -154,3 +154,13 @@ Depends on: 04, 10, 11
 5. **占位回写**：新增 `restoreCatalogSecrets`，在线 `save_model_catalog` 与离线保存在校验前把占位 true 还原为原值（数组元素按 id 对齐，找不到时按下标）。无原值可还原的占位仍被校验拒绝，校验同时覆盖模型级 headers。配置中心删除 `catalogPayload` 特例，改为 `structuredClone` 整份回写，缓存视图不再被编辑改动。
 
 回归测试：test/31 增加 headers（含模型级）脱敏、脱敏视图原样回写保留内联 key 与 headers、无原值占位被拒绝、服务端 500 时探测报失败、新增 provider 的秘密在回滚错误中被脱敏；test/33 的 API key 用例改为粘贴加逐字输入。改动前这些新断言全部失败。`npm run typecheck` 通过；`npm test` 368 项，367 通过，1 项按默认跳过。
+
+#### 第二批修复
+
+规则统一为：生效默认只由 `resolveConfiguredModel` 一处决定，启动、重建和在线设置默认都走它；显式 `--model`/`--thinking` 始终优先于 `default-model.json`。
+
+1. **③ 思考档位**：`server` 未指定 `--thinking` 时不再传 `off`，持久默认的档位得以生效。`modelInfo()`（任务界面展示的默认模型）原先也读启动参数，改为取生效默认的档位。
+2. **⑩ `--model` 优先级**：`resolveConfiguredModel` 改为同步函数，`setDefaultModel` 写文件后用它重新解析运行时默认。带显式参数运行期间，在线设置只写文件，运行时默认保持不变，不会等到重建才翻转。
+3. 文档：`docs/runtime.md` 补充默认模型与思考档位的来源和优先级。
+
+回归测试：test/31 的 set_default_model 用例增加两条断言：重启后界面展示持久默认的档位；显式参数运行期间在线设置默认后，运行时默认仍取显式参数。两条在旧代码上均失败。`npm run typecheck` 通过；`npm test` 368 项，367 通过，1 项按默认跳过。

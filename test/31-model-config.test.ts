@@ -484,6 +484,7 @@ test("set_default_model：持久化、新会话生效、旧会话不变、重启
     const view = await t.client.request<any>("get_model_config", {});
     assert.deepEqual(view.defaultModel, sel, "持久默认模型重启后存活");
     assert.deepEqual(view.runtimeDefault, sel, "重启后运行时默认取持久配置");
+    assert.equal(t.runtime.modelInfo().thinkingLevel, "low", "界面展示的思考档位取生效默认");
 
     // 显式启动参数优先于持久默认
     await stopRt(t);
@@ -491,6 +492,12 @@ test("set_default_model：持久化、新会话生效、旧会话不变、重启
     const overridden = await t.client.request<any>("get_model_config", {});
     assert.deepEqual(overridden.runtimeDefault, MOCK_SELECTION, "显式 modelProvider/modelId 优先于 default-model.json");
     assert.deepEqual(overridden.defaultModel, sel, "持久文件不被改写");
+    // 显式启动参数运行期间在线改默认：只落盘，运行时默认不变（不会等到重建才翻转）
+    const next = { provider: "second", modelId: "reasoner", thinkingLevel: "off" };
+    await t.client.request("set_default_model", { provider: next.provider, model_id: next.modelId, thinking_level: next.thinkingLevel, expected_revision: overridden.revision });
+    const pinned = await t.client.request<any>("get_model_config", {});
+    assert.deepEqual(pinned.defaultModel, next);
+    assert.deepEqual(pinned.runtimeDefault, MOCK_SELECTION, "显式启动参数仍优先");
   } finally {
     await cleanupManual(t);
   }

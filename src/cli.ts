@@ -175,7 +175,8 @@ async function runServer(rest: string[]): Promise<number> {
     dataDir,
     agentDir,
     controlDir: process.env.RUUKOTO_CONTROL_DIR,
-    thinkingLevel: (flags["thinking"] ?? "off") as ModelSelection["thinkingLevel"],
+    // 未显式指定时不传：持久默认的思考档位才能生效（显式 --thinking 优先）
+    thinkingLevel: flags["thinking"] as ModelSelection["thinkingLevel"] | undefined,
     modelProvider,
     modelId,
     execution: { backend: execFlag },

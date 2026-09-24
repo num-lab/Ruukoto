@@ -516,6 +516,12 @@ export type PersistentEventBody =
    * 群消息不假定平台会重投，缺失如实记录，不补抓、不补发。
    */
   | { type: "qq.receive_gap"; from: string; to: string }
+  /** Telegram owner 入口配置变化（issue 04）：不含 token；configVersion 随变化递增。 */
+  | { type: "telegram.config_changed"; configVersion: number; action: "upsert" | "enabled" | "disabled" }
+  /** 非 owner / 非私聊 / 非文本消息被忽略（只记 id 与原因，不含正文，不建任务）。 */
+  | { type: "telegram.rejected"; updateId: number; chatId: string | null; userId: string | null; reason: string }
+  /** Telegram 入站任务终态但未登记 owner 回复（目标未配置/已停用/已换 bot 或 chat）。 */
+  | { type: "telegram.reply_skipped"; eventId: string; taskId: string; reason: string }
   | { type: "backend.started"; dataDir: string; executionBackend: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }

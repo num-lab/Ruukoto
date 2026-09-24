@@ -24,6 +24,7 @@
  *   ruukoto credentials remove <name>
  *   ruukoto qq configure --endpoint ws://... --self-id N [--credential N] | status | enable | disable
  *   ruukoto qq group add|remove <群号> | qq inbox|outbox [--group G] [--limit N]
+ *   ruukoto telegram configure --credential N --user-id U [--chat-id C] [--api-base URL] | status | enable | disable
  *   ruukoto stop
  *
  * 数据目录默认 ~/.ruukoto；控制面目录为其兄弟目录 control/（socket 与拥有者
@@ -183,6 +184,8 @@ async function runServer(rest: string[]): Promise<number> {
     toolFactory,
     // dev 开发实例（issue 21 §1）：RUUKOTO_DISABLE_QQ=1 停用真实 QQ 通道
     qqDisabled: process.env.RUUKOTO_DISABLE_QQ === "1",
+    // 同上（issue 04）：RUUKOTO_DISABLE_TELEGRAM=1 停用真实 Telegram 通道
+    telegramDisabled: process.env.RUUKOTO_DISABLE_TELEGRAM === "1",
   });
   await ControlServer.start(runtime);
   const stopAndExit = (reason: string) => {
@@ -525,6 +528,37 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
       );
       return 1;
     }
+    case "telegram": {
+      // Telegram owner 入口（issue 04）：bot token 先经
+      // credentials add --purpose telegram_bot 登记，再以 --credential 引用名称
+      const sub = positional[0];
+      const expected_version = flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]);
+      if (sub === "configure") {
+        print(await withClient((c) => c.request("telegram_configure", {
+          credential: flags["credential"] ?? "",
+          user_id: flags["user-id"] ?? "",
+          chat_id: flags["chat-id"],
+          api_base: flags["api-base"],
+          expected_version,
+        })));
+        return 0;
+      }
+      if (sub === "status") {
+        print(await withClient((c) => c.request("telegram_status", {})));
+        return 0;
+      }
+      if (sub === "enable" || sub === "disable") {
+        print(await withClient((c) => c.request("telegram_set_enabled", { enabled: sub === "enable", expected_version })));
+        return 0;
+      }
+      console.error(
+        "用法：\n" +
+          "  ruukoto telegram configure --credential <名称> --user-id <owner user_id> [--chat-id <chat_id>] [--api-base https://...] [--expected-version N]\n" +
+          "    （token 先经 ruukoto credentials add --name N --host api.telegram.org --header none --purpose telegram_bot --secret-env VAR 登记）\n" +
+          "  ruukoto telegram status | enable | disable",
+      );
+      return 1;
+    }
     case "schedule":
     case "notify": {
       // 调度计划与通知发送账本（issue 03）：列表/详情/取消；审批仍在 TUI
@@ -723,7 +757,7 @@ function defaultHelp(): string {
     "      ruukoto server [启动参数]                     前台启动后台（start 为兼容别名，文档推荐 server）\n" +
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
-    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | stop |\n" +
+    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +

@@ -702,6 +702,23 @@ export class ControlServer {
         }
         return { entries: runtime.qqListOutbox({ groupId: typeof params["group_id"] === "string" ? params["group_id"] : undefined, limit }) };
       }
+      // ---------- issue 04：Telegram owner 入口 ----------
+      case "telegram_configure":
+        return runtime.telegramConfigure({
+          apiBase: typeof params["api_base"] === "string" ? params["api_base"] : undefined,
+          credential: requireString("credential"),
+          ownerUserId: requireString("user_id"),
+          ownerChatId: typeof params["chat_id"] === "string" ? params["chat_id"] : undefined,
+          expectedVersion: optionalExpectedVersion(),
+        });
+      case "telegram_status":
+        return runtime.telegramStatus();
+      case "telegram_set_enabled": {
+        if (typeof params["enabled"] !== "boolean") {
+          throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
+        }
+        return runtime.telegramSetEnabled(params["enabled"], optionalExpectedVersion());
+      }
       // ---------- issue 03：调度计划与通知发送账本（只查询/取消，不获得发送或改目标能力） ----------
       case "schedule_list":
       case "notification_list": {

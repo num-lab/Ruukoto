@@ -82,6 +82,8 @@ export interface NotificationOp {
   sourceRefs: SourceRef[];
   status: NotificationStatus;
   waitReason: string | null;
+  /** 限流退回后最早再次领取时间（null = 立即可领取）。 */
+  notBefore: string | null;
   errorKind: string | null;
   errorMessage: string | null;
   platformMessageId: string | null;
@@ -310,8 +312,11 @@ export class SchedulerStore {
     return page(rows.map(rowToOp), limit);
   }
 
-  listPending(limit: number): NotificationOp[] {
-    const rows = this.db.prepare("SELECT * FROM notification_ops WHERE status = 'pending' ORDER BY created_at, id LIMIT ?").all(limit) as any[];
+  /** 可领取的 pending（限流退回的操作到 not_before 之后才可再领取）。 */
+  listPending(nowIso: string, limit: number): NotificationOp[] {
+    const rows = this.db
+      .prepare("SELECT * FROM notification_ops WHERE status = 'pending' AND (not_before IS NULL OR not_before <= ?) ORDER BY created_at, id LIMIT ?")
+      .all(nowIso, limit) as any[];
     return rows.map(rowToOp);
   }
 
@@ -343,6 +348,22 @@ export class SchedulerStore {
     if (Number(info.changes) !== 1) return false;
     const op = this.getOp(id)!;
     this.store.appendEvent({ type: "notification.changed", opId: id, status, sourceKind: op.sourceKind, ...(fields.errorKind ? { reason: fields.errorKind } : {}) });
+    return true;
+  }
+
+  /**
+   * 退回：平台明确拒绝且可证明未发送（限流）时 sending → pending，not_before 之后
+   * 再领取；领取期间已有取消意图的直接 canceled。
+   */
+  release(id: string, notBefore: string, reason: string): boolean {
+    const op = this.getOp(id);
+    if (!op || op.status !== "sending") return false;
+    const now = new Date().toISOString();
+    const status = op.cancelRequested ? "canceled" : "pending";
+    this.db
+      .prepare("UPDATE notification_ops SET status = ?, sending_at = NULL, not_before = ?, wait_reason = ?, settled_at = ?, updated_at = ? WHERE id = ? AND status = 'sending'")
+      .run(status, status === "pending" ? notBefore : null, reason.slice(0, 500), status === "canceled" ? now : null, now, id);
+    this.store.appendEvent({ type: "notification.changed", opId: id, status, sourceKind: op.sourceKind, reason: reason.slice(0, 200) });
     return true;
   }
 
@@ -443,6 +464,7 @@ function rowToOp(row: any): NotificationOp {
     sourceRefs: JSON.parse(row.source_refs ?? "[]"),
     status: row.status,
     waitReason: row.wait_reason ?? null,
+    notBefore: row.not_before ?? null,
     errorKind: row.error_kind ?? null,
     errorMessage: row.error_message ?? null,
     platformMessageId: row.platform_message_id ?? null,

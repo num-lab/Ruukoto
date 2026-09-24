@@ -78,5 +78,8 @@ _Avoid_：把调度计划当作 main 的待办/提醒业务数据（业务数据
 _Avoid_：把漏过的每个周期都当作独立待补发的运行。
 
 **发送操作**：通知 outbox 中一次固定目标、固定正文、固定操作 ID 的外发（`notification_ops`），状态 pending/sending/sent/failed/effect_unknown/canceled；逻辑发送键由宿主决定，结果未知不自动换键重发。
-_Avoid_：把 sending 回退为 pending，或把结果未知描述为取消成功。
+_Avoid_：把 sending 回退为 pending（唯一例外：平台明确限流拒绝、可证明未发送时退回 pending 延迟再领取，ADR 0011），或把结果未知描述为取消成功。
+
+**owner 回复**：拥有者经 Telegram 私聊触发的 main 任务到达终态后，宿主自动登记的一次发送操作（issue 04）；发送键为入站事件 ID，目标固定为登记该消息的 bot + owner chat，正文取该任务自己的最终回答。
+_Avoid_：把定时唤醒或子任务唤醒产生的回答当作 owner 回复自动外发；从"会话最新回复"推断某个任务的回答。
 

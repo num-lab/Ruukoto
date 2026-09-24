@@ -459,11 +459,13 @@ v13）：`schedules`（计划）、`schedule_runs`（调度运行）、`notifica
 - **发送**：一次只有一个在途操作；`pending`（未领取）→ 条件更新 `sending`
   → 事务提交后调用宿主注入的渠道一次（15s 时限）：成功 `sent`（保存平台
   消息 ID），可证明未发送（`NotSentError`）`failed`，超时/断线/中止/模糊错误
-  `effect_unknown`。迟到回执保存在原操作上，不改状态、不重发。发送前重核
+  `effect_unknown`；平台限流（`RetryLaterError`，如 Telegram 429）可证明未发送，
+  退回 `pending` 并写 `not_before`，到时同一操作（原目标、原正文）再领取一次
+  （ADR 0011）。迟到回执保存在原操作上，不改状态、不重发。发送前重核
   目标（配置版本变化或停用 → `canceled`，不改发新目标）、计划状态与来源
   授权；渠道离线或发送器未加载 → 保持 `pending` 并写等待原因。
-- **授权**：目标只来自可信宿主渠道（`RuntimeConfig.scheduler.channel`；
-  真实 Telegram 路由归 issue 04）；未配置即拒绝创建外发。`notify` 计划与
+- **授权**：目标只来自可信宿主渠道（测试注入 `RuntimeConfig.scheduler.channel`，
+  否则为 Telegram 适配器，见下节）；未配置即拒绝创建外发。`notify` 计划与
   `notification_enqueue` 一次发送都进入统一审批（`ApprovalScope.kind =
   notification` 固定完整正文、目标与配置版本、规则/时区/DST、持续范围），
   full_access 与 auto-review 也须拥有者确认；获批后同一核心事务内重核并
@@ -483,6 +485,62 @@ v13）：`schedules`（计划）、`schedule_runs`（调度运行）、`notifica
   列表不带正文）；审批在 TUI。控制面不获得发送或改目标能力。
 - **停止**：先停止扫描与领取并中止在途发送（结果按事实收尾，通常
   `effect_unknown`），再等待编排器派发链，最后关库；关闭屏障后迟到回调不写库。
+
+## Telegram owner 入口（daily-agent issue 04，ADR 0011）
+
+main 的第一条日常链路：拥有者在 Telegram 私聊 bot，消息进入同一个 main 会话，
+回答经公共 outbox 发回原聊天。代码在 `src/telegram/adapter.ts`。
+
+### 配置与启停
+
+```bash
+TG_TOKEN=123456:ABC... ruukoto credentials add --name tg --host api.telegram.org \
+  --header none --purpose telegram_bot --secret-env TG_TOKEN
+ruukoto telegram configure --credential tg --user-id <owner user_id> [--chat-id <chat_id>] [--api-base https://...]
+ruukoto telegram enable | disable | status
+```
+
+- bot token 只在 CredentialStore（purpose=`telegram_bot`，host 须与 API 地址一致；
+  配置后 scope 收紧到 `telegram_bot`）；核心库 `telegram_config` 单行只存绑定名、
+  固定 owner `user_id + chat_id`（私聊 chat_id 即 user_id，缺省相同）、启停、
+  `config_version` 与轮询偏移。token 在请求 URL 中，错误信息写入日志/账本/状态
+  前先脱敏；不进入模型上下文与事件。
+- `--api-base` 缺省官方端点，可指向受控反代（必须 https，http 仅限回环）。
+  Node `fetch` 不读 `HTTP(S)_PROXY`；国内服务器需要反代或网络层代理。
+- 任何配置变化递增 `config_version` 并即时重连；重新配置把轮询偏移归零（平台
+  重投由外部 id 去重）。旧目标上未发送的操作因版本变化取消，不改发新目标。
+- dev 开发实例固定注入 `RUUKOTO_DISABLE_TELEGRAM=1`，不创建适配器。
+
+### 运行行为
+
+- **接收**：long polling `getUpdates`（25s，只收 `message`）。只接纳
+  `chat.type = private` 且 `from.id / chat.id` 与配置一致的文本消息；其余不登记、
+  不建任务、不调用模型，只记 `telegram.rejected`（update/chat/user id 与原因
+  `not_owner / not_private / non_text / unsupported_update`，不含正文）。
+- **先持久化再推进偏移**：接纳的消息经编排器登记为入站事件
+  （`source = telegram`，外部 id `<botId>:<chatId>:<messageId>`，目标 main），
+  登记成功后才写 `last_update_id`。崩溃/断线后平台重投命中原外部 id，不重复建
+  任务；已登记未派发的事件由启动恢复与调度器每 30s 补派（所有来源）。停机
+  积压的消息全部处理（正文带原消息时间）。
+- **入站正文**：固定模板 `[Telegram 私聊] chat … user … message … 时间 …`，回复
+  某条消息时附 `回复关联：message <id>（本 bot / owner 发送）：<摘录 ≤500 字>`。
+- **权限**：入站事件（Telegram、定时唤醒等）建任务一律固定 `confirm` 模式，不继承
+  main 会话默认的 full_access；需要审批的操作仍在 TUI 确认（Telegram 内审批另开工单）。
+- **回复**：Telegram 来源任务到达终态时，在编排器结果事务内登记 `owner_reply`
+  发送操作（发送键 = 入站事件 id，目标 = 当前固定 owner 目标，且须与登记该消息的
+  bot + chat 一致）。正文取**本任务**历史条目的最终回答（不取会话最新一条），超
+  4000 字截短注明；失败/超时/未知只发宿主固定提示。重启时结果未落库的任务由编排器
+  巡检补记并补登回复。定时唤醒与子任务唤醒产生的任务不自动外发（需要时 main 用
+  `notification_enqueue` 另行确认）。目标不可用时记 `telegram.reply_skipped`。
+- **发送**：`sendMessage` 纯文本，带 `reply_parameters` 关联原消息。结果分类：
+  2xx 回执 → `sent`；429 → 退回 `pending` 按 `retry_after` 再发；其他 4xx 与连接
+  未建立（ECONNREFUSED/ENOTFOUND 等）→ `failed`；5xx、超时、中途断开、回执不可
+  解析 → `effect_unknown`。`failed/effect_unknown` 不自动重发。渠道可用性 = 轮询
+  是否健康；离线时回复保持 `pending`。
+- **断线**：轮询失败即标离线，指数退避 1s → 30s（429 按 `retry_after`）；重连后
+  从持久偏移继续。停止时先中止长轮询并等待循环退出，之后不再写库。
+- **查看**：`ruukoto telegram status`（配置视图、在线状态、最近错误、偏移，不含 token）；
+  回复记录经 `ruukoto notify list|show`（`sourceKind = owner_reply`）。
 
 ## GitHub（专用模块已退役，issue 17）
 
@@ -770,6 +828,10 @@ QQ 发言不获控制面能力、qq_group 资料身份、登记-入队与遗留�
    崩溃"窗口），不重发。调度工具未落结果的操作按宿主操作 ID 核实账本（同库，
    已登记即已提交、未登记即未提交），不落入通用 `effect_unknown`。编排器
    启动后才开放调度扫描与发送。
+9. Telegram 入口（issue 04）：适配器在编排器启动前创建（巡检补登回复要读固定
+   目标），编排器启动后才开始轮询。结果未落库的 Telegram 来源任务由编排器巡检
+   补记结果并在同一事务补登 `owner_reply`（正文按任务读取）；轮询从持久偏移继续，
+   平台重投命中原外部 id 不重复建任务。
 
 ## 部署（目标 Linux 服务器）
 

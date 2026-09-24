@@ -163,6 +163,7 @@ test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 
   assert.equal(env.RUUKOTO_CONTROL_DIR, profile.controlDir);
   assert.equal(env.RUUKOTO_PENDING_DIR, profile.pendingDir);
   assert.equal(env.RUUKOTO_DISABLE_QQ, "1", "dev 固定停用真实 QQ 通道");
+  assert.equal(env.RUUKOTO_DISABLE_TELEGRAM, "1", "dev 固定停用真实 Telegram 通道");
 });
 
 test("监听分类：tui / config-tui / backend / both / self", () => {

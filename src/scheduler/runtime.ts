@@ -7,7 +7,8 @@
  * - 漏过多个周期每计划只补一次：无未完成运行时取截点前最近一次，已有未完成
  *   运行时并入原运行（原键、原正文），不建第二个；
  * - 发送一次只有一个在途操作；网络调用在领取事务提交后执行一次，明确成功 sent、
- *   可证明未发送 failed、其余（超时/断线/中止/模糊错误）effect_unknown，不自动重发；
+ *   可证明未发送 failed、限流退回 pending 延迟再领取（ADR 0011）、其余（超时/断线/
+ *   中止/模糊错误）effect_unknown，不自动重发；
  * - 不进入 coding 会话的任务队列，也不占用其工作目录。
  */
 
@@ -23,13 +24,23 @@ export class NotSentError extends Error {
   }
 }
 
-/** 宿主注入的通知渠道（真实 Telegram 路由归 issue 04；本工单用模拟渠道验证）。 */
+/**
+ * 平台明确拒绝且可证明未发送、但允许稍后再试时抛出（如 Telegram 429 限流）：
+ * 操作回到 pending，retryAfterMs 之后才可再次领取。
+ */
+export class RetryLaterError extends Error {
+  constructor(readonly retryAfterMs: number, message: string) {
+    super(message);
+  }
+}
+
+/** 宿主注入的通知渠道（生产为 Telegram 适配器，issue 04；测试注入模拟渠道）。 */
 export interface NotifyChannel {
   /** 当前可信 owner 目标；null = 未配置或已停用。 */
   target(): NotifyTarget | null;
   /** 渠道暂时离线时返回 false（操作保留 pending 并显示等待原因）。 */
   available?(): boolean;
-  /** 发送一次：返回平台消息 ID；可证明未发送抛 NotSentError；不得隐藏重试或拆分多条。 */
+  /** 发送一次：返回平台消息 ID；可证明未发送抛 NotSentError（可稍后再试抛 RetryLaterError）；不得隐藏重试或拆分多条。 */
   send(input: { opId: string; target: NotifyTarget; text: string; signal: AbortSignal }): Promise<{ platformMessageId: string }>;
 }
 
@@ -59,7 +70,7 @@ export const SCHEDULER_LIMITS = {
   sendTimeoutMs: 15_000,
   /** 超过此延迟即标记为延迟补发。 */
   lateMs: 60_000,
-  /** 登记后仍未派发的调度事件的补派间隔。 */
+  /** 登记后仍未派发的入站事件（所有来源）的补派间隔。 */
   redispatchMs: 30_000,
 };
 
@@ -150,7 +161,8 @@ export class Scheduler {
   }
 
   private hasUndispatched(): boolean {
-    return this.store.db.prepare("SELECT 1 FROM inbound_events WHERE source = 'scheduler' AND status = 'registered' LIMIT 1").get() !== undefined;
+    // 所有来源（调度、Telegram 等）已登记未派发的事件都按间隔补派
+    return this.store.db.prepare("SELECT 1 FROM inbound_events WHERE status = 'registered' LIMIT 1").get() !== undefined;
   }
 
   /** 一个计划的到期处理（单事务）；返回是否新登记了需要派发的入站事件。 */
@@ -281,7 +293,7 @@ export class Scheduler {
 
   private async drainSends(): Promise<void> {
     // 每个 pending 每轮只检查一次：暂时不可用的保留等待原因，下一轮再查
-    for (const op of this.sched.listPending(SCHEDULER_LIMITS.batch)) {
+    for (const op of this.sched.listPending(iso(this.deps.now()), SCHEDULER_LIMITS.batch)) {
       if (this.stopping) return;
       await this.sendOne(op);
     }
@@ -324,15 +336,20 @@ export class Scheduler {
     // 同步抛错的渠道也按发送结果收尾（不留 sending、超时拒绝有处理者）
     const sendPromise = Promise.resolve().then(() => channel.send({ opId: op.id, target: op.target, text: op.text, signal: aborter.signal }));
     aborted.catch(() => {});
-    let outcome: { status: "sent"; id: string } | { status: "failed" | "effect_unknown"; kind: string; message: string };
+    let outcome:
+      | { status: "sent"; id: string }
+      | { status: "retry"; retryAfterMs: number; message: string }
+      | { status: "failed" | "effect_unknown"; kind: string; message: string };
     try {
       const r = await Promise.race([sendPromise, aborted]);
       outcome = { status: "sent", id: r.platformMessageId };
     } catch (err) {
-      outcome = err instanceof NotSentError
-        ? { status: "failed", kind: err.kind, message: err.message }
-        : { status: "effect_unknown", kind: aborter.signal.aborted ? "timeout_or_abort" : "ambiguous_error", message: (err as Error).message };
-      if (!(err instanceof NotSentError)) {
+      outcome = err instanceof RetryLaterError
+        ? { status: "retry", retryAfterMs: err.retryAfterMs, message: err.message }
+        : err instanceof NotSentError
+          ? { status: "failed", kind: err.kind, message: err.message }
+          : { status: "effect_unknown", kind: aborter.signal.aborted ? "timeout_or_abort" : "ambiguous_error", message: (err as Error).message };
+      if (!(err instanceof NotSentError) && !(err instanceof RetryLaterError)) {
         // 迟到回执按原操作保存，不触发重发；关闭屏障后不再写库
         sendPromise.then(
           (r) => !this.closed && this.safe(() => this.sched.recordLateReceipt(op.id, `late_success:${r.platformMessageId}`)),
@@ -349,7 +366,9 @@ export class Scheduler {
       this.store.withTx(() =>
         outcome.status === "sent"
           ? this.sched.settle(op.id, "sent", { platformMessageId: outcome.id })
-          : this.sched.settle(op.id, outcome.status, { errorKind: outcome.kind, errorMessage: outcome.message }),
+          : outcome.status === "retry"
+            ? this.sched.release(op.id, iso(this.deps.now() + outcome.retryAfterMs), `rate_limited：${outcome.message}`)
+            : this.sched.settle(op.id, outcome.status, { errorKind: outcome.kind, errorMessage: outcome.message }),
       ),
     );
     this.closeFinished();

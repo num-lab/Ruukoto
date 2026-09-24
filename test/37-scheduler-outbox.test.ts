@@ -73,7 +73,7 @@ import * as childProcess from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
-import { Db } from "../src/core/db.ts";
+import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
 import { NotSentError, type NotifyChannel } from "../src/scheduler/runtime.ts";
 import type { NotifyTarget } from "../src/core/types.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, pendingConfirmation, waitFor, writeModelsJson, connectAuthedClient } from "./helpers/testkit.ts";
@@ -133,6 +133,8 @@ async function harness(prefix: string, startIso: string, responder?: Responder, 
     modelId: "mock-model",
     toolFactory: (ctx) => createMockTools(ctx),
     scheduler: { channel: opts.noChannel ? undefined : channel, now: () => clock.t, tickMs: 0, sendTimeoutMs: opts.sendTimeoutMs ?? 2_000 },
+    // 无模拟渠道时也不加载 Telegram 适配器（= 发送器未加载）
+    telegramDisabled: opts.noChannel,
   };
   return {
     dirs, server, clock, channel, config, requests, reqs,
@@ -665,7 +667,7 @@ test("schema v12 → v13：升级保留既有记录并新建调度三表", async
     db.close();
     db = new Db(dirs.dataDir);
     const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any;
-    assert.equal(version.value, "13");
+    assert.equal(version.value, String(SCHEMA_VERSION));
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as any[]).map((r) => r.name);
     for (const t of ["schedules", "schedule_runs", "notification_ops"]) assert.ok(tables.includes(t), t);
     assert.equal((db.prepare("SELECT name FROM projects WHERE id = 'p1'").get() as any).name, "keep");

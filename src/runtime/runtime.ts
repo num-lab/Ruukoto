@@ -34,6 +34,7 @@ import {
   type Project,
   type Session,
   type SessionKind,
+  type InboundEvent,
   type Task,
   type ToolOp,
   randomId,
@@ -100,6 +101,18 @@ import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type Sou
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
+  capReply,
+  TelegramAdapter,
+  TelegramStore,
+  TelegramVersionConflictError,
+  telegramExternalId,
+  TELEGRAM_CREDENTIAL_PURPOSE,
+  TELEGRAM_DEFAULT_API,
+  TELEGRAM_SOURCE,
+  type TelegramConfig,
+} from "../telegram/adapter.ts";
+import type { ChildOutcome } from "./orchestrator.ts";
+import {
   readHistoryEntryText,
   readHistoryPage,
   sliceTextByBytes,
@@ -164,13 +177,20 @@ export interface RuntimeConfig {
    * 不创建/启动适配器；qq 控制面操作仍作用于配置存储，qqStatus 标注停用来源。
    */
   qqDisabled?: boolean;
+  /**
+   * 停用真实 Telegram 通道（issue 04，dev 开发实例经 RUUKOTO_DISABLE_TELEGRAM=1 注入）：
+   * 不创建适配器；telegram 控制面操作仍作用于配置存储。
+   */
+  telegramDisabled?: boolean;
+  /** Telegram 入口（issue 04）：长轮询秒数/断线退避覆盖（仅测试注入；生产取默认）。 */
+  telegram?: { pollTimeoutSec?: number; backoffMs?: number };
   /** 编排器（issue 01）：超时巡检间隔覆盖（仅测试注入；生产取默认）。 */
   orchestrator?: { deadlineCheckMs?: number };
   /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
   appData?: { queryStallMs?: number };
   /**
-   * 调度器与通知（issue 03）：渠道由可信宿主注入（真实 Telegram 路由归 issue 04；
-   * 缺省 = 发送器未加载，操作保留 pending）；时钟/间隔/发送时限仅测试覆盖。
+   * 调度器与通知（issue 03）：渠道仅测试注入（缺省为 Telegram 适配器；两者都没有
+   * = 发送器未加载，操作保留 pending）；时钟/间隔/发送时限仅测试覆盖。
    */
   scheduler?: { channel?: NotifyChannel; now?: () => number; tickMs?: number; sendTimeoutMs?: number };
 }
@@ -224,6 +244,10 @@ export class Runtime {
   private appDataUnavailableReason: string | null = null;
   /** 后台编排器（issue 01）：角色引导、入站事件派发、子任务结果回传与超时。 */
   orchestrator: Orchestrator | null = null;
+  /** Telegram owner 入口配置（issue 04）。 */
+  readonly telegramStore: TelegramStore;
+  /** Telegram 适配器（start 时创建；null = 未创建或 dev 停用）。 */
+  private telegram: TelegramAdapter | null = null;
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
   /** 调度器（issue 03）：扫描循环 + 发送循环；start 时创建。 */
@@ -271,6 +295,7 @@ export class Runtime {
     this.mcp = new McpStore(db);
     this.qqStore = new QqStore(db);
     this.sched = new SchedulerStore(store);
+    this.telegramStore = new TelegramStore(store);
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
       for (const listener of this.eventListeners) {
@@ -415,6 +440,22 @@ export class Runtime {
       runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
       await runtime.qqAdapter.start();
     }
+    // Telegram owner 入口（issue 04）：先创建（编排器启动巡检补登 owner 回复要读
+    // 固定目标），编排器启动后才开始轮询；dev 开发实例不创建
+    if (!fullConfig.telegramDisabled) {
+      runtime.telegram = new TelegramAdapter({
+        store: runtime.store,
+        tg: runtime.telegramStore,
+        sched: runtime.sched,
+        credentials: runtime.credentials,
+        register: async (input) => {
+          if (!runtime.orchestrator) throw new Error("编排器未启动");
+          return runtime.orchestrator.registerInboundEvent({ source: TELEGRAM_SOURCE, targetRole: "main", ...input });
+        },
+        log: (message) => process.stderr.write(`[ruukoto:telegram] ${message}\n`),
+        ...fullConfig.telegram,
+      });
+    }
     // 编排器（issue 01）：引导 main/coding/chat 角色、恢复已登记未建任务的
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
     runtime.orchestrator = new Orchestrator({
@@ -427,13 +468,15 @@ export class Runtime {
         findProjectByName: (name) => runtime.store.findProjectByName(name),
         createProject: (name) => runtime.createProject(name),
         createSession: (input) => runtime.createSession(input),
-        readLastAssistantText: (sessionId) => runtime.readLastAssistantText(sessionId),
+        readTaskReplyText: (taskId) => runtime.readTaskReplyText(taskId),
         resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
         defaultModelSelection: () => runtime.defaultSelection,
       },
+      onInboundTerminal: (event, task, outcome) => runtime.enqueueOwnerReply(event, task, outcome),
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
+    runtime.telegram?.start();
     // 恢复与角色引导完成后才开放调度事件派发与发送
     runtime.scheduler.start();
     runtime.store.withTx(() => {
@@ -450,7 +493,7 @@ export class Runtime {
 
   private initScheduler(): void {
     const now = this.config.scheduler?.now ?? (() => Date.now());
-    const channel = () => this.config.scheduler?.channel ?? null;
+    const channel = () => this.notifyChannel();
     this.sources = createSourceResolver({
       store: this.store,
       access: this.access,
@@ -474,6 +517,36 @@ export class Runtime {
       tickMs: this.config.scheduler?.tickMs,
       sendTimeoutMs: this.config.scheduler?.sendTimeoutMs,
     });
+  }
+
+  /** 可信 owner 发送渠道：测试注入的模拟渠道优先，否则为 Telegram 适配器。 */
+  private notifyChannel(): NotifyChannel | null {
+    return this.config.scheduler?.channel ?? this.telegram;
+  }
+
+  /**
+   * owner 回复（issue 04）：Telegram 入站任务到达终态时，在编排器的结果事务内
+   * 登记一条发送操作——发送键为入站事件 id，目标由宿主固定，正文取本任务的
+   * 最终回答（失败/超时/未知只发宿主固定提示）。定时唤醒与子任务唤醒产生的
+   * 任务没有 Telegram 来源事件，不会自动外发。
+   */
+  private enqueueOwnerReply(event: InboundEvent, task: Task, outcome: ChildOutcome): void {
+    if (event.source !== TELEGRAM_SOURCE) return;
+    const skip = (reason: string) => this.store.appendEvent({ type: "telegram.reply_skipped", eventId: event.id, taskId: task.id, reason }, { taskId: task.id });
+    const target = this.notifyChannel()?.target() ?? null;
+    // 目标只能是登记该消息的同一 bot + chat（配置换了 bot/chat 不改发到新目标）
+    if (!target || !event.externalId.startsWith(telegramExternalId(target.account, target.chatId, ""))) {
+      return skip(target ? "target_changed" : "target_unavailable");
+    }
+    const text =
+      outcome === "completed"
+        ? this.readTaskReplyText(task.id)?.trim() || "（无文本输出）"
+        : `[ruukoto] 这条消息的处理${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
+    try {
+      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: event.id, taskId: task.id, hostOpId: null, target, text: capReply(text), sourceRefs: [] });
+    } catch (err) {
+      skip(`enqueue_failed：${(err as Error).message}`.slice(0, 200));
+    }
   }
 
   /** 拥有者控制面：计划分页列表 / 详情（含最近运行） / 取消。 */
@@ -1918,7 +1991,7 @@ export class Runtime {
           sched: this.sched,
           scheduler: this.scheduler,
           sources: this.sources,
-          target: () => this.config.scheduler?.channel?.target() ?? null,
+          target: () => this.notifyChannel()?.target() ?? null,
           now: this.config.scheduler?.now ?? (() => Date.now()),
         },
       });
@@ -2246,6 +2319,25 @@ export class Runtime {
     for (let i = page.entries.length - 1; i >= 0; i--) {
       const entry = page.entries[i]!;
       if (entry.role === "assistant" && entry.text.trim()) return entry.text;
+    }
+    return null;
+  }
+
+  /**
+   * 指定任务的最终 assistant 文本（issue 04）：按任务关联的历史条目倒序读取，
+   * 不取会话最新一条（重启补登时会话可能已跑过别的任务）。无文本返回 null。
+   */
+  readTaskReplyText(taskId: string): string | null {
+    const task = this.store.getTask(taskId);
+    if (!task) return null;
+    // 最终回答总在任务条目末尾；只看最后 20 条，避免长任务逐条重解析历史文件
+    for (const entryId of task.historyEntryIds.slice(-20).reverse()) {
+      try {
+        const entry = this.readHistoryEntry({ sessionId: task.sessionId, entryId, length: 256 * 1024 });
+        if (entry.role === "assistant" && entry.text.trim()) return entry.text;
+      } catch {
+        return null;
+      }
     }
     return null;
   }
@@ -2836,6 +2928,109 @@ export class Runtime {
     return this.qqStore.listOutbox(input);
   }
 
+  // ---------- Telegram owner 入口（issue 04；拥有者管理入口） ----------
+
+  /**
+   * 配置/更新 Telegram bot 与固定 owner（拥有者操作）。bot token 经凭据绑定
+   * 引用（purpose=telegram_bot，host 与 API 地址一致；配置后 scope 收紧到
+   * telegram_bot 操作）；API 地址默认官方端点，可指向受控反代（http 仅限回环）。
+   * 任何变化递增 configVersion 并即时重连；旧目标上未发送的操作不改发。
+   */
+  async telegramConfigure(input: {
+    apiBase?: string;
+    credential: string;
+    ownerUserId: string;
+    ownerChatId?: string;
+    expectedVersion?: number;
+  }): Promise<TelegramConfig> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    let api: URL;
+    try {
+      api = new URL(input.apiBase ?? TELEGRAM_DEFAULT_API);
+    } catch {
+      throw new RuntimeApiError("invalid_params", `api_base 不是合法 URL：${input.apiBase}`);
+    }
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname.toLowerCase());
+    if (api.protocol !== "https:" && !(api.protocol === "http:" && loopback)) {
+      throw new RuntimeApiError("invalid_params", "api_base 必须是 https://（http:// 仅限回环地址）");
+    }
+    const ownerChatId = input.ownerChatId ?? input.ownerUserId;
+    if (!/^\d{1,20}$/.test(input.ownerUserId) || !/^\d{1,20}$/.test(ownerChatId)) {
+      throw new RuntimeApiError("invalid_params", "user_id / chat_id 必须是数字串（私聊的 chat_id 即 owner 的 user_id）");
+    }
+    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
+    }
+    const cred = this.credentials.get(input.credential);
+    if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${input.credential}`);
+    if (cred.purpose !== TELEGRAM_CREDENTIAL_PURPOSE) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 用途是 ${cred.purpose}，Telegram 入口需要 purpose=${TELEGRAM_CREDENTIAL_PURPOSE} 的凭据`);
+    }
+    if (cred.host !== api.host.toLowerCase()) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的 host（${cred.host}）与 API 地址 host（${api.host}）不一致`);
+    }
+    if (!/^\d+:[\w-]+$/.test(cred.secret)) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的值不是 bot token 格式（<数字>:<密钥>）`);
+    }
+    if (cred.scope?.projectId !== undefined || (cred.scope?.operations !== undefined && !cred.scope.operations.includes(TELEGRAM_CREDENTIAL_PURPOSE))) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已有其他使用范围，与 telegram_bot 冲突；请另建凭据`);
+    }
+    let config: TelegramConfig;
+    try {
+      config = this.store.withTx(() => {
+        const c = this.telegramStore.upsertConfig({
+          apiBase: api.toString().replace(/\/+$/, ""),
+          credentialName: input.credential,
+          ownerUserId: input.ownerUserId,
+          ownerChatId,
+          expectedVersion: input.expectedVersion,
+        });
+        this.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: "upsert" });
+        return c;
+      });
+    } catch (err) {
+      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    // scope 收紧：通用 http_request 与其他入口不得借用 bot token
+    this.credentials.upsert({ ...cred, scope: { operations: [TELEGRAM_CREDENTIAL_PURPOSE] } });
+    await this.telegram?.onConfigChanged();
+    return config;
+  }
+
+  /** Telegram 入口状态（配置视图 + 轮询状态；不含 token 与消息正文）。 */
+  telegramStatus(): Record<string, unknown> {
+    if (this.telegram) return this.telegram.status();
+    return {
+      configured: this.telegramStore.getConfig() !== null,
+      enabled: false,
+      online: false,
+      ...(this.config.telegramDisabled ? { disabledByConfig: true, stateDetail: "已由启动配置停用（dev 开发实例不连接真实 Telegram）" } : {}),
+    };
+  }
+
+  /** 一键启停：停用即停止轮询；未发送的 owner 回复与通知因目标停用而取消（不改发）。 */
+  async telegramSetEnabled(enabled: boolean, expectedVersion?: number): Promise<TelegramConfig> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    let config: TelegramConfig | null;
+    try {
+      config = this.store.withTx(() => {
+        const prev = this.telegramStore.getConfig();
+        const c = this.telegramStore.setEnabled(enabled, expectedVersion);
+        if (c && c.configVersion !== prev?.configVersion) {
+          this.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: enabled ? "enabled" : "disabled" });
+        }
+        return c;
+      });
+    } catch (err) {
+      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    if (!config) throw new RuntimeApiError("not_found", "Telegram 入口未配置（先 telegram_configure）");
+    await this.telegram?.onConfigChanged();
+    return config;
+  }
+
   // ---------- 停止 ----------
 
   stop(reason: string): Promise<void> {
@@ -2853,6 +3048,8 @@ export class Runtime {
     // 调度器先行停止（issue 03）：停止扫描与领取，中止并等待在途发送收尾；
     // 之后编排器等待派发链，关闭数据库前不再有发送回调写库
     await this.scheduler?.stop().catch(() => {});
+    // Telegram 轮询停止（issue 04）：之后不再登记入站事件、不再写轮询偏移
+    await this.telegram?.stop().catch(() => {});
     // 编排器先行停止：停超时巡检，停止路径不再产生新的取消/唤醒
     if (this.orchestrator) {
       await this.orchestrator.stop().catch(() => {});

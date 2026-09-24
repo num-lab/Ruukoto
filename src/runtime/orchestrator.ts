@@ -45,7 +45,8 @@ export interface OrchestratorBridge {
   findProjectByName(name: string): { id: string } | null;
   createProject(name: string): { id: string };
   createSession(input: { projectId: string; cwd: string }): Promise<{ id: string }>;
-  readLastAssistantText(sessionId: string): string | null;
+  /** 指定任务的最终 assistant 文本（按任务关联的历史条目，不取会话最新一条）。 */
+  readTaskReplyText(taskId: string): string | null;
   resumeQueue(sessionId: string): Promise<unknown>;
   defaultModelSelection(): ModelSelection;
 }
@@ -57,6 +58,11 @@ export interface OrchestratorDeps {
   bridge: OrchestratorBridge;
   /** 超时巡检间隔（默认 1s；测试可压短）。 */
   deadlineCheckMs?: number;
+  /**
+   * 入站事件关联任务的结果事务内回调（issue 04 owner 回复）：与结果/事件终态
+   * 同事务提交，重启巡检补记结果时一并补登，不会重复。
+   */
+  onInboundTerminal?(event: InboundEvent, task: Task, outcome: ChildOutcome): void;
 }
 
 /** 角色静态定义：工具白名单按注册来源类别给出（Driver 三层强制）。 */
@@ -79,7 +85,7 @@ const RESULT_SUMMARY_CAP = 1000;
 const DEADLINE_REASON = "deadline_exceeded";
 
 /** 子任务终态口径（completed/failed/timeout/unknown），事件、摘要与唤醒共用。 */
-type ChildOutcome = "completed" | "failed" | "timeout" | "unknown";
+export type ChildOutcome = "completed" | "failed" | "timeout" | "unknown";
 
 const OUTCOME_TEXT: Record<ChildOutcome, string> = {
   completed: "已完成",
@@ -345,9 +351,9 @@ export class Orchestrator {
         modelSelection: role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
         agentId: role.id,
         sourceEventId: event.id,
-        // 定时唤醒（issue 03）采用宿主固定的 confirm 模式：正文不能设置权限，
-        // 也不继承会话默认的完全访问
-        ...(event.source === "scheduler" ? { accessMode: "confirm" as const } : {}),
+        // 入站事件（定时唤醒、Telegram 等）一律采用宿主固定的 confirm 模式：
+        // 正文不能设置权限，也不继承会话默认的完全访问
+        accessMode: "confirm",
       });
     } catch (err) {
       this.log(`事件 ${event.id} 建任务失败：${(err as Error).message}`);
@@ -425,6 +431,8 @@ export class Orchestrator {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
       if (task.sourceEventId) {
         this.store.setInboundTerminal(task.sourceEventId, outcome === "completed" ? "done" : "failed");
+        const event = this.store.getInboundEvent(task.sourceEventId);
+        if (event) this.deps.onInboundTerminal?.(event, task, outcome);
       }
       const refs = { taskId: task.id, sessionId: task.sessionId };
       switch (outcome) {
@@ -476,7 +484,7 @@ export class Orchestrator {
     const cap = (s: string) => (s.length > RESULT_SUMMARY_CAP ? `${s.slice(0, RESULT_SUMMARY_CAP)}…（截断）` : s);
     switch (outcome) {
       case "completed":
-        return cap(this.deps.bridge.readLastAssistantText(task.sessionId)?.trim() || "（无文本输出）");
+        return cap(this.deps.bridge.readTaskReplyText(task.id)?.trim() || "（无文本输出）");
       case "failed":
         return cap(`子任务失败：${task.errorMessage ?? "已取消"}`);
       case "timeout":

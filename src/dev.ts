@@ -6,8 +6,8 @@
  *   （dirname(dataDir)/qq-work 也因此留在档案里）；
  * - 子进程环境清洗：绝不继承生产拥有者令牌与受保护执行账户配置
  *   （RUUKOTO_OWNER_TOKEN*、RUUKOTO_EXECUTION_BACKEND、RUUKOTO_EXEC_*、
- *   RUUKOTO_CONTAINER_*、RUUKOTO_WORKER_IMAGE），固定注入 RUUKOTO_DISABLE_QQ=1
- *   （复用档案数据库也不会连接真实 QQ 通道）；
+ *   RUUKOTO_CONTAINER_*、RUUKOTO_WORKER_IMAGE），固定注入 RUUKOTO_DISABLE_QQ=1 与 RUUKOTO_DISABLE_TELEGRAM=1
+ *   （复用档案数据库也不会连接真实 QQ / Telegram 通道）；
  * - 模型门禁：probeModelConfig 不可用 → 普通启动直接报错并提示 --config；
  *   --config 先开离线配置中心，退出后复探，通过才启动后台并开在线配置中心；
  * - 已在运行检查：控制面 socket 可连且认证通过即报错退出，绝不接管、重启或
@@ -15,7 +15,7 @@
  * - 监听矩阵（仅 src/ 下的 .ts，~300ms 防抖合并突发）：
  *     src/tui/**（除 config-tui）                → 重启任务界面前端（若在跑）
  *     src/config-tui/**                          → 重启配置前端（若在跑）
- *     src/cli.ts、src/runtime|agent|qq/**        → 只重启后台（前端自动重连）
+ *     src/cli.ts、src/runtime|agent|qq|telegram/** → 只重启后台（前端自动重连）
  *     src/control|core/** 与 src 下其他          → 后台 + 前端都重启
  *     src/dev.ts                                 → 提示手动重启（不自我重启）
  * - 生命周期：前端退出或 dev 收到 SIGINT/SIGTERM/SIGHUP（关终端 = SIGHUP）→
@@ -94,6 +94,7 @@ export function buildChildEnv(base: NodeJS.ProcessEnv, profile: DevProfile): Nod
   env.RUUKOTO_CONTROL_DIR = profile.controlDir;
   env.RUUKOTO_PENDING_DIR = profile.pendingDir;
   env.RUUKOTO_DISABLE_QQ = "1";
+  env.RUUKOTO_DISABLE_TELEGRAM = "1";
   return env;
 }
 
@@ -112,7 +113,8 @@ export function classifyWatchPath(repoRelPath: string): WatchAction | null {
     p === "src/cli.ts" ||
     p.startsWith("src/runtime/") ||
     p.startsWith("src/agent/") ||
-    p.startsWith("src/qq/")
+    p.startsWith("src/qq/") ||
+    p.startsWith("src/telegram/")
   ) {
     return "backend";
   }

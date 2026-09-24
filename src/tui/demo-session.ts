@@ -384,6 +384,10 @@ function demoEvents(): PersistentEvent[] {
     { type: "schedule.changed", scheduleId: "sch_demo00000001", action: "created", version: 1, source: "main_tool", reason: "每日提醒" },
     { type: "schedule.run", scheduleId: "sch_demo00000001", runId: "run_demo00000001", action: "registered", scheduledFor: "2026-09-24T01:00:00.000Z", delayMs: 0, coalescedFrom: null, coalescedTo: null },
     { type: "notification.changed", opId: "nop_demo00000001", status: "effect_unknown", sourceKind: "schedule_run", reason: "timeout_or_abort" },
+    // issue 04：Telegram owner 入口
+    { type: "telegram.config_changed", configVersion: 2, action: "enabled" },
+    { type: "telegram.rejected", updateId: 101, chatId: "99", userId: "99", reason: "not_owner" },
+    { type: "telegram.reply_skipped", eventId: "evt_demo00000001", taskId: "task_completed000", reason: "target_unavailable" },
     { type: "backend.stopping", reason: "signal_sigterm" },
     { type: "backend.stopped", reason: "signal_sigterm" },
   ];

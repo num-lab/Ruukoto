@@ -113,9 +113,21 @@ export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"]
 /**
  * 角色工具白名单的粒度：按工具注册来源划分类别（编码工具/宿主资料与记忆/
  * Web Search/MCP/应用数据）。装配、发送前最终检查与调用门三层共用同一份名单。
- * app_data 仅 main 角色包含（issue 02：应用数据空间，仅宿主可信绑定）。
+ * app_data 仅 main 角色包含（issue 02：应用数据空间，仅宿主可信绑定）；
+ * scheduler 同样仅 main（issue 03：计划与通知账本）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler";
+
+/**
+ * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
+ * 只能来自宿主；模型不能传入 URL、chat/user ID 或凭据。版本变化使旧授权失效。
+ */
+export interface NotifyTarget {
+  channel: string;
+  account: string;
+  chatId: string;
+  configVersion: number;
+}
 
 /** 角色配置（宿主管理；agent_roles 表）。modelSelection 为 null 时用后台默认模型。 */
 export interface AgentRole {
@@ -314,6 +326,26 @@ export type ApprovalScope =
     }
   | {
       /**
+       * 通知外发（issue 03）：固定完整正文（params.text）、目标及配置版本、
+       * 时间规则、IANA 时区、DST 策略与持续范围。周期计划批准的是"持续至取消"，
+       * 不只是首次时间。批准单次消费；full_access 与 auto-review 也须拥有者确认。
+       */
+      kind: "notification";
+      /** schedule = 建立通知计划；once = 一次确认发送。 */
+      mode: "schedule" | "once";
+      taskId: string;
+      toolOpId: string;
+      target: NotifyTarget;
+      textSha256: string;
+      textChars: number;
+      /** 规则描述（once 模式为 null）与持续范围。 */
+      rule: string | null;
+      duration: "until_canceled" | "single";
+      /** 来源引用摘要（正文已在登记前解析为最终文本）。 */
+      sourceRefs: string[];
+    }
+  | {
+      /**
        * 已退役（issue 17）：专用 GitHub 发布模块已删除，新任务不再产生此范围。
        * 仅为历史审批记录的只读展示保留（迁移已将未消费的旧审批失效）。
        */
@@ -508,7 +540,13 @@ export type PersistentEventBody =
    * 应用数据操作被拒绝（issue 02）：调用门/身份校验/参数校验/预算超限/超时。
    * 只记来源、操作类别与错误码，不复制无限长输入或整条个人数据。
    */
-  | { type: "app_data.rejected"; taskId: string | null; sessionId: string | null; source: "tool_call_gate" | "identity" | "validation" | "budget" | "timeout"; toolName: string; code: string };
+  | { type: "app_data.rejected"; taskId: string | null; sessionId: string | null; source: "tool_call_gate" | "identity" | "validation" | "budget" | "timeout"; toolName: string; code: string }
+  /** 调度计划变化（issue 03）：创建/取消/一次性完成。只落事件表，不唤醒模型。 */
+  | { type: "schedule.changed"; scheduleId: string; action: "created" | "canceled" | "completed"; version: number; source: string; reason?: string }
+  /** 调度运行：登记（含延迟/合并区间）、合并漏过周期、关闭。 */
+  | { type: "schedule.run"; scheduleId: string; runId: string; action: "registered" | "coalesced" | "closed"; scheduledFor: string; delayMs?: number; coalescedFrom?: string | null; coalescedTo?: string | null }
+  /** 发送操作状态（不含正文与凭据）。 */
+  | { type: "notification.changed"; opId: string; status: "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled"; sourceKind: string; reason?: string };
 
 export interface PersistentEvent {
   seq: number;

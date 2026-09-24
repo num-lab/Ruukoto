@@ -94,6 +94,9 @@ import { Orchestrator } from "./orchestrator.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
 import { APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp } from "../agent/app-data/tools.ts";
+import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
+import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
+import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SourceResolver } from "../agent/scheduler-tools.ts";
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
@@ -165,6 +168,11 @@ export interface RuntimeConfig {
   orchestrator?: { deadlineCheckMs?: number };
   /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
   appData?: { queryStallMs?: number };
+  /**
+   * 调度器与通知（issue 03）：渠道由可信宿主注入（真实 Telegram 路由归 issue 04；
+   * 缺省 = 发送器未加载，操作保留 pending）；时钟/间隔/发送时限仅测试覆盖。
+   */
+  scheduler?: { channel?: NotifyChannel; now?: () => number; tickMs?: number; sendTimeoutMs?: number };
 }
 
 export class RuntimeApiError extends Error {
@@ -216,6 +224,11 @@ export class Runtime {
   private appDataUnavailableReason: string | null = null;
   /** 后台编排器（issue 01）：角色引导、入站事件派发、子任务结果回传与超时。 */
   orchestrator: Orchestrator | null = null;
+  /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
+  readonly sched: SchedulerStore;
+  /** 调度器（issue 03）：扫描循环 + 发送循环；start 时创建。 */
+  scheduler!: Scheduler;
+  private sources!: SourceResolver;
   /** 额外事件监听（QQ 适配器等宿主内订阅者；控制面广播仍走 onEventBroadcast）。 */
   private readonly eventListeners = new Set<(events: PersistentEvent[]) => void>();
   private readonly lock: AcquiredLock;
@@ -257,6 +270,7 @@ export class Runtime {
     this.memories = new MemoryStore(db);
     this.mcp = new McpStore(db);
     this.qqStore = new QqStore(db);
+    this.sched = new SchedulerStore(store);
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
       for (const listener of this.eventListeners) {
@@ -369,6 +383,10 @@ export class Runtime {
     // main 应用数据空间（issue 02）：先于恢复打开/登记 main.db 并核对实例绑定
     // （恢复要按应用库回执核实未落结果的应用数据操作）；不可用则能力停止
     runtime.initAppData();
+    // 调度器（issue 03）：恢复准备须在通用 recover() 改写 running 任务之前——
+    // 先按关联记录真实状态补关闭/合并漏过周期，再把遗留 sending 定为未知
+    runtime.initScheduler();
+    runtime.scheduler.prepareRecovery();
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
@@ -416,6 +434,8 @@ export class Runtime {
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
+    // 恢复与角色引导完成后才开放调度事件派发与发送
+    runtime.scheduler.start();
     runtime.store.withTx(() => {
       runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend });
     });
@@ -424,6 +444,84 @@ export class Runtime {
 
   socketPath(): string {
     return this.config.socketPath ?? path.join(this.controlDir(), "control.sock");
+  }
+
+  // ---------- 调度器与通知（issue 03） ----------
+
+  private initScheduler(): void {
+    const now = this.config.scheduler?.now ?? (() => Date.now());
+    const channel = () => this.config.scheduler?.channel ?? null;
+    this.sources = createSourceResolver({
+      store: this.store,
+      access: this.access,
+      artifacts: this.artifacts,
+      appData: () => this.appDataStore,
+    });
+    this.scheduler = new Scheduler({
+      store: this.store,
+      sched: this.sched,
+      now,
+      channel,
+      // 编排器在 start 末尾创建；调度扫描只在其后开放，恢复准备不派发
+      dispatchRegistered: () => this.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
+      serial: (fn) => (this.orchestrator ? this.orchestrator.serial(fn) : fn()),
+      cancelTask: (taskId) => this.cancelTask(taskId),
+      verifySources: (op) => {
+        const main = this.store.getAgentRole("main");
+        return main ? this.sources.verify(main.projectId, op.sourceRefs) : "main 角色未引导";
+      },
+      log: (message) => process.stderr.write(`[ruukoto:scheduler] ${message}\n`),
+      tickMs: this.config.scheduler?.tickMs,
+      sendTimeoutMs: this.config.scheduler?.sendTimeoutMs,
+    });
+  }
+
+  /** 拥有者控制面：计划分页列表 / 详情（含最近运行） / 取消。 */
+  scheduleList(input: { status?: string; cursor?: string; limit?: number }) {
+    if (input.status !== undefined && !["active", "completed", "canceled"].includes(input.status)) {
+      throw new RuntimeApiError("invalid_params", "status 只能是 active / completed / canceled");
+    }
+    const { items, nextCursor } = this.sched.listSchedules({ status: input.status as ScheduleStatus | undefined, cursor: input.cursor, limit: input.limit });
+    // 列表不带完整正文（详情单条读取），保持分页有界
+    return { schedules: items.map(({ payload, ...rest }) => ({ ...rest, payloadChars: [...payload.text].length })), nextCursor };
+  }
+
+  scheduleGet(scheduleId: string) {
+    const schedule = this.sched.getSchedule(scheduleId);
+    if (!schedule) throw new RuntimeApiError("not_found", `计划不存在：${scheduleId}`);
+    return { schedule, runs: this.sched.listRuns(scheduleId, 20) };
+  }
+
+  async scheduleCancel(input: { scheduleId: string; expectedVersion: number; reason: string }) {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    if (!input.reason.trim()) throw new RuntimeApiError("invalid_params", "reason 不能为空");
+    try {
+      return await this.scheduler.cancelSchedule({ ...input, source: "owner", cancelOpId: null });
+    } catch (err) {
+      if (err instanceof SchedulerConflictError) throw new RuntimeApiError("request_conflict", err.message);
+      throw err;
+    }
+  }
+
+  notificationList(input: { status?: string; cursor?: string; limit?: number }) {
+    if (input.status !== undefined && !["pending", "sending", "sent", "failed", "effect_unknown", "canceled"].includes(input.status)) {
+      throw new RuntimeApiError("invalid_params", "status 非法");
+    }
+    const { items, nextCursor } = this.sched.listOps({ status: input.status as NotificationStatus | undefined, cursor: input.cursor, limit: input.limit });
+    return { operations: items.map(({ text, ...rest }) => ({ ...rest, textChars: [...text].length })), nextCursor };
+  }
+
+  notificationGet(opId: string) {
+    const op = this.sched.getOp(opId);
+    if (!op) throw new RuntimeApiError("not_found", `发送操作不存在：${opId}`);
+    return { operation: op };
+  }
+
+  notificationCancel(input: { opId: string; reason: string }) {
+    if (!input.reason.trim()) throw new RuntimeApiError("invalid_params", "reason 不能为空");
+    const op = this.store.withTx(() => this.sched.cancelOp(input.opId, input.reason, null));
+    if (!op) throw new RuntimeApiError("not_found", `发送操作不存在：${input.opId}`);
+    return { operation: op };
   }
 
   // ---------- 应用数据空间（issue 02） ----------
@@ -571,6 +669,12 @@ export class Runtime {
       //    应用数据写操作先按应用库回执核实（issue 02）：有回执补记已提交，
       //      可核实无回执记未提交，无法核实才落入 effect_unknown。
       this.recoverAppDataOps();
+      // 调度与通知工具（issue 03）：同库按宿主操作 ID 核实是否已登记，
+      // 不落入通用 effect_unknown（登记与否恒可核实；未登记即未执行）
+      for (const op of store.listUnresolvedOpsByTools(SCHEDULER_TOOL_NAMES)) {
+        const task = store.getTask(op.taskId);
+        if (task) settleSchedulerOp(store, this.sched, task, op, "后台重启前");
+      }
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const unresolved = store.listUnresolvedToolOps(task.id);
         const confirmations = store.listConfirmationsByTask(task.id);
@@ -1809,6 +1913,14 @@ export class Runtime {
               queryStallMs: this.config.appData?.queryStallMs,
             }
           : undefined,
+        // 调度与通知（issue 03）：仅 main 角色会话装配；目标只来自可信宿主渠道
+        scheduler: {
+          sched: this.sched,
+          scheduler: this.scheduler,
+          sources: this.sources,
+          target: () => this.config.scheduler?.channel?.target() ?? null,
+          now: this.config.scheduler?.now ?? (() => Date.now()),
+        },
       });
       this.drivers.set(session.id, driver);
     } else {
@@ -2738,6 +2850,9 @@ export class Runtime {
       this.store.appendEvent({ type: "backend.stopping", reason });
     });
 
+    // 调度器先行停止（issue 03）：停止扫描与领取，中止并等待在途发送收尾；
+    // 之后编排器等待派发链，关闭数据库前不再有发送回调写库
+    await this.scheduler?.stop().catch(() => {});
     // 编排器先行停止：停超时巡检，停止路径不再产生新的取消/唤醒
     if (this.orchestrator) {
       await this.orchestrator.stop().catch(() => {});

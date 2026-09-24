@@ -525,6 +525,39 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
       );
       return 1;
     }
+    case "schedule":
+    case "notify": {
+      // 调度计划与通知发送账本（issue 03）：列表/详情/取消；审批仍在 TUI
+      const sub = positional[0];
+      const isSchedule = cmd === "schedule";
+      const idKey = isSchedule ? "schedule_id" : "op_id";
+      if (sub === "list") {
+        print(await withClient((c) => c.request(isSchedule ? "schedule_list" : "notification_list", {
+          status: flags["status"],
+          cursor: flags["cursor"],
+          limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
+        })));
+        return 0;
+      }
+      if (sub === "show" && positional[1]) {
+        print(await withClient((c) => c.request(isSchedule ? "schedule_get" : "notification_get", { [idKey]: positional[1] })));
+        return 0;
+      }
+      if (sub === "cancel" && positional[1]) {
+        print(await withClient((c) => c.request(isSchedule ? "schedule_cancel" : "notification_cancel", {
+          [idKey]: positional[1],
+          reason: flags["reason"] ?? "",
+          ...(isSchedule ? { expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]) } : {}),
+        })));
+        return 0;
+      }
+      console.error(
+        "用法：\n" +
+          "  ruukoto schedule list [--status active|completed|canceled] [--cursor C] [--limit N] | show <id> | cancel <id> --expected-version N --reason R\n" +
+          "  ruukoto notify list [--status pending|sending|sent|failed|effect_unknown|canceled] [--cursor C] [--limit N] | show <op-id> | cancel <op-id> --reason R",
+      );
+      return 1;
+    }
     case "grant": {
       const sub = positional[0];
       if (sub === "create") {

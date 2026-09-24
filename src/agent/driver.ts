@@ -67,6 +67,7 @@ import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from 
 import { createAppDataTools, APP_DATA_TOOL_NAMES, APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp, type AppToolContext } from "./app-data/tools.ts";
 import type { AppDataStore } from "./app-data/store.ts";
 import type { AppDataQueryRunner } from "./app-data/query.ts";
+import { createSchedulerTools, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
@@ -161,6 +162,11 @@ export interface DriverDeps {
     /** 查询子进程挂点（仅测试注入；模型不可达）。 */
     queryStallMs?: number;
   };
+  /**
+   * 调度计划与通知（issue 03）：仅 main 角色会话装配六个 scheduler 工具；
+   * 停止路径按宿主操作 ID 核实未落结果的调度写操作（同库，恒可核实）。
+   */
+  scheduler?: Pick<SchedulerToolsDeps, "sched" | "scheduler" | "sources" | "target" | "now">;
 }
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -400,6 +406,18 @@ export class Driver {
             queryStallMs: () => this.deps.appData?.queryStallMs,
           })
         : [];
+    // 调度与通知工具（issue 03）：与应用数据工具同一口径，仅 main 角色会话装配
+    const schedulerTools =
+      this.role()?.id === "main" && this.roleAllows("scheduler") && this.deps.scheduler
+        ? createSchedulerTools({
+            ...this.deps.scheduler,
+            coreStore: this.deps.store,
+            taskContext: () => this.hostToolCtx,
+            bindCall: this.bindHostCall,
+            verifyMain: (ctx) => this.verifyMainBinding(ctx),
+            awaitApproval: (input) => this.awaitApproval(input),
+          })
+        : [];
     const allTools = this.isQqGroup
       ? []
       : [
@@ -407,6 +425,7 @@ export class Driver {
           ...hostDataTools,
           ...webSearchTools,
           ...appDataTools,
+          ...schedulerTools,
           // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
           // 固定，工具集合变化由 runInner 先重建会话再走到这里
           ...this.pendingMcpToolDefs,
@@ -1057,7 +1076,8 @@ export class Driver {
       .filter(
         (op) =>
           isToolOpExecutionUncertain(op, confirmations) &&
-          !(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName),
+          !(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
+          !(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName),
       )
       .map((op) => op.id);
 
@@ -1104,6 +1124,13 @@ export class Driver {
         continue;
       }
       this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, op, "后台停止前"));
+    }
+
+    // 3c. 调度与通知工具（issue 03）：按宿主操作 ID 核实是否已登记（核心库，
+    //     恒可核实）；只读查询结果缺失按已知未执行补记。
+    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
+      if (!(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
+      this.deps.store.withTx(() => settleSchedulerOp(this.deps.store, this.deps.scheduler?.sched ?? null, task, op, "后台停止前"));
     }
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
@@ -1282,6 +1309,11 @@ export class Driver {
       });
       return { block: true, reason: "应用数据工具仅 main 角色会话可用" };
     }
+    // 调度与通知工具（issue 03）：仅 main 角色会话可调用；普通开发会话、
+    // coding/chat/QQ 的伪造或泄漏调用在此阻止（不记录执行意图）
+    if ((SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
+      return { block: true, reason: "调度与通知工具仅 main 角色会话可用" };
+    }
     // 角色任务（issue 01）：白名单外的工具调用一律阻止（装配侧已过滤，
     // 此处兜底注册泄漏/未知路径；不记录执行意图）
     if (this.roleAllowedToolNames && !this.roleAllowedToolNames.has(event.toolName)) {
@@ -1328,7 +1360,8 @@ export class Driver {
     if (
       (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName)
+      (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,

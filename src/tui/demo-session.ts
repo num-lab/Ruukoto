@@ -381,6 +381,9 @@ function demoEvents(): PersistentEvent[] {
     // issue 02：main 应用数据空间（能力停止与操作拒绝）
     { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },
     { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },
+    { type: "schedule.changed", scheduleId: "sch_demo00000001", action: "created", version: 1, source: "main_tool", reason: "每日提醒" },
+    { type: "schedule.run", scheduleId: "sch_demo00000001", runId: "run_demo00000001", action: "registered", scheduledFor: "2026-09-24T01:00:00.000Z", delayMs: 0, coalescedFrom: null, coalescedTo: null },
+    { type: "notification.changed", opId: "nop_demo00000001", status: "effect_unknown", sourceKind: "schedule_run", reason: "timeout_or_abort" },
     { type: "backend.stopping", reason: "signal_sigterm" },
     { type: "backend.stopped", reason: "signal_sigterm" },
   ];

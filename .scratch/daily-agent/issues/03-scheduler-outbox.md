@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 01, 02
 
 # 调度器与通知 outbox
@@ -125,3 +125,25 @@ SQLite 只执行有索引且有批量上限的短事务。发送、应用数据�
 ### 2026-09-23：补充实施计划
 
 已核对编排器的入站派发、核心事务、Runtime 启停、QQ 发送记录及 issue 02/04 的边界，并由独立子代理检查恢复和授权方案。计划补充 IANA/DST 策略、已有运行优先合并、固定发送授权、pending/sending 分离和未知结果不重发；本次只编写计划，未实施功能或运行代码测试。
+
+### 2026-09-24：实现交付
+
+落点与计划一致（四个新模块 + 必要接线）：
+
+- **`src/scheduler/time.ts`**：一次性（必须带 Z/偏移）/每日/每周规则，IANA 时区，DST `compatible`；`nextAfter / latestAtOrBefore` 只看相邻候选日（≤9 天），不逐分钟、不枚举停机期间周期。新增唯一依赖 `@js-temporal/polyfill@0.5.1`（锁定版本，仅此模块使用，Node 要求不变）。
+- **`src/scheduler/store.ts`**：核心库 schema v12 → v13 新增 `schedules / schedule_runs / notification_ops`（`create_key` 唯一、`(schedule_id, version, scheduled_for)` 唯一、每计划一个未关闭运行的部分唯一索引、`(source_kind, source_key)` 唯一），条件更新状态转换，事件同事务提交。
+- **`src/scheduler/runtime.ts`**：不重入扫描（1s / 批 50 / 每轮 20 批 / 活跃上限 1,000）与单在途发送循环（15s 时限）；恢复准备 `prepareRecovery()` 在 `Runtime.recover()` 之前执行（补关闭 → 合并/补一次 → 遗留 sending 定 effect_unknown）；取消在编排器串行链上执行。
+- **`src/agent/scheduler-tools.ts`**：main 专用六个工具（`ToolCategory` 新增 `scheduler`，既有 main 幂等升级）；来源快照解析（text / task_result / artifact / app_data）与发送前授权复核；新审批范围 `ApprovalScope.kind = notification`（TUI 摘要与详情已展示）。
+- **接线**：`Orchestrator.dispatchRegisteredEvents()`（宿主派发入口，每 30s 补派 registered 调度事件）/ `serial()` / `stop()` 等待派发链并拒绝新增派发；调度来源事件建任务固定 `confirm` 模式；Driver 装配/调用门/停止路径按宿主操作 ID 核实调度工具操作；Runtime 恢复同样核实（不落入通用 effect_unknown）；控制面 `schedule_list/get/cancel`、`notification_list/get/cancel` 与 CLI `ruukoto schedule|notify list|show|cancel`。
+- **文档**：`docs/runtime.md` 新增“调度器与通知 outbox”节与恢复第 8 条；ADR 0010（含与 ADR 0003 的关系：通知外发在 full_access 下也须确认）；`CONTEXT.md` 补“调度计划 / 调度运行 / 发送操作”。
+
+实现中的取舍与边界：
+
+- 发送渠道经 `RuntimeConfig.scheduler.channel` 注入；未注入时发送器视为未加载，操作保留 `pending`（`sender_unavailable`）。真实 Telegram 路由、凭据与 owner 回复入口（`enqueueOwnerReply`）归 issue 04，本工单未实现；`source_kind` 已预留 `owner_reply`。
+- 首版不提供计划编辑；wake_main 只接受触发说明 note（不解析来源快照）。
+- 在途取消只记录意图；停止后台时中止在途发送，结果按事实收尾（通常 `effect_unknown`）。
+- `qq_outbox` 未迁移到公共账本（计划既定）。
+
+**验证**（本机 macOS，Node 24.15，mock 模型 + 模拟渠道）：`npm run typecheck` 通过；`npm test` 全量 388 项，387 通过、1 项按默认跳过（真实模型门禁）。`test/37-scheduler-outbox.test.ts` 16 项——DST（纽约 gap/fold、Lord_Howe 半小时、Kathmandu +05:45、每周、闰日、多年停机）、wake_main 重复/并发 tick 只建一个任务且为 confirm 模式、notify 同键幂等与异参冲突、失败/超时/模糊错误/同步抛错/迟到回执不重发、离线与未加载保持 pending、目标版本变化取消、重启（pending 发一次、遗留 sending 不重发、调度工具操作按账本核实）、周一 pending → 周四仍一个操作且下次周五、已 sent 未关闭 → 补关闭后另补一次（覆盖周二至周四）、排队的 wake 任务占位不新增补发、取消与派发/重启、审批（full_access 仍须确认、批准前零发送、拒绝不登记、晚于首个时刻批准不立即补发）、非 main 会话无工具、应用数据快照不随行修改变化、发送挂起时控制面与独立任务继续推进且 stop 在关库前收尾、schema v12 → v13 升级、真实子进程 SIGKILL“平台已接收、本地未落结果”→ 重启 effect_unknown 且平台只收到一次、核心库 `integrity_check / foreign_key_check`。代码评审发现 3 项（同步抛错渠道留在 sending 并可能产生未处理拒绝；批准晚于首个时刻被当作漏过立即发送；未关闭运行只检查最旧 200 条）均已修复并补回归。
+
+未执行：真实 Telegram/QQ 账号发送（按计划不做）、Linux 服务器（`ssh tx`）回归。模拟平台通过不代表 issue 04 的真实部署已通过。

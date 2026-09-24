@@ -61,9 +61,10 @@ export interface OrchestratorDeps {
 
 /** 角色静态定义：工具白名单按注册来源类别给出（Driver 三层强制）。 */
 const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string; tools: ToolCategory[] }> = [
-  // main：日常对话/信息整理/编排——资料与记忆、Web Search、应用数据空间（issue 02）；
+  // main：日常对话/信息整理/编排——资料与记忆、Web Search、应用数据空间（issue 02）、
+  // 调度计划与通知（issue 03）；
   // 不持有编码工具
-  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data"] },
+  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data", "scheduler"] },
   // coding：仓库/测试/PR 分析——编码工具 + 资料 + Web Search + MCP
   { id: "coding", projectName: "agent-coding", tools: ["coding", "host_data", "web_search", "mcp"] },
   // chat：群聊——空工具集合（与 qq_group 同一约束口径）
@@ -108,6 +109,7 @@ interface DelegateArgs {
 export class Orchestrator {
   private readonly deps: OrchestratorDeps;
   private started = false;
+  private stopping = false;
   private deadlineTimer: NodeJS.Timeout | null = null;
   /** 事件派发串行化（注册与恢复共用同一入口，避免并发重提）。 */
   private dispatchChain: Promise<void> = Promise.resolve();
@@ -152,10 +154,29 @@ export class Orchestrator {
 
   async stop(): Promise<void> {
     this.started = false;
+    this.stopping = true;
     if (this.deadlineTimer) {
       clearInterval(this.deadlineTimer);
       this.deadlineTimer = null;
     }
+    // 等待已有派发链收尾；关闭期间新增派发被拒绝（dispatchRegistered 检查 stopping）
+    await this.dispatchChain;
+  }
+
+  /**
+   * 宿主专用的有界派发入口（issue 03 调度器）：派发已持久化的 registered 事件。
+   * 与登记/恢复共用串行链与原请求键，重复调用不重复建任务；提交失败的事件
+   * 保持 registered，由调用方按间隔再次调用补派，不依赖重启。
+   */
+  dispatchRegisteredEvents(): Promise<void> {
+    return this.serial(() => this.dispatchRegistered());
+  }
+
+  /** 在派发串行链上执行（取消计划与派发在同一边界核对，覆盖提交任务与回填事件之间的竞争）。 */
+  serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.dispatchChain.then(fn);
+    this.dispatchChain = run.then(() => {}, () => {});
+    return run;
   }
 
   // ---------- 角色引导 ----------
@@ -289,11 +310,12 @@ export class Orchestrator {
   }
 
   private enqueueDispatch(): void {
-    this.dispatchChain = this.dispatchChain.then(() => this.dispatchRegistered()).catch(() => {});
+    void this.serial(() => this.dispatchRegistered()).catch(() => {});
   }
 
   private async dispatchRegistered(): Promise<void> {
     for (const event of this.store.listInboundByStatus(["registered"])) {
+      if (this.stopping) return;
       await this.dispatchEvent(event);
     }
   }
@@ -303,6 +325,8 @@ export class Orchestrator {
    * 标记之间时，重提命中同一请求键返回既有任务，不重复创建。
    */
   private async dispatchEvent(event: InboundEvent): Promise<void> {
+    // 列表读取后可能已被作废（如调度计划取消）：只派发仍为 registered 的事件
+    if (this.store.getInboundEvent(event.id)?.status !== "registered") return;
     const role = this.store.getAgentRole(event.targetRole);
     if (!role) {
       this.log(`事件 ${event.id} 目标角色 ${event.targetRole} 未引导，跳过`);
@@ -321,6 +345,9 @@ export class Orchestrator {
         modelSelection: role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
         agentId: role.id,
         sourceEventId: event.id,
+        // 定时唤醒（issue 03）采用宿主固定的 confirm 模式：正文不能设置权限，
+        // 也不继承会话默认的完全访问
+        ...(event.source === "scheduler" ? { accessMode: "confirm" as const } : {}),
       });
     } catch (err) {
       this.log(`事件 ${event.id} 建任务失败：${(err as Error).message}`);

@@ -896,6 +896,12 @@ export class Store {
     return true;
   }
 
+  /** 已登记未建任务的事件作废（registered → failed；issue 03 取消计划：恢复与派发都不再建任务）。 */
+  failRegisteredInbound(eventId: string): boolean {
+    const info = this.db.prepare("UPDATE inbound_events SET status = 'failed' WHERE id = ? AND status = 'registered'").run(eventId);
+    return Number(info.changes) === 1;
+  }
+
   /** 事件处理终态（queued → done / failed；不覆盖已定的终态）。 */
   setInboundTerminal(eventId: string, status: "done" | "failed"): boolean {
     const info = this.db
@@ -1264,6 +1270,15 @@ export class Store {
         "SELECT * FROM tool_ops WHERE result_summary IS NULL AND effect_unknown = 0 AND tool_name LIKE 'app_data_%' ORDER BY intent_recorded_at, id",
       )
       .all() as any[];
+    return rows.map(Store.rowToToolOp);
+  }
+
+  /** 指定工具中结果缺失且未标记未知效果的操作（issue 03 调度工具恢复用；不限于活动任务）。 */
+  listUnresolvedOpsByTools(toolNames: readonly string[]): ToolOp[] {
+    const placeholders = toolNames.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(`SELECT * FROM tool_ops WHERE result_summary IS NULL AND effect_unknown = 0 AND tool_name IN (${placeholders}) ORDER BY intent_recorded_at, id`)
+      .all(...toolNames) as any[];
     return rows.map(Store.rowToToolOp);
   }
 

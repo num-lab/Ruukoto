@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -319,6 +319,80 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   UNIQUE (source, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_events_status ON inbound_events (status);
+
+-- v13：调度器与通知 outbox（daily-agent issue 03）。运行时基础设施，不是
+-- main 的业务表；模型经 scheduler 宿主工具间接读写，应用数据工具不可达。
+-- schedules：计划（时间规则 + 固定动作 + 来源快照；通知计划另固定目标与批准）。
+CREATE TABLE IF NOT EXISTS schedules (
+  id TEXT PRIMARY KEY,
+  owner_role TEXT NOT NULL DEFAULT 'main' CHECK (owner_role IN ('main')),
+  create_key TEXT NOT NULL UNIQUE,
+  params_digest TEXT NOT NULL,
+  create_task_id TEXT,
+  create_op_id TEXT,
+  action TEXT NOT NULL CHECK (action IN ('wake_main','notify')),
+  rule TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  target TEXT,
+  approval_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('active','completed','canceled')),
+  next_due_at TEXT,
+  current_run_id TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  tz_data TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  cancel_reason TEXT,
+  cancel_op_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules (status, next_due_at);
+-- schedule_runs：一次到期登记；(计划, 版本, 原定时刻) 唯一，每计划最多一个未关闭运行。
+CREATE TABLE IF NOT EXISTS schedule_runs (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL REFERENCES schedules(id),
+  schedule_version INTEGER NOT NULL,
+  scheduled_for TEXT NOT NULL,
+  local_time TEXT NOT NULL,
+  registered_at TEXT NOT NULL,
+  delay_ms INTEGER NOT NULL,
+  coalesced_from TEXT,
+  coalesced_to TEXT,
+  inbound_event_id TEXT,
+  notification_op_id TEXT,
+  closed_at TEXT,
+  UNIQUE (schedule_id, schedule_version, scheduled_for)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_open ON schedule_runs (schedule_id) WHERE closed_at IS NULL;
+-- notification_ops：发送操作账本；(source_kind, source_key) 唯一即逻辑发送键。
+-- 目标/正文/操作 id 发送前固定；pending（未领取）→ sending（已领取，可能已发出）
+-- → sent / failed / effect_unknown（不自动重发）/ canceled。
+CREATE TABLE IF NOT EXISTS notification_ops (
+  id TEXT PRIMARY KEY,
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','confirmation','owner_reply')),
+  source_key TEXT NOT NULL,
+  task_id TEXT,
+  host_op_id TEXT,
+  target TEXT NOT NULL,
+  text TEXT NOT NULL,
+  text_sha256 TEXT NOT NULL,
+  source_refs TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL CHECK (status IN ('pending','sending','sent','failed','effect_unknown','canceled')),
+  wait_reason TEXT,
+  error_kind TEXT,
+  error_message TEXT,
+  platform_message_id TEXT,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  cancel_op_id TEXT,
+  late_receipt TEXT,
+  created_at TEXT NOT NULL,
+  sending_at TEXT,
+  settled_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE (source_kind, source_key)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_ops_status ON notification_ops (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_notification_ops_task ON notification_ops (task_id);
 `;
 
 /**
@@ -423,7 +497,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 11) {
+    } else if (version >= 2 && version <= 12) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -432,7 +506,8 @@ export class Db {
       // v10 → v11：新增 agent_roles / inbound_events 两表 + tasks 编排补列
       // （ensureColumns）；
       // v11 → v12：projects/sessions 补 create_request_id 列 + 部分唯一索引
-      // （ensureColumns，issue 21 创建幂等键）。
+      // （ensureColumns，issue 21 创建幂等键）；
+      // v12 → v13：新增 schedules / schedule_runs / notification_ops 三表（issue 03）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理，无既有数据需要改写。
       this.ensureColumns();

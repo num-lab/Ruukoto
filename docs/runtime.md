@@ -430,6 +430,60 @@ main 角色按需声明的个人结构化数据（待办、提醒、习惯等）
 - **分工**：偏好、约定、决策、经验仍进入长期记忆（MemoryStore）；应用记录
   不自动提升为长期记忆或控制指令。
 
+## 调度器与通知 outbox（issue 03，ADR 0010）
+
+单进程 SQLite 调度器，核心 `ruukoto.db` 新增三张运行时基础设施表（schema
+v13）：`schedules`（计划）、`schedule_runs`（调度运行）、`notification_ops`
+（发送操作账本）。它们不是 main 的业务表，应用数据工具不可达；内存定时器
+只负责唤醒扫描，规则、下次时间、运行与发送状态以数据库为准。
+
+- **规则**：一次性（必须带 `Z` 或显式偏移）/ 每日 `HH:mm` / 每周 ISO 星期
+  1–7，IANA 时区，按当地日期 + 原定钟点重新构造（不做 24h/7d 相加）。DST
+  固定 `compatible`：不存在的当地时间顺延（纽约 02:30 → 03:30，次日回到
+  02:30），重复时间只取较早一次。时区/DST 算法由 `@js-temporal/polyfill`
+  （锁定 0.5.1，只在 `src/scheduler/time.ts` 使用）提供；计划记录计算时的
+  Node/ICU/tz 版本，已登记运行的时刻与键不改写。
+- **动作**：`wake_main` 登记 `source=scheduler`、`external_id=<运行 ID>` 的
+  入站事件，经编排器建 main 任务（宿主固定 `confirm` 模式，正文不能设权限，
+  唤醒任务不继承外发授权）；`notify` 把已批准的固定正文登记为发送操作，
+  不为每次提醒启动模型。
+- **到期**：扫描间隔 1s、每批 50、每轮最多 20 批、活跃计划上限 1,000。
+  一次短事务内核对计划、创建或合并运行、推进下次时间并登记事件/操作；
+  `(schedule_id, version, scheduled_for)` 唯一、每计划最多一个未关闭运行，
+  重复/并发唤醒不重复建任务。提交后经 `Orchestrator.dispatchRegisteredEvents()`
+  派发；派发失败的事件保持 `registered`，每 30s 按原键补派。
+- **漏过周期**：每计划只补一次。无未完成运行 → 取截点前最近一次，保存合并
+  区间并标延迟；已有未完成运行（registered/queued/running 任务、pending/
+  sending 通知）→ 并入原运行（原键、原正文），不建第二个。时钟回拨不回退
+  已持久化的下次时间。失败或结果未知的运行不自动重试。
+- **发送**：一次只有一个在途操作；`pending`（未领取）→ 条件更新 `sending`
+  → 事务提交后调用宿主注入的渠道一次（15s 时限）：成功 `sent`（保存平台
+  消息 ID），可证明未发送（`NotSentError`）`failed`，超时/断线/中止/模糊错误
+  `effect_unknown`。迟到回执保存在原操作上，不改状态、不重发。发送前重核
+  目标（配置版本变化或停用 → `canceled`，不改发新目标）、计划状态与来源
+  授权；渠道离线或发送器未加载 → 保持 `pending` 并写等待原因。
+- **授权**：目标只来自可信宿主渠道（`RuntimeConfig.scheduler.channel`；
+  真实 Telegram 路由归 issue 04）；未配置即拒绝创建外发。`notify` 计划与
+  `notification_enqueue` 一次发送都进入统一审批（`ApprovalScope.kind =
+  notification` 固定完整正文、目标与配置版本、规则/时区/DST、持续范围），
+  full_access 与 auto-review 也须拥有者确认；获批后同一核心事务内重核并
+  `consumeApproval()`、写入计划/操作。已批准计划后续触发不重复消费批准。
+- **工具**（仅 main，`ToolCategory` 含 `scheduler`）：`schedule_create /
+  schedule_query / schedule_cancel / notification_enqueue / notification_query /
+  notification_cancel`。创建键 main 范围内唯一（同键同参返回原计划，异参
+  冲突）；每任务一个一次通知槽（重复调用返回原操作，改正文冲突）。正文来源
+  `text / task_result（已完成且有结果）/ artifact（UTF-8 片段）/ app_data
+  （行字段）`，登记前解析为最终文本并记录版本与摘要；限 2,000 字符与 8 KiB、
+  来源 ≤8、触发说明 ≤4 KiB、参数 ≤32 KiB，超限拒绝不截断不拆分。
+- **取消**：在编排器串行链上执行，立即停止未来触发；pending 操作 → canceled，
+  sending 只记取消意图；未派发的入站事件作废（恢复与派发都不再建任务），
+  已排队的关联任务经现有取消入口处理；已运行的任务与在途发送保留真实结果。
+- **查看**：`ruukoto schedule list|show|cancel`、`ruukoto notify list|show|cancel`
+  （控制面 `schedule_list/get/cancel`、`notification_list/get/cancel`，每页 ≤50，
+  列表不带正文）；审批在 TUI。控制面不获得发送或改目标能力。
+- **停止**：先停止扫描与领取并中止在途发送（结果按事实收尾，通常
+  `effect_unknown`），再等待编排器派发链，最后关库；关闭屏障后迟到回调不写库。
+
 ## GitHub（专用模块已退役，issue 17）
 
 专用 GitHub 模块（REST 采集、草稿与发布状态机，issue 06）已退役并删除；
@@ -709,6 +763,13 @@ QQ 发言不获控制面能力、qq_group 资料身份、登记-入队与遗留�
    `backend_restart` 才自动恢复；`occupancy_unverified`（旧执行未核实）
    保留暂停与占用，由拥有者核实后 `resume-queue`——角色任务有工具执行，
    不沿用 QQ 无工具会话的无条件恢复前提。
+8. 调度器（issue 03）的恢复准备在第 2 步之前执行（须读到 running 任务的
+   原始状态）：关联任务/发送已终态但运行未关闭的先补关闭；到期计划按
+   正常规则处理——仍未完成的运行吸收漏过区间（不新增补发），其余计划补一次
+   并标记延迟；最后遗留 `sending` 一律 `effect_unknown`（含"已领取、调用前
+   崩溃"窗口），不重发。调度工具未落结果的操作按宿主操作 ID 核实账本（同库，
+   已登记即已提交、未登记即未提交），不落入通用 `effect_unknown`。编排器
+   启动后才开放调度扫描与发送。
 
 ## 部署（目标 Linux 服务器）
 

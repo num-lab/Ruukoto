@@ -2470,6 +2470,8 @@ export class TuiApp {
         };
         return `应用数据${label[c.scope.change] ?? c.scope.change}：表 ${c.scope.table ?? "（多表）"} · schema v${c.scope.schemaVersion}/rev ${c.scope.revision} · 影响 ${c.scope.affected}`;
       }
+      case "notification":
+        return `通知外发（${c.scope.duration === "until_canceled" ? "持续至取消" : "单次"}）：${c.scope.target.channel}/${c.scope.target.chatId}（配置 v${c.scope.target.configVersion}）${c.scope.rule ? ` · ${c.scope.rule}` : ""} · 正文 ${c.scope.textChars} 字符`;
       // issue 17：github_publish 范围已退役，仅为历史审批记录的只读展示保留
       case "github_publish":
         return `GitHub 发布（已退役模块的历史记录）：${c.scope.owner}/${c.scope.repo} ${c.scope.publishKind === "pr_review_comment" ? `PR #${c.scope.target["prNumber"]} 评审评论` : `issue #${c.scope.target["issueNumber"]} 评论`}（草稿 ${c.scope.draftId} v${c.scope.draftVersion}，${c.scope.bodyBytes} 字节）`;
@@ -2508,6 +2510,11 @@ export class TuiApp {
         if (c.scope.definitionBefore || c.scope.definitionAfter) {
           lines.push(`定义变更：${c.scope.definitionBefore ? "含旧定义" : "无旧定义"} → ${c.scope.definitionAfter ? "含新定义" : "删除"}`);
         }
+      }
+      if (c.scope.kind === "notification") {
+        // issue 03：目标、规则/时区/DST、持续范围与完整正文（正文见下方参数 text）
+        lines.push(`目标：${sanitizeForDisplay(`${c.scope.target.channel} 账号 ${c.scope.target.account} 会话 ${c.scope.target.chatId}`)} · 正文 sha256 ${c.scope.textSha256.slice(0, 16)}…`);
+        if (c.scope.sourceRefs.length > 0) lines.push(`来源：${sanitizeForDisplay(c.scope.sourceRefs.join(", "))}`);
       }
       // 自动审查信息（issue 15）：无审查字段的旧记录按历史人工审批展示，不加审查行
       if (c.reviewStatus !== null) {

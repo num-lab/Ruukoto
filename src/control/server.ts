@@ -702,6 +702,31 @@ export class ControlServer {
         }
         return { entries: runtime.qqListOutbox({ groupId: typeof params["group_id"] === "string" ? params["group_id"] : undefined, limit }) };
       }
+      // ---------- issue 03：调度计划与通知发送账本（只查询/取消，不获得发送或改目标能力） ----------
+      case "schedule_list":
+      case "notification_list": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        const input = {
+          status: typeof params["status"] === "string" ? params["status"] : undefined,
+          cursor: typeof params["cursor"] === "string" ? params["cursor"] : undefined,
+          limit,
+        };
+        return request.op === "schedule_list" ? runtime.scheduleList(input) : runtime.notificationList(input);
+      }
+      case "schedule_get":
+        return runtime.scheduleGet(requireString("schedule_id"));
+      case "schedule_cancel": {
+        const expected = params["expected_version"];
+        if (!Number.isInteger(expected)) throw Object.assign(new Error("expected_version 必须是整数"), { code: "invalid_params" });
+        return runtime.scheduleCancel({ scheduleId: requireString("schedule_id"), expectedVersion: expected as number, reason: requireString("reason") });
+      }
+      case "notification_get":
+        return runtime.notificationGet(requireString("op_id"));
+      case "notification_cancel":
+        return runtime.notificationCancel({ opId: requireString("op_id"), reason: requireString("reason") });
       case "stop": {
         void runtime.stop("control_plane").catch(() => {});
         return { accepted: true };

@@ -41,6 +41,8 @@ const LEGACY_COMMANDS = new Set([
   "mcp",
   "stop",
   "qq",
+  "schedule",
+  "notify",
   "grant",
   "history-search",
   "memory",

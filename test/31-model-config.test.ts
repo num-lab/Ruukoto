@@ -593,6 +593,41 @@ test("回滚：通过本地校验但 SDK 重建失败 → 文件恢复旧字节�
   }
 });
 
+test("set_session_model 与删除 provider 竞态：resolve 期间应用已完成则拒绝，不留悬空引用", async () => {
+  const t = await startManual("model-config-race", textResponder, { secondProvider: true });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const session = await t.client.request<any>("get_session", { session_id: sessionId });
+    // 压住 set_session_model 的目录解析，让删除 provider 在其间整体完成
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const resolving = new Promise<void>((resolve) => (entered = resolve));
+    const catalog = (t.runtime as any).modelCatalog;
+    const origResolve = catalog.resolve.bind(catalog);
+    catalog.resolve = async (sel: any) => {
+      const model = await origResolve(sel);
+      entered();
+      await held;
+      return model;
+    };
+    const pending = t.client.request("set_session_model", {
+      session_id: sessionId,
+      expected_version: session.modelSelectionVersion,
+      model_selection: { provider: "second", modelId: "reasoner", thinkingLevel: "off" },
+    }).then(() => null, (err: any) => err);
+    await resolving;
+    const r = (await t.client.request<any>("get_model_config", {})).revision;
+    await t.client.request("remove_model_provider", { provider: "second", expected_revision: r });
+    release();
+    assert.equal((await pending)?.code, "model_config_busy", "目录已重建：必须拒绝按旧目录核实的写入");
+    const after = await t.client.request<any>("get_session", { session_id: sessionId });
+    assert.deepEqual(after.modelSelection, MOCK_SELECTION, "会话不得指向已删除的 provider");
+  } finally {
+    await cleanupManual(t);
+  }
+});
+
 test("门闩窗口：应用期间受影响 provider 的提交与并发应用被拒绝", async () => {
   const t = await startManual("model-config-busy", textResponder);
   try {
@@ -606,6 +641,10 @@ test("门闩窗口：应用期间受影响 provider 的提交与并发应用被�
       submitMock(t.client, sessionId, "busy-submit"),
       (err: any) => err.code === "model_config_busy",
     );
+    // 内部提交（编排器/QQ 桥）不失败：等本次应用结束后按同一请求键重试
+    let internalDone = false;
+    const internal = ((t.runtime as any).submitInternal({ sessionId, requestId: "busy-internal", input: "ping", modelSelection: MOCK_SELECTION }) as Promise<any>)
+      .then((task) => ((internalDone = true), task));
     const view = await t.client.request<any>("get_model_config", {});
     assert.deepEqual(view.busyProviders, ["mock"]);
     await assert.rejects(
@@ -613,7 +652,10 @@ test("门闩窗口：应用期间受影响 provider 的提交与并发应用被�
       (err: any) => err.code === "model_config_busy",
       "并发应用必须单-flight",
     );
+    assert.equal(internalDone, false, "应用窗口内内部提交应等待");
     await applyPromise;
+    const internalTask = await internal;
+    await waitFor("内部提交任务完成", async () => (await taskStatus(t.client, internalTask.id)).task.status === "completed");
     assert.deepEqual((await t.client.request<any>("get_model_config", {})).busyProviders, []);
     const task = await submitMock(t.client, sessionId, "after-busy");
     await waitFor("门闩释放后任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");

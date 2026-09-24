@@ -408,7 +408,9 @@ const slowThenFast: Responder = async (req) => {
 };
 
 test("qq：排队超过 TTL 未开始执行的请求过期跳过（不回复）", async () => {
-  const f = await startQq("qq-expire", slowThenFast, { queueTtlMs: 800 });
+  // TTL 须大于 1s：OneBot 事件 time 精确到秒（向下取整），登记时的消息年龄最多多算近 1s，
+  // 800ms 会让恰在秒末发出的消息登记即被判过期（此前的偶发失败）；第二条排队约 1.8s 才轮到，1.5s 必然过期
+  const f = await startQq("qq-expire", slowThenFast, { queueTtlMs: 1500 });
   try {
     await waitOnline(f.t);
     f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_1, messageId: 1, segments: atSegments("慢任务占位") });
@@ -416,7 +418,7 @@ test("qq：排队超过 TTL 未开始执行的请求过期跳过（不回复）"
       const inbox = await inboxOf(f.t, GROUP_A, "1");
       return inbox?.taskId ? (await taskStatus(f.t.client, inbox.taskId)).task.status === "running" : false;
     });
-    // 第二条在首条执行期间入队；TTL 800ms 内等不到执行即过期
+    // 第二条在首条执行期间入队；TTL 内等不到执行即过期
     await new Promise((r) => setTimeout(r, 200));
     f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_2, messageId: 2, segments: atSegments("第二条") });
     await waitSends(f.onebot, 1); // 只有首条的回复

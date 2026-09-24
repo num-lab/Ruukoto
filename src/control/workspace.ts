@@ -105,13 +105,12 @@ export async function ensureWorkspaceSession(
 
 /**
  * 连接层错误判定（应答可能已丢失）：这类失败走"重连后按启动请求标识核实"路径；
- * 其余（invalid_params / request_conflict 等协议错误）是后台明确拒绝，不重试。
+ * request_timeout 不在此列——连接仍在，不会有重连快照，由调用方直接按同一
+ * 标识重发。其余（invalid_params / request_conflict 等协议错误）是后台明确拒绝，不重试。
  */
 export function isWorkspaceConnectionError(err: unknown): boolean {
   return (
     err instanceof ControlClientError &&
-    ["connection_unavailable", "connection_closed", "connection_error", "connect_timeout", "closed", "request_timeout"].includes(
-      err.code,
-    )
+    ["connection_unavailable", "connection_closed", "connection_error", "connect_timeout", "closed"].includes(err.code)
   );
 }

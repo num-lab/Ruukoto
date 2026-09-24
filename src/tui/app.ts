@@ -1024,17 +1024,7 @@ export class TuiApp {
   }
 
   private async runWorkspaceEntryInner(): Promise<void> {
-    if (this.workspacePhase === "awaiting-reconnect") {
-      // 应答丢失核实：新快照里按启动请求标识找会话；找到即进入，找不到用同一标识重试
-      const found = this.state.sessions.find((s) => s.createRequestId === this.startupRequestId);
-      if (found) {
-        this.workspacePhase = "done";
-        this.switchSession(found.id);
-        return;
-      }
-      await this.ensureWorkspaceEntry(this.workspaceProjectId);
-      return;
-    }
+    if (this.workspacePhase === "awaiting-reconnect") return this.verifyWorkspaceEntry();
     // pending：首次握手
     if (!this.workspaceIdentity) {
       try {
@@ -1059,7 +1049,21 @@ export class TuiApp {
     }
   }
 
-  /** 幂等创建/复用工作区会话并进入；连接错误等重连核实，协议错误回落正常启动。 */
+  /**
+   * 应答丢失核实：当前状态里按启动请求标识找会话；找到即进入，找不到才用同一
+   * 标识重试（先找再发：已建项目会改变自动项目名，重发参数不同会被判冲突）。
+   */
+  private async verifyWorkspaceEntry(): Promise<void> {
+    const found = this.state.sessions.find((s) => s.createRequestId === this.startupRequestId);
+    if (found) {
+      this.workspacePhase = "done";
+      this.switchSession(found.id);
+      return;
+    }
+    await this.ensureWorkspaceEntry(this.workspaceProjectId);
+  }
+
+  /** 幂等创建/复用工作区会话并进入；连接错误等重连核实，超时就地核实，协议错误回落正常启动。 */
   private async ensureWorkspaceEntry(projectId: string | null): Promise<void> {
     this.workspaceProjectId = projectId;
     try {
@@ -1073,6 +1077,11 @@ export class TuiApp {
       this.switchSession(session.id);
       if (createdProject) this.notify(`项目已自动创建：${projectName}`);
     } catch (err) {
+      if ((err as { code?: unknown })?.code === "request_timeout") {
+        // 连接仍在、不会有重连快照触发核实：就地核实（已建的会话经事件已在状态里）
+        this.notify(yellow("后台响应超时，按启动请求标识核实后重试…"));
+        return this.verifyWorkspaceEntry();
+      }
       if (isWorkspaceConnectionError(err)) {
         // 应答可能已丢失：不盲目重发，等重连后的新快照按启动请求标识核实
         this.workspacePhase = "awaiting-reconnect";

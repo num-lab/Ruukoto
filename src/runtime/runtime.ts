@@ -276,6 +276,8 @@ export class Runtime {
    * provider；门闩期间这些 provider 的新任务拒绝进入执行或队列。
    */
   private modelConfigGate: Set<string> | null = null;
+  /** 当前（或最近一次）配置应用结束时兑现；内部提交遇门闩等它后重试。 */
+  private modelConfigSettled: Promise<void> = Promise.resolve();
   private drivers = new Map<string, Driver>();
   private loopActive = new Set<string>();
   private loopPromises = new Map<string, Promise<void>>();
@@ -425,7 +427,7 @@ export class Runtime {
         dataDir: fullConfig.dataDir,
         timeouts: fullConfig.qq,
         bridge: {
-          submit: (input) => runtime.submit(input),
+          submit: (input) => runtime.submitInternal(input),
           cancelTask: (taskId) => runtime.cancelTask(taskId),
           findProjectByName: (name) => runtime.store.findProjectByName(name),
           createProject: (name) => runtime.createProject(name),
@@ -446,7 +448,7 @@ export class Runtime {
       dataDir: fullConfig.dataDir,
       deadlineCheckMs: fullConfig.orchestrator?.deadlineCheckMs,
       bridge: {
-        submit: (input) => runtime.submit(input),
+        submit: (input) => runtime.submitInternal(input),
         cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
         findProjectByName: (name) => runtime.store.findProjectByName(name),
         createProject: (name) => runtime.createProject(name),
@@ -819,12 +821,12 @@ export class Runtime {
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
     const selection = parseModelSelection(input.modelSelection);
     // 配置应用期间不得为受影响 provider 钉入新引用（与 §4 删除核实同一同步段语义）
-    if (this.modelConfigGate?.has(selection.provider)) {
-      throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
-    }
-    await this.modelCatalog.resolve(selection);
+    const check = await this.resolveSelection(selection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    return this.store.withTx(() => this.store.setSessionModel(input.sessionId, selection, input.expectedVersion));
+    return this.store.withTx(() => {
+      check();
+      return this.store.setSessionModel(input.sessionId, selection, input.expectedVersion);
+    });
   }
 
   // ---------- 模型配置管理（issue 21 §3/§4） ----------
@@ -834,6 +836,21 @@ export class Runtime {
     if (this.modelConfigGate?.has(provider)) {
       throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
     }
+  }
+
+  /**
+   * 按当前目录核实模型选择。返回的 check 须在写入的同一同步段调用：resolve
+   * 的 await 期间门闩生效，或一次应用已整体完成（目录被重建，如 provider 已
+   * 删除且引用核实已通过）时拒绝，不让新引用钻过 §4 的删除/应用边界。
+   */
+  private async resolveSelection(selection: ModelSelection): Promise<() => void> {
+    this.assertModelConfigIdle(selection.provider);
+    const catalog = this.modelCatalog;
+    await catalog.resolve(selection);
+    return () => {
+      this.assertModelConfigIdle(selection.provider);
+      if (this.modelCatalog !== catalog) throw new RuntimeApiError("model_config_busy", "模型配置刚刚更新，请重试");
+    };
   }
 
   /** 修订核对（乐观并发）：全部写操作按调用方读取时的修订应用。 */
@@ -872,6 +889,8 @@ export class Runtime {
         `有 ${blocked} 个任务正在使用受影响的提供方（运行中/等待确认/排队），请先完成或取消这些任务`,
       );
     }
+    let settle!: () => void;
+    this.modelConfigSettled = new Promise<void>((resolve) => (settle = resolve));
     const snapshot = snapshotConfigFiles(this.config.agentDir);
     try {
       await fn();
@@ -885,6 +904,7 @@ export class Runtime {
       throw err;
     } finally {
       this.modelConfigGate = null;
+      settle();
     }
   }
 
@@ -1247,8 +1267,7 @@ export class Runtime {
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
     // this.submit 走同一检查
-    this.assertModelConfigIdle(selection.provider);
-    await this.modelCatalog.resolve(selection);
+    const check = await this.resolveSelection(selection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
     try {
@@ -1271,7 +1290,7 @@ export class Runtime {
         // 之间"没有受影响任务钻过边界；重复提交先仲裁返回，不受门闩影响
         const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
         if (raced) return { task: raced, duplicate: true };
-        this.assertModelConfigIdle(selection.provider);
+        check();
         return this.store.insertQueuedTask({
           sessionId: input.sessionId,
           requestId: input.requestId,
@@ -1296,6 +1315,21 @@ export class Runtime {
     }
     if (!duplicate) this.kick(input.sessionId);
     return task;
+  }
+
+  /**
+   * 后台内部提交（编排器唤醒/委派、入站事件、QQ）：遇配置应用门闩等本次应用
+   * 结束后按同一请求键重试——这些调用方没有人会手动重试，失败会滞留到重启。
+   */
+  private async submitInternal(input: Parameters<Runtime["submit"]>[0]): Promise<Task> {
+    for (;;) {
+      try {
+        return await this.submit(input);
+      } catch (err) {
+        if (!(err instanceof RuntimeApiError) || err.code !== "model_config_busy") throw err;
+        await this.modelConfigSettled;
+      }
+    }
   }
 
   /**
@@ -1900,13 +1934,10 @@ export class Runtime {
     if (this.store.countLegacyQueuedTasks(sessionId) > 0 && !selection) {
       throw new RuntimeApiError("model_selection_required", "旧排队任务未记录模型配置；请显式确认 model_selection 后恢复队列");
     }
-    if (selection) {
-      const parsed = parseModelSelection(selection);
-      // 模型配置应用门闩（issue 21 §4）：显式确认的 provider 受影响时拒绝
-      this.assertModelConfigIdle(parsed.provider);
-      await this.modelCatalog.resolve(parsed);
-    }
+    // 模型配置应用门闩（issue 21 §4）：显式确认的 provider 受影响时拒绝
+    const check = selection ? await this.resolveSelection(parseModelSelection(selection)) : null;
     this.store.withTx(() => {
+      check?.();
       if (this.store.countLegacyQueuedTasks(sessionId) > 0) {
         if (!selection) throw new RuntimeApiError("model_selection_required", "请显式确认旧任务的模型配置");
         this.store.fillLegacyQueuedModelSelections(sessionId, selection);

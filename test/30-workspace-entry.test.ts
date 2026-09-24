@@ -593,6 +593,41 @@ test("工作区入口：路径不存在时明确报错退出，不新建", async
   }
 });
 
+test("工作区入口请求超时（连接未断）：按同一启动请求标识重发，不卡住也不重复创建", async () => {
+  const t = await startTestRuntime("ws-tui-timeout", async () => ({ kind: "text", text: "x" }));
+  const apps: AppHarness[] = [];
+  try {
+    let timedOut = false;
+    // 首次 create_session 照常发往后台（服务端落库），客户端却拿到 request_timeout；连接不断开
+    const clientFactory = async (socketPath: string, timeoutMs: number): Promise<ControlClient> => {
+      const client = await ControlClient.connect(socketPath, timeoutMs);
+      const orig = client.request.bind(client);
+      (client as any).request = async (op: string, params?: Record<string, unknown>, timeout?: number): Promise<unknown> => {
+        if (op === "create_session" && !timedOut) {
+          timedOut = true;
+          await orig(op, params, timeout);
+          throw new ControlClientError("request_timeout", "模拟请求超时");
+        }
+        return orig(op, params, timeout);
+      };
+      return client;
+    };
+    const h = await startApp(t, { workspace: { path: t.work[0]! }, clientFactory });
+    apps.push(h);
+    await waitFor("重发后进入会话", () => h.state.currentSessionId !== null, 20_000);
+    assert.ok(timedOut, "确实模拟了请求超时");
+    const created = t.runtime.store.listSessions().filter((s) => s.createRequestId !== null);
+    assert.equal(created.length, 1, "重发不重复创建会话");
+    assert.equal(h.state.currentSessionId, created[0]!.id);
+    h.app.quit(0);
+    await waitFor("退出", () => h.exitCode() === 0);
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
 test("工作区入口应答丢失：重连后按启动请求标识核实，不重复创建", async () => {
   const t = await startTestRuntime("ws-tui-retry", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];

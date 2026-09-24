@@ -199,7 +199,9 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   expected_version。冲突时要求重新加载，不静默覆盖。
 - **模型配置应用时机（§4）**：provider、模型目录与 API key 的修改只在没
   有受影响的 `running` / `awaiting_confirmation` / `queued` 任务时应用；
-  检查到应用完成之间，受影响 provider 的新提交被拒绝（`model_config_busy`）。
+  检查到应用完成之间，受影响 provider 的新提交与会话模型设置被拒绝
+  （`model_config_busy`，核实期间目录被重建同样拒绝，可重试）；后台内部
+  提交（编排器唤醒/委派、入站事件、QQ）等本次应用结束后自动重试。
   占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不
   自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime /
   模型目录 / 审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。

@@ -542,6 +542,120 @@ ruukoto telegram enable | disable | status
 - **查看**：`ruukoto telegram status`（配置视图、在线状态、最近错误、偏移，不含 token）；
   回复记录经 `ruukoto notify list|show`（`sourceKind = owner_reply`）。
 
+## main 委派 coding（daily-agent issue 05）
+
+main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，通过宿主工具
+`coding_delegate` 创建 coding 子任务；结果回到 main 会话，通过 `coding_result`
+读取。两个工具属于 `delegation` 类别，仅 main 装配，调用时重新核实任务、
+会话、项目与角色绑定；coding/chat/QQ 与普通开发会话不获得委派能力。
+
+### 委派与执行范围
+
+- **触发来源**：只有拥有者在 main 会话直接提交的任务，或经 Telegram owner
+  入口核实身份的入站任务可以委派。定时唤醒、子任务结果唤醒及其他来源任务
+  拒绝委派；消息正文、项目指令和资料中的身份声明不能替代宿主来源记录。
+- **输入与固定参数**：模型只提供 `request / mode（analyze|draft）/ key /
+  materials?`。宿主固定目标为 `coding`、项目与会话为 coding 角色绑定、
+  工作目录为角色 `workDir`（`<dataDir>/../agent-work/coding/`）、权限模式
+  为 `confirm`，不继承 coding 会话默认模式。截止时间固定为父任务开始时刻
+  （尚无开始时刻则取创建时刻）+ 60 分钟，包含排队与审批等待；每个父任务
+  最多 3 个首次委派，同键重复调用与宿主自动重试不占新名额。
+- **幂等键**：`key` 为 1–64 位字母、数字、`_` 或 `-`，请求键为
+  `deleg:<parentTaskId>:<key>`。同父任务、同键同参返回原子任务，同键异参
+  明确冲突；原始参数的规范化摘要随宿主委派模板持久化，资料随后变化时，
+  同参重提仍复用首次快照。应答丢失时核实原请求键，不换键重复委派。
+- **资料快照**：`materials` 可省略，提供时为 1–8 个来源；复用
+  `createSourceResolver` 在委派时按 main 的可读范围解析，支持
+  `{kind:'text',text}`、`{kind:'task_result',task_id}`、
+  `{kind:'artifact',artifact_id,offset?,length?}` 与
+  `{kind:'app_data',table,row_id,field}`。任务来源取已完成且已记录的结果摘要；
+  产物来源取已定稿的 UTF-8 片段（偏移/长度按字节，单片最多 8 KiB）。来源
+  解析后的文本写入子任务正文，不传原始引用 ID；后续源数据变化不改写既有快照。不复制
+  main 完整会话历史，也不授予 coding 读取 main 应用数据或其他原始资料的
+  API 权限。宿主模板、请求和资料合计最多 8192 字符，超限拒绝，不截断。
+- **工作目录与模式**：coding 复用编码工具和既有审批边界，需要仓库时在角色
+  工作目录内自行 `git clone`，不另设仓库白名单。`analyze` 表示读取与分析
+  意图，用于结果标注与重试判定；它不是只读沙箱，`confirm` 本身允许工作区内
+  已授权的写入。`draft` 可生成修改草稿，不提交、不推送；GitHub 评论、PR
+  或其他外部发布仍须拥有者在可信入口确认。委派不开放任意工作目录、网络、
+  凭据或角色权限修改能力。
+
+### 结果协议与分页读取
+
+终态摘要保存到 `result_summary`（正文最多 1000 字符，超出注明截断），
+结构化结果使用既有 `result_ref` JSON，保留 `sessionId / taskId`：
+
+- `mode`：`analyze / draft`；`outcome`：`completed / failed / timeout / unknown`。
+  截止时间取消记为 `timeout`，中断记为 `unknown`，普通取消保留原因并归入
+  `failed`；是否自动重试还须核实原任务状态，不能只看 `outcome`。
+- `tests`：`passed / failed / not_run / unreported`，来自 coding 自报，
+  不代表宿主独立验证通过；未按格式报告时为 `unreported`。
+- `needsOwner / needsOwnerReason`：宿主依据中断、效果未知、未处理审批等事实
+  判定，并合并 coding 自报的需要拥有者及原因；完整分页识别报告后，原因保留
+  最多 1000 字符，完整正文经 `coding_result` 读取。自报“否”不能覆盖宿主判定。
+- `effect`：`unknown / none_unknown`，依据宿主操作记录；`none_unknown` 只表示
+  未记录效果未知，不表示没有写入或其他副作用，也不足以证明可以重试。
+- `failure`：失败、超时、中断或取消的原因，完成时为空；`artifactIds`：该
+  子任务的产物引用，不含 `prompt-snapshot:*` 宿主诊断快照；`retriedBy`：
+  首次失败被自动重试接替时，记录重试子任务 ID。
+
+宿主要求 coding 在最终回答末尾按以下两行自报（各取适用值，需拥有者时附原因）：
+
+```text
+测试：通过|失败|未运行
+需要拥有者：是（原因）|否
+```
+
+`coding_result` 只读父任务属于当前 main 会话的 coding 子任务，结果唤醒产生
+的新 main 任务也可读取；这是按父子关系开放的窄入口，不扩大通用跨项目资料
+授权。输入为 `task_id / part? / artifact_id? / offset? / length?`：
+
+- `part=result`（默认）：返回任务状态、截止时间、结构化结果、摘要与产物 ID，
+  尚无结果时明确说明。
+- `part=reply`：读取该子任务自己的最终回答，按 UTF-8 字节分页；`offset /
+  length` 均以字节计，`length` 为 256–16384，默认 16384（16 KiB）。共用
+  `Runtime.readTaskReply`，可继续读取超过旧接口 256 KiB 上限的回答内容，
+  不从 coding 会话最新一条回答推断。任务完成前返回暂无最终回答，避免把
+  中间消息和最终回答拼入同一组分页。
+- `part=artifact`：须提供 `artifact_id`，并核实产物属于该子任务且不是宿主上下文
+  快照；按 UTF-8 字节分页，长度为 4–65536，默认 64 KiB，返回产物状态与正文片段。
+  非文本或未对齐的起始偏移明确报错，页尾保留未完成字符给下一页。两种正文读取的
+  `offset` 默认 0，响应注明总字节数与下一页偏移；续读使用响应给出的偏移。
+
+编排器记录 `child_task.*` 事件，以固定 `confirm` 模式、限长摘要和结果引用唤醒 main，
+不继承 main 会话默认的完全访问。
+完整回答与产物通过上述工具按需读取。子任务不继承父任务的 Telegram 来源
+事件，子任务及其唤醒任务均不产生 `owner_reply`，结果不自动发回 Telegram
+（ADR 0011）；需要外发时由 main 经 `notification_enqueue` 另行请求确认。
+
+### 自动重试与恢复
+
+只有首次 `analyze` 子任务以 `failed` 状态结束，且宿主可证明没有执行写入或
+副作用不明的操作、没有效果未知记录、没有已批准或已消费审批时，才自动重试一次。
+`draft`、超时、中断、取消、结果未知与无法证明安全的失败均不自动重试；
+不能仅凭 `analyze` 意图、自报结果或没有 `effect_unknown` 就重放任务。
+
+宿主按持久化工具记录保守核实：已有操作必须全部属于已知只读集合
+（`read / read_artifact / history_search / history_read / memory_list /
+memory_read / web_search`），结果已记录且效果已知。任何 `bash`、MCP、
+记忆写入、其他写工具或未知工具调用均不自动重试，包括经 `bash` 执行的
+`git clone`。
+
+重试保留原父任务、正文（含资料快照）、coding 角色与 `confirm` 模式，请求键
+固定为原请求键加 `:retry`，截止时间为首次任务结束时刻 + 60 分钟；重试任务
+本身不能再次自动重试。先按固定键提交或核实重试子任务，再为首次任务记录
+`retriedBy` 与结果；首次失败不唤醒 main，待重试终态后只唤醒一次。
+重试创建被拒且确认没有子任务时，保存原始失败与需要拥有者的原因，继续结果
+回传和后台恢复；已创建的重试仍按原键核实。执行后端暂不可用时，唤醒保留到
+后续恢复补发。
+
+停止或重启时，未落结果的 `coding_delegate` 按原请求键核实子任务是否存在：
+存在即已委派，不存在即已知未委派，不按通用操作标为 `effect_unknown`；
+`coding_result` 是只读查询。恢复沿用原委派键、固定重试键和
+`wake:<childId>` 唤醒键，不生成新键重复创建；补发唤醒排除已有重试接替的
+首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
+结果未知事实，不自动重放其执行。
+
 ## GitHub（专用模块已退役，issue 17）
 
 专用 GitHub 模块（REST 采集、草稿与发布状态机，issue 06）已退役并删除；
@@ -817,7 +931,8 @@ QQ 发言不获控制面能力、qq_group 资料身份、登记-入队与遗留�
    请求键（`evt:<eventId>`）核实重提；重启窗口内到达终态的角色任务补记
    结果并补发 `child_task.*` 事件与有界唤醒（interrupted 一律按结果未知，
    不自动重放外部副作用）；结果已落库而唤醒缺失的子任务按原幂等键
-   （`wake:<childId>`）补发，重复恢复不重复投递。角色会话的队列暂停只有
+   （`wake:<childId>`）补发，已有自动重试接替的首次 coding 任务不补唤醒
+   （见「main 委派 coding」），重复恢复不重复投递。角色会话的队列暂停只有
    `backend_restart` 才自动恢复；`occupancy_unverified`（旧执行未核实）
    保留暂停与占用，由拥有者核实后 `resume-queue`——角色任务有工具执行，
    不沿用 QQ 无工具会话的无条件恢复前提。

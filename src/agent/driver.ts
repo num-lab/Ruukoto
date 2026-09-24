@@ -68,6 +68,7 @@ import { createAppDataTools, APP_DATA_TOOL_NAMES, APP_DATA_WRITE_TOOL_NAMES, set
 import type { AppDataStore } from "./app-data/store.ts";
 import type { AppDataQueryRunner } from "./app-data/query.ts";
 import { createSchedulerTools, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
+import { createDelegationTools, settleDelegationOp, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
@@ -167,6 +168,11 @@ export interface DriverDeps {
    * 停止路径按宿主操作 ID 核实未落结果的调度写操作（同库，恒可核实）。
    */
   scheduler?: Pick<SchedulerToolsDeps, "sched" | "scheduler" | "sources" | "target" | "now">;
+  /**
+   * 委派 coding（issue 05）：仅 main 角色会话装配；停止路径按子任务是否存在
+   * 核实未落结果的委派操作（同库，恒可核实）。
+   */
+  delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply">;
 }
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -418,6 +424,18 @@ export class Driver {
             awaitApproval: (input) => this.awaitApproval(input),
           })
         : [];
+    // 委派 coding 工具（issue 05）：同一口径，仅 main 角色会话装配
+    const delegationTools =
+      this.role()?.id === "main" && this.roleAllows("delegation") && this.deps.delegation
+        ? createDelegationTools({
+            ...this.deps.delegation,
+            coreStore: this.deps.store,
+            artifacts: this.deps.artifacts,
+            taskContext: () => this.hostToolCtx,
+            bindCall: this.bindHostCall,
+            verifyMain: (ctx) => this.verifyMainBinding(ctx),
+          })
+        : [];
     const allTools = this.isQqGroup
       ? []
       : [
@@ -426,6 +444,7 @@ export class Driver {
           ...webSearchTools,
           ...appDataTools,
           ...schedulerTools,
+          ...delegationTools,
           // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
           // 固定，工具集合变化由 runInner 先重建会话再走到这里
           ...this.pendingMcpToolDefs,
@@ -1077,7 +1096,8 @@ export class Driver {
         (op) =>
           isToolOpExecutionUncertain(op, confirmations) &&
           !(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
-          !(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName),
+          !(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
+          !(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName),
       )
       .map((op) => op.id);
 
@@ -1131,6 +1151,11 @@ export class Driver {
     for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
       if (!(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
       this.deps.store.withTx(() => settleSchedulerOp(this.deps.store, this.deps.scheduler?.sched ?? null, task, op, "后台停止前"));
+    }
+    // 3d. 委派工具（issue 05）：按子任务是否存在核实（同库，恒可核实）
+    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
+      if (!(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
+      this.deps.store.withTx(() => settleDelegationOp(this.deps.store, task, op, "后台停止前"));
     }
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
@@ -1314,6 +1339,10 @@ export class Driver {
     if ((SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
       return { block: true, reason: "调度与通知工具仅 main 角色会话可用" };
     }
+    // 委派工具（issue 05）：同一口径，非 main 会话的伪造或泄漏调用在此阻止
+    if ((DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
+      return { block: true, reason: "委派工具仅 main 角色会话可用" };
+    }
     // 角色任务（issue 01）：白名单外的工具调用一律阻止（装配侧已过滤，
     // 此处兜底注册泄漏/未知路径；不记录执行意图）
     if (this.roleAllowedToolNames && !this.roleAllowedToolNames.has(event.toolName)) {
@@ -1361,7 +1390,8 @@ export class Driver {
       (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName)
+      (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,

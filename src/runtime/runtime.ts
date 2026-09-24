@@ -98,6 +98,7 @@ import { APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp } from "../agent/app-data/to
 import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SourceResolver } from "../agent/scheduler-tools.ts";
+import { settleDelegationOp, DELEGATION_TOOL_NAMES } from "../agent/delegation-tools.ts";
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
@@ -468,7 +469,7 @@ export class Runtime {
         findProjectByName: (name) => runtime.store.findProjectByName(name),
         createProject: (name) => runtime.createProject(name),
         createSession: (input) => runtime.createSession(input),
-        readTaskReplyText: (taskId) => runtime.readTaskReplyText(taskId),
+        readTaskReply: (taskId, offset, length) => runtime.readTaskReply(taskId, offset, length),
         resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
         defaultModelSelection: () => runtime.defaultSelection,
       },
@@ -747,6 +748,11 @@ export class Runtime {
       for (const op of store.listUnresolvedOpsByTools(SCHEDULER_TOOL_NAMES)) {
         const task = store.getTask(op.taskId);
         if (task) settleSchedulerOp(store, this.sched, task, op, "后台重启前");
+      }
+      // 委派工具（issue 05）：同库按子任务是否存在核实（未创建即未委派）
+      for (const op of store.listUnresolvedOpsByTools(DELEGATION_TOOL_NAMES)) {
+        const task = store.getTask(op.taskId);
+        if (task) settleDelegationOp(store, task, op, "后台重启前");
       }
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const unresolved = store.listUnresolvedToolOps(task.id);
@@ -1994,6 +2000,15 @@ export class Runtime {
           target: () => this.notifyChannel()?.target() ?? null,
           now: this.config.scheduler?.now ?? (() => Date.now()),
         },
+        // 委派 coding（issue 05）：仅 main 角色会话装配；宿主固定参数在编排器
+        delegation: {
+          sources: this.sources,
+          delegate: (input) => {
+            if (!this.orchestrator) throw new Error("编排器未启动");
+            return this.orchestrator.delegateCoding(input);
+          },
+          readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+        },
       });
       this.drivers.set(session.id, driver);
     } else {
@@ -2328,13 +2343,18 @@ export class Runtime {
    * 不取会话最新一条（重启补登时会话可能已跑过别的任务）。无文本返回 null。
    */
   readTaskReplyText(taskId: string): string | null {
+    return this.readTaskReply(taskId)?.text ?? null;
+  }
+
+  /** 按任务读取最终回答的 UTF-8 字节分页，不受首段 256 KiB 上限限制。 */
+  readTaskReply(taskId: string, offset = 0, length = 256 * 1024): HistoryEntryView | null {
     const task = this.store.getTask(taskId);
-    if (!task) return null;
+    if (!task || task.status !== "completed") return null;
     // 最终回答总在任务条目末尾；只看最后 20 条，避免长任务逐条重解析历史文件
     for (const entryId of task.historyEntryIds.slice(-20).reverse()) {
       try {
-        const entry = this.readHistoryEntry({ sessionId: task.sessionId, entryId, length: 256 * 1024 });
-        if (entry.role === "assistant" && entry.text.trim()) return entry.text;
+        const entry = this.readHistoryEntry({ sessionId: task.sessionId, entryId, offset, length });
+        if (entry.role === "assistant" && entry.totalBytes > 0) return entry;
       } catch {
         return null;
       }

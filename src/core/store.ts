@@ -682,6 +682,14 @@ export class Store {
     return rows.map((r) => this.rowToTask(r));
   }
 
+  /** 父任务已发起的委派数（issue 05 委派上限；自动重试 `:retry` 不计入）。 */
+  countDelegations(parentTaskId: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM tasks WHERE parent_task_id = ? AND request_id LIKE 'deleg:%' AND request_id NOT LIKE '%:retry'")
+      .get(parentTaskId) as any;
+    return Number(row.n);
+  }
+
   /** 已到终态但结果尚未记录的角色任务（启动巡检补记结果与事件）。 */
   listRoleTasksPendingResult(): Task[] {
     const rows = this.db
@@ -704,6 +712,7 @@ export class Store {
          WHERE t.agent_id IS NOT NULL AND t.parent_task_id IS NOT NULL AND t.result_summary IS NOT NULL
            AND t.status IN ('completed','failed','canceled','interrupted')
            AND NOT EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = p.session_id AND w.request_id = 'wake:' || t.id)
+           AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.parent_task_id = t.parent_task_id AND r.request_id = t.request_id || ':retry')
          ORDER BY t.created_at, t.id`,
       )
       .all() as any[];

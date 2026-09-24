@@ -114,9 +114,10 @@ export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"]
  * 角色工具白名单的粒度：按工具注册来源划分类别（编码工具/宿主资料与记忆/
  * Web Search/MCP/应用数据）。装配、发送前最终检查与调用门三层共用同一份名单。
  * app_data 仅 main 角色包含（issue 02：应用数据空间，仅宿主可信绑定）；
- * scheduler 同样仅 main（issue 03：计划与通知账本）。
+ * scheduler 同样仅 main（issue 03：计划与通知账本）；delegation 同样仅 main
+ * （issue 05：委派 coding 与读取委派结果）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。

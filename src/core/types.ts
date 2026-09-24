@@ -74,6 +74,8 @@ export function isTerminalTaskStatus(status: TaskStatus): boolean {
 export interface Project {
   id: string;
   name: string;
+  /** 创建幂等键（issue 21；null = 无键创建的旧记录）。 */
+  createRequestId: string | null;
   /**
    * 项目指令文件（工作区相对路径，拥有者显式配置；issue 05 §3）。
    * 任务开始时经受限路径读取并钉版本；空数组 = 无项目指令。
@@ -169,6 +171,8 @@ export interface Session {
   sessionFile: string | null;
   /** 需要拥有者确认的工具名列表（issue 03 接入真实权限判定）。 */
   confirmTools: string[];
+  /** 创建幂等键（issue 21；null = 无键创建的旧记录）。 */
+  createRequestId: string | null;
   modelSelection: ModelSelection | null;
   modelSelectionVersion: number;
   /** 会话默认访问模式；新建任务未显式指定时固定为提交瞬间的该值。 */
@@ -405,8 +409,10 @@ export interface Artifact {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
-  | { type: "project.created"; projectId: string; name: string }
-  | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number }
+  /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
+  | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model"; provider?: string }
+  | { type: "project.created"; projectId: string; name: string; createRequestId: string | null }
+  | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }

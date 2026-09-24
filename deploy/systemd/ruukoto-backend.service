@@ -23,7 +23,7 @@ Environment=RUUKOTO_EXEC_GID=1002
 # Environment=RUUKOTO_CONTAINER_GID=1003
 # 容器镜像与 docker CLI 固定（可选覆盖）
 # Environment=RUUKOTO_WORKER_IMAGE=ruukoto-worker:0.85.1
-ExecStart=/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts start
+ExecStart=/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts server
 Restart=on-failure
 RestartSec=3
 # 子进程随服务终止：崩溃后不会有残留执行进程继续写工作目录（容器按任务

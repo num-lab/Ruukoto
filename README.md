@@ -25,22 +25,29 @@ docs/runtime.md）；QQ 接入与 Jev 上下文筛选实验尚未开始。
 npm install
 npm run typecheck
 npm test                 # 全部离线集成验证（mock 模型，不联网、不需要凭据）
+npm link                 # 可选：把 ruukoto 命令装进 PATH（否则用 npm start -- …）
 
-# 模型配置：显式放在 agent 目录，不读取 ~/.pi/agent
-mkdir -p ~/.ruukoto/agent && chmod 700 ~/.ruukoto
-cp <你的 models.json> <你的 auth.json> ~/.ruukoto/agent/   # 或从 ~/.pi/agent 复制
+# 模型配置：交互式初始化（离线写入 ~/.ruukoto/agent 的 models.json/auth.json）
+ruukoto config
+# 或手动放置：cp <你的 models.json> <你的 auth.json> ~/.ruukoto/agent/
 
-npm start -- start --agent-dir ~/.ruukoto/agent --model deepseek/deepseek-flash
+# 日常开发循环：隔离的开发后台 + 任务界面，源码变更自动重启
+npm run dev -- --tui
 ```
 
-后台启动后，另开一个终端：
+生产/日常后台前台运行（生产环境由 systemd 管理）：
 
 ```bash
-npm start -- create-project demo          # 返回项目 id
-npm start -- create-session <项目 id> /path/to/workdir
-npm start -- submit <会话 id> req-1 "读一下这个仓库的结构，说明它是做什么的"
-npm start -- status                       # 快照：任务、审批、产物引用
-npm start -- tui                          # 交互终端
+ruukoto server --execution container    # start 是兼容别名，推荐 server
+```
+
+后台启动后：
+
+```bash
+ruukoto                      # 任务界面（选择既有会话，不隐式新建）
+ruukoto /path/to/workdir     # 以该目录为工作区创建新会话并进入（项目自动归属/创建）
+ruukoto config               # 配置中心（在线管理模型/项目/MCP/QQ/凭据）
+ruukoto status               # 非交互管理命令：快照、任务、审批……
 ```
 
 `--execution local`（默认）没有隔离，只用于本机开发/验证；生产部署必须用
@@ -62,8 +69,13 @@ ruukoto status
 
 ## 日常使用：TUI
 
-`ruukoto tui` 打开全屏交互终端：顶部是项目/会话/工作目录/连接状态/任务权限模式/
+`ruukoto` 打开全屏交互终端（旧拼法 `ruukoto tui` 仍可用，会提示迁移）：顶部是项目/会话/工作目录/连接状态/任务权限模式/
 执行后端，中间滚动显示消息与工具记录，底部是多行输入与任务/队列状态。
+
+`ruukoto <路径>` 以指定目录为工作区创建新会话并直接进入：相对路径按当前目录
+解析，符号链接按同一目录身份归属；目录已有开发会话所属项目时复用（多个候选
+先选择），从未用过的目录自动创建项目。每次独立启动都创建新会话；创建请求带
+稳定的启动请求标识，断线重连与重试不会重复创建。
 
 TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不创建模型会话、不加载
 模型凭据、不直接读后台数据库。后台不可达时显示连接状态并按有上限的退避重连，不会
@@ -113,13 +125,17 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 
 ## CLI 参考
 
-除 `start` 外的命令都需要拥有者令牌：`RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE`
-或控制面目录的 `owner.token`。
+交互入口：`ruukoto`（任务界面）、`ruukoto <路径>`（工作区新会话）、
+`ruukoto config [--offline]`（配置中心）、`ruukoto server`（前台后台）。
+`ruukoto start` 是 `server` 的兼容别名，`ruukoto tui` 由无参入口替代（旧拼法
+给出迁移指引）。命令名优先于路径：与命令同名的目录用 `./config` 或 `-- <路径>`
+打开。非交互管理命令（脚本与非 TTY 环境）如下；除 `server` 外都需要拥有者令牌：
+`RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE` 或控制面目录的 `owner.token`。
 
 ### 任务与运行
 
 ```bash
-ruukoto start [--data-dir D] [--agent-dir A] [--execution local|container] [--model provider/model]
+ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container] [--model provider/model]
 ruukoto create-project <名称>                 # 返回项目 id（后续命令用 id，不是名称）
 ruukoto create-session <项目 id> <工作目录>
 ruukoto submit <会话 id> <request-id> "任务输入" [--mode confirm|full_access|auto-review] [--grant <路径>:<read|read_write>[:用途];...]
@@ -213,13 +229,47 @@ no-new-privileges、只读根文件系统、默认无网络，只挂载授权的
 ruukoto submit <会话 id> req-1 "在 /srv/data 下生成报告" --mode confirm --grant /srv/data:read_write:报告数据源
 ```
 
+## 配置中心
+
+`ruukoto config` 打开独立配置界面（复用控制面认证连接，任务执行审批仍在任务
+界面）。在线管理：provider 与模型目录（端点、协议、模型及上下文/输出参数）、
+模型 API key、后台默认模型、项目指令/Web Search/资料授权、会话默认模型/
+思考档位/权限模式、MCP 服务、QQ 配置与允许群、服务凭据。
+
+- 并发保存经配置修订号/版本号校验，冲突时要求重新加载，不静默覆盖。
+- provider、模型目录与 API key 的修改只在没有受影响的 running /
+  awaiting_confirmation / queued 任务时应用；占用期间明确拒绝且不部分应用。
+  应用成功后持久配置、ModelRuntime、模型目录与驱动一致切换，重启后仍有效。
+- 秘密输入遮蔽显示；响应只展示是否已配置，秘密不进入日志、事件与历史。
+  模型 API key（auth.json）与服务凭据（credentials.json）分开管理。
+- 后台未运行时进入有限的离线模式（`--offline` 强制）：只初始化/修复模型
+  目录、默认模型与 API key；同一 agentDir 被后台或其他配置进程占用（按
+  配置锁判定）时拒绝写入。
+
+## 开发实例（npm run dev）
+
+```bash
+npm run dev                 # 隔离开发后台，监听源码变更并重启
+npm run dev -- --tui        # 加可重载的任务界面（--tui 与 --config 互斥）
+npm run dev -- --config     # 加可重载的配置界面；无有效模型时先离线初始化
+npm run dev -- --import-models ~/.ruukoto/agent   # 显式导入模型配置到开发目录
+```
+
+开发实例使用仓库外的稳定 profile（`~/.ruukoto-dev/<仓库>-<哈希>/` 下的
+data/agent/control/pending/logs），与日常实例的数据、凭据、控制面、待确认
+提交完全隔离；不继承生产 owner token、执行账户配置或消息平台凭据（QQ 默认
+停用），真实模型须显式配置。退出界面或 Ctrl+C 统一清理本组进程；任务界面
+重载恢复当前会话、未提交草稿与继续任务意图（秘密表单值不落重载文件）。
+
 ## 数据与环境变量
 
 ```
 ~/.ruukoto/data/            0700  元数据库（node:sqlite）、会话 JSONL、实例锁、产物
 ~/.ruukoto/control/         0770  控制面 socket（0660）与拥有者令牌（0600）
-~/.ruukoto/agent/           0700  models.json、auth.json、credentials.json
+~/.ruukoto/agent/           0700  models.json、auth.json、credentials.json、
+                                  default-model.json、config.lock/
 ~/.ruukoto/pending/         0600  待核实提交记录
+~/.ruukoto-dev/<仓库>-<哈希>/ 0700  开发实例 profile（npm run dev）
 ```
 
 消息历史的唯一权威副本是 pi JSONL 会话文件；SQLite 只存元数据、事件与可重建的位置
@@ -229,9 +279,10 @@ ruukoto submit <会话 id> req-1 "在 /srv/data 下生成报告" --mode confirm 
 | --- | --- |
 | `RUUKOTO_DATA_DIR` | 数据目录（默认 `~/.ruukoto/data`） |
 | `RUUKOTO_AGENT_DIR` | 模型配置与凭据目录（默认 `~/.ruukoto/agent`） |
-| `RUUKOTO_CONTROL_DIR` | 控制面目录（默认数据目录的兄弟目录 `control/`） |
+| `RUUKOTO_CONTROL_DIR` | 控制面目录（默认数据目录的兄弟目录 `control/`；客户端与 `server` 都读取） |
 | `RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` | 拥有者令牌或其文件路径 |
 | `RUUKOTO_PENDING_DIR` | 待核实提交记录目录（默认 `~/.ruukoto/pending`） |
+| `RUUKOTO_DISABLE_QQ` | `=1` 时后台不启动 QQ 适配器（开发实例默认注入） |
 | `RUUKOTO_EXECUTION_BACKEND` | 执行后端 `local` / `container` |
 | `RUUKOTO_EXEC_UID` / `RUUKOTO_EXEC_GID` | 完全访问任务的执行账户 |
 | `RUUKOTO_CONTAINER_UID` / `RUUKOTO_CONTAINER_GID` | 容器内进程 uid/gid（原生 Linux 的 bind mount 不做 uid 映射） |

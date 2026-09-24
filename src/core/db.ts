@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
+  create_request_id TEXT,
   instruction_files TEXT NOT NULL DEFAULT '[]',
   web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled')),
   created_at TEXT NOT NULL
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   pi_session_id TEXT NOT NULL,
   session_file TEXT,
   confirm_tools TEXT NOT NULL DEFAULT '[]',
+  create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
   created_at TEXT NOT NULL
@@ -421,14 +423,16 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 10) {
+    } else if (version >= 2 && version <= 11) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
       // 移除，旧库的表原样保留；退役迁移由 Runtime 启动时按表存在性执行）；
       // v9 → v10：新增 QQ 入口四表 + sessions.kind 补列（ensureColumns）；
       // v10 → v11：新增 agent_roles / inbound_events 两表 + tasks 编排补列
-      // （ensureColumns）。
+      // （ensureColumns）；
+      // v11 → v12：projects/sessions 补 create_request_id 列 + 部分唯一索引
+      // （ensureColumns，issue 21 创建幂等键）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理，无既有数据需要改写。
       this.ensureColumns();
@@ -500,6 +504,7 @@ CREATE TABLE sessions_new (
   pi_session_id TEXT NOT NULL,
   session_file TEXT,
   confirm_tools TEXT NOT NULL DEFAULT '[]',
+  create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
   created_at TEXT NOT NULL,
@@ -509,14 +514,15 @@ CREATE TABLE sessions_new (
   default_access_mode_version INTEGER NOT NULL DEFAULT 0
 );
 INSERT INTO sessions_new (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
-  confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
+  confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
   default_access_mode, default_access_mode_version)
 SELECT id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
-  confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
+  confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
   default_access_mode, default_access_mode_version
 FROM sessions;
 DROP TABLE sessions;
 ALTER TABLE sessions_new RENAME TO sessions;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (create_request_id) WHERE create_request_id IS NOT NULL;
 `);
   }
 
@@ -560,6 +566,12 @@ ALTER TABLE sessions_new RENAME TO sessions;
     add("confirmations", "review_model", "review_model TEXT");
     add("confirmations", "review_policy_version", "review_policy_version TEXT");
     add("confirmations", "decision_source", "decision_source TEXT");
+    // v12（issue 21）：create_project/create_session 的创建幂等键；部分唯一索引
+    // （NULL 不参与）让无键创建的旧行为不受影响，索引只在补列后创建
+    add("projects", "create_request_id", "create_request_id TEXT");
+    add("sessions", "create_request_id", "create_request_id TEXT");
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_create_request ON projects (create_request_id) WHERE create_request_id IS NOT NULL");
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (create_request_id) WHERE create_request_id IS NOT NULL");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

@@ -85,7 +85,7 @@ function demoTasks(): Task[] {
   ];
 }
 
-const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", instructionFiles: ["AGENTS.md"], webSearch: "enabled", createdAt: ts(120) };
+const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId: null, instructionFiles: ["AGENTS.md"], webSearch: "enabled", createdAt: ts(120) };
 
 const SESSION: Session = {
   id: SESSION_ID,
@@ -98,6 +98,7 @@ const SESSION: Session = {
   piSessionId: "pi_demo",
   sessionFile: "/srv/demo/data/sessions/pi_demo.jsonl",
   confirmTools: [],
+  createRequestId: null,
   modelSelection: MODEL,
   modelSelectionVersion: 3,
   defaultAccessMode: "confirm",
@@ -283,8 +284,8 @@ function demoBreakdown(): ContextBreakdown {
 function demoEvents(): PersistentEvent[] {
   const bodies: PersistentEventBody[] = [
     { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container" },
-    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name },
-    { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1 },
+    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null },
+    { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", modelSelection: MODEL },
@@ -337,6 +338,8 @@ function demoEvents(): PersistentEvent[] {
     { type: "memory.saved", memoryId: "mem_demo00000000", projectId: PROJECT_ID, version: 1, author: "agent", taskId: "task_completed000" },
     { type: "memory.revoked", memoryId: "mem_demo00000000", projectId: PROJECT_ID, version: 2, author: "owner", taskId: null },
     { type: "memory.restored", memoryId: "mem_demo00000000", projectId: PROJECT_ID, fromVersion: 1, newVersion: 3, author: "owner", taskId: null },
+    // issue 21 §4：模型配置在线应用（目录/凭据/后台默认模型）
+    { type: "model.config_changed", kind: "api_key", provider: "demo" },
     // issue 17：github.* 事件类型已退役，以下仅为历史记录的渲染样例（不再产生新实例）
     { type: "github.binding_changed", bindingId: "bind_demo0000000", projectId: PROJECT_ID, apiHost: "api.github.com", owner: "demo", repo: "demo-repo", configVersion: 2, action: "upsert" },
     { type: "github.draft_saved", draftId: "draft_demo000000", version: 1, taskId: "task_completed000", sessionId: SESSION_ID, kind: "pr_review_comment", bodySha256: "a".repeat(64), bodyBytes: 2048 },

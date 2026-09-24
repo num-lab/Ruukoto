@@ -12,7 +12,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { isDeepStrictEqual } from "node:util";
+import { getSupportedThinkingLevels, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Db } from "../core/db.ts";
 import { isToolOpExecutionUncertain, Store, StoreConflictError } from "../core/store.ts";
@@ -37,9 +38,24 @@ import {
   type ToolOp,
   randomId,
 } from "../core/types.ts";
-import { acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
+import { acquireConfigLock, acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
 import { resolveDirIdentity, verifyDirIdentity, DirIdentityError } from "../core/dir-identity.ts";
-import { createModelCatalog, type ModelCatalog } from "../agent/model-selection.ts";
+import { createModelCatalog, type ModelCatalog, type ModelOption } from "../agent/model-selection.ts";
+import {
+  configRevision,
+  loadAuthFile,
+  loadDefaultModel,
+  loadModelCatalogFile,
+  removeProviderCredential,
+  restoreConfigFiles,
+  sanitizeCatalog,
+  saveDefaultModel,
+  saveModelCatalogFile,
+  setProviderApiKey,
+  snapshotConfigFiles,
+  validateApiKey,
+  validateModelCatalog,
+} from "../agent/model-config.ts";
 import { createApprovalReviewer, type ApprovalReviewer } from "../agent/review.ts";
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
@@ -135,6 +151,11 @@ export interface RuntimeConfig {
   autoReview?: { timeoutMs?: number; maxTokens?: number };
   /** QQ 群聊入口（issue 07）：超时/巡检间隔覆盖（仅测试注入；生产取默认）。 */
   qq?: QqAdapterTimeouts;
+  /**
+   * 停用真实 QQ 通道（issue 21 §1，dev 开发实例经 RUUKOTO_DISABLE_QQ=1 注入）：
+   * 不创建/启动适配器；qq 控制面操作仍作用于配置存储，qqStatus 标注停用来源。
+   */
+  qqDisabled?: boolean;
   /** 编排器（issue 01）：超时巡检间隔覆盖（仅测试注入；生产取默认）。 */
   orchestrator?: { deadlineCheckMs?: number };
   /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
@@ -163,14 +184,35 @@ class DirOccupiedError extends Error {}
 class TaskGoneError extends Error {}
 
 /**
- * 解析默认模型：显式配置优先；否则取 models.json 第一个 provider 的第一个
- * 模型。不得使用 getModels()[0]——pi 内置 provider 注册表也出现在那里，
- * 会静默选中无关的云端模型。
+ * 解析默认模型：显式配置（--model / modelProvider+modelId）优先；其次
+ * <agentDir>/default-model.json 持久化的后台默认（issue 21 §3）；否则取
+ * models.json 第一个 provider 的第一个模型。不得使用 getModels()[0]——
+ * pi 内置 provider 注册表也出现在那里，会静默选中无关的云端模型。
+ * 返回模型与生效的思考档位（显式 thinkingLevel 配置始终优先）。
  */
-async function resolveConfiguredModel(runtime: Runtime, config: RuntimeConfig): Promise<any> {
-  const modelRuntime = runtime.modelRuntime;
+async function resolveConfiguredModel(
+  modelRuntime: ModelRuntime,
+  config: RuntimeConfig,
+): Promise<{ model: any; thinkingLevel: ModelSelection["thinkingLevel"] } | undefined> {
   if (config.modelProvider) {
-    return modelRuntime.getModel(config.modelProvider, config.modelId ?? "");
+    const model = modelRuntime.getModel(config.modelProvider, config.modelId ?? "");
+    return model ? { model, thinkingLevel: config.thinkingLevel ?? "off" } : undefined;
+  }
+  try {
+    const persisted = loadDefaultModel(config.agentDir);
+    if (persisted) {
+      const model = modelRuntime.getModel(persisted.provider, persisted.modelId);
+      if (model) {
+        // 目录变化后持久化的思考档位可能不再受支持：回退到配置默认，不阻断启动
+        const thinkingLevel = getSupportedThinkingLevels(model).includes(persisted.thinkingLevel)
+          ? persisted.thinkingLevel
+          : "off";
+        return { model, thinkingLevel: config.thinkingLevel ?? thinkingLevel };
+      }
+      // 持久默认指向已删除的模型：回退到目录首个模型
+    }
+  } catch {
+    // default-model.json 损坏按未配置处理，回退到目录首个模型
   }
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(config.agentDir, "models.json"), "utf8")) as {
@@ -179,7 +221,8 @@ async function resolveConfiguredModel(runtime: Runtime, config: RuntimeConfig): 
     const entry = Object.entries(raw.providers ?? {}).find(([, def]) => (def.models?.length ?? 0) > 0);
     if (!entry) return undefined;
     const [providerId, def] = entry as [string, { models: Array<{ id: string }> }];
-    return modelRuntime.getModel(providerId, def.models[0]!.id);
+    const model = modelRuntime.getModel(providerId, def.models[0]!.id);
+    return model ? { model, thinkingLevel: config.thinkingLevel ?? "off" } : undefined;
   } catch {
     return undefined;
   }
@@ -216,12 +259,19 @@ export class Runtime {
   /** 额外事件监听（QQ 适配器等宿主内订阅者；控制面广播仍走 onEventBroadcast）。 */
   private readonly eventListeners = new Set<(events: PersistentEvent[]) => void>();
   private readonly lock: AcquiredLock;
+  /** 模型配置锁（issue 21 §3）：同一 agentDir 的在线/离线写入互斥。 */
+  private readonly configLock: AcquiredLock;
   modelRuntime!: ModelRuntime;
   private model: any;
   modelCatalog!: ModelCatalog;
   defaultSelection!: ModelSelection;
   /** 自动审查调用（issue 15）：start 建好模型目录后创建；auto-review 任务的审批桥使用。 */
   private reviewer!: ApprovalReviewer;
+  /**
+   * 模型配置应用门闩（issue 21 §4）：非 null 表示正在应用，元素为受影响
+   * provider；门闩期间这些 provider 的新任务拒绝进入执行或队列。
+   */
+  private modelConfigGate: Set<string> | null = null;
   private drivers = new Map<string, Driver>();
   private loopActive = new Set<string>();
   private loopPromises = new Map<string, Promise<void>>();
@@ -232,11 +282,12 @@ export class Runtime {
   onEventBroadcast: ((events: PersistentEvent[]) => void) | null = null;
   onCloseServer: (() => Promise<void>) | null = null;
 
-  private constructor(config: RuntimeConfig, db: Db, store: Store, lock: AcquiredLock) {
+  private constructor(config: RuntimeConfig, db: Db, store: Store, lock: AcquiredLock, configLock: AcquiredLock) {
     this.config = config;
     this.db = db;
     this.store = store;
     this.lock = lock;
+    this.configLock = configLock;
     this.artifacts = new ArtifactStore(config.dataDir, store);
     this.credentials = new CredentialStore(config.agentDir);
     this.access = new AccessScope(db);
@@ -298,12 +349,22 @@ export class Runtime {
     fs.mkdirSync(sessionsDirFor(fullConfig.dataDir), { recursive: true, mode: 0o700 });
 
     const lock = acquireInstanceLock(fullConfig.dataDir);
+    // 配置锁（issue 21 §3）：同一 agentDir 只允许一个在线后台或离线配置写入方，
+    // 覆盖不同 dataDir 指向同一 agentDir 的情况
+    let configLock: AcquiredLock;
+    try {
+      configLock = acquireConfigLock(fullConfig.agentDir);
+    } catch (err) {
+      lock.release();
+      throw err;
+    }
     let runtime: Runtime;
     try {
       const db = new Db(fullConfig.dataDir);
       const store = new Store(db);
-      runtime = new Runtime(fullConfig, db, store, lock);
+      runtime = new Runtime(fullConfig, db, store, lock, configLock);
     } catch (err) {
+      configLock.release();
       lock.release();
       throw err;
     }
@@ -314,18 +375,20 @@ export class Runtime {
       modelsStore: new InMemoryModelsStore(),
       refreshOnCreate: false,
     });
-    const model = await resolveConfiguredModel(runtime, fullConfig);
-    if (!model) {
+    const configured = await resolveConfiguredModel(runtime.modelRuntime, fullConfig);
+    if (!configured) {
+      runtime.db.close();
+      configLock.release();
       lock.release();
       throw new RuntimeApiError(
         "no_model",
         "未找到可用模型：models.json 中没有 provider，或指定的 provider/model 不存在",
       );
     }
-    runtime.model = model;
-    runtime.defaultSelection = { provider: model.provider, modelId: model.id, thinkingLevel: config.thinkingLevel ?? "off" };
+    runtime.model = configured.model;
+    runtime.defaultSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
     try {
-      runtime.modelCatalog = await createModelCatalog(runtime.modelRuntime, config.agentDir, model);
+      runtime.modelCatalog = await createModelCatalog(runtime.modelRuntime, config.agentDir, configured.model);
       await runtime.modelCatalog.resolve(runtime.defaultSelection);
       runtime.reviewer = createApprovalReviewer({
         modelRuntime: runtime.modelRuntime,
@@ -336,6 +399,7 @@ export class Runtime {
       runtime.store.withTx(() => runtime.store.initializeSessionModelSelections(runtime.defaultSelection));
     } catch (err) {
       runtime.db.close();
+      configLock.release();
       lock.release();
       throw err;
     }
@@ -347,27 +411,30 @@ export class Runtime {
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
     // QQ 群聊入口（issue 07）：恢复收件登记、自动恢复群会话队列，按配置连接
-    // NapCat（未配置/未启用时保持禁用，不猜测端点与群号）
-    runtime.qqAdapter = new QqAdapter({
-      store: runtime.store,
-      qqStore: runtime.qqStore,
-      credentials: runtime.credentials,
-      dataDir: fullConfig.dataDir,
-      timeouts: fullConfig.qq,
-      bridge: {
-        submit: (input) => runtime.submit(input),
-        cancelTask: (taskId) => runtime.cancelTask(taskId),
-        findProjectByName: (name) => runtime.store.findProjectByName(name),
-        createProject: (name) => runtime.createProject(name),
-        createSession: (input) => runtime.createSession(input),
-        readLastAssistantText: (sessionId) => runtime.readLastAssistantText(sessionId),
-        resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
-        kickSession: (sessionId) => runtime.kick(sessionId),
-        defaultModelSelection: () => runtime.defaultSelection,
-      },
-    });
-    runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
-    await runtime.qqAdapter.start();
+    // NapCat（未配置/未启用时保持禁用，不猜测端点与群号）；
+    // qqDisabled（dev 开发实例）跳过适配器创建，不真实连接
+    if (!fullConfig.qqDisabled) {
+      runtime.qqAdapter = new QqAdapter({
+        store: runtime.store,
+        qqStore: runtime.qqStore,
+        credentials: runtime.credentials,
+        dataDir: fullConfig.dataDir,
+        timeouts: fullConfig.qq,
+        bridge: {
+          submit: (input) => runtime.submit(input),
+          cancelTask: (taskId) => runtime.cancelTask(taskId),
+          findProjectByName: (name) => runtime.store.findProjectByName(name),
+          createProject: (name) => runtime.createProject(name),
+          createSession: (input) => runtime.createSession(input),
+          readLastAssistantText: (sessionId) => runtime.readLastAssistantText(sessionId),
+          resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
+          kickSession: (sessionId) => runtime.kick(sessionId),
+          defaultModelSelection: () => runtime.defaultSelection,
+        },
+      });
+      runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
+      await runtime.qqAdapter.start();
+    }
     // 编排器（issue 01）：引导 main/coding/chat 角色、恢复已登记未建任务的
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
     runtime.orchestrator = new Orchestrator({
@@ -664,27 +731,40 @@ export class Runtime {
 
   // ---------- 项目与会话 ----------
 
-  createProject(name: string): Project {
+  createProject(name: string, createRequestId?: string): Project {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     if (!name.trim()) throw new RuntimeApiError("invalid_params", "项目名不能为空");
-    return this.store.withTx(() => {
-      if (this.store.findProjectByName(name)) {
-        throw new RuntimeApiError("duplicate", `项目已存在：${name}`);
+    try {
+      // 重名与幂等键去重都在存储层同一事务内判定（issue 21）
+      return this.store.withTx(() => this.store.createProject(name, createRequestId));
+    } catch (err) {
+      if (err instanceof StoreConflictError) {
+        throw new RuntimeApiError(err.code, err.message);
       }
-      return this.store.createProject(name);
-    });
+      throw err;
+    }
   }
 
   async createSession(input: {
-    projectId: string;
+    /** 目标项目；自动建项目时留空并传 projectName。 */
+    projectId?: string;
+    /** 自动创建项目（issue 21 工作区入口）：先校验目录再同事务建项目与会话，失败不留空项目。 */
+    projectName?: string;
     cwd: string;
     confirmTools?: string[];
     /** 入口类别（默认 dev；qq_group 仅由 QQ 适配器经窄接口创建）。 */
     kind?: SessionKind;
+    /** 创建幂等键（issue 21）：同键同参返回已存在会话，同键异参报 request_conflict。 */
+    createRequestId?: string;
   }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
-    const project = this.store.getProject(input.projectId);
-    if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    if (!input.projectId && !input.projectName?.trim()) {
+      throw new RuntimeApiError("invalid_params", "project_id 或 project_name 必填其一");
+    }
+    if (input.projectId) {
+      const project = this.store.getProject(input.projectId);
+      if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    }
     const identity = await resolveDirIdentity(input.cwd).catch((err: DirIdentityError) =>
       Promise.reject(new RuntimeApiError("invalid_params", err.message)),
     );
@@ -694,19 +774,29 @@ export class Runtime {
     } catch (err) {
       throw new RuntimeApiError("invalid_params", `工作区不可用：${(err as Error).message}`);
     }
-    return this.store.withTx(() =>
-      this.store.createSession({
-        projectId: input.projectId,
-        kind: input.kind ?? "dev",
-        cwd: identity.cwd,
-        cwdReal: identity.cwdReal,
-        cwdDev: identity.dev,
-        cwdIno: identity.ino,
-        piSessionId: randomUUID(),
-        confirmTools: input.confirmTools ?? [],
-        modelSelection: this.defaultSelection,
-      }),
-    );
+    try {
+      return this.store.withTx(() => {
+        // 目录校验先于任何写入；项目与会话同一事务，会话失败则项目一并回滚
+        const projectId = input.projectId ?? this.store.createProject(input.projectName!.trim(), input.createRequestId).id;
+        return this.store.createSession({
+          projectId,
+          kind: input.kind ?? "dev",
+          cwd: identity.cwd,
+          cwdReal: identity.cwdReal,
+          cwdDev: identity.dev,
+          cwdIno: identity.ino,
+          piSessionId: randomUUID(),
+          confirmTools: input.confirmTools ?? [],
+          createRequestId: input.createRequestId,
+          modelSelection: this.defaultSelection,
+        });
+      });
+    } catch (err) {
+      if (err instanceof StoreConflictError) {
+        throw new RuntimeApiError(err.code, err.message);
+      }
+      throw err;
+    }
   }
 
   async listModels(input: { provider?: string; offset?: number; limit?: number } = {}) {
@@ -724,9 +814,338 @@ export class Runtime {
     this.getSession(input.sessionId);
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
     const selection = parseModelSelection(input.modelSelection);
+    // 配置应用期间不得为受影响 provider 钉入新引用（与 §4 删除核实同一同步段语义）
+    if (this.modelConfigGate?.has(selection.provider)) {
+      throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
+    }
     await this.modelCatalog.resolve(selection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     return this.store.withTx(() => this.store.setSessionModel(input.sessionId, selection, input.expectedVersion));
+  }
+
+  // ---------- 模型配置管理（issue 21 §3/§4） ----------
+
+  /** 应用门闩检查：受影响 provider 的新任务在配置应用期间拒绝进入。 */
+  private assertModelConfigIdle(provider: string): void {
+    if (this.modelConfigGate?.has(provider)) {
+      throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
+    }
+  }
+
+  /** 修订核对（乐观并发）：全部写操作按调用方读取时的修订应用。 */
+  private assertConfigRevision(expected: unknown): void {
+    if (typeof expected !== "string" || expected.length === 0) {
+      throw new RuntimeApiError("invalid_params", "expected_revision 必须是非空字符串");
+    }
+    if (expected !== configRevision(this.config.agentDir)) {
+      throw new RuntimeApiError("config_conflict", "模型配置已被其他修改更新，请重新加载后重试");
+    }
+  }
+
+  /** 秘密脱敏：provider 已配置的 API key（auth.json 或 models.json 内联）不得出现在错误文本里。 */
+  private scrubProviderSecrets(provider: string, text: string): string {
+    const secrets: string[] = [];
+    try {
+      const entry = loadAuthFile(this.config.agentDir)[provider];
+      if (entry?.type === "api_key" && typeof entry.key === "string" && entry.key) secrets.push(entry.key);
+    } catch {
+      // 读取失败按无可脱敏处理
+    }
+    try {
+      const inline = loadModelCatalogFile(this.config.agentDir).providers[provider]?.apiKey;
+      if (typeof inline === "string" && inline) secrets.push(inline);
+    } catch {
+      // 同上
+    }
+    let out = text;
+    for (const secret of secrets) out = out.split(secret).join("***");
+    return out;
+  }
+
+  private sanitizeConfigError(providers: string[], err: unknown): unknown {
+    if (err instanceof Error) {
+      for (const provider of providers) {
+        err.message = this.scrubProviderSecrets(provider, err.message);
+      }
+    }
+    return err;
+  }
+
+  /**
+   * 模型配置应用（issue 21 §4）：单-flight 门闩 → 受影响活动任务核查 →
+   * 快照旧字节 → 写文件 → 重建模型栈。门闩设置与任务核查之间无 await
+   * （单线程原子性），核查期间新的受影响任务无法进入执行或队列；
+   * 任何失败恢复旧字节并重建旧模型栈——不先改文件、不部分应用、
+   * 不自动取消任务。
+   */
+  private async applyModelConfigChange(affected: string[], fn: () => Promise<void>): Promise<void> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
+    this.modelConfigGate = new Set(affected);
+    const blocked = this.store.countActiveTasksByProviders(affected);
+    if (blocked > 0) {
+      this.modelConfigGate = null;
+      throw new RuntimeApiError(
+        "model_config_blocked",
+        `有 ${blocked} 个任务正在使用受影响的提供方（运行中/等待确认/排队），请先完成或取消这些任务`,
+      );
+    }
+    const snapshot = snapshotConfigFiles(this.config.agentDir);
+    try {
+      await fn();
+      await this.rebuildModelStack();
+    } catch (err) {
+      // 回滚：恢复旧字节并重建旧模型栈，重启后也不会静默选用部分新配置
+      restoreConfigFiles(this.config.agentDir, snapshot);
+      await this.rebuildModelStack().catch(() => {});
+      throw this.sanitizeConfigError(affected, err);
+    } finally {
+      this.modelConfigGate = null;
+    }
+  }
+
+  /**
+   * 重建模型栈并传播到所有存活 Driver：新 ModelRuntime → 目录 → 审查器。
+   * SDK 组合失败的 provider 会被静默丢弃，这里按 models.json 声明逐模型
+   * 核实可解析，失败即抛错（由调用方回滚）。默认模型按当前配置重新解析，
+   * 只影响新建会话；既有会话钉住的模型选择不被改写。存活 SDK 会话闭包
+   * 持有旧 ModelRuntime，由 Driver 标记后在下一任务开始前丢弃重建。
+   */
+  private async rebuildModelStack(): Promise<void> {
+    const agentDir = this.config.agentDir;
+    const modelRuntime = await ModelRuntime.create({
+      authPath: path.join(agentDir, "auth.json"),
+      modelsPath: path.join(agentDir, "models.json"),
+      modelsStore: new InMemoryModelsStore(),
+      refreshOnCreate: false,
+    });
+    const catalogFile = loadModelCatalogFile(agentDir);
+    for (const [providerId, def] of Object.entries(catalogFile.providers)) {
+      for (const definition of ((def?.models as Array<{ id?: unknown }> | undefined) ?? [])) {
+        if (typeof definition?.id === "string" && !modelRuntime.getModel(providerId, definition.id)) {
+          throw new RuntimeApiError(
+            "model_config_invalid",
+            `provider ${providerId} 的模型 ${definition.id} 未通过 SDK 校验（检查 api/baseUrl 等协议字段）`,
+          );
+        }
+      }
+    }
+    const configured = await resolveConfiguredModel(modelRuntime, this.config);
+    if (!configured) {
+      throw new RuntimeApiError("no_model", "应用该配置后将没有可用模型，已回滚");
+    }
+    const modelCatalog = await createModelCatalog(modelRuntime, agentDir, configured.model);
+    await modelCatalog.resolve({ provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel });
+    const reviewer = createApprovalReviewer({
+      modelRuntime,
+      modelCatalog,
+      timeoutMs: this.config.autoReview?.timeoutMs,
+      maxTokens: this.config.autoReview?.maxTokens,
+    });
+    this.modelRuntime = modelRuntime;
+    this.modelCatalog = modelCatalog;
+    this.reviewer = reviewer;
+    this.model = configured.model;
+    this.defaultSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
+    for (const driver of this.drivers.values()) {
+      driver.updateModelDeps({ modelRuntime, modelCatalog, model: configured.model, reviewer });
+    }
+  }
+
+  /** 模型配置视图（脱敏）：目录中 apiKey 以 true 代替，凭据只报是否配置与类型。 */
+  getModelConfig(): {
+    revision: string;
+    providers: Record<string, any>;
+    credentials: Record<string, { configured: boolean; type?: string }>;
+    defaultModel: ModelSelection | null;
+    runtimeDefault: ModelSelection;
+    busyProviders: string[];
+  } {
+    const agentDir = this.config.agentDir;
+    const credentials: Record<string, { configured: boolean; type?: string }> = {};
+    for (const [provider, entry] of Object.entries(loadAuthFile(agentDir))) {
+      credentials[provider] = { configured: true, type: typeof entry?.type === "string" ? entry.type : undefined };
+    }
+    let defaultModel: ModelSelection | null = null;
+    try {
+      defaultModel = loadDefaultModel(agentDir);
+    } catch {
+      // 损坏的默认配置文件不阻塞配置视图（修订指纹仍覆盖它，保存可修复）
+    }
+    return {
+      revision: configRevision(agentDir),
+      providers: sanitizeCatalog(loadModelCatalogFile(agentDir).providers),
+      credentials,
+      defaultModel,
+      runtimeDefault: this.defaultSelection,
+      busyProviders: this.modelConfigGate ? [...this.modelConfigGate] : [],
+    };
+  }
+
+  /** 删除 provider/模型前核实引用（§4）：被持久默认、会话或逻辑角色引用时拒绝，先提供替代项。 */
+  private assertSelectionNotReferenced(provider: string, modelId?: string): void {
+    let defaultModel: ModelSelection | null = null;
+    try {
+      defaultModel = loadDefaultModel(this.config.agentDir);
+    } catch {
+      // 损坏的默认配置文件不可能构成有效引用，按未配置处理
+    }
+    const refs = this.store.countProviderReferences(provider, modelId);
+    const usedByDefault = defaultModel?.provider === provider && (modelId === undefined || defaultModel.modelId === modelId);
+    if (usedByDefault || refs.sessions > 0 || refs.roles > 0) {
+      const target = modelId === undefined ? `提供方 ${provider}` : `模型 ${provider}/${modelId}`;
+      const parts: string[] = [];
+      if (usedByDefault) parts.push("后台默认模型");
+      if (refs.sessions > 0) parts.push(`${refs.sessions} 个会话`);
+      if (refs.roles > 0) parts.push(`${refs.roles} 个逻辑角色`);
+      throw new RuntimeApiError("provider_in_use", `${target} 仍被引用（${parts.join("、")}），请先切换这些引用到其他可用项`);
+    }
+  }
+
+  /** 保存模型目录：修订核对 → 结构校验 → 删除项引用核实 → 受影响 provider（修改/删除）受门闩应用。 */
+  async saveModelCatalog(input: { providers: unknown; expectedRevision: unknown }): Promise<{ revision: string }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    this.assertConfigRevision(input.expectedRevision);
+    const errors = validateModelCatalog({ providers: input.providers });
+    if (errors.length > 0) {
+      throw new RuntimeApiError("invalid_params", `模型目录结构无效：${errors.join("；")}`);
+    }
+    const next = { providers: input.providers as Record<string, any> };
+    const before = loadModelCatalogFile(this.config.agentDir).providers;
+    // 受影响 = 被修改或删除的 provider；新增的 provider 不影响任何运行中任务
+    const affected = Object.keys(before).filter(
+      (id) => !(id in next.providers) || !isDeepStrictEqual(before[id], next.providers[id]),
+    );
+    // 经目录保存删除 provider/模型与 remove_model_provider 同一约束（§4），不留悬空引用
+    for (const id of Object.keys(before)) {
+      if (!(id in next.providers)) {
+        this.assertSelectionNotReferenced(id);
+        continue;
+      }
+      const oldModels = new Set((((before[id]?.models as Array<{ id?: unknown }> | undefined) ?? [])).map((m) => m?.id).filter((v): v is string => typeof v === "string"));
+      const newModels = new Set((((next.providers[id]?.models as Array<{ id?: unknown }> | undefined) ?? [])).map((m) => m?.id).filter((v): v is string => typeof v === "string"));
+      for (const modelId of oldModels) {
+        if (!newModels.has(modelId)) this.assertSelectionNotReferenced(id, modelId);
+      }
+    }
+    await this.applyModelConfigChange(affected, async () => {
+      saveModelCatalogFile(this.config.agentDir, next);
+    });
+    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "catalog" }));
+    return { revision: configRevision(this.config.agentDir) };
+  }
+
+  async setModelApiKey(input: { provider: unknown; apiKey: unknown; expectedRevision: unknown }): Promise<{ revision: string; configured: boolean }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
+    if (!provider) throw new RuntimeApiError("invalid_params", "provider 必须是非空字符串");
+    const invalid = validateApiKey(input.apiKey);
+    if (invalid) throw new RuntimeApiError("invalid_params", invalid);
+    this.assertConfigRevision(input.expectedRevision);
+    await this.applyModelConfigChange([provider], async () => {
+      setProviderApiKey(this.config.agentDir, provider, input.apiKey as string);
+    });
+    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider }));
+    return { revision: configRevision(this.config.agentDir), configured: true };
+  }
+
+  async removeModelApiKey(input: { provider: unknown; expectedRevision: unknown }): Promise<{ revision: string; configured: boolean }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
+    if (!provider) throw new RuntimeApiError("invalid_params", "provider 必须是非空字符串");
+    this.assertConfigRevision(input.expectedRevision);
+    await this.applyModelConfigChange([provider], async () => {
+      removeProviderCredential(this.config.agentDir, provider);
+    });
+    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider }));
+    return { revision: configRevision(this.config.agentDir), configured: false };
+  }
+
+  /**
+   * 删除 provider：被持久默认模型、任何会话或逻辑角色引用时拒绝
+   * （provider_in_use）；否则从 models.json 与 auth.json 一并移除。
+   */
+  async removeModelProvider(input: { provider: unknown; expectedRevision: unknown }): Promise<{ revision: string }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
+    if (!provider) throw new RuntimeApiError("invalid_params", "provider 必须是非空字符串");
+    this.assertConfigRevision(input.expectedRevision);
+    this.assertSelectionNotReferenced(provider);
+    await this.applyModelConfigChange([provider], async () => {
+      const catalog = loadModelCatalogFile(this.config.agentDir);
+      if (provider in catalog.providers) {
+        delete catalog.providers[provider];
+        saveModelCatalogFile(this.config.agentDir, catalog);
+      }
+      removeProviderCredential(this.config.agentDir, provider);
+    });
+    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "catalog", provider }));
+    return { revision: configRevision(this.config.agentDir) };
+  }
+
+  /**
+   * 设置后台默认模型（持久化到 default-model.json）：只影响之后新建的
+   * 会话；既有会话钉住的选择不改写，任务不需要应用门闩。显式启动参数
+   * （--model）优先于持久默认。
+   */
+  async setDefaultModel(input: { provider: unknown; modelId: unknown; thinkingLevel: unknown; expectedRevision: unknown }): Promise<{ revision: string; defaultModel: ModelSelection }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    const selection = parseModelSelection({ provider: input.provider, modelId: input.modelId, thinkingLevel: input.thinkingLevel });
+    // 必须能在当前目录中解析（成员 + 思考档位），否则新会话将拿到不可用默认
+    let option: ModelOption | undefined;
+    let offset = 0;
+    for (;;) {
+      const page = await this.modelCatalog.list({ provider: selection.provider, offset, limit: 100 });
+      option = page.models.find((m) => m.provider === selection.provider && m.modelId === selection.modelId);
+      if (option || page.nextOffset === null) break;
+      offset = page.nextOffset;
+    }
+    if (!option) {
+      throw new RuntimeApiError("invalid_params", `模型不在后台已配置的目录中：${selection.provider}/${selection.modelId}`);
+    }
+    if (!option.thinkingLevels.includes(selection.thinkingLevel)) {
+      throw new RuntimeApiError("invalid_params", `该模型不支持思考档位 ${selection.thinkingLevel}`);
+    }
+    // 门闩检查、修订核对与文件写入在同一同步段：并发保存只会有一方通过修订核对
+    if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
+    this.assertConfigRevision(input.expectedRevision);
+    saveDefaultModel(this.config.agentDir, selection);
+    this.model = this.modelRuntime.getModel(selection.provider, selection.modelId) ?? this.model;
+    this.defaultSelection = selection;
+    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "default_model", provider: selection.provider }));
+    return { revision: configRevision(this.config.agentDir), defaultModel: selection };
+  }
+
+  /**
+   * 显式连通性探测（30s 超时）：经当前目录解析模型后发一个 1-token 请求。
+   * 这是唯一的联网核实入口；本地校验不暗示模型服务可用。
+   */
+  async testModelConnection(input: { provider: unknown; modelId: unknown }): Promise<{ ok: boolean; detail: string }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
+    const modelId = typeof input.modelId === "string" ? input.modelId.trim() : "";
+    if (!provider || !modelId) throw new RuntimeApiError("invalid_params", "provider 与 model_id 必须是非空字符串");
+    const scrub = (text: string): string => this.scrubProviderSecrets(provider, text);
+    let model: any;
+    try {
+      model = await this.modelCatalog.resolve({ provider, modelId, thinkingLevel: "off" });
+    } catch (err) {
+      return { ok: false, detail: scrub((err as Error).message) };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      await this.modelRuntime.completeSimple(
+        model,
+        { messages: [{ role: "user", content: "ping", timestamp: Date.now() }] },
+        { maxTokens: 1, signal: controller.signal },
+      );
+      return { ok: true, detail: `连接成功：${provider}/${modelId}` };
+    } catch (err) {
+      return { ok: false, detail: scrub(controller.signal.aborted ? "连接超时（30 秒）" : (err as Error).message) };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // ---------- 提交与排队 ----------
@@ -832,6 +1251,10 @@ export class Runtime {
         : undefined;
     const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
     if (existing) return existing;
+    // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
+    // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
+    // this.submit 走同一检查
+    this.assertModelConfigIdle(selection.provider);
     await this.modelCatalog.resolve(selection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
@@ -849,8 +1272,14 @@ export class Runtime {
     let task: Task;
     let duplicate: boolean;
     try {
-      ({ task, duplicate } = this.store.withTx(() =>
-        this.store.insertQueuedTask({
+      ({ task, duplicate } = this.store.withTx(() => {
+        // 门闩重检必须在入队事务内（issue 21 §4）：应用方的门闩设置与活动
+        // 任务核查是同一同步段，这里在插入前重检才能保证"检查到应用完成
+        // 之间"没有受影响任务钻过边界；重复提交先仲裁返回，不受门闩影响
+        const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
+        if (raced) return { task: raced, duplicate: true };
+        this.assertModelConfigIdle(selection.provider);
+        return this.store.insertQueuedTask({
           sessionId: input.sessionId,
           requestId: input.requestId,
           input: input.input,
@@ -864,8 +1293,8 @@ export class Runtime {
           parentTaskId: input.parentTaskId ?? null,
           sourceEventId: input.sourceEventId ?? null,
           deadline,
-        }),
-      ));
+        });
+      }));
     } catch (err) {
       if (err instanceof StoreConflictError) {
         throw new RuntimeApiError(err.code, err.message);
@@ -1478,7 +1907,12 @@ export class Runtime {
     if (this.store.countLegacyQueuedTasks(sessionId) > 0 && !selection) {
       throw new RuntimeApiError("model_selection_required", "旧排队任务未记录模型配置；请显式确认 model_selection 后恢复队列");
     }
-    if (selection) await this.modelCatalog.resolve(parseModelSelection(selection));
+    if (selection) {
+      const parsed = parseModelSelection(selection);
+      // 模型配置应用门闩（issue 21 §4）：显式确认的 provider 受影响时拒绝
+      this.assertModelConfigIdle(parsed.provider);
+      await this.modelCatalog.resolve(parsed);
+    }
     this.store.withTx(() => {
       if (this.store.countLegacyQueuedTasks(sessionId) > 0) {
         if (!selection) throw new RuntimeApiError("model_selection_required", "请显式确认旧任务的模型配置");
@@ -2208,7 +2642,9 @@ export class Runtime {
         configured: this.qqStore.getConfig() !== null,
         enabled: false,
         online: false,
-        stateDetail: "适配器未启动",
+        // qqDisabled（dev 开发实例）与未启动区分标注，避免误以为连接异常
+        ...(this.config.qqDisabled ? { disabledByConfig: true } : {}),
+        stateDetail: this.config.qqDisabled ? "已由启动配置停用（dev 开发实例不连接真实 QQ 通道）" : "适配器未启动",
       }
     );
   }
@@ -2363,6 +2799,7 @@ export class Runtime {
     });
     this.db.close();
     this.lock.release();
+    this.configLock.release();
     try {
       fs.rmSync(this.socketPath(), { force: true });
     } catch {

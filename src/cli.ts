@@ -1,7 +1,13 @@
 /**
- * 最小 CLI：本机启动、连接与停止入口（拥有者可信入口）。
+ * CLI 入口（拥有者可信入口）：任务界面、工作区、配置中心与后台启动的统一
+ * 分发（issue 21）。顶层分发决策见 cli-entry.ts 的 resolveEntry。
  *
- *   ruukoto start [--data-dir D] [--agent-dir A] [--execution local|container]
+ *   ruukoto [路径] [--session <id> | --demo]   任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）
+ *   ruukoto -- <路径>                          显式工作区入口（目录与命令同名时使用，如 ruukoto -- config）
+ *   ruukoto config [--offline]                 独立配置中心
+ *   ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container]
+ *   ruukoto start                              server 的兼容别名（同一代码路径；文档推荐 server）
+ *   ruukoto tui                                旧拼法：打印迁移指引后仍启动任务界面
  *   ruukoto create-project <name>
  *   ruukoto create-session <project> <cwd> [--confirm-tools a,b]
  *   ruukoto submit <session> <request-id> [--mode confirm|full_access|auto-review]
@@ -21,14 +27,15 @@
  *   ruukoto stop
  *
  * 数据目录默认 ~/.ruukoto；控制面目录为其兄弟目录 control/（socket 与拥有者
- * 令牌）。除 start 外的命令都需要拥有者令牌：取 RUUKOTO_OWNER_TOKEN 或受控
- * 目录的 owner.token（0600，部署时以 0400 复制给拥有者）。
+ * 令牌，server/start 可用 RUUKOTO_CONTROL_DIR 覆盖）。管理命令都需要拥有者
+ * 令牌：取 RUUKOTO_OWNER_TOKEN 或受控目录的 owner.token（0600，部署时以
+ * 0400 复制给拥有者）。
  */
 
 import * as path from "node:path";
-import * as os from "node:os";
+import { resolveEntry } from "./cli-entry.ts";
 import { ControlClient } from "./control/client.ts";
-import { controlDirFor, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
+import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
 import { SESSION_DEFAULT_MODES, isAccessMode, type AccessMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
@@ -52,10 +59,9 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; positional:
 }
 
 export function defaultDirs(): { dataDir: string; agentDir: string } {
-  const base = path.join(os.homedir(), ".ruukoto");
   return {
     dataDir: defaultDataDir(),
-    agentDir: process.env.RUUKOTO_AGENT_DIR ?? path.join(base, "agent"),
+    agentDir: defaultAgentDir(),
   };
 }
 
@@ -98,58 +104,99 @@ function parseMode(raw: string | undefined): AccessMode | undefined {
 }
 
 async function main(argv: string[]): Promise<number> {
-  const [cmd, ...rest] = argv;
+  const entry = resolveEntry(argv);
+  switch (entry.kind) {
+    case "help":
+      if (entry.error) console.error(entry.error);
+      console.error(defaultHelp());
+      return entry.error === undefined ? 0 : 1;
+    case "tui":
+      return runTaskTui({ sessionId: entry.sessionId, demo: entry.demo });
+    case "workspace":
+      return runTaskTui({ workspace: { path: entry.path } });
+    case "config": {
+      const { runConfigTui } = await import("./config-tui/index.ts");
+      return await runConfigTui({ offline: entry.offline });
+    }
+    case "server":
+      return runServer(entry.argv);
+    case "legacy":
+      return runLegacy(entry.command, entry.argv);
+  }
+}
+
+/** 任务 TUI 调用参数：workspace 由 TUI 侧实现后并入其 Options（issue 21 接口契约）。 */
+type TaskTuiOpts = Parameters<typeof import("./tui/index.ts")["runTui"]>[0] & { workspace?: { path: string } };
+
+async function runTaskTui(opts: TaskTuiOpts): Promise<number> {
+  // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据。
+  // demo：合成调试会话，不连后台、不需要令牌、不产生真实副作用。
+  const { runTui } = await import("./tui/index.ts");
+  if (opts.demo) {
+    console.error("合成调试会话：不连接后台，数据为静态构造，仅用于调试界面渲染");
+  }
+  return await runTui(opts);
+}
+
+/** server/start：前台启动后台（单实例锁、信号处理、优雅停止；启动失败非零退出）。 */
+async function runServer(rest: string[]): Promise<number> {
+  const { flags } = parseArgs(rest);
+  const { Runtime } = await import("./runtime/runtime.ts");
+  const { ControlServer } = await import("./control/server.ts");
+  const dirs = defaultDirs();
+  const dataDir = flags["data-dir"] ?? dirs.dataDir;
+  const agentDir = flags["agent-dir"] ?? dirs.agentDir;
+  const modelFlag = flags["model"] ?? "";
+  const split = modelFlag.indexOf("/");
+  if (modelFlag && (split <= 0 || split === modelFlag.length - 1)) throw new Error("--model 格式为 provider/model");
+  const modelProvider = split < 0 ? undefined : modelFlag.slice(0, split);
+  const modelId = split < 0 ? undefined : modelFlag.slice(split + 1);
+  const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? "local";
+  if (execFlag !== "local" && execFlag !== "container") {
+    console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
+    return 1;
+  }
+  if (execFlag === "local") {
+    console.error("警告：local 执行后端无隔离，仅用于开发/验证；生产部署请使用 --execution container 并完成 systemd 执行账户配置");
+  }
+  // 工具集：默认真实编码工具；mock 仅供模拟测试（crash 恢复集成验证使用）
+  const toolsFlag = flags["tools"] ?? "coding";
+  let toolFactory: import("./runtime/runtime.ts").RuntimeConfig["toolFactory"];
+  if (toolsFlag === "mock") {
+    const { createMockTools } = await import("./agent/mock-tools.ts");
+    toolFactory = (ctx) => createMockTools(ctx);
+  } else if (toolsFlag === "coding") {
+    toolFactory = undefined; // 运行时默认：真实编码工具（路由器 + 工具工作进程）
+  } else {
+    console.error(`--tools 取值无效：${toolsFlag}（coding | mock）`);
+    return 1;
+  }
+  const runtime = await Runtime.start({
+    dataDir,
+    agentDir,
+    controlDir: process.env.RUUKOTO_CONTROL_DIR,
+    thinkingLevel: (flags["thinking"] ?? "off") as ModelSelection["thinkingLevel"],
+    modelProvider,
+    modelId,
+    execution: { backend: execFlag },
+    toolFactory,
+    // dev 开发实例（issue 21 §1）：RUUKOTO_DISABLE_QQ=1 停用真实 QQ 通道
+    qqDisabled: process.env.RUUKOTO_DISABLE_QQ === "1",
+  });
+  await ControlServer.start(runtime);
+  const stopAndExit = (reason: string) => {
+    void runtime.stop(reason).then(() => process.exit(0));
+  };
+  process.on("SIGINT", () => stopAndExit("signal_sigint"));
+  process.on("SIGTERM", () => stopAndExit("signal_sigterm"));
+  console.error(`ruukoto 后台已启动 dataDir=${dataDir} socket=${runtime.socketPath()} (pid ${process.pid})`);
+  return 0;
+}
+
+/** 管理命令与旧拼法 tui：保持既有手卷解析与输出，供脚本与非 TTY 使用。 */
+async function runLegacy(cmd: string, rest: string[]): Promise<number> {
   const { flags, positional } = parseArgs(rest);
   switch (cmd) {
-    case "start": {
-      const { Runtime } = await import("./runtime/runtime.ts");
-      const { ControlServer } = await import("./control/server.ts");
-      const dirs = defaultDirs();
-      const dataDir = flags["data-dir"] ?? dirs.dataDir;
-      const agentDir = flags["agent-dir"] ?? dirs.agentDir;
-      const modelFlag = flags["model"] ?? "";
-      const split = modelFlag.indexOf("/");
-      if (modelFlag && (split <= 0 || split === modelFlag.length - 1)) throw new Error("--model 格式为 provider/model");
-      const modelProvider = split < 0 ? undefined : modelFlag.slice(0, split);
-      const modelId = split < 0 ? undefined : modelFlag.slice(split + 1);
-      const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? "local";
-      if (execFlag !== "local" && execFlag !== "container") {
-        console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
-        return 1;
-      }
-      if (execFlag === "local") {
-        console.error("警告：local 执行后端无隔离，仅用于开发/验证；生产部署请使用 --execution container 并完成 systemd 执行账户配置");
-      }
-      // 工具集：默认真实编码工具；mock 仅供模拟测试（crash 恢复集成验证使用）
-      const toolsFlag = flags["tools"] ?? "coding";
-      let toolFactory: import("./runtime/runtime.ts").RuntimeConfig["toolFactory"];
-      if (toolsFlag === "mock") {
-        const { createMockTools } = await import("./agent/mock-tools.ts");
-        toolFactory = (ctx) => createMockTools(ctx);
-      } else if (toolsFlag === "coding") {
-        toolFactory = undefined; // 运行时默认：真实编码工具（路由器 + 工具工作进程）
-      } else {
-        console.error(`--tools 取值无效：${toolsFlag}（coding | mock）`);
-        return 1;
-      }
-      const runtime = await Runtime.start({
-        dataDir,
-        agentDir,
-        thinkingLevel: (flags["thinking"] ?? "off") as ModelSelection["thinkingLevel"],
-        modelProvider,
-        modelId,
-        execution: { backend: execFlag },
-        toolFactory,
-      });
-      await ControlServer.start(runtime);
-      const stopAndExit = (reason: string) => {
-        void runtime.stop(reason).then(() => process.exit(0));
-      };
-      process.on("SIGINT", () => stopAndExit("signal_sigint"));
-      process.on("SIGTERM", () => stopAndExit("signal_sigterm"));
-      console.error(`ruukoto 后台已启动 dataDir=${dataDir} socket=${runtime.socketPath()} (pid ${process.pid})`);
-      return 0;
-    }
     case "create-project":
       print(await withClient((c) => c.request("create_project", { name: positional[0] ?? "" })));
       return 0;
@@ -621,28 +668,32 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "tui": {
-      // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据。
-      // --demo：合成调试会话，不连后台、不需要令牌、不产生真实副作用。
-      const { runTui } = await import("./tui/index.ts");
-      if (flags["demo"] !== undefined) {
-        console.error("合成调试会话：不连接后台，数据为静态构造，仅用于调试界面渲染");
-      }
-      return await runTui({ sessionId: flags["session"], demo: flags["demo"] !== undefined });
+      // 旧拼法（已迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo）：
+      // 打印迁移指引后仍按旧行为启动任务界面。
+      console.error(
+        "ruukoto tui 为旧拼法，请改用：无参 ruukoto（默认会话）、ruukoto --session <id>、ruukoto --demo；本次仍按旧拼法启动",
+      );
+      return await runTaskTui({ sessionId: flags["session"], demo: flags["demo"] !== undefined });
     }
     default:
       console.error(defaultHelp());
-      return cmd === undefined ? 0 : 1;
+      return 1;
   }
 }
 
 function defaultHelp(): string {
   return (
-    "用法：ruukoto <command> [args]\n" +
-    "命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> | start | tui | create-project | create-session | submit | continue | switch-mode | status | events |\n" +
+    "用法：ruukoto [路径] [--session <id> | --demo]      任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）\n" +
+    "      ruukoto -- <路径>                             显式工作区入口（目录与命令同名时用，如 ruukoto -- config）\n" +
+    "      ruukoto config [--offline]                    独立配置中心\n" +
+    "      ruukoto server [启动参数]                     前台启动后台（start 为兼容别名，文档推荐 server）\n" +
+    "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> |\n" +
+    "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | stop |\n" +
     "      grant | history-search | memory | selection-records\n" +
-    "参数：--data-dir / --agent-dir / --execution / --model / --thinking（start）；--mode / --grant（submit/continue/switch-mode）；\n" +
-    "      --session <id>（tui：直接进入指定会话，不存在则报错）；--demo（tui：合成调试会话，不连后台）\n" +
+    "参数：--data-dir / --agent-dir / --execution / --model / --thinking（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
+    "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +
+    "旧拼法：ruukoto tui 仍可用，请迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo\n" +
     "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"
   );
 }

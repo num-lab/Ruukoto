@@ -214,6 +214,15 @@ export class ControlServer {
       }
       return value as number;
     };
+    /** 可选创建幂等键（issue 21，create_project/create_session）：1-128 位字母/数字/_/-。 */
+    const optionalRequestId = (): string | undefined => {
+      const value = params["request_id"];
+      if (value === undefined) return undefined;
+      if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) {
+        throw Object.assign(new Error("request_id 必须是 1-128 位字母、数字、下划线或连字符"), { code: "invalid_params" });
+      }
+      return value;
+    };
     switch (request.op) {
       case "ping":
         return { pong: true, stopping: runtime.stopping };
@@ -255,14 +264,16 @@ export class ControlServer {
         return result;
       }
       case "create_project":
-        return runtime.createProject(requireString("name"));
+        return runtime.createProject(requireString("name"), optionalRequestId());
       case "create_session":
         return runtime.createSession({
-          projectId: requireString("project_id"),
+          projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
+          projectName: typeof params["project_name"] === "string" ? params["project_name"] : undefined,
           cwd: requireString("cwd"),
           confirmTools: Array.isArray(params["confirm_tools"])
             ? (params["confirm_tools"] as unknown[]).map(String)
             : undefined,
+          createRequestId: optionalRequestId(),
         });
       case "get_session":
         return runtime.getSession(requireString("session_id"));
@@ -276,6 +287,30 @@ export class ControlServer {
       }
       case "set_session_model":
         return runtime.setSessionModel({ sessionId: requireString("session_id"), modelSelection: parseModelSelection(params["model_selection"]), expectedVersion: params["expected_version"] as number });
+      // ---------- issue 21 §3/§4：模型配置管理（修订核对在 Runtime 内） ----------
+      case "get_model_config":
+        return runtime.getModelConfig();
+      case "save_model_catalog": {
+        if (typeof params["providers"] !== "object" || params["providers"] === null || Array.isArray(params["providers"])) {
+          throw Object.assign(new Error("providers 必须是对象"), { code: "invalid_params" });
+        }
+        return runtime.saveModelCatalog({ providers: params["providers"], expectedRevision: params["expected_revision"] });
+      }
+      case "set_model_api_key":
+        return runtime.setModelApiKey({ provider: params["provider"], apiKey: params["api_key"], expectedRevision: params["expected_revision"] });
+      case "remove_model_api_key":
+        return runtime.removeModelApiKey({ provider: params["provider"], expectedRevision: params["expected_revision"] });
+      case "remove_model_provider":
+        return runtime.removeModelProvider({ provider: params["provider"], expectedRevision: params["expected_revision"] });
+      case "set_default_model":
+        return runtime.setDefaultModel({
+          provider: params["provider"],
+          modelId: params["model_id"],
+          thinkingLevel: params["thinking_level"],
+          expectedRevision: params["expected_revision"],
+        });
+      case "test_model_connection":
+        return runtime.testModelConnection({ provider: params["provider"], modelId: params["model_id"] });
       case "set_session_mode": {
         const mode = params["mode"];
         if (!isAccessMode(mode)) {

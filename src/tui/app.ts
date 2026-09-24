@@ -38,13 +38,23 @@ import {
 } from "@earendil-works/pi-tui";
 import { Container } from "@earendil-works/pi-tui";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
+import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
 import type { ControlConnection } from "../control/connection.ts";
 import type { ConnectResult } from "../control/protocol.ts";
 import type { SubmissionGuard } from "../control/submission.ts";
 import type { PendingRequestStore } from "../control/pending-requests.ts";
+import { loadReloadState, saveReloadState } from "./reload-state.ts";
+import {
+  ensureWorkspaceSession,
+  findWorkspaceProjects,
+  isWorkspaceConnectionError,
+  resolveWorkspaceDir,
+} from "../control/workspace.ts";
+import type { DirIdentity } from "../core/dir-identity.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
-import type { AccessMode, ModelSelection, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
+import type { AccessMode, ModelSelection, Project, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
 import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { ContextBreakdown } from "../agent/context-selector.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
@@ -757,6 +767,10 @@ export interface TuiAppOptions {
   state: ViewState;
   terminal?: Terminal;
   initialSessionId?: string;
+  /** 工作区入口（issue 21）：以该目录为工作区创建/复用项目并新建会话进入。 */
+  workspace?: { path: string };
+  /** dev 重载状态文件（issue 21 §5）：注入后启用界面状态持久化与启动恢复。 */
+  reloadStateFile?: string;
   onExit: (code: number, message?: string) => void;
 }
 
@@ -796,9 +810,28 @@ export class TuiApp {
   private exiting = false;
   private submitting = false;
   private continueForTaskId: string | null = null;
+  /** dev 重载状态文件（issue 21 §5）：null = 非 dev 启动，不持久化也不恢复。 */
+  private readonly reloadStateFile: string | null;
+  /** 重载状态防抖定时器（~300ms 合并连续变更）。 */
+  private reloadPersistTimer: NodeJS.Timeout | null = null;
   /** 组件缓存：转录条目 key → 组件（避免每帧重建 Markdown）。 */
   private itemComponents = new Map<string, Component>();
   private itemOrder: string[] = [];
+
+  // ---------- 工作区入口（issue 21） ----------
+  private readonly workspacePath: string | null = null;
+  /**
+   * 工作区入口阶段：pending（待首次握手处理）→ picking（多项目选择中）/
+   * awaiting-reconnect（应答丢失，待重连核实）→ done（完成或已回落正常启动）。
+   */
+  private workspacePhase: "pending" | "picking" | "awaiting-reconnect" | "done" = "done";
+  private workspaceIdentity: DirIdentity | null = null;
+  /** 启动请求标识：每次进程启动只生成一次，重试沿用同一标识（不生成第二个）。 */
+  private startupRequestId: string | null = null;
+  /** 进行中的 ensure 所属项目（null = 自动创建路径；应答丢失重试时沿用）。 */
+  private workspaceProjectId: string | null = null;
+  /** ensure 在途标记：重同步叠加快照时不重入工作区流程（服务端去重兜底仍在）。 */
+  private workspaceBusy = false;
 
   constructor(opts: TuiAppOptions) {
     this.connection = opts.connection;
@@ -807,7 +840,12 @@ export class TuiApp {
     this.state = opts.state;
     this.initialSessionId = opts.initialSessionId;
     this.onExit = opts.onExit;
+    this.reloadStateFile = opts.reloadStateFile ?? null;
     this.terminal = opts.terminal ?? new ProcessTerminal();
+    if (opts.workspace) {
+      this.workspacePath = opts.workspace.path;
+      this.workspacePhase = "pending";
+    }
 
     setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS));
     this.tui = new TuiAltScreen(this.terminal, true);
@@ -825,6 +863,7 @@ export class TuiApp {
       const view = this.currentView();
       // 草稿保留展开后的原文（大段粘贴的折叠标记只用于展示）
       if (view) view.draft = this.editor.getExpandedText();
+      this.scheduleReloadPersist();
     };
     // 候选列表经覆盖层绘制：覆盖层在布局之后合成，叠在转录区之上而不挤占它。
     // 回调来自 render 内部，showOverlay 会触发重渲染，必须推到下一 tick 再调。
@@ -983,6 +1022,108 @@ export class TuiApp {
   onSnapshot(result: ConnectResult, ctx: { resync: boolean; instanceChanged: boolean }): void {
     this.generation++;
     this.state.applySnapshot(result, ctx.instanceChanged);
+    if (this.workspacePhase !== "done") {
+      // 工作区入口（issue 21）：首次握手与应答丢失后的重连核实都经这里；
+      // 完成、取消或明确失败后回落到正常启动流程
+      void this.runWorkspaceEntry();
+      return;
+    }
+    // dev 重载恢复（issue 21 §5）：仅进程内首次快照（非重连）尝试一次，
+    // 在正常启动流程之前；失效时由其自行回落正常入口
+    if (!ctx.resync && this.reloadStateFile && this.generation === 1) {
+      void this.restoreReloadState(result);
+      return;
+    }
+    this.normalStartupFlow(ctx);
+  }
+
+  // ---------- dev 重载状态（issue 21 §5） ----------
+
+  /**
+   * 防抖落盘界面状态（当前会话 / 草稿 / 继续意图，~300ms 合并突发变更）；
+   * 仅 dev 注入重载状态文件时启用，秘密从不写入（类型上就没有这些字段）。
+   */
+  private scheduleReloadPersist(): void {
+    if (!this.reloadStateFile) return;
+    if (this.reloadPersistTimer) clearTimeout(this.reloadPersistTimer);
+    this.reloadPersistTimer = setTimeout(() => this.persistReloadState(), 300);
+  }
+
+  /** 立即落盘（防抖到期与退出前共用；未握手成功过则没有 instanceId，跳过）。 */
+  private persistReloadState(): void {
+    if (this.reloadPersistTimer) {
+      clearTimeout(this.reloadPersistTimer);
+      this.reloadPersistTimer = null;
+    }
+    const file = this.reloadStateFile;
+    const instanceId = this.state.instanceId;
+    if (!file || !instanceId) return;
+    saveReloadState(file, {
+      kind: "task-tui",
+      instanceId,
+      sessionId: this.state.currentSessionId,
+      draft: this.currentView()?.draft ?? "",
+      continueForTaskId: this.continueForTaskId,
+      updatedAt: "", // 落盘时由 saveReloadState 写入当前时间
+    });
+  }
+
+  /**
+   * dev 重载恢复（仅进程内首次快照尝试一次）：instanceId 必须与本次握手一致，
+   * 否则记录失效按正常入口启动；会话仍在快照中才恢复会话与草稿；继续意图
+   * 要求目标任务仍存在且处于中断态——不满足则丢弃意图（草稿保留为普通草稿，
+   * 提交时按新任务处理），绝不静默变成提交。
+   */
+  private async restoreReloadState(result: ConnectResult): Promise<void> {
+    const file = this.reloadStateFile!;
+    if (!fs.existsSync(file)) {
+      // 新一轮 dev 已清除记录：正常入口
+      this.normalStartupFlow({ resync: false });
+      return;
+    }
+    const saved = loadReloadState(file);
+    if (!saved || saved.kind !== "task-tui" || saved.instanceId !== result.snapshot.instanceId) {
+      this.notify(yellow("重载恢复记录已失效，按正常入口启动"));
+      this.normalStartupFlow({ resync: false });
+      return;
+    }
+    const sessionId =
+      saved.sessionId && result.snapshot.sessions.some((s) => s.id === saved.sessionId) ? saved.sessionId : null;
+    if (sessionId === null) {
+      // 无会话或会话已不在快照中：草稿/继续意图无从归属，按正常入口启动
+      this.normalStartupFlow({ resync: false });
+      return;
+    }
+    // 草稿先放回会话视图，switchSession 会顺带装入编辑器
+    this.state.openSession(sessionId).draft = saved.draft;
+    this.switchSession(sessionId);
+    if (saved.continueForTaskId) {
+      let task = this.state.getTask(saved.continueForTaskId);
+      if (!task) {
+        // 快照未覆盖的旧任务：向后台核实一次
+        try {
+          const detail = await this.connection.request<{ task: Task }>("get_task", { task_id: saved.continueForTaskId });
+          task = detail.task ?? null;
+        } catch {
+          task = null;
+        }
+      }
+      if (task && task.sessionId === sessionId && task.status === "interrupted") {
+        this.continueForTaskId = task.id;
+        this.notify(
+          `已恢复继续模式：下一条输入将继续任务 ${task.id}（中断原因 ${task.interruptReason ?? "未知"}；输入 /continue 取消）`,
+        );
+      } else {
+        this.notify(yellow("继续目标任务已不存在或已结束；草稿保留为普通输入，提交将作为新任务"));
+      }
+    }
+    // 结果回写：丢弃的意图/恢复的草稿立即同步，避免下次重载读到过期记录
+    this.persistReloadState();
+    this.refreshAll();
+  }
+
+  /** 正常启动流程：--session 精确/前缀匹配 → 会话选择 → 欢迎页；重连时重载历史。 */
+  private normalStartupFlow(ctx: { resync: boolean }): void {
     if (this.initialSessionId && !this.state.currentSessionId) {
       const wanted = this.initialSessionId;
       const target = this.state.sessions.find((s) => s.id === wanted || s.id.startsWith(wanted));
@@ -1004,6 +1145,110 @@ export class TuiApp {
       void this.refreshTaskDetails();
     }
     this.refreshAll();
+  }
+
+  // ---------- 工作区入口（issue 21） ----------
+
+  /** 工作区入口：解析目录身份 → 按目录找候选项目 → 复用/选择/自动创建后进入新会话。 */
+  private async runWorkspaceEntry(): Promise<void> {
+    // 选择面板打开中（等用户决定）或上一次 ensure 仍在途（重同步可能叠加快照）时不重入
+    if (this.workspacePhase === "picking" || this.workspaceBusy) return;
+    this.workspaceBusy = true;
+    try {
+      await this.runWorkspaceEntryInner();
+    } finally {
+      this.workspaceBusy = false;
+    }
+  }
+
+  private async runWorkspaceEntryInner(): Promise<void> {
+    if (this.workspacePhase === "awaiting-reconnect") {
+      // 应答丢失核实：新快照里按启动请求标识找会话；找到即进入，找不到用同一标识重试
+      const found = this.state.sessions.find((s) => s.createRequestId === this.startupRequestId);
+      if (found) {
+        this.workspacePhase = "done";
+        this.switchSession(found.id);
+        return;
+      }
+      await this.ensureWorkspaceEntry(this.workspaceProjectId);
+      return;
+    }
+    // pending：首次握手
+    if (!this.workspaceIdentity) {
+      try {
+        this.workspaceIdentity = await resolveWorkspaceDir(this.workspacePath!, process.cwd());
+      } catch (err) {
+        this.workspacePhase = "done";
+        this.quit(1, (err as Error).message);
+        return;
+      }
+      this.startupRequestId = `boot-${randomUUID()}`;
+    }
+    const candidates = findWorkspaceProjects(
+      { projects: this.state.projects, sessions: this.state.sessions },
+      this.workspaceIdentity,
+    );
+    if (candidates.length === 0) {
+      await this.ensureWorkspaceEntry(null);
+    } else if (candidates.length === 1) {
+      await this.ensureWorkspaceEntry(candidates[0]!.id);
+    } else {
+      this.openWorkspaceProjectPicker(candidates);
+    }
+  }
+
+  /** 幂等创建/复用工作区会话并进入；连接错误等重连核实，协议错误回落正常启动。 */
+  private async ensureWorkspaceEntry(projectId: string | null): Promise<void> {
+    this.workspaceProjectId = projectId;
+    try {
+      const { session, projectName, createdProject } = await ensureWorkspaceSession(
+        this.connection,
+        { projects: this.state.projects, sessions: this.state.sessions },
+        this.workspaceIdentity!,
+        { projectId, startupRequestId: this.startupRequestId! },
+      );
+      this.workspacePhase = "done";
+      this.switchSession(session.id);
+      if (createdProject) this.notify(`项目已自动创建：${projectName}`);
+    } catch (err) {
+      if (isWorkspaceConnectionError(err)) {
+        // 应答可能已丢失：不盲目重发，等重连后的新快照按启动请求标识核实
+        this.workspacePhase = "awaiting-reconnect";
+        return;
+      }
+      // 后台明确拒绝（如保护根）：不留下半选中状态，回落正常启动流程
+      this.workspacePhase = "done";
+      this.notify(red(`工作区会话创建失败：${(err as Error).message}`));
+      this.normalStartupFlow({ resync: false });
+    }
+  }
+
+  /** 多候选项目选择：取消不创建任何项目/会话，回落正常启动流程。 */
+  private openWorkspaceProjectPicker(candidates: Project[]): void {
+    this.workspacePhase = "picking";
+    const items: SelectItem[] = candidates.map((p) => ({ value: p.id, label: p.name, description: p.id }));
+    const list = new SelectList(items, Math.min(items.length, 10), selectTheme);
+    const body = new VStack([
+      { component: new Text(bold(`工作区 ${this.workspaceIdentity!.cwdReal} 对应多个项目，选择要进入的项目（Esc 取消，不创建会话）`), 0, 0), grow: 0 },
+      { component: list, grow: 1 },
+    ]);
+    let picked = false;
+    const handle = this.openFloating({
+      widthRatio: 0.85,
+      content: body,
+      forwardTo: list,
+      maxHeightRatio: 0.7,
+      onClose: () => {
+        if (picked) return;
+        this.workspacePhase = "done";
+        this.normalStartupFlow({ resync: false });
+      },
+    });
+    list.onSelect = (item) => {
+      picked = true;
+      handle.hide();
+      void this.ensureWorkspaceEntry(item.value);
+    };
   }
 
   /** 连接层回调：事件应用后刷新界面；落盘条目增量补齐正文。 */
@@ -1074,6 +1319,8 @@ export class TuiApp {
     if (this.exiting) return;
     this.exiting = true;
     this.stopTimingTick();
+    // dev 重载（issue 21 §5）：退出前把最终界面状态同步落盘（防抖可能还在等）
+    this.persistReloadState();
     // 退出前保留尚未确认接收的请求（pendingStore 已在磁盘）；不发送 stop/取消
     this.connection.close();
     const pending = this.pendingStore.list();
@@ -1116,6 +1363,7 @@ export class TuiApp {
     }
     this.refreshAll();
     if (view.scrollTop !== null) this.scroll.scrollTo(view.scrollTop, { disableFollow: true });
+    this.scheduleReloadPersist();
   }
 
   /**
@@ -1236,6 +1484,7 @@ export class TuiApp {
           this.state.addPendingInput(outcome.task);
           const wasContinue = this.continueForTaskId !== null;
           this.continueForTaskId = null;
+          this.scheduleReloadPersist();
           const current = this.currentView();
           if (current?.queueState === "paused") {
             // 队列暂停时明确显示：新任务在排队，不宣称已开始执行
@@ -1453,6 +1702,7 @@ export class TuiApp {
       // 再次输入 /continue：取消继续模式
       this.continueForTaskId = null;
       this.notify("已取消继续模式");
+      this.scheduleReloadPersist();
       return;
     }
     let task: Task | null = null;
@@ -1467,6 +1717,7 @@ export class TuiApp {
       return;
     }
     this.continueForTaskId = task.id;
+    this.scheduleReloadPersist();
     const effectNote = task.effectUnknown ? "；存在效果未知的工具操作（不能当作可安全重试）" : "";
     this.notify(
       `继续任务 ${task.id}：中断原因 ${task.interruptReason ?? "未知"}${effectNote}。\n` +

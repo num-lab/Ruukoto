@@ -268,7 +268,7 @@ export class ViewState {
     switch (body.type) {
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
-          this.projects.push({ id: body.projectId, name: body.name, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt });
+          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt });
         }
         return;
       case "session.created":
@@ -284,6 +284,7 @@ export class ViewState {
             piSessionId: "",
             sessionFile: null,
             confirmTools: [],
+            createRequestId: body.createRequestId ?? null,
             modelSelection: body.modelSelection,
             modelSelectionVersion: body.modelSelectionVersion,
             defaultAccessMode: "confirm",

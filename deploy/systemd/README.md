@@ -39,7 +39,7 @@ sudo install -o ruukoto-backend -g ruukoto-backend -m 0600 \
 #      # /etc/systemd/system/ruukoto-backend.service.d/20-model.conf
 #      [Service]
 #      ExecStart=
-#      ExecStart=/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts start --model <provider/model>
+#      ExecStart=/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts server --model <provider/model>
 
 # 3. 工具工作进程镜像（可信身份构建；后台仅运行）
 #    目标机无法访问 Docker Hub 时，先经可用镜像站拉取并打回原名，例如：

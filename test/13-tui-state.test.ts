@@ -16,7 +16,7 @@ import type { HistoryEntryView, HistoryPage } from "../src/core/history.ts";
 
 function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
-    projects: [{ id: "proj_1", name: "演示", instructionFiles: [], webSearch: "enabled", createdAt: "2026-09-20T00:00:00Z" }],
+    projects: [{ id: "proj_1", name: "演示", createRequestId: null, instructionFiles: [], webSearch: "enabled", createdAt: "2026-09-20T00:00:00Z" }],
     sessions: [
       {
         id: "sess_1",
@@ -29,6 +29,7 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
         piSessionId: "pi-1",
         sessionFile: null,
         confirmTools: [],
+        createRequestId: null,
         modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
         modelSelectionVersion: 1,
         defaultAccessMode: "confirm",

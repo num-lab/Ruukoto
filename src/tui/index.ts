@@ -16,6 +16,7 @@ import { createDemoClient } from "./demo-session.ts";
 import { ControlConnection } from "../control/connection.ts";
 import { PendingRequestStore } from "../control/pending-requests.ts";
 import { SubmissionGuard } from "../control/submission.ts";
+import { reloadStatePathFromEnv } from "./reload-state.ts";
 import { ViewState } from "./state.ts";
 import { TuiApp } from "./app.ts";
 
@@ -23,6 +24,8 @@ export interface TuiOptions {
   sessionId?: string;
   /** 合成调试会话：不连后台，用假客户端喂出覆盖全部事件类型的静态数据。 */
   demo?: boolean;
+  /** 工作区入口（issue 21）：以该目录为工作区创建/复用项目并新建会话进入。 */
+  workspace?: { path: string };
 }
 
 export async function runTui(opts: TuiOptions = {}): Promise<number> {
@@ -74,6 +77,10 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
     pendingStore,
     state,
     initialSessionId: opts.sessionId,
+    // 合成调试会话不支持创建操作，工作区入口只在真实连接下启用
+    workspace: opts.demo ? undefined : opts.workspace,
+    // dev 重载状态（issue 21 §5）：仅 dev 注入 RUUKOTO_RELOAD_STATE_FILE 时启用
+    reloadStateFile: opts.demo ? undefined : (reloadStatePathFromEnv() ?? undefined),
     onExit: (code, message) => {
       restoreConsole();
       if (message) console.log(message);

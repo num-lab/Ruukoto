@@ -50,9 +50,15 @@ npm run typecheck        # 类型检查
 npm test                 # 全部离线集成验证（mock 模型，不联网、不需要凭据）
 RUN_MODEL_CHECK=1 npm run test:model   # 真实模型连通性（逐 provider 一次短往返）
 
-# 启动后台（生产：--execution container + 完成 deploy/systemd 配置）
-npm start -- start --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
+# 启动后台（生产：--execution container + 完成 deploy/systemd 配置；
+# server 为推荐命令，start 是同一实现的兼容别名）
+npm start -- server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
   --execution container --model provider/model
+
+# 交互入口（需 TTY；旧拼法 tui 给出迁移指引）
+npm start --                 # 任务界面：选择既有会话（不隐式新建）
+npm start -- /path/to/dir    # 以该目录为工作区创建新会话并进入
+npm start -- config          # 配置中心（见下文「配置中心（issue 21）」）
 
 # 另一个终端连接控制面（socket：~/.ruukoto/control/control.sock；
 # 认证：RUUKOTO_OWNER_TOKEN 或 control/owner.token）
@@ -77,16 +83,32 @@ npm start -- qq configure --endpoint ws://127.0.0.1:3001 --self-id <QQ号> [--cr
 npm start -- qq group add <群号>          # 允许该群 @ 触发（可多次）
 npm start -- qq enable                    # 启用（qq status / disable / inbox / outbox 可查）
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
-npm start -- tui [--session <id>]     # 交互终端（见下文"TUI"）
+```
+
+开发调试（issue 21，详见下文「开发实例」）：
+
+```bash
+npm run dev [-- --tui | --config] [--import-models <目录>]
 ```
 
 ## TUI（issue 04）
 
-`ruukoto tui` 启动全屏交互终端：顶部为项目/会话/工作目录/连接状态/任务权限
+`ruukoto` 启动全屏交互终端（旧拼法 `ruukoto tui` 给出迁移指引后沿用原行为；
+`ruukoto --session <id>` / `--demo` 对应原 `tui --session/--demo`）：顶部为项目/会话/工作目录/连接状态/任务权限
 模式/执行后端，中间滚动显示消息与工具记录，底部为多行输入与任务/队列状态。
 TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不创建 SDK 会话、
 不加载模型凭据、不直接读取后台数据库或 JSONL；后台不可达时显示连接状态并
 按有上限的退避重连，不会悄悄另起同一任务。
+
+**工作区入口（issue 21）**：`ruukoto <路径>` 以该目录为工作区创建新会话并
+直接进入（`./config`、`-- <路径>` 处理与命令同名的目录）。相对路径按客户端
+调用时工作目录解析；后台继续校验目录存在性、realpath、dev/ino、保护根与
+权限，只接受已有目录。按规范化目录身份查找已有 dev 会话对应的项目：唯一
+候选直接复用，多个候选先经选择列表确认（取消则不创建任何记录），从未使用
+的目录自动创建项目（目录名命名，重名追加序号，绝不因同名合并项目）。每次
+独立启动创建一个新会话；创建请求带稳定启动请求标识（create_project /
+create_session 幂等键，同键同参返回原记录、同键异参报 request_conflict），
+断线重连后按标识在新快照中核实，不重复创建。
 
 - **输入**：`Enter` 提交，`Alt+Enter`（或 `Shift+Enter` / `Ctrl+J`）换行；
   支持中文与 bracketed paste，大段粘贴在编辑器内折叠显示，草稿与提交保留
@@ -131,11 +153,68 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 `request_id` 由客户端保存、唯一范围为会话：提交落盘但应答丢失时，同键同
 参数（含模式与授权范围）重试返回原任务，同键异参返回 `request_conflict`。
 
+## 配置中心（issue 21）
+
+`ruukoto config` 打开独立配置界面：复用控制面拥有者认证与 TUI 组件，不直接
+打开核心数据库，也不成为绕过任务审批的入口（任务执行审批仍在任务界面）。
+在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及
+上下文/输出参数）、模型 API key、后台默认模型、项目指令/Web Search/资料
+授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与允许群、服务凭据。
+
+- **并发与修订**：模型配置以 `expected_revision`（models.json + auth.json +
+  default-model.json 的内容指纹）做条件更新；项目/会话/MCP/QQ 沿用各自的
+  expected_version。冲突时要求重新加载，不静默覆盖。
+- **模型配置应用时机（§4）**：provider、模型目录与 API key 的修改只在没
+  有受影响的 `running` / `awaiting_confirmation` / `queued` 任务时应用；
+  检查到应用完成之间，受影响 provider 的新提交被拒绝（`model_config_busy`）。
+  占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不
+  自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime /
+  模型目录 / 审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。
+  应用成功后持久配置与内存一致，重启后仍有效。删除 provider 前核对后台
+  默认、会话与 agent_roles 引用（`provider_in_use`）；后台默认模型保存为
+  `<agentDir>/default-model.json`，显式启动参数 `--model` 优先于它。
+  `test_model_connection` 是显式网络探测，本地校验不代表模型服务可用。
+- **秘密**：API key 输入遮蔽；响应只展示是否配置与必要元数据；秘密不进入
+  日志、事件、命令行参数或重载状态文件。模型 API key（auth.json）与服务
+  凭据（credentials.json）分开管理。
+- **离线模式**：后台不可达时（或 `--offline`）进入有限离线配置：只做模型
+  目录、默认模型与 API key 的初始化/修复，直接写 `<agentDir>` 下文件。
+  互斥按规范化 agentDir 的配置锁（`<agentDir>/config.lock/`）判定：后台
+  运行时持有该锁（不同 dataDir 共用 agentDir 也被覆盖），socket 不可达或
+  认证失败不证明后台已停；无法取得独占时明确失败，不放宽权限、不改属主。
+
+## 开发实例（issue 21）
+
+`npm run dev [-- --tui | --config] [--import-models <目录>]` 启动隔离的
+开发后台与可选界面，监听源码变更自动重启：
+
+- **隔离 profile**：`~/.ruukoto-dev/<仓库名>-<路径哈希>/{data,agent,control,
+  pending,logs}`，稳定复用、保留开发历史，位于代码目录外（QQ 等工作目录
+  不落入保护根）。不继承生产 owner token、执行账户配置或消息平台凭据；
+  QQ 适配器在 dev 下默认停用（`RUUKOTO_DISABLE_QQ=1`，每次启动生效）；
+  真实模型须显式配置（`dev --config` 离线初始化，或 `--import-models` 从
+  指定目录复制 models.json/auth.json，不共享可写的生产 agentDir）。
+- **进程与重载**：dev 管理自己启动的整组进程；退出界面或 Ctrl+C、关闭
+  终端都统一清理后台/界面/监听。同一开发实例已有后台时报错，不附加或
+  停止外部进程。监听仅限 `src/` 源码：后台代码变更优雅重启后台（活动
+  任务保留中断事实，不自动重放）；只改任务/配置界面代码时不重启后台；
+  共享模块变更两者都重启。连续变更合并处理，旧进程退出并释放锁后才
+  启动替代进程。
+- **界面状态恢复**：dev 启动的任务界面把当前会话、未提交草稿与继续任务
+  意图原子保存到 profile 的重载状态文件（0600；秘密表单值不写入，重载后
+  重新输入）；重载后按数据实例标识核实恢复，记录无效时给出提示并按正常
+  入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次 dev 启动
+  内使用，新的一次独立 dev 命令遵循正常入口规则。
+- **日志与终端**：后台日志写 `<profile>/logs/backend.log`，监听诊断写
+  `dev.log`（无界面时打印到终端），不与界面输入/绘制串写。
+- `dev --config` 缺少有效模型时先打开离线配置界面；保存有效配置并释放
+  配置锁后启动开发后台，再切换为在线配置；放弃或保存失败不启动后台。
+
 ## 数据布局
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v10）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v12）
 │                              #   项目（含项目指令文件与 Web Search 开关）、会话
 │                              #   （含 kind：dev/qq_group）、任务
 │                              #   （accessMode/权限版本/授予路径）、确认请求
@@ -161,8 +240,15 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 
 <agentDir>/                    # 0700（RUUKOTO_AGENT_DIR，默认 ~/.ruukoto/agent）
 ├── models.json                # 模型配置（显式指定，不读 ~/.pi/agent）
-├── auth.json                  # 模型凭据（同上）
-└── credentials.json           # 服务凭据绑定（0600；审批注入用，值不展示）
+├── auth.json                  # 模型凭据（同上；配置中心在线/离线维护，0600）
+├── default-model.json         # 后台默认模型（issue 21，0600；--model 启动参数优先）
+├── credentials.json           # 服务凭据绑定（0600；审批注入用，值不展示）
+└── config.lock/               # 配置独占锁（issue 21；后台运行期间持有，
+                               #   离线配置据以互斥，语义同实例锁）
+
+~/.ruukoto-dev/<仓库>-<哈希>/   # 开发实例 profile（npm run dev，0700）：
+                               #   data/ agent/ control/ pending/ logs/
+                               #   与日常实例完全隔离，不继承生产凭据与配置
 ```
 
 职责边界：pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；

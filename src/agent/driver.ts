@@ -205,6 +205,8 @@ export class Driver {
   private currentMcpPlan: McpTaskPlan | null = null;
   /** 上次 SDK 会话创建时的 MCP 工具清单签名（不一致则重建会话换工具定义）。 */
   private mcpSignature: string | null = null;
+  /** 模型配置已应用、存活 SDK 会话待丢弃重建（issue 21 §4；见 updateModelDeps）。 */
+  private sdkConfigStale = false;
   /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
   private pendingMcpToolDefs: ToolDefinition[] = [];
   /** 角色配置缓存（undefined = 未查询；null = 非角色会话）。 */
@@ -322,6 +324,22 @@ export class Driver {
     this.session.sessionFile = latest.sessionFile;
     this.session.queueState = latest.queueState;
     this.session.confirmTools = latest.confirmTools;
+  }
+
+  /**
+   * 模型配置应用后更新模型栈引用（issue 21 §4）：下一个任务开始时
+   * runInner 经 deps.modelCatalog.resolve 重新解析。存活 SDK 会话的
+   * streamFn/setModel 闭包仍持有创建时的旧 ModelRuntime（对新增/变更
+   * provider 会误判 Unknown provider/缺 key），标记后由 runInner 在下一
+   * 任务开始前丢弃重建；历史在会话文件中，不受影响。进行中的任务不受
+   * 影响（受影响 provider 不可能有活动任务——应用门闩保证）。
+   */
+  updateModelDeps(deps: { modelRuntime: ModelRuntime; modelCatalog: ModelCatalog; model: any; reviewer?: ApprovalReviewer }): void {
+    this.deps.modelRuntime = deps.modelRuntime;
+    this.deps.modelCatalog = deps.modelCatalog;
+    this.deps.model = deps.model;
+    this.deps.reviewer = deps.reviewer;
+    if (this.sdk) this.sdkConfigStale = true;
   }
 
   private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
@@ -859,6 +877,12 @@ export class Driver {
     try {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
       const model = await this.deps.modelCatalog.resolve(task.modelSelection);
+      // 模型配置应用后（issue 21 §4）：旧 SDK 会话闭包持有旧 ModelRuntime，
+      // 任务边界处丢弃，由 ensureSdk 以新模型栈重建（历史在会话文件中）
+      if (this.sdkConfigStale) {
+        this.sdkConfigStale = false;
+        this.dropSdkForToolChange();
+      }
       // MCP（issue 16）：任务开始重读配置并发现工具，钉版本任务工具清单；
       // 单个服务初始化失败降级为不可用事件，不阻断任务
       const mcpPlan = await this.planMcp();

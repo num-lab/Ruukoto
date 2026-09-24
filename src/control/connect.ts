@@ -23,6 +23,10 @@ export function defaultDataDir(): string {
   return process.env.RUUKOTO_DATA_DIR ?? path.join(os.homedir(), ".ruukoto", "data");
 }
 
+export function defaultAgentDir(): string {
+  return process.env.RUUKOTO_AGENT_DIR ?? path.join(os.homedir(), ".ruukoto", "agent");
+}
+
 /** 控制面目录：与运行时默认一致（数据目录的兄弟目录 control/）。 */
 export function controlDirFor(dataDir: string): string {
   return process.env.RUUKOTO_CONTROL_DIR ?? path.join(path.dirname(path.resolve(dataDir)), "control");

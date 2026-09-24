@@ -10,6 +10,7 @@
 
 import type { Db } from "./db.ts";
 import {
+  ACTIVE_TASK_STATUSES,
   type AccessMode,
   type AgentRole,
   type AgentRoleId,
@@ -85,13 +86,50 @@ export class Store {
 
   // ---------- 项目 ----------
 
-  createProject(name: string): Project {
-    const project: Project = { id: randomId("proj"), name, instructionFiles: [], webSearch: "enabled", createdAt: new Date().toISOString() };
-    this.db
-      .prepare("INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)")
-      .run(project.id, project.name, project.createdAt);
-    this.appendEvent({ type: "project.created", projectId: project.id, name: project.name });
+  /**
+   * 创建项目（可选幂等，issue 21）。携带 createRequestId 时：同键同名返回
+   * 已存在项目（不重复插入、不产生事件）；同键异名抛 request_conflict。
+   * 查找与插入由调用方事务包住（node:sqlite 同步、单进程），唯一索引作兜底：
+   * 插入冲突时按幂等键重取核实，核实不过按冲突处理。
+   */
+  createProject(name: string, createRequestId?: string | null): Project {
+    if (createRequestId) {
+      const existing = this.findProjectByCreateRequestId(createRequestId);
+      if (existing) {
+        if (existing.name !== name) {
+          throw new StoreConflictError(`request_id 已存在且项目名不同：project=${existing.id}`, "request_conflict");
+        }
+        return existing;
+      }
+    }
+    if (this.findProjectByName(name)) {
+      throw new StoreConflictError(`项目已存在：${name}`, "duplicate");
+    }
+    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, instructionFiles: [], webSearch: "enabled", createdAt: new Date().toISOString() };
+    try {
+      this.db
+        .prepare("INSERT INTO projects (id, name, create_request_id, created_at) VALUES (?, ?, ?, ?)")
+        .run(project.id, project.name, project.createRequestId, project.createdAt);
+    } catch (err) {
+      if (createRequestId && isCreateRequestIdClash(err, "projects")) {
+        const existing = this.findProjectByCreateRequestId(createRequestId);
+        if (existing) {
+          if (existing.name !== name) {
+            throw new StoreConflictError(`request_id 已存在且项目名不同：project=${existing.id}`, "request_conflict");
+          }
+          return existing;
+        }
+      }
+      throw err;
+    }
+    this.appendEvent({ type: "project.created", projectId: project.id, name: project.name, createRequestId: project.createRequestId });
     return project;
+  }
+
+  /** 按创建幂等键查询项目（issue 21 去重与重连核实共用）。 */
+  findProjectByCreateRequestId(requestId: string): Project | null {
+    const row = this.db.prepare("SELECT * FROM projects WHERE create_request_id = ?").get(requestId) as any;
+    return row ? this.rowToProject(row) : null;
   }
 
   /** 设置项目指令文件列表（工作区相对路径；拥有者入口，调用方负责校验）。 */
@@ -117,7 +155,7 @@ export class Store {
   }
 
   listProjects(): Project[] {
-    const rows = this.db.prepare("SELECT * FROM projects ORDER BY created_at, id").all() as any[];
+    const rows = this.db.prepare("SELECT * FROM projects ORDER BY created_at, rowid").all() as any[];
     return rows.map((r) => this.rowToProject(r));
   }
 
@@ -125,6 +163,7 @@ export class Store {
     return {
       id: row.id,
       name: row.name,
+      createRequestId: row.create_request_id ?? null,
       instructionFiles: JSON.parse(row.instruction_files ?? "[]") as string[],
       webSearch: row.web_search === "disabled" ? "disabled" : "enabled",
       createdAt: row.created_at,
@@ -133,6 +172,11 @@ export class Store {
 
   // ---------- 会话 ----------
 
+  /**
+   * 创建会话（可选幂等，issue 21）。携带 createRequestId 时：同键同参
+   * （项目 + cwdReal + confirmTools）返回已存在会话；同键异参抛
+   * request_conflict。唯一索引作兜底（冲突时重取核实）。
+   */
   createSession(input: {
     projectId: string;
     kind?: SessionKind;
@@ -144,7 +188,22 @@ export class Store {
     sessionFile?: string | null;
     confirmTools: string[];
     modelSelection?: ModelSelection | null;
+    /** 创建幂等键（issue 21；null/缺省 = 不去重，每次插入新会话）。 */
+    createRequestId?: string | null;
   }): Session {
+    if (input.createRequestId) {
+      const existing = this.findSessionByCreateRequestId(input.createRequestId);
+      if (existing) {
+        if (
+          existing.projectId !== input.projectId ||
+          existing.cwdReal !== input.cwdReal ||
+          JSON.stringify(existing.confirmTools) !== JSON.stringify(input.confirmTools)
+        ) {
+          throw new StoreConflictError(`request_id 已存在且会话参数不同：session=${existing.id}`, "request_conflict");
+        }
+        return existing;
+      }
+    }
     const session: Session = {
       id: randomId("sess"),
       projectId: input.projectId,
@@ -156,6 +215,7 @@ export class Store {
       piSessionId: input.piSessionId,
       sessionFile: input.sessionFile ?? null,
       confirmTools: input.confirmTools,
+      createRequestId: input.createRequestId ?? null,
       modelSelection: input.modelSelection ?? null,
       modelSelectionVersion: input.modelSelection ? 1 : 0,
       defaultAccessMode: "confirm",
@@ -164,33 +224,57 @@ export class Store {
       queuePauseReason: null,
       createdAt: new Date().toISOString(),
     };
-    this.db
-      .prepare(
-        `INSERT INTO sessions (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
-         session_file, confirm_tools, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-         default_access_mode, default_access_mode_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'confirm', 0)`,
-      )
-      .run(
-        session.id,
-        session.projectId,
-        session.kind,
-        session.cwd,
-        session.cwdReal,
-        session.cwdDev,
-        session.cwdIno,
-        session.piSessionId,
-        session.sessionFile,
-        JSON.stringify(session.confirmTools),
-        session.createdAt,
-        session.modelSelection ? JSON.stringify(session.modelSelection) : null,
-        session.modelSelectionVersion,
-      );
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO sessions (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
+           session_file, confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
+           default_access_mode, default_access_mode_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'confirm', 0)`,
+        )
+        .run(
+          session.id,
+          session.projectId,
+          session.kind,
+          session.cwd,
+          session.cwdReal,
+          session.cwdDev,
+          session.cwdIno,
+          session.piSessionId,
+          session.sessionFile,
+          JSON.stringify(session.confirmTools),
+          session.createRequestId,
+          session.createdAt,
+          session.modelSelection ? JSON.stringify(session.modelSelection) : null,
+          session.modelSelectionVersion,
+        );
+    } catch (err) {
+      if (input.createRequestId && isCreateRequestIdClash(err, "sessions")) {
+        const existing = this.findSessionByCreateRequestId(input.createRequestId);
+        if (existing) {
+          if (
+            existing.projectId !== input.projectId ||
+            existing.cwdReal !== input.cwdReal ||
+            JSON.stringify(existing.confirmTools) !== JSON.stringify(input.confirmTools)
+          ) {
+            throw new StoreConflictError(`request_id 已存在且会话参数不同：session=${existing.id}`, "request_conflict");
+          }
+          return existing;
+        }
+      }
+      throw err;
+    }
     this.appendEvent(
-      { type: "session.created", sessionId: session.id, projectId: session.projectId, kind: session.kind, cwd: session.cwd, modelSelection: session.modelSelection, modelSelectionVersion: session.modelSelectionVersion },
+      { type: "session.created", sessionId: session.id, projectId: session.projectId, kind: session.kind, cwd: session.cwd, modelSelection: session.modelSelection, modelSelectionVersion: session.modelSelectionVersion, createRequestId: session.createRequestId },
       { sessionId: session.id },
     );
     return session;
+  }
+
+  /** 按创建幂等键查询会话（issue 21 去重与重连核实共用）。 */
+  findSessionByCreateRequestId(requestId: string): Session | null {
+    const row = this.db.prepare("SELECT * FROM sessions WHERE create_request_id = ?").get(requestId) as any;
+    return row ? this.rowToSession(row) : null;
   }
 
   getSession(id: string): Session | null {
@@ -199,7 +283,7 @@ export class Store {
   }
 
   listSessions(): Session[] {
-    const rows = this.db.prepare("SELECT * FROM sessions ORDER BY created_at, id").all() as any[];
+    const rows = this.db.prepare("SELECT * FROM sessions ORDER BY created_at, rowid").all() as any[];
     return rows.map((r) => this.rowToSession(r));
   }
 
@@ -288,6 +372,7 @@ export class Store {
       piSessionId: row.pi_session_id,
       sessionFile: row.session_file,
       confirmTools: JSON.parse(row.confirm_tools) as string[],
+      createRequestId: row.create_request_id ?? null,
       modelSelection: row.model_selection ? JSON.parse(row.model_selection) as ModelSelection : null,
       modelSelectionVersion: Number(row.model_selection_version),
       defaultAccessMode: (row.default_access_mode ?? "confirm") as SessionDefaultMode,
@@ -448,6 +533,18 @@ export class Store {
       .prepare(`SELECT * FROM tasks WHERE status IN (${placeholders}) ORDER BY created_at, id`)
       .all(...statuses) as any[];
     return rows.map((r) => this.rowToTask(r));
+  }
+
+  /**
+   * 使用指定提供方的活动任务数（模型配置应用门闩，issue 21 §4）。
+   * model_selection 是 JSON 文本列；活动任务数量小，解析在 JS 侧完成。
+   */
+  countActiveTasksByProviders(providers: string[]): number {
+    const wanted = new Set(providers);
+    if (wanted.size === 0) return 0;
+    return this.listTasksByStatus([...ACTIVE_TASK_STATUSES])
+      .filter((task) => task.modelSelection !== null && wanted.has(task.modelSelection.provider))
+      .length;
   }
 
   listQueuedTasksFifo(sessionId: string): Task[] {
@@ -655,6 +752,28 @@ export class Store {
       modelSelection: row.model_selection ? (JSON.parse(row.model_selection) as ModelSelection) : null,
       tools: JSON.parse(row.tools) as ToolCategory[],
       createdAt: row.created_at,
+    };
+  }
+
+  /**
+   * 提供方引用计数（删除 provider 前的悬空检查，issue 21 §4）：
+   * 统计 model_selection JSON 中引用该 provider 的会话与逻辑角色数。
+   */
+  countProviderReferences(provider: string, modelId?: string): { sessions: number; roles: number } {
+    const matches = (json: string | null): boolean => {
+      if (!json) return false;
+      try {
+        const sel = JSON.parse(json) as ModelSelection;
+        return sel.provider === provider && (modelId === undefined || sel.modelId === modelId);
+      } catch {
+        return false;
+      }
+    };
+    const sessionRows = this.db.prepare("SELECT model_selection FROM sessions WHERE model_selection IS NOT NULL").all() as Array<{ model_selection: string }>;
+    const roleRows = this.db.prepare("SELECT model_selection FROM agent_roles WHERE model_selection IS NOT NULL").all() as Array<{ model_selection: string }>;
+    return {
+      sessions: sessionRows.filter((r) => matches(r.model_selection)).length,
+      roles: roleRows.filter((r) => matches(r.model_selection)).length,
     };
   }
 
@@ -1497,4 +1616,9 @@ export class StoreConflictError extends Error {
     super(message);
     this.code = code;
   }
+}
+
+/** 创建幂等键唯一索引冲突（issue 21 兜底路径；node:sqlite 报 <表>.<列>）。 */
+function isCreateRequestIdClash(err: unknown, table: string): boolean {
+  return err instanceof Error && err.message.includes(`UNIQUE constraint failed: ${table}.create_request_id`);
 }

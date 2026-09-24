@@ -134,6 +134,9 @@ export function createDelegationTools(deps: DelegationToolsDeps): ToolDefinition
       } else {
         let request = params.request as string;
         if (params.materials !== undefined) {
+          if (Array.isArray(params.materials) && params.materials.some((source: any) => source?.kind === "chat_result")) {
+            throw new Error("已接收群摘要仅供 main 与通知使用，不能作为 coding 委派资料");
+          }
           const { text } = deps.sources.resolve(ctx.projectId, params.materials);
           request += `\n[资料快照]\n${text}`;
         }

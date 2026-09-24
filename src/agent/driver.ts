@@ -69,6 +69,8 @@ import type { AppDataStore } from "./app-data/store.ts";
 import type { AppDataQueryRunner } from "./app-data/query.ts";
 import { createSchedulerTools, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
 import { createDelegationTools, settleDelegationOp, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
+import { createChatResultTools, settleChatResultOp, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
+import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
@@ -114,6 +116,7 @@ export function checkToolPairing(messages: any[], exemptCallIds?: Set<string>): 
 
 export interface DriverDeps {
   store: Store;
+  qqStore: QqStore;
   sessionsDir: string;
   agentDir: string;
   modelRuntime: ModelRuntime;
@@ -442,6 +445,13 @@ export class Driver {
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
           })
         : [];
+    const chatResultTools = this.role()?.id === "main" && this.roleAllows("chat_results")
+      ? createChatResultTools({
+          coreStore: this.deps.store, qqStore: this.deps.qqStore,
+          taskContext: () => this.hostToolCtx, bindCall: this.bindHostCall,
+          verifyMain: (ctx) => this.verifyMainBinding(ctx),
+        })
+      : [];
     const allTools = this.isQqGroup
       ? []
       : [
@@ -451,6 +461,7 @@ export class Driver {
           ...appDataTools,
           ...schedulerTools,
           ...delegationTools,
+          ...chatResultTools,
           // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
           // 固定，工具集合变化由 runInner 先重建会话再走到这里
           ...this.pendingMcpToolDefs,
@@ -1111,7 +1122,8 @@ export class Driver {
           isToolOpExecutionUncertain(op, confirmations) &&
           !(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
           !(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
-          !(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName),
+          !(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
+          !(CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(op.toolName),
       )
       .map((op) => op.id);
 
@@ -1170,6 +1182,10 @@ export class Driver {
     for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
       if (!(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
       this.deps.store.withTx(() => settleDelegationOp(this.deps.store, task, op, "后台停止前"));
+    }
+    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
+      if (!(CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
+      this.deps.store.withTx(() => settleChatResultOp(this.deps.store, task, op, "后台停止前"));
     }
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
@@ -1357,6 +1373,9 @@ export class Driver {
     if ((DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
       return { block: true, reason: "委派工具仅 main 角色会话可用" };
     }
+    if ((CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
+      return { block: true, reason: "群结果接收工具仅 main 角色会话可用" };
+    }
     // 角色任务（issue 01）：白名单外的工具调用一律阻止（装配侧已过滤，
     // 此处兜底注册泄漏/未知路径；不记录执行意图）
     if (this.roleAllowedToolNames && !this.roleAllowedToolNames.has(event.toolName)) {
@@ -1408,7 +1427,8 @@ export class Driver {
       (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName)
+      (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,

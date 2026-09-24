@@ -117,7 +117,7 @@ export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"]
  * scheduler 同样仅 main（issue 03：计划与通知账本）；delegation 同样仅 main
  * （issue 05：委派 coding 与读取委派结果）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -141,6 +141,17 @@ export interface AgentRole {
   createdAt: string;
 }
 
+/** main 显式接收的群聊结果快照；不授予原始群历史或产物的读取权。 */
+export interface AcceptedChatResult {
+  taskId: string;
+  mainProjectId: string;
+  acceptedByTaskId: string;
+  acceptedByOpId: string;
+  reason: string;
+  summary: string;
+  acceptedAt: string;
+}
+
 /** 入站事件处理状态：registered（已登记未建任务）→ queued → done / failed。 */
 export type InboundEventStatus = "registered" | "queued" | "done" | "failed";
 
@@ -161,7 +172,7 @@ export interface InboundEvent {
   body: string;
   /** 正文引用的产物 id 列表（引用传递，不复制内容）。 */
   artifactRefs: string[];
-  /** QQ 私聊由宿主在收件时固定的回复目标；其他来源可空，按各入口规则核对。 */
+  /** QQ 私聊与群聊由宿主在收件时固定目标及配置版本；其他来源按各入口规则核对。 */
   replyTarget: NotifyTarget | null;
   receivedAt: string;
   status: InboundEventStatus;
@@ -535,6 +546,7 @@ export type PersistentEventBody =
   /** 入站事件已建任务并入队。 */
   | { type: "inbound.queued"; eventId: string; taskId: string; targetRole: AgentRoleId }
   | { type: "inbound.skipped"; eventId: string; source: string; reason: string }
+  | { type: "chat_result.accepted"; taskId: string; acceptedByTaskId: string; acceptedByOpId: string }
   /** 子任务完成（结果摘要与引用已记录在任务上）。 */
   | { type: "child_task.completed"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; summary: string; resultRef: string }
   | { type: "child_task.failed"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; errorMessage: string }

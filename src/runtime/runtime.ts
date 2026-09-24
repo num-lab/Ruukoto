@@ -101,8 +101,9 @@ import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type S
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SourceResolver } from "../agent/scheduler-tools.ts";
 import { settleDelegationOp, DELEGATION_TOOL_NAMES } from "../agent/delegation-tools.ts";
+import { settleChatResultOp, CHAT_RESULT_TOOL_NAMES } from "../agent/chat-result-tools.ts";
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
-import { QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
+import { QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
   capReply,
   TelegramAdapter,
@@ -456,16 +457,18 @@ export class Runtime {
             if (runtime.stopping || !runtime.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
             return runtime.orchestrator.registerInboundEvent({ source: QQ_PRIVATE_SOURCE, targetRole: "main", ...input });
           },
-          dispatchPrivate: () => runtime.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
-          submit: (input) => runtime.submitInternal(input),
+          dispatchInbound: () => runtime.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
+          registerGroup: (key) => {
+            if (runtime.stopping || !runtime.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
+            return runtime.orchestrator.registerQqGroup(key);
+          },
           cancelTask: (taskId) => runtime.cancelTask(taskId),
           findProjectByName: (name) => runtime.store.findProjectByName(name),
           createProject: (name) => runtime.createProject(name),
           createSession: (input) => runtime.createSession(input),
-          readLastAssistantText: (sessionId) => runtime.readLastAssistantText(sessionId),
+          readTaskReplyText: (taskId) => runtime.readTaskReplyText(taskId),
           resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
           kickSession: (sessionId) => runtime.kick(sessionId),
-          defaultModelSelection: () => runtime.defaultSelection,
         },
       });
       runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
@@ -490,6 +493,7 @@ export class Runtime {
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
     runtime.orchestrator = new Orchestrator({
       store: runtime.store,
+      qqStore: runtime.qqStore,
       dataDir: fullConfig.dataDir,
       deadlineCheckMs: fullConfig.orchestrator?.deadlineCheckMs,
       bridge: {
@@ -500,6 +504,7 @@ export class Runtime {
         createSession: (input) => runtime.createSession(input),
         readTaskReply: (taskId, offset, length) => runtime.readTaskReply(taskId, offset, length),
         resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
+        kickSession: (sessionId) => runtime.kick(sessionId),
         defaultModelSelection: () => runtime.defaultSelection,
       },
       onInboundTerminal: (event, task, outcome) => event.source === GITHUB_SOURCE
@@ -588,6 +593,7 @@ export class Runtime {
   }
 
   private inboundGate(event: InboundEvent): "run" | "wait" | { drop: string } {
+    if (event.source === QQ_GROUP_SOURCE) return this.qqAdapter?.gateGroup(event) ?? "wait";
     return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.qqPrivateGate(event);
   }
 
@@ -826,6 +832,10 @@ export class Runtime {
       for (const op of store.listUnresolvedOpsByTools(DELEGATION_TOOL_NAMES)) {
         const task = store.getTask(op.taskId);
         if (task) settleDelegationOp(store, task, op, "后台重启前");
+      }
+      for (const op of store.listUnresolvedOpsByTools(CHAT_RESULT_TOOL_NAMES)) {
+        const task = store.getTask(op.taskId);
+        if (task) settleChatResultOp(store, task, op, "后台重启前");
       }
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const unresolved = store.listUnresolvedToolOps(task.id);
@@ -1933,6 +1943,8 @@ export class Runtime {
       // 私聊与 Telegram 共用 main 队列，仍按这条消息的固定配置重核，不能凭会话身份放行。
       const sourceEvent = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
       if (sourceEvent) {
+        // 群任务须先原子关联收件、入站与任务，避免提交后的立即 kick 抢先执行。
+        if (sourceEvent.source === QQ_GROUP_SOURCE && sourceEvent.taskId !== task.id) return;
         const decision = this.inboundGate(sourceEvent);
         if (decision === "wait") return;
         if (decision !== "run") {
@@ -1944,7 +1956,8 @@ export class Runtime {
       // QQ 群聊会话（issue 07 §4）：入队后、模型调用前核对启停/群范围/账号
       // 在线/排队过期。wait = 暂不启动（上线或巡检时重新 kick）；drop = 过期
       // 或越权，取消跳过（不回复），继续取下一个。
-      if (session.kind === "qq_group" && this.qqAdapter) {
+      if (session.kind === "qq_group") {
+        if (!this.qqAdapter) return;
         const decision = this.qqAdapter.gate(session, task);
         if (decision === "wait") return;
         if (decision !== "run") {
@@ -2042,6 +2055,7 @@ export class Runtime {
     if (!driver) {
       driver = new Driver(session, {
         store: this.store,
+        qqStore: this.qqStore,
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,
         modelRuntime: this.modelRuntime,
@@ -2418,19 +2432,6 @@ export class Runtime {
     return this.withSessionHistory(input.sessionId, (file) =>
       readHistoryEntryText(file, input.entryId, input.offset, input.length),
     );
-  }
-
-  /**
-   * QQ 适配器专用（issue 07）：会话最新一条 assistant 文本（回复候选）。
-   * 有界读取（条目上限 256 KiB）；无文本或历史未落盘返回 null。
-   */
-  readLastAssistantText(sessionId: string): string | null {
-    const page = this.readHistory({ sessionId, limit: 30, entryTextCap: 256 * 1024 });
-    for (let i = page.entries.length - 1; i >= 0; i--) {
-      const entry = page.entries[i]!;
-      if (entry.role === "assistant" && entry.text.trim()) return entry.text;
-    }
-    return null;
   }
 
   /**

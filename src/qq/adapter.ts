@@ -1,5 +1,5 @@
 /**
- * QQ 适配器：同一 NapCat 连接承载群聊与固定 owner 私聊；私聊经编排器与公共 outbox。
+ * QQ 适配器：群聊与 owner 私聊共用 NapCat 连接与编排器，发送账本分别保存。
  *
  * 边界与纪律：
  * - 窄入口：只经 QqRuntimeBridge 调用 Runtime 的少量方法；不持有拥有者
@@ -20,11 +20,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Store } from "../core/store.ts";
-import type { AccessMode, InboundEvent, ModelSelection, NotifyTarget, PersistentEvent, Project, Session, Task } from "../core/types.ts";
+import type { InboundEvent, NotifyTarget, PersistentEvent, Project, Session, Task } from "../core/types.ts";
 import { ACTIVE_TASK_STATUSES } from "../core/types.ts";
 import type { CredentialStore } from "../agent/execution/credentials.ts";
 import { OneBotClient, OneBotError, oneBotAccountId, oneBotMessageId } from "./onebot.ts";
-import { qqDedupKey, qqMessageTag, type QqConfig, type QqInboxRow, type QqStore } from "./store.ts";
+import { QQ_GROUP_SOURCE, qqDedupKey, qqMessageTag, type QqConfig, type QqInboxRow, type QqStore } from "./store.ts";
 import type { SchedulerStore } from "../scheduler/store.ts";
 import { NotSentError, type NotifyChannel } from "../scheduler/runtime.ts";
 
@@ -39,23 +39,16 @@ export function qqPrivateExternalId(account: string, owner: string, messageId: s
 /** 适配器需要的 Runtime 窄接口（宿主注入；除此之外的能力适配器不可见）。 */
 export interface QqRuntimeBridge {
   registerPrivate(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget }): Promise<unknown>;
-  dispatchPrivate?(): Promise<unknown>;
-  submit(input: {
-    sessionId: string;
-    requestId: string;
-    input: string;
-    accessMode: AccessMode;
-    modelSelection: ModelSelection;
-  }): Promise<Task>;
+  dispatchInbound(): Promise<unknown>;
+  registerGroup(dedupKey: string): Promise<void>;
   cancelTask(taskId: string): Promise<Task>;
   findProjectByName(name: string): Project | null;
   createProject(name: string): Project;
   createSession(input: { projectId: string; cwd: string; kind: "qq_group" }): Promise<Session>;
-  /** 会话最新一条 assistant 文本（回复候选；有界读取，无则 null）。 */
-  readLastAssistantText(sessionId: string): string | null;
+  /** 按原任务读取最终回答；恢复不能误取同会话后续任务的回答。 */
+  readTaskReplyText(taskId: string): string | null;
   resumeQueue(sessionId: string): Promise<Session>;
   kickSession(sessionId: string): void;
-  defaultModelSelection(): ModelSelection;
 }
 
 export interface QqAdapterTimeouts {
@@ -97,6 +90,7 @@ export class QqAdapter implements NotifyChannel {
   private inbound: Promise<void> = Promise.resolve();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
+  private recoverReplies = true;
   private lifecycle: Promise<void> = Promise.resolve();
   /** 最近一次连接中断时间（重连成功时标记接收缺口）。 */
   private disconnectedAt: number | null = null;
@@ -158,6 +152,7 @@ export class QqAdapter implements NotifyChannel {
     return this.serial(async () => {
       if (!this.started) return;
       await this.applyConfig();
+      await this.cancelInvalidGroupWork();
       this.kickAllQqSessions();
     });
   }
@@ -221,8 +216,14 @@ export class QqAdapter implements NotifyChannel {
           }
           this.kickAllQqSessions();
           this.inbound = this.inbound.then(async () => {
-            if (this.started && this.client === client) await this.deps.bridge.dispatchPrivate?.();
-          }).catch((err) => this.log(`私聊入站恢复失败：${(err as Error).message}`));
+            if (this.started && this.client === client) {
+              await this.deps.bridge.dispatchInbound();
+              if (this.recoverReplies) {
+                this.recoverCompletedInbox();
+                this.recoverReplies = false;
+              }
+            }
+          }).catch((err) => this.log(`QQ 入站恢复失败：${(err as Error).message}`));
         } else {
           this.disconnectedAt ??= Date.now();
         }
@@ -261,6 +262,10 @@ export class QqAdapter implements NotifyChannel {
     if (!gs) return { drop: "qq_session_unmapped:群会话映射缺失" };
     if (!config.groups.includes(gs.groupId)) return { drop: "qq_group_not_allowed:群已移出允许列表" };
     if (config.selfId !== gs.account) return { drop: "qq_account_changed:登录账号已变化" };
+    const row = this.qqStore.getInboxByTask(task.id);
+    if (row && this.qqStore.isInboxRecalled(row)) {
+      return { drop: "qq_recalled:消息或引用已撤回" };
+    }
     const ttlMs = this.deps.timeouts?.queueTtlMs ?? config.queueTtlMs;
     const ageMs = Date.now() - Date.parse(task.createdAt);
     if (Number.isFinite(ageMs) && ageMs > ttlMs) {
@@ -268,6 +273,28 @@ export class QqAdapter implements NotifyChannel {
     }
     if (!this.client || !this.client.online || this.client.selfId !== config.selfId) return "wait";
     return "run";
+  }
+
+  /** 派发与模型启动共用：只认宿主持久收件和每群绑定，正文不能选择目标。 */
+  gateGroup(event: InboundEvent): QqStartGateResult {
+    const row = this.qqStore.getInbox(event.externalId);
+    const config = this.qqStore.getConfig();
+    const mapping = row ? this.qqStore.getGroupSession(row.account, row.groupId) : null;
+    const session = mapping ? this.deps.store.getSession(mapping.sessionId) : null;
+    if (!row || !mapping || !session || session.kind !== "qq_group" || session.projectId !== mapping.projectId ||
+        row.sessionId !== session.id || event.source !== QQ_GROUP_SOURCE || event.targetRole !== "chat" ||
+        event.actor !== row.userId || event.body !== row.input) return { drop: "qq_group_binding_changed:群入站绑定无效" };
+    if (!config?.enabled || config.selfId !== row.account || !config.groups.includes(row.groupId)) return { drop: "qq_group_disabled:群或账号已停用" };
+    const expected = { channel: QQ_GROUP_SOURCE, account: row.account, chatId: row.groupId, configVersion: config.configVersion };
+    if (!sameTarget(expected, event.replyTarget)) return { drop: "qq_group_config_changed:群入站配置版本已失效" };
+    if (this.qqStore.isInboxRecalled(row)) {
+      return { drop: "qq_recalled:消息或引用已撤回" };
+    }
+    const task = event.taskId ? this.deps.store.getTask(event.taskId) : this.deps.store.findTaskByRequest(session.id, row.requestId);
+    const ttl = this.deps.timeouts?.queueTtlMs ?? config.queueTtlMs;
+    if (!task?.startedAt && Date.now() - Date.parse(row.createdAt) > ttl) return { drop: "qq_queue_expired:群消息等待超过有效期" };
+    return this.started && this.client?.online && this.client.selfId === config.selfId &&
+      this.clientKey === this.connectionKey(config, this.resolveToken(config)) ? "run" : "wait";
   }
 
   /** 私聊来源钉住接收时的 owner 与配置版本；离线待恢复，配置变化不改发。 */
@@ -440,6 +467,8 @@ export class QqAdapter implements NotifyChannel {
       text: [...text].slice(0, MAX_INBOUND_TEXT_CHARS + 1).join(""),
       taskInput,
       messageTime,
+      replyToMessageId: quotePart ? replyTo : null,
+      configVersion: config.configVersion,
     });
     if (!created) return;
     if (oversize || stale) {
@@ -454,16 +483,8 @@ export class QqAdapter implements NotifyChannel {
   private async enqueueInbox(config: QqConfig, row: QqInboxRow): Promise<void> {
     try {
       const gs = await this.ensureGroupSession(config, row.groupId);
-      const session = this.deps.store.getSession(gs.sessionId);
-      const task = await this.deps.bridge.submit({
-        sessionId: gs.sessionId,
-        requestId: row.requestId,
-        input: row.input,
-        // QQ 入口固定请求确认模式：不能开启完全访问，不授予工作区外路径
-        accessMode: "confirm",
-        modelSelection: session?.modelSelection ?? this.deps.bridge.defaultModelSelection(),
-      });
-      this.qqStore.linkInboxTask(row.dedupKey, gs.sessionId, task.id);
+      this.qqStore.bindInboxSession(row.dedupKey, gs.sessionId);
+      await this.deps.bridge.registerGroup(row.dedupKey);
     } catch (err) {
       // 入队失败（停止中/模型不可用等）：保持 registered，由下次启动的恢复
       // 路径按原请求键重提；不标 skipped（避免瞬时故障永久丢消息）
@@ -502,15 +523,22 @@ export class QqAdapter implements NotifyChannel {
     if (!groupId || !messageId) return;
     const row = this.qqStore.markRecalled(config.selfId, groupId, messageId);
     if (!row) return; // 未登记或已标记（撤回事件丢失时不能宣称已知撤回；重复事件幂等）
-    if (row.taskId) {
-      const task = this.deps.store.getTask(row.taskId);
+    // 连同已保存的引用交互一起取消，避免撤回原文经引用继续进入模型。
+    const affected = this.qqStore.listPendingInbox().filter((item) =>
+      item.account === row.account && item.groupId === row.groupId && (item.messageId === row.messageId || item.replyToMessageId === row.messageId));
+    for (const item of affected) if (item.taskId) {
+      const task = this.deps.store.getTask(item.taskId);
       if (task && (ACTIVE_TASK_STATUSES as readonly string[]).includes(task.status)) {
         await this.deps.bridge.cancelTask(task.id).catch((err) => this.log(`撤回取消任务失败：${(err as Error).message}`));
       }
       for (const ob of this.qqStore.listPendingOutbox()) {
-        if (ob.taskId === row.taskId) this.qqStore.settleOutbox(ob.opId, "canceled");
+        if (ob.taskId === item.taskId) {
+          this.qqStore.settleOutbox(ob.opId, "unknown", { error: "消息撤回时发送已在途，结果未知（effect_unknown）" });
+          this.qqStore.setInboxStatus(item.dedupKey, "reply_unknown");
+        }
       }
     }
+    await this.deps.bridge.dispatchInbound();
   }
 
   // ---------- 运行时事件（任务终态 → 发送回复） ----------
@@ -520,7 +548,7 @@ export class QqAdapter implements NotifyChannel {
     if (!this.started) return;
     for (const ev of events) {
       const body = ev.body;
-      if (body.type === "task.completed") {
+      if (body.type === "task.completed" || (body.type === "child_task.completed" && body.agentId === "chat")) {
         const inbox = this.qqStore.getInboxByTask(body.taskId);
         if (inbox) {
           void this.sendReply(inbox).catch((err) => this.log(`回复 ${inbox.dedupKey} 发送流程异常：${(err as Error).message}`));
@@ -540,6 +568,13 @@ export class QqAdapter implements NotifyChannel {
    */
   private async sendReply(inbox: QqInboxRow): Promise<void> {
     if (!inbox.taskId || !inbox.sessionId) return;
+    // 任务完成监听与编排器补记结果共用同一发送键；任何已登记发送都不重放。
+    if (this.qqStore.getOutboxByTask(inbox.taskId)) return;
+    const event = this.deps.store.findInboundEvent(QQ_GROUP_SOURCE, inbox.dedupKey);
+    if (event && this.gateGroup(event) !== "run") {
+      this.qqStore.setInboxStatus(inbox.dedupKey, "skipped");
+      return;
+    }
     const config = this.qqStore.getConfig();
     if (!config || !config.enabled || !config.groups.includes(inbox.groupId) || config.selfId !== inbox.account) {
       this.qqStore.setInboxStatus(inbox.dedupKey, "skipped");
@@ -547,7 +582,7 @@ export class QqAdapter implements NotifyChannel {
     }
     // 发送前再次核对原消息是否撤回
     const fresh = this.qqStore.getInbox(inbox.dedupKey);
-    if (!fresh || fresh.recalled) {
+    if (!fresh || fresh.recalled || fresh.status !== "queued") {
       this.qqStore.setInboxStatus(inbox.dedupKey, "skipped");
       return;
     }
@@ -557,7 +592,7 @@ export class QqAdapter implements NotifyChannel {
       this.qqStore.setInboxStatus(inbox.dedupKey, "reply_failed");
       return;
     }
-    const rawText = this.deps.bridge.readLastAssistantText(inbox.sessionId);
+    const rawText = this.deps.bridge.readTaskReplyText(inbox.taskId);
     const trimmed = rawText?.trim() ?? "";
     if (!trimmed) {
       this.qqStore.setInboxStatus(inbox.dedupKey, "reply_failed");
@@ -589,6 +624,8 @@ export class QqAdapter implements NotifyChannel {
       if (oneBotMessageId(sentId) === null) throw new Error("QQ 发送回执缺少有效 message_id，结果未知");
       if (!this.qqStore.settleOutbox(outbox.opId, "sent", { sentMessageId: sentId === undefined || sentId === null ? null : String(sentId) })) {
         this.qqStore.noteLateOutcome(outbox.opId, `取消后平台返回成功（message_id=${String(sentId)}）`);
+        this.qqStore.setInboxStatus(inbox.dedupKey, "reply_unknown");
+        return;
       }
       this.qqStore.setInboxStatus(inbox.dedupKey, "done");
     } catch (err) {
@@ -596,6 +633,8 @@ export class QqAdapter implements NotifyChannel {
       const status = definite ? "failed" : "unknown";
       if (!this.qqStore.settleOutbox(outbox.opId, status, { error: (err as Error).message })) {
         this.qqStore.noteLateOutcome(outbox.opId, `取消后平台返回：${(err as Error).message}`);
+        this.qqStore.setInboxStatus(inbox.dedupKey, "reply_unknown");
+        return;
       }
       this.qqStore.setInboxStatus(inbox.dedupKey, definite ? "reply_failed" : "reply_unknown");
     }
@@ -606,7 +645,7 @@ export class QqAdapter implements NotifyChannel {
   /** 已登记未入队的记录按原请求键核实重提（submit 幂等：已存在则关联原任务）。 */
   private async recoverInbox(): Promise<void> {
     const config = this.qqStore.getConfig();
-    for (const row of this.qqStore.listUnlinkedInbox()) {
+    for (const row of this.qqStore.listPendingInbox()) {
       if (!config || !config.enabled || !config.groups.includes(row.groupId) || config.selfId !== row.account) {
         this.qqStore.setInboxStatus(row.dedupKey, "skipped");
         continue;
@@ -615,7 +654,42 @@ export class QqAdapter implements NotifyChannel {
     }
   }
 
-  /** 停用/撤群收尾：取消该范围排队与运行中任务，未发送回复标记取消。 */
+  /** 启动时补齐完成与发送登记之间的窗口；普通断线重连不重发已判定的回复。 */
+  private recoverCompletedInbox(): void {
+    for (const row of this.qqStore.listPendingInbox()) {
+      if (!row.taskId) continue;
+      const outbox = this.qqStore.getOutboxByTask(row.taskId);
+      if (outbox) {
+        // 启动遗留 pending 已在 startOnce 定为 unknown；此时 pending 属于
+        // 当前进程已发起的发送，保留其在途状态，等待原回执。
+        if (outbox.status === "pending") continue;
+        this.qqStore.setInboxStatus(row.dedupKey, outbox.status === "sent" ? "done" :
+          outbox.status === "failed" ? "reply_failed" : outbox.status === "canceled" ? "skipped" : "reply_unknown");
+        continue;
+      }
+      const task = this.deps.store.getTask(row.taskId);
+      // 与普通终态监听一致：不能在收件串行链中等待网络回执，撤回须能及时处理。
+      if (task?.status === "completed") void this.sendReply(row).catch((err) => this.log(`恢复群回复失败：${(err as Error).message}`));
+      else if (task && !(ACTIVE_TASK_STATUSES as readonly string[]).includes(task.status)) this.qqStore.setInboxStatus(row.dedupKey, "skipped");
+    }
+  }
+
+  private async cancelInvalidGroupWork(): Promise<void> {
+    for (const row of this.qqStore.listPendingInbox()) {
+      const event = this.deps.store.findInboundEvent(QQ_GROUP_SOURCE, row.dedupKey);
+      if (!event) continue;
+      const gate = this.gateGroup(event);
+      if (gate === "run" || gate === "wait") continue;
+      this.qqStore.setInboxStatus(row.dedupKey, "skipped");
+      if (row.taskId) {
+        const task = this.deps.store.getTask(row.taskId);
+        if (task && (ACTIVE_TASK_STATUSES as readonly string[]).includes(task.status)) await this.deps.bridge.cancelTask(task.id);
+      }
+    }
+    await this.deps.bridge.dispatchInbound();
+  }
+
+  /** 停用/撤群收尾：取消任务，在途发送按结果未知保留事实。 */
   private async cancelQqWork(groupId: string | null): Promise<void> {
     for (const gs of this.qqStore.listGroupSessions()) {
       if (groupId !== null && gs.groupId !== groupId) continue;
@@ -627,7 +701,11 @@ export class QqAdapter implements NotifyChannel {
       }
     }
     for (const ob of this.qqStore.listPendingOutbox()) {
-      if (groupId === null || ob.groupId === groupId) this.qqStore.settleOutbox(ob.opId, "canceled");
+      if (groupId === null || ob.groupId === groupId) {
+        this.qqStore.settleOutbox(ob.opId, "unknown", { error: "群停用时发送已在途，结果未知（effect_unknown）" });
+        const row = this.qqStore.getInboxByTask(ob.taskId);
+        if (row) this.qqStore.setInboxStatus(row.dedupKey, "reply_unknown");
+      }
     }
   }
 

@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -269,6 +269,9 @@ CREATE TABLE IF NOT EXISTS qq_inbox (
   input TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('registered','queued','done','reply_failed','reply_unknown','skipped')),
   recalled INTEGER NOT NULL DEFAULT 0,
+  recalled_at TEXT,
+  reply_to_message_id TEXT,
+  config_version INTEGER,
   message_time TEXT,
   created_at TEXT NOT NULL
 );
@@ -321,6 +324,18 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   UNIQUE (source, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_events_status ON inbound_events (status);
+
+-- v17：main 显式接收的固定群聊结果；来源仍需在读取与外发前复核撤回状态。
+CREATE TABLE IF NOT EXISTS chat_result_acceptances (
+  main_project_id TEXT NOT NULL REFERENCES projects(id),
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  accepted_by_task_id TEXT NOT NULL REFERENCES tasks(id),
+  accepted_by_op_id TEXT NOT NULL UNIQUE,
+  reason TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  accepted_at TEXT NOT NULL,
+  PRIMARY KEY (main_project_id, task_id)
+);
 
 -- v13：调度器与通知 outbox（daily-agent issue 03）。运行时基础设施，不是
 -- main 的业务表；模型经 scheduler 宿主工具间接读写，应用数据工具不可达。
@@ -516,7 +531,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 15) {
+    } else if (version >= 2 && version <= 16) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -529,8 +544,9 @@ export class Db {
       // v12 → v13：新增 schedules / schedule_runs / notification_ops 三表（issue 03）；
       // v13 → v14：新增 telegram_config 表 + notification_ops.not_before 补列（issue 04）。
       // v14 → v15：qq_config.owner_user_id 与 inbound_events.reply_target（issue 06）。
+      // v16 → v17：群结果接收记录与群收件的撤回时间、引用、配置版本。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
-      // 统一处理，无既有数据需要改写。
+      // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
     } else {
       throw new Error(`不支持从 schema v${version} 迁移`);
@@ -701,6 +717,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // v15（issue 06）：私聊身份与入站时钉版的固定回复目标，旧群配置默认不开私聊
     add("qq_config", "owner_user_id", "owner_user_id TEXT");
     add("inbound_events", "reply_target", "reply_target TEXT");
+    add("qq_inbox", "recalled_at", "recalled_at TEXT");
+    add("qq_inbox", "reply_to_message_id", "reply_to_message_id TEXT");
+    add("qq_inbox", "config_version", "config_version INTEGER");
+    // 旧撤回记录的确切时刻不可恢复，保守地令既有摘要失效；原始历史保留。
+    this.db.prepare("UPDATE qq_inbox SET recalled_at = ? WHERE recalled = 1 AND recalled_at IS NULL").run(new Date().toISOString());
     // 新列索引只能在补列之后创建（旧库先 ALTER 才有列；重建路径自带索引重建）
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline)");

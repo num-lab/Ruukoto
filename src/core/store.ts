@@ -13,6 +13,7 @@ import {
   ACTIVE_TASK_STATUSES,
   isTerminalTaskStatus,
   type AccessMode,
+  type AcceptedChatResult,
   type AgentRole,
   type AgentRoleId,
   type ApprovalScope,
@@ -554,7 +555,7 @@ export class Store {
 
   listQueuedTasksFifo(sessionId: string): Task[] {
     const rows = this.db
-      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' ORDER BY created_at, id")
+      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' ORDER BY created_at, rowid")
       .all(sessionId) as any[];
     return rows.map((r) => this.rowToTask(r));
   }
@@ -760,7 +761,12 @@ export class Store {
 
   /** 按会话反查角色（Driver 工具白名单判定；非角色会话返回 null）。 */
   getAgentRoleBySession(sessionId: string): AgentRole | null {
-    const row = this.db.prepare("SELECT * FROM agent_roles WHERE session_id = ?").get(sessionId) as any;
+    // chat 的群绑定复用宿主 qq_sessions；角色定义仍只有一份，不共享群历史。
+    const row = this.db.prepare("SELECT * FROM agent_roles WHERE session_id = ?").get(sessionId) ?? this.db.prepare(
+      `SELECT r.id, q.project_id, q.session_id, q.work_dir, s.model_selection, r.tools, q.created_at
+       FROM qq_sessions q JOIN sessions s ON s.id = q.session_id AND s.kind = 'qq_group'
+       JOIN agent_roles r ON r.id = 'chat' WHERE q.session_id = ?`,
+    ).get(sessionId);
     return row ? this.rowToAgentRole(row) : null;
   }
 
@@ -816,6 +822,40 @@ export class Store {
       .run(key, value);
   }
 
+  // ---------- 群聊结果接收（issue 09） ----------
+
+  getAcceptedChatResult(mainProjectId: string, taskId: string): AcceptedChatResult | null {
+    const row = this.db.prepare("SELECT * FROM chat_result_acceptances WHERE main_project_id = ? AND task_id = ?").get(mainProjectId, taskId) as any;
+    return row ? {
+      taskId: row.task_id, mainProjectId: row.main_project_id, acceptedByTaskId: row.accepted_by_task_id,
+      acceptedByOpId: row.accepted_by_op_id, reason: row.reason, summary: row.summary, acceptedAt: row.accepted_at,
+    } : null;
+  }
+
+  /** 调用方在事务内核实 main 身份与来源后写入；首次快照固定，重复接收不改写。 */
+  acceptChatResult(input: Omit<AcceptedChatResult, "acceptedAt">): AcceptedChatResult {
+    const acceptedAt = new Date().toISOString();
+    const inserted = this.db.prepare(
+      `INSERT INTO chat_result_acceptances (main_project_id, task_id, accepted_by_task_id, accepted_by_op_id, reason, summary, accepted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (main_project_id, task_id) DO NOTHING`,
+    ).run(input.mainProjectId, input.taskId, input.acceptedByTaskId, input.acceptedByOpId, input.reason, input.summary, acceptedAt);
+    if (Number(inserted.changes) === 1) this.appendEvent({
+      type: "chat_result.accepted", taskId: input.taskId, acceptedByTaskId: input.acceptedByTaskId, acceptedByOpId: input.acceptedByOpId,
+    }, { taskId: input.acceptedByTaskId });
+    return this.getAcceptedChatResult(input.mainProjectId, input.taskId)!;
+  }
+
+  chatResultOpCommitted(opId: string): boolean {
+    // 重复接收沿用首次记录；停止/恢复时也能核实“已接收”的只读重复调用。
+    return this.db.prepare(
+      `SELECT 1 FROM chat_result_acceptances WHERE accepted_by_op_id = ?1
+       UNION ALL SELECT 1 FROM tool_ops o JOIN tasks owner_task ON owner_task.id = o.task_id
+       JOIN sessions s ON s.id = owner_task.session_id
+       JOIN chat_result_acceptances a ON a.main_project_id = s.project_id AND a.task_id = json_extract(o.params, '$.task_id')
+       WHERE o.id = ?1 AND o.tool_name = 'chat_result_accept' LIMIT 1`,
+    ).get(opId) !== undefined;
+  }
+
   // ---------- 入站事件（issue 01；先持久化再建任务） ----------
 
   /**
@@ -830,6 +870,7 @@ export class Store {
     body: string;
     artifactRefs?: string[];
     replyTarget?: NotifyTarget | null;
+    receivedAt?: string;
   }): { event: InboundEvent; created: boolean } {
     const event: InboundEvent = {
       id: randomId("evt"),
@@ -840,7 +881,7 @@ export class Store {
       body: input.body,
       artifactRefs: input.artifactRefs ?? [],
       replyTarget: input.replyTarget ?? null,
-      receivedAt: new Date().toISOString(),
+      receivedAt: input.receivedAt ?? new Date().toISOString(),
       status: "registered",
       taskId: null,
     };
@@ -890,7 +931,7 @@ export class Store {
   listInboundByStatus(statuses: InboundEventStatus[]): InboundEvent[] {
     const placeholders = statuses.map(() => "?").join(",");
     const rows = this.db
-      .prepare(`SELECT * FROM inbound_events WHERE status IN (${placeholders}) ORDER BY received_at, id`)
+      .prepare(`SELECT * FROM inbound_events WHERE status IN (${placeholders}) ORDER BY received_at, rowid`)
       .all(...statuses) as any[];
     return rows.map((r) => this.rowToInboundEvent(r));
   }

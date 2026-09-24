@@ -24,6 +24,8 @@ import type { HostToolContext } from "./host-tools.ts";
 import { describeRule, firstDue, parseRule, RuleError, tzDataVersion, type ScheduleRule } from "../scheduler/time.ts";
 import { SchedulerConflictError, sha256, type NotificationOp, type Schedule, type SchedulerStore, type SourceRef } from "../scheduler/store.ts";
 import { SCHEDULER_LIMITS, type Scheduler } from "../scheduler/runtime.ts";
+import { QqStore } from "../qq/store.ts";
+import { resolveAcceptedChatResult } from "./chat-result-tools.ts";
 
 export const SCHEDULER_TOOL_NAMES = [
   "schedule_create",
@@ -104,6 +106,7 @@ function taskReadable(deps: SourceResolverDeps, mainProjectId: string, task: Tas
 }
 
 export function createSourceResolver(deps: SourceResolverDeps) {
+  const qq = new QqStore(deps.store.db);
   const resolveOne = (mainProjectId: string, raw: Record<string, unknown>): { text: string; ref: SourceRef } => {
     const kind = raw.kind;
     if (kind === "text") {
@@ -115,6 +118,11 @@ export function createSourceResolver(deps: SourceResolverDeps) {
       if (!task || !taskReadable(deps, mainProjectId, task)) throw new Error("任务不存在或不在 main 可读范围");
       if (task.status !== "completed" || task.resultSummary === null) throw new Error("只能引用已完成且已记录结果的任务（不从会话最新回复推断）");
       return { text: task.resultSummary, ref: { kind, ref: `task:${task.id}`, version: task.endedAt ?? "", sha256: sha256(task.resultSummary) } };
+    }
+    if (kind === "chat_result") {
+      if (typeof raw.task_id !== "string") throw new Error("群结果来源必须提供 task_id");
+      const accepted = resolveAcceptedChatResult(deps.store, qq, mainProjectId, raw.task_id);
+      return { text: accepted.summary, ref: { kind, ref: `chat_result:${accepted.taskId}`, version: accepted.acceptedAt, sha256: sha256(accepted.summary) } };
     }
     if (kind === "artifact") {
       const artifact = typeof raw.artifact_id === "string" ? deps.store.getArtifact(raw.artifact_id) : null;
@@ -159,7 +167,7 @@ export function createSourceResolver(deps: SourceResolverDeps) {
         },
       };
     }
-    throw new Error("来源 kind 只能是 text / task_result / artifact / app_data");
+    throw new Error("来源 kind 只能是 text / task_result / artifact / app_data / chat_result");
   };
 
   return {
@@ -174,7 +182,14 @@ export function createSourceResolver(deps: SourceResolverDeps) {
     /** 发送前复核可撤销的资料授权（快照正文不变；授权撤销后不得继续外发）。 */
     verify(mainProjectId: string, refs: SourceRef[]): string | null {
       for (const r of refs) {
-        if (r.kind === "task_result") {
+        if (r.kind === "chat_result") {
+          try {
+            const accepted = resolveAcceptedChatResult(deps.store, qq, mainProjectId, r.ref.slice("chat_result:".length));
+            if (accepted.acceptedAt !== r.version || sha256(accepted.summary) !== r.sha256) return "群结果接收快照不匹配";
+          } catch (err) {
+            return (err as Error).message;
+          }
+        } else if (r.kind === "task_result") {
           const task = deps.store.getTask(r.ref.slice("task:".length));
           if (!task || !taskReadable(deps, mainProjectId, task)) return `来源 ${r.ref} 的资料授权已撤销或任务不可读`;
         } else if (r.kind === "artifact") {
@@ -289,6 +304,8 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
     const confirmation = store.listConfirmationsByTask(input.ctx.taskId).find((c) => c.toolOpId === input.ctx.hostOpId && c.status === "approved");
     if (!confirmation) throw new Error("审批记录缺失或已失效，未登记");
     return store.withTx(() => {
+      const sourceProblem = deps.sources.verify(input.ctx.projectId, (input.params.source_refs ?? []) as SourceRef[]);
+      if (sourceProblem) throw new Error(`通知资料已失效：${sourceProblem}`);
       const ok = store.consumeApproval({
         confirmationId: confirmation.id,
         expectedPermissionVersion: confirmation.permissionVersion,
@@ -313,7 +330,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
   const contentSchema = Type.Array(Type.Record(Type.String(), Type.Unknown()), {
     description:
       "正文来源（≤8 个，按序换行拼接，登记前解析为固定文本）：{kind:'text',text} | {kind:'task_result',task_id} | " +
-      "{kind:'artifact',artifact_id,offset?,length?} | {kind:'app_data',table,row_id,field}",
+      "{kind:'artifact',artifact_id,offset?,length?} | {kind:'app_data',table,row_id,field} | {kind:'chat_result',task_id}（须先 chat_result_accept）",
   });
 
   const scheduleCreate = defineTool({

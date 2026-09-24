@@ -14,6 +14,8 @@
 import type { Db } from "../core/db.ts";
 import { randomId } from "../core/types.ts";
 
+export const QQ_GROUP_SOURCE = "qq_group";
+
 export interface QqConfig {
   /** OneBot 正向 WebSocket 端点（ws://host:port；生产默认回环/受控私网）。 */
   endpoint: string;
@@ -69,6 +71,9 @@ export interface QqInboxRow {
   input: string;
   status: QqInboxStatus;
   recalled: boolean;
+  recalledAt: string | null;
+  replyToMessageId: string | null;
+  configVersion: number | null;
   messageTime: string | null;
   createdAt: string;
 }
@@ -224,6 +229,8 @@ export class QqStore {
     text: string;
     taskInput: string;
     messageTime: string | null;
+    replyToMessageId?: string | null;
+    configVersion?: number | null;
   }): { created: boolean; row: QqInboxRow } {
     const dedupKey = qqDedupKey(input.account, input.groupId, input.messageId);
     const existing = this.getInbox(dedupKey);
@@ -242,16 +249,19 @@ export class QqStore {
       input: input.taskInput,
       status: "registered",
       recalled: false,
+      recalledAt: null,
+      replyToMessageId: input.replyToMessageId ?? null,
+      configVersion: input.configVersion ?? null,
       messageTime: input.messageTime,
       createdAt: new Date().toISOString(),
     };
     this.db
       .prepare(
         `INSERT INTO qq_inbox (dedup_key, account, group_id, user_id, sender_name, message_id,
-         request_id, session_id, task_id, text, input, status, recalled, message_time, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'registered', 0, ?, ?)`,
+         request_id, session_id, task_id, text, input, status, recalled, message_time, created_at, reply_to_message_id, config_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'registered', 0, ?, ?, ?, ?)`,
       )
-      .run(row.dedupKey, row.account, row.groupId, row.userId, row.senderName, row.messageId, row.requestId, row.text, row.input, row.messageTime, row.createdAt);
+      .run(row.dedupKey, row.account, row.groupId, row.userId, row.senderName, row.messageId, row.requestId, row.text, row.input, row.messageTime, row.createdAt, row.replyToMessageId, row.configVersion);
     return { created: true, row };
   }
 
@@ -268,8 +278,12 @@ export class QqStore {
   /** 登记 → 入队关联（同事务记录会话与任务；恢复时据此核实）。 */
   linkInboxTask(dedupKey: string, sessionId: string, taskId: string): void {
     this.db
-      .prepare("UPDATE qq_inbox SET session_id = ?, task_id = ?, status = 'queued' WHERE dedup_key = ?")
+      .prepare("UPDATE qq_inbox SET session_id = ?, task_id = ?, status = CASE WHEN status = 'registered' THEN 'queued' ELSE status END WHERE dedup_key = ?")
       .run(sessionId, taskId, dedupKey);
+  }
+
+  bindInboxSession(dedupKey: string, sessionId: string): void {
+    this.db.prepare("UPDATE qq_inbox SET session_id = ? WHERE dedup_key = ? AND session_id IS NULL").run(sessionId, dedupKey);
   }
 
   setInboxStatus(dedupKey: string, status: QqInboxStatus): void {
@@ -279,16 +293,29 @@ export class QqStore {
   /** 已登记但尚未关联任务的记录（崩溃窗口恢复用；按原请求键核实重提）。 */
   listUnlinkedInbox(): QqInboxRow[] {
     const rows = this.db
-      .prepare("SELECT * FROM qq_inbox WHERE status = 'registered' AND recalled = 0 ORDER BY created_at, dedup_key")
+      .prepare("SELECT * FROM qq_inbox WHERE status = 'registered' AND recalled = 0 ORDER BY created_at, rowid")
       .all() as any[];
     return rows.map(rowToInbox);
+  }
+
+  /** 启动接管旧版已排队任务，以及登记后尚未创建持久入站事件的窗口。 */
+  listPendingInbox(): QqInboxRow[] {
+    return (this.db.prepare("SELECT * FROM qq_inbox WHERE status IN ('registered','queued') ORDER BY created_at, rowid").all() as any[]).map(rowToInbox);
+  }
+
+  isInboxRecalled(row: QqInboxRow): boolean {
+    if (row.recalled) return true;
+    if (row.replyToMessageId) return this.getInbox(qqDedupKey(row.account, row.groupId, row.replyToMessageId))?.recalled === true;
+    // 旧引用未存消息 ID，不能猜测来源；该群发生撤回后保守排除旧引用交互。
+    return row.configVersion === null && row.input.includes("\n> 引用 ") &&
+      this.db.prepare("SELECT 1 FROM qq_inbox WHERE account = ? AND group_id = ? AND recalled = 1 LIMIT 1").get(row.account, row.groupId) !== undefined;
   }
 
   /** 撤回标记（条件更新；重复撤回返回 false）。 */
   markRecalled(account: string, groupId: string, messageId: string): QqInboxRow | null {
     const info = this.db
-      .prepare("UPDATE qq_inbox SET recalled = 1 WHERE dedup_key = ? AND recalled = 0")
-      .run(qqDedupKey(account, groupId, messageId));
+      .prepare("UPDATE qq_inbox SET recalled = 1, recalled_at = ? WHERE dedup_key = ? AND recalled = 0")
+      .run(new Date().toISOString(), qqDedupKey(account, groupId, messageId));
     if (Number(info.changes) !== 1) return null;
     return this.getInbox(qqDedupKey(account, groupId, messageId));
   }
@@ -296,7 +323,11 @@ export class QqStore {
   /** 该会话已撤回消息的标记集合（上下文注入前过滤用；标签 = 输入首行标记）。 */
   recalledTagsForSession(sessionId: string): Set<string> {
     const rows = this.db
-      .prepare("SELECT group_id, message_id FROM qq_inbox WHERE session_id = ? AND recalled = 1")
+      .prepare(`SELECT i.group_id, i.message_id FROM qq_inbox i LEFT JOIN qq_inbox quoted
+                ON quoted.account = i.account AND quoted.group_id = i.group_id AND quoted.message_id = i.reply_to_message_id
+                WHERE i.session_id = ? AND (i.recalled = 1 OR quoted.recalled = 1 OR
+                  (i.config_version IS NULL AND i.reply_to_message_id IS NULL AND instr(i.input, char(10) || '> 引用 ') > 0 AND
+                   EXISTS (SELECT 1 FROM qq_inbox old WHERE old.account = i.account AND old.group_id = i.group_id AND old.recalled = 1)))`)
       .all(sessionId) as any[];
     return new Set(rows.map((r) => qqMessageTag(r.group_id as string, r.message_id as string)));
   }
@@ -312,6 +343,11 @@ export class QqStore {
   }
 
   // ---------- 发送记录 ----------
+
+  getOutboxByTask(taskId: string): QqOutboxRow | null {
+    const row = this.db.prepare("SELECT * FROM qq_outbox WHERE task_id = ? ORDER BY created_at, op_id LIMIT 1").get(taskId) as any;
+    return row ? rowToOutbox(row) : null;
+  }
 
   /** 发送前登记（固定目标 + 正文 + 本地操作 id）；pending 状态先于网络写入。 */
   createPendingOutbox(input: {
@@ -438,6 +474,9 @@ function rowToInbox(row: any): QqInboxRow {
     input: row.input,
     status: row.status as QqInboxStatus,
     recalled: Number(row.recalled) === 1,
+    recalledAt: row.recalled_at ?? null,
+    replyToMessageId: row.reply_to_message_id ?? null,
+    configVersion: row.config_version ?? null,
     messageTime: row.message_time,
     createdAt: row.created_at,
   };

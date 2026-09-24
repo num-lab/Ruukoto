@@ -375,6 +375,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "inbound.registered", eventId: "evt_demo000000001", source: "telegram", externalId: "msg-42", targetRole: "main", actor: "owner" },
     { type: "inbound.queued", eventId: "evt_demo000000001", taskId: "task_completed000", targetRole: "main" },
     { type: "inbound.skipped", eventId: "evt_demo000000002", source: "qq_private", reason: "qq_private_target_changed" },
+    { type: "chat_result.accepted", taskId: "task_completed000", acceptedByTaskId: "task_running000000", acceptedByOpId: "op_chat_accept000" },
     { type: "child_task.completed", taskId: "task_completed000", parentTaskId: "task_running000000", agentId: "coding", summary: "分析结论：仓库健康", resultRef: "{\"sessionId\":\"sess_demo0000000000000000\",\"taskId\":\"task_completed000\"}" },
     { type: "child_task.failed", taskId: "task_failed00000", parentTaskId: "task_running000000", agentId: "coding", errorMessage: "模型返回 429：速率限制" },
     { type: "child_task.timeout", taskId: "task_canceled000", parentTaskId: "task_running000000", agentId: "coding", deadline: ts(5) },

@@ -578,6 +578,51 @@ test("qq：发送结果不明 = unknown（effect_unknown，不自动重发）", 
   }
 });
 
+test("qq：在途发送遇撤回或停用保持 unknown，迟到回执与重复终态不重发", async (t) => {
+  for (const scenario of ["recall-ok", "recall-fail", "disable"] as const) await t.test(scenario, async () => {
+    const f = await startQq(`qq-inflight-${scenario}`, replyText);
+    try {
+      await waitOnline(f.t);
+      f.onebot.setSendBehavior(scenario === "recall-fail" ? "fail" : "ok");
+      f.onebot.setSendDelayMs(700);
+      const message = { groupId: GROUP_A, userId: USER_1, messageId: 1, segments: atSegments("发送后等待回执") };
+      f.onebot.pushGroupMessage(message);
+      await waitSends(f.onebot, 1);
+      assert.equal((await outboxOf(f.t, GROUP_A))[0]?.status, "pending", "平台已接到发送，宿主仍在等待回执");
+      const taskId = (await inboxOf(f.t, GROUP_A, "1")).taskId;
+
+      if (scenario === "disable") await f.t.client.request("qq_set_enabled", { enabled: false });
+      else f.onebot.pushRecall({ groupId: GROUP_A, messageId: 1, userId: Number(USER_1) });
+      await waitFor("在途发送结果记为未知", async () =>
+        (await outboxOf(f.t, GROUP_A))[0]?.status === "unknown" &&
+        (await inboxOf(f.t, GROUP_A, "1"))?.status === "reply_unknown");
+
+      if (scenario === "disable") {
+        await f.t.client.request("qq_set_enabled", { enabled: true });
+        await waitOnline(f.t);
+      } else {
+        const late = scenario === "recall-ok" ? /取消后平台返回成功/ : /取消后平台返回：.*100/;
+        await waitFor("迟到回执保留在未知发送记录中", async () => late.test((await outboxOf(f.t, GROUP_A))[0]?.error ?? ""));
+      }
+      const task = f.t.runtime.store.getTask(taskId)!;
+      f.t.runtime.store.withTx(() => f.t.runtime.store.appendEvent(
+        { type: "task.completed", taskId, sessionId: task.sessionId },
+        { taskId, sessionId: task.sessionId },
+      ));
+      f.onebot.pushGroupMessage(message);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const outbox = await outboxOf(f.t, GROUP_A);
+      assert.equal(outbox.length, 1);
+      assert.equal(outbox[0].status, "unknown", "迟到成功或明确失败均不覆盖已有未知终态");
+      assert.equal(outbox[0].sentMessageId, null, "迟到成功只留说明，不冒充已核实成功");
+      assert.equal((await inboxOf(f.t, GROUP_A, "1"))?.status, "reply_unknown");
+      assert.equal(sends(f.onebot).length, 1, "重新启用、重复消息和重复完成事件均不得重发");
+    } finally {
+      await shutdownQq(f);
+    }
+  });
+});
+
 test("qq：动作响应乱序仍按 echo 正确关联（并发两群发送）", async () => {
   const f = await startQq("qq-out-of-order", replyText, { groups: [GROUP_A, GROUP_B] });
   try {
@@ -653,6 +698,42 @@ test("qq：已撤回消息不再进入后续模型上下文", async () => {
   } finally {
     await shutdownQq(f);
   }
+});
+
+test("qq：引用的原消息撤回后，引用交互及其回复也从后续上下文排除", async (t) => {
+  for (const legacy of [false, true]) await t.test(legacy ? "旧记录缺少引用 ID" : "持久化引用 ID", async () => {
+    const f = await startQq(`qq-recalled-quote-${legacy}`, async (req) => ({
+      kind: "text", text: lastUserText(req).includes("引用问题DEF") ? "引用回答SECRET" : "普通回复",
+    }));
+    try {
+      await waitOnline(f.t);
+      f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_1, messageId: 1, segments: atSegments("引用源暗号ABC") });
+      await waitFor("引用源交互已完成", async () => (await inboxOf(f.t, GROUP_A, "1"))?.status === "done");
+      f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_2, messageId: 2,
+        segments: [{ type: "reply", data: { id: 1 } }, ...atSegments("引用问题DEF")] });
+      await waitFor("引用交互已完成", async () => (await inboxOf(f.t, GROUP_A, "2"))?.status === "done");
+      const quoted = await inboxOf(f.t, GROUP_A, "2");
+      assert.equal(quoted.replyToMessageId, "1");
+      assert.ok(quoted.input.includes(`\n> 引用 ${USER_1}: 引用源暗号ABC`));
+      if (legacy) {
+        // v16 的已保存输入包含引用原文，但未保存引用 ID 与配置版本。
+        f.t.runtime.store.db.prepare("UPDATE qq_inbox SET reply_to_message_id = NULL, config_version = NULL WHERE dedup_key = ?")
+          .run(quoted.dedupKey);
+      }
+      f.onebot.pushRecall({ groupId: GROUP_A, messageId: 1, userId: Number(USER_1) });
+      await waitFor("引用源已撤回", async () => (await inboxOf(f.t, GROUP_A, "1"))?.recalled === true);
+      f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_2, messageId: 3, segments: atSegments("撤回后的新问题GHI") });
+      await waitFor("新交互已完成", async () => (await inboxOf(f.t, GROUP_A, "3"))?.status === "done");
+      const snapshot = await latestPromptSnapshot(f.t, await qqSessionId(f.t, GROUP_A));
+      const text = JSON.stringify(snapshot.messages);
+      assert.ok(text.includes("撤回后的新问题GHI"));
+      assert.doesNotMatch(text, /引用源暗号ABC|引用问题DEF|引用回答SECRET/, "撤回原文不能经引用交互及其回答进入后续模型上下文");
+      assert.ok((await inboxOf(f.t, GROUP_A, "2")).input.includes("引用源暗号ABC"), "仅过滤模型上下文，保留原始记录");
+      assert.equal(sends(f.onebot).length, 3, "已发送的原消息和引用回复不自动撤回或重发");
+    } finally {
+      await shutdownQq(f);
+    }
+  });
 });
 
 // ---------- 资料与工具隔离 ----------

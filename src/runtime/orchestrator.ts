@@ -16,9 +16,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Store } from "../core/store.ts";
 import type { HistoryEntryView } from "../core/history.ts";
+import { QQ_GROUP_SOURCE, type QqStore } from "../qq/store.ts";
 import {
   AGENT_ROLE_IDS,
   normalizeIsoInstant,
+  isTerminalTaskStatus,
   type AccessMode,
   type AgentRole,
   type AgentRoleId,
@@ -50,11 +52,13 @@ export interface OrchestratorBridge {
   /** 指定任务的最终 assistant 文本（按任务关联的历史条目，不取会话最新一条）。 */
   readTaskReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
   resumeQueue(sessionId: string): Promise<unknown>;
+  kickSession(sessionId: string): void;
   defaultModelSelection(): ModelSelection;
 }
 
 export interface OrchestratorDeps {
   store: Store;
+  qqStore: QqStore;
   /** 后台数据目录（角色工作目录在其兄弟目录 agent-work/ 下，避开保护根）。 */
   dataDir: string;
   bridge: OrchestratorBridge;
@@ -79,7 +83,7 @@ const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string; tools: Too
   // main：日常对话/信息整理/编排——资料与记忆、Web Search、应用数据空间（issue 02）、
   // 调度计划与通知（issue 03）、委派 coding（issue 05）；
   // 不持有编码工具
-  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data", "scheduler", "delegation"] },
+  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results"] },
   // coding：仓库/测试/PR 分析——编码工具 + 资料 + Web Search + MCP
   { id: "coding", projectName: "agent-coding", tools: ["coding", "host_data", "web_search", "mcp"] },
   // chat：群聊——空工具集合（与 qq_group 同一约束口径）
@@ -279,6 +283,20 @@ export class Orchestrator {
 
   // ---------- 入站事件 ----------
 
+  /** 群入口只给收件键：会话、正文、触发者与目标全部从宿主收件记录取得。 */
+  async registerQqGroup(dedupKey: string): Promise<void> {
+    const row = this.deps.qqStore.getInbox(dedupKey);
+    const config = this.deps.qqStore.getConfig();
+    if (!row || !config || !row.sessionId) throw new Error("群收件或宿主会话绑定缺失");
+    this.store.withTx(() => this.store.registerInboundEvent({
+      source: QQ_GROUP_SOURCE, externalId: row.dedupKey, actor: row.userId, targetRole: "chat",
+      // 原文首部的 qq 标签供撤回过滤使用；升级恢复也不得改写原请求参数。
+      body: row.input, receivedAt: row.createdAt,
+      replyTarget: { channel: QQ_GROUP_SOURCE, account: row.account, chatId: row.groupId, configVersion: row.configVersion ?? config.configVersion },
+    }));
+    this.enqueueDispatch();
+  }
+
   /**
    * 登记入站事件（幂等）：重复 (source, externalId) 返回已存在事件且不重复
    * 建任务。登记与派发分离：先持久化，再在串行链上建任务；崩溃窗口由
@@ -433,12 +451,16 @@ export class Orchestrator {
     // 列表读取后可能已被作废（如调度计划取消）：只派发仍为 registered 的事件
     if (this.store.getInboundEvent(event.id)?.status !== "registered") return;
     const gate = this.deps.inboundGate?.(event) ?? "run";
+    const group = event.source === QQ_GROUP_SOURCE ? this.deps.qqStore.getInbox(event.externalId) : null;
     if (gate === "wait") return;
     if (gate !== "run") {
       this.store.withTx(() => {
         this.store.failRegisteredInbound(event.id);
         this.store.appendEvent({ type: "inbound.skipped", eventId: event.id, source: event.source, reason: gate.drop });
+        if (group) this.deps.qqStore.setInboxStatus(group.dedupKey, "skipped");
       });
+      const previous = group?.sessionId ? this.store.findTaskByRequest(group.sessionId, group.requestId) : null;
+      if (previous && !isTerminalTaskStatus(previous.status)) await this.deps.bridge.cancelTask(previous.id, gate.drop);
       return;
     }
     const role = this.store.getAgentRole(event.targetRole);
@@ -453,7 +475,25 @@ export class Orchestrator {
     let task: Task;
     try {
       const review = this.deps.reviewRequest?.(event);
-      if (review !== undefined && review !== null) {
+      if (event.source === QQ_GROUP_SOURCE) {
+        const mapping = group ? this.deps.qqStore.getGroupSession(group.account, group.groupId) : null;
+        const session = mapping ? this.store.getSession(mapping.sessionId) : null;
+        if (!group || !mapping || !session || session.kind !== "qq_group" || group.sessionId !== session.id ||
+            session.projectId !== mapping.projectId || event.targetRole !== "chat" || event.actor !== group.userId || event.body !== group.input) {
+          throw new Error("群入站与宿主会话绑定不匹配");
+        }
+        const existing = this.store.findTaskByRequest(session.id, group.requestId);
+        if (existing && (existing.input !== group.input || existing.accessMode !== "confirm" || existing.parentTaskId ||
+            (existing.agentId !== null && existing.agentId !== "chat") || (existing.sourceEventId !== null && existing.sourceEventId !== event.id))) {
+          throw new Error("旧群请求的任务归属不匹配");
+        }
+        // 旧任务先核实原键和原文再接管，不能新增编排字段后重提而破坏旧摘要。
+        task = existing ?? await this.deps.bridge.submit({
+          sessionId: session.id, requestId: group.requestId, input: group.input,
+          modelSelection: session.modelSelection ?? role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
+          agentId: "chat", sourceEventId: event.id, accessMode: "confirm",
+        });
+      } else if (review !== undefined && review !== null) {
         const main = this.store.getAgentRole("main")!;
         const coding = this.store.getAgentRole("coding")!;
         const deadline = new Date(Date.parse(event.receivedAt) + DELEGATION_LIMITS.deadlineMs).toISOString();
@@ -486,11 +526,20 @@ export class Orchestrator {
       return; // 保持 registered，下次启动恢复重提
     }
     this.store.withTx(() => {
+      if (group) {
+        this.store.db.prepare("UPDATE tasks SET agent_id = 'chat', source_event_id = ? WHERE id = ?").run(event.id, task.id);
+        this.deps.qqStore.linkInboxTask(group.dedupKey, task.sessionId, task.id);
+      }
       this.store.markInboundQueued(event.id, task.id);
       // 任务已落库/已结束、事件回填前崩溃的窗口也沿用原任务。
       const recorded = this.store.getTask(task.id)!;
       if (recorded.resultSummary !== null) this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
     });
+    if (group) {
+      const recorded = this.store.getTask(task.id)!;
+      if (isTerminalTaskStatus(recorded.status)) await this.handleTerminal(recorded, this.outcomeFromStatus(recorded));
+      else this.deps.bridge.kickSession(task.sessionId);
+    }
   }
 
   // ---------- 结果回传与唤醒 ----------
@@ -650,7 +699,10 @@ export class Orchestrator {
   }
 
   private resultSummary(task: Task, outcome: ChildOutcome, reply: string | null): string {
-    const cap = (s: string) => (s.length > RESULT_SUMMARY_CAP ? `${s.slice(0, RESULT_SUMMARY_CAP)}…（截断）` : s);
+    const cap = (s: string) => {
+      const chars = [...s], suffix = "…（截断）";
+      return chars.length > RESULT_SUMMARY_CAP ? chars.slice(0, RESULT_SUMMARY_CAP - suffix.length).join("") + suffix : s;
+    };
     switch (outcome) {
       case "completed":
         return cap(reply || "（无文本输出）");

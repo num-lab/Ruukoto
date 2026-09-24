@@ -19,7 +19,7 @@ export type NotificationSourceKind = "schedule_run" | "confirmation" | "owner_re
 
 /** 来源快照引用（登记时解析为最终文本；发送前按引用复核可撤销的授权）。 */
 export interface SourceRef {
-  kind: "text" | "task_result" | "artifact" | "app_data";
+  kind: "text" | "task_result" | "artifact" | "app_data" | "chat_result";
   /** 规范引用串（task:<id> / artifact:<id>@off+len / app_data:<table>#<row>.<field>）。 */
   ref: string;
   /** 读取时版本（行版本、产物字节数等；text 为空）。 */

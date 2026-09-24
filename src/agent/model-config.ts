@@ -7,7 +7,8 @@
  * 同为离线配置工具的入口面）：在线后台启动时持有，离线写入前必须取得。
  *
  * 秘密卫生：apiKey 只写入文件，任何返回值/事件/错误消息不得携带；
- * 展示用 sanitizeCatalog 把 apiKey 替换为 true。
+ * 展示用 sanitizeCatalog 把 apiKey 与 headers 值替换为 true，回写用
+ * restoreCatalogSecrets 还原。
  */
 
 import * as fs from "node:fs";
@@ -72,6 +73,12 @@ export function validateModelCatalog(data: unknown): string[] {
   if (!isPlainObject(data) || !isPlainObject(data["providers"])) {
     return ["providers 必须是一个对象"];
   }
+  const checkHeaders = (headers: unknown, label: string): void => {
+    if (headers !== undefined && (!isPlainObject(headers) || Object.values(headers).some((v) => typeof v !== "string"))) {
+      // 残留的脱敏占位符（true）同样拒绝：它只能沿用同名头的原值
+      errors.push(`${label}：headers 必须是字符串键值对（*** 为脱敏占位，只能保留同名头的原值）`);
+    }
+  };
   for (const [providerId, def] of Object.entries(data["providers"])) {
     if (!providerId.trim()) {
       errors.push("provider id 不能为空");
@@ -104,12 +111,7 @@ export function validateModelCatalog(data: unknown): string[] {
       // 脱敏占位符（true）回写必须拒绝，防止把占位符当作 key 落盘
       errors.push(`provider ${providerId}：apiKey 必须是字符串（脱敏视图中的 true 为占位符，请重新输入或移除该字段）`);
     }
-    if (def["headers"] !== undefined) {
-      const headers = def["headers"];
-      if (!isPlainObject(headers) || Object.values(headers).some((v) => typeof v !== "string")) {
-        errors.push(`provider ${providerId}：headers 必须是字符串键值对`);
-      }
-    }
+    checkHeaders(def["headers"], `provider ${providerId}`);
     if (def["models"] !== undefined && !Array.isArray(def["models"])) {
       errors.push(`provider ${providerId}：models 必须是数组`);
       continue;
@@ -123,6 +125,7 @@ export function validateModelCatalog(data: unknown): string[] {
       if (typeof model["id"] !== "string" || !(model["id"] as string).trim()) {
         errors.push(`${label}：id 必须是非空字符串`);
       }
+      checkHeaders(model["headers"], label);
       const contextWindow = model["contextWindow"];
       const maxTokens = model["maxTokens"];
       const contextOk = contextWindow === undefined || (Number.isInteger(contextWindow) && (contextWindow as number) > 0);
@@ -219,7 +222,6 @@ export function configRevision(agentDir: string): string {
   return hash.digest("hex");
 }
 
-/** 深拷贝并把任何 apiKey 值替换为 true（响应/事件永不携带秘密）。 */
 /** 目录条目的思考档位候选（SDK 权威校验为 getSupportedThinkingLevels；此为基础档启发式，服务端保存时仍会再校验）。 */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"] as const;
 
@@ -227,16 +229,64 @@ export function thinkingLevelsForCatalogModel(model: { reasoning?: unknown }): s
   return model.reasoning ? [...THINKING_LEVELS] : ["off"];
 }
 
-export function sanitizeCatalog<T>(data: T): T {
-  if (Array.isArray(data)) return data.map((item) => sanitizeCatalog(item)) as T;
+/** 秘密位置：apiKey 的值与 headers 的每个值（provider 级与模型级）。 */
+const isSecretKey = (key: string): boolean => key === "apiKey" || key === "headers";
+
+/** 深拷贝并把秘密位置的值替换为 true（响应/事件永不携带秘密）。 */
+export function sanitizeCatalog<T>(data: T, secret = false): T {
+  if (Array.isArray(data)) return data.map((item) => sanitizeCatalog(item, secret)) as T;
   if (isPlainObject(data)) {
     const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data)) {
-      out[key] = key === "apiKey" && value !== undefined ? true : sanitizeCatalog(value);
-    }
+    for (const [key, value] of Object.entries(data)) out[key] = sanitizeCatalog(value, secret || isSecretKey(key));
     return out as T;
   }
-  return data;
+  return (secret ? true : data) as T;
+}
+
+/**
+ * sanitizeCatalog 的逆操作：回写载荷中秘密位置的占位 true 还原为 before
+ * 同位置的原值（数组元素按 id 对齐，找不到再按下标）。无原值可还原的
+ * 占位符原样保留，由 validateModelCatalog 拒绝，不会当作秘密落盘。
+ */
+export function restoreCatalogSecrets<T>(next: T, before: unknown, secret = false): T {
+  if (secret && next === true) return (typeof before === "string" ? before : next) as T;
+  if (Array.isArray(next)) {
+    const prev = Array.isArray(before) ? before : [];
+    return next.map((item, i) => {
+      const match = isPlainObject(item) && item["id"] !== undefined ? prev.find((p) => isPlainObject(p) && p["id"] === item["id"]) : undefined;
+      return restoreCatalogSecrets(item, match ?? prev[i], secret);
+    }) as T;
+  }
+  if (isPlainObject(next)) {
+    const prev = isPlainObject(before) ? before : {};
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(next)) out[key] = restoreCatalogSecrets(value, prev[key], secret || isSecretKey(key));
+    return out as T;
+  }
+  return next;
+}
+
+/** 配置文件中的全部秘密值（auth.json 的 key 与目录秘密位置的值），用于错误文本脱敏。 */
+export function configSecrets(agentDir: string): string[] {
+  const out: string[] = [];
+  const collect = (data: unknown, secret: boolean): void => {
+    if (Array.isArray(data)) data.forEach((item) => collect(item, secret));
+    else if (isPlainObject(data)) for (const [key, value] of Object.entries(data)) collect(value, secret || isSecretKey(key));
+    else if (secret && typeof data === "string" && data) out.push(data);
+  };
+  try {
+    for (const entry of Object.values(loadAuthFile(agentDir))) {
+      if (entry?.type === "api_key" && typeof entry.key === "string" && entry.key) out.push(entry.key);
+    }
+  } catch {
+    // 读取失败按无可脱敏处理
+  }
+  try {
+    collect(loadModelCatalogFile(agentDir).providers, false);
+  } catch {
+    // 同上
+  }
+  return out;
 }
 
 /** 三个配置文件的字节快照（应用失败时整体回滚，不留下部分新配置）。 */

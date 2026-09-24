@@ -151,8 +151,9 @@ test("save_model_catalog：空闲应用即时生效、修订变化、冲突与�
       name: "Extra",
       baseUrl: t.baseUrl,
       apiKey: "extra-secret-key",
+      headers: { Authorization: "Bearer extra-header-secret" },
       api: "openai-completions",
-      models: [{ id: "extra-model", name: "Extra Model", reasoning: false, contextWindow: 200000, maxTokens: 1024 }],
+      models: [{ id: "extra-model", name: "Extra Model", reasoning: false, contextWindow: 200000, maxTokens: 1024, headers: { "x-model-key": "model-header-secret" } }],
     };
     const saved = await t.client.request<any>("save_model_catalog", { providers, expected_revision: before.revision });
     assert.notEqual(saved.revision, before.revision, "应用后修订必须变化");
@@ -162,7 +163,8 @@ test("save_model_catalog：空闲应用即时生效、修订变化、冲突与�
     // 新 provider 的内联 key 同样脱敏
     const after = await t.client.request<any>("get_model_config", {});
     assert.equal(after.providers.extra.apiKey, true);
-    assert.ok(!JSON.stringify(after).includes("extra-secret-key"));
+    assert.equal(after.providers.extra.headers.Authorization, true, "headers 值同样脱敏");
+    for (const secret of ["extra-secret-key", "extra-header-secret", "model-header-secret"]) assert.ok(!JSON.stringify(after).includes(secret), secret);
     // 过期修订冲突
     await assert.rejects(
       t.client.request("save_model_catalog", { providers, expected_revision: before.revision }),
@@ -181,13 +183,24 @@ test("save_model_catalog：空闲应用即时生效、修订变化、冲突与�
       t.client.request("save_model_catalog", { providers: [], expected_revision: saved.revision }),
       (err: any) => err.code === "invalid_params",
     );
-    // 脱敏占位符回写必须被拒绝（防止把 true 当成 apiKey 落盘）
+    // 无原值可还原的占位符必须被拒绝（防止把 true 当成 apiKey 落盘）
+    const ghost = { baseUrl: t.baseUrl, api: "openai-completions", apiKey: true, models: [{ id: "g" }] };
     await assert.rejects(
-      t.client.request("save_model_catalog", { providers: after.providers, expected_revision: saved.revision }),
+      t.client.request("save_model_catalog", { providers: { ...after.providers, ghost }, expected_revision: saved.revision }),
       (err: any) => err.code === "invalid_params",
     );
     assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"), bytesBefore, "校验失败不得改动文件");
     assert.equal((await t.client.request<any>("get_model_config", {})).revision, saved.revision);
+    // 脱敏视图原样回写（只改名称；mock 的 key 仅内联、auth.json 无条目）：占位符还原为原值
+    const view = await t.client.request<any>("get_model_config", {});
+    view.providers.extra.name = "Extra 2";
+    await t.client.request("save_model_catalog", { providers: view.providers, expected_revision: view.revision });
+    const disk = readModels(t.dirs).providers;
+    assert.equal(disk.extra.name, "Extra 2");
+    assert.equal(disk.mock.apiKey, "mock-key");
+    assert.equal(disk.extra.apiKey, "extra-secret-key");
+    assert.deepEqual(disk.extra.headers, { Authorization: "Bearer extra-header-secret" });
+    assert.deepEqual(disk.extra.models[0].headers, { "x-model-key": "model-header-secret" });
   } finally {
     await cleanupManual(t);
   }
@@ -518,8 +531,12 @@ test("配置锁：同 agentDir 互斥、在线时离线写入被拒、停止后�
   }
 });
 
-test("test_model_connection：显式联网探测，未知 provider 报错且不泄露秘密", async () => {
-  const t = await startManual("model-config-conn", textResponder);
+test("test_model_connection：显式联网探测，未知 provider 与服务端错误报失败且不泄露秘密", async () => {
+  let failing = false;
+  const t = await startManual("model-config-conn", (req, i) => {
+    if (failing) throw new Error("upstream down");
+    return textResponder(req, i);
+  });
   try {
     const ok = await t.client.request<any>("test_model_connection", { provider: "mock", model_id: "mock-model" });
     assert.equal(ok.ok, true, ok.detail);
@@ -529,6 +546,11 @@ test("test_model_connection：显式联网探测，未知 provider 报错且不�
     assert.ok(!JSON.stringify(unknownProvider).includes("mock-key"), "错误详情不得包含秘密");
     const unknownModel = await t.client.request<any>("test_model_connection", { provider: "mock", model_id: "nope" });
     assert.equal(unknownModel.ok, false);
+    // 服务端返回错误：completeSimple 以 stopReason=error 返回而非 reject，仍须报失败
+    failing = true;
+    const down = await t.client.request<any>("test_model_connection", { provider: "mock", model_id: "mock-model" });
+    assert.equal(down.ok, false, down.detail);
+    assert.ok(!down.detail.includes("mock-key"), "错误详情不得包含秘密");
   } finally {
     await cleanupManual(t);
   }
@@ -540,13 +562,17 @@ test("回滚：通过本地校验但 SDK 重建失败 → 文件恢复旧字节�
     const bytesBefore = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8");
     const r0 = (await t.client.request<any>("get_model_config", {})).revision;
     // 缺 api（provider 与模型都没有）：本地结构校验通过，SDK 组合失败
+    // leak：新增 provider 的内联 key 出现在错误文本里（模型 id 与 key 相同），回滚前必须先脱敏
     const broken = {
+      leak: { baseUrl: t.baseUrl, apiKey: "sk-LEAK-9f3a", models: [{ id: "sk-LEAK-9f3a" }] },
       mock: { baseUrl: t.baseUrl, models: [{ id: "mock-model", contextWindow: 200000, maxTokens: 1024 }] },
     };
-    assert.equal((await t.client.request<any>("save_model_catalog", { providers: broken, expected_revision: r0 }).then(
+    const failure = await t.client.request<any>("save_model_catalog", { providers: broken, expected_revision: r0 }).then(
       () => null,
       (err: any) => err,
-    ))?.code, "model_config_invalid");
+    );
+    assert.equal(failure?.code, "model_config_invalid");
+    assert.ok(!String(failure?.message).includes("sk-LEAK-9f3a"), `错误文本不得包含新写入的秘密：${failure?.message}`);
     assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"), bytesBefore, "失败必须恢复旧字节");
     assert.equal((await t.client.request<any>("get_model_config", {})).revision, r0, "回滚后修订不变");
     // 旧目录继续可用

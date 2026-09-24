@@ -52,6 +52,10 @@ class FakeTerminal implements Terminal {
   clearScreen(): void {}
   setTitle(): void {}
   setProgress(): void {}
+  /** 与 ProcessTerminal 一致：括号粘贴整段作为一次输入送达。 */
+  paste(text: string): void {
+    this.onInput?.(`\x1b[200~${text}\x1b[201~`);
+  }
   send(data: string): void {
     let textBuf = "";
     const flush = () => {
@@ -164,7 +168,8 @@ test("在线：API key 遮蔽输入写入 auth.json，秘密不进终端输出",
       await waitForText(h.terminal, "设置/更新 API key");
       h.terminal.send(ENTER); // 设置/更新
       await waitForText(h.terminal, "显示为");
-      h.terminal.send(secret);
+      h.terminal.paste(secret.slice(0, 10)); // 粘贴 + 逐字输入两条路径
+      h.terminal.send(secret.slice(10));
       h.terminal.send(ENTER);
       await waitForText(h.terminal, "API key 已保存");
 

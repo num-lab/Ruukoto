@@ -549,24 +549,10 @@ export class ConfigTuiApp {
     return this.modelView;
   }
 
-  /**
-   * 目录保存载荷：脱敏占位 apiKey=true 的处理——凭据已迁移到 auth.json
-   * （credentials.configured）时安全移除内联字段；否则原样带上（服务端/本地
-   * 校验会拒绝并提示改用『API key』操作，不会把占位符当 key 落盘）。
-   */
-  private catalogPayload(view: ModelConfigView): Record<string, any> {
-    const out: Record<string, any> = {};
-    for (const [id, def] of Object.entries(view.providers)) {
-      const copy = { ...(def as Record<string, any>) };
-      if (copy["apiKey"] === true && view.credentials[id]?.configured) delete copy["apiKey"];
-      out[id] = copy;
-    }
-    return out;
-  }
-
+  /** 整份目录回写：脱敏占位（apiKey/headers 值的 true）由保存端还原为原值。 */
   private async saveCatalogEdited(okMsg: string, edit: (payload: Record<string, any>) => void): Promise<void> {
     const view = await this.modelConfig();
-    const payload = this.catalogPayload(view);
+    const payload = structuredClone(view.providers);
     edit(payload);
     await this.deps.modelBackend.saveCatalog(payload);
     this.modelView = null;
@@ -669,10 +655,9 @@ export class ConfigTuiApp {
             return textField("api", "协议 api（如 openai-completions / anthropic-messages）");
           case "field:headers": {
             const def = view.providers[providerId] as any;
-            const initial = def.headers
-              ? Object.entries(def.headers as Record<string, string>).map(([k, v]) => `${k}=${v}`).join(", ")
-              : "";
-            const value = await this.inputBox(`${providerId} 的自定义头`, { initial, placeholder: "k=v，逗号分隔；留空清除" });
+            // 头的值按秘密脱敏：*** 表示沿用原值
+            const initial = def.headers ? Object.keys(def.headers as Record<string, unknown>).map((k) => `${k}=***`).join(", ") : "";
+            const value = await this.inputBox(`${providerId} 的自定义头（*** 保留原值）`, { initial, placeholder: "k=v，逗号分隔；留空清除" });
             if (value === null) return;
             const headers = parseKeyValueList(value);
             if (headers === null) {
@@ -682,7 +667,7 @@ export class ConfigTuiApp {
             return this.saveCatalogEdited("已保存", (payload) => {
               const target = payload[providerId];
               if (!target) return;
-              if (Object.keys(headers).length > 0) target["headers"] = headers;
+              if (Object.keys(headers).length > 0) target["headers"] = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, v === "***" ? true : v]));
               else delete target["headers"];
             });
           }

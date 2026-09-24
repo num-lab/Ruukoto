@@ -27,6 +27,7 @@ import {
   loadModelCatalogFile,
   probeModelConfig,
   removeProviderCredential,
+  restoreCatalogSecrets,
   sanitizeCatalog,
   saveDefaultModel,
   saveModelCatalogFile,
@@ -118,7 +119,8 @@ class OfflineModelBackend implements ModelBackend {
     };
   }
 
-  async saveCatalog(providers: Record<string, any>): Promise<void> {
+  async saveCatalog(input: Record<string, any>): Promise<void> {
+    const providers = restoreCatalogSecrets(input, loadModelCatalogFile(this.agentDir).providers);
     const errors = validateModelCatalog({ providers });
     if (errors.length > 0) {
       throw Object.assign(new Error(`模型目录结构无效：${errors.join("；")}`), { code: "invalid_params" });

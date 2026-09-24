@@ -43,10 +43,12 @@ import { resolveDirIdentity, verifyDirIdentity, DirIdentityError } from "../core
 import { createModelCatalog, type ModelCatalog, type ModelOption } from "../agent/model-selection.ts";
 import {
   configRevision,
+  configSecrets,
   loadAuthFile,
   loadDefaultModel,
   loadModelCatalogFile,
   removeProviderCredential,
+  restoreCatalogSecrets,
   restoreConfigFiles,
   sanitizeCatalog,
   saveDefaultModel,
@@ -844,33 +846,11 @@ export class Runtime {
     }
   }
 
-  /** 秘密脱敏：provider 已配置的 API key（auth.json 或 models.json 内联）不得出现在错误文本里。 */
-  private scrubProviderSecrets(provider: string, text: string): string {
-    const secrets: string[] = [];
-    try {
-      const entry = loadAuthFile(this.config.agentDir)[provider];
-      if (entry?.type === "api_key" && typeof entry.key === "string" && entry.key) secrets.push(entry.key);
-    } catch {
-      // 读取失败按无可脱敏处理
-    }
-    try {
-      const inline = loadModelCatalogFile(this.config.agentDir).providers[provider]?.apiKey;
-      if (typeof inline === "string" && inline) secrets.push(inline);
-    } catch {
-      // 同上
-    }
+  /** 秘密脱敏：配置文件当前含有的任何秘密（API key、headers 值）不得出现在错误文本里。 */
+  private scrubSecrets(text: string): string {
     let out = text;
-    for (const secret of secrets) out = out.split(secret).join("***");
+    for (const secret of configSecrets(this.config.agentDir)) out = out.split(secret).join("***");
     return out;
-  }
-
-  private sanitizeConfigError(providers: string[], err: unknown): unknown {
-    if (err instanceof Error) {
-      for (const provider of providers) {
-        err.message = this.scrubProviderSecrets(provider, err.message);
-      }
-    }
-    return err;
   }
 
   /**
@@ -897,10 +877,12 @@ export class Runtime {
       await fn();
       await this.rebuildModelStack();
     } catch (err) {
+      // 先按失败时的文件（含新写入的秘密）脱敏，再回滚
+      if (err instanceof Error) err.message = this.scrubSecrets(err.message);
       // 回滚：恢复旧字节并重建旧模型栈，重启后也不会静默选用部分新配置
       restoreConfigFiles(this.config.agentDir, snapshot);
       await this.rebuildModelStack().catch(() => {});
-      throw this.sanitizeConfigError(affected, err);
+      throw err;
     } finally {
       this.modelConfigGate = null;
     }
@@ -1008,12 +990,14 @@ export class Runtime {
   async saveModelCatalog(input: { providers: unknown; expectedRevision: unknown }): Promise<{ revision: string }> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.assertConfigRevision(input.expectedRevision);
-    const errors = validateModelCatalog({ providers: input.providers });
+    const before = loadModelCatalogFile(this.config.agentDir).providers;
+    // 脱敏视图原样回写：占位符还原为原值，未改动的秘密不必重新输入
+    const providers = restoreCatalogSecrets(input.providers, before);
+    const errors = validateModelCatalog({ providers });
     if (errors.length > 0) {
       throw new RuntimeApiError("invalid_params", `模型目录结构无效：${errors.join("；")}`);
     }
-    const next = { providers: input.providers as Record<string, any> };
-    const before = loadModelCatalogFile(this.config.agentDir).providers;
+    const next = { providers: providers as Record<string, any> };
     // 受影响 = 被修改或删除的 provider；新增的 provider 不影响任何运行中任务
     const affected = Object.keys(before).filter(
       (id) => !(id in next.providers) || !isDeepStrictEqual(before[id], next.providers[id]),
@@ -1127,27 +1111,30 @@ export class Runtime {
     const provider = typeof input.provider === "string" ? input.provider.trim() : "";
     const modelId = typeof input.modelId === "string" ? input.modelId.trim() : "";
     if (!provider || !modelId) throw new RuntimeApiError("invalid_params", "provider 与 model_id 必须是非空字符串");
-    const scrub = (text: string): string => this.scrubProviderSecrets(provider, text);
     let model: any;
     try {
       model = await this.modelCatalog.resolve({ provider, modelId, thinkingLevel: "off" });
     } catch (err) {
-      return { ok: false, detail: scrub((err as Error).message) };
+      return { ok: false, detail: this.scrubSecrets((err as Error).message) };
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
+    let failure: string;
     try {
-      await this.modelRuntime.completeSimple(
+      const reply = await this.modelRuntime.completeSimple(
         model,
         { messages: [{ role: "user", content: "ping", timestamp: Date.now() }] },
         { maxTokens: 1, signal: controller.signal },
       );
-      return { ok: true, detail: `连接成功：${provider}/${modelId}` };
+      // completeSimple 不以 reject 报错：鉴权/HTTP/中止都以 stopReason 返回
+      if (reply.stopReason !== "error" && reply.stopReason !== "aborted") return { ok: true, detail: `连接成功：${provider}/${modelId}` };
+      failure = reply.errorMessage ?? "连接失败";
     } catch (err) {
-      return { ok: false, detail: scrub(controller.signal.aborted ? "连接超时（30 秒）" : (err as Error).message) };
+      failure = (err as Error).message;
     } finally {
       clearTimeout(timer);
     }
+    return { ok: false, detail: this.scrubSecrets(controller.signal.aborted ? "连接超时（30 秒）" : failure) };
   }
 
   // ---------- 提交与排队 ----------

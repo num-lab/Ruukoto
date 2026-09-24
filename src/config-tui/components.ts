@@ -79,7 +79,9 @@ export class MaskedInput implements Component {
       this.buffer = [...this.buffer].slice(0, -1).join("");
       return;
     }
-    if (data.startsWith("\x1b")) return; // 方向键等转义序列
+    // 括号粘贴由终端整段送达（\x1b[200~…\x1b[201~）；其余转义序列（方向键等）忽略
+    if (data.startsWith("\x1b[200~") && data.endsWith("\x1b[201~")) data = data.slice(6, -6);
+    else if (data.startsWith("\x1b")) return;
     for (const ch of data) {
       const code = ch.codePointAt(0)!;
       if (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) this.buffer += ch;

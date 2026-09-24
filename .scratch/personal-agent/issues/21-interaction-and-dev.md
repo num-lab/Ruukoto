@@ -135,3 +135,22 @@ Depends on: 04, 10, 11
 - 真实 QQ/Telegram 渠道与真实模型端点（mock 覆盖；`test_model_connection` 逻辑经 MockModelServer 验证）。
 - `dev --config` 的 PTY 级全流程（离线→保存→在线切换）未做端到端 PTY 验证（各环节分别经 test/32、33 覆盖）。
 - 既有问题（与本工单无关，未处理）：test/26-qq 的 TTL 用例在高负载下偶发失败（main 上可复现）；仓库根 `undefined/` 目录为 9-21 遗留运行时数据。
+
+### 2026-09-24：提交 c094143 评审与分批修复
+
+评审范围为 c094143 相对其父提交的改动，共 15 项问题，分四批处理：
+
+- **第一批：秘密与配置保存**：① `test_model_connection` 把服务端错误报成连接成功；② MaskedInput 丢弃括号粘贴，粘贴的 API key 被整段丢掉；④ 应用失败时先回滚再脱敏，新写入的秘密不会被脱敏；⑤ `sanitizeCatalog` 不遮蔽 headers 值；⑥ 内联 apiKey 且 auth.json 无条目时，脱敏占位回写导致所有目录保存失败。
+- **第二批：启动参数与持久默认的优先级**：③ cli 总是传 `--thinking off`，使持久默认思考档位失效；⑩ `--model` 启动后在线设置默认模型立即生效，重建后又被静默改回。
+- **第三批：并发与恢复**：⑦ 工作区入口请求超时后进入 awaiting-reconnect，但连接未断，永远等不到快照；⑧ `setSessionModel` 在门闩检查与写入之间 await，与删除 provider 竞态，留下悬空引用；⑨ 内部提交（父会话唤醒、入站事件）遇 `model_config_busy` 不重试。
+- **第四批：dev 与收尾**：⑪ dev 仅重启后台时配置中心断开且不重连，`model-config.ts` 归类有误；⑫ 重载恢复时屏幕 id 与菜单项 value 不一致；⑬ `configRevision` 拼接字节无文件名和长度分隔；⑭ `findWorkspaceProjects` 未排除角色会话；⑮ `probeModelConfig` 与 Runtime 的默认模型解析不一致。
+
+#### 第一批修复
+
+1. **连接探测**：`completeSimple` 不以 reject 报错，改为检查 `stopReason`，`error`/`aborted` 报失败，失败详情脱敏。
+2. **粘贴**：MaskedInput 识别整段 `\x1b[200~…\x1b[201~` 并剥离标记；其余转义序列照旧忽略，控制字符照旧过滤。
+3. **回滚脱敏**：先按失败时的文件脱敏再回滚。脱敏范围从受影响 provider 扩大到配置文件中的全部秘密（`configSecrets`：auth.json 的 key，以及目录中的 apiKey 和 headers 值），覆盖新增 provider。
+4. **headers 遮蔽**：秘密位置统一为 apiKey 与 headers 的每个值（provider 级和模型级），`sanitizeCatalog` 一律替换为 true。配置中心编辑头时显示 `k=***`，保留 `***` 即沿用原值。
+5. **占位回写**：新增 `restoreCatalogSecrets`，在线 `save_model_catalog` 与离线保存在校验前把占位 true 还原为原值（数组元素按 id 对齐，找不到时按下标）。无原值可还原的占位仍被校验拒绝，校验同时覆盖模型级 headers。配置中心删除 `catalogPayload` 特例，改为 `structuredClone` 整份回写，缓存视图不再被编辑改动。
+
+回归测试：test/31 增加 headers（含模型级）脱敏、脱敏视图原样回写保留内联 key 与 headers、无原值占位被拒绝、服务端 500 时探测报失败、新增 provider 的秘密在回滚错误中被脱敏；test/33 的 API key 用例改为粘贴加逐字输入。改动前这些新断言全部失败。`npm run typecheck` 通过；`npm test` 368 项，367 通过，1 项按默认跳过。

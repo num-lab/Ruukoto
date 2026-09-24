@@ -16,6 +16,7 @@ import type { Store } from "../core/store.ts";
 import { isTerminalTaskStatus, randomId, type NotifyTarget } from "../core/types.ts";
 import { SchedulerStore, type NotificationOp, type Schedule, type ScheduleRun } from "./store.ts";
 import { latestAtOrBefore, localTimeOf, nextAfter } from "./time.ts";
+import { collectNews, failedNews, pendingNews, type NewsResult, type NewsSearch } from "./news.ts";
 
 /** 发送函数可证明未产生发送时抛出（平台拒绝/参数非法/未发出请求）→ failed。 */
 export class NotSentError extends Error {
@@ -56,6 +57,8 @@ export interface SchedulerDeps {
   cancelTask(taskId: string): Promise<unknown>;
   /** 发送前复核来源引用的可撤销授权；null = 通过。 */
   verifySources(op: NotificationOp): string | null;
+  /** 宿主固定 main 项目的搜索入口，不携带会话历史或资料。 */
+  searchNews?: NewsSearch;
   log(message: string): void;
   /** 扫描间隔（默认 1s；0 = 不自动扫描，测试手动 tick）。 */
   tickMs?: number;
@@ -81,6 +84,8 @@ export class Scheduler {
   private timer: NodeJS.Timeout | null = null;
   private ticking: Promise<void> | null = null;
   private sending: Promise<void> | null = null;
+  private collecting: Promise<void> | null = null;
+  private newsInflight: { scheduleId: string; aborter: AbortController } | null = null;
   private inflight: AbortController | null = null;
   private stopping = false;
   /** 关闭屏障：数据库关闭后，未及时结束的发送回调不得再写入。 */
@@ -115,6 +120,9 @@ export class Scheduler {
       }
     }
     this.store.withTx(() => this.sched.markSendingUnknown());
+    for (const run of this.sched.listOpenRuns()) {
+      if (run.newsResult?.status === "searching") this.finishNews(run, failedNews(run.newsResult, "backend_restart"));
+    }
   }
 
   start(): void {
@@ -124,6 +132,7 @@ export class Scheduler {
       this.timer.unref?.();
     }
     this.kickSender();
+    this.kickNews();
   }
 
   /** 不重入扫描：进行中时返回同一次扫描。 */
@@ -157,6 +166,7 @@ export class Scheduler {
       this.lastRedispatch = wallNow;
       await this.deps.dispatchRegistered().catch((err) => this.deps.log(`派发调度事件失败：${(err as Error).message}`));
     }
+    this.kickNews();
     this.kickSender();
   }
 
@@ -205,6 +215,8 @@ export class Scheduler {
           artifactRefs: [],
         });
         run.inboundEventId = event.id;
+      } else if (s.action === "news") {
+        run.newsResult = pendingNews(s.payload.news!, run.scheduledFor);
       } else {
         const { op } = this.sched.insertOp({
           sourceKind: "schedule_run",
@@ -242,6 +254,7 @@ export class Scheduler {
       const op = this.sched.getOp(run.notificationOpId);
       return !op || (op.status !== "pending" && op.status !== "sending");
     }
+    if (run.newsResult) return !["pending", "searching"].includes(run.newsResult.status);
     const event = run.inboundEventId ? this.store.getInboundEvent(run.inboundEventId) : null;
     if (!event || event.status === "done" || event.status === "failed") return true;
     if (event.status === "registered" || !event.taskId) return false;
@@ -262,6 +275,9 @@ export class Scheduler {
         if (!r.changed) return r;
         const run = r.schedule.currentRunId ? this.sched.getRun(r.schedule.currentRunId) : null;
         if (run?.notificationOpId) this.sched.cancelOp(run.notificationOpId, "计划已取消", input.cancelOpId);
+        if (run?.newsResult && ["pending", "searching"].includes(run.newsResult.status)) {
+          this.sched.finishNews(run, { ...run.newsResult, status: "canceled", errorCode: "schedule_canceled" }, null);
+        }
         if (run?.inboundEventId) {
           const event = this.store.getInboundEvent(run.inboundEventId);
           if (event?.status === "registered") this.store.failRegisteredInbound(event.id);
@@ -269,10 +285,65 @@ export class Scheduler {
         }
         return r;
       });
+      if (this.newsInflight?.scheduleId === input.scheduleId) this.newsInflight.aborter.abort();
       if (queuedTaskId) await this.deps.cancelTask(queuedTaskId).catch(() => {});
       this.closeFinished();
       return result.schedule;
     });
+  }
+
+  // 新闻在独立循环采集；一次运行最多 5 次有界搜索，不占用 main 会话或发送循环。
+  private kickNews(): void {
+    if (this.collecting || this.stopping) return;
+    this.collecting = this.drainNews()
+      .catch((err) => this.deps.log(`新闻采集记账失败：${(err as Error).message}`))
+      .finally(() => { this.collecting = null; });
+  }
+
+  private async drainNews(): Promise<void> {
+    // ponytail: 采集串行；多个新闻计划持续积压时再引入有界并发。
+    for (const run of this.sched.listPendingNews(SCHEDULER_LIMITS.batch)) {
+      if (this.stopping) return;
+      const schedule = this.sched.getSchedule(run.scheduleId);
+      if (!schedule) continue;
+      const channel = this.deps.channel(schedule.target?.channel ?? "");
+      // 与 outbox 一致：发送器尚未加载时等待；已加载但目标失效才取消。
+      if (!channel) continue;
+      if (!this.store.withTx(() => this.sched.claimNews(run))) continue;
+      const target = channel.target();
+      if (schedule.status === "canceled" || !target || JSON.stringify(target) !== JSON.stringify(schedule.target)) {
+        this.finishNews(run, { ...run.newsResult!, status: "canceled", errorCode: "target_or_schedule_changed" });
+        continue;
+      }
+      const aborter = new AbortController();
+      this.newsInflight = { scheduleId: schedule.id, aborter };
+      try {
+        const result = this.deps.searchNews && schedule.payload.news && schedule.approvalId
+          ? await collectNews(schedule.payload.news, run.scheduledFor, this.deps.searchNews, aborter.signal)
+          : failedNews(run.newsResult!, "not_configured");
+        this.finishNews(run, result);
+      } finally {
+        this.newsInflight = null;
+      }
+      this.kickSender();
+    }
+  }
+
+  /** 快照、固定正文与发送键同事务落库；落库失败保留 searching，重启按未知收尾。 */
+  private finishNews(run: ScheduleRun, result: NewsResult): void {
+    this.store.withTx(() => {
+      const current = this.sched.getRun(run.id);
+      if (!current || current.closedAt || current.newsResult?.status !== "searching") return;
+      const schedule = this.sched.getSchedule(run.scheduleId)!;
+      if (schedule.status === "canceled") result = { ...result, status: "canceled", errorCode: "schedule_canceled" };
+      const op = result.status === "canceled" ? null : this.sched.insertOp({
+        sourceKind: "schedule_run", sourceKey: run.id, taskId: null, hostOpId: null,
+        target: schedule.target!, text: result.text, sourceRefs: [],
+        ...(result.status === "completed" ? {} : { failure: { kind: `news_${result.errorCode}`, message: result.text } }),
+      }).op;
+      this.sched.finishNews(run, result, op?.id ?? null);
+    });
+    this.closeFinished();
   }
 
   // ---------- 发送循环 ----------
@@ -288,7 +359,7 @@ export class Scheduler {
 
   /** 等待当前发送轮次（测试与停止路径用）。 */
   async idle(): Promise<void> {
-    while (this.ticking || this.sending) await (this.ticking ?? this.sending);
+    while (this.ticking || this.collecting || this.sending) await (this.ticking ?? this.collecting ?? this.sending);
   }
 
   private async drainSends(): Promise<void> {
@@ -388,6 +459,7 @@ export class Scheduler {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.inflight?.abort();
+    this.newsInflight?.aborter.abort();
     await this.idle().catch(() => {});
     this.closed = true;
   }

@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -347,7 +347,7 @@ CREATE TABLE IF NOT EXISTS schedules (
   params_digest TEXT NOT NULL,
   create_task_id TEXT,
   create_op_id TEXT,
-  action TEXT NOT NULL CHECK (action IN ('wake_main','notify')),
+  action TEXT NOT NULL CHECK (action IN ('wake_main','notify','news')),
   rule TEXT NOT NULL,
   payload TEXT NOT NULL,
   target TEXT,
@@ -378,6 +378,7 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
   inbound_event_id TEXT,
   notification_op_id TEXT,
   closed_at TEXT,
+  news_result TEXT,
   UNIQUE (schedule_id, schedule_version, scheduled_for)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_open ON schedule_runs (schedule_id) WHERE closed_at IS NULL;
@@ -479,13 +480,14 @@ export class Db {
       this.db.exec(SCHEMA_SQL);
       this.ensureColumns();
     } else {
-      // v6 起旧库（< v6）的 tasks/sessions 访问模式 CHECK 需重建表；FK pragma 在事务内
-      // 无效，必须在事务外关闭（tasks 引用 sessions，重建期间不强制），结束后恢复。
+      // 访问模式与新闻动作的 CHECK 需重建被引用的表；FK pragma 在事务内无效，
+      // 必须在事务外关闭，提交前校验外键，结束后恢复。
       const rebuildModeChecks = row !== undefined && version < 6;
-      if (rebuildModeChecks) this.db.exec("PRAGMA foreign_keys = OFF;");
+      const rebuildTables = rebuildModeChecks || (row !== undefined && version >= 13 && version < 18);
+      if (rebuildTables) this.db.exec("PRAGMA foreign_keys = OFF;");
       // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
-      this.db.exec("BEGIN IMMEDIATE");
       try {
+        this.db.exec("BEGIN IMMEDIATE");
         this.db.exec(SCHEMA_SQL);
         if (row && version < SCHEMA_VERSION) {
           this.migrateFrom(version);
@@ -493,6 +495,9 @@ export class Db {
         this.ensureColumns();
         if (rebuildModeChecks) {
           this.rebuildModeCheckedTables();
+        }
+        if (rebuildTables && this.db.prepare("PRAGMA foreign_key_check").get()) {
+          throw new Error("重建表后外键检查失败");
         }
         this.db
           .prepare(
@@ -508,7 +513,7 @@ export class Db {
         }
         throw new Error(`schema 迁移失败（v${version} → v${SCHEMA_VERSION}）：${(err as Error).message}`);
       } finally {
-        if (rebuildModeChecks) this.db.exec("PRAGMA foreign_keys = ON;");
+        if (rebuildTables) this.db.exec("PRAGMA foreign_keys = ON;");
       }
     }
     // 数据实例标识：首次打开分配并持久化；重启保留，新数据库分配新标识。
@@ -531,7 +536,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 16) {
+    } else if (version >= 2 && version <= 17) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -545,6 +550,7 @@ export class Db {
       // v13 → v14：新增 telegram_config 表 + notification_ops.not_before 补列（issue 04）。
       // v14 → v15：qq_config.owner_user_id 与 inbound_events.reply_target（issue 06）。
       // v16 → v17：群结果接收记录与群收件的撤回时间、引用、配置版本。
+      // v17 → v18：新闻采集快照补列；计划动作 CHECK 由下方重建处理。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -553,6 +559,47 @@ export class Db {
     }
     // v16：允许宿主为入站事件登记通知；旧发送账本的状态与逻辑键原样保留。
     if (version >= 13 && version <= 15) this.rebuildNotificationSourceCheck();
+    // v18：新闻计划复用调度运行与通知 outbox，保留旧计划和运行的引用关系。
+    if (version >= 13 && version <= 17) this.rebuildScheduleActionCheck();
+  }
+
+  /** v18：重建计划动作 CHECK；调用前外键已在事务外关闭。 */
+  private rebuildScheduleActionCheck(): void {
+    this.db.exec(`
+CREATE TABLE schedules_new (
+  id TEXT PRIMARY KEY,
+  owner_role TEXT NOT NULL DEFAULT 'main' CHECK (owner_role IN ('main')),
+  create_key TEXT NOT NULL UNIQUE,
+  params_digest TEXT NOT NULL,
+  create_task_id TEXT,
+  create_op_id TEXT,
+  action TEXT NOT NULL CHECK (action IN ('wake_main','notify','news')),
+  rule TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  target TEXT,
+  approval_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('active','completed','canceled')),
+  next_due_at TEXT,
+  current_run_id TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  tz_data TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  cancel_reason TEXT,
+  cancel_op_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO schedules_new (id, owner_role, create_key, params_digest, create_task_id, create_op_id,
+  action, rule, payload, target, approval_id, status, next_due_at, current_run_id, version,
+  tz_data, reason, cancel_reason, cancel_op_id, created_at, updated_at)
+SELECT id, owner_role, create_key, params_digest, create_task_id, create_op_id,
+  action, rule, payload, target, approval_id, status, next_due_at, current_run_id, version,
+  tz_data, reason, cancel_reason, cancel_op_id, created_at, updated_at
+FROM schedules;
+DROP TABLE schedules;
+ALTER TABLE schedules_new RENAME TO schedules;
+CREATE INDEX idx_schedules_due ON schedules (status, next_due_at);
+`);
   }
 
   /** SQLite 的 CHECK 变更需要重建表；限流时间与所有发送事实均显式复制。 */
@@ -714,6 +761,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("tasks", "result_ref", "result_ref TEXT");
     // v14（issue 04）：限流退回的发送操作最早再次领取时间
     add("notification_ops", "not_before", "not_before TEXT");
+    // v18（issue 07）：宿主持久化的有界新闻采集快照与状态，旧运行默认无快照。
+    add("schedule_runs", "news_result", "news_result TEXT");
     // v15（issue 06）：私聊身份与入站时钉版的固定回复目标，旧群配置默认不开私聊
     add("qq_config", "owner_user_id", "owner_user_id TEXT");
     add("inbound_events", "reply_target", "reply_target TEXT");

@@ -11,8 +11,9 @@ import { createHash } from "node:crypto";
 import type { Store } from "../core/store.ts";
 import { randomId, type NotifyTarget } from "../core/types.ts";
 import type { ScheduleRule } from "./time.ts";
+import type { NewsResult, NewsSpec } from "./news.ts";
 
-export type ScheduleAction = "wake_main" | "notify";
+export type ScheduleAction = "wake_main" | "notify" | "news";
 export type ScheduleStatus = "active" | "completed" | "canceled";
 export type NotificationStatus = "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled";
 export type NotificationSourceKind = "schedule_run" | "confirmation" | "owner_reply" | "inbound_event";
@@ -31,6 +32,8 @@ export interface SchedulePayload {
   /** wake_main：有界触发说明；notify：已批准的固定正文。 */
   text: string;
   sourceRefs: SourceRef[];
+  /** news：已批准的固定采集范围；text 保存审批时的策略说明。 */
+  news?: NewsSpec;
 }
 
 export interface Schedule {
@@ -67,6 +70,7 @@ export interface ScheduleRun {
   coalescedTo: string | null;
   inboundEventId: string | null;
   notificationOpId: string | null;
+  newsResult?: NewsResult | null;
   closedAt: string | null;
 }
 
@@ -223,10 +227,10 @@ export class SchedulerStore {
   insertRun(run: Omit<ScheduleRun, "closedAt">): void {
     this.db
       .prepare(
-        `INSERT INTO schedule_runs (id, schedule_id, schedule_version, scheduled_for, local_time, registered_at, delay_ms, coalesced_from, coalesced_to, inbound_event_id, notification_op_id, closed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        `INSERT INTO schedule_runs (id, schedule_id, schedule_version, scheduled_for, local_time, registered_at, delay_ms, coalesced_from, coalesced_to, inbound_event_id, notification_op_id, news_result, closed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       )
-      .run(run.id, run.scheduleId, run.scheduleVersion, run.scheduledFor, run.localTime, run.registeredAt, run.delayMs, run.coalescedFrom, run.coalescedTo, run.inboundEventId, run.notificationOpId);
+      .run(run.id, run.scheduleId, run.scheduleVersion, run.scheduledFor, run.localTime, run.registeredAt, run.delayMs, run.coalescedFrom, run.coalescedTo, run.inboundEventId, run.notificationOpId, run.newsResult ? JSON.stringify(run.newsResult) : null);
     this.store.appendEvent({
       type: "schedule.run", scheduleId: run.scheduleId, runId: run.id, action: "registered", scheduledFor: run.scheduledFor,
       delayMs: run.delayMs, coalescedFrom: run.coalescedFrom, coalescedTo: run.coalescedTo,
@@ -248,6 +252,22 @@ export class SchedulerStore {
   listRuns(scheduleId: string, limit: number): ScheduleRun[] {
     const rows = this.db.prepare("SELECT * FROM schedule_runs WHERE schedule_id = ? ORDER BY scheduled_for DESC, id DESC LIMIT ?").all(scheduleId, limit) as any[];
     return rows.map(rowToRun);
+  }
+
+  listPendingNews(limit: number): ScheduleRun[] {
+    return (this.db.prepare("SELECT * FROM schedule_runs WHERE closed_at IS NULL AND json_extract(news_result, '$.status') = 'pending' ORDER BY registered_at, id LIMIT ?").all(limit) as any[]).map(rowToRun);
+  }
+
+  claimNews(run: ScheduleRun): boolean {
+    const info = this.db.prepare("UPDATE schedule_runs SET news_result = json_set(news_result, '$.status', 'searching') WHERE id = ? AND closed_at IS NULL AND json_extract(news_result, '$.status') = 'pending'").run(run.id);
+    if (Number(info.changes) !== 1) return false;
+    this.store.appendEvent({ type: "schedule.news", scheduleId: run.scheduleId, runId: run.id, status: "searching", itemCount: 0 });
+    return true;
+  }
+
+  finishNews(run: ScheduleRun, result: NewsResult, opId: string | null): void {
+    this.db.prepare("UPDATE schedule_runs SET news_result = ?, notification_op_id = ? WHERE id = ? AND closed_at IS NULL").run(JSON.stringify(result), opId, run.id);
+    this.store.appendEvent({ type: "schedule.news", scheduleId: run.scheduleId, runId: run.id, status: result.status, itemCount: result.items.length, errorCode: result.errorCode });
   }
 
   closeRun(run: ScheduleRun): boolean {
@@ -279,6 +299,8 @@ export class SchedulerStore {
     target: NotifyTarget;
     text: string;
     sourceRefs: SourceRef[];
+    /** 采集明确未产生可发送正文：直接登记失败，不伪装成已调用平台。 */
+    failure?: { kind: string; message: string };
   }): { op: NotificationOp; created: boolean } {
     const existing = this.findOpBySource(input.sourceKind, input.sourceKey);
     const textSha256 = sha256(input.text);
@@ -292,11 +314,11 @@ export class SchedulerStore {
     const id = randomId("nop");
     this.db
       .prepare(
-        `INSERT INTO notification_ops (id, source_kind, source_key, task_id, host_op_id, target, text, text_sha256, source_refs, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        `INSERT INTO notification_ops (id, source_kind, source_key, task_id, host_op_id, target, text, text_sha256, source_refs, status, error_kind, error_message, settled_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.sourceKind, input.sourceKey, input.taskId, input.hostOpId, JSON.stringify(input.target), input.text, textSha256, JSON.stringify(input.sourceRefs), now, now);
-    this.store.appendEvent({ type: "notification.changed", opId: id, status: "pending", sourceKind: input.sourceKind });
+      .run(id, input.sourceKind, input.sourceKey, input.taskId, input.hostOpId, JSON.stringify(input.target), input.text, textSha256, JSON.stringify(input.sourceRefs), input.failure ? "failed" : "pending", input.failure?.kind ?? null, input.failure?.message.slice(0, 500) ?? null, input.failure ? now : null, now, now);
+    this.store.appendEvent({ type: "notification.changed", opId: id, status: input.failure ? "failed" : "pending", sourceKind: input.sourceKind, ...(input.failure ? { reason: input.failure.kind } : {}) });
     return { op: this.getOp(id)!, created: true };
   }
 
@@ -450,6 +472,7 @@ function rowToRun(row: any): ScheduleRun {
     coalescedTo: row.coalesced_to ?? null,
     inboundEventId: row.inbound_event_id ?? null,
     notificationOpId: row.notification_op_id ?? null,
+    newsResult: row.news_result ? JSON.parse(row.news_result) : null,
     closedAt: row.closed_at ?? null,
   };
 }

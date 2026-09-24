@@ -488,6 +488,47 @@ v13）：`schedules`（计划）、`schedule_runs`（调度运行）、`notifica
 - **停止**：先停止扫描与领取并中止在途发送（结果按事实收尾，通常
   `effect_unknown`），再等待编排器派发链，最后关库；关闭屏障后迟到回调不写库。
 
+## 新闻推送（daily-agent issue 07，ADR 0015）
+
+main 使用已有 `schedule_create` 创建 `action=news` 计划，例如：
+
+```json
+{
+  "create_key": "daily-tech-news",
+  "action": "news",
+  "rule": { "kind": "daily", "time_zone": "Asia/Shanghai", "time": "09:00" },
+  "news": { "keywords": ["人工智能", "开源软件"], "domains": ["example.com"], "time_range": "day" },
+  "reason": "每天汇总已确认来源的科技新闻"
+}
+```
+
+`domains` 应换成 owner 认可的真实来源。TUI 显示“动态新闻推送”，确认关键词、
+来源（含子域）、时间规则、窗口、固定 owner 目标及持续范围。`full_access`
+同样需要确认；增加来源、修改关键词或时间都先取消后重建。计划不接受自由正文、
+资料引用、接收者或额外指令。主项目的 Web Search 必须启用，已有
+`purpose=tavily_search` 的凭据还须允许 main 项目使用；不新增搜索服务。
+
+到期后宿主直接执行最多 5 个固定关键词、每次最多 5 条的 Tavily news 搜索。
+`time_range=day/week` 表示原定时刻前 24 小时/7 天；缺少有效发布时间、窗口外、
+来源域名不符或不合法的 HTTP(S) URL 均过滤。URL 去重忽略片段和常见跟踪参数，
+保留决定文章身份的其他参数。多关键词合并为一条不超过 2,000 字符/8 KiB 的
+通知，过长条目不展示，URL 不截断；不会调用模型、读取会话或写入长期记忆。
+
+schema v18 保留旧计划、运行和发送记录，仅增加新闻动作与运行中的有界快照。
+快照保存来源 URL、标题、发布时间、查询时间、查询请求 ID、摘要及
+`summarySource=tavily_search.content`，每次最多 32 KiB，超限明确标记。
+`schedule_query` 的 `schedule_id` 显示运行和采集状态，再带 `run_id` 可读取该次
+快照；`ruukoto schedule show <id>` 也显示最近运行。
+
+搜索失败或限流不会产生新闻正文，也不立即重试；`notification_query` 可看到
+`failed` 和 `news_*` 错误。搜索超时、连接结果不明或后台重启时正在采集，运行
+标记 `unknown`，同一窗口不重搜；已登记但未开始的采集可在重启后继续。
+发送结果未知仍沿用 `effect_unknown`，不换键重发。取消计划阻止待发通知并
+中止在途搜索；发送前还会复核目标版本、计划和 Web Search 开关。
+
+摘要保留搜索来源，未经独立核实。首版不逐条抓取文章验证可达性，来源页面可能
+后来失效；停机后补采也可能受搜索服务的相对时间范围限制而缺少旧新闻。
+
 ## Telegram owner 入口（daily-agent issue 04，ADR 0011）
 
 main 的第一条日常链路：拥有者在 Telegram 私聊 bot，消息进入同一个 main 会话，

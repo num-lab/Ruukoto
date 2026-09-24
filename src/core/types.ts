@@ -342,11 +342,12 @@ export type ApprovalScope =
       /**
        * 通知外发（issue 03）：固定完整正文（params.text）、目标及配置版本、
        * 时间规则、IANA 时区、DST 策略与持续范围。周期计划批准的是"持续至取消"，
-       * 不只是首次时间。批准单次消费；full_access 与 auto-review 也须拥有者确认。
+       * 不只是首次时间。news 模式固定采集与发送约定，允许按该约定生成动态正文。
+       * 批准单次消费；full_access 与 auto-review 也须拥有者确认。
        */
       kind: "notification";
-      /** schedule = 建立通知计划；once = 一次确认发送。 */
-      mode: "schedule" | "once";
+      /** news 批准固定采集范围和模板，动态正文在每次采集后固定（ADR 0015）。 */
+      mode: "schedule" | "once" | "news";
       taskId: string;
       toolOpId: string;
       target: NotifyTarget;
@@ -568,6 +569,7 @@ export type PersistentEventBody =
   | { type: "schedule.changed"; scheduleId: string; action: "created" | "canceled" | "completed"; version: number; source: string; reason?: string }
   /** 调度运行：登记（含延迟/合并区间）、合并漏过周期、关闭。 */
   | { type: "schedule.run"; scheduleId: string; runId: string; action: "registered" | "coalesced" | "closed"; scheduledFor: string; delayMs?: number; coalescedFrom?: string | null; coalescedTo?: string | null }
+  | { type: "schedule.news"; scheduleId: string; runId: string; status: string; itemCount: number; errorCode?: string | null }
   /** 发送操作状态（不含正文与凭据）。 */
   | { type: "notification.changed"; opId: string; status: "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled"; sourceKind: string; reason?: string };
 

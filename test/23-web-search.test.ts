@@ -26,6 +26,8 @@ import {
 import type { Responder } from "./helpers/mock-provider.ts";
 import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
+import { CredentialStore } from "../src/agent/execution/credentials.ts";
+import { searchTavily, WebSearchError } from "../src/agent/web-search.ts";
 
 const SECRET = "tvly-test-secret";
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
@@ -146,6 +148,67 @@ async function submitAndWait(t: TestRuntime, sessionId: string, requestId: strin
 }
 
 // ---------- 场景 ----------
+
+test("宿主结构化搜索：复用范围校验、结果限额与错误码，响应回显的凭据不进入快照或错误", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-tavily-host-"));
+  const tavily = await startMockTavily((hit) => {
+    if (hit.body.query === "rate") {
+      return { status: 429, headers: { "retry-after": SECRET }, json: { detail: { error: `拒绝 ${SECRET}` } } };
+    }
+    if (hit.body.query === "bad") return { raw: `invalid ${SECRET}` };
+    return {
+      json: {
+        request_id: SECRET,
+        results: [
+          { title: `标题 ${SECRET}`, url: "https://example.com/news", content: `摘要\u0000 ${SECRET}`, published_date: "2026-09-25" },
+          { title: "泄露链接", url: `https://example.com/?key=${SECRET}`, content: "不可返回" },
+          { title: "超过请求上限", url: "https://example.com/extra", content: "不可返回" },
+        ],
+      },
+    };
+  });
+  try {
+    const credentials = new CredentialStore(root);
+    credentials.upsert({
+      name: "host-search", host: tavily.host, header: "authorization", purpose: "tavily_search", secret: SECRET,
+      scope: { projectId: "main", operations: ["tavily_search"] },
+    });
+    const deps = { credentials, projectId: "main", baseUrl: tavily.url };
+    const result = await searchTavily(deps, { query: "新闻", topic: "news", time_range: "day", include_domains: ["EXAMPLE.COM"], max_results: 2 });
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0]!.url, "https://example.com/news");
+    assert.equal(result.items[0]!.publishedAt, "2026-09-25");
+    assert.equal(result.dropped, 1);
+    assert.equal(result.totalResults, 3);
+    assert.ok(Number.isFinite(Date.parse(result.queriedAt)));
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET));
+    assert.equal(tavily.hits[0]!.headers.authorization, `Bearer ${SECRET}`);
+    assert.deepEqual(tavily.hits[0]!.body.include_domains, ["example.com"]);
+
+    await assert.rejects(searchTavily({ ...deps, projectId: "other" }, { query: "新闻" }), (err: unknown) => {
+      assert.ok(err instanceof WebSearchError);
+      assert.equal(err.code, "not_configured");
+      return true;
+    });
+    assert.equal(tavily.hits.length, 1, "宿主调用也不能绕过凭据项目范围");
+    for (const [query, code] of [["rate", "rate_limited"], ["bad", "malformed_response"]]) {
+      await assert.rejects(searchTavily(deps, { query }), (err: unknown) => {
+        assert.ok(err instanceof WebSearchError);
+        assert.equal(err.code, code);
+        assert.ok(!err.message.includes(SECRET));
+        if (query === "bad") {
+          assert.ok(err.capture);
+          assert.ok(!err.capture.body.includes(SECRET));
+        }
+        return true;
+      });
+    }
+    assert.equal(tavily.hits.length, 3, "限流与畸形响应都不自动重试");
+  } finally {
+    await tavily.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("默认启用：完成一次搜索，保留标题/摘要/URL/发布时间/查询时间；凭据注入且不外泄", async () => {
   const tavily = await startMockTavily(() => ({
@@ -327,13 +390,13 @@ test("项目禁用：任务开始不注册工具；任务内禁用立即阻止�
 });
 
 test("服务故障：认证失败/限流/服务错误/畸形响应/超大响应均有明确状态且不自动重试", async () => {
-  const huge = `{"results":[{"title":"big","url":"https://a.example.com","content":"${"y".repeat(300 * 1024)}"}]}`;
+  const huge = `{"results":[{"title":"big","url":"https://a.example.com","content":"${SECRET}${"y".repeat(300 * 1024)}"}]}`;
   const tavily = await startMockTavily((hit) => {
     const q = hit.body?.query ?? "";
-    if (q.includes("需要认证")) return { status: 401, json: { detail: { error: "Unauthorized: missing or invalid API key." } } };
+    if (q.includes("需要认证")) return { status: 401, json: { detail: { error: `Unauthorized: ${SECRET}` } } };
     if (q.includes("触发限流")) return { status: 429, json: { detail: { error: "blocked" } }, headers: { "retry-after": "17" } };
     if (q.includes("服务故障")) return { status: 500, json: { detail: { error: "Internal Server Error" } } };
-    if (q.includes("返回垃圾")) return { raw: "this is not json{{{" };
+    if (q.includes("返回垃圾")) return { raw: `this is not json{{{ ${SECRET}` };
     if (q.includes("超大响应")) return { raw: huge };
     return { json: { query: q, results: [], response_time: "0.1" } };
   });
@@ -376,6 +439,7 @@ test("服务故障：认证失败/限流/服务错误/畸形响应/超大响应�
       assert.equal(artifacts.length, 1, "应保存一份任务归属的原始响应产物");
       assert.equal(artifacts[0]!.taskId, taskId, "产物归属当前任务");
       assert.ok(artifacts[0]!.byteCount > 0);
+      assert.ok(!t.runtime.artifacts.read(artifacts[0]!.id, 0, artifacts[0]!.byteCount).includes(SECRET), "错误产物不得保存服务回显的凭据");
     }
     const hugeArtifact = t.runtime.store
       .listArtifactsByTask(artifactTaskIds[1]!)

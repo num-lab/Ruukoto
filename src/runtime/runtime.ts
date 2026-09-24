@@ -99,6 +99,7 @@ import { AppDataQueryRunner } from "../agent/app-data/query.ts";
 import { APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp } from "../agent/app-data/tools.ts";
 import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
+import { searchTavily, WebSearchError } from "../agent/web-search.ts";
 import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SourceResolver } from "../agent/scheduler-tools.ts";
 import { settleDelegationOp, DELEGATION_TOOL_NAMES } from "../agent/delegation-tools.ts";
 import { settleChatResultOp, CHAT_RESULT_TOOL_NAMES } from "../agent/chat-result-tools.ts";
@@ -572,7 +573,16 @@ export class Runtime {
         const problem = this.githubEvents.verifyNotification(op);
         if (problem) return problem;
         const main = this.store.getAgentRole("main");
+        if (op.sourceKind === "schedule_run") {
+          const run = this.sched.getRun(op.sourceKey);
+          if (run?.newsResult && (!main || this.store.getProject(main.projectId)?.webSearch !== "enabled")) return "新闻搜索已禁用或 main 不可用";
+        }
         return main ? this.sources.verify(main.projectId, op.sourceRefs) : "main 角色未引导";
+      },
+      searchNews: (params, signal) => {
+        const main = this.store.getAgentRole("main");
+        if (!main || this.store.getProject(main.projectId)?.webSearch !== "enabled") throw new WebSearchError("disabled", "main Web Search 不可用");
+        return searchTavily({ credentials: this.credentials, projectId: main.projectId, ...this.config.webSearch }, params, signal);
       },
       log: (message) => process.stderr.write(`[ruukoto:scheduler] ${message}\n`),
       tickMs: this.config.scheduler?.tickMs,

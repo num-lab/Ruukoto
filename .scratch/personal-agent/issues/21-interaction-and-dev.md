@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 04, 10, 11
 
 # 重构交互入口与开发调试脚手架
@@ -100,3 +100,38 @@ Depends on: 04, 10, 11
 ### 2026-09-23：需求访谈完成并创建工单
 
 用户提出交互入口重构、独立配置中心与开发热重载，先后确认 Q1–Q5、Q6–Q8 全部推荐行为。已核对 CLI/TUI 生命周期、项目与工作区关系、配置能力、SDK 模型缓存/认证、实例锁和开发终端限制。配置管理合并自 issue 19；本次仅创建规格与实施任务，未修改应用代码或执行实现测试。
+
+### 2026-09-24：交付（c094143）
+
+全部六个实施步骤完成，`npm run typecheck` 干净，`npm test` 344 通过 / 0 失败 / 1 跳过（06 需 RUN_MODEL_CHECK=1）。
+
+**实际命令**
+
+- `ruukoto`（无参）打开任务界面（沿用默认会话选择，不隐式新建）；`ruukoto --session <id>` / `--demo` 对应原 `tui` 参数。`ruukoto tui` 旧拼法打印迁移指引后仍可用。
+- `ruukoto <路径>` 以该目录为工作区创建新会话并进入；`./config`、`-- <路径>` 打开与命令同名的目录。命令名优先于路径；布尔参数经 `node:util` 严格解析（不再吞下一个 token）；未知参数与非 TTY 明确报错。`bin/ruukoto.mjs`（package.json `bin`）提供实际可执行入口（`npm link` 后可用）。
+- `ruukoto config [--offline]` 打开配置中心；后台不可达时提示后进入离线模式，同一 agentDir 被占用（配置锁）时拒绝写入。
+- `ruukoto server` 前台运行后台（复用原 `start` 全部能力并补读 `RUUKOTO_CONTROL_DIR`）；`start` 保留为兼容别名，文档与 systemd 示例已推荐 `server`。
+- `npm run dev [-- --tui | --config] [--import-models <目录>]`：隔离开发实例；`--tui` 与 `--config` 互斥且在启动任何进程前报错。
+
+**配置位置及生效规则**
+
+- 模型配置在 `<agentDir>`：`models.json`（provider/模型目录）、`auth.json`（API key）、`default-model.json`（后台默认模型，显式 `--model` 启动参数优先）、`config.lock/`（配置独占锁，后台运行期间持有，不同 dataDir 共用 agentDir 也互斥）。全部原子写入、0600。
+- 在线保存经 `expected_revision`（三文件内容指纹）条件更新；provider/目录/API key 仅在没有受影响的 running/awaiting_confirmation/queued 任务时应用（`model_config_blocked`），检查到应用完成之间受影响 provider 的新提交与 set_session_model 被拒绝（`model_config_busy`）。应用=校验→原子写→重建 ModelRuntime/目录/审查器并同步存活 Driver（SDK 会话在下一任务边界重建），失败回滚文件。删除 provider/模型前核实后台默认、会话与 agent_roles 引用（`provider_in_use`，经目录保存删除同样约束）。`test_model_connection` 为显式网络探测。
+- 开发实例 profile：`~/.ruukoto-dev/<仓库名>-<路径哈希>/{data,agent,control,pending,logs}`；环境清洗（剥离生产 owner token/执行账户/消息平台变量），QQ 默认停用（`RUUKOTO_DISABLE_QQ=1`）。界面重载状态在 `<profile>/reload-state.json`（0600，按实例标识核实，秘密不落盘）。
+
+**迁移说明**
+
+- `ruukoto tui [--session id] [--demo]` → 无参 `ruukoto`、`ruukoto --session`、`ruukoto --demo`；`ruukoto start` → `ruukoto server`（别名继续有效，systemd 单元无需变更）。
+- 既有 `models.json`/`auth.json` 原样沿用；后台默认模型首次保存后写入 `default-model.json`。schema v12 自动迁移（新增 create_request_id 列）。
+
+**测试结果**
+
+- 新增 47 个用例：test/29（入口分发）、30（工作区入口与创建幂等）、31（模型配置应用/门闩/锁/回滚）、32（dev profile/环境清洗/重载恢复/PTY 生命周期）、33（配置中心在线/离线/遮蔽/冲突）。全量 344 通过；另做了 `dev --config` 非 TTY 冒烟（离线初始化→放弃不启动后台，无残留进程）。
+- 评审（Standards/Spec 双轴）后修复：save_model_catalog 删除绕过引用检查、reload-state.ts 监听误分类、set_session_model 门闩缺口、思考档位/目录解析重复代码。
+
+**真实环境未验证项**
+
+- Linux 执行账户与 systemd 实机（可用 `ssh tx` 复核）：本次仅验证 unit 文件命令拼写与既有测试；container 后端在 macOS 未实测。
+- 真实 QQ/Telegram 渠道与真实模型端点（mock 覆盖；`test_model_connection` 逻辑经 MockModelServer 验证）。
+- `dev --config` 的 PTY 级全流程（离线→保存→在线切换）未做端到端 PTY 验证（各环节分别经 test/32、33 覆盖）。
+- 既有问题（与本工单无关，未处理）：test/26-qq 的 TTL 用例在高负载下偶发失败（main 上可复现）；仓库根 `undefined/` 目录为 9-21 遗留运行时数据。

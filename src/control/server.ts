@@ -258,6 +258,7 @@ export class ControlServer {
             instanceId: snapshot.instanceId,
             execution: snapshot.execution,
             defaultModel: snapshot.defaultModel,
+            roleSessionIds: snapshot.roleSessionIds,
           },
         };
         this.subscribers.add(socket);

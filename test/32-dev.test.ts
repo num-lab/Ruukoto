@@ -25,6 +25,7 @@ import type { Terminal } from "@earendil-works/pi-tui";
 import {
   buildChildEnv,
   classifyWatchPath,
+  planWatchRestart,
   devProfileFor,
   importModelConfigs,
   parseDevArgs,
@@ -181,6 +182,15 @@ test("监听分类：tui / config-tui / backend / both / self", () => {
   assert.equal(classifyWatchPath("src/tui/app.js"), null, "只盯 .ts");
   assert.equal(classifyWatchPath("test/32-dev.test.ts"), null, "监听范围外");
   assert.equal(classifyWatchPath("README.md"), null);
+});
+
+test("重启计划：后台变更只重启后台；配置中心不重连，随后台一并重载", () => {
+  assert.deepEqual(planWatchRestart(["backend"], "tui"), { backend: true, frontend: false }, "任务界面自动重连");
+  assert.deepEqual(planWatchRestart(["backend"], "config"), { backend: true, frontend: true });
+  assert.deepEqual(planWatchRestart(["backend"], null), { backend: true, frontend: false });
+  assert.deepEqual(planWatchRestart(["tui"], "config"), { backend: false, frontend: false });
+  assert.deepEqual(planWatchRestart(["config-tui"], "config"), { backend: false, frontend: true });
+  assert.deepEqual(planWatchRestart(["both"], "tui"), { backend: true, frontend: true });
 });
 
 test("参数解析：--tui+--config 冲突抛错；严格模式拒绝未知参数", () => {

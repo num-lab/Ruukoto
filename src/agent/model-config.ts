@@ -14,9 +14,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ModelSelection } from "../core/types.ts";
+import { createModelCatalog } from "./model-selection.ts";
 
 export { acquireConfigLock } from "../core/instance-lock.ts";
 
@@ -209,15 +210,21 @@ export function saveDefaultModel(agentDir: string, selection: ModelSelection): v
 
 // ---------- 修订指纹 / 脱敏 / 回滚快照 ----------
 
-/** 配置修订：models.json + auth.json + default-model.json 字节拼接的 sha256（缺失文件跳过）。 */
+/**
+ * 配置修订：models.json + auth.json + default-model.json 的 sha256。每个文件按
+ * 「文件名:长度」前缀后接字节（缺失记 -1），不同文件切分拼出相同字节不会同修订。
+ */
 export function configRevision(agentDir: string): string {
   const hash = createHash("sha256");
   for (const name of [MODELS_FILE, AUTH_FILE, DEFAULT_MODEL_FILE]) {
+    let bytes: Buffer | null = null;
     try {
-      hash.update(fs.readFileSync(path.join(agentDir, name)));
+      bytes = fs.readFileSync(path.join(agentDir, name));
     } catch {
-      // 缺失文件不参与指纹
+      // 缺失文件只记标记
     }
+    hash.update(`${name}:${bytes ? bytes.length : -1}\n`);
+    if (bytes) hash.update(bytes);
   }
   return hash.digest("hex");
 }
@@ -321,11 +328,56 @@ export function restoreConfigFiles(agentDir: string, snapshot: ConfigSnapshot): 
   restore(DEFAULT_MODEL_FILE, snapshot.defaultModel);
 }
 
-// ---------- 探测（开发启动器 / 离线配置 UI 用；Runtime.start 有自己的启动路径） ----------
+// ---------- 默认模型解析与探测（Runtime 启动/重建、开发启动器、离线配置 UI 共用） ----------
 
 /**
- * 探测配置目录是否有可用模型：解析默认模型（default-model.json → 目录首个
- * provider 的首个模型）并核对其凭据。不联网刷新目录，不修改任何文件。
+ * 解析默认模型：显式配置（--model / modelProvider+modelId）优先；其次
+ * <agentDir>/default-model.json 持久化的后台默认（issue 21 §3）；否则取
+ * models.json 第一个 provider 的第一个模型。不得使用 getModels()[0]——
+ * pi 内置 provider 注册表也出现在那里，会静默选中无关的云端模型。
+ * 返回模型与生效的思考档位（显式 thinkingLevel 配置始终优先）。
+ */
+export function resolveConfiguredModel(
+  modelRuntime: ModelRuntime,
+  config: { agentDir: string; modelProvider?: string; modelId?: string; thinkingLevel?: ModelSelection["thinkingLevel"] },
+): { model: any; thinkingLevel: ModelSelection["thinkingLevel"] } | undefined {
+  if (config.modelProvider) {
+    const model = modelRuntime.getModel(config.modelProvider, config.modelId ?? "");
+    return model ? { model, thinkingLevel: config.thinkingLevel ?? "off" } : undefined;
+  }
+  try {
+    const persisted = loadDefaultModel(config.agentDir);
+    if (persisted) {
+      const model = modelRuntime.getModel(persisted.provider, persisted.modelId);
+      if (model) {
+        // 目录变化后持久化的思考档位可能不再受支持：回退到配置默认，不阻断启动
+        const thinkingLevel = getSupportedThinkingLevels(model).includes(persisted.thinkingLevel)
+          ? persisted.thinkingLevel
+          : "off";
+        return { model, thinkingLevel: config.thinkingLevel ?? thinkingLevel };
+      }
+      // 持久默认指向已删除的模型：回退到目录首个模型
+    }
+  } catch {
+    // default-model.json 损坏按未配置处理，回退到目录首个模型
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(config.agentDir, "models.json"), "utf8")) as {
+      providers?: Record<string, { models?: Array<{ id: string }> }>;
+    };
+    const entry = Object.entries(raw.providers ?? {}).find(([, def]) => (def.models?.length ?? 0) > 0);
+    if (!entry) return undefined;
+    const [providerId, def] = entry as [string, { models: Array<{ id: string }> }];
+    const model = modelRuntime.getModel(providerId, def.models[0]!.id);
+    return model ? { model, thinkingLevel: config.thinkingLevel ?? "off" } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 探测配置目录是否有可用模型：与 Runtime.start 同一路径——同一默认解析，
+ * 再经模型目录核实凭据、思考档位与预算。不联网刷新目录，不修改任何文件。
  */
 export async function probeModelConfig(agentDir: string): Promise<{ ok: boolean; detail: string; selection?: ModelSelection }> {
   try {
@@ -335,27 +387,15 @@ export async function probeModelConfig(agentDir: string): Promise<{ ok: boolean;
       modelsStore: new InMemoryModelsStore(),
       refreshOnCreate: false,
     });
-    let selection: ModelSelection | null = null;
-    const persisted = loadDefaultModel(agentDir);
-    if (persisted && modelRuntime.getModel(persisted.provider, persisted.modelId)) selection = persisted;
-    if (!selection) {
-      const catalog = loadModelCatalogFile(agentDir);
-      for (const [providerId, def] of Object.entries(catalog.providers)) {
-        const first = (def?.models as Array<{ id?: unknown }> | undefined)?.[0];
-        if (typeof first?.id === "string" && modelRuntime.getModel(providerId, first.id)) {
-          selection = { provider: providerId, modelId: first.id, thinkingLevel: "off" };
-          break;
-        }
-      }
-    }
-    if (!selection) return { ok: false, detail: "未找到可用模型：models.json 中没有可解析的 provider/模型" };
-    let authed = false;
+    const configured = resolveConfiguredModel(modelRuntime, { agentDir });
+    if (!configured) return { ok: false, detail: "未找到可用模型：models.json 中没有可解析的 provider/模型" };
+    const selection: ModelSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
     try {
-      authed = Boolean(await modelRuntime.checkAuth(selection.provider));
-    } catch {
-      authed = false;
+      const catalog = await createModelCatalog(modelRuntime, agentDir, configured.model);
+      await catalog.resolve(selection);
+    } catch (err) {
+      return { ok: false, detail: `默认模型 ${selection.provider}/${selection.modelId} 不可用：${(err as Error).message}`, selection };
     }
-    if (!authed) return { ok: false, detail: `提供方 ${selection.provider} 缺少可用凭据，请配置 API key`, selection };
     return { ok: true, detail: `默认模型 ${selection.provider}/${selection.modelId} 可用`, selection };
   } catch (err) {
     return { ok: false, detail: `模型配置不可用：${(err as Error).message}` };

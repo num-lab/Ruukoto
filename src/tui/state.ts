@@ -51,6 +51,8 @@ export class ViewState {
   artifacts = new Map<string, Artifact>();
   instanceId: string | null = null;
   execution: { backend: string; note: string } = { backend: "", note: "" };
+  /** 逻辑角色绑定的会话（快照提供；角色只在后台启动时引导，不随事件新增）。 */
+  roleSessionIds: string[] = [];
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string } = {
     provider: "",
     id: "",
@@ -84,6 +86,7 @@ export class ViewState {
     this.instanceId = result.snapshot.instanceId;
     this.execution = result.snapshot.execution;
     this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
+    this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
     if (instanceChanged) {
       this.sessionViews.clear();
       this.currentSessionId = null;

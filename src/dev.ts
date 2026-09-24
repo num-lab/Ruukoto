@@ -120,6 +120,22 @@ export function classifyWatchPath(repoRelPath: string): WatchAction | null {
   return null;
 }
 
+/**
+ * 一批监听动作 → 重启谁。任务界面经 ControlConnection 自动重连，后台重启不必
+ * 重启它；配置中心用一次性连接、不重连（且直接引用 src/agent 下的配置模块），
+ * 后台重启时一并重载（重载状态恢复所在分区）。
+ */
+export function planWatchRestart(actions: WatchAction[], frontend: "tui" | "config" | null): { backend: boolean; frontend: boolean } {
+  const backend = actions.includes("backend") || actions.includes("both");
+  const restartFrontend =
+    frontend !== null &&
+    (actions.includes("both") ||
+      (actions.includes("tui") && frontend === "tui") ||
+      (actions.includes("config-tui") && frontend === "config") ||
+      (backend && frontend === "config"));
+  return { backend, frontend: restartFrontend };
+}
+
 export interface DevArgs {
   tui: boolean;
   config: boolean;
@@ -472,14 +488,9 @@ class DevSession {
     const actions = [...this.pendingWatch];
     this.pendingWatch.clear();
     if (this.stopping) return;
-    const needBackend = actions.includes("backend") || actions.includes("both");
-    const needFrontend =
-      (actions.includes("both") ||
-        (actions.includes("tui") && this.frontendKind === "tui") ||
-        (actions.includes("config-tui") && this.frontendKind === "config")) &&
-      this.frontendKind !== null;
-    if (needBackend) await this.restartBackend();
-    if (needFrontend) await this.restartFrontend();
+    const plan = planWatchRestart(actions, this.frontendKind);
+    if (plan.backend) await this.restartBackend();
+    if (plan.frontend) await this.restartFrontend();
   }
 
   private closeWatchers(): void {

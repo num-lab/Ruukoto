@@ -40,17 +40,17 @@ export async function resolveWorkspaceDir(pathArg: string, cwd: string): Promise
 }
 
 /**
- * 按目录身份找候选项目：kind 为 dev 的会话中，cwdReal 相同或 dev+ino 相同
- * （覆盖符号链接与挂载别名）者所属的项目。去重并保持快照顺序。
+ * 按目录身份找候选项目：kind 为 dev 且不是逻辑角色绑定的会话中，cwdReal 相同
+ * 或 dev+ino 相同（覆盖符号链接与挂载别名）者所属的项目。去重并保持快照顺序。
  */
 export function findWorkspaceProjects(
-  snapshot: { projects: Project[]; sessions: Session[] },
+  snapshot: { projects: Project[]; sessions: Session[]; roleSessionIds: string[] },
   identity: DirIdentity,
 ): Project[] {
   const seen = new Set<string>();
   const out: Project[] = [];
   for (const session of snapshot.sessions) {
-    if (session.kind !== "dev") continue;
+    if (session.kind !== "dev" || snapshot.roleSessionIds.includes(session.id)) continue;
     const sameDir =
       session.cwdReal === identity.cwdReal ||
       (session.cwdDev === identity.dev && session.cwdIno === identity.ino);

@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { getSupportedThinkingLevels, InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Db } from "../core/db.ts";
 import { isToolOpExecutionUncertain, Store, StoreConflictError } from "../core/store.ts";
@@ -44,6 +44,7 @@ import { createModelCatalog, type ModelCatalog, type ModelOption } from "../agen
 import {
   configRevision,
   configSecrets,
+  resolveConfiguredModel,
   loadAuthFile,
   loadDefaultModel,
   loadModelCatalogFile,
@@ -186,51 +187,6 @@ export function parseModelSelection(value: unknown): ModelSelection {
 
 class DirOccupiedError extends Error {}
 class TaskGoneError extends Error {}
-
-/**
- * 解析默认模型：显式配置（--model / modelProvider+modelId）优先；其次
- * <agentDir>/default-model.json 持久化的后台默认（issue 21 §3）；否则取
- * models.json 第一个 provider 的第一个模型。不得使用 getModels()[0]——
- * pi 内置 provider 注册表也出现在那里，会静默选中无关的云端模型。
- * 返回模型与生效的思考档位（显式 thinkingLevel 配置始终优先）。
- */
-function resolveConfiguredModel(
-  modelRuntime: ModelRuntime,
-  config: RuntimeConfig,
-): { model: any; thinkingLevel: ModelSelection["thinkingLevel"] } | undefined {
-  if (config.modelProvider) {
-    const model = modelRuntime.getModel(config.modelProvider, config.modelId ?? "");
-    return model ? { model, thinkingLevel: config.thinkingLevel ?? "off" } : undefined;
-  }
-  try {
-    const persisted = loadDefaultModel(config.agentDir);
-    if (persisted) {
-      const model = modelRuntime.getModel(persisted.provider, persisted.modelId);
-      if (model) {
-        // 目录变化后持久化的思考档位可能不再受支持：回退到配置默认，不阻断启动
-        const thinkingLevel = getSupportedThinkingLevels(model).includes(persisted.thinkingLevel)
-          ? persisted.thinkingLevel
-          : "off";
-        return { model, thinkingLevel: config.thinkingLevel ?? thinkingLevel };
-      }
-      // 持久默认指向已删除的模型：回退到目录首个模型
-    }
-  } catch {
-    // default-model.json 损坏按未配置处理，回退到目录首个模型
-  }
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(config.agentDir, "models.json"), "utf8")) as {
-      providers?: Record<string, { models?: Array<{ id: string }> }>;
-    };
-    const entry = Object.entries(raw.providers ?? {}).find(([, def]) => (def.models?.length ?? 0) > 0);
-    if (!entry) return undefined;
-    const [providerId, def] = entry as [string, { models: Array<{ id: string }> }];
-    const model = modelRuntime.getModel(providerId, def.models[0]!.id);
-    return model ? { model, thinkingLevel: config.thinkingLevel ?? "off" } : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export class Runtime {
   readonly config: RuntimeConfig;
@@ -2038,6 +1994,7 @@ export class Runtime {
     instanceId: string;
     execution: { backend: string; note: string };
     defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
+    roleSessionIds: string[];
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -2067,6 +2024,7 @@ export class Runtime {
       instanceId: this.db.getInstanceId(),
       execution: this.executionInfo(),
       defaultModel: this.modelInfo(),
+      roleSessionIds: this.store.listAgentRoles().map((r) => r.sessionId),
       seq: this.store.getMaxSeq(),
     };
   }

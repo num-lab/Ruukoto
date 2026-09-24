@@ -174,3 +174,16 @@ Depends on: 04, 10, 11
 5. **附带修复 test/26-qq TTL 用例的偶发失败**（此前记为高负载偶发）：根因是 OneBot 事件 `time` 精确到秒（向下取整），而 TTL 只有 800ms，恰在秒末发出的消息登记时就被判过期。TTL 改为 1500ms，登记时不会误判，第二条排队约 1.8s 才轮到仍必然过期。修复后连续 8 次通过。
 
 回归测试：test/30 增加请求超时（连接不断）用例：进入会话且只建一个；test/31 增加 set_session_model 与删除 provider 竞态用例：拒绝且会话不指向已删 provider；门闩窗口用例增加内部提交先等待、应用后完成的断言。三条在旧代码上均失败。`npm run typecheck` 通过；`npm test` 370 项，369 通过，1 项按默认跳过。
+
+#### 第四批修复
+
+1. **⑪ dev 重启后台时配置中心断开**：重启判断抽为 `planWatchRestart`。后台重启时，若当前前端是配置中心，就一并重载它（配置中心用一次性连接、不自动重连，且直接引用 `src/agent` 下的 `model-config.ts`、`mcp/store.ts`），重载状态恢复所在分区。任务界面经 ControlConnection 自动重连，仍然只重启后台；任务界面对后台目录只有类型引用，运行时不受影响。
+2. **⑫ 重载恢复屏幕 id 不一致**：约定 `Screen.id` 等于上一层打开它的菜单项 value，并写入接口注释。改正 5 处：`models-of:` → `models`，`model-entry:` → `model:<i>`，`grants:` → `grants`，`mcp-svc:` → `svc:`，`qq-groups` → `groups`。屏幕 id 只用于重载持久化，无其他引用。
+3. **⑬ 修订号哈希**：每个文件按「文件名:长度」前缀后接字节，缺失文件记 -1。
+4. **⑭ 工作区归属未排除角色会话**：快照新增可选字段 `roleSessionIds`（来自 agent_roles，旧后台缺省为空）。任务界面状态保存它，`findWorkspaceProjects` 跳过这些会话，满足规格"角色和 QQ 专用会话不作为自动归属依据"。
+5. **⑮ 默认模型解析重复**：`resolveConfiguredModel` 从 runtime.ts 移到 `model-config.ts` 并导出，参数收窄为所需字段。`probeModelConfig` 改为与 `Runtime.start` 同一路径：同一解析，再用 `createModelCatalog` 加 `resolve` 核实凭据、思考档位和预算。
+6. 文档：`docs/runtime.md` 补充 dev 重启时两种界面的不同处理。
+
+回归测试：test/32 增加重启计划断言；test/33 的重载用例改为走到"提供方 → 模型列表"再恢复，且不得误报分区不存在；test/30 增加角色会话过滤，并断言快照列出角色会话；test/31 增加首个 provider 不可解析时探测与 `Runtime.start` 同判不可用，以及修订号按文件分隔。新增断言在旧代码上均失败。`npm run typecheck` 通过；`npm test` 372 项，371 通过，1 项按默认跳过。
+
+c094143 评审的 15 项全部修复（39a5681、4944ed3、b4fc823 及本批提交）。

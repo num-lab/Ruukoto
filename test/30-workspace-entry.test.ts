@@ -313,6 +313,12 @@ test("快照与事件携带 createRequestId；无键创建为 null", async () =>
     const plain = await t.client.request<any>("create_project", { name: "snap-plain" });
 
     const handshake = await t.client.handshake();
+    assert.deepEqual(
+      handshake.snapshot.roleSessionIds,
+      t.runtime.store.listAgentRoles().map((r) => r.sessionId),
+      "快照列出逻辑角色会话",
+    );
+    assert.ok(handshake.snapshot.roleSessionIds!.length > 0, "编排器已引导角色");
     assert.equal(
       handshake.snapshot.sessions.find((s) => s.id === session.id)?.createRequestId,
       "snap-key",
@@ -366,13 +372,14 @@ test("resolveWorkspaceDir：相对路径按客户端 cwd 解析；不存在/文�
   }
 });
 
-test("findWorkspaceProjects：按 cwdReal 与 dev+ino 匹配，忽略非 dev 会话，去重保序", () => {
+test("findWorkspaceProjects：按 cwdReal 与 dev+ino 匹配，忽略非 dev 与角色会话，去重保序", () => {
   const projA = fakeProject({ id: "proj_a", name: "A" });
   const projB = fakeProject({ id: "proj_b", name: "B" });
   const projQq = fakeProject({ id: "proj_qq", name: "QQ" });
+  const projRole = fakeProject({ id: "proj_role", name: "main" });
   const identity = { cwd: "/work/x", cwdReal: "/work/x", dev: 10, ino: 20 };
   const snapshot = {
-    projects: [projA, projB, projQq],
+    projects: [projA, projB, projQq, projRole],
     sessions: [
       // cwdReal 相同（符号链接别名）
       fakeSession({ id: "s1", projectId: "proj_a", cwd: "/alias/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
@@ -382,9 +389,12 @@ test("findWorkspaceProjects：按 cwdReal 与 dev+ino 匹配，忽略非 dev 会
       fakeSession({ id: "s3", projectId: "proj_a", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
       // qq_group 会话不作为工作区归属依据
       fakeSession({ id: "s4", projectId: "proj_qq", kind: "qq_group", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
+      // 逻辑角色会话（kind 仍为 dev）同样不作为归属依据
+      fakeSession({ id: "s_role", projectId: "proj_role", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
       // 无关目录
       fakeSession({ id: "s5", projectId: "proj_b", cwd: "/elsewhere", cwdReal: "/elsewhere", cwdDev: 11, cwdIno: 21 }),
     ],
+    roleSessionIds: ["s_role"],
   };
   const found = findWorkspaceProjects(snapshot, identity);
   assert.deepEqual(

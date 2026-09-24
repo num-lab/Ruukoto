@@ -76,6 +76,7 @@ export interface ConfigTuiAppDeps {
 
 /** 菜单分区：id 用于重载状态路径；watch 决定哪类事件触发刷新。 */
 interface Screen {
+  /** 必须等于上一层打开本屏幕的菜单项 value：重载恢复按这些 id 逐层重放选择。 */
   id: string;
   title: string;
   /** 标题下的说明行（数据快照，随刷新重建）。 */
@@ -703,7 +704,7 @@ export class ConfigTuiApp {
 
   private modelsOfProviderScreen(providerId: string): Screen {
     return {
-      id: `models-of:${providerId}`,
+      id: "models",
       title: `提供方 ${providerId} 的模型`,
       watch: (t) => t === "model.config_changed",
       load: async () => {
@@ -740,7 +741,7 @@ export class ConfigTuiApp {
   private modelEntryScreen(providerId: string, index: number): Screen {
     const label = (view: ModelConfigView): any => ((view.providers[providerId] as any)?.models as any[] | undefined)?.[index];
     return {
-      id: `model-entry:${providerId}:${index}`,
+      id: `model:${index}`,
       title: `模型条目 ${providerId}#${index + 1}`,
       watch: (t) => t === "model.config_changed",
       load: async () => {
@@ -1011,7 +1012,7 @@ export class ConfigTuiApp {
   private grantsScreen(projectId: string): Screen {
     const projectName = (id: string): string => this.findProject(id)?.name ?? id;
     return {
-      id: `grants:${projectId}`,
+      id: "grants",
       title: `项目「${projectName(projectId)}」的资料授权`,
       watch: (t) => t === "data_grant.created" || t === "data_grant.revoked",
       load: async () => {
@@ -1171,7 +1172,7 @@ export class ConfigTuiApp {
 
   private mcpServiceScreen(serviceId: string): Screen {
     return {
-      id: `mcp-svc:${serviceId}`,
+      id: `svc:${serviceId}`,
       title: `MCP 服务 ${serviceId.slice(0, 12)}…`,
       watch: (t) => t === "mcp.service_changed",
       load: async () => {
@@ -1366,7 +1367,7 @@ export class ConfigTuiApp {
 
   private qqGroupsScreen(): Screen {
     return {
-      id: "qq-groups",
+      id: "groups",
       title: "QQ 允许群",
       watch: (t) => t === "qq.config_changed",
       load: async () => {

@@ -1037,7 +1037,7 @@ export class TuiApp {
       this.startupRequestId = `boot-${randomUUID()}`;
     }
     const candidates = findWorkspaceProjects(
-      { projects: this.state.projects, sessions: this.state.sessions },
+      { projects: this.state.projects, sessions: this.state.sessions, roleSessionIds: this.state.roleSessionIds },
       this.workspaceIdentity,
     );
     if (candidates.length === 0) {

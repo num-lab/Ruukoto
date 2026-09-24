@@ -328,16 +328,21 @@ test("重载状态：分区路径持久化与恢复，损坏文件提示后回�
   const origEnv = process.env[envKey];
   process.env[envKey] = stateFile;
   try {
-    // 第一次：进入「模型与提供方」后退出，分区路径应落盘
+    // 第一次：模型与提供方 → 提供方 mock → 模型列表后退出，分区路径应落盘
+    // （模型列表屏幕由 value 为 models 的条目打开，id 必须与之一致才能恢复）
     const h1 = startConfig(t);
     try {
       await waitForText(h1.terminal, "配置分区");
       h1.terminal.send(ENTER);
       await waitForText(h1.terminal, "设置后台默认模型");
+      h1.terminal.send(ENTER); // provider:mock
+      await waitForText(h1.terminal, "提供方 mock");
+      h1.terminal.send(DOWN + DOWN + DOWN + DOWN + ENTER); // → 模型列表
+      await waitForText(h1.terminal, "新增模型");
       await waitFor("重载状态落盘", () => {
         try {
           const s = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-          return s.kind === "config-tui" && JSON.stringify(s.section) === JSON.stringify(["models"]);
+          return s.kind === "config-tui" && JSON.stringify(s.section) === JSON.stringify(["models", "provider:mock", "models"]);
         } catch {
           return false;
         }
@@ -346,10 +351,11 @@ test("重载状态：分区路径持久化与恢复，损坏文件提示后回�
       assert.equal(await h1.quit(), 0);
     }
 
-    // 第二次：同一实例重启，直接落在模型分区
+    // 第二次：同一实例重启，逐层恢复到模型列表
     const h2 = startConfig(t);
     try {
-      await waitForText(h2.terminal, "设置后台默认模型", "恢复后直接进入模型分区");
+      await waitForText(h2.terminal, "新增模型", "恢复后直接进入提供方的模型列表");
+      assert.ok(!h2.terminal.output().includes("已不存在"), "不得误报分区不存在");
       const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
       assert.equal(state.instanceId.length > 0, true);
     } finally {

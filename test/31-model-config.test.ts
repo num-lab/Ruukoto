@@ -23,7 +23,7 @@ import { spawnSync } from "node:child_process";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { ControlServer } from "../src/control/server.ts";
 import { acquireConfigLock, InstanceLockError } from "../src/core/instance-lock.ts";
-import { probeModelConfig } from "../src/agent/model-config.ts";
+import { configRevision, probeModelConfig } from "../src/agent/model-config.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import {
@@ -134,11 +134,31 @@ test("probeModelConfig：有配置可用 / 空目录不可用", async () => {
       const probed = await probeModelConfig(dirs.agentDir);
       assert.equal(probed.ok, true);
       assert.deepEqual(probed.selection, MOCK_SELECTION);
+      // 首个 provider 的首个模型不可解析（缺 api，SDK 丢弃）：探测与 Runtime.start 同判不可用，
+      // 不能探测放行、后台却 no_model 启动失败
+      const file = path.join(dirs.agentDir, "models.json");
+      const config = JSON.parse(fs.readFileSync(file, "utf8"));
+      fs.writeFileSync(file, JSON.stringify({ providers: { bad: { baseUrl, models: [{ id: "x" }] }, ...config.providers } }));
+      assert.equal((await probeModelConfig(dirs.agentDir)).ok, false);
+      await assert.rejects(startRt(dirs), (err: any) => err.code === "no_model");
     } finally {
       await server.close();
     }
   } finally {
     await cleanupDirs(dirs);
+  }
+});
+
+test("configRevision：按文件分隔，同一字节换一个文件不会得到相同修订", async () => {
+  const { dirs: a } = await makeTestDirs("model-config-rev-a", 0);
+  const { dirs: b } = await makeTestDirs("model-config-rev-b", 0);
+  try {
+    fs.writeFileSync(path.join(a.agentDir, "auth.json"), "{}");
+    fs.writeFileSync(path.join(b.agentDir, "default-model.json"), "{}");
+    assert.notEqual(configRevision(a.agentDir), configRevision(b.agentDir));
+  } finally {
+    await cleanupDirs(a);
+    await cleanupDirs(b);
   }
 });
 

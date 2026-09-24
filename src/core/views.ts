@@ -6,7 +6,7 @@
  * 只有发往客户端的载荷经这里的有界视图转换：
  * - 大参数对象 → 结构保留的预览（长字符串截断并标注），完整序列化正文经
  *   get_confirmation / get_tool_op 按 ID 分段读取；
- * - 运行中输出片段在源头（Driver）已按尾部有界化（FRAGMENT_TEXT_CAP）。
+ * - 运行中输出增量与思考文本在源头（Driver）已按 FRAGMENT_TEXT_CAP 有界化。
  */
 
 import type { ConfirmationRequest, PersistentEvent, ToolOp } from "./types.ts";
@@ -15,7 +15,7 @@ import type { ConfirmationRequest, PersistentEvent, ToolOp } from "./types.ts";
 export const PARAMS_INLINE_CAP = 8 * 1024;
 /** 预览对象中单个字符串的上限（字符）。 */
 export const PARAMS_PREVIEW_STRING_CAP = 256;
-/** 运行中输出片段的尾部保留上限（字节）。 */
+/** 运行中输出增量及思考文本尾部的上限（字节）。 */
 export const FRAGMENT_TEXT_CAP = 8 * 1024;
 /** 历史/参数等分段读取的默认页大小与上限。 */
 export const SEGMENT_DEFAULT_BYTES = 64 * 1024;

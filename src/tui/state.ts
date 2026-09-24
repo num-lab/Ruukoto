@@ -1,16 +1,4 @@
-/**
- * TUI 视图状态：快照与事件的应用、会话级展示数据。
- *
- * 设计分界：
- * -  transcript（消息记录）：来自历史读取接口的已落盘条目（唯一权威历史的
- *    投影），整页加载/向前翻页/按条目补齐；不回滚、不从事件补造正文；
- * -  activity（当前活动）：运行中/已中断任务的输出预览、工具记录与临时提示，
- *    来自快照 previews 与实时事件；任务结束并落盘后内容进入历史，活动区清空；
- * - 补发事件（replay）不改变任务状态：状态以快照为准，显示记录以历史重载
- *    为准（本模块据此忽略 replay 的状态改写）。
- *
- * 本模块不导入 pi-tui，可无终端测试。
- */
+/** 控制面状态与会话交互状态；事件展示统一交给 EventFlow 投影。 */
 
 import type {
   AccessMode,
@@ -24,69 +12,15 @@ import type {
 } from "../core/types.ts";
 import { ACTIVE_TASK_STATUSES } from "../core/types.ts";
 import type { ConnectResult } from "../control/protocol.ts";
-import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
+import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "../core/views.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { PendingRequest } from "../control/pending-requests.ts";
+import { EventFlow } from "./event-flow.ts";
 
 /** 每个会话在内存中保留的已加载历史条目上限（超出丢弃最旧；原文可翻页找回）。 */
 export const MAX_LOADED_ENTRIES = 300;
 
-export type TranscriptItem =
-  | {
-      kind: "message";
-      entryId: string;
-      role: string;
-      text: string;
-      truncated: boolean;
-      totalBytes: number;
-      timestamp: string;
-      toolCalls: Array<{ toolCallId: string; toolName: string }>;
-      hasNonTextContent: boolean;
-    }
-  | {
-      kind: "toolEntry";
-      entryId: string;
-      toolName: string;
-      toolCallId: string;
-      isError: boolean;
-      text: string;
-      truncated: boolean;
-      totalBytes: number;
-      timestamp: string;
-      /** 调用目标（path/command/…）：活动区记录落盘时带过来；纯历史加载为 null。 */
-      target: string | null;
-    };
-
-export interface ToolRecord {
-  toolOpId: string;
-  taskId: string;
-  toolName: string;
-  sdkCallId: string | null;
-  paramsPreview: Record<string, unknown>;
-  paramsTruncated: boolean;
-  status: "running" | "done" | "error" | "effect_unknown";
-  resultSummary: string | null;
-  artifactIds: string[];
-  /** 最近一次状态变化的事件时间（与提示、结束标记同源，用于事件流排序）。 */
-  at: string;
-}
-
-export interface ActivityNote {
-  key: string;
-  text: string;
-  at: string;
-}
-
-/** 斜杠命令回显：❯ /mode 行 + 完成后的 ⎿ 结果行，按时间进事件流。 */
-export interface CommandEcho {
-  key: string;
-  /** 原始命令行（含斜杠与参数）。 */
-  line: string;
-  /** 命令结果（null = 尚无结果或不产生结果）。 */
-  result: string | null;
-  resultIsError: boolean;
-  at: string;
-}
+export interface ActivityNote { key: string; text: string; at: string }
 
 export interface SessionView {
   sessionId: string;
@@ -94,33 +28,12 @@ export interface SessionView {
   cwd: string;
   queueState: "active" | "paused";
   queuePauseReason: string | null;
-  /** 已加载历史窗口（旧 → 新）。 */
-  transcript: TranscriptItem[];
-  loadedEntryIds: Set<string>;
-  /** 向前翻页游标（更老）；null = 已到顶或未加载。 */
+  flow: EventFlow;
   historyCursor: string | null;
   historyLoaded: boolean;
-  /** 因内存窗口上限丢弃过更旧条目（仍可翻页找回）。 */
   trimmedOlder: boolean;
   hasPartialTail: boolean;
-  /** 当前/最近任务的输出预览（生成中或中断前捕获）。 */
-  preview: (OutputPreview & { taskId: string }) | null;
-  /** 预览对应的事件序号（防止旧片段覆盖新预览）。 */
-  previewSeq: number;
-  tools: ToolRecord[];
-  notes: ActivityNote[];
-  /**
-   * 本客户端已提交但尚未在历史里出现的用户输入（任务 id → 原文）。
-   *
-   * 提交后后台要过一会儿才把用户消息写进 JSONL、再经历史读取回传；这段
-   * 空窗期里界面只有「Sweeping」，看不到刚发出的消息。先用任务携带的
-   * input 占位显示，历史条目到达后按内容匹配移除。
-   */
-  pendingInputs: Map<string, { text: string; at: string }>;
-  /** 斜杠命令回显（旧 → 新）；有界，超出丢弃最旧。 */
-  commands: CommandEcho[];
   draft: string;
-  /** 离开时的滚动位置（null = 跟随底部）。 */
   scrollTop: number | null;
 }
 
@@ -128,58 +41,6 @@ export interface ConnectionInfo {
   state: "connecting" | "online" | "reconnecting" | "failed" | "closed";
   detail: string | null;
   lastSyncAt: Date | null;
-}
-
-/**
- * 工具调用的「目标」（⎿ 之后显示）：按已知工具的参数名取最能说明操作对象的值
- * （read/edit/write → path，bash → command，http_request → url，…），
- * 未知工具取第一个非空字符串参数。多行命令只取首行。
- * ponytail: 参数名优先级是启发式，新工具的目标列不对时往 TARGET_KEYS 里加。
- */
-const TOOL_TARGET_KEYS = ["path", "command", "url", "pattern", "query", "name"];
-export function toolTargetFromParams(params: Record<string, unknown>): string {
-  const firstLine = (v: unknown): string | null => {
-    if (typeof v !== "string" || !v.trim()) return null;
-    const line = v.trim().split("\n")[0]!;
-    return v.trim().includes("\n") ? `${line} …` : line;
-  };
-  for (const key of TOOL_TARGET_KEYS) {
-    const line = firstLine(params[key]);
-    if (line) return line;
-  }
-  for (const value of Object.values(params)) {
-    const line = firstLine(value);
-    if (line) return line;
-  }
-  return "";
-}
-
-function entryToTranscriptItem(view: HistoryEntryView): TranscriptItem {
-  if (view.role === "toolResult") {
-    return {
-      kind: "toolEntry",
-      entryId: view.entryId,
-      toolName: view.toolName ?? "unknown",
-      toolCallId: view.toolCallId ?? "",
-      isError: view.isError ?? false,
-      text: view.text,
-      truncated: view.truncated,
-      totalBytes: view.totalBytes,
-      timestamp: view.timestamp,
-      target: null,
-    };
-  }
-  return {
-    kind: "message",
-    entryId: view.entryId,
-    role: view.role,
-    text: view.text,
-    truncated: view.truncated,
-    totalBytes: view.totalBytes,
-    timestamp: view.timestamp,
-    toolCalls: view.toolCalls,
-    hasNonTextContent: view.hasNonTextContent,
-  };
 }
 
 export class ViewState {
@@ -206,6 +67,7 @@ export class ViewState {
   globalNotes: ActivityNote[] = [];
   /** 快照中的任务预览（按任务）；会话视图打开时应用。 */
   private snapshotPreviews = new Map<string, OutputPreview>();
+  private taskSeq = new Map<string, number>();
   private noteCounter = 0;
   private commandCounter = 0;
 
@@ -216,6 +78,7 @@ export class ViewState {
     this.projects = result.snapshot.projects;
     this.sessions = result.snapshot.sessions;
     this.tasks = new Map(result.snapshot.tasks.map((t) => [t.id, t]));
+    this.taskSeq = new Map(result.snapshot.tasks.map((t) => [t.id, result.seq]));
     this.confirmations = result.snapshot.confirmations;
     this.artifacts = new Map(result.snapshot.artifacts.map((a) => [a.id, a]));
     this.instanceId = result.snapshot.instanceId;
@@ -225,26 +88,19 @@ export class ViewState {
       this.sessionViews.clear();
       this.currentSessionId = null;
     }
-    // 同步会话结构字段与预览
-    for (const session of this.sessions) {
-      const view = this.sessionViews.get(session.id);
-      if (view) {
-        view.projectId = session.projectId;
-        view.cwd = session.cwd;
-        view.queueState = session.queueState;
-        view.queuePauseReason = session.queuePauseReason;
-      }
-    }
-    // 预览先按任务登记；已打开的会话视图立即应用，未打开的随 openSession 应用
     this.snapshotPreviews = new Map(Object.entries(result.snapshot.previews));
-    for (const [taskId, preview] of this.snapshotPreviews) {
-      const task = this.tasks.get(taskId);
-      if (!task) continue;
-      const view = this.sessionViews.get(task.sessionId);
-      if (!view) continue;
-      if (preview.seq >= view.previewSeq) {
-        view.preview = { ...preview, taskId };
-        view.previewSeq = preview.seq;
+    for (const [sessionId, view] of this.sessionViews) {
+      const session = this.sessions.find((item) => item.id === sessionId);
+      if (!session) continue;
+      view.projectId = session.projectId;
+      view.cwd = session.cwd;
+      view.queueState = session.queueState;
+      view.queuePauseReason = session.queuePauseReason;
+      view.flow.resetRemote();
+      view.historyLoaded = false;
+      for (const task of this.tasksFor(sessionId)) if (isActiveStatus(task.status)) view.flow.task(task);
+      for (const [taskId, preview] of this.snapshotPreviews) {
+        if (this.tasks.get(taskId)?.sessionId === sessionId) view.flow.preview(taskId, preview);
       }
     }
   }
@@ -258,8 +114,20 @@ export class ViewState {
    */
   applyEvent(event: PersistentEvent, kind: "live" | "replay"): void {
     const body = event.body;
-    if (kind === "live") this.applyStateEvent(event);
-    this.applyDisplayEvent(event, kind);
+    if (kind === "live") {
+      this.applyStateEvent(event);
+      if ("taskId" in body && typeof body.taskId === "string") this.taskSeq.set(body.taskId, event.seq);
+    }
+    const sessionId = event.sessionId ?? ("sessionId" in body ? body.sessionId : null)
+      ?? ("taskId" in body && typeof body.taskId === "string" ? this.tasks.get(body.taskId)?.sessionId : null);
+    if (sessionId) {
+      const view = this.openSession(sessionId);
+      if ("taskId" in body && typeof body.taskId === "string") {
+        const task = this.tasks.get(body.taskId);
+        if (task) view.flow.task(task);
+      }
+      view.flow.apply(event);
+    }
   }
 
   /** 状态事件：仅 live 应用（replay 的状态以快照为最新）。 */
@@ -340,17 +208,12 @@ export class ViewState {
       case "task.completed":
         // 不加提示行：结束已由转录区末尾的「耗时 … · 结束 …」标注
         this.patchTask(body.taskId, { status: "completed", endedAt: event.createdAt });
-        this.clearPendingInputForTask(body.taskId);
         return;
       case "task.failed":
         this.patchTask(body.taskId, { status: "failed", endedAt: event.createdAt, errorMessage: body.errorMessage });
-        this.clearPendingInputForTask(body.taskId);
-        this.noteForTask(body.taskId, `任务失败：${body.errorMessage}`, event.createdAt);
         return;
       case "task.canceled":
         this.patchTask(body.taskId, { status: "canceled", endedAt: event.createdAt, cancelRequested: true });
-        this.clearPendingInputForTask(body.taskId);
-        this.noteForTask(body.taskId, "任务已取消", event.createdAt);
         return;
       case "task.interrupted":
         this.patchTask(body.taskId, {
@@ -360,12 +223,6 @@ export class ViewState {
           cancelRequested: body.cancelRequested,
           effectUnknown: body.effectUnknown,
         });
-        this.clearPendingInputForTask(body.taskId);
-        this.noteForTask(
-          body.taskId,
-          `任务已中断（${body.reason}）${body.effectUnknown ? "；存在效果未知的工具操作，不能当作可安全重试" : ""}`,
-          event.createdAt,
-        );
         return;
       case "task.continued": {
         const resumed = this.tasks.get(body.resumesTaskId);
@@ -389,6 +246,7 @@ export class ViewState {
         this.noteForTask(body.taskId, `模式切换失败：${body.reason}`, event.createdAt);
         return;
       case "task.awaiting_confirmation": {
+        if (this.tasks.get(body.taskId)?.status === "running") this.patchTask(body.taskId, { status: "awaiting_confirmation" });
         if (!this.confirmations.some((c) => c.id === body.confirmationId)) {
           this.confirmations.push({
             id: body.confirmationId,
@@ -425,6 +283,9 @@ export class ViewState {
       case "task.confirmation_resolved": {
         const resolved = this.confirmations.find((c) => c.id === body.confirmationId);
         this.confirmations = this.confirmations.filter((c) => c.id !== body.confirmationId);
+        if (this.tasks.get(body.taskId)?.status === "awaiting_confirmation" && !this.confirmations.some((c) => c.taskId === body.taskId && c.status === "pending")) {
+          this.patchTask(body.taskId, { status: "running" });
+        }
         // 自动审查的决定提示来源与理由（人工决定沿用现有行为，不额外提示）
         if (body.source === "auto_review") {
           this.note(
@@ -515,179 +376,59 @@ export class ViewState {
     }
   }
 
-  /** 显示事件：live 与 replay 都应用（带序号防护，不允许旧片段覆盖新预览）。 */
-  private applyDisplayEvent(event: PersistentEvent, kind: "live" | "replay"): void {
-    const body = event.body;
-    switch (body.type) {
-      case "task.output_fragment": {
-        const view = this.sessionViews.get(body.sessionId);
-        if (!view) return;
-        // 序号防护：任何更旧的片段（含 replay 的其他消息）都不得覆盖更新的预览
-        if (event.seq < view.previewSeq) return;
-        view.preview = {
-          messageId: body.messageId,
-          text: body.text,
-          totalBytes: body.totalBytes,
-          truncated: body.truncated,
-          seq: event.seq,
-          state: "generating",
-          taskId: body.taskId,
-        };
-        view.previewSeq = event.seq;
-        return;
-      }
-      case "task.output_entry": {
-        // 最终条目落盘：取代对应预览；正文经历史读取补齐（app 层取回后
-        // 调 appendEntryView）。预览清除先于正文到达，避免重复显示。
-        const view = this.sessionViews.get(body.sessionId);
-        if (view?.preview && body.messageId && view.preview.messageId === body.messageId) {
-          view.preview = null;
-        }
-        return;
-      }
-      case "task.tool_intent": {
-        const view = (event.sessionId && this.sessionViews.get(event.sessionId)) || viewForTask(this.sessionViews, body.taskId);
-        if (!view) return;
-        // 该调用的结果已在历史里（重放/迟到事件）：不再产生活动区记录，避免与历史条目双份显示
-        if (body.sdkCallId && view.transcript.some((t) => t.kind === "toolEntry" && t.toolCallId === body.sdkCallId)) return;
-        if (!view.tools.some((t) => t.toolOpId === body.toolOpId)) {
-          view.tools.push({
-            toolOpId: body.toolOpId,
-            taskId: body.taskId,
-            toolName: body.toolName,
-            sdkCallId: body.sdkCallId,
-            paramsPreview: body.params,
-            paramsTruncated: body.paramsTruncated ?? false,
-            status: "running",
-            resultSummary: null,
-            artifactIds: [],
-            at: event.createdAt,
-          });
-        }
-        return;
-      }
-      case "task.tool_result": {
-        const view = (event.sessionId && this.sessionViews.get(event.sessionId)) || viewForTask(this.sessionViews, body.taskId);
-        const tool = view?.tools.find((t) => t.toolOpId === body.toolOpId);
-        if (tool) {
-          tool.status = body.isError ? "error" : "done";
-          tool.resultSummary = body.summary;
-          tool.artifactIds = body.artifactIds;
-          tool.at = event.createdAt;
-        }
-        return;
-      }
-      case "task.tool_effect_unknown": {
-        const view = (event.sessionId && this.sessionViews.get(event.sessionId)) || viewForTask(this.sessionViews, body.taskId);
-        const tool = view?.tools.find((t) => t.toolOpId === body.toolOpId);
-        if (tool) {
-          tool.status = "effect_unknown";
-          tool.at = event.createdAt;
-        }
-        return;
-      }
-      default:
-        return;
-    }
-  }
-
   // ---------- 会话视图 ----------
 
-  /** 打开/取得会话视图（首次创建空视图；历史由 app 层经 read_history 加载）。 */
   openSession(sessionId: string): SessionView {
     let view = this.sessionViews.get(sessionId);
-    if (!view) {
-      const session = this.sessions.find((s) => s.id === sessionId);
-      view = {
-        sessionId,
-        projectId: session?.projectId ?? "",
-        cwd: session?.cwd ?? "",
-        queueState: session?.queueState ?? "active",
-        queuePauseReason: session?.queuePauseReason ?? null,
-        transcript: [],
-        loadedEntryIds: new Set(),
-        historyCursor: null,
-        historyLoaded: false,
-        trimmedOlder: false,
-        hasPartialTail: false,
-        preview: null,
-        previewSeq: 0,
-        tools: [],
-        notes: [],
-        pendingInputs: new Map(),
-        commands: [],
-        draft: "",
-        scrollTop: null,
-      };
-      this.sessionViews.set(sessionId, view);
-      // 应用快照中属于本会话任务的预览（快照先于视图打开到达的情况）
-      for (const [taskId, preview] of this.snapshotPreviews) {
-        const task = this.tasks.get(taskId);
-        if (task?.sessionId === sessionId && preview.seq >= view.previewSeq) {
-          view.preview = { ...preview, taskId };
-          view.previewSeq = preview.seq;
-        }
-      }
+    if (view) return view;
+    const session = this.sessions.find((item) => item.id === sessionId);
+    view = {
+      sessionId, projectId: session?.projectId ?? "", cwd: session?.cwd ?? "",
+      queueState: session?.queueState ?? "active", queuePauseReason: session?.queuePauseReason ?? null,
+      flow: new EventFlow(), historyCursor: null, historyLoaded: false, trimmedOlder: false,
+      hasPartialTail: false, draft: "", scrollTop: null,
+    };
+    this.sessionViews.set(sessionId, view);
+    for (const task of this.tasksFor(sessionId)) if (isActiveStatus(task.status)) view.flow.task(task);
+    for (const [taskId, preview] of this.snapshotPreviews) {
+      if (this.tasks.get(taskId)?.sessionId === sessionId) view.flow.preview(taskId, preview);
     }
     return view;
   }
 
-  /** 安装历史页：replace（初次/重同步）或 prepend（向前翻页）。 */
   installHistoryPage(sessionId: string, page: HistoryPage, mode: "replace" | "prepend"): void {
     const view = this.openSession(sessionId);
-    if (mode === "replace") {
-      // replace 语义是「这一页就是当前转录」：不能按旧 loadedEntryIds 过滤，
-      // 否则 replace 与 appendEntryView/另一次 replace 交错时会把整页滤空
-      view.transcript = page.entries.map(entryToTranscriptItem);
-      view.loadedEntryIds = new Set(page.entries.map((e) => e.entryId));
-      view.trimmedOlder = false;
-    } else {
-      const items = page.entries
-        .filter((e) => !view.loadedEntryIds.has(e.entryId))
-        .map(entryToTranscriptItem);
-      view.transcript = [...items, ...view.transcript];
-      for (const e of page.entries) view.loadedEntryIds.add(e.entryId);
-    }
-    view.historyCursor = page.nextBefore;
+    const result = view.flow.installHistory(page.entries, mode === "replace", MAX_LOADED_ENTRIES);
+    view.historyCursor = result.trimmed ? result.firstId : page.nextBefore;
+    view.trimmedOlder = result.trimmed;
     view.historyLoaded = true;
     view.hasPartialTail = page.hasPartialTail;
-    // 历史回传后清理已落盘的用户输入占位（按正文匹配）
-    this.clearPendingInputs(sessionId, page.entries);
-    this.trimTranscript(view);
   }
 
-  /** 单个落盘条目的增量补齐（output_entry 事件驱动；去重）。 */
   appendEntryView(sessionId: string, entry: HistoryEntryView): boolean {
     const view = this.openSession(sessionId);
-    if (view.loadedEntryIds.has(entry.entryId)) return false;
-    view.loadedEntryIds.add(entry.entryId);
-    const item = entryToTranscriptItem(entry);
-    // 落盘的 toolResult 条目取代活动区的同名工具记录（避免重复显示）；
-    // 取代前把调用目标带过去——历史条目本身不含参数，目标只在活动记录里有
-    if (entry.role === "toolResult" && entry.toolCallId) {
-      const live = view.tools.find((t) => t.sdkCallId === entry.toolCallId);
-      if (live && item.kind === "toolEntry") {
-        const target = toolTargetFromParams(live.paramsPreview);
-        item.target = target || null;
-      }
-      view.tools = view.tools.filter((t) => t.sdkCallId !== entry.toolCallId);
+    const result = view.flow.installHistory([entry], false, MAX_LOADED_ENTRIES);
+    if (result.trimmed) {
+      view.trimmedOlder = true;
+      view.historyCursor = result.firstId;
     }
-    // 用户输入落盘：撤掉本地占位
-    if (entry.role === "user") this.clearPendingInputs(sessionId, [entry]);
-    view.transcript.push(item);
-    this.trimTranscript(view);
     return true;
   }
 
-  private trimTranscript(view: SessionView): void {
-    if (view.transcript.length <= MAX_LOADED_ENTRIES) return;
-    const drop = view.transcript.length - MAX_LOADED_ENTRIES;
-    view.transcript.splice(0, drop);
-    view.trimmedOlder = true;
-    // 丢弃最旧条目后，以其后第一条为翻页锚点（read_history before=锚点 可找回被丢弃的条目）
-    view.historyCursor = view.transcript[0]?.kind === "message" || view.transcript[0]?.kind === "toolEntry"
-      ? (view.transcript[0] as { entryId: string }).entryId
-      : view.historyCursor;
+  installTaskDetail(task: Task, tools: ToolOpView[], preview?: OutputPreview | null, seq = 0): void {
+    if (seq >= (this.taskSeq.get(task.id) ?? 0)) {
+      this.upsertTask(task);
+      this.taskSeq.set(task.id, seq);
+    } else {
+      const current = this.tasks.get(task.id);
+      if (current && !current.input && task.input) {
+        current.input = task.input;
+        this.sessionViews.get(task.sessionId)?.flow.task(current);
+      }
+    }
+    const flow = this.openSession(task.sessionId).flow;
+    for (const tool of tools) flow.tool(tool, seq);
+    if (preview) flow.preview(task.id, preview);
   }
 
   // ---------- 查询 ----------
@@ -709,63 +450,28 @@ export class ViewState {
   }
 
   upsertTask(task: Task): void {
-    this.tasks.set(task.id, task);
-  }
-
-  /**
-   * 登记本客户端刚提交的用户输入：在历史条目回传前先占位显示。
-   * 只有带正文的任务才有意义（事件驱动创建的任务 input 为空）。
-   */
-  addPendingInput(task: Task): void {
-    if (!task.input.trim()) return;
-    const view = this.sessionViews.get(task.sessionId);
-    if (!view) return;
-    view.pendingInputs.set(task.id, { text: task.input, at: task.startedAt ?? task.createdAt });
-  }
-
-  /**
-   * 历史条目到达后清理占位：按会话内的用户消息正文匹配。
-   * 匹配不到也保留（正文可能被截断或有细微差异），由任务终态兜底清理。
-   */
-  clearPendingInputs(sessionId: string, entries: HistoryEntryView[]): void {
-    const view = this.sessionViews.get(sessionId);
-    if (!view || view.pendingInputs.size === 0) return;
-    const userTexts = new Set(entries.filter((e) => e.role === "user").map((e) => e.text.trim()));
-    for (const [taskId, pending] of view.pendingInputs) {
-      if (userTexts.has(pending.text.trim())) view.pendingInputs.delete(taskId);
+    const current = this.tasks.get(task.id);
+    // 提交应答可能在任务终态事件之后到达，输入元数据仍可补齐，终态不可回滚。
+    if (current && ((current.endedAt && !task.endedAt) || (current.status !== "queued" && task.status === "queued"))) {
+      task = { ...task, ...current, input: task.input || current.input };
     }
+    this.tasks.set(task.id, task);
+    this.sessionViews.get(task.sessionId)?.flow.task(task);
   }
 
-  /** 任务进入终态：无论历史是否回传，占位都不该继续显示。 */
-  clearPendingInputForTask(taskId: string): void {
-    for (const view of this.sessionViews.values()) view.pendingInputs.delete(taskId);
+  addPendingInput(task: Task): void {
+    this.openSession(task.sessionId).flow.task(task);
   }
 
-  /**
-   * 回显一条斜杠命令（❯ /mode），返回结果行的挂载键。
-   * 无会话视图（未选会话）时不回显，返回 null。
-   */
   echoCommand(sessionId: string | null, line: string): string | null {
-    const view = sessionId ? this.sessionViews.get(sessionId) : undefined;
-    if (!view) return null;
-    const key = `$cmd-${++this.commandCounter}`;
-    view.commands.push({ key, line, result: null, resultIsError: false, at: new Date().toISOString() });
-    if (view.commands.length > 50) view.commands.splice(0, view.commands.length - 50);
+    if (!sessionId) return null;
+    const key = `command:${++this.commandCounter}`;
+    this.openSession(sessionId).flow.command(key, line);
     return key;
   }
 
-  /**
-   * 设置命令的结果行（⎿ …；多次调用以最后一次为准，供异步核实路径更新）。
-   * 拿不到回显键时退化为普通提示，不丢信息。
-   */
   setCommandResult(sessionId: string, key: string | null, text: string, isError = false): void {
-    const cmd = key ? this.sessionViews.get(sessionId)?.commands.find((c) => c.key === key) : undefined;
-    if (!cmd) {
-      this.note(sessionId, text);
-      return;
-    }
-    cmd.result = text;
-    cmd.resultIsError = isError;
+    if (!key || !this.openSession(sessionId).flow.commandResult(key, text, isError)) this.note(sessionId, text);
   }
 
   private patchTask(taskId: string, patch: Partial<Task>): void {
@@ -826,16 +532,8 @@ export class ViewState {
       this.globalNotes.push(note);
       return;
     }
-    view.notes.push(note);
-    if (view.notes.length > 8) view.notes.splice(0, view.notes.length - 8);
+    view.flow.note(note.key, note.text, note.at);
   }
-}
-
-function viewForTask(views: Map<string, SessionView>, taskId: string): SessionView | undefined {
-  for (const view of views.values()) {
-    if (view.tools.some((t) => t.taskId === taskId)) return view;
-  }
-  return undefined;
 }
 
 /** 访问模式显示名（/mode 列表、状态栏、模式提示共用）。 */

@@ -13,6 +13,7 @@
 
 import * as fs from "node:fs";
 import type { BoundedText } from "./views.ts";
+import type { EditStats } from "./types.ts";
 
 /** Buffer 内 index 处的 UTF-8 起始对齐：续字节向后落到字符边界。 */
 export function snapUtf8Start(buf: Buffer, index: number): number {
@@ -108,8 +109,26 @@ export interface HistoryEntryView {
   toolCallId: string | null;
   toolName: string | null;
   isError: boolean | null;
+  editStats?: EditStats;
   /** 内容含图片/思考等未内联展示的部分。 */
   hasNonTextContent: boolean;
+}
+
+/** 只统计成功 Edit 的实际 unified patch；缺失旧元数据时不猜测。 */
+export function editStatsFromResult(toolName: unknown, isError: unknown, details: unknown): EditStats | undefined {
+  if (toolName !== "edit" || isError !== false || !details || typeof details !== "object") return undefined;
+  const patch = (details as { patch?: unknown }).patch;
+  if (typeof patch !== "string") return undefined;
+  let added = 0;
+  let removed = 0;
+  let inHunk = false;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@ ")) inHunk = true;
+    else if (line.startsWith("diff ") || line.startsWith("Index: ")) inHunk = false;
+    else if (inHunk && line.startsWith("+")) added++;
+    else if (inHunk && line.startsWith("-")) removed++;
+  }
+  return { added, removed };
 }
 
 function extractMessageView(entry: ParsedSessionEntry): { text: string; view: Omit<HistoryEntryView, "text" | "offset" | "totalBytes" | "truncated"> } | null {
@@ -141,6 +160,7 @@ function extractMessageView(entry: ParsedSessionEntry): { text: string; view: Om
     hasNonTextContent = true;
   }
   const toolResult = role === "toolResult";
+  const editStats = toolResult ? editStatsFromResult(message.toolName, message.isError, message.details) : undefined;
   return {
     text: textParts.join(""),
     view: {
@@ -153,6 +173,7 @@ function extractMessageView(entry: ParsedSessionEntry): { text: string; view: Om
       toolName: toolResult && typeof message.toolName === "string" ? message.toolName : null,
       isError: toolResult && typeof message.isError === "boolean" ? message.isError : null,
       hasNonTextContent,
+      ...(editStats ? { editStats } : {}),
     },
   };
 }

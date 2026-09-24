@@ -20,6 +20,8 @@ export interface RecordedRequest {
 export interface TextResponse {
   kind: "text";
   text: string;
+  /** 可选的 SSE 块间隔；缺省保持一次响应，指定后可观察真实中间帧。 */
+  chunkDelayMs?: number;
 }
 
 export interface ToolCallResponse {
@@ -129,7 +131,16 @@ export class MockModelServer {
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
           });
-          res.end(sseBody(out));
+          if (scripted.kind === "text" && (scripted.chunkDelayMs ?? 0) > 0) {
+            for (const frame of out) {
+              if (res.destroyed) return;
+              res.write(`data: ${frame}\n\n`);
+              await new Promise((resolve) => setTimeout(resolve, scripted.chunkDelayMs));
+            }
+            res.end("data: [DONE]\n\n");
+          } else {
+            res.end(sseBody(out));
+          }
         } catch (err) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: { message: String(err) } }));

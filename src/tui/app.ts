@@ -14,11 +14,9 @@
 import {
   Editor,
   KeybindingsManager,
-  Markdown,
   ProcessTerminal,
   ScrollView,
   SelectList,
-  Spacer,
   setKeybindings,
   Text,
   TUI_KEYBINDINGS,
@@ -30,14 +28,12 @@ import {
   type AutocompleteItem,
   type AutocompleteProvider,
   type Component,
-  type Container as ContainerType,
   type OverlayHandle,
   type SelectItem,
   type Terminal,
   type TUI,
 } from "@earendil-works/pi-tui";
 import { Container } from "@earendil-works/pi-tui";
-import { highlightCode } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import type { ControlConnection } from "../control/connection.ts";
@@ -53,7 +49,7 @@ import {
 } from "../control/workspace.ts";
 import type { DirIdentity } from "../core/dir-identity.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
-import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
+import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "../core/views.ts";
 import type { AccessMode, ModelSelection, Project, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
 import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { ContextBreakdown } from "../agent/context-selector.ts";
@@ -66,10 +62,11 @@ import {
   formatAccessMode,
   formatTaskStatus,
   isActiveStatus,
-  toolTargetFromParams,
   type SessionView,
-  type TranscriptItem,
 } from "./state.ts";
+
+import { EventFlowView } from "./event-flow-view.ts";
+import type { FlowEntry } from "./event-flow.ts";
 
 const HISTORY_PAGE_SIZE = 50;
 const ARTIFACT_PAGE_BYTES = 32 * 1024;
@@ -81,45 +78,8 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
-/** 拥有者输入的底色：与终端背景区分，整行铺满。用 256 色而非基础色，避免被终端主题改色。 */
-const userBg = (s: string) => `\x1b[48;5;236m${s}\x1b[0m`;
-/** 标记列（❯ / ⚙︎ / ● / ✓ 同列）与正文列。 */
-const MARKER_COL = 1;
-const BODY_COL = 3;
-/** 工具调用标记：U+2699 + U+FE0E 强制文本呈现，保证标记列宽为 1（裸 U+2699 在部分终端渲染成两格宽的 emoji）。 */
-const TOOL_MARK = "⚙︎";
-/** 子行前缀（命令结果、工具目标）：⎿ 落在正文列，细节再缩进两列。 */
-const SUB_LINE = `${" ".repeat(BODY_COL)}⎿ `;
-/** 模型输出的圆点：普通输出用默认前景色，运行中统计行用蓝绿色。 */
-const ASSISTANT_BULLET = "●";
-/** 任务结束统计行的图标。 */
-const DONE_MARK = "✓";
-/** 运行中统计行的圆点色（蓝绿 256 色）。 */
-const sweeping = (s: string) => `\x1b[38;5;79m${s}\x1b[0m`;
-/** 转录区右侧留白（约两个中文字符宽），给滚动条腾出位置。 */
+/** 给滚动条留出右侧空间。 */
 const RIGHT_GUTTER = 4;
-
-const markdownTheme = {
-  heading: bold,
-  // 链接：蓝色字体（256 色 75，深色/浅色终端都可读），URL 用暗色跟在后面
-  link: (s: string) => `\x1b[38;5;75m${s}\x1b[0m`,
-  linkUrl: dim,
-  code: (s: string) => `\x1b[38;5;79m${s}\x1b[0m`,
-  // 围栏代码块：正文用亮色与普通文本区分，边界行加语言标注
-  codeBlock: (s: string) => `\x1b[38;5;252m${s}\x1b[0m`,
-  codeBlockBorder: dim,
-  codeBlockIndent: "  ",
-  // 语法高亮由 pi 自带的高亮器提供（256 色；未知语言回退为纯文本着色）
-  highlightCode,
-  quote: dim,
-  quoteBorder: dim,
-  hr: dim,
-  listBullet: (s: string) => s,
-  bold,
-  italic: (s: string) => `\x1b[3m${s}\x1b[0m`,
-  strikethrough: (s: string) => `\x1b[9m${s}\x1b[0m`,
-  underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
-};
 
 const selectTheme = {
   selectedPrefix: (s: string) => cyan(s),
@@ -263,32 +223,6 @@ class MeasuredText extends Text {
     this.lastHeight = lines.length;
     return lines;
   }
-}
-
-/**
- * 处理时长：秒级以下不显示小数，分钟级用 m s，小时级用 h m。
- * 只做粗粒度展示，不追求精确到毫秒。
- */
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-/**
- * 结束时刻：Weekday hh:mm AM/PM（如 Tue 03:07 PM）。
- * 用固定英文星期与时制，不随系统 locale 变——日志式的行内标注保持一致。
- */
-function formatEndTime(date: Date): string {
-  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()]!;
-  const h24 = date.getHours();
-  const suffix = h24 < 12 ? "AM" : "PM";
-  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  return `${weekday} ${String(h12).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} ${suffix}`;
 }
 
 /** 模型面板列宽比例：提供方 / 模型 / 思考强度。 */
@@ -621,35 +555,6 @@ class BareList implements Component {
 }
 
 /**
- * 模型输出：圆点画在标记列（与 ❯ / ⚙︎ 同列），正文缩进到正文列并整体对齐。
- * 用 Markdown 渲染正文（保留标题/列表/代码块），只在渲染结果上补标记与缩进，
- * 不往 markdown 源里塞字符——否则列表与代码块会被解析成别的东西。
- */
-class AssistantOutput implements Component {
-  private readonly markdown: Markdown;
-  /** 圆点着色：普通输出用默认前景色（白），运行中统计行传蓝绿。 */
-  private readonly bulletStyle: (s: string) => string;
-
-  constructor(text: string, bulletStyle: (s: string) => string = (s) => s) {
-    this.markdown = new Markdown(text, 0, 0, markdownTheme);
-    this.bulletStyle = bulletStyle;
-  }
-
-  invalidate(): void {
-    this.markdown.invalidate();
-  }
-
-  render(width: number): string[] {
-    // Markdown 已把每行补齐到给定宽度，前缀宽度与 BODY_COL 一致，总宽不变
-    const lines = this.markdown.render(Math.max(1, width - BODY_COL));
-    if (lines.length === 0) return [];
-    const marker = `${" ".repeat(MARKER_COL)}${this.bulletStyle(ASSISTANT_BULLET)} `;
-    const indent = " ".repeat(BODY_COL);
-    return lines.map((line, i) => `${i === 0 ? marker : indent}${line}`);
-  }
-}
-
-/**
  * 转录区右侧留白：内容按窄 RIGHT_GUTTER 列渲染，再补齐回来，
  * 文字不会顶到滚动条底下（滚动条画在 ScrollView 的最后一列）。
  */
@@ -791,14 +696,11 @@ export class TuiApp {
   private readonly seededHistorySessions = new Set<string>();
   /** 运行中任务的走表定时器（无活动任务时为 null）。 */
   private timingTimer: NodeJS.Timeout | null = null;
-  /**
-   * 可变流式行（时间统计 / 工具记录 / 命令结果）的持久 Text 实例：
-   * 容器只在 key 序列变化时重建，内容更新必须就地对同一实例 setText，
-   * 换新实例进不了屏幕。
-   */
-  private readonly streamTexts = new Map<string, Text>();
+  private readonly eventFlowView = new EventFlowView();
+  private readonly flowCursors = new Map<string, number>();
+  private readonly flowRequests = new Map<string, Promise<void>>();
   private header: Text;
-  private transcriptContainer: ContainerType;
+  private transcriptContainer: GutterContainer;
   private scroll: ScrollView;
   private statusLine: MeasuredText;
   private footer: FooterLine;
@@ -814,10 +716,6 @@ export class TuiApp {
   private readonly reloadStateFile: string | null;
   /** 重载状态防抖定时器（~300ms 合并连续变更）。 */
   private reloadPersistTimer: NodeJS.Timeout | null = null;
-  /** 组件缓存：转录条目 key → 组件（避免每帧重建 Markdown）。 */
-  private itemComponents = new Map<string, Component>();
-  private itemOrder: string[] = [];
-
   // ---------- 工作区入口（issue 21） ----------
   private readonly workspacePath: string | null = null;
   /**
@@ -852,6 +750,7 @@ export class TuiApp {
 
     this.header = new Text("", 1, 0);
     this.transcriptContainer = new GutterContainer();
+    this.transcriptContainer.addChild(this.eventFlowView);
     this.scroll = new ScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
     this.statusLine = new MeasuredText("", 1, 0);
     // 底栏：左侧模式与工作区，右侧模型来源/模型名/思考强度（按键提示由 /help 提供）
@@ -908,45 +807,6 @@ export class TuiApp {
     if (session) return `${this.selectionText(session.modelSelection)}`;
     const m = this.state.defaultModel;
     return m.provider ? `${m.provider}/${m.id} · ${m.thinkingLevel}` : "connecting";
-  }
-
-  /**
-   * 每个任务一条处理时间统计行（含标记列图标），按任务分别产出。
-   *
-   * 运行中：`● Sweeping · Elapsed 42s`（圆点蓝绿，每秒走表）。
-   * 已结束：`✓ Done in 3s · At Tue 08:09 PM`。
-   *
-   * 每个任务都要有自己的结束标记——不能只显示最后一个，否则新任务一开
-   * 始前一个任务的结束标记就消失了。at 是这一行在事件流中的时间位置
-   * （结束时刻），调用方据此与消息、提示统一排序。
-   */
-  private taskTimingLines(sessionId: string): Array<{ key: string; text: string; at: string }> {
-    const marker = `${" ".repeat(MARKER_COL)}`;
-    const lines: Array<{ key: string; text: string; at: string }> = [];
-    for (const task of this.state.tasksFor(sessionId)) {
-      const start = Date.parse(task.startedAt ?? task.createdAt);
-      if (!Number.isFinite(start)) continue;
-      if (task.endedAt) {
-        const end = Date.parse(task.endedAt);
-        if (!Number.isFinite(end)) continue;
-        lines.push({
-          key: `$timing:${task.id}`,
-          text: `${marker}${sweeping(DONE_MARK)} Done in ${formatDuration(end - start)} · At ${formatEndTime(new Date(end))}`,
-          at: task.endedAt,
-        });
-        continue;
-      }
-      if (task.status !== "running" && task.status !== "awaiting_confirmation") continue;
-      // 运行中：已处理时长（awaiting_confirmation 也算在处理中，任务未结束）。
-      // 用「现在」定位，排在所有已产生内容之后。
-      const waiting = task.status === "awaiting_confirmation" ? " · waiting for approval" : "";
-      lines.push({
-        key: `$timing:${task.id}`,
-        text: `${marker}${sweeping(ASSISTANT_BULLET)} Sweeping · Elapsed ${formatDuration(Date.now() - start)}${waiting}`,
-        at: new Date().toISOString(),
-      });
-    }
-    return lines;
   }
 
   /** 运行中每秒走表：没有计时需求时不保留定时器。 */
@@ -1021,6 +881,8 @@ export class TuiApp {
   /** 连接层回调：安装快照。 */
   onSnapshot(result: ConnectResult, ctx: { resync: boolean; instanceChanged: boolean }): void {
     this.generation++;
+    this.flowCursors.clear();
+    this.flowRequests.clear();
     this.state.applySnapshot(result, ctx.instanceChanged);
     if (this.workspacePhase !== "done") {
       // 工作区入口（issue 21）：首次握手与应答丢失后的重连核实都经这里；
@@ -1355,8 +1217,6 @@ export class TuiApp {
     this.state.currentSessionId = sessionId;
     const view = this.state.openSession(sessionId);
     this.continueForTaskId = null;
-    this.itemComponents.clear();
-    this.itemOrder = [];
     this.editor.setText(view.draft);
     if (!view.historyLoaded) {
       void this.loadHistory(sessionId, "replace");
@@ -1397,6 +1257,7 @@ export class TuiApp {
       this.state.installHistoryPage(sessionId, page, mode);
       this.seedInputHistory(sessionId, page);
       this.refreshTranscript();
+      await this.restoreEventFlow(sessionId, generation);
     } catch (err) {
       if (generation !== this.generation) return;
       this.notify(`历史读取失败：${(err as Error).message}`);
@@ -1407,39 +1268,103 @@ export class TuiApp {
   async loadEntry(sessionId: string, entryId: string): Promise<void> {
     const generation = this.generation;
     try {
-      const entry = await this.connection.request<HistoryEntryView>("read_history_entry", {
+      let entry = await this.connection.request<HistoryEntryView>("read_history_entry", {
         session_id: sessionId,
         entry_id: entryId,
         length: ENTRY_PAGE_BYTES,
       });
       if (generation !== this.generation) return;
+      if (entry.role === "assistant" && entry.truncated) {
+        let text = entry.text;
+        let offset = entry.offset + Buffer.byteLength(entry.text);
+        while (offset < entry.totalBytes) {
+          const page = await this.connection.request<HistoryEntryView>("read_history_entry", {
+            session_id: sessionId, entry_id: entryId, offset, length: ENTRY_PAGE_BYTES,
+          });
+          if (generation !== this.generation) return;
+          if (!page.text || page.offset !== offset) throw new Error("历史正文分页未连续返回");
+          text += page.text;
+          offset += Buffer.byteLength(page.text);
+        }
+        entry = { ...entry, text, truncated: false };
+      }
       if (this.state.appendEntryView(sessionId, entry)) this.refreshTranscript();
     } catch {
       // 条目可能尚未对读取可见（尾部写入中）；下一次翻页/重载会补齐
     }
   }
 
-  private async refreshTaskDetails(): Promise<void> {
-    const generation = this.generation;
-    const current = this.state.currentSessionId;
-    if (!current) return;
-    const active = this.state.activeTaskFor(current);
-    if (!active) return;
-    try {
-      const detail = await this.connection.request<{ task: Task; outputPreview: unknown }>("get_task", { task_id: active.id });
+  /** 按已加载历史窗口补齐任务元数据，历史页之外的任务不提前展开。 */
+  private async restoreEventFlow(sessionId: string, generation: number): Promise<void> {
+    const view = this.state.openSession(sessionId);
+    const entries = view.flow.historyEntries;
+    const earliest = entries.reduce((at, entry) => !at || entry.timestamp < at ? entry.timestamp : at, "");
+    const ids = new Set(entries.map((entry) => entry.entryId));
+    let before: string | undefined;
+    const relevant = new Set<string>();
+    do {
+      const page = await this.connection.request<{ tasks: Task[]; hasMore: boolean }>("list_tasks", { session_id: sessionId, before, limit: 50 });
       if (generation !== this.generation) return;
-      this.state.upsertTask(detail.task);
-      const view = this.currentView();
-      if (view && detail.outputPreview) {
-        const preview = detail.outputPreview as OutputPreview;
-        if (preview.seq >= view.previewSeq) {
-          view.preview = { ...preview, taskId: active.id };
-          view.previewSeq = preview.seq;
+      for (const task of page.tasks) {
+        if (!earliest || isActiveStatus(task.status) || (task.endedAt ?? task.createdAt) >= earliest || task.historyEntryIds.some((id) => ids.has(id))) {
+          if (!this.state.getTask(task.id)) this.state.upsertTask(task);
+          relevant.add(task.id);
         }
       }
+      const last = page.tasks.at(-1);
+      if (!page.hasMore || !last || !earliest || (last.endedAt ?? last.createdAt) < earliest) break;
+      before = last.id;
+    } while (true);
+    // 独立任务可同时读取，单任务各页仍按序加载。
+    await Promise.all([...relevant].map((taskId) => this.restoreTaskFlow(taskId, generation)));
+    if (generation === this.generation) this.refreshAll();
+  }
+
+  private restoreTaskFlow(taskId: string, generation = this.generation): Promise<void> {
+    const key = `${generation}:${taskId}`;
+    const pending = this.flowRequests.get(key);
+    if (pending) return pending;
+    const request = this.readTaskFlow(taskId, generation).finally(() => this.flowRequests.delete(key));
+    this.flowRequests.set(key, request);
+    return request;
+  }
+
+  private async readTaskFlow(taskId: string, generation: number): Promise<void> {
+    const detail = await this.connection.request<{ task: Task; toolOps: ToolOpView[]; outputPreview: OutputPreview | null; seq?: number }>("get_task", { task_id: taskId });
+    if (generation !== this.generation) return;
+    this.state.installTaskDetail(detail.task, detail.toolOps ?? [], detail.outputPreview, detail.seq);
+    const view = this.state.openSession(detail.task.sessionId);
+    let after = this.flowCursors.get(taskId) ?? 0;
+    const missing = new Set<string>();
+    const loaded = new Set(view.flow.historyEntries.filter((entry) => entry.role !== "assistant" || !entry.truncated).map((entry) => entry.entryId));
+    do {
+      const page = await this.connection.request<{ events: PersistentEvent[]; nextAfter: number | null }>("read_task_events", { task_id: taskId, after_seq: after, limit: 100 });
+      if (generation !== this.generation) return;
+      for (const event of page.events) {
+        view.flow.apply(event);
+        if (event.body.type === "task.output_entry" && !loaded.has(event.body.entryId)) missing.add(event.body.entryId);
+        after = Math.max(after, event.seq);
+      }
+      this.flowCursors.set(taskId, after);
+      this.refreshTranscript();
+      if (page.nextAfter === null) break;
+      after = page.nextAfter;
+    } while (true);
+    for (const entryId of missing) {
+      if (generation !== this.generation) return;
+      await this.loadEntry(detail.task.sessionId, entryId);
+    }
+  }
+
+  private async refreshTaskDetails(): Promise<void> {
+    const current = this.state.currentSessionId;
+    const active = current ? this.state.activeTaskFor(current) : null;
+    if (!active) return;
+    try {
+      await this.restoreTaskFlow(active.id);
       this.refreshAll();
-    } catch {
-      // 任务详情刷新失败不阻断界面
+    } catch (err) {
+      this.notify(`任务事件读取失败：${(err as Error).message}`);
     }
   }
 
@@ -1525,6 +1450,7 @@ export class TuiApp {
     const arg = rest.join(" ").trim();
     // 命令回显进事件流（❯ /mode + 完成后的 ⎿ 结果行）；/quit 不留痕
     const echoKey = name === "quit" ? null : this.state.echoCommand(this.state.currentSessionId, line);
+    this.refreshAll();
     switch (name) {
       case "quit":
         this.quit(0);
@@ -1547,7 +1473,7 @@ export class TuiApp {
       case "older": {
         const view = this.currentView();
         if (!view?.historyCursor) {
-          this.notify(view?.trimmedOlder || view?.historyLoaded ? "没有更早的历史" : "历史尚未加载");
+          this.showText(view?.trimmedOlder || view?.historyLoaded ? "没有更早的历史" : "历史尚未加载");
           return;
         }
         await this.loadHistory(view.sessionId, "prepend");
@@ -1588,7 +1514,6 @@ export class TuiApp {
         return;
       case "status":
         await this.refreshTaskDetails();
-        this.notify("已刷新任务状态");
         return;
       case "search":
         await this.cmdSearch(arg);
@@ -1607,7 +1532,7 @@ export class TuiApp {
         return;
       case "github":
         // issue 17：专用 GitHub 模块已退役；旧命令只保留静态迁移提示（不进补全/帮助）
-        this.notify(
+        this.showText(
           "GitHub 专用模块已退役（issue 17）：请在普通任务中使用 GitHub MCP 工具（拥有者经 ruukoto mcp configure 配置）。历史草稿与发布记录已归档为原任务产物。",
         );
         return;
@@ -1624,7 +1549,7 @@ export class TuiApp {
     }
     try {
       await this.connection.request("create_project", { name });
-      this.notify(`项目已创建：${name}；用 /new-session <工作目录> 创建会话`);
+      this.showText(`项目已创建：${name}；用 /new-session <工作目录> 创建会话`);
     } catch (err) {
       this.notify(red(`创建项目失败：${(err as Error).message}`));
     }
@@ -1656,7 +1581,6 @@ export class TuiApp {
   private async createAndSwitch(projectId: string, cwd: string): Promise<void> {
     try {
       const session = await this.connection.request<{ id: string }>("create_session", { project_id: projectId, cwd });
-      this.notify(`会话已创建：${session.id}`);
       this.switchSession(session.id);
     } catch (err) {
       this.notify(red(`创建会话失败：${(err as Error).message}`));
@@ -1672,7 +1596,6 @@ export class TuiApp {
     }
     try {
       await this.connection.request("interrupt", { task_id: task.id });
-      this.notify(`已请求中断任务 ${task.id}`);
     } catch (err) {
       this.notify(red(`中断失败：${(err as Error).message}`));
     }
@@ -1686,7 +1609,6 @@ export class TuiApp {
     }
     try {
       await this.connection.request("cancel", { task_id: taskId });
-      this.notify(`已请求取消任务 ${taskId}`);
     } catch (err) {
       this.notify(red(`取消失败：${(err as Error).message}`));
     }
@@ -1701,7 +1623,7 @@ export class TuiApp {
     if (this.continueForTaskId && !arg) {
       // 再次输入 /continue：取消继续模式
       this.continueForTaskId = null;
-      this.notify("已取消继续模式");
+      this.refreshAll();
       this.scheduleReloadPersist();
       return;
     }
@@ -1718,32 +1640,10 @@ export class TuiApp {
     }
     this.continueForTaskId = task.id;
     this.scheduleReloadPersist();
-    const effectNote = task.effectUnknown ? "；存在效果未知的工具操作（不能当作可安全重试）" : "";
-    this.notify(
-      `继续任务 ${task.id}：中断原因 ${task.interruptReason ?? "未知"}${effectNote}。\n` +
-        `原任务模型：${this.selectionText(task.modelSelection)}。下一条输入使用后续任务选择：${this.selectionText(this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection)}（新任务沿用会话默认模式）。输入 /continue 取消继续模式。`,
-    );
-    // 展示旧任务的已完成操作，供继续决策参考
-    try {
-      const detail = await this.connection.request<{
-        toolOps: Array<{ toolName: string; resultSummary: string | null; isError: boolean | null; effectUnknown: boolean }>;
-      }>("get_task", { task_id: task.id });
-      if (detail.toolOps.length > 0) {
-        const lines = detail.toolOps.map((op) => {
-          const state = op.effectUnknown
-            ? "效果未知"
-            : op.resultSummary === null
-              ? "结果缺失"
-              : op.isError
-                ? "失败"
-                : "完成";
-          return `  ${op.toolName}：${state}${op.resultSummary ? `（${op.resultSummary.slice(0, 80)}）` : ""}`;
-        });
-        this.notify(`旧任务的工具操作：\n${lines.join("\n")}`);
-      }
-    } catch {
-      // 详情读取失败不阻塞继续流程
+    if (task.effectUnknown) {
+      this.notify(yellow(`继续任务 ${task.id}：存在效果未知的工具操作，不能当作可安全重试；请先核实原任务的实际结果。`));
     }
+    this.refreshAll();
     if (this.editor.getText().trim() === "/continue" || this.editor.getText().trim() === "") this.editor.setText("");
   }
 
@@ -1759,13 +1659,12 @@ export class TuiApp {
       if (legacy.length) {
         this.showSelection(`为 ${legacy.length} 个旧排队任务补配置：${this.selectionText(selection)}`, [{ value: "yes", label: "确认补齐并恢复队列" }], () => {
           void this.connection.request("resume_queue", { session_id: view.sessionId, model_selection: selection })
-            .then(() => { this.state.note(view.sessionId, "队列已恢复"); this.refreshAll(); })
+            .then(() => this.refreshAll())
             .catch((err) => { this.state.note(view.sessionId, `恢复失败：${err.message}`); this.refreshAll(); });
         });
         return;
       }
       await this.connection.request("resume_queue", { session_id: view.sessionId });
-      this.notify("队列已恢复");
     } catch (err) {
       this.notify(red(`恢复队列失败：${(err as Error).message}`));
     }
@@ -1860,7 +1759,7 @@ export class TuiApp {
       { component: hint, grow: 0 },
     ]);
 
-    const handle = this.openAboveInput(body, () => {}, () => {
+    this.openAboveInput(body, () => {}, () => {
       closed = true;
     });
     bar.setLines([dim("加载中…")]);
@@ -1875,8 +1774,9 @@ export class TuiApp {
       if (stale()) return;
       const recordId = list.records[0]?.id;
       if (!recordId) {
-        handle.hide();
-        this.notify("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+        bar.setLines([]);
+        hint.setText(dim("本会话还没有模型调用记录（任务发出第一次模型调用后生成） · Esc 关闭"));
+        this.tui.requestRender();
         return;
       }
       const result = await this.connection.request<{ record: SelectionRecord; breakdown: ContextBreakdown }>(
@@ -2094,7 +1994,7 @@ export class TuiApp {
     if (stale()) return;
     if (records.length === 0 && !hasMore) {
       closeAll();
-      this.notify("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+      this.showText("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
     }
   }
 
@@ -2117,7 +2017,7 @@ export class TuiApp {
         : yellow("发送结果未回填：请求失败、被中断或结果未知；以下为发送前捕获的输入"),
     ];
     if (!record.promptArtifactId) {
-      this.notify(`该次 prompt 正文未记录（记录创建于快照捕获上线之前）；任务 ${record.taskId.slice(0, 12)} 第 ${record.callIndex} 次调用`);
+      this.showText(`该次 prompt 正文未记录（记录创建于快照捕获上线之前）；任务 ${record.taskId.slice(0, 12)} 第 ${record.callIndex} 次调用`);
       return;
     }
     await this.openPager({
@@ -2166,14 +2066,14 @@ export class TuiApp {
         scanned: number;
       }>("search_history", { query, session_id: view.sessionId, limit: 20 });
       if (result.hits.length === 0) {
-        this.notify(`没有命中：「${query}」（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整"}）`);
+        this.showText(`没有命中：「${query}」（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整"}）`);
         return;
       }
       const lines = result.hits.map(
         (h) =>
           `  [${h.entryId.slice(0, 8)}] ${h.role ?? "?"} ×${h.matchCount}  ${h.snippet.replace(/\n/g, " ")}`,
       );
-      this.notify(
+      this.showText(
         `命中 ${result.hits.length} 条（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整，可缩小范围"}）：\n${lines.join("\n")}`,
       );
     } catch (err) {
@@ -2190,13 +2090,13 @@ export class TuiApp {
           memories: Array<{ id: string; category: string; status: string; currentVersion: number; scope: string; updatedAt: string }>;
         }>("list_memories", view ? { project_id: view.projectId } : {});
         if (result.memories.length === 0) {
-          this.notify("当前项目没有记忆（代理可在任务中经 memory_save 创建；拥有者经 CLI memory save 管理）");
+          this.showText("当前项目没有记忆（代理可在任务中经 memory_save 创建；拥有者经 CLI memory save 管理）");
           return;
         }
         const lines = result.memories.map(
           (m) => `  [${m.id.slice(0, 10)}] ${m.category} v${m.currentVersion} ${m.status}${m.scope === "personal" ? "（个人共享）" : ""}  ${m.updatedAt}`,
         );
-        this.notify(`记忆（${result.memories.length} 条）：\n${lines.join("\n")}\n/memory show <id> 查看正文与版本`);
+        this.showText(`记忆（${result.memories.length} 条）：\n${lines.join("\n")}\n/memory show <id> 查看正文与版本`);
       } catch (err) {
         this.notify(red(`查询失败：${(err as Error).message}`));
       }
@@ -2217,7 +2117,7 @@ export class TuiApp {
         const history = detail.versions
           .map((v) => `  v${v.version} ${v.author} ${v.createdAt}${v.reason ? `（${v.reason}）` : ""}`)
           .join("\n");
-        this.notify(
+        this.showText(
           `记忆 ${m.id}（${m.category}，${m.status}，当前 v${m.currentVersion}）：\n${m.content}\n版本历史：\n${history}`,
         );
       } catch (err) {
@@ -2239,10 +2139,10 @@ export class TuiApp {
       try {
         if (sub === "revoke") {
           await this.connection.request("revoke_memory", { memory_id: id, expected_version: Number(versionArg) });
-          this.notify(`记忆 ${id} 已撤销（历史版本保留可查；/memory restore 可恢复）`);
+          this.showText(`记忆 ${id} 已撤销（历史版本保留可查；/memory restore 可恢复）`);
         } else {
           await this.connection.request("restore_memory", { memory_id: id, from_version: Number(versionArg) });
-          this.notify(`记忆 ${id} 已自 v${versionArg} 恢复（创建了新修订）`);
+          this.showText(`记忆 ${id} 已自 v${versionArg} 恢复（创建了新修订）`);
         }
       } catch (err) {
         this.notify(red(`操作失败：${(err as Error).message}`));
@@ -2262,13 +2162,13 @@ export class TuiApp {
       if (sub === "status") {
         const s = await this.connection.request<Record<string, any>>("qq_status", {});
         if (!s.configured) {
-          this.notify("QQ 入口未配置（拥有者经 CLI：ruukoto qq configure --endpoint … --self-id …）");
+          this.showText("QQ 入口未配置（拥有者经 CLI：ruukoto qq configure --endpoint … --self-id …）");
           return;
         }
         const sessions = (s.sessions as Array<Record<string, unknown>>).map(
           (g) => `  群 ${g.groupId}：会话 ${String(g.sessionId).slice(0, 10)}… 排队 ${g.queued}${g.active ? "，执行中" : ""}`,
         );
-        this.notify(
+        this.showText(
           `QQ 入口：${s.enabled ? "已启用" : "已停用"}；连接 ${s.online ? `在线（账号 ${s.actualSelfId}）` : `离线（${s.stateDetail}）`}\n` +
             `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${(s.groups as string[]).join("、") || "（空）"}\n` +
             `回复上限 ${s.maxReplyChars} 字符；排队过期 ${s.queueTtlMs}ms\n` +
@@ -2278,12 +2178,12 @@ export class TuiApp {
       }
       if (sub === "enable" || sub === "disable") {
         const c = await this.connection.request<{ configVersion: number }>("qq_set_enabled", { enabled: sub === "enable" });
-        this.notify(`QQ 入口已${sub === "enable" ? "启用" : "停用"}（配置 v${c.configVersion}）`);
+        this.showText(`QQ 入口已${sub === "enable" ? "启用" : "停用"}（配置 v${c.configVersion}）`);
         return;
       }
       if (sub === "groups") {
         const s = await this.connection.request<Record<string, any>>("qq_status", {});
-        this.notify(`允许的群：${((s.groups as string[]) ?? []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
+        this.showText(`允许的群：${((s.groups as string[]) ?? []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
         return;
       }
       if (sub === "inbox" || sub === "outbox") {
@@ -2292,7 +2192,7 @@ export class TuiApp {
           { group_id: rest[1], limit: 20 },
         );
         if (result.entries.length === 0) {
-          this.notify(sub === "inbox" ? "暂无收件登记" : "暂无发送记录");
+          this.showText(sub === "inbox" ? "暂无收件登记" : "暂无发送记录");
           return;
         }
         const lines = result.entries.map((e) =>
@@ -2300,7 +2200,7 @@ export class TuiApp {
             ? `  群 ${e.groupId} ${e.userId}：${String(e.text).slice(0, 40)} [${e.status}${e.recalled ? "/已撤回" : ""}] ${e.createdAt}`
             : `  群 ${e.groupId}：${String(e.text).slice(0, 40)} [${e.status}]${e.error ? ` ${String(e.error).slice(0, 60)}` : ""} ${e.createdAt}`,
         );
-        this.notify(`${sub === "inbox" ? "收件登记" : "发送记录"}（最近 ${result.entries.length} 条）：\n${lines.join("\n")}`);
+        this.showText(`${sub === "inbox" ? "收件登记" : "发送记录"}（最近 ${result.entries.length} 条）：\n${lines.join("\n")}`);
         return;
       }
       this.notify("用法：/qq [status | enable | disable | groups | inbox [群号] | outbox [群号]]");
@@ -2327,14 +2227,14 @@ export class TuiApp {
       this.notify("用法：/expand <条目或工具 id 前缀>");
       return;
     }
-    const entryItem = view.transcript.find((i) => i.entryId.startsWith(arg));
+    const entryItem = view.flow.historyEntries.find((i) => i.entryId.startsWith(arg));
     if (entryItem) {
       await this.openEntryPager(view.sessionId, entryItem.entryId);
       return;
     }
-    const tool = view.tools.find((t) => t.toolOpId.startsWith(arg));
+    const tool = view.flow.tools.find((t) => t.toolOpId?.startsWith(arg));
     if (tool) {
-      await this.openToolDetail(tool.toolOpId);
+      await this.openToolDetail(tool.toolOpId!);
       return;
     }
     this.notify(`找不到条目或工具：${arg}`);
@@ -2357,12 +2257,12 @@ export class TuiApp {
 
   private async openToolDetail(toolOpId: string): Promise<void> {
     const view = this.currentView();
-    const tool = view?.tools.find((t) => t.toolOpId === toolOpId);
+    const tool = view?.flow.tools.find((t) => t.toolOpId === toolOpId);
     const lines: string[] = [];
     lines.push(bold(`工具操作 ${toolOpId}`));
     if (tool) {
-      lines.push(`工具：${sanitizeForDisplay(tool.toolName)} · 状态：${tool.status}`);
-      if (tool.resultSummary) lines.push(`结果摘要：${sanitizeForDisplay(tool.resultSummary)}`);
+      lines.push(`工具：${sanitizeForDisplay(tool.name)} · 状态：${tool.status}`);
+      if (tool.summary) lines.push(`结果摘要：${sanitizeForDisplay(tool.summary)}`);
       if (tool.artifactIds.length > 0) {
         lines.push(`产物：${tool.artifactIds.join(", ")}（/artifact <id 前缀> 查看正文）`);
       }
@@ -2515,7 +2415,7 @@ export class TuiApp {
   private openApprovals(): void {
     const pending = this.state.pendingApprovals();
     if (pending.length === 0) {
-      this.notify("没有待处理的审批");
+      this.showText("没有待处理的审批");
       return;
     }
     const items: SelectItem[] = pending.map((c) => ({
@@ -2677,11 +2577,6 @@ export class TuiApp {
         });
         handle.hide();
         this.tui.setFocus(this.editor);
-        this.notify(
-          decision === "approve"
-            ? "已批准（批准不等于执行成功，执行结果以任务状态为准）"
-            : "已拒绝",
-        );
         return;
       } catch (err) {
         const code = (err as { code?: string }).code;
@@ -2824,6 +2719,11 @@ export class TuiApp {
     const handle = this.openFloating({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
     list.onCancel = () => handle.hide();
     list.onSelect = (item) => { handle.hide(); select(item); };
+  }
+
+  /** 普通命令结果留在可关闭、可滚动的面板中。 */
+  private showText(text: string): void {
+    this.openFloating({ widthRatio: 0.85, content: new Text(sanitizeForDisplay(text), 0, 0), maxHeightRatio: 0.85 });
   }
 
   /** /model 与 /thinking：三列面板（提供方 / 模型 / 思考强度）。 */
@@ -3036,212 +2936,17 @@ export class TuiApp {
     this.tui.requestRender();
   }
 
-  /**
-   * 转录区：历史条目 + 当前活动（预览/工具/提示/处理时间统计）。
-   *
-   * 全部条目按时间合并成一条时间线——历史与活动不是两个块：发生在两条
-   * 消息之间的模式切换等提示，要排在这两条消息之间，而不是被挤到末尾。
-   * 时间戳缺失的条目（旧记录）排在已有时间戳的条目之后，保持相对顺序。
-   */
+  /** 渲染只消费统一投影，不在视图层拼接、排序或替换历史与活动记录。 */
   private refreshTranscript(): void {
     const view = this.currentView();
-    const desired: Array<[string, Component]> = [];
-    if (view) {
-      if (view.trimmedOlder || view.historyCursor) {
-        desired.push(["$top", new Text(dim("— 更早历史可经 /older 翻页加载 —"), 1, 0)]);
-      }
-
-      /**
-       * 时间线条目：at 为空串表示无时间戳（排最后，靠 seq 保持相对顺序）。
-       * tie 是同刻排序的次级键：结束标记要排在同一任务同时刻产生的提示之后。
-       */
-      const timeline: Array<{ key: string; at: string; seq: number; tie: number; render: () => Component }> = [];
-      let seq = 0;
-      for (const item of view.transcript) {
-        timeline.push({ key: item.entryId, at: item.timestamp, seq: seq++, tie: 0, render: () => this.componentForItem(item) });
-      }
-      // 已提交但尚未落盘的用户输入：立即显示，不等历史回传
-      for (const [taskId, pending] of view.pendingInputs) {
-        const text = `❯ ${sanitizeForDisplay(pending.text)}`;
-        timeline.push({
-          key: `$pending:${taskId}`,
-          at: pending.at,
-          seq: seq++,
-          tie: 0,
-          render: () => this.cached(`$pending:${taskId}`, text, () => new Text(text, 1, 0, userBg)),
-        });
-      }
-      if (view.preview) {
-        const p = view.preview;
-        // 流式预览与最终条目同款标记，到达时不跳版；不再单列「生成中」标签
-        const text = sanitizeForDisplay(p.text);
-        // 预览是「正在生成的最后一条」，排在所有已落盘条目之后
-        timeline.push({
-          key: `$preview:${p.messageId}`,
-          at: "",
-          seq: Number.MAX_SAFE_INTEGER - 1,
-          tie: 0,
-          render: () => this.cached(`$preview:${p.messageId}`, text, () => new AssistantOutput(text)),
-        });
-      }
-      for (const tool of view.tools) {
-        const key = `$tool:${tool.toolOpId}`;
-        // 两行：⚙︎ 工具名 / ⎿ 目标（取自参数）。状态不再占行——运行中与完成
-        // 同款（活动由 Sweeping 行表达），失败/效果未知在目标后追加醒目状态。
-        const target = dim(sanitizeForDisplay(toolTargetFromParams(tool.paramsPreview)));
-        const detail =
-          tool.status === "error"
-            ? `${target}${dim(" · ")}${red(sanitizeForDisplay(tool.resultSummary ?? "失败").split("\n")[0]!)}`
-            : tool.status === "effect_unknown"
-              ? `${target}${dim(" · ")}${yellow("效果未知")}`
-              : target;
-        const text = `${dim(`${" ".repeat(MARKER_COL)}${TOOL_MARK} ${sanitizeForDisplay(tool.toolName)}`)}\n${SUB_LINE}${detail}`;
-        timeline.push({ key, at: tool.at, seq: seq++, tie: 0, render: () => this.streamText(key, text) });
-      }
-      for (const cmd of view.commands) {
-        // 命令回显与拥有者输入同款（❯ + 底色）；结果行挂在同一时刻之下（tie 区分）
-        const echoText = `❯ ${sanitizeForDisplay(cmd.line)}`;
-        timeline.push({
-          key: cmd.key,
-          at: cmd.at,
-          seq: seq++,
-          tie: 0,
-          render: () => this.cached(cmd.key, echoText, () => new Text(echoText, 1, 0, userBg)),
-        });
-        if (cmd.result !== null) {
-          const resultText = `${SUB_LINE}${cmd.resultIsError ? red(sanitizeForDisplay(cmd.result)) : dim(sanitizeForDisplay(cmd.result))}`;
-          // 与回显同一时刻、同一 tie：两者在构造序列中相邻，任何条目都插不进来
-          timeline.push({
-            key: `${cmd.key}:r`,
-            at: cmd.at,
-            seq: seq++,
-            tie: 0,
-            render: () => this.streamText(`${cmd.key}:r`, resultText),
-          });
-        }
-      }
-      for (const note of view.notes) {
-        timeline.push({
-          key: note.key,
-          at: note.at,
-          seq: seq++,
-          tie: 0,
-          render: () => this.cached(note.key, note.text, () => new Text(dim(sanitizeForDisplay(note.text)), 1, 0)),
-        });
-      }
-      // 每个任务一条统计行：结束标记是该任务的终止行，同刻排最后（tie=1）
-      for (const line of this.taskTimingLines(view.sessionId)) {
-        timeline.push({
-          key: line.key,
-          at: line.at,
-          seq: seq++,
-          tie: 1,
-          // paddingX 0：缩进已自带（见 streamText 的存续说明）
-          render: () => this.streamText(line.key, line.text),
-        });
-      }
-      timeline.sort((a, b) => {
-        // 无时间戳的排最后（seq 兜底保持稳定）；其余按时间，同刻先 tie 再 seq
-        if (a.at === "" || b.at === "") {
-          if (a.at === "" && b.at === "") return a.seq - b.seq;
-          return a.at === "" ? 1 : -1;
-        }
-        return a.at.localeCompare(b.at) || a.tie - b.tie || a.seq - b.seq;
-      });
-      for (const item of timeline) desired.push([item.key, item.render()]);
-      if (view.transcript.length === 0 && !view.preview) {
-        desired.push([
-          "$empty",
-          this.cached("$empty", "empty", () =>
-            new Text(dim(view.historyLoaded ? "（暂无历史消息）" : "历史加载中…"), 1, 1),
-          ),
-        ]);
-      }
-    } else {
-      desired.push([
-        "$welcome",
-        this.cached("$welcome", "welcome", () =>
-          new Text(
-            `${bold("ruukoto TUI")}\n\n` +
-              "只连接已运行的后台；退出或断开不影响任务执行。\n" +
-              "使用 /sessions 选择会话，或 /new-project、/new-session 创建。\n" +
-              "/help 查看全部命令与终端限制。",
-            1,
-            1,
-          ),
-        ),
-      ]);
-      for (const note of this.state.globalNotes) {
-        desired.push([note.key, this.cached(note.key, note.text, () => new Text(dim(sanitizeForDisplay(note.text)), 1, 0))]);
-      }
+    const entries: FlowEntry[] = view ? view.flow.items : this.state.globalNotes.map((note) => ({ ...note, kind: "note", seq: 0 }));
+    if (view && (view.trimmedOlder || view.historyCursor)) {
+      entries.unshift({ key: "$older", kind: "note", text: "更早历史可经 /older 翻页加载", at: "", seq: 0 });
     }
-
-    const keys = desired.map(([k]) => k);
-    if (keys.join("") !== this.itemOrder.join("")) {
-      this.transcriptContainer.clear();
-      desired.forEach(([, component], i) => {
-        if (i > 0) this.transcriptContainer.addChild(new Spacer(1)); // 条目之间留一行间距
-        this.transcriptContainer.addChild(component);
-      });
-      this.itemOrder = keys;
-      const alive = new Set(keys);
-      for (const key of this.itemComponents.keys()) {
-        if (!alive.has(key) && !key.startsWith("$")) this.itemComponents.delete(key);
-      }
-      for (const key of this.streamTexts.keys()) {
-        if (!alive.has(key)) this.streamTexts.delete(key);
-      }
+    if (entries.length === 0) {
+      entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : "ruukoto TUI\n使用 /sessions 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
     }
+    this.eventFlowView.setEntries(entries);
     this.tui.requestRender();
-  }
-
-  private cached(key: string, content: string, make: () => Component): Component {
-    // 内容哈希变化即重建组件（Markdown/Text 按内容缓存渲染）
-    const hash = `${content.length}:${content.slice(0, 128)}`;
-    const cachedEntry = this.itemComponents.get(key) as (Component & { __hash?: string }) | undefined;
-    if (cachedEntry && cachedEntry.__hash === hash) return cachedEntry;
-    const component = make() as Component & { __hash?: string };
-    component.__hash = hash;
-    this.itemComponents.set(key, component);
-    return component;
-  }
-
-  /** 可变流式行：返回该 key 的持久 Text 实例并就地更新内容。 */
-  private streamText(key: string, text: string): Text {
-    let component = this.streamTexts.get(key);
-    if (!component) {
-      component = new Text("", 0, 0);
-      this.streamTexts.set(key, component);
-    }
-    component.setText(text);
-    return component;
-  }
-
-  private componentForItem(item: TranscriptItem): Component {
-    if (item.kind === "message") {
-      const truncatedNote = item.truncated
-        ? dim(`\n[正文 ${item.totalBytes} 字节，/expand ${item.entryId.slice(0, 8)} 展开]`)
-        : "";
-      const body = `${sanitizeForDisplay(item.text)}${truncatedNote}`;
-      if (item.role === "user") {
-        // 拥有者输入：整行底色 + 起始标记（与模型输出区分）
-        const text = `❯ ${body}`;
-        return this.cached(item.entryId, text, () => new Text(text, 1, 0, userBg));
-      }
-      if (item.role === "assistant") {
-        // 模型输出：圆点在标记列，正文缩进到正文列（续行对齐）
-        return this.cached(item.entryId, body, () => new AssistantOutput(body));
-      }
-      const text = `${item.role}: ${body}`;
-      return this.cached(item.entryId, text, () => new Text(text, 1, 0));
-    }
-    // 工具结果条目（历史）：与活动区工具记录同款两行——⚙︎ 工具名 / ⎿ 摘要。
-    // ⎿ 行给调用目标（活动区记录落盘时带过来的）+ 结果体量与展开入口；失败保持醒目。
-    const target = item.target ? `${sanitizeForDisplay(item.target)} · ` : "";
-    const detail = item.isError
-      ? `${red("失败")}${dim(` · ${target}${item.totalBytes} 字节 · /expand ${item.entryId.slice(0, 8)} 展开`)}`
-      : dim(`${target}${item.totalBytes} 字节 · /expand ${item.entryId.slice(0, 8)} 展开`);
-    const text = `${dim(`${" ".repeat(MARKER_COL)}${TOOL_MARK} ${sanitizeForDisplay(item.toolName)}`)}\n${SUB_LINE}${detail}`;
-    return this.cached(item.entryId, text, () => new Text(text, 0, 0));
   }
 }

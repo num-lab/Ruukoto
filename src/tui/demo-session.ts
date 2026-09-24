@@ -21,15 +21,18 @@ import type {
   SelectionRecord,
   Session,
   Task,
+  ToolOp,
 } from "../core/types.ts";
-import { confirmationToView } from "../core/views.ts";
+import { confirmationToView, toolOpToView } from "../core/views.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
+import { editStatsFromResult, sliceTextByBytes } from "../core/history.ts";
 
 const PROJECT_ID = "proj_demo";
 const SESSION_ID = "sess_demo0000000000000000";
 const NOW = "2026-09-22T10:00:00.000Z";
 
 const MODEL: ModelSelection = { provider: "demo", modelId: "demo-model", thinkingLevel: "medium" };
+const EDIT_STATS = editStatsFromResult("edit", false, { patch: "@@ -1 +1,3 @@\n-const old = true;\n+const first = true;\n+const second = true;\n+const third = true;" })!;
 
 function ts(minutesAgo: number): string {
   return new Date(Date.parse(NOW) - minutesAgo * 60_000).toISOString();
@@ -205,9 +208,7 @@ function historyEntries(): HistoryEntryView[] {
     entry({
       entryId: "entry_0005",
       role: "assistant",
-      text: "这一条正文被截断（只返回了前 48KiB），用于验证 `/expand` 提示与分页读取。".repeat(3),
-      truncated: true,
-      totalBytes: 96 * 1024,
+      text: "长正文开头。\n" + "完整正文通过 UTF-8 字节分页恢复，内容不得重复或遗漏。\n".repeat(1000) + "长正文结尾。",
       timestamp: ts(36),
     }),
     entry({
@@ -223,6 +224,7 @@ function historyEntries(): HistoryEntryView[] {
       hasNonTextContent: true,
       timestamp: ts(19),
     }),
+    entry({ entryId: "entry_0008", role: "toolResult", text: "Updated src/tui/state.ts", toolCallId: "call_edit", toolName: "edit", isError: false, editStats: EDIT_STATS, timestamp: ts(35) }),
   ];
 }
 
@@ -282,6 +284,11 @@ function demoBreakdown(): ContextBreakdown {
 
 /** 覆盖全部事件类型的事件流（seq 从 1 连续递增）。 */
 function demoEvents(): PersistentEvent[] {
+  const entries = historyEntries();
+  const answer = entries.find((entry) => entry.entryId === "entry_0002")!.text;
+  const split = answer.indexOf("\n\n");
+  const first = answer.slice(0, split);
+  const second = answer.slice(split);
   const bodies: PersistentEventBody[] = [
     { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container" },
     { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null },
@@ -290,15 +297,25 @@ function demoEvents(): PersistentEvent[] {
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", modelSelection: MODEL },
     { type: "task.started", taskId: "task_completed000", sessionId: SESSION_ID },
-    { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: "我先读一下布局代码…", totalBytes: 20, truncated: false, partial: true },
-    // 活动区工具记录用独立的调用 id：结果不在静态历史里，否则按 sdkCallId 去重后不显示
-    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000001", sdkCallId: "call_live_1", toolName: "read", params: { path: "src/tui/app.ts" } },
+    { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: first, totalBytes: Buffer.byteLength(first), truncated: false, partial: true, contentIndex: 0, offset: 0, startedAt: ts(39.5) },
+    { type: "task.thinking", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", thinkingId: "thought_demo1", startedAt: ts(39.4), endedAt: null, text: "I'll inspect the layout and keep each event in its original position." },
+    { type: "task.thinking", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", thinkingId: "thought_demo1", startedAt: ts(39.4), endedAt: new Date(Date.parse(ts(39.4)) + 22_000).toISOString(), text: "I'll inspect the layout and keep each event in its original position." },
+    { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: second, totalBytes: Buffer.byteLength(second), truncated: false, partial: true, contentIndex: 1, offset: 0, startedAt: ts(39) },
+    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000001", sdkCallId: "call_1", toolName: "read", params: { path: "src/tui/app.ts" } },
     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000001", summary: "读取 1660 行", isError: false, artifactIds: [] },
     { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000002", sdkCallId: "call_live_2", toolName: "bash", params: { command: "npm run typecheck" } },
     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000002", summary: "命令失败：退出码 1", isError: true, artifactIds: ["art_demo0000000001"] },
+    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000004", sdkCallId: "call_2", toolName: "read", params: { path: "missing.ts" } },
+    { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000004", summary: "ENOENT: missing.ts", isError: true, artifactIds: [] },
+    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000005", sdkCallId: "call_edit", toolName: "edit", params: { path: "src/tui/state.ts" } },
+    { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000005", summary: "Updated src/tui/state.ts", isError: false, artifactIds: [], editStats: EDIT_STATS },
     { type: "task.tool_intent", taskId: "task_interrupt00", toolOpId: "toolop_demo000003", sdkCallId: "call_live_3", toolName: "bash", params: { command: "rm -rf /srv/work/tmp" } },
     { type: "task.tool_effect_unknown", taskId: "task_interrupt00", toolOpId: "toolop_demo000003", toolName: "bash" },
     { type: "task.output_entry", taskId: "task_completed000", sessionId: SESSION_ID, entryId: "entry_0002", sessionFile: SESSION.sessionFile!, role: "assistant", messageId: "msg_1" },
+    ...["entry_0001", "entry_0003", "entry_0004", "entry_0005", "entry_0008", "entry_0006", "entry_0007"].map((id): PersistentEventBody => {
+      const entry = entries.find((item) => item.entryId === id)!;
+      return { type: "task.output_entry", taskId: id === "entry_0006" || id === "entry_0007" ? "task_contd000000" : "task_completed000", sessionId: SESSION_ID, entryId: id, sessionFile: SESSION.sessionFile!, role: entry.role, messageId: entry.role === "assistant" ? `msg_${id}` : null };
+    }),
     { type: "task.completed", taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "auto-review", modelSelection: MODEL },
     { type: "task.started", taskId: "task_awaiting0000", sessionId: SESSION_ID },
@@ -321,6 +338,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.mode_switch_requested", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access" },
     { type: "task.mode_switched", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access", permissionVersion: 2 },
     { type: "task.mode_switch_failed", taskId: "task_failed00000", sessionId: SESSION_ID, to: "full_access", reason: "任务已结束" },
+    { type: "task.thinking", taskId: "task_running000000", sessionId: SESSION_ID, messageId: "msg_live", thinkingId: "thought_live", startedAt: ts(2), endedAt: null, text: "正在检查任务恢复与终端宽度。最新内容保留在这一行的尾部。" },
     { type: "task.queued", taskId: "task_failed00000", sessionId: SESSION_ID, requestId: "req-3", accessMode: "confirm", modelSelection: MODEL },
     { type: "task.failed", taskId: "task_failed00000", sessionId: SESSION_ID, errorMessage: "模型返回 429：速率限制" },
     { type: "task.queued", taskId: "task_canceled000", sessionId: SESSION_ID, requestId: "req-4", accessMode: "confirm", modelSelection: MODEL },
@@ -387,6 +405,20 @@ function demoEvents(): PersistentEvent[] {
 export function createDemoClient(onNotice: (text: string) => void, intervalMs = 250): ControlClient {
   const events = demoEvents();
   const entries = historyEntries();
+  const tasks = demoTasks().map((task) => ({ ...task, historyEntryIds: events.flatMap((event) => event.taskId === task.id && event.body.type === "task.output_entry" ? [event.body.entryId] : []) }));
+  const toolOps = new Map<string, ToolOp>();
+  for (const event of events) {
+    const body = event.body;
+    if (body.type === "task.tool_intent") {
+      toolOps.set(body.toolOpId, { id: body.toolOpId, taskId: body.taskId, toolName: body.toolName, sdkCallId: body.sdkCallId, params: body.params, intentRecordedAt: event.createdAt, resultSummary: null, isError: null, effectUnknown: false, recordedResultAt: null });
+    } else if (body.type === "task.tool_result") {
+      const op = toolOps.get(body.toolOpId);
+      if (op) Object.assign(op, { resultSummary: body.summary, isError: body.isError, recordedResultAt: event.createdAt });
+    } else if (body.type === "task.tool_effect_unknown") {
+      const op = toolOps.get(body.toolOpId);
+      if (op) op.effectUnknown = true;
+    }
+  }
   const eventListeners = new Set<(event: PersistentEvent) => void>();
   const closeListeners = new Set<(info: { reason: string; willRetry: boolean }) => void>();
   let closed = false;
@@ -396,7 +428,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
   const snapshot = (): ConnectResult["snapshot"] => ({
     projects: [PROJECT],
     sessions: [SESSION],
-    tasks: demoTasks(),
+    tasks,
     confirmations: [confirmationToView(CONFIRMATION)],
     artifacts: [
       { id: "art_demo0000000001", taskId: "task_completed000", sessionId: SESSION_ID, name: "bash 输出", byteCount: 96 * 1024, status: "complete", createdAt: ts(30) },
@@ -426,19 +458,38 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
       const reply = (value: unknown) => value as T;
       switch (op) {
         case "read_history": {
-          const page: HistoryPage = { fileAvailable: true, hasPartialTail: false, entries, nextBefore: null };
-          void params;
+          const end = params?.before ? entries.findIndex((entry) => entry.entryId === params.before) : entries.length;
+          const limit = Math.max(1, Number(params?.limit ?? 50));
+          const selected = entries.slice(Math.max(0, end - limit), end);
+          const page: HistoryPage = { fileAvailable: true, hasPartialTail: false, entries: selected.map((entry) => ({ ...entry, ...sliceTextByBytes(entry.text, 0, 8 * 1024) })), nextBefore: end > limit ? selected[0]!.entryId : null };
           return reply(page);
         }
         case "read_history_entry": {
           const found = entries.find((e) => e.entryId === params?.["entry_id"]);
           if (!found) throw new Error(`合成会话：未知条目 ${String(params?.["entry_id"])}`);
-          return reply(found);
+          return reply({ ...found, ...sliceTextByBytes(found.text, Number(params?.offset ?? 0), Number(params?.length ?? 48 * 1024)) });
         }
         case "get_task": {
-          const found = demoTasks().find((t) => t.id === params?.["task_id"]);
+          const found = tasks.find((t) => t.id === params?.["task_id"]);
           if (!found) throw new Error(`合成会话：未知任务 ${String(params?.["task_id"])}`);
-          return reply({ task: found, outputPreview: null });
+          return reply({ seq: events.length, task: found, toolOps: [...toolOps.values()].filter((op) => op.taskId === found.id).map(toolOpToView), confirmations: found.id === CONFIRMATION.taskId ? [confirmationToView(CONFIRMATION)] : [], artifacts: snapshot().artifacts.filter((artifact) => artifact.taskId === found.id), outputPreview: snapshot().previews[found.id] ?? null });
+        }
+        case "list_tasks": {
+          const ordered = [...tasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+          const start = params?.before ? ordered.findIndex((task) => task.id === params.before) + 1 : 0;
+          const limit = Math.max(1, Number(params?.limit ?? 50));
+          return reply({ tasks: ordered.slice(start, start + limit), hasMore: start + limit < ordered.length });
+        }
+        case "read_task_events": {
+          if (!tasks.some((task) => task.id === params?.task_id)) throw new Error(`合成会话：未知任务 ${String(params?.task_id)}`);
+          const matching = events.filter((event) => event.taskId === params?.task_id && event.seq > Number(params?.after_seq ?? 0));
+          const page = matching.slice(0, Math.max(1, Math.min(500, Number(params?.limit ?? 100))));
+          return reply({ events: page, nextAfter: page.length < matching.length ? page.at(-1)!.seq : null });
+        }
+        case "get_tool_op": {
+          const found = toolOps.get(String(params?.tool_op_id));
+          if (!found) throw new Error(`合成会话：未知工具操作 ${String(params?.tool_op_id)}`);
+          return reply({ toolOp: found, params: sliceTextByBytes(JSON.stringify(found.params), Number(params?.offset ?? 0), Number(params?.length ?? 48 * 1024)) });
         }
         case "list_models":
           return reply({
@@ -493,6 +544,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
 
   /** 握手后按固定间隔推送事件：可见「事件流式到达」的界面行为。 */
   function startStreaming(): void {
+    if (timer || closed) return;
     onNotice(`合成会话：共 ${events.length} 条事件、${entries.length} 条历史、${demoTasks().length} 个任务（含各终态）`);
     timer = setInterval(() => {
       if (closed || cursor >= events.length) {

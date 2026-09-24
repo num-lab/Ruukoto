@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 export interface ModelSelection {
   provider: string;
@@ -407,6 +407,11 @@ export interface Artifact {
   createdAt: string;
 }
 
+export interface EditStats {
+  added: number;
+  removed: number;
+}
+
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
   /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
@@ -427,12 +432,14 @@ export type PersistentEventBody =
   | { type: "task.mode_switched"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode; permissionVersion: number }
   | { type: "task.mode_switch_failed"; taskId: string; sessionId: string; to: AccessMode; reason: string }
   /**
-   * 运行中输出的有界预览（v3）：text 为截至当时的累计文本尾部
-   * （FRAGMENT_TEXT_CAP），totalBytes/truncated 标明完整规模；messageId 是
-   * 后台分配的消息标识，同一消息的片段替换同一预览，最终条目经
-   * task.output_entry.messageId 关联后取代预览。
+   * 运行中输出：contentIndex 是后台分配的连续正文段序号（不等同 SDK
+   * 块索引，部分 provider 在思考/正文交错时复用 SDK 索引）。offset/totalBytes
+   * 是该段的 UTF-8 字节偏移/累计大小；无 contentIndex 时作用于整条消息。
+   * 无 offset 的旧事件为累计文本尾部。startedAt 是该段首次实际正文时间。
+   * message_end 会冲刷所有段；最终消息以 output_entry 关联的 JSONL 为准。
    */
-  | { type: "task.output_fragment"; taskId: string; sessionId: string; messageId: string; text: string; totalBytes: number; truncated: boolean; partial: true }
+  | { type: "task.output_fragment"; taskId: string; sessionId: string; messageId: string; text: string; totalBytes: number; truncated: boolean; partial: true; offset?: number; startedAt?: string; contentIndex?: number }
+  | { type: "task.thinking"; taskId: string; sessionId: string; thinkingId: string; messageId: string; startedAt: string; endedAt: string | null; text: string }
   | { type: "task.output_entry"; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string; messageId: string | null }
   /**
    * 工具/审批事件（线上载荷）：params 可能被替换为有界预览
@@ -440,7 +447,7 @@ export type PersistentEventBody =
    * get_confirmation / get_tool_op 按 ID 分段读取。持久化的事件正文保持完整。
    */
   | { type: "task.tool_intent"; taskId: string; toolOpId: string; sdkCallId: string | null; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean }
-  | { type: "task.tool_result"; taskId: string; toolOpId: string; summary: string; isError: boolean; artifactIds: string[] }
+  | { type: "task.tool_result"; taskId: string; toolOpId: string; summary: string; isError: boolean; artifactIds: string[]; editStats?: EditStats }
   | { type: "task.tool_effect_unknown"; taskId: string; toolOpId: string; toolName: string }
   | { type: "task.tool_process_unreaped"; taskId: string; sessionId: string; reason: string }
   | { type: "task.completed"; taskId: string; sessionId: string }

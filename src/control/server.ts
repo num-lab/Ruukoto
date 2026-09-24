@@ -390,6 +390,12 @@ export class ControlServer {
           limit,
         });
       }
+      case "read_task_events":
+        return runtime.readTaskEvents({
+          taskId: requireString("task_id"),
+          afterSeq: params["after_seq"] as number | undefined,
+          limit: params["limit"] as number | undefined,
+        });
       case "read_history": {
         const num = (key: string): number | undefined => {
           const v = params[key];

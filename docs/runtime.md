@@ -5,7 +5,7 @@
 issue 03 接入真实编码工具与两种权限模式（[ADR 0003](../adr/0003-enforce-explicit-access-modes.md)、
 [ADR 0004](../adr/0004-tool-worker-per-task-container-exec-account.md)）。
 issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读取、断开重连与
-输入去重（协议 v3）。
+输入去重；当前控制协议为 v9，包含事件流恢复接口。
 
 ## 架构要点
 
@@ -118,11 +118,33 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   `/artifact <id 前缀>` 按字节分页查看产物正文；`/approvals` 待处理审批
   （详情内 `a` 批准 / `r` 拒绝，Esc 关闭不等于拒绝）；`/interrupt`、
   `/cancel <taskId>`、`/continue [taskId]`、`/resume-queue` 为明确的任务
-  操作；`/mode full_access` 经显式确认覆盖层按任务切换；`/quit` 或
+  操作；`/mode` 通过列表设置会话默认权限模式，作用于后续任务；`/model`
+  选择后续任务的模型和思考档位（`/thinking` 打开同一面板）；`/quit` 或
   `Ctrl+C`（空草稿时）退出客户端。
+- **事件流**：用户输入、工具、模型正文、思考段和任务状态按发生顺序展示，
+  独立事件之间空一行，工具或命令与其结果紧贴。首列保留给 `❯`、`⚙︎`、
+  `●` 等图标；Markdown 正文、列表、代码块与续行统一缩进。工具只展示
+  名称和主要目标，错误另行提示；Edit 的真实成功增删行数分别显示为绿色
+  和红色，缺失统计时省略；长 Bash 命令从尾部截断并以 `...` 结尾。
+- **思考与正文**：每段思考显示 `⨳ Thinking...`，公开思考内容用灰色单行
+  滚动展示最新部分，结束后原位保留 `⨳ Thought for Ns`；有明确思考阶段
+  事件时按该阶段计时。没有公开思考时，
+  从每轮请求发出到正文或工具调用开始计时，包含网络等待。正文完整流式
+  保留，可向上滚动，不受原有 8 KiB 尾部预览限制。
+- **命令结果**：所有命令在当前客户端回显；只有 `/mode` 和 `/model`
+  追加成功结果（`⎿ Switched to ...`），`/thinking` 不追加成功结果。
+  `/context`、`/prompt`、`/search`、`/memory`、`/qq` 等命令的正常内容
+  在可关闭的面板中展示，关闭后只留下命令行；错误和必要警示仍明确提示。
+- **任务状态**：执行期间同时显示底部 `⦿ Sweeping · Elapsed Ns`，审批
+  等待另加文字标注；总耗时从实际开始执行算起，包含审批等待、不含排队。
+  成功为 `✓ Done in Ns · At Tue 09:16 PM`，失败为红色 `✗ Failed`，
+  取消或中断为黄色 `Canceled`、`Interrupted` 并附必要原因。完成时间
+  按运行客户端的本地时区显示，旧记录没有可信开始时间时省略耗时。
 - **断开与重连**：退出/断开只关闭客户端，后台任务继续执行；重连后从后台
-  重建快照、历史与最新输出预览（生成中/中断前已捕获部分分别标注），不自动
-  新建任务、不恢复暂停队列。事件序号缺口或游标过旧时自动重新同步。
+  重建快照、历史及任务事件，恢复思考、工具、完整正文和完成状态的顺序，
+  按事件和消息身份去重。旧历史只展示已有可靠信息，缺少的思考耗时和
+  Edit 统计不补造。命令回显不持久化；不自动新建任务、不恢复暂停队列。
+  事件序号缺口或游标过旧时自动重新同步。
 - **输入去重**：提交前生成 `request_id` 并把完整请求原子保存到拥有者私有
   目录（默认 `~/.ruukoto/pending/`，`RUUKOTO_PENDING_DIR` 可覆盖，0600）；
   应答丢失时显示"接收结果待核实"，重连后按 `session_id + request_id` 核实：
@@ -142,8 +164,19 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 读取消息历史，唯一权威历史的投影）、`list_tasks`（已结束任务按会话分页）、
 `find_task`（按 `session_id + request_id` 核实已接收请求）、
 `get_confirmation_params` / `get_tool_op_params`（大参数按 ID 分段读取）。
+协议 v9 新增 `read_task_events`（`task_id`、`after_seq`、`limit`），按
+任务和持久事件序号分页恢复，返回 `events` 与 `nextAfter`。输出片段
+`task.output_fragment` 携带消息 ID、正文段 `contentIndex`、UTF-8 字节
+偏移 `offset` 与该段 `startedAt`，单片有界，接收端按偏移拼接完整正文；
+缺少偏移的旧片段仍按累计尾部解释。`task.thinking` 携带思考段 ID、开始
+与结束时间及单行展示所需的最新内容，`task.tool_result` 可携带真实
+`editStats`。消息完成后仍以 `task.output_entry` 关联的 JSONL 正文为准，
+事件投影不替代会话历史。`get_task` 返回快照对应的事件序号 `seq`，客户端
+据此协调实时事件与详情恢复；协议版本不同的客户端和后台在握手时明确拒绝，
+持久事件中的旧格式兼容不代表线上协议向后兼容。
+
 握手返回数据实例标识与执行后端说明；快照有界（活动任务 + 每会话近期结束
-任务）；事件中的大参数与累计输出片段以有界预览传输。拥有者令牌文件路径可
+任务）；工具大参数、快照输出预览和事件分页均有载荷上限。拥有者令牌文件路径可
 经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（拥有者与后台不同 UID 的部署）。
 `respond_confirmation` 可携带 `permission_version` 绑定审批时的权限版本
 （不匹配返回 `permission_version_mismatch`）；`read_artifact` 单次上限

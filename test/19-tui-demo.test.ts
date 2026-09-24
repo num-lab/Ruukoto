@@ -10,8 +10,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import type { ControlClient } from "../src/control/client.ts";
-import type { PersistentEvent } from "../src/core/types.ts";
+import type { PersistentEvent, Task } from "../src/core/types.ts";
+import type { HistoryEntryView, HistoryPage } from "../src/core/history.ts";
+import type { ToolOpView } from "../src/core/views.ts";
 import { createDemoClient } from "../src/tui/demo-session.ts";
+import { EventFlow } from "../src/tui/event-flow.ts";
 
 /** 从类型定义抽出全部事件 type 字面量（新增事件类型时必须同步 demo 数据）。 */
 function declaredEventTypes(): string[] {
@@ -76,6 +79,66 @@ test("合成会话不产生真实副作用：写操作被拒绝", async () => {
     for (const op of ["submit", "create_project", "create_session", "respond_confirmation", "stop"]) {
       await assert.rejects(() => client.request(op, {}), /合成会话不支持写操作/, `${op} 应被拒绝`);
     }
+  } finally {
+    client.close();
+  }
+});
+
+test("合成会话支持新 TUI 的任务与事件分页恢复，并提供完整正文、思考阶段和真实 Edit 统计", async () => {
+  const client = createDemoClient(() => {}, 60_000);
+  try {
+    const { snapshot } = await client.handshake();
+    const tasks: Task[] = [];
+    let before: string | undefined;
+    for (;;) {
+      const page = await client.request<{ tasks: Task[]; hasMore: boolean }>("list_tasks", { session_id: snapshot.sessions[0]!.id, before, limit: 2 });
+      tasks.push(...page.tasks);
+      if (!page.hasMore) break;
+      before = page.tasks.at(-1)!.id;
+    }
+    assert.equal(new Set(tasks.map((task) => task.id)).size, snapshot.tasks.length);
+    const completed = tasks.find((task) => task.status === "completed")!;
+    const detail = await client.request<{ seq: number; task: Task; toolOps: ToolOpView[] }>("get_task", { task_id: completed.id });
+    assert.ok(Number.isSafeInteger(detail.seq) && detail.seq > 0);
+    const flow = new EventFlow();
+    flow.task(detail.task);
+    detail.toolOps.forEach((op) => flow.tool(op, detail.seq));
+    const history = await client.request<HistoryPage>("read_history", { session_id: completed.sessionId });
+    flow.installHistory(history.entries, true, 300);
+    const events: PersistentEvent[] = [];
+    let after = 0;
+    let pages = 0;
+    for (;;) {
+      const page = await client.request<{ events: PersistentEvent[]; nextAfter: number | null }>("read_task_events", { task_id: completed.id, after_seq: after, limit: 3 });
+      assert.ok(page.events.every((event) => event.taskId === completed.id && event.seq > after));
+      page.events.forEach((event) => flow.apply(event));
+      events.push(...page.events);
+      pages++;
+      if (page.nextAfter === null) break;
+      after = page.nextAfter;
+    }
+    assert.ok(pages > 1);
+    assert.equal(new Set(events.map((event) => event.seq)).size, events.length);
+    assert.ok(events.some((event) => event.body.type === "task.output_fragment" && event.body.contentIndex === 1));
+    assert.ok(flow.items.some((entry) => entry.kind === "thinking" && entry.endedAt !== null));
+    assert.deepEqual(flow.tools.find((entry) => entry.name === "edit")?.editStats, { added: 3, removed: 1 });
+
+    const longEntry = history.entries.find((entry) => entry.truncated)!;
+    assert.ok(longEntry.totalBytes > 48 * 1024);
+    let offset = 0;
+    let text = "";
+    let last: HistoryEntryView;
+    do {
+      last = await client.request<HistoryEntryView>("read_history_entry", { session_id: completed.sessionId, entry_id: longEntry.entryId, offset, length: 48 * 1024 });
+      assert.equal(last.offset, offset);
+      assert.ok(last.text.length > 0);
+      text += last.text;
+      offset += Buffer.byteLength(last.text);
+    } while (offset < last.totalBytes);
+    assert.equal(Buffer.byteLength(text), longEntry.totalBytes);
+    assert.ok(text.startsWith("长正文开头。") && text.endsWith("长正文结尾。"));
+    flow.addHistory({ ...last, text, offset: 0, truncated: false });
+    assert.equal(flow.items.filter((entry) => entry.kind === "message" && entry.entryId === longEntry.entryId).length, 1);
   } finally {
     client.close();
   }

@@ -103,6 +103,8 @@ import {
   type HistoryPage,
 } from "../core/history.ts";
 import {
+  capEventForWire,
+  frameBytes,
   confirmationToView,
   toolOpToView,
   FRAGMENT_TEXT_CAP,
@@ -2068,6 +2070,7 @@ export class Runtime {
    * getConfirmationParams / getToolOpParams 分段读取）、产物、输出预览。
    */
   getTaskDetail(taskId: string): {
+    seq: number;
     task: Task;
     toolOps: ToolOpView[];
     confirmations: ConfirmationRequestView[];
@@ -2077,6 +2080,7 @@ export class Runtime {
     const task = this.store.getTask(taskId);
     if (!task) return null;
     return {
+      seq: this.store.getMaxSeq(),
       task,
       toolOps: this.store.listToolOpsByTask(task.id).map(toolOpToView),
       confirmations: this.store.listConfirmationsByTask(task.id).map(confirmationToView),
@@ -2181,6 +2185,31 @@ export class Runtime {
     if (!op) throw new RuntimeApiError("not_found", `工具操作不存在：${input.toolOpId}`);
     const { params: _params, ...rest } = op;
     return { toolOp: rest, params: this.pagedParams(op.params, input.offset, input.length) };
+  }
+
+  /** 事件只是实时投影与恢复来源；最终消息仍经 JSONL 历史读取。 */
+  readTaskEvents(input: { taskId: string; afterSeq?: number; limit?: number }): { events: PersistentEvent[]; nextAfter: number | null } {
+    if (!this.store.getTask(input.taskId)) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    const after = input.afterSeq === undefined ? 0 : input.afterSeq;
+    const limit = input.limit === undefined ? 100 : input.limit;
+    if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1) {
+      throw new RuntimeApiError("invalid_params", "after_seq 必须是非负整数，limit 必须是正整数");
+    }
+    const cap = Math.min(limit, 500);
+    const rows = this.store.getTaskEventsAfter(input.taskId, after, cap + 1);
+    const events: PersistentEvent[] = [];
+    let bytes = 64;
+    for (const row of rows.slice(0, cap)) {
+      const event = capEventForWire(row);
+      const size = frameBytes(event);
+      if (bytes + size > SEGMENT_MAX_BYTES) {
+        if (!events.length) throw new RuntimeApiError("event_too_large", `事件 ${row.seq} 超过单页上限`);
+        break;
+      }
+      events.push(event);
+      bytes += size;
+    }
+    return { events, nextAfter: events.length < rows.length ? events.at(-1)!.seq : null };
   }
 
   getEventLog(afterSeq: number, limit?: number): PersistentEvent[] {

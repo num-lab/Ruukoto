@@ -13,7 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as path from "node:path";
-import type { Terminal } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, type Terminal } from "@earendil-works/pi-tui";
 import { ControlConnection } from "../src/control/connection.ts";
 import { PendingRequestStore } from "../src/control/pending-requests.ts";
 import { SubmissionGuard } from "../src/control/submission.ts";
@@ -29,6 +29,8 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
+import type { Task } from "../src/core/types.ts";
+import type { HistoryPage } from "../src/core/history.ts";
 
 // ---------- 假终端 ----------
 
@@ -107,7 +109,7 @@ interface AppHarness {
 
 let harnessCounter = 0;
 
-async function startApp(t: TestRuntime, opts: { sessionId?: string } = {}): Promise<AppHarness> {
+async function startApp(t: TestRuntime, opts: { sessionId?: string; requests?: Array<{ op: string; params?: Record<string, unknown> }> } = {}): Promise<AppHarness> {
   // 调用方负责在 finally 中 app.quit()（失败时也不能遗留连接/定时器）
   const state = new ViewState();
   let appRef: TuiApp | null = null;
@@ -119,6 +121,13 @@ async function startApp(t: TestRuntime, opts: { sessionId?: string } = {}): Prom
       onEvent: (e, kind) => appRef?.onEvent(e, kind),
     },
   );
+  if (opts.requests) {
+    const request = connection.request.bind(connection);
+    connection.request = <T>(op: string, params?: Record<string, unknown>, timeoutMs?: number) => {
+      opts.requests!.push({ op, params });
+      return request<T>(op, params, timeoutMs);
+    };
+  }
   const pendingStore = new PendingRequestStore(path.join(t.dirs.root, `pending-${harnessCounter++}`));
   const guard = new SubmissionGuard(pendingStore, connection);
   const terminal = new FakeTerminal();
@@ -168,12 +177,12 @@ async function submitViaEditor(h: AppHarness, text: string): Promise<void> {
 
 // ---------- 测试 ----------
 
-test("提交多行中文与流式显示：片段替换预览，最终消息只出现一次", async () => {
+test("提交多行中文与流式显示：终端持续呈现中间帧，最终消息沿用唯一条目", async () => {
   const t = await startTestRuntime("tui-basic", async (req, callIndex) => {
     void callIndex;
     const text = lastUserText(req);
     await new Promise((r) => setTimeout(r, 300));
-    return { kind: "text", text: `收到：${text}` };
+    return { kind: "text", text: `收到：${text}\n${"输出中".repeat(20)}\n第二段标记，${"继续".repeat(16)}\n终态标记。`, chunkDelayMs: 300 };
   });
   const apps: AppHarness[] = [];
   try {
@@ -183,20 +192,32 @@ test("提交多行中文与流式显示：片段替换预览，最终消息只�
 
     // 多行中文输入（Alt+Enter 换行语义无终端模拟，直接送多行文本）
     await submitViaEditor(h, "第一行\n第二行：帮我总结一下");
+    await waitFor("首个流式终端帧", () => stripTerminalSequences(h.terminal.output()).includes("收到：第一行"));
+    assert.equal([...h.state.tasks.values()][0]!.status, "running", "首帧在任务完成前渲染");
+    const flow = h.state.sessionViews.get(sessionId)!.flow;
+    const initialOutput = flow.items.find((entry) => entry.kind === "message" && entry.role === "assistant");
+    assert.ok(initialOutput?.kind === "message" && initialOutput.streaming);
+    h.terminal.clearOutput();
+    await waitFor("更新后的流式终端帧", () => stripTerminalSequences(h.terminal.output()).includes("第二段标记"));
+    assert.equal([...h.state.tasks.values()][0]!.status, "running", "同一消息的后续内容在任务完成前渲染");
+    assert.ok(!stripTerminalSequences(h.terminal.output()).includes("终态标记"), "中间帧还不包含最终正文");
     await waitFor("任务完成", async () => {
       const tasks = [...h.state.tasks.values()];
       return tasks.length === 1 && tasks[0]!.status === "completed";
     });
     await waitFor("历史补齐", () => {
       const view = h.state.sessionViews.get(sessionId)!;
-      return view.transcript.some((i) => i.kind === "message" && i.role === "assistant" && i.text.includes("收到："));
+      return view.flow.items.some((i) => i.kind === "message" && i.role === "assistant" && !i.streaming && i.text.includes("收到："));
     });
     const view = h.state.sessionViews.get(sessionId)!;
-    const assistantTexts = view.transcript.filter((i) => i.kind === "message" && i.role === "assistant" && i.text.includes("收到："));
+    const assistantTexts = view.flow.items.filter((i) => i.kind === "message" && i.role === "assistant" && i.text.includes("收到："));
     assert.equal(assistantTexts.length, 1, "最终消息只出现一次");
-    assert.equal(view.preview, null, "最终条目落盘后预览已清除");
-    const userEntry = view.transcript.find((i) => i.kind === "message" && i.role === "user");
-    assert.ok(userEntry && userEntry.text.includes("第一行\n第二行"), "多行中文原文完整");
+    const finalOutput = assistantTexts[0]!;
+    assert.ok(finalOutput.kind === "message" && !finalOutput.streaming, "历史补齐把原条目标为完整");
+    assert.equal(finalOutput.key, initialOutput.key, "落盘前后使用同一身份");
+    const userEntry = view.flow.items.find((i) => i.kind === "message" && i.role === "user");
+    assert.ok(userEntry?.kind === "message" && userEntry.text.includes("第一行\n第二行"), "多行中文原文完整");
+    await waitFor("最终终端帧", () => stripTerminalSequences(h.terminal.output()).includes("终态标记"));
     assert.equal(h.pendingStore.list().records.length, 0, "无待确认记录残留");
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);
@@ -237,13 +258,74 @@ test("任务运行中退出 TUI：重连后看到运行状态与最终历史，�
     await waitFor("任务完成", async () => (await taskStatus(t.client, running.id)).task.status === "completed");
     await waitFor("最终消息进入历史", () => {
       const v = h2.state.sessionViews.get(sessionId)!;
-      return v.transcript.some((i) => i.kind === "message" && i.role === "assistant" && i.text.includes("慢任务结果"));
+      return v.flow.items.some((i) => i.kind === "message" && i.role === "assistant" && !i.streaming && i.text.includes("慢任务结果"));
     });
     h2.app.quit(0);
     await waitFor("h2 退出", () => h2.exitCode() === 0);
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("长正文生成中退出后冷重连：超过历史单页的正文完整恢复且只显示一次", async () => {
+  const output = "长文头部标记\n" + "连续的中文内容。".repeat(2500) + "\n长文尾部标记";
+  assert.ok(Buffer.byteLength(output) > 48 * 1024);
+  const t = await startTestRuntime("tui-long-reconnect", async () => ({ kind: "text", text: output, chunkDelayMs: 1 }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const first = await startApp(t, { sessionId });
+    apps.push(first);
+    await submitViaEditor(first, "返回长正文");
+    await waitFor("至少 8KiB 的流式正文", () => first.state.sessionViews.get(sessionId)!.flow.items.some((entry) => entry.kind === "message" && entry.role === "assistant" && entry.streaming && Buffer.byteLength(entry.text) > 8 * 1024));
+    const taskId = [...first.state.tasks.keys()][0]!;
+    first.app.quit(0);
+    await waitFor("首个客户端退出", () => first.exitCode() === 0);
+    await waitFor("后台独立完成长正文", async () => (await taskStatus(t.client, taskId)).task.status === "completed");
+
+    const requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
+    const second = await startApp(t, { sessionId, requests });
+    apps.push(second);
+    await waitFor("冷重连完整历史恢复", () => second.state.sessionViews.get(sessionId)!.flow.items.some((entry) => entry.kind === "message" && entry.role === "assistant" && !entry.streaming && !entry.truncated && entry.text === output));
+    const answers = second.state.sessionViews.get(sessionId)!.flow.items.filter((entry) => entry.kind === "message" && entry.role === "assistant");
+    assert.equal(answers.length, 1, "历史与事件补读合并为唯一正文");
+    assert.ok(requests.some((request) => request.op === "read_history_entry" && Number(request.params?.offset ?? 0) > 0 && request.params?.length === 48 * 1024), "实际请求后续 48KiB 历史页（偏移按 UTF-8 边界对齐）");
+    await waitFor("终端显示正文尾部", () => stripTerminalSequences(second.terminal.output()).includes("长文尾部标记"));
+    second.terminal.clearOutput();
+    (second.app as any).scroll.scrollTo(0, { disableFollow: true });
+    (second.app as any).tui.requestRender();
+    await waitFor("滚回顶部看到完整正文开头", () => stripTerminalSequences(second.terminal.output()).includes("长文头部标记"));
+    assert.equal([...second.state.tasks.keys()].filter((id) => id === taskId).length, 1);
+  } finally {
+    quitAll(apps);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.shutdown();
+  }
+});
+
+test("空历史的排队取消任务在冷启动后恢复原始输入和 Canceled 终态", async () => {
+  const t = await startTestRuntime("tui-empty-canceled", async () => ({ kind: "text", text: "不应调用模型" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    t.runtime.store.withTx(() => t.runtime.store.setSessionQueueState(sessionId, "paused", "test"));
+    const queued = await t.client.request<Task>("submit", { session_id: sessionId, request_id: "queued-cancel", input: "尚未执行就取消的原始输入", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
+    await t.client.request("cancel", { task_id: queued.id });
+    const page = await t.client.request<HistoryPage>("read_history", { session_id: sessionId });
+    assert.equal(page.entries.length, 0, "取消发生在用户消息落盘之前");
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    await waitFor("空历史任务恢复", () => {
+      const screen = stripTerminalSequences(h.terminal.output());
+      return screen.includes("尚未执行就取消的原始输入") && screen.includes("Canceled");
+    });
+    assert.equal(t.server.calls.length, 0);
+    assert.ok(!stripTerminalSequences(h.terminal.output()).includes("Done"));
+  } finally {
+    quitAll(apps);
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await t.shutdown();
   }
 });
@@ -491,7 +573,7 @@ test("/context：展示当前上下文窗口分解（不提供切换）", async 
   }
 });
 
-test("/context：无记录时明确提示，不打开悬浮层", async () => {
+test("/context：无记录提示在面板呈现，事件流仅保留命令", async () => {
   const t = await startTestRuntime("tui-context-empty", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
@@ -500,9 +582,10 @@ test("/context：无记录时明确提示，不打开悬浮层", async () => {
     apps.push(h);
     h.terminal.send("/context");
     h.terminal.send("\r");
-    await renderFlush();
-    const notes = h.state.sessionViews.get(sessionId)!.notes.map((n) => n.text).join("\n");
-    assert.ok(notes.includes("还没有模型调用记录"), `实际提示：${notes}`);
+    await waitFor("无记录提示", () => stripTerminalSequences(h.terminal.output()).includes("还没有模型调用记录"));
+    const entries = h.state.sessionViews.get(sessionId)!.flow.items;
+    assert.ok(entries.some((entry) => entry.kind === "command" && entry.line === "/context" && entry.result === null));
+    assert.ok(!entries.some((entry) => entry.kind === "note" && entry.text.includes("还没有模型调用记录")), "普通命令说明不写入事件流");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));

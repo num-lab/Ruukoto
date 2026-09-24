@@ -420,7 +420,7 @@ test("工作区入口：无候选项目时自动创建项目（建议名）并�
     assert.equal(project.name, path.basename(fs.realpathSync(t.work[0]!)), "项目名取目录名");
     assert.equal(project.createRequestId, session.createRequestId, "项目与会话共用同一启动请求标识");
     await waitFor("自动创建提示", () => {
-      const notes = h.state.sessionViews.get(sessionId)?.notes.map((n) => n.text).join("\n") ?? "";
+      const notes = h.state.sessionViews.get(sessionId)?.flow.items.filter((n) => n.kind === "note").map((n) => n.text).join("\n") ?? "";
       return notes.includes(`项目已自动创建：${project.name}`);
     });
     assert.equal(
@@ -457,7 +457,7 @@ test("工作区入口：唯一候选项目被复用，仍创建新会话", async
     assert.equal(session.projectId, projectId, "复用已有项目");
     assert.equal(t.runtime.store.listSessions().length, baseSessions + 1, "只新增一条会话");
     assert.equal(t.runtime.store.listProjects().length, baseProjects, "不新建项目");
-    const notes = h.state.sessionViews.get(sessionId)?.notes.map((n) => n.text).join("\n") ?? "";
+    const notes = h.state.sessionViews.get(sessionId)?.flow.items.filter((n) => n.kind === "note").map((n) => n.text).join("\n") ?? "";
     assert.ok(!notes.includes("项目已自动创建"), "复用项目不应提示自动创建");
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);

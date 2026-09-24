@@ -18,6 +18,9 @@
  *
  * v8（issue 17）：专用 GitHub 模块退役，github_* 业务接口移除；旧客户端
  * 因版本不匹配被拒绝，旧命令仅保留静态迁移提示。
+ *
+ * v9：正文按连续显示段发送 UTF-8 增量，新增持久思考阶段、read_task_events
+ * 分页及 get_task 快照水位。旧客户端须升级；持久旧事件的累计尾部格式仍可读。
  */
 
 import {
@@ -50,6 +53,12 @@ export interface ConnectSnapshot {
   execution: { backend: string; note: string };
   /** 后台启动默认模型；会话选择和任务实际配置分别随会话、任务返回。 */
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
+}
+
+/** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */
+export interface TaskEventsPage {
+  events: PersistentEvent[];
+  nextAfter: number | null;
 }
 
 export interface ConnectResult {

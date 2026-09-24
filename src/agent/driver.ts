@@ -36,10 +36,10 @@ import {
   type ApprovalReviewer,
 } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, ConfirmationRequest, Session, Task, ToolCategory } from "../core/types.ts";
+import type { AccessMode, AgentRole, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
-import { parseSessionFile, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
+import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "../core/views.ts";
 import { grantCoversPath } from "../core/worktree.ts";
 import type { ArtifactStore } from "./artifacts.ts";
@@ -181,14 +181,20 @@ export class Driver {
   private callMap = new Map<string, string>();
   private flushedEntryIds = new Set<string>();
   private lastFragmentAt = 0;
+  private textBlock: { contentIndex: number; text: string; offset: number; startedAt: string } | null = null;
+  private nextTextIndex = 0;
+  private sourceTextBlocks = new Map<number, string>();
+  private thinking: Extract<PersistentEventBody, { type: "task.thinking" }> | null = null;
+  private thinkingIndex: number | null = null;
+  private lastThinkingAt = 0;
   /**
    * 流式 assistant 消息标识：SDK 的 message_update 每次携带新的对象副本，
-   * 不能按引用识别；改为 message_start 时按序分配，flushEntryRefs 按条目
-   * 顺序消费（条目落盘顺序与 message_start 顺序一致）。
+   * 不能按引用识别；在每次模型请求前按序分配，flushEntryRefs 按条目
+   * 落盘顺序消费，以同一身份关联思考、正文段与最终历史。
    */
   private currentMsgId: string | null = null;
   private pendingEntryMsgIds: string[] = [];
-  /** 当前任务的最新输出预览（全量在内存；事件只发有界尾部）。 */
+  /** 当前任务的最新输出预览（全量在内存；事件发送有界增量）。 */
   private currentPreview: { messageId: string; text: string } | null = null;
   private runPromise: Promise<void> | null = null;
   /** SDK 扩展桥注入的 appendEntry（宿主标记条目，custom，不进模型上下文）。 */
@@ -619,6 +625,7 @@ export class Driver {
           throw err;
         }
       }
+      if (task) this.beginModelRequest(task);
       const stream = await original.call(agent, model, context, options);
       this.noteUsageAfterSend(stream);
       return stream;
@@ -813,6 +820,12 @@ export class Driver {
     this.currentMsgId = null;
     this.pendingEntryMsgIds = [];
     this.currentPreview = null;
+    this.textBlock = null;
+    this.nextTextIndex = 0;
+    this.sourceTextBlocks.clear();
+    this.lastFragmentAt = 0;
+    this.thinking = null;
+    this.thinkingIndex = null;
     this.registry.clear();
     this.hostToolCtx = null;
     this.hostToolCalls = new Map();
@@ -825,6 +838,8 @@ export class Driver {
     try {
       await this.runPromise;
     } finally {
+      this.flushOutput();
+      this.endThinking();
       // 任务终态后回收本任务持有的 MCP 连接（所有退出路径统一兜底）
       await this.closeMcpConns();
       this.mcpToolNames = new Set();
@@ -1127,6 +1142,8 @@ export class Driver {
       occupancyIssueReason?: string | null;
     },
   ): void {
+    this.flushOutput();
+    this.endThinking();
     this.deps.store.withTx(() => {
       const store = this.deps.store;
       const ok = store.transitionTask(task.id, ["running", "awaiting_confirmation"], to, {
@@ -1611,10 +1628,86 @@ export class Driver {
 
   // ---------- 会话事件观察 ----------
 
-  /** 任务当前的输出预览（全量在内存；供重连重建，事件只发有界尾部）。 */
+  /** 任务当前的输出预览（全量在内存；供重连重建，事件发送有界增量）。 */
   currentOutputPreview(taskId: string): { messageId: string; text: string } | null {
     if (this.currentTask?.id !== taskId || !this.currentPreview) return null;
     return this.currentPreview;
+  }
+
+  /** 在最终请求校验之后、调用 provider 之前开始计时，排除排队与上下文组装。 */
+  private beginModelRequest(task: Task): void {
+    this.flushOutput();
+    this.endThinking();
+    this.currentMsgId = randomId("msg");
+    this.pendingEntryMsgIds.push(this.currentMsgId);
+    this.currentPreview = null;
+    this.textBlock = null;
+    this.nextTextIndex = 0;
+    this.sourceTextBlocks.clear();
+    this.lastFragmentAt = 0;
+    this.startThinking(task);
+  }
+
+  private startThinking(task: Task): void {
+    this.thinking = {
+      type: "task.thinking", taskId: task.id, sessionId: task.sessionId,
+      thinkingId: randomId("think"), messageId: this.currentMsgId!,
+      startedAt: new Date().toISOString(), endedAt: null, text: "",
+    };
+    this.thinkingIndex = null;
+    this.emitThinking();
+  }
+
+  private emitThinking(): void {
+    if (!this.thinking) return;
+    const body = { ...this.thinking };
+    this.deps.store.withTx(() => this.deps.store.appendEvent(body, { taskId: body.taskId, sessionId: body.sessionId }));
+    this.lastThinkingAt = Date.now();
+  }
+
+  private endThinking(): void {
+    if (!this.thinking) return;
+    this.thinking.endedAt = new Date().toISOString();
+    this.emitThinking();
+    this.thinking = null;
+    this.thinkingIndex = null;
+  }
+
+  private appendOutput(text: string): void {
+    if (!text || !this.currentMsgId) return;
+    this.endThinking();
+    this.textBlock ??= { contentIndex: this.nextTextIndex++, text: "", offset: 0, startedAt: new Date().toISOString() };
+    this.textBlock.text += text;
+    this.currentPreview = { messageId: this.currentMsgId, text: (this.currentPreview?.text ?? "") + text };
+    if (Date.now() - this.lastFragmentAt >= FRAGMENT_INTERVAL_MS) this.flushOutput();
+  }
+
+  /** 每段正文独立按 UTF-8 字节偏移发送；段边界与 message_end 冲刷节流尾块。 */
+  private flushOutput(): void {
+    const task = this.currentTask;
+    const block = this.textBlock;
+    if (!task || !block || !this.currentMsgId) return;
+    // provider 分块恰好切开 UTF-16 代理对时，等待下一块补齐。
+    const last = block.text.charCodeAt(block.text.length - 1);
+    const text = last >= 0xd800 && last <= 0xdbff ? block.text.slice(0, -1) : block.text;
+    const bytes = Buffer.from(text, "utf8");
+    const totalBytes = bytes.length;
+    if (block.offset >= totalBytes) return;
+    let offset = block.offset;
+    this.deps.store.withTx(() => {
+      while (offset < totalBytes) {
+        const end = snapUtf8End(bytes, Math.min(offset + FRAGMENT_TEXT_CAP, totalBytes));
+        this.deps.store.appendEvent({
+          type: "task.output_fragment", taskId: task.id, sessionId: task.sessionId,
+          messageId: this.currentMsgId!, contentIndex: block.contentIndex,
+          text: bytes.subarray(offset, end).toString("utf8"), offset, totalBytes: end,
+          truncated: false, partial: true, startedAt: block.startedAt,
+        }, { taskId: task.id, sessionId: task.sessionId });
+        offset = end;
+      }
+    });
+    block.offset = offset;
+    this.lastFragmentAt = Date.now();
   }
 
   private handleSessionEvent(event: AgentSessionEvent): void {
@@ -1623,52 +1716,57 @@ export class Driver {
 
     switch (event.type) {
       case "message_start": {
-        // 新 assistant 消息开始：按序分配消息标识（片段与最终条目的关联键）
-        const message = (event as any).message;
-        if (message?.role === "assistant") {
-          const id = randomId("msg");
-          this.pendingEntryMsgIds.push(id);
-          this.currentMsgId = id;
-        }
+        if (event.message.role === "assistant" && !this.currentMsgId) this.beginModelRequest(task);
         return;
       }
       case "message_update": {
-        const message = (event as any).message;
-        if (message?.role !== "assistant") return;
-        if (!this.currentMsgId) {
-          // 防御：未观察到 message_start（如直接 done 路径）
-          this.currentMsgId = randomId("msg");
-          this.pendingEntryMsgIds.push(this.currentMsgId);
+        if (event.message.role !== "assistant") return;
+        if (!this.currentMsgId) this.beginModelRequest(task);
+        const update = event.assistantMessageEvent;
+        if (update.type === "thinking_start" || update.type === "thinking_delta") {
+          this.flushOutput();
+          this.textBlock = null;
+          if (this.thinking && this.thinkingIndex !== null && this.thinkingIndex !== update.contentIndex) this.endThinking();
+          if (!this.thinking) this.startThinking(task);
+          const firstExplicitThinking = this.thinkingIndex === null;
+          // 占位阶段保留身份；公开思考的计时从首个明确事件开始，不含请求等待。
+          if (firstExplicitThinking) this.thinking!.startedAt = new Date().toISOString();
+          this.thinkingIndex = update.contentIndex;
+          // SDK 的 partial 对象可能已被后续队列事件更新，只消费原生 delta。
+          if (update.type === "thinking_delta") this.thinking!.text = tailTextByBytes(this.thinking!.text + update.delta, FRAGMENT_TEXT_CAP).text;
+          if (firstExplicitThinking || update.type === "thinking_start" || Date.now() - this.lastThinkingAt >= FRAGMENT_INTERVAL_MS) this.emitThinking();
+        } else if (update.type === "thinking_end") {
+          // 部分 provider 把 end 延迟到整条消息结束，不重新打开已被正文结束的阶段。
+          if (this.thinking && this.thinkingIndex === update.contentIndex) {
+            if (!this.thinking.text) this.thinking.text = tailTextByBytes(update.content, FRAGMENT_TEXT_CAP).text;
+            this.endThinking();
+          }
+        } else if (update.type === "text_delta") {
+          this.sourceTextBlocks.set(update.contentIndex, (this.sourceTextBlocks.get(update.contentIndex) ?? "") + update.delta);
+          this.appendOutput(update.delta);
+        } else if (update.type === "text_end") {
+          const seen = this.sourceTextBlocks.get(update.contentIndex) ?? "";
+          if (update.content.startsWith(seen)) this.appendOutput(update.content.slice(seen.length));
+          this.sourceTextBlocks.set(update.contentIndex, update.content);
+        } else if (update.type.startsWith("toolcall_")) {
+          this.flushOutput();
+          this.textBlock = null;
+          this.endThinking();
         }
-        const messageId = this.currentMsgId;
-        const text = extractText(message?.content);
-        if (text.length === 0) return;
-        // 内存中的预览每次都更新（重连重建取最新）；事件发送保持节流
-        this.currentPreview = { messageId, text };
-        const now = Date.now();
-        if (now - this.lastFragmentAt < FRAGMENT_INTERVAL_MS) return;
-        this.lastFragmentAt = now;
-        // 有界预览：只保留尾部；完整文本落盘后由历史条目提供
-        const capped = tailTextByBytes(text, FRAGMENT_TEXT_CAP);
-        this.deps.store.withTx(() => {
-          this.deps.store.appendEvent(
-            {
-              type: "task.output_fragment",
-              taskId: task.id,
-              sessionId: task.sessionId,
-              messageId,
-              text: capped.text,
-              totalBytes: capped.totalBytes,
-              truncated: capped.truncated,
-              partial: true,
-            },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        });
+        return;
+      }
+      case "message_end": {
+        if (event.message.role !== "assistant") return;
+        const text = extractText(event.message.content);
+        const seen = this.currentPreview?.text ?? "";
+        if (text.startsWith(seen)) this.appendOutput(text.slice(seen.length));
+        this.flushOutput();
+        this.endThinking();
         return;
       }
       case "tool_execution_end": {
         const summary = summarizeToolResult(event.result);
+        const editStats = editStatsFromResult(event.toolName, event.isError, event.result?.details);
         // SDK 调用 id → 宿主操作 id（不同任务复用调用 id 时不串用记录）
         const hostOpId = this.callMap.get(event.toolCallId) ?? event.toolCallId;
         const artifactIds = this.deps.store.getToolOp(hostOpId) ? this.router.artifactIdsFor(hostOpId) : [];
@@ -1677,7 +1775,7 @@ export class Driver {
             const recorded = this.deps.store.recordToolResult(hostOpId, summary, event.isError);
             if (recorded) {
               this.deps.store.appendEvent(
-                { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds },
+                { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds, ...(editStats ? { editStats } : {}) },
                 { taskId: task.id, sessionId: task.sessionId },
               );
             }

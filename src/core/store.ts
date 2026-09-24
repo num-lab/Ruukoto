@@ -11,6 +11,7 @@
 import type { Db } from "./db.ts";
 import {
   ACTIVE_TASK_STATUSES,
+  isTerminalTaskStatus,
   type AccessMode,
   type AgentRole,
   type AgentRoleId,
@@ -35,6 +36,9 @@ import {
   type ToolOp,
   randomId,
 } from "./types.ts";
+
+import { tailTextByBytes } from "./history.ts";
+import { FRAGMENT_TEXT_CAP } from "./views.ts";
 
 export class Store {
   /** 内部数据库句柄（含测试故障注入点 faultNextWrite）。 */
@@ -593,7 +597,19 @@ export class Store {
         `UPDATE tasks SET ${sets.join(", ")} WHERE id = ? AND status IN (${placeholders})`,
       )
       .run(...(values as any[]));
-    return Number(info.changes) === 1;
+    const changed = Number(info.changes) === 1;
+    if (changed && isTerminalTaskStatus(to)) {
+      // 后台重启等没有存活 Driver 的终态路径也收束已持久化的思考阶段。
+      const open = this.db.prepare(`SELECT body FROM events WHERE seq IN (
+        SELECT MAX(seq) FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.thinking'
+        GROUP BY json_extract(body, '$.thinkingId')
+      )`).all(taskId) as Array<{ body: string }>;
+      for (const row of open) {
+        const body = JSON.parse(row.body) as Extract<PersistentEventBody, { type: "task.thinking" }>;
+        if (body.endedAt === null) this.appendEvent({ ...body, endedAt: extra.endedAt ?? new Date().toISOString() }, { taskId, sessionId: body.sessionId });
+      }
+    }
+    return changed;
   }
 
   /** 提交停止意图（不改变状态；中断原因与取消意图分开记录）。 */
@@ -1388,6 +1404,16 @@ export class Store {
     }));
   }
 
+  /** 仅读取目标任务的事件；全局 seq 仍作为稳定的键集分页游标。 */
+  getTaskEventsAfter(taskId: string, seq: number, limit: number): PersistentEvent[] {
+    const rows = this.db.prepare("SELECT * FROM events WHERE task_id = ? AND seq > ? ORDER BY seq LIMIT ?")
+      .all(taskId, seq, limit) as any[];
+    return rows.map((row) => ({
+      seq: Number(row.seq), taskId: row.task_id, sessionId: row.session_id,
+      body: JSON.parse(row.body) as PersistentEventBody, createdAt: row.created_at,
+    }));
+  }
+
   /** 任务最新一条输出片段事件（重连预览重建的持久来源）。 */
   getLatestOutputFragment(taskId: string): {
     seq: number;
@@ -1405,12 +1431,44 @@ export class Store {
       .get(taskId) as any;
     if (!row) return null;
     const body = JSON.parse(row.body) as Extract<PersistentEventBody, { type: "task.output_fragment" }>;
+    let text = body.text;
+    let totalBytes = body.totalBytes;
+    if (body.offset !== undefined) {
+      let expected = body.offset;
+      let index = body.contentIndex ?? 0;
+      if (body.contentIndex !== undefined) {
+        const sum = this.db.prepare(`SELECT SUM(json_extract(body, '$.totalBytes')) AS total FROM events WHERE seq IN (
+          SELECT MAX(seq) FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.output_fragment'
+          AND json_extract(body, '$.messageId') = ? GROUP BY json_extract(body, '$.contentIndex')
+        )`).get(taskId, body.messageId) as { total: number };
+        totalBytes = Number(sum.total);
+      }
+      let bytes = Buffer.byteLength(text, "utf8");
+      const previous = this.db.prepare(`SELECT body FROM events WHERE task_id = ? AND seq < ?
+        AND json_extract(body, '$.type') = 'task.output_fragment'
+        AND json_extract(body, '$.messageId') = ? ORDER BY seq DESC`).iterate(taskId, row.seq, body.messageId);
+      for (const item of previous) {
+        if (bytes >= FRAGMENT_TEXT_CAP || (expected === 0 && index === 0)) break;
+        const part = JSON.parse((item as { body: string }).body) as Extract<PersistentEventBody, { type: "task.output_fragment" }>;
+        const length = Buffer.byteLength(part.text, "utf8");
+        if (part.offset === undefined) break;
+        const previousIndex = part.contentIndex ?? 0;
+        if (previousIndex === index) {
+          if (part.offset + length !== expected) break;
+        } else if (previousIndex !== index - 1 || expected !== 0) break;
+        text = part.text + text;
+        bytes += length;
+        expected = part.offset;
+        index = previousIndex;
+      }
+      text = tailTextByBytes(text, FRAGMENT_TEXT_CAP).text;
+    }
     return {
       seq: Number(row.seq),
       messageId: body.messageId,
-      text: body.text,
-      totalBytes: body.totalBytes,
-      truncated: body.truncated,
+      text,
+      totalBytes,
+      truncated: body.truncated || Buffer.byteLength(text, "utf8") < totalBytes,
     };
   }
 

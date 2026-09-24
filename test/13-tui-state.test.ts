@@ -1,7 +1,7 @@
 /**
  * TUI 视图状态与终端安全（issue 04 §3/§5 的显示侧）。
  *
- * 覆盖：快照安装与实例变更、流式预览按 messageId 替换、最终条目取代预览、
+ * 覆盖：快照安装与实例变更、按消息身份更新流式正文、最终正文沿用展示条目、
  * replay 不回滚状态、历史窗口截断与翻页游标自愈、工具记录与落盘条目去重；
  * sanitizeForDisplay 对擦屏/光标控制/OSC 52/伪造界面/不可见字符的处理。
  */
@@ -13,6 +13,9 @@ import { sanitizeForDisplay } from "../src/tui/sanitize.ts";
 import type { ConnectResult } from "../src/control/protocol.ts";
 import type { PersistentEvent, Task } from "../src/core/types.ts";
 import type { HistoryEntryView, HistoryPage } from "../src/core/history.ts";
+
+const messages = (view: SessionView) => view.flow.items.filter((entry) => entry.kind === "message");
+const notes = (view: SessionView) => view.flow.items.filter((entry) => entry.kind === "note");
 
 function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
@@ -112,8 +115,9 @@ test("快照安装：项目/会话/任务/预览；实例变更丢弃会话视�
     false,
   );
   const view = state.openSession("sess_1");
-  assert.equal(view.preview?.text, "部分输出");
-  assert.equal(view.preview?.state, "generating");
+  const output = messages(view).find((entry) => entry.role === "assistant");
+  assert.equal(output?.text, "部分输出");
+  assert.equal(output?.streaming, true);
   view.draft = "草稿";
   // 同实例重同步：草稿保留
   state.applySnapshot({ seq: 20, replay: [], snapshot: snapshot() }, false);
@@ -124,24 +128,32 @@ test("快照安装：项目/会话/任务/预览；实例变更丢弃会话视�
   assert.equal(state.instanceId, "inst-2");
 });
 
-test("流式预览按 messageId 替换；最终条目到达后清除预览", () => {
+test("流式正文按消息身份更新；最终引用到达后保留正文，历史补齐沿用同一条目", () => {
   const state = new ViewState();
   state.applySnapshot({ seq: 1, replay: [], snapshot: snapshot({ tasks: [task("task_1")] }) }, false);
   state.openSession("sess_1");
   state.applyEvent(ev(2, { type: "task.output_fragment", taskId: "task_1", sessionId: "sess_1", messageId: "msg_1", text: "你好", totalBytes: 6, truncated: false, partial: true }), "live");
   state.applyEvent(ev(3, { type: "task.output_fragment", taskId: "task_1", sessionId: "sess_1", messageId: "msg_1", text: "你好，世界", totalBytes: 15, truncated: false, partial: true }), "live");
-  let view = state.openSession("sess_1");
-  assert.equal(view.preview?.text, "你好，世界", "同一消息的片段替换预览而非追加");
+  const view = state.openSession("sess_1");
+  const current = () => messages(view).find((entry) => entry.text === "你好，世界");
+  const key = current()?.key;
+  assert.ok(key, "同一消息的片段更新正文而非追加");
+  assert.equal(messages(view).filter((entry) => entry.role === "assistant").length, 1);
   // 旧序号片段不得覆盖新预览
   state.applyEvent(ev(2, { type: "task.output_fragment", taskId: "task_1", sessionId: "sess_1", messageId: "msg_1", text: "旧片段", totalBytes: 9, truncated: false, partial: true }), "replay");
-  assert.equal(view.preview?.text, "你好，世界");
-  // 旧序号 + 不同 messageId 的补发片段同样不得覆盖（序号防护与消息无关）
+  assert.equal(current()?.key, key);
+  // 另一消息的补读拥有独立身份，不覆盖当前消息。
   state.applyEvent(ev(2, { type: "task.output_fragment", taskId: "task_1", sessionId: "sess_1", messageId: "msg_0", text: "更早消息", totalBytes: 12, truncated: false, partial: true }), "replay");
-  assert.equal(view.preview?.text, "你好，世界");
-  // 最终条目落盘 → 预览清除
+  assert.equal(current()?.key, key);
+  assert.equal(messages(view).filter((entry) => entry.role === "assistant").length, 2);
+  // 引用先到、历史正文尚未读回时，不能清空屏幕上已经显示的正文。
   state.applyEvent(ev(4, { type: "task.output_entry", taskId: "task_1", sessionId: "sess_1", entryId: "e1", sessionFile: "/x.jsonl", role: "assistant", messageId: "msg_1" }), "live");
-  view = state.openSession("sess_1");
-  assert.equal(view.preview, null);
+  assert.equal(current()?.key, key);
+  assert.equal(current()?.streaming, true);
+  state.appendEntryView("sess_1", histEntry("e1", "assistant", "你好，世界"));
+  assert.equal(current()?.key, key);
+  assert.equal(current()?.streaming, false);
+  assert.equal(messages(view).filter((entry) => entry.entryId === "e1").length, 1);
 });
 
 test("replay 不改变任务状态（快照为最新）；live 事件正常驱动", () => {
@@ -156,9 +168,10 @@ test("replay 不改变任务状态（快照为最新）；live 事件正常驱�
   const t = state.getTask("task_1");
   assert.equal(t?.status, "interrupted");
   assert.equal(t?.effectUnknown, true);
-  // 中断提示包含效果未知说明
+  // 中断原因和效果未知属于同一任务终态条目。
   const view = state.openSession("sess_1");
-  assert.ok(view.notes.some((n) => n.text.includes("效果未知")));
+  const ending = view.flow.items.find((entry) => entry.kind === "task");
+  assert.ok(ending?.kind === "task" && ending.task.effectUnknown && ending.task.interruptReason === "owner_interrupt");
 });
 
 test("历史窗口：加载、向前翻页、条目去重、超限截断后游标自愈", () => {
@@ -174,30 +187,35 @@ test("历史窗口：加载、向前翻页、条目去重、超限截断后游�
   // 重复加载同一条目不产生重复
   state.installHistoryPage("sess_1", page(["e3", "e4"], "e3"), "prepend");
   let view = state.openSession("sess_1");
-  assert.deepEqual(view.transcript.map((i) => i.entryId), ["e3", "e4", "e5", "e6", "e7"]);
+  assert.deepEqual(messages(view).map((i) => i.entryId), ["e3", "e4", "e5", "e6", "e7"]);
   assert.equal(view.historyCursor, "e3");
 
   // 超限截断：游标指向截断后首条，被丢弃的条目仍可翻页找回
   const many = Array.from({ length: MAX_LOADED_ENTRIES + 20 }, (_, i) => `m${String(i).padStart(4, "0")}`);
   state.installHistoryPage("sess_1", page(many, null), "replace");
   view = state.openSession("sess_1");
-  assert.equal(view.transcript.length, MAX_LOADED_ENTRIES);
+  assert.equal(view.flow.historyEntries.length, MAX_LOADED_ENTRIES);
   assert.equal(view.trimmedOlder, true);
   assert.equal(view.historyCursor, "m0020", "截断后游标锚定到窗口首条（其之前的内容可翻页找回）");
 });
 
-test("toolResult 落盘条目取代活动区工具记录", () => {
+test("toolResult 落盘后工具条目保持身份与目标，只补齐历史引用", () => {
   const state = new ViewState();
   state.applySnapshot({ seq: 1, replay: [], snapshot: snapshot({ tasks: [task("task_1")] }) }, false);
   state.openSession("sess_1");
   state.applyEvent(ev(2, { type: "task.tool_intent", taskId: "task_1", toolOpId: "op_1", sdkCallId: "call_1", toolName: "bash", params: { command: "ls" } }, "sess_1"), "live");
-  assert.equal(state.openSession("sess_1").tools.length, 1);
+  const flow = state.openSession("sess_1").flow;
+  assert.equal(flow.tools.length, 1);
+  const key = flow.tools[0]!.key;
   state.applyEvent(ev(3, { type: "task.tool_result", taskId: "task_1", toolOpId: "op_1", summary: "ok", isError: false, artifactIds: [] }, "sess_1"), "live");
-  assert.equal(state.openSession("sess_1").tools[0]!.status, "done");
+  assert.equal(flow.tools[0]!.status, "done");
+  state.applyEvent(ev(4, { type: "task.output_entry", taskId: "task_1", sessionId: "sess_1", entryId: "e9", sessionFile: "/session.jsonl", role: "toolResult", messageId: null }, "sess_1"), "live");
   const appended = state.appendEntryView("sess_1", histEntry("e9", "toolResult", "ok", { toolCallId: "call_1", toolName: "bash", isError: false }));
   assert.equal(appended, true);
-  assert.equal(state.openSession("sess_1").tools.length, 0, "落盘条目取代活动记录，不重复显示");
-  assert.equal(state.openSession("sess_1").transcript.at(-1)?.kind, "toolEntry");
+  assert.equal(flow.tools.length, 1, "实时与历史合并为一个工具条目");
+  assert.equal(flow.tools[0]!.key, key);
+  assert.equal(flow.tools[0]!.entryId, "e9");
+  assert.equal(flow.tools[0]!.target, "ls");
 });
 
 // ---------- 终端安全 ----------
@@ -276,13 +294,15 @@ test("自动审查事件：awaiting 携带审查状态，reviewed 转人工更�
   // 转人工：审批仍 pending，审查状态与理由更新，提示原因
   state.applyEvent(ev(3, { type: "task.confirmation_reviewed", taskId: "task_1", confirmationId: "conf_1", decision: "ask_owner", reason: "无法确认用途" }), "live");
   assert.equal(state.confirmations[0]!.reviewStatus, "asked_owner");
+  assert.equal(state.getTask("task_1")!.status, "awaiting_confirmation");
   assert.equal(state.confirmations[0]!.reviewReason, "无法确认用途");
-  assert.ok(state.globalNotes.some((n) => n.text.includes("自动审查转人工：无法确认用途")));
+  assert.ok(notes(state.openSession("sess_1")).some((n) => n.text.includes("自动审查转人工：无法确认用途")));
 
   // 自动审查的决定：移除待决并提示来源与理由
   state.applyEvent(ev(4, { type: "task.confirmation_resolved", taskId: "task_1", confirmationId: "conf_1", decision: "approved", source: "auto_review", reason: "与请求相关" }), "live");
   assert.equal(state.pendingApprovals().length, 0);
-  assert.ok(state.globalNotes.some((n) => n.text.includes("自动审查已批准：与请求相关")));
+  assert.equal(state.getTask("task_1")!.status, "running");
+  assert.ok(notes(state.openSession("sess_1")).some((n) => n.text.includes("自动审查已批准：与请求相关")));
 
   // 人工决定不额外提示（现有行为）
   state.applyEvent(
@@ -298,10 +318,10 @@ test("自动审查事件：awaiting 携带审查状态，reviewed 转人工更�
     }),
     "live",
   );
-  const notesBefore = state.globalNotes.length;
+  const notesBefore = notes(state.openSession("sess_1")).length;
   state.applyEvent(ev(6, { type: "task.confirmation_resolved", taskId: "task_1", confirmationId: "conf_2", decision: "approved", source: "owner" }), "live");
   assert.equal(state.pendingApprovals().length, 0);
-  assert.equal(state.globalNotes.length, notesBefore, "人工决定不新增来源提示");
+  assert.equal(notes(state.openSession("sess_1")).length, notesBefore, "人工决定不新增来源提示");
 });
 
 test("MCP 事件：服务变更全局提示与任务内不可用提示（issue 16）", () => {
@@ -318,7 +338,7 @@ test("MCP 事件：服务变更全局提示与任务内不可用提示（issue 1
   );
   assert.ok(state.globalNotes.some((n) => n.text.includes("MCP 服务 docs") && n.text.includes("已禁用")), "服务变更进全局提示");
   const view = state.openSession("sess_1");
-  assert.ok(view.notes.some((n) => n.text.includes("MCP 服务 docs") && n.text.includes("不可用") && n.text.includes("连接超时")), "不可用原因进会话提示");
+  assert.ok(notes(view).some((n) => n.text.includes("MCP 服务 docs") && n.text.includes("不可用") && n.text.includes("连接超时")), "不可用原因进会话提示");
 });
 
 test("github.* 历史事件：退役后按归档记录展示，不再提示旧命令（issue 17）", () => {
@@ -335,7 +355,7 @@ test("github.* 历史事件：退役后按归档记录展示，不再提示旧�
     "live",
   );
   const view = state.openSession("sess_1");
-  const all = [...view.notes, ...state.globalNotes].map((n) => n.text).join("\n");
+  const all = [...notes(view), ...state.globalNotes].map((n) => n.text).join("\n");
   assert.ok(all.includes("历史记录"), "github 事件按归档记录展示");
   assert.ok(!all.includes("/github"), "不再提示已退役的 /github 命令");
 });

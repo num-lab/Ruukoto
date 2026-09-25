@@ -77,6 +77,7 @@ import { createChatResultTools, settleChatResultOp, CHAT_RESULT_TOOL_NAMES } fro
 import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
+import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -474,6 +475,8 @@ export class Driver {
       ? []
       : [
           ...(this.roleAllows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
+          // 工作清单（issue 25）：与编码工具同一条件——开发会话与 coding，main/chat 不装配
+          ...(this.roleAllows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
           ...hostDataTools,
           ...webSearchTools,
           ...appDataTools,
@@ -1614,7 +1617,8 @@ export class Driver {
       (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SKILL_TOOL_NAMES as readonly string[]).includes(event.toolName)
+      (SKILL_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (TODO_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,

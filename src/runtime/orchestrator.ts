@@ -103,8 +103,8 @@ export type DelegationMode = "analyze" | "draft";
 export const DELEGATION_LIMITS = { perParent: 3, deadlineMs: 60 * 60_000 };
 /** 委派正文首行由宿主写入（模式的持久记录；模型正文在其后，不能伪造首行）。 */
 const DELEGATION_HEADER = /^\[委派 coding · (analyze|draft)\]\n/;
-// 仅重试可证明只读的操作；bash、MCP、记忆写入及未知工具一律不猜测副作用。
-const RETRY_SAFE_TOOLS = new Set(["read", "read_artifact", "history_search", "history_read", "memory_list", "memory_read", "web_search", "skill"]);
+// 仅重试可证明只读或无副作用的操作（todo_write 只替换会话内清单）；bash、MCP、记忆写入及未知工具一律不猜测副作用。
+const RETRY_SAFE_TOOLS = new Set(["read", "read_artifact", "history_search", "history_read", "memory_list", "memory_read", "web_search", "skill", "todo_write"]);
 
 /** 委派 coding 的子任务模式（非委派任务为 null）。 */
 export function delegationMode(task: Task): DelegationMode | null {

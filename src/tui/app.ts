@@ -67,6 +67,7 @@ import {
 
 import { EventFlowView } from "./event-flow-view.ts";
 import type { FlowEntry } from "./event-flow.ts";
+import { latestTodos, TodoPanel } from "./todo-panel.ts";
 
 const HISTORY_PAGE_SIZE = 50;
 const ARTIFACT_PAGE_BYTES = 32 * 1024;
@@ -699,6 +700,7 @@ export class TuiApp {
   /** 运行中任务的走表定时器（无活动任务时为 null）。 */
   private timingTimer: NodeJS.Timeout | null = null;
   private readonly eventFlowView = new EventFlowView();
+  private readonly todoPanel = new TodoPanel();
   private readonly flowCursors = new Map<string, number>();
   private readonly flowRequests = new Map<string, Promise<void>>();
   private header: Text;
@@ -780,6 +782,7 @@ export class TuiApp {
     const root = new VStack([
       { component: this.header, grow: 0, shrink: 1 },
       { component: this.scroll, grow: 1, shrink: 1, minSize: 1 },
+      { component: this.todoPanel, grow: 0, shrink: 1 },
       { component: this.statusLine, grow: 0, shrink: 1, maxSize: 3 },
       { component: this.editor, grow: 0, shrink: 1, minSize: 3 },
       { component: this.footer, grow: 0, shrink: 0 },
@@ -3015,6 +3018,7 @@ export class TuiApp {
       entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : "ruukoto TUI\n使用 /sessions 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
     }
     this.eventFlowView.setEntries(entries);
+    this.todoPanel.set(view ? latestTodos(view.flow.tools) : null);
     this.tui.requestRender();
   }
 }

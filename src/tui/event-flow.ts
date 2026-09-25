@@ -21,7 +21,9 @@ export type FlowEntry = FlowPosition & (
 export type CommandEntry = Extract<FlowEntry, { kind: "command" }>;
 
 /** 主要操作对象。未知工具沿用首个字符串参数，无需为每个插件增加渲染分支。 */
-export function toolTargetFromParams(params: Record<string, unknown>): string {
+export function toolTargetFromParams(name: string, params: Record<string, unknown>): string {
+  // todo_write（issue 25）：只显示完成数/总数，不展开清单
+  if (name === "todo_write" && Array.isArray(params.todos)) return `${params.todos.filter((t) => t?.status === "completed").length}/${params.todos.length}`;
   for (const value of [params.path, params.command, params.url, params.pattern, params.query, params.name, ...Object.values(params)]) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
@@ -102,7 +104,7 @@ export class EventFlow {
     const entry: Extract<FlowEntry, { kind: "tool" }> = {
       key, taskId: op.taskId, at: op.intentRecordedAt, seq: current?.seq ?? 0, kind: "tool", toolOpId: op.id,
       toolCallId: op.sdkCallId, name: op.toolName, params: op.params, paramsTruncated: op.paramsTruncated,
-      target: toolTargetFromParams(op.params), status: op.effectUnknown ? "effect_unknown" : op.recordedResultAt ? op.isError ? "error" : "done" : "running",
+      target: toolTargetFromParams(op.toolName, op.params), status: op.effectUnknown ? "effect_unknown" : op.recordedResultAt ? op.isError ? "error" : "done" : "running",
       summary: op.resultSummary, entryId: current?.kind === "tool" ? current.entryId : null,
       artifactIds: current?.kind === "tool" ? current.artifactIds : [],
       editStats: current?.kind === "tool" ? current.editStats : undefined,
@@ -185,12 +187,12 @@ export class EventFlow {
           old.seq = event.seq;
           old.params = body.params;
           old.paramsTruncated = body.paramsTruncated ?? false;
-          old.target = toolTargetFromParams(body.params);
+          old.target = toolTargetFromParams(old.name, body.params);
           return;
         }
         this.entries.set(key, { key, kind: "tool", taskId: body.taskId, at: event.createdAt, seq: event.seq,
           toolOpId: body.toolOpId, toolCallId: body.sdkCallId, name: body.toolName, params: body.params,
-          target: toolTargetFromParams(body.params), status: "running", summary: null, entryId: null,
+          target: toolTargetFromParams(body.toolName, body.params), status: "running", summary: null, entryId: null,
           paramsTruncated: body.paramsTruncated ?? false, artifactIds: [] });
         for (const entry of this.history.values()) {
           if (entry.toolCallId === body.sdkCallId && this.refs.get(entry.entryId)?.taskId === body.taskId) this.addHistory(entry);

@@ -653,6 +653,39 @@ test("/skill 与 /skills：显式调用提交 /skill:<名称> 任务，列表展
   }
 });
 
+test("工作清单面板：todo_write 后显示，重连后按工具记录恢复", async () => {
+  const list = [{ content: "读代码", status: "completed" }, { content: "改代码", status: "in_progress" }, { content: "跑测试", status: "pending" }];
+  const t = await startTestRuntime("tui-todo", async (req) => {
+    const last = req.messages.map((m) => m.role).lastIndexOf("user");
+    return req.messages.slice(last + 1).some((m) => m.role === "tool")
+      ? { kind: "text", text: "好的" }
+      : { kind: "tool_calls", calls: [{ id: "todo", name: "todo_write", arguments: { todos: list } }] };
+  });
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h1 = await startApp(t, { sessionId });
+    apps.push(h1);
+    await submitViaEditor(h1, "多步任务");
+    await waitFor("面板显示", () => {
+      const out = stripTerminalSequences(h1.terminal.output());
+      return out.includes("▶ 改代码") && out.includes("☐ 跑测试") && out.includes("☑ 读代码");
+    });
+    assert.ok(stripTerminalSequences(h1.terminal.output()).includes("⎿ 1/3"), "事件流只显示完成数/总数");
+    await waitFor("任务完成", () => [...h1.state.tasks.values()][0]?.status === "completed");
+    h1.app.quit(0);
+    await waitFor("h1 退出", () => h1.exitCode() === 0);
+
+    const h2 = await startApp(t, { sessionId });
+    apps.push(h2);
+    await waitFor("重连后面板恢复", () => stripTerminalSequences(h2.terminal.output()).includes("▶ 改代码"));
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
 test("/context：无记录提示在面板呈现，事件流仅保留命令", async () => {
   const t = await startTestRuntime("tui-context-empty", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];

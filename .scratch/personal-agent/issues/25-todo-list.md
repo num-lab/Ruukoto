@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 05, 14, 21
 
 # 增加工作清单（`todo_write`）
@@ -85,3 +85,14 @@ Depends on: 05, 14, 21
 ### 2026-09-25：创建工单与访谈确认
 
 用户要求给 Agent 增加 plan 和 todo 功能。grilling 访谈三轮，Q1–Q15 全部按推荐确认，拆为本工单与 [26](26-plan-mode.md)，本工单相关的是 Q1、Q3–Q8、Q12。事实核对覆盖 pi 0.85.1 的 todo 与 plan-mode 示例扩展、宿主工具装配与角色白名单、上下文选择器的必留与移出规则、TUI 事件流与布局，结论见「背景」。
+
+### 2026-09-25：实现交付
+
+按工单实现：`src/agent/todo.ts`（`todo_write` 整表校验与摘要结果，按 `roleAllows("coding")` 装配，宿主工具路径无审批，加入 `RETRY_SAFE_TOOLS`）；选择器把当前任务最近一次成功 `todo_write` 所在批次并入必留（不进 Jev 候选、计入「当前任务」）；TUI `src/tui/todo-panel.ts` 常驻面板（取已加载工具记录，重连按 `get_task` 工具记录恢复），事件流目标显示完成数/总数；`docs/runtime.md`。测试见 `test/57-todo-list.test.ts`，另在 14 补 TUI 显示与重连恢复。
+
+与工单文字的出入：
+- 事件流：现有工具统一渲染为两行（`⚙︎ 名称` + `⎿ 目标`），「背景」中的「一行」描述与代码不符；实现为目标显示 `3/7`，即 `⚙︎ todo_write` / `⎿ 3/7`，不展开清单。
+- `content` 空白判断按去除首尾空白后，120 字符上限按原文计长（首尾空白也占参数体积，否则会撑过预览的 256 字符截取）；参数不接受额外字段（`priority`、`activeForm` 等会让参数超过 8 KiB）。
+- 面板超过 8 项时总保留一行「…另 N 项」：1 项已完成 + 8 项未完成时显示 7 项 + 「…另 2 项」。
+
+未处理（评审记录）：Jev 候选排除只有选择器单元测试，没有开启 Jev 的集成测试；面板只看已加载工具记录，最后一次 `todo_write` 早于已加载历史时隐藏（`ponytail:` 注释已标）；停止时进行中的 `todo_write` 仍按现有规则记为效果未知。`test/19-tui-demo.test.ts` 的失败在本工单之前已存在。

@@ -7,8 +7,8 @@
  *
  * 规则：
  * - 必留项：宿主系统指令、项目指令（钉版文本，经标记的参考消息注入一次）、
- *   当前任务原文（= 最后一条 user 消息）、继续来源任务的要求（如有）与
- *   最新已完成的工具批次；
+ *   当前任务原文（= 最后一条 user 消息）、继续来源任务的要求（如有）、
+ *   最新已完成的工具批次与当前任务最近一次成功 todo_write 所在批次（issue 25）；
  * - 以完整交互为单位：较早的用户轮次连同其 assistant 与工具交互整体保留
  *   或移出；一次 assistant 的全部 toolCall 与对应 toolResult 不可拆分；
  * - 当前任务的工具循环按已完成批次取最近部分：最新批次必留，更早批次
@@ -297,8 +297,8 @@ function candidateId(indices: number[]): string {
 
 /** 候选按基础策略的尝试顺序排列，包含因预算尚未进入基础视图的旧交互。 */
 export function getContextCandidates(input: SelectorInput): ContextCandidate[] {
-  const { groups, units } = prepareContextGroups(input.messages);
-  return [...units.slice(1, -1).reverse(), ...groups.slice(0, -1).reverse()].map((indices) => ({
+  const { groups, batches } = prepareContextGroups(input.messages);
+  return [...[...batches].reverse(), ...groups.slice(0, -1).reverse()].map((indices) => ({
     id: candidateId(indices),
     indices: [...indices],
     messages: indices.map((index) => input.messages[index]),
@@ -399,7 +399,8 @@ function groupIntoTurns(messages: any[]): number[][] {
 /** 基础策略与实验共用配对清洗、完整分组和必留项，始终保留原消息序号。 */
 function prepareContextGroups(messages: any[]): {
   groups: number[][];
-  units: number[][];
+  /** 当前任务中可修剪的工具批次（不含任务输入、最新批次与清单保底批次）。 */
+  batches: number[][];
   mandatory: Set<number>;
   droppedUnpaired: SelectionDroppedUnpaired[];
 } {
@@ -438,7 +439,17 @@ function prepareContextGroups(messages: any[]): {
   const units = splitIntoUnits(groups.at(-1) ?? [], messages);
   const mandatory = new Set<number>(units[0] ?? []);
   if (units.length > 1) for (const index of units.at(-1)!) mandatory.add(index);
-  return { groups, units, mandatory, droppedUnpaired };
+  // 工作清单保底（issue 25）：当前任务最近一次成功 todo_write 所在批次与最新批次同级必留。
+  // ponytail: 只在当前任务内保底；上一任务整轮被移出时模型看不到旧清单，需要时自行重写。
+  // 跨任务保底另行立项（issue 25「关联与后续」）
+  const todoUnit = units.slice(1).findLast((unit) => unit.some((i) => isTodoWriteSuccess(messages[i])));
+  if (todoUnit) for (const index of todoUnit) mandatory.add(index);
+  const batches = units.slice(1, -1).filter((unit) => unit !== todoUnit);
+  return { groups, batches, mandatory, droppedUnpaired };
+}
+
+function isTodoWriteSuccess(message: any): boolean {
+  return message?.role === "toolResult" && message.toolName === "todo_write" && message.isError === false;
 }
 
 /** 工具结果消息在模型视图中的有界替换（原文不动；附读取指引）。 */
@@ -563,9 +574,9 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
 
   const messages = input.messages;
 
-  const { groups, units, mandatory, droppedUnpaired } = prepareContextGroups(messages);
+  const { groups, batches, mandatory, droppedUnpaired } = prepareContextGroups(messages);
   if (decisions) {
-    const ids = new Set([...units.slice(1, -1), ...groups.slice(0, -1)].map(candidateId));
+    const ids = new Set([...batches, ...groups.slice(0, -1)].map(candidateId));
     for (const [id, keep] of decisions) {
       if (!ids.has(id) || typeof keep !== "boolean") throw new SelectorConfigError("筛选结果包含无效候选");
     }
@@ -618,8 +629,8 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   // 当前任务的较早工具批次：由近及远纳入（装不下即停，保持最近性）
   let used = fixed;
   const included = new Set<number>(mandatory);
-  for (let u = units.length - 2; u >= 1; u--) {
-    const unit = units[u]!;
+  for (let u = batches.length - 1; u >= 0; u--) {
+    const unit = batches[u]!;
     if (decisions?.get(candidateId(unit)) === false) {
       for (const index of unit) excluded.push({ index, reason: "jev_rejected" });
       continue;
@@ -627,8 +638,8 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     let unitTokens = 0;
     for (const index of unit) unitTokens += tokensOf(index);
     if (used + unitTokens > budget) {
-      for (let rest = u; rest >= 1; rest--) {
-        for (const index of units[rest]!) excluded.push({ index, reason: exclusionReason(units[rest]!) });
+      for (let rest = u; rest >= 0; rest--) {
+        for (const index of batches[rest]!) excluded.push({ index, reason: exclusionReason(batches[rest]!) });
       }
       break;
     }

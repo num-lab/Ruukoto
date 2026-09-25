@@ -119,7 +119,8 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   （详情内 `a` 批准 / `r` 拒绝，Esc 关闭不等于拒绝）；`/interrupt`、
   `/cancel <taskId>`、`/continue [taskId]`、`/resume-queue` 为明确的任务
   操作；`/mode` 通过列表设置会话默认权限模式，作用于后续任务；`/model`
-  选择后续任务的模型和思考档位（`/thinking` 打开同一面板）；`/quit` 或
+  选择后续任务的模型和思考档位（`/thinking` 打开同一面板）；`/skill <名称>
+  [参数]` 显式调用技能、`/skills` 查看技能库与诊断（见「技能」）；`/quit` 或
   `Ctrl+C`（空草稿时）退出客户端。
 - **事件流**：用户输入、工具、模型正文、思考段和任务状态按发生顺序展示，
   独立事件之间空一行，工具或命令与其结果紧贴。首列保留给 `❯`、`⚙︎`、
@@ -283,6 +284,7 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 ├── auth.json                  # 模型凭据（同上；配置中心在线/离线维护，0600）
 ├── default-model.json         # 后台默认模型（issue 21，0600；--model 启动参数优先）
 ├── credentials.json           # 服务凭据绑定（0600；审批注入用，值不展示）
+├── skills/                    # 全局技能库（issue 22；拥有者维护，见「技能」）
 └── config.lock/               # 配置独占锁（issue 21；后台运行期间持有，
                                #   离线配置据以互斥，语义同实例锁）
 
@@ -365,6 +367,37 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
   （`context_budget_exceeded`）结束并暂停队列，不做静默摘要或丢弃。
 - provider 返回 `context_overflow` 的兜底保留：任务中断并暂停队列，不自动
   压缩或重试。
+
+### 技能（issue 22）
+
+- 技能库固定为 `<agentDir>/skills/`（本机 `~/.ruukoto/agent/skills/`，服务器
+  `/var/lib/ruukoto/agent/skills/`），无配置项；开发实例使用自身 profile 下的
+  `agent/skills/`，不继承日常实例。格式为 Agent Skills：含 `SKILL.md` 的目录即
+  一个技能，整包复制的嵌套目录照常扫描，跟随符号链接；只使用 `name`、
+  `description`、`disable-model-invocation`，`allowed-tools` 等其他字段不生效。
+- 服务器维护：`sudo cp -r <技能目录> /var/lib/ruukoto/agent/skills/`，并保持
+  后台账户可读；修改从下一任务生效，无需重启。
+- 钉版：任务开始时（与项目指令同一时点）读取技能库，目录与全部 `SKILL.md`
+  正文钉在内存，本任务内的 `skill` 加载与 `/skill` 展开都用这份；版本 = 钉版
+  内容的 sha256，写入选择记录 `skillVersion`。
+- 上下文：main、coding 与普通开发会话注入「技能目录」参考消息（只含名称与
+  描述，不含主机路径与 `disable-model-invocation` 技能），计入固定预算，超
+  预算按 `context_budget_exceeded` 中断，不截断；`/context` 显示「技能」类别。
+  chat 与 QQ 群不注入目录、不装配工具；GitHub 评审任务的收窄工具集不含
+  `skill`，也不注入目录。
+- `skill` 宿主工具（只读，任何访问模式都不产生审批）：只传 `name` 返回钉版
+  正文与版本（仅显式调用的技能被拒绝）；再传 `path` 读取该技能目录内的引用
+  文件——相对路径、不含 `..`、realpath 仍在技能目录内、普通 UTF-8 文本，调用
+  时读取（不钉版）并附文件 sha256。`skill` 结果不做 4000 字符截取。
+- 单个 `SKILL.md` 或引用文件上限 64 KiB；超限的技能不进入技能库。缺少描述、
+  YAML 错误、同名冲突（按路径排序先到先得）等诊断经 `/skills` 查看。
+- 显式调用：TUI `/skill <名称> [参数]` 提交输入为 `/skill:<名称> [参数]` 的任务
+  （CLI `ruukoto submit … "/skill:<名称> …"` 同一路径，沿用 `request_id` 去重）；
+  任务开始时展开为带技能名与版本的正文块加参数，作为用户消息进入历史。不受
+  `disable-model-invocation` 限制；未知名称使任务失败并列出可用技能。
+  Telegram/QQ 私聊不识别 `/skill:`。
+- 技能是拥有者提供的参考内容，不增加工具或权限；其中的脚本只作为文本返回，
+  不原地执行（工具镜像无 Python，默认无网络）。
 
 ### Jev 上下文筛选实验（issue 08）
 

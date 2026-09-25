@@ -32,7 +32,7 @@ function record(id: string, detail: ContextExperimentRecord | null = null): Sele
     strategy: detail?.status === "applied" ? "jev-v1" : "deterministic-v1",
     configVersion: 1, model: "mock/mock-model", totalMessages: 4,
     includedIndices: [0, 1, 2, 3], excluded: [], includedMemories: [], excludedMemories: [],
-    instructionVersion: "", cappedToolResults: [], estimates: { mandatoryTurn: 100 },
+    instructionVersion: "", skillVersion: "", cappedToolResults: [], estimates: { mandatoryTurn: 100 },
     budget: 1000, estimatedTotal: 100, usage: null, experiment: detail,
     promptArtifactId: null, windowSnapshot: null, createdAt: "2026-09-25T00:00:00.000Z",
   };

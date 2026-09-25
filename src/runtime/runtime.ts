@@ -101,6 +101,7 @@ import { APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp } from "../agent/app-data/to
 import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { searchTavily, WebSearchError } from "../agent/web-search.ts";
+import { loadSkillLibrary, skillsDirFor } from "../agent/skills.ts";
 import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SourceResolver } from "../agent/scheduler-tools.ts";
 import { settleDelegationOp, DELEGATION_TOOL_NAMES } from "../agent/delegation-tools.ts";
 import { settleChatResultOp, CHAT_RESULT_TOOL_NAMES } from "../agent/chat-result-tools.ts";
@@ -2882,6 +2883,20 @@ export class Runtime {
     const record = this.store.getSelectionRecord(recordId);
     if (!record) throw new RuntimeApiError("not_found", `选择记录不存在：${recordId}`);
     return record;
+  }
+
+  /** 技能库（issue 22）：当前库内容与诊断，只读；任务使用的是各自开始时的钉版。 */
+  listSkills(): { dir: string; skills: Array<{ name: string; explicitOnly: boolean; description: string }>; diagnostics: string[] } {
+    const lib = loadSkillLibrary(this.config.agentDir);
+    return {
+      dir: skillsDirFor(this.config.agentDir),
+      skills: lib.skills.map((s) => ({
+        name: s.name,
+        explicitOnly: s.disableModelInvocation,
+        description: s.description.length > 120 ? `${s.description.slice(0, 120)}…` : s.description,
+      })),
+      diagnostics: lib.diagnostics,
+    };
   }
 
   /**

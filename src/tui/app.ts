@@ -661,6 +661,8 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
   { name: "context", description: "查看当前上下文窗口分解（各部分占比）" },
+  { name: "skill", description: "显式调用技能（提交任务；不带名称时列出技能库）", argumentHint: "<名称> [参数]" },
+  { name: "skills", description: "查看技能库与诊断" },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情" },
   { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>" },
 ];
@@ -1382,10 +1384,16 @@ export class TuiApp {
   private async handleSubmit(text: string): Promise<void> {
     const trimmed = text.trim();
     if (trimmed.length === 0) return;
-    if (trimmed.startsWith("/")) {
+    // /skill:<名称> 是 /skill 提交后的任务输入形式（失败恢复草稿后可直接重发）
+    if (trimmed.startsWith("/") && !trimmed.startsWith("/skill:")) {
       await this.handleCommand(trimmed);
       return;
     }
+    await this.submitText(text);
+  }
+
+  /** 以当前会话提交任务（沿用 request_id 去重；/skill 以 /skill:<名称> 输入复用）。 */
+  private async submitText(text: string): Promise<void> {
     const view = this.currentView();
     if (!view) {
       this.notify("尚未选择会话：/sessions 选择，或 /new-project、/new-session 创建");
@@ -1532,6 +1540,14 @@ export class TuiApp {
         return;
       case "context":
         await this.cmdContext();
+        return;
+      case "skill":
+        // 参数取原文（保留换行与空白），与直接输入 /skill:<名称> 的任务输入一致
+        if (arg) await this.submitText(`/skill:${line.slice("/skill".length).trim()}`);
+        else await this.cmdSkills();
+        return;
+      case "skills":
+        await this.cmdSkills();
         return;
       case "prompt":
         await this.cmdPrompt();
@@ -2100,6 +2116,27 @@ export class TuiApp {
       );
     } catch (err) {
       this.notify(red(`搜索失败：${(err as Error).message}`));
+    }
+  }
+
+  /** /skills：当前技能库（任务使用各自开始时的钉版）与诊断。 */
+  private async cmdSkills(): Promise<void> {
+    try {
+      const result = await this.connection.request<{
+        dir: string;
+        skills: Array<{ name: string; explicitOnly: boolean; description: string }>;
+        diagnostics: string[];
+      }>("list_skills");
+      const lines = [`技能库 ${result.dir}（${result.skills.length} 个；修改从下一任务生效）`];
+      for (const s of result.skills) lines.push(`  ${s.name}${s.explicitOnly ? "（仅显式调用）" : ""}  ${s.description}`);
+      if (result.diagnostics.length > 0) {
+        lines.push(`诊断（${result.diagnostics.length} 条）：`);
+        for (const d of result.diagnostics) lines.push(`  ${d}`);
+      }
+      lines.push("/skill <名称> [参数] 显式调用");
+      this.showText(lines.join("\n"));
+    } catch (err) {
+      this.notify(red(`查询失败：${(err as Error).message}`));
     }
   }
 

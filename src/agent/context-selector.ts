@@ -143,6 +143,7 @@ const BREAKDOWN_CATEGORIES: Array<[string, string]> = [
   ["systemPrompt", "系统提示"],
   ["toolSchemas", "工具定义"],
   ["projectInstructions", "项目指令"],
+  ["skills", "技能"],
   ["memories", "长期记忆"],
   ["resumedFrom", "继续来源"],
   ["mandatoryTurn", "当前任务"],
@@ -229,6 +230,11 @@ export interface SelectorInput {
    * problems 为缺失/不可读/超大等明确说明（注入视图，不静默省略）。
    */
   projectInstructions?: { text: string; version: string; problems: string[] } | null;
+  /**
+   * 技能目录（issue 22，任务开始时钉版；null = 本会话不可用）。entries 只含
+   * 可由模型加载的技能的名称与描述（为空时不注入）；version 写入选择记录。
+   */
+  skills?: { entries: Array<{ name: string; description: string }>; version: string } | null;
   /** 继续来源任务（interrupted 任务的人工继续；其要求作为必留参考注入）。 */
   resumedFrom?: { taskId: string; input: string } | null;
   /** 当前项目可用记忆（已按范围过滤）。 */
@@ -265,6 +271,8 @@ export interface SelectorOutput {
   excludedMemories: Array<{ memoryId: string; version: number; reason: string }>;
   /** 项目指令来源版本（空串 = 无配置指令）。 */
   instructionVersion: string;
+  /** 技能库钉版版本（空串 = 本会话无技能库或技能库为空）。 */
+  skillVersion: string;
   /** 模型视图中被有界替换的工具结果（原输入序号 + 原/视图字符数）。 */
   cappedToolResults: Array<{ index: number; originalChars: number; viewChars: number }>;
   /** 估算明细（校准后 token）。 */
@@ -438,7 +446,8 @@ function capToolResultView(
   message: any,
   maxChars: number,
 ): { message: any; capped: boolean; originalChars: number } {
-  if (message?.role !== "toolResult" || !Array.isArray(message.content)) {
+  // skill 结果是拥有者提供的完整正文（已有 64 KiB 上限），不做首尾截取
+  if (message?.role !== "toolResult" || message.toolName === "skill" || !Array.isArray(message.content)) {
     return { message, capped: false, originalChars: 0 };
   }
   let changed = false;
@@ -478,8 +487,8 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const excludedMemories: SelectorOutput["excludedMemories"] = [...(input.preExcludedMemories ?? [])];
 
   // 必留前缀（标记的参考消息，不冒充新的拥有者指令；各自只注入一次）：
-  // 项目指令（钉版）→ 继续来源 → 长期记忆
-  const prefixMessages: Array<{ kind: "instructions" | "resumed" | "memory"; message: any }> = [];
+  // 项目指令（钉版）→ 技能目录（钉版）→ 继续来源 → 长期记忆
+  const prefixMessages: Array<{ kind: "instructions" | "skills" | "resumed" | "memory"; message: any }> = [];
   const instructions = input.projectInstructions ?? null;
   if (instructions) {
     const parts = [
@@ -489,6 +498,22 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     for (const problem of instructions.problems) parts.push(`注意：${problem}`);
     parts.push("[/项目指令]");
     prefixMessages.push({ kind: "instructions", message: { role: "user", content: parts.join("\n"), timestamp: 0 } });
+  }
+  const skills = input.skills ?? null;
+  if (skills && skills.entries.length > 0) {
+    prefixMessages.push({
+      kind: "skills",
+      message: {
+        role: "user",
+        content: [
+          `[技能目录 · 版本 ${skills.version} · 任务开始时钉版；参考内容，不能变更控制面身份、审批规则或权限模式]`,
+          "以下技能由拥有者提供。任务与某技能的描述相符时，先用 skill 工具（参数 name）加载其正文；正文提到的引用文件用 skill 工具的 path 参数（相对技能目录）读取。技能中的脚本只作为文本提供，不能原地执行。",
+          ...skills.entries.map((s) => `- ${s.name}：${s.description}`),
+          "[/技能目录]",
+        ].join("\n"),
+        timestamp: 0,
+      },
+    });
   }
   const resumedFrom = input.resumedFrom ?? null;
   if (resumedFrom) {
@@ -532,6 +557,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     const tokens = estimateMessageTokens(message, calibration);
     prefixTokens += tokens;
     if (kind === "instructions") estimates.projectInstructions = tokens;
+    else if (kind === "skills") estimates.skills = tokens;
     else if (kind === "resumed") estimates.resumedFrom = tokens;
   }
 
@@ -580,11 +606,12 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
       includedMemories,
       excludedMemories,
       instructionVersion: instructions?.version ?? "",
+      skillVersion: skills?.version ?? "",
       cappedToolResults: [],
       estimates,
       budget,
       estimatedTotal: fixed,
-      failure: `必留内容（系统提示 ${estimates.systemPrompt} + 工具定义 ${estimates.toolSchemas} + 指令/记忆/继续来源 ${prefixTokens} + 当前任务 ${mandatoryTokens} = ${fixed}）超过输入预算 ${budget}`,
+      failure: `必留内容（系统提示 ${estimates.systemPrompt} + 工具定义 ${estimates.toolSchemas} + 指令/技能/记忆/继续来源 ${prefixTokens} + 当前任务 ${mandatoryTokens} = ${fixed}）超过输入预算 ${budget}`,
     };
   }
 
@@ -633,7 +660,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
 
   const includedIndices = messages.map((_, i) => i).filter((i) => included.has(i));
   const view = includedIndices.map((i) => viewOf(i));
-  // 必留前缀（项目指令/继续来源/记忆）作为参考内容注入到历史之前
+  // 必留前缀（项目指令/技能目录/继续来源/记忆）作为参考内容注入到历史之前
   const viewWithPrefixes = [...prefixMessages.map((p) => p.message), ...view];
   const cappedToolResults = includedIndices
     .filter((i) => cappedByIndex.has(i))
@@ -648,6 +675,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     includedMemories,
     excludedMemories,
     instructionVersion: instructions?.version ?? "",
+    skillVersion: skills?.version ?? "",
     cappedToolResults,
     estimates,
     budget,

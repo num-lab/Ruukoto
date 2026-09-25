@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS selection_records (
   included_memories TEXT NOT NULL,
   excluded_memories TEXT NOT NULL,
   instruction_version TEXT NOT NULL DEFAULT '',
+  skill_version TEXT NOT NULL DEFAULT '',
   capped_tool_results TEXT NOT NULL DEFAULT '[]',
   estimates TEXT NOT NULL,
   budget INTEGER NOT NULL,
@@ -748,6 +749,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // v7（issue 20）：项目级 Web Search 开关，默认启用，拥有者可显式禁用
     add("projects", "web_search", "web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled'))");
     add("selection_records", "instruction_version", "instruction_version TEXT NOT NULL DEFAULT ''");
+    // issue 22：技能库钉版版本
+    add("selection_records", "skill_version", "skill_version TEXT NOT NULL DEFAULT ''");
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "prompt_artifact", "prompt_artifact TEXT");
     add("selection_records", "window_snapshot", "window_snapshot TEXT");

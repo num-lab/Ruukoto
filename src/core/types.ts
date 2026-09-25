@@ -117,7 +117,7 @@ export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"]
  * scheduler 同样仅 main（issue 03：计划与通知账本）；delegation 同样仅 main
  * （issue 05：委派 coding 与读取委派结果）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "skills";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -706,6 +706,8 @@ export interface SelectionRecord {
   excludedMemories: Array<{ memoryId: string; version: number; reason: string }>;
   /** 项目指令来源版本（内容哈希 + 捕获产物 id；空串 = 本项目无配置指令）。 */
   instructionVersion: string;
+  /** 技能库钉版版本（issue 22；空串 = 无技能库；旧记录缺省为空串）。 */
+  skillVersion?: string;
   /** 模型视图中被有界替换的工具结果（原消息序号 + 原/视图字符数；原文不动）。 */
   cappedToolResults: Array<{ index: number; originalChars: number; viewChars: number }>;
   /** 估算明细（分类 token 估计）。 */

@@ -597,6 +597,8 @@ export class ControlServer {
       }
       case "get_selection_record":
         return runtime.getSelectionRecord(requireString("record_id"));
+      case "list_skills":
+        return runtime.listSkills();
       case "get_context_breakdown":
         return runtime.getContextBreakdown({ sessionId: requireString("session_id"), recordId: requireString("record_id") });
       // ---------- issue 13：模型请求 prompt 快照（拥有者审计；分页 + 有界读取） ----------

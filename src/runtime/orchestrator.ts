@@ -81,11 +81,11 @@ export interface OrchestratorDeps {
 /** 角色静态定义：工具白名单按注册来源类别给出（Driver 三层强制）。 */
 const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string; tools: ToolCategory[] }> = [
   // main：日常对话/信息整理/编排——资料与记忆、Web Search、应用数据空间（issue 02）、
-  // 调度计划与通知（issue 03）、委派 coding（issue 05）；
+  // 调度计划与通知（issue 03）、委派 coding（issue 05）、技能（issue 22）；
   // 不持有编码工具
-  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results"] },
-  // coding：仓库/测试/PR 分析——编码工具 + 资料 + Web Search + MCP
-  { id: "coding", projectName: "agent-coding", tools: ["coding", "host_data", "web_search", "mcp"] },
+  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"] },
+  // coding：仓库/测试/PR 分析——编码工具 + 资料 + Web Search + MCP + 技能
+  { id: "coding", projectName: "agent-coding", tools: ["coding", "host_data", "web_search", "mcp", "skills"] },
   // chat：群聊——空工具集合（与 qq_group 同一约束口径）
   { id: "chat", projectName: "agent-chat", tools: [] },
 ];
@@ -104,7 +104,7 @@ export const DELEGATION_LIMITS = { perParent: 3, deadlineMs: 60 * 60_000 };
 /** 委派正文首行由宿主写入（模式的持久记录；模型正文在其后，不能伪造首行）。 */
 const DELEGATION_HEADER = /^\[委派 coding · (analyze|draft)\]\n/;
 // 仅重试可证明只读的操作；bash、MCP、记忆写入及未知工具一律不猜测副作用。
-const RETRY_SAFE_TOOLS = new Set(["read", "read_artifact", "history_search", "history_read", "memory_list", "memory_read", "web_search"]);
+const RETRY_SAFE_TOOLS = new Set(["read", "read_artifact", "history_search", "history_read", "memory_list", "memory_read", "web_search", "skill"]);
 
 /** 委派 coding 的子任务模式（非委派任务为 null）。 */
 export function delegationMode(task: Task): DelegationMode | null {

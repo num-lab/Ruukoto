@@ -76,6 +76,7 @@ import { createDelegationTools, settleDelegationOp, DELEGATION_TOOL_NAMES, type 
 import { createChatResultTools, settleChatResultOp, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
 import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
+import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -261,6 +262,8 @@ export class Driver {
     instructions: { text: string; version: string; problems: string[] } | null;
     resumedFrom: { taskId: string; input: string } | null;
   } = { instructions: null, resumedFrom: null };
+  /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
+  private pinnedSkills: SkillLibrary | null = null;
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
@@ -463,6 +466,10 @@ export class Driver {
           verifyMain: (ctx) => this.verifyMainBinding(ctx),
         })
       : [];
+    // 技能工具（issue 22）：资料受限会话（chat、QQ 群）不装配；读取任务钉版的技能库
+    const skillTools = this.dataScopeRestricted || !this.roleAllows("skills")
+      ? []
+      : createSkillTools({ library: () => this.pinnedSkills, bindCall: this.bindHostCall });
     const allTools = this.isQqGroup
       ? []
       : [
@@ -473,6 +480,7 @@ export class Driver {
           ...schedulerTools,
           ...delegationTools,
           ...chatResultTools,
+          ...skillTools,
           // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
           // 固定，工具集合变化由 runInner 先重建会话再走到这里
           ...this.pendingMcpToolDefs,
@@ -585,11 +593,23 @@ export class Driver {
       systemPrompt: this.sdk!.systemPrompt ?? "",
       tools: (this.sdk!.agent.state.tools ?? []) as any[],
       projectInstructions: this.dataScopeRestricted ? null : this.pinnedContext.instructions,
+      skills: this.skillsInput(),
       resumedFrom: this.pinnedContext.resumedFrom,
       memories,
       preExcludedMemories,
       budget: this.budgetConfig(),
     };
+  }
+
+  /** 技能目录只在本任务确实可用 skill 工具时注入（GitHub 评审等收窄工具集不注入）。 */
+  private skillsInput(): SelectorInput["skills"] {
+    const lib = this.dataScopeRestricted ? null : this.pinnedSkills;
+    if (!lib) return null;
+    const toolActive = ((this.sdk?.agent.state.tools ?? []) as any[]).some((t) => t?.name === "skill");
+    const entries = toolActive
+      ? lib.skills.filter((s) => !s.disableModelInvocation).map((s) => ({ name: s.name, description: s.description }))
+      : [];
+    return { entries, version: lib.version };
   }
 
   /** 配置与凭据每次读取，未启用/损坏/越范围都不能成为外发授权。 */
@@ -898,6 +918,7 @@ export class Driver {
         includedMemories: selection.includedMemories,
         excludedMemories: selection.excludedMemories,
         instructionVersion: selection.instructionVersion,
+        skillVersion: selection.skillVersion,
         cappedToolResults: selection.cappedToolResults,
         estimates: selection.estimates,
         budget: selection.budget,
@@ -1047,6 +1068,7 @@ export class Driver {
     this.lastBlockedReason = null;
     this.pendingRecordId = null;
     this.pinnedContext = this.loadPinnedContext(task);
+    this.pinnedSkills = this.dataScopeRestricted ? null : loadSkillLibrary(this.deps.agentDir);
     this.runPromise = this.runInner(task);
     try {
       await this.runPromise;
@@ -1181,9 +1203,19 @@ export class Driver {
       return;
     }
 
+    // 拥有者显式调用技能（/skill:<名称> [参数]）：按钉版技能库展开后作为用户消息
+    // 进入历史；不交给 pi 的 /skill: 展开。资料受限会话不识别。
+    let promptText: string;
+    try {
+      promptText = this.dataScopeRestricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
+    } catch (err) {
+      this.finalize(task, "failed", { errorMessage: (err as Error).message });
+      return;
+    }
+
     this.appendMarker(TASK_START_MARKER, { taskId: task.id, requestId: task.requestId });
     try {
-      await sdk.prompt(task.input);
+      await sdk.prompt(promptText);
     } catch (err) {
       if (!this.stopRequested) {
         this.finalize(task, "failed", { errorMessage: (err as Error).message });
@@ -1581,7 +1613,8 @@ export class Driver {
       (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName)
+      (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (SKILL_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,

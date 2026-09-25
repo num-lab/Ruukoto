@@ -10,6 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { AccessScope } from "../src/core/access.ts";
 import { Db } from "../src/core/db.ts";
@@ -316,6 +317,9 @@ test("qq：群消息 @ 触发并回复（目标固定 + 引用段 + 空工具）
   const f = await startQq("qq-happy", replyText);
   try {
     await waitOnline(f.t);
+    // 技能库非空（issue 22）：QQ 群仍不得注入技能目录
+    fs.mkdirSync(path.join(f.t.dirs.agentDir, "skills", "qq-skill"), { recursive: true });
+    fs.writeFileSync(path.join(f.t.dirs.agentDir, "skills", "qq-skill", "SKILL.md"), "---\nname: qq-skill\ndescription: QQ-SKILL-DESC\n---\n正文");
     f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_1, messageId: 42, segments: atSegments(" 大家好 "), senderName: "甲" });
     await waitSends(f.onebot, 1);
 
@@ -346,6 +350,7 @@ test("qq：群消息 @ 触发并回复（目标固定 + 引用段 + 空工具）
     assert.deepEqual(snapshot.tools, [], "QQ 任务发送载荷不得包含任何工具");
     assert.ok(JSON.stringify(snapshot.messages).includes("大家好"));
     assert.ok(JSON.stringify(snapshot.messages).includes(`[qq:${GROUP_A}:42]`));
+    assert.ok(!JSON.stringify(snapshot.messages).includes("QQ-SKILL-DESC"), "QQ 群不注入技能目录");
   } finally {
     await shutdownQq(f);
   }

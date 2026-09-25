@@ -66,7 +66,8 @@ test("breakdown 纯函数：分类占比工作示例", () => {
   assert.equal(b.windowUnavailableReason, null);
 
   const byKey = new Map(b.categories.map((c) => [c.key, c]));
-  assert.equal(byKey.size, 8, "八个已知分类");
+  assert.equal(byKey.size, 9, "九个已知分类");
+  assert.equal(byKey.get("skills")!.label, "技能");
   const sys = byKey.get("systemPrompt")!;
   assert.equal(sys.label, "系统提示");
   assert.equal(sys.tokens, 500);

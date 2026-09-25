@@ -1286,7 +1286,7 @@ test("既有 main 角色幂等升级：重启后获得 app_data，项目/会话/
   try {
     let rt = await Runtime.start(config);
     const before = rt.store.getAgentRole("main")!;
-    assert.deepEqual(before.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results"]);
+    assert.deepEqual(before.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"]);
     // 模拟升级前已存在的 main（无 app_data）
     rt.store.db.prepare("UPDATE agent_roles SET tools = ? WHERE id = 'main'").run(JSON.stringify(["host_data", "web_search"]));
     await rt.stop("pre-upgrade");
@@ -1294,7 +1294,7 @@ test("既有 main 角色幂等升级：重启后获得 app_data，项目/会话/
     rt = await Runtime.start(config);
     try {
       const after = rt.store.getAgentRole("main")!;
-      assert.deepEqual(after.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results"], "既有 main 升级工具清单");
+      assert.deepEqual(after.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"], "既有 main 升级工具清单");
       assert.equal(after.projectId, before.projectId);
       assert.equal(after.sessionId, before.sessionId);
       assert.equal(after.workDir, before.workDir);

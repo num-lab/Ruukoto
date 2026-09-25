@@ -1602,8 +1602,8 @@ export class Store {
         `INSERT INTO selection_records
          (id, task_id, session_id, call_index, strategy, config_version, model, total_messages,
           included_indices, excluded, included_memories, excluded_memories, instruction_version,
-          capped_tool_results, estimates, budget, estimated_total, usage, window_snapshot, experiment, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+          skill_version, capped_tool_results, estimates, budget, estimated_total, usage, window_snapshot, experiment, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -1619,6 +1619,7 @@ export class Store {
         JSON.stringify(record.includedMemories),
         JSON.stringify(record.excludedMemories),
         record.instructionVersion,
+        record.skillVersion ?? "",
         JSON.stringify(record.cappedToolResults),
         JSON.stringify(record.estimates),
         record.budget,
@@ -1712,6 +1713,7 @@ function rowToSelectionRecord(row: any): SelectionRecord {
     includedMemories: JSON.parse(row.included_memories) as Array<{ memoryId: string; version: number }>,
     excludedMemories: JSON.parse(row.excluded_memories) as Array<{ memoryId: string; version: number; reason: string }>,
     instructionVersion: row.instruction_version ?? "",
+    skillVersion: row.skill_version ?? "",
     cappedToolResults: JSON.parse(row.capped_tool_results ?? "[]") as Array<{
       index: number;
       originalChars: number;

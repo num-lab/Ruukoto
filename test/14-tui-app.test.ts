@@ -12,6 +12,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { stripTerminalSequences, type Terminal } from "@earendil-works/pi-tui";
 import { ControlConnection } from "../src/control/connection.ts";
@@ -611,6 +612,40 @@ test("/context：展示当前上下文窗口分解（不提供切换）", async 
     h.terminal.clearOutput();
     await renderFlush();
     assert.ok(!h.terminal.output().includes("上下文窗口"), "Esc 关闭悬浮层");
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("/skill 与 /skills：显式调用提交 /skill:<名称> 任务，列表展示技能与诊断", async () => {
+  const t = await startTestRuntime("tui-skill", async () => ({ kind: "text", text: "照做" }));
+  const apps: AppHarness[] = [];
+  try {
+    const skillDir = path.join(t.dirs.agentDir, "skills", "beta");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: beta\ndescription: BETA-DESC\ndisable-model-invocation: true\n---\nBETA-BODY");
+    fs.mkdirSync(path.join(t.dirs.agentDir, "skills", "nodesc"));
+    fs.writeFileSync(path.join(t.dirs.agentDir, "skills", "nodesc", "SKILL.md"), "---\nname: nodesc\n---\nx");
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+
+    h.terminal.send("/skills");
+    h.terminal.send("\r");
+    await waitFor("技能列表", () => stripTerminalSequences(h.terminal.output()).includes("BETA-DESC"));
+    const listing = stripTerminalSequences(h.terminal.output());
+    assert.ok(listing.includes("仅显式调用") && listing.includes("nodesc"), "显示仅显式标记与诊断");
+    h.terminal.send("\x1b");
+    await renderFlush();
+
+    await submitViaEditor(h, "/skill beta 参数甲");
+    await waitFor("任务完成", () => [...h.state.tasks.values()][0]?.status === "completed");
+    const tasks = [...h.state.tasks.values()];
+    assert.equal(tasks.length, 1, "只提交一个任务");
+    assert.equal(tasks[0]!.input, "/skill:beta 参数甲");
+    assert.ok(lastUserText(t.server.calls[0]!).includes("BETA-BODY"), "任务开始时展开为技能正文");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));

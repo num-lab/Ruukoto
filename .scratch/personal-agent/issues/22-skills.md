@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 05, 14, 21
 
 # 增加技能系统（Agent Skills 全局技能库）
@@ -99,3 +99,9 @@ Depends on: 05, 14, 21
 用户要求增加技能系统。grilling 访谈四轮，Q1–Q14 全部按推荐确认，要点见「已确认范围」。事实核对覆盖 pi 0.85.1 的技能加载与 `/skill:` 展开、上下文组装与项目指令钉版、工具与执行环境的文件可见性，结论见「背景」。
 
 访谈中顺带发现的两个问题另开 [23](23-container-full-access.md) 与 [24](24-system-prompt-discovery.md)。coding 会话会注入个人共享记忆（`src/core/memory.ts:95`，`dataScopeRestricted` 只覆盖 chat 与 QQ 群），与 `.scratch/daily-agent/spec.md:66`「coding 只能收到委派任务明确传入的数据」是否冲突，待拥有者判断，未开工单。
+
+### 2026-09-25：实现交付
+
+按工单实现：`src/agent/skills.ts`（技能库钉版、`skill` 工具、`/skill:` 展开），选择器「技能」前缀与类别、`skill` 结果免截取，选择记录 `skill_version`，角色类别 `skills`，控制面 `list_skills`，TUI `/skill`、`/skills`，README 与 `docs/runtime.md`。测试见 `test/56-skills.test.ts`，另在 14/26 补 TUI 与 QQ 群断言。
+
+未处理（评审记录，待拥有者判断）：继续（`continue`）一个 `/skill:` 任务时继续来源注入的是原始 `/skill:` 文本而非钉版正文；Jev 实验收到的任务文本是未展开的 `/skill:` 输入；停止时进行中的 `skill` 调用仍按现有规则记为效果未知。`test/19-tui-demo.test.ts` 的失败（demo 未覆盖 Jev 事件类型）在本工单之前已存在。

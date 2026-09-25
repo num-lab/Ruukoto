@@ -79,7 +79,7 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
 /** 给滚动条留出右侧空间。 */
-const RIGHT_GUTTER = 4;
+const RIGHT_GUTTER = 2;
 
 const selectTheme = {
   selectedPrefix: (s: string) => cyan(s),
@@ -555,13 +555,13 @@ class BareList implements Component {
 }
 
 /**
- * 转录区右侧留白：内容按窄 RIGHT_GUTTER 列渲染，再补齐回来，
- * 文字不会顶到滚动条底下（滚动条画在 ScrollView 的最后一列）。
+ * 转录区右侧留白：内容按窄 RIGHT_GUTTER 列渲染。
+ * pi-tui 绘制可见行时负责清除行尾，无需逐行测量、补齐整个历史。
  */
 class GutterContainer extends Container {
   render(width: number): string[] {
     const inner = Math.max(1, width - RIGHT_GUTTER);
-    return super.render(inner).map((line) => line + " ".repeat(Math.max(0, width - visibleWidth(line))));
+    return super.render(inner);
   }
 }
 

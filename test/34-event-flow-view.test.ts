@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import type { Task } from "../src/core/types.ts";
@@ -98,7 +98,7 @@ test("Sweeping 总在最后且不计排队；终态分别显示成功、失败�
   const view = new EventFlowView(() => Date.parse(at) + 42_000);
   const running: FlowEntry = { ...position, kind: "task", task: task() };
   view.setEntries([running, message("正在输出", { key: "answer" })]);
-  assert.deepEqual(plain(view), ["● 正在输出", "", "⦿ Sweeping · Elapsed 42s"]);
+  assert.deepEqual(plain(view), ["● 正在输出", "", "● Sweeping · Elapsed 42s"]);
   for (const [status, marker, label, color] of [
     ["completed", "✓", "Done", "32"], ["failed", "✗", "Failed", "31"],
     ["canceled", "■", "Canceled", "33"], ["interrupted", "■", "Interrupted", "33"],
@@ -115,6 +115,69 @@ test("Sweeping 总在最后且不计排队；终态分别显示成功、失败�
   assert.deepEqual(plain(view), ["■ Canceled · At Tue 09:16 PM"]);
   view.setEntries([{ ...running, task: task({ status: "queued", startedAt: null }) }]);
   assert.deepEqual(plain(view), []);
+});
+
+test("长事件流刷新只排版变化的条目，换宽和失效后重新排版", () => {
+  const view = new EventFlowView();
+  const renderEntry = mock.method(view as unknown as { renderEntry(entry: FlowEntry, width: number): string[] }, "renderEntry");
+  const entries = Array.from({ length: 1000 }, (_, index) => message(`第 ${index} 条 **历史正文**`, { key: `history:${index}` }));
+  view.setEntries(entries);
+  const original = view.render(80);
+  assert.equal(renderEntry.mock.callCount(), entries.length);
+
+  // 定时刷新和输入引起的布局会反复渲染，补读还可能重建相同条目。
+  view.setEntries(entries.map((entry) => ({ ...entry })));
+  assert.deepEqual(view.render(80), original);
+  assert.equal(renderEntry.mock.callCount(), entries.length, "未变化的历史不能在每一帧重复排版");
+  entries[500] = message("更新后的正文", { key: "history:500" });
+  view.setEntries(entries);
+  assert.match(view.render(80).join("\n"), /更新后的正文/);
+  assert.equal(renderEntry.mock.callCount(), entries.length + 1, "只重新排版变化的一条");
+
+  view.render(40);
+  assert.equal(renderEntry.mock.callCount(), entries.length * 2 + 1);
+  view.invalidate();
+  view.render(40);
+  assert.equal(renderEntry.mock.callCount(), entries.length * 3 + 1);
+  view.setEntries([]);
+  assert.deepEqual(view.render(40), []);
+  view.setEntries(entries);
+  view.render(40);
+  assert.equal(renderEntry.mock.callCount(), entries.length * 4 + 1, "移出的条目释放缓存");
+});
+
+test("条目原地更新与运行计时推进均刷新显示，缓存不保留旧状态", () => {
+  let now = Date.parse(at);
+  const view = new EventFlowView(() => now);
+  const entries: FlowEntry[] = [
+    message("旧正文", { key: "message", truncated: true }),
+    tool({ key: "tool", status: "running", editStats: { added: 1, removed: 0 } }),
+    { ...position, key: "thinking", kind: "thinking", text: "思考", startedAt: at, endedAt: null },
+    { ...position, key: "command", kind: "command", line: "/mode", result: null, isError: false },
+    { ...position, key: "note", kind: "note", text: "旧提示" },
+    { ...position, key: "task", kind: "task", task: task() },
+  ];
+  view.setEntries(entries);
+  view.render(80);
+  const check = () => {
+    const fresh = new EventFlowView(() => now);
+    fresh.setEntries(entries);
+    assert.deepEqual(view.render(80), fresh.render(80));
+  };
+  now += 5000;
+  check();
+  assert.match(plain(view).join("\n"), /Elapsed 5s/);
+  for (const entry of entries) {
+    switch (entry.kind) {
+      case "message": entry.text = "新正文"; entry.truncated = false; break;
+      case "tool": entry.status = "error"; entry.summary = "失败原因"; entry.target = "other.py"; entry.editStats!.added = 10; break;
+      case "thinking": entry.endedAt = new Date(now).toISOString(); break;
+      case "command": entry.result = "命令失败"; entry.isError = true; break;
+      case "note": entry.text = "新提示"; break;
+      case "task": entry.task.status = "failed"; entry.task.endedAt = new Date(now).toISOString(); entry.task.errorMessage = "任务失败"; break;
+    }
+    check();
+  }
 });
 
 test("长正文和 Markdown 列表、代码块续行避开图标列，并净化控制序列", () => {

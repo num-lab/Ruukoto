@@ -66,6 +66,7 @@ import { createMockTools } from "../agent/mock-tools.ts";
 import { createCodingTools, type ApprovalOutcome } from "../agent/tool-router.ts";
 import { ArtifactStore } from "../agent/artifacts.ts";
 import { CredentialStore } from "../agent/execution/credentials.ts";
+import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "../agent/jev-config.ts";
 import {
   createLauncherFor,
   ExecutionError,
@@ -171,6 +172,8 @@ export interface RuntimeConfig {
   budgetOverrides?: Partial<SelectorBudgetConfig>;
   /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点与 15s 超时）。 */
   webSearch?: import("../agent/web-search.ts").WebSearchConfig;
+  /** Jev 实验：仅测试注入目标与超时；生产固定官方端点。 */
+  jev?: { baseUrl?: string; timeoutMs?: number };
   /** MCP（issue 16）：超时覆盖（仅测试注入；生产缺省 MCP_LIMITS）。 */
   mcp?: McpTimeouts;
   /** 自动审查配置（issue 15）：仅测试用来压短时限/输出上限。 */
@@ -1715,7 +1718,20 @@ export class Runtime {
     }
     // 同名更新保留既有使用范围（mcp 配置或历史 github bind 收紧的 scope 不因轮换令牌而丢失）
     const existing = this.credentials.get(input.name);
-    this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope: existing?.scope });
+    let scope = existing?.scope;
+    if (input.purpose === JEV_CREDENTIAL_PURPOSE) {
+      const host = jevCredentialHost(this.config.jev?.baseUrl);
+      if (input.host.toLowerCase() !== host || input.header.toLowerCase() !== "authorization") {
+        throw new RuntimeApiError("invalid_params", `Jev 凭据须使用 host=${host} 与 authorization 头`);
+      }
+      if (scope?.repoId !== undefined || scope?.operations?.some((operation) => operation !== JEV_CREDENTIAL_PURPOSE) ||
+          (scope?.operations !== undefined && !scope.operations.includes(JEV_CREDENTIAL_PURPOSE))) {
+        throw new RuntimeApiError("invalid_params", "凭据已有其他使用范围，请为 Jev 另建凭据");
+      }
+      // 保存时即收紧操作范围，配置项目之前也不能被通用 http_request 借用。
+      scope = { ...scope, operations: [JEV_CREDENTIAL_PURPOSE] };
+    }
+    this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope });
     return { name: input.name, host: input.host.toLowerCase(), header: input.header, purpose: input.purpose };
   }
 
@@ -2085,6 +2101,7 @@ export class Runtime {
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
         webSearch: this.config.webSearch,
+        jev: this.config.jev,
         mcp: { store: this.mcp, ...this.config.mcp },
         allowTaskTool: (task, name, effect) => this.githubEvents.allowTool(task, name, effect),
         reviewer: this.reviewer,
@@ -2665,6 +2682,51 @@ export class Runtime {
     if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
     this.store.setProjectWebSearch(project.id, input.enabled ? "enabled" : "disabled");
     return this.store.getProject(project.id)!;
+  }
+
+  getProjectJev(projectId: string): JevConfig {
+    if (!this.store.getProject(projectId)) throw new RuntimeApiError("not_found", `项目不存在：${projectId}`);
+    return getProjectJevConfig(this.store, projectId);
+  }
+
+  /** 拥有者配置实验；任务开始钉版，后续调用与应用结果前均重核版本和凭据。 */
+  setProjectJev(input: { projectId: string; enabled: boolean; credential: string | null; expectedVersion: number }): JevConfig {
+    const previous = this.getProjectJev(input.projectId);
+    if (typeof input.enabled !== "boolean" ||
+        !(input.credential === null || (typeof input.credential === "string" && input.credential.trim().length > 0)) ||
+        !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) {
+      throw new RuntimeApiError("invalid_params", "Jev 配置须含 enabled、credential 与非负整数 expected_version");
+    }
+    if (input.expectedVersion !== previous.configVersion) {
+      throw new RuntimeApiError("version_conflict", `Jev 配置版本冲突：期望 v${input.expectedVersion}，当前 v${previous.configVersion}`);
+    }
+    if (previous.configVersion === Number.MAX_SAFE_INTEGER) throw new RuntimeApiError("invalid_params", "Jev 配置版本已达上限");
+    if (input.enabled && (this.store.getAgentRole("chat")?.projectId === input.projectId ||
+        this.store.listSessions().some((session) => session.projectId === input.projectId && session.kind === "qq_group"))) {
+      throw new RuntimeApiError("invalid_params", "QQ 群聊与 chat 项目不开放 Jev 实验");
+    }
+    if (input.enabled && !input.credential) throw new RuntimeApiError("invalid_params", "启用 Jev 前须选择服务凭据");
+    if (input.credential && (input.enabled || input.credential !== previous.credential)) {
+      const host = jevCredentialHost(this.config.jev?.baseUrl);
+      const binding = this.credentials.get(input.credential);
+      if (!binding?.secret || binding.host !== host || binding.header.toLowerCase() !== "authorization" || binding.purpose !== JEV_CREDENTIAL_PURPOSE) {
+        throw new RuntimeApiError("invalid_params", `Jev 凭据须存在且使用 host=${host}、authorization 头与 purpose=${JEV_CREDENTIAL_PURPOSE}`);
+      }
+      if (binding.scope?.repoId !== undefined ||
+          (binding.scope?.projectId !== undefined && binding.scope.projectId !== input.projectId) ||
+          binding.scope?.operations?.some((operation) => operation !== JEV_CREDENTIAL_PURPOSE) ||
+          (binding.scope?.operations !== undefined && !binding.scope.operations.includes(JEV_CREDENTIAL_PURPOSE))) {
+        throw new RuntimeApiError("invalid_params", "凭据已有其他项目或操作范围，请为本项目另建 Jev 凭据");
+      }
+      // 文件写入先于启用；失败时配置仍保持原值。两种存储不宣称跨文件原子。
+      this.credentials.upsert({ ...binding, scope: { projectId: input.projectId, operations: [JEV_CREDENTIAL_PURPOSE] } });
+    }
+    const config: JevConfig = { enabled: input.enabled, credential: input.credential, configVersion: previous.configVersion + 1 };
+    this.store.withTx(() => {
+      this.store.setMetaValue(jevConfigKey(input.projectId), JSON.stringify(config));
+      this.store.appendEvent({ type: "project.jev_changed", projectId: input.projectId, configVersion: config.configVersion, enabled: config.enabled });
+    });
+    return config;
   }
 
   // ---------- 长期记忆（issue 05 §5；拥有者管理入口） ----------

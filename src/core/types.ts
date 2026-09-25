@@ -464,12 +464,15 @@ export type PersistentEventBody =
   /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
   | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model"; provider?: string }
   | { type: "project.created"; projectId: string; name: string; createRequestId: string | null }
+  | { type: "project.jev_changed"; projectId: string; configVersion: number; enabled: boolean }
   | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }
+  /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
+  | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }
   | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean; scope: ApprovalScope; permissionVersion?: number; reviewStatus?: "in_progress" | null; reviewModel?: string | null; reviewPolicyVersion?: string | null }
   | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected"; source?: "owner" | "auto_review"; reason?: string }
   /** 自动审查转人工（issue 15）：审批仍 pending，等待拥有者决定。 */
@@ -655,6 +658,33 @@ export interface WindowSnapshot {
   safetyMargin: number;
 }
 
+/** Provider 实际用量；可选缓存与费用字段只在 SDK 提供时保留。 */
+export interface SelectionUsage {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+}
+
+/** 有界的上下文实验结果，不含候选正文、服务响应正文或凭据。 */
+export interface ContextExperimentRecord {
+  status: "applied" | "fallback" | "skipped" | "canceled";
+  strategy: string;
+  requestedModel: string;
+  model: string | null;
+  configVersion: number;
+  threshold: number;
+  elapsedMs: number;
+  requestSent: boolean;
+  usage: { inputTokens: number; outputTokens: number } | null;
+  /** 按指定日期公开单价估算，仅含 Jev；未知用量保持 null。 */
+  estimatedCost: { usd: number; inputUsdPerMillion: number; priceDate: string } | null;
+  fallbackReason: string | null;
+  candidates: Array<{ id: string; indices: number[]; probability: number | null }>;
+  baselineIncludedIndices: number[];
+}
+
 /** 一次模型调用的上下文选择记录（调试与 Jev 对比用）。 */
 export interface SelectionRecord {
   id: string;
@@ -684,7 +714,9 @@ export interface SelectionRecord {
   budget: number;
   estimatedTotal: number;
   /** 发送后补记的实际 provider usage（可空：失败/中断时无）。 */
-  usage: { input: number; output: number } | null;
+  usage: SelectionUsage | null;
+  /** 默认关闭及旧记录均为 null；可选字段兼容旧客户端与本地记录构造。 */
+  experiment?: ContextExperimentRecord | null;
   /** 发送前捕获的不可变输入快照（产物 id；空 = 该次 prompt 正文未记录）。 */
   promptArtifactId: string | null;
   /** 窗口与预留快照（null = 旧记录无快照，无法计算总窗口占比）。 */

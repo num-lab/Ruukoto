@@ -39,6 +39,7 @@ import type { McpServiceConfig } from "../agent/mcp/store.ts";
 import { reloadStatePathFromEnv, loadReloadState, saveReloadState } from "../tui/reload-state.ts";
 import { OverlayBox, MaskedInput, bold, dim, green, red, selectTheme, yellow } from "./components.ts";
 import { thinkingLevelsForCatalogModel } from "../agent/model-config.ts";
+import { JEV_CREDENTIAL_PURPOSE, JEV_HOST, type JevConfig } from "../agent/jev-config.ts";
 
 /** 与脱敏视图对齐的模型配置视图（apiKey 已被替换为 true，永不携带秘密）。 */
 export interface ModelConfigView {
@@ -496,7 +497,7 @@ export class ConfigTuiApp {
   private rootScreen(): Screen {
     const defs: Array<{ id: string; title: string; desc: string; offline: boolean }> = [
       { id: "models", title: "模型与提供方", desc: "模型目录、API key、后台默认模型", offline: true },
-      { id: "projects", title: "项目", desc: "指令文件、Web Search、资料授权", offline: false },
+      { id: "projects", title: "项目", desc: "指令文件、Web Search、Jev 实验、资料授权", offline: false },
       { id: "sessions", title: "会话", desc: "默认模型、思考档位、权限模式", offline: false },
       { id: "mcp", title: "MCP 服务", desc: "端点、凭据引用、工具允许列表", offline: false },
       { id: "qq", title: "QQ 入口", desc: "连接配置、启停与允许群", offline: false },
@@ -971,6 +972,7 @@ export class ConfigTuiApp {
         return [
           { value: "instructions", label: `指令文件：${p.instructionFiles.join("，") || "（无）"}`, description: "工作区相对路径，逗号分隔" },
           { value: "websearch", label: `Web Search：${p.webSearch === "enabled" ? "启用" : "禁用"}` },
+          { value: "jev", label: "Jev 上下文筛选实验", description: "默认关闭，按项目选择服务凭据与启停" },
           { value: "grants", label: "资料授权", description: "跨项目历史/产物/记忆读取授权" },
         ];
       },
@@ -1004,7 +1006,52 @@ export class ConfigTuiApp {
           }
           case "grants":
             return this.pushScreen(this.grantsScreen(projectId));
+          case "jev":
+            return this.pushScreen(this.jevScreen(projectId));
         }
+      },
+    };
+  }
+
+  private jevScreen(projectId: string): Screen {
+    let config: JevConfig;
+    return {
+      id: "jev",
+      title: `项目「${this.findProject(projectId)?.name ?? projectId}」的 Jev 实验`,
+      watch: (type) => type === "project.jev_changed",
+      intro: () => [
+        "启用后将当前任务和候选历史文本发送给 TypeSafe；普通账号的零保留未获保证。",
+        "启用从下一任务生效；停用后阻止后续请求并丢弃在途结果，已发送内容无法撤回。",
+      ],
+      load: async () => {
+        config = await this.deps.client!.request<JevConfig>("get_project_jev", { project_id: projectId });
+        return [
+          { value: "enabled", label: `实验：${config.enabled ? "启用" : "关闭"}`, description: `v${config.configVersion}` },
+          { value: "credential", label: `凭据引用：${config.credential ?? "（无）"}`, description: "在服务凭据分区新增 purpose=jev_context 的凭据" },
+        ];
+      },
+      onSelect: async (item) => {
+        const client = this.deps.client!;
+        const loaded = config;
+        let enabled = loaded.enabled;
+        let credential = loaded.credential;
+        if (item.value === "enabled") {
+          if (!enabled && !(await this.confirm("启用 Jev 实验？", "将当前任务和候选历史文本发送给 TypeSafe；零保留未获保证"))) return;
+          enabled = !enabled;
+        } else if (item.value === "credential") {
+          const credentials = await client.request<Array<{ name: string; host: string; header: string; purpose: string }>>("list_credentials", {});
+          const value = await this.pick("Jev 服务凭据", [
+            { value: "", label: "清除凭据并关闭实验" },
+            ...credentials.filter((binding) => binding.host === JEV_HOST && binding.header.toLowerCase() === "authorization" && binding.purpose === JEV_CREDENTIAL_PURPOSE)
+              .map((binding) => ({ value: binding.name, label: binding.name })),
+          ]);
+          if (value === null) return;
+          credential = value || null;
+          if (!credential) enabled = false;
+        } else return;
+        await client.request("set_project_jev", { project_id: projectId, enabled, credential, expected_version: loaded.configVersion });
+        this.notify(enabled ? "Jev 实验已启用，从下一任务生效" : "Jev 实验已关闭");
+        return this.refresh();
       },
     };
   }
@@ -1440,7 +1487,7 @@ export class ConfigTuiApp {
           if (host === null) return;
           const header = await this.inputBox("请求头名", { initial: "authorization" });
           if (header === null) return;
-          const purpose = await this.inputBox("用途", { placeholder: "如 mcp / qq_onebot" });
+          const purpose = await this.inputBox("用途", { placeholder: "如 mcp / qq_onebot / jev_context" });
           if (purpose === null) return;
           const secret = await this.maskedBox(`凭据 ${name.trim()} 的秘密值`);
           if (secret === null) return;
@@ -1456,7 +1503,7 @@ export class ConfigTuiApp {
         }
         if (item.value.startsWith("cred:")) {
           const name = item.value.slice(5);
-          if (!(await this.confirm(`删除凭据 ${name}？`, "引用它的 MCP/QQ 配置将失去认证"))) return;
+          if (!(await this.confirm(`删除凭据 ${name}？`, "引用它的 MCP/QQ/Jev 配置将失去认证"))) return;
           await client.request("remove_credential", { name });
           this.notify("凭据已删除");
           return this.refresh();

@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS selection_records (
   budget INTEGER NOT NULL,
   estimated_total INTEGER NOT NULL,
   usage TEXT,
+  experiment TEXT,
   window_snapshot TEXT,
   created_at TEXT NOT NULL
 );
@@ -750,6 +751,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("selection_records", "capped_tool_results", "capped_tool_results TEXT NOT NULL DEFAULT '[]'");
     add("selection_records", "prompt_artifact", "prompt_artifact TEXT");
     add("selection_records", "window_snapshot", "window_snapshot TEXT");
+    add("selection_records", "experiment", "experiment TEXT");
     // v10（issue 07）：会话入口类别（dev / qq_group）
     add("sessions", "kind", "kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group'))");
     // v11（issue 01）：任务编排字段（逻辑角色 / 父任务 / 来源事件 / 截止 / 结果）

@@ -276,6 +276,27 @@ export interface SelectorOutput {
   failure?: string;
 }
 
+/** 可筛选的完整交互；序号始终指向原 SDK 分支，必留内容不在候选中。 */
+export interface ContextCandidate {
+  id: string;
+  indices: number[];
+  messages: any[];
+}
+
+function candidateId(indices: number[]): string {
+  return `unit_${indices[0]}`;
+}
+
+/** 候选按基础策略的尝试顺序排列，包含因预算尚未进入基础视图的旧交互。 */
+export function getContextCandidates(input: SelectorInput): ContextCandidate[] {
+  const { groups, units } = prepareContextGroups(input.messages);
+  return [...units.slice(1, -1).reverse(), ...groups.slice(0, -1).reverse()].map((indices) => ({
+    id: candidateId(indices),
+    indices: [...indices],
+    messages: indices.map((index) => input.messages[index]),
+  }));
+}
+
 /** 中文等多字节内容的保守估算：CJK 字符按 1 token 计，其余按 chars/4。 */
 export function estimateMessageTokens(message: any, calibration: number): number {
   const base = estimateTokens(message);
@@ -367,6 +388,51 @@ function groupIntoTurns(messages: any[]): number[][] {
   return groups;
 }
 
+/** 基础策略与实验共用配对清洗、完整分组和必留项，始终保留原消息序号。 */
+function prepareContextGroups(messages: any[]): {
+  groups: number[][];
+  units: number[][];
+  mandatory: Set<number>;
+  droppedUnpaired: SelectionDroppedUnpaired[];
+} {
+  const callIds = new Set<string>();
+  for (const m of messages) {
+    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
+    for (const part of m.content) {
+      if (part?.type === "toolCall" && typeof part.id === "string") callIds.add(part.id);
+    }
+  }
+  const resultIds = new Set<string>();
+  for (const m of messages) {
+    if (m?.role === "toolResult" && typeof m.toolCallId === "string") resultIds.add(m.toolCallId);
+  }
+  // 崩溃残留的孤儿只从模型视图移出，不删历史，也不连带删掉当前任务要求。
+  const droppedUnpaired: SelectionDroppedUnpaired[] = [];
+  const droppedSet = new Set<number>();
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m?.role === "assistant" && Array.isArray(m.content)) {
+      const missing = m.content.find(
+        (part: any) => part?.type === "toolCall" && typeof part.id === "string" && !resultIds.has(part.id),
+      ) as any;
+      if (missing) {
+        droppedSet.add(i);
+        droppedUnpaired.push({ index: i, toolCallId: missing.id });
+      }
+    } else if (m?.role === "toolResult" && typeof m.toolCallId === "string" && !callIds.has(m.toolCallId)) {
+      droppedSet.add(i);
+      droppedUnpaired.push({ index: i, toolCallId: m.toolCallId });
+    }
+  }
+  const groups = groupIntoTurns(messages)
+    .map((group) => group.filter((index) => !droppedSet.has(index)))
+    .filter((group) => group.length > 0);
+  const units = splitIntoUnits(groups.at(-1) ?? [], messages);
+  const mandatory = new Set<number>(units[0] ?? []);
+  if (units.length > 1) for (const index of units.at(-1)!) mandatory.add(index);
+  return { groups, units, mandatory, droppedUnpaired };
+}
+
 /** 工具结果消息在模型视图中的有界替换（原文不动；附读取指引）。 */
 function capToolResultView(
   message: any,
@@ -398,7 +464,7 @@ function capToolResultView(
  * 确定性选择策略（默认实现）。
  * 不修改输入；输出新消息数组（被替换视图的消息为浅拷贝）。
  */
-export function selectContext(input: SelectorInput): SelectorOutput {
+export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<string, boolean>): SelectorOutput {
   const config = validateBudgetConfig(input.budget);
   const { calibration } = config;
   const budget = inputBudgetFor(config);
@@ -471,58 +537,15 @@ export function selectContext(input: SelectorInput): SelectorOutput {
 
   const messages = input.messages;
 
-  // 配对清洗（先于分组）：历史可能因崩溃残留缺配对的 toolCall/toolResult
-  // （如工具已产生副作用、结果尚未落盘时进程被杀）。组语义无法处理残缺
-  // 组——整个剔除会连带删掉必留的当前任务输入。模型 API 不接受孤儿
-  // toolCall，因此从视图剔除残缺消息（历史原文不动），并记录供最终检查
-  // 豁免与选择记录落盘。
-  const callIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
-    for (const part of m.content) {
-      if (part?.type === "toolCall" && typeof part.id === "string") callIds.add(part.id);
+  const { groups, units, mandatory, droppedUnpaired } = prepareContextGroups(messages);
+  if (decisions) {
+    const ids = new Set([...units.slice(1, -1), ...groups.slice(0, -1)].map(candidateId));
+    for (const [id, keep] of decisions) {
+      if (!ids.has(id) || typeof keep !== "boolean") throw new SelectorConfigError("筛选结果包含无效候选");
     }
   }
-  const resultIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role === "toolResult" && typeof m.toolCallId === "string") resultIds.add(m.toolCallId);
-  }
-  const droppedUnpaired: SelectionDroppedUnpaired[] = [];
-  const droppedSet = new Set<number>();
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (m?.role === "assistant" && Array.isArray(m.content)) {
-      const missing = m.content.find(
-        (part: any) => part?.type === "toolCall" && typeof part.id === "string" && !resultIds.has(part.id),
-      ) as any;
-      if (missing) {
-        droppedSet.add(i);
-        droppedUnpaired.push({ index: i, toolCallId: missing.id });
-      }
-    } else if (m?.role === "toolResult" && typeof m.toolCallId === "string" && !callIds.has(m.toolCallId)) {
-      droppedSet.add(i);
-      droppedUnpaired.push({ index: i, toolCallId: m.toolCallId });
-    }
-  }
-
-  const groups = groupIntoTurns(messages);
-  for (const group of groups) {
-    for (let k = group.length - 1; k >= 0; k--) {
-      if (droppedSet.has(group[k]!)) group.splice(k, 1);
-    }
-  }
-  for (let g = groups.length - 1; g >= 0; g--) {
-    if (groups[g]!.length === 0) groups.splice(g, 1);
-  }
-  const lastGroup = groups.length > 0 ? groups[groups.length - 1]! : [];
-
-  // 当前任务（最后一组）拆分为单元：任务输入（leading user 消息）+ 每个
-  // assistant 及其 toolResult 构成的已完成批次。必留 = 任务输入 + 最新批次；
-  // 更早批次由近及远在预算内纳入（§3：工具循环可按已完成批次取最近部分）。
-  const units = splitIntoUnits(lastGroup, messages);
-  const mandatory = new Set<number>(units[0] ?? []);
-  const latestBatch = units.length > 1 ? units[units.length - 1]! : [];
-  for (const index of latestBatch) mandatory.add(index);
+  const exclusionReason = (indices: number[]): string =>
+    decisions?.get(candidateId(indices)) === false ? "jev_rejected" : "budget";
 
   // 视图消息缓存（工具结果有界替换；记录被替换的片段范围供选择记录落盘）
   const viewCache = new Map<number, any>();
@@ -570,11 +593,15 @@ export function selectContext(input: SelectorInput): SelectorOutput {
   const included = new Set<number>(mandatory);
   for (let u = units.length - 2; u >= 1; u--) {
     const unit = units[u]!;
+    if (decisions?.get(candidateId(unit)) === false) {
+      for (const index of unit) excluded.push({ index, reason: "jev_rejected" });
+      continue;
+    }
     let unitTokens = 0;
     for (const index of unit) unitTokens += tokensOf(index);
     if (used + unitTokens > budget) {
       for (let rest = u; rest >= 1; rest--) {
-        for (const index of units[rest]!) excluded.push({ index, reason: "budget" });
+        for (const index of units[rest]!) excluded.push({ index, reason: exclusionReason(units[rest]!) });
       }
       break;
     }
@@ -587,11 +614,15 @@ export function selectContext(input: SelectorInput): SelectorOutput {
   // （保持"最近的完整交互"语义，避免挑拣远旧碎片造成因果断裂）
   for (let g = groups.length - 2; g >= 0; g--) {
     const group = groups[g]!;
+    if (decisions?.get(candidateId(group)) === false) {
+      for (const index of group) excluded.push({ index, reason: "jev_rejected" });
+      continue;
+    }
     let groupTokens = 0;
     for (const index of group) groupTokens += tokensOf(index);
     if (used + groupTokens > budget) {
       for (let rest = g; rest >= 0; rest--) {
-        for (const index of groups[rest]!) excluded.push({ index, reason: "budget" });
+        for (const index of groups[rest]!) excluded.push({ index, reason: exclusionReason(groups[rest]!) });
       }
       break;
     }

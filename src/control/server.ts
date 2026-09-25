@@ -515,6 +515,19 @@ export class ControlServer {
         }
         return runtime.setProjectWebSearch({ projectId: requireString("project_id"), enabled });
       }
+      case "get_project_jev":
+        return runtime.getProjectJev(requireString("project_id"));
+      case "set_project_jev": {
+        if (typeof params["enabled"] !== "boolean" || !(params["credential"] === null || typeof params["credential"] === "string")) {
+          throw Object.assign(new Error("enabled 必须是布尔值，credential 必须是凭据名称或 null"), { code: "invalid_params" });
+        }
+        return runtime.setProjectJev({
+          projectId: requireString("project_id"),
+          enabled: params["enabled"],
+          credential: params["credential"] as string | null,
+          expectedVersion: params["expected_version"] as number,
+        });
+      }
       case "list_memories":
         return {
           memories: runtime.listMemories({

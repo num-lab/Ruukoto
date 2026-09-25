@@ -39,7 +39,7 @@ export interface SessionHostHooks {
    * pi 会捕获扩展异常并继续运行，因此实现不得抛错——失败原因由调用方
    * （Driver）保存，最终检查在 streamFunction 包装中阻断发送。
    */
-  onContext?(messages: any[]): { messages: any[] } | undefined;
+  onContext?(messages: any[]): { messages: any[] } | undefined | Promise<{ messages: any[] } | undefined>;
 }
 
 export interface CreateSdkSessionOptions {

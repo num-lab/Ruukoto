@@ -36,14 +36,14 @@ import {
   type ApprovalReviewer,
 } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
+import type { AccessMode, AgentRole, ConfirmationRequest, ContextExperimentRecord, PersistentEventBody, SelectionUsage, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "../core/views.ts";
 import { grantCoversPath } from "../core/worktree.ts";
 import type { ArtifactStore } from "./artifacts.ts";
-import type { CredentialStore } from "./execution/credentials.ts";
+import type { CredentialBinding, CredentialStore } from "./execution/credentials.ts";
 import type { ExecutionError } from "./execution/launchers.ts";
 import type { WorkerLauncher } from "./execution/launchers.ts";
 import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./managed-processes.ts";
@@ -58,11 +58,15 @@ import {
   SELECTOR_STRATEGY,
   budgetConfigVersion,
   estimateMessageTokens,
+  getContextCandidates,
   selectContext,
   validateBudgetConfig,
   type SelectorBudgetConfig,
+  type SelectorInput,
   type SelectorOutput,
 } from "./context-selector.ts";
+import { evaluateJev, JevError, JEV_MODEL, JEV_THRESHOLD, JEV_INPUT_USD_PER_MILLION, JEV_PRICE_DATE, type JevRequestConfig } from "./jev.ts";
+import { getProjectJevConfig, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "./jev-config.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
 import { createAppDataTools, APP_DATA_TOOL_NAMES, APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp, type AppToolContext } from "./app-data/tools.ts";
 import type { AppDataStore } from "./app-data/store.ts";
@@ -145,6 +149,8 @@ export interface DriverDeps {
   budgetOverrides?: Partial<SelectorBudgetConfig>;
   /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点）。 */
   webSearch?: WebSearchConfig;
+  /** Jev 的本地模拟服务与超时覆盖，仅宿主测试注入。 */
+  jev?: JevRequestConfig;
   /** MCP（issue 16）：服务配置存储与超时覆盖；未配置时 MCP 工具不注册。 */
   mcp?: { store: McpStore } & McpTimeouts;
   /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
@@ -238,6 +244,11 @@ export class Driver {
   private roleAllowedToolNames: Set<string> | null = null;
   /** 本轮模型调用的选择结果（context 钩子填充；最终检查核对）。 */
   private pendingSelection: SelectorOutput | null = null;
+  private pendingSelectionTaskId: string | null = null;
+  private pendingExperiment: ContextExperimentRecord | null = null;
+  private pinnedJev: JevConfig | null = null;
+  private jevAborter: AbortController | null = null;
+  private pendingJevCredentialSnapshot: string | null = null;
   /** 选择/资料读取失败的阻断原因（最终检查发现即拒绝发送）。 */
   private selectionBlockReason: string | null = null;
   /** 原始 streamFunction（包装前保存；最终检查在委托前执行）。 */
@@ -521,50 +532,33 @@ export class Driver {
    * pi 会捕获扩展异常继续运行，因此这里不抛错：失败原因记入
    * selectionBlockReason，由 streamFunction 包装（最终检查）拒绝发送。
    */
-  private handleContext(messages: any[]): { messages: any[] } | undefined {
+  private async handleContext(messages: any[]): Promise<{ messages: any[] } | undefined> {
     const task = this.currentTask;
     if (!task || !this.sdk) return undefined;
+    this.pendingSelection = null;
+    this.pendingSelectionTaskId = null;
+    this.pendingExperiment = null;
+    this.pendingJevCredentialSnapshot = null;
     try {
       // QQ 群聊会话（issue 07 §3）：不注入个人共享记忆/项目记忆/项目指令；
       // 已撤回的群消息及其回复移出本轮模型视图（不改写历史原文）
       if (this.isQqGroup && this.deps.qqRecalledFilter) {
         messages = this.deps.qqRecalledFilter(this.session.id, messages);
       }
-      // 记忆注入前重校来源范围（§5：引用受限来源的派生记忆在授权撤销后
-      // 不再注入；只记录可访问候选，排除原因不含他项目内容）；
-      // 资料受限会话（qq_group / chat 角色）不注入任何记忆
-      const accessor = this.accessor();
-      const memories: MemoryWithContent[] = [];
-      const preExcludedMemories: Array<{ memoryId: string; version: number; reason: string }> = [];
-      for (const memory of this.dataScopeRestricted ? [] : this.deps.memories.listActiveFor(this.session.projectId)) {
-        const version = this.deps.memories.getVersion(memory.id, memory.currentVersion);
-        const refs = version?.sourceRefs ?? [];
-        if (refs.every((ref) => this.deps.access.sourceRefAccessible(accessor, ref))) {
-          memories.push(memory);
-        } else {
-          preExcludedMemories.push({
-            memoryId: memory.id,
-            version: memory.currentVersion,
-            reason: "source_scope_revoked",
-          });
-        }
+      const input = this.contextInput(messages);
+      let selection = selectContext(input);
+      // 必留项本身无法装入时无需向筛选服务发送内容。
+      if (selection.ok && this.pinnedJev?.enabled && !this.dataScopeRestricted) {
+        selection = await this.selectWithJev(task, input, selection, this.pinnedJev);
       }
-      const selection = selectContext({
-        messages,
-        systemPrompt: this.sdk.systemPrompt ?? "",
-        tools: (this.sdk.agent.state.tools ?? []) as any[],
-        projectInstructions: this.dataScopeRestricted ? null : this.pinnedContext.instructions,
-        resumedFrom: this.pinnedContext.resumedFrom,
-        memories,
-        preExcludedMemories,
-        budget: this.budgetConfig(),
-      });
+      if (this.currentTask?.id !== task.id || this.stopRequested) return undefined;
       if (!selection.ok) {
         this.pendingSelection = null;
         this.selectionBlockReason = selection.failure ?? "上下文预算不足";
         return undefined; // 返回 undefined = 不修改；最终检查会阻断
       }
       this.pendingSelection = selection;
+      this.pendingSelectionTaskId = task.id;
       this.selectionBlockReason = null;
       return { messages: selection.messages };
     } catch (err) {
@@ -572,6 +566,125 @@ export class Driver {
       this.selectionBlockReason = `上下文选择失败：${(err as Error).message}`;
       return undefined;
     }
+  }
+
+  /** 在每次组装时读取生效记忆；尤其不能沿用 Jev 网络等待之前的授权快照。 */
+  private contextInput(messages: any[]): SelectorInput {
+    const accessor = this.accessor();
+    const memories: MemoryWithContent[] = [];
+    const preExcludedMemories: NonNullable<SelectorInput["preExcludedMemories"]> = [];
+    for (const memory of this.dataScopeRestricted ? [] : this.deps.memories.listActiveFor(this.session.projectId)) {
+      if (memory.sourceRefs.every((ref) => this.deps.access.sourceRefAccessible(accessor, ref))) {
+        memories.push(memory);
+      } else {
+        preExcludedMemories.push({ memoryId: memory.id, version: memory.currentVersion, reason: "source_scope_revoked" });
+      }
+    }
+    return {
+      messages,
+      systemPrompt: this.sdk!.systemPrompt ?? "",
+      tools: (this.sdk!.agent.state.tools ?? []) as any[],
+      projectInstructions: this.dataScopeRestricted ? null : this.pinnedContext.instructions,
+      resumedFrom: this.pinnedContext.resumedFrom,
+      memories,
+      preExcludedMemories,
+      budget: this.budgetConfig(),
+    };
+  }
+
+  /** 配置与凭据每次读取，未启用/损坏/越范围都不能成为外发授权。 */
+  private jevCredential(pinned: JevConfig): CredentialBinding | null {
+    try {
+      const current = getProjectJevConfig(this.deps.store, this.session.projectId);
+      if (!current.enabled || current.configVersion !== pinned.configVersion || current.credential !== pinned.credential || !current.credential) return null;
+      const binding = this.deps.credentials.getForUse(current.credential, {
+        projectId: this.session.projectId, operation: JEV_CREDENTIAL_PURPOSE,
+      });
+      return binding?.purpose === JEV_CREDENTIAL_PURPOSE && binding.secret &&
+        binding.scope?.projectId === this.session.projectId &&
+        binding.scope.operations?.length === 1 && binding.scope.operations[0] === JEV_CREDENTIAL_PURPOSE
+        ? binding : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 只接收候选单元的取舍；所有消息、预算和必留项仍由本地选择器生成。 */
+  private async selectWithJev(task: Task, input: SelectorInput, baseline: SelectorOutput, config: JevConfig): Promise<SelectorOutput> {
+    const experiment: ContextExperimentRecord = {
+      status: "fallback", strategy: SELECTOR_STRATEGY, requestedModel: JEV_MODEL, model: null,
+      configVersion: config.configVersion, threshold: JEV_THRESHOLD, elapsedMs: 0,
+      requestSent: false, usage: null, estimatedCost: null, fallbackReason: "config_or_credential_unavailable",
+      candidates: [], baselineIncludedIndices: baseline.includedIndices,
+    };
+    let decisions: ReadonlyMap<string, boolean> | undefined;
+    const credential = this.jevCredential(config);
+    if (credential && !this.stopRequested) {
+      // 秘密只用于内存内的新鲜性比较，不进入任何事件、产物或模型上下文。
+      const credentialSnapshot = JSON.stringify(credential);
+      const controller = new AbortController();
+      this.jevAborter = controller;
+      try {
+        const result = await evaluateJev({
+          task: input.resumedFrom ? `继续任务的原始要求：\n${input.resumedFrom.input}\n\n本次要求：\n${task.input}` : task.input,
+          candidates: getContextCandidates(input),
+          credential,
+          signal: controller.signal,
+          ...this.deps.jev,
+        });
+        this.copyJevMetadata(experiment, result.metadata);
+        if (JSON.stringify(this.jevCredential(config)) !== credentialSnapshot) {
+          experiment.fallbackReason = "config_or_credential_changed";
+        } else {
+          decisions = result.decisions;
+          experiment.status = "applied";
+          experiment.strategy = "jev-v1";
+          experiment.fallbackReason = null;
+          this.pendingJevCredentialSnapshot = credentialSnapshot;
+        }
+      } catch (err) {
+        if (err instanceof JevError) {
+          this.copyJevMetadata(experiment, err.metadata);
+          experiment.fallbackReason = err.code;
+          if (!experiment.requestSent) experiment.status = "skipped";
+        } else {
+          // 不保存任意错误字符串：它可能携带服务响应或凭据。
+          experiment.fallbackReason = "jev_unavailable";
+        }
+      } finally {
+        if (this.jevAborter === controller) this.jevAborter = null;
+      }
+    }
+    if (this.stopRequested || this.currentTask?.id !== task.id) {
+      experiment.status = "canceled";
+      experiment.strategy = SELECTOR_STRATEGY;
+      experiment.fallbackReason = "task_canceled";
+      decisions = undefined;
+    }
+    try {
+      if (experiment.status === "canceled") return baseline;
+      // 同一份新鲜输入做对照，避免等待期间的记忆变化被误记为 Jev 的收益。
+      const freshInput = this.contextInput(input.messages);
+      const freshBaseline = selectContext(freshInput);
+      experiment.baselineIncludedIndices = freshBaseline.includedIndices;
+      return decisions ? selectContext(freshInput, decisions) : freshBaseline;
+    } finally {
+      this.pendingExperiment = experiment;
+      this.deps.store.withTx(() => this.deps.store.appendEvent({
+        type: "task.context_experiment", taskId: task.id, sessionId: task.sessionId, experiment,
+      }, { taskId: task.id, sessionId: task.sessionId }));
+    }
+  }
+
+  private copyJevMetadata(experiment: ContextExperimentRecord, metadata: Awaited<ReturnType<typeof evaluateJev>>["metadata"]): void {
+    experiment.model = metadata.actualModel;
+    experiment.elapsedMs = metadata.latencyMs;
+    experiment.requestSent = metadata.requestSent;
+    experiment.usage = metadata.usage;
+    experiment.candidates = metadata.candidates;
+    experiment.estimatedCost = metadata.estimatedCostUsd === null ? null : {
+      usd: metadata.estimatedCostUsd, inputUsdPerMillion: JEV_INPUT_USD_PER_MILLION, priceDate: JEV_PRICE_DATE,
+    };
   }
 
   /**
@@ -667,6 +780,10 @@ export class Driver {
     const original = this.originalStreamFn;
     agent.streamFunction = async (model: any, context: any, options: any) => {
       const task = this.currentTask;
+      // SDK 在异步 context 钩子之后仍可能走到发送函数，取消必须在此兜底。
+      if (!task || this.stopRequested || options?.signal?.aborted) {
+        throw new ContextSendBlocked("task_canceled:任务已停止，拒绝发送模型请求");
+      }
       if (task) {
         try {
           const config = this.budgetConfig();
@@ -689,6 +806,9 @@ export class Driver {
 
   /** 最终检查：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private finalCheckBeforeSend(task: Task, model: any, context: any, options: any): void {
+    if (this.currentTask?.id !== task.id || this.stopRequested || options?.signal?.aborted) {
+      throw new ContextSendBlocked("task_canceled:任务已停止，拒绝发送模型请求");
+    }
     const expected = task.modelSelection;
     if (!expected || model?.provider !== expected.provider || model?.id !== expected.modelId ||
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
@@ -720,9 +840,20 @@ export class Driver {
       throw new ContextSendBlocked(`context_budget_exceeded:${reason}`);
     }
     const selection = this.pendingSelection;
-    if (!selection || !selection.ok) {
+    if (!selection || !selection.ok || this.pendingSelectionTaskId !== task.id) {
       // context 钩子未运行（异常被吞）或策略未产生结果：拒绝发送，不退回全量
       throw new ContextSendBlocked("context_selection_missing:上下文选择未产生有效结果（扩展异常或策略失败），拒绝发送");
+    }
+    if (this.pendingExperiment?.status === "applied" &&
+        (!this.pinnedJev || JSON.stringify(this.jevCredential(this.pinnedJev)) !== this.pendingJevCredentialSnapshot)) {
+      throw new ContextSendBlocked("context_configuration_changed:Jev 配置或凭据在选择后失效，拒绝发送旧视图");
+    }
+    for (const included of selection.includedMemories) {
+      const memory = this.deps.memories.getCurrent(included.memoryId);
+      if (!memory || memory.status !== "active" || memory.currentVersion !== included.version ||
+          !memory.sourceRefs.every((ref) => this.deps.access.sourceRefAccessible(this.accessor(), ref))) {
+        throw new ContextSendBlocked("context_source_changed:记忆版本或来源授权在选择后变化，拒绝发送旧视图");
+      }
     }
     // 配对完整性：视图内每个 toolResult 必须有对应 toolCall，反之亦然。
     // 选择器已剔除的缺配对消息（崩溃恢复残留的孤儿 toolCall/toolResult）
@@ -752,7 +883,7 @@ export class Driver {
         taskId: task.id,
         sessionId: task.sessionId,
         callIndex: this.deps.store.countSelectionRecords(task.id) + 1,
-        strategy: SELECTOR_STRATEGY,
+        strategy: this.pendingExperiment?.strategy ?? SELECTOR_STRATEGY,
         configVersion: budgetConfigVersion(config),
         model: `${model?.provider ?? "?"}/${model?.id ?? "?"}`,
         totalMessages: selection.includedIndices.length + selection.excluded.length,
@@ -771,6 +902,7 @@ export class Driver {
         estimates: selection.estimates,
         budget: selection.budget,
         estimatedTotal: selection.estimatedTotal,
+        experiment: this.pendingExperiment,
         promptArtifactId: null,
         windowSnapshot: {
           contextWindow: config.contextWindow,
@@ -858,8 +990,18 @@ export class Driver {
         if (!usage) return;
         const input = Number(usage.input ?? usage.inputTokens ?? 0);
         const output = Number(usage.output ?? usage.outputTokens ?? 0);
-        if (input > 0 || output > 0) {
-          this.deps.store.withTx(() => this.deps.store.setSelectionRecordUsage(recordId, { input, output }));
+        // SDK 在失败响应上也会填全零默认值，不能把它当作已确认的零费用。
+        const hasUsage = [input, output, usage.cacheRead, usage.cacheWrite].some((value) => Number.isFinite(value) && value > 0);
+        if (hasUsage && Number.isFinite(input) && input >= 0 && Number.isFinite(output) && output >= 0) {
+          const saved: SelectionUsage = { input, output };
+          for (const key of ["cacheRead", "cacheWrite"] as const) {
+            if (Number.isFinite(usage[key]) && usage[key] >= 0) saved[key] = usage[key];
+          }
+          const costKeys = ["input", "output", "cacheRead", "cacheWrite", "total"] as const;
+          if (usage.cost && costKeys.every((key) => Number.isFinite(usage.cost[key]) && usage.cost[key] >= 0)) {
+            saved.cost = Object.fromEntries(costKeys.map((key) => [key, usage.cost[key]])) as NonNullable<SelectionUsage["cost"]>;
+          }
+          this.deps.store.withTx(() => this.deps.store.setSelectionRecordUsage(recordId, saved));
         }
       })
       .catch(() => {});
@@ -893,6 +1035,14 @@ export class Driver {
     this.hostToolCtx = null;
     this.hostToolCalls = new Map();
     this.pendingSelection = null;
+    this.pendingSelectionTaskId = null;
+    this.pendingExperiment = null;
+    this.pendingJevCredentialSnapshot = null;
+    try {
+      this.pinnedJev = this.dataScopeRestricted ? null : getProjectJevConfig(this.deps.store, this.session.projectId);
+    } catch {
+      this.pinnedJev = null; // 无法核实实验授权时只运行基础规则。
+    }
     this.selectionBlockReason = null;
     this.lastBlockedReason = null;
     this.pendingRecordId = null;
@@ -901,6 +1051,8 @@ export class Driver {
     try {
       await this.runPromise;
     } finally {
+      this.jevAborter?.abort();
+      this.jevAborter = null;
       this.flushOutput();
       this.endThinking();
       // 任务终态后回收本任务持有的 MCP 连接（所有退出路径统一兜底）
@@ -1104,6 +1256,7 @@ export class Driver {
   ): Promise<boolean> {
     if (this.currentTask?.id !== task.id) return false;
     this.stopRequested = true;
+    this.jevAborter?.abort();
 
     // 1. 提交停止意图（独立事务持久化）
     this.deps.store.withTx(() => {

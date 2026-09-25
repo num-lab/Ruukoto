@@ -1602,8 +1602,8 @@ export class Store {
         `INSERT INTO selection_records
          (id, task_id, session_id, call_index, strategy, config_version, model, total_messages,
           included_indices, excluded, included_memories, excluded_memories, instruction_version,
-          capped_tool_results, estimates, budget, estimated_total, usage, window_snapshot, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+          capped_tool_results, estimates, budget, estimated_total, usage, window_snapshot, experiment, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -1624,12 +1624,13 @@ export class Store {
         record.budget,
         record.estimatedTotal,
         record.windowSnapshot ? JSON.stringify(record.windowSnapshot) : null,
+        record.experiment ? JSON.stringify(record.experiment) : null,
         record.createdAt,
       );
   }
 
   /** 发送后补记实际 provider usage（估算偏差分析用）。 */
-  setSelectionRecordUsage(id: string, usage: { input: number; output: number }): void {
+  setSelectionRecordUsage(id: string, usage: NonNullable<SelectionRecord["usage"]>): void {
     this.db.prepare("UPDATE selection_records SET usage = ? WHERE id = ?").run(JSON.stringify(usage), id);
   }
 
@@ -1719,7 +1720,8 @@ function rowToSelectionRecord(row: any): SelectionRecord {
     estimates: JSON.parse(row.estimates) as Record<string, number>,
     budget: Number(row.budget),
     estimatedTotal: Number(row.estimated_total),
-    usage: row.usage ? (JSON.parse(row.usage) as { input: number; output: number }) : null,
+    usage: row.usage ? (JSON.parse(row.usage) as SelectionRecord["usage"]) : null,
+    experiment: row.experiment ? (JSON.parse(row.experiment) as SelectionRecord["experiment"]) : null,
     promptArtifactId: (row.prompt_artifact as string | null) ?? null,
     windowSnapshot: row.window_snapshot ? (JSON.parse(row.window_snapshot) as SelectionRecord["windowSnapshot"]) : null,
     createdAt: row.created_at,

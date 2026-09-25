@@ -362,6 +362,43 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 - provider 返回 `context_overflow` 的兜底保留：任务中断并暂停队列，不自动
   压缩或重试。
 
+### Jev 上下文筛选实验（issue 08）
+
+实验按项目配置，默认关闭。先通过服务凭据入口登记 TypeSafe API key，再在
+`ruukoto config` → 项目 → 选择项目 → Jev 上下文筛选实验中选择凭据引用并启用：
+
+```sh
+ruukoto credentials add --name jev-myproject --host api.typesafe.ai \
+  --header authorization --purpose jev_context --secret-env JEV_API_KEY
+```
+
+`JEV_API_KEY` 由拥有者的可信环境提供，值为原始 key，宿主发送时添加 `Bearer`。
+每个 Jev 凭据只绑定一个项目，普通 `http_request` 不可借用。缺少有效凭据时
+不发送请求；QQ 群聊和 chat 角色项目不开放本实验。配置控制面为
+`get_project_jev` / `set_project_jev`；写入需提供 `project_id`、完整的
+`enabled` / `credential` 和 `expected_version`，并发旧版本保存会失败。
+
+启用从下一任务生效；停用阻止后续 Jev 请求并丢弃迟到结果，已经发送的内容
+无法撤回。启用后，当前任务及有界的候选历史文本会发送给 TypeSafe。普通账号
+没有已确认的零保留保证；拥有者应先核实账户访问资格、credits 与自身的数据处理
+要求。公开 API 与条款的核实记录见
+[Jev 接入前核实](../.scratch/personal-agent/jev-research.md)。
+
+首版固定使用 `jev-1.13.0`，筛选只影响当次模型上下文。宿主仍保留当前任务、
+项目指令、继续来源和最新工具批次，按完整交互及预算组装输入；不修改或删除
+会话历史和长期记忆。无效回答、超时或服务失败回退 `deterministic-v1`，不自动
+重试；基础规则也无法满足预算时仍中断任务。拥有者取消任务会中止在途请求，
+不会在回退后继续发送主模型请求。
+
+当前阈值为 0.5，单次超时 2 秒；最多评估 24 个候选，当前任务和每个候选文本
+分别限 8 KiB，整个请求限 24 KiB，响应限 64 KiB。不能完整表示为允许文本或
+超过限额的候选沿用基础规则。这些是保守请求界限，不是官方 tokenizer 的精确计数。
+
+离线回放与真实效果测量分别记录在
+[Jev 固定历史对比](../.scratch/personal-agent/jev-comparison.md)。预设响应只验证
+接入行为；真实质量、延迟、费用及主模型缓存影响须在拥有者实际启用后测量，
+本实验不会自动切换为所有项目的默认策略。
+
 ### 长期记忆（§5）
 
 - SQLite 当前版本 + 追加式修订；类别限于 preference/convention/decision/
@@ -388,6 +425,14 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 - 排除原因只记录索引与类别，不含其他项目的标题/片段。
 - 拥有者入口：`ruukoto selection-records --task <id> | --session <id>`；
   TUI `/context` 查看当前会话最近一轮的预算组成与排除原因。
+- Jev 实验在同条记录的 `experiment` 中保存状态、请求与响应模型、配置版本、
+  阈值、候选索引及概率、基础规则的选入索引、耗时、是否发出请求、Jev 用量、
+  估算费用和回退原因，不保存候选正文或凭据。旧记录和默认关闭的调用为 null。
+  `/context` 展示当前调用的实验结果；主模型尚未发送的尝试通过
+  `task.context_experiment` 事件保留任务及会话归属。
+- 主模型 usage 可保留 provider 提供的缓存读写用量及费用。Jev 费用按记录中的
+  单价和日期估算，单独列出；缺失用量表示未知，不能解释为零费用，也不能仅按
+  输入 token 的变化声称净成本下降。
 
 ## main 应用数据空间（issue 02，ADR 0009）
 

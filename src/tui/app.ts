@@ -1853,6 +1853,19 @@ export class TuiApp {
 
     const title = `上下文窗口`;
     const footer: string[] = [];
+    const experiment = record.experiment;
+    if (experiment) {
+      const status = { applied: "已采用", fallback: "已回退", skipped: "已跳过", canceled: "已取消" }[experiment.status];
+      footer.push(`策略 ${sanitizeForDisplay(record.strategy)} · Jev ${status} · ${Math.round(experiment.elapsedMs)} ms`);
+      footer.push(`Jev 模型 ${sanitizeForDisplay(experiment.model ?? experiment.requestedModel)} · 阈值 ${experiment.threshold} · 配置 v${experiment.configVersion}`);
+      footer.push(`候选 ${experiment.candidates.length} · 消息：基础选入 ${experiment.baselineIncludedIndices.length}，实际选入 ${record.includedIndices.length}`);
+      const usage = experiment.usage
+        ? `输入 ${experiment.usage.inputTokens} · 输出 ${experiment.usage.outputTokens}`
+        : experiment.requestSent ? "已发送，用量未知" : "未发送请求";
+      const cost = experiment.estimatedCost;
+      footer.push(`Jev 用量：${usage}；${cost ? `费用估算 US$${cost.usd.toFixed(9)}（${cost.priceDate} 单价）` : "费用未估算"}`);
+      if (experiment.fallbackReason) footer.push(`原因：${sanitizeForDisplay(experiment.fallbackReason)}`);
+    }
     // footer.push(
     //   w
     //     ? `总窗口 ${total} · 输入预算 ${b.budget} · 已估输入 ${b.estimatedTotal} · 尚余 ${b.remainingInput}（选择时估算，非 provider 用量）`

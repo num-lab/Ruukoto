@@ -165,6 +165,7 @@ async function startBackendProcess(dirs: { root: string; dataDir: string; agentD
     ...process.env,
     RUUKOTO_DATA_DIR: dirs.dataDir,
     RUUKOTO_AGENT_DIR: dirs.agentDir,
+    RUUKOTO_PENDING_DIR: path.join(dirs.root, "pending"),
   };
   const child = spawn("npx", ["tsx", "src/cli.ts", "start", "--execution", "local", "--tools", "mock", "--model", "mock/mock-model"], {
     env,

@@ -1,5 +1,6 @@
 /** 控制面状态与会话交互状态；事件展示统一交给 EventFlow 投影。 */
 
+import { randomUUID } from "node:crypto";
 import type {
   AccessMode,
   ModelSelection,
@@ -15,7 +16,8 @@ import type { ConnectResult } from "../control/protocol.ts";
 import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "../core/views.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { PendingRequest } from "../control/pending-requests.ts";
-import { EventFlow } from "./event-flow.ts";
+import { EventFlow, type CommandEntry } from "./event-flow.ts";
+import type { CommandHistoryStore } from "./command-history.ts";
 
 /** 每个会话在内存中保留的已加载历史条目上限（超出丢弃最旧；原文可翻页找回）。 */
 export const MAX_LOADED_ENTRIES = 300;
@@ -72,6 +74,9 @@ export class ViewState {
   private taskSeq = new Map<string, number>();
   private noteCounter = 0;
   private commandCounter = 0;
+  private unsavedCommands = new Set<string>();
+
+  constructor(private readonly commandHistory?: CommandHistoryStore) {}
 
   // ---------- 快照 ----------
 
@@ -89,6 +94,7 @@ export class ViewState {
     this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
     if (instanceChanged) {
       this.sessionViews.clear();
+      this.unsavedCommands.clear();
       this.currentSessionId = null;
     }
     this.snapshotPreviews = new Map(Object.entries(result.snapshot.previews));
@@ -100,6 +106,7 @@ export class ViewState {
       view.queueState = session.queueState;
       view.queuePauseReason = session.queuePauseReason;
       view.flow.resetRemote();
+      this.restoreCommands(view);
       view.historyLoaded = false;
       for (const task of this.tasksFor(sessionId)) if (isActiveStatus(task.status)) view.flow.task(task);
       for (const [taskId, preview] of this.snapshotPreviews) {
@@ -392,6 +399,7 @@ export class ViewState {
       hasPartialTail: false, draft: "", scrollTop: null,
     };
     this.sessionViews.set(sessionId, view);
+    this.restoreCommands(view);
     for (const task of this.tasksFor(sessionId)) if (isActiveStatus(task.status)) view.flow.task(task);
     for (const [taskId, preview] of this.snapshotPreviews) {
       if (this.tasks.get(taskId)?.sessionId === sessionId) view.flow.preview(taskId, preview);
@@ -468,13 +476,40 @@ export class ViewState {
 
   echoCommand(sessionId: string | null, line: string): string | null {
     if (!sessionId) return null;
-    const key = `command:${++this.commandCounter}`;
-    this.openSession(sessionId).flow.command(key, line);
+    const view = this.openSession(sessionId);
+    const key = `command:${randomUUID()}`;
+    const command = view.flow.command(key, line, ++this.commandCounter);
+    this.saveCommand(sessionId, command);
     return key;
   }
 
   setCommandResult(sessionId: string, key: string | null, text: string, isError = false): void {
-    if (!key || !this.openSession(sessionId).flow.commandResult(key, text, isError)) this.note(sessionId, text);
+    const command = key ? this.openSession(sessionId).flow.commandResult(key, text, isError) : null;
+    if (command) this.saveCommand(sessionId, command);
+    else this.note(sessionId, text);
+  }
+
+  private restoreCommands(view: SessionView): void {
+    if (!this.commandHistory || !this.instanceId) return;
+    try {
+      const commands = this.commandHistory.load(this.instanceId, view.sessionId);
+      // 其他客户端可能已补写结果；仅保存失败的本地记录优先于旧存储。
+      view.flow.installCommands(commands.filter((command) => !this.unsavedCommands.has(command.key)));
+      for (const command of commands) this.commandCounter = Math.max(this.commandCounter, command.seq);
+    } catch (err) {
+      this.note(view.sessionId, `命令历史读取失败：${(err as Error).message}`);
+    }
+  }
+
+  private saveCommand(sessionId: string, command: CommandEntry): void {
+    if (!this.commandHistory || !this.instanceId) return;
+    try {
+      this.commandHistory.save(this.instanceId, sessionId, command);
+      this.unsavedCommands.delete(command.key);
+    } catch (err) {
+      this.unsavedCommands.add(command.key);
+      this.note(sessionId, `命令历史保存失败：${(err as Error).message}`);
+    }
   }
 
   private patchTask(taskId: string, patch: Partial<Task>): void {

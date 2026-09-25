@@ -19,6 +19,7 @@ import { SubmissionGuard } from "../control/submission.ts";
 import { reloadStatePathFromEnv } from "./reload-state.ts";
 import { ViewState } from "./state.ts";
 import { TuiApp } from "./app.ts";
+import { CommandHistoryStore } from "./command-history.ts";
 
 export interface TuiOptions {
   sessionId?: string;
@@ -51,7 +52,7 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
   // 代码块语法高亮的主题：只用包内自带的 dark 主题（不读 ~/.pi，不写文件）
   initTheme("dark");
 
-  const state = new ViewState();
+  const state = new ViewState(opts.demo ? undefined : new CommandHistoryStore());
   let app: TuiApp | null = null;
   const connection = new ControlConnection(
     opts.demo

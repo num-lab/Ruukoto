@@ -8,6 +8,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { CommandHistoryStore } from "../src/tui/command-history.ts";
 import { ViewState, MAX_LOADED_ENTRIES, accessModeLabel, accessModeStyle, formatAccessMode, type SessionView } from "../src/tui/state.ts";
 import { sanitizeForDisplay } from "../src/tui/sanitize.ts";
 import type { ConnectResult } from "../src/control/protocol.ts";
@@ -107,6 +111,58 @@ function histEntry(entryId: string, role: string, text: string, extra: Partial<H
     ...extra,
   };
 }
+
+test("命令历史重同步不重复，超过 50 条仍保留，切换数据实例不串记录", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-command-state-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new CommandHistoryStore(path.join(root, "commands.sqlite"));
+  const state = new ViewState(store);
+  const connect = (instanceId: string) => ({ seq: 10, replay: [], snapshot: snapshot({ instanceId }) });
+  const commands = (state: ViewState) => state.openSession("sess_1").flow.items.filter((entry) => entry.kind === "command");
+  state.applySnapshot(connect("first"), false);
+  for (let i = 0; i < 60; i++) state.echoCommand("sess_1", `/search ${i}`);
+  const original = commands(state);
+  assert.equal(original.length, 60);
+  state.applySnapshot(connect("first"), false);
+  assert.deepEqual(commands(state), original);
+  state.applySnapshot(connect("second"), true);
+  assert.deepEqual(commands(state), []);
+  state.echoCommand("sess_1", "/mode");
+  state.applySnapshot(connect("first"), true);
+  assert.deepEqual(commands(state), original);
+
+  const recovered = new ViewState(store);
+  recovered.applySnapshot(connect("first"), false);
+  assert.deepEqual(commands(recovered), original);
+  const key = original[0]!.key;
+  recovered.setCommandResult("sess_1", key, "查询失败", true);
+  state.applySnapshot(connect("first"), false);
+  assert.equal(commands(state).find((entry) => entry.key === key)!.result, "查询失败", "重同步应更新其他客户端补写的结果");
+
+  const failedSave = t.mock.method(store, "save", () => { throw new Error("disk full"); });
+  state.setCommandResult("sess_1", key, "尚未保存的新结果", true);
+  state.applySnapshot(connect("first"), false);
+  assert.equal(commands(state).find((entry) => entry.key === key)!.result, "尚未保存的新结果", "保存失败的本地结果不能被旧存储覆盖");
+  failedSave.mock.restore();
+  state.setCommandResult("sess_1", key, "恢复保存后的结果", true);
+  recovered.applySnapshot(connect("first"), false);
+  assert.equal(commands(recovered).find((entry) => entry.key === key)!.result, "恢复保存后的结果");
+});
+
+test("命令历史读写失败在事件流提示，当前命令仍可显示", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-command-error-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "blocked");
+  fs.writeFileSync(file, "保持原内容");
+  const state = new ViewState(new CommandHistoryStore(path.join(file, "commands.sqlite")));
+  state.applySnapshot({ seq: 10, replay: [], snapshot: snapshot() }, false);
+  state.echoCommand("sess_1", "/context");
+  const view = state.openSession("sess_1");
+  assert.ok(notes(view).some((entry) => entry.text.includes("命令历史读取失败")));
+  assert.ok(notes(view).some((entry) => entry.text.includes("命令历史保存失败")));
+  assert.ok(view.flow.items.some((entry) => entry.kind === "command" && entry.line === "/context"));
+  assert.equal(fs.readFileSync(file, "utf8"), "保持原内容");
+});
 
 test("快照安装：项目/会话/任务/预览；实例变更丢弃会话视图", () => {
   const state = new ViewState();

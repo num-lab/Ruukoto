@@ -19,6 +19,7 @@ import { PendingRequestStore } from "../src/control/pending-requests.ts";
 import { SubmissionGuard } from "../src/control/submission.ts";
 import { readOwnerToken } from "../src/control/owner-token.ts";
 import { ViewState } from "../src/tui/state.ts";
+import { CommandHistoryStore } from "../src/tui/command-history.ts";
 import { TuiApp } from "../src/tui/app.ts";
 import {
   startTestRuntime,
@@ -111,7 +112,7 @@ let harnessCounter = 0;
 
 async function startApp(t: TestRuntime, opts: { sessionId?: string; requests?: Array<{ op: string; params?: Record<string, unknown> }> } = {}): Promise<AppHarness> {
   // 调用方负责在 finally 中 app.quit()（失败时也不能遗留连接/定时器）
-  const state = new ViewState();
+  const state = new ViewState(new CommandHistoryStore(path.join(t.dirs.root, "tui", "commands.sqlite")));
   let appRef: TuiApp | null = null;
   const connection = new ControlConnection(
     { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
@@ -265,6 +266,50 @@ test("任务运行中退出 TUI：重连后看到运行状态与最终历史，�
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("斜杠命令及结果在退出后重进同一会话时恢复，且不重新执行", async () => {
+  const t = await startTestRuntime("tui-command-history", async () => ({ kind: "text", text: "不应调用模型" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const first = await startApp(t, { sessionId });
+    apps.push(first);
+    await submitViaEditor(first, "/context");
+    first.terminal.send("\x1b");
+    await submitViaEditor(first, "/mode");
+    first.terminal.send("\x1b[B");
+    first.terminal.send("\r");
+    await waitFor("命令结果显示", () => first.state.openSession(sessionId).flow.items.some((entry) => entry.kind === "command" && entry.result?.includes("Switched to")));
+    const commands = first.state.openSession(sessionId).flow.items.filter((entry) => entry.kind === "command");
+    assert.deepEqual(commands.map((entry) => entry.line), ["/context", "/mode"]);
+    first.app.quit(0);
+    await waitFor("首个客户端退出", () => first.exitCode() === 0);
+
+    const requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
+    const second = await startApp(t, { sessionId, requests });
+    apps.push(second);
+    await waitFor("新客户端历史加载", () => second.state.openSession(sessionId).historyLoaded);
+    assert.deepEqual(second.state.openSession(sessionId).flow.items.filter((entry) => entry.kind === "command"), commands, "命令正文、结果、身份和原始时间均应恢复");
+    assert.ok(!requests.some((request) => request.op === "set_session_mode" || request.op === "get_context_breakdown"), "恢复只显示记录，不重新执行命令");
+    await submitViaEditor(second, "/context");
+    const updated = second.state.openSession(sessionId).flow.items.filter((entry) => entry.kind === "command");
+    assert.equal(updated.length, 3, "重启后新命令不会覆盖旧记录");
+    assert.equal(new Set(updated.map((entry) => entry.key)).size, 3);
+    assert.deepEqual(updated.slice(0, 2), commands);
+    // 第二个客户端仍运行时，第三个客户端已经能读到新记录。
+    const third = await startApp(t, { sessionId });
+    apps.push(third);
+    await waitFor("另一客户端历史加载", () => third.state.openSession(sessionId).historyLoaded);
+    assert.deepEqual(third.state.openSession(sessionId).flow.items.filter((entry) => entry.kind === "command"), updated);
+    const other = await createProjectSession(t.client, t.work[0]!);
+    assert.deepEqual(third.state.openSession(other.sessionId).flow.items.filter((entry) => entry.kind === "command"), [], "不同会话不串命令");
+    assert.equal(t.server.calls.length, 0);
+  } finally {
+    quitAll(apps);
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await t.shutdown();
   }
 });

@@ -18,6 +18,8 @@ export type FlowEntry = FlowPosition & (
   | { kind: "task"; task: Task }
 );
 
+export type CommandEntry = Extract<FlowEntry, { kind: "command" }>;
+
 /** 主要操作对象。未知工具沿用首个字符串参数，无需为每个插件增加渲染分支。 */
 export function toolTargetFromParams(params: Record<string, unknown>): string {
   for (const value of [params.path, params.command, params.url, params.pattern, params.query, params.name, ...Object.values(params)]) {
@@ -306,19 +308,23 @@ export class EventFlow {
     for (const entry of notes.slice(0, -100)) this.entries.delete(entry.key);
   }
 
-  command(key: string, line: string): void {
-    this.entries.set(key, { key, kind: "command", line, result: null, isError: false, at: new Date().toISOString(), seq: Number.MAX_SAFE_INTEGER - 1 });
-    const commands = [...this.entries.values()].filter((entry) => entry.kind === "command");
-    for (const entry of commands.slice(0, -50)) this.entries.delete(entry.key);
+  installCommands(commands: readonly CommandEntry[]): void {
+    for (const command of commands) this.entries.set(command.key, command);
   }
 
-  commandResult(key: string, text: string, isError: boolean): boolean {
+  command(key: string, line: string, seq = Number.MAX_SAFE_INTEGER - 1): CommandEntry {
+    const command: CommandEntry = { key, kind: "command", line, result: null, isError: false, at: new Date().toISOString(), seq };
+    this.entries.set(key, command);
+    return command;
+  }
+
+  commandResult(key: string, text: string, isError: boolean): CommandEntry | null {
     const command = this.entries.get(key);
-    if (command?.kind !== "command") return false;
+    if (command?.kind !== "command") return null;
     if (isError || /^\/(?:mode|model)(?:\s|$)/.test(command.line)) {
       command.result = text;
       command.isError = isError;
     }
-    return true;
+    return command;
   }
 }

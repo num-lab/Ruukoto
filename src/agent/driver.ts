@@ -78,6 +78,7 @@ import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
+import { isPlanInput, PLAN_TOOL_NAMES, runsInPlanMode } from "./plan-mode.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -257,12 +258,14 @@ export class Driver {
   private originalStreamFn: any = null;
   /**
    * 任务开始时钉版的上下文前缀：项目指令（受限读取 + 捕获产物）与继续
-   * 来源任务要求。任务内不变；下一任务开始时重新读取（= 拥有者刷新入口）。
+   * 来源任务要求；plan = 以计划模式运行（issue 26，决定计划说明前缀与工具白名单）。
+   * 任务内不变；下一任务开始时重新读取（= 拥有者刷新入口）。
    */
   private pinnedContext: {
     instructions: { text: string; version: string; problems: string[] } | null;
     resumedFrom: { taskId: string; input: string } | null;
-  } = { instructions: null, resumedFrom: null };
+    plan: boolean;
+  } = { instructions: null, resumedFrom: null, plan: false };
   /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
   private pinnedSkills: SkillLibrary | null = null;
 
@@ -320,7 +323,10 @@ export class Driver {
   }
 
   private taskAllowsTool(task: Task, name: string): boolean {
-    return this.deps.allowTaskTool?.(task, name, this.currentMcpPlan?.tools.get(name)?.effect) ?? true;
+    const effect = this.currentMcpPlan?.tools.get(name)?.effect;
+    // 计划模式（issue 26）：与宿主收窄组合，只允许白名单与只读 MCP 工具
+    if (this.pinnedContext.plan && !PLAN_TOOL_NAMES.has(name) && effect !== "read") return false;
+    return this.deps.allowTaskTool?.(task, name, effect) ?? true;
   }
 
   /**
@@ -598,6 +604,7 @@ export class Driver {
       projectInstructions: this.dataScopeRestricted ? null : this.pinnedContext.instructions,
       skills: this.skillsInput(),
       resumedFrom: this.pinnedContext.resumedFrom,
+      planMode: this.pinnedContext.plan,
       memories,
       preExcludedMemories,
       budget: this.budgetConfig(),
@@ -716,26 +723,27 @@ export class Driver {
    *   工作区内；缺失/不可读/超大分别说明，不偷偷取祖先目录文件）；内容
    *   捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定；
    * - 继续来源：人工继续已中断任务时，原任务要求作为必留参考注入，
-   *   不能只发一句"继续"就丢失原要求（§4）。
+   *   不能只发一句"继续"就丢失原要求（§4）；
+   * - 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记。
    */
-  private loadPinnedContext(task: Task): {
-    instructions: { text: string; version: string; problems: string[] } | null;
-    resumedFrom: { taskId: string; input: string } | null;
-  } {
+  private loadPinnedContext(task: Task): typeof this.pinnedContext {
     // 资料受限会话（issue 07 qq_group；issue 01 chat 角色）：不读取/注入项目指令
-    if (this.dataScopeRestricted) return { instructions: null, resumedFrom: null };
+    if (this.dataScopeRestricted) return { instructions: null, resumedFrom: null, plan: false };
     let resumedFrom: { taskId: string; input: string } | null = null;
+    let plan = isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
     try {
       if (task.resumesTaskId) {
         const old = this.deps.store.getTask(task.resumesTaskId);
         if (old) resumedFrom = { taskId: old.id, input: old.input };
       }
-      return { instructions: this.loadProjectInstructions(task), resumedFrom };
+      plan = runsInPlanMode(task, (id) => this.deps.store.getTask(id));
+      return { instructions: this.loadProjectInstructions(task), resumedFrom, plan };
     } catch (err) {
       // 钉版读取失败不阻断任务：以明确说明注入，不静默省略
       return {
         instructions: { text: "", version: "", problems: [`项目指令/继续来源读取失败：${(err as Error).message}`] },
         resumedFrom,
+        plan,
       };
     }
   }
@@ -850,7 +858,7 @@ export class Driver {
         throw new ContextSendBlocked(`role_tools_forbidden:角色 ${this.role()!.id} 的工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
       }
     }
-    if (this.deps.allowTaskTool && Array.isArray(context?.tools)) {
+    if (Array.isArray(context?.tools)) {
       const forbidden = context.tools
         .map((t: any) => t?.name ?? t?.function?.name)
         .filter((name: unknown) => typeof name !== "string" || !this.taskAllowsTool(task, name));

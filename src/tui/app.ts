@@ -68,6 +68,7 @@ import {
 import { EventFlowView } from "./event-flow-view.ts";
 import type { FlowEntry } from "./event-flow.ts";
 import { latestTodos, TodoPanel } from "./todo-panel.ts";
+import { isPlanInput, runsInPlanMode } from "../agent/plan-mode.ts";
 
 const HISTORY_PAGE_SIZE = 50;
 const ARTIFACT_PAGE_BYTES = 32 * 1024;
@@ -656,6 +657,7 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: "model", description: "模型切换面板（提供方 / 模型 / 思考强度）" },
   { name: "thinking", description: "同上：模型切换面板（可直接切到思考强度列）" },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]" },
+  { name: "plan", description: "计划模式：只调研不修改，最终回答即计划；下一条消息即按计划执行", argumentHint: "<内容>" },
   { name: "resume-queue", description: "恢复已暂停的会话队列" },
   { name: "mode", description: "选择当前会话的默认访问模式（新任务生效）" },
   { name: "status", description: "刷新并查看当前任务详情" },
@@ -1387,6 +1389,11 @@ export class TuiApp {
   private async handleSubmit(text: string): Promise<void> {
     const trimmed = text.trim();
     if (trimmed.length === 0) return;
+    // /plan <内容>：整行即计划模式的任务输入（issue 26）；不带内容时走命令显示用法
+    if (isPlanInput(trimmed)) {
+      await this.submitText(trimmed);
+      return;
+    }
     // /skill:<名称> 是 /skill 提交后的任务输入形式（失败恢复草稿后可直接重发）
     if (trimmed.startsWith("/") && !trimmed.startsWith("/skill:")) {
       await this.handleCommand(trimmed);
@@ -1551,6 +1558,9 @@ export class TuiApp {
         return;
       case "skills":
         await this.cmdSkills();
+        return;
+      case "plan":
+        this.notify("用法：/plan <内容>（只调研不修改，最终回答即计划）");
         return;
       case "prompt":
         await this.cmdPrompt();
@@ -2979,11 +2989,15 @@ export class TuiApp {
     // 任务模式与会话默认相同时不重复显示（同一句话打两遍看不出差别）
     const sameAsDefault = !modeText || modeText === defaultText;
     const modeDisplay = sameAsDefault ? (modeText ?? defaultText) : `${modeText} · 会话默认 ${defaultText}`;
+    // 以计划模式运行时在访问模式旁标注（issue 26）；继续的任务查原任务输入。
+    // ponytail: 输入或原任务不在本地时不标注（task.queued 不带输入：其他客户端提交的任务
+    // 在重新同步前没有输入；原任务可能不在快照），需要时按 get_task 补取
+    const planTag = active && runsInPlanMode(active, (id) => this.state.getTask(id)) ? " · 计划" : "";
     // 左下角：当前模式与工作区。模式名按模式着色（颜色只在这里用），
     // 工作区仍是暗色；模式名不能包在 dim 里，否则颜色被压暗。
     const modeStyled = sameAsDefault
-      ? accessModeStyle(mode)(modeDisplay)
-      : `${accessModeStyle(mode)(modeText!)}${dim(` · 会话默认 ${defaultText}`)}`;
+      ? `${accessModeStyle(mode)(modeDisplay)}${planTag}`
+      : `${accessModeStyle(mode)(modeText!)}${planTag}${dim(` · 会话默认 ${defaultText}`)}`;
     this.footer.set(`${modeStyled}${dim(` · ${sanitizeForDisplay(view.cwd)}`)}`, dim(this.modelInfoText()));
     this.header.setText(
       `${bold(this.state.projectName(view.projectId))} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +

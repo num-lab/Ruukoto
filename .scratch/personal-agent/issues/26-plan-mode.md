@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 03, 12, 21
 
 # 增加计划模式（`/plan`）
@@ -94,3 +94,14 @@ Depends on: 03, 12, 21
 用户要求给 Agent 增加 plan 和 todo 功能。grilling 访谈三轮，Q1–Q15 全部按推荐确认，拆为 [25](25-todo-list.md) 与本工单，本工单相关的是 Q2–Q4、Q9–Q11、Q13–Q15。事实核对覆盖 pi 0.85.1 的 plan-mode 示例扩展、按任务工具收窄机制、写工具与执行环境、任务输入的显示路径与 `continue` 语义，结论见「背景」。
 
 实施说明中有两处在访谈里没有单独提问，按已确认的决定推导：为了让事件流照原样显示 `/plan …`（Q15），计划说明改走前缀注入，不改写任务输入；工具收窄写成白名单，今天的效果与 Q10、Q13 列出的去除项相同，但新增工具默认不可用。
+
+### 2026-09-26：实现交付
+
+按工单实现：`src/agent/plan-mode.ts`（标记规则 `isPlanInput`、逐级继续判定 `runsInPlanMode`、工具白名单）；driver 在任务开始钉 `pinnedContext.plan`，`taskAllowsTool` 与 GitHub 评审收窄组合（激活、发送前、调用时三处；发送前检查不再以 `allowTaskTool` 存在为前提），选择器注入计划说明前缀并新增「计划模式」类别；`Runtime.submit` 对角色会话与 QQ 群会话的带标记输入返回 `invalid_params`；TUI `/plan` 命令、用法提示与底栏「计划」标注；README 与 `docs/runtime.md`。测试见 `test/58-plan-mode.test.ts`，另在 14 补 TUI 用法、原样显示、状态栏与继续。
+
+与工单文字的出入：
+- 「完全访问模式下与 bash 一样只靠说明」与代码不符：`request_file_access`、`http_request` 在完全访问模式下同样逐次审批（路由器既有行为）。实现不改审批，测试按「与普通任务一致」断言三种模式各两次审批。
+- 继续判定按逐级继续链（中断后继续的任务再次中断并继续仍按计划模式运行）；继续来源前缀仍只注入上一级任务的输入（既有行为）。
+- 术语：代码、文档与测试名按 `CONTEXT.md` 避免「计划任务」，改称「以计划模式运行的任务」。
+
+未处理（评审记录）：`task.queued` 事件不带输入，其他客户端（如 CLI）提交的计划模式任务在 TUI 重新同步或 `/status` 前不标注「计划」，继续链上的原任务不在本地快照时同样不标注（`ponytail:` 注释已标）；重连重试沿用普通提交路径，没有 `/plan` 专门的 TUI 重连测试；`web_search` 只断言可见，未实际调用；原任务读取失败时只按本任务输入判定。`test/19-tui-demo.test.ts` 的失败在本工单之前已存在。

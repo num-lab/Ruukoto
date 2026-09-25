@@ -146,6 +146,7 @@ const BREAKDOWN_CATEGORIES: Array<[string, string]> = [
   ["skills", "技能"],
   ["memories", "长期记忆"],
   ["resumedFrom", "继续来源"],
+  ["planMode", "计划模式"],
   ["mandatoryTurn", "当前任务"],
   ["currentTaskBatches", "当前任务工具批次"],
   ["historyTurns", "历史轮次"],
@@ -237,6 +238,8 @@ export interface SelectorInput {
   skills?: { entries: Array<{ name: string; description: string }>; version: string } | null;
   /** 继续来源任务（interrupted 任务的人工继续；其要求作为必留参考注入）。 */
   resumedFrom?: { taskId: string; input: string } | null;
+  /** 以计划模式运行（issue 26）：注入宿主固定的计划说明。 */
+  planMode?: boolean;
   /** 当前项目可用记忆（已按范围过滤）。 */
   memories: MemoryWithContent[];
   /** 进入选择前已被宿主排除的记忆（如来源范围已撤销）；原样记入排除。 */
@@ -498,8 +501,8 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const excludedMemories: SelectorOutput["excludedMemories"] = [...(input.preExcludedMemories ?? [])];
 
   // 必留前缀（标记的参考消息，不冒充新的拥有者指令；各自只注入一次）：
-  // 项目指令（钉版）→ 技能目录（钉版）→ 继续来源 → 长期记忆
-  const prefixMessages: Array<{ kind: "instructions" | "skills" | "resumed" | "memory"; message: any }> = [];
+  // 项目指令（钉版）→ 技能目录（钉版）→ 继续来源 → 计划说明 → 长期记忆
+  const prefixMessages: Array<{ kind: "instructions" | "skills" | "resumed" | "plan" | "memory"; message: any }> = [];
   const instructions = input.projectInstructions ?? null;
   if (instructions) {
     const parts = [
@@ -541,6 +544,22 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
       },
     });
   }
+  if (input.planMode) {
+    prefixMessages.push({
+      kind: "plan",
+      message: {
+        role: "user",
+        content: [
+          "[计划模式：拥有者以 /plan 提交本任务；宿主固定说明]",
+          "只调研、不修改：不修改文件、长期记忆或外部状态，改动留到执行时再做。",
+          "bash 只运行只读命令（如搜索、查看文件、git log），不运行会写入文件或产生其他副作用的命令。",
+          "最终回答给出计划；拥有者的下一条消息即按计划执行。",
+          "[/计划模式]",
+        ].join("\n"),
+        timestamp: 0,
+      },
+    });
+  }
 
   // 记忆：单独预算，按输入顺序（项目优先、更新时间倒序、id 稳定）截取
   let memoryUsed = 0;
@@ -570,6 +589,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     if (kind === "instructions") estimates.projectInstructions = tokens;
     else if (kind === "skills") estimates.skills = tokens;
     else if (kind === "resumed") estimates.resumedFrom = tokens;
+    else if (kind === "plan") estimates.planMode = tokens;
   }
 
   const messages = input.messages;

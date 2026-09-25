@@ -653,6 +653,52 @@ test("/skill 与 /skills：显式调用提交 /skill:<名称> 任务，列表展
   }
 });
 
+test("/plan：不带内容只显示用法；带内容原样提交与显示，运行时状态栏显示「计划」，继续后仍显示", async () => {
+  const held: Array<() => void> = [];
+  const t = await startTestRuntime("tui-plan", async (req) => {
+    if (["/plan 调研登录", "接着调研"].includes(lastUserText(req))) await new Promise<void>((resolve) => held.push(resolve));
+    return { kind: "text", text: "先改 a" };
+  });
+  const apps: AppHarness[] = [];
+  const screen = () => stripTerminalSequences(h.terminal.output());
+  const footer = () => stripTerminalSequences((h.app as any).footer.render(100)[0]);
+  let h!: AppHarness;
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    h = await startApp(t, { sessionId });
+    apps.push(h);
+
+    await submitViaEditor(h, "/plan");
+    await waitFor("用法提示", () => screen().includes("用法：/plan <内容>"));
+    assert.equal(h.state.tasks.size, 0, "不带内容不提交");
+
+    await submitViaEditor(h, "/plan 调研登录");
+    await waitFor("计划模式的任务运行", () => [...h.state.tasks.values()][0]?.status === "running" && held.length > 0);
+    const first = [...h.state.tasks.values()][0]!;
+    assert.equal(first.input, "/plan 调研登录", "整行作为任务输入");
+    await waitFor("状态栏显示计划", () => footer().startsWith("Ask for approval · 计划 · "));
+    assert.ok(screen().includes("❯ /plan 调研登录"), "事件流原样显示输入");
+
+    h.terminal.send("/interrupt\r");
+    await waitFor("任务中断", () => first.status === "interrupted" || h.state.getTask(first.id)?.status === "interrupted");
+    held.splice(0).forEach((release) => release());
+    await waitFor("无活动任务时不显示", () => !footer().includes("计划"));
+
+    h.terminal.send("/continue\r");
+    await renderFlush();
+    await submitViaEditor(h, "接着调研");
+    await waitFor("继续任务运行", () => [...h.state.tasks.values()].some((x) => x.resumesTaskId === first.id && x.status === "running") && held.length > 0);
+    await waitFor("继续的任务仍显示计划", () => footer().startsWith("Ask for approval · 计划 · "));
+    held.splice(0).forEach((release) => release());
+    await waitFor("完成", () => [...h.state.tasks.values()].every((x) => x.status !== "running"));
+  } finally {
+    held.splice(0).forEach((release) => release());
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
 test("工作清单面板：todo_write 后显示，重连后按工具记录恢复", async () => {
   const list = [{ content: "读代码", status: "completed" }, { content: "改代码", status: "in_progress" }, { content: "跑测试", status: "pending" }];
   const t = await startTestRuntime("tui-todo", async (req) => {

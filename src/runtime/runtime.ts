@@ -77,6 +77,7 @@ import { fileURLToPath } from "node:url";
 import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
 import { grantCoversPath, resolveWorktreeCommonGitDir } from "../core/worktree.ts";
 import { AccessScope, AccessDeniedError } from "../core/access.ts";
+import { isPlanInput } from "../agent/plan-mode.ts";
 import { HistoryIndex, readRawEntryAt, searchHistory, type HistorySearchOptions } from "../core/history-index.ts";
 import {
   MemoryConflictError,
@@ -1462,6 +1463,10 @@ export class Runtime {
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
+    // 计划模式（issue 26）只限普通开发会话：角色会话各有固定职责与工具
+    if (isPlanInput(input.input) && (session.kind !== "dev" || this.store.getAgentRoleBySession(session.id))) {
+      throw new RuntimeApiError("invalid_params", "计划模式（/plan）只能在普通开发会话中使用");
+    }
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
     }

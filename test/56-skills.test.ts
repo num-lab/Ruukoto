@@ -129,7 +129,9 @@ test("集成：main/coding 注入技能目录（无主机路径、无仅显式�
     for (const mark of ["MAIN-SKILL-MARK", "CODING-SKILL-MARK"]) {
       const call = t.server.calls.find((x) => lastUserText(x).includes(mark))!;
       const text = JSON.stringify(call.messages);
-      assert.ok(text.includes("[技能目录 · 版本 sha256:") && text.includes("alpha：ALPHA-DESC"), `${mark} 含技能目录`);
+      assert.ok(text.includes("[技能目录]") && text.includes("alpha：ALPHA-DESC"), `${mark} 含技能目录，块头不含版本`);
+      const taskId = mark === "MAIN-SKILL-MARK" ? m.id : c.id;
+      assert.match(t.runtime.listSelectionRecords({ taskId })[0]!.skillVersion ?? "", /^sha256:/, "选择记录照旧保存技能库版本");
       assert.ok(!text.includes("BETA-DESC"), "仅显式调用的技能不进目录");
       assert.ok(!text.includes(t.dirs.agentDir), "目录不含主机路径");
       assert.ok(toolNames(call).includes("skill"), `${mark} 有 skill 工具`);
@@ -246,7 +248,7 @@ test("集成：技能目录超出预算按现有规则中断并暂停队列，�
     const status = await waitDone(t, task.id);
     assert.equal(status.task.status, "interrupted");
     assert.match(status.task.interruptReason, /context_budget_exceeded/);
-    const prefix = Number(/指令\/技能\/记忆\/继续来源 (\d+)/.exec(status.task.interruptReason)?.[1]);
+    const prefix = Number(/指令\/技能\/记忆\/继续来源\/计划说明 (\d+)/.exec(status.task.interruptReason)?.[1]);
     assert.ok(prefix > 40_000, `超预算来自技能目录（前缀 ${prefix}）`);
     assert.equal(t.server.calls.length, 0, "零 provider 请求");
     assert.equal((await t.client.request<any>("get_session", { session_id: sessionId })).queueState, "paused");

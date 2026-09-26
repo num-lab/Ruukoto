@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 05, 22, 26
 
 # 上下文前缀稳定：让提示缓存覆盖整段历史
@@ -89,3 +89,20 @@ prompt 组装优化访谈 Q4–Q8 按推荐确认。
 - 「前一次视图是后一次的前缀」依赖 [27](27-tool-result-view-cap.md) 的固定上限（视图只取决于消息本身）与 Jev 实验关闭；Jev 开启时由筛选结果决定，不在此验收范围内。
 
 未立项（Q7）：估算把每个 CJK 字符按 1 token 再乘校准系数 1.5，DeepSeek 文档的口径约为 0.6 token/汉字，中文内容只用到约四成预算；历史超预算时每次只移出最老的一轮，每移一次，整段历史 miss 一次。1M 窗口下两者都不会触发（约 40 万汉字才开始移出）。接入小窗口模型或出现 `context_budget_exceeded` 后再议：前者可用选择记录的 `estimated_total` 对比 `input + cacheRead + cacheWrite` 调整校准系数；后者可改为单调的移出边界，一旦需要移出就一次移到约 75% 预算。
+
+### 2026-09-26：实现交付
+
+按工单实现：
+
+- 块头：`[项目指令]`、`[技能目录]` 不再带版本；选择记录的 `instructionVersion`、`skillVersion` 不变。
+- 记忆钉版：`loadPinnedContext` 钉住 `listActiveFor` 的 id 与顺序（资料受限会话为空），`contextInput` 每次调用按钉住的 id 调 `getCurrent` 重读，非 active 的跳过，来源失效的照旧记 `source_scope_revoked`。记忆读取与其余钉版分开 try：读取失败时保存该错误，每次调用重抛，由 `handleContext` 阻断发送，与钉版前一致；不会因此丢掉继续来源与计划模式判定。
+- 顺序：继续来源与计划说明插在当前任务输入（最后一组的首条）之前；`/context` 估算键不变。必留超预算的失败说明改为「指令/技能/记忆/继续来源/计划说明」。
+- `docs/runtime.md`「上下文选择」加视图顺序与前缀成立条件，块头示例去掉版本；「计划模式」改为插在当前任务输入之前；「长期记忆（§5）」加按任务钉版一条。
+
+测试：新增 `test/60-context-prefix.test.ts`，覆盖四项：中途 `memory_save` 的记忆下一任务才注入、中途撤销与修订下一次调用生效且顺序保持钉住时的顺序；continue 计划任务的视图为参考块 → 历史 → 继续来源 → 计划说明 → 当前任务，普通任务没有这两块；同一会话三次调用（跨任务，指令产物与技能库版本都变化）逐次为前缀；记忆钉版读取失败时阻断发送。另更新 `test/16-context-memory.test.ts`（选择器单元：块头与顺序）、`test/56-skills.test.ts`（块头、选择记录保存版本、失败说明正则）、`test/59-system-prompt.test.ts`（块头）。
+
+未处理（评审记录）：
+- 插入点沿用选择器对当前任务的定义（最后一条 user 消息所在组）。现在每个任务只有一条 user 消息，与「任务输入」一致；将来若在任务中途追加 user 消息（steering 等），两块会移到新消息之前。
+- 部署后验证（工单中的 SQL）由拥有者执行。
+
+`test/19-tui-demo.test.ts` 的失败在本工单之前已存在，与本工单无关。

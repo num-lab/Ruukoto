@@ -812,26 +812,31 @@ test("选择器：当前任务工具循环按批次修剪（任务输入与最�
   assert.match(failing.failure ?? "", /必留内容/);
 });
 
-test("选择器：项目指令与继续来源作为必留前缀注入一次，预排除记忆原样记录", () => {
-  const messages = [mkUser("当前任务")];
+test("选择器：项目指令在最前、继续来源与计划说明紧邻当前任务注入一次，预排除记忆原样记录", () => {
+  const messages = [mkUser("旧任务"), { role: "assistant", content: [{ type: "text", text: "旧回答" }], timestamp: 1 }, mkUser("当前任务")];
   const out = selectContext({
     messages,
     systemPrompt: "sys",
     tools: [],
     projectInstructions: { text: "项目约定：提交信息用中文", version: "sha256:abc;artifact:art_1", problems: ["项目指令文件 missing.md：缺失"] },
     resumedFrom: { taskId: "task_old", input: "原始要求：给登录页加验证码" },
+    planMode: true,
     memories: [],
     preExcludedMemories: [{ memoryId: "mem_x", version: 2, reason: "source_scope_revoked" }],
     budget: testBudget(100_000),
   });
   assert.ok(out.ok);
-  const texts = out.messages.map((m) => (typeof m.content === "string" ? m.content : ""));
+  const texts = out.messages.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)));
   assert.equal(texts.filter((s) => s.includes("项目约定：提交信息用中文")).length, 1, "项目指令只注入一次");
-  assert.ok(texts[0]!.includes("[项目指令 · 版本 sha256:abc;artifact:art_1"), "指令带来源版本标记");
+  assert.equal(texts[0]!.split("\n")[0], "[项目指令]", "块头不含版本");
   assert.ok(texts[0]!.includes("missing.md：缺失"), "缺失问题明确说明");
-  assert.ok(texts[1]!.includes("继续来源：本任务继续已中断任务 task_old"), "继续来源标记");
-  assert.ok(texts[1]!.includes("原始要求：给登录页加验证码"), "原任务要求注入");
-  assert.equal(out.instructionVersion, "sha256:abc;artifact:art_1");
+  assert.equal(texts[1], "旧任务");
+  assert.ok(texts[3]!.includes("继续来源：本任务继续已中断任务 task_old"), "继续来源在历史之后");
+  assert.ok(texts[3]!.includes("原始要求：给登录页加验证码"), "原任务要求注入");
+  assert.ok(texts[4]!.startsWith("[计划模式"), "计划说明紧邻当前任务");
+  assert.equal(texts[5], "当前任务");
+  assert.deepEqual(out.includedIndices, [0, 1, 2]);
+  assert.equal(out.instructionVersion, "sha256:abc;artifact:art_1", "选择记录照旧保存版本");
   assert.deepEqual(out.excludedMemories, [{ memoryId: "mem_x", version: 2, reason: "source_scope_revoked" }]);
 
   // 前缀是必留项：预算被历史占满时前缀仍在，历史被排除

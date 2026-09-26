@@ -257,15 +257,17 @@ export class Driver {
   /** 原始 streamFunction（包装前保存；最终检查在委托前执行）。 */
   private originalStreamFn: any = null;
   /**
-   * 任务开始时钉版的上下文前缀：项目指令（受限读取 + 捕获产物）与继续
-   * 来源任务要求；plan = 以计划模式运行（issue 26，决定计划说明前缀与工具白名单）。
+   * 任务开始时钉版的上下文参考内容：项目指令（受限读取 + 捕获产物）与继续
+   * 来源任务要求；plan = 以计划模式运行（issue 26，决定计划说明与工具白名单）；
+   * memoryIds = 当时生效记忆的 id 与顺序（issue 29；读取失败为 Error）。
    * 任务内不变；下一任务开始时重新读取（= 拥有者刷新入口）。
    */
   private pinnedContext: {
     instructions: { text: string; version: string; problems: string[] } | null;
     resumedFrom: { taskId: string; input: string } | null;
     plan: boolean;
-  } = { instructions: null, resumedFrom: null, plan: false };
+    memoryIds: string[] | Error;
+  } = { instructions: null, resumedFrom: null, plan: false, memoryIds: [] };
   /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
   private pinnedSkills: SkillLibrary | null = null;
 
@@ -587,12 +589,18 @@ export class Driver {
     }
   }
 
-  /** 在每次组装时读取生效记忆；尤其不能沿用 Jev 网络等待之前的授权快照。 */
+  /**
+   * 在每次组装时按钉住的 id 与顺序重读记忆（issue 29）：撤销与修订即时生效，
+   * 任务中新建的记忆从下一任务起注入；尤其不能沿用 Jev 网络等待之前的授权快照。
+   */
   private contextInput(messages: any[]): SelectorInput {
     const accessor = this.accessor();
     const memories: MemoryWithContent[] = [];
     const preExcludedMemories: NonNullable<SelectorInput["preExcludedMemories"]> = [];
-    for (const memory of this.dataScopeRestricted ? [] : this.deps.memories.listActiveFor(this.session.projectId)) {
+    const pinnedIds = this.pinnedContext.memoryIds;
+    if (pinnedIds instanceof Error) throw pinnedIds; // 钉版读取失败：每次调用阻断发送
+    for (const memory of pinnedIds.map((id) => this.deps.memories.getCurrent(id))) {
+      if (memory?.status !== "active") continue;
       if (memory.sourceRefs.every((ref) => this.deps.access.sourceRefAccessible(accessor, ref))) {
         memories.push(memory);
       } else {
@@ -726,26 +734,35 @@ export class Driver {
    *   捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定；
    * - 继续来源：人工继续已中断任务时，原任务要求作为必留参考注入，
    *   不能只发一句"继续"就丢失原要求（§4）；
-   * - 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记。
+   * - 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；
+   * - 长期记忆（issue 29）：当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序）。
    */
   private loadPinnedContext(task: Task): typeof this.pinnedContext {
-    // 资料受限会话（issue 07 qq_group；issue 01 chat 角色）：不读取/注入项目指令
-    if (this.dataScopeRestricted) return { instructions: null, resumedFrom: null, plan: false };
+    // 资料受限会话（issue 07 qq_group；issue 01 chat 角色）：不读取/注入项目指令与记忆
+    if (this.dataScopeRestricted) return { instructions: null, resumedFrom: null, plan: false, memoryIds: [] };
     let resumedFrom: { taskId: string; input: string } | null = null;
     let plan = isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
+    // 与其余钉版分开读取：记忆读取失败不能连带丢掉继续来源与计划模式判定
+    let memoryIds: string[] | Error;
+    try {
+      memoryIds = this.deps.memories.listActiveFor(this.session.projectId).map((m) => m.id);
+    } catch (err) {
+      memoryIds = err as Error;
+    }
     try {
       if (task.resumesTaskId) {
         const old = this.deps.store.getTask(task.resumesTaskId);
         if (old) resumedFrom = { taskId: old.id, input: old.input };
       }
       plan = runsInPlanMode(task, (id) => this.deps.store.getTask(id));
-      return { instructions: this.loadProjectInstructions(task), resumedFrom, plan };
+      return { instructions: this.loadProjectInstructions(task), resumedFrom, plan, memoryIds };
     } catch (err) {
       // 钉版读取失败不阻断任务：以明确说明注入，不静默省略
       return {
         instructions: { text: "", version: "", problems: [`项目指令/继续来源读取失败：${(err as Error).message}`] },
         resumedFrom,
         plan,
+        memoryIds,
       };
     }
   }

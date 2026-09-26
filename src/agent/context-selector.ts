@@ -9,6 +9,8 @@
  * - 必留项：宿主系统指令、项目指令（钉版文本，经标记的参考消息注入一次）、
  *   当前任务原文（= 最后一条 user 消息）、继续来源任务的要求（如有）、
  *   最新已完成的工具批次与当前任务最近一次成功 todo_write 所在批次（issue 25）；
+ * - 视图顺序（issue 29，前缀稳定以命中提示缓存）：项目指令 / 技能目录 / 长期记忆
+ *   → 历史 → 继续来源 / 计划说明 → 当前任务；块头不含版本；
  * - 以完整交互为单位：较早的用户轮次连同其 assistant 与工具交互整体保留
  *   或移出；一次 assistant 的全部 toolCall 与对应 toolResult 不可拆分；
  * - 当前任务的工具循环按已完成批次取最近部分：最新批次必留，更早批次
@@ -503,14 +505,15 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const includedMemories: SelectorOutput["includedMemories"] = [];
   const excludedMemories: SelectorOutput["excludedMemories"] = [...(input.preExcludedMemories ?? [])];
 
-  // 必留前缀（标记的参考消息，不冒充新的拥有者指令；各自只注入一次）：
-  // 项目指令（钉版）→ 技能目录（钉版）→ 继续来源 → 计划说明 → 长期记忆
+  // 必留参考消息（标记的参考消息，不冒充新的拥有者指令；各自只注入一次）：
+  // 项目指令 → 技能目录 → 长期记忆在历史之前；继续来源 → 计划说明只属于当前
+  // 任务，放在当前任务输入之前，不打断其前整段历史的提示缓存（issue 29）。
+  // 块头不含版本：版本变化不等于文本变化，版本只写入选择记录。
   const prefixMessages: Array<{ kind: "instructions" | "skills" | "resumed" | "plan" | "memory"; message: any }> = [];
+  const taskMessages: typeof prefixMessages = [];
   const instructions = input.projectInstructions ?? null;
   if (instructions) {
-    const parts = [
-      `[项目指令 · 版本 ${instructions.version}]`,
-    ];
+    const parts = ["[项目指令]"];
     if (instructions.text) parts.push(instructions.text);
     for (const problem of instructions.problems) parts.push(`注意：${problem}`);
     parts.push("[/项目指令]");
@@ -523,7 +526,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
       message: {
         role: "user",
         content: [
-          `[技能目录 · 版本 ${skills.version}]`,
+          "[技能目录]",
           "以下技能由拥有者提供。任务与某技能的描述相符时，先用 skill 工具（参数 name）加载其正文；正文提到的引用文件用 skill 工具的 path 参数（相对技能目录）读取。技能中的脚本只作为文本提供，不能原地执行。",
           ...skills.entries.map((s) => `- ${s.name}：${s.description}`),
           "[/技能目录]",
@@ -534,7 +537,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   }
   const resumedFrom = input.resumedFrom ?? null;
   if (resumedFrom) {
-    prefixMessages.push({
+    taskMessages.push({
       kind: "resumed",
       message: {
         role: "user",
@@ -548,7 +551,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     });
   }
   if (input.planMode) {
-    prefixMessages.push({
+    taskMessages.push({
       kind: "plan",
       message: {
         role: "user",
@@ -585,10 +588,10 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     });
   }
   estimates.memories = memoryUsed;
-  let prefixTokens = 0;
-  for (const { kind, message } of prefixMessages) {
+  let referenceTokens = 0;
+  for (const { kind, message } of [...prefixMessages, ...taskMessages]) {
     const tokens = estimateMessageTokens(message, calibration);
-    prefixTokens += tokens;
+    referenceTokens += tokens;
     if (kind === "instructions") estimates.projectInstructions = tokens;
     else if (kind === "skills") estimates.skills = tokens;
     else if (kind === "resumed") estimates.resumedFrom = tokens;
@@ -629,7 +632,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   for (const index of mandatory) mandatoryTokens += tokensOf(index);
   estimates.mandatoryTurn = mandatoryTokens;
 
-  const fixed = estimates.systemPrompt + estimates.toolSchemas + prefixTokens + mandatoryTokens;
+  const fixed = estimates.systemPrompt + estimates.toolSchemas + referenceTokens + mandatoryTokens;
   if (fixed > budget) {
     return {
       ok: false,
@@ -645,7 +648,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
       estimates,
       budget,
       estimatedTotal: fixed,
-      failure: `必留内容（系统提示 ${estimates.systemPrompt} + 工具定义 ${estimates.toolSchemas} + 指令/技能/记忆/继续来源 ${prefixTokens} + 当前任务 ${mandatoryTokens} = ${fixed}）超过输入预算 ${budget}`,
+      failure: `必留内容（系统提示 ${estimates.systemPrompt} + 工具定义 ${estimates.toolSchemas} + 指令/技能/记忆/继续来源/计划说明 ${referenceTokens} + 当前任务 ${mandatoryTokens} = ${fixed}）超过输入预算 ${budget}`,
     };
   }
 
@@ -693,8 +696,10 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   estimates.historyTurns = used - fixed - estimates.currentTaskBatches;
 
   const includedIndices = messages.map((_, i) => i).filter((i) => included.has(i));
+  // 当前任务输入（最后一组的首条）必留，任务级块插在它之前
+  const taskStart = includedIndices.indexOf(groups.at(-1)?.[0] ?? -1);
   const view = includedIndices.map((i) => viewOf(i));
-  // 必留前缀（项目指令/技能目录/继续来源/记忆）作为参考内容注入到历史之前
+  view.splice(taskStart < 0 ? view.length : taskStart, 0, ...taskMessages.map((p) => p.message));
   const viewWithPrefixes = [...prefixMessages.map((p) => p.message), ...view];
   const cappedToolResults = includedIndices
     .filter((i) => cappedByIndex.has(i))

@@ -133,8 +133,8 @@ test("参考块块头只保留名称、id、类别与范围；外部资料警示
   });
   assert.ok(out.ok);
   const heads = out.messages.map((m) => String(m.content).split("\n")[0]);
-  assert.ok(heads.includes("[项目指令 · 版本 v1]"), heads.join("\n"));
-  assert.ok(heads.includes("[技能目录 · 版本 sv1]"));
+  assert.ok(heads.includes("[项目指令]"), heads.join("\n"));
+  assert.ok(heads.includes("[技能目录]"));
   assert.ok(heads.includes("[继续来源：本任务继续已中断任务 task_old；其原始要求如下]"));
   assert.ok(heads.includes("[长期记忆 mem_1 v2 · preference · 个人共享]"));
   const all = out.messages.map((m) => String(m.content)).join("\n");

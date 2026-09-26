@@ -374,7 +374,11 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
   id 豁免配对核对；其余配对残缺仍拒绝发送。
 - 超长工具结果只在模型视图中替换为有界节选（首尾保留 + 中间省略计数 +
   `history_read`/`read_artifact` 引用），历史与产物原文不变；被替换的
-  片段范围记入选择记录 `capped_tool_results`。
+  片段范围记入选择记录 `capped_tool_results`。单个文本段上限 80,000 字符，
+  能容纳 pi read/bash 的 50KB 输出与 64KB 单页（`read_artifact` 单次上限
+  64KB、`history_read` 单页）加头部，只兜底 `http_request`、
+  `request_file_access` 等真正超大的结果。上限只取决于消息本身、不按位置
+  区分：同一条消息的视图不随后续调用变化，不破坏提示缓存。
 - 预算 = 模型 contextWindow − maxTokens（输出）− thinking 预算 − 下一批
   工具结果预留 − 估算安全边际；估算用 pi `estimateTokens`（chars/4）加
   CJK 校准（每 CJK 字符按 1 token 计）× 校准系数 1.5。选择记录的配置
@@ -407,7 +411,7 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 - `skill` 宿主工具（只读，任何访问模式都不产生审批）：只传 `name` 返回钉版
   正文与版本（仅显式调用的技能被拒绝）；再传 `path` 读取该技能目录内的引用
   文件——相对路径、不含 `..`、realpath 仍在技能目录内、普通 UTF-8 文本，调用
-  时读取（不钉版）并附文件 sha256。`skill` 结果不做 4000 字符截取。
+  时读取（不钉版）并附文件 sha256。`skill` 结果不做视图上限截取。
 - 单个 `SKILL.md` 或引用文件上限 64 KiB；超限的技能不进入技能库。缺少描述、
   YAML 错误、同名冲突（按路径排序先到先得）等诊断经 `/skills` 查看。
 - 显式调用：TUI `/skill <名称> [参数]` 提交输入为 `/skill:<名称> [参数]` 的任务

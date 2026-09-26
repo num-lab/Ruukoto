@@ -55,7 +55,10 @@ export const DEFAULT_BUDGET_CONFIG: Omit<SelectorBudgetConfig, "contextWindow" |
   safetyMargin: 2_000,
   calibration: 1.5,
   memoryBudget: 2_000,
-  toolResultViewChars: 4_000,
+  // 容纳 pi read/bash 的 50KB 输出与 64KB 单页加头部，只兜底真正超大的结果（issue 27）。
+  // ponytail: 定值不随模型窗口变化；接入 128K 级窗口时一批多个大结果可能触发
+  // context_budget_exceeded，届时改为按预算比例收紧
+  toolResultViewChars: 80_000,
 };
 
 export function validateBudgetConfig(config: SelectorBudgetConfig): SelectorBudgetConfig {

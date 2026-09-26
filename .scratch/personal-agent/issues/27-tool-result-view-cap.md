@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 03, 05
 
 # 工具结果视图上限提到 80,000 字符
@@ -56,3 +56,13 @@ prompt 组装优化访谈 Q1 按推荐确认。
 
 - 省略提示里「可用 history_read 按来源读取」对没有产物的结果（`http_request`、`request_file_access`、MCP 内联）不好用，因为视图中没有条目 id。上限提高后很少触发，本工单不改提示文字。
 - 64KB 的 `read_artifact` 单页加头部约 65.7K 字符，`history_read` 单页加头部同量级，都在 80,000 以内；这些上限按 UTF-8 字节计，中文内容的字符数更少。
+
+### 2026-09-26：实现交付
+
+按工单实现：`DEFAULT_BUDGET_CONFIG.toolResultViewChars` 改为 80,000 并加 `ponytail:` 注释；`read_artifact` 工具单次上限降到 64KB，参数说明同步；`docs/runtime.md`「上下文选择」的有界节选一条写明上限与理由，`skill` 一条的「4000 字符」改为「视图上限」。测试：`test/16-context-memory.test.ts` 在默认配置下断言约 12KB 的 read 结果与 64KB 的 `read_artifact` 单页完整、超过 80,000 字符的结果首尾节选且只记这一条到 `cappedToolResults`；`test/09-artifacts.test.ts` 经真实工具请求 200,000 字节，断言返回 65536 字节且模型收到完整单页；`test/52-jev.test.ts` 显式配置 4000；`test/56-skills.test.ts` 用例名去掉已失效的「>4000 字符」。
+
+未处理（评审记录）：
+- `read_artifact` 以 `encoding: "base64"` 读 64KB 单页约 87.4K 字符，仍会被视图首尾节选。工单的估算按 UTF-8，没有覆盖 base64；需要时可把 base64 单次上限收到约 58KB 原始字节。
+- 64 KiB 的技能正文最多 65,536 字符，低于新的默认上限，`capToolResultView` 对 `skill` 的豁免在默认配置下不再起作用；保留，供之后按预算比例收紧上限时使用。
+
+`test/19-tui-demo.test.ts` 的失败（demo 未覆盖 `project.jev_changed`、`task.context_experiment`）在本工单之前已存在，在未改动的 main 上同样失败。

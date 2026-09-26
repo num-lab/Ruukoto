@@ -296,22 +296,38 @@ test("选择器：交互单元完整（toolCall/toolResult 同进同出），必
   assert.match(huge.failure ?? "", /预算/);
 });
 
-test("选择器：超长工具结果在模型视图中截断，含可读引用，排除记录不携带正文", () => {
-  const long = "A".repeat(3000) + "中".repeat(2000) + "Z".repeat(3000);
+test("选择器：默认视图上限容纳 read 输出与 read_artifact 单页，超过 80,000 字符才首尾节选", () => {
+  // 约 12KB 的 300 行 read 结果；64KB 的 read_artifact 单页加头部
+  const readText = Array.from({ length: 300 }, (_, i) => `line ${i + 1} ${"x".repeat(32)}`).join("\n");
+  const pageText = `artifact art_1（stdout，共 480000 字节，complete）偏移 0 起的 65536 字节：\n${"p".repeat(64 * 1024)}`;
+  const long = "A".repeat(40_000) + "中".repeat(2000) + "Z".repeat(40_000);
+  const messages = [
+    userMsg("任务"),
+    assistantWithCall("c1", "read"),
+    { ...toolResultMsg("c1", readText), toolName: "read" },
+    assistantWithCall("c2", "read_artifact"),
+    { ...toolResultMsg("c2", pageText), toolName: "read_artifact" },
+    assistantWithCall("c3", "bash"),
+    toolResultMsg("c3", long),
+  ];
   const result = selectContext({
-    messages: [userMsg("任务"), assistantWithCall("c1", "bash"), toolResultMsg("c1", long)],
+    messages,
     systemPrompt: "sys",
     tools: [],
     memories: [],
     budget: budgetConfig({ contextWindow: 200_000 }),
   });
   assert.equal(result.ok, true);
-  const tr = result.messages.find((m: any) => m.role === "toolResult") as any;
-  const text = tr.content[0].text as string;
-  assert.ok(text.length < long.length);
-  assert.match(text, /省略|history_read|read_artifact/);
-  assert.ok(text.startsWith("A".repeat(100)));
-  assert.ok(text.endsWith("Z".repeat(100)));
+  const texts = result.messages.filter((m: any) => m.role === "toolResult").map((m: any) => m.content[0].text as string);
+  assert.equal(texts[0], readText);
+  assert.equal(texts[1], pageText);
+  assert.ok(texts[2]!.length < long.length);
+  assert.match(texts[2]!, /省略|history_read|read_artifact/);
+  assert.ok(texts[2]!.startsWith("A".repeat(100)));
+  assert.ok(texts[2]!.endsWith("Z".repeat(100)));
+  assert.deepEqual(result.cappedToolResults.map(({ index, originalChars }) => ({ index, originalChars })), [
+    { index: 6, originalChars: long.length },
+  ]);
 });
 
 // ---------- §5 记忆 ----------

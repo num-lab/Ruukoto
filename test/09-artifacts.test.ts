@@ -301,6 +301,33 @@ test("产物磁盘写入失败：停止执行、保留已捕获部分与失败�
   }
 });
 
+test("read_artifact 工具单次最多 64KB，单页在模型视图中完整（issue 27）", async () => {
+  let page = "";
+  const responder: Responder = (req) => {
+    const tools = req.messages.filter((m) => m?.role === "tool").map((m) => typeof m.content === "string" ? m.content : JSON.stringify(m.content));
+    if (tools.length === 0) {
+      return { kind: "tool_calls", calls: [{ id: "c_big", name: "bash", arguments: { command: "head -c 300000 /dev/zero | tr '\\0' x" } }] };
+    }
+    if (tools.length === 1) {
+      const artifactId = /artifact ([a-z0-9_]+)/.exec(tools[0]!)?.[1] ?? "missing";
+      return { kind: "tool_calls", calls: [{ id: "c_page", name: "read_artifact", arguments: { artifact_id: artifactId, length: 200_000 } }] };
+    }
+    page = tools[1]!;
+    return { kind: "text", text: "读完" };
+  };
+  const t = await startTestRuntime("artifact-tool-cap", responder, { workDirs: 1, config: realTools() });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: sessionId, request_id: "cap-tool-1", input: "读产物" });
+    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed", 60_000);
+    assert.match(page, /偏移 0 起的 65536 字节/);
+    assert.match(page, new RegExp(`x{${64 * 1024}}`), "64KB 单页未被视图截断");
+    assert.doesNotMatch(page, /x{65537}|省略/);
+  } finally {
+    await t.shutdown();
+  }
+});
+
 test("产物读取上限：base64 开销后仍在帧上限内（超限长度被收敛而非发送失败）", async () => {
   const responder: Responder = () => ({
     kind: "tool_calls",

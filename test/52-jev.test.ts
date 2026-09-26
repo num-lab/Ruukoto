@@ -68,6 +68,7 @@ test("Jev 候选使用原序号，忽略孤儿消息；必留超预算仍失败�
   const messages: any[] = [user("旧请求"), assistant("旧回答"), user("当前请求"), call("orphan"), call("latest"), result("latest", "正文".repeat(5000))];
   freeze(messages);
   const input = selectorInput(messages);
+  input.budget.toolResultViewChars = 4_000;
   assert.deepEqual(getContextCandidates(input).map(({ indices }) => indices), [[0, 1]]);
   const output = selectContext(input, new Map([["unit_0", false]]));
   assert.deepEqual(output.includedIndices, [2, 4, 5]);

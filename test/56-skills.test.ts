@@ -156,7 +156,7 @@ test("集成：技能库为空时不注入目录，任务正常执行", async ()
   }
 });
 
-test("集成：skill 加载完整正文（>4000 字符不截取、无审批），任务内钉版，下一任务生效；/context 有技能类别", async () => {
+test("集成：skill 加载完整正文（不截取、无审批），任务内钉版，下一任务生效；/context 有技能类别", async () => {
   let skillFile = "";
   const longBody = (tag: string) => `${tag}-HEAD ${"正文".repeat(3000)} ${tag}-TAIL`;
   const responder: Responder = async (req) => {

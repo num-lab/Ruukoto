@@ -704,7 +704,7 @@ export class ToolRouter {
   private readArtifact(task: Task, input: RoutedCallInput): RoutedCallOutput {
     const artifactId = String(input.params["artifact_id"] ?? "");
     const offset = Number(input.params["offset"] ?? 0);
-    const length = Math.min(Number(input.params["length"] ?? 64 * 1024), 256 * 1024);
+    const length = Math.min(Number(input.params["length"] ?? 64 * 1024), 64 * 1024);
     const artifact = this.deps.store.getArtifact(artifactId);
     if (!artifact) {
       return textResult(`产物不存在：${artifactId}`, true);
@@ -824,7 +824,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
     parameters: Type.Object({
       artifact_id: Type.String({ description: "产物 id（见工具结果中的 artifact 引用）" }),
       offset: Type.Optional(Type.Number({ description: "起始字节，默认 0" })),
-      length: Type.Optional(Type.Number({ description: "读取字节数，默认 64KB，上限 256KB" })),
+      length: Type.Optional(Type.Number({ description: "读取字节数，默认与上限均为 64KB" })),
       encoding: Type.Optional(Type.Union([Type.Literal("utf8"), Type.Literal("base64")])),
     }),
   });

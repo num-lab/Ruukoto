@@ -310,6 +310,13 @@ export class ControlServer {
           thinkingLevel: params["thinking_level"],
           expectedRevision: params["expected_revision"],
         });
+      // issue 30 §8：摘要模型（provider 与 model_id 同为 null 即清除）
+      case "set_summary_model":
+        return runtime.setSummaryModel({
+          provider: params["provider"] ?? null,
+          modelId: params["model_id"] ?? null,
+          expectedRevision: params["expected_revision"],
+        });
       case "test_model_connection":
         return runtime.testModelConnection({ provider: params["provider"], modelId: params["model_id"] });
       case "set_session_mode": {

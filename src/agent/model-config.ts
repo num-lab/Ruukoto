@@ -1,6 +1,6 @@
 /**
- * 模型配置文件模块（issue 21 §3/§4）：models.json / auth.json / default-model.json
- * 的读写、结构校验、修订指纹与脱敏。
+ * 模型配置文件模块（issue 21 §3/§4）：models.json / auth.json / default-model.json /
+ * summary-model.json（issue 30）的读写、结构校验、修订指纹与脱敏。
  *
  * 文件级模块：不依赖 Runtime，在线后台与离线配置工具共用。
  * 配置互斥见 `acquireConfigLock`（从 core/instance-lock.ts 再导出，与本模块
@@ -29,6 +29,9 @@ export interface ModelCatalogFile {
 const MODELS_FILE = "models.json";
 const AUTH_FILE = "auth.json";
 const DEFAULT_MODEL_FILE = "default-model.json";
+const SUMMARY_MODEL_FILE = "summary-model.json";
+/** 参与修订指纹与回滚快照的配置文件。 */
+const CONFIG_FILES = [MODELS_FILE, AUTH_FILE, DEFAULT_MODEL_FILE, SUMMARY_MODEL_FILE] as const;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -208,15 +211,45 @@ export function saveDefaultModel(agentDir: string, selection: ModelSelection): v
   atomicWrite(path.join(agentDir, DEFAULT_MODEL_FILE), JSON.stringify(selection, null, 2));
 }
 
+// ---------- summary-model.json（上下文压缩的摘要模型，issue 30；未设置 = 用会话当前模型） ----------
+
+export interface SummaryModel {
+  provider: string;
+  modelId: string;
+}
+
+/** 未设置返回 null；文件损坏或结构不完整抛错（已配置但无法解析时摘要按失败处理，不改用会话模型）。 */
+export function loadSummaryModel(agentDir: string): SummaryModel | null {
+  const file = path.join(agentDir, SUMMARY_MODEL_FILE);
+  if (!fs.existsSync(file)) return null;
+  let parsed: any;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    throw new Error(`summary-model.json 不是合法 JSON，请修复或删除后重试：${(err as Error).message}`);
+  }
+  if (typeof parsed?.provider !== "string" || !parsed.provider.trim() || typeof parsed?.modelId !== "string" || !parsed.modelId.trim()) {
+    throw new Error("summary-model.json 结构无效：需要 provider 与 modelId");
+  }
+  return { provider: parsed.provider, modelId: parsed.modelId };
+}
+
+/** null = 清除（删除文件）。 */
+export function saveSummaryModel(agentDir: string, model: SummaryModel | null): void {
+  const file = path.join(agentDir, SUMMARY_MODEL_FILE);
+  if (model === null) fs.rmSync(file, { force: true });
+  else atomicWrite(file, JSON.stringify({ provider: model.provider, modelId: model.modelId }, null, 2));
+}
+
 // ---------- 修订指纹 / 脱敏 / 回滚快照 ----------
 
 /**
- * 配置修订：models.json + auth.json + default-model.json 的 sha256。每个文件按
- * 「文件名:长度」前缀后接字节（缺失记 -1），不同文件切分拼出相同字节不会同修订。
+ * 配置修订：models.json + auth.json + default-model.json + summary-model.json 的 sha256。
+ * 每个文件按「文件名:长度」前缀后接字节（缺失记 -1），不同文件切分拼出相同字节不会同修订。
  */
 export function configRevision(agentDir: string): string {
   const hash = createHash("sha256");
-  for (const name of [MODELS_FILE, AUTH_FILE, DEFAULT_MODEL_FILE]) {
+  for (const name of CONFIG_FILES) {
     let bytes: Buffer | null = null;
     try {
       bytes = fs.readFileSync(path.join(agentDir, name));
@@ -296,12 +329,8 @@ export function configSecrets(agentDir: string): string[] {
   return out;
 }
 
-/** 三个配置文件的字节快照（应用失败时整体回滚，不留下部分新配置）。 */
-export interface ConfigSnapshot {
-  models: Buffer | null;
-  auth: Buffer | null;
-  defaultModel: Buffer | null;
-}
+/** 配置文件的字节快照（按文件名；应用失败时整体回滚，不留下部分新配置）。 */
+export type ConfigSnapshot = Record<(typeof CONFIG_FILES)[number], Buffer | null>;
 
 export function snapshotConfigFiles(agentDir: string): ConfigSnapshot {
   const read = (name: string): Buffer | null => {
@@ -311,21 +340,16 @@ export function snapshotConfigFiles(agentDir: string): ConfigSnapshot {
       return null;
     }
   };
-  return { models: read(MODELS_FILE), auth: read(AUTH_FILE), defaultModel: read(DEFAULT_MODEL_FILE) };
+  return Object.fromEntries(CONFIG_FILES.map((name) => [name, read(name)])) as ConfigSnapshot;
 }
 
 export function restoreConfigFiles(agentDir: string, snapshot: ConfigSnapshot): void {
-  const restore = (name: string, content: Buffer | null): void => {
+  for (const name of CONFIG_FILES) {
     const file = path.join(agentDir, name);
-    if (content === null) {
-      fs.rmSync(file, { force: true });
-      return;
-    }
-    atomicWrite(file, content);
-  };
-  restore(MODELS_FILE, snapshot.models);
-  restore(AUTH_FILE, snapshot.auth);
-  restore(DEFAULT_MODEL_FILE, snapshot.defaultModel);
+    const content = snapshot[name];
+    if (content === null) fs.rmSync(file, { force: true });
+    else atomicWrite(file, content);
+  }
 }
 
 // ---------- 默认模型解析与探测（Runtime 启动/重建、开发启动器、离线配置 UI 共用） ----------

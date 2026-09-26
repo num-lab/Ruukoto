@@ -320,6 +320,36 @@ test("离线：独立目录写 key 与默认模型，退出释放配置锁", asy
   }
 });
 
+test("离线：设置摘要模型（issue 30），页头显示数据去向与所选模型", async () => {
+  const { dirs } = await makeTestDirs("cfg-tui-summary", 0);
+  try {
+    await writeModelsJson(dirs, "http://127.0.0.1:1");
+    const terminal = new FakeTerminal();
+    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    try {
+      await waitForText(terminal, "配置分区（离线模式：仅模型配置可写）");
+      terminal.send(ENTER); // 模型与提供方
+      await waitForText(terminal, "摘要模型：未设置（用会话当前模型）");
+      terminal.send(DOWN + DOWN); // provider:mock → 设置后台默认模型 → 设置摘要模型
+      terminal.send(ENTER);
+      await waitForText(terminal, "摘要模型：提供方");
+      assert.ok(terminal.output().includes("会发给该模型的提供方做摘要"), "说明数据去向");
+      terminal.send(DOWN); // 不设置 → mock
+      terminal.send(ENTER);
+      await waitForText(terminal, "摘要模型：模型");
+      terminal.send(ENTER);
+      await waitForText(terminal, "摘要模型已保存：mock/mock-model");
+      await waitForText(terminal, "摘要模型：mock/mock-model");
+    } finally {
+      terminal.send(CTRL_C);
+      assert.equal(await done, 0);
+    }
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dirs.agentDir, "summary-model.json"), "utf8")), { provider: "mock", modelId: "mock-model" });
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
 test("重载状态：分区路径持久化与恢复，损坏文件提示后回主菜单", async () => {
   const t = await startTestRuntime("cfg-tui-reload", textResponder);
   const stateDir = await mkdtemp(path.join(tmpdir(), "ruukoto-cfg-reload-"));

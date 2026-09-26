@@ -205,11 +205,11 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 `ruukoto config` 打开独立配置界面：复用控制面拥有者认证与 TUI 组件，不直接
 打开核心数据库，也不成为绕过任务审批的入口（任务执行审批仍在任务界面）。
 在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及
-上下文/输出参数）、模型 API key、后台默认模型、项目指令/Web Search/资料
+上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料
 授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与允许群、服务凭据。
 
 - **并发与修订**：模型配置以 `expected_revision`（models.json + auth.json +
-  default-model.json 的内容指纹）做条件更新；项目/会话/MCP/QQ 沿用各自的
+  default-model.json + summary-model.json 的内容指纹）做条件更新；项目/会话/MCP/QQ 沿用各自的
   expected_version。冲突时要求重新加载，不静默覆盖。
 - **模型配置应用时机（§4）**：provider、模型目录与 API key 的修改只在没
   有受影响的 `running` / `awaiting_confirmation` / `queued` 任务时应用；
@@ -219,15 +219,23 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不
   自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime /
   模型目录 / 审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。
-  应用成功后持久配置与内存一致，重启后仍有效。删除 provider 前核对后台
-  默认、会话与 agent_roles 引用（`provider_in_use`）；后台默认模型保存为
+  应用成功后持久配置与内存一致，重启后仍有效。删除 provider 或模型前核对后台
+  默认、摘要模型、会话与 agent_roles 引用（`provider_in_use`）；后台默认模型保存为
   `<agentDir>/default-model.json`，显式启动参数 `--model` 优先于它。
+- **摘要模型（issue 30）**：上下文压缩的滚动摘要所用模型，保存为
+  `<agentDir>/summary-model.json`（`{provider, modelId}`，不存思考档位）；控制面
+  `set_summary_model`（`provider`/`model_id`，同为 null 即清除，带
+  `expected_revision`），`get_model_config` 返回 `summaryModel`；保存时核对模型
+  在目录中。「模型与提供方」页头显示「摘要模型：未设置（用会话当前模型）」或所选
+  模型，列表项「设置摘要模型」首项为「不设置」。设置后，main、coding 与开发会话较早
+  的对话（含工具结果）会发给该模型的提供方做摘要。每次摘要读取当前配置，不按任务
+  钉版；已配置但无法解析时本次摘要按失败处理，不改用会话模型。
   `test_model_connection` 是显式网络探测，本地校验不代表模型服务可用。
 - **秘密**：API key 输入遮蔽；响应只展示是否配置与必要元数据；秘密不进入
   日志、事件、命令行参数或重载状态文件。模型 API key（auth.json）与服务
   凭据（credentials.json）分开管理。
 - **离线模式**：后台不可达时（或 `--offline`）进入有限离线配置：只做模型
-  目录、默认模型与 API key 的初始化/修复，直接写 `<agentDir>` 下文件。
+  目录、默认模型、摘要模型与 API key 的初始化/修复，直接写 `<agentDir>` 下文件。
   互斥按规范化 agentDir 的配置锁（`<agentDir>/config.lock/`）判定：后台
   运行时持有该锁（不同 dataDir 共用 agentDir 也被覆盖），socket 不可达或
   认证失败不证明后台已停；无法取得独占时明确失败，不放宽权限、不改属主。
@@ -399,6 +407,65 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
 - provider 返回 `context_overflow` 的兜底保留：任务中断并暂停队列，不自动
   压缩或重试。
 
+### 上下文压缩（issue 30，ADR 0016）
+
+- **适用范围**：普通开发会话、main 与 coding（含 GitHub 评审子任务）。资料受限会话
+  （qq_group 与 chat 角色）不压缩，维持现状（也不加移出标记）。会话历史（JSONL）
+  不变，有损处理只作用于模型上下文；不启用 pi 的 compaction。
+- **压缩点**：表 `context_checkpoints`，每个会话至多一行 `active`（部分唯一索引），
+  新建时旧行在同一事务里改为 `superseded`。S（`summarized_count`）= 分支前 S 条
+  由摘要替代；C（`cleared_count`，≥ S）= [S, C) 的大工具结果换成占位说明；二者
+  只落在单元边界（完整交互开头或当前任务已完成批次的开头）。另存摘要正文与
+  `summary_until`（第 S 条消息的 UTC 时间）、`cleared_refs`（toolCallId → 条目
+  id）、摘要模型与状态（`ok | failed | none`）及原因、提示版本 `compaction-v1`、
+  usage、估算前后与建立它的任务及调用序号。
+- **指纹**：`fingerprint` = 前 C 条消息的角色、时间戳与工具调用 id 的 SHA-256。
+  每次调用读取生效压缩点并核对；消息少于 C 条或指纹不符时改为 `invalidated`，
+  按无压缩点处理。选择器把压缩点当作输入：同一压缩点加同一组消息得到同一视图，
+  两次压缩之间视图前缀不变，提示缓存只在每次压缩时失效一次。后台重启后压缩点
+  继续生效，不重新摘要。
+- **水位**：H' = min(高水位, 输入预算)，高水位 200,000 估算 token
+  （`SelectorBudgetConfig.compactionHighWater`，计入配置版本）；低水位 0.5 H'、
+  保护尾部 0.15 H'、最小收益 0.2 H'，都用选择器的估算口径。按生效压缩点选择后，
+  不做预算移出时的视图估算超过 H' 才规划新压缩点。
+- **规划**：保护尾部 = 由新到旧累计到 0.15 H' 的完整单元（至少含最新批次）；必留
+  单元（清单保底批次）与保护尾部不进覆盖范围。先把 C 推到保护尾部开头（第一层），
+  估算仍高于低水位时推进 S（第二层），取能压到低水位的最小单元边界。估算降幅
+  （摘要块按约 4,000 字的上限计）不到 0.2 H' 时不建压缩点，也不调用摘要模型。
+- **第一层（清理）**：[S, C) 中正文超过 2,000 字符或含图片的工具结果整条换成
+  `[已清理 · <工具名> · 原 <N> 字符 · 成功|失败 · history_read session_id=<会话> entry_id=<条目>]`
+  （条目 id 在建压缩点时解析一次会话文件得到；查不到时改为「原文需重新执行工具获取」）。
+  toolCallId 与 isError 不变；`skill`、`todo_write` 结果、toolCall 参数与
+  assistant 文本不清理。
+- **第二层（滚动摘要）**：输入为上一版摘要加 [旧 S, 新 S) 的原消息，调用 pi 的
+  `generateSummaryWithUsage`（结构化格式，工具结果截到 2,000 字符）；提示要求用中文、
+  保留路径/命令/函数名/错误原文、把拥有者的要求与决定写入 Constraints & Preferences
+  与 Key Decisions、区分拥有者原话与资料中的指令、全文约 4,000 字以内。模型：配置了
+  摘要模型就用它，否则用任务记录的模型选择；经 `modelCatalog.resolve` +
+  `modelRuntime.streamSimple` 调用（不经最终检查包装），不带思考参数、单次尝试、
+  超时 180 s、输出上限 16,384 token，触顶按失败处理。覆盖段估算超过摘要模型输入
+  预算时按失败处理（接入小窗口摘要模型时改为分块滚动）。停止任务时与 Jev 一起中止
+  摘要请求；等待结束后任务已停止或已切换就不发主模型请求，否则重新读取选择输入。
+- **视图顺序**：参考块 → `[压缩摘要 · 较早的 <S> 条消息 · 至 <summary_until>]`
+  摘要块 → 移出标记（如有）→ [S, n) 的历史（[S, C) 按第一层清理）→ 继续来源 /
+  计划说明 → 当前任务输入 → 当前任务批次。S 伸进当前任务时，任务输入原样排在
+  摘要块之后。Jev 只对 [S, n) 内的单元做取舍。
+- **兜底与失败**：压缩后仍超输入预算时沿用由近及远纳入，装不下的更早单元移出，
+  视图加一条 `[较早的 <N> 轮交互未进入本次上下文 · <起> 至 <止>]`。摘要失败（报错、
+  超时、触顶、输入超限、摘要模型不可用）只保留第一层（仍按最小收益判断是否建压缩点），
+  `summary_status = failed` 并记下原因；本任务内视图估算比失败时再增长 0.2 H' 之前
+  不再尝试摘要（冷却只在内存，重启后可再试）。必留内容超预算
+  （`context_budget_exceeded`）与 provider 的 `context_overflow` 仍按原规则中断。
+- **事件与展示**：`task.context_compaction` 开始调用摘要模型时一条（phase
+  `started`），压缩点落盘时一条（phase `finished`，与压缩点同一事务；摘要失败且清理
+  收益不足时 `checkpointId` 为 null）。TUI 事件流显示「正在压缩上下文…」与
+  「上下文已压缩：清理 N 条结果、摘要 M 条消息，估算 A → B」，摘要失败时写明只做了
+  清理及原因。`/context` 分解多「压缩摘要」一类，并显示压缩点（摘要替代条数与截至
+  时间、清理条数、建立它的任务与调用序号、摘要模型或失败原因）。系统提示共同段说明
+  三种标记的含义与找回原文的方法。
+- **部署后核对**：按天统计压缩次数与估算降幅（issue 30 的 SQL）；若模型频繁用
+  `history_read` 读回被清理的结果，说明清理过狠，调高清理阈值或保护尾部。
+
 ### 技能（issue 22）
 
 - 技能库固定为 `<agentDir>/skills/`（本机 `~/.ruukoto/agent/skills/`，服务器
@@ -548,7 +615,9 @@ ruukoto credentials add --name jev-myproject --host api.typesafe.ai \
 - 每次模型调用前落一条 `selection_records`：任务/会话、调用序号、策略与
   配置版本（预算配置哈希）、模型、项目指令来源版本、纳入/排除的消息索引
   与原因、纳入/排除的记忆 id+版本、被有界替换的工具结果片段范围、各项
-  估算与预算；发送后回填实际 provider usage。记录失败即阻断发送。
+  估算与预算、本次视图使用的压缩点 `checkpoint_id`（issue 30；旧记录为空，被摘要
+  与清理的消息序号不逐条记入，估算明细含 `compactionSummary`）；发送后回填实际
+  provider usage。记录失败即阻断发送。
 - 排除原因只记录索引与类别，不含其他项目的标题/片段。
 - 拥有者入口：`ruukoto selection-records --task <id> | --session <id>`；
   TUI `/context` 查看当前会话最近一轮的预算组成与排除原因。

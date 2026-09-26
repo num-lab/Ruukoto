@@ -747,6 +747,7 @@ function testBudget(contextWindow: number): SelectorBudgetConfig {
     calibration: 1,
     memoryBudget: 0,
     toolResultViewChars: 100_000,
+    compactionHighWater: 200_000,
   });
 }
 

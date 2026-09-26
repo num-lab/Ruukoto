@@ -462,7 +462,7 @@ export interface EditStats {
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
   /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
-  | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model"; provider?: string }
+  | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model" | "summary_model"; provider?: string }
   | { type: "project.created"; projectId: string; name: string; createRequestId: string | null }
   | { type: "project.jev_changed"; projectId: string; configVersion: number; enabled: boolean }
   | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null }
@@ -473,6 +473,16 @@ export type PersistentEventBody =
   | { type: "task.started"; taskId: string; sessionId: string }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }
+  /**
+   * 上下文压缩（issue 30）：started = 开始调用摘要模型；finished = 压缩点落盘（与压缩点同一事务），
+   * 摘要失败且清理收益不足时 checkpointId 为 null（未建压缩点）。
+   */
+  | {
+      type: "task.context_compaction"; taskId: string; sessionId: string; compactionId: string; phase: "started" | "finished";
+      checkpointId: string | null; summaryModel: string | null; estimateBefore: number;
+      estimateAfter?: number; clearedResults?: number; summarizedCount?: number;
+      summaryStatus?: ContextCheckpoint["summaryStatus"]; summaryError?: string | null;
+    }
   | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean; scope: ApprovalScope; permissionVersion?: number; reviewStatus?: "in_progress" | null; reviewModel?: string | null; reviewPolicyVersion?: string | null }
   | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected"; source?: "owner" | "auto_review"; reason?: string }
   /** 自动审查转人工（issue 15）：审批仍 pending，等待拥有者决定。 */
@@ -723,6 +733,39 @@ export interface SelectionRecord {
   promptArtifactId: string | null;
   /** 窗口与预留快照（null = 旧记录无快照，无法计算总窗口占比）。 */
   windowSnapshot: WindowSnapshot | null;
+  /** 本次视图使用的压缩点（issue 30；旧记录与无压缩点时为 null）。 */
+  checkpointId?: string | null;
+  createdAt: string;
+}
+
+/** 上下文压缩点（issue 30，ADR 0016）：每个会话至多一个 active。 */
+export interface ContextCheckpoint {
+  id: string;
+  sessionId: string;
+  status: "active" | "superseded" | "invalidated";
+  /** S：分支前 S 条消息由摘要替代。 */
+  summarizedCount: number;
+  /** C（≥ S）：[S, C) 的大工具结果换成占位说明。 */
+  clearedCount: number;
+  /** 前 C 条消息的角色、时间戳与工具调用 id 的 SHA-256。 */
+  fingerprint: string;
+  summary: string | null;
+  /** 第 S 条消息的时间戳（UTC ISO）。 */
+  summaryUntil: string | null;
+  /** 被清理结果的 toolCallId → 条目 id（null = 会话文件中未找到）。 */
+  clearedRefs: Record<string, string | null>;
+  clearedResults: number;
+  /** 本次压缩调用的摘要模型（provider/modelId；未调用为 null）。 */
+  summaryModel: string | null;
+  /** ok = 本次生成了新摘要；failed = 摘要失败只做了清理；none = 本次未调用摘要模型。 */
+  summaryStatus: "ok" | "failed" | "none";
+  summaryError: string | null;
+  promptVersion: string;
+  usage: Record<string, unknown> | null;
+  estimateBefore: number;
+  estimateAfter: number;
+  taskId: string;
+  callIndex: number;
   createdAt: string;
 }
 

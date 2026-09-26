@@ -25,16 +25,19 @@ import {
   loadAuthFile,
   loadDefaultModel,
   loadModelCatalogFile,
+  loadSummaryModel,
   probeModelConfig,
   removeProviderCredential,
   restoreCatalogSecrets,
   sanitizeCatalog,
   saveDefaultModel,
   saveModelCatalogFile,
+  saveSummaryModel,
   setProviderApiKey,
   thinkingLevelsForCatalogModel,
   validateApiKey,
   validateModelCatalog,
+  type SummaryModel,
 } from "../agent/model-config.ts";
 import { ConfigTuiApp, type ModelBackend, type ModelConfigView } from "./app.ts";
 
@@ -61,6 +64,7 @@ class OnlineModelBackend implements ModelBackend {
       providers: view.providers ?? {},
       credentials: view.credentials ?? {},
       defaultModel: view.defaultModel ?? null,
+      summaryModel: view.summaryModel ?? null,
       busyProviders: view.busyProviders ?? [],
     };
   }
@@ -90,13 +94,17 @@ class OnlineModelBackend implements ModelBackend {
     return this.mutate("set_default_model", { provider: selection.provider, model_id: selection.modelId, thinking_level: selection.thinkingLevel });
   }
 
+  setSummaryModel(model: SummaryModel | null): Promise<void> {
+    return this.mutate("set_summary_model", { provider: model?.provider ?? null, model_id: model?.modelId ?? null });
+  }
+
   testConnection(provider: string, modelId: string): Promise<{ ok: boolean; detail: string }> {
     return this.client.request("test_model_connection", { provider, model_id: modelId });
   }
 }
 
 /** 离线后端：直接写配置文件（入口已持有配置锁；修订指纹即文件字节摘要）。 */
-class OfflineModelBackend implements ModelBackend {
+export class OfflineModelBackend implements ModelBackend {
   constructor(private readonly agentDir: string) {}
 
   async load(): Promise<ModelConfigView> {
@@ -115,8 +123,18 @@ class OfflineModelBackend implements ModelBackend {
       providers: sanitizeCatalog(loadModelCatalogFile(this.agentDir).providers),
       credentials,
       defaultModel,
+      summaryModel: this.summaryModel(),
       busyProviders: [],
     };
+  }
+
+  /** 损坏的摘要模型配置按未设置处理（保存可修复）。 */
+  private summaryModel(): SummaryModel | null {
+    try {
+      return loadSummaryModel(this.agentDir);
+    } catch {
+      return null;
+    }
   }
 
   async saveCatalog(input: Record<string, any>): Promise<void> {
@@ -124,6 +142,10 @@ class OfflineModelBackend implements ModelBackend {
     const errors = validateModelCatalog({ providers });
     if (errors.length > 0) {
       throw Object.assign(new Error(`模型目录结构无效：${errors.join("；")}`), { code: "invalid_params" });
+    }
+    const summary = this.summaryModel();
+    if (summary && !(((providers[summary.provider] as any)?.models as any[] | undefined) ?? []).some((m) => m?.id === summary.modelId)) {
+      throw Object.assign(new Error(`模型 ${summary.provider}/${summary.modelId} 仍被摘要模型引用，请先切换或清除摘要模型`), { code: "provider_in_use" });
     }
     saveModelCatalogFile(this.agentDir, { providers });
   }
@@ -149,6 +171,9 @@ class OfflineModelBackend implements ModelBackend {
     if (defaultModel?.provider === provider) {
       throw Object.assign(new Error(`提供方 ${provider} 仍被后台默认模型引用，请先切换默认模型`), { code: "provider_in_use" });
     }
+    if (this.summaryModel()?.provider === provider) {
+      throw Object.assign(new Error(`提供方 ${provider} 仍被摘要模型引用，请先切换或清除摘要模型`), { code: "provider_in_use" });
+    }
     const catalog = loadModelCatalogFile(this.agentDir);
     delete catalog.providers[provider];
     saveModelCatalogFile(this.agentDir, catalog);
@@ -167,6 +192,16 @@ class OfflineModelBackend implements ModelBackend {
       throw Object.assign(new Error(`该模型不支持思考档位 ${selection.thinkingLevel}`), { code: "invalid_params" });
     }
     saveDefaultModel(this.agentDir, selection);
+  }
+
+  async setSummaryModel(model: SummaryModel | null): Promise<void> {
+    if (model) {
+      const def = loadModelCatalogFile(this.agentDir).providers[model.provider] as any;
+      if (!((def?.models as any[] | undefined) ?? []).some((m) => m?.id === model.modelId)) {
+        throw Object.assign(new Error(`模型不在目录中：${model.provider}/${model.modelId}`), { code: "invalid_params" });
+      }
+    }
+    saveSummaryModel(this.agentDir, model);
   }
 }
 

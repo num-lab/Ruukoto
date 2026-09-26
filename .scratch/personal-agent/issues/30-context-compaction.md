@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 05, 24, 27, 29
 
 # 上下文压缩：压缩点、清理旧工具结果与滚动摘要
@@ -154,3 +154,29 @@ GROUP BY 1;
 - 摘要失败后的冷却按视图估算再增长 0.2 H' 计，状态只在内存，后台重启后可以再试一次。
 - 摘要提示要求区分拥有者原话与资料中的指令，防止注入内容经摘要变成「拥有者的要求」。
 - 压缩事件分开始与完成两条：摘要可能要一两分钟，TUI 需要显示进度。
+
+### 2026-09-26：实现交付
+
+按工单实现：
+
+- 选择器（`src/agent/context-selector.ts`）：`SelectorInput.compaction` 带会话 id 与生效压缩点（null = qq_group / chat，维持现状）。`prepareContextGroups` 按 S 去掉摘要覆盖的单元，当前任务输入必留；`createViewer` 统一做 [S, C) 清理与单条上限；摘要块、移出标记按第 6 节顺序插入。输出新增 `unboundedTotal`（不做预算移出时的估算）、`checkpointId`、`summarizedCount`，估算明细新增 `compactionSummary`。`planCompaction` 为纯函数：H'、保护尾部（清单保底批次同样不进覆盖范围）、第一层 C、第二层取能压到低水位的最小边界、最小收益，以及摘要失败后的冷却。高水位 `compactionHighWater` 加入 `SelectorBudgetConfig`。
+- `src/agent/compaction.ts`：指纹、条目 id 解析（按 toolCallId + 时间戳匹配会话文件条目）、滚动摘要调用（`generateSummaryWithUsage` + `modelRuntime.streamSimple`，不带思考参数、不传 retry、180 s 超时与外部停止联动、输出上限 16,384、覆盖段超出摘要模型输入预算按失败处理并加 `ponytail:` 注释）。
+- 驱动器：`handleContext` 先按生效压缩点选择，超过 H' 时 `compactContext` 规划 → 摘要 → 压缩点与 `finished` 事件同一事务落盘；等待后任务已停止或切换就不发主模型请求，否则重新读取选择输入。`requestStop` 与任务收尾中止摘要请求。选择记录写 `checkpoint_id`。
+- 存储：`context_checkpoints` 表（部分唯一索引）与 `selection_records.checkpoint_id`，沿用 `SCHEMA_SQL` + `ensureColumns` 幂等补齐，未升 schema 版本。
+- 摘要模型：`summary-model.json` 纳入修订指纹与回滚快照；控制面 `set_summary_model`，`get_model_config` 返回 `summaryModel`；删除提供方或模型时核对引用（在线；离线的删除提供方与目录保存）。配置中心「模型与提供方」页头与「设置摘要模型」选项（首项「不设置」），说明写明数据去向。
+- 展示：TUI 事件流同一次压缩的开始与完成共用一行；`/context` 多「压缩摘要」一类与压缩点信息。系统提示共同段加标记说明。`docs/runtime.md`（上下文压缩、选择记录、配置中心）与 CONTEXT.md 同步。
+
+测试：新增 `test/61-context-compaction.test.ts`（选择器单元 8 项含 100 次调用模拟；宿主集成：第一层 + `history_read` 读回 + 前缀 + 记录/事件/`/context` + JSONL 不变 + 重启与指纹作废、第二层会话模型与配置的摘要模型、S 伸进当前任务、四种摘要失败（报错/超时/触顶/模型不可用）含冷却与移出标记、摘要等待中停止、必留超预算、chat 不压缩、在线与离线的摘要模型配置；另有 `/context` 渲染与事件流文本）。`test/33` 加离线设置摘要模型的界面流程；`test/16`、`test/21`、`test/54` 随新字段更新。
+
+实现中定下的细节（请复核）：
+
+- C 也不越过当前任务最近一次成功 `todo_write` 所在批次（「必留单元与保护尾部不进覆盖范围」同时约束 S 与 C）：否则旧清单批次在之后的调用里不再必留、被清理，两次压缩之间视图会变。
+- 摘要失败且只清理收益不足时不建压缩点，但仍写一条 `finished` 事件（`checkpointId` 为 null），让 TUI 的「正在压缩」有结果、失败原因可见。摘要等待中停止任务则没有完成事件，TUI 在任务结束时把该行改为「上下文压缩未完成：任务已结束」。
+- 冷却从失败后实际使用的视图估算起算：清理收益够（建了只清理的压缩点）时用清理后的估算，否则用原估算。
+- 事件与 `/context` 的「摘要 N 条」是压缩点的 S（摘要替代的总条数），只在本次生成了新摘要（`ok`）时显示；`none` 的压缩点 `summary_model` 为空，`/context` 显示「摘要沿用上一压缩点」。
+- 移出标记只在压缩会话出现，计数为因预算移出的单元（完整交互或当前任务批次），Jev 拒绝的不计；选择时先按最长标记文本预留空间。
+- 离线模式没有修订协商（持配置锁独占写），与默认模型一致，因此离线没有「修订冲突」一项。
+- qq_group 与 chat 共用 `dataScopeRestricted` 判定；端到端只测了 chat，qq_group 由选择器单元测试（`compaction: null`）覆盖。
+
+未处理：部署后验证（工单中的 SQL）由拥有者执行。`test/19-tui-demo.test.ts` 的失败在本工单之前已存在。
+

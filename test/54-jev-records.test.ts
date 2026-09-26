@@ -34,7 +34,7 @@ function record(id: string, detail: ContextExperimentRecord | null = null): Sele
     includedIndices: [0, 1, 2, 3], excluded: [], includedMemories: [], excludedMemories: [],
     instructionVersion: "", skillVersion: "", cappedToolResults: [], estimates: { mandatoryTurn: 100 },
     budget: 1000, estimatedTotal: 100, usage: null, experiment: detail,
-    promptArtifactId: null, windowSnapshot: null, createdAt: "2026-09-25T00:00:00.000Z",
+    promptArtifactId: null, windowSnapshot: null, checkpointId: null, createdAt: "2026-09-25T00:00:00.000Z",
   };
 }
 

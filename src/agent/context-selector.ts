@@ -19,7 +19,10 @@
  * - 预算 = 模型 contextWindow − 输出/思考预留 − 下一批工具结果预留 −
  *   安全余量；估算用 estimateTokens（chars/4）× 校准系数，中文按字符数
  *   直接计入（chars/4 对中文不是保守上界）；
- * - 必留内容自身超预算：返回 ok=false（宿主据此暂停，不静默摘要）。
+ * - 必留内容自身超预算：返回 ok=false（宿主据此暂停，不静默摘要）；
+ * - 上下文压缩（issue 30，ADR 0016）：生效的压缩点作为输入——前 S 条消息换成
+ *   摘要块，[S, C) 中的大工具结果换成占位说明；同一压缩点加同一组消息得到
+ *   同一个视图。压缩后仍超预算才整轮移出，并在视图里加移出标记。
  *
  * 替换入口：宿主按配置选择策略函数；合法性、权限与最终预算检查始终由
  * 宿主在请求前执行（见 driver 的最终检查），策略失败不等于放行。
@@ -49,6 +52,8 @@ export interface SelectorBudgetConfig {
   memoryBudget: number;
   /** 单条工具结果在模型视图中的正文字符上限。 */
   toolResultViewChars: number;
+  /** 上下文压缩高水位（issue 30）：视图估算超过 min(高水位, 输入预算) 才新建压缩点。 */
+  compactionHighWater: number;
 }
 
 export const DEFAULT_BUDGET_CONFIG: Omit<SelectorBudgetConfig, "contextWindow" | "maxTokens"> = {
@@ -61,6 +66,7 @@ export const DEFAULT_BUDGET_CONFIG: Omit<SelectorBudgetConfig, "contextWindow" |
   // ponytail: 定值不随模型窗口变化；接入 128K 级窗口时一批多个大结果可能触发
   // context_budget_exceeded，届时改为按预算比例收紧
   toolResultViewChars: 80_000,
+  compactionHighWater: 200_000,
 };
 
 export function validateBudgetConfig(config: SelectorBudgetConfig): SelectorBudgetConfig {
@@ -80,6 +86,7 @@ export function validateBudgetConfig(config: SelectorBudgetConfig): SelectorBudg
   })) {
     if (!Number.isFinite(v) || v < 0) bad(`${k} 为负或缺失`);
   }
+  if (!Number.isFinite(c.compactionHighWater) || c.compactionHighWater <= 0) bad("compactionHighWater 缺失或非正");
   if (!Number.isFinite(c.calibration) || c.calibration < 1) bad("calibration 小于 1");
   const reserved = c.maxTokens + c.thinkingBudget + c.toolResultReserve + c.safetyMargin;
   if (reserved >= c.contextWindow) bad("预留空间合计已达到或超过 contextWindow");
@@ -152,6 +159,7 @@ const BREAKDOWN_CATEGORIES: Array<[string, string]> = [
   ["memories", "长期记忆"],
   ["resumedFrom", "继续来源"],
   ["planMode", "计划模式"],
+  ["compactionSummary", "压缩摘要"],
   ["mandatoryTurn", "当前任务"],
   ["currentTaskBatches", "当前任务工具批次"],
   ["historyTurns", "历史轮次"],
@@ -250,6 +258,19 @@ export interface SelectorInput {
   /** 进入选择前已被宿主排除的记忆（如来源范围已撤销）；原样记入排除。 */
   preExcludedMemories?: Array<{ memoryId: string; version: number; reason: string }>;
   budget: SelectorBudgetConfig;
+  /** 上下文压缩（issue 30）：null/缺省 = 本会话不压缩（qq_group 与 chat 维持现状）。 */
+  compaction?: { sessionId: string; checkpoint: CheckpointInput | null } | null;
+}
+
+/** 生效的压缩点（已核对指纹）：前 S 条由摘要替代，[S, C) 的大工具结果换成占位说明。 */
+export interface CheckpointInput {
+  id: string;
+  summarizedCount: number;
+  clearedCount: number;
+  summary: string | null;
+  summaryUntil: string | null;
+  /** 被清理结果的 toolCallId → 条目 id（null = 建压缩点时未在会话文件中找到）。 */
+  clearedRefs: Record<string, string | null>;
 }
 
 export interface SelectionExclusion {
@@ -288,6 +309,12 @@ export interface SelectorOutput {
   /** 输入侧可用预算（contextWindow − 预留）。 */
   budget: number;
   estimatedTotal: number;
+  /** 不做预算移出时的视图估算（压缩判断用；issue 30）。 */
+  unboundedTotal: number;
+  /** 本次视图使用的压缩点（null = 无）。 */
+  checkpointId: string | null;
+  /** 由摘要块替代的前 S 条消息（不逐条记入选入或排除）。 */
+  summarizedCount: number;
   /** ok=false 时的原因。 */
   failure?: string;
 }
@@ -305,7 +332,8 @@ function candidateId(indices: number[]): string {
 
 /** 候选按基础策略的尝试顺序排列，包含因预算尚未进入基础视图的旧交互。 */
 export function getContextCandidates(input: SelectorInput): ContextCandidate[] {
-  const { groups, batches } = prepareContextGroups(input.messages);
+  // 摘要块不参与筛选：只取 [S, n) 内的单元
+  const { groups, batches } = prepareContextGroups(input.messages, input.compaction?.checkpoint?.summarizedCount ?? 0);
   return [...[...batches].reverse(), ...groups.slice(0, -1).reverse()].map((indices) => ({
     id: candidateId(indices),
     indices: [...indices],
@@ -404,11 +432,18 @@ function groupIntoTurns(messages: any[]): number[][] {
   return groups;
 }
 
-/** 基础策略与实验共用配对清洗、完整分组和必留项，始终保留原消息序号。 */
-function prepareContextGroups(messages: any[]): {
+/**
+ * 基础策略与实验共用配对清洗、完整分组和必留项，始终保留原消息序号。
+ * from = 压缩点的 S：此前的消息由摘要替代，不再分组；当前任务输入必留，
+ * S 伸进当前任务时原样保留（issue 30）。
+ */
+function prepareContextGroups(messages: any[], from = 0): {
   groups: number[][];
+  /** 当前任务的单元：[0] 为任务输入，其后为已完成批次（S 之前的批次已去掉）。 */
+  units: number[][];
   /** 当前任务中可修剪的工具批次（不含任务输入、最新批次与清单保底批次）。 */
   batches: number[][];
+  todoUnit: number[] | undefined;
   mandatory: Set<number>;
   droppedUnpaired: SelectionDroppedUnpaired[];
 } {
@@ -441,10 +476,12 @@ function prepareContextGroups(messages: any[]): {
       droppedUnpaired.push({ index: i, toolCallId: m.toolCallId });
     }
   }
-  const groups = groupIntoTurns(messages)
+  const turns = groupIntoTurns(messages)
     .map((group) => group.filter((index) => !droppedSet.has(index)))
     .filter((group) => group.length > 0);
-  const units = splitIntoUnits(groups.at(-1) ?? [], messages);
+  const units = splitIntoUnits(turns.at(-1) ?? [], messages).filter((unit, k) => k === 0 || unit[0]! >= from);
+  const history = turns.slice(0, -1).map((group) => group.filter((index) => index >= from)).filter((group) => group.length > 0);
+  const groups = units.length > 0 ? [...history, units.flat()] : history;
   const mandatory = new Set<number>(units[0] ?? []);
   if (units.length > 1) for (const index of units.at(-1)!) mandatory.add(index);
   // 工作清单保底（issue 25）：当前任务最近一次成功 todo_write 所在批次与最新批次同级必留。
@@ -453,7 +490,7 @@ function prepareContextGroups(messages: any[]): {
   const todoUnit = units.slice(1).findLast((unit) => unit.some((i) => isTodoWriteSuccess(messages[i])));
   if (todoUnit) for (const index of todoUnit) mandatory.add(index);
   const batches = units.slice(1, -1).filter((unit) => unit !== todoUnit);
-  return { groups, batches, mandatory, droppedUnpaired };
+  return { groups, units, batches, todoUnit, mandatory, droppedUnpaired };
 }
 
 function isTodoWriteSuccess(message: any): boolean {
@@ -486,6 +523,89 @@ function capToolResultView(
   });
   if (!changed) return { message, capped: false, originalChars: 0 };
   return { message: { ...message, content }, capped: true, originalChars };
+}
+
+// ---------- 上下文压缩（issue 30） ----------
+
+/** 摘要提示要求的全文上限（约 4,000 字）；规划时摘要块按此上限估算。 */
+const SUMMARY_MAX_CHARS = 4_000;
+/** 第一层清理阈值：正文超过此字符数（或含图片）的工具结果换成占位说明。 */
+const CLEAR_MIN_CHARS = 2_000;
+const CLEAR_EXEMPT_TOOLS = new Set(["skill", "todo_write"]);
+
+function textChars(message: any): number {
+  return Array.isArray(message?.content)
+    ? message.content.reduce((n: number, p: any) => n + (p?.type === "text" && typeof p.text === "string" ? p.text.length : 0), 0)
+    : 0;
+}
+
+/** 第一层清理的对象：正文超过阈值或含图片的工具结果；skill 与 todo_write 豁免。 */
+export function isClearableToolResult(message: any): boolean {
+  return (
+    message?.role === "toolResult" &&
+    !CLEAR_EXEMPT_TOOLS.has(message.toolName) &&
+    Array.isArray(message.content) &&
+    (textChars(message) > CLEAR_MIN_CHARS || message.content.some((p: any) => p?.type === "image"))
+  );
+}
+
+/** 占位说明：toolCallId 与 isError 不变，配对不受影响；注明找回原文的方法。 */
+function clearedToolResultView(message: any, sessionId: string, entryId: string | null | undefined): any {
+  const where = entryId ? `history_read session_id=${sessionId} entry_id=${entryId}` : "原文需重新执行工具获取";
+  const text = `[已清理 · ${message.toolName ?? "unknown"} · 原 ${textChars(message)} 字符 · ${message.isError ? "失败" : "成功"} · ${where}]`;
+  return { ...message, content: [{ type: "text", text }] };
+}
+
+function isoOf(timestamp: unknown): string {
+  return typeof timestamp === "number" && Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "未知时间";
+}
+
+function summaryBlock(checkpoint: CheckpointInput): any | null {
+  if (!checkpoint.summary || checkpoint.summarizedCount <= 0) return null;
+  return {
+    role: "user",
+    content: `[压缩摘要 · 较早的 ${checkpoint.summarizedCount} 条消息 · 至 ${checkpoint.summaryUntil ?? "未知时间"}]\n${checkpoint.summary}\n[/压缩摘要]`,
+    timestamp: 0,
+  };
+}
+
+function evictionMarker(count: number, first: unknown, last: unknown): any {
+  return { role: "user", content: `[较早的 ${count} 轮交互未进入本次上下文 · ${isoOf(first)} 至 ${isoOf(last)}]`, timestamp: 0 };
+}
+
+
+/**
+ * 模型视图的逐条变换：[from, clearTo) 中可清理的工具结果换成占位说明，其余按
+ * 单条上限有界替换。视图只取决于消息本身与压缩点（issue 27、30）。
+ */
+function createViewer(
+  messages: any[],
+  config: SelectorBudgetConfig,
+  clear: { from: number; to: number; sessionId: string; refs: Record<string, string | null> } | null,
+) {
+  const cache = new Map<number, any>();
+  const capped = new Map<number, { originalChars: number; viewChars: number }>();
+  const viewOf = (index: number): any => {
+    const cached = cache.get(index);
+    if (cached) return cached;
+    let message: any;
+    if (clear && index >= clear.from && index < clear.to && isClearableToolResult(messages[index])) {
+      message = clearedToolResultView(messages[index], clear.sessionId, clear.refs[messages[index].toolCallId]);
+    } else {
+      const result = capToolResultView(messages[index], config.toolResultViewChars);
+      message = result.message;
+      if (result.capped) {
+        capped.set(index, {
+          originalChars: result.originalChars,
+          viewChars: (message.content as any[]).reduce((n, p) => n + (typeof p?.text === "string" ? p.text.length : 0), 0),
+        });
+      }
+    }
+    cache.set(index, message);
+    return message;
+  };
+  const tokensOf = (index: number): number => estimateMessageTokens(viewOf(index), config.calibration);
+  return { viewOf, tokensOf, capped };
 }
 
 /**
@@ -599,8 +719,11 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   }
 
   const messages = input.messages;
+  const compaction = input.compaction ?? null;
+  const checkpoint = compaction?.checkpoint ?? null;
+  const from = checkpoint?.summarizedCount ?? 0;
 
-  const { groups, batches, mandatory, droppedUnpaired } = prepareContextGroups(messages);
+  const { groups, batches, mandatory, droppedUnpaired } = prepareContextGroups(messages, from);
   if (decisions) {
     const ids = new Set([...batches, ...groups.slice(0, -1)].map(candidateId));
     for (const [id, keep] of decisions) {
@@ -610,29 +733,24 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const exclusionReason = (indices: number[]): string =>
     decisions?.get(candidateId(indices)) === false ? "jev_rejected" : "budget";
 
-  // 视图消息缓存（工具结果有界替换；记录被替换的片段范围供选择记录落盘）
-  const viewCache = new Map<number, any>();
-  const cappedByIndex = new Map<number, { originalChars: number; viewChars: number }>();
-  const viewOf = (index: number): any => {
-    const cached = viewCache.get(index);
-    if (cached) return cached;
-    const { message, capped, originalChars } = capToolResultView(messages[index], config.toolResultViewChars);
-    if (capped) {
-      cappedByIndex.set(index, {
-        originalChars,
-        viewChars: (message.content as any[]).reduce((n, p) => n + (typeof p?.text === "string" ? p.text.length : 0), 0),
-      });
-    }
-    viewCache.set(index, message);
-    return message;
-  };
-  const tokensOf = (index: number): number => estimateMessageTokens(viewOf(index), calibration);
+  // 视图消息缓存（[S, C) 按第一层清理，其余有界替换；记录被替换的片段范围供选择记录落盘）
+  const { viewOf, tokensOf, capped: cappedByIndex } = createViewer(
+    messages,
+    config,
+    checkpoint ? { from, to: checkpoint.clearedCount, sessionId: compaction!.sessionId, refs: checkpoint.clearedRefs } : null,
+  );
+
+  // 摘要块（issue 30）：替代前 S 条消息，位于参考块之后、历史之前
+  const summary = checkpoint ? summaryBlock(checkpoint) : null;
+  estimates.compactionSummary = summary ? estimateMessageTokens(summary, calibration) : 0;
 
   let mandatoryTokens = 0;
   for (const index of mandatory) mandatoryTokens += tokensOf(index);
   estimates.mandatoryTurn = mandatoryTokens;
 
-  const fixed = estimates.systemPrompt + estimates.toolSchemas + referenceTokens + mandatoryTokens;
+  const fixed = estimates.systemPrompt + estimates.toolSchemas + referenceTokens + estimates.compactionSummary + mandatoryTokens;
+  let unboundedTotal = fixed;
+  for (const unit of [...batches, ...groups.slice(0, -1)]) for (const index of unit) unboundedTotal += tokensOf(index);
   if (fixed > budget) {
     return {
       ok: false,
@@ -648,12 +766,19 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
       estimates,
       budget,
       estimatedTotal: fixed,
-      failure: `必留内容（系统提示 ${estimates.systemPrompt} + 工具定义 ${estimates.toolSchemas} + 指令/技能/记忆/继续来源/计划说明 ${referenceTokens} + 当前任务 ${mandatoryTokens} = ${fixed}）超过输入预算 ${budget}`,
+      unboundedTotal,
+      checkpointId: checkpoint?.id ?? null,
+      summarizedCount: from,
+      failure: `必留内容（系统提示 ${estimates.systemPrompt} + 工具定义 ${estimates.toolSchemas} + 指令/技能/记忆/继续来源/计划说明 ${referenceTokens} + 压缩摘要 ${estimates.compactionSummary} + 当前任务 ${mandatoryTokens} = ${fixed}）超过输入预算 ${budget}`,
     };
   }
 
+  // 压缩会话预留移出标记的空间，确定移出后换成实际估算（不压缩的会话维持现状，不加标记）
+  // 最长标记：六位轮数，时间戳 ISO 定长
+  const markerReserve = compaction ? estimateMessageTokens(evictionMarker(999_999, 0, 0), calibration) : 0;
+  const evicted: number[][] = [];
   // 当前任务的较早工具批次：由近及远纳入（装不下即停，保持最近性）
-  let used = fixed;
+  let used = fixed + markerReserve;
   const included = new Set<number>(mandatory);
   for (let u = batches.length - 1; u >= 0; u--) {
     const unit = batches[u]!;
@@ -665,14 +790,16 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     for (const index of unit) unitTokens += tokensOf(index);
     if (used + unitTokens > budget) {
       for (let rest = u; rest >= 0; rest--) {
-        for (const index of batches[rest]!) excluded.push({ index, reason: exclusionReason(batches[rest]!) });
+        const reason = exclusionReason(batches[rest]!);
+        if (reason === "budget") evicted.push(batches[rest]!);
+        for (const index of batches[rest]!) excluded.push({ index, reason });
       }
       break;
     }
     used += unitTokens;
     for (const index of unit) included.add(index);
   }
-  estimates.currentTaskBatches = used - fixed;
+  estimates.currentTaskBatches = used - fixed - markerReserve;
 
   // 从近到远装入其余完整交互：一旦某组装不下，更老的组也不再尝试
   // （保持"最近的完整交互"语义，避免挑拣远旧碎片造成因果断裂）
@@ -686,12 +813,22 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     for (const index of group) groupTokens += tokensOf(index);
     if (used + groupTokens > budget) {
       for (let rest = g; rest >= 0; rest--) {
-        for (const index of groups[rest]!) excluded.push({ index, reason: exclusionReason(groups[rest]!) });
+        const reason = exclusionReason(groups[rest]!);
+        if (reason === "budget") evicted.push(groups[rest]!);
+        for (const index of groups[rest]!) excluded.push({ index, reason });
       }
       break;
     }
     used += groupTokens;
     for (const index of group) included.add(index);
+  }
+  used -= markerReserve;
+  // 移出标记（issue 30 §7）：整轮移出只作兜底，注明移出的轮数与时间范围
+  let marker: any = null;
+  if (compaction && evicted.length > 0) {
+    const indices = evicted.flat();
+    marker = evictionMarker(evicted.length, messages[Math.min(...indices)]?.timestamp, messages[Math.max(...indices)]?.timestamp);
+    used += estimateMessageTokens(marker, calibration);
   }
   estimates.historyTurns = used - fixed - estimates.currentTaskBatches;
 
@@ -700,7 +837,8 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const taskStart = includedIndices.indexOf(groups.at(-1)?.[0] ?? -1);
   const view = includedIndices.map((i) => viewOf(i));
   view.splice(taskStart < 0 ? view.length : taskStart, 0, ...taskMessages.map((p) => p.message));
-  const viewWithPrefixes = [...prefixMessages.map((p) => p.message), ...view];
+  // 参考块 → 摘要块 → 移出标记 → [S, n) 的历史 → 任务级块 → 当前任务
+  const viewWithPrefixes = [...prefixMessages.map((p) => p.message), ...(summary ? [summary] : []), ...(marker ? [marker] : []), ...view];
   const cappedToolResults = includedIndices
     .filter((i) => cappedByIndex.has(i))
     .map((i) => ({ index: i, ...cappedByIndex.get(i)! }));
@@ -719,7 +857,86 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     estimates,
     budget,
     estimatedTotal: used,
+    unboundedTotal,
+    checkpointId: checkpoint?.id ?? null,
+    summarizedCount: from,
   };
+}
+
+export interface CompactionPlan {
+  /** 新的 S / C（S ≤ C，都落在单元边界）。 */
+  summarizedCount: number;
+  clearedCount: number;
+  /** H' = min(高水位, 输入预算)。 */
+  highWater: number;
+  estimateBefore: number;
+  /** 只做第一层（S 不动）时的估算。 */
+  layerOneEstimate: number;
+}
+
+/**
+ * 规划新压缩点（issue 30 §3）。before = 按生效压缩点的选择结果；不超过 H'、
+ * 必留内容超预算或降幅不到 0.2 H' 时返回 null（不建压缩点，也不调用摘要模型）。
+ * summaryBlockedBelow：摘要失败后的冷却，视图估算低于此值时只规划第一层。
+ */
+export function planCompaction(input: SelectorInput, before: SelectorOutput, summaryBlockedBelow?: number): CompactionPlan | null {
+  const compaction = input.compaction;
+  if (!compaction || !before.ok) return null;
+  const config = input.budget;
+  const highWater = Math.min(config.compactionHighWater, before.budget);
+  if (before.unboundedTotal <= highWater) return null;
+  const messages = input.messages;
+  const current = compaction.checkpoint;
+  const s0 = current?.summarizedCount ?? 0;
+  const c0 = current?.clearedCount ?? 0;
+  const { groups, units, todoUnit } = prepareContextGroups(messages, s0);
+  const planUnits = [...groups.slice(0, -1), ...units];
+  if (planUnits.length === 0) return null;
+  const now = createViewer(messages, config, current ? { from: s0, to: c0, sessionId: compaction.sessionId, refs: current.clearedRefs } : null);
+  const sum = (indices: number[], tokens: (i: number) => number): number => indices.reduce((n, i) => n + tokens(i), 0);
+
+  // 保护尾部：由新到旧累计到 0.15 H' 的完整单元，至少含最新批次；必留单元（清单保底批次）同样不进覆盖范围
+  let tail = 0;
+  let limit = planUnits.at(-1)![0]!;
+  for (let u = planUnits.length - 1; u >= 0; u--) {
+    limit = planUnits[u]![0]!;
+    tail += sum(planUnits[u]!, now.tokensOf);
+    if (tail >= 0.15 * highWater) break;
+  }
+  if (todoUnit && todoUnit[0]! < limit) limit = todoUnit[0]!;
+
+  // 第一层：C 推到保护尾部开头（条目 id 此时未解析，占位长度差几个 token，不影响规划）
+  const clearedCount = Math.max(c0, limit);
+  const cleared = createViewer(messages, config, { from: s0, to: clearedCount, sessionId: compaction.sessionId, refs: current?.clearedRefs ?? {} });
+  const planIndices = planUnits.flat();
+  let layerOneEstimate = before.unboundedTotal;
+  for (const i of planIndices) if (i >= c0 && i < clearedCount) layerOneEstimate -= now.tokensOf(i) - cleared.tokensOf(i);
+
+  // 第二层：取能压到低水位的最小单元边界（S ≤ C；任务输入原样保留，不计降幅）
+  let summarizedCount = s0;
+  let estimate = layerOneEstimate;
+  const allowSummary = summaryBlockedBelow === undefined || before.unboundedTotal >= summaryBlockedBelow;
+  if (allowSummary && layerOneEstimate > 0.5 * highWater) {
+    const summaryMax = estimateMessageTokens(summaryBlock({
+      id: "", summarizedCount: 999_999, clearedCount: 0, summary: "字".repeat(SUMMARY_MAX_CHARS),
+      summaryUntil: new Date(0).toISOString(), clearedRefs: {},
+    }), config.calibration);
+    const delta = summaryMax - (before.estimates.compactionSummary ?? 0);
+    const taskInput = new Set(units[0] ?? []);
+    const bounds = [...new Set([...planUnits.map((u) => u[0]!).filter((b) => b > s0 && b < clearedCount), ...(clearedCount > s0 ? [clearedCount] : [])])];
+    let removed = 0;
+    let k = 0;
+    for (const bound of bounds.sort((a, b) => a - b)) {
+      for (; k < planIndices.length && planIndices[k]! < bound; k++) {
+        if (!taskInput.has(planIndices[k]!)) removed += cleared.tokensOf(planIndices[k]!);
+      }
+      summarizedCount = bound;
+      estimate = layerOneEstimate - removed + delta;
+      if (estimate <= 0.5 * highWater) break;
+    }
+  }
+  if (before.unboundedTotal - estimate < 0.2 * highWater) return null;
+  return { summarizedCount, clearedCount, highWater, estimateBefore: before.unboundedTotal, layerOneEstimate };
 }
 
 /**

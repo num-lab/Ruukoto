@@ -28,6 +28,7 @@ import {
   type AgentRoleId,
   type Artifact,
   type ConfirmationRequest,
+  type ContextCheckpoint,
   type GrantedPath,
   type ModelSelection,
   type PersistentEvent,
@@ -49,16 +50,19 @@ import {
   loadAuthFile,
   loadDefaultModel,
   loadModelCatalogFile,
+  loadSummaryModel,
   removeProviderCredential,
   restoreCatalogSecrets,
   restoreConfigFiles,
   sanitizeCatalog,
   saveDefaultModel,
   saveModelCatalogFile,
+  saveSummaryModel,
   setProviderApiKey,
   snapshotConfigFiles,
   validateApiKey,
   validateModelCatalog,
+  type SummaryModel,
 } from "../agent/model-config.ts";
 import { createApprovalReviewer, type ApprovalReviewer } from "../agent/review.ts";
 import { Driver } from "../agent/driver.ts";
@@ -176,6 +180,8 @@ export interface RuntimeConfig {
   webSearch?: import("../agent/web-search.ts").WebSearchConfig;
   /** Jev 实验：仅测试注入目标与超时；生产固定官方端点。 */
   jev?: { baseUrl?: string; timeoutMs?: number };
+  /** 上下文压缩（issue 30）：摘要超时覆盖（仅测试注入；生产 180 s）。 */
+  compaction?: { summaryTimeoutMs?: number };
   /** MCP（issue 16）：超时覆盖（仅测试注入；生产缺省 MCP_LIMITS）。 */
   mcp?: McpTimeouts;
   /** 自动审查配置（issue 15）：仅测试用来压短时限/输出上限。 */
@@ -1199,6 +1205,7 @@ export class Runtime {
     providers: Record<string, any>;
     credentials: Record<string, { configured: boolean; type?: string }>;
     defaultModel: ModelSelection | null;
+    summaryModel: SummaryModel | null;
     runtimeDefault: ModelSelection;
     busyProviders: string[];
   } {
@@ -1218,12 +1225,22 @@ export class Runtime {
       providers: sanitizeCatalog(loadModelCatalogFile(agentDir).providers),
       credentials,
       defaultModel,
+      summaryModel: this.readSummaryModel(),
       runtimeDefault: this.defaultSelection,
       busyProviders: this.modelConfigGate ? [...this.modelConfigGate] : [],
     };
   }
 
-  /** 删除 provider/模型前核实引用（§4）：被持久默认、会话或逻辑角色引用时拒绝，先提供替代项。 */
+  /** 摘要模型配置（损坏按未设置展示；修订指纹仍覆盖它，保存可修复）。 */
+  private readSummaryModel(): SummaryModel | null {
+    try {
+      return loadSummaryModel(this.config.agentDir);
+    } catch {
+      return null;
+    }
+  }
+
+  /** 删除 provider/模型前核实引用（§4）：被持久默认、摘要模型、会话或逻辑角色引用时拒绝，先提供替代项。 */
   private assertSelectionNotReferenced(provider: string, modelId?: string): void {
     let defaultModel: ModelSelection | null = null;
     try {
@@ -1231,12 +1248,15 @@ export class Runtime {
     } catch {
       // 损坏的默认配置文件不可能构成有效引用，按未配置处理
     }
+    const summaryModel = this.readSummaryModel();
     const refs = this.store.countProviderReferences(provider, modelId);
     const usedByDefault = defaultModel?.provider === provider && (modelId === undefined || defaultModel.modelId === modelId);
-    if (usedByDefault || refs.sessions > 0 || refs.roles > 0) {
+    const usedBySummary = summaryModel?.provider === provider && (modelId === undefined || summaryModel.modelId === modelId);
+    if (usedByDefault || usedBySummary || refs.sessions > 0 || refs.roles > 0) {
       const target = modelId === undefined ? `提供方 ${provider}` : `模型 ${provider}/${modelId}`;
       const parts: string[] = [];
       if (usedByDefault) parts.push("后台默认模型");
+      if (usedBySummary) parts.push("摘要模型");
       if (refs.sessions > 0) parts.push(`${refs.sessions} 个会话`);
       if (refs.roles > 0) parts.push(`${refs.roles} 个逻辑角色`);
       throw new RuntimeApiError("provider_in_use", `${target} 仍被引用（${parts.join("、")}），请先切换这些引用到其他可用项`);
@@ -1335,17 +1355,7 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     const selection = parseModelSelection({ provider: input.provider, modelId: input.modelId, thinkingLevel: input.thinkingLevel });
     // 必须能在当前目录中解析（成员 + 思考档位），否则新会话将拿到不可用默认
-    let option: ModelOption | undefined;
-    let offset = 0;
-    for (;;) {
-      const page = await this.modelCatalog.list({ provider: selection.provider, offset, limit: 100 });
-      option = page.models.find((m) => m.provider === selection.provider && m.modelId === selection.modelId);
-      if (option || page.nextOffset === null) break;
-      offset = page.nextOffset;
-    }
-    if (!option) {
-      throw new RuntimeApiError("invalid_params", `模型不在后台已配置的目录中：${selection.provider}/${selection.modelId}`);
-    }
+    const option = await this.catalogOption(selection.provider, selection.modelId);
     if (!option.thinkingLevels.includes(selection.thinkingLevel)) {
       throw new RuntimeApiError("invalid_params", `该模型不支持思考档位 ${selection.thinkingLevel}`);
     }
@@ -1361,6 +1371,40 @@ export class Runtime {
     }
     this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "default_model", provider: selection.provider }));
     return { revision: configRevision(this.config.agentDir), defaultModel: selection };
+  }
+
+  /** 模型必须在当前目录中（setDefaultModel 与 setSummaryModel 共用的核对）。 */
+  private async catalogOption(provider: string, modelId: string): Promise<ModelOption> {
+    let offset = 0;
+    for (;;) {
+      const page = await this.modelCatalog.list({ provider, offset, limit: 100 });
+      const option = page.models.find((m) => m.provider === provider && m.modelId === modelId);
+      if (option) return option;
+      if (page.nextOffset === null) break;
+      offset = page.nextOffset;
+    }
+    throw new RuntimeApiError("invalid_params", `模型不在后台已配置的目录中：${provider}/${modelId}`);
+  }
+
+  /**
+   * 设置或清除上下文压缩的摘要模型（issue 30 §8，持久化到 summary-model.json）。
+   * 每次摘要读取当前配置，不按任务钉版，不需要应用门闩；provider 与 modelId 都为 null 即清除。
+   */
+  async setSummaryModel(input: { provider: unknown; modelId: unknown; expectedRevision: unknown }): Promise<{ revision: string; summaryModel: SummaryModel | null }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    let model: SummaryModel | null = null;
+    if (input.provider !== null || input.modelId !== null) {
+      if (typeof input.provider !== "string" || !input.provider.trim() || typeof input.modelId !== "string" || !input.modelId.trim()) {
+        throw new RuntimeApiError("invalid_params", "provider 与 model_id 必须同为非空字符串，或同为 null（清除）");
+      }
+      await this.catalogOption(input.provider, input.modelId);
+      model = { provider: input.provider, modelId: input.modelId };
+    }
+    if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
+    this.assertConfigRevision(input.expectedRevision);
+    saveSummaryModel(this.config.agentDir, model);
+    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "summary_model", provider: model?.provider }));
+    return { revision: configRevision(this.config.agentDir), summaryModel: model };
   }
 
   /**
@@ -2108,6 +2152,7 @@ export class Runtime {
         budgetOverrides: this.config.budgetOverrides,
         webSearch: this.config.webSearch,
         jev: this.config.jev,
+        compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
         allowTaskTool: (task, name, effect) => this.githubEvents.allowTool(task, name, effect),
         reviewer: this.reviewer,
@@ -2908,13 +2953,26 @@ export class Runtime {
    * 单次调用的上下文窗口预算分解（issue 14）。校验记录属于指定会话；
    * 占比由 selectionBreakdown 统一计算。只读：不触发模型请求，不重读历史。
    */
-  getContextBreakdown(input: { sessionId: string; recordId: string }): { record: SelectionRecord; breakdown: ContextBreakdown } {
+  getContextBreakdown(input: { sessionId: string; recordId: string }): {
+    record: SelectionRecord;
+    breakdown: ContextBreakdown;
+    checkpoint: Partial<ContextCheckpoint> | null;
+  } {
     const record = this.store.getSelectionRecord(input.recordId);
     if (!record || record.sessionId !== input.sessionId) {
       throw new RuntimeApiError("not_found", `选择记录不存在或不属于该会话：${input.recordId}`);
     }
+    // 压缩点信息（issue 30 §9）：不回传摘要正文与条目引用
+    let checkpoint: Partial<ContextCheckpoint> | null = record.checkpointId ? this.store.getCheckpoint(record.checkpointId) : null;
+    if (checkpoint) {
+      checkpoint = { ...checkpoint };
+      delete checkpoint.summary;
+      delete checkpoint.clearedRefs;
+      delete checkpoint.fingerprint;
+      delete checkpoint.usage;
+    }
     try {
-      return { record, breakdown: selectionBreakdown(record) };
+      return { record, breakdown: selectionBreakdown(record), checkpoint };
     } catch (err) {
       if (err instanceof SelectionRecordCorrupt) throw new RuntimeApiError(err.code, err.message);
       throw err;

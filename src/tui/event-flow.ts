@@ -30,6 +30,25 @@ export function toolTargetFromParams(name: string, params: Record<string, unknow
   return "";
 }
 
+/** 估算 token 的简短写法：一万以上按「万」保留一位小数。 */
+function tokensText(n: number): string {
+  return n >= 10_000 ? `${(n / 10_000).toFixed(1)} 万` : String(n);
+}
+
+const COMPACTION_STARTED = "正在压缩上下文…";
+
+/** 上下文压缩事件的一行说明（issue 30 §9）。 */
+export function compactionText(body: Extract<PersistentEvent["body"], { type: "task.context_compaction" }>): string {
+  if (body.phase === "started") return COMPACTION_STARTED;
+  if (body.checkpointId === null) return `上下文未压缩：摘要失败（${body.summaryError ?? "未知原因"}），只做清理收益不足`;
+  const parts = [`清理 ${body.clearedResults ?? 0} 条结果`];
+  if (body.summaryStatus === "ok") parts.push(`摘要 ${body.summarizedCount ?? 0} 条消息`);
+  const estimate = `估算 ${tokensText(body.estimateBefore)} → ${tokensText(body.estimateAfter ?? 0)}`;
+  return body.summaryStatus === "failed"
+    ? `上下文已压缩，摘要失败只做了清理（${body.summaryError ?? "未知原因"}）：${parts.join("、")}，${estimate}`
+    : `上下文已压缩：${parts.join("、")}，${estimate}`;
+}
+
 /**
  * 一个会话只有一份事件展示投影。历史、实时事件与补读都按相同身份更新同一条目；
  * 身份不依赖正文，结果到达不会把工具移到完成时间。JSONL 仍是最终正文的权威来源。
@@ -84,6 +103,10 @@ export class EventFlow {
     if (task.endedAt) {
       for (const entry of this.entries.values()) {
         if (entry.taskId === task.id && entry.kind === "thinking" && !entry.endedAt) entry.endedAt = task.endedAt;
+        // 摘要等待中停止任务：不会有完成事件，进行中的压缩提示收尾
+        if (entry.taskId === task.id && entry.kind === "note" && entry.key.startsWith("compaction:") && entry.text === COMPACTION_STARTED) {
+          entry.text = "上下文压缩未完成：任务已结束";
+        }
       }
     }
   }
@@ -171,6 +194,15 @@ export class EventFlow {
         });
         const history = historyId ? this.history.get(historyId) : null;
         if (history) this.reconcileMessage(base, history);
+        return;
+      }
+      case "task.context_compaction": {
+        // 同一次压缩的开始与完成共用一条：进行中显示「正在压缩」，完成后换成结果
+        const key = `compaction:${body.compactionId}`;
+        if (event.seq <= (this.versions.get(key) ?? -1)) return;
+        this.versions.set(key, event.seq);
+        const at = this.entries.get(key)?.at ?? event.createdAt;
+        this.entries.set(key, { key, kind: "note", taskId: body.taskId, at, seq: event.seq, text: compactionText(body) });
         return;
       }
       case "task.output_entry": {

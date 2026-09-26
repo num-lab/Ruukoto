@@ -22,6 +22,8 @@ export interface TextResponse {
   text: string;
   /** 可选的 SSE 块间隔；缺省保持一次响应，指定后可观察真实中间帧。 */
   chunkDelayMs?: number;
+  /** 结束原因（缺省 stop；length = 输出触顶）。 */
+  finishReason?: "stop" | "length";
 }
 
 export interface ToolCallResponse {
@@ -107,7 +109,7 @@ export class MockModelServer {
             for (const piece of scripted.text.match(/.{1,16}/gs) ?? []) {
               out.push(JSON.stringify(chunk("mock-model", { content: piece }, null)));
             }
-            out.push(JSON.stringify(chunk("mock-model", {}, "stop")));
+            out.push(JSON.stringify(chunk("mock-model", {}, scripted.finishReason ?? "stop")));
           } else {
             for (const call of scripted.calls) {
               const delta = {

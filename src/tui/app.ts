@@ -50,7 +50,7 @@ import {
 import type { DirIdentity } from "../core/dir-identity.ts";
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "../core/views.ts";
-import type { AccessMode, ModelSelection, Project, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
+import type { AccessMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
 import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { ContextBreakdown } from "../agent/context-selector.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
@@ -69,6 +69,9 @@ import { EventFlowView } from "./event-flow-view.ts";
 import type { FlowEntry } from "./event-flow.ts";
 import { latestTodos, TodoPanel } from "./todo-panel.ts";
 import { isPlanInput, runsInPlanMode } from "../agent/plan-mode.ts";
+
+/** /context 展示的压缩点字段（issue 30；后台不回传摘要正文与条目引用）。 */
+type ContextCheckpointView = Pick<ContextCheckpoint, "summarizedCount" | "summaryUntil" | "clearedResults" | "taskId" | "callIndex" | "summaryModel" | "summaryStatus" | "summaryError">;
 
 const HISTORY_PAGE_SIZE = 50;
 const ARTIFACT_PAGE_BYTES = 32 * 1024;
@@ -1817,12 +1820,12 @@ export class TuiApp {
         this.tui.requestRender();
         return;
       }
-      const result = await this.connection.request<{ record: SelectionRecord; breakdown: ContextBreakdown }>(
+      const result = await this.connection.request<{ record: SelectionRecord; breakdown: ContextBreakdown; checkpoint?: ContextCheckpointView | null }>(
         "get_context_breakdown",
         { session_id: sessionId, record_id: recordId },
       );
       if (stale()) return;
-      bar.setLines(this.contextBarLines(result.record, result.breakdown, this.terminal.columns || 80));
+      bar.setLines(this.contextBarLines(result.record, result.breakdown, this.terminal.columns || 80, result.checkpoint ?? null));
       this.tui.requestRender();
     } catch (err) {
       if (stale()) return;
@@ -1838,7 +1841,7 @@ export class TuiApp {
    * 无窗口快照（旧记录）时退化为按输入预算画条，并在页脚说明原因——不假装
    * 有总窗口数据。
    */
-  private contextBarLines(record: SelectionRecord, b: ContextBreakdown, width: number): string[] {
+  private contextBarLines(record: SelectionRecord, b: ContextBreakdown, width: number, checkpoint: ContextCheckpointView | null = null): string[] {
     const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`);
     const w = b.window;
     const total = w ? w.contextWindow : b.budget;
@@ -1894,6 +1897,16 @@ export class TuiApp {
       const cost = experiment.estimatedCost;
       footer.push(`Jev 用量：${usage}；${cost ? `费用估算 US$${cost.usd.toFixed(9)}（${cost.priceDate} 单价）` : "费用未估算"}`);
       if (experiment.fallbackReason) footer.push(`原因：${sanitizeForDisplay(experiment.fallbackReason)}`);
+    }
+    // 压缩点（issue 30 §9）：摘要替代的条数与截至时间、清理条数、建立它的任务与调用序号、摘要模型或失败原因
+    if (checkpoint) {
+      const summarized = checkpoint.summarizedCount > 0
+        ? `摘要替代 ${checkpoint.summarizedCount} 条（至 ${sanitizeForDisplay(checkpoint.summaryUntil ?? "未知时间")}）`
+        : "无摘要";
+      footer.push(`压缩点：${summarized} · 清理 ${checkpoint.clearedResults} 条 · 建于任务 ${checkpoint.taskId.slice(0, 13)} 第 ${checkpoint.callIndex} 次调用`);
+      if (checkpoint.summaryStatus === "failed") footer.push(`摘要失败，只做了清理：${sanitizeForDisplay(checkpoint.summaryError ?? "未知原因")}`);
+      else if (checkpoint.summaryModel) footer.push(`摘要模型：${sanitizeForDisplay(checkpoint.summaryModel)}`);
+      else if (checkpoint.summarizedCount > 0) footer.push("摘要沿用上一压缩点");
     }
     // footer.push(
     //   w

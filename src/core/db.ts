@@ -201,9 +201,36 @@ CREATE TABLE IF NOT EXISTS selection_records (
   usage TEXT,
   experiment TEXT,
   window_snapshot TEXT,
+  checkpoint_id TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_selection_records_task ON selection_records (task_id, call_index);
+
+-- issue 30：上下文压缩点（ADR 0016）。每个会话至多一个 active（部分唯一索引），
+-- 新建时旧行改为 superseded；指纹不符时改为 invalidated。会话历史不受影响。
+CREATE TABLE IF NOT EXISTS context_checkpoints (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active','superseded','invalidated')),
+  summarized_count INTEGER NOT NULL,
+  cleared_count INTEGER NOT NULL,
+  fingerprint TEXT NOT NULL,
+  summary TEXT,
+  summary_until TEXT,
+  cleared_refs TEXT NOT NULL DEFAULT '{}',
+  cleared_results INTEGER NOT NULL DEFAULT 0,
+  summary_model TEXT,
+  summary_status TEXT NOT NULL CHECK (summary_status IN ('ok','failed','none')),
+  summary_error TEXT,
+  prompt_version TEXT NOT NULL,
+  usage TEXT,
+  estimate_before INTEGER NOT NULL,
+  estimate_after INTEGER NOT NULL,
+  task_id TEXT NOT NULL,
+  call_index INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_context_checkpoints_active ON context_checkpoints (session_id) WHERE status = 'active';
 
 -- v4 曾新增 GitHub 集成三表（github_repo_bindings / github_drafts /
 -- github_publish_ops，issue 06）；v9（issue 17）起专用模块退役，新库不再创建。
@@ -755,6 +782,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("selection_records", "prompt_artifact", "prompt_artifact TEXT");
     add("selection_records", "window_snapshot", "window_snapshot TEXT");
     add("selection_records", "experiment", "experiment TEXT");
+    // issue 30：本次视图使用的压缩点
+    add("selection_records", "checkpoint_id", "checkpoint_id TEXT");
     // v10（issue 07）：会话入口类别（dev / qq_group）
     add("sessions", "kind", "kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group'))");
     // v11（issue 01）：任务编排字段（逻辑角色 / 父任务 / 来源事件 / 截止 / 结果）

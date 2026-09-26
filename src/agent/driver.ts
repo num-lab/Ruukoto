@@ -14,7 +14,9 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
  * - 停止路径：先提交停止意图，解除确认等待，abort()，回收受管进程组，
  *   之后才提交终态并释放占用；
  * - 上下文超限：检测后任务中断（context_overflow）并暂停该会话队列，
- *   不自动摘要、不重试。
+ *   不自动摘要、不重试；
+ * - 上下文压缩（issue 30）：视图估算越过高水位时在 context 钩子里建压缩点
+ *   （清理旧工具结果、滚动摘要），落盘后原样复用；会话历史不变。
  */
 
 import * as fs from "node:fs";
@@ -36,7 +38,7 @@ import {
   type ApprovalReviewer,
 } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, ConfirmationRequest, ContextExperimentRecord, PersistentEventBody, SelectionUsage, Session, Task, ToolCategory } from "../core/types.ts";
+import type { AccessMode, AgentRole, ConfirmationRequest, ContextCheckpoint, ContextExperimentRecord, ModelSelection, PersistentEventBody, SelectionUsage, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
@@ -59,12 +61,16 @@ import {
   budgetConfigVersion,
   estimateMessageTokens,
   getContextCandidates,
+  planCompaction,
   selectContext,
   validateBudgetConfig,
+  type CheckpointInput,
   type SelectorBudgetConfig,
   type SelectorInput,
   type SelectorOutput,
 } from "./context-selector.ts";
+import { checkpointFingerprint, COMPACTION_PROMPT_VERSION, generateRollingSummary, resolveClearedRefs, type SummaryResult } from "./compaction.ts";
+import { loadSummaryModel } from "./model-config.ts";
 import { evaluateJev, JevError, JEV_MODEL, JEV_THRESHOLD, JEV_INPUT_USD_PER_MILLION, JEV_PRICE_DATE, type JevRequestConfig } from "./jev.ts";
 import { getProjectJevConfig, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "./jev-config.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
@@ -154,6 +160,8 @@ export interface DriverDeps {
   webSearch?: WebSearchConfig;
   /** Jev 的本地模拟服务与超时覆盖，仅宿主测试注入。 */
   jev?: JevRequestConfig;
+  /** 上下文压缩的摘要超时覆盖（issue 30），仅测试注入；生产 180 s。 */
+  compaction?: { summaryTimeoutMs?: number };
   /** MCP（issue 16）：服务配置存储与超时覆盖；未配置时 MCP 工具不注册。 */
   mcp?: { store: McpStore } & McpTimeouts;
   /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
@@ -251,6 +259,10 @@ export class Driver {
   private pendingExperiment: ContextExperimentRecord | null = null;
   private pinnedJev: JevConfig | null = null;
   private jevAborter: AbortController | null = null;
+  /** 进行中的摘要请求（issue 30）；停止任务时与 Jev 一起中止。 */
+  private summaryAborter: AbortController | null = null;
+  /** 摘要失败后的冷却（只在内存）：本任务内视图估算低于 below 时不再请求摘要。 */
+  private summaryCooldown: { taskId: string; below: number } | null = null;
   private pendingJevCredentialSnapshot: string | null = null;
   /** 选择/资料读取失败的阻断原因（最终检查发现即拒绝发送）。 */
   private selectionBlockReason: string | null = null;
@@ -566,8 +578,15 @@ export class Driver {
       if (this.isQqGroup && this.deps.qqRecalledFilter) {
         messages = this.deps.qqRecalledFilter(this.session.id, messages);
       }
-      const input = this.contextInput(messages);
+      let input = this.contextInput(messages);
       let selection = selectContext(input);
+      // 上下文压缩（issue 30）：按生效压缩点选择后估算仍超过 H' 才规划新压缩点；
+      // 摘要等待期间任务可能停止或切换，结束后重新读取选择输入（记忆等可能已变化）
+      if (await this.compactContext(task, input, selection)) {
+        if (this.currentTask?.id !== task.id || this.stopRequested) return undefined;
+        input = this.contextInput(messages);
+        selection = selectContext(input);
+      }
       // 必留项本身无法装入时无需向筛选服务发送内容。
       if (selection.ok && this.pinnedJev?.enabled && !this.dataScopeRestricted) {
         selection = await this.selectWithJev(task, input, selection, this.pinnedJev);
@@ -618,7 +637,137 @@ export class Driver {
       memories,
       preExcludedMemories,
       budget: this.budgetConfig(),
+      // 资料受限会话（qq_group 与 chat）不压缩，维持现状
+      compaction: this.dataScopeRestricted ? null : { sessionId: this.session.id, checkpoint: this.validatedCheckpoint(messages) },
     };
+  }
+
+  /** 读取生效的压缩点并核对指纹；消息少于 C 条或指纹不符时当场作废（写库），按无压缩点处理。 */
+  private validatedCheckpoint(messages: any[]): CheckpointInput | null {
+    const cp = this.deps.store.getActiveCheckpoint(this.session.id);
+    if (!cp) return null;
+    if (messages.length < cp.clearedCount || checkpointFingerprint(messages, cp.clearedCount) !== cp.fingerprint) {
+      this.deps.store.withTx(() => this.deps.store.invalidateCheckpoint(cp.id));
+      return null;
+    }
+    return cp;
+  }
+
+  /**
+   * 上下文压缩（issue 30 §3–§7）：规划 → 需要时调用摘要模型 → 压缩点与完成事件同一事务落盘。
+   * 摘要失败只保留第一层（仍按最小收益判断），并在本任务内冷却到估算再增长 0.2 H'。
+   * 返回是否有过等待或落盘（调用方据此重新读取选择输入）。
+   */
+  private async compactContext(task: Task, input: SelectorInput, before: SelectorOutput): Promise<boolean> {
+    const cooldown = this.summaryCooldown?.taskId === task.id ? this.summaryCooldown.below : undefined;
+    const plan = planCompaction(input, before, cooldown);
+    if (!plan) return false;
+    const messages = input.messages;
+    const previous = input.compaction!.checkpoint;
+    const compactionId = randomId("cmp");
+    const refs = { taskId: task.id, sessionId: task.sessionId };
+    let summarizedCount = previous?.summarizedCount ?? 0;
+    let summary = previous?.summary ?? null;
+    let summaryUntil = previous?.summaryUntil ?? null;
+    let summaryStatus: ContextCheckpoint["summaryStatus"] = "none";
+    let summaryError: string | null = null;
+    let summaryModel: string | null = null;
+    let usage: Record<string, unknown> | null = null;
+    if (plan.summarizedCount > summarizedCount) {
+      const outcome = await this.summarize(task, compactionId, plan.estimateBefore, messages.slice(summarizedCount, plan.summarizedCount), summary);
+      if (this.currentTask?.id !== task.id || this.stopRequested) return true;
+      summaryModel = outcome.model;
+      if (outcome.ok) {
+        summaryStatus = "ok";
+        summary = outcome.text;
+        summarizedCount = plan.summarizedCount;
+        const until = messages[summarizedCount - 1]?.timestamp;
+        summaryUntil = typeof until === "number" ? new Date(until).toISOString() : null;
+        usage = outcome.usage;
+      } else {
+        summaryStatus = "failed";
+        summaryError = outcome.error;
+        // 冷却从失败后实际使用的视图估算起算：清理收益够时是清理后的估算，否则原样
+        const layerOneOk = plan.estimateBefore - plan.layerOneEstimate >= 0.2 * plan.highWater;
+        this.summaryCooldown = { taskId: task.id, below: (layerOneOk ? plan.layerOneEstimate : plan.estimateBefore) + 0.2 * plan.highWater };
+        if (!layerOneOk) {
+          // 只做清理收益不足：不建压缩点，完成事件如实说明
+          this.deps.store.withTx(() => this.deps.store.appendEvent({
+            type: "task.context_compaction", taskId: task.id, sessionId: task.sessionId, compactionId, phase: "finished",
+            checkpointId: null, summaryModel, estimateBefore: plan.estimateBefore, summaryStatus, summaryError,
+          }, refs));
+          return true;
+        }
+      }
+    }
+    const clearedCount = plan.clearedCount;
+    const clearedRefs = resolveClearedRefs(messages, summarizedCount, clearedCount, this.sdk?.sessionFile);
+    const checkpoint: CheckpointInput = { id: randomId("ckpt"), summarizedCount, clearedCount, summary, summaryUntil, clearedRefs };
+    const after = selectContext({ ...input, compaction: { sessionId: this.session.id, checkpoint } });
+    const clearedResults = Object.keys(clearedRefs).length;
+    this.deps.store.withTx(() => {
+      this.deps.store.insertCheckpoint({
+        ...checkpoint,
+        sessionId: this.session.id,
+        fingerprint: checkpointFingerprint(messages, clearedCount),
+        clearedResults,
+        summaryModel,
+        summaryStatus,
+        summaryError,
+        promptVersion: COMPACTION_PROMPT_VERSION,
+        usage,
+        estimateBefore: plan.estimateBefore,
+        estimateAfter: after.unboundedTotal,
+        taskId: task.id,
+        callIndex: this.deps.store.countSelectionRecords(task.id) + 1,
+        createdAt: new Date().toISOString(),
+      });
+      this.deps.store.appendEvent({
+        type: "task.context_compaction", taskId: task.id, sessionId: task.sessionId, compactionId, phase: "finished",
+        checkpointId: checkpoint.id, summaryModel, estimateBefore: plan.estimateBefore, estimateAfter: after.unboundedTotal,
+        clearedResults, summarizedCount, summaryStatus, summaryError,
+      }, refs);
+    });
+    return true;
+  }
+
+  /**
+   * 调用摘要模型：配置了摘要模型就用它（每次读取当前配置，不按任务钉版；已配置但
+   * 无法解析时按失败处理，不改用会话模型），否则用任务记录的模型选择。
+   */
+  private async summarize(
+    task: Task, compactionId: string, estimateBefore: number, messages: any[], previousSummary: string | null,
+  ): Promise<SummaryResult & { model: string | null }> {
+    let selection: ModelSelection;
+    try {
+      const configured = loadSummaryModel(this.deps.agentDir);
+      selection = configured ? { ...configured, thinkingLevel: "off" } : task.modelSelection!;
+    } catch (err) {
+      return { ok: false, error: `摘要模型不可用：${(err as Error).message}`, model: null };
+    }
+    const model = `${selection.provider}/${selection.modelId}`;
+    const refs = { taskId: task.id, sessionId: task.sessionId };
+    this.deps.store.withTx(() => this.deps.store.appendEvent({
+      type: "task.context_compaction", ...refs, compactionId, phase: "started", checkpointId: null, summaryModel: model, estimateBefore,
+    }, refs));
+    let resolved: any;
+    try {
+      resolved = await this.deps.modelCatalog.resolve(selection);
+    } catch (err) {
+      return { ok: false, error: `摘要模型不可用：${(err as Error).message}`, model };
+    }
+    const controller = new AbortController();
+    this.summaryAborter = controller;
+    if (this.stopRequested) controller.abort();
+    try {
+      const outcome = await generateRollingSummary({
+        modelRuntime: this.deps.modelRuntime, model: resolved, messages, previousSummary,
+        signal: controller.signal, timeoutMs: this.deps.compaction?.summaryTimeoutMs,
+      });
+      return { ...outcome, model };
+    } finally {
+      if (this.summaryAborter === controller) this.summaryAborter = null;
+    }
   }
 
   /** 技能目录只在本任务确实可用 skill 工具时注入（GitHub 评审等收窄工具集不注入）。 */
@@ -936,7 +1085,8 @@ export class Driver {
         strategy: this.pendingExperiment?.strategy ?? SELECTOR_STRATEGY,
         configVersion: budgetConfigVersion(config),
         model: `${model?.provider ?? "?"}/${model?.id ?? "?"}`,
-        totalMessages: selection.includedIndices.length + selection.excluded.length,
+        // S 伸进当前任务时任务输入（< S）仍在选入里，不能与摘要条数重复计
+        totalMessages: selection.summarizedCount + selection.includedIndices.filter((i) => i >= selection.summarizedCount).length + selection.excluded.length,
         includedIndices: selection.includedIndices,
         excluded: [
           ...selection.excluded,
@@ -954,6 +1104,7 @@ export class Driver {
         budget: selection.budget,
         estimatedTotal: selection.estimatedTotal,
         experiment: this.pendingExperiment,
+        checkpointId: selection.checkpointId,
         promptArtifactId: null,
         windowSnapshot: {
           contextWindow: config.contextWindow,
@@ -1105,6 +1256,8 @@ export class Driver {
     } finally {
       this.jevAborter?.abort();
       this.jevAborter = null;
+      this.summaryAborter?.abort();
+      this.summaryAborter = null;
       this.flushOutput();
       this.endThinking();
       // 任务终态后回收本任务持有的 MCP 连接（所有退出路径统一兜底）
@@ -1319,6 +1472,7 @@ export class Driver {
     if (this.currentTask?.id !== task.id) return false;
     this.stopRequested = true;
     this.jevAborter?.abort();
+    this.summaryAborter?.abort();
 
     // 1. 提交停止意图（独立事务持久化）
     this.deps.store.withTx(() => {

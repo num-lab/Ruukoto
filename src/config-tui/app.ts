@@ -38,8 +38,11 @@ import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { McpServiceConfig } from "../agent/mcp/store.ts";
 import { reloadStatePathFromEnv, loadReloadState, saveReloadState } from "../tui/reload-state.ts";
 import { OverlayBox, MaskedInput, bold, dim, green, red, selectTheme, yellow } from "./components.ts";
-import { thinkingLevelsForCatalogModel } from "../agent/model-config.ts";
+import { thinkingLevelsForCatalogModel, type SummaryModel } from "../agent/model-config.ts";
 import { JEV_CREDENTIAL_PURPOSE, JEV_HOST, type JevConfig } from "../agent/jev-config.ts";
+
+/** 摘要模型的数据去向说明（issue 30 §8）。 */
+const SUMMARY_MODEL_NOTE = "设置后，main、coding 与开发会话较早的对话（含工具结果）会发给该模型的提供方做摘要";
 
 /** 与脱敏视图对齐的模型配置视图（apiKey 已被替换为 true，永不携带秘密）。 */
 export interface ModelConfigView {
@@ -47,6 +50,8 @@ export interface ModelConfigView {
   providers: Record<string, any>;
   credentials: Record<string, { configured: boolean; type?: string }>;
   defaultModel: ModelSelection | null;
+  /** 上下文压缩的摘要模型（issue 30；null = 用会话当前模型）。 */
+  summaryModel: SummaryModel | null;
   busyProviders: string[];
 }
 
@@ -58,6 +63,8 @@ export interface ModelBackend {
   removeApiKey(provider: string): Promise<void>;
   removeProvider(provider: string): Promise<void>;
   setDefaultModel(selection: ModelSelection): Promise<void>;
+  /** null = 清除（用会话当前模型）。 */
+  setSummaryModel(model: SummaryModel | null): Promise<void>;
   /** 显式联网探测（离线模式不提供）。 */
   testConnection?(provider: string, modelId: string): Promise<{ ok: boolean; detail: string }>;
 }
@@ -577,6 +584,7 @@ export class ConfigTuiApp {
         if (v) {
           const d = v.defaultModel;
           lines.push(`后台默认模型：${d ? `${d.provider}/${d.modelId} · ${d.thinkingLevel}` : "未设置（回退目录首个模型）"}`);
+          lines.push(`摘要模型：${v.summaryModel ? `${v.summaryModel.provider}/${v.summaryModel.modelId}` : "未设置（用会话当前模型）"}`);
           if (v.busyProviders.length > 0) lines.push(`有运行/排队任务，修改被暂缓：${v.busyProviders.join("、")}`);
         }
         return lines;
@@ -595,11 +603,13 @@ export class ConfigTuiApp {
           };
         });
         items.push({ value: "default-model", label: "设置后台默认模型", description: "选择提供方/模型/思考档位" });
+        items.push({ value: "summary-model", label: "设置摘要模型", description: SUMMARY_MODEL_NOTE });
         items.push({ value: "add-provider", label: "新增提供方" });
         return items;
       },
       onSelect: async (item) => {
         if (item.value === "default-model") return this.pickDefaultModel();
+        if (item.value === "summary-model") return this.pickSummaryModel();
         if (item.value === "add-provider") return this.addProvider();
         if (item.value.startsWith("provider:")) return this.pushScreen(this.providerScreen(item.value.slice("provider:".length)));
       },
@@ -931,6 +941,37 @@ export class ConfigTuiApp {
     await this.deps.modelBackend.setDefaultModel(sel);
     this.modelView = null;
     this.notify(`后台默认模型已保存：${sel.provider}/${sel.modelId} · ${sel.thinkingLevel}`);
+    await this.refresh();
+  }
+
+  /** 摘要模型只选提供方与模型（不存思考档位，摘要请求不带思考参数）；首项为不设置。 */
+  private async pickSummaryModel(): Promise<void> {
+    const models = await this.catalogModels();
+    const current = (await this.modelConfig()).summaryModel;
+    const UNSET = ""; // provider id 不能为空，空串即「不设置」
+    const provider = await this.pick(
+      "摘要模型：提供方",
+      [
+        { value: UNSET, label: "不设置（用会话当前模型）" },
+        ...[...new Set(models.map((m) => m.provider))].map((p) => ({ value: p, label: p, description: `${models.filter((m) => m.provider === p).length} 个模型` })),
+      ],
+      { description: `${SUMMARY_MODEL_NOTE}${current ? `；当前：${current.provider}/${current.modelId}` : ""}` },
+    );
+    if (provider === null) return;
+    let model: SummaryModel | null = null;
+    if (provider !== UNSET) {
+      const modelId = await this.pick(
+        "摘要模型：模型",
+        models
+          .filter((m) => m.provider === provider)
+          .map((m) => ({ value: m.modelId, label: m.name === m.modelId ? m.modelId : `${m.name}（${m.modelId}）`, description: m.available ? "" : "凭据未配置" })),
+      );
+      if (modelId === null) return;
+      model = { provider, modelId };
+    }
+    await this.deps.modelBackend.setSummaryModel(model);
+    this.modelView = null;
+    this.notify(model ? `摘要模型已保存：${model.provider}/${model.modelId}` : "摘要模型已清除，用会话当前模型");
     await this.refresh();
   }
 

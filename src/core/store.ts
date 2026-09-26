@@ -20,6 +20,7 @@ import {
   type Artifact,
   type ConfirmationRequest,
   type ConfirmationStatus,
+  type ContextCheckpoint,
   type GrantedPath,
   type InboundEvent,
   type InboundEventStatus,
@@ -1602,8 +1603,8 @@ export class Store {
         `INSERT INTO selection_records
          (id, task_id, session_id, call_index, strategy, config_version, model, total_messages,
           included_indices, excluded, included_memories, excluded_memories, instruction_version,
-          skill_version, capped_tool_results, estimates, budget, estimated_total, usage, window_snapshot, experiment, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+          skill_version, capped_tool_results, estimates, budget, estimated_total, usage, window_snapshot, experiment, checkpoint_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
       )
       .run(
         record.id,
@@ -1626,6 +1627,7 @@ export class Store {
         record.estimatedTotal,
         record.windowSnapshot ? JSON.stringify(record.windowSnapshot) : null,
         record.experiment ? JSON.stringify(record.experiment) : null,
+        record.checkpointId ?? null,
         record.createdAt,
       );
   }
@@ -1696,6 +1698,42 @@ export class Store {
     return Number(row.n);
   }
 
+  // ---------- 上下文压缩点（issue 30） ----------
+
+  getActiveCheckpoint(sessionId: string): ContextCheckpoint | null {
+    const row = this.db.prepare("SELECT * FROM context_checkpoints WHERE session_id = ? AND status = 'active'").get(sessionId) as any;
+    return row ? rowToCheckpoint(row) : null;
+  }
+
+  getCheckpoint(id: string): ContextCheckpoint | null {
+    const row = this.db.prepare("SELECT * FROM context_checkpoints WHERE id = ?").get(id) as any;
+    return row ? rowToCheckpoint(row) : null;
+  }
+
+  /** 新建压缩点（调用方在事务内）：旧的 active 行先改为 superseded。 */
+  insertCheckpoint(cp: Omit<ContextCheckpoint, "status">): void {
+    this.db.prepare("UPDATE context_checkpoints SET status = 'superseded' WHERE session_id = ? AND status = 'active'").run(cp.sessionId);
+    this.db
+      .prepare(
+        `INSERT INTO context_checkpoints
+         (id, session_id, status, summarized_count, cleared_count, fingerprint, summary, summary_until, cleared_refs,
+          cleared_results, summary_model, summary_status, summary_error, prompt_version, usage, estimate_before,
+          estimate_after, task_id, call_index, created_at)
+         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        cp.id, cp.sessionId, cp.summarizedCount, cp.clearedCount, cp.fingerprint, cp.summary, cp.summaryUntil,
+        JSON.stringify(cp.clearedRefs), cp.clearedResults, cp.summaryModel, cp.summaryStatus, cp.summaryError,
+        cp.promptVersion, cp.usage ? JSON.stringify(cp.usage) : null, cp.estimateBefore, cp.estimateAfter,
+        cp.taskId, cp.callIndex, cp.createdAt,
+      );
+  }
+
+  /** 指纹不符或消息不足：压缩点作废，按无压缩点处理。 */
+  invalidateCheckpoint(id: string): void {
+    this.db.prepare("UPDATE context_checkpoints SET status = 'invalidated' WHERE id = ? AND status = 'active'").run(id);
+  }
+
 }
 
 function rowToSelectionRecord(row: any): SelectionRecord {
@@ -1726,6 +1764,32 @@ function rowToSelectionRecord(row: any): SelectionRecord {
     experiment: row.experiment ? (JSON.parse(row.experiment) as SelectionRecord["experiment"]) : null,
     promptArtifactId: (row.prompt_artifact as string | null) ?? null,
     windowSnapshot: row.window_snapshot ? (JSON.parse(row.window_snapshot) as SelectionRecord["windowSnapshot"]) : null,
+    checkpointId: (row.checkpoint_id as string | null) ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+function rowToCheckpoint(row: any): ContextCheckpoint {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    status: row.status,
+    summarizedCount: Number(row.summarized_count),
+    clearedCount: Number(row.cleared_count),
+    fingerprint: row.fingerprint,
+    summary: row.summary ?? null,
+    summaryUntil: row.summary_until ?? null,
+    clearedRefs: JSON.parse(row.cleared_refs) as Record<string, string | null>,
+    clearedResults: Number(row.cleared_results),
+    summaryModel: row.summary_model ?? null,
+    summaryStatus: row.summary_status,
+    summaryError: row.summary_error ?? null,
+    promptVersion: row.prompt_version,
+    usage: row.usage ? (JSON.parse(row.usage) as Record<string, unknown>) : null,
+    estimateBefore: Number(row.estimate_before),
+    estimateAfter: Number(row.estimate_after),
+    taskId: row.task_id,
+    callIndex: Number(row.call_index),
     createdAt: row.created_at,
   };
 }

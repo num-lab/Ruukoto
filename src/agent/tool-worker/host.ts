@@ -14,7 +14,6 @@ import {
   type WorkerRequest,
 } from "./protocol.ts";
 import {
-  CONTAINER_WORKSPACE,
   ExecutionError,
   type LaunchSpec,
   type LaunchedUnit,
@@ -101,9 +100,8 @@ export class ToolWorkerHost {
       throw err;
     }
     host.readyListeners = [];
-    // 工作目录是执行边界内的路径：容器内为挂载点，本地/执行账户为工作区本身
-    const boundaryCwd = launcher.kind === "container" ? CONTAINER_WORKSPACE : spec.workspace;
-    host.sendRequest({ type: "init", cwd: boundaryCwd, label: spec.taskId });
+    // 容器按宿主原路径挂载工作区，各启动器的工作目录都是工作区本身
+    host.sendRequest({ type: "init", cwd: spec.workspace, label: spec.taskId });
     return host;
   }
 

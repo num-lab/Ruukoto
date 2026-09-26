@@ -5,7 +5,8 @@
  *   请求确认/自动审查模式的边界声明）；
  * - container：按任务建立 Linux 容器（固定镜像、非 root、cap-drop ALL、
  *   no-new-privileges、只读基础文件系统、独立可写 /tmp、默认无网络、
- *   只挂授权工作区与拥有者显式授予的路径）；confirm 与 auto-review 共用
+ *   只挂授权工作区与拥有者显式授予的路径，均按宿主原路径挂载，使模型
+ *   看到的路径在容器内外一致）；confirm 与 auto-review 共用
  *   该受限边界（ADR 0005）；
  * - systemd：完全访问任务的执行账户启动入口（systemd-run --pipe，固定
  *   UID，KillMode=control-group）。
@@ -62,7 +63,6 @@ export function workerEntryPath(): string {
 
 /** 容器内工作进程入口（固定路径，镜像打包）。 */
 export const CONTAINER_WORKER_PATH = "/opt/ruukoto/worker/worker.mjs";
-export const CONTAINER_WORKSPACE = "/workspace";
 
 function filteredEnv(): NodeJS.ProcessEnv {
   // 开发环境最小环境：不传凭据、SSH agent、代理配置与 RUUKOTO_* 控制面变量
@@ -179,15 +179,14 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
         "--network",
         "none",
         "-v",
-        `${spec.workspace}:${CONTAINER_WORKSPACE}`,
+        `${spec.workspace}:${spec.workspace}`,
         "-w",
-        CONTAINER_WORKSPACE,
+        spec.workspace,
         "--env",
         "PATH=/usr/local/bin:/usr/bin:/bin",
       ];
-      for (const [i, granted] of spec.grantedPaths.entries()) {
-        const target = `/granted/${i}`;
-        args.push("-v", `${granted.path}:${target}${granted.access === "read" ? ":ro" : ""}`);
+      for (const granted of spec.grantedPaths) {
+        args.push("-v", `${granted.path}:${granted.path}${granted.access === "read" ? ":ro" : ""}`);
       }
       args.push(config.image, "node", CONTAINER_WORKER_PATH);
 

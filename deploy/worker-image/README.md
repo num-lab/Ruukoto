@@ -4,7 +4,7 @@
 容器配置（固定，不允许任务修改）由 `src/agent/execution/launchers.ts` 的
 `createContainerLauncher` 给出：非 root（uid/gid 1000）、`--cap-drop ALL`、
 `no-new-privileges`、只读基础文件系统、可写 tmpfs `/tmp`、默认无网络，
-只挂载拥有者授权的工作区与任务级显式授予路径（`/granted/<n>`）。
+只挂载拥有者授权的工作区与任务级显式授予路径（均按宿主原路径挂载）。
 
 构建（可信身份执行；容器按任务启动，任务结束回收）：
 

@@ -15,7 +15,10 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
 - **执行边界**：请求确认与自动审查模式 → 按任务建立的 Linux 容器（固定镜像
   `ruukoto-worker`，非 root、cap-drop ALL、no-new-privileges、只读根文件
   系统、tmpfs /tmp、默认无网络、只挂载授权工作区与任务级授予路径），任务
-  结束回收容器；完全访问 → 容器外由 systemd 以固定执行 UID 启动
+  结束回收容器。工作区与授予路径按宿主原路径挂载（`-v <p>:<p>`，工作区
+  同时是工作目录，只读授予加 `:ro`），系统提示里的 cwd、拥有者给出的绝对
+  路径与 `request_file_access` 的宿主路径在容器内外一致；挂载点以外的父
+  目录在容器内为空。完全访问 → 容器外由 systemd 以固定执行 UID 启动
   （生产经 root 拥有的 sudo 包装入口，见 `deploy/systemd/`）。缺少执行
   后端或身份配置时明确失败，不回退到后台账户执行。
 - **模式绑定任务**：任务携带 accessMode（默认请求确认）、权限版本与
@@ -1331,10 +1334,10 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | 真实模型连通性（经完整运行时路径，一次短往返） | macOS 本机 | 未在本次运行（凭据缺失时跳过） |
 | node:sqlite v1→v2 事务迁移 + 崩溃后重开 | macOS 本机 | 通过（08 的迁移用例：旧任务默认请求确认、旧未决审批失效、历史与事件保留） |
 | Linux 容器边界探针（32 项：文件/子进程/网络/凭据/控制面/身份） | Docker Desktop Linux VM | 32/32 通过（`npm run linux:probes`，含就绪与完整性判定） |
-| 任务容器端到端：镜像构建 + 经真实容器启动器的 bash 路由、网络拒绝、宿主路径不可见、非 root、只读根、cap 清零、容器回收 | Docker Desktop Linux VM | 9/9 通过（`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`；镜像 `ruukoto-worker:0.85.1`） |
+| 任务容器端到端：镜像构建 + 经真实容器启动器的 bash 路由、网络拒绝、宿主路径不可见、非 root、只读根、cap 清零、容器回收；按宿主原路径挂载（pwd、宿主绝对路径 read、只读授予路径可读不可写） | Docker Desktop Linux VM；tx | 9/9 通过（Docker Desktop，`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`；镜像 `ruukoto-worker:0.85.1`）；13/13 通过（tx 2026-09-26，issue 28 新增同路径挂载 4 项，RUUKOTO_CONTAINER_UID/GID=1003） |
 | 同一容器镜像内的真实模型短编码任务（容器后端跑 07 场景） | tx（Ubuntu 24.04，容器后端 + deepseek-flash） | 通过（2026-09-21：confirm 任务经容器写文件，产物归属拥有者 uid 1003；RUUKOTO_CONTAINER_UID/GID=1003） |
 | systemd 执行账户入口（提权包装、固定身份、cgroup 回收） | tx（Ubuntu 24.04，systemd 255） | 通过（2026-09-21：sudo 链路与 uid 986 env_keep 传递、worker 以 ruukoto-exec 运行、参数注入/非授权调用拒绝、stop 幂等；修复 exec-stop 包装退出码与启动器约定相反的问题。2026-09-26 issue 23：经部署控制面的真实模型完全访问任务端到端通过——`id -un` 为 ruukoto-exec、按 ACL 写工作区且拥有者可改、git 接受拥有者仓库、HOME 可写、读拥有者令牌被拒、结束后单元 inactive） |
-| Git worktree 外部元数据显式授予路径挂载 | 未实测 | 授予路径校验/幂等已覆盖；容器挂载路径（/granted/N）未端到端实测 |
+| Git worktree 外部元数据显式授予路径挂载 | 部分（tx） | 授予路径校验/幂等已覆盖；容器内按宿主原路径挂载的只读授予路径已经冒烟实测（tx 2026-09-26）；worktree 共享 Git 元数据场景未专门实测 |
 | 目标服务器宿主前提（发行版、内核、rootless、docker/systemd） | tx（Ubuntu 24.04，内核 6.8，Docker 29.5.2） | 通过（2026-09-21：`npm run linux:probes` 32/32 + 容器冒烟 9/9；原生 Linux bind mount 无 uid 映射，容器 uid 与工作区写权限按 README 第 5 步处理） |
 | 真实模型短编码任务（真实凭据） | tx（经部署控制面，deepseek-flash） | 通过（2026-09-21，confirm 模式容器执行；`RUN_MODEL_CHECK=1 npm run test:model` 形式未单独跑） |
 | issue 06 GitHub 集成（19 项） | — | 已随 issue 17 退役删除（专用模块移除，通用保障迁移至 08/17/24） |

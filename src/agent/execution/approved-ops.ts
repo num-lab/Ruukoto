@@ -79,9 +79,11 @@ export function assertGrantNotProtected(resolved: string, protectedRoots: string
   if (isProtectedPath(resolved, protectedRoots)) {
     throw new ApprovedOpError(`路径位于控制面/服务数据目录内，始终排除：${resolved}`);
   }
+  // 根目录拼上分隔符会变成 "//"，需单独视为所有保护根的祖先
+  const prefix = resolved.endsWith(path.sep) ? resolved : resolved + path.sep;
   for (const root of protectedRoots) {
     const realRoot = path.resolve(root);
-    if (realRoot === resolved || realRoot.startsWith(resolved + path.sep)) {
+    if (realRoot === resolved || realRoot.startsWith(prefix)) {
       throw new ApprovedOpError(`路径是控制面/服务数据目录的父级，始终排除：${resolved}`);
     }
   }

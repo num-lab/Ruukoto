@@ -32,6 +32,7 @@ import { ControlClient } from "../src/control/client.ts";
 import { readOwnerToken, TOKEN_FILE_NAME } from "../src/control/owner-token.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { createLauncherFor } from "../src/agent/execution/launchers.ts";
+import { assertGrantNotProtected } from "../src/agent/execution/approved-ops.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 
 function modeRoutes() {
@@ -526,9 +527,21 @@ test("保护根双向排除：授予保护根的祖先或服务代码目录被�
       (err: any) => err.code === "invalid_params",
       "保护根的祖先目录不得作为会话工作区",
     );
+    // 根目录是所有保护根的祖先
+    await assert.rejects(
+      () => t.client.request("create_session", { project_id: project2.id, cwd: "/" }),
+      (err: any) => err.code === "invalid_params",
+      "根目录不得作为会话工作区",
+    );
   } finally {
     await t.shutdown();
   }
+});
+
+test("assertGrantNotProtected：根目录视为所有保护根的祖先", () => {
+  assert.throws(() => assertGrantNotProtected("/", ["/var/lib/ruukoto"]), /父级/);
+  assert.throws(() => assertGrantNotProtected("/var", ["/var/lib/ruukoto"]), /父级/);
+  assert.doesNotThrow(() => assertGrantNotProtected("/srv/work", ["/var/lib/ruukoto"]));
 });
 
 test("Git worktree：授予共享 Git 元数据时用途标注其影响；不授予则不自动包含", async () => {

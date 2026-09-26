@@ -1,7 +1,7 @@
 /**
  * 容器执行边界冒烟（issue 03 §1/§3）：经应用自身的容器启动器与工具工作
  * 进程宿主，验证真实路由——构建镜像 → 容器启动 → bash 工具 → 网络/宿主
- * 路径拒绝 → 整容器回收核实。
+ * 路径拒绝 → 整容器回收核实。工作区与授予路径按宿主原路径挂载（issue 28）。
  *
  * 运行前提：docker 可用且已构建 ruukoto-worker 镜像（deploy/worker-image/build.sh）。
  * 用法：npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts
@@ -39,18 +39,21 @@ function imageExists(image: string): boolean {
   }
 }
 
-async function bash(host: ToolWorkerHost, opId: string, command: string): Promise<{ text: string; isError: boolean }> {
-  const result = await host.call({
-    opId,
-    sdkCallId: opId,
-    name: "bash",
-    params: { command },
-    timeoutMs: 30_000,
-  });
+async function tool(
+  host: ToolWorkerHost,
+  opId: string,
+  name: string,
+  params: Record<string, unknown>,
+): Promise<{ text: string; isError: boolean }> {
+  const result = await host.call({ opId, sdkCallId: opId, name, params, timeoutMs: 30_000 });
   const text = (result.content as Array<{ type?: string; text?: string }>)
     .map((c) => c.text ?? "")
     .join("\n");
   return { text, isError: result.isError };
+}
+
+function bash(host: ToolWorkerHost, opId: string, command: string): Promise<{ text: string; isError: boolean }> {
+  return tool(host, opId, "bash", { command });
 }
 
 async function main(): Promise<number> {
@@ -70,13 +73,17 @@ async function main(): Promise<number> {
   const secretPath = path.join(secretDir, "host-secret.txt");
   fs.writeFileSync(secretPath, "host-secret-value\n", "utf8");
   fs.writeFileSync(path.join(workspace, "seed.txt"), "seed\n", "utf8");
+  // 只读授予路径（工作区外）
+  const grantedDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-smoke-granted-")));
+  const grantedFile = path.join(grantedDir, "granted.txt");
+  fs.writeFileSync(grantedFile, "granted-value\n", "utf8");
 
   const launcher = createContainerLauncher(DEFAULT_CONTAINER_CONFIG);
   const host = await ToolWorkerHost.start(launcher, {
     taskId: "smoke",
     mode: "confirm",
     workspace,
-    grantedPaths: [],
+    grantedPaths: [{ path: grantedDir, access: "read", purpose: "smoke" }],
   });
 
   try {
@@ -107,6 +114,21 @@ async function main(): Promise<number> {
     const r4 = await bash(host, "smoke-4", "touch /etc/escape 2>&1; grep CapEff /proc/self/status");
     check("容器基础文件系统只读", /Permission denied|Read-only file system/.test(r4.text), r4.text.trim().split("\n")[0] ?? "");
     check("容器无有效 capabilities", /CapEff:\s+0{16}/.test(r4.text), r4.text.match(/CapEff:.*/)?.[0] ?? "?");
+
+    // 5. 按宿主原路径挂载：工作目录、绝对路径读取与只读授予路径在容器内外一致
+    const r5 = await bash(host, "smoke-5", "pwd");
+    check("bash 工作目录为宿主工作区路径", r5.text.trim() === workspace && !r5.isError, r5.text.trim());
+    const r6 = await tool(host, "smoke-6", "read", { path: path.join(workspace, "seed.txt") });
+    check("按宿主绝对路径读取工作区文件", /seed/.test(r6.text) && !r6.isError, r6.text.trim().slice(0, 120));
+    const r7 = await bash(host, "smoke-7", `cat ${JSON.stringify(grantedFile)}`);
+    check("只读授予路径在宿主路径下可读", /granted-value/.test(r7.text) && !r7.isError, r7.text.trim());
+    const escape = path.join(grantedDir, "escape.txt");
+    const r8 = await bash(host, "smoke-8", `touch ${JSON.stringify(escape)} 2>&1`);
+    check(
+      "只读授予路径不可写",
+      /Read-only file system/.test(r8.text) && !fs.existsSync(escape),
+      r8.text.match(/.*Read-only file system.*/)?.[0] ?? r8.text.trim().slice(0, 120),
+    );
   } finally {
     const identity = host.identity();
     const reaped = await host.stop();
@@ -122,6 +144,7 @@ async function main(): Promise<number> {
 
   fs.rmSync(workspace, { recursive: true, force: true });
   fs.rmSync(secretDir, { recursive: true, force: true });
+  fs.rmSync(grantedDir, { recursive: true, force: true });
   console.log(failures === 0 ? "== 容器边界冒烟全部通过 ==" : `== ${failures} 项不一致 ==`);
   return failures === 0 ? 0 : 1;
 }

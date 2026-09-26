@@ -56,3 +56,13 @@ prompt 组装优化访谈 Q3、Q10 按推荐确认；tx 上的验证记录见「
 - 工作区或授予路径与镜像系统目录（如 `/usr`、`/etc`）重叠时，容器启动或工作进程就绪会失败并明确报错，不做额外拦截。
 - `verification/foundation/scripts/linux-isolation/run-probes.sh` 与 `probe.py` 是自带挂载的独立探针，仍用 `/workspace`，不改。
 - 容器启动参数目前没有离线测试（现有测试只覆盖 docker 缺失，`test/07-real-tools.test.ts:196`、`test/22-auto-review.test.ts:939`），以 tx 冒烟脚本为准。
+
+### 2026-09-26：实现
+
+- 容器启动器按宿主原路径挂载工作区（兼作 `-w`）与授予路径（只读仍加 `:ro`）；删除 `CONTAINER_WORKSPACE` 及 `tool-router.ts` 的未使用导入；`ToolWorkerHost` 统一以 `spec.workspace` 作为 init cwd。
+- `assertGrantNotProtected` 修正 `/`：以 `/` 结尾时不再追加分隔符，`/` 视为所有保护根的祖先。离线测试（`test/10-access-modes.test.ts`）覆盖函数拒绝 `/` 与 `create_session cwd: "/"` 返回 `invalid_params`，修复前两项均失败。
+- `container-worker-smoke.mts` 新增 4 项（只读授予拆成可读、不可写两项），tx 在临时检出目录运行 13/13 通过（`RUUKOTO_CONTAINER_UID/GID=1003`，镜像 `ruukoto-worker:latest`；工作进程镜像无需重建）。
+- `docs/runtime.md` 执行边界与验证表、`deploy/worker-image/README.md` 同步。
+- `npm run typecheck` 通过；`npm test` 557/558，唯一失败 `test/19-tui-demo.test.ts`「合成会话覆盖全部事件类型且 seq 连续」在未改动的 HEAD 上同样失败，与本工单无关。
+
+未完成：tx 部署后的真实模型验收（按系统提示的宿主绝对路径 read）需要拥有者授权部署。

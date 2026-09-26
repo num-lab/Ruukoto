@@ -32,7 +32,6 @@ import {
 } from "./execution/approved-ops.ts";
 import * as dns from "node:dns";
 import { ToolWorkerHost } from "./tool-worker/host.ts";
-import { CONTAINER_WORKSPACE } from "./execution/launchers.ts";
 import type { DataStream } from "./tool-worker/protocol.ts";
 import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
 import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";

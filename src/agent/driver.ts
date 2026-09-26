@@ -47,7 +47,7 @@ import type { CredentialBinding, CredentialStore } from "./execution/credentials
 import type { ExecutionError } from "./execution/launchers.ts";
 import type { WorkerLauncher } from "./execution/launchers.ts";
 import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./managed-processes.ts";
-import { createSdkSession } from "./session-factory.ts";
+import { createSdkSession, SYSTEM_PROMPTS } from "./session-factory.ts";
 import { ToolRouter, ROUTED_TOOL_NAMES, type ApprovalOutcome } from "./tool-router.ts";
 import type { ApprovalScope } from "../core/types.ts";
 import type { AccessScope } from "../core/access.ts";
@@ -506,6 +506,8 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
+      // 资料受限会话（QQ 群、chat）用 chat 提示；coding 含 GitHub 评审子任务
+      systemPrompt: SYSTEM_PROMPTS[this.dataScopeRestricted ? "chat" : this.role()?.id ?? "dev"],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),

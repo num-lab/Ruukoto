@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 Depends on: 03, 21
 
 # 容器按宿主原路径挂载工作区与授予路径
@@ -65,4 +65,9 @@ prompt 组装优化访谈 Q3、Q10 按推荐确认；tx 上的验证记录见「
 - `docs/runtime.md` 执行边界与验证表、`deploy/worker-image/README.md` 同步。
 - `npm run typecheck` 通过；`npm test` 557/558，唯一失败 `test/19-tui-demo.test.ts`「合成会话覆盖全部事件类型且 seq 连续」在未改动的 HEAD 上同样失败，与本工单无关。
 
-未完成：tx 部署后的真实模型验收（按系统提示的宿主绝对路径 read）需要拥有者授权部署。
+tx 部署后的真实模型验收待拥有者授权部署（同日获准，见下条）。
+
+### 2026-09-26：tx 部署与验收
+
+- 部署 24919c1（记录见 [09](09-tx-deploy.md) Comments）。
+- 验收：`~/ruukoto-ws` 会话提交请求确认任务 `task_7af7aa0eb39c973a65b9e105`（deepseek-flash，容器后端），提示只说「当前工作目录下的 issue28-marker.txt，用系统提示里的当前工作目录拼接绝对路径」。模型调用 `read {"path": "/home/eitrous/ruukoto-ws/issue28-marker.txt"}`，返回标记内容 `issue28-host-path-ok`，任务 completed，无审批，结束后无遗留 `ruukoto-task` 容器。标记文件已删除。

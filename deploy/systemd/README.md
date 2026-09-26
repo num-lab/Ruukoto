@@ -14,9 +14,14 @@
 ```bash
 # 1. 身份与目录（uid/gid 1002 被占用时给 ruukoto-exec 另选固定值，见第 5 步）
 sudo useradd --system --home /var/lib/ruukoto --shell /usr/sbin/nologin ruukoto-backend
-sudo useradd --system --shell /usr/sbin/nologin ruukoto-exec
-sudo install -d -o ruukoto-backend -g ruukoto-backend -m 0700 /var/lib/ruukoto/{data,agent}
+sudo useradd --system --home /home/ruukoto-exec --shell /usr/sbin/nologin ruukoto-exec
+sudo install -d -o ruukoto-backend -g ruukoto-backend -m 0700 /var/lib/ruukoto/{data,agent,agent-work}
 sudo install -d -o ruukoto-backend -g ruukoto-backend -m 0770 /var/lib/ruukoto/control
+#    执行账户的 HOME（systemd-run 按 passwd 设置；npm/pip/git 需要可写 HOME），
+#    并让它的 git 接受拥有者的仓库（只写入执行账户自己的全局配置；执行账户本就能
+#    运行任意命令，关掉它的仓库属主检查不扩大权限）
+sudo install -d -o ruukoto-exec -g ruukoto-exec -m 0700 /home/ruukoto-exec
+sudo -u ruukoto-exec -H git config --global --add safe.directory '*'
 
 # 2. 代码与依赖（/opt/ruukoto，属主 root，后台与执行账户只读）
 sudo rsync -a --delete \
@@ -57,7 +62,7 @@ sudo install -m 0440 /opt/ruukoto/deploy/systemd/sudoers.d.ruukoto /etc/sudoers.
 # 5. 完全访问执行入口指向受保护包装（生产配置；单元已内置 Environment）
 #    RUUKOTO_EXEC_LAUNCH_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-launch
 #    RUUKOTO_EXEC_STOP_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-stop
-#    不设置则直连 systemd-run（要求后台自身具备对应权限，仅用于开发/单机验证）。
+#    不设置则完全访问不可用（提交返回 execution_unavailable）。
 #    执行账户 uid/gid 非默认 1002 时，用 drop-in 覆盖（sudoers 已 env_keep 这两个变量）：
 #      # /etc/systemd/system/ruukoto-backend.service.d/10-exec-uid.conf
 #      [Service]
@@ -79,6 +84,12 @@ sudo install -o "$SUDO_USER" -m 0400 /var/lib/ruukoto/control/owner.token ~/.ruu
 sudo usermod -aG ruukoto-backend "$SUDO_USER"
 #    工作区位于 0750 的拥有者主目录下时，后台需要穿越权限（只给 x，不给读）：
 sudo setfacl -m u:ruukoto-backend:--x "/home/$SUDO_USER"
+#    完全访问以执行账户运行，同样需要穿越拥有者主目录，并对每个要用完全访问
+#    的工作区显式授权（默认 ACL 让双方都能改对方新建的文件）。没配 ACL 的
+#    工作区在完全访问下工具调用会 EACCES。穿越权限让执行账户能读到主目录下
+#    other 可读的内容（0400 的拥有者令牌、0700 的 ~/.ssh 不受影响）：
+sudo setfacl -m u:ruukoto-exec:--x "/home/$SUDO_USER"
+sudo setfacl -R -m "u:ruukoto-exec:rwX,d:u:ruukoto-exec:rwX,d:u:$SUDO_USER:rwX" <工作区>
 #    拥有者使用 CLI/TUI 时（与后台不同 UID）：
 #      export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
 #      export RUUKOTO_OWNER_TOKEN_FILE=~/.ruukoto-owner.token
@@ -94,3 +105,9 @@ env_keep 传递）、容器边界冒烟 9/9（容器 uid 经 RUUKOTO_CONTAINER_U
 退出码与启动器约定相反（`exec systemctl is-active` → 反转为
 `! is-active --quiet`）；目标机记录见 `.scratch/personal-agent/issues/09-tx-deploy.md`
 与 `docs/runtime.md` 验证状态表。
+
+2026-09-26（issue 23）：修复容器后端下完全访问总是 `execution_unavailable`，
+重新部署当前代码后在 tx 实测一次完全访问任务：以 `ruukoto-exec` 运行、按 ACL
+写工作区且拥有者可改、git 接受拥有者仓库、HOME 可写、读拥有者令牌被拒、结束后
+执行单元回收。部署中发现并补上 `agent-work` 目录（角色工作目录，缺失时后台
+启动失败）。

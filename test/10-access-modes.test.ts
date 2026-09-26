@@ -7,7 +7,8 @@
  * - switch-mode 在无执行中工具的边界生效（权限版本递增并发出事件），
  *   任务结束后拒绝切换；
  * - 完全访问任务不逐次确认（本地开发后端）且不改动其他任务的模式；
- * - 缺少执行入口时完全访问明确失败，不静默降级；
+ * - 缺少执行入口时完全访问明确失败，不静默降级；部署环境配置了受保护
+ *   提权入口时，容器后端的完全访问经执行账户入口启用；
  * - 控制面拥有者认证：认证前不返回快照、不执行请求；
  * - 模型不能提升模式（不存在这种工具）。
  */
@@ -30,6 +31,7 @@ import {
 import { ControlClient } from "../src/control/client.ts";
 import { readOwnerToken, TOKEN_FILE_NAME } from "../src/control/owner-token.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
+import { createLauncherFor } from "../src/agent/execution/launchers.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 
 function modeRoutes() {
@@ -382,6 +384,30 @@ test("完全访问任务不逐次确认；缺少执行入口时不静默降级",
     );
   } finally {
     await strict.shutdown();
+  }
+});
+
+test("容器后端：部署环境配置受保护提权入口即启用完全访问；缺一个变量明确失败（issue 23）", () => {
+  const keys = ["RUUKOTO_EXEC_LAUNCH_SCRIPT", "RUUKOTO_EXEC_STOP_SCRIPT"] as const;
+  const saved = keys.map((k) => process.env[k]);
+  try {
+    process.env.RUUKOTO_EXEC_LAUNCH_SCRIPT = "/usr/local/libexec/ruukoto/ruukoto-exec-launch";
+    process.env.RUUKOTO_EXEC_STOP_SCRIPT = "/usr/local/libexec/ruukoto/ruukoto-exec-stop";
+    assert.equal(createLauncherFor({ backend: "container" }, "full_access").kind, "systemd");
+
+    delete process.env.RUUKOTO_EXEC_STOP_SCRIPT;
+    assert.throws(
+      () => createLauncherFor({ backend: "container" }, "full_access"),
+      (err: any) =>
+        err.code === "execution_unavailable" &&
+        err.message.includes("RUUKOTO_EXEC_LAUNCH_SCRIPT") &&
+        err.message.includes("RUUKOTO_EXEC_STOP_SCRIPT"),
+    );
+  } finally {
+    keys.forEach((k, i) => {
+      if (saved[i] === undefined) delete process.env[k];
+      else process.env[k] = saved[i];
+    });
   }
 });
 

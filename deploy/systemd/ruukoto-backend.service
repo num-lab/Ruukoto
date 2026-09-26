@@ -11,7 +11,7 @@ Group=ruukoto-backend
 Environment=RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
 Environment=RUUKOTO_AGENT_DIR=/var/lib/ruukoto/agent
 Environment=RUUKOTO_EXECUTION_BACKEND=container
-# 完全访问执行入口指向受保护包装（生产配置）；不设置则直连 systemd-run（仅开发/单机验证）
+# 完全访问执行入口指向受保护包装（生产配置）；不设置则完全访问不可用（提交返回 execution_unavailable）
 Environment=RUUKOTO_EXEC_LAUNCH_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-launch
 Environment=RUUKOTO_EXEC_STOP_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-stop
 # 执行账户 uid/gid（默认 1002；目标机 1002 被占用时用 drop-in 覆盖，见 README 第 5 步）

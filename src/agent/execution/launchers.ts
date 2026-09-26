@@ -8,7 +8,7 @@
  *   只挂授权工作区与拥有者显式授予的路径）；confirm 与 auto-review 共用
  *   该受限边界（ADR 0005）；
  * - systemd：完全访问任务的执行账户启动入口（systemd-run --pipe，固定
- *   UID，KillMode=control-group）。目标服务器的 systemd 路径未实测。
+ *   UID，KillMode=control-group）。
  *
  * 停止语义：stop() 必须停掉整个执行单元（容器/systemd 单元/进程组）并
  * 核实已退出，调用方据此决定是否释放目录占用。
@@ -218,7 +218,7 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
   };
 }
 
-// ---------- systemd（完全访问的执行账户入口；目标服务器路径未实测） ----------
+// ---------- systemd（完全访问的执行账户入口） ----------
 
 export interface SystemdLauncherConfig {
   /** 专用执行账户（与后台、拥有者不同的系统身份）。 */
@@ -337,18 +337,17 @@ export function createLauncherFor(
       return createLocalLauncher();
     case "container":
       if (mode === "full_access") {
-        // 容器后端下完全访问需要执行账户入口；未配置时明确失败，不回退
-        // （auto-review 与 confirm 共用受限容器边界）
-        if (!config.systemd) {
+        // 容器后端下完全访问需要执行账户入口：显式配置，或部署环境配置的
+        // 受保护提权入口；都没有时明确失败，不回退（直连 systemd-run 不经
+        // 环境启用）。auto-review 与 confirm 共用受限容器边界
+        const systemdConfig = { ...defaultSystemdConfig(), ...config.systemd };
+        if (!config.systemd && !systemdConfig.protectedEntry) {
           throw new ExecutionError(
             "execution_unavailable",
-            "完全访问模式需要执行账户启动入口（systemd 配置），当前未配置；不回退到其他执行方式",
+            "完全访问模式需要执行账户启动入口：设置 RUUKOTO_EXEC_LAUNCH_SCRIPT 与 RUUKOTO_EXEC_STOP_SCRIPT（见 deploy/systemd），当前未配置；不回退到其他执行方式",
           );
         }
-        return createSystemdLauncher({
-          ...defaultSystemdConfig(),
-          ...config.systemd,
-        });
+        return createSystemdLauncher(systemdConfig);
       }
       return createContainerLauncher({ ...DEFAULT_CONTAINER_CONFIG, ...config.container });
     case "systemd":

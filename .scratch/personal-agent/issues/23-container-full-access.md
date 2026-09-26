@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 容器部署下完全访问任务总是失败
 
@@ -107,3 +107,9 @@ Q1–Q9 全部按推荐；tx 上的核对记录见「背景」。
 - 执行账户在完全访问下新建的子仓库归 986 所有，拥有者自己的 git 会拒绝进入该子仓库。不处理。
 - 执行账户的 umask 保持 systemd 默认的 0022，共享写权限靠默认 ACL 保证。
 - `executionInfo()` 对 container 后端的说明，不增加完全访问是否可用的提示。
+
+### 2026-09-26：实施与 tx 实测
+
+- 代码：`createLauncherFor` 的 container + full_access 分支先合并 `defaultSystemdConfig()`，有显式配置或受保护入口时即启用；否则报错，错误信息列出两个变量名。新增单元测试放在 `test/10-access-modes.test.ts`，先红后绿。全量测试 553 项中 552 项通过；唯一失败是 `test/19-tui-demo.test.ts` 的 demo 事件覆盖检查（缺 `project.jev_changed`、`task.context_experiment`），在 HEAD 上同样失败，与本工单无关。
+- tx 部署：按「实施范围」执行，记录见 [09](09-tx-deploy.md) Comments。部署中发现 README 缺少 `agent-work` 目录（后台启动失败），已补建并写入 README 第 1 步。`~/ruukoto-ws` 原本不是 git 仓库，已由 eitrous 执行 `git init` 并提交已有的 `e2e.txt`，使第 3 项检查的是归拥有者所有的仓库。
+- 实测任务 `task_d61c25acbacbd39bc0759d39`（完全访问，deepseek-flash），6 项全部通过：`id -un` 输出 `ruukoto-exec`；`fa-check.txt` 归 986，带 ACL，eitrous 能追加写入；`git status --short` 输出 `?? fa-check.txt`；`touch ~/probe` 落在 `/home/ruukoto-exec/probe`；读令牌返回 `Permission denied`，退出码 1；任务结束后单元 inactive，且没有残留的 `ruukoto-exec-*` 单元。第 5 项改成了 `cat … > /dev/null; echo exit=$?`，这样即使令牌可读，内容也不会进入模型上下文。实测留下的 `fa-check.txt` 和 `~/probe` 已删除。

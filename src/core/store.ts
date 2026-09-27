@@ -742,19 +742,6 @@ export class Store {
       );
   }
 
-  /**
-   * 幂等升级既有角色的工具白名单（issue 02）：只为已存在的角色更新工具清单，
-   * 保留其 Project、Session、工作目录与模型绑定；同清单不重复写入。
-   */
-  updateAgentRoleTools(roleId: AgentRoleId, tools: ToolCategory[]): boolean {
-    const role = this.getAgentRole(roleId);
-    if (!role) return false;
-    const same = role.tools.length === tools.length && role.tools.every((t) => tools.includes(t));
-    if (same) return false;
-    this.db.prepare("UPDATE agent_roles SET tools = ? WHERE id = ?").run(JSON.stringify(tools), roleId);
-    return true;
-  }
-
   getAgentRole(id: AgentRoleId): AgentRole | null {
     const row = this.db.prepare("SELECT * FROM agent_roles WHERE id = ?").get(id) as any;
     return row ? this.rowToAgentRole(row) : null;

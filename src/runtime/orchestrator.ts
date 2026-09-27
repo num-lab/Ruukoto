@@ -29,8 +29,8 @@ import {
   type NotifyTarget,
   type PersistentEvent,
   type Task,
-  type ToolCategory,
 } from "../core/types.ts";
+import { sessionToolCategories } from "../agent/tool-availability.ts";
 
 /** 编排器需要的 Runtime 窄接口（宿主注入；除此之外的能力编排器不可见）。 */
 export interface OrchestratorBridge {
@@ -78,16 +78,11 @@ export interface OrchestratorDeps {
   resultNotice?(task: Task): string | null;
 }
 
-/** 角色静态定义：工具白名单按注册来源类别给出（Driver 三层强制）。 */
-const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string; tools: ToolCategory[] }> = [
-  // main：日常对话/信息整理/编排——资料与记忆、Web Search、应用数据空间（issue 02）、
-  // 调度计划与通知（issue 03）、委派 coding（issue 05）、技能（issue 22）；
-  // 不持有编码工具
-  { id: "main", projectName: "agent-main", tools: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"] },
-  // coding：仓库/测试/PR 分析——编码工具 + 资料 + Web Search + MCP + 技能
-  { id: "coding", projectName: "agent-coding", tools: ["coding", "host_data", "web_search", "mcp", "skills"] },
-  // chat：群聊——空工具集合（与 qq_group 同一约束口径）
-  { id: "chat", projectName: "agent-chat", tools: [] },
+/** 角色静态定义（各角色的工具类别见 tool-availability 的会话类别清单）。 */
+const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string }> = [
+  { id: "main", projectName: "agent-main" },
+  { id: "coding", projectName: "agent-coding" },
+  { id: "chat", projectName: "agent-chat" },
 ];
 
 /** 委派/事件输入正文上限（登记时截断，超出部分不入库）。 */
@@ -256,14 +251,10 @@ export class Orchestrator {
 
   // ---------- 角色引导 ----------
 
-  /** 幂等：已有角色行跳过重建；仅工具清单按定义幂等升级（issue 02：既有 main 获得 app_data，身份不变）。 */
+  /** 幂等：已有角色行跳过（工具类别以 tool-availability 的清单为准，不读角色记录里的副本）。 */
   private async ensureRoles(): Promise<void> {
     for (const def of ROLE_DEFINITIONS) {
-      const existing = this.store.getAgentRole(def.id);
-      if (existing) {
-        this.store.updateAgentRoleTools(def.id, def.tools);
-        continue;
-      }
+      if (this.store.getAgentRole(def.id)) continue;
       const project = this.deps.bridge.findProjectByName(def.projectName) ?? this.deps.bridge.createProject(def.projectName);
       const workDir = path.join(path.dirname(path.resolve(this.deps.dataDir)), "agent-work", def.id);
       fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
@@ -275,7 +266,7 @@ export class Orchestrator {
         sessionId: session.id,
         workDir,
         modelSelection: null,
-        tools: def.tools,
+        tools: sessionToolCategories(def.id),
         createdAt: new Date().toISOString(),
       });
     }

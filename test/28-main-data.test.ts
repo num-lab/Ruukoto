@@ -1269,7 +1269,7 @@ test("应用库实例身份不符：能力停止并保留未知效果（不覆�
   }
 });
 
-test("既有 main 角色幂等升级：重启后获得 app_data，项目/会话/工作目录/模型绑定不变", async () => {
+test("既有 main 角色重启：角色记录里的工具清单副本不影响装配，项目/会话/工作目录/模型绑定不变", async () => {
   const { dirs } = await makeTestDirs("appdata-upgrade", 0);
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
@@ -1286,20 +1286,22 @@ test("既有 main 角色幂等升级：重启后获得 app_data，项目/会话/
   try {
     let rt = await Runtime.start(config);
     const before = rt.store.getAgentRole("main")!;
-    assert.deepEqual(before.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"]);
-    // 模拟升级前已存在的 main（无 app_data）
+    // 模拟早期版本留下的 main 记录（清单副本无 app_data）；工具类别以代码里的会话类别清单为准
     rt.store.db.prepare("UPDATE agent_roles SET tools = ? WHERE id = 'main'").run(JSON.stringify(["host_data", "web_search"]));
     await rt.stop("pre-upgrade");
 
     rt = await Runtime.start(config);
     try {
       const after = rt.store.getAgentRole("main")!;
-      assert.deepEqual(after.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"], "既有 main 升级工具清单");
+      const task = await rt.submit({ sessionId: after.sessionId, requestId: "after-upgrade", input: "UPGRADE-MARK", modelSelection: rt.defaultSelection });
+      await waitFor("main 任务完成", () => rt.store.getTask(task.id)!.status === "completed");
+      const call = server.calls.find((c) => lastUserText(c).includes("UPGRADE-MARK"))!;
+      assert.ok(toolNamesOf(call).includes("app_data_query"), "旧副本不含 app_data，main 照样装配应用数据工具");
       assert.equal(after.projectId, before.projectId);
       assert.equal(after.sessionId, before.sessionId);
       assert.equal(after.workDir, before.workDir);
       assert.deepEqual(after.modelSelection, before.modelSelection);
-      // 再重启一次：幂等，不再变化
+      // 再重启一次：身份幂等，角色记录不再被改写
       await rt.stop("again");
       rt = await Runtime.start(config);
       const again = rt.store.getAgentRole("main")!;

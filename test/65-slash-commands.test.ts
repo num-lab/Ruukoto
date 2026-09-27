@@ -18,7 +18,7 @@ import {
 
 type Reply = unknown | Error | ((params: Record<string, unknown> | undefined) => unknown);
 
-function fake(opts: { view?: CommandEnv["view"]; replies?: Record<string, Reply> } = {}) {
+function fake(opts: { view?: CommandEnv["view"]; replies?: Record<string, Reply>; hostReturns?: Partial<Record<keyof CommandHost, unknown>> } = {}) {
   const log = {
     requests: [] as Array<[string, Record<string, unknown> | undefined]>,
     notes: [] as string[],
@@ -30,6 +30,7 @@ function fake(opts: { view?: CommandEnv["view"]; replies?: Record<string, Reply>
   const host = new Proxy({} as CommandHost, {
     get: (_target, name) => async (...args: unknown[]) => {
       log.host.push([String(name), ...args]);
+      return opts.hostReturns?.[name as keyof CommandHost];
     },
   });
   const env: CommandEnv = {
@@ -104,19 +105,29 @@ test("派发：/plan <内容> 作任务输入不回显；只输入 /plan 显示�
   assert.equal(f.log.host.length, 1);
 });
 
-test("派发：/skill <名称> 提交参数原文；/skill:<名称> 直接作任务输入；不带名称列出技能库", async () => {
+test("派发：/skill <名称> 与 /skill:<名称> 都作任务输入不回显，按 trim 过的整行提交参数原文；不带名称列出技能库", async () => {
   const f = fake({ replies: { list_skills: { dir: "/s", skills: [], diagnostics: [] } } });
   await f.run("/skill review  a\nb");
-  assert.deepEqual(f.log.host, [["submit", "/skill:review  a\nb"]]);
-  assert.deepEqual(f.log.echoes, ["/skill review  a\nb"]);
+  await f.run("/skill\nreview x");
+  await f.run("  /skill:review x ");
+  assert.deepEqual(f.log.host, [["submit", "/skill:review  a\nb"], ["submit", "/skill:review x"], ["submit", "/skill:review x"]]);
+  assert.deepEqual(f.log.echoes, [], "任务输入不回显");
 
-  await f.run("/skill:review x");
-  assert.deepEqual(f.log.host.at(-1), ["submit", "/skill:review x"]);
-  assert.equal(f.log.echoes.length, 1, "/skill: 形式不回显");
-
-  await f.run("/skill");
+  await f.run("/skill  ");
   assert.deepEqual(f.log.requests, [["list_skills", undefined]]);
-  assert.equal(f.log.echoes.length, 2);
+  assert.deepEqual(f.log.echoes, ["/skill"]);
+  await f.run("/skills:x");
+  assert.deepEqual(f.log.notes.at(-1), "未知命令：/skills:x（/help 查看命令列表）");
+});
+
+test("/status：没有活动任务时注记；有活动任务时只刷新", async () => {
+  const idle = fake({ hostReturns: { refreshTask: false } });
+  await idle.run("/status");
+  assert.deepEqual(idle.log.notes, ["当前没有活动任务"]);
+  const busy = fake({ hostReturns: { refreshTask: true } });
+  await busy.run("/status");
+  assert.deepEqual(busy.log.host, [["refreshTask"]]);
+  assert.deepEqual(busy.log.notes, []);
 });
 
 test("派发：成功结果只由 keepsResult 条目保留（/mode、/model），/thinking 丢弃；错误总是保留", async () => {

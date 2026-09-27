@@ -1122,7 +1122,15 @@ export class Driver {
       return undefined;
     }
 
-    return this.approvals.confirmTool({ task, hostOpId, toolName: event.toolName, params });
+    // 经审批闸门：批准后先消费（= 执行开始）再放行 SDK 执行
+    const approval = await this.approvals.request({
+      task,
+      hostOpId,
+      toolName: event.toolName,
+      params,
+      scope: { kind: "tool", workspaceOnly: true },
+    });
+    return approval.approved ? undefined : { block: true, reason: approval.text };
   }
 
   /** 运行时入口：等待中的审批因模式切换立即失效（Runtime 调用）。 */

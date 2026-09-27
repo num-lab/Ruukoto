@@ -170,6 +170,43 @@ test("认证失败与协议不兼容：进入 failed，不自动重试", async (
   assert.equal(connects, 1, "认证失败不得自动重试");
 });
 
+test("认证超时与认证中途断线：退避重连，不进入 failed", async () => {
+  const log: ConnLog = { states: [], snapshots: [], events: [] };
+  let attempt = 0;
+  const ctl = fakeControl({
+    authenticate: async (transport) => {
+      attempt++;
+      if (attempt === 1) throw new ControlClientError("request_timeout", "请求超时：auth", "unknown");
+      if (attempt === 2) {
+        transport.drop();
+        throw new ControlClientError("connection_closed", "连接已关闭", "disconnected");
+      }
+    },
+  });
+  const { conn } = makeConn({ clientFactory: ctl.factory }, log);
+  await assert.rejects(() => conn.start(), /请求超时/);
+  await waitFor("重连上线", () => conn.state === "online");
+  assert.equal(attempt, 3);
+  assert.ok(!log.states.some(([s]) => s === "failed"), "应答丢失不是明确拒绝，不得停止重连");
+  conn.close();
+});
+
+test("首次建连失败（后台未起）：退避后连上", async () => {
+  const log: ConnLog = { states: [], snapshots: [], events: [] };
+  const ctl = fakeControl();
+  let refused = 0;
+  const factory = async (): Promise<ControlTransport> => {
+    if (refused++ < 2) throw new ControlClientError("connection_error", "Error: connect ENOENT", "not_sent");
+    return ctl.factory();
+  };
+  const { conn } = makeConn({ clientFactory: factory }, log);
+  await assert.rejects(() => conn.start(), /ENOENT/);
+  assert.equal(conn.state, "reconnecting");
+  await waitFor("连上", () => conn.state === "online");
+  assert.equal(log.snapshots.length, 1);
+  conn.close();
+});
+
 test("协议版本不兼容（握手阶段）：进入 failed，不自动重试", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   let connects = 0;

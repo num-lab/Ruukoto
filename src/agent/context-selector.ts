@@ -114,16 +114,6 @@ export function budgetConfigVersion(config: SelectorBudgetConfig): number {
   return hash || 1;
 }
 
-/** 选择失败（必留内容超预算等）：宿主映射为 context_budget_exceeded。 */
-export class ContextBudgetExceeded extends Error {
-  readonly code = "context_budget_exceeded";
-  readonly detail: string;
-  constructor(detail: string) {
-    super(`上下文预算不足：${detail}`);
-    this.detail = detail;
-  }
-}
-
 // ---------- 上下文窗口预算分解（issue 14；占比在后台统一计算，TUI 只渲染） ----------
 
 export interface ContextBreakdownCategory {
@@ -150,20 +140,25 @@ export interface ContextBreakdown {
   other: ContextBreakdownCategory | null;
 }
 
-/** 已知分类键与展示标签（与 selectContext 写入的 estimates 键一一对应）。 */
-const BREAKDOWN_CATEGORIES: Array<[string, string]> = [
-  ["systemPrompt", "系统提示"],
-  ["toolSchemas", "工具定义"],
-  ["projectInstructions", "项目指令"],
-  ["skills", "技能"],
-  ["memories", "长期记忆"],
-  ["resumedFrom", "继续来源"],
-  ["planMode", "计划模式"],
-  ["compactionSummary", "压缩摘要"],
-  ["mandatoryTurn", "当前任务"],
-  ["currentTaskBatches", "当前任务工具批次"],
-  ["historyTurns", "历史轮次"],
-];
+/**
+ * 上下文分类登记（/context 分类与选择记录 estimates 的键，按此顺序展示）：参考块的
+ * 分类与选择器写入的估算只能用这里的键，漏登记 typecheck 不过，不会落进「其他」。
+ */
+const CONTEXT_CATEGORIES = {
+  systemPrompt: "系统提示",
+  toolSchemas: "工具定义",
+  projectInstructions: "项目指令",
+  skills: "技能",
+  memories: "长期记忆",
+  resumedFrom: "继续来源",
+  planMode: "计划模式",
+  compactionSummary: "压缩摘要",
+  mandatoryTurn: "当前任务",
+  currentTaskBatches: "当前任务工具批次",
+  historyTurns: "历史轮次",
+} as const;
+
+export type ContextCategory = keyof typeof CONTEXT_CATEGORIES;
 
 /** 记录损坏（估算或快照自相矛盾）：调用方映射为明确错误，不展示可疑数字。 */
 export class SelectionRecordCorrupt extends Error {
@@ -202,7 +197,7 @@ export function selectionBreakdown(record: SelectionRecord): ContextBreakdown {
     windowUnavailableReason = "该记录缺少窗口快照（创建于快照上线之前），无法计算总窗口占比";
   }
 
-  const categories: ContextBreakdownCategory[] = BREAKDOWN_CATEGORIES.map(([key, label]) => {
+  const categories: ContextBreakdownCategory[] = Object.entries(CONTEXT_CATEGORIES).map(([key, label]) => {
     const tokens = record.estimates[key] ?? 0;
     return { key, label, tokens, pctOfBudget: pct(tokens, record.budget), pctOfWindow: pct(tokens, window?.contextWindow ?? null) };
   });
@@ -238,8 +233,8 @@ export function selectionBreakdown(record: SelectionRecord): ContextBreakdown {
  * 块头不含版本：版本变化不等于文本变化，版本由组装写入选择记录。
  */
 export interface ReferenceBlock {
-  /** 估算分类键（/context 分类）。 */
-  category: string;
+  /** 估算分类键（分类表登记的键）。 */
+  category: ContextCategory;
   /** prefix = 历史之前（跨任务稳定）；task = 当前任务输入之前（只属于本任务）。 */
   placement: "prefix" | "task";
   /** 完整块文本（选择器包成 user 消息）。 */
@@ -300,7 +295,7 @@ export interface SelectorOutput {
   excludedMemories: Array<{ memoryId: string; version: number; reason: string }>;
   /** 模型视图中被有界替换的工具结果（原输入序号 + 原/视图字符数）。 */
   cappedToolResults: Array<{ index: number; originalChars: number; viewChars: number }>;
-  /** 估算明细（校准后 token）。 */
+  /** 估算明细（校准后 token；键为分类表登记的键，本次没有的分类不出现）。 */
   estimates: Record<string, number>;
   /** 输入侧可用预算（contextWindow − 预留）。 */
   budget: number;
@@ -613,7 +608,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const { calibration } = config;
   const budget = inputBudgetFor(config);
 
-  const estimates: Record<string, number> = {};
+  const estimates = {} as Record<ContextCategory, number>;
   estimates.systemPrompt = estimateTextTokens(input.systemPrompt, calibration);
   estimates.toolSchemas = estimateToolSchemaTokens(input.tools, calibration);
 
@@ -628,11 +623,8 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const references = input.references ?? [];
   const prefixMessages = references.filter((b) => b.placement === "prefix").map((b) => asMessage(b.text));
   const taskMessages = references.filter((b) => b.placement === "task").map((b) => asMessage(b.text));
-  let referenceTokens = 0;
   for (const block of references) {
-    const tokens = estimateMessageTokens(asMessage(block.text), calibration);
-    referenceTokens += tokens;
-    estimates[block.category] = (estimates[block.category] ?? 0) + tokens;
+    estimates[block.category] = (estimates[block.category] ?? 0) + estimateMessageTokens(asMessage(block.text), calibration);
   }
 
   // 记忆：单独预算，按输入顺序（项目优先、更新时间倒序、id 稳定）截取
@@ -649,7 +641,6 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
     prefixMessages.push(asMessage(text));
   }
   estimates.memories = memoryUsed;
-  referenceTokens += memoryUsed;
 
   const messages = input.messages;
   const compaction = input.compaction ?? null;
@@ -681,10 +672,14 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   for (const index of mandatory) mandatoryTokens += tokensOf(index);
   estimates.mandatoryTurn = mandatoryTokens;
 
-  const fixed = estimates.systemPrompt + estimates.toolSchemas + referenceTokens + estimates.compactionSummary + mandatoryTokens;
+  // 必留合计 = 此刻已写入的各项估算之和（失败文案逐项列出，数字总能对上）
+  const fixed = Object.values(estimates).reduce((n, tokens) => n + tokens, 0);
   let unboundedTotal = fixed;
   for (const unit of [...batches, ...groups.slice(0, -1)]) for (const index of unit) unboundedTotal += tokensOf(index);
   if (fixed > budget) {
+    const listed = (Object.keys(CONTEXT_CATEGORIES) as ContextCategory[])
+      .filter((key) => estimates[key] > 0)
+      .map((key) => `${CONTEXT_CATEGORIES[key]} ${estimates[key]}`);
     return {
       ok: false,
       messages: [],
@@ -700,7 +695,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
       unboundedTotal,
       checkpointId: checkpoint?.id ?? null,
       summarizedCount: from,
-      failure: `必留内容（系统提示 ${estimates.systemPrompt} + 工具定义 ${estimates.toolSchemas} + 指令/技能/记忆/继续来源/计划说明 ${referenceTokens} + 压缩摘要 ${estimates.compactionSummary} + 当前任务 ${mandatoryTokens} = ${fixed}）超过输入预算 ${budget}`,
+      failure: `必留内容（${listed.join(" + ")} = ${fixed}）超过输入预算 ${budget}`,
     };
   }
 

@@ -13,15 +13,14 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
  *   落盘后发出（不预支未落盘内容，不建第二套权威历史）；
  * - 停止路径：先提交停止意图，解除确认等待，abort()，回收受管进程组，
  *   之后才提交终态并释放占用；
+ * - 模型上下文：每个任务一个组装实例（context-assembly，含上下文压缩）；
+ *   context 钩子交出消息，发送前先过本模块的检查、再由组装实例复核并落
+ *   选择记录，被拦下时任务中断并暂停该会话队列；
  * - 上下文超限：检测后任务中断（context_overflow）并暂停该会话队列，
- *   不自动摘要、不重试；
- * - 上下文压缩（issue 30）：视图估算越过高水位时在 context 钩子里建压缩点
- *   （清理旧工具结果、滚动摘要），落盘后原样复用；会话历史不变。
+ *   不自动摘要、不重试。
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
-import { createHash } from "node:crypto";
 import {
   type AgentSession,
   type AgentSessionEvent,
@@ -30,7 +29,7 @@ import {
   type ToolDefinition,
   type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
+import type { ModelCatalog } from "./model-selection.ts";
 import {
   classifyForReview,
   ReviewAbortedError,
@@ -38,14 +37,13 @@ import {
   type ApprovalReviewer,
 } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, ConfirmationRequest, ContextCheckpoint, ContextExperimentRecord, ModelSelection, PersistentEventBody, SelectionUsage, Session, Task, ToolCategory } from "../core/types.ts";
+import type { AccessMode, AgentRole, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "../core/views.ts";
-import { grantCoversPath } from "../core/worktree.ts";
 import type { ArtifactStore } from "./artifacts.ts";
-import type { CredentialBinding, CredentialStore } from "./execution/credentials.ts";
+import type { CredentialStore } from "./execution/credentials.ts";
 import type { ExecutionError } from "./execution/launchers.ts";
 import type { WorkerLauncher } from "./execution/launchers.ts";
 import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./managed-processes.ts";
@@ -54,25 +52,10 @@ import { ToolRouter, ROUTED_TOOL_NAMES, type ApprovalOutcome } from "./tool-rout
 import type { ApprovalScope } from "../core/types.ts";
 import type { AccessScope } from "../core/access.ts";
 import type { HistoryIndex } from "../core/history-index.ts";
-import type { MemoryStore, MemoryWithContent } from "../core/memory.ts";
-import {
-  DEFAULT_BUDGET_CONFIG,
-  SELECTOR_STRATEGY,
-  budgetConfigVersion,
-  estimateMessageTokens,
-  getContextCandidates,
-  planCompaction,
-  selectContext,
-  validateBudgetConfig,
-  type CheckpointInput,
-  type SelectorBudgetConfig,
-  type SelectorInput,
-  type SelectorOutput,
-} from "./context-selector.ts";
-import { checkpointFingerprint, COMPACTION_PROMPT_VERSION, generateRollingSummary, resolveClearedRefs, type SummaryResult } from "./compaction.ts";
-import { loadSummaryModel } from "./model-config.ts";
-import { evaluateJev, JevError, JEV_MODEL, JEV_THRESHOLD, JEV_INPUT_USD_PER_MILLION, JEV_PRICE_DATE, type JevRequestConfig } from "./jev.ts";
-import { getProjectJevConfig, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "./jev-config.ts";
+import type { MemoryStore } from "../core/memory.ts";
+import type { SelectorBudgetConfig } from "./context-selector.ts";
+import { beginContextAssembly, ContextSendBlocked, type ContextAssembly } from "./context-assembly.ts";
+import type { JevRequestConfig } from "./jev.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
 import { createAppDataTools, APP_DATA_TOOL_NAMES, APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp, type AppToolContext } from "./app-data/tools.ts";
 import type { AppDataStore } from "./app-data/store.ts";
@@ -91,41 +74,6 @@ import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "../core/access.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
-
-/** 请求前最终检查失败（预算/配对/选择缺失/记录落盘失败）：阻断发送。 */
-export class ContextSendBlocked extends Error {
-  readonly code: string;
-  constructor(reason: string) {
-    super(reason);
-    this.code = reason.split(":", 1)[0] ?? "context_send_blocked";
-  }
-}
-
-/**
- * 配对完整性：视图内 assistant 的每个 toolCall 必须有对应 toolResult，
- * 每个 toolResult 必须能回溯到同视图内的 toolCall（不可拆分组）。
- */
-export function checkToolPairing(messages: any[], exemptCallIds?: Set<string>): string | null {
-  const exempt = exemptCallIds ?? new Set<string>();
-  const callIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
-    for (const part of m.content) {
-      if (part?.type === "toolCall" && typeof part.id === "string" && !exempt.has(part.id)) callIds.add(part.id);
-    }
-  }
-  const resultIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role === "toolResult" && typeof m.toolCallId === "string" && !exempt.has(m.toolCallId)) {
-      if (!callIds.has(m.toolCallId)) return `toolResult 缺少对应 toolCall：${m.toolCallId}`;
-      resultIds.add(m.toolCallId);
-    }
-  }
-  for (const id of callIds) {
-    if (!resultIds.has(id)) return `toolCall 缺少对应 toolResult：${id}`;
-  }
-  return null;
-}
 
 export interface DriverDeps {
   store: Store;
@@ -253,33 +201,12 @@ export class Driver {
   private roleConfig: AgentRole | null | undefined = undefined;
   /** 角色会话装配后允许的工具名（发送前最终检查与调用门共用；null = 非角色会话）。 */
   private roleAllowedToolNames: Set<string> | null = null;
-  /** 本轮模型调用的选择结果（context 钩子填充；最终检查核对）。 */
-  private pendingSelection: SelectorOutput | null = null;
-  private pendingSelectionTaskId: string | null = null;
-  private pendingExperiment: ContextExperimentRecord | null = null;
-  private pinnedJev: JevConfig | null = null;
-  private jevAborter: AbortController | null = null;
-  /** 进行中的摘要请求（issue 30）；停止任务时与 Jev 一起中止。 */
-  private summaryAborter: AbortController | null = null;
-  /** 摘要失败后的冷却（只在内存）：本任务内视图估算低于 below 时不再请求摘要。 */
-  private summaryCooldown: { taskId: string; below: number } | null = null;
-  private pendingJevCredentialSnapshot: string | null = null;
-  /** 选择/资料读取失败的阻断原因（最终检查发现即拒绝发送）。 */
-  private selectionBlockReason: string | null = null;
-  /** 原始 streamFunction（包装前保存；最终检查在委托前执行）。 */
+  /** 本任务的模型上下文组装（任务开始时建、结束即丢；context 钩子与发送前复核共用）。 */
+  private assembly: ContextAssembly | null = null;
+  /** 原始 streamFunction（包装前保存；发送前检查在委托前执行）。 */
   private originalStreamFn: any = null;
-  /**
-   * 任务开始时钉版的上下文参考内容：项目指令（受限读取 + 捕获产物）与继续
-   * 来源任务要求；plan = 以计划模式运行（issue 26，决定计划说明与工具白名单）；
-   * memoryIds = 当时生效记忆的 id 与顺序（issue 29；读取失败为 Error）。
-   * 任务内不变；下一任务开始时重新读取（= 拥有者刷新入口）。
-   */
-  private pinnedContext: {
-    instructions: { text: string; version: string; problems: string[] } | null;
-    resumedFrom: { taskId: string; input: string } | null;
-    plan: boolean;
-    memoryIds: string[] | Error;
-  } = { instructions: null, resumedFrom: null, plan: false, memoryIds: [] };
+  /** 任务开始时钉版：以计划模式运行（issue 26，决定计划说明与工具白名单）。 */
+  private pinnedPlan = false;
   /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
   private pinnedSkills: SkillLibrary | null = null;
 
@@ -339,7 +266,7 @@ export class Driver {
   private taskAllowsTool(task: Task, name: string): boolean {
     const effect = this.currentMcpPlan?.tools.get(name)?.effect;
     // 计划模式（issue 26）：与宿主收窄组合，只允许白名单与只读 MCP 工具
-    if (this.pinnedContext.plan && !PLAN_TOOL_NAMES.has(name) && effect !== "read") return false;
+    if (this.pinnedPlan && !PLAN_TOOL_NAMES.has(name) && effect !== "read") return false;
     return this.deps.allowTaskTool?.(task, name, effect) ?? true;
   }
 
@@ -545,432 +472,24 @@ export class Driver {
     };
   };
 
-  // ---------- 上下文选择与请求前最终检查（issue 05 §3/§4） ----------
+  // ---------- 模型上下文（组装见 context-assembly）与发送前检查 ----------
 
-  private budgetConfig(): SelectorBudgetConfig {
-    const model = this.sdk?.model;
-    if (!model) throw new Error("model_not_applied:任务模型尚未应用");
-    const response = modelResponseBudget(model);
-    return validateBudgetConfig({
-      ...DEFAULT_BUDGET_CONFIG,
-      ...response,
-      ...this.deps.budgetOverrides,
-      contextWindow: Math.min(response.contextWindow, this.deps.budgetOverrides?.contextWindow ?? response.contextWindow),
-      maxTokens: Math.min(response.maxTokens, this.deps.budgetOverrides?.maxTokens ?? response.maxTokens),
+  /** context 钩子：交给本任务的组装实例；任务之外的调用不修改视图。 */
+  private handleContext(messages: any[]): Promise<{ messages: any[] } | undefined> | undefined {
+    const sdk = this.sdk;
+    if (!this.assembly || !sdk) return undefined;
+    return this.assembly.assemble(messages, {
+      systemPrompt: sdk.systemPrompt ?? "",
+      tools: (sdk.agent.state.tools ?? []) as any[],
+      model: sdk.model,
+      sessionFile: sdk.sessionFile,
     });
   }
 
   /**
-   * context 扩展钩子：每次模型调用前返回新消息视图。
-   * pi 会捕获扩展异常继续运行，因此这里不抛错：失败原因记入
-   * selectionBlockReason，由 streamFunction 包装（最终检查）拒绝发送。
-   */
-  private async handleContext(messages: any[]): Promise<{ messages: any[] } | undefined> {
-    const task = this.currentTask;
-    if (!task || !this.sdk) return undefined;
-    this.pendingSelection = null;
-    this.pendingSelectionTaskId = null;
-    this.pendingExperiment = null;
-    this.pendingJevCredentialSnapshot = null;
-    try {
-      // QQ 群聊会话（issue 07 §3）：不注入个人共享记忆/项目记忆/项目指令；
-      // 已撤回的群消息及其回复移出本轮模型视图（不改写历史原文）
-      if (this.isQqGroup && this.deps.qqRecalledFilter) {
-        messages = this.deps.qqRecalledFilter(this.session.id, messages);
-      }
-      let input = this.contextInput(messages);
-      let selection = selectContext(input);
-      // 上下文压缩（issue 30）：按生效压缩点选择后估算仍超过 H' 才规划新压缩点；
-      // 摘要等待期间任务可能停止或切换，结束后重新读取选择输入（记忆等可能已变化）
-      if (await this.compactContext(task, input, selection)) {
-        if (this.currentTask?.id !== task.id || this.stopRequested) return undefined;
-        input = this.contextInput(messages);
-        selection = selectContext(input);
-      }
-      // 必留项本身无法装入时无需向筛选服务发送内容。
-      if (selection.ok && this.pinnedJev?.enabled && !this.dataScopeRestricted) {
-        selection = await this.selectWithJev(task, input, selection, this.pinnedJev);
-      }
-      if (this.currentTask?.id !== task.id || this.stopRequested) return undefined;
-      if (!selection.ok) {
-        this.pendingSelection = null;
-        this.selectionBlockReason = selection.failure ?? "上下文预算不足";
-        return undefined; // 返回 undefined = 不修改；最终检查会阻断
-      }
-      this.pendingSelection = selection;
-      this.pendingSelectionTaskId = task.id;
-      this.selectionBlockReason = null;
-      return { messages: selection.messages };
-    } catch (err) {
-      this.pendingSelection = null;
-      this.selectionBlockReason = `上下文选择失败：${(err as Error).message}`;
-      return undefined;
-    }
-  }
-
-  /**
-   * 在每次组装时按钉住的 id 与顺序重读记忆（issue 29）：撤销与修订即时生效，
-   * 任务中新建的记忆从下一任务起注入；尤其不能沿用 Jev 网络等待之前的授权快照。
-   */
-  private contextInput(messages: any[]): SelectorInput {
-    const accessor = this.accessor();
-    const memories: MemoryWithContent[] = [];
-    const preExcludedMemories: NonNullable<SelectorInput["preExcludedMemories"]> = [];
-    const pinnedIds = this.pinnedContext.memoryIds;
-    if (pinnedIds instanceof Error) throw pinnedIds; // 钉版读取失败：每次调用阻断发送
-    for (const memory of pinnedIds.map((id) => this.deps.memories.getCurrent(id))) {
-      if (memory?.status !== "active") continue;
-      if (memory.sourceRefs.every((ref) => this.deps.access.sourceRefAccessible(accessor, ref))) {
-        memories.push(memory);
-      } else {
-        preExcludedMemories.push({ memoryId: memory.id, version: memory.currentVersion, reason: "source_scope_revoked" });
-      }
-    }
-    return {
-      messages,
-      systemPrompt: this.sdk!.systemPrompt ?? "",
-      tools: (this.sdk!.agent.state.tools ?? []) as any[],
-      projectInstructions: this.dataScopeRestricted ? null : this.pinnedContext.instructions,
-      skills: this.skillsInput(),
-      resumedFrom: this.pinnedContext.resumedFrom,
-      planMode: this.pinnedContext.plan,
-      memories,
-      preExcludedMemories,
-      budget: this.budgetConfig(),
-      // 资料受限会话（qq_group 与 chat）不压缩，维持现状
-      compaction: this.dataScopeRestricted ? null : { sessionId: this.session.id, checkpoint: this.validatedCheckpoint(messages) },
-    };
-  }
-
-  /** 读取生效的压缩点并核对指纹；消息少于 C 条或指纹不符时当场作废（写库），按无压缩点处理。 */
-  private validatedCheckpoint(messages: any[]): CheckpointInput | null {
-    const cp = this.deps.store.getActiveCheckpoint(this.session.id);
-    if (!cp) return null;
-    if (messages.length < cp.clearedCount || checkpointFingerprint(messages, cp.clearedCount) !== cp.fingerprint) {
-      this.deps.store.withTx(() => this.deps.store.invalidateCheckpoint(cp.id));
-      return null;
-    }
-    return cp;
-  }
-
-  /**
-   * 上下文压缩（issue 30 §3–§7）：规划 → 需要时调用摘要模型 → 压缩点与完成事件同一事务落盘。
-   * 摘要失败只保留第一层（仍按最小收益判断），并在本任务内冷却到估算再增长 0.2 H'。
-   * 返回是否有过等待或落盘（调用方据此重新读取选择输入）。
-   */
-  private async compactContext(task: Task, input: SelectorInput, before: SelectorOutput): Promise<boolean> {
-    const cooldown = this.summaryCooldown?.taskId === task.id ? this.summaryCooldown.below : undefined;
-    const plan = planCompaction(input, before, cooldown);
-    if (!plan) return false;
-    const messages = input.messages;
-    const previous = input.compaction!.checkpoint;
-    const compactionId = randomId("cmp");
-    const refs = { taskId: task.id, sessionId: task.sessionId };
-    let summarizedCount = previous?.summarizedCount ?? 0;
-    let summary = previous?.summary ?? null;
-    let summaryUntil = previous?.summaryUntil ?? null;
-    let summaryStatus: ContextCheckpoint["summaryStatus"] = "none";
-    let summaryError: string | null = null;
-    let summaryModel: string | null = null;
-    let usage: Record<string, unknown> | null = null;
-    if (plan.summarizedCount > summarizedCount) {
-      const outcome = await this.summarize(task, compactionId, plan.estimateBefore, messages.slice(summarizedCount, plan.summarizedCount), summary);
-      if (this.currentTask?.id !== task.id || this.stopRequested) return true;
-      summaryModel = outcome.model;
-      if (outcome.ok) {
-        summaryStatus = "ok";
-        summary = outcome.text;
-        summarizedCount = plan.summarizedCount;
-        const until = messages[summarizedCount - 1]?.timestamp;
-        summaryUntil = typeof until === "number" ? new Date(until).toISOString() : null;
-        usage = outcome.usage;
-      } else {
-        summaryStatus = "failed";
-        summaryError = outcome.error;
-        // 冷却从失败后实际使用的视图估算起算：清理收益够时是清理后的估算，否则原样
-        const layerOneOk = plan.estimateBefore - plan.layerOneEstimate >= 0.2 * plan.highWater;
-        this.summaryCooldown = { taskId: task.id, below: (layerOneOk ? plan.layerOneEstimate : plan.estimateBefore) + 0.2 * plan.highWater };
-        if (!layerOneOk) {
-          // 只做清理收益不足：不建压缩点，完成事件如实说明
-          this.deps.store.withTx(() => this.deps.store.appendEvent({
-            type: "task.context_compaction", taskId: task.id, sessionId: task.sessionId, compactionId, phase: "finished",
-            checkpointId: null, summaryModel, estimateBefore: plan.estimateBefore, summaryStatus, summaryError,
-          }, refs));
-          return true;
-        }
-      }
-    }
-    const clearedCount = plan.clearedCount;
-    const clearedRefs = resolveClearedRefs(messages, summarizedCount, clearedCount, this.sdk?.sessionFile);
-    const checkpoint: CheckpointInput = { id: randomId("ckpt"), summarizedCount, clearedCount, summary, summaryUntil, clearedRefs };
-    const after = selectContext({ ...input, compaction: { sessionId: this.session.id, checkpoint } });
-    const clearedResults = Object.keys(clearedRefs).length;
-    this.deps.store.withTx(() => {
-      this.deps.store.insertCheckpoint({
-        ...checkpoint,
-        sessionId: this.session.id,
-        fingerprint: checkpointFingerprint(messages, clearedCount),
-        clearedResults,
-        summaryModel,
-        summaryStatus,
-        summaryError,
-        promptVersion: COMPACTION_PROMPT_VERSION,
-        usage,
-        estimateBefore: plan.estimateBefore,
-        estimateAfter: after.unboundedTotal,
-        taskId: task.id,
-        callIndex: this.deps.store.countSelectionRecords(task.id) + 1,
-        createdAt: new Date().toISOString(),
-      });
-      this.deps.store.appendEvent({
-        type: "task.context_compaction", taskId: task.id, sessionId: task.sessionId, compactionId, phase: "finished",
-        checkpointId: checkpoint.id, summaryModel, estimateBefore: plan.estimateBefore, estimateAfter: after.unboundedTotal,
-        clearedResults, summarizedCount, summaryStatus, summaryError,
-      }, refs);
-    });
-    return true;
-  }
-
-  /**
-   * 调用摘要模型：配置了摘要模型就用它（每次读取当前配置，不按任务钉版；已配置但
-   * 无法解析时按失败处理，不改用会话模型），否则用任务记录的模型选择。
-   */
-  private async summarize(
-    task: Task, compactionId: string, estimateBefore: number, messages: any[], previousSummary: string | null,
-  ): Promise<SummaryResult & { model: string | null }> {
-    let selection: ModelSelection;
-    try {
-      const configured = loadSummaryModel(this.deps.agentDir);
-      selection = configured ? { ...configured, thinkingLevel: "off" } : task.modelSelection!;
-    } catch (err) {
-      return { ok: false, error: `摘要模型不可用：${(err as Error).message}`, model: null };
-    }
-    const model = `${selection.provider}/${selection.modelId}`;
-    const refs = { taskId: task.id, sessionId: task.sessionId };
-    this.deps.store.withTx(() => this.deps.store.appendEvent({
-      type: "task.context_compaction", ...refs, compactionId, phase: "started", checkpointId: null, summaryModel: model, estimateBefore,
-    }, refs));
-    let resolved: any;
-    try {
-      resolved = await this.deps.modelCatalog.resolve(selection);
-    } catch (err) {
-      return { ok: false, error: `摘要模型不可用：${(err as Error).message}`, model };
-    }
-    const controller = new AbortController();
-    this.summaryAborter = controller;
-    if (this.stopRequested) controller.abort();
-    try {
-      const outcome = await generateRollingSummary({
-        modelRuntime: this.deps.modelRuntime, model: resolved, messages, previousSummary,
-        signal: controller.signal, timeoutMs: this.deps.compaction?.summaryTimeoutMs,
-      });
-      return { ...outcome, model };
-    } finally {
-      if (this.summaryAborter === controller) this.summaryAborter = null;
-    }
-  }
-
-  /** 技能目录只在本任务确实可用 skill 工具时注入（GitHub 评审等收窄工具集不注入）。 */
-  private skillsInput(): SelectorInput["skills"] {
-    const lib = this.dataScopeRestricted ? null : this.pinnedSkills;
-    if (!lib) return null;
-    const toolActive = ((this.sdk?.agent.state.tools ?? []) as any[]).some((t) => t?.name === "skill");
-    const entries = toolActive
-      ? lib.skills.filter((s) => !s.disableModelInvocation).map((s) => ({ name: s.name, description: s.description }))
-      : [];
-    return { entries, version: lib.version };
-  }
-
-  /** 配置与凭据每次读取，未启用/损坏/越范围都不能成为外发授权。 */
-  private jevCredential(pinned: JevConfig): CredentialBinding | null {
-    try {
-      const current = getProjectJevConfig(this.deps.store, this.session.projectId);
-      if (!current.enabled || current.configVersion !== pinned.configVersion || current.credential !== pinned.credential || !current.credential) return null;
-      const binding = this.deps.credentials.getForUse(current.credential, {
-        projectId: this.session.projectId, operation: JEV_CREDENTIAL_PURPOSE,
-      });
-      return binding?.purpose === JEV_CREDENTIAL_PURPOSE && binding.secret &&
-        binding.scope?.projectId === this.session.projectId &&
-        binding.scope.operations?.length === 1 && binding.scope.operations[0] === JEV_CREDENTIAL_PURPOSE
-        ? binding : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /** 只接收候选单元的取舍；所有消息、预算和必留项仍由本地选择器生成。 */
-  private async selectWithJev(task: Task, input: SelectorInput, baseline: SelectorOutput, config: JevConfig): Promise<SelectorOutput> {
-    const experiment: ContextExperimentRecord = {
-      status: "fallback", strategy: SELECTOR_STRATEGY, requestedModel: JEV_MODEL, model: null,
-      configVersion: config.configVersion, threshold: JEV_THRESHOLD, elapsedMs: 0,
-      requestSent: false, usage: null, estimatedCost: null, fallbackReason: "config_or_credential_unavailable",
-      candidates: [], baselineIncludedIndices: baseline.includedIndices,
-    };
-    let decisions: ReadonlyMap<string, boolean> | undefined;
-    const credential = this.jevCredential(config);
-    if (credential && !this.stopRequested) {
-      // 秘密只用于内存内的新鲜性比较，不进入任何事件、产物或模型上下文。
-      const credentialSnapshot = JSON.stringify(credential);
-      const controller = new AbortController();
-      this.jevAborter = controller;
-      try {
-        const result = await evaluateJev({
-          task: input.resumedFrom ? `继续任务的原始要求：\n${input.resumedFrom.input}\n\n本次要求：\n${task.input}` : task.input,
-          candidates: getContextCandidates(input),
-          credential,
-          signal: controller.signal,
-          ...this.deps.jev,
-        });
-        this.copyJevMetadata(experiment, result.metadata);
-        if (JSON.stringify(this.jevCredential(config)) !== credentialSnapshot) {
-          experiment.fallbackReason = "config_or_credential_changed";
-        } else {
-          decisions = result.decisions;
-          experiment.status = "applied";
-          experiment.strategy = "jev-v1";
-          experiment.fallbackReason = null;
-          this.pendingJevCredentialSnapshot = credentialSnapshot;
-        }
-      } catch (err) {
-        if (err instanceof JevError) {
-          this.copyJevMetadata(experiment, err.metadata);
-          experiment.fallbackReason = err.code;
-          if (!experiment.requestSent) experiment.status = "skipped";
-        } else {
-          // 不保存任意错误字符串：它可能携带服务响应或凭据。
-          experiment.fallbackReason = "jev_unavailable";
-        }
-      } finally {
-        if (this.jevAborter === controller) this.jevAborter = null;
-      }
-    }
-    if (this.stopRequested || this.currentTask?.id !== task.id) {
-      experiment.status = "canceled";
-      experiment.strategy = SELECTOR_STRATEGY;
-      experiment.fallbackReason = "task_canceled";
-      decisions = undefined;
-    }
-    try {
-      if (experiment.status === "canceled") return baseline;
-      // 同一份新鲜输入做对照，避免等待期间的记忆变化被误记为 Jev 的收益。
-      const freshInput = this.contextInput(input.messages);
-      const freshBaseline = selectContext(freshInput);
-      experiment.baselineIncludedIndices = freshBaseline.includedIndices;
-      return decisions ? selectContext(freshInput, decisions) : freshBaseline;
-    } finally {
-      this.pendingExperiment = experiment;
-      this.deps.store.withTx(() => this.deps.store.appendEvent({
-        type: "task.context_experiment", taskId: task.id, sessionId: task.sessionId, experiment,
-      }, { taskId: task.id, sessionId: task.sessionId }));
-    }
-  }
-
-  private copyJevMetadata(experiment: ContextExperimentRecord, metadata: Awaited<ReturnType<typeof evaluateJev>>["metadata"]): void {
-    experiment.model = metadata.actualModel;
-    experiment.elapsedMs = metadata.latencyMs;
-    experiment.requestSent = metadata.requestSent;
-    experiment.usage = metadata.usage;
-    experiment.candidates = metadata.candidates;
-    experiment.estimatedCost = metadata.estimatedCostUsd === null ? null : {
-      usd: metadata.estimatedCostUsd, inputUsdPerMillion: JEV_INPUT_USD_PER_MILLION, priceDate: JEV_PRICE_DATE,
-    };
-  }
-
-  /**
-   * 任务开始时钉版上下文前缀（§3）：
-   * - 项目指令：从显式配置的工作区相对路径经受限读取（realpath 后必须仍在
-   *   工作区内；缺失/不可读/超大分别说明，不偷偷取祖先目录文件）；内容
-   *   捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定；
-   * - 继续来源：人工继续已中断任务时，原任务要求作为必留参考注入，
-   *   不能只发一句"继续"就丢失原要求（§4）；
-   * - 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；
-   * - 长期记忆（issue 29）：当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序）。
-   */
-  private loadPinnedContext(task: Task): typeof this.pinnedContext {
-    // 资料受限会话（issue 07 qq_group；issue 01 chat 角色）：不读取/注入项目指令与记忆
-    if (this.dataScopeRestricted) return { instructions: null, resumedFrom: null, plan: false, memoryIds: [] };
-    let resumedFrom: { taskId: string; input: string } | null = null;
-    let plan = isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
-    // 与其余钉版分开读取：记忆读取失败不能连带丢掉继续来源与计划模式判定
-    let memoryIds: string[] | Error;
-    try {
-      memoryIds = this.deps.memories.listActiveFor(this.session.projectId).map((m) => m.id);
-    } catch (err) {
-      memoryIds = err as Error;
-    }
-    try {
-      if (task.resumesTaskId) {
-        const old = this.deps.store.getTask(task.resumesTaskId);
-        if (old) resumedFrom = { taskId: old.id, input: old.input };
-      }
-      plan = runsInPlanMode(task, (id) => this.deps.store.getTask(id));
-      return { instructions: this.loadProjectInstructions(task), resumedFrom, plan, memoryIds };
-    } catch (err) {
-      // 钉版读取失败不阻断任务：以明确说明注入，不静默省略
-      return {
-        instructions: { text: "", version: "", problems: [`项目指令/继续来源读取失败：${(err as Error).message}`] },
-        resumedFrom,
-        plan,
-        memoryIds,
-      };
-    }
-  }
-
-  private loadProjectInstructions(task: Task): { text: string; version: string; problems: string[] } | null {
-    const project = this.deps.store.getProject(this.session.projectId);
-    const files = project?.instructionFiles ?? [];
-    if (files.length === 0) return null;
-    const MAX_INSTRUCTION_BYTES = 256 * 1024;
-    const problems: string[] = [];
-    const parts: string[] = [];
-    for (const file of files) {
-      if (path.isAbsolute(file) || file.split(/[\\/]/).includes("..")) {
-        problems.push(`项目指令文件 ${file}：须为工作区相对路径且不含 ..（已跳过）`);
-        continue;
-      }
-      let real: string;
-      try {
-        real = fs.realpathSync(path.resolve(this.session.cwdReal, file));
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        problems.push(`项目指令文件 ${file}：${code === "ENOENT" ? "缺失" : `不可读（${(err as Error).message}）`}`);
-        continue;
-      }
-      if (!grantCoversPath(this.session.cwdReal, real)) {
-        problems.push(`项目指令文件 ${file}：越出工作区（符号链接逃逸），已拒绝`);
-        continue;
-      }
-      try {
-        const stat = fs.statSync(real);
-        if (stat.size > MAX_INSTRUCTION_BYTES) {
-          problems.push(`项目指令文件 ${file}：超大（${stat.size} 字节 > ${MAX_INSTRUCTION_BYTES}），未注入`);
-          continue;
-        }
-        parts.push(`--- ${file} ---\n${fs.readFileSync(real, "utf8")}`);
-      } catch (err) {
-        problems.push(`项目指令文件 ${file}：不可读（${(err as Error).message}）`);
-      }
-    }
-    const text = parts.join("\n\n");
-    let version = `sha256:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
-    try {
-      // 任务实际使用的指令内容须可追溯到捕获产物，而非日后可能变化的工作区路径
-      const artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name: "project-instructions" });
-      this.deps.artifacts.append(artifact.id, Buffer.from(text, "utf8"));
-      this.deps.artifacts.complete(artifact.id);
-      version += `;artifact:${artifact.id}`;
-    } catch (err) {
-      // 捕获失败 = 无法追溯：不注入正文，只留明确说明
-      problems.push(`项目指令捕获产物失败（未注入正文）：${(err as Error).message}`);
-      return { text: "", version, problems };
-    }
-    return { text, version, problems };
-  }
-
-  /**
-   * 包装公开的 sdk.agent.streamFunction：委托原发送函数前做最终核对
-   * （选择记录落盘、阻断原因、配对与预算）。扩展异常被 pi 吞掉，只有这里
-   * 能可靠阻止发送；不重写模型循环，保留取消信号与事件语义。
+   * 包装公开的 sdk.agent.streamFunction：委托原发送函数前先做本模块的检查，
+   * 再由组装实例收紧 maxTokens、复核上下文并落选择记录。扩展异常被 pi 吞掉，
+   * 只有这里能可靠阻止发送；不重写模型循环，保留取消信号与事件语义。
    */
   private wrapStreamFunction(sdk: AgentSession): void {
     const agent = sdk.agent as any;
@@ -979,35 +498,27 @@ export class Driver {
     const original = this.originalStreamFn;
     agent.streamFunction = async (model: any, context: any, options: any) => {
       const task = this.currentTask;
+      const assembly = this.assembly;
       // SDK 在异步 context 钩子之后仍可能走到发送函数，取消必须在此兜底。
-      if (!task || this.stopRequested || options?.signal?.aborted) {
+      if (!task || !assembly || this.stopRequested || options?.signal?.aborted) {
         throw new ContextSendBlocked("task_canceled:任务已停止，拒绝发送模型请求");
       }
-      if (task) {
-        try {
-          const config = this.budgetConfig();
-          options = { ...options, maxTokens: config.maxTokens };
-          // 部分适配器会在显式 maxTokens 上追加思考预算；同时限定模型总响应上限。
-          model = { ...model, maxTokens: config.maxTokens };
-          this.finalCheckBeforeSend(task, model, context, options);
-          this.capturePromptSnapshot(task, model, context, options);
-        } catch (err) {
-          if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
-          throw err;
-        }
+      try {
+        this.checkBeforeSend(task, model, context, options);
+        ({ model, options } = assembly.prepareSend(model, context, options));
+      } catch (err) {
+        if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
+        throw err;
       }
-      if (task) this.beginModelRequest(task);
+      this.beginModelRequest(task);
       const stream = await original.call(agent, model, context, options);
-      this.noteUsageAfterSend(stream);
+      assembly.afterSend(stream);
       return stream;
     };
   }
 
-  /** 最终检查：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
-  private finalCheckBeforeSend(task: Task, model: any, context: any, options: any): void {
-    if (this.currentTask?.id !== task.id || this.stopRequested || options?.signal?.aborted) {
-      throw new ContextSendBlocked("task_canceled:任务已停止，拒绝发送模型请求");
-    }
+  /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
+  private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
     const expected = task.modelSelection;
     if (!expected || model?.provider !== expected.provider || model?.id !== expected.modelId ||
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
@@ -1034,131 +545,10 @@ export class Driver {
         throw new ContextSendBlocked(`task_tools_forbidden:任务工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
       }
     }
-    if (this.selectionBlockReason) {
-      const reason = this.selectionBlockReason;
-      throw new ContextSendBlocked(`context_budget_exceeded:${reason}`);
-    }
-    const selection = this.pendingSelection;
-    if (!selection || !selection.ok || this.pendingSelectionTaskId !== task.id) {
-      // context 钩子未运行（异常被吞）或策略未产生结果：拒绝发送，不退回全量
-      throw new ContextSendBlocked("context_selection_missing:上下文选择未产生有效结果（扩展异常或策略失败），拒绝发送");
-    }
-    if (this.pendingExperiment?.status === "applied" &&
-        (!this.pinnedJev || JSON.stringify(this.jevCredential(this.pinnedJev)) !== this.pendingJevCredentialSnapshot)) {
-      throw new ContextSendBlocked("context_configuration_changed:Jev 配置或凭据在选择后失效，拒绝发送旧视图");
-    }
-    for (const included of selection.includedMemories) {
-      const memory = this.deps.memories.getCurrent(included.memoryId);
-      if (!memory || memory.status !== "active" || memory.currentVersion !== included.version ||
-          !memory.sourceRefs.every((ref) => this.deps.access.sourceRefAccessible(this.accessor(), ref))) {
-        throw new ContextSendBlocked("context_source_changed:记忆版本或来源授权在选择后变化，拒绝发送旧视图");
-      }
-    }
-    // 配对完整性：视图内每个 toolResult 必须有对应 toolCall，反之亦然。
-    // 选择器已剔除的缺配对消息（崩溃恢复残留的孤儿 toolCall/toolResult）
-    // 豁免——它们不在视图中，但 convertToLlm 可能保留引用（如 details）。
-    const exemptIds = new Set((selection.droppedUnpaired ?? []).map((d) => d.toolCallId));
-    const pairingError = checkToolPairing(context?.messages ?? [], exemptIds);
-    if (pairingError) {
-      throw new ContextSendBlocked(`context_pairing_invalid:${pairingError}`);
-    }
-    // 预算复核：对实际发送的消息重新估算（含系统提示与工具定义）
-    const config = this.budgetConfig();
-    let total = selection.estimates.systemPrompt + selection.estimates.toolSchemas;
-    for (const message of context?.messages ?? []) {
-      total += estimateMessageTokens(message, config.calibration);
-    }
-    if (total > selection.budget) {
-      throw new ContextSendBlocked(
-        `context_budget_exceeded:最终检查估算 ${total} 超过输入预算 ${selection.budget}（选择时估算 ${selection.estimatedTotal}）`,
-      );
-    }
-    // 选择记录先于请求落盘；落盘失败即拒绝发送
-    const recordId = randomId("sel");
-    this.pendingRecordId = recordId;
-    this.deps.store.withTx(() => {
-      this.deps.store.insertSelectionRecord({
-        id: recordId,
-        taskId: task.id,
-        sessionId: task.sessionId,
-        callIndex: this.deps.store.countSelectionRecords(task.id) + 1,
-        strategy: this.pendingExperiment?.strategy ?? SELECTOR_STRATEGY,
-        configVersion: budgetConfigVersion(config),
-        model: `${model?.provider ?? "?"}/${model?.id ?? "?"}`,
-        // S 伸进当前任务时任务输入（< S）仍在选入里，不能与摘要条数重复计
-        totalMessages: selection.summarizedCount + selection.includedIndices.filter((i) => i >= selection.summarizedCount).length + selection.excluded.length,
-        includedIndices: selection.includedIndices,
-        excluded: [
-          ...selection.excluded,
-          ...(selection.droppedUnpaired ?? []).map((d) => ({
-            index: d.index,
-            reason: `unpaired_tool_call:${d.toolCallId}`,
-          })),
-        ],
-        includedMemories: selection.includedMemories,
-        excludedMemories: selection.excludedMemories,
-        instructionVersion: selection.instructionVersion,
-        skillVersion: selection.skillVersion,
-        cappedToolResults: selection.cappedToolResults,
-        estimates: selection.estimates,
-        budget: selection.budget,
-        estimatedTotal: selection.estimatedTotal,
-        experiment: this.pendingExperiment,
-        checkpointId: selection.checkpointId,
-        promptArtifactId: null,
-        windowSnapshot: {
-          contextWindow: config.contextWindow,
-          maxTokens: config.maxTokens,
-          thinkingBudget: config.thinkingBudget,
-          toolResultReserve: config.toolResultReserve,
-          safetyMargin: config.safetyMargin,
-        },
-        createdAt: new Date().toISOString(),
-      });
-    });
   }
 
-  private pendingRecordId: string | null = null;
   /** 最终检查抛出的阻断原因（发送侧记录，任务结束路径据此识别）。 */
   private lastBlockedReason: string | null = null;
-
-  /**
-   * 发送前输入快照（issue 13）：把交给 SDK 提供方发送函数的
-   * systemPrompt/messages/tools 原样序列化为受保护产物，并与刚落盘的
-   * 选择记录同事务关联。快照在委托发送函数之前捕获；发送失败/中断时
-   * 快照保留，usage 留空表示发送结果未回填。捕获失败即拒绝发送——
-   * 不能在没有可追溯输入的情况下发出请求。
-   */
-  private capturePromptSnapshot(task: Task, model: any, context: any, options: any): void {
-    const recordId = this.pendingRecordId;
-    if (!recordId) return;
-    const snapshot = {
-      v: 1,
-      capturedAt: new Date().toISOString(),
-      capturePoint: "sdk.agent.streamFunction 委托提供方发送函数之前（systemPrompt/messages/tools 为模型上下文范围；不等同于适配器转换后的 HTTP 请求体）",
-      recordId,
-      taskId: task.id,
-      sessionId: task.sessionId,
-      callIndex: this.deps.store.countSelectionRecords(task.id),
-      model: { provider: model?.provider ?? "?", id: model?.id ?? "?" },
-      thinkingLevel: this.sdk?.thinkingLevel ?? task.modelSelection?.thinkingLevel ?? null,
-      reasoning: options?.reasoning ?? "off",
-      maxTokens: options?.maxTokens ?? null,
-      systemPrompt: typeof context?.systemPrompt === "string" ? context.systemPrompt : "",
-      messages: Array.isArray(context?.messages) ? context.messages : [],
-      tools: Array.isArray(context?.tools) ? context.tools : [],
-    };
-    try {
-      const artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name: `prompt-snapshot:${recordId}` });
-      this.deps.artifacts.append(artifact.id, Buffer.from(JSON.stringify(snapshot), "utf8"));
-      this.deps.artifacts.complete(artifact.id);
-      this.deps.store.setSelectionRecordPromptArtifact(recordId, artifact.id);
-    } catch (err) {
-      // 快照捕获失败不阻断发送：记录保留，详情如实显示"快照缺失"；
-      // 失败原因写 stderr（后台诊断输出，不含正文内容）
-      process.stderr.write(`[ruukoto] prompt 快照捕获失败（记录 ${recordId}）：${(err as Error).message}\n`);
-    }
-  }
 
   /**
    * 识别任务结束是否由最终检查阻断引起：优先取发送侧记录的原因；
@@ -1171,7 +561,7 @@ export class Driver {
     if (recorded) return recorded;
     const message: string = lastAssistant?.errorMessage ?? "";
     if (lastAssistant?.stopReason === "error") {
-      for (const prefix of ["context_budget_exceeded", "context_selection_missing", "context_pairing_invalid"]) {
+      for (const prefix of ["context_budget_exceeded", "context_selection_failed", "context_selection_missing", "context_pairing_invalid"]) {
         if (message.includes(prefix)) {
           const idx = message.indexOf(prefix);
           return message.slice(idx).split("\n", 1)[0] ?? prefix;
@@ -1179,34 +569,6 @@ export class Driver {
       }
     }
     return null;
-  }
-
-  /** 发送后补记实际 usage（流结束时从最终消息读取；失败时留空）。 */
-  private noteUsageAfterSend(stream: any): void {
-    const recordId = this.pendingRecordId;
-    this.pendingRecordId = null;
-    if (!recordId || !stream?.result) return;
-    void Promise.resolve(stream.result())
-      .then((message: any) => {
-        const usage = message?.usage;
-        if (!usage) return;
-        const input = Number(usage.input ?? usage.inputTokens ?? 0);
-        const output = Number(usage.output ?? usage.outputTokens ?? 0);
-        // SDK 在失败响应上也会填全零默认值，不能把它当作已确认的零费用。
-        const hasUsage = [input, output, usage.cacheRead, usage.cacheWrite].some((value) => Number.isFinite(value) && value > 0);
-        if (hasUsage && Number.isFinite(input) && input >= 0 && Number.isFinite(output) && output >= 0) {
-          const saved: SelectionUsage = { input, output };
-          for (const key of ["cacheRead", "cacheWrite"] as const) {
-            if (Number.isFinite(usage[key]) && usage[key] >= 0) saved[key] = usage[key];
-          }
-          const costKeys = ["input", "output", "cacheRead", "cacheWrite", "total"] as const;
-          if (usage.cost && costKeys.every((key) => Number.isFinite(usage.cost[key]) && usage.cost[key] >= 0)) {
-            saved.cost = Object.fromEntries(costKeys.map((key) => [key, usage.cost[key]])) as NonNullable<SelectionUsage["cost"]>;
-          }
-          this.deps.store.withTx(() => this.deps.store.setSelectionRecordUsage(recordId, saved));
-        }
-      })
-      .catch(() => {});
   }
 
   private appendMarker(customType: string, data: unknown): void {
@@ -1236,28 +598,31 @@ export class Driver {
     this.registry.clear();
     this.hostToolCtx = null;
     this.hostToolCalls = new Map();
-    this.pendingSelection = null;
-    this.pendingSelectionTaskId = null;
-    this.pendingExperiment = null;
-    this.pendingJevCredentialSnapshot = null;
-    try {
-      this.pinnedJev = this.dataScopeRestricted ? null : getProjectJevConfig(this.deps.store, this.session.projectId);
-    } catch {
-      this.pinnedJev = null; // 无法核实实验授权时只运行基础规则。
-    }
-    this.selectionBlockReason = null;
     this.lastBlockedReason = null;
-    this.pendingRecordId = null;
-    this.pinnedContext = this.loadPinnedContext(task);
+    // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；资料受限会话不适用
+    try {
+      this.pinnedPlan = !this.dataScopeRestricted && runsInPlanMode(task, (id) => this.deps.store.getTask(id));
+    } catch {
+      this.pinnedPlan = isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
+    }
     this.pinnedSkills = this.dataScopeRestricted ? null : loadSkillLibrary(this.deps.agentDir);
+    this.assembly = beginContextAssembly({
+      task,
+      session: this.session,
+      accessor: this.accessor(),
+      restricted: this.dataScopeRestricted,
+      recalledFilter: this.isQqGroup && this.deps.qqRecalledFilter
+        ? (messages) => this.deps.qqRecalledFilter!(this.session.id, messages)
+        : undefined,
+      plan: this.pinnedPlan,
+      skills: this.pinnedSkills,
+    }, this.deps);
     this.runPromise = this.runInner(task);
     try {
       await this.runPromise;
     } finally {
-      this.jevAborter?.abort();
-      this.jevAborter = null;
-      this.summaryAborter?.abort();
-      this.summaryAborter = null;
+      this.assembly?.abort();
+      this.assembly = null;
       this.flushOutput();
       this.endThinking();
       // 任务终态后回收本任务持有的 MCP 连接（所有退出路径统一兜底）
@@ -1471,8 +836,7 @@ export class Driver {
   ): Promise<boolean> {
     if (this.currentTask?.id !== task.id) return false;
     this.stopRequested = true;
-    this.jevAborter?.abort();
-    this.summaryAborter?.abort();
+    this.assembly?.abort();
 
     // 1. 提交停止意图（独立事务持久化）
     this.deps.store.withTx(() => {

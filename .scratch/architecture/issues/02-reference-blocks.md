@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 参考块成为选择器的统一输入
 
@@ -83,3 +83,29 @@ SelectorInput.references?: ReferenceBlock[];  // 取代 projectInstructions / sk
 3. 文档收尾：`docs/runtime.md` 选择器一节与上面两处措辞；工单标记完成，追加交付记录。
 
 每步 `npm test` 与 `npm run typecheck` 都通过后在分支 `reference-blocks` 本地提交，不 push。不在 tx 上跑真实模型验收。
+
+## Comments
+
+### 2026-09-27：实现交付
+
+按 0→3 在分支 `reference-blocks` 本地提交，未 push：
+
+- 第 0 步 93acd11：工单与 CONTEXT.md「参考块」。
+- 第 1 步 9286b2b：纯重构。选择器收 `references`，四类块文本搬到来源，版本改由组装写入，受限闸收到构造时；视图与失败文案不变。
+- 第 2 步 4e6e978：分类表带类型（`ContextCategory`），失败说明按表生成，删 `ContextBudgetExceeded`。
+- 补测 71622c1：见下面第一条。
+- 第 3 步（本提交）：`docs/runtime.md` 选择器一节加「参考块」说明，两处措辞按决定修改；本工单。
+
+每步 `npm test` 与 `npm run typecheck` 都通过（最终 589 项，588 通过，1 项按开关跳过）。
+
+与上面的决定不同、或决定没写到的地方（请复核）：
+
+- 第二轮 Q1 说「技能工具未启用、目录未注入时也照记库版本，56 号有断言」不准确：56 号断言的是技能工具启用的情形，未启用的情形没有测试。把「本次工具集含 skill」这个条件去掉的变异也没被发现。已在 59 号组装夹具测试里补上这一情形（71622c1）：不注入技能目录，选择记录照记技能库版本。
+- 59 号组装夹具测试除五类块头外，还断言资料受限会话的视图只剩当前输入、`skillVersion` 为空。受限闸收到构造时之后，只有这里测得到它。
+- 55 号的继续任务断言放在「默认零调用，筛选影响发送视图」那个测试里（标题加了「继续任务带上原任务要求」），断言 Jev 请求 `state.task` 的完整文本。
+- 16 号第 2 步的两条断言单独成一个测试（「失败文案按分类表逐项列出…」），没有并进通用参考块测试。
+- 选择器内部的 estimates 用一处类型断言 `{} as Record<ContextCategory, number>` 换来写入检查；`SelectorOutput.estimates` 与选择记录仍是 `Record<string, number>`。
+- 命名：技能目录块 `skillCatalogBlock(lib)`，计划说明 `PLAN_NOTICE`，分类表更名为 `CONTEXT_CATEGORIES`；项目指令与继续来源的块文本是组装的两个私有方法，紧挨 `loadProjectInstructions`。
+- 变异 10 处都能被发现：位置处理、传入顺序、受限闸（计划模式、技能库各一）、版本来源（项目指令、技能库各一）、Jev 继续文本、失败说明漏列一类、分类漏登记（typecheck 报错）、技能工具条件（补测后）。
+
+按决定留在范围外、本单未处理：选择器与组装里的工具名字面量；系统提示的标记说明；driver 未使用的 `AppToolContext` 导入。

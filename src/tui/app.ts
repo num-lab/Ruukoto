@@ -25,8 +25,6 @@ import {
   matchesKey,
   truncateToWidth,
   visibleWidth,
-  type AutocompleteItem,
-  type AutocompleteProvider,
   type Component,
   type OverlayHandle,
   type SelectItem,
@@ -68,7 +66,16 @@ import {
 import { EventFlowView } from "./event-flow-view.ts";
 import type { FlowEntry } from "./event-flow.ts";
 import { latestTodos, TodoPanel } from "./todo-panel.ts";
-import { isPlanInput, runsInPlanMode } from "../agent/plan-mode.ts";
+import { runsInPlanMode } from "../agent/plan-mode.ts";
+import {
+  commandHelpLines,
+  dispatchInput,
+  SlashCommandAutocomplete,
+  VISIBLE_COMMANDS,
+  type CommandEnv,
+  type CommandHost,
+  type CommandResult,
+} from "./commands.ts";
 
 /** /context 展示的压缩点字段（issue 30；后台不回传摘要正文与条目引用）。 */
 type ContextCheckpointView = Pick<ContextCheckpoint, "summarizedCount" | "summaryUntil" | "clearedResults" | "taskId" | "callIndex" | "summaryModel" | "summaryStatus" | "summaryError">;
@@ -601,78 +608,6 @@ interface FloatingOptions {
   maxHeightRatio?: number;
 }
 
-/** 只做固定操作（斜杠命令）的补全；不扫描拥有者本地文件。 */
-class SlashCommandAutocomplete implements AutocompleteProvider {
-  readonly triggerCharacters = ["/"];
-  constructor(private readonly commands: Array<{ name: string; description?: string; argumentHint?: string }>) {}
-
-  async getSuggestions(lines: string[], cursorLine: number, cursorCol: number) {
-    if (cursorLine !== 0) return null;
-    const line = lines[0] ?? "";
-    if (!line.startsWith("/") || cursorCol > line.length) return null;
-    const token = line.slice(0, cursorCol);
-    if (/\s/.test(token)) return null;
-    const items: AutocompleteItem[] = this.commands
-      .filter((c) => `/${c.name}`.startsWith(token))
-      .map((c) => ({
-        value: `/${c.name}`,
-        label: `/${c.name}${c.argumentHint ? ` ${c.argumentHint}` : ""}`,
-        description: c.description,
-      }));
-    if (items.length === 0) return null;
-    return { items, prefix: token };
-  }
-
-  applyCompletion(lines: string[], cursorLine: number, _cursorCol: number, item: AutocompleteItem, prefix: string) {
-    const line = lines[cursorLine]!;
-    const rest = line.slice(prefix.length);
-    const next = `${item.value} ${rest}`.replace(/\s+$/, " ");
-    const newLines = [...lines];
-    newLines[cursorLine] = next;
-    return { lines: newLines, cursorLine, cursorCol: item.value.length + 1 };
-  }
-
-  shouldTriggerFileCompletion(): boolean {
-    return false;
-  }
-}
-
-interface SlashCommandDef {
-  name: string;
-  description: string;
-  argumentHint?: string;
-}
-
-const SLASH_COMMANDS: SlashCommandDef[] = [
-  { name: "quit", description: "退出客户端（后台任务继续运行）" },
-  { name: "help", description: "命令与快捷键说明" },
-  { name: "sessions", description: "切换项目与会话" },
-  { name: "new-project", description: "创建项目", argumentHint: "<名称>" },
-  { name: "new-session", description: "在当前项目创建会话", argumentHint: "<工作目录>" },
-  { name: "new", description: "在当前工作区创建会话" },
-  { name: "older", description: "向前翻页加载更早的历史" },
-  { name: "history", description: "重新加载当前会话历史" },
-  { name: "expand", description: "展开完整条目/工具输出", argumentHint: "<id 前缀>" },
-  { name: "artifact", description: "查看工具产物正文（按字节分页）", argumentHint: "<产物 id 前缀>" },
-  { name: "approvals", description: "待处理审批列表" },
-  { name: "interrupt", description: "中断当前任务", argumentHint: "[taskId]" },
-  { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>" },
-  { name: "model", description: "模型切换面板（提供方 / 模型 / 思考强度）" },
-  { name: "thinking", description: "同上：模型切换面板（可直接切到思考强度列）" },
-  { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]" },
-  { name: "plan", description: "计划模式：只调研不修改，最终回答即计划；下一条消息即按计划执行", argumentHint: "<内容>" },
-  { name: "resume-queue", description: "恢复已暂停的会话队列" },
-  { name: "mode", description: "选择当前会话的默认访问模式（新任务生效）" },
-  { name: "status", description: "刷新并查看当前任务详情" },
-  { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>" },
-  { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>" },
-  { name: "context", description: "查看当前上下文窗口分解（各部分占比）" },
-  { name: "skill", description: "显式调用技能（提交任务；不带名称时列出技能库）", argumentHint: "<名称> [参数]" },
-  { name: "skills", description: "查看技能库与诊断" },
-  { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情" },
-  { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>" },
-];
-
 export interface TuiAppOptions {
   connection: ControlConnection;
   guard: SubmissionGuard;
@@ -765,7 +700,7 @@ export class TuiApp {
     // 底栏：左侧模式与工作区，右侧模型来源/模型名/思考强度（按键提示由 /help 提供）
     this.footer = new FooterLine();
     this.editor = new AboveEditor(this.tui, editorTheme, {});
-    this.editor.setAutocompleteProvider(new SlashCommandAutocomplete(SLASH_COMMANDS));
+    this.editor.setAutocompleteProvider(new SlashCommandAutocomplete(VISIBLE_COMMANDS));
     this.editor.onSubmit = (text) => void this.handleSubmit(text);
     this.editor.onChange = () => {
       const view = this.currentView();
@@ -1390,19 +1325,7 @@ export class TuiApp {
   // ---------- 输入提交 ----------
 
   private async handleSubmit(text: string): Promise<void> {
-    const trimmed = text.trim();
-    if (trimmed.length === 0) return;
-    // /plan <内容>：整行即计划模式的任务输入（issue 26）；不带内容时走命令显示用法
-    if (isPlanInput(trimmed)) {
-      await this.submitText(trimmed);
-      return;
-    }
-    // /skill:<名称> 是 /skill 提交后的任务输入形式（失败恢复草稿后可直接重发）
-    if (trimmed.startsWith("/") && !trimmed.startsWith("/skill:")) {
-      await this.handleCommand(trimmed);
-      return;
-    }
-    await this.submitText(text);
+    await dispatchInput(text, this.commandEnv());
   }
 
   /** 以当前会话提交任务（沿用 request_id 去重；/skill 以 /skill:<名称> 输入复用）。 */
@@ -1475,126 +1398,58 @@ export class TuiApp {
 
   // ---------- 命令 ----------
 
-  private async handleCommand(line: string): Promise<void> {
-    const [name, ...rest] = line.slice(1).split(/\s+/);
-    const arg = rest.join(" ").trim();
-    // 命令回显进事件流（❯ /mode + 完成后的 ⎿ 结果行）；/quit 不留痕
-    const echoKey = name === "quit" ? null : this.state.echoCommand(this.state.currentSessionId, line);
-    this.refreshAll();
-    switch (name) {
-      case "quit":
-        this.quit(0);
-        return;
-      case "help":
-        this.openHelp();
-        return;
-      case "sessions":
-        this.openSessionPicker();
-        return;
-      case "new-project":
-        await this.cmdNewProject(arg);
-        return;
-      case "new-session":
-        await this.cmdNewSession(arg);
-        return;
-      case "new":
-        await this.cmdNew();
-        return;
-      case "older": {
-        const view = this.currentView();
-        if (!view?.historyCursor) {
-          this.showText(view?.trimmedOlder || view?.historyLoaded ? "没有更早的历史" : "历史尚未加载");
-          return;
-        }
-        await this.loadHistory(view.sessionId, "prepend");
-        return;
-      }
-      case "history": {
-        const view = this.currentView();
-        if (view) await this.loadHistory(view.sessionId, "replace");
-        return;
-      }
-      case "expand":
-        await this.cmdExpand(arg);
-        return;
-      case "artifact":
-        await this.cmdArtifact(arg);
-        return;
-      case "approvals":
-        this.openApprovals();
-        return;
-      case "interrupt":
-        await this.cmdInterrupt(arg);
-        return;
-      case "cancel":
-        await this.cmdCancel(arg);
-        return;
-      case "continue":
-        await this.cmdContinue(arg);
-        return;
-      case "resume-queue":
-        await this.cmdResumeQueue();
-        return;
-      case "model":
-      case "thinking":
-        await this.openModelPicker(echoKey);
-        return;
-      case "mode":
-        await this.cmdMode(rest, echoKey);
-        return;
-      case "status":
-        await this.refreshTaskDetails();
-        return;
-      case "search":
-        await this.cmdSearch(arg);
-        return;
-      case "memory":
-        await this.cmdMemory(rest);
-        return;
-      case "context":
-        await this.cmdContext();
-        return;
-      case "skill":
-        // 参数取原文（保留换行与空白），与直接输入 /skill:<名称> 的任务输入一致
-        if (arg) await this.submitText(`/skill:${line.slice("/skill".length).trim()}`);
-        else await this.cmdSkills();
-        return;
-      case "skills":
-        await this.cmdSkills();
-        return;
-      case "plan":
-        this.notify("用法：/plan <内容>（只调研不修改，最终回答即计划）");
-        return;
-      case "prompt":
-        await this.cmdPrompt();
-        return;
-      case "qq":
-        await this.cmdQq(rest);
-        return;
-      case "github":
-        // issue 17：专用 GitHub 模块已退役；旧命令只保留静态迁移提示（不进补全/帮助）
-        this.showText(
-          "GitHub 专用模块已退役（issue 17）：请在普通任务中使用 GitHub MCP 工具（拥有者经 ruukoto mcp configure 配置）。历史草稿与发布记录已归档为原任务产物。",
-        );
-        return;
-      default:
-        this.notify(`未知命令：/${name}（/help 查看命令列表）`);
-        return;
-    }
+  /** 派发器的能力：view、回显与结果行按发起时的会话；注记与面板照旧跟随当前会话。 */
+  private commandEnv(): CommandEnv {
+    const view = this.currentView();
+    const sessionId = this.state.currentSessionId;
+    return {
+      view: view && { sessionId: view.sessionId, projectId: view.projectId },
+      request: (op, params) => this.connection.request(op, params),
+      notify: (text) => this.notify(text),
+      showText: (text) => this.showText(text),
+      echo: (line) => {
+        const key = this.state.echoCommand(sessionId, line);
+        this.refreshAll();
+        return key;
+      },
+      setResult: (key, text, isError) => (sessionId ? this.state.setCommandResult(sessionId, key, text, isError) : this.notify(text)),
+      host: this.commandHost,
+    };
   }
 
-  private async cmdNewProject(name: string): Promise<void> {
-    if (!name) {
-      this.notify("用法：/new-project <名称>");
-      return;
-    }
-    try {
-      await this.connection.request("create_project", { name });
-      this.showText(`项目已创建：${name}；用 /new-session <工作目录> 创建会话`);
-    } catch (err) {
-      this.notify(red(`创建项目失败：${(err as Error).message}`));
-    }
-  }
+  /** 面板类命令的处理逻辑（commands.ts 经此调用）。 */
+  private readonly commandHost: CommandHost = {
+    quit: () => this.quit(0),
+    openHelp: () => this.openHelp(),
+    openSessions: () => this.openSessionPicker(),
+    newSession: (cwd) => this.cmdNewSession(cwd),
+    newSessionHere: () => this.cmdNew(),
+    loadOlder: async () => {
+      const view = this.currentView();
+      if (!view?.historyCursor) {
+        this.showText(view?.trimmedOlder || view?.historyLoaded ? "没有更早的历史" : "历史尚未加载");
+        return;
+      }
+      await this.loadHistory(view.sessionId, "prepend");
+    },
+    reloadHistory: async () => {
+      const view = this.currentView();
+      if (view) await this.loadHistory(view.sessionId, "replace");
+    },
+    expand: (prefix) => this.cmdExpand(prefix),
+    artifact: (prefix) => this.cmdArtifact(prefix),
+    openApprovals: () => this.openApprovals(),
+    interrupt: (taskId) => this.cmdInterrupt(taskId),
+    cancel: (taskId) => this.cmdCancel(taskId),
+    continueTask: (taskId) => this.cmdContinue(taskId),
+    resumeQueue: () => this.cmdResumeQueue(),
+    openModelPicker: (result) => this.openModelPicker(result),
+    openModeList: (rest, result) => this.cmdMode(rest, result),
+    refreshTask: () => this.refreshTaskDetails(),
+    openContext: () => this.cmdContext(),
+    openPrompts: () => this.cmdPrompt(),
+    submit: (text) => this.submitText(text),
+  };
 
   private async cmdNewSession(cwd: string): Promise<void> {
     if (!cwd) {
@@ -1711,7 +1566,7 @@ export class TuiApp {
     }
   }
 
-  private async cmdMode(rest: string[], echoKey: string | null): Promise<void> {
+  private async cmdMode(rest: string[], result: CommandResult): Promise<void> {
     if (rest.length > 0) {
       this.notify("用法：/mode（无参数，列表选择当前会话的默认模式；作用于之后新建的任务）");
       return;
@@ -1736,42 +1591,40 @@ export class TuiApp {
             : "完全访问",
     }));
     this.showBareList(`审批模式`, items, (item) => {
-      void this.sendSessionMode(sessionId, version, item.value as AccessMode, echoKey);
+      void this.sendSessionMode(sessionId, version, item.value as AccessMode, result);
     });
   }
 
-  private async sendSessionMode(sessionId: string, version: number, mode: AccessMode, echoKey: string | null): Promise<void> {
+  private async sendSessionMode(sessionId: string, version: number, mode: AccessMode, result: CommandResult): Promise<void> {
     const label = accessModeLabel(mode);
     try {
       const saved = await this.connection.request<Session>("set_session_mode", { session_id: sessionId, mode, expected_version: version });
       this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
-      this.state.setCommandResult(sessionId, echoKey, `Switched to ${label}`);
+      result(`Switched to ${label}`);
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code === "connection_unavailable" || code === "closed" || code === "request_timeout") {
         // 应答丢失：先查询后台实际状态，不盲目重放
-        this.state.setCommandResult(sessionId, echoKey, "设置应答丢失；正在查询后台状态（未自动重发）", true);
+        result("设置应答丢失；正在查询后台状态（未自动重发）", true);
         try {
           const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
           this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
         } catch {
-          this.state.setCommandResult(sessionId, echoKey, "状态查询失败，重连后恢复", true);
+          result("状态查询失败，重连后恢复", true);
         }
       } else if (code === "default_mode_conflict") {
         // 版本冲突：刷新后台真实值，不覆盖其他客户端的新选择
-        this.state.setCommandResult(sessionId, echoKey, `默认模式已被其他客户端修改：${(err as Error).message}`, true);
+        result(`默认模式已被其他客户端修改：${(err as Error).message}`, true);
         try {
           const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
           this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
         } catch { /* 重连后由快照恢复 */ }
       } else {
-        this.state.setCommandResult(sessionId, echoKey, `默认模式设置失败：${(err as Error).message}`, true);
+        result(`默认模式设置失败：${(err as Error).message}`, true);
       }
     }
     this.refreshAll();
   }
-
-  // ---------- 历史搜索与记忆（issue 05 §6 入口） ----------
 
   // ---------- /context：上下文窗口预算分解（issue 14） ----------
 
@@ -2111,188 +1964,6 @@ export class TuiApp {
         };
       },
     });
-  }
-
-  private async cmdSearch(query: string): Promise<void> {
-    const view = this.currentView();
-    if (!view) {
-      this.notify("尚未选择会话");
-      return;
-    }
-    if (!query) {
-      this.notify("用法：/search <关键词>（在当前会话历史原文中做字面搜索）");
-      return;
-    }
-    try {
-      const result = await this.connection.request<{
-        hits: Array<{ entryId: string; role: string | null; timestamp: string | null; snippet: string; matchCount: number }>;
-        complete: boolean;
-        scanned: number;
-      }>("search_history", { query, session_id: view.sessionId, limit: 20 });
-      if (result.hits.length === 0) {
-        this.showText(`没有命中：「${query}」（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整"}）`);
-        return;
-      }
-      const lines = result.hits.map(
-        (h) =>
-          `  [${h.entryId.slice(0, 8)}] ${h.role ?? "?"} ×${h.matchCount}  ${h.snippet.replace(/\n/g, " ")}`,
-      );
-      this.showText(
-        `命中 ${result.hits.length} 条（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整，可缩小范围"}）：\n${lines.join("\n")}`,
-      );
-    } catch (err) {
-      this.notify(red(`搜索失败：${(err as Error).message}`));
-    }
-  }
-
-  /** /skills：当前技能库（任务使用各自开始时的钉版）与诊断。 */
-  private async cmdSkills(): Promise<void> {
-    try {
-      const result = await this.connection.request<{
-        dir: string;
-        skills: Array<{ name: string; explicitOnly: boolean; description: string }>;
-        diagnostics: string[];
-      }>("list_skills");
-      const lines = [`技能库 ${result.dir}（${result.skills.length} 个；修改从下一任务生效）`];
-      for (const s of result.skills) lines.push(`  ${s.name}${s.explicitOnly ? "（仅显式调用）" : ""}  ${s.description}`);
-      if (result.diagnostics.length > 0) {
-        lines.push(`诊断（${result.diagnostics.length} 条）：`);
-        for (const d of result.diagnostics) lines.push(`  ${d}`);
-      }
-      lines.push("/skill <名称> [参数] 显式调用");
-      this.showText(lines.join("\n"));
-    } catch (err) {
-      this.notify(red(`查询失败：${(err as Error).message}`));
-    }
-  }
-
-  private async cmdMemory(rest: string[]): Promise<void> {
-    const sub = rest[0] ?? "list";
-    const view = this.currentView();
-    if (sub === "list") {
-      try {
-        const result = await this.connection.request<{
-          memories: Array<{ id: string; category: string; status: string; currentVersion: number; scope: string; updatedAt: string }>;
-        }>("list_memories", view ? { project_id: view.projectId } : {});
-        if (result.memories.length === 0) {
-          this.showText("当前项目没有记忆（代理可在任务中经 memory_save 创建；拥有者经 CLI memory save 管理）");
-          return;
-        }
-        const lines = result.memories.map(
-          (m) => `  [${m.id.slice(0, 10)}] ${m.category} v${m.currentVersion} ${m.status}${m.scope === "personal" ? "（个人共享）" : ""}  ${m.updatedAt}`,
-        );
-        this.showText(`记忆（${result.memories.length} 条）：\n${lines.join("\n")}\n/memory show <id> 查看正文与版本`);
-      } catch (err) {
-        this.notify(red(`查询失败：${(err as Error).message}`));
-      }
-      return;
-    }
-    if (sub === "show") {
-      const id = rest[1];
-      if (!id) {
-        this.notify("用法：/memory show <id>");
-        return;
-      }
-      try {
-        const detail = await this.connection.request<{
-          memory: { id: string; category: string; status: string; currentVersion: number; content: string; sourceRefs: unknown[] };
-          versions: Array<{ version: number; author: string; reason: string; createdAt: string }>;
-        }>("get_memory", { memory_id: id });
-        const m = detail.memory;
-        const history = detail.versions
-          .map((v) => `  v${v.version} ${v.author} ${v.createdAt}${v.reason ? `（${v.reason}）` : ""}`)
-          .join("\n");
-        this.showText(
-          `记忆 ${m.id}（${m.category}，${m.status}，当前 v${m.currentVersion}）：\n${m.content}\n版本历史：\n${history}`,
-        );
-      } catch (err) {
-        this.notify(red(`查询失败：${(err as Error).message}`));
-      }
-      return;
-    }
-    if (sub === "revoke" || sub === "restore") {
-      const id = rest[1];
-      const versionArg = rest[2];
-      if (!id || !versionArg || !/^\d+$/.test(versionArg)) {
-        this.notify(
-          sub === "revoke"
-            ? "用法：/memory revoke <id> <当前版本号>（条件更新，版本不符会拒绝）"
-            : "用法：/memory restore <id> <恢复自版本号>（创建新修订）",
-        );
-        return;
-      }
-      try {
-        if (sub === "revoke") {
-          await this.connection.request("revoke_memory", { memory_id: id, expected_version: Number(versionArg) });
-          this.showText(`记忆 ${id} 已撤销（历史版本保留可查；/memory restore 可恢复）`);
-        } else {
-          await this.connection.request("restore_memory", { memory_id: id, from_version: Number(versionArg) });
-          this.showText(`记忆 ${id} 已自 v${versionArg} 恢复（创建了新修订）`);
-        }
-      } catch (err) {
-        this.notify(red(`操作失败：${(err as Error).message}`));
-      }
-      return;
-    }
-    this.notify("用法：/memory [list | show <id> | revoke <id> <当前版本> | restore <id> <自版本>]");
-  }
-
-  /**
-   * QQ 群聊入口（issue 07）：连接/登录状态、群配置、启停、队列与发送结果
-   * 查看。连接参数与群允许列表的修改经 CLI（ruukoto qq configure …）。
-   */
-  private async cmdQq(rest: string[]): Promise<void> {
-    const sub = rest[0] ?? "status";
-    try {
-      if (sub === "status") {
-        const s = await this.connection.request<Record<string, any>>("qq_status", {});
-        if (!s.configured) {
-          this.showText("QQ 入口未配置（拥有者经 CLI：ruukoto qq configure --endpoint … --self-id …）");
-          return;
-        }
-        const sessions = (s.sessions as Array<Record<string, unknown>>).map(
-          (g) => `  群 ${g.groupId}：会话 ${String(g.sessionId).slice(0, 10)}… 排队 ${g.queued}${g.active ? "，执行中" : ""}`,
-        );
-        this.showText(
-          `QQ 入口：${s.enabled ? "已启用" : "已停用"}；连接 ${s.online ? `在线（账号 ${s.actualSelfId}）` : `离线（${s.stateDetail}）`}\n` +
-            `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${(s.groups as string[]).join("、") || "（空）"}\n` +
-            `拥有者私聊：${s.ownerUserId ?? "未开启"}（共享 main；发送记录用 ruukoto notify list 查看）\n` +
-            `回复上限 ${s.maxReplyChars} 字符；排队过期 ${s.queueTtlMs}ms\n` +
-            (sessions.length ? sessions.join("\n") : "  （尚无群会话）"),
-        );
-        return;
-      }
-      if (sub === "enable" || sub === "disable") {
-        const c = await this.connection.request<{ configVersion: number }>("qq_set_enabled", { enabled: sub === "enable" });
-        this.showText(`QQ 入口已${sub === "enable" ? "启用" : "停用"}（配置 v${c.configVersion}）`);
-        return;
-      }
-      if (sub === "groups") {
-        const s = await this.connection.request<Record<string, any>>("qq_status", {});
-        this.showText(`允许的群：${((s.groups as string[]) ?? []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
-        return;
-      }
-      if (sub === "inbox" || sub === "outbox") {
-        const result = await this.connection.request<{ entries: Array<Record<string, any>> }>(
-          sub === "inbox" ? "qq_inbox_list" : "qq_outbox_list",
-          { group_id: rest[1], limit: 20 },
-        );
-        if (result.entries.length === 0) {
-          this.showText(sub === "inbox" ? "暂无收件登记" : "暂无发送记录");
-          return;
-        }
-        const lines = result.entries.map((e) =>
-          sub === "inbox"
-            ? `  群 ${e.groupId} ${e.userId}：${String(e.text).slice(0, 40)} [${e.status}${e.recalled ? "/已撤回" : ""}] ${e.createdAt}`
-            : `  群 ${e.groupId}：${String(e.text).slice(0, 40)} [${e.status}]${e.error ? ` ${String(e.error).slice(0, 60)}` : ""} ${e.createdAt}`,
-        );
-        this.showText(`${sub === "inbox" ? "收件登记" : "发送记录"}（最近 ${result.entries.length} 条）：\n${lines.join("\n")}`);
-        return;
-      }
-      this.notify("用法：/qq [status | enable | disable | groups | inbox [群号] | outbox [群号]]");
-    } catch (err) {
-      this.notify(red(`QQ 操作失败：${(err as Error).message}`));
-    }
   }
 
   private resolveTaskId(prefix: string): string | null {
@@ -2821,7 +2492,7 @@ export class TuiApp {
   }
 
   /** /model 与 /thinking：三列面板（提供方 / 模型 / 思考强度）。 */
-  private async openModelPicker(echoKey: string | null): Promise<void> {
+  private async openModelPicker(result: CommandResult): Promise<void> {
     const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
     if (!session) { this.notify("尚未选择会话"); return; }
     const sessionId = session.id;
@@ -2857,7 +2528,7 @@ export class TuiApp {
             provider,
             modelId: model.modelId,
             thinkingLevel: level as ModelSelection["thinkingLevel"],
-          }, echoKey);
+          }, result);
         },
         close,
         // ✓ 标记：会话当前生效的选择（空串表示该列不参与比较）
@@ -2880,18 +2551,18 @@ export class TuiApp {
     } catch (err) { this.notify(`模型目录读取失败：${(err as Error).message}`); }
   }
 
-  private async saveModelSelection(sessionId: string, version: number, selection: ModelSelection, echoKey: string | null): Promise<void> {
+  private async saveModelSelection(sessionId: string, version: number, selection: ModelSelection, result: CommandResult): Promise<void> {
     this.refreshAll();
     try {
       const saved = await this.connection.request<Session>("set_session_model", { session_id: sessionId, expected_version: version, model_selection: selection });
       this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
-      this.state.setCommandResult(sessionId, echoKey, `Switched to ${this.selectionText(saved.modelSelection)}`);
+      result(`Switched to ${this.selectionText(saved.modelSelection)}`);
     } catch (err) {
-      this.state.setCommandResult(sessionId, echoKey, `模型设置未确认：${(err as Error).message}；正在查询后台状态`, true);
+      result(`模型设置未确认：${(err as Error).message}；正在查询后台状态`, true);
       try {
         const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
         this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
-      } catch { this.state.setCommandResult(sessionId, echoKey, "状态查询失败，重连后恢复；未自动重发设置", true); }
+      } catch { result("状态查询失败，重连后恢复；未自动重发设置", true); }
     }
     this.refreshAll();
   }
@@ -2930,7 +2601,7 @@ export class TuiApp {
   private openHelp(): void {
     const lines = [
       bold("命令"),
-      ...SLASH_COMMANDS.map((c) => `  /${c.name}${c.argumentHint ? ` ${c.argumentHint}` : ""} — ${c.description}`),
+      ...commandHelpLines(),
       "",
       bold("输入"),
       "  Enter 提交 · Alt+Enter / Shift+Enter / Ctrl+J 换行 · 大段粘贴自动折叠显示（提交保留原文）",

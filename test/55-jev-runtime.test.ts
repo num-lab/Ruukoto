@@ -66,22 +66,24 @@ function disable(kit: Kit, projectId: string): void {
   kit.store.setMetaValue(jevConfigKey(projectId), JSON.stringify({ enabled: false, credential: "jev-test", configVersion: 2 }));
 }
 
-test("Jev：默认零调用，筛选影响发送视图，关闭后恢复基础规则", async () => {
+test("Jev：默认零调用，筛选影响发送视图（继续任务带上原任务要求），关闭后恢复基础规则", async () => {
   const jev = await startJev((body, res) => answer(body, res, (q) => q.instructions.includes("蓝色灯塔")));
   const kit = await startAssemblyKit("jev-flow");
   kit.deps.jev = { baseUrl: jev.url };
   try {
     const { projectId, session } = kit.project();
     const history = [user("暗号是蓝色灯塔"), reply("已记录"), user("临时闲聊橙色风筝"), reply("已记录")];
-    const run = (input: string) => kit.send(kit.begin(kit.task(session, input), session), [...history, user(input)]);
+    const run = (input: string, resumes: string | null = null) => kit.send(kit.begin(kit.task(session, input, resumes), session), [...history, user(input)]);
 
     const off = await run("请找回已确认暗号");
     assert.equal(jev.hits.length, 0);
     assert.equal(off.record.experiment, null);
 
     enable(kit, projectId, jev.host);
-    const { view, record } = await run("请找回已确认暗号");
+    const origin = kit.task(session, "原任务：找回暗号");
+    const { view, record } = await run("请找回已确认暗号", origin.id);
     assert.equal(jev.hits.length, 1);
+    assert.equal(jev.hits[0].state.task, "继续任务的原始要求：\n原任务：找回暗号\n\n本次要求：\n请找回已确认暗号");
     assert.equal(record.strategy, "jev-v1");
     assert.equal(record.experiment?.status, "applied");
     assert.equal(record.experiment?.usage?.inputTokens, 100);

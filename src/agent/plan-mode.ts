@@ -4,8 +4,22 @@
  */
 
 import type { Task } from "../core/types.ts";
+import type { ReferenceBlock } from "./context-selector.ts";
 
 type PlanTaskView = Pick<Task, "input" | "resumesTaskId">;
+
+/** 计划说明：宿主写定的任务级参考块，紧邻当前任务输入。 */
+export const PLAN_NOTICE: ReferenceBlock = {
+  category: "planMode",
+  placement: "task",
+  text: [
+    "[计划模式：拥有者以 /plan 提交本任务；宿主固定说明]",
+    "只调研、不修改：不修改文件、长期记忆或外部状态，改动留到执行时再做。",
+    "bash 只运行只读命令（如搜索、查看文件、git log），不运行会写入文件或产生其他副作用的命令。",
+    "最终回答给出计划；拥有者的下一条消息即按计划执行。",
+    "[/计划模式]",
+  ].join("\n"),
+};
 
 /** 标记规则：任务输入以 `/plan` 加空白开头且其后有内容。 */
 export function isPlanInput(input: string): boolean {

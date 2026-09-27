@@ -1,7 +1,8 @@
 /**
  * 审批闸门（架构工单 04）：审批请求的全程由这里负责——登记请求并把任务转入
  * 等待确认、auto-review 任务先经一次自动审查、等待拥有者决定、未批准时记录
- * 已知未执行；等待表、计数与进行中的审查都只在这里。
+ * 已知未执行、获批后在同一事务内复核并单次消费；等待表、计数与进行中的审查
+ * 都只在这里。工具族只提供审批范围、获批后复核与（需要时）同事务提交的本地效果。
  *
  * Driver 只接线：控制面应答 → resolve()，工具边界模式切换 → supersedeAll()，
  * 停止 → cancelAll()。每个 Driver 一个实例。
@@ -14,11 +15,37 @@ import { classifyForReview, ReviewAbortedError, REVIEW_POLICY_VERSION, type Appr
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
 
-/** 审批结果：决定 + 来源与审查理由（自动拒绝不得显示成"拥有者拒绝"）。 */
-export interface ApprovalOutcome {
-  decision: "approved" | "rejected" | "superseded";
-  source: "owner" | "auto_review" | null;
-  reviewReason: string | null;
+export interface ApprovalRequest<T> {
+  task: Task;
+  hostOpId: string;
+  toolName: string;
+  params: Record<string, unknown>;
+  scope: ApprovalScope;
+  signal?: AbortSignal;
+  /** 获批后复核：同步，在消费事务内、条件更新之前执行；返回原因即放弃消费。不得再开核心库事务。 */
+  recheck?: () => string | null;
+  /** 与消费同一事务提交的本地效果（通知登记）；抛错则整笔回滚。不得再开核心库事务。 */
+  commit?: (approvalId: string) => T;
+}
+
+/** 批准：审批 id、审批记录保存的参数快照与 commit 的返回值；否则为已知未执行的文案。 */
+export type ApprovalResult<T> =
+  | { approved: true; approvalId: string; params: Record<string, unknown>; value: T }
+  | { approved: false; text: string };
+
+/** 未批准的已知未执行文案（落库与返回给模型的是同一句；自动拒绝不得显示成"拥有者拒绝"）。 */
+function notExecutedText(
+  toolName: string,
+  decision: "rejected" | "canceled" | "superseded",
+  source: string | null,
+  reviewReason: string | null,
+): string {
+  if (decision === "rejected") {
+    return source === "auto_review" ? `自动审查拒绝执行 ${toolName}：${reviewReason ?? "未给出理由"}` : `拥有者拒绝执行 ${toolName}`;
+  }
+  return decision === "superseded"
+    ? `审批已失效（模式切换或任务停止），${toolName} 未执行；如仍需要请重新申请`
+    : `任务停止，确认等待解除（${toolName} 未执行）`;
 }
 
 export interface ApprovalGateDeps {
@@ -38,15 +65,18 @@ export class ApprovalGate {
     this.deps = deps;
   }
 
-  /** 结构化审批操作：登记请求并等待决定（auto-review 任务先经自动审查）。 */
-  async await(input: {
-    task: Task;
-    hostOpId: string;
-    toolName: string;
-    params: Record<string, unknown>;
-    scope: ApprovalScope;
-    signal?: AbortSignal;
-  }): Promise<ApprovalOutcome> {
+  /**
+   * 审批请求全程：登记并等待决定（auto-review 任务先经自动审查）；获批后在同一
+   * 事务内复核、单次消费并提交本地效果。未批准、复核失败与消费失败都交回
+   * 「已知未执行」文案（未批准的由闸门记入工具结果，其余由调用方原样返回）。
+   */
+  async request<T = void>(input: ApprovalRequest<T>): Promise<ApprovalResult<T>> {
+    const waited = await this.wait(input);
+    if (!waited.approved) return waited;
+    return this.consume(input, waited.confirmationId);
+  }
+
+  private async wait(input: ApprovalRequest<unknown>): Promise<{ approved: true; confirmationId: string } | { approved: false; text: string }> {
     const store = this.deps.store;
     // 自动审查只覆盖 auto-review 任务且需要任务固定的模型配置；缺任一条件退化为纯人工
     const reviewSelection =
@@ -69,21 +99,22 @@ export class ApprovalGate {
     });
 
     if (input.signal?.aborted) {
+      // 只动本审批；其他仍在等待的审批照常计数
+      const text = notExecutedText(input.toolName, "superseded", null, null);
       store.withTx(() => {
-        store.stalePendingConfirmations(input.task.id);
-        store.transitionTask(input.task.id, ["awaiting_confirmation"], "running", {});
+        store.invalidateConfirmation(confirmation.id);
+        this.recordNotExecuted(input, text);
+        if (this.pendingCount === 0) store.transitionTask(input.task.id, ["awaiting_confirmation"], "running", {});
       });
-      return { decision: "superseded", source: null, reviewReason: null };
+      return { approved: false, text };
     }
 
     this.pendingCount++;
+    const onAbort = () => this.waiters.get(confirmation.id)?.resolve("superseded");
     try {
       const decisionPromise = new Promise<ConfirmationDecision>((resolve) => {
         this.waiters.set(confirmation.id, { task: input.task, resolve });
-        if (input.signal) {
-          const onAbort = () => resolve("superseded");
-          input.signal.addEventListener("abort", onAbort, { once: true });
-        }
+        input.signal?.addEventListener("abort", onAbort, { once: true });
       });
       // 等待者注册后再启动自动审查，避免审查同步完成时结果无处投递
       if (reviewSelection) {
@@ -92,35 +123,16 @@ export class ApprovalGate {
         });
       }
       const decision = await decisionPromise;
+      if (decision === "approved") return { approved: true, confirmationId: confirmation.id };
       // 自动拒绝不能显示成"拥有者拒绝"：重读落库的来源与理由（与决定同事务写入）
       const resolved = store.getConfirmation(confirmation.id);
-      const source = resolved?.decisionSource ?? null;
-      const reviewReason = resolved?.reviewReason ?? null;
-      if (decision === "approved") return { decision, source, reviewReason };
+      const text = notExecutedText(input.toolName, decision, resolved?.decisionSource ?? null, resolved?.reviewReason ?? null);
       // 未批准 = 已知未执行（拒绝/取消/失效都不产生外部效果）
-      const rejectedSummary =
-        source === "auto_review"
-          ? `自动审查拒绝执行 ${input.toolName}：${reviewReason ?? "未给出理由"}`
-          : `拥有者拒绝执行 ${input.toolName}`;
-      store.withTx(() => {
-        const summary =
-          decision === "rejected"
-            ? rejectedSummary
-            : decision === "superseded"
-              ? `审批已失效（模式切换或任务停止），${input.toolName} 未执行`
-              : `任务停止，确认等待解除（${input.toolName} 未执行）`;
-        const recorded = store.recordToolResult(input.hostOpId, summary, true);
-        if (recorded) {
-          store.appendEvent(
-            { type: "task.tool_result", taskId: input.task.id, toolOpId: input.hostOpId, summary, isError: true, artifactIds: [] },
-            { taskId: input.task.id, sessionId: input.task.sessionId },
-          );
-        }
-      });
-      return decision === "rejected"
-        ? { decision: "rejected", source, reviewReason }
-        : { decision: "superseded", source, reviewReason };
+      store.withTx(() => this.recordNotExecuted(input, text));
+      return { approved: false, text };
     } finally {
+      this.waiters.delete(confirmation.id);
+      input.signal?.removeEventListener("abort", onAbort);
       // 等待结束（含人工抢先/取消/模式切换）：中止仍在进行的审查，迟到结果忽略
       const aborter = this.reviewAborters.get(confirmation.id);
       if (aborter) {
@@ -133,6 +145,60 @@ export class ApprovalGate {
           store.transitionTask(input.task.id, ["awaiting_confirmation"], "running", {});
         });
       }
+    }
+  }
+
+  /**
+   * 获批后：同一事务内复核 → 单次消费（条件更新：批准未消费、权限版本匹配、
+   * 任务仍活动；消费即执行开始）→ 事件 → 提交本地效果。复核或消费失败、
+   * recheck/commit 抛错都使批准失效（stale），操作按已知未执行。
+   */
+  private consume<T>(input: ApprovalRequest<T>, confirmationId: string): ApprovalResult<T> {
+    const store = this.deps.store;
+    // 执行参数取自审批记录保存的快照
+    const confirmation = store.getConfirmation(confirmationId)!;
+    try {
+      return store.withTx((): ApprovalResult<T> => {
+        const reason = input.recheck?.() ?? null;
+        if (reason) {
+          store.invalidateConfirmation(confirmationId);
+          return { approved: false, text: reason };
+        }
+        const ok = store.consumeApproval({
+          confirmationId,
+          expectedPermissionVersion: confirmation.permissionVersion,
+          activeStatuses: ["running", "awaiting_confirmation"],
+        });
+        if (!ok) {
+          store.invalidateConfirmation(confirmationId);
+          return { approved: false, text: `批准已失效（任务结束、权限版本变化或已被消费），${input.toolName} 未执行` };
+        }
+        store.appendEvent(
+          { type: "task.approval_consumed", taskId: input.task.id, confirmationId, toolOpId: input.hostOpId, toolName: input.toolName },
+          { taskId: input.task.id, sessionId: input.task.sessionId },
+        );
+        const value = input.commit ? input.commit(confirmationId) : (undefined as T);
+        return { approved: true, approvalId: confirmationId, params: confirmation.params, value };
+      });
+    } catch (err) {
+      // 整笔回滚（未消费、未提交）：批准失效，错误原样交回调用方
+      try {
+        store.withTx(() => store.invalidateConfirmation(confirmationId));
+      } catch {
+        // 失效标记写不进去时批准保持未消费（仍是已知未执行），不遮住原始错误
+      }
+      throw err;
+    }
+  }
+
+  private recordNotExecuted(input: { task: Task; hostOpId: string }, text: string): void {
+    const store = this.deps.store;
+    const recorded = store.recordToolResult(input.hostOpId, text, true);
+    if (recorded) {
+      store.appendEvent(
+        { type: "task.tool_result", taskId: input.task.id, toolOpId: input.hostOpId, summary: text, isError: true, artifactIds: [] },
+        { taskId: input.task.id, sessionId: input.task.sessionId },
+      );
     }
   }
 

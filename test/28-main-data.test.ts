@@ -993,6 +993,45 @@ test("核心表与内部元表无法被应用数据工具访问", async () => {
   }
 });
 
+test("批准后存储层才拒绝：错误照常经校验失败路径（留 app_data.rejected、冲突附当前版本）（架构工单 04）", async () => {
+  const done = new Set<string>();
+  const responder: Responder = async (req) => {
+    const text = lastUserText(req);
+    const once = (mark: string, call: { name: string; arguments: Record<string, unknown> }) =>
+      text.includes(mark) && !done.has(mark) ? (done.add(mark), { kind: "tool_calls" as const, calls: [{ id: mark, ...call }] }) : null;
+    return (
+      once("SEED-T", { name: "app_data_define_table", arguments: { table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "建表" } }) ??
+      // 审批前的范围构造不查表与版本：未知表、schema 版本冲突都在批准后由存储层发现
+      once("GHOST-DEL", { name: "app_data_delete", arguments: { table: "ghosts", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "清理" } }) ??
+      once("SCHEMA-DEL", { name: "app_data_delete", arguments: { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], expected_schema_version: 999, reason: "清理" } }) ??
+      { kind: "text", text: "done" }
+    );
+  };
+  const t = await startTestRuntime("appdata-post-approval", responder);
+  try {
+    const main = t.runtime.store.getAgentRole("main")!;
+    const run = async (input: string) => {
+      const task = await t.runtime.submit({ sessionId: main.sessionId, requestId: input, input, modelSelection: t.runtime.defaultSelection });
+      const conf = input === "SEED-T" ? null : await pendingConfirmation(t.client, task.id);
+      if (conf) await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
+      await waitFor(`${input} 完成`, () => t.runtime.store.getTask(task.id)!.status === "completed");
+      return t.runtime.store.listToolOpsByTask(task.id).find((o) => o.toolName.startsWith("app_data_"))!;
+    };
+    await run("SEED-T");
+
+    const ghost = await run("GHOST-DEL");
+    assert.equal(ghost.isError, true);
+    const rejected = t.runtime.store.getEventsAfter(0).filter((e) => e.body.type === "app_data.rejected" && e.taskId === ghost.taskId);
+    assert.equal(rejected.length, 1, "获批后的存储层拒绝留 app_data.rejected");
+    assert.equal((rejected[0]!.body as any).source, "validation");
+
+    const schema = await run("SCHEMA-DEL");
+    assert.match(schema.resultSummary!, /schema 版本冲突.*（当前版本：/, "冲突附当前版本");
+  } finally {
+    await t.shutdown();
+  }
+});
+
 test("main 工具校验失败留 app_data.rejected 事件；恶意表名拒绝", async () => {
   let badCalled = false;
   const responder: Responder = async (req) => {

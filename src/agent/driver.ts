@@ -222,10 +222,7 @@ export class Driver {
         if (!artifactSession) return false;
         return deps.access.canAccess(this.accessor(), artifactSession.projectId, "artifact");
       },
-      bridge: {
-        awaitApproval: (input) => this.approvals.await(input),
-        supersedeAllWaiters: () => this.approvals.supersedeAll(),
-      },
+      approvals: this.approvals,
       // MCP 动态工具经路由器统一处理（issue 18）：计划按任务钉版，执行时读取
       mcp: deps.mcp ? { store: deps.mcp.store, plan: () => this.currentMcpPlan } : undefined,
     });
@@ -373,7 +370,7 @@ export class Driver {
             taskContext: () => this.hostToolCtx,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            awaitApproval: (input) => this.approvals.await(input),
+            requestApproval: (input) => this.approvals.request(input),
             queryStallMs: () => this.deps.appData?.queryStallMs,
           })
         : [];
@@ -386,7 +383,7 @@ export class Driver {
             taskContext: () => this.hostToolCtx,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            awaitApproval: (input) => this.approvals.await(input),
+            requestApproval: (input) => this.approvals.request(input),
           })
         : [];
     // 委派 coding 工具（issue 05）：只有 main 的清单含 delegation
@@ -1133,7 +1130,7 @@ export class Driver {
     this.approvals.supersedeAll();
   }
 
-  /** 当前任务运行的完成信号（无任务运行时 resolve）。用于审批桥外的等待方
+  /** 当前任务运行的完成信号（无任务运行时 resolve）。用于审批闸门外的等待方
    * 在任务自然结束时回落（避免控制面请求永久悬挂）。 */
   taskCompletion(): Promise<void> {
     return this.runPromise ?? Promise.resolve();

@@ -116,7 +116,7 @@ test("系统提示：QQ 群会话用 chat 提示", async () => {
   }
 });
 
-test("参考块块头只保留名称、id、类别与范围；资料受限会话不注入；外部资料警示保留", async () => {
+test("参考块块头只保留名称、id、类别与范围；资料受限会话不注入，无 skill 工具不注入技能目录；外部资料警示保留", async () => {
   const kit = await startAssemblyKit("sysprompt-heads");
   try {
     const skillFile = path.join(kit.dirs.agentDir, "skills", "alpha", "SKILL.md");
@@ -153,6 +153,11 @@ test("参考块块头只保留名称、id、类别与范围；资料受限会话
     }), current, { tools });
     assert.deepEqual(restricted.view.map(textOf), ["继续"]);
     assert.equal(restricted.record.skillVersion, "", "受限会话不记技能库版本");
+
+    // 本次工具集没有 skill（如 GitHub 评审收窄）：不注入技能目录，选择记录照记技能库版本
+    const narrowed = await kit.send(kit.begin(kit.task(session, "评审"), session, { skills }), [{ role: "user", content: "评审", timestamp: 1 }]);
+    assert.ok(!narrowed.view.some((m) => textOf(m).startsWith("[技能目录]")), "无 skill 工具不注入技能目录");
+    assert.equal(narrowed.record.skillVersion, skills.version);
   } finally {
     await kit.close();
   }

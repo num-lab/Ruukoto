@@ -1208,6 +1208,20 @@ export class Store {
       .run(new Date().toISOString(), taskId);
   }
 
+  /**
+   * 单条审批失效（架构工单 04）：未消费的 pending/approved → stale。等待前信号已中止、
+   * 获批后复核或消费失败时用；已消费的批准不动（消费即执行开始）。
+   */
+  invalidateConfirmation(id: string): void {
+    this.db
+      .prepare(
+        `UPDATE confirmations SET status = 'stale', responded_at = COALESCE(responded_at, ?),
+           review_status = CASE WHEN review_status = 'in_progress' THEN 'superseded' ELSE review_status END
+         WHERE id = ? AND consumed_at IS NULL AND status IN ('pending', 'approved')`,
+      )
+      .run(new Date().toISOString(), id);
+  }
+
   private rowToConfirmation(row: any): ConfirmationRequest {
     return {
       id: row.id,

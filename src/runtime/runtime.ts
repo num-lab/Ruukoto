@@ -282,7 +282,7 @@ export class Runtime {
   private model: any;
   modelCatalog!: ModelCatalog;
   defaultSelection!: ModelSelection;
-  /** 自动审查调用（issue 15）：start 建好模型目录后创建；auto-review 任务的审批桥使用。 */
+  /** 自动审查调用（issue 15）：start 建好模型目录后创建；auto-review 任务的审批闸门使用。 */
   private reviewer!: ApprovalReviewer;
   /**
    * 模型配置应用门闩（issue 21 §4）：非 null 表示正在应用，元素为受影响

@@ -5,8 +5,9 @@
  * - 身份由宿主注入并在执行入口每次重核（任务/会话/项目/main 绑定）；
  * - 目标只来自可信宿主渠道配置；模型不能传入 URL、chat/user ID、凭据或审批 ID；
  * - 通知计划与一次确认发送都要拥有者确认（full_access 与 auto-review 也不例外）：
- *   审批固定完整正文、目标及配置版本、规则/时区/DST 与持续范围；获批后在同一
- *   核心事务中重核并消费批准、写入计划或发送操作；
+ *   审批固定完整正文、目标及配置版本、规则/时区/DST 与持续范围；获批后审批闸门
+ *   在同一核心事务中重核（身份按调用开始时捕获的上下文、目标、资料）、消费批准
+ *   并写入计划或发送操作；
  * - 正文可直接提交文本，或从已完成任务结果、可访问产物的文本片段、应用数据
  *   记录字段解析；登记前解析为最终文本并保存来源版本与摘要，之后业务数据变化
  *   不改变已批准正文；发送前复核可撤销的资料授权。
@@ -19,7 +20,7 @@ import type { AccessScope } from "../core/access.ts";
 import type { ApprovalScope, NotifyTarget, Task } from "../core/types.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { AppDataStore } from "./app-data/store.ts";
-import type { ApprovalOutcome } from "./approval-gate.ts";
+import type { ApprovalGate } from "./approval-gate.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import { describeRule, firstDue, parseRule, RuleError, tzDataVersion, type ScheduleRule } from "../scheduler/time.ts";
 import { SchedulerConflictError, sha256, type NotificationOp, type Schedule, type SchedulerStore, type SourceRef } from "../scheduler/store.ts";
@@ -220,14 +221,8 @@ export interface SchedulerToolsDeps {
   taskContext(): HostToolContext | null;
   bindCall?(sdkCallId: string): () => void;
   verifyMain(ctx: HostToolContext): string | null;
-  awaitApproval(input: {
-    task: Task;
-    hostOpId: string;
-    toolName: string;
-    params: Record<string, unknown>;
-    scope: ApprovalScope;
-    signal?: AbortSignal;
-  }): Promise<ApprovalOutcome>;
+  /** 审批闸门（窄回调；不向模型暴露控制面）。 */
+  requestApproval: ApprovalGate["request"];
 }
 
 function okText(text: string) {
@@ -271,13 +266,13 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
     if (problem) throw new Error(`身份校验失败：${problem}`);
     return ctx;
   };
-  const bindExecute = <P extends Record<string, unknown>>(fn: (ctx: HostToolContext, params: P) => Promise<{ content: Array<{ type: "text"; text: string }> }>) =>
-    async (sdkCallId: string, params: P) => {
+  const bindExecute = <P extends Record<string, unknown>>(fn: (ctx: HostToolContext, params: P, signal?: AbortSignal) => Promise<{ content: Array<{ type: "text"; text: string }> }>) =>
+    async (sdkCallId: string, params: P, signal?: AbortSignal) => {
       const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
       try {
         const ctx = requireCtx();
         if (bytes(JSON.stringify(params ?? {})) > NOTIFY_LIMITS.paramsBytes) throw new Error(`参数超过 ${NOTIFY_LIMITS.paramsBytes} 字节`);
-        return await fn(ctx, params);
+        return await fn(ctx, params, signal);
       } catch (err) {
         if (err instanceof RuleError || err instanceof SchedulerConflictError) throw new Error(err.message);
         throw err;
@@ -286,39 +281,36 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       }
     };
 
-  /** 拥有者确认 → 获批后重核身份与目标 → 同一事务消费批准并写入。 */
+  /** 拥有者确认 → 审批闸门在同一事务内重核身份、目标与资料，消费批准并写入。 */
   const approveThenCommit = async <T>(input: {
     ctx: HostToolContext;
     toolName: string;
     params: Record<string, unknown>;
     scope: Extract<ApprovalScope, { kind: "notification" }>;
+    signal?: AbortSignal;
     commit: (approvalId: string) => T;
   }): Promise<T> => {
     const task = store.getTask(input.ctx.taskId);
     if (!task) throw new Error("宿主任务不存在");
-    const approval = await deps.awaitApproval({ task, hostOpId: input.ctx.hostOpId, toolName: input.toolName, params: input.params, scope: input.scope });
-    if (approval.decision !== "approved") {
-      throw new Error(approval.decision === "rejected" ? "拥有者拒绝该通知外发，未登记" : "审批已失效（任务停止或权限版本变化），未登记");
-    }
-    requireCtx();
-    if (JSON.stringify(deps.target()) !== JSON.stringify(input.scope.target)) throw new Error("通知目标配置在确认期间已变化或停用，原批准失效（未登记）");
-    const confirmation = store.listConfirmationsByTask(input.ctx.taskId).find((c) => c.toolOpId === input.ctx.hostOpId && c.status === "approved");
-    if (!confirmation) throw new Error("审批记录缺失或已失效，未登记");
-    return store.withTx(() => {
-      const sourceProblem = deps.sources.verify(input.ctx.projectId, (input.params.source_refs ?? []) as SourceRef[]);
-      if (sourceProblem) throw new Error(`通知资料已失效：${sourceProblem}`);
-      const ok = store.consumeApproval({
-        confirmationId: confirmation.id,
-        expectedPermissionVersion: confirmation.permissionVersion,
-        activeStatuses: ["running", "awaiting_confirmation"],
-      });
-      if (!ok) throw new Error("批准已失效（任务结束、权限版本变化或已被消费），未登记");
-      store.appendEvent(
-        { type: "task.approval_consumed", taskId: input.ctx.taskId, confirmationId: confirmation.id, toolOpId: input.ctx.hostOpId, toolName: input.toolName },
-        { taskId: input.ctx.taskId, sessionId: input.ctx.sessionId },
-      );
-      return input.commit(confirmation.id);
+    const approval = await deps.requestApproval({
+      task,
+      hostOpId: input.ctx.hostOpId,
+      toolName: input.toolName,
+      params: input.params,
+      scope: input.scope,
+      signal: input.signal,
+      // 身份按调用开始时捕获的上下文核对：同批并行的宿主工具会改写共享上下文
+      recheck: () => {
+        const problem = deps.verifyMain(input.ctx);
+        if (problem) return `身份校验失败：${problem}`;
+        if (JSON.stringify(deps.target()) !== JSON.stringify(input.scope.target)) return "通知目标配置在确认期间已变化或停用，原批准失效（未登记）";
+        const sourceProblem = deps.sources.verify(input.ctx.projectId, (input.params.source_refs ?? []) as SourceRef[]);
+        return sourceProblem ? `通知资料已失效：${sourceProblem}` : null;
+      },
+      commit: input.commit,
     });
+    if (!approval.approved) throw new Error(approval.text);
+    return approval.value;
   };
 
   const ruleSchema = Type.Object({
@@ -355,7 +347,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       }, { additionalProperties: false })),
       reason: Type.String({ description: "登记理由（必填）" }),
     }),
-    execute: bindExecute(async (ctx, params: any) => {
+    execute: bindExecute(async (ctx, params: any, signal) => {
       const key = String(params.create_key ?? "");
       if (!key.trim() || key.length > NOTIFY_LIMITS.createKeyChars) throw new Error(`create_key 必须是 1–${NOTIFY_LIMITS.createKeyChars} 字符`);
       const reason = validateReason(params.reason);
@@ -397,7 +389,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       if (news) {
         const text = newsPolicyText(news);
         const s = await approveThenCommit({
-          ctx, toolName: "schedule_create",
+          ctx, toolName: "schedule_create", signal,
           params: { create_key: key, action, rule, news, text, target, reason },
           scope: {
             kind: "notification", mode: "news", taskId: ctx.taskId, toolOpId: ctx.hostOpId, target,
@@ -416,6 +408,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       checkText(text, "通知正文");
       const approvalParams = { create_key: key, action, rule, text, target, source_refs: refs, reason };
       const s = await approveThenCommit({
+        signal,
         ctx,
         toolName: "schedule_create",
         params: approvalParams,
@@ -513,7 +506,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       content: contentSchema,
       reason: Type.String({ description: "发送理由（必填）" }),
     }),
-    execute: bindExecute(async (ctx, params: any) => {
+    execute: bindExecute(async (ctx, params: any, signal) => {
       const reason = validateReason(params.reason);
       const target = deps.target();
       if (!target) throw new Error("未配置可信 owner 通知目标，不能外发（不猜测接收者）");
@@ -526,6 +519,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
         return okText(`已排队（重复调用返回原操作）：${opLine(existing)}`);
       }
       const op = await approveThenCommit({
+        signal,
         ctx,
         toolName: "notification_enqueue",
         params: { text, target, source_refs: refs, reason },

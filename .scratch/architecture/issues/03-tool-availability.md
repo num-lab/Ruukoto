@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 工具可用性：一个模块回答「这个任务能看见、能调用哪些工具」
 
@@ -106,3 +106,29 @@ driver：
 3. 文档收尾：`runtime.md`；工单标记完成并追加交付记录。
 
 每步 `npm test` 与 `npm run typecheck` 都通过后在分支 `tool-availability` 本地提交，不 push。不在 tx 上跑真实模型验收。
+
+## Comments
+
+### 2026-09-27：实现交付
+
+按 0→3 在分支 `tool-availability` 本地提交，未 push：
+
+- 第 0 步 5bfa051：工单与 CONTEXT.md「技能」修正。
+- 第 1 步 4879891：新增 `src/agent/tool-availability.ts`，driver 接入（装配按类别，任务开始算一次允许集合，激活、发送前与调用门共用；会话分类复用；中断码与调用门事件）；新增 62 号。
+- 第 2 步 936af10：`ROLE_DEFINITIONS` 只留 id 与项目名，删 `updateAgentRoleTools`，`ensureRoles` 新建时写 `sessionToolCategories(def.id)`；改注释；改 28 号。
+- 补测 eaede14：见下面第三条。
+- 第 3 步（本提交）：`docs/runtime.md`「架构要点」加工具可用性，同步应用数据一节；本工单。
+
+每步 `npm test` 与 `npm run typecheck` 都通过（最终 595 项，594 通过，1 项按开关跳过）。第 1 步提交前另跑了一轮对抗式等价复核（装配、激活与收窄、发送前与调用门、派生判断四个视角，各自对照 `git show HEAD:` 的旧代码逐项核对），可达路径上没有找到行为差异。
+
+与上面的决定不同、或决定没写到的地方（请复核）：
+
+- 28 号「既有 main 升级」没有只删断言，而是改写成「角色记录里的旧清单副本（无 app_data）不影响装配」：重启后向 main 提交任务，断言发出的请求里有 `app_data_query`；身份绑定不变的断言保留，第二次重启改为断言角色记录不再被改写。这样「运行时不读回清单副本」有测试约束（变异 M8）。
+- `sessionToolCategories(cls)` 是第 2 步为 `ensureRoles` 新建角色记录加的第四个导出，接口节没有列。
+- 变异时发现「资料受限会话包括 chat 角色」（`dataScopeRestricted = toolClass === "chat"`）没有测试能区分：27 号「chat 不注入个人共享记忆与项目指令」只测了记忆，而记忆另有 role_restricted 资料身份兜底。这个缺口在重构前就有。已在 27 号补上项目指令一半（chat 不注入、main 注入），eaede14。
+- 拒绝原因的判断顺序：计划模式 → 宿主收窄 → Web Search，多种同时成立时只报第一种。
+- `taskTools` 在 `run()` 开头置空，尚未算出时发送前与调用门一律拒绝（原因「本任务工具集合未确定」）。复核确认这个时间窗口里没有发送与工具调用。
+- 理论边界：计划模式上线（eb08b2b）之前，角色会话里若有以 `/plan` 开头的旧任务被继续，改动前会按计划模式收窄，改动后不会。那时计划模式尚不存在，这类输入本就是普通文本。
+- 变异 10 处都能被发现：普通开发会话清单误加 app_data、计划模式收窄失效、QQ 群改回靠角色绑定分类、激活/发送前/调用门各自不查集合、Web Search 过滤失效、宿主收窄被忽略、装配漏查类别（调度）、运行时读回清单副本、资料受限只认 QQ 群（补测后）。
+
+按决定留在范围外、本单未处理：调用门的分派名单（装配了但漏登记分派名单的宿主工具会落到 `confirmTools` 路径放行）；获批后的复核；停止与恢复路径的工具族分类（候选 05）；系统提示文案与实际工具集不符（GitHub 评审的 coding 子任务、main 的 GitHub 父任务）；`agent_roles.tools` 列本身（保留、不迁移）；`store.getAgentRoleBySession` 对 QQ 群的联表（驱动不再依赖它分类，其他调用方未改）。

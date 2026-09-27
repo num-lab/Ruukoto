@@ -1310,16 +1310,18 @@ export class TuiApp {
     }
   }
 
-  private async refreshTaskDetails(): Promise<void> {
+  /** 刷新当前活动任务详情；返回 false 表示当前会话没有活动任务。 */
+  private async refreshTaskDetails(): Promise<boolean> {
     const current = this.state.currentSessionId;
     const active = current ? this.state.activeTaskFor(current) : null;
-    if (!active) return;
+    if (!active) return false;
     try {
       await this.restoreTaskFlow(active.id);
       this.refreshAll();
     } catch (err) {
       this.notify(`任务事件读取失败：${(err as Error).message}`);
     }
+    return true;
   }
 
   // ---------- 输入提交 ----------

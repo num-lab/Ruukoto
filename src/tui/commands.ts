@@ -33,7 +33,8 @@ export interface CommandHost {
   resumeQueue(): Promise<void>;
   openModelPicker(result: CommandResult): Promise<void>;
   openModeList(rest: string[], result: CommandResult): Promise<void>;
-  refreshTask(): Promise<void>;
+  /** 刷新当前活动任务详情；false = 当前会话没有活动任务。 */
+  refreshTask(): Promise<boolean>;
   openContext(): Promise<void>;
   openPrompts(): Promise<void>;
   /** 以当前会话提交任务输入。 */
@@ -70,7 +71,7 @@ export interface SlashCommand {
   /** 成功结果留在命令行下；错误总是保留。 */
   keepsResult?: true;
   /** 整行作为任务输入时返回要提交的文本；null = 按命令执行。 */
-  taskInput?: (line: string, text: string) => string | null;
+  taskInput?: (line: string) => string | null;
   run: (ctx: CommandContext, args: { rest: string[]; arg: string; line: string }) => Promise<void> | void;
 }
 
@@ -296,7 +297,13 @@ export const COMMANDS: readonly SlashCommand[] = [
   },
   { name: "resume-queue", description: "恢复已暂停的会话队列", run: (ctx) => ctx.host.resumeQueue() },
   { name: "mode", description: "选择当前会话的默认访问模式（新任务生效）", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
-  { name: "status", description: "刷新并查看当前任务详情", run: (ctx) => ctx.host.refreshTask() },
+  {
+    name: "status",
+    description: "刷新并查看当前任务详情",
+    run: async (ctx) => {
+      if (!(await ctx.host.refreshTask())) ctx.notify("当前没有活动任务");
+    },
+  },
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>", run: (ctx, { arg }) => search(ctx, arg) },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>", run: (ctx, { rest }) => memory(ctx, rest) },
   { name: "context", description: "查看当前上下文窗口分解（各部分占比）", run: (ctx) => ctx.host.openContext() },
@@ -304,10 +311,11 @@ export const COMMANDS: readonly SlashCommand[] = [
     name: "skill",
     description: "显式调用技能（提交任务；不带名称时列出技能库）",
     argumentHint: "<名称> [参数]",
-    // /skill:<名称> 是 /skill 提交后的任务输入形式（失败恢复草稿后可直接重发）
-    taskInput: (line, text) => (line.startsWith("/skill:") ? text : null),
-    // 参数取原文（保留换行与空白），与直接输入 /skill:<名称> 的任务输入一致
-    run: (ctx, { arg, line }) => (arg ? ctx.host.submit(`/skill:${line.slice("/skill".length).trim()}`) : skills(ctx)),
+    // /skill <名称> [参数] 与 /skill:<名称> 都是任务输入，统一按 /skill:<名称> 提交
+    // （参数取原文，保留换行与空白；失败恢复草稿后可直接重发）；不带名称时列出技能库
+    taskInput: (line) =>
+      line.startsWith("/skill:") ? line : /^\/skill\s+\S/.test(line) ? `/skill:${line.slice("/skill".length).trim()}` : null,
+    run: (ctx) => skills(ctx),
   },
   { name: "skills", description: "查看技能库与诊断", run: (ctx) => skills(ctx) },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情", run: (ctx) => ctx.host.openPrompts() },
@@ -339,7 +347,7 @@ export async function dispatchInput(text: string, env: CommandEnv): Promise<void
   const line = text.trim();
   if (line.length === 0) return;
   for (const command of COMMANDS) {
-    const input = command.taskInput?.(line, text);
+    const input = command.taskInput?.(line);
     if (input != null) {
       await env.host.submit(input);
       return;

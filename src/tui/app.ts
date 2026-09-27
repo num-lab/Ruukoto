@@ -520,6 +520,82 @@ class ContextBar implements Component {
 }
 
 /**
+ * 单次调用的窗口分解：一条长条 + 图例。
+ *
+ * 各段与总窗口等长：分类估算 + 预留（输出/思考/工具结果/安全余量）+ 尚余输入。
+ * 无窗口快照（旧记录）时退化为按输入预算画条，不假装有总窗口数据。
+ */
+export function contextBarLines(record: SelectionRecord, b: ContextBreakdown, width: number, checkpoint: ContextCheckpointView | null = null): string[] {
+  const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`);
+  const w = b.window;
+  const total = w ? w.contextWindow : b.budget;
+  const categories = [...b.categories, ...(b.other ? [b.other] : [])];
+
+  // 每段一个颜色；分类用同一族的深浅，预留与余量用区分度高的色
+  const CATEGORY_STYLES = [
+    (s: string) => `\x1b[38;5;75m${s}\x1b[0m`, // 蓝
+    (s: string) => `\x1b[38;5;79m${s}\x1b[0m`, // 青绿
+    (s: string) => `\x1b[38;5;114m${s}\x1b[0m`, // 绿
+    (s: string) => `\x1b[38;5;179m${s}\x1b[0m`, // 黄
+    (s: string) => `\x1b[38;5;209m${s}\x1b[0m`, // 橙
+    (s: string) => `\x1b[38;5;168m${s}\x1b[0m`, // 粉
+    (s: string) => `\x1b[38;5;141m${s}\x1b[0m`, // 紫
+    (s: string) => `\x1b[38;5;109m${s}\x1b[0m`, // 灰蓝
+  ];
+  const segments: WindowSegment[] = categories
+    .filter((c) => c.tokens > 0)
+    .map((c, i) => ({
+      label: c.label,
+      tokens: c.tokens,
+      style: CATEGORY_STYLES[i % CATEGORY_STYLES.length]!,
+      note: `${c.tokens}${w ? ` · ${pct(c.pctOfWindow)}` : ` · ${pct(c.pctOfBudget)}`}`,
+    }));
+  if (w) {
+    // 预留合并为一段：输出上限/思考/工具结果/安全余量同属「留给后续」，
+    // 分三段同色会在长条上无法区分，分开上色又占满色板。明细写在页脚。
+    const reserves = w.maxTokens + w.thinkingBudget + w.toolResultReserve + w.safetyMargin;
+    if (reserves > 0) {
+      segments.push({
+        label: "预留",
+        tokens: reserves,
+        style: (s) => `\x1b[38;5;131m${s}\x1b[0m`,
+        note: `${reserves}`,
+      });
+    }
+    if (b.remainingInput > 0) {
+      segments.push({ label: "尚余输入", tokens: b.remainingInput, style: dim, note: `${b.remainingInput}` });
+    }
+  }
+
+  const title = `上下文窗口`;
+  const footer: string[] = [];
+  const experiment = record.experiment;
+  if (experiment) {
+    const status = { applied: "已采用", fallback: "已回退", skipped: "已跳过", canceled: "已取消" }[experiment.status];
+    footer.push(`策略 ${sanitizeForDisplay(record.strategy)} · Jev ${status} · ${Math.round(experiment.elapsedMs)} ms`);
+    footer.push(`Jev 模型 ${sanitizeForDisplay(experiment.model ?? experiment.requestedModel)} · 阈值 ${experiment.threshold} · 配置 v${experiment.configVersion}`);
+    footer.push(`候选 ${experiment.candidates.length} · 消息：基础选入 ${experiment.baselineIncludedIndices.length}，实际选入 ${record.includedIndices.length}`);
+    const usage = experiment.usage
+      ? `输入 ${experiment.usage.inputTokens} · 输出 ${experiment.usage.outputTokens}`
+      : experiment.requestSent ? "已发送，用量未知" : "未发送请求";
+    const cost = experiment.estimatedCost;
+    footer.push(`Jev 用量：${usage}；${cost ? `费用估算 US$${cost.usd.toFixed(9)}（${cost.priceDate} 单价）` : "费用未估算"}`);
+    if (experiment.fallbackReason) footer.push(`原因：${sanitizeForDisplay(experiment.fallbackReason)}`);
+  }
+  // 压缩点（issue 30 §9）：摘要替代的条数与截至时间、清理条数、建立它的任务与调用序号、摘要模型或失败原因
+  if (checkpoint) {
+    const summarized = checkpoint.summarizedCount > 0
+      ? `摘要替代 ${checkpoint.summarizedCount} 条（至 ${sanitizeForDisplay(checkpoint.summaryUntil ?? "未知时间")}）`
+      : "无摘要";
+    footer.push(`压缩点：${summarized} · 清理 ${checkpoint.clearedResults} 条 · 建于任务 ${checkpoint.taskId.slice(0, 13)} 第 ${checkpoint.callIndex} 次调用`);
+    if (checkpoint.summaryStatus === "failed") footer.push(`摘要失败，只做了清理：${sanitizeForDisplay(checkpoint.summaryError ?? "未知原因")}`);
+    else if (checkpoint.summaryModel) footer.push(`摘要模型：${sanitizeForDisplay(checkpoint.summaryModel)}`);
+    else if (checkpoint.summarizedCount > 0) footer.push("摘要沿用上一压缩点");
+  }
+  return new ContextBar(title, total, segments, footer).render(width);
+}
+
+/**
  * 裸列表：与 `/` 候选命令列表同款观感——无边框、占满宽度，
  * 上方一行标题，下面是 SelectList 自己渲染的行。
  *
@@ -1581,7 +1657,6 @@ export class TuiApp {
     }
     const sessionId = session.id;
     const version = session.defaultAccessModeVersion;
-    const current = session.defaultAccessMode;
     const items: SelectItem[] = SESSION_DEFAULT_MODES.map((mode) => ({
       value: mode,
       label: `${accessModeLabel(mode)}`,
@@ -1680,119 +1755,13 @@ export class TuiApp {
         { session_id: sessionId, record_id: recordId },
       );
       if (stale()) return;
-      bar.setLines(this.contextBarLines(result.record, result.breakdown, this.terminal.columns || 80, result.checkpoint ?? null));
+      bar.setLines(contextBarLines(result.record, result.breakdown, this.terminal.columns || 80, result.checkpoint ?? null));
       this.tui.requestRender();
     } catch (err) {
       if (stale()) return;
       bar.setLines([red(`读取失败：${(err as Error).message}`)]);
       this.tui.requestRender();
     }
-  }
-
-  /**
-   * 单次调用的窗口分解：一条长条 + 图例。
-   *
-   * 各段与总窗口等长：分类估算 + 预留（输出/思考/工具结果/安全余量）+ 尚余输入。
-   * 无窗口快照（旧记录）时退化为按输入预算画条，并在页脚说明原因——不假装
-   * 有总窗口数据。
-   */
-  private contextBarLines(record: SelectionRecord, b: ContextBreakdown, width: number, checkpoint: ContextCheckpointView | null = null): string[] {
-    const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}%`);
-    const w = b.window;
-    const total = w ? w.contextWindow : b.budget;
-    const categories = [...b.categories, ...(b.other ? [b.other] : [])];
-
-    // 每段一个颜色；分类用同一族的深浅，预留与余量用区分度高的色
-    const CATEGORY_STYLES = [
-      (s: string) => `\x1b[38;5;75m${s}\x1b[0m`, // 蓝
-      (s: string) => `\x1b[38;5;79m${s}\x1b[0m`, // 青绿
-      (s: string) => `\x1b[38;5;114m${s}\x1b[0m`, // 绿
-      (s: string) => `\x1b[38;5;179m${s}\x1b[0m`, // 黄
-      (s: string) => `\x1b[38;5;209m${s}\x1b[0m`, // 橙
-      (s: string) => `\x1b[38;5;168m${s}\x1b[0m`, // 粉
-      (s: string) => `\x1b[38;5;141m${s}\x1b[0m`, // 紫
-      (s: string) => `\x1b[38;5;109m${s}\x1b[0m`, // 灰蓝
-    ];
-    const segments: WindowSegment[] = categories
-      .filter((c) => c.tokens > 0)
-      .map((c, i) => ({
-        label: c.label,
-        tokens: c.tokens,
-        style: CATEGORY_STYLES[i % CATEGORY_STYLES.length]!,
-        note: `${c.tokens}${w ? ` · ${pct(c.pctOfWindow)}` : ` · ${pct(c.pctOfBudget)}`}`,
-      }));
-    if (w) {
-      // 预留合并为一段：输出上限/思考/工具结果/安全余量同属「留给后续」，
-      // 分三段同色会在长条上无法区分，分开上色又占满色板。明细写在页脚。
-      const reserves = w.maxTokens + w.thinkingBudget + w.toolResultReserve + w.safetyMargin;
-      if (reserves > 0) {
-        segments.push({
-          label: "预留",
-          tokens: reserves,
-          style: (s) => `\x1b[38;5;131m${s}\x1b[0m`,
-          note: `${reserves}`,
-        });
-      }
-      if (b.remainingInput > 0) {
-        segments.push({ label: "尚余输入", tokens: b.remainingInput, style: dim, note: `${b.remainingInput}` });
-      }
-    }
-
-    const title = `上下文窗口`;
-    const footer: string[] = [];
-    const experiment = record.experiment;
-    if (experiment) {
-      const status = { applied: "已采用", fallback: "已回退", skipped: "已跳过", canceled: "已取消" }[experiment.status];
-      footer.push(`策略 ${sanitizeForDisplay(record.strategy)} · Jev ${status} · ${Math.round(experiment.elapsedMs)} ms`);
-      footer.push(`Jev 模型 ${sanitizeForDisplay(experiment.model ?? experiment.requestedModel)} · 阈值 ${experiment.threshold} · 配置 v${experiment.configVersion}`);
-      footer.push(`候选 ${experiment.candidates.length} · 消息：基础选入 ${experiment.baselineIncludedIndices.length}，实际选入 ${record.includedIndices.length}`);
-      const usage = experiment.usage
-        ? `输入 ${experiment.usage.inputTokens} · 输出 ${experiment.usage.outputTokens}`
-        : experiment.requestSent ? "已发送，用量未知" : "未发送请求";
-      const cost = experiment.estimatedCost;
-      footer.push(`Jev 用量：${usage}；${cost ? `费用估算 US$${cost.usd.toFixed(9)}（${cost.priceDate} 单价）` : "费用未估算"}`);
-      if (experiment.fallbackReason) footer.push(`原因：${sanitizeForDisplay(experiment.fallbackReason)}`);
-    }
-    // 压缩点（issue 30 §9）：摘要替代的条数与截至时间、清理条数、建立它的任务与调用序号、摘要模型或失败原因
-    if (checkpoint) {
-      const summarized = checkpoint.summarizedCount > 0
-        ? `摘要替代 ${checkpoint.summarizedCount} 条（至 ${sanitizeForDisplay(checkpoint.summaryUntil ?? "未知时间")}）`
-        : "无摘要";
-      footer.push(`压缩点：${summarized} · 清理 ${checkpoint.clearedResults} 条 · 建于任务 ${checkpoint.taskId.slice(0, 13)} 第 ${checkpoint.callIndex} 次调用`);
-      if (checkpoint.summaryStatus === "failed") footer.push(`摘要失败，只做了清理：${sanitizeForDisplay(checkpoint.summaryError ?? "未知原因")}`);
-      else if (checkpoint.summaryModel) footer.push(`摘要模型：${sanitizeForDisplay(checkpoint.summaryModel)}`);
-      else if (checkpoint.summarizedCount > 0) footer.push("摘要沿用上一压缩点");
-    }
-    // footer.push(
-    //   w
-    //     ? `总窗口 ${total} · 输入预算 ${b.budget} · 已估输入 ${b.estimatedTotal} · 尚余 ${b.remainingInput}（选择时估算，非 provider 用量）`
-    //     : `输入预算 ${total} · 已估输入 ${b.estimatedTotal} · 尚余 ${b.remainingInput}；总窗口不可用：${b.windowUnavailableReason ?? "窗口快照缺失"}`,
-    // );
-    // if (w) {
-    //   footer.push(
-    //     `预留明细：输出上限 ${w.maxTokens} · 思考 ${w.thinkingBudget}${w.thinkingBudget === 0 ? "（已计入输出上限）" : ""} · 工具结果 ${w.toolResultReserve} · 安全余量 ${w.safetyMargin}`,
-    //   );
-    // }
-    // footer.push(
-    //   record.usage
-    //     ? `实际 usage：输入 ${record.usage.input} · 输出 ${record.usage.output}（provider 总量，不按分类拆分）`
-    //     : `实际 usage 未回填（请求失败、被中断或结果未知）`,
-    // );
-    // const extras: string[] = [`消息 选入 ${record.includedIndices.length}/${record.totalMessages} · 排除 ${record.excluded.length}`];
-    // if (record.instructionVersion) extras.push(`项目指令 ${record.instructionVersion}`);
-    // if (record.includedMemories.length > 0) extras.push(`注入记忆 ${record.includedMemories.length}`);
-    // if (record.cappedToolResults.length > 0) extras.push(`有界视图 ${record.cappedToolResults.length}`);
-    // footer.push(extras.join(" · "));
-    // if (record.excluded.length > 0) {
-    //   const reasons = new Map<string, number>();
-    //   for (const e of record.excluded) reasons.set(e.reason, (reasons.get(e.reason) ?? 0) + 1);
-    //   footer.push(`排除原因：${[...reasons.entries()].map(([r, n]) => `${r} ×${n}`).join("，")}`);
-    // }
-    // for (const m of record.excludedMemories) {
-    //   footer.push(`未注入记忆 ${m.memoryId.slice(0, 10)}@v${m.version}（${m.reason}）`);
-    // }
-    void width;
-    return new ContextBar(title, total, segments, footer).render(width);
   }
 
   // ---------- /prompt：模型请求列表与 prompt 详情（issue 13） ----------

@@ -45,6 +45,7 @@ import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./man
 import { createSdkSession, SYSTEM_PROMPTS } from "./session-factory.ts";
 import { ToolRouter, ROUTED_TOOL_NAMES } from "./tool-router.ts";
 import { ApprovalGate } from "./approval-gate.ts";
+import type { ToolOpLedger } from "./tool-op-ledger.ts";
 import type { AccessScope } from "../core/access.ts";
 import type { HistoryIndex } from "../core/history-index.ts";
 import type { MemoryStore } from "../core/memory.ts";
@@ -73,6 +74,8 @@ const FRAGMENT_INTERVAL_MS = 250;
 
 export interface DriverDeps {
   store: Store;
+  /** 工具操作账本（架构工单 05）：结果、效果未知与停止补记只经它写。 */
+  ledger: ToolOpLedger;
   qqStore: QqStore;
   sessionsDir: string;
   agentDir: string;
@@ -208,9 +211,10 @@ export class Driver {
     this.session = session;
     this.deps = deps;
     this.registry = createManagedProcessRegistry();
-    this.approvals = new ApprovalGate({ store: deps.store, reviewer: () => this.deps.reviewer });
+    this.approvals = new ApprovalGate({ store: deps.store, ledger: deps.ledger, reviewer: () => this.deps.reviewer });
     this.router = new ToolRouter({
       store: deps.store,
+      ledger: deps.ledger,
       artifacts: deps.artifacts,
       credentials: deps.credentials,
       registry: this.registry,
@@ -856,15 +860,7 @@ export class Driver {
     for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
       if (!(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
       if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) {
-        this.deps.store.withTx(() => {
-          const recorded = this.deps.store.recordToolResult(op.id, "已知未执行：只读查询在停止前未产生写入效果", true);
-          if (recorded) {
-            this.deps.store.appendEvent(
-              { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary: "已知未执行：只读查询在停止前未产生写入效果", isError: true, artifactIds: [] },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
-          }
-        });
+        this.deps.store.withTx(() => this.deps.ledger.recordResult(task, op.id, "已知未执行：只读查询在停止前未产生写入效果", true));
         continue;
       }
       if (!this.deps.appData) {
@@ -876,23 +872,23 @@ export class Driver {
         appDataUncertain.push(op.id);
         continue;
       }
-      this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, op, "后台停止前"));
+      this.deps.store.withTx(() => settleAppDataOp(this.deps.ledger, verdict, task, op, "后台停止前"));
     }
 
     // 3c. 调度与通知工具（issue 03）：按宿主操作 ID 核实是否已登记（核心库，
     //     恒可核实）；只读查询结果缺失按已知未执行补记。
     for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
       if (!(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
-      this.deps.store.withTx(() => settleSchedulerOp(this.deps.store, this.deps.scheduler?.sched ?? null, task, op, "后台停止前"));
+      this.deps.store.withTx(() => settleSchedulerOp(this.deps.ledger, this.deps.scheduler?.sched ?? null, task, op, "后台停止前"));
     }
     // 3d. 委派工具（issue 05）：按子任务是否存在核实（同库，恒可核实）
     for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
       if (!(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
-      this.deps.store.withTx(() => settleDelegationOp(this.deps.store, task, op, "后台停止前"));
+      this.deps.store.withTx(() => settleDelegationOp(this.deps.ledger, task, op, "后台停止前"));
     }
     for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
       if (!(CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
-      this.deps.store.withTx(() => settleChatResultOp(this.deps.store, task, op, "后台停止前"));
+      this.deps.store.withTx(() => settleChatResultOp(this.deps.ledger, task, op, "后台停止前"));
     }
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
@@ -943,19 +939,7 @@ export class Driver {
       if (!ok) return; // 已被竞争路径定态
       store.clearPendingModeSwitch(task.id);
 
-      const unknownOps = extra.effectUnknownOpIds ?? [];
-      if (unknownOps.length > 0) {
-        for (const opId of unknownOps) {
-          const op = store.getToolOp(opId);
-          if (!op || op.effectUnknown) continue;
-          store.markToolOpEffectUnknown(opId);
-          store.appendEvent(
-            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: opId, toolName: op.toolName },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
-        store.setEffectUnknown(task.id);
-      }
+      for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
 
       // 中断/取消时清理未决确认（标记 stale，防止失效批准再执行）
       if (to === "interrupted" || to === "canceled") {
@@ -1294,15 +1278,7 @@ export class Driver {
         const hostOpId = this.callMap.get(event.toolCallId) ?? event.toolCallId;
         const artifactIds = this.deps.store.getToolOp(hostOpId) ? this.router.artifactIdsFor(hostOpId) : [];
         try {
-          this.deps.store.withTx(() => {
-            const recorded = this.deps.store.recordToolResult(hostOpId, summary, event.isError);
-            if (recorded) {
-              this.deps.store.appendEvent(
-                { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds, ...(editStats ? { editStats } : {}) },
-                { taskId: task.id, sessionId: task.sessionId },
-              );
-            }
-          });
+          this.deps.store.withTx(() => this.deps.ledger.recordResult(task, hostOpId, summary, event.isError, { artifactIds, editStats }));
         } catch (err) {
           // 核心结果写入失败（issue 02）：应用数据写操作立即按操作 ID 核实应用库
           // 回执并保留真实状态——已提交不能报成"未执行"，也不自动再次写入；
@@ -1312,7 +1288,7 @@ export class Driver {
             const verdict = this.deps.appData.writeVerdict(hostOpId);
             if (verdict !== "unverifiable") {
               try {
-                this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, { id: hostOpId }, "结果写入失败前"));
+                this.deps.store.withTx(() => settleAppDataOp(this.deps.ledger, verdict, task, { id: hostOpId }, "结果写入失败前"));
               } catch {
                 // 补记也失败：保持结果缺失，交重启恢复
               }

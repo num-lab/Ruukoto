@@ -6,6 +6,7 @@
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
+import type { ToolOpLedger } from "./tool-op-ledger.ts";
 import type { AcceptedChatResult } from "../core/types.ts";
 import type { QqStore } from "../qq/store.ts";
 import type { HostToolContext } from "./host-tools.ts";
@@ -60,22 +61,17 @@ export function resolveAcceptedChatResult(store: Store, qq: QqStore, mainProject
 
 /** 停止/重启后按接收账本核实写入；调用方负责事务。 */
 export function settleChatResultOp(
-  store: Store,
+  ledger: ToolOpLedger,
   task: { id: string; sessionId: string },
   op: { id: string; toolName: string },
   when: string,
 ): void {
   const summary = !CHAT_RESULT_WRITE_TOOL_NAMES.has(op.toolName)
     ? `已知未执行：只读查询在${when}未产生写入效果`
-    : store.chatResultOpCommitted(op.id)
+    : ledger.store.chatResultOpCommitted(op.id)
       ? `已提交：群结果接收账本存在该操作记录（${when}已接收）`
       : `已知未提交：群结果接收账本无该操作记录（${when}未接收）`;
-  if (store.recordToolResult(op.id, summary, !summary.startsWith("已提交"))) {
-    store.appendEvent(
-      { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError: !summary.startsWith("已提交"), artifactIds: [] },
-      { taskId: task.id, sessionId: task.sessionId },
-    );
-  }
+  ledger.recordResult(task, op.id, summary, !summary.startsWith("已提交"));
 }
 
 function okText(value: unknown) {

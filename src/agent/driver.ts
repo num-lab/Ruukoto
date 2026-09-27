@@ -67,7 +67,8 @@ import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
-import { isPlanInput, PLAN_TOOL_NAMES, runsInPlanMode } from "./plan-mode.ts";
+import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
+import { allowsCategory, sessionToolClass, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -199,8 +200,10 @@ export class Driver {
   private pendingMcpToolDefs: ToolDefinition[] = [];
   /** 角色配置缓存（undefined = 未查询；null = 非角色会话）。 */
   private roleConfig: AgentRole | null | undefined = undefined;
-  /** 角色会话装配后允许的工具名（发送前最终检查与调用门共用；null = 非角色会话）。 */
-  private roleAllowedToolNames: Set<string> | null = null;
+  /** 会话工具类别缓存（Driver 生命周期内不变）。 */
+  private toolClassCache: SessionToolClass | undefined = undefined;
+  /** 本任务允许的工具（任务开始时算一次；激活、发送前与调用门共用；null = 尚未算出，一律拒绝）。 */
+  private taskTools: TaskToolSet | null = null;
   /** 本任务的模型上下文组装（任务开始时建、结束即丢；context 钩子与发送前复核共用）。 */
   private assembly: ContextAssembly | null = null;
   /** 原始 streamFunction（包装前保存；发送前检查在委托前执行）。 */
@@ -246,9 +249,8 @@ export class Driver {
   }
 
   /**
-   * 角色会话（issue 01）：宿主引导的角色配置（agent_roles 表，按会话反查）
-   * 决定工具白名单；非角色会话为 null（不施加角色限制）。配置只由宿主
-   * 设置，任务/工具参数与模型结果不能修改。
+   * 角色会话（issue 01）：宿主引导的角色绑定（agent_roles 表，按会话反查）；
+   * 非角色会话为 null。绑定只由宿主设置，任务/工具参数与模型结果不能修改。
    */
   private role(): AgentRole | null {
     if (this.roleConfig === undefined) {
@@ -257,17 +259,20 @@ export class Driver {
     return this.roleConfig;
   }
 
-  /** 角色工具白名单判定（按注册来源类别）；非角色会话一律放行。 */
-  private roleAllows(category: ToolCategory): boolean {
-    const role = this.role();
-    return role === null || role.tools.includes(category);
+  /** 会话工具类别（工具可用性）：QQ 群归 chat，角色会话按宿主绑定，其余为普通开发会话。 */
+  private get toolClass(): SessionToolClass {
+    this.toolClassCache ??= sessionToolClass(this.session.kind, this.role()?.id ?? null);
+    return this.toolClassCache;
   }
 
-  private taskAllowsTool(task: Task, name: string): boolean {
-    const effect = this.currentMcpPlan?.tools.get(name)?.effect;
-    // 计划模式（issue 26）：与宿主收窄组合，只允许白名单与只读 MCP 工具
-    if (this.pinnedPlan && !PLAN_TOOL_NAMES.has(name) && effect !== "read") return false;
-    return this.deps.allowTaskTool?.(task, name, effect) ?? true;
+  /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
+  private allows(category: ToolCategory): boolean {
+    return allowsCategory(this.toolClass, category);
+  }
+
+  /** 不在本任务允许集合内的工具的拒绝原因。 */
+  private toolRejection(name: string): string {
+    return this.taskTools ? this.taskTools.reasonFor(name) : "本任务工具集合未确定";
   }
 
   /**
@@ -301,7 +306,7 @@ export class Driver {
    * 工具白名单管工具可见性，本约束管资料范围，两者独立生效。
    */
   private get dataScopeRestricted(): boolean {
-    return this.isQqGroup || this.role()?.id === "chat";
+    return this.toolClass === "chat";
   }
 
   get currentTaskId(): string | null {
@@ -333,10 +338,9 @@ export class Driver {
 
   private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
-    // QQ 群聊会话（issue 07 §3）：空工具集合——不注册编码工具、资料/记忆宿主
-    // 工具、Web Search 与 MCP 工具（覆盖全部注册来源；最终检查另有发送前核对）
-    // 角色会话（issue 01）：按角色白名单类别过滤各注册来源（同一三层口径）
-    const hostDataTools = this.isQqGroup || !this.roleAllows("host_data")
+    // 工具可用性（架构工单 03）：各注册来源只在会话类别的清单含其类别时装配；
+    // chat 与 QQ 群的清单为空，即空工具集合
+    const hostDataTools = !this.allows("host_data")
       ? []
       : createHostDataTools({
           store: this.deps.store,
@@ -356,7 +360,7 @@ export class Driver {
         });
     // Web Search 宿主工具（issue 20）：同一身份注入；项目禁用与否在任务开始
     // 钉版工具清单时判定（runInner），调用时另有新鲜检查
-    const webSearchTools = this.isQqGroup || !this.roleAllows("web_search")
+    const webSearchTools = !this.allows("web_search")
       ? []
       : createWebSearchTools({
           store: this.deps.store,
@@ -367,11 +371,9 @@ export class Driver {
           baseUrl: this.deps.webSearch?.baseUrl,
           timeoutMs: this.deps.webSearch?.timeoutMs,
         });
-    // main 应用数据工具（issue 02）：仅宿主引导的 main 角色会话装配——
-    // 普通开发会话即使 roleAllows() 默认放行也不得获得这些工具；QQ 群聊与
-    // coding/chat 角色同样不装配。执行入口每次调用仍重新核实 main 绑定。
+    // main 应用数据工具（issue 02）：只有 main 的清单含 app_data；执行入口每次调用仍重新核实 main 绑定
     const appDataTools =
-      this.role()?.id === "main" && this.deps.appData
+      this.allows("app_data") && this.deps.appData
         ? createAppDataTools({
             store: this.deps.appData.store,
             runner: this.deps.appData.runner,
@@ -383,9 +385,9 @@ export class Driver {
             queryStallMs: () => this.deps.appData?.queryStallMs,
           })
         : [];
-    // 调度与通知工具（issue 03）：与应用数据工具同一口径，仅 main 角色会话装配
+    // 调度与通知工具（issue 03）：只有 main 的清单含 scheduler
     const schedulerTools =
-      this.role()?.id === "main" && this.roleAllows("scheduler") && this.deps.scheduler
+      this.allows("scheduler") && this.deps.scheduler
         ? createSchedulerTools({
             ...this.deps.scheduler,
             coreStore: this.deps.store,
@@ -395,9 +397,9 @@ export class Driver {
             awaitApproval: (input) => this.awaitApproval(input),
           })
         : [];
-    // 委派 coding 工具（issue 05）：同一口径，仅 main 角色会话装配
+    // 委派 coding 工具（issue 05）：只有 main 的清单含 delegation
     const delegationTools =
-      this.role()?.id === "main" && this.roleAllows("delegation") && this.deps.delegation
+      this.allows("delegation") && this.deps.delegation
         ? createDelegationTools({
             ...this.deps.delegation,
             coreStore: this.deps.store,
@@ -407,38 +409,34 @@ export class Driver {
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
           })
         : [];
-    const chatResultTools = this.role()?.id === "main" && this.roleAllows("chat_results")
+    const chatResultTools = this.allows("chat_results")
       ? createChatResultTools({
           coreStore: this.deps.store, qqStore: this.deps.qqStore,
           taskContext: () => this.hostToolCtx, bindCall: this.bindHostCall,
           verifyMain: (ctx) => this.verifyMainBinding(ctx),
         })
       : [];
-    // 技能工具（issue 22）：资料受限会话（chat、QQ 群）不装配；读取任务钉版的技能库
-    const skillTools = this.dataScopeRestricted || !this.roleAllows("skills")
+    // 技能工具（issue 22）：读取任务钉版的技能库
+    const skillTools = !this.allows("skills")
       ? []
       : createSkillTools({ library: () => this.pinnedSkills, bindCall: this.bindHostCall });
-    const allTools = this.isQqGroup
-      ? []
-      : [
-          ...(this.roleAllows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
-          // 工作清单（issue 25）：与编码工具同一条件——开发会话与 coding，main/chat 不装配
-          ...(this.roleAllows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
-          ...hostDataTools,
-          ...webSearchTools,
-          ...appDataTools,
-          ...schedulerTools,
-          ...delegationTools,
-          ...chatResultTools,
-          ...skillTools,
-          // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
-          // 固定，工具集合变化由 runInner 先重建会话再走到这里
-          ...this.pendingMcpToolDefs,
-        ];
+    const allTools = [
+      ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
+      // 工作清单（issue 25）：与编码工具同一类别——开发会话与 coding，main/chat 不装配
+      ...(this.allows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
+      ...hostDataTools,
+      ...webSearchTools,
+      ...appDataTools,
+      ...schedulerTools,
+      ...delegationTools,
+      ...chatResultTools,
+      ...skillTools,
+      // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
+      // 固定，工具集合变化由 runInner 先重建会话再走到这里
+      ...this.pendingMcpToolDefs,
+    ];
     this.pendingMcpToolDefs = [];
     this.allToolNames = allTools.map((t) => t.name);
-    // 角色会话：记录允许的工具名集合，供发送前最终检查与调用门兜底
-    this.roleAllowedToolNames = this.role() !== null ? new Set(this.allToolNames) : null;
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -447,8 +445,8 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      // 资料受限会话（QQ 群、chat）用 chat 提示；coding 含 GitHub 评审子任务
-      systemPrompt: SYSTEM_PROMPTS[this.dataScopeRestricted ? "chat" : this.role()?.id ?? "dev"],
+      // 按会话类别固定（issue 24）：QQ 群与 chat 角色用 chat 提示；coding 含 GitHub 评审子任务
+      systemPrompt: SYSTEM_PROMPTS[this.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -524,23 +522,13 @@ export class Driver {
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
       throw new ContextSendBlocked("model_selection_mismatch:实际模型或思考强度与任务记录不一致");
     }
-    // QQ 群聊任务（issue 07 §3）：空工具集合的最终核对——按实际发送载荷检查，
-    // 覆盖现在与未来的全部注册来源（宿主数据工具/Web Search/MCP/任何新增）
-    if (this.isQqGroup && Array.isArray(context?.tools) && context.tools.length > 0) {
-      throw new ContextSendBlocked("qq_tools_forbidden:QQ 群聊任务不开放任何工具（发送载荷含工具定义，已阻断）");
-    }
-    // 角色任务（issue 01）：发送载荷中的每个工具都必须在角色白名单装配结果内
-    if (this.roleAllowedToolNames && Array.isArray(context?.tools)) {
-      const names = context.tools.map((t: any) => t?.name ?? t?.function?.name).filter((n: unknown) => typeof n === "string");
-      const forbidden = names.filter((n: string) => !this.roleAllowedToolNames!.has(n));
-      if (forbidden.length > 0) {
-        throw new ContextSendBlocked(`role_tools_forbidden:角色 ${this.role()!.id} 的工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
-      }
-    }
+    // 工具可用性（架构工单 03）：发送载荷中的每个工具都必须在本任务允许的集合内
+    // （按实际载荷检查，覆盖全部注册来源；QQ 群与 chat 的集合为空）
     if (Array.isArray(context?.tools)) {
       const forbidden = context.tools
         .map((t: any) => t?.name ?? t?.function?.name)
-        .filter((name: unknown) => typeof name !== "string" || !this.taskAllowsTool(task, name));
+        .filter((name: unknown) => typeof name !== "string" || !this.taskTools?.allowed.has(name))
+        .map((name: unknown) => `${String(name)}（${typeof name === "string" ? this.toolRejection(name) : "工具名无效"}）`);
       if (forbidden.length > 0) {
         throw new ContextSendBlocked(`task_tools_forbidden:任务工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
       }
@@ -599,11 +587,12 @@ export class Driver {
     this.hostToolCtx = null;
     this.hostToolCalls = new Map();
     this.lastBlockedReason = null;
-    // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；资料受限会话不适用
+    this.taskTools = null;
+    // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；只限普通开发会话（同提交入口）
     try {
-      this.pinnedPlan = !this.dataScopeRestricted && runsInPlanMode(task, (id) => this.deps.store.getTask(id));
+      this.pinnedPlan = this.toolClass === "dev" && runsInPlanMode(task, (id) => this.deps.store.getTask(id));
     } catch {
-      this.pinnedPlan = isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
+      this.pinnedPlan = this.toolClass === "dev" && isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
     }
     this.pinnedSkills = this.dataScopeRestricted ? null : loadSkillLibrary(this.deps.agentDir);
     this.assembly = beginContextAssembly({
@@ -636,10 +625,8 @@ export class Driver {
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
   private async planMcp(): Promise<McpTaskPlan> {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
-    // QQ 群聊会话（issue 07 §3）：不注册 MCP 工具（空工具集合覆盖该来源）
-    if (this.isQqGroup) return EMPTY_MCP_PLAN;
-    // 角色会话（issue 01）：角色白名单不含 mcp 类别时不注册 MCP 工具
-    if (!this.roleAllows("mcp")) return EMPTY_MCP_PLAN;
+    // 会话类别的清单不含 mcp 时不注册 MCP 工具（QQ 群与 chat 的清单为空）
+    if (!this.allows("mcp")) return EMPTY_MCP_PLAN;
     return planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
@@ -722,18 +709,19 @@ export class Driver {
       return;
     }
 
-    // 任务开始固定工具清单（issue 20）：项目禁用 Web Search 时本任务不注册
-    // web_search（模型不可见、系统提示同步重建）；任务内不随配置变化，新配置
-    // 从下一任务生效。任务内的禁用由工具按调用新鲜检查立即阻止。
-    // 每次从完整注册表重算，宿主对当前任务的限制不带入下一任务。
-    // QQ 群聊会话（issue 07）：空工具集合（SDK 注册表本身为空，无法再激活）。
-    const webSearchEnabled = this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled";
-    sdk.setActiveToolsByName(
-      this.isQqGroup
-        ? []
-        : this.allToolNames.filter((name) =>
-            (webSearchEnabled || !(WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name)) && this.taskAllowsTool(task, name)),
-    );
+    // 任务开始固定本任务允许的工具（架构工单 03）：完整注册表减去任务收窄（计划模式、
+    // 宿主按任务收窄）与项目关闭的 Web Search（issue 20：模型不可见、系统提示同步重建；
+    // 任务内的禁用由工具按调用新鲜检查立即阻止）。每次从完整注册表重算，宿主对当前
+    // 任务的限制不带入下一任务。
+    const allowTaskTool = this.deps.allowTaskTool;
+    this.taskTools = taskToolSet({
+      registered: this.allToolNames,
+      plan: this.pinnedPlan,
+      webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
+      mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
+      narrow: allowTaskTool ? (name, effect) => allowTaskTool(task, name, effect) : undefined,
+    });
+    sdk.setActiveToolsByName([...this.taskTools.allowed]);
 
     // 会话文件路径尽早落库：崩溃后重启才能打开同一份 JSONL 而不是另起新文件
     const currentFile = sdk.sessionFile;
@@ -1073,46 +1061,10 @@ export class Driver {
   private async handleToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
     const current = this.currentTask;
     if (!current) return undefined;
-    // QQ 群聊任务（issue 07 §3）：任何工具调用一律阻止（装配侧已为空集合，
-    // 此处兜底注册泄漏/未知路径；不记录执行意图——意图本身也不产生）
-    if (this.isQqGroup) {
-      return { block: true, reason: "QQ 群聊任务不开放工具调用" };
-    }
-    // 应用数据工具（issue 02）：仅宿主引导的 main 角色会话可调用。普通开发
-    // 会话即使 roleAllows() 默认放行也不装配这些工具；此处兜底伪造/泄漏的
-    // 调用（不记录执行意图），并留下可识别的 app_data.rejected 事件。
-    if ((APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
-      this.deps.store.withTx(() => {
-        this.deps.store.appendEvent(
-          {
-            type: "app_data.rejected",
-            taskId: current.id,
-            sessionId: current.sessionId,
-            source: "tool_call_gate",
-            toolName: event.toolName,
-            code: "role_not_allowed",
-          },
-          { taskId: current.id, sessionId: current.sessionId },
-        );
-      });
-      return { block: true, reason: "应用数据工具仅 main 角色会话可用" };
-    }
-    // 调度与通知工具（issue 03）：仅 main 角色会话可调用；普通开发会话、
-    // coding/chat/QQ 的伪造或泄漏调用在此阻止（不记录执行意图）
-    if ((SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
-      return { block: true, reason: "调度与通知工具仅 main 角色会话可用" };
-    }
-    // 委派工具（issue 05）：同一口径，非 main 会话的伪造或泄漏调用在此阻止
-    if ((DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
-      return { block: true, reason: "委派工具仅 main 角色会话可用" };
-    }
-    if ((CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) && this.role()?.id !== "main") {
-      return { block: true, reason: "群结果接收工具仅 main 角色会话可用" };
-    }
-    // 角色任务（issue 01）：白名单外的工具调用一律阻止（装配侧已过滤，
+    // 工具可用性（架构工单 03）：不在本任务允许集合内的调用一律阻止（激活侧已过滤，
     // 此处兜底注册泄漏/未知路径；不记录执行意图）
-    if (this.roleAllowedToolNames && !this.roleAllowedToolNames.has(event.toolName)) {
-      return { block: true, reason: `角色 ${this.role()!.id} 的工具白名单不包含 ${event.toolName}` };
+    if (!this.taskTools?.allowed.has(event.toolName)) {
+      return { block: true, reason: `任务工具白名单不含 ${event.toolName}（${this.toolRejection(event.toolName)}）` };
     }
     const store = this.deps.store;
 
@@ -1127,9 +1079,6 @@ export class Driver {
     }
     if (this.stopRequested) {
       return { block: true, reason: "任务已停止，确认等待解除" };
-    }
-    if (!this.taskAllowsTool(task, event.toolName)) {
-      return { block: true, reason: `任务工具白名单不包含 ${event.toolName}` };
     }
 
     // 宿主操作 id 与模型调用 id 分开：不同任务复用调用 id 不串用批准

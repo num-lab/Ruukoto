@@ -577,7 +577,7 @@ export type PersistentEventBody =
    * 应用数据操作被拒绝（issue 02）：调用门/身份校验/参数校验/预算超限/超时。
    * 只记来源、操作类别与错误码，不复制无限长输入或整条个人数据。
    */
-  | { type: "app_data.rejected"; taskId: string | null; sessionId: string | null; source: "tool_call_gate" | "identity" | "validation" | "budget" | "timeout"; toolName: string; code: string }
+  | { type: "app_data.rejected"; taskId: string | null; sessionId: string | null; source: "identity" | "validation" | "budget" | "timeout"; toolName: string; code: string }
   /** 调度计划变化（issue 03）：创建/取消/一次性完成。只落事件表，不唤醒模型。 */
   | { type: "schedule.changed"; scheduleId: string; action: "created" | "canceled" | "completed"; version: number; source: string; reason?: string }
   /** 调度运行：登记（含延迟/合并区间）、合并漏过周期、关闭。 */

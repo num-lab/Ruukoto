@@ -9,6 +9,7 @@
 
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
 import { isPlanInput } from "../agent/plan-mode.ts";
+import type { OpParams, OpResult, TuiOp } from "../control/ops.ts";
 
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 
@@ -44,7 +45,7 @@ export interface CommandHost {
 export interface CommandContext {
   /** 发起命令时的当前会话（null = 未选择）。 */
   readonly view: { sessionId: string; projectId: string } | null;
-  request<T = unknown>(op: string, params?: Record<string, unknown>): Promise<T>;
+  request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>>;
   /** 事件流注记（用法、错误）。 */
   notify(text: string): void;
   /** 可关闭的文本面板。 */
@@ -99,11 +100,7 @@ async function search(ctx: CommandContext, query: string): Promise<void> {
     return;
   }
   try {
-    const result = await ctx.request<{
-      hits: Array<{ entryId: string; role: string | null; timestamp: string | null; snippet: string; matchCount: number }>;
-      complete: boolean;
-      scanned: number;
-    }>("search_history", { query, session_id: view.sessionId, limit: 20 });
+    const result = await ctx.request("search_history", { query, session_id: view.sessionId, limit: 20 });
     if (result.hits.length === 0) {
       ctx.showText(`没有命中：「${query}」（扫描 ${result.scanned} 条${result.complete ? "" : "，结果不完整"}）`);
       return;
@@ -123,11 +120,7 @@ async function search(ctx: CommandContext, query: string): Promise<void> {
 /** /skills：当前技能库（任务使用各自开始时的钉版）与诊断。 */
 async function skills(ctx: CommandContext): Promise<void> {
   try {
-    const result = await ctx.request<{
-      dir: string;
-      skills: Array<{ name: string; explicitOnly: boolean; description: string }>;
-      diagnostics: string[];
-    }>("list_skills");
+    const result = await ctx.request("list_skills", {});
     const lines = [`技能库 ${result.dir}（${result.skills.length} 个；修改从下一任务生效）`];
     for (const s of result.skills) lines.push(`  ${s.name}${s.explicitOnly ? "（仅显式调用）" : ""}  ${s.description}`);
     if (result.diagnostics.length > 0) {
@@ -146,9 +139,7 @@ async function memory(ctx: CommandContext, rest: string[]): Promise<void> {
   const view = ctx.view;
   if (sub === "list") {
     try {
-      const result = await ctx.request<{
-        memories: Array<{ id: string; category: string; status: string; currentVersion: number; scope: string; updatedAt: string }>;
-      }>("list_memories", view ? { project_id: view.projectId } : {});
+      const result = await ctx.request("list_memories", view ? { project_id: view.projectId } : {});
       if (result.memories.length === 0) {
         ctx.showText("当前项目没有记忆（代理可在任务中经 memory_save 创建；拥有者经 CLI memory save 管理）");
         return;
@@ -169,10 +160,7 @@ async function memory(ctx: CommandContext, rest: string[]): Promise<void> {
       return;
     }
     try {
-      const detail = await ctx.request<{
-        memory: { id: string; category: string; status: string; currentVersion: number; content: string; sourceRefs: unknown[] };
-        versions: Array<{ version: number; author: string; reason: string; createdAt: string }>;
-      }>("get_memory", { memory_id: id });
+      const detail = await ctx.request("get_memory", { memory_id: id });
       const m = detail.memory;
       const history = detail.versions
         .map((v) => `  v${v.version} ${v.author} ${v.createdAt}${v.reason ? `（${v.reason}）` : ""}`)
@@ -220,17 +208,22 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
   const sub = rest[0] ?? "status";
   try {
     if (sub === "status") {
-      const s = await ctx.request<Record<string, any>>("qq_status", {});
+      const s = await ctx.request("qq_status", {});
       if (!s.configured) {
         ctx.showText("QQ 入口未配置（拥有者经 CLI：ruukoto qq configure --endpoint … --self-id …）");
         return;
       }
-      const sessions = (s.sessions as Array<Record<string, unknown>>).map(
+      if (!("sessions" in s)) {
+        // 适配器未启动（dev 实例或后台正在停止）：只有配置与状态说明
+        ctx.showText(`QQ 入口已配置；${s.stateDetail}`);
+        return;
+      }
+      const sessions = s.sessions.map(
         (g) => `  群 ${g.groupId}：会话 ${String(g.sessionId).slice(0, 10)}… 排队 ${g.queued}${g.active ? "，执行中" : ""}`,
       );
       ctx.showText(
         `QQ 入口：${s.enabled ? "已启用" : "已停用"}；连接 ${s.online ? `在线（账号 ${s.actualSelfId}）` : `离线（${s.stateDetail}）`}\n` +
-          `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${(s.groups as string[]).join("、") || "（空）"}\n` +
+          `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${s.groups.join("、") || "（空）"}\n` +
           `拥有者私聊：${s.ownerUserId ?? "未开启"}（共享 main；发送记录用 ruukoto notify list 查看）\n` +
           `回复上限 ${s.maxReplyChars} 字符；排队过期 ${s.queueTtlMs}ms\n` +
           (sessions.length ? sessions.join("\n") : "  （尚无群会话）"),
@@ -238,30 +231,30 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
       return;
     }
     if (sub === "enable" || sub === "disable") {
-      const c = await ctx.request<{ configVersion: number }>("qq_set_enabled", { enabled: sub === "enable" });
+      const c = await ctx.request("qq_set_enabled", { enabled: sub === "enable" });
       ctx.showText(`QQ 入口已${sub === "enable" ? "启用" : "停用"}（配置 v${c.configVersion}）`);
       return;
     }
     if (sub === "groups") {
-      const s = await ctx.request<Record<string, any>>("qq_status", {});
-      ctx.showText(`允许的群：${((s.groups as string[]) ?? []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
+      const s = await ctx.request("qq_status", {});
+      ctx.showText(`允许的群：${("groups" in s ? s.groups : []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
       return;
     }
     if (sub === "inbox" || sub === "outbox") {
-      const result = await ctx.request<{ entries: Array<Record<string, any>> }>(
-        sub === "inbox" ? "qq_inbox_list" : "qq_outbox_list",
-        { group_id: rest[1], limit: 20 },
-      );
-      if (result.entries.length === 0) {
+      const params = { group_id: rest[1], limit: 20 };
+      const lines =
+        sub === "inbox"
+          ? (await ctx.request("qq_inbox_list", params)).entries.map(
+              (e) => `  群 ${e.groupId} ${e.userId}：${String(e.text).slice(0, 40)} [${e.status}${e.recalled ? "/已撤回" : ""}] ${e.createdAt}`,
+            )
+          : (await ctx.request("qq_outbox_list", params)).entries.map(
+              (e) => `  群 ${e.groupId}：${String(e.text).slice(0, 40)} [${e.status}]${e.error ? ` ${String(e.error).slice(0, 60)}` : ""} ${e.createdAt}`,
+            );
+      if (lines.length === 0) {
         ctx.showText(sub === "inbox" ? "暂无收件登记" : "暂无发送记录");
         return;
       }
-      const lines = result.entries.map((e) =>
-        sub === "inbox"
-          ? `  群 ${e.groupId} ${e.userId}：${String(e.text).slice(0, 40)} [${e.status}${e.recalled ? "/已撤回" : ""}] ${e.createdAt}`
-          : `  群 ${e.groupId}：${String(e.text).slice(0, 40)} [${e.status}]${e.error ? ` ${String(e.error).slice(0, 60)}` : ""} ${e.createdAt}`,
-      );
-      ctx.showText(`${sub === "inbox" ? "收件登记" : "发送记录"}（最近 ${result.entries.length} 条）：\n${lines.join("\n")}`);
+      ctx.showText(`${sub === "inbox" ? "收件登记" : "发送记录"}（最近 ${lines.length} 条）：\n${lines.join("\n")}`);
       return;
     }
     ctx.notify("用法：/qq [status | enable | disable | groups | inbox [群号] | outbox [群号]]");

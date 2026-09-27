@@ -2888,20 +2888,18 @@ export class Runtime {
   getContextBreakdown(input: { sessionId: string; recordId: string }): {
     record: SelectionRecord;
     breakdown: ContextBreakdown;
-    checkpoint: Partial<ContextCheckpoint> | null;
+    checkpoint: Omit<ContextCheckpoint, "summary" | "clearedRefs" | "fingerprint" | "usage"> | null;
   } {
     const record = this.store.getSelectionRecord(input.recordId);
     if (!record || record.sessionId !== input.sessionId) {
       throw new RuntimeApiError("not_found", `选择记录不存在或不属于该会话：${input.recordId}`);
     }
     // 压缩点信息（issue 30 §9）：不回传摘要正文与条目引用
-    let checkpoint: Partial<ContextCheckpoint> | null = record.checkpointId ? this.store.getCheckpoint(record.checkpointId) : null;
-    if (checkpoint) {
-      checkpoint = { ...checkpoint };
-      delete checkpoint.summary;
-      delete checkpoint.clearedRefs;
-      delete checkpoint.fingerprint;
-      delete checkpoint.usage;
+    const found = record.checkpointId ? this.store.getCheckpoint(record.checkpointId) : null;
+    let checkpoint: Omit<ContextCheckpoint, "summary" | "clearedRefs" | "fingerprint" | "usage"> | null = null;
+    if (found) {
+      const { summary: _summary, clearedRefs: _clearedRefs, fingerprint: _fingerprint, usage: _usage, ...rest } = found;
+      checkpoint = rest;
     }
     try {
       return { record, breakdown: selectionBreakdown(record), checkpoint };
@@ -3079,7 +3077,7 @@ export class Runtime {
   }
 
   /** QQ 入口状态（配置视图 + 运行期连接状态；不含 token 与消息正文）。 */
-  qqStatus(): Record<string, unknown> {
+  qqStatus() {
     return (
       this.qqAdapter?.status() ?? {
         configured: this.qqStore.getConfig() !== null,

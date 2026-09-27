@@ -12,7 +12,8 @@
  * - 数据实例标识变化（新数据库）明确通知：调用方据此处理待确认请求。
  */
 
-import { ControlClient, ControlClientError, type ClientCloseInfo } from "./client.ts";
+import { ControlClient, ControlClientError, type ClientCloseInfo, type ControlTransport } from "./client.ts";
+import type { OpParams, OpResult, TuiOp } from "./ops.ts";
 import type { ConnectResult } from "./protocol.ts";
 import type { PersistentEvent } from "../core/types.ts";
 
@@ -38,13 +39,13 @@ export interface ConnectionConfig {
   reconnectMaxMs?: number;
   connectTimeoutMs?: number;
   /** 测试注入点：替换底层客户端工厂（默认 ControlClient.connect）。 */
-  clientFactory?: (socketPath: string, timeoutMs: number) => Promise<ControlClient>;
+  clientFactory?: (socketPath: string, timeoutMs: number) => Promise<ControlTransport>;
 }
 
 export class ControlConnection {
   private readonly config: ConnectionConfig;
   private readonly callbacks: ConnectionCallbacks;
-  private client: ControlClient | null = null;
+  private client: ControlTransport | null = null;
   private appliedSeq = 0;
   private buffer: PersistentEvent[] | null = null;
   private closedByUser = false;
@@ -78,7 +79,7 @@ export class ControlConnection {
   }
 
   private async connectAndSync(since: number | undefined): Promise<void> {
-    const factory = this.config.clientFactory ?? ((p: string, t: number) => ControlClient.connect(p, t));
+    const factory = this.config.clientFactory ?? ((p: string, t: number): Promise<ControlTransport> => ControlClient.connect(p, t));
     const client = await factory(this.config.socketPath, this.config.connectTimeoutMs ?? 5000);
     this.client = client;
     client.onClose((info) => this.handleClose(info));
@@ -108,7 +109,7 @@ export class ControlConnection {
   }
 
   /** 安装快照 → 应用补发（fill-only）→ 应用缓冲的实时事件。 */
-  private async sync(client: ControlClient, since: number | undefined): Promise<void> {
+  private async sync(client: ControlTransport, since: number | undefined): Promise<void> {
     const buffer: PersistentEvent[] = [];
     this.buffer = buffer;
     let result: ConnectResult;
@@ -213,11 +214,11 @@ export class ControlConnection {
    * 连接可用时发送；socket 已关闭（含重连窗口）立即拒绝。
    * 握手完成前的同步窗口内允许只读查询（快照安装触发的历史加载）。
    */
-  request<T = unknown>(op: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+  request<K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number): Promise<OpResult<K>> {
     if (!this.client || this.client.isClosed) {
       return Promise.reject(new ControlClientError("connection_unavailable", "连接不可用：请求未发送"));
     }
-    return this.client.request<T>(op, params, timeoutMs);
+    return this.client.request(op, params, timeoutMs);
   }
 
   /** 主动关闭：停止重连，关闭 socket。 */

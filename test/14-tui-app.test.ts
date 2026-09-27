@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { stripTerminalSequences, type Terminal } from "@earendil-works/pi-tui";
 import { ControlConnection } from "../src/control/connection.ts";
+import type { OpParams, TuiOp } from "../src/control/ops.ts";
 import { PendingRequestStore } from "../src/control/pending-requests.ts";
 import { SubmissionGuard } from "../src/control/submission.ts";
 import { readOwnerToken } from "../src/control/owner-token.ts";
@@ -125,9 +126,9 @@ async function startApp(t: TestRuntime, opts: { sessionId?: string; requests?: A
   );
   if (opts.requests) {
     const request = connection.request.bind(connection);
-    connection.request = <T>(op: string, params?: Record<string, unknown>, timeoutMs?: number) => {
+    connection.request = <K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number) => {
       opts.requests!.push({ op, params });
-      return request<T>(op, params, timeoutMs);
+      return request(op, params, timeoutMs);
     };
   }
   const pendingStore = new PendingRequestStore(path.join(t.dirs.root, `pending-${harnessCounter++}`));

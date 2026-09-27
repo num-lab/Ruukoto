@@ -332,9 +332,9 @@ test("待确认记录写入失败：不得发送请求", async () => {
     fs.chmodSync((guard as any).store.dir, 0o500);
     await assert.rejects(() => guard.submit("submit", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, input: "不应发送" }));
     fs.chmodSync((guard as any).store.dir, 0o700);
-    const found = await conn.request<{ task: unknown }>("find_task", { session_id: sessionId, request_id: "never" });
+    const found = await conn.request("find_task", { session_id: sessionId, request_id: "never" });
     assert.equal(found.task, null);
-    const tasks = (await conn.request<{ tasks: unknown[] }>("list_tasks", { session_id: sessionId })).tasks;
+    const tasks = (await conn.request("list_tasks", { session_id: sessionId })).tasks;
     assert.equal(tasks.length, 0, "保存失败时不得发送请求");
     conn.close();
   } finally {
@@ -363,7 +363,7 @@ test("应答丢失：重连核实关联原任务，不重复启动", async () =>
     const outcomes = await guard.reconcileAll();
     assert.deepEqual(outcomes, [{ kind: "linked", requestId: "lost-ack-1", taskId: task.id }]);
     assert.equal(store.list().records.length, 0);
-    const tasks = (await conn.request<{ tasks: unknown[] }>("list_tasks", { session_id: sessionId })).tasks;
+    const tasks = (await conn.request("list_tasks", { session_id: sessionId })).tasks;
     assert.equal(tasks.length, 1, "同一输入只对应一个任务");
     conn.close();
   } finally {
@@ -413,7 +413,7 @@ test("数据实例不匹配：保留待核实，不向空后台重发", async ()
     const outcomes = await guard.reconcileAll();
     assert.deepEqual(outcomes, [{ kind: "foreign_instance", requestId: "foreign-1" }]);
     assert.equal(store.list().records.length, 1, "记录保留待拥有者处理");
-    const found = await conn.request<{ task: unknown }>("find_task", { session_id: sessionId, request_id: "foreign-1" });
+    const found = await conn.request("find_task", { session_id: sessionId, request_id: "foreign-1" });
     assert.equal(found.task, null, "不得向新后台重发");
     conn.close();
   } finally {

@@ -20,6 +20,7 @@ import {
   type ControlResponse,
   encodeFrame,
 } from "./protocol.ts";
+import type { OpParams, OpResult, TuiOp } from "./ops.ts";
 
 export class ControlClientError extends Error {
   readonly code: string;
@@ -34,7 +35,22 @@ export interface ClientCloseInfo {
   message: string;
 }
 
-export class ControlClient {
+/**
+ * ControlConnection 对底层客户端的全部要求（架构工单 07 的接缝）：真实 socket
+ * 客户端、demo 合成会话与测试替身都实现它；request 按 op 表定类型。
+ */
+export interface ControlTransport {
+  readonly isClosed: boolean;
+  authenticate(token: string): Promise<void>;
+  handshake(since?: number): Promise<ConnectResult>;
+  onEvent(listener: (event: ControlPush["event"]) => void): () => void;
+  onClose(listener: (info: ClientCloseInfo) => void): () => void;
+  close(): void;
+  request<K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number): Promise<OpResult<K>>;
+}
+
+/** request 保持宽松签名：CLI 与配置中心按字符串调用任意 op。 */
+export class ControlClient implements ControlTransport {
   private socket: net.Socket;
   private buffer = "";
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();

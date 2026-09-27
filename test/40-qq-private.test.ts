@@ -19,6 +19,13 @@ import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } fro
 const OWNER = "880001";
 const OTHER = "880002";
 const GROUP = "100001";
+/** 适配器已启动时的完整状态（未启动的回退形状没有账号字段）。 */
+function qqStatus(rt: Runtime) {
+  const s = rt.qqStatus();
+  assert.ok("actualSelfId" in s, "QQ 适配器应已启动");
+  return s;
+}
+
 const QQ_TIMEOUTS = { actionTimeoutMs: 400, probeIntervalMs: 100, reconnectMinMs: 50, reconnectMaxMs: 150, sweepIntervalMs: 80 };
 const reply: Responder = async (req) => ({ kind: "text", text: `REPLY ${lastUserText(req).match(/MARK-[A-Z0-9-]+/g)?.at(-1) ?? "none"}` });
 
@@ -295,8 +302,8 @@ test("token 错误和登录账号不符不接任务；连接掉线、账号离�
     await waitFor("登录核对已经执行", () => h.onebot.actions.some((action) => action.action === "get_login_info"));
     push(h.onebot, 2, "MARK-BAD-LOGIN");
     await pause();
-    assert.equal(rt.qqStatus().actualSelfId, MOCK_QQ_ACCOUNT);
-    assert.equal(rt.qqStatus().selfId, "990099", "连接可在线，但登录账号不匹配时不能接任务");
+    assert.equal(qqStatus(rt).actualSelfId, MOCK_QQ_ACCOUNT);
+    assert.equal(qqStatus(rt).selfId, "990099", "连接可在线，但登录账号不匹配时不能接任务");
     assert.equal(mainTasks(rt).length, 0);
 
     await configure(rt, h.onebot);
@@ -316,7 +323,7 @@ test("token 错误和登录账号不符不接任务；连接掉线、账号离�
     }
     h.onebot.setAccount("990099");
     h.onebot.pushHeartbeat();
-    await waitFor("心跳发现账号切换", () => rt.qqStatus().actualSelfId !== MOCK_QQ_ACCOUNT);
+    await waitFor("心跳发现账号切换", () => qqStatus(rt).actualSelfId !== MOCK_QQ_ACCOUNT);
     push(h.onebot, 30, "MARK-SWITCHED-ACCOUNT");
     await pause();
     assert.equal(mainTasks(rt).length, 2);

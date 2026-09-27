@@ -125,7 +125,7 @@ test("派发：/skill <名称> 与 /skill:<名称> 都作任务输入不回显�
   assert.deepEqual(f.log.echoes, [], "任务输入不回显");
 
   await f.run("/skill  ");
-  assert.deepEqual(f.log.requests, [["list_skills", undefined]]);
+  assert.deepEqual(f.log.requests, [["list_skills", {}]]);
   assert.deepEqual(f.log.echoes, ["/skill"]);
   await f.run("/skills:x");
   assert.deepEqual(f.log.notes.at(-1), "未知命令：/skills:x（/help 查看命令列表）");
@@ -260,6 +260,11 @@ test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命�
   const unconfigured = fake({ replies: { qq_status: { configured: false } } });
   await unconfigured.run("/qq status");
   assert.match(unconfigured.log.texts[0]!, /^QQ 入口未配置/);
+  // 适配器未启动（dev 实例）：回退形状没有群与会话
+  const idle = fake({ replies: { qq_status: { configured: true, enabled: false, online: false, stateDetail: "适配器未启动" } } });
+  await idle.run("/qq");
+  await idle.run("/qq groups");
+  assert.deepEqual(idle.log.texts, ["QQ 入口已配置；适配器未启动", "允许的群：（空）\n增删经 CLI：ruukoto qq group add|remove <群号>"]);
   const broken = fake({ replies: { qq_status: new Error("连接断开") } });
   await broken.run("/qq");
   assert.match(broken.log.notes[0]!, /QQ 操作失败：连接断开/);

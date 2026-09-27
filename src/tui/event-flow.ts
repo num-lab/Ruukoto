@@ -355,10 +355,9 @@ export class EventFlow {
   commandResult(key: string, text: string, isError: boolean): CommandEntry | null {
     const command = this.entries.get(key);
     if (command?.kind !== "command") return null;
-    if (isError || /^\/(?:mode|model)(?:\s|$)/.test(command.line)) {
-      command.result = text;
-      command.isError = isError;
-    }
+    // 写不写由斜杠命令条目决定（commands.ts）
+    command.result = text;
+    command.isError = isError;
     return command;
   }
 }

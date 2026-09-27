@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { Type } from "typebox";
 import { defineTool, loadSkillsFromDir, stripFrontmatter, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { grantCoversPath } from "../core/worktree.ts";
+import type { ReferenceBlock } from "./context-selector.ts";
 
 export const SKILL_TOOL_NAMES = ["skill"] as const;
 const MAX_SKILL_FILE_BYTES = 64 * 1024;
@@ -85,6 +86,22 @@ export function loadSkillLibrary(agentDir: string): SkillLibrary {
   }
   const content = skills.map(({ dir: _dir, ...rest }) => rest);
   return { skills, diagnostics, version: skills.length > 0 ? `sha256:${sha256(JSON.stringify(content)).slice(0, 16)}` : "" };
+}
+
+/** 技能目录参考块：只含可由模型加载的技能的名称与描述（无主机路径）；没有时不产出。 */
+export function skillCatalogBlock(lib: SkillLibrary): ReferenceBlock | null {
+  const entries = lib.skills.filter((s) => !s.disableModelInvocation);
+  if (entries.length === 0) return null;
+  return {
+    category: "skills",
+    placement: "prefix",
+    text: [
+      "[技能目录]",
+      "以下技能由拥有者提供。任务与某技能的描述相符时，先用 skill 工具（参数 name）加载其正文；正文提到的引用文件用 skill 工具的 path 参数（相对技能目录）读取。技能中的脚本只作为文本提供，不能原地执行。",
+      ...entries.map((s) => `- ${s.name}：${s.description}`),
+      "[/技能目录]",
+    ].join("\n"),
+  };
 }
 
 function skillBlock(skill: PinnedSkill, how: string): string {

@@ -34,6 +34,7 @@ import {
   selectContext,
   validateBudgetConfig,
   type CheckpointInput,
+  type ReferenceBlock,
   type SelectorBudgetConfig,
   type SelectorInput,
   type SelectorOutput,
@@ -42,7 +43,8 @@ import { evaluateJev, JevError, JEV_MODEL, JEV_THRESHOLD, JEV_INPUT_USD_PER_MILL
 import { getProjectJevConfig, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "./jev-config.ts";
 import { loadSummaryModel } from "./model-config.ts";
 import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
-import type { SkillLibrary } from "./skills.ts";
+import { PLAN_NOTICE } from "./plan-mode.ts";
+import { skillCatalogBlock, type SkillLibrary } from "./skills.ts";
 
 /** 请求前最终检查失败（预算/选择失败/选择缺失/配对/资料变化）：阻断发送。 */
 export class ContextSendBlocked extends Error {
@@ -102,7 +104,7 @@ export interface ContextAssemblyInput {
   session: { id: string; projectId: string; cwdReal: string };
   /** 资料访问身份：记忆来源授权按它判定。 */
   accessor: Accessor;
-  /** 资料受限会话（issue 07 QQ 群；issue 01 chat 角色）：不注入项目指令、记忆与技能目录，不跑 Jev 与压缩。 */
+  /** 资料受限会话（issue 07 QQ 群；issue 01 chat 角色）：不注入参考块（含记忆），不跑 Jev 与压缩。 */
   restricted: boolean;
   /** QQ 群会话的撤回过滤：每次调用前移出已撤回交互（只改模型视图，不改写历史）。 */
   recalledFilter?: (messages: any[]) => any[];
@@ -131,6 +133,7 @@ export class ContextAssembly {
   private readonly accessor: Accessor;
   private readonly restricted: boolean;
   private readonly recalledFilter: ((messages: any[]) => any[]) | undefined;
+  /** 计划模式与技能库：资料受限会话在构造时归一为 false / null（参考块与版本不再另行判断）。 */
   private readonly plan: boolean;
   private readonly skills: SkillLibrary | null;
   private readonly deps: ContextAssemblyDeps;
@@ -164,8 +167,8 @@ export class ContextAssembly {
     this.accessor = input.accessor;
     this.restricted = input.restricted;
     this.recalledFilter = input.recalledFilter;
-    this.plan = input.plan;
-    this.skills = input.skills;
+    this.plan = !input.restricted && input.plan;
+    this.skills = input.restricted ? null : input.skills;
     this.deps = deps;
     try {
       this.pinnedJev = this.restricted ? null : getProjectJevConfig(deps.store, this.session.projectId);
@@ -260,10 +263,7 @@ export class ContextAssembly {
       messages,
       systemPrompt: sdk.systemPrompt,
       tools: sdk.tools,
-      projectInstructions: this.restricted ? null : this.pinnedContext.instructions,
-      skills: this.skillsInput(sdk.tools),
-      resumedFrom: this.pinnedContext.resumedFrom,
-      planMode: this.plan,
+      references: this.references(sdk.tools),
       memories,
       preExcludedMemories,
       budget: this.budgetConfig(sdk.model),
@@ -394,15 +394,19 @@ export class ContextAssembly {
     return { ...outcome, model };
   }
 
-  /** 技能目录只在本任务确实可用 skill 工具时注入（GitHub 评审等收窄工具集不注入）。 */
-  private skillsInput(tools: any[]): SelectorInput["skills"] {
-    const lib = this.restricted ? null : this.skills;
-    if (!lib) return null;
-    const toolActive = tools.some((t) => t?.name === "skill");
-    const entries = toolActive
-      ? lib.skills.filter((s) => !s.disableModelInvocation).map((s) => ({ name: s.name, description: s.description }))
-      : [];
-    return { entries, version: lib.version };
+  /**
+   * 本次调用的参考块（issue 29 顺序）：项目指令 → 技能目录 → 继续来源 → 计划说明。
+   * 技能目录只在本次工具集确有 skill 时注入（GitHub 评审等收窄工具集不注入）。
+   */
+  private references(tools: any[]): ReferenceBlock[] {
+    const { instructions, resumedFrom } = this.pinnedContext;
+    const skills = this.skills && tools.some((t) => t?.name === "skill") ? skillCatalogBlock(this.skills) : null;
+    return [
+      ...(instructions ? [this.instructionsBlock(instructions)] : []),
+      ...(skills ? [skills] : []),
+      ...(resumedFrom ? [this.resumedBlock(resumedFrom)] : []),
+      ...(this.plan ? [PLAN_NOTICE] : []),
+    ];
   }
 
   /** 配置与凭据每次读取，未启用/损坏/越范围都不能成为外发授权。 */
@@ -425,6 +429,7 @@ export class ContextAssembly {
   /** 只接收候选单元的取舍；所有消息、预算和必留项仍由本地选择器生成。 */
   private async selectWithJev(input: SelectorInput, baseline: SelectorOutput, config: JevConfig, sdk: SdkState): Promise<SelectorOutput> {
     const task = this.task;
+    const resumed = this.pinnedContext.resumedFrom;
     const experiment: ContextExperimentRecord = {
       status: "fallback", strategy: SELECTOR_STRATEGY, requestedModel: JEV_MODEL, model: null,
       configVersion: config.configVersion, threshold: JEV_THRESHOLD, elapsedMs: 0,
@@ -438,7 +443,7 @@ export class ContextAssembly {
       const credentialSnapshot = JSON.stringify(credential);
       try {
         const result = await evaluateJev({
-          task: input.resumedFrom ? `继续任务的原始要求：\n${input.resumedFrom.input}\n\n本次要求：\n${task.input}` : task.input,
+          task: resumed ? `继续任务的原始要求：\n${resumed.input}\n\n本次要求：\n${task.input}` : task.input,
           candidates: getContextCandidates(input),
           credential,
           signal: this.controller.signal,
@@ -586,6 +591,24 @@ export class ContextAssembly {
     return { text, version, problems };
   }
 
+  /** 项目指令参考块：钉版正文加缺失/不可读等说明（不静默省略）。 */
+  private instructionsBlock(instructions: { text: string; problems: string[] }): ReferenceBlock {
+    const parts = ["[项目指令]"];
+    if (instructions.text) parts.push(instructions.text);
+    for (const problem of instructions.problems) parts.push(`注意：${problem}`);
+    parts.push("[/项目指令]");
+    return { category: "projectInstructions", placement: "prefix", text: parts.join("\n") };
+  }
+
+  /** 继续来源参考块：原任务的要求，只属于本任务（§4）。 */
+  private resumedBlock(resumedFrom: { taskId: string; input: string }): ReferenceBlock {
+    return {
+      category: "resumedFrom",
+      placement: "task",
+      text: [`[继续来源：本任务继续已中断任务 ${resumedFrom.taskId}；其原始要求如下]`, resumedFrom.input, "[/继续来源]"].join("\n"),
+    };
+  }
+
   /**
    * 发送前（driver 自己的检查之后）：按预算收紧 maxTokens，复核本轮选择
    * （阻断原因、选择缺失、Jev 凭据与记忆的新鲜度、配对、预算重估），先落选择
@@ -664,8 +687,8 @@ export class ContextAssembly {
         ],
         includedMemories: selection.includedMemories,
         excludedMemories: selection.excludedMemories,
-        instructionVersion: selection.instructionVersion,
-        skillVersion: selection.skillVersion,
+        instructionVersion: this.pinnedContext.instructions?.version ?? "",
+        skillVersion: this.skills?.version ?? "",
         cappedToolResults: selection.cappedToolResults,
         estimates: selection.estimates,
         budget: selection.budget,

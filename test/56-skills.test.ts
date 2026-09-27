@@ -248,8 +248,8 @@ test("集成：技能目录超出预算按现有规则中断并暂停队列，�
     const status = await waitDone(t, task.id);
     assert.equal(status.task.status, "interrupted");
     assert.match(status.task.interruptReason, /context_budget_exceeded/);
-    const prefix = Number(/指令\/技能\/记忆\/继续来源\/计划说明 (\d+)/.exec(status.task.interruptReason)?.[1]);
-    assert.ok(prefix > 40_000, `超预算来自技能目录（前缀 ${prefix}）`);
+    const skills = Number(/技能 (\d+)/.exec(status.task.interruptReason)?.[1]);
+    assert.ok(skills > 40_000, `超预算来自技能目录（技能 ${skills}）`);
     assert.equal(t.server.calls.length, 0, "零 provider 请求");
     assert.equal((await t.client.request<any>("get_session", { session_id: sessionId })).queueState, "paused");
   } finally {

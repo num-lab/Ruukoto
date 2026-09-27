@@ -36,7 +36,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { resolveEntry } from "./cli-entry.ts";
-import { ControlClient } from "./control/client.ts";
+import { ControlClient, requestOutcome } from "./control/client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
 import { SESSION_DEFAULT_MODES, isAccessMode, type AccessMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
 
@@ -273,7 +273,11 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
         try {
           return await c.request(cmd, { session_id: sessionId, ...(source ? { task_id: source.task.id } : {}), request_id: requestId, input: positional.slice(2).join(" "), access_mode: parseMode(flags["mode"]), granted_paths: parseGrants(flags["grant"]), model_selection: selection });
         } catch (err) {
-          console.error(`提交失败或接收结果未确认；请用原 request-id ${requestId} 核实，勿换键重试`);
+          console.error(
+            requestOutcome(err) === "rejected"
+              ? `提交被拒绝：${(err as Error).message}`
+              : `提交失败或接收结果未确认；请用原 request-id ${requestId} 核实，勿换键重试`,
+          );
           throw err;
         }
       }));

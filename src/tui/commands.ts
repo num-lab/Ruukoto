@@ -9,6 +9,7 @@
 
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
 import { isPlanInput } from "../agent/plan-mode.ts";
+import { requestOutcome } from "../control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "../control/ops.ts";
 
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
@@ -76,6 +77,22 @@ export interface SlashCommand {
   run: (ctx: CommandContext, args: { rest: string[]; arg: string; line: string }) => Promise<void> | void;
 }
 
+/**
+ * 写操作失败的提示，按请求结果分类（架构工单 07）：应答丢失时写入可能已生效，
+ * 不自动重发，请拥有者先用 check 核实。
+ */
+export function writeFailure(action: string, err: unknown, check: string): string {
+  const message = (err as Error).message;
+  switch (requestOutcome(err)) {
+    case "not_sent":
+      return `${action}未发送：${message}`;
+    case "rejected":
+      return `${action}失败：${message}`;
+    default:
+      return `${action}结果未知：${message}；先用 ${check} 核实再操作（未自动重发）`;
+  }
+}
+
 async function newProject(ctx: CommandContext, name: string): Promise<void> {
   if (!name) {
     ctx.notify("用法：/new-project <名称>");
@@ -85,7 +102,7 @@ async function newProject(ctx: CommandContext, name: string): Promise<void> {
     await ctx.request("create_project", { name });
     ctx.showText(`项目已创建：${name}；用 /new-session <工作目录> 创建会话`);
   } catch (err) {
-    ctx.notify(red(`创建项目失败：${(err as Error).message}`));
+    ctx.notify(red(writeFailure("创建项目", err, "/sessions")));
   }
 }
 
@@ -193,7 +210,7 @@ async function memory(ctx: CommandContext, rest: string[]): Promise<void> {
         ctx.showText(`记忆 ${id} 已自 v${versionArg} 恢复（创建了新修订）`);
       }
     } catch (err) {
-      ctx.notify(red(`操作失败：${(err as Error).message}`));
+      ctx.notify(red(writeFailure(sub === "revoke" ? "撤销记忆" : "恢复记忆", err, `/memory show ${id}`)));
     }
     return;
   }
@@ -231,8 +248,12 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
       return;
     }
     if (sub === "enable" || sub === "disable") {
-      const c = await ctx.request("qq_set_enabled", { enabled: sub === "enable" });
-      ctx.showText(`QQ 入口已${sub === "enable" ? "启用" : "停用"}（配置 v${c.configVersion}）`);
+      const verb = sub === "enable" ? "启用" : "停用";
+      const c = await ctx.request("qq_set_enabled", { enabled: sub === "enable" }).catch((err: unknown) => {
+        ctx.notify(red(writeFailure(`QQ 入口${verb}`, err, "/qq")));
+        return null;
+      });
+      if (c) ctx.showText(`QQ 入口已${verb}（配置 v${c.configVersion}）`);
       return;
     }
     if (sub === "groups") {

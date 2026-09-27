@@ -72,6 +72,7 @@ import { runsInPlanMode } from "../agent/plan-mode.ts";
 import {
   commandHelpLines,
   dispatchInput,
+  writeFailure,
   SlashCommandAutocomplete,
   VISIBLE_COMMANDS,
   type CommandEnv,
@@ -1569,7 +1570,7 @@ export class TuiApp {
       const session = await this.connection.request("create_session", { project_id: projectId, cwd });
       this.switchSession(session.id);
     } catch (err) {
-      this.notify(red(`创建会话失败：${(err as Error).message}`));
+      this.notify(red(writeFailure("创建会话", err, "/sessions")));
     }
   }
 
@@ -1583,7 +1584,7 @@ export class TuiApp {
     try {
       await this.connection.request("interrupt", { task_id: task.id });
     } catch (err) {
-      this.notify(red(`中断失败：${(err as Error).message}`));
+      this.notify(red(writeFailure("中断", err, "/status")));
     }
   }
 
@@ -1596,7 +1597,7 @@ export class TuiApp {
     try {
       await this.connection.request("cancel", { task_id: taskId });
     } catch (err) {
-      this.notify(red(`取消失败：${(err as Error).message}`));
+      this.notify(red(writeFailure("取消", err, "/status")));
     }
   }
 
@@ -1650,13 +1651,13 @@ export class TuiApp {
         this.showSelection(`为 ${legacy.length} 个旧排队任务补配置：${this.selectionText(selection)}`, [{ value: "yes", label: "确认补齐并恢复队列" }], () => {
           void this.connection.request("resume_queue", { session_id: view.sessionId, model_selection: selection })
             .then(() => this.refreshAll())
-            .catch((err) => { this.state.note(view.sessionId, `恢复失败：${err.message}`); this.refreshAll(); });
+            .catch((err) => { this.state.note(view.sessionId, writeFailure("恢复队列", err, "/status")); this.refreshAll(); });
         });
         return;
       }
       await this.connection.request("resume_queue", { session_id: view.sessionId });
     } catch (err) {
-      this.notify(red(`恢复队列失败：${(err as Error).message}`));
+      this.notify(red(writeFailure("恢复队列", err, "/status")));
     }
   }
 

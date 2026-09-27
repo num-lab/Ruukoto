@@ -12,6 +12,7 @@ import { randomId } from "../core/types.ts";
 import type { Task } from "../core/types.ts";
 import { ControlClientError } from "./client.ts";
 import type { ControlConnection } from "./connection.ts";
+import type { OpParams } from "./ops.ts";
 import type { PendingRequest, PendingRequestStore } from "./pending-requests.ts";
 
 export type SubmitOutcome =
@@ -52,7 +53,7 @@ export class SubmissionGuard {
     // 先落盘后发送：保存失败不得发出请求
     this.store.save({ requestId, op, params: fullParams, instanceId, createdAt: new Date().toISOString() });
     try {
-      const task = await this.connection.request<Task>(op, fullParams);
+      const task = await this.connection.request(op, fullParams as OpParams<typeof op>);
       this.store.clear(requestId);
       return { kind: "accepted", requestId, task };
     } catch (err) {
@@ -80,7 +81,7 @@ export class SubmissionGuard {
     let sessionId = String(record.params["session_id"] ?? "");
     if (!sessionId && record.op === "continue") {
       try {
-        const detail = await this.connection.request<{ task: Task }>("get_task", { task_id: record.params["task_id"] });
+        const detail = await this.connection.request("get_task", { task_id: record.params["task_id"] as string });
         sessionId = detail.task.sessionId;
       } catch (err) {
         return { kind: "kept", requestId: record.requestId, reason: `无法读取继续来源：${(err as Error).message}` };
@@ -88,7 +89,7 @@ export class SubmissionGuard {
     }
     let found: Task | null;
     try {
-      const result = await this.connection.request<{ task: Task | null }>("find_task", {
+      const result = await this.connection.request("find_task", {
         session_id: sessionId,
         request_id: record.requestId,
       });
@@ -105,14 +106,15 @@ export class SubmissionGuard {
     }
     // 明确未接收：以原键和原参数重试
     try {
-      const task = await this.connection.request<Task>(record.op, { ...record.params, session_id: sessionId });
+      // 落盘记录的参数按原样重发（服务端逐项校验）
+      const task = await this.connection.request(record.op, { ...record.params, session_id: sessionId } as OpParams<typeof record.op>);
       this.store.clear(record.requestId);
       return { kind: "resent", requestId: record.requestId, taskId: task.id };
     } catch (err) {
       if (err instanceof ControlClientError && err.code === "request_conflict") {
         // 重试遇上同键记录：重新核实（竞态：原请求刚刚落盘）
         try {
-          const again = await this.connection.request<{ task: Task | null }>("find_task", {
+          const again = await this.connection.request("find_task", {
             session_id: sessionId,
             request_id: record.requestId,
           });

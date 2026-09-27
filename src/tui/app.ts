@@ -35,6 +35,7 @@ import { Container } from "@earendil-works/pi-tui";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import type { ControlConnection } from "../control/connection.ts";
+import type { OpResult } from "../control/ops.ts";
 import type { ConnectResult } from "../control/protocol.ts";
 import type { SubmissionGuard } from "../control/submission.ts";
 import type { PendingRequestStore } from "../control/pending-requests.ts";
@@ -46,9 +47,10 @@ import {
   resolveWorkspaceDir,
 } from "../control/workspace.ts";
 import type { DirIdentity } from "../core/dir-identity.ts";
-import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
-import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "../core/views.ts";
-import type { AccessMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, Session, PersistentEvent, Task } from "../core/types.ts";
+import type { HistoryPage } from "../core/history.ts";
+import type { ConfirmationRequestView } from "../core/views.ts";
+import type { AccessMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Task } from "../core/types.ts";
+import type { ModelOption } from "../agent/model-selection.ts";
 import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { ContextBreakdown } from "../agent/context-selector.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
@@ -257,17 +259,6 @@ function columnWidths(width: number, ratio: number[] = MODEL_PANEL_RATIO): numbe
   return raw;
 }
 
-/** 后台 list_models 返回的单个模型选项。 */
-interface ModelChoice {
-  provider: string;
-  modelId: string;
-  name: string;
-  contextWindow: number;
-  maxTokens: number;
-  thinkingLevels: ModelSelection["thinkingLevel"][];
-  available: boolean;
-}
-
 /**
  * 模型切换面板：三列（提供方 / 模型 / 思考强度），左右键切列，上下键列内切换。
  *
@@ -282,13 +273,13 @@ class ModelPanel implements Component {
 
   constructor(
     private readonly providers: string[],
-    private readonly modelsByProvider: Map<string, ModelChoice[]>,
-    private readonly onPick: (provider: string, model: ModelChoice, thinkingLevel: string) => void,
+    private readonly modelsByProvider: Map<string, ModelOption[]>,
+    private readonly onPick: (provider: string, model: ModelOption, thinkingLevel: string) => void,
     private readonly onCancel: () => void,
     /** 会话当前生效的选择，用于打 ✓ 标记。 */
     private readonly isCurrent: (provider: string, modelId: string, level: string) => boolean,
     /** 当前光标所指模型的状态说明（可用性或预算）。 */
-    private readonly note: (model: ModelChoice) => string,
+    private readonly note: (model: ModelOption) => string,
   ) {
     this.rows[0] = providers;
     this.refresh();
@@ -314,7 +305,7 @@ class ModelPanel implements Component {
   }
 
   /** 光标所指的模型（模型列为空时返回 undefined）。 */
-  private selected(): { provider: string; model: ModelChoice; level: string } | undefined {
+  private selected(): { provider: string; model: ModelOption; level: string } | undefined {
     const provider = this.providers[this.cursor[0]!];
     const model = provider ? (this.modelsByProvider.get(provider) ?? [])[this.cursor[1]!] : undefined;
     const level = model?.thinkingLevels[this.cursor[2]!];
@@ -985,7 +976,7 @@ export class TuiApp {
       if (!task) {
         // 快照未覆盖的旧任务：向后台核实一次
         try {
-          const detail = await this.connection.request<{ task: Task }>("get_task", { task_id: saved.continueForTaskId });
+          const detail = await this.connection.request("get_task", { task_id: saved.continueForTaskId });
           task = detail.task ?? null;
         } catch {
           task = null;
@@ -1277,7 +1268,7 @@ export class TuiApp {
     const generation = this.generation;
     const view = this.state.openSession(sessionId);
     try {
-      const page = await this.connection.request<HistoryPage>("read_history", {
+      const page = await this.connection.request("read_history", {
         session_id: sessionId,
         before: mode === "prepend" ? (view.historyCursor ?? undefined) : undefined,
         limit: HISTORY_PAGE_SIZE,
@@ -1298,7 +1289,7 @@ export class TuiApp {
   async loadEntry(sessionId: string, entryId: string): Promise<void> {
     const generation = this.generation;
     try {
-      let entry = await this.connection.request<HistoryEntryView>("read_history_entry", {
+      let entry = await this.connection.request("read_history_entry", {
         session_id: sessionId,
         entry_id: entryId,
         length: ENTRY_PAGE_BYTES,
@@ -1308,7 +1299,7 @@ export class TuiApp {
         let text = entry.text;
         let offset = entry.offset + Buffer.byteLength(entry.text);
         while (offset < entry.totalBytes) {
-          const page = await this.connection.request<HistoryEntryView>("read_history_entry", {
+          const page = await this.connection.request("read_history_entry", {
             session_id: sessionId, entry_id: entryId, offset, length: ENTRY_PAGE_BYTES,
           });
           if (generation !== this.generation) return;
@@ -1333,7 +1324,7 @@ export class TuiApp {
     let before: string | undefined;
     const relevant = new Set<string>();
     do {
-      const page = await this.connection.request<{ tasks: Task[]; hasMore: boolean }>("list_tasks", { session_id: sessionId, before, limit: 50 });
+      const page = await this.connection.request("list_tasks", { session_id: sessionId, before, limit: 50 });
       if (generation !== this.generation) return;
       for (const task of page.tasks) {
         if (!earliest || isActiveStatus(task.status) || (task.endedAt ?? task.createdAt) >= earliest || task.historyEntryIds.some((id) => ids.has(id))) {
@@ -1360,7 +1351,7 @@ export class TuiApp {
   }
 
   private async readTaskFlow(taskId: string, generation: number): Promise<void> {
-    const detail = await this.connection.request<{ task: Task; toolOps: ToolOpView[]; outputPreview: OutputPreview | null; seq?: number }>("get_task", { task_id: taskId });
+    const detail = await this.connection.request("get_task", { task_id: taskId });
     if (generation !== this.generation) return;
     this.state.installTaskDetail(detail.task, detail.toolOps ?? [], detail.outputPreview, detail.seq);
     const view = this.state.openSession(detail.task.sessionId);
@@ -1368,7 +1359,7 @@ export class TuiApp {
     const missing = new Set<string>();
     const loaded = new Set(view.flow.historyEntries.filter((entry) => entry.role !== "assistant" || !entry.truncated).map((entry) => entry.entryId));
     do {
-      const page = await this.connection.request<{ events: PersistentEvent[]; nextAfter: number | null }>("read_task_events", { task_id: taskId, after_seq: after, limit: 100 });
+      const page = await this.connection.request("read_task_events", { task_id: taskId, after_seq: after, limit: 100 });
       if (generation !== this.generation) return;
       for (const event of page.events) {
         view.flow.apply(event);
@@ -1554,7 +1545,7 @@ export class TuiApp {
 
   private async createAndSwitch(projectId: string, cwd: string): Promise<void> {
     try {
-      const session = await this.connection.request<{ id: string }>("create_session", { project_id: projectId, cwd });
+      const session = await this.connection.request("create_session", { project_id: projectId, cwd });
       this.switchSession(session.id);
     } catch (err) {
       this.notify(red(`创建会话失败：${(err as Error).message}`));
@@ -1631,6 +1622,10 @@ export class TuiApp {
       const legacy = this.state.queuedTasksFor(view.sessionId).filter((t) => !t.modelSelection);
       const selection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
       if (legacy.length) {
+        if (!selection) {
+          this.notify("请先通过 /model 选择模型");
+          return;
+        }
         this.showSelection(`为 ${legacy.length} 个旧排队任务补配置：${this.selectionText(selection)}`, [{ value: "yes", label: "确认补齐并恢复队列" }], () => {
           void this.connection.request("resume_queue", { session_id: view.sessionId, model_selection: selection })
             .then(() => this.refreshAll())
@@ -1675,7 +1670,7 @@ export class TuiApp {
   private async sendSessionMode(sessionId: string, version: number, mode: AccessMode, result: CommandResult): Promise<void> {
     const label = accessModeLabel(mode);
     try {
-      const saved = await this.connection.request<Session>("set_session_mode", { session_id: sessionId, mode, expected_version: version });
+      const saved = await this.connection.request("set_session_mode", { session_id: sessionId, mode, expected_version: version });
       this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
       result(`Switched to ${label}`);
     } catch (err) {
@@ -1684,7 +1679,7 @@ export class TuiApp {
         // 应答丢失：先查询后台实际状态，不盲目重放
         result("设置应答丢失；正在查询后台状态（未自动重发）", true);
         try {
-          const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
+          const saved = await this.connection.request("get_session", { session_id: sessionId });
           this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
         } catch {
           result("状态查询失败，重连后恢复", true);
@@ -1693,7 +1688,7 @@ export class TuiApp {
         // 版本冲突：刷新后台真实值，不覆盖其他客户端的新选择
         result(`默认模式已被其他客户端修改：${(err as Error).message}`, true);
         try {
-          const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
+          const saved = await this.connection.request("get_session", { session_id: sessionId });
           this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
         } catch { /* 重连后由快照恢复 */ }
       } else {
@@ -1738,7 +1733,7 @@ export class TuiApp {
 
     try {
       // 最近一次调用即当前窗口状态：只取一条，不做列表与分页
-      const list = await this.connection.request<{ records: Array<{ id: string }> }>("list_selection_records", {
+      const list = await this.connection.request("list_selection_records", {
         session_id: sessionId,
         limit: 1,
       });
@@ -1750,7 +1745,7 @@ export class TuiApp {
         this.tui.requestRender();
         return;
       }
-      const result = await this.connection.request<{ record: SelectionRecord; breakdown: ContextBreakdown; checkpoint?: ContextCheckpointView | null }>(
+      const result = await this.connection.request(
         "get_context_breakdown",
         { session_id: sessionId, record_id: recordId },
       );
@@ -1782,19 +1777,9 @@ export class TuiApp {
     const generation = this.generation;
     const stale = () => closed || generation !== this.generation || this.state.currentSessionId !== sessionId;
 
-    interface PromptRecordRow {
-      id: string;
-      taskId: string;
-      callIndex: number;
-      model: string;
-      usage: { input: number; output: number } | null;
-      promptArtifactId: string | null;
-      createdAt: string;
-    }
-
     const PAGE = 30;
     let closed = false;
-    let records: PromptRecordRow[] = [];
+    let records: SelectionRecord[] = [];
     let hasMore = false;
     let loadingMore = false;
     let selectedIndex = 0;
@@ -1811,7 +1796,7 @@ export class TuiApp {
       this.tui.setFocus(this.editor);
     };
 
-    const rowLabel = (r: PromptRecordRow): SelectItem => ({
+    const rowLabel = (r: SelectionRecord): SelectItem => ({
       value: r.id,
       label: `${r.createdAt.slice(0, 19).replace("T", " ")} · 任务 ${r.taskId.slice(0, 12)} · 第 ${r.callIndex} 次调用`,
       description: `${r.model}${r.usage ? ` · usage ${r.usage.input}+${r.usage.output}` : " · 发送结果未回填（失败/中断或未知）"}${r.promptArtifactId ? "" : " · prompt 正文未记录"}`,
@@ -1860,7 +1845,7 @@ export class TuiApp {
       loadingMore = true;
       try {
         const last = records[records.length - 1];
-        const page = await this.connection.request<{ records: PromptRecordRow[]; hasMore: boolean }>(
+        const page = await this.connection.request(
           "list_prompt_requests",
           { session_id: sessionId, limit: PAGE, cursor: last ? { createdAt: last.createdAt, id: last.id } : undefined },
         );
@@ -1918,11 +1903,7 @@ export class TuiApp {
       },
       fetch: async (offset, length) => {
         if (isStale() || generation !== this.generation) throw new Error("视图已切换");
-        const result = await this.connection.request<{
-          artifact: { byteCount: number };
-          encoding: "base64";
-          data: string;
-        }>("read_prompt_snapshot", { record_id: record.id, session_id: sessionId, offset, length });
+        const result = await this.connection.request("read_prompt_snapshot", { record_id: record.id, session_id: sessionId, offset, length });
         const buf = Buffer.from(result.data, "base64");
         const start = snapUtf8Start(buf, 0);
         const end = snapUtf8End(buf, buf.length);
@@ -1972,7 +1953,7 @@ export class TuiApp {
     await this.openPager({
       title: `条目 ${entryId}`,
       fetch: async (offset, length) => {
-        const slice = await this.connection.request<HistoryEntryView>("read_history_entry", {
+        const slice = await this.connection.request("read_history_entry", {
           session_id: sessionId,
           entry_id: entryId,
           offset,
@@ -2000,7 +1981,7 @@ export class TuiApp {
       title: `工具参数 ${toolOpId}`,
       header: lines.join("\n"),
       fetch: async (offset, length) => {
-        const slice = await this.connection.request<{ params: { text: string; offset: number; totalBytes: number; truncated: boolean } }>(
+        const slice = await this.connection.request(
           "get_tool_op_params",
           { tool_op_id: toolOpId, offset, length },
         );
@@ -2029,11 +2010,7 @@ export class TuiApp {
       header,
       pageBytes: ARTIFACT_PAGE_BYTES,
       fetch: async (offset, length) => {
-        const result = await this.connection.request<{
-          artifact: { byteCount: number };
-          encoding: "base64";
-          data: string;
-        }>("read_artifact", { task_id: artifact.taskId, artifact_id: artifact.id, offset, length });
+        const result = await this.connection.request("read_artifact", { task_id: artifact.taskId, artifact_id: artifact.id, offset, length });
         const buf = Buffer.from(result.data, "base64");
         // 二进制检测：含 NUL 或高比例控制字节 → 显示类型与字节数，不作为终端文本输出
         let binary = buf.includes(0);
@@ -2278,10 +2255,7 @@ export class TuiApp {
     let currentVersion = c.permissionVersion;
     const loadParams = async (off: number) => {
       try {
-        const slice = await this.connection.request<{
-          confirmation: { permissionVersion: number; status: string };
-          params: { text: string; offset: number; totalBytes: number; truncated: boolean };
-        }>("get_confirmation_params", { confirmation_id: c.id, offset: off, length: ENTRY_PAGE_BYTES });
+        const slice = await this.connection.request("get_confirmation_params", { confirmation_id: c.id, offset: off, length: ENTRY_PAGE_BYTES });
         if (generation !== this.generation) return;
         offset = slice.params.offset;
         total = slice.params.totalBytes;
@@ -2322,7 +2296,7 @@ export class TuiApp {
           // 应答丢失：先查询实际状态，不盲目重放
           footerText.setText(yellow("应答结果未知：正在查询实际状态…"));
           try {
-            const detail = await this.connection.request<{ confirmations: ConfirmationRequestView[] }>("get_task", { task_id: c.taskId });
+            const detail = await this.connection.request("get_task", { task_id: c.taskId });
             const current = detail.confirmations.find((x) => x.id === c.id);
             footerText.setText(yellow(`应答结果未知；后台实际状态：${current?.status ?? "已不存在"}（不自动重放）`));
           } catch {
@@ -2470,10 +2444,10 @@ export class TuiApp {
     const version = session.modelSelectionVersion;
     const current = session.modelSelection;
     try {
-      const models: ModelChoice[] = [];
+      const models: ModelOption[] = [];
       let offset: number | null = 0;
       do {
-        const page: { models: ModelChoice[]; nextOffset: number | null } = await this.connection.request("list_models", { offset, limit: 100 });
+        const page: OpResult<"list_models"> = await this.connection.request("list_models", { offset, limit: 100 });
         models.push(...page.models);
         offset = page.nextOffset;
       } while (offset !== null);
@@ -2482,7 +2456,7 @@ export class TuiApp {
 
       // 按提供方分组，保留后台返回的顺序
       const providers: string[] = [];
-      const byProvider = new Map<string, ModelChoice[]>();
+      const byProvider = new Map<string, ModelOption[]>();
       for (const model of models) {
         if (!byProvider.has(model.provider)) { byProvider.set(model.provider, []); providers.push(model.provider); }
         byProvider.get(model.provider)!.push(model);
@@ -2525,13 +2499,13 @@ export class TuiApp {
   private async saveModelSelection(sessionId: string, version: number, selection: ModelSelection, result: CommandResult): Promise<void> {
     this.refreshAll();
     try {
-      const saved = await this.connection.request<Session>("set_session_model", { session_id: sessionId, expected_version: version, model_selection: selection });
+      const saved = await this.connection.request("set_session_model", { session_id: sessionId, expected_version: version, model_selection: selection });
       this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
       result(`Switched to ${this.selectionText(saved.modelSelection)}`);
     } catch (err) {
       result(`模型设置未确认：${(err as Error).message}；正在查询后台状态`, true);
       try {
-        const saved = await this.connection.request<Session>("get_session", { session_id: sessionId });
+        const saved = await this.connection.request("get_session", { session_id: sessionId });
         this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
       } catch { result("状态查询失败，重连后恢复；未自动重发设置", true); }
     }

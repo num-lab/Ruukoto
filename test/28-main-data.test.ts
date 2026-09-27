@@ -1218,9 +1218,9 @@ test("恢复：回执补记已提交 / 无回执记未提交 / 应用库丢失�
         assert.ok(op.resultSummary!.includes("已知未提交"), "无回执：记未提交");
         assert.equal(op.effectUnknown, false);
         assert.equal(appDataStoreOf(rt).countRows("todos"), 0);
-        // 只读查询：不误标未知写入效果，按已知未执行补记
+        // 只读查询：不误标未知写入效果，按「无写入效果」补记
         const queryOp = rt.store.getToolOp("op_crash_query")!;
-        assert.ok(queryOp.resultSummary!.includes("只读查询"), "只读查询按已知未执行补记");
+        assert.ok(queryOp.resultSummary!.includes("无写入效果"), "只读查询按无写入效果补记");
         assert.equal(queryOp.effectUnknown, false);
       } finally {
         await rt.stop("s2");

@@ -818,3 +818,54 @@ test("mcp 写：工具定义变化 → 下一任务钉版新签名（旧批准�
     await mcp.close();
   }
 });
+
+// ---------- 远端已应答的错误是已知结果（架构工单 05） ----------
+
+test("mcp 写：远端 JSON-RPC 错误应答记已知错误；结构化结果不符 schema 写明远端已执行，都不标 effect_unknown", async () => {
+  const mcp = await startMockMcp({
+    tools: [
+      { name: "bad_args", rpcError: { code: -32602, message: "invalid params: title required" } },
+      {
+        name: "typed_write",
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] },
+        result: { content: [{ type: "text", text: "created" }], structuredContent: { id: "oops" } },
+      },
+    ],
+  });
+  const calls = ["mcp_mock_bad_args", "mcp_mock_typed_write"];
+  const responder: Responder = async (req) => {
+    const done = (req.messages as any[]).filter((m) => m.role === "tool").length;
+    return done < calls.length ? { kind: "tool_calls", calls: [{ id: `c${done}`, name: calls[done]!, arguments: {} }] } : { kind: "text", text: "完成" };
+  };
+  const t = await startTestRuntime("mcp-write-remote-error", responder);
+  try {
+    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, projectId, mcp, {
+      allowlist: [{ name: "bad_args", effect: "write" }, { name: "typed_write", effect: "write" }],
+      credential: false,
+    });
+    const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "两次写" })) as any;
+    const seen: string[] = [];
+    for (let i = 0; i < calls.length; i++) {
+      const conf = await pendingConfirmation(t.client, task.id, seen);
+      seen.push(conf.id);
+      await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
+    }
+    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+    const final = await taskStatus(t.client, task.id);
+    const badArgs = final.toolOps.find((o: any) => o.toolName === "mcp_mock_bad_args");
+    const typed = final.toolOps.find((o: any) => o.toolName === "mcp_mock_typed_write");
+    assert.equal(badArgs.isError, true);
+    assert.equal(badArgs.effectUnknown, false, "远端已应答的错误是已知结果");
+    assert.match(badArgs.resultSummary, /MCP 服务返回错误（-32602）/);
+    assert.equal(typed.isError, true, "结构化结果不符 schema 仍算失败");
+    assert.equal(typed.effectUnknown, false, "远端成功应答即已执行，不是效果未知");
+    assert.match(typed.resultSummary, /远端已执行/);
+    assert.equal(final.task.effectUnknown, false);
+    assert.equal(toolCalls(mcp, "typed_write").length, 1, "不自动重发");
+  } finally {
+    await t.shutdown();
+    await mcp.close();
+  }
+});

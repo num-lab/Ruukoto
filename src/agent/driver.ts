@@ -34,7 +34,7 @@ import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import type { AccessMode, AgentRole, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
-import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
+import type { Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "../core/views.ts";
 import type { ArtifactStore } from "./artifacts.ts";
@@ -45,6 +45,7 @@ import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./man
 import { createSdkSession, SYSTEM_PROMPTS } from "./session-factory.ts";
 import { ToolRouter, ROUTED_TOOL_NAMES } from "./tool-router.ts";
 import { ApprovalGate } from "./approval-gate.ts";
+import type { ToolOpLedger } from "./tool-op-ledger.ts";
 import type { AccessScope } from "../core/access.ts";
 import type { HistoryIndex } from "../core/history-index.ts";
 import type { MemoryStore } from "../core/memory.ts";
@@ -52,12 +53,12 @@ import type { SelectorBudgetConfig } from "./context-selector.ts";
 import { beginContextAssembly, ContextSendBlocked, type ContextAssembly } from "./context-assembly.ts";
 import type { JevRequestConfig } from "./jev.ts";
 import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
-import { createAppDataTools, APP_DATA_TOOL_NAMES, APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp, type AppToolContext } from "./app-data/tools.ts";
+import { createAppDataTools, APP_DATA_TOOL_NAMES, type AppToolContext } from "./app-data/tools.ts";
 import type { AppDataStore } from "./app-data/store.ts";
 import type { AppDataQueryRunner } from "./app-data/query.ts";
-import { createSchedulerTools, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
-import { createDelegationTools, settleDelegationOp, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
-import { createChatResultTools, settleChatResultOp, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
+import { createSchedulerTools, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
+import { createDelegationTools, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
+import { createChatResultTools, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
 import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
@@ -73,6 +74,8 @@ const FRAGMENT_INTERVAL_MS = 250;
 
 export interface DriverDeps {
   store: Store;
+  /** 工具操作账本（架构工单 05）：结果、效果未知与停止补记只经它写。 */
+  ledger: ToolOpLedger;
   qqStore: QqStore;
   sessionsDir: string;
   agentDir: string;
@@ -118,25 +121,21 @@ export interface DriverDeps {
    */
   qqRecalledFilter?: (sessionId: string, messages: any[]) => any[];
   /**
-   * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具；
-   * 停止/恢复路径按应用库回执核实未落结果的应用数据操作。
+   * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具
+   * （停止与重启的回执核实在工具操作账本）。
    */
   appData?: {
     store: AppDataStore;
     runner: AppDataQueryRunner;
-    /** 按宿主操作 ID 核实应用库提交状态（恢复与停止路径共用）。 */
-    writeVerdict(hostOpId: string): "committed" | "not_committed" | "unverifiable";
     /** 查询子进程挂点（仅测试注入；模型不可达）。 */
     queryStallMs?: number;
   };
   /**
-   * 调度计划与通知（issue 03）：仅 main 角色会话装配六个 scheduler 工具；
-   * 停止路径按宿主操作 ID 核实未落结果的调度写操作（同库，恒可核实）。
+   * 调度计划与通知（issue 03）：仅 main 角色会话装配六个 scheduler 工具。
    */
   scheduler?: Pick<SchedulerToolsDeps, "sched" | "scheduler" | "sources" | "target" | "now">;
   /**
-   * 委派 coding（issue 05）：仅 main 角色会话装配；停止路径按子任务是否存在
-   * 核实未落结果的委派操作（同库，恒可核实）。
+   * 委派 coding（issue 05）：仅 main 角色会话装配。
    */
   delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply" | "resultNotice">;
 }
@@ -208,9 +207,10 @@ export class Driver {
     this.session = session;
     this.deps = deps;
     this.registry = createManagedProcessRegistry();
-    this.approvals = new ApprovalGate({ store: deps.store, reviewer: () => this.deps.reviewer });
+    this.approvals = new ApprovalGate({ store: deps.store, ledger: deps.ledger, reviewer: () => this.deps.reviewer });
     this.router = new ToolRouter({
       store: deps.store,
+      ledger: deps.ledger,
       artifacts: deps.artifacts,
       credentials: deps.credentials,
       registry: this.registry,
@@ -820,22 +820,9 @@ export class Driver {
       this.deps.store.setCancelRequested(task.id, opts.cancelIntent);
     });
 
-    // 在中止与回收之前快照"结果未知"的操作：审批未消费 = 已知未执行（排除）；
-    // 应用数据操作在中止完成后统一核实（3b：写操作按回执，只读查询无写入效果），
-    // 不在预快照中标记。其余已开始执行的命令是否已产生外部效果不确定，必须沿用
-    // effect_unknown
-    const confirmations = this.deps.store.listConfirmationsByTask(task.id);
-    const uncertainAtStop = this.deps.store
-      .listUnresolvedToolOps(task.id)
-      .filter(
-        (op) =>
-          isToolOpExecutionUncertain(op, confirmations) &&
-          !(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
-          !(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
-          !(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName) &&
-          !(CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(op.toolName),
-      )
-      .map((op) => op.id);
+    // 在中止与回收之前快照已开始执行的操作（工具操作账本）：效果以停止瞬间为准，
+    // 中止期间才落下的结果不改变结论
+    const uncertainAtStop = this.deps.ledger.beginStop(task.id);
 
     // 2. 解除确认等待（门以 block 结束，不执行该操作）；进行中的自动审查一并中止
     this.approvals.cancelAll();
@@ -849,56 +836,15 @@ export class Driver {
     // MCP 连接随任务停止回收：在途调用已被 abort 中断，迟到结果由 SDK 丢弃
     await this.closeMcpConns();
 
-    // 3b. 应用数据操作（issue 02）：中止完成后统一核实——写操作按应用库回执
-    //     （有回执 = 已提交；可核实无回执 = 已知未提交；无法核实才保留
-    //     effect_unknown）；只读查询不产生写入效果，结果缺失按已知未执行补记。
-    const appDataUncertain: string[] = [];
-    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
-      if (!(APP_DATA_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
-      if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) {
-        this.deps.store.withTx(() => {
-          const recorded = this.deps.store.recordToolResult(op.id, "已知未执行：只读查询在停止前未产生写入效果", true);
-          if (recorded) {
-            this.deps.store.appendEvent(
-              { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary: "已知未执行：只读查询在停止前未产生写入效果", isError: true, artifactIds: [] },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
-          }
-        });
-        continue;
-      }
-      if (!this.deps.appData) {
-        appDataUncertain.push(op.id);
-        continue;
-      }
-      const verdict = this.deps.appData.writeVerdict(op.id);
-      if (verdict === "unverifiable") {
-        appDataUncertain.push(op.id);
-        continue;
-      }
-      this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, op, "后台停止前"));
-    }
-
-    // 3c. 调度与通知工具（issue 03）：按宿主操作 ID 核实是否已登记（核心库，
-    //     恒可核实）；只读查询结果缺失按已知未执行补记。
-    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
-      if (!(SCHEDULER_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
-      this.deps.store.withTx(() => settleSchedulerOp(this.deps.store, this.deps.scheduler?.sched ?? null, task, op, "后台停止前"));
-    }
-    // 3d. 委派工具（issue 05）：按子任务是否存在核实（同库，恒可核实）
-    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
-      if (!(DELEGATION_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
-      this.deps.store.withTx(() => settleDelegationOp(this.deps.store, task, op, "后台停止前"));
-    }
-    for (const op of this.deps.store.listUnresolvedToolOps(task.id)) {
-      if (!(CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(op.toolName)) continue;
-      this.deps.store.withTx(() => settleChatResultOp(this.deps.store, task, op, "后台停止前"));
-    }
+    // 3b. 中止完成后按账本的分类器补记结果缺失的操作：无写入效果、审批未消费、
+    //     工具族核实（应用库回执、调度账本、子任务、接收账本）；其余与快照一起
+    //     在终态事务里标 effect_unknown
+    const effectUnknownOpIds = this.deps.store.withTx(() => this.deps.ledger.settleTask(task, uncertainAtStop));
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
     this.finalize(task, opts.terminal, {
       interruptReason: opts.reason,
-      effectUnknownOpIds: [...uncertainAtStop, ...appDataUncertain],
+      effectUnknownOpIds,
       keepOccupancy: !reaped,
       occupancyIssueReason: reaped ? null : "tool_process_unreaped",
     });
@@ -943,19 +889,7 @@ export class Driver {
       if (!ok) return; // 已被竞争路径定态
       store.clearPendingModeSwitch(task.id);
 
-      const unknownOps = extra.effectUnknownOpIds ?? [];
-      if (unknownOps.length > 0) {
-        for (const opId of unknownOps) {
-          const op = store.getToolOp(opId);
-          if (!op || op.effectUnknown) continue;
-          store.markToolOpEffectUnknown(opId);
-          store.appendEvent(
-            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: opId, toolName: op.toolName },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
-        store.setEffectUnknown(task.id);
-      }
+      for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
 
       // 中断/取消时清理未决确认（标记 stale，防止失效批准再执行）
       if (to === "interrupted" || to === "canceled") {
@@ -1294,29 +1228,15 @@ export class Driver {
         const hostOpId = this.callMap.get(event.toolCallId) ?? event.toolCallId;
         const artifactIds = this.deps.store.getToolOp(hostOpId) ? this.router.artifactIdsFor(hostOpId) : [];
         try {
-          this.deps.store.withTx(() => {
-            const recorded = this.deps.store.recordToolResult(hostOpId, summary, event.isError);
-            if (recorded) {
-              this.deps.store.appendEvent(
-                { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: event.isError, artifactIds, ...(editStats ? { editStats } : {}) },
-                { taskId: task.id, sessionId: task.sessionId },
-              );
-            }
-          });
+          this.deps.store.withTx(() => this.deps.ledger.recordResult(task, hostOpId, summary, event.isError, { artifactIds, editStats }));
         } catch (err) {
-          // 核心结果写入失败（issue 02）：应用数据写操作立即按操作 ID 核实应用库
-          // 回执并保留真实状态——已提交不能报成"未执行"，也不自动再次写入；
-          // 无法核实则保持结果缺失，由重启恢复按 effect_unknown 处理。
-          const toolName = this.deps.store.getToolOp(hostOpId)?.toolName ?? "";
-          if (this.deps.appData && APP_DATA_WRITE_TOOL_NAMES.has(toolName)) {
-            const verdict = this.deps.appData.writeVerdict(hostOpId);
-            if (verdict !== "unverifiable") {
-              try {
-                this.deps.store.withTx(() => settleAppDataOp(this.deps.store, verdict, task, { id: hostOpId }, "结果写入失败前"));
-              } catch {
-                // 补记也失败：保持结果缺失，交重启恢复
-              }
-            }
+          // 核心结果写入失败（issue 02）：工具族能核实的写操作立即按操作 ID 核实并
+          // 保留真实状态——已提交不能报成"未执行"，也不自动再次写入；其余与无法
+          // 核实的保持结果缺失，由重启恢复处理。
+          try {
+            this.deps.store.withTx(() => this.deps.ledger.settleAfterWriteFailure(task, hostOpId));
+          } catch {
+            // 补记也失败：保持结果缺失，交重启恢复
           }
           process.stderr.write(`[ruukoto] 工具结果落盘失败（${hostOpId}）：${(err as Error).message}\n`);
         }

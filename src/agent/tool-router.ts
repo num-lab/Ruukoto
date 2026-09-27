@@ -19,6 +19,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import type { AccessMode, ApprovalScope, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
+import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
@@ -52,6 +53,7 @@ const WORKER_CALL_TIMEOUT_MS = 10 * 60_000;
 
 export interface ToolRouterDeps {
   store: Store;
+  ledger: ToolOpLedger;
   artifacts: ArtifactStore;
   credentials: CredentialStore;
   registry: ManagedProcessRegistry;
@@ -355,12 +357,19 @@ export class ToolRouter {
       const text = outcome.ok && outcome.content !== undefined ? `${outcome.message}\n${outcome.content}` : outcome.message;
       return textResult(text, !outcome.ok);
     }
-    const outcome = await executeApprovedHttpRequest(scopeResult.httpRequest, this.deps.credentials);
+    const outcome = await executeApprovedHttpRequest(scopeResult.httpRequest, this.deps.credentials, input.signal);
+    if (outcome.status === null) {
+      // 写请求已发出后的传输失败（超时/重置/中止）：远端可能已收到 → effect_unknown（不重发）；
+      // 发送前失败与 GET/HEAD（无写入效果）是已知结果
+      const unknown = outcome.sent && !hasNoWriteEffect({ toolName: input.name, params: input.params });
+      if (unknown) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
+      return textResult(`HTTP 无响应：${outcome.message}${unknown ? "\n请求可能已送达、结果无法确认，未自动重发" : ""}`, true);
+    }
     const head = Object.entries(outcome.responseHeaders)
       .slice(0, 20)
       .map(([k, v]) => `${k}: ${v}`)
       .join("\n");
-    return textResult(`HTTP ${outcome.status ?? "无响应"}\n${head}\n\n${outcome.body}`, !outcome.ok);
+    return textResult(`HTTP ${outcome.status}\n${head}\n\n${outcome.body}`, !outcome.ok);
   }
 
   private fileOpScope(
@@ -580,7 +589,11 @@ export class ToolRouter {
     const conn = mcp.plan()?.connections.get(meta.service.id);
     if (!conn) return textResult(`MCP 服务 ${meta.service.name} 连接不可用（初始化失败或已关闭）`, true);
     try {
-      const result = await conn.callTool(meta.remoteName, params, input.signal);
+      const result = await conn.callTool({ name: meta.remoteName, inputSchema: meta.inputSchema }, params, input.signal);
+      if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
+        // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
+        return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
+      }
       const formatted = formatMcpResult(
         { taskId: task.id, sessionId: task.sessionId },
         this.deps.artifacts,
@@ -591,31 +604,17 @@ export class ToolRouter {
       return { content: formatted.content, isError: false };
     } catch (err) {
       // 写/副作用不明工具的传输类失败（超时/断线/取消）：请求可能已发出而结果
-      // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态）
-      // 与发送前失败（凭据/校验）是已知结果，不标。
+      // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态/
+      // JSON-RPC 错误应答 remote_error）与发送前失败（凭据/校验）是已知结果，不标。
       if (
         meta.effect !== "read" &&
         err instanceof McpError &&
         (err.code === "timeout" || err.code === "connect_failed" || err.code === "canceled")
       ) {
-        this.markMcpEffectUnknown(task, input.hostOpId, meta.exposedName);
+        this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
       }
       return textResult((err as Error).message, true);
     }
-  }
-
-  /** 已发出但结果无法确认的写调用：标 effect_unknown（停止/重启路径对已标记操作幂等跳过）。 */
-  private markMcpEffectUnknown(task: Task, hostOpId: string, toolName: string): void {
-    this.deps.store.withTx(() => {
-      const op = this.deps.store.getToolOp(hostOpId);
-      if (!op || op.effectUnknown) return;
-      this.deps.store.markToolOpEffectUnknown(hostOpId);
-      this.deps.store.setEffectUnknown(task.id);
-      this.deps.store.appendEvent(
-        { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: hostOpId, toolName },
-        { taskId: task.id, sessionId: task.sessionId },
-      );
-    });
   }
 
   // ---------- 产物查询 ----------

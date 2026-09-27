@@ -10,6 +10,7 @@
 
 import type { ApprovalScope, ConfirmationRequest, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
+import type { ToolOpLedger } from "./tool-op-ledger.ts";
 import { classifyForReview, ReviewAbortedError, REVIEW_POLICY_VERSION, type ApprovalReviewer } from "./review.ts";
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
@@ -49,6 +50,7 @@ function notExecutedText(
 
 export interface ApprovalGateDeps {
   store: Store;
+  ledger: ToolOpLedger;
   /** 自动审查器（模型配置变化时由 Driver 替换，每次读取当前值）。 */
   reviewer(): ApprovalReviewer | undefined;
 }
@@ -191,14 +193,7 @@ export class ApprovalGate {
   }
 
   private recordNotExecuted(input: { task: Task; hostOpId: string }, text: string): void {
-    const store = this.deps.store;
-    const recorded = store.recordToolResult(input.hostOpId, text, true);
-    if (recorded) {
-      store.appendEvent(
-        { type: "task.tool_result", taskId: input.task.id, toolOpId: input.hostOpId, summary: text, isError: true, artifactIds: [] },
-        { taskId: input.task.id, sessionId: input.task.sessionId },
-      );
-    }
+    this.deps.ledger.recordResult(input.task, input.hostOpId, text, true);
   }
 
   /** 控制面应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */

@@ -4,17 +4,29 @@
  * - MockModelServer：本地 OpenAI 兼容服务（从 verification/foundation 复制）；
  * - 每个测试独立临时目录：dataDir（后台数据）、agentDir（models.json）、
  *   若干工作目录；结束后整体删除；
- * - startTestRuntime：进程内启动 Runtime + ControlServer，返回已连接客户端。
+ * - startTestRuntime：进程内启动 Runtime + ControlServer，返回已连接客户端；
+ * - startAssemblyKit：不起 Runtime，直接驱动模型上下文组装（context-assembly）。
  */
 
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { ControlClient } from "../../src/control/client.ts";
 import { ControlServer } from "../../src/control/server.ts";
 import { readOwnerToken } from "../../src/control/owner-token.ts";
 import { Runtime, type RuntimeConfig } from "../../src/runtime/runtime.ts";
+import { AccessScope } from "../../src/core/access.ts";
+import { Db } from "../../src/core/db.ts";
+import { MemoryStore } from "../../src/core/memory.ts";
+import { Store } from "../../src/core/store.ts";
+import { randomId, type SelectionRecord, type Session, type Task } from "../../src/core/types.ts";
+import { ArtifactStore } from "../../src/agent/artifacts.ts";
+import { beginContextAssembly, type ContextAssembly, type ContextAssemblyDeps, type ContextAssemblyInput } from "../../src/agent/context-assembly.ts";
+import { CredentialStore } from "../../src/agent/execution/credentials.ts";
+import { createModelCatalog } from "../../src/agent/model-selection.ts";
 import { createMockTools } from "../../src/agent/mock-tools.ts";
 import { createCodingTools } from "../../src/agent/tool-router.ts";
 import { MockModelServer, type Responder } from "./mock-provider.ts";
@@ -235,4 +247,87 @@ export function readMarkerCount(file: string): number {
   } catch {
     return 0;
   }
+}
+
+// ---------- 模型上下文组装（进程内，不起 Runtime） ----------
+
+const MOCK_SELECTION = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
+/** pi 对 mock 响应（prompt 100 / completion 10，零单价）给出的 usage。 */
+const MOCK_USAGE = { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 110, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+
+/**
+ * 模型上下文组装的夹具：临时目录里的真实 Db/Store、记忆、产物与凭据；模型栈指向
+ * MockModelServer（组装只有摘要会发请求，server.calls 即摘要请求）。deps 可按测试改写
+ * budgetOverrides / jev / compaction，组装实例持有同一个对象。
+ */
+export async function startAssemblyKit(prefix: string, opts: { responder?: Responder; contextWindow?: number; workDirs?: number } = {}) {
+  const { dirs, work } = await makeTestDirs(prefix, opts.workDirs ?? 1);
+  const server = new MockModelServer(opts.responder ?? (() => ({ kind: "text", text: "摘要" })));
+  await writeModelsJson(dirs, await server.start(), opts.contextWindow ?? 200_000);
+  const db = new Db(dirs.dataDir);
+  const store = new Store(db);
+  const loadModels = async () => {
+    const modelRuntime = await ModelRuntime.create({
+      authPath: path.join(dirs.agentDir, "auth.json"),
+      modelsPath: path.join(dirs.agentDir, "models.json"),
+      modelsStore: new InMemoryModelsStore(),
+      refreshOnCreate: false,
+    });
+    return { modelRuntime, modelCatalog: await createModelCatalog(modelRuntime, dirs.agentDir) };
+  };
+  const deps: ContextAssemblyDeps = {
+    store, memories: new MemoryStore(db), access: new AccessScope(db),
+    artifacts: new ArtifactStore(dirs.dataDir, store), credentials: new CredentialStore(dirs.agentDir),
+    agentDir: dirs.agentDir, ...(await loadModels()),
+  };
+  const model = await deps.modelCatalog.resolve(MOCK_SELECTION);
+  const sdk = (tools: any[] = []) => ({ systemPrompt: "sys", tools, model });
+  const taskOf = new WeakMap<ContextAssembly, Task>();
+  return {
+    dirs, work, server, store, deps, model, sdk,
+    /** 重读 models.json 换上新模型栈（同 driver.updateModelDeps）。 */
+    async reloadModels() {
+      Object.assign(deps, await loadModels());
+    },
+    project(cwd = work[0]!): { projectId: string; session: Session } {
+      const stat = fs.statSync(cwd);
+      return store.withTx(() => {
+        const project = store.createProject(randomId("p"));
+        const session = store.createSession({
+          projectId: project.id, cwd, cwdReal: fs.realpathSync(cwd), cwdDev: stat.dev, cwdIno: stat.ino,
+          piSessionId: randomId("pi"), confirmTools: [],
+        });
+        return { projectId: project.id, session };
+      });
+    },
+    task(session: Session, input: string, resumesTaskId: string | null = null): Task {
+      return store.withTx(() => store.insertQueuedTask({
+        sessionId: session.id, requestId: randomId("r"), input, resumesTaskId, modelSelection: MOCK_SELECTION, submissionDigest: randomId("d"),
+      }).task);
+    },
+    /** 任务开始建组装实例；缺省为普通开发会话（不受限、非计划模式、不读技能）。 */
+    begin(task: Task, session: Session, extra: Partial<ContextAssemblyInput> = {}): ContextAssembly {
+      const assembly = beginContextAssembly({
+        task, session, accessor: { kind: "agent", projectId: session.projectId }, restricted: false, plan: false, skills: null, ...extra,
+      }, deps);
+      taskOf.set(assembly, task);
+      return assembly;
+    },
+    /**
+     * 一次模型调用：assemble → prepareSend（发送内容即视图）→ afterSend 补记 usage。
+     * 返回视图与这次的选择记录；被拦下时抛 prepareSend 的错误。
+     */
+    async send(assembly: ContextAssembly, messages: any[], opts: { tools?: any[]; usage?: Record<string, unknown> } = {}): Promise<{ view: any[]; record: SelectionRecord }> {
+      const view = (await assembly.assemble(messages, sdk(opts.tools)))?.messages ?? messages;
+      assembly.prepareSend(model, { systemPrompt: "sys", messages: view, tools: opts.tools ?? [] }, {});
+      assembly.afterSend({ result: async () => ({ usage: opts.usage ?? MOCK_USAGE }) });
+      await new Promise((resolve) => setImmediate(resolve));
+      return { view, record: store.listSelectionRecordsByTask(taskOf.get(assembly)!.id).at(-1)! };
+    },
+    async close() {
+      db.close();
+      await server.close();
+      await cleanupDirs(dirs);
+    },
+  };
 }

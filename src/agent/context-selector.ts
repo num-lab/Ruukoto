@@ -25,7 +25,7 @@
  *   同一个视图。压缩后仍超预算才整轮移出，并在视图里加移出标记。
  *
  * 替换入口：宿主按配置选择策略函数；合法性、权限与最终预算检查始终由
- * 宿主在请求前执行（见 driver 的最终检查），策略失败不等于放行。
+ * 宿主在请求前执行（见 context-assembly 的发送前复核），策略失败不等于放行。
  */
 
 import { estimateTokens } from "@earendil-works/pi-coding-agent";

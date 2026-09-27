@@ -316,6 +316,16 @@ function demoEvents(): PersistentEvent[] {
       const entry = entries.find((item) => item.entryId === id)!;
       return { type: "task.output_entry", taskId: id === "entry_0006" || id === "entry_0007" ? "task_contd000000" : "task_completed000", sessionId: SESSION_ID, entryId: id, sessionFile: SESSION.sessionFile!, role: entry.role, messageId: entry.role === "assistant" ? `msg_${id}` : null };
     }),
+    {
+      type: "task.context_experiment", taskId: "task_completed000", sessionId: SESSION_ID,
+      experiment: {
+        status: "applied", strategy: "jev-v1", requestedModel: "jev-1.13.0", model: "jev-1.13.0", configVersion: 2, threshold: 0.5,
+        elapsedMs: 840, requestSent: true, usage: { inputTokens: 5200, outputTokens: 16 },
+        estimatedCost: { usd: 0.000218, inputUsdPerMillion: 0.042, priceDate: "2026-09-25" }, fallbackReason: null,
+        candidates: [{ id: "cand_1", indices: [3, 4], probability: 0.12 }, { id: "cand_2", indices: [5, 6], probability: 0.87 }],
+        baselineIncludedIndices: [5, 6, 7],
+      },
+    },
     { type: "task.completed", taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "auto-review", modelSelection: MODEL },
     { type: "task.started", taskId: "task_awaiting0000", sessionId: SESSION_ID },
@@ -365,6 +375,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "github.publish_requested", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", draftVersion: 1, taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "github.publish_settled", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", status: "effect_unknown", remoteUrl: null, errorMessage: "发送后超时" },
     { type: "mcp.service_changed", serviceId: "mcps_demo000000", projectId: PROJECT_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
+    { type: "project.jev_changed", projectId: PROJECT_ID, configVersion: 2, enabled: true },
     { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", projectId: PROJECT_ID, taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
     // issue 07：QQ 群聊入口配置变化（群允许列表增删/启停/连接参数）
     { type: "qq.config_changed", configVersion: 3, action: "group_added", groupId: "100001" },

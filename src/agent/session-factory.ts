@@ -81,7 +81,7 @@ export interface SessionHostHooks {
   /**
    * 上下文选择钩子（issue 05 §3）：每次模型调用前返回新消息视图。
    * pi 会捕获扩展异常并继续运行，因此实现不得抛错——失败原因由调用方
-   * （Driver）保存，最终检查在 streamFunction 包装中阻断发送。
+   * （模型上下文组装）保存，发送前复核在 streamFunction 包装中阻断发送。
    */
   onContext?(messages: any[]): { messages: any[] } | undefined | Promise<{ messages: any[] } | undefined>;
 }

@@ -121,8 +121,8 @@ export interface DriverDeps {
    */
   qqRecalledFilter?: (sessionId: string, messages: any[]) => any[];
   /**
-   * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具；
-   * 停止/恢复路径按应用库回执核实未落结果的应用数据操作。
+   * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具
+   * （停止与重启的回执核实在工具操作账本）。
    */
   appData?: {
     store: AppDataStore;
@@ -131,13 +131,11 @@ export interface DriverDeps {
     queryStallMs?: number;
   };
   /**
-   * 调度计划与通知（issue 03）：仅 main 角色会话装配六个 scheduler 工具；
-   * 停止路径按宿主操作 ID 核实未落结果的调度写操作（同库，恒可核实）。
+   * 调度计划与通知（issue 03）：仅 main 角色会话装配六个 scheduler 工具。
    */
   scheduler?: Pick<SchedulerToolsDeps, "sched" | "scheduler" | "sources" | "target" | "now">;
   /**
-   * 委派 coding（issue 05）：仅 main 角色会话装配；停止路径按子任务是否存在
-   * 核实未落结果的委派操作（同库，恒可核实）。
+   * 委派 coding（issue 05）：仅 main 角色会话装配。
    */
   delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply" | "resultNotice">;
 }

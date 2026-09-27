@@ -783,7 +783,7 @@ export class Runtime {
     return { available: this.appDataStore !== null, reason: this.appDataUnavailableReason };
   }
 
-  /** 按宿主操作 ID 核实应用库提交状态（恢复与停止路径共用；单例连接）。 */
+  /** 按宿主操作 ID 核实应用库提交状态（工具操作账本的应用数据族核实；单例连接）。 */
   private appDataWriteVerdict(hostOpId: string): "committed" | "not_committed" | "unverifiable" {
     if (!this.appDataStore) return "unverifiable";
     try {
@@ -808,7 +808,7 @@ export class Runtime {
       //    与审批未消费记已知结论；工具族先按宿主操作 ID 核实（ADR 0009 §7）；其余
       //    结果缺失且可能已产生外部效果 → effect_unknown，不重放。
       //    未完成执行 → interrupted。
-      const effectUnknownTasks = this.ledger.settleAll();
+      this.ledger.settleAll();
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const changed = store.transitionTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
           interruptReason: "backend_restart",
@@ -823,7 +823,8 @@ export class Runtime {
               sessionId: task.sessionId,
               reason: "backend_restart",
               cancelRequested: task.cancelRequested,
-              effectUnknown: effectUnknownTasks.has(task.id),
+              // 补记之后读取的任务标记（含本次新标与此前运行时已标），与停止路径同一口径
+              effectUnknown: task.effectUnknown,
             },
             { taskId: task.id, sessionId: task.sessionId },
           );

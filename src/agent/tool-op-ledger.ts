@@ -190,12 +190,8 @@ export class ToolOpLedger {
     return unknown;
   }
 
-  /**
-   * 重启：全部任务（含终态）里结果缺失的操作按同一分类器补记，不确定的标效果
-   * 未知；返回本次标了效果未知的任务。
-   */
-  settleAll(): Set<string> {
-    const marked = new Set<string>();
+  /** 重启：全部任务（含终态）里结果缺失的操作按同一分类器补记，不确定的标效果未知。 */
+  settleAll(): void {
     const confirmationsByTask = new Map<string, ConfirmationRequest[]>();
     for (const op of this.store.listAllUnresolvedToolOps()) {
       const task = this.store.getTask(op.taskId);
@@ -205,9 +201,8 @@ export class ToolOpLedger {
         confirmations = this.store.listConfirmationsByTask(task.id);
         confirmationsByTask.set(task.id, confirmations);
       }
-      if (!this.recordKnown(task, op, confirmations, "restart") && this.markEffectUnknown(task, op.id)) marked.add(task.id);
+      if (!this.recordKnown(task, op, confirmations, "restart")) this.markEffectUnknown(task, op.id);
     }
-    return marked;
   }
 
   /**

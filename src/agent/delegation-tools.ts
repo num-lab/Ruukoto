@@ -15,7 +15,7 @@
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
-import type { ToolOpLedger } from "./tool-op-ledger.ts";
+import type { FamilyCheck } from "./tool-op-ledger.ts";
 import type { Task } from "../core/types.ts";
 import type { HistoryEntryView } from "../core/history.ts";
 import { delegationRequestDigest, type DelegationMode, type DelegationResult } from "../runtime/orchestrator.ts";
@@ -32,18 +32,14 @@ const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** coding_result 单次读取上限（字节）。 */
 const READ_LIMITS = { replyBytes: 16 * 1024, artifactBytes: 64 * 1024 };
 
-/**
- * 恢复/停止路径共用：未落结果的委派工具操作按子任务是否存在核实（同库，恒可
- * 核实）——存在即已委派，不存在即已知未委派。调用方负责事务。
- */
-export function settleDelegationOp(ledger: ToolOpLedger, task: { id: string; sessionId: string }, op: { id: string; toolName: string; params: Record<string, unknown> }, when: string): void {
-  if (op.toolName === "coding_result") {
-    ledger.recordResult(task, op.id, `已知未执行：只读查询在${when}未产生写入效果`, true);
-    return;
-  }
-  const committed = ledger.store.findChildTask(task.id, `deleg:${task.id}:${String(op.params.key ?? "")}`) !== null;
-  const summary = committed ? `已提交：子任务已创建（${when}已委派）` : `已知未提交：不存在对应子任务（${when}未委派）`;
-  ledger.recordResult(task, op.id, summary, !committed);
+/** 工具操作账本的族核实：`coding_delegate` 按子任务是否存在核实（同库，恒可核实）。 */
+export function delegationOpCheck(coreStore: Store): FamilyCheck {
+  return {
+    verify: (op) =>
+      coreStore.findChildTask(op.taskId, `deleg:${op.taskId}:${String(op.params.key ?? "")}`) !== null ? "committed" : "not_committed",
+    committed: (when) => `已提交：子任务已创建（${when}已委派）`,
+    notCommitted: (when) => `已知未提交：不存在对应子任务（${when}未委派）`,
+  };
 }
 
 export interface DelegationToolsDeps {

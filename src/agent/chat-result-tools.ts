@@ -6,13 +6,12 @@
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
-import type { ToolOpLedger } from "./tool-op-ledger.ts";
+import type { FamilyCheck } from "./tool-op-ledger.ts";
 import type { AcceptedChatResult } from "../core/types.ts";
 import type { QqStore } from "../qq/store.ts";
 import type { HostToolContext } from "./host-tools.ts";
 
 export const CHAT_RESULT_TOOL_NAMES = ["chat_result_list", "chat_result_accept"] as const;
-export const CHAT_RESULT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["chat_result_accept"]);
 const SUMMARY_CHARS = 1000;
 class ChatResultUnavailable extends Error {}
 
@@ -59,19 +58,13 @@ export function resolveAcceptedChatResult(store: Store, qq: QqStore, mainProject
   return accepted;
 }
 
-/** 停止/重启后按接收账本核实写入；调用方负责事务。 */
-export function settleChatResultOp(
-  ledger: ToolOpLedger,
-  task: { id: string; sessionId: string },
-  op: { id: string; toolName: string },
-  when: string,
-): void {
-  const summary = !CHAT_RESULT_WRITE_TOOL_NAMES.has(op.toolName)
-    ? `已知未执行：只读查询在${when}未产生写入效果`
-    : ledger.store.chatResultOpCommitted(op.id)
-      ? `已提交：群结果接收账本存在该操作记录（${when}已接收）`
-      : `已知未提交：群结果接收账本无该操作记录（${when}未接收）`;
-  ledger.recordResult(task, op.id, summary, !summary.startsWith("已提交"));
+/** 工具操作账本的族核实：`chat_result_accept` 按接收账本核实（同库，恒可核实）。 */
+export function chatResultOpCheck(store: Store): FamilyCheck {
+  return {
+    verify: (op) => (store.chatResultOpCommitted(op.id) ? "committed" : "not_committed"),
+    committed: (when) => `已提交：群结果接收账本存在该操作记录（${when}已接收）`,
+    notCommitted: (when) => `已知未提交：群结果接收账本无该操作记录（${when}未接收）`,
+  };
 }
 
 function okText(value: unknown) {

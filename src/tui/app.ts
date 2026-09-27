@@ -877,7 +877,7 @@ export class TuiApp {
     this.refreshChrome();
     // 连接在后台进行；状态经回调更新（连接失败/重连由 connection 层报告）
     void this.connection.start().catch((err) => {
-      this.notify(`初始连接失败：${(err as Error).message}`);
+      this.notify(`初始连接失败：${(err as Error).message}${this.connection.state === "failed" ? "" : "；自动重连中"}`);
     });
   }
 

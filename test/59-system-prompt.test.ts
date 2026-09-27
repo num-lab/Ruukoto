@@ -13,12 +13,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SYSTEM_PROMPTS } from "../src/agent/session-factory.ts";
-import { DEFAULT_BUDGET_CONFIG, selectContext } from "../src/agent/context-selector.ts";
-import { expandSkillCommand, readSkill } from "../src/agent/skills.ts";
+import { expandSkillCommand, loadSkillLibrary, readSkill } from "../src/agent/skills.ts";
 import { formatMcpResult } from "../src/agent/mcp/tools.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { Runtime } from "../src/runtime/runtime.ts";
-import { cleanupDirs, createProjectSession, lastUserText, makeTestDirs, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
+import { cleanupDirs, createProjectSession, lastUserText, makeTestDirs, startAssemblyKit, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot } from "./helpers/mock-onebot.ts";
 
@@ -117,29 +116,46 @@ test("系统提示：QQ 群会话用 chat 提示", async () => {
   }
 });
 
-test("参考块块头只保留名称、id、类别与范围；外部资料警示保留", () => {
-  const out = selectContext({
-    messages: [{ role: "user", content: "当前任务", timestamp: 0 }],
-    systemPrompt: "",
-    tools: [],
-    projectInstructions: { text: "项目约定", version: "v1", problems: [] },
-    skills: { entries: [{ name: "alpha", description: "ALPHA-DESC" }], version: "sv1" },
-    resumedFrom: { taskId: "task_old", input: "原始要求" },
-    memories: [{
-      id: "mem_1", projectId: null, scope: "personal", category: "preference", currentVersion: 2, status: "active",
-      createdAt: "", updatedAt: "", content: "偏好中文", sourceRefs: [],
-    }],
-    budget: { ...DEFAULT_BUDGET_CONFIG, contextWindow: 1_000_001, maxTokens: 1, thinkingBudget: 0, toolResultReserve: 0, safetyMargin: 0, calibration: 1 },
-  });
-  assert.ok(out.ok);
-  const heads = out.messages.map((m) => String(m.content).split("\n")[0]);
-  assert.ok(heads.includes("[项目指令]"), heads.join("\n"));
-  assert.ok(heads.includes("[技能目录]"));
-  assert.ok(heads.includes("[继续来源：本任务继续已中断任务 task_old；其原始要求如下]"));
-  assert.ok(heads.includes("[长期记忆 mem_1 v2 · preference · 个人共享]"));
-  const all = out.messages.map((m) => String(m.content)).join("\n");
-  assert.ok(all.includes("先用 skill 工具（参数 name）加载其正文"), "技能目录保留 skill 工具用法");
-  assert.ok(!/参考内容|控制面身份|非当前指令|以当前要求为准/.test(all), all);
+test("参考块块头只保留名称、id、类别与范围；资料受限会话不注入；外部资料警示保留", async () => {
+  const kit = await startAssemblyKit("sysprompt-heads");
+  try {
+    const skillFile = path.join(kit.dirs.agentDir, "skills", "alpha", "SKILL.md");
+    fs.mkdirSync(path.dirname(skillFile), { recursive: true });
+    fs.writeFileSync(skillFile, "---\nname: alpha\ndescription: ALPHA-DESC\n---\nBODY");
+    fs.writeFileSync(path.join(kit.work[0]!, "TEAM.md"), "项目约定");
+    const { projectId, session } = kit.project();
+    kit.store.setProjectInstructionFiles(projectId, ["TEAM.md"]);
+    const memory = kit.deps.memories.create({
+      projectId: null, category: "preference", content: "偏好中文", sourceRefs: [{ kind: "owner_note", note: "测试录入" }], author: "owner",
+    });
+    const old = kit.task(session, "/plan 原始要求");
+    const skills = loadSkillLibrary(kit.dirs.agentDir);
+    const tools = [{ name: "skill", description: "读取技能", parameters: {} }];
+    const current = [{ role: "user", content: "继续", timestamp: 1 }];
+    const textOf = (m: any): string => (typeof m.content === "string" ? m.content : JSON.stringify(m.content));
+
+    // 五类参考块同时出现：块头原样，警示统一在系统提示里
+    const { view } = await kit.send(kit.begin(kit.task(session, "继续", old.id), session, { plan: true, skills }), current, { tools });
+    const heads = view.map((m) => textOf(m).split("\n")[0]);
+    for (const head of [
+      "[项目指令]", "[技能目录]", `[长期记忆 ${memory.id} v1 · preference · 个人共享]`,
+      `[继续来源：本任务继续已中断任务 ${old.id}；其原始要求如下]`, "[计划模式：拥有者以 /plan 提交本任务；宿主固定说明]",
+    ]) {
+      assert.ok(heads.includes(head), `缺 ${head}\n${heads.join("\n")}`);
+    }
+    const all = view.map(textOf).join("\n");
+    assert.ok(all.includes("先用 skill 工具（参数 name）加载其正文"), "技能目录保留 skill 工具用法");
+    assert.ok(!/参考内容|控制面身份|非当前指令|以当前要求为准/.test(all), all);
+
+    // 资料受限会话：参考块一律不注入，技能库与计划模式在组装构造时归一
+    const restricted = await kit.send(kit.begin(kit.task(session, "继续", old.id), session, {
+      restricted: true, accessor: { kind: "role_restricted", projectId }, plan: true, skills,
+    }), current, { tools });
+    assert.deepEqual(restricted.view.map(textOf), ["继续"]);
+    assert.equal(restricted.record.skillVersion, "", "受限会话不记技能库版本");
+  } finally {
+    await kit.close();
+  }
 
   // 技能正文块与引用文件块
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-sysprompt-")));

@@ -147,7 +147,7 @@ test("选择器：清理后仍高于低水位时推进 S，摘要块位于参考
   messages.push(user("当前任务"));
   const withRefs = (cp: CheckpointInput | null): SelectorInput => ({
     ...input(messages, cp),
-    projectInstructions: { text: "约定", version: "v1", problems: [] },
+    references: [{ category: "projectInstructions", placement: "prefix", text: "[项目指令]\n约定\n[/项目指令]" }],
   });
   const before = selectContext(withRefs(null));
   const plan = planCompaction(withRefs(null), before);
@@ -166,7 +166,7 @@ test("选择器：S 伸进当前任务时，任务输入原样排在摘要块之
   // 每个批次 = assistant 调用 + 结果；回答文本单独成批次（assistant 开头）
   const cp: CheckpointInput = { id: "cp_x", summarizedCount: 7, clearedCount: 7, summary: "前段摘要", summaryUntil: "t", clearedRefs: {} };
   assert.equal(messages[7].role, "assistant");
-  const view = selectContext({ ...input(messages, cp), resumedFrom: { taskId: "task_old", input: "原要求" } }).messages;
+  const view = selectContext({ ...input(messages, cp), references: [{ category: "resumedFrom", placement: "task", text: "[继续来源：本任务继续已中断任务 task_old；其原始要求如下]\n原要求\n[/继续来源]" }] }).messages;
   assert.ok(textOf(view[0]).startsWith("[压缩摘要 · 较早的 7 条消息"));
   assert.ok(textOf(view[1]).startsWith("[继续来源"));
   assert.equal(textOf(view[2]), "长任务", "任务输入原文紧接在摘要块（与任务级块）之后");

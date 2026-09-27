@@ -1,5 +1,5 @@
 /**
- * 合成调试会话（`ruukoto tui --demo`）：不连后台，用一个假客户端喂出
+ * 合成调试会话（`ruukoto --demo`）：不连后台，用一个假客户端喂出
  * 覆盖全部事件类型与界面状态的静态数据，用来调试 TUI 渲染。
  *
  * 目的：真实后台很难同时造出「运行中任务 + 待审批 + 队列暂停 + 各类终态 +
@@ -9,7 +9,8 @@
  * 命令会明确提示这是合成会话，避免被当成真实运行状态。
  */
 
-import type { ControlClient } from "../control/client.ts";
+import { ControlClientError, type ClientCloseInfo, type ControlTransport } from "../control/client.ts";
+import type { OpParams, OpResult, TuiOp } from "../control/ops.ts";
 import type { ConnectResult } from "../control/protocol.ts";
 import type { ContextBreakdown } from "../agent/context-selector.ts";
 import type {
@@ -424,7 +425,7 @@ function demoEvents(): PersistentEvent[] {
  * @param onNotice 界面内提示（事件数量、推送完毕等）
  * @param intervalMs 事件推送间隔（默认 250ms；测试可调小以加速）
  */
-export function createDemoClient(onNotice: (text: string) => void, intervalMs = 250): ControlClient {
+export function createDemoClient(onNotice: (text: string) => void, intervalMs = 250): ControlTransport {
   const events = demoEvents();
   const entries = historyEntries();
   const tasks = demoTasks().map((task) => ({ ...task, historyEntryIds: events.flatMap((event) => event.taskId === task.id && event.body.type === "task.output_entry" ? [event.body.entryId] : []) }));
@@ -442,7 +443,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
     }
   }
   const eventListeners = new Set<(event: PersistentEvent) => void>();
-  const closeListeners = new Set<(info: { reason: string; willRetry: boolean }) => void>();
+  const closeListeners = new Set<(info: ClientCloseInfo) => void>();
   let closed = false;
   let cursor = 0;
   let timer: NodeJS.Timeout | null = null;
@@ -463,7 +464,61 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
     defaultModel: { provider: MODEL.provider, id: MODEL.modelId, name: "Demo Model", thinkingLevel: MODEL.thinkingLevel },
   });
 
-  const client = {
+  // 按 op 表应答（名字与返回形状由类型检查对照服务端）；未列出的 op 明确拒绝，
+  // 不产生真实副作用（set_session_model / set_session_mode 返回静态应答，供 /model、/mode 回显结果行）
+  const handlers: { [K in TuiOp]?: (params: OpParams<K>) => OpResult<K> } = {
+    read_history: (params) => {
+      const end = params.before ? entries.findIndex((entry) => entry.entryId === params.before) : entries.length;
+      const limit = Math.max(1, Number(params.limit ?? 50));
+      const selected = entries.slice(Math.max(0, end - limit), end);
+      return { fileAvailable: true, hasPartialTail: false, entries: selected.map((entry) => ({ ...entry, ...sliceTextByBytes(entry.text, 0, 8 * 1024) })), nextBefore: end > limit ? selected[0]!.entryId : null };
+    },
+    read_history_entry: (params) => {
+      const found = entries.find((e) => e.entryId === params.entry_id);
+      if (!found) throw notFound(`合成会话：未知条目 ${params.entry_id}`);
+      return { ...found, ...sliceTextByBytes(found.text, Number(params.offset ?? 0), Number(params.length ?? 48 * 1024)) };
+    },
+    get_task: (params) => {
+      const found = tasks.find((t) => t.id === params.task_id);
+      if (!found) throw notFound(`合成会话：未知任务 ${params.task_id}`);
+      return { seq: events.length, task: found, toolOps: [...toolOps.values()].filter((op) => op.taskId === found.id).map(toolOpToView), confirmations: found.id === CONFIRMATION.taskId ? [confirmationToView(CONFIRMATION)] : [], artifacts: snapshot().artifacts.filter((artifact) => artifact.taskId === found.id), outputPreview: snapshot().previews[found.id] ?? null };
+    },
+    list_tasks: (params) => {
+      const ordered = [...tasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+      const start = params.before ? ordered.findIndex((task) => task.id === params.before) + 1 : 0;
+      const limit = Math.max(1, Number(params.limit ?? 50));
+      return { tasks: ordered.slice(start, start + limit), hasMore: start + limit < ordered.length };
+    },
+    read_task_events: (params) => {
+      if (!tasks.some((task) => task.id === params.task_id)) throw notFound(`合成会话：未知任务 ${params.task_id}`);
+      const matching = events.filter((event) => event.taskId === params.task_id && event.seq > Number(params.after_seq ?? 0));
+      const page = matching.slice(0, Math.max(1, Math.min(500, Number(params.limit ?? 100))));
+      return { events: page, nextAfter: page.length < matching.length ? page.at(-1)!.seq : null };
+    },
+    get_tool_op_params: (params) => {
+      const found = toolOps.get(params.tool_op_id);
+      if (!found) throw notFound(`合成会话：未知工具操作 ${params.tool_op_id}`);
+      const { params: full, ...toolOp } = found;
+      return { toolOp, params: sliceTextByBytes(JSON.stringify(full), Number(params.offset ?? 0), Number(params.length ?? 48 * 1024)) };
+    },
+    list_models: () => ({
+      models: [
+        { provider: "demo", modelId: "demo-model", name: "Demo Model", contextWindow: 200000, maxTokens: 8192, thinkingLevels: ["off", "minimal", "low", "medium", "high"], available: true, errorCode: null },
+        { provider: "demo", modelId: "demo-model-2", name: "Demo Model 2（长名字用于验证截断）", contextWindow: 128000, maxTokens: 4096, thinkingLevels: ["off", "medium"], available: false, errorCode: "model_auth_error" },
+        { provider: "other", modelId: "other-model", name: "Other Model", contextWindow: 64000, maxTokens: 2048, thinkingLevels: ["off"], available: true, errorCode: null },
+      ],
+      total: 3,
+      nextOffset: null,
+    }),
+    get_session: () => SESSION,
+    set_session_model: (params) => ({ ...SESSION, modelSelection: params.model_selection }),
+    set_session_mode: (params) => ({ ...SESSION, defaultAccessMode: params.mode, defaultAccessModeVersion: SESSION.defaultAccessModeVersion + 1 }),
+    // /context 只取最近一条（当前窗口状态）
+    list_selection_records: () => ({ records: [demoRecord(3, { input: 70123, output: 512 })] }),
+    get_context_breakdown: () => ({ record: demoRecord(3, { input: 70123, output: 512 }), breakdown: demoBreakdown(), checkpoint: null }),
+  };
+
+  const client: ControlTransport = {
     get isClosed() {
       return closed;
     },
@@ -476,91 +531,25 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
       startStreaming();
       return result;
     },
-    async request<T>(op: string, params?: Record<string, unknown>): Promise<T> {
-      const reply = (value: unknown) => value as T;
-      switch (op) {
-        case "read_history": {
-          const end = params?.before ? entries.findIndex((entry) => entry.entryId === params.before) : entries.length;
-          const limit = Math.max(1, Number(params?.limit ?? 50));
-          const selected = entries.slice(Math.max(0, end - limit), end);
-          const page: HistoryPage = { fileAvailable: true, hasPartialTail: false, entries: selected.map((entry) => ({ ...entry, ...sliceTextByBytes(entry.text, 0, 8 * 1024) })), nextBefore: end > limit ? selected[0]!.entryId : null };
-          return reply(page);
-        }
-        case "read_history_entry": {
-          const found = entries.find((e) => e.entryId === params?.["entry_id"]);
-          if (!found) throw new Error(`合成会话：未知条目 ${String(params?.["entry_id"])}`);
-          return reply({ ...found, ...sliceTextByBytes(found.text, Number(params?.offset ?? 0), Number(params?.length ?? 48 * 1024)) });
-        }
-        case "get_task": {
-          const found = tasks.find((t) => t.id === params?.["task_id"]);
-          if (!found) throw new Error(`合成会话：未知任务 ${String(params?.["task_id"])}`);
-          return reply({ seq: events.length, task: found, toolOps: [...toolOps.values()].filter((op) => op.taskId === found.id).map(toolOpToView), confirmations: found.id === CONFIRMATION.taskId ? [confirmationToView(CONFIRMATION)] : [], artifacts: snapshot().artifacts.filter((artifact) => artifact.taskId === found.id), outputPreview: snapshot().previews[found.id] ?? null });
-        }
-        case "list_tasks": {
-          const ordered = [...tasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
-          const start = params?.before ? ordered.findIndex((task) => task.id === params.before) + 1 : 0;
-          const limit = Math.max(1, Number(params?.limit ?? 50));
-          return reply({ tasks: ordered.slice(start, start + limit), hasMore: start + limit < ordered.length });
-        }
-        case "read_task_events": {
-          if (!tasks.some((task) => task.id === params?.task_id)) throw new Error(`合成会话：未知任务 ${String(params?.task_id)}`);
-          const matching = events.filter((event) => event.taskId === params?.task_id && event.seq > Number(params?.after_seq ?? 0));
-          const page = matching.slice(0, Math.max(1, Math.min(500, Number(params?.limit ?? 100))));
-          return reply({ events: page, nextAfter: page.length < matching.length ? page.at(-1)!.seq : null });
-        }
-        case "get_tool_op": {
-          const found = toolOps.get(String(params?.tool_op_id));
-          if (!found) throw new Error(`合成会话：未知工具操作 ${String(params?.tool_op_id)}`);
-          return reply({ toolOp: found, params: sliceTextByBytes(JSON.stringify(found.params), Number(params?.offset ?? 0), Number(params?.length ?? 48 * 1024)) });
-        }
-        case "list_models":
-          return reply({
-            models: [
-              { provider: "demo", modelId: "demo-model", name: "Demo Model", contextWindow: 200000, maxTokens: 8192, thinkingLevels: ["off", "minimal", "low", "medium", "high"], available: true },
-              { provider: "demo", modelId: "demo-model-2", name: "Demo Model 2（长名字用于验证截断）", contextWindow: 128000, maxTokens: 4096, thinkingLevels: ["off", "medium"], available: false },
-              { provider: "other", modelId: "other-model", name: "Other Model", contextWindow: 64000, maxTokens: 2048, thinkingLevels: ["off"], available: true },
-            ],
-            total: 3,
-            nextOffset: null,
-          });
-        case "get_session":
-          return reply(SESSION);
-        case "set_session_model":
-          return reply({ ...SESSION, modelSelection: params?.["model_selection"] as ModelSelection });
-        case "set_session_mode":
-          return reply({
-            ...SESSION,
-            defaultAccessMode: params?.["mode"] as Session["defaultAccessMode"],
-            defaultAccessModeVersion: SESSION.defaultAccessModeVersion + 1,
-          });
-        case "list_selection_records":
-          // /context 只取最近一条（当前窗口状态）
-          return reply({
-            records: [
-              { id: "rec_demo00000003", taskId: "task_completed000", callIndex: 3, model: "demo-model", usage: { input: 70123, output: 512 }, createdAt: ts(30) },
-            ],
-            hasMore: false,
-          });
-        case "get_context_breakdown":
-          return reply({ record: demoRecord(3, { input: 70123, output: 512 }), breakdown: demoBreakdown() });
-        default:
-          // 其余写操作在合成会话里一律拒绝：它们不该产生真实副作用
-          // （set_session_model / set_session_mode 例外：返回静态应答，供 /model、/mode 回显结果行）
-          throw new Error(`合成会话不支持写操作：${op}`);
-      }
+    async request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
+      const handler = handlers[op] as ((p: OpParams<K>) => OpResult<K>) | undefined;
+      if (!handler) throw new ControlClientError("demo_unsupported", `合成会话不支持：${op}`, "rejected");
+      return handler(params);
     },
     onEvent(listener: (event: PersistentEvent) => void) {
       eventListeners.add(listener);
       return () => eventListeners.delete(listener);
     },
-    onClose(listener: (info: { reason: string; willRetry: boolean }) => void) {
+    onClose(listener: (info: ClientCloseInfo) => void) {
       closeListeners.add(listener);
       return () => closeListeners.delete(listener);
     },
     close() {
+      if (closed) return;
       closed = true;
       if (timer) clearInterval(timer);
       timer = null;
+      for (const listener of closeListeners) listener({ code: "closed", message: "客户端主动关闭" });
     },
   };
 
@@ -580,5 +569,9 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
     }, intervalMs);
   }
 
-  return client as unknown as ControlClient;
+  return client;
+}
+
+function notFound(message: string): ControlClientError {
+  return new ControlClientError("not_found", message, "rejected");
 }

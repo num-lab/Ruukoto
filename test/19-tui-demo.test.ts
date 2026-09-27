@@ -1,20 +1,29 @@
 /**
- * 合成调试会话（`ruukoto tui --demo`）：假客户端本身的自检。
+ * 合成调试会话（`ruukoto --demo`）：假客户端本身的自检。
  *
  * 目的：这份数据是给界面调试用的，一旦落后于事件类型定义就失去意义。
  * 这里断言它覆盖 PersistentEventBody 的全部 type、seq 连续、且不产生
- * 真实副作用（写操作一律拒绝）。
+ * 真实副作用（未列出的 op 明确拒绝）。op 名与返回形状由 op 表的类型检查对照服务端。
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import type { ControlClient } from "../src/control/client.ts";
+import { ControlClientError, type ControlTransport } from "../src/control/client.ts";
 import type { PersistentEvent, Task } from "../src/core/types.ts";
 import type { HistoryEntryView, HistoryPage } from "../src/core/history.ts";
 import type { ToolOpView } from "../src/core/views.ts";
+import * as os from "node:os";
+import * as path from "node:path";
+import { ControlConnection } from "../src/control/connection.ts";
+import { PendingRequestStore } from "../src/control/pending-requests.ts";
+import { SubmissionGuard } from "../src/control/submission.ts";
+import { TuiApp } from "../src/tui/app.ts";
+import { ViewState } from "../src/tui/state.ts";
 import { createDemoClient } from "../src/tui/demo-session.ts";
 import { EventFlow } from "../src/tui/event-flow.ts";
+import { FakeTerminal } from "./helpers/fake-terminal.ts";
+import { waitFor } from "./helpers/testkit.ts";
 
 /** 从类型定义抽出全部事件 type 字面量（新增事件类型时必须同步 demo 数据）。 */
 function declaredEventTypes(): string[] {
@@ -26,7 +35,7 @@ function declaredEventTypes(): string[] {
 }
 
 /** 收集 demo 客户端推送的全部事件（等事件流自然结束）。 */
-async function collect(client: ControlClient): Promise<PersistentEvent[]> {
+async function collect(client: ControlTransport): Promise<PersistentEvent[]> {
   const seen: PersistentEvent[] = [];
   client.onEvent((event) => seen.push(event));
   await client.handshake();
@@ -66,19 +75,28 @@ test("合成会话覆盖全部事件类型且 seq 连续", async () => {
   }
 });
 
-test("合成会话不产生真实副作用：写操作被拒绝", async () => {
+test("合成会话不产生真实副作用：未列出的 op（写操作）明确拒绝", async () => {
   const client = createDemoClient(() => {});
   try {
     await client.handshake();
     // 读操作有静态应答
-    const page = await client.request<{ entries: unknown[] }>("read_history", { session_id: "sess_demo0000000000000000" });
+    const page = await client.request("read_history", { session_id: "sess_demo0000000000000000" });
     assert.ok(page.entries.length > 0, "历史应为非空");
-    const models = await client.request<{ models: unknown[] }>("list_models", {});
+    const models = await client.request("list_models", {});
     assert.ok(models.models.length > 0, "模型列表应为非空");
-    // 写操作必须明确失败，不得静默成功
-    for (const op of ["submit", "create_project", "create_session", "respond_confirmation", "stop"]) {
-      await assert.rejects(() => client.request(op, {}), /合成会话不支持写操作/, `${op} 应被拒绝`);
+    // 写操作必须明确失败，不得静默成功；明确拒绝让提交清掉待核实记录、恢复草稿
+    for (const op of ["submit", "create_project", "create_session", "respond_confirmation", "interrupt"] as const) {
+      await assert.rejects(
+        () => client.request(op, {} as never),
+        (err: unknown) => err instanceof ControlClientError && err.outcome === "rejected" && err.message === `合成会话不支持：${op}`,
+        `${op} 应被拒绝`,
+      );
     }
+    // 主动关闭与真实客户端一样通知断线监听者（连接层靠它走重连路径）
+    let closedWith: string | null = null;
+    client.onClose((info) => (closedWith = info.code));
+    client.close();
+    assert.equal(closedWith, "closed");
   } finally {
     client.close();
   }
@@ -91,25 +109,25 @@ test("合成会话支持新 TUI 的任务与事件分页恢复，并提供完整
     const tasks: Task[] = [];
     let before: string | undefined;
     for (;;) {
-      const page = await client.request<{ tasks: Task[]; hasMore: boolean }>("list_tasks", { session_id: snapshot.sessions[0]!.id, before, limit: 2 });
+      const page = await client.request("list_tasks", { session_id: snapshot.sessions[0]!.id, before, limit: 2 });
       tasks.push(...page.tasks);
       if (!page.hasMore) break;
       before = page.tasks.at(-1)!.id;
     }
     assert.equal(new Set(tasks.map((task) => task.id)).size, snapshot.tasks.length);
     const completed = tasks.find((task) => task.status === "completed")!;
-    const detail = await client.request<{ seq: number; task: Task; toolOps: ToolOpView[] }>("get_task", { task_id: completed.id });
+    const detail = await client.request("get_task", { task_id: completed.id });
     assert.ok(Number.isSafeInteger(detail.seq) && detail.seq > 0);
     const flow = new EventFlow();
     flow.task(detail.task);
     detail.toolOps.forEach((op) => flow.tool(op, detail.seq));
-    const history = await client.request<HistoryPage>("read_history", { session_id: completed.sessionId });
+    const history = await client.request("read_history", { session_id: completed.sessionId });
     flow.installHistory(history.entries, true, 300);
     const events: PersistentEvent[] = [];
     let after = 0;
     let pages = 0;
     for (;;) {
-      const page = await client.request<{ events: PersistentEvent[]; nextAfter: number | null }>("read_task_events", { task_id: completed.id, after_seq: after, limit: 3 });
+      const page = await client.request("read_task_events", { task_id: completed.id, after_seq: after, limit: 3 });
       assert.ok(page.events.every((event) => event.taskId === completed.id && event.seq > after));
       page.events.forEach((event) => flow.apply(event));
       events.push(...page.events);
@@ -129,7 +147,7 @@ test("合成会话支持新 TUI 的任务与事件分页恢复，并提供完整
     let text = "";
     let last: HistoryEntryView;
     do {
-      last = await client.request<HistoryEntryView>("read_history_entry", { session_id: completed.sessionId, entry_id: longEntry.entryId, offset, length: 48 * 1024 });
+      last = await client.request("read_history_entry", { session_id: completed.sessionId, entry_id: longEntry.entryId, offset, length: 48 * 1024 });
       assert.equal(last.offset, offset);
       assert.ok(last.text.length > 0);
       text += last.text;
@@ -141,5 +159,35 @@ test("合成会话支持新 TUI 的任务与事件分页恢复，并提供完整
     assert.equal(flow.items.filter((entry) => entry.kind === "message" && entry.entryId === longEntry.entryId).length, 1);
   } finally {
     client.close();
+  }
+});
+
+test("合成会话里提交：明确拒绝、恢复草稿，不留待核实记录", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "demo-pending-"));
+  const store = new PendingRequestStore(dir);
+  let app: TuiApp | null = null;
+  const connection = new ControlConnection(
+    { socketPath: "(demo)", token: "(demo)", clientFactory: async () => createDemoClient(() => {}, 60_000) },
+    {
+      onState: (s, detail) => app?.onConnectionState(s, detail),
+      onSnapshot: (result, ctx) => app?.onSnapshot(result, ctx),
+      onEvent: (event, kind) => app?.onEvent(event, kind),
+    },
+  );
+  const state = new ViewState();
+  const terminal = new FakeTerminal();
+  const sessionId = "sess_demo0000000000000000";
+  app = new TuiApp({ connection, guard: new SubmissionGuard(store, connection), pendingStore: store, state, terminal, initialSessionId: sessionId, onExit: () => {} });
+  try {
+    await app.start();
+    await waitFor("上线", () => connection.state === "online");
+    terminal.send("你好\r");
+    const notes = () => state.openSession(sessionId).flow.items.filter((e) => e.kind === "note").map((e) => e.text);
+    await waitFor("提交被拒绝", () => notes().includes("提交被拒绝：合成会话不支持：submit"));
+    assert.equal(state.openSession(sessionId).draft, "你好", "草稿恢复");
+    assert.equal(store.list().records.length, 0, "不留待核实记录");
+  } finally {
+    app.quit(0);
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

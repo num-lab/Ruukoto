@@ -718,7 +718,7 @@ export class QqAdapter implements NotifyChannel {
   }
 
   /** 管理视图（不含 token 与消息正文以外的秘密；连接状态为运行期事实）。 */
-  status(): Record<string, unknown> {
+  status() {
     const config = this.qqStore.getConfig();
     return {
       configured: config !== null,

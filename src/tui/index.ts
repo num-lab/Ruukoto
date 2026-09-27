@@ -10,6 +10,9 @@
  *   或 raw mode，可用 `reset` 或 `stty sane` 恢复（见 docs/runtime.md）。
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { resolveClientConfig } from "../control/connect.ts";
 import { createDemoClient } from "./demo-session.ts";
@@ -64,7 +67,8 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
       onEvent: (event, kind) => app?.onEvent(event, kind),
     },
   );
-  const pendingStore = new PendingRequestStore();
+  // 合成会话的待核实记录写进临时目录，不碰真实的 ~/.ruukoto/pending
+  const pendingStore = new PendingRequestStore(opts.demo ? fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-demo-pending-")) : undefined);
   const guard = new SubmissionGuard(pendingStore, connection);
 
   let exitResolve: ((code: number) => void) | null = null;

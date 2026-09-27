@@ -17,10 +17,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Project, Session } from "../core/types.ts";
 import type { DirIdentity } from "../core/dir-identity.ts";
-import { ControlClientError, type ControlClient } from "./client.ts";
+import { ControlClientError, type ControlTransport } from "./client.ts";
 
 /** 最小控制面客户端：ControlClient 与 ControlConnection 均满足。 */
-export type WorkspaceClient = Pick<ControlClient, "request">;
+export type WorkspaceClient = Pick<ControlTransport, "request">;
 
 /** 解析工作区目录：相对路径按客户端 cwd 解析；只接受已存在的目录。 */
 export async function resolveWorkspaceDir(pathArg: string, cwd: string): Promise<DirIdentity> {
@@ -88,29 +88,18 @@ export async function ensureWorkspaceSession(
   opts: { projectId: string | null; startupRequestId: string },
 ): Promise<{ session: Session; projectId: string; projectName: string; createdProject: boolean }> {
   if (opts.projectId !== null && !snapshot.projects.some((p) => p.id === opts.projectId)) {
-    throw new Error(`项目不存在：${opts.projectId}`);
+    // 本地前置检查：请求未发出，按明确拒绝回落正常启动（not_sent 会在线等一次不会来的重连）
+    throw new ControlClientError("not_found", `项目不存在：${opts.projectId}`, "rejected");
   }
   const projectName =
     opts.projectId === null
       ? suggestProjectName(snapshot, identity)
       : snapshot.projects.find((p) => p.id === opts.projectId)!.name;
-  const session = await client.request<Session>("create_session", {
+  const session = await client.request("create_session", {
     project_id: opts.projectId ?? undefined,
     project_name: opts.projectId === null ? projectName : undefined,
     cwd: identity.cwd,
     request_id: opts.startupRequestId,
   });
   return { session, projectId: session.projectId, projectName, createdProject: opts.projectId === null };
-}
-
-/**
- * 连接层错误判定（应答可能已丢失）：这类失败走"重连后按启动请求标识核实"路径；
- * request_timeout 不在此列——连接仍在，不会有重连快照，由调用方直接按同一
- * 标识重发。其余（invalid_params / request_conflict 等协议错误）是后台明确拒绝，不重试。
- */
-export function isWorkspaceConnectionError(err: unknown): boolean {
-  return (
-    err instanceof ControlClientError &&
-    ["connection_unavailable", "connection_closed", "connection_error", "connect_timeout", "closed"].includes(err.code)
-  );
 }

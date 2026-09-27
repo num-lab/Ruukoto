@@ -12,9 +12,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ControlConnection, type ConnectionState } from "../src/control/connection.ts";
-import { ControlClient, ControlClientError } from "../src/control/client.ts";
+import { ControlClientError, type ControlTransport } from "../src/control/client.ts";
 import { PendingRequestStore, type PendingRequest } from "../src/control/pending-requests.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
+import { SubmissionGuard, type SubmitOutcome } from "../src/control/submission.ts";
 import { readOwnerToken } from "../src/control/owner-token.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import {
@@ -26,24 +26,10 @@ import {
   connectAuthedClient,
   lastUserText,
 } from "./helpers/testkit.ts";
-import type { ConnectResult } from "../src/control/protocol.ts";
+import { FakeTransport, fakeControl, fakeSnapshot } from "./helpers/fake-control.ts";
 import type { PersistentEvent } from "../src/core/types.ts";
 
-// ---------- 假客户端（脚本化握手与事件推送） ----------
-
-function snapshot(seq: number, instanceId = "inst-1"): ConnectResult["snapshot"] {
-  return {
-    projects: [],
-    sessions: [],
-    tasks: [],
-    confirmations: [],
-    artifacts: [],
-    previews: {},
-    instanceId,
-    execution: { backend: "local", note: "local 执行后端：无隔离" },
-    defaultModel: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
-  };
-}
+// ---------- 假客户端（脚本化握手与事件推送，test/helpers/fake-control.ts） ----------
 
 function event(seq: number): PersistentEvent {
   return {
@@ -53,49 +39,6 @@ function event(seq: number): PersistentEvent {
     body: { type: "backend.stopping", reason: `e${seq}` },
     createdAt: new Date().toISOString(),
   };
-}
-
-interface FakeScript {
-  handshake(since: number | undefined, client: FakeClient): Promise<ConnectResult>;
-  authenticate?(): Promise<void>;
-}
-
-class FakeClient {
-  private eventListeners = new Set<(e: PersistentEvent) => void>();
-  private closeListeners = new Set<(info: { code: string; message: string }) => void>();
-  closed = false;
-  constructor(private readonly script: FakeScript) {}
-  get isClosed(): boolean {
-    return this.closed;
-  }
-  onEvent(l: (e: PersistentEvent) => void): () => void {
-    this.eventListeners.add(l);
-    return () => this.eventListeners.delete(l);
-  }
-  onClose(l: (info: { code: string; message: string }) => void): () => void {
-    this.closeListeners.add(l);
-    return () => this.closeListeners.delete(l);
-  }
-  async authenticate(): Promise<void> {
-    await this.script.authenticate?.();
-  }
-  handshake(since?: number): Promise<ConnectResult> {
-    return this.script.handshake(since, this);
-  }
-  async request(): Promise<never> {
-    throw new Error("fake client 不支持 request");
-  }
-  close(): void {
-    this.closed = true;
-  }
-  /** 测试注入：推送实时事件 / 模拟断线。 */
-  emit(e: PersistentEvent): void {
-    for (const l of this.eventListeners) l(e);
-  }
-  dropConnection(message = "连接已关闭"): void {
-    this.closed = true;
-    for (const l of this.closeListeners) l({ code: "connection_closed", message });
-  }
 }
 
 interface ConnLog {
@@ -121,14 +64,14 @@ function makeConn(
 
 test("握手期间到达的实时事件被缓冲，快照安装后按序应用", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
-  const fake = new FakeClient({
+  const fake = new FakeTransport({
     handshake: async (_since, client) => {
       client.emit(event(6)); // 握手进行中到达的实时事件
       client.emit(event(7));
-      return { seq: 5, replay: [], snapshot: snapshot(5) };
+      return { seq: 5, replay: [], snapshot: fakeSnapshot() };
     },
   });
-  const { conn } = makeConn({ clientFactory: async () => fake as unknown as ControlClient }, log);
+  const { conn } = makeConn({ clientFactory: async () => fake }, log);
   await conn.start();
   assert.deepEqual(
     log.snapshots.map((s) => s.seq),
@@ -150,13 +93,13 @@ test("握手期间到达的实时事件被缓冲，快照安装后按序应用",
 test("重复事件丢弃；序号缺口触发重同步", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   let handshakeCount = 0;
-  const fake = new FakeClient({
+  const fake = new FakeTransport({
     handshake: async () => {
       handshakeCount++;
-      return { seq: handshakeCount === 1 ? 5 : 7, replay: [], snapshot: snapshot(handshakeCount === 1 ? 5 : 7) };
+      return { seq: handshakeCount === 1 ? 5 : 7, replay: [], snapshot: fakeSnapshot() };
     },
   });
-  const { conn } = makeConn({ clientFactory: async () => fake as unknown as ControlClient }, log);
+  const { conn } = makeConn({ clientFactory: async () => fake }, log);
   await conn.start();
   fake.emit(event(6));
   fake.emit(event(6)); // 重复：丢弃
@@ -175,22 +118,22 @@ test("重复事件丢弃；序号缺口触发重同步", async () => {
 
 test("断线退避重连：补发只用于补齐显示，实时事件无缝继续", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
-  const clients: FakeClient[] = [];
-  const factory = async (): Promise<ControlClient> => {
-    const client = new FakeClient({
+  const clients: FakeTransport[] = [];
+  const factory = async (): Promise<ControlTransport> => {
+    const client = new FakeTransport({
       handshake: async (since) => {
-        if (since === undefined) return { seq: 5, replay: [], snapshot: snapshot(5) };
+        if (since === undefined) return { seq: 5, replay: [], snapshot: fakeSnapshot() };
         // 重连：补发 (5, 8]，快照序号 8
-        return { seq: 8, replay: [event(6), event(7), event(8)], snapshot: snapshot(8) };
+        return { seq: 8, replay: [event(6), event(7), event(8)], snapshot: fakeSnapshot() };
       },
     });
     clients.push(client);
-    return client as unknown as ControlClient;
+    return client;
   };
   const { conn } = makeConn({ clientFactory: factory }, log);
   await conn.start();
   assert.equal(conn.getSeq(), 5);
-  clients[0]!.dropConnection();
+  clients[0]!.drop();
   await waitFor("重连上线", () => conn.state === "online" && conn.getSeq() === 8);
   assert.deepEqual(
     log.events.map((e) => [e.seq, e.kind]),
@@ -211,14 +154,14 @@ test("断线退避重连：补发只用于补齐显示，实时事件无缝继�
 test("认证失败与协议不兼容：进入 failed，不自动重试", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   let connects = 0;
-  const factory = async (): Promise<ControlClient> => {
+  const factory = async (): Promise<ControlTransport> => {
     connects++;
-    return new FakeClient({
+    return new FakeTransport({
       authenticate: async () => {
-        throw Object.assign(new Error("拥有者令牌无效"), { code: "unauthorized" });
+        throw new ControlClientError("unauthorized", "拥有者令牌无效", "rejected");
       },
-      handshake: async () => ({ seq: 0, replay: [], snapshot: snapshot(0) }),
-    }) as unknown as ControlClient;
+      handshake: async () => ({ seq: 0, replay: [], snapshot: fakeSnapshot() }),
+    });
   };
   const { conn } = makeConn({ clientFactory: factory, reconnectInitialMs: 10 }, log);
   await assert.rejects(() => conn.start());
@@ -227,16 +170,53 @@ test("认证失败与协议不兼容：进入 failed，不自动重试", async (
   assert.equal(connects, 1, "认证失败不得自动重试");
 });
 
+test("认证超时与认证中途断线：退避重连，不进入 failed", async () => {
+  const log: ConnLog = { states: [], snapshots: [], events: [] };
+  let attempt = 0;
+  const ctl = fakeControl({
+    authenticate: async (transport) => {
+      attempt++;
+      if (attempt === 1) throw new ControlClientError("request_timeout", "请求超时：auth", "unknown");
+      if (attempt === 2) {
+        transport.drop();
+        throw new ControlClientError("connection_closed", "连接已关闭", "disconnected");
+      }
+    },
+  });
+  const { conn } = makeConn({ clientFactory: ctl.factory }, log);
+  await assert.rejects(() => conn.start(), /请求超时/);
+  await waitFor("重连上线", () => conn.state === "online");
+  assert.equal(attempt, 3);
+  assert.ok(!log.states.some(([s]) => s === "failed"), "应答丢失不是明确拒绝，不得停止重连");
+  conn.close();
+});
+
+test("首次建连失败（后台未起）：退避后连上", async () => {
+  const log: ConnLog = { states: [], snapshots: [], events: [] };
+  const ctl = fakeControl();
+  let refused = 0;
+  const factory = async (): Promise<ControlTransport> => {
+    if (refused++ < 2) throw new ControlClientError("connection_error", "Error: connect ENOENT", "not_sent");
+    return ctl.factory();
+  };
+  const { conn } = makeConn({ clientFactory: factory }, log);
+  await assert.rejects(() => conn.start(), /ENOENT/);
+  assert.equal(conn.state, "reconnecting");
+  await waitFor("连上", () => conn.state === "online");
+  assert.equal(log.snapshots.length, 1);
+  conn.close();
+});
+
 test("协议版本不兼容（握手阶段）：进入 failed，不自动重试", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   let connects = 0;
-  const factory = async (): Promise<ControlClient> => {
+  const factory = async (): Promise<ControlTransport> => {
     connects++;
-    return new FakeClient({
+    return new FakeTransport({
       handshake: async () => {
-        throw new ControlClientError("protocol_version", "协议版本不兼容：服务端 v3，请求 v2；请升级客户端");
+        throw new ControlClientError("protocol_version", "协议版本不兼容：服务端 v3，请求 v2；请升级客户端", "rejected");
       },
-    }) as unknown as ControlClient;
+    });
   };
   const { conn } = makeConn({ clientFactory: factory, reconnectInitialMs: 10 }, log);
   await assert.rejects(() => conn.start(), /协议版本不兼容/);
@@ -247,20 +227,20 @@ test("协议版本不兼容（握手阶段）：进入 failed，不自动重试"
 
 test("数据实例变更：重连后 onSnapshot 明确通知", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
-  const clients: FakeClient[] = [];
-  const factory = async (): Promise<ControlClient> => {
-    const client = new FakeClient({
+  const clients: FakeTransport[] = [];
+  const factory = async (): Promise<ControlTransport> => {
+    const client = new FakeTransport({
       handshake: async (since) =>
         since === undefined
-          ? { seq: 5, replay: [], snapshot: snapshot(5, clients.length === 1 ? "inst-1" : "inst-2") }
-          : { seq: 5, replay: [], snapshot: snapshot(5, "inst-2") },
+          ? { seq: 5, replay: [], snapshot: fakeSnapshot({ instanceId: clients.length === 1 ? "inst-1" : "inst-2" }) }
+          : { seq: 5, replay: [], snapshot: fakeSnapshot({ instanceId: "inst-2" }) },
     });
     clients.push(client);
-    return client as unknown as ControlClient;
+    return client;
   };
   const { conn } = makeConn({ clientFactory: factory }, log);
   await conn.start();
-  clients[0]!.dropConnection();
+  clients[0]!.drop();
   await waitFor("重连上线", () => conn.state === "online" && log.snapshots.length === 2);
   assert.equal(log.snapshots[1]!.instanceChanged, true, "新数据实例必须明确通知");
   conn.close();
@@ -310,6 +290,47 @@ async function startGuardRuntime() {
   return { t, store, conn, guard };
 }
 
+test("提交结果分类：未发送与明确拒绝清除记录；应答丢失（含坏帧断线）保留待核实", async () => {
+  const log: ConnLog = { states: [], snapshots: [], events: [] };
+  const store = new PendingRequestStore(fs.mkdtempSync(path.join(os.tmpdir(), "pending-outcome-")));
+  let reply: "reject" | "timeout" | "connection_closed" | "bad_frame" = "reject";
+  const ctl = fakeControl({
+    handlers: {
+      submit: (_params, transport) => {
+        if (reply === "reject") return Promise.reject(new ControlClientError("invalid_params", "输入为空", "rejected"));
+        if (reply === "timeout") return Promise.reject(new ControlClientError("request_timeout", "请求超时：submit", "unknown"));
+        transport.drop(reply, "断线");
+        return new Promise(() => {});
+      },
+    },
+  });
+  const { conn } = makeConn({ clientFactory: ctl.factory }, log);
+  await conn.start();
+  const guard = new SubmissionGuard(store, conn);
+  const submit = () => guard.submit("submit", { session_id: "s", input: "x", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
+  const pending = () => store.list().records.length;
+
+  assert.equal((await submit()).kind, "rejected");
+  assert.equal(pending(), 0, "明确拒绝清除记录");
+  reply = "timeout";
+  assert.deepEqual(pick(await submit()), ["pending_verification", "unknown"]);
+  reply = "connection_closed";
+  assert.deepEqual(pick(await submit()), ["pending_verification", "disconnected"]);
+  await waitFor("重连上线", () => conn.state === "online" && ctl.transports.length === 2);
+  reply = "bad_frame";
+  assert.deepEqual(pick(await submit()), ["pending_verification", "disconnected"], "坏帧断线同样是应答丢失");
+  assert.equal(pending(), 3, "应答丢失保留待核实");
+  await waitFor("再次重连", () => conn.state === "online" && ctl.transports.length === 3);
+  ctl.transports[2]!.drop();
+  assert.equal((await submit()).kind, "not_sent", "断线后、重连前：连接层拒绝发送");
+  assert.equal(pending(), 3, "未发送清除记录");
+  conn.close();
+
+  function pick(outcome: SubmitOutcome): [string, string | undefined] {
+    return [outcome.kind, outcome.kind === "pending_verification" ? outcome.outcome : undefined];
+  }
+});
+
 test("提交成功：记录清除；同一输入只产生一个任务", async () => {
   const { t, store, conn, guard } = await startGuardRuntime();
   try {
@@ -332,9 +353,9 @@ test("待确认记录写入失败：不得发送请求", async () => {
     fs.chmodSync((guard as any).store.dir, 0o500);
     await assert.rejects(() => guard.submit("submit", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, input: "不应发送" }));
     fs.chmodSync((guard as any).store.dir, 0o700);
-    const found = await conn.request<{ task: unknown }>("find_task", { session_id: sessionId, request_id: "never" });
+    const found = await conn.request("find_task", { session_id: sessionId, request_id: "never" });
     assert.equal(found.task, null);
-    const tasks = (await conn.request<{ tasks: unknown[] }>("list_tasks", { session_id: sessionId })).tasks;
+    const tasks = (await conn.request("list_tasks", { session_id: sessionId })).tasks;
     assert.equal(tasks.length, 0, "保存失败时不得发送请求");
     conn.close();
   } finally {
@@ -363,7 +384,7 @@ test("应答丢失：重连核实关联原任务，不重复启动", async () =>
     const outcomes = await guard.reconcileAll();
     assert.deepEqual(outcomes, [{ kind: "linked", requestId: "lost-ack-1", taskId: task.id }]);
     assert.equal(store.list().records.length, 0);
-    const tasks = (await conn.request<{ tasks: unknown[] }>("list_tasks", { session_id: sessionId })).tasks;
+    const tasks = (await conn.request("list_tasks", { session_id: sessionId })).tasks;
     assert.equal(tasks.length, 1, "同一输入只对应一个任务");
     conn.close();
   } finally {
@@ -413,7 +434,7 @@ test("数据实例不匹配：保留待核实，不向空后台重发", async ()
     const outcomes = await guard.reconcileAll();
     assert.deepEqual(outcomes, [{ kind: "foreign_instance", requestId: "foreign-1" }]);
     assert.equal(store.list().records.length, 1, "记录保留待拥有者处理");
-    const found = await conn.request<{ task: unknown }>("find_task", { session_id: sessionId, request_id: "foreign-1" });
+    const found = await conn.request("find_task", { session_id: sessionId, request_id: "foreign-1" });
     assert.equal(found.task, null, "不得向新后台重发");
     conn.close();
   } finally {

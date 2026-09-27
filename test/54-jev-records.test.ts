@@ -8,7 +8,7 @@ import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 import type { ContextExperimentRecord, SelectionRecord, SelectionUsage } from "../src/core/types.ts";
 import { selectionBreakdown } from "../src/agent/context-selector.ts";
-import { TuiApp } from "../src/tui/app.ts";
+import { contextBarLines } from "../src/tui/app.ts";
 
 const experiment: ContextExperimentRecord = {
   status: "applied",
@@ -88,7 +88,7 @@ test("Jev 记录：真实旧表补列默认 null；实验、取消事件和主�
 test("/context 显示实验策略与回退；未知费用和零请求分别表述，旧记录仍可渲染", () => {
   const render = (detail: ContextExperimentRecord | null) => {
     const value = record("sel_view", detail);
-    const lines = (TuiApp.prototype as any).contextBarLines(value, selectionBreakdown(value), 180) as string[];
+    const lines = contextBarLines(value, selectionBreakdown(value), 180);
     return stripTerminalSequences(lines.join("\n"));
   };
   assert.doesNotMatch(render(null), /Jev/);

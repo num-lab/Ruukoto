@@ -92,7 +92,7 @@ function requestUrl(baseUrl: string): URL | null {
   }
 }
 
-/** 单次请求，无重试；任何非法回答令整次评估失效，由 Driver 回退基础规则。 */
+/** 单次请求，无重试；任何非法回答令整次评估失效，由模型上下文组装回退基础规则。 */
 export async function evaluateJev(input: JevInput): Promise<{ decisions: Map<string, boolean>; metadata: JevMetadata }> {
   const started = performance.now();
   const metadata: JevMetadata = {

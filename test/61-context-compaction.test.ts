@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { Type } from "typebox";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { checkToolPairing } from "../src/agent/driver.ts";
+import { checkToolPairing } from "../src/agent/context-assembly.ts";
 import {
   DEFAULT_BUDGET_CONFIG,
   planCompaction,

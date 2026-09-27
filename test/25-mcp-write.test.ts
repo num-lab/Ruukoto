@@ -320,6 +320,7 @@ test("mcp 写：批准等待期间配置变化，旧批准失效且不发送", a
     assert.match(op.resultSummary, /配置已变化/, "应说明配置变化导致未执行");
     const staleConf = final.confirmations.find((c: any) => c.id === conf.id);
     assert.equal(staleConf.consumedAt, null, "失效批准不得消费");
+    assert.equal(staleConf.status, "stale", "复核失败的批准标为失效（架构工单 04）");
     assert.equal(final.task.effectUnknown, false, "未消费 = 已知未执行");
   } finally {
     await t.shutdown();

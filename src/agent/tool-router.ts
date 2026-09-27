@@ -7,7 +7,8 @@
  *   当前任务的执行边界内（请求确认 → 任务容器；完全访问 → 执行账户）；
  *   模式/环境变化时先停止并核实旧执行单元退出，再建立新环境；
  * - 结构化操作（request_file_access / http_request）始终形成具体审批
- *   请求；批准经条件更新单次消费后才执行，执行参数取自保存的不可变请求；
+ *   请求；经审批闸门单次消费后才执行，执行参数取自审批前构造、与审批记录
+ *   同源的请求；
  * - 原始输出先落产物文件，再生成限长模型视图并附产物引用。
  */
 
@@ -15,8 +16,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AccessMode, ApprovalScope, ConfirmationRequest, Task } from "../core/types.ts";
+import type { AccessMode, ApprovalScope, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
+import type { ApprovalGate } from "./approval-gate.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
@@ -62,18 +64,8 @@ export interface ToolRouterDeps {
    * 跨项目需有效授权；未提供时退回"仅当前任务"（兼容旧装配）。
    */
   artifactAccess?: (task: Task, artifact: { taskId: string; sessionId: string }) => boolean;
-  /** 驱动器桥：审批等待与等待解除由 Driver 统一持有。 */
-  bridge: {
-    awaitApproval(input: {
-      task: Task;
-      hostOpId: string;
-      toolName: string;
-      params: Record<string, unknown>;
-      scope: ApprovalScope;
-      signal?: AbortSignal;
-    }): Promise<ApprovalOutcome>;
-    supersedeAllWaiters(): void;
-  };
+  /** 审批闸门（架构工单 04）：审批全程与等待解除。 */
+  approvals: Pick<ApprovalGate, "request" | "supersedeAll">;
   /**
    * MCP 动态工具（issue 16/18）：服务配置存储与当前任务钉版的工具计划。
    * 未配置时 MCP 工具名按未知工具拒绝（不落入其他路径）。
@@ -92,13 +84,6 @@ export interface RoutedCallInput {
   name: string;
   params: Record<string, unknown>;
   signal?: AbortSignal;
-}
-
-/** 审批桥结果：决定 + 来源与审查理由（自动拒绝不得显示成"拥有者拒绝"）。 */
-export interface ApprovalOutcome {
-  decision: "approved" | "rejected" | "superseded";
-  source: "owner" | "auto_review" | null;
-  reviewReason: string | null;
 }
 
 export interface RoutedCallOutput {
@@ -180,7 +165,7 @@ export class ToolRouter {
   async prepareToolBoundary(task: Task): Promise<Task> {
     if (!task.pendingAccessMode || task.pendingAccessMode === task.accessMode) return task;
     const to = task.pendingAccessMode;
-    this.deps.bridge.supersedeAllWaiters();
+    this.deps.approvals.supersedeAll();
     const identity = this.workerIdentity();
     const reaped = await this.stopWorker();
     if (!reaped) {
@@ -347,65 +332,14 @@ export class ToolRouter {
 
   // ---------- 结构化审批操作 ----------
 
-  /** 审批未通过的统一文案（自动拒绝不能显示成"拥有者拒绝"：按决定来源区分）。 */
-  private approvalFailureText(approval: ApprovalOutcome): string {
-    return approval.decision === "rejected"
-      ? approval.source === "auto_review"
-        ? `自动审查拒绝执行该操作：${approval.reviewReason ?? "未给出理由"}`
-        : "拥有者拒绝执行该操作"
-      : "模式已切换或任务已停止，该审批已失效；如仍需要请重新申请";
-  }
-
-  /**
-   * 单次消费已批准的请求（审批操作共用）：条件更新校验批准未消费、权限版本
-   * 匹配、任务仍活动，原子记录消费（= 执行开始）与事件。preConsume 在同一
-   * 事务内做调用方前置重核（如 MCP 服务配置/凭据），返回原因即放弃消费。
-   */
-  private consumeApproved(
-    task: Task,
-    input: RoutedCallInput,
-    preConsume?: () => string | null,
-  ): { confirmation: ConfirmationRequest } | { error: string } {
-    const confirmation = this.deps.store
-      .listConfirmationsByTask(task.id)
-      .find((c) => c.toolOpId === input.hostOpId && c.status === "approved");
-    if (!confirmation) return { error: "审批记录缺失或已失效，操作未执行" };
-    let blockReason: string | null = null;
-    const consumed = this.deps.store.withTx(() => {
-      blockReason = preConsume?.() ?? null;
-      if (blockReason) return false;
-      const ok = this.deps.store.consumeApproval({
-        confirmationId: confirmation.id,
-        expectedPermissionVersion: confirmation.permissionVersion,
-        activeStatuses: ["running", "awaiting_confirmation"],
-      });
-      if (ok) {
-        this.deps.store.appendEvent(
-          {
-            type: "task.approval_consumed",
-            taskId: task.id,
-            confirmationId: confirmation.id,
-            toolOpId: input.hostOpId,
-            toolName: input.name,
-          },
-          { taskId: task.id, sessionId: task.sessionId },
-        );
-      }
-      return ok;
-    });
-    if (!consumed) {
-      return { error: blockReason ?? "批准已失效（任务结束、权限版本变化或已被消费），操作未执行" };
-    }
-    return { confirmation };
-  }
-
   private async executeApprovalOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
     const scopeResult =
       input.name === "request_file_access" ? this.fileOpScope(input.params) : await this.httpOpScope(input.params);
     if ("error" in scopeResult) {
       return textResult(scopeResult.error, true);
     }
-    const approval = await this.deps.bridge.awaitApproval({
+    // 审批闸门：等待决定，获批后单次消费（= 执行开始）
+    const approval = await this.deps.approvals.request({
       task,
       hostOpId: input.hostOpId,
       toolName: input.name,
@@ -413,18 +347,9 @@ export class ToolRouter {
       scope: scopeResult.scope,
       signal: input.signal,
     });
-    if (approval.decision !== "approved") {
-      return textResult(this.approvalFailureText(approval), true);
-    }
+    if (!approval.approved) return textResult(approval.text, true);
 
-    // 单次消费：条件更新校验批准未消费、权限版本匹配、任务仍活动，
-    // 原子记录消费（= 执行开始）
-    const consumed = this.consumeApproved(task, input);
-    if ("error" in consumed) {
-      return textResult(consumed.error, true);
-    }
-
-    // 执行参数完全取自审批保存的不可变请求
+    // 执行参数取自审批前构造、与审批记录同源的请求（固定解析地址与目标文件身份只在内存）
     if (scopeResult.kind === "file") {
       const outcome = executeApprovedFileOp(scopeResult.fileRequest);
       const text = outcome.ok && outcome.content !== undefined ? `${outcome.message}\n${outcome.content}` : outcome.message;
@@ -536,6 +461,8 @@ export class ToolRouter {
     if (credentialName) {
       const binding = this.deps.credentials.get(credentialName);
       if (!binding) return { error: `凭据绑定不存在：${credentialName}` };
+      // 带使用范围的凭据不得被通用 http_request 借用：审批前就拒绝（执行器另有同一检查）
+      if (binding.scope) return { error: `凭据 ${binding.name} 限定了使用范围（${binding.purpose}），通用 HTTP 请求不得使用` };
       credentialRefs.push({ name: binding.name, purpose: binding.purpose });
       if (parsed.host.toLowerCase() !== binding.host.toLowerCase()) {
         return { error: `凭据 ${binding.name} 绑定到 ${binding.host}，与目标 ${parsed.host} 不一致（凭据不得转发到其他地址）` };
@@ -571,7 +498,7 @@ export class ToolRouter {
    * MCP 调用统一入口：先由 Driver 在 tool_call 门记录宿主操作意图，这里按
    * 模式执行——只读工具（拥有者声明）直接执行；full_access 跳过逐次审批但仍
    * 过服务/工具/凭据范围校验；confirm/auto-review 的写与副作用不明工具进入
-   * 统一审批桥，批准后在真正发送前原子消费（消费前重读配置与凭据绑定）。
+   * 审批闸门，批准后在真正发送前原子消费（消费事务内重读配置与凭据绑定）。
    */
   private async executeMcpOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
     const mcp = this.deps.mcp;
@@ -598,29 +525,22 @@ export class ToolRouter {
       credential: meta.service.credential,
       operationCategory: meta.effect,
     };
-    const approval = await this.deps.bridge.awaitApproval({
+    // 获批后复核：批准等待期间的配置/凭据变化使旧批准失效（不消费、不发送，
+    // 操作按已知未执行记录）。服务配置与批准消费在同一 SQLite 事务内核对；
+    // 凭据绑定在消费前核对、发送时由 getForUse 再核对一次（撤销即时生效）。
+    const approval = await this.deps.approvals.request({
       task,
       hostOpId: input.hostOpId,
       toolName: input.name,
       params: input.params,
       scope,
       signal: input.signal,
+      recheck: () => this.mcpConfigBlock(mcp.store, meta),
     });
-    if (approval.decision !== "approved") {
-      return textResult(this.approvalFailureText(approval), true);
-    }
+    if (!approval.approved) return textResult(approval.text, true);
 
-    // 单次消费 + 消费前重核：批准等待期间的配置/凭据变化使旧批准失效
-    // （不消费、不发送，操作按已知未执行记录）。服务配置与批准消费在同一
-    // SQLite 事务内核对；凭据绑定为文件存储，在消费前重读、发送时由
-    // getForUse 再核对一次（撤销即时生效）。
-    const consumed = this.consumeApproved(task, input, () => this.mcpConfigBlock(mcp.store, meta));
-    if ("error" in consumed) {
-      return textResult(consumed.error, true);
-    }
-
-    // 执行参数完全取自审批保存的不可变请求
-    return this.mcpSend(mcp, task, meta, consumed.confirmation.params, input);
+    // 执行参数取自审批记录保存的快照
+    return this.mcpSend(mcp, task, meta, approval.params, input);
   }
 
   /** 调用前/批准消费前的配置与凭据核对：任何变化即阻止（返回原因；null = 通过）。 */

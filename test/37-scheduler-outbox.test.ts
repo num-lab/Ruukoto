@@ -591,6 +591,42 @@ test("工具：通知计划与一次通知须拥有者确认（full_access 也�
   }
 });
 
+test("工具：同一批并行的宿主工具先结束，不影响获批通知的复核与登记（架构工单 04）", async () => {
+  // main 的宿主工具并行执行：notification_query 在审批等待期间结束并解绑宿主上下文；
+  // 获批后的身份复核必须用调用开始时捕获的上下文
+  let step = 0;
+  const h = await harness("sched-parallel", "2026-09-24T00:00:00Z", async (req) => {
+    if (!lastUserText(req).includes("PARALLEL-NOTIFY") || step++ > 0) return { kind: "text", text: "done" };
+    return {
+      kind: "tool_calls",
+      calls: [
+        { id: "p-0", name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "并行批次" }], reason: "告知" } },
+        { id: "p-1", name: "notification_query", arguments: {} },
+      ],
+    };
+  });
+  const rt = await Runtime.start(h.config);
+  await ControlServer.start(rt);
+  const client = await connectAuthedClient(rt);
+  await client.handshake();
+  try {
+    const main = rt.store.getAgentRole("main")!;
+    const task = await rt.submit({ sessionId: main.sessionId, requestId: "par1", input: "PARALLEL-NOTIFY", modelSelection: rt.defaultSelection });
+    const conf = await pendingConfirmation(client, task.id);
+    await waitFor("并行的查询先结束", () => rt.store.listToolOpsByTask(task.id).some((op) => op.toolName === "notification_query" && op.resultSummary !== null));
+    await client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
+    await waitFor("任务完成", () => rt.store.getTask(task.id)!.status === "completed");
+    const enqueue = rt.store.listToolOpsByTask(task.id).find((op) => op.toolName === "notification_enqueue")!;
+    assert.match(enqueue.resultSummary!, /已排队/);
+    assert.notEqual(rt.store.getConfirmation(conf.id)!.consumedAt, null, "批准已消费");
+    assert.equal(opsOf(rt).filter((o) => o.text === "并行批次").length, 1);
+  } finally {
+    client.close();
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
 test("工具：未配置可信目标拒绝外发；应用数据快照登记后行修改不改变正文", async () => {
   const h = await harness("sched-snapshot", "2026-09-24T00:00:00Z", toolScript({
     "SNAP-NOTIFY": [{ name: "schedule_create", arguments: { create_key: "snap", action: "notify", rule: { kind: "once", at: "2026-09-24T02:00:00Z", time_zone: "UTC" }, content: [{ kind: "app_data", table: "notes", row_id: 1, field: "body" }], reason: "快照" } }],

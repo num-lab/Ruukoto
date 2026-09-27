@@ -30,14 +30,9 @@ import {
   type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import type { ModelCatalog } from "./model-selection.ts";
-import {
-  classifyForReview,
-  ReviewAbortedError,
-  REVIEW_POLICY_VERSION,
-  type ApprovalReviewer,
-} from "./review.ts";
+import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
+import type { AccessMode, AgentRole, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import { isToolOpExecutionUncertain, type Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
@@ -48,8 +43,8 @@ import type { ExecutionError } from "./execution/launchers.ts";
 import type { WorkerLauncher } from "./execution/launchers.ts";
 import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./managed-processes.ts";
 import { createSdkSession, SYSTEM_PROMPTS } from "./session-factory.ts";
-import { ToolRouter, ROUTED_TOOL_NAMES, type ApprovalOutcome } from "./tool-router.ts";
-import type { ApprovalScope } from "../core/types.ts";
+import { ToolRouter, ROUTED_TOOL_NAMES } from "./tool-router.ts";
+import { ApprovalGate } from "./approval-gate.ts";
 import type { AccessScope } from "../core/access.ts";
 import type { HistoryIndex } from "../core/history-index.ts";
 import type { MemoryStore } from "../core/memory.ts";
@@ -146,8 +141,6 @@ export interface DriverDeps {
   delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply" | "resultNotice">;
 }
 
-type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
-
 export class Driver {
   readonly session: Session;
   private readonly deps: DriverDeps;
@@ -156,10 +149,8 @@ export class Driver {
   readonly router: ToolRouter;
   private currentTask: Task | null = null;
   private stopRequested = false;
-  private confirmationWaiters = new Map<string, (decision: ConfirmationDecision) => void>();
-  private pendingConfirmationCount = 0;
-  /** 进行中的自动审查（按审批 id）；人工接管/停止时中止，迟到结果忽略。 */
-  private reviewAborters = new Map<string, AbortController>();
+  /** 审批闸门（架构工单 04）：审批请求全程；Driver 只接线应答、模式切换与停止。 */
+  private readonly approvals: ApprovalGate;
   /** 本次任务中 sdkCallId → 宿主操作 id（结果记录与事件引用的关联键）。 */
   private callMap = new Map<string, string>();
   private flushedEntryIds = new Set<string>();
@@ -217,6 +208,7 @@ export class Driver {
     this.session = session;
     this.deps = deps;
     this.registry = createManagedProcessRegistry();
+    this.approvals = new ApprovalGate({ store: deps.store, reviewer: () => this.deps.reviewer });
     this.router = new ToolRouter({
       store: deps.store,
       artifacts: deps.artifacts,
@@ -230,10 +222,7 @@ export class Driver {
         if (!artifactSession) return false;
         return deps.access.canAccess(this.accessor(), artifactSession.projectId, "artifact");
       },
-      bridge: {
-        awaitApproval: (input) => this.awaitApproval(input),
-        supersedeAllWaiters: () => this.supersedeAllWaiters(),
-      },
+      approvals: this.approvals,
       // MCP 动态工具经路由器统一处理（issue 18）：计划按任务钉版，执行时读取
       mcp: deps.mcp ? { store: deps.mcp.store, plan: () => this.currentMcpPlan } : undefined,
     });
@@ -381,7 +370,7 @@ export class Driver {
             taskContext: () => this.hostToolCtx,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            awaitApproval: (input) => this.awaitApproval(input),
+            requestApproval: (input) => this.approvals.request(input),
             queryStallMs: () => this.deps.appData?.queryStallMs,
           })
         : [];
@@ -394,7 +383,7 @@ export class Driver {
             taskContext: () => this.hostToolCtx,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            awaitApproval: (input) => this.awaitApproval(input),
+            requestApproval: (input) => this.approvals.request(input),
           })
         : [];
     // 委派 coding 工具（issue 05）：只有 main 的清单含 delegation
@@ -849,10 +838,7 @@ export class Driver {
       .map((op) => op.id);
 
     // 2. 解除确认等待（门以 block 结束，不执行该操作）；进行中的自动审查一并中止
-    for (const resolve of this.confirmationWaiters.values()) resolve("canceled");
-    this.confirmationWaiters.clear();
-    for (const aborter of this.reviewAborters.values()) aborter.abort();
-    this.reviewAborters.clear();
+    this.approvals.cancelAll();
 
     // 3. 中止模型调用与确认等待；受管工具进程组的终止与 abort 并行进行：
     //    abort() 会等待在执行的工具返回，若工具在等待子进程退出，必须同时
@@ -1136,254 +1122,23 @@ export class Driver {
       return undefined;
     }
 
-    // 需要确认：登记请求、任务转入等待确认、阻塞到应答
-    const confirmation = store.withTx(() => {
-      const scope: ApprovalScope = { kind: "tool", workspaceOnly: true };
-      const c = store.createConfirmation({
-        taskId: task.id,
-        sessionId: task.sessionId,
-        toolOpId: hostOpId,
-        toolName: event.toolName,
-        params,
-        scope,
-        permissionVersion: task.permissionVersion,
-      });
-      store.transitionTask(task.id, ["running"], "awaiting_confirmation", {});
-      return c;
+    // 经审批闸门：批准后先消费（= 执行开始）再放行 SDK 执行
+    const approval = await this.approvals.request({
+      task,
+      hostOpId,
+      toolName: event.toolName,
+      params,
+      scope: { kind: "tool", workspaceOnly: true },
     });
-
-    this.pendingConfirmationCount++;
-    try {
-      const decision = await new Promise<ConfirmationDecision>((resolve) => {
-        this.confirmationWaiters.set(confirmation.id, resolve);
-      });
-      if (decision === "approved") return undefined;
-      // 拒绝/取消/失效：工具未执行，结果是已知的（不产生 effect_unknown）
-      store.withTx(() => {
-        const summary =
-          decision === "rejected"
-            ? `拥有者拒绝执行 ${event.toolName}`
-            : decision === "superseded"
-              ? `模式已切换，${event.toolName} 审批失效（未执行）`
-              : `任务停止，确认等待解除（${event.toolName} 未执行）`;
-        const recorded = store.recordToolResult(hostOpId, summary, true);
-        if (recorded) {
-          store.appendEvent(
-            { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: true, artifactIds: [] },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
-      });
-      if (decision === "rejected") {
-        return { block: true, reason: `拥有者拒绝执行 ${event.toolName}` };
-      }
-      return { block: true, reason: "任务已停止，确认等待解除" };
-    } finally {
-      this.pendingConfirmationCount--;
-      if (this.pendingConfirmationCount === 0) {
-        store.withTx(() => {
-          store.transitionTask(task.id, ["awaiting_confirmation"], "running", {});
-        });
-      }
-    }
-  }
-
-  /** 结构化审批操作的路由器桥：登记请求并等待决定（auto-review 任务先经自动审查）。 */
-  private async awaitApproval(input: {
-    task: Task;
-    hostOpId: string;
-    toolName: string;
-    params: Record<string, unknown>;
-    scope: ApprovalScope;
-    signal?: AbortSignal;
-  }): Promise<ApprovalOutcome> {
-    const store = this.deps.store;
-    // 自动审查只覆盖 auto-review 任务且需要任务固定的模型配置；缺任一条件退化为纯人工
-    const reviewSelection =
-      input.task.accessMode === "auto-review" && this.deps.reviewer ? input.task.modelSelection : null;
-    const confirmation = store.withTx(() => {
-      const c = store.createConfirmation({
-        taskId: input.task.id,
-        sessionId: input.task.sessionId,
-        toolOpId: input.hostOpId,
-        toolName: input.toolName,
-        params: input.params,
-        scope: input.scope,
-        permissionVersion: input.task.permissionVersion,
-        review: reviewSelection
-          ? { model: `${reviewSelection.provider}/${reviewSelection.modelId}`, policyVersion: REVIEW_POLICY_VERSION }
-          : undefined,
-      });
-      store.transitionTask(input.task.id, ["running"], "awaiting_confirmation", {});
-      return c;
-    });
-
-    if (input.signal?.aborted) {
-      store.withTx(() => {
-        store.stalePendingConfirmations(input.task.id);
-        store.transitionTask(input.task.id, ["awaiting_confirmation"], "running", {});
-      });
-      return { decision: "superseded", source: null, reviewReason: null };
-    }
-
-    this.pendingConfirmationCount++;
-    try {
-      const decisionPromise = new Promise<ConfirmationDecision>((resolve) => {
-        this.confirmationWaiters.set(confirmation.id, resolve);
-        if (input.signal) {
-          const onAbort = () => resolve("superseded");
-          input.signal.addEventListener("abort", onAbort, { once: true });
-        }
-      });
-      // 等待者注册后再启动自动审查，避免审查同步完成时结果无处投递
-      if (reviewSelection) {
-        void this.runAutoReview(confirmation, input.task, input).catch(() => {
-          // 审查失败不得打断审批等待；可落盘的失败已在 runAutoReview 内转人工
-        });
-      }
-      const decision = await decisionPromise;
-      // 自动拒绝不能显示成"拥有者拒绝"：重读落库的来源与理由（与决定同事务写入）
-      const resolved = store.getConfirmation(confirmation.id);
-      const source = resolved?.decisionSource ?? null;
-      const reviewReason = resolved?.reviewReason ?? null;
-      if (decision === "approved") return { decision, source, reviewReason };
-      // 未批准 = 已知未执行（拒绝/取消/失效都不产生外部效果）
-      const rejectedSummary =
-        source === "auto_review"
-          ? `自动审查拒绝执行 ${input.toolName}：${reviewReason ?? "未给出理由"}`
-          : `拥有者拒绝执行 ${input.toolName}`;
-      store.withTx(() => {
-        const summary =
-          decision === "rejected"
-            ? rejectedSummary
-            : decision === "superseded"
-              ? `审批已失效（模式切换或任务停止），${input.toolName} 未执行`
-              : `任务停止，确认等待解除（${input.toolName} 未执行）`;
-        const recorded = store.recordToolResult(input.hostOpId, summary, true);
-        if (recorded) {
-          store.appendEvent(
-            { type: "task.tool_result", taskId: input.task.id, toolOpId: input.hostOpId, summary, isError: true, artifactIds: [] },
-            { taskId: input.task.id, sessionId: input.task.sessionId },
-          );
-        }
-      });
-      return decision === "rejected"
-        ? { decision: "rejected", source, reviewReason }
-        : { decision: "superseded", source, reviewReason };
-    } finally {
-      // 等待结束（含人工抢先/取消/模式切换）：中止仍在进行的审查，迟到结果忽略
-      const aborter = this.reviewAborters.get(confirmation.id);
-      if (aborter) {
-        aborter.abort();
-        this.reviewAborters.delete(confirmation.id);
-      }
-      this.pendingConfirmationCount--;
-      if (this.pendingConfirmationCount === 0) {
-        store.withTx(() => {
-          store.transitionTask(input.task.id, ["awaiting_confirmation"], "running", {});
-        });
-      }
-    }
-  }
-
-  /**
-   * 单次自动审查（issue 15）：确定性策略先行，可审查的交给无工具模型调用。
-   * 决定、理由、来源与事件在同一事务落盘；与人工决定/取消/模式切换竞争时
-   * 只有一方条件更新成功，失败方把审查标记为 superseded 并忽略结果。
-   */
-  private async runAutoReview(
-    confirmation: ConfirmationRequest,
-    task: Task,
-    input: { toolName: string; params: Record<string, unknown>; scope: ApprovalScope },
-  ): Promise<void> {
-    const store = this.deps.store;
-    const reviewer = this.deps.reviewer;
-    const selection = task.modelSelection;
-    if (!reviewer || !selection) return;
-
-    // 确定性策略：不可审查的范围直接转人工，不发起模型调用
-    if (classifyForReview(input.scope) === "ask_owner") {
-      this.markReviewAskedOwner(task, confirmation.id, "该操作不属于自动批准范围，转拥有者确认");
-      return;
-    }
-
-    const aborter = new AbortController();
-    this.reviewAborters.set(confirmation.id, aborter);
-    try {
-      const outcome = await reviewer.review({
-        selection,
-        taskInput: task.input,
-        toolName: input.toolName,
-        params: input.params,
-        scope: input.scope,
-        signal: aborter.signal,
-      });
-      if (outcome.decision === "ask_owner") {
-        // 上下文不足/模型失败/超时/输出非法：转人工并说明原因，等待者不动
-        this.markReviewAskedOwner(task, confirmation.id, outcome.reason);
-        return;
-      }
-      // approve/reject：条件更新要求仍 pending、权限版本匹配、任务仍活动
-      const decision = outcome.decision === "approve" ? "approved" : "rejected";
-      const applied = store.withTx(() =>
-        store.respondConfirmation(confirmation.id, decision, {
-          source: "auto_review",
-          expectedPermissionVersion: confirmation.permissionVersion,
-          reviewDecision: outcome.decision,
-          reviewReason: outcome.reason,
-        }),
-      );
-      if (!applied) {
-        // 人工抢先/已失效：迟到结果不得落盘
-        store.withTx(() => store.markConfirmationReviewSuperseded(confirmation.id));
-        return;
-      }
-      store.withTx(() =>
-        store.appendEvent(
-          { type: "task.confirmation_resolved", taskId: task.id, confirmationId: confirmation.id, decision, source: "auto_review", reason: outcome.reason },
-          { taskId: task.id, sessionId: task.sessionId },
-        ),
-      );
-      this.confirmationWaiters.get(confirmation.id)?.(decision);
-    } catch (err) {
-      if (err instanceof ReviewAbortedError) {
-        // 人工接管/停止：仅标记审查被取代，不动审批状态
-        store.withTx(() => store.markConfirmationReviewSuperseded(confirmation.id));
-        return;
-      }
-      // reviewer 约定只抛中止；防御性兜底：任何意外异常一律转人工
-      this.markReviewAskedOwner(task, confirmation.id, `审查异常：${(err as Error).message}`);
-    } finally {
-      this.reviewAborters.delete(confirmation.id);
-    }
-  }
-
-  /** 转人工（条件更新仍 pending；人工已抢先时不覆盖其决定、不发事件）。 */
-  private markReviewAskedOwner(task: Task, confirmationId: string, reason: string): void {
-    const store = this.deps.store;
-    const marked = store.withTx(() => store.markConfirmationAskedOwner(confirmationId, reason));
-    if (marked) {
-      store.withTx(() =>
-        store.appendEvent(
-          { type: "task.confirmation_reviewed", taskId: task.id, confirmationId, decision: "ask_owner", reason },
-          { taskId: task.id, sessionId: task.sessionId },
-        ),
-      );
-    }
-  }
-
-  /** 模式切换应用前解除全部等待：审批失效，后续执行重新判定。 */
-  private supersedeAllWaiters(): void {
-    for (const resolve of this.confirmationWaiters.values()) resolve("superseded");
-    this.confirmationWaiters.clear();
+    return approval.approved ? undefined : { block: true, reason: approval.text };
   }
 
   /** 运行时入口：等待中的审批因模式切换立即失效（Runtime 调用）。 */
   supersedeWaiters(): void {
-    this.supersedeAllWaiters();
+    this.approvals.supersedeAll();
   }
 
-  /** 当前任务运行的完成信号（无任务运行时 resolve）。用于审批桥外的等待方
+  /** 当前任务运行的完成信号（无任务运行时 resolve）。用于审批闸门外的等待方
    * 在任务自然结束时回落（避免控制面请求永久悬挂）。 */
   taskCompletion(): Promise<void> {
     return this.runPromise ?? Promise.resolve();
@@ -1391,23 +1146,7 @@ export class Driver {
 
   /** 控制面应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
   resolveConfirmation(confirmationId: string, decision: "approved" | "rejected"): boolean {
-    const waiter = this.confirmationWaiters.get(confirmationId);
-    if (!waiter) return false;
-    const store = this.deps.store;
-    // 人工决定：记录来源；进行中的自动审查同事务标记 superseded
-    const applied = store.withTx(() => store.respondConfirmation(confirmationId, decision, { source: "owner" }));
-    if (!applied) return false;
-    store.withTx(() => {
-      const task = this.currentTask;
-      if (task) {
-        store.appendEvent(
-          { type: "task.confirmation_resolved", taskId: task.id, confirmationId, decision, source: "owner" },
-          { taskId: task.id, sessionId: task.sessionId },
-        );
-      }
-    });
-    waiter(decision);
-    return true;
+    return this.approvals.resolve(confirmationId, decision);
   }
 
   // ---------- 会话事件观察 ----------

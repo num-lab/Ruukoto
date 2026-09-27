@@ -17,6 +17,7 @@ import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
 import type { Store } from "../../core/store.ts";
+import type { ToolOpLedger } from "../tool-op-ledger.ts";
 import type { ApprovalScope, Task } from "../../core/types.ts";
 import type { ApprovalGate } from "../approval-gate.ts";
 import {
@@ -67,7 +68,7 @@ export const APP_DATA_TOOL_NAMES = [
  * 自行 withTx）。recordToolResult 条件更新保证重复恢复不重复发布。
  */
 export function settleAppDataOp(
-  coreStore: Store,
+  ledger: ToolOpLedger,
   verdict: "committed" | "not_committed",
   task: { id: string; sessionId: string },
   op: { id: string },
@@ -77,13 +78,7 @@ export function settleAppDataOp(
     verdict === "committed"
       ? `已提交：应用库存在该操作回执（${when}已生效）`
       : `已知未提交：应用库无该操作回执（${when}未生效）`;
-  const recorded = coreStore.recordToolResult(op.id, summary, verdict !== "committed");
-  if (recorded) {
-    coreStore.appendEvent(
-      { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError: verdict !== "committed", artifactIds: [] },
-      { taskId: task.id, sessionId: task.sessionId },
-    );
-  }
+  ledger.recordResult(task, op.id, summary, verdict !== "committed");
 }
 
 /** 会产生写入效果的应用数据工具（恢复时按回执核实；query 是只读）。 */

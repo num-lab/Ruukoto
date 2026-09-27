@@ -103,6 +103,7 @@ import { Orchestrator } from "./orchestrator.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
 import { APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp } from "../agent/app-data/tools.ts";
+import { ToolOpLedger } from "../agent/tool-op-ledger.ts";
 import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { searchTavily, WebSearchError } from "../agent/web-search.ts";
@@ -270,6 +271,8 @@ export class Runtime {
   private readonly githubEvents: GitHubEvents;
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
+  /** 工具操作账本（架构工单 05）：结果、效果未知与停止/重启补记。 */
+  private readonly ledger: ToolOpLedger;
   /** 调度器（issue 03）：扫描循环 + 发送循环；start 时创建。 */
   scheduler!: Scheduler;
   private sources!: SourceResolver;
@@ -315,6 +318,7 @@ export class Runtime {
     this.mcp = new McpStore(db);
     this.qqStore = new QqStore(db);
     this.sched = new SchedulerStore(store);
+    this.ledger = new ToolOpLedger(store);
     this.telegramStore = new TelegramStore(store);
     this.githubEvents = new GitHubEvents({
       store, artifacts: this.artifacts, sched: this.sched, config: config.githubWebhook,
@@ -798,30 +802,16 @@ export class Runtime {
       const task = this.store.getTask(op.taskId);
       if (!task) continue;
       if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) {
-        const summary = "已知未执行：只读查询在重启前未产生写入效果";
-        const recorded = this.store.recordToolResult(op.id, summary, true);
-        if (recorded) {
-          this.store.appendEvent(
-            { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError: true, artifactIds: [] },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
+        this.ledger.recordResult(task, op.id, "已知未执行：只读查询在重启前未产生写入效果", true);
         continue;
       }
       const verdict = this.appDataWriteVerdict(op.id);
       if (verdict === "unverifiable") {
         // 活动任务由通用路径标记；终态任务在此补标（结果缺失且无法核实）
-        if (isTerminalTaskStatus(task.status)) {
-          this.store.markToolOpEffectUnknown(op.id);
-          this.store.appendEvent(
-            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: op.id, toolName: op.toolName },
-            { taskId: task.id },
-          );
-          this.store.setEffectUnknown(task.id);
-        }
+        if (isTerminalTaskStatus(task.status)) this.ledger.markEffectUnknown(task, op.id);
         continue;
       }
-      settleAppDataOp(this.store, verdict, task, op, "后台重启前");
+      settleAppDataOp(this.ledger, verdict, task, op, "后台重启前");
     }
   }
 
@@ -847,16 +837,16 @@ export class Runtime {
       // 不落入通用 effect_unknown（登记与否恒可核实；未登记即未执行）
       for (const op of store.listUnresolvedOpsByTools(SCHEDULER_TOOL_NAMES)) {
         const task = store.getTask(op.taskId);
-        if (task) settleSchedulerOp(store, this.sched, task, op, "后台重启前");
+        if (task) settleSchedulerOp(this.ledger, this.sched, task, op, "后台重启前");
       }
       // 委派工具（issue 05）：同库按子任务是否存在核实（未创建即未委派）
       for (const op of store.listUnresolvedOpsByTools(DELEGATION_TOOL_NAMES)) {
         const task = store.getTask(op.taskId);
-        if (task) settleDelegationOp(store, task, op, "后台重启前");
+        if (task) settleDelegationOp(this.ledger, task, op, "后台重启前");
       }
       for (const op of store.listUnresolvedOpsByTools(CHAT_RESULT_TOOL_NAMES)) {
         const task = store.getTask(op.taskId);
-        if (task) settleChatResultOp(store, task, op, "后台重启前");
+        if (task) settleChatResultOp(this.ledger, task, op, "后台重启前");
       }
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const unresolved = store.listUnresolvedToolOps(task.id);
@@ -872,18 +862,13 @@ export class Runtime {
             continue;
           }
           effectUnknownCount++;
-          store.markToolOpEffectUnknown(op.id);
-          store.appendEvent(
-            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: op.id, toolName: op.toolName },
-            { taskId: task.id },
-          );
+          this.ledger.markEffectUnknown(task, op.id);
         }
         const changed = store.transitionTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
           interruptReason: "backend_restart",
           endedAt: new Date().toISOString(),
         });
         if (changed) {
-          if (effectUnknownCount > 0) store.setEffectUnknown(task.id);
           store.stalePendingConfirmations(task.id);
           store.appendEvent(
             {
@@ -2131,6 +2116,7 @@ export class Runtime {
     if (!driver) {
       driver = new Driver(session, {
         store: this.store,
+        ledger: this.ledger,
         qqStore: this.qqStore,
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,

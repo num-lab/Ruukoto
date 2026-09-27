@@ -19,6 +19,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import type { AccessMode, ApprovalScope, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
+import type { ToolOpLedger } from "./tool-op-ledger.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
@@ -52,6 +53,7 @@ const WORKER_CALL_TIMEOUT_MS = 10 * 60_000;
 
 export interface ToolRouterDeps {
   store: Store;
+  ledger: ToolOpLedger;
   artifacts: ArtifactStore;
   credentials: CredentialStore;
   registry: ManagedProcessRegistry;
@@ -598,24 +600,10 @@ export class ToolRouter {
         err instanceof McpError &&
         (err.code === "timeout" || err.code === "connect_failed" || err.code === "canceled")
       ) {
-        this.markMcpEffectUnknown(task, input.hostOpId, meta.exposedName);
+        this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
       }
       return textResult((err as Error).message, true);
     }
-  }
-
-  /** 已发出但结果无法确认的写调用：标 effect_unknown（停止/重启路径对已标记操作幂等跳过）。 */
-  private markMcpEffectUnknown(task: Task, hostOpId: string, toolName: string): void {
-    this.deps.store.withTx(() => {
-      const op = this.deps.store.getToolOp(hostOpId);
-      if (!op || op.effectUnknown) return;
-      this.deps.store.markToolOpEffectUnknown(hostOpId);
-      this.deps.store.setEffectUnknown(task.id);
-      this.deps.store.appendEvent(
-        { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: hostOpId, toolName },
-        { taskId: task.id, sessionId: task.sessionId },
-      );
-    });
   }
 
   // ---------- 产物查询 ----------

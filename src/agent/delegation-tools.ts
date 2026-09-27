@@ -15,6 +15,7 @@
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
+import type { ToolOpLedger } from "./tool-op-ledger.ts";
 import type { Task } from "../core/types.ts";
 import type { HistoryEntryView } from "../core/history.ts";
 import { delegationRequestDigest, type DelegationMode, type DelegationResult } from "../runtime/orchestrator.ts";
@@ -35,25 +36,14 @@ const READ_LIMITS = { replyBytes: 16 * 1024, artifactBytes: 64 * 1024 };
  * 恢复/停止路径共用：未落结果的委派工具操作按子任务是否存在核实（同库，恒可
  * 核实）——存在即已委派，不存在即已知未委派。调用方负责事务。
  */
-export function settleDelegationOp(coreStore: Store, task: { id: string; sessionId: string }, op: { id: string; toolName: string; params: Record<string, unknown> }, when: string): void {
+export function settleDelegationOp(ledger: ToolOpLedger, task: { id: string; sessionId: string }, op: { id: string; toolName: string; params: Record<string, unknown> }, when: string): void {
   if (op.toolName === "coding_result") {
-    const summary = `已知未执行：只读查询在${when}未产生写入效果`;
-    if (coreStore.recordToolResult(op.id, summary, true)) {
-      coreStore.appendEvent(
-        { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError: true, artifactIds: [] },
-        { taskId: task.id, sessionId: task.sessionId },
-      );
-    }
+    ledger.recordResult(task, op.id, `已知未执行：只读查询在${when}未产生写入效果`, true);
     return;
   }
-  const committed = coreStore.findChildTask(task.id, `deleg:${task.id}:${String(op.params.key ?? "")}`) !== null;
+  const committed = ledger.store.findChildTask(task.id, `deleg:${task.id}:${String(op.params.key ?? "")}`) !== null;
   const summary = committed ? `已提交：子任务已创建（${when}已委派）` : `已知未提交：不存在对应子任务（${when}未委派）`;
-  if (coreStore.recordToolResult(op.id, summary, !committed)) {
-    coreStore.appendEvent(
-      { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError: !committed, artifactIds: [] },
-      { taskId: task.id, sessionId: task.sessionId },
-    );
-  }
+  ledger.recordResult(task, op.id, summary, !committed);
 }
 
 export interface DelegationToolsDeps {

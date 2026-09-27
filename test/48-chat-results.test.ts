@@ -12,6 +12,7 @@ import { QqStore } from "../src/qq/store.ts";
 import type { Session } from "../src/core/types.ts";
 import type { HostToolContext } from "../src/agent/host-tools.ts";
 import { createChatResultTools, resolveAcceptedChatResult, settleChatResultOp } from "../src/agent/chat-result-tools.ts";
+import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
 
 const at = (seconds: number) => new Date(Date.parse("2026-09-24T00:00:00.000Z") + seconds * 1000).toISOString();
 
@@ -136,14 +137,14 @@ test("群结果：拒绝错误身份、未完成任务和伪造来源；停止�
     const missingId = "accept-never-committed";
     f.store.recordToolIntent({ id: missingId, taskId: f.mainTask.id, sessionId: f.sessions.main.id, toolName: "chat_result_accept", params: { task_id: running.task.id } });
     f.store.withTx(() => {
-      settleChatResultOp(f.store, f.mainTask, committed, "重启");
-      settleChatResultOp(f.store, f.mainTask, f.store.getToolOp(missingId)!, "重启");
+      settleChatResultOp(new ToolOpLedger(f.store), f.mainTask, committed, "重启");
+      settleChatResultOp(new ToolOpLedger(f.store), f.mainTask, f.store.getToolOp(missingId)!, "重启");
     });
     assert.match(f.store.getToolOp(committed.id)!.resultSummary!, /^已提交/);
     assert.match(f.store.getToolOp(missingId)!.resultSummary!, /^已知未提交/);
     assert.equal(f.store.getToolOp(committed.id)!.effectUnknown, false);
     const seq = f.store.getMaxSeq();
-    f.store.withTx(() => settleChatResultOp(f.store, f.mainTask, committed, "再次重启"));
+    f.store.withTx(() => settleChatResultOp(new ToolOpLedger(f.store), f.mainTask, committed, "再次重启"));
     assert.equal(f.store.getMaxSeq(), seq, "重复恢复不重复发布回执");
   } finally { f.close(); }
 });

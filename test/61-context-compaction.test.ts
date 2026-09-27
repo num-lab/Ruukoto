@@ -29,7 +29,7 @@ import { OfflineModelBackend } from "../src/config-tui/index.ts";
 import { ControlServer } from "../src/control/server.ts";
 import { parseSessionFile } from "../src/core/history.ts";
 import { compactionText, EventFlow } from "../src/tui/event-flow.ts";
-import { TuiApp } from "../src/tui/app.ts";
+import { contextBarLines } from "../src/tui/app.ts";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { MockModelServer, type MockResponse, type RecordedRequest } from "./helpers/mock-provider.ts";
 import {
@@ -245,7 +245,7 @@ test("/context：分解含「压缩摘要」一类，并显示压缩点信息或
     summarizedCount: 12, summaryUntil: "2026-09-26T01:02:03.000Z", clearedResults: 3, taskId: "task_abcdefghijkl",
     callIndex: 4, summaryModel: "mock/mock-model", summaryStatus: "ok", summaryError: null,
   };
-  const render = (cp: any) => stripTerminalSequences(((TuiApp.prototype as any).contextBarLines(record, selectionBreakdown(record as any), 200, cp) as string[]).join("\n"));
+  const render = (cp: any) => stripTerminalSequences(contextBarLines(record as any, selectionBreakdown(record as any), 200, cp).join("\n"));
   const ok = render(checkpoint);
   assert.match(ok, /压缩摘要/);
   assert.match(ok, /压缩点：摘要替代 12 条（至 2026-09-26T01:02:03\.000Z） · 清理 3 条 · 建于任务 task_abcdefgh 第 4 次调用/);

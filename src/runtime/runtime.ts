@@ -67,7 +67,7 @@ import {
 import { createApprovalReviewer, type ApprovalReviewer } from "../agent/review.ts";
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
-import { createCodingTools, type ApprovalOutcome } from "../agent/tool-router.ts";
+import { createCodingTools } from "../agent/tool-router.ts";
 import { ArtifactStore } from "../agent/artifacts.ts";
 import { CredentialStore } from "../agent/execution/credentials.ts";
 import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "../agent/jev-config.ts";

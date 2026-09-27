@@ -17,6 +17,7 @@ import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AccessMode, ApprovalScope, ConfirmationRequest, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
+import type { ApprovalOutcome } from "./approval-gate.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
@@ -92,13 +93,6 @@ export interface RoutedCallInput {
   name: string;
   params: Record<string, unknown>;
   signal?: AbortSignal;
-}
-
-/** 审批桥结果：决定 + 来源与审查理由（自动拒绝不得显示成"拥有者拒绝"）。 */
-export interface ApprovalOutcome {
-  decision: "approved" | "rejected" | "superseded";
-  source: "owner" | "auto_review" | null;
-  reviewReason: string | null;
 }
 
 export interface RoutedCallOutput {

@@ -17,7 +17,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { createHash } from "node:crypto";
 import type { Store } from "../../core/store.ts";
 import type { ApprovalScope, Task } from "../../core/types.ts";
-import type { ApprovalOutcome } from "../tool-router.ts";
+import type { ApprovalOutcome } from "../approval-gate.ts";
 import {
   AppDataConflictError,
   AppDataError,

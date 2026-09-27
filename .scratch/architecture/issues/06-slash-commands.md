@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 斜杠命令：每个命令一个自洽的条目
 
@@ -103,3 +103,31 @@ interface SlashCommand {
 4. 文档：README 命令表与一致性测试；`docs/runtime.md`；工单标记完成并追加交付记录。交付前跑变异检查。
 
 ## Comments
+
+### 2026-09-27：实现交付
+
+分支 `slash-commands`（基于 main a5eea15）：
+
+| 提交 | 内容 |
+|---|---|
+| 048805c | 第 0 步：本工单 |
+| badb1ff | 第 1 步：`src/tui/commands.ts` 的条目表、`dispatchInput`、补全与帮助命令行；第一类处理函数搬入；TuiApp 以 `commandHost` 对象字面量实现 `CommandHost`；`/mode`、`/model`、`/thinking` 改拿 `result` 回调；删 `event-flow.ts` 的结果行正则；新增 65 号 |
+| 4fc385a | 第 2 步：`/skill` 统一为任务输入；`/status` 无活动任务时注记 |
+| ac7fb39 | 第 3 步：`contextBarLines` 改为模块级导出函数、删死代码；54、61 号直接 import；删 `cmdMode` 未用的 `current` |
+| （本提交） | 第 4 步：README 命令表与一致性测试；`docs/runtime.md`；本记录 |
+
+验证：
+
+- 每步 `npm test` 与 `npm run typecheck` 通过；最终 633 项，632 通过，1 项按开关跳过。
+- 第 1 步提交前对抗式复核等价性：正常输入下没有可观察差异。复核列出的差异见下「偏差」1、2；另三条（无会话时结果行回落、`commandResult` 不再自带正则、view 在回显前取）经核实都到不了或不可观察。
+- 变异检查 14 处都能被发现：成功结果不看 `keepsResult`、错误结果被丢、`silent` 仍回显、不问 `taskInput`、隐藏命令进补全、`/skill <名称>` 不认领、`/status` 不提示、`arg` 不合并空白、memory 不校验版本号、`/model` 结果回调失效、帮助含隐藏命令、qq 列表不带条数上限、结果行不落到命令条目（13、14 号发现）、`/skill:` 不 trim。README 一致性测试另行确认：表里删掉一个命令即失败。
+
+偏差：
+
+1. `/quit` 不再在退出前多刷新一次界面（刷新随回显走，`silent` 条目不回显）。不可观察。
+2. `/thinking` 成功后不再重存一次未变的命令行。只在命令历史写入失败时有差别：旧代码会顺带补存之前没存上的 `/thinking` 回显，现在与其他不保留成功结果的命令一样不补存。
+3. 「`openHelp` 上错位的注释」不成立：那行注释在 `openModelPicker` 上方，位置正确，是访谈时读错了输出；未改。
+4. 第 1 步为保持提交原文，`taskInput` 临时带第二个参数 `text`；第 2 步改为 trim 过的整行后删去，与本单接口一致。
+5. `CommandHost.refreshTask()` 返回 `boolean`（false = 没有活动任务），由 `/status` 条目决定是否注记；启动时的刷新不提示。
+6. 派发器另有 `CommandEnv`（上下文之外加 `echo`、`setResult`），只给 `dispatchInput` 用，处理函数拿不到。
+

@@ -36,6 +36,11 @@ export function allowsCategory(cls: SessionToolClass, category: ToolCategory): b
   return SESSION_TOOL_CATEGORIES[cls].includes(category);
 }
 
+/** 会话类别的工具类别清单（新建角色记录时写入；运行时不读回，以本表为准）。 */
+export function sessionToolCategories(cls: SessionToolClass): ToolCategory[] {
+  return [...SESSION_TOOL_CATEGORIES[cls]];
+}
+
 export interface TaskToolSet {
   allowed: ReadonlySet<string>;
   /** 不在 allowed 中的工具的拒绝原因。 */

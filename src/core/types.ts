@@ -111,11 +111,10 @@ export type AgentRoleId = "main" | "coding" | "chat";
 export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"];
 
 /**
- * 角色工具白名单的粒度：按工具注册来源划分类别（编码工具/宿主资料与记忆/
- * Web Search/MCP/应用数据）。装配、发送前最终检查与调用门三层共用同一份名单。
- * app_data 仅 main 角色包含（issue 02：应用数据空间，仅宿主可信绑定）；
- * scheduler 同样仅 main（issue 03：计划与通知账本）；delegation 同样仅 main
- * （issue 05：委派 coding 与读取委派结果）。
+ * 工具类别：按工具注册来源划分（编码工具/宿主资料与记忆/Web Search/MCP/应用数据/
+ * 调度/委派/群结果/技能）。各会话类别开放哪些类别由 tool-availability 的清单决定，
+ * 装配、激活、发送前与调用门共用同一结论；app_data、scheduler、delegation、
+ * chat_results 只在 main 的清单中。
  */
 export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "skills";
 

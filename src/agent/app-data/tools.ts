@@ -17,7 +17,7 @@ import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
 import type { Store } from "../../core/store.ts";
-import type { ToolOpLedger } from "../tool-op-ledger.ts";
+import type { FamilyCheck } from "../tool-op-ledger.ts";
 import type { ApprovalScope, Task } from "../../core/types.ts";
 import type { ApprovalGate } from "../approval-gate.ts";
 import {
@@ -62,33 +62,14 @@ export const APP_DATA_TOOL_NAMES = [
   "app_data_delete",
 ] as const;
 
-/**
- * 恢复/停止路径共用（issue 02）：按应用库回执核实未落结果的应用数据写操作
- * 并补记结果。调用方负责事务（Runtime.recover 在恢复事务内；Driver 停止路径
- * 自行 withTx）。recordToolResult 条件更新保证重复恢复不重复发布。
- */
-export function settleAppDataOp(
-  ledger: ToolOpLedger,
-  verdict: "committed" | "not_committed",
-  task: { id: string; sessionId: string },
-  op: { id: string },
-  when: string,
-): void {
-  const summary =
-    verdict === "committed"
-      ? `已提交：应用库存在该操作回执（${when}已生效）`
-      : `已知未提交：应用库无该操作回执（${when}未生效）`;
-  ledger.recordResult(task, op.id, summary, verdict !== "committed");
+/** 工具操作账本的族核实（issue 02，ADR 0009 §7）：写操作按应用库回执核实；应用库丢失/损坏即无法核实。 */
+export function appDataOpCheck(writeVerdict: (hostOpId: string) => "committed" | "not_committed" | "unverifiable"): FamilyCheck {
+  return {
+    verify: (op) => writeVerdict(op.id),
+    committed: (when) => `已提交：应用库存在该操作回执（${when}已生效）`,
+    notCommitted: (when) => `已知未提交：应用库无该操作回执（${when}未生效）`,
+  };
 }
-
-/** 会产生写入效果的应用数据工具（恢复时按回执核实；query 是只读）。 */
-export const APP_DATA_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "app_data_define_table",
-  "app_data_migrate",
-  "app_data_insert",
-  "app_data_update",
-  "app_data_delete",
-]);
 
 function okText(text: string): { content: Array<{ type: "text"; text: string }> } {
   return { content: [{ type: "text" as const, text }] };

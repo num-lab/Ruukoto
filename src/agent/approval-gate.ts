@@ -8,7 +8,6 @@
  * 停止 → cancelAll()。每个 Driver 一个实例。
  */
 
-import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import type { ApprovalScope, ConfirmationRequest, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import { classifyForReview, ReviewAbortedError, REVIEW_POLICY_VERSION, type ApprovalReviewer } from "./review.ts";
@@ -199,69 +198,6 @@ export class ApprovalGate {
         { type: "task.tool_result", taskId: input.task.id, toolOpId: input.hostOpId, summary: text, isError: true, artifactIds: [] },
         { taskId: input.task.id, sessionId: input.task.sessionId },
       );
-    }
-  }
-
-  /**
-   * mock 测试路径：confirmTools 门（仅模拟测试使用，不决定生产权限）。
-   * 登记请求、任务转入等待确认、阻塞到应答；批准即放行 SDK 执行。
-   */
-  async confirmTool(input: {
-    task: Task;
-    hostOpId: string;
-    toolName: string;
-    params: Record<string, unknown>;
-  }): Promise<ToolCallEventResult | undefined> {
-    const store = this.deps.store;
-    const { task, hostOpId, toolName, params } = input;
-    const confirmation = store.withTx(() => {
-      const scope: ApprovalScope = { kind: "tool", workspaceOnly: true };
-      const c = store.createConfirmation({
-        taskId: task.id,
-        sessionId: task.sessionId,
-        toolOpId: hostOpId,
-        toolName,
-        params,
-        scope,
-        permissionVersion: task.permissionVersion,
-      });
-      store.transitionTask(task.id, ["running"], "awaiting_confirmation", {});
-      return c;
-    });
-
-    this.pendingCount++;
-    try {
-      const decision = await new Promise<ConfirmationDecision>((resolve) => {
-        this.waiters.set(confirmation.id, { task, resolve });
-      });
-      if (decision === "approved") return undefined;
-      // 拒绝/取消/失效：工具未执行，结果是已知的（不产生 effect_unknown）
-      store.withTx(() => {
-        const summary =
-          decision === "rejected"
-            ? `拥有者拒绝执行 ${toolName}`
-            : decision === "superseded"
-              ? `模式已切换，${toolName} 审批失效（未执行）`
-              : `任务停止，确认等待解除（${toolName} 未执行）`;
-        const recorded = store.recordToolResult(hostOpId, summary, true);
-        if (recorded) {
-          store.appendEvent(
-            { type: "task.tool_result", taskId: task.id, toolOpId: hostOpId, summary, isError: true, artifactIds: [] },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
-      });
-      if (decision === "rejected") {
-        return { block: true, reason: `拥有者拒绝执行 ${toolName}` };
-      }
-      return { block: true, reason: "任务已停止，确认等待解除" };
-    } finally {
-      this.pendingCount--;
-      if (this.pendingCount === 0) {
-        store.withTx(() => {
-          store.transitionTask(task.id, ["awaiting_confirmation"], "running", {});
-        });
-      }
     }
   }
 

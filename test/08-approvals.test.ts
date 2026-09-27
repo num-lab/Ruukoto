@@ -861,6 +861,9 @@ test("批准绑定权限版本：版本不匹配的应答被拒绝", async () =>
       permission_version: conf.permissionVersion,
     });
     await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+    // confirmTools 门也经审批闸门：批准后先消费再放行执行（架构工单 04）
+    assert.notEqual(t.runtime.store.getConfirmation(conf.id)!.consumedAt, null, "批准已消费");
+    assert.equal(t.runtime.store.getTaskEventsAfter(task.id, 0, 1000).filter((e) => e.body.type === "task.approval_consumed").length, 1);
   } finally {
     await t.shutdown();
   }

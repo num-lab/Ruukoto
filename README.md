@@ -100,21 +100,24 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 | --- | --- |
 | `/help` | 命令与快捷键说明 |
 | `/sessions` | 切换项目与会话 |
-| `/new-project <名称>`、`/new-session <目录>` | 创建项目 / 在当前项目创建会话 |
+| `/new-project <名称>`、`/new-session <目录>`、`/new` | 创建项目 / 在当前项目创建会话 / 在当前工作区创建会话 |
 | `/older`、`/history` | 向前翻页加载更早历史 / 重新加载当前会话历史 |
 | `/expand <id 前缀>` | 展开完整消息或工具参数 |
 | `/artifact <id 前缀>` | 查看工具产物正文（按字节分页） |
 | `/approvals` | 待处理审批列表；详情内 `a` 批准、`r` 拒绝，`Esc` 关闭不等于拒绝 |
 | `/interrupt [taskId]`、`/cancel <taskId>`、`/continue [taskId]` | 中断 / 取消 / 继续任务 |
 | `/resume-queue` | 恢复已暂停的会话队列 |
-| `/mode <confirm\|full_access\|auto-review> [taskId]` | 经显式确认覆盖层按任务切换访问模式 |
+| `/model`、`/thinking` | 模型切换面板（提供方 / 模型 / 思考强度），作用于之后提交的任务 |
+| `/mode` | 列表选择当前会话的默认访问模式（Ask for approval / Full access / Auto review），作用于之后新建的任务 |
 | `/status` | 刷新并查看当前任务详情 |
 | `/search <关键词>` | 搜索会话历史原文（字面匹配） |
 | `/memory <子命令>` | 长期记忆：list / show / revoke / restore |
-| `/context` | 查看本轮上下文选择记录（预算组成与排除原因） |
+| `/context` | 查看当前上下文窗口分解（各部分占比与压缩点） |
+| `/prompt` | 查看本会话模型请求列表与每次调用的 prompt 详情 |
 | `/skill <名称> [参数]` | 显式调用技能库中的技能（提交任务；不带名称时同 `/skills`） |
 | `/skills` | 查看技能库（名称、是否仅显式调用、描述摘要）与诊断 |
 | `/plan <内容>` | 计划模式：只调研不修改，最终回答即计划；下一条普通消息即按计划执行（逐次审批不变） |
+| `/qq <子命令>` | QQ 群聊入口：status / enable / disable / groups / inbox / outbox |
 | `/quit` | 退出客户端（后台任务继续运行） |
 
 **断开与重连**：退出只关闭客户端，后台任务继续执行。重连后从后台重建快照、历史与

@@ -3,6 +3,7 @@
  * 假上下文：请求只记 op 与参数、返回预设应答；host 只记调用。不起终端与 Runtime。
  */
 
+import * as fs from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -73,6 +74,16 @@ test("命令表：名字唯一；补全与帮助只列可见条目；/github 不
   await f.run("/github");
   assert.deepEqual(f.log.echoes, ["/github"]);
   assert.match(f.log.texts[0]!, /GitHub 专用模块已退役/);
+});
+
+test("README 命令表：第一列列出的 /名字 与可见条目正好一致", () => {
+  const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const table = readme.slice(readme.indexOf("**命令**"), readme.indexOf("**断开与重连**"));
+  const names = table
+    .split("\n")
+    .filter((l) => l.startsWith("| `/"))
+    .flatMap((l) => [...l.split("|")[1]!.matchAll(/`\/([a-z-]+)/g)].map((m) => m[1]!));
+  assert.deepEqual(names.sort(), VISIBLE_COMMANDS.map((c) => c.name).sort());
 });
 
 // ---------- 派发 ----------

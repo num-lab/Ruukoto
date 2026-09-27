@@ -6,10 +6,11 @@
  *   宿主任务、会话、项目与 main 角色绑定，工具参数不接受 agent/project/路径；
  * - 所有写入必须带非空 reason（≤1 KiB）；schema 校验在存储边界执行；
  * - 非破坏性变更自动执行；删除表/字段/唯一索引、多行写与批量重写进入
- *   统一审批桥（Driver.awaitApproval），批准单次消费、执行参数取自不可变快照；
+ *   审批闸门（ApprovalGate），获批后在消费事务内复核身份与版本、批准单次消费，
+ *   执行参数取自审批记录保存的快照；
  * - 应用数据保存待办/提醒/习惯等结构化记录；偏好、约定、决策、经验仍进入
  *   长期记忆（MemoryStore），应用记录不自动提升为长期记忆或控制指令；
- * - 调用门拒绝、校验失败、预算超限和超时留下可识别的 app_data.rejected 事件。
+ * - 身份不符、校验失败、预算超限和超时留下可识别的 app_data.rejected 事件。
  */
 
 import { Type } from "typebox";
@@ -17,7 +18,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { createHash } from "node:crypto";
 import type { Store } from "../../core/store.ts";
 import type { ApprovalScope, Task } from "../../core/types.ts";
-import type { ApprovalOutcome } from "../tool-router.ts";
+import type { ApprovalGate } from "../approval-gate.ts";
 import {
   AppDataConflictError,
   AppDataError,
@@ -37,7 +38,7 @@ export type AppToolContext = HostToolContext;
 export interface AppDataToolsDeps {
   store: AppDataStore;
   runner: AppDataQueryRunner;
-  /** 核心库：app_data.rejected / approval_consumed 事件与审批消费。 */
+  /** 核心库：app_data.rejected 事件与宿主任务读取（审批消费归审批闸门）。 */
   coreStore: Store;
   /** 当前调用上下文（宿主注入；绑定一次工具调用）。 */
   taskContext(): AppToolContext | null;
@@ -45,15 +46,8 @@ export interface AppDataToolsDeps {
   bindCall?(sdkCallId: string): () => void;
   /** 执行入口每次重新核实宿主任务/会话/项目与 main 角色绑定；null=通过。 */
   verifyMain(ctx: AppToolContext): string | null;
-  /** 统一审批桥（Driver.awaitApproval 的窄回调；不向模型暴露控制面）。 */
-  awaitApproval(input: {
-    task: Task;
-    hostOpId: string;
-    toolName: string;
-    params: Record<string, unknown>;
-    scope: ApprovalScope;
-    signal?: AbortSignal;
-  }): Promise<ApprovalOutcome>;
+  /** 审批闸门（窄回调；不向模型暴露控制面）。 */
+  requestApproval: ApprovalGate["request"];
   /** 测试注入：查询子进程挂点（模型不可达）。 */
   queryStallMs?: () => number | undefined;
 }
@@ -116,12 +110,12 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
     return ctx;
   };
   const bindExecute = <P extends Record<string, unknown>>(
-    fn: (params: P) => Promise<{ content: Array<{ type: string; text: string }> }>,
+    fn: (params: P, signal?: AbortSignal) => Promise<{ content: Array<{ type: string; text: string }> }>,
   ) => {
-    return async (sdkCallId: string, params: P) => {
+    return async (sdkCallId: string, params: P, signal?: AbortSignal) => {
       const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
       try {
-        return await fn(params);
+        return await fn(params, signal);
       } finally {
         unbind();
       }
@@ -177,43 +171,13 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
     return task!;
   };
 
-  /** 批准后单次消费（与工具路由器同一口径：消费前权限版本/任务状态条件更新）。 */
-  const consumeApproved = (ctx: AppToolContext, toolName: string): { confirmation: { id: string; permissionVersion: number; params: Record<string, unknown> } } | { error: string } => {
-    const confirmation = deps.coreStore
-      .listConfirmationsByTask(ctx.taskId)
-      .find((c) => c.toolOpId === ctx.hostOpId && c.status === "approved");
-    if (!confirmation) return { error: "审批记录缺失或已失效，操作未执行" };
-    const consumed = deps.coreStore.withTx(() => {
-      const ok = deps.coreStore.consumeApproval({
-        confirmationId: confirmation.id,
-        expectedPermissionVersion: confirmation.permissionVersion,
-        activeStatuses: ["running", "awaiting_confirmation"],
-      });
-      if (ok) {
-        deps.coreStore.appendEvent(
-          { type: "task.approval_consumed", taskId: ctx.taskId, confirmationId: confirmation.id, toolOpId: ctx.hostOpId, toolName },
-          { taskId: ctx.taskId, sessionId: ctx.sessionId },
-        );
-      }
-      return ok;
-    });
-    if (!consumed) return { error: "批准已失效（任务结束、权限版本变化或已被消费），操作未执行" };
-    return { confirmation };
-  };
-
-  const approvalFailureText = (approval: ApprovalOutcome): string =>
-    approval.decision === "rejected"
-      ? approval.source === "auto_review"
-        ? `自动审查拒绝执行该操作：${approval.reviewReason ?? "未给出理由"}`
-        : "拥有者拒绝执行该操作"
-      : "模式已切换、任务已停止或版本已变化，该审批已失效；如仍需要请重新申请";
-
-  /** 破坏性变更的统一执行路径：预检 → 审批 → 重核 → 单次消费 → 按不可变快照执行。 */
+  /** 破坏性变更的统一执行路径：预检 → 审批闸门（获批后复核、单次消费）→ 按审批快照执行。 */
   const runDestructive = async (input: {
     ctx: AppToolContext;
     toolName: string;
     params: Record<string, unknown>;
     scope: Extract<ApprovalScope, { kind: "app_data_change" }>;
+    signal?: AbortSignal;
     execute: (params: Record<string, unknown>) => string;
   }): Promise<{ content: Array<{ type: string; text: string }> }> => {
     const { ctx, toolName, params, scope, execute } = input;
@@ -223,24 +187,30 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
     } catch (err) {
       return fail(err, ctx, toolName);
     }
-    const approval = await deps.awaitApproval({
+    let identityProblem: string | null = null;
+    const approval = await deps.requestApproval({
       task: taskOf(ctx),
       hostOpId: ctx.hostOpId,
       toolName,
       params,
       scope,
+      signal: input.signal,
+      // 获批后重新核实 main 身份与应用数据版本（应用库不在核心事务内，写入时再按期望版本核对）
+      recheck: () => {
+        identityProblem = deps.verifyMain(ctx);
+        if (identityProblem) return identityProblem;
+        const fresh = deps.store.getVersions();
+        return fresh.schemaVersion !== scope.schemaVersion || fresh.revision !== scope.revision
+          ? "应用数据版本在确认期间已变化，原批准失效（未执行）；请重新查询版本后再申请"
+          : null;
+      },
     });
-    if (approval.decision !== "approved") throw new Error(approvalFailureText(approval));
-    // 获批后重新核实 main 身份、任务、权限与应用数据版本；任何变化使原请求失效
-    checkIdentity(ctx, toolName);
-    const fresh = deps.store.getVersions();
-    if (fresh.schemaVersion !== scope.schemaVersion || fresh.revision !== scope.revision) {
-      throw new Error("应用数据版本在确认期间已变化，原批准失效（未执行）；请重新查询版本后再申请");
+    if (!approval.approved) {
+      // 身份不符照常留 app_data.rejected（闸门事务外写入）
+      if (identityProblem) reject(ctx, toolName, "identity", "identity_mismatch", identityProblem);
+      throw new Error(approval.text);
     }
-    const consumed = consumeApproved(ctx, toolName);
-    if ("error" in consumed) throw new Error(consumed.error);
-    // 执行参数取自批准记录的不可变快照
-    return okText(execute(consumed.confirmation.params));
+    return okText(execute(approval.params));
   };
 
   // ---------- 各工具 ----------
@@ -296,7 +266,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       steps: Type.Array(Type.Record(Type.String(), Type.Unknown()), { description: `迁移步骤（≤${LIMITS.maxMigrateSteps} 步）` }),
       reason: Type.String({ description: "迁移理由（必填）" }),
     }),
-    execute: bindExecute(async (params) => {
+    execute: bindExecute(async (params, signal) => {
       const ctx = requireCtx();
       try {
         checkIdentity(ctx, "app_data_migrate");
@@ -305,11 +275,12 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
           const out = deps.store.migrate({ ...params, opId: ctx.hostOpId, ctx: opCtx(ctx) });
           return okText(out.summary + `（schema v${out.schemaVersion}，rev ${out.revision}）`);
         }
-        return runDestructive({
+        return await runDestructive({
           ctx,
           toolName: "app_data_migrate",
           params,
           scope: migrateScope(deps.store, ctx, params, analysis),
+          signal,
           execute: (snap) => {
             const out = deps.store.migrate({ ...snap, opId: ctx.hostOpId, ctx: opCtx(ctx) });
             return out.summary + `（schema v${out.schemaVersion}，rev ${out.revision}）`;
@@ -410,18 +381,19 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
         expected_schema_version: Type.Optional(Type.Number({ description: "预期当前 schema 版本（提供时校验，不一致即冲突）" })),
         reason: Type.String({ description: `${kind === "update" ? "更新" : "删除"}理由（必填）` }),
       }),
-      execute: bindExecute(async (params) => {
+      execute: bindExecute(async (params, signal) => {
         const ctx = requireCtx();
         const toolName = `app_data_${kind}` as const;
         try {
           checkIdentity(ctx, toolName);
           const rows = Array.isArray(params.rows) ? params.rows : [];
           if (rows.length > 1) {
-            return runDestructive({
+            return await runDestructive({
               ctx,
               toolName,
               params,
               scope: rowWriteScope(deps.store, ctx, kind, params, rows),
+              signal,
               execute: (snap) => {
                 const out =
                   kind === "update"

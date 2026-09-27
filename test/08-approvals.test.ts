@@ -861,6 +861,9 @@ test("批准绑定权限版本：版本不匹配的应答被拒绝", async () =>
       permission_version: conf.permissionVersion,
     });
     await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+    // confirmTools 门也经审批闸门：批准后先消费再放行执行（架构工单 04）
+    assert.notEqual(t.runtime.store.getConfirmation(conf.id)!.consumedAt, null, "批准已消费");
+    assert.equal(t.runtime.store.getTaskEventsAfter(task.id, 0, 1000).filter((e) => e.body.type === "task.approval_consumed").length, 1);
   } finally {
     await t.shutdown();
   }
@@ -885,6 +888,28 @@ test("带 scope 的凭据不得被通用 http_request 借用；同名轮换保�
     const rotated = t.runtime.credentials.get("svc-scoped")!;
     assert.equal(rotated.secret, "rotated");
     assert.deepEqual(rotated.scope, { projectId, operations: ["mcp"] }, "轮换不得清空 scope");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("带 scope 的凭据在审批前拒绝：不请拥有者批准注定失败的 HTTP 请求（架构工单 04）", async () => {
+  const responder: Responder = (req) =>
+    req.messages.some((m) => m?.role === "tool")
+      ? { kind: "text", text: "收尾" }
+      : { kind: "tool_calls", calls: [{ id: "h_scoped", name: "http_request", arguments: { method: "GET", url: "https://api.example.com/x", credential: "svc-scoped", reason: "读取" } }] };
+  const t = await startTestRuntime("approve-scoped-pre", responder, { workDirs: 1, config: realTools() });
+  try {
+    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await t.client.request("add_credential", { name: "svc-scoped", host: "api.example.com", header: "authorization", purpose: "mcp", secret: "scoped-secret" });
+    t.runtime.credentials.upsert({ ...t.runtime.credentials.get("svc-scoped")!, scope: { projectId, operations: ["mcp"] } });
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, session_id: sessionId, request_id: "sp-1", input: "带范围凭据" });
+    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+    const detail = await taskStatus(t.client, task.id);
+    assert.equal(detail.confirmations.length, 0, "审批前拒绝，不产生审批记录");
+    const op = detail.toolOps.find((o: any) => o.toolName === "http_request");
+    assert.equal(op.isError, true);
+    assert.match(op.resultSummary, /限定了使用范围/);
   } finally {
     await t.shutdown();
   }

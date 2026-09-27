@@ -726,7 +726,8 @@ export class Orchestrator {
     const reasons = [
       outcome === "unknown" ? "后台中断，结果未知，需要核实" : null,
       task.effectUnknown ? "存在效果未知的操作" : null,
-      this.store.listConfirmationsByTask(task.id).some((c) => c.status === "pending" || c.status === "stale") ? "有未处理的审批请求" : null,
+      // 未答复即失效的才算未处理；获批后复核或消费失败而失效的（有决定来源）不算
+      this.store.listConfirmationsByTask(task.id).some((c) => c.status === "pending" || (c.status === "stale" && c.decisionSource === null)) ? "有未处理的审批请求" : null,
       selfOwner?.[1] === "是" ? `coding 自报：${selfOwner[2]?.trim().slice(0, RESULT_SUMMARY_CAP) || "需要拥有者"}` : null,
     ].filter((r): r is string => r !== null);
     return {

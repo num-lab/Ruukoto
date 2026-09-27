@@ -67,7 +67,7 @@ import {
 import { createApprovalReviewer, type ApprovalReviewer } from "../agent/review.ts";
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
-import { createCodingTools, type ApprovalOutcome } from "../agent/tool-router.ts";
+import { createCodingTools } from "../agent/tool-router.ts";
 import { ArtifactStore } from "../agent/artifacts.ts";
 import { CredentialStore } from "../agent/execution/credentials.ts";
 import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "../agent/jev-config.ts";
@@ -282,7 +282,7 @@ export class Runtime {
   private model: any;
   modelCatalog!: ModelCatalog;
   defaultSelection!: ModelSelection;
-  /** 自动审查调用（issue 15）：start 建好模型目录后创建；auto-review 任务的审批桥使用。 */
+  /** 自动审查调用（issue 15）：start 建好模型目录后创建；auto-review 任务的审批闸门使用。 */
   private reviewer!: ApprovalReviewer;
   /**
    * 模型配置应用门闩（issue 21 §4）：非 null 表示正在应用，元素为受影响

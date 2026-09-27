@@ -111,11 +111,12 @@ export class MockModelServer {
             }
             out.push(JSON.stringify(chunk("mock-model", {}, scripted.finishReason ?? "stop")));
           } else {
-            for (const call of scripted.calls) {
+            // 同一条消息里的多个调用按真实流式协议各占一个 index（同 index 会被合并成一个调用）
+            for (const [index, call] of scripted.calls.entries()) {
               const delta = {
                 tool_calls: [
                   {
-                    index: 0,
+                    index,
                     id: call.id,
                     type: "function",
                     function: { name: call.name, arguments: JSON.stringify(call.arguments) },

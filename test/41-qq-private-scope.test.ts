@@ -149,7 +149,7 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
     const schedulerTools = createSchedulerTools({
       coreStore: store, sched, sources, taskContext, target: () => target, now: Date.now,
       scheduler: {} as Scheduler, verifyMain: () => null,
-      awaitApproval: async () => { throw new Error("只读检查不应请求审批"); },
+      requestApproval: async () => { throw new Error("只读检查不应请求审批"); },
     });
     await assert.rejects(call(schedulerTools, "notification_query", { op_id: oldOp.id }), /发送资料不可读/);
     await assert.rejects(call(schedulerTools, "schedule_query", { schedule_id: oldSchedule.id }), /计划资料不可读/);

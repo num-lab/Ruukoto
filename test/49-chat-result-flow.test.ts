@@ -179,6 +179,7 @@ test("群消息在审批期间或批准后发送前撤回，都不能继续外�
         await h.complete(task.id);
         assert.deepEqual(h.ops(), [], "审批期间撤回使通知登记失败");
         assert.equal(rt.store.getConfirmation(confirmation.id)!.consumedAt, null);
+        assert.equal(rt.store.getConfirmation(confirmation.id)!.status, "stale", "复核失败的批准标为失效（架构工单 04）");
         assert.match(rt.store.listToolOpsByTask(task.id).find((op) => op.toolName === "notification_enqueue")!.resultSummary!, /通知资料已失效.*撤回/);
       }
       h.channel.online = true;

@@ -7,12 +7,14 @@
  *   记录（replay，不回滚状态），再按序应用 seq > N 的实时事件；
  * - 游标只在事件应用后前进；按全局序号去重并检查缺口，发现缺口、
  *   invalid_cursor 或 cursor_too_old 时重新同步快照（不重新执行任务）；
- * - 断线后按有上限的退避重连；认证失败、协议不兼容、配置错误停止重试；
+ * - 断线、首次建连失败、认证或同步超时都按有上限的退避重连；只有后台明确拒绝
+ *   （令牌无效、协议不兼容等）停止重试；
  * - 重连只恢复观察：不发送 resume_queue、批准、继续任务或启动后台；
  * - 数据实例标识变化（新数据库）明确通知：调用方据此处理待确认请求。
  */
 
-import { ControlClient, ControlClientError, type ClientCloseInfo } from "./client.ts";
+import { ControlClient, ControlClientError, requestOutcome, type ClientCloseInfo, type ControlTransport } from "./client.ts";
+import type { OpParams, OpResult, TuiOp } from "./ops.ts";
 import type { ConnectResult } from "./protocol.ts";
 import type { PersistentEvent } from "../core/types.ts";
 
@@ -38,13 +40,13 @@ export interface ConnectionConfig {
   reconnectMaxMs?: number;
   connectTimeoutMs?: number;
   /** 测试注入点：替换底层客户端工厂（默认 ControlClient.connect）。 */
-  clientFactory?: (socketPath: string, timeoutMs: number) => Promise<ControlClient>;
+  clientFactory?: (socketPath: string, timeoutMs: number) => Promise<ControlTransport>;
 }
 
 export class ControlConnection {
   private readonly config: ConnectionConfig;
   private readonly callbacks: ConnectionCallbacks;
-  private client: ControlClient | null = null;
+  private client: ControlTransport | null = null;
   private appliedSeq = 0;
   private buffer: PersistentEvent[] | null = null;
   private closedByUser = false;
@@ -71,35 +73,30 @@ export class ControlConnection {
     this.callbacks.onState(state, detail);
   }
 
-  /** 首次连接并同步；认证/协议失败抛错（调用方展示修复入口，不重试）。 */
+  /** 首次连接并同步；失败抛错。明确拒绝进入 failed 不再重试，其余（后台未起、超时、断线）退避重连。 */
   async start(): Promise<void> {
     this.setState("connecting");
-    await this.connectAndSync(undefined);
+    try {
+      await this.connectAndSync(undefined);
+    } catch (err) {
+      this.handleClose({ code: err instanceof ControlClientError ? err.code : "connect_failed", message: (err as Error).message });
+      throw err;
+    }
   }
 
   private async connectAndSync(since: number | undefined): Promise<void> {
-    const factory = this.config.clientFactory ?? ((p: string, t: number) => ControlClient.connect(p, t));
+    const factory = this.config.clientFactory ?? ((p: string, t: number): Promise<ControlTransport> => ControlClient.connect(p, t));
     const client = await factory(this.config.socketPath, this.config.connectTimeoutMs ?? 5000);
     this.client = client;
     client.onClose((info) => this.handleClose(info));
     client.onEvent((event) => this.routeEvent(event));
     try {
       await client.authenticate(this.config.token);
-    } catch (err) {
-      // 认证失败与协议不兼容：停止自动重试（先置 failed，close 不再触发重连）
-      this.setState("failed", (err as Error).message);
-      client.close();
-      throw err;
-    }
-    try {
       await this.sync(client, since);
     } catch (err) {
-      // 协议不兼容：停止自动重试（先置 failed，close 不再触发重连）
-      if (err instanceof ControlClientError && err.code === "protocol_version") {
-        this.setState("failed", err.message);
-        client.close();
-        throw err;
-      }
+      // 明确拒绝（令牌无效、协议不兼容等）：停止自动重试（先置 failed，close 不再触发重连）；
+      // 其余（认证或同步超时、断线）经 close 走断线重连
+      if (requestOutcome(err) === "rejected") this.setState("failed", (err as Error).message);
       client.close();
       throw err;
     }
@@ -108,7 +105,7 @@ export class ControlConnection {
   }
 
   /** 安装快照 → 应用补发（fill-only）→ 应用缓冲的实时事件。 */
-  private async sync(client: ControlClient, since: number | undefined): Promise<void> {
+  private async sync(client: ControlTransport, since: number | undefined): Promise<void> {
     const buffer: PersistentEvent[] = [];
     this.buffer = buffer;
     let result: ConnectResult;
@@ -213,11 +210,11 @@ export class ControlConnection {
    * 连接可用时发送；socket 已关闭（含重连窗口）立即拒绝。
    * 握手完成前的同步窗口内允许只读查询（快照安装触发的历史加载）。
    */
-  request<T = unknown>(op: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+  request<K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number): Promise<OpResult<K>> {
     if (!this.client || this.client.isClosed) {
-      return Promise.reject(new ControlClientError("connection_unavailable", "连接不可用：请求未发送"));
+      return Promise.reject(new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent"));
     }
-    return this.client.request<T>(op, params, timeoutMs);
+    return this.client.request(op, params, timeoutMs);
   }
 
   /** 主动关闭：停止重连，关闭 socket。 */

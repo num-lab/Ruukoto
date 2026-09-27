@@ -16,10 +16,13 @@ import {
   type CommandHost,
   type CommandResult,
 } from "../src/tui/commands.ts";
+import { ControlClientError } from "../src/control/client.ts";
+import type { OpParams, OpResult, TuiOp } from "../src/control/ops.ts";
 
 type Reply = unknown | Error | ((params: Record<string, unknown> | undefined) => unknown);
 
-function fake(opts: { view?: CommandEnv["view"]; replies?: Record<string, Reply>; hostReturns?: Partial<Record<keyof CommandHost, unknown>> } = {}) {
+/** 预设应答按 op 名登记（名字须在 op 表里；形状只按各测试所需手写）。 */
+function fake(opts: { view?: CommandEnv["view"]; replies?: Partial<Record<TuiOp, Reply>>; hostReturns?: Partial<Record<keyof CommandHost, unknown>> } = {}) {
   const log = {
     requests: [] as Array<[string, Record<string, unknown> | undefined]>,
     notes: [] as string[],
@@ -36,11 +39,11 @@ function fake(opts: { view?: CommandEnv["view"]; replies?: Record<string, Reply>
   });
   const env: CommandEnv = {
     view: opts.view === undefined ? { sessionId: "sess_1", projectId: "proj_1" } : opts.view,
-    request: async <T,>(op: string, params?: Record<string, unknown>) => {
+    request: async <K extends TuiOp>(op: K, params: OpParams<K>) => {
       log.requests.push([op, params]);
       const reply = opts.replies?.[op];
       if (reply instanceof Error) throw reply;
-      return (typeof reply === "function" ? reply(params) : reply) as T;
+      return (typeof reply === "function" ? reply(params) : reply) as OpResult<K>;
     },
     notify: (text) => log.notes.push(text),
     showText: (text) => log.texts.push(text),
@@ -125,7 +128,7 @@ test("派发：/skill <名称> 与 /skill:<名称> 都作任务输入不回显�
   assert.deepEqual(f.log.echoes, [], "任务输入不回显");
 
   await f.run("/skill  ");
-  assert.deepEqual(f.log.requests, [["list_skills", undefined]]);
+  assert.deepEqual(f.log.requests, [["list_skills", {}]]);
   assert.deepEqual(f.log.echoes, ["/skill"]);
   await f.run("/skills:x");
   assert.deepEqual(f.log.notes.at(-1), "未知命令：/skills:x（/help 查看命令列表）");
@@ -185,7 +188,7 @@ test("/memory：list（带项目 / 无会话）、show、revoke / restore 的版
         versions: [{ version: 1, author: "agent", reason: "", createdAt: "t1" }, { version: 2, author: "owner", reason: "改写", createdAt: "t2" }],
       },
       revoke_memory: {},
-      restore_memory: new Error("版本不存在"),
+      restore_memory: new ControlClientError("invalid_params", "版本不存在", "rejected"),
     },
   });
   await f.run("/memory");
@@ -211,7 +214,7 @@ test("/memory：list（带项目 / 无会话）、show、revoke / restore 的版
   assert.match(f.log.texts.at(-1)!, /^记忆 mem_1 已撤销/);
   await f.run("/memory restore mem_1 1");
   assert.deepEqual(f.log.requests.at(-1), ["restore_memory", { memory_id: "mem_1", from_version: 1 }]);
-  assert.match(f.log.notes.at(-1)!, /操作失败：版本不存在/);
+  assert.equal(f.log.notes.at(-1), "\x1b[31m恢复记忆失败：版本不存在\x1b[0m");
 
   await f.run("/memory purge");
   assert.match(f.log.notes.at(-1)!, /^用法：\/memory \[list/);
@@ -260,9 +263,18 @@ test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命�
   const unconfigured = fake({ replies: { qq_status: { configured: false } } });
   await unconfigured.run("/qq status");
   assert.match(unconfigured.log.texts[0]!, /^QQ 入口未配置/);
+  // 适配器未启动（dev 实例）：回退形状没有群与会话
+  const idle = fake({ replies: { qq_status: { configured: true, enabled: false, online: false, stateDetail: "适配器未启动" } } });
+  await idle.run("/qq");
+  await idle.run("/qq groups");
+  assert.deepEqual(idle.log.texts, ["QQ 入口已配置；适配器未启动", "允许的群：（空）\n增删经 CLI：ruukoto qq group add|remove <群号>"]);
   const broken = fake({ replies: { qq_status: new Error("连接断开") } });
   await broken.run("/qq");
   assert.match(broken.log.notes[0]!, /QQ 操作失败：连接断开/);
+  const lost = fake({ replies: { qq_set_enabled: new ControlClientError("connection_closed", "连接已关闭", "disconnected") } });
+  await lost.run("/qq disable");
+  assert.match(lost.log.notes[0]!, /QQ 入口停用结果未知：连接已关闭；先用 \/qq 核实再操作（未自动重发）/);
+  assert.deepEqual(lost.log.texts, [], "结果未知时不宣称已停用");
 });
 
 test("/search：无会话、无关键词、无命中（不完整）、有命中；请求失败", async () => {
@@ -296,7 +308,9 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
     replies: {
       list_skills: { dir: "/home/s", skills: [{ name: "review", explicitOnly: true, description: "代码审查" }], diagnostics: ["bad/SKILL.md：缺少 name"] },
       create_project: (p: any) => {
-        if (p.name === "坏") throw new Error("名称重复");
+        if (p.name === "坏") throw new ControlClientError("duplicate", "名称重复", "rejected");
+        if (p.name === "慢") throw new ControlClientError("request_timeout", "请求超时：create_project", "unknown");
+        if (p.name === "断") throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
         return { id: "proj_2" };
       },
     },
@@ -314,4 +328,10 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
   assert.equal(f.log.texts.at(-1), "项目已创建：家务 清单；用 /new-session <工作目录> 创建会话");
   await f.run("/new-project 坏");
   assert.match(f.log.notes.at(-1)!, /创建项目失败：名称重复/);
+  // 写操作失败按分类提示：应答丢失时可能已生效，不自动重发，指明核实入口
+  await f.run("/new-project 慢");
+  assert.match(f.log.notes.at(-1)!, /创建项目结果未知：请求超时：create_project；先用 \/sessions 核实再操作（未自动重发）/);
+  await f.run("/new-project 断");
+  assert.match(f.log.notes.at(-1)!, /创建项目未发送：连接不可用/);
+  assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4, "都只发一次");
 });

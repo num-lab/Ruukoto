@@ -5,7 +5,7 @@
  * 序列化后的字节数设限。持久化层（事件表、确认请求、工具操作）保持完整；
  * 只有发往客户端的载荷经这里的有界视图转换：
  * - 大参数对象 → 结构保留的预览（长字符串截断并标注），完整序列化正文经
- *   get_confirmation / get_tool_op 按 ID 分段读取；
+ *   get_confirmation_params / get_tool_op_params 按 ID 分段读取；
  * - 运行中输出增量与思考文本在源头（Driver）已按 FRAGMENT_TEXT_CAP 有界化。
  */
 

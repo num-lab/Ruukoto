@@ -163,13 +163,7 @@ export class ControlServer {
       const result = await this.dispatch(socket, request);
       this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result });
     } catch (err: any) {
-      const code = err?.code ?? "internal_error";
-      this.reply(socket, {
-        v: CONTROL_PROTOCOL_VERSION,
-        id: request.id,
-        ok: false,
-        error: { code, message: String(err?.message ?? err) },
-      });
+      this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: false, error: errorReply(err) });
     }
   }
 
@@ -824,4 +818,15 @@ export class ControlServer {
       // 忽略
     }
   }
+}
+
+/**
+ * 错误应答的码：业务码（小写蛇形）原样；系统码（ENOENT、ERR_SQLITE_* 等）与没带码的
+ * 异常不进协议，统一为 internal_error（客户端按应答丢失处理），原码留在 message。
+ */
+export function errorReply(err: any): { code: string; message: string } {
+  const raw = err?.code;
+  const message = String(err?.message ?? err);
+  if (typeof raw === "string" && /^[a-z][a-z0-9_]*$/.test(raw)) return { code: raw, message };
+  return { code: "internal_error", message: raw === undefined ? message : `${String(raw)}：${message}` };
 }

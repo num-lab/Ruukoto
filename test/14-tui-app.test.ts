@@ -14,8 +14,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { stripTerminalSequences, type Terminal } from "@earendil-works/pi-tui";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { ControlConnection } from "../src/control/connection.ts";
+import type { OpParams, TuiOp } from "../src/control/ops.ts";
 import { PendingRequestStore } from "../src/control/pending-requests.ts";
 import { SubmissionGuard } from "../src/control/submission.ts";
 import { readOwnerToken } from "../src/control/owner-token.ts";
@@ -33,71 +34,7 @@ import {
 import type { Responder } from "./helpers/mock-provider.ts";
 import type { Task } from "../src/core/types.ts";
 import type { HistoryPage } from "../src/core/history.ts";
-
-// ---------- 假终端 ----------
-
-class FakeTerminal implements Terminal {
-  columns = 100;
-  rows = 30;
-  readonly kittyProtocolActive = false;
-  private written: string[] = [];
-  private onInput: ((data: string) => void) | null = null;
-  private onResize: (() => void) | null = null;
-  start(onInput: (data: string) => void, onResize: () => void): void {
-    this.onInput = onInput;
-    this.onResize = onResize;
-  }
-  stop(): void {}
-  async drainInput(): Promise<void> {}
-  write(data: string): void {
-    this.written.push(data);
-  }
-  moveBy(): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
-  clearLine(): void {}
-  clearFromCursor(): void {}
-  clearScreen(): void {}
-  setTitle(): void {}
-  setProgress(): void {}
-  /**
-   * 模拟 StdinBuffer 的分帧：控制键（\r \n \x03 \x1b 开头序列）与文本分别
-   * 到达——真实终端不会把 "/cmd\r" 合成一个输入事件。
-   */
-  send(data: string): void {
-    let textBuf = "";
-    const flush = () => {
-      if (textBuf) {
-        this.onInput?.(textBuf);
-        textBuf = "";
-      }
-    };
-    for (let i = 0; i < data.length; i++) {
-      const ch = data[i]!;
-      if (ch === "\x1b") {
-        flush();
-        // ESC 序列（如 \x1b[B）作为整体
-        const rest = data.slice(i);
-        const m = /^\x1b\[[A-Za-z]~?/.exec(rest) ?? /^\x1b./.exec(rest);
-        const seq = m ? m[0] : "\x1b";
-        this.onInput?.(seq);
-        i += seq.length - 1;
-      } else if (ch === "\r" || ch === "\n" || ch === "\x03" || ch === "\t") {
-        flush();
-        this.onInput?.(ch);
-      } else {
-        textBuf += ch;
-      }
-    }
-    flush();
-  }
-  output(): string {
-    return this.written.join("");
-  }
-  clearOutput(): void {
-    this.written = [];
-  }
-}
+import { FakeTerminal } from "./helpers/fake-terminal.ts";
 
 interface AppHarness {
   app: TuiApp;
@@ -125,9 +62,9 @@ async function startApp(t: TestRuntime, opts: { sessionId?: string; requests?: A
   );
   if (opts.requests) {
     const request = connection.request.bind(connection);
-    connection.request = <T>(op: string, params?: Record<string, unknown>, timeoutMs?: number) => {
+    connection.request = <K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number) => {
       opts.requests!.push({ op, params });
-      return request<T>(op, params, timeoutMs);
+      return request(op, params, timeoutMs);
     };
   }
   const pendingStore = new PendingRequestStore(path.join(t.dirs.root, `pending-${harnessCounter++}`));

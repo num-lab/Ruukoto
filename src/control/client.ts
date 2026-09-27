@@ -22,12 +22,36 @@ import {
 } from "./protocol.ts";
 import type { OpParams, OpResult, TuiOp } from "./ops.ts";
 
+/**
+ * 请求结果的分类（架构工单 07）：由产生错误的地方写定，调用方按它处理而不列错误码。
+ * - not_sent：未发送（已知未执行）；
+ * - rejected：后台明确拒绝；
+ * - unknown：应答丢失，连接仍在（超时，或应答不能说明结果），可以立即查询核实；
+ * - disconnected：应答丢失，已断线，只能等重连后核实。
+ * unknown 与 disconnected 都是 CONTEXT.md 的「应答丢失」。
+ */
+export type RequestOutcome = "not_sent" | "rejected" | "unknown" | "disconnected";
+
+/** 服务端回了错误应答、却不能说明请求没有执行的码。 */
+const UNKNOWN_REPLY_CODES = new Set([
+  "internal_error", // 异常没带码，可能执行了一半
+  "response_too_large", // 已执行完，只是应答超过帧上限
+  "mode_switch_unverified", // 任务已被中断，切换结果未核实
+]);
+
 export class ControlClientError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  readonly outcome: RequestOutcome;
+  constructor(code: string, message: string, outcome: RequestOutcome) {
     super(message);
     this.code = code;
+    this.outcome = outcome;
   }
+}
+
+/** 请求失败的分类；不是 ControlClientError 的异常（实现 bug）保守按 unknown。 */
+export function requestOutcome(err: unknown): RequestOutcome {
+  return err instanceof ControlClientError ? err.outcome : "unknown";
 }
 
 export interface ClientCloseInfo {
@@ -99,7 +123,7 @@ export class ControlClient implements ControlTransport {
       const socket = net.connect(socketPath);
       const timer = setTimeout(() => {
         socket.destroy();
-        reject(new ControlClientError("connect_timeout", `连接超时：${socketPath}`));
+        reject(new ControlClientError("connect_timeout", `连接超时：${socketPath}`, "not_sent"));
       }, timeoutMs);
       socket.once("connect", () => {
         clearTimeout(timer);
@@ -107,7 +131,7 @@ export class ControlClient implements ControlTransport {
       });
       socket.once("error", (err) => {
         clearTimeout(timer);
-        reject(new ControlClientError("connection_error", String(err)));
+        reject(new ControlClientError("connection_error", String(err), "not_sent"));
       });
     });
   }
@@ -142,15 +166,18 @@ export class ControlClient implements ControlTransport {
     this.pending.delete(response.id);
     clearTimeout(waiter.timer);
     if (response.ok) waiter.resolve(response.result);
-    else waiter.reject(new ControlClientError(response.error?.code ?? "error", response.error?.message ?? "未知错误"));
+    else {
+      const code = response.error?.code ?? "error";
+      waiter.reject(new ControlClientError(code, response.error?.message ?? "未知错误", UNKNOWN_REPLY_CODES.has(code) ? "unknown" : "rejected"));
+    }
   }
 
-  /** 关闭并通知：任何路径导致的不可用都经此收口，保证只通知一次。 */
+  /** 关闭并通知：任何路径导致的不可用都经此收口，保证只通知一次；在途请求应答丢失。 */
   private terminate(code: string, message: string): void {
     if (this.closed) return;
     this.closed = true;
     this.closeInfo = { code, message };
-    this.failAll(new ControlClientError(code, message));
+    this.failAll(new ControlClientError(code, message, "disconnected"));
     this.socket.destroy();
     for (const listener of this.closeListeners) listener(this.closeInfo);
   }
@@ -164,15 +191,21 @@ export class ControlClient implements ControlTransport {
   }
 
   request<T = unknown>(op: string, params?: Record<string, unknown>, timeoutMs = 60_000): Promise<T> {
-    if (this.closed) return Promise.reject(new ControlClientError("closed", `客户端已关闭（${this.closeInfo?.message ?? ""}）`));
+    if (this.closed) return Promise.reject(new ControlClientError("closed", `客户端已关闭（${this.closeInfo?.message ?? ""}）`, "not_sent"));
     const id = `req-${++this.requestCounter}`;
+    let frame: string;
+    try {
+      frame = encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id, op, params: params ?? {} });
+    } catch (err) {
+      return Promise.reject(new ControlClientError("invalid_params", `参数无法序列化（${op}）：${(err as Error).message}`, "not_sent"));
+    }
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new ControlClientError("request_timeout", `请求超时：${op}`));
+        reject(new ControlClientError("request_timeout", `请求超时：${op}`, "unknown"));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.socket.write(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id, op, params: params ?? {} }));
+      this.socket.write(frame);
     });
   }
 

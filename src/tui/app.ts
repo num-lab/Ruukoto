@@ -34,6 +34,7 @@ import {
 import { Container } from "@earendil-works/pi-tui";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import { requestOutcome } from "../control/client.ts";
 import type { ControlConnection } from "../control/connection.ts";
 import type { OpResult } from "../control/ops.ts";
 import type { ConnectResult } from "../control/protocol.ts";
@@ -43,7 +44,6 @@ import { loadReloadState, saveReloadState } from "./reload-state.ts";
 import {
   ensureWorkspaceSession,
   findWorkspaceProjects,
-  isWorkspaceConnectionError,
   resolveWorkspaceDir,
 } from "../control/workspace.ts";
 import type { DirIdentity } from "../core/dir-identity.ts";
@@ -885,7 +885,7 @@ export class TuiApp {
   onConnectionState(state: "connecting" | "online" | "reconnecting" | "failed" | "closed", detail?: string): void {
     this.state.connection = { state, detail: detail ?? null, lastSyncAt: this.connection.lastSyncAt };
     if (state === "online") {
-      void this.afterOnline();
+      void this.reconcilePendingInputs();
     }
     this.refreshChrome();
   }
@@ -1064,19 +1064,20 @@ export class TuiApp {
   /**
    * 应答丢失核实：当前状态里按启动请求标识找会话；找到即进入，找不到才用同一
    * 标识重试（先找再发：已建项目会改变自动项目名，重发参数不同会被判冲突）。
+   * retried：连接仍在时的当场核实只做一次，重试仍应答丢失就不再循环。
    */
-  private async verifyWorkspaceEntry(): Promise<void> {
+  private async verifyWorkspaceEntry(retried = false): Promise<void> {
     const found = this.state.sessions.find((s) => s.createRequestId === this.startupRequestId);
     if (found) {
       this.workspacePhase = "done";
       this.switchSession(found.id);
       return;
     }
-    await this.ensureWorkspaceEntry(this.workspaceProjectId);
+    await this.ensureWorkspaceEntry(this.workspaceProjectId, retried);
   }
 
-  /** 幂等创建/复用工作区会话并进入；连接错误等重连核实，超时就地核实，协议错误回落正常启动。 */
-  private async ensureWorkspaceEntry(projectId: string | null): Promise<void> {
+  /** 幂等创建/复用工作区会话并进入；断线或未发送等重连核实，连接仍在的应答丢失当场核实，明确拒绝回落正常启动。 */
+  private async ensureWorkspaceEntry(projectId: string | null, retried = false): Promise<void> {
     this.workspaceProjectId = projectId;
     try {
       const { session, projectName, createdProject } = await ensureWorkspaceSession(
@@ -1089,19 +1090,27 @@ export class TuiApp {
       this.switchSession(session.id);
       if (createdProject) this.notify(`项目已自动创建：${projectName}`);
     } catch (err) {
-      if ((err as { code?: unknown })?.code === "request_timeout") {
-        // 连接仍在、不会有重连快照触发核实：就地核实（已建的会话经事件已在状态里）
-        this.notify(yellow("后台响应超时，按启动请求标识核实后重试…"));
-        return this.verifyWorkspaceEntry();
+      const outcome = requestOutcome(err);
+      const message = (err as Error).message;
+      if (outcome === "unknown" && !retried) {
+        // 连接仍在、不会有重连快照触发核实：当场核实（已建的会话经事件已在状态里）
+        this.notify(yellow(`后台应答丢失（${message}），按启动请求标识核实后重试…`));
+        return this.verifyWorkspaceEntry(true);
       }
-      if (isWorkspaceConnectionError(err)) {
-        // 应答可能已丢失：不盲目重发，等重连后的新快照按启动请求标识核实
+      if (outcome === "disconnected" || outcome === "not_sent") {
+        // 不盲目重发：等重连后的新快照按启动请求标识核实（未发送的也在那时按同一标识重发）
         this.workspacePhase = "awaiting-reconnect";
         return;
       }
-      // 后台明确拒绝（如保护根）：不留下半选中状态，回落正常启动流程
+      // 后台明确拒绝（如保护根），或当场核实后仍应答丢失：不留下半选中状态，回落正常启动流程
       this.workspacePhase = "done";
-      this.notify(red(`工作区会话创建失败：${(err as Error).message}`));
+      this.notify(
+        red(
+          outcome === "unknown"
+            ? `工作区会话创建结果未知：${message}；已核实一次仍未确认，回到正常启动（用 /sessions 查看是否已创建）`
+            : `工作区会话创建失败：${message}`,
+        ),
+      );
       this.normalStartupFlow({ resync: false });
     }
   }
@@ -1144,14 +1153,19 @@ export class TuiApp {
     this.refreshAll();
   }
 
-  private async afterOnline(): Promise<void> {
-    // 重连只恢复观察后的核实：待确认输入按 session_id+request_id 查询
+  /**
+   * 待确认输入按 session_id+request_id 核实：上线（首连与重连）时核实全部；
+   * 连接仍在的应答丢失之后只核实那一条（onlyRequestId）。
+   */
+  private async reconcilePendingInputs(onlyRequestId?: string): Promise<void> {
     const pending = this.pendingStore.list();
     this.state.pendingInputs = pending.records;
     this.state.corruptPendingFiles = pending.corrupt;
-    if (pending.records.length > 0 || pending.corrupt.length > 0) {
-      this.notify(`发现 ${pending.records.length} 条待核实输入${pending.corrupt.length > 0 ? `（另有 ${pending.corrupt.length} 条损坏记录待人工处理）` : ""}，正在核实…`);
-      const outcomes = await this.guard.reconcileAll();
+    const only = onlyRequestId === undefined ? null : pending.records.find((r) => r.requestId === onlyRequestId);
+    if (only === undefined) return;
+    if (only || pending.records.length > 0 || pending.corrupt.length > 0) {
+      if (!only) this.notify(`发现 ${pending.records.length} 条待核实输入${pending.corrupt.length > 0 ? `（另有 ${pending.corrupt.length} 条损坏记录待人工处理）` : ""}，正在核实…`);
+      const outcomes = only ? [await this.guard.reconcile(only)] : await this.guard.reconcileAll();
       for (const outcome of outcomes) {
         switch (outcome.kind) {
           case "linked":
@@ -1445,12 +1459,19 @@ export class TuiApp {
         }
         case "pending_verification":
           this.state.pendingInputs = this.pendingStore.list().records;
-          this.notify(yellow(`应答丢失：输入 ${outcome.requestId} 接收结果待核实（不会重复发送）`));
+          if (outcome.outcome === "unknown") {
+            // 连接仍在：不会有重连触发核实，当场按原键核实
+            this.notify(yellow(`应答丢失：输入 ${outcome.requestId} 接收结果待核实（${outcome.reason}），正在按原键核实`));
+            void this.reconcilePendingInputs(outcome.requestId);
+          } else {
+            this.notify(yellow(`应答丢失：输入 ${outcome.requestId} 接收结果待核实，重连后按原键核实（不会换新键重发）`));
+          }
           break;
         case "rejected":
+        case "not_sent":
           view.draft = text;
           if (this.state.currentSessionId === view.sessionId) this.editor.setText(text);
-          this.state.note(view.sessionId, `提交被拒绝：${outcome.message}`);
+          this.state.note(view.sessionId, `${outcome.kind === "rejected" ? "提交被拒绝" : "提交未发送"}：${outcome.message}`);
           break;
         case "conflict":
           this.notify(red(`提交冲突：${outcome.message}；请核实原任务，不会换新键重发`));
@@ -1674,9 +1695,15 @@ export class TuiApp {
       this.state.applySessionDefaultMode(sessionId, saved.defaultAccessMode, saved.defaultAccessModeVersion);
       result(`Switched to ${label}`);
     } catch (err) {
+      const outcome = requestOutcome(err);
       const code = (err as { code?: string }).code;
-      if (code === "connection_unavailable" || code === "closed" || code === "request_timeout") {
-        // 应答丢失：先查询后台实际状态，不盲目重放
+      if (outcome === "not_sent") {
+        result(`默认模式设置未发送：${(err as Error).message}`, true);
+      } else if (outcome === "disconnected") {
+        // 断线：此刻查询必然失败；重连快照带回后台实际值
+        result("设置结果未知：连接已断开，重连后按后台状态显示（未自动重发）", true);
+      } else if (outcome === "unknown") {
+        // 应答丢失、连接仍在：先查询后台实际状态，不盲目重放
         result("设置应答丢失；正在查询后台状态（未自动重发）", true);
         try {
           const saved = await this.connection.request("get_session", { session_id: sessionId });
@@ -2289,11 +2316,17 @@ export class TuiApp {
         this.tui.setFocus(this.editor);
         return;
       } catch (err) {
+        const outcome = requestOutcome(err);
         const code = (err as { code?: string }).code;
-        if (code === "stale_confirmation" || code === "not_found") {
+        if (outcome === "rejected" && (code === "stale_confirmation" || code === "not_found")) {
           footerText.setText(yellow("审批已失效、已被其他客户端处理或任务已结束；请关闭后刷新"));
-        } else if (code === "connection_unavailable" || code === "closed" || code === "request_timeout") {
-          // 应答丢失：先查询实际状态，不盲目重放
+        } else if (outcome === "not_sent") {
+          footerText.setText(red(`应答未发送：${(err as Error).message}`));
+        } else if (outcome === "disconnected") {
+          // 断线：此刻查询必然失败；重连快照带回待处理审批
+          footerText.setText(yellow("应答结果未知：连接已断开；重连后以 /approvals 列表为准（不自动重放）"));
+        } else if (outcome === "unknown") {
+          // 应答丢失、连接仍在：先查询实际状态，不盲目重放
           footerText.setText(yellow("应答结果未知：正在查询实际状态…"));
           try {
             const detail = await this.connection.request("get_task", { task_id: c.taskId });
@@ -2503,11 +2536,24 @@ export class TuiApp {
       this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
       result(`Switched to ${this.selectionText(saved.modelSelection)}`);
     } catch (err) {
-      result(`模型设置未确认：${(err as Error).message}；正在查询后台状态`, true);
-      try {
-        const saved = await this.connection.request("get_session", { session_id: sessionId });
-        this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
-      } catch { result("状态查询失败，重连后恢复；未自动重发设置", true); }
+      const outcome = requestOutcome(err);
+      const message = (err as Error).message;
+      const conflict = (err as { code?: string }).code === "model_selection_conflict";
+      if (outcome === "not_sent") {
+        result(`模型设置未发送：${message}`, true);
+      } else if (outcome === "disconnected") {
+        // 断线：此刻查询必然失败；重连快照带回后台实际值
+        result("模型设置结果未知：连接已断开，重连后按后台状态显示（未自动重发）", true);
+      } else if (outcome === "unknown" || conflict) {
+        // 应答丢失，或已被其他客户端修改：查询后台实际值，不盲目重放、不覆盖别人的选择
+        result(conflict ? `模型已被其他客户端修改：${message}` : `模型设置未确认：${message}；正在查询后台状态`, true);
+        try {
+          const saved = await this.connection.request("get_session", { session_id: sessionId });
+          this.state.applySessionModel(sessionId, saved.modelSelection, saved.modelSelectionVersion);
+        } catch { result("状态查询失败，重连后恢复；未自动重发设置", true); }
+      } else {
+        result(`模型设置失败：${message}`, true);
+      }
     }
     this.refreshAll();
   }

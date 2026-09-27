@@ -11,7 +11,8 @@ import type { OpParams, OpResult, TuiOp } from "../../src/control/ops.ts";
 import type { ConnectResult } from "../../src/control/protocol.ts";
 import type { PersistentEvent } from "../../src/core/types.ts";
 
-export type FakeHandlers = { [K in TuiOp]?: (params: OpParams<K>) => OpResult<K> | Promise<OpResult<K>> };
+/** 应答函数；第二个参数是收到请求的实例（可在应答前 drop 模拟断线）。 */
+export type FakeHandlers = { [K in TuiOp]?: (params: OpParams<K>, transport: FakeTransport) => OpResult<K> | Promise<OpResult<K>> };
 
 export interface FakeScript {
   /** 默认返回 seq 0 的空快照。 */
@@ -67,16 +68,16 @@ export class FakeTransport implements ControlTransport {
   }
 
   request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
-    if (this.closed) return Promise.reject(new ControlClientError("closed", "客户端已关闭"));
+    if (this.closed) return Promise.reject(new ControlClientError("closed", "客户端已关闭", "not_sent"));
     this.requests.push({ op, params });
-    const handler = this.script.handlers?.[op] as ((p: OpParams<K>) => OpResult<K> | Promise<OpResult<K>>) | undefined;
+    const handler = this.script.handlers?.[op] as ((p: OpParams<K>, t: FakeTransport) => OpResult<K> | Promise<OpResult<K>>) | undefined;
     return new Promise<OpResult<K>>((resolve, reject) => {
       this.inflight.add(reject);
       const settle = <V>(fn: (v: V) => void) => (v: V) => {
         if (this.inflight.delete(reject)) fn(v);
       };
       Promise.resolve()
-        .then(() => (handler ? handler(params) : Promise.reject(new ControlClientError("unknown_op", `替身未设定：${op}`))))
+        .then(() => (handler ? handler(params, this) : Promise.reject(new ControlClientError("unknown_op", `替身未设定：${op}`, "rejected"))))
         .then(settle(resolve), settle(reject));
     });
   }
@@ -98,7 +99,7 @@ export class FakeTransport implements ControlTransport {
   private terminate(code: string, message: string): void {
     if (this.closed) return;
     this.closed = true;
-    for (const reject of this.inflight) reject(new ControlClientError(code, message));
+    for (const reject of this.inflight) reject(new ControlClientError(code, message, "disconnected"));
     this.inflight.clear();
     for (const listener of this.closeListeners) listener({ code, message });
   }

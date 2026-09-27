@@ -14,7 +14,7 @@ import * as path from "node:path";
 import { ControlConnection, type ConnectionState } from "../src/control/connection.ts";
 import { ControlClientError, type ControlTransport } from "../src/control/client.ts";
 import { PendingRequestStore, type PendingRequest } from "../src/control/pending-requests.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
+import { SubmissionGuard, type SubmitOutcome } from "../src/control/submission.ts";
 import { readOwnerToken } from "../src/control/owner-token.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import {
@@ -26,7 +26,7 @@ import {
   connectAuthedClient,
   lastUserText,
 } from "./helpers/testkit.ts";
-import { FakeTransport, fakeSnapshot } from "./helpers/fake-control.ts";
+import { FakeTransport, fakeControl, fakeSnapshot } from "./helpers/fake-control.ts";
 import type { PersistentEvent } from "../src/core/types.ts";
 
 // ---------- 假客户端（脚本化握手与事件推送，test/helpers/fake-control.ts） ----------
@@ -158,7 +158,7 @@ test("认证失败与协议不兼容：进入 failed，不自动重试", async (
     connects++;
     return new FakeTransport({
       authenticate: async () => {
-        throw new ControlClientError("unauthorized", "拥有者令牌无效");
+        throw new ControlClientError("unauthorized", "拥有者令牌无效", "rejected");
       },
       handshake: async () => ({ seq: 0, replay: [], snapshot: fakeSnapshot() }),
     });
@@ -177,7 +177,7 @@ test("协议版本不兼容（握手阶段）：进入 failed，不自动重试"
     connects++;
     return new FakeTransport({
       handshake: async () => {
-        throw new ControlClientError("protocol_version", "协议版本不兼容：服务端 v3，请求 v2；请升级客户端");
+        throw new ControlClientError("protocol_version", "协议版本不兼容：服务端 v3，请求 v2；请升级客户端", "rejected");
       },
     });
   };
@@ -252,6 +252,47 @@ async function startGuardRuntime() {
   const guard = new SubmissionGuard(store, conn);
   return { t, store, conn, guard };
 }
+
+test("提交结果分类：未发送与明确拒绝清除记录；应答丢失（含坏帧断线）保留待核实", async () => {
+  const log: ConnLog = { states: [], snapshots: [], events: [] };
+  const store = new PendingRequestStore(fs.mkdtempSync(path.join(os.tmpdir(), "pending-outcome-")));
+  let reply: "reject" | "timeout" | "connection_closed" | "bad_frame" = "reject";
+  const ctl = fakeControl({
+    handlers: {
+      submit: (_params, transport) => {
+        if (reply === "reject") return Promise.reject(new ControlClientError("invalid_params", "输入为空", "rejected"));
+        if (reply === "timeout") return Promise.reject(new ControlClientError("request_timeout", "请求超时：submit", "unknown"));
+        transport.drop(reply, "断线");
+        return new Promise(() => {});
+      },
+    },
+  });
+  const { conn } = makeConn({ clientFactory: ctl.factory }, log);
+  await conn.start();
+  const guard = new SubmissionGuard(store, conn);
+  const submit = () => guard.submit("submit", { session_id: "s", input: "x", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
+  const pending = () => store.list().records.length;
+
+  assert.equal((await submit()).kind, "rejected");
+  assert.equal(pending(), 0, "明确拒绝清除记录");
+  reply = "timeout";
+  assert.deepEqual(pick(await submit()), ["pending_verification", "unknown"]);
+  reply = "connection_closed";
+  assert.deepEqual(pick(await submit()), ["pending_verification", "disconnected"]);
+  await waitFor("重连上线", () => conn.state === "online" && ctl.transports.length === 2);
+  reply = "bad_frame";
+  assert.deepEqual(pick(await submit()), ["pending_verification", "disconnected"], "坏帧断线同样是应答丢失");
+  assert.equal(pending(), 3, "应答丢失保留待核实");
+  await waitFor("再次重连", () => conn.state === "online" && ctl.transports.length === 3);
+  ctl.transports[2]!.drop();
+  assert.equal((await submit()).kind, "not_sent", "断线后、重连前：连接层拒绝发送");
+  assert.equal(pending(), 3, "未发送清除记录");
+  conn.close();
+
+  function pick(outcome: SubmitOutcome): [string, string | undefined] {
+    return [outcome.kind, outcome.kind === "pending_verification" ? outcome.outcome : undefined];
+  }
+});
 
 test("提交成功：记录清除；同一输入只产生一个任务", async () => {
   const { t, store, conn, guard } = await startGuardRuntime();

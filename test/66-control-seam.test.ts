@@ -5,6 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -23,7 +24,7 @@ import { TuiApp } from "../src/tui/app.ts";
 import { ViewState } from "../src/tui/state.ts";
 import { fakeControl, fakeSnapshot, type FakeHandlers, type FakeScript } from "./helpers/fake-control.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
-import { routeResponder, startTestRuntime, waitFor } from "./helpers/testkit.ts";
+import { createProjectSession, routeResponder, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 // ---------- op 表 ----------
 
@@ -171,6 +172,35 @@ function task(overrides: Partial<Task> = {}): Task {
   };
 }
 
+const CONFIRMATION: ConfirmationRequest = {
+  id: "conf_fake", taskId: "task_fake", sessionId: "sess_fake", toolOpId: "toolop_fake", toolName: "mock_gate",
+  params: { note: "批准我" }, scope: { kind: "tool", workspaceOnly: true }, cwdDev: 0, cwdIno: 0, permissionVersion: 1,
+  status: "pending", createdAt: T0, respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null,
+  reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null,
+};
+
+/** 待审批任务的快照与详情应答（审批用例共用）。 */
+function approvalScript(respond: FakeHandlers["respond_confirmation"], status: ConfirmationRequest["status"] = "pending") {
+  const { params: _params, ...rest } = CONFIRMATION;
+  const awaiting = task({ status: "awaiting_confirmation" });
+  return {
+    snapshot: { tasks: [awaiting], confirmations: [confirmationToView(CONFIRMATION)] },
+    handlers: {
+      get_confirmation_params: () => ({ confirmation: rest, params: { text: '{"note":"批准我"}', offset: 0, totalBytes: 17, truncated: false } }),
+      get_task: () => ({ seq: 0, task: awaiting, toolOps: [], confirmations: [confirmationToView({ ...CONFIRMATION, status })], artifacts: [], outputPreview: null }),
+      respond_confirmation: respond,
+    } satisfies FakeHandlers,
+  };
+}
+
+async function openApproval(h: Awaited<ReturnType<typeof startFakeApp>>): Promise<void> {
+  h.terminal.send("/approvals\r");
+  await new Promise((r) => setTimeout(r, 80));
+  h.terminal.send("\r");
+  await waitFor("审批详情", () => h.terminal.output().includes("批准我"));
+  h.terminal.send("a");
+}
+
 /** 启动时 TUI 会读的只读 op：给空结果。 */
 const QUIET: FakeHandlers = {
   read_history: () => ({ fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null }),
@@ -287,33 +317,79 @@ test("/mode 应答丢失而连接仍在（超时）：立即查询后台状态",
 });
 
 test("审批断线：页脚提示结果未知，以重连后的审批列表为准，不查询不重放", async () => {
-  const confirmation: ConfirmationRequest = {
-    id: "conf_fake", taskId: "task_fake", sessionId: "sess_fake", toolOpId: "toolop_fake", toolName: "mock_gate",
-    params: { note: "批准我" }, scope: { kind: "tool", workspaceOnly: true }, cwdDev: 0, cwdIno: 0, permissionVersion: 1,
-    status: "pending", createdAt: T0, respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null,
-    reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null,
-  };
-  const { params: _params, ...confirmationRest } = confirmation;
+  const h = await startFakeApp(
+    approvalScript((_params, transport) => {
+      transport.drop();
+      return new Promise(() => {});
+    }),
+  );
+  try {
+    await openApproval(h);
+    await waitFor("页脚", () => h.terminal.output().includes("应答结果未知：连接已断开"));
+    await waitFor("重连", () => h.ctl.transports.length === 2);
+    assert.equal(h.refused("get_task"), 0, "断线时不发必然失败的查询");
+    assert.equal(h.requested("respond_confirmation"), 1, "不自动重放");
+  } finally {
+    h.quit();
+  }
+});
+
+test("审批应答丢失而连接仍在：立即查询后台实际状态，不重放", async () => {
+  const h = await startFakeApp(
+    approvalScript(() => Promise.reject(new ControlClientError("response_too_large", "应答超过帧上限", "unknown")), "approved"),
+  );
+  try {
+    const before = h.requested("get_task");
+    await openApproval(h);
+    await waitFor("页脚", () => h.terminal.output().includes("后台实际状态：approved"));
+    assert.equal(h.requested("get_task"), before + 1, "查询一次");
+    assert.equal(h.requested("respond_confirmation"), 1, "不自动重放");
+  } finally {
+    h.quit();
+  }
+});
+
+const MOCK_MODEL = { provider: "mock", modelId: "mock-model", name: "Mock Model", contextWindow: 200000, maxTokens: 8192, thinkingLevels: ["off" as const], available: true, errorCode: null };
+
+async function pickCurrentModel(h: Awaited<ReturnType<typeof startFakeApp>>): Promise<void> {
+  h.terminal.send("/model\r");
+  await waitFor("模型面板", () => h.terminal.output().includes("Mock Model"));
+  h.terminal.send("\r");
+}
+
+test("/model 断线：结果行提示结果未知，不发必然失败的查询", async () => {
   const h = await startFakeApp({
-    snapshot: { tasks: [task({ status: "awaiting_confirmation" })], confirmations: [confirmationToView(confirmation)] },
     handlers: {
-      get_confirmation_params: () => ({ confirmation: confirmationRest, params: { text: '{"note":"批准我"}', offset: 0, totalBytes: 17, truncated: false } }),
-      respond_confirmation: (_params, transport) => {
+      list_models: () => ({ models: [MOCK_MODEL], total: 1, nextOffset: null }),
+      set_session_model: (_params, transport) => {
         transport.drop();
         return new Promise(() => {});
       },
     },
   });
   try {
-    h.terminal.send("/approvals\r");
-    await new Promise((r) => setTimeout(r, 80));
-    h.terminal.send("\r");
-    await waitFor("审批详情", () => h.terminal.output().includes("批准我"));
-    h.terminal.send("a");
-    await waitFor("页脚", () => h.terminal.output().includes("应答结果未知：连接已断开"));
-    await waitFor("重连", () => h.ctl.transports.length === 2);
-    assert.equal(h.refused("get_task"), 0, "断线时不发必然失败的查询");
-    assert.equal(h.requested("respond_confirmation"), 1, "不自动重放");
+    await pickCurrentModel(h);
+    await waitFor("结果行", () => h.commandResult().includes("连接已断开"));
+    assert.match(h.commandResult(), /模型设置结果未知.*未自动重发/);
+    assert.equal(h.refused("get_session"), 0, "断线时不发必然失败的查询");
+  } finally {
+    h.quit();
+  }
+});
+
+test("/model 被其他客户端修改：刷新后台实际值，不覆盖", async () => {
+  const h = await startFakeApp({
+    handlers: {
+      list_models: () => ({ models: [MOCK_MODEL], total: 1, nextOffset: null }),
+      set_session_model: () => Promise.reject(new ControlClientError("model_selection_conflict", "模型选择已被修改", "rejected")),
+      get_session: () => session({ modelSelection: { ...MODEL, thinkingLevel: "high" }, modelSelectionVersion: 2 }),
+    },
+  });
+  try {
+    await pickCurrentModel(h);
+    await waitFor("刷新", () => h.state.sessions[0]?.modelSelectionVersion === 2);
+    assert.match(h.commandResult(), /模型已被其他客户端修改/);
+    assert.equal(h.requested("set_session_model"), 1, "不重发");
   } finally {
     h.quit();
   }
@@ -394,4 +470,28 @@ test("工作区入口的本地前置检查（项目不在快照里）：按明�
     (e: unknown) => e,
   );
   assert.equal(requestOutcome(err), "rejected");
+});
+
+test("CLI submit：后台明确拒绝时打印「提交被拒绝」，不再提示按原键核实", async () => {
+  const t = await startTestRuntime("cli-reject", routeResponder([]));
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    // CLI 按 <控制目录>/control.sock 连接；测试后台用短 socket 路径，链过去
+    const controlDir = t.runtime.controlDir();
+    fs.symlinkSync(t.runtime.socketPath(), path.join(controlDir, "control.sock"));
+    const repoRoot = path.resolve(import.meta.dirname, "..");
+    const child = childProcess.spawn(
+      path.join(repoRoot, "node_modules", ".bin", "tsx"),
+      ["src/cli.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
+      { cwd: repoRoot, env: { ...process.env, RUUKOTO_CONTROL_DIR: controlDir } },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    const status = await new Promise<number | null>((resolve) => child.on("close", resolve));
+    assert.notEqual(status, 0);
+    assert.match(stderr, /提交被拒绝：模型不在后台已配置的目录中/);
+    assert.doesNotMatch(stderr, /勿换键重试/);
+  } finally {
+    await t.shutdown();
+  }
 });

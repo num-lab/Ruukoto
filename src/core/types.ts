@@ -503,7 +503,7 @@ export type PersistentEventBody =
   /**
    * 工具/审批事件（线上载荷）：params 可能被替换为有界预览
    * （paramsTruncated=true，paramsBytes 为完整序列化字节数）；完整参数经
-   * get_confirmation / get_tool_op 按 ID 分段读取。持久化的事件正文保持完整。
+   * get_confirmation_params / get_tool_op_params 按 ID 分段读取。持久化的事件正文保持完整。
    */
   | { type: "task.tool_intent"; taskId: string; toolOpId: string; sdkCallId: string | null; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean }
   | { type: "task.tool_result"; taskId: string; toolOpId: string; summary: string; isError: boolean; artifactIds: string[]; editStats?: EditStats }

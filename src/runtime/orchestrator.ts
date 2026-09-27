@@ -31,6 +31,7 @@ import {
   type Task,
 } from "../core/types.ts";
 import { sessionToolCategories } from "../agent/tool-availability.ts";
+import { hasNoWriteEffect } from "../agent/tool-op-ledger.ts";
 
 /** 编排器需要的 Runtime 窄接口（宿主注入；除此之外的能力编排器不可见）。 */
 export interface OrchestratorBridge {
@@ -98,8 +99,6 @@ export type DelegationMode = "analyze" | "draft";
 export const DELEGATION_LIMITS = { perParent: 3, deadlineMs: 60 * 60_000 };
 /** 委派正文首行由宿主写入（模式的持久记录；模型正文在其后，不能伪造首行）。 */
 const DELEGATION_HEADER = /^\[委派 coding · (analyze|draft)\]\n/;
-// 仅重试可证明只读或无副作用的操作（todo_write 只替换会话内清单）；bash、MCP、记忆写入及未知工具一律不猜测副作用。
-const RETRY_SAFE_TOOLS = new Set(["read", "read_artifact", "history_search", "history_read", "memory_list", "memory_read", "web_search", "skill", "todo_write"]);
 
 /** 委派 coding 的子任务模式（非委派任务为 null）。 */
 export function delegationMode(task: Task): DelegationMode | null {
@@ -605,7 +604,8 @@ export class Orchestrator {
       mode === "analyze" && task.parentTaskId && !task.sourceEventId && task.status === "failed" &&
       !task.effectUnknown && !task.requestId.endsWith(":retry") &&
       !this.store.listConfirmationsByTask(task.id).some((c) => c.status === "approved" || c.consumedAt !== null) &&
-      this.store.listToolOpsByTask(task.id).every((op) => RETRY_SAFE_TOOLS.has(op.toolName) && !op.effectUnknown && op.resultSummary !== null)
+      // 仅重试可证明无写入效果的操作（工具操作账本的规则表）；bash、MCP、记忆写入及未知工具一律不猜测副作用
+      this.store.listToolOpsByTask(task.id).every((op) => hasNoWriteEffect(op) && !op.effectUnknown && op.resultSummary !== null)
     ) {
       // 先以确定参数建重试，再记录首次结果；崩溃后同键重提只返回原重试。
       try {

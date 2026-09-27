@@ -2325,7 +2325,7 @@ export class Runtime {
       const ended = all
         .filter((t) => !ACTIVE_TASK_STATUSES.includes(t.status))
         .sort((a, b) => (a.endedAt ?? a.createdAt).localeCompare(b.endedAt ?? b.createdAt) || b.id.localeCompare(a.id))
-        .slice(0, SNAPSHOT_ENDED_TASKS_PER_SESSION);
+        .slice(-SNAPSHOT_ENDED_TASKS_PER_SESSION);
       tasks.push(...active, ...ended);
     }
     const previews: Record<string, OutputPreview> = {};

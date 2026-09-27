@@ -176,3 +176,31 @@ test("已接收请求以不可变提交参数核实，不重新验证认证或�
     await assert.rejects(t.client.request("submit", { session_id: sessionId, request_id: "missing", input: "不能推断配置" }), { code: "invalid_params" });
   } finally { await t.shutdown(); }
 });
+
+test("快照：每个会话只带最近结束的 20 个任务", async () => {
+  const t = await startTestRuntime("snapshot-ended", routeResponder([]));
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const store = t.runtime.store;
+    const ids = store.withTx(() =>
+      Array.from({ length: 25 }, (_, i) => {
+        const { task } = store.insertQueuedTask({
+          sessionId,
+          requestId: `ended-${i}`,
+          input: `任务 ${i}`,
+          modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+          submissionDigest: `digest-${i}`,
+        });
+        store.transitionTask(task.id, ["queued"], "canceled", { endedAt: `2026-01-01T00:00:${String(i).padStart(2, "0")}.000Z` });
+        return task.id;
+      }),
+    );
+    const snapshot = (await t.client.handshake()).snapshot;
+    assert.deepEqual(
+      snapshot.tasks.filter((task) => task.sessionId === sessionId).map((task) => task.id),
+      ids.slice(5),
+    );
+  } finally {
+    await t.shutdown();
+  }
+});

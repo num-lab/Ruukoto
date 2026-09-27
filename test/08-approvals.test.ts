@@ -914,3 +914,106 @@ test("带 scope 的凭据在审批前拒绝：不请拥有者批准注定失败�
     await t.shutdown();
   }
 });
+
+// ---------- 消费后的失败定性（架构工单 05） ----------
+
+/** 收下请求后重置连接（/reset），或一直不应答（/hang）。 */
+async function startFlakyService(): Promise<{ url: string; hits: string[]; close(): Promise<void> }> {
+  const hits: string[] = [];
+  const server = http.createServer((req) => {
+    hits.push(`${req.method} ${req.url}`);
+    if (req.url === "/hang") return;
+    req.resume();
+    req.on("end", () => req.socket.destroy());
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    hits,
+    close: () => new Promise<void>((resolve) => {
+      server.closeAllConnections();
+      server.close(() => resolve());
+    }),
+  };
+}
+
+/** 一个当前无监听的回环端口。 */
+async function closedPort(): Promise<number> {
+  const probe = http.createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const port = (probe.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
+}
+
+test("HTTP 写请求发出后的传输失败记效果未知；发出前失败与 GET 记已知错误（架构工单 05）", async () => {
+  const service = await startFlakyService();
+  const refused = await closedPort();
+  const calls = [
+    { id: "p_reset", name: "http_request", arguments: { method: "POST", url: `${service.url}/reset`, body: "x", reason: "提交" } },
+    { id: "p_refused", name: "http_request", arguments: { method: "POST", url: `http://127.0.0.1:${refused}/x`, body: "x", reason: "提交" } },
+    { id: "g_reset", name: "http_request", arguments: { method: "GET", url: `${service.url}/reset`, reason: "读取" } },
+  ];
+  const responder: Responder = (req) => {
+    const done = req.messages.filter((m) => m?.role === "tool").length;
+    return done < calls.length ? { kind: "tool_calls", calls: [calls[done]!] } : { kind: "text", text: "完成" };
+  };
+  const t = await startTestRuntime("http-effect", responder, { workDirs: 1, config: realTools() });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+      session_id: sessionId,
+      request_id: "he-1",
+      input: "三次请求",
+    });
+    const seen: string[] = [];
+    for (let i = 0; i < calls.length; i++) {
+      const conf = await pendingConfirmation(t.client, task.id, seen);
+      seen.push(conf.id);
+      await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
+    }
+    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed", 60_000);
+    const detail = await taskStatus(t.client, task.id);
+    const op = (id: string) => detail.toolOps.find((o: any) => o.sdkCallId === id);
+    assert.equal(op("p_reset").effectUnknown, true, "已发出的写请求被重置 = 结果无法确认");
+    assert.match(op("p_reset").resultSummary, /请求可能已送达/);
+    assert.equal(op("p_refused").effectUnknown, false, "连接被拒：请求未发出，已知错误");
+    assert.match(op("p_refused").resultSummary, /HTTP 无响应：请求失败/);
+    assert.equal(op("g_reset").effectUnknown, false, "GET 无写入效果");
+    assert.equal(op("g_reset").isError, true);
+    assert.equal(detail.task.effectUnknown, true);
+  } finally {
+    await t.shutdown();
+    await service.close();
+  }
+});
+
+test("停止挂起的 HTTP 写请求：中止信号让停止不等超时，操作记效果未知（架构工单 05）", async () => {
+  const service = await startFlakyService();
+  const t = await startTestRuntime(
+    "http-stop",
+    oneToolResponder("http_request", { method: "POST", url: `${service.url}/hang`, body: "x", reason: "提交" }),
+    { workDirs: 1, config: realTools() },
+  );
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+      session_id: sessionId,
+      request_id: "hs-1",
+      input: "挂起的请求",
+    });
+    const conf = await pendingConfirmation(t.client, task.id);
+    await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
+    await waitFor("请求已到达服务端", () => service.hits.includes("POST /hang"));
+    const started = Date.now();
+    await t.client.request("interrupt", { task_id: task.id });
+    await waitFor("任务中断", async () => (await taskStatus(t.client, task.id)).task.status === "interrupted", 10_000);
+    assert.ok(Date.now() - started < 10_000, "停止不等 30 秒请求超时");
+    const detail = await taskStatus(t.client, task.id);
+    assert.equal(detail.toolOps.find((o: any) => o.toolName === "http_request").effectUnknown, true);
+  } finally {
+    await t.shutdown();
+    await service.close();
+  }
+});

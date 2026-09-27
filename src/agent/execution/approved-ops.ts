@@ -225,6 +225,8 @@ export interface HttpOpOutcome {
   message: string;
   body: string;
   responseHeaders: Record<string, string>;
+  /** 请求头与正文已交给操作系统发送（`finish`）；之后的失败远端可能已收到。 */
+  sent: boolean;
 }
 
 /**
@@ -241,15 +243,16 @@ type LookupCallback = (err: NodeJS.ErrnoException | null, address: string, famil
 export async function executeApprovedHttpRequest(
   req: HttpOpRequest,
   credentials: CredentialStore,
+  signal?: AbortSignal,
 ): Promise<HttpOpOutcome> {
   let url: URL;
   try {
     url = new URL(req.url);
   } catch {
-    return { ok: false, status: null, message: "无法解析目标 URL", body: "", responseHeaders: {} };
+    return { ok: false, status: null, message: "无法解析目标 URL", body: "", responseHeaders: {}, sent: false };
   }
   if (isReservedTarget(url)) {
-    return { ok: false, status: null, message: `不支持的目标协议：${url.protocol}（仅 http/https）`, body: "", responseHeaders: {} };
+    return { ok: false, status: null, message: `不支持的目标协议：${url.protocol}（仅 http/https）`, body: "", responseHeaders: {}, sent: false };
   }
 
   const headers: Record<string, string> = {};
@@ -259,7 +262,7 @@ export async function executeApprovedHttpRequest(
   if (req.credentialName) {
     const binding = credentials.get(req.credentialName);
     if (!binding) {
-      return { ok: false, status: null, message: `凭据绑定不存在：${req.credentialName}`, body: "", responseHeaders: {} };
+      return { ok: false, status: null, message: `凭据绑定不存在：${req.credentialName}`, body: "", responseHeaders: {}, sent: false };
     }
     if (binding.scope) {
       // 带使用范围的凭据（如 MCP 服务凭据）不得被通用 http_request 借用（issue 06/16）
@@ -269,6 +272,7 @@ export async function executeApprovedHttpRequest(
         message: `凭据 ${binding.name} 限定了使用范围（${binding.purpose}），通用 HTTP 请求不得使用`,
         body: "",
         responseHeaders: {},
+        sent: false,
       };
     }
     if (url.host.toLowerCase() !== binding.host.toLowerCase()) {
@@ -278,6 +282,7 @@ export async function executeApprovedHttpRequest(
         message: `凭据 ${binding.name} 绑定到 ${binding.host}，不能用于 ${url.host}（凭据不得转发到其他地址）`,
         body: "",
         responseHeaders: {},
+        sent: false,
       };
     }
     headers[binding.header.toLowerCase()] = binding.secret;
@@ -294,7 +299,7 @@ export async function executeApprovedHttpRequest(
       pinnedAddress = resolved[0]!.address;
       pinnedFamily = resolved[0]!.family;
     } catch (err) {
-      return { ok: false, status: null, message: `目标主机解析失败：${(err as Error).message}`, body: "", responseHeaders: {} };
+      return { ok: false, status: null, message: `目标主机解析失败：${(err as Error).message}`, body: "", responseHeaders: {}, sent: false };
     }
   }
   const pinned: string = pinnedAddress;
@@ -306,10 +311,12 @@ export async function executeApprovedHttpRequest(
   const method = req.method.toUpperCase();
   return new Promise<HttpOpOutcome>((resolve) => {
     let settled = false;
-    const finish = (outcome: HttpOpOutcome) => {
+    // ponytail: 正文只发出前半截即断开按未发出处理（远端不会处理不完整的请求）
+    let sent = false;
+    const finish = (outcome: Omit<HttpOpOutcome, "sent">) => {
       if (!settled) {
         settled = true;
-        resolve(outcome);
+        resolve({ ...outcome, sent });
       }
     };
     const request = transport.request(
@@ -318,6 +325,8 @@ export async function executeApprovedHttpRequest(
         method,
         headers,
         lookup: pinLookup as any,
+        // 任务停止即中止，不等超时
+        signal,
         // 默认不自动跟随重定向
       },
       (res) => {
@@ -350,6 +359,9 @@ export async function executeApprovedHttpRequest(
     );
     request.setTimeout(req.timeoutMs ?? 30_000, () => {
       request.destroy(new Error("请求超时"));
+    });
+    request.on("finish", () => {
+      sent = true;
     });
     request.on("error", (err) => {
       finish({ ok: false, status: null, message: `请求失败：${err.message}`, body: "", responseHeaders: {} });

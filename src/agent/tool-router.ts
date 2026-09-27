@@ -19,7 +19,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import type { AccessMode, ApprovalScope, Task } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
-import type { ToolOpLedger } from "./tool-op-ledger.ts";
+import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
@@ -357,12 +357,19 @@ export class ToolRouter {
       const text = outcome.ok && outcome.content !== undefined ? `${outcome.message}\n${outcome.content}` : outcome.message;
       return textResult(text, !outcome.ok);
     }
-    const outcome = await executeApprovedHttpRequest(scopeResult.httpRequest, this.deps.credentials);
+    const outcome = await executeApprovedHttpRequest(scopeResult.httpRequest, this.deps.credentials, input.signal);
+    if (outcome.status === null) {
+      // 写请求已发出后的传输失败（超时/重置/中止）：远端可能已收到 → effect_unknown（不重发）；
+      // 发送前失败与 GET/HEAD（无写入效果）是已知结果
+      const unknown = outcome.sent && !hasNoWriteEffect({ toolName: input.name, params: input.params });
+      if (unknown) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
+      return textResult(`HTTP 无响应：${outcome.message}${unknown ? "\n请求可能已送达、结果无法确认，未自动重发" : ""}`, true);
+    }
     const head = Object.entries(outcome.responseHeaders)
       .slice(0, 20)
       .map(([k, v]) => `${k}: ${v}`)
       .join("\n");
-    return textResult(`HTTP ${outcome.status ?? "无响应"}\n${head}\n\n${outcome.body}`, !outcome.ok);
+    return textResult(`HTTP ${outcome.status}\n${head}\n\n${outcome.body}`, !outcome.ok);
   }
 
   private fileOpScope(

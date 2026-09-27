@@ -21,7 +21,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Terminal } from "@earendil-works/pi-tui";
+import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import {
   buildChildEnv,
   classifyWatchPath,
@@ -356,65 +356,6 @@ test("dev：开发实例已在运行 → 报错退出且不碰外来后台", { t
 });
 
 // ---------- TUI 重载状态（FakeTerminal 直驱 app.ts） ----------
-
-/** 与 test/14 相同的假终端（复制以免导入测试文件重复注册用例）。 */
-class FakeTerminal implements Terminal {
-  columns = 100;
-  rows = 30;
-  readonly kittyProtocolActive = false;
-  private written: string[] = [];
-  private onInput: ((data: string) => void) | null = null;
-  private onResize: (() => void) | null = null;
-  start(onInput: (data: string) => void, onResize: () => void): void {
-    this.onInput = onInput;
-    this.onResize = onResize;
-  }
-  stop(): void {}
-  async drainInput(): Promise<void> {}
-  write(data: string): void {
-    this.written.push(data);
-  }
-  moveBy(): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
-  clearLine(): void {}
-  clearFromCursor(): void {}
-  clearScreen(): void {}
-  setTitle(): void {}
-  setProgress(): void {}
-  send(data: string): void {
-    let textBuf = "";
-    const flush = () => {
-      if (textBuf) {
-        this.onInput?.(textBuf);
-        textBuf = "";
-      }
-    };
-    for (let i = 0; i < data.length; i++) {
-      const ch = data[i]!;
-      if (ch === "\x1b") {
-        flush();
-        const rest = data.slice(i);
-        const m = /^\x1b\[[A-Za-z]~?/.exec(rest) ?? /^\x1b./.exec(rest);
-        const seq = m ? m[0] : "\x1b";
-        this.onInput?.(seq);
-        i += seq.length - 1;
-      } else if (ch === "\r" || ch === "\n" || ch === "\x03" || ch === "\t") {
-        flush();
-        this.onInput?.(ch);
-      } else {
-        textBuf += ch;
-      }
-    }
-    flush();
-  }
-  output(): string {
-    return this.written.join("");
-  }
-  clearOutput(): void {
-    this.written = [];
-  }
-}
 
 let reloadHarnessCounter = 0;
 

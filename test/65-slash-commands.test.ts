@@ -16,10 +16,12 @@ import {
   type CommandHost,
   type CommandResult,
 } from "../src/tui/commands.ts";
+import type { OpParams, OpResult, TuiOp } from "../src/control/ops.ts";
 
 type Reply = unknown | Error | ((params: Record<string, unknown> | undefined) => unknown);
 
-function fake(opts: { view?: CommandEnv["view"]; replies?: Record<string, Reply>; hostReturns?: Partial<Record<keyof CommandHost, unknown>> } = {}) {
+/** 预设应答按 op 名登记（名字须在 op 表里；形状只按各测试所需手写）。 */
+function fake(opts: { view?: CommandEnv["view"]; replies?: Partial<Record<TuiOp, Reply>>; hostReturns?: Partial<Record<keyof CommandHost, unknown>> } = {}) {
   const log = {
     requests: [] as Array<[string, Record<string, unknown> | undefined]>,
     notes: [] as string[],
@@ -36,11 +38,11 @@ function fake(opts: { view?: CommandEnv["view"]; replies?: Record<string, Reply>
   });
   const env: CommandEnv = {
     view: opts.view === undefined ? { sessionId: "sess_1", projectId: "proj_1" } : opts.view,
-    request: async <T,>(op: string, params?: Record<string, unknown>) => {
+    request: async <K extends TuiOp>(op: K, params: OpParams<K>) => {
       log.requests.push([op, params]);
       const reply = opts.replies?.[op];
       if (reply instanceof Error) throw reply;
-      return (typeof reply === "function" ? reply(params) : reply) as T;
+      return (typeof reply === "function" ? reply(params) : reply) as OpResult<K>;
     },
     notify: (text) => log.notes.push(text),
     showText: (text) => log.texts.push(text),

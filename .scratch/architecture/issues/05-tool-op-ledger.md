@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 工具操作账本：停止与重启共用一处结果核实
 
@@ -135,3 +135,33 @@ Status: ready-for-agent
 第 1、2 步提交前各跑一轮对抗式等价复核（第 2 步：行为变化清单之外没有差异）。每步 `npm test` 与 `npm run typecheck` 都通过后在分支 `tool-op-ledger` 本地提交，不 push。不在 tx 上跑真实模型验收。
 
 ## Comments
+
+### 2026-09-27：实现交付
+
+按 0→6 在分支 `tool-op-ledger`（从 main f6d99c3 开，#4 合并后）本地提交，未 push：
+
+- 第 0 步 dcb4b71：工单与 CONTEXT.md「效果未知」。
+- 第 1 步 4a9fd20：`src/agent/tool-op-ledger.ts` 接管「结果 + 事件」配对与标效果未知；审批闸门、`tool_execution_end`、路由器 MCP 标记、`finalize`、重启恢复与四个族的 settle 都经它写（纯搬移）。
+- 第 2 步 36b3487：规则表、分类器、`beginStop` / `settleTask` / `settleAll` / `settleAfterWriteFailure`；四个族的 settle 收成 `FamilyCheck`；删 `isToolOpExecutionUncertain`、两个 `listUnresolved*`、Driver 四份名单过滤与 `DriverDeps.appData.writeVerdict`；新增 64 号。
+- 第 3 步 9bc58e2：编排器重试门改用 `hasNoWriteEffect`，删 `RETRY_SAFE_TOOLS`。
+- 第 4 步 c419e50：MCP `ProtocolError` → `remote_error`；调用传钉版定义；outputSchema 钉版预检与路由器校验。
+- 第 5 步 1160823：HTTP `finish` 划界、无响应文案带原因、接中止信号。
+- 第 6 步（本提交）：`docs/runtime.md`「架构要点」加工具操作账本，修正任务状态机、重启恢复、结构化审批、MCP 写调用与应用数据恢复段落；本工单。
+
+每步 `npm test` 与 `npm run typecheck` 都通过（最终 621 项，620 通过，1 项按开关跳过）。第 1、2 步提交前各跑一轮对抗式复核：第 1 步等价（唯一可观察差异：重启路径的 `task.tool_effect_unknown` 事件带上了 sessionId，TUI 因此在本地未载入该任务时也能应用它）；第 2 步没有清单外的代码级差异，下游后果见下。回归测试在修复前均确认失败（重启播种、25 号远端错误、08 号 HTTP 重置与停止挂起请求）。
+
+与上面的决定不同、或决定没写到的地方（请复核）：
+
+- **分类顺序**：实现为「审批未消费 → 无写入效果 → 族核实 → 效果未知」，第一轮定的是无写入效果在前。08:602 的崩溃测试里，带未消费审批的读文件操作被先判成「无写入效果」；审批没消费即证明没执行，「已知未执行」更准。两条都是已知结论，哪些操作标效果未知不变。上面「分类顺序」已按实现改写。
+- 第 1 步里四个族的 settle 仍自己选文案、经账本写入，收成只回答核实推迟到第 2 步（工单原写第 1 步完成）。
+- **重试门的下游后果**：failed 的 analyze 子任务若有只读操作结果缺失、又在结果回传前崩溃，重启补记后满足重试条件会被自动重试（改动前不重试）；`http_request` GET 与读文件被拒或失效（审批未消费）时不再挡重试（旧清单不含它们，已批准或已消费的审批照旧挡住）。
+- **升级后首次重启**：历史终态任务残留的结果缺失操作会被一次性补记（写 `task.tool_effect_unknown`、置任务级标记）。已写入的委派结果里 `effect` 可能仍是 `none_unknown`，与新置的标记不一致；对终态任务，「审批未消费即发生后台重启」「在后台重启前中止」的措辞不精确。
+- 重启事件顺序：先写完全部操作的补记，再逐个写 `task.interrupted`（原先按任务交错）；没有依赖顺序的消费方。
+- `ruleOf` 用 `Object.hasOwn` 查表（原型链上的键如 `hasOwnProperty` 按审批判定；不可达，防恢复事务抛错）。
+- MCP：outputSchema 不受支持的工具在任务开始即禁用（`mcp check` 显示原因），原先是每次调用时 SDK 在发送前报错；连接与发现阶段的 `ProtocolError` 同样记 `remote_error`（原 `connect_failed`，只影响不可用原因的文案）。
+- HTTP：响应头已到、正文读取失败仍按「无响应」处理（状态码照旧丢弃），写方法因此标效果未知（保守）。
+- 04 号崩溃测试改为等标记内容落盘再杀进程：`appendFile` 先建文件后写入，满载时偶发空文件（与本单无关的既有问题）。
+- 重启的 `task.interrupted.effectUnknown` 改读补记之后的任务标记，与停止路径（`finalize` 读任务标记）同一口径：原先只看本次重启新标的操作，崩溃前已被运行时标过（如 MCP 写调用超时）的任务事件会报 false，TUI 按事件把标记改成 false。第 6 步随文档一起提交，有回归测试（修复前失败）。
+- 变异 16 处都能被发现：审批判定与族核实次序对调、忽略无写入效果、GET 当写、重启跳过终态任务、停止快照含只读操作、`settleTask` 不标窗口操作、落库与事件两句、标未知不写任务标记、`ProtocolError` 改回 `connect_failed`、不传 `toolDefinition`、不做钉版 schema 校验、`sent` 恒真 / 恒假、不传中止信号、结果落盘失败不核实、重启中断事件只看本次新标。
+
+按决定留在范围外、本单未处理：见「不在本单」。

@@ -110,7 +110,7 @@ test("分类器：审批未消费 → 无写入效果 → 族核实 → 效果�
     const delegate = k.op("coding_delegate", { key: "k" });
     const mcp = k.op("mcp_svc_write");
     const bash = k.op("bash");
-    const marked = k.store.withTx(() => k.ledger.settleAll());
+    k.store.withTx(() => k.ledger.settleAll());
 
     for (const id of [read, get, fileRead]) {
       assert.equal(k.get(id).resultSummary, "未完成：只读操作在后台重启前中止，无写入效果");
@@ -127,7 +127,6 @@ test("分类器：审批未消费 → 无写入效果 → 族核实 → 效果�
       assert.equal(k.get(id).resultSummary, null);
       assert.equal(k.get(id).effectUnknown, true, `${k.get(id).toolName} 效果未知`);
     }
-    assert.deepEqual([...marked], [k.task.id]);
     assert.equal(k.store.getTask(k.task.id)!.effectUnknown, true);
   } finally {
     k.cleanup();
@@ -141,11 +140,10 @@ test("重启：终态任务残留的操作同样补记；族核实缺失即效�
     const bash = k.op("bash", {}, { taskId: done.id });
     const read = k.op("read", {}, { taskId: done.id });
     const accept = k.op("chat_result_accept", {}, { taskId: done.id });
-    const marked = k.store.withTx(() => k.ledger.settleAll());
+    k.store.withTx(() => k.ledger.settleAll());
     assert.equal(k.get(bash).effectUnknown, true);
     assert.equal(k.get(accept).effectUnknown, true, "未提供族核实 = 无法核实");
     assert.match(k.get(read).resultSummary ?? "", /无写入效果/);
-    assert.deepEqual([...marked], [done.id]);
     assert.equal(k.store.getTask(done.id)!.effectUnknown, true, "终态任务补标任务级效果未知");
     assert.equal(k.store.getTask(k.task.id)!.effectUnknown, false);
   } finally {
@@ -205,7 +203,7 @@ test("无写入效果按工具名或持久化参数判定", () => {
   assert.equal(hasNoWriteEffect({ toolName: "hasOwnProperty", params: {} }), false, "原型链上的键不当作规则");
 });
 
-test("重启回归：活动任务未结束的 read 不标效果未知；终态任务残留的 bash 补标效果未知", async () => {
+test("重启回归：活动任务未结束的 read 不标效果未知；终态任务残留的 bash 补标效果未知；中断事件按任务标记", async () => {
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   const { dirs } = await makeTestDirs("ledger-restart", 0);
@@ -226,12 +224,13 @@ test("重启回归：活动任务未结束的 read 不标效果未知；终态�
     const db = new Db(dirs.dataDir);
     try {
       const now = new Date().toISOString();
-      for (const [id, status] of [["task_live", "running"], ["task_done", "completed"]] as const) {
+      // task_flagged：崩溃前已被运行时标过效果未知（如 MCP 写调用超时），重启时无新操作
+      for (const [id, status, flagged] of [["task_live", "running", 0], ["task_done", "completed", 0], ["task_flagged", "running", 1]] as const) {
         db.prepare(
           `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version, granted_paths,
              cancel_requested, effect_unknown, history_entry_ids, created_at, agent_id)
-           VALUES (?, ?, ?, 'x', ?, 'confirm', 1, '[]', 0, 0, '[]', ?, 'main')`,
-        ).run(id, main.sessionId, `req_${id}`, status, now);
+           VALUES (?, ?, ?, 'x', ?, 'confirm', 1, '[]', 0, ?, '[]', ?, 'main')`,
+        ).run(id, main.sessionId, `req_${id}`, status, flagged, now);
       }
       db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES ('op_read', 'task_live', 'read', '{}', ?, 0)`).run(now);
       db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES ('op_bash', 'task_done', 'bash', '{}', ?, 0)`).run(now);
@@ -244,8 +243,10 @@ test("重启回归：活动任务未结束的 read 不标效果未知；终态�
       assert.equal(live.status, "interrupted");
       assert.equal(live.effectUnknown, false, "只读操作中止不算效果未知");
       assert.equal(rt2.store.getToolOp("op_read")!.resultSummary, "未完成：只读操作在后台重启前中止，无写入效果");
-      const interrupted = rt2.store.getEventsAfter(0).find((e) => e.body.type === "task.interrupted" && (e.body as any).taskId === "task_live");
-      assert.equal((interrupted!.body as any).effectUnknown, false);
+      const interrupted = (taskId: string) =>
+        (rt2.store.getEventsAfter(0).find((e) => e.body.type === "task.interrupted" && (e.body as any).taskId === taskId)!.body as any).effectUnknown;
+      assert.equal(interrupted("task_live"), false);
+      assert.equal(interrupted("task_flagged"), true, "中断事件与任务标记一致（与停止路径同一口径）");
       assert.equal(rt2.store.getToolOp("op_bash")!.effectUnknown, true, "终态任务残留的操作补标效果未知");
       assert.equal(rt2.store.getTask("task_done")!.effectUnknown, true);
     } finally {

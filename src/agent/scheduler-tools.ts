@@ -19,7 +19,7 @@ import type { AccessScope } from "../core/access.ts";
 import type { ApprovalScope, NotifyTarget, Task } from "../core/types.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { AppDataStore } from "./app-data/store.ts";
-import type { ApprovalOutcome } from "./tool-router.ts";
+import type { ApprovalOutcome } from "./approval-gate.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import { describeRule, firstDue, parseRule, RuleError, tzDataVersion, type ScheduleRule } from "../scheduler/time.ts";
 import { SchedulerConflictError, sha256, type NotificationOp, type Schedule, type SchedulerStore, type SourceRef } from "../scheduler/store.ts";

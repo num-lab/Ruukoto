@@ -36,9 +36,11 @@ import {
   DEFAULT_BUDGET_CONFIG,
   estimateMessageTokens,
   selectContext,
+  selectionBreakdown,
   validateBudgetConfig,
   type ReferenceBlock,
   type SelectorBudgetConfig,
+  type SelectorInput,
 } from "../src/agent/context-selector.ts";
 import { checkToolPairing, ContextSendBlocked } from "../src/agent/context-assembly.ts";
 import {
@@ -831,6 +833,49 @@ test("选择器：参考块按位置与传入顺序各注入一次（前缀块�
   const texts2 = out2.messages.map((m) => String(m.content));
   assert.ok(["前缀甲", "前缀乙", "任务级甲", "任务级乙"].every((t) => texts2.includes(t)), "预算紧张时参考块仍必留");
   assert.ok(!texts2.some((s) => s.includes("旧轮次")), "旧交互让位");
+});
+
+test("选择器：失败文案按分类表逐项列出必留分类，合计对得上；各分类都有块时 /context 分解没有「其他」", () => {
+  const input = (contextWindow: number): SelectorInput => ({
+    messages: [mkUser("旧任务"), { role: "assistant", content: [{ type: "text", text: "旧回答" }], timestamp: 1 }, mkUser("当前任务")],
+    systemPrompt: "sys",
+    tools: [],
+    references: [
+      { category: "projectInstructions", placement: "prefix", text: "[项目指令]\n约定\n[/项目指令]" },
+      { category: "skills", placement: "prefix", text: "[技能目录]\n- alpha：描述\n[/技能目录]" },
+      { category: "resumedFrom", placement: "task", text: "[继续来源]\n原要求\n[/继续来源]" },
+      { category: "planMode", placement: "task", text: "[计划模式]\n只调研\n[/计划模式]" },
+    ],
+    memories: [{
+      id: "mem_1", projectId: "p", scope: "project", category: "preference", currentVersion: 1, status: "active",
+      createdAt: "", updatedAt: "", content: "偏好中文", sourceRefs: [],
+    }],
+    budget: { ...testBudget(contextWindow), memoryBudget: 2_000 },
+    compaction: { sessionId: "ses_x", checkpoint: { id: "cp_x", summarizedCount: 2, clearedCount: 2, summary: "较早对话摘要", summaryUntil: "t", clearedRefs: {} } },
+  });
+
+  const failing = selectContext(input(101));
+  assert.equal(failing.ok, false);
+  const match = /^必留内容（(.+) = (\d+)）超过输入预算 (\d+)$/.exec(failing.failure ?? "");
+  assert.ok(match, failing.failure);
+  const items = match[1]!.split(" + ").map((item) => item.split(" "));
+  assert.deepEqual(items.map(([label]) => label), ["系统提示", "工具定义", "项目指令", "技能", "长期记忆", "继续来源", "计划模式", "压缩摘要", "当前任务"], "按分类表顺序逐项列出");
+  assert.equal(items.reduce((n, [, tokens]) => n + Number(tokens), 0), Number(match[2]), "所列各项之和即必留合计");
+  assert.equal(Number(match[2]), failing.estimatedTotal);
+  assert.equal(Number(match[3]), failing.budget);
+
+  const ok = selectContext(input(100_000));
+  assert.ok(ok.ok);
+  const breakdown = selectionBreakdown({
+    id: "sel_x", taskId: "task_x", sessionId: "ses_x", callIndex: 1, strategy: "deterministic-v1", configVersion: 1, model: "mock/mock-model",
+    totalMessages: 3, includedIndices: ok.includedIndices, excluded: ok.excluded, includedMemories: ok.includedMemories,
+    excludedMemories: ok.excludedMemories, instructionVersion: "", cappedToolResults: [], estimates: ok.estimates,
+    budget: ok.budget, estimatedTotal: ok.estimatedTotal, usage: null, promptArtifactId: null, windowSnapshot: null, createdAt: "",
+  });
+  assert.equal(breakdown.other, null, "估算全部落在登记过的分类里");
+  for (const key of ["projectInstructions", "skills", "memories", "resumedFrom", "planMode", "compactionSummary"]) {
+    assert.ok(breakdown.categories.find((c) => c.key === key)!.tokens > 0, key);
+  }
 });
 
 // ---------- §2 历史索引：按任务过滤 ----------

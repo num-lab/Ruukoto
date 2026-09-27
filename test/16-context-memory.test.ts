@@ -36,8 +36,11 @@ import {
   DEFAULT_BUDGET_CONFIG,
   estimateMessageTokens,
   selectContext,
+  selectionBreakdown,
   validateBudgetConfig,
+  type ReferenceBlock,
   type SelectorBudgetConfig,
+  type SelectorInput,
 } from "../src/agent/context-selector.ts";
 import { checkToolPairing, ContextSendBlocked } from "../src/agent/context-assembly.ts";
 import {
@@ -789,48 +792,90 @@ test("选择器：当前任务工具循环按批次修剪（任务输入与最�
   assert.match(failing.failure ?? "", /必留内容/);
 });
 
-test("选择器：项目指令在最前、继续来源与计划说明紧邻当前任务注入一次，预排除记忆原样记录", () => {
+test("选择器：参考块按位置与传入顺序各注入一次（前缀块在记忆与历史之前，任务级块紧邻当前任务输入），按分类计入估算，预算紧张时必留", () => {
+  const block = (category: ReferenceBlock["category"], placement: ReferenceBlock["placement"], text: string): ReferenceBlock => ({ category, placement, text });
+  const references = [
+    block("resumedFrom", "task", "任务级甲"),
+    block("projectInstructions", "prefix", "前缀甲"),
+    block("resumedFrom", "task", "任务级乙"),
+    block("skills", "prefix", "前缀乙"),
+  ];
   const messages = [mkUser("旧任务"), { role: "assistant", content: [{ type: "text", text: "旧回答" }], timestamp: 1 }, mkUser("当前任务")];
   const out = selectContext({
     messages,
     systemPrompt: "sys",
     tools: [],
-    projectInstructions: { text: "项目约定：提交信息用中文", version: "sha256:abc;artifact:art_1", problems: ["项目指令文件 missing.md：缺失"] },
-    resumedFrom: { taskId: "task_old", input: "原始要求：给登录页加验证码" },
-    planMode: true,
-    memories: [],
+    references,
+    memories: [{
+      id: "mem_1", projectId: "p", scope: "project", category: "preference", currentVersion: 1, status: "active",
+      createdAt: "", updatedAt: "", content: "偏好中文", sourceRefs: [],
+    }],
     preExcludedMemories: [{ memoryId: "mem_x", version: 2, reason: "source_scope_revoked" }],
-    budget: testBudget(100_000),
+    budget: { ...testBudget(100_000), memoryBudget: 2_000 },
   });
   assert.ok(out.ok);
-  const texts = out.messages.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)));
-  assert.equal(texts.filter((s) => s.includes("项目约定：提交信息用中文")).length, 1, "项目指令只注入一次");
-  assert.equal(texts[0]!.split("\n")[0], "[项目指令]", "块头不含版本");
-  assert.ok(texts[0]!.includes("missing.md：缺失"), "缺失问题明确说明");
-  assert.equal(texts[1], "旧任务");
-  assert.ok(texts[3]!.includes("继续来源：本任务继续已中断任务 task_old"), "继续来源在历史之后");
-  assert.ok(texts[3]!.includes("原始要求：给登录页加验证码"), "原任务要求注入");
-  assert.ok(texts[4]!.startsWith("[计划模式"), "计划说明紧邻当前任务");
-  assert.equal(texts[5], "当前任务");
+  const texts = out.messages.map((m) => (typeof m.content === "string" ? m.content : m.content.map((p: any) => p.text).join("")));
+  assert.deepEqual(texts, [
+    "前缀甲", "前缀乙", "[长期记忆 mem_1 v1 · preference · 本项目]\n偏好中文\n[/长期记忆 mem_1]",
+    "旧任务", "旧回答", "任务级甲", "任务级乙", "当前任务",
+  ], "前缀块按传入顺序排在记忆与历史之前，任务级块按传入顺序紧邻当前任务输入，各一次");
   assert.deepEqual(out.includedIndices, [0, 1, 2]);
-  assert.equal(out.instructionVersion, "sha256:abc;artifact:art_1", "选择记录照旧保存版本");
+  const tokens = (text: string) => estimateMessageTokens({ role: "user", content: text, timestamp: 0 }, 1);
+  assert.equal(out.estimates.projectInstructions, tokens("前缀甲"));
+  assert.equal(out.estimates.skills, tokens("前缀乙"));
+  assert.equal(out.estimates.resumedFrom, tokens("任务级甲") + tokens("任务级乙"), "同分类的块估算相加");
   assert.deepEqual(out.excludedMemories, [{ memoryId: "mem_x", version: 2, reason: "source_scope_revoked" }]);
 
-  // 前缀是必留项：预算被历史占满时前缀仍在，历史被排除
+  // 参考块是必留项：预算被历史占满时参考块仍在，历史让位
   const bigHistory = [mkUser(`旧轮次${"历".repeat(60_000)}`), mkAssistantCall("old1"), mkToolResult("old1", "旧结果"), mkUser("当前任务")];
-  const out2 = selectContext({
-    messages: bigHistory,
-    systemPrompt: "sys",
-    tools: [],
-    projectInstructions: { text: "项目约定", version: "v1", problems: [] },
-    resumedFrom: null,
-    memories: [],
-    budget: testBudget(20_000),
-  });
+  const out2 = selectContext({ messages: bigHistory, systemPrompt: "sys", tools: [], references, memories: [], budget: testBudget(20_000) });
   assert.ok(out2.ok);
   const texts2 = out2.messages.map((m) => String(m.content));
-  assert.ok(texts2.some((s) => s.includes("[项目指令")), "预算紧张时项目指令仍必留");
+  assert.ok(["前缀甲", "前缀乙", "任务级甲", "任务级乙"].every((t) => texts2.includes(t)), "预算紧张时参考块仍必留");
   assert.ok(!texts2.some((s) => s.includes("旧轮次")), "旧交互让位");
+});
+
+test("选择器：失败文案按分类表逐项列出必留分类，合计对得上；各分类都有块时 /context 分解没有「其他」", () => {
+  const input = (contextWindow: number): SelectorInput => ({
+    messages: [mkUser("旧任务"), { role: "assistant", content: [{ type: "text", text: "旧回答" }], timestamp: 1 }, mkUser("当前任务")],
+    systemPrompt: "sys",
+    tools: [],
+    references: [
+      { category: "projectInstructions", placement: "prefix", text: "[项目指令]\n约定\n[/项目指令]" },
+      { category: "skills", placement: "prefix", text: "[技能目录]\n- alpha：描述\n[/技能目录]" },
+      { category: "resumedFrom", placement: "task", text: "[继续来源]\n原要求\n[/继续来源]" },
+      { category: "planMode", placement: "task", text: "[计划模式]\n只调研\n[/计划模式]" },
+    ],
+    memories: [{
+      id: "mem_1", projectId: "p", scope: "project", category: "preference", currentVersion: 1, status: "active",
+      createdAt: "", updatedAt: "", content: "偏好中文", sourceRefs: [],
+    }],
+    budget: { ...testBudget(contextWindow), memoryBudget: 2_000 },
+    compaction: { sessionId: "ses_x", checkpoint: { id: "cp_x", summarizedCount: 2, clearedCount: 2, summary: "较早对话摘要", summaryUntil: "t", clearedRefs: {} } },
+  });
+
+  const failing = selectContext(input(101));
+  assert.equal(failing.ok, false);
+  const match = /^必留内容（(.+) = (\d+)）超过输入预算 (\d+)$/.exec(failing.failure ?? "");
+  assert.ok(match, failing.failure);
+  const items = match[1]!.split(" + ").map((item) => item.split(" "));
+  assert.deepEqual(items.map(([label]) => label), ["系统提示", "工具定义", "项目指令", "技能", "长期记忆", "继续来源", "计划模式", "压缩摘要", "当前任务"], "按分类表顺序逐项列出");
+  assert.equal(items.reduce((n, [, tokens]) => n + Number(tokens), 0), Number(match[2]), "所列各项之和即必留合计");
+  assert.equal(Number(match[2]), failing.estimatedTotal);
+  assert.equal(Number(match[3]), failing.budget);
+
+  const ok = selectContext(input(100_000));
+  assert.ok(ok.ok);
+  const breakdown = selectionBreakdown({
+    id: "sel_x", taskId: "task_x", sessionId: "ses_x", callIndex: 1, strategy: "deterministic-v1", configVersion: 1, model: "mock/mock-model",
+    totalMessages: 3, includedIndices: ok.includedIndices, excluded: ok.excluded, includedMemories: ok.includedMemories,
+    excludedMemories: ok.excludedMemories, instructionVersion: "", cappedToolResults: [], estimates: ok.estimates,
+    budget: ok.budget, estimatedTotal: ok.estimatedTotal, usage: null, promptArtifactId: null, windowSnapshot: null, createdAt: "",
+  });
+  assert.equal(breakdown.other, null, "估算全部落在登记过的分类里");
+  for (const key of ["projectInstructions", "skills", "memories", "resumedFrom", "planMode", "compactionSummary"]) {
+    assert.ok(breakdown.categories.find((c) => c.key === key)!.tokens > 0, key);
+  }
 });
 
 // ---------- §2 历史索引：按任务过滤 ----------

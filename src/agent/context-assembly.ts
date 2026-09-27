@@ -44,7 +44,7 @@ import { loadSummaryModel } from "./model-config.ts";
 import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
 import type { SkillLibrary } from "./skills.ts";
 
-/** 请求前最终检查失败（预算/配对/选择缺失/记录落盘失败）：阻断发送。 */
+/** 请求前最终检查失败（预算/选择失败/选择缺失/配对/资料变化）：阻断发送。 */
 export class ContextSendBlocked extends Error {
   readonly code: string;
   constructor(reason: string) {
@@ -153,7 +153,7 @@ export class ContextAssembly {
   private pendingSelection: SelectorOutput | null = null;
   private pendingExperiment: ContextExperimentRecord | null = null;
   private pendingJevCredentialSnapshot: string | null = null;
-  /** 选择/资料读取失败的阻断原因（prepareSend 发现即拒绝发送）。 */
+  /** 本轮选择的阻断原因（错误码:说明；prepareSend 发现即拒绝发送）。 */
   private selectionBlockReason: string | null = null;
   /** 刚落盘的选择记录（prompt 快照关联与发送后补记用量）。 */
   private pendingRecordId: string | null = null;
@@ -225,7 +225,7 @@ export class ContextAssembly {
       if (this.aborted) return undefined;
       if (!selection.ok) {
         this.pendingSelection = null;
-        this.selectionBlockReason = selection.failure ?? "上下文预算不足";
+        this.selectionBlockReason = `context_budget_exceeded:${selection.failure ?? "上下文预算不足"}`;
         return undefined; // 返回 undefined = 不修改；prepareSend 会阻断
       }
       this.pendingSelection = selection;
@@ -233,7 +233,8 @@ export class ContextAssembly {
       return { messages: selection.messages };
     } catch (err) {
       this.pendingSelection = null;
-      this.selectionBlockReason = `上下文选择失败：${(err as Error).message}`;
+      // 资料读取、压缩点落盘等失败不是超预算，拥有者看到的原因要分开
+      this.selectionBlockReason = `context_selection_failed:上下文选择失败：${(err as Error).message}`;
       return undefined;
     }
   }
@@ -605,9 +606,7 @@ export class ContextAssembly {
     options = { ...options, maxTokens: config.maxTokens };
     // 部分适配器会在显式 maxTokens 上追加思考预算；同时限定模型总响应上限。
     model = { ...model, maxTokens: config.maxTokens };
-    if (blockReason) {
-      throw new ContextSendBlocked(`context_budget_exceeded:${blockReason}`);
-    }
+    if (blockReason) throw new ContextSendBlocked(blockReason);
     if (!selection?.ok) {
       // context 钩子未运行（异常被吞）或策略未产生结果：拒绝发送，不退回全量
       throw new ContextSendBlocked("context_selection_missing:上下文选择未产生有效结果（扩展异常或策略失败），拒绝发送");

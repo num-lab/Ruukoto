@@ -561,7 +561,7 @@ export class Driver {
     if (recorded) return recorded;
     const message: string = lastAssistant?.errorMessage ?? "";
     if (lastAssistant?.stopReason === "error") {
-      for (const prefix of ["context_budget_exceeded", "context_selection_missing", "context_pairing_invalid"]) {
+      for (const prefix of ["context_budget_exceeded", "context_selection_failed", "context_selection_missing", "context_pairing_invalid"]) {
         if (message.includes(prefix)) {
           const idx = message.indexOf(prefix);
           return message.slice(idx).split("\n", 1)[0] ?? prefix;

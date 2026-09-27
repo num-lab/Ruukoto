@@ -403,7 +403,9 @@ approved 未消费 → 已知未执行）与"已开始但结果未知"（批准�
   选择结果不落库为"待发送"就拒绝发送——宿主包装 `streamFunction`，在委托
   前校验选择记录存在、toolCall/toolResult 配对、预算充足，然后先落
   选择记录再发请求；必须项超过预算时任务以 `interrupted`
-  （`context_budget_exceeded`）结束并暂停队列，不做静默摘要或丢弃。
+  （`context_budget_exceeded`）结束并暂停队列，不做静默摘要或丢弃。选择
+  过程中的其他失败（记忆读取、压缩点落盘等）记为 `context_selection_failed`，
+  同样中断并暂停队列，只是原因分开显示。
 - provider 返回 `context_overflow` 的兜底保留：任务中断并暂停队列，不自动
   压缩或重试。
 

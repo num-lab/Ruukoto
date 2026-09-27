@@ -136,7 +136,8 @@ test("组装：记忆钉版读取失败时拒绝发送，不以缺记忆的视�
     kit.store.db.prepare("UPDATE memory_versions SET source_refs = 'not-json' WHERE memory_id = ?").run(saved.id);
     const task = kit.task(session, "普通任务");
     await assert.rejects(kit.send(kit.begin(task, session), [user("普通任务")]),
-      (err: any) => err instanceof ContextSendBlocked && err.code === "context_budget_exceeded" && err.message.includes("上下文选择失败"));
+      (err: any) => err instanceof ContextSendBlocked && err.code === "context_selection_failed" && err.message.includes("上下文选择失败"),
+      "资料读取失败不记成超预算");
     assert.equal(kit.store.listSelectionRecordsByTask(task.id).length, 0, "不落选择记录");
   } finally {
     await kit.close();

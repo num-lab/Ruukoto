@@ -16,6 +16,7 @@ import {
   type CommandHost,
   type CommandResult,
 } from "../src/tui/commands.ts";
+import { ControlClientError } from "../src/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "../src/control/ops.ts";
 
 type Reply = unknown | Error | ((params: Record<string, unknown> | undefined) => unknown);
@@ -187,7 +188,7 @@ test("/memory：list（带项目 / 无会话）、show、revoke / restore 的版
         versions: [{ version: 1, author: "agent", reason: "", createdAt: "t1" }, { version: 2, author: "owner", reason: "改写", createdAt: "t2" }],
       },
       revoke_memory: {},
-      restore_memory: new Error("版本不存在"),
+      restore_memory: new ControlClientError("invalid_params", "版本不存在", "rejected"),
     },
   });
   await f.run("/memory");
@@ -213,7 +214,7 @@ test("/memory：list（带项目 / 无会话）、show、revoke / restore 的版
   assert.match(f.log.texts.at(-1)!, /^记忆 mem_1 已撤销/);
   await f.run("/memory restore mem_1 1");
   assert.deepEqual(f.log.requests.at(-1), ["restore_memory", { memory_id: "mem_1", from_version: 1 }]);
-  assert.match(f.log.notes.at(-1)!, /操作失败：版本不存在/);
+  assert.equal(f.log.notes.at(-1), "\x1b[31m恢复记忆失败：版本不存在\x1b[0m");
 
   await f.run("/memory purge");
   assert.match(f.log.notes.at(-1)!, /^用法：\/memory \[list/);
@@ -270,6 +271,10 @@ test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命�
   const broken = fake({ replies: { qq_status: new Error("连接断开") } });
   await broken.run("/qq");
   assert.match(broken.log.notes[0]!, /QQ 操作失败：连接断开/);
+  const lost = fake({ replies: { qq_set_enabled: new ControlClientError("connection_closed", "连接已关闭", "disconnected") } });
+  await lost.run("/qq disable");
+  assert.match(lost.log.notes[0]!, /QQ 入口停用结果未知：连接已关闭；先用 \/qq 核实再操作（未自动重发）/);
+  assert.deepEqual(lost.log.texts, [], "结果未知时不宣称已停用");
 });
 
 test("/search：无会话、无关键词、无命中（不完整）、有命中；请求失败", async () => {
@@ -303,7 +308,9 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
     replies: {
       list_skills: { dir: "/home/s", skills: [{ name: "review", explicitOnly: true, description: "代码审查" }], diagnostics: ["bad/SKILL.md：缺少 name"] },
       create_project: (p: any) => {
-        if (p.name === "坏") throw new Error("名称重复");
+        if (p.name === "坏") throw new ControlClientError("duplicate", "名称重复", "rejected");
+        if (p.name === "慢") throw new ControlClientError("request_timeout", "请求超时：create_project", "unknown");
+        if (p.name === "断") throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
         return { id: "proj_2" };
       },
     },
@@ -321,4 +328,10 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
   assert.equal(f.log.texts.at(-1), "项目已创建：家务 清单；用 /new-session <工作目录> 创建会话");
   await f.run("/new-project 坏");
   assert.match(f.log.notes.at(-1)!, /创建项目失败：名称重复/);
+  // 写操作失败按分类提示：应答丢失时可能已生效，不自动重发，指明核实入口
+  await f.run("/new-project 慢");
+  assert.match(f.log.notes.at(-1)!, /创建项目结果未知：请求超时：create_project；先用 \/sessions 核实再操作（未自动重发）/);
+  await f.run("/new-project 断");
+  assert.match(f.log.notes.at(-1)!, /创建项目未发送：连接不可用/);
+  assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4, "都只发一次");
 });

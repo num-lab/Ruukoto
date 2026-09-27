@@ -16,7 +16,7 @@ import { isDeepStrictEqual } from "node:util";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Db } from "../core/db.ts";
-import { isToolOpExecutionUncertain, Store, StoreConflictError } from "../core/store.ts";
+import { Store, StoreConflictError } from "../core/store.ts";
 import {
   ACTIVE_TASK_STATUSES,
   AGENT_ROLE_IDS,
@@ -102,14 +102,15 @@ import { GitHubEvents, parseGitHubEventsConfig, webhookSecret, type GitHubEvents
 import { Orchestrator } from "./orchestrator.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
-import { APP_DATA_WRITE_TOOL_NAMES, settleAppDataOp } from "../agent/app-data/tools.ts";
+import { appDataOpCheck } from "../agent/app-data/tools.ts";
+import { ToolOpLedger } from "../agent/tool-op-ledger.ts";
 import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { searchTavily, WebSearchError } from "../agent/web-search.ts";
 import { loadSkillLibrary, skillsDirFor } from "../agent/skills.ts";
-import { createSourceResolver, settleSchedulerOp, SCHEDULER_TOOL_NAMES, type SourceResolver } from "../agent/scheduler-tools.ts";
-import { settleDelegationOp, DELEGATION_TOOL_NAMES } from "../agent/delegation-tools.ts";
-import { settleChatResultOp, CHAT_RESULT_TOOL_NAMES } from "../agent/chat-result-tools.ts";
+import { createSourceResolver, schedulerOpCheck, type SourceResolver } from "../agent/scheduler-tools.ts";
+import { delegationOpCheck } from "../agent/delegation-tools.ts";
+import { chatResultOpCheck } from "../agent/chat-result-tools.ts";
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
@@ -270,6 +271,8 @@ export class Runtime {
   private readonly githubEvents: GitHubEvents;
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
+  /** 工具操作账本（架构工单 05）：结果、效果未知与停止/重启补记。 */
+  private readonly ledger: ToolOpLedger;
   /** 调度器（issue 03）：扫描循环 + 发送循环；start 时创建。 */
   scheduler!: Scheduler;
   private sources!: SourceResolver;
@@ -315,6 +318,12 @@ export class Runtime {
     this.mcp = new McpStore(db);
     this.qqStore = new QqStore(db);
     this.sched = new SchedulerStore(store);
+    this.ledger = new ToolOpLedger(store, {
+      app_data: appDataOpCheck((opId) => this.appDataWriteVerdict(opId)),
+      scheduler: schedulerOpCheck(this.sched),
+      delegation: delegationOpCheck(store),
+      chat_result: chatResultOpCheck(store),
+    });
     this.telegramStore = new TelegramStore(store);
     this.githubEvents = new GitHubEvents({
       store, artifacts: this.artifacts, sched: this.sched, config: config.githubWebhook,
@@ -774,54 +783,13 @@ export class Runtime {
     return { available: this.appDataStore !== null, reason: this.appDataUnavailableReason };
   }
 
-  /** 按宿主操作 ID 核实应用库提交状态（恢复与停止路径共用；单例连接）。 */
+  /** 按宿主操作 ID 核实应用库提交状态（工具操作账本的应用数据族核实；单例连接）。 */
   private appDataWriteVerdict(hostOpId: string): "committed" | "not_committed" | "unverifiable" {
     if (!this.appDataStore) return "unverifiable";
     try {
       return this.appDataStore.getReceipt(hostOpId) ? "committed" : "not_committed";
     } catch {
       return "unverifiable";
-    }
-  }
-
-  /**
-   * 恢复时的应用数据操作核实（issue 02）：在现有未知效果判断之前，
-   * 未落结果的应用数据写操作按应用库回执核实——有回执则补记已提交结果；
-   * 批准已消费但无回执、且应用库正常可核实时记录未提交；应用库丢失/损坏/
-   * 无法核实保留 effect_unknown。只读查询不产生写入效果，结果缺失按已知
-   * 未执行补记。覆盖活动任务与已进入终态但仍缺结果的操作（核心结果写入
-   * 失败窗口）。恢复补记沿用 tool_ops 条件更新并在同一核心事务中写事件，
-   * 重复恢复不重复发布。
-   */
-  private recoverAppDataOps(): void {
-    for (const op of this.store.listUnresolvedAppDataOps()) {
-      const task = this.store.getTask(op.taskId);
-      if (!task) continue;
-      if (!APP_DATA_WRITE_TOOL_NAMES.has(op.toolName)) {
-        const summary = "已知未执行：只读查询在重启前未产生写入效果";
-        const recorded = this.store.recordToolResult(op.id, summary, true);
-        if (recorded) {
-          this.store.appendEvent(
-            { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError: true, artifactIds: [] },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
-        continue;
-      }
-      const verdict = this.appDataWriteVerdict(op.id);
-      if (verdict === "unverifiable") {
-        // 活动任务由通用路径标记；终态任务在此补标（结果缺失且无法核实）
-        if (isTerminalTaskStatus(task.status)) {
-          this.store.markToolOpEffectUnknown(op.id);
-          this.store.appendEvent(
-            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: op.id, toolName: op.toolName },
-            { taskId: task.id },
-          );
-          this.store.setEffectUnknown(task.id);
-        }
-        continue;
-      }
-      settleAppDataOp(this.store, verdict, task, op, "后台重启前");
     }
   }
 
@@ -835,55 +803,18 @@ export class Runtime {
       const interruptedTaskIds: string[] = [];
       const pausedSessionIds: string[] = [];
 
-      // 1. 未完成执行 → interrupted；结果缺失的工具操作区分两种事实：
-      //    - 审批未消费（pending/stale/rejected，或 approved 但未消费）→
-      //      已知未执行，记录明确结果，不算效果未知；
-      //    - 批准已消费（执行已开始）或无审批的直接执行 → 结果缺失且可能
-      //      已产生外部效果 → effect_unknown，不重放。
-      //    应用数据写操作先按应用库回执核实（issue 02）：有回执补记已提交，
-      //      可核实无回执记未提交，无法核实才落入 effect_unknown。
-      this.recoverAppDataOps();
-      // 调度与通知工具（issue 03）：同库按宿主操作 ID 核实是否已登记，
-      // 不落入通用 effect_unknown（登记与否恒可核实；未登记即未执行）
-      for (const op of store.listUnresolvedOpsByTools(SCHEDULER_TOOL_NAMES)) {
-        const task = store.getTask(op.taskId);
-        if (task) settleSchedulerOp(store, this.sched, task, op, "后台重启前");
-      }
-      // 委派工具（issue 05）：同库按子任务是否存在核实（未创建即未委派）
-      for (const op of store.listUnresolvedOpsByTools(DELEGATION_TOOL_NAMES)) {
-        const task = store.getTask(op.taskId);
-        if (task) settleDelegationOp(store, task, op, "后台重启前");
-      }
-      for (const op of store.listUnresolvedOpsByTools(CHAT_RESULT_TOOL_NAMES)) {
-        const task = store.getTask(op.taskId);
-        if (task) settleChatResultOp(store, task, op, "后台重启前");
-      }
+      // 1. 结果缺失的工具操作按工具操作账本的分类器补记（架构工单 05）：覆盖全部
+      //    任务（含终态：核心结果写入失败窗口、驱动器缺失的中断路径）。无写入效果
+      //    与审批未消费记已知结论；工具族先按宿主操作 ID 核实（ADR 0009 §7）；其余
+      //    结果缺失且可能已产生外部效果 → effect_unknown，不重放。
+      //    未完成执行 → interrupted。
+      this.ledger.settleAll();
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
-        const unresolved = store.listUnresolvedToolOps(task.id);
-        const confirmations = store.listConfirmationsByTask(task.id);
-        let effectUnknownCount = 0;
-        for (const op of unresolved) {
-          if (!isToolOpExecutionUncertain(op, confirmations)) {
-            store.recordToolResult(op.id, "已知未执行：审批未消费即发生后台重启（批准不跨重启执行）", true);
-            store.appendEvent(
-              { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary: "已知未执行：审批未消费即发生后台重启", isError: true, artifactIds: [] },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
-            continue;
-          }
-          effectUnknownCount++;
-          store.markToolOpEffectUnknown(op.id);
-          store.appendEvent(
-            { type: "task.tool_effect_unknown", taskId: task.id, toolOpId: op.id, toolName: op.toolName },
-            { taskId: task.id },
-          );
-        }
         const changed = store.transitionTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
           interruptReason: "backend_restart",
           endedAt: new Date().toISOString(),
         });
         if (changed) {
-          if (effectUnknownCount > 0) store.setEffectUnknown(task.id);
           store.stalePendingConfirmations(task.id);
           store.appendEvent(
             {
@@ -892,7 +823,8 @@ export class Runtime {
               sessionId: task.sessionId,
               reason: "backend_restart",
               cancelRequested: task.cancelRequested,
-              effectUnknown: effectUnknownCount > 0,
+              // 补记之后读取的任务标记（含本次新标与此前运行时已标），与停止路径同一口径
+              effectUnknown: task.effectUnknown,
             },
             { taskId: task.id, sessionId: task.sessionId },
           );
@@ -2131,6 +2063,7 @@ export class Runtime {
     if (!driver) {
       driver = new Driver(session, {
         store: this.store,
+        ledger: this.ledger,
         qqStore: this.qqStore,
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,
@@ -2165,7 +2098,6 @@ export class Runtime {
           ? {
               store: this.appDataStore,
               runner: this.appDataRunner,
-              writeVerdict: (opId) => this.appDataWriteVerdict(opId),
               queryStallMs: this.config.appData?.queryStallMs,
             }
           : undefined,

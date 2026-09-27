@@ -17,6 +17,7 @@ import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 import type { AccessMode, ApprovalScope } from "../src/core/types.ts";
 import { ApprovalGate, type ApprovalRequest } from "../src/agent/approval-gate.ts";
+import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
 import type { ApprovalReviewer } from "../src/agent/review.ts";
 
 const FILE_READ: ApprovalScope = { kind: "file_operation", path: "/outside/a.txt", access: "read", originalSha256: null, contentSha256: null, contentBytes: null };
@@ -37,7 +38,7 @@ function kit(opts: { accessMode?: AccessMode; reviewer?: ApprovalReviewer } = {}
     accessMode: opts.accessMode,
   });
   store.transitionTask(task.id, ["queued"], "running", {});
-  const gate = new ApprovalGate({ store, reviewer: () => opts.reviewer });
+  const gate = new ApprovalGate({ store, ledger: new ToolOpLedger(store), reviewer: () => opts.reviewer });
   let n = 0;
   /** 记录一次执行意图并提交审批（不 await：审批已同步登记）。 */
   const ask = <T = void>(extra: Partial<ApprovalRequest<T>> = {}) => {

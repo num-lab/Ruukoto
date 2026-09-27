@@ -15,6 +15,7 @@ import {
   Client,
   StreamableHTTPClientTransport,
   UnauthorizedError,
+  ProtocolError,
   SdkError,
   SdkErrorCode,
   SdkHttpError,
@@ -98,8 +99,8 @@ export interface McpConnection {
   readonly protocolVersion: string | null;
   /** 分页发现工具（有界：页数与总数上限；游标来自远端，按外部数据处理）。 */
   listTools(signal?: AbortSignal): Promise<McpRemoteTool[]>;
-  /** 调用远端工具；传输错误抛 McpError，工具执行错误（isError）由调用方区分。 */
-  callTool(remoteName: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult>;
+  /** 调用远端工具（任务钉版的定义）；传输错误抛 McpError，工具执行错误（isError）由调用方区分。 */
+  callTool(tool: { name: string; inputSchema: Record<string, unknown> }, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult>;
   close(): Promise<void>;
 }
 
@@ -140,11 +141,19 @@ class SdkMcpConnection implements McpConnection {
     throw new McpError("too_many_pages", `MCP 工具分页超过 ${MCP_LIMITS.maxListPages} 页（疑似异常服务，拒绝接入）`);
   }
 
-  async callTool(remoteName: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult> {
+  async callTool(tool: { name: string; inputSchema: Record<string, unknown> }, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult> {
     try {
+      // 传钉版定义（不带 outputSchema）：SDK 不做本地输出校验（校验失败与远端错误应答
+      // 同为 ProtocolError、分不开，而前者远端已执行），也不在 header 不符时刷新清单后
+      // 自动重发；结构化结果由路由器按钉版 outputSchema 校验
       return await this.client.callTool(
-        { name: remoteName, arguments: args },
-        { signal, timeout: this.callTimeoutMs, maxTotalTimeout: this.callTimeoutMs },
+        { name: tool.name, arguments: args },
+        {
+          signal,
+          timeout: this.callTimeoutMs,
+          maxTotalTimeout: this.callTimeoutMs,
+          toolDefinition: { name: tool.name, inputSchema: tool.inputSchema as McpRemoteTool["inputSchema"] },
+        },
       );
     } catch (err) {
       throw classifyMcpError(err, this.callTimeoutMs, signal);
@@ -162,6 +171,10 @@ function classifyMcpError(err: unknown, timeoutMs: number, signal?: AbortSignal)
   // 先判任务取消：取消语义决定"不重复发送"的恢复叙述
   if (signal?.aborted || (err as Error).name === "AbortError") {
     return new McpError("canceled", "任务已停止，MCP 调用已中止（本地停止等待，不承诺远端操作已停止）");
+  }
+  // 远端的 JSON-RPC 错误应答：远端已应答，是已知结果（ADR 0008）
+  if (err instanceof ProtocolError) {
+    return new McpError("remote_error", `MCP 服务返回错误（${err.code}）：${err.message}`);
   }
   if (err instanceof UnauthorizedError) {
     return new McpError("auth_failed", "MCP 服务认证失败：凭据无效、已撤销或权限不足，请拥有者检查 credentials 配置");

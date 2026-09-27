@@ -44,6 +44,8 @@ export interface PlannedTool {
   exposedName: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** 钉版 outputSchema 的校验器（远端声明了才有）。 */
+  checkOutput?: (value: unknown) => boolean;
   /** 本地副作用类别（拥有者声明；决定是否进入统一审批）。 */
   effect: McpToolEffect;
   /** 工具定义版本：名称/描述/schema/类别的摘要（审批范围绑定用）。 */
@@ -84,27 +86,42 @@ function exposedNameFor(serviceName: string, remoteName: string): string {
   return `${base.slice(0, TOOL_NAME_CAP - 9)}_${suffix}`;
 }
 
-/** 单工具校验：schema 须为普通对象且根类型 object（MCP 规范），大小上限 + TypeBox 预检；不通过返回禁用原因。 */
-export function validateRemoteTool(tool: McpRemoteTool): { inputSchema: Record<string, unknown> } | { disabledReason: string } {
-  const raw = tool.inputSchema ?? { type: "object", properties: {} };
+/** schema 预检：普通对象、根类型 object（MCP 规范）、大小上限、TypeBox 可编译；返回校验器或禁用原因。 */
+function compileSchema(label: string, raw: unknown): { schema: Record<string, unknown>; check: (value: unknown) => boolean } | { disabledReason: string } {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return { disabledReason: "inputSchema 不是普通对象（不支持布尔/数组 schema）" };
+    return { disabledReason: `${label} 不是普通对象（不支持布尔/数组 schema）` };
   }
-  const inputSchema = raw as Record<string, unknown>;
-  if (inputSchema.type !== undefined && inputSchema.type !== "object") {
-    return { disabledReason: `inputSchema 根类型必须是 object（收到 ${String(inputSchema.type)}）` };
+  const schema = raw as Record<string, unknown>;
+  if (schema.type !== undefined && schema.type !== "object") {
+    return { disabledReason: `${label} 根类型必须是 object（收到 ${String(schema.type)}）` };
   }
-  const schemaBytes = Buffer.byteLength(JSON.stringify(inputSchema), "utf8");
+  const schemaBytes = Buffer.byteLength(JSON.stringify(schema), "utf8");
   if (schemaBytes > MCP_LIMITS.maxToolSchemaBytes) {
-    return { disabledReason: `inputSchema 超过 ${MCP_LIMITS.maxToolSchemaBytes} 字节上限（${schemaBytes}）` };
+    return { disabledReason: `${label} 超过 ${MCP_LIMITS.maxToolSchemaBytes} 字节上限（${schemaBytes}）` };
   }
   try {
     // 与 pi 参数校验同一能力边界：编译不过即不支持，明确禁用
-    Compile(inputSchema as any);
+    const validator: { Check(value: unknown): boolean } = Compile(schema as any) as any;
+    return { schema, check: (value) => validator.Check(value) };
   } catch (err) {
-    return { disabledReason: `inputSchema 不受支持（${(err as Error).message.slice(0, 120)}）` };
+    return { disabledReason: `${label} 不受支持（${(err as Error).message.slice(0, 120)}）` };
   }
-  return { inputSchema };
+}
+
+/**
+ * 单工具校验（inputSchema 与可选的 outputSchema 同一套预检）；不通过返回禁用原因。
+ * outputSchema 钉版为结果校验器：SDK 不做本地输出校验（见 client.callTool），
+ * 远端成功应答后由路由器按它校验结构化结果。
+ */
+export function validateRemoteTool(
+  tool: McpRemoteTool,
+): { inputSchema: Record<string, unknown>; checkOutput?: (value: unknown) => boolean } | { disabledReason: string } {
+  const input = compileSchema("inputSchema", tool.inputSchema ?? { type: "object", properties: {} });
+  if ("disabledReason" in input) return input;
+  if (tool.outputSchema === undefined) return { inputSchema: input.schema };
+  const output = compileSchema("outputSchema", tool.outputSchema);
+  if ("disabledReason" in output) return output;
+  return { inputSchema: input.schema, checkOutput: output.check };
 }
 
 /**
@@ -177,7 +194,7 @@ export async function planMcpTaskTools(deps: McpPlanDeps): Promise<McpTaskPlan> 
         .update(JSON.stringify([remoteName, description, validated.inputSchema, effect]))
         .digest("hex")
         .slice(0, 16);
-      planned.push({ service, remoteName, exposedName, description, inputSchema: validated.inputSchema, effect, toolSignature });
+      planned.push({ service, remoteName, exposedName, description, inputSchema: validated.inputSchema, checkOutput: validated.checkOutput, effect, toolSignature });
     }
   }
 

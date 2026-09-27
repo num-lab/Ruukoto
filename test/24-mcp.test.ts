@@ -25,6 +25,7 @@ import {
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { startMockMcp, MOCK_MCP_SECRET, type MockMcp } from "./helpers/mock-mcp.ts";
 import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
+import { validateRemoteTool } from "../src/agent/mcp/tools.ts";
 
 const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });
@@ -959,4 +960,15 @@ test("mcp：声明的结构化输出被校验（不匹配即失败）", async ()
     await t.shutdown();
     await mcp.close();
   }
+});
+
+test("mcp：outputSchema 与 inputSchema 同一套预检，钉版为结果校验器（架构工单 05）", () => {
+  const bad = validateRemoteTool({ name: "x", inputSchema: { type: "object" }, outputSchema: { type: "array" } as any });
+  assert.ok("disabledReason" in bad && /outputSchema 根类型必须是 object/.test(bad.disabledReason));
+  const plain = validateRemoteTool({ name: "x", inputSchema: { type: "object" } });
+  assert.ok(!("disabledReason" in plain) && plain.checkOutput === undefined, "未声明 outputSchema 不校验");
+  const typed = validateRemoteTool({ name: "x", inputSchema: { type: "object" }, outputSchema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] } });
+  assert.ok(!("disabledReason" in typed) && typed.checkOutput);
+  assert.equal(typed.checkOutput!({ n: 1 }), true);
+  assert.equal(typed.checkOutput!({ n: "1" }), false);
 });

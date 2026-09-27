@@ -1317,25 +1317,11 @@ export class Store {
     return this.listToolOpsByTask(taskId).filter((op) => op.resultSummary === null && !op.effectUnknown);
   }
 
-  /**
-   * 全部任务中结果缺失且未标记未知效果的应用数据操作（issue 02 恢复用）：
-   * 覆盖已进入终态但仍缺结果的操作（核心结果写入失败窗口），不限于活动任务。
-   */
-  listUnresolvedAppDataOps(): ToolOp[] {
+  /** 全部任务（含终态）中结果缺失且未标记未知效果的操作（重启补记用，架构工单 05）。 */
+  listAllUnresolvedToolOps(): ToolOp[] {
     const rows = this.db
-      .prepare(
-        "SELECT * FROM tool_ops WHERE result_summary IS NULL AND effect_unknown = 0 AND tool_name LIKE 'app_data_%' ORDER BY intent_recorded_at, id",
-      )
+      .prepare("SELECT * FROM tool_ops WHERE result_summary IS NULL AND effect_unknown = 0 ORDER BY intent_recorded_at, id")
       .all() as any[];
-    return rows.map(Store.rowToToolOp);
-  }
-
-  /** 指定工具中结果缺失且未标记未知效果的操作（issue 03 调度工具恢复用；不限于活动任务）。 */
-  listUnresolvedOpsByTools(toolNames: readonly string[]): ToolOp[] {
-    const placeholders = toolNames.map(() => "?").join(",");
-    const rows = this.db
-      .prepare(`SELECT * FROM tool_ops WHERE result_summary IS NULL AND effect_unknown = 0 AND tool_name IN (${placeholders}) ORDER BY intent_recorded_at, id`)
-      .all(...toolNames) as any[];
     return rows.map(Store.rowToToolOp);
   }
 
@@ -1793,18 +1779,6 @@ function rowToCheckpoint(row: any): ContextCheckpoint {
     callIndex: Number(row.call_index),
     createdAt: row.created_at,
   };
-}
-
-// ---------- 结果未知判定 ----------
-
-/**
- * 结果未知判定（已知未执行 vs effect_unknown 的唯一判定点）：
- * 审批存在且全部未消费 → 已知未执行；批准已消费或无审批的直接执行 →
- * 执行可能已开始，外部效果不确定（沿用 effect_unknown，不重放）。
- */
-export function isToolOpExecutionUncertain(op: ToolOp, confirmations: ConfirmationRequest[]): boolean {
-  const opConfirmations = confirmations.filter((c) => c.toolOpId === op.id);
-  return opConfirmations.length === 0 || opConfirmations.some((c) => c.consumedAt !== null);
 }
 
 export class StoreConflictError extends Error {

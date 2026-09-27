@@ -21,6 +21,7 @@ import {
   taskStatus,
   waitFor,
   lastUserText,
+  readMarkerCount,
 } from "./helpers/testkit.ts";
 import { killBackend, spawnBackend, spawnBackendRaw, type Backend } from "./helpers/backend.ts";
 import { parseSessionFile } from "../src/core/history.ts";
@@ -88,7 +89,8 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
       request_id: "crash-b",
       input: "QUICK:排队任务B",
     });
-    await waitFor("标记文件已写入", () => markerPath !== "" && fsSync.existsSync(markerPath));
+    // 等内容落盘而非文件出现：appendFile 先建文件后写入，满载时两步之间被杀会留下空文件
+    await waitFor("标记文件已写入", () => markerPath !== "" && readMarkerCount(markerPath) === 1);
     // 立即 SIGKILL：工具还在写后延迟中，执行结果未记录
     await killBackend(backend);
 

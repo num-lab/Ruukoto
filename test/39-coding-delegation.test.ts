@@ -143,7 +143,7 @@ test("恢复：重试失败后不再重试；创建重试后的崩溃窗口只�
       assert.equal(JSON.parse(rt.store.getTask(child.id)!.resultRef!).retriedBy, retry.id);
       assert.match(rt.store.getToolOp("committed")!.resultSummary!, /已提交/);
       assert.match(rt.store.getToolOp("uncommitted")!.resultSummary!, /已知未提交/);
-      assert.match(rt.store.getToolOp("read")!.resultSummary!, /只读查询/);
+      assert.match(rt.store.getToolOp("read")!.resultSummary!, /无写入效果/);
       assert.equal(rt.store.getToolOp("committed")!.effectUnknown, false);
       for (const task of noRetry) {
         assert.equal(rt.store.findChildTask(parent.id, `${task.requestId}:retry`), null, `${task.kind} 不重试`);

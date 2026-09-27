@@ -16,6 +16,7 @@
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
+import type { FamilyCheck } from "./tool-op-ledger.ts";
 import type { AccessScope } from "../core/access.ts";
 import type { ApprovalScope, NotifyTarget, Task } from "../core/types.ts";
 import type { ArtifactStore } from "./artifacts.ts";
@@ -38,14 +39,6 @@ export const SCHEDULER_TOOL_NAMES = [
   "notification_cancel",
 ] as const;
 
-/** 会登记记录的调度工具（恢复/停止时按宿主操作 ID 核实；query 只读）。 */
-export const SCHEDULER_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "schedule_create",
-  "schedule_cancel",
-  "notification_enqueue",
-  "notification_cancel",
-]);
-
 export const NOTIFY_LIMITS = {
   textChars: 2000,
   textBytes: 8 * 1024,
@@ -58,30 +51,13 @@ export const NOTIFY_LIMITS = {
 
 const bytes = (s: string) => Buffer.byteLength(s, "utf8");
 
-/**
- * 恢复/停止路径共用：未落结果的调度工具操作按宿主操作 ID 核实——写工具已登记
- * 即已提交，未登记即已知未提交；只读查询无写入效果。调用方负责事务；
- * recordToolResult 条件更新保证重复恢复不重复发布。
- */
-export function settleSchedulerOp(
-  coreStore: Store,
-  sched: SchedulerStore | null,
-  task: { id: string; sessionId: string },
-  op: { id: string; toolName: string },
-  when: string,
-): void {
-  const summary = !SCHEDULER_WRITE_TOOL_NAMES.has(op.toolName)
-    ? `已知未执行：只读查询在${when}未产生写入效果`
-    : sched?.hostOpCommitted(op.id)
-      ? `已提交：调度账本存在该操作记录（${when}已登记）`
-      : `已知未提交：调度账本无该操作记录（${when}未登记）`;
-  const isError = !summary.startsWith("已提交");
-  if (coreStore.recordToolResult(op.id, summary, isError)) {
-    coreStore.appendEvent(
-      { type: "task.tool_result", taskId: task.id, toolOpId: op.id, summary, isError, artifactIds: [] },
-      { taskId: task.id, sessionId: task.sessionId },
-    );
-  }
+/** 工具操作账本的族核实（issue 03）：写工具按宿主操作 ID 核实是否已登记（同库，恒可核实）。 */
+export function schedulerOpCheck(sched: SchedulerStore): FamilyCheck {
+  return {
+    verify: (op) => (sched.hostOpCommitted(op.id) ? "committed" : "not_committed"),
+    committed: (when) => `已提交：调度账本存在该操作记录（${when}已登记）`,
+    notCommitted: (when) => `已知未提交：调度账本无该操作记录（${when}未登记）`,
+  };
 }
 
 // ---------- 来源快照 ----------

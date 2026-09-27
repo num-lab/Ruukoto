@@ -461,6 +461,8 @@ export class ToolRouter {
     if (credentialName) {
       const binding = this.deps.credentials.get(credentialName);
       if (!binding) return { error: `凭据绑定不存在：${credentialName}` };
+      // 带使用范围的凭据不得被通用 http_request 借用：审批前就拒绝（执行器另有同一检查）
+      if (binding.scope) return { error: `凭据 ${binding.name} 限定了使用范围（${binding.purpose}），通用 HTTP 请求不得使用` };
       credentialRefs.push({ name: binding.name, purpose: binding.purpose });
       if (parsed.host.toLowerCase() !== binding.host.toLowerCase()) {
         return { error: `凭据 ${binding.name} 绑定到 ${binding.host}，与目标 ${parsed.host} 不一致（凭据不得转发到其他地址）` };

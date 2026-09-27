@@ -8,10 +8,11 @@
  * - 上下文选择器：预算校验、CJK 校准、配对不可拆分、必须项超预算明确失败、
  *   工具结果视图截断不改动原文；
  * - 记忆：创建/修订/并发冲突/撤销/恢复、来源校验、个人共享范围；
- * - 集成：长会话早期消息离开上下文后配对仍有效、历史搜索找到早期内容、
- *   选择记录每次调用落库且 usage 回填、预算不足零 provider 请求 + 队列暂停、
- *   跨项目授权（无授权不可见计数/片段，撤销后代理不可读）、代理宿主工具
- *   端到端（history_search/history_read/memory_*）。
+ * - 模型上下文组装（模块接口，不起 Runtime）：早期消息离开上下文后配对仍有效、
+ *   选择记录每次调用落库且 usage 回填、项目指令钉版与捕获、继续来源、撤销授权后
+ *   记忆不再注入；
+ * - 集成：预算不足零 provider 请求 + 队列暂停、跨项目授权（无授权不可见计数/片段，
+ *   撤销后代理不可读）、代理宿主工具端到端（history_search/history_read/memory_*）。
  */
 
 import { test } from "node:test";
@@ -38,11 +39,13 @@ import {
   validateBudgetConfig,
   type SelectorBudgetConfig,
 } from "../src/agent/context-selector.ts";
+import { checkToolPairing, ContextSendBlocked } from "../src/agent/context-assembly.ts";
 import {
   cleanupDirs,
   createProjectSession,
   makeTestDirs,
   routeResponder,
+  startAssemblyKit,
   startTestRuntime,
   taskStatus,
   waitFor,
@@ -55,6 +58,12 @@ async function makeDbStore(prefix: string) {
   const store = new Store(db);
   return { dirs, db, store };
 }
+
+let clock = Date.parse("2026-09-27T00:00:00.000Z");
+const user = (text: string) => ({ role: "user", content: text, timestamp: clock++ });
+const reply = (text: string) => ({ role: "assistant", content: [{ type: "text", text }], stopReason: "stop", timestamp: clock++ });
+const toolCall = (id: string) => ({ role: "assistant", content: [{ type: "toolCall", id, name: "bash", arguments: { command: id } }], stopReason: "toolUse", timestamp: clock++ });
+const toolResult = (id: string, text: string) => ({ role: "toolResult", toolCallId: id, toolName: "bash", content: [{ type: "text", text }], isError: false, timestamp: clock++ });
 
 // ---------- §1 访问范围 ----------
 
@@ -436,64 +445,31 @@ test("记忆：类别/来源/大小校验；个人共享对所有项目可见", 
 
 // ---------- 集成：长会话 + 配对 + 选择记录 ----------
 
-test("集成：多工具轮次后早期消息离开上下文，配对保持有效，选择记录落库且 usage 回填", async () => {
+test("组装：多工具轮次后早期工具结果离开上下文，配对保持有效，选择记录每次调用落库且 usage 回填", async () => {
   // 小窗口强制早期消息退出上下文
-  const t = await startTestRuntime(
-    "ctx-long",
-    routeResponder([
-      {
-        match: /step0/,
-        respond: (req) => {
-          if (JSON.stringify(req.messages).includes("delayed:")) {
-            return { kind: "text" as const, text: "完成" };
-          }
-          return { kind: "tool_calls" as const, calls: [{ id: "call_a", name: "mock_delay", arguments: { ms: 5 } }] };
-        },
-      },
-    ]),
-    {
-      contextWindow: 12_000,
-      config: {
-        budgetOverrides: { toolResultReserve: 500, safetyMargin: 200, memoryBudget: 0 },
-      },
-    },
-  );
+  const kit = await startAssemblyKit("ctx-long", { contextWindow: 12_000 });
+  kit.deps.budgetOverrides = { toolResultReserve: 500, safetyMargin: 200, memoryBudget: 0 };
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    void projectId;
-    const task = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-      session_id: sessionId,
-      request_id: "r-long",
-      input: "step0 开始",
-    })) as any;
-    await waitFor("任务完成", async () => {
-      const s = await taskStatus(t.client, task.id);
-      return s.task.status === "completed";
-    });
-
-    // 每次模型调用都有选择记录，usage 已回填
-    const records = (await t.client.request<any>("list_selection_records", { task_id: task.id })) as any;
-    assert.ok(records.records.length >= 1, "至少一条选择记录");
-    for (const rec of records.records) {
-      assert.equal(rec.strategy, "deterministic-v1");
-      assert.ok(rec.budget > 0);
-      assert.ok(rec.usage !== null, "usage 应回填");
+    const { session } = kit.project();
+    const assembly = kit.begin(kit.task(session, "step0 开始"), session);
+    const messages: any[] = [];
+    for (let n = 0; n < 6; n++) messages.push(user(`旧任务 ${n}`), toolCall(`old${n}`), toolResult(`old${n}`, `结果 ${n} ${"r".repeat(8_000)}`), reply(`完成 ${n}`));
+    messages.push(user("step0 开始"));
+    const first = await kit.send(assembly, messages);
+    messages.push(toolCall("call_a"), toolResult("call_a", "delayed:5"));
+    const second = await kit.send(assembly, messages);
+    for (const { view, record } of [first, second]) {
+      assert.ok(!JSON.stringify(view).includes("结果 0 "), "最早的工具结果原文不在视图中（清理为占位或整轮移出）");
+      assert.equal(checkToolPairing(view), null, "toolCall/toolResult 配对完整");
+      assert.equal(record.strategy, "deterministic-v1");
+      assert.ok(record.budget > 0);
+      assert.ok(record.usage !== null, "usage 应回填");
     }
-
-    // 发送到模型的消息里 toolCall/toolResult 配对完整
-    for (const call of t.server.calls) {
-      const ids = new Set<string>();
-      for (const m of call.messages) {
-        if (m.role === "assistant" && Array.isArray((m as any).tool_calls)) {
-          for (const tc of (m as any).tool_calls) ids.add(tc.id);
-        }
-        if (m.role === "tool") {
-          assert.ok(ids.has((m as any).tool_call_id), `toolResult ${(m as any).tool_call_id} 缺少配对 toolCall`);
-        }
-      }
-    }
+    assert.deepEqual(kit.store.listSelectionRecordsByTask(first.record.taskId).map((r) => r.callIndex), [1, 2], "每次调用一条选择记录");
+    assert.throws(() => assembly.prepareSend(kit.model, { systemPrompt: "sys", messages: second.view, tools: [] }, {}),
+      (err: any) => err instanceof ContextSendBlocked && err.code === "context_selection_missing", "一次选择只供一次发送");
   } finally {
-    await t.shutdown();
+    await kit.close();
   }
 });
 
@@ -898,99 +874,97 @@ test("历史检索：按任务过滤（标记范围；无结束标记延伸到�
 
 // ---------- 集成：项目指令钉版注入 ----------
 
-test("集成：项目指令任务开始时钉版注入一次，内容捕获为产物，缺失明确说明", async () => {
-  const t = await startTestRuntime("instr", routeResponder([]));
+test("配置：项目指令路径须为工作区相对路径，逃逸在配置时即被拒绝", async () => {
+  const t = await startTestRuntime("instr-cfg", routeResponder([]));
   try {
-    fs.writeFileSync(path.join(t.work[0]!, "TEAM.md"), "项目约定：提交信息用中文");
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-
-    // 路径逃逸在配置时即被拒绝
+    const { projectId } = await createProjectSession(t.client, t.work[0]!);
     await assert.rejects(
       t.client.request("set_project_instructions", { project_id: projectId, files: ["../escape.md"] }),
       /相对路径/,
     );
+  } finally {
+    await t.shutdown();
+  }
+});
 
-    await t.client.request("set_project_instructions", { project_id: projectId, files: ["TEAM.md", "缺失.md"] });
-    const task = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-      session_id: sessionId,
-      request_id: "r-instr",
-      input: "你好",
-    })) as any;
-    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
-
-    assert.ok(t.server.calls.length >= 1, "应发出 provider 请求");
-    for (const call of t.server.calls) {
-      const texts = (call.messages as any[]).map((m) => JSON.stringify(m));
-      assert.equal(
-        texts.filter((s) => s.includes("项目约定：提交信息用中文")).length,
-        1,
-        "项目指令在每次调用中只注入一次",
-      );
+test("组装：项目指令任务开始时钉版注入一次，内容捕获为产物，缺失明确说明", async () => {
+  const kit = await startAssemblyKit("instr");
+  try {
+    const team = path.join(kit.work[0]!, "TEAM.md");
+    fs.writeFileSync(team, "项目约定：提交信息用中文");
+    const { projectId, session } = kit.project();
+    kit.store.setProjectInstructionFiles(projectId, ["TEAM.md", "缺失.md"]);
+    const assembly = kit.begin(kit.task(session, "你好"), session);
+    fs.writeFileSync(team, "任务中改过的约定");
+    const messages: any[] = [user("你好")];
+    const calls = [await kit.send(assembly, messages)];
+    messages.push(toolCall("t1"), toolResult("t1", "ok"));
+    calls.push(await kit.send(assembly, messages));
+    for (const { view } of calls) {
+      const texts = view.map((m) => JSON.stringify(m));
+      assert.equal(texts.filter((s) => s.includes("项目约定：提交信息用中文")).length, 1, "项目指令在每次调用中只注入一次");
       assert.ok(texts.some((s) => s.includes("[项目指令") && s.includes("缺失.md：缺失")), "缺失文件明确说明");
+      assert.ok(!texts.some((s) => s.includes("任务中改过的约定")), "任务内沿用开始时的内容");
     }
 
     // 选择记录含指令来源版本；内容可追溯至捕获产物
-    const records = (await t.client.request<any>("list_selection_records", { task_id: task.id })) as any;
-    assert.ok(records.records.length >= 1);
-    const version = records.records[0].instructionVersion as string;
+    const version = calls[0]!.record.instructionVersion!;
     assert.match(version, /^sha256:[0-9a-f]{16};artifact:art_/, "指令版本 = 内容哈希 + 产物 id");
     const artifactId = version.split(";artifact:")[1]!;
-    const artifact = (await t.client.request<any>("read_artifact", { task_id: task.id, artifact_id: artifactId })) as any;
-    const content = Buffer.from(artifact.data, "base64").toString("utf8");
-    assert.ok(content.includes("项目约定：提交信息用中文"), "产物保存任务实际使用的指令内容");
+    assert.ok(kit.deps.artifacts.read(artifactId, 0, 1_000).toString("utf8").includes("项目约定：提交信息用中文"), "产物保存任务实际使用的指令内容");
   } finally {
-    await t.shutdown();
+    await kit.close();
   }
 });
 
 // ---------- 集成：继续任务保留原任务要求 ----------
 
-test("集成：继续已中断任务时原任务要求作为必留参考注入", async () => {
-  let release: () => void = () => {};
-  const gate = new Promise<void>((r) => (release = r));
-  const t = await startTestRuntime(
-    "resume-link",
-    routeResponder([
-      { match: /原始要求/, respond: async () => { await gate; return { kind: "text" as const, text: "不应到达" }; } },
-      { match: /继续/, respond: () => ({ kind: "text" as const, text: "继续完成" }) },
-    ]),
-  );
+test("组装：继续已中断任务时原任务要求作为必留参考注入", async () => {
+  const kit = await startAssemblyKit("resume-link");
   try {
-    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const task1 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-      session_id: sessionId,
-      request_id: "r-orig",
-      input: "原始要求：给登录页加验证码",
-    })) as any;
-    await waitFor("任务运行中", async () => (await taskStatus(t.client, task1.id)).task.status === "running");
-    await t.client.request("interrupt", { task_id: task1.id });
-    await waitFor("任务中断", async () => (await taskStatus(t.client, task1.id)).task.status === "interrupted");
-    release();
-
-    const callsBefore = t.server.calls.length;
-    const task2 = (await t.client.request<any>("continue", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-      task_id: task1.id,
-      request_id: "r-cont",
-      input: "继续",
-    })) as any;
-    await waitFor("继续任务完成", async () => (await taskStatus(t.client, task2.id)).task.status === "completed");
-
-    const newCalls = t.server.calls.slice(callsBefore);
-    assert.ok(newCalls.length >= 1, "继续任务应发出 provider 请求");
-    const texts = newCalls.flatMap((c) => (c.messages as any[]).map((m) => JSON.stringify(m)));
+    const { session } = kit.project();
+    const original = kit.task(session, "原始要求：给登录页加验证码");
+    const cont = kit.task(session, "继续", original.id);
+    const { view } = await kit.send(kit.begin(cont, session), [user("原始要求：给登录页加验证码"), user("继续")]);
+    const texts = view.map((m) => JSON.stringify(m));
     assert.ok(
-      texts.some((s) => s.includes(`[继续来源：本任务继续已中断任务 ${task1.id}`) && s.includes("原始要求：给登录页加验证码")),
+      texts.some((s) => s.includes(`[继续来源：本任务继续已中断任务 ${original.id}`) && s.includes("原始要求：给登录页加验证码")),
       "继续任务应注入带来源关联的原任务要求",
     );
   } finally {
-    release();
-    await t.shutdown();
+    await kit.close();
   }
 });
 
 // ---------- 集成：派生记忆来源范围重校 ----------
 
-test("集成：授权撤销后引用受限来源的记忆不再注入，memory_read 拒绝", async () => {
+test("组装：授权撤销后引用受限来源的记忆不再注入，排除原因记为 source_scope_revoked", async () => {
+  const kit = await startAssemblyKit("mem-src-inject", { workDirs: 2 });
+  try {
+    const a = kit.project(kit.work[0]);
+    const b = kit.project(kit.work[1]);
+    const grant = kit.deps.access.createGrant({ fromProjectId: b.projectId, toProjectId: a.projectId, category: "history" });
+    const memory = kit.deps.memories.create({
+      projectId: a.projectId, category: "experience", content: "B 项目的暗号是蓝色灯塔（派生自 B 历史）",
+      sourceRefs: [{ kind: "history_entry", sessionId: b.session.id, entryId: "entry_b" }], author: "agent",
+    });
+    const run = (input: string) => kit.send(kit.begin(kit.task(a.session, input), a.session), [user(input)]);
+    const granted = await run("授权期间");
+    assert.ok(granted.record.includedMemories.some((m) => m.memoryId === memory.id), "授权期间注入");
+    kit.deps.access.revokeGrant(grant.id);
+    const revoked = await run("读记忆");
+    assert.ok(revoked.record.includedMemories.every((m) => m.memoryId !== memory.id), "撤销后来源受限的记忆不得注入");
+    assert.ok(
+      revoked.record.excludedMemories.some((m) => m.memoryId === memory.id && m.reason === "source_scope_revoked"),
+      "排除原因应记为 source_scope_revoked",
+    );
+    assert.ok(!revoked.view.some((m) => JSON.stringify(m).includes("[长期记忆")), "撤销后不再有记忆前缀注入");
+  } finally {
+    await kit.close();
+  }
+});
+
+test("集成：授权撤销后 memory_read 拒绝读取来源受限的记忆", async () => {
   const shared = { sessionId: "", entryId: "", memoryId: "" };
   const t = await startTestRuntime(
     "mem-src",
@@ -1080,7 +1054,7 @@ test("集成：授权撤销后引用受限来源的记忆不再注入，memory_r
     const memoryId = memories.memories[0].id as string;
     shared.memoryId = memoryId;
 
-    // 撤销授权：后续任务不再注入该记忆；memory_read 拒绝
+    // 撤销授权：memory_read 拒绝（注入侧见上面的组装测试）
     await t.client.request("revoke_data_grant", { grant_id: grant.id });
     const callsBefore = t.server.calls.length;
     const taskA2 = (await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
@@ -1093,27 +1067,6 @@ test("集成：授权撤销后引用受限来源的记忆不再注入，memory_r
       return s.task.status === "completed" || s.task.status === "failed";
     });
 
-    // 注入侧：选择记录中该记忆以 source_scope_revoked 排除；视图无 [长期记忆 前缀
-    const records = (await t.client.request<any>("list_selection_records", { task_id: taskA2.id })) as any;
-    assert.ok(records.records.length >= 1);
-    assert.ok(
-      records.records.every((r: any) =>
-        r.includedMemories.every((m: any) => m.memoryId !== memoryId),
-      ),
-      "撤销后来源受限的记忆不得注入",
-    );
-    assert.ok(
-      records.records.some((r: any) =>
-        r.excludedMemories.some((m: any) => m.memoryId === memoryId && m.reason === "source_scope_revoked"),
-      ),
-      "排除原因应记为 source_scope_revoked",
-    );
-    const a2Texts = t.server.calls
-      .slice(callsBefore)
-      .flatMap((c) => (c.messages as any[]).map((m) => JSON.stringify(m)));
-    assert.ok(!a2Texts.some((s) => s.includes("[长期记忆")), "撤销后不再有记忆前缀注入");
-
-    // 读取侧：memory_read 明确拒绝
     const a2ToolResults = t.server.calls
       .slice(callsBefore)
       .flatMap((c) => (c.messages as any[]))

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 审批闸门：审批全程收进一个模块
 
@@ -130,3 +130,29 @@ request<T = void>(input: {
 第 1、2 步提交前各跑一轮对抗式等价复核。每步 `npm test` 与 `npm run typecheck` 都通过后在分支 `approval-gate` 本地提交，不 push。不在 tx 上跑真实模型验收。
 
 ## Comments
+
+### 2026-09-27：实现交付
+
+按 0→5 在分支 `approval-gate` 本地提交，未 push：
+
+- 第 0 步 e1d6eaa：工单与 CONTEXT.md「批准消费」。
+- 第 1 步 a5f18dc：`src/agent/approval-gate.ts` 接管提交、自动审查、等待、应答、模式切换失效、停止解除与 confirmTools 门（纯搬移）；新增 63 号（提交与等待）。
+- 第 2 步 83bf5d4：`request()`（同事务复核、单次消费、事件、提交本地效果、失效标记、文案表）；路由器、应用数据、通知改用它，删三份 `consumeApproved`、两份 `approvalFailureText` 与 `ApprovalOutcome`；缺陷 1、2、4、5、6 随迁移修复；63 号补消费一半，37、28 号回归测试（修复前均失败），25、49 号加 stale 断言。
+- 第 3 步 9549723：confirmTools 门改走 `request()`，批准后先消费再放行。
+- 第 4 步 74a6d9c：HTTP 审批前拒绝带使用范围的凭据（缺陷 3）。
+- 第 5 步（本提交）：`docs/runtime.md`「架构要点」加审批闸门，补 stale 说明；本工单。
+
+每步 `npm test` 与 `npm run typecheck` 都通过（最终 610 项，609 通过，1 项按开关跳过）。第 1、2 步提交前各跑一轮对抗式等价复核：第 1 步没有可达路径上的差异（`resolve()` 的事件改用等待方自己的任务，唯一调用方的前置检查使差别走不到）；第 2 步找到一处计划外差异，见下面第二条。
+
+与上面的决定不同、或决定没写到的地方（请复核）：
+
+- 模拟模型（`test/helpers/mock-provider.ts`）原来把同一消息里的多个工具调用都标成 index 0，pi-ai 会把它们合并成一个调用，所以并行批次复现不出来。改为每个调用各占一个 index。只有三处脚本一次发多个调用：10:453（两个都是未知工具，断言照旧成立）、45:71（伪造的调用不在子任务工具清单里，断言照旧成立且更严格）、37 号新测试。
+- 编排器 `orchestrator.ts:729` 的「有未处理的审批请求」原来认 `pending || stale`。批准后复核或消费失败的审批现在也会变 stale，但拥有者其实答复过，所以条件改为只认 `decisionSource` 为空的 stale（未答复即失效），与改动前一致。这条没有测试覆盖：只有 coding 子任务的 MCP 写调用在等待期间遇到配置变化才走得到。
+- 提前中止分支现在由闸门自己记入「已知未执行」（改动前留给通用的 `tool_execution_end` 记录）。
+- 应用数据的身份复核放进 recheck 后，为了照旧留 `app_data.rejected`（identity / identity_mismatch），闸门返回后再调用 `reject()`，文案不变。
+- recheck 或 commit 抛错后标 stale 的事务如果本身失败，不遮住原始错误，批准保持未消费（仍是已知未执行）。
+- confirmTools 门的消费断言加在 08:828（唯一走批准路径的 mock_gate 测试），没有加在 03 号：03 号只测拒绝和中断。
+- confirmTools 门在 auto-review 模式下现在也走确定性审查策略（`tool` 范围直接转拥有者，记 `asked_owner` 与 `task.confirmation_reviewed`），与其他范围一致。
+- 变异 15 处都能被发现：复核结果被忽略、复核挪到事务外、复核失败 / 消费失败 / 抛错不标 stale（三处）、stale 条件漏 `consumed_at IS NULL`、落库与返回文案不同、commit 不在消费事务内、通知改回读共享上下文、应用数据去掉 `await`、confirmTools 门不消费、HTTP 审批前不查凭据范围、提前中止置全部 pending stale、计数归零前转回 running、提前中止不看计数。
+
+按决定留在范围外、本单未处理：见「不在本单」与「移交候选 05」。

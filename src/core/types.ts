@@ -111,11 +111,10 @@ export type AgentRoleId = "main" | "coding" | "chat";
 export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"];
 
 /**
- * 角色工具白名单的粒度：按工具注册来源划分类别（编码工具/宿主资料与记忆/
- * Web Search/MCP/应用数据）。装配、发送前最终检查与调用门三层共用同一份名单。
- * app_data 仅 main 角色包含（issue 02：应用数据空间，仅宿主可信绑定）；
- * scheduler 同样仅 main（issue 03：计划与通知账本）；delegation 同样仅 main
- * （issue 05：委派 coding 与读取委派结果）。
+ * 工具类别：按工具注册来源划分（编码工具/宿主资料与记忆/Web Search/MCP/应用数据/
+ * 调度/委派/群结果/技能）。各会话类别开放哪些类别由 tool-availability 的清单决定，
+ * 装配、激活、发送前与调用门共用同一结论；app_data、scheduler、delegation、
+ * chat_results 只在 main 的清单中。
  */
 export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "skills";
 
@@ -577,7 +576,7 @@ export type PersistentEventBody =
    * 应用数据操作被拒绝（issue 02）：调用门/身份校验/参数校验/预算超限/超时。
    * 只记来源、操作类别与错误码，不复制无限长输入或整条个人数据。
    */
-  | { type: "app_data.rejected"; taskId: string | null; sessionId: string | null; source: "tool_call_gate" | "identity" | "validation" | "budget" | "timeout"; toolName: string; code: string }
+  | { type: "app_data.rejected"; taskId: string | null; sessionId: string | null; source: "identity" | "validation" | "budget" | "timeout"; toolName: string; code: string }
   /** 调度计划变化（issue 03）：创建/取消/一次性完成。只落事件表，不唤醒模型。 */
   | { type: "schedule.changed"; scheduleId: string; action: "created" | "canceled" | "completed"; version: number; source: string; reason?: string }
   /** 调度运行：登记（含延迟/合并区间）、合并漏过周期、关闭。 */

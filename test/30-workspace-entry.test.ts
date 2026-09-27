@@ -556,7 +556,7 @@ test("工作区入口请求超时（连接未断）：按同一启动请求标�
         if (op === "create_session" && !timedOut) {
           timedOut = true;
           await orig(op, params, timeout);
-          throw new ControlClientError("request_timeout", "模拟请求超时");
+          throw new ControlClientError("request_timeout", "模拟请求超时", "unknown");
         }
         return orig(op, params, timeout);
       };
@@ -602,7 +602,7 @@ test("工作区入口应答丢失：重连后按启动请求标识核实，不�
               );
               client.close();
             })();
-            return Promise.reject(new ControlClientError("connection_closed", "模拟应答丢失"));
+            return Promise.reject(new ControlClientError("connection_closed", "模拟应答丢失", "disconnected"));
           }
           return orig(op, params, timeout);
         };

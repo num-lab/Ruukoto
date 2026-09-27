@@ -216,7 +216,7 @@ export class ControlConnection {
    */
   request<K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number): Promise<OpResult<K>> {
     if (!this.client || this.client.isClosed) {
-      return Promise.reject(new ControlClientError("connection_unavailable", "连接不可用：请求未发送"));
+      return Promise.reject(new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent"));
     }
     return this.client.request(op, params, timeoutMs);
   }

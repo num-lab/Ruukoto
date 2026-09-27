@@ -7,7 +7,7 @@
  * - 子任务结果能唤醒 main（有界唤醒输入）；
  * - 后台重启不会重复创建或重放外部操作（已登记未建任务可继续）；
  * - coding、chat 不能读取 main 的 owner token 或未授权资料；
- * - 角色工具白名单（装配/发送前检查/调用门三层）。
+ * - 角色工具白名单（按会话类别清单装配，激活、发送前检查与调用门共用同一结论）。
  */
 
 import assert from "node:assert/strict";
@@ -581,6 +581,12 @@ test("P1：chat 不注入个人共享记忆与项目指令（main 正常注入�
       content: "PERSONAL-MARK-4451 拥有者偏好",
       source_refs: [{ kind: "owner_note", note: "测试注入" }],
     });
+    // 两个角色项目都配置带标记的项目指令：chat 按资料受限会话不注入，main 正常注入
+    for (const id of ["chat", "main"] as const) {
+      const role = t.runtime.store.getAgentRole(id)!;
+      fs.writeFileSync(path.join(role.workDir, "RULES.md"), "INSTR-MARK-7713 项目约定");
+      t.runtime.store.setProjectInstructionFiles(role.projectId, ["RULES.md"]);
+    }
     const orch = t.runtime.orchestrator!;
     await orch.registerInboundEvent({ source: "test", externalId: "chat-mem", targetRole: "chat", body: "CHAT-CTX-MARK 打个招呼" });
     await orch.registerInboundEvent({ source: "test", externalId: "main-mem", targetRole: "main", body: "MAIN-CTX-MARK 整理一下" });
@@ -595,8 +601,10 @@ test("P1：chat 不注入个人共享记忆与项目指令（main 正常注入�
     const chatCall = t.server.calls.find((c) => lastUserText(c).includes("CHAT-CTX-MARK"))!;
     assert.ok(chatCall, "chat 任务已调用模型");
     assert.ok(!payloadOf(chatCall).includes("PERSONAL-MARK-4451"), "个人共享记忆不得进入 chat 上下文");
+    assert.ok(!payloadOf(chatCall).includes("INSTR-MARK-7713"), "项目指令不得进入 chat 上下文");
     const mainCall = t.server.calls.find((c) => lastUserText(c).includes("MAIN-CTX-MARK"))!;
     assert.ok(payloadOf(mainCall).includes("PERSONAL-MARK-4451"), "main 正常注入个人共享记忆");
+    assert.ok(payloadOf(mainCall).includes("INSTR-MARK-7713"), "main 正常注入项目指令");
   } finally {
     await t.shutdown();
   }

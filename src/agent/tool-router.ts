@@ -582,7 +582,11 @@ export class ToolRouter {
     const conn = mcp.plan()?.connections.get(meta.service.id);
     if (!conn) return textResult(`MCP 服务 ${meta.service.name} 连接不可用（初始化失败或已关闭）`, true);
     try {
-      const result = await conn.callTool(meta.remoteName, params, input.signal);
+      const result = await conn.callTool({ name: meta.remoteName, inputSchema: meta.inputSchema }, params, input.signal);
+      if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
+        // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
+        return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
+      }
       const formatted = formatMcpResult(
         { taskId: task.id, sessionId: task.sessionId },
         this.deps.artifacts,
@@ -593,8 +597,8 @@ export class ToolRouter {
       return { content: formatted.content, isError: false };
     } catch (err) {
       // 写/副作用不明工具的传输类失败（超时/断线/取消）：请求可能已发出而结果
-      // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态）
-      // 与发送前失败（凭据/校验）是已知结果，不标。
+      // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态/
+      // JSON-RPC 错误应答 remote_error）与发送前失败（凭据/校验）是已知结果，不标。
       if (
         meta.effect !== "read" &&
         err instanceof McpError &&

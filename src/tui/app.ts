@@ -4,7 +4,7 @@
  * 布局（单个全屏页面，窄终端保持纵向结构）：
  *   顶部 header：项目 / 会话 / 工作目录 / 连接状态 / 任务权限模式 / 执行后端；
  *   中间 ScrollView：历史消息与工具记录（折叠）+ 当前活动（预览/工具/提示）；
- *   底部：任务与队列状态行、多行 Editor、快捷键行。
+ *   底部：工作清单、多行 Editor、模式与模型信息。
  *
  * 输入：Enter 提交，Alt+Enter（或 Shift+Enter / Ctrl+J）换行；/ 开头为命令；
  * Ctrl+C 清空草稿（空草稿时退出客户端）；/quit 退出。退出只关闭客户端，
@@ -27,6 +27,7 @@ import {
   visibleWidth,
   type Component,
   type OverlayHandle,
+  type OverlayOptions,
   type SelectItem,
   type Terminal,
   type TUI,
@@ -107,18 +108,19 @@ const selectTheme = {
 const editorTheme = { borderColor: dim, selectList: selectTheme };
 
 /**
- * 悬浮层：圆角边框 + 内边距，包住任意组件（列表、文本、自定义面板）。
+ * 窗口边框与内边距，包住任意组件（列表、文本、自定义面板）。
  *
  * 边框在容器层绘制，内容按（宽度 − 边框与留白）渲染后逐行补齐，所以内容
  * 多宽都能对齐；中文按显示宽度算，不会被当成两倍宽。不强制撑满宽度。
  * 高度由覆盖层给定（maxHeight）：内容超出时开窗滚动，上下边框始终保留。
  */
-class FloatingPanel implements Component {
+class WindowFrame implements Component {
+  onKey: ((data: string) => void) | null = null;
   /** 内边距：左右各 1 列，上下各 1 行。 */
   private static readonly PAD_X = 1;
   private static readonly PAD_Y = 1;
   /** 边框占宽：左右竖线 + 两侧内边距。 */
-  private static readonly CHROME_X = 2 * (FloatingPanel.PAD_X + 1);
+  private static readonly CHROME_X = 2 * (WindowFrame.PAD_X + 1);
   /** 内容区可见行数上限（0 = 不限制，按内容全展开）。 */
   private maxRows = 0;
   /** 内容区滚动起点：内容超出时由 setScroll 调整。 */
@@ -128,13 +130,19 @@ class FloatingPanel implements Component {
 
   constructor(private readonly content: Component) {}
 
+  handleInput(data: string): void {
+    if (matchesKey(data, "q") || matchesKey(data, "escape")) data = "\x1b";
+    if (this.onKey) this.onKey(data);
+    else this.content.handleInput?.(data);
+  }
+
   invalidate(): void {
     this.content.invalidate?.();
   }
 
   /** 内容区可用行数 = 总高 − 上下边框与内边距。 */
   private bodyRows(height: number): number {
-    return Math.max(1, height - 2 * (FloatingPanel.PAD_Y + 1));
+    return Math.max(1, height - 2 * (WindowFrame.PAD_Y + 1));
   }
 
   /**
@@ -147,8 +155,8 @@ class FloatingPanel implements Component {
 
   /** 内容区行数（含上下内边距与边框）——覆盖层定高用。 */
   heightFor(width: number): number {
-    const inner = Math.max(1, width - FloatingPanel.CHROME_X);
-    return this.content.render(inner).length + 2 * FloatingPanel.PAD_Y + 2;
+    const inner = Math.max(1, width - WindowFrame.CHROME_X);
+    return this.content.render(inner).length + 2 * WindowFrame.PAD_Y + 2;
   }
 
   /** 滚动内容区：delta 为行数（正数向下）。 */
@@ -164,8 +172,8 @@ class FloatingPanel implements Component {
   }
 
   render(width: number): string[] {
-    const inner = Math.max(1, width - FloatingPanel.CHROME_X);
-    const pad = " ".repeat(FloatingPanel.PAD_X);
+    const inner = Math.max(1, width - WindowFrame.CHROME_X);
+    const pad = " ".repeat(WindowFrame.PAD_X);
     const all = this.content.render(inner);
     this.contentRows = all.length;
     // 内容超出可见区时开窗；边框永远保留，不随内容被裁掉
@@ -175,14 +183,14 @@ class FloatingPanel implements Component {
       const padded = line + " ".repeat(Math.max(0, inner - visibleWidth(line)));
       return `${dim("│")}${pad}${padded}${pad}${dim("│")}`;
     });
-    const innerWidth = inner + 2 * FloatingPanel.PAD_X;
+    const innerWidth = inner + 2 * WindowFrame.PAD_X;
     const blank = `${dim("│")}${" ".repeat(innerWidth)}${dim("│")}`;
     const edge = (left: string, right: string) => dim(`${left}${"─".repeat(innerWidth)}${right}`);
     return [
       edge("╭", "╮"),
-      ...Array.from({ length: FloatingPanel.PAD_Y }, () => blank),
+      ...Array.from({ length: WindowFrame.PAD_Y }, () => blank),
       ...body,
-      ...Array.from({ length: FloatingPanel.PAD_Y }, () => blank),
+      ...Array.from({ length: WindowFrame.PAD_Y }, () => blank),
       edge("╰", "╯"),
     ];
   }
@@ -229,17 +237,6 @@ class AboveEditor extends Editor {
   }
 }
 
-/** 记录自身渲染高度的 Text：覆盖层按输入框与底栏的实际高度从底部定位。 */
-class MeasuredText extends Text {
-  lastHeight = 0;
-
-  render(width: number): string[] {
-    const lines = super.render(width);
-    this.lastHeight = lines.length;
-    return lines;
-  }
-}
-
 /** 模型面板列宽比例：提供方 / 模型 / 思考强度。 */
 const MODEL_PANEL_RATIO = [0.3, 0.45, 0.25];
 const MODEL_PANEL_GAP = 3;
@@ -264,7 +261,7 @@ function columnWidths(width: number, ratio: number[] = MODEL_PANEL_RATIO): numbe
  * 模型切换面板：三列（提供方 / 模型 / 思考强度），左右键切列，上下键列内切换。
  *
  * 三列互相约束：模型列表随所选提供方过滤，思考强度随所选模型变化。列宽按各列
- * 最长项计算（中文按显示宽度），不足时截断并加省略号。回车确认，Esc 取消。
+ * 最长项计算（中文按显示宽度），不足时截断并加省略号。回车确认，Esc/q 取消。
  */
 class ModelPanel implements Component {
   /** 各列的当前光标位置（列内索引）。 */
@@ -399,7 +396,7 @@ class ModelPanel implements Component {
       lines.push(parts.join(" ".repeat(gap)));
     }
     lines.push("");
-    lines.push(dim(truncateToWidth(curModel ? this.note(curModel) : "←→ 切列 · ↑↓ 列内切换 · Enter 确认 · Esc 取消", width, "…")));
+    lines.push(dim(truncateToWidth(curModel ? this.note(curModel) : "←→ 切列 · ↑↓ 列内切换 · Enter 确认 · Esc/q 取消", width, "…")));
     return lines;
   }
 }
@@ -540,7 +537,7 @@ export function contextBarLines(record: SelectionRecord, b: ContextBreakdown, wi
       label: c.label,
       tokens: c.tokens,
       style: CATEGORY_STYLES[i % CATEGORY_STYLES.length]!,
-      note: `${c.tokens}${w ? ` · ${pct(c.pctOfWindow)}` : ` · ${pct(c.pctOfBudget)}`}`,
+      note: `${c.tokens} (${w ? pct(c.pctOfWindow) : pct(c.pctOfBudget)})`,
     }));
   if (w) {
     // 预留合并为一段：输出上限/思考/工具结果/安全余量同属「留给后续」，
@@ -559,7 +556,7 @@ export function contextBarLines(record: SelectionRecord, b: ContextBreakdown, wi
     }
   }
 
-  const title = `上下文窗口`;
+  const title = "Context Usage";
   const footer: string[] = [];
   const experiment = record.experiment;
   if (experiment) {
@@ -641,7 +638,7 @@ class BareList implements Component {
 class GutterContainer extends Container {
   render(width: number): string[] {
     const inner = Math.max(1, width - RIGHT_GUTTER);
-    return super.render(inner);
+    return [...super.render(inner), "", "", ""];
   }
 }
 
@@ -652,6 +649,7 @@ class OverlayBox extends VStack {
   forwardTo: { handleInput(data: string): void } | null = null;
 
   handleInput(data: string): void {
+    if (matchesKey(data, "q") || matchesKey(data, "escape")) data = "\x1b";
     if (this.onKey) {
       this.onKey(data);
       return;
@@ -660,15 +658,15 @@ class OverlayBox extends VStack {
   }
 }
 
-/** 悬浮层尺寸：按可用宽度取比例，并按内容定高（不超过终端）。 */
-interface FloatingOptions {
+/** 窗口尺寸：按可用宽度取比例，并按内容定高（不超过终端）。 */
+interface WindowOptions {
   /** 占终端宽度的比例（0–1）。 */
   widthRatio: number;
   /** 内容组件；会被包进边框。 */
   content: Component;
   /** 按键转发目标（如 SelectList）；给了它就不再用 onKey。 */
   forwardTo?: { handleInput(data: string): void };
-  /** 自定义按键处理（Esc 关闭之外）。 */
+  /** 自定义按键处理（Esc/q 关闭之外）。 */
   onKey?: (data: string) => void;
   /** 关闭时的额外回调（如取消请求）。 */
   onClose?: () => void;
@@ -702,6 +700,7 @@ export class TuiApp {
 
   private readonly autocompleteOverlayComponent = new LinesComponent();
   private autocompleteOverlay: OverlayHandle | null = null;
+  private readonly windows: OverlayHandle[] = [];
   private overlaySyncPending = false;
   /** 已补种过输入历史的会话（每个会话只补一次）。 */
   private readonly seededHistorySessions = new Set<string>();
@@ -714,7 +713,6 @@ export class TuiApp {
   private header: Text;
   private transcriptContainer: GutterContainer;
   private scroll: ScrollView;
-  private statusLine: MeasuredText;
   private footer: FooterLine;
   private editor: AboveEditor;
 
@@ -764,7 +762,6 @@ export class TuiApp {
     this.transcriptContainer = new GutterContainer();
     this.transcriptContainer.addChild(this.eventFlowView);
     this.scroll = new ScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
-    this.statusLine = new MeasuredText("", 1, 0);
     // 底栏：左侧模式与工作区，右侧模型来源/模型名/思考强度（按键提示由 /help 提供）
     this.footer = new FooterLine();
     this.editor = new AboveEditor(this.tui, editorTheme, {});
@@ -787,13 +784,13 @@ export class TuiApp {
       });
     };
 
+    const mainVisible = () => this.windows.length === 0;
     const root = new VStack([
-      { component: this.header, grow: 0, shrink: 1 },
-      { component: this.scroll, grow: 1, shrink: 1, minSize: 1 },
-      { component: this.todoPanel, grow: 0, shrink: 1 },
-      { component: this.statusLine, grow: 0, shrink: 1, maxSize: 3 },
-      { component: this.editor, grow: 0, shrink: 1, minSize: 3 },
-      { component: this.footer, grow: 0, shrink: 0 },
+      { component: this.header, grow: 0, shrink: 1, visible: mainVisible },
+      { component: this.scroll, grow: 1, shrink: 1, minSize: 1, visible: mainVisible },
+      { component: this.todoPanel, grow: 0, shrink: 1, visible: mainVisible },
+      { component: this.editor, grow: 0, shrink: 1, minSize: 3, visible: mainVisible },
+      { component: this.footer, grow: 0, shrink: 0, visible: mainVisible },
     ]);
     this.tui.addChild(root);
     this.tui.setLayoutRoot(root);
@@ -822,7 +819,7 @@ export class TuiApp {
     return m.provider ? `${m.provider}/${m.id} · ${m.thinkingLevel}` : "connecting";
   }
 
-  /** 运行中每秒走表：没有计时需求时不保留定时器。 */
+  /** 运行中刷新动画与计时：没有活动任务时不保留定时器。 */
   private tickTiming(): void {
     const sessionId = this.state.currentSessionId;
     const needsTick = sessionId ? this.state.activeTaskFor(sessionId) !== null : false;
@@ -832,8 +829,8 @@ export class TuiApp {
           this.stopTimingTick();
           return;
         }
-        this.refreshTranscript();
-      }, 1000);
+        if (!this.windows.length) this.tui.requestRender();
+      }, 80);
     } else if (!needsTick) {
       this.stopTimingTick();
     }
@@ -846,6 +843,11 @@ export class TuiApp {
 
 
   private syncAutocompleteOverlay(): void {
+    if (this.windows.length) {
+      this.autocompleteOverlay?.hide();
+      this.autocompleteOverlay = null;
+      return;
+    }
     const lines = this.editor.overlayLines;
     if (lines.length === 0) {
       this.autocompleteOverlay?.hide();
@@ -1122,11 +1124,11 @@ export class TuiApp {
     const items: SelectItem[] = candidates.map((p) => ({ value: p.id, label: p.name, description: p.id }));
     const list = new SelectList(items, Math.min(items.length, 10), selectTheme);
     const body = new VStack([
-      { component: new Text(bold(`工作区 ${this.workspaceIdentity!.cwdReal} 对应多个项目，选择要进入的项目（Esc 取消，不创建会话）`), 0, 0), grow: 0 },
+      { component: new Text(bold(`工作区 ${this.workspaceIdentity!.cwdReal} 对应多个项目，选择要进入的项目（Esc/q 取消，不创建会话）`), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
     let picked = false;
-    const handle = this.openFloating({
+    const handle = this.openWindow({
       widthRatio: 0.85,
       content: body,
       forwardTo: list,
@@ -1180,7 +1182,7 @@ export class TuiApp {
             break;
           case "needs_resubmit": {
             const sessionId = String(outcome.params["session_id"] ?? "");
-            this.showSelection("旧请求明确未接收且缺少模型：恢复原文后通过 /model 选择并提交（Esc 保留记录）", [{ value: "restore", label: "恢复原文到所属会话并清除旧待确认记录" }], () => {
+            this.showSelection("旧请求明确未接收且缺少模型：恢复原文后通过 /model 选择并提交（Esc/q 保留记录）", [{ value: "restore", label: "恢复原文到所属会话并清除旧待确认记录" }], () => {
               const view = this.state.openSession(sessionId);
               const text = String(outcome.params["input"] ?? "");
               view.draft = view.draft ? `${view.draft}\n${text}` : text;
@@ -1537,7 +1539,7 @@ export class TuiApp {
     openModelPicker: (result) => this.openModelPicker(result),
     openModeList: (rest, result) => this.cmdMode(rest, result),
     refreshTask: () => this.refreshTaskDetails(),
-    openContext: () => this.cmdContext(),
+    openContext: (result) => this.cmdContext(result),
     openPrompts: () => this.cmdPrompt(),
     submit: (text) => this.submitText(text),
   };
@@ -1728,14 +1730,8 @@ export class TuiApp {
 
   // ---------- /context：上下文窗口预算分解（issue 14） ----------
 
-  /**
-   * 当前上下文窗口分解：贴输入框上沿的裸覆盖层（与候选命令列表同款），
-   * 一条长条表示总窗口、按占比着色，下方图例说明各色含义。
-   *
-   * 只看当前状态：取本会话最近一次模型调用的选择记录，不提供切换历史调用。
-   * 占比由后台统一计算（get_context_breakdown）；查看只读，不触发模型请求。
-   */
-  private async cmdContext(): Promise<void> {
+  /** 最近一次模型调用的上下文窗口分解，显示在本条命令下。 */
+  private async cmdContext(result: CommandResult): Promise<void> {
     const view = this.currentView();
     if (!view) {
       this.notify("尚未选择会话");
@@ -1743,21 +1739,7 @@ export class TuiApp {
     }
     const sessionId = view.sessionId;
     const generation = this.generation;
-    let closed = false;
-    const stale = () => closed || generation !== this.generation || this.state.currentSessionId !== sessionId;
-
-    const bar = new LinesComponent();
-    const hint = new Text("", 1, 0);
-    const body = new VStack([
-      { component: bar, grow: 1 },
-      { component: hint, grow: 0 },
-    ]);
-
-    this.openAboveInput(body, () => {}, () => {
-      closed = true;
-    });
-    bar.setLines([dim("加载中…")]);
-    this.tui.requestRender();
+    const stale = () => generation !== this.generation || this.state.currentSessionId !== sessionId;
 
     try {
       // 最近一次调用即当前窗口状态：只取一条，不做列表与分页
@@ -1768,31 +1750,31 @@ export class TuiApp {
       if (stale()) return;
       const recordId = list.records[0]?.id;
       if (!recordId) {
-        bar.setLines([]);
-        hint.setText(dim("本会话还没有模型调用记录（任务发出第一次模型调用后生成） · Esc 关闭"));
-        this.tui.requestRender();
+        result("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+        this.refreshTranscript();
         return;
       }
-      const result = await this.connection.request(
+      const breakdown = await this.connection.request(
         "get_context_breakdown",
         { session_id: sessionId, record_id: recordId },
       );
       if (stale()) return;
-      bar.setLines(contextBarLines(result.record, result.breakdown, this.terminal.columns || 80, result.checkpoint ?? null));
-      this.tui.requestRender();
+      const lines = contextBarLines(breakdown.record, breakdown.breakdown, Math.max(1, (this.terminal.columns || 80) - RIGHT_GUTTER), breakdown.checkpoint ?? null);
+      result(lines.join("\n"));
+      this.refreshTranscript();
     } catch (err) {
       if (stale()) return;
-      bar.setLines([red(`读取失败：${(err as Error).message}`)]);
-      this.tui.requestRender();
+      result(`读取失败：${(err as Error).message}`, true);
+      this.refreshTranscript();
     }
   }
 
   // ---------- /prompt：模型请求列表与 prompt 详情（issue 13） ----------
 
   /**
-   * 打开当前会话的模型请求列表悬浮层。列表按时间从新到旧分页加载；
-   * Enter 进入该次调用的 prompt 详情（分段加载），Esc 返回列表并保留位置，
-   * 再 Esc 关闭并恢复编辑器焦点。所有读取经拥有者认证通道；查看不触发
+   * 打开当前会话的模型请求列表窗口。列表按时间从新到旧分页加载；
+   * Enter 进入该次调用的 prompt 详情（分段加载），Esc/q 返回列表并保留位置，
+   * 再 Esc/q 关闭并恢复编辑器焦点。所有读取经拥有者认证通道；查看不触发
    * 任何模型调用或任务变更。
    */
   private async cmdPrompt(): Promise<void> {
@@ -1821,7 +1803,6 @@ export class TuiApp {
     const closeAll = () => {
       closed = true;
       handle?.hide();
-      this.tui.setFocus(this.editor);
     };
 
     const rowLabel = (r: SelectionRecord): SelectItem => ({
@@ -1856,7 +1837,7 @@ export class TuiApp {
           { component: list, grow: 1 },
           { component: hint, grow: 0 },
         ]);
-        handle = this.tui.showOverlay(box, { width: "85%", anchor: "center", maxHeight: "70%" });
+        handle = this.showWindow(box, { width: "85%", anchor: "center", maxHeight: "70%" });
       } else {
         // SelectList 不支持动态增项：换实例后替换栈中子组件
         box.removeChild(oldList!);
@@ -1864,7 +1845,7 @@ export class TuiApp {
       }
       box.forwardTo = list;
       title.setText(bold(`模型请求（${records.length} 条${hasMore ? "，还有更多" : ""}）`));
-      hint.setText(dim("Enter 查看 prompt 详情 · Esc 关闭"));
+      hint.setText(dim("Enter 查看 prompt 详情 · Esc/q 关闭"));
       this.tui.requestRender();
     };
 
@@ -1902,7 +1883,7 @@ export class TuiApp {
   /**
    * 单次调用的 prompt 详情：快照 JSON 按字节分页展示（UTF-8 边界对齐，
    * 长正文不静默截断）。快照在发送前捕获；usage 为空表示发送结果未回填。
-   * Esc 返回列表（由 onBack 回调处理），不关闭整个面板。
+   * Esc/q 返回列表，保留列表的位置。
    */
   private async openPromptDetail(
     sessionId: string,
@@ -1925,10 +1906,6 @@ export class TuiApp {
       title: `prompt ${record.id.slice(0, 12)}…`,
       header: headerLines.join("\n"),
       pageBytes: ENTRY_PAGE_BYTES,
-      onBack: () => {
-        // 返回列表：只关闭详情页（列表悬浮层仍在，位置保留）
-        this.tui.hideOverlay();
-      },
       fetch: async (offset, length) => {
         if (isStale() || generation !== this.generation) throw new Error("视图已切换");
         const result = await this.connection.request("read_prompt_snapshot", { record_id: record.id, session_id: sessionId, offset, length });
@@ -2074,13 +2051,11 @@ export class TuiApp {
     });
   }
 
-  /** 通用分页正文查看器：n/空格 下一页，p 上一页，Esc 关闭（关闭不等于任何确认）。 */
+  /** 通用分页正文查看器：n/空格 下一页，p 上一页，Esc/q 关闭（关闭不等于任何确认）。 */
   private async openPager(opts: {
     title: string;
     header?: string;
     pageBytes?: number;
-    /** Esc/q 时的额外行为（默认关闭悬浮层并还焦点；详情→列表场景覆盖）。 */
-    onBack?: () => void;
     fetch: (offset: number, length: number) => Promise<{
       text: string;
       offset: number;
@@ -2102,7 +2077,7 @@ export class TuiApp {
     const footerText = new Text("", 1, 0);
     children.push({ component: content, grow: 1 }, { component: footerText, grow: 0 });
     const box = new OverlayBox(children);
-    const handle = this.tui.showOverlay(box, { width: "90%", anchor: "center", maxHeight: "80%" });
+    const handle = this.showWindow(box, { width: "90%", anchor: "center", maxHeight: "80%" });
     const load = async (off: number) => {
       try {
         const slice = await opts.fetch(off, pageBytes);
@@ -2113,7 +2088,7 @@ export class TuiApp {
         // 避免跨页字符被两页同时丢弃
         nextOffset = slice.nextOffset ?? slice.offset + Buffer.byteLength(slice.text, "utf8");
         content.setText(sanitizeForDisplay(slice.text));
-        footerText.setText(dim(`${opts.title} · 偏移 ${slice.offset}/${slice.totalBytes} 字节 · n 下一页 · p 上一页 · Esc 关闭`));
+        footerText.setText(dim(`${opts.title} · 偏移 ${slice.offset}/${slice.totalBytes} 字节 · n 下一页 · p 上一页 · Esc/q 关闭`));
         this.tui.requestRender();
       } catch (err) {
         content.setText(red(`读取失败：${(err as Error).message}`));
@@ -2123,12 +2098,7 @@ export class TuiApp {
     box.onKey = (data: string) => {
       if (data === "\x1b" || data === "q") {
         closed = true;
-        if (opts.onBack) {
-          opts.onBack();
-          return;
-        }
         handle.hide();
-        this.tui.setFocus(this.editor);
         return;
       }
       if (data === "n" || data === " ") {
@@ -2162,7 +2132,7 @@ export class TuiApp {
       { component: list, grow: 1 },
     ]);
     box.forwardTo = list;
-    const handle = this.tui.showOverlay(box, { width: "80%", anchor: "center", maxHeight: "60%" });
+    const handle = this.showWindow(box, { width: "80%", anchor: "center", maxHeight: "60%" });
     list.onSelect = (item) => {
       handle.hide();
       const confirmation = this.state.pendingApprovals().find((c) => c.id === item.value);
@@ -2170,7 +2140,6 @@ export class TuiApp {
     };
     list.onCancel = () => {
       handle.hide();
-      this.tui.setFocus(this.editor);
     };
   }
 
@@ -2268,13 +2237,13 @@ export class TuiApp {
     };
     renderHeader(c.permissionVersion, c.status);
     const paramsText = new Text("参数加载中…", 1, 0);
-    const footerText = new Text(dim("a 批准 · r 拒绝 · n/p 参数翻页 · Esc 关闭（关闭不等于拒绝）"), 1, 0);
+    const footerText = new Text(dim("a 批准 · r 拒绝 · n/p 参数翻页 · Esc/q 关闭（关闭不等于拒绝）"), 1, 0);
     const box = new OverlayBox([
       { component: header, grow: 0 },
       { component: paramsText, grow: 1 },
       { component: footerText, grow: 0 },
     ]);
-    const handle = this.tui.showOverlay(box, { width: "90%", anchor: "center", maxHeight: "85%" });
+    const handle = this.showWindow(box, { width: "90%", anchor: "center", maxHeight: "85%" });
 
     let offset = 0;
     let total = c.paramsTruncated ? c.paramsBytes : 0;
@@ -2292,7 +2261,7 @@ export class TuiApp {
         currentVersion = slice.confirmation.permissionVersion;
         renderHeader(currentVersion, slice.confirmation.status);
         if (slice.confirmation.status !== "pending") {
-          footerText.setText(yellow(`该审批当前状态：${slice.confirmation.status}（已不可批准/拒绝） · Esc 关闭`));
+          footerText.setText(yellow(`该审批当前状态：${slice.confirmation.status}（已不可批准/拒绝） · Esc/q 关闭`));
         }
         paramsText.setText(sanitizeForDisplay(slice.params.text));
         this.tui.requestRender();
@@ -2314,7 +2283,6 @@ export class TuiApp {
           ...(currentVersion > 0 ? { permission_version: currentVersion } : {}),
         });
         handle.hide();
-        this.tui.setFocus(this.editor);
         return;
       } catch (err) {
         const outcome = requestOutcome(err);
@@ -2346,7 +2314,6 @@ export class TuiApp {
     box.onKey = (data: string) => {
       if (data === "\x1b") {
         handle.hide();
-        this.tui.setFocus(this.editor);
         return;
       }
       if (data === "a") void respond("approve");
@@ -2363,33 +2330,63 @@ export class TuiApp {
     return selection ? sanitizeForDisplay(`${selection.provider}/${selection.modelId} · ${selection.thinkingLevel}`) : "模型配置未记录";
   }
 
+  /** 窗口显示时隐藏主界面，只保留最上层窗口。 */
+  private showWindow(component: Component, options: OverlayOptions): OverlayHandle {
+    const previous = this.windows.at(-1);
+    previous?.setHidden(true);
+    if (!previous) {
+      this.autocompleteOverlay?.hide();
+      this.autocompleteOverlay = null;
+      this.editor.overlayLines = [];
+    }
+    const frame = component instanceof WindowFrame ? component : new WindowFrame(component);
+    const rows = this.terminal.rows || 24;
+    const height = typeof options.maxHeight === "string"
+      ? Math.floor(rows * parseFloat(options.maxHeight) / 100)
+      : options.maxHeight ?? rows;
+    frame.setHeight(height);
+    const base = this.tui.showOverlay(frame, options);
+    let closed = false;
+    const handle: OverlayHandle = { ...base, hide: () => {
+      if (closed) return;
+      closed = true;
+      const index = this.windows.indexOf(handle);
+      const wasTop = index === this.windows.length - 1;
+      if (index >= 0) this.windows.splice(index, 1);
+      base.hide();
+      if (wasTop) this.windows.at(-1)?.setHidden(false);
+      this.tui.requestRender();
+    } };
+    this.windows.push(handle);
+    this.tui.requestRender();
+    return handle;
+  }
+
   /**
-   * 打开一个悬浮层：内容包进圆角边框，居中显示，Esc 关闭并把焦点还给输入框。
+   * 打开窗口：内容包进圆角边框，居中显示，Esc/q 关闭后恢复焦点。
    *
    * 高度按内容算（含边框两行），并夹在终端行数的上限内；宽度按比例取。
    * 返回 handle 供调用方在选中后主动关闭。
    */
-  private openFloating(opts: FloatingOptions): OverlayHandle {
+  private openWindow(opts: WindowOptions): OverlayHandle {
     const termWidth = this.terminal.columns || 80;
     const termRows = this.terminal.rows || 24;
     const width = Math.max(12, Math.floor(termWidth * opts.widthRatio));
-    const frame = new FloatingPanel(opts.content);
+    const frame = new WindowFrame(opts.content);
     const maxHeight = Math.max(3, Math.floor(termRows * (opts.maxHeightRatio ?? 0.85)));
     const height = Math.min(frame.heightFor(width), maxHeight);
     // 内容超出给定高度时开窗滚动：上下边框始终保留，不被裁掉
     frame.setHeight(height);
 
-    const box = new OverlayBox([{ component: frame, grow: 1 }]);
-    const handle = this.tui.showOverlay(box, { width, anchor: "center", maxHeight: height });
+    const handle = this.showWindow(frame, { width, anchor: "center", maxHeight: height });
 
     const close = () => {
       handle.hide();
-      this.tui.setFocus(this.editor);
       opts.onClose?.();
     };
     // 按键先经这里：Esc/q 关闭，无转发目标时方向键滚动内容，
     // 其余一律交给内容组件（列表的 Enter/Tab/方向键不能在这里被吞掉）。
-    box.onKey = (data: string) => {
+    frame.onKey = (data: string) => {
       if (data === "\x1b" || data === "q") {
         close();
         return;
@@ -2422,7 +2419,6 @@ export class TuiApp {
     });
     const close = () => {
       handle.hide();
-      this.tui.setFocus(this.editor);
       onClose();
     };
     box.onKey = (data: string) => {
@@ -2460,14 +2456,14 @@ export class TuiApp {
       { component: new Text(sanitizeForDisplay(title), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
-    const handle = this.openFloating({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
+    const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
     list.onCancel = () => handle.hide();
     list.onSelect = (item) => { handle.hide(); select(item); };
   }
 
   /** 普通命令结果留在可关闭、可滚动的面板中。 */
   private showText(text: string): void {
-    this.openFloating({ widthRatio: 0.85, content: new Text(sanitizeForDisplay(text), 0, 0), maxHeightRatio: 0.85 });
+    this.openWindow({ widthRatio: 0.85, content: new Text(sanitizeForDisplay(text), 0, 0), maxHeightRatio: 0.85 });
   }
 
   /** /model 与 /thinking：三列面板（提供方 / 模型 / 思考强度）。 */
@@ -2496,7 +2492,7 @@ export class TuiApp {
         byProvider.get(model.provider)!.push(model);
       }
 
-      const close = () => { handle.hide(); this.tui.setFocus(this.editor); };
+      const close = () => handle.hide();
       const panel = new ModelPanel(
         providers,
         byProvider,
@@ -2580,7 +2576,7 @@ export class TuiApp {
       { component: new Text(bold("选择会话（项目 · 会话 · 工作目录 · 状态）"), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
-    const handle = this.openFloating({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
+    const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
     list.onSelect = (item) => {
       handle.hide();
       this.switchSession(item.value);
@@ -2609,10 +2605,10 @@ export class TuiApp {
       "  中文输入法候选窗位置依赖终端的 Kitty 键盘协议支持；",
       "  链接不自动打开；状态不只靠颜色表达（均有文字标注）。",
       "",
-      dim("  ↑↓ / PageUp·PageDown 滚动本页 · Esc 关闭"),
+      dim("  ↑↓ / PageUp·PageDown 滚动本页 · Esc/q 关闭"),
     ];
     // 帮助页：长文本按可用宽度换行，超出部分由覆盖层高度裁切
-    this.openFloating({ widthRatio: 0.85, content: new Text(lines.join("\n"), 0, 0), maxHeightRatio: 0.85 });
+    this.openWindow({ widthRatio: 0.85, content: new Text(lines.join("\n"), 0, 0), maxHeightRatio: 0.85 });
   }
 
   // ---------- 渲染 ----------
@@ -2633,7 +2629,7 @@ export class TuiApp {
     this.tickTiming();
   }
 
-  /** 顶部与底部状态行（连接状态、权限模式、任务/队列/审批计数）。 */
+  /** 顶部连接信息与底栏的权限模式、工作区和模型选择。 */
   private refreshChrome(): void {
     const view = this.currentView();
     const conn = this.state.connection;
@@ -2645,14 +2641,12 @@ export class TuiApp {
           : conn.state === "failed"
             ? `离线：${conn.detail ?? ""}`
             : "连接中…";
-    const lastSync = conn.lastSyncAt ? conn.lastSyncAt.toLocaleTimeString() : "从未";
     if (!view) {
       this.footer.set(dim(""), dim(this.modelInfoText()));
       this.header.setText(
         `${bold("ruukoto")} · 未选择会话 · 连接：${connText}\n` +
           dim(`执行后端：${this.state.execution.backend || "未知"}（${this.state.execution.note || "握手后显示"}）`),
       );
-      this.statusLine.setText(`待审批 ${this.state.pendingApprovals().length} · 待核实输入 ${this.state.pendingInputs.length} · 最后同步 ${lastSync}`);
       this.tui.requestRender();
       return;
     }
@@ -2679,21 +2673,6 @@ export class TuiApp {
       `${bold(this.state.projectName(view.projectId))} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
         `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,
     );
-    const queued = this.state.queuedTasksFor(view.sessionId);
-    const pending = this.state.pendingApprovals();
-    const parts = [
-      active ? `任务 ${formatTaskStatus(active.status)} ${active.id.slice(0, 12)}… · 使用 ${this.selectionText(active.modelSelection)}` : "无活动任务",
-      `排队 ${queued.length}`,
-      view.queueState === "paused" ? yellow(`队列已暂停（${view.queuePauseReason ?? ""}）`) : "队列正常",
-      `待审批 ${pending.length}`,
-    ];
-    // 自动审查进行中的审批单独计数（仍属待审批，但暂不需要拥有者操作）
-    const reviewing = pending.filter((c) => c.reviewStatus === "in_progress").length;
-    if (reviewing > 0) parts.push(`审查中 ${reviewing}`);
-    if (this.state.pendingInputs.length > 0) parts.push(yellow(`待核实输入 ${this.state.pendingInputs.length}`));
-    if (this.continueForTaskId) parts.push(cyan(`继续模式：${this.continueForTaskId.slice(0, 12)}…`));
-    parts.push(`最后同步 ${lastSync}`);
-    this.statusLine.setText(parts.join(" · "));
     this.tui.requestRender();
   }
 

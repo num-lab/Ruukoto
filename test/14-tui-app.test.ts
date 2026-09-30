@@ -114,6 +114,17 @@ async function submitViaEditor(h: AppHarness, text: string): Promise<void> {
   await renderFlush();
 }
 
+/** 同时检查独占布局和当前画面中的四角、两侧边框。 */
+function assertWindowFrame(h: AppHarness): void {
+  const tui = (h.app as any).tui;
+  assert.equal(stripTerminalSequences(tui.currentLayout.lines.join("\n")).trim(), "", "窗口打开时主界面隐藏");
+  const lines = tui.previousScreen.map((line: string) => stripTerminalSequences(line));
+  const top = lines.findIndex((line: string) => /╭.*╮/.test(line));
+  const bottom = lines.findIndex((line: string, index: number) => index > top && /╰.*╯/.test(line));
+  assert.ok(top >= 0 && bottom > top, "窗口有完整四角");
+  assert.ok(lines.slice(top + 1, bottom).every((line: string) => /│.*│/.test(line)), "窗口两侧边框连续");
+}
+
 // ---------- 测试 ----------
 
 test("提交多行中文与流式显示：终端持续呈现中间帧，最终消息沿用唯一条目", async () => {
@@ -340,6 +351,22 @@ test("审批：通知、详情、批准与拒绝；其他客户端处理后显�
     // 批准路径
     await submitViaEditor(h, "批准路径");
     await waitFor("审批到达", () => h.state.pendingApprovals().length === 1);
+    for (const key of ["q", "\x1b"]) {
+      for (const detail of [false, true]) {
+        h.terminal.send("/approvals\r");
+        await renderFlush();
+        if (detail) {
+          h.terminal.send("\r");
+          await renderFlush();
+        }
+        assert.equal((h.app as any).windows.length, 1, "审批列表或详情已打开");
+        h.terminal.send(key);
+        await renderFlush();
+        assert.equal((h.app as any).windows.length, 0, "q 和 Esc 均关闭审批窗口");
+        assert.equal(h.state.pendingApprovals().length, 1, "关闭窗口不批准或拒绝审批");
+        assert.equal((h.app as any).editor.getText(), "", "关闭按键不进入草稿");
+      }
+    }
     h.terminal.send("/approvals\r");
     await renderFlush();
     h.terminal.send("\r"); // 选择第一条 → 详情
@@ -507,7 +534,7 @@ test("/new：未选择会话时不创建，提示下一步操作", async () => {
   }
 });
 
-test("/context：展示当前上下文窗口分解（不提供切换）", async () => {
+test("/context：最近一次上下文窗口分解写入事件流", async () => {
   const t = await startTestRuntime("tui-context", async (req, callIndex) => {
     if (callIndex === 0) {
       return { kind: "tool_calls", calls: [{ id: "c1", name: "mock_mark", arguments: { path: "/tmp/ruukoto-tui-ctx.txt", content: "数据" } }] };
@@ -530,25 +557,57 @@ test("/context：展示当前上下文窗口分解（不提供切换）", async 
     h.terminal.clearOutput();
     h.terminal.send("/context");
     h.terminal.send("\r");
-    // 只展示长条与图例：标题为「上下文窗口」，明细文字已移除
-    await waitFor("分解展示", () => h.terminal.output().includes("上下文窗口"));
-    const detail = h.terminal.output();
+    await waitFor("分解展示", () => h.state.sessionViews.get(sessionId)!.flow.items.some((entry) => entry.kind === "command" && entry.line === "/context" && stripTerminalSequences(entry.result ?? "").startsWith("Context Usage")));
+    const detail = stripTerminalSequences(h.terminal.output());
+    assert.ok(detail.includes("❯ /context") && detail.includes("⎿ Context Usage"), "命令与标题在事件流");
     assert.ok(detail.includes("█"), "长条已渲染");
     // 出现过的分类都要在图例里（本次消息少，不一定有历史轮次）
     assert.ok(detail.includes("系统提示") && detail.includes("工具定义"), "分类图例齐全");
     assert.ok(detail.includes("预留") && detail.includes("尚余输入"), "预留与余量在图例中");
-    // 不再提供切换：按 l 不应打开任何列表
-    h.terminal.clearOutput();
-    h.terminal.send("l");
-    await renderFlush();
-    assert.ok(!h.terminal.output().includes("第 1 次调用"), "不提供切换历史调用");
-
-    // Esc 关闭，不再渲染分解
+    const command = h.state.sessionViews.get(sessionId)!.flow.items.find((entry) => entry.kind === "command" && entry.line === "/context");
+    const resultText = command?.kind === "command" ? command.result : null;
+    assert.ok(resultText);
+    assert.ok(resultText.includes("尚余输入"));
+    assert.match(resultText, /\x1b\[38;5;75m█/, "持久结果保留分类颜色");
+    assert.match(resultText, /\x1b\[38;5;131m█/, "预留段使用不同颜色");
+    // 命令结果随历史保留，不受 Esc 影响。
     h.terminal.send("\x1b");
     await renderFlush();
-    h.terminal.clearOutput();
-    await renderFlush();
-    assert.ok(!h.terminal.output().includes("上下文窗口"), "Esc 关闭悬浮层");
+    assert.equal(command?.kind === "command" ? command.result : null, resultText);
+
+    // /prompt 的详情覆盖列表；逐层关闭时先恢复列表，再恢复主界面。
+    const windows = () => (h.app as any).windows as Array<{ isHidden(): boolean }>;
+    const mainFrame = () => stripTerminalSequences((h.app as any).tui.currentLayout.lines.join("\n"));
+    for (const key of ["q", "\x1b"]) {
+      h.terminal.clearOutput();
+      h.terminal.send("/prompt\r");
+      await waitFor("模型请求列表", () => windows().length === 1 && stripTerminalSequences(h.terminal.output()).includes("模型请求"));
+      assert.equal(windows()[0]!.isHidden(), false);
+      assertWindowFrame(h);
+
+      h.terminal.send("\r");
+      await waitFor("prompt 详情", () => windows().length === 2);
+      await renderFlush();
+      assert.equal(windows()[0]!.isHidden(), true, "列表在详情下方隐藏");
+      assert.equal(windows()[1]!.isHidden(), false, "详情显示在最上层");
+      assertWindowFrame(h);
+
+      h.terminal.send(key);
+      await renderFlush();
+      assert.equal(windows().length, 1);
+      assert.equal(windows()[0]!.isHidden(), false, "关闭详情后列表恢复");
+      assert.equal(mainFrame().trim(), "", "列表仍打开时主布局隐藏");
+      h.terminal.send(key);
+      await renderFlush();
+      assert.equal(windows().length, 0);
+      assert.ok(mainFrame().includes("❯ /context"), "关闭列表后事件流恢复");
+      assert.equal((h.app as any).editor.getText(), "", "关闭按键不进入草稿");
+    }
+
+    const reopened = await startApp(t, { sessionId });
+    apps.push(reopened);
+    await waitFor("分色结果恢复", () => reopened.state.openSession(sessionId).flow.items.some((entry) => entry.kind === "command" && entry.line === "/context" && entry.result === resultText));
+    assert.match(reopened.terminal.output(), /\x1b\[38;5;75m/, "重进会话后仍显示分色长条");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
@@ -669,7 +728,7 @@ test("工作清单面板：todo_write 后显示，重连后按工具记录恢复
   }
 });
 
-test("/context：无记录提示在面板呈现，事件流仅保留命令", async () => {
+test("/context：无记录提示写在命令下", async () => {
   const t = await startTestRuntime("tui-context-empty", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
@@ -680,7 +739,7 @@ test("/context：无记录提示在面板呈现，事件流仅保留命令", asy
     h.terminal.send("\r");
     await waitFor("无记录提示", () => stripTerminalSequences(h.terminal.output()).includes("还没有模型调用记录"));
     const entries = h.state.sessionViews.get(sessionId)!.flow.items;
-    assert.ok(entries.some((entry) => entry.kind === "command" && entry.line === "/context" && entry.result === null));
+    assert.ok(entries.some((entry) => entry.kind === "command" && entry.line === "/context" && entry.result?.includes("还没有模型调用记录")));
     assert.ok(!entries.some((entry) => entry.kind === "note" && entry.text.includes("还没有模型调用记录")), "普通命令说明不写入事件流");
   } finally {
     quitAll(apps);
@@ -697,8 +756,30 @@ test("/mode：列表含 Auto review 并可选择，状态栏显示 Auto review",
     const h = await startApp(t, { sessionId });
     apps.push(h);
 
+    for (const command of ["/mode", "/model", "/thinking"]) {
+      for (const key of ["q", "\x1b"]) {
+        h.terminal.clearOutput();
+        h.terminal.send(`${command}\r`);
+        const label = command === "/mode" ? "Auto review" : "Mock Model";
+        await waitFor(`${command} 悬浮层`, () => stripTerminalSequences(h.terminal.output()).includes(label));
+        await renderFlush();
+        const tui = (h.app as any).tui;
+        assert.match(stripTerminalSequences(tui.currentLayout.lines.join("\n")), /连接：/, `${command} 悬浮层保留主界面`);
+        assert.ok(stripTerminalSequences(tui.previousScreen.join("\n")).includes(label), `${command} 面板在当前画面中`);
+        assert.equal((h.app as any).windows.length, 0, `${command} 不打开窗口`);
+        h.terminal.send(key);
+        await renderFlush();
+        assert.equal(tui.hasOverlay(), false, `${command} 可用 q 和 Esc 关闭`);
+        assert.equal((h.app as any).editor.getText(), "", "关闭按键不进入草稿");
+      }
+    }
+
+    h.terminal.clearOutput();
     h.terminal.send("/mode\r");
     await waitFor("模式列表", () => h.terminal.output().includes("Auto review"));
+    await renderFlush();
+    assert.match(stripTerminalSequences((h.app as any).tui.currentLayout.lines.join("\n")), /连接：/, "模式列表保持原有主界面布局");
+    assert.match(stripTerminalSequences((h.app as any).tui.previousScreen.join("\n")), /Auto review/, "模式列表仍在当前画面中");
     const listOut = h.terminal.output();
     assert.ok(listOut.includes("Ask for approval") && listOut.includes("Full access") && listOut.includes("Auto review"), "三种模式都在列表中");
 
@@ -716,6 +797,43 @@ test("/mode：列表含 Auto review 并可选择，状态栏显示 Auto review",
     await waitFor("状态栏显示 Auto review", () => h.terminal.output().includes("Auto review ·"));
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("帮助与会话窗口独占画面并有完整边框，关闭后恢复事件流和未提交草稿", async () => {
+  const t = await startTestRuntime("tui-overlay", async () => ({ kind: "text", text: "事件流恢复标记" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    await submitViaEditor(h, "检查窗口");
+    await waitFor("回复进入事件流", () => h.state.openSession(sessionId).flow.items.some((entry) => entry.kind === "message" && entry.role === "assistant" && entry.text.includes("事件流恢复标记")));
+    h.terminal.send("未提交草稿");
+    await renderFlush();
+    const frame = () => stripTerminalSequences((h.app as any).tui.currentLayout.lines.join("\n"));
+    assert.ok(frame().includes("事件流恢复标记") && frame().includes("未提交草稿"), "打开前事件流和草稿都可见");
+
+    for (const key of ["q", "\x1b"]) {
+      for (const open of [() => (h.app as any).openHelp(), () => (h.app as any).openSessionPicker()]) {
+        open();
+        await waitFor("窗口打开", () => (h.app as any).windows.length === 1);
+        await renderFlush();
+        assertWindowFrame(h);
+        h.terminal.send(key);
+        await renderFlush();
+        assert.equal((h.app as any).windows.length, 0, "q 和 Esc 均关闭窗口");
+        assert.ok(frame().includes("事件流恢复标记") && frame().includes("未提交草稿"), "关闭后恢复原会话内容和草稿");
+        assert.equal((h.app as any).editor.getText(), "未提交草稿", "关闭按键不进入草稿");
+      }
+    }
+    h.terminal.send("q继续");
+    await renderFlush();
+    assert.equal((h.app as any).editor.getText(), "未提交草稿q继续", "关闭窗口后焦点回到输入框，q 正常输入");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));

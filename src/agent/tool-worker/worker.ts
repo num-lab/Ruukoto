@@ -21,6 +21,7 @@ import {
   createEditToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  generateUnifiedPatch,
   getShellConfig,
   type BashOperations,
   type EditOperations,
@@ -28,6 +29,8 @@ import {
   type ToolDefinition,
   type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
+import { statsFromPatch } from "../../core/history.ts";
+import type { EditStats } from "../../core/types.ts";
 import {
   DATA_CHUNK_BYTES,
   MAX_FRAME_BYTES,
@@ -195,10 +198,23 @@ function editOperations(): EditOperations {
   };
 }
 
-function writeOperations(): WriteOperations {
+function writeOperations(onStats: (stats: EditStats) => void): WriteOperations {
   return {
     writeFile: async (absolutePath, content) => {
+      let previous: string | undefined;
+      try {
+        previous = await fs.promises.readFile(absolutePath, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") previous = "";
+      }
       await fs.promises.writeFile(absolutePath, content, "utf8");
+      if (previous !== undefined) {
+        try {
+          onStats(statsFromPatch(generateUnifiedPatch(absolutePath, previous, content)));
+        } catch {
+          // 展示统计失败不能把已成功的写入报为失败。
+        }
+      }
     },
     mkdir: async (dir) => {
       await fs.promises.mkdir(dir, { recursive: true });
@@ -215,7 +231,6 @@ function loadTools(cwd: string): LoadedTools {
   const tools = new Map<string, ToolDefinition<any, any, any>>([
     ["read", createReadToolDefinition(cwd, { operations: readOperations() })],
     ["edit", createEditToolDefinition(cwd, { operations: editOperations() })],
-    ["write", createWriteToolDefinition(cwd, { operations: writeOperations() })],
     ["bash", createBashToolDefinition(cwd, { operations: bashOperations(), exposeSessionEnvironment: false })],
   ]);
   return { cwd, tools };
@@ -253,7 +268,10 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
     fail(`未知工具：${req.name}`, req.opId);
     return;
   }
-  const def = loaded.tools.get(req.name)!;
+  let writeStats: EditStats | undefined;
+  const def = req.name === "write"
+    ? createWriteToolDefinition(loaded.cwd, { operations: writeOperations((stats) => { writeStats = stats; }) })
+    : loaded.tools.get(req.name)!;
   const controller = new AbortController();
   const timer = req.timeoutMs ? setTimeout(() => controller.abort(new Error("timeout")), req.timeoutMs) : undefined;
   inFlight.set(req.opId, { controller, timer });
@@ -267,7 +285,7 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
       opId: req.opId,
       ok: true,
       content: result.content as unknown[],
-      details: result.details,
+      details: req.name === "write" ? (writeStats ? { editStats: writeStats } : undefined) : result.details,
       isError: Boolean((result as any).isError),
     });
   } catch (err) {

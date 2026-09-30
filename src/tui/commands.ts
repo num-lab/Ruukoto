@@ -37,7 +37,7 @@ export interface CommandHost {
   openModeList(rest: string[], result: CommandResult): Promise<void>;
   /** 刷新当前活动任务详情；false = 当前会话没有活动任务。 */
   refreshTask(): Promise<boolean>;
-  openContext(): Promise<void>;
+  openContext(result: CommandResult): Promise<void>;
   openPrompts(): Promise<void>;
   /** 以当前会话提交任务输入。 */
   submit(text: string): Promise<void>;
@@ -320,7 +320,7 @@ export const COMMANDS: readonly SlashCommand[] = [
   },
   { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>", run: (ctx, { arg }) => search(ctx, arg) },
   { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>", run: (ctx, { rest }) => memory(ctx, rest) },
-  { name: "context", description: "查看当前上下文窗口分解（各部分占比）", run: (ctx) => ctx.host.openContext() },
+  { name: "context", description: "查看当前上下文窗口分解（各部分占比）", keepsResult: true, run: (ctx) => ctx.host.openContext(ctx.result) },
   {
     name: "skill",
     description: "显式调用技能（提交任务；不带名称时列出技能库）",
@@ -348,8 +348,8 @@ export const COMMANDS: readonly SlashCommand[] = [
 
 const BY_NAME = new Map(COMMANDS.map((c) => [c.name, c]));
 
-/** 补全与帮助列出的命令。 */
-export const VISIBLE_COMMANDS = COMMANDS.filter((c) => !c.hidden);
+/** 补全与帮助按名称列出的命令。 */
+export const VISIBLE_COMMANDS = COMMANDS.filter((c) => !c.hidden).sort((a, b) => a.name.localeCompare(b.name));
 
 /** 帮助页的命令行。 */
 export function commandHelpLines(): string[] {

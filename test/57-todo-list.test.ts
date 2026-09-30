@@ -171,7 +171,7 @@ test("事件流：todo_write 每次更新一行完成数/总数，不展开清�
   } } as any);
   const view = new EventFlowView();
   view.setEntries(flow.items as FlowEntry[]);
-  assert.deepEqual(view.render(80).map((line) => stripTerminalSequences(line).trimEnd()), ["⚙︎ todo_write", "  ⎿ 3/7"]);
+  assert.deepEqual(view.render(80).map((line) => stripTerminalSequences(line).trimEnd()), ["● todo_write", "  ⎿ 3/7"]);
 });
 
 // ---------- 集成 ----------

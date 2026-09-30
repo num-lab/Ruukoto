@@ -270,6 +270,8 @@ export class ControlServer {
             : undefined,
           createRequestId: optionalRequestId(),
         });
+      case "get_session_usage":
+        return runtime.getSessionUsage(requireString("session_id"));
       case "get_session":
         return runtime.getSession(requireString("session_id"));
       case "list_models": {

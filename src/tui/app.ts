@@ -35,6 +35,7 @@ import {
 import { Container } from "@earendil-works/pi-tui";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import { basename } from "node:path";
 import { requestOutcome } from "../control/client.ts";
 import type { ControlConnection } from "../control/connection.ts";
 import type { OpResult } from "../control/ops.ts";
@@ -48,7 +49,6 @@ import {
   resolveWorkspaceDir,
 } from "../control/workspace.ts";
 import type { DirIdentity } from "../core/dir-identity.ts";
-import type { HistoryPage } from "../core/history.ts";
 import type { ConfirmationRequestView } from "../core/views.ts";
 import type { AccessMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Task } from "../core/types.ts";
 import type { ModelOption } from "../agent/model-selection.ts";
@@ -205,6 +205,7 @@ class WindowFrame implements Component {
  * 列表仍由 Editor 渲染并响应按键（上下选择、Tab/Enter 采用），只是不再占位。
  */
 class AboveEditor extends Editor {
+  workspaceName = "";
   /** 最近一次渲染出的候选行；由宿主取走画到覆盖层。 */
   overlayLines: string[] = [];
   /** 编辑器在布局中的高度，用于把覆盖层定位到它正上方。 */
@@ -214,6 +215,12 @@ class AboveEditor extends Editor {
 
   render(width: number): string[] {
     const lines = super.render(width);
+    if (this.workspaceName && width > 4) {
+      const name = truncateToWidth(sanitizeForDisplay(this.workspaceName).replace(/[\n\t]/g, " "), width - 4, "…");
+      const label = ` ${name} `;
+      const borderWidth = width - visibleWidth(label) - 1;
+      lines[0] = `${truncateToWidth(lines[0]!, borderWidth, "")}${dim(label)}${this.borderColor("─")}`;
+    }
     // pi-tui 没暴露这个高度，只有私有字段；取不到就按原样渲染（候选留在下方）
     const height = (this as unknown as { renderedAutocompleteHeight?: number }).renderedAutocompleteHeight;
     if (!Number.isFinite(height) || height! <= 0 || lines.length <= height! + 2) {
@@ -401,29 +408,41 @@ class ModelPanel implements Component {
   }
 }
 
-/**
- * 底栏：左侧模式与工作区，右侧模型信息，各占一端。
- * 两边内容都按显示宽度算，中间用空格补齐；总宽不够时右侧优先截断。
- */
+function formatTokenCount(count: number): string {
+  const units = ["", "K", "M", "B"];
+  let value = count;
+  let unit = 0;
+  while (Math.round(value * 10) / 10 >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  return `${unit === 0 ? value : Number(value.toFixed(1))}${units[unit]}`;
+}
+
+/** 底栏两端对齐；空间不足时先隐藏 token 用量，再截断模型信息。 */
 class FooterLine implements Component {
   private left = "";
   private right = "";
+  private usage = "";
   lastHeight = 0;
 
-  set(left: string, right: string): void {
+  set(left: string, right: string, usage = ""): void {
     this.left = left;
     this.right = right;
+    this.usage = usage;
   }
 
   invalidate(): void {}
 
   render(width: number): string[] {
-    // 左侧优先保留（模式与工作区是当前状态）：超宽时先截左侧，再截右侧。
+    // 左侧模式优先保留：超宽时先截左侧，再截右侧。
     // 右侧被截空时不补间隔空格，否则总宽会超出。
     const left = visibleWidth(this.left) > width ? truncateToWidth(this.left, width, "…") : this.left;
     const leftWidth = visibleWidth(left);
     const room = Math.max(0, width - leftWidth - 1);
-    const right = visibleWidth(this.right) > room ? truncateToWidth(this.right, room, "…") : this.right;
+    const fullRight = this.usage ? `${dim(`${this.usage} · `)}${this.right}` : this.right;
+    const preferredRight = visibleWidth(fullRight) <= room ? fullRight : this.right;
+    const right = visibleWidth(preferredRight) > room ? truncateToWidth(preferredRight, room, "…") : preferredRight;
     const rightWidth = visibleWidth(right);
     const gap = rightWidth === 0 ? Math.max(0, width - leftWidth) : Math.max(1, width - leftWidth - rightWidth);
     const line = left + " ".repeat(gap) + right;
@@ -636,9 +655,19 @@ class BareList implements Component {
  * pi-tui 绘制可见行时负责清除行尾，无需逐行测量、补齐整个历史。
  */
 class GutterContainer extends Container {
+  constructor(private readonly sticky: (width: number) => { top: number; lines: string[] }) {
+    super();
+  }
+
   render(width: number): string[] {
     const inner = Math.max(1, width - RIGHT_GUTTER);
-    return [...super.render(inner), "", "", ""];
+    const lines = [...super.render(inner), "", "", ""];
+    // 在视口顶部覆盖显示，切换置顶内容不改变滚动区域的高度或行号。
+    const sticky = this.sticky(inner);
+    for (let index = 0; index < sticky.lines.length && sticky.top + index < lines.length; index++) {
+      lines[sticky.top + index] = sticky.lines[index]!;
+    }
+    return lines;
   }
 }
 
@@ -721,6 +750,9 @@ export class TuiApp {
   private started = false;
   private exiting = false;
   private submitting = false;
+  private modeCycle: Promise<void> = Promise.resolve();
+  private readonly sessionUsage = new Map<string, { input: number; output: number }>();
+  private readonly usageRequests = new Map<string, number>();
   private continueForTaskId: string | null = null;
   /** dev 重载状态文件（issue 21 §5）：null = 非 dev 启动，不持久化也不恢复。 */
   private readonly reloadStateFile: string | null;
@@ -759,10 +791,15 @@ export class TuiApp {
     this.tui = new TuiAltScreen(this.terminal, true);
 
     this.header = new Text("", 1, 0);
-    this.transcriptContainer = new GutterContainer();
+    this.transcriptContainer = new GutterContainer((width) => ({
+      top: this.scroll.scrollTop,
+      lines: this.scroll.isFollowingEnd ? [] : this.eventFlowView.stickyPrompt(
+        this.scroll.scrollTop, width, Math.min(3, Math.max(0, this.scroll.viewportHeight - 1)),
+      ),
+    }));
     this.transcriptContainer.addChild(this.eventFlowView);
     this.scroll = new ScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
-    // 底栏：左侧模式与工作区，右侧模型来源/模型名/思考强度（按键提示由 /help 提供）
+    // 底栏：左侧模式，右侧 token 用量与模型选择（按键提示由 /help 提供）
     this.footer = new FooterLine();
     this.editor = new AboveEditor(this.tui, editorTheme, {});
     this.editor.setAutocompleteProvider(new SlashCommandAutocomplete(VISIBLE_COMMANDS));
@@ -789,7 +826,7 @@ export class TuiApp {
       { component: this.header, grow: 0, shrink: 1, visible: mainVisible },
       { component: this.scroll, grow: 1, shrink: 1, minSize: 1, visible: mainVisible },
       { component: this.todoPanel, grow: 0, shrink: 1, visible: mainVisible },
-      { component: this.editor, grow: 0, shrink: 1, minSize: 3, visible: mainVisible },
+      { component: this.editor, grow: 0, shrink: 0, minSize: 3, visible: mainVisible },
       { component: this.footer, grow: 0, shrink: 0, visible: mainVisible },
     ]);
     this.tui.addChild(root);
@@ -798,6 +835,11 @@ export class TuiApp {
 
     // Ctrl+C：有草稿先清草稿，空草稿退出客户端（不停止后台任务）
     this.tui.addInputListener((data) => {
+      if (matchesKey(data, "shift+tab") && this.tui.getFocusedComponent() === this.editor) {
+        const sessionId = this.state.currentSessionId;
+        this.modeCycle = this.modeCycle.then(() => this.cycleMode(sessionId));
+        return { consume: true };
+      }
       if (data === "\x03") {
         if (this.editor.getText().trim().length > 0) {
           this.editor.setText("");
@@ -889,6 +931,7 @@ export class TuiApp {
     this.state.connection = { state, detail: detail ?? null, lastSyncAt: this.connection.lastSyncAt };
     if (state === "online") {
       void this.reconcilePendingInputs();
+      if (this.state.currentSessionId) void this.refreshSessionUsage(this.state.currentSessionId);
     }
     this.refreshChrome();
   }
@@ -896,6 +939,7 @@ export class TuiApp {
   /** 连接层回调：安装快照。 */
   onSnapshot(result: ConnectResult, ctx: { resync: boolean; instanceChanged: boolean }): void {
     this.generation++;
+    if (ctx.instanceChanged) this.sessionUsage.clear();
     this.flowCursors.clear();
     this.flowRequests.clear();
     this.state.applySnapshot(result, ctx.instanceChanged);
@@ -1020,6 +1064,7 @@ export class TuiApp {
       // 重同步/重连：重新加载历史与最新预览（不依赖上次内存）
       void this.loadHistory(current, "replace");
       void this.refreshTaskDetails();
+      if (ctx.resync) void this.refreshSessionUsage(current);
     }
     this.refreshAll();
   }
@@ -1150,6 +1195,9 @@ export class TuiApp {
   onEvent(event: PersistentEvent, kind: "live" | "replay"): void {
     this.state.applyEvent(event, kind);
     const body = event.body;
+    if (body.type === "session.usage_updated" && body.sessionId === this.state.currentSessionId) {
+      void this.refreshSessionUsage(body.sessionId);
+    }
     if (body.type === "task.output_entry") {
       void this.loadEntry(body.sessionId, body.entryId);
     }
@@ -1254,6 +1302,7 @@ export class TuiApp {
     }
     this.state.currentSessionId = sessionId;
     const view = this.state.openSession(sessionId);
+    void this.refreshSessionUsage(sessionId);
     this.continueForTaskId = null;
     this.editor.setText(view.draft);
     if (!view.historyLoaded) {
@@ -1264,21 +1313,37 @@ export class TuiApp {
     this.scheduleReloadPersist();
   }
 
+  private async refreshSessionUsage(sessionId: string): Promise<void> {
+    if (this.connection.state !== "online") return;
+    const generation = this.generation;
+    const request = (this.usageRequests.get(sessionId) ?? 0) + 1;
+    this.usageRequests.set(sessionId, request);
+    try {
+      const usage = await this.connection.request("get_session_usage", { session_id: sessionId });
+      if (generation !== this.generation || this.usageRequests.get(sessionId) !== request) return;
+      this.sessionUsage.set(sessionId, usage);
+    } catch {
+      if (generation !== this.generation || this.usageRequests.get(sessionId) !== request) return;
+      this.sessionUsage.delete(sessionId);
+    }
+    if (sessionId === this.state.currentSessionId) this.refreshChrome();
+  }
+
   /**
    * 用会话已落盘的历史消息补种输入框的上下键历史。
    *
    * Editor 的历史只在内存里（提交时 addToHistory），重开 TUI 就空了，其他
-   * 客户端（CLI）提交的消息也进不来。这里按会话把用户消息补进去：编辑器按
+   * 客户端（CLI）提交的消息也进不来。这里按会话把用户消息和命令补进去：编辑器按
    * 时间倒序保存（unshift），所以从最早一条开始喂，最新一条才会落在最前。
    * 补种只在每个会话首次加载历史时做一次，避免翻页重复灌入。
    */
-  private seedInputHistory(sessionId: string, page: HistoryPage): void {
+  private seedInputHistory(sessionId: string): void {
     if (this.seededHistorySessions.has(sessionId)) return;
     this.seededHistorySessions.add(sessionId);
-    const userTexts = page.entries
-      .filter((e) => e.role === "user" && e.text.trim().length > 0)
-      .map((e) => e.text);
-    for (const text of userTexts) this.editor.addToHistory(text);
+    for (const entry of this.state.openSession(sessionId).flow.items) {
+      if (entry.kind === "command") this.editor.addToHistory(entry.line);
+      else if (entry.kind === "message" && entry.role === "user") this.editor.addToHistory(entry.text);
+    }
   }
 
   private async loadHistory(sessionId: string, mode: "replace" | "prepend"): Promise<void> {
@@ -1293,7 +1358,7 @@ export class TuiApp {
       // 异步结果按 会话+连接批次 匹配：过期结果不得覆盖新页面
       if (generation !== this.generation) return;
       this.state.installHistoryPage(sessionId, page, mode);
-      this.seedInputHistory(sessionId, page);
+      this.seedInputHistory(sessionId);
       this.refreshTranscript();
       await this.restoreEventFlow(sessionId, generation);
     } catch (err) {
@@ -1411,6 +1476,7 @@ export class TuiApp {
   // ---------- 输入提交 ----------
 
   private async handleSubmit(text: string): Promise<void> {
+    this.editor.addToHistory(text);
     await dispatchInput(text, this.commandEnv());
   }
 
@@ -1433,7 +1499,6 @@ export class TuiApp {
       return;
     }
     this.submitting = true;
-    this.editor.addToHistory(text);
     try {
       const continueTaskId = this.continueForTaskId;
       const modelSelection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
@@ -1661,6 +1726,19 @@ export class TuiApp {
     } catch (err) {
       this.notify(red(writeFailure("恢复队列", err, "/status")));
     }
+  }
+
+  private async cycleMode(sessionId: string | null): Promise<void> {
+    const session = this.state.sessions.find((item) => item.id === sessionId);
+    if (!session) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    const index = SESSION_DEFAULT_MODES.indexOf(session.defaultAccessMode);
+    const mode = SESSION_DEFAULT_MODES[(index + 1) % SESSION_DEFAULT_MODES.length]!;
+    await this.sendSessionMode(session.id, session.defaultAccessModeVersion, mode, (text, isError) => {
+      if (isError) this.state.note(session.id, red(text));
+    });
   }
 
   private async cmdMode(rest: string[], result: CommandResult): Promise<void> {
@@ -2594,6 +2672,7 @@ export class TuiApp {
       bold("输入"),
       "  Enter 提交 · Alt+Enter / Shift+Enter / Ctrl+J 换行 · 大段粘贴自动折叠显示（提交保留原文）",
       "  Ctrl+C：有草稿先清空草稿，空草稿退出客户端；/quit 直接退出",
+      "  Shift+Tab：循环切换后续任务的审批模式（Ask for approval → Full access → Auto review）",
       "  退出只关闭客户端：后台任务继续运行，重新打开 TUI 即可重连",
       "",
       bold("滚动"),
@@ -2632,6 +2711,7 @@ export class TuiApp {
   /** 顶部连接信息与底栏的权限模式、工作区和模型选择。 */
   private refreshChrome(): void {
     const view = this.currentView();
+    this.editor.workspaceName = view ? basename(view.cwd) || view.cwd : "";
     const conn = this.state.connection;
     const connText =
       conn.state === "online"
@@ -2663,12 +2743,13 @@ export class TuiApp {
     // ponytail: 输入或原任务不在本地时不标注（task.queued 不带输入：其他客户端提交的任务
     // 在重新同步前没有输入；原任务可能不在快照），需要时按 get_task 补取
     const planTag = active && runsInPlanMode(active, (id) => this.state.getTask(id)) ? " · 计划" : "";
-    // 左下角：当前模式与工作区。模式名按模式着色（颜色只在这里用），
-    // 工作区仍是暗色；模式名不能包在 dim 里，否则颜色被压暗。
+    // 左下角：当前模式。模式名不能包在 dim 里，否则颜色被压暗。
     const modeStyled = sameAsDefault
       ? `${accessModeStyle(mode)(modeDisplay)}${planTag}`
       : `${accessModeStyle(mode)(modeText!)}${planTag}${dim(` · 会话默认 ${defaultText}`)}`;
-    this.footer.set(`${modeStyled}${dim(` · ${sanitizeForDisplay(view.cwd)}`)}`, dim(this.modelInfoText()));
+    const usage = this.sessionUsage.get(view.sessionId);
+    const usageText = usage ? `↑ ${formatTokenCount(usage.input)} ↓ ${formatTokenCount(usage.output)}` : "";
+    this.footer.set(modeStyled, dim(this.modelInfoText()), usageText);
     this.header.setText(
       `${bold(this.state.projectName(view.projectId))} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
         `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,

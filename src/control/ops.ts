@@ -35,6 +35,7 @@ export interface TuiOps {
   get_tool_op_params: { params: { tool_op_id: string } & Slice; result: R<"getToolOpParams"> };
   get_confirmation_params: { params: { confirmation_id: string } & Slice; result: R<"getConfirmationParams"> };
   read_artifact: { params: { task_id: string; artifact_id: string } & Slice; result: R<"queryArtifact"> };
+  get_session_usage: { params: { session_id: string }; result: R<"getSessionUsage"> };
   get_session: { params: { session_id: string }; result: R<"getSession"> };
   list_models: { params: { provider?: string; offset?: number; limit?: number }; result: R<"listModels"> };
   set_session_model: {

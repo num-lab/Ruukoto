@@ -578,11 +578,11 @@ export class ViewState {
 export function accessModeLabel(mode: AccessMode): string {
   switch (mode) {
     case "full_access":
-      return "Full access";
+      return "⏵⏵ Full access";
     case "auto-review":
-      return "Auto review";
+      return "⏵⏵ Auto review";
     default:
-      return "Ask for approval";
+      return "⏸ Ask for approval";
   }
 }
 

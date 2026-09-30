@@ -14,7 +14,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { ControlConnection } from "../src/control/connection.ts";
 import type { OpParams, TuiOp } from "../src/control/ops.ts";
 import { PendingRequestStore } from "../src/control/pending-requests.ts";
@@ -34,6 +34,7 @@ import {
 import type { Responder } from "./helpers/mock-provider.ts";
 import type { Task } from "../src/core/types.ts";
 import type { HistoryPage } from "../src/core/history.ts";
+import type { FlowEntry } from "../src/tui/event-flow.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 
 interface AppHarness {
@@ -114,6 +115,20 @@ async function submitViaEditor(h: AppHarness, text: string): Promise<void> {
   await renderFlush();
 }
 
+/** 通过实际上下键遍历输入历史，再回到提交前的空草稿。 */
+function assertInputRecall(h: AppHarness, newestFirst: string[]): void {
+  const editor = (h.app as any).editor;
+  assert.equal(editor.getText(), "");
+  for (const text of newestFirst) {
+    h.terminal.send("\x1b[A");
+    assert.equal(editor.getText(), text, "上键按提交时间倒序调出输入");
+  }
+  for (const text of [...newestFirst.slice(0, -1).reverse(), ""]) {
+    h.terminal.send("\x1b[B");
+    assert.equal(editor.getText(), text, "下键向较新输入切换并恢复草稿");
+  }
+}
+
 /** 同时检查独占布局和当前画面中的四角、两侧边框。 */
 function assertWindowFrame(h: AppHarness): void {
   const tui = (h.app as any).tui;
@@ -126,6 +141,78 @@ function assertWindowFrame(h: AppHarness): void {
 }
 
 // ---------- 测试 ----------
+
+test("输入框上横线右侧显示工作区名，长输入与粘贴保留边框和可见光标", async () => {
+  const t = await startTestRuntime("tui-editor-height", async () => ({ kind: "text", text: "收到" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const { sessionId: sessionB } = await createProjectSession(t.client, t.work[1]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    const app = h.app as any;
+    const editor = app.editor;
+    const assertEditor = async (text: string): Promise<number> => {
+      await renderFlush();
+      const boxes = (box: any): any[] => [box, ...box.children.flatMap(boxes)];
+      const box = boxes(app.tui.currentLayout.root).find((candidate) => candidate.component === editor);
+      assert.ok(box, "编辑器参与真实布局");
+      const rendered: string[] = editor.render(box.rect.width);
+      assert.equal(box.rect.height, rendered.length, "布局保留编辑器实际高度，不裁剪原生边框");
+      const cwd = h.state.sessionViews.get(h.state.currentSessionId!)!.cwd;
+      const workspace = path.basename(cwd);
+      const top = stripTerminalSequences(rendered[0]!);
+      assert.equal(visibleWidth(top), box.rect.width, "上横线与编辑器等宽");
+      assert.ok(top.includes(workspace), "上横线包含当前工作区目录名");
+      assert.ok(visibleWidth(top.slice(top.indexOf(workspace))) <= visibleWidth(workspace) + 3, "工作区名位于上横线右侧");
+      const footer = stripTerminalSequences(app.footer.render(h.terminal.columns).join("\n"));
+      assert.ok(!footer.includes(cwd) && !footer.includes(workspace), "底栏不再显示工作区路径或目录名");
+      const screen: string[] = app.tui.previousScreen;
+      for (const row of [0, rendered.length - 1]) {
+        assert.equal(stripTerminalSequences(screen[box.rect.y + row] ?? ""), stripTerminalSequences(rendered[row]!), "上下横线完整出现在终端画面");
+      }
+      const cursorRow = rendered.findIndex((line) => line.includes(CURSOR_MARKER));
+      assert.ok(cursorRow > 0 && cursorRow < box.rect.height - 1, "光标位于两条横线之间");
+      assert.ok((screen[box.rect.y + cursorRow] ?? "").includes("\x1b[7m"), "光标所在输入行在画面中可见");
+      assert.equal(editor.getExpandedText(), text, "全文不因可视区域限制而丢失");
+      return box.rect.height;
+    };
+    const emptyHeight = await assertEditor("");
+    let typed = "";
+    for (let i = 0; i < 4; i++) {
+      const chunk = "连续输入的中文文本".repeat(8);
+      typed += chunk;
+      h.terminal.send(chunk);
+      assert.ok(await assertEditor(typed) > emptyHeight, "连续输入时自动增高");
+    }
+    h.terminal.send("\x03");
+    assert.equal(await assertEditor(""), emptyHeight, "清空后缩回初始高度");
+
+    h.state.openSession(sessionId).flow.note("long-history", Array.from({ length: 80 }, (_, i) => `历史事件 ${i}`).join("\n"), new Date().toISOString());
+    app.refreshAll();
+    const pasted = Array.from({ length: 8 }, (_, i) => `粘贴第 ${i} 行：${"很长的中文段落".repeat(8)}`).join("\n");
+    editor.handleInput(`\x1b[200~${pasted}\x1b[201~`);
+    app.tui.requestRender();
+    assert.ok(await assertEditor(pasted) > emptyHeight, "长历史事件流下粘贴内容仍能增加高度");
+    h.terminal.send("\x03");
+    assert.equal(await assertEditor(""), emptyHeight, "长粘贴清空后恢复高度");
+
+    app.switchSession(sessionB);
+    await waitFor("切换到另一工作区", () => h.state.sessionViews.get(h.state.currentSessionId!)?.cwd === t.work[1]);
+    await assertEditor("");
+    app.switchSession(sessionId);
+    await waitFor("切回原工作区", () => h.state.sessionViews.get(h.state.currentSessionId!)?.cwd === t.work[0]);
+    h.terminal.columns = 16;
+    app.tui.requestRender();
+    await assertEditor("");
+    h.terminal.send("窄屏中文输入".repeat(20));
+    assert.ok(await assertEditor("窄屏中文输入".repeat(20)) > emptyHeight, "窄屏长输入仍自动增高并保留两条横线");
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
 
 test("提交多行中文与流式显示：终端持续呈现中间帧，最终消息沿用唯一条目", async () => {
   const t = await startTestRuntime("tui-basic", async (req, callIndex) => {
@@ -234,6 +321,7 @@ test("斜杠命令及结果在退出后重进同一会话时恢复，且不重�
     await waitFor("命令结果显示", () => first.state.openSession(sessionId).flow.items.some((entry) => entry.kind === "command" && entry.result?.includes("Switched to")));
     const commands = first.state.openSession(sessionId).flow.items.filter((entry) => entry.kind === "command");
     assert.deepEqual(commands.map((entry) => entry.line), ["/context", "/mode"]);
+    assertInputRecall(first, ["/mode", "/context"]);
     first.app.quit(0);
     await waitFor("首个客户端退出", () => first.exitCode() === 0);
 
@@ -242,7 +330,8 @@ test("斜杠命令及结果在退出后重进同一会话时恢复，且不重�
     apps.push(second);
     await waitFor("新客户端历史加载", () => second.state.openSession(sessionId).historyLoaded);
     assert.deepEqual(second.state.openSession(sessionId).flow.items.filter((entry) => entry.kind === "command"), commands, "命令正文、结果、身份和原始时间均应恢复");
-    assert.ok(!requests.some((request) => request.op === "set_session_mode" || request.op === "get_context_breakdown"), "恢复只显示记录，不重新执行命令");
+    assertInputRecall(second, ["/mode", "/context"]);
+    assert.ok(!requests.some((request) => request.op === "set_session_mode" || request.op === "get_context_breakdown"), "恢复及上下键调出只显示记录，不重新执行命令");
     await submitViaEditor(second, "/context");
     const updated = second.state.openSession(sessionId).flow.items.filter((entry) => entry.kind === "command");
     assert.equal(updated.length, 3, "重启后新命令不会覆盖旧记录");
@@ -256,6 +345,36 @@ test("斜杠命令及结果在退出后重进同一会话时恢复，且不重�
     const other = await createProjectSession(t.client, t.work[0]!);
     assert.deepEqual(third.state.openSession(other.sessionId).flow.items.filter((entry) => entry.kind === "command"), [], "不同会话不串命令");
     assert.equal(t.server.calls.length, 0);
+  } finally {
+    quitAll(apps);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.shutdown();
+  }
+});
+
+test("命令与普通消息共享上下键输入历史，重开后保持提交顺序", async () => {
+  const t = await startTestRuntime("tui-mixed-input-history", async () => ({ kind: "text", text: "已完成" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const first = await startApp(t, { sessionId });
+    apps.push(first);
+    await submitViaEditor(first, "/context");
+    await submitViaEditor(first, "普通消息");
+    await waitFor("普通任务完成", () => [...first.state.tasks.values()].some((task) => task.status === "completed"));
+    await submitViaEditor(first, "/mode");
+    first.terminal.send("\x1b");
+    assertInputRecall(first, ["/mode", "普通消息", "/context"]);
+    first.app.quit(0);
+    await waitFor("首个客户端退出", () => first.exitCode() === 0);
+
+    const requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
+    const second = await startApp(t, { sessionId, requests });
+    apps.push(second);
+    await waitFor("混合输入历史恢复", () => second.state.openSession(sessionId).historyLoaded);
+    assertInputRecall(second, ["/mode", "普通消息", "/context"]);
+    assert.ok(!requests.some((request) => ["set_session_mode", "get_context_breakdown", "submit"].includes(request.op)), "调出历史不会执行命令或提交任务");
+    assert.equal(t.server.calls.length, 1, "上下键不触发额外模型调用");
   } finally {
     quitAll(apps);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -287,11 +406,81 @@ test("长正文生成中退出后冷重连：超过历史单页的正文完整�
     assert.equal(answers.length, 1, "历史与事件补读合并为唯一正文");
     assert.ok(requests.some((request) => request.op === "read_history_entry" && Number(request.params?.offset ?? 0) > 0 && request.params?.length === 48 * 1024), "实际请求后续 48KiB 历史页（偏移按 UTF-8 边界对齐）");
     await waitFor("终端显示正文尾部", () => stripTerminalSequences(second.terminal.output()).includes("长文尾部标记"));
+    const app = second.app as any;
+    app.scroll.scrollTo(20, { disableFollow: true });
+    app.tui.requestRender();
+    await renderFlush();
+    const historyScreen = app.tui.previousScreen.map((line: string) => stripTerminalSequences(line));
+    const promptRow = historyScreen.findIndex((line: string) => line.includes("❯ 返回长正文"));
+    assert.ok(promptRow >= 0 && promptRow < 5, "历史滚动时任务输入固定在事件流顶部");
+    assert.equal(historyScreen.filter((line: string) => line.includes("返回长正文")).length, 1);
+    app.scroll.scrollToEnd();
+    app.tui.requestRender();
+    await renderFlush();
+    assert.doesNotMatch(stripTerminalSequences(app.tui.previousScreen.join("\n")), /返回长正文/, "恢复跟随末尾后取消置顶");
     second.terminal.clearOutput();
     (second.app as any).scroll.scrollTo(0, { disableFollow: true });
     (second.app as any).tui.requestRender();
     await waitFor("滚回顶部看到完整正文开头", () => stripTerminalSequences(second.terminal.output()).includes("长文头部标记"));
     assert.equal([...second.state.tasks.keys()].filter((id) => id === taskId).length, 1);
+  } finally {
+    quitAll(apps);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.shutdown();
+  }
+});
+
+test("置顶用户消息在任务边界切换时，向下及向上每次只移动一行", async () => {
+  const t = await startTestRuntime("tui-sticky-boundary", async () => ({ kind: "text", text: "不应调用模型" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    await waitFor("初始历史加载", () => h.state.openSession(sessionId).historyLoaded);
+    await renderFlush();
+    const app = h.app as any;
+    const message = (key: string, taskId: string, role: string, text: string): FlowEntry => ({
+      key, taskId, kind: "message", role, text, at: "2026-09-30T00:00:00.000Z", seq: 0,
+      entryId: null, totalBytes: Buffer.byteLength(text), truncated: false, streaming: false,
+    });
+    app.eventFlowView.setEntries([
+      message("first-input", "first-task", "user", "第一任务输入"),
+      message("first-answer", "first-task", "assistant", Array.from({ length: 8 }, (_, i) => `前文${i}`).join("\n")),
+      message("second-input", "second-task", "user", "第二任务输入"),
+      message("second-answer", "second-task", "assistant", "边界后的正文锚点\n" + Array.from({ length: 60 }, (_, i) => `后文${i}`).join("\n")),
+    ]);
+    app.tui.requestRender();
+    await renderFlush();
+    const lines = app.eventFlowView.render(h.terminal.columns - 2).map((line: string) => stripTerminalSequences(line));
+    const secondStart = lines.findIndex((line: string) => line.includes("第二任务输入"));
+    assert.ok(secondStart > 1);
+    app.scroll.scrollTo(secondStart - 1, { disableFollow: true });
+    app.tui.requestRender();
+    await renderFlush();
+    const screen = (): string[] => app.tui.previousScreen.map((line: string) => stripTerminalSequences(line));
+    const before = screen();
+    assert.ok(before.some((line) => line.includes("第一任务输入")), "任务边界前显示第一任务置顶输入");
+    const anchorRow = before.findIndex((line) => line.includes("边界后的正文锚点"));
+    assert.ok(anchorRow >= 0, "屏幕中包含用于检测滚动距离的正文锚点");
+    const top = app.scroll.scrollTop;
+    const height = app.scroll.viewportHeight;
+    app.scroll.scrollBy(1);
+    app.tui.requestRender();
+    await renderFlush();
+    const after = screen();
+    assert.equal(after.findIndex((line) => line.includes("边界后的正文锚点")), anchorRow - 1, "向下滚动一行时正文只上移一行");
+    assert.equal(app.scroll.scrollTop, top + 1);
+    assert.equal(app.scroll.viewportHeight, height, "置顶输入消失时视口高度不变");
+    assert.ok(!after.some((line) => line.includes("第一任务输入")), "第二任务输入进入顶部时取消上一任务置顶");
+    app.scroll.scrollBy(-1);
+    app.tui.requestRender();
+    await renderFlush();
+    assert.equal(screen().findIndex((line) => line.includes("边界后的正文锚点")), anchorRow, "向上滚动一行恢复原来的正文位置");
+    assert.equal(app.scroll.scrollTop, top);
+    assert.equal(app.scroll.viewportHeight, height);
+    assert.ok(screen().some((line) => line.includes("第一任务输入")), "向上跨任务边界恢复第一任务置顶");
+    assert.equal(t.server.calls.length, 0);
   } finally {
     quitAll(apps);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -672,7 +861,7 @@ test("/plan：不带内容只显示用法；带内容原样提交与显示，运
     await waitFor("计划模式的任务运行", () => [...h.state.tasks.values()][0]?.status === "running" && held.length > 0);
     const first = [...h.state.tasks.values()][0]!;
     assert.equal(first.input, "/plan 调研登录", "整行作为任务输入");
-    await waitFor("状态栏显示计划", () => footer().startsWith("Ask for approval · 计划 · "));
+    await waitFor("状态栏显示计划", () => footer().startsWith("⏸ Ask for approval · 计划"));
     assert.ok(screen().includes("❯ /plan 调研登录"), "事件流原样显示输入");
 
     h.terminal.send("/interrupt\r");
@@ -684,7 +873,7 @@ test("/plan：不带内容只显示用法；带内容原样提交与显示，运
     await renderFlush();
     await submitViaEditor(h, "接着调研");
     await waitFor("继续任务运行", () => [...h.state.tasks.values()].some((x) => x.resumesTaskId === first.id && x.status === "running") && held.length > 0);
-    await waitFor("继续的任务仍显示计划", () => footer().startsWith("Ask for approval · 计划 · "));
+    await waitFor("继续的任务仍显示计划", () => footer().startsWith("⏸ Ask for approval · 计划"));
     held.splice(0).forEach((release) => release());
     await waitFor("完成", () => [...h.state.tasks.values()].every((x) => x.status !== "running"));
   } finally {
@@ -741,6 +930,55 @@ test("/context：无记录提示写在命令下", async () => {
     const entries = h.state.sessionViews.get(sessionId)!.flow.items;
     assert.ok(entries.some((entry) => entry.kind === "command" && entry.line === "/context" && entry.result?.includes("还没有模型调用记录")));
     assert.ok(!entries.some((entry) => entry.kind === "note" && entry.text.includes("还没有模型调用记录")), "普通命令说明不写入事件流");
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("Shift+Tab 循环切换默认模式，连续按键落盘且保留草稿，悬浮层和窗口不触发切换", async () => {
+  const t = await startTestRuntime("tui-mode-shortcut", async () => ({ kind: "text", text: "done" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
+    const h = await startApp(t, { sessionId, requests });
+    apps.push(h);
+    const app = h.app as any;
+    const current = () => h.state.sessions.find((session) => session.id === sessionId)!;
+    const initialVersion = current().defaultAccessModeVersion;
+    assert.equal(current().defaultAccessMode, "confirm");
+    h.terminal.send("未提交草稿");
+
+    for (const [index, mode] of ["full_access", "auto-review", "confirm"].entries()) {
+      h.terminal.send("\x1b[Z");
+      await waitFor(`快捷键切换至 ${mode}`, () => current().defaultAccessModeVersion === initialVersion + index + 1);
+      const saved = await t.client.request<any>("get_session", { session_id: sessionId });
+      assert.equal(saved.defaultAccessMode, mode);
+      assert.equal(saved.defaultAccessModeVersion, initialVersion + index + 1, "每次切换增加一个版本并落盘");
+      assert.equal(app.editor.getText(), "未提交草稿", "切换模式不改变草稿");
+    }
+
+    h.terminal.send("\x1b[Z\x1b[Z\x1b[Z");
+    await waitFor("连续三次切换全部完成", () => current().defaultAccessModeVersion === initialVersion + 6);
+    const saved = await t.client.request<any>("get_session", { session_id: sessionId });
+    assert.equal(saved.defaultAccessMode, "confirm", "连续三次切换完成完整循环");
+    assert.equal(saved.defaultAccessModeVersion, initialVersion + 6);
+    assert.deepEqual(requests.filter((request) => request.op === "set_session_mode").map((request) => request.params?.expected_version), Array.from({ length: 6 }, (_, index) => initialVersion + index), "连续按键按后台版本串行提交，不冲突或丢失");
+
+    for (const open of [() => app.cmdMode([], () => {}), () => app.openHelp()]) {
+      await open();
+      await renderFlush();
+      assert.equal(app.tui.hasOverlay(), true);
+      h.terminal.send("\x1b[Z");
+      await renderFlush();
+      const unchanged = await t.client.request<any>("get_session", { session_id: sessionId });
+      assert.equal(unchanged.defaultAccessModeVersion, initialVersion + 6, "悬浮层和窗口获得焦点时不修改模式");
+      assert.equal(requests.filter((request) => request.op === "set_session_mode").length, 6);
+      h.terminal.send("\x1b");
+      assert.equal(app.editor.getText(), "未提交草稿");
+    }
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
@@ -834,6 +1072,61 @@ test("帮助与会话窗口独占画面并有完整边框，关闭后恢复事�
     h.terminal.send("q继续");
     await renderFlush();
     assert.equal((h.app as any).editor.getText(), "未提交草稿q继续", "关闭窗口后焦点回到输入框，q 正常输入");
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("底栏累计当前会话 token：实时更新、会话隔离、重开恢复与窄屏隐藏", async () => {
+  const t = await startTestRuntime("tui-session-usage", async () => ({ kind: "text", text: "已完成" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const { sessionId: otherSessionId } = await createProjectSession(t.client, t.work[1]!);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    const footer = () => stripTerminalSequences((h.app as any).footer.render(200)[0]);
+    await waitFor("新会话 token 为零", () => footer().includes("↑ 0 ↓ 0 · mock/mock-model · off"));
+    for (const [text, input, output] of [["第一轮", 100, 10], ["第二轮", 200, 20]] as const) {
+      await submitViaEditor(h, text);
+      await waitFor("任务完成并累计实际用量", () => footer().includes(`↑ ${input} ↓ ${output} · mock/mock-model · off`));
+    }
+    (h.app as any).switchSession(otherSessionId);
+    await waitFor("切换会话后不串用量", () => footer().includes("↑ 0 ↓ 0 · mock/mock-model · off"));
+    (h.app as any).switchSession(sessionId);
+    await waitFor("切回保留累计用量", () => footer().includes("↑ 200 ↓ 20 · mock/mock-model · off"));
+    h.app.quit(0);
+    const reopened = await startApp(t, { sessionId });
+    apps.push(reopened);
+    const footerLine = (reopened.app as any).footer;
+    await waitFor("重开从后台恢复用量", () => stripTerminalSequences(footerLine.render(200)[0]).includes("↑ 200 ↓ 20 · mock/mock-model · off"));
+
+    const record = t.runtime.store.listSelectionRecordsBySession(sessionId)[0]!;
+    for (const [input, inputText, output, outputText] of [
+      [999, "999", 514, "514"],
+      [1000, "1K", 1540, "1.5K"],
+      [114000, "114K", 1000000, "1M"],
+      [1250000, "1.3M", 1000000000, "1B"],
+      [1200000000, "1.2B", 1000000000, "1B"],
+      [999950, "1M", 999950, "1M"],
+    ] as const) {
+      t.runtime.store.setSelectionRecordUsage(record.id, { input: input - 400, output: output - 10, cacheRead: 200, cacheWrite: 100 });
+      await (reopened.app as any).refreshSessionUsage(sessionId);
+      assert.ok(stripTerminalSequences(footerLine.render(200)[0]).includes(`↑ ${inputText} ↓ ${outputText} · mock/mock-model · off`), "自动转换单位并累计缓存读取与写入，省略尾 .0");
+    }
+
+    footerLine.set("模式", "\x1b[2mmock/mock-model · off\x1b[0m", "↑ 114K ↓ 514");
+    const suffix = "↑ 114K ↓ 514 · mock/mock-model · off";
+    const exactWidth = visibleWidth(`模式 ${suffix}`);
+    const fits = footerLine.render(exactWidth)[0];
+    assert.equal(stripTerminalSequences(fits), `模式 ${suffix}`, "恰好容纳时完整显示 token 与模型");
+    assert.ok(/\x1b\[2m[^\x1b]*↑ 114K ↓ 514/.test(fits), "token 使用灰体");
+    const narrow = footerLine.render(exactWidth - 1)[0];
+    assert.ok(!stripTerminalSequences(narrow).includes("↑") && !stripTerminalSequences(narrow).includes("↓"), "不足一个显示列时完全隐藏 token");
+    assert.ok(stripTerminalSequences(narrow).includes("mock/mock-model · off"), "隐藏 token 后完整保留模型信息");
+    assert.equal(visibleWidth(narrow), exactWidth - 1, "窄屏仍保持底栏宽度");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));

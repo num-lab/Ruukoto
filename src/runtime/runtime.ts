@@ -2861,6 +2861,11 @@ export class Runtime {
     throw new RuntimeApiError("invalid_params", "必须指定 taskId 或 sessionId");
   }
 
+  getSessionUsage(sessionId: string): { input: number; output: number } {
+    if (!this.store.getSession(sessionId)) throw new RuntimeApiError("not_found", `会话不存在：${sessionId}`);
+    return this.store.getSessionUsage(sessionId);
+  }
+
   getSelectionRecord(recordId: string): SelectionRecord {
     const record = this.store.getSelectionRecord(recordId);
     if (!record) throw new RuntimeApiError("not_found", `选择记录不存在：${recordId}`);

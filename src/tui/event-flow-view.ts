@@ -7,6 +7,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
+import { renderMermaidASCII } from "beautiful-mermaid";
 import type { FlowEntry } from "./event-flow.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
 
@@ -18,6 +19,27 @@ const yellow = (text: string) => `\x1b[33m${text}\x1b[0m`;
 const userBackground = "\x1b[48;5;236m";
 const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const animationMs = 80;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function mermaidCode(code: string, lang: string | undefined, width: number, streaming: boolean): string[] | null {
+  if (lang?.toLowerCase() === "mermaid" && !streaming && code.length <= 8192 && code.split("\n").length <= 100 && !/\b(?:graph|flowchart|direction)\s+RL\b/.test(code)) {
+    try {
+      // 渲染库按 UTF-16 长度布局；零宽占位使宽字符的长度等于终端列宽。
+      let source = "";
+      for (const { segment } of graphemes.segment(code)) {
+        if (segment === "\n") { source += segment; continue; }
+        const padding = visibleWidth(segment) - segment.length;
+        if (padding < 0 || segment.includes("\u200b")) throw new Error("Unsupported grapheme width");
+        source += segment + "\u200b".repeat(padding);
+      }
+      const lines = renderMermaidASCII(source, { colorMode: "none", paddingY: 2 }).replaceAll("\u200b", "").split("\n");
+      if (lines.some((line) => line.trim()) && lines.every((line) => visibleWidth(line) <= width)) return lines;
+    } catch {
+      // 不支持的语法或字符仍显示原始代码，不影响其余 Markdown。
+    }
+  }
+  return null;
+}
 
 const markdownTheme = {
   heading: bold,
@@ -40,7 +62,16 @@ const markdownTheme = {
 
 const safe = (text: string) => sanitizeForDisplay(text).replace(/\t/g, "   ");
 const singleLine = (text: string) => safe(text).replace(/\s*\n\s*/g, " ");
-const seconds = (start: string, end: number) => `${Math.max(0, Math.floor((end - Date.parse(start)) / 1000))}s`;
+function formatDuration(start: string, end: number): string {
+  let remaining = Math.max(0, Math.floor((end - Date.parse(start)) / 1000));
+  const parts: string[] = [];
+  for (const [unit, size] of [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]] as const) {
+    const value = Math.floor(remaining / size);
+    if (value > 0) parts.push(`${value}${unit}`);
+    remaining %= size;
+  }
+  return parts.join(" ") || "0s";
+}
 const active = (entry: FlowEntry) => entry.kind === "task" && (entry.task.status === "running" || entry.task.status === "awaiting_confirmation");
 
 /** /context 的可信排版保留 SGR 颜色；其他终端控制序列仍按普通内容净化。 */
@@ -59,7 +90,7 @@ function contextColors(text: string): string {
 /** 投影会原地更新条目；缓存保存排版依赖的基本字段，不能只比较对象引用。 */
 function renderInputs(entry: FlowEntry): unknown[] {
   switch (entry.kind) {
-    case "message": return [entry.kind, entry.role, entry.text, entry.entryId, entry.totalBytes, entry.truncated];
+    case "message": return [entry.kind, entry.role, entry.text, entry.entryId, entry.totalBytes, entry.truncated, entry.streaming];
     case "thinking": return [entry.kind, entry.text, entry.startedAt, entry.endedAt];
     case "tool": return [entry.kind, entry.name, entry.target, entry.status, entry.summary, entry.editStats?.added, entry.editStats?.removed, entry.paramsTruncated, entry.entryId, entry.toolOpId];
     case "command": return [entry.kind, entry.line, entry.result, entry.isError];
@@ -82,6 +113,7 @@ function endTime(value: string): string {
 export class EventFlowView implements Component {
   private entries: readonly FlowEntry[] = [];
   private blocks = new Map<string, { inputs: unknown[]; lines: string[] }>();
+  private ranges: Array<{ start: number; end: number; entry: FlowEntry }> = [];
   private width = 0;
 
   constructor(private readonly clock: () => number = () => Date.now()) {}
@@ -103,6 +135,7 @@ export class EventFlowView implements Component {
       this.invalidate();
     }
     const lines: string[] = [];
+    this.ranges = [];
     // 运行计时永远位于最后，后来的命令和流式正文也不会落到它下面。
     const entries = [...this.entries.filter((entry) => !active(entry)), ...this.entries.filter(active)];
     for (const entry of entries) {
@@ -121,9 +154,26 @@ export class EventFlowView implements Component {
       }
       if (!cached.lines.length) continue;
       if (lines.length) lines.push("");
+      const start = lines.length;
       lines.push(...cached.lines);
+      this.ranges.push({ start, end: lines.length, entry });
     }
     return lines;
+  }
+
+  /** 按原始事件流的行号找任务，复用用户消息的排版与灰底。 */
+  stickyPrompt(scrollTop: number, width: number, maxLines = 3): string[] {
+    if (scrollTop <= 0 || width <= 0 || maxLines <= 0) return [];
+    this.render(width);
+    const current = this.ranges.findLast((range) => range.start <= scrollTop);
+    if (!current?.entry.taskId) return [];
+    const prompt = this.ranges.findLast((range) => range.entry.taskId === current.entry.taskId && range.entry.kind === "message" && range.entry.role === "user" && range.end <= scrollTop);
+    if (!prompt) return [];
+    const lines = this.blocks.get(prompt.entry.key)!.lines;
+    if (lines.length <= maxLines) return [...lines];
+    const shown = lines.slice(0, maxLines);
+    shown[maxLines - 1] = this.userLine(`${truncateToWidth(safe(shown[maxLines - 1]!), Math.max(0, width - 1), "")}…`, width);
+    return shown;
   }
 
   private marked(marker: string, text: string, width: number): string[] {
@@ -147,7 +197,20 @@ export class EventFlowView implements Component {
         if (!text.trim() && !entry.truncated) return [];
         let lines: string[];
         if (entry.role === "assistant") {
-          const body = new Markdown(text, 0, 0, markdownTheme).render(Math.max(1, width - 2));
+          const diagrams: string[][] = [];
+          let body = new Markdown(text, 0, 0, {
+            ...markdownTheme,
+            highlightCode: (code, lang) => {
+              const diagram = mermaidCode(code, lang, Math.max(0, width - 4), entry.streaming);
+              if (diagram) diagrams.push(diagram);
+              return diagram ?? highlightCode(code, lang);
+            },
+          }).render(Math.max(1, width - 2));
+          // 列表或引用还会增加缩进；图形被 Markdown 换行时回退源码。
+          const plainBody = body.map(safe);
+          if (diagrams.flat().some((line) => line.trim() && !plainBody.some((row) => row.includes(line.trimEnd())))) {
+            body = new Markdown(text, 0, 0, markdownTheme).render(Math.max(1, width - 2));
+          }
           while (body.length && visibleWidth(body[0]!.trim()) === 0) body.shift();
           while (body.length && visibleWidth(body.at(-1)!.trim()) === 0) body.pop();
           lines = body.map((line, index) => `${index === 0 ? "● " : "  "}${line}`);
@@ -161,7 +224,7 @@ export class EventFlowView implements Component {
         return lines;
       }
       case "thinking": {
-        if (entry.endedAt) return this.marked(" ", `Thought for ${seconds(entry.startedAt, Date.parse(entry.endedAt))}`, width).map(dim);
+        if (entry.endedAt) return this.marked(" ", `Thought for ${formatDuration(entry.startedAt, Date.parse(entry.endedAt))}`, width).map(dim);
         const frame = spinnerFrames[Math.floor(Math.max(0, this.clock() - Date.parse(entry.startedAt)) / animationMs) % spinnerFrames.length]!;
         const prefix = `${frame} Thinking...`;
         const room = width - visibleWidth(prefix) - 1;
@@ -209,24 +272,24 @@ export class EventFlowView implements Component {
         const task = entry.task;
         if (task.status === "queued") return [];
         if (active(entry)) {
-          const elapsed = task.startedAt ? ` · Elapsed ${seconds(task.startedAt, this.clock())}` : "";
+          const elapsed = task.startedAt ? ` · Elapsed ${formatDuration(task.startedAt, this.clock())}` : "";
           const waiting = task.status === "awaiting_confirmation" ? " · waiting for approval" : "";
           const word = "Sweeping";
-          const head = Math.floor(Math.max(0, this.clock() - Date.parse(task.startedAt ?? task.createdAt)) / animationMs) % (word.length + 6) - 3;
+          const head = Math.floor(Math.max(0, this.clock() - Date.parse(task.startedAt ?? task.createdAt)) / animationMs) % (word.length + 30) - 3;
           const shine = [...word].map((letter, index) => {
             const distance = Math.abs(index - head);
-            const color = distance === 0 ? "\x1b[97m" : distance === 1 ? "\x1b[38;5;157m" : "\x1b[32m";
+            const color = distance < 1 ? "\x1b[97m" : distance <= 3 ? "\x1b[38;5;157m" : "\x1b[32m";
             return `${color}${letter}`;
           }).join("") + "\x1b[0m";
           return this.marked(green("●"), `${shine}${elapsed}${waiting}`, width);
         }
-        const duration = task.startedAt && task.endedAt ? ` in ${seconds(task.startedAt, Date.parse(task.endedAt))}` : "";
+        const duration = task.startedAt && task.endedAt ? ` in ${formatDuration(task.startedAt, Date.parse(task.endedAt))}` : "";
         const at = task.endedAt ? ` · At ${endTime(task.endedAt)}` : "";
-        const style = task.status === "completed" ? green : task.status === "failed" ? red : yellow;
+        const style = task.status === "completed" ? dim : task.status === "failed" ? red : yellow;
         const label = task.status === "completed" ? "Done" : task.status === "failed" ? "Failed" : task.status === "canceled" ? "Canceled" : "Interrupted";
         const reason = task.errorMessage ?? task.interruptReason;
         const message = `${label}${duration}${at}${reason ? ` · ${singleLine(reason)}` : ""}${task.effectUnknown ? " · 效果未知" : ""}`;
-        return this.marked(style(task.status === "completed" ? "✓" : task.status === "failed" ? "✗" : "■"), style(message), width);
+        return this.marked(style(task.status === "completed" ? " " : task.status === "failed" ? "✗" : "■"), style(message), width);
       }
     }
   }

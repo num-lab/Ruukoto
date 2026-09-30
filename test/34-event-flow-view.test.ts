@@ -50,20 +50,43 @@ test("事件之间恰一空行，工具和命令的结果紧贴，空助手消�
     message("pong", { key: "answer" }),
   ]);
   assert.deepEqual(plain(view), [
-    "❯ ping", "", "⚙︎ Read", "  ⎿ script.py", "", "❯ /mode", "  ⎿ Switched to Full access", "", "❯ /context", "", "● pong",
+    "❯ ping", "", "● Read", "  ⎿ script.py", "", "❯ /mode", "  ⎿ Switched to Full access", "", "❯ /context", "", "● pong",
   ]);
   const rendered = view.render(80);
-  assert.match(rendered[0]!, /^\x1b\[48;5;236m/);
-  assert.equal(visibleWidth(rendered[0]!), 80, "用户消息灰底铺满内容行");
-  assert.doesNotMatch(rendered.slice(1).join("\n"), /\x1b\[48;/, "背景不延伸到间隔和其他事件");
+  for (const index of [0, 5, 8]) {
+    assert.match(rendered[index]!, /^\x1b\[48;5;236m/);
+    assert.equal(visibleWidth(rendered[index]!), 80, "用户消息与命令消息灰底铺满内容行");
+  }
+  assert.doesNotMatch(rendered.filter((_, index) => ![0, 5, 8].includes(index)).join("\n"), /\x1b\[48;/, "背景不延伸到结果、间隔和其他事件");
+  view.setEntries([{ ...position, kind: "command", line: "/search 中文关键词重复重复重复", result: "搜索结果", isError: false }]);
+  const wrapped = view.render(18);
+  for (const line of wrapped.slice(0, -1)) {
+    assert.equal(visibleWidth(line), 18);
+    assert.match(line, /^\x1b\[48;5;236m/);
+    assert.match(line, /\x1b\[49m$/);
+  }
+  assert.doesNotMatch(wrapped.at(-1)!, /\x1b\[48;/);
+});
+
+test("/context 长条与图例保留分色，其他终端控制序列被过滤", () => {
+  const view = new EventFlowView();
+  view.setEntries([{ ...position, kind: "command", line: "/context", result: "\x1b[1mContext Usage\x1b[0m\n\x1b[38;5;75m████\x1b[0m\x1b[38;5;131m████\x1b[0m\n\x1b[38;5;75m■\x1b[0m 系统提示 663 (0.1%)\x1b]52;c;bad\x07\x1b[2J", isError: false }]);
+  const rendered = view.render(80);
+  assert.deepEqual(plain(view), ["❯ /context", "  ⎿ Context Usage", "████████", "■ 系统提示 663 (0.1%)"]);
+  assert.match(rendered[2]!, /\x1b\[38;5;75m████\x1b\[0m\x1b\[38;5;131m████/);
+  assert.match(rendered[3]!, /\x1b\[38;5;75m■/);
+  assert.doesNotMatch(rendered.join("\n"), /\x1b\]52|\x1b\[2J/);
 });
 
 test("思考正文只显示一行最新尾部，中文与组合 emoji 完整，结束后替换为耗时", () => {
-  const view = new EventFlowView();
+  let now = Date.parse(at);
+  const view = new EventFlowView(() => now);
   const thinking: FlowEntry = { ...position, kind: "thinking", text: "过去内容现在👩‍💻", startedAt: at, endedAt: null };
   view.setEntries([thinking]);
-  assert.deepEqual(plain(view, 20), ["⨳ Thinking... 现在👩‍💻"]);
-  assert.match(view.render(20)[0]!, /Thinking\.\.\. \x1b\[2m现在👩‍💻/);
+  assert.deepEqual(plain(view, 20), ["⠋ Thinking... 现在👩‍💻"]);
+  assert.equal(view.render(20)[0], "\x1b[2m⠋ Thinking... 现在👩‍💻\x1b[0m");
+  now += 80;
+  assert.deepEqual(plain(view, 20), ["⠙ Thinking... 现在👩‍💻"]);
   for (const width of [0, 1, 2, 3, 4, 12, 15, 16, 19, 20]) {
     const lines = view.render(width);
     assert.ok(lines.length <= 1);
@@ -74,33 +97,46 @@ test("思考正文只显示一行最新尾部，中文与组合 emoji 完整，�
     }
   }
   view.setEntries([{ ...thinking, text: "" }]);
-  assert.deepEqual(plain(view), ["⨳ Thinking..."]);
+  assert.deepEqual(plain(view), ["⠙ Thinking..."]);
+  assert.equal(view.render(80)[0], "\x1b[2m⠙ Thinking...\x1b[0m");
   view.setEntries([{ ...thinking, endedAt: new Date(Date.parse(at) + 22_000).toISOString() }]);
-  assert.deepEqual(plain(view), ["⨳ Thought for 22s"]);
+  assert.deepEqual(plain(view), ["  Thought for 22s"]);
+  assert.equal(view.render(80)[0], "\x1b[2m  Thought for 22s\x1b[0m");
 });
 
 test("工具显示真实增删颜色，Bash 单行截断，错误与效果未知保留", () => {
   const view = new EventFlowView();
   view.setEntries([tool({ name: "edit", editStats: { added: 114, removed: 514 } })]);
-  assert.deepEqual(plain(view), ["⚙︎ Edit", "  ⎿ script.py +114 -514"]);
+  assert.deepEqual(plain(view), ["● Edit", "  ⎿ script.py +114 -514"]);
+  assert.match(view.render(80)[0]!, /\x1b\[32m●\x1b\[0m/);
   assert.match(view.render(80)[1]!, /\x1b\[32m\+114\x1b\[0m/);
   assert.match(view.render(80)[1]!, /\x1b\[31m-514\x1b\[0m/);
+  view.setEntries([tool({ name: "write", target: "output.txt", editStats: { added: 3, removed: 0 } })]);
+  assert.deepEqual(plain(view), ["● Write", "  ⎿ output.txt +3 -0"]);
   view.setEntries([tool({ name: "bash", target: "/home/user/venv/bin/python\nscript.py --verbose" })]);
-  assert.deepEqual(plain(view, 30), ["⚙︎ Bash", "  ⎿ /home/user/venv/bin/pyt..."]);
+  assert.deepEqual(plain(view, 30), ["● Bash", "  ⎿ /home/user/venv/bin/pyt..."]);
   view.setEntries([tool({ status: "error", summary: "permission denied" })]);
+  assert.match(view.render(80)[0]!, /\x1b\[31m●\x1b\[0m/);
   assert.match(plain(view).join("\n"), /script.py · permission denied/);
   assert.match(view.render(80).join("\n"), /\x1b\[31mpermission denied/);
   view.setEntries([tool({ name: "custom_tool", status: "effect_unknown" })]);
-  assert.deepEqual(plain(view), ["⚙︎ custom_tool", "  ⎿ script.py · 效果未知"]);
+  assert.deepEqual(plain(view), ["● custom_tool", "  ⎿ script.py · 效果未知"]);
 });
 
 test("Sweeping 总在最后且不计排队；终态分别显示成功、失败、取消与中断", () => {
-  const view = new EventFlowView(() => Date.parse(at) + 42_000);
+  let now = Date.parse(at) + 42_000;
+  const view = new EventFlowView(() => now);
   const running: FlowEntry = { ...position, kind: "task", task: task() };
   view.setEntries([running, message("正在输出", { key: "answer" })]);
   assert.deepEqual(plain(view), ["● 正在输出", "", "● Sweeping · Elapsed 42s"]);
+  now = Date.parse(at);
+  assert.match(view.render(80).at(-1)!, /\x1b\[32mS/);
+  now += 3 * 80;
+  assert.match(view.render(80).at(-1)!, /\x1b\[97mS/);
+  now += 3 * 80;
+  assert.match(view.render(80).at(-1)!, /\x1b\[32mS/);
   for (const [status, marker, label, color] of [
-    ["completed", "✓", "Done", "32"], ["failed", "✗", "Failed", "31"],
+    ["completed", " ", "Done", "2"], ["failed", "✗", "Failed", "31"],
     ["canceled", "■", "Canceled", "33"], ["interrupted", "■", "Interrupted", "33"],
   ] as const) {
     view.setEntries([{ ...running, task: task({ status, endedAt: at, startedAt: new Date(Date.parse(at) - 1000).toISOString(), errorMessage: status === "failed" ? "network failed" : null, interruptReason: status === "interrupted" || status === "canceled" ? "owner requested" : null }) }]);
@@ -115,6 +151,22 @@ test("Sweeping 总在最后且不计排队；终态分别显示成功、失败�
   assert.deepEqual(plain(view), ["■ Canceled · At Tue 09:16 PM"]);
   view.setEntries([{ ...running, task: task({ status: "queued", startedAt: null }) }]);
   assert.deepEqual(plain(view), []);
+});
+
+test("任务耗时按天、小时、分钟和秒显示，省略零单位并向下取整", () => {
+  for (const [elapsedMs, duration] of [
+    [-1000, "0s"], [0, "0s"], [999, "0s"], [59_999, "59s"],
+    [60_000, "1m"], [61_999, "1m 1s"], [3_599_999, "59m 59s"],
+    [3_600_000, "1h"], [3_661_999, "1h 1m 1s"],
+    [86_400_000, "1d"], [90_061_999, "1d 1h 1m 1s"],
+  ] as const) {
+    const now = Date.parse(at) + elapsedMs;
+    const view = new EventFlowView(() => now);
+    view.setEntries([{ ...position, kind: "task", task: task() }]);
+    assert.deepEqual(plain(view), [`● Sweeping · Elapsed ${duration}`], `${elapsedMs}: Elapsed`);
+    view.setEntries([{ ...position, kind: "task", task: task({ status: "completed", endedAt: new Date(now).toISOString() }) }]);
+    assert.ok(plain(view)[0]!.startsWith(`  Done in ${duration} · At `), `${elapsedMs}: Done in`);
+  }
 });
 
 test("长事件流刷新只排版变化的条目，换宽和失效后重新排版", () => {
@@ -209,4 +261,100 @@ test("长正文和 Markdown 列表、代码块续行避开图标列，并净化�
       assert.doesNotMatch(line, /\x1b\[0m(?!\x1b\[48;5;236m)/, "内部样式重置后仍保留灰底");
     }
   }
+});
+
+test("Mermaid 完成后渲染字符图，中文框线对齐，过宽和不支持的内容保留源码", () => {
+  const view = new EventFlowView();
+  const text = "前文\n\n```mermaid\nflowchart LR\n A[开始] --> B[结束]\n```\n\n后文";
+  view.setEntries([message(text)]);
+  assert.match(plain(view).join("\n"), /A\[开始\] --> B\[结束\]/, "流式生成时保留源码");
+  view.setEntries([message(text, { streaming: false })]);
+  const rendered = plain(view);
+  assert.match(rendered.join("\n"), /开始.*►.*结束/);
+  assert.doesNotMatch(rendered.join("\n"), /A\[开始\]/);
+  assert.match(rendered.join("\n"), /前文[\s\S]*后文/);
+  const diagram = rendered.filter((line) => /[┌│└]/.test(line));
+  assert.ok(diagram.length >= 3);
+  assert.equal(new Set(diagram.map(visibleWidth)).size, 1, "中文标签与上下边框使用相同列宽");
+  assert.doesNotMatch(rendered.join("\n"), /\u200b/);
+  assert.match(plain(view, 20).join("\n"), /flowchart LR/, "过宽图表回退源码");
+  assert.match(plain(view, 80).join("\n"), /►/, "终端变宽后重新渲染");
+  for (const code of ["pie\n\"A\": 1", "invalid syntax", "flowchart RL\n A --> B", "flowchart LR\n A[👩‍💻] --> B", "flowchart TD\n" + "%% comment\n".repeat(101)]) {
+    view.setEntries([message("```mermaid\n" + code + "\n```", { streaming: false })]);
+    assert.match(plain(view).join("\n"), new RegExp(code.split("\n")[0]!));
+    assert.doesNotMatch(plain(view).join("\n"), /[┌┐]/);
+  }
+  view.setEntries([message("> ```mermaid\n> flowchart LR\n> A[开始] --> B[结束]\n> ```", { streaming: false })]);
+  assert.match(plain(view, 26).join("\n"), /flowchart LR/, "引用内缩进不足时回退源码");
+  view.setEntries([message("```python\nprint('hello')\n```", { streaming: false })]);
+  assert.match(plain(view).join("\n"), /print\('hello'\)/, "其他语言仍正常渲染");
+});
+
+test("历史顶部按所属任务置顶已滚出的用户消息，并保留灰底", () => {
+  const view = new EventFlowView();
+  view.setEntries([
+    message("第一项任务", { key: "input-1", role: "user", taskId: "task-1" }),
+    message("", { key: "empty", taskId: "task-1" }),
+    message("第一项回答", { key: "answer-1", taskId: "task-1" }),
+    tool({ key: "tool-1", taskId: "task-1" }),
+    message("第二项任务", { key: "input-2", role: "user", taskId: "task-2" }),
+    message("第二项回答", { key: "answer-2", taskId: "task-2" }),
+  ]);
+  const lines = plain(view);
+  assert.deepEqual(view.stickyPrompt(0, 80), [], "顶部用户消息仍可见时不重复显示");
+  const first = view.stickyPrompt(lines.indexOf("● 第一项回答"), 80);
+  assert.deepEqual(first.map((line) => stripTerminalSequences(line).trimEnd()), ["❯ 第一项任务"]);
+  assert.match(first[0]!, /^\x1b\[48;5;236m/);
+  assert.match(first[0]!, /\x1b\[49m$/);
+  assert.equal(visibleWidth(first[0]!), 80);
+  assert.deepEqual(view.stickyPrompt(lines.indexOf("● Read"), 80), first, "同任务工具行继续显示对应提示");
+  assert.deepEqual(view.stickyPrompt(lines.indexOf("❯ 第二项任务"), 80), []);
+  assert.deepEqual(view.stickyPrompt(lines.indexOf("● 第二项回答"), 80).map((line) => stripTerminalSequences(line).trimEnd()), ["❯ 第二项任务"]);
+  assert.deepEqual(view.stickyPrompt(lines.indexOf("● 第一项回答"), 80), first, "向上滚动重新切回第一项任务");
+});
+
+test("置顶长用户消息限制行数并省略，换宽和更新后不保留旧提示", () => {
+  const view = new EventFlowView();
+  const prompt = message("第一行\n第二行\n第三行\n第四行\n第五行", { key: "input", role: "user", taskId: "task-1" });
+  const answer = message("回答正文", { key: "answer", taskId: "task-1" });
+  view.setEntries([prompt, answer]);
+  const top = plain(view, 18).indexOf("● 回答正文");
+  assert.deepEqual(view.stickyPrompt(1, 18), [], "长提示仍部分可见时不重复置顶");
+  const sticky = view.stickyPrompt(top, 18);
+  assert.equal(sticky.length, 3);
+  assert.match(stripTerminalSequences(sticky[0]!), /第一行/);
+  assert.match(stripTerminalSequences(sticky.at(-1)!), /…|\.\.\./);
+  for (const line of sticky) {
+    assert.equal(visibleWidth(line), 18);
+    assert.match(line, /^\x1b\[48;5;236m/);
+    assert.match(line, /\x1b\[49m$/);
+  }
+  assert.equal(view.stickyPrompt(top, 18, 1).length, 1);
+  assert.deepEqual(view.stickyPrompt(top, 18, 0), []);
+  assert.deepEqual(view.stickyPrompt(top, 0), []);
+  assert.ok(prompt.kind === "message");
+  prompt.text = "更新后的中文提示重复重复重复重复重复重复";
+  view.setEntries([prompt, answer]);
+  const narrowTop = plain(view, 18).indexOf("● 回答正文");
+  assert.match(view.stickyPrompt(narrowTop, 18).map(stripTerminalSequences).join("\n"), /更新后的中文提示/);
+  const wideTop = plain(view, 80).indexOf("● 回答正文");
+  const wide = view.stickyPrompt(wideTop, 80);
+  assert.equal(wide.length, 1);
+  assert.equal(visibleWidth(wide[0]!), 80);
+});
+
+test("没有对应用户消息或任务标识的历史行不置顶其他任务提示", () => {
+  const view = new EventFlowView();
+  view.setEntries([
+    message("任务输入", { key: "input", role: "user", taskId: "task-1" }),
+    message("无任务的回答", { key: "unowned" }),
+    message("缺少输入的回答", { key: "missing", taskId: "task-2" }),
+    { ...position, key: "command", kind: "command", line: "/context", result: "Context Usage", isError: false },
+  ]);
+  const lines = plain(view);
+  for (const text of ["● 无任务的回答", "● 缺少输入的回答", "❯ /context", "  ⎿ Context Usage"]) {
+    assert.deepEqual(view.stickyPrompt(lines.indexOf(text), 80), [], text);
+  }
+  view.setEntries([]);
+  assert.deepEqual(view.stickyPrompt(0, 80), [], "清空事件后释放旧提示");
 });

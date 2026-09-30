@@ -515,6 +515,7 @@ export type PersistentEventBody =
   | { type: "task.interrupted"; taskId: string; sessionId: string; reason: string; cancelRequested: boolean; effectUnknown: boolean }
   | { type: "task.continued"; taskId: string; sessionId: string; resumesTaskId: string }
   | { type: "session.queue_paused"; sessionId: string; reason: string }
+  | { type: "session.usage_updated"; sessionId: string }
   | { type: "session.queue_resumed"; sessionId: string }
   | { type: "occupancy.stale"; sessionId: string; taskId: string; cwdReal: string }
   | { type: "session.history_unreadable"; sessionId: string; sessionFile: string; error: string }

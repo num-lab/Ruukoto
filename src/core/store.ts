@@ -1621,7 +1621,21 @@ export class Store {
 
   /** 发送后补记实际 provider usage（估算偏差分析用）。 */
   setSelectionRecordUsage(id: string, usage: NonNullable<SelectionRecord["usage"]>): void {
-    this.db.prepare("UPDATE selection_records SET usage = ? WHERE id = ?").run(JSON.stringify(usage), id);
+    const row = this.db.prepare("UPDATE selection_records SET usage = ? WHERE id = ? RETURNING session_id")
+      .get(JSON.stringify(usage), id) as { session_id: string } | undefined;
+    if (row) this.appendEvent({ type: "session.usage_updated", sessionId: row.session_id }, { sessionId: row.session_id });
+  }
+
+  /** 会话累计的实际 provider token 用量；未回传 usage 的调用不计入。 */
+  getSessionUsage(sessionId: string): { input: number; output: number } {
+    const row = this.db.prepare(`SELECT
+      COALESCE(SUM(COALESCE(json_extract(usage, '$.input'), 0)
+        + COALESCE(json_extract(usage, '$.cacheRead'), 0)
+        + COALESCE(json_extract(usage, '$.cacheWrite'), 0)), 0) AS input,
+      COALESCE(SUM(json_extract(usage, '$.output')), 0) AS output
+      FROM selection_records WHERE session_id = ? AND usage IS NOT NULL`)
+      .get(sessionId) as { input: number; output: number };
+    return { input: Number(row.input), output: Number(row.output) };
   }
 
   /** 关联发送前捕获的输入快照产物（issue 13；与记录同事务写入）。 */

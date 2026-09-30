@@ -250,3 +250,42 @@ test("get_context_breakdown：未认证连接被拒绝", async () => {
     await t.shutdown();
   }
 });
+
+test("get_session_usage：累计实际用量包含缓存，隔离会话，不计缺失 usage", async () => {
+  const t = await startTestRuntime("session-usage", routeResponder([]));
+  try {
+    const a = await createProjectSession(t.client, t.work[0]!, { projectName: "usage-a" });
+    const b = await createProjectSession(t.client, t.work[1]!, { projectName: "usage-b" });
+    assert.deepEqual(await t.client.request("get_session_usage", { session_id: a.sessionId }), { input: 0, output: 0 });
+    await assert.rejects(t.client.request("get_session_usage", { session_id: "ses_missing" }), /会话不存在/);
+    await assert.rejects(t.client.request("get_session_usage", {}), /session_id/);
+    for (const [index, sessionId] of [a.sessionId, a.sessionId, b.sessionId].entries()) {
+      const task = await t.client.request<any>("submit", {
+        model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+        session_id: sessionId, request_id: `usage-${index}`, input: "你好",
+      });
+      await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+    }
+    await waitFor("实际用量落盘", async () => {
+      const usage = await t.client.request<any>("get_session_usage", { session_id: a.sessionId });
+      return usage.input === 200 && usage.output === 20;
+    });
+    const records = t.runtime.store.listSelectionRecordsBySession(a.sessionId);
+    const before = t.runtime.store.getMaxSeq();
+    t.runtime.store.withTx(() => {
+      t.runtime.store.setSelectionRecordUsage(records[0]!.id, { input: 100, output: 20, cacheRead: 200, cacheWrite: 300 });
+      t.runtime.store.setSelectionRecordUsage(records[1]!.id, { input: 50, output: 8, cacheRead: 20 });
+      t.runtime.store.insertSelectionRecord({ ...records[0]!, id: "sel_no_usage", callIndex: 99, estimatedTotal: 999_999 });
+      t.runtime.store.setSelectionRecordUsage("sel_missing", { input: 900, output: 900 });
+    });
+    assert.deepEqual(await t.client.request("get_session_usage", { session_id: a.sessionId }), { input: 670, output: 28 });
+    assert.deepEqual(await t.client.request("get_session_usage", { session_id: b.sessionId }), { input: 100, output: 10 });
+    const events = t.runtime.store.getEventsAfter(before);
+    assert.deepEqual(events.map((event) => ({ body: event.body, sessionId: event.sessionId, taskId: event.taskId })), [
+      { body: { type: "session.usage_updated", sessionId: a.sessionId }, sessionId: a.sessionId, taskId: null },
+      { body: { type: "session.usage_updated", sessionId: a.sessionId }, sessionId: a.sessionId, taskId: null },
+    ], "只在 usage 确实写入后发出刷新事件");
+  } finally {
+    await t.shutdown();
+  }
+});

@@ -7,6 +7,7 @@
  * - 在上游截断之前捕获正文为产物：bash stdout 与 read 的本次已捕获版本
  *   （文件随后被修改也不改写该产物），并能按偏移重新读取；
  * - 断开客户端后任务继续，重连可见改动与检查结果；
+ * - Write 新建与覆盖文件的增删行统计保留在工具结果事件和会话历史中；
  * - 执行入口不可用时明确失败，不回退到后台账户执行。
  *
  * 容器内的路径解析与身份隔离（Linux）不在本机验证，见 issue 记录。
@@ -117,6 +118,35 @@ test("真实工具：读取—修改—检查失败—修复—检查通过，�
     });
     const bashText = Buffer.from(bashPart.data, "base64").toString("utf8");
     assert.match(bashText, /check-1/, "stdout 正文可重新读取");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("真实 Write：新建与覆盖文件的 diff 统计持久化", async () => {
+  const t = await startTestRuntime("realtools-write-stats", (req) => {
+    const done = req.messages.filter((m) => m?.role === "tool").length;
+    if (done === 0) return { kind: "tool_calls", calls: [{ id: "write-create", name: "write", arguments: { path: "notes.txt", content: "alpha\nbeta\n" } }] };
+    if (done === 1) return { kind: "tool_calls", calls: [{ id: "write-overwrite", name: "write", arguments: { path: "notes.txt", content: "alpha\ngamma\nextra\n" } }] };
+    return { kind: "text", text: "写入完成" };
+  }, { workDirs: 1, config: realTools() });
+  try {
+    const dir = t.work[0]!;
+    const { sessionId } = await createProjectSession(t.client, dir);
+    const task = await t.client.request<any>("submit", {
+      model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+      session_id: sessionId, request_id: "rt-write-stats", input: "创建并更新 notes.txt",
+    });
+    await waitFor("Write 任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed", 60_000);
+
+    assert.equal(fs.readFileSync(path.join(dir, "notes.txt"), "utf8"), "alpha\ngamma\nextra\n");
+    const stats = [{ added: 2, removed: 0 }, { added: 2, removed: 1 }];
+    const events = t.runtime.readTaskEvents({ taskId: task.id }).events
+      .flatMap((event) => event.body.type === "task.tool_result" ? [event.body] : []);
+    assert.deepEqual(events.map((event) => event.editStats), stats, "工具结果事件记录两次 Write 的增删行数");
+    const history = t.runtime.readHistory({ sessionId });
+    assert.deepEqual(history.entries.filter((entry) => entry.toolName === "write").map((entry) => entry.editStats), stats,
+      "会话历史保留两次 Write 的增删行数");
   } finally {
     await t.shutdown();
   }

@@ -16,6 +16,8 @@ const green = (text: string) => `\x1b[32m${text}\x1b[0m`;
 const red = (text: string) => `\x1b[31m${text}\x1b[0m`;
 const yellow = (text: string) => `\x1b[33m${text}\x1b[0m`;
 const userBackground = "\x1b[48;5;236m";
+const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const animationMs = 80;
 
 const markdownTheme = {
   heading: bold,
@@ -40,6 +42,19 @@ const safe = (text: string) => sanitizeForDisplay(text).replace(/\t/g, "   ");
 const singleLine = (text: string) => safe(text).replace(/\s*\n\s*/g, " ");
 const seconds = (start: string, end: number) => `${Math.max(0, Math.floor((end - Date.parse(start)) / 1000))}s`;
 const active = (entry: FlowEntry) => entry.kind === "task" && (entry.task.status === "running" || entry.task.status === "awaiting_confirmation");
+
+/** /context 的可信排版保留 SGR 颜色；其他终端控制序列仍按普通内容净化。 */
+function contextColors(text: string): string {
+  const sgr = /\x1b\[(?:0|1|2|38;5;(?:75|79|114|179|209|168|141|109|131))m/g;
+  let result = "";
+  let offset = 0;
+  for (const match of text.matchAll(sgr)) {
+    result += safe(text.slice(offset, match.index));
+    result += match[0];
+    offset = match.index + match[0].length;
+  }
+  return result + safe(text.slice(offset));
+}
 
 /** 投影会原地更新条目；缓存保存排版依赖的基本字段，不能只比较对象引用。 */
 function renderInputs(entry: FlowEntry): unknown[] {
@@ -93,15 +108,14 @@ export class EventFlowView implements Component {
     for (const entry of entries) {
       const inputs = renderInputs(entry);
       let cached = this.blocks.get(entry.key);
-      // 运行计时随时钟变化；其余块只在显示内容或宽度变化时重新排版。
-      if (active(entry) || !cached || inputs.length !== cached.inputs.length || inputs.some((value, index) => value !== cached!.inputs[index])) {
+      // 运行状态与未结束的思考随动画帧变化；其余块只在内容或宽度变化时重新排版。
+      if (active(entry) || (entry.kind === "thinking" && !entry.endedAt) || !cached || inputs.length !== cached.inputs.length || inputs.some((value, index) => value !== cached!.inputs[index])) {
         const block = this.renderEntry(entry, width);
         while (block.length && visibleWidth(block[0]!.trim()) === 0) block.shift();
         while (block.length && visibleWidth(block.at(-1)!.trim()) === 0) block.pop();
         const userMessage = entry.kind === "message" && entry.role === "user";
         cached = { inputs, lines: block.map((line) => {
-          const text = truncateToWidth(line, width, "", userMessage);
-          return userMessage ? `${userBackground}${text.replaceAll("\x1b[0m", `\x1b[0m${userBackground}`)}\x1b[49m` : text;
+          return userMessage ? this.userLine(line, width) : truncateToWidth(line, width, "");
         }) };
         this.blocks.set(entry.key, cached);
       }
@@ -115,6 +129,11 @@ export class EventFlowView implements Component {
   private marked(marker: string, text: string, width: number): string[] {
     const lines = wrapTextWithAnsi(text, Math.max(1, width - 2));
     return lines.map((line, index) => `${index === 0 ? `${marker} ` : "  "}${line}`);
+  }
+
+  private userLine(line: string, width: number): string {
+    const text = truncateToWidth(line, width, "", true);
+    return `${userBackground}${text.replaceAll("\x1b[0m", `\x1b[0m${userBackground}`)}\x1b[49m`;
   }
 
   private detail(text: string, width: number): string[] {
@@ -142,19 +161,21 @@ export class EventFlowView implements Component {
         return lines;
       }
       case "thinking": {
-        if (entry.endedAt) return this.marked("⨳", `Thought for ${seconds(entry.startedAt, Date.parse(entry.endedAt))}`, width);
-        const prefix = "⨳ Thinking...";
+        if (entry.endedAt) return this.marked(" ", `Thought for ${seconds(entry.startedAt, Date.parse(entry.endedAt))}`, width).map(dim);
+        const frame = spinnerFrames[Math.floor(Math.max(0, this.clock() - Date.parse(entry.startedAt)) / animationMs) % spinnerFrames.length]!;
+        const prefix = `${frame} Thinking...`;
         const room = width - visibleWidth(prefix) - 1;
         const text = singleLine(entry.text);
-        if (!text || room <= 0) return [truncateToWidth(prefix, width, "")];
+        if (!text || room <= 0) return [dim(truncateToWidth(prefix, width, ""))];
         const tail = sliceByColumn(text, Math.max(0, visibleWidth(text) - room), room, true);
-        return [`${prefix} ${dim(tail)}`];
+        return [dim(`${prefix} ${tail}`)];
       }
       case "tool": {
-        const name = ["read", "edit", "bash"].includes(entry.name.toLowerCase())
+        const name = ["read", "edit", "write", "bash"].includes(entry.name.toLowerCase())
           ? entry.name[0]!.toUpperCase() + entry.name.slice(1).toLowerCase()
           : entry.name;
-        const lines = this.marked("⚙︎", safe(name), width);
+        const icon = entry.status === "done" ? green("●") : entry.status === "error" ? red("●") : "●";
+        const lines = this.marked(icon, safe(name), width);
         let detail = dim(entry.name.toLowerCase() === "bash"
           ? truncateToWidth(singleLine(entry.target), Math.max(0, width - 4), "...")
           : safe(entry.target));
@@ -169,8 +190,17 @@ export class EventFlowView implements Component {
         return lines;
       }
       case "command": {
-        const lines = this.marked(dim("❯"), safe(entry.line), width);
-        if (entry.result !== null) lines.push(...this.detail((entry.isError ? red : dim)(safe(entry.result)), width));
+        const lines = this.marked(dim("❯"), safe(entry.line), width).map((line) => this.userLine(line, width));
+        if (entry.result !== null) {
+          const result = safe(entry.result);
+          if (entry.line === "/context" && !entry.isError && result.startsWith("Context Usage\n")) {
+            const [title, ...body] = contextColors(entry.result).split("\n");
+            lines.push(...this.detail(title!, width));
+            for (const row of body) lines.push(...wrapTextWithAnsi(row, Math.max(1, width)));
+          } else {
+            lines.push(...this.detail((entry.isError ? red : dim)(result), width));
+          }
+        }
         return lines;
       }
       case "note":
@@ -181,7 +211,14 @@ export class EventFlowView implements Component {
         if (active(entry)) {
           const elapsed = task.startedAt ? ` · Elapsed ${seconds(task.startedAt, this.clock())}` : "";
           const waiting = task.status === "awaiting_confirmation" ? " · waiting for approval" : "";
-          return this.marked(green("●"), `Sweeping${elapsed}${waiting}`, width);
+          const word = "Sweeping";
+          const head = Math.floor(Math.max(0, this.clock() - Date.parse(task.startedAt ?? task.createdAt)) / animationMs) % (word.length + 6) - 3;
+          const shine = [...word].map((letter, index) => {
+            const distance = Math.abs(index - head);
+            const color = distance === 0 ? "\x1b[97m" : distance === 1 ? "\x1b[38;5;157m" : "\x1b[32m";
+            return `${color}${letter}`;
+          }).join("") + "\x1b[0m";
+          return this.marked(green("●"), `${shine}${elapsed}${waiting}`, width);
         }
         const duration = task.startedAt && task.endedAt ? ` in ${seconds(task.startedAt, Date.parse(task.endedAt))}` : "";
         const at = task.endedAt ? ` · At ${endTime(task.endedAt)}` : "";

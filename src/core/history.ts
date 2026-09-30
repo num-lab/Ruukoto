@@ -114,11 +114,8 @@ export interface HistoryEntryView {
   hasNonTextContent: boolean;
 }
 
-/** 只统计成功 Edit 的实际 unified patch；缺失旧元数据时不猜测。 */
-export function editStatsFromResult(toolName: unknown, isError: unknown, details: unknown): EditStats | undefined {
-  if (toolName !== "edit" || isError !== false || !details || typeof details !== "object") return undefined;
-  const patch = (details as { patch?: unknown }).patch;
-  if (typeof patch !== "string") return undefined;
+/** 从实际 unified patch 统计变更行，不计上下文与文件头。 */
+export function statsFromPatch(patch: string): EditStats {
   let added = 0;
   let removed = 0;
   let inHunk = false;
@@ -129,6 +126,19 @@ export function editStatsFromResult(toolName: unknown, isError: unknown, details
     else if (inHunk && line.startsWith("-")) removed++;
   }
   return { added, removed };
+}
+
+/** Edit 读取实际补丁；Write 读取工作进程在写入时计算的小型统计。 */
+export function editStatsFromResult(toolName: unknown, isError: unknown, details: unknown): EditStats | undefined {
+  if (isError !== false || !details || typeof details !== "object") return undefined;
+  if (toolName === "write") {
+    const stats = (details as { editStats?: EditStats }).editStats;
+    if (!stats || !Number.isSafeInteger(stats.added) || stats.added < 0 || !Number.isSafeInteger(stats.removed) || stats.removed < 0) return undefined;
+    return { added: stats.added, removed: stats.removed };
+  }
+  if (toolName !== "edit") return undefined;
+  const patch = (details as { patch?: unknown }).patch;
+  return typeof patch === "string" ? statsFromPatch(patch) : undefined;
 }
 
 function extractMessageView(entry: ParsedSessionEntry): { text: string; view: Omit<HistoryEntryView, "text" | "offset" | "totalBytes" | "truncated"> } | null {

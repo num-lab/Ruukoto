@@ -50,20 +50,43 @@ test("事件之间恰一空行，工具和命令的结果紧贴，空助手消�
     message("pong", { key: "answer" }),
   ]);
   assert.deepEqual(plain(view), [
-    "❯ ping", "", "⚙︎ Read", "  ⎿ script.py", "", "❯ /mode", "  ⎿ Switched to Full access", "", "❯ /context", "", "● pong",
+    "❯ ping", "", "● Read", "  ⎿ script.py", "", "❯ /mode", "  ⎿ Switched to Full access", "", "❯ /context", "", "● pong",
   ]);
   const rendered = view.render(80);
-  assert.match(rendered[0]!, /^\x1b\[48;5;236m/);
-  assert.equal(visibleWidth(rendered[0]!), 80, "用户消息灰底铺满内容行");
-  assert.doesNotMatch(rendered.slice(1).join("\n"), /\x1b\[48;/, "背景不延伸到间隔和其他事件");
+  for (const index of [0, 5, 8]) {
+    assert.match(rendered[index]!, /^\x1b\[48;5;236m/);
+    assert.equal(visibleWidth(rendered[index]!), 80, "用户消息与命令消息灰底铺满内容行");
+  }
+  assert.doesNotMatch(rendered.filter((_, index) => ![0, 5, 8].includes(index)).join("\n"), /\x1b\[48;/, "背景不延伸到结果、间隔和其他事件");
+  view.setEntries([{ ...position, kind: "command", line: "/search 中文关键词重复重复重复", result: "搜索结果", isError: false }]);
+  const wrapped = view.render(18);
+  for (const line of wrapped.slice(0, -1)) {
+    assert.equal(visibleWidth(line), 18);
+    assert.match(line, /^\x1b\[48;5;236m/);
+    assert.match(line, /\x1b\[49m$/);
+  }
+  assert.doesNotMatch(wrapped.at(-1)!, /\x1b\[48;/);
+});
+
+test("/context 长条与图例保留分色，其他终端控制序列被过滤", () => {
+  const view = new EventFlowView();
+  view.setEntries([{ ...position, kind: "command", line: "/context", result: "\x1b[1mContext Usage\x1b[0m\n\x1b[38;5;75m████\x1b[0m\x1b[38;5;131m████\x1b[0m\n\x1b[38;5;75m■\x1b[0m 系统提示 663 (0.1%)\x1b]52;c;bad\x07\x1b[2J", isError: false }]);
+  const rendered = view.render(80);
+  assert.deepEqual(plain(view), ["❯ /context", "  ⎿ Context Usage", "████████", "■ 系统提示 663 (0.1%)"]);
+  assert.match(rendered[2]!, /\x1b\[38;5;75m████\x1b\[0m\x1b\[38;5;131m████/);
+  assert.match(rendered[3]!, /\x1b\[38;5;75m■/);
+  assert.doesNotMatch(rendered.join("\n"), /\x1b\]52|\x1b\[2J/);
 });
 
 test("思考正文只显示一行最新尾部，中文与组合 emoji 完整，结束后替换为耗时", () => {
-  const view = new EventFlowView();
+  let now = Date.parse(at);
+  const view = new EventFlowView(() => now);
   const thinking: FlowEntry = { ...position, kind: "thinking", text: "过去内容现在👩‍💻", startedAt: at, endedAt: null };
   view.setEntries([thinking]);
-  assert.deepEqual(plain(view, 20), ["⨳ Thinking... 现在👩‍💻"]);
-  assert.match(view.render(20)[0]!, /Thinking\.\.\. \x1b\[2m现在👩‍💻/);
+  assert.deepEqual(plain(view, 20), ["⠋ Thinking... 现在👩‍💻"]);
+  assert.equal(view.render(20)[0], "\x1b[2m⠋ Thinking... 现在👩‍💻\x1b[0m");
+  now += 80;
+  assert.deepEqual(plain(view, 20), ["⠙ Thinking... 现在👩‍💻"]);
   for (const width of [0, 1, 2, 3, 4, 12, 15, 16, 19, 20]) {
     const lines = view.render(width);
     assert.ok(lines.length <= 1);
@@ -74,31 +97,44 @@ test("思考正文只显示一行最新尾部，中文与组合 emoji 完整，�
     }
   }
   view.setEntries([{ ...thinking, text: "" }]);
-  assert.deepEqual(plain(view), ["⨳ Thinking..."]);
+  assert.deepEqual(plain(view), ["⠙ Thinking..."]);
+  assert.equal(view.render(80)[0], "\x1b[2m⠙ Thinking...\x1b[0m");
   view.setEntries([{ ...thinking, endedAt: new Date(Date.parse(at) + 22_000).toISOString() }]);
-  assert.deepEqual(plain(view), ["⨳ Thought for 22s"]);
+  assert.deepEqual(plain(view), ["  Thought for 22s"]);
+  assert.equal(view.render(80)[0], "\x1b[2m  Thought for 22s\x1b[0m");
 });
 
 test("工具显示真实增删颜色，Bash 单行截断，错误与效果未知保留", () => {
   const view = new EventFlowView();
   view.setEntries([tool({ name: "edit", editStats: { added: 114, removed: 514 } })]);
-  assert.deepEqual(plain(view), ["⚙︎ Edit", "  ⎿ script.py +114 -514"]);
+  assert.deepEqual(plain(view), ["● Edit", "  ⎿ script.py +114 -514"]);
+  assert.match(view.render(80)[0]!, /\x1b\[32m●\x1b\[0m/);
   assert.match(view.render(80)[1]!, /\x1b\[32m\+114\x1b\[0m/);
   assert.match(view.render(80)[1]!, /\x1b\[31m-514\x1b\[0m/);
+  view.setEntries([tool({ name: "write", target: "output.txt", editStats: { added: 3, removed: 0 } })]);
+  assert.deepEqual(plain(view), ["● Write", "  ⎿ output.txt +3 -0"]);
   view.setEntries([tool({ name: "bash", target: "/home/user/venv/bin/python\nscript.py --verbose" })]);
-  assert.deepEqual(plain(view, 30), ["⚙︎ Bash", "  ⎿ /home/user/venv/bin/pyt..."]);
+  assert.deepEqual(plain(view, 30), ["● Bash", "  ⎿ /home/user/venv/bin/pyt..."]);
   view.setEntries([tool({ status: "error", summary: "permission denied" })]);
+  assert.match(view.render(80)[0]!, /\x1b\[31m●\x1b\[0m/);
   assert.match(plain(view).join("\n"), /script.py · permission denied/);
   assert.match(view.render(80).join("\n"), /\x1b\[31mpermission denied/);
   view.setEntries([tool({ name: "custom_tool", status: "effect_unknown" })]);
-  assert.deepEqual(plain(view), ["⚙︎ custom_tool", "  ⎿ script.py · 效果未知"]);
+  assert.deepEqual(plain(view), ["● custom_tool", "  ⎿ script.py · 效果未知"]);
 });
 
 test("Sweeping 总在最后且不计排队；终态分别显示成功、失败、取消与中断", () => {
-  const view = new EventFlowView(() => Date.parse(at) + 42_000);
+  let now = Date.parse(at) + 42_000;
+  const view = new EventFlowView(() => now);
   const running: FlowEntry = { ...position, kind: "task", task: task() };
   view.setEntries([running, message("正在输出", { key: "answer" })]);
   assert.deepEqual(plain(view), ["● 正在输出", "", "● Sweeping · Elapsed 42s"]);
+  now = Date.parse(at);
+  assert.match(view.render(80).at(-1)!, /\x1b\[32mS/);
+  now += 3 * 80;
+  assert.match(view.render(80).at(-1)!, /\x1b\[97mS/);
+  now += 3 * 80;
+  assert.match(view.render(80).at(-1)!, /\x1b\[32mS/);
   for (const [status, marker, label, color] of [
     ["completed", "✓", "Done", "32"], ["failed", "✗", "Failed", "31"],
     ["canceled", "■", "Canceled", "33"], ["interrupted", "■", "Interrupted", "33"],

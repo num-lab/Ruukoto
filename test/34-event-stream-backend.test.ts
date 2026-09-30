@@ -177,9 +177,13 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
   }
 });
 
-test("Edit 缺失或失败结果不推测；实际补丁中的 +/- 内容行仍计数", () => {
+test("Edit 与 Write 只展示成功结果的实际增删行数", () => {
   assert.equal(editStatsFromResult("edit", false, undefined), undefined);
   assert.equal(editStatsFromResult("edit", undefined, { patch: "@@ -1 +1 @@\n-a\n+b\n" }), undefined);
   assert.equal(editStatsFromResult("edit", true, { patch: "@@ -1 +1 @@\n-a\n+b\n" }), undefined);
   assert.deepEqual(editStatsFromResult("edit", false, { patch: "--- a\n+++ b\n@@ -1 +1 @@\n---old\n+++new\n" }), { added: 1, removed: 1 });
+  assert.equal(editStatsFromResult("write", false, undefined), undefined);
+  assert.equal(editStatsFromResult("write", true, { editStats: { added: 2, removed: 1 } }), undefined);
+  assert.equal(editStatsFromResult("write", false, { editStats: { added: -1, removed: 1 } }), undefined);
+  assert.deepEqual(editStatsFromResult("write", false, { editStats: { added: 2, removed: 1 } }), { added: 2, removed: 1 });
 });

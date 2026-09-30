@@ -144,7 +144,7 @@ test("/status：没有活动任务时注记；有活动任务时只刷新", asyn
   assert.deepEqual(busy.log.notes, []);
 });
 
-test("派发：成功结果只由 keepsResult 条目保留（/mode、/model），/thinking 丢弃；错误总是保留", async () => {
+test("派发：成功结果由 keepsResult 条目保留，/thinking 丢弃；错误总是保留", async () => {
   const f = fake();
   const resultOf = async (line: string): Promise<CommandResult> => {
     await f.run(line);

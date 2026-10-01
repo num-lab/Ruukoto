@@ -4,7 +4,7 @@
  * 布局（单个全屏页面，窄终端保持纵向结构）：
  *   顶部 header：项目 / 会话 / 工作目录 / 连接状态 / 任务权限模式 / 执行后端；
  *   中间 ScrollView：历史消息与工具记录（折叠）+ 当前活动（预览/工具/提示）；
- *   底部：工作清单、多行 Editor、模式与模型信息。
+ *   底部：多行 Editor、模式与模型信息；工作清单经 /todo 悬浮层查看。
  *
  * 输入：Enter 提交，Alt+Enter（或 Shift+Enter / Ctrl+J）换行；/ 开头为命令；
  * Ctrl+C 清空草稿（空草稿时退出客户端）；/quit 退出。退出只关闭客户端，
@@ -31,11 +31,13 @@ import {
   type SelectItem,
   type Terminal,
   type TUI,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
-import { Container } from "@earendil-works/pi-tui";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { basename } from "node:path";
+import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import { requestOutcome } from "../control/client.ts";
 import type { ControlConnection } from "../control/connection.ts";
 import type { OpResult } from "../control/ops.ts";
@@ -67,6 +69,9 @@ import {
 } from "./state.ts";
 
 import { EventFlowView } from "./event-flow-view.ts";
+import { activityAgo, TwoLineSelectList } from "./session-list.ts";
+import { formatPromptSnapshot } from "./prompt-format.ts";
+import { formatContextTokens } from "./context-format.ts";
 import type { FlowEntry } from "./event-flow.ts";
 import { latestTodos, TodoPanel } from "./todo-panel.ts";
 import { runsInPlanMode } from "../agent/plan-mode.ts";
@@ -496,13 +501,14 @@ class ContextBar implements Component {
     const lines: string[] = [bold(truncateToWidth(this.title, width, "…"))];
     // 长条：按 token 占比分配列数，至少 1 列（否则小段完全看不见）
     const barWidth = Math.max(1, width);
-    const counts = this.segments.map((s) => Math.max(s.tokens > 0 ? 1 : 0, Math.round((s.tokens / this.total) * barWidth)));
+    const minimum = barWidth >= this.segments.length ? 1 : 0;
+    const counts = this.segments.map((s) => Math.max(s.tokens > 0 ? minimum : 0, Math.round((s.tokens / this.total) * barWidth)));
     // 取整误差：从最长的段上增减，保证长条正好等于可用宽度
     let diff = barWidth - counts.reduce((a, b) => a + b, 0);
     while (diff !== 0 && counts.length > 0) {
       const idx = counts.indexOf(Math.max(...counts));
       if (diff > 0) { counts[idx]! += 1; diff -= 1; }
-      else if (counts[idx]! > 1) { counts[idx]! -= 1; diff += 1; }
+      else if (counts[idx]! > minimum) { counts[idx]! -= 1; diff += 1; }
       else break;
     }
     lines.push(this.segments.map((s, i) => s.style("█".repeat(counts[i]!))).join(""));
@@ -556,7 +562,7 @@ export function contextBarLines(record: SelectionRecord, b: ContextBreakdown, wi
       label: c.label,
       tokens: c.tokens,
       style: CATEGORY_STYLES[i % CATEGORY_STYLES.length]!,
-      note: `${c.tokens} (${w ? pct(c.pctOfWindow) : pct(c.pctOfBudget)})`,
+      note: `${formatContextTokens(c.tokens)} (${w ? pct(c.pctOfWindow) : pct(c.pctOfBudget)})`,
     }));
   if (w) {
     // 预留合并为一段：输出上限/思考/工具结果/安全余量同属「留给后续」，
@@ -567,11 +573,11 @@ export function contextBarLines(record: SelectionRecord, b: ContextBreakdown, wi
         label: "预留",
         tokens: reserves,
         style: (s) => `\x1b[38;5;131m${s}\x1b[0m`,
-        note: `${reserves}`,
+        note: formatContextTokens(reserves),
       });
     }
     if (b.remainingInput > 0) {
-      segments.push({ label: "尚余输入", tokens: b.remainingInput, style: dim, note: `${b.remainingInput}` });
+      segments.push({ label: "尚余输入", tokens: b.remainingInput, style: dim, note: formatContextTokens(b.remainingInput) });
     }
   }
 
@@ -584,7 +590,7 @@ export function contextBarLines(record: SelectionRecord, b: ContextBreakdown, wi
     footer.push(`Jev 模型 ${sanitizeForDisplay(experiment.model ?? experiment.requestedModel)} · 阈值 ${experiment.threshold} · 配置 v${experiment.configVersion}`);
     footer.push(`候选 ${experiment.candidates.length} · 消息：基础选入 ${experiment.baselineIncludedIndices.length}，实际选入 ${record.includedIndices.length}`);
     const usage = experiment.usage
-      ? `输入 ${experiment.usage.inputTokens} · 输出 ${experiment.usage.outputTokens}`
+      ? `输入 ${formatContextTokens(experiment.usage.inputTokens)} · 输出 ${formatContextTokens(experiment.usage.outputTokens)}`
       : experiment.requestSent ? "已发送，用量未知" : "未发送请求";
     const cost = experiment.estimatedCost;
     footer.push(`Jev 用量：${usage}；${cost ? `费用估算 US$${cost.usd.toFixed(9)}（${cost.priceDate} 单价）` : "费用未估算"}`);
@@ -650,18 +656,51 @@ class BareList implements Component {
   }
 }
 
-/**
- * 转录区右侧留白：内容按窄 RIGHT_GUTTER 列渲染。
- * pi-tui 绘制可见行时负责清除行尾，无需逐行测量、补齐整个历史。
- */
-class GutterContainer extends Container {
-  constructor(private readonly sticky: (width: number) => { top: number; lines: string[] }) {
-    super();
+/** 用户滚动到历史顶部时请求前一页。 */
+class HistoryScrollView extends ScrollView {
+  onReachStart?: () => void;
+
+  override scrollBy(lines: number): number {
+    const remainder = super.scrollBy(lines);
+    if (lines < 0 && this.scrollTop === 0) {
+      super.scrollTo(0, { disableFollow: true });
+      this.onReachStart?.();
+    }
+    return remainder;
+  }
+
+  override scrollToStart(): void {
+    super.scrollToStart();
+    super.scrollTo(0, { disableFollow: true });
+    this.onReachStart?.();
+  }
+
+  override scrollTo(top: number, options?: Parameters<ScrollView["scrollTo"]>[1]): void {
+    super.scrollTo(top, options);
+    if (top <= 0 && !this.isFollowingEnd) this.onReachStart?.();
+  }
+}
+
+/** 转录区右侧留白；pi-tui 负责清除可见行的行尾。 */
+class GutterContainer implements Component {
+  constructor(
+    private readonly content: Component,
+    private readonly sticky: (width: number) => { top: number; lines: string[] },
+  ) {}
+
+  invalidate(): void { this.content.invalidate(); }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    const inner = Math.max(1, event.width - RIGHT_GUTTER);
+    if (event.x >= inner) return;
+    const sticky = this.sticky(inner);
+    if (event.y >= sticky.top && event.y < sticky.top + sticky.lines.length && event.type !== "wheel") return { handled: true };
+    return this.content.handleMouse?.({ ...event, width: inner });
   }
 
   render(width: number): string[] {
     const inner = Math.max(1, width - RIGHT_GUTTER);
-    const lines = [...super.render(inner), "", "", ""];
+    const lines = [...this.content.render(inner), ""];
     // 在视口顶部覆盖显示，切换置顶内容不改变滚动区域的高度或行号。
     const sticky = this.sticky(inner);
     for (let index = 0; index < sticky.lines.length && sticky.top + index < lines.length; index++) {
@@ -736,7 +775,9 @@ export class TuiApp {
   /** 运行中任务的走表定时器（无活动任务时为 null）。 */
   private timingTimer: NodeJS.Timeout | null = null;
   private readonly eventFlowView = new EventFlowView();
+  private readonly expandedTools = new Map<string, object>();
   private readonly todoPanel = new TodoPanel();
+  private todoOverlay: OverlayHandle | null = null;
   private readonly flowCursors = new Map<string, number>();
   private readonly flowRequests = new Map<string, Promise<void>>();
   private header: Text;
@@ -751,6 +792,9 @@ export class TuiApp {
   private exiting = false;
   private submitting = false;
   private modeCycle: Promise<void> = Promise.resolve();
+  private sessionSettingsSync: Promise<void> = Promise.resolve();
+  private carriedSettings: { mode: AccessMode; model: ModelSelection | null } | null = null;
+  private selectedProjectId: string | null = null;
   private readonly sessionUsage = new Map<string, { input: number; output: number }>();
   private readonly usageRequests = new Map<string, number>();
   private continueForTaskId: string | null = null;
@@ -791,14 +835,17 @@ export class TuiApp {
     this.tui = new TuiAltScreen(this.terminal, true);
 
     this.header = new Text("", 1, 0);
-    this.transcriptContainer = new GutterContainer((width) => ({
+    this.transcriptContainer = new GutterContainer(this.eventFlowView, (width) => ({
       top: this.scroll.scrollTop,
       lines: this.scroll.isFollowingEnd ? [] : this.eventFlowView.stickyPrompt(
         this.scroll.scrollTop, width, Math.min(3, Math.max(0, this.scroll.viewportHeight - 1)),
       ),
     }));
-    this.transcriptContainer.addChild(this.eventFlowView);
-    this.scroll = new ScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
+    this.eventFlowView.onToggleTool = (entry) => void this.toggleToolExpansion(entry);
+    this.eventFlowView.onChange = () => this.tui.requestRender();
+    const scroll = new HistoryScrollView(this.transcriptContainer, { follow: "end", primary: true, scrollbar: "auto" });
+    scroll.onReachStart = () => void this.loadOlderHistory();
+    this.scroll = scroll;
     // 底栏：左侧模式，右侧 token 用量与模型选择（按键提示由 /help 提供）
     this.footer = new FooterLine();
     this.editor = new AboveEditor(this.tui, editorTheme, {});
@@ -825,7 +872,6 @@ export class TuiApp {
     const root = new VStack([
       { component: this.header, grow: 0, shrink: 1, visible: mainVisible },
       { component: this.scroll, grow: 1, shrink: 1, minSize: 1, visible: mainVisible },
-      { component: this.todoPanel, grow: 0, shrink: 1, visible: mainVisible },
       { component: this.editor, grow: 0, shrink: 0, minSize: 3, visible: mainVisible },
       { component: this.footer, grow: 0, shrink: 0, visible: mainVisible },
     ]);
@@ -835,6 +881,11 @@ export class TuiApp {
 
     // Ctrl+C：有草稿先清草稿，空草稿退出客户端（不停止后台任务）
     this.tui.addInputListener((data) => {
+      if (matchesKey(data, "escape") && this.todoOverlay && this.editor.overlayLines.length === 0 && this.tui.getFocusedComponent() === this.editor) {
+        this.todoOverlay.hide();
+        this.todoOverlay = null;
+        return { consume: true };
+      }
       if (matchesKey(data, "shift+tab") && this.tui.getFocusedComponent() === this.editor) {
         const sessionId = this.state.currentSessionId;
         this.modeCycle = this.modeCycle.then(() => this.cycleMode(sessionId));
@@ -939,6 +990,7 @@ export class TuiApp {
   /** 连接层回调：安装快照。 */
   onSnapshot(result: ConnectResult, ctx: { resync: boolean; instanceChanged: boolean }): void {
     this.generation++;
+    this.clearToolExpansions();
     if (ctx.instanceChanged) this.sessionUsage.clear();
     this.flowCursors.clear();
     this.flowRequests.clear();
@@ -1043,7 +1095,7 @@ export class TuiApp {
     this.refreshAll();
   }
 
-  /** 正常启动流程：--session 精确/前缀匹配 → 会话选择 → 欢迎页；重连时重载历史。 */
+  /** 正常启动流程：--session 精确/前缀匹配 → 项目与会话选择 → 欢迎页；重连时重载历史。 */
   private normalStartupFlow(ctx: { resync: boolean }): void {
     if (this.initialSessionId && !this.state.currentSessionId) {
       const wanted = this.initialSessionId;
@@ -1056,8 +1108,8 @@ export class TuiApp {
       this.switchSession(target.id);
     }
     if (!this.state.currentSessionId && this.state.sessions.length > 0 && !ctx.resync) {
-      // 默认进入会话选择
-      this.openSessionPicker();
+      // 默认先选择项目，再选择项目中的会话
+      this.openProjectPicker();
     }
     const current = this.state.currentSessionId;
     if (current) {
@@ -1155,7 +1207,7 @@ export class TuiApp {
       this.notify(
         red(
           outcome === "unknown"
-            ? `工作区会话创建结果未知：${message}；已核实一次仍未确认，回到正常启动（用 /sessions 查看是否已创建）`
+            ? `工作区会话创建结果未知：${message}；已核实一次仍未确认，回到正常启动（用 /project 查看是否已创建）`
             : `工作区会话创建失败：${message}`,
         ),
       );
@@ -1294,14 +1346,47 @@ export class TuiApp {
   }
 
   private switchSession(sessionId: string): void {
+    this.clearToolExpansions();
     const prev = this.currentView();
+    const source = this.state.sessions.find((session) => session.id === prev?.sessionId);
+    const settings = this.carriedSettings ?? (source ? { mode: source.defaultAccessMode, model: source.modelSelection ? { ...source.modelSelection } : null } : null);
     if (prev) {
       // 草稿与滚动位置随会话保留（草稿用展开后的原文）
       prev.draft = this.editor.getExpandedText();
       prev.scrollTop = this.scroll.isFollowingEnd ? null : this.scroll.scrollTop;
     }
     this.state.currentSessionId = sessionId;
+    if (settings && source?.id !== sessionId) {
+      this.carriedSettings = settings;
+      const sync = this.sessionSettingsSync.catch(() => {}).then(async () => {
+        const target = this.state.sessions.find((session) => session.id === sessionId);
+        if (!target) return;
+        let failure: string | null = null;
+        const result: CommandResult = (text, isError) => {
+          if (isError) {
+            failure = text;
+            this.state.note(sessionId, red(`沿用会话设置：${text}`));
+          }
+        };
+        if (target.defaultAccessMode !== settings.mode) {
+          await this.sendSessionMode(sessionId, target.defaultAccessModeVersion, settings.mode, result);
+        }
+        if (settings.model && (target.modelSelection?.provider !== settings.model.provider || target.modelSelection?.modelId !== settings.model.modelId || target.modelSelection?.thinkingLevel !== settings.model.thinkingLevel)) {
+          await this.saveModelSelection(sessionId, target.modelSelectionVersion, settings.model, result);
+        }
+        if (failure) throw new Error(failure);
+      });
+      this.sessionSettingsSync = sync;
+      const complete = () => {
+        if (this.sessionSettingsSync === sync) {
+          this.carriedSettings = null;
+          this.sessionSettingsSync = Promise.resolve();
+        }
+      };
+      void sync.then(complete, complete);
+    }
     const view = this.state.openSession(sessionId);
+    this.selectedProjectId = view.projectId;
     void this.refreshSessionUsage(sessionId);
     this.continueForTaskId = null;
     this.editor.setText(view.draft);
@@ -1364,6 +1449,31 @@ export class TuiApp {
     } catch (err) {
       if (generation !== this.generation) return;
       this.notify(`历史读取失败：${(err as Error).message}`);
+    }
+  }
+
+  private olderRequests = new Set<string>();
+
+  private async loadOlderHistory(): Promise<void> {
+    const view = this.currentView();
+    if (!view?.historyCursor || this.olderRequests.has(view.sessionId)) return;
+    const generation = this.generation;
+    const width = () => Math.max(1, this.scroll.getContentWidth(this.terminal.columns || 80) - RIGHT_GUTTER);
+    const originalTop = this.scroll.scrollTop;
+    const anchor = this.eventFlowView.scrollAnchor(originalTop, width());
+    this.olderRequests.add(view.sessionId);
+    try {
+      await this.loadHistory(view.sessionId, "prepend");
+      if (generation !== this.generation || this.currentView() !== view || !anchor || this.scroll.isFollowingEnd) return;
+      const top = this.eventFlowView.entryTop(anchor.key, width());
+      if (top === undefined) return;
+      const moved = this.scroll.scrollTop - originalTop;
+      // 更新布局尺寸后恢复原事件的位置，新增历史不会把当前内容推走。
+      this.scroll.updateLayout(this.transcriptContainer.render(this.scroll.getContentWidth(this.terminal.columns || 80)).length, this.scroll.viewportHeight, () => this.tui.requestRender());
+      this.scroll.scrollTo(top + anchor.offset + moved, { disableFollow: true });
+      this.tui.requestRender();
+    } finally {
+      this.olderRequests.delete(view.sessionId);
     }
   }
 
@@ -1484,7 +1594,7 @@ export class TuiApp {
   private async submitText(text: string): Promise<void> {
     const view = this.currentView();
     if (!view) {
-      this.notify("尚未选择会话：/sessions 选择，或 /new-project、/new-session 创建");
+      this.notify("尚未选择会话：/project 选择，或 /new-project、/new-session 创建");
       return;
     }
     if (this.connection.state !== "online") {
@@ -1500,6 +1610,11 @@ export class TuiApp {
     }
     this.submitting = true;
     try {
+      await this.sessionSettingsSync;
+      if (this.currentView() !== view) {
+        view.draft = text;
+        return;
+      }
       const continueTaskId = this.continueForTaskId;
       const modelSelection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
       if (!modelSelection) throw new Error("请先通过 /model 选择模型");
@@ -1579,22 +1694,14 @@ export class TuiApp {
   private readonly commandHost: CommandHost = {
     quit: () => this.quit(0),
     openHelp: () => this.openHelp(),
-    openSessions: () => this.openSessionPicker(),
+    openResume: () => this.openSessionPicker(),
+    openProjects: () => this.openProjectPicker(),
     newSession: (cwd) => this.cmdNewSession(cwd),
     newSessionHere: () => this.cmdNew(),
-    loadOlder: async () => {
-      const view = this.currentView();
-      if (!view?.historyCursor) {
-        this.showText(view?.trimmedOlder || view?.historyLoaded ? "没有更早的历史" : "历史尚未加载");
-        return;
-      }
-      await this.loadHistory(view.sessionId, "prepend");
-    },
     reloadHistory: async () => {
       const view = this.currentView();
       if (view) await this.loadHistory(view.sessionId, "replace");
     },
-    expand: (prefix) => this.cmdExpand(prefix),
     artifact: (prefix) => this.cmdArtifact(prefix),
     openApprovals: () => this.openApprovals(),
     interrupt: (taskId) => this.cmdInterrupt(taskId),
@@ -1606,6 +1713,7 @@ export class TuiApp {
     refreshTask: () => this.refreshTaskDetails(),
     openContext: (result) => this.cmdContext(result),
     openPrompts: () => this.cmdPrompt(),
+    toggleTodo: () => this.toggleTodo(),
     submit: (text) => this.submitText(text),
   };
 
@@ -1615,7 +1723,7 @@ export class TuiApp {
       return;
     }
     const view = this.currentView();
-    const projectId = view?.projectId ?? this.state.projects[0]?.id;
+    const projectId = view?.projectId ?? this.selectedProjectId ?? this.state.projects[0]?.id;
     if (!projectId) {
       this.notify("尚无项目：先 /new-project <名称>");
       return;
@@ -1637,7 +1745,7 @@ export class TuiApp {
       const session = await this.connection.request("create_session", { project_id: projectId, cwd });
       this.switchSession(session.id);
     } catch (err) {
-      this.notify(red(writeFailure("创建会话", err, "/sessions")));
+      this.notify(red(writeFailure("创建会话", err, "/project")));
     }
   }
 
@@ -1728,7 +1836,36 @@ export class TuiApp {
     }
   }
 
+  private toggleTodo(): void {
+    if (this.todoOverlay) {
+      this.todoOverlay.hide();
+      this.todoOverlay = null;
+      return;
+    }
+    const body = new VStack([
+      { component: this.todoPanel, grow: 0 },
+    ]);
+    const frame = new WindowFrame(body);
+    const popup: Component = {
+      render: (width) => {
+        frame.setHeight(Math.max(5, Math.floor(this.terminal.rows * 0.6)));
+        return frame.render(width);
+      },
+      invalidate: () => frame.invalidate(),
+      handleMouse: (event) => {
+        if (event.type !== "wheel") return;
+        frame.scrollBy(event.wheelDelta ?? 0);
+        return { handled: true };
+      },
+    };
+    this.todoOverlay = this.tui.showOverlay(popup, {
+      anchor: "top-right", width: "35%", minWidth: 24, maxHeight: "60%", margin: 1,
+      nonCapturing: true, visible: () => this.windows.length === 0,
+    });
+  }
+
   private async cycleMode(sessionId: string | null): Promise<void> {
+    await this.sessionSettingsSync.catch(() => {});
     const session = this.state.sessions.find((item) => item.id === sessionId);
     if (!session) {
       this.notify("尚未选择会话");
@@ -1742,6 +1879,7 @@ export class TuiApp {
   }
 
   private async cmdMode(rest: string[], result: CommandResult): Promise<void> {
+    await this.sessionSettingsSync.catch(() => {});
     if (rest.length > 0) {
       this.notify("用法：/mode（无参数，列表选择当前会话的默认模式；作用于之后新建的任务）");
       return;
@@ -1828,7 +1966,7 @@ export class TuiApp {
       if (stale()) return;
       const recordId = list.records[0]?.id;
       if (!recordId) {
-        result("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+        result("暂无记录");
         this.refreshTranscript();
         return;
       }
@@ -1851,7 +1989,7 @@ export class TuiApp {
 
   /**
    * 打开当前会话的模型请求列表窗口。列表按时间从新到旧分页加载；
-   * Enter 进入该次调用的 prompt 详情（分段加载），Esc/q 返回列表并保留位置，
+   * Enter 进入该次调用的 prompt 详情（解析为文本），Esc/q 返回列表并保留位置，
    * 再 Esc/q 关闭并恢复编辑器焦点。所有读取经拥有者认证通道；查看不触发
    * 任何模型调用或任务变更。
    */
@@ -1954,13 +2092,13 @@ export class TuiApp {
     if (stale()) return;
     if (records.length === 0 && !hasMore) {
       closeAll();
-      this.showText("本会话还没有模型调用记录（任务发出第一次模型调用后生成）");
+      this.showText("暂无记录");
     }
   }
 
   /**
-   * 单次调用的 prompt 详情：快照 JSON 按字节分页展示（UTF-8 边界对齐，
-   * 长正文不静默截断）。快照在发送前捕获；usage 为空表示发送结果未回填。
+   * 单次调用的 prompt 详情：完整读取快照后解析为文本，长正文在窗口内滚动。
+   * 快照在发送前捕获；usage 为空表示发送结果未回填。
    * Esc/q 返回列表，保留列表的位置。
    */
   private async openPromptDetail(
@@ -1971,7 +2109,7 @@ export class TuiApp {
   ): Promise<void> {
     const headerLines = [
       `任务 ${record.taskId} · 第 ${record.callIndex} 次调用 · ${record.model}`,
-      `捕获位置：SDK 发送函数之前（systemPrompt/messages/tools；不等同于适配器转换后的 HTTP 请求体）`,
+      `模型发送前捕获的系统提示、消息与工具定义`,
       record.usage
         ? `发送结果：usage 已回填（输入 ${record.usage.input} · 输出 ${record.usage.output}）`
         : yellow("发送结果未回填：请求失败、被中断或结果未知；以下为发送前捕获的输入"),
@@ -1980,25 +2118,42 @@ export class TuiApp {
       this.showText(`该次 prompt 正文未记录（记录创建于快照捕获上线之前）；任务 ${record.taskId.slice(0, 12)} 第 ${record.callIndex} 次调用`);
       return;
     }
-    await this.openPager({
-      title: `prompt ${record.id.slice(0, 12)}…`,
-      header: headerLines.join("\n"),
-      pageBytes: ENTRY_PAGE_BYTES,
-      fetch: async (offset, length) => {
-        if (isStale() || generation !== this.generation) throw new Error("视图已切换");
-        const result = await this.connection.request("read_prompt_snapshot", { record_id: record.id, session_id: sessionId, offset, length });
-        const buf = Buffer.from(result.data, "base64");
-        const start = snapUtf8Start(buf, 0);
-        const end = snapUtf8End(buf, buf.length);
-        return {
-          text: buf.subarray(start, end).toString("utf8"),
-          offset,
-          totalBytes: result.artifact.byteCount,
-          truncated: offset + buf.length < result.artifact.byteCount,
-          nextOffset: offset + end,
-        };
-      },
-    });
+    let closed = false;
+    const stale = () => closed || isStale() || generation !== this.generation;
+    const header = `${bold("Prompt 详情")}\n${headerLines.join("\n")}\n\n`;
+    const content = new Text(`${header}加载中…`, 0, 0);
+    const frame = new WindowFrame(content);
+    const handle = this.showWindow(frame, { width: "90%", anchor: "center", maxHeight: "85%" });
+    frame.onKey = (data) => {
+      if (data === "\x1b") {
+        closed = true;
+        handle.hide();
+      } else if ((["up", "down", "pageUp", "pageDown"] as const).some((key) => matchesKey(data, key))) {
+        const step = matchesKey(data, "pageUp") || matchesKey(data, "pageDown") ? 5 : 1;
+        frame.scrollBy(matchesKey(data, "up") || matchesKey(data, "pageUp") ? -step : step);
+        this.tui.requestRender();
+      }
+    };
+    try {
+      const chunks: Buffer[] = [];
+      let offset = 0;
+      let total = 0;
+      do {
+        if (stale()) return;
+        const result = await this.connection.request("read_prompt_snapshot", { record_id: record.id, session_id: sessionId, offset, length: ENTRY_PAGE_BYTES });
+        if (stale()) return;
+        const chunk = Buffer.from(result.data, "base64");
+        total = result.artifact.byteCount;
+        if (!chunk.length && offset < total) throw new Error("Prompt 快照读取不完整");
+        chunks.push(chunk);
+        offset += chunk.length;
+      } while (offset < total);
+      content.setText(`${header}${sanitizeForDisplay(formatPromptSnapshot(Buffer.concat(chunks).toString("utf8")))}\n\n${dim("↑↓ / PageUp·PageDown 滚动 · Esc/q 返回列表")}`);
+    } catch (err) {
+      if (stale()) return;
+      content.setText(`${header}${red(`读取失败：${(err as Error).message}`)}`);
+    }
+    this.tui.requestRender();
   }
 
   private resolveTaskId(prefix: string): string | null {
@@ -2009,74 +2164,56 @@ export class TuiApp {
 
   // ---------- 展开查看 ----------
 
-  private async cmdExpand(arg: string): Promise<void> {
-    const view = this.currentView();
-    if (!view) {
-      this.notify("尚未选择会话");
-      return;
-    }
-    if (!arg) {
-      this.notify("用法：/expand <条目或工具 id 前缀>");
-      return;
-    }
-    const entryItem = view.flow.historyEntries.find((i) => i.entryId.startsWith(arg));
-    if (entryItem) {
-      await this.openEntryPager(view.sessionId, entryItem.entryId);
-      return;
-    }
-    const tool = view.flow.tools.find((t) => t.toolOpId?.startsWith(arg));
-    if (tool) {
-      await this.openToolDetail(tool.toolOpId!);
-      return;
-    }
-    this.notify(`找不到条目或工具：${arg}`);
+  private clearToolExpansions(): void {
+    for (const key of this.expandedTools.keys()) this.eventFlowView.setToolExpansion(key, null);
+    this.expandedTools.clear();
   }
 
-  private async openEntryPager(sessionId: string, entryId: string): Promise<void> {
-    await this.openPager({
-      title: `条目 ${entryId}`,
-      fetch: async (offset, length) => {
-        const slice = await this.connection.request("read_history_entry", {
-          session_id: sessionId,
-          entry_id: entryId,
-          offset,
-          length,
-        });
-        return { text: slice.text, offset: slice.offset, totalBytes: slice.totalBytes, truncated: slice.truncated };
-      },
-    });
-  }
-
-  private async openToolDetail(toolOpId: string): Promise<void> {
-    const view = this.currentView();
-    const tool = view?.flow.tools.find((t) => t.toolOpId === toolOpId);
-    const lines: string[] = [];
-    lines.push(bold(`工具操作 ${toolOpId}`));
-    if (tool) {
-      lines.push(`工具：${sanitizeForDisplay(tool.name)} · 状态：${tool.status}`);
-      if (tool.summary) lines.push(`结果摘要：${sanitizeForDisplay(tool.summary)}`);
-      if (tool.artifactIds.length > 0) {
-        lines.push(`产物：${tool.artifactIds.join(", ")}（/artifact <id 前缀> 查看正文）`);
+  private async toggleToolExpansion(tool: Extract<FlowEntry, { kind: "tool" }>): Promise<void> {
+    if (tool.status === "running") return;
+    if (this.expandedTools.has(tool.key)) {
+      this.expandedTools.delete(tool.key);
+      this.eventFlowView.setToolExpansion(tool.key, null);
+      this.tui.requestRender();
+      return;
+    }
+    const sessionId = this.state.currentSessionId;
+    if (!sessionId) return;
+    const generation = this.generation;
+    const load = {};
+    this.expandedTools.set(tool.key, load);
+    this.eventFlowView.setToolExpansion(tool.key, { text: "", loading: true });
+    this.tui.requestRender();
+    try {
+      const result = tool.entryId
+        ? await this.connection.request("read_tool_result", { session_id: sessionId, entry_id: tool.entryId, length: 16 * 1024 })
+        : { text: tool.summary ?? "结果尚未落盘，请稍后重新展开", patch: null, writeContent: null, truncated: tool.paramsTruncated };
+      if (generation !== this.generation || this.expandedTools.get(tool.key) !== load) return;
+      let text = result.text;
+      let diff = false;
+      let totalLines: number | undefined;
+      if (tool.status === "done" && tool.name.toLowerCase() === "write") {
+        const content = result.writeContent ?? (typeof tool.params.content === "string" ? tool.params.content : null);
+        if (content !== null) {
+          text = content;
+          totalLines = "writeTotalLines" in result ? result.writeTotalLines : undefined;
+        }
+      } else if (tool.status === "done" && tool.name.toLowerCase() === "edit" && result.patch !== null) {
+        text = result.patch;
+        diff = true;
       }
+      this.eventFlowView.setToolExpansion(tool.key, { text, diff, totalLines, lang: getLanguageFromPath(tool.target) });
+    } catch (err) {
+      if (generation !== this.generation || this.expandedTools.get(tool.key) !== load) return;
+      this.eventFlowView.setToolExpansion(tool.key, { text: `读取结果失败：${(err as Error).message}`, error: true });
     }
-    // 完整参数按 ID 分段读取
-    await this.openPager({
-      title: `工具参数 ${toolOpId}`,
-      header: lines.join("\n"),
-      fetch: async (offset, length) => {
-        const slice = await this.connection.request(
-          "get_tool_op_params",
-          { tool_op_id: toolOpId, offset, length },
-        );
-        return slice.params;
-      },
-    });
+    this.tui.requestRender();
   }
 
   /** 产物正文查看：按字节分页；partial/complete 标识；二进制不直接输出。 */
   private async cmdArtifact(arg: string): Promise<void> {
     if (!arg) {
-      this.notify("用法：/artifact <产物 id 前缀>（/expand 查看工具产物列表）");
+      this.notify("用法：/artifact <产物 id 前缀>");
       return;
     }
     const matches = [...this.state.artifacts.values()].filter((a) => a.id.startsWith(arg));
@@ -2544,8 +2681,9 @@ export class TuiApp {
     this.openWindow({ widthRatio: 0.85, content: new Text(sanitizeForDisplay(text), 0, 0), maxHeightRatio: 0.85 });
   }
 
-  /** /model 与 /thinking：三列面板（提供方 / 模型 / 思考强度）。 */
+  /** /model：三列面板（提供方 / 模型 / 思考强度）。 */
   private async openModelPicker(result: CommandResult): Promise<void> {
+    await this.sessionSettingsSync.catch(() => {});
     const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
     if (!session) { this.notify("尚未选择会话"); return; }
     const sessionId = session.id;
@@ -2635,23 +2773,74 @@ export class TuiApp {
 
   // ---------- 会话选择 ----------
 
-  private openSessionPicker(): void {
-    const items: SelectItem[] = this.state.sessions.map((s) => {
-      const active = this.state.activeTaskFor(s.id);
-      const queued = this.state.queuedTasksFor(s.id).length;
+  private openProjectPicker(): void {
+    const items = this.state.projects.map((project) => {
+      const sessions = this.state.sessions.filter((session) => session.projectId === project.id);
       return {
-        value: s.id,
-        label: `${this.state.projectName(s.projectId)} · ${s.id.slice(0, 14)}…`,
-        description: `${s.cwd} · ${s.queueState === "paused" ? "队列暂停" : "队列正常"}${active ? ` · ${formatTaskStatus(active.status)}` : ""}${queued > 0 ? ` · 排队 ${queued}` : ""}`,
+        value: project.id,
+        label: `${sanitizeForDisplay(project.name).replace(/\s+/g, " ")} · ${sessions.length} 个会话`,
+        description: sanitizeForDisplay([...new Set(sessions.map((session) => session.cwd))].join(" · ") || "尚无工作区").replace(/\n/g, "\\n").replace(/\t/g, "\\t"),
       };
     });
-    if (items.length === 0) {
-      this.notify("尚无会话：/new-project <名称> 创建项目，/new-session <工作目录> 创建会话");
+    if (!items.length) {
+      this.notify("尚无项目：/new-project <名称> 创建项目");
       return;
     }
-    const list = new SelectList(items, Math.min(items.length, 12), selectTheme);
+    const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
     const body = new VStack([
-      { component: new Text(bold("选择会话（项目 · 会话 · 工作目录 · 状态）"), 0, 0), grow: 0 },
+      { component: new Text(bold("选择项目"), 0, 0), grow: 0 },
+      { component: list, grow: 1 },
+    ]);
+    const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
+    list.onCancel = () => handle.hide();
+    list.onSelect = (item) => {
+      handle.hide();
+      if (this.state.sessions.some((session) => session.projectId === item.value)) {
+        void this.openSessionPicker(item.value);
+        return;
+      }
+      const prev = this.currentView();
+      const session = this.state.sessions.find((session) => session.id === prev?.sessionId);
+      if (prev) {
+        prev.draft = this.editor.getExpandedText();
+        prev.scrollTop = this.scroll.isFollowingEnd ? null : this.scroll.scrollTop;
+      }
+      if (session && !this.carriedSettings) this.carriedSettings = { mode: session.defaultAccessMode, model: session.modelSelection ? { ...session.modelSelection } : null };
+      this.selectedProjectId = item.value;
+      this.state.currentSessionId = null;
+      this.continueForTaskId = null;
+      this.clearToolExpansions();
+      this.editor.setText("");
+      this.notify(`已切换到项目 ${this.state.projectName(item.value)}；暂无会话，用 /new-session <工作目录> 创建`);
+    };
+  }
+
+  private async openSessionPicker(projectId = this.currentView()?.projectId ?? this.selectedProjectId): Promise<void> {
+    if (!projectId) {
+      this.notify("尚未选择项目：/project 选择项目");
+      return;
+    }
+    const generation = this.generation;
+    let summaries: OpResult<"list_session_summaries">;
+    try {
+      summaries = await this.connection.request("list_session_summaries", { project_id: projectId });
+    } catch (err) {
+      this.notify(`会话列表读取失败：${(err as Error).message}`);
+      return;
+    }
+    if (generation !== this.generation) return;
+    const items = summaries.map((session) => ({
+      value: session.sessionId,
+      label: sanitizeForDisplay(session.name ?? `未命名会话 · ${session.sessionId.slice(0, 14)}…`).replace(/\s+/g, " ").trim(),
+      description: () => activityAgo(session.lastActiveAt),
+    }));
+    if (items.length === 0) {
+      this.notify("当前项目尚无会话：/new-session <工作目录> 创建会话");
+      return;
+    }
+    const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
+    const body = new VStack([
+      { component: new Text(bold(`选择会话 · ${this.state.projectName(projectId)}`), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
     const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
@@ -2677,7 +2866,7 @@ export class TuiApp {
       "",
       bold("滚动"),
       "  PageUp/PageDown 或鼠标滚轮翻页；滚动后新输出不会把视口拉回底部；",
-      "  End 返回最新位置（恢复跟随）；/older 向前翻页加载更早历史",
+      "  End 返回最新位置（恢复跟随）；滚动到顶部自动加载更早历史",
       "",
       bold("终端限制"),
       "  部分终端不支持 Shift+Enter 修饰键上报，可用 Alt+Enter 或 Ctrl+J 换行；",
@@ -2761,13 +2950,10 @@ export class TuiApp {
   private refreshTranscript(): void {
     const view = this.currentView();
     const entries: FlowEntry[] = view ? view.flow.items : this.state.globalNotes.map((note) => ({ ...note, kind: "note", seq: 0 }));
-    if (view && (view.trimmedOlder || view.historyCursor)) {
-      entries.unshift({ key: "$older", kind: "note", text: "更早历史可经 /older 翻页加载", at: "", seq: 0 });
-    }
     if (entries.length === 0) {
-      entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : "ruukoto TUI\n使用 /sessions 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
+      entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : "ruukoto TUI\n使用 /project 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
     }
-    this.eventFlowView.setEntries(entries);
+    this.eventFlowView.setEntries(entries, view?.cwd);
     this.todoPanel.set(view ? latestTodos(view.flow.tools) : null);
     this.tui.requestRender();
   }

@@ -1,15 +1,20 @@
+import { posix as path } from "node:path";
 import {
   Markdown,
-  sliceByColumn,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
   type Component,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
 import { renderMermaidASCII } from "beautiful-mermaid";
 import type { FlowEntry } from "./event-flow.ts";
 import { sanitizeForDisplay } from "./sanitize.ts";
+import { snapUtf8End } from "../core/history.ts";
+import { contextDisplayRow } from "./context-format.ts";
+import { latestTodos } from "./todo-panel.ts";
 
 const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
 const bold = (text: string) => `\x1b[1m${text}\x1b[0m`;
@@ -19,6 +24,14 @@ const yellow = (text: string) => `\x1b[33m${text}\x1b[0m`;
 const userBackground = "\x1b[48;5;236m";
 const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const animationMs = 80;
+export interface ToolExpansion {
+  text: string;
+  lang?: string;
+  diff?: boolean;
+  totalLines?: number;
+  loading?: boolean;
+  error?: boolean;
+}
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 function mermaidCode(code: string, lang: string | undefined, width: number, streaming: boolean): string[] | null {
@@ -109,19 +122,100 @@ function endTime(value: string): string {
   return `${day} ${String(hours % 12 || 12).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`;
 }
 
+/** 保留语法前景色，diff 只着背景；行号取实际 hunk 的旧/新文件位置。 */
+function renderToolCode(expansion: ToolExpansion, width: number): string[] {
+  const source = safe(expansion.text.replace(/\r\n/g, "\n"));
+  const raw = source ? source.replace(/\n$/, "").split("\n") : [];
+  const rows: Array<{ number: number; marker: string; text: string }> = [];
+  let oldLine = 1;
+  let newLine = 1;
+  let inHunk = !raw.some((line) => line.startsWith("@@ "));
+  for (const line of raw) {
+    if (!expansion.diff) { rows.push({ number: rows.length + 1, marker: "", text: line }); continue; }
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) { oldLine = Number(hunk[1]); newLine = Number(hunk[2]); inHunk = true; continue; }
+    if (line.startsWith("diff ") || line.startsWith("Index: ")) { inHunk = false; continue; }
+    if (!inHunk || !/^[+ -]/.test(line)) continue;
+    const marker = line[0]!;
+    const number = marker === "-" ? oldLine : newLine;
+    if (marker !== "+") oldLine++;
+    if (marker !== "-") newLine++;
+    rows.push({ number, marker, text: line.slice(1) });
+  }
+  let bytes = 0;
+  const shown = rows.slice(0, 80).filter((row) => {
+    bytes += Buffer.byteLength(row.text) + 1;
+    return bytes <= 8192;
+  });
+  // 单行极长时仍显示这一行的开头，横向截断交给终端列宽处理。
+  if (!shown.length && rows.length) {
+    const buffer = Buffer.from(rows[0]!.text);
+    shown.push({ ...rows[0]!, text: buffer.subarray(0, snapUtf8End(buffer, Math.min(buffer.length, 8192))).toString("utf8") });
+  }
+  const highlighted = highlightCode(shown.map((row) => row.text).join("\n"), expansion.lang);
+  const digits = String(Math.max(1, ...shown.map((row) => row.number))).length;
+  const result = shown.map((row, index) => {
+    const prefix = dim(`${String(row.number).padStart(digits)} ${expansion.diff ? row.marker + " " : ""}`);
+    const line = truncateToWidth(prefix + (highlighted[index] ?? row.text), Math.max(1, width - 4), "…", true);
+    const background = row.marker === "+" ? "\x1b[48;2;0;55;0m" : row.marker === "-" ? "\x1b[48;5;52m" : "";
+    return "    " + (background ? background + line.replaceAll("\x1b[0m", "\x1b[0m" + background) + "\x1b[0m" : line);
+  });
+  const more = Math.max(0, (expansion.totalLines ?? rows.length) - shown.length);
+  if (more > 0) result.push(`    ${dim(`...${more} more lines`)}`);
+  return result;
+}
+
 /** 一个事件对应一个块；布局仅取决于当前条目和终端宽度。 */
 export class EventFlowView implements Component {
+  onToggleTool?: (entry: Extract<FlowEntry, { kind: "tool" }>) => void;
+  onChange?: () => void;
+  private expandedThinking = new Set<string>();
+  private expansions = new Map<string, ToolExpansion>();
   private entries: readonly FlowEntry[] = [];
   private blocks = new Map<string, { inputs: unknown[]; lines: string[] }>();
   private ranges: Array<{ start: number; end: number; entry: FlowEntry }> = [];
   private width = 0;
+  private cwd = "";
 
   constructor(private readonly clock: () => number = () => Date.now()) {}
 
-  setEntries(entries: readonly FlowEntry[]): void {
+  setEntries(entries: readonly FlowEntry[], cwd = ""): void {
+    if (cwd !== this.cwd) {
+      this.cwd = cwd;
+      this.invalidate();
+    }
     this.entries = entries;
     const keys = new Set(entries.map((entry) => entry.key));
     for (const key of this.blocks.keys()) if (!keys.has(key)) this.blocks.delete(key);
+    for (const key of this.expansions.keys()) if (!keys.has(key)) this.expansions.delete(key);
+    for (const key of this.expandedThinking) if (!keys.has(key)) this.expandedThinking.delete(key);
+  }
+
+  setToolExpansion(key: string, expansion: ToolExpansion | null): void {
+    if (expansion) this.expansions.set(key, expansion);
+    else this.expansions.delete(key);
+    this.blocks.delete(key);
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (!["press", "release", "click"].includes(event.type) || event.button !== "left") return;
+    const thinking = this.ranges.find((range) => range.entry.kind === "thinking" && event.y >= range.start && event.y < range.end);
+    if (thinking) {
+      if (event.type === "click") {
+        if (!this.expandedThinking.delete(thinking.entry.key)) this.expandedThinking.add(thinking.entry.key);
+        this.blocks.delete(thinking.entry.key);
+        this.onChange?.();
+      }
+      return { handled: true };
+    }
+    const range = this.ranges.find((range) => {
+      if (range.entry.kind !== "tool" || event.y >= range.end) return false;
+      const resultLine = this.blocks.get(range.entry.key)?.lines.findIndex((line) => safe(line).startsWith("  ⎿ ")) ?? -1;
+      return resultLine >= 0 && event.y >= range.start + resultLine;
+    });
+    if (!range || range.entry.kind !== "tool") return;
+    if (event.type === "click") this.onToggleTool?.(range.entry);
+    return { handled: true };
   }
 
   invalidate(): void {
@@ -159,6 +253,18 @@ export class EventFlowView implements Component {
       this.ranges.push({ start, end: lines.length, entry });
     }
     return lines;
+  }
+
+  /** 为历史前插保存事件与行内偏移。 */
+  scrollAnchor(top: number, width: number): { key: string; offset: number } | undefined {
+    this.render(width);
+    const range = this.ranges.find((range) => range.end > top);
+    return range ? { key: range.entry.key, offset: top - range.start } : undefined;
+  }
+
+  entryTop(key: string, width: number): number | undefined {
+    this.render(width);
+    return this.ranges.find((range) => range.entry.key === key)?.start;
   }
 
   /** 按原始事件流的行号找任务，复用用户消息的排版与灰底。 */
@@ -218,20 +324,18 @@ export class EventFlowView implements Component {
           lines = this.marked(entry.role === "user" ? dim("❯") : "·", text, width);
         }
         if (entry.truncated) {
-          const expand = entry.entryId ? ` · /expand ${entry.entryId.slice(0, 8)} 展开` : "";
-          lines.push(...wrapTextWithAnsi(dim(`[正文 ${entry.totalBytes} 字节${expand}]`), Math.max(1, width - 2)).map((line) => `  ${line}`));
+          lines.push(...wrapTextWithAnsi(dim(`[正文 ${entry.totalBytes} 字节]`), Math.max(1, width - 2)).map((line) => `  ${line}`));
         }
         return lines;
       }
       case "thinking": {
-        if (entry.endedAt) return this.marked(" ", `Thought for ${formatDuration(entry.startedAt, Date.parse(entry.endedAt))}`, width).map(dim);
         const frame = spinnerFrames[Math.floor(Math.max(0, this.clock() - Date.parse(entry.startedAt)) / animationMs) % spinnerFrames.length]!;
-        const prefix = `${frame} Thinking...`;
-        const room = width - visibleWidth(prefix) - 1;
-        const text = singleLine(entry.text);
-        if (!text || room <= 0) return [dim(truncateToWidth(prefix, width, ""))];
-        const tail = sliceByColumn(text, Math.max(0, visibleWidth(text) - room), room, true);
-        return [dim(`${prefix} ${tail}`)];
+        const header = entry.endedAt
+          ? `  Thought for ${formatDuration(entry.startedAt, Date.parse(entry.endedAt))}`
+          : `${frame} Thinking...`;
+        const body = entry.text.trim() ? wrapTextWithAnsi(safe(entry.text), Math.max(1, width - 4)) : [];
+        const shown = this.expandedThinking.has(entry.key) ? body : body.slice(-4);
+        return [header, ...shown.map((line, index) => `${index === 0 ? "  ⎿ " : "    "}${line}`)].map(dim);
       }
       case "tool": {
         const name = ["read", "edit", "write", "bash"].includes(entry.name.toLowerCase())
@@ -239,16 +343,27 @@ export class EventFlowView implements Component {
           : entry.name;
         const icon = entry.status === "done" ? green("●") : entry.status === "error" ? red("●") : "●";
         const lines = this.marked(icon, safe(name), width);
+        const target = this.cwd && ["read", "write", "edit"].includes(entry.name.toLowerCase()) && path.isAbsolute(entry.target)
+          ? path.relative(this.cwd, entry.target) || "."
+          : entry.target;
         let detail = dim(entry.name.toLowerCase() === "bash"
           ? truncateToWidth(singleLine(entry.target), Math.max(0, width - 4), "...")
-          : safe(entry.target));
+          : safe(target));
         if (entry.editStats) detail += ` ${green(`+${entry.editStats.added}`)} ${red(`-${entry.editStats.removed}`)}`;
         if (entry.status === "error") detail += ` · ${red(singleLine(entry.summary ?? "失败"))}`;
         if (entry.status === "effect_unknown") detail += ` · ${yellow("效果未知")}`;
         lines.push(...this.detail(detail, width));
-        if (entry.paramsTruncated) {
-          const id = entry.entryId ?? entry.toolOpId;
-          lines.push(...wrapTextWithAnsi(dim(`参数已截断${id ? ` · /expand ${id.slice(0, 8)} 展开` : ""}`), Math.max(1, width - 2)).map((line) => `  ${line}`));
+        const expansion = this.expansions.get(entry.key);
+        if (expansion?.loading) lines.push(...this.detail(dim("加载中…"), width));
+        else if (expansion?.error) lines.push(...this.detail(red(singleLine(expansion.text)), width));
+        else if (expansion) {
+          const preview = ["bash", "read"].includes(entry.name.toLowerCase())
+            ? { ...expansion, text: expansion.text.replace(/\n?\[完整正文已捕获：artifact art_[^\r\n]*(?:\r?\n)?$/, "") }
+            : expansion;
+          lines.push(...renderToolCode(preview, width));
+          if (entry.artifactIds.length && !["bash", "read"].includes(entry.name.toLowerCase())) {
+            lines.push(...this.detail(dim(`产物：${entry.artifactIds.join(", ")} · /artifact 查看`), width));
+          }
         }
         return lines;
       }
@@ -259,7 +374,7 @@ export class EventFlowView implements Component {
           if (entry.line === "/context" && !entry.isError && result.startsWith("Context Usage\n")) {
             const [title, ...body] = contextColors(entry.result).split("\n");
             lines.push(...this.detail(title!, width));
-            for (const row of body) lines.push(...wrapTextWithAnsi(row, Math.max(1, width)));
+            for (const row of body) lines.push(...wrapTextWithAnsi(contextDisplayRow(row, width), Math.max(1, width)));
           } else {
             lines.push(...this.detail((entry.isError ? red : dim)(result), width));
           }
@@ -273,6 +388,8 @@ export class EventFlowView implements Component {
         if (task.status === "queued") return [];
         if (active(entry)) {
           const elapsed = task.startedAt ? ` · Elapsed ${formatDuration(task.startedAt, this.clock())}` : "";
+          const todos = latestTodos(this.entries.filter((entry) => entry.kind === "tool"));
+          const progress = todos?.length ? ` [${todos.filter((todo) => todo.status === "completed").length}/${todos.length}]` : "";
           const waiting = task.status === "awaiting_confirmation" ? " · waiting for approval" : "";
           const word = "Sweeping";
           const head = Math.floor(Math.max(0, this.clock() - Date.parse(task.startedAt ?? task.createdAt)) / animationMs) % (word.length + 30) - 3;
@@ -281,7 +398,7 @@ export class EventFlowView implements Component {
             const color = distance < 1 ? "\x1b[97m" : distance <= 3 ? "\x1b[38;5;157m" : "\x1b[32m";
             return `${color}${letter}`;
           }).join("") + "\x1b[0m";
-          return this.marked(green("●"), `${shine}${elapsed}${waiting}`, width);
+          return this.marked(green("●"), `${shine}${elapsed}${progress}${waiting}`, width);
         }
         const duration = task.startedAt && task.endedAt ? ` in ${formatDuration(task.startedAt, Date.parse(task.endedAt))}` : "";
         const at = task.endedAt ? ` · At ${endTime(task.endedAt)}` : "";

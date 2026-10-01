@@ -96,6 +96,19 @@ test("真实工具：读取—修改—检查失败—修复—检查通过，�
     const check2 = detail.toolOps.find((op: any) => op.sdkCallId === "c_check2");
     assert.equal(check2.isError, false, "修复后检查应通过");
 
+    const history = t.runtime.readHistory({ sessionId });
+    const editEntry = history.entries.find((entry) => entry.toolName === "edit")!;
+    const editResult = await t.client.request<any>("read_tool_result", { session_id: sessionId, entry_id: editEntry.entryId });
+    assert.match(editResult.patch, /-41\n\+42/, "返回实际 Edit unified patch");
+    assert.equal(editResult.toolName, "edit");
+    assert.equal(editResult.isError, false);
+    assert.equal(editResult.writeContent, null);
+    const failedEntry = history.entries.find((entry) => entry.toolName === "bash" && entry.isError)!;
+    const failedResult = await t.client.request<any>("read_tool_result", { session_id: sessionId, entry_id: failedEntry.entryId });
+    assert.equal(failedResult.isError, true);
+    assert.equal(failedResult.patch, null);
+    assert.ok(failedResult.text.length > 0);
+
     // 正文产物：bash stdout 与 read 的已捕获版本
     assert.ok(detail.artifacts.length >= 3, `应捕获 stdout×2 与文件正文，实际 ${detail.artifacts.length}`);
     const readArtifact = detail.artifacts.find((a: any) => a.name.includes("文件正文"));
@@ -145,6 +158,11 @@ test("真实 Write：新建与覆盖文件的 diff 统计持久化", async () =>
       .flatMap((event) => event.body.type === "task.tool_result" ? [event.body] : []);
     assert.deepEqual(events.map((event) => event.editStats), stats, "工具结果事件记录两次 Write 的增删行数");
     const history = t.runtime.readHistory({ sessionId });
+    for (const [index, entry] of history.entries.filter((entry) => entry.toolName === "write").entries()) {
+      const result = await t.client.request<any>("read_tool_result", { session_id: sessionId, entry_id: entry.entryId });
+      assert.equal(result.writeContent, ["alpha\nbeta\n", "alpha\ngamma\nextra\n"][index], "从实际 SDK assistant arguments 还原 Write 原文");
+      assert.equal(result.patch, null);
+    }
     assert.deepEqual(history.entries.filter((entry) => entry.toolName === "write").map((entry) => entry.editStats), stats,
       "会话历史保留两次 Write 的增删行数");
   } finally {

@@ -298,3 +298,57 @@ export function readHistoryEntryText(
   const slice = sliceTextByBytes(extracted.text, offset, cap);
   return { ...extracted.view, ...slice };
 }
+
+
+export interface ToolResultView {
+  text: string;
+  patch: string | null;
+  writeContent: string | null;
+  writeTotalLines?: number;
+  truncated: boolean;
+  toolName: string | null;
+  isError: boolean | null;
+}
+
+/** 只暴露工具结果正文、Edit patch 与对应 Write 原文，不回传其他 details。 */
+export function readToolResult(sessionFile: string | null, entryId: string, length = 16 * 1024): ToolResultView {
+  if (!sessionFile || !fs.existsSync(sessionFile)) {
+    throw new HistoryReadError("entry_not_found", `会话文件尚未落盘，条目不可读：${entryId}`);
+  }
+  const { entries } = parseSessionFileStrict(fs.readFileSync(sessionFile, "utf8"));
+  const index = entries.findIndex((entry) => entry.id === entryId && entry.type === "message");
+  const entry = entries[index];
+  const extracted = entry ? extractMessageView(entry) : null;
+  if (!extracted || extracted.view.role !== "toolResult") {
+    throw new HistoryReadError("entry_not_found", `工具结果条目不存在：${entryId}`);
+  }
+  const message = entry!.message as Record<string, unknown>;
+  const details = message.details as Record<string, unknown> | null;
+  const cap = Math.min(Math.max(1, length), 64 * 1024);
+  const text = sliceTextByBytes(extracted.text, 0, cap);
+  const patch = extracted.view.toolName === "edit" && typeof details?.patch === "string"
+    ? sliceTextByBytes(details.patch, 0, cap) : null;
+  let writeContent = null;
+  let writeTotalLines: number | undefined;
+  if (extracted.view.toolName === "write" && typeof message.toolCallId === "string") {
+    for (let i = index - 1; i >= 0; i--) {
+      const previous = entries[i]!;
+      const assistant = previous.message as Record<string, unknown> | undefined;
+      if (previous.type !== "message" || assistant?.role !== "assistant" || !Array.isArray(assistant.content)) continue;
+      const call = assistant.content.find((part) => part?.type === "toolCall" && part.id === message.toolCallId);
+      if (!call) continue;
+      if (call.name === "write" && typeof call.arguments?.content === "string") {
+        const content = call.arguments.content as string;
+        writeContent = sliceTextByBytes(content, 0, cap);
+        writeTotalLines = content.length === 0 ? 0 : content.split("\n").length - Number(content.endsWith("\n"));
+      }
+      break;
+    }
+  }
+  return {
+    text: text.text, patch: patch?.text ?? null, writeContent: writeContent?.text ?? null,
+    ...(writeTotalLines !== undefined ? { writeTotalLines } : {}),
+    truncated: text.truncated || !!patch?.truncated || !!writeContent?.truncated,
+    toolName: extracted.view.toolName, isError: extracted.view.isError,
+  };
+}

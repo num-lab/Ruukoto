@@ -32,6 +32,7 @@
         <code class="src" data-src="src/agent/artifacts.ts#class ArtifactStore">agent/artifacts.ts</code>
         <code class="src" data-src="src/agent/app-data/store.ts#class AppDataStore">agent/app-data/store.ts</code>
         <code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">control/owner-token.ts</code>
+        <code class="src" data-src="src/control/ensure-backend.ts#spawn.log">control/ensure-backend.ts</code>
       </dd></div>
       <div><dt>决策</dt><dd>
         <a href="../adr/0009-main-app-data-space.md">ADR 0009 应用数据空间</a>
@@ -54,7 +55,7 @@
         <tbody>
           <tr data-k="data" tabindex="0"><td><code>&lt;dataDir&gt;</code>（默认 <code>~/.ruukoto/data</code>）</td><td><code>ruukoto.db</code>、<code>sessions/</code> JSONL、产物文件、<code>agent-data/main.db</code>、<code>runtime.lock</code></td><td>全部运行期状态；实例锁保证同一时刻只有一个后台</td></tr>
           <tr data-k="agent" tabindex="0"><td><code>&lt;agentDir&gt;</code>（默认 <code>~/.ruukoto/agent</code>）</td><td><code>models.json</code>、<code>auth.json</code>、默认/摘要模型选择、服务凭据、<code>config.lock</code></td><td>模型目录与秘密；配置锁让在线后台与离线配置中心互斥</td></tr>
-          <tr data-k="control" tabindex="0"><td><code>&lt;controlDir&gt;</code>（dataDir 兄弟目录 <code>control/</code>）</td><td><code>control.sock</code>、<code>owner.token</code></td><td>控制面 socket（0660）与拥有者令牌（0600，<code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code>）</td></tr>
+          <tr data-k="control" tabindex="0"><td><code>&lt;controlDir&gt;</code>（dataDir 兄弟目录 <code>control/</code>）</td><td><code>control.sock</code>、<code>owner.token</code>、（ruukoto-dev 按需拉起时）<code>spawn.log</code></td><td>控制面 socket（0660）与拥有者令牌（0600，<code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code>）；<code>spawn.log</code> 是 TUI 按需拉起后台时该进程 stdout/stderr 的追加日志（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>），ruukoto 档案一般没有</td></tr>
           <tr data-k="pending" tabindex="0"><td><code>&lt;pendingDir&gt;</code>（默认 <code>~/.ruukoto/pending</code>）</td><td>TUI 待核实提交记录</td><td>客户端侧的去重锚点，秘密不落盘</td></tr>
           <tr data-k="sibling" tabindex="0"><td>dataDir 兄弟目录</td><td><code>qq-work/&lt;账号&gt;_&lt;群&gt;/</code>、<code>agent-work/&lt;角色&gt;/</code></td><td>群会话工作目录与角色工作目录，随数据根迁移</td></tr>
         </tbody>

@@ -31,7 +31,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { ControlClient } from "./control/client.ts";
+import { probeControlPlane } from "./control/ensure-backend.ts";
 import { readOwnerToken } from "./control/owner-token.ts";
 import { probeModelConfig } from "./agent/model-config.ts";
 import { RELOAD_STATE_ENV } from "./tui/reload-state.ts";
@@ -178,21 +178,8 @@ export function importModelConfigs(sourceDir: string, agentDir: string): string[
   return copied;
 }
 
-/** 控制面探测：socket 可连且拥有者令牌认证 + 握手通过才算在运行。 */
-export async function probeControlPlane(socketPath: string, token: string | null, timeoutMs = 1500): Promise<boolean> {
-  if (!token) return false;
-  let client: ControlClient | null = null;
-  try {
-    client = await ControlClient.connect(socketPath, timeoutMs);
-    await client.authenticate(token, timeoutMs);
-    await client.handshake(undefined, timeoutMs);
-    return true;
-  } catch {
-    return false;
-  } finally {
-    client?.close();
-  }
-}
+// 控制面探测归入 src/control/ensure-backend.ts（issue 02 按需拉起复用），此处再导出保持既有测试接缝
+export { probeControlPlane };
 
 // ---------- dev 会话 ----------
 

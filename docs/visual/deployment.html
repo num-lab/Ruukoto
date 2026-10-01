@@ -42,6 +42,8 @@
         <code class="src" data-src="src/control/owner-token.ts#TOKEN_FILE_NAME">control/owner-token.ts</code>
         <code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">core/instance-lock.ts</code>
         <code class="src" data-src="src/dev.ts#SCRUB_PREFIXES">dev.ts</code>
+        <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">control/ensure-backend.ts</code>
+        <code class="src" data-src="src/tui/index.ts#export async function runTui">tui/index.ts</code>
         <code class="src" data-src="src/cli.ts#async function runServer">cli.ts</code>
         <code class="src" data-src="verification/foundation/results/linux-isolation-report-tx.md">verification/foundation/results/*.md</code>
       </dd></div>
@@ -359,6 +361,10 @@
       <li>写 <code>backend.started</code>（带执行后端与产品身份）后 <code>ControlServer</code> 绑定 socket：先确保 <code>owner.token</code>（缺失则生成 0600，已存在则复用），删掉遗留 socket 文件，监听后把 socket 设为 0660。</li>
     </ol>
     <p>停止走 SIGTERM → <code>backend_stop</code>：先停各入口（webhook、调度器、Telegram 轮询、编排器、QQ 适配器），再把 running / awaiting_confirmation 的任务按停止路径中断（排队任务保持排队），释放驱动器、关库、释放两把锁并删除 socket。</p>
+
+    <h3>ruukoto-dev：没有服务单元，TUI 按需拉起</h3>
+    <p>Coding Agent 一般不装 systemd 单元：第一次打开 TUI 时，<code class="src" data-src="src/tui/index.ts#export async function runTui">tui/index.ts · runTui</code> 在连接前先探测控制面（socket 可连、令牌认证与握手都通过才算在运行），后台不在才经 <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code> 拉起一个 detached + unref 的 <code>server</code> 子进程——这是一次正常的后台启动，上面的启动顺序与 <a href="task-lifecycle.html">重启恢复</a> 规则一条不差。子进程的 stdout/stderr 追加到 <code>&lt;controlDir&gt;/spawn.log</code>，拉起方轮询探测到就绪为止；拉起成功打印一行提示，失败打印错误并以退出码 1 退出（socket 可连但令牌认证不通过＝后台其实在运行，报令牌核对指引、不再拉起；服务进程以非实例锁原因提前退出报「后台启动失败」并附日志尾部；等待超时另行标注且不杀子进程）。</p>
+    <p>两个终端同时打开会各自拉起一次：实例锁 <code>&lt;dataDir&gt;/runtime.lock</code> 只放行一个后台（<code class="src" data-src="src/core/instance-lock.ts#export class InstanceLockError">instance-lock.ts · InstanceLockError</code>），败者进程退出，拉起侧不误判为启动失败，继续探测并连上胜者，结果仍是恰好一个实例。关闭 TUI 不停止后台、也不取消任务（quit 不发送任何停止请求），重开 TUI 探测到它即复用同一份任务；显式停止用 <code>ruukoto-dev stop</code>——各产品的 stop 只打自己产品的 socket。升级（checkout 换成新代码）之后先 stop，下一次打开 TUI 拉起的即是新代码。</p>
   </section>
 
   <section id="execution">
@@ -465,7 +471,7 @@
     <p>启动前它会探测控制面：socket 可连且令牌认证通过就报错退出，不接管、不停止外来进程；进程内的实例锁与配置锁同样生效。生命周期上，界面退出或 Ctrl+C（含关终端触发的 SIGHUP）会停后台（SIGTERM，10 s 升级 SIGKILL）、关监听并退出，源码变更则按影响范围只重启后台或只重启界面。</p>
     <aside class="callout inv">
       <b>不是同一个东西</b>
-      <p>开发实例不是 ruukoto-dev 产品：ruukoto-dev 是装在开发机器上的 Coding Agent（<code>ruukoto-dev</code> 命令，档案根 <code>~/.ruukoto-dev-agent</code>，各自启动与停止），开发实例只是开发本项目用的隔离环境（<code>npm run dev</code>，档案根 <code>~/.ruukoto-dev</code>，运行的是默认产品 ruukoto 并监听源码重启）。两者的目录、锁与控制面互不相同；新产品不会读写开发实例的档案。</p>
+      <p>开发实例不是 ruukoto-dev 产品：ruukoto-dev 是装在开发机器上的 Coding Agent（<code>ruukoto-dev</code> 命令，档案根 <code>~/.ruukoto-dev-agent</code>；不装服务单元，后台由 TUI 按需拉起、<code>ruukoto-dev stop</code> 显式停止，见「进程拓扑」），开发实例只是开发本项目用的隔离环境（<code>npm run dev</code>，档案根 <code>~/.ruukoto-dev</code>，运行的是默认产品 ruukoto 并监听源码重启）。两者的目录、锁与控制面互不相同；新产品不会读写开发实例的档案。</p>
     </aside>
   </section>
 

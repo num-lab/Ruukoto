@@ -127,6 +127,7 @@ import {
 import type { ChildOutcome } from "./orchestrator.ts";
 import {
   readHistoryEntryText,
+  readToolResult,
   readHistoryPage,
   sliceTextByBytes,
   tailTextByBytes,
@@ -988,6 +989,11 @@ export class Runtime {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", "会话不存在");
     return session;
+  }
+
+  listSessionSummaries(projectId: string) {
+    if (!this.store.getProject(projectId)) throw new RuntimeApiError("not_found", "项目不存在");
+    return this.store.listSessionSummaries(projectId);
   }
 
   async setSessionModel(input: { sessionId: string; modelSelection: ModelSelection; expectedVersion: number }): Promise<Session> {
@@ -2442,6 +2448,10 @@ export class Runtime {
     return this.withSessionHistory(input.sessionId, (file) =>
       readHistoryEntryText(file, input.entryId, input.offset, input.length),
     );
+  }
+
+  readToolResult(input: { sessionId: string; entryId: string; length?: number }) {
+    return this.withSessionHistory(input.sessionId, (file) => readToolResult(file, input.entryId, input.length));
   }
 
   /**

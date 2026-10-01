@@ -130,12 +130,12 @@ test("latestTodos：取最近一次成功 todo_write 的参数；失败、运行
   assert.deepEqual(latestTodos([toolEntry({ todos: a }), toolEntry({})]), a, "尚未补齐参数的历史行不覆盖");
 });
 
-test("工作清单面板：三种状态、已完成暗色；超过 8 行先省略已完成再截取；无清单/空/全部完成时隐藏", () => {
+test("工作清单悬浮层内容：三种状态、已完成暗色，完整保留条目且长名称单行截断", () => {
   const panel = new TodoPanel();
   const plain = () => panel.render(40).map((line) => stripTerminalSequences(line).trimEnd());
-  assert.deepEqual(plain(), []);
+  assert.deepEqual(plain(), ["暂无工作清单"]);
   panel.set(todos(["读代码", "completed"], ["改代码", "in_progress"], ["跑测试", "pending"]));
-  assert.deepEqual(plain(), [" ☑ 读代码", " ▶ 改代码", " ☐ 跑测试"]);
+  assert.deepEqual(plain(), [" ✓ 读代码", " ▶ 改代码", " ⏸ 跑测试"]);
   assert.match(panel.render(40)[0]!, /\x1b\[2m/, "已完成暗色");
   assert.doesNotMatch(panel.render(40)[1]!, /\x1b\[2m/);
 
@@ -146,21 +146,25 @@ test("工作清单面板：三种状态、已完成暗色；超过 8 行先省�
   panel.set(many(2, 6));
   assert.equal(plain().length, 8, "8 项不省略");
   panel.set(many(3, 7));
-  assert.deepEqual(plain(), [" ▶ 待做0", ...Array.from({ length: 6 }, (_, i) => ` ☐ 待做${i + 1}`), " …另 3 项"]);
+  assert.equal(plain().length, 10);
+  assert.equal(plain()[0], " ✓ 完成0", "长清单保留已完成项");
   panel.set(many(1, 8));
-  assert.deepEqual(plain().slice(-2), [" ☐ 待做6", " …另 2 项"], "省略已完成后仍超 8 行：截取");
+  assert.deepEqual(plain().slice(-2), [" ⏸ 待做6", " ⏸ 待做7"]);
   panel.set(many(2, 12));
-  assert.equal(plain().length, 8);
-  assert.equal(plain().at(-1), " …另 7 项");
+  assert.equal(plain().length, 14);
+  assert.equal(plain().at(-1), " ⏸ 待做11");
 
   panel.set(todos(["多行\n内容", "pending"]));
-  assert.deepEqual(plain(), [" ☐ 多行 内容"], "内容单行显示");
+  assert.deepEqual(plain(), [" ⏸ 多行 内容"], "内容单行显示");
   panel.set([]);
-  assert.deepEqual(plain(), []);
+  assert.deepEqual(plain(), ["暂无工作清单"]);
   panel.set(todos(["a", "completed"], ["b", "completed"]));
-  assert.deepEqual(plain(), [], "全部完成时隐藏");
+  assert.deepEqual(plain(), [" ✓ a", " ✓ b"], "全部完成仍可查看");
   panel.set(null);
-  assert.deepEqual(plain(), []);
+  assert.deepEqual(plain(), ["暂无工作清单"]);
+  panel.set(todos(["中文长任务".repeat(10), "pending"]));
+  assert.equal(panel.render(12).length, 1);
+  assert.match(stripTerminalSequences(panel.render(12)[0]!), /…$/);
 });
 
 test("事件流：todo_write 每次更新一行完成数/总数，不展开清单", () => {

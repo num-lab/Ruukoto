@@ -7,9 +7,8 @@ interface Todo {
   status: string;
 }
 
-const MAX_LINES = 8;
 const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
-const MARKERS: Record<string, string> = { in_progress: "▶", pending: "☐", completed: "☑" };
+const MARKERS: Record<string, string> = { in_progress: "▶", pending: "⏸", completed: "✓" };
 
 /** 当前清单（issue 25）= 已加载工具记录中最近一次成功 todo_write 的参数；没有则为 null。 */
 // ponytail: 只看已加载的工具记录，最后一次 todo_write 早于已加载历史时面板隐藏；
@@ -20,7 +19,7 @@ export function latestTodos(tools: ReadonlyArray<{ name: string; status: string;
   return last ? (last.params.todos as Todo[]) : null;
 }
 
-/** 事件流与状态栏之间的常驻清单面板；无清单、空清单或全部完成时不占行。 */
+/** /todo 悬浮层中的完整清单，保留已完成项，长任务名按单行截断。 */
 export class TodoPanel implements Component {
   private todos: Todo[] | null = null;
 
@@ -32,14 +31,10 @@ export class TodoPanel implements Component {
 
   render(width: number): string[] {
     const all = this.todos ?? [];
-    if (all.every((t) => t.status === "completed")) return [];
-    // 超出时先省略已完成项，仍超出则截取；留一行给「…另 N 项」
-    const shown = all.length > MAX_LINES ? all.filter((t) => t.status !== "completed").slice(0, MAX_LINES - 1) : all;
-    const lines = shown.map((t) => {
+    if (!all.length) return [dim("暂无工作清单")];
+    return all.map((t) => {
       const line = `${MARKERS[t.status] ?? "☐"} ${sanitizeForDisplay(String(t.content)).replace(/\s+/g, " ").trim()}`;
-      return t.status === "completed" ? dim(line) : line;
+      return truncateToWidth(t.status === "completed" ? dim(` ${line}`) : ` ${line}`, Math.max(1, width), "…");
     });
-    if (shown.length < all.length) lines.push(dim(`…另 ${all.length - shown.length} 项`));
-    return lines.map((line) => truncateToWidth(` ${line}`, width, "…"));
   }
 }

@@ -294,6 +294,27 @@ export class Store {
     return rows.map((r) => this.rowToSession(r));
   }
 
+  /** 会话选择列表只查元数据，不扫描消息历史；设置变化不算任务活跃。 */
+  listSessionSummaries(projectId: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
+    return this.db.prepare(`
+      WITH event_activity AS (
+        SELECT t.session_id, MAX(e.created_at) AS last_at
+        FROM events e JOIN tasks t ON t.id = e.task_id
+        JOIN sessions s ON s.id = t.session_id
+        WHERE s.project_id = ? GROUP BY t.session_id
+      )
+      SELECT s.id AS sessionId,
+        (SELECT substr(t.input, 1, 512) FROM tasks t
+         WHERE t.session_id = s.id AND t.parent_task_id IS NULL
+         ORDER BY t.created_at, t.rowid LIMIT 1) AS name,
+        MAX(s.created_at, COALESCE(e.last_at, s.created_at),
+          COALESCE((SELECT MAX(MAX(t.created_at, COALESCE(t.started_at, t.created_at),
+            COALESCE(t.ended_at, t.created_at))) FROM tasks t WHERE t.session_id = s.id), s.created_at)) AS lastActiveAt
+      FROM sessions s LEFT JOIN event_activity e ON e.session_id = s.id
+      WHERE s.project_id = ? ORDER BY s.created_at, s.rowid
+    `).all(projectId, projectId) as Array<{ sessionId: string; name: string | null; lastActiveAt: string }>;
+  }
+
   setSessionFile(id: string, file: string): void {
     this.db.prepare("UPDATE sessions SET session_file = ? WHERE id = ?").run(file, id);
   }

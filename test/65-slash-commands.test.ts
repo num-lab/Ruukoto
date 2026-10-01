@@ -59,14 +59,14 @@ function fake(opts: { view?: CommandEnv["view"]; replies?: Partial<Record<TuiOp,
 
 // ---------- 表 ----------
 
-test("命令表：名字唯一；补全与帮助只列可见条目；/github 不进补全与帮助但可派发", async () => {
+test("命令表：名字唯一；补全与帮助只列可见条目；已删除命令不再派发", async () => {
   const names = COMMANDS.map((c) => c.name);
   assert.equal(new Set(names).size, names.length, "名字唯一");
-  assert.deepEqual(COMMANDS.filter((c) => c.hidden).map((c) => c.name), ["github"]);
+  assert.deepEqual(COMMANDS.filter((c) => c.hidden).map((c) => c.name), []);
 
   const help = commandHelpLines();
   assert.deepEqual(help.map((l) => /^  \/(\S+)/.exec(l)![1]), VISIBLE_COMMANDS.map((c) => c.name));
-  assert.ok(help.includes("  /memory <子命令> — 长期记忆：list | show <id> | revoke <id> | restore <id> <版本>"));
+  assert.ok(help.includes("  /memory <子命令> — 长期记忆"));
 
   const complete = new SlashCommandAutocomplete(VISIBLE_COMMANDS);
   const all = await complete.getSuggestions(["/"], 0, 1);
@@ -76,7 +76,7 @@ test("命令表：名字唯一；补全与帮助只列可见条目；/github 不
   const f = fake();
   await f.run("/github");
   assert.deepEqual(f.log.echoes, ["/github"]);
-  assert.match(f.log.texts[0]!, /GitHub 专用模块已退役/);
+  assert.match(f.log.notes[0]!, /未知命令：\/github/);
 });
 
 test("README 命令表：第一列列出的 /名字 与可见条目正好一致", () => {
@@ -144,7 +144,7 @@ test("/status：没有活动任务时注记；有活动任务时只刷新", asyn
   assert.deepEqual(busy.log.notes, []);
 });
 
-test("派发：成功结果由 keepsResult 条目保留，/thinking 丢弃；错误总是保留", async () => {
+test("派发：成功结果由 keepsResult 条目保留；错误总是保留", async () => {
   const f = fake();
   const resultOf = async (line: string): Promise<CommandResult> => {
     await f.run(line);
@@ -153,13 +153,12 @@ test("派发：成功结果由 keepsResult 条目保留，/thinking 丢弃；错
   };
   (await resultOf("/model"))("Switched to a/b · off");
   (await resultOf("/mode"))("Switched to Full access");
-  const thinking = await resultOf("/thinking");
-  thinking("Switched to a/b · high");
-  thinking("模型设置未确认：x", true);
+  const context = await resultOf("/context");
+  context("上下文查询失败：x", true);
   assert.deepEqual(f.log.results, [
     ["command:1", "Switched to a/b · off", false],
     ["command:2", "Switched to Full access", false],
-    ["command:3", "模型设置未确认：x", true],
+    ["command:3", "上下文查询失败：x", true],
   ]);
 
   await f.run("/mode full_access");
@@ -173,7 +172,18 @@ test("派发：参数按空白切分，arg 合并空白；面板类命令转交 
   await f.run("/cancel task_1");
   await f.run("/expand abc");
   await f.run("/status");
-  assert.deepEqual(f.log.host, [["cancel", "task_1"], ["expand", "abc"], ["refreshTask"]]);
+  assert.deepEqual(f.log.host, [["cancel", "task_1"], ["refreshTask"]]);
+  assert.ok(f.log.notes.some((note) => /未知命令：\/expand/.test(note)));
+});
+
+test("/resume 和 /project 派发到对应窗口，/sessions 不再存在", async () => {
+  const f = fake();
+  await f.run("/resume");
+  await f.run("/project");
+  await f.run("/sessions");
+  assert.deepEqual(f.log.host, [["openResume"], ["openProjects"]]);
+  assert.ok(f.log.notes.includes("未知命令：/sessions（/help 查看命令列表）"));
+  assert.ok(!VISIBLE_COMMANDS.some((command) => command.name === "sessions"));
 });
 
 // ---------- 只拿上下文的处理函数 ----------
@@ -330,7 +340,7 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
   assert.match(f.log.notes.at(-1)!, /创建项目失败：名称重复/);
   // 写操作失败按分类提示：应答丢失时可能已生效，不自动重发，指明核实入口
   await f.run("/new-project 慢");
-  assert.match(f.log.notes.at(-1)!, /创建项目结果未知：请求超时：create_project；先用 \/sessions 核实再操作（未自动重发）/);
+  assert.match(f.log.notes.at(-1)!, /创建项目结果未知：请求超时：create_project；先用 \/project 核实再操作（未自动重发）/);
   await f.run("/new-project 断");
   assert.match(f.log.notes.at(-1)!, /创建项目未发送：连接不可用/);
   assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4, "都只发一次");

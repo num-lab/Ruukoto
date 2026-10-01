@@ -31,12 +31,14 @@ export interface TuiOps {
     params: { session_id: string; before?: string; limit?: number; entry_text_cap?: number; page_text_budget?: number };
     result: R<"readHistory">;
   };
+  read_tool_result: { params: { session_id: string; entry_id: string; length?: number }; result: R<"readToolResult"> };
   read_history_entry: { params: { session_id: string; entry_id: string } & Slice; result: R<"readHistoryEntry"> };
   get_tool_op_params: { params: { tool_op_id: string } & Slice; result: R<"getToolOpParams"> };
   get_confirmation_params: { params: { confirmation_id: string } & Slice; result: R<"getConfirmationParams"> };
   read_artifact: { params: { task_id: string; artifact_id: string } & Slice; result: R<"queryArtifact"> };
   get_session_usage: { params: { session_id: string }; result: R<"getSessionUsage"> };
   get_session: { params: { session_id: string }; result: R<"getSession"> };
+  list_session_summaries: { params: { project_id: string }; result: R<"listSessionSummaries"> };
   list_models: { params: { provider?: string; offset?: number; limit?: number }; result: R<"listModels"> };
   set_session_model: {
     params: { session_id: string; expected_version: number; model_selection: ModelSelection };

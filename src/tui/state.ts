@@ -409,7 +409,8 @@ export class ViewState {
 
   installHistoryPage(sessionId: string, page: HistoryPage, mode: "replace" | "prepend"): void {
     const view = this.openSession(sessionId);
-    const result = view.flow.installHistory(page.entries, mode === "replace", MAX_LOADED_ENTRIES);
+    const limit = mode === "prepend" ? Math.max(MAX_LOADED_ENTRIES, view.flow.historyEntries.length + page.entries.length) : MAX_LOADED_ENTRIES;
+    const result = view.flow.installHistory(page.entries, mode === "replace", limit);
     view.historyCursor = result.trimmed ? result.firstId : page.nextBefore;
     view.trimmedOlder = result.trimmed;
     view.historyLoaded = true;
@@ -418,7 +419,8 @@ export class ViewState {
 
   appendEntryView(sessionId: string, entry: HistoryEntryView): boolean {
     const view = this.openSession(sessionId);
-    const result = view.flow.installHistory([entry], false, MAX_LOADED_ENTRIES);
+    const count = view.flow.historyEntries.length;
+    const result = view.flow.installHistory([entry], false, count > MAX_LOADED_ENTRIES ? count + 1 : MAX_LOADED_ENTRIES);
     if (result.trimmed) {
       view.trimmedOlder = true;
       view.historyCursor = result.firstId;

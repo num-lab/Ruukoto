@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>编排器</title>
+<link rel="stylesheet" href="style.css">
+<script src="visual.js" defer></script>
+</head>
+<body>
+<svg class="defs" aria-hidden="true" focusable="false"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ok" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah wait" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-unk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah unk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah bad" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah accent" d="M0 0L10 5L0 10z"/></marker>
+</defs></svg>
+<main class="page">
+  <header class="doc-head">
+    <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>orchestrator.html</span></nav>
+    <p class="eyebrow">编排</p>
+    <h1>编排器</h1>
+    <p class="lede">编排器是后台内的宿主组件：引导 main、coding、chat 三个逻辑角色，把 main 的委派变成 coding 子任务，子任务结束后记录结果、发出 child_task.* 事件并唤醒父任务会话。超时、重启和 PR 事件都沿用宿主写定的请求键，不换键、不重放。</p>
+    <dl class="meta">
+      <div><dt>源码</dt><dd>
+        <code class="src" data-src="src/runtime/orchestrator.ts#export class Orchestrator">runtime/orchestrator.ts</code>
+        <code class="src" data-src="src/runtime/runtime.ts#runtime.orchestrator = new Orchestrator">runtime/runtime.ts</code>
+        <code class="src" data-src="src/agent/delegation-tools.ts#createDelegationTools">agent/delegation-tools.ts</code>
+        <code class="src" data-src="src/agent/chat-result-tools.ts#createChatResultTools">agent/chat-result-tools.ts</code>
+        <code class="src" data-src="src/github/events.ts#export class GitHubEvents">github/events.ts</code>
+        <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">agent/tool-availability.ts</code>
+        <code class="src" data-src="src/core/access.ts#canAccess(accessor">core/access.ts</code>
+        <code class="src" data-src="src/core/store.ts#insertAgentRole">core/store.ts</code>
+        <code class="src" data-src="src/qq/store.ts#getGroupSession">qq/store.ts</code>
+        <code class="src" data-src="src/qq/adapter.ts#private async ensureGroupSession">qq/adapter.ts</code>
+        <code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">agent/tool-op-ledger.ts</code>
+        <code class="src" data-src="src/core/types.ts#export type AgentRoleId">core/types.ts</code>
+      </dd></div>
+      <div><dt>决策</dt><dd>
+        <a href="../adr/0012-qq-private-shared-main.md">ADR 0012 QQ 私聊共享 main</a>
+        <a href="../adr/0013-github-event-review.md">ADR 0013 GitHub PR 评审</a>
+        <a href="../adr/0014-qq-group-chat-results.md">ADR 0014 群聊结果</a>
+      </dd></div>
+      <div><dt>相关页面</dt><dd>
+        <a href="task-lifecycle.html">任务生命周期</a>
+        <a href="inbound-events.html">入站事件</a>
+        <a href="outbox.html">通知 outbox</a>
+        <a href="tool-call-path.html">工具调用路径</a>
+        <a href="once-only.html">只执行一次</a>
+      </dd></div>
+    </dl>
+  </header>
+
+  <section id="roles">
+    <h2>逻辑角色与引导</h2>
+    <p>逻辑角色只有三个（<code class="src" data-src="src/core/types.ts#export type AgentRoleId">types.ts · AgentRoleId</code>）。后台启动时，<code class="src" data-src="src/runtime/orchestrator.ts#private async ensureRoles">orchestrator.ts · ensureRoles</code> 按 <code class="src" data-src="src/runtime/orchestrator.ts#ROLE_DEFINITIONS">ROLE_DEFINITIONS</code> 逐个检查：<code>agent_roles</code> 已有该角色的行就跳过；没有就找到或创建项目 <code>agent-&lt;角色&gt;</code>，建工作目录 <code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;</code>（权限 0700，放在数据目录之外以避开保护根），经桥接创建会话，再写一行角色配置（<code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>）。</p>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>角色</th><th>项目 · 会话</th><th>工具类别</th><th>资料身份</th><th>任务从哪来</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>main</code></td>
+            <td><code>agent-main</code>，一个持久会话</td>
+            <td><code>host_data</code> <code>web_search</code> <code>app_data</code> <code>scheduler</code> <code>delegation</code> <code>chat_results</code> <code>skills</code>；没有编码工具</td>
+            <td><code>agent</code>：本项目加有效的资料授权；不能读原始 QQ 群项目</td>
+            <td>拥有者直接提交；Telegram 与 QQ 私聊入站；调度唤醒；子任务唤醒；GitHub 评审父任务</td>
+          </tr>
+          <tr>
+            <td><code>coding</code></td>
+            <td><code>agent-coding</code>，一个持久会话</td>
+            <td><code>coding</code> <code>host_data</code> <code>web_search</code> <code>mcp</code> <code>skills</code></td>
+            <td><code>agent</code>：同 main，也不能读原始 QQ 群项目</td>
+            <td>main 委派（含自动重试）；GitHub 评审子任务</td>
+          </tr>
+          <tr>
+            <td><code>chat</code></td>
+            <td><code>agent-chat</code> 会话之外，每个「登录账号 + 群」一个 <code>qq_group</code> 会话</td>
+            <td>空集合</td>
+            <td>群会话为 <code>qq_group</code>，其他 chat 会话为 <code>role_restricted</code>：只读本项目，不查资料授权，owner_note 来源不自动可读</td>
+            <td>QQ 群入站事件，进各群会话；<code>agent-chat</code> 会话本身没有宿主来源</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>角色能力与资料范围都由宿主决定，互不替代：</p>
+    <ul>
+      <li><b>工具</b>：会话类别到工具类别是一张静态表 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>。角色行里的 <code>tools</code> 列只是引导时写入的副本，运行时不读回；<code class="src" data-src="src/agent/tool-availability.ts#export function sessionToolClass">sessionToolClass</code> 把 <code>qq_group</code> 会话一律归入 chat，其余角色会话按角色绑定。装配、激活与调用门的细节见<a href="tool-call-path.html">工具调用路径</a>。</li>
+      <li><b>资料</b>：驱动器按会话给出资料身份（<code class="src" data-src="src/agent/driver.ts#private accessor">driver.ts · accessor</code>），<code class="src" data-src="src/core/access.ts#canAccess(accessor">access.ts · canAccess</code> 判定。main 与 coding 所在项目读取任何 <code>qq_group</code> 项目一律拒绝，且优先于资料授权，coding 因此不能成为读取群资料的旁路（ADR 0012）。</li>
+      <li><b>模型</b>：引导时 <code>model_selection</code> 写 null，Store 也没有改写它的方法，所以编排器提交的角色任务用后台默认模型；群任务依次取群会话、角色、后台默认的模型配置。拥有者直接提交到角色会话时用自己给的模型。</li>
+    </ul>
+
+    <p>chat 共用一份角色工具策略，群与群之间的资料却是隔离的：QQ 适配器在某群首次触发时建项目 <code>qq-&lt;账号&gt;-&lt;群&gt;</code>、专用空目录 <code>&lt;dataDir&gt;/../qq-work/&lt;账号&gt;_&lt;群&gt;</code> 与 <code>qq_group</code> 会话，并登记到 <code>qq_sessions</code>，主键为（账号，群）（<code class="src" data-src="src/qq/adapter.ts#private async ensureGroupSession">qq/adapter.ts · ensureGroupSession</code>）。按会话反查角色时，<code class="src" data-src="src/core/store.ts#getAgentRoleBySession">store.ts · getAgentRoleBySession</code> 把这些群会话合成为 chat 角色，项目、会话与工作目录取群绑定，工具取 chat 行。</p>
+
+    <aside class="callout inv">
+      <b>角色配置只由编排器写</b>
+      <p>Store 对 <code>agent_roles</code> 只有 <code>insertAgentRole</code> 一个写方法（INSERT，同 id 已存在即冲突，不覆盖），调用方只有 <code>ensureRoles</code>。控制面的 create_session 不带角色身份，输入正文、项目指令与模型结果都没有入口改动角色的项目、会话、工作目录、模型或工具类别。</p>
+    </aside>
+  </section>
+
+  <section id="bridge">
+    <h2>窄接口</h2>
+    <p>编排器只经 <code class="src" data-src="src/runtime/orchestrator.ts#export interface OrchestratorBridge">orchestrator.ts · OrchestratorBridge</code> 调用 Runtime，接口由 Runtime 在启动时注入。它不持有拥有者 token，也不是模型工具：模型能间接触发的编排器入口只有 <code>coding_delegate</code> 背后的 <code>delegateCoding</code>；<code>coding_result</code> 与群聊结果工具直接读 Store，不经编排器。窄接口只约束它能调用的 Runtime 方法：它自己的持久记录（结果、入站事件、角色行、子任务事件、群收件状态）直接写 Store 与 QqStore。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 400" role="img" aria-label="编排器组件关系：拥有者客户端经控制面进入 Runtime；main 任务经 coding_delegate 调用编排器的 delegateCoding；宿主适配器向编排器登记入站事件或请求派发；编排器只经 OrchestratorBridge 调用 Runtime 的 submitInternal 与少数其他方法，审批、改访问模式与资料授权不在接口内；Runtime 把终态事件回送编排器；编排器直接读写 Store 中的结果、入站事件与角色行。">
+          <g class="n"><rect x="20" y="20" width="190" height="52" rx="8"/><text x="115" y="38">拥有者客户端</text><text class="sub" x="115" y="57">持有 owner token</text></g>
+          <g class="n"><rect x="20" y="200" width="190" height="52" rx="8"/><text x="115" y="218">main 任务</text><text class="sub" x="115" y="237">coding_delegate 工具</text></g>
+          <g class="n"><rect x="320" y="100" width="160" height="52" rx="8"/><text x="400" y="118">宿主适配器</text><text class="sub" x="400" y="137">入站与调度</text></g>
+          <g class="n accent"><rect x="320" y="190" width="200" height="72" rx="8"/><text x="420" y="214">Orchestrator</text><text class="sub" x="420" y="238">编排器 · 宿主组件</text></g>
+          <g class="n"><rect x="580" y="200" width="170" height="52" rx="8"/><text x="665" y="218">OrchestratorBridge</text><text class="sub" x="665" y="237">窄接口</text></g>
+          <g class="n"><rect x="320" y="318" width="200" height="52" rx="8"/><text x="420" y="336">Store · QqStore</text><text class="sub" x="420" y="355">结果 · 入站 · 角色行</text></g>
+
+          <rect class="zone-r" x="790" y="100" width="234" height="280" rx="12"/>
+          <text class="zone-t" x="806" y="122">Runtime</text>
+          <g class="n accent"><rect x="810" y="140" width="194" height="52" rx="8"/><text x="907" y="158">submitInternal</text><text class="sub" x="907" y="177">带编排字段提交</text></g>
+          <g class="n"><rect x="810" y="210" width="194" height="52" rx="8"/><text x="907" y="228">其余桥接方法</text><text class="sub" x="907" y="247">取消 · 建会话 · 读回答</text></g>
+          <g class="n bad"><rect x="810" y="310" width="194" height="52" rx="8"/><text x="907" y="328">拥有者专属</text><text class="sub" x="907" y="347">审批 · 改模式 · 资料授权</text></g>
+
+          <path class="e" d="M210 46H907V98" marker-end="url(#ah)"/>
+          <text class="el" x="560" y="38">控制面 op · owner token</text>
+
+          <path class="e" d="M210 226H318" marker-end="url(#ah)"/>
+          <text class="el" x="264" y="216">delegateCoding</text>
+          <path class="e" d="M400 152V188" marker-end="url(#ah)"/>
+          <text class="el start" x="408" y="175">登记 / 请求派发</text>
+
+          <path class="e accent" d="M520 226H578" marker-end="url(#ah-accent)"/>
+          <text class="el" x="549" y="216">只经桥接</text>
+          <path class="e accent" d="M750 216C780 216 780 166 808 166" marker-end="url(#ah-accent)"/>
+          <text class="el" x="772" y="156">提交</text>
+          <path class="e" d="M750 236H808" marker-end="url(#ah)"/>
+          <text class="el" x="772" y="254">其余</text>
+
+          <path class="e bad dash" d="M665 252V336H772"/>
+          <path class="e bad" d="M778 322V350" style="stroke-width:3"/>
+          <text class="el" x="718" y="328">不在接口内</text>
+
+          <path class="e dash" d="M790 130H500V188" marker-end="url(#ah)"/>
+          <text class="el" x="650" y="122">终态事件</text>
+
+          <path class="e" d="M420 262V316" marker-end="url(#ah)"/>
+          <text class="el start" x="428" y="292">直接读写</text>
+        </svg>
+      </div>
+      <figcaption>宿主适配器指 Telegram、QQ、调度器与 GitHub webhook 的入口：Telegram 与 QQ 经编排器登记入站事件；调度器与 GitHub 在自己的事务里把入站事件写进 Store，再请编排器派发。编排器能调用的 Runtime 能力就是桥接接口里的那几个方法，拥有者专属的审批、访问模式切换与资料授权都不在其中。编排字段（agent_id、parent_task_id、source_event_id、deadline）只有编排器写：经 submitInternal 提交，或在群任务派发时直接回填 agent_id 与 source_event_id；控制面的 submit 不接收它们。</figcaption>
+      <ul class="legend">
+        <li><i class="bad"></i>编排器不可达</li>
+      </ul>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>桥接方法</th><th>Runtime 侧</th><th>编排器用它做什么</th></tr></thead>
+        <tbody>
+          <tr><td><code>submit</code></td><td><code class="src" data-src="src/runtime/runtime.ts#private async submitInternal">runtime.ts · submitInternal</code></td><td>提交子任务、唤醒任务与入站任务，可带 agentId、parentTaskId、sourceEventId、deadline。与普通提交同一套幂等（同会话 + request_id + 提交摘要）；遇模型配置应用门闩时等应用结束，再按同一请求键重试。</td></tr>
+          <tr><td><code>cancelTask</code></td><td><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code></td><td>超时取消与入站门丢弃；原因持久化在任务上。</td></tr>
+          <tr><td><code>findProjectByName</code> <code>createProject</code> <code>createSession</code></td><td>Store 的 <code>findProjectByName</code>；Runtime 同名方法</td><td>只用于角色引导。</td></tr>
+          <tr><td><code>readTaskReply</code></td><td><code class="src" data-src="src/runtime/runtime.ts#readTaskReply(taskId: string, offset">runtime.ts · readTaskReply</code></td><td>按任务关联的历史条目分页读最终回答，不取会话最新一条；用于摘要与结构化结果。</td></tr>
+          <tr><td><code>resumeQueue</code> <code>kickSession</code></td><td><code>resumeQueue</code> / <code>kick</code></td><td>重启后恢复角色会话队列；群任务关联完成后唤醒该会话的调度循环。</td></tr>
+          <tr><td><code>defaultModelSelection</code></td><td>后台默认模型</td><td>角色没有记录模型时使用。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <aside class="callout inv">
+      <b>编排字段只来自宿主</b>
+      <p>控制面 <code class="src" data-src="src/control/server.ts#case &quot;submit&quot;:">server.ts · submit</code> 只把 session_id、request_id、model_selection、input、access_mode、granted_paths 交给 Runtime，拥有者也不能借控制面伪造子任务。编排器提交的任务一律使用 <code>confirm</code>（请求确认模式），不继承目标会话的默认模式，也就不会继承 main 会话的完全访问模式；桥接里没有审批、切换访问模式（<code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">switchTaskMode</code>、<code class="src" data-src="src/runtime/runtime.ts#async setSessionDefaultMode">setSessionDefaultMode</code>）或建资料授权（<code class="src" data-src="src/runtime/runtime.ts#createDataGrant">createDataGrant</code>）的方法。</p>
+    </aside>
+  </section>
+
+  <section id="delegate">
+    <h2>main 委派 coding</h2>
+    <p>main 的委派工具只有两个：<code>coding_delegate</code> 与 <code>coding_result</code>（<code class="src" data-src="src/agent/delegation-tools.ts#createDelegationTools">delegation-tools.ts · createDelegationTools</code>），只有 main 的工具类别里有 <code>delegation</code>。模型只给正文、模式（<code>analyze</code> / <code>draft</code>）、幂等键和可选资料；目标角色、会话、工作目录、权限模式与截止时间都由 <code class="src" data-src="src/runtime/orchestrator.ts#delegateCoding(input">orchestrator.ts · delegateCoding</code> 写定。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:6">
+          <div class="who"><span>main 会话</span><span>委派工具</span><span>编排器</span><span>Runtime</span><span>coding 会话</span><span>Store</span></div>
+          <div class="m" style="--from:1;--to:2"><span>coding_delegate(request, mode, key, materials?)</span></div>
+          <div class="note" style="--from:2;--to:2">核实 main 绑定；只限拥有者发起的任务；key 格式</div>
+          <div class="m" style="--from:2;--to:6"><span>按 deleg:&lt;父任务&gt;:&lt;key&gt; 查已有子任务</span></div>
+          <div class="m l" style="--from:6;--to:2"><span>已有：比对参数摘要，同参返回原子任务，异参冲突</span></div>
+          <div class="note" style="--from:2;--to:2">没有：materials 解析为文本快照写入正文</div>
+          <div class="m" style="--from:2;--to:3"><span>delegateCoding(父任务, mode, request, key, 摘要)</span></div>
+          <div class="note" style="--from:3;--to:3">宿主模板首行写模式；截止 = 父任务开始 + 60 分钟；正文超限拒绝</div>
+          <div class="note" style="--from:3;--to:3">派发串行链上再查同键；首次委派至多 3 个</div>
+          <div class="m" style="--from:3;--to:4"><span>submitInternal：编排字段 + confirm</span></div>
+          <div class="m" style="--from:4;--to:6"><span>幂等入队（queued）</span></div>
+          <div class="m l" style="--from:2;--to:1"><span>已委派：子任务 ID 与截止时间</span></div>
+          <div class="m" style="--from:4;--to:5"><span>调度循环启动 coding 任务</span></div>
+          <div class="phase"><span>子任务到达终态</span></div>
+          <div class="m l" style="--from:5;--to:4"><span>task.completed / failed / canceled / interrupted</span></div>
+          <div class="m l" style="--from:4;--to:3"><span>onRuntimeEvents（提交后广播）</span></div>
+          <div class="m" style="--from:3;--to:4"><span>readTaskReply：分页读最终回答</span></div>
+          <div class="note" style="--from:3;--to:3">归类结局，拼摘要与结构化结果</div>
+          <div class="m ok" style="--from:3;--to:6"><span>同一事务：result_summary、result_ref、child_task.*</span></div>
+          <div class="m" style="--from:3;--to:4"><span>submitInternal：wake:&lt;子任务&gt;、confirm</span></div>
+          <div class="m l" style="--from:4;--to:1"><span>新 main 任务，输入为有界唤醒文本</span></div>
+          <div class="m" style="--from:1;--to:2"><span>coding_result(task_id, part)</span></div>
+          <div class="m l dash" style="--from:2;--to:1"><span>result / reply / artifact 分页</span></div>
+        </div>
+      </div>
+      <figcaption>结果先落库再唤醒：结果、入站事件终态与 child_task.* 事件在一个事务里提交，唤醒是之后一次独立的提交，请求键 wake:&lt;子任务&gt; 固定，重复回传只唤醒一次。唤醒输入只带固定字段、截断后的摘要与读取说明，不复制子任务历史。</figcaption>
+    </figure>
+
+    <h3>谁能委派、委派什么</h3>
+    <ul>
+      <li><b>来源</b>：只有拥有者发起的 main 任务能委派（<code class="src" data-src="src/agent/delegation-tools.ts#ownerOriginated">delegation-tools.ts · ownerOriginated</code>）：拥有者直接提交（任务不带角色来源），或来源事件是 Telegram / QQ 私聊入站。调度唤醒、子任务唤醒与其他入站任务调用时报错，外部内容不能借此连环建任务。</li>
+      <li><b>幂等键</b>：<code>key</code> 为 1–64 位字母、数字、<code>_</code> 或 <code>-</code>（<code class="src" data-src="src/agent/delegation-tools.ts#KEY_RE">KEY_RE</code>），请求键 <code>deleg:&lt;父任务&gt;:&lt;key&gt;</code>。工具先比对原始参数的规范化摘要；编排器在串行链上再核一次（角色、正文或摘要、截止时间、来源事件），同键异参抛冲突，不产生第二个子任务。</li>
+      <li><b>资料</b>：<code>materials</code> 在委派时按 main 的可读范围解析成文本快照，追加在请求后面；coding 拿不到原始引用 ID。已接收的群聊结果（<code>chat_result</code>）不能作为委派资料。</li>
+      <li><b>固定参数</b>：每个父任务至多 <code class="src" data-src="src/runtime/orchestrator.ts#DELEGATION_LIMITS">DELEGATION_LIMITS</code>.perParent = 3 个首次委派（<code class="src" data-src="src/core/store.ts#countDelegations">store.ts · countDelegations</code> 不计 <code>:retry</code>）；截止时间 = 父任务开始时刻（尚未开始取创建时刻）+ deadlineMs（60 分钟），是确定值，同键重试不会因时间变化而冲突；宿主模板加请求加资料合计超过 <code class="src" data-src="src/runtime/orchestrator.ts#INPUT_TEXT_CAP">INPUT_TEXT_CAP</code>（8192 字符）直接拒绝，不截断。</li>
+      <li><b>不继承来源事件</b>：委派不把父任务的来源事件传给子任务，子任务终态不会回写 Telegram / QQ 私聊事件，子任务和它的唤醒任务都不产生 owner 回复（owner 回复的登记见 <code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">runtime.ts · enqueueOwnerReply</code> 与<a href="inbound-events.html">入站事件</a>）。</li>
+      <li><b>停止或重启时</b>：未落结果的 <code>coding_delegate</code> 按原请求键核实子任务是否存在（<code class="src" data-src="src/agent/delegation-tools.ts#delegationOpCheck">delegationOpCheck</code>），存在即已委派，不存在即已知未委派，不记效果未知。</li>
+    </ul>
+
+    <h3>结构化结果与分页读取</h3>
+    <p>子任务终态后，<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code> 写两样东西：<code>result_summary</code>（完成时为最终回答，至多 <code class="src" data-src="src/runtime/orchestrator.ts#RESULT_SUMMARY_CAP">RESULT_SUMMARY_CAP</code> = 1000 字符，超出注明截断）与 <code>result_ref</code> JSON。委派的 coding 子任务写 <code class="src" data-src="src/runtime/orchestrator.ts#export interface DelegationResult">DelegationResult</code>（下表）；其他角色任务只有 sessionId 与 taskId，GitHub 评审另并入 review。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>字段</th><th>取值</th><th>谁判定</th></tr></thead>
+        <tbody>
+          <tr><td><code>mode</code></td><td><code>analyze</code> / <code>draft</code></td><td>正文首行，由宿主模板写入，模型正文排在后面，不能伪造。</td></tr>
+          <tr><td><code>outcome</code></td><td><code>completed</code> / <code>failed</code> / <code>timeout</code> / <code>unknown</code></td><td>宿主按任务终态归类（见下一节）。</td></tr>
+          <tr><td><code>tests</code></td><td><code>passed</code> / <code>failed</code> / <code>not_run</code> / <code>unreported</code></td><td>coding 在最终回答里按行自报「测试：通过|失败|未运行」，取最后一次；没按格式报告为 unreported。不是宿主验证。</td></tr>
+          <tr><td><code>needsOwner</code> <code>needsOwnerReason</code></td><td>布尔 + 原因</td><td>宿主：结果未知、存在效果未知的操作、有未答复的审批请求；并入 coding 自报的「需要拥有者：是」、自动重试创建失败与评审正文未完整保存。自报「否」不能覆盖宿主判定。</td></tr>
+          <tr><td><code>effect</code></td><td><code>unknown</code> / <code>none_unknown</code></td><td>宿主：任务的效果未知标记。none_unknown 只表示没记到效果未知，不证明没有写入。</td></tr>
+          <tr><td><code>failure</code></td><td>文本或 null</td><td>非完成时的错误或中断原因。</td></tr>
+          <tr><td><code>artifactIds</code></td><td>产物 ID</td><td>该子任务的产物，排除宿主诊断用的 <code>prompt-snapshot:*</code>。</td></tr>
+          <tr><td><code>retriedBy</code></td><td>子任务 ID</td><td>被自动重试接替时记录重试子任务。</td></tr>
+          <tr><td><code>review</code></td><td>对象</td><td>只有 GitHub 评审子任务有，见下文。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>coding_result</code> 只读父任务在当前 main 会话里的 coding 子任务，这是按父子关系开的窄口，不扩大资料授权。<code>part=result</code>（默认）给状态、截止时间、摘要与上表除 review 外的字段；评审子任务在开头另附修订说明（<code class="src" data-src="src/github/events.ts#notice(task">events.ts · notice</code>）。<code>part=reply</code> 按 UTF-8 字节分页读最终回答，每页至多 <code class="src" data-src="src/agent/delegation-tools.ts#READ_LIMITS">READ_LIMITS</code>.replyBytes（16 KiB）；任务不是 <code>completed</code> 时返回暂无最终回答（<code class="src" data-src="src/runtime/runtime.ts#readTaskReply(taskId: string, offset">runtime.ts · readTaskReply</code>）。<code>part=artifact</code> 读该子任务自己的产物，每页至多 artifactBytes（64 KiB），页尾不完整的字符留给下一页。</p>
+  </section>
+
+  <section id="child">
+    <h2>子任务结果与异常路径</h2>
+    <p>子任务本身的状态机见<a href="task-lifecycle.html">任务生命周期</a>。这里画的是编排器这一侧：一个角色任务到达终态之后，结果怎样被记录一次、父会话怎样被唤醒一次，以及超时、自动重试和重启时走哪条边。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 356" role="img" aria-label="子任务结果状态图：活动中的任务因自然结束或截止巡检取消进入已终态、结果未记录；编排器在一个事务里记录结果与 child_task 事件，进入结果已记录；重试门通过时先建重试子任务再记录结果，进入由重试接替，不唤醒父任务，重试子任务重新排队；结果已记录后提交唤醒或在启动巡检时补发唤醒，进入父会话已唤醒。">
+          <g class="n run"><rect x="20" y="140" width="150" height="60" rx="8"/><text x="95" y="161">活动</text><text class="sub" x="95" y="182">尚未到达终态</text></g>
+          <g class="n wait"><rect x="270" y="140" width="180" height="60" rx="8"/><text x="360" y="161">已终态</text><text class="sub" x="360" y="182">结果未记录</text></g>
+          <g class="n ok"><rect x="560" y="40" width="190" height="60" rx="8"/><text x="655" y="61">结果已记录</text><text class="sub" x="655" y="82">child_task.* 已写</text></g>
+          <g class="n ok"><rect x="860" y="40" width="160" height="60" rx="8"/><text x="940" y="61">父会话已唤醒</text><text class="sub" x="940" y="82">wake:&lt;子任务&gt;</text></g>
+          <g class="n idle"><rect x="560" y="240" width="190" height="60" rx="8"/><text x="655" y="261">由重试接替</text><text class="sub" x="655" y="282">记 retriedBy，不唤醒</text></g>
+
+          <path class="e" data-k="c-term" d="M170 158H268" marker-end="url(#ah)"/>
+          <text class="el" data-k="c-term" x="219" y="150">到达终态</text>
+          <path class="e" data-k="c-deadline" d="M170 184H268" marker-end="url(#ah)"/>
+          <text class="el" data-k="c-deadline" x="219" y="204">截止巡检取消</text>
+
+          <path class="e ok" data-k="c-record" d="M450 158C505 158 505 70 558 70" marker-end="url(#ah-ok)"/>
+          <text class="el start" data-k="c-record" x="512" y="128">同一事务记录</text>
+          <path class="e" data-k="c-retry" d="M450 184C505 184 505 270 558 270" marker-end="url(#ah)"/>
+          <text class="el start" data-k="c-retry" x="512" y="218">重试门通过</text>
+
+          <path class="e ok" data-k="c-wake" d="M750 60H858" marker-end="url(#ah-ok)"/>
+          <text class="el" data-k="c-wake" x="804" y="52">提交唤醒</text>
+          <path class="e ok dash" data-k="c-sweep" d="M750 84H858" marker-end="url(#ah-ok)"/>
+          <text class="el" data-k="c-sweep" x="804" y="102">启动巡检补发</text>
+
+          <path class="e dash" data-k="c-again" d="M655 300V326H95V202" marker-end="url(#ah)"/>
+          <text class="el" data-k="c-again" x="375" y="344">重试子任务重新排队</text>
+        </svg>
+      </div>
+      <figcaption>结果只写一次：setTaskResult 的条件是 result_summary 仍为空，事件监听与启动巡检同时回传时只有先提交的一次生效，后到的看到 0 行就退出，也不再唤醒。没有父任务的角色任务（入站任务、群任务、唤醒任务本身）停在「结果已记录」；父任务不在角色会话里时也不唤醒。悬停下表的行会高亮对应的边。</figcaption>
+      <ul class="legend">
+        <li><i class="run"></i>执行中</li>
+        <li><i class="wait"></i>等待编排器记录</li>
+        <li><i class="ok"></i>已记录 / 已唤醒</li>
+        <li><i class="idle"></i>由重试接替，不再唤醒</li>
+      </ul>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th style="min-width:9.5em">转换</th><th style="min-width:7em">触发者</th><th>条件与位置</th><th>事件</th></tr></thead>
+        <tbody>
+          <tr data-k="c-term" tabindex="0">
+            <td>活动 → 已终态</td>
+            <td>驱动器、调度循环、拥有者</td>
+            <td>任务进入 completed、failed、canceled 或 interrupted（见<a href="task-lifecycle.html">任务生命周期</a>）。后台重启时，<code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code> 在编排器启动前把执行中的任务转 interrupted。</td>
+            <td><code>task.completed</code> 等</td>
+          </tr>
+          <tr data-k="c-deadline" tabindex="0">
+            <td>活动 → 已终态</td>
+            <td>编排器截止巡检</td>
+            <td>每隔 deadlineCheckMs（默认 1 s，<code class="src" data-src="src/runtime/orchestrator.ts#deadlineCheckMs ?? 1_000">orchestrator.ts · start</code>）查 <code>deadline</code> 已过且仍为 queued、running 或 awaiting_confirmation 的任务（<code class="src" data-src="src/core/store.ts#listOverdueTasks">store.ts · listOverdueTasks</code>），经桥接取消，原因 <code class="src" data-src="src/runtime/orchestrator.ts#DEADLINE_REASON">DEADLINE_REASON</code> = <code>deadline_exceeded</code>。排队取消写 error_message，执行中取消写 interrupt_reason，重启后仍能据此判定超时。已到终态的竞争失败被忽略。截止时间包含排队与审批等待。<br><code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td>
+            <td><code>task.canceled</code></td>
+          </tr>
+          <tr data-k="c-record" tabindex="0">
+            <td>已终态 → 结果已记录</td>
+            <td>编排器：事件监听 <code class="src" data-src="src/runtime/orchestrator.ts#onRuntimeEvents">onRuntimeEvents</code>、启动巡检 ①，或群任务派发时发现任务已终态</td>
+            <td>只处理带 agent_id 的角色任务。一个事务里：<code class="src" data-src="src/core/store.ts#setTaskResult">store.ts · setTaskResult</code> 条件写入；任务就是来源事件关联的任务时把事件置 done / failed；有来源事件时调用 onInboundTerminal（owner 回复或 GitHub 通知的登记）；追加 child_task.* 事件。</td>
+            <td><code>child_task.completed</code> 等四种</td>
+          </tr>
+          <tr data-k="c-retry" tabindex="0">
+            <td>已终态 → 由重试接替</td>
+            <td>编排器重试门</td>
+            <td>条件见下方列表。先以确定参数提交重试子任务，再为首次任务记录结果（带 <code>retriedBy</code>）；首次任务照常发 <code>child_task.failed</code>，但不唤醒 main。重试提交报错时按固定键核实：已存在即沿用；确实没有就记需要拥有者及原因，按普通失败唤醒。</td>
+            <td><code>child_task.failed</code></td>
+          </tr>
+          <tr data-k="c-wake" tabindex="0">
+            <td>结果已记录 → 父会话已唤醒</td>
+            <td>编排器 <code class="src" data-src="src/runtime/orchestrator.ts#private async wakeParent">wakeParent</code></td>
+            <td>任务有父任务、本次写入成功且没有被重试接替；父任务所在会话是角色会话。以 <code>wake:&lt;子任务&gt;</code>、<code>confirm</code> 提交到父任务会话。提交失败只记日志，留给启动巡检 ②。</td>
+            <td>唤醒任务的 <code>task.queued</code></td>
+          </tr>
+          <tr data-k="c-sweep" tabindex="0">
+            <td>结果已记录 → 父会话已唤醒</td>
+            <td>启动巡检 ②</td>
+            <td>结果已记录、父会话里没有 <code>wake:&lt;子任务&gt;</code> 任务、也没有 <code>:retry</code> 接替的子任务（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingWake">store.ts · listRoleTasksPendingWake</code>），且父任务所在会话是角色会话，按原键补发。唤醒任务的存在即投递记录。</td>
+            <td>唤醒任务的 <code>task.queued</code></td>
+          </tr>
+          <tr data-k="c-again" tabindex="0">
+            <td>由重试接替 → 活动（新任务）</td>
+            <td>重试门</td>
+            <td>重试子任务沿用原父任务、原正文（含资料快照）、coding 与 <code>confirm</code>；请求键为原键加 <code>:retry</code>，截止 = 首次任务结束 + 60 分钟，不占委派名额，本身不会再被重试。</td>
+            <td><code>task.queued</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>终态怎样归类</h3>
+    <p>归类在 <code class="src" data-src="src/runtime/orchestrator.ts#onRuntimeEvents">onRuntimeEvents</code> 与 <code class="src" data-src="src/runtime/orchestrator.ts#private outcomeFromStatus">outcomeFromStatus</code> 里各写一份，前者按事件类型，后者按持久状态（启动巡检与群任务派发用），结论相同。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>任务终态</th><th>结局</th><th>事件</th><th>摘要</th></tr></thead>
+        <tbody>
+          <tr><td><code class="st ok">completed</code></td><td><code>completed</code></td><td><code>child_task.completed</code>，带摘要与 result_ref</td><td>最终回答，截断到 1000 字符；没有文本时写「无文本输出」。</td></tr>
+          <tr><td><code class="st bad">failed</code></td><td><code>failed</code></td><td><code>child_task.failed</code>，带错误信息</td><td>「子任务失败：」加错误信息。</td></tr>
+          <tr><td><code class="st idle">canceled</code>，原因 <code>deadline_exceeded</code></td><td><code>timeout</code></td><td><code>child_task.timeout</code>，带截止时间</td><td>超过截止时间、已取消。</td></tr>
+          <tr><td><code class="st idle">canceled</code>，其他原因</td><td><code>failed</code></td><td><code>child_task.failed</code></td><td>「子任务失败：」加 error_message（排队中取消的原因写在这里，如入站门丢弃）；没有时写「已取消」。执行中取消的原因在 interrupt_reason，不进摘要，只进委派结果的 failure。</td></tr>
+          <tr><td><code class="st unk">interrupted</code>，任何原因</td><td><code>unknown</code></td><td><code>child_task.result_unknown</code>，带中断原因</td><td>固定文本：结果未知，未自动重放任何外部副作用。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>child_task.* 事件对每个带 agent_id 的任务都会发，不只是子任务：入站建的 main 任务、群任务与唤醒任务本身也会发，它们的 parentTaskId 为 null。</p>
+
+    <h3>自动重试门</h3>
+    <p>重试门在 <code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">handleTerminal</code> 里，下列条件<strong>全部</strong>成立才自动重试一次：</p>
+    <ul>
+      <li>子任务模式为 <code>analyze</code>；<code>draft</code> 不重试。</li>
+      <li>有父任务且没有来源事件：GitHub 评审子任务不重试。</li>
+      <li>任务状态是 <code class="st bad">failed</code>；超时、其他取消与中断（结果未知）都不重试。</li>
+      <li>任务没有效果未知标记，请求键不以 <code>:retry</code> 结尾。</li>
+      <li>本任务没有已批准或已消费的审批请求。</li>
+      <li>工具操作账本里的每个操作都满足：规则表判为无写入效果（<code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">tool-op-ledger.ts · hasNoWriteEffect</code>），没有效果未知，结果已记录。<code>bash</code>、<code>edit</code>、<code>write</code>、记忆写入、MCP 与未登记的工具一律按需要审批判定，出现一次就不重试（包括经 bash 执行的 git clone）。</li>
+    </ul>
+
+    <h3>重启恢复</h3>
+    <p>Runtime 先跑自己的恢复（执行中的任务转 interrupted、未决审批失效，见<a href="task-lifecycle.html#restart">任务生命周期</a>），再启动编排器。Runtime 恢复时编排器还没创建，这时产生的 task.interrupted 没人监听；重启窗口内到达终态的任务全靠巡检补记。<code class="src" data-src="src/runtime/orchestrator.ts#async start()">orchestrator.ts · start</code> 按顺序执行：</p>
+    <ol class="steps">
+      <li>引导角色：已有的角色行原样保留。</li>
+      <li>已登记、未建任务的入站事件按原请求键串行重提（派发细节见<a href="inbound-events.html">入站事件</a>）。</li>
+      <li>巡检 ①：已终态但结果未记录的角色任务补记结果与事件（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingResult">store.ts · listRoleTasksPendingResult</code>）；interrupted 记为结果未知，不重放。</li>
+      <li>巡检 ②：结果已记录但缺唤醒的子任务，按 <code>wake:&lt;子任务&gt;</code> 补发（<code class="src" data-src="src/runtime/orchestrator.ts#private async sweepPendingResults">sweepPendingResults</code>）。</li>
+      <li>三个角色会话中，只有因 <code>backend_restart</code> 暂停的队列自动恢复；<code>occupancy_unverified</code> 等涉及未核实旧执行的暂停留给拥有者核实。</li>
+      <li>开始截止巡检。</li>
+    </ol>
+    <p>后台停止时，编排器在 GitHub webhook、调度器与 Telegram 之后，QQ 适配器与中断活动任务之前停下（<code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code>）：清掉巡检定时器，等派发串行链收尾，此后不再产生取消或唤醒。停止路径随后中断的角色任务没人监听，由下次启动的巡检 ① 按结果未知补记。</p>
+
+    <h3>恢复靠原键</h3>
+    <p>编排器提交的每个任务都有宿主写定的请求键，Runtime 按「同会话 + request_id + 提交摘要」幂等：同键同参返回原任务，同键异参冲突。任何恢复路径都只用原键，不另起新键。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>请求键</th><th>所在会话</th><th>谁提交</th></tr></thead>
+        <tbody>
+          <tr><td><code>evt:&lt;事件&gt;</code></td><td>目标角色会话</td><td>入站事件派发（Telegram、QQ 私聊、调度唤醒等）<code class="src" data-src="src/runtime/orchestrator.ts#private async dispatchEvent">dispatchEvent</code></td></tr>
+          <tr><td><code>qq:&lt;收件键&gt;</code></td><td>该群的 <code>qq_group</code> 会话</td><td>QQ 群入站派发，原键取自群收件记录（<code class="src" data-src="src/qq/store.ts#qq:${dedupKey}">qq/store.ts</code>）</td></tr>
+          <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;</code></td><td>coding</td><td>main 委派</td></tr>
+          <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;:retry</code></td><td>coding</td><td>自动重试门</td></tr>
+          <tr><td><code>wake:&lt;子任务&gt;</code></td><td>父任务所在的角色会话</td><td>结果回传与启动巡检 ②</td></tr>
+          <tr><td><code>evt:&lt;事件&gt;:main</code></td><td>main</td><td>GitHub 评审父任务</td></tr>
+          <tr><td><code>deleg:&lt;父任务&gt;:review</code></td><td>coding</td><td>GitHub 评审子任务</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="github">
+    <h2>GitHub PR 评审编排</h2>
+    <p>拥有者启用 webhook 后，每个有效的 PR 事件由宿主固定委派一次只读评审（ADR 0013）。签名校验、入站登记与去重见<a href="inbound-events.html">入站事件</a>；通知的发送账本见<a href="outbox.html">通知 outbox</a>。这里只讲编排：派发不经模型，模型也不能改变任务的工具、目标或发送。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:6">
+          <div class="who"><span>GitHub 适配</span><span>编排器</span><span>main 会话</span><span>coding 会话</span><span>Store · 产物</span><span>outbox</span></div>
+          <div class="m" style="--from:1;--to:5"><span>register：登记入站事件</span></div>
+          <div class="note" style="--from:5;--to:6">同一 PR 较新且修订不同：旧任务 result_ref.review.staleReason 写原因，旧事件未发送的通知取消</div>
+          <div class="m dash" style="--from:1;--to:2"><span>下一轮事件循环 dispatch</span></div>
+          <div class="note" style="--from:2;--to:2">gate：仓库仍在配置内、修订未过期</div>
+          <div class="m" style="--from:2;--to:3"><span>父任务 evt:&lt;事件&gt;:main（无工具）</span></div>
+          <div class="m" style="--from:2;--to:4"><span>子任务 deleg:&lt;父任务&gt;:review（analyze）</span></div>
+          <div class="note" style="--from:4;--to:4">只开放 read、read_artifact、effect=read 的 MCP；不执行 PR 代码</div>
+          <div class="m l" style="--from:4;--to:2"><span>终态事件</span></div>
+          <div class="m" style="--from:2;--to:5"><span>resultData：最终回答存为产物，写 result_ref.review</span></div>
+          <div class="m" style="--from:2;--to:3"><span>唤醒 wake:&lt;子任务&gt;（只开放 coding_result）</span></div>
+          <div class="m l" style="--from:3;--to:2"><span>唤醒任务终态</span></div>
+          <div class="m ok" style="--from:2;--to:6"><span>同一结果事务：登记 inbound_event + 事件 ID 的一次通知</span></div>
+          <div class="note" style="--from:6;--to:6">发送前复核事件有效、目标未变</div>
+        </div>
+      </div>
+      <figcaption>评审子任务的截止时间取事件收到时刻 + 60 分钟，与父任务相同；唤醒任务取子任务结束 + 60 分钟。通知只在唤醒产生的 main 摘要任务结束时登记，逻辑键是来源类别 inbound_event 加事件 ID，与 owner 回复无关，每个事件至多一次。</figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>任务</th><th>请求键</th><th>允许的工具</th><th>来源事件</th></tr></thead>
+        <tbody>
+          <tr><td>main 父任务</td><td><code>evt:&lt;事件&gt;:main</code></td><td>无：只确认接收</td><td>本事件</td></tr>
+          <tr><td>coding 评审子任务</td><td><code>deleg:&lt;父任务&gt;:review</code></td><td><code>read</code>、<code>read_artifact</code>、本地配置标记 <code>effect = read</code> 的 MCP 工具</td><td>本事件（因此不自动重试）</td></tr>
+          <tr><td>main 唤醒任务</td><td><code>wake:&lt;子任务&gt;</code></td><td><code>coding_result</code></td><td>本事件（普通委派的唤醒没有来源事件）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>工具收窄由 <code class="src" data-src="src/github/events.ts#allowTool(task">events.ts · allowTool</code> 判定，驱动器在任务开始时把它作为宿主按任务收窄并入本任务允许的工具集合；其他任务不受影响。评审正文由宿主模板生成（<code class="src" data-src="src/github/events.ts#request(event">events.ts · request</code>），PR 标题与正文放在「不可信 PR 资料」之后，只作分析材料。</p>
+
+    <h3>报告与修订有效性</h3>
+    <ul>
+      <li><b>报告</b>：子任务完成时，<code class="src" data-src="src/github/events.ts#resultData(task">events.ts · resultData</code> 把最终回答逐页写进产物 <code>review-draft:&lt;事件&gt;</code>，读满记录的总字节数才标记完整。分页缺失或写入失败时产物保持 partial，结果记 captureError 并要求拥有者核实。</li>
+      <li><b>有效性</b>：<code>result_ref.review</code> 保存事件 ID、PR URL、仓库 ID、PR 编号、head/base SHA、产物 ID 与 <code>staleReason</code>。<code class="src" data-src="src/github/events.ts#staleReason(event">events.ts · staleReason</code> 在 PR 已关闭或为 draft，或同一 PR 有 updatedAt 不早于本事件、但 head、base、状态或 draft 不同的事件时返回原因。</li>
+      <li><b>失效</b>：新事件登记时（<code class="src" data-src="src/github/events.ts#register(s">events.ts · register</code>）在同一事务里给旧事件的评审结果写 staleReason，并取消旧事件尚未发送的通知（发送中的只记取消请求）；旧事件还没派发或还没开始的任务被入站门丢弃（<code class="src" data-src="src/github/events.ts#gate(event">events.ts · gate</code>）。旧产物保留为不可变记录。</li>
+      <li><b>通知</b>：<code class="src" data-src="src/github/events.ts#terminal(event">events.ts · terminal</code> 只接受「本事件 coding 子任务」的唤醒任务；事件已失效、webhook 停用、owner 目标未配置或已变化时改记 <code>inbound.skipped</code>，不发送。</li>
+    </ul>
+  </section>
+
+  <section id="chat">
+    <h2>群聊结果</h2>
+    <p>QQ 群任务完成后，编排器照常记录摘要与 <code>child_task.completed</code>，但群任务没有父任务，所以不唤醒 main；它的来源事件是 <code>qq_group</code>，owner 回复登记直接跳过。群内的普通回复走独立的 qq_outbox（见<a href="inbound-events.html">入站事件</a>）。main 想用群里的结果，必须显式接收（ADR 0014）。</p>
+
+    <div class="flow">
+      <div class="stage"><b>群任务完成</b><br>编排器写 result_summary（最终回答）；不唤醒 main，不产生 owner 回复。</div>
+      <div class="stage"><b><code>chat_result_list</code></b><br>只列宿主元数据：任务、来源事件、账号、群、消息 ID、完成时间、是否已接收；不读正文。</div>
+      <div class="stage"><b><code>chat_result_accept</code></b><br>同一事务复核来源与撤回，保存摘要快照与接收理由。</div>
+      <div class="stage"><b>通知引用</b><br><code>{kind:'chat_result', task_id}</code> 作为通知来源；每次解析再复核，仍经拥有者审批。</div>
+    </div>
+
+    <ul>
+      <li><b>能接收什么</b>：<code class="src" data-src="src/agent/chat-result-tools.ts#function sourceOf">chat-result-tools.ts · sourceOf</code> 只放行已完成且已记录结果的 chat 任务，并核对会话类别为 qq_group、收件记录、群绑定、入站事件（done、目标 chat、actor 与收件一致）彼此对应。两个工具都只在宿主绑定的 main 任务里可用。</li>
+      <li><b>快照</b>：接收保存 result_summary 的前 <code class="src" data-src="src/agent/chat-result-tools.ts#SUMMARY_CHARS">SUMMARY_CHARS</code> = 1000 个 Unicode 字符、来源任务、接收任务、宿主操作 ID 与理由（1–1024 字节）。（main 项目，任务）为主键，首次快照固定，重复接收不改写，只有首次写入发 <code>chat_result.accepted</code>（<code class="src" data-src="src/core/store.ts#acceptChatResult">store.ts · acceptChatResult</code>）。列表每页 1–50 条，默认 20（<code class="src" data-src="src/agent/chat-result-tools.ts#params.limit ?? 20">chat_result_list</code>）。</li>
+      <li><b>撤回使摘要失效</b>：该群任何一条在任务结束前收到、并在任务开始后（或时间未记）被撤回的消息，都会让这次结果不可接收，已接收的快照也不能再被解析或外发。这是按时间窗的保守判定，可能拒掉其实没引用被撤回消息的摘要。已经进入 main 历史或已发送的副本不追溯清除。</li>
+      <li><b>接收不是外发授权</b>：通知与通知计划引用快照时经 <code class="src" data-src="src/agent/chat-result-tools.ts#resolveAcceptedChatResult">resolveAcceptedChatResult</code> 核对 main 项目与撤回，登记仍要拥有者审批（<a href="outbox.html">通知 outbox</a>）。快照也不开放原始群历史、产物或带群来源的记忆，coding 委派不能引用它。</li>
+      <li><b>停止或重启时</b>：未落结果的 <code>chat_result_accept</code> 按接收账本核实（<code class="src" data-src="src/agent/chat-result-tools.ts#chatResultOpCheck">chatResultOpCheck</code>），不记效果未知。</li>
+    </ul>
+  </section>
+
+  <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>
+</main>
+</body>
+</html>

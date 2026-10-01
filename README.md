@@ -1,5 +1,7 @@
 # ruukoto
 
+已确认的新方向是两个独立工具：开发机器上的 Coding Agent `ruukoto-dev`，以及专用 Linux 服务器上的 Personal Agent `ruukoto`，见 [ADR 0017](docs/adr/0017-two-agent-products.md)。代码迁移尚待实施；以下介绍现有版本的实现与使用方式。
+
 面向拥有者日常使用的通用个人 Agent。当前最重要的用途是开发协助：接受仓库和
 需求，读取代码、修改文件、运行检查、按失败继续修复，交付可审查的改动。项目维护
 （GitHub CI 分析与 PR 评审）与 QQ 群聊是后续用途。
@@ -11,6 +13,7 @@
 - 术语表：[CONTEXT.md](CONTEXT.md)
 - 架构决策：[docs/adr/](docs/adr/)
 - 实现细节与验证状态：[docs/runtime.md](docs/runtime.md)
+- 图解（状态机、调用路径、协议、存储与部署）：[docs/visual/index.html](docs/visual/index.html)
 - 面向代理的仓库约定：[AGENTS.md](AGENTS.md)
 
 当前状态：首期（后台运行时、编码工具与两种权限模式、TUI、上下文与长期记忆、

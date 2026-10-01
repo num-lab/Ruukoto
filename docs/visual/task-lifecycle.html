@@ -28,6 +28,7 @@
         <code class="src" data-src="src/agent/driver.ts#requestStop">agent/driver.ts</code>
         <code class="src" data-src="src/agent/approval-gate.ts#class ApprovalGate">agent/approval-gate.ts</code>
         <code class="src" data-src="src/core/store.ts#transitionTask">core/store.ts</code>
+        <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">control/ensure-backend.ts</code>
         <code class="src" data-src="src/core/dir-identity.ts#verifyDirIdentity">core/dir-identity.ts</code>
         <code class="src" data-src="src/agent/tool-router.ts#prepareToolBoundary">agent/tool-router.ts</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#settleTask">agent/tool-op-ledger.ts</code>
@@ -294,6 +295,7 @@
         <p>事务末尾记 <code>backend.recovered</code>，列出被中断的任务与被暂停的会话。编排器、QQ、Telegram、调度器与 GitHub webhook 都启动之后才记 <code>backend.started</code>（QQ、Telegram 与调度器只有个人 Agent 产品启动；Coding Agent 不创建，<code>backend.started</code> 一并记录产品身份）。</p>
       </div>
     </div>
+    <p>ruukoto-dev 的 TUI 按需拉起（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>）只是通往同一条重启路径的又一个入口：拉起的进程就是 <code>server</code>，实例锁照常仲裁成单个后台，上面这张 <code>recover</code> 事务一条不差地执行。它改变的只是谁来发起启动，不改变启动之后发生什么：界面重新打开沿握手快照复现任务（见<a href="control-protocol.html">控制面协议</a>），连接丢失永远不构成重新执行的授权——恢复语义照下，不重放。</p>
     <aside class="callout inv">
       <b>不重放</b>
       <p>重启不重新调用模型、不重放工具操作。想继续中断的任务，拥有者用 continue 提交一个带 resumesTaskId 的新任务：它沿用会话默认访问模式（提交时可显式指定），旧任务的批准不继承，也不补造工具结果。</p>

@@ -6,7 +6,7 @@ import type { PersistentEvent, Task } from "../src/core/types.ts";
 import type { ToolOpView } from "../src/core/views.ts";
 import { EventFlow } from "../src/tui/event-flow.ts";
 import { EventFlowView } from "../src/tui/event-flow-view.ts";
-import { ViewState } from "../src/tui/state.ts";
+import { MAX_LOADED_ENTRIES, ViewState } from "../src/tui/state.ts";
 
 const at = (seconds: number) => new Date(Date.UTC(2026, 8, 22, 13, 16, seconds)).toISOString();
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });
@@ -39,6 +39,21 @@ const operation: ToolOpView = {
   paramsBytes: 20, paramsTruncated: false, intentRecordedAt: at(2), recordedResultAt: null,
   resultSummary: null, isError: null, effectUnknown: false,
 };
+
+test("向前翻页超过初始历史条数上限时保留更早页面与已有正文", () => {
+  const state = new ViewState();
+  const entries = Array.from({ length: MAX_LOADED_ENTRIES + 20 }, (_, i) =>
+    history(`entry-${i}`, "assistant", `正文 ${i}`, { timestamp: at(i) }));
+  state.installHistoryPage("session", { fileAvailable: true, hasPartialTail: false,
+    entries: entries.slice(20), nextBefore: entries[20]!.entryId }, "replace");
+  state.installHistoryPage("session", { fileAvailable: true, hasPartialTail: false,
+    entries: entries.slice(0, 21), nextBefore: null }, "prepend");
+  const view = state.openSession("session");
+  assert.equal(view.flow.historyEntries.length, entries.length, "前插更早历史不被初始窗口上限立即淘汰，重叠条目去重");
+  assert.ok(view.flow.items.some((entry) => entry.kind === "message" && entry.entryId === entries[0]!.entryId));
+  assert.ok(view.flow.items.some((entry) => entry.kind === "message" && entry.entryId === entries.at(-1)!.entryId));
+  assert.equal(view.historyCursor, null, "最早一页完整安装后停止翻页");
+});
 
 test("工具完成及历史补齐保持开始位置，不越过开始后到达的正文", () => {
   const flow = new EventFlow();

@@ -21,12 +21,11 @@ export type CommandResult = (text: string, isError?: boolean) => void;
 export interface CommandHost {
   quit(): void;
   openHelp(): void;
-  openSessions(): void;
+  openResume(): Promise<void>;
+  openProjects(): void;
   newSession(cwd: string): Promise<void>;
   newSessionHere(): Promise<void>;
-  loadOlder(): Promise<void>;
   reloadHistory(): Promise<void>;
-  expand(prefix: string): Promise<void>;
   artifact(prefix: string): Promise<void>;
   openApprovals(): void;
   interrupt(taskId: string): Promise<void>;
@@ -39,6 +38,7 @@ export interface CommandHost {
   refreshTask(): Promise<boolean>;
   openContext(result: CommandResult): Promise<void>;
   openPrompts(): Promise<void>;
+  toggleTodo(): void;
   /** 以当前会话提交任务输入。 */
   submit(text: string): Promise<void>;
 }
@@ -102,7 +102,7 @@ async function newProject(ctx: CommandContext, name: string): Promise<void> {
     await ctx.request("create_project", { name });
     ctx.showText(`项目已创建：${name}；用 /new-session <工作目录> 创建会话`);
   } catch (err) {
-    ctx.notify(red(writeFailure("创建项目", err, "/sessions")));
+    ctx.notify(red(writeFailure("创建项目", err, "/project")));
   }
 }
 
@@ -285,32 +285,31 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
 }
 
 export const COMMANDS: readonly SlashCommand[] = [
-  { name: "quit", description: "退出客户端（后台任务继续运行）", silent: true, run: (ctx) => ctx.host.quit() },
+  { name: "quit", description: "退出", silent: true, run: (ctx) => ctx.host.quit() },
   { name: "help", description: "命令与快捷键说明", run: (ctx) => ctx.host.openHelp() },
-  { name: "sessions", description: "切换项目与会话", run: (ctx) => ctx.host.openSessions() },
+  { name: "todo", description: "打开或关闭工作清单", run: (ctx) => ctx.host.toggleTodo() },
+  { name: "resume", description: "切换当前项目的会话", run: (ctx) => ctx.host.openResume() },
+  { name: "project", description: "切换项目", run: (ctx) => ctx.host.openProjects() },
   { name: "new-project", description: "创建项目", argumentHint: "<名称>", run: (ctx, { arg }) => newProject(ctx, arg) },
   { name: "new-session", description: "在当前项目创建会话", argumentHint: "<工作目录>", run: (ctx, { arg }) => ctx.host.newSession(arg) },
   { name: "new", description: "在当前工作区创建会话", run: (ctx) => ctx.host.newSessionHere() },
-  { name: "older", description: "向前翻页加载更早的历史", run: (ctx) => ctx.host.loadOlder() },
   { name: "history", description: "重新加载当前会话历史", run: (ctx) => ctx.host.reloadHistory() },
-  { name: "expand", description: "展开完整条目/工具输出", argumentHint: "<id 前缀>", run: (ctx, { arg }) => ctx.host.expand(arg) },
-  { name: "artifact", description: "查看工具产物正文（按字节分页）", argumentHint: "<产物 id 前缀>", run: (ctx, { arg }) => ctx.host.artifact(arg) },
+  { name: "artifact", description: "查看工具产物正文", argumentHint: "<产物 id 前缀>", run: (ctx, { arg }) => ctx.host.artifact(arg) },
   { name: "approvals", description: "待处理审批列表", run: (ctx) => ctx.host.openApprovals() },
   { name: "interrupt", description: "中断当前任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.interrupt(arg) },
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>", run: (ctx, { arg }) => ctx.host.cancel(arg) },
-  { name: "model", description: "模型切换面板（提供方 / 模型 / 思考强度）", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
-  { name: "thinking", description: "同上：模型切换面板（可直接切到思考强度列）", run: (ctx) => ctx.host.openModelPicker(ctx.result) },
+  { name: "model", description: "切换模型", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.continueTask(arg) },
   {
     name: "plan",
-    description: "计划模式：只调研不修改，最终回答即计划；下一条消息即按计划执行",
+    description: "计划模式",
     argumentHint: "<内容>",
     // /plan <内容>：整行即计划模式的任务输入（issue 26）；不带内容时显示用法
     taskInput: (line) => (isPlanInput(line) ? line : null),
     run: (ctx) => ctx.notify("用法：/plan <内容>（只调研不修改，最终回答即计划）"),
   },
   { name: "resume-queue", description: "恢复已暂停的会话队列", run: (ctx) => ctx.host.resumeQueue() },
-  { name: "mode", description: "选择当前会话的默认访问模式（新任务生效）", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
+  { name: "mode", description: "选择当前会话的访问模式", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
   {
     name: "status",
     description: "刷新并查看当前任务详情",
@@ -318,12 +317,12 @@ export const COMMANDS: readonly SlashCommand[] = [
       if (!(await ctx.host.refreshTask())) ctx.notify("当前没有活动任务");
     },
   },
-  { name: "search", description: "搜索会话历史原文（字面关键词）", argumentHint: "<关键词>", run: (ctx, { arg }) => search(ctx, arg) },
-  { name: "memory", description: "长期记忆：list | show <id> | revoke <id> | restore <id> <版本>", argumentHint: "<子命令>", run: (ctx, { rest }) => memory(ctx, rest) },
-  { name: "context", description: "查看当前上下文窗口分解（各部分占比）", keepsResult: true, run: (ctx) => ctx.host.openContext(ctx.result) },
+  { name: "search", description: "搜索会话历史原文", argumentHint: "<关键词>", run: (ctx, { arg }) => search(ctx, arg) },
+  { name: "memory", description: "长期记忆", argumentHint: "<子命令>", run: (ctx, { rest }) => memory(ctx, rest) },
+  { name: "context", description: "查看当前上下文窗口", keepsResult: true, run: (ctx) => ctx.host.openContext(ctx.result) },
   {
     name: "skill",
-    description: "显式调用技能（提交任务；不带名称时列出技能库）",
+    description: "调用技能",
     argumentHint: "<名称> [参数]",
     // /skill <名称> [参数] 与 /skill:<名称> 都是任务输入，统一按 /skill:<名称> 提交
     // （参数取原文，保留换行与空白；失败恢复草稿后可直接重发）；不带名称时列出技能库
@@ -334,16 +333,6 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "skills", description: "查看技能库与诊断", run: (ctx) => skills(ctx) },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情", run: (ctx) => ctx.host.openPrompts() },
   { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>", run: (ctx, { rest }) => qq(ctx, rest) },
-  {
-    name: "github",
-    description: "GitHub 专用模块退役提示",
-    // issue 17：专用 GitHub 模块已退役；旧命令只保留静态迁移提示（不进补全/帮助）
-    hidden: true,
-    run: (ctx) =>
-      ctx.showText(
-        "GitHub 专用模块已退役（issue 17）：请在普通任务中使用 GitHub MCP 工具（拥有者经 ruukoto mcp configure 配置）。历史草稿与发布记录已归档为原任务产物。",
-      ),
-  },
 ];
 
 const BY_NAME = new Map(COMMANDS.map((c) => [c.name, c]));

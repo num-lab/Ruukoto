@@ -4,6 +4,7 @@
  * 纯数据层测试：直接构造 JSONL 文件，不启动后台。
  */
 
+import { startTestRuntime, createProjectSession, routeResponder } from "./helpers/testkit.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -177,4 +178,50 @@ test("整页字节预算：保证至少 1 条，超出预算停止收集", () =>
 test("parseSessionFileStrict：空文件与仅空白行", () => {
   assert.deepEqual(parseSessionFileStrict(""), { entries: [], hasPartialTail: false });
   assert.deepEqual(parseSessionFileStrict("\n\n"), { entries: [], hasPartialTail: false });
+});
+
+
+test("read_tool_result：实际控制面只返回白名单字段，UTF-8 截断与归属校验", async () => {
+  const t = await startTestRuntime("tool-result-view", routeResponder([]));
+  try {
+    const a = await createProjectSession(t.client, t.work[0]!);
+    const b = await createProjectSession(t.client, t.work[1]!);
+    const long = "中文".repeat(20_000);
+    const writeLong = "中文\r\n".repeat(20_000) + "尾行";
+    const file = tmpFile([
+      msgEntry("user", "user", "输入"),
+      msgEntry("edit", "toolResult", long, { toolName: "edit", isError: false, details: { patch: long, secret: "不可公开" } }),
+      msgEntry("failed", "toolResult", "失败", { toolName: "bash", isError: true, details: { secret: "不可公开" } }),
+      msgEntry("write-old", "assistant", "", { content: [{ type: "toolCall", id: "write-id", name: "write", arguments: { content: "旧原文" } }] }),
+      msgEntry("write-new", "assistant", "", { content: [{ type: "toolCall", id: "write-id", name: "write", arguments: { content: writeLong } }] }),
+      msgEntry("write", "toolResult", "写入", { toolName: "write", toolCallId: "write-id", isError: false }),
+      ...["", "第一行\r\n第二行\r\n", "第一行\n第二行\n"].flatMap((content, i) => [
+        msgEntry(`write-call-${i}`, "assistant", "", { content: [{ type: "toolCall", id: `write-${i}`, name: "write", arguments: { content } }] }),
+        msgEntry(`write-result-${i}`, "toolResult", "写入", { toolName: "write", toolCallId: `write-${i}`, isError: false }),
+      ]),
+      msgEntry("write-missing", "toolResult", "写入", { toolName: "write", toolCallId: "absent", isError: false }),
+    ]);
+    t.runtime.store.setSessionFile(a.sessionId, file);
+    const read = (entryId: string, extra: Record<string, unknown> = {}) => t.client.request<any>("read_tool_result", {
+      session_id: a.sessionId, entry_id: entryId, ...extra,
+    });
+    const result = await read("edit", { length: 7 });
+    assert.deepEqual(result, { text: "中文", patch: "中文", writeContent: null, truncated: true, toolName: "edit", isError: false });
+    assert.equal(Buffer.byteLength((await read("edit")).text), 16 * 1024 - 1, "默认 16 KiB 按 UTF-8 边界截断");
+    assert.equal(Buffer.byteLength((await read("edit", { length: 1_000_000 })).patch), 64 * 1024 - 1, "最多 64 KiB");
+    assert.deepEqual(await read("failed"), { text: "失败", patch: null, writeContent: null, truncated: false, toolName: "bash", isError: true });
+    assert.deepEqual(await read("write", { length: 6 }), { text: "写入", patch: null, writeContent: "中文", writeTotalLines: 20_001, truncated: true, toolName: "write", isError: false }, "按最近匹配调用读取并截断 Write 原文");
+    for (const [i, count] of [0, 2, 2].entries()) {
+      assert.equal((await read(`write-result-${i}`)).writeTotalLines, count, "空文件为 0，末尾 LF 或 CRLF 不多算一行");
+    }
+    assert.equal((await read("write-missing")).writeContent, null);
+    await assert.rejects(read("user"), /工具结果条目不存在/);
+    await assert.rejects(read("absent"), /工具结果条目不存在/);
+    await assert.rejects(read("edit", { session_id: b.sessionId }), /不可读|不存在/);
+    await assert.rejects(read("edit", { length: -1 }), /length/);
+    await assert.rejects(read("edit", { length: "7" }), /length/);
+    await assert.rejects(read("edit", { session_id: "missing" }), /会话不存在/);
+  } finally {
+    await t.shutdown();
+  }
 });

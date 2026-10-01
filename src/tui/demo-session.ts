@@ -511,6 +511,11 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
       nextOffset: null,
     }),
     get_session: () => SESSION,
+    list_session_summaries: (params) => params.project_id === PROJECT_ID ? [{
+      sessionId: SESSION_ID,
+      name: entries.find((entry) => entry.role === "user")?.text ?? null,
+      lastActiveAt: events.filter((event) => event.sessionId === SESSION_ID && event.taskId).at(-1)?.createdAt ?? SESSION.createdAt,
+    }] : [],
     set_session_model: (params) => ({ ...SESSION, modelSelection: params.model_selection }),
     set_session_mode: (params) => ({ ...SESSION, defaultAccessMode: params.mode, defaultAccessModeVersion: SESSION.defaultAccessModeVersion + 1 }),
     // /context 只取最近一条（当前窗口状态）
@@ -561,7 +566,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
       if (closed || cursor >= events.length) {
         if (timer) clearInterval(timer);
         timer = null;
-        if (!closed) onNotice("合成会话：事件推送完毕（可继续用 /help、/model、/sessions 等查看界面）");
+        if (!closed) onNotice("合成会话：事件推送完毕（可继续用 /help、/model、/project 等查看界面）");
         return;
       }
       const event = events[cursor++]!;

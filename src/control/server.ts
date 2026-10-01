@@ -274,6 +274,8 @@ export class ControlServer {
         return runtime.getSessionUsage(requireString("session_id"));
       case "get_session":
         return runtime.getSession(requireString("session_id"));
+      case "list_session_summaries":
+        return runtime.listSessionSummaries(requireString("project_id"));
       case "list_models": {
         for (const key of ["offset", "limit"]) {
           if (params[key] !== undefined && (!Number.isInteger(params[key]) || Number(params[key]) < (key === "limit" ? 1 : 0))) {
@@ -416,6 +418,15 @@ export class ControlServer {
           limit: num("limit"),
           entryTextCap: num("entry_text_cap"),
           pageTextBudget: num("page_text_budget"),
+        });
+      }
+      case "read_tool_result": {
+        const length = params["length"];
+        if (length !== undefined && (!Number.isSafeInteger(length) || (length as number) < 1)) {
+          throw Object.assign(new Error("length 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.readToolResult({
+          sessionId: requireString("session_id"), entryId: requireString("entry_id"), length: length as number | undefined,
         });
       }
       case "read_history_entry":

@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通知 outbox</title>
+<link rel="stylesheet" href="style.css">
+<script src="visual.js" defer></script>
+</head>
+<body>
+<svg class="defs" aria-hidden="true" focusable="false"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ok" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah wait" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-unk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah unk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah bad" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah accent" d="M0 0L10 5L0 10z"/></marker>
+</defs></svg>
+<main class="page">
+  <header class="doc-head">
+    <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>outbox.html</span></nav>
+    <p class="eyebrow">状态机</p>
+    <h1>通知 outbox</h1>
+    <p class="lede">一条外发通知从登记到发送的每个状态；为什么结果说不清时不重发；调度计划怎样在重启和漏过周期时只补一次；公共 outbox 与 QQ 群回复账本有什么区别。</p>
+    <dl class="meta">
+      <div><dt>源码</dt><dd>
+        <code class="src" data-src="src/scheduler/runtime.ts#export class Scheduler">scheduler/runtime.ts</code>
+        <code class="src" data-src="src/scheduler/store.ts#export class SchedulerStore">scheduler/store.ts</code>
+        <code class="src" data-src="src/scheduler/time.ts#export function parseRule">scheduler/time.ts</code>
+        <code class="src" data-src="src/scheduler/news.ts#export async function collectNews">scheduler/news.ts</code>
+        <code class="src" data-src="src/agent/scheduler-tools.ts#export function createSchedulerTools">agent/scheduler-tools.ts</code>
+        <code class="src" data-src="src/telegram/adapter.ts#async send(input">telegram/adapter.ts</code>
+        <code class="src" data-src="src/qq/adapter.ts#private async sendReply">qq/adapter.ts</code>
+        <code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts</code>
+        <code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime/runtime.ts</code>
+        <code class="src" data-src="src/runtime/orchestrator.ts#onInboundTerminal">runtime/orchestrator.ts</code>
+        <code class="src" data-src="src/github/events.ts#verifyNotification">github/events.ts</code>
+        <code class="src" data-src="src/agent/web-search.ts#export async function searchTavily">agent/web-search.ts</code>
+      </dd></div>
+      <div><dt>决策</dt><dd>
+        <a href="../adr/0010-scheduler-outbox.md">ADR 0010 调度器与 outbox</a>
+        <a href="../adr/0011-telegram-owner-entry.md">ADR 0011 Telegram 与限流退回</a>
+        <a href="../adr/0012-qq-private-shared-main.md">ADR 0012 QQ 私聊</a>
+        <a href="../adr/0013-github-event-review.md">ADR 0013 GitHub 评审通知</a>
+        <a href="../adr/0015-scheduled-news.md">ADR 0015 新闻计划</a>
+      </dd></div>
+      <div><dt>相关页面</dt><dd>
+        <a href="inbound-events.html">入站事件</a>
+        <a href="tool-call-path.html">工具调用路径</a>
+        <a href="once-only.html">只执行一次</a>
+        <a href="task-lifecycle.html">任务生命周期</a>
+        <a href="storage-layout.html">存储布局</a>
+        <a href="control-protocol.html">控制面协议</a>
+      </dd></div>
+    </dl>
+  </header>
+
+  <section id="states">
+    <h2>发送操作的状态与转换</h2>
+    <p>每条外发通知是 <code>notification_ops</code> 里的一行发送操作：目标、正文与操作 ID 在登记时写定，之后不再改。<code class="st wait">pending</code> 是未领取，<code class="st run">sending</code> 是已领取、请求可能已经发出；<code class="st ok">sent</code>、<code class="st bad">failed</code>、<code class="st unk">effect_unknown</code>、<code class="st idle">canceled</code> 是终态，进入后不再转换，也都不自动重发（<code class="src" data-src="src/scheduler/store.ts#export type NotificationStatus">store.ts · NotificationStatus</code>）。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 464" role="img" aria-label="发送操作状态机：宿主以新的逻辑发送键登记后进入 pending；发送循环条件更新领取后进入 sending；sending 按渠道结果进入 sent、failed 或 effect_unknown；平台明确限流时退回 pending 并写 not_before，退回时已有取消意图则进入 canceled；pending 可因取消或发送前复核失败直接进入 canceled；新闻采集未完成时登记即为 failed。">
+          <g class="n" data-k="e-reg"><rect x="16" y="196" width="100" height="46" rx="23"/><text x="66" y="211">登记</text><text class="sub" x="66" y="229">insertOp</text></g>
+          <path class="e" data-k="e-reg" d="M116 219H194" marker-end="url(#ah)"/>
+          <text class="el" data-k="e-reg" x="155" y="210">新键</text>
+
+          <g class="n wait" data-k="e-wait"><rect x="196" y="193" width="150" height="52" rx="8"/><text x="271" y="211">pending</text><text class="sub" x="271" y="230">未领取</text></g>
+          <path class="e" data-k="e-claim" d="M346 219H468" marker-end="url(#ah)"/>
+          <text class="el" data-k="e-claim" x="407" y="210">条件更新领取</text>
+
+          <g class="n run" data-k="e-intent"><rect x="470" y="193" width="170" height="52" rx="8"/><text x="555" y="211">sending</text><text class="sub" x="555" y="230">已领取 · 可能已发出</text></g>
+          <path class="e wait" data-k="e-retry" d="M530 193C530 135 300 135 300 191" marker-end="url(#ah-wait)"/>
+          <text class="el" data-k="e-retry" x="415" y="138">限流退回 · not_before</text>
+
+          <g class="n ok"><rect x="820" y="50" width="190" height="46" rx="8"/><text x="915" y="65">sent</text><text class="sub" x="915" y="83">存平台消息 ID</text></g>
+          <g class="n bad"><rect x="820" y="140" width="190" height="46" rx="8"/><text x="915" y="155">failed</text><text class="sub" x="915" y="173">可证明未发出</text></g>
+          <g class="n unk" data-k="e-late"><rect x="820" y="230" width="190" height="46" rx="8"/><text x="915" y="245">effect_unknown</text><text class="sub" x="915" y="263">拥有者核实 · 不重发</text></g>
+          <g class="n idle"><rect x="820" y="320" width="190" height="46" rx="8"/><text x="915" y="335">canceled</text><text class="sub" x="915" y="353">确定未发出</text></g>
+
+          <path class="e ok" data-k="e-sent" d="M640 205C730 205 730 73 818 73" marker-end="url(#ah-ok)"/>
+          <text class="el" data-k="e-sent" x="779" y="64">明确成功</text>
+          <path class="e bad" data-k="e-failed" d="M640 212C730 212 730 163 818 163" marker-end="url(#ah-bad)"/>
+          <text class="el" data-k="e-failed" x="776" y="154">可证明未发送</text>
+          <path class="e unk" data-k="e-unk" d="M640 226C730 226 730 253 818 253" marker-end="url(#ah-unk)"/>
+          <text class="el" data-k="e-unk" x="770" y="274">结果说不清</text>
+          <path class="e" data-k="e-cancel-sending" d="M600 245V343H818" marker-end="url(#ah)"/>
+          <text class="el" data-k="e-cancel-sending" x="709" y="335">退回时已有取消意图</text>
+
+          <path class="e" data-k="e-cancel" d="M271 245V400H915V368" marker-end="url(#ah)"/>
+          <text class="el" data-k="e-cancel" x="590" y="394">取消 · 发送前复核失败</text>
+          <path class="e bad dash" data-k="e-reg-failed" d="M66 242V448H1026V163H1012" marker-end="url(#ah-bad)"/>
+          <text class="el" data-k="e-reg-failed" x="540" y="442">新闻采集未完成 · 登记即 failed</text>
+        </svg>
+      </div>
+      <figcaption>唯一一条回到 pending 的边是平台明确限流（ADR 0011 对 ADR 0010 的例外）：请求被拒、可证明没有发出，才允许同一操作稍后再领取一次。其余从 sending 出发的边都只走一次。悬停下表的行会高亮对应的边或状态。</figcaption>
+      <ul class="legend">
+        <li><i class="wait"></i>等待中</li>
+        <li><i class="run"></i>执行中</li>
+        <li><i class="ok"></i>已发送</li>
+        <li><i class="unk"></i>待拥有者核实</li>
+        <li><i class="bad"></i>失败</li>
+        <li><i class="idle"></i>已取消</li>
+      </ul>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>转换</th><th>触发者</th><th>条件与位置</th><th>事件</th></tr></thead>
+        <tbody>
+          <tr data-k="e-reg" tabindex="0">
+            <td>新行 → <code class="st wait">pending</code></td>
+            <td>宿主登记方，见<a href="#keys">逻辑发送键</a></td>
+            <td>按 <code>(source_kind, source_key)</code> 查重：不存在才插入；已存在且正文摘要与目标都相同，返回原行、不写新事件；否则抛冲突。<br><code class="src" data-src="src/scheduler/store.ts#insertOp(input">store.ts · insertOp</code></td>
+            <td><code>notification.changed</code></td>
+          </tr>
+          <tr data-k="e-reg-failed" tabindex="0">
+            <td>新行 → <code class="st bad">failed</code></td>
+            <td>新闻采集循环</td>
+            <td>采集结果不是 completed 时带 <code>failure</code> 登记：错误类型为 <code>news_</code> 加采集错误码，正文是「采集未完成」说明，从未交给渠道。<br><code class="src" data-src="src/scheduler/runtime.ts#private finishNews">runtime.ts · finishNews</code></td>
+            <td><code>notification.changed</code>，reason 为错误类型</td>
+          </tr>
+          <tr data-k="e-wait" tabindex="0">
+            <td><code class="st wait">pending</code> 保持，写等待原因</td>
+            <td>发送循环</td>
+            <td>发送器未加载（<code>sender_unavailable</code>）或渠道离线（<code>channel_offline</code>）：不领取，只在原因变化时写 <code>wait_reason</code>，下一轮再查。<br><code class="src" data-src="src/scheduler/store.ts#setWaitReason">store.ts · setWaitReason</code></td>
+            <td>无</td>
+          </tr>
+          <tr data-k="e-claim" tabindex="0">
+            <td><code class="st wait">pending</code> → <code class="st run">sending</code></td>
+            <td>发送循环</td>
+            <td>发送前复核全部通过（见<a href="#sender">发送循环</a>）后，<code>WHERE status = 'pending'</code> 条件更新并在独立事务里提交；只有更新到 1 行的领取者调用发送函数。<br><code class="src" data-src="src/scheduler/store.ts#claim(id: string)">store.ts · claim</code></td>
+            <td><code>notification.changed</code></td>
+          </tr>
+          <tr data-k="e-cancel" tabindex="0">
+            <td><code class="st wait">pending</code> → <code class="st idle">canceled</code></td>
+            <td>拥有者（控制面 <code>notification_cancel</code>）；main 的 <code>notification_cancel</code> 工具；计划取消；发送循环的发送前复核；GitHub 事件观察到新修订</td>
+            <td>复核失败的原因写入 error_message：<code>target_disabled</code>、<code>target_changed</code>、<code>schedule_canceled</code>、<code>source_revoked</code>。只改仍是 pending 的行。<br><code class="src" data-src="src/scheduler/store.ts#cancelOp(id: string">store.ts · cancelOp</code> <code class="src" data-src="src/runtime/runtime.ts#notificationCancel(input">runtime.ts · notificationCancel</code></td>
+            <td><code>notification.changed</code></td>
+          </tr>
+          <tr data-k="e-intent" tabindex="0">
+            <td><code class="st run">sending</code> 期间取消</td>
+            <td>同上</td>
+            <td>只记 <code>cancel_requested</code>，不改状态；之后按真实结果收尾，只有限流退回时才据此转 canceled。不把在途发送说成已取消。<br><code class="src" data-src="src/scheduler/store.ts#cancelOp(id: string">store.ts · cancelOp</code></td>
+            <td>无</td>
+          </tr>
+          <tr data-k="e-sent" tabindex="0">
+            <td><code class="st run">sending</code> → <code class="st ok">sent</code></td>
+            <td>发送循环</td>
+            <td>渠道返回平台消息 ID，写入 <code>platform_message_id</code>。收尾一律 <code>WHERE status = 'sending'</code>，重复或迟到的收尾不覆盖。<br><code class="src" data-src="src/scheduler/store.ts#settle(id: string">store.ts · settle</code></td>
+            <td><code>notification.changed</code></td>
+          </tr>
+          <tr data-k="e-failed" tabindex="0">
+            <td><code class="st run">sending</code> → <code class="st bad">failed</code></td>
+            <td>发送循环</td>
+            <td>渠道抛 <code class="src" data-src="src/scheduler/runtime.ts#export class NotSentError">runtime.ts · NotSentError</code>：请求没有发出或平台明确拒绝，error_kind 取错误里的 kind。</td>
+            <td><code>notification.changed</code>，reason 为 kind</td>
+          </tr>
+          <tr data-k="e-unk" tabindex="0">
+            <td><code class="st run">sending</code> → <code class="st unk">effect_unknown</code></td>
+            <td>发送循环；重启恢复</td>
+            <td>超过发送时限或后台停止中止（<code>timeout_or_abort</code>），其他异常（<code>ambiguous_error</code>），重启时遗留的 sending（<code>backend_restart</code>）。<br><code class="src" data-src="src/scheduler/store.ts#markSendingUnknown">store.ts · markSendingUnknown</code></td>
+            <td><code>notification.changed</code></td>
+          </tr>
+          <tr data-k="e-late" tabindex="0">
+            <td><code class="st unk">effect_unknown</code> 上的迟到回执</td>
+            <td>发送循环</td>
+            <td>超时后渠道才返回成功：写 <code>late_receipt</code>（<code>late_success:…</code>），不改状态、不触发重发；关闭屏障生效后不再写库。<br><code class="src" data-src="src/scheduler/store.ts#recordLateReceipt">store.ts · recordLateReceipt</code></td>
+            <td>无</td>
+          </tr>
+          <tr data-k="e-retry" tabindex="0">
+            <td><code class="st run">sending</code> → <code class="st wait">pending</code></td>
+            <td>发送循环</td>
+            <td>渠道抛 <code class="src" data-src="src/scheduler/runtime.ts#export class RetryLaterError">runtime.ts · RetryLaterError</code>（平台明确限流、可证明未发出）：写 <code>not_before</code> = 当前时间 + retryAfterMs，wait_reason 记 <code>rate_limited</code> 加平台说明；到时同一行、原目标、原正文再领取。<br><code class="src" data-src="src/scheduler/store.ts#release(id: string">store.ts · release</code></td>
+            <td><code>notification.changed</code></td>
+          </tr>
+          <tr data-k="e-cancel-sending" tabindex="0">
+            <td><code class="st run">sending</code> → <code class="st idle">canceled</code></td>
+            <td>发送循环</td>
+            <td>限流退回时 <code>cancel_requested</code> 已置位：请求确实没发出，直接取消，不再领取。<br><code class="src" data-src="src/scheduler/store.ts#release(id: string">store.ts · release</code></td>
+            <td><code>notification.changed</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <aside class="callout inv">
+      <b>不变量</b>
+      <p>每次转换都是条件更新（<code>WHERE status = …</code>），状态与 <code>notification.changed</code> 同一事务提交、提交后才广播。本地保证的是「一个逻辑发送键至多一行、一行至多一次可能产生副作用的调用」；平台没有幂等支持，远端是否恰好一次无法保证，<code class="st unk">effect_unknown</code> 由拥有者核实（<code>notification_query</code>、<code>ruukoto notify show</code>）。</p>
+    </aside>
+  </section>
+
+  <section id="sender">
+    <h2>扫描循环与发送循环</h2>
+    <p>调度器是宿主组件，不进入任何会话的任务队列、不占用工作目录。内存定时器只负责唤醒扫描，规则、下一触发时间、运行与发送状态都以数据库为准。</p>
+    <div class="cards">
+      <div class="card">
+        <h3>扫描循环 <code class="src" data-src="src/scheduler/runtime.ts#tick(now?: number)">runtime.ts · tick</code></h3>
+        <p>每 1 s 一次（<code class="src" data-src="src/scheduler/runtime.ts#tickMs ?? 1_000">runtime.ts · tickMs ?? 1_000</code>），不重入：上一轮没结束时返回同一轮。一轮依次做：关闭已结束的运行 → 取到期计划（每批 <code class="src" data-src="src/scheduler/runtime.ts#batch: 50">batch: 50</code>，每轮至多 <code class="src" data-src="src/scheduler/runtime.ts#batchesPerTick: 20">batchesPerTick: 20</code> 批）逐个做到期事务 → 本轮新登记了 wake_main 事件，或距上次派发满 <code class="src" data-src="src/scheduler/runtime.ts#redispatchMs: 30_000">redispatchMs: 30_000</code> 且库里仍有 registered 入站事件（任何来源）时，请编排器派发 → 唤醒采集循环与发送循环。</p>
+      </div>
+      <div class="card">
+        <h3>发送循环 <code class="src" data-src="src/scheduler/runtime.ts#private async drainSends">runtime.ts · drainSends</code></h3>
+        <p>独立于扫描循环，<code class="src" data-src="src/scheduler/runtime.ts#kickSender">kickSender</code> 已在跑时不另起一轮。每轮按渠道各取最早的一批可领取 pending（<code class="src" data-src="src/scheduler/store.ts#listPending(">store.ts · listPending</code>，遵守 not_before），逐条串行处理：一次只有一个在途操作；离线渠道的积压只写等待原因，挡不住另一渠道。慢发送不阻塞到期登记与控制面。</p>
+      </div>
+    </div>
+
+    <p>一条操作的一次处理（<code class="src" data-src="src/scheduler/runtime.ts#private async sendOne">runtime.ts · sendOne</code>）。发送前复核按顺序进行，前一项不通过就不看后面的：</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>复核</th><th>不通过时</th></tr></thead>
+        <tbody>
+          <tr><td>按 <code>target.channel</code> 找到发送器</td><td>保持 pending，<code>sender_unavailable</code></td></tr>
+          <tr><td>渠道当前可信目标存在</td><td>canceled，<code>target_disabled</code></td></tr>
+          <tr><td>当前目标与登记目标完全相同（含配置版本）</td><td>canceled，<code>target_changed</code>，不改发新目标</td></tr>
+          <tr><td>来源是 <code>schedule_run</code> 时，计划仍存在且未取消</td><td>canceled，<code>schedule_canceled</code></td></tr>
+          <tr><td>来源引用的资料授权仍有效；GitHub 评审事件仍有效；新闻计划的 main Web Search 仍启用</td><td>canceled，<code>source_revoked</code></td></tr>
+          <tr><td>渠道在线</td><td>保持 pending，<code>channel_offline</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:4">
+          <div class="who"><span>发送循环</span><span>核心库</span><span>渠道适配器</span><span>平台</span></div>
+          <div class="m" style="--from:1;--to:2"><span>listPending：每渠道最早一批 pending</span></div>
+          <div class="note" style="--from:1;--to:2">发送前复核（上表），全部通过才领取</div>
+          <div class="m" style="--from:1;--to:2"><span>claim：pending → sending，独立事务提交</span></div>
+          <div class="note" style="--from:2;--to:2">更新 0 行：已被取消，不调用渠道</div>
+          <div class="m" style="--from:1;--to:3"><span>send(opId, 登记目标, 登记正文, signal)</span></div>
+          <div class="note" style="--from:1;--to:3">同时起计时：超过 sendTimeoutMs（15 s）即中止</div>
+          <div class="m" style="--from:3;--to:4"><span>一次请求，不拆分、不隐藏重试</span></div>
+          <div class="m l" style="--from:4;--to:3"><span>回执 message_id</span></div>
+          <div class="m l ok" style="--from:3;--to:1"><span>platformMessageId</span></div>
+          <div class="phase"><span>收尾事务</span></div>
+          <div class="m ok" style="--from:1;--to:2"><span>settle sent：只从 sending 转出</span></div>
+          <div class="m" style="--from:1;--to:2"><span>closeFinished（另起事务）：关闭所属调度运行，一次性计划随之完成</span></div>
+        </div>
+      </div>
+      <figcaption>网络调用在领取事务提交之后才发生，所以「已提交 sending、还没调用就崩溃」的窗口在重启时也按 effect_unknown 处理：本地无法区分它和「已发出、没收到回执」。时限常量见 <code class="src" data-src="src/scheduler/runtime.ts#sendTimeoutMs: 15_000">runtime.ts · sendTimeoutMs: 15_000</code>。</figcaption>
+    </figure>
+
+    <details>
+      <summary>失败分支：明确未发送、限流退回、超时与迟到回执</summary>
+      <div class="body">
+        <div class="scroll">
+          <div class="seq" style="--n:4">
+            <div class="who"><span>发送循环</span><span>核心库</span><span>渠道适配器</span><span>平台</span></div>
+            <div class="phase"><span>明确未发送</span></div>
+            <div class="m l bad" style="--from:3;--to:1"><span>NotSentError(kind)：未发出或平台明确拒绝</span></div>
+            <div class="m bad" style="--from:1;--to:2"><span>settle failed，error_kind = kind</span></div>
+            <div class="phase"><span>平台限流（Telegram 429）</span></div>
+            <div class="m l wait" style="--from:4;--to:3"><span>429 + retry_after</span></div>
+            <div class="m l wait" style="--from:3;--to:1"><span>RetryLaterError(retryAfterMs)</span></div>
+            <div class="m wait" style="--from:1;--to:2"><span>release：sending → pending，写 not_before</span></div>
+            <div class="note wait" style="--from:1;--to:2">领取期间已有取消意图 → canceled</div>
+            <div class="phase"><span>超时 · 中止 · 模糊错误</span></div>
+            <div class="note unk" style="--from:1;--to:1">到时或后台停止：abort()</div>
+            <div class="m unk" style="--from:1;--to:2"><span>settle effect_unknown（timeout_or_abort / ambiguous_error）</span></div>
+            <div class="m l dash" style="--from:4;--to:3"><span>迟到的成功回执</span></div>
+            <div class="m l dash" style="--from:3;--to:1"><span>send() 迟到返回</span></div>
+            <div class="m dash" style="--from:1;--to:2"><span>recordLateReceipt：只记 late_receipt</span></div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <aside class="callout limit">
+      <b>本地写入失败时</b>
+      <p>收尾事务本身失败（例如数据库异常）时，操作保留 sending，不回退 pending；下次重启由恢复准备定为 <code class="st unk">effect_unknown</code>。停止时（<code class="src" data-src="src/scheduler/runtime.ts#async stop()">runtime.ts · stop</code>）先拒绝扫描与领取，再中止在途发送与采集并等待收尾，最后关闭屏障，之后迟到的回调不再写库。</p>
+    </aside>
+  </section>
+
+  <section id="keys">
+    <h2>逻辑发送键与固定发送授权</h2>
+    <p>发送键由宿主按来源决定，模型只能提供正文来源，不能传入键、接收者、URL、chat/user ID、凭据或审批 ID。数据库上 <code>UNIQUE (source_kind, source_key)</code>（<code class="src" data-src="src/core/db.ts#UNIQUE (source_kind, source_key)">db.ts · notification_ops</code>）；同键同正文同目标返回原记录，同键异参冲突，所以模型无法换一个键绕过一次结果未知的发送。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>source_kind</th><th>谁在什么时候登记</th><th>source_key</th><th>正文与授权</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>schedule_run</code></td>
+            <td><code>notify</code> 计划：到期事务内；<code>news</code> 计划：采集完成后与快照同一事务。<br><code class="src" data-src="src/scheduler/runtime.ts#private fire(">runtime.ts · fire</code> <code class="src" data-src="src/scheduler/runtime.ts#private finishNews">runtime.ts · finishNews</code></td>
+            <td>调度运行 ID</td>
+            <td>计划批准时的固定正文，或宿主采集后固定的新闻摘要；授权来自计划审批（mode schedule / news），后续触发不再消费批准</td>
+          </tr>
+          <tr>
+            <td><code>confirmation</code></td>
+            <td>main 调用 <code>notification_enqueue</code>，拥有者批准后，在批准消费的同一事务内。<br><code class="src" data-src="src/agent/scheduler-tools.ts#const sourceKey = `task:">scheduler-tools.ts · notification_enqueue</code></td>
+            <td><code>task:</code> + 任务 ID（每任务一个一次通知槽）</td>
+            <td>审批固定的完整正文（mode once）；同一任务再次调用、正文相同返回原操作，正文不同报错</td>
+          </tr>
+          <tr>
+            <td><code>owner_reply</code></td>
+            <td>Telegram 或 QQ 私聊入站任务到达终态，编排器结果事务内。<br><code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">runtime.ts · enqueueOwnerReply</code> <code class="src" data-src="src/runtime/orchestrator.ts#this.deps.onInboundTerminal?.(event, task, outcome)">orchestrator.ts · onInboundTerminal</code></td>
+            <td>入站事件 ID</td>
+            <td>本任务自己的最终回答；失败（含取消）、超时、未知只发宿主固定提示。属于 ADR 0011/0012 的自动发送范围，不经审批。登记条件见<a href="inbound-events.html">入站事件</a></td>
+          </tr>
+          <tr>
+            <td><code>inbound_event</code></td>
+            <td>GitHub 评审事件的 main 摘要任务终态，编排器结果事务内。<br><code class="src" data-src="src/github/events.ts#terminal(event: InboundEvent">events.ts · terminal</code></td>
+            <td>GitHub 入站事件 ID</td>
+            <td>宿主拼好的评审草稿摘要；启用 webhook 配置即授权（ADR 0013）。观察到新修订时旧事件未发送的通知被取消</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>固定发送授权</h3>
+    <div class="cards">
+      <div class="card">
+        <h4>统一审批，完全访问也不例外</h4>
+        <p><code>notify</code> 与 <code>news</code> 计划、一次通知都经审批闸门，审批范围 kind 为 notification，mode 分别是 <code>schedule</code>、<code>news</code>、<code>once</code>，固定目标及配置版本、正文摘要与长度、规则描述、持续范围（single / until_canceled）与来源引用。调度工具直接调用审批闸门，不看访问模式，完全访问模式也要拥有者确认；自动审查模式下 notification 范围不属于可审查类别，直接转拥有者（<code class="src" data-src="src/agent/review.ts#export function classifyForReview">review.ts · classifyForReview</code>）。这是 ADR 0010 对 ADR 0003 的例外。</p>
+        <p><code class="src" data-src="src/agent/scheduler-tools.ts#const approveThenCommit">scheduler-tools.ts · approveThenCommit</code></p>
+      </div>
+      <div class="card">
+        <h4>获批后同事务重核</h4>
+        <p>批准消费的事务里先重核身份（按调用开始时捕获的上下文）、目标是否仍与审批时相同、来源资料是否仍可读，再消费批准并写入计划或发送操作；重核失败即作废批准、不登记。闸门细节与单次消费见<a href="tool-call-path.html">工具调用路径</a>。</p>
+      </div>
+      <div class="card">
+        <h4>目标只来自可信渠道配置</h4>
+        <p>工具拿到的目标由宿主给：来源是 QQ 私聊的任务绑定该消息登记时的 QQ 目标（须与当前配置相同），其余沿用 Telegram 默认目标（<code class="src" data-src="src/runtime/runtime.ts#return this.notifyChannel()?.target() ?? null;">runtime.ts · scheduler.target</code>）。未配置目标即拒绝创建外发。目标配置版本变化或停用后，旧操作在发送前复核时取消，不改发到新目标或另一平台。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="schedules">
+    <h2>调度计划与调度运行</h2>
+    <p>main 经 <code>schedule_create</code> 登记调度计划（<code class="src" data-src="src/agent/scheduler-tools.ts#name: &quot;schedule_create&quot;">scheduler-tools.ts · schedule_create</code>）。创建键在 main 范围内唯一（存为 <code>main:</code> + 键），同键同参返回原计划、异参冲突；活跃计划上限 <code class="src" data-src="src/scheduler/runtime.ts#maxActive: 1000">maxActive: 1000</code>。首版不支持编辑：改时间、正文、动作或新闻范围都是取消后重建，外发计划重新确认。</p>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>动作</th><th>到期事务里登记</th><th>创建时</th></tr></thead>
+        <tbody>
+          <tr><td><code>wake_main</code></td><td>入站事件（source <code>scheduler</code>，external_id = 运行 ID），提交后由编排器派发为 main 任务；派发见<a href="inbound-events.html">入站事件</a></td><td>不需审批；触发说明 ≤ <code class="src" data-src="src/agent/scheduler-tools.ts#noteBytes: 4 * 1024">noteBytes: 4 * 1024</code> 字节。唤醒任务不继承外发授权</td></tr>
+          <tr><td><code>notify</code></td><td>发送操作（<code>schedule_run</code>，键 = 运行 ID），正文是批准的原文</td><td>正文来源登记前解析为最终文本（≤ <code class="src" data-src="src/agent/scheduler-tools.ts#textChars: 2000">textChars: 2000</code> 字符），经审批</td></tr>
+          <tr><td><code>news</code></td><td>运行上的采集快照（状态 pending），此时还没有发送操作</td><td>固定关键词、来源域名与窗口，经审批；main 项目须启用 Web Search</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>规则只有一次性、每日、每周三种（<code class="src" data-src="src/scheduler/time.ts#export function parseRule">time.ts · parseRule</code>）：一次性时间必须带 <code>Z</code> 或显式偏移；每日、每周是当地 <code>HH:mm</code>，每周用 ISO 星期 1–7；时区必须是 IANA 名，不接受裸偏移。每日、每周按当地日期加原定钟点重新构造，不做固定 24 h / 7 d 相加。DST 固定 <code>compatible</code>：不存在的当地时间按缺口向后移，重复时间取较早一次。偏移与 DST 计算交给 <code class="src" data-src="src/scheduler/time.ts#@js-temporal/polyfill">time.ts · Temporal polyfill</code>；计划上记录计算所用的 Node/ICU/tz 版本（<code class="src" data-src="src/scheduler/time.ts#export function tzDataVersion">time.ts · tzDataVersion</code>）。首次到期：一次性取原定时刻（已过去就在登记后的下一轮扫描延迟触发一次），周期取登记后第一个时刻；外发计划在批准提交时重算，等待确认期间错过的时刻不算漏过。</p>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>计划状态</th><th>怎样进入</th><th>事件</th></tr></thead>
+        <tbody>
+          <tr><td><code class="st run">active</code></td><td>登记即 active，version 为 1</td><td><code>schedule.changed</code>（created）</td></tr>
+          <tr><td><code class="st ok">completed</code></td><td>只有一次性计划：它唯一一次运行关闭、next_due_at 为空后标完成（<code class="src" data-src="src/scheduler/store.ts#completeSchedule">store.ts · completeSchedule</code>）。周期计划持续到取消</td><td><code>schedule.changed</code>（completed）</td></tr>
+          <tr><td><code class="st idle">canceled</code></td><td><code>schedule_cancel</code>（main 工具或拥有者控制面），带预期版本：已取消的幂等返回原记录，已完成或版本不符报冲突；取消后不复活</td><td><code>schedule.changed</code>（canceled）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>到期事务</h3>
+    <p>每个到期计划一个短事务（<code class="src" data-src="src/scheduler/runtime.ts#private fire(">runtime.ts · fire</code>），事务内只读写核心库，不等网络、模型或应用库：</p>
+    <ol class="steps">
+      <li>重读计划：仍是 active 且 next_due_at 已到，否则跳过。</li>
+      <li>取截点前最近一次应发生时刻作为原定时刻（<code class="src" data-src="src/scheduler/time.ts#export function latestAtOrBefore">time.ts · latestAtOrBefore</code>），但不早于持久化的 next_due_at：时钟回拨或时区数据更新不回退处理范围。</li>
+      <li>算下一触发：一次性为空，周期取原定时刻与现在两者较晚者之后的下一次（<code class="src" data-src="src/scheduler/time.ts#export function nextAfter">time.ts · nextAfter</code>）。</li>
+      <li>计划已有未关闭运行：把漏过区间并入它（<code class="src" data-src="src/scheduler/store.ts#coalesceRun">store.ts · coalesceRun</code>），推进下一触发，结束。不登记新事件或操作，原键、原正文不变。</li>
+      <li>否则新建运行：写原定时刻、当地时间、<code>delay_ms</code>；原定时刻不等于 next_due_at 时写合并区间 <code>coalesced_from</code> / <code>coalesced_to</code>；按动作登记入站事件、发送操作或采集快照；推进下一触发并把它设为当前运行。</li>
+      <li>提交后才派发 wake_main 的入站事件；派发失败的事件保持 registered，按补派间隔重试同一事件。</li>
+    </ol>
+    <p>运行按 <code>(schedule_id, schedule_version, scheduled_for)</code> 唯一，部分唯一索引保证每个计划至多一个未关闭运行（<code class="src" data-src="src/core/db.ts#CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_open">db.ts · idx_schedule_runs_open</code>）。运行在关联记录结束后关闭（<code class="src" data-src="src/scheduler/runtime.ts#closeFinished(): void">runtime.ts · closeFinished</code>）：有发送操作的看它离开 pending/sending（新闻运行采集完成后也有发送操作，要等它发完）；还没有发送操作的新闻运行看采集离开 pending/searching；wake_main 看入站事件 done/failed 或关联任务到达终态。结果是 failed 或 effect_unknown 的运行照样关闭，不自动重试。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 318" role="img" aria-label="时间线，同一刻度每格一天，计划为每日 09:00。后台第 1 天 20:00 停机、第 4 天 15:00 重启，漏过第 2、3、4 天的 09:00。情形 A 没有未完成运行：重启后登记一条运行，原定时刻取第 4 天 09:00，延迟 6 小时，合并区间为第 2 天 09:00 到第 4 天 09:00。情形 B 第 1 天的运行仍未关闭：漏过的周期并入它，不建新运行。两种情形下一触发都是第 5 天 09:00。">
+          <path class="e dash" d="M90 38V290M270 38V290M450 38V290M630 38V290M810 38V290M990 38V290"/>
+          <text class="el" x="180" y="28">第 1 天</text>
+          <text class="el" x="360" y="28">第 2 天</text>
+          <text class="el" x="540" y="28">第 3 天</text>
+          <text class="el" x="720" y="28">第 4 天</text>
+          <text class="el" x="900" y="28">第 5 天</text>
+          <rect class="zone-r" x="240" y="42" width="502.5" height="244" rx="6"/>
+          <text class="zone-t" x="280" y="58">后台停机</text>
+          <text class="el" x="240" y="306">停机 · 第 1 天 20:00</text>
+          <text class="el" x="742.5" y="306">重启 · 第 4 天 15:00</text>
+
+          <text class="zone-t" x="16" y="116">情形 A</text>
+          <text class="el start" x="16" y="134">无未完成运行</text>
+          <path class="e" d="M90 120H990"/>
+          <g class="n ok"><circle cx="157.5" cy="120" r="7"/></g>
+          <text class="el" x="157.5" y="108">已发送</text>
+          <g class="n idle"><circle cx="337.5" cy="120" r="6"/></g>
+          <text class="el" x="337.5" y="142">漏过</text>
+          <g class="n idle"><circle cx="517.5" cy="120" r="6"/></g>
+          <text class="el" x="517.5" y="142">漏过</text>
+          <g class="n wait"><circle cx="697.5" cy="120" r="7"/></g>
+          <text class="el" x="697.5" y="108">取最近一次</text>
+          <path class="e accent" d="M337.5 88V76H697.5V88"/>
+          <text class="el" x="517.5" y="70">合并区间</text>
+          <path class="e wait" d="M697.5 132V140H742.5V132"/>
+          <text class="el" x="711" y="156">延迟 6 h</text>
+          <g class="n"><circle cx="877.5" cy="120" r="6"/></g>
+          <text class="el" x="877.5" y="108">next_due_at</text>
+
+          <text class="zone-t" x="16" y="232">情形 B</text>
+          <text class="el start" x="16" y="250">R1 未关闭</text>
+          <path class="e" d="M90 236H990"/>
+          <g class="n wait"><rect x="157.5" y="190" width="585" height="24" rx="5"/><text x="450" y="202">R1 · 发送操作 pending</text></g>
+          <g class="n wait"><circle cx="157.5" cy="236" r="7"/></g>
+          <text class="el" x="157.5" y="258">R1 登记</text>
+          <g class="n idle"><circle cx="337.5" cy="236" r="6"/></g>
+          <path class="e accent" d="M337.5 229V217" marker-end="url(#ah-accent)"/>
+          <text class="el" x="337.5" y="258">漏过</text>
+          <g class="n idle"><circle cx="517.5" cy="236" r="6"/></g>
+          <path class="e accent" d="M517.5 229V217" marker-end="url(#ah-accent)"/>
+          <text class="el" x="517.5" y="258">漏过</text>
+          <g class="n idle"><circle cx="697.5" cy="236" r="6"/></g>
+          <path class="e accent" d="M697.5 229V217" marker-end="url(#ah-accent)"/>
+          <text class="el" x="697.5" y="258">漏过</text>
+          <text class="el" x="598" y="230">并入 R1</text>
+          <path class="e ok" d="M742.5 202H792" marker-end="url(#ah-ok)"/>
+          <text class="el start" x="752" y="184">原键 · 原正文</text>
+          <g class="n"><circle cx="877.5" cy="236" r="6"/></g>
+          <text class="el" x="877.5" y="258">next_due_at</text>
+        </svg>
+      </div>
+      <figcaption>横轴同一刻度（每格一天），计划每日 09:00。情形 A：停机前的运行都已关闭，重启时的恢复准备只登记一条运行，原定时刻取截点前最近一次（第 4 天 09:00），<code>delay_ms</code> 为 6 小时，<code>coalesced_from</code> / <code>coalesced_to</code> 记第 2 天到第 4 天的 09:00。情形 B：第 1 天的运行 R1 因渠道离线仍 pending，漏过的周期并入 R1，渠道恢复后只按 R1 的原键原正文发一次。两种情形 next_due_at 都推进到第 5 天 09:00。wake_main 的唤醒正文在延迟超过 <code class="src" data-src="src/scheduler/runtime.ts#lateMs: 60_000">lateMs: 60_000</code> 或有合并区间时注明「延迟补发」；notify 的正文始终是批准的原文。</figcaption>
+      <ul class="legend">
+        <li><i class="ok"></i>已发送</li>
+        <li><i class="wait"></i>已登记、等待发送</li>
+        <li><i class="idle"></i>漏过的周期（不单独补发）</li>
+        <li><i></i>下一触发</li>
+      </ul>
+    </figure>
+
+    <h3>取消计划</h3>
+    <p><code class="src" data-src="src/scheduler/runtime.ts#cancelSchedule(input">runtime.ts · cancelSchedule</code> 在编排器串行链上执行，覆盖与派发的竞争。一个事务里：计划转 canceled、清空 next_due_at、版本加一；当前运行的 pending 发送操作取消（sending 只记取消意图）；未完成的新闻采集标 canceled；还没派发的入站事件作废。事务提交后先中止在途采集，再经现有取消入口取消仍在排队的关联任务。已经开始运行的任务与在途发送保留真实结果。</p>
+  </section>
+
+  <section id="news">
+    <h2>新闻计划</h2>
+    <p>新闻计划复用调度计划、调度运行与公共 outbox（ADR 0015），但采集由宿主完成：不创建模型任务，不装配会话历史、项目资料、应用数据或记忆工具。采集在独立循环里串行进行，不占用 main 会话或发送循环（<code class="src" data-src="src/scheduler/runtime.ts#private async drainNews">runtime.ts · drainNews</code>）。</p>
+    <div class="flow">
+      <div class="stage"><b>到期</b><br>到期事务在运行上写快照 <code>news_result</code>（pending），窗口为原定时刻前 24 小时（day）或 7 天（week）。</div>
+      <div class="stage"><b>领取</b><br>条件更新 pending → searching（<code class="src" data-src="src/scheduler/store.ts#claimNews">store.ts · claimNews</code>）。发送器未加载就等；目标或计划已变则 canceled。</div>
+      <div class="stage"><b>采集</b><br>每个关键词调用一次 Tavily（topic news，<code class="src" data-src="src/scheduler/news.ts#max_results: 5">max_results: 5</code>），关键词 1–5 个（<code class="src" data-src="src/scheduler/news.ts#export function parseNewsSpec">news.ts · parseNewsSpec</code>）。</div>
+      <div class="stage"><b>过滤 · 合并登记</b><br>只留 HTTP(S)、公开域名、批准域名或其子域、发布时间可解析且在窗口内的结果；去掉片段与 utm_* / fbclid / gclid 后按 URL 去重，合并为一条通知。快照、正文与发送操作同一事务落库（<code class="src" data-src="src/scheduler/runtime.ts#private finishNews">runtime.ts · finishNews</code>）。</div>
+    </div>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>采集结果</th><th>来自</th><th>发送操作</th></tr></thead>
+        <tbody>
+          <tr><td><code>completed</code></td><td>全部关键词搜完</td><td><code class="st wait">pending</code>，正文是合并摘要，按普通发送循环发出</td></tr>
+          <tr><td><code>failed</code></td><td>其余错误码：搜索服务明确报错（如 <code>rate_limited</code>、<code>auth_failed</code>、<code>quota_exceeded</code>）、main Web Search 停用或未配置（<code>disabled</code>、<code>not_configured</code>）、非搜索异常（<code>search_failed</code>）</td><td><code class="st bad">failed</code>，error_kind 为 <code>news_</code> + 错误码，从未交给渠道</td></tr>
+          <tr><td><code>unknown</code></td><td><code>timeout</code>、<code>unavailable</code>、<code>canceled</code>（后台停止时中止）、<code>backend_restart</code>（<code class="src" data-src="src/scheduler/news.ts#export function failedNews">news.ts · failedNews</code>）</td><td>同样 <code class="st bad">failed</code>：采集结果说不清，但通知确实没发；同一窗口不自动重搜</td></tr>
+          <tr><td><code>canceled</code></td><td>计划取消（<code>schedule_canceled</code>）或领取时目标、计划已变（<code>target_or_schedule_changed</code>）</td><td>不登记</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <aside class="callout inv">
+      <b>取消后返回的结果不登记</b>
+      <p>取消计划在事务里先把采集标成 canceled，再中止在途搜索。搜索返回后收尾时发现快照已不是 searching，直接放弃，不会再登记发送。Tavily 的限流在这里是 failed，不同于 Telegram 429 的退回：前者没有产生可发送的正文，后者是同一条已固定的通知稍后再发。</p>
+    </aside>
+  </section>
+
+  <section id="channels">
+    <h2>渠道与两本账</h2>
+    <p>公共 outbox 按发送操作上持久的 <code>target.channel</code> 选发送器（<code class="src" data-src="src/runtime/runtime.ts#private notifyChannel">runtime.ts · notifyChannel</code>）：<code>qq_private</code> 交 QQ 适配器，<code>telegram</code> 交 Telegram 适配器，其他取值没有发送器、操作保持 pending。测试可经配置注入模拟渠道。QQ 群的普通回复不走公共 outbox，而是 QQ 适配器自己的 <code>qq_outbox</code>。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 404" role="img" aria-label="两本发送账本：上方，登记方写入 notification_ops，发送循环领取并收尾，按目标渠道调用 Telegram sendMessage 或 QQ send_private_msg；下方，QQ 群任务完成事件触发适配器的 sendReply，它先把回复写入 qq_outbox 再调用 send_group_msg 并按结果定态。两个 QQ 动作共用 NapCat 连接，两本账互不引用。">
+          <g class="n"><rect x="16" y="44" width="200" height="52" rx="8"/><text x="116" y="62">登记方</text><text class="sub" x="116" y="81">到期 · 采集 · 审批 · 结果</text></g>
+          <path class="e" d="M216 70H288" marker-end="url(#ah)"/>
+          <text class="el" x="252" y="62">insertOp</text>
+          <g class="n accent"><rect x="290" y="44" width="210" height="52" rx="8"/><text x="395" y="62">notification_ops</text><text class="sub" x="395" y="81">公共 outbox</text></g>
+          <path class="e" d="M502 70H578" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <text class="el" x="540" y="62">领取 · 收尾</text>
+          <g class="n run"><rect x="580" y="44" width="180" height="52" rx="8"/><text x="670" y="62">发送循环</text><text class="sub" x="670" y="81">一次一个在途</text></g>
+          <g class="n"><rect x="840" y="20" width="180" height="46" rx="8"/><text x="930" y="35">sendMessage</text><text class="sub" x="930" y="53">Telegram Bot API</text></g>
+          <path class="e" d="M760 60C800 60 800 43 838 43" marker-end="url(#ah)"/>
+          <text class="el" x="798" y="34">telegram</text>
+
+          <rect class="zone-r" x="822" y="128" width="210" height="250" rx="10"/>
+          <text class="zone-t" x="834" y="148">QQ 适配器 · 共用 NapCat</text>
+          <g class="n"><rect x="840" y="160" width="180" height="46" rx="8"/><text x="930" y="175">send_private_msg</text><text class="sub" x="930" y="193">QQ 私聊</text></g>
+          <path class="e" d="M760 84C800 84 800 183 838 183" marker-end="url(#ah)"/>
+          <text class="el end" x="790" y="142">qq_private</text>
+
+          <path class="e dash" d="M395 98V292"/>
+          <text class="el" x="395" y="200">互不引用</text>
+
+          <g class="n"><rect x="16" y="294" width="200" height="52" rx="8"/><text x="116" y="312">QQ 群任务完成</text><text class="sub" x="116" y="331">task.completed</text></g>
+          <g class="n accent"><rect x="290" y="294" width="210" height="52" rx="8"/><text x="395" y="312">qq_outbox</text><text class="sub" x="395" y="331">群回复账本</text></g>
+          <g class="n run"><rect x="580" y="294" width="180" height="52" rx="8"/><text x="670" y="312">sendReply</text><text class="sub" x="670" y="331">适配器直接调用</text></g>
+          <path class="e" d="M116 346V386H670V348" marker-end="url(#ah)"/>
+          <text class="el" x="393" y="380">任务终态事件</text>
+          <path class="e" d="M578 320H502" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <text class="el" x="540" y="312">先落 · 后定态</text>
+          <g class="n"><rect x="840" y="297" width="180" height="46" rx="8"/><text x="930" y="312">send_group_msg</text><text class="sub" x="930" y="330">QQ 群</text></g>
+          <path class="e" d="M760 320H838" marker-end="url(#ah)"/>
+          <text class="el" x="791" y="312">调用一次</text>
+        </svg>
+      </div>
+      <figcaption>QQ 私聊的 owner 回复与通知走上半的公共 outbox，与 Telegram 同一套状态机；QQ 群回复走下半。两本账共用一条 NapCat 连接，但互不引用：ADR 0010 明确既有 qq_outbox 暂不迁移到公共账本。</figcaption>
+    </figure>
+
+    <h3>各渠道怎样分类结果</h3>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>渠道</th><th>sent</th><th>failed（NotSentError）</th><th>退回 pending</th><th>effect_unknown</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Telegram<br><code class="src" data-src="src/telegram/adapter.ts#async send(input">adapter.ts · send</code></td>
+            <td>2xx 且回执 ok</td>
+            <td>凭据不可用 <code>credential_unavailable</code>；连接未建立 <code>connect_failed</code>（<code class="src" data-src="src/telegram/adapter.ts#PRE_CONNECT_CODES">PRE_CONNECT_CODES</code>）；其他 4xx <code>telegram_</code> + 状态码</td>
+            <td>429：按 <code>retry_after</code> 秒退回，平台没给时按 5 秒（<code class="src" data-src="src/telegram/adapter.ts#seconds > 0 ? seconds : 5">adapter.ts · send</code>）</td>
+            <td>5xx、中途断开、回执不可解析</td>
+          </tr>
+          <tr>
+            <td>QQ 私聊<br><code class="src" data-src="src/qq/adapter.ts#send_private_msg">adapter.ts · send</code></td>
+            <td>回执带有效 message_id</td>
+            <td>发送前已取消 <code>canceled_before_send</code>；目标变化 <code>target_changed</code>；账号未确认在线 <code>qq_offline</code>；平台明确失败 <code>onebot_</code> + retcode</td>
+            <td>无</td>
+            <td>动作超时、连接中断、回执缺少有效 message_id</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Telegram bot token 位于请求 URL（<code>/bot&lt;token&gt;/sendMessage</code>），发送与轮询的错误信息先把 token 替换为 <code>&lt;token&gt;</code>，再写入账本、状态或日志（<code class="src" data-src="src/telegram/adapter.ts#private redact">adapter.ts · redact</code>）。Telegram 的「在线」取轮询健康状态，所以网络断开时操作通常停在 pending 写等待原因，而不是记失败。两个渠道都在 owner 回复里引用原消息（Telegram 的 reply_parameters、QQ 的 reply 段）。</p>
+
+    <h3>两本账对照</h3>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th></th><th>notification_ops（公共 outbox）</th><th>qq_outbox（QQ 群回复）</th></tr></thead>
+        <tbody>
+          <tr><td>状态</td><td><code>pending</code> <code>sending</code> <code>sent</code> <code>failed</code> <code>effect_unknown</code> <code>canceled</code></td><td><code>pending</code> <code>sent</code> <code>failed</code> <code>unknown</code> <code>canceled</code>（<code class="src" data-src="src/qq/store.ts#export type QqOutboxStatus">qq/store.ts · QqOutboxStatus</code>）</td></tr>
+          <tr><td>pending 的含义</td><td>未领取，还没调用平台</td><td>已登记、请求即将或已经发出：发送前一刻写入，没有单独的 sending</td></tr>
+          <tr><td>键与去重</td><td><code>(source_kind, source_key)</code> 唯一</td><td><code>op_id</code> 主键；每个任务只登记一条（发送前按任务查重，<code class="src" data-src="src/qq/store.ts#getOutboxByTask">qq/store.ts · getOutboxByTask</code>）</td></tr>
+          <tr><td>登记时机</td><td>审批、到期、新闻采集收尾或结果事务内</td><td>任务完成事件之后，发送前复核（启停、群范围、账号、在线、撤回）通过才写（<code class="src" data-src="src/qq/adapter.ts#private async sendReply">qq/adapter.ts · sendReply</code>）</td></tr>
+          <tr><td>谁调用平台</td><td>调度器发送循环，一次一个在途</td><td>QQ 适配器直接调用 <code>send_group_msg</code></td></tr>
+          <tr><td>限流</td><td>RetryLaterError 退回 pending</td><td>无</td></tr>
+          <tr><td>结果说不清</td><td><code class="st unk">effect_unknown</code></td><td><code class="st unk">unknown</code>（平台明确失败才是 failed）</td></tr>
+          <tr><td>迟到结果</td><td>写 <code>late_receipt</code></td><td>已被别处定态时追加到 error（<code class="src" data-src="src/qq/store.ts#noteLateOutcome">qq/store.ts · noteLateOutcome</code>）</td></tr>
+          <tr><td>撤回与停用</td><td>不适用（取消见上）</td><td>撤回取消该消息及引用它的消息未完成的任务，在途 pending 回复记 unknown；停用或移出群同样把在途回复记 unknown（<code class="src" data-src="src/qq/adapter.ts#private async handleRecall">handleRecall</code> <code class="src" data-src="src/qq/adapter.ts#private async cancelQqWork">cancelQqWork</code>）</td></tr>
+          <tr><td>查看</td><td><code>ruukoto notify list|show</code>、<code>notification_query</code></td><td><code>ruukoto qq outbox</code>、TUI <code>/qq outbox</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <aside class="callout limit">
+      <b>已知限制</b>
+      <p>qq_outbox 的 <code>canceled</code> 只在类型与表约束里存在，当前没有代码写入它：撤回时尚未登记的回复因任务被取消而根本不会登记，已登记的在途回复记 <code>unknown</code>。启动后首次连上 NapCat 时补齐回复的恢复（<code class="src" data-src="src/qq/adapter.ts#private recoverCompletedInbox">recoverCompletedInbox</code>）会把它映射为收件 skipped。</p>
+    </aside>
+  </section>
+
+  <section id="restart">
+    <h2>重启恢复与停止</h2>
+    <p>启动顺序里，调度器的恢复准备排在通用任务恢复之前（<code class="src" data-src="src/runtime/runtime.ts#runtime.scheduler.prepareRecovery()">runtime.ts · prepareRecovery 调用处</code>）：它要先按关联记录的真实状态决定运行开着还是关着，再让通用恢复把 running 任务改写为 interrupted。</p>
+    <ol class="steps">
+      <li>创建调度器（<code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime.ts · initScheduler</code>），此时不启动定时器、不派发、不发送。</li>
+      <li>恢复准备（<code class="src" data-src="src/scheduler/runtime.ts#prepareRecovery(): void">runtime.ts · prepareRecovery</code>）：① 关联记录早已终态、只是关闭标记没写上的运行先补关闭；② 到期计划按正常到期事务处理，仍在 registered/queued/running/pending/sending/searching 的运行吸收漏过区间，没有未完成运行的计划补一次；③ 一个事务里把遗留 sending 全部定为 <code class="st unk">effect_unknown</code>（<code>backend_restart</code>）；④ 停在 searching 的采集定为 unknown，登记 <code>news_backend_restart</code> 的 failed 发送操作，同一窗口不重搜。</li>
+      <li>通用任务恢复：running 与 awaiting_confirmation 转 interrupted，见<a href="task-lifecycle.html">任务生命周期</a>。</li>
+      <li>编排器启动：按原请求键重提已登记未建任务的入站事件，补记重启窗口内结束的任务结果；owner 回复与 GitHub 评审通知随这次结果事务补登。结果只写一次，已记录结果的任务不再登记。</li>
+      <li>QQ 适配器启动：遗留 pending 的群回复一律定为 <code>unknown</code>，对应收件记 reply_unknown（<code class="src" data-src="src/qq/store.ts#reconcilePendingOutboxOnBoot(): number">qq/store.ts · reconcilePendingOutboxOnBoot</code>）。随后 Telegram 开始轮询。</li>
+      <li>然后 <code>scheduler.start()</code>：开定时器，唤醒发送循环与采集循环，到期扫描从这里开始。GitHub webhook 在它之后才开始监听。</li>
+    </ol>
+    <aside class="callout inv">
+      <b>为什么必须在通用恢复之前</b>
+      <p>如果先改写，停机时仍在执行的唤醒任务会先变成 interrupted，它的运行被当作已结束而关闭，漏过的周期就会另建一次运行、再唤醒一次 main。先做恢复准备，这类运行还开着，漏过的周期并入它。遗留 sending 同理放在补关闭与合并之后才定为未知：发送中断的运行在这次恢复里仍算未完成，漏过的周期不会另发一次；它在之后的正常关闭中释放。</p>
+    </aside>
+    <p>后台停止时，调度器在 GitHub webhook 之后、Telegram 轮询、编排器与 QQ 适配器之前停止（<code class="src" data-src="src/runtime/runtime.ts#await this.scheduler?.stop()">runtime.ts · doStop</code>）：停止扫描与领取，中止在途发送（记 <code>timeout_or_abort</code> 的 effect_unknown）与在途采集（采集记 unknown，登记 <code>news_canceled</code> 的 failed 发送操作）并等待收尾。QQ 适配器停止时不补发，在途的群回复保留 pending，下次启动定为 unknown。</p>
+  </section>
+
+  <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>
+</main>
+</body>
+</html>

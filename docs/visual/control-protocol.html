@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>控制面协议</title>
+<link rel="stylesheet" href="style.css">
+<script src="visual.js" defer></script>
+</head>
+<body>
+<svg class="defs" aria-hidden="true" focusable="false"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ok" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah wait" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-unk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah unk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah bad" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah accent" d="M0 0L10 5L0 10z"/></marker>
+</defs></svg>
+<main class="page">
+  <header class="doc-head">
+    <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>control-protocol.html</span></nav>
+    <p class="eyebrow">协议</p>
+    <h1>控制面协议</h1>
+    <p class="lede">拥有者的客户端（TUI、CLI、配置中心）与本机后台之间的全部往来：一条 Unix socket 上的换行分帧 JSON。这一页讲清楚连接怎么建、认证怎么做、事件流怎么保证不丢不重、请求失败怎么分类、提交怎么去重，以及两个必须随代码更新的登记处——op 目录与事件目录。</p>
+    <dl class="meta">
+      <div><dt>源码</dt><dd>
+        <code class="src" data-src="src/control/protocol.ts">control/protocol.ts</code>
+        <code class="src" data-src="src/control/server.ts">control/server.ts</code>
+        <code class="src" data-src="src/control/client.ts">control/client.ts</code>
+        <code class="src" data-src="src/control/connection.ts">control/connection.ts</code>
+        <code class="src" data-src="src/control/connect.ts">control/connect.ts</code>
+        <code class="src" data-src="src/control/submission.ts">control/submission.ts</code>
+        <code class="src" data-src="src/control/pending-requests.ts">control/pending-requests.ts</code>
+        <code class="src" data-src="src/control/ops.ts">control/ops.ts</code>
+        <code class="src" data-src="src/control/owner-token.ts">control/owner-token.ts</code>
+        <code class="src" data-src="src/control/workspace.ts">control/workspace.ts</code>
+        <code class="src" data-src="src/core/views.ts">core/views.ts</code>
+        <code class="src" data-src="src/core/types.ts">core/types.ts</code>
+        <code class="src" data-src="src/runtime/runtime.ts">runtime/runtime.ts</code>
+      </dd></div>
+      <div><dt>决策</dt><dd><a href="../adr/0002-detach-terminal-from-task-runtime.md">ADR 0002</a> <a href="../adr/0003-enforce-explicit-access-modes.md">ADR 0003</a></dd></div>
+      <div><dt>相关页面</dt><dd><a href="deployment.html">部署与信任边界</a> <a href="once-only.html">只执行一次</a> <a href="task-lifecycle.html">任务生命周期</a> <a href="tool-call-path.html">工具调用路径</a> <a href="storage-layout.html">存储布局</a></dd></div>
+    </dl>
+  </header>
+
+  <section id="transport">
+    <h2>传输与帧</h2>
+    <p>控制面是一个 Unix socket 上的请求/应答加单向推送：客户端发请求帧，服务端回应答帧，后台产生持久事件时向所有已订阅连接推事件帧。房间里的空位只有一个——后台对本机只有这一个入口，没有 TCP 端口，也没有远程协议。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 300" role="img" aria-label="客户端与服务端之间的三种帧：请求、应答与事件推送，均为换行结尾的 JSON">
+          <text class="el start" x="0" y="18">帧 = 一行 JSON + 换行；单帧上限 MAX_FRAME_BYTES（1 MiB）；空行忽略</text>
+          <text class="el start" x="0" y="38">请求与应答必须带 v（协议版本）、id（请求标识）、op；推送不带 id，带 push:"event"</text>
+          <g class="n accent"><rect x="0" y="110" width="180" height="56" rx="8"/><text x="90" y="130">客户端</text><text class="sub" x="90" y="150">TUI / CLI / 配置中心</text></g>
+          <g class="n accent"><rect x="860" y="110" width="180" height="56" rx="8"/><text x="950" y="130">ControlServer</text><text class="sub" x="950" y="150">本机唯一控制面入口</text></g>
+          <text class="el start end" x="205" y="112" style="text-anchor:start">{v:9, id:"req-1", op:"connect", params:{…}}</text>
+          <path class="e accent" marker-end="url(#ah-accent)" d="M205 122H835"/>
+          <text class="el" x="520" y="163">{v:9, id:"req-1", ok:true, result:{…}} / ok:false + error{code,message}</text>
+          <path class="e" marker-end="url(#ah)" d="M835 172H205"/>
+          <text class="el start" x="205" y="207" style="text-anchor:start">{v:9, push:"event", event:{seq, taskId, sessionId, body, createdAt}}</text>
+          <path class="e ok dash" marker-end="url(#ah-ok)" d="M835 217H205"/>
+          <text class="el start" x="0" y="262">持久事件先落库、事务提交成功才广播（Store.onCommitted → Runtime.onEventBroadcast → ControlServer.broadcast）；回滚的事务不广播</text>
+          <text class="el start" x="0" y="282">超限帧直接断开连接：请求行超限 socket.destroy()，长期不换行的残留缓冲同样断开</text>
+        </svg>
+      </div>
+      <ul class="legend">
+        <li><i class="accent"></i>请求（客户端 → 后台）</li>
+        <li><i></i>应答（后台 → 客户端）</li>
+        <li><i class="ok"></i>推送（后台 → 已订阅连接）</li>
+      </ul>
+      <figcaption>三种帧共用一条连接与同一套分帧规则：一行一个完整 JSON 对象。请求与应答按 <code>id</code> 配对，推送是单向的、不期望应答；每条推送的 <code>event.seq</code> 单调递增，是客户端的去重依据。</figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>帧的大小口径</th><th>阈值 / 行为</th><th>源码锚点</th></tr></thead>
+        <tbody>
+          <tr><td>单帧上限</td><td><code>MAX_FRAME_BYTES</code> = 1 MiB</td><td><code class="src" data-src="src/control/protocol.ts#MAX_FRAME_BYTES = 1024 * 1024">protocol.ts · MAX_FRAME_BYTES</code></td></tr>
+          <tr><td>请求超限</td><td>断开该连接（不回应答）</td><td><code class="src" data-src="src/control/server.ts#line.length > MAX_FRAME_BYTES">server.ts · 行超限断开</code></td></tr>
+          <tr><td>应答超限</td><td>回 <code>response_too_large</code>，请缩小分页范围重试（请求已执行）</td><td><code class="src" data-src="src/control/server.ts#response_too_large">server.ts · response_too_large</code></td></tr>
+          <tr><td>客户端收到超限帧</td><td>按断线处理：<code>frame_too_large</code>，不再使用该连接</td><td><code class="src" data-src="src/control/client.ts#frame_too_large">client.ts · frame_too_large</code></td></tr>
+          <tr><td>版本不匹配</td><td>回 <code>protocol_version</code> 并说明双方版本（认证前后都先查版本）</td><td><code class="src" data-src="src/control/server.ts#protocol_version">server.ts · protocol_version</code></td></tr>
+          <tr><td>非法 JSON</td><td>回 <code>bad_frame</code>；客户端收到非法帧则断开</td><td><code class="src" data-src="src/control/server.ts#bad_frame">server.ts · bad_frame</code></td></tr>
+          <tr><td>未知 op</td><td>回 <code>unknown_op</code></td><td><code class="src" data-src="src/control/server.ts#unknown_op">server.ts · unknown_op</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <aside class="callout limit"><b>已知限制 · 帧大小口径</b><p>服务端按 UTF-16 字符数比较请求行（<code>line.length</code>），客户端按 UTF-8 字节数比较（<code>Buffer.byteLength</code>）。含非 ASCII 的长参数（中文输入约占 3 字节/字）在请求侧可能先被服务端判超限断开，而客户端仍以为在限额内。架构工单 07 已记录该差异及其对提交核实的影响。</p></aside>
+
+    <p>请求的 <code>id</code> 由客户端生成（<code>req-1</code>、<code>req-2</code>…）；应答回来后按 <code>id</code> 唤醒等待者，超时之后的迟到应答被静默丢弃，不会串到别的请求上。</p>
+  </section>
+
+  <section id="auth">
+    <h2>认证：先令牌，后一切</h2>
+    <p>socket 文件位于控制面目录，该目录的权限是访问控制的第一道门。连接建立之后，第一个操作必须是 <code>auth</code>；认证成功之前，服务端不返回快照、不执行任何请求。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 260" role="img" aria-label="三种令牌来源汇聚成 auth 操作，后台以常数时间比较令牌，通过则解锁全部操作，不通过则回 unauthorized">
+          <text class="zone-t" x="0" y="14">令牌来源（客户端按此优先级解析：resolveOwnerToken）</text>
+          <g class="n"><rect x="0" y="30" width="300" height="46" rx="8"/><text x="150" y="46">RUUKOTO_OWNER_TOKEN</text><text class="sub" x="150" y="64">环境变量，值 ≥ 32 字符</text></g>
+          <g class="n"><rect x="0" y="92" width="300" height="46" rx="8"/><text x="150" y="108">RUUKOTO_OWNER_TOKEN_FILE</text><text class="sub" x="150" y="126">拥有者与后台不同 UID 时指向复制件</text></g>
+          <g class="n"><rect x="0" y="154" width="300" height="46" rx="8"/><text x="150" y="170">owner.token</text><text class="sub" x="150" y="188">同账户部署的默认（0600，后台生成/复用）</text></g>
+          <path class="e" marker-end="url(#ah)" d="M300 53C400 53 400 120 480 120"/>
+          <path class="e" marker-end="url(#ah)" d="M300 115H480"/>
+          <path class="e" marker-end="url(#ah)" d="M300 177C400 177 400 120 480 120"/>
+          <g class="n accent"><rect x="480" y="96" width="200" height="48" rx="8"/><text x="580" y="112">auth 请求</text><text class="sub" x="580" y="131">首个操作，携带 token</text></g>
+          <path class="e" marker-end="url(#ah)" d="M680 120H760"/>
+          <g class="n"><rect x="760" y="60" width="280" height="120" rx="8"/><text x="900" y="82">tokenMatches</text><text class="sub" x="900" y="104">timingSafeEqual 常数时间比较</text><text class="sub" x="900" y="126">避免按字符比较泄露令牌</text><text class="sub" x="900" y="152">长度不同直接否决</text></g>
+          <text class="el ok" x="720" y="52">一致</text>
+          <text class="el bad" x="720" y="196">不一致</text>
+          <path class="e ok" marker-end="url(#ah-ok)" d="M900 60V40H580V96"/>
+          <path class="e bad" marker-end="url(#ah-bad)" d="M760 200H580V144"/>
+          <g class="n ok"><rect x="440" y="6" width="280" height="34" rx="8"/><text x="580" y="23">authed.add(socket)：解锁全部 op</text></g>
+          <g class="n bad"><rect x="440" y="200" width="280" height="34" rx="8"/><text x="580" y="217">unauthorized：客户端进 failed，不再重连</text></g>
+          <text class="el start" x="0" y="248">认证前发来的其他 op：一律 unauthorized（未认证：请先以拥有者令牌执行 auth），不返回快照、不执行请求</text>
+        </svg>
+      </div>
+      <ul class="legend">
+        <li><i class="ok"></i>认证通过</li>
+        <li><i class="bad"></i>明确拒绝</li>
+      </ul>
+      <figcaption>令牌只经控制面目录的令牌文件或拥有者自己的环境变量传递，不出现在命令行、工具环境或日志中；<code>auth</code> 在 switch 之外单独处理，因此任何连接、任何时刻都可以先认证。比较是常数时间的，长度不同也走一次比较以保持时间形态。</figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>环节</th><th>规则</th><th>源码锚点</th></tr></thead>
+        <tbody>
+          <tr><td>生成与复用</td><td>后台启动时确保控制面目录存在（0770）；令牌缺失则生成 32 字节随机 hex、文件 0600，已存在则复用</td><td><code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code> <code class="src" data-src="src/control/owner-token.ts#TOKEN_FILE_NAME = "owner.token"">owner-token.ts · TOKEN_FILE_NAME</code></td></tr>
+          <tr><td>客户端解析优先级</td><td>环境变量 → <code>RUUKOTO_OWNER_TOKEN_FILE</code> → 控制面目录的 <code>owner.token</code>；都取不到就抛含修复指引的错误（不发请求）</td><td><code class="src" data-src="src/control/connect.ts#resolveOwnerToken">connect.ts · resolveOwnerToken</code></td></tr>
+          <tr><td>令牌不接受的值</td><td>少于 32 字符的文件内容视为无效；环境变量同样要求 ≥ 32 字符</td><td><code class="src" data-src="src/control/owner-token.ts#readOwnerToken">owner-token.ts · readOwnerToken</code></td></tr>
+          <tr><td>多用户部署</td><td>配置步骤把令牌以 0400、属主为拥有者放入其可读位置；控制面目录对拥有者开放连接权限</td><td><code class="src" data-src="src/control/owner-token.ts#多用户 Linux 部署时由配置步骤把令牌放入拥有者可读的位置">owner-token.ts · 部署约束</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="handshake">
+    <h2>握手与事件流：快照、补发、实时</h2>
+    <p id="seq-note">连接建立的最后一步是 <code>connect</code>：它同时完成三件事——读一张有界快照、补发漏掉的事件、把这台连接注册为订阅者。上一页提到的「后台重启」「断线」都靠这一步恢复，而恢复的是观察，不是执行。</p>
+
+    <div class="seq" style="--n:3">
+      <div class="who"><span>客户端</span><span>后台执行</span><span>事件存储</span></div>
+      <div class="m" style="--from:1;--to:2"><span>connect {since: 上次应对齐的序号}</span></div>
+      <div class="m l" style="--from:2;--to:3"><span>getMaxSeq() → N；snapshot()（项目/会话/有界任务/未决审批/产物/输出预览/instanceId/执行后端/默认模型）</span></div>
+      <div class="m l" style="--from:2;--to:3"><span>getEventLog(since, 5001)：读 (since, N] 的补发事件</span></div>
+      <div class="note" style="--from:2;--to:3">快照读取与 this.subscribers.add(socket) 在同一个同步段内完成（Node 单线程）。这两步之间没有 await，因此不会出现「快照已经含 seq N、订阅却从 N+1 之后才开始」的缺口。</div>
+      <div class="m l ok" style="--from:2;--to:1"><span>应答 {seq: N, replay: (since, N] 的事件, snapshot}；此后实时推送自 seq &gt; N 开始</span></div>
+      <div class="phase"><span>快照就位（客户端）</span></div>
+      <div class="m" style="--from:3;--to:1"><span>实时推送 {push:"event", event.seq = N+1, N+2, …}</span></div>
+      <div class="note" style="--from:1;--to:3">补发事件按 kind="replay" 应用：只补齐显示记录，不得把最新状态回滚到旧状态；实时事件按 kind="live" 应用，可以改状态。</div>
+      <div class="note ok" style="--from:1;--to:1">去重两层：ControlClient 丢弃 seq ≤ lastSeq 的帧；ControlConnection 丢弃 seq ≤ appliedSeq 的重复事件，并只在事件应用之后前进游标。</div>
+    </div>
+
+    <p>三条恢复路径都指向同一个动作——<b>重新取快照</b>，而不是重放任务：事件序号出现缺口、<code>invalid_cursor</code>、<code>cursor_too_old</code>。重新同步只替换观察到的最新状态，不发送 <code>resume_queue</code>、不批准任何审批、不继续任何任务。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 300" role="img" aria-label="事件序号的时间轴：快照截止 N，其后是补发区间与实时推送，缺口与失效游标触发重新同步">
+          <line class="e" x1="40" y1="120" x2="1000" y2="120" marker-end="url(#ah)"/>
+          <text class="el" x="1000" y="140" style="text-anchor:end">seq →</text>
+          <circle cx="140" cy="120" r="5" fill="var(--ok)" stroke="none"/>
+          <circle cx="380" cy="120" r="5" fill="var(--ok)" stroke="none"/>
+          <text class="el ok" x="140" y="100">since</text>
+          <text class="el ok" x="380" y="100">N（快照截止）</text>
+          <text class="el" x="700" y="100">seq &gt; N：实时推送</text>
+          <path class="e ok" stroke-width="4" d="M140 120H380"/>
+          <path class="e accent" stroke-width="4" d="M380 120H1000"/>
+          <path class="e" stroke-dasharray="4 4" d="M60 120H140"/>
+          <text class="el start" x="0" y="66">① 补发区间 (since, N]：replay，只补齐显示记录（kind="replay"）</text>
+          <text class="el start" x="0" y="46">② 快照本身：项目 / 会话 / 有界任务 / 未决审批 / 产物 / 输出预览 / instanceId / 执行后端</text>
+          <text class="el start" x="0" y="26">③ 补发上限 REPLAY_LIMIT = 5000 条：区间再大就不补发，回 cursor_too_old 让客户端重取快照</text>
+          <text class="el start" x="0" y="176">缺口：appliedSeq + 1 ≠ event.seq → 重新同步（快照 + 历史全量对齐）</text>
+          <text class="el start" x="0" y="196">invalid_cursor：since 不是非负整数，或 since &gt; maxSeq → 重新同步</text>
+          <text class="el start" x="0" y="216" style="text-anchor:start">cursor_too_old：补发条数 &gt; REPLAY_LIMIT → 重新同步</text>
+          <text class="el start" x="0" y="248">重新同步 = 一次不带 since 的 connect：重装快照、重排补发、再转实时。游标换成新的 N，实例标识变化时另行通知调用方。</text>
+        </svg>
+      </div>
+      <ul class="legend">
+        <li><i class="ok"></i>补发区间（replay）</li>
+        <li><i class="accent"></i>实时推送（live）</li>
+      </ul>
+      <figcaption>序号是全局单调递增的持久事件序号，不是任务内序号。快照给出截止点 N，补发填 (since, N]，实时从 N+1 接上——三段拼接之后客户端持有的正是完整的事件序列。慢客户端（或断开很久的客户端）不会让服务端积压：后台不为单个连接保留队列，断开者重连时凭游标补发，补发不了就重取快照。</figcaption>
+    </figure>
+
+    <details>
+      <summary>握手与断线重连的失败分支</summary>
+      <div class="body">
+        <div class="seq" style="--n:3">
+          <div class="who"><span>客户端</span><span>后台</span><span>结果</span></div>
+          <div class="m" style="--from:1;--to:2"><span>connect {since: 游标}</span></div>
+          <div class="m l unk" style="--from:2;--to:1"><span>error: invalid_cursor / cursor_too_old</span></div>
+          <div class="m" style="--from:1;--to:2"><span>connect（不带 since：重取完整快照）</span></div>
+          <div class="note ok" style="--from:1;--to:3">快照重装后，replay 为空，实时从新 N+1 继续；任务与审批一律不重放。</div>
+          <div class="phase"><span>断线之后</span></div>
+          <div class="m dash" style="--from:1;--to:2"><span>socket 关闭 / 坏帧 / 超长帧 / 未换行残留 → client.terminate()</span></div>
+          <div class="note unk" style="--from:1;--to:2">在途请求全部以 disconnected 失败（应答丢失）：后台可能已经执行，客户端不重发、等重连后核实。</div>
+          <div class="m wait" style="--from:1;--to:2"><span>退避后重连：建 socket → auth → connect（since = appliedSeq）</span></div>
+          <div class="note" style="--from:1;--to:3">重连只恢复观察：不发送 resume_queue、不批准审批、不继续任务、不启动后台。</div>
+          <div class="m l bad" style="--from:2;--to:1"><span>unauthorized / protocol_version → failed，停止重连并给出修复指引</span></div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section id="connection">
+    <h2>连接状态机</h2>
+    <p><code>ControlConnection</code> 把上面那条链路包成五个状态。判断标准只有一条：<b>后台是否明确拒绝</b>。明确拒绝（令牌无效、协议版本不符）才停止；其余一切失败——后台还没起来、建连超时、认证或同步超时、连接中途断开——都只是暂时没连上，按有上限的退避重试。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 380" role="img" aria-label="连接状态机：connecting、online、reconnecting、failed、closed 之间的迁移">
+          <g class="n wait" data-k="t1"><rect x="80" y="170" width="150" height="60" rx="8"/><text x="155" y="192">connecting</text><text class="sub" x="155" y="212">建连 → 认证 → 同步</text></g>
+          <g class="n ok" data-k="t2"><rect x="400" y="80" width="150" height="60" rx="8"/><text x="475" y="102">online</text><text class="sub" x="475" y="122">快照已装，事件实时应用</text></g>
+          <g class="n wait" data-k="t4"><rect x="400" y="280" width="150" height="60" rx="8"/><text x="475" y="302">reconnecting</text><text class="sub" x="475" y="322">退避计时，重连只恢复观察</text></g>
+          <g class="n bad" data-k="t6"><rect x="790" y="170" width="150" height="60" rx="8"/><text x="865" y="192">failed</text><text class="sub" x="865" y="212">给出修复指引，不再重试</text></g>
+          <g class="n idle" data-k="t8"><rect x="80" y="280" width="150" height="60" rx="8"/><text x="155" y="302">closed</text><text class="sub" x="155" y="322">拥有者主动关闭</text></g>
+          <path class="e ok" marker-end="url(#ah-ok)" d="M230 180C300 158 330 130 400 110" data-k="t2"/>
+          <text class="el ok" x="300" y="126">认证 + 同步成功</text>
+          <path class="e wait" marker-end="url(#ah-wait)" d="M400 140C330 170 300 200 230 220" data-k="t4"/>
+          <text class="el wait" x="300" y="238">连接关闭 / 认证或同步超时</text>
+          <path class="e wait" marker-end="url(#ah-wait)" d="M475 340C475 380 155 380 155 230" data-k="t5"/>
+          <text class="el wait" x="330" y="368">退避后重试（成功回到 online）</text>
+          <path class="e bad" marker-end="url(#ah-bad)" d="M230 200C400 200 620 200 790 200" data-k="t6"/>
+          <text class="el bad" x="510" y="192">明确拒绝：unauthorized / protocol_version</text>
+          <path class="e bad" marker-end="url(#ah-bad)" d="M550 300C680 280 760 240 790 212" data-k="t7"/>
+          <text class="el bad" x="700" y="300">重连时被明确拒绝</text>
+          <path class="e dash" marker-end="url(#ah)" d="M155 280V230" data-k="t8"/>
+          <text class="el" x="240" y="270">close()</text>
+        </svg>
+      </div>
+      <ul class="legend">
+        <li><i class="ok"></i>在线</li>
+        <li><i class="wait"></i>过渡 / 退避中</li>
+        <li><i class="bad"></i>停止</li>
+        <li><i class="idle"></i>已关闭</li>
+      </ul>
+      <figcaption>把状态读成「后台还能不能自己好起来」：connecting 与 reconnecting 都会再试，failed 不会，closed 是拥有者按了关闭。重连不是恢复执行——它只让界面重新看见后台的真实状态。</figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>从</th><th>到</th><th>触发</th><th>条件</th><th>源码锚点</th></tr></thead>
+        <tbody>
+          <tr tabindex="0" data-k="t1"><td><code class="st wait">connecting</code></td><td><code class="st wait">connecting</code></td><td>start() 进入首次连接与同步</td><td>无（起点）</td><td><code class="src" data-src="src/control/connection.ts#async start(): Promise<void>">connection.ts · start</code></td></tr>
+          <tr tabindex="0" data-k="t2"><td><code class="st wait">connecting</code></td><td><code class="st ok">online</code></td><td>authenticate 与 handshake 都成功</td><td>快照已安装；lastSyncAt 更新</td><td><code class="src" data-src="src/control/connection.ts#this.setState("online");">connection.ts · 置 online</code></td></tr>
+          <tr tabindex="0" data-k="t3"><td><code class="st wait">connecting</code></td><td><code class="st wait">reconnecting</code></td><td>首次建连失败（含超时、后台未起）</td><td>按 500ms 起退避；start() 同时把错误抛给调用方</td><td><code class="src" data-src="src/control/connection.ts#首次连接并同步；失败抛错">connection.ts · 首次建连失败</code></td></tr>
+          <tr tabindex="0" data-k="t4"><td><code class="st ok">online</code></td><td><code class="st wait">reconnecting</code></td><td>onClose：socket 关闭、坏帧、超长帧、未换行残留</td><td>非拥有者主动关闭且未处于 failed</td><td><code class="src" data-src="src/control/connection.ts#private handleClose(info: ClientCloseInfo): void">connection.ts · handleClose</code></td></tr>
+          <tr tabindex="0" data-k="t5"><td><code class="st wait">reconnecting</code></td><td><code class="st wait">reconnecting</code></td><td>重连尝试再失败</td><td>延迟翻倍，上限 8000ms</td><td><code class="src" data-src="src/control/connection.ts#Math.min(delayMs * 2, this.config.reconnectMaxMs ?? 8000)">connection.ts · 退避加倍</code></td></tr>
+          <tr tabindex="0" data-k="t6"><td><code class="st wait">connecting</code></td><td><code class="st bad">failed</code></td><td>认证或同步被明确拒绝</td><td>requestOutcome(err) === "rejected"，如 unauthorized、protocol_version</td><td><code class="src" data-src="src/control/connection.ts#if (requestOutcome(err) === "rejected") this.setState("failed", (err as Error).message);">connection.ts · 拒绝即停止</code></td></tr>
+          <tr tabindex="0" data-k="t7"><td><code class="st wait">reconnecting</code></td><td><code class="st bad">failed</code></td><td>重连时认证或同步被明确拒绝</td><td>state === "failed" 时 tryReconnect 直接返回，不再排下一次</td><td><code class="src" data-src="src/control/connection.ts#连接不可用：请求未发送">connection.ts · tryReconnect</code></td></tr>
+          <tr tabindex="0" data-k="t8"><td><code class="st wait">connecting / reconnecting</code></td><td><code class="st idle">closed</code></td><td>拥有者调用 close()</td><td>closedByUser = true：清除退避计时器，之后的 onClose 不再触发重连</td><td><code class="src" data-src="src/control/connection.ts#public close(): void">connection.ts · close</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>数值</th><th>取值</th><th>位置</th></tr></thead>
+        <tbody>
+          <tr><td>退避初值 / 上限</td><td>500ms → 8000ms（依次 0.5s、1s、2s、4s、8s、8s…）</td><td><code class="src" data-src="src/control/connection.ts#reconnectInitialMs?: number;">connection.ts · reconnectInitialMs</code> <code class="src" data-src="src/control/connection.ts#reconnectMaxMs?: number;">connection.ts · reconnectMaxMs</code></td></tr>
+          <tr><td>建连超时</td><td>5000ms（connect_timeout，未发送）</td><td><code class="src" data-src="src/control/client.ts#static connect(socketPath: string, timeoutMs = 5000)">client.ts · 建连超时</code></td></tr>
+          <tr><td>认证超时</td><td>10000ms</td><td><code class="src" data-src="src/control/client.ts#async authenticate(token: string, timeoutMs = 10_000)">client.ts · authenticate</code></td></tr>
+          <tr><td>握手超时</td><td>15000ms</td><td><code class="src" data-src="src/control/client.ts#async handshake(since?: number, timeoutMs = 15_000)">client.ts · handshake</code></td></tr>
+          <tr><td>请求超时</td><td>60000ms（超时即 outcome = unknown，后台照常执行，迟到应答按 id 丢弃）</td><td><code class="src" data-src="src/control/client.ts#request(op: string, params?: Record<string, unknown>, timeoutMs = 60_000)">client.ts · request</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>数据实例标识（快照的 <code>instanceId</code>）在重连时比对：变了说明后台换了一个数据库。<code>onSnapshot</code> 的 <code>instanceChanged</code> 让调用方按新实例处理待确认记录——换新库时不向空后台重发旧提交。旧序号在新实例里无意义，游标随之作废（新序号小于旧游标时后台回 <code>invalid_cursor</code>，走重新同步）。</p>
+  </section>
+
+  <section id="outcome">
+    <h2>请求结果分类</h2>
+    <p>界面上「这请求到底做没做」这个问题，在控制面只有四个答案，而且由产生错误的地方写定一次（架构工单 07）。调用方按分类处理，不再各列一份错误码表。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 420" role="img" aria-label="请求从发出到四种结果分类的判定流程">
+          <g class="n accent"><rect x="20" y="180" width="170" height="56" rx="8"/><text x="105" y="200">发起请求</text><text class="sub" x="105" y="220">写操作 / 查询</text></g>
+          <path class="e" marker-end="url(#ah)" d="M190 208H280"/>
+          <text class="el" x="235" y="198">先判本地</text>
+          <g class="n unk"><rect x="280" y="20" width="220" height="66" rx="8"/><text x="390" y="42">not_sent</text><text class="sub" x="390" y="62">连接不可用、客户端已关闭、</text><text class="sub" x="390" y="78">参数无法序列化、建连失败</text></g>
+          <path class="e unk" marker-end="url(#ah-unk)" d="M280 180V60H280"/>
+          <path class="e" marker-end="url(#ah)" d="M190 208H300"/>
+          <text class="el" x="290" y="240">已发出</text>
+          <g class="n ok"><rect x="300" y="180" width="200" height="56" rx="8"/><text x="400" y="200">等待应答</text><text class="sub" x="400" y="220">按 id 配对</text></g>
+          <path class="e ok" marker-end="url(#ah-ok)" d="M500 208H610"/>
+          <text class="el ok" x="555" y="198">ok:true</text>
+          <g class="n ok"><rect x="610" y="180" width="180" height="56" rx="8"/><text x="700" y="200">结果</text><text class="sub" x="700" y="220">调用方拿到 result</text></g>
+          <path class="e bad" marker-end="url(#ah-bad)" d="M400 180V330H560"/>
+          <text class="el bad" x="470" y="322">ok:false</text>
+          <g class="n bad"><rect x="560" y="302" width="250" height="66" rx="8"/><text x="685" y="324">rejected</text><text class="sub" x="685" y="344">后台明确拒绝（业务错误码）</text><text class="sub" x="685" y="360">不含 UNKNOWN_REPLY_CODES</text></g>
+          <g class="n unk"><rect x="840" y="120" width="200" height="80" rx="8"/><text x="940" y="142">unknown</text><text class="sub" x="940" y="162">应答丢失、连接仍在：超时，</text><text class="sub" x="940" y="178">或 internal_error /</text><text class="sub" x="940" y="194">response_too_large /</text><text class="sub" x="940" y="210">mode_switch_unverified</text></g>
+          <path class="e unk" marker-end="url(#ah-unk)" d="M500 216C560 216 600 190 840 168"/>
+          <g class="n unk"><rect x="840" y="280" width="200" height="80" rx="8"/><text x="940" y="302">disconnected</text><text class="sub" x="940" y="322">应答丢失、已断线：在途请求遇到</text><text class="sub" x="940" y="338">socket 关闭、坏帧、超长帧、</text><text class="sub" x="940" y="354">未换行残留、主动关闭</text></g>
+          <path class="e unk" marker-end="url(#ah-unk)" d="M400 236C400 286 620 300 840 314"/>
+          <text class="el unk" x="620" y="296">terminate()</text>
+          <text class="el start" x="0" y="404">不是 ControlClientError 的异常（实现 bug）保守按 unknown 处理：宁可多核实一次，也不把已执行的写请求当失败</text>
+        </svg>
+      </div>
+      <ul class="legend">
+        <li><i class="ok"></i>应答完整</li>
+        <li><i class="bad"></i>明确拒绝</li>
+        <li><i class="unk"></i>应答丢失</li>
+      </ul>
+      <figcaption>两个「应答丢失」的区别只有一个：连接现在还活着吗。活着就能当场查询核实（<code>unknown</code>），已经断了就只能等重连（<code>disconnected</code>）。二者都不自动重发。系统错误码（ENOENT、ERR_SQLITE_* 等）不进协议，服务端统一收口为 <code>internal_error</code>，原码写在 message 里。</figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>分类</th><th>含义</th><th>产生处</th><th>调用方处理（TUI）</th></tr></thead>
+        <tbody>
+          <tr><td><code class="st unk">not_sent</code></td><td>未发送（已知未执行）</td><td>连接层拒绝 <code>connection_unavailable</code>、<code>closed</code>、握手前提交、建连失败、参数无法序列化</td><td>「X 未发送」；提交恢复草稿</td></tr>
+          <tr><td><code class="st bad">rejected</code></td><td>后台明确拒绝</td><td>ok:false 的服务端错误应答</td><td>「X 失败」；提交清记录并恢复草稿，<code>request_conflict</code> 例外</td></tr>
+          <tr><td><code class="st unk">unknown</code></td><td>应答丢失，连接仍在</td><td>请求超时；应答为 <code>internal_error</code>、<code>response_too_large</code>、<code>mode_switch_unverified</code></td><td>当场查询后台状态核实，不重发；提交按原键核实</td></tr>
+          <tr><td><code class="st unk">disconnected</code></td><td>应答丢失，已断线</td><td><code>terminate()</code> 时的在途请求：socket 关闭/出错、坏帧、超长帧、未换行残留、主动关闭</td><td>「结果未知，重连后按后台状态显示（未自动重发）」；不发必然失败的查询</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <aside class="callout"><b>不变量 · 写请求应答丢失不换键</b><p>任何 <code>unknown</code> / <code>disconnected</code> 的写请求都不自动换新键重发：有幂等键的（提交、工作区入口）按原键核实，确认未接收才以原键原参数重发；其余先查询后台状态，再由拥有者决定。这与 <a href="tool-call-path.html">工具调用路径</a> 的「效果未知」是同一条纪律的两个位置——一个针对控制面请求，一个针对工具操作，不要混称。</p></aside>
+  </section>
+
+  <section id="dedup">
+    <h2>提交去重：先落盘，再发送</h2>
+    <p>提交（<code>submit</code> / <code>continue</code>）是唯一会真正启动任务的控制面写操作，因此它的幂等键必须比请求本身活得更久：断线、超时、界面重载都不能让同一条输入变成两个任务。</p>
+
+    <div class="seq" style="--n:4">
+      <div class="who"><span>输入与界面</span><span>提交守护</span><span>待确认记录（~/.ruukoto/pending）</span><span>后台</span></div>
+      <div class="m" style="--from:2;--to:2"><span>randomId("req") → request_id</span></div>
+      <div class="m" style="--from:2;--to:3"><span>save()：临时文件 + rename，0600；含 op、完整参数、数据实例标识、创建时间</span></div>
+      <div class="note bad" style="--from:2;--to:3">落盘失败不得发送：请求根本没发出去，按「未发送」处理（已知未执行）。</div>
+      <div class="m" style="--from:2;--to:4"><span>submit / continue：原样发送已落盘的参数</span></div>
+      <div class="m l ok" style="--from:4;--to:2"><span>应答带任务 ID</span></div>
+      <div class="m" style="--from:2;--to:3"><span>clear(request_id)：删除记录</span></div>
+      <div class="note ok" style="--from:2;--to:4">从这一刻起，这条输入由任务的生命周期负责，记录不再存在——它只代表「尚未确认接收」的请求，不是会话历史的副本。</div>
+    </div>
+
+    <p>应答丢失时记录留着，进入「接收结果待核实」。核实只问一个问题：后台有没有收到这个 <code>request_id</code>？</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 340" role="img" aria-label="待确认记录的核实流程：实例比对、find_task 查询、按结果关联、重发或保留">
+          <g class="n unk"><rect x="20" y="130" width="200" height="70" rx="8"/><text x="120" y="152">待确认记录</text><text class="sub" x="120" y="172">submit / continue 应答丢失</text><text class="sub" x="120" y="190">绑定提交时的实例标识</text></g>
+          <path class="e" marker-end="url(#ah)" d="M220 165H290"/>
+          <g class="n bad"><rect x="290" y="130" width="190" height="70" rx="8"/><text x="385" y="152">foreign_instance</text><text class="sub" x="385" y="172">实例标识不匹配：</text><text class="sub" x="385" y="190">保留，交拥有者处理</text></g>
+          <path class="e bad" marker-end="url(#ah-bad)" d="M290 130V100H385V130"/>
+          <path class="e ok" marker-end="url(#ah-ok)" d="M290 182H480"/>
+          <text class="el ok" x="385" y="226">标识一致</text>
+          <g class="n accent"><rect x="480" y="130" width="200" height="70" rx="8"/><text x="580" y="152">find_task</text><text class="sub" x="580" y="172">session_id + request_id</text><text class="sub" x="580" y="190">精确查询（含已离开快照的任务）</text></g>
+          <path class="e ok" marker-end="url(#ah-ok)" d="M680 152H790"/>
+          <text class="el ok" x="735" y="142">查到任务</text>
+          <g class="n ok"><rect x="790" y="60" width="240" height="70" rx="8"/><text x="910" y="82">linked</text><text class="sub" x="910" y="102">关联原任务（后台已收到）</text><text class="sub" x="910" y="120">清除记录</text></g>
+          <path class="e ok" marker-end="url(#ah-ok)" d="M680 152C720 152 740 105 790 98"/>
+          <path class="e" marker-end="url(#ah)" d="M680 178C720 178 740 200 790 208"/>
+          <text class="el" x="735" y="226">返回 task: null</text>
+          <g class="n wait"><rect x="790" y="180" width="240" height="70" rx="8"/><text x="910" y="202">明知未接收</text><text class="sub" x="910" y="222">以原键原参数重发（resent）</text><text class="sub" x="910" y="240">旧格式缺模型 → 恢复原文</text></g>
+          <path class="e unk" marker-end="url(#ah-unk)" d="M580 200C580 262 700 268 790 268"/>
+          <text class="el unk" x="690" y="290">查询失败</text>
+          <g class="n unk"><rect x="790" y="240" width="240" height="56" rx="8"/><text x="910" y="260">kept</text><text class="sub" x="910" y="280">保留待核实，下次重连再试</text></g>
+          <text class="el start" x="0" y="330">重发遇上 request_conflict（原请求刚刚落盘）：再核实一次；仍查不到才保留</text>
+        </svg>
+      </div>
+      <ul class="legend">
+        <li><i class="ok"></i>已接收</li>
+        <li><i class="wait"></i>明确未接收</li>
+        <li><i class="unk"></i>待核实 / 需人工</li>
+      </ul>
+      <figcaption>核实入口只有一个 <code>find_task</code>：查到就是已接收，返回 null 才是明确未接收。任何查不动的分支都归到「保留待核实」——记录留着不产生副作用，下次上线再核一次。</figcaption>
+    </figure>
+
+    <details>
+      <summary>同键异参与旧格式：两种不重发的例外</summary>
+      <div class="body">
+        <p><b>同键异参</b>：后台的幂等键比较含提交原文、访问模式、授权范围、继续来源与模型选择（<code>submissionDigest</code> 为这些字段的 sha256）。同键同参重试返回原任务；同键异参回 <code>request_conflict</code>，客户端不换新键、不重发，展示冲突让人处理。升级前落盘的提交（schema v11 之前）另带一份旧格式摘要参与核对；连旧格式都缺的任务，一律请拥有者用 <code>find_task</code> 核实。</p>
+        <p><b>旧格式缺模型</b>：明确未接收、但记录里没有模型选择（早期版本）时不能原样重发——<code>needs_resubmit</code>：把原文恢复进原会话的草稿，让拥有者用 <code>/model</code> 选好再提交。</p>
+        <p><b>记录目录</b>：<code>~/.ruukoto/pending/</code>（<code>RUUKOTO_PENDING_DIR</code> 可覆盖），目录 0700、记录文件 0600；损坏的文件保留在磁盘上并单独列出，不静默丢弃。令牌等凭据永不写入这里。</p>
+      </div>
+    </details>
+
+    <h3>工作区入口的幂等键</h3>
+    <p><code>ruukoto &lt;路径&gt;</code> 每次启动都带一个稳定的启动请求标识（<code>startupRequestId</code>），它同时是 <code>create_project</code> / <code>create_session</code> 的 <code>request_id</code>。</p>
+    <ul>
+      <li>同键同参（项目 + 规范化目录 + 确认工具集合）返回已存在记录，<b>不重复插入、不产生事件</b>；同键异参回 <code>request_conflict</code>。</li>
+      <li>Project 的幂等键比较项目名；Session 的比较项目、<code>cwdReal</code> 与确认工具集合。</li>
+      <li>应答丢失且连接仍在：当场核实一次；已断线：重连完成新握手后，先在新快照里按 <code>createRequestId === startupRequestId</code> 找会话，找不到才以同一标识重发。标识只在本次启动内复用，不生成第二个。</li>
+      <li>目录校验（存在性、realpath、dev/ino、保护根）在写入之前；项目与会话在同一事务，失败不留空项目。</li>
+    </ul>
+  </section>
+
+  <section id="ops">
+    <h2>op 目录</h2>
+    <p>服务端 <code>dispatch</code> 的 switch 里共有 75 个 op，另有 <code>auth</code> 在 switch 之外单独处理（见「认证」）。下表按领域分组；<b>写</b>列标出会改变后台状态的操作，<b>幂等键</b>列标出带 <code>request_id</code> 去重的操作。</p>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>op</th><th>做什么</th><th>写</th><th>幂等键</th></tr></thead>
+        <tbody>
+          <tr><td colspan="4"><b>连接与握手</b></td></tr>
+          <tr><td><code>ping</code></td><td>探活；返回 pong 与 stopping</td><td>—</td><td>—</td></tr>
+          <tr><td><code>connect</code></td><td>快照 + 补发 + 注册订阅</td><td>—</td><td><code>since</code> 游标</td></tr>
+          <tr><td><code>stop</code></td><td>优雅停止后台（与 SIGTERM 同一路径）</td><td>是</td><td>—</td></tr>
+          <tr><td colspan="4"><b>项目与会话</b></td></tr>
+          <tr><td><code>create_project</code></td><td>建项目</td><td>是</td><td><code>request_id</code></td></tr>
+          <tr><td><code>create_session</code></td><td>建会话（可经 <code>project_name</code> 自动建项目，同事务）</td><td>是</td><td><code>request_id</code></td></tr>
+          <tr><td><code>get_session</code></td><td>读单个会话</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>模型配置</b></td></tr>
+          <tr><td><code>list_models</code></td><td>模型目录分页</td><td>—</td><td>—</td></tr>
+          <tr><td><code>get_model_config</code></td><td>读模型配置与修订号</td><td>—</td><td>—</td></tr>
+          <tr><td><code>set_session_model</code></td><td>设置会话模型（<code>expected_version</code>）</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>save_model_catalog</code></td><td>保存 provider / 模型目录</td><td>是</td><td><code>expected_revision</code></td></tr>
+          <tr><td><code>set_model_api_key</code></td><td>设置 provider 的 API key</td><td>是</td><td><code>expected_revision</code></td></tr>
+          <tr><td><code>remove_model_api_key</code></td><td>移除 API key</td><td>是</td><td><code>expected_revision</code></td></tr>
+          <tr><td><code>remove_model_provider</code></td><td>移除 provider</td><td>是</td><td><code>expected_revision</code></td></tr>
+          <tr><td><code>set_default_model</code></td><td>设置后台默认模型</td><td>是</td><td><code>expected_revision</code></td></tr>
+          <tr><td><code>set_summary_model</code></td><td>设置上下文压缩用的摘要模型（provider 与 model_id 同为 null 即清除）</td><td>是</td><td><code>expected_revision</code></td></tr>
+          <tr><td><code>test_model_connection</code></td><td>试连 provider / 模型</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>任务</b></td></tr>
+          <tr><td><code>submit</code></td><td>提交新任务（会话 + 原文 + 模式 + 授权范围）</td><td>是</td><td><code>request_id</code></td></tr>
+          <tr><td><code>continue</code></td><td>在已有任务上继续</td><td>是</td><td><code>request_id</code></td></tr>
+          <tr><td><code>switch_mode</code></td><td>切换任务访问模式（可带新授权范围）</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>set_session_mode</code></td><td>设置会话默认模式（作用于后续任务）</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>interrupt</code></td><td>中断任务（保留占用待核实）</td><td>是</td><td>—</td></tr>
+          <tr><td><code>cancel</code></td><td>取消任务</td><td>是</td><td>—</td></tr>
+          <tr><td><code>resume_queue</code></td><td>恢复被暂停的会话队列</td><td>是</td><td>—</td></tr>
+          <tr><td><code>get_task</code></td><td>任务详情（含工具操作、审批、产物、输出预览与快照水位 <code>seq</code>）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>find_task</code></td><td>按会话 + <code>request_id</code> 核实已接收请求</td><td>—</td><td>—</td></tr>
+          <tr><td><code>list_tasks</code></td><td>会话内任务分页（新 → 旧，含已离开快照的）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>read_task_events</code></td><td>单任务持久事件分页（<code>after_seq</code> / <code>limit</code>，返回 <code>nextAfter</code>）</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>审批</b></td></tr>
+          <tr><td><code>respond_confirmation</code></td><td>批准 / 拒绝一个待办审批（可带 <code>permission_version</code>）</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>get_confirmation_params</code></td><td>读审批的完整参数（按字节分段）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>get_tool_op_params</code></td><td>读工具操作的完整参数（按字节分段）</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>历史与产物</b></td></tr>
+          <tr><td><code>read_history</code></td><td>会话历史分页</td><td>—</td><td>—</td></tr>
+          <tr><td><code>read_history_entry</code></td><td>读单条历史正文（按字节分段）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>read_tool_result</code></td><td>按会话与条目读取工具正文、Edit 实际 patch、Write 调用原文及完整行数 writeTotalLines；每字段默认 16 KiB、最大 64 KiB，UTF-8 截断</td><td>—</td><td>—</td></tr>
+          <tr><td><code>search_history</code></td><td>跨会话字面检索（带扫描上限与继续游标）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>read_artifact</code></td><td>读产物正文（base64 分页，单次上限 720 KiB）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>list_selection_records</code></td><td>上下文选择记录列表</td><td>—</td><td>—</td></tr>
+          <tr><td><code>get_session_usage</code></td><td>按会话汇总实际输入与输出 token；输入含缓存读取和写入，缺少 usage 的调用不计入</td><td>—</td><td>—</td></tr>
+          <tr><td><code>list_session_summaries</code></td><td>按项目读取会话摘要：最早用户任务输入（最多 512 字符）与最后任务活动时间，无任务回退创建时间；只查 SQLite 元数据，模型和模式设置不计入活跃时间</td><td>—</td><td>—</td></tr>
+          <tr><td><code>get_selection_record</code></td><td>读单条选择记录</td><td>—</td><td>—</td></tr>
+          <tr><td><code>get_context_breakdown</code></td><td>某次调用的上下文分解</td><td>—</td><td>—</td></tr>
+          <tr><td><code>list_prompt_requests</code></td><td>本会话模型请求列表（游标分页）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>read_prompt_snapshot</code></td><td>读某次请求的 prompt 快照（分段）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>list_skills</code></td><td>技能库目录与诊断</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>资料授权、记忆与项目设置</b></td></tr>
+          <tr><td><code>create_data_grant</code></td><td>开放跨项目资料读取范围</td><td>是</td><td>—</td></tr>
+          <tr><td><code>revoke_data_grant</code></td><td>撤销授权（自后续查询生效）</td><td>是</td><td>—</td></tr>
+          <tr><td><code>list_data_grants</code></td><td>授权列表（可选含已撤销）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>list_memories</code></td><td>长期记忆列表（项目 / 个人共享）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>get_memory</code></td><td>单条记忆详情与历史版本</td><td>—</td><td>—</td></tr>
+          <tr><td><code>save_memory</code></td><td>新增或修改记忆</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>revoke_memory</code></td><td>撤销记忆</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>restore_memory</code></td><td>按历史版本恢复记忆</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>set_project_instructions</code></td><td>设置项目指令文件列表（空列表即清除）</td><td>是</td><td>—</td></tr>
+          <tr><td><code>set_project_web_search</code></td><td>开关项目的 Web Search</td><td>是</td><td>—</td></tr>
+          <tr><td><code>get_project_jev</code></td><td>读项目的 Jev 上下文筛选配置</td><td>—</td><td>—</td></tr>
+          <tr><td><code>set_project_jev</code></td><td>设置 Jev 配置（凭据名或 null）</td><td>是</td><td>版本号</td></tr>
+          <tr><td colspan="4"><b>凭据</b></td></tr>
+          <tr><td><code>list_credentials</code></td><td>凭据绑定列表（只有引用，没有值）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>add_credential</code></td><td>登记凭据（秘密值随请求传输，不落日志）</td><td>是</td><td>—</td></tr>
+          <tr><td><code>remove_credential</code></td><td>移除凭据</td><td>是</td><td>—</td></tr>
+          <tr><td colspan="4"><b>MCP</b></td></tr>
+          <tr><td><code>mcp_configure</code></td><td>配置或更新 MCP 服务（端点、凭据引用、工具允许列表、启用状态）</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>mcp_list</code></td><td>列出服务（<code>project_id</code> 可选）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>mcp_set_enabled</code></td><td>启用 / 停用服务</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>mcp_remove</code></td><td>移除服务</td><td>是</td><td>—</td></tr>
+          <tr><td><code>mcp_check</code></td><td>试连服务并列出可用工具</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>QQ</b></td></tr>
+          <tr><td><code>qq_configure</code></td><td>配置 OneBot 连接、账号与回复上限</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>qq_status</code></td><td>连接状态、群列表与统计</td><td>—</td><td>—</td></tr>
+          <tr><td><code>qq_set_enabled</code></td><td>启用 / 停用入口</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>qq_group_update</code></td><td>允许 / 禁止某个群</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>qq_inbox_list</code></td><td>入站队列浏览</td><td>—</td><td>—</td></tr>
+          <tr><td><code>qq_outbox_list</code></td><td>出站记录浏览</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>Telegram</b></td></tr>
+          <tr><td><code>telegram_configure</code></td><td>配置 bot 凭据与 owner 目标</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>telegram_status</code></td><td>连接状态与统计</td><td>—</td><td>—</td></tr>
+          <tr><td><code>telegram_set_enabled</code></td><td>启用 / 停用入口</td><td>是</td><td>版本号</td></tr>
+          <tr><td colspan="4"><b>调度与通知</b></td></tr>
+          <tr><td><code>schedule_list</code></td><td>调度计划列表（按状态、游标分页）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>schedule_get</code></td><td>单条计划与运行历史</td><td>—</td><td>—</td></tr>
+          <tr><td><code>schedule_cancel</code></td><td>取消计划（首版不支持编辑，只能取消后重建）</td><td>是</td><td>版本号</td></tr>
+          <tr><td><code>notification_list</code></td><td>发送操作账本列表</td><td>—</td><td>—</td></tr>
+          <tr><td><code>notification_get</code></td><td>单条发送操作状态</td><td>—</td><td>—</td></tr>
+          <tr><td><code>notification_cancel</code></td><td>取消未发送的通知</td><td>是</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>TuiOps：TUI 用到的那一层</h3>
+    <p><code>TuiOps</code> 是 <code>src/control/ops.ts</code> 里的一张类型表（架构工单 07）：35 个 op 的参数与返回形状只在这里定义一次，返回形状取服务端 Runtime 方法的实际返回类型。真实客户端、demo 合成会话与测试替身都按它实现 <code>ControlTransport</code>，因此「TUI 请求的 op 名与服务端是否认得」「返回形状对不对」在编译期就能对上。服务端 dispatch、CLI 与配置中心仍按字符串调用，不经这张表。</p>
+    <p>TUI 收到的错误也统一按 <code>RequestOutcome</code> 处理（<code>writeFailure</code> 把四类翻成「未发送 / 失败 / 结果未知」），不再各处列错误码表。</p>
+  </section>
+
+  <section id="events">
+    <h2>事件目录</h2>
+    <p>持久事件是后台状态的唯一变更流：事务提交成功才广播，回滚的事务不产生事件。下表是全量类型清单——<b>本页是这两个目录（op 与事件）的登记处，代码新增 op 或事件类型时本页必须补上</b>。「详见」列指向解释该事件来龙去脉的页面。</p>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>事件类型</th><th>何时发出</th><th>详见</th></tr></thead>
+        <tbody>
+          <tr><td><code>model.config_changed</code></td><td>模型配置在线应用成功（catalog / api_key / default_model / summary_model），载荷不含秘密，供前端刷新</td><td>本页</td></tr>
+          <tr><td><code>project.created</code></td><td>项目创建（带幂等键时只在真正新建时产生）</td><td>本页</td></tr>
+          <tr><td><code>project.jev_changed</code></td><td>项目 Jev 上下文筛选配置变化</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>session.created</code></td><td>会话创建（含入口类别、工作目录、初始模型与创建标识）</td><td>本页</td></tr>
+          <tr><td><code>session.model_selection_changed</code></td><td>会话模型或思考档位变更（带版本号）</td><td>本页</td></tr>
+          <tr><td><code>session.usage_updated</code></td><td>实际 usage 保存后通知客户端重新查询会话累计用量</td><td><a href="context-pipeline.html">上下文管线</a></td></tr>
+          <tr><td><code>session.default_mode_changed</code></td><td>会话默认访问模式变更（作用于后续任务）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>session.queue_paused</code></td><td>会话队列暂停（附原因）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>session.queue_resumed</code></td><td>会话队列恢复</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>session.history_unreadable</code></td><td>会话历史文件缺失或损坏，读取失败如实记录</td><td><a href="storage-layout.html">存储布局</a></td></tr>
+          <tr><td><code>tasks.model_selection_recorded</code></td><td>一批排队的任务被钉上同一模型选择</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.queued</code></td><td>任务入队（含 request_id、访问模式、模型选择）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.started</code></td><td>任务开始执行</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.context_experiment</code></td><td>Jev 选择尝试的记录，即使主模型未发送也留档</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>task.context_compaction</code></td><td>上下文压缩的 started / finished（finished 与压缩点同一事务；摘要失败时 checkpointId 为 null）</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>task.awaiting_confirmation</code></td><td>任务等待拥有者审批某个操作（含工具、参数与自动审查状态）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.confirmation_resolved</code></td><td>审批被批准或拒绝（来源为拥有者或自动审查）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.confirmation_reviewed</code></td><td>自动审查无法定论，转拥有者确认（审批仍 pending）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.approval_consumed</code></td><td>批准在真正执行前被原子消费（消费即执行开始）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.mode_switch_requested</code></td><td>收到模式切换请求</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.mode_switched</code></td><td>模式切换完成（带新的权限版本）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.mode_switch_failed</code></td><td>模式切换失败（旧执行单元退出无法核实等）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.output_fragment</code></td><td>模型正文的增量（按显示段与字节偏移发送，节流 250ms）</td><td>本页</td></tr>
+          <tr><td><code>task.thinking</code></td><td>思考阶段的开始与结束，携带单行展示所需的最新内容</td><td>本页</td></tr>
+          <tr><td><code>task.output_entry</code></td><td>本轮消息落盘后补发条目引用（最终正文以历史接口为准）</td><td>本页</td></tr>
+          <tr><td><code>task.tool_intent</code></td><td>工具调用意图（参数可能为有界预览）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.tool_result</code></td><td>工具结果回收（摘要、是否错误、产物引用、编辑统计）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.tool_effect_unknown</code></td><td>写操作已发出却无法确认是否生效（效果未知，不自动重发）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.tool_process_unreaped</code></td><td>工具进程未能回收，按已知情况如实记录</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.completed</code></td><td>任务成功完成</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.failed</code></td><td>任务失败（附错误信息）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.canceled</code></td><td>任务被取消</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.interrupted</code></td><td>任务被中断（含取消请求与效果未知标记）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>task.continued</code></td><td>在已有任务上继续（resumesTaskId 指向来源）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>occupancy.stale</code></td><td>发现过期的执行占用记录，待核实</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>data_grant.created</code></td><td>跨项目资料授权建立</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>data_grant.revoked</code></td><td>授权撤销（自后续查询生效）</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>memory.saved</code></td><td>长期记忆新增或修改（带版本与作者）</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>memory.revoked</code></td><td>记忆被撤销</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>memory.restored</code></td><td>记忆按历史版本恢复为新修订</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>mcp.service_changed</code></td><td>MCP 服务配置变化（upsert / 启停 / 移除）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>mcp.service_unavailable</code></td><td>任务开始时显式启用的服务初始化失败，本任务缺其工具</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>qq.config_changed</code></td><td>QQ 入口配置变化（不含 token，版本号递增）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>qq.receive_gap</code></td><td>QQ 连接中断后重连成功，标记中断窗口（缺失如实记录，不补抓不补发）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>qq_private.reply_skipped</code></td><td>QQ 私聊任务终态但未登记 owner 回复</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>telegram.config_changed</code></td><td>Telegram 入口配置变化（不含 token）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>telegram.rejected</code></td><td>非 owner / 非私聊 / 非文本消息被忽略（只记 id 与原因，不含正文）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>telegram.reply_skipped</code></td><td>私聊入站任务终态但未登记 owner 回复</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>backend.started</code></td><td>后台启动（记录数据目录与执行后端）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>backend.stopping</code></td><td>后台开始停止（附原因）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>backend.stopped</code></td><td>后台已停止</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>backend.recovered</code></td><td>重启恢复完成：列出被标为中断的任务与暂停的会话</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>inbound.registered</code></td><td>入站事件已登记（先持久化再建任务，重复登记不产生新事件）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>inbound.queued</code></td><td>入站事件已建任务并入队</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>inbound.skipped</code></td><td>入站事件未建任务（附原因）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>chat_result.accepted</code></td><td>main 接收一次群聊结果的固定快照</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>child_task.completed</code></td><td>子任务完成，结果摘要与引用已记录在任务上</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>child_task.failed</code></td><td>子任务失败</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>child_task.timeout</code></td><td>子任务超过截止时间被编排器取消</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>child_task.result_unknown</code></td><td>子任务结果未知（如后台重启中断），不自动重放外部副作用</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>app_data.unavailable</code></td><td>应用数据能力不可用（文件丢失、实例不符、损坏或格式过新）</td><td><a href="storage-layout.html">存储布局</a></td></tr>
+          <tr><td><code>app_data.rejected</code></td><td>应用数据操作被拒绝（身份 / 校验 / 预算 / 超时，只记来源与错误码）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>schedule.changed</code></td><td>调度计划创建 / 取消 / 一次性完成（只落事件表，不唤醒模型）</td><td><a href="outbox.html">通知 outbox</a></td></tr>
+          <tr><td><code>schedule.run</code></td><td>调度运行登记、合并漏过周期或关闭</td><td><a href="outbox.html">通知 outbox</a></td></tr>
+          <tr><td><code>schedule.news</code></td><td>新闻计划的采集结果（条数与错误码）</td><td><a href="outbox.html">通知 outbox</a></td></tr>
+          <tr><td><code>notification.changed</code></td><td>发送操作状态变化（pending/sending/sent/failed/effect_unknown/canceled，不含正文与凭据）</td><td><a href="outbox.html">通知 outbox</a></td></tr>
+          <tr><td><code>github.*</code></td><td>已随专用 GitHub 模块退役（issue 17）：不再产生新事件，仅为历史事件的回放、只读展示与退役迁移的终结事件保留</td><td><a href="index.html">总览</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>流式输出（本页负责）</h3>
+    <p>正文不是一条消息一条事件，而是按「显示段」持续追加的增量。理解三个字段就够了：<code>contentIndex</code> 是后台分配的连续段序号（不等同 SDK 的块索引），<code>offset</code> 是该段内的 UTF-8 字节偏移，<code>totalBytes</code> 是段内已累计的字节数。</p>
+
+    <div class="seq" style="--n:3">
+      <div class="who"><span>模型流（Driver）</span><span>事件流</span><span>客户端</span></div>
+      <div class="m" style="--from:1;--to:2"><span>thinking_delta（节流 250ms 一条）</span></div>
+      <div class="m" style="--from:1;--to:2"><span>text_delta</span></div>
+      <div class="note" style="--from:2;--to:3">task.output_fragment {contentIndex, offset, text, totalBytes}：每段按 offset 拼接，单片不超过 FRAGMENT_TEXT_CAP（8 KiB），节流间隔 FRAGMENT_INTERVAL_MS = 250ms。</div>
+      <div class="m" style="--from:1;--to:2"><span>thinking_start / thinking_delta：携带最新内容（尾部截断）</span></div>
+      <div class="m" style="--from:1;--to:2"><span>toolcall_start / text_end：段边界，冲刷尾块</span></div>
+      <div class="m" style="--from:1;--to:2"><span>message_end：冲刷 tail 并结束思考段</span></div>
+      <div class="note ok" style="--from:2;--to:3">message_end 会冲刷所有段：此后该条消息的正文在事件流里已经完整，但最终正文仍以 task.output_entry 关联的 JSONL 为准。</div>
+      <div class="m" style="--from:2;--to:3"><span>task.output_entry {entryId, sessionFile, messageId}</span></div>
+    </div>
+
+    <ul>
+      <li><b>段序号</b>：正文段由消息内的位置推进（思考、工具调用会结束当前段）；一个 <code>contentIndex</code> 内的片段共享 <code>startedAt</code>，即该段首次产生正文的时间。</li>
+      <li><b>思考</b>：<code>task.thinking</code> 带 <code>thinkingId</code>、<code>startedAt</code> / <code>endedAt</code> 与最新文本（尾部有界），客户端据此显示单行滚动的最新部分，结束后原位保留耗时。</li>
+      <li><b>最终正文</b>：事件只是实时投影与恢复来源；消息正文经 <code>read_history_entry</code> / <code>task.output_entry</code> 关联的 JSONL 读取。点击工具结果行时经 <code>read_tool_result</code> 读取 <code class="src" data-src="src/core/history.ts#readToolResult">JSONL 工具结果与补丁</code>，在事件流内以代码和红绿 diff 展示，再次点击收起。仅返回文本、实际 patch 和对应 Write 原文，不公开其他 details。重连时用 <code>read_task_events</code> 按任务分页补事件，用输出预览补生成中或被中断的尾巴。</li>
+      <li><b>兼容</b>：没有 <code>offset</code> 的旧片段按「累计文本尾部」解释。</li>
+    </ul>
+
+    <h3>有界视图：线上载荷不携带完整大参数</h3>
+    <p>持久化层（事件表、确认请求、工具操作）保存完整正文，只有发往客户端的载荷经有界视图转换。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>上限</th><th>取值</th><th>行为</th></tr></thead>
+        <tbody>
+          <tr><td><code>PARAMS_INLINE_CAP</code></td><td>8 KiB（序列化字节）</td><td>小于上限的参数原样内联；超限替换为结构保留的预览</td></tr>
+          <tr><td><code>PARAMS_PREVIEW_STRING_CAP</code></td><td>256 字符</td><td>预览中的单个字符串截断并标注原始字节数</td></tr>
+          <tr><td><code>FRAGMENT_TEXT_CAP</code></td><td>8 KiB</td><td>输出增量与思考文本在源头（Driver）就有界（思考取尾部）</td></tr>
+          <tr><td><code>SEGMENT_DEFAULT_BYTES</code> / <code>SEGMENT_MAX_BYTES</code></td><td>64 KiB / 256 KiB</td><td>历史、参数、事件分页的默认页大小与单页上限</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>被替换为预览的参数带 <code>paramsBytes</code>（完整序列化字节数）与 <code>paramsTruncated: true</code>，完整正文经 <code>get_confirmation_params</code> / <code>get_tool_op_params</code> 按 ID 分段读取；任务输出预览同理，<code>state</code> 区分生成中与中断前捕获的部分。</p>
+  </section>
+
+  <section id="versions">
+    <h2>协议版本演进</h2>
+    <p>协议版本写在每一帧的 <code>v</code> 里。服务端只服务与它完全相同的一版：不匹配就回 <code>protocol_version</code>，客户端提示升级而不是静默重试。当前值 <code>PROTOCOL_VERSION</code> = <code>v9</code>。持久事件中的旧格式兼容（缺少偏移的片段、旧格式幂等摘要）不代表线上协议向后兼容。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>版本</th><th>变化</th></tr></thead>
+        <tbody>
+          <tr><td><code>v2</code></td><td>拥有者认证：连接建立后首个操作必须是 <code>auth</code>，认证成功前不返回快照、不执行请求；令牌只经控制面目录的令牌文件或拥有者环境变量传递</td></tr>
+          <tr><td><code>v3</code></td><td>快照有界化（活动任务 + 每会话近期结束任务，更早经 <code>list_tasks</code> 分页）；握手返回数据实例标识与执行后端说明；活动 / 中断任务携带输出预览；确认请求与工具操作经有界参数视图传输；新增历史读取与 <code>request_id</code> 核实接口</td></tr>
+          <tr><td><code>v8</code></td><td>专用 GitHub 模块退役：<code>github_*</code> 业务接口移除，旧客户端因版本不匹配被拒绝，旧命令只保留静态迁移提示</td></tr>
+          <tr><td><code>v9</code></td><td>正文按连续显示段发送 UTF-8 增量；新增持久思考阶段、<code>read_task_events</code> 分页与 <code>get_task</code> 快照水位；持久旧事件的累计尾部格式仍可读</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">源码注释里只有 v2、v3、v8、v9 四段变化记录；这四段之外的中间版本没有留下说明。</p>
+  </section>
+
+  <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>
+</main>
+</body>
+</html>

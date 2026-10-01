@@ -137,7 +137,7 @@ test("main 接收不外发；群摘要通知在 full_access 下仍需审批，�
     rt.store.db.prepare("UPDATE tasks SET result_summary = ? WHERE id = ?").run("原结果后来改变", taskId);
     await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
     await h.complete(notify.id);
-    await rt.scheduler.idle();
+    await rt.scheduler!.idle();
     const [op] = h.ops();
     assert.equal(op.status, "pending");
     assert.equal(op.text, SUMMARY);
@@ -146,8 +146,8 @@ test("main 接收不外发；群摘要通知在 full_access 下仍需审批，�
     assert.ok(rt.store.getConfirmation(confirmation.id)!.consumedAt);
     assert.deepEqual(h.channel.sends, []);
     h.channel.online = true;
-    await rt.scheduler.tick();
-    await rt.scheduler.idle();
+    await rt.scheduler!.tick();
+    await rt.scheduler!.idle();
     assert.equal(rt.sched.getOp(op.id)!.status, "sent");
     assert.deepEqual(h.channel.sends, [{ opId: op.id, text: SUMMARY, target: TARGET }]);
     assert.ok(h.ops().every((item) => item.sourceKind !== "owner_reply"));
@@ -169,7 +169,7 @@ test("群消息在审批期间或批准后发送前撤回，都不能继续外�
       if (phase === "pending") {
         await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
         await h.complete(task.id);
-        await rt.scheduler.idle();
+        await rt.scheduler!.idle();
         assert.equal(h.ops()[0].status, "pending");
       }
       h.onebot.pushRecall({ groupId: GROUP, messageId: 1, userId: USER });
@@ -183,8 +183,8 @@ test("群消息在审批期间或批准后发送前撤回，都不能继续外�
         assert.match(rt.store.listToolOpsByTask(task.id).find((op) => op.toolName === "notification_enqueue")!.resultSummary!, /通知资料已失效.*撤回/);
       }
       h.channel.online = true;
-      await rt.scheduler.tick();
-      await rt.scheduler.idle();
+      await rt.scheduler!.tick();
+      await rt.scheduler!.idle();
       if (phase === "pending") {
         assert.equal(h.ops()[0].status, "canceled");
         assert.match(h.ops()[0].errorMessage!, /source_revoked.*撤回/);

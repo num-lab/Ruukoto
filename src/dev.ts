@@ -70,15 +70,17 @@ export function devProfileFor(repoRootDir: string, homeDir: string = os.homedir(
   };
 }
 
-/** 绝不继承的生产配置（拥有者令牌与受保护执行账户环境）。 */
+/** 绝不继承的生产配置（拥有者令牌、受保护执行账户环境与产品身份）。 */
 const SCRUB_EXACT = new Set([
   "RUUKOTO_OWNER_TOKEN",
   "RUUKOTO_OWNER_TOKEN_FILE",
   "RUUKOTO_EXECUTION_BACKEND",
   "RUUKOTO_WORKER_IMAGE",
+  // 产品身份（issue 01）：开发实例固定为默认产品 ruukoto，不继承 ruukoto-dev 入口身份
+  "RUUKOTO_PRODUCT",
   RELOAD_STATE_ENV,
 ]);
-const SCRUB_PREFIXES = ["RUUKOTO_EXEC_", "RUUKOTO_CONTAINER_"];
+const SCRUB_PREFIXES = ["RUUKOTO_EXEC_", "RUUKOTO_CONTAINER_", "RUUKOTO_DEV_"];
 
 /** 子进程环境：洗掉生产令牌/执行账户配置，注入档案目录与 QQ 停用标记。 */
 export function buildChildEnv(base: NodeJS.ProcessEnv, profile: DevProfile): NodeJS.ProcessEnv {

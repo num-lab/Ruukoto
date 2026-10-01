@@ -195,8 +195,8 @@ test("GitHub webhook：模型等待时快速持久登记与去重，固定只读
     assert.match(op.text, /MAIN_SUMMARY/);
     assert.ok(!op.text.includes("DRAFT_TAIL"), "通知正文来自 main 摘要");
     assert.deepEqual(op.target, TARGET);
-    await h.runtime.scheduler.tick();
-    await h.runtime.scheduler.idle();
+    await h.runtime.scheduler!.tick();
+    await h.runtime.scheduler!.idle();
     assert.equal(h.runtime.sched.getOp(op.id)!.status, "sent");
     assert.deepEqual(h.channel.sends, [{ opId: op.id, target: TARGET, text: op.text }]);
     assert.ok(!JSON.stringify(h.server.calls).includes(SECRET));
@@ -231,8 +231,8 @@ test("GitHub 修订：head 与 base 变化分别标记旧结果过期并取消�
     await h.post(lateDelivery, revisions[0]!);
     await waitFor("迟到旧修订被跳过", () => h.runtime.store.findInboundEvent("github", lateDelivery)!.status === "failed");
     assert.equal(h.runtime.store.findInboundEvent("github", lateDelivery)!.taskId, null);
-    await h.runtime.scheduler.tick();
-    await h.runtime.scheduler.idle();
+    await h.runtime.scheduler!.tick();
+    await h.runtime.scheduler!.idle();
     assert.deepEqual(h.channel.sends.map((send) => send.opId), [newest.op.id]);
     assert.equal(h.runtime.sched.listOps({}).items.length, 3);
   } finally { await h.close(); }
@@ -245,14 +245,14 @@ test("GitHub 通知：换 owner 目标和停用 webhook 都取消旧 pending，�
     await h.post(first);
     const old = await h.complete(first);
     h.channel.target = () => ({ ...TARGET, chatId: "new-owner", configVersion: 2 });
-    await h.runtime.scheduler.tick(); await h.runtime.scheduler.idle();
+    await h.runtime.scheduler!.tick(); await h.runtime.scheduler!.idle();
     assert.equal(h.runtime.sched.getOp(old.op.id)!.status, "canceled");
     assert.deepEqual(h.runtime.store.getInboundEvent(old.event.id)!.replyTarget, TARGET);
     const second = randomUUID();
     await h.post(second, payload("c".repeat(40), BASE, "2026-09-24T00:01:00Z"));
     const latest = await h.complete(second);
     await h.restart(false);
-    await h.runtime.scheduler.idle();
+    await h.runtime.scheduler!.idle();
     assert.equal(h.runtime.githubWebhookAddress(), null);
     assert.equal(h.runtime.sched.getOp(latest.op.id)!.status, "canceled");
     assert.equal(h.channel.sends.length, 0);
@@ -276,7 +276,7 @@ test("GitHub 修订：同时间戳不同 SHA 保守失效，关闭事件不创�
     await h.post(closeId, closed);
     await waitFor("关闭事件已登记不派发", () => h.runtime.store.findInboundEvent("github", closeId)!.status === "failed");
     assert.equal(h.runtime.store.listTasksBySession(original.child.sessionId).length, 1);
-    await h.runtime.scheduler.tick(); await h.runtime.scheduler.idle();
+    await h.runtime.scheduler!.tick(); await h.runtime.scheduler!.idle();
     assert.equal(h.channel.sends.length, 0);
   } finally { await h.close(); }
 });
@@ -288,8 +288,8 @@ test("GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重�
     await h.post(delivery);
     const { event, child, parent, wake, op } = await h.complete(delivery);
     h.channel.behavior = async () => { throw new Error("ECONNRESET：平台可能已收到通知"); };
-    await h.runtime.scheduler.tick();
-    await h.runtime.scheduler.idle();
+    await h.runtime.scheduler!.tick();
+    await h.runtime.scheduler!.idle();
     assert.equal(h.runtime.sched.getOp(op.id)!.status, "effect_unknown");
     h.channel.behavior = async () => ({ platformMessageId: "must-not-send" });
     const modelCalls = h.server.calls.length;
@@ -297,8 +297,8 @@ test("GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重�
       if (round) await h.restart();
       assert.equal((await h.post(delivery)).status, 200);
       await h.runtime.orchestrator!.dispatchRegisteredEvents();
-      await h.runtime.scheduler.tick();
-      await h.runtime.scheduler.idle();
+      await h.runtime.scheduler!.tick();
+      await h.runtime.scheduler!.idle();
       assert.equal(h.runtime.sched.getOp(op.id)!.status, "effect_unknown");
       assert.equal(h.runtime.sched.findOpBySource("inbound_event", event.id)!.id, op.id);
       const tasks = h.runtime.store.listAgentRoles().flatMap((role) => h.runtime.store.listTasksBySession(role.sessionId));

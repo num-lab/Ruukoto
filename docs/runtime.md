@@ -123,6 +123,29 @@ npm start -- qq enable                    # 启用（qq status / disable / inbox
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
 
+两个产品入口（ADR 0017；本文件其余部分描述默认产品 ruukoto）：
+
+```bash
+ruukoto ...                 # 个人 Agent（bin 入口）
+ruukoto-dev ...             # Coding Agent（bin 入口）：同一 CLI，产品身份经
+                            # RUUKOTO_PRODUCT=ruukoto-dev 固定注入（仓库内等价于
+                            # RUUKOTO_PRODUCT=ruukoto-dev npm start -- ...）
+```
+
+ruukoto-dev 的行为差别：
+
+- 独立档案根 `~/.ruukoto-dev-agent/{data,agent,control,pending}`；路径环境变量
+  只读 `RUUKOTO_DEV_DATA_DIR` / `RUUKOTO_DEV_AGENT_DIR` / `RUUKOTO_DEV_CONTROL_DIR`
+  / `RUUKOTO_DEV_PENDING_DIR`，不读对方产品的 `RUUKOTO_*_DIR`；同机并存时目录、
+  实例锁、配置锁、socket 与 owner token 文件各自独立，升级与互停互不牵连。
+  注意：`RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` 两产品共用（令牌是
+  控制面身份，不是路径归属）；导出了这两个变量的 shell 对两个产品都有认证能力。
+- 不启动 QQ/Telegram 连接与个人调度（调度器不创建；状态视图按 ruukoto-dev
+  标注停用原因）；其余命令、控制面与审批机制相同。
+- 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的
+  入口打开已归属的数据目录直接拒绝。
+- 本地受限执行模式尚在验证（方向规格），当前以 local 执行后端运行并打印提示。
+
 开发调试（issue 21，详见下文「开发实例」）：
 
 ```bash
@@ -352,7 +375,9 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 ## 开发实例（issue 21）
 
 `npm run dev [-- --tui | --config] [--import-models <目录>]` 启动隔离的
-开发后台与可选界面，监听源码变更自动重启：
+开发后台与可选界面，监听源码变更自动重启。开发实例是开发本项目的隔离环境，
+运行的是默认产品 ruukoto，不是 ruukoto-dev 产品（新产品档案根为
+`~/.ruukoto-dev-agent`，两者目录、锁与控制面互不相同）：
 
 - **隔离 profile**：`~/.ruukoto-dev/<仓库名>-<路径哈希>/{data,agent,control,
   pending,logs}`，稳定复用、保留开发历史，位于代码目录外（QQ 等工作目录
@@ -379,9 +404,16 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 
 ## 数据布局
 
+档案根按产品分开：ruukoto 默认 `~/.ruukoto`（环境变量 `RUUKOTO_*_DIR`），
+ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`），内容
+结构一致；开发实例 `~/.ruukoto-dev/<仓库>-<哈希>/` 不属于任一产品。以下为单个
+产品实例的布局（以 ruukoto 默认路径为例）：
+
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v17）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v18；
+│                              #   meta 含实例标识、应用数据绑定、产品归属
+│                              #   product.type——跨产品复用被拒绝）
 │                              #   项目（含项目指令文件与 Web Search 开关）、会话
 │                              #   （含 kind：dev/qq_group）、任务
 │                              #   （accessMode/权限版本/授予路径）、确认请求
@@ -414,9 +446,13 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 └── config.lock/               # 配置独占锁（issue 21；后台运行期间持有，
                                #   离线配置据以互斥，语义同实例锁）
 
+~/.ruukoto-dev-agent/          # ruukoto-dev 产品档案根（ADR 0017，0700）：
+                               #   data/ agent/ control/ pending/
+
 ~/.ruukoto-dev/<仓库>-<哈希>/   # 开发实例 profile（npm run dev，0700）：
                                #   data/ agent/ control/ pending/ logs/
-                               #   与日常实例完全隔离，不继承生产凭据与配置
+                               #   与日常实例完全隔离，不继承生产凭据与配置；
+                               #   不是 ruukoto-dev 产品，新产品不会读写它
 ```
 
 职责边界：pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；
@@ -1531,6 +1567,11 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 （`deploy/worker-image/build.sh`）、受保护提权入口（root 拥有的 sudo
 包装脚本，仅后台可调用）、`ruukoto-backend.service` 单元。
 
+该单元只承载个人 Agent 产品 ruukoto。Coding Agent（ruukoto-dev）装在开发
+机器上：同一仓库检出加 `bin/ruukoto-dev.mjs` 入口（`npm link` 或直接把 bin
+目录加入 PATH），默认档案根 `~/.ruukoto-dev-agent`；两端各自的安装与升级
+（替换检出后按产品 `stop`/`server` 重启）互不要求对方同时升级或停止。
+
 ## 验证状态（诚实清单）
 
 | 检查 | 环境 | 结果 |
@@ -1555,6 +1596,8 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
 | issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环） |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
+| 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-dev 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
+| 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |
 
 ### 按会话选择模型
 

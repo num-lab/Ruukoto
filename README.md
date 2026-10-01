@@ -1,6 +1,6 @@
 # ruukoto
 
-已确认的新方向是两个独立工具：开发机器上的 Coding Agent `ruukoto-dev`，以及专用 Linux 服务器上的 Personal Agent `ruukoto`，见 [ADR 0017](docs/adr/0017-two-agent-products.md)。代码迁移尚待实施；以下介绍现有版本的实现与使用方式。
+已确认的新方向是两个独立工具：开发机器上的 Coding Agent `ruukoto-dev`，以及专用 Linux 服务器上的 Personal Agent `ruukoto`，见 [ADR 0017](docs/adr/0017-two-agent-products.md)。两个产品的独立入口、档案目录与数据归属已实现（issue 01）；角色与工作区迁移尚待实施。以下介绍现有版本的实现与使用方式。
 
 面向拥有者日常使用的通用个人 Agent。当前最重要的用途是开发协助：接受仓库和
 需求，读取代码、修改文件、运行检查、按失败继续修复，交付可审查的改动。项目维护
@@ -28,7 +28,7 @@ docs/runtime.md）。Jev 上下文筛选适配器已实现，默认关闭；QQ �
 npm install
 npm run typecheck
 npm test                 # 全部离线集成验证（mock 模型，不联网、不需要凭据）
-npm link                 # 可选：把 ruukoto 命令装进 PATH（否则用 npm start -- …）
+npm link                 # 可选：把 ruukoto / ruukoto-dev 两条命令装进 PATH（否则用 npm start -- …）
 
 # 模型配置：交互式初始化（离线写入 ~/.ruukoto/agent 的 models.json/auth.json）
 ruukoto config
@@ -276,6 +276,9 @@ data/agent/control/pending/logs），与日常实例的数据、凭据、控制�
 停用），真实模型须显式配置。退出界面或 Ctrl+C 统一清理本组进程；任务界面
 重载恢复当前会话、未提交草稿与继续任务意图（秘密表单值不落重载文件）。
 
+开发实例运行的是默认产品 ruukoto，是开发本项目的隔离环境；它不是
+ruukoto-dev 产品（档案根 `~/.ruukoto-dev-agent`，由 `ruukoto-dev` 命令启动）。
+
 ## 数据与环境变量
 
 ```
@@ -284,7 +287,8 @@ data/agent/control/pending/logs），与日常实例的数据、凭据、控制�
 ~/.ruukoto/agent/           0700  models.json、auth.json、credentials.json、
                                   default-model.json、config.lock/
 ~/.ruukoto/pending/         0600  待核实提交记录
-~/.ruukoto-dev/<仓库>-<哈希>/ 0700  开发实例 profile（npm run dev）
+~/.ruukoto-dev-agent/       0700  ruukoto-dev 产品档案根（data/agent/control/pending）
+~/.ruukoto-dev/<仓库>-<哈希>/ 0700  开发实例 profile（npm run dev；不是 ruukoto-dev 产品）
 ```
 
 消息历史的唯一权威副本是 pi JSONL 会话文件；SQLite 只存元数据、事件与可重建的位置
@@ -295,8 +299,10 @@ data/agent/control/pending/logs），与日常实例的数据、凭据、控制�
 | `RUUKOTO_DATA_DIR` | 数据目录（默认 `~/.ruukoto/data`） |
 | `RUUKOTO_AGENT_DIR` | 模型配置与凭据目录（默认 `~/.ruukoto/agent`） |
 | `RUUKOTO_CONTROL_DIR` | 控制面目录（默认数据目录的兄弟目录 `control/`；客户端与 `server` 都读取） |
-| `RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` | 拥有者令牌或其文件路径 |
+| `RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` | 拥有者令牌或其文件路径（两个产品共用；路径变量才按产品隔离） |
 | `RUUKOTO_PENDING_DIR` | 待核实提交记录目录（默认 `~/.ruukoto/pending`） |
+| `RUUKOTO_PRODUCT` | 产品身份（`ruukoto` 默认 / `ruukoto-dev`；两条 bin 入口固定注入，非法取值拒绝启动） |
+| `RUUKOTO_DEV_DATA_DIR` / `RUUKOTO_DEV_AGENT_DIR` / `RUUKOTO_DEV_CONTROL_DIR` / `RUUKOTO_DEV_PENDING_DIR` | ruukoto-dev 产品的对应目录（默认 `~/.ruukoto-dev-agent/...`；ruukoto-dev 只读这组，不读 `RUUKOTO_*_DIR`） |
 | `RUUKOTO_DISABLE_QQ` | `=1` 时后台不启动 QQ 适配器（开发实例默认注入） |
 | `RUUKOTO_EXECUTION_BACKEND` | 执行后端 `local` / `container` |
 | `RUUKOTO_EXEC_UID` / `RUUKOTO_EXEC_GID` | 完全访问任务的执行账户 |

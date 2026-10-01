@@ -1,6 +1,6 @@
 # 日常助手与事件编排：可执行规划
 
-状态：需求讨论完成，进入实施拆分。
+状态：历史规划。2026-10-02 起，同后台 main/coding/chat 与固定 coding 委派方向由 [双产品规格](../agent-direction/spec.md) 和 [ADR 0017](../../docs/adr/0017-two-agent-products.md) 替代；下文保留当时决策及迁移依据。
 
 本规划把个人 Agent 从“拥有者经 TUI 提交编码任务”扩展为“拥有者通过消息入口使用日常助手”。它补充 `.scratch/personal-agent/spec.md`，不改写已经完成的后台运行时、权限、上下文、记忆和 GitHub 历史决策。
 

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruukoto 可视化文档</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="page">
+  <header class="doc-head">
+    <nav class="crumbs"><span>docs/visual/index.html</span></nav>
+    <p class="eyebrow">总览</p>
+    <h1>Ruukoto 可视化文档</h1>
+    <p class="lede">后台运行时里状态最多、边界最密的机制，各画成一页。页面和 <code>docs/</code> 下的其他文档一样随代码维护：每页列出它描述的源码，<code>npm test</code> 会拦下源码改名或新增状态而页面没跟上的情况。</p>
+    <dl class="meta">
+      <div><dt>术语</dt><dd><a href="../../CONTEXT.md">CONTEXT.md</a></dd></div>
+      <div><dt>决策</dt><dd><a href="../adr/">docs/adr/</a></dd></div>
+      <div><dt>实现细节</dt><dd><a href="../runtime.md">docs/runtime.md</a></dd></div>
+    </dl>
+    <ul class="legend" aria-label="全站语义色">
+      <li><i class="wait"></i>等待中</li>
+      <li><i class="run"></i>执行中</li>
+      <li><i class="ok"></i>已完成 / 已提交 / 已发送</li>
+      <li><i class="unk"></i>待拥有者核实（效果未知、中断、应答丢失）</li>
+      <li><i class="bad"></i>失败 / 拒绝</li>
+      <li><i class="idle"></i>已取消 / 失效</li>
+    </ul>
+  </header>
+
+  <section id="core">
+    <h2>运行时核心</h2>
+    <div class="cards">
+      <div class="card">
+        <h3><a href="task-lifecycle.html">任务生命周期</a></h3>
+        <p>任务怎样在排队、执行与终态之间转换，停止、重启与模式切换时怎样保证只有一个终态、不重放任何执行。</p>
+        <p><code class="src" data-src="src/runtime/runtime.ts">runtime.ts</code> <code class="src" data-src="src/agent/driver.ts">driver.ts</code></p>
+      </div>
+      <div class="card">
+        <h3><a href="tool-call-path.html">工具调用路径</a></h3>
+        <p>一次工具调用从可用性判断、分派、审批与单次消费，到执行边界和结果落账的全过程。</p>
+        <p><code class="src" data-src="src/agent/tool-router.ts">tool-router.ts</code> <code class="src" data-src="src/agent/approval-gate.ts">approval-gate.ts</code></p>
+      </div>
+      <div class="card">
+        <h3><a href="context-pipeline.html">上下文组装</a></h3>
+        <p>一次模型调用的上下文从哪来、按什么规则选、什么时候压缩、发送前怎样复核。</p>
+        <p><code class="src" data-src="src/agent/context-assembly.ts">context-assembly.ts</code> <code class="src" data-src="src/agent/context-selector.ts">context-selector.ts</code></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="data">
+    <h2>数据与协议</h2>
+    <div class="cards">
+      <div class="card">
+        <h3><a href="storage-layout.html">存储布局</a></h3>
+        <p>每份数据在哪、谁读谁写、哪份是权威，SQLite、JSONL 与产物文件之间怎么对齐。</p>
+        <p><code class="src" data-src="src/core/db.ts">db.ts</code> <code class="src" data-src="src/core/store.ts">store.ts</code></p>
+      </div>
+      <div class="card">
+        <h3><a href="control-protocol.html">控制面协议</a></h3>
+        <p>客户端与后台之间的认证、快照与事件流、请求结果分类和提交去重，以及全部 op 与事件目录。</p>
+        <p><code class="src" data-src="src/control/protocol.ts">protocol.ts</code> <code class="src" data-src="src/control/connection.ts">connection.ts</code></p>
+      </div>
+      <div class="card">
+        <h3><a href="deployment.html">部署与信任边界</a></h3>
+        <p>生产环境的系统身份、进程与容器，每道边界挡住什么，秘密放在哪、谁能读。</p>
+        <p><code class="src" data-src="deploy/systemd/README.md">deploy/systemd</code> <code class="src" data-src="src/agent/execution/launchers.ts">launchers.ts</code></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="daily">
+    <h2>日常助手</h2>
+    <div class="cards">
+      <div class="card">
+        <h3><a href="orchestrator.html">编排器</a></h3>
+        <p>main、coding、chat 三个逻辑角色怎么引导，main 怎么委派 coding，子任务结果怎么回传。</p>
+        <p><code class="src" data-src="src/runtime/orchestrator.ts">orchestrator.ts</code></p>
+      </div>
+      <div class="card">
+        <h3><a href="inbound-events.html">入站事件</a></h3>
+        <p>外部消息与定时器怎么先落库再变成任务，每个来源怎样去重、核对身份，结束后怎么登记回复。</p>
+        <p><code class="src" data-src="src/telegram/adapter.ts">telegram/</code> <code class="src" data-src="src/qq/adapter.ts">qq/</code></p>
+      </div>
+      <div class="card">
+        <h3><a href="outbox.html">通知 outbox</a></h3>
+        <p>外发通知的状态机、发送循环与限流退回，调度计划怎样在漏过周期时只补一次。</p>
+        <p><code class="src" data-src="src/scheduler/runtime.ts">scheduler/</code></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="cross">
+    <h2>跨模块模式</h2>
+    <div class="cards">
+      <div class="card">
+        <h3><a href="once-only.html">只执行一次</a></h3>
+        <p>先落盘意图、条件领取、只执行一次、未知不重发：同一个模式在各模块里的实现对照。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="maintain">
+    <h2>怎样维护</h2>
+    <ol class="steps">
+      <li>改了 <code>src/</code> 或 <code>deploy/</code> 下的文件后，找出描述它的页面：<code>grep -l &lt;文件路径&gt; docs/visual/*.html</code>。</li>
+      <li>按改动更新图、表和正文。只用 <code>style.css</code> 注释里列出的组件和语义色，图用手写内联 SVG，不引外部资源。</li>
+      <li>跑 <code>npm test</code>（或只跑 <code>test/67-visual-docs.test.ts</code>）。它核对源码锚点仍然存在、页面覆盖了代码里的状态、表、op 与事件，并要求新页面被本页链接。</li>
+    </ol>
+    <p>检查只能发现「代码结构变了而页面没跟上」，发现不了「页面说错了」。语义上的变化要靠改代码的人顺手更新。直接用浏览器打开本文件即可阅读，不需要服务器。</p>
+  </section>
+
+  <footer class="doc-foot"><p>维护规则写在 <code>AGENTS.md</code>「可视化文档」一节。</p></footer>
+</main>
+</body>
+</html>

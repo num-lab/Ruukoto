@@ -341,7 +341,7 @@
           <tr><td><code>User</code> / <code>Group</code></td><td><code>ruukoto-backend</code></td><td>同一 UID 部署不满足控制面分离要求</td></tr>
           <tr><td>环境</td><td><code>RUUKOTO_DATA_DIR</code>、<code>RUUKOTO_AGENT_DIR</code>、<code>RUUKOTO_EXECUTION_BACKEND=container</code>、<code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code>、<code>RUUKOTO_EXEC_STOP_SCRIPT</code>、<code>RUUKOTO_EXEC_UID</code>/<code>GID</code></td><td>执行入口与身份在单元里写定；缺入口则完全访问不可用</td></tr>
           <tr><td>容器身份</td><td><code>RUUKOTO_CONTAINER_UID</code>/<code>GID</code>、<code>RUUKOTO_WORKER_IMAGE</code>（单元里注释示例，按需 drop-in）</td><td>原生 Linux 不映射 uid，容器 uid 必须能写工作区</td></tr>
-          <tr><td><code>ExecStart</code></td><td><code>node …/tsx /opt/ruukoto/src/cli.ts server</code></td><td>CLI 只接受 <code>local</code> / <code>container</code>；local 会打印无隔离警告</td></tr>
+          <tr><td><code>ExecStart</code></td><td><code>node …/tsx /opt/ruukoto/src/cli.ts server</code></td><td>CLI 只接受 <code>local</code> / <code>container</code>；local 在 ruukoto 打印无隔离警告，在 ruukoto-dev 打印受限模式尚未验证的提示</td></tr>
           <tr><td><code>Restart</code> / <code>RestartSec</code></td><td><code>on-failure</code> / 3</td><td>启动失败（如 <code>no_model</code>）由 systemd 重试，之后停在失败态</td></tr>
           <tr><td><code>KillMode</code> / <code>TimeoutStopSec</code></td><td><code>control-group</code> / 30</td><td>SIGTERM 后走后台的优雅停止；30 s 未退则 systemd 强杀整个 cgroup</td></tr>
         </tbody>
@@ -349,14 +349,14 @@
     </div>
 
     <h3>启动与停止的顺序</h3>
-    <p><code class="src" data-src="src/cli.ts#async function runServer">cli.ts · runServer</code> 只做三件事：解析参数与执行后端、<code>Runtime.start</code>、然后才 <code>ControlServer.start</code> —— 恢复与所有入口就绪之前，客户端连不上也拿不到快照。</p>
+    <p><code class="src" data-src="src/cli.ts#async function runServer">cli.ts · runServer</code> 只做三件事：解析参数与执行后端、<code>Runtime.start</code>、然后才 <code>ControlServer.start</code> —— 恢复与所有入口就绪之前，客户端连不上也拿不到快照。产品身份（ruukoto / ruukoto-dev）由 bin 入口经 <code>RUUKOTO_PRODUCT</code> 固定注入：ruukoto-dev 不创建 QQ/Telegram 适配器与调度器，路径环境变量只认 <code>RUUKOTO_DEV_*_DIR</code>（详见<a href="storage-layout.html">存储布局</a>的归属与根目录）。</p>
     <ol class="steps">
       <li>建目录（<code>data/</code>、<code>agent/</code>、会话目录，0700）并取实例锁与配置锁；锁冲突时启动失败。</li>
-      <li>打开元数据库、登记 GitHub webhook 签名凭据、创建模型运行时；<code>models.json</code> 里找不到可用模型即以 <code>no_model</code> 失败。</li>
-      <li>应用数据空间与调度器各自准备恢复；<code>recover</code> 在一个事务里把遗留的 running / awaiting_confirmation 任务转 <code class="st unk">interrupted</code>、失效未决审批、标记遗留占用并按原因暂停会话（见<a href="task-lifecycle.html">任务生命周期</a>）。</li>
-      <li>按配置创建 QQ、Telegram 适配器（dev 实例跳过）与编排器，依次启动编排器、QQ、Telegram、调度器。</li>
+      <li>打开元数据库、核对并登记产品归属（已归属另一产品的目录直接拒绝）、登记 GitHub webhook 签名凭据、创建模型运行时；<code>models.json</code> 里找不到可用模型即以 <code>no_model</code> 失败。</li>
+      <li>应用数据空间与调度器各自准备恢复（ruukoto-dev 无调度器，只做应用数据空间）；<code>recover</code> 在一个事务里把遗留的 running / awaiting_confirmation 任务转 <code class="st unk">interrupted</code>、失效未决审批、标记遗留占用并按原因暂停会话（见<a href="task-lifecycle.html">任务生命周期</a>）。</li>
+      <li>按配置创建 QQ、Telegram 适配器（ruukoto-dev 与 dev 实例跳过）与编排器，依次启动编排器、QQ、Telegram、调度器（仅个人 Agent 产品）。</li>
       <li>需要时打开 webhook 监听（启动失败会先停止整个后台再抛错）。</li>
-      <li>写 <code>backend.started</code>（带执行后端）后 <code>ControlServer</code> 绑定 socket：先确保 <code>owner.token</code>（缺失则生成 0600，已存在则复用），删掉遗留 socket 文件，监听后把 socket 设为 0660。</li>
+      <li>写 <code>backend.started</code>（带执行后端与产品身份）后 <code>ControlServer</code> 绑定 socket：先确保 <code>owner.token</code>（缺失则生成 0600，已存在则复用），删掉遗留 socket 文件，监听后把 socket 设为 0660。</li>
     </ol>
     <p>停止走 SIGTERM → <code>backend_stop</code>：先停各入口（webhook、调度器、Telegram 轮询、编排器、QQ 适配器），再把 running / awaiting_confirmation 的任务按停止路径中断（排队任务保持排队），释放驱动器、关库、释放两把锁并删除 socket。</p>
   </section>
@@ -454,7 +454,7 @@
         <tbody>
           <tr><td>身份</td><td><code>ruukoto-backend</code> 系统账户</td><td>开发者自己的账户</td></tr>
           <tr><td>目录</td><td><code>/var/lib/ruukoto/{data,agent,agent-work}</code> 0700、<code>control</code> 0770</td><td><code>~/.ruukoto-dev/&lt;仓库名&gt;-&lt;realpath 哈希 8 位&gt;/{data,agent,control,pending,logs}</code></td></tr>
-          <tr><td>环境清洗</td><td>单元里写定执行后端与执行入口</td><td>删除 <code>RUUKOTO_OWNER_TOKEN*</code>、<code>RUUKOTO_EXECUTION_BACKEND</code>、<code>RUUKOTO_WORKER_IMAGE</code>；删除全部 <code>RUUKOTO_EXEC_*</code> 与 <code>RUUKOTO_CONTAINER_*</code> 前缀变量，再注入档案目录</td></tr>
+          <tr><td>环境清洗</td><td>单元里写定执行后端与执行入口</td><td>删除 <code>RUUKOTO_OWNER_TOKEN*</code>、<code>RUUKOTO_EXECUTION_BACKEND</code>、<code>RUUKOTO_WORKER_IMAGE</code>、<code>RUUKOTO_PRODUCT</code>；删除全部 <code>RUUKOTO_EXEC_*</code>、<code>RUUKOTO_CONTAINER_*</code> 与 <code>RUUKOTO_DEV_*</code> 前缀变量，再注入档案目录（开发实例固定为默认产品 ruukoto）</td></tr>
           <tr><td>消息通道</td><td>按配置连接 Telegram / QQ / webhook</td><td>固定注入 <code>RUUKOTO_DISABLE_QQ=1</code> 与 <code>RUUKOTO_DISABLE_TELEGRAM=1</code>，不创建适配器；webhook 需显式传配置文件，单元默认不启用</td></tr>
           <tr><td>执行后端</td><td><code>container</code>（单元里的 <code>RUUKOTO_EXECUTION_BACKEND</code>）</td><td>被清洗后落到默认 <code>local</code>：无隔离，仅本机开发</td></tr>
           <tr><td>模型与凭据</td><td>部署时放置 <code>models.json</code>/<code>auth.json</code>/<code>credentials.json</code></td><td>真实模型须显式配置：<code>--config</code> 离线初始化，或 <code>--import-models &lt;目录&gt;</code> 复制 <code>models.json</code> 与 <code>auth.json</code>（<code>credentials.json</code> 绝不导入）</td></tr>
@@ -463,6 +463,10 @@
       </table>
     </div>
     <p>启动前它会探测控制面：socket 可连且令牌认证通过就报错退出，不接管、不停止外来进程；进程内的实例锁与配置锁同样生效。生命周期上，界面退出或 Ctrl+C（含关终端触发的 SIGHUP）会停后台（SIGTERM，10 s 升级 SIGKILL）、关监听并退出，源码变更则按影响范围只重启后台或只重启界面。</p>
+    <aside class="callout inv">
+      <b>不是同一个东西</b>
+      <p>开发实例不是 ruukoto-dev 产品：ruukoto-dev 是装在开发机器上的 Coding Agent（<code>ruukoto-dev</code> 命令，档案根 <code>~/.ruukoto-dev-agent</code>，各自启动与停止），开发实例只是开发本项目用的隔离环境（<code>npm run dev</code>，档案根 <code>~/.ruukoto-dev</code>，运行的是默认产品 ruukoto 并监听源码重启）。两者的目录、锁与控制面互不相同；新产品不会读写开发实例的档案。</p>
+    </aside>
   </section>
 
   <section id="deploy">

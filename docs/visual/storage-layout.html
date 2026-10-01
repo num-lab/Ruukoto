@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>存储布局</title>
+<link rel="stylesheet" href="style.css">
+<script src="visual.js" defer></script>
+</head>
+<body>
+<svg class="defs" aria-hidden="true" focusable="false"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ok" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah wait" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-unk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah unk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah bad" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah accent" d="M0 0L10 5L0 10z"/></marker>
+</defs></svg>
+<main class="page">
+  <header class="doc-head">
+    <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>storage-layout.html</span></nav>
+    <p class="eyebrow">数据与协议</p>
+    <h1>存储布局</h1>
+    <p class="lede">每个产品实例三份根目录：数据、配置、控制面。消息历史以 pi JSONL 会话文件为唯一权威副本，<code>ruukoto.db</code> 存元数据、事件与各类账本；应用数据空间另有一个独立库。锁与令牌决定「谁在写」；schema 版本与目录归属决定「这份库属于谁、哪个版本的程序能开」。</p>
+    <dl class="meta">
+      <div><dt>源码</dt><dd>
+        <code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">core/db.ts</code>
+        <code class="src" data-src="src/core/store.ts">core/store.ts</code>
+        <code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">core/instance-lock.ts</code>
+        <code class="src" data-src="src/core/product.ts#PRODUCT_META_KEY">core/product.ts</code>
+        <code class="src" data-src="src/agent/session-factory.ts#sessionsDirFor">agent/session-factory.ts</code>
+        <code class="src" data-src="src/agent/artifacts.ts#class ArtifactStore">agent/artifacts.ts</code>
+        <code class="src" data-src="src/agent/app-data/store.ts#class AppDataStore">agent/app-data/store.ts</code>
+        <code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">control/owner-token.ts</code>
+      </dd></div>
+      <div><dt>决策</dt><dd>
+        <a href="../adr/0009-main-app-data-space.md">ADR 0009 应用数据空间</a>
+        <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
+      </dd></div>
+      <div><dt>相关页面</dt><dd>
+        <a href="deployment.html">部署与信任边界</a>
+        <a href="control-protocol.html">控制面协议</a>
+        <a href="once-only.html">只执行一次</a>
+      </dd></div>
+    </dl>
+  </header>
+
+  <section id="roots">
+    <h2>根目录：按产品分开，归属登记在库内</h2>
+    <p>个人 Agent（ruukoto）默认档案根是 <code>~/.ruukoto</code>，Coding Agent（ruukoto-dev）是独立的 <code>~/.ruukoto-dev-agent</code>；开发本项目的隔离实例继续使用 <code>~/.ruukoto-dev</code>（不属于任一产品）。路径环境变量同样按产品隔离：<code>RUUKOTO_DATA_DIR</code> 等只被 ruukoto 读取，<code>RUUKOTO_DEV_DATA_DIR</code> 等只被 ruukoto-dev 读取。归属还登记在库内：首次启动把产品写进 <code class="src" data-src="src/core/product.ts#PRODUCT_META_KEY">product.ts · PRODUCT_META_KEY</code> 指定的 meta 键，之后跨产品开同一个数据目录直接拒绝。</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>目录</th><th>内容</th><th>要点</th></tr></thead>
+        <tbody>
+          <tr data-k="data" tabindex="0"><td><code>&lt;dataDir&gt;</code>（默认 <code>~/.ruukoto/data</code>）</td><td><code>ruukoto.db</code>、<code>sessions/</code> JSONL、产物文件、<code>agent-data/main.db</code>、<code>runtime.lock</code></td><td>全部运行期状态；实例锁保证同一时刻只有一个后台</td></tr>
+          <tr data-k="agent" tabindex="0"><td><code>&lt;agentDir&gt;</code>（默认 <code>~/.ruukoto/agent</code>）</td><td><code>models.json</code>、<code>auth.json</code>、默认/摘要模型选择、服务凭据、<code>config.lock</code></td><td>模型目录与秘密；配置锁让在线后台与离线配置中心互斥</td></tr>
+          <tr data-k="control" tabindex="0"><td><code>&lt;controlDir&gt;</code>（dataDir 兄弟目录 <code>control/</code>）</td><td><code>control.sock</code>、<code>owner.token</code></td><td>控制面 socket（0660）与拥有者令牌（0600，<code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code>）</td></tr>
+          <tr data-k="pending" tabindex="0"><td><code>&lt;pendingDir&gt;</code>（默认 <code>~/.ruukoto/pending</code>）</td><td>TUI 待核实提交记录</td><td>客户端侧的去重锚点，秘密不落盘</td></tr>
+          <tr data-k="sibling" tabindex="0"><td>dataDir 兄弟目录</td><td><code>qq-work/&lt;账号&gt;_&lt;群&gt;/</code>、<code>agent-work/&lt;角色&gt;/</code></td><td>群会话工作目录与角色工作目录，随数据根迁移</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <aside class="callout inv">
+      <b>不变量</b>
+      <p>两个产品的数据、锁、socket 与令牌路径都不重叠；开发实例的档案根与两个产品根都分开。互不引用对方的目录是「同机并存不串用」的物理基础。</p>
+    </aside>
+  </section>
+
+  <section id="core-db">
+    <h2>ruukoto.db：一份核心库，按职责分组</h2>
+    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v18</code>：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>分组</th><th>表</th><th>职责</th></tr></thead>
+        <tbody>
+          <tr data-k="work" tabindex="0"><td>会话与工作</td><td><code>projects</code> · <code>sessions</code> · <code>tasks</code></td><td>旧架构的项目/会话边界与任务本体（状态、请求键、提交摘要）</td></tr>
+          <tr data-k="occupancy" tabindex="0"><td>目录占用</td><td><code>occupancy</code></td><td>整项任务级的目录占用登记，防并行写冲突</td></tr>
+          <tr data-k="events" tabindex="0"><td>事件与恢复</td><td><code>events</code> · <code>inbound_events</code> · <code>tool_ops</code> · <code>confirmations</code></td><td>持久事件流、入站事件（去重键）、工具操作账本、审批与批准消费</td></tr>
+          <tr data-k="roles" tabindex="0"><td>角色与群聊结果</td><td><code>agent_roles</code> · <code>chat_result_acceptances</code></td><td>旧架构逻辑角色（main/coding/chat）引导记录；main 显式接收的群聊结果快照</td></tr>
+          <tr data-k="ctx" tabindex="0"><td>上下文与历史</td><td><code>selection_records</code> · <code>context_checkpoints</code> · <code>history_index</code> · <code>history_index_state</code></td><td>每次调用的选择记录、压缩点、JSONL 历史的可重建位置索引</td></tr>
+          <tr data-k="memory" tabindex="0"><td>记忆与产物</td><td><code>memories</code> · <code>memory_versions</code> · <code>artifacts</code></td><td>长期记忆（来源与版本）与任务产物元数据（文件本体在数据目录下）</td></tr>
+          <tr data-k="grant" tabindex="0"><td>授权与服务</td><td><code>data_grants</code> · <code>mcp_services</code></td><td>资料授权（来源项目 × 目标项目 × 类别）与 MCP 服务配置（版本化）</td></tr>
+          <tr data-k="im" tabindex="0"><td>IM 入口</td><td><code>qq_config</code> · <code>qq_sessions</code> · <code>qq_inbox</code> · <code>qq_outbox</code> · <code>telegram_config</code></td><td>QQ 配置/群会话/收件/发件账本与 Telegram 配置（各带配置版本）</td></tr>
+          <tr data-k="sched" tabindex="0"><td>调度与通知</td><td><code>schedules</code> · <code>schedule_runs</code> · <code>notification_ops</code></td><td>调度计划、按（计划、版本、原定时刻）唯一的运行、外发操作账本</td></tr>
+          <tr data-k="meta" tabindex="0"><td>实例登记</td><td><code>meta</code></td><td>实例级键值：后台实例标识、应用数据实例绑定、产品归属（product.type）等</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="history">
+    <h2>会话历史：JSONL 是权威，索引可重建</h2>
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 860 220" role="img" aria-label="会话历史的两层：sessions 目录下的 pi JSONL 文件是唯一权威副本；ruukoto.db 里的 history_index 是位置索引，可从 JSONL 重建；会话元数据存在 sessions 表，两边按会话 id 对齐。">
+          <g class="n ok"><rect x="30" y="60" width="250" height="70" rx="8"/><text x="155" y="86">sessions/*.jsonl</text><text class="sub" x="155" y="108">唯一权威副本</text></g>
+          <g class="n run"><rect x="340" y="20" width="240" height="70" rx="8"/><text x="460" y="46">ruukoto.db · history_index</text><text class="sub" x="460" y="68">可重建的位置索引</text></g>
+          <g class="n run"><rect x="340" y="120" width="240" height="70" rx="8"/><text x="460" y="146">ruukoto.db · sessions</text><text class="sub" x="460" y="168">会话元数据</text></g>
+          <g class="n accent"><rect x="640" y="60" width="190" height="70" rx="8"/><text x="735" y="86">查询与压缩</text><text class="sub" x="735" y="108">按索引取原文</text></g>
+
+          <path class="e" d="M280 84L338 56" marker-end="url(#ah)"/>
+          <text class="el" x="282" y="56">建索引</text>
+          <path class="e" d="M280 106L338 146" marker-end="url(#ah)"/>
+          <text class="el" x="284" y="140">回填文件位置</text>
+          <path class="e" d="M580 90L638 90" marker-end="url(#ah-accent)"/>
+        </svg>
+      </div>
+      <figcaption>消息先从 SDK 追加进 JSONL（<code class="src" data-src="src/agent/session-factory.ts#sessionsDirFor">session-factory.ts · sessionsDirFor</code> 定位），宿主再按事件补索引与元数据；索引丢了能从 JSONL 重建，反过来不行——所以会话历史的保留策略只动索引与上下文视图，不改 JSONL。</figcaption>
+    </figure>
+  </section>
+
+  <section id="app-data">
+    <h2>应用数据空间：独立库、独立身份</h2>
+    <p>main 的个人结构化数据放在 <code>&lt;dataDir&gt;/agent-data/main.db</code>，与核心库分离（<code class="src" data-src="src/agent/app-data/store.ts#class AppDataStore">app-data/store.ts · AppDataStore</code>）。库内三张表：<code>app_meta</code> 存库自身身份（实例绑定登记回核心库 meta，换库会被发现）、<code>app_tables</code> 存 main 声明的表定义与版本、<code>app_audit</code> 存每次变更的审计回执（按宿主操作 id 幂等核实）。能力不可用时保持停止并记事件，不自动重建库。</p>
+  </section>
+
+  <section id="locks">
+    <h2>锁、令牌与归属</h2>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>机制</th><th>位置</th><th>保证什么</th></tr></thead>
+        <tbody>
+          <tr><td>实例锁（<code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">instance-lock.ts · acquireInstanceLock</code>）</td><td><code>&lt;dataDir&gt;/runtime.lock</code></td><td>同一数据目录只有一个在线后台；呆锁按持有者存活与进程命令名识别后接管</td></tr>
+          <tr><td>配置锁</td><td><code>&lt;agentDir&gt;/config.lock</code></td><td>在线后台与离线配置中心互斥；socket 不可达不能证明后台已停，必须走锁</td></tr>
+          <tr><td>拥有者令牌</td><td><code>&lt;controlDir&gt;/owner.token</code>（0600）</td><td>控制面认证；部署时以 0400 复制给拥有者，或用环境变量指向拷贝</td></tr>
+          <tr><td>产品归属</td><td>核心库 <code>meta</code> 的 <code>product.type</code></td><td>首次启动登记；另一产品再开同一数据目录直接拒绝（issue 01，旧库无此键照常打开并补记）</td></tr>
+          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v18</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <aside class="callout limit">
+      <b>已知限制</b>
+      <p>锁按 pid 与进程命令名判断存活，命令名被刻意伪装时可能误判；数据目录归属只防误用，不代替备份 —— 备份与迁移仍是拥有者的显式操作。</p>
+    </aside>
+  </section>
+
+  <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>
+</main>
+</body>
+</html>

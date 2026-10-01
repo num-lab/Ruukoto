@@ -27,10 +27,13 @@
  *   ruukoto telegram configure --credential N --user-id U [--chat-id C] [--api-base URL] | status | enable | disable
  *   ruukoto stop
  *
- * 数据目录默认 ~/.ruukoto；控制面目录为其兄弟目录 control/（socket 与拥有者
- * 令牌，server/start 可用 RUUKOTO_CONTROL_DIR 覆盖）。管理命令都需要拥有者
- * 令牌：取 RUUKOTO_OWNER_TOKEN 或受控目录的 owner.token（0600，部署时以
- * 0400 复制给拥有者）。
+ * 两条 bin 入口：ruukoto（个人 Agent）与 ruukoto-dev（Coding Agent，ADR 0017，
+ * issue 01），产品身份经 RUUKOTO_PRODUCT 固定注入。数据目录默认 ~/.ruukoto
+ * （ruukoto-dev 为 ~/.ruukoto-dev-agent）；控制面目录为其兄弟目录 control/
+ * （socket 与拥有者令牌）。路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，
+ * ruukoto-dev 读 RUUKOTO_DEV_*_DIR。管理命令都需要拥有者令牌：取
+ * RUUKOTO_OWNER_TOKEN 或受控目录的 owner.token（0600，部署时以 0400 复制给
+ * 拥有者）。
  */
 
 import * as path from "node:path";
@@ -38,6 +41,7 @@ import * as fs from "node:fs";
 import { resolveEntry } from "./cli-entry.ts";
 import { ControlClient, requestOutcome } from "./control/client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
+import { dirEnvFor, productFromEnv, type ProductType } from "./core/product.ts";
 import { SESSION_DEFAULT_MODES, isAccessMode, type AccessMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
@@ -106,6 +110,15 @@ function parseMode(raw: string | undefined): AccessMode | undefined {
 }
 
 async function main(argv: string[]): Promise<number> {
+  // 产品身份（issue 01）：两条 bin 入口注入 RUUKOTO_PRODUCT；非法取值在所有入口
+  // 之前快速失败，不以错误产品触碰数据目录
+  let product: ProductType;
+  try {
+    product = productFromEnv();
+  } catch (err) {
+    console.error((err as Error).message);
+    return 1;
+  }
   const entry = resolveEntry(argv);
   switch (entry.kind) {
     case "help":
@@ -121,7 +134,7 @@ async function main(argv: string[]): Promise<number> {
       return await runConfigTui({ offline: entry.offline });
     }
     case "server":
-      return runServer(entry.argv);
+      return runServer(entry.argv, product);
     case "legacy":
       return runLegacy(entry.command, entry.argv);
   }
@@ -141,7 +154,7 @@ async function runTaskTui(opts: TaskTuiOpts): Promise<number> {
 }
 
 /** server/start：前台启动后台（单实例锁、信号处理、优雅停止；启动失败非零退出）。 */
-async function runServer(rest: string[]): Promise<number> {
+async function runServer(rest: string[], product: ProductType): Promise<number> {
   const { flags } = parseArgs(rest);
   const { Runtime } = await import("./runtime/runtime.ts");
   const { ControlServer } = await import("./control/server.ts");
@@ -158,8 +171,11 @@ async function runServer(rest: string[]): Promise<number> {
     console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
     return 1;
   }
-  if (execFlag === "local") {
+  if (execFlag === "local" && product === "ruukoto") {
     console.error("警告：local 执行后端无隔离，仅用于开发/验证；生产部署请使用 --execution container 并完成 systemd 执行账户配置");
+  }
+  if (execFlag === "local" && product === "ruukoto-dev") {
+    console.error("提示：ruukoto-dev 当前以 local 执行后端运行（macOS/Linux 受限执行模式尚在验证，见 ADR 0017）");
   }
   // 工具集：默认真实编码工具；mock 仅供模拟测试（crash 恢复集成验证使用）
   const toolsFlag = flags["tools"] ?? "coding";
@@ -176,7 +192,9 @@ async function runServer(rest: string[]): Promise<number> {
   const runtime = await Runtime.start({
     dataDir,
     agentDir,
-    controlDir: process.env.RUUKOTO_CONTROL_DIR,
+    // 路径环境变量按产品隔离（issue 01）：ruukoto-dev 只读 RUUKOTO_DEV_CONTROL_DIR
+    controlDir: dirEnvFor(product, "CONTROL"),
+    productType: product,
     // 未显式指定时不传：持久默认的思考档位才能生效（显式 --thinking 优先）
     thinkingLevel: flags["thinking"] as ModelSelection["thinkingLevel"] | undefined,
     modelProvider,
@@ -198,7 +216,7 @@ async function runServer(rest: string[]): Promise<number> {
   };
   process.on("SIGINT", () => stopAndExit("signal_sigint"));
   process.on("SIGTERM", () => stopAndExit("signal_sigterm"));
-  console.error(`ruukoto 后台已启动 dataDir=${dataDir} socket=${runtime.socketPath()} (pid ${process.pid})`);
+  console.error(`${product} 后台已启动 dataDir=${dataDir} socket=${runtime.socketPath()} (pid ${process.pid})`);
   const webhook = runtime.githubWebhookAddress();
   if (webhook) console.error(`GitHub webhook http://${webhook.address}:${webhook.port}/github/webhook`);
   return 0;
@@ -764,6 +782,9 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
 
 function defaultHelp(): string {
   return (
+    "产品：ruukoto（个人 Agent）与 ruukoto-dev（Coding Agent）两条入口共用本 CLI（ADR 0017）。\n" +
+    "      ruukoto-dev 使用独立档案目录（默认 ~/.ruukoto-dev-agent，环境变量 RUUKOTO_DEV_*_DIR），\n" +
+    "      不启动 QQ/Telegram 连接与个人调度；路径环境变量按产品隔离（RUUKOTO_*_DIR / RUUKOTO_DEV_*_DIR）。\n" +
     "用法：ruukoto [路径] [--session <id> | --demo]      任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）\n" +
     "      ruukoto -- <路径>                             显式工作区入口（目录与命令同名时用，如 ruukoto -- config）\n" +
     "      ruukoto config [--offline]                    独立配置中心\n" +

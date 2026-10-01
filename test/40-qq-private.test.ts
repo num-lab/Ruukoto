@@ -218,7 +218,7 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
         assert.equal(rt.store.getConfirmation(conf.id)!.status, "stale");
         assert.equal(rt.sched.findOpBySource("confirmation", `task:${task.id}`), null, "配置已变化的批准不能登记发送");
         assert.equal(rt.store.getConfirmation(conf.id)!.consumedAt, null);
-        await rt.scheduler.tick();
+        await rt.scheduler!.tick();
         assert.equal(sends(h.onebot).length, sendsBefore, "旧批准与原任务回复均不改发新 owner");
       }
     }
@@ -257,7 +257,7 @@ test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler
     assert.deepEqual(replyOps(rt).map((op) => [op.target.channel, op.text]).sort(), [["qq_private", "REPLY MARK-QQ"], ["telegram", "REPLY MARK-TG"]]);
     const { event } = await rt.orchestrator!.registerInboundEvent({ source: "scheduler", externalId: "wake-test", targetRole: "main", body: "MARK-WAKE" });
     await waitFor("定时唤醒完成", () => rt.store.getInboundEvent(event.id)?.status === "done");
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     assert.equal(replyOps(rt).length, 2);
     assert.equal(sends(h.onebot).length + telegramSends.length, 2);
 
@@ -272,12 +272,12 @@ test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler
       const { op: qqOp } = rt.sched.insertOp({ sourceKind: "confirmation", sourceKey: "qq-after-backlog", taskId: null, hostOpId: null, target: qqTarget, text: "QQ-BEHIND-OFFLINE-TELEGRAM", sourceRefs: [] });
       return { backlog, qqOp };
     });
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     await waitFor("离线 Telegram 积压不饿死 QQ", () => rt.sched.getOp(qqOp.id)?.status === "sent");
     assert.ok(backlog.every((op) => rt.sched.getOp(op.id)!.status === "pending"));
     assert.equal(telegramSends.length, 1);
     telegramOnline = true;
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     await waitFor("Telegram 恢复后补发积压", () => backlog.every((op) => rt.sched.getOp(op.id)!.status === "sent"));
     assert.equal(telegramSends.length, 52);
     assert.equal(sends(h.onebot).length, 2, "恢复 Telegram 不重发 QQ");
@@ -353,7 +353,7 @@ test("发送明确失败、超时、缺少消息 ID 与异步回执按事实收�
     }
     h.onebot.setSendBehavior("ok");
     for (const [index] of behaviors.entries()) push(h.onebot, index + 1, `MARK-SEND-${index}`);
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     await pause(500);
     assert.equal(sends(h.onebot).length, behaviors.length);
     assert.equal(mainTasks(rt).length, behaviors.length);
@@ -385,7 +385,7 @@ test("私聊配置必须有 token 和固定 owner；停用、换 owner、清除 
       const op = replyOps(rt).find((item) => item.text === `REPLY MARK-HOLD-${index}`)!;
       if (change === "disable") await rt.qqSetEnabled(false);
       else await rt.qqConfigure({ endpoint: h.onebot.url, credential: "qq-test", selfId: MOCK_QQ_ACCOUNT, ownerUserId: change === "replace" ? OTHER : null });
-      await rt.scheduler.tick();
+      await rt.scheduler!.tick();
       await waitFor("旧回复取消", () => rt.sched.getOp(op.id)?.status === "canceled");
       assert.equal(rt.sched.getOp(op.id)!.target.chatId, OWNER, "旧操作不得改发新 owner");
     }
@@ -405,7 +405,7 @@ test("私聊配置必须有 token 和固定 owner；停用、换 owner、清除 
     await waitOnline(rt);
     push(h.onebot, 4, "MARK-NEW-OWNER", OTHER);
     await waitFor("新 owner 可复用相同消息 ID", () => replyOps(rt).some((op) => op.text === "REPLY MARK-NEW-OWNER"));
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     await waitFor("新 owner 回复已发送", () => sends(h.onebot).length === 1);
     assert.equal(String(sends(h.onebot)[0]!.params.user_id), OTHER);
   } finally {
@@ -441,14 +441,14 @@ test("重启恢复已登记未建任务；补登只取原任务回答；sending 
     rt = await Runtime.start(h.config);
     await waitOnline(rt);
     await waitFor("已登记消息恢复完成", () => rt.store.getInboundEvent(registered.id)?.status === "done");
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     await waitFor("原任务与恢复任务发送完成", () => replyOps(rt).filter((op) => op.status === "sent").length === 2);
     assert.equal(rt.sched.getOp(opB.id)!.status, "effect_unknown");
     assert.equal(replyOps(rt).find((op) => op.taskId === taskA.id)!.text, "REPLY MARK-A", "main 后续回答不能替换 A 的回答");
     assert.deepEqual(sends(h.onebot).map((item) => (item.params.message as any[]).find((segment) => segment.type === "text").data.text).sort(), ["REPLY MARK-A", "REPLY MARK-C"]);
     for (const [id, marker] of [[1, "MARK-A"], [2, "MARK-B"], [3, "MARK-C"]] as const) push(h.onebot, id, marker);
     await pause(300);
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     assert.equal(mainTasks(rt).length, 3);
     assert.equal(replyOps(rt).length, 3);
     assert.equal(sends(h.onebot).length, 2, "sending 与已发送操作均不自动重放");
@@ -482,7 +482,7 @@ test("QQ owner main 可调用 coding_delegate，子任务固定 confirm，结果
     assert.deepEqual(child.grantedPaths, []);
     await waitFor("子任务结果唤醒完成", () => rt.store.findTaskByRequest(main.sessionId, `wake:${child.id}`)?.status === "completed");
     await waitFor("QQ 原任务已回复", () => replyOps(rt).some((op) => op.status === "sent"));
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     assert.equal(replyOps(rt).length, 1);
     assert.equal(replyOps(rt)[0]!.taskId, parent.id);
     assert.equal(replyOps(rt)[0]!.text, "已委派 coding");

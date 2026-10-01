@@ -12,8 +12,8 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { dirEnvFor, productFromEnv, productRootDir } from "../core/product.ts";
 
 export interface PendingRequest {
   requestId: string;
@@ -32,7 +32,8 @@ export interface PendingRequestList {
 }
 
 export function defaultPendingDir(): string {
-  return process.env.RUUKOTO_PENDING_DIR ?? path.join(os.homedir(), ".ruukoto", "pending");
+  const product = productFromEnv();
+  return dirEnvFor(product, "PENDING") ?? path.join(productRootDir(product), "pending");
 }
 
 export class PendingRequestStore {

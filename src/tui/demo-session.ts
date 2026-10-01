@@ -291,7 +291,7 @@ function demoEvents(): PersistentEvent[] {
   const first = answer.slice(0, split);
   const second = answer.slice(split);
   const bodies: PersistentEventBody[] = [
-    { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container" },
+    { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container", product: "ruukoto" },
     { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },

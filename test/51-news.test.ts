@@ -94,14 +94,14 @@ async function harness(prefix: string, respond: (query: string, index: number) =
     },
     async tick(at = DUE) {
       clock.now = Date.parse(at);
-      await runtime.scheduler.tick();
-      await runtime.scheduler.idle();
+      await runtime.scheduler!.tick();
+      await runtime.scheduler!.idle();
     },
     async restart() {
       client.close();
       await runtime.stop("restart");
       await start();
-      await runtime.scheduler.idle();
+      await runtime.scheduler!.idle();
     },
     async close() {
       client.close();
@@ -249,8 +249,8 @@ test("同一窗口合并关键词：按 URL 去重、过滤来源与时间，保
     assert.equal(memorySnapshot(), beforeMemories);
     const detail = await h.client.request<any>("schedule_get", { schedule_id: schedule.id });
     assert.deepEqual(detail.runs[0].newsResult, result);
-    await Promise.all([h.rt.scheduler.tick(), h.rt.scheduler.tick()]);
-    await h.rt.scheduler.idle();
+    await Promise.all([h.rt.scheduler!.tick(), h.rt.scheduler!.tick()]);
+    await h.rt.scheduler!.idle();
     assert.equal(h.hits.length, 2);
     assert.equal(h.channel.sends.length, 1);
   } finally { await h.close(); }
@@ -298,7 +298,7 @@ test("重启恢复：pending 继续、searching 记 unknown，已完成窗口只
     const pending = approvedPlan(h, "pending", ["pending"], "2026-09-25T02:00:00Z");
     const searching = approvedPlan(h, "searching", ["searching"], "2026-09-25T02:00:00Z");
     h.clock.now = Date.parse("2026-09-25T02:00:00Z");
-    h.rt.scheduler.prepareRecovery(); // 到期已登记、采集尚未领取的持久窗口。
+    h.rt.scheduler!.prepareRecovery(); // 到期已登记、采集尚未领取的持久窗口。
     assert.equal(runOf(h, pending.id).newsResult!.status, "pending");
     h.rt.store.withTx(() => assert.equal(h.rt.sched.claimNews(runOf(h, searching.id)), true));
     h.channel.online = true;
@@ -359,10 +359,10 @@ test("取消与项目禁用：阻止未来搜索、取消待发送摘要，中�
     h.rt.store.setProjectWebSearch(main.projectId, "enabled");
     const inflight = approvedPlan(h, "inflight", ["hold"], "2026-09-25T03:00:00Z");
     h.clock.now = Date.parse("2026-09-25T03:00:00Z");
-    await h.rt.scheduler.tick();
+    await h.rt.scheduler!.tick();
     await waitFor("Tavily 收到在途请求", () => h.hits.some((hit) => hit.query === "hold"));
     await h.rt.scheduleCancel({ scheduleId: inflight.id, expectedVersion: 1, reason: "取消在途新闻" });
-    await h.rt.scheduler.idle();
+    await h.rt.scheduler!.idle();
     assert.equal(runOf(h, inflight.id).newsResult!.status, "canceled");
     assert.equal(runOf(h, inflight.id).notificationOpId, null);
     await h.restart();

@@ -252,7 +252,7 @@
           <tr tabindex="0" data-k="t5"><td><code class="st wait">reconnecting</code></td><td><code class="st wait">reconnecting</code></td><td>重连尝试再失败</td><td>延迟翻倍，上限 8000ms</td><td><code class="src" data-src="src/control/connection.ts#Math.min(delayMs * 2, this.config.reconnectMaxMs ?? 8000)">connection.ts · 退避加倍</code></td></tr>
           <tr tabindex="0" data-k="t6"><td><code class="st wait">connecting</code></td><td><code class="st bad">failed</code></td><td>认证或同步被明确拒绝</td><td>requestOutcome(err) === "rejected"，如 unauthorized、protocol_version</td><td><code class="src" data-src="src/control/connection.ts#if (requestOutcome(err) === "rejected") this.setState("failed", (err as Error).message);">connection.ts · 拒绝即停止</code></td></tr>
           <tr tabindex="0" data-k="t7"><td><code class="st wait">reconnecting</code></td><td><code class="st bad">failed</code></td><td>重连时认证或同步被明确拒绝</td><td>state === "failed" 时 tryReconnect 直接返回，不再排下一次</td><td><code class="src" data-src="src/control/connection.ts#连接不可用：请求未发送">connection.ts · tryReconnect</code></td></tr>
-          <tr tabindex="0" data-k="t8"><td><code class="st wait">connecting / reconnecting</code></td><td><code class="st idle">closed</code></td><td>拥有者调用 close()</td><td>closedByUser = true：清除退避计时器，之后的 onClose 不再触发重连</td><td><code class="src" data-src="src/control/connection.ts#public close(): void">connection.ts · close</code></td></tr>
+          <tr tabindex="0" data-k="t8"><td><code class="st wait">connecting / reconnecting</code></td><td><code class="st idle">closed</code></td><td>拥有者调用 close()</td><td>closedByUser = true：清除退避计时器，之后的 onClose 不再触发重连</td><td><code class="src" data-src="src/control/connection.ts#close(): void">connection.ts · close</code></td></tr>
         </tbody>
       </table>
     </div>
@@ -265,7 +265,7 @@
           <tr><td>建连超时</td><td>5000ms（connect_timeout，未发送）</td><td><code class="src" data-src="src/control/client.ts#static connect(socketPath: string, timeoutMs = 5000)">client.ts · 建连超时</code></td></tr>
           <tr><td>认证超时</td><td>10000ms</td><td><code class="src" data-src="src/control/client.ts#async authenticate(token: string, timeoutMs = 10_000)">client.ts · authenticate</code></td></tr>
           <tr><td>握手超时</td><td>15000ms</td><td><code class="src" data-src="src/control/client.ts#async handshake(since?: number, timeoutMs = 15_000)">client.ts · handshake</code></td></tr>
-          <tr><td>请求超时</td><td>60000ms（超时即 outcome = unknown，后台照常执行，迟到应答按 id 丢弃）</td><td><code class="src" data-src="src/control/client.ts#request(op: string, params?: Record<string, unknown>, timeoutMs = 60_000)">client.ts · request</code></td></tr>
+          <tr><td>请求超时</td><td>60000ms（超时即 outcome = unknown，后台照常执行，迟到应答按 id 丢弃）</td><td><code class="src" data-src="src/control/client.ts#request&lt;T = unknown&gt;(op: string">client.ts · request</code></td></tr>
         </tbody>
       </table>
     </div>
@@ -555,7 +555,7 @@
           <tr><td><code>telegram.config_changed</code></td><td>Telegram 入口配置变化（不含 token）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>telegram.rejected</code></td><td>非 owner / 非私聊 / 非文本消息被忽略（只记 id 与原因，不含正文）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>telegram.reply_skipped</code></td><td>私聊入站任务终态但未登记 owner 回复</td><td><a href="inbound-events.html">入站事件</a></td></tr>
-          <tr><td><code>backend.started</code></td><td>后台启动（记录数据目录与执行后端）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
+          <tr><td><code>backend.started</code></td><td>后台启动（记录数据目录、执行后端与产品身份）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
           <tr><td><code>backend.stopping</code></td><td>后台开始停止（附原因）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
           <tr><td><code>backend.stopped</code></td><td>后台已停止</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
           <tr><td><code>backend.recovered</code></td><td>重启恢复完成：列出被标为中断的任务与暂停的会话</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>

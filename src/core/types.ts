@@ -551,7 +551,7 @@ export type PersistentEventBody =
   /** 私聊入站任务终态但未登记 owner 回复（目标未配置、停用或版本变化）。 */
   | { type: "telegram.reply_skipped"; eventId: string; taskId: string; reason: string }
   | { type: "qq_private.reply_skipped"; eventId: string; taskId: string; reason: string }
-  | { type: "backend.started"; dataDir: string; executionBackend: string }
+  | { type: "backend.started"; dataDir: string; executionBackend: string; product: string }
   | { type: "backend.stopping"; reason: string }
   | { type: "backend.stopped"; reason: string }
   | { type: "backend.recovered"; interruptedTaskIds: string[]; pausedSessionIds: string[] }

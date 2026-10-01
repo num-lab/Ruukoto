@@ -109,6 +109,7 @@ import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { searchTavily, WebSearchError } from "../agent/web-search.ts";
 import { loadSkillLibrary, skillsDirFor } from "../agent/skills.ts";
 import { createSourceResolver, schedulerOpCheck, type SourceResolver } from "../agent/scheduler-tools.ts";
+import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
 import { delegationOpCheck } from "../agent/delegation-tools.ts";
 import { chatResultOpCheck } from "../agent/chat-result-tools.ts";
 import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
@@ -200,6 +201,12 @@ export interface RuntimeConfig {
    * 不创建适配器；telegram 控制面操作仍作用于配置存储。
    */
   telegramDisabled?: boolean;
+  /**
+   * 产品身份（agent-direction issue 01，ADR 0017）：缺省 ruukoto（个人 Agent）。
+   * ruukoto-dev（Coding Agent）启动时强制停用 QQ/Telegram 适配器、不创建调度器，
+   * 并把产品归属登记到数据目录 meta（跨产品复用同一数据目录直接拒绝）。
+   */
+  productType?: ProductType;
   /** Telegram 入口（issue 04）：长轮询秒数/断线退避覆盖（仅测试注入；生产取默认）。 */
   telegram?: { pollTimeoutSec?: number; backoffMs?: number };
   /** 编排器（issue 01）：超时巡检间隔覆盖（仅测试注入；生产取默认）。 */
@@ -274,8 +281,10 @@ export class Runtime {
   readonly sched: SchedulerStore;
   /** 工具操作账本（架构工单 05）：结果、效果未知与停止/重启补记。 */
   private readonly ledger: ToolOpLedger;
-  /** 调度器（issue 03）：扫描循环 + 发送循环；start 时创建。 */
-  scheduler!: Scheduler;
+  /** 调度器（issue 03）：扫描循环 + 发送循环；仅个人 Agent 产品在 start 时创建。 */
+  scheduler: Scheduler | null = null;
+  /** 产品身份（issue 01）：缺省 ruukoto。 */
+  readonly productType: ProductType;
   private sources!: SourceResolver;
   /** 额外事件监听（QQ 适配器等宿主内订阅者；控制面广播仍走 onEventBroadcast）。 */
   private readonly eventListeners = new Set<(events: PersistentEvent[]) => void>();
@@ -307,6 +316,7 @@ export class Runtime {
 
   private constructor(config: RuntimeConfig, db: Db, store: Store, lock: AcquiredLock, configLock: AcquiredLock) {
     this.config = config;
+    this.productType = config.productType ?? "ruukoto";
     this.db = db;
     this.store = store;
     this.lock = lock;
@@ -385,7 +395,12 @@ export class Runtime {
   }
 
   static async start(config: RuntimeConfig): Promise<Runtime> {
+    const productType: ProductType = config.productType ?? "ruukoto";
+    // Coding Agent 产品（issue 01）：消息平台连接与个人调度不属于产品边界；
+    // 与显式 qqDisabled/telegramDisabled 同源生效（状态视图按产品标注原因）
     const fullConfig: RuntimeConfig = { ...config, execution: config.execution ?? { backend: "local" },
+      qqDisabled: productType === "ruukoto-dev" ? true : config.qqDisabled,
+      telegramDisabled: productType === "ruukoto-dev" ? true : config.telegramDisabled,
       githubWebhook: config.githubWebhook ? parseGitHubEventsConfig(config.githubWebhook) : undefined };
     fs.mkdirSync(fullConfig.dataDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(fullConfig.agentDir, { recursive: true, mode: 0o700 });
@@ -411,6 +426,20 @@ export class Runtime {
       lock.release();
       throw err;
     }
+
+    // 产品归属登记（issue 01，兼容扩展）：旧库无该 meta 键，首次启动按当前产品补记；
+    // 已归属另一产品的数据目录拒绝以本产品启动——配置、数据与控制面不跨产品串用
+    const recordedProduct = runtime.store.getMetaValue(PRODUCT_META_KEY);
+    if (recordedProduct !== null && recordedProduct !== productType) {
+      runtime.db.close();
+      configLock.release();
+      lock.release();
+      throw new RuntimeApiError(
+        "product_mismatch",
+        `该数据目录已归属产品 ${recordedProduct}，不能以 ${productType} 启动；检查 --data-dir、RUUKOTO_*_DIR 或 RUUKOTO_PRODUCT`,
+      );
+    }
+    if (recordedProduct === null) runtime.store.setMetaValue(PRODUCT_META_KEY, productType);
 
     try {
       if (fullConfig.githubWebhook) webhookSecret(runtime.credentials, fullConfig.githubWebhook, true);
@@ -456,10 +485,14 @@ export class Runtime {
     // main 应用数据空间（issue 02）：先于恢复打开/登记 main.db 并核对实例绑定
     // （恢复要按应用库回执核实未落结果的应用数据操作）；不可用则能力停止
     runtime.initAppData();
+    runtime.initSources();
     // 调度器（issue 03）：恢复准备须在通用 recover() 改写 running 任务之前——
-    // 先按关联记录真实状态补关闭/合并漏过周期，再把遗留 sending 定为未知
-    runtime.initScheduler();
-    runtime.scheduler.prepareRecovery();
+    // 先按关联记录真实状态补关闭/合并漏过周期，再把遗留 sending 定为未知。
+    // 个人调度只属于个人 Agent 产品（issue 01）：ruukoto-dev 不创建调度器
+    if (runtime.productType === "ruukoto") {
+      runtime.initScheduler();
+      runtime.scheduler!.prepareRecovery();
+    }
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
@@ -541,8 +574,8 @@ export class Runtime {
     await runtime.orchestrator.start();
     await runtime.qqAdapter?.start();
     runtime.telegram?.start();
-    // 恢复与角色引导完成后才开放调度事件派发与发送
-    runtime.scheduler.start();
+    // 恢复与角色引导完成后才开放调度事件派发与发送（ruukoto-dev 无调度器）
+    runtime.scheduler?.start();
     if (fullConfig.githubWebhook) {
       try {
         runtime.githubWebhook = await GitHubWebhook.start({
@@ -559,7 +592,7 @@ export class Runtime {
       }
     }
     runtime.store.withTx(() => {
-      runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend });
+      runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend, product: productType });
     });
     return runtime;
   }
@@ -572,15 +605,19 @@ export class Runtime {
 
   // ---------- 调度器与通知（issue 03） ----------
 
-  private initScheduler(): void {
-    const now = this.config.scheduler?.now ?? (() => Date.now());
-    const channel = (source: string) => this.notifyChannel(source);
+  /** 来源核实（issue 03/05）：通知与委派的来源校验共用；与调度器生命周期无关。 */
+  private initSources(): void {
     this.sources = createSourceResolver({
       store: this.store,
       access: this.access,
       artifacts: this.artifacts,
       appData: () => this.appDataStore,
     });
+  }
+
+  private initScheduler(): void {
+    const now = this.config.scheduler?.now ?? (() => Date.now());
+    const channel = (source: string) => this.notifyChannel(source);
     this.scheduler = new Scheduler({
       store: this.store,
       sched: this.sched,
@@ -678,6 +715,8 @@ export class Runtime {
 
   async scheduleCancel(input: { scheduleId: string; expectedVersion: number; reason: string }) {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    // ruukoto-dev 无调度器：取消计划的合并语义不可用，明确拒绝而不是静默改写
+    if (!this.scheduler) throw new RuntimeApiError("unavailable", "该实例未启动个人调度（Coding Agent 产品边界）");
     if (!input.reason.trim()) throw new RuntimeApiError("invalid_params", "reason 不能为空");
     try {
       return await this.scheduler.cancelSchedule({ ...input, source: "owner", cancelOpId: null });
@@ -2107,23 +2146,26 @@ export class Runtime {
               queryStallMs: this.config.appData?.queryStallMs,
             }
           : undefined,
-        // 调度与通知（issue 03）：仅 main 角色会话装配；目标只来自可信宿主渠道
-        scheduler: {
-          sched: this.sched,
-          scheduler: this.scheduler,
-          sources: this.sources,
-          target: () => {
-            const taskId = this.drivers.get(session.id)?.currentTaskId;
-            const task = taskId ? this.store.getTask(taskId) : null;
-            const event = task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
-            if (event?.source === QQ_PRIVATE_SOURCE) {
-              const current = this.notifyChannel(QQ_PRIVATE_SOURCE)?.target() ?? null;
-              return isDeepStrictEqual(current, event.replyTarget) ? current : null;
+        // 调度与通知（issue 03）：仅 main 角色会话装配；目标只来自可信宿主渠道；
+        // ruukoto-dev 无调度器，不装配（issue 01）
+        scheduler: this.scheduler
+          ? {
+              sched: this.sched,
+              scheduler: this.scheduler,
+              sources: this.sources,
+              target: () => {
+                const taskId = this.drivers.get(session.id)?.currentTaskId;
+                const task = taskId ? this.store.getTask(taskId) : null;
+                const event = task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
+                if (event?.source === QQ_PRIVATE_SOURCE) {
+                  const current = this.notifyChannel(QQ_PRIVATE_SOURCE)?.target() ?? null;
+                  return isDeepStrictEqual(current, event.replyTarget) ? current : null;
+                }
+                return this.notifyChannel()?.target() ?? null;
+              },
+              now: this.config.scheduler?.now ?? (() => Date.now()),
             }
-            return this.notifyChannel()?.target() ?? null;
-          },
-          now: this.config.scheduler?.now ?? (() => Date.now()),
-        },
+          : undefined,
         // 委派 coding（issue 05）：仅 main 角色会话装配；宿主固定参数在编排器
         delegation: {
           sources: this.sources,
@@ -3088,7 +3130,7 @@ export class Runtime {
     }
     const main = this.store.getAgentRole("main");
     if (main) this.kick(main.sessionId);
-    this.scheduler.kickSender();
+    this.scheduler?.kickSender();
   }
 
   /** QQ 入口状态（配置视图 + 运行期连接状态；不含 token 与消息正文）。 */
@@ -3098,9 +3140,13 @@ export class Runtime {
         configured: this.qqStore.getConfig() !== null,
         enabled: false,
         online: false,
-        // qqDisabled（dev 开发实例）与未启动区分标注，避免误以为连接异常
+        // qqDisabled 与未启动区分标注（产品边界 / dev 开发实例两种来源），避免误以为连接异常
         ...(this.config.qqDisabled ? { disabledByConfig: true } : {}),
-        stateDetail: this.config.qqDisabled ? "已由启动配置停用（dev 开发实例不连接真实 QQ 通道）" : "适配器未启动",
+        stateDetail: this.config.qqDisabled
+          ? this.productType === "ruukoto-dev"
+            ? "Coding Agent（ruukoto-dev）不连接消息平台"
+            : "已由启动配置停用（dev 开发实例不连接真实 QQ 通道）"
+          : "适配器未启动",
       }
     );
   }
@@ -3250,7 +3296,15 @@ export class Runtime {
       configured: this.telegramStore.getConfig() !== null,
       enabled: false,
       online: false,
-      ...(this.config.telegramDisabled ? { disabledByConfig: true, stateDetail: "已由启动配置停用（dev 开发实例不连接真实 Telegram）" } : {}),
+      ...(this.config.telegramDisabled
+        ? {
+            disabledByConfig: true,
+            stateDetail:
+              this.productType === "ruukoto-dev"
+                ? "Coding Agent（ruukoto-dev）不连接消息平台"
+                : "已由启动配置停用（dev 开发实例不连接真实 Telegram）",
+          }
+        : {}),
     };
   }
 

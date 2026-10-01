@@ -550,14 +550,14 @@
 
   <section id="restart">
     <h2>重启恢复与停止</h2>
-    <p>启动顺序里，调度器的恢复准备排在通用任务恢复之前（<code class="src" data-src="src/runtime/runtime.ts#runtime.scheduler.prepareRecovery()">runtime.ts · prepareRecovery 调用处</code>）：它要先按关联记录的真实状态决定运行开着还是关着，再让通用恢复把 running 任务改写为 interrupted。</p>
+    <p>本节形容个人 Agent 产品（ruukoto）的启动顺序——调度器只在这一产品创建；Coding Agent（ruukoto-dev）不创建调度器（issue 01），下面的第 1、2、6 步对它不适用。启动顺序里，调度器的恢复准备排在通用任务恢复之前（<code class="src" data-src="src/runtime/runtime.ts#scheduler!.prepareRecovery()">runtime.ts · prepareRecovery 调用处</code>）：它要先按关联记录的真实状态决定运行开着还是关着，再让通用恢复把 running 任务改写为 interrupted。</p>
     <ol class="steps">
-      <li>创建调度器（<code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime.ts · initScheduler</code>），此时不启动定时器、不派发、不发送。</li>
+      <li>创建调度器（<code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime.ts · initScheduler</code>；仅个人 Agent 产品），此时不启动定时器、不派发、不发送。</li>
       <li>恢复准备（<code class="src" data-src="src/scheduler/runtime.ts#prepareRecovery(): void">runtime.ts · prepareRecovery</code>）：① 关联记录早已终态、只是关闭标记没写上的运行先补关闭；② 到期计划按正常到期事务处理，仍在 registered/queued/running/pending/sending/searching 的运行吸收漏过区间，没有未完成运行的计划补一次；③ 一个事务里把遗留 sending 全部定为 <code class="st unk">effect_unknown</code>（<code>backend_restart</code>）；④ 停在 searching 的采集定为 unknown，登记 <code>news_backend_restart</code> 的 failed 发送操作，同一窗口不重搜。</li>
       <li>通用任务恢复：running 与 awaiting_confirmation 转 interrupted，见<a href="task-lifecycle.html">任务生命周期</a>。</li>
       <li>编排器启动：按原请求键重提已登记未建任务的入站事件，补记重启窗口内结束的任务结果；owner 回复与 GitHub 评审通知随这次结果事务补登。结果只写一次，已记录结果的任务不再登记。</li>
       <li>QQ 适配器启动：遗留 pending 的群回复一律定为 <code>unknown</code>，对应收件记 reply_unknown（<code class="src" data-src="src/qq/store.ts#reconcilePendingOutboxOnBoot(): number">qq/store.ts · reconcilePendingOutboxOnBoot</code>）。随后 Telegram 开始轮询。</li>
-      <li>然后 <code>scheduler.start()</code>：开定时器，唤醒发送循环与采集循环，到期扫描从这里开始。GitHub webhook 在它之后才开始监听。</li>
+      <li>然后 <code>scheduler.start()</code>（仅个人 Agent 产品）：开定时器，唤醒发送循环与采集循环，到期扫描从这里开始。GitHub webhook 在它之后才开始监听。</li>
     </ol>
     <aside class="callout inv">
       <b>为什么必须在通用恢复之前</b>

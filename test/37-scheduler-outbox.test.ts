@@ -159,8 +159,8 @@ function addSchedule(rt: Runtime, h: Harness, input: { key: string; action: "wak
 
 async function tickAt(rt: Runtime, h: Harness, iso: string): Promise<void> {
   h.clock.t = ms(iso);
-  await rt.scheduler.tick();
-  await rt.scheduler.idle();
+  await rt.scheduler!.tick();
+  await rt.scheduler!.idle();
 }
 
 const opsOf = (rt: Runtime) => rt.sched.listOps({ limit: 50 }).items;
@@ -176,8 +176,8 @@ test("wake_main：到期唤醒 main 一次（confirm 模式）；重复/并发 t
     await tickAt(rt, h, "2026-09-24T00:59:59Z");
     assert.equal(schedulerEvents(rt).length, 0, "未到期不登记");
     h.clock.t = ms("2026-09-24T01:00:05Z");
-    await Promise.all([rt.scheduler.tick(), rt.scheduler.tick(), rt.scheduler.tick()]);
-    await rt.scheduler.tick();
+    await Promise.all([rt.scheduler!.tick(), rt.scheduler!.tick(), rt.scheduler!.tick()]);
+    await rt.scheduler!.tick();
     const events = schedulerEvents(rt);
     assert.equal(events.length, 1, "同一周期只登记一次");
     const main = rt.store.getAgentRole("main")!;
@@ -355,9 +355,9 @@ test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown �
   h.channel.online = true;
   rt = await Runtime.start(h.config);
   try {
-    await rt.scheduler.idle();
-    await rt.scheduler.tick();
-    await rt.scheduler.idle();
+    await rt.scheduler!.idle();
+    await rt.scheduler!.tick();
+    await rt.scheduler!.idle();
     const byText = (t: string) => opsOf(rt).find((o) => o.text === t)!;
     assert.equal(byText("SENDING").status, "effect_unknown", "遗留 sending 不重发");
     assert.equal(byText("PENDING").status, "sent");
@@ -393,7 +393,7 @@ test("恢复合并：周一 pending 到周四仍只一个操作、下次周五�
   h.channel.online = true;
   rt = await Runtime.start(h.config);
   try {
-    await rt.scheduler.idle();
+    await rt.scheduler!.idle();
     const p = rt.sched.getSchedule(pendingSchedule)!;
     const pRuns = rt.sched.listRuns(pendingSchedule, 10);
     assert.equal(pRuns.length, 1, "pending 运行吸收漏过周期，不建第二个");
@@ -436,7 +436,7 @@ test("恢复合并：wake_main 的排队任务占用位置——重启合并不�
     const main = rt.store.getAgentRole("main")!;
     await rt.resumeQueue(main.sessionId).catch(() => {});
     await waitFor("排队的唤醒任务完成", () => rt.store.listTasksBySession(main.sessionId).every((t) => t.status === "completed"));
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     assert.equal(rt.store.listTasksBySession(main.sessionId).length, 1, "没有新增补发任务");
     assert.equal(rt.sched.listRuns(sid, 10)[0]!.closedAt !== null, true);
   } finally {
@@ -455,7 +455,7 @@ test("取消：未派发运行不再派发（含重启）；pending 操作取消
     h.channel.online = false;
     // 登记但不派发（与恢复准备同一路径）：模拟提交后、派发前
     h.clock.t = ms("2026-09-24T01:00:00Z");
-    rt.scheduler.prepareRecovery();
+    rt.scheduler!.prepareRecovery();
     assert.equal(schedulerEvents(rt)[0].status, "registered");
     await assert.rejects(rt.scheduleCancel({ scheduleId: wakeId, expectedVersion: 9, reason: "x" }), /版本不符/);
     await rt.scheduleCancel({ scheduleId: wakeId, expectedVersion: 1, reason: "不要了" });
@@ -550,7 +550,7 @@ test("工具：通知计划与一次通知须拥有者确认（full_access 也�
     assert.equal(c2.scope.duration, "single");
     await client.request("respond_confirmation", { confirmation_id: c2.id, decision: "approve" });
     await waitFor("一次通知任务完成", () => rt.store.getTask(once.id)!.status === "completed");
-    await rt.scheduler.idle();
+    await rt.scheduler!.idle();
     const onceOps = rt.store.listToolOpsByTask(once.id);
     assert.match(onceOps[0]!.resultSummary!, /已排队/);
     assert.match(onceOps[1]!.resultSummary!, /重复调用返回原操作/);
@@ -672,7 +672,7 @@ test("发送函数挂起时控制面与普通任务继续推进；stop 中止在
   try {
     addSchedule(rt, h, { key: "h1", action: "notify", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "HANG" });
     h.clock.t = ms("2026-09-24T01:00:00Z");
-    await rt.scheduler.tick();
+    await rt.scheduler!.tick();
     await waitFor("发送进行中", () => opsOf(rt)[0]?.status === "sending");
     opId = opsOf(rt)[0]!.id;
     const project = rt.createProject("side");
@@ -754,8 +754,8 @@ test("子进程 SIGKILL：平台已接收但本地未落结果 → 重启标 eff
   h.channel.online = true;
   rt = await Runtime.start(h.config);
   try {
-    await rt.scheduler.tick();
-    await rt.scheduler.idle();
+    await rt.scheduler!.tick();
+    await rt.scheduler!.idle();
     const [op] = opsOf(rt);
     assert.equal(op!.status, "effect_unknown");
     assert.equal(op!.errorKind, "backend_restart");

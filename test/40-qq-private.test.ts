@@ -11,10 +11,10 @@ import { Store } from "../src/core/store.ts";
 import type { NotifyTarget } from "../src/core/types.ts";
 import { QqStore } from "../src/qq/store.ts";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import type { NotifyChannel } from "../src/scheduler/runtime.ts";
 import { cleanupDirs, connectAuthedClient, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
+import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 
 const OWNER = "880001";
 const OTHER = "880002";
@@ -50,7 +50,7 @@ async function harness(prefix: string, responder = reply, scheduler: RuntimeConf
 }
 
 async function configure(rt: Runtime, onebot: MockOneBot, opts: { owner?: string | null; secret?: string; selfId?: string } = {}) {
-  rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: opts.secret ?? MOCK_QQ_SECRET });
+  await rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: opts.secret ?? MOCK_QQ_SECRET });
   await rt.qqConfigure({ endpoint: onebot.url, selfId: opts.selfId ?? MOCK_QQ_ACCOUNT, credential: "qq-test", ownerUserId: opts.owner === undefined ? OWNER : opts.owner });
   await rt.qqSetEnabled(true);
 }
@@ -160,7 +160,7 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
   const untrusted = await ControlClient.connect(rt.socketPath());
   try {
     mainId = rt.store.getAgentRole("main")!.sessionId;
-    rt.addCredentialBinding({ name: "qq-test", host: h.onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
+    await rt.addCredentialBinding({ name: "qq-test", host: h.onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
     await owner.request("qq_configure", { endpoint: h.onebot.url, self_id: MOCK_QQ_ACCOUNT, credential: "qq-test", owner_user_id: OWNER });
     await owner.request("qq_set_enabled", { enabled: true });
     await waitOnline(rt);
@@ -201,6 +201,11 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
       assert.equal(conf.scope.target.channel, "qq_private");
       assert.equal(conf.scope.target.chatId, OWNER);
       assert.equal(conf.scope.target.account, MOCK_QQ_ACCOUNT);
+      // 先把该审批的宿主 IM 通知送达（钉版到原 owner），再计平台发送数
+      // （否则变化前后的窗口受调度时序影响，见 issue 08 的初始通知）
+      await waitFor("审批的 IM 通知已发", () =>
+        sends(h.onebot).some((item) => JSON.stringify(item.params.message).includes("【需要审批】") && JSON.stringify(item.params.message).includes(conf.id)),
+      );
       const sendsBefore = sends(h.onebot).length;
       if (index === 1) await owner.request("qq_configure", { endpoint: h.onebot.url, self_id: MOCK_QQ_ACCOUNT, owner_user_id: OTHER });
       if (index === 0) {
@@ -209,7 +214,9 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
         await waitFor("获批通知与原任务回复已发送", () => rt.sched.findOpBySource("confirmation", `task:${task.id}`)?.status === "sent" && replyOps(rt).some((op) => op.taskId === task.id && op.status === "sent"));
         const op = rt.sched.findOpBySource("confirmation", `task:${task.id}`)!;
         assert.deepEqual(op.target, conf.scope.target);
-        const sent = sends(h.onebot).filter((item) => JSON.stringify(item.params.message).includes("APPROVED-NOTICE"));
+        // 审批另有一条宿主 IM 通知（参数摘要会引用正文），获批发送按正文段精确匹配只计一次
+        const sent = sends(h.onebot).filter((item) =>
+          (item.params.message as any[]).some((seg) => seg?.type === "text" && seg?.data?.text === "APPROVED-NOTICE"));
         assert.equal(sent.length, 1);
         assert.equal(String(sent[0]!.params.user_id), OWNER);
       } else {
@@ -231,26 +238,26 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
 });
 
 test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler 唤醒不自动外发", async () => {
-  const target: NotifyTarget = { channel: "telegram", account: "123456", chatId: "42", configVersion: 1 };
-  const telegramSends: Array<{ target: NotifyTarget; text: string }> = [];
-  let telegramOnline = true;
-  const channel: NotifyChannel = {
-    target: () => target,
-    available: () => telegramOnline,
-    async send(input) {
-      telegramSends.push({ target: input.target, text: input.text });
-      return { platformMessageId: "tg-1" };
-    },
-  };
-  const h = await harness("qq-private-platforms", reply, { channel });
+  const TG_TOKEN = "123456:SECRET-TOKEN-XYZ";
+  const api = new FakeBotApi({ token: TG_TOKEN, ownerId: 42 });
+  const apiBase = await api.start();
+  const h = await harness("qq-private-platforms", reply);
+  h.config.telegramDisabled = false;
+  h.config.telegram = { pollTimeoutSec: 1, backoffMs: 50 };
   const rt = await Runtime.start(h.config);
   try {
     await configure(rt, h.onebot);
+    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: TG_TOKEN });
+    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" });
+    await rt.telegramSetEnabled(true);
     await waitOnline(rt);
+    await waitFor("Telegram 轮询在线", () => rt.telegramStatus().online === true);
+    const target: NotifyTarget = { channel: "telegram", account: "123456", chatId: "42", configVersion: rt.telegramStore.getConfig()!.configVersion };
     push(h.onebot, 1, "MARK-QQ");
-    await rt.orchestrator!.registerInboundEvent({ source: "telegram", externalId: "123456:42:1", actor: "42", targetRole: "main", body: "[Telegram 私聊] MARK-TG" });
+    api.push({ text: "MARK-TG", from: 42 });
     await waitFor("两平台回复完成", () => replyOps(rt).filter((op) => op.status === "sent").length === 2);
-    assert.deepEqual(telegramSends, [{ target, text: "REPLY MARK-TG" }]);
+    assert.equal(api.sends.length, 1);
+    assert.deepEqual(api.sends.map((s) => [String(s.chat_id), s.text]), [["42", "REPLY MARK-TG"]]);
     assert.equal(sends(h.onebot).length, 1);
     assert.ok(JSON.stringify(sends(h.onebot)[0]!.params).includes("REPLY MARK-QQ"));
     assert.equal(mainTasks(rt).length, 2);
@@ -259,9 +266,10 @@ test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler
     await waitFor("定时唤醒完成", () => rt.store.getInboundEvent(event.id)?.status === "done");
     await rt.scheduler!.tick();
     assert.equal(replyOps(rt).length, 2);
-    assert.equal(sends(h.onebot).length + telegramSends.length, 2);
+    assert.equal(sends(h.onebot).length + api.sends.length, 2);
 
-    telegramOnline = false;
+    api.offline = true;
+    await waitFor("Telegram 轮询离线", () => rt.telegramStatus().online === false);
     const { backlog, qqOp } = rt.store.withTx(() => {
       const backlog = Array.from({ length: 51 }, (_, index) => rt.sched.insertOp({
         sourceKind: "confirmation", sourceKey: `backlog:${index}`, taskId: null, hostOpId: null, target, text: `TG-WAIT-${index}`, sourceRefs: [],
@@ -275,14 +283,16 @@ test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler
     await rt.scheduler!.tick();
     await waitFor("离线 Telegram 积压不饿死 QQ", () => rt.sched.getOp(qqOp.id)?.status === "sent");
     assert.ok(backlog.every((op) => rt.sched.getOp(op.id)!.status === "pending"));
-    assert.equal(telegramSends.length, 1);
-    telegramOnline = true;
+    assert.equal(api.sends.length, 1);
+    api.offline = false;
+    await waitFor("Telegram 轮询恢复在线", () => rt.telegramStatus().online === true);
     await rt.scheduler!.tick();
     await waitFor("Telegram 恢复后补发积压", () => backlog.every((op) => rt.sched.getOp(op.id)!.status === "sent"));
-    assert.equal(telegramSends.length, 52);
+    assert.equal(api.sends.length, 52);
     assert.equal(sends(h.onebot).length, 2, "恢复 Telegram 不重发 QQ");
   } finally {
     await rt.stop("test_end");
+    await api.close();
     await h.close();
   }
 });

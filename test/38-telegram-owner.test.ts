@@ -11,77 +11,16 @@
  */
 
 import assert from "node:assert/strict";
-import * as http from "node:http";
 import * as path from "node:path";
 import { test } from "node:test";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
+import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 
 const TOKEN = "123456:SECRET-TOKEN-XYZ";
 const OWNER = 42;
-
-type Reply = { status: number; body: unknown };
-
-/** 模拟 Bot API：getUpdates 按 offset 返回排队的 update；sendMessage 由 behavior 决定回执。 */
-class FakeBotApi {
-  updates: any[] = [];
-  sends: any[] = [];
-  paths: string[] = [];
-  offline = false;
-  behavior: (body: any, n: number) => Reply = () => ({ status: 200, body: { ok: true, result: { message_id: 1000 + this.sends.length } } });
-  private server = http.createServer((req, res) => {
-    let raw = "";
-    req.on("data", (c) => (raw += c));
-    req.on("end", () => {
-      this.paths.push(req.url ?? "");
-      const body = raw ? JSON.parse(raw) : {};
-      const reply = (r: Reply) => {
-        res.writeHead(r.status, { "content-type": "application/json" });
-        res.end(JSON.stringify(r.body));
-      };
-      if (!req.url?.startsWith(`/bot${TOKEN}/`)) return reply({ status: 401, body: { ok: false, description: "Unauthorized" } });
-      if (req.url.endsWith("/getUpdates")) {
-        if (this.offline) return reply({ status: 502, body: { ok: false, description: "Bad Gateway" } });
-        // 短暂挂起模拟长轮询，避免测试空转
-        setTimeout(() => reply({ status: 200, body: { ok: true, result: this.updates.filter((u) => u.update_id >= (body.offset ?? 0)) } }), 30);
-        return;
-      }
-      if (req.url.endsWith("/sendMessage")) {
-        this.sends.push(body);
-        return reply(this.behavior(body, this.sends.length));
-      }
-      reply({ status: 404, body: { ok: false, description: "Not Found" } });
-    });
-  });
-  private nextUpdate = 1;
-  private nextMessage = 1;
-
-  async start(): Promise<string> {
-    await new Promise<void>((r) => this.server.listen(0, "127.0.0.1", r));
-    return `http://127.0.0.1:${(this.server.address() as any).port}`;
-  }
-
-  close(): Promise<void> {
-    this.server.closeAllConnections();
-    return new Promise((r) => this.server.close(() => r()));
-  }
-
-  /** 推入一条私聊消息 update；返回 message_id（重复投递传入同一 message）。 */
-  push(opts: { text?: string; from?: number; chatType?: string; chatId?: number; message?: any; replyTo?: any } = {}): any {
-    const message = opts.message ?? {
-      message_id: this.nextMessage++,
-      date: 1_790_000_000,
-      chat: { id: opts.chatId ?? opts.from ?? OWNER, type: opts.chatType ?? "private" },
-      from: { id: opts.from ?? OWNER, is_bot: false },
-      ...(opts.text !== undefined ? { text: opts.text } : { sticker: { file_id: "x" } }),
-      ...(opts.replyTo ? { reply_to_message: opts.replyTo } : {}),
-    };
-    this.updates.push({ update_id: this.nextUpdate++, message });
-    return message;
-  }
-}
 
 interface Harness {
   api: FakeBotApi;
@@ -103,7 +42,7 @@ async function harness(prefix: string): Promise<Harness> {
     return { kind: "text", text: `REPLY ${marker}` };
   });
   await writeModelsJson(dirs, await model.start());
-  const api = new FakeBotApi();
+  const api = new FakeBotApi({ token: TOKEN, ownerId: OWNER });
   const apiBase = await api.start();
   const config: RuntimeConfig = {
     dataDir: dirs.dataDir,
@@ -127,7 +66,7 @@ async function harness(prefix: string): Promise<Harness> {
 }
 
 async function configure(rt: Runtime, h: Harness): Promise<void> {
-  rt.addCredentialBinding({ name: "tg", host: new URL(h.apiBase).host, header: "none", purpose: "telegram_bot", secret: TOKEN });
+  await rt.addCredentialBinding({ name: "tg", host: new URL(h.apiBase).host, header: "none", purpose: "telegram_bot", secret: TOKEN });
   await rt.telegramConfigure({ apiBase: h.apiBase, credential: "tg", ownerUserId: String(OWNER) });
   await rt.telegramSetEnabled(true);
 }
@@ -273,9 +212,9 @@ test("配置校验：凭据用途/host/格式、api_base 协议；停用后未�
   const rt = await Runtime.start(h.config);
   try {
     const host = new URL(h.apiBase).host;
-    rt.addCredentialBinding({ name: "wrong", host, header: "none", purpose: "qq_onebot", secret: TOKEN });
-    rt.addCredentialBinding({ name: "bad", host, header: "none", purpose: "telegram_bot", secret: "not-a-token" });
-    rt.addCredentialBinding({ name: "other", host: "api.telegram.org", header: "none", purpose: "telegram_bot", secret: TOKEN });
+    await rt.addCredentialBinding({ name: "wrong", host, header: "none", purpose: "qq_onebot", secret: TOKEN });
+    await rt.addCredentialBinding({ name: "bad", host, header: "none", purpose: "telegram_bot", secret: "not-a-token" });
+    await rt.addCredentialBinding({ name: "other", host: "api.telegram.org", header: "none", purpose: "telegram_bot", secret: TOKEN });
     const code = async (p: Promise<unknown>) => p.then(() => "ok", (e) => e.code);
     assert.equal(await code(rt.telegramConfigure({ apiBase: h.apiBase, credential: "wrong", ownerUserId: "42" })), "invalid_params");
     assert.equal(await code(rt.telegramConfigure({ apiBase: h.apiBase, credential: "bad", ownerUserId: "42" })), "invalid_params");

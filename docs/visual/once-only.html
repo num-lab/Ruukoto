@@ -26,6 +26,7 @@
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/core/store.ts#consumeApproval">core/store.ts</code>
         <code class="src" data-src="src/agent/approval-gate.ts#class ApprovalGate">agent/approval-gate.ts</code>
+        <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#settleAll">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/scheduler/store.ts#claim(id: string)">scheduler/store.ts</code>
         <code class="src" data-src="src/scheduler/runtime.ts#private async sendOne">scheduler/runtime.ts</code>
@@ -81,7 +82,7 @@
           <tr data-k="approval" tabindex="0">
             <td><strong>批准消费</strong><br><code class="src" data-src="src/core/store.ts#consumeApproval">store.ts · consumeApproval</code></td>
             <td><code>confirmations</code> 行（<code>status</code> 与 <code>consumed_at</code>），登记审批请求时写入；主键是审批 id，行上记宿主操作 id 与权限版本</td>
-            <td>获批后在同一事务内先复核，再做一次条件更新：状态为 approved、<code>consumed_at</code> 为空、审批与任务的权限版本都等于预期、任务仍是 running 或 awaiting_confirmation</td>
+            <td>获批后在同一事务内先复核，再做一次条件更新：状态为 approved、<code>consumed_at</code> 为空、审批与任务的权限版本都等于预期、任务仍是 running 或 awaiting_confirmation。IM 来源的审批在条件更新之前还要过一次宿主固定身份复核（<code class="src" data-src="src/agent/approval-gate.ts#consumeRecheck">consumeRecheck</code>）：当前平台目标与收件时钉版目标逐项相同（含配置版本），不符即批准失效、不消费——批准接受之后、执行开始之前的重新绑定与凭据变化在这里拦截</td>
             <td>复核或消费失败 → 批准失效（stale），按已知未执行记。消费即执行开始：停止或重启时已消费、结果缺失的操作记效果未知；HTTP 以请求头与正文交给操作系统为界，之前的失败是已知错误，之后的超时、连接重置、中止记效果未知，GET/HEAD 除外（无写入效果）；MCP 写与副作用不明工具的超时、连接失败、取消也记效果未知</td>
           </tr>
           <tr data-k="notify" tabindex="0">
@@ -99,8 +100,14 @@
           <tr data-k="inbound" tabindex="0">
             <td><strong>入站事件</strong><br><code class="src" data-src="src/runtime/orchestrator.ts#registerInboundEvent">orchestrator.ts · registerInboundEvent</code></td>
             <td><code>inbound_events</code> 行，先登记再建任务；<code>(source, external_id)</code> 唯一，重复登记返回原事件、不建任务</td>
-            <td>在编排器串行链上只派发仍为 registered 的事件，以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>deleg:&lt;父任务&gt;:review</code>。建好任务后条件更新 registered → queued</td>
+            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>deleg:&lt;父任务&gt;:review</code>。建好任务后条件更新 registered → queued</td>
             <td>建任务失败的事件保持 registered：调度器按 <code class="src" data-src="src/scheduler/runtime.ts#SCHEDULER_LIMITS">SCHEDULER_LIMITS</code>.redispatchMs 间隔补派，重启时同样按原请求键重提，命中已有任务就沿用；关联任务被中断时事件记 failed，不重放</td>
+          </tr>
+          <tr data-k="im" tabindex="0">
+            <td><strong>IM 审批控制消息</strong><br><code class="src" data-src="src/runtime/im-approvals.ts#async handleCommand">im-approvals.ts · handleCommand</code></td>
+            <td><code>inbound_events</code> 行（<code>event_kind = im_approval</code>），<code>(source, external_id)</code> 唯一，处理所在同步事务内直接写终态 done / failed，task_id 为 null：不建任务、不调用模型、不派发；回执是 <code>(inbound_event, 控制事件 id)</code> 的发送操作</td>
+            <td>整条命令匹配且归属核实通过（平台、actor、收件时钉版目标含配置版本）才执行；批准 / 拒绝经审批闸门 <code class="src" data-src="src/agent/approval-gate.ts#resolve(confirmationId">resolve</code>，决定、审计事件、控制事件终态与回执在同一事务（txExtra）提交，任一步失败整笔回滚——决定未记录，回执如实说请重试；等待者在提交后唤醒</td>
+            <td>写入中途失败即整体回滚，没有已执行未记录的中间态；平台按同键重投时读取原记录与原回执（结果未送达也只是延后，不换键重发）；同键异命令或身份不一致记 <code>im_approval.redelivery_rejected</code>，不覆盖既有事实，也不再执行</td>
           </tr>
           <tr data-k="submit" tabindex="0">
             <td><strong>控制面提交</strong><br><code class="src" data-src="src/control/submission.ts#async reconcile">submission.ts · reconcile</code></td>

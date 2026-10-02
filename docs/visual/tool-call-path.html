@@ -28,6 +28,7 @@
         <code class="src" data-src="src/agent/driver.ts#handleToolCall">agent/driver.ts</code>
         <code class="src" data-src="src/agent/tool-router.ts">agent/tool-router.ts</code>
         <code class="src" data-src="src/agent/approval-gate.ts#class ApprovalGate">agent/approval-gate.ts</code>
+        <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/agent/review.ts#export type ReviewDecision">agent/review.ts</code>
         <code class="src" data-src="src/agent/execution/launchers.ts#createLauncherFor">agent/execution/launchers.ts</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#recordResult">agent/tool-op-ledger.ts</code>
@@ -127,9 +128,11 @@
           <text class="el" x="548" y="70">消费失败即失效</text>
         </svg>
       </div>
-      <figcaption>批准只适用于该操作及明确列出的范围；消费是原子的：任务仍在进行、权限版本未变、批准未被使用过（<code class="src" data-src="src/core/store.ts#consumeApproval">store.ts · consumeApproval</code>）。消费失败或复核失败即 <code class="st idle">stale</code>，操作按已知未执行记录，不能再用。</figcaption>
+      <figcaption>批准只适用于该操作及明确列出的范围；消费是原子的：任务仍在进行、权限版本未变、批准未被使用过（<code class="src" data-src="src/core/store.ts#consumeApproval">store.ts · consumeApproval</code>）。消费失败或复核失败即 <code class="st idle">stale</code>，操作按已知未执行记录，不能再用。闸门给宿主留了两个挂钩，都在事务内执行：登记审批时可挂附带写入（<code class="src" data-src="src/agent/approval-gate.ts#notifyConfirmation">notifyConfirmation</code>，IM 委托的审批同事务登记初始 IM 通知）；消费事务里、条件更新之前先做宿主的固定身份复核（<code class="src" data-src="src/agent/approval-gate.ts#consumeRecheck">consumeRecheck</code>，IM 来源的审批核对当前平台目标与收件时钉版目标——批准接受之后、消费之前的重新绑定/凭据变化在此拦截），复核失败即批准失效、不消费。</figcaption>
       <ul class="legend"><li><i class="wait"></i>待决定</li><li><i class="ok"></i>已批准</li><li><i class="bad"></i>已拒绝</li><li><i class="idle"></i>已失效</li></ul>
     </figure>
+    <h3>决定的两个入口：控制面与 IM 私聊</h3>
+    <p>拥有者的应答既可以从控制面 <code>respond_confirmation</code> 来，也可以从 QQ / Telegram 私聊的整条审批命令来（绑定拥有者专用，命令识别与归属核实见<a href="inbound-events.html#im-approval">入站事件</a>）。两条入口汇到同一个 <code class="src" data-src="src/agent/approval-gate.ts#resolve(confirmationId">approval-gate.ts · resolve</code>：条件更新 pending → approved / rejected 与 <code>task.confirmation_resolved</code> 审计事件在同一事务提交，失效应答返回 false；IM 命令另把控制事件终态与回执作为 <code class="src" data-src="src/agent/approval-gate.ts#txExtra">txExtra</code> 并入这个事务——回执登记写失败会让决定整笔回滚（决定未记录，回执如实说「请重试」），不存在已记录决定但没留回执的中间态。任何入口都是提交成功后才唤醒等待的任务；已被其他入口（TUI、自动审查或另一条命令）处理的审批，后到的应答不生效。IM 决定只作用于原请求与原权限版本：命令必须带完整审批 ID 与当前权限版本，不开放新参数。</p>
     <h3>审批范围按操作类别固定</h3>
     <p>登记请求时把范围结构化冻结，展示与复核都用同一份快照（<code class="src" data-src="src/core/types.ts#ApprovalScope">types.ts · ApprovalScope</code>）：</p>
     <div class="scroll">

@@ -23,6 +23,7 @@ import {
   type ContextCheckpoint,
   type GrantedPath,
   type InboundEvent,
+  type InboundEventKind,
   type InboundEventStatus,
   type ModelSelection,
   type NotifyTarget,
@@ -1020,6 +1021,10 @@ export class Store {
     artifactRefs?: string[];
     replyTarget?: NotifyTarget | null;
     receivedAt?: string;
+    /** 宿主写定类别（默认 task；IM 审批控制消息用 im_approval，不派发模型任务）。 */
+    eventKind?: InboundEventKind;
+    /** 控制消息在同步事务内直接到终态（agent-direction issue 08）；普通入站不得使用。 */
+    terminal?: "done" | "failed";
   }): { event: InboundEvent; created: boolean } {
     const event: InboundEvent = {
       id: randomId("evt"),
@@ -1031,13 +1036,14 @@ export class Store {
       artifactRefs: input.artifactRefs ?? [],
       replyTarget: input.replyTarget ?? null,
       receivedAt: input.receivedAt ?? new Date().toISOString(),
-      status: "registered",
+      eventKind: input.eventKind ?? "task",
+      status: input.terminal ?? "registered",
       taskId: null,
     };
     const info = this.db
       .prepare(
-        `INSERT INTO inbound_events (id, source, external_id, actor, target_role, body, artifact_refs, reply_target, received_at, status, task_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'registered', NULL)
+        `INSERT INTO inbound_events (id, source, external_id, actor, target_role, body, artifact_refs, reply_target, received_at, event_kind, status, task_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
          ON CONFLICT (source, external_id) DO NOTHING`,
       )
       .run(
@@ -1050,6 +1056,8 @@ export class Store {
         JSON.stringify(event.artifactRefs),
         event.replyTarget ? JSON.stringify(event.replyTarget) : null,
         event.receivedAt,
+        event.eventKind,
+        event.status,
       );
     if (Number(info.changes) !== 1) {
       return { event: this.findInboundEvent(input.source, input.externalId)!, created: false };
@@ -1124,6 +1132,7 @@ export class Store {
       artifactRefs: JSON.parse(row.artifact_refs ?? "[]") as string[],
       replyTarget: row.reply_target ? JSON.parse(row.reply_target) as NotifyTarget : null,
       receivedAt: row.received_at,
+      eventKind: (row.event_kind ?? "task") as InboundEventKind,
       status: row.status as InboundEventStatus,
       taskId: row.task_id ?? null,
     };
@@ -1358,13 +1367,17 @@ export class Store {
     return Number(info.changes) === 1;
   }
 
-  /** 任务中断/取消时，其未决确认请求标记 stale（失效批准不得再执行）；进行中的自动审查一并标记 superseded（后台重启后不再有审查结果到达，不能永远显示"审查中"）。 */
+  /**
+   * 任务中断/取消/重启恢复时，其未决与"已批准未消费"的确认请求一律标记 stale
+   * （失效批准不得再执行，旧 waiter 不重建；consumed_at 即执行开始，已消费不动）；
+   * 进行中的自动审查一并标记 superseded（后台重启后不再有审查结果到达，不能永远显示"审查中"）。
+   */
   stalePendingConfirmations(taskId: string): void {
     this.db
       .prepare(
         `UPDATE confirmations SET status = 'stale', responded_at = ?,
            review_status = CASE WHEN review_status = 'in_progress' THEN 'superseded' ELSE review_status END
-         WHERE task_id = ? AND status = 'pending'`,
+         WHERE task_id = ? AND consumed_at IS NULL AND status IN ('pending', 'approved')`,
       )
       .run(new Date().toISOString(), taskId);
   }

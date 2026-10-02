@@ -118,3 +118,76 @@ test("入站事件通知：同键幂等、异参冲突，发送结果未知后�
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("入站事件类别：控制消息直接到终态不进入派发查询；默认 task；同键重投返回原事件（issue 08）", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-event-kind-"));
+  const db = new Db(root);
+  const store = new Store(db);
+  const base = { source: "telegram", actor: "telegram:42", targetRole: "main" as const, replyTarget: target };
+  try {
+    const { event, created } = store.withTx(() =>
+      store.registerInboundEvent({ ...base, externalId: "1:42:1", body: "/approve abc 1", eventKind: "im_approval", terminal: "done" }),
+    );
+    assert.equal(created, true);
+    assert.equal(event.eventKind, "im_approval");
+    assert.equal(event.status, "done");
+    assert.equal(event.taskId, null);
+    // 控制事件不出现在待派发列表；普通事件仍按默认类别登记
+    assert.deepEqual(store.listInboundByStatus(["registered"]), []);
+    const { event: normal } = store.withTx(() =>
+      store.registerInboundEvent({ ...base, externalId: "1:42:2", body: "普通消息" }),
+    );
+    assert.equal(normal.eventKind, "task");
+    assert.deepEqual(store.listInboundByStatus(["registered"]).map((e) => e.id), [normal.id]);
+    // 同键重投：返回原事件（类别/正文/终态不被改写），不新建
+    const { event: again, created: recreated } = store.withTx(() =>
+      store.registerInboundEvent({ ...base, externalId: "1:42:1", body: "/approve abc 1", eventKind: "im_approval", terminal: "done" }),
+    );
+    assert.equal(recreated, false);
+    assert.equal(again.id, event.id);
+    assert.equal(again.status, "done");
+    assert.equal(store.getInboundEvent(event.id)!.eventKind, "im_approval");
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("v21 → v22：补 event_kind 列默认 task，旧入站/通知事实保留（issue 08）", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-event-kind-migration-"));
+  const db = new Db(root);
+  const store = new Store(db);
+  try {
+    // 旧库退回 v21：去掉类别列并把版本拨回 v21，重开后按 ensureColumns 补列
+    const { event: legacy } = store.withTx(() =>
+      store.registerInboundEvent({ source: "telegram", externalId: "1:42:9", actor: "telegram:42", targetRole: "main", body: "旧消息", replyTarget: target }),
+    );
+    const opStore = new SchedulerStore(store);
+    const { op } = store.withTx(() =>
+      opStore.insertOp({ sourceKind: "inbound_event", sourceKey: legacy.id, taskId: "task-old", hostOpId: null, target, text: "旧回执", sourceRefs: [] }),
+    );
+    db.exec("ALTER TABLE inbound_events DROP COLUMN event_kind");
+    db.prepare("UPDATE meta SET value = '21' WHERE key = 'schema_version'").run();
+    db.close();
+
+    const reopened = new Db(root);
+    const store2 = new Store(reopened);
+    const opStore2 = new SchedulerStore(store2);
+    const migrated = store2.getInboundEvent(legacy.id)!;
+    assert.equal(migrated.eventKind, "task", "旧记录默认普通任务类别");
+    assert.equal(migrated.status, "registered", "旧入站状态保留");
+    assert.deepEqual(migrated.replyTarget, target);
+    const keptOp = opStore2.getOp(op.id)!;
+    assert.equal(keptOp.text, "旧回执", "旧发送事实保留");
+    // 新库可继续登记控制消息且列存在 CHECK 保护
+    const { event: control } = store2.withTx(() =>
+      store2.registerInboundEvent({ source: "telegram", externalId: "1:42:10", actor: "telegram:42", targetRole: "main", body: "/reject xyz 2", replyTarget: target, eventKind: "im_approval", terminal: "failed" }),
+    );
+    assert.equal(control.eventKind, "im_approval");
+    assert.equal(control.status, "failed");
+    reopened.close();
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

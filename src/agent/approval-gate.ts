@@ -4,8 +4,10 @@
  * 已知未执行、获批后在同一事务内复核并单次消费；等待表、计数与进行中的审查
  * 都只在这里。工具族只提供审批范围、获批后复核与（需要时）同事务提交的本地效果。
  *
- * Driver 只接线：控制面应答 → resolve()，工具边界模式切换 → supersedeAll()，
- * 停止 → cancelAll()。每个 Driver 一个实例。
+ * Driver 只接线：控制面应答（含 IM 审批命令及同事务回执 txExtra）→ resolve()，
+ * 工具边界模式切换 → supersedeAll()，IM 绑定失效 → supersedeConfirmations()，
+ * 停止 → cancelAll()。IM 来源审批的创建通知与消费前固定身份复核经 deps 钩子接入
+ * （agent-direction issue 08）。每个 Driver 一个实例。
  */
 
 import type { ApprovalScope, ConfirmationRequest, Task } from "../core/types.ts";
@@ -53,6 +55,16 @@ export interface ApprovalGateDeps {
   ledger: ToolOpLedger;
   /** 自动审查器（模型配置变化时由 Driver 替换，每次读取当前值）。 */
   reviewer(): ApprovalReviewer | undefined;
+  /**
+   * IM 审批通知（agent-direction issue 08）：审批登记事务内调用（宿主登记初始
+   * IM 通知，与审批同事务提交）；不得再开核心库事务。抛错则整笔回滚。
+   */
+  notifyConfirmation?: (confirmation: ConfirmationRequest, task: Task) => void;
+  /**
+   * IM 固定身份的消费前复核（agent-direction issue 08）：在消费事务内、消费
+   * 条件更新之前执行；返回原因即放弃消费并使批准失效。不得再开核心库事务。
+   */
+  consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
 }
 
 export class ApprovalGate {
@@ -96,6 +108,9 @@ export class ApprovalGate {
           : undefined,
       });
       store.transitionTask(input.task.id, ["running"], "awaiting_confirmation", {});
+      // IM 审批通知与审批登记同事务：通知暂时发送失败不使操作获批，但登记失败
+      // 整笔回滚（不留"审批已存在但绑定入口未获通知"的状态）
+      this.deps.notifyConfirmation?.(c, input.task);
       return c;
     });
 
@@ -165,6 +180,13 @@ export class ApprovalGate {
           store.invalidateConfirmation(confirmationId);
           return { approved: false, text: reason };
         }
+        // IM 固定身份复核（issue 08）：批准已接受、尚未消费期间的重新绑定/
+        // 凭据变化在此拦截；失败即批准失效，操作按已知未执行
+        const imReason = this.deps.consumeRecheck?.(confirmation, input.task) ?? null;
+        if (imReason) {
+          store.invalidateConfirmation(confirmationId);
+          return { approved: false, text: imReason };
+        }
         const ok = store.consumeApproval({
           confirmationId,
           expectedPermissionVersion: confirmation.permissionVersion,
@@ -196,20 +218,27 @@ export class ApprovalGate {
     this.deps.ledger.recordResult(input.task, input.hostOpId, text, true);
   }
 
-  /** 控制面应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
-  resolve(confirmationId: string, decision: "approved" | "rejected"): boolean {
+  /**
+   * 控制面/IM 应答确认：条件更新 pending → approved/rejected；失效应答返回 false。
+   * 决定与审计事件在同一事务提交（IM 控制事件登记与回执可经 txExtra 并入同一事务，
+   * 不得再开核心库事务；抛错则整笔回滚）；提交成功后才唤醒等待者。
+   */
+  resolve(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: () => void }): boolean {
     const waiter = this.waiters.get(confirmationId);
     if (!waiter) return false;
     const store = this.deps.store;
     // 人工决定：记录来源；进行中的自动审查同事务标记 superseded
-    const applied = store.withTx(() => store.respondConfirmation(confirmationId, decision, { source: "owner" }));
-    if (!applied) return false;
-    store.withTx(() => {
+    const applied = store.withTx(() => {
+      const ok = store.respondConfirmation(confirmationId, decision, { source: "owner" });
+      if (!ok) return false;
       store.appendEvent(
         { type: "task.confirmation_resolved", taskId: waiter.task.id, confirmationId, decision, source: "owner" },
         { taskId: waiter.task.id, sessionId: waiter.task.sessionId },
       );
+      opts?.txExtra?.();
+      return true;
     });
+    if (!applied) return false;
     waiter.resolve(decision);
     return true;
   }
@@ -218,6 +247,11 @@ export class ApprovalGate {
   supersedeAll(): void {
     for (const w of this.waiters.values()) w.resolve("superseded");
     this.waiters.clear();
+  }
+
+  /** 定向解除指定审批的等待（IM 绑定失效，agent-direction issue 08）；其他审批照常。 */
+  supersedeConfirmations(ids: ReadonlySet<string>): void {
+    for (const id of ids) this.waiters.get(id)?.resolve("superseded");
   }
 
   /** 停止路径：解除全部等待（门以 block 结束，不执行该操作）；进行中的自动审查一并中止。 */

@@ -708,7 +708,7 @@ export class ControlServer {
           secret: requireString("secret"),
         });
       case "remove_credential":
-        return { removed: runtime.removeCredentialBinding(requireString("name")) };
+        return { removed: await runtime.removeCredentialBinding(requireString("name")) };
       // ---------- issue 16：MCP 服务配置 ----------
       case "mcp_configure": {
         const allowlist = params["tool_allowlist"];

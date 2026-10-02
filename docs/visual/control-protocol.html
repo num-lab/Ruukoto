@@ -469,8 +469,8 @@
           <tr><td><code>set_project_jev</code></td><td>设置 Jev 配置（凭据名或 null）</td><td>是</td><td>版本号</td></tr>
           <tr><td colspan="4"><b>凭据</b></td></tr>
           <tr><td><code>list_credentials</code></td><td>凭据绑定列表（只有引用，没有值）</td><td>—</td><td>—</td></tr>
-          <tr><td><code>add_credential</code></td><td>登记凭据（秘密值随请求传输，不落日志）</td><td>是</td><td>—</td></tr>
-          <tr><td><code>remove_credential</code></td><td>移除凭据</td><td>是</td><td>—</td></tr>
+          <tr><td><code>add_credential</code></td><td>登记凭据（秘密值随请求传输，不落日志）；内容有变化时先单调递增引用它的 QQ / Telegram 配置代次（旧连接、旧入站与旧批准立即失效），写入后重连适配器并复核在途授权，然后才应答；SQLite 与凭据文件不宣称原子提交，代次失效在前</td><td>是</td><td>—</td></tr>
+          <tr><td><code>remove_credential</code></td><td>移除凭据（同样先递增引用它的 IM 配置代次再删除，删除后重连并复核，然后才应答）</td><td>是</td><td>—</td></tr>
           <tr><td colspan="4"><b>MCP</b></td></tr>
           <tr><td><code>mcp_configure</code></td><td>配置或更新 MCP 服务（端点、凭据引用、工具允许列表、启用状态）</td><td>是</td><td>版本号</td></tr>
           <tr><td><code>mcp_list</code></td><td>列出服务（<code>project_id</code> 可选）</td><td>—</td><td>—</td></tr>
@@ -557,10 +557,10 @@
           <tr><td><code>memory.restored</code></td><td>记忆按历史版本恢复为新修订</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
           <tr><td><code>mcp.service_changed</code></td><td>MCP 服务配置变化（upsert / 启停 / 移除）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
           <tr><td><code>mcp.service_unavailable</code></td><td>任务开始时显式启用的服务初始化失败，本任务缺其工具</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
-          <tr><td><code>qq.config_changed</code></td><td>QQ 入口配置变化（不含 token，版本号递增）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>qq.config_changed</code></td><td>QQ 入口配置变化（不含 token，版本号递增；凭据内容变化或删除也会以 <code>credential_changed</code> 递增代次）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>qq.receive_gap</code></td><td>QQ 连接中断后重连成功，标记中断窗口（缺失如实记录，不补抓不补发）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>qq_private.reply_skipped</code></td><td>QQ 私聊任务终态但未登记 owner 回复</td><td><a href="inbound-events.html">入站事件</a></td></tr>
-          <tr><td><code>telegram.config_changed</code></td><td>Telegram 入口配置变化（不含 token）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>telegram.config_changed</code></td><td>Telegram 入口配置变化（不含 token；凭据内容变化或删除也会以 <code>credential_changed</code> 递增代次并归零轮询偏移）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>telegram.rejected</code></td><td>非 owner / 非私聊 / 非文本消息被忽略（只记 id 与原因，不含正文）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>telegram.reply_skipped</code></td><td>私聊入站任务终态但未登记 owner 回复</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>backend.started</code></td><td>后台启动（记录数据目录、执行后端与产品身份）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
@@ -570,6 +570,8 @@
           <tr><td><code>inbound.registered</code></td><td>入站事件已登记（先持久化再建任务，重复登记不产生新事件）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>inbound.queued</code></td><td>入站事件已建任务并入队</td><td><a href="inbound-events.html">入站事件</a></td></tr>
           <tr><td><code>inbound.skipped</code></td><td>入站事件未建任务（附原因）</td><td><a href="inbound-events.html">入站事件</a></td></tr>
+          <tr><td><code>im_approval.processed</code></td><td>IM 审批控制消息处理结果（查询 / 批准 / 拒绝 / 用法；与控制事件终态和回执同一事务落盘）</td><td><a href="inbound-events.html#im-approval">入站事件</a></td></tr>
+          <tr><td><code>im_approval.redelivery_rejected</code></td><td>同幂等键重投的命令或身份与记录不一致：拒绝执行与原回执，不覆盖既有事实</td><td><a href="inbound-events.html#im-approval">入站事件</a></td></tr>
           <tr><td><code>chat_result.accepted</code></td><td>main 接收一次群聊结果的固定快照</td><td><a href="orchestrator.html">编排器</a></td></tr>
           <tr><td><code>child_task.completed</code></td><td>子任务完成，结果摘要与引用已记录在任务上</td><td><a href="orchestrator.html">编排器</a></td></tr>
           <tr><td><code>child_task.failed</code></td><td>子任务失败</td><td><a href="orchestrator.html">编排器</a></td></tr>

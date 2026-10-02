@@ -33,6 +33,7 @@
         <code class="src" data-src="src/qq/adapter.ts#private async sendReply">qq/adapter.ts</code>
         <code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts</code>
         <code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime/runtime.ts</code>
+        <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/runtime/orchestrator.ts#onInboundTerminal">runtime/orchestrator.ts</code>
         <code class="src" data-src="src/github/events.ts#verifyNotification">github/events.ts</code>
         <code class="src" data-src="src/agent/web-search.ts#export async function searchTavily">agent/web-search.ts</code>
@@ -197,7 +198,7 @@
     <div class="cards">
       <div class="card">
         <h3>扫描循环 <code class="src" data-src="src/scheduler/runtime.ts#tick(now?: number)">runtime.ts · tick</code></h3>
-        <p>每 1 s 一次（<code class="src" data-src="src/scheduler/runtime.ts#tickMs ?? 1_000">runtime.ts · tickMs ?? 1_000</code>），不重入：上一轮没结束时返回同一轮。一轮依次做：关闭已结束的运行 → 取到期计划（每批 <code class="src" data-src="src/scheduler/runtime.ts#batch: 50">batch: 50</code>，每轮至多 <code class="src" data-src="src/scheduler/runtime.ts#batchesPerTick: 20">batchesPerTick: 20</code> 批）逐个做到期事务 → 本轮新登记了 wake_main 事件，或距上次派发满 <code class="src" data-src="src/scheduler/runtime.ts#redispatchMs: 30_000">redispatchMs: 30_000</code> 且库里仍有 registered 入站事件（任何来源）时，请编排器派发 → 唤醒采集循环与发送循环。</p>
+        <p>每 1 s 一次（<code class="src" data-src="src/scheduler/runtime.ts#tickMs ?? 1_000">runtime.ts · tickMs ?? 1_000</code>），不重入：上一轮没结束时返回同一轮。一轮依次做：关闭已结束的运行 → 取到期计划（每批 <code class="src" data-src="src/scheduler/runtime.ts#batch: 50">batch: 50</code>，每轮至多 <code class="src" data-src="src/scheduler/runtime.ts#batchesPerTick: 20">batchesPerTick: 20</code> 批）逐个做到期事务 → 本轮新登记了 wake_main 事件，或距上次派发满 <code class="src" data-src="src/scheduler/runtime.ts#redispatchMs: 30_000">redispatchMs: 30_000</code> 且库里仍有 registered 的普通任务入站事件（任何来源；<code class="src" data-src="src/scheduler/runtime.ts#private hasUndispatched">hasUndispatched</code> 只数 <code>event_kind = 'task'</code>）时，请编排器派发 → 唤醒采集循环与发送循环。</p>
       </div>
       <div class="card">
         <h3>发送循环 <code class="src" data-src="src/scheduler/runtime.ts#private async drainSends">runtime.ts · drainSends</code></h3>
@@ -214,7 +215,7 @@
           <tr><td>渠道当前可信目标存在</td><td>canceled，<code>target_disabled</code></td></tr>
           <tr><td>当前目标与登记目标完全相同（含配置版本）</td><td>canceled，<code>target_changed</code>，不改发新目标</td></tr>
           <tr><td>来源是 <code>schedule_run</code> 时，计划仍存在且未取消</td><td>canceled，<code>schedule_canceled</code></td></tr>
-          <tr><td>来源引用的资料授权仍有效；GitHub 评审事件仍有效；新闻计划的 main Web Search 仍启用</td><td>canceled，<code>source_revoked</code></td></tr>
+          <tr><td>来源引用的资料授权仍有效；GitHub 评审事件仍有效；新闻计划的 main Web Search 仍启用；IM 审批回执（来源事件的 <code>event_kind</code> 为 <code>im_approval</code>）分流核实其控制事件与收件时钉版的目标，不经 GitHub 那套核实（<code class="src" data-src="src/runtime/runtime.ts#verifySources: (op)">runtime.ts · verifySources</code>）</td><td>canceled，<code>source_revoked</code></td></tr>
           <tr><td>渠道在线</td><td>保持 pending，<code>channel_offline</code></td></tr>
         </tbody>
       </table>
@@ -287,9 +288,9 @@
           </tr>
           <tr>
             <td><code>confirmation</code></td>
-            <td>main 调用 <code>notification_enqueue</code>，拥有者批准后，在批准消费的同一事务内。<br><code class="src" data-src="src/agent/scheduler-tools.ts#const sourceKey = `task:">scheduler-tools.ts · notification_enqueue</code></td>
-            <td><code>task:</code> + 任务 ID（每任务一个一次通知槽）</td>
-            <td>审批固定的完整正文（mode once）；同一任务再次调用、正文相同返回原操作，正文不同报错</td>
+            <td>main 调用 <code>notification_enqueue</code>，拥有者批准后，在批准消费的同一事务内。<br><code class="src" data-src="src/agent/scheduler-tools.ts#const sourceKey = `task:">scheduler-tools.ts · notification_enqueue</code><br>另外：IM 委托任务的审批请求登记时，宿主在审批创建的同一事务里登记初始 IM 通知（<code class="src" data-src="src/runtime/runtime.ts#private imApprovalNotice">runtime.ts · imApprovalNotice</code>）。</td>
+            <td><code>task:</code> + 任务 ID（每任务一个一次通知槽）；IM 初始通知用 <code>im-approval:&lt;审批ID&gt;</code>，避开任务的一次通知槽</td>
+            <td>审批固定的完整正文（mode once），或宿主拼好的工具 / 范围 / 权限版本 / 完整审批 ID / 命令说明；前者同一任务再次调用、正文相同返回原操作，正文不同报错。通知暂时发送失败不使操作获批，审批有效性继续由原请求与宿主核实</td>
           </tr>
           <tr>
             <td><code>owner_reply</code></td>
@@ -299,9 +300,9 @@
           </tr>
           <tr>
             <td><code>inbound_event</code></td>
-            <td>GitHub 评审事件的 main 摘要任务终态，编排器结果事务内。<br><code class="src" data-src="src/github/events.ts#terminal(event: InboundEvent">events.ts · terminal</code></td>
-            <td>GitHub 入站事件 ID</td>
-            <td>宿主拼好的评审草稿摘要；启用 webhook 配置即授权（ADR 0013）。观察到新修订时旧事件未发送的通知被取消</td>
+            <td>GitHub 评审事件的 main 摘要任务终态，编排器结果事务内。<br><code class="src" data-src="src/github/events.ts#terminal(event: InboundEvent">events.ts · terminal</code><br>另外：IM 审批命令的处理回执，与控制事件终态（批准/拒绝时另含决定与审计事件）同一事务落库（<code class="src" data-src="src/runtime/im-approvals.ts#private persistTx">im-approvals.ts · persistTx</code>）。</td>
+            <td>GitHub 入站事件 ID；或 IM 审批控制事件 ID</td>
+            <td>评审草稿摘要，或宿主写定的命令回执（决定、列表、详情或用法说明）；GitHub 侧由启用 webhook 配置授权（ADR 0013），IM 侧由宿主在命令处理时核实身份。平台重投同键消息读取原回执，不重复执行、不换键重发；限流退回同样只按原键延后</td>
           </tr>
         </tbody>
       </table>
@@ -460,7 +461,7 @@
 
   <section id="channels">
     <h2>渠道与两本账</h2>
-    <p>公共 outbox 按发送操作上持久的 <code>target.channel</code> 选发送器（<code class="src" data-src="src/runtime/runtime.ts#private notifyChannel">runtime.ts · notifyChannel</code>）：<code>qq_private</code> 交 QQ 适配器，<code>telegram</code> 交 Telegram 适配器，其他取值没有发送器、操作保持 pending。测试可经配置注入模拟渠道。QQ 群的普通回复不走公共 outbox，而是 QQ 适配器自己的 <code>qq_outbox</code>。</p>
+    <p>公共 outbox 按发送操作上持久的 <code>target.channel</code> 选发送器（<code class="src" data-src="src/runtime/runtime.ts#private notifyChannel">runtime.ts · notifyChannel</code>）：<code>qq_private</code> 交 QQ 适配器，<code>telegram</code> 交 Telegram 适配器，其他取值没有发送器、操作保持 pending。测试可经配置注入模拟渠道。QQ 群的普通回复不走公共 outbox，而是 QQ 适配器自己的 <code>qq_outbox</code>。QQ 连接的代次键含配置版本（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>）：任何配置或凭据变化都重建连接，旧连接上的事件与在途操作不再被接纳；Telegram 侧的变化由发送的目标复核与 <code>target_changed</code> 拦截。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -508,7 +509,7 @@
           <tr>
             <td>Telegram<br><code class="src" data-src="src/telegram/adapter.ts#async send(input">adapter.ts · send</code></td>
             <td>2xx 且回执 ok</td>
-            <td>凭据不可用 <code>credential_unavailable</code>；连接未建立 <code>connect_failed</code>（<code class="src" data-src="src/telegram/adapter.ts#PRE_CONNECT_CODES">PRE_CONNECT_CODES</code>）；其他 4xx <code>telegram_</code> + 状态码</td>
+            <td>凭据不可用 <code>credential_unavailable</code>；连接未建立 <code>connect_failed</code>（<code class="src" data-src="src/telegram/adapter.ts#PRE_CONNECT_CODES">PRE_CONNECT_CODES</code>）；领取之后、实际请求之前复核启停、固定目标与配置版本不通过 <code>target_changed</code>（覆盖已领取但配置刚变化的窗口，可证明未发送）；其他 4xx <code>telegram_</code> + 状态码</td>
             <td>429：按 <code>retry_after</code> 秒退回，平台没给时按 5 秒（<code class="src" data-src="src/telegram/adapter.ts#seconds > 0 ? seconds : 5">adapter.ts · send</code>）</td>
             <td>5xx、中途断开、回执不可解析</td>
           </tr>
@@ -522,7 +523,7 @@
         </tbody>
       </table>
     </div>
-    <p>Telegram bot token 位于请求 URL（<code>/bot&lt;token&gt;/sendMessage</code>），发送与轮询的错误信息先把 token 替换为 <code>&lt;token&gt;</code>，再写入账本、状态或日志（<code class="src" data-src="src/telegram/adapter.ts#private redact">adapter.ts · redact</code>）。Telegram 的「在线」取轮询健康状态，所以网络断开时操作通常停在 pending 写等待原因，而不是记失败。两个渠道都在 owner 回复里引用原消息（Telegram 的 reply_parameters、QQ 的 reply 段）。</p>
+    <p>Telegram bot token 位于请求 URL（<code>/bot&lt;token&gt;/sendMessage</code>），发送与轮询的错误信息先把 token 替换为 <code>&lt;token&gt;</code>，再写入账本、状态或日志（<code class="src" data-src="src/telegram/adapter.ts#private redact">adapter.ts · redact</code>）；脱敏用该次请求自己捕获的 token，凭据轮换或删除后旧请求的迟到错误也不会泄露旧 token。Telegram 的「在线」取轮询健康状态，所以网络断开时操作通常停在 pending 写等待原因，而不是记失败。两个渠道都在 owner 回复里引用原消息（Telegram 的 reply_parameters、QQ 的 reply 段）。</p>
 
     <h3>两本账对照</h3>
     <div class="scroll">

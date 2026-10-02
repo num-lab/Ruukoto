@@ -36,7 +36,7 @@ async function harness(prefix: string, responder = reply) {
 }
 
 async function configure(rt: Runtime, onebot: MockOneBot, groups = [GROUP_A]) {
-  rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
+  await rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
   await rt.qqConfigure({ endpoint: onebot.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq-test" });
   for (const groupId of groups) await rt.qqGroupUpdate({ groupId, allow: true });
   await rt.qqSetEnabled(true);

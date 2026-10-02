@@ -766,3 +766,62 @@ test("子进程 SIGKILL：平台已接收但本地未落结果 → 重启标 eff
     await h.close();
   }
 });
+
+
+test("inbound_event 发送核实分流：宿主 IM 控制事件回执放行，来源不明的入站通知不发送（issue 08）", async () => {
+  const h = await harness("sched-im-receipt", "2026-09-24T00:00:00Z");
+  const rt = await Runtime.start(h.config);
+  try {
+    // 宿主控制的 IM 审批事件（处理终态，钉版目标与 actor）→ 回执按 outbox 正常发送
+    const { op: receipt, event } = rt.store.withTx(() => {
+      const { event } = rt.store.registerInboundEvent({
+        source: "telegram", externalId: "123456:42:99", actor: "telegram:42", targetRole: "main",
+        body: "/approve abc 1", replyTarget: { ...TARGET }, eventKind: "im_approval", terminal: "done",
+      });
+      const { op } = rt.sched.insertOp({ sourceKind: "inbound_event", sourceKey: event.id, taskId: null, hostOpId: null, target: { ...TARGET }, text: "已接受批准", sourceRefs: [] });
+      return { op, event };
+    });
+    // 无对应控制事件的 inbound_event 键 → 来源不可核实，不发送
+    const { op: bogus } = rt.store.withTx(() =>
+      rt.sched.insertOp({ sourceKind: "inbound_event", sourceKey: "evt-nonexistent", taskId: null, hostOpId: null, target: { ...TARGET }, text: "伪造回执", sourceRefs: [] }),
+    );
+    // 普通任务类别的入站事件也不能被认领为控制回执
+    const { op: taskKind } = rt.store.withTx(() => {
+      const { event: plain } = rt.store.registerInboundEvent({
+        source: "telegram", externalId: "123456:42:100", actor: "telegram:42", targetRole: "main", body: "普通", replyTarget: { ...TARGET },
+      });
+      const { op } = rt.sched.insertOp({ sourceKind: "inbound_event", sourceKey: plain.id, taskId: null, hostOpId: null, target: { ...TARGET }, text: "伪造回执2", sourceRefs: [] });
+      return { op };
+    });
+    await rt.scheduler!.tick();
+    await rt.scheduler!.idle();
+    assert.equal(rt.sched.getOp(receipt.id)!.status, "sent");
+    assert.deepEqual(h.channel.sends.map((s) => s.text), ["已接受批准"]);
+    assert.equal(rt.sched.getOp(bogus.id)!.status, "canceled");
+    assert.match(rt.sched.getOp(bogus.id)!.errorMessage ?? "", /source_revoked|不可核实/);
+    assert.equal(rt.sched.getOp(taskKind.id)!.status, "canceled");
+    assert.equal(event.eventKind, "im_approval");
+
+    // IM 审批初始通知：未发出时审批已决定的不再发出；仍待决的正常发送（issue 08）
+    const project = rt.store.createProject("p-notice");
+    const session = rt.store.createSession({ projectId: project.id, cwd: h.dirs.root, cwdReal: fs.realpathSync(h.dirs.root), cwdDev: 1, cwdIno: 1, piSessionId: "pi-n", confirmTools: [] });
+    const { task } = rt.store.insertQueuedTask({ sessionId: session.id, requestId: "n1", input: "受控操作", modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "n1" });
+    const noticeFor = (suffix: string, decided: boolean) =>
+      rt.store.withTx(() => {
+        const c = rt.store.createConfirmation({ taskId: task.id, sessionId: session.id, toolOpId: `op-${suffix}`, toolName: "app_data_delete", params: {}, scope: { kind: "tool", workspaceOnly: true }, permissionVersion: 1 });
+        if (decided) rt.store.respondConfirmation(c.id, "approved", { source: "owner" });
+        const { op } = rt.sched.insertOp({ sourceKind: "confirmation", sourceKey: `im-approval:${c.id}`, taskId: task.id, hostOpId: null, target: { ...TARGET }, text: `通知-${suffix}`, sourceRefs: [] });
+        return op;
+      });
+    const staleNotice = noticeFor("stale", true);
+    const liveNotice = noticeFor("live", false);
+    await rt.scheduler!.tick();
+    await rt.scheduler!.idle();
+    assert.equal(rt.sched.getOp(staleNotice.id)!.status, "canceled", "已决定的未发出通知取消");
+    assert.match(rt.sched.getOp(staleNotice.id)!.errorMessage ?? "", /审批已决定或失效/);
+    assert.equal(rt.sched.getOp(liveNotice.id)!.status, "sent", "仍待决的通知正常发送");
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});

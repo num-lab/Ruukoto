@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -346,6 +346,8 @@ CREATE TABLE IF NOT EXISTS agent_roles (
 );
 -- 入站事件：先持久化再建任务；(source, external_id) 唯一即幂等键。
 -- status：registered（已登记未建任务）→ queued → done / failed。
+-- event_kind（宿主写定）：task = 普通任务入站；im_approval = IM 审批控制消息
+-- （不派发模型任务，同步事务内直接到终态）。
 CREATE TABLE IF NOT EXISTS inbound_events (
   id TEXT PRIMARY KEY,
   source TEXT NOT NULL,
@@ -356,6 +358,7 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   artifact_refs TEXT NOT NULL DEFAULT '[]',
   reply_target TEXT,
   received_at TEXT NOT NULL,
+  event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval')),
   status TEXT NOT NULL CHECK (status IN ('registered','queued','done','failed')),
   task_id TEXT,
   UNIQUE (source, external_id)
@@ -573,7 +576,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 20) {
+    } else if (version >= 2 && version <= 21) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -594,6 +597,8 @@ export class Db {
       // issue 06），只保护指令列表与 Web Search；旧项目按列默认值取初始版本 1。
       // v20 → v21：sessions 补 workspace_project_id 组织归属列（ensureColumns，
       // agent-direction issue 07）；旧会话默认 NULL，不扫描目录、不迁移业务记录。
+      // v21 → v22：inbound_events 补 event_kind 宿主类别列（ensureColumns，
+      // agent-direction issue 08）；旧记录默认 task，历史入站与回执关系保留。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -848,6 +853,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // v21（agent-direction issue 07）：会话工作区组织归属（仅展示归属，资料身份
     // 仍是 project_id）；旧会话默认 NULL
     add("sessions", "workspace_project_id", "workspace_project_id TEXT REFERENCES projects(id)");
+    // v22（agent-direction issue 08）：入站事件宿主类别（区分普通任务入站与 IM
+    // 审批控制消息）；旧记录默认 task
+    add("inbound_events", "event_kind", "event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval'))");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

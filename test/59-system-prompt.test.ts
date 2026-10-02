@@ -96,7 +96,7 @@ test("系统提示：QQ 群会话用 chat 提示", async () => {
     scheduler: { tickMs: 30 },
   });
   try {
-    rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
+    await rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
     await rt.qqConfigure({ endpoint: onebot.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq-test" });
     await rt.qqGroupUpdate({ groupId: "100001", allow: true });
     await rt.qqSetEnabled(true);

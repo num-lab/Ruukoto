@@ -60,6 +60,15 @@ export function resolveOwnerToken(controlDir: string): string {
   );
 }
 
+/** 探测用宽松解析：同一来源优先级，但取不到（后台尚未启动、令牌未生成）返回 null 而非抛错。 */
+export function tryResolveOwnerToken(controlDir: string): string | null {
+  try {
+    return resolveOwnerToken(controlDir);
+  } catch {
+    return null;
+  }
+}
+
 export function resolveClientConfig(opts: { dataDir?: string; controlDir?: string } = {}): ClientConnectConfig {
   const dataDir = opts.dataDir ?? defaultDataDir();
   const controlDir = opts.controlDir ?? controlDirFor(dataDir);

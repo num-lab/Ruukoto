@@ -5,14 +5,16 @@
  * 1. open_workspace op：新建工作区并记录根目录身份；别名（符号链接/路径变体）复用
  *    同一工作区且每次新建会话；同名不同目录各自成工作区不合并；同一请求标识重发
  *    幂等；旧项目经 project_id 认领根目录后自动归属，已归属他目录的项目拒绝改归属；
- *    保护根拒绝且不留空项目；
+ *    保护根拒绝且不留空项目；认领冲突返回 duplicate（事务回滚，不留会话与归属），
+ *    混合旧项目不可认领、目录打开直接新建工作区（评审 R1/R2/R5）；
  * 2. 兼容：create_project/create_session 旧行为不变（不写根目录归属），v18 库升级
  *    到 v19 后旧项目/会话仍可读；
  * 3. 完整路径：open_workspace → submit 执行 → read_history 查看历史；
  * 4. workspace.ts 纯函数：findWorkspaceByRoot / findWorkspaceProjects（已归属工作区
- *    不再充当遗留候选）/ workspacePickerProjects（工作区与旧项目分列，角色与群聊
- *    项目不进入普通列表）；
- * 5. TUI 选择面板：ruukoto-dev 产品下列出工作区与旧项目、不出现角色与群聊项目；
+ *    不再充当遗留候选；混合旧项目不作目录候选）/ workspacePickerProjects（工作区与
+ *    旧项目分列，角色与群聊项目不进入普通列表）；
+ * 5. store 层目录身份：attachProjectRoot 对相同 dev+ino 的挂载别名拒绝认领（评审 R1）；
+ * 6. TUI 选择面板：ruukoto-dev 产品下列出工作区与旧项目、不出现角色与群聊项目；
  *    ruukoto 产品下行为不变（角色项目仍列出）。
  *
  * 本文件只做离线进程级断言（模型打桩，进程/文件/socket/SQLite/Pseudo-Terminal 真实）；
@@ -30,7 +32,7 @@ import { PendingRequestStore } from "../src/control/pending-requests.ts";
 import { SubmissionGuard } from "../src/control/submission.ts";
 import { readOwnerToken } from "../src/control/owner-token.ts";
 import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
+import { Store, StoreConflictError } from "../src/core/store.ts";
 import {
   findWorkspaceByRoot,
   findWorkspaceProjects,
@@ -220,6 +222,87 @@ test("open_workspace：旧项目按 project_id 认领根目录后自动归属；
   }
 });
 
+// ---------- 认领冲突（评审 R1/R2） ----------
+
+test("attachProjectRoot：相同 dev+ino 的挂载别名认领冲突；同项目相同身份幂等", () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws74-attach-"));
+  const db = new Db(dataDir);
+  try {
+    const store = new Store(db);
+    const ws = store.withTx(() => store.createProject("工作区", null, { cwd: "/first", cwdReal: "/first", dev: 1, ino: 2 }));
+    const legacy = store.withTx(() => store.createProject("旧项目"));
+    // Linux bind mount 别名：realpath 不同、dev+ino 相同——部分唯一索引拦不住，必须按目录身份拒绝
+    assert.throws(
+      () => store.attachProjectRoot(legacy.id, { cwd: "/bind-alias", cwdReal: "/bind-alias", dev: 1, ino: 2 }),
+      (err: any) => err instanceof StoreConflictError && err.code === "duplicate",
+      "同一目录身份已归属他项目，认领必须冲突",
+    );
+    assert.equal(store.getProject(legacy.id)!.rootDir, null, "冲突后旧项目不新增归属");
+    assert.ok(
+      !store.getEventsAfter(0).some((e) => e.body.type === "project.root_attached" && (e.body as any).projectId === legacy.id),
+      "冲突后不产生认领事件",
+    );
+    // 同项目相同身份（含别名）幂等返回，不重复发事件
+    const before = store.getEventsAfter(0).length;
+    store.attachProjectRoot(ws.id, { cwd: "/first", cwdReal: "/first", dev: 1, ino: 2 });
+    store.attachProjectRoot(ws.id, { cwd: "/alias-of-first", cwdReal: "/first", dev: 1, ino: 2 });
+    assert.equal(store.getEventsAfter(0).length, before, "幂等认领不重复发事件");
+    // 真正的别目录仍是合法认领
+    store.attachProjectRoot(legacy.id, { cwd: "/other", cwdReal: "/other", dev: 3, ino: 4 });
+    assert.equal(store.getProject(legacy.id)!.rootDir?.cwdReal, "/other");
+  } finally {
+    db.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("open_workspace：认领已被占用的同 realpath 根目录返回 duplicate，不留会话与归属", async () => {
+  const t = await startTestRuntime("ws74-clash", async () => ({ kind: "text", text: "x" }));
+  try {
+    // 工作区先行占用根目录 realpath
+    await t.client.request("open_workspace", { cwd: t.work[0]!, request_id: "boot-own" });
+    const legacy = (await t.client.request<any>("create_project", { name: "旧项目" })) as any;
+    const err = await t.client
+      .request("open_workspace", { cwd: t.work[0]!, project_id: legacy.id, request_id: "boot-clash" })
+      .then(() => null, (e: unknown) => e);
+    assert.ok(err instanceof Error, "必须拒绝认领");
+    assert.equal((err as any).code, "duplicate", "SQLite 唯一索引冲突必须翻译为明确的归属冲突");
+    assert.equal((err as any).outcome, "rejected", "明确拒绝：客户端不进入应答丢失处理");
+    assert.equal(t.runtime.store.getProject(legacy.id)!.rootDir, null, "事务回滚：不留下根目录归属");
+    assert.ok(!t.runtime.store.listSessions().some((s) => s.createRequestId === "boot-clash"), "事务回滚：不留下新会话");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("open_workspace：混合旧项目（dev 与群聊并存）不可认领，目录打开直接新建工作区", async () => {
+  const t = await startTestRuntime("ws74-mixed", async () => ({ kind: "text", text: "x" }));
+  try {
+    // 混合旧项目：普通 dev 会话 + 群聊会话，目录相同
+    const { projectId: mixedId, sessionId: devSessionId } = await createProjectSession(t.client, t.work[0]!, { projectName: "mixed" });
+    const identity = dirIdentityOf(t.work[0]!);
+    t.runtime.store.createSession({
+      projectId: mixedId, kind: "qq_group", cwd: identity.cwd, cwdReal: identity.cwdReal,
+      cwdDev: identity.dev, cwdIno: identity.ino, piSessionId: "pi-qq-mixed", confirmTools: [],
+    });
+    // 客户端候选筛选与后台防御一致：混合旧项目不作目录候选（否则路径入口自动发出必遭拒绝的认领请求）
+    const hs = (await t.client.handshake()) as any;
+    const candidates = findWorkspaceProjects(
+      { projects: hs.snapshot.projects, sessions: hs.snapshot.sessions, roleSessionIds: hs.snapshot.roleSessionIds ?? [] },
+      identity,
+    ).map((p) => p.id);
+    assert.ok(!candidates.includes(mixedId), "混合旧项目不作目录候选");
+    // 目录打开走自动路径：新建工作区，混合旧项目关系保留
+    const res = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "boot-mixed" })) as any;
+    assert.equal(res.createdProject, true, "唯一候选必遭拒绝的场景消失：目录打开正常建新工作区");
+    assert.notEqual(res.session.projectId, mixedId, "不认领混合旧项目");
+    assert.equal(t.runtime.store.getProject(mixedId)!.rootDir, null, "混合旧项目归属不变");
+    assert.equal(t.runtime.store.getSession(devSessionId)!.projectId, mixedId, "普通会话保留在混合旧项目供查看与切换");
+  } finally {
+    await t.shutdown();
+  }
+});
+
 test("open_workspace：角色与群聊项目不能作为工作区认领", async () => {
   const t = await startTestRuntime("ws74-internal", async () => ({ kind: "text", text: "x" }));
   try {
@@ -376,6 +459,20 @@ test("findWorkspaceProjects：已归属根目录的项目不再充当遗留候�
     ["p_leg"],
     "只有未归属根目录的遗留项目是候选",
   );
+});
+
+test("findWorkspaceProjects：混合旧项目（dev 与角色/群聊并存）不充当目录候选", () => {
+  const identity = { cwd: "/w", cwdReal: "/w", dev: 1, ino: 1 };
+  const projects = [fakeProject({ id: "p_pure" }), fakeProject({ id: "p_mixed_qq" }), fakeProject({ id: "p_mixed_role" })];
+  const sessions = [
+    fakeSession({ id: "s_pure", projectId: "p_pure" }),
+    fakeSession({ id: "s_mq_dev", projectId: "p_mixed_qq" }),
+    fakeSession({ id: "s_mq_qq", projectId: "p_mixed_qq", kind: "qq_group" }),
+    fakeSession({ id: "s_mr_dev", projectId: "p_mixed_role" }),
+    fakeSession({ id: "s_mr_role", projectId: "p_mixed_role" }),
+  ];
+  const candidates = findWorkspaceProjects({ projects, sessions, roleSessionIds: ["s_mr_role"] }, identity).map((p) => p.id);
+  assert.deepEqual(candidates, ["p_pure"], "会话不全是普通 dev 的项目后台不可认领，不作目录候选");
 });
 
 test("workspacePickerProjects：工作区与旧项目分列，角色与群聊会话不进入列表", () => {

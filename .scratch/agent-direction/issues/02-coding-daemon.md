@@ -44,3 +44,13 @@ Status: resolved
 
 - 拉起只发生在 TUI 启动时一次；运行中断线仍按既有规则退避重连、不自动重拉（重开 TUI 即重新拉起）——与「连接丢失不是重新执行授权」一致，也避免重连风暴里反复拉起。
 - 首次使用未配置模型时，按需拉起以「后台启动失败 + 日志尾部（未找到可用模型）」结束并提示先 `ruukoto-dev config`；不做 TUI 内拉起中/拉起失败的状态机扩展（YAGNI：失败即退出，修复后重开即可）。
+
+### 2026-10-02：develop 最近五次提交评审
+
+[评审记录](../review-develop-2026-10-02.md) 确认本工单存在两个待修复的 P2 问题：R3 后台探测忽略环境令牌及令牌副本，R4 文档支持的 npm start 路径派生后台缺少 TypeScript loader。两项均已通过临时复现确认，修复建议与验收条件见记录；本次仅登记评审结果。
+
+### 2026-10-02：评审 P2 修复（R3/R4）
+
+- R3：ensureBackend 首次探测与就绪轮询改用与客户端同一令牌来源（connect.ts 新增 tryResolveOwnerToken：RUUKOTO_OWNER_TOKEN → RUUKOTO_OWNER_TOKEN_FILE → 控制目录 owner.token；取不到返回 null 视为未运行，仍可进入启动流程；错误凭据照旧按「后台在运行 + 令牌核对指引」拒绝，不重复拉起）。
+- R4：默认派生参数按入口类型区分——JS 入口（bin）原样复用；npm start 下 argv[1] 指向 TypeScript 文件，换用 bin/ruukoto-dev.mjs 固定服务入口（纯 JS 注册 tsx loader，裸 node 可执行）。
+- 回归测试：test/72「默认令牌文件不可读：经 RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE 复用后台」「默认拉起入口两种形态都能按需拉起：真实 bin 与 npm start 的 TS 入口」；验收的环境令牌、令牌副本、默认文件三种来源与 bin/npm start 两种入口均覆盖。

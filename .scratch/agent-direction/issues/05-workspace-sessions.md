@@ -50,3 +50,14 @@ Status: resolved
 4. 保留旧项目兼容 → 认领路径 + 旧会话可读（test/74 adopt、冒烟 5）。
 5. 旧 API/实例可读 → 旧 op 不变（test/74 legacy-ops）+ v18→v19 迁移（test/74 migrate）。
 6. 端到端/类型检查/仓库验证、模拟与真实分列 → 上节。
+
+### 2026-10-02：develop 最近五次提交评审
+
+[评审记录](../review-develop-2026-10-02.md) 确认本工单存在三个待修复的 P2 问题：R1 旧项目认领绕过 dev+ino 身份去重，R2 SQLite 根目录冲突检测误用索引名，R5 混合旧项目的目录候选与后台认领条件不一致。三项均已通过临时复现确认，修复建议与验收条件见记录；本次仅登记评审结果。
+
+### 2026-10-02：评审 P2 修复（R1/R2/R5）
+
+- R1：attachProjectRoot 落库前先按 findProjectByRoot 目录身份去重——同一目录身份已归属他项目即 duplicate（含 realpath 不同、dev+ino 相同的挂载别名，冲突后不留归属与事件）；同项目相同身份幂等返回。
+- R2：isRootDirClash 改按列名匹配（node:sqlite 对部分唯一索引实际报 UNIQUE constraint failed: projects.root_real，非索引名），与 isCreateRequestIdClash 同款；同 realpath 冲突经控制面返回 duplicate（outcome=rejected，不进入应答丢失处理），事务回滚不留新会话与归属。
+- R5：findWorkspaceProjects 排除会话不全是普通 dev 的项目（与 runtime.openWorkspace 认领防御同款条件）——混合旧项目不作目录候选，路径入口不再自动发出必遭拒绝的认领请求；混合旧项目中普通会话的查看与切换（workspacePickerProjects）保持不变；纯角色、纯群聊项目仍受后台保护。
+- 回归测试：test/74「attachProjectRoot：相同 dev+ino 的挂载别名认领冲突；同项目相同身份幂等」「认领已被占用的同 realpath 根目录返回 duplicate，不留会话与归属」「混合旧项目（dev 与群聊并存）不可认领，目录打开直接新建工作区」「findWorkspaceProjects：混合旧项目（dev 与角色/群聊并存）不充当目录候选」。

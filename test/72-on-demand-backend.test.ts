@@ -4,7 +4,9 @@
  * 测试接缝（预先约定）：
  * - src/control/ensure-backend.ts：ensureBackend 的可观察行为——探测、拉起、并发收敛、
  *   失败分类（启动失败附日志尾部）；拉起对象是真实 bin 后台进程（真实文件/socket/SQLite，
- *   模型打桩），与 issue 01 的真实/模拟边界一致；
+ *   模型打桩），与 issue 01 的真实/模拟边界一致；探测令牌与客户端同一来源
+ *   （RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE / 控制目录 owner.token，评审 R3）；
+ *   默认派生参数覆盖真实 bin 与 npm start TS 两种入口形态（TS 换固定 bin 服务入口，评审 R4）；
  * - TUI 入口门控（按需拉起只属于 ruukoto-dev；ruukoto 沿用显式 server/systemd）。
  *
  * 沿用既有规则不得破坏：实例锁是单实例仲裁；重连只恢复观察；关闭客户端不停止后台
@@ -306,5 +308,99 @@ test("后台在运行但令牌不符：明确认证指引，不重复拉起", as
     await stopBestEffort(controlDir, dirs.dataDir);
     await server.close();
     await cleanupDirs(dirs);
+  }
+});
+
+test("后台在运行、默认令牌文件不可读：经 RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE 复用后台（评审 R3）", async () => {
+  const { dirs } = await makeTestDirs("od-tok", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  await writeModelsJson(dirs, await server.start());
+  const controlDir = devOpts(dirs).controlDir;
+  const savedEnv = { token: process.env.RUUKOTO_OWNER_TOKEN, tokenFile: process.env.RUUKOTO_OWNER_TOKEN_FILE };
+  // 探测读取本进程环境：起点置空，避免运维环境变量干扰
+  delete process.env.RUUKOTO_OWNER_TOKEN;
+  delete process.env.RUUKOTO_OWNER_TOKEN_FILE;
+  try {
+    const first = await ensureBackend(devOpts(dirs));
+    assert.equal(first.ok, true, first.ok ? "" : first.error);
+    assert.equal(first.spawned, true);
+
+    // 拥有者与后台不同 UID：原令牌文件不可读（模拟为不存在），但持有有效副本
+    const tokenFile = nodePath.join(controlDir, "owner.token");
+    const token = fs.readFileSync(tokenFile, "utf8").trim();
+    const copyPath = nodePath.join(dirs.root, "owner-token-copy");
+    fs.copyFileSync(tokenFile, copyPath);
+    fs.rmSync(tokenFile);
+
+    process.env.RUUKOTO_OWNER_TOKEN_FILE = copyPath;
+    const viaFile = await ensureBackend(devOpts(dirs));
+    assert.deepEqual(viaFile, { ok: true, spawned: false }, "令牌副本可认证：复用已运行后台，不误判认证失败");
+
+    delete process.env.RUUKOTO_OWNER_TOKEN_FILE;
+    process.env.RUUKOTO_OWNER_TOKEN = token;
+    const viaEnv = await ensureBackend(devOpts(dirs));
+    assert.deepEqual(viaEnv, { ok: true, spawned: false }, "环境令牌可认证：复用已运行后台");
+
+    process.env.RUUKOTO_OWNER_TOKEN = "0".repeat(64);
+    const wrong = await ensureBackend(devOpts(dirs));
+    assert.equal(wrong.ok, false, "错误凭据必须明确拒绝");
+    if (!wrong.ok) assert.match(wrong.error, /后台在运行/, "socket 可连时按认证问题指引，不得再拉起第二个后台");
+
+    delete process.env.RUUKOTO_OWNER_TOKEN;
+    fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 }); // 恢复默认文件供优雅停止
+    await stopAndWait(controlDir);
+  } finally {
+    if (savedEnv.token === undefined) delete process.env.RUUKOTO_OWNER_TOKEN; else process.env.RUUKOTO_OWNER_TOKEN = savedEnv.token;
+    if (savedEnv.tokenFile === undefined) delete process.env.RUUKOTO_OWNER_TOKEN_FILE; else process.env.RUUKOTO_OWNER_TOKEN_FILE = savedEnv.tokenFile;
+    await stopBestEffort(controlDir, dirs.dataDir);
+    await server.close();
+    await cleanupDirs(dirs);
+  }
+});
+
+test("默认拉起入口两种形态都能按需拉起：真实 bin 与 npm start 的 TS 入口，首开拉起、再开复用（评审 R4）", async () => {
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  const baseUrl = await server.start();
+  const savedArgv1 = process.argv[1];
+  delete process.env.RUUKOTO_OWNER_TOKEN;
+  delete process.env.RUUKOTO_OWNER_TOKEN_FILE;
+  // 默认派生参数按 argv[1] 形态区分：JS 入口（真实 bin）原样复用；npm start 下 tsx 执行
+  // src/cli.ts，argv[1] 指向 TypeScript 文件，必须换用能加载 TypeScript 的固定 bin 服务入口
+  const entries: Array<[string, string]> = [
+    ["od-bin", RUUKOTO_DEV_BIN],
+    ["od-npm", nodePath.join(repoRoot, "src", "cli.ts")],
+  ];
+  try {
+    for (const [prefix, entry] of entries) {
+      const { dirs } = await makeTestDirs(prefix, 0);
+      await writeModelsJson(dirs, baseUrl);
+      const controlDir = devOpts(dirs).controlDir;
+      process.argv[1] = entry;
+      try {
+        const opts = { dataDir: dirs.dataDir, agentDir: dirs.agentDir, controlDir, env: cleanEnv(controlDir) };
+        const first = await ensureBackend(opts);
+        assert.equal(first.ok, true, `${prefix}：${first.ok ? "" : first.error}`);
+        assert.equal(first.spawned, true);
+
+        const client = await connectAuthed(controlDir);
+        const idBefore = ((await client.handshake()) as any).snapshot?.instanceId;
+        client.close();
+        assert.ok(idBefore, `${prefix}：默认入口拉起的后台可认证握手`);
+
+        const second = await ensureBackend(opts);
+        assert.deepEqual(second, { ok: true, spawned: false }, `${prefix}：再开复用同一后台`);
+        const again = await connectAuthed(controlDir);
+        assert.equal(((await again.handshake()) as any).snapshot?.instanceId, idBefore, `${prefix}：复用不重启（数据实例标识不变）`);
+        again.close();
+
+        await stopAndWait(controlDir);
+      } finally {
+        await stopBestEffort(controlDir, dirs.dataDir);
+        await cleanupDirs(dirs);
+      }
+    }
+  } finally {
+    process.argv[1] = savedArgv1;
+    await server.close();
   }
 });

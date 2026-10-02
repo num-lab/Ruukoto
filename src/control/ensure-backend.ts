@@ -9,31 +9,59 @@
  * - 并发收敛：多个终端同时拉起时由后台实例锁（<dataDir>/runtime.lock）仲裁
  *   为单个实例——败者进程退出，本函数在窗口内继续探测，连到胜者即成功；
  * - 拉起的后台 detached + unref：关闭 TUI 不停止后台或取消任务；
- * - 失败分类明确：子进程提前退出=启动失败（附日志尾部）；等待超时另行标注；
- *   失败路径不杀子进程——败者退出后胜者可能仍在就绪途中，误杀会破坏仲裁。
+ * - 失败分类明确：socket 可连但探测被拒=后台在运行，按原始拒绝原因给指引（令牌
+ *   核对 / 协议版本升级），绝不拉起；子进程提前退出=启动失败（附日志尾部，只按
+ *   本次启动的输出判定退出原因——spawn.log 是共享追加日志，历史内容不参与锁竞争
+ *   判定）；等待超时另行标注；失败路径不杀子进程——败者退出后胜者可能仍在就绪
+ *   途中，误杀会破坏仲裁。
  */
 
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ControlClient } from "./client.ts";
+import { ControlClient, ControlClientError } from "./client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor, tryResolveOwnerToken } from "./connect.ts";
 import { type ProductType } from "../core/product.ts";
 
 /** 控制面探测：socket 可连且拥有者令牌认证 + 握手通过才算在运行。 */
 export async function probeControlPlane(socketPath: string, token: string | null, timeoutMs = 1500): Promise<boolean> {
-  if (!token) return false;
+  return (await probeWithReason(socketPath, token, timeoutMs)).state === "running";
+}
+
+type ProbeResult =
+  | { state: "running" }
+  | { state: "rejected"; connected: boolean; error: Error | null }
+  | { state: "unreachable" };
+
+/**
+ * 带原因的探测：connected=false 的 rejected 表示无凭据可试（尚未连过），connected=true
+ * 表示连上后被认证/握手拒绝（error 为原始拒绝原因，如 protocol_version）；
+ * unreachable 表示 socket 不可连（后台确实不在）。
+ */
+async function probeWithReason(socketPath: string, token: string | null, timeoutMs = 1500): Promise<ProbeResult> {
+  if (!token) return { state: "rejected", connected: false, error: null };
   let client: ControlClient | null = null;
   try {
     client = await ControlClient.connect(socketPath, timeoutMs);
     await client.authenticate(token, timeoutMs);
     await client.handshake(undefined, timeoutMs);
+    return { state: "running" };
+  } catch (err) {
+    return client ? { state: "rejected", connected: true, error: err as Error } : { state: "unreachable" };
+  } finally {
+    client?.close();
+  }
+}
+
+/** socket 可连性补判：无凭据可试时区分「后台在运行但缺令牌」与「尚未启动」。 */
+async function socketConnectable(socketPath: string): Promise<boolean> {
+  try {
+    const peek = await ControlClient.connect(socketPath, 800);
+    peek.close();
     return true;
   } catch {
     return false;
-  } finally {
-    client?.close();
   }
 }
 
@@ -58,9 +86,13 @@ export interface EnsureBackendOptions {
 
 export type EnsureBackendResult = { ok: true; spawned: boolean } | { ok: false; error: string };
 
-function logTail(logPath: string, maxChars = 1200): string {
+/**
+ * 读日志尾部；from（字节偏移）之后的内容才算（spawn.log 共享追加，from 用于限定
+ * 本次启动的输出）。必须按字节切分：多字节历史（中文锁错误行）不会让起点错位。
+ */
+function logTail(logPath: string, from = 0, maxChars = 1200): string {
   try {
-    const text = fs.readFileSync(logPath, "utf8");
+    const text = fs.readFileSync(logPath).subarray(from).toString("utf8");
     const lines = text.split("\n").filter((l) => l.trim().length > 0);
     return lines.join("\n").slice(-maxChars);
   } catch {
@@ -85,21 +117,26 @@ function defaultServerArgv(opts: EnsureBackendOptions): string[] | null {
 
 export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureBackendResult> {
   const socketPath = socketPathFor(opts.controlDir);
-  if (await probeControlPlane(socketPath, tryResolveOwnerToken(opts.controlDir))) {
+  const firstProbe = await probeWithReason(socketPath, tryResolveOwnerToken(opts.controlDir));
+  if (firstProbe.state === "running") {
     return { ok: true, spawned: false };
   }
-  // socket 可连但探测失败：后台在运行、问题在令牌而非「后台不在」——不要再拉起，直接给出令牌核对指引
-  try {
-    const peek = await ControlClient.connect(socketPath, 800);
-    peek.close();
+  // socket 可连=后台在运行、问题在令牌或协议版本而非「后台不在」——按原始拒绝原因
+  // 给指引、不再拉起；不可连（无凭据可试时补连一次判定）才是后台不在，按需拉起
+  const connectable = firstProbe.state === "rejected" ? firstProbe.connected || (await socketConnectable(socketPath)) : false;
+  if (connectable) {
+    if (firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError && firstProbe.error.code === "protocol_version") {
+      return {
+        ok: false,
+        error: `后台在运行但协议版本不兼容：${firstProbe.error.message}（升级后重开入口复用同一后台，无需改动令牌；不重复拉起）`,
+      };
+    }
     return {
       ok: false,
       error:
         "后台在运行（socket 可连）但认证或握手失败：核对 RUUKOTO_OWNER_TOKEN / " +
         `RUUKOTO_OWNER_TOKEN_FILE 与 ${opts.controlDir}/owner.token 是否一致；确认后重开入口`,
     };
-  } catch {
-    // socket 不可连：后台确实不在运行，按需拉起
   }
 
   const argv = opts.spawnArgv ?? defaultServerArgv(opts);
@@ -107,6 +144,9 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
 
   fs.mkdirSync(opts.controlDir, { recursive: true, mode: 0o770 });
   const logPath = path.join(opts.controlDir, "spawn.log");
+  // spawn.log 是共享追加日志：本次启动之前的内容（历史启动或其他终端的输出）不得参与退出原因分类。
+  // ponytail: 起点偏移按启动时刻近似隔离——拉起窗口内其他终端的并发输出仍落在此段（同写一文件），要严格隔离需每拉起独立日志文件
+  const logStart = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
   const logFd = fs.openSync(logPath, "a");
   let child: childProcess.ChildProcess;
   try {
@@ -134,12 +174,13 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     if (exitedAt === null && (child.exitCode !== null || child.signalCode !== null)) {
       exitedAt = Date.now();
       // 败于实例锁竞争不算启动失败：另一个终端拉起的胜者可能仍在就绪途中，
-      // 继续探测到总截止（故 startup failure 判定只针对非锁冲突的提前退出）
-      lostLockRace = /实例锁冲突|另一个进程正在运行/.test(logTail(logPath));
+      // 继续探测到总截止（故 startup failure 判定只针对非锁冲突的提前退出）。
+      // 只按本次启动的输出判定（logStart 起）：历史日志里的锁错误不得把本次启动失败误判为锁竞争
+      lostLockRace = /实例锁冲突|另一个进程正在运行/.test(logTail(logPath, logStart));
     }
     const now = Date.now();
     if (!lostLockRace && exitedAt !== null && now - exitedAt >= exitGraceMs) {
-      const tail = logTail(logPath);
+      const tail = logTail(logPath, logStart);
       const hint = /no_model|未找到可用模型/.test(tail) ? "\n提示：未配置可用模型，先运行「ruukoto-dev config」；修复后重开 TUI 会重新拉起。" : "";
       return {
         ok: false,

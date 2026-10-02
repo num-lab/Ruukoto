@@ -44,3 +44,12 @@ Status: resolved
 - TUI 首次启动自动拉起本机后台属规格后续行为，本单未实现（`ruukoto-dev server` 显式启动，行为同现有 ruukoto）。
 
 **main 上既有的待办失败（本次未动）**：`test/13-tui-state.test.ts` accessModeLabel 显示名、`test/19-tui-demo.test.ts` 合成会话缺 `session.usage_updated` 事件覆盖，均为 d139561 WIP 合入遗留，与本单无关，建议另行处理。
+
+### 2026-10-02：第二轮评审
+
+[评审记录](../review-develop-2026-10-02.md) 补充本工单待修复的 P2 问题 R6：个人产品 bin 未固定身份，继承 `RUUKOTO_PRODUCT=ruukoto-dev` 时运行 `ruukoto stop` 会停止开发后台。已用临时双后台真实复现；修复建议及验收条件见记录。
+
+### 2026-10-02：第二轮评审修复（R6）
+
+- R6：bin/ruukoto.mjs 与 bin/ruukoto-dev.mjs 同款——入口固定注入 `process.env.RUUKOTO_PRODUCT = "ruukoto"`，不采信外部环境变量；npm start 经环境变量选择产品的能力不变（cli.ts 未动）。
+- 回归测试：test/71「bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时启动/查询/停止只作用于本产品」——两条真实 bin 后台并存，shell 继承相反产品变量时各自 bin 的 status/stop 只作用于本产品（个人停止后开发后台仍可握手，反之亦然）。

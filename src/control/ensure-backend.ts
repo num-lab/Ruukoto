@@ -3,7 +3,9 @@
  *
  * - 只属 ruukoto-dev：Coding Agent 打开 TUI 即进入任务界面，后台按需拉起；
  *   ruukoto（个人 Agent）沿用显式 server/systemd 启动，TUI 不越权拉起；
- * - 探测优先：控制面可认证握手即视为在运行，绝不启动第二个实例；
+ * - 探测优先：控制面可认证握手即视为在运行，绝不启动第二个实例；探测令牌
+ *   与客户端同一来源（RUUKOTO_OWNER_TOKEN → RUUKOTO_OWNER_TOKEN_FILE →
+ *   控制目录 owner.token），都取不到（后台未启动、令牌未生成）视为不在运行；
  * - 并发收敛：多个终端同时拉起时由后台实例锁（<dataDir>/runtime.lock）仲裁
  *   为单个实例——败者进程退出，本函数在窗口内继续探测，连到胜者即成功；
  * - 拉起的后台 detached + unref：关闭 TUI 不停止后台或取消任务；
@@ -14,9 +16,9 @@
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ControlClient } from "./client.ts";
-import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor } from "./connect.ts";
-import { readOwnerToken } from "./owner-token.ts";
+import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor, tryResolveOwnerToken } from "./connect.ts";
 import { type ProductType } from "../core/product.ts";
 
 /** 控制面探测：socket 可连且拥有者令牌认证 + 握手通过才算在运行。 */
@@ -44,7 +46,7 @@ export interface EnsureBackendOptions {
   dataDir: string;
   agentDir: string;
   controlDir: string;
-  /** 完整服务进程参数（默认：当前入口脚本 + server --data-dir … --agent-dir …）。测试注入。 */
+  /** 完整服务进程参数（默认：当前入口脚本，TS 入口换固定 bin 服务入口 + server --data-dir … --agent-dir …）。测试注入。 */
   spawnArgv?: string[];
   /** 子进程环境（默认继承当前进程）。测试注入干净环境。 */
   env?: NodeJS.ProcessEnv;
@@ -66,9 +68,24 @@ function logTail(logPath: string, maxChars = 1200): string {
   }
 }
 
+/** 固定服务入口：bin/ruukoto-dev.mjs（纯 JS，内部注册 tsx loader 后加载 src/cli.ts）。 */
+const FIXED_SERVER_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../bin/ruukoto-dev.mjs");
+
+/**
+ * 默认服务进程参数：JS 入口（bin）原样复用；TypeScript 入口（npm start 经 tsx 执行
+ * src/cli.ts，argv[1] 指向 .ts 文件）换用固定服务入口——裸 node 派生 .ts 入口会因
+ * 参数属性等语法报 ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX。
+ */
+function defaultServerArgv(opts: EnsureBackendOptions): string[] | null {
+  const entry = process.argv[1];
+  if (!entry) return null;
+  const serverEntry = /\.tsx?$/.test(entry) ? FIXED_SERVER_ENTRY : entry;
+  return [serverEntry, "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir];
+}
+
 export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureBackendResult> {
   const socketPath = socketPathFor(opts.controlDir);
-  if (await probeControlPlane(socketPath, readOwnerToken(opts.controlDir))) {
+  if (await probeControlPlane(socketPath, tryResolveOwnerToken(opts.controlDir))) {
     return { ok: true, spawned: false };
   }
   // socket 可连但探测失败：后台在运行、问题在令牌而非「后台不在」——不要再拉起，直接给出令牌核对指引
@@ -85,8 +102,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     // socket 不可连：后台确实不在运行，按需拉起
   }
 
-  const argv =
-    opts.spawnArgv ?? (process.argv[1] ? [process.argv[1], "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir] : null);
+  const argv = opts.spawnArgv ?? defaultServerArgv(opts);
   if (!argv) return { ok: false, error: "无法确定本产品的服务启动入口（process.argv[1] 缺失），请改用 ruukoto-dev server 显式启动" };
 
   fs.mkdirSync(opts.controlDir, { recursive: true, mode: 0o770 });
@@ -111,7 +127,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
   let exitedAt: number | null = null;
   let lostLockRace = false;
   for (;;) {
-    if (await probeControlPlane(socketPath, readOwnerToken(opts.controlDir), 1000)) {
+    if (await probeControlPlane(socketPath, tryResolveOwnerToken(opts.controlDir), 1000)) {
       // 锁竞败者连到的是别的终端拉起的胜者：是复用，不是本进程拉起
       return { ok: true, spawned: !lostLockRace };
     }

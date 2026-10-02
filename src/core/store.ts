@@ -161,8 +161,14 @@ export class Store {
   /**
    * 旧项目认领工作区根目录（issue 05）：仅当项目尚无归属时落库并发
    * project.root_attached 事件；已有相同归属幂等返回，已有不同归属报冲突。
+   * 目录身份去重先于唯一索引兜底：bind mount 别名（realpath 不同、dev+ino 相同）
+   * 不受部分唯一索引约束，只能由 findProjectByRoot 的身份判断拦住。
    */
   attachProjectRoot(projectId: string, identity: DirIdentity): void {
+    const holder = this.findProjectByRoot(identity);
+    if (holder && holder.id !== projectId) {
+      throw new StoreConflictError(`工作区已存在：${identity.cwdReal}`, "duplicate");
+    }
     try {
       const info = this.db
         .prepare("UPDATE projects SET root_cwd = ?, root_real = ?, root_dev = ?, root_ino = ? WHERE id = ? AND root_real IS NULL")
@@ -1882,7 +1888,7 @@ function isCreateRequestIdClash(err: unknown, table: string): boolean {
   return err instanceof Error && err.message.includes(`UNIQUE constraint failed: ${table}.create_request_id`);
 }
 
-/** 工作区根目录部分唯一索引冲突（issue 05 兜底路径；node:sqlite 报索引名）。 */
+/** 工作区根目录部分唯一索引冲突（issue 05 兜底路径；node:sqlite 报 <表>.<列>）。 */
 function isRootDirClash(err: unknown): boolean {
-  return err instanceof Error && err.message.includes("idx_projects_root_real");
+  return err instanceof Error && err.message.includes("UNIQUE constraint failed: projects.root_real");
 }

@@ -7,7 +7,8 @@
  * - findWorkspaceByRoot：按根目录归属命中已确认的工作区（rootDir 的 cwdReal 相同
  *   或 dev+ino 相同），命中即唯一归属，不再走候选。
  * - findWorkspaceProjects：在尚无根目录归属的旧项目里按会话目录身份找候选（角色
- *   与 QQ 专用会话不参与自动归属；已有归属的工作区不再充当遗留候选）。自动项目名
+ *   与 QQ 专用会话不参与自动归属；已有归属的工作区不再充当遗留候选；混合旧项目
+ *   ——普通 dev 会话与角色/群聊会话并存——后台不可认领，同样不作候选）。自动项目名
  *   由后台 open_workspace 取根目录名并处理重名（仅展示层去重，同名不同目录绝不合并）。
  * - workspacePickerProjects：TUI 普通列表数据——带根目录归属的是工作区，无归属且
  *   非内部（角色、QQ 群聊会话所在）的是旧项目；内部项目不进入普通列表。
@@ -55,23 +56,32 @@ export function findWorkspaceByRoot(snapshot: { projects: Project[] }, identity:
 /**
  * 在尚无根目录归属的旧项目里按目录身份找候选：kind 为 dev 且不是逻辑角色绑定的
  * 会话中，cwdReal 相同或 dev+ino 相同（覆盖符号链接与挂载别名）者所属的项目。
- * 已有根目录归属的工作区不再充当候选（归属由 findWorkspaceByRoot 决定）。
+ * 已有根目录归属的工作区不再充当候选（归属由 findWorkspaceByRoot 决定）；含角色
+ * 或群聊会话的混合旧项目也不充当候选——后台 openWorkspace 只认领会话全部为普通
+ * dev 的项目（runtime.ts 同款防御），为混合项目发认领请求必遭拒绝。
  * 去重并保持快照顺序。
  */
 export function findWorkspaceProjects(
   snapshot: { projects: Project[]; sessions: Session[]; roleSessionIds: string[] },
   identity: DirIdentity,
 ): Project[] {
+  const roleIds = new Set(snapshot.roleSessionIds);
+  // 后台可认领条件（runtime.openWorkspace）：项目的会话全部为普通 dev
+  const claimable = new Map<string, boolean>();
+  for (const session of snapshot.sessions) {
+    if (session.kind !== "dev" || roleIds.has(session.id)) claimable.set(session.projectId, false);
+    else if (!claimable.has(session.projectId)) claimable.set(session.projectId, true);
+  }
   const seen = new Set<string>();
   const out: Project[] = [];
   for (const session of snapshot.sessions) {
-    if (session.kind !== "dev" || snapshot.roleSessionIds.includes(session.id)) continue;
+    if (session.kind !== "dev" || roleIds.has(session.id)) continue;
     const sameDir =
       session.cwdReal === identity.cwdReal ||
       (session.cwdDev === identity.dev && session.cwdIno === identity.ino);
     if (!sameDir || seen.has(session.projectId)) continue;
     const project = snapshot.projects.find((p) => p.id === session.projectId);
-    if (project && !project.rootDir) {
+    if (project && !project.rootDir && claimable.get(project.id) !== false) {
       seen.add(session.projectId);
       out.push(project);
     }

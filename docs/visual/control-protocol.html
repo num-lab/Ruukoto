@@ -100,7 +100,7 @@
     <figure class="fig">
       <div class="scroll">
         <svg viewBox="0 0 1040 260" role="img" aria-label="三种令牌来源汇聚成 auth 操作，后台以常数时间比较令牌，通过则解锁全部操作，不通过则回 unauthorized">
-          <text class="zone-t" x="0" y="14">令牌来源（客户端按此优先级解析：resolveOwnerToken）</text>
+          <text class="zone-t" x="0" y="14">令牌来源（客户端与按需拉起探测按同一优先级解析：resolveOwnerToken）</text>
           <g class="n"><rect x="0" y="30" width="300" height="46" rx="8"/><text x="150" y="46">RUUKOTO_OWNER_TOKEN</text><text class="sub" x="150" y="64">环境变量，值 ≥ 32 字符</text></g>
           <g class="n"><rect x="0" y="92" width="300" height="46" rx="8"/><text x="150" y="108">RUUKOTO_OWNER_TOKEN_FILE</text><text class="sub" x="150" y="126">拥有者与后台不同 UID 时指向复制件</text></g>
           <g class="n"><rect x="0" y="154" width="300" height="46" rx="8"/><text x="150" y="170">owner.token</text><text class="sub" x="150" y="188">同账户部署的默认（0600，后台生成/复用）</text></g>
@@ -131,7 +131,7 @@
         <thead><tr><th>环节</th><th>规则</th><th>源码锚点</th></tr></thead>
         <tbody>
           <tr><td>生成与复用</td><td>后台启动时确保控制面目录存在（0770）；令牌缺失则生成 32 字节随机 hex、文件 0600，已存在则复用</td><td><code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code> <code class="src" data-src="src/control/owner-token.ts#TOKEN_FILE_NAME = "owner.token"">owner-token.ts · TOKEN_FILE_NAME</code></td></tr>
-          <tr><td>客户端解析优先级</td><td>环境变量 → <code>RUUKOTO_OWNER_TOKEN_FILE</code> → 控制面目录的 <code>owner.token</code>；都取不到就抛含修复指引的错误（不发请求）</td><td><code class="src" data-src="src/control/connect.ts#resolveOwnerToken">connect.ts · resolveOwnerToken</code></td></tr>
+          <tr><td>客户端解析优先级</td><td>环境变量 → <code>RUUKOTO_OWNER_TOKEN_FILE</code> → 控制面目录的 <code>owner.token</code>；都取不到就抛含修复指引的错误（不发请求）。按需拉起探测用同一优先级（<code>tryResolveOwnerToken</code>：取不到返回 null 视为后台未运行，不抛错）</td><td><code class="src" data-src="src/control/connect.ts#resolveOwnerToken">connect.ts · resolveOwnerToken</code> <code class="src" data-src="src/control/connect.ts#tryResolveOwnerToken">connect.ts · tryResolveOwnerToken</code></td></tr>
           <tr><td>令牌不接受的值</td><td>少于 32 字符的文件内容视为无效；环境变量同样要求 ≥ 32 字符</td><td><code class="src" data-src="src/control/owner-token.ts#readOwnerToken">owner-token.ts · readOwnerToken</code></td></tr>
           <tr><td>多用户部署</td><td>配置步骤把令牌以 0400、属主为拥有者放入其可读位置；控制面目录对拥有者开放连接权限</td><td><code class="src" data-src="src/control/owner-token.ts#多用户 Linux 部署时由配置步骤把令牌放入拥有者可读的位置">owner-token.ts · 部署约束</code></td></tr>
         </tbody>
@@ -210,7 +210,7 @@
   <section id="connection">
     <h2>连接状态机</h2>
     <p><code>ControlConnection</code> 把上面那条链路包成五个状态。判断标准只有一条：<b>后台是否明确拒绝</b>。明确拒绝（令牌无效、协议版本不符）才停止；其余一切失败——后台还没起来、建连超时、认证或同步超时、连接中途断开——都只是暂时没连上，按有上限的退避重试。</p>
-    <p>「后台还没起来」这一档，ruukoto-dev 在进状态机之前先处理：<code class="src" data-src="src/tui/index.ts#export async function runTui">tui/index.ts · runTui</code> 首次连接前先经 <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureRuukotoDevBackend">ensure-backend.ts · ensureRuukotoDevBackend</code> 探测控制面（socket 可连、令牌认证与握手都通过才算在运行），不在才拉起一个 detached + unref 的 <code>server</code> 子进程（输出追加到 <code>&lt;controlDir&gt;/spawn.log</code>），再轮询探测到就绪才建连；拉起成功打印一行提示。拉起失败不进入状态机，打印错误并以退出码 1 退出：socket 可连而令牌认证不通过（后台其实在运行）报令牌核对指引、不再拉起；服务进程以非实例锁原因提前退出、宽限窗口后探测仍不通过，报「后台启动失败」并附 spawn.log 日志尾部；到期限仍未就绪报等待超时（不杀子进程——并发拉起时败者退出后胜者可能还在就绪途中）。两个终端同时打开都会拉起，由后台实例锁仲裁成一个实例；败于实例锁竞争的子进程不误判为启动失败，继续探测到胜者就绪后按复用进入（不算本进程拉起）。ruukoto（个人 Agent）的 TUI 不做这一步，沿用显式 <code>server</code> / systemd。连上之后的判定不变：协议版本不符照旧直达 <code class="st bad">failed</code>；中途断线一律只退避重试——重连只恢复观察，绝不重新拉起后台，拉起只发生一次，在 TUI 启动、首次连接之前。</p>
+    <p>「后台还没起来」这一档，ruukoto-dev 在进状态机之前先处理：<code class="src" data-src="src/tui/index.ts#export async function runTui">tui/index.ts · runTui</code> 首次连接前先经 <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureRuukotoDevBackend">ensure-backend.ts · ensureRuukotoDevBackend</code> 探测控制面（socket 可连、令牌认证与握手都通过才算在运行；探测令牌与客户端同一来源：环境变量 → 令牌文件 → owner.token，取不到视为未运行），不在才拉起一个 detached + unref 的 <code>server</code> 子进程（默认复用当前入口脚本；npm start 下 <code>process.argv[1]</code> 是 TypeScript 文件，换用 <code>bin/ruukoto-dev.mjs</code> 固定服务入口——裸 node 加载不了 TS；输出追加到 <code>&lt;controlDir&gt;/spawn.log</code>），再轮询探测到就绪才建连；拉起成功打印一行提示。拉起失败不进入状态机，打印错误并以退出码 1 退出：socket 可连而令牌认证不通过（后台其实在运行）报令牌核对指引、不再拉起；服务进程以非实例锁原因提前退出、宽限窗口后探测仍不通过，报「后台启动失败」并附 spawn.log 日志尾部；到期限仍未就绪报等待超时（不杀子进程——并发拉起时败者退出后胜者可能还在就绪途中）。两个终端同时打开都会拉起，由后台实例锁仲裁成一个实例；败于实例锁竞争的子进程不误判为启动失败，继续探测到胜者就绪后按复用进入（不算本进程拉起）。ruukoto（个人 Agent）的 TUI 不做这一步，沿用显式 <code>server</code> / systemd。连上之后的判定不变：协议版本不符照旧直达 <code class="st bad">failed</code>；中途断线一律只退避重试——重连只恢复观察，绝不重新拉起后台，拉起只发生一次，在 TUI 启动、首次连接之前。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -385,7 +385,7 @@
     </details>
 
     <h3>工作区入口的幂等键</h3>
-    <p><code>ruukoto &lt;路径&gt;</code> 每次启动都带一个稳定的启动请求标识（<code>startupRequestId</code>），它是 <code>open_workspace</code> 的 <code>request_id</code>；工作区实例上是带根目录归属的项目（<code>projects.root_*</code> 四列，同一真实目录至多一个工作区）。归属按真实目录身份（realpath，或 dev+ino 覆盖符号链接与挂载别名）；旧项目可经同一 op 认领根目录（<code>project.root_attached</code> 事件留痕），已归属他目录的项目拒绝改归属。</p>
+    <p><code>ruukoto &lt;路径&gt;</code> 每次启动都带一个稳定的启动请求标识（<code>startupRequestId</code>），它是 <code>open_workspace</code> 的 <code>request_id</code>；工作区实例上是带根目录归属的项目（<code>projects.root_*</code> 四列，同一真实目录至多一个工作区）。归属按真实目录身份（realpath，或 dev+ino 覆盖符号链接与挂载别名）；旧项目可经同一 op 认领根目录（<code>project.root_attached</code> 事件留痕），已归属他目录的项目拒绝改归属。认领先按目录身份去重：同一目录身份已归属他项目即 <code>duplicate</code> 并事务回滚（不留会话与归属），realpath 不同、dev+ino 相同的挂载别名同样被拒——部分唯一索引（<code>root_real</code>，node:sqlite 报 <code>UNIQUE constraint failed: projects.root_real</code>）只是兜底。角色或群聊会话所在的项目（含普通 dev 会话与角色/群聊会话并存的混合旧项目）不可认领；客户端的目录候选筛选与这道防御同款，混合旧项目不作候选，其普通会话照旧保留在普通选择列表。</p>
     <ul>
       <li>同键重发（启动请求标识）返回首次成果，<b>不重复插入、不产生事件</b>；create_project/create_session 照旧：同键同参返回已存在记录，同键异参回 <code>request_conflict</code>。</li>
       <li>应答丢失且连接仍在：当场核实一次；已断线：重连完成新握手后，先在新快照里按 <code>createRequestId === startupRequestId</code> 找会话，找不到才以同一标识重发。标识只在本次启动内复用，不生成第二个。</li>

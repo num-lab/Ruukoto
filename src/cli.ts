@@ -139,11 +139,11 @@ async function main(argv: string[]): Promise<number> {
       try {
         return await runServer(entry.argv, product);
       } catch (err) {
-        // 锁冲突以专用退出码收口：按需拉起的失败分类按本进程退出码归属判定锁竞争，
-        // 不解析共享追加日志（spawn.log 会混入其他终端的输出）
+        // 锁冲突收口为退出码（语义见 INSTANCE_LOCK_EXIT_CODE）：已确认竞争=42 等胜者复用；
+        // 无法核实持锁身份=普通失败，保留锁供人工处理
         if (err instanceof InstanceLockError) {
           console.error(err.message);
-          return INSTANCE_LOCK_EXIT_CODE;
+          return err.unverifiable ? 1 : INSTANCE_LOCK_EXIT_CODE;
         }
         throw err;
       }

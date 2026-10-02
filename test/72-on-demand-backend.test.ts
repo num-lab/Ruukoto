@@ -8,6 +8,8 @@
  *   （RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE / 控制目录 owner.token，评审 R3）；
  *   默认派生参数覆盖真实 bin 与 npm start TS 两种入口形态（TS 换固定 bin 服务入口，评审 R4）；
  *   锁竞争按本进程专用退出码归属判定（共享 spawn.log 的历史与并发内容不参与，评审 R7）；
+ *   专用退出码只属已确认的活后台竞争：无法核实持锁身份按普通启动失败展示人工处理指引
+ *   且锁保留，遗留锁按安全规则接管（评审 R10）；
  *   探测被拒保留原始原因（协议版本不兼容显示版本与升级指引，评审 R8）；传输中断或无
  *   凭据时重判当前 socket，已消失即进入按需拉起（评审 R9）；
  * - TUI 入口门控（按需拉起只属于 ruukoto-dev；ruukoto 沿用显式 server/systemd）。
@@ -627,5 +629,74 @@ test("探测期间后台退出不被误判为认证拒绝：socket 消失后进�
     }
   } finally {
     await server.close();
+  }
+});
+
+test("无法核实持锁身份不按锁竞争等待：普通启动失败展示人工处理指引，锁保留（评审 R10）", async () => {
+  const { dirs } = await makeTestDirs("od-unver", 0);
+  const controlDir = devOpts(dirs).controlDir;
+  try {
+    // 预置锁：记录的 PID 指向存活进程；子进程 PATH="" 使 ps 无法运行，身份无法核实
+    const lockDir = nodePath.join(dirs.dataDir, "runtime.lock");
+    fs.mkdirSync(lockDir, { recursive: true });
+    const ownerJson = JSON.stringify({ pid: process.pid, command: "ruukoto-backend node bin/ruukoto-dev.mjs server", startedAt: new Date().toISOString() });
+    fs.writeFileSync(nodePath.join(lockDir, "owner.json"), ownerJson);
+    const r = await ensureBackend({
+      dataDir: dirs.dataDir,
+      agentDir: dirs.agentDir,
+      controlDir,
+      spawnArgv: devSpawnArgv(dirs),
+      env: { ...cleanEnv(controlDir), PATH: "" },
+      deadlineMs: 15_000,
+      exitGraceMs: 500,
+    });
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.match(r.error, /后台启动失败/, "无法核实持锁身份不是锁竞争：不得按等待胜者处理");
+    assert.doesNotMatch(r.error, /等待后台就绪超时/);
+    assert.match(r.error, /无法核实进程身份/, "展示锁错误的原始原因");
+    assert.match(r.error, /人工确认/, "保留人工处理指引");
+    // 锁必须原样保留（未经确认绝不静默删除）
+    assert.equal(fs.readFileSync(nodePath.join(lockDir, "owner.json"), "utf8"), ownerJson, "核实失败不得删除或接管锁");
+    assert.ok(!fs.existsSync(nodePath.join(controlDir, "control.sock")), "失败不得留下可连接后台");
+  } finally {
+    // 测试断言「锁保留」后先自除种子锁：stopBestEffort 按 owner.json 杀进程组，
+    // 种子 PID 是本测试进程，不删会自杀
+    fs.rmSync(nodePath.join(dirs.dataDir, "runtime.lock"), { recursive: true, force: true });
+    await stopBestEffort(controlDir, dirs.dataDir);
+    await cleanupDirs(dirs);
+  }
+});
+
+test("遗留锁（PID 已死）不影响按需拉起：按既有安全规则接管（评审 R10）", async () => {
+  const { dirs } = await makeTestDirs("od-stale", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  await writeModelsJson(dirs, await server.start());
+  const controlDir = devOpts(dirs).controlDir;
+  try {
+    // 确定的死 PID：刚退出的子进程
+    const dead = childProcess.spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+    await new Promise((r) => dead.once("exit", r));
+    assert.notEqual(dead.pid, undefined);
+    const lockDir = nodePath.join(dirs.dataDir, "runtime.lock");
+    fs.mkdirSync(lockDir, { recursive: true });
+    fs.writeFileSync(
+      nodePath.join(lockDir, "owner.json"),
+      JSON.stringify({ pid: dead.pid, command: "ruukoto-backend node bin/ruukoto-dev.mjs server", startedAt: new Date().toISOString() }),
+    );
+    const r = await ensureBackend(devOpts(dirs));
+    assert.equal(r.ok, true, r.ok ? "" : r.error);
+    assert.equal(r.spawned, true, "遗留锁按安全规则接管，照常首次拉起");
+    const owner = JSON.parse(fs.readFileSync(nodePath.join(lockDir, "owner.json"), "utf8"));
+    assert.notEqual(owner.pid, dead.pid, "接管后登记新实例");
+
+    const client = await connectAuthed(controlDir);
+    assert.ok(((await client.handshake()) as any).snapshot?.instanceId, "接管后可认证握手");
+    client.close();
+    await stopAndWait(controlDir);
+  } finally {
+    await stopBestEffort(controlDir, dirs.dataDir);
+    await server.close();
+    await cleanupDirs(dirs);
   }
 });

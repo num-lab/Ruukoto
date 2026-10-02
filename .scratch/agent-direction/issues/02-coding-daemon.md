@@ -54,3 +54,13 @@ Status: resolved
 - R3：ensureBackend 首次探测与就绪轮询改用与客户端同一令牌来源（connect.ts 新增 tryResolveOwnerToken：RUUKOTO_OWNER_TOKEN → RUUKOTO_OWNER_TOKEN_FILE → 控制目录 owner.token；取不到返回 null 视为未运行，仍可进入启动流程；错误凭据照旧按「后台在运行 + 令牌核对指引」拒绝，不重复拉起）。
 - R4：默认派生参数按入口类型区分——JS 入口（bin）原样复用；npm start 下 argv[1] 指向 TypeScript 文件，换用 bin/ruukoto-dev.mjs 固定服务入口（纯 JS 注册 tsx loader，裸 node 可执行）。
 - 回归测试：test/72「默认令牌文件不可读：经 RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE 复用后台」「默认拉起入口两种形态都能按需拉起：真实 bin 与 npm start 的 TS 入口」；验收的环境令牌、令牌副本、默认文件三种来源与 bin/npm start 两种入口均覆盖。
+
+### 2026-10-02：第二轮评审
+
+R3、R4 已在 `87f1e63` 修复并通过复查。[评审记录](../review-develop-2026-10-02.md) 补充两个待修复的 P2 问题：R7 历史日志把本次启动失败误判为锁竞争，R8 协议不兼容错误被替换为令牌检查提示。两项均属于原实现遗漏；复现证据、真实环境与模拟范围、修复建议及验收条件见记录。
+
+### 2026-10-02：第二轮评审修复（R7/R8）
+
+- R7：spawn.log 共享追加——拉起前记录日志起点偏移（logStart，字节偏移按字节切分，多字节历史不会错位；复审修正），锁竞争判定与「后台启动失败」附带的日志尾部都只读本次启动的输出，历史锁错误不再把本次失败误判为锁竞争等待（错误令牌/并发胜者收敛行为不变）。拉起窗口内其他终端的并发输出仍落在此段（ponytail 注明的近似隔离上限；要严格隔离需每拉起独立日志文件）。
+- R8：probeControlPlane 拆出带原因的内部探测（running / rejected（含原始错误与是否连上）/ unreachable）：socket 可连但探测被拒时按原始拒绝原因给指引——protocol_version 显示版本不兼容与升级指引（不提示改令牌、不重复拉起）；认证失败维持令牌核对指引；无凭据可试时补连一次区分「缺令牌」与「尚未启动」。外部布尔契约不变（dev.ts/test/32 兼容）。
+- 回归测试：test/72「历史日志里的锁错误不误判本次启动失败」「协议版本不兼容的探测保留原始原因」「多字节历史日志不截断本次判定」；真实并发锁竞争复用胜者由既有测试覆盖。

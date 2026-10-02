@@ -11,6 +11,8 @@
  * - Runtime.start 的产品 gating 可观察行为：ruukoto-dev 停用 QQ/Telegram 适配器、个人
  *   调度不可用、数据目录跨产品复用被拒绝（meta 登记，兼容扩展）；
  * - 进程冒烟：bin/ruukoto-dev.mjs 入口与非法 RUUKOTO_PRODUCT 的快速失败（不需要后台）。
+ * - 进程级：两条 bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时查询与停止只作用于
+ *   本产品（评审 R6，真实 bin 后台进程）。
  */
 
 import assert from "node:assert/strict";
@@ -402,6 +404,49 @@ test("进程级：两产品同机并存、独立停止；跨产品打开目录�
     const misuseCode = await new Promise<number | null>((r) => misuse.once("exit", (c) => r(c)));
     assert.notEqual(misuseCode, 0);
     assert.match(errText, /product_mismatch|归属产品/);
+  } finally {
+    if (prod) killProcessTree(prod.child);
+    if (dev) killProcessTree(dev.child);
+    await server.close();
+    await cleanupDirs(prodDirs);
+    await cleanupDirs(devDirs);
+  }
+});
+
+test("进程级：bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时启动/查询/停止只作用于本产品（评审 R6）", async () => {
+  const { dirs: prodDirs } = await makeTestDirs("pin-personal", 0);
+  const { dirs: devDirs } = await makeTestDirs("pin-coding", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  const baseUrl = await server.start();
+  await writeModelsJson(prodDirs, baseUrl);
+  await writeModelsJson(devDirs, baseUrl);
+  let prod: SpawnedBackend | null = null;
+  let dev: SpawnedBackend | null = null;
+  try {
+    // 两个真实 bin 后台各自启动于本产品（启动入口本身即固定身份路径）
+    prod = await spawnProductBackend("ruukoto", { dataDir: prodDirs.dataDir, agentDir: prodDirs.agentDir, root: prodDirs.root });
+    dev = await spawnProductBackend("ruukoto-dev", { dataDir: devDirs.dataDir, agentDir: devDirs.agentDir, root: devDirs.root });
+
+    // shell 继承相反产品变量（两个产品的控制面变量同时可见）：ruukoto bin 不得采信
+    const env = {
+      RUUKOTO_PRODUCT: "ruukoto-dev",
+      RUUKOTO_CONTROL_DIR: prod.controlDir,
+      RUUKOTO_DEV_CONTROL_DIR: dev.controlDir,
+    };
+    const prodStatus = runNode([nodePath.join(repoRoot, "bin", "ruukoto.mjs"), "status"], env);
+    assert.equal(prodStatus.status, 0, `个人 bin 查询应指向个人后台：${prodStatus.stderr}`);
+    assert.equal(runNode([nodePath.join(repoRoot, "bin", "ruukoto.mjs"), "stop"], env).status, 0);
+    assert.equal(await prod.exit(), 0, "个人后台被自己的 bin 停止");
+    prod = null;
+    const devClient = await connectAuthed(dev.controlDir); // 开发后台不受影响：仍可握手
+    devClient.close();
+
+    // 对称：ruukoto-dev bin 在 RUUKOTO_PRODUCT=ruukoto 下只作用于开发产品
+    const devStatus = runNode([nodePath.join(repoRoot, "bin", "ruukoto-dev.mjs"), "status"], { ...env, RUUKOTO_PRODUCT: "ruukoto" });
+    assert.equal(devStatus.status, 0, `开发 bin 查询应指向开发后台：${devStatus.stderr}`);
+    assert.equal(runNode([nodePath.join(repoRoot, "bin", "ruukoto-dev.mjs"), "stop"], { ...env, RUUKOTO_PRODUCT: "ruukoto" }).status, 0);
+    assert.equal(await dev.exit(), 0, "开发后台被自己的 bin 停止");
+    dev = null;
   } finally {
     if (prod) killProcessTree(prod.child);
     if (dev) killProcessTree(dev.child);

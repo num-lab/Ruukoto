@@ -7,6 +7,8 @@
  *   模型打桩），与 issue 01 的真实/模拟边界一致；探测令牌与客户端同一来源
  *   （RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE / 控制目录 owner.token，评审 R3）；
  *   默认派生参数覆盖真实 bin 与 npm start TS 两种入口形态（TS 换固定 bin 服务入口，评审 R4）；
+ *   失败退出按本次启动的输出判定（共享 spawn.log 的历史锁错误不参与，评审 R7）；
+ *   探测被拒保留原始原因（协议版本不兼容显示版本与升级指引，评审 R8）；
  * - TUI 入口门控（按需拉起只属于 ruukoto-dev；ruukoto 沿用显式 server/systemd）。
  *
  * 沿用既有规则不得破坏：实例锁是单实例仲裁；重连只恢复观察；关闭客户端不停止后台
@@ -17,6 +19,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -402,5 +405,123 @@ test("默认拉起入口两种形态都能按需拉起：真实 bin 与 npm star
   } finally {
     process.argv[1] = savedArgv1;
     await server.close();
+  }
+});
+
+test("历史日志里的锁错误不误判本次启动失败：保留失败原因与配置提示（评审 R7）", async () => {
+  const { dirs } = await makeTestDirs("od-hist", 0);
+  const controlDir = devOpts(dirs).controlDir;
+  try {
+    // 上一次拉起的遗留：spawn.log 尾部含历史实例锁冲突文本
+    fs.mkdirSync(controlDir, { recursive: true });
+    fs.writeFileSync(nodePath.join(controlDir, "spawn.log"), "实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录\n");
+    // 本次后台因缺少模型退出（不写 models.json）：必须报启动失败，不得按锁竞争等到超时
+    const r = await ensureBackend({
+      dataDir: dirs.dataDir,
+      agentDir: dirs.agentDir,
+      controlDir,
+      spawnArgv: devSpawnArgv(dirs),
+      env: cleanEnv(controlDir),
+      deadlineMs: 10_000,
+      exitGraceMs: 1500,
+    });
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.match(r.error, /后台启动失败/, "历史锁错误不得把本次失败误判为锁竞争等待");
+    assert.doesNotMatch(r.error, /等待后台就绪超时/);
+    assert.match(r.error, /no_model|未找到可用模型/, "保留本次启动的实际失败原因");
+    assert.match(r.error, /ruukoto-dev config/, "保留模型配置指引");
+    assert.match(r.error, /spawn\.log/);
+    assert.ok(!fs.existsSync(nodePath.join(controlDir, "control.sock")), "启动失败不得留下可连接后台");
+  } finally {
+    await stopBestEffort(controlDir, dirs.dataDir);
+    await cleanupDirs(dirs);
+  }
+});
+
+test("协议版本不兼容的探测保留原始原因：显示版本与升级指引，不核对令牌、不拉起（评审 R8）", async () => {
+  const { dirs } = await makeTestDirs("od-proto", 0);
+  const controlDir = devOpts(dirs).controlDir;
+  fs.mkdirSync(controlDir, { recursive: true });
+  // 有效令牌副本就位：问题不在令牌
+  fs.writeFileSync(nodePath.join(controlDir, "owner.token"), `${"a".repeat(64)}\n`, { mode: 0o600 });
+  const socketPath = nodePath.join(controlDir, "control.sock");
+  // 模拟旧版本服务端：任意请求按真实 ControlServer 形状回 protocol_version
+  const stub = net.createServer((conn) => {
+    conn.setEncoding("utf8");
+    let buf = "";
+    conn.on("data", (chunk: string) => {
+      buf += chunk;
+      for (;;) {
+        const idx = buf.indexOf("\n");
+        if (idx === -1) break;
+        const line = buf.slice(0, idx);
+        buf = buf.slice(idx + 1);
+        if (!line.trim()) continue;
+        const req = JSON.parse(line) as { id?: string };
+        conn.write(
+          JSON.stringify({
+            v: 8,
+            id: req.id ?? "",
+            ok: false,
+            error: { code: "protocol_version", message: "协议版本不兼容：服务端 v8，请求 v9；请升级客户端" },
+          }) + "\n",
+        );
+      }
+    });
+  });
+  await new Promise<void>((resolve) => stub.listen(socketPath, resolve));
+  try {
+    const r = await ensureBackend({
+      dataDir: dirs.dataDir,
+      agentDir: dirs.agentDir,
+      controlDir,
+      spawnArgv: devSpawnArgv(dirs), // 正确分类时不会走到拉起；误入会立即失败（无 models.json）
+      env: cleanEnv(controlDir),
+      deadlineMs: 3000,
+      exitGraceMs: 500,
+    });
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.match(r.error, /协议版本不兼容/, "展示原始拒绝原因而非统一的令牌提示");
+    assert.match(r.error, /v8/, "显示服务端版本");
+    assert.match(r.error, /升级/, "给出升级指引");
+    assert.doesNotMatch(r.error, /RUUKOTO_OWNER_TOKEN/, "不得提示核对有效令牌");
+    assert.match(r.error, /不重复拉起/);
+    assert.ok(!fs.existsSync(nodePath.join(controlDir, "spawn.log")), "不得拉起第二个后台");
+  } finally {
+    await new Promise<void>((resolve) => stub.close(() => resolve()));
+    await stopBestEffort(controlDir, dirs.dataDir);
+    await cleanupDirs(dirs);
+  }
+});
+
+test("多字节历史日志不截断本次判定：本次锁竞争仍按等待胜者处理（评审 R7 复审）", async () => {
+  const { dirs } = await makeTestDirs("od-multi", 0);
+  const controlDir = devOpts(dirs).controlDir;
+  try {
+    // 中文历史：字节数远大于字符数——若按字符数应用字节偏移，本次启动的输出会被判丢
+    fs.mkdirSync(controlDir, { recursive: true });
+    fs.writeFileSync(
+      nodePath.join(controlDir, "spawn.log"),
+      "实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录\n".repeat(5),
+    );
+    // 本次启动败于实例锁竞争（无胜者）：必须按锁竞争等满时限，不得报启动失败
+    const r = await ensureBackend({
+      dataDir: dirs.dataDir,
+      agentDir: dirs.agentDir,
+      controlDir,
+      spawnArgv: ["-e", 'console.error("实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录"); process.exit(1)'],
+      env: cleanEnv(controlDir),
+      deadlineMs: 2500,
+      exitGraceMs: 300,
+    });
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.match(r.error, /等待后台就绪超时/, "本次锁竞争输出被历史多字节内容截断时会误判为启动失败");
+    assert.doesNotMatch(r.error, /后台启动失败/);
+  } finally {
+    await stopBestEffort(controlDir, dirs.dataDir);
+    await cleanupDirs(dirs);
   }
 });

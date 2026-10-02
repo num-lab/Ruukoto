@@ -21,15 +21,19 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 
 export class InstanceLockError extends Error {
-  constructor(message: string) {
+  /** true = 锁被持有但无法核实持锁进程身份（保留锁、要求人工处理）；false = 已确认的活后台持锁竞争。 */
+  readonly unverifiable: boolean;
+  constructor(message: string, unverifiable = false) {
     super(message);
+    this.unverifiable = unverifiable;
   }
 }
 
 /**
- * 服务进程因实例锁或配置锁冲突退出的专用退出码（cli.ts 把 InstanceLockError 收口
- * 为这个码）。TUI 按需拉起的失败分类用它按本进程归属判定锁竞争——共享 spawn.log
- * 会混入其他终端的输出，不能解析日志文本判断当前子进程为何退出。
+ * 服务进程因锁冲突退出的专用退出码——仅已确认的活后台竞争收这个码（无法核实持锁
+ * 身份按普通失败处理，保留锁供人工处理）。TUI 按需拉起的失败分类用它按本进程归属
+ * 判定锁竞争——共享 spawn.log 会混入其他终端的输出，不能解析日志文本判断当前子
+ * 进程为何退出。
  */
 export const INSTANCE_LOCK_EXIT_CODE = 42;
 
@@ -99,6 +103,7 @@ function acquireLock(lockDir: string, label: string): AcquiredLock {
         if (command === null) {
           throw new InstanceLockError(
             `${label}被 pid ${owner.pid} 持有，但无法核实进程身份；请人工确认后删除 ${lockDir}`,
+            true,
           );
         }
         if (looksLikeBackend(command)) {

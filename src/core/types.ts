@@ -196,6 +196,13 @@ export interface InboundEvent {
 export interface Session {
   id: string;
   projectId: string;
+  /**
+   * 工作区组织归属（agent-direction issue 07）：非 null 即会话在组织查询与普通
+   * 列表中归属该工作区项目（目标必须带根目录归属）。只是展示归属：资料身份与
+   * 配置来源仍是 projectId，AccessScope、模型工具身份与凭据范围判定不使用本字段。
+   * null = 未映射，按来源项目归属展示。
+   */
+  workspaceProjectId: string | null;
   /** 入口类别（默认 dev；不可经任务/工具参数变更）。 */
   kind: SessionKind;
   /** 绑定的工作目录（创建时规范化）。 */
@@ -486,6 +493,11 @@ export type PersistentEventBody =
    */
   | { type: "project.settings_changed"; projectId: string; settingsVersion: number; instructionFiles: string[]; webSearch: "enabled" | "disabled" }
   | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null }
+  /**
+   * 会话工作区组织归属已设置（agent-direction issue 07）：仅组织展示归属，资料
+   * 身份与配置来源仍是 projectId；目标必须带根目录归属。null = 恢复未映射。
+   */
+  | { type: "session.workspace_mapped"; sessionId: string; projectId: string; workspaceProjectId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }

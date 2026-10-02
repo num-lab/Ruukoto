@@ -385,17 +385,18 @@
     </details>
 
     <h3>工作区入口的幂等键</h3>
-    <p><code>ruukoto &lt;路径&gt;</code> 每次启动都带一个稳定的启动请求标识（<code>startupRequestId</code>），它是 <code>open_workspace</code> 的 <code>request_id</code>；工作区实例上是带根目录归属的项目（<code>projects.root_*</code> 四列，同一真实目录至多一个工作区）。归属按真实目录身份（realpath，或 dev+ino 覆盖符号链接与挂载别名）；旧项目可经同一 op 认领根目录（<code>project.root_attached</code> 事件留痕），已归属他目录的项目拒绝改归属。认领先按目录身份去重：同一目录身份已归属他项目即 <code>duplicate</code> 并事务回滚（不留会话与归属），realpath 不同、dev+ino 相同的挂载别名同样被拒——部分唯一索引（<code>root_real</code>，node:sqlite 报 <code>UNIQUE constraint failed: projects.root_real</code>）只是兜底。角色或群聊会话所在的项目（含普通 dev 会话与角色/群聊会话并存的混合旧项目）不可认领；客户端的目录候选筛选与这道防御同款，混合旧项目不作候选，其普通会话照旧保留在普通选择列表。</p>
+    <p><code>ruukoto &lt;路径&gt;</code> 每次启动都带一个稳定的启动请求标识（<code>startupRequestId</code>），它是 <code>open_workspace</code> 的 <code>request_id</code>；工作区实例上是带根目录归属的项目（<code>projects.root_*</code> 四列，同一真实目录至多一个工作区）。归属按真实目录身份（realpath，或 dev+ino 覆盖符号链接与挂载别名）；旧项目可经同一 op 认领根目录（<code>project.root_attached</code> 事件留痕），已归属他目录的项目拒绝改归属。认领先按目录身份去重：同一目录身份已归属他项目即 <code>duplicate</code> 并事务回滚（不留会话与归属），realpath 不同、dev+ino 相同的挂载别名同样被拒——部分唯一索引（<code>root_real</code>，node:sqlite 报 <code>UNIQUE constraint failed: projects.root_real</code>）只是兜底。角色或群聊会话所在的项目（含普通 dev 会话与角色/群聊会话并存的混合旧项目），以及会话分布在多个真实目录的旧项目，都不可经目录入口认领（多目录旧项目经 <code>preview_workspace_migration</code> 组织迁移）；客户端的目录候选筛选与这道防御同款，这些项目不作候选，其普通会话照旧保留在普通选择列表。</p>
     <ul>
       <li>同键重发（启动请求标识）返回首次成果，<b>不重复插入、不产生事件</b>；create_project/create_session 照旧：同键同参返回已存在记录，同键异参回 <code>request_conflict</code>。</li>
       <li>应答丢失且连接仍在：当场核实一次；已断线：重连完成新握手后，先在新快照里按 <code>createRequestId === startupRequestId</code> 找会话，找不到才以同一标识重发。标识只在本次启动内复用，不生成第二个。</li>
       <li>目录校验（存在性、realpath、dev/ino、保护根）在写入之前；认领/建项目与建会话在同一事务，失败不留空项目。</li>
     </ul>
+    <p>旧数据的组织迁移（<code>preview_workspace_migration</code> 只读预览、<code>apply_workspace_migration</code> 单事务应用）有自己的幂等纪律：应用先查成功回执（核心库 <code>meta</code> 的 <code>migration_receipt:&lt;request_id&gt;</code>，同键同规范请求返回原成果、同键异参 <code>request_conflict</code>），再核对预览修订（相关元数据的规范化内容哈希，无关任务输出不使预览过期），然后单事务提交目标创建/根认领/组织字段更新（<code>sessions.workspace_project_id</code>，仅展示归属）/事件/回执；任一失败整体回滚。成功后的 <code>revert</code> 只按回执恢复显式组织映射并校验当前值，已认领的根目录身份与迁移后的执行事实保留。</p>
   </section>
 
   <section id="ops">
     <h2>op 目录</h2>
-    <p>服务端 <code>dispatch</code> 的 switch 里共有 79 个 op，另有 <code>auth</code> 在 switch 之外单独处理（见「认证」）。下表按领域分组；<b>写</b>列标出会改变后台状态的操作，<b>幂等键</b>列标出带 <code>request_id</code> 去重的操作。</p>
+    <p>服务端 <code>dispatch</code> 的 switch 里共有 81 个 op，另有 <code>auth</code> 在 switch 之外单独处理（见「认证」）。下表按领域分组；<b>写</b>列标出会改变后台状态的操作，<b>幂等键</b>列标出带 <code>request_id</code> 去重的操作。</p>
 
     <div class="scroll">
       <table class="tbl">
@@ -408,7 +409,9 @@
           <tr><td colspan="4"><b>项目与会话</b></td></tr>
           <tr><td><code>create_project</code></td><td>建项目</td><td>是</td><td><code>request_id</code></td></tr>
           <tr><td><code>create_session</code></td><td>建会话（可经 <code>project_name</code> 自动建项目，同事务）</td><td>是</td><td><code>request_id</code></td></tr>
-          <tr><td><code>open_workspace</code></td><td>按真实目录身份复用/创建工作区并新建会话（旧项目可经同一 op 认领根目录）</td><td>是</td><td><code>request_id</code></td></tr>
+          <tr><td><code>open_workspace</code></td><td>按真实目录身份复用/创建工作区并新建会话（旧项目可经同一 op 认领根目录；多目录旧项目不可认领，经迁移流程处理）</td><td>是</td><td><code>request_id</code></td></tr>
+          <tr><td><code>preview_workspace_migration</code></td><td>旧数据 → 工作区的只读迁移预览：目录分组/歧义/异常/安全认领条件；带 plan 时校验选择并生成绑定修订（<code>expected_revision</code> 输入）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>apply_workspace_migration</code></td><td>单事务应用迁移：回执先行（同键重放原成果，异参 request_conflict），修订过期拒绝；revert 只恢复显式组织映射</td><td>是</td><td><code>request_id</code>（回执存 meta）</td></tr>
           <tr><td><code>get_session</code></td><td>读单个会话</td><td>—</td><td>—</td></tr>
           <tr><td colspan="4"><b>模型配置</b></td></tr>
           <tr><td><code>list_models</code></td><td>模型目录分页</td><td>—</td><td>—</td></tr>
@@ -445,7 +448,7 @@
           <tr><td><code>read_artifact</code></td><td>读产物正文（base64 分页，单次上限 720 KiB）</td><td>—</td><td>—</td></tr>
           <tr><td><code>list_selection_records</code></td><td>上下文选择记录列表</td><td>—</td><td>—</td></tr>
           <tr><td><code>get_session_usage</code></td><td>按会话汇总实际输入与输出 token；输入含缓存读取和写入，缺少 usage 的调用不计入</td><td>—</td><td>—</td></tr>
-          <tr><td><code>list_session_summaries</code></td><td>按项目读取会话摘要：最早用户任务输入（最多 512 字符）与最后任务活动时间，无任务回退创建时间；只查 SQLite 元数据，模型和模式设置不计入活跃时间</td><td>—</td><td>—</td></tr>
+          <tr><td><code>list_session_summaries</code></td><td>读取会话摘要：<code>project_id</code>（按原身份）与 <code>workspace_id</code>（按组织归属，含已映射旧会话）互斥必填其一；最早用户任务输入（最多 512 字符）与最后任务活动时间，无任务回退创建时间；只查 SQLite 元数据，模型/模式设置与组织映射事件不计入活跃时间</td><td>—</td><td>—</td></tr>
           <tr><td><code>get_selection_record</code></td><td>读单条选择记录</td><td>—</td><td>—</td></tr>
           <tr><td><code>get_context_breakdown</code></td><td>某次调用的上下文分解</td><td>—</td><td>—</td></tr>
           <tr><td><code>list_prompt_requests</code></td><td>本会话模型请求列表（游标分页）</td><td>—</td><td>—</td></tr>
@@ -515,6 +518,7 @@
           <tr><td><code>project.jev_changed</code></td><td>项目 Jev 上下文筛选配置变化</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
           <tr><td><code>project.settings_changed</code></td><td>项目指令列表或 Web Search 开关已保存（携带 projectId、settingsVersion、instructionFiles、webSearch；不含指令正文或秘密；版本冲突的保存与同值保存不产生事件）</td><td>本页</td></tr>
           <tr><td><code>session.created</code></td><td>会话创建（含入口类别、工作目录、初始模型与创建标识）</td><td>本页</td></tr>
+          <tr><td><code>session.workspace_mapped</code></td><td>会话的工作区组织归属已设置（仅组织展示归属，资料身份与配置来源仍是原 projectId；目标必须带根目录归属，null = 恢复未映射）</td><td>本页</td></tr>
           <tr><td><code>session.model_selection_changed</code></td><td>会话模型或思考档位变更（带版本号）</td><td>本页</td></tr>
           <tr><td><code>session.usage_updated</code></td><td>实际 usage 保存后通知客户端重新查询会话累计用量</td><td><a href="context-pipeline.html">上下文管线</a></td></tr>
           <tr><td><code>session.default_mode_changed</code></td><td>会话默认访问模式变更（作用于后续任务）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>

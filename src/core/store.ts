@@ -310,6 +310,8 @@ export class Store {
     const session: Session = {
       id: randomId("sess"),
       projectId: input.projectId,
+      // 新会话无组织归属（workspace_project_id 列默认 NULL，插入不写该列）
+      workspaceProjectId: null,
       kind: input.kind ?? "dev",
       cwd: input.cwd,
       cwdReal: input.cwdReal,
@@ -392,12 +394,28 @@ export class Store {
 
   /** 会话选择列表只查元数据，不扫描消息历史；设置变化不算任务活跃。 */
   listSessionSummaries(projectId: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
+    return this.sessionSummaries("s.project_id = ?", projectId);
+  }
+
+  /**
+   * 按组织归属查询会话摘要（agent-direction issue 07 步骤 4）：展示归属 =
+   * workspace_project_id ?? project_id（显式映射优先，未映射会话留在来源项目）。
+   * 摘要与活动时间算法与按原身份查询完全相同；session.workspace_mapped 事件
+   * 不带任务引用，不会让已映射会话显示为刚刚执行任务。
+   */
+  listSessionSummariesForWorkspace(workspaceId: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
+    return this.sessionSummaries("COALESCE(s.workspace_project_id, s.project_id) = ?", workspaceId);
+  }
+
+  // ponytail: affiliation 是 SQL 片段插值而非参数——仅在本类内传入两个常量，
+  // 同一 SQL 正文供 prepare 复用；若开放为公共接口须改回参数化条件。
+  private sessionSummaries(affiliation: string, id: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
     return this.db.prepare(`
       WITH event_activity AS (
         SELECT t.session_id, MAX(e.created_at) AS last_at
         FROM events e JOIN tasks t ON t.id = e.task_id
         JOIN sessions s ON s.id = t.session_id
-        WHERE s.project_id = ? GROUP BY t.session_id
+        WHERE ${affiliation} GROUP BY t.session_id
       )
       SELECT s.id AS sessionId,
         (SELECT substr(t.input, 1, 512) FROM tasks t
@@ -407,8 +425,8 @@ export class Store {
           COALESCE((SELECT MAX(MAX(t.created_at, COALESCE(t.started_at, t.created_at),
             COALESCE(t.ended_at, t.created_at))) FROM tasks t WHERE t.session_id = s.id), s.created_at)) AS lastActiveAt
       FROM sessions s LEFT JOIN event_activity e ON e.session_id = s.id
-      WHERE s.project_id = ? ORDER BY s.created_at, s.rowid
-    `).all(projectId, projectId) as Array<{ sessionId: string; name: string | null; lastActiveAt: string }>;
+      WHERE ${affiliation} ORDER BY s.created_at, s.rowid
+    `).all(id, id) as Array<{ sessionId: string; name: string | null; lastActiveAt: string }>;
   }
 
   setSessionFile(id: string, file: string): void {
@@ -463,6 +481,31 @@ export class Store {
     return this.getSession(sessionId)!;
   }
 
+  /**
+   * 设置会话的工作区组织归属（agent-direction issue 07）：仅组织查询与界面
+   * 展示的归属，不改会话的资料身份（projectId 仍是配置与资料来源，AccessScope、
+   * 模型工具身份与凭据范围判定不读本字段）。目标非 null 时必须是带根目录归属
+   * 的工作区项目；null 恢复未映射。同值幂等（不产生事件）。
+   * 调用方须以 withTx 包住（校验、更新与事件单一事务）。
+   */
+  mapSessionToWorkspace(sessionId: string, workspaceProjectId: string | null): Session {
+    const session = this.getSession(sessionId);
+    if (!session) throw new StoreConflictError(`会话不存在：${sessionId}`, "not_found");
+    if (session.workspaceProjectId === workspaceProjectId) return session;
+    if (workspaceProjectId !== null) {
+      const target = this.getProject(workspaceProjectId);
+      if (!target?.rootDir) {
+        throw new StoreConflictError(`工作区组织归属目标必须是带根目录归属的项目：${workspaceProjectId}`, "invalid_params");
+      }
+    }
+    this.db.prepare("UPDATE sessions SET workspace_project_id = ? WHERE id = ?").run(workspaceProjectId, sessionId);
+    this.appendEvent(
+      { type: "session.workspace_mapped", sessionId, projectId: session.projectId, workspaceProjectId },
+      { sessionId },
+    );
+    return this.getSession(sessionId)!;
+  }
+
   /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
   fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
     const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
@@ -488,6 +531,7 @@ export class Store {
     return {
       id: row.id,
       projectId: row.project_id,
+      workspaceProjectId: row.workspace_project_id ?? null,
       kind: row.kind === "qq_group" ? "qq_group" : "dev",
       cwd: row.cwd,
       cwdReal: row.cwd_real,

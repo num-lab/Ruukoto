@@ -219,13 +219,57 @@ dev/ino、保护根与权限，只接受已有目录。工作区实例上是带�
 绝不合并）。打开目录经 `open_workspace` op：已确认归属的工作区直接复用；尚未
 归属的旧项目可作为候选经选择列表确认后认领根目录（多个候选先选择，取消则
 不创建任何记录；`project.root_attached` 事件留痕）；从未使用的目录自动创建
-工作区项目。认领/建项目与建会话同一事务，失败不留空项目。每次独立启动创建
-一个新会话；创建请求带稳定启动请求标识（open_workspace / create_project /
+工作区项目。认领/建项目与建会话同一事务，失败不留空项目。认领限制与后台
+防御一致：角色或群聊会话所在的项目（含混合旧项目），以及会话分布在多个
+真实目录的旧项目，都不可经目录入口认领——多目录旧项目按下文「旧数据组织
+迁移」处理。每次独立启动创建一个
+新会话；创建请求带稳定启动请求标识（open_workspace / create_project /
 create_session 幂等键，同键重发返回原记录、同键异参报 request_conflict），
 断线重连后按标识在新快照中核实，不重复创建；连接仍在的应答丢失（超时等）
 当场核实一次，仍未确认则回到正常启动并提示用 `/project` 查看。
 `create_project` / `create_session` 旧 op 行为不变（不写根目录归属），旧项目、
 旧会话照常可读。
+
+**旧数据组织迁移（agent-direction issue 07，ADR 0018）**：旧项目可包含不同
+目录的会话。`sessions.workspace_project_id`（v21 加列）是会话的工作区
+**组织归属**：只决定组织查询与普通列表的展示归属（显示归属 =
+`workspace_project_id ?? project_id`）；历史、产物、记忆、指令、MCP/Jev、
+授权与凭据继续按原 `project_id`、会话/任务 ID、pi 会话 ID 与文件路径定位，
+组织映射不复制、不合并配置，也不改变运行中任务身份。拥有者经 CLI 显式迁移：
+
+1. `ruukoto project migration-preview <项目id> [--limit N]`：只读预览（零写入），
+   按源项目列出目录分组（登记 realpath/dev/ino 先核实再用 sameDirIdentity 去重；
+   失效/被替换/无权核实分列，不把同路径新目录当旧目录）、逐会话归属（角色/群聊
+   明确排除、指令基准、历史缺失/未落盘/损坏单独报告）、同目录其他旧项目、
+   混合项目、已认领根外会话、嵌套根、worktree 等歧义与异常、安全认领条件与
+   建议计划；会话数可限制，截断如实报告且不可用于认领或生成修订。
+2. 按建议编写计划文件（`action: map_sessions` 的会话 → 目标分配，或
+   `claim_source` 的安全认领），`migration-preview <项目id> --plan <文件>`
+   校验选择并把绑定最终选择的修订（相关元数据的规范化内容哈希，无关任务
+   输出不过期）写回计划文件。映射目标必须是根目录含所选会话真实目录的
+   工作区（existing_workspace）或通过目录与保护根校验的新根
+   （new_workspace，同一真实目录已有工作区时必须复用其 ID）；安全认领仅在
+   来源项目无根、会话集合非空且全为普通 dev、目录全部有效且为同一真实目录、
+   目标即该目录、无占用、无已映射会话时成立（混合/部分/祖先认领拒绝）。
+3. `ruukoto project migration-apply --plan <文件> [--request-id <id>]`：缺省
+   请求键按计划文件内容派生（同一文件重发即原键核实）。应用先查成功回执
+   （meta 中的 `migration_receipt:<request_id>`，同键重放返回原成果、
+   同键异参 request_conflict），再核对修订并单事务提交目标创建/根认领/
+   组织字段更新/事件/回执；任一失败整体回滚。成功后 `action: "revert"` 的
+   计划文件（`revert_request_id` 指原请求）按回执校验当前值后只恢复显式
+   组织字段；已认领根目录、新工作区与迁移后的任务、配置修改、授权撤销
+   事实全部保留。
+
+工作区查阅与新建（步骤 4）：`list_session_summaries` 增加与 `project_id`
+互斥的 `workspace_id` 参数（组织归属查询，活动时间算法不变，映射事件不算
+任务活跃）；ruukoto-dev 的选择面板计数与会话列表、恢复旧会话后的当前
+选择状态、`/resume` 默认项都按组织归属（ruukoto 产品与旧 API 恒按原
+身份）。会话标题对 mapped 会话标注「工作区（配置与资料来源：来源项目）」；
+从已映射旧会话 `/new` 或 `/new-session` 创建的新会话落到目标工作区
+（目标 Project ID 与配置），无映射旧会话保持旧行为。配置中心工作区详情
+经已映射会话派生列出「关联旧资料来源」（来源 ID、会话数、MCP/Jev、
+授权出入向、设置版本、指令基准；并列显示不合并，来源设置各按来源项目
+ID 与自身版本访问）。
 **选择面板（agent-direction issue 05）**：ruukoto-dev 的 `/project` 与工作区→会话
 选择中，带根目录归属的工作区列在前、旧项目列在后，逻辑角色（main/coding/chat）
 与 QQ 群聊会话所在的项目不进入普通列表，会话列表同样过滤；ruukoto 产品沿用
@@ -485,12 +529,13 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v20；
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v21；
 │                              #   meta 含实例标识、应用数据绑定、产品归属
 │                              #   product.type——跨产品复用被拒绝）
 │                              #   项目（含项目指令文件与 Web Search 开关、
 │                              #   settings_version 并发保护）、会话
-│                              #   （含 kind：dev/qq_group）、任务
+│                              #   （含 kind：dev/qq_group；workspace_project_id
+│                              #   组织归属仅展示，资料身份仍是 project_id）、任务
 │                              #   （accessMode/权限版本/授予路径）、确认请求
 │                              #   （结构化范围/消费时间）、工具操作（宿主操作
 │                              #   id + SDK 调用 id）、产物元数据、目录占用、
@@ -603,7 +648,9 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
   外部资料警示逐条保留。
 - 项目指令：拥有者显式配置的工作区相对路径（`ruukoto project
   set-instructions <项目id> <文件...>`）。基准目录取
-  `project.rootDir?.cwdReal ?? session.cwdReal`：带根目录归属的工作区读取前按
+  `project.rootDir?.cwdReal ?? session.cwdReal`（工作区组织归属
+  `workspace_project_id` 只决定展示，不参与基准与配置来源判定）：带根目录
+  归属的工作区读取前按
   realpath/dev/ino 核实根目录身份（`verifyDirIdentitySync` 同步变体），根目录
   失效或被替换时拒绝读取替代目录并给出明确说明（不退回会话子目录）；无根目录
   归属的旧项目行为不变（按会话目录解析）。任务开始时从基准目录经受限读取钉版

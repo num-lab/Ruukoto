@@ -7,8 +7,9 @@
  *   模型打桩），与 issue 01 的真实/模拟边界一致；探测令牌与客户端同一来源
  *   （RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE / 控制目录 owner.token，评审 R3）；
  *   默认派生参数覆盖真实 bin 与 npm start TS 两种入口形态（TS 换固定 bin 服务入口，评审 R4）；
- *   失败退出按本次启动的输出判定（共享 spawn.log 的历史锁错误不参与，评审 R7）；
- *   探测被拒保留原始原因（协议版本不兼容显示版本与升级指引，评审 R8）；
+ *   锁竞争按本进程专用退出码归属判定（共享 spawn.log 的历史与并发内容不参与，评审 R7）；
+ *   探测被拒保留原始原因（协议版本不兼容显示版本与升级指引，评审 R8）；传输中断或无
+ *   凭据时重判当前 socket，已消失即进入按需拉起（评审 R9）；
  * - TUI 入口门控（按需拉起只属于 ruukoto-dev；ruukoto 沿用显式 server/systemd）。
  *
  * 沿用既有规则不得破坏：实例锁是单实例仲裁；重连只恢复观察；关闭客户端不停止后台
@@ -25,6 +26,7 @@ import { fileURLToPath } from "node:url";
 
 import { ensureBackend, tuiSpawnsBackendOnDemand } from "../src/control/ensure-backend.ts";
 import { ControlClient } from "../src/control/client.ts";
+import { INSTANCE_LOCK_EXIT_CODE } from "../src/core/instance-lock.ts";
 import { authenticateClient, cleanupDirs, makeTestDirs, routeResponder, waitFor, writeModelsJson, createProjectSession, taskStatus } from "./helpers/testkit.ts";
 import { killProcessTree } from "./helpers/backend.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
@@ -268,8 +270,8 @@ test("并发拉起中败于实例锁的一侧不误判启动失败：等慢胜�
     const winner = ensureBackend(devOpts(dirs)); // 真实 bin 后台：就绪需数秒（慢胜者）
     const loser = await ensureBackend({
       ...devOpts(dirs),
-      // 立即以实例锁冲突退出的假子进程：并发拉起里败下阵来的那一侧
-      spawnArgv: ["-e", 'console.error("实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录"); process.exit(1)'],
+      // 立即以锁冲突专用退出码退出的假子进程：并发拉起里败下阵来的那一侧
+      spawnArgv: ["-e", `console.error("实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录"); process.exit(${INSTANCE_LOCK_EXIT_CODE})`],
       exitGraceMs: 300,
     });
     assert.deepEqual(loser, { ok: true, spawned: false }, "败者必须等胜者就绪并复用，不得报错报为本进程拉起");
@@ -496,11 +498,11 @@ test("协议版本不兼容的探测保留原始原因：显示版本与升级�
   }
 });
 
-test("多字节历史日志不截断本次判定：本次锁竞争仍按等待胜者处理（评审 R7 复审）", async () => {
+test("多字节历史日志不干扰锁竞争判定：本次锁竞争按退出码归属，等满时限（评审 R7 复审）", async () => {
   const { dirs } = await makeTestDirs("od-multi", 0);
   const controlDir = devOpts(dirs).controlDir;
   try {
-    // 中文历史：字节数远大于字符数——若按字符数应用字节偏移，本次启动的输出会被判丢
+    // 大段中文历史（多字节）：锁竞争判定按本进程退出码归属，历史内容再多也不参与
     fs.mkdirSync(controlDir, { recursive: true });
     fs.writeFileSync(
       nodePath.join(controlDir, "spawn.log"),
@@ -511,17 +513,119 @@ test("多字节历史日志不截断本次判定：本次锁竞争仍按等待�
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       controlDir,
-      spawnArgv: ["-e", 'console.error("实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录"); process.exit(1)'],
+      spawnArgv: ["-e", `console.error("实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录"); process.exit(${INSTANCE_LOCK_EXIT_CODE})`],
       env: cleanEnv(controlDir),
       deadlineMs: 2500,
       exitGraceMs: 300,
     });
     assert.equal(r.ok, false);
     if (r.ok) return;
-    assert.match(r.error, /等待后台就绪超时/, "本次锁竞争输出被历史多字节内容截断时会误判为启动失败");
+    assert.match(r.error, /等待后台就绪超时/, "锁竞争必须等满时限复用胜者（无胜者则按时限标注），不得误判启动失败");
     assert.doesNotMatch(r.error, /后台启动失败/);
   } finally {
     await stopBestEffort(controlDir, dirs.dataDir);
     await cleanupDirs(dirs);
+  }
+});
+
+test("并发拉起窗口内他进程锁错误不归属本进程：各自失败各自分类（评审 R7 第三轮）", async () => {
+  const { dirs } = await makeTestDirs("od-conc", 0);
+  const controlDir = devOpts(dirs).controlDir;
+  try {
+    // A：普通启动失败（350ms 后 no_model 退出）；B：100ms 后以锁冲突专用退出码退出。
+    // 共享 spawn.log 里 B 的锁文本落在 A 的日志段中——归属判定不得采用共享日志内容
+    const runA = ensureBackend({
+      dataDir: dirs.dataDir,
+      agentDir: dirs.agentDir,
+      controlDir,
+      spawnArgv: ["-e", 'setTimeout(() => { console.error("no_model: 未找到可用模型（校验 models.json 与 ruukoto-dev config）"); process.exit(1); }, 350)'],
+      env: cleanEnv(controlDir),
+      deadlineMs: 5000,
+      exitGraceMs: 300,
+    });
+    const runB = ensureBackend({
+      dataDir: dirs.dataDir,
+      agentDir: dirs.agentDir,
+      controlDir,
+      spawnArgv: ["-e", `setTimeout(() => { console.error("实例锁冲突：另一个进程正在运行（pid 1），若确认无其他后台请删除该锁目录"); process.exit(${INSTANCE_LOCK_EXIT_CODE}); }, 100)`],
+      env: cleanEnv(controlDir),
+      deadlineMs: 2000,
+      exitGraceMs: 300,
+    });
+    const [ra, rb] = await Promise.all([runA, runB]);
+    assert.equal(ra.ok, false);
+    if (!ra.ok) {
+      assert.match(ra.error, /后台启动失败/, "A 是普通启动失败：B 的锁文本不得让 A 按锁竞争等待");
+      assert.doesNotMatch(ra.error, /等待后台就绪超时/);
+      assert.match(ra.error, /no_model|未找到可用模型/, "A 保留本次启动的实际失败原因");
+      assert.match(ra.error, /ruukoto-dev config/, "A 保留模型配置指引");
+    }
+    assert.equal(rb.ok, false);
+    if (!rb.ok) assert.match(rb.error, /等待后台就绪超时/, "B 退出码为锁冲突：按锁竞争等胜者（无胜者按时限标注）");
+  } finally {
+    await stopBestEffort(controlDir, dirs.dataDir);
+    await cleanupDirs(dirs);
+  }
+});
+
+test("探测期间后台退出不被误判为认证拒绝：socket 消失后进入按需拉起（评审 R9）", async () => {
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  const baseUrl = await server.start();
+  try {
+    for (const phase of ["auth", "handshake"] as const) {
+      const { dirs } = await makeTestDirs(`od-drop-${phase === "auth" ? "a" : "h"}`, 0);
+      await writeModelsJson(dirs, baseUrl);
+      const controlDir = devOpts(dirs).controlDir;
+      fs.mkdirSync(controlDir, { recursive: true });
+      // 令牌有效：问题不在令牌；探测连上后后台即退出（删 socket、断开、不发拒绝应答）
+      fs.writeFileSync(nodePath.join(controlDir, "owner.token"), `${"a".repeat(64)}\n`, { mode: 0o600 });
+      const socketPath = nodePath.join(controlDir, "control.sock");
+      let conns: net.Socket[] = [];
+      const stub = net.createServer((conn) => {
+        conns.push(conn);
+        conn.setEncoding("utf8");
+        let buf = "";
+        conn.on("data", (chunk: string) => {
+          buf += chunk;
+          const idx = buf.indexOf("\n");
+          if (idx === -1) return;
+          const req = JSON.parse(buf.slice(0, idx)) as { id?: string; op?: string };
+          buf = buf.slice(idx + 1);
+          if (req.op === "auth" && phase === "handshake") {
+            conn.write(JSON.stringify({ v: 9, id: req.id ?? "", ok: true, result: { authenticated: true } }) + "\n");
+            return;
+          }
+          // 后台退出：收监听、删 socket 文件、断开全部连接（不回复任何拒绝应答）
+          fs.rmSync(socketPath, { force: true });
+          stub.close();
+          for (const c of conns) c.destroy();
+        });
+      });
+      await new Promise<void>((resolve) => stub.listen(socketPath, resolve));
+      try {
+        const r = await ensureBackend({
+          dataDir: dirs.dataDir,
+          agentDir: dirs.agentDir,
+          controlDir,
+          spawnArgv: devSpawnArgv(dirs),
+          env: cleanEnv(controlDir),
+          deadlineMs: 20_000,
+        });
+        assert.equal(r.ok, true, `${phase} 期间后台退出：socket 已不可达必须进入按需拉起（${r.ok ? "" : r.error}）`);
+        assert.equal(r.spawned, true, `${phase} 期间后台退出：不得误报后台在运行并停在令牌核对`);
+
+        const client = await connectAuthed(controlDir);
+        assert.ok(((await client.handshake()) as any).snapshot?.instanceId, `${phase}：拉起后可认证握手`);
+        client.close();
+        await stopAndWait(controlDir);
+      } finally {
+        for (const c of conns) c.destroy();
+        await new Promise<void>((resolve) => stub.close(() => resolve()));
+        await stopBestEffort(controlDir, dirs.dataDir);
+        await cleanupDirs(dirs);
+      }
+    }
+  } finally {
+    await server.close();
   }
 });

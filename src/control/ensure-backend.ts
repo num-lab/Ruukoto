@@ -9,11 +9,12 @@
  * - 并发收敛：多个终端同时拉起时由后台实例锁（<dataDir>/runtime.lock）仲裁
  *   为单个实例——败者进程退出，本函数在窗口内继续探测，连到胜者即成功；
  * - 拉起的后台 detached + unref：关闭 TUI 不停止后台或取消任务；
- * - 失败分类明确：socket 可连但探测被拒=后台在运行，按原始拒绝原因给指引（令牌
- *   核对 / 协议版本升级），绝不拉起；子进程提前退出=启动失败（附日志尾部，只按
- *   本次启动的输出判定退出原因——spawn.log 是共享追加日志，历史内容不参与锁竞争
- *   判定）；等待超时另行标注；失败路径不杀子进程——败者退出后胜者可能仍在就绪
- *   途中，误杀会破坏仲裁。
+ * - 失败分类明确：socket 可连但探测被明确拒绝=后台在运行，按原始拒绝原因给指引
+ *   （令牌核对 / 协议版本升级），绝不拉起；传输中断或无凭据可试时重判当前 socket，
+ *   不可达即按后台不在进入拉起；子进程提前退出=启动失败（附日志尾部；锁竞争与否
+ *   按本进程退出码归属判定——spawn.log 是共享追加日志，其他终端的输出不能用来
+ *   解释当前子进程为何退出）；等待超时另行标注；失败路径不杀子进程——败者退出
+ *   后胜者可能仍在就绪途中，误杀会破坏仲裁。
  */
 
 import * as childProcess from "node:child_process";
@@ -22,6 +23,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ControlClient, ControlClientError } from "./client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor, tryResolveOwnerToken } from "./connect.ts";
+import { INSTANCE_LOCK_EXIT_CODE } from "../core/instance-lock.ts";
 import { type ProductType } from "../core/product.ts";
 
 /** 控制面探测：socket 可连且拥有者令牌认证 + 握手通过才算在运行。 */
@@ -31,16 +33,17 @@ export async function probeControlPlane(socketPath: string, token: string | null
 
 type ProbeResult =
   | { state: "running" }
-  | { state: "rejected"; connected: boolean; error: Error | null }
+  | { state: "rejected"; definitive: boolean; error: Error | null }
   | { state: "unreachable" };
 
 /**
- * 带原因的探测：connected=false 的 rejected 表示无凭据可试（尚未连过），connected=true
- * 表示连上后被认证/握手拒绝（error 为原始拒绝原因，如 protocol_version）；
+ * 带原因的探测：definitive=true 的 rejected 表示连上后被服务端明确拒绝（回了拒绝
+ * 应答，如 unauthorized / protocol_version，error 为原始原因）；definitive=false 表示
+ * 无凭据可试或传输中断/超时——曾连上不代表后台仍在，须重判当前 socket。
  * unreachable 表示 socket 不可连（后台确实不在）。
  */
 async function probeWithReason(socketPath: string, token: string | null, timeoutMs = 1500): Promise<ProbeResult> {
-  if (!token) return { state: "rejected", connected: false, error: null };
+  if (!token) return { state: "rejected", definitive: false, error: null };
   let client: ControlClient | null = null;
   try {
     client = await ControlClient.connect(socketPath, timeoutMs);
@@ -48,13 +51,15 @@ async function probeWithReason(socketPath: string, token: string | null, timeout
     await client.handshake(undefined, timeoutMs);
     return { state: "running" };
   } catch (err) {
-    return client ? { state: "rejected", connected: true, error: err as Error } : { state: "unreachable" };
+    if (!client) return { state: "unreachable" };
+    const definitive = err instanceof ControlClientError && err.outcome === "rejected";
+    return { state: "rejected", definitive, error: err as Error };
   } finally {
     client?.close();
   }
 }
 
-/** socket 可连性补判：无凭据可试时区分「后台在运行但缺令牌」与「尚未启动」。 */
+/** socket 可连性补判：非明确拒绝（传输中断、超时、无凭据、首次连不上）时区分「后台在运行」与「尚未启动」——曾连上过不代表后台仍在。 */
 async function socketConnectable(socketPath: string): Promise<boolean> {
   try {
     const peek = await ControlClient.connect(socketPath, 800);
@@ -122,8 +127,10 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     return { ok: true, spawned: false };
   }
   // socket 可连=后台在运行、问题在令牌或协议版本而非「后台不在」——按原始拒绝原因
-  // 给指引、不再拉起；不可连（无凭据可试时补连一次判定）才是后台不在，按需拉起
-  const connectable = firstProbe.state === "rejected" ? firstProbe.connected || (await socketConnectable(socketPath)) : false;
+  // 给指引、不再拉起。明确拒绝本身就是后台在运行的证据；传输中断、超时、无凭据或
+  // 首次连不上都不足以证明后台仍在，重判当前 socket，不可达才是后台不在，按需拉起
+  const connectable =
+    firstProbe.state === "rejected" && firstProbe.definitive ? true : await socketConnectable(socketPath);
   if (connectable) {
     if (firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError && firstProbe.error.code === "protocol_version") {
       return {
@@ -144,8 +151,8 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
 
   fs.mkdirSync(opts.controlDir, { recursive: true, mode: 0o770 });
   const logPath = path.join(opts.controlDir, "spawn.log");
-  // spawn.log 是共享追加日志：本次启动之前的内容（历史启动或其他终端的输出）不得参与退出原因分类。
-  // ponytail: 起点偏移按启动时刻近似隔离——拉起窗口内其他终端的并发输出仍落在此段（同写一文件），要严格隔离需每拉起独立日志文件
+  // 失败消息附带的日志尾部只取本次启动写入的段落（字节偏移），历史内容不混入；
+  // 拉起窗口内其他终端的并发输出仍在同一段——仅供人读，退出原因分类不依赖日志内容
   const logStart = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
   const logFd = fs.openSync(logPath, "a");
   let child: childProcess.ChildProcess;
@@ -173,10 +180,10 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     }
     if (exitedAt === null && (child.exitCode !== null || child.signalCode !== null)) {
       exitedAt = Date.now();
-      // 败于实例锁竞争不算启动失败：另一个终端拉起的胜者可能仍在就绪途中，
-      // 继续探测到总截止（故 startup failure 判定只针对非锁冲突的提前退出）。
-      // 只按本次启动的输出判定（logStart 起）：历史日志里的锁错误不得把本次启动失败误判为锁竞争
-      lostLockRace = /实例锁冲突|另一个进程正在运行/.test(logTail(logPath, logStart));
+      // 败于实例锁竞争不算启动失败：继续探测到总截止等胜者就绪（故 startup failure
+      // 判定只针对非锁冲突的提前退出）。锁竞争按本进程退出码归属判定——共享
+      // spawn.log 会混入其他终端的输出，日志文本不能解释当前子进程为何退出
+      lostLockRace = child.exitCode === INSTANCE_LOCK_EXIT_CODE;
     }
     const now = Date.now();
     if (!lostLockRace && exitedAt !== null && now - exitedAt >= exitGraceMs) {

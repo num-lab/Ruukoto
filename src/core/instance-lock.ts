@@ -26,6 +26,13 @@ export class InstanceLockError extends Error {
   }
 }
 
+/**
+ * 服务进程因实例锁或配置锁冲突退出的专用退出码（cli.ts 把 InstanceLockError 收口
+ * 为这个码）。TUI 按需拉起的失败分类用它按本进程归属判定锁竞争——共享 spawn.log
+ * 会混入其他终端的输出，不能解析日志文本判断当前子进程为何退出。
+ */
+export const INSTANCE_LOCK_EXIT_CODE = 42;
+
 interface LockOwner {
   pid: number;
   command: string;

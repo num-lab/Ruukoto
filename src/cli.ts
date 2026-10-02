@@ -42,6 +42,7 @@ import * as fs from "node:fs";
 import { resolveEntry } from "./cli-entry.ts";
 import { ControlClient, requestOutcome } from "./control/client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
+import { INSTANCE_LOCK_EXIT_CODE, InstanceLockError } from "./core/instance-lock.ts";
 import { dirEnvFor, productFromEnv, type ProductType } from "./core/product.ts";
 import { SESSION_DEFAULT_MODES, isAccessMode, type AccessMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
 
@@ -135,7 +136,17 @@ async function main(argv: string[]): Promise<number> {
       return await runConfigTui({ offline: entry.offline });
     }
     case "server":
-      return runServer(entry.argv, product);
+      try {
+        return await runServer(entry.argv, product);
+      } catch (err) {
+        // 锁冲突以专用退出码收口：按需拉起的失败分类按本进程退出码归属判定锁竞争，
+        // 不解析共享追加日志（spawn.log 会混入其他终端的输出）
+        if (err instanceof InstanceLockError) {
+          console.error(err.message);
+          return INSTANCE_LOCK_EXIT_CODE;
+        }
+        throw err;
+      }
     case "legacy":
       return runLegacy(entry.command, entry.argv);
   }

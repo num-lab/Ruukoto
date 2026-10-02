@@ -41,7 +41,7 @@ import {
   randomId,
 } from "../core/types.ts";
 import { acquireConfigLock, acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
-import { resolveDirIdentity, verifyDirIdentity, sameDirIdentity, DirIdentityError, type DirIdentity } from "../core/dir-identity.ts";
+import { resolveDirIdentity, verifyDirIdentity, sameDirIdentity, legacyProjectClaimableFromDir, DirIdentityError, type DirIdentity } from "../core/dir-identity.ts";
 import { createModelCatalog, type ModelCatalog, type ModelOption } from "../agent/model-selection.ts";
 import {
   configRevision,
@@ -97,6 +97,14 @@ import { McpStore, McpVersionConflictError, allowlistEffectFor, normalizeToolAll
 import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpConnection, type McpTimeouts } from "../agent/mcp/client.ts";
 import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { retireGitHubModule } from "./github-retirement.ts";
+import {
+  previewWorkspaceMigration,
+  applyWorkspaceMigration,
+  type MigrationApplyInput,
+  type MigrationApplyResult,
+  type MigrationPreview,
+  type MigrationPreviewInput,
+} from "./workspace-migration.ts";
 import { GitHubWebhook, GITHUB_SOURCE } from "../github/webhook.ts";
 import { GitHubEvents, parseGitHubEventsConfig, webhookSecret, type GitHubEventsConfig } from "../github/events.ts";
 import { Orchestrator } from "./orchestrator.ts";
@@ -1050,9 +1058,15 @@ export class Runtime {
           if (!target) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
           project = target;
           // 逻辑角色与群聊会话所在的项目不是可认领的旧项目（可信入口不会发，后台兜底）
-          const roleProjectIds = new Set(this.store.listAgentRoles().map((r) => r.projectId));
-          if (roleProjectIds.has(target.id) || this.store.listSessions().some((s) => s.projectId === target.id && s.kind !== "dev")) {
+          const rolesOfRuntime = this.store.listAgentRoles();
+          if (rolesOfRuntime.some((r) => r.projectId === target.id) || this.store.listSessions().some((s) => s.projectId === target.id && s.kind !== "dev")) {
             throw new RuntimeApiError("invalid_params", "角色或群聊项目不能作为工作区认领");
+          }
+          // 多目录旧项目不能在迁移流程之外认领到其中一个目录（issue 07 步骤 2 收紧；
+          // 与 control/workspace.ts 的候选筛选同一判定（legacyProjectClaimableFromDir）；
+          // 目录仍否有效由迁移预览核实，不在此做文件系统检查
+          if (!legacyProjectClaimableFromDir(this.store.listSessions().filter((s) => s.projectId === target.id), rolesOfRuntime.map((r) => r.sessionId))) {
+            throw new RuntimeApiError("invalid_params", "旧项目会话分布在多个目录，不能在迁移流程之外认领到其中一个目录；请用 project migration-preview 组织迁移");
           }
           if (!project.rootDir) {
             this.store.attachProjectRoot(project.id, identity);
@@ -1109,6 +1123,27 @@ export class Runtime {
     return identity;
   }
 
+  /**
+   * 旧数据 → 工作区的组织迁移（agent-direction issue 07 步骤 2/3）：
+   * 全部推断集中在 workspace-migration.ts，这里只做接线。预览零写入；
+   * 应用先查成功回执再核修订，单事务提交，失败整体回滚。
+   */
+  previewWorkspaceMigration(input: MigrationPreviewInput): MigrationPreview {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    return previewWorkspaceMigration(
+      { store: this.store, instanceId: this.db.getInstanceId(), protectedRoots: this.protectedRoots() },
+      input,
+    );
+  }
+
+  applyWorkspaceMigration(input: MigrationApplyInput): MigrationApplyResult {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    return applyWorkspaceMigration(
+      { store: this.store, instanceId: this.db.getInstanceId(), protectedRoots: this.protectedRoots() },
+      input,
+    );
+  }
+
   async listModels(input: { provider?: string; offset?: number; limit?: number } = {}) {
     return this.modelCatalog.list(input);
   }
@@ -1119,9 +1154,16 @@ export class Runtime {
     return session;
   }
 
-  listSessionSummaries(projectId: string) {
-    if (!this.store.getProject(projectId)) throw new RuntimeApiError("not_found", "项目不存在");
-    return this.store.listSessionSummaries(projectId);
+  /**
+   * 会话摘要查询（issue 07 步骤 4）：project_id 按原身份查询（旧语义）；
+   * workspace_id 按组织归属查询（已映射旧会话归入目标工作区）。两个参数互斥。
+   */
+  listSessionSummaries(input: { projectId?: string; workspaceId?: string }) {
+    const id = input.workspaceId ?? input.projectId;
+    if (!id) throw new RuntimeApiError("invalid_params", "project_id 或 workspace_id 必填其一");
+    if (input.projectId && input.workspaceId) throw new RuntimeApiError("invalid_params", "project_id 与 workspace_id 互斥，只能传其一");
+    if (!this.store.getProject(id)) throw new RuntimeApiError("not_found", "项目不存在");
+    return input.workspaceId ? this.store.listSessionSummariesForWorkspace(id) : this.store.listSessionSummaries(id);
   }
 
   async setSessionModel(input: { sessionId: string; modelSelection: ModelSelection; expectedVersion: number }): Promise<Session> {

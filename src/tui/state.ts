@@ -17,6 +17,7 @@ import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "../core
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { PendingRequest } from "../control/pending-requests.ts";
 import { EventFlow, type CommandEntry } from "./event-flow.ts";
+import { sessionDisplayAttribution } from "../control/workspace.ts";
 import type { CommandHistoryStore } from "./command-history.ts";
 
 /** 每个会话在内存中保留的已加载历史条目上限（超出丢弃最旧；原文可翻页找回）。 */
@@ -168,6 +169,7 @@ export class ViewState {
           this.sessions.push({
             id: body.sessionId,
             projectId: body.projectId,
+            workspaceProjectId: null,
             kind: body.kind ?? "dev",
             cwd: body.cwd,
             cwdReal: body.cwd,
@@ -217,6 +219,12 @@ export class ViewState {
           endedAt: null,
         });
         return;
+      case "session.workspace_mapped": {
+        // agent-direction issue 07：仅组织展示归属；资料身份仍是 projectId
+        const session = this.sessions.find((s) => s.id === body.sessionId);
+        if (session) session.workspaceProjectId = body.workspaceProjectId;
+        return;
+      }
       case "session.model_selection_changed":
         this.applySessionModel(body.sessionId, body.modelSelection, body.modelSelectionVersion);
         return;
@@ -643,4 +651,23 @@ export function formatTaskStatus(status: TaskStatus): string {
 
 export function isActiveStatus(status: TaskStatus): boolean {
   return (ACTIVE_TASK_STATUSES as readonly TaskStatus[]).includes(status);
+}
+
+/**
+ * 会话标题的组织归属（issue 07 步骤 4）：ruukoto-dev 按展示归属给出工作区标注
+ * 与「配置与资料来源」项目（仅 mapped 时）；ruukoto 产品与其他场景用原身份。
+ * 标题拼接（app.ts）与测试断言共用同一结论。
+ */
+export function sessionTitleAttribution(
+  session: Session,
+  projects: Project[],
+  devProduct: boolean,
+): { workspace: boolean; projectId: string; sourceProjectId: string | null } {
+  if (!devProduct) return { workspace: false, projectId: session.projectId, sourceProjectId: null };
+  const attribution = sessionDisplayAttribution(session, projects);
+  return {
+    workspace: attribution.kind !== "legacy",
+    projectId: attribution.projectId,
+    sourceProjectId: attribution.kind === "mapped" ? session.projectId : null,
+  };
 }

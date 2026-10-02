@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
+  -- 工作区组织归属（agent-direction issue 07）：仅展示归属；资料身份仍是 project_id
+  workspace_project_id TEXT REFERENCES projects(id),
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tasks (
@@ -571,7 +573,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 19) {
+    } else if (version >= 2 && version <= 20) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -590,6 +592,8 @@ export class Db {
       // （ensureColumns，agent-direction issue 05）。
       // v19 → v20：projects 补 settings_version 列（ensureColumns，agent-direction
       // issue 06），只保护指令列表与 Web Search；旧项目按列默认值取初始版本 1。
+      // v20 → v21：sessions 补 workspace_project_id 组织归属列（ensureColumns，
+      // agent-direction issue 07）；旧会话默认 NULL，不扫描目录、不迁移业务记录。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -841,6 +845,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // v20（agent-direction issue 06）：指令列表与 Web Search 的乐观并发版本；
     // 列默认值 1 即旧项目初始版本，不复制旧字段
     add("projects", "settings_version", "settings_version INTEGER NOT NULL DEFAULT 1");
+    // v21（agent-direction issue 07）：会话工作区组织归属（仅展示归属，资料身份
+    // 仍是 project_id）；旧会话默认 NULL
+    add("sessions", "workspace_project_id", "workspace_project_id TEXT REFERENCES projects(id)");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

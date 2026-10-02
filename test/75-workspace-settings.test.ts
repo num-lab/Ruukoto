@@ -5,8 +5,8 @@
  * 1. 项目设置并发保护：projects.settings_version 只保护指令列表与 Web Search；
  *    新客户端携带期望版本，旧版本保存失败为 version_conflict（不改配置、不产生
  *    成功事件），重读后可保存；兼容写入（省略版本）仍更新同一行、递增同一版本
- *    并产生同一事件；修改项目 A 的设置不影响项目 B；schema v19 旧库升级到 v20
- *    后旧项目获得初始版本。
+ *    并产生同一事件；修改项目 A 的设置不影响项目 B；schema v19 旧库升级到当前
+ *    版本后旧项目获得初始版本。
  * 2. 事件投影：project.settings_changed 携带项目、设置版本与配置字段（无指令
  *    正文），任务 TUI 与配置中心据此刷新。
  * 3. 指令按工作区根目录读取与钉版时机（步骤 2/4 串联）：工作区根目录会话与
@@ -145,7 +145,7 @@ test("settings_version：修改项目 A 不影响项目 B", async () => {
   }
 });
 
-test("settings_version：v19 旧库升级 v20 后旧项目获得初始版本 1，且不产生设置事件", () => {
+test("settings_version：v19 旧库升级到当前版本后旧项目获得初始版本 1，且不产生设置事件", () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws75-migrate-"));
   try {
     // 先用当前版本建库，再以原始 SQL 写入旧设置值（模拟 v19 时代的库内容）
@@ -164,7 +164,7 @@ test("settings_version：v19 旧库升级 v20 后旧项目获得初始版本 1�
       const cols = (upgraded.prepare("PRAGMA table_info(projects)").all() as any[]).map((c) => c.name);
       assert.ok(cols.includes("settings_version"), "补列 settings_version");
       const p = current.getProject(project.id)!;
-      assert.equal(SCHEMA_VERSION, 20, "当前 schema 为 v20");
+      assert.equal(SCHEMA_VERSION, 21, "当前 schema 为 v21");
       assert.equal(p.settingsVersion, 1, "旧项目升级为初始版本 1");
       assert.deepEqual(p.instructionFiles, ["LEGACY.md"], "旧指令列表保留");
       assert.equal(p.webSearch, "disabled", "旧开关保留");

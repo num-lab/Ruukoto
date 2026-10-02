@@ -40,7 +40,7 @@ import {
 } from "../src/control/workspace.ts";
 import type { DirIdentity } from "../src/core/dir-identity.ts";
 import type { Project, Session } from "../src/core/types.ts";
-import { ViewState } from "../src/tui/state.ts";
+import { ViewState, sessionTitleAttribution } from "../src/tui/state.ts";
 import { TuiApp } from "../src/tui/app.ts";
 import {
   startTestRuntime,
@@ -71,6 +71,7 @@ function fakeProject(over: Partial<Project> & { id: string }): Project {
 function fakeSession(over: Partial<Session> & { id: string; projectId: string }): Session {
   return {
     kind: "dev",
+    workspaceProjectId: null,
     cwd: "/w",
     cwdReal: "/w",
     cwdDev: 1,
@@ -609,6 +610,87 @@ test("ruukoto：选择面板行为不变，角色项目仍列出", async () => {
       h.app.quit(0);
     }
   } finally {
+    await t.shutdown();
+  }
+});
+
+// ---------- 组织归属打通（agent-direction issue 07 步骤 4） ----------
+
+test("ruukoto-dev：已映射旧会话归入工作区计数与列表；恢复后选择状态与新建会话指向目标工作区", async () => {
+  const t = await startTestRuntime("ws74-attribution", async () => ({ kind: "text", text: "x" }));
+  process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
+  try {
+    const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "boot-attr" })) as any;
+    const wsId = ws.session.projectId as string;
+    const wsName = ws.projectName as string;
+    const { projectId: legacyId, sessionId: mappedId } = await createProjectSession(t.client, t.work[1]!, { projectName: "legacy-src" });
+    t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(mappedId, wsId));
+    const h = await startPickerApp(t);
+    try {
+      await waitFor("选择面板出现", () => h.terminal.output().includes("选择工作区"));
+      await waitFor("计数按组织归属", () => h.terminal.output().includes(`工作区 · ${wsName} · 2 个会话`));
+      assert.ok(h.terminal.output().includes("旧项目 · legacy-src · 0 个会话"), "已映射会话不计入来源项目");
+      // 打开工作区会话列表：已映射旧会话在目标工作区名下（经 workspace_id 归属查询）
+      h.terminal.send("\r");
+      // 面板标题与会话行可能分帧到达：以已映射会话行本身为准（不误判标题先行帧）
+      await waitFor("会话选择面板含已映射旧会话", () => h.terminal.output().includes(mappedId.slice(0, 14)));
+      assert.ok(h.terminal.output().includes("选择会话 · "), "面板在工作区名下打开");
+      // 切换走与面板选中相同的 switchSession 路径（伪终端 ENTER 在全量并行负载下
+      // 有输入批处理抖动，不作本用例判定依据）；面板读侧断言在上两行
+      (h.app as any).switchSession(mappedId);
+      // 标题归属与工作区/配置来源标注：与渲染共用同一纯函数结论（标题渲染经既有
+      // chrome 路径覆盖，不在本用例以伪终端时机判定）
+      assert.deepEqual(
+        sessionTitleAttribution(h.state.sessions.find((s) => s.id === mappedId)!, h.state.projects, true),
+        { workspace: true, projectId: wsId, sourceProjectId: legacyId },
+        "标题显示工作区与配置与资料来源",
+      );
+      // 选择状态继续指向目标工作区，不被 view.projectId 改回源项目
+      assert.equal((h.app as any).selectedProjectId, wsId);
+      // /new：从已映射旧会话创建新会话 → 使用目标工作区 Project ID 与当前目录（命令处理器与按键入口同一实现）
+      await (h.app as any).cmdNew();
+      await waitFor("新会话已创建", () =>
+        t.runtime.store.listSessions().some((s) => s.projectId === wsId && s.id !== ws.session.id && s.id !== mappedId),
+      );
+      const created = t.runtime.store.listSessions().find((s) => s.projectId === wsId && s.id !== ws.session.id && s.id !== mappedId)!;
+      assert.equal(created.cwdReal, fs.realpathSync(t.work[1]!), "新会话沿用当前目录，身份是目标工作区");
+      await waitFor("切换到新会话", () => h.state.currentSessionId === created.id);
+      h.app.quit(0);
+      await waitFor("退出", () => h.exitCode() === 0);
+    } finally {
+      h.app.quit(0);
+    }
+  } finally {
+    delete process.env.RUUKOTO_PRODUCT;
+    await t.shutdown();
+  }
+});
+
+test("ruukoto-dev：无映射旧会话保持旧行为（选择状态与 /new 用来源项目身份）", async () => {
+  const t = await startTestRuntime("ws74-unmapped", async () => ({ kind: "text", text: "x" }));
+  process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
+  try {
+    const { projectId: legacyId, sessionId: legacySession } = await createProjectSession(t.client, t.work[0]!, { projectName: "unmapped-legacy" });
+    const h = await startPickerApp(t);
+    try {
+      await waitFor("选择面板出现", () => h.terminal.output().includes("选择工作区"));
+      await waitFor("旧项目条目", () => h.terminal.output().includes("旧项目 · unmapped-legacy"));
+      // 切换与新建走与按键/面板相同的 switchSession、cmdNew 处理器（理由同上）
+      (h.app as any).switchSession(legacySession);
+      assert.equal(h.state.currentSessionId, legacySession);
+      assert.equal((h.app as any).selectedProjectId, legacyId, "无映射旧会话选择状态不变");
+      assert.ok(!h.terminal.output().includes("配置与资料来源"), "无映射不显示配置来源标注");
+      await (h.app as any).cmdNew();
+      await waitFor("新会话创建于来源项目", () =>
+        t.runtime.store.listSessions().filter((s) => s.projectId === legacyId).length === 2,
+      );
+      h.app.quit(0);
+      await waitFor("退出", () => h.exitCode() === 0);
+    } finally {
+      h.app.quit(0);
+    }
+  } finally {
+    delete process.env.RUUKOTO_PRODUCT;
     await t.shutdown();
   }
 });

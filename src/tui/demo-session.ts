@@ -94,6 +94,7 @@ const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId
 const SESSION: Session = {
   id: SESSION_ID,
   projectId: PROJECT_ID,
+  workspaceProjectId: null,
   kind: "dev",
   cwd: "/srv/demo/work",
   cwdReal: "/srv/demo/work",
@@ -295,6 +296,8 @@ function demoEvents(): PersistentEvent[] {
     { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: null },
     { type: "project.root_attached", projectId: PROJECT_ID, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
+    // agent-direction issue 07：会话工作区组织归属（仅展示归属，资料身份仍是原 projectId）
+    { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },

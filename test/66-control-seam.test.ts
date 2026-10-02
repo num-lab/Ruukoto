@@ -155,7 +155,7 @@ const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null,
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
-    id: "sess_fake", projectId: PROJECT.id, kind: "dev", cwd: os.tmpdir(), cwdReal: os.tmpdir(), cwdDev: 0, cwdIno: 0,
+    id: "sess_fake", projectId: PROJECT.id, workspaceProjectId: null, kind: "dev", cwd: os.tmpdir(), cwdReal: os.tmpdir(), cwdDev: 0, cwdIno: 0,
     piSessionId: "pi_fake", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...MODEL },
     modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active",
     queuePauseReason: null, createdAt: T0, ...overrides,

@@ -39,6 +39,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { createHash } from "node:crypto";
 import { resolveEntry } from "./cli-entry.ts";
 import { ControlClient, requestOutcome } from "./control/client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
@@ -86,6 +87,15 @@ async function withClient<T>(fn: (client: ControlClient) => Promise<T>): Promise
 
 function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+/** 读 JSON 文件（迁移计划等）；不存在或非法时报错退出。 */
+function readJsonFile(file: string): unknown {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    throw new Error(`无法读取 JSON 文件 ${file}：${(err as Error).message}`);
+  }
 }
 
 /** --grant <path>:<read|read_write>[:<用途>]，多个条目用 ; 分隔。 */
@@ -262,7 +272,65 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
         print(await withClient((c) => c.request("set_project_web_search", { project_id: projectId, enabled: state === "on" })));
         return 0;
       }
-      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）；ruukoto project web-search <项目id> <on|off>");
+      // 旧数据 → 工作区组织迁移（agent-direction issue 07）：migration-preview 只读，
+      // --plan 校验选择并把绑定最终选择的修订写回计划文件；migration-apply 按计划文件应用
+      if (sub === "migration-preview") {
+        const projectId = positional[1] ?? "";
+        if (!projectId) {
+          console.error("用法：ruukoto project migration-preview <项目id> [--plan <文件>] [--limit N]");
+          return 1;
+        }
+        const planFile = flags["plan"];
+        const plan = planFile ? readJsonFile(planFile) : undefined;
+        const limit = flags["limit"] ? Number(flags["limit"]) : undefined;
+        const preview = await withClient((c) =>
+          c.request<{ instance_id: string; revision: string | null; plan_errors: string[] }>("preview_workspace_migration", {
+            project_id: projectId,
+            plan,
+            limit,
+          }),
+        );
+        if (planFile && preview.revision) {
+          // 把绑定最终选择的修订写回计划文件（选择内容不动），供 migration-apply 使用
+          fs.writeFileSync(
+            planFile,
+            JSON.stringify(
+              { ...(plan as Record<string, unknown>), project_id: projectId, instance_id: preview.instance_id, revision: preview.revision },
+              null,
+              2,
+            ) + "\n",
+          );
+        }
+        print(preview);
+        return preview.plan_errors.length > 0 ? 1 : 0;
+      }
+      if (sub === "migration-apply") {
+        const planFile = flags["plan"];
+        if (!planFile) {
+          console.error(
+            "用法：ruukoto project migration-apply --plan <文件> [--request-id <id>]\n" +
+              "  计划文件由 migration-preview --plan 生成；回退：{ \"project_id\": \"…\", \"instance_id\": \"…\", \"action\": \"revert\", \"revert_request_id\": \"…\" }",
+          );
+          return 1;
+        }
+        const saved = readJsonFile(planFile) as Record<string, unknown>;
+        const { project_id, instance_id, revision, ...plan } = saved;
+        // 缺省请求键按计划文件内容派生：同一文件重发即原键核实（不重复执行），可用 --request-id 覆盖
+        const requestId = flags["request-id"] ?? `mig_${createHash("sha256").update(JSON.stringify(saved)).digest("hex").slice(0, 24)}`;
+        print(
+          await withClient((c) =>
+            c.request("apply_workspace_migration", {
+              project_id: typeof project_id === "string" ? project_id : "",
+              instance_id: typeof instance_id === "string" ? instance_id : "",
+              request_id: requestId,
+              plan,
+              expected_revision: typeof revision === "string" ? revision : undefined,
+            }),
+          ),
+        );
+        return 0;
+      }
+      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）；ruukoto project web-search <项目id> <on|off>；ruukoto project migration-preview <项目id> [--plan <文件>] [--limit N]；ruukoto project migration-apply --plan <文件> [--request-id <id>]");
       return 1;
     }
     case "create-session": {
@@ -812,7 +880,8 @@ function defaultHelp(): string {
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
-    "      grant | history-search | memory | selection-records\n" +
+    "      grant | history-search | memory | selection-records |\n" +
+    "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +
     "旧拼法：ruukoto tui 仍可用，请迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo\n" +

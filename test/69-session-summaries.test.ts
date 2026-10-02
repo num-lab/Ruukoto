@@ -77,3 +77,38 @@ test("会话摘要控制面：项目参数与不存在项目有明确错误，�
     await t.shutdown();
   }
 });
+
+test("组织归属摘要：workspace_project_id ?? project_id 归属；映射事件不算任务活跃（issue 07 步骤 4）", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws-summary-"));
+  const db = new Db(root);
+  try {
+    const store = new Store(db);
+    const ws = store.withTx(() => store.createProject("工作区", null, { cwd: "/w", cwdReal: "/w", dev: 1, ino: 2 }));
+    const legacy = store.withTx(() => store.createProject("旧项目"));
+    const own = store.withTx(() => store.createSession({ projectId: ws.id, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 2, piSessionId: "pi-own", confirmTools: [] }));
+    const mapped = store.withTx(() => store.createSession({ projectId: legacy.id, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 2, piSessionId: "pi-mapped", confirmTools: [] }));
+    const plain = store.withTx(() => store.createSession({ projectId: legacy.id, cwd: "/l", cwdReal: "/l", cwdDev: 3, cwdIno: 4, piSessionId: "pi-plain", confirmTools: [] }));
+    // mapped 有更晚的任务活动时间
+    const task = store.withTx(() => store.insertQueuedTask({
+      sessionId: mapped.id, requestId: "req-ws-1", input: "旧会话的任务",
+      modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "d",
+    }).task);
+    db.prepare("UPDATE sessions SET created_at = '2026-09-01T00:00:00.000Z'").run();
+    db.prepare("UPDATE tasks SET created_at = '2026-09-01T00:00:00.000Z', ended_at = '2026-09-02T00:00:00.000Z' WHERE id = ?").run(task.id);
+    // 事件时间钉在任务活动时间（与既有摘要测试同款，否则事件真实时间影响断言）
+    db.prepare("UPDATE events SET created_at = '2026-09-02T00:00:00.000Z'").run();
+    // 映射（产生当前时间的 session.workspace_mapped 事件，远晚于任务时间）
+    store.withTx(() => store.mapSessionToWorkspace(mapped.id, ws.id));
+
+    const byWorkspace = store.listSessionSummariesForWorkspace(ws.id);
+    assert.deepEqual(byWorkspace.map((s) => s.sessionId).sort(), [own.id, mapped.id].sort(), "归属 = workspace_project_id ?? project_id");
+    assert.equal(byWorkspace.find((s) => s.sessionId === mapped.id)!.lastActiveAt, "2026-09-02T00:00:00.000Z", "映射事件不算任务活跃");
+    assert.equal(byWorkspace.find((s) => s.sessionId === mapped.id)!.name, "旧会话的任务", "摘要算法不变");
+    const bySource = store.listSessionSummaries(legacy.id);
+    assert.deepEqual(bySource.map((s) => s.sessionId).sort(), [mapped.id, plain.id].sort(), "按原身份查询语义保留");
+    assert.equal(byWorkspace.some((s) => s.sessionId === plain.id), false, "未映射会话不进工作区");
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -753,3 +753,49 @@ test("mcp_remove 期望版本：匹配删除成功；陈旧版本冲突且服务
     await t.shutdown();
   }
 });
+
+test("ruukoto-dev：工作区详情列出关联旧资料与原配置入口；来源设置按来源版本访问（issue 07 步骤 4）", async () => {
+  const t = await startTestRuntime("cfg-tui-ws-sources", textResponder);
+  try {
+    const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-src-1" })) as any;
+    const wsId = ws.session.projectId as string;
+    const legacy = (await t.client.request<any>("create_project", { name: "legacy-src" })) as any;
+    const mapped = (await t.client.request<any>("create_session", { project_id: legacy.id, cwd: t.work[1]! })) as any;
+    t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(mapped.id, wsId));
+    await t.client.request("mcp_configure", {
+      project_id: legacy.id, name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: ["search"],
+    });
+    await t.client.request("create_data_grant", {
+      from_project_id: legacy.id, to_project_id: wsId, category: "history", purpose: "旧历史供工作区查阅",
+    });
+
+    const h = startConfig(t, { product: "ruukoto-dev" });
+    try {
+      await waitForText(h.terminal, "配置分区");
+      h.terminal.send(DOWN + ENTER); // 项目
+      await waitForText(h.terminal, `工作区 · ${ws.projectName}`);
+      h.terminal.send(ENTER); // 工作区（首项）
+      await waitForText(h.terminal, "关联旧资料来源 1 项");
+      await waitForText(h.terminal, "关联旧资料：legacy-src");
+      const out = h.terminal.output();
+      assert.ok(out.includes("1 个映射会话"), "列出对应会话");
+      assert.ok(out.includes("MCP 1 项"), "列出 MCP 引用");
+      assert.ok(out.includes("授权 出 1 / 入 0"), "列出原授权方向（不隐式合并）");
+      assert.ok(out.includes("v1"), "来源设置版本并列显示");
+      // 打开原配置入口：来源项目的指令/版本页面（沿用 06 的版本校验）
+      const beforeEnter = h.terminal.output().length;
+      h.terminal.send(DOWN + DOWN + DOWN + DOWN + DOWN + ENTER); // instructions..grants → 关联旧资料
+      await waitForText(h.terminal, "项目 legacy-src");
+      const tail = h.terminal.output().slice(beforeEnter);
+      assert.ok(tail.includes("指令文件："), "来源详情打开");
+      assert.ok(tail.includes("旧项目"), "来源项目自身标注（不是工作区）");
+      assert.ok(!tail.includes("关联旧资料"), "来源详情不反向合并工作区");
+      h.terminal.send(ESC); // 回工作区详情
+      await waitForText(h.terminal, "关联旧资料：legacy-src");
+    } finally {
+      assert.equal(await h.quit(), 0);
+    }
+  } finally {
+    await t.shutdown();
+  }
+});

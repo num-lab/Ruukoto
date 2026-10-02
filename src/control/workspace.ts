@@ -8,10 +8,16 @@
  *   或 dev+ino 相同），命中即唯一归属，不再走候选。
  * - findWorkspaceProjects：在尚无根目录归属的旧项目里按会话目录身份找候选（角色
  *   与 QQ 专用会话不参与自动归属；已有归属的工作区不再充当遗留候选；混合旧项目
- *   ——普通 dev 会话与角色/群聊会话并存——后台不可认领，同样不作候选）。自动项目名
+ *   ——普通 dev 会话与角色/群聊会话并存——以及会话分布在多个真实目录的旧项目，
+ *   后台不可认领，同样不作候选（issue 07：多目录经 migration-preview 迁移））。自动项目名
  *   由后台 open_workspace 取根目录名并处理重名（仅展示层去重，同名不同目录绝不合并）。
  * - workspacePickerProjects：TUI 普通列表数据——带根目录归属的是工作区，无归属且
  *   非内部（角色、QQ 群聊会话所在）的是旧项目；内部项目不进入普通列表。
+ * - sessionDisplayAttribution：会话展示归属规则（issue 07，仅展示）——显式工作区
+ *   映射优先，来源项目是工作区时用来源项目，其余仍列在旧项目下；不进入 AccessScope、
+ *   模型工具身份或凭据范围判定。
+ * - workspaceMappedSources：工作区的关联旧资料来源（issue 07 步骤 4）——经已映射
+ *   会话派生，不保存项目映射副本。
  * - ensureWorkspaceSession：经 open_workspace 以稳定的启动请求标识幂地复用/创建
  *   工作区并新建会话。应答丢失后的重试方式：重连并完成新握手后，先在新快照里按
  *   createRequestId === startupRequestId 找会话；找到即进入，找不到才用同一
@@ -21,7 +27,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Project, Session } from "../core/types.ts";
-import { sameDirIdentity, type DirIdentity } from "../core/dir-identity.ts";
+import { legacyProjectClaimableFromDir, sameDirIdentity, type DirIdentity } from "../core/dir-identity.ts";
 import { ControlClientError, type ControlTransport } from "./client.ts";
 import type { OpResult } from "./ops.ts";
 
@@ -57,8 +63,10 @@ export function findWorkspaceByRoot(snapshot: { projects: Project[] }, identity:
  * 在尚无根目录归属的旧项目里按目录身份找候选：kind 为 dev 且不是逻辑角色绑定的
  * 会话中，cwdReal 相同或 dev+ino 相同（覆盖符号链接与挂载别名）者所属的项目。
  * 已有根目录归属的工作区不再充当候选（归属由 findWorkspaceByRoot 决定）；含角色
- * 或群聊会话的混合旧项目也不充当候选——后台 openWorkspace 只认领会话全部为普通
- * dev 的项目（runtime.ts 同款防御），为混合项目发认领请求必遭拒绝。
+ * 或群聊会话的混合旧项目，以及会话分布在多个真实目录的旧项目，同样不充当
+ * 候选——后台 openWorkspace 只认领会话全部为普通 dev 且同属一个目录的项目
+ * （runtime.ts 同款防御），为这类项目发认领请求必遭拒绝；多目录旧项目经
+ * project migration-preview 组织迁移（issue 07），不在目录入口静默认领。
  * 去重并保持快照顺序。
  */
 export function findWorkspaceProjects(
@@ -66,11 +74,17 @@ export function findWorkspaceProjects(
   identity: DirIdentity,
 ): Project[] {
   const roleIds = new Set(snapshot.roleSessionIds);
-  // 后台可认领条件（runtime.openWorkspace）：项目的会话全部为普通 dev
-  const claimable = new Map<string, boolean>();
+  // 后台可认领条件（runtime.openWorkspace）：项目的会话全部为普通 dev、非角色绑定
+  // 且同属一个登记真实目录——与后台防御共用同一判定（legacyProjectClaimableFromDir）
+  const sessionsByProject = new Map<string, Session[]>();
   for (const session of snapshot.sessions) {
-    if (session.kind !== "dev" || roleIds.has(session.id)) claimable.set(session.projectId, false);
-    else if (!claimable.has(session.projectId)) claimable.set(session.projectId, true);
+    const list = sessionsByProject.get(session.projectId) ?? [];
+    list.push(session);
+    sessionsByProject.set(session.projectId, list);
+  }
+  const claimable = new Map<string, boolean>();
+  for (const [projectId, projectSessions] of sessionsByProject) {
+    claimable.set(projectId, legacyProjectClaimableFromDir(projectSessions, snapshot.roleSessionIds));
   }
   const seen = new Set<string>();
   const out: Project[] = [];
@@ -87,6 +101,41 @@ export function findWorkspaceProjects(
     }
   }
   return out;
+}
+
+/**
+ * 工作区的关联旧资料来源（agent-direction issue 07 步骤 4）：经已映射会话派生
+ * ——组织归属到该工作区的会话的来源项目（不含工作区自己），不保存项目映射副本。
+ * 来源项目的指令解析基准、授权与记忆仍按来源项目 ID 查阅，不做合并。
+ */
+export function workspaceMappedSources(snapshot: { sessions: Session[] }, workspaceId: string): Map<string, Session[]> {
+  const out = new Map<string, Session[]>();
+  for (const session of snapshot.sessions) {
+    if (session.workspaceProjectId === workspaceId && session.projectId !== workspaceId) {
+      const list = out.get(session.projectId) ?? [];
+      list.push(session);
+      out.set(session.projectId, list);
+    }
+  }
+  return out;
+}
+
+/**
+ * 展示归属规则（agent-direction issue 07；仅拥有者的组织查询与界面展示）：
+ * 显式工作区映射（session.workspaceProjectId）优先；无映射且来源项目已有根
+ * 目录归属时使用来源项目（它本身是工作区）；其余仍列在来源旧项目下。
+ * 这不改变会话的资料身份：配置与资料来源恒为会话的原 projectId；AccessScope、
+ * 模型工具身份与凭据范围判定不得使用本规则。
+ */
+export function sessionDisplayAttribution(
+  session: Pick<Session, "projectId" | "workspaceProjectId">,
+  projects: Pick<Project, "id" | "rootDir">[],
+): { projectId: string; kind: "mapped" | "workspace" | "legacy" } {
+  if (session.workspaceProjectId !== null) {
+    return { projectId: session.workspaceProjectId, kind: "mapped" };
+  }
+  const source = projects.find((p) => p.id === session.projectId);
+  return { projectId: session.projectId, kind: source?.rootDir ? "workspace" : "legacy" };
 }
 
 /**

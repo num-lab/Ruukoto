@@ -33,7 +33,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ControlClient } from "../control/client.ts";
 import type { ConnectResult } from "../control/protocol.ts";
-import { workspacePickerProjects } from "../control/workspace.ts";
+import { workspaceMappedSources, workspacePickerProjects } from "../control/workspace.ts";
 import { productFromEnv, type ProductType } from "../core/product.ts";
 import type { ModelSelection, PersistentEvent, Project, Session, DataGrant } from "../core/types.ts";
 import { SESSION_DEFAULT_MODES } from "../core/types.ts";
@@ -492,6 +492,10 @@ export class ConfigTuiApp {
         break;
       case "session.model_selection_changed":
         this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, modelSelection: body.modelSelection, modelSelectionVersion: body.modelSelectionVersion } : s));
+        break;
+      case "session.workspace_mapped":
+        // agent-direction issue 07：仅组织展示归属，与任务 TUI 的 ViewState 同源更新
+        this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, workspaceProjectId: body.workspaceProjectId } : s));
         break;
       case "session.default_mode_changed":
         this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, defaultAccessMode: body.defaultAccessMode, defaultAccessModeVersion: body.defaultAccessModeVersion } : s));
@@ -1038,23 +1042,54 @@ export class ConfigTuiApp {
     return {
       id: `project:${projectId}`,
       title: `项目 ${this.findProject(projectId)?.name ?? projectId}`,
-      watch: (t) => t === "project.created" || t === "project.settings_changed" || t === "project.root_attached",
+      watch: (t) =>
+        t === "project.created" || t === "project.settings_changed" || t === "project.root_attached" || t === "session.workspace_mapped",
       intro: () => {
         if (this.product !== "ruukoto-dev") return [];
         const p = this.findProject(projectId);
         if (!p) return [];
-        return [p.rootDir ? `工作区 · 根目录：${p.rootDir.cwdReal}` : "旧项目（尚无工作区根目录归属）"];
+        if (!p.rootDir) return ["旧项目（尚无工作区根目录归属）"];
+        const lines = [`工作区 · 根目录：${p.rootDir.cwdReal}`];
+        // issue 07 步骤 4：关联旧资料来源并列显示，组织映射不改变资料与配置归属
+        const sources = workspaceMappedSources({ sessions: this.sessions }, projectId);
+        if (sources.size > 0) lines.push(`关联旧资料来源 ${sources.size} 项：仅组织归属，各来源的配置与资料仍按原项目 ID 读取（不合并）`);
+        return lines;
       },
       load: async () => {
         const p = this.findProject(projectId);
         if (!p) return [];
-        return [
+        const items: SelectItem[] = [
           { value: "instructions", label: `指令文件：${p.instructionFiles.join("，") || "（无）"}`, description: `工作区相对路径，逗号分隔 · 设置版本 v${p.settingsVersion}` },
           { value: "websearch", label: `Web Search：${p.webSearch === "enabled" ? "启用" : "禁用"}` },
           { value: "jev", label: "Jev 上下文筛选实验", description: "默认关闭，按项目选择服务凭据与启停" },
           { value: "mcp", label: "MCP 服务", description: "本项目的端点、凭据引用与工具允许列表" },
           { value: "grants", label: "资料授权", description: "跨项目历史/产物/记忆读取授权" },
         ];
+        // issue 07 步骤 4：工作区列出关联旧资料来源及原配置入口（并列显示，不推断优先级）
+        if (this.product === "ruukoto-dev" && p.rootDir) {
+          const sources = workspaceMappedSources({ sessions: this.sessions }, projectId);
+          if (sources.size > 0) {
+            const grantResult = await this.deps.client!.request<any>("list_data_grants", {});
+            const grants = (grantResult.grants as DataGrant[] | undefined) ?? [];
+            for (const [sourceId, sessions] of sources) {
+              const source = this.findProject(sourceId);
+              const mcp = await this.deps.client!.request<{ services: unknown[] }>("mcp_list", { project_id: sourceId });
+              const jev = await this.deps.client!.request<JevConfig>("get_project_jev", { project_id: sourceId });
+              const outgoing = grants.filter((g) => g.fromProjectId === sourceId && g.revokedAt === null).length;
+              const incoming = grants.filter((g) => g.toProjectId === sourceId && g.revokedAt === null).length;
+              items.push({
+                // ponytail: value 沿用 project:<id>（重载恢复按值匹配菜单，不引入新菜单 id）
+                value: `project:${sourceId}`,
+                label: `关联旧资料：${source?.name ?? sourceId}`,
+                description:
+                  `${sessions.length} 个映射会话 · MCP ${mcp.services.length} 项 · Jev ${jev.enabled ? "启用" : "关闭"}` +
+                  ` · 授权 出 ${outgoing} / 入 ${incoming} · v${source?.settingsVersion ?? "?"}` +
+                  ` · 指令基准 ${source?.rootDir?.cwdReal ?? [...new Set(sessions.map((s) => s.cwdReal))].join("，")}`,
+              });
+            }
+          }
+        }
+        return items;
       },
       onSelect: async (item) => {
         const client = this.deps.client!;
@@ -1063,6 +1098,9 @@ export class ConfigTuiApp {
           this.notify("项目已不存在", "yellow");
           return this.popScreen();
         }
+        // issue 07 步骤 4：原配置入口——关联来源的设置、MCP/Jev 与授权都按来源项目 ID 与本设置的各自版本访问
+        // （关联来源行的值为 project:<来源id>，与本项目自身的功能值不冲突）
+        if (item.value.startsWith("project:")) return this.pushScreen(this.projectScreen(item.value.slice("project:".length)));
         switch (item.value) {
           case "instructions": {
             const value = await this.inputBox("项目指令文件（工作区相对路径，逗号/换行分隔；留空清除）", { initial: p.instructionFiles.join(", ") });

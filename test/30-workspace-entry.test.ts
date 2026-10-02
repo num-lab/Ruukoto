@@ -5,7 +5,7 @@
  * 1. create_project / create_session 的 request_id 幂等：同键同参返回已存在记录、
  *    同键异参 request_conflict、无键保持旧行为、格式校验、快照携带 createRequestId；
  * 2. workspace.ts 单元：目录解析（相对路径/不存在/文件/符号链接）、候选项目匹配
- *    （cwdReal 与 dev+ino、忽略 qq_group 等非 dev 类别、去重保序）、自动项目名去重；
+ *    （cwdReal 与 dev+ino、忽略 qq_group 等非 dev 类别、多目录旧项目不作候选（issue 07）、去重保序）、自动项目名去重；
  * 3. TUI 工作区入口（FakeTerminal + 真实后台）：0 项目自动创建、1 项目复用新建会话、
  *    多项目选择与取消、符号链接按相同目录身份归属、保护根拒绝、不存在路径退出、
  *    应答丢失后的重连核实（按启动请求标识找到会话，不重复创建）。
@@ -133,6 +133,7 @@ function fakeProject(over: Partial<Project> & { id: string }): Project {
 function fakeSession(over: Partial<Session> & { id: string; projectId: string }): Session {
   return {
     kind: "dev",
+    workspaceProjectId: null,
     cwd: "/w",
     cwdReal: "/w",
     cwdDev: 1,
@@ -332,7 +333,7 @@ test("findWorkspaceProjects：按 cwdReal 与 dev+ino 匹配，忽略非 dev 与
       fakeSession({ id: "s4", projectId: "proj_qq", kind: "qq_group", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
       // 逻辑角色会话（kind 仍为 dev）同样不作为归属依据
       fakeSession({ id: "s_role", projectId: "proj_role", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
-      // 无关目录
+      // 无关目录；proj_b 因此分布在多个真实目录，issue 07 起不作目录候选（经迁移流程处理）
       fakeSession({ id: "s5", projectId: "proj_b", cwd: "/elsewhere", cwdReal: "/elsewhere", cwdDev: 11, cwdIno: 21 }),
     ],
     roleSessionIds: ["s_role"],
@@ -340,8 +341,8 @@ test("findWorkspaceProjects：按 cwdReal 与 dev+ino 匹配，忽略非 dev 与
   const found = findWorkspaceProjects(snapshot, identity);
   assert.deepEqual(
     found.map((p) => p.id),
-    ["proj_a", "proj_b"],
-    "按快照顺序去重返回候选项目",
+    ["proj_a"],
+    "按快照顺序去重返回候选项目；多目录旧项目不作候选（issue 07 收紧）",
   );
 });
 

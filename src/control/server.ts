@@ -276,12 +276,55 @@ export class ControlServer {
           projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
           createRequestId: optionalRequestId(),
         });
+      // ---------- agent-direction issue 07：旧数据 → 工作区组织迁移 ----------
+      case "preview_workspace_migration": {
+        const plan = params["plan"];
+        if (plan !== undefined && (plan === null || typeof plan !== "object" || Array.isArray(plan))) {
+          throw Object.assign(new Error("plan 必须是对象"), { code: "invalid_params" });
+        }
+        const limit = params["limit"];
+        if (limit !== undefined && (!Number.isInteger(limit) || (limit as number) < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.previewWorkspaceMigration({
+          projectId: requireString("project_id"),
+          plan,
+          limit: limit as number | undefined,
+        });
+      }
+      case "apply_workspace_migration": {
+        const plan = params["plan"];
+        if (plan === null || typeof plan !== "object" || Array.isArray(plan)) {
+          throw Object.assign(new Error("plan 必须是非空对象"), { code: "invalid_params" });
+        }
+        const revision = params["expected_revision"];
+        if (revision !== undefined && (typeof revision !== "string" || !revision)) {
+          throw Object.assign(new Error("expected_revision 必须是字符串"), { code: "invalid_params" });
+        }
+        return runtime.applyWorkspaceMigration({
+          projectId: requireString("project_id"),
+          instanceId: requireString("instance_id"),
+          requestId: requireString("request_id"),
+          plan,
+          expectedRevision: revision as string | undefined,
+        });
+      }
       case "get_session_usage":
         return runtime.getSessionUsage(requireString("session_id"));
       case "get_session":
         return runtime.getSession(requireString("session_id"));
-      case "list_session_summaries":
-        return runtime.listSessionSummaries(requireString("project_id"));
+      case "list_session_summaries": {
+        // issue 07 步骤 4：project_id（原身份）与 workspace_id（组织归属）互斥
+        const projectId = params["project_id"];
+        const workspaceId = params["workspace_id"];
+        const id = (v: unknown): string | undefined => (typeof v === "string" && v.trim().length > 0 ? v : undefined);
+        if (id(projectId) && id(workspaceId)) {
+          throw Object.assign(new Error("project_id 与 workspace_id 互斥，只能传其一"), { code: "invalid_params" });
+        }
+        if (id(workspaceId)) return runtime.listSessionSummaries({ workspaceId: workspaceId as string });
+        if (id(projectId)) return runtime.listSessionSummaries({ projectId: projectId as string });
+        throw Object.assign(new Error("project_id 或 workspace_id 必填其一"), { code: "invalid_params" });
+      }
       case "list_models": {
         for (const key of ["offset", "limit"]) {
           if (params[key] !== undefined && (!Number.isInteger(params[key]) || Number(params[key]) < (key === "limit" ? 1 : 0))) {

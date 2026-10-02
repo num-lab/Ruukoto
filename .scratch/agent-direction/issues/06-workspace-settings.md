@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 06 — 在工作区管理配置与资料授权
 
@@ -10,11 +10,11 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 从工作区界面或可信管理入口查看、修改指令及已支持的工具配置，新任务读取正确版本。
-- [ ] 按工作区创建、查看和撤销资料授权，实际历史、产物、记忆查询及上下文注入执行对应边界。
-- [ ] 多工作区并存时修改只作用于目标，符号链接和旧项目映射不导致改错归属。
-- [ ] 保留旧配置的读取及兼容写入，先迁移真实调用方再删除旧入口，不另建一套与旧配置并行漂移的状态。
-- [ ] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+- [x] 从工作区界面或可信管理入口查看、修改指令及已支持的工具配置，新任务读取正确版本。
+- [x] 按工作区创建、查看和撤销资料授权，实际历史、产物、记忆查询及上下文注入执行对应边界。
+- [x] 多工作区并存时修改只作用于目标，符号链接和旧项目映射不导致改错归属。
+- [x] 保留旧配置的读取及兼容写入，先迁移真实调用方再删除旧入口，不另建一套与旧配置并行漂移的状态。
+- [x] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
 
 ## Comments
 
@@ -108,3 +108,38 @@ npm test
 同步 `docs/runtime.md` 的工作区配置入口、相对路径、版本、应用时机和授权边界。对每个实际改动的 `src/` 或 `deploy/` 文件，按仓库要求运行 `grep -l <文件路径> docs/visual/*.html`，逐页核对行为并同步图、表及正文；预计重点为 `control-protocol.html`、`context-pipeline.html`、`storage-layout.html`，其余命中页也需检查。遵守 `docs/visual/style.css` 约定并完成 test/67。
 
 完成后按五条验收标准登记证据，区分模拟与真实环境；既有或环境性失败需给出基线复现，不能直接归为无关。以上行为均符合 ADR 0017 与现有资料、MCP 和上下文边界，不需要另建工作区配置架构。
+
+### 2026-10-02：实施完成（bd19ab1）
+
+**判定与改动**
+
+1. **settings_version 并发保护**（schema v19→v20 加列迁移，旧项目初始版本 1，不复制旧字段）：只保护指令列表与 Web Search，MCP/Jev/会话默认各自的版本不合并。`Store.updateProjectSettings` 为唯一写入路径（旧 `setProjectInstructionFiles`/`setProjectWebSearch` 已删除，全部真实调用方已迁移）：同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed`（携项目/设置版本/配置字段，不含指令正文或秘密）；冲突 `version_conflict` 零效果零事件；省略版本 = 旧入口兼容写入（同一行、同一版本、同一事件，带版本客户端随后保存必然冲突，不能绕过冲突检测）。同值保存幂等（不递增、无事件，对齐 MCP 启停语义；实施计划未明文外的取舍，登记于此）。`expected_version` 依运行层校验为 v1 起正整数。任务 TUI 与配置中心投影事件刷新；配置中心冲突后先重读后台快照再刷新，`refreshSessionsFromServer` 更名 `refreshSnapshotFromServer` 以符其实。
+2. **指令按工作区根目录读取**：基准目录 = `project.rootDir?.cwdReal ?? session.cwdReal`；带根目录先 `verifyDirIdentitySync`（`verifyDirIdentity` 的同步变体，共用 `assertIdentityUnchanged` 比对）核实根目录身份，失效/被替换拒绝读取替代目录并明确说明（不退回会话子目录）；绝对路径/`..` 拒绝、符号链接逃逸按基准目录拒绝、256 KiB 上限、内容哈希+捕获产物钉版全部保留；旧项目按会话目录行为不变。
+3. **配置中心工作区入口**（ruukoto-dev 按 product 分流，离线仍仅模型配置）：「项目」分区沿用 `workspacePickerProjects` 工作区在前（展示根目录）/旧项目在后标注；项目详情给出指令、Web Search、Jev、MCP、资料授权，MCP 只列本项目服务、新增固定归属、服务详情核对归属（不符提示返回），全局 MCP 分区复用同一页面；`mcp_remove` 补可选 `expected_version`（CLI `--expected-version`），编辑/启停沿用既有版本校验。资料授权复用既有三个 op（无新列表 API）：出向/入向标注、同范围多条撤销时确认与结果均明示「不关闭该类访问」、「查看已撤销」只读记录含撤销时间、新建方向固定本项目 → 目标（目标同分类）。凭据零改动、不复制不扩大 scope。菜单标识沿用（重载恢复有专门用例）。
+4. **资料边界**：归属按稳定 projectId（同名目录、符号链接、挂载别名不产生第二配置键，入口覆盖见工单 05 的 test/74/30）；核查 `access.ts`/`memory.ts`/`host-tools.ts`/`context-assembly.ts` 未发现绕过，未改边界代码。三类别生命周期、方向与第三工作区隔离、撤销时机（运行中任务的后续查询、上下文选择完成与发送之间的撤销由 `context_source_changed` 拦下）均有用例。完全访问与 grantedPaths 不隐含扩大（既有约束未动）；撤销不承诺撤回已发送内容，注入与查询两个时机重新校验。
+
+**评审发现与处置**（/code-review 双轴，对未提交 diff）
+
+- Standards：无 P1。R1 [P2] test/33 授权用例在全量并行负载下曾 15s 等待超时（隔离复跑 5/5 通过；负载型等待）——等待预算放宽至 60s；R2 [P3] 目录身份比对重复——提取 `assertIdentityUnchanged`；R3 [P3] 方法名不副实——更名；R4 [P3] 冗余类型断言——删除。
+- Spec：P1 冒烟缺旧项目认领场景——已补（场景 6，并重跑全过）；P3 同值幂等取舍登记（见上）；P3 符号链接/挂载别名归属依赖工单 05 既有覆盖（test/74 别名用例），本单未重复。
+
+**验证（真实环境与模拟分列）**
+
+- **产品级冒烟** `.scratch/agent-direction/smoke-06-workspace-settings.mts`（真实 bin/ruukoto-dev.mjs 后台两次拉起、真实控制面 socket/SQLite/文件与目录身份、控制协议全部操作；**模拟：模型服务 MockModelServer**）：macOS 本机两轮 **6/6 通过**（两工作区并存、设置版本与冲突、根/子目录会话指令注入、授权/撤销、旧项目认领与幂等、重启持久化）。未验证真实外部服务。
+- **离线测试**（进程内真实 Runtime/socket/SQLite/文件，模型打桩）：工单验证序列全绿——test/75 12/12、33 14/14、16 33/33、09/23/24/25/53/55/74 92/92、19/13/27/30/51/59/60/66 与 test/67 3/3；`npm run typecheck` 通过。
+- **全量 `npm test`（最终两轮 2026-10-02）**：769 项中 **767 通过、1 跳过**（真实模型门控的既有跳过）、**1 失败**——08-approvals「DNS 在批准时固定」：本机 DNS 对不可解析名 60s 超时，干净 HEAD 复现同一失败（git stash 后单跑 test/08 同样 60s 超时），工单 05 已记录同一环境性既有失败，与本单无关，如实记录。首轮全量中 test/33 授权用例曾负载型超时（见评审 R1，加固后两轮全量通过）。
+
+**复跑步骤**
+
+- 冒烟：`npx tsx .scratch/agent-direction/smoke-06-workspace-settings.mts`。
+- 离线：`npx tsx --test test/75-workspace-settings.test.ts test/33-config-tui.test.ts test/16-context-memory.test.ts test/09-artifacts.test.ts test/23-web-search.test.ts test/24-mcp.test.ts test/25-mcp-write.test.ts test/53-jev-config.test.ts test/55-jev-runtime.test.ts test/74-workspace-sessions.test.ts`；`npm run typecheck`；`npx tsx --test test/67-visual-docs.test.ts`；全量 `npm test`。
+
+**同步**：`docs/runtime.md`（配置中心并发与项目分区、项目指令基准目录、mcp remove 用法、数据布局 schema v20）、`docs/visual/control-protocol.html`（`project.settings_changed` 事件行、三个 op 的 expected_version）、`storage-layout.html`（v20 与 settings_version）、`context-pipeline.html`（指令基准目录与根目录核实）。
+
+**与验收标准对应**
+
+1. 工作区设置入口与正确版本 → 配置中心项目分区/详情 + settings_version（test/33、75；冒烟 2/3）。
+2. 资料授权管理与实际边界 → 授权页与三类别生命周期、撤销时机（test/75、16 发送前竞争用例；冒烟 4）。
+3. 并存隔离与归属 → test/75 同名目录设置隔离；符号链接/别名归属 test/74（工单 05 既有）；认领不串归属 test/75。
+4. 旧配置读取与兼容写入 → 兼容写入与 v19→v20 迁移（test/75）、认领后配置/授权/凭据保留（test/75；冒烟 6）、旧 store 方法调用方全部迁移后删除。
+5. 端到端/类型检查/文档同步、模拟与真实分列 → 上节与「同步」。

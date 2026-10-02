@@ -585,7 +585,7 @@ test("P1：chat 不注入个人共享记忆与项目指令（main 正常注入�
     for (const id of ["chat", "main"] as const) {
       const role = t.runtime.store.getAgentRole(id)!;
       fs.writeFileSync(path.join(role.workDir, "RULES.md"), "INSTR-MARK-7713 项目约定");
-      t.runtime.store.setProjectInstructionFiles(role.projectId, ["RULES.md"]);
+      t.runtime.store.withTx(() => t.runtime.store.updateProjectSettings({ projectId: role.projectId, instructionFiles: ["RULES.md"] }));
     }
     const orch = t.runtime.orchestrator!;
     await orch.registerInboundEvent({ source: "test", externalId: "chat-mem", targetRole: "chat", body: "CHAT-CTX-MARK 打个招呼" });

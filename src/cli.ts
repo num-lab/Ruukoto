@@ -471,7 +471,14 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
         return 0;
       }
       if (sub === "remove") {
-        print(await withClient((c) => c.request("mcp_remove", { service_id: positional[1] ?? "" })));
+        print(
+          await withClient((c) =>
+            c.request("mcp_remove", {
+              service_id: positional[1] ?? "",
+              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+            }),
+          ),
+        );
         return 0;
       }
       if (sub === "check") {
@@ -490,7 +497,7 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
         "用法：\n" +
           "  ruukoto mcp configure --project <id> --name <slug> --endpoint <url> [--credential <name>] [--tools a,b:write,c:unknown] [--disabled] [--expected-version N]\n" +
           "    （--tools 条目：name = 只读工具；name:write / name:unknown = 有副作用/副作用不明，confirm 模式逐次审批）\n" +
-          "  ruukoto mcp list [--project <id>] | enable <service-id> | disable <service-id> | remove <service-id>\n" +
+          "  ruukoto mcp list [--project <id>] | enable <service-id> | disable <service-id> | remove <service-id> [--expected-version N]\n" +
           "  ruukoto mcp check <service-id>（连接检查 + 工具列表，标注允许/未允许与副作用类别）",
       );
       return 1;

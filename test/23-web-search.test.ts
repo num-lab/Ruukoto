@@ -568,7 +568,7 @@ INSERT INTO projects (id, name, created_at) VALUES ('proj_old', '旧项目', '20
       const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
       assert.equal(version.value, String(SCHEMA_VERSION), "迁移到当前 schema 版本");
       assert.equal(store.getProject("proj_old")!.webSearch, "enabled", "旧项目默认启用 Web Search");
-      store.setProjectWebSearch("proj_old", "disabled");
+      store.withTx(() => store.updateProjectSettings({ projectId: "proj_old", webSearch: "disabled" }));
       assert.equal(store.getProject("proj_old")!.webSearch, "disabled", "新库可读写开关");
     } finally {
       db.close();

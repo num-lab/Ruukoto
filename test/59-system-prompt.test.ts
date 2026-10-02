@@ -124,7 +124,7 @@ test("参考块块头只保留名称、id、类别与范围；资料受限会话
     fs.writeFileSync(skillFile, "---\nname: alpha\ndescription: ALPHA-DESC\n---\nBODY");
     fs.writeFileSync(path.join(kit.work[0]!, "TEAM.md"), "项目约定");
     const { projectId, session } = kit.project();
-    kit.store.setProjectInstructionFiles(projectId, ["TEAM.md"]);
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId, instructionFiles: ["TEAM.md"] }));
     const memory = kit.deps.memories.create({
       projectId: null, category: "preference", content: "偏好中文", sourceRefs: [{ kind: "owner_note", note: "测试录入" }], author: "owner",
     });

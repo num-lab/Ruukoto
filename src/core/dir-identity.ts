@@ -50,15 +50,37 @@ export function sameDirIdentity(a: DirIdentity, b: DirIdentity): boolean {
   return a.cwdReal === b.cwdReal || (a.dev === b.dev && a.ino === b.ino);
 }
 
-/** 校验目录仍是登记时的身份；不一致抛 DirIdentityError。 */
-export async function verifyDirIdentity(identity: DirIdentity): Promise<void> {
-  const current = await resolveDirIdentity(identity.cwdReal).catch((err) => {
-    throw new DirIdentityError(`工作目录已失效：${identity.cwdReal}（${(err as Error).message}）`);
-  });
+/** 目录身份比对：与登记值不一致抛 DirIdentityError（异步/同步核实共用）。 */
+function assertIdentityUnchanged(identity: DirIdentity, current: DirIdentity): void {
   if (current.cwdReal !== identity.cwdReal || current.dev !== identity.dev || current.ino !== identity.ino) {
     throw new DirIdentityError(
       `工作目录身份已变化：${identity.cwdReal} (dev=${identity.dev},ino=${identity.ino}) → ` +
         `${current.cwdReal} (dev=${current.dev},ino=${current.ino})`,
     );
   }
+}
+
+/** 校验目录仍是登记时的身份；不一致抛 DirIdentityError。 */
+export async function verifyDirIdentity(identity: DirIdentity): Promise<void> {
+  const current = await resolveDirIdentity(identity.cwdReal).catch((err) => {
+    throw new DirIdentityError(`工作目录已失效：${identity.cwdReal}（${(err as Error).message}）`);
+  });
+  assertIdentityUnchanged(identity, current);
+}
+
+/**
+ * verifyDirIdentity 的同步变体（agent-direction issue 06）：上下文装配在构造期
+ * 同步执行，不能用异步版本；判定规则相同（realpath + dev + ino）。
+ */
+export function verifyDirIdentitySync(identity: DirIdentity): void {
+  let current: DirIdentity;
+  try {
+    const real = fs.realpathSync(identity.cwdReal);
+    const stat = fs.statSync(real);
+    if (!stat.isDirectory()) throw new DirIdentityError(`工作目录不是目录：${identity.cwdReal}`);
+    current = { cwd: identity.cwd, cwdReal: real, dev: stat.dev, ino: stat.ino };
+  } catch (err) {
+    throw new DirIdentityError(`工作目录已失效：${identity.cwdReal}（${(err as Error).message}）`);
+  }
+  assertIdentityUnchanged(identity, current);
 }

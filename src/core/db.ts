@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS projects (
   root_ino INTEGER,
   instruction_files TEXT NOT NULL DEFAULT '[]',
   web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled')),
+  settings_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -570,7 +571,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 18) {
+    } else if (version >= 2 && version <= 19) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -587,6 +588,8 @@ export class Db {
       // v17 → v18：新闻采集快照补列；计划动作 CHECK 由下方重建处理。
       // v18 → v19：projects 补工作区根目录身份四列 + 部分唯一索引
       // （ensureColumns，agent-direction issue 05）。
+      // v19 → v20：projects 补 settings_version 列（ensureColumns，agent-direction
+      // issue 06），只保护指令列表与 Web Search；旧项目按列默认值取初始版本 1。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -835,6 +838,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("projects", "root_dev", "root_dev INTEGER");
     add("projects", "root_ino", "root_ino INTEGER");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root_real ON projects (root_real) WHERE root_real IS NOT NULL");
+    // v20（agent-direction issue 06）：指令列表与 Web Search 的乐观并发版本；
+    // 列默认值 1 即旧项目初始版本，不复制旧字段
+    add("projects", "settings_version", "settings_version INTEGER NOT NULL DEFAULT 1");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

@@ -21,6 +21,7 @@ import type { Store } from "../core/store.ts";
 import type { ContextCheckpoint, ContextExperimentRecord, ModelSelection, SelectionUsage, Task } from "../core/types.ts";
 import { randomId } from "../core/types.ts";
 import { grantCoversPath } from "../core/worktree.ts";
+import { verifyDirIdentitySync } from "../core/dir-identity.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialBinding, CredentialStore } from "./execution/credentials.ts";
 import { checkpointFingerprint, COMPACTION_PROMPT_VERSION, generateRollingSummary, resolveClearedRefs, type SummaryResult } from "./compaction.ts";
@@ -504,8 +505,10 @@ export class ContextAssembly {
 
   /**
    * 任务开始时钉版上下文前缀（§3）：
-   * - 项目指令：从显式配置的工作区相对路径经受限读取（realpath 后必须仍在
-   *   工作区内；缺失/不可读/超大分别说明，不偷偷取祖先目录文件）；内容
+   * - 项目指令：从显式配置的工作区相对路径经受限读取。基准目录是已确认的
+   *   工作区根目录（读取前核实目录身份，失效/被替换则拒绝，agent-direction
+   *   issue 06）；无根目录归属的旧项目按会话目录。realpath 后必须仍在基准
+   *   目录内；缺失/不可读/超大分别说明，不偷偷取祖先或子目录文件；内容
    *   捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定；
    * - 继续来源：人工继续已中断任务时，原任务要求作为必留参考注入，
    *   不能只发一句"继续"就丢失原要求（§4）；
@@ -544,6 +547,18 @@ export class ContextAssembly {
     const project = this.deps.store.getProject(this.session.projectId);
     const files = project?.instructionFiles ?? [];
     if (files.length === 0) return null;
+    // 指令基准目录（agent-direction issue 06）：工作区按已确认的根目录身份解析，
+    // 读取前核实根目录仍是登记身份；失效/被替换时拒绝读取替代目录，不退回会话
+    // 子目录。无根目录归属的旧项目继续按会话目录解释相对路径。
+    let baseDir = this.session.cwdReal;
+    if (project?.rootDir) {
+      try {
+        verifyDirIdentitySync(project.rootDir);
+      } catch (err) {
+        return { text: "", version: "", problems: [`项目指令未注入：工作区根目录核实失败（${(err as Error).message}），拒绝读取替代目录`] };
+      }
+      baseDir = project.rootDir.cwdReal;
+    }
     const MAX_INSTRUCTION_BYTES = 256 * 1024;
     const problems: string[] = [];
     const parts: string[] = [];
@@ -554,13 +569,13 @@ export class ContextAssembly {
       }
       let real: string;
       try {
-        real = fs.realpathSync(path.resolve(this.session.cwdReal, file));
+        real = fs.realpathSync(path.resolve(baseDir, file));
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
         problems.push(`项目指令文件 ${file}：${code === "ENOENT" ? "缺失" : `不可读（${(err as Error).message}）`}`);
         continue;
       }
-      if (!grantCoversPath(this.session.cwdReal, real)) {
+      if (!grantCoversPath(baseDir, real)) {
         problems.push(`项目指令文件 ${file}：越出工作区（符号链接逃逸），已拒绝`);
         continue;
       }

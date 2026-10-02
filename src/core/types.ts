@@ -94,6 +94,12 @@ export interface Project {
    * 任务开始固定工具清单；禁用立即阻止后续调用，启用从下一任务生效。
    */
   webSearch: "enabled" | "disabled";
+  /**
+   * 项目设置版本（agent-direction issue 06）：只保护指令列表与 Web Search
+   * 开关；任何变化递增，拥有者入口按期望版本做乐观并发校验。MCP、Jev 与
+   * 会话默认继续使用各自的 configVersion/版本列，不合并为一个总版本。
+   */
+  settingsVersion: number;
   createdAt: string;
 }
 
@@ -474,6 +480,11 @@ export type PersistentEventBody =
   /** 旧项目认领工作区根目录（agent-direction issue 05）；认领后该项目即工作区。 */
   | { type: "project.root_attached"; projectId: string; rootDir: DirIdentity }
   | { type: "project.jev_changed"; projectId: string; configVersion: number; enabled: boolean }
+  /**
+   * 项目指令列表与 Web Search 开关已保存（agent-direction issue 06）：携带设置
+   * 版本与可供视图更新的配置字段；不含指令正文或秘密。冲突的保存不产生本事件。
+   */
+  | { type: "project.settings_changed"; projectId: string; settingsVersion: number; instructionFiles: string[]; webSearch: "enabled" | "disabled" }
   | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }

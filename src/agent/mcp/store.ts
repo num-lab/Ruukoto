@@ -199,8 +199,13 @@ export class McpStore {
     return next;
   }
 
-  /** 撤销服务（删除行；进行中的调用在下一次版本核对时失败）。 */
-  removeService(id: string): boolean {
+  /** 撤销服务（删除行；进行中的调用在下一次版本核对时失败）。携带期望版本且不符时抛冲突。 */
+  removeService(id: string, expectedVersion?: number): boolean {
+    const existing = this.getService(id);
+    if (!existing) return false;
+    if (expectedVersion !== undefined && expectedVersion !== existing.configVersion) {
+      throw new McpVersionConflictError(expectedVersion, existing.configVersion);
+    }
     const info = this.db.prepare("DELETE FROM mcp_services WHERE id = ?").run(id);
     return Number(info.changes) === 1;
   }

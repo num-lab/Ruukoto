@@ -116,7 +116,7 @@ export class Store {
     if (rootDir && this.findProjectByRoot(rootDir)) {
       throw new StoreConflictError(`工作区已存在：${rootDir.cwdReal}`, "duplicate");
     }
-    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, rootDir: rootDir ?? null, instructionFiles: [], webSearch: "enabled", createdAt: new Date().toISOString() };
+    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, rootDir: rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: new Date().toISOString() };
     try {
       this.db
         .prepare("INSERT INTO projects (id, name, create_request_id, root_cwd, root_real, root_dev, root_ino, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -195,16 +195,52 @@ export class Store {
     return row ? this.rowToProject(row) : null;
   }
 
-  /** 设置项目指令文件列表（工作区相对路径；拥有者入口，调用方负责校验）。 */
-  setProjectInstructionFiles(projectId: string, files: string[]): void {
+  /**
+   * 更新项目设置（agent-direction issue 06；拥有者入口，调用方负责校验路径与
+   * 版本形状）。settings_version 只保护指令列表与 Web Search 开关：
+   * - 携带 expectedVersion 时核对当前版本，不符抛 version_conflict，
+   *   不修改配置、不产生事件；
+   * - 省略版本 = 旧入口兼容写入：同样更新同一行、递增同一版本并追加同一
+   *   project.settings_changed 事件，有版本客户端的后续保存会因版本变化
+   *   冲突，旧入口不能绕过冲突检测；
+   * - 同值保存幂等：不递增版本、不产生事件（对齐 MCP 启停语义）。
+   * 调用方须以 withTx 包住（校验、更新与事件单一事务）。
+   */
+  updateProjectSettings(input: {
+    projectId: string;
+    instructionFiles?: string[];
+    webSearch?: "enabled" | "disabled";
+    expectedVersion?: number;
+  }): Project {
+    const current = this.getProject(input.projectId);
+    if (!current) throw new StoreConflictError(`项目不存在：${input.projectId}`, "not_found");
+    if (input.expectedVersion !== undefined && input.expectedVersion !== current.settingsVersion) {
+      throw new StoreConflictError(
+        `项目设置版本冲突：期望 v${input.expectedVersion}，当前 v${current.settingsVersion}（请刷新后重试）`,
+        "version_conflict",
+      );
+    }
+    const files = input.instructionFiles ?? current.instructionFiles;
+    const webSearch = input.webSearch ?? current.webSearch;
+    if (JSON.stringify(files) === JSON.stringify(current.instructionFiles) && webSearch === current.webSearch) {
+      return current;
+    }
+    if (current.settingsVersion >= Number.MAX_SAFE_INTEGER) {
+      throw new StoreConflictError("项目设置版本已达上限", "invalid_params");
+    }
+    const nextVersion = current.settingsVersion + 1;
     this.db
-      .prepare("UPDATE projects SET instruction_files = ? WHERE id = ?")
-      .run(JSON.stringify(files), projectId);
-  }
-
-  /** 按项目启用/禁用 Web Search（issue 20；拥有者入口，调用方负责校验）。 */
-  setProjectWebSearch(projectId: string, value: "enabled" | "disabled"): void {
-    this.db.prepare("UPDATE projects SET web_search = ? WHERE id = ?").run(value, projectId);
+      .prepare("UPDATE projects SET instruction_files = ?, web_search = ?, settings_version = ? WHERE id = ?")
+      .run(JSON.stringify(files), webSearch, nextVersion, input.projectId);
+    const updated = this.getProject(input.projectId)!;
+    this.appendEvent({
+      type: "project.settings_changed",
+      projectId: input.projectId,
+      settingsVersion: nextVersion,
+      instructionFiles: updated.instructionFiles,
+      webSearch: updated.webSearch,
+    });
+    return updated;
   }
 
   getProject(id: string): Project | null {
@@ -232,6 +268,7 @@ export class Store {
         : null,
       instructionFiles: JSON.parse(row.instruction_files ?? "[]") as string[],
       webSearch: row.web_search === "disabled" ? "disabled" : "enabled",
+      settingsVersion: Number(row.settings_version ?? 1),
       createdAt: row.created_at,
     };
   }

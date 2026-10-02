@@ -207,15 +207,34 @@ export class ToolRouter {
     const launcher = this.deps.launcherFor(task.accessMode); // 未配置 → 明确失败，不回退
     const session = this.deps.store.getSession(task.sessionId);
     if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
-    const host = await ToolWorkerHost.start(launcher, {
+    const startPromise = ToolWorkerHost.start(launcher, {
       taskId: task.id,
       mode: task.accessMode,
       workspace: session.cwdReal,
       grantedPaths: task.grantedPaths,
     });
+    // 启动窗口登记占位（agent-direction issue 04）：工具意图落库早于 ready，此
+    // 窗口内的停止路径必须能找到并回收执行单元——否则 killManagedProcesses 看到
+    // 空 registry，abort() 会等待一个无人停止的工具调用。start 的失败路径自行
+    // 回收单元，占位 stop 只处理「仍在启动或已就绪」。
+    this.deps.registry.register({
+      kind: "starting",
+      id: `starting:${task.id}`,
+      label: `tool-worker starting task=${task.id}`,
+      stop: async () => {
+        const host = await startPromise.catch(() => null);
+        if (host && this.worker === host) {
+          this.worker = null;
+          this.workerKey = null;
+        }
+        return host ? host.stop() : true;
+      },
+    });
+    const host = await startPromise;
     this.worker = host;
     this.workerKey = key;
-    // 登记可回收身份（容器/systemd 单元/进程组），停止路径统一经此回收
+    // 登记可回收身份（容器/systemd 单元/进程组），停止路径统一经此回收；
+    // 上面的 starting 占位仍留在登记表（停止入口幂等：对已停止单元 stop() 直接返回）
     const identity = host.identity();
     this.deps.registry.register({
       kind: identity.kind,

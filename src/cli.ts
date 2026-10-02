@@ -6,6 +6,7 @@
  *   ruukoto -- <路径>                          显式工作区入口（目录与命令同名时使用，如 ruukoto -- config）
  *   ruukoto config [--offline]                 独立配置中心
  *   ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container]
+ *                  （默认：ruukoto = local，ruukoto-dev = container）
  *   ruukoto start                              server 的兼容别名（同一代码路径；文档推荐 server）
  *   ruukoto tui                                旧拼法：打印迁移指引后仍启动任务界面
  *   ruukoto create-project <name>
@@ -166,16 +167,17 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
   if (modelFlag && (split <= 0 || split === modelFlag.length - 1)) throw new Error("--model 格式为 provider/model");
   const modelProvider = split < 0 ? undefined : modelFlag.slice(0, split);
   const modelId = split < 0 ? undefined : modelFlag.slice(split + 1);
-  const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? "local";
+  // 默认执行后端按产品区分（ADR 0017，agent-direction issue 04）：Coding Agent
+  // 的受限执行以已验证的容器边界为默认，不在生产入口静默降级；个人 Agent 的
+  // CLI 默认仍为 local，生产部署经 --execution container 或环境变量显式启用。
+  // 这里覆盖的是 CLI 生产入口；库层默认（local）供测试与开发实例按各自入口使用。
+  const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? (product === "ruukoto-dev" ? "container" : "local");
   if (execFlag !== "local" && execFlag !== "container") {
     console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
     return 1;
   }
-  if (execFlag === "local" && product === "ruukoto") {
+  if (execFlag === "local") {
     console.error("警告：local 执行后端无隔离，仅用于开发/验证；生产部署请使用 --execution container 并完成 systemd 执行账户配置");
-  }
-  if (execFlag === "local" && product === "ruukoto-dev") {
-    console.error("提示：ruukoto-dev 当前以 local 执行后端运行（macOS/Linux 受限执行模式尚在验证，见 ADR 0017）");
   }
   // 工具集：默认真实编码工具；mock 仅供模拟测试（crash 恢复集成验证使用）
   const toolsFlag = flags["tools"] ?? "coding";

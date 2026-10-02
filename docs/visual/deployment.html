@@ -65,7 +65,7 @@
 
   <section id="boundary">
     <h2>边界总图</h2>
-    <p>生产部署把一台机器切成五个嵌套的范围：主机、拥有者账户、后台账户、执行账户、每任务容器；外面是外部网络。后台进程的每一个跨边界动作都只有下面这几条通道，通道之外没有别的路：容器里没有网络，执行账户读不到控制面，容器里也没有数据目录。本图描述服务器生产部署；开发机（ruukoto-dev，macOS/Linux）的受限执行复用同一每任务容器边界——macOS 上容器跑在 Docker Desktop 的 Linux VM 里，宿主路径按原样挂载（agent-direction 工单 03 冒烟 16/16，含孙进程逃逸回收与停止核实）；macOS 内置 sandbox-exec 的文件规则在 macOS 27 静默不执行，不能作为边界（探针见 <code class="src" data-src=".scratch/agent-direction/macos-sbx-probe.sh">macos-sbx-probe.sh</code>）。开发机的完全访问同样需要独立的执行账户身份（同 uid 会持有控制面令牌、可冒充拥有者），macOS 上该本机账户与 sudo 包装属部署前置、尚未验证。</p>
+    <p>生产部署把一台机器切成五个嵌套的范围：主机、拥有者账户、后台账户、执行账户、每任务容器；外面是外部网络。后台进程的每一个跨边界动作都只有下面这几条通道，通道之外没有别的路：容器里没有网络，执行账户读不到控制面，容器里也没有数据目录。本图描述服务器生产部署；开发机（ruukoto-dev，macOS/Linux）的受限执行复用同一每任务容器边界——macOS 上容器跑在 Docker Desktop 的 Linux VM 里，宿主路径按原样挂载（agent-direction 工单 03 冒烟 16/16，含孙进程逃逸回收与停止核实）；macOS 内置 sandbox-exec 的文件规则在 macOS 27 静默不执行，不能作为边界（探针见 <code class="src" data-src=".scratch/agent-direction/macos-sbx-probe.sh">macos-sbx-probe.sh</code>）。开发机的完全访问同样需要独立的执行账户身份（同 uid 会持有控制面令牌、可冒充拥有者），macOS 上该本机账户与 sudo 包装属部署前置、尚未验证。工单 04 已把验证后的边界接入产品：ruukoto-dev 默认以容器边界执行受限任务（后端缺失或失效时执行前明确拒绝、不回退；local 须显式选择并带无隔离警告），完全访问缺执行账户入口时提交按 execution_unavailable 拒绝；产品级冒烟（代码修改与检查、外网/宿主文件/只读根约束、越界审批、中断回收执行单元，含启动窗口竞争的修复）在 Docker Desktop 与原生 Linux 各 6/6，注册占位后的 03 边界结论与上述部署前提不变。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -343,7 +343,7 @@
           <tr><td><code>User</code> / <code>Group</code></td><td><code>ruukoto-backend</code></td><td>同一 UID 部署不满足控制面分离要求</td></tr>
           <tr><td>环境</td><td><code>RUUKOTO_DATA_DIR</code>、<code>RUUKOTO_AGENT_DIR</code>、<code>RUUKOTO_EXECUTION_BACKEND=container</code>、<code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code>、<code>RUUKOTO_EXEC_STOP_SCRIPT</code>、<code>RUUKOTO_EXEC_UID</code>/<code>GID</code></td><td>执行入口与身份在单元里写定；缺入口则完全访问不可用</td></tr>
           <tr><td>容器身份</td><td><code>RUUKOTO_CONTAINER_UID</code>/<code>GID</code>、<code>RUUKOTO_WORKER_IMAGE</code>（单元里注释示例，按需 drop-in）</td><td>原生 Linux 不映射 uid，容器 uid 必须能写工作区</td></tr>
-          <tr><td><code>ExecStart</code></td><td><code>node …/tsx /opt/ruukoto/src/cli.ts server</code></td><td>CLI 只接受 <code>local</code> / <code>container</code>；local 在 ruukoto 打印无隔离警告，在 ruukoto-dev 打印受限模式尚未验证的提示</td></tr>
+          <tr><td><code>ExecStart</code></td><td><code>node …/tsx /opt/ruukoto/src/cli.ts server</code></td><td>CLI 只接受 <code>local</code> / <code>container</code>；未指定时按产品默认（ruukoto = local、ruukoto-dev = container，工单 04），两产品以 local 生效时打印同一条无隔离警告</td></tr>
           <tr><td><code>Restart</code> / <code>RestartSec</code></td><td><code>on-failure</code> / 3</td><td>启动失败（如 <code>no_model</code>）由 systemd 重试，之后停在失败态</td></tr>
           <tr><td><code>KillMode</code> / <code>TimeoutStopSec</code></td><td><code>control-group</code> / 30</td><td>SIGTERM 后走后台的优雅停止；30 s 未退则 systemd 强杀整个 cgroup</td></tr>
         </tbody>
@@ -420,7 +420,7 @@
           <text class="el start" x="883" y="330">直接 spawn</text>
         </svg>
       </div>
-      <figcaption>三列的下半部分是三种执行单元的<strong>停止与核实</strong>方式，也是 <code class="src" data-src="src/agent/managed-processes.ts#ManagedUnitKind">managed-processes.ts · ManagedUnitKind</code> 的三个取值各自对应的动作：容器要 <code>kill</code> + <code>rm -f</code> 再用 <code>inspect</code> 确认不存在，systemd 单元要 <code>systemctl stop</code> 再用 <code>is-active</code> 确认，进程组按 TERM → KILL 两档等待。任何一档无法确认，调用方都保留目录占用。</figcaption>
+      <figcaption>三列的下半部分是三种执行单元的<strong>停止与核实</strong>方式，对应 <code class="src" data-src="src/agent/managed-processes.ts#ManagedUnitKind">managed-processes.ts · ManagedUnitKind</code> 的 <code>container</code> / <code>systemd_unit</code> / <code>process_group</code> 三个取值：容器要 <code>kill</code> + <code>rm -f</code> 再用 <code>inspect</code> 确认不存在，systemd 单元要 <code>systemctl stop</code> 再用 <code>is-active</code> 确认，进程组按 TERM → KILL 两档等待。任何一档无法确认，调用方都保留目录占用。第四个取值 <code>starting</code> 没有自身的停止动作：它是执行单元启动中的占位登记（意图落库到 ready 的窗口也在停止路径覆盖内，工单 04），停止时等启动落定后按对应种类回收。</figcaption>
       <ul class="legend">
         <li><i class="run"></i>实际执行单元（容器 / 单元 / 进程组）</li>
       </ul>

@@ -2,15 +2,17 @@
  * 受管执行单元登记表（每会话一份）。
  *
  * 工具执行环境在此登记可回收身份：POSIX 进程组（本地工作进程）、容器
- * （任务容器）或 systemd 单元（完全访问的执行账户，issue 03）。停止路径对
- * 执行单元先 TERM 后 KILL（或等价的整单元停止），只有确认整个单元（含其
- * 子进程/cgroup）已退出才允许释放目录占用。无法确认退出时保留占用并报错
+ * （任务容器）或 systemd 单元（完全访问的执行账户，issue 03）；starting
+ * 是启动中的占位——ready 之前的执行单元也在停止路径覆盖内，不存在
+ * 「已落库的工具意图却找不到可回收身份」的窗口。停止路径对执行单元先
+ * TERM 后 KILL（或等价的整单元停止），只有确认整个单元（含其子进程/
+ * cgroup）已退出才允许释放目录占用。无法确认退出时保留占用并报错
  * ——仅杀主进程或等待主 PID 消失不足以证明后代已退出。
  */
 
 import * as childProcess from "node:child_process";
 
-export type ManagedUnitKind = "process_group" | "container" | "systemd_unit";
+export type ManagedUnitKind = "process_group" | "container" | "systemd_unit" | "starting";
 
 export interface ManagedEntry {
   kind: ManagedUnitKind;

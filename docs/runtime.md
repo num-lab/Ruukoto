@@ -208,16 +208,28 @@ TUI 只连接本机后台（Unix socket + 拥有者令牌），不创建 SDK 会
 `--demo` 打开合成调试会话：不连后台，只应答展示所需的读操作，其余操作明确
 拒绝（提交恢复草稿），待核实记录写到临时目录。
 
-**工作区入口（issue 21）**：`ruukoto <路径>` 以该目录为工作区创建新会话并
-直接进入（`./config`、`-- <路径>` 处理与命令同名的目录）。相对路径按客户端
-调用时工作目录解析；后台继续校验目录存在性、realpath、dev/ino、保护根与
-权限，只接受已有目录。按规范化目录身份查找已有 dev 会话对应的项目：唯一
-候选直接复用，多个候选先经选择列表确认（取消则不创建任何记录），从未使用
-的目录自动创建项目（目录名命名，重名追加序号，绝不因同名合并项目）。每次
-独立启动创建一个新会话；创建请求带稳定启动请求标识（create_project /
-create_session 幂等键，同键同参返回原记录、同键异参报 request_conflict），
+**工作区入口（issue 21；agent-direction issue 05）**：`ruukoto <路径>` 以该目录
+为工作区创建新会话并直接进入（`./config`、`-- <路径>` 处理与命令同名的目录）。
+相对路径按客户端调用时工作目录解析；后台继续校验目录存在性、realpath、
+dev/ino、保护根与权限，只接受已有目录。工作区实例上是带根目录归属的
+项目（projects 表 root_cwd/root_real/root_dev/root_ino 四列，v19 补列，同一
+真实目录至多一个工作区，部分唯一索引兜底）；根目录可以是普通目录，也可以
+含多个 Git 仓库。归属判定按真实目录身份（realpath，或 dev+ino 覆盖符号链接
+与挂载别名），同名不同目录各自成工作区（项目名仅展示层去重，重名追加序号，
+绝不合并）。打开目录经 `open_workspace` op：已确认归属的工作区直接复用；尚未
+归属的旧项目可作为候选经选择列表确认后认领根目录（多个候选先选择，取消则
+不创建任何记录；`project.root_attached` 事件留痕）；从未使用的目录自动创建
+工作区项目。认领/建项目与建会话同一事务，失败不留空项目。每次独立启动创建
+一个新会话；创建请求带稳定启动请求标识（open_workspace / create_project /
+create_session 幂等键，同键重发返回原记录、同键异参报 request_conflict），
 断线重连后按标识在新快照中核实，不重复创建；连接仍在的应答丢失（超时等）
 当场核实一次，仍未确认则回到正常启动并提示用 `/project` 查看。
+`create_project` / `create_session` 旧 op 行为不变（不写根目录归属），旧项目、
+旧会话照常可读。
+**选择面板（agent-direction issue 05）**：ruukoto-dev 的 `/project` 与工作区→会话
+选择中，带根目录归属的工作区列在前、旧项目列在后，逻辑角色（main/coding/chat）
+与 QQ 群聊会话所在的项目不进入普通列表，会话列表同样过滤；ruukoto 产品沿用
+旧行为（主会话等原样列出）。内部子任务是任务而非会话，本就不出现在会话列表。
 
 - **输入**：`Enter` 提交，`Alt+Enter`（或 `Shift+Enter` / `Ctrl+J`）换行；
   支持中文与 bracketed paste，大段粘贴在编辑器内折叠显示，草稿与提交保留
@@ -232,7 +244,7 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   输出取 provider 实际输出，用量缺失的调用不计入，不使用估算。数量按千进制
   转换为 K、M、B，最多一位小数；宽度不足以显示统计和完整模型信息时，整段
   统计隐藏。每次实际用量保存后更新，切换会话及重连时从后台恢复累计值。
-- **命令**：`/resume` 切换当前项目中的会话，`/project` 切换项目；`/new-project`、`/new-session <目录>` 创建；
+- **命令**：`/resume` 切换当前项目中的会话，`/project` 切换项目（ruukoto-dev 为工作区/旧项目列表，见上文「选择面板」）；`/new-project`、`/new-session <目录>` 创建；
   滚动到顶部自动加载更早历史，保留当前查看位置；加载中不重复请求，已加载的更早历史不会被初始 300 条限制裁掉。
   点击工具返回结果行在事件流中展开，再次点击收起；
   `/artifact <id 前缀>` 按字节分页查看产物正文；`/approvals` 待处理审批
@@ -455,7 +467,7 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v18；
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v19；
 │                              #   meta 含实例标识、应用数据绑定、产品归属
 │                              #   product.type——跨产品复用被拒绝）
 │                              #   项目（含项目指令文件与 Web Search 开关）、会话
@@ -1656,6 +1668,8 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；.scratch/agent-direction/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx .scratch/agent-direction/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |
 | ruukoto-dev 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
 | macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；可行机制为独立本机执行账户 + sudo 包装（同 Linux exec 账户一类），创建账户与 sudoers 属拥有者部署动作、本单未做；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
+| 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-dev 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
+| 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-dev.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
 
 ### 按会话选择模型
 

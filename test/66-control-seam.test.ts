@@ -32,7 +32,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 const TUI_OPS: Record<TuiOp, true> = {
   get_task: true, find_task: true, list_tasks: true, read_task_events: true, read_history: true, read_tool_result: true, read_history_entry: true,
   get_tool_op_params: true, get_confirmation_params: true, read_artifact: true, get_session_usage: true, get_session: true, list_session_summaries: true, list_models: true,
-  set_session_model: true, set_session_mode: true, create_project: true, create_session: true, submit: true, continue: true,
+  set_session_model: true, set_session_mode: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
   interrupt: true, cancel: true, resume_queue: true, respond_confirmation: true, list_selection_records: true,
   get_context_breakdown: true, list_prompt_requests: true, read_prompt_snapshot: true, search_history: true, list_skills: true,
   list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true, qq_status: true, qq_set_enabled: true,
@@ -151,7 +151,7 @@ test("服务端错误应答：业务码原样，系统码与没带码的异常�
 
 const T0 = "2026-09-27T00:00:00.000Z";
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
-const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null, instructionFiles: [], webSearch: "enabled", createdAt: T0 };
+const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", createdAt: T0 };
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -403,7 +403,7 @@ test("工作区入口遇到坏帧：等重连快照按启动请求标识核实�
     {
       handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ projects: [PROJECT], sessions: createRequestId ? [created()] : [] }) }),
       handlers: {
-        create_session: (params, transport) => {
+        open_workspace: (params, transport) => {
           createRequestId = params.request_id ?? null;
           transport.drop("bad_frame", "收到非法 JSON 帧");
           return new Promise(() => {});
@@ -414,7 +414,7 @@ test("工作区入口遇到坏帧：等重连快照按启动请求标识核实�
   );
   try {
     await waitFor("重连后进入已建会话", () => h.state.currentSessionId === "sess_ws");
-    assert.equal(h.requested("create_session"), 1, "按启动请求标识在快照里找到，不重发");
+    assert.equal(h.requested("open_workspace"), 1, "按启动请求标识在快照里找到，不重发");
   } finally {
     h.quit();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -450,12 +450,12 @@ test("提交应答丢失而连接仍在：当场按原键核实这一条并关�
 test("工作区入口两次应答丢失：只当场核实一次，然后回落正常启动", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ws-fake-"));
   const h = await startFakeApp(
-    { handlers: { create_session: () => Promise.reject(new ControlClientError("internal_error", "内部错误", "unknown")) } },
+    { handlers: { open_workspace: () => Promise.reject(new ControlClientError("internal_error", "内部错误", "unknown")) } },
     { workspace: { path: dir } },
   );
   try {
     await waitFor("回落正常启动", () => h.notes("已核实一次仍未确认") === 1);
-    assert.equal(h.requested("create_session"), 2, "当场核实只重发一次");
+    assert.equal(h.requested("open_workspace"), 2, "当场核实只重发一次");
   } finally {
     h.quit();
     fs.rmSync(dir, { recursive: true, force: true });

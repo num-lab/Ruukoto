@@ -23,7 +23,6 @@ import { readOwnerToken } from "../src/control/owner-token.ts";
 import {
   findWorkspaceProjects,
   resolveWorkspaceDir,
-  suggestProjectName,
 } from "../src/control/workspace.ts";
 import type { Project, Session } from "../src/core/types.ts";
 import { ViewState } from "../src/tui/state.ts";
@@ -122,6 +121,7 @@ function fakeProject(over: Partial<Project> & { id: string }): Project {
   return {
     name: over.id,
     createRequestId: null,
+    rootDir: null,
     instructionFiles: [],
     webSearch: "enabled",
     createdAt: "2026-01-01T00:00:00Z",
@@ -344,13 +344,6 @@ test("findWorkspaceProjects：按 cwdReal 与 dev+ino 匹配，忽略非 dev 与
   );
 });
 
-test("suggestProjectName：取目录名，重名追加 (2)/(3)，绝不合并同名目录", () => {
-  const identity = { cwd: "/x/alpha", cwdReal: "/x/alpha", dev: 1, ino: 1 };
-  assert.equal(suggestProjectName({ projects: [] }, identity), "alpha");
-  const projects = [fakeProject({ id: "p1", name: "alpha" }), fakeProject({ id: "p2", name: "alpha (2)" })];
-  assert.equal(suggestProjectName({ projects }, identity), "alpha (3)");
-});
-
 // ---------- TUI 工作区入口 ----------
 
 test("工作区入口：无候选项目时自动创建项目（建议名）并进入新会话", async () => {
@@ -466,8 +459,9 @@ test("工作区入口：多项目选择取消后不创建任何项目/会话，�
     assert.equal(t.runtime.store.listSessions().length, baseSessions, "取消不创建会话");
     assert.equal(t.runtime.store.listProjects().length, baseProjects, "取消不创建项目");
     assert.equal(h.state.currentSessionId, null, "不留下选中的会话");
-    // 回落正常启动流程：已有会话时打开会话选择
-    await waitFor("回落到会话选择", () => h.terminal.output().includes("选择会话"));
+    // 回落正常启动流程：已有会话时打开项目选择（「选择项目」面板；候选面板标题
+    // 是「选择要进入的项目」、首帧页眉是「未选择会话」，两者都不含这个连续子串）
+    await waitFor("回落到项目选择", () => h.terminal.output().includes("选择项目"), 30_000);
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);
   } finally {
@@ -553,7 +547,7 @@ test("工作区入口请求超时（连接未断）：按同一启动请求标�
       const client = await ControlClient.connect(socketPath, timeoutMs);
       const orig = client.request.bind(client);
       (client as any).request = async (op: string, params?: Record<string, unknown>, timeout?: number): Promise<unknown> => {
-        if (op === "create_session" && !timedOut) {
+        if (op === "open_workspace" && !timedOut) {
           timedOut = true;
           await orig(op, params, timeout);
           throw new ControlClientError("request_timeout", "模拟请求超时", "unknown");
@@ -592,7 +586,7 @@ test("工作区入口应答丢失：重连后按启动请求标识核实，不�
         firstClient = false;
         const orig = client.request.bind(client);
         (client as any).request = (op: string, params?: Record<string, unknown>, timeout?: number): Promise<unknown> => {
-          if (op === "create_session" && !dropped) {
+          if (op === "open_workspace" && !dropped) {
             dropped = true;
             const real = orig(op, params, timeout);
             real.catch(() => {});

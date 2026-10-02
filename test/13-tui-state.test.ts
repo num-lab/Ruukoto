@@ -23,7 +23,7 @@ const notes = (view: SessionView) => view.flow.items.filter((entry) => entry.kin
 
 function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
-    projects: [{ id: "proj_1", name: "演示", createRequestId: null, instructionFiles: [], webSearch: "enabled", createdAt: "2026-09-20T00:00:00Z" }],
+    projects: [{ id: "proj_1", name: "演示", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", createdAt: "2026-09-20T00:00:00Z" }],
     sessions: [
       {
         id: "sess_1",
@@ -312,11 +312,11 @@ test("模型选择只接受非旧版本，replay 不回滚，旧排队补配置�
 // ---------- 自动审查（issue 15） ----------
 
 test("accessModeLabel/formatAccessMode：三种模式的显示名", () => {
-  assert.equal(accessModeLabel("auto-review"), "Auto review");
-  assert.equal(accessModeLabel("confirm"), "Ask for approval");
-  assert.equal(accessModeLabel("full_access"), "Full access");
-  assert.equal(formatAccessMode("auto-review", null), "Auto review");
-  assert.equal(formatAccessMode("confirm", "auto-review"), "Ask for approval（待切换：Auto review）");
+  assert.equal(accessModeLabel("auto-review"), "⏵⏵ Auto review");
+  assert.equal(accessModeLabel("confirm"), "⏸ Ask for approval");
+  assert.equal(accessModeLabel("full_access"), "⏵⏵ Full access");
+  assert.equal(formatAccessMode("auto-review", null), "⏵⏵ Auto review");
+  assert.equal(formatAccessMode("confirm", "auto-review"), "⏸ Ask for approval（待切换：⏵⏵ Auto review）");
   // 着色：Auto review 蓝、Full access 橙黄、Ask for approval 不改色
   assert.match(accessModeStyle("auto-review")("X"), /^\x1b\[38;5;75mX\x1b\[0m$/);
   assert.match(accessModeStyle("full_access")("X"), /^\x1b\[38;5;214mX\x1b\[0m$/);

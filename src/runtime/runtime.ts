@@ -41,7 +41,7 @@ import {
   randomId,
 } from "../core/types.ts";
 import { acquireConfigLock, acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
-import { resolveDirIdentity, verifyDirIdentity, DirIdentityError } from "../core/dir-identity.ts";
+import { resolveDirIdentity, verifyDirIdentity, sameDirIdentity, DirIdentityError, type DirIdentity } from "../core/dir-identity.ts";
 import { createModelCatalog, type ModelCatalog, type ModelOption } from "../agent/model-selection.ts";
 import {
   configRevision,
@@ -986,15 +986,7 @@ export class Runtime {
       const project = this.store.getProject(input.projectId);
       if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
     }
-    const identity = await resolveDirIdentity(input.cwd).catch((err: DirIdentityError) =>
-      Promise.reject(new RuntimeApiError("invalid_params", err.message)),
-    );
-    // 工作区不得是保护根（后台数据、凭据、控制面、服务代码）本身、其子级或其祖先
-    try {
-      assertGrantNotProtected(identity.cwdReal, this.protectedRoots());
-    } catch (err) {
-      throw new RuntimeApiError("invalid_params", `工作区不可用：${(err as Error).message}`);
-    }
+    const identity = await this.resolveUsableDir(input.cwd);
     try {
       return this.store.withTx(() => {
         // 目录校验先于任何写入；项目与会话同一事务，会话失败则项目一并回滚
@@ -1018,6 +1010,103 @@ export class Runtime {
       }
       throw err;
     }
+  }
+
+  /**
+   * 打开工作区（agent-direction issue 05）：按真实目录身份（realpath/dev+ino）
+   * 复用或创建工作区并新建会话。工作区实例上是带根目录归属的项目；旧项目可经
+   * projectId 认领根目录（保留旧关系），已归属他目录的项目拒绝改归属。同一
+   * createRequestId 重发返回原会话；目录校验与认领/建项目/建会话在同一事务，
+   * 失败不留空项目。
+   */
+  async openWorkspace(input: {
+    cwd: string;
+    /** 指定既有项目（旧项目认领或显式选择）；缺省按目录身份自动复用/创建。 */
+    projectId?: string;
+    /** 启动请求标识（幂等键）：重发返回原会话。 */
+    createRequestId?: string;
+  }): Promise<{ session: Session; projectName: string; createdProject: boolean }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    const identity = await this.resolveUsableDir(input.cwd);
+    try {
+      return this.store.withTx(() => {
+        // 应答丢失后的同一标识重发：直接返回首次成果，项目/会话都不重建；
+        // 同键异目录按 request_conflict 处理（与 create_session 同一纪律，
+        // 目录身份同样是 realpath 或 dev+ino 别名判定）
+        if (input.createRequestId) {
+          const replay = this.store.findSessionByCreateRequestId(input.createRequestId);
+          if (replay) {
+            const replayIdentity: DirIdentity = { cwd: replay.cwd, cwdReal: replay.cwdReal, dev: replay.cwdDev, ino: replay.cwdIno };
+            if (!sameDirIdentity(replayIdentity, identity)) {
+              throw new StoreConflictError(`request_id 已存在且目录不同：session=${replay.id}`, "request_conflict");
+            }
+            return { session: replay, projectName: this.store.getProject(replay.projectId)!.name, createdProject: false };
+          }
+        }
+        let project: Project | null = null;
+        let createdProject = false;
+        if (input.projectId) {
+          const target = this.store.getProject(input.projectId);
+          if (!target) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+          project = target;
+          // 逻辑角色与群聊会话所在的项目不是可认领的旧项目（可信入口不会发，后台兜底）
+          const roleProjectIds = new Set(this.store.listAgentRoles().map((r) => r.projectId));
+          if (roleProjectIds.has(target.id) || this.store.listSessions().some((s) => s.projectId === target.id && s.kind !== "dev")) {
+            throw new RuntimeApiError("invalid_params", "角色或群聊项目不能作为工作区认领");
+          }
+          if (!project.rootDir) {
+            this.store.attachProjectRoot(project.id, identity);
+          } else if (!sameDirIdentity(project.rootDir, identity)) {
+            throw new RuntimeApiError("invalid_params", `项目已归属其他工作区目录：${project.rootDir.cwdReal}`);
+          }
+        } else {
+          project = this.store.findProjectByRoot(identity);
+          if (!project) {
+            // 自动项目名取根目录名，重名仅展示层去重（同名不同目录绝不合并）
+            const base = path.basename(identity.cwdReal) || "workspace";
+            for (let n = 1; ; n++) {
+              const name = n === 1 ? base : `${base} (${n})`;
+              if (!this.store.findProjectByName(name)) {
+                project = this.store.createProject(name, input.createRequestId, identity);
+                createdProject = true;
+                break;
+              }
+            }
+          }
+        }
+        const session = this.store.createSession({
+          projectId: project.id,
+          kind: "dev",
+          cwd: identity.cwd,
+          cwdReal: identity.cwdReal,
+          cwdDev: identity.dev,
+          cwdIno: identity.ino,
+          piSessionId: randomUUID(),
+          confirmTools: [],
+          createRequestId: input.createRequestId,
+          modelSelection: this.defaultSelection,
+        });
+        return { session, projectName: project.name, createdProject };
+      });
+    } catch (err) {
+      if (err instanceof StoreConflictError) {
+        throw new RuntimeApiError(err.code, err.message);
+      }
+      throw err;
+    }
+  }
+
+  /** 解析目录身份并校验不是保护根本身、其子级或其祖先。 */
+  private async resolveUsableDir(cwd: string): Promise<DirIdentity> {
+    const identity = await resolveDirIdentity(cwd).catch((err: DirIdentityError) =>
+      Promise.reject(new RuntimeApiError("invalid_params", err.message)),
+    );
+    try {
+      assertGrantNotProtected(identity.cwdReal, this.protectedRoots());
+    } catch (err) {
+      throw new RuntimeApiError("invalid_params", `工作区不可用：${(err as Error).message}`);
+    }
+    return identity;
   }
 
   async listModels(input: { provider?: string; offset?: number; limit?: number } = {}) {

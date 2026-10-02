@@ -89,7 +89,7 @@ function demoTasks(): Task[] {
   ];
 }
 
-const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId: null, instructionFiles: ["AGENTS.md"], webSearch: "enabled", createdAt: ts(120) };
+const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId: null, rootDir: null, instructionFiles: ["AGENTS.md"], webSearch: "enabled", createdAt: ts(120) };
 
 const SESSION: Session = {
   id: SESSION_ID,
@@ -292,8 +292,10 @@ function demoEvents(): PersistentEvent[] {
   const second = answer.slice(split);
   const bodies: PersistentEventBody[] = [
     { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container", product: "ruukoto" },
-    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null },
+    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: null },
+    { type: "project.root_attached", projectId: PROJECT_ID, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
+    { type: "session.usage_updated", sessionId: SESSION_ID },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", modelSelection: MODEL },

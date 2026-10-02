@@ -469,7 +469,10 @@ export class ConfigTuiApp {
     // 项目/会话列表的轻量补丁（与任务 TUI 的 ViewState 同源语义，这里只留展示字段）
     switch (body.type) {
       case "project.created":
-        this.projects = [...this.projects.filter((p) => p.id !== body.projectId), { id: body.projectId, name: body.name, createRequestId: body.createRequestId, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt } as Project];
+        this.projects = [...this.projects.filter((p) => p.id !== body.projectId), { id: body.projectId, name: body.name, createRequestId: body.createRequestId, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt } as Project];
+        break;
+      case "project.root_attached":
+        this.projects = this.projects.map((p) => (p.id === body.projectId && !p.rootDir ? { ...p, rootDir: body.rootDir } : p));
         break;
       case "session.model_selection_changed":
         this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, modelSelection: body.modelSelection, modelSelectionVersion: body.modelSelectionVersion } : s));

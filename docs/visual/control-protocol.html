@@ -385,18 +385,17 @@
     </details>
 
     <h3>工作区入口的幂等键</h3>
-    <p><code>ruukoto &lt;路径&gt;</code> 每次启动都带一个稳定的启动请求标识（<code>startupRequestId</code>），它同时是 <code>create_project</code> / <code>create_session</code> 的 <code>request_id</code>。</p>
+    <p><code>ruukoto &lt;路径&gt;</code> 每次启动都带一个稳定的启动请求标识（<code>startupRequestId</code>），它是 <code>open_workspace</code> 的 <code>request_id</code>；工作区实例上是带根目录归属的项目（<code>projects.root_*</code> 四列，同一真实目录至多一个工作区）。归属按真实目录身份（realpath，或 dev+ino 覆盖符号链接与挂载别名）；旧项目可经同一 op 认领根目录（<code>project.root_attached</code> 事件留痕），已归属他目录的项目拒绝改归属。</p>
     <ul>
-      <li>同键同参（项目 + 规范化目录 + 确认工具集合）返回已存在记录，<b>不重复插入、不产生事件</b>；同键异参回 <code>request_conflict</code>。</li>
-      <li>Project 的幂等键比较项目名；Session 的比较项目、<code>cwdReal</code> 与确认工具集合。</li>
+      <li>同键重发（启动请求标识）返回首次成果，<b>不重复插入、不产生事件</b>；create_project/create_session 照旧：同键同参返回已存在记录，同键异参回 <code>request_conflict</code>。</li>
       <li>应答丢失且连接仍在：当场核实一次；已断线：重连完成新握手后，先在新快照里按 <code>createRequestId === startupRequestId</code> 找会话，找不到才以同一标识重发。标识只在本次启动内复用，不生成第二个。</li>
-      <li>目录校验（存在性、realpath、dev/ino、保护根）在写入之前；项目与会话在同一事务，失败不留空项目。</li>
+      <li>目录校验（存在性、realpath、dev/ino、保护根）在写入之前；认领/建项目与建会话在同一事务，失败不留空项目。</li>
     </ul>
   </section>
 
   <section id="ops">
     <h2>op 目录</h2>
-    <p>服务端 <code>dispatch</code> 的 switch 里共有 75 个 op，另有 <code>auth</code> 在 switch 之外单独处理（见「认证」）。下表按领域分组；<b>写</b>列标出会改变后台状态的操作，<b>幂等键</b>列标出带 <code>request_id</code> 去重的操作。</p>
+    <p>服务端 <code>dispatch</code> 的 switch 里共有 79 个 op，另有 <code>auth</code> 在 switch 之外单独处理（见「认证」）。下表按领域分组；<b>写</b>列标出会改变后台状态的操作，<b>幂等键</b>列标出带 <code>request_id</code> 去重的操作。</p>
 
     <div class="scroll">
       <table class="tbl">
@@ -409,6 +408,7 @@
           <tr><td colspan="4"><b>项目与会话</b></td></tr>
           <tr><td><code>create_project</code></td><td>建项目</td><td>是</td><td><code>request_id</code></td></tr>
           <tr><td><code>create_session</code></td><td>建会话（可经 <code>project_name</code> 自动建项目，同事务）</td><td>是</td><td><code>request_id</code></td></tr>
+          <tr><td><code>open_workspace</code></td><td>按真实目录身份复用/创建工作区并新建会话（旧项目可经同一 op 认领根目录）</td><td>是</td><td><code>request_id</code></td></tr>
           <tr><td><code>get_session</code></td><td>读单个会话</td><td>—</td><td>—</td></tr>
           <tr><td colspan="4"><b>模型配置</b></td></tr>
           <tr><td><code>list_models</code></td><td>模型目录分页</td><td>—</td><td>—</td></tr>
@@ -510,7 +510,8 @@
         <thead><tr><th>事件类型</th><th>何时发出</th><th>详见</th></tr></thead>
         <tbody>
           <tr><td><code>model.config_changed</code></td><td>模型配置在线应用成功（catalog / api_key / default_model / summary_model），载荷不含秘密，供前端刷新</td><td>本页</td></tr>
-          <tr><td><code>project.created</code></td><td>项目创建（带幂等键时只在真正新建时产生）</td><td>本页</td></tr>
+          <tr><td><code>project.created</code></td><td>项目创建（带幂等键时只在真正新建时产生；工作区项目另带根目录归属）</td><td>本页</td></tr>
+          <tr><td><code>project.root_attached</code></td><td>旧项目认领工作区根目录（认领后该项目即工作区）</td><td>本页</td></tr>
           <tr><td><code>project.jev_changed</code></td><td>项目 Jev 上下文筛选配置变化</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
           <tr><td><code>session.created</code></td><td>会话创建（含入口类别、工作目录、初始模型与创建标识）</td><td>本页</td></tr>
           <tr><td><code>session.model_selection_changed</code></td><td>会话模型或思考档位变更（带版本号）</td><td>本页</td></tr>

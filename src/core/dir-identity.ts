@@ -42,6 +42,14 @@ export async function resolveDirIdentity(cwd: string): Promise<DirIdentity> {
   return { cwd: path.resolve(cwd), cwdReal: real, dev: stat.dev, ino: stat.ino };
 }
 
+/**
+ * 目录身份相同判定：realpath 相同（覆盖符号链接别名）或 dev+ino 相同
+ * （覆盖挂载别名）。两个目录因此不会因同名或别名被合并，也不会重复归属。
+ */
+export function sameDirIdentity(a: DirIdentity, b: DirIdentity): boolean {
+  return a.cwdReal === b.cwdReal || (a.dev === b.dev && a.ino === b.ino);
+}
+
 /** 校验目录仍是登记时的身份；不一致抛 DirIdentityError。 */
 export async function verifyDirIdentity(identity: DirIdentity): Promise<void> {
   const current = await resolveDirIdentity(identity.cwdReal).catch((err) => {

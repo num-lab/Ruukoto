@@ -69,12 +69,12 @@
 
   <section id="core-db">
     <h2>ruukoto.db：一份核心库，按职责分组</h2>
-    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v18</code>：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
+    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v19</code>：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>分组</th><th>表</th><th>职责</th></tr></thead>
         <tbody>
-          <tr data-k="work" tabindex="0"><td>会话与工作</td><td><code>projects</code> · <code>sessions</code> · <code>tasks</code></td><td>旧架构的项目/会话边界与任务本体（状态、请求键、提交摘要）</td></tr>
+          <tr data-k="work" tabindex="0"><td>会话与工作</td><td><code>projects</code> · <code>sessions</code> · <code>tasks</code></td><td>项目（含工作区根目录归属 <code>root_*</code> 四列，v19；同一真实目录至多一个工作区）/会话边界与任务本体（状态、请求键、提交摘要）</td></tr>
           <tr data-k="occupancy" tabindex="0"><td>目录占用</td><td><code>occupancy</code></td><td>整项任务级的目录占用登记，防并行写冲突</td></tr>
           <tr data-k="events" tabindex="0"><td>事件与恢复</td><td><code>events</code> · <code>inbound_events</code> · <code>tool_ops</code> · <code>confirmations</code></td><td>持久事件流、入站事件（去重键）、工具操作账本、审批与批准消费</td></tr>
           <tr data-k="roles" tabindex="0"><td>角色与群聊结果</td><td><code>agent_roles</code> · <code>chat_result_acceptances</code></td><td>旧架构逻辑角色（main/coding/chat）引导记录；main 显式接收的群聊结果快照</td></tr>
@@ -125,7 +125,7 @@
           <tr><td>配置锁</td><td><code>&lt;agentDir&gt;/config.lock</code></td><td>在线后台与离线配置中心互斥；socket 不可达不能证明后台已停，必须走锁</td></tr>
           <tr><td>拥有者令牌</td><td><code>&lt;controlDir&gt;/owner.token</code>（0600）</td><td>控制面认证；部署时以 0400 复制给拥有者，或用环境变量指向拷贝</td></tr>
           <tr><td>产品归属</td><td>核心库 <code>meta</code> 的 <code>product.type</code></td><td>首次启动登记；另一产品再开同一数据目录直接拒绝（issue 01，旧库无此键照常打开并补记）</td></tr>
-          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v18</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
+          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v19</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
         </tbody>
       </table>
     </div>

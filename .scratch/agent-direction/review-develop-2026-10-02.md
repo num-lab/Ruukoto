@@ -1,12 +1,12 @@
-# develop 最近五次提交评审记录
+# develop 五次提交及修复复查记录
 
 评审日期：2026-10-02（Asia/Tokyo）。
 
-本次确认 5 个 P2 问题：Standards 轴 2 个，Spec 轴 3 个。以下问题均待修复；记录评审结果不代表已完成修复。
+首轮确认 5 个 P2 问题：Standards 轴 2 个，Spec 轴 3 个。R1–R5 已在 `87f1e63` 修复，并经第二轮复查确认。本轮补查原提交范围还发现 3 个待修复的 P2 问题（R6–R8），均属于原实现遗漏，不是修复提交新引入的问题。
 
 ## 评审范围
 
-基准提交：`ff289e2a4ee5281ffc6ea81f7c9ddeda79893e20`。目标提交：`606e15f930e2988c2e277756d733cfdd600fd604`。代码位置与行号均对应目标提交。
+首轮基准提交：`ff289e2a4ee5281ffc6ea81f7c9ddeda79893e20`。目标提交：`606e15f930e2988c2e277756d733cfdd600fd604`。首轮 R1–R5 的代码位置与行号对应该目标提交，问题描述保留发现时的行为；当前修复状态见文首和第二轮复查记录。
 
 ```bash
 git diff ff289e2...606e15f
@@ -93,3 +93,64 @@ npx tsx --test test/07-real-tools.test.ts test/30-workspace-entry.test.ts test/6
 类型检查通过；相关测试共 63 项，全部通过，无失败或跳过。五个发现通过额外临时复现确认，现有测试通过不代表覆盖了这些边界。临时复现未新增持久回归测试。
 
 执行与停止路径未发现本次新增的可确认缺陷；基线已存在的问题不计入上述五项。本次评审未重新执行全量 `npm test`、真实模型调用或 Linux 部署隔离验证。
+
+## 第二轮复查：87f1e63
+
+复查日期：2026-10-02（Asia/Tokyo）。修复提交：`87f1e638d52e30a7f019148c840f32d4f7d0ab1c`（`fix: 修复评审 P2 问题 R1–R5`）。本轮先审查 `606e15f...87f1e63` 的修复，再补查 `ff289e2...87f1e63` 的原实现；下列 R6–R8 的行号均对应 `87f1e63`。
+
+### 修复核验
+
+R1–R5 已确认解决：
+
+- R1：更新根目录归属前按 realpath 或 dev+ino 检查占用者，跨项目别名认领被拒绝；同项目相同身份重复认领不新增事件。
+- R2：真实 SQLite 根目录唯一约束错误能够转换为 `duplicate`。新增控制面用例主要命中前置占用检查，本轮另以临时 Store 验证绕过预查后的 SQLite 异常转换。
+- R3：有效环境令牌或令牌副本能够复用后台；首次无令牌时仍能进入启动和就绪轮询。
+- R4：`src/cli.ts` 入口经固定 bin 成功按需拉起后台，并可优雅停止。
+- R5：真实 TuiApp、FakeTerminal 和 Runtime/socket 验证混合旧项目的路径入口进入新工作区，原普通 dev 会话仍保留在旧项目中。
+
+### Standards
+
+R1、R2 的修复符合目录身份与冲突处理要求，未发现本次修复新增的可确认规范问题。
+
+### Spec
+
+#### R6 — [P2] ruukoto stop 可能停止错误产品
+
+状态：待修复。位置：[src/cli.ts](../../src/cli.ts)，第 116—118 行；身份注入入口见 [bin/ruukoto.mjs](../../bin/ruukoto.mjs)。关联工单：[01](issues/01-independent-products.md)。
+
+个人产品 bin 没有固定 `RUUKOTO_PRODUCT`，CLI 会采信继承的环境变量。如果 shell 导出 `RUUKOTO_PRODUCT=ruukoto-dev`，运行个人产品的 `ruukoto stop` 实际使用开发产品的目录和 socket，可能停止开发后台并中断其任务，违反工单 01 的产品独立与停止互不影响要求。
+
+复现证据：使用隔离的 data、agent、control 目录启动两个真实 bin 后台；在子进程环境设置 `RUUKOTO_PRODUCT=ruukoto-dev` 后运行 `node bin/ruukoto.mjs stop`，命令返回 0，开发后台退出 0，个人后台仍可握手应答。模型层打桩，进程与控制面真实；所有临时后台和目录已清理。
+
+修复建议：在个人产品 bin 固定 `ruukoto` 身份，保留 `npm start` 通过环境变量选择产品的能力。验收时在继承相反产品环境变量的情况下分别调用两个真实 bin，确认每条入口的启动、查询和停止均只作用于指定产品。
+
+#### R7 — [P2] 历史日志导致启动失败被误判为锁竞争
+
+状态：待修复。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 134—138 行，尤其是对 `logTail(logPath)` 的锁竞争判断。关联工单：[02](issues/02-coding-daemon.md)。
+
+`spawn.log` 持续追加，日志尾部可能包含上一次启动的“实例锁冲突”。本次后台因缺少模型等原因退出时，代码仍可能把 `lostLockRace` 设为 `true`，跳过启动失败分支；按默认配置会等到 60 秒截止后报告就绪超时，并丢失 `no_model` 的模型配置指引。这不符合工单 02 对启动失败状态的要求。
+
+复现证据：在临时 `spawn.log` 留下历史锁错误，再用真实 bin 启动缺少模型的后台，日志尾部同时包含历史锁错误和本次 `no_model`。为避免长等待，将 `deadlineMs` 缩短为 1800、`exitGraceMs` 缩短为 100，结果仍误报“等待后台就绪超时”；默认 60 秒行为由同一分支和默认截止参数推导，未等待完整 60 秒。
+
+修复建议：依据当前子进程本次启动的错误判断锁竞争，不能将共享追加日志中的历史错误或其他启动进程的错误当作当前进程的退出原因。验收时同时覆盖历史锁错误后发生普通启动失败，以及真实并发锁竞争后复用胜者；前者应保留启动失败原因和配置提示，后者仍应等待并复用胜者。
+
+#### R8 — [P2] 协议不兼容错误被替换为令牌检查提示
+
+状态：待修复。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 95—99 行；原始错误在 `probeControlPlane` 第 33—34 行被吞掉。关联工单：[02](issues/02-coding-daemon.md)。
+
+后台返回 `protocol_version` 后，探测只返回 `false`，socket 可连分支统一提示核对令牌。ruukoto-dev 的 TUI 随即退出，无法进入原有连接层的协议错误展示路径，拥有者看不到版本不兼容及升级指引。工单 02 明确要求不兼容版本给出明确状态。
+
+复现证据：通过本地 Unix socket 模拟旧版本服务端的 v8 拒绝响应，返回与真实 ControlServer 相同形状的 `protocol_version` 错误。直接 ControlClient 显示“服务端 v8，请求 v9；请升级客户端”，`ensureBackend` 却只输出核对 `RUUKOTO_OWNER_TOKEN` 或令牌文件的提示。本次验证使用协议响应模拟，没有运行旧版本完整后台。
+
+修复建议：保留并展示具体认证或协议拒绝原因。验收时分别覆盖错误令牌和不兼容协议；协议拒绝应显示版本与升级指引，不启动第二个后台，也不提示用户修改有效令牌。
+
+### 本轮验证记录
+
+复查期间执行：
+
+```bash
+npm run typecheck
+npx tsx --test test/30-workspace-entry.test.ts test/67-visual-docs.test.ts test/72-on-demand-backend.test.ts test/74-workspace-sessions.test.ts
+```
+
+类型检查通过；相关测试共 46 项，全部通过，无失败或跳过。R1–R5 的补充核验及 R6–R8 的临时复现范围见各条记录；已有测试通过未覆盖这三个残留问题。本轮没有重新执行全量 `npm test`、真实模型调用或 Linux 部署隔离验证，也未新增持久回归测试。

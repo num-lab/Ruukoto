@@ -61,3 +61,7 @@ Status: resolved
 - R2：isRootDirClash 改按列名匹配（node:sqlite 对部分唯一索引实际报 UNIQUE constraint failed: projects.root_real，非索引名），与 isCreateRequestIdClash 同款；同 realpath 冲突经控制面返回 duplicate（outcome=rejected，不进入应答丢失处理），事务回滚不留新会话与归属。
 - R5：findWorkspaceProjects 排除会话不全是普通 dev 的项目（与 runtime.openWorkspace 认领防御同款条件）——混合旧项目不作目录候选，路径入口不再自动发出必遭拒绝的认领请求；混合旧项目中普通会话的查看与切换（workspacePickerProjects）保持不变；纯角色、纯群聊项目仍受后台保护。
 - 回归测试：test/74「attachProjectRoot：相同 dev+ino 的挂载别名认领冲突；同项目相同身份幂等」「认领已被占用的同 realpath 根目录返回 duplicate，不留会话与归属」「混合旧项目（dev 与群聊并存）不可认领，目录打开直接新建工作区」「findWorkspaceProjects：混合旧项目（dev 与角色/群聊并存）不充当目录候选」。
+
+### 2026-10-02：第二轮评审
+
+R1、R2、R5 已在 `87f1e63` 修复并通过复查；本轮补充验证了挂载别名身份冲突、真实 SQLite 异常转换，以及混合旧项目经真实 TUI 打开的完整路径。本工单未发现新增的可确认问题，验证范围见[评审记录](../review-develop-2026-10-02.md)。

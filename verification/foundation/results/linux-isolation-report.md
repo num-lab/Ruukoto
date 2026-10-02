@@ -1,11 +1,12 @@
 # Linux 受限执行探针报告
 
-- 时间：2026-09-20T09:29:10
+- 时间：2026-10-02T10:47:36
 - 宿主: Darwin 27.0.0
-容器引擎: Docker version 29.4.1, build 055a478
-- 容器环境：Linux 6.12.76-linuxkit / NAME="Debian GNU/Linux"
-- 注意：本次在 Docker Desktop（macOS 上的 Linux VM）中验证容器边界本身；
-  目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时）未验证，见 issue 记录。
+容器引擎: Docker version 29.8.0, build 88096ef
+- 容器环境：Linux 7.0.12-linuxkit / NAME="Debian GNU/Linux"
+- 注意：探针验证容器边界本身；宿主环境见上方宿主信息行（macOS Docker Desktop
+  的 Linux VM 与原生 Linux 均已验证；原生 Linux 的 bind mount 无 uid 映射，
+  工作区写权限处理见 deploy/systemd/README.md 第 5 步）。
 
 | 探针 | 预期 | 结果 | 说明 |
 | --- | --- | --- | --- |

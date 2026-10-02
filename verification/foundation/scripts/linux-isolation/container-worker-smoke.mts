@@ -86,6 +86,21 @@ async function main(): Promise<number> {
     grantedPaths: [{ path: grantedDir, access: "read", purpose: "smoke" }],
   });
 
+  const hbPath = path.join(workspace, "heartbeat.txt");
+  const countBeats = () => {
+    try {
+      return fs.readFileSync(hbPath, "utf8").split("\n").filter(Boolean).length;
+    } catch {
+      return 0;
+    }
+  };
+  // 心跳间隔 1s：窗口须覆盖 ≥2 个完整周期并留调度余量
+  const BEAT_WINDOW_MS = 3200;
+  const beatsAfter = async (ms: number) => {
+    await new Promise((r) => setTimeout(r, ms));
+    return countBeats();
+  };
+
   try {
     // 1. 工具在容器内执行：可见工作区、可写工作区，结果回传宿主
     const r1 = await bash(host, "smoke-1", "echo container-ok && touch made-in-container.txt && id -u");
@@ -102,11 +117,12 @@ async function main(): Promise<number> {
     );
     check("容器无外网出口", /NETERR/.test(r2.text) && !/NET-CONNECTED/.test(r2.text), r2.text.trim().slice(0, 120));
 
-    // 3. 宿主工作区外的真实文件不可见（文件真实存在，拒绝原因是边界而非目标不存在）
+    // 3. 宿主工作区外的真实文件不可见（文件真实存在；并断言拒绝形态是"路径不存在"——
+    //    未挂载的边界，而不是权限或其他表象）
     const r3 = await bash(host, "smoke-3", `cat ${JSON.stringify(secretPath)} /etc/ruukoto-backend 2>&1 | head -2`);
     check(
-      "工作区外宿主文件不可见",
-      !r3.text.includes("host-secret-value"),
+      "工作区外宿主文件不可见（未挂载而非权限拒绝）",
+      !r3.text.includes("host-secret-value") && /No such file|not found/i.test(r3.text),
       r3.text.trim().slice(0, 120),
     );
 
@@ -115,7 +131,21 @@ async function main(): Promise<number> {
     check("容器基础文件系统只读", /Permission denied|Read-only file system/.test(r4.text), r4.text.trim().split("\n")[0] ?? "");
     check("容器无有效 capabilities", /CapEff:\s+0{16}/.test(r4.text), r4.text.match(/CapEff:.*/)?.[0] ?? "?");
 
-    // 5. 按宿主原路径挂载：工作目录、绝对路径读取与只读授予路径在容器内外一致
+    // 5. 子进程不能绕过边界取到执行单元之外的生命周期：脱离会话的孙进程
+    //    （忽略 SIGHUP、与发起 shell 分离、挂到容器 pid1 下）在执行单元活着
+    //    时真实运行，单元回收后必须随之终止（不能只终止工作进程本身）。
+    //    sleep 120 是无写动作的另一个逃逸常驻进程，同样只能随容器消亡。
+    const rSpawn = await bash(
+      host,
+      "smoke-9",
+      "nohup sh -c 'while true; do echo beat >> heartbeat.txt; sleep 1; done' >/dev/null 2>&1 & nohup sleep 120 >/dev/null 2>&1 & echo spawned",
+    );
+    check("逃逸孙进程发起成功", !rSpawn.isError && /spawned/.test(rSpawn.text), rSpawn.text.trim().slice(0, 80));
+    const before = countBeats();
+    const later = await beatsAfter(BEAT_WINDOW_MS);
+    check("逃逸孙进程实际在运行（对照）", later >= before + 2, `心跳 ${before} → ${later}`);
+
+    // 6. 按宿主原路径挂载：工作目录、绝对路径读取与只读授予路径在容器内外一致
     const r5 = await bash(host, "smoke-5", "pwd");
     check("bash 工作目录为宿主工作区路径", r5.text.trim() === workspace && !r5.isError, r5.text.trim());
     const r6 = await tool(host, "smoke-6", "read", { path: path.join(workspace, "seed.txt") });
@@ -140,6 +170,15 @@ async function main(): Promise<number> {
       inspectFails = true;
     }
     check("容器已移除（不遗留执行单元）", inspectFails, identity.id);
+    // 停止确认后心跳必须冻结：若仍有写入（或心跳文件被删掉），说明孙进程逃出了
+    // 被回收的执行单元。文件须在停止后仍然存在——逃逸者删除文件也会造成 0→0 的假通过。
+    const frozen = countBeats();
+    const afterStop = await beatsAfter(BEAT_WINDOW_MS);
+    check(
+      "停止操作回收逃逸孙进程（心跳冻结且载体仍存在）",
+      reaped && fs.existsSync(hbPath) && afterStop === frozen,
+      `心跳 ${frozen} → ${afterStop}，文件存在=${fs.existsSync(hbPath)}`,
+    );
   }
 
   fs.rmSync(workspace, { recursive: true, force: true });

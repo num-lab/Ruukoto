@@ -2,11 +2,11 @@
 
 评审日期：2026-10-02（Asia/Tokyo）。
 
-首轮确认 5 个 P2 问题：Standards 轴 2 个，Spec 轴 3 个。R1–R5 已在 `87f1e63` 修复，并经第二轮复查确认。本轮补查原提交范围还发现 3 个待修复的 P2 问题（R6–R8），均属于原实现遗漏，不是修复提交新引入的问题。
+首轮确认 5 个 P2 问题，第二轮补查发现 R6–R8。当前复查到 `bfcd077`：R1–R5 已在 `87f1e63` 修复，R6、R8 已在 `3ebaa5f` 修复并通过第三轮复查；R7 仅排除了历史日志污染，并发日志污染仍待修复。第三轮另确认一个由 `3ebaa5f` 引入的 P2 回归 R9：探测期间后台退出被误判为认证拒绝。当前待处理项为 R7、R9。
 
 ## 评审范围
 
-首轮基准提交：`ff289e2a4ee5281ffc6ea81f7c9ddeda79893e20`。目标提交：`606e15f930e2988c2e277756d733cfdd600fd604`。首轮 R1–R5 的代码位置与行号对应该目标提交，问题描述保留发现时的行为；当前修复状态见文首和第二轮复查记录。
+首轮基准提交：`ff289e2a4ee5281ffc6ea81f7c9ddeda79893e20`。目标提交：`606e15f930e2988c2e277756d733cfdd600fd604`。首轮 R1–R5 的代码位置与行号对应该目标提交，问题描述保留发现时的行为；当前修复状态见文首及后续各轮复查记录。
 
 ```bash
 git diff ff289e2...606e15f
@@ -116,7 +116,7 @@ R1、R2 的修复符合目录身份与冲突处理要求，未发现本次修复
 
 #### R6 — [P2] ruukoto stop 可能停止错误产品
 
-状态：待修复。位置：[src/cli.ts](../../src/cli.ts)，第 116—118 行；身份注入入口见 [bin/ruukoto.mjs](../../bin/ruukoto.mjs)。关联工单：[01](issues/01-independent-products.md)。
+状态：已在 `3ebaa5f` 修复，第三轮复查通过。以下保留第二轮发现时的行为和位置：[src/cli.ts](../../src/cli.ts)，第 116—118 行；身份注入入口见 [bin/ruukoto.mjs](../../bin/ruukoto.mjs)。关联工单：[01](issues/01-independent-products.md)。
 
 个人产品 bin 没有固定 `RUUKOTO_PRODUCT`，CLI 会采信继承的环境变量。如果 shell 导出 `RUUKOTO_PRODUCT=ruukoto-dev`，运行个人产品的 `ruukoto stop` 实际使用开发产品的目录和 socket，可能停止开发后台并中断其任务，违反工单 01 的产品独立与停止互不影响要求。
 
@@ -126,7 +126,7 @@ R1、R2 的修复符合目录身份与冲突处理要求，未发现本次修复
 
 #### R7 — [P2] 历史日志导致启动失败被误判为锁竞争
 
-状态：待修复。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 134—138 行，尤其是对 `logTail(logPath)` 的锁竞争判断。关联工单：[02](issues/02-coding-daemon.md)。
+状态：部分修复，`3ebaa5f` 排除了历史日志污染，并发日志污染仍待修复，见第三轮复查。以下保留第二轮发现时的行为和位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 134—138 行，尤其是对 `logTail(logPath)` 的锁竞争判断。关联工单：[02](issues/02-coding-daemon.md)。
 
 `spawn.log` 持续追加，日志尾部可能包含上一次启动的“实例锁冲突”。本次后台因缺少模型等原因退出时，代码仍可能把 `lostLockRace` 设为 `true`，跳过启动失败分支；按默认配置会等到 60 秒截止后报告就绪超时，并丢失 `no_model` 的模型配置指引。这不符合工单 02 对启动失败状态的要求。
 
@@ -136,7 +136,7 @@ R1、R2 的修复符合目录身份与冲突处理要求，未发现本次修复
 
 #### R8 — [P2] 协议不兼容错误被替换为令牌检查提示
 
-状态：待修复。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 95—99 行；原始错误在 `probeControlPlane` 第 33—34 行被吞掉。关联工单：[02](issues/02-coding-daemon.md)。
+状态：已在 `3ebaa5f` 修复，第三轮复查确认原版本提示问题已解决；修复引入的断线回归另记为 R9。以下保留第二轮发现时的行为和位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 95—99 行；原始错误在 `probeControlPlane` 第 33—34 行被吞掉。关联工单：[02](issues/02-coding-daemon.md)。
 
 后台返回 `protocol_version` 后，探测只返回 `false`，socket 可连分支统一提示核对令牌。ruukoto-dev 的 TUI 随即退出，无法进入原有连接层的协议错误展示路径，拥有者看不到版本不兼容及升级指引。工单 02 明确要求不兼容版本给出明确状态。
 
@@ -154,3 +154,44 @@ npx tsx --test test/30-workspace-entry.test.ts test/67-visual-docs.test.ts test/
 ```
 
 类型检查通过；相关测试共 46 项，全部通过，无失败或跳过。R1–R5 的补充核验及 R6–R8 的临时复现范围见各条记录；已有测试通过未覆盖这三个残留问题。本轮没有重新执行全量 `npm test`、真实模型调用或 Linux 部署隔离验证，也未新增持久回归测试。
+
+## 第三轮复查：bfcd077
+
+复查日期：2026-10-02（Asia/Tokyo）。本轮审查 `87f1e63...bfcd077`，包含修复提交 `3ebaa5f`（R6–R8）及文档提交 `bfcd077`。目标提交为 `bfcd077a0f0b4d1c0e2f24910523969f534401b3`；以下位置与行号对应该提交。
+
+R6 已确认修复：个人产品 bin 固定身份，两条真实 bin 在继承相反产品环境变量时各自查询和停止指定产品，另一后台仍可握手。R8 的原版本提示问题已确认修复：协议拒绝保留版本及升级指引，对外布尔探测接口仍兼容开发实例。R7 的历史日志路径已修复，但并发窗口仍有遗漏。本轮确认两个待处理的 P2 问题：Standards 轴为 R7 残留，Spec 轴为新回归 R9。
+
+### Standards
+
+#### R7 复查 — [P2] 仍受其他启动进程的日志污染
+
+状态：部分修复，并发遗漏待修复；沿用 R7 编号。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 174—179 行；共享日志来源见第 147—155 行。关联工单：[02](issues/02-coding-daemon.md)。
+
+`logStart` 按启动时刻记录共享日志的字节起点，可以排除旧内容，但同一窗口内另一启动进程的锁错误仍落在该切片中。当前进程因 `no_model` 等普通原因退出时，仍可能被误判为锁竞争，跳过启动失败分支并丢失配置指引。原 R7 修复建议明确要求不能使用“其他启动进程的错误”判断当前进程退出原因；源码的近似隔离注释也承认这一上限，当前实现尚未满足该要求。
+
+复现证据：同一控制目录并行两次 `ensureBackend`，实际派生子进程 A、B；B 延迟 100ms 输出锁错误后退出，A 延迟 350ms 输出 `no_model: 未找到可用模型` 后退出。两者日志起点均覆盖 B 的输出，A 最终误报“等待后台就绪超时”，没有模型配置提示。使用 `deadlineMs=1700`、`exitGraceMs=100`；子进程、共享文件和函数路径真实，启动输出内容模拟。默认 60 秒等待由同一分支及默认参数推导，未等待完整 60 秒。
+
+修复建议：按当前子进程归属收集退出输出，避免使用包含其他进程内容的共享切片判断锁竞争。验收时应保留历史日志用例，并新增并发子进程各自失败的场景；普通启动失败须保留其实际原因和配置提示，真实锁竞争仍须等待并复用胜者。
+
+### Spec
+
+#### R9 — [P2] 探测期间后台退出被误判为认证拒绝
+
+状态：待修复，由 `3ebaa5f` 引入。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，`probeWithReason` 第 50—51 行；短路跳过可达性检查见第 126 行。关联工单：[02](issues/02-coding-daemon.md)。
+
+连接建立后的所有异常都被标为 `rejected, connected=true`，后续直接认为后台仍可连，不再检查当前 socket。后台在认证或握手期间退出时，TUI 会误报后台仍在运行并要求核对令牌，直接退出，不能完成工单 02 要求的“后台不存在时按需拉起”。真实 ControlClient 将传输断线标为 `outcome=disconnected`，这不属于后台明确拒绝。
+
+复现证据：本地 Unix socket 收到认证请求后关闭监听、删除 socket 并断开连接，没有发送拒绝应答。通过真实 ControlClient 和 `ensureBackend` 调用，结果为 `socket_absent=true`、`spawn_attempted=false`，仍显示后台在运行和令牌检查提示；是否尝试启动通过仅写临时标记的 `spawnArgv` 检查。该复现模拟后台退出时的 socket 行为，没有启动并杀死完整 Runtime。
+
+修复建议：区分后台明确拒绝与传输中断；对断线重新检查当前 socket，不以曾经连接成功证明后台仍在运行。验收时覆盖认证和握手期间退出：socket 已不可达时应进入按需启动流程；真正的错误令牌或协议拒绝仍应保留对应指引，并且不重复拉起后台。
+
+### 本轮验证记录
+
+复查期间执行：
+
+```bash
+npm run typecheck
+npx tsx --test test/32-dev.test.ts test/67-visual-docs.test.ts test/71-product-entry.test.ts test/72-on-demand-backend.test.ts
+```
+
+类型检查通过；相关测试共 46 项，全部通过，无失败或跳过。R7 并发残留及 R9 断线回归通过额外临时复现确认，已有测试未覆盖这两条路径。本轮没有重新执行全量 `npm test`、真实模型调用或 Linux 部署隔离验证，也未新增持久回归测试。

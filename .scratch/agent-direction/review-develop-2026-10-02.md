@@ -2,7 +2,7 @@
 
 评审日期：2026-10-02（Asia/Tokyo）。
 
-首轮确认 5 个 P2 问题，第二轮补查发现 R6–R8。当前复查到 `bfcd077`：R1–R5 已在 `87f1e63` 修复，R6、R8 已在 `3ebaa5f` 修复并通过第三轮复查；R7 仅排除了历史日志污染，并发日志污染仍待修复。第三轮另确认一个由 `3ebaa5f` 引入的 P2 回归 R9：探测期间后台退出被误判为认证拒绝。当前待处理项为 R7、R9。
+当前复查到 `a8e2ff7`：R1–R5 已在 `87f1e63` 修复，R6、R8 已在 `3ebaa5f` 修复，R7 的并发残留及 R9 已在 `bdf7346` 修复，均经后续复查确认。第四轮新增一个由 `bdf7346` 引入的 P2 回归 R10：无法核实锁持有者被误判为锁竞争。当前待处理项仅为 R10；下文保留各轮发现时的行为、位置与验证记录。
 
 ## 评审范围
 
@@ -126,7 +126,7 @@ R1、R2 的修复符合目录身份与冲突处理要求，未发现本次修复
 
 #### R7 — [P2] 历史日志导致启动失败被误判为锁竞争
 
-状态：部分修复，`3ebaa5f` 排除了历史日志污染，并发日志污染仍待修复，见第三轮复查。以下保留第二轮发现时的行为和位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 134—138 行，尤其是对 `logTail(logPath)` 的锁竞争判断。关联工单：[02](issues/02-coding-daemon.md)。
+状态：已修复；`3ebaa5f` 排除了历史日志污染，`bdf7346` 排除了并发日志对锁竞争分类的影响，第四轮复查通过。以下保留第二轮发现时的行为和位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 134—138 行，尤其是对 `logTail(logPath)` 的锁竞争判断。关联工单：[02](issues/02-coding-daemon.md)。
 
 `spawn.log` 持续追加，日志尾部可能包含上一次启动的“实例锁冲突”。本次后台因缺少模型等原因退出时，代码仍可能把 `lostLockRace` 设为 `true`，跳过启动失败分支；按默认配置会等到 60 秒截止后报告就绪超时，并丢失 `no_model` 的模型配置指引。这不符合工单 02 对启动失败状态的要求。
 
@@ -165,7 +165,7 @@ R6 已确认修复：个人产品 bin 固定身份，两条真实 bin 在继承�
 
 #### R7 复查 — [P2] 仍受其他启动进程的日志污染
 
-状态：部分修复，并发遗漏待修复；沿用 R7 编号。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 174—179 行；共享日志来源见第 147—155 行。关联工单：[02](issues/02-coding-daemon.md)。
+状态：已在 `bdf7346` 修复，第四轮复查通过；沿用 R7 编号。以下保留第三轮发现时的位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 174—179 行；共享日志来源见第 147—155 行。关联工单：[02](issues/02-coding-daemon.md)。
 
 `logStart` 按启动时刻记录共享日志的字节起点，可以排除旧内容，但同一窗口内另一启动进程的锁错误仍落在该切片中。当前进程因 `no_model` 等普通原因退出时，仍可能被误判为锁竞争，跳过启动失败分支并丢失配置指引。原 R7 修复建议明确要求不能使用“其他启动进程的错误”判断当前进程退出原因；源码的近似隔离注释也承认这一上限，当前实现尚未满足该要求。
 
@@ -177,7 +177,7 @@ R6 已确认修复：个人产品 bin 固定身份，两条真实 bin 在继承�
 
 #### R9 — [P2] 探测期间后台退出被误判为认证拒绝
 
-状态：待修复，由 `3ebaa5f` 引入。位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，`probeWithReason` 第 50—51 行；短路跳过可达性检查见第 126 行。关联工单：[02](issues/02-coding-daemon.md)。
+状态：已在 `bdf7346` 修复，第四轮复查通过；原问题由 `3ebaa5f` 引入。以下保留第三轮发现时的位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，`probeWithReason` 第 50—51 行；短路跳过可达性检查见第 126 行。关联工单：[02](issues/02-coding-daemon.md)。
 
 连接建立后的所有异常都被标为 `rejected, connected=true`，后续直接认为后台仍可连，不再检查当前 socket。后台在认证或握手期间退出时，TUI 会误报后台仍在运行并要求核对令牌，直接退出，不能完成工单 02 要求的“后台不存在时按需拉起”。真实 ControlClient 将传输断线标为 `outcome=disconnected`，这不属于后台明确拒绝。
 
@@ -195,3 +195,36 @@ npx tsx --test test/32-dev.test.ts test/67-visual-docs.test.ts test/71-product-e
 ```
 
 类型检查通过；相关测试共 46 项，全部通过，无失败或跳过。R7 并发残留及 R9 断线回归通过额外临时复现确认，已有测试未覆盖这两条路径。本轮没有重新执行全量 `npm test`、真实模型调用或 Linux 部署隔离验证，也未新增持久回归测试。
+
+## 第四轮复查：a8e2ff7
+
+复查日期：2026-10-02（Asia/Tokyo）。本轮审查 `bfcd077...a8e2ff7`，包含修复提交 `bdf7346`（R7 并发残留与 R9）及文档提交 `a8e2ff7`。目标提交为 `a8e2ff724bab505f40121518c45451b8ab04c7cd`；以下位置与行号对应该提交。
+
+R7 的原并发问题已确认解决：锁竞争按当前子进程的专用退出码 42 判断，共享日志文本不再改变分类，普通失败仍进入启动失败分支。R9 已确认解决：认证及握手期间断线、socket 消失时都会重新检查可达性并进入启动流程。本轮确认一个新增 P2 问题：Standards 轴为 R10，Spec 轴未发现其他新增的可确认问题。
+
+### Standards
+
+#### R10 — [P2] 无法核实锁持有者被误判为锁竞争
+
+状态：待修复，由 `bdf7346` 引入。位置：[src/cli.ts](../../src/cli.ts)，第 144—146 行；身份核实失败的错误来源见 [src/core/instance-lock.ts](../../src/core/instance-lock.ts)，第 99—102 行。关联工单：[02](issues/02-coding-daemon.md)。
+
+`InstanceLockError` 同时表示已确认的锁竞争和无法核实持锁进程身份，CLI 当前将两者统一转换为 `INSTANCE_LOCK_EXIT_CODE`（42）。身份核实失败时，后台明确要求人工确认锁；按需启动却把它当作有胜者待就绪的锁竞争，等待至总截止后只显示就绪超时，丢失人工处理指引。锁机制自身要求“无法核实进程身份时保留锁并要求人工处理”，该错误不应与确认的活后台竞争共用等待行为。
+
+复现证据：通过真实 bin 和临时目录创建有效 `runtime.lock/owner.json`，记录的 PID 指向存活进程；子进程环境设置 `PATH=""`，使 `ps` 无法运行。后台实际退出 42，日志为“实例锁被 pid … 持有，但无法核实进程身份；请人工确认后删除 …”。调用 `ensureBackend` 并设置 `deadlineMs=3000`、`exitGraceMs=100` 后，它等到截止并报告“可能就绪较慢或有并发启动在途”，未展示人工核实说明。进程、锁、文件及 bin 入口真实，无模型调用；默认 60 秒行为由同一分支和默认参数推导，未等待完整 60 秒。
+
+修复建议：仅为已确认的锁竞争返回专用竞争退出码，身份核实失败应按普通启动失败展示原始原因，并保留锁供人工处理。验收时分别覆盖已确认的活后台竞争、身份核实失败、可接管的遗留锁：竞争仍应等待并复用胜者，核实失败应及时保留人工处理说明且不得删除锁，遗留锁仍按既有安全规则接管。
+
+### Spec
+
+R7、R9 的原复现路径已通过。除上述 R10 外，未发现其他新增的可确认问题。
+
+### 本轮验证记录
+
+复查期间执行：
+
+```bash
+npm run typecheck
+npx tsx --test test/12-reconnect-pending.test.ts test/29-cli-entry.test.ts test/32-dev.test.ts test/67-visual-docs.test.ts test/71-product-entry.test.ts test/72-on-demand-backend.test.ts
+```
+
+类型检查通过；相关测试共 78 项，全部通过，无失败或跳过。R10 经额外临时复现确认，现有测试未覆盖身份核实失败的退出码分类。本轮没有重新执行全量 `npm test`、真实模型调用或 Linux 部署隔离验证，也未新增持久回归测试。

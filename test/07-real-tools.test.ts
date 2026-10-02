@@ -224,6 +224,45 @@ test("断开客户端后任务继续；重连可见改动、检查结果与产�
   }
 });
 
+test("工作进程启动窗口的中断：启动中的执行单元同样被回收", async () => {
+  // agent-direction issue 04 冒烟发现：op 落库早于工作进程 ready，此窗口内的
+  // 停止找不到启动中的执行单元（registry 为空），abort() 等待一个无人停止的
+  // 工具调用。修复后：占位登记使启动窗口也在停止路径覆盖内。
+  const t = await startTestRuntime("realtools-stop-window", (req) => {
+    const done = req.messages.filter((m) => m?.role === "tool").length;
+    if (done === 0) {
+      return { kind: "tool_calls" as const, calls: [{ id: "w_sleep", name: "bash", arguments: { command: "sleep 30" } }] };
+    }
+    return { kind: "text" as const, text: "不应到达" };
+  }, { workDirs: 1, config: realTools() });
+  try {
+    const dir = t.work[0]!;
+    const { sessionId } = await createProjectSession(t.client, dir);
+    const task = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+      session_id: sessionId,
+      request_id: "rt-stop-window",
+      input: "执行长命令",
+    });
+    // op 落库即中断：必然落在工作进程启动窗口（spawn 数百毫秒）
+    await waitFor("工具操作已落库", () => (t.runtime.store.listToolOpsByTask(task.id) ?? []).length >= 1, 60_000);
+    const startedAt = Date.now();
+    const interrupt = t.client.request<any>("interrupt", { task_id: task.id }, 120_000);
+    const outcome = await Promise.race([
+      interrupt.then(() => "ok" as const),
+      new Promise<"slow">((r) => setTimeout(() => r("slow"), 20_000)),
+    ]);
+    assert.equal(outcome, "ok", "启动窗口的中断必须立即完成，不得等待工具调用自行结束");
+    await waitFor("任务中断", async () => (await taskStatus(t.client, task.id)).task.status === "interrupted", 60_000);
+    assert.ok(Date.now() - startedAt < 30_000, "中断不得等待长命令自然结束");
+    const detail = await taskStatus(t.client, task.id);
+    const op = detail.toolOps.find((o: any) => o.sdkCallId === "w_sleep");
+    assert.ok(op, "bash 操作已记录");
+    assert.equal(op.effectUnknown, true, "启动窗口被停止的 bash 按效果未知补记，不重放");
+  } finally {
+    await t.shutdown();
+  }
+});
+
 test("执行入口不可用：明确失败，不回退到后台账户执行", async () => {
   const t = await startTestRuntime(
     "realtools-nobackend",

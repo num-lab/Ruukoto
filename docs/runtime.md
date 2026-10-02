@@ -144,14 +144,20 @@ ruukoto-dev 的行为差别：
   标注停用原因）；其余命令、控制面与审批机制相同。
 - 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的
   入口打开已归属的数据目录直接拒绝。
-- 开发机执行权限的技术边界已完成验证（agent-direction 工单 03，验证环境与复跑
-  步骤见工单评论）：macOS 内置 sandbox-exec 的文件规则在本机静默不执行、不能
-  构成边界（网络拒绝仍生效，不足以覆盖文件与凭据）；受限执行的可行方式是经
-  本机容器运行时（Docker Desktop 的 Linux VM）复用现有容器启动器——产品级冒烟
-  16/16 通过（含孙进程逃逸回收与停止核实）。完全访问在 macOS 上必须改用独立的
-  本机执行账户（同 uid 运行会持有控制面令牌、可冒充拥有者），该账户与 sudo 包装
-  属部署前置、本机尚未验证。受限/完全访问接入编码任务属工单 04；当前代码仍以
-  local 执行后端运行并打印提示，行为未随本验证改变。
+- 开发机执行权限的边界已在工单 03 验证、工单 04 接入产品：受限模式的执行边界
+  是经本机容器运行时复用的每任务容器（macOS 为 Docker Desktop 的 Linux VM，
+  原生 Linux 直接运行；sandbox-exec 的文件规则在本机静默不执行、不作为边界）。
+  **ruukoto-dev 的默认执行后端为 container**（工单 04）：受限任务在容器边界内
+  执行；`--execution local` / `RUUKOTO_EXECUTION_BACKEND=local` 仍可显式选择；
+  两产品以 local 生效时都打印同一条无隔离警告。后端缺失或失效（docker 不可
+  用、镜像缺失）在执行前明确拒绝、不静默回退到普通账户。完全访问需要专用执行
+  账户（Linux：ruukoto-exec 经 systemd 包装入口，经既有部署验证；macOS 的本机
+  独立账户与 sudo 包装属部署前置、尚未验证）——未配置入口时完全访问提交在执
+  行前以 `execution_unavailable` 拒绝，不静默降级。产品级冒烟
+  `.scratch/agent-direction/smoke-04-desktop-execution.mts`（真实容器、镜像、
+  文件、网络与审批路径，模型打桩；0 全过、2 基础设施缺失）在本机与原生 Linux
+  各 6/6：容器内完成代码修改与检查、子进程不再见宿主文件与外网、只读根、越
+  界读取审批单次消费、中断回收执行单元（含工作进程启动窗口）。
 - 打开 TUI 时按需拉起本机后台（issue 02，见下文「按需拉起后台」）：首次打开
   `ruukoto-dev` 不必先 `server`；关闭 TUI 不停止后台或取消任务，显式
   `ruukoto-dev stop` 才结束后台。
@@ -175,6 +181,8 @@ ruukoto-dev 的行为差别：
   版本不符）照旧终止重连并给出修复指引（不兼容版本不属于可拉起解决的问题）。
 - 拉起即是正常后台启动：异常中断后的恢复沿用既有规则（标记 interrupted、暂停队列、
   效果未知不重放——见文末「崩溃恢复」），拉起与重连都不构成重新执行授权。
+  拉起的后台沿用产品默认执行后端（ruukoto-dev = container）；需要 local 时在环境显式设置
+  `RUUKOTO_EXECUTION_BACKEND=local`（生效时打印无隔离警告）。
 - `ruukoto`（个人 Agent）不按需拉起：后台由显式 `server` 或 systemd 管理，TUI 打开
   时仍只连接已运行的后台。
 - 手动后台照旧：`ruukoto-dev server --data-dir … --agent-dir …` 前台运行，与按需
@@ -1645,7 +1653,9 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | macOS sandbox-exec 可行性探针（.scratch/agent-direction/macos-sbx-probe.sh：file-read literal/subpath/regex/file* 与 file-write 拒绝、孙进程继承、网络拒绝对照） | macOS 27.0 (arm64) | **否定**（2026-10-02）：文件规则 0/6 静默未执行，不构成边界；网络拒绝与孙进程继承生效，不足以覆盖文件与凭据；不作为受限执行方式 |
 | Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |
 | Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
-| macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；可行机制为独立本机执行账户 + sudo 包装（同 Linux exec 账户一类），创建账户与 sudoers 属拥有者部署动作，验证留待工单 04 接入时完成 |
+| 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；.scratch/agent-direction/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx .scratch/agent-direction/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |
+| ruukoto-dev 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
+| macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；可行机制为独立本机执行账户 + sudo 包装（同 Linux exec 账户一类），创建账户与 sudoers 属拥有者部署动作、本单未做；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
 
 ### 按会话选择模型
 

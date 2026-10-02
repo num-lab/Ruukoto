@@ -224,7 +224,7 @@
           <div class="m l" style="--from:3;--to:2"><span>kickAll：唤醒有排队任务的会话</span></div>
         </div>
       </div>
-      <figcaption>abort() 会等正在执行的工具返回，而工具可能正在等子进程退出，所以两者必须并行，否则互相等待。效果未知以停止瞬间的快照为准，中止期间才落下的结果不改变结论。</figcaption>
+      <figcaption>abort() 会等正在执行的工具返回，而工具可能正在等子进程退出，所以两者必须并行，否则互相等待。效果未知以停止瞬间的快照为准，中止期间才落下的结果不改变结论。执行单元从启动开始就在受管登记表里：ready 之前以 <code>starting</code> 占位登记，意图落库到 ready 的启动窗口也在停止覆盖内；读表前让出一个宏任务，使已记录意图的派发先完成登记（agent-direction 工单 04，回归见 test/07「工作进程启动窗口的中断」）。</figcaption>
     </figure>
 
     <aside class="callout limit">

@@ -852,6 +852,9 @@ export class Driver {
   }
 
   private async killManagedProcesses(): Promise<boolean> {
+    // 执行意图落库（hook 处）与工作进程登记（工具 execute 处）之间隔着
+    // promise 边界；让出一个宏任务，使已记录意图的派发先完成登记，再读登记表
+    await new Promise((r) => setImmediate(r));
     const processes = this.registry.list();
     if (processes.length === 0) return true;
     let allReaped = true;

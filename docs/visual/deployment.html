@@ -65,7 +65,7 @@
 
   <section id="boundary">
     <h2>边界总图</h2>
-    <p>生产部署把一台机器切成五个嵌套的范围：主机、拥有者账户、后台账户、执行账户、每任务容器；外面是外部网络。后台进程的每一个跨边界动作都只有下面这几条通道，通道之外没有别的路：容器里没有网络，执行账户读不到控制面，容器里也没有数据目录。</p>
+    <p>生产部署把一台机器切成五个嵌套的范围：主机、拥有者账户、后台账户、执行账户、每任务容器；外面是外部网络。后台进程的每一个跨边界动作都只有下面这几条通道，通道之外没有别的路：容器里没有网络，执行账户读不到控制面，容器里也没有数据目录。本图描述服务器生产部署；开发机（ruukoto-dev，macOS/Linux）的受限执行复用同一每任务容器边界——macOS 上容器跑在 Docker Desktop 的 Linux VM 里，宿主路径按原样挂载（agent-direction 工单 03 冒烟 16/16，含孙进程逃逸回收与停止核实）；macOS 内置 sandbox-exec 的文件规则在 macOS 27 静默不执行，不能作为边界（探针见 <code class="src" data-src=".scratch/agent-direction/macos-sbx-probe.sh">macos-sbx-probe.sh</code>）。开发机的完全访问同样需要独立的执行账户身份（同 uid 会持有控制面令牌、可冒充拥有者），macOS 上该本机账户与 sudo 包装属部署前置、尚未验证。</p>
 
     <figure class="fig">
       <div class="scroll">

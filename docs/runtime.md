@@ -144,7 +144,14 @@ ruukoto-dev 的行为差别：
   标注停用原因）；其余命令、控制面与审批机制相同。
 - 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的
   入口打开已归属的数据目录直接拒绝。
-- 本地受限执行模式尚在验证（方向规格），当前以 local 执行后端运行并打印提示。
+- 开发机执行权限的技术边界已完成验证（agent-direction 工单 03，验证环境与复跑
+  步骤见工单评论）：macOS 内置 sandbox-exec 的文件规则在本机静默不执行、不能
+  构成边界（网络拒绝仍生效，不足以覆盖文件与凭据）；受限执行的可行方式是经
+  本机容器运行时（Docker Desktop 的 Linux VM）复用现有容器启动器——产品级冒烟
+  16/16 通过（含孙进程逃逸回收与停止核实）。完全访问在 macOS 上必须改用独立的
+  本机执行账户（同 uid 运行会持有控制面令牌、可冒充拥有者），该账户与 sudo 包装
+  属部署前置、本机尚未验证。受限/完全访问接入编码任务属工单 04；当前代码仍以
+  local 执行后端运行并打印提示，行为未随本验证改变。
 - 打开 TUI 时按需拉起本机后台（issue 02，见下文「按需拉起后台」）：首次打开
   `ruukoto-dev` 不必先 `server`；关闭 TUI 不停止后台或取消任务，显式
   `ruukoto-dev stop` 才结束后台。
@@ -1634,6 +1641,11 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |
 | ruukoto-dev TUI 按需拉起后台（agent-direction issue 02；test/72 进程级用例：后台不在时拉起、并发两个终端收敛为单实例（含锁竞败者等慢胜者复用）、已运行不重复拉起、启动失败附 spawn.log 尾部、后台在运行但令牌不符的认证指引、关闭客户端不停止后台/取消任务、重开看到同一任务与幂等键核实） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02，8/8；模拟结果与真实环境分列：模型层为模拟，进程/存储/控制面为真实环境） |
 | TUI 真实入口按需拉起冒烟（.scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
+| 开发机受限执行边界产品级冒烟（agent-direction 工单 03；经真实容器启动器 + ruukoto-worker 镜像 + 宿主 ToolWorkerHost：容器内 bash、非 root 1000、工作区写入宿主可见、无外网出口、工作区外宿主真实文件不可见、只读根、CapEff 清零、nohup 逃逸孙进程实际运行（对照）且停止后心跳冻结、停止核实容器移除、宿主原路径挂载、只读授予路径可读不可写） | macOS 本机 Docker Desktop 4.x/29.8.0（Linux VM aarch64）；/var/folders 与 /Users 两种工作区各一遍 | 通过（2026-10-02，16/16 ×2；`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`——真实 docker/镜像/文件/进程/网络路径，无模拟层） |
+| macOS sandbox-exec 可行性探针（.scratch/agent-direction/macos-sbx-probe.sh：file-read literal/subpath/regex/file* 与 file-write 拒绝、孙进程继承、网络拒绝对照） | macOS 27.0 (arm64) | **否定**（2026-10-02）：文件规则 0/6 静默未执行，不构成边界；网络拒绝与孙进程继承生效，不足以覆盖文件与凭据；不作为受限执行方式 |
+| Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |
+| Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
+| macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；可行机制为独立本机执行账户 + sudo 包装（同 Linux exec 账户一类），创建账户与 sudoers 属拥有者部署动作，验证留待工单 04 接入时完成 |
 
 ### 按会话选择模型
 

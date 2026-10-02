@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-09-21T10:47:10",
+  "timestamp": "2026-10-02T09:48:19",
   "host": "宿主: Linux 6.8.0-117-generic\n容器引擎: Docker version 29.5.2, build 79eb04c",
   "container_env": "Linux 6.8.0-117-generic\nPRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"",
-  "caveat": "在 Docker Desktop（macOS 上的 Linux VM）验证容器边界本身；目标服务器的宿主前提（发行版、内核版本、rootless 运行时、sysctl）未验证。",
+  "caveat": "探针验证容器边界本身；宿主信息见 host 字段（macOS Docker Desktop 的 Linux VM 与原生 Linux 均已跑过，原生 Linux 的 bind mount 无 uid 映射，工作区写权限需按部署文档处理）。",
   "expected": {
     "plain": [
       "workspace.write",

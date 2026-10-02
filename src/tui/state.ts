@@ -146,9 +146,14 @@ export class ViewState {
     switch (body.type) {
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
-          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt });
+          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt });
         }
         return;
+      case "project.root_attached": {
+        const project = this.projects.find((p) => p.id === body.projectId);
+        if (project && !project.rootDir) project.rootDir = body.rootDir;
+        return;
+      }
       case "session.created":
         if (!this.sessions.some((s) => s.id === body.sessionId)) {
           this.sessions.push({

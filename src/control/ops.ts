@@ -53,6 +53,8 @@ export interface TuiOps {
     params: { project_id?: string; project_name?: string; cwd: string; confirm_tools?: string[]; request_id?: string };
     result: R<"createSession">;
   };
+  /** 打开工作区（agent-direction issue 05）：按真实目录身份复用/创建工作区并新建会话。 */
+  open_workspace: { params: { cwd: string; project_id?: string; request_id?: string }; result: R<"openWorkspace"> };
   submit: { params: Submit; result: R<"submit"> };
   continue: { params: Submit & { task_id: string }; result: R<"continueTask"> };
   interrupt: { params: { task_id: string }; result: { accepted: true } };

@@ -47,9 +47,12 @@ import type { PendingRequestStore } from "../control/pending-requests.ts";
 import { loadReloadState, saveReloadState } from "./reload-state.ts";
 import {
   ensureWorkspaceSession,
+  findWorkspaceByRoot,
   findWorkspaceProjects,
   resolveWorkspaceDir,
+  workspacePickerProjects,
 } from "../control/workspace.ts";
+import { productFromEnv } from "../core/product.ts";
 import type { DirIdentity } from "../core/dir-identity.ts";
 import type { ConfirmationRequestView } from "../core/views.ts";
 import type { AccessMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Task } from "../core/types.ts";
@@ -1147,6 +1150,13 @@ export class TuiApp {
         return;
       }
       this.startupRequestId = `boot-${randomUUID()}`;
+    }
+    // 已确认归属（根目录身份）优先：命中即唯一工作区，直接进入；否则只在
+    // 尚无归属的旧项目里找候选（issue 05，保留旧项目兼容关系）
+    const rootMatch = findWorkspaceByRoot({ projects: this.state.projects }, this.workspaceIdentity);
+    if (rootMatch) {
+      await this.ensureWorkspaceEntry(rootMatch.id);
+      return;
     }
     const candidates = findWorkspaceProjects(
       { projects: this.state.projects, sessions: this.state.sessions, roleSessionIds: this.state.roleSessionIds },
@@ -2773,29 +2783,55 @@ export class TuiApp {
 
   // ---------- 会话选择 ----------
 
+  /** ruukoto-dev（issue 05）：普通列表只含 dev 且非逻辑角色的会话；ruukoto 不过滤。 */
+  private devProductPicker(): boolean {
+    return productFromEnv() === "ruukoto-dev";
+  }
+
+  private isVisiblePickerSession(sessionId: string): boolean {
+    if (!this.devProductPicker()) return true;
+    const session = this.state.sessions.find((s) => s.id === sessionId);
+    return !session || (session.kind === "dev" && !this.state.roleSessionIds.includes(session.id));
+  }
+
   private openProjectPicker(): void {
-    const items = this.state.projects.map((project) => {
-      const sessions = this.state.sessions.filter((session) => session.projectId === project.id);
+    // ruukoto-dev（issue 05）：工作区（带根目录归属）在前、旧项目在后，角色与
+    // 群聊项目不进入普通列表；ruukoto 沿用旧行为（主会话等原样列出）
+    const devProduct = this.devProductPicker();
+    const itemOf = (project: Project, tag: string | null) => {
+      const sessions = this.state.sessions.filter((session) => session.projectId === project.id && this.isVisiblePickerSession(session.id));
+      const prefix = tag ? `${tag} · ` : "";
+      const cwdText = project.rootDir ? project.rootDir.cwd : [...new Set(sessions.map((session) => session.cwd))].join(" · ");
       return {
         value: project.id,
-        label: `${sanitizeForDisplay(project.name).replace(/\s+/g, " ")} · ${sessions.length} 个会话`,
-        description: sanitizeForDisplay([...new Set(sessions.map((session) => session.cwd))].join(" · ") || "尚无工作区").replace(/\n/g, "\\n").replace(/\t/g, "\\t"),
+        label: `${prefix}${sanitizeForDisplay(project.name).replace(/\s+/g, " ")} · ${sessions.length} 个会话`,
+        description: sanitizeForDisplay(cwdText || "尚无工作区").replace(/\n/g, "\\n").replace(/\t/g, "\\t"),
       };
-    });
+    };
+    const items = devProduct
+      ? (() => {
+          const { workspaces, legacy } = workspacePickerProjects({
+            projects: this.state.projects,
+            sessions: this.state.sessions,
+            roleSessionIds: this.state.roleSessionIds,
+          });
+          return [...workspaces.map((p) => itemOf(p, "工作区")), ...legacy.map((p) => itemOf(p, "旧项目"))];
+        })()
+      : this.state.projects.map((p) => itemOf(p, null));
     if (!items.length) {
-      this.notify("尚无项目：/new-project <名称> 创建项目");
+      this.notify(devProduct ? "尚无工作区：ruukoto-dev <目录> 打开目录创建工作区" : "尚无项目：/new-project <名称> 创建项目");
       return;
     }
     const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
     const body = new VStack([
-      { component: new Text(bold("选择项目"), 0, 0), grow: 0 },
+      { component: new Text(bold(devProduct ? "选择工作区" : "选择项目"), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
     const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
     list.onCancel = () => handle.hide();
     list.onSelect = (item) => {
       handle.hide();
-      if (this.state.sessions.some((session) => session.projectId === item.value)) {
+      if (this.state.sessions.some((session) => session.projectId === item.value && this.isVisiblePickerSession(session.id))) {
         void this.openSessionPicker(item.value);
         return;
       }
@@ -2829,7 +2865,8 @@ export class TuiApp {
       return;
     }
     if (generation !== this.generation) return;
-    const items = summaries.map((session) => ({
+    // ruukoto-dev（issue 05）：会话列表同样不混入角色与群聊会话
+    const items = summaries.filter((session) => this.isVisiblePickerSession(session.sessionId)).map((session) => ({
       value: session.sessionId,
       label: sanitizeForDisplay(session.name ?? `未命名会话 · ${session.sessionId.slice(0, 14)}…`).replace(/\s+/g, " ").trim(),
       description: () => activityAgo(session.lastActiveAt),

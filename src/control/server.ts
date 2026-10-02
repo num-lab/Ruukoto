@@ -270,6 +270,12 @@ export class ControlServer {
             : undefined,
           createRequestId: optionalRequestId(),
         });
+      case "open_workspace":
+        return runtime.openWorkspace({
+          cwd: requireString("cwd"),
+          projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
+          createRequestId: optionalRequestId(),
+        });
       case "get_session_usage":
         return runtime.getSessionUsage(requireString("session_id"));
       case "get_session":

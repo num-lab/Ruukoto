@@ -11,6 +11,8 @@ import { randomBytes } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
+import type { DirIdentity } from "./dir-identity.ts";
+
 export const PROTOCOL_VERSION = 9;
 
 export interface ModelSelection {
@@ -76,6 +78,12 @@ export interface Project {
   name: string;
   /** 创建幂等键（issue 21；null = 无键创建的旧记录）。 */
   createRequestId: string | null;
+  /**
+   * 工作区根目录身份（agent-direction issue 05）：非 null 即该项目是一个工作区，
+   * 归属 realpath/dev+ino 对应的开发根目录，同名目录不会合并为一个工作区；
+   * null = 旧架构项目（可能包含不同目录的会话），迁移见 issue 07。
+   */
+  rootDir: DirIdentity | null;
   /**
    * 项目指令文件（工作区相对路径，拥有者显式配置；issue 05 §3）。
    * 任务开始时经受限路径读取并钉版本；空数组 = 无项目指令。
@@ -462,7 +470,9 @@ export interface EditStats {
 export type PersistentEventBody =
   /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
   | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model" | "summary_model"; provider?: string }
-  | { type: "project.created"; projectId: string; name: string; createRequestId: string | null }
+  | { type: "project.created"; projectId: string; name: string; createRequestId: string | null; rootDir?: DirIdentity | null }
+  /** 旧项目认领工作区根目录（agent-direction issue 05）；认领后该项目即工作区。 */
+  | { type: "project.root_attached"; projectId: string; rootDir: DirIdentity }
   | { type: "project.jev_changed"; projectId: string; configVersion: number; enabled: boolean }
   | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }

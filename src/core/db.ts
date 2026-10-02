@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   create_request_id TEXT,
+  -- 工作区根目录身份（agent-direction issue 05）：四列同空即旧项目
+  root_cwd TEXT,
+  root_real TEXT,
+  root_dev INTEGER,
+  root_ino INTEGER,
   instruction_files TEXT NOT NULL DEFAULT '[]',
   web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled')),
   created_at TEXT NOT NULL
@@ -565,7 +570,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 17) {
+    } else if (version >= 2 && version <= 18) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -580,6 +585,8 @@ export class Db {
       // v14 → v15：qq_config.owner_user_id 与 inbound_events.reply_target（issue 06）。
       // v16 → v17：群结果接收记录与群收件的撤回时间、引用、配置版本。
       // v17 → v18：新闻采集快照补列；计划动作 CHECK 由下方重建处理。
+      // v18 → v19：projects 补工作区根目录身份四列 + 部分唯一索引
+      // （ensureColumns，agent-direction issue 05）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -821,6 +828,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("sessions", "create_request_id", "create_request_id TEXT");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_create_request ON projects (create_request_id) WHERE create_request_id IS NOT NULL");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (create_request_id) WHERE create_request_id IS NOT NULL");
+    // v19（agent-direction issue 05）：工作区根目录身份；部分唯一索引让同一真实
+    // 目录至多一个工作区（NULL 不参与，旧项目不受影响），索引只在补列后创建
+    add("projects", "root_cwd", "root_cwd TEXT");
+    add("projects", "root_real", "root_real TEXT");
+    add("projects", "root_dev", "root_dev INTEGER");
+    add("projects", "root_ino", "root_ino INTEGER");
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root_real ON projects (root_real) WHERE root_real IS NOT NULL");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

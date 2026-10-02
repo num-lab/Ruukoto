@@ -42,6 +42,7 @@ import {
 
 import { tailTextByBytes } from "./history.ts";
 import { FRAGMENT_TEXT_CAP } from "./views.ts";
+import { sameDirIdentity, type DirIdentity } from "./dir-identity.ts";
 
 export class Store {
   /** 内部数据库句柄（含测试故障注入点 faultNextWrite）。 */
@@ -99,7 +100,7 @@ export class Store {
    * 查找与插入由调用方事务包住（node:sqlite 同步、单进程），唯一索引作兜底：
    * 插入冲突时按幂等键重取核实，核实不过按冲突处理。
    */
-  createProject(name: string, createRequestId?: string | null): Project {
+  createProject(name: string, createRequestId?: string | null, rootDir?: DirIdentity | null): Project {
     if (createRequestId) {
       const existing = this.findProjectByCreateRequestId(createRequestId);
       if (existing) {
@@ -112,11 +113,23 @@ export class Store {
     if (this.findProjectByName(name)) {
       throw new StoreConflictError(`项目已存在：${name}`, "duplicate");
     }
-    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, instructionFiles: [], webSearch: "enabled", createdAt: new Date().toISOString() };
+    if (rootDir && this.findProjectByRoot(rootDir)) {
+      throw new StoreConflictError(`工作区已存在：${rootDir.cwdReal}`, "duplicate");
+    }
+    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, rootDir: rootDir ?? null, instructionFiles: [], webSearch: "enabled", createdAt: new Date().toISOString() };
     try {
       this.db
-        .prepare("INSERT INTO projects (id, name, create_request_id, created_at) VALUES (?, ?, ?, ?)")
-        .run(project.id, project.name, project.createRequestId, project.createdAt);
+        .prepare("INSERT INTO projects (id, name, create_request_id, root_cwd, root_real, root_dev, root_ino, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(
+          project.id,
+          project.name,
+          project.createRequestId,
+          project.rootDir?.cwd ?? null,
+          project.rootDir?.cwdReal ?? null,
+          project.rootDir?.dev ?? null,
+          project.rootDir?.ino ?? null,
+          project.createdAt,
+        );
     } catch (err) {
       if (createRequestId && isCreateRequestIdClash(err, "projects")) {
         const existing = this.findProjectByCreateRequestId(createRequestId);
@@ -127,10 +140,47 @@ export class Store {
           return existing;
         }
       }
+      // 根目录部分唯一索引兜底（idx_projects_root_real 只含非 NULL 行）
+      if (isRootDirClash(err)) {
+        throw new StoreConflictError(`工作区已存在：${rootDir?.cwdReal}`, "duplicate");
+      }
       throw err;
     }
-    this.appendEvent({ type: "project.created", projectId: project.id, name: project.name, createRequestId: project.createRequestId });
+    this.appendEvent({ type: "project.created", projectId: project.id, name: project.name, createRequestId: project.createRequestId, rootDir: project.rootDir });
     return project;
+  }
+
+  /** 按根目录身份找已归属的工作区（realpath 或 dev+ino 相同；issue 05）。 */
+  findProjectByRoot(identity: DirIdentity): Project | null {
+    const row = this.db
+      .prepare("SELECT * FROM projects WHERE root_real = ? OR (root_dev = ? AND root_ino = ?) ORDER BY created_at, rowid LIMIT 1")
+      .get(identity.cwdReal, identity.dev, identity.ino) as any;
+    return row ? this.rowToProject(row) : null;
+  }
+
+  /**
+   * 旧项目认领工作区根目录（issue 05）：仅当项目尚无归属时落库并发
+   * project.root_attached 事件；已有相同归属幂等返回，已有不同归属报冲突。
+   */
+  attachProjectRoot(projectId: string, identity: DirIdentity): void {
+    try {
+      const info = this.db
+        .prepare("UPDATE projects SET root_cwd = ?, root_real = ?, root_dev = ?, root_ino = ? WHERE id = ? AND root_real IS NULL")
+        .run(identity.cwd, identity.cwdReal, identity.dev, identity.ino, projectId);
+      if (Number(info.changes) > 0) {
+        this.appendEvent({ type: "project.root_attached", projectId, rootDir: identity });
+        return;
+      }
+    } catch (err) {
+      if (isRootDirClash(err)) {
+        throw new StoreConflictError(`工作区已存在：${identity.cwdReal}`, "duplicate");
+      }
+      throw err;
+    }
+    const existing = this.getProject(projectId);
+    if (!existing) throw new StoreConflictError(`项目不存在：${projectId}`, "not_found");
+    if (existing.rootDir && sameDirIdentity(existing.rootDir, identity)) return;
+    throw new StoreConflictError(`项目已归属其他工作区目录：${existing.rootDir?.cwdReal ?? projectId}`, "duplicate");
   }
 
   /** 按创建幂等键查询项目（issue 21 去重与重连核实共用）。 */
@@ -171,6 +221,9 @@ export class Store {
       id: row.id,
       name: row.name,
       createRequestId: row.create_request_id ?? null,
+      rootDir: row.root_real
+        ? { cwd: row.root_cwd, cwdReal: row.root_real, dev: row.root_dev, ino: row.root_ino }
+        : null,
       instructionFiles: JSON.parse(row.instruction_files ?? "[]") as string[],
       webSearch: row.web_search === "disabled" ? "disabled" : "enabled",
       createdAt: row.created_at,
@@ -1827,4 +1880,9 @@ export class StoreConflictError extends Error {
 /** 创建幂等键唯一索引冲突（issue 21 兜底路径；node:sqlite 报 <表>.<列>）。 */
 function isCreateRequestIdClash(err: unknown, table: string): boolean {
   return err instanceof Error && err.message.includes(`UNIQUE constraint failed: ${table}.create_request_id`);
+}
+
+/** 工作区根目录部分唯一索引冲突（issue 05 兜底路径；node:sqlite 报索引名）。 */
+function isRootDirClash(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("idx_projects_root_real");
 }

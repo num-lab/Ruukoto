@@ -360,7 +360,7 @@
     <p>Runtime 先跑自己的恢复（执行中的任务转 interrupted、未决审批失效，见<a href="task-lifecycle.html#restart">任务生命周期</a>），再启动编排器。Runtime 恢复时编排器还没创建，这时产生的 task.interrupted 没人监听；重启窗口内到达终态的任务全靠巡检补记。<code class="src" data-src="src/runtime/orchestrator.ts#async start()">orchestrator.ts · start</code> 按顺序执行：</p>
     <ol class="steps">
       <li>引导角色：已有的角色行原样保留。</li>
-      <li>已登记、未建任务的入站事件按原请求键串行重提（派发细节见<a href="inbound-events.html">入站事件</a>）。</li>
+      <li>已登记、未建任务的入站事件按原请求键串行重提（派发细节见<a href="inbound-events.html">入站事件</a>）；类别不是 <code>task</code> 的控制事件（正常路径不会有遗留）不派发为模型任务，一律以 <code>inbound.skipped</code>（<code>control_event_not_dispatched</code>）作废（<code class="src" data-src="src/runtime/orchestrator.ts#event.eventKind !== &quot;task&quot;">dispatchEvent</code>）。</li>
       <li>巡检 ①：已终态但结果未记录的角色任务补记结果与事件（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingResult">store.ts · listRoleTasksPendingResult</code>）；interrupted 记为结果未知，不重放。</li>
       <li>巡检 ②：结果已记录但缺唤醒的子任务，按 <code>wake:&lt;子任务&gt;</code> 补发（<code class="src" data-src="src/runtime/orchestrator.ts#private async sweepPendingResults">sweepPendingResults</code>）。</li>
       <li>三个角色会话中，只有因 <code>backend_restart</code> 暂停的队列自动恢复；<code>occupancy_unverified</code> 等涉及未核实旧执行的暂停留给拥有者核实。</li>

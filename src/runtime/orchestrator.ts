@@ -440,6 +440,15 @@ export class Orchestrator {
   private async dispatchEvent(event: InboundEvent): Promise<void> {
     // 列表读取后可能已被作废（如调度计划取消）：只派发仍为 registered 的事件
     if (this.store.getInboundEvent(event.id)?.status !== "registered") return;
+    // 控制类别（IM 审批命令）不派发模型任务：恢复/补派显式排除，崩溃遗留的
+    // registered 控制事件明确作废，不作为普通提示或新的批准自动重放
+    if (event.eventKind !== "task") {
+      this.store.withTx(() => {
+        this.store.failRegisteredInbound(event.id);
+        this.store.appendEvent({ type: "inbound.skipped", eventId: event.id, source: event.source, reason: "control_event_not_dispatched:控制消息不能派发为模型任务" });
+      });
+      return;
+    }
     const gate = this.deps.inboundGate?.(event) ?? "run";
     const group = event.source === QQ_GROUP_SOURCE ? this.deps.qqStore.getInbox(event.externalId) : null;
     if (gate === "wait") return;

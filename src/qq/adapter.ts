@@ -22,6 +22,7 @@ import * as path from "node:path";
 import type { Store } from "../core/store.ts";
 import type { InboundEvent, NotifyTarget, PersistentEvent, Project, Session, Task } from "../core/types.ts";
 import { ACTIVE_TASK_STATUSES } from "../core/types.ts";
+import { sameTarget } from "../core/notify-target.ts";
 import type { CredentialStore } from "../agent/execution/credentials.ts";
 import { OneBotClient, OneBotError, oneBotAccountId, oneBotMessageId } from "./onebot.ts";
 import { QQ_GROUP_SOURCE, qqDedupKey, qqMessageTag, type QqConfig, type QqInboxRow, type QqStore } from "./store.ts";
@@ -38,7 +39,7 @@ export function qqPrivateExternalId(account: string, owner: string, messageId: s
 
 /** 适配器需要的 Runtime 窄接口（宿主注入；除此之外的能力适配器不可见）。 */
 export interface QqRuntimeBridge {
-  registerPrivate(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget }): Promise<unknown>;
+  registerPrivate(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget; commandText?: string }): Promise<unknown>;
   dispatchInbound(): Promise<unknown>;
   registerGroup(dedupKey: string): Promise<void>;
   cancelTask(taskId: string): Promise<Task>;
@@ -239,7 +240,8 @@ export class QqAdapter implements NotifyChannel {
   }
 
   private connectionKey(config: QqConfig, token: string | null): string {
-    return JSON.stringify([config.endpoint, config.credentialName, token, config.selfId]);
+    // 配置版本纳入代次：任何配置/凭据变化都要求重建连接，旧连接上的事件不再接纳
+    return JSON.stringify([config.endpoint, config.credentialName, token, config.selfId, config.configVersion]);
   }
 
   private async disconnectClient(): Promise<void> {
@@ -401,7 +403,14 @@ export class QqAdapter implements NotifyChannel {
     const body = [`[QQ 私聊] account ${config.selfId} user ${owner} message ${messageId} 时间 ${time}`];
     if (replyId !== null) body.push(`回复关联：message ${replyId}（未读取引用原文）`);
     body.push("正文：", text);
-    await this.deps.bridge.registerPrivate({ externalId: qqPrivateExternalId(config.selfId, owner, messageId), actor: `${QQ_PRIVATE_SOURCE}:${owner}`, body: body.join("\n"), replyTarget: target });
+    await this.deps.bridge.registerPrivate({
+      externalId: qqPrivateExternalId(config.selfId, owner, messageId),
+      actor: `${QQ_PRIVATE_SOURCE}:${owner}`,
+      body: body.join("\n"),
+      replyTarget: target,
+      // 原始发送文本（未加模板/引用摘录）：宿主据此识别审批命令；引用内容不进入此字段
+      commandText: text,
+    });
   }
 
   private async handleGroupMessage(config: QqConfig, event: Record<string, unknown>): Promise<void> {
@@ -776,8 +785,4 @@ export function filterRecalledQqMessages(messages: any[], recalledTags: Set<stri
     if (!skipping) out.push(m);
   }
   return out;
-}
-
-function sameTarget(a: NotifyTarget, b: NotifyTarget | null | undefined): boolean {
-  return !!b && a.channel === b.channel && a.account === b.account && a.chatId === b.chatId && a.configVersion === b.configVersion;
 }

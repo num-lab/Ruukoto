@@ -19,6 +19,7 @@ import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
+import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 
 function toolNamesOf(call: { tools: Array<Record<string, unknown>> | undefined }): string[] {
   return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n) => typeof n === "string");
@@ -227,6 +228,10 @@ test("委派入口：只有拥有者发起的 main 任务可委派；唤醒与�
     return { kind: "text", text: "收到" };
   };
   const t = await startTestRuntime("deleg-gate", responder);
+  // Telegram 入站的真实性前提（issue 08）：来源事件带适配器钉版的目标与 actor，
+  // 否则派发/启动门明确失效
+  const api = new FakeBotApi({ token: "123456:SECRET-TOKEN-XYZ", ownerId: 42 });
+  const apiBase = await api.start();
   try {
     const rt = t.runtime;
     const orch = rt.orchestrator!;
@@ -234,10 +239,19 @@ test("委派入口：只有拥有者发起的 main 任务可委派；唤醒与�
     const coding = rt.store.getAgentRole("coding")!;
     const echoOf = (marker: string) => t.server.calls.filter((c) => afterTool(c) && lastUserText(c).includes(marker)).map(lastToolText).join("\n");
 
+    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: "123456:SECRET-TOKEN-XYZ" });
+    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" });
+    await rt.telegramSetEnabled(true);
+    await waitFor("Telegram 轮询在线", () => rt.telegramStatus().online === true);
+
     // 非 owner 来源（如定时唤醒）的入站事件：拒绝委派
     const { event: other } = await orch.registerInboundEvent({ source: "scheduler", externalId: "o1", targetRole: "main", body: "OTHER-SRC 到点了" });
     // Telegram owner 入站：允许委派
-    const { event: tg } = await orch.registerInboundEvent({ source: "telegram", externalId: "1:2:3", targetRole: "main", body: "TG-OWNER 修一下 bug" });
+    const { event: tg } = await orch.registerInboundEvent({
+      source: "telegram", externalId: "123456:42:9", actor: "telegram:42", targetRole: "main",
+      body: "TG-OWNER 修一下 bug",
+      replyTarget: { channel: "telegram", account: "123456", chatId: "42", configVersion: rt.telegramStore.getConfig()!.configVersion },
+    });
     await waitFor("两条入站事件完成", () =>
       rt.store.getInboundEvent(other.id)!.status !== "queued" && rt.store.getInboundEvent(tg.id)!.status !== "queued" &&
       rt.store.getInboundEvent(other.id)!.status !== "registered" && rt.store.getInboundEvent(tg.id)!.status !== "registered",
@@ -267,6 +281,7 @@ test("委派入口：只有拥有者发起的 main 任务可委派；唤醒与�
     assert.match(echoOf("CODING-FORGE"), /coding_delegate not found|委派工具仅 main/);
   } finally {
     await t.shutdown();
+    await api.close();
   }
 });
 

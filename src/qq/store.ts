@@ -175,6 +175,19 @@ export class QqStore {
     return next;
   }
 
+  /**
+   * 凭据变化/删除触发的代次推进（agent-direction issue 08）：不改配置字段，
+   * 只单调递增版本——旧连接、旧消息与旧批准全部失效，A → B → A 轮换也
+   * 不会恢复旧代次。返回 null = 未配置。
+   */
+  bumpConfigVersion(): QqConfig | null {
+    const existing = this.getConfig();
+    if (!existing) return null;
+    const next = { ...existing, configVersion: existing.configVersion + 1, updatedAt: new Date().toISOString() };
+    this.db.prepare("UPDATE qq_config SET config_version = ?, updated_at = ? WHERE id = 1").run(next.configVersion, next.updatedAt);
+    return next;
+  }
+
   /** 群允许列表增删（配置变化，版本递增）。返回 null = 未配置。 */
   setGroups(groups: string[], expectedVersion?: number): QqConfig | null {
     const existing = this.getConfig();

@@ -51,7 +51,7 @@ async function harness(prefix: string, responder: Responder) {
     },
   });
   const rt = t.runtime;
-  rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
+  await rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
   await rt.qqConfigure({ endpoint: onebot.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq-test" });
   await rt.qqGroupUpdate({ groupId: GROUP, allow: true });
   await rt.qqSetEnabled(true);

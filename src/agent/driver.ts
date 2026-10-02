@@ -32,7 +32,7 @@ import {
 import type { ModelCatalog } from "./model-selection.ts";
 import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
+import type { AccessMode, AgentRole, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
@@ -115,6 +115,14 @@ export interface DriverDeps {
   allowTaskTool?: (task: Task, name: string, mcpEffect?: McpToolEffect) => boolean;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
+  /**
+   * IM 审批宿主接线（agent-direction issue 08）：审批创建通知与消费前固定身份
+   * 复核由宿主注入；均在审批创建/消费事务内执行，不得再开核心库事务。
+   */
+  approvalIm?: {
+    notifyCreated?: (confirmation: ConfirmationRequest, task: Task) => void;
+    consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
+  };
   /**
    * QQ 群聊会话的撤回消息过滤（issue 07）：每次模型调用前移出已撤回交互
    * （只改模型视图，不改写历史）。仅 kind=qq_group 会话调用。
@@ -207,7 +215,13 @@ export class Driver {
     this.session = session;
     this.deps = deps;
     this.registry = createManagedProcessRegistry();
-    this.approvals = new ApprovalGate({ store: deps.store, ledger: deps.ledger, reviewer: () => this.deps.reviewer });
+    this.approvals = new ApprovalGate({
+      store: deps.store,
+      ledger: deps.ledger,
+      reviewer: () => this.deps.reviewer,
+      notifyConfirmation: deps.approvalIm?.notifyCreated,
+      consumeRecheck: deps.approvalIm?.consumeRecheck,
+    });
     this.router = new ToolRouter({
       store: deps.store,
       ledger: deps.ledger,
@@ -1081,9 +1095,14 @@ export class Driver {
     return this.runPromise ?? Promise.resolve();
   }
 
-  /** 控制面应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
-  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected"): boolean {
-    return this.approvals.resolve(confirmationId, decision);
+  /** 控制面/IM 应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
+  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: () => void }): boolean {
+    return this.approvals.resolve(confirmationId, decision, opts);
+  }
+
+  /** 定向解除指定审批的等待（IM 绑定失效后 release waiter，issue 08）。 */
+  supersedeApprovals(ids: ReadonlySet<string>): void {
+    this.approvals.supersedeConfirmations(ids);
   }
 
   // ---------- 会话事件观察 ----------

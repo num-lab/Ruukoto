@@ -439,6 +439,9 @@ ID 与自身版本访问）。
 在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及
 上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料
 授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与允许群、服务凭据。
+服务凭据的同名修改或删除（`add_credential` / `remove_credential`）在写入前单调
+推进引用它的 QQ/Telegram 配置 `config_version`（详见下文「IM 审批」失效规则）：
+旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次；写入失败不恢复旧版本。
 
 - **并发与修订**：模型配置以 `expected_revision`（models.json + auth.json +
   default-model.json + summary-model.json 的内容指纹）做条件更新；项目/会话/MCP/QQ 沿用各自的
@@ -1071,11 +1074,14 @@ ruukoto telegram enable | disable | status
   配置后 scope 收紧到 `telegram_bot`）；核心库 `telegram_config` 单行只存绑定名、
   固定 owner `user_id + chat_id`（私聊 chat_id 即 user_id，缺省相同）、启停、
   `config_version` 与轮询偏移。token 在请求 URL 中，错误信息写入日志/账本/状态
-  前先脱敏；不进入模型上下文与事件。
+  前按该请求捕获的 token 脱敏（覆盖轮换/删除后旧请求的迟到错误）；不进入模型
+  上下文与事件。
 - `--api-base` 缺省官方端点，可指向受控反代（必须 https，http 仅限回环）。
   Node `fetch` 不读 `HTTP(S)_PROXY`；国内服务器需要反代或网络层代理。
 - 任何配置变化递增 `config_version` 并即时重连；重新配置把轮询偏移归零（平台
-  重投由外部 id 去重）。旧目标上未发送的操作因版本变化取消，不改发新目标。
+  重投由外部 id 去重）。凭据的同名修改或删除也在写入前单调推进 `config_version`
+  并归零偏移——旧连接、旧消息与旧批准失效，A→B→A 轮换不恢复旧代次。旧目标上
+  未发送的操作因版本变化取消，不改发新目标。
 - dev 开发实例固定注入 `RUUKOTO_DISABLE_TELEGRAM=1`，不创建适配器。
 
 ### 运行行为
@@ -1083,28 +1089,38 @@ ruukoto telegram enable | disable | status
 - **接收**：long polling `getUpdates`（25s，只收 `message`）。只接纳
   `chat.type = private` 且 `from.id / chat.id` 与配置一致的文本消息；其余不登记、
   不建任务、不调用模型，只记 `telegram.rejected`（update/chat/user id 与原因
-  `not_owner / not_private / non_text / unsupported_update`，不含正文）。
+  `not_owner / not_private / non_text / unsupported_update`，不含正文）。转发
+  （`forward_origin/forward_date`）消息照常登记建任务，但其内容不解释为审批命令
+  （不进入 `commandText` 解析）。
 - **先持久化再推进偏移**：接纳的消息经编排器登记为入站事件
   （`source = telegram`，外部 id `<botId>:<chatId>:<messageId>`，目标 main），
-  登记成功后才写 `last_update_id`。崩溃/断线后平台重投命中原外部 id，不重复建
-  任务；已登记未派发的事件由启动恢复与调度器每 30s 补派（所有来源）。停机
-  积压的消息全部处理（正文带原消息时间）。
+  登记成功后才写 `last_update_id`；推进偏移前再次核对仍是同一代次。崩溃/断线后
+  平台重投命中原外部 id，不重复建任务；已登记未派发的事件由启动恢复与调度器
+  每 30s 补派（所有来源）。停机积压的消息全部处理（正文带原消息时间）。
+- **收件钉版与门**：收件时按该次轮询捕获的配置/凭据钉版 `reply_target`
+  （平台/bot/chat/配置版本）并持久化；派发、任务启动（`runQueueLoop`）与终态回复
+  都经 `gatePrivate` 复核来源、actor（配置 owner user_id，不能由 chatId 推断）与
+  钉版目标。版本未变的暂时离线等待恢复；停用、重绑或目标变化明确失效（旧
+  `reply_target = null` 的遗留消息也不补造，其 registered/queued 工作失效，历史
+  与执行事实保留）。
 - **入站正文**：固定模板 `[Telegram 私聊] chat … user … message … 时间 …`，回复
   某条消息时附 `回复关联：message <id>（本 bot / owner 发送）：<摘录 ≤500 字>`。
 - **权限**：入站事件（Telegram、定时唤醒等）建任务一律固定 `confirm` 模式，不继承
-  main 会话默认的 full_access；需要审批的操作仍在 TUI 确认（Telegram 内审批另开工单）。
+  main 会话默认的 full_access；审批可由绑定拥有者在 Telegram 私聊完成，见下文
+  「IM 审批」。
 - **回复**：Telegram 来源任务到达终态时，在编排器结果事务内登记 `owner_reply`
-  发送操作（发送键 = 入站事件 id，目标 = 当前固定 owner 目标，且须与登记该消息的
-  bot + chat 一致）。正文取**本任务**历史条目的最终回答（不取会话最新一条），超
-  4000 字截短注明；失败/超时/未知只发宿主固定提示。重启时结果未落库的任务由编排器
-  巡检补记并补登回复。定时唤醒与普通子任务唤醒不产生 `owner_reply`（需要时 main 用
-  `notification_enqueue` 另行确认）；GitHub 结果通知按 ADR 0013 单独授权。
-  目标不可用时记 `telegram.reply_skipped`。
-- **发送**：`sendMessage` 纯文本，带 `reply_parameters` 关联原消息。结果分类：
-  2xx 回执 → `sent`；429 → 退回 `pending` 按 `retry_after` 再发；其他 4xx 与连接
-  未建立（ECONNREFUSED/ENOTFOUND 等）→ `failed`；5xx、超时、中途断开、回执不可
-  解析 → `effect_unknown`。`failed/effect_unknown` 不自动重发。渠道可用性 = 轮询
-  是否健康；离线时回复保持 `pending`。
+  发送操作（发送键 = 入站事件 id，目标 = 该事件收件时钉版的 `reply_target`，且须
+  与当前固定 owner 目标一致，配置换了 bot/chat 不改发）。正文取**本任务**历史条目
+  的最终回答（不取会话最新一条），超 4000 字截短注明；失败/超时/未知只发宿主固定
+  提示。重启时结果未落库的任务由编排器巡检补记并补登回复。定时唤醒与普通子任务
+  唤醒不产生 `owner_reply`（需要时 main 用 `notification_enqueue` 另行确认）；
+  GitHub 结果通知按 ADR 0013 单独授权。目标不可用时记 `telegram.reply_skipped`。
+- **发送**：`sendMessage` 纯文本，带 `reply_parameters` 关联原消息。outbox 领取后、
+  实际请求前再次核对启停、固定目标与配置版本（不一致即 `target_changed`，可证明
+  未发送）。结果分类：2xx 回执 → `sent`；429 → 退回 `pending` 按 `retry_after`
+  再发；其他 4xx 与连接未建立（ECONNREFUSED/ENOTFOUND 等）→ `failed`；5xx、超时、
+  中途断开、回执不可解析 → `effect_unknown`。`failed/effect_unknown` 不自动重发。
+  渠道可用性 = 轮询是否健康；离线时回复保持 `pending`。
 - **断线**：轮询失败即标离线，指数退避 1s → 30s（429 按 `retry_after`）；重连后
   从持久偏移继续。停止时先中止长轮询并等待循环退出，之后不再写库。
 - **查看**：`ruukoto telegram status`（配置视图、在线状态、最近错误、偏移，不含 token）；
@@ -1138,12 +1154,14 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
   账号离线时也不接收新任务。token 不进入历史、日志或模型输入。
 - **持久化与恢复**：消息先登记 `source=qq_private`，按
   `<登录账号>:<owner>:<message_id>` 去重，再以原事件键进入 main 队列。
-  接收时固定回复目标和配置版本，派发与任务启动前复核；配置变化取消旧授权，
+  接收时固定回复目标和配置版本，派发与任务启动前复核；连接代次含配置版本
+  （配置/凭据变化即重建连接，旧连接上的事件不再接纳）。配置变化取消旧授权，
   离线保留已登记工作等待。断线期间未登记的消息没有持久投递保证；接收缺口
   经 `qq.receive_gap` 如实记录，不补抓平台历史。main 队列沿用角色的恢复规则，
   中断任务由拥有者决定继续，不套用无工具群会话的自动恢复规则。
-- **权限与资料**：任务固定 `confirm`；消息不能批准开发操作、开启完全访问、
-  修改角色或凭据。拥有者明确提出的编码请求可委派 coding，审批仍在可信 TUI。
+- **权限与资料**：任务固定 `confirm`；消息不能开启完全访问、修改角色或凭据。
+  拥有者可经私聊审批命令批准已有受控操作（见下文「IM 审批」平台身份不等于
+  通用控制面访问权）；拥有者明确提出的编码请求可委派 coding。
   main 和 coding 不能直接查询原始 QQ 群项目的历史、产物及带群来源的记忆，
   也不能通过委派资料或旧通知正文绕过；已有主会话内容仍跨平台共享，不追溯
   清洗已复制或转述的内容。
@@ -1159,6 +1177,53 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
 - **开发与验证**：`RUUKOTO_DISABLE_QQ=1` 同时关闭群和私聊连接。测试使用本地
   模拟 OneBot 与模型，不向真实 QQ 账号发送；真实 NapCat 版本、消息格式与收发
   闭环须拥有者另行授权后验收。
+
+## IM 审批（agent-direction issue 08，ADR 0017/0011/0012）
+
+绑定拥有者在 QQ 私聊或 Telegram 私聊中查看审批详情并批准或拒绝已有受控操作，
+结果继续回到原入口。模块在 `src/runtime/im-approvals.ts`；平台身份不等于通用
+控制面访问权，审批身份、操作与范围仍由宿主核实。
+
+```text
+/approvals [页码]                    # 待决审批分页列表（每页 5 条）
+/approval <完整审批ID> [偏移]         # 详情：工具/版本/范围概览 + 参数有界分段
+/approve <完整审批ID> <权限版本>      # 批准（绑定原请求与原权限版本，不接受部分 ID）
+/reject <完整审批ID> <权限版本>       # 拒绝
+```
+
+- **命令解析**：只解析适配器提交的原始发送文本（正文模板与引用摘录之前），整条
+  匹配；已识别命令但格式错误时宿主返回用法。自然语言、引用中的命令、转发内容、
+  模型输出与群消息不会被解释为批准。首版为纯文本命令，没有按钮或 callback 协议。
+- **控制消息**：命令以 `inbound_events.event_kind = im_approval` 持久化
+  （`(source, external_id)` 幂等去重，schema v22 新增类别列，旧记录默认 `task`），
+  在同步事务内直接到 `done/failed`、`task_id = null`——不建任务、不调用模型、不进入
+  普通登记/派发，也不排在等待审批的普通任务后面。恢复派发显式排除控制类别；
+  崩溃遗留的 registered 控制事件明确作废，不作为普通提示或新的批准重放。
+- **回执与通知**：每个查询/决定回执一条公共 outbox 操作（`sourceKind =
+  inbound_event`，键 = 控制事件 id，固定命令收件时钉版的目标）。回执准确区分
+  「批准已接受，仍待执行前复核」「已拒绝」「已失效/已处理」，不把决定接受说成
+  操作成功。审批创建时在同一事务登记初始 IM 通知（`sourceKind = confirmation`，
+  键 `im-approval:<confirmationId>`，原委托收件钉版的目标）：工具/操作、范围概览、
+  权限版本、完整 ID 与查询/批准/拒绝命令；通知暂时发送失败不使操作获批。
+- **决定事务**：IM 决定经活动 Driver 的审批闸门，批准/拒绝、审计事件、控制事件
+  终态与回执在同一事务提交，提交后才唤醒等待者；中途写失败全部回滚。重复决定、
+  相反决定或 TUI/自动审查抢先时，只有 pending 的第一次合法条件更新成功。
+- **身份与归属**：列表、详情和决定只作用于原平台、原账号、原 owner、原配置版本
+  ——宿主从审批的任务沿 `parent_task_id` 找到原 IM 委托事件（断链、循环、无来源
+  或来源不是普通 IM 委托一律拒绝，不从会话最近消息推断），并逐项核对 actor 与
+  钉版目标。Telegram 的 `ownerUserId` 与 `chatId` 分别核对。另一平台、TUI 发起
+  且没有 IM 来源的审批不开放；未经核实身份不收到操作详情。
+- **执行前复核**：批准已接受、尚未消费期间的重新绑定、停用或凭据变化在统一的
+  消费事务内再次拦截（IM 固定身份 + 配置版本），消费前的操作既有复核（目录、
+  MCP 配置、凭据、应用数据）不变；消费即执行开始，此后不撤回不重放。
+- **失效与恢复**：配置版本变化（含凭据同名修改/删除在写入前的单调推进）使
+  受影响平台的 registered/queued 工作取消、未消费的待决与已批准请求失效并解除
+  等待——暂时离线只等待；失效只影响原平台，不波及另一平台在共享主会话中的工作。
+  重启恢复沿用既有收尾：未消费的待决/已批准一律失效，旧 waiter 不重建，旧平台
+  批准消息不重新执行（只回执已失效）；遗留 sending 记 `effect_unknown` 不重发。
+- **重投与重复**：同平台消息重投先比对原类别、actor、原目标与规范命令并读取原
+  回执；同键异命令拒绝，不按新的审批状态再执行；已完成的控制事件即使后来绑定
+  变化也不改目标、不换发送键。429 只按原操作延后，超时/断线/丢失回执不换键重发。
 
 ## main 委派 coding（daily-agent issue 05）
 

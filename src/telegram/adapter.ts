@@ -14,7 +14,8 @@
 
 import type { CredentialStore } from "../agent/execution/credentials.ts";
 import type { Store } from "../core/store.ts";
-import type { NotifyTarget } from "../core/types.ts";
+import type { InboundEvent, NotifyTarget } from "../core/types.ts";
+import { sameTarget } from "../core/notify-target.ts";
 import type { SchedulerStore } from "../scheduler/store.ts";
 import { NotSentError, RetryLaterError, type NotifyChannel } from "../scheduler/runtime.ts";
 
@@ -116,6 +117,20 @@ export class TelegramStore {
   setLastUpdateId(updateId: number): void {
     this.store.db.prepare("UPDATE telegram_config SET last_update_id = ? WHERE id = 1 AND last_update_id < ?").run(updateId, updateId);
   }
+
+  /**
+   * 凭据变化/删除触发的代次推进（agent-direction issue 08）：只单调递增版本
+   * 并归零轮询偏移（可能已换 bot，旧偏移无意义，重投由外部 id 去重）；
+   * A → B → A 轮换不会恢复旧代次。返回 null = 未配置。
+   */
+  bumpConfigVersion(): TelegramConfig | null {
+    const existing = this.getConfig();
+    if (!existing) return null;
+    this.store.db
+      .prepare("UPDATE telegram_config SET config_version = config_version + 1, last_update_id = 0, updated_at = ? WHERE id = 1")
+      .run(new Date().toISOString());
+    return this.getConfig();
+  }
 }
 
 class TelegramApiError extends Error {
@@ -129,8 +144,8 @@ export interface TelegramDeps {
   tg: TelegramStore;
   sched: SchedulerStore;
   credentials: CredentialStore;
-  /** 编排器登记入口（固定 source=telegram、目标 main）。 */
-  register(input: { externalId: string; actor: string; body: string }): Promise<unknown>;
+  /** 编排器登记入口（固定 source=telegram、目标 main；目标为收件时按捕获配置钉版）。 */
+  register(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget | null; commandText?: string }): Promise<unknown>;
   log(message: string): void;
   /** getUpdates 长轮询秒数（默认 25；测试压短）。 */
   pollTimeoutSec?: number;
@@ -207,21 +222,47 @@ export class TelegramAdapter implements NotifyChannel {
 
   // ---------- NotifyChannel ----------
 
+  /** 按捕获的配置与凭据钉版目标（收件/发送共用；不要求当前配置仍有效。） */
+  private targetFor(config: TelegramConfig, token: string | null): NotifyTarget | null {
+    if (!config.enabled || !token) return null;
+    return { channel: TELEGRAM_SOURCE, account: telegramBotId(token), chatId: config.ownerChatId, configVersion: config.configVersion };
+  }
+
   target(): NotifyTarget | null {
     const config = this.deps.tg.getConfig();
-    const token = config?.enabled ? this.token(config) : null;
-    if (!config || !token) return null;
-    return { channel: TELEGRAM_SOURCE, account: telegramBotId(token), chatId: config.ownerChatId, configVersion: config.configVersion };
+    if (!config) return null;
+    return this.targetFor(config, this.token(config));
   }
 
   available(): boolean {
     return this.online;
   }
 
+  /**
+   * 入站派发/任务启动/回复共用（issue 08，与 QQ 私聊门对齐）：来源、actor
+   * （owner user_id，不能由 chatId 推断）与收件时钉版的目标及配置版本逐项
+   * 核对；版本未变的暂时离线等待恢复，配置变化/停用/旧 null 目标明确失效。
+   */
+  gatePrivate(event: InboundEvent): "run" | "wait" | { drop: string } {
+    const config = this.deps.tg.getConfig();
+    const target = this.target();
+    if (!target || !config || event.source !== TELEGRAM_SOURCE || event.actor !== `telegram:${config.ownerUserId}` ||
+        !sameTarget(target, event.replyTarget)) {
+      return { drop: "telegram_target_changed:Telegram 入口已停用或固定身份发生变化" };
+    }
+    return this.available() ? "run" : "wait";
+  }
+
   async send(input: { opId: string; target: NotifyTarget; text: string; signal: AbortSignal }): Promise<{ platformMessageId: string }> {
     const config = this.deps.tg.getConfig();
     const token = config ? this.token(config) : null;
     if (!config || !token) throw new NotSentError("credential_unavailable", "Telegram 凭据不可用");
+    // 领取之后的完整复核：启停、固定目标与配置版本在实际请求前再次核对
+    // （覆盖 outbox 已领取但配置刚变化的窗口）——失败即目标代次变化，可证明未发送。
+    const current = this.targetFor(config, token);
+    if (!current || !sameTarget(current, input.target)) {
+      throw new NotSentError("target_changed", "Telegram 固定目标已变化或停用");
+    }
     const replyTo = this.replyToMessageId(input.opId);
     let res: Response;
     try {
@@ -238,7 +279,7 @@ export class TelegramAdapter implements NotifyChannel {
     } catch (err) {
       const code = (err as { cause?: { code?: string } }).cause?.code;
       if (code && PRE_CONNECT_CODES.has(code)) throw new NotSentError("connect_failed", `连接未建立（${code}），请求未发出`);
-      throw new Error(this.redact(`发送结果未知：${(err as Error).message}`));
+      throw new Error(this.redact(`发送结果未知：${(err as Error).message}`, token));
     }
     const json = (await res.json().catch(() => null)) as any;
     if (res.ok && json?.ok) return { platformMessageId: String(json.result?.message_id ?? "") };
@@ -247,10 +288,10 @@ export class TelegramAdapter implements NotifyChannel {
       throw new RetryLaterError((Number.isFinite(seconds) && seconds > 0 ? seconds : 5) * 1000, `Telegram 限流（retry_after=${json?.parameters?.retry_after ?? "?"}）`);
     }
     if (res.status >= 400 && res.status < 500) {
-      throw new NotSentError(`telegram_${res.status}`, this.redact(String(json?.description ?? `HTTP ${res.status}`)));
+      throw new NotSentError(`telegram_${res.status}`, this.redact(String(json?.description ?? `HTTP ${res.status}`), token));
     }
     // 5xx / 成功状态但回执不可解析：平台可能已接收
-    throw new Error(this.redact(`发送结果未知：HTTP ${res.status}`));
+    throw new Error(this.redact(`发送结果未知：HTTP ${res.status}`, token));
   }
 
   // ---------- 接收 ----------
@@ -259,10 +300,14 @@ export class TelegramAdapter implements NotifyChannel {
     return this.deps.credentials.getForUse(config.credentialName, { operation: TELEGRAM_CREDENTIAL_PURPOSE })?.secret ?? null;
   }
 
-  /** 错误信息脱敏：token 出现在请求 URL 中，任何日志/账本/状态输出前替换。 */
-  private redact(message: string): string {
-    const config = this.deps.tg.getConfig();
-    const token = config ? this.token(config) : null;
+  /** 错误信息脱敏：token 出现在请求 URL 中，任何日志/账本/状态输出前替换。传入该请求捕获的 token，覆盖轮换/删除后旧请求的迟到错误。 */
+  private redact(message: string, capturedToken?: string | null): string {
+    const token =
+      capturedToken ??
+      (() => {
+        const config = this.deps.tg.getConfig();
+        return config ? this.token(config) : null;
+      })();
     return token ? message.split(token).join("<token>") : message;
   }
 
@@ -298,14 +343,18 @@ export class TelegramAdapter implements NotifyChannel {
           if (signal.aborted) return;
           // 先持久化（登记失败抛出 → 不推进偏移，下一轮平台重投）
           await this.handleUpdate(config, token, update);
-          // 配置在登记期间变化（偏移已归零）：不写回旧偏移，重投由外部 id 去重
           if (signal.aborted) return;
-          this.deps.store.withTx(() => this.deps.tg.setLastUpdateId(Number(update.update_id)));
+          // 推进偏移前核对仍是同一代次：配置/凭据在登记期间变化（版本递增、
+          // 偏移已归零）时不写回旧偏移，重投由外部 id 去重
+          const fresh = this.deps.tg.getConfig();
+          if (fresh && fresh.configVersion === config.configVersion && fresh.credentialName === config.credentialName) {
+            this.deps.store.withTx(() => this.deps.tg.setLastUpdateId(Number(update.update_id)));
+          }
         }
       } catch (err) {
         if (signal.aborted) return;
         this.online = false;
-        this.lastError = this.redact((err as Error).message);
+        this.lastError = this.redact((err as Error).message, token);
         const wait = err instanceof TelegramApiError && err.retryAfterMs !== null ? err.retryAfterMs : backoff;
         backoff = Math.min(backoff * 2, 30_000);
         await new Promise<void>((resolve) => {
@@ -335,10 +384,19 @@ export class TelegramAdapter implements NotifyChannel {
       );
       return;
     }
+    // 登记前再次核对捕获的配置/凭据仍是当前代次：轮换/重绑期间的消息不登记
+    // （偏移也不推进，重投由外部 id 去重）
+    const fresh = this.deps.tg.getConfig();
+    if (!fresh || fresh.configVersion !== config.configVersion || fresh.credentialName !== config.credentialName) return;
     await this.deps.register({
       externalId: telegramExternalId(telegramBotId(token), chatId!, m.message_id),
       actor: `telegram:${userId}`,
       body: inboundBody(m, chatId!, userId!),
+      // 目标按该次轮询捕获的配置/凭据钉版，不用后来的配置重新包装旧消息
+      replyTarget: this.targetFor(config, token),
+      // 原始发送文本（未加模板/引用摘录）：宿主据此识别审批命令；
+      // 转发消息照常建任务，但其内容不解释为审批命令
+      commandText: m.forward_origin != null || m.forward_date != null ? undefined : m.text,
     });
   }
 

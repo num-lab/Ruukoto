@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
-import type { AccessMode, ApprovalScope } from "../src/core/types.ts";
+import type { AccessMode, ApprovalScope, ConfirmationRequest, Task } from "../src/core/types.ts";
 import { ApprovalGate, type ApprovalRequest } from "../src/agent/approval-gate.ts";
 import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
 import type { ApprovalReviewer } from "../src/agent/review.ts";
@@ -23,7 +23,12 @@ import type { ApprovalReviewer } from "../src/agent/review.ts";
 const FILE_READ: ApprovalScope = { kind: "file_operation", path: "/outside/a.txt", access: "read", originalSha256: null, contentSha256: null, contentBytes: null };
 const TOOL = "request_file_access";
 
-function kit(opts: { accessMode?: AccessMode; reviewer?: ApprovalReviewer } = {}) {
+function kit(opts: {
+  accessMode?: AccessMode;
+  reviewer?: ApprovalReviewer;
+  notifyConfirmation?: (confirmation: ConfirmationRequest, task: Task) => void;
+  consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
+} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-gate-"));
   const db = new Db(root);
   const store = new Store(db);
@@ -38,7 +43,10 @@ function kit(opts: { accessMode?: AccessMode; reviewer?: ApprovalReviewer } = {}
     accessMode: opts.accessMode,
   });
   store.transitionTask(task.id, ["queued"], "running", {});
-  const gate = new ApprovalGate({ store, ledger: new ToolOpLedger(store), reviewer: () => opts.reviewer });
+  const gate = new ApprovalGate({
+    store, ledger: new ToolOpLedger(store), reviewer: () => opts.reviewer,
+    notifyConfirmation: opts.notifyConfirmation, consumeRecheck: opts.consumeRecheck,
+  });
   let n = 0;
   /** 记录一次执行意图并提交审批（不 await：审批已同步登记）。 */
   const ask = <T = void>(extra: Partial<ApprovalRequest<T>> = {}) => {
@@ -277,6 +285,103 @@ test("等待中信号中止：按失效返回，等待结束后移除监听", as
     ctl.abort();
     assert.equal((await result).approved, false);
     assert.equal(k.gate.resolve(id, "approved"), false, "等待表不再持有该审批");
+  } finally {
+    k.cleanup();
+  }
+});
+
+
+test("IM 创建通知接线在审批登记事务内：抛错则审批整笔回滚（issue 08）", async () => {
+  const seen: string[] = [];
+  let failing = true;
+  const k = kit({
+    notifyConfirmation: (c) => {
+      if (!failing) return;
+      seen.push(c.id);
+      assert.ok(k.store.getConfirmation(c.id), "同事务内可见新审批");
+      throw new Error("outbox 写失败");
+    },
+  });
+  try {
+    const hostOpId = "op_notify_fail";
+    k.store.recordToolIntent({ id: hostOpId, taskId: k.task.id, sessionId: k.task.sessionId, toolName: TOOL, params: {} });
+    await assert.rejects(
+      k.gate.request({ task: k.task, hostOpId, toolName: TOOL, params: {}, scope: FILE_READ }),
+      /outbox 写失败/,
+    );
+    assert.equal(seen.length, 1);
+    assert.equal(k.store.listConfirmationsByTask(k.task.id).length, 0, "通知失败不留审批");
+    assert.equal(k.status(), "running", "任务未停留在等待确认");
+    // 撤掉失败源后重新申请正常登记（含通知）
+    failing = false;
+    const { result, id } = k.ask();
+    assert.equal(k.approval(id).status, "pending");
+    k.gate.resolve(id, "rejected");
+    await result;
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("IM 消费前复核：原因即放弃消费、批准失效、零执行（issue 08）", async () => {
+  let active = true;
+  const k = kit({ consumeRecheck: () => (active ? `批准已失效（IM 入口停用或绑定/配置版本已变化），${TOOL} 未执行` : null) });
+  try {
+    const { result, id } = k.ask();
+    assert.equal(k.gate.resolve(id, "approved"), true);
+    assert.deepEqual(await result, { approved: false, text: `批准已失效（IM 入口停用或绑定/配置版本已变化），${TOOL} 未执行` });
+    assert.equal(k.approval(id).status, "stale");
+    assert.equal(k.approval(id).consumedAt, null, "复核失败不得消费");
+    assert.equal(k.events("task.approval_consumed").length, 0);
+    assert.equal(k.events("task.confirmation_resolved").length, 1, "决定与事件仍同事务落盘");
+    // 撤掉复核后再次申请可正常获批执行（旧批准不可用，但新申请不受影响）
+    active = false;
+    const ok = k.ask();
+    k.gate.resolve(ok.id, "approved");
+    assert.ok((await ok.result).approved);
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("合并决定事务：txExtra 与决定/事件同事务提交；抛错则决定回滚（issue 08）", async () => {
+  const k = kit();
+  try {
+    const { result, id } = k.ask();
+    assert.throws(
+      () => k.gate.resolve(id, "approved", {
+        txExtra: () => {
+          assert.equal(k.store.getConfirmation(id)!.status, "approved", "txExtra 内决定已可见（同事务）");
+          throw new Error("回执写失败");
+        },
+      }),
+      /回执写失败/,
+    );
+    assert.equal(k.approval(id).status, "pending", "决定随回执一起回滚");
+    assert.equal(k.events("task.confirmation_resolved").length, 0);
+    let extraCommitted = false;
+    assert.equal(k.gate.resolve(id, "approved", { txExtra: () => { extraCommitted = true; } }), true);
+    assert.ok(extraCommitted);
+    assert.ok((await result).approved);
+    assert.equal(k.events("task.confirmation_resolved").length, 1);
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("定向解除：只解除指定审批的等待，其他审批照常（issue 08）", async () => {
+  const k = kit();
+  try {
+    const a = k.ask();
+    const b = k.ask();
+    k.gate.supersedeConfirmations(new Set([a.id]));
+    assert.equal((await a.result).approved, false);
+    assert.equal(k.approval(a.id).consumedAt, null);
+    assert.equal(k.approval(b.id).status, "pending", "其他审批仍在等待");
+    assert.equal(k.status(), "awaiting_confirmation");
+    assert.equal(k.gate.resolve(b.id, "approved"), true);
+    assert.ok((await b.result).approved);
+    assert.equal(k.status(), "running");
   } finally {
     k.cleanup();
   }

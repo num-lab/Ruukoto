@@ -142,13 +142,13 @@
           <tr data-k="e-await" tabindex="0">
             <td><code class="st run">running</code> → <code class="st wait">awaiting_confirmation</code></td>
             <td>审批闸门</td>
-            <td>登记审批请求与状态转换在同一事务。审批请求本身的范围与消费见<a href="tool-call-path.html">工具调用路径</a>。<br><code class="src" data-src="src/agent/approval-gate.ts#private async wait">approval-gate.ts · wait</code> <code class="src" data-src="src/core/store.ts#createConfirmation">store.ts · createConfirmation</code></td>
+            <td>登记审批请求与状态转换在同一事务；宿主可在此事务内挂附带写入——IM 委托任务的审批同时登记初始 IM 通知（<code class="src" data-src="src/agent/approval-gate.ts#notifyConfirmation">notifyConfirmation</code> 挂钩），登记失败整笔回滚，不留「审批已存在但绑定入口未获通知」的状态。审批请求本身的范围与消费见<a href="tool-call-path.html">工具调用路径</a>。<br><code class="src" data-src="src/agent/approval-gate.ts#private async wait">approval-gate.ts · wait</code> <code class="src" data-src="src/core/store.ts#createConfirmation">store.ts · createConfirmation</code></td>
             <td><code>task.awaiting_confirmation</code></td>
           </tr>
           <tr data-k="e-resume" tabindex="0">
             <td><code class="st wait">awaiting_confirmation</code> → <code class="st run">running</code></td>
             <td>审批闸门</td>
-            <td>本任务所有等待中的审批都已结束（批准、拒绝、停止解除或模式切换失效），等待计数归零；转换单独一个事务。<br><code class="src" data-src="src/agent/approval-gate.ts#pendingCount">approval-gate.ts · pendingCount</code></td>
+            <td>本任务所有等待中的审批都已结束（批准、拒绝、停止解除、模式切换失效或 IM 绑定失效的定向解除），等待计数归零；转换单独一个事务。决定与审计事件在同一事务提交（来自 IM 命令的决定把控制事件终态与回执并入同一事务，任何失败整笔回滚），等待者在提交成功后才被唤醒。<br><code class="src" data-src="src/agent/approval-gate.ts#pendingCount">approval-gate.ts · pendingCount</code> <code class="src" data-src="src/agent/approval-gate.ts#supersedeConfirmations(ids">approval-gate.ts · supersedeConfirmations</code></td>
             <td>无独立事件；拥有者或自动审查的决定另发 <code>task.confirmation_resolved</code></td>
           </tr>
           <tr data-k="e-done" tabindex="0">
@@ -200,7 +200,7 @@
 
   <section id="stop">
     <h2>停止路径</h2>
-    <p>拥有者中断、拥有者取消、编排器超时取消、QQ 等后台内部取消与后台停止共用 <code class="src" data-src="src/agent/driver.ts#async requestStop">driver.ts · requestStop</code>。它先把「要停」写下来，再解除所有等待，最后才定终态和释放占用。驱动器当前执行的不是该任务时，它直接返回、什么也不做。</p>
+    <p>拥有者中断、拥有者取消、编排器超时取消、QQ 等后台内部取消与后台停止共用 <code class="src" data-src="src/agent/driver.ts#async requestStop">driver.ts · requestStop</code>。它先把「要停」写下来，再解除所有等待，最后才定终态和释放占用。驱动器当前执行的不是该任务时，它直接返回、什么也不做。另一条更窄的路经与此分开：IM 入口绑定失效（停用、重新绑定或凭据变化）不停止任务，只把受影响审批的等待定向解除（<code class="src" data-src="src/agent/approval-gate.ts#supersedeConfirmations">supersedeConfirmations</code>，与 runtime 侧 <code class="src" data-src="src/runtime/runtime.ts#private invalidateImApprovals">invalidateImApprovals</code> 配套），同会话其他审批照常。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -218,7 +218,7 @@
           <div class="m" style="--from:3;--to:6"><span>settleTask：补记结果缺失的操作</span></div>
           <div class="m l unk" style="--from:6;--to:3"><span>效果未知的操作</span></div>
           <div class="phase"><span>终态事务</span></div>
-          <div class="m ok" style="--from:3;--to:7"><span>finalize：条件更新终态、未决审批 stale、标效果未知、写事件</span></div>
+          <div class="m ok" style="--from:3;--to:7"><span>finalize：条件更新终态、未消费审批（待决与已批准）stale、标效果未知、写事件</span></div>
           <div class="note unk" style="--from:6;--to:7">reaped 才释放占用；否则保留占用并记 task.tool_process_unreaped</div>
           <div class="m l dash" style="--from:7;--to:1"><span>提交后广播 task.interrupted / task.canceled</span></div>
           <div class="m l" style="--from:3;--to:2"><span>kickAll：唤醒有排队任务的会话</span></div>
@@ -287,7 +287,7 @@
         <h3>重启恢复 <code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></h3>
         <p>启动时打开应用库、做完调度器的恢复准备后，在编排器与各入口启动之前，用<strong>一个事务</strong>完成：</p>
         <ol class="steps">
-          <li>按工具操作账本的分类器补记所有结果缺失的操作；running 与 awaiting_confirmation 一律转 interrupted（<code>backend_restart</code>），未决审批失效。</li>
+          <li>按工具操作账本的分类器补记所有结果缺失的操作；running 与 awaiting_confirmation 一律转 interrupted（<code>backend_restart</code>），未决与已批准未消费的审批一律失效（<code class="src" data-src="src/core/store.ts#stalePendingConfirmations">stalePendingConfirmations</code>：consumed_at 为空即随任务终结，已消费的不动）。</li>
           <li>遗留占用记 <code>occupancy.stale</code>、保留不删，所属会话仍为 active 时以 <code>occupancy_unverified</code> 暂停。</li>
           <li>有排队任务、仍为 active 的会话以 <code>backend_restart</code> 暂停；上一步已暂停的会话保留原因。</li>
           <li>会话登记的 JSONL 缺失时改用同 pi session id 的最新文件；改用与找不到都记 <code>session.history_unreadable</code>。</li>

@@ -169,6 +169,13 @@ export interface AcceptedChatResult {
 export type InboundEventStatus = "registered" | "queued" | "done" | "failed";
 
 /**
+ * 入站事件类别（宿主写定，agent-direction issue 08）：task = 普通任务入站；
+ * im_approval = IM 审批控制消息（查询/批准/拒绝命令），直接在同步事务内到终态，
+ * 不派发模型任务。类别不能由消息正文或模型参数决定；旧记录默认 task。
+ */
+export type InboundEventKind = "task" | "im_approval";
+
+/**
  * 持久入站事件（issue 01）：外部消息/定时器/子任务结果进入编排器的统一
  * 入口。先持久化再建任务；(source, externalId) 唯一即幂等键，重复登记不
  * 重复建任务。正文在登记时截断封顶。
@@ -188,6 +195,8 @@ export interface InboundEvent {
   /** QQ 私聊与群聊由宿主在收件时固定目标及配置版本；其他来源按各入口规则核对。 */
   replyTarget: NotifyTarget | null;
   receivedAt: string;
+  /** 宿主写定的事件类别（旧记录默认 task）。 */
+  eventKind: InboundEventKind;
   status: InboundEventStatus;
   /** 由本事件创建的任务（queued 时回填）。 */
   taskId: string | null;
@@ -571,14 +580,14 @@ export type PersistentEventBody =
    * QQ 入口配置变化（issue 07）：连接参数/群允许列表/启停。不含 token
    * （凭据值只在 CredentialStore）；configVersion 随任何变化递增。
    */
-  | { type: "qq.config_changed"; configVersion: number; action: "upsert" | "enabled" | "disabled" | "group_added" | "group_removed"; groupId?: string }
+  | { type: "qq.config_changed"; configVersion: number; action: "upsert" | "enabled" | "disabled" | "group_added" | "group_removed" | "credential_changed"; groupId?: string }
   /**
    * QQ 接收缺口（issue 07）：连接中断后重连成功时标记中断窗口——断线期间的
    * 群消息不假定平台会重投，缺失如实记录，不补抓、不补发。
    */
   | { type: "qq.receive_gap"; from: string; to: string }
   /** Telegram owner 入口配置变化（issue 04）：不含 token；configVersion 随变化递增。 */
-  | { type: "telegram.config_changed"; configVersion: number; action: "upsert" | "enabled" | "disabled" }
+  | { type: "telegram.config_changed"; configVersion: number; action: "upsert" | "enabled" | "disabled" | "credential_changed" }
   /** 非 owner / 非私聊 / 非文本消息被忽略（只记 id 与原因，不含正文，不建任务）。 */
   | { type: "telegram.rejected"; updateId: number; chatId: string | null; userId: string | null; reason: string }
   /** 私聊入站任务终态但未登记 owner 回复（目标未配置、停用或版本变化）。 */
@@ -593,6 +602,10 @@ export type PersistentEventBody =
   /** 入站事件已建任务并入队。 */
   | { type: "inbound.queued"; eventId: string; taskId: string; targetRole: AgentRoleId }
   | { type: "inbound.skipped"; eventId: string; source: string; reason: string }
+  /** IM 审批控制消息处理结果（agent-direction issue 08；控制事件与回执同事务落盘）。 */
+  | { type: "im_approval.processed"; eventId: string; source: string; commandKind: string; outcome: string }
+  /** 同幂等键重投的命令与记录不一致：拒绝执行与原回执（不覆盖既有事实）。 */
+  | { type: "im_approval.redelivery_rejected"; eventId: string; source: string; externalId: string; reason: string }
   | { type: "chat_result.accepted"; taskId: string; acceptedByTaskId: string; acceptedByOpId: string }
   /** 子任务完成（结果摘要与引用已记录在任务上）。 */
   | { type: "child_task.completed"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; summary: string; resultRef: string }

@@ -526,6 +526,7 @@ export class ControlServer {
         return runtime.setProjectInstructions({
           projectId: requireString("project_id"),
           files: files as string[],
+          expectedVersion: optionalExpectedVersion(),
         });
       }
       case "set_project_web_search": {
@@ -533,7 +534,11 @@ export class ControlServer {
         if (typeof enabled !== "boolean") {
           throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
         }
-        return runtime.setProjectWebSearch({ projectId: requireString("project_id"), enabled });
+        return runtime.setProjectWebSearch({
+          projectId: requireString("project_id"),
+          enabled,
+          expectedVersion: optionalExpectedVersion(),
+        });
       }
       case "get_project_jev":
         return runtime.getProjectJev(requireString("project_id"));
@@ -693,7 +698,7 @@ export class ControlServer {
         return runtime.mcpSetEnabled(requireString("service_id"), params["enabled"] as boolean, optionalExpectedVersion());
       }
       case "mcp_remove":
-        return { removed: runtime.mcpRemoveService(requireString("service_id")) };
+        return { removed: runtime.mcpRemoveService(requireString("service_id"), optionalExpectedVersion()) };
       case "mcp_check":
         return runtime.mcpCheckService(requireString("service_id"));
       // ---------- issue 07：QQ 群聊入口（NapCat OneBot） ----------

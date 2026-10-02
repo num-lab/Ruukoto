@@ -1977,11 +1977,17 @@ export class Runtime {
     return service;
   }
 
-  mcpRemoveService(serviceId: string): boolean {
+  mcpRemoveService(serviceId: string, expectedVersion?: number): boolean {
     const service = this.mcp.getService(serviceId);
     if (!service) return false;
     return this.store.withTx(() => {
-      const removed = this.mcp.removeService(serviceId);
+      let removed: boolean;
+      try {
+        removed = this.mcp.removeService(serviceId, expectedVersion);
+      } catch (err) {
+        if (err instanceof McpVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+        throw err;
+      }
       if (removed) {
         this.store.appendEvent(
           { type: "mcp.service_changed", serviceId, projectId: service.projectId, name: service.name, endpoint: service.endpoint, configVersion: service.configVersion + 1, action: "removed" },
@@ -2783,29 +2789,50 @@ export class Runtime {
   /**
    * 设置项目指令文件（issue 05 §3；拥有者入口）。工作区相对路径列表；
    * 任务开始时经受限读取钉版。传空数组 = 清除项目指令。
+   * expected_version（issue 06）：携带时做乐观并发校验（v1 起的正整数），
+   * 省略 = 旧入口兼容写入；两条路径都更新同一行、递增同一设置版本并产生
+   * 同一 project.settings_changed 事件。
    */
-  setProjectInstructions(input: { projectId: string; files: string[] }): Project {
+  setProjectInstructions(input: { projectId: string; files: string[]; expectedVersion?: number }): Project {
     const project = this.store.getProject(input.projectId);
     if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    if (input.expectedVersion !== undefined && (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 须为正整数（设置版本从 1 起）");
+    }
     for (const file of input.files) {
       if (typeof file !== "string" || !file || path.isAbsolute(file) || file.split(/[\\/]/).includes("..")) {
         throw new RuntimeApiError("invalid_params", `指令文件须为工作区相对路径且不含 ..：${String(file)}`);
       }
     }
-    this.store.setProjectInstructionFiles(project.id, input.files);
-    return this.store.getProject(project.id)!;
+    try {
+      return this.store.withTx(() =>
+        this.store.updateProjectSettings({ projectId: project.id, instructionFiles: input.files, expectedVersion: input.expectedVersion }),
+      );
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   /**
    * 按项目启用/禁用 Web Search（issue 20；拥有者入口）。默认启用；
    * 禁用立即阻止后续调用（工具按调用新鲜检查），启用从下一任务生效
-   * （任务开始固定工具清单）。
+   * （任务开始固定工具清单）。expected_version 语义同 setProjectInstructions。
    */
-  setProjectWebSearch(input: { projectId: string; enabled: boolean }): Project {
+  setProjectWebSearch(input: { projectId: string; enabled: boolean; expectedVersion?: number }): Project {
     const project = this.store.getProject(input.projectId);
     if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
-    this.store.setProjectWebSearch(project.id, input.enabled ? "enabled" : "disabled");
-    return this.store.getProject(project.id)!;
+    if (input.expectedVersion !== undefined && (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 须为正整数（设置版本从 1 起）");
+    }
+    try {
+      return this.store.withTx(() =>
+        this.store.updateProjectSettings({ projectId: project.id, webSearch: input.enabled ? "enabled" : "disabled", expectedVersion: input.expectedVersion }),
+      );
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   getProjectJev(projectId: string): JevConfig {

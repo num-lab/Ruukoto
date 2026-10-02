@@ -938,7 +938,7 @@ test("组装：项目指令任务开始时钉版注入一次，内容捕获为�
     const team = path.join(kit.work[0]!, "TEAM.md");
     fs.writeFileSync(team, "项目约定：提交信息用中文");
     const { projectId, session } = kit.project();
-    kit.store.setProjectInstructionFiles(projectId, ["TEAM.md", "缺失.md"]);
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId, instructionFiles: ["TEAM.md", "缺失.md"] }));
     const assembly = kit.begin(kit.task(session, "你好"), session);
     fs.writeFileSync(team, "任务中改过的约定");
     const messages: any[] = [user("你好")];
@@ -961,6 +961,107 @@ test("组装：项目指令任务开始时钉版注入一次，内容捕获为�
     await kit.close();
   }
 });
+
+// ---------- 集成：工作区根目录基准的指令解析（agent-direction issue 06 §2） ----------
+
+/** 建工作区项目（带根目录身份）+ 根目录下子目录会话；返回根目录用于文件布置。 */
+function workspaceFixture(kit: Awaited<ReturnType<typeof startAssemblyKit>>, root: string) {
+  const real = fs.realpathSync(root);
+  const stat = fs.statSync(real);
+  const rootDir = { cwd: path.resolve(root), cwdReal: real, dev: stat.dev, ino: stat.ino };
+  const sub = path.join(real, "sub");
+  fs.mkdirSync(sub, { recursive: true });
+  const subStat = fs.statSync(sub);
+  return {
+    rootDir,
+    ...(kit.store.withTx(() => {
+      const project = kit.store.createProject(`ws-${Math.random().toString(36).slice(2, 8)}`, null, rootDir);
+      const session = kit.store.createSession({
+        projectId: project.id, cwd: sub, cwdReal: sub, cwdDev: subStat.dev, cwdIno: subStat.ino,
+        piSessionId: `pi_${Math.random().toString(36).slice(2, 10)}`, confirmTools: [],
+      });
+      return { projectId: project.id, session };
+    })),
+  };
+}
+
+test("组装：工作区会话在子目录也按根目录解析指令（同名文件只取根目录）", async () => {
+  const kit = await startAssemblyKit("instr-rootdir");
+  try {
+    const ws = workspaceFixture(kit, kit.work[0]!);
+    fs.writeFileSync(path.join(ws.rootDir.cwdReal, "TEAM.md"), "根目录约定：ROOT-MARK");
+    fs.writeFileSync(path.join(ws.rootDir.cwdReal, "sub", "TEAM.md"), "子目录同名：SUB-MARK");
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId: ws.projectId, instructionFiles: ["TEAM.md"] }));
+    const { view } = await kit.send(kit.begin(kit.task(ws.session, "你好"), ws.session), [user("你好")]);
+    const texts = view.map((m) => JSON.stringify(m));
+    assert.ok(texts.some((s) => s.includes("ROOT-MARK")), "注入工作区根目录文件");
+    assert.ok(!texts.some((s) => s.includes("SUB-MARK")), "不会读取子目录同名文件");
+  } finally {
+    await kit.close();
+  }
+});
+
+test("组装：工作区根目录失效或被替换时拒绝读取替代目录的指令", async () => {
+  const kit = await startAssemblyKit("instr-rootgone");
+  try {
+    const ws = workspaceFixture(kit, kit.work[0]!);
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId: ws.projectId, instructionFiles: ["TEAM.md"] }));
+
+    // 替换：删除后重建同路径目录（ino 变化），替代目录里放同名文件
+    fs.rmSync(ws.rootDir.cwdReal, { recursive: true, force: true });
+    fs.mkdirSync(ws.rootDir.cwdReal, { recursive: true });
+    fs.writeFileSync(path.join(ws.rootDir.cwdReal, "TEAM.md"), "替代目录的指令：REPLACED-MARK");
+
+    const { view } = await kit.send(kit.begin(kit.task(ws.session, "你好"), ws.session), [user("你好")]);
+    const texts = view.map((m) => JSON.stringify(m));
+    assert.ok(texts.some((s) => s.includes("工作区根目录核实失败")), "明确说明根目录核实失败");
+    assert.ok(!texts.some((s) => s.includes("REPLACED-MARK")), "不读取替代目录内容");
+
+    // 失效：目录被删除（重建后再删）
+    const goneRoot = path.join(kit.dirs.root, "ws-gone");
+    fs.mkdirSync(goneRoot, { recursive: true });
+    const ws2 = workspaceFixture(kit, goneRoot);
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId: ws2.projectId, instructionFiles: ["TEAM.md"] }));
+    fs.rmSync(ws2.rootDir.cwdReal, { recursive: true, force: true });
+    const gone = await kit.send(kit.begin(kit.task(ws2.session, "你好"), ws2.session), [user("你好")]);
+    assert.ok(gone.view.map((m) => JSON.stringify(m)).some((s) => s.includes("工作区根目录核实失败")), "根目录失效同样拒绝");
+  } finally {
+    await kit.close();
+  }
+});
+
+test("组装：指令符号链接以工作区根目录为基准判逃逸", async () => {
+  const kit = await startAssemblyKit("instr-link", { workDirs: 2 });
+  try {
+    const ws = workspaceFixture(kit, kit.work[0]!);
+    const outside = path.join(kit.work[1]!, "outside.md");
+    fs.writeFileSync(outside, "工作区外的内容：OUTSIDE-MARK");
+    fs.symlinkSync(outside, path.join(ws.rootDir.cwdReal, "TEAM.md"));
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId: ws.projectId, instructionFiles: ["TEAM.md"] }));
+    const { view } = await kit.send(kit.begin(kit.task(ws.session, "你好"), ws.session), [user("你好")]);
+    const texts = view.map((m) => JSON.stringify(m));
+    assert.ok(texts.some((s) => s.includes("越出工作区")), "符号链接逃逸按根目录判定拒绝");
+    assert.ok(!texts.some((s) => s.includes("OUTSIDE-MARK")), "不注入工作区外内容");
+  } finally {
+    await kit.close();
+  }
+});
+
+test("组装：无根目录归属的旧项目按会话目录解析（行为不变）", async () => {
+  const kit = await startAssemblyKit("instr-legacy");
+  try {
+    // kit.project()：无 rootDir 的旧项目，会话目录即工作目录本身
+    const { projectId, session } = kit.project();
+    fs.writeFileSync(path.join(session.cwdReal, "LEGACY.md"), "旧项目指令：LEGACY-MARK");
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId, instructionFiles: ["LEGACY.md"] }));
+    const { view } = await kit.send(kit.begin(kit.task(session, "你好"), session), [user("你好")]);
+    assert.ok(view.map((m) => JSON.stringify(m)).some((s) => s.includes("LEGACY-MARK")), "旧项目仍按会话目录读取");
+  } finally {
+    await kit.close();
+  }
+});
+
+
 
 // ---------- 集成：继续任务保留原任务要求 ----------
 
@@ -1004,6 +1105,34 @@ test("组装：授权撤销后引用受限来源的记忆不再注入，排除�
       "排除原因应记为 source_scope_revoked",
     );
     assert.ok(!revoked.view.some((m) => JSON.stringify(m).includes("[长期记忆")), "撤销后不再有记忆前缀注入");
+  } finally {
+    await kit.close();
+  }
+});
+
+test("组装：上下文选择完成后、模型发送前撤销授权，旧视图被发送前复核拦下（agent-direction issue 06 §4）", async () => {
+  const kit = await startAssemblyKit("mem-src-race", { workDirs: 2 });
+  try {
+    const a = kit.project(kit.work[0]);
+    const b = kit.project(kit.work[1]);
+    const grant = kit.deps.access.createGrant({ fromProjectId: b.projectId, toProjectId: a.projectId, category: "history" });
+    kit.deps.memories.create({
+      projectId: a.projectId, category: "experience", content: "B 项目的暗号是暗红界碑",
+      sourceRefs: [{ kind: "history_entry", sessionId: b.session.id, entryId: "entry_b" }], author: "agent",
+    });
+    const task = kit.task(a.session, "竞争");
+    const assembly = kit.begin(task, a.session);
+    // 选择完成：记忆已进入本轮视图（尚未 prepareSend/落盘选择记录）
+    const view = (await assembly.assemble([user("竞争")], kit.sdk()))?.messages ?? [user("竞争")];
+    assert.ok(view.some((m) => JSON.stringify(m).includes("暗红界碑")), "选择完成时记忆已在视图中");
+    // 发送前撤销唯一有效授权：发送前复核必须拦截旧视图
+    kit.deps.access.revokeGrant(grant.id);
+    assert.throws(
+      () => assembly.prepareSend(kit.model, { systemPrompt: "sys", messages: view, tools: [] }, {}),
+      (err) => err instanceof ContextSendBlocked && String(err.code).startsWith("context_source_changed"),
+      "无其他有效授权时，发送前撤销须拦下旧视图",
+    );
+    assert.equal(kit.store.listSelectionRecordsByTask(task.id).length, 0, "被拦下的调用不落选择记录");
   } finally {
     await kit.close();
   }
@@ -1149,7 +1278,7 @@ test("迁移：v2 库升级到 v3 补列建表，既有数据保留", async () =
     assert.ok(project);
     assert.deepEqual(project.instructionFiles, []);
     // 新列可写
-    store.setProjectInstructionFiles("proj_old", ["TEAM.md"]);
+    store.withTx(() => store.updateProjectSettings({ projectId: "proj_old", instructionFiles: ["TEAM.md"] }));
     assert.deepEqual(store.getProject("proj_old")!.instructionFiles, ["TEAM.md"]);
     // 新表已建且可用
     const access = new AccessScope(db);

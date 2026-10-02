@@ -339,24 +339,24 @@ test("取消与项目禁用：阻止未来搜索、取消待发送摘要，中�
     const canceled = approvedPlan(h, "cancel-before");
     await h.rt.scheduleCancel({ scheduleId: canceled.id, expectedVersion: 1, reason: "停止新闻" });
     const disabled = approvedPlan(h, "disabled");
-    h.rt.store.setProjectWebSearch(main.projectId, "disabled");
+    h.rt.store.withTx(() => h.rt.store.updateProjectSettings({ projectId: main.projectId, webSearch: "disabled" }));
     await h.tick();
     assert.equal(h.rt.sched.listRuns(canceled.id, 10).length, 0);
     assert.equal(runOf(h, disabled.id).newsResult!.errorCode, "disabled");
     assert.equal(opOf(h, disabled.id).status, "failed");
     assert.equal(h.hits.length, 0);
 
-    h.rt.store.setProjectWebSearch(main.projectId, "enabled");
+    h.rt.store.withTx(() => h.rt.store.updateProjectSettings({ projectId: main.projectId, webSearch: "enabled" }));
     h.channel.online = false;
     const queued = approvedPlan(h, "queued", ["queued"], "2026-09-25T02:00:00Z");
     await h.tick("2026-09-25T02:00:00Z");
     assert.equal(opOf(h, queued.id).status, "pending");
-    h.rt.store.setProjectWebSearch(main.projectId, "disabled");
+    h.rt.store.withTx(() => h.rt.store.updateProjectSettings({ projectId: main.projectId, webSearch: "disabled" }));
     h.channel.online = true;
     await h.tick("2026-09-25T02:00:00Z");
     assert.equal(opOf(h, queued.id).status, "canceled");
 
-    h.rt.store.setProjectWebSearch(main.projectId, "enabled");
+    h.rt.store.withTx(() => h.rt.store.updateProjectSettings({ projectId: main.projectId, webSearch: "enabled" }));
     const inflight = approvedPlan(h, "inflight", ["hold"], "2026-09-25T03:00:00Z");
     h.clock.now = Date.parse("2026-09-25T03:00:00Z");
     await h.rt.scheduler!.tick();

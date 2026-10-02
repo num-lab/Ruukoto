@@ -398,7 +398,25 @@ create_session 幂等键，同键重发返回原记录、同键异参报 request
 
 - **并发与修订**：模型配置以 `expected_revision`（models.json + auth.json +
   default-model.json + summary-model.json 的内容指纹）做条件更新；项目/会话/MCP/QQ 沿用各自的
-  expected_version。冲突时要求重新加载，不静默覆盖。
+  expected_version。冲突时要求重新加载，不静默覆盖。项目指令与 Web Search 共用
+  `projects.settings_version`（v20 加列，旧项目初始版本 1，只保护这两项，不与
+  MCP/Jev/会话默认各自的版本列合并）：保存经 `Store.updateProjectSettings` 在同一事务
+  核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件
+  （携带配置字段，不含指令正文或秘密）；不符 = `version_conflict`，不改配置、无事件；
+  省略版本 = 旧入口兼容写入（同样递增并发事件——带版本客户端的随后保存会冲突，旧入口
+  不能绕过冲突检测）；同值保存幂等（不递增、无事件）。`set_project_instructions` /
+  `set_project_web_search` 接受可选 `expected_version`（v1 起正整数；0/负数/非整数
+  = invalid_params）。任务 TUI 与配置中心都投影该事件刷新项目展示；配置中心冲突后先
+  实际重读后台数据（不刷旧缓存）、再刷新当前分区。
+- **项目分区（agent-direction issue 06）**：ruukoto-dev 的「项目」分区把工作区列在前
+  （标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品不分类。
+  项目详情显示分类与根目录，指令、Web Search、Jev、MCP 与资料授权都在已选项目内完成：
+  指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务、新增固定
+  归属跳过项目选择（全局 MCP 分区复用同一页面与表单，新增仍按工作区/旧项目选择项目；
+  进入归属不符的服务详情会提示并返回）。资料授权页标注出向/入向；新建方向固定为本
+  项目 → 目标（目标按工作区/旧项目选择）；撤销按单条授权 ID，同范围（同来源/目标/类别）还有
+  其他有效授权时，确认与结果都明示「不关闭该类访问」；「查看已撤销」为只读记录（含
+  撤销时间）。
 - **模型配置应用时机（§4）**：provider、模型目录与 API key 的修改只在没
   有受影响的 `running` / `awaiting_confirmation` / `queued` 任务时应用；
   检查到应用完成之间，受影响 provider 的新提交与会话模型设置被拒绝
@@ -467,10 +485,11 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v19；
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v20；
 │                              #   meta 含实例标识、应用数据绑定、产品归属
 │                              #   product.type——跨产品复用被拒绝）
-│                              #   项目（含项目指令文件与 Web Search 开关）、会话
+│                              #   项目（含项目指令文件与 Web Search 开关、
+│                              #   settings_version 并发保护）、会话
 │                              #   （含 kind：dev/qq_group）、任务
 │                              #   （accessMode/权限版本/授予路径）、确认请求
 │                              #   （结构化范围/消费时间）、工具操作（宿主操作
@@ -583,8 +602,12 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
   `[长期记忆 <id> v<N> · <类别> · <范围>]`。MCP、web_search 结果与新闻快照的
   外部资料警示逐条保留。
 - 项目指令：拥有者显式配置的工作区相对路径（`ruukoto project
-  set-instructions <项目id> <文件...>`），任务开始时经受限读取钉版
-  （realpath 后必须仍在工作区内；缺失/不可读/超大分别说明，不取祖先目录
+  set-instructions <项目id> <文件...>`）。基准目录取
+  `project.rootDir?.cwdReal ?? session.cwdReal`：带根目录归属的工作区读取前按
+  realpath/dev/ino 核实根目录身份（`verifyDirIdentitySync` 同步变体），根目录
+  失效或被替换时拒绝读取替代目录并给出明确说明（不退回会话子目录）；无根目录
+  归属的旧项目行为不变（按会话目录解析）。任务开始时从基准目录经受限读取钉版
+  （realpath 后必须仍在基准目录内；缺失/不可读/超大分别说明，不取祖先目录
   文件）；内容捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定，只写入
   选择记录，下一任务重新读取即为刷新入口。指令作为带标记的参考消息注入一次，
   不能变更控制面身份、审批规则或权限模式（说明在系统提示中）。
@@ -1394,7 +1417,9 @@ MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
   - `ruukoto mcp list [--project <id>]`（脱敏视图）
   - `ruukoto mcp check <service-id>`（连接检查 + 工具发现，标注每个远端工具
     是否在允许列表；先打印将联系的端点）
-  - `ruukoto mcp disable <service-id>` / `enable` / `remove`
+  - `ruukoto mcp disable <service-id>` / `enable` / `remove <service-id>
+    [--expected-version N]`（remove 可携带期望版本核对：不符 = version_conflict
+    且服务保留；省略 = 旧调用兼容删除）
 - 端点校验：生产固定 https，http 仅限回环模拟服务；拒绝 userinfo；客户端
   钉住端点源，拒绝跨源重定向，不向非配置目标转发认证。变更采用期望版本
   校验；任何变化递增配置版本并发 `mcp.service_changed` 事件。

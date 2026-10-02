@@ -151,7 +151,7 @@ test("服务端错误应答：业务码原样，系统码与没带码的异常�
 
 const T0 = "2026-09-27T00:00:00.000Z";
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
-const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", createdAt: T0 };
+const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: T0 };
 
 function session(overrides: Partial<Session> = {}): Session {
   return {

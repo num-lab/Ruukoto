@@ -460,8 +460,8 @@
           <tr><td><code>save_memory</code></td><td>新增或修改记忆</td><td>是</td><td>版本号</td></tr>
           <tr><td><code>revoke_memory</code></td><td>撤销记忆</td><td>是</td><td>版本号</td></tr>
           <tr><td><code>restore_memory</code></td><td>按历史版本恢复记忆</td><td>是</td><td>版本号</td></tr>
-          <tr><td><code>set_project_instructions</code></td><td>设置项目指令文件列表（空列表即清除）</td><td>是</td><td>—</td></tr>
-          <tr><td><code>set_project_web_search</code></td><td>开关项目的 Web Search</td><td>是</td><td>—</td></tr>
+          <tr><td><code>set_project_instructions</code></td><td>设置项目指令文件列表（空列表即清除；可选 <code>expected_version</code>（v1 起正整数），省略 = 兼容写入）</td><td>是</td><td>版本号（可选）</td></tr>
+          <tr><td><code>set_project_web_search</code></td><td>开关项目的 Web Search（可选 <code>expected_version</code>，语义同 <code>set_project_instructions</code>）</td><td>是</td><td>版本号（可选）</td></tr>
           <tr><td><code>get_project_jev</code></td><td>读项目的 Jev 上下文筛选配置</td><td>—</td><td>—</td></tr>
           <tr><td><code>set_project_jev</code></td><td>设置 Jev 配置（凭据名或 null）</td><td>是</td><td>版本号</td></tr>
           <tr><td colspan="4"><b>凭据</b></td></tr>
@@ -472,7 +472,7 @@
           <tr><td><code>mcp_configure</code></td><td>配置或更新 MCP 服务（端点、凭据引用、工具允许列表、启用状态）</td><td>是</td><td>版本号</td></tr>
           <tr><td><code>mcp_list</code></td><td>列出服务（<code>project_id</code> 可选）</td><td>—</td><td>—</td></tr>
           <tr><td><code>mcp_set_enabled</code></td><td>启用 / 停用服务</td><td>是</td><td>版本号</td></tr>
-          <tr><td><code>mcp_remove</code></td><td>移除服务</td><td>是</td><td>—</td></tr>
+          <tr><td><code>mcp_remove</code></td><td>移除服务（可选 <code>expected_version</code>：不符 = <code>version_conflict</code> 且服务保留，省略 = 兼容删除）</td><td>是</td><td>版本号（可选）</td></tr>
           <tr><td><code>mcp_check</code></td><td>试连服务并列出可用工具</td><td>—</td><td>—</td></tr>
           <tr><td colspan="4"><b>QQ</b></td></tr>
           <tr><td><code>qq_configure</code></td><td>配置 OneBot 连接、账号与回复上限</td><td>是</td><td>版本号</td></tr>
@@ -513,6 +513,7 @@
           <tr><td><code>project.created</code></td><td>项目创建（带幂等键时只在真正新建时产生；工作区项目另带根目录归属）</td><td>本页</td></tr>
           <tr><td><code>project.root_attached</code></td><td>旧项目认领工作区根目录（认领后该项目即工作区）</td><td>本页</td></tr>
           <tr><td><code>project.jev_changed</code></td><td>项目 Jev 上下文筛选配置变化</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
+          <tr><td><code>project.settings_changed</code></td><td>项目指令列表或 Web Search 开关已保存（携带 projectId、settingsVersion、instructionFiles、webSearch；不含指令正文或秘密；版本冲突的保存与同值保存不产生事件）</td><td>本页</td></tr>
           <tr><td><code>session.created</code></td><td>会话创建（含入口类别、工作目录、初始模型与创建标识）</td><td>本页</td></tr>
           <tr><td><code>session.model_selection_changed</code></td><td>会话模型或思考档位变更（带版本号）</td><td>本页</td></tr>
           <tr><td><code>session.usage_updated</code></td><td>实际 usage 保存后通知客户端重新查询会话累计用量</td><td><a href="context-pipeline.html">上下文管线</a></td></tr>

@@ -54,8 +54,9 @@ test("角色引导：main/coding/chat 绑定独立项目、会话与工作目录
       assert.equal(session.projectId, role.projectId);
       assert.equal(session.cwdReal, fs.realpathSync(role.workDir));
     }
-    // 白名单：main 无编码工具（issue 02 起含应用数据空间），coding 全量，chat 空
-    assert.deepEqual(roles.find((r) => r.id === "main")!.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"]);
+    // 白名单：main 无编码工具（issue 02 起含应用数据空间；agent-direction issue 09 起含
+    // service 类别——装配另要求产品/Linux/显式部署配置，见 tool-availability），coding 全量，chat 空
+    assert.deepEqual(roles.find((r) => r.id === "main")!.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills"]);
     assert.deepEqual(roles.find((r) => r.id === "coding")!.tools, ["coding", "host_data", "web_search", "mcp", "skills"]);
     assert.deepEqual(roles.find((r) => r.id === "chat")!.tools, []);
   } finally {

@@ -75,7 +75,7 @@
 
   <section id="availability">
     <h2>可用性：会话类别定清单，任务再收窄</h2>
-    <p>静态清单在 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>：普通开发会话与 coding 角色拿到 <code>coding</code>（含共享的待办工具）、<code>host_data</code>、<code>web_search</code>、<code>mcp</code>、<code>skills</code>；main 在此基础上换成 <code>app_data</code>、<code>scheduler</code>、<code>delegation</code>、<code>chat_results</code>（没有 <code>coding</code>）；chat 为空清单。ruukoto-dev（Coding Agent）不创建调度器，main 的 <code>scheduler</code> 工具不装配（agent-direction issue 01）。</p>
+    <p>静态清单在 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>：普通开发会话与 coding 角色拿到 <code>coding</code>（含共享的待办工具）、<code>host_data</code>、<code>web_search</code>、<code>mcp</code>、<code>skills</code>；main 在此基础上换成 <code>app_data</code>、<code>scheduler</code>、<code>delegation</code>、<code>chat_results</code>、<code>service</code>（没有 <code>coding</code>）；chat 为空清单。ruukoto-dev（Coding Agent）不创建调度器，main 的 <code>scheduler</code> 工具不装配（agent-direction issue 01）。<code>service</code>（<code class="src" data-src="src/core/types.ts#ToolCategory">types.ts · ToolCategory</code>，service_inspect / service_manage，服务器服务管理）进了 main 的清单只是可见的前提：实际装配另要求产品 ruukoto + Linux + 显式部署配置齐备（缺一则不装配，不是静默放行）。</p>
     <p>装配之外还有逐任务收窄：计划模式只留只读；项目关掉 Web Search 时 <code>web_search</code> 整类不装；宿主可按任务钉一份更小的工具集。收窄只减不增——任务不能拿到清单外的类别。</p>
   </section>
 
@@ -145,6 +145,7 @@
           <tr><td><code>mcp_tool</code></td><td>服务身份与配置版本、远端工具名、参数摘要、副作用类别</td></tr>
           <tr><td><code>app_data_change</code></td><td>应用库身份、任务与操作 ID、表与破坏性类别、版本与受影响数量</td></tr>
           <tr><td><code>notification</code></td><td>通知外发：完整正文指纹、目标与配置版本、时间规则与持续范围；单次消费，完全访问模式下也须确认</td></tr>
+          <tr><td><code>service_operation</code></td><td>服务器服务管理（root 提权 helper）：本机身份、精确单元名、固定动作、策略与单元定义修订指纹、任务与宿主操作 ID；任何访问模式都逐次审批，参数快照含 unit/action/machine_id/policy_revision/unit_revision/state_before/note，消费事务内复核策略修订，helper 在请求 systemd 前再复核单元修订</td></tr>
           <tr><td><code>github_publish</code></td><td>已退役范围：旧 GitHub 发布模块的审批记录只读展示，新任务不再产生</td></tr>
         </tbody>
       </table>

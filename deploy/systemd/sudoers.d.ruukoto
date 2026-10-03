@@ -1,4 +1,5 @@
-# ruukoto：systemd 后端单元。仅后台账户（ruukoto-backend）能调用提权启动入口。
-ruukoto-backend ALL=(root) NOPASSWD: /usr/local/libexec/ruukoto/ruukoto-exec-launch, /usr/local/libexec/ruukoto/ruukoto-exec-stop
+# ruukoto：systemd 后端单元。仅后台账户（ruukoto-backend）能调用固定提权入口
+# （执行工作进程启停两个 + 服务管理 helper 一个，均为 root 拥有的固定 argv 脚本）。
+ruukoto-backend ALL=(root) NOPASSWD: /usr/local/libexec/ruukoto/ruukoto-exec-launch, /usr/local/libexec/ruukoto/ruukoto-exec-stop, /usr/local/libexec/ruukoto/ruukoto-service
 # 执行账户 uid/gid 非默认 1002 时，经后台单元 Environment 传入包装脚本（sudo 默认清空环境）。
 Defaults:ruukoto-backend env_keep += "RUUKOTO_EXEC_UID RUUKOTO_EXEC_GID"

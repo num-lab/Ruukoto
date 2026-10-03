@@ -212,6 +212,14 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
     console.error(`--tools 取值无效：${toolsFlag}（coding | mock）`);
     return 1;
   }
+  // 服务器服务管理（agent-direction issue 09）：显式部署配置才装配；只配置
+  // 一半是部署错误，直接拒绝启动而不是静默降级为无能力
+  const serviceHelper = process.env.RUUKOTO_SERVICE_HELPER;
+  const servicePolicy = process.env.RUUKOTO_SERVICE_POLICY;
+  if ((serviceHelper && !servicePolicy) || (!serviceHelper && servicePolicy)) {
+    console.error("RUUKOTO_SERVICE_HELPER 与 RUUKOTO_SERVICE_POLICY 必须同时设置（见 deploy/systemd/README.md）");
+    return 1;
+  }
   const runtime = await Runtime.start({
     dataDir,
     agentDir,
@@ -224,6 +232,7 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
     modelId,
     execution: { backend: execFlag },
     toolFactory,
+    service: serviceHelper ? { helperPath: serviceHelper, policyPath: servicePolicy! } : undefined,
     // dev 开发实例（issue 21 §1）：RUUKOTO_DISABLE_QQ=1 停用真实 QQ 通道
     qqDisabled: process.env.RUUKOTO_DISABLE_QQ === "1",
     // 同上（issue 04）：RUUKOTO_DISABLE_TELEGRAM=1 停用真实 Telegram 通道

@@ -1225,6 +1225,47 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
   回执；同键异命令拒绝，不按新的审批状态再执行；已完成的控制事件即使后来绑定
   变化也不改目标、不换发送键。429 只按原操作延后，超时/断线/丢失回执不换键重发。
 
+## 服务器服务管理（agent-direction issue 09，ADR 0019）
+
+main 可检查服务器部署白名单内的服务状态，并经拥有者逐次审批执行管理动作
+（首版仅 restart）。宿主工具在 `src/agent/service-tools.ts`；审批、通知与
+批准消费复用 IM 审批通道，不另建控制面。
+
+- **装配边界**：`service_inspect` / `service_manage` 仅 main，且要求产品
+  ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER` /
+  `RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动）；
+  普通 dev、coding、chat、QQ 群与 ruukoto-dev 都不获得该能力，main 不因此
+  获得 bash。模型只提供白名单服务名与固定动作；主机身份、taskId、hostOpId、
+  执行身份与策略由宿主注入。
+- **helper 边界**（`deploy/systemd/ruukoto-service.mjs`，root 0700，仅后台
+  账户经 sudoers 固定路径调用；执行账户无新增 sudo/Polkit 权限）：固定
+  inspect / restart / stop-op 协议，绝对路径结构化 argv，清理环境，应答为
+  stderr 上 `RUUKOTO_SERVICE_REPLY` 前缀单行 JSON。策略 `/etc/ruukoto/
+  services.json`（root 0644）固定本机身份、执行 UID/GID、精确单元与允许
+  动作；拒绝别名、模板实例、通配符、选项注入与额外参数，固定拒绝后台、
+  Docker、执行工作进程与自身操作单元。检查以策略执行账户运行；修订指纹
+  覆盖策略与 unit/drop-in 内容及已加载配置（`NeedDaemonReload=yes` 拒绝）。
+- **审批**：`service_manage` 在任何访问模式（含 full_access）逐次审批——
+  root 分支是后台经 sudoers 的新提权能力，不属于执行账户已有权限。范围
+  `service_operation` 固定本机、规范单元、动作、策略与单元定义修订及任务
+  和宿主操作 ID；批准单次消费，消费事务内复核 main 身份与策略修订，helper
+  在请求 systemd 前再次核实全部修订。修订或 IM 固定身份变化即失效；已消费
+  但 helper 证明未请求 systemd 记为已知未执行，重新操作需要新审批。
+- **执行与回收**：每个宿主操作派生短命命令单元 `ruukoto-service-op-
+  <hostOpId>.service`（`systemd-run --pipe --wait`，KillMode=control-group，
+  RuntimeMaxSec=120），同一 ID 以 root 目录原子 mkdir 持久认领一次执行权
+  （跨进程与瞬态单元回收后的重复保护；标记只证明已认领）。停止协议只停派生
+  命令单元：先阻断后续启动（认领/stop-requested），再核实整个单元退出
+  （LoadState/ActiveState/MainPID/ControlPID 全部确认），查询失败不释放占用；
+  已提交 PID 1 的重启作业不撤回。原始 stdout/stderr 先入 ArtifactStore，
+  模型收有界视图，产物引用接到 `task.tool_result` 事件（中断保持 partial）。
+- **结果与恢复**：正常重启分述「管理命令结果」（退出码）与「随后观察到的
+  服务状态」（InvocationID 对照）；退出码 0 ≠ active ≠ 业务健康；后状态查询
+  失败保留已知命令结果。非零退出可能含部分效果（如已停止未能启动），不描述
+  为零执行。账本规则 `service_inspect=no_effect`、`service_manage=approval`：
+  未消费中断/重启=已知未执行，已消费在途=效果未知，任何路径都不自动重发；
+  owner 核实后重新申请。
+
 ## main 委派 coding（daily-agent issue 05）
 
 main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，通过宿主工具
@@ -1760,7 +1801,9 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 见 `deploy/systemd/README.md`：三个系统身份（拥有者 / 后台
 `ruukoto-backend` / 执行账户 `ruukoto-exec`）、固定工具镜像
 （`deploy/worker-image/build.sh`）、受保护提权入口（root 拥有的 sudo
-包装脚本，仅后台可调用）、`ruukoto-backend.service` 单元。
+包装脚本，仅后台可调用）、`ruukoto-backend.service` 单元，以及可选的
+服务器服务管理（root 拥有的服务 helper 与白名单策略、可控测试服务，见
+上文「服务器服务管理」节）。
 
 该单元只承载个人 Agent 产品 ruukoto。Coding Agent（ruukoto-dev）装在开发
 机器上：同一仓库检出加 `bin/ruukoto-dev.mjs` 入口（`npm link` 或直接把 bin
@@ -1807,6 +1850,8 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；可行机制为独立本机执行账户 + sudo 包装（同 Linux exec 账户一类），创建账户与 sudoers 属拥有者部署动作、本单未做；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
 | 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-dev 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
 | 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-dev.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
+| 服务器服务管理离线验证（agent-direction issue 09；test/78：QQ/Telegram 检查→逐次审批→批准恰好一次→原入口结果、拒绝/重复决定/篡改目标零执行、非 main 与错误产品/无配置/非 Linux 门、auto-review 转人工、策略与单元修订变化失效、同 ID 重复启动拒绝、取消与跨重启的效果未知不自动重发、产物引用与 partial、后状态查询失败保留命令结果） | macOS 本机（模拟 IM 平台 + mock 模型 + 受控 helper 替身，文件系统模拟 systemd，协议逐字节同生产） | 通过（2026-10-03，22/22；真实 systemd/提权证据非本项，见下行） |
+| 服务器服务管理真实 Linux 冒烟（.scratch/agent-direction/smoke-09-linux-service-management.mts：模拟 IM 平台 + 真实 systemd/sudo/提权/测试服务——部署安装、主链路真实重启（InvocationID 变化、starts 恰 +1、批准消费一次、op 单元实录）、执行账户调用/写策略/读控制面令牌全拒绝、同 hostOpId already_claimed、策略篡改消费前失效、改单元不 daemon-reload 修订拒绝、基础设施目标拒绝、op 已派发时 kill -9 恢复效果未知不自动重发、拒绝零执行） | tx（Ubuntu 24.04，systemd 255） | 通过（2026-10-03，14/14 ×3 轮幂等，末轮为最终代码态复跑；发现并修复 fd3 协议在 sudo 下全断（closefrom=3）改为 stderr 前缀应答；IM/模型为桩，真实 QQ/Telegram 平台未实测） |
 
 ### 按会话选择模型
 

@@ -18,8 +18,9 @@ export type SessionToolClass = "dev" | "main" | "coding" | "chat";
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
   dev: ["coding", "host_data", "web_search", "mcp", "skills"],
-  // main：日常对话/信息整理/编排，不持有编码工具
-  main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"],
+  // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
+  // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
+  main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills"],
   // coding：仓库/测试/PR 分析
   coding: ["coding", "host_data", "web_search", "mcp", "skills"],
   // chat：群聊，空工具集合

@@ -2398,6 +2398,8 @@ export class TuiApp {
       }
       case "notification":
         return `${c.scope.mode === "news" ? "动态新闻推送" : "通知外发"}（${c.scope.duration === "until_canceled" ? "持续至取消" : "单次"}）：${c.scope.target.channel}/${c.scope.target.chatId}（配置 v${c.scope.target.configVersion}）${c.scope.rule ? ` · ${c.scope.rule}` : ""} · ${c.scope.mode === "news" ? "采集与发送约定" : "正文"} ${c.scope.textChars} 字符`;
+      case "service_operation":
+        return `服务器服务管理（root 提权）：${c.scope.action} ${c.scope.unit}（策略 ${c.scope.policyRevision.slice(0, 12)}… · 单元定义 ${c.scope.unitRevision.slice(0, 12)}…）`;
       // issue 17：github_publish 范围已退役，仅为历史审批记录的只读展示保留
       case "github_publish":
         return `GitHub 发布（已退役模块的历史记录）：${c.scope.owner}/${c.scope.repo} ${c.scope.publishKind === "pr_review_comment" ? `PR #${c.scope.target["prNumber"]} 评审评论` : `issue #${c.scope.target["issueNumber"]} 评论`}（草稿 ${c.scope.draftId} v${c.scope.draftVersion}，${c.scope.bodyBytes} 字节）`;
@@ -2436,6 +2438,12 @@ export class TuiApp {
         if (c.scope.definitionBefore || c.scope.definitionAfter) {
           lines.push(`定义变更：${c.scope.definitionBefore ? "含旧定义" : "无旧定义"} → ${c.scope.definitionAfter ? "含新定义" : "删除"}`);
         }
+      }
+      if (c.scope.kind === "service_operation") {
+        // issue 09：准确目标、提权身份、动作影响与修订指纹；请求时状态见下方参数
+        lines.push("提权身份：root（经后台固定 helper 与 sudoers；full_access 也逐次审批）");
+        lines.push("影响：restart 会启动原本不活动的服务，并中断该服务正在处理的工作；执行中断或超时后效果可能无法确认，效果未知不自动重发。");
+        lines.push(`本机：${c.scope.machineId.slice(0, 12)}… · 操作 ${c.scope.toolOpId}`);
       }
       if (c.scope.kind === "notification") {
         if (c.scope.mode === "news") lines.push("批准后按固定关键词、来源与时间自动采集并发送动态摘要；完整采集范围见下方参数 news。");

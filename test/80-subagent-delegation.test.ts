@@ -153,7 +153,9 @@ test("幂等与区分：同键同参跨轮次返回原记录，异参冲突，�
       /幂等键冲突/,
     );
 
-    // 同工作新键 → 同一 Agent 的新一次执行；工作/Agent/任务三只 ID 分别核实
+    // 同工作新键 → 同一 Agent 的新一次执行；工作/Agent/任务三只 ID 分别核实。
+    // 继续委派要求 Agent 空闲（issue 12）：忙时明确拒绝不排队，先等结果登记为 idle
+    await waitFor("Agent 空闲", () => rt.store.getSubAgent(first.agent.id)!.state === "idle");
     const again = await rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k2", request: "分析 B", workId: first.work.id, readPaths: ["."], materials: null, paramsDigest: "d2" });
     assert.equal(again.created, true);
     assert.equal(again.newWork, false);
@@ -267,7 +269,7 @@ test("main 会话：materials 快照委派、wake 回报与 coding_result 兼容
     // 快照落到子工作目录，正文不重新解析
     await waitFor("子任务完成", () => rt.store.getTask(task.id)!.status === "completed");
     const agent = rt.store.getSubAgent(work.subAgentId)!;
-    assert.equal(fs.readFileSync(path.join(agent.workDir, "materials-m1.txt"), "utf8"), "材料正文 A");
+    assert.equal(fs.readFileSync(path.join(agent.workDir, `materials-${work.id}-m1.txt`), "utf8"), "材料正文 A");
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"));
     assert.ok(subCall && toolNamesOf(subCall).length === 2, "只读工具清单");
 
@@ -397,6 +399,9 @@ test("模块级：subagent_result 按所属父会话开窄口，其他会话/工
       delegate: async () => {
         throw new Error("not used");
       },
+      close: () => {
+        throw new Error("not used");
+      },
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: sB.sessionId, projectId: (rt.store.getSession(sB.sessionId)!).projectId, hostOpId: "opx" }),
@@ -503,7 +508,8 @@ test("v23 → v24 迁移：旧角色/会话/任务/审批保留，新关联列�
 
     db = new Db(dirs.dataDir);
     const store = new Store(db);
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, "24");
+    const { SCHEMA_VERSION } = await import("../src/core/db.ts");
+    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
     const cols = (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
     for (const c of ["work_id", "sub_agent_id", "read_scope", "result_delivered_at"]) assert.ok(cols.includes(c), `迁移后补列 ${c}`);
     const task = store.getTask("old-task")!;

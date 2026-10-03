@@ -413,6 +413,9 @@ function demoEvents(): PersistentEvent[] {
     { type: "subagent_task.failed", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000002", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", errorMessage: "模型返回错误" },
     { type: "subagent_task.timeout", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000003", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", deadline: ts(5) },
     { type: "subagent_task.result_unknown", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000004", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", reason: "backend_restart" },
+    // agent-direction issue 12：同一 SubAgent 复用登记新工作，随后显式关闭
+    { type: "work_delegation.created", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", agentSessionId: "sess_demoagent000000", taskId: "task_subagent000005" },
+    { type: "subagent.closed", subAgentId: "sagent_demo0000000001", parentSessionId: SESSION_ID, closedBy: "agent:task_running000000", taskId: "task_running000000" },
     // issue 02：main 应用数据空间（能力停止与操作拒绝）
     { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },
     { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },

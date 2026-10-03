@@ -1,23 +1,28 @@
 /**
- * 通用 SubAgent 委派工具（agent-direction issue 11）：subagent_delegate /
- * subagent_result。对拥有者的普通开发会话与 main 角色会话装配；其余身份
- * （群、固定 coding/chat、动态 SubAgent、调度与回报唤醒）一律不装配也不放行。
+ * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭）：
+ * subagent_delegate / subagent_result / subagent_close。对拥有者的普通开发会话
+ * 与 main 角色会话装配；其余身份（群、固定 coding/chat、动态 SubAgent、调度与
+ * 回报唤醒）一律不装配也不放行（subagent_close 例外：回报唤醒轮次也允许，
+ * 因为关闭只收窄能力）。
  *
- * - 模型只给正文、幂等键、可选既有 workId 与选定资料（dev: read_paths /
- *   main: materials）；目标身份、独立目录、confirm 模式、只读工具与截止时间
- *   由宿主固定（见 src/runtime/subagents.ts）；
+ * - 模型只给正文、幂等键、可选既有 workId / subAgentId 与选定资料
+ *   （dev: read_paths / main: materials）；目标身份、独立目录、confirm 模式、
+ *   只读工具与截止时间由宿主固定（见 src/runtime/subagents.ts）；
  * - 只有拥有者发起的任务可委派（直接提交，或已核实身份的 Telegram/QQ 私聊
  *   入站）；定时唤醒、子任务回报与 SubAgent 任务不能委派下级；
  * - 工具在子任务入队后立即返回，不等待子模型结束；结果经持久事件与
  *   subagent_result 查询，dev 会话再经下一次模型调用的宿主资料注入送达；
- * - subagent_result 按（所属父用户会话, workId）开窄口：只能读本会话登记
- *   的工作；最终回答与产物沿用 UTF-8/字节分页。
+ * - subagent_result 省略 work_id 时列出本会话的 SubAgent 总览（供挑选复用
+ *   对象）；按 work_id 读取时开窄口：只能读本会话登记的工作，并标明该
+ *   SubAgent 是否已关闭；最终回答与产物沿用 UTF-8/字节分页；
+ * - subagent_close 显式关闭：有活动任务拒绝（给出任务 id），已关闭幂等；
+ *   关闭后拒绝新委派，历史与产物保留可查。
  */
 
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
-import type { Task } from "../core/types.ts";
+import type { SubAgent, Task } from "../core/types.ts";
 import type { HistoryEntryView } from "../core/history.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { TELEGRAM_SOURCE } from "../telegram/adapter.ts";
@@ -27,7 +32,7 @@ import type { SourceResolver } from "./scheduler-tools.ts";
 import { canonicalParamsDigest } from "./mcp/tools.ts";
 import type { SubAgentDelegation, SubAgentDelegateInput } from "../runtime/subagents.ts";
 
-export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result"] as const;
+export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close"] as const;
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** subagent_result 单次读取上限（字节）。 */
@@ -37,6 +42,8 @@ export interface SubAgentToolsDeps {
   coreStore: Store;
   sources: SourceResolver;
   delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation>;
+  /** 显式关闭（issue 12）；by 由宿主按调用身份固定（agent:<任务ID>），模型参数不参与。 */
+  close(input: { subAgentId: string; by: `agent:${string}`; parentSessionId: string }): { agent: SubAgent; alreadyClosed: boolean };
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
   artifacts: ArtifactStore;
@@ -85,13 +92,16 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     description:
       "为一项分析/读取工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录，" +
       "工具只有 read / read_artifact（只读），权限固定请求确认，不能委派下级。开发会话用 read_paths 指定父工作区内" +
-      "或父任务已授予的只读路径；main 会话用 materials 指定资料（委派时解析为文本快照）。首次省略 work_id 建立工作，" +
+      "或父任务已授予的只读路径；main 会话用 materials 指定资料（委派时解析为文本快照）。首次两者都省略建立工作；" +
+      "补充原工作用 work_id；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
+      "读范围与资料按本次重新确定，要求该 SubAgent 空闲且未关闭）。" +
       "返回 workId、subAgentId、taskId 与截止时间；同 key 同参返回原记录，异参冲突。子任务入队后立即返回，" +
       "结果完成后经宿主通知，用 subagent_result 读取。",
     parameters: Type.Object({
       request: Type.String({ description: "委派正文：要 SubAgent 做什么（目标、范围、验收要求）" }),
       key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
-      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行）；省略即首次委派" })),
+      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行）；与 sub_agent_id 互斥" })),
+      sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent 承接新工作（保留上下文）；与 work_id 互斥" })),
       read_paths: Type.Optional(
         Type.Array(Type.String(), { description: "仅限开发会话：父工作区内或父任务已授予的待读路径（最多 16 个，只读）" }),
       ),
@@ -113,6 +123,10 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       if (params.work_id !== undefined && (typeof params.work_id !== "string" || !params.work_id.trim())) {
         throw new Error("work_id 必须是既有工作 id");
       }
+      if (params.sub_agent_id !== undefined && (typeof params.sub_agent_id !== "string" || !params.sub_agent_id.trim())) {
+        throw new Error("sub_agent_id 必须是既有 SubAgent id");
+      }
+      if (params.work_id && params.sub_agent_id) throw new Error("work_id 与 sub_agent_id 互斥：补充原工作用 work_id，承接新工作用 sub_agent_id");
       const role = store.getAgentRoleBySession(ctx.sessionId);
       const isMain = role?.id === "main";
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
@@ -137,6 +151,8 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         request: params.request,
         key: params.key,
         work_id: params.work_id ?? null,
+        // sub_agent_id 只在提供时纳入摘要：保持复用前（issue 11）的重放摘要不变
+        ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
         read_paths: readPaths ? [...readPaths].sort() : null,
         materials: materials ?? null,
       });
@@ -145,6 +161,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         key: params.key,
         request: params.request,
         workId: params.work_id ?? null,
+        subAgentId: params.sub_agent_id ?? null,
         materials,
         readPaths,
         paramsDigest,
@@ -165,15 +182,20 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     return n;
   };
 
+  /** SubAgent 展示状态：已关闭优先于运行/空闲/待核实。 */
+  const agentStateText = (agent: SubAgent): string => (agent.closedAt ? `已关闭（${agent.closedAt}，${agent.closedBy}）` : agent.state);
+
   const subagentResult = defineTool({
     name: "subagent_result",
     label: "subagent_result",
     description:
-      "读取本会话登记的工作委托与 SubAgent 结果：part=result（默认）看工作状态、SubAgent 与任务摘要；" +
+      "读取本会话登记的工作委托与 SubAgent 结果：省略 work_id 列出本会话的全部 SubAgent 总览" +
+      "（状态/已关闭、当前工作、名下工作、最近任务状态，供挑选继续或复用对象）；指定 work_id 时 " +
+      "part=result（默认）看工作状态、SubAgent（含是否已关闭）与任务摘要；" +
       "part=reply 按 UTF-8 字节分页读指定/最新任务的最终回答（length 为 256–16384）；" +
       "part=artifact 按字节分页读该任务的产物（artifact_id 见结果中的产物列表）。",
     parameters: Type.Object({
-      work_id: Type.String({ description: "subagent_delegate 返回的工作 id" }),
+      work_id: Type.Optional(Type.String({ description: "subagent_delegate 返回的工作 id；省略时列出本会话的 SubAgent 总览" })),
       part: Type.Optional(Type.Union([Type.Literal("result"), Type.Literal("reply"), Type.Literal("artifact")])),
       task_id: Type.Optional(Type.String({ description: "工作内的某次执行任务 id；缺省取最近一次" })),
       artifact_id: Type.Optional(Type.String()),
@@ -181,16 +203,35 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       length: Type.Optional(Type.Number()),
     }),
     execute: bindExecute(async (ctx, params: any) => {
-      const work = typeof params.work_id === "string" ? store.getWorkDelegation(params.work_id) : null;
+      const part = params.part ?? "result";
+      if (params.work_id === undefined) {
+        // 总览（issue 12）：本会话名下的 SubAgent，含当前/名下工作与最近任务
+        if (part !== "result") throw new Error("省略 work_id 时只提供总览（part=result）");
+        const agents = store.listSubAgentsBySession(ctx.sessionId);
+        if (agents.length === 0) return okText("本会话还没有 SubAgent");
+        const lines = agents.map((agent) => {
+          const works = store.listWorkDelegationsBySession(ctx.sessionId).filter((w) => w.subAgentId === agent.id);
+          const recent = works
+            .flatMap((w) => store.listTasksByWork(w.id))
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+            .at(-1);
+          return (
+            `- SubAgent ${agent.id} · ${agentStateText(agent)} · 当前工作 ${agent.activeWorkId ?? "无"}` +
+            ` · 名下工作 ${works.map((w) => w.id).join("、") || "无"}` +
+            (recent ? ` · 最近任务 ${recent.id}（${recent.status}）` : "")
+          );
+        });
+        return okText(`本会话的 SubAgent：\n${lines.join("\n")}`);
+      }
+      const work = store.getWorkDelegation(params.work_id);
       if (!work || work.parentSessionId !== ctx.sessionId) {
         throw new Error("只能读取本会话登记的工作委托");
       }
       const agent = store.getSubAgent(work.subAgentId);
       if (!agent) throw new Error(`工作 ${work.id} 缺少 SubAgent 记录`);
       const tasks = store.listTasksByWork(work.id);
-      const part = params.part ?? "result";
       if (part === "result") {
-        const lines = [`工作 ${work.id} · SubAgent ${agent.id}（${agent.state}）· 发起任务 ${work.originTaskId}`];
+        const lines = [`工作 ${work.id} · SubAgent ${agent.id}（${agentStateText(agent)}）· 发起任务 ${work.originTaskId}`];
         for (const t of tasks) {
           lines.push(
             `- 任务 ${t.id} · ${t.status} · 直接父任务 ${t.parentTaskId ?? "?"} · 截止 ${t.deadline ?? "无"}` +
@@ -235,5 +276,27 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     }),
   } as any);
 
-  return [subagentDelegate, subagentResult];
+  const subagentClose = defineTool({
+    name: "subagent_close",
+    label: "subagent_close",
+    description:
+      "显式关闭本会话名下的一个 SubAgent：不再需要后续协作时调用。关闭只收窄能力——" +
+      "历史、产物与工作目录保留可查（subagent_result 仍可读取）；有活动任务时拒绝（等任务结束或由拥有者取消）；" +
+      "重复关闭幂等返回；关闭后新委派被拒绝。任务终态与空闲不会自动关闭。",
+    parameters: Type.Object({
+      sub_agent_id: Type.String({ description: "要关闭的 SubAgent id（subagent_result 总览可查看）" }),
+    }),
+    execute: bindExecute(async (ctx, params: any) => {
+      // 回报唤醒轮次也允许关闭（只收窄能力）；身份与归属由 verifyHost 与归属核实拒绝
+      if (typeof params.sub_agent_id !== "string" || !params.sub_agent_id.trim()) throw new Error("sub_agent_id 必须是非空字符串");
+      const result = deps.close({ subAgentId: params.sub_agent_id, by: `agent:${ctx.taskId}`, parentSessionId: ctx.sessionId });
+      return okText(
+        result.alreadyClosed
+          ? `SubAgent ${result.agent.id} 此前已关闭（${result.agent.closedAt}）：幂等返回，历史与产物仍可用 subagent_result 读取。`
+          : `SubAgent ${result.agent.id} 已关闭：不再接受新委派；历史、产物与工作目录保留可查。`,
+      );
+    }),
+  } as any);
+
+  return [subagentDelegate, subagentResult, subagentClose];
 }

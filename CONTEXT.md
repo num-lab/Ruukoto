@@ -19,7 +19,7 @@ _Avoid_：将个人 Agent 限定为编码助手或 QQ 群聊机器人；将“�
 **主 Agent**：在用户会话中直接与拥有者交互、向若干 SubAgent 派发任务并汇总结果的 Agent；ruukoto 的主 Agent 称为 main。
 _Avoid_：把主 Agent 与整个 Ruukoto Agent 项目或 ruukoto-dev 产品混称。
 
-**SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。当前实现（agent-direction issue 11，ADR 0020）：首版只读分析，身份/工作/执行分存于 `sub_agents` / `work_delegations` / `tasks`；同级通信、继续委派复用与显式关闭由 12 后续实现。
+**SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。当前实现（agent-direction issue 11–12，ADR 0020）：首版只读分析，身份/工作/执行分存于 `sub_agents` / `work_delegations` / `tasks` 关联列；同一父会话内补充原工作用 `work_id` 继续、承接相关新工作用 `sub_agent_id` 复用（要求空闲未关闭；读范围、资料、目录与权限按本次重新确定，前次批准不延续）；主 Agent 用 `subagent_close`、拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）显式关闭，关闭是独立列 `closed_at`/`closed_by`——任务终态、TUI 退出与空闲不自动关闭，关闭后拒绝新委派，历史与产物保留可查；同级通信、整项取消与恢复由 13–15 后续实现。
 _Avoid_：把 SubAgent 等同于一次子任务或旧架构中的固定 coding 角色；把任务完成等同于 Agent 关闭。
 
 **主会话**：拥有者通过不同个人消息入口与 ruukoto 持续交互的唯一会话，main 可在委派长任务后继续响应新消息。

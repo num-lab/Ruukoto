@@ -857,6 +857,9 @@ export class ControlServer {
       }
       case "work_get":
         return runtime.workGet(requireString("work_id"));
+      // issue 12：拥有者显式关闭（有活动任务拒绝；历史与产物保留；已关闭幂等）
+      case "subagent_close":
+        return runtime.closeSubAgent(requireString("sub_agent_id"));
       case "service_grant_revoke": {
         const expected = params["expected_version"];
         if (!Number.isInteger(expected) || (expected as number) < 1) throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });

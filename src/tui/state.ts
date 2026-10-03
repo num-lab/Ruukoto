@@ -407,6 +407,8 @@ export class ViewState {
             activeWorkId: body.workId,
             currentTaskId: body.taskId,
             state: "running",
+            closedAt: null,
+            closedBy: null,
             createdAt: event.createdAt,
           });
         } else {
@@ -415,6 +417,15 @@ export class ViewState {
           Object.assign(agent, { state: "running", activeWorkId: body.workId, currentTaskId: body.taskId });
         }
         this.note(body.parentSessionId, `工作委托已登记：${body.workId.slice(0, 12)}…（SubAgent ${body.subAgentId.slice(0, 12)}…）`, event.createdAt);
+        return;
+      }
+      case "subagent.closed": {
+        const agent = this.subAgents.find((a) => a.id === body.subAgentId);
+        if (agent) {
+          agent.closedAt = event.createdAt;
+          agent.closedBy = body.closedBy;
+        }
+        this.note(body.parentSessionId, `SubAgent 已关闭：${body.subAgentId.slice(0, 12)}…（历史与产物保留）`, event.createdAt);
         return;
       }
       case "subagent_task.completed":
@@ -638,7 +649,7 @@ export class ViewState {
     if (!works.length) return null;
     const parts = works.map((work) => {
       const agent = this.subAgents.find((a) => a.id === work.subAgentId);
-      const agentText = agent ? subAgentStateLabel(agent.state) : "未知";
+      const agentText = agent ? subAgentStateLabel(agent) : "未知";
       const latest = [...this.tasks.values()]
         .filter((t) => t.workId === work.id)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
@@ -718,9 +729,10 @@ export function accessModeStyle(mode: AccessMode): (s: string) => string {
   }
 }
 
-/** SubAgent 状态显示名（issue 11 展示；状态本身以快照为准）。 */
-export function subAgentStateLabel(state: SubAgentState): string {
-  switch (state) {
+/** SubAgent 状态显示名（issue 11 展示；状态本身以快照为准；issue 12 已关闭优先）。 */
+export function subAgentStateLabel(agent: Pick<SubAgent, "state" | "closedAt">): string {
+  if (agent.closedAt) return "已关闭";
+  switch (agent.state) {
     case "idle":
       return "空闲";
     case "running":

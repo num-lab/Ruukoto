@@ -108,6 +108,8 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   // 通用 SubAgent 委派（agent-direction issue 11）：按工作/Agent/会话/任务关联核实
   subagent_delegate: "subagent",
   subagent_result: "no_effect",
+  // 显式关闭（issue 12）：按 sub_agents.closed_at 核实（幂等关闭亦以关闭列为准）
+  subagent_close: "subagent",
   // 模拟工具代表可能有副作用的通用工具（mock_mark 写外部标记）
   mock_delay: "approval",
   mock_gate: "approval",

@@ -917,10 +917,10 @@ export class Store {
   insertSubAgent(agent: SubAgent): void {
     this.db
       .prepare(
-        `INSERT INTO sub_agents (id, parent_session_id, session_id, work_dir, active_work_id, current_task_id, state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sub_agents (id, parent_session_id, session_id, work_dir, active_work_id, current_task_id, state, closed_at, closed_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(agent.id, agent.parentSessionId, agent.sessionId, agent.workDir, agent.activeWorkId, agent.currentTaskId, agent.state, agent.createdAt);
+      .run(agent.id, agent.parentSessionId, agent.sessionId, agent.workDir, agent.activeWorkId, agent.currentTaskId, agent.state, agent.closedAt, agent.closedBy, agent.createdAt);
   }
 
   getSubAgent(id: string): SubAgent | null {
@@ -939,6 +939,12 @@ export class Store {
     return rows.map((r) => this.rowToSubAgent(r));
   }
 
+  /** 指定父用户会话名下的全部 SubAgent（复用总览与关闭归属核实）。 */
+  listSubAgentsBySession(parentSessionId: string): SubAgent[] {
+    const rows = this.db.prepare("SELECT * FROM sub_agents WHERE parent_session_id = ? ORDER BY created_at, id").all(parentSessionId) as any[];
+    return rows.map((r) => this.rowToSubAgent(r));
+  }
+
   /** 更新运行/空闲状态与当前工作/任务指针（与结果登记同一事务；终态竞争由 setTaskResult 的一次写入仲裁）。 */
   setSubAgentState(id: string, state: SubAgentState, current: { activeWorkId?: string | null; currentTaskId?: string | null }): void {
     if (current.activeWorkId !== undefined && current.currentTaskId !== undefined) {
@@ -952,6 +958,28 @@ export class Store {
     }
   }
 
+  /**
+   * 显式关闭（issue 12）：一次条件写入（未关闭才生效），与委派的事务内可用性
+   * 复核配合保证「先关闭则委派报已关闭，先委派则关闭报有活动任务」二选一。
+   */
+  closeSubAgent(id: string, at: string, by: SubAgent["closedBy"]): boolean {
+    const res = this.db
+      .prepare("UPDATE sub_agents SET closed_at = ?, closed_by = ? WHERE id = ? AND closed_at IS NULL")
+      .run(at, by, id);
+    return Number(res.changes) > 0;
+  }
+
+  /** 该 SubAgent 名下的活动执行任务（queued/running/awaiting_confirmation）。 */
+  findActiveSubAgentTask(subAgentId: string): Task | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM tasks WHERE sub_agent_id = ? AND status IN ('queued','running','awaiting_confirmation')
+         ORDER BY created_at, id LIMIT 1`,
+      )
+      .get(subAgentId) as any;
+    return row ? this.rowToTask(row) : null;
+  }
+
   private rowToSubAgent(row: any): SubAgent {
     return {
       id: row.id,
@@ -961,6 +989,8 @@ export class Store {
       activeWorkId: row.active_work_id ?? null,
       currentTaskId: row.current_task_id ?? null,
       state: row.state as SubAgentState,
+      closedAt: row.closed_at ?? null,
+      closedBy: row.closed_by ?? null,
       createdAt: row.created_at,
     };
   }

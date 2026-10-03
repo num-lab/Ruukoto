@@ -26,6 +26,8 @@ const COVERAGE: Record<string, string[]> = {
     "src/core/types.ts#ToolCategory",
     "src/core/types.ts#ConfirmationStatus",
     "src/agent/review.ts#ReviewDecision",
+    "src/agent/service-tools.ts#SERVICE_TOOL_NAMES",
+    "src/agent/subagent-tools.ts#SUBAGENT_TOOL_NAMES",
   ],
   "context-pipeline.html": [
     "src/agent/context-selector.ts#CONTEXT_CATEGORIES",
@@ -34,17 +36,27 @@ const COVERAGE: Record<string, string[]> = {
     "src/core/types.ts#MemoryCategory",
     "src/core/types.ts#DataCategory",
   ],
-  "storage-layout.html": ["src/core/db.ts#tables", "src/agent/app-data/store.ts#tables", "src/core/db.ts#SCHEMA_VERSION"],
+  "storage-layout.html": [
+    "src/core/db.ts#tables",
+    "src/agent/app-data/store.ts#tables",
+    "src/core/db.ts#SCHEMA_VERSION",
+    "src/runtime/workspace-migration.ts#DirGroupStatus",
+  ],
   "control-protocol.html": [
     "src/control/server.ts#ops",
     "src/core/types.ts#PROTOCOL_VERSION",
     "src/control/client.ts#RequestOutcome",
     "src/core/types.ts#events",
   ],
-  "deployment.html": ["src/agent/managed-processes.ts#ManagedUnitKind"],
-  "orchestrator.html": ["src/core/types.ts#AgentRoleId", "src/core/types.ts#events:child_task."],
+  "deployment.html": ["src/agent/managed-processes.ts#ManagedUnitKind", "src/core/product.ts#PRODUCT_TYPES"],
+  "orchestrator.html": [
+    "src/core/types.ts#AgentRoleId",
+    "src/core/types.ts#events:child_task.",
+    "src/core/types.ts#SubAgentState",
+  ],
   "inbound-events.html": [
     "src/core/types.ts#InboundEventStatus",
+    "src/core/types.ts#InboundEventKind",
     "src/qq/store.ts#QqInboxStatus",
     "src/telegram/adapter.ts#TELEGRAM_SOURCE",
     "src/qq/store.ts#QQ_GROUP_SOURCE",
@@ -91,10 +103,12 @@ function valuesOf(ref: string): string[] {
     values = literals(slice(rel, "export type ApprovalScope", "export interface"), /kind: "([a-z_]+)"/g);
   } else if (spec === "CONTEXT_CATEGORIES") {
     values = literals(slice(rel, "const CONTEXT_CATEGORIES = {", "} as const"), /^\s*([A-Za-z]+):/gm);
+  } else if (/^[A-Z][A-Z0-9_]*$/.test(spec) && read(rel).includes(`export const ${spec} = [`)) {
+    values = literals(slice(rel, `export const ${spec} = [`, "]"), /"([^"]+)"/g); // 名称数组常量
   } else if (/^[A-Z][A-Z0-9_]*$/.test(spec)) {
     const m = new RegExp(String.raw`export const ${spec}\s*=\s*("?)([^";\n]+)\1;`).exec(read(rel));
     assert.ok(m, `${rel} 里找不到 export const ${spec}`);
-    values = [m[1] ? m[2]! : `v${m[2]}`]; // 数字常量是版本号，页面写成 v18 / v9
+    values = [m[1] ? m[2]! : `v${m[2]}`]; // 数字常量是版本号，页面写成 v24 / v11
   } else {
     values = literals(slice(rel, `export type ${spec} =`, ";"), /"([^"]+)"/g);
   }

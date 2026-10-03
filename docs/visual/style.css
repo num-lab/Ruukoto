@@ -19,8 +19,8 @@
  *   消息 <div class="m" style="--from:1;--to:3"><span>标签</span></div>，箭头指向 --to，
  *   向左的消息加 class="l"，着色 ok/wait/unk/bad，虚线 dash；
  *   跨列说明 <div class="note" style="--from:2;--to:3">；阶段分隔 <div class="phase">。
- * - 其余：div.scroll > table.tbl（单元格里的长代码需要换行时加 class="tbl wrap"）；aside.callout（.inv 不变量 / .limit 已知限制，首个 <b> 为标签）；
- *   ol.steps（顺序本身是信息时才用）；.flow > .stage；.zone > .zt；.cards > .card；ul.legend > li > i.ok…；
+ * - 其余：div.scroll > table.tbl（单元格里的长代码需要换行时加 class="tbl wrap"；个别单元格或代码不许折行时加 class="nowrap"）；aside.callout（.inv 不变量 / .limit 已知限制，首个 <b> 为标签）；
+ *   ol.steps（顺序本身是信息时才用）；.flow > .stage；.zone > .zt；.cards > .card；ul.legend > li > i.ok…（另有 i.accent、i.dash 表示虚线边）；粗线 <path class="e thick">（stroke-width 属性会被本表覆盖）；
  *   details > summary + div.body。
  */
 
@@ -161,6 +161,8 @@ code.st.idle { color: var(--idle); background: var(--idle-bg); border-color: col
 .legend i.unk { background: var(--unk-bg); border-color: var(--unk); }
 .legend i.bad { background: var(--bad-bg); border-color: var(--bad); }
 .legend i.idle { background: var(--idle-bg); border-color: var(--idle); }
+.legend i.accent { background: var(--accent-bg); border-color: var(--accent); }
+.legend i.dash { background: none; border-style: dashed; }
 
 /* ---------- 图（内联 SVG） ---------- */
 
@@ -186,6 +188,7 @@ svg.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 
 .fig svg .e { fill: none; stroke: var(--faint); stroke-width: 1.5; }
 .fig svg .e.dash { stroke-dasharray: 5 4; }
+.fig svg .e.thick { stroke-width: 4; }
 .fig svg .e.ok { stroke: var(--ok); }
 .fig svg .e.wait { stroke: var(--wait); }
 .fig svg .e.unk { stroke: var(--unk); }
@@ -274,6 +277,7 @@ svg .ah.accent { fill: var(--accent); }
 .tbl th { background: var(--code-bg); color: var(--muted); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .tbl td code { white-space: nowrap; }
 .tbl.wrap td code { white-space: normal; }
+.nowrap, .tbl.wrap td code.nowrap { white-space: nowrap; }
 .tbl tr.hl td, .tbl tr:focus-visible td { background: var(--accent-bg); }
 .tbl tr:focus-visible { outline: none; }
 

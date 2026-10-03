@@ -21,121 +21,554 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>storage-layout.html</span></nav>
     <p class="eyebrow">数据与协议</p>
     <h1>存储布局</h1>
-    <p class="lede">每个产品实例三份根目录：数据、配置、控制面。消息历史以 pi JSONL 会话文件为唯一权威副本，<code>ruukoto.db</code> 存元数据、事件与各类账本；应用数据空间另有一个独立库。锁与令牌决定「谁在写」；schema 版本与目录归属决定「这份库属于谁、哪个版本的程序能开」。</p>
+    <p class="lede">每份数据在哪、谁写谁读、哪份是权威、崩溃后怎么对齐。两个产品各有一棵档案目录；会话历史以 pi JSONL 为唯一权威，<code>ruukoto.db</code> 存元数据、事件与可重建的索引，产物正文在产物文件，main 的应用数据另有一个独立库。这几份之间没有跨文件事务，靠写入顺序与重启恢复对齐。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">core/db.ts</code>
-        <code class="src" data-src="src/core/store.ts">core/store.ts</code>
+        <code class="src" data-src="src/core/store.ts#withTx">core/store.ts</code>
+        <code class="src" data-src="src/core/history.ts#parseSessionFileStrict">core/history.ts</code>
+        <code class="src" data-src="src/core/history-index.ts#class HistoryIndex">core/history-index.ts</code>
         <code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">core/instance-lock.ts</code>
+        <code class="src" data-src="src/core/memory.ts#class MemoryStore">core/memory.ts</code>
         <code class="src" data-src="src/core/product.ts#PRODUCT_META_KEY">core/product.ts</code>
+        <code class="src" data-src="src/core/dir-identity.ts#sameDirIdentity">core/dir-identity.ts</code>
+        <code class="src" data-src="src/runtime/workspace-migration.ts#applyWorkspaceMigration">runtime/workspace-migration.ts</code>
+        <code class="src" data-src="src/runtime/runtime.ts#private recover">runtime/runtime.ts</code>
+        <code class="src" data-src="src/runtime/github-retirement.ts#retireGitHubModule">runtime/github-retirement.ts</code>
+        <code class="src" data-src="src/runtime/subagents.ts#materialsFileFor">runtime/subagents.ts</code>
         <code class="src" data-src="src/agent/session-factory.ts#sessionsDirFor">agent/session-factory.ts</code>
+        <code class="src" data-src="src/agent/driver.ts#verifyAndLinkHistory">agent/driver.ts</code>
         <code class="src" data-src="src/agent/artifacts.ts#class ArtifactStore">agent/artifacts.ts</code>
         <code class="src" data-src="src/agent/app-data/store.ts#class AppDataStore">agent/app-data/store.ts</code>
+        <code class="src" data-src="src/agent/execution/credentials.ts#class CredentialStore">agent/execution/credentials.ts</code>
+        <code class="src" data-src="src/agent/model-config.ts#atomicWrite">agent/model-config.ts</code>
+        <code class="src" data-src="src/control/pending-requests.ts#class PendingRequestStore">control/pending-requests.ts</code>
         <code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">control/owner-token.ts</code>
         <code class="src" data-src="src/control/ensure-backend.ts#spawn.log">control/ensure-backend.ts</code>
+        <code class="src" data-src="src/control/connect.ts#controlDirFor">control/connect.ts</code>
+        <code class="src" data-src="src/control/server.ts#chmodSync(socketPath, 0o660)">control/server.ts</code>
+        <code class="src" data-src="src/scheduler/store.ts#class SchedulerStore">scheduler/store.ts</code>
+        <code class="src" data-src="src/qq/store.ts#class QqStore">qq/store.ts</code>
+        <code class="src" data-src="src/dev.ts#devProfileFor">dev.ts</code>
+        <code class="src" data-src="src/cli.ts#defaultDirs">cli.ts</code>
       </dd></div>
       <div><dt>决策</dt><dd>
+        <a href="../adr/0001-preserve-session-history.md">ADR 0001 完整保留会话历史</a>
+        <a href="../adr/0007-retire-github-module.md">ADR 0007 退役 GitHub 模块</a>
         <a href="../adr/0009-main-app-data-space.md">ADR 0009 应用数据空间</a>
+        <a href="../adr/0010-scheduler-outbox.md">ADR 0010 调度器与 outbox</a>
+        <a href="../adr/0014-qq-group-chat-results.md">ADR 0014 群聊结果</a>
+        <a href="../adr/0015-scheduled-news.md">ADR 0015 新闻计划</a>
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
+        <a href="../adr/0018-legacy-workspace-org-attribution.md">ADR 0018 旧数据组织归属</a>
         <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="deployment.html">部署与信任边界</a>
         <a href="control-protocol.html">控制面协议</a>
+        <a href="task-lifecycle.html">任务生命周期</a>
+        <a href="tool-call-path.html">工具调用路径</a>
+        <a href="context-pipeline.html">上下文组装</a>
+        <a href="orchestrator.html">编排器</a>
+        <a href="inbound-events.html">入站事件</a>
+        <a href="outbox.html">通知 outbox</a>
         <a href="once-only.html">只执行一次</a>
       </dd></div>
     </dl>
   </header>
 
   <section id="roots">
-    <h2>根目录：按产品分开，归属登记在库内</h2>
-    <p>个人 Agent（ruukoto）默认档案根是 <code>~/.ruukoto</code>，Coding Agent（ruukoto-dev）是独立的 <code>~/.ruukoto-dev-agent</code>；开发本项目的隔离实例继续使用 <code>~/.ruukoto-dev</code>（不属于任一产品）。路径环境变量同样按产品隔离：<code>RUUKOTO_DATA_DIR</code> 等只被 ruukoto 读取，<code>RUUKOTO_DEV_DATA_DIR</code> 等只被 ruukoto-dev 读取。归属还登记在库内：首次启动把产品写进 <code class="src" data-src="src/core/product.ts#PRODUCT_META_KEY">product.ts · PRODUCT_META_KEY</code> 指定的 meta 键，之后跨产品开同一个数据目录直接拒绝。</p>
+    <h2>目录与文件：按产品分开</h2>
+    <p>产品身份只来自环境变量 <code>RUUKOTO_PRODUCT</code>（两条 bin 入口固定注入；缺省为 <code>ruukoto</code>，非法取值直接报错，<code class="src" data-src="src/core/product.ts#productFromEnv">product.ts · productFromEnv</code>）。档案根按产品分开（<code class="src" data-src="src/core/product.ts#productRootDir">product.ts · productRootDir</code>）：个人 Agent 是 <code>~/.ruukoto</code>，Coding Agent 是 <code>~/.ruukoto-dev-agent</code>。数据、agent、pending 三个目录默认在根下（<code>data/</code>、<code>agent/</code>、<code>pending/</code>），控制面目录默认是数据目录的兄弟目录 <code>control/</code>（<code class="src" data-src="src/control/connect.ts#controlDirFor">connect.ts · controlDirFor</code>）；<code>server</code> 的 <code>--data-dir</code> / <code>--agent-dir</code> 参数优先于默认值。</p>
+    <p>路径环境变量同样按产品隔离（<code class="src" data-src="src/core/product.ts#dirEnvFor">product.ts · dirEnvFor</code>）：ruukoto 只读 <code>RUUKOTO_DATA_DIR</code> / <code>RUUKOTO_AGENT_DIR</code> / <code>RUUKOTO_CONTROL_DIR</code> / <code>RUUKOTO_PENDING_DIR</code>，ruukoto-dev 只读 <code>RUUKOTO_DEV_DATA_DIR</code> / <code>RUUKOTO_DEV_AGENT_DIR</code> / <code>RUUKOTO_DEV_CONTROL_DIR</code> / <code>RUUKOTO_DEV_PENDING_DIR</code>。拥有者令牌的 <code>RUUKOTO_OWNER_TOKEN</code> / <code>RUUKOTO_OWNER_TOKEN_FILE</code> 不分产品，两边同名。各类工作目录（<code>qq-work/</code>、<code>agent-work/</code>）由 <code>dirname(dataDir)</code> 推出，跟着数据目录走，而不是跟着档案根走。</p>
+    <p>开发本项目用的开发实例另有档案（<code class="src" data-src="src/dev.ts#devProfileFor">dev.ts · devProfileFor</code>）：<code>~/.ruukoto-dev/&lt;仓库名&gt;-&lt;realpath 哈希前 8 位&gt;/</code>，下有 <code>data/ agent/ control/ pending/ logs/</code> 与 <code>reload-state.json</code>。它不是两个产品的正式档案：后台直接以 <code>src/cli.ts</code> 启动，子进程环境清除 <code>RUUKOTO_PRODUCT</code>、令牌与 <code>RUUKOTO_DEV_*</code>，再注入 <code>RUUKOTO_*_DIR</code> 指向档案（<code class="src" data-src="src/dev.ts#buildChildEnv">dev.ts · buildChildEnv</code>），所以开发实例按缺省以 ruukoto 产品身份运行、在自己的库里登记 <code>product.type = ruukoto</code>，并固定停用 QQ 与 Telegram。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 540" role="img" aria-label="单个产品档案根的目录树与归属：保护根内是 data、agent、control 三个目录，后台进程读写全部，离线配置中心持配置锁写 agent 目录，TUI 与 CLI 读拥有者令牌；保护根外是工作目录区（qq-work、agent-work、SubAgent 独立目录，工具工作进程只读 SubAgent 目录）与客户端侧（pending 待核实记录与 TUI 命令回显，由客户端写）。">
+          <text class="zone-t" x="16" y="18">&lt;root&gt;   ruukoto ~/.ruukoto · ruukoto-dev ~/.ruukoto-dev-agent</text>
+
+          <rect class="zone-r" x="12" y="30" width="700" height="384" rx="12"/>
+          <text class="zone-t" x="28" y="50">保护根 protectedRoots()</text>
+
+          <g class="n accent"><rect x="28" y="62" width="280" height="40" rx="8"/><text x="168" y="75">data/</text><text class="sub" x="168" y="91">0700 · dataDir</text></g>
+          <g class="n"><rect x="28" y="112" width="280" height="36" rx="8"/><text x="168" y="124">ruukoto.db · -wal · -shm</text><text class="sub" x="168" y="139">元数据 · 事件 · 不可重建</text></g>
+          <g class="n"><rect x="28" y="154" width="280" height="36" rx="8"/><text x="168" y="166">sessions/*.jsonl</text><text class="sub" x="168" y="181">会话历史 · 唯一权威</text></g>
+          <g class="n"><rect x="28" y="196" width="280" height="36" rx="8"/><text x="168" y="208">artifacts/&lt;id&gt;.bin</text><text class="sub" x="168" y="223">产物正文 · 唯一权威</text></g>
+          <g class="n"><rect x="28" y="238" width="280" height="36" rx="8"/><text x="168" y="250">agent-data/main.db</text><text class="sub" x="168" y="265">应用数据 · 独立库</text></g>
+          <g class="n"><rect x="28" y="280" width="280" height="36" rx="8"/><text x="168" y="292">runtime.lock/</text><text class="sub" x="168" y="307">实例锁 · owner.json</text></g>
+          <g class="n"><rect x="28" y="322" width="280" height="36" rx="8"/><text x="168" y="334">github-archive-manifest.json</text><text class="sub" x="168" y="349">退役导出清单</text></g>
+
+          <g class="n accent"><rect x="324" y="62" width="200" height="40" rx="8"/><text x="424" y="75">agent/</text><text class="sub" x="424" y="91">0700 · agentDir</text></g>
+          <g class="n"><rect x="324" y="112" width="200" height="36" rx="8"/><text x="424" y="124">models.json</text><text class="sub" x="424" y="139">0600 · 含 apiKey</text></g>
+          <g class="n"><rect x="324" y="154" width="200" height="36" rx="8"/><text x="424" y="166">auth.json</text><text class="sub" x="424" y="181">0600 · 模型凭据</text></g>
+          <g class="n"><rect x="324" y="196" width="200" height="36" rx="8"/><text x="424" y="208">credentials.json</text><text class="sub" x="424" y="223">0600 · 服务凭据秘密</text></g>
+          <g class="n"><rect x="324" y="238" width="200" height="36" rx="8"/><text x="424" y="250">default-model.json</text><text class="sub" x="424" y="265">0600 · 默认模型</text></g>
+          <g class="n"><rect x="324" y="280" width="200" height="36" rx="8"/><text x="424" y="292">summary-model.json</text><text class="sub" x="424" y="307">0600 · 摘要模型</text></g>
+          <g class="n"><rect x="324" y="322" width="200" height="36" rx="8"/><text x="424" y="334">skills/</text><text class="sub" x="424" y="349">技能库 · 后台只读</text></g>
+          <g class="n"><rect x="324" y="364" width="200" height="36" rx="8"/><text x="424" y="376">config.lock/</text><text class="sub" x="424" y="391">配置锁</text></g>
+
+          <g class="n accent"><rect x="540" y="62" width="156" height="40" rx="8"/><text x="618" y="75">control/</text><text class="sub" x="618" y="91">0770 · controlDir</text></g>
+          <g class="n"><rect x="540" y="112" width="156" height="36" rx="8"/><text x="618" y="124">control.sock</text><text class="sub" x="618" y="139">0660 · 启动时重建</text></g>
+          <g class="n"><rect x="540" y="154" width="156" height="36" rx="8"/><text x="618" y="166">owner.token</text><text class="sub" x="618" y="181">0600 · 秘密</text></g>
+          <g class="n"><rect x="540" y="196" width="156" height="36" rx="8"/><text x="618" y="208">spawn.log</text><text class="sub" x="618" y="223">按需拉起日志</text></g>
+
+          <g class="n"><rect x="850" y="30" width="170" height="42" rx="8"/><text x="935" y="44">工具工作进程</text><text class="sub" x="935" y="61">按任务启动</text></g>
+          <rect class="zone-r" x="730" y="92" width="298" height="212" rx="12"/>
+          <text class="zone-t" x="746" y="112">工作目录 · 保护根外</text>
+          <g class="n"><rect x="746" y="124" width="266" height="36" rx="8"/><text x="879" y="136">agent-work/sub-agents/&lt;id&gt;/</text><text class="sub" x="879" y="151">0700 · SubAgent 独立目录</text></g>
+          <g class="n"><rect x="776" y="166" width="236" height="36" rx="8"/><text x="894" y="178">materials-*.txt</text><text class="sub" x="894" y="193">0600 · 资料快照</text></g>
+          <g class="n"><rect x="746" y="212" width="266" height="36" rx="8"/><text x="879" y="224">agent-work/&lt;角色&gt;/</text><text class="sub" x="879" y="239">0700 · 角色会话 cwd（旧架构）</text></g>
+          <g class="n"><rect x="746" y="258" width="266" height="36" rx="8"/><text x="879" y="270">qq-work/&lt;账号&gt;_&lt;群&gt;/</text><text class="sub" x="879" y="285">0700 · 群会话 cwd（旧架构）</text></g>
+          <path class="e" d="M935 72V122" marker-end="url(#ah)"/>
+          <text class="el start" x="943" y="84">只读</text>
+
+          <rect class="zone-r" x="730" y="316" width="298" height="120" rx="12"/>
+          <text class="zone-t" x="746" y="336">客户端侧 · 保护根外</text>
+          <g class="n"><rect x="746" y="346" width="266" height="36" rx="8"/><text x="879" y="358">pending/&lt;request_id&gt;.json</text><text class="sub" x="879" y="373">0700 目录 · 0600 文件</text></g>
+          <g class="n"><rect x="746" y="390" width="266" height="36" rx="8"/><text x="879" y="402">tui/commands.sqlite</text><text class="sub" x="879" y="417">0600 · 命令回显</text></g>
+
+          <g class="n accent"><rect x="40" y="478" width="200" height="46" rx="8"/><text x="140" y="493">后台进程</text><text class="sub" x="140" y="511">server · 唯一在线写入方</text></g>
+          <g class="n"><rect x="280" y="478" width="180" height="46" rx="8"/><text x="370" y="493">离线配置中心</text><text class="sub" x="370" y="511">后台不在时</text></g>
+          <g class="n"><rect x="760" y="478" width="180" height="46" rx="8"/><text x="850" y="493">TUI / CLI</text><text class="sub" x="850" y="511">拥有者客户端</text></g>
+
+          <path class="e accent" d="M140 478V416" marker-end="url(#ah-accent)"/>
+          <text class="el start" x="148" y="450">读写全部</text>
+          <path class="e" d="M370 478L404 402" marker-end="url(#ah)"/>
+          <text class="el start" x="396" y="448">持配置锁写</text>
+          <path class="e" d="M760 492H721V172H698" marker-end="url(#ah)"/>
+          <text class="el end" x="704" y="300">读令牌</text>
+          <text class="el end" x="704" y="318">连 socket</text>
+          <path class="e" d="M850 478V438" marker-end="url(#ah)"/>
+          <text class="el start" x="858" y="462">写</text>
+        </svg>
+      </div>
+      <figcaption>虚线框是保护根：<code class="src" data-src="src/runtime/runtime.ts#protectedRoots">runtime.ts · protectedRoots</code> 返回 dataDir、agentDir、controlDir 与服务代码根（realpath 规范化），任务授权路径、工作区根和新工作区都不能是它们本身、子级或祖先（所以档案根 <code>~/.ruukoto</code> 本身也不能当工作区）。<code>pending/</code>、<code>tui/</code>、<code>qq-work/</code>、<code>agent-work/</code> 在保护根外：角色、群与 SubAgent 目录都是会话的 cwd，而会话目录不能落进保护根（SubAgent 目录建之前先过 <code>assertGrantNotProtected</code>），所以放在数据目录的兄弟位置。</figcaption>
+    </figure>
+
     <div class="scroll">
       <table class="tbl wrap">
-        <thead><tr><th>目录</th><th>内容</th><th>要点</th></tr></thead>
+        <thead><tr><th>路径</th><th>权限</th><th>谁写 / 谁读</th><th>秘密</th><th>可重建</th></tr></thead>
         <tbody>
-          <tr data-k="data" tabindex="0"><td><code>&lt;dataDir&gt;</code>（默认 <code>~/.ruukoto/data</code>）</td><td><code>ruukoto.db</code>、<code>sessions/</code> JSONL、产物文件、<code>agent-data/main.db</code>、<code>runtime.lock</code></td><td>全部运行期状态；实例锁保证同一时刻只有一个后台</td></tr>
-          <tr data-k="agent" tabindex="0"><td><code>&lt;agentDir&gt;</code>（默认 <code>~/.ruukoto/agent</code>）</td><td><code>models.json</code>、<code>auth.json</code>、默认/摘要模型选择、服务凭据、<code>config.lock</code></td><td>模型目录与秘密；配置锁让在线后台与离线配置中心互斥</td></tr>
-          <tr data-k="control" tabindex="0"><td><code>&lt;controlDir&gt;</code>（dataDir 兄弟目录 <code>control/</code>）</td><td><code>control.sock</code>、<code>owner.token</code>、（ruukoto-dev 按需拉起时）<code>spawn.log</code></td><td>控制面 socket（0660）与拥有者令牌（0600，<code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code>）；<code>spawn.log</code> 是 TUI 按需拉起后台时该进程 stdout/stderr 的追加日志（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>），ruukoto 档案一般没有</td></tr>
-          <tr data-k="pending" tabindex="0"><td><code>&lt;pendingDir&gt;</code>（默认 <code>~/.ruukoto/pending</code>）</td><td>TUI 待核实提交记录</td><td>客户端侧的去重锚点，秘密不落盘</td></tr>
-          <tr data-k="sibling" tabindex="0"><td>dataDir 兄弟目录</td><td><code>qq-work/&lt;账号&gt;_&lt;群&gt;/</code>、<code>agent-work/&lt;角色&gt;/</code>、<code>agent-work/sub-agents/&lt;agentId&gt;/</code></td><td>群会话工作目录、角色工作目录与 SubAgent 独立工作目录（宿主生成，v24），随数据根迁移</td></tr>
+          <tr><td><code>&lt;dataDir&gt;/</code></td><td>目录 0700</td><td>后台启动时创建（<code class="src" data-src="src/runtime/runtime.ts#static async start">runtime.ts · start</code>）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>ruukoto.db</code>、<code>-wal</code>、<code>-shm</code></td><td>代码不设文件 mode，按 umask；靠目录 0700</td><td>后台读写；客户端不直接读库</td><td>不存凭据秘密值（只存绑定名），但含任务输入、审批参数等个人资料</td><td>否：任务状态、审批与事件的唯一记录</td></tr>
+          <tr><td><code>sessions/&lt;创建时间&gt;_&lt;piSessionId&gt;.jsonl</code></td><td>目录 0700；文件由 pi 创建，代码不设 mode</td><td>后台进程内的 pi SDK 追加；后台读（历史查看、检索、完成核对）（<code class="src" data-src="src/agent/session-factory.ts#sessionsDirFor">session-factory.ts · sessionsDirFor</code>）</td><td>完整对话与工具结果</td><td>否：会话历史唯一权威</td></tr>
+          <tr><td><code>artifacts/&lt;artifactId&gt;.bin</code></td><td>目录 0700</td><td>工作进程把原始字节发回后台，后台追加落盘（<code class="src" data-src="src/agent/artifacts.ts#append(artifactId">artifacts.ts · append</code>）；后台按偏移读</td><td>工具输出里的任何内容</td><td>否</td></tr>
+          <tr><td><code>agent-data/main.db</code></td><td>目录 0700</td><td>后台读写；查询子进程只读打开</td><td>main 的个人结构化数据</td><td>否：丢失即能力停止，不建空库</td></tr>
+          <tr><td><code>runtime.lock/owner.json</code></td><td><code>mkdir</code> 原子创建</td><td>后台（持有期间）</td><td>无</td><td>是：呆锁核实后接管</td></tr>
+          <tr><td><code>github-archive-manifest.json</code></td><td>按 umask</td><td>后台（GitHub 退役迁移，<code class="src" data-src="src/runtime/github-retirement.ts#GITHUB_ARCHIVE_MANIFEST_FILE">github-retirement.ts · GITHUB_ARCHIVE_MANIFEST_FILE</code>）</td><td>只含凭据绑定名</td><td>部分：完成标记写入前每次启动从旧表重写；写入后不再生成</td></tr>
+          <tr><td><code>&lt;agentDir&gt;/</code></td><td>目录 0700</td><td>后台；后台不在时离线配置中心（取得配置锁后）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>models.json</code>、<code>auth.json</code>、<code>default-model.json</code>、<code>summary-model.json</code></td><td>0600（临时文件 + rename + chmod）</td><td>后台在线配置或离线配置中心写；后台读（<code class="src" data-src="src/agent/model-config.ts#atomicWrite">model-config.ts · atomicWrite</code>）。<code>auth.json</code> 另由后台进程内 pi SDK 的 AuthStorage 加锁读写：缺失时补建 <code>{}</code>、凭据更新时原地改写，同为 0600</td><td><code>models.json</code> 含 provider apiKey，<code>auth.json</code> 是模型凭据</td><td>否：拥有者配置；默认/摘要模型文件缺失时分别回退到目录首个模型与会话当前模型</td></tr>
+          <tr><td><code>credentials.json</code></td><td>0600</td><td>只有后台写（经控制面配置凭据，或配置 MCP、QQ、Telegram、Jev 时收紧凭据范围；启动时 GitHub webhook 同样收紧），整文件直写；后台读（<code class="src" data-src="src/agent/execution/credentials.ts#class CredentialStore">credentials.ts · CredentialStore</code>）</td><td>服务凭据秘密值</td><td>否</td></tr>
+          <tr><td><code>skills/</code></td><td>拥有者维护</td><td>后台只读（<code class="src" data-src="src/agent/skills.ts#skillsDirFor">skills.ts · skillsDirFor</code>）</td><td>—</td><td>否</td></tr>
+          <tr><td><code>config.lock/owner.json</code></td><td><code>mkdir</code> 原子创建</td><td>后台运行期间持有；离线配置写入前取得</td><td>无</td><td>是</td></tr>
+          <tr><td><code>&lt;controlDir&gt;/</code></td><td><code>mkdir</code> 0770，再经 umask（022 时实为 0750）；服务器部署由安装步骤预建 0770</td><td>后台启动时创建（<code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code>）；ruukoto-dev 按需拉起前 TUI 也会建</td><td>—</td><td>—</td></tr>
+          <tr><td><code>control.sock</code></td><td>监听后 chmod 0660</td><td>后台监听，启动时先删遗留 socket；客户端连接</td><td>连接后须令牌认证</td><td>是：每次启动重建</td></tr>
+          <tr><td><code>owner.token</code></td><td>0600</td><td>后台首次启动生成 32 字节随机 hex；客户端读（或改用环境变量）</td><td>是</td><td>是：删除后下次启动生成新令牌，客户端须换新值</td></tr>
+          <tr><td><code>spawn.log</code></td><td>按 umask，追加</td><td>ruukoto-dev 的 TUI 打开追加句柄交给拉起的后台做 stdout/stderr，失败时读本次段落的尾部（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>）；ruukoto 档案一般没有</td><td>后台日志</td><td>是：可删</td></tr>
+          <tr><td><code>&lt;pendingDir&gt;/&lt;request_id&gt;.json</code></td><td>目录 0700，文件 0600（临时文件 + rename）</td><td>TUI 发送前写、确认接收后删（<code class="src" data-src="src/control/pending-requests.ts#class PendingRequestStore">pending-requests.ts · PendingRequestStore</code>）</td><td>不含令牌；含待核实提交的输入正文</td><td>否：「尚未确认接收」的唯一证据，绑定数据实例标识</td></tr>
+          <tr><td><code>&lt;pendingDir&gt;/../tui/commands.sqlite</code></td><td>目录 0700，文件 0600</td><td>TUI（<code class="src" data-src="src/tui/command-history.ts#commands.sqlite">command-history.ts</code>）</td><td>命令回显</td><td>是：只影响回显</td></tr>
+          <tr><td><code>&lt;dataDir&gt;/../qq-work/&lt;账号&gt;_&lt;群&gt;/</code></td><td>目录 0700</td><td>QQ 适配器建群会话时创建（旧架构，<code class="src" data-src="src/qq/adapter.ts#&quot;qq-work&quot;">qq/adapter.ts</code>）；群会话的 cwd，群会话归 chat 工具类别，工具集合为空</td><td>—</td><td>是</td></tr>
+          <tr><td><code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;/</code></td><td>目录 0700</td><td>编排器引导 main / coding / chat 角色时创建（旧架构，<code class="src" data-src="src/runtime/orchestrator.ts#&quot;agent-work&quot;, def.id">orchestrator.ts</code>）；角色会话的 cwd</td><td>—</td><td>是</td></tr>
+          <tr><td><code>&lt;dataDir&gt;/../agent-work/sub-agents/&lt;agentId&gt;/</code></td><td>目录 0700；资料快照 <code>materials-*.txt</code>（按执行键命名）0600</td><td>后台在登记事务前创建并写快照（先核对不落入保护根）；SubAgent 的工作进程只读</td><td>快照可能含选定的个人资料</td><td>否：快照是委派时解析出的文本，之后不重新解析；按执行键命名，不同执行各写一份</td></tr>
         </tbody>
       </table>
     </div>
     <aside class="callout inv">
       <b>不变量</b>
-      <p>两个产品的数据、锁、socket 与令牌路径都不重叠；开发实例的档案根与两个产品根都分开。互不引用对方的目录是「同机并存不串用」的物理基础。</p>
+      <p>两个产品的默认数据、锁、socket 与令牌路径互不重叠；即使有人把两个产品指向同一个数据目录，库里登记的 <code>product.type</code> 也会让后来的产品拒绝启动（见 <a href="#schema">schema 与迁移</a>）。保护根之外的目录只放客户端记录和工作目录，后台自己的数据、凭据与控制面全在保护根内。</p>
     </aside>
   </section>
 
-  <section id="core-db">
-    <h2>ruukoto.db：一份核心库，按职责分组</h2>
-    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v24</code>（v23 → v24 是通用 SubAgent 委派（agent-direction issue 11，ADR 0020）的新表 <code>sub_agents</code> / <code>work_delegations</code> 与 <code>tasks</code> 四个新可空列 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code>，旧任务四列均为空，迁移不产生任何委派；v22 → v23 是 <code>standing_permissions</code> 长期操作授权表 + <code>confirmations</code> 长期授权关联两列的加列迁移，迁移不产生任何授权、不改旧批准事实；v21 → v22 是 <code>inbound_events</code> 加 <code>event_kind</code> 宿主类别列的加列迁移，旧记录默认 <code>task</code>）：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
+  <section id="authority">
+    <h2>三份权威来源，没有跨文件事务</h2>
+    <p><code class="src" data-src="src/core/db.ts#实现不得声称两者原子">db.ts</code> 开头写明：SQLite 与 JSONL 没有跨文件事务，实现不得声称两者原子。各份数据的权威划分如下：</p>
+    <ul>
+      <li><b>会话历史</b>：pi JSONL 是唯一权威副本，SQLite 不存消息正文。读取严格解析（<code class="src" data-src="src/core/history.ts#parseSessionFileStrict">history.ts · parseSessionFileStrict</code>）：完整行损坏即报 <code>history_corrupt</code>，不静默跳过；尾部没有换行的行视为正在写入，不算完整消息。但 pi SDK 下次打开这个文件时会先给尾部补一个换行，崩溃留下的半行由此变成完整的坏行，之后严格解析就报 <code>history_corrupt</code>。</li>
+      <li><b>任务状态、审批、事件与其余元数据</b>：<code>ruukoto.db</code> 是权威。JSONL 里的任务结束标记只是「历史已写完」的证据，不决定任务状态。</li>
+      <li><b>产物正文</b>：<code>artifacts/&lt;id&gt;.bin</code> 是权威；<code>artifacts</code> 表只存归属、字节计数与 <code>partial</code> / <code>complete</code>。</li>
+      <li><b>可重建的派生数据</b>：<code>history_index</code> 记录每条 JSONL 条目的字节位置，<code>history_index_state</code> 记录文件身份（路径 + dev + ino）与已处理字节数。检索时按需增量同步；文件被替换、截断或状态缺失时删掉该会话的索引从头重建，只动索引、不碰源文件（<code class="src" data-src="src/core/history-index.ts#sync(sessionId: string, filePath: string)">history-index.ts · sync</code>）。</li>
+    </ul>
+    <p>本项目代码里没有删除或改写 JSONL 与产物文件的路径；上下文压缩只作用于模型上下文（ADR 0016），迁移也不搬动这些文件（ADR 0018）。改动 JSONL 的只有 pi SDK 打开会话文件时的修复：尾部补换行、空文件写入会话头、旧格式版本整文件重写。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 410" role="img" aria-label="三份权威来源与四个崩溃窗口：pi SDK 追加 JSONL；Driver 尽早把会话文件路径回填到 sessions 表（窗口 1），写结束标记后核对 JSONL 再定任务终态（窗口 2）；history_index 从 JSONL 按字节重建（窗口 3）；产物先追加正文文件再增加字节计数（窗口 4）；重启时 recover 在一个事务里修复会话与 JSONL 的对应关系并把未结束任务转为 interrupted。">
+          <g class="n"><rect x="24" y="24" width="190" height="44" rx="8"/><text x="119" y="38">pi SDK</text><text class="sub" x="119" y="56">会话内追加消息</text></g>
+          <g class="n"><rect x="470" y="24" width="190" height="44" rx="8"/><text x="565" y="38">Driver</text><text class="sub" x="565" y="56">回填 · 核对 · 定终态</text></g>
+          <g class="n"><rect x="780" y="24" width="236" height="44" rx="8"/><text x="898" y="38">后台 · 产物捕获</text><text class="sub" x="898" y="56">工作进程发回原始字节</text></g>
+
+          <g class="n accent"><rect x="24" y="150" width="190" height="56" rx="8"/><text x="119" y="168">sessions/…jsonl</text><text class="sub" x="119" y="189">会话历史 · 唯一权威</text></g>
+
+          <rect class="zone-r" x="340" y="98" width="380" height="234" rx="12"/>
+          <text class="zone-t" x="356" y="118">ruukoto.db · 同库事务</text>
+          <g class="n"><rect x="370" y="130" width="320" height="40" rx="8"/><text x="530" y="143">sessions.session_file</text><text class="sub" x="530" y="160">登记用哪份 JSONL</text></g>
+          <g class="n accent"><rect x="370" y="178" width="320" height="40" rx="8"/><text x="530" y="191">tasks.status · history_entry_ids</text><text class="sub" x="530" y="208">任务状态 · 唯一权威</text></g>
+          <g class="n"><rect x="370" y="226" width="320" height="40" rx="8"/><text x="530" y="239">history_index · _state</text><text class="sub" x="530" y="256">位置索引 · 可重建</text></g>
+          <g class="n"><rect x="370" y="274" width="320" height="40" rx="8"/><text x="530" y="287">artifacts 行</text><text class="sub" x="530" y="304">归属 · byte_count · partial/complete</text></g>
+
+          <g class="n accent"><rect x="780" y="266" width="236" height="56" rx="8"/><text x="898" y="284">artifacts/&lt;id&gt;.bin</text><text class="sub" x="898" y="305">产物正文 · 唯一权威</text></g>
+
+          <g class="n"><rect x="340" y="350" width="380" height="48" rx="8"/><text x="530" y="366">recover()</text><text class="sub" x="530" y="385">重启时一个事务内修复</text></g>
+
+          <path class="e" d="M119 68V148" marker-end="url(#ah)"/>
+          <text class="el start" x="127" y="104">追加</text>
+          <path class="e" d="M470 40C360 40 250 90 200 148" marker-end="url(#ah)"/>
+          <text class="el" x="352" y="56">写结束标记</text>
+          <path class="e" d="M600 68V128" marker-end="url(#ah)"/>
+          <text class="el start" x="618" y="86">尽早回填路径</text>
+          <path class="e" d="M214 186C290 186 300 198 368 198" marker-end="url(#ah)"/>
+          <text class="el" x="292" y="180">核对后定终态</text>
+          <path class="e dash" d="M214 200C290 200 300 246 368 246" marker-end="url(#ah)"/>
+          <text class="el" x="300" y="256">按字节重建</text>
+          <path class="e" d="M898 68V264" marker-end="url(#ah)"/>
+          <text class="el start" x="906" y="170">先追加正文</text>
+          <path class="e" d="M790 68L752 104V294H692" marker-end="url(#ah)"/>
+          <text class="el" x="736" y="286">再加计数</text>
+          <path class="e dash" d="M340 374C200 374 130 300 125 208" marker-end="url(#ah)"/>
+          <text class="el" x="200" y="352">按 piSessionId 找文件</text>
+          <path class="e" d="M530 350V334" marker-end="url(#ah)"/>
+
+          <g class="n unk" data-k="w1"><circle cx="600" cy="83" r="11"/><text x="600" y="83">1</text></g>
+          <g class="n unk" data-k="w2"><circle cx="232" cy="186" r="11"/><text x="232" y="186">2</text></g>
+          <g class="n unk" data-k="w3"><circle cx="258" cy="207" r="11"/><text x="258" y="207">3</text></g>
+          <g class="n unk" data-k="w4"><circle cx="736" cy="310" r="11"/><text x="736" y="310">4</text></g>
+        </svg>
+      </div>
+      <figcaption>实心底色的节点是各自数据的唯一权威；带编号的圆点是两次写入之间的崩溃窗口，下表逐个说明重启后怎样对齐。没有任何一个窗口靠「两边同时提交」解决，都是靠写入顺序加上重启时的核对。</figcaption>
+      <ul class="legend">
+        <li><i class="unk"></i>崩溃窗口（重启后核对）</li>
+      </ul>
+    </figure>
+
     <div class="scroll">
       <table class="tbl wrap">
-        <thead><tr><th>分组</th><th>表</th><th>职责</th></tr></thead>
+        <thead><tr><th>窗口</th><th>两次写入</th><th>崩溃在中间时</th><th>重启后怎样对齐</th></tr></thead>
         <tbody>
-          <tr data-k="work" tabindex="0"><td>会话与工作</td><td><code>projects</code> · <code>sessions</code> · <code>tasks</code></td><td>项目（指令列表与 Web Search 开关带乐观并发版本 <code>settings_version</code>，v20，保存同事务核对并递增；工作区根目录归属 <code>root_*</code> 四列，v19；同一真实目录至多一个工作区）/会话（工作区组织归属 <code>workspace_project_id</code>，v21，仅展示归属，资料身份仍是 <code>project_id</code>）与任务本体（状态、请求键、提交摘要；SubAgent 委派关联四列 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code>，v24，均可空、旧任务为空）</td></tr>
-          <tr data-k="subagents" tabindex="0"><td>工作委托与 SubAgent</td><td><code>sub_agents</code> · <code>work_delegations</code></td><td>通用 SubAgent 委派（v24，agent-direction issue 11，ADR 0020）：<code>sub_agents</code> 存动态身份（独立 ID 与其 <code>session_id</code> 独立子会话 UNIQUE、宿主生成的 <code>work_dir</code>、当前工作/任务指针 <code>active_work_id</code> / <code>current_task_id</code>、状态 <code>running</code> / <code>idle</code> / <code>unverified</code>，空闲零模型与 worker 进程、身份保留）；<code>work_delegations</code> 存工作（父会话 <code>parent_session_id</code>、发起任务、首次委派 <code>request_key</code> 与 <code>params_digest</code>，（父会话, 键）唯一），工作内每次执行以 <code>sdelegate:&lt;workId&gt;:&lt;key&gt;</code> 请求键查重。一次任务终态不等于工作关闭或 Agent 关闭</td></tr>
-          <tr data-k="occupancy" tabindex="0"><td>目录占用</td><td><code>occupancy</code></td><td>整项任务级的目录占用登记，防并行写冲突</td></tr>
-          <tr data-k="events" tabindex="0"><td>事件与恢复</td><td><code>events</code> · <code>inbound_events</code> · <code>tool_ops</code> · <code>confirmations</code></td><td>持久事件流、入站事件（去重键；宿主类别 <code>event_kind</code> 区分普通任务入站与 IM 审批控制消息，v22）、工具操作账本、审批与批准消费（长期授权关联 <code>standing_permission_id/version</code>，v23）</td></tr>
-          <tr data-k="roles" tabindex="0"><td>角色与群聊结果</td><td><code>agent_roles</code> · <code>chat_result_acceptances</code></td><td>旧架构逻辑角色（main/coding/chat）引导记录；main 显式接收的群聊结果快照</td></tr>
-          <tr data-k="ctx" tabindex="0"><td>上下文与历史</td><td><code>selection_records</code> · <code>context_checkpoints</code> · <code>history_index</code> · <code>history_index_state</code></td><td>每次调用的选择记录、压缩点、JSONL 历史的可重建位置索引</td></tr>
-          <tr data-k="memory" tabindex="0"><td>记忆与产物</td><td><code>memories</code> · <code>memory_versions</code> · <code>artifacts</code></td><td>长期记忆（来源与版本）与任务产物元数据（文件本体在数据目录下）</td></tr>
-          <tr data-k="grant" tabindex="0"><td>授权与服务</td><td><code>data_grants</code> · <code>mcp_services</code></td><td>资料授权（来源项目 × 目标项目 × 类别）与 MCP 服务配置（版本化）</td></tr>
-          <tr data-k="im" tabindex="0"><td>IM 入口</td><td><code>qq_config</code> · <code>qq_sessions</code> · <code>qq_inbox</code> · <code>qq_outbox</code> · <code>telegram_config</code></td><td>QQ 配置/群会话/收件/发件账本与 Telegram 配置（各带配置版本）</td></tr>
-          <tr data-k="sched" tabindex="0"><td>调度与通知</td><td><code>schedules</code> · <code>schedule_runs</code> · <code>notification_ops</code></td><td>调度计划、按（计划、版本、原定时刻）唯一的运行、外发操作账本</td></tr>
-          <tr data-k="meta" tabindex="0"><td>实例登记</td><td><code>meta</code></td><td>实例级键值：后台实例标识、应用数据实例绑定、产品归属（product.type）等</td></tr>
-          <tr data-k="standing" tabindex="0"><td>长期操作授权</td><td><code>standing_permissions</code></td><td>versioned 限定范围 + 钉版修订与入口绑定（v23）；部分唯一索引保证同一 main、稳定入口（channel/account/chat/actor）与目标（机器/单元/动作）至多一条未撤销授权，来源审批唯一；撤销/失效递增版本并保留记录（agent-direction issue 10）</td></tr>
+          <tr data-k="w1" tabindex="0"><td>1 会话文件路径</td><td>SDK 会话建好后、发 prompt 之前，Driver 在独立事务里把 <code>sdk.sessionFile</code> 写进 <code>sessions.session_file</code>（「尽早落库」）；完成核对时若登记值不同再写一次。新会话的文件要到首条助手消息才由 pi 创建，之前的条目只在内存里，所以登记总是先于文件出现。<br><code class="src" data-src="src/agent/driver.ts#会话文件路径尽早落库">driver.ts · runInner</code></td><td>库里已登记路径，文件还不存在（崩溃在首条助手消息落盘之前）；或登记的文件丢失、目录里另有同 <code>piSessionId</code> 的文件</td><td><code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code> 第 4 步：登记的文件不存在（或未登记）时，在 <code>sessions/</code> 找 <code>*_&lt;piSessionId&gt;.jsonl</code>，取排序最后一份（文件名以创建时间开头）写回，保证继续写同一份历史。原先登记过路径的，改用或找不到都记 <code>session.history_unreadable</code>；从未登记过的静默写回。登记的文件仍不存在时，下次执行以同一 <code>piSessionId</code> 新建文件并重新尽早落库（<code class="src" data-src="src/agent/session-factory.ts#export function openPiSessionManager">session-factory.ts · openPiSessionManager</code>）。</td></tr>
+          <tr data-k="w2" tabindex="0"><td>2 结束标记与核对</td><td>自然结束时先向 JSONL 写 <code>ruukoto_task_end</code> 标记（<code class="src" data-src="src/core/types.ts#TASK_END_MARKER">types.ts · TASK_END_MARKER</code>），再严格解析 JSONL、找到本任务的开始与结束标记，在一个事务里写 <code>history_entry_ids</code>，最后在另一个事务里条件更新为 completed。<br><code class="src" data-src="src/agent/driver.ts#verifyAndLinkHistory">driver.ts · verifyAndLinkHistory</code></td><td>JSONL 里有 status=completed 的结束标记，<code>tasks</code> 仍是 running</td><td>recover 以库为准，把 running / awaiting_confirmation 一律转 interrupted（<code>backend_restart</code>）。核对本身失败时：标记缺失 → <code>history_unverified:…</code>；JSONL 解析失败 → <code>history_corrupted:…</code>，记 <code>session.history_unreadable</code>，原文件保留待人工处理。</td></tr>
+          <tr data-k="w3" tabindex="0"><td>3 位置索引</td><td>索引只在检索时同步：按已完整落盘的换行记录追加，写完再更新 <code>processed_bytes</code>。</td><td>索引落后于 JSONL，或状态行比部分已写条目旧</td><td>下次同步从 <code>processed_bytes</code> 续扫，已存在的条目 <code>ON CONFLICT DO NOTHING</code>；文件身份变了或文件比已处理位置短，就删掉该会话索引从 0 重建。索引坏了不影响历史本身。</td></tr>
+          <tr data-k="w4" tabindex="0"><td>4 产物字节</td><td>先 <code>appendFileSync</code> 正文，再 <code>addArtifactBytes</code> 累加计数；只有结果回收后才定稿为 <code>complete</code>。</td><td>文件比 <code>byte_count</code> 多一段；状态停在 <code>partial</code></td><td>读取按文件实际长度切片；元数据仍是 <code>partial</code>，如实表示未定稿。磁盘写失败时停止捕获并保留已写部分（<code>ArtifactWriteError</code>）。</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
-  <section id="history">
-    <h2>会话历史：JSONL 是权威，索引可重建</h2>
+  <section id="core-db">
+    <h2>核心库 ruukoto.db：按领域分组</h2>
+    <p>核心库以 WAL、<code>synchronous = FULL</code>、<code>foreign_keys = ON</code> 打开（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>），全部建表语句在 <code class="src" data-src="src/core/db.ts#const SCHEMA_SQL">db.ts · SCHEMA_SQL</code>。下图按领域把表分组，画出组之间的主要引用；各表承载的状态机在对应页面，本页只讲存储与归属。</p>
+
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 860 220" role="img" aria-label="会话历史的两层：sessions 目录下的 pi JSONL 文件是唯一权威副本；ruukoto.db 里的 history_index 是位置索引，可从 JSONL 重建；会话元数据存在 sessions 表，两边按会话 id 对齐。">
-          <g class="n ok"><rect x="30" y="60" width="250" height="70" rx="8"/><text x="155" y="86">sessions/*.jsonl</text><text class="sub" x="155" y="108">唯一权威副本</text></g>
-          <g class="n run"><rect x="340" y="20" width="240" height="70" rx="8"/><text x="460" y="46">ruukoto.db · history_index</text><text class="sub" x="460" y="68">可重建的位置索引</text></g>
-          <g class="n run"><rect x="340" y="120" width="240" height="70" rx="8"/><text x="460" y="146">ruukoto.db · sessions</text><text class="sub" x="460" y="168">会话元数据</text></g>
-          <g class="n accent"><rect x="640" y="60" width="190" height="70" rx="8"/><text x="735" y="86">查询与压缩</text><text class="sub" x="735" y="108">按索引取原文</text></g>
+        <svg viewBox="0 0 1040 510" role="img" aria-label="核心库表分组与引用：任务运行时以 session_id 外键引用工作区与会话；资料与记忆、QQ、SubAgent 与工作委托以外键引用会话或项目；审批与工具操作、资料（产物）、编排与入站以外键引用任务；上下文、事件、调度与 outbox、MCP 只按列值引用、没有外键；tasks 以 work_id 与 sub_agent_id 列关联 SubAgent；调度运行以 inbound_event_id 关联入站事件；元数据与 Telegram 没有引用。">
+          <g class="n" data-k="g-meta"><rect x="20" y="16" width="220" height="52" rx="8"/><text x="130" y="33">元数据</text><text class="sub" x="130" y="52">meta</text></g>
+          <g class="n" data-k="g-tg"><rect x="800" y="16" width="220" height="52" rx="8"/><text x="910" y="33">Telegram</text><text class="sub" x="910" y="52">telegram_config</text></g>
 
-          <path class="e" d="M280 84L338 56" marker-end="url(#ah)"/>
-          <text class="el" x="282" y="56">建索引</text>
-          <path class="e" d="M280 106L338 146" marker-end="url(#ah)"/>
-          <text class="el" x="284" y="140">回填文件位置</text>
-          <path class="e" d="M580 90L638 90" marker-end="url(#ah-accent)"/>
+          <g class="n" data-k="g-mcp"><rect x="20" y="100" width="220" height="64" rx="8"/><text x="130" y="120">MCP</text><text class="sub" x="130" y="142">mcp_services</text></g>
+          <g class="n accent" data-k="g-ws"><rect x="410" y="100" width="220" height="72" rx="8"/><text x="520" y="122">工作区与会话</text><text class="sub" x="520" y="146">projects · sessions</text></g>
+          <g class="n" data-k="g-qq"><rect x="800" y="100" width="220" height="64" rx="8"/><text x="910" y="116">QQ 群聊（旧架构）</text><text class="sub" x="910" y="136">qq_config · qq_sessions</text><text class="sub" x="910" y="152">qq_inbox · qq_outbox</text></g>
+
+          <g class="n" data-k="g-data"><rect x="20" y="196" width="220" height="84" rx="8"/><text x="130" y="212">资料与记忆</text><text class="sub" x="130" y="232">artifacts · data_grants</text><text class="sub" x="130" y="248">memories · memory_versions</text><text class="sub" x="130" y="264">history_index · _state</text></g>
+          <g class="n" data-k="g-sub"><rect x="800" y="200" width="220" height="64" rx="8"/><text x="910" y="216">SubAgent 与工作委托</text><text class="sub" x="910" y="236">sub_agents</text><text class="sub" x="910" y="252">work_delegations</text></g>
+
+          <g class="n accent" data-k="g-task"><rect x="410" y="296" width="220" height="64" rx="8"/><text x="520" y="316">任务运行时</text><text class="sub" x="520" y="338">tasks · occupancy</text></g>
+          <g class="n" data-k="g-ctx"><rect x="20" y="310" width="220" height="64" rx="8"/><text x="130" y="326">上下文</text><text class="sub" x="130" y="346">selection_records</text><text class="sub" x="130" y="362">context_checkpoints</text></g>
+          <g class="n" data-k="g-orch"><rect x="800" y="310" width="220" height="64" rx="8"/><text x="910" y="326">编排与入站</text><text class="sub" x="910" y="346">agent_roles · inbound_events</text><text class="sub" x="910" y="362">chat_result_acceptances</text></g>
+
+          <g class="n" data-k="g-appr"><rect x="20" y="430" width="220" height="64" rx="8"/><text x="130" y="446">审批与工具操作</text><text class="sub" x="130" y="466">confirmations · tool_ops</text><text class="sub" x="130" y="482">standing_permissions</text></g>
+          <g class="n" data-k="g-evt"><rect x="410" y="430" width="220" height="64" rx="8"/><text x="520" y="450">事件</text><text class="sub" x="520" y="472">events</text></g>
+          <g class="n" data-k="g-sched"><rect x="800" y="430" width="220" height="64" rx="8"/><text x="910" y="446">调度与 outbox</text><text class="sub" x="910" y="466">schedules · schedule_runs</text><text class="sub" x="910" y="482">notification_ops</text></g>
+
+          <path class="e accent" data-k="g-task" d="M520 296V174" marker-end="url(#ah-accent)"/>
+          <text class="el start" data-k="g-task" x="528" y="238">session_id</text>
+          <path class="e dash" data-k="g-mcp" d="M240 132H408" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-mcp" x="324" y="124">project_id</text>
+          <path class="e" data-k="g-data" d="M240 222C320 222 330 160 408 160" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-data" x="324" y="190">project_id</text>
+          <path class="e" data-k="g-data" d="M240 262C320 262 330 318 408 318" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-data" x="324" y="294">artifacts.task_id</text>
+          <path class="e dash" data-k="g-ctx" d="M240 342H408" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-ctx" x="324" y="334">task_id</text>
+          <path class="e" data-k="g-appr" d="M240 462C350 462 440 420 440 362" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-appr" x="381" y="428">task_id</text>
+          <path class="e dash" data-k="g-evt" d="M520 430V362" marker-end="url(#ah)"/>
+          <text class="el start" data-k="g-evt" x="528" y="398">task_id · session_id</text>
+          <path class="e" data-k="g-qq" d="M800 132H632" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-qq" x="716" y="124">qq_sessions</text>
+          <path class="e" data-k="g-sub" d="M800 222C720 222 710 160 634 160" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-sub" x="716" y="190">父 / 子会话</text>
+          <path class="e dash" data-k="g-sub" d="M632 316C710 316 720 252 798 252" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-sub" x="716" y="290">work_id · sub_agent_id</text>
+          <path class="e" data-k="g-orch" d="M800 342H632" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-orch" x="716" y="334">task_id</text>
+          <path class="e dash" data-k="g-sched" d="M910 430V376" marker-end="url(#ah)"/>
+          <text class="el start" data-k="g-sched" x="918" y="406">inbound_event_id</text>
+          <path class="e dash" data-k="g-sched" d="M800 462C690 462 600 420 600 362" marker-end="url(#ah)"/>
+          <text class="el" data-k="g-sched" x="659" y="428">task_id</text>
         </svg>
       </div>
-      <figcaption>消息先从 SDK 追加进 JSONL（<code class="src" data-src="src/agent/session-factory.ts#sessionsDirFor">session-factory.ts · sessionsDirFor</code> 定位），宿主再按事件补索引与元数据；索引丢了能从 JSONL 重建，反过来不行——所以会话历史的保留策略只动索引与上下文视图，不改 JSONL。</figcaption>
+      <figcaption>实线是 <code>REFERENCES</code> 外键（<code>foreign_keys = ON</code> 时由 SQLite 强制），虚线是只按列值关联、没有外键约束的引用；箭头从引用方指向被引用方。图上省略了组内引用和部分跨组外键：<code>agent_roles</code> 引用 <code>projects</code> 与 <code>sessions</code>，<code>chat_result_acceptances</code> 引用 <code>projects</code>，<code>qq_sessions</code> 除会话外也引用 <code>projects</code>，<code>work_delegations</code> 引用 <code>sub_agents</code>，<code>memory_versions</code> 引用 <code>memories</code>，<code>schedule_runs</code> 引用 <code>schedules</code>。悬停下表的行会高亮对应的组。</figcaption>
     </figure>
+
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>分组</th><th>表</th><th>用途与关键列</th><th>唯一约束 / 幂等键</th><th>主要写入方</th></tr></thead>
+        <tbody>
+          <tr data-k="g-ws" tabindex="0"><td rowspan="2">工作区与会话</td><td><code>projects</code></td><td>旧架构项目与工作区共用一张表：工作区就是带根目录归属（<code>root_cwd</code> / <code>root_real</code> / <code>root_dev</code> / <code>root_ino</code>）的项目；<code>instruction_files</code>、<code>web_search</code> 与乐观并发版本 <code>settings_version</code></td><td><code>name</code> UNIQUE；<code>create_request_id</code> 部分唯一；<code>root_real</code> 部分唯一（挂载别名由 <code>findProjectByRoot</code> 按 dev+ino 拦）</td><td><code class="src" data-src="src/core/store.ts#createProject(name: string">store.ts · createProject</code>、<code class="src" data-src="src/core/store.ts#attachProjectRoot">attachProjectRoot</code>（Runtime 建项目、打开工作区、迁移应用）</td></tr>
+          <tr data-k="g-ws" tabindex="0"><td><code>sessions</code></td><td>会话：<code>project_id</code>（资料身份与配置来源）、<code>kind</code>（dev / qq_group）、目录身份四列、<code>pi_session_id</code>、<code>session_file</code>、队列状态、<code>workspace_project_id</code>（只作展示归属）</td><td><code>create_request_id</code> 部分唯一</td><td><code class="src" data-src="src/core/store.ts#createSession">store.ts · createSession</code>（Runtime、QQ 适配器、编排器、SubAgentManager）；<code class="src" data-src="src/core/store.ts#setSessionFile">setSessionFile</code>（Driver、recover）；<code class="src" data-src="src/core/store.ts#mapSessionToWorkspace">mapSessionToWorkspace</code>（迁移）</td></tr>
+          <tr data-k="g-task" tabindex="0"><td rowspan="2">任务运行时</td><td><code>tasks</code></td><td>每次执行：状态、访问模式与权限版本、中断原因、<code>history_entry_ids</code>、旧角色 <code>agent_id</code> 与 <code>parent_task_id</code>、SubAgent 关联 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code>（见 <a href="task-lifecycle.html">任务生命周期</a>）</td><td>UNIQUE (<code>session_id</code>, <code>request_id</code>) 加 <code>submission_digest</code>：同键同参返回原任务</td><td><code class="src" data-src="src/core/store.ts#insertQueuedTask">store.ts · insertQueuedTask</code>（Runtime、SubAgentManager）；<code class="src" data-src="src/core/store.ts#transitionTask">transitionTask</code></td></tr>
+          <tr data-k="g-task" tabindex="0"><td><code>occupancy</code></td><td>目录占用：<code>cwd_real</code>、<code>cwd_dev</code> / <code>cwd_ino</code>、持有任务</td><td>主键 <code>cwd_real</code>；dev+ino 冲突在写入前查询判定</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code>（调度循环）、<code>releaseOccupancy</code></td></tr>
+          <tr data-k="g-appr" tabindex="0"><td rowspan="3">审批与工具操作</td><td><code>confirmations</code></td><td>审批请求：<code>tool_op_id</code>、结构化 <code>scope</code>、权限版本、状态、<code>consumed_at</code>、自动审查字段、长期授权关联 <code>standing_permission_id</code> / <code>standing_permission_version</code></td><td>主键 <code>id</code>；批准单次消费靠条件更新（见 <a href="tool-call-path.html">工具调用路径</a>）</td><td><code class="src" data-src="src/core/store.ts#createConfirmation">store.ts · createConfirmation</code>、<code>insertApprovedConfirmation</code>（审批闸门）</td></tr>
+          <tr data-k="g-appr" tabindex="0"><td><code>tool_ops</code></td><td>工具操作账本：<code>id</code> 即宿主操作 ID、<code>sdk_call_id</code>、执行意图时间、结果、<code>effect_unknown</code></td><td>主键宿主操作 ID（也是应用库回执的键）</td><td><code class="src" data-src="src/core/store.ts#recordToolIntent">store.ts · recordToolIntent</code>（Driver）；结果补记由工具操作账本完成</td></tr>
+          <tr data-k="g-appr" tabindex="0"><td><code>standing_permissions</code></td><td>长期操作授权：机器 / 单元 / 动作、策略与单元修订、IM 入口四元组、钉版目标、<code>version</code>、<code>revoked_at</code></td><td><code>approval_id</code> UNIQUE；部分唯一（会话、入口四元组、机器、单元、动作）WHERE <code>revoked_at IS NULL</code></td><td><code class="src" data-src="src/core/store.ts#createStandingPermission">store.ts · createStandingPermission</code>（IM 审批）；撤销与失效按版本条件更新、保留行</td></tr>
+          <tr data-k="g-evt" tabindex="0"><td>事件</td><td><code>events</code></td><td>持久事件流：<code>seq</code> 自增、<code>task_id</code> / <code>session_id</code>、JSON <code>body</code>（见 <a href="control-protocol.html">控制面协议</a>）</td><td><code>seq</code> AUTOINCREMENT</td><td><code class="src" data-src="src/core/store.ts#appendEvent">store.ts · appendEvent</code>：与引发它的状态变更同事务</td></tr>
+          <tr data-k="g-data" tabindex="0"><td rowspan="6">资料与记忆</td><td><code>artifacts</code></td><td>产物元数据：任务、会话、名称、<code>byte_count</code>、<code>partial</code> / <code>complete</code>；正文在 <code>artifacts/&lt;id&gt;.bin</code></td><td>主键 <code>id</code></td><td><code class="src" data-src="src/core/store.ts#createArtifact">store.ts · createArtifact</code>（ArtifactStore）</td></tr>
+          <tr data-k="g-data" tabindex="0"><td><code>data_grants</code></td><td>资料授权：来源项目 × 目标项目 × 类别（history / artifact / memory）、<code>revoked_at</code></td><td>主键 <code>id</code></td><td><code class="src" data-src="src/core/access.ts#createGrant">access.ts · createGrant</code>（Runtime，配置中心）</td></tr>
+          <tr data-k="g-data" tabindex="0"><td><code>memories</code></td><td>长期记忆当前版本：项目、<code>scope</code>（project / personal）、类别、<code>current_version</code>、状态</td><td>主键 <code>id</code>；修改按预期版本条件更新</td><td><code class="src" data-src="src/core/memory.ts#class MemoryStore">memory.ts · MemoryStore</code></td></tr>
+          <tr data-k="g-data" tabindex="0"><td><code>memory_versions</code></td><td>追加式修订：正文、来源引用、作者（agent / owner）</td><td>主键 (<code>memory_id</code>, <code>version</code>)</td><td>MemoryStore（不删旧版本）</td></tr>
+          <tr data-k="g-data" tabindex="0"><td><code>history_index</code></td><td>JSONL 条目位置：条目 ID、父条目、角色、类型、<code>byte_offset</code> / <code>byte_length</code>（可重建）</td><td>主键 (<code>session_id</code>, <code>entry_id</code>)</td><td><code class="src" data-src="src/core/history-index.ts#class HistoryIndex">history-index.ts · HistoryIndex</code></td></tr>
+          <tr data-k="g-data" tabindex="0"><td><code>history_index_state</code></td><td>每会话索引进度：文件路径、dev、ino、<code>processed_bytes</code></td><td>主键 <code>session_id</code></td><td>HistoryIndex</td></tr>
+          <tr data-k="g-ctx" tabindex="0"><td rowspan="2">上下文</td><td><code>selection_records</code></td><td>每次模型调用的选择记录：策略、选入与移出、记忆、指令与技能版本、预算、所用压缩点（见 <a href="context-pipeline.html">上下文组装</a>）</td><td>主键 <code>id</code>；按 (<code>task_id</code>, <code>call_index</code>) 索引</td><td><code class="src" data-src="src/core/store.ts#insertSelectionRecord">store.ts · insertSelectionRecord</code>（上下文装配）</td></tr>
+          <tr data-k="g-ctx" tabindex="0"><td><code>context_checkpoints</code></td><td>压缩点：状态 active / superseded / invalidated、覆盖范围、摘要</td><td>每会话至多一个 active（部分唯一）</td><td><code class="src" data-src="src/core/store.ts#insertCheckpoint">store.ts · insertCheckpoint</code>（上下文装配）</td></tr>
+          <tr data-k="g-mcp" tabindex="0"><td>MCP</td><td><code>mcp_services</code></td><td>按项目的 MCP 服务：端点、凭据绑定名、工具允许列表、<code>config_version</code></td><td>UNIQUE (<code>project_id</code>, <code>name</code>)</td><td><code class="src" data-src="src/agent/mcp/store.ts#upsertService">mcp/store.ts · upsertService</code>（Runtime）</td></tr>
+          <tr data-k="g-qq" tabindex="0"><td rowspan="4">QQ 群聊（旧架构）</td><td><code>qq_config</code></td><td>单行连接配置：端点、凭据绑定名、登录账号、私聊拥有者、群允许列表、<code>config_version</code></td><td><code>id = 1</code></td><td><code class="src" data-src="src/qq/store.ts#upsertConfig">qq/store.ts · upsertConfig</code></td></tr>
+          <tr data-k="g-qq" tabindex="0"><td><code>qq_sessions</code></td><td>登录账号 + 群 → 独立项目、会话与工作目录</td><td>主键 (<code>account</code>, <code>group_id</code>)；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/qq/store.ts#insertGroupSession">qq/store.ts · insertGroupSession</code>（QQ 适配器）</td></tr>
+          <tr data-k="g-qq" tabindex="0"><td><code>qq_inbox</code></td><td>群收件登记，先持久化再入队（见 <a href="inbound-events.html">入站事件</a>）</td><td>主键 <code>dedup_key</code> = 账号:群:消息号</td><td><code class="src" data-src="src/qq/store.ts#registerInbox">qq/store.ts · registerInbox</code></td></tr>
+          <tr data-k="g-qq" tabindex="0"><td><code>qq_outbox</code></td><td>群发件记录，先存固定目标与正文再发送（见 <a href="outbox.html">通知 outbox</a>）</td><td>主键 <code>op_id</code></td><td><code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts · createPendingOutbox</code></td></tr>
+          <tr data-k="g-orch" tabindex="0"><td rowspan="3">编排与入站</td><td><code>agent_roles</code></td><td>旧架构固定角色 main / coding / chat：绑定项目、会话、工作目录（见 <a href="orchestrator.html">编排器</a>）</td><td>主键 <code>id</code>（CHECK 三选一）；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>（编排器引导）</td></tr>
+          <tr data-k="g-orch" tabindex="0"><td><code>inbound_events</code></td><td>入站事件：来源、外部 ID、目标角色、宿主类别 <code>event_kind</code>（task / im_approval）、钉版回复目标、关联任务</td><td>UNIQUE (<code>source</code>, <code>external_id</code>)</td><td><code class="src" data-src="src/core/store.ts#registerInboundEvent">store.ts · registerInboundEvent</code>（编排器、Telegram 与 QQ 私聊、调度器、GitHub、IM 审批）</td></tr>
+          <tr data-k="g-orch" tabindex="0"><td><code>chat_result_acceptances</code></td><td>main 显式接收的群聊结果快照：来源任务、接收任务、理由、摘要</td><td>主键 (<code>main_project_id</code>, <code>task_id</code>)；<code>accepted_by_op_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#acceptChatResult">store.ts · acceptChatResult</code>（群聊结果工具）</td></tr>
+          <tr data-k="g-sub" tabindex="0"><td rowspan="2">SubAgent 与工作委托</td><td><code>sub_agents</code></td><td>动态身份：父会话、独立子会话、宿主生成的 <code>work_dir</code>、当前工作与任务指针、状态 running / idle / unverified</td><td>主键 <code>id</code>；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#insertSubAgent">store.ts · insertSubAgent</code>（SubAgentManager）</td></tr>
+          <tr data-k="g-sub" tabindex="0"><td><code>work_delegations</code></td><td>工作：父会话、发起任务、执行它的 SubAgent、首次委派键与参数摘要；每次执行另是一条 <code>tasks</code>，请求键 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>UNIQUE (<code>parent_session_id</code>, <code>request_key</code>)</td><td><code class="src" data-src="src/core/store.ts#insertWorkDelegation">store.ts · insertWorkDelegation</code>（SubAgentManager，与身份、子会话、任务同事务）</td></tr>
+          <tr data-k="g-sched" tabindex="0"><td rowspan="3">调度与 outbox</td><td><code>schedules</code></td><td>调度计划：动作、时间规则、固定载荷与目标、状态、<code>version</code>、当前运行</td><td><code>create_key</code> UNIQUE</td><td><code class="src" data-src="src/scheduler/store.ts#insertSchedule">scheduler/store.ts · insertSchedule</code>（调度工具）</td></tr>
+          <tr data-k="g-sched" tabindex="0"><td><code>schedule_runs</code></td><td>一次到期登记：原定时刻、延迟、合并来源、关联入站事件与发送操作、新闻快照</td><td>UNIQUE (<code>schedule_id</code>, <code>schedule_version</code>, <code>scheduled_for</code>)；每计划至多一个未关闭运行（部分唯一）</td><td><code class="src" data-src="src/scheduler/store.ts#insertRun">scheduler/store.ts · insertRun</code>（调度器）</td></tr>
+          <tr data-k="g-sched" tabindex="0"><td><code>notification_ops</code></td><td>发送操作账本：固定目标、正文与哈希、状态</td><td>UNIQUE (<code>source_kind</code>, <code>source_key</code>) 即逻辑发送键</td><td><code class="src" data-src="src/scheduler/store.ts#insertOp">scheduler/store.ts · insertOp</code>（调度器、批准后的 <code>notification_enqueue</code>、owner 回复、IM 审批通知与回执、GitHub 评审）</td></tr>
+          <tr data-k="g-tg" tabindex="0"><td>Telegram</td><td><code>telegram_config</code></td><td>单行配置：API 地址、凭据绑定名、拥有者 user / chat、<code>config_version</code>、长轮询偏移 <code>last_update_id</code></td><td><code>id = 1</code></td><td><code class="src" data-src="src/telegram/adapter.ts#class TelegramStore">telegram/adapter.ts · TelegramStore</code></td></tr>
+          <tr data-k="g-meta" tabindex="0"><td>元数据</td><td><code>meta</code></td><td>实例级键值，键见下表</td><td>主键 <code>key</code></td><td><code>Db</code> 构造；<code class="src" data-src="src/core/store.ts#setMetaValue">store.ts · setMetaValue</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>meta 键</th><th>写入方与时机</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>schema_version</code></td><td><code>Db</code> 构造，建表或迁移事务末尾</td><td>文件的 schema 版本</td></tr>
+          <tr><td><code>instance_id</code></td><td><code>Db</code> 构造，首次打开分配（<code>ON CONFLICT DO NOTHING</code>，<code class="src" data-src="src/core/db.ts#getInstanceId">db.ts · getInstanceId</code>）</td><td>数据实例标识：握手下发，待核实提交记录与迁移请求都绑定它，换库后不会向空后台重发</td></tr>
+          <tr><td><code>product.type</code></td><td>Runtime 启动，缺失时补记当前产品</td><td>数据目录归属的产品（<code class="src" data-src="src/core/product.ts#PRODUCT_META_KEY">product.ts · PRODUCT_META_KEY</code>）</td></tr>
+          <tr><td><code>app_data.main_instance_id</code></td><td>首次打开应用库时登记</td><td>应用库实例绑定，换库会被发现</td></tr>
+          <tr><td><code>github_retirement_done</code></td><td>GitHub 退役迁移全部导出成功后</td><td>退役迁移完成标记</td></tr>
+          <tr><td><code>migration_receipt:&lt;request_id&gt;</code></td><td>迁移应用，与组织变更同事务</td><td>迁移幂等回执与原映射（<code class="src" data-src="src/runtime/workspace-migration.ts#migration_receipt:">workspace-migration.ts</code>）</td></tr>
+          <tr><td><code>jev.project.&lt;projectId&gt;</code></td><td>Runtime 保存 Jev 实验配置</td><td>项目级 Jev 配置（含凭据绑定名，不含秘密值，<code class="src" data-src="src/agent/jev-config.ts#jevConfigKey">jev-config.ts · jevConfigKey</code>）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="schema">
+    <h2>schema 版本与迁移</h2>
+    <p>当前版本 <code>v24</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>文件里的版本</th><th>行为</th></tr></thead>
+        <tbody>
+          <tr><td>无版本记录（全新库）</td><td>一个 <code>BEGIN IMMEDIATE</code> 事务内建全部表、补列、写版本。</td></tr>
+          <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 24（需升级程序）」，后台启动失败，文件不动。</td></tr>
+          <tr><td>等于程序</td><td>幂等执行建表语句与补列，只补齐缺失对象。</td></tr>
+          <tr><td>1 到 23</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v24）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
+          <tr><td>其他（如 0）</td><td>「不支持从 schema vN 迁移」，同样回滚。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>SQLite 改不了 CHECK 约束，涉及 CHECK 的旧版本用 <code>*_new</code> 临时表重建：版本低于 6 时重建 <code>tasks_new</code> / <code>sessions_new</code>（访问模式加 auto-review，<code class="src" data-src="src/core/db.ts#rebuildModeCheckedTables">db.ts · rebuildModeCheckedTables</code>），13 到 15 重建 <code>notification_ops_new</code>（来源类别加 inbound_event），13 到 17 重建 <code>schedules_new</code>（动作加 news）。步骤是建新表 → 按显式列清单 <code>INSERT … SELECT</code> → 删旧表 → 改名 → 重建索引。外键开关在事务内无效，所以在事务外先关 <code>foreign_keys</code>，提交前跑 <code>PRAGMA foreign_key_check</code>，有违规就抛错回滚，最后在 <code>finally</code> 里重新打开。</p>
+    <p>提交 <code>d139561</code> 时库是 v18，之后的六个版本都只做加法：经建表语句（<code>IF NOT EXISTS</code>）加新表、经 <code>ensureColumns</code> 加可空或带默认值的列，不重建既有表、不改写旧记录。</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>版本</th><th>改动</th><th>旧数据</th><th>出处</th></tr></thead>
+        <tbody>
+          <tr><td><code>v19</code></td><td><code>projects</code> 加 <code>root_cwd</code> / <code>root_real</code> / <code>root_dev</code> / <code>root_ino</code>，加部分唯一索引 <code>idx_projects_root_real</code></td><td>四列为空即旧项目，不受索引约束</td><td>工单 05（<code>606e15f</code>）</td></tr>
+          <tr><td><code>v20</code></td><td><code>projects</code> 加 <code>settings_version</code>（默认 1）</td><td>旧项目取初始版本 1</td><td>工单 06（<code>bd19ab1</code>）</td></tr>
+          <tr><td><code>v21</code></td><td><code>sessions</code> 加 <code>workspace_project_id</code>（引用 <code>projects</code>）</td><td>默认 NULL；不扫描目录、不迁移业务记录</td><td>工单 07（<code>8be27c5</code>）</td></tr>
+          <tr><td><code>v22</code></td><td><code>inbound_events</code> 加 <code>event_kind</code>（task / im_approval，默认 task）</td><td>旧记录为 task，入站与回执关系保留</td><td>工单 08（<code>f522cce</code>）</td></tr>
+          <tr><td><code>v23</code></td><td>新表 <code>standing_permissions</code>；<code>confirmations</code> 加 <code>standing_permission_id</code> / <code>standing_permission_version</code></td><td>不产生任何授权，旧批准的关联列为空</td><td>工单 10（<code>24f1ac3</code>）</td></tr>
+          <tr><td><code>v24</code></td><td>新表 <code>sub_agents</code>、<code>work_delegations</code>；<code>tasks</code> 加 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code> 及两条索引</td><td>旧任务四列为空，不产生任何委派；旧角色列与 CHECK 不变</td><td>工单 11（<code>e542261</code>）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>已退役的 GitHub 表</h3>
+    <p>v4 加的 <code>github_repo_bindings</code> / <code>github_drafts</code> / <code>github_publish_ops</code> 从 v9 起不再出现在建表语句里：全新库没有它们，旧库的表原样保留为只读归档，不 DROP。退役迁移不靠 schema 版本，而是后台启动时在 <code>recover</code> 之后按表存在性执行（<code class="src" data-src="src/runtime/github-retirement.ts#retireGitHubModule">github-retirement.ts · retireGitHubModule</code>）：没有 <code>github_%</code> 表或已有 <code>github_retirement_done</code> 标记就跳过；否则先在一个事务里让未消费的 github_publish 审批失效、按证据给未决发布操作定终态（批准已消费或没有审批记录 → effect_unknown，审批未消费 → canceled）并记 <code>github.publish_settled</code>；再在事务外把草稿各版本导出为产物（已完整导出的版本跳过）、写 <code>github-archive-manifest.json</code>；全部成功才写完成标记，否则下次启动续做。</p>
+    <h3>产品归属</h3>
+    <p>Runtime 启动时打开核心库之后读 <code>product.type</code>（<code class="src" data-src="src/runtime/runtime.ts#product_mismatch">runtime.ts · start</code>）：记录的产品与当前产品不同，就关库、释放配置锁与实例锁，以 <code>product_mismatch</code> 拒绝启动；没有记录（全新库，或工单 01 之前的旧库）就在事务外直接补记当前产品。</p>
+    <aside class="callout limit">
+      <b>已知限制</b>
+      <p>产品核对排在 <code>new Db()</code> 之后，所以用错误的产品打开一个版本较旧的数据目录时，schema 迁移会先完成，然后才被拒绝。登记了 <code>product.type</code> 的目录至少是 v18（工单 01 时的版本），从那里起的迁移都是加法；但原产品若仍在用旧版本程序，之后再打开这个目录会因版本过新被拒。原产品的后台正在运行时不会出现：实例锁在 <code>new Db()</code> 之前取得，后来者先在锁上失败。</p>
+      <p>从 v5 或更早迁移时，<code>sessions_new</code> 的列清单里没有 <code>workspace_project_id</code>：重建排在 <code>ensureColumns</code> 之后，所以迁移完成的那次启动里 <code>sessions</code> 缺这一列，下次以同版本打开时 <code>ensureColumns</code> 才补回（用当前代码对一个改成 v5 的库实测如此）。</p>
+    </aside>
+  </section>
+
+  <section id="workspace">
+    <h2>工作区与旧数据迁移</h2>
+    <h3>工作区和会话怎样归属</h3>
+    <p>工作区就是带根目录归属的 <code>projects</code> 行。目录身份是 realpath 加 dev / ino（<code class="src" data-src="src/core/dir-identity.ts#resolveDirIdentity">dir-identity.ts · resolveDirIdentity</code>），realpath 相同或 dev+ino 相同即视为同一目录（<code class="src" data-src="src/core/dir-identity.ts#sameDirIdentity">sameDirIdentity</code>），符号链接与挂载别名因此不会各成一个工作区。<code class="src" data-src="src/core/store.ts#findProjectByRoot">store.ts · findProjectByRoot</code> 按这两条查找；部分唯一索引只能兜住 realpath，挂载别名只能靠这次查询拦住。</p>
+    <p><code>open_workspace</code>（<code class="src" data-src="src/runtime/runtime.ts#async openWorkspace">runtime.ts · openWorkspace</code>）先在事务外核对目录存在、取得身份、确认不落入保护根，再在一个事务里：同一 <code>createRequestId</code> 重发返回原会话（目录不同报 <code>request_conflict</code>）；指定旧项目时拒绝角色或群聊项目、拒绝会话分布在多个目录的项目（<code class="src" data-src="src/core/dir-identity.ts#legacyProjectClaimableFromDir">legacyProjectClaimableFromDir</code>），没有根目录就认领；否则按身份复用工作区，或以目录名新建（重名加「 (2)」等序号，同名不同目录绝不合并）；最后建会话，<code>project_id</code> 就是这个工作区。</p>
+    <p>会话的两个归属字段含义不同：<code>sessions.project_id</code> 是资料身份与配置来源，历史、产物、记忆、指令、MCP、Jev、授权与凭据都按它定位；<code>sessions.workspace_project_id</code> 只决定组织查询和列表里显示在哪个工作区下（显示归属 = <code>workspace_project_id ?? project_id</code>），AccessScope、模型工具身份与凭据范围都不读它（ADR 0018）。项目指令列表与 Web Search 开关由 <code>settings_version</code> 保护（<code class="src" data-src="src/core/store.ts#updateProjectSettings">store.ts · updateProjectSettings</code>）：带预期版本的保存在同一事务里核对，不符报 <code>version_conflict</code>；省略版本的旧入口同样递增这个版本；同值保存不递增、不发事件。</p>
+
+    <h3>把旧数据迁到工作区</h3>
+    <p>全部推断集中在 <code class="src" data-src="src/runtime/workspace-migration.ts#previewWorkspaceMigration">workspace-migration.ts · previewWorkspaceMigration</code> 与 <code class="src" data-src="src/runtime/workspace-migration.ts#applyWorkspaceMigration">applyWorkspaceMigration</code>，Runtime 只做接线，CLI 经控制面 op <code>preview_workspace_migration</code> / <code>apply_workspace_migration</code> 调用。迁移只改组织字段与根目录归属（必要时新建带根目录的工作区），不改写 JSONL、不移动产物、不重建会话、不复制或合并旧配置。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 400" role="img" aria-label="工作区迁移流程：预览按源项目扫描、零写入，目录组判定为 valid、missing、replaced 或 unverifiable，给出建议计划；拥有者编写计划后带 plan 预览，无错才生成 revision；应用先查 meta 中的迁移回执，同键同参返回原成果，同键异参报 request_conflict；无回执则重扫并核对修订，不符报 revision_conflict；一致则单事务提交，事务内复核目录失败同样报 revision_conflict 并整笔回滚；成功时写回执与事件。">
+          <g class="n"><rect x="16" y="24" width="160" height="56" rx="8"/><text x="96" y="42">migration-preview</text><text class="sub" x="96" y="63">零写入 · 按源项目</text></g>
+          <g class="n"><rect x="240" y="24" width="170" height="56" rx="8"/><text x="325" y="42">目录组判定</text><text class="sub" x="325" y="63">checkRegisteredDir</text></g>
+          <g class="n"><rect x="474" y="24" width="130" height="56" rx="8"/><text x="539" y="42">计划文件</text><text class="sub" x="539" y="63">拥有者选择</text></g>
+          <g class="n"><rect x="668" y="24" width="150" height="56" rx="8"/><text x="743" y="42">preview --plan</text><text class="sub" x="743" y="63">校验选择</text></g>
+          <g class="n"><rect x="882" y="24" width="140" height="56" rx="8"/><text x="952" y="42">revision</text><text class="sub" x="952" y="63">r1.&lt;sha256&gt;</text></g>
+          <path class="e" d="M176 52H238" marker-end="url(#ah)"/>
+          <text class="el" x="207" y="44">扫描</text>
+          <path class="e" d="M410 52H472" marker-end="url(#ah)"/>
+          <text class="el" x="441" y="44">建议</text>
+          <path class="e" d="M604 52H666" marker-end="url(#ah)"/>
+          <text class="el" x="635" y="44">--plan</text>
+          <path class="e" d="M818 52H880" marker-end="url(#ah)"/>
+          <text class="el" x="849" y="44">无错</text>
+
+          <g class="n ok"><rect x="240" y="96" width="170" height="24" rx="6"/><text x="325" y="108">valid</text></g>
+          <g class="n idle"><rect x="240" y="124" width="170" height="24" rx="6"/><text x="325" y="136">missing</text></g>
+          <g class="n bad"><rect x="240" y="152" width="170" height="24" rx="6"/><text x="325" y="164">replaced</text></g>
+          <g class="n unk"><rect x="240" y="180" width="170" height="24" rx="6"/><text x="325" y="192">unverifiable</text></g>
+          <path class="e" d="M325 80V94" marker-end="url(#ah)"/>
+
+          <path class="e accent" d="M952 80V226H96V248" marker-end="url(#ah-accent)"/>
+          <text class="el" x="640" y="220">expected_revision</text>
+
+          <g class="n"><rect x="16" y="250" width="160" height="56" rx="8"/><text x="96" y="268">migration-apply</text><text class="sub" x="96" y="289">带 request_id</text></g>
+          <g class="n"><rect x="240" y="250" width="170" height="56" rx="8"/><text x="325" y="268">查回执</text><text class="sub" x="325" y="289">migration_receipt:*</text></g>
+          <g class="n"><rect x="474" y="250" width="150" height="56" rx="8"/><text x="549" y="268">核对修订</text><text class="sub" x="549" y="289">重扫后重算</text></g>
+          <g class="n"><rect x="688" y="250" width="170" height="56" rx="8"/><text x="773" y="268">单事务提交</text><text class="sub" x="773" y="289">复核目录 · 写映射</text></g>
+          <g class="n ok"><rect x="922" y="250" width="100" height="56" rx="8"/><text x="972" y="268">成功</text><text class="sub" x="972" y="289">回执 + 事件</text></g>
+          <path class="e" d="M176 278H238" marker-end="url(#ah)"/>
+          <path class="e" d="M410 278H472" marker-end="url(#ah)"/>
+          <text class="el" x="441" y="270">无回执</text>
+          <path class="e" d="M624 278H686" marker-end="url(#ah)"/>
+          <text class="el" x="655" y="270">一致</text>
+          <path class="e ok" d="M858 278H920" marker-end="url(#ah-ok)"/>
+          <text class="el" x="889" y="270">提交</text>
+
+          <g class="n ok"><rect x="140" y="346" width="150" height="44" rx="8"/><text x="215" y="360">replayed</text><text class="sub" x="215" y="378">返回原成果</text></g>
+          <g class="n bad"><rect x="310" y="346" width="160" height="44" rx="8"/><text x="390" y="360">request_conflict</text><text class="sub" x="390" y="378">同键异参</text></g>
+          <g class="n bad"><rect x="530" y="346" width="170" height="44" rx="8"/><text x="615" y="360">revision_conflict</text><text class="sub" x="615" y="378">整笔回滚</text></g>
+          <path class="e ok" d="M300 306L240 344" marker-end="url(#ah-ok)"/>
+          <text class="el" x="252" y="324">同参</text>
+          <path class="e bad" d="M350 306L388 344" marker-end="url(#ah-bad)"/>
+          <text class="el" x="388" y="322">异参</text>
+          <path class="e bad" d="M549 306L590 344" marker-end="url(#ah-bad)"/>
+          <text class="el" x="590" y="322">不符</text>
+          <path class="e bad" d="M740 306L660 344" marker-end="url(#ah-bad)"/>
+          <text class="el start" x="748" y="332">事务内复核失败</text>
+        </svg>
+      </div>
+      <figcaption>上一行在后台零写入（CLI 只把修订写回本地计划文件），下一行唯一的库写入发生在「单事务提交」。回执查在修订之前：成功后用同一个 <code>request_id</code> 重发，不会被自己刚做的变更判成「修订过期」，而是直接拿回原成果。目录在提交之后仍可能被替换（SQLite 与文件系统没有跨系统事务），之后的任务开始前会按目录身份重新核对。</figcaption>
+      <ul class="legend">
+        <li><i class="ok"></i>核实通过 / 已提交</li>
+        <li><i class="idle"></i>目录已失效</li>
+        <li><i class="bad"></i>拒绝</li>
+        <li><i class="unk"></i>无法核实</li>
+      </ul>
+    </figure>
+
+    <p>预览只处理「普通 dev 会话」：角色绑定会话、SubAgent 的内部子会话与 QQ 群会话都被明确排除。它先把这些会话的登记目录按 <code class="src" data-src="src/core/dir-identity.ts#distinctDirIdentities">distinctDirIdentities</code> 归并成目录组，再逐组核实（<code class="src" data-src="src/runtime/workspace-migration.ts#function checkRegisteredDir">workspace-migration.ts · checkRegisteredDir</code>）：</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>目录组状态</th><th>判定（对登记的 realpath 重新 realpath + stat）</th><th>后果</th></tr></thead>
+        <tbody>
+          <tr><td><code class="st ok">valid</code></td><td>仍是目录，realpath、dev、ino 都与登记一致</td><td>组内会话可以映射；全部有效且只有一个组时才可能安全认领</td></tr>
+          <tr><td><code class="st idle">missing</code></td><td>realpath 或 stat 报 <code>ENOENT</code> / <code>ENOTDIR</code></td><td>保留原记录；组内会话不能映射，安全认领不成立；目录恢复后重新预览</td></tr>
+          <tr><td><code class="st bad">replaced</code></td><td>该位置已不是目录，或 realpath、dev、ino 任一与登记不同</td><td>同上；同路径的新目录不被当成旧目录</td></tr>
+          <tr><td><code class="st unk">unverifiable</code></td><td>其他错误（如无权限）</td><td>同上，预览里报「无权核实」</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><b>上限</b>：预览核查的会话数默认 500（<code class="src" data-src="src/runtime/workspace-migration.ts#PREVIEW_DEFAULT_LIMIT">PREVIEW_DEFAULT_LIMIT</code>），可调到 5000（<code class="src" data-src="src/runtime/workspace-migration.ts#PREVIEW_MAX_LIMIT">PREVIEW_MAX_LIMIT</code>）。超出即截断并如实报告，截断的预览不能生成修订、不能认领；应用时总按 5000 重扫，仍截断就报 <code>revision_conflict</code>。</li>
+      <li><b>修订</b>：<code>r1.</code> 加规范化 JSON 的 sha256（<code class="src" data-src="src/runtime/workspace-migration.ts#function revisionOf">revisionOf</code>），输入是源项目根目录与 <code>settings_version</code>、核查到的每个会话（类别、是否角色绑定、组织映射、目录身份）、角色绑定、目标根身份和规范化后的计划。无关任务的输出不在输入里，不会让预览过期。</li>
+      <li><b>两种计划</b>：<code>map_sessions</code> 逐会话指定目标（已有工作区的根必须仍有效且包含会话目录；新根要通过目录与保护根校验，同一真实目录已有工作区时必须复用其 ID）；<code>claim_source</code> 让旧项目以原 ID 认领根目录，条件是项目尚无根、会话集合未截断且全是普通 dev、全部目录有效且是同一个真实目录、该目录没被别的工作区占用、没有已映射的会话（<code class="src" data-src="src/runtime/workspace-migration.ts#function computeSafeClaim">computeSafeClaim</code>，事务内再算一次）。</li>
+      <li><b>事务与幂等</b>：应用要求连接的 <code>instance_id</code> 与当前库一致；回执键 <code>migration_receipt:&lt;request_id&gt;</code> 存在核心库 <code>meta</code>，摘要覆盖项目、实例、计划与预期修订。单事务内写项目创建（<code>project.created</code>）、根认领（<code>project.root_attached</code>）、组织映射（<code>session.workspace_mapped</code>）与回执，任一失败整体回滚。</li>
+      <li><b>回退</b>：<code>action: revert</code> 指向一次成功的 <code>map_sessions</code> 回执，逐个核对会话当前的 <code>workspace_project_id</code> 仍等于当时写入的值（否则 <code>revision_conflict</code>），再在一个事务里恢复原值并写新回执（<code class="src" data-src="src/runtime/workspace-migration.ts#function applyRevert">applyRevert</code>）。<code>claim_source</code> 不可回退，回退不能再回退；新建的工作区、已认领的根与迁移后产生的执行事实都保留。</li>
+    </ul>
   </section>
 
   <section id="app-data">
-    <h2>应用数据空间：独立库、独立身份</h2>
-    <p>main 的个人结构化数据放在 <code>&lt;dataDir&gt;/agent-data/main.db</code>，与核心库分离（<code class="src" data-src="src/agent/app-data/store.ts#class AppDataStore">app-data/store.ts · AppDataStore</code>）。库内三张表：<code>app_meta</code> 存库自身身份（实例绑定登记回核心库 meta，换库会被发现）、<code>app_tables</code> 存 main 声明的表定义与版本、<code>app_audit</code> 存每次变更的审计回执（按宿主操作 id 幂等核实）。能力不可用时保持停止并记事件，不自动重建库。</p>
+    <h2>应用数据库 main.db</h2>
+    <p>main 的个人结构化数据放在 <code>&lt;dataDir&gt;/agent-data/main.db</code>，与核心库分开（<code class="src" data-src="src/agent/app-data/store.ts#class AppDataStore">app-data/store.ts · AppDataStore</code>，ADR 0009）。读写连接同样以 WAL、<code>synchronous = FULL</code>、外键打开；有界查询在子进程里以只读方式打开同一文件。库内三张宿主表：<code>app_meta</code> 存存储格式版本、schema 版本、revision 与库实例 ID；<code>app_tables</code> 是 main 声明的业务表目录（字段、索引、创建与更新时的 revision）；<code>app_audit</code> 是每次变更的审计回执，<code>op_id</code> 唯一，取值就是核心库 <code>tool_ops</code> 的宿主操作 ID。业务表由宿主按已校验的目录创建，SQL 标识符只来自目录。</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>版本</th><th>存在哪</th><th>谁推进、何时停</th></tr></thead>
+        <tbody>
+          <tr><td>存储格式（当前 1，<code class="src" data-src="src/agent/app-data/store.ts#APP_DATA_STORAGE_VERSION">APP_DATA_STORAGE_VERSION</code>）</td><td><code>app_meta.storage_version</code></td><td>宿主维护；文件里的版本比程序高就 <code>storage_version_too_new</code> 停止，既有库缺表或缺版本行即 <code>storage_corrupt</code>，都不重建</td></tr>
+          <tr><td>schema 版本</td><td><code>app_meta.schema_version</code></td><td>main 经 define_table / migrate 推进，请求带预期版本，不符报 <code>schema_version_conflict</code></td></tr>
+          <tr><td>revision</td><td><code>app_meta.revision</code></td><td>每个有实际变更的写事务加 1（不按步骤加）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>启动时 <code class="src" data-src="src/runtime/runtime.ts#private initAppData">runtime.ts · initAppData</code> 在 <code>recover</code> 之前核对实例绑定，因为恢复要靠应用库回执判断未落结果的写操作：</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>启动时情况</th><th>处理</th></tr></thead>
+        <tbody>
+          <tr><td>核心库 <code>meta</code> 没有 <code>app_data.main_instance_id</code></td><td>打开或新建 main.db，取得（或首次分配）<code>appdb_&lt;uuid&gt;</code>，在核心库事务里登记。建库成功、登记前崩溃时，下次启动重新走这条路，不覆盖任何已有绑定。</td></tr>
+          <tr><td>已登记，但文件不存在</td><td>能力停止，不建空库：空库会被误当作「旧操作都没提交」的证据。</td></tr>
+          <tr><td>已登记，实例 ID 不符</td><td>能力停止，不覆盖绑定。</td></tr>
+          <tr><td>打开失败（损坏、格式过新、初始化失败）</td><td>能力停止。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>每种停止都尽力记一条 <code>app_data.unavailable</code> 事件（<code class="src" data-src="src/runtime/runtime.ts#markAppDataUnavailable">markAppDataUnavailable</code>），事件写不进去也不阻断启动。两个库没有共同事务，也不用 <code>ATTACH</code> 拼接；跨库的一致性靠回执：</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:3">
+          <div class="who"><span>宿主（Driver · 工具）</span><span>ruukoto.db</span><span>main.db</span></div>
+          <div class="m" style="--from:1;--to:2"><span>tool_ops 记执行意图（宿主操作 ID）</span></div>
+          <div class="m ok" style="--from:1;--to:3"><span>单事务：业务变更 + 版本 + app_audit 回执</span></div>
+          <div class="note unk" style="--from:1;--to:3">崩溃窗口：main.db 已提交，tool_ops 还没有结果</div>
+          <div class="m" style="--from:1;--to:2"><span>记录结果</span></div>
+          <div class="phase"><span>重启：recover 补记结果缺失的操作</span></div>
+          <div class="m" style="--from:2;--to:3"><span>getReceipt(宿主操作 ID)</span></div>
+          <div class="m l ok" style="--from:3;--to:2"><span>有回执 → 补记已提交</span></div>
+          <div class="m l" style="--from:3;--to:2"><span>无回执 → 已知未提交</span></div>
+          <div class="note unk" style="--from:2;--to:3">应用库不可用或读取出错 → 标为 effect_unknown，不重放</div>
+        </div>
+      </div>
+      <figcaption>审计回执与业务变更在 main.db 同一事务里提交，所以「有没有回执」就等于「这次写入生效了没有」（<code class="src" data-src="src/runtime/runtime.ts#appDataWriteVerdict">runtime.ts · appDataWriteVerdict</code>）。同一宿主操作 ID 重复执行时先查回执：同参返回原结果，异参冲突。</figcaption>
+    </figure>
   </section>
 
-  <section id="locks">
-    <h2>锁、令牌与归属</h2>
+  <section id="tx">
+    <h2>事务纪律、锁与令牌</h2>
+    <p>核心库的状态写入经 <code class="src" data-src="src/core/store.ts#withTx">store.ts · withTx</code>（少数写入在事务外自动提交：<code>history_index</code> 同步、<code>product.type</code> 补记、GitHub 退役完成标记）：底层 <code class="src" data-src="src/core/db.ts#tx&lt;T&gt;">db.ts · tx</code> 以 <code>BEGIN IMMEDIATE</code> 开事务，函数体抛错即 <code>ROLLBACK</code>。<code>appendEvent</code> 在事务里插入 <code>events</code> 行并把事件暂存；提交成功后才交给 <code>onCommitted</code> 广播给客户端与宿主内监听者，回滚则丢弃。所以状态、占用与对应事件要么一起出现，要么都不出现，客户端看不到未提交的变化。</p>
+    <ul>
+      <li><b>事务不能嵌套</b>：事务里再 <code>BEGIN</code> 会被 SQLite 拒绝。窄存储层（<code>SchedulerStore</code>、<code>mapSessionToWorkspace</code>、<code>updateProjectSettings</code> 等）的写方法因此约定在调用方的 <code>withTx</code> 里执行，自己不开事务。</li>
+      <li><b>条件更新做并发仲裁</b>：任务转换 <code>WHERE status IN (…)</code>（<code class="src" data-src="src/core/store.ts#transitionTask">transitionTask</code>），长期授权撤销 <code>WHERE version = ? AND revoked_at IS NULL</code>，根目录认领 <code>WHERE root_real IS NULL</code>，调度与发送状态同样按当前状态更新。竞争的两条路径只有先提交的生效，后到的看到 0 行就退出。</li>
+      <li><b>同步驱动</b>：node:sqlite 是同步 API，事务函数体里没有 <code>await</code>，同一进程内不会有别的逻辑插进一个事务中间；实例锁保证同一数据目录只有一个进程在写。</li>
+    </ul>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>机制</th><th>位置</th><th>保证什么</th></tr></thead>
         <tbody>
-          <tr><td>实例锁（<code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">instance-lock.ts · acquireInstanceLock</code>）</td><td><code>&lt;dataDir&gt;/runtime.lock</code></td><td>同一数据目录只有一个在线后台；呆锁按持有者存活与进程命令名识别后接管</td></tr>
-          <tr><td>配置锁</td><td><code>&lt;agentDir&gt;/config.lock</code></td><td>在线后台与离线配置中心互斥；socket 不可达不能证明后台已停，必须走锁</td></tr>
-          <tr><td>拥有者令牌</td><td><code>&lt;controlDir&gt;/owner.token</code>（0600）</td><td>控制面认证；部署时以 0400 复制给拥有者，或用环境变量指向拷贝</td></tr>
-          <tr><td>产品归属</td><td>核心库 <code>meta</code> 的 <code>product.type</code></td><td>首次启动登记；另一产品再开同一数据目录直接拒绝（issue 01，旧库无此键照常打开并补记）</td></tr>
-          <tr><td>迁移回执</td><td>核心库 <code>meta</code> 的 <code>migration_receipt:*</code></td><td>组织迁移（apply_workspace_migration）按请求键登记成功成果与原映射；同键重放返回原成果、异参 request_conflict；回退按回执校验当前值，认领的根目录身份不回滚</td></tr>
-          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v24</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
+          <tr><td>实例锁（<code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">instance-lock.ts · acquireInstanceLock</code>）</td><td><code>&lt;dataDir&gt;/runtime.lock/</code></td><td>同一数据目录只有一个后台。<code>mkdir</code> 原子创建，<code>owner.json</code> 记 pid、命令行与启动时间。已有锁时：进程已退出、pid 被无关进程复用或 <code>owner.json</code> 缺失损坏 → 接管；进程存活且命令行像后台 → 拒绝；无法核实进程身份 → 保留锁、要求人工处理。确认的锁竞争以退出码 42 结束（<code class="src" data-src="src/core/instance-lock.ts#INSTANCE_LOCK_EXIT_CODE">INSTANCE_LOCK_EXIT_CODE</code>），按需拉起据此判断是败给了别的终端拉起的后台。</td></tr>
+          <tr><td>配置锁（<code class="src" data-src="src/core/instance-lock.ts#acquireConfigLock">acquireConfigLock</code>）</td><td><code>&lt;agentDir&gt;/config.lock/</code></td><td>同一 agentDir 只允许一个在线后台或离线配置写入方，覆盖两个数据目录共用一个 agentDir 的情况；socket 连不上不能证明后台已停，必须走锁。</td></tr>
+          <tr><td>拥有者令牌</td><td><code>&lt;controlDir&gt;/owner.token</code></td><td>控制面认证，常数时间比较。多用户部署时由配置步骤以 0400 复制给拥有者，或用 <code>RUUKOTO_OWNER_TOKEN_FILE</code> 指向拷贝（见 <a href="deployment.html">部署与信任边界</a>）。</td></tr>
+          <tr><td>产品归属</td><td><code>meta</code> 的 <code>product.type</code></td><td>另一产品打开同一数据目录被拒绝（<code>product_mismatch</code>）。</td></tr>
+          <tr><td>迁移回执</td><td><code>meta</code> 的 <code>migration_receipt:&lt;request_id&gt;</code></td><td>迁移应用同键重放返回原成果、异参 <code>request_conflict</code>；回退按回执核对当前值。</td></tr>
+          <tr><td>schema 版本</td><td><code>meta</code> 的 <code>schema_version</code></td><td>比程序新的库拒绝打开；迁移失败整笔回滚。</td></tr>
         </tbody>
       </table>
     </div>
+    <p>后台停止时先关控制面服务（断开连接、删 socket），再关应用库，记 <code>backend.stopped</code> 后关核心库（关闭前做 <code>PRAGMA wal_checkpoint(TRUNCATE)</code>，<code class="src" data-src="src/core/db.ts#close(): void">db.ts · close</code>），然后释放实例锁与配置锁，最后再删一次 socket。</p>
     <aside class="callout limit">
       <b>已知限制</b>
-      <p>锁按 pid 与进程命令名判断存活，命令名被刻意伪装时可能误判；数据目录归属只防误用，不代替备份 —— 备份与迁移仍是拥有者的显式操作。</p>
+      <p>锁的存活判断很宽：命令行里含 <code>ruukoto</code>、<code>cli.ts</code> 或 <code>dev.ts</code> 就当作后台，<code>EPERM</code> 也按存活处理，宁可误拒也不误接管；pid 恰好被这类进程复用时需要人工删锁。<code>pending/</code> 与 <code>tui/</code> 不在保护根内，记录里没有令牌，但有待核实提交的输入正文。数据目录归属只防误用，不代替备份：代码里没有备份或跨实例搬迁数据目录的功能。</p>
     </aside>
   </section>
 

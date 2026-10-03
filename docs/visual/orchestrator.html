@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>orchestrator.html</span></nav>
     <p class="eyebrow">编排</p>
     <h1>编排器</h1>
-    <p class="lede">编排器是后台内的宿主组件：引导 main、coding、chat 三个逻辑角色，把 main 的委派变成 coding 子任务，子任务结束后记录结果、发出 child_task.* 事件并唤醒父任务会话；通用 SubAgent 执行任务（agent-direction issue 11，ADR 0020）的终态同样经这里登记：结果与 SubAgent 空闲状态同一事务，发出 subagent_task.* 事件。超时、重启和 PR 事件都沿用宿主写定的请求键，不换键、不重放。</p>
+    <p class="lede">编排器是后台内的宿主组件：派发入站事件，在委派出去的任务到达终态时记录结果、发出事件并回报父会话。现行代码里两套委派并存：旧架构的 main、coding、chat 三个固定逻辑角色（main 把修改草稿委派给共享的 coding 会话，结果发 child_task.*），以及新方向的通用 SubAgent（主 Agent 登记工作委托，由独立的只读 SubAgent 执行，结果与 SubAgent 的状态变更（idle 或 unverified）同一事务登记，发 subagent_task.*）。超时、重启和 PR 事件都沿用宿主写定的请求键，不换键、不重放。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/runtime/orchestrator.ts#export class Orchestrator">runtime/orchestrator.ts</code>
@@ -36,10 +36,14 @@
         <code class="src" data-src="src/qq/adapter.ts#private async ensureGroupSession">qq/adapter.ts</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/core/types.ts#export type AgentRoleId">core/types.ts</code>
-        <code class="src" data-src="src/runtime/subagents.ts#class SubAgentManager">runtime/subagents.ts</code>
+        <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">runtime/subagents.ts</code>
         <code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentTools">agent/subagent-tools.ts</code>
+        <code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">agent/driver.ts</code>
+        <code class="src" data-src="src/agent/context-assembly.ts#[SubAgent 结果]">agent/context-assembly.ts</code>
+        <code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS sub_agents">core/db.ts</code>
       </dd></div>
       <div><dt>决策</dt><dd>
+        <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
         <a href="../adr/0012-qq-private-shared-main.md">ADR 0012 QQ 私聊共享 main</a>
         <a href="../adr/0013-github-event-review.md">ADR 0013 GitHub PR 评审</a>
         <a href="../adr/0014-qq-group-chat-results.md">ADR 0014 群聊结果</a>
@@ -50,13 +54,19 @@
         <a href="inbound-events.html">入站事件</a>
         <a href="outbox.html">通知 outbox</a>
         <a href="tool-call-path.html">工具调用路径</a>
+        <a href="context-pipeline.html">上下文组装</a>
+        <a href="control-protocol.html">控制面协议</a>
         <a href="once-only.html">只执行一次</a>
       </dd></div>
     </dl>
   </header>
 
   <section id="roles">
-    <h2>逻辑角色与引导</h2>
+    <h2>逻辑角色与引导（旧架构）</h2>
+    <aside class="callout limit">
+      <b>旧架构的现行实现</b>
+      <p>本节与下文「窄接口」「main 委派 coding」「子任务结果与异常路径」「GitHub PR 评审编排」「群聊结果」描述的固定角色机制仍在运行，但属于旧架构：新方向取消固定 coding 与 chat，由主 Agent 派发通用 SubAgent（ADR 0017、ADR 0020）。GitHub 评审迁到 SubAgent、核心退出群聊、迁移旧实例与清理固定角色分别是 agent-direction 工单 19、20、21–22、23，都还没有实施。新机制见<a href="#subagent">工作委托与 SubAgent</a>。</p>
+    </aside>
     <p>逻辑角色只有三个（<code class="src" data-src="src/core/types.ts#export type AgentRoleId">types.ts · AgentRoleId</code>）。后台启动时，<code class="src" data-src="src/runtime/orchestrator.ts#private async ensureRoles">orchestrator.ts · ensureRoles</code> 按 <code class="src" data-src="src/runtime/orchestrator.ts#ROLE_DEFINITIONS">ROLE_DEFINITIONS</code> 逐个检查：<code>agent_roles</code> 已有该角色的行就跳过；没有就找到或创建项目 <code>agent-&lt;角色&gt;</code>，建工作目录 <code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;</code>（权限 0700，放在数据目录之外以避开保护根），经桥接创建会话，再写一行角色配置（<code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>）。</p>
 
     <div class="scroll">
@@ -75,7 +85,7 @@
             <td><code>agent-coding</code>，一个持久会话</td>
             <td><code>coding</code> <code>host_data</code> <code>web_search</code> <code>mcp</code> <code>skills</code></td>
             <td><code>agent</code>：同 main，也不能读原始 QQ 群项目</td>
-            <td>main 委派（含自动重试）；GitHub 评审子任务</td>
+            <td>main 的 <code>draft</code> 委派；GitHub 评审子任务。<code>analyze</code> 委派已改由 SubAgent 执行（见下文）</td>
           </tr>
           <tr>
             <td><code>chat</code></td>
@@ -97,7 +107,7 @@
 
     <p>chat 共用一份角色工具策略，群与群之间的资料却是隔离的：QQ 适配器在某群首次触发时建项目 <code>qq-&lt;账号&gt;-&lt;群&gt;</code>、专用空目录 <code>&lt;dataDir&gt;/../qq-work/&lt;账号&gt;_&lt;群&gt;</code> 与 <code>qq_group</code> 会话，并登记到 <code>qq_sessions</code>，主键为（账号，群）（<code class="src" data-src="src/qq/adapter.ts#private async ensureGroupSession">qq/adapter.ts · ensureGroupSession</code>）。按会话反查角色时，<code class="src" data-src="src/core/store.ts#getAgentRoleBySession">store.ts · getAgentRoleBySession</code> 把这些群会话合成为 chat 角色，项目、会话与工作目录取群绑定，工具取 chat 行。</p>
 
-    <p>通用 SubAgent（agent-direction issue 11，ADR 0020）不进这张角色表、也不进 <code>agent_roles</code>：<code>AgentRoleId</code> 与 <code>tasks.agent_id</code> 保持 main / coding / chat 的固定角色语义，动态身份由宿主经 <code>sub_agents</code> 表按会话绑定识别（<code class="src" data-src="src/core/store.ts#getSubAgentBySession">store.ts · getSubAgentBySession</code>），子会话工具类别清单为空、只读工具由驱动单独装配，不落入无角色的默认 dev 类别。身份在执行任务完成后保留（状态 <code>running</code> / <code>idle</code> / <code>unverified</code>，空闲零模型与 worker 进程），登记与委派边界见<a href="tool-call-path.html">工具调用路径</a>。</p>
+    <p>通用 SubAgent 不进这张角色表，也不进 <code>agent_roles</code>：<code>AgentRoleId</code> 与 <code>tasks.agent_id</code> 保持三个固定角色的语义（列上有 CHECK 约束），动态身份记在 <code>sub_agents</code> 表，宿主按会话反查识别（<code class="src" data-src="src/core/store.ts#getSubAgentBySession">store.ts · getSubAgentBySession</code>）。驱动器先查这张表：命中的会话归 <code>subagent</code> 工具类别（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>），不会因为没有角色绑定落进默认的 dev 类别。见<a href="#subagent">工作委托与 SubAgent</a>。</p>
 
     <aside class="callout inv">
       <b>角色配置只由编排器写</b>
@@ -107,23 +117,26 @@
 
   <section id="bridge">
     <h2>窄接口</h2>
-    <p>编排器只经 <code class="src" data-src="src/runtime/orchestrator.ts#export interface OrchestratorBridge">orchestrator.ts · OrchestratorBridge</code> 调用 Runtime，接口由 Runtime 在启动时注入。它不持有拥有者 token，也不是模型工具：模型能间接触发的编排器入口只有 <code>coding_delegate</code> 背后的 <code>delegateCoding</code>；<code>coding_result</code> 与群聊结果工具直接读 Store，不经编排器。窄接口只约束它能调用的 Runtime 方法：它自己的持久记录（结果、入站事件、角色行、子任务事件、群收件状态）直接写 Store 与 QqStore。</p>
+    <p>编排器只经 <code class="src" data-src="src/runtime/orchestrator.ts#export interface OrchestratorBridge">orchestrator.ts · OrchestratorBridge</code> 调用 Runtime，接口由 Runtime 在启动时注入。它不持有拥有者 token，也不是模型工具：模型工具直接调用的编排器方法只有 <code>coding_delegate</code>（<code>mode=draft</code>）背后的 <code>delegateCoding</code>；调度工具只经调度器间接用到编排器的派发与串行链（<code class="src" data-src="src/scheduler/runtime.ts#cancelSchedule(input">scheduler/runtime.ts · cancelSchedule</code>）。<code>subagent_delegate</code> 与 <code>coding_delegate</code>（<code>mode=analyze</code>）进的是另一个宿主组件 <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">SubAgentManager</code>，它自己登记任务，不经编排器，也不经 Runtime 的提交入口；编排器只在这些执行任务到达终态时登记结果。<code>coding_result</code>、<code>subagent_result</code> 与群聊结果工具直接读 Store。窄接口只约束编排器能调用的 Runtime 方法：它自己的持久记录（结果、入站事件、角色行、子任务事件、SubAgent 状态、群收件状态）直接写 Store 与 QqStore。旧架构的部分是角色任务的提交与唤醒；入站派发与结果登记在新方向里继续使用。</p>
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 400" role="img" aria-label="编排器组件关系：拥有者客户端经控制面进入 Runtime；main 任务经 coding_delegate 调用编排器的 delegateCoding；宿主适配器向编排器登记入站事件或请求派发；编排器只经 OrchestratorBridge 调用 Runtime 的 submitInternal 与少数其他方法，审批、改访问模式与资料授权不在接口内；Runtime 把终态事件回送编排器；编排器直接读写 Store 中的结果、入站事件与角色行。">
+        <svg viewBox="0 0 1040 468" role="img" aria-label="编排器组件关系：拥有者客户端经控制面进入 Runtime；main 任务的 draft 委派调用编排器的 delegateCoding；主 Agent 任务的 subagent_delegate 与 analyze 委派进入 SubAgentManager，它在同一事务里直接写 Store，再经注入的闭包做预检与 kick，不经编排器；宿主适配器向编排器登记入站事件或请求派发；编排器只经 OrchestratorBridge 调用 Runtime 的 submitInternal 与少数其他方法，审批、改访问模式与资料授权不在接口内；Runtime 把终态事件回送编排器；编排器直接读写 Store。">
           <g class="n"><rect x="20" y="20" width="190" height="52" rx="8"/><text x="115" y="38">拥有者客户端</text><text class="sub" x="115" y="57">持有 owner token</text></g>
-          <g class="n"><rect x="20" y="200" width="190" height="52" rx="8"/><text x="115" y="218">main 任务</text><text class="sub" x="115" y="237">coding_delegate 工具</text></g>
+          <g class="n"><rect x="20" y="200" width="190" height="52" rx="8"/><text x="115" y="218">main 任务</text><text class="sub" x="115" y="237">coding_delegate · draft</text></g>
+          <g class="n"><rect x="20" y="330" width="190" height="52" rx="8"/><text x="115" y="348">主 Agent 任务</text><text class="sub" x="115" y="367">subagent_delegate · analyze</text></g>
           <g class="n"><rect x="320" y="100" width="160" height="52" rx="8"/><text x="400" y="118">宿主适配器</text><text class="sub" x="400" y="137">入站与调度</text></g>
           <g class="n accent"><rect x="320" y="190" width="200" height="72" rx="8"/><text x="420" y="214">Orchestrator</text><text class="sub" x="420" y="238">编排器 · 宿主组件</text></g>
+          <g class="n"><rect x="320" y="330" width="200" height="52" rx="8"/><text x="420" y="348">SubAgentManager</text><text class="sub" x="420" y="367">委派登记 · 宿主组件</text></g>
           <g class="n"><rect x="580" y="200" width="170" height="52" rx="8"/><text x="665" y="218">OrchestratorBridge</text><text class="sub" x="665" y="237">窄接口</text></g>
-          <g class="n"><rect x="320" y="318" width="200" height="52" rx="8"/><text x="420" y="336">Store · QqStore</text><text class="sub" x="420" y="355">结果 · 入站 · 角色行</text></g>
+          <g class="n"><rect x="570" y="382" width="170" height="56" rx="8"/><text x="655" y="401">Store · QqStore</text><text class="sub" x="655" y="421">结果 · 任务 · 身份</text></g>
 
-          <rect class="zone-r" x="790" y="100" width="234" height="280" rx="12"/>
+          <rect class="zone-r" x="790" y="100" width="234" height="290" rx="12"/>
           <text class="zone-t" x="806" y="122">Runtime</text>
-          <g class="n accent"><rect x="810" y="140" width="194" height="52" rx="8"/><text x="907" y="158">submitInternal</text><text class="sub" x="907" y="177">带编排字段提交</text></g>
-          <g class="n"><rect x="810" y="210" width="194" height="52" rx="8"/><text x="907" y="228">其余桥接方法</text><text class="sub" x="907" y="247">取消 · 建会话 · 读回答</text></g>
-          <g class="n bad"><rect x="810" y="310" width="194" height="52" rx="8"/><text x="907" y="328">拥有者专属</text><text class="sub" x="907" y="347">审批 · 改模式 · 资料授权</text></g>
+          <g class="n accent"><rect x="810" y="134" width="194" height="50" rx="8"/><text x="907" y="151">submitInternal</text><text class="sub" x="907" y="170">带编排字段提交</text></g>
+          <g class="n"><rect x="810" y="196" width="194" height="50" rx="8"/><text x="907" y="213">其余桥接方法</text><text class="sub" x="907" y="232">取消 · 建会话 · 读回答</text></g>
+          <g class="n bad"><rect x="810" y="258" width="194" height="50" rx="8"/><text x="907" y="275">拥有者专属</text><text class="sub" x="907" y="294">审批 · 改模式 · 资料授权</text></g>
+          <g class="n"><rect x="810" y="322" width="194" height="50" rx="8"/><text x="907" y="339">kick · 预检</text><text class="sub" x="907" y="358">模型门闩 · 执行入口</text></g>
 
           <path class="e" d="M210 46H907V98" marker-end="url(#ah)"/>
           <text class="el" x="560" y="38">控制面 op · owner token</text>
@@ -135,25 +148,33 @@
 
           <path class="e accent" d="M520 226H578" marker-end="url(#ah-accent)"/>
           <text class="el" x="549" y="216">只经桥接</text>
-          <path class="e accent" d="M750 216C780 216 780 166 808 166" marker-end="url(#ah-accent)"/>
-          <text class="el" x="772" y="156">提交</text>
-          <path class="e" d="M750 236H808" marker-end="url(#ah)"/>
-          <text class="el" x="772" y="254">其余</text>
+          <path class="e accent" d="M750 210C780 210 780 159 808 159" marker-end="url(#ah-accent)"/>
+          <text class="el" x="768" y="150">提交</text>
+          <path class="e" d="M750 230H808" marker-end="url(#ah)"/>
+          <text class="el" x="779" y="246">其余</text>
 
-          <path class="e bad dash" d="M665 252V336H772"/>
-          <path class="e bad" d="M778 322V350" style="stroke-width:3"/>
-          <text class="el" x="718" y="328">不在接口内</text>
+          <path class="e bad dash" d="M700 252V283H772"/>
+          <path class="e bad thick" d="M778 269V297"/>
+          <text class="el" x="736" y="276">不在接口内</text>
 
-          <path class="e dash" d="M790 130H500V188" marker-end="url(#ah)"/>
-          <text class="el" x="650" y="122">终态事件</text>
+          <path class="e dash" d="M790 116H500V188" marker-end="url(#ah)"/>
+          <text class="el" x="650" y="108">终态事件</text>
 
-          <path class="e" d="M420 262V316" marker-end="url(#ah)"/>
-          <text class="el start" x="428" y="292">直接读写</text>
+          <path class="e" d="M490 262L598 380" marker-end="url(#ah)"/>
+          <text class="el start" x="542" y="306">直接读写</text>
+
+          <path class="e" d="M210 356H318" marker-end="url(#ah)"/>
+          <text class="el" x="264" y="346">登记委派</text>
+          <path class="e ok" d="M520 370C545 370 545 410 568 410" marker-end="url(#ah-ok)"/>
+          <text class="el" x="462" y="404">同一事务登记</text>
+          <path class="e" d="M360 382V452H907V374" marker-end="url(#ah)"/>
+          <text class="el" x="790" y="446">预检 · 提交后 kick</text>
         </svg>
       </div>
-      <figcaption>宿主适配器指 Telegram、QQ、调度器与 GitHub webhook 的入口：Telegram 与 QQ 经编排器登记入站事件；调度器与 GitHub 在自己的事务里把入站事件写进 Store，再请编排器派发。编排器能调用的 Runtime 能力就是桥接接口里的那几个方法，拥有者专属的审批、访问模式切换与资料授权都不在其中。编排字段（agent_id、parent_task_id、source_event_id、deadline）只有编排器写：经 submitInternal 提交，或在群任务派发时直接回填 agent_id 与 source_event_id；控制面的 submit 不接收它们。</figcaption>
+      <figcaption>宿主适配器指 Telegram、QQ、调度器与 GitHub webhook 的入口：Telegram 与 QQ 经编排器登记入站事件；调度器与 GitHub 在自己的事务里把入站事件写进 Store，再请编排器派发。编排器能调用的 Runtime 能力就是桥接接口里的那几个方法，拥有者专属的审批、访问模式切换与资料授权都不在其中。SubAgentManager 除了直接持有 Store 与资料解析器，拿到的也是 Runtime 注入的几个闭包（模型门闩、受限执行入口、默认模型、保护根、执行身份、kick），同样没有审批与改模式的能力。编排字段只由宿主写：编排器经 submitInternal 写 agent_id、parent_task_id、source_event_id、deadline，或在群任务派发时直接回填 agent_id 与 source_event_id；SubAgentManager 在登记事务里直接插入排队任务，另写 work_id、sub_agent_id 与 read_scope。控制面的 submit 不接收这些字段。</figcaption>
       <ul class="legend">
         <li><i class="bad"></i>编排器不可达</li>
+        <li><i class="ok"></i>同一事务</li>
       </ul>
     </figure>
 
@@ -173,25 +194,322 @@
 
     <aside class="callout inv">
       <b>编排字段只来自宿主</b>
-      <p>控制面 <code class="src" data-src="src/control/server.ts#case &quot;submit&quot;:">server.ts · submit</code> 只把 session_id、request_id、model_selection、input、access_mode、granted_paths 交给 Runtime，拥有者也不能借控制面伪造子任务。编排器提交的任务一律使用 <code>confirm</code>（请求确认模式），不继承目标会话的默认模式，也就不会继承 main 会话的完全访问模式；桥接里没有审批、切换访问模式（<code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">switchTaskMode</code>、<code class="src" data-src="src/runtime/runtime.ts#async setSessionDefaultMode">setSessionDefaultMode</code>）或建资料授权（<code class="src" data-src="src/runtime/runtime.ts#createDataGrant">createDataGrant</code>）的方法。</p>
+      <p>控制面 <code class="src" data-src="src/control/server.ts#case &quot;submit&quot;:">server.ts · submit</code> 只把 session_id、request_id、model_selection、input、access_mode、granted_paths 交给 Runtime，拥有者也不能借控制面伪造子任务。编排器提交的任务一律使用 <code>confirm</code>（请求确认模式），不继承目标会话的默认模式，也就不会继承 main 会话的完全访问模式；桥接里没有审批、切换访问模式（<code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">switchTaskMode</code>、<code class="src" data-src="src/runtime/runtime.ts#async setSessionDefaultMode">setSessionDefaultMode</code>）或建资料授权（<code class="src" data-src="src/runtime/runtime.ts#createDataGrant">createDataGrant</code>）的方法。SubAgent 执行任务同样固定 <code>confirm</code>，Runtime 另外拒绝三件事：向 SubAgent 子会话提交（<code class="src" data-src="src/runtime/runtime.ts#该会话是 SubAgent 的独立工作会话">runtime.ts · submit</code>）、切换 SubAgent 任务的模式（<code class="src" data-src="src/runtime/runtime.ts#SubAgent 执行任务的权限模式由宿主固定为请求确认">switchTaskMode</code>）、改子会话的默认模式（<code class="src" data-src="src/runtime/runtime.ts#SubAgent 的独立工作会话不允许修改默认模式">setSessionDefaultMode</code>）。</p>
+    </aside>
+  </section>
+
+  <section id="subagent">
+    <h2>工作委托与 SubAgent</h2>
+    <p>新方向的委派入口是 <code>subagent_delegate</code>：主 Agent（拥有者的普通开发会话或 main）为一项工作登记工作委托，宿主为它创建一个动态 SubAgent，再派出一次只读执行任务（ADR 0020）。登记由 <code class="src" data-src="src/runtime/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · SubAgentManager.delegate</code> 集中完成；执行沿用普通的会话队列与驱动器；终态由编排器登记（见<a href="#subagent-state">下一节</a>）。main 的 <code>coding_delegate</code> 在 <code>mode=analyze</code> 时也转进这条链路（<code class="src" data-src="src/runtime/runtime.ts#analyzeDelegate: this.subagents">runtime.ts · analyzeDelegate</code>），硬只读、不自动重试。</p>
+
+    <h3>三层记录</h3>
+    <p>一项工作、承接它的 Agent、每一次执行，分三处记录。核心库 schema v24（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>）新增 <code>sub_agents</code> 与 <code>work_delegations</code> 两张表（<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS work_delegations">db.ts · work_delegations</code>），并给 <code>tasks</code> 补四个可空列；旧任务的这四列都是空的。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 330" role="img" aria-label="三层记录：work_delegations 与 sub_agents 都归属父用户会话；work_delegations 经 sub_agent_id 指向承接它的 SubAgent；tasks 的每一行经 work_id 指向工作、经 sub_agent_id 指向身份；sub_agents 经 session_id 指向自己的子会话。">
+          <g class="n"><rect x="20" y="110" width="190" height="110" rx="8"/><text x="115" y="134">父用户会话</text><text class="sub" x="115" y="158">普通开发会话或 main</text><text class="sub" x="115" y="178">父任务由拥有者发起</text><text class="sub" x="115" y="198">sessions.kind = dev</text></g>
+          <g class="n"><rect x="300" y="20" width="300" height="118" rx="8"/><text x="450" y="42">work_delegations</text><text class="sub" x="450" y="66">工作：一项委托，可跨多轮对话</text><text class="sub" x="450" y="86">parent_session_id · origin_task_id</text><text class="sub" x="450" y="106">request_key · params_digest</text><text class="sub" x="450" y="126">sub_agent_id</text></g>
+          <g class="n"><rect x="300" y="186" width="300" height="126" rx="8"/><text x="450" y="208">sub_agents</text><text class="sub" x="450" y="232">身份：执行结束后保留</text><text class="sub" x="450" y="252">parent_session_id · session_id</text><text class="sub" x="450" y="272">work_dir · state</text><text class="sub" x="450" y="292">active_work_id · current_task_id</text></g>
+          <g class="n"><rect x="720" y="20" width="300" height="178" rx="8"/><text x="870" y="42">tasks</text><text class="sub" x="870" y="66">执行：每次委派一行</text><text class="sub" x="870" y="86">work_id · sub_agent_id</text><text class="sub" x="870" y="106">parent_task_id（直接父任务）</text><text class="sub" x="870" y="126">request_id = sdelegate:…</text><text class="sub" x="870" y="146">read_scope · deadline</text><text class="sub" x="870" y="166">result_summary · result_ref</text><text class="sub" x="870" y="186">result_delivered_at</text></g>
+          <g class="n"><rect x="720" y="246" width="300" height="66" rx="8"/><text x="870" y="268">子会话</text><text class="sub" x="870" y="290">独立 JSONL · cwd = work_dir</text></g>
+
+          <path class="e" d="M300 70C255 70 255 140 212 140" marker-end="url(#ah)"/>
+          <text class="el" x="250" y="92">归属</text>
+          <path class="e" d="M300 250C255 250 255 196 212 196" marker-end="url(#ah)"/>
+          <text class="el" x="250" y="240">归属</text>
+          <path class="e" d="M450 138V184" marker-end="url(#ah)"/>
+          <text class="el start" x="458" y="166">承接者</text>
+          <path class="e" d="M720 60H602" marker-end="url(#ah)"/>
+          <text class="el" x="661" y="52">work_id</text>
+          <path class="e" d="M720 180C660 180 660 230 602 230" marker-end="url(#ah)"/>
+          <text class="el start" x="690" y="226">sub_agent_id</text>
+          <path class="e" d="M600 290H718" marker-end="url(#ah)"/>
+          <text class="el" x="660" y="282">session_id</text>
+        </svg>
+      </div>
+      <figcaption>箭头是引用方向。工作与身份都归属父用户会话；工作记下首次委派的键与参数摘要，并指向承接它的 SubAgent；每次执行是 tasks 里的一行，带 work_id 与 sub_agent_id。parent_task_id 是这一次的直接父任务：跨对话轮次再委派时，它可以不是工作的发起任务 origin_task_id，两者都保留。SubAgent 的历史写在自己子会话的 JSONL 里。</figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>层</th><th>记录</th><th>记什么</th><th>谁写、何时写</th><th>为什么单独存</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>工作</td>
+            <td><code>work_delegations</code><br><code class="src" data-src="src/core/types.ts#export interface WorkDelegation">types.ts · WorkDelegation</code></td>
+            <td>所属父会话、发起任务 <code>origin_task_id</code>、首次委派的键 <code>request_key</code> 与参数摘要 <code>params_digest</code>、承接的 <code>sub_agent_id</code>。（父会话，键）唯一。</td>
+            <td>首次委派的登记事务（<code class="src" data-src="src/core/store.ts#insertWorkDelegation">store.ts · insertWorkDelegation</code>），之后不再改。</td>
+            <td>一项工作可以跨多轮对话、包含多次执行；某次执行结束不等于工作结束。</td>
+          </tr>
+          <tr>
+            <td>身份</td>
+            <td><code>sub_agents</code><br><code class="src" data-src="src/core/types.ts#export interface SubAgent">types.ts · SubAgent</code></td>
+            <td>所属父会话、独立子会话 <code>session_id</code>（唯一）、宿主生成的 <code>work_dir</code>、状态 <code>state</code>、当前工作 <code>active_work_id</code> 与当前任务 <code>current_task_id</code>。</td>
+            <td>首次委派建行（<code class="src" data-src="src/core/store.ts#insertSubAgent">insertSubAgent</code>）；之后只改状态与两个指针（<code class="src" data-src="src/core/store.ts#setSubAgentState">setSubAgentState</code>）。</td>
+            <td>身份、目录与上下文在执行结束后保留，供同一工作继续派活；动态 ID 不能进 <code>agent_roles</code> 或 <code>tasks.agent_id</code>，后者的 CHECK 只允许三个固定角色。</td>
+          </tr>
+          <tr>
+            <td>执行</td>
+            <td><code>tasks</code> 的一行</td>
+            <td>新列：<code>work_id</code>、<code>sub_agent_id</code>、钉定的读范围 <code>read_scope</code>、结果注入时刻 <code>result_delivered_at</code>。沿用的列：直接父任务 <code>parent_task_id</code>、请求键、截止时间、访问模式 <code>confirm</code>、<code>result_summary</code> 与 <code>result_ref</code>。</td>
+            <td>登记事务插入排队任务；终态后编排器写结果；dev 父会话注入结果时写 <code>result_delivered_at</code>。</td>
+            <td>每次执行有自己的状态、截止、审批与读范围，复用现有队列、驱动器、工具操作账本、历史与产物。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>一次委派怎样登记</h3>
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:6">
+          <div class="who"><span>主 Agent 任务</span><span>委派工具</span><span>SubAgentManager</span><span>Store</span><span>SubAgent 子会话</span><span>编排器</span></div>
+          <div class="m" style="--from:1;--to:2"><span>subagent_delegate(request, key, work_id?, read_paths? | materials?)</span></div>
+          <div class="note" style="--from:2;--to:2">重核宿主身份与拥有者来源；校验参数，算参数摘要</div>
+          <div class="m" style="--from:2;--to:3"><span>delegate(父任务, key, request, 资料, 摘要)</span></div>
+          <div class="m" style="--from:3;--to:4"><span>查重：（父会话, key）查工作；sdelegate:&lt;工作&gt;:&lt;key&gt; 查任务</span></div>
+          <div class="m l" style="--from:4;--to:3"><span>命中：同参返回原记录，异参 request_conflict</span></div>
+          <div class="note" style="--from:3;--to:3">限额：本会话活动执行任务少于 3 个</div>
+          <div class="note" style="--from:3;--to:3">事务外准备：执行入口与模型门闩预检、建目录、资料快照或钉定路径</div>
+          <div class="m ok" style="--from:3;--to:4"><span>同一事务：重核门闩与资料授权，写工作、身份、子会话、排队任务、work_delegation.created</span></div>
+          <div class="m" style="--from:3;--to:5"><span>提交后 kick 子会话</span></div>
+          <div class="m l" style="--from:3;--to:2"><span>返回登记记录</span></div>
+          <div class="m l" style="--from:2;--to:1"><span>立即返回：workId、subAgentId、taskId、截止时间</span></div>
+          <div class="note" style="--from:5;--to:5">只装配 read、read_artifact；confirm</div>
+          <div class="phase"><span>执行任务到达终态</span></div>
+          <div class="m" style="--from:5;--to:6"><span>task.completed / failed / canceled / interrupted</span></div>
+          <div class="m l ok" style="--from:6;--to:4"><span>同一事务：结果、状态 idle / unverified、subagent_task.*</span></div>
+          <div class="m l" style="--from:6;--to:1"><span>main 父会话：提交 wake:&lt;子任务&gt;</span></div>
+          <div class="note" style="--from:1;--to:1">dev 父会话：下一个任务开始时注入 [SubAgent 结果]</div>
+          <div class="m" style="--from:1;--to:2"><span>subagent_result(work_id, part)</span></div>
+          <div class="m l dash" style="--from:2;--to:1"><span>result / reply / artifact 分页</span></div>
+        </div>
+      </div>
+      <figcaption>工具在执行任务入队后立即返回，不等子模型结束，主 Agent 可以照常结束本轮、继续处理拥有者的新消息。登记前的准备在事务外；登记本身是一个事务，工作、身份、子会话、排队任务与审计事件一起提交或都不提交，提交之后才 kick 子会话。查重排在限额与资料解析之前，重复调用不会重新解析可能已经变化的资料。</figcaption>
+    </figure>
+
+    <details>
+      <summary>登记失败时：每一步拒绝什么、留下什么</summary>
+      <div class="body">
+        <div class="scroll">
+          <table class="tbl">
+            <thead><tr><th>位置</th><th>拒绝条件</th><th>结果</th><th>留下什么</th></tr></thead>
+            <tbody>
+              <tr><td>工具身份重核 <code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code></td><td>会话、项目或当前任务对不上；会话是 SubAgent 子会话；会话绑定的角色不是 main</td><td>身份校验失败</td><td>无记录</td></tr>
+              <tr><td>拥有者来源 <code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code></td><td>任务本身是 SubAgent 任务；或既不是拥有者直接提交，也不是 Telegram / QQ 私聊入站（调度唤醒、子任务回报）</td><td>报错</td><td>无记录</td></tr>
+              <tr><td>工具参数</td><td><code>key</code> 不是 1–64 位字母、数字、<code>_</code> 或 <code>-</code>；main 给了 <code>read_paths</code>、dev 给了 <code>materials</code>，或两者都没给；<code>materials</code> 含已接收的群聊结果</td><td>报错</td><td>无记录</td></tr>
+              <tr><td>父会话类别</td><td>父会话不是 dev 类（QQ 群会话）</td><td><code>forbidden</code></td><td>无记录</td></tr>
+              <tr><td>查重</td><td>同键异参</td><td><code>request_conflict</code></td><td>原记录不变</td></tr>
+              <tr><td>限额</td><td>本会话的活动执行任务已到上限</td><td><code>limit_exceeded</code></td><td>无记录</td></tr>
+              <tr><td>事务外准备</td><td><code>work_id</code> 不存在或不属于本会话；受限执行入口或模型门闩不可用；目录落在保护根；路径不存在、超出父工作区与已授予范围、执行身份读不到；资料解析失败</td><td><code>not_found</code> / <code>forbidden</code> / <code>invalid_params</code> 等</td><td>删掉本次新建的目录（如已建）</td></tr>
+              <tr><td>拼任务正文 <code class="src" data-src="src/runtime/subagents.ts#private taskInput">subagents.ts · taskInput</code></td><td>宿主模板加请求超过 <code class="src" data-src="src/runtime/subagents.ts#const INPUT_TEXT_CAP = 8192">INPUT_TEXT_CAP</code>（8192 字符），拒绝，不截断</td><td><code>invalid_params</code></td><td>这一步在清理范围之外：本次新建的目录（含资料快照）留在磁盘上，但没有入库；沿原工作再委派时，写进原目录的快照文件同样留下</td></tr>
+              <tr><td>登记事务</td><td>首次委派时同键的并发请求已先提交（（父会话，key）唯一约束失败，不论参数是否相同）；沿原工作再委派时同键已被另一请求登记且参数不同（<code>request_conflict</code>，参数相同则返回那条记录）；资料授权在准备后被撤销；父任务归属变化；门闩重检失败</td><td>事务回滚</td><td>删掉本次新建的目录（目录名是本次新生成的 SubAgent ID，不会碰到竞争请求的目录）；沿原工作再委派时目录不删，已写的快照文件留下</td></tr>
+              <tr><td>工具调用中断（停止、重启）</td><td>结果没落库</td><td>按 <code class="src" data-src="src/runtime/subagents.ts#export function subagentOpCheck">subagentOpCheck</code> 核实：工作、身份、子会话与任务都在算已委派，否则已知未委派</td><td>不记效果未知（<code>coding_delegate</code> 的 analyze 调用归同一族，<code class="src" data-src="src/agent/tool-op-ledger.ts#subagent_delegate">tool-op-ledger.ts</code>）</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    <h3>幂等、限额与截止</h3>
+    <ul>
+      <li><b>两级幂等</b>：首次委派（不带 <code>work_id</code>）以（父会话，<code>key</code>）查工作（<code class="src" data-src="src/runtime/subagents.ts#private dedupNewKey">dedupNewKey</code>）；工作内每次执行的请求键是 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code>（<code class="src" data-src="src/runtime/subagents.ts#export function subAgentTaskRequestId">subAgentTaskRequestId</code>），在子会话里唯一。任务的提交摘要（<code class="src" data-src="src/runtime/subagents.ts#export function taskSubmissionDigest">taskSubmissionDigest</code>）只覆盖参数摘要、工作与身份，不含本次调用的父任务 ID、模型选择与截止时间，所以下一轮对话用同一个键重放会拿回首次记录，而不是误报冲突。</li>
+      <li><b>限额</b>：同一父会话的活动执行任务（queued、running、awaiting_confirmation）至多 <code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">SUBAGENT_LIMITS</code>.perParentSession = 3 个（<code class="src" data-src="src/core/store.ts#countActiveSubAgentTasks">store.ts · countActiveSubAgentTasks</code>）。空闲的身份不占名额。</li>
+      <li><b>截止</b>：直接父任务的开始时刻（尚未开始取创建时刻）加 deadlineMs（60 分钟），包含排队与审批等待；到期由编排器的截止巡检取消，与旧委派同一套（见<a href="#child">子任务结果与异常路径</a>）。</li>
+      <li><b>继续原工作</b>：带 <code>work_id</code> 时沿原工作派一次新执行（<code class="src" data-src="src/runtime/subagents.ts#private dedupExistingWork">dedupExistingWork</code> 查重）：同一个 SubAgent、同一个子会话与目录，上下文接着原 JSONL；不新建工作，不发 <code>work_delegation.created</code>。</li>
+    </ul>
+
+    <h3>执行范围由宿主钉定</h3>
+    <p>模型只给正文、键、可选的 <code>work_id</code> 与资料；身份、目录、模式、工具与读范围都由宿主写定，其中读范围（钉定路径与来源引用）存进任务的 <code>read_scope</code>（<code class="src" data-src="src/core/types.ts#export interface SubAgentReadScope">types.ts · SubAgentReadScope</code>）。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>范围</th><th>宿主怎样固定</th><th>在哪里核实</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>工具</td>
+            <td>只有 <code>read</code> 与 <code>read_artifact</code>（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">tool-availability.ts · SUBAGENT_READONLY_TOOL_NAMES</code>）；<code>subagent</code> 类别的清单为空，编码、委派与其他宿主工具都不装配，SubAgent 也就不能再委派下级。</td>
+            <td>装配时过滤，发送前按载荷核对，调用门用同一白名单收窄（<code class="src" data-src="src/agent/driver.ts#private checkBeforeSend">driver.ts · checkBeforeSend</code>）。<code>read_artifact</code> 只读本任务自产的产物，拒绝 <code>prompt-snapshot:*</code>。</td>
+          </tr>
+          <tr>
+            <td>工作目录</td>
+            <td>宿主生成 <code>&lt;dataDir&gt;/../agent-work/sub-agents/&lt;agentId&gt;</code>（<code class="src" data-src="src/runtime/runtime.ts#runtime.subagents = new SubAgentManager">runtime.ts · workRoot</code>），权限 0700。子会话的项目沿用父会话的项目，工作目录就是这个目录。</td>
+            <td>建目录前拒绝落在保护根；任务开始前照常核对目录身份（<a href="task-lifecycle.html#queue">任务生命周期</a>）。</td>
+          </tr>
+          <tr>
+            <td>资料（main）</td>
+            <td><code>materials</code> 1–8 个，按父项目的有效权限解析成文本快照，写进子目录的 <code>materials-&lt;key&gt;.txt</code>（<code class="src" data-src="src/runtime/subagents.ts#function materialsFileFor">materialsFileFor</code>）；来源引用存进 <code>read_scope.sourceRefs</code>。SubAgent 用 <code>read</code> 读这个文件。</td>
+            <td>登记事务内核实一次；之后每次向模型发送上下文前再核实，撤销即阻断发送（<code class="src" data-src="src/agent/driver.ts#task_sources_revoked">task_sources_revoked</code>）。快照正文不重新解析。</td>
+          </tr>
+          <tr>
+            <td>资料（dev）</td>
+            <td><code>read_paths</code> 1–16 个，按父会话目录解析 realpath，必须在父工作区内，或在父任务以 read / read_write 授予的路径内；拒绝保护根；实际执行身份要能读（<code class="src" data-src="src/runtime/subagents.ts#private prepareReadPaths">prepareReadPaths</code>）。保存 realpath 与 dev/ino 到 <code>read_scope.paths</code>。</td>
+            <td>路径经 <code class="src" data-src="src/agent/tool-router.ts#readRoots">tool-router.ts · readRoots</code> 传进工具 worker：启动时复核 dev/ino（<code class="src" data-src="src/agent/tool-worker/worker.ts#function pinReadRoots">worker.ts · pinReadRoots</code>），每次 <code>read</code> 逐段拒绝符号链接，只放行子目录与钉定根内的路径（<code class="src" data-src="src/agent/tool-worker/worker.ts#function scopedResolveInReadScope">scopedResolveInReadScope</code>）。</td>
+          </tr>
+          <tr>
+            <td>访问模式</td>
+            <td>固定 <code>confirm</code>，不继承父任务或父会话的模式、单次批准与长期授权。</td>
+            <td>见上文「编排字段只来自宿主」。</td>
+          </tr>
+          <tr>
+            <td>上下文</td>
+            <td>按资料受限会话装配：不注入项目指令、长期记忆与技能目录，也不做上下文压缩（<code class="src" data-src="src/agent/driver.ts#private get dataScopeRestricted">driver.ts · dataScopeRestricted</code>）。</td>
+            <td>细节见<a href="context-pipeline.html">上下文组装</a>。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="subagent-state">
+    <h2>SubAgent 状态与结果回报</h2>
+    <p>SubAgent 的状态写在 <code>sub_agents.state</code> 上，取值见 <code class="src" data-src="src/core/types.ts#export type SubAgentState">types.ts · SubAgentState</code>：<code class="st run">running</code> 表示有活动执行任务；<code class="st idle">idle</code> 表示执行任务已到终态、目录占用已回收；<code class="st unk">unverified</code> 表示执行任务已到终态，但旧执行单元是否退出没有核实，目录占用还在。只有两处代码改它：委派登记置 running，编排器登记终态时置 idle 或 unverified。空闲时子会话的驱动器已释放，不跑模型，也没有 worker 进程；身份、子会话、JSONL 与产物都保留。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 318" role="img" aria-label="SubAgent 状态机：首次委派的登记事务创建身份并置 running；执行任务终态时，目录占用已回收则进入 idle，占用仍在则进入 unverified；idle 与 unverified 都可以因带 work_id 再委派回到 running；running 时再委派同一工作仍停在 running，是已知缺口。">
+          <g class="n" data-k="s-new"><rect x="20" y="128" width="130" height="50" rx="25"/><text x="85" y="145">首次委派</text><text class="sub" x="85" y="164">登记事务</text></g>
+          <g class="n run"><rect x="250" y="120" width="190" height="66" rx="8"/><text x="345" y="143">running</text><text class="sub" x="345" y="166">有活动执行任务</text></g>
+          <g class="n idle"><rect x="660" y="40" width="220" height="66" rx="8"/><text x="770" y="63">idle</text><text class="sub" x="770" y="86">终态 · 占用已回收</text></g>
+          <g class="n unk"><rect x="660" y="200" width="220" height="66" rx="8"/><text x="770" y="223">unverified</text><text class="sub" x="770" y="246">终态 · 退出未核实</text></g>
+
+          <path class="e" data-k="s-new" d="M150 153H248" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-new" x="199" y="145">建身份</text>
+
+          <path class="e" data-k="s-idle" d="M440 140C550 140 550 73 658 73" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-idle" x="598" y="62">终态 · 已回收</text>
+          <path class="e unk" data-k="s-unv" d="M440 166C550 166 550 233 658 233" marker-end="url(#ah-unk)"/>
+          <text class="el" data-k="s-unv" x="598" y="258">终态 · 占用保留</text>
+
+          <path class="e" data-k="s-again" d="M770 40V20H380V118" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-again" x="575" y="14">带 work_id 再委派</text>
+          <path class="e" data-k="s-again-u" d="M770 266V292H380V188" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-again-u" x="575" y="308">带 work_id 再委派</text>
+
+          <path class="e dash" data-k="s-busy" d="M290 186C290 236 330 236 330 188" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-busy" x="310" y="252">运行中再委派</text>
+        </svg>
+      </div>
+      <figcaption>状态只说明执行单元，不说明工作是否完成，也不表示 SubAgent 被关闭：首版没有关闭，身份一直保留。unverified 目前没有回到 idle 的代码路径：拥有者核实后用 resume_queue 释放遗留占用，sub_agents 上仍记 unverified，直到同一工作再委派把它置回 running。悬停下表的行会高亮对应的边。</figcaption>
+      <ul class="legend">
+        <li><i class="run"></i>有活动执行任务</li>
+        <li><i class="idle"></i>空闲，零模型与进程</li>
+        <li><i class="unk"></i>待拥有者核实旧执行</li>
+      </ul>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th style="min-width:8.5em">从 → 到</th><th style="min-width:7em">触发者</th><th>条件与位置</th><th>事件</th></tr></thead>
+        <tbody>
+          <tr data-k="s-new" tabindex="0">
+            <td>（无）→ <code class="st run">running</code></td>
+            <td>SubAgentManager 登记</td>
+            <td>首次委派，查重未命中、限额未满、准备成功。登记事务里先以 running 插入身份，插入排队任务后再写一次 running 与 <code>current_task_id</code>。<br><code class="src" data-src="src/runtime/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · delegate</code></td>
+            <td><code>work_delegation.created</code>、子会话的 <code>task.queued</code></td>
+          </tr>
+          <tr data-k="s-idle" tabindex="0">
+            <td><code class="st run">running</code> → <code class="st idle">idle</code></td>
+            <td>编排器</td>
+            <td>执行任务到达终态，<code>setTaskResult</code> 首次写入成功；同一事务里子会话已没有目录占用。<code>current_task_id</code> 清空，<code>active_work_id</code> 保持。<br><code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">orchestrator.ts · handleSubAgentTerminal</code></td>
+            <td><code>subagent_task.completed</code> / <code>subagent_task.failed</code> / <code>subagent_task.timeout</code> / <code>subagent_task.result_unknown</code></td>
+          </tr>
+          <tr data-k="s-unv" tabindex="0">
+            <td><code class="st run">running</code> → <code class="st unk">unverified</code></td>
+            <td>编排器</td>
+            <td>同上，但终态时子会话的占用还在：停止路径没能回收工具进程而保留了占用，或后台崩溃留下了占用、重启后补记。</td>
+            <td>同上四种之一；占用来自停止路径时另有 <code>task.tool_process_unreaped</code>，来自重启时另有 <code>occupancy.stale</code></td>
+          </tr>
+          <tr data-k="s-again" tabindex="0">
+            <td><code class="st idle">idle</code> → <code class="st run">running</code></td>
+            <td>SubAgentManager 登记</td>
+            <td>带 <code>work_id</code> 沿原工作再委派、用新键：在同一子会话插入新的排队任务，状态置 running。</td>
+            <td>子会话的 <code>task.queued</code>（不发 <code>work_delegation.created</code>）</td>
+          </tr>
+          <tr data-k="s-again-u" tabindex="0">
+            <td><code class="st unk">unverified</code> → <code class="st run">running</code></td>
+            <td>SubAgentManager 登记</td>
+            <td>同上：登记不检查状态。新任务要等旧占用释放（拥有者核实后 resume_queue）才能取得目录占用开始执行。</td>
+            <td>子会话的 <code>task.queued</code></td>
+          </tr>
+          <tr data-k="s-busy" tabindex="0">
+            <td><code class="st run">running</code> → <code class="st run">running</code></td>
+            <td>SubAgentManager 登记</td>
+            <td>已知缺口：执行中再委派同一工作，新任务排队并覆盖 <code>current_task_id</code>；前一任务终态时状态被写成 idle 或 unverified，后一任务随后照常执行，记录却显示空闲。</td>
+            <td>子会话的 <code>task.queued</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>结果怎样回到主 Agent</h3>
+    <p>执行任务到达终态后，编排器的事件监听或启动巡检把它交给 <code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">handleSubAgentTerminal</code>，不走旧角色任务的重试门，也不发 <code>child_task.*</code>。一个事务里：<code>setTaskResult</code> 条件写入摘要与结果引用（重复终态只有先到的一次生效）；改 SubAgent 状态；追加一条 <code>subagent_task.*</code> 事件，事件归到父会话名下，TUI 在父会话里显示。结果引用 <code>result_ref</code> 记 sessionId、taskId、workId、subAgentId、parentSessionId、parentTaskId、outcome、artifactIds（不含 <code>prompt-snapshot:*</code>）与 failure；结局按任务终态归类，规则与旧子任务相同（见<a href="#child">终态怎样归类</a>）。之后按父会话的类别回报：</p>
+    <div class="cards">
+      <div class="card">
+        <h4>main 父会话：唤醒</h4>
+        <p>沿用旧链路的 <code class="src" data-src="src/runtime/orchestrator.ts#private async wakeParent">wakeParent</code>：以 <code>wake:&lt;子任务&gt;</code>、<code>confirm</code> 向 main 会话提交唤醒任务，不带来源事件，所以没有自动外发授权。唤醒正文只有固定字段与截断后的摘要，并提示用 <code>subagent_result</code> 按 work_id 读完整结果。提交失败由启动巡检 ② 按原键补发。</p>
+      </div>
+      <div class="card">
+        <h4>dev 父会话：下一个任务开始时注入</h4>
+        <p>不产生唤醒任务，也不进唤醒巡检。父会话下一个任务开始时，驱动器取出还没送达的结果（<code class="src" data-src="src/core/store.ts#listUndeliveredSubAgentResults">store.ts · listUndeliveredSubAgentResults</code>），同一事务标记 <code>result_delivered_at</code>，再作为 <code>[SubAgent 结果]</code> 参考块放进模型上下文（<code class="src" data-src="src/agent/context-assembly.ts#[SubAgent 结果]">context-assembly.ts</code>）。标记后若崩溃，结果仍可从事件与 <code>subagent_result</code> 查到。参考块的写法与位置见<a href="context-pipeline.html#subagent">上下文组装 · SubAgent 任务的上下文</a>。</p>
+      </div>
+    </div>
+    <ul>
+      <li><b>读结果</b>：<code>subagent_result</code> 只读工作登记在当前会话的记录：<code>part=result</code>（默认）给工作、SubAgent 状态与每次执行的摘要；<code>part=reply</code> 按 UTF-8 字节分页读最终回答，每页至多 <code class="src" data-src="src/agent/subagent-tools.ts#READ_LIMITS">READ_LIMITS</code>.replyBytes（16 KiB）；<code>part=artifact</code> 读该次执行自己的产物，每页至多 artifactBytes（64 KiB）。不给 <code>task_id</code> 时取最近一个已有结果的执行，都还没有结果时取最近一个。main 的 <code>coding_result</code> 也能读这些执行任务（见<a href="#delegate">main 委派 coding</a>）。</li>
+      <li><b>拥有者查看</b>：控制面只读操作 <code>work_list</code> / <code>work_get</code>（CLI <code>ruukoto work list</code> / <code>ruukoto work show</code>）列出工作、SubAgent 与执行任务；普通的提交、继续、切换模式与会话默认模式都不能作用于子会话。协议见<a href="control-protocol.html">控制面协议</a>。</li>
+    </ul>
+
+    <h3>停止与重启时</h3>
+    <ul>
+      <li><b>执行中的任务</b>：后台停止（<code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code>）或崩溃后恢复（<code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code>）时把它转为 interrupted，这时编排器已经停下或还没启动，没人监听；编排器启动时由巡检 ① 补记（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingResult">listRoleTasksPendingResult</code> 同时选带 sub_agent_id 的任务），结局为结果未知，发 <code>subagent_task.result_unknown</code>。留下了占用的（崩溃，或停止时没能回收工具进程），恢复时子会话被暂停为 <code>occupancy_unverified</code>，SubAgent 记 unverified；停止时工具进程已回收的记 idle。main 父会话随后被唤醒，dev 父会话等它下一个任务开始时注入。</li>
+      <li><b>排队中的任务</b>：Runtime 恢复时把子会话队列暂停为 <code>backend_restart</code>。编排器只自动恢复三个角色会话的队列，SubAgent 子会话不在其中：任务留在 queued，身份仍是 running，直到拥有者对该会话 resume_queue，或截止巡检按 <code>deadline_exceeded</code> 取消它（结局 timeout，身份按占用情况转 idle 或 unverified）。</li>
+      <li><b>不重放、不重试</b>：结果未知的执行不自动重发，也没有自动重试。</li>
+    </ul>
+
+    <h3>与旧 coding 委派的差别</h3>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th></th><th>旧：<code>delegateCoding</code>（旧架构）</th><th>新：<code>SubAgentManager.delegate</code></th></tr></thead>
+        <tbody>
+          <tr><td>谁能委派</td><td>只有 main（<code>delegation</code> 类别）</td><td>普通开发会话与 main（<code>subagent</code> 类别）</td></tr>
+          <tr><td>执行身份</td><td>共享的 <code>agent-coding</code> 会话，所有子任务排同一个队</td><td>每项工作一个 SubAgent，独立子会话与目录</td></tr>
+          <tr><td>工具</td><td>coding 角色的全部工具，请求确认</td><td>只有 <code>read</code>、<code>read_artifact</code></td></tr>
+          <tr><td>谁登记</td><td>编排器在派发串行链上经 submitInternal 提交</td><td>SubAgentManager 一个事务直接插入，再 kick；不经编排器与 Runtime.submit</td></tr>
+          <tr><td>请求键与幂等范围</td><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;</code>，范围是父任务</td><td>（父会话，key）查工作，<code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code> 查执行，跨对话轮次有效</td></tr>
+          <tr><td>上限</td><td>每个父任务 3 次首次委派（<code>DELEGATION_LIMITS</code>.perParent）</td><td>每个父会话 3 个活动执行任务（<code>SUBAGENT_LIMITS</code>.perParentSession）</td></tr>
+          <tr><td>截止</td><td>父任务开始 + 60 分钟</td><td>直接父任务开始 + 60 分钟</td></tr>
+          <tr><td>自动重试</td><td>analyze 满足重试门时一次</td><td>无</td></tr>
+          <tr><td>结果与事件</td><td><code>DelegationResult</code>，<code>child_task.*</code></td><td>工作与身份关联的结果引用，<code>subagent_task.*</code>；同一事务改 SubAgent 状态</td></tr>
+          <tr><td>回报</td><td>唤醒 main（<code>wake:&lt;子任务&gt;</code>）</td><td>main 同样唤醒；dev 父会话注入 <code>[SubAgent 结果]</code></td></tr>
+          <tr><td>执行结束后</td><td>coding 会话继续承接下一个子任务</td><td>SubAgent 转空闲并保留，可沿原工作再委派</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <aside class="callout limit">
+      <b>首版限制</b>
+      <p>首版只做只读分析。已有：首次委派、带 <code>work_id</code> 沿原工作再派一次执行、结果回报与查询。还没有实现：把空闲 SubAgent 用于另一项工作、显式关闭（agent-direction 工单 12）；同项工作的 SubAgent 互发消息（13）；取消整项工作（14）；后台重启后的 SubAgent 恢复状态机（15）；并行 worktree 与汇总改动（16、17）；GitHub 评审迁到 SubAgent（19）。代码里已知的缺口：执行中再委派同一工作会覆盖当前任务指针（见上表，12 修复）；unverified 没有回到 idle 的路径；重启时排队的执行任务不会自动恢复。</p>
     </aside>
   </section>
 
   <section id="delegate">
-    <h2>main 委派 coding</h2>
-    <p>main 的委派工具只有两个：<code>coding_delegate</code> 与 <code>coding_result</code>（<code class="src" data-src="src/agent/delegation-tools.ts#createDelegationTools">delegation-tools.ts · createDelegationTools</code>），只有 main 的工具类别里有 <code>delegation</code>。模型只给正文、模式（<code>analyze</code> / <code>draft</code>）、幂等键和可选资料；目标角色、会话、工作目录、权限模式与截止时间都由 <code class="src" data-src="src/runtime/orchestrator.ts#delegateCoding(input">orchestrator.ts · delegateCoding</code> 写定。</p>
-    <p>agent-direction issue 11 起 <code>analyze</code> 转入通用只读 SubAgent 链路（<code class="src" data-src="src/agent/delegation-tools.ts#analyzeDelegate">delegation-tools.ts · analyzeDelegate</code>，硬只读、不自动重试）：登记、请求键与终态回报不再经本条旧 coding 路径，结果经 <code>coding_result</code> 同一归属窄口兼容读取；<code>draft</code> 修改委派与 GitHub 评审保留本条旧路径。</p>
+    <h2>main 委派 coding（旧架构）</h2>
+    <p>main 有两组委派工具：旧的 <code>delegation</code> 类别 <code>coding_delegate</code> 与 <code>coding_result</code>（<code class="src" data-src="src/agent/delegation-tools.ts#createDelegationTools">delegation-tools.ts · createDelegationTools</code>），只有 main 的清单里有；新的 <code>subagent</code> 类别 <code>subagent_delegate</code> 与 <code>subagent_result</code>，见<a href="#subagent">工作委托与 SubAgent</a>。<code>coding_delegate</code> 的模型参数是正文、模式（<code>analyze</code> / <code>draft</code>）、幂等键和可选资料；按模式分两路：</p>
+    <ul>
+      <li><code>mode=analyze</code>：转进通用只读 SubAgent 链路（<code class="src" data-src="src/agent/delegation-tools.ts#analyzeDelegate">delegation-tools.ts · analyzeDelegate</code>），硬只读、不自动重试；登记、请求键与终态回报都走 SubAgent 那一套，结果仍可用 <code>coding_result</code> 读。它从不带 <code>work_id</code>，所以每个新键都新建一项工作与一个 SubAgent；查重按（main 会话，<code>key</code>），同一个键在后面的对话轮次里也会命中，而 draft 的键只在父任务内有效。Runtime 总是装配这条链路，所以后台里新的 analyze 委派不再产生 coding 子任务。</li>
+      <li><code>mode=draft</code>：留在本节的旧路径。目标角色、会话、工作目录、权限模式与截止时间都由 <code class="src" data-src="src/runtime/orchestrator.ts#delegateCoding(input">orchestrator.ts · delegateCoding</code> 写定。GitHub 评审子任务也走 coding 角色（见<a href="#github">下文</a>）。</li>
+    </ul>
 
     <figure class="fig">
       <div class="scroll">
         <div class="seq" style="--n:6">
           <div class="who"><span>main 会话</span><span>委派工具</span><span>编排器</span><span>Runtime</span><span>coding 会话</span><span>Store</span></div>
-          <div class="m" style="--from:1;--to:2"><span>coding_delegate(request, mode, key, materials?)</span></div>
+          <div class="m" style="--from:1;--to:2"><span>coding_delegate(request, draft, key, materials?)</span></div>
           <div class="note" style="--from:2;--to:2">核实 main 绑定；只限拥有者发起的任务；key 格式</div>
           <div class="m" style="--from:2;--to:6"><span>按 deleg:&lt;父任务&gt;:&lt;key&gt; 查已有子任务</span></div>
           <div class="m l" style="--from:6;--to:2"><span>已有：比对参数摘要，同参返回原子任务，异参冲突</span></div>
           <div class="note" style="--from:2;--to:2">没有：materials 解析为文本快照写入正文</div>
-          <div class="m" style="--from:2;--to:3"><span>delegateCoding(父任务, mode, request, key, 摘要)</span></div>
+          <div class="m" style="--from:2;--to:3"><span>delegateCoding(父任务, draft, request, key, 摘要)</span></div>
           <div class="note" style="--from:3;--to:3">宿主模板首行写模式；截止 = 父任务开始 + 60 分钟；正文超限拒绝</div>
           <div class="note" style="--from:3;--to:3">派发串行链上再查同键；首次委派至多 3 个</div>
           <div class="m" style="--from:3;--to:4"><span>submitInternal：编排字段 + confirm</span></div>
@@ -210,7 +528,7 @@
           <div class="m l dash" style="--from:2;--to:1"><span>result / reply / artifact 分页</span></div>
         </div>
       </div>
-      <figcaption>结果先落库再唤醒：结果、入站事件终态与 child_task.* 事件在一个事务里提交，唤醒是之后一次独立的提交，请求键 wake:&lt;子任务&gt; 固定，重复回传只唤醒一次。唤醒输入只带固定字段、截断后的摘要与读取说明，不复制子任务历史。</figcaption>
+      <figcaption>图中是 draft 委派。结果先落库再唤醒：结果、入站事件终态与 child_task.* 事件在一个事务里提交，唤醒是之后一次独立的提交，请求键 wake:&lt;子任务&gt; 固定，重复回传只唤醒一次。唤醒输入只带固定字段、截断后的摘要与读取说明，不复制子任务历史。</figcaption>
     </figure>
 
     <h3>谁能委派、委派什么</h3>
@@ -220,11 +538,11 @@
       <li><b>资料</b>：<code>materials</code> 在委派时按 main 的可读范围解析成文本快照，追加在请求后面；coding 拿不到原始引用 ID。已接收的群聊结果（<code>chat_result</code>）不能作为委派资料。</li>
       <li><b>固定参数</b>：每个父任务至多 <code class="src" data-src="src/runtime/orchestrator.ts#DELEGATION_LIMITS">DELEGATION_LIMITS</code>.perParent = 3 个首次委派（<code class="src" data-src="src/core/store.ts#countDelegations">store.ts · countDelegations</code> 不计 <code>:retry</code>）；截止时间 = 父任务开始时刻（尚未开始取创建时刻）+ deadlineMs（60 分钟），是确定值，同键重试不会因时间变化而冲突；宿主模板加请求加资料合计超过 <code class="src" data-src="src/runtime/orchestrator.ts#INPUT_TEXT_CAP">INPUT_TEXT_CAP</code>（8192 字符）直接拒绝，不截断。</li>
       <li><b>不继承来源事件</b>：委派不把父任务的来源事件传给子任务，子任务终态不会回写 Telegram / QQ 私聊事件，子任务和它的唤醒任务都不产生 owner 回复（owner 回复的登记见 <code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">runtime.ts · enqueueOwnerReply</code> 与<a href="inbound-events.html">入站事件</a>）。</li>
-      <li><b>停止或重启时</b>：未落结果的 <code>coding_delegate</code> 按原请求键核实子任务是否存在（<code class="src" data-src="src/agent/delegation-tools.ts#delegationOpCheck">delegationOpCheck</code>），存在即已委派，不存在即已知未委派，不记效果未知。</li>
+      <li><b>停止或重启时</b>：未落结果的 draft 调用按原请求键核实子任务是否存在（<code class="src" data-src="src/agent/delegation-tools.ts#delegationOpCheck">delegationOpCheck</code>），存在即已委派，不存在即已知未委派，不记效果未知；analyze 调用改按 SubAgent 族核实（见上文的登记失败表）。</li>
     </ul>
 
     <h3>结构化结果与分页读取</h3>
-    <p>子任务终态后，<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code> 写两样东西：<code>result_summary</code>（完成时为最终回答，至多 <code class="src" data-src="src/runtime/orchestrator.ts#RESULT_SUMMARY_CAP">RESULT_SUMMARY_CAP</code> = 1000 字符，超出注明截断）与 <code>result_ref</code> JSON。委派的 coding 子任务写 <code class="src" data-src="src/runtime/orchestrator.ts#export interface DelegationResult">DelegationResult</code>（下表）；其他角色任务只有 sessionId 与 taskId，GitHub 评审另并入 review。</p>
+    <p>子任务终态后，<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code> 写两样东西：<code>result_summary</code>（完成时为最终回答，至多 <code class="src" data-src="src/runtime/orchestrator.ts#RESULT_SUMMARY_CAP">RESULT_SUMMARY_CAP</code> = 1000 字符，超出注明截断）与 <code>result_ref</code> JSON。委派的 coding 子任务写 <code class="src" data-src="src/runtime/orchestrator.ts#export interface DelegationResult">DelegationResult</code>（下表；<code>analyze</code> 现在只出现在 GitHub 评审子任务与接入 SubAgent 链路之前登记的旧子任务上）；其他角色任务只有 sessionId 与 taskId，GitHub 评审另并入 review。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>字段</th><th>取值</th><th>谁判定</th></tr></thead>
@@ -241,12 +559,12 @@
         </tbody>
       </table>
     </div>
-    <p><code>coding_result</code> 只读父任务在当前 main 会话里的 coding 子任务，这是按父子关系开的窄口，不扩大资料授权。<code>part=result</code>（默认）给状态、截止时间、摘要与上表除 review 外的字段；评审子任务在开头另附修订说明（<code class="src" data-src="src/github/events.ts#notice(task">events.ts · notice</code>）。<code>part=reply</code> 按 UTF-8 字节分页读最终回答，每页至多 <code class="src" data-src="src/agent/delegation-tools.ts#READ_LIMITS">READ_LIMITS</code>.replyBytes（16 KiB）；任务不是 <code>completed</code> 时返回暂无最终回答（<code class="src" data-src="src/runtime/runtime.ts#readTaskReply(taskId: string, offset">runtime.ts · readTaskReply</code>）。<code>part=artifact</code> 读该子任务自己的产物，每页至多 artifactBytes（64 KiB），页尾不完整的字符留给下一页。</p>
+    <p><code>coding_result</code> 只读两类任务：父任务在当前 main 会话里的 coding 子任务，以及所属工作登记在当前会话的 SubAgent 执行任务（analyze 的新路径）。这是按归属开的窄口，不扩大资料授权。<code>part=result</code>（默认）对 coding 子任务给状态、截止时间、摘要与上表除 review 外的字段，对 SubAgent 执行任务给 SubAgent、工作、结局、失败原因、产物与摘要；评审子任务在开头另附修订说明（<code class="src" data-src="src/github/events.ts#notice(task">events.ts · notice</code>）。<code>part=reply</code> 按 UTF-8 字节分页读最终回答，每页至多 <code class="src" data-src="src/agent/delegation-tools.ts#READ_LIMITS">READ_LIMITS</code>.replyBytes（16 KiB）；任务不是 <code>completed</code> 时返回暂无最终回答（<code class="src" data-src="src/runtime/runtime.ts#readTaskReply(taskId: string, offset">runtime.ts · readTaskReply</code>）。<code>part=artifact</code> 读该子任务自己的产物，每页至多 artifactBytes（64 KiB），页尾不完整的字符留给下一页。</p>
   </section>
 
   <section id="child">
     <h2>子任务结果与异常路径</h2>
-    <p>子任务本身的状态机见<a href="task-lifecycle.html">任务生命周期</a>。这里画的是编排器这一侧：一个角色任务或 SubAgent 执行任务到达终态之后，结果怎样被记录一次、父会话怎样被唤醒一次，以及超时、自动重试和重启时走哪条边。</p>
+    <p>子任务本身的状态机见<a href="task-lifecycle.html">任务生命周期</a>。这里画的是编排器这一侧：一个角色任务或 SubAgent 执行任务到达终态之后，结果怎样被记录一次、父会话怎样被唤醒一次，以及超时、自动重试和重启时走哪条边。结果只写一次、截止巡检、按原键唤醒与启动巡检对两类任务都适用；自动重试、<code>DelegationResult</code> 与 <code>child_task.*</code> 只属于旧架构的角色任务，SubAgent 一侧的差别见<a href="#subagent-state">SubAgent 状态与结果回报</a>。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -304,7 +622,7 @@
           <tr data-k="c-record" tabindex="0">
             <td>已终态 → 结果已记录</td>
             <td>编排器：事件监听 <code class="src" data-src="src/runtime/orchestrator.ts#onRuntimeEvents">onRuntimeEvents</code>、启动巡检 ①，或群任务派发时发现任务已终态</td>
-            <td>只处理带 agent_id 的角色任务与带 sub_agent_id 的 SubAgent 执行任务（过滤条件（agent_id IS NOT NULL OR sub_agent_id IS NOT NULL），事件监听与巡检同一口径）。一个事务里：<code class="src" data-src="src/core/store.ts#setTaskResult">store.ts · setTaskResult</code> 条件写入；任务就是来源事件关联的任务时把事件置 done / failed；有来源事件时调用 onInboundTerminal（owner 回复或 GitHub 通知的登记）；追加 child_task.* 事件（SubAgent 执行任务改走下文 handleSubAgentTerminal：结果引用、身份空闲与 subagent_task.* 同一事务）。</td>
+            <td>只处理带 agent_id 的角色任务与带 sub_agent_id 的 SubAgent 执行任务（过滤条件（agent_id IS NOT NULL OR sub_agent_id IS NOT NULL），事件监听与巡检同一口径）。一个事务里：<code class="src" data-src="src/core/store.ts#setTaskResult">store.ts · setTaskResult</code> 条件写入；任务就是来源事件关联的任务时把事件置 done / failed；有来源事件时调用 onInboundTerminal（owner 回复或 GitHub 通知的登记）；追加 child_task.* 事件。SubAgent 执行任务改走 handleSubAgentTerminal：结果、SubAgent 状态与 subagent_task.* 同一事务（见<a href="#subagent-state">上文</a>）。</td>
             <td><code>child_task.completed</code> 等四种；SubAgent 任务为 subagent_task.* 四种</td>
           </tr>
           <tr data-k="c-retry" tabindex="0">
@@ -350,10 +668,10 @@
       </table>
     </div>
     <p>child_task.* 事件对每个带 agent_id 的任务都会发，不只是子任务：入站建的 main 任务、群任务与唤醒任务本身也会发，它们的 parentTaskId 为 null。</p>
-    <p>带 sub_agent_id 的执行任务走同一张状态图，差别在登记与投递（<code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">orchestrator.ts · handleSubAgentTerminal</code>）：结果与 SubAgent 空闲状态在一个事务里写（占用已核实回收记 <code>idle</code>，执行单元退出未核实记 <code>unverified</code>），终态事件是 <code>subagent_task.completed</code> / <code>failed</code> / <code>timeout</code> / <code>result_unknown</code> 四种（载荷带 workId、subAgentId、父会话与原直接父任务；结果引用 result_ref 逐一核实工作、身份、本次执行、原直接父任务与所属父会话），重复终态只记一份、不自动重试。dev 父会话不产生唤醒任务——结果经下一个任务的 <code>[SubAgent 结果]</code> 上下文注入送达（记 <code>result_delivered_at</code>，持久事件已指向父会话，故也不再列入唤醒巡检）；main 父会话按稳定 <code>wake:&lt;子任务&gt;</code> 键照常唤醒。</p>
+    <p>带 sub_agent_id 的执行任务走同一张状态图，只是没有「由重试接替」这条边，事件换成 <code>subagent_task.completed</code> / <code>subagent_task.failed</code> / <code>subagent_task.timeout</code> / <code>subagent_task.result_unknown</code>，唤醒只发给 main 父会话；dev 父会话不唤醒，也不进巡检 ②（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingWake">listRoleTasksPendingWake</code> 要求父会话绑定角色），结果在父会话下一个任务开始时注入（见<a href="#subagent-state">上文</a>）。</p>
 
     <h3>自动重试门</h3>
-    <p>重试门在 <code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">handleTerminal</code> 里，只作用于旧 coding 委派链的 analyze 子任务（issue 11 的通用 SubAgent 链路不自动重试）；下列条件<strong>全部</strong>成立才自动重试一次：</p>
+    <p>重试门在 <code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">handleTerminal</code> 里，只作用于旧 coding 委派链的 analyze 子任务。新的 analyze 委派已由 SubAgent 执行、不自动重试，所以这道门如今只对接入 SubAgent 链路之前登记、之后才结束的 analyze 子任务起作用。下列条件<strong>全部</strong>成立才自动重试一次：</p>
     <ul>
       <li>子任务模式为 <code>analyze</code>；<code>draft</code> 不重试。</li>
       <li>有父任务且没有来源事件：GitHub 评审子任务不重试。</li>
@@ -370,33 +688,33 @@
       <li>已登记、未建任务的入站事件按原请求键串行重提（派发细节见<a href="inbound-events.html">入站事件</a>）；类别不是 <code>task</code> 的控制事件（正常路径不会有遗留）不派发为模型任务，一律以 <code>inbound.skipped</code>（<code>control_event_not_dispatched</code>）作废（<code class="src" data-src="src/runtime/orchestrator.ts#event.eventKind !== &quot;task&quot;">dispatchEvent</code>）。</li>
       <li>巡检 ①：已终态但结果未记录的角色任务与 SubAgent 执行任务补记结果与事件（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingResult">store.ts · listRoleTasksPendingResult</code>）；interrupted 记为结果未知，不重放。</li>
       <li>巡检 ②：结果已记录但缺唤醒的子任务，按 <code>wake:&lt;子任务&gt;</code> 补发（<code class="src" data-src="src/runtime/orchestrator.ts#private async sweepPendingResults">sweepPendingResults</code>）。</li>
-      <li>三个角色会话中，只有因 <code>backend_restart</code> 暂停的队列自动恢复；<code>occupancy_unverified</code> 等涉及未核实旧执行的暂停留给拥有者核实。</li>
+      <li>三个角色会话中，只有因 <code>backend_restart</code> 暂停的队列自动恢复；<code>occupancy_unverified</code> 等涉及未核实旧执行的暂停留给拥有者核实。SubAgent 子会话不在自动恢复之列（见<a href="#subagent-state">停止与重启时</a>）。</li>
       <li>开始截止巡检。</li>
     </ol>
     <p>后台停止时，编排器在 GitHub webhook、调度器与 Telegram 之后，QQ 适配器与中断活动任务之前停下（<code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code>）：清掉巡检定时器，等派发串行链收尾，此后不再产生取消或唤醒。停止路径随后中断的角色任务没人监听，由下次启动的巡检 ① 按结果未知补记。</p>
 
     <h3>恢复靠原键</h3>
-    <p>编排器提交的每个任务都有宿主写定的请求键，Runtime 按「同会话 + request_id + 提交摘要」幂等：同键同参返回原任务，同键异参冲突。任何恢复路径都只用原键，不另起新键。</p>
+    <p>编排器提交的每个任务都有宿主写定的请求键，Runtime 按「同会话 + request_id + 提交摘要」幂等：同键同参返回原任务，同键异参冲突。SubAgentManager 不经 Runtime 提交，但依赖同一个（会话，request_id）唯一约束，并在登记事务里自己比对提交摘要。任何恢复路径都只用原键，不另起新键。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>请求键</th><th>所在会话</th><th>谁提交</th></tr></thead>
         <tbody>
           <tr><td><code>evt:&lt;事件&gt;</code></td><td>目标角色会话</td><td>入站事件派发（Telegram、QQ 私聊、调度唤醒等）<code class="src" data-src="src/runtime/orchestrator.ts#private async dispatchEvent">dispatchEvent</code></td></tr>
           <tr><td><code>qq:&lt;收件键&gt;</code></td><td>该群的 <code>qq_group</code> 会话</td><td>QQ 群入站派发，原键取自群收件记录（<code class="src" data-src="src/qq/store.ts#qq:${dedupKey}">qq/store.ts</code>）</td></tr>
-          <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;</code></td><td>coding</td><td>main 委派</td></tr>
+          <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;</code></td><td>coding</td><td>main 的 draft 委派</td></tr>
           <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;:retry</code></td><td>coding</td><td>自动重试门</td></tr>
           <tr><td><code>wake:&lt;子任务&gt;</code></td><td>父任务所在的角色会话</td><td>结果回传与启动巡检 ②</td></tr>
           <tr><td><code>evt:&lt;事件&gt;:main</code></td><td>main</td><td>GitHub 评审父任务</td></tr>
           <tr><td><code>deleg:&lt;父任务&gt;:review</code></td><td>coding</td><td>GitHub 评审子任务</td></tr>
-          <tr><td><code>sdelegate:&lt;工作&gt;:&lt;幂等键&gt;</code></td><td>SubAgent 子会话</td><td>通用 SubAgent 委派（issue 11）的每次执行任务；首次委派另以（父会话, 键）唯一查工作，参数摘要不含本次调用的直接父任务 id 与模型选择，跨对话轮次重放返回首次记录</td></tr>
+          <tr><td><code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>SubAgent 子会话</td><td>SubAgentManager 登记的每次执行任务；首次委派另以（父会话, 键）查工作（见<a href="#subagent">两级幂等</a>）</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
   <section id="github">
-    <h2>GitHub PR 评审编排</h2>
-    <p>拥有者启用 webhook 后，每个有效的 PR 事件由宿主固定委派一次只读评审（ADR 0013）。签名校验、入站登记与去重见<a href="inbound-events.html">入站事件</a>；通知的发送账本见<a href="outbox.html">通知 outbox</a>。这里只讲编排：派发不经模型，模型也不能改变任务的工具、目标或发送。</p>
+    <h2>GitHub PR 评审编排（旧架构）</h2>
+    <p>拥有者启用 webhook 后，每个有效的 PR 事件由宿主固定委派一次只读评审（ADR 0013）。评审子任务仍由固定的 coding 角色执行，没有接入 SubAgent；迁移是 agent-direction 工单 19，尚未实施。签名校验、入站登记与去重见<a href="inbound-events.html">入站事件</a>；通知的发送账本见<a href="outbox.html">通知 outbox</a>。这里只讲编排：派发不经模型，模型也不能改变任务的工具、目标或发送。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -442,8 +760,8 @@
   </section>
 
   <section id="chat">
-    <h2>群聊结果</h2>
-    <p>QQ 群任务完成后，编排器照常记录摘要与 <code>child_task.completed</code>，但群任务没有父任务，所以不唤醒 main；它的来源事件是 <code>qq_group</code>，owner 回复登记直接跳过。群内的普通回复走独立的 qq_outbox（见<a href="inbound-events.html">入站事件</a>）。main 想用群里的结果，必须显式接收（ADR 0014）。</p>
+    <h2>群聊结果（旧架构）</h2>
+    <p>本节是旧架构的核心群聊入口：chat 角色与 QQ 群会话由核心运行时处理。新方向把群聊移到可独立停用的 QQ 群聊外挂，核心退出群聊是 agent-direction 工单 20，尚未实施。QQ 群任务完成后，编排器照常记录摘要与 <code>child_task.completed</code>，但群任务没有父任务，所以不唤醒 main；它的来源事件是 <code>qq_group</code>，owner 回复登记直接跳过。群内的普通回复走独立的 qq_outbox（见<a href="inbound-events.html">入站事件</a>）。main 想用群里的结果，必须显式接收（ADR 0014）。</p>
 
     <div class="flow">
       <div class="stage"><b>群任务完成</b><br>编排器写 result_summary（最终回答）；不唤醒 main，不产生 owner 回复。</div>
@@ -456,7 +774,7 @@
       <li><b>能接收什么</b>：<code class="src" data-src="src/agent/chat-result-tools.ts#function sourceOf">chat-result-tools.ts · sourceOf</code> 只放行已完成且已记录结果的 chat 任务，并核对会话类别为 qq_group、收件记录、群绑定、入站事件（done、目标 chat、actor 与收件一致）彼此对应。两个工具都只在宿主绑定的 main 任务里可用。</li>
       <li><b>快照</b>：接收保存 result_summary 的前 <code class="src" data-src="src/agent/chat-result-tools.ts#SUMMARY_CHARS">SUMMARY_CHARS</code> = 1000 个 Unicode 字符、来源任务、接收任务、宿主操作 ID 与理由（1–1024 字节）。（main 项目，任务）为主键，首次快照固定，重复接收不改写，只有首次写入发 <code>chat_result.accepted</code>（<code class="src" data-src="src/core/store.ts#acceptChatResult">store.ts · acceptChatResult</code>）。列表每页 1–50 条，默认 20（<code class="src" data-src="src/agent/chat-result-tools.ts#params.limit ?? 20">chat_result_list</code>）。</li>
       <li><b>撤回使摘要失效</b>：该群任何一条在任务结束前收到、并在任务开始后（或时间未记）被撤回的消息，都会让这次结果不可接收，已接收的快照也不能再被解析或外发。这是按时间窗的保守判定，可能拒掉其实没引用被撤回消息的摘要。已经进入 main 历史或已发送的副本不追溯清除。</li>
-      <li><b>接收不是外发授权</b>：通知与通知计划引用快照时经 <code class="src" data-src="src/agent/chat-result-tools.ts#resolveAcceptedChatResult">resolveAcceptedChatResult</code> 核对 main 项目与撤回，登记仍要拥有者审批（<a href="outbox.html">通知 outbox</a>）。快照也不开放原始群历史、产物或带群来源的记忆，coding 委派不能引用它。</li>
+      <li><b>接收不是外发授权</b>：通知与通知计划引用快照时经 <code class="src" data-src="src/agent/chat-result-tools.ts#resolveAcceptedChatResult">resolveAcceptedChatResult</code> 核对 main 项目与撤回，登记仍要拥有者审批（<a href="outbox.html">通知 outbox</a>）。快照也不开放原始群历史、产物或带群来源的记忆，<code>coding_delegate</code> 与 <code>subagent_delegate</code> 都不能把它当委派资料。</li>
       <li><b>停止或重启时</b>：未落结果的 <code>chat_result_accept</code> 按接收账本核实（<code class="src" data-src="src/agent/chat-result-tools.ts#chatResultOpCheck">chatResultOpCheck</code>），不记效果未知。</li>
     </ul>
   </section>

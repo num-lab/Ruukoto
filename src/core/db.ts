@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -497,6 +497,31 @@ CREATE TABLE IF NOT EXISTS standing_permissions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_standing_permissions_active ON standing_permissions
   (session_id, channel, account, chat_id, actor, machine_id, unit, action) WHERE revoked_at IS NULL;
+
+-- v24（agent-direction issue 11，ADR 0020）：工作委托 / SubAgent / 每次执行三个
+-- 领域对象分开保存，与旧固定角色（agent_roles / tasks.agent_id）兼容共存；
+-- 动态 ID 走新关联列，不改旧角色 CHECK，旧任务关联列恒为 NULL。
+CREATE TABLE IF NOT EXISTS sub_agents (
+  id TEXT PRIMARY KEY,
+  parent_session_id TEXT NOT NULL REFERENCES sessions(id),
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+  work_dir TEXT NOT NULL,
+  active_work_id TEXT,
+  current_task_id TEXT,
+  state TEXT NOT NULL DEFAULT 'idle' CHECK (state IN ('running','idle','unverified')),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sub_agents_parent ON sub_agents (parent_session_id);
+CREATE TABLE IF NOT EXISTS work_delegations (
+  id TEXT PRIMARY KEY,
+  parent_session_id TEXT NOT NULL REFERENCES sessions(id),
+  origin_task_id TEXT NOT NULL,
+  sub_agent_id TEXT NOT NULL REFERENCES sub_agents(id),
+  request_key TEXT NOT NULL,
+  params_digest TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (parent_session_id, request_key)
+);
 `;
 
 /**
@@ -605,7 +630,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 22) {
+    } else if (version >= 2 && version <= 23) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -631,6 +656,9 @@ export class Db {
       // v22 → v23：新增 standing_permissions 表 + confirmations 补长期授权关联
       // 两列（ensureColumns，agent-direction issue 10）；迁移不产生任何授权、
       // 不改旧批准事实（旧记录关联列恒为 NULL）。
+      // v23 → v24：新增 sub_agents / work_delegations 两表 + tasks 补四个关联
+      // 列（ensureColumns，agent-direction issue 11）；旧角色、会话、任务、审批、
+      // 长期授权、历史及产物原样保留，旧任务关联列为空。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -759,16 +787,22 @@ CREATE TABLE tasks_new (
   deadline TEXT,
   result_summary TEXT,
   result_ref TEXT,
+  work_id TEXT,
+  sub_agent_id TEXT,
+  read_scope TEXT,
+  result_delivered_at TEXT,
   UNIQUE (session_id, request_id)
 );
 INSERT INTO tasks_new (id, session_id, request_id, input, status, access_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
   history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
-  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref)
+  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
+  work_id, sub_agent_id, read_scope, result_delivered_at)
 SELECT id, session_id, request_id, input, status, access_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
   history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
-  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref
+  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
+  NULL, NULL, NULL, NULL
 FROM tasks;
 DROP TABLE tasks;
 ALTER TABLE tasks_new RENAME TO tasks;
@@ -776,6 +810,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_session_created ON tasks (session_id, creat
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline);
+CREATE INDEX IF NOT EXISTS idx_tasks_work ON tasks (work_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_sub_agent ON tasks (sub_agent_id);
 CREATE TABLE sessions_new (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id),
@@ -892,6 +928,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // 迁移不把历史单次批准转换成长期授权）
     add("confirmations", "standing_permission_id", "standing_permission_id TEXT");
     add("confirmations", "standing_permission_version", "standing_permission_version INTEGER");
+    // v24（agent-direction issue 11）：任务关联工作委托与 SubAgent 身份、钉定
+    // 只读范围与结果注入标记；旧任务所有新列恒为 NULL，不把旧 coding 身份或
+    // 历史任务改造成新 Agent。
+    add("tasks", "work_id", "work_id TEXT");
+    add("tasks", "sub_agent_id", "sub_agent_id TEXT");
+    add("tasks", "read_scope", "read_scope TEXT");
+    add("tasks", "result_delivered_at", "result_delivered_at TEXT");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_work ON tasks (work_id)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_sub_agent ON tasks (sub_agent_id)");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

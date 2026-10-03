@@ -37,6 +37,7 @@
       <div><dt>决策</dt><dd>
         <a href="../adr/0009-main-app-data-space.md">ADR 0009 应用数据空间</a>
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
+        <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="deployment.html">部署与信任边界</a>
@@ -57,7 +58,7 @@
           <tr data-k="agent" tabindex="0"><td><code>&lt;agentDir&gt;</code>（默认 <code>~/.ruukoto/agent</code>）</td><td><code>models.json</code>、<code>auth.json</code>、默认/摘要模型选择、服务凭据、<code>config.lock</code></td><td>模型目录与秘密；配置锁让在线后台与离线配置中心互斥</td></tr>
           <tr data-k="control" tabindex="0"><td><code>&lt;controlDir&gt;</code>（dataDir 兄弟目录 <code>control/</code>）</td><td><code>control.sock</code>、<code>owner.token</code>、（ruukoto-dev 按需拉起时）<code>spawn.log</code></td><td>控制面 socket（0660）与拥有者令牌（0600，<code class="src" data-src="src/control/owner-token.ts#ensureOwnerToken">owner-token.ts · ensureOwnerToken</code>）；<code>spawn.log</code> 是 TUI 按需拉起后台时该进程 stdout/stderr 的追加日志（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>），ruukoto 档案一般没有</td></tr>
           <tr data-k="pending" tabindex="0"><td><code>&lt;pendingDir&gt;</code>（默认 <code>~/.ruukoto/pending</code>）</td><td>TUI 待核实提交记录</td><td>客户端侧的去重锚点，秘密不落盘</td></tr>
-          <tr data-k="sibling" tabindex="0"><td>dataDir 兄弟目录</td><td><code>qq-work/&lt;账号&gt;_&lt;群&gt;/</code>、<code>agent-work/&lt;角色&gt;/</code></td><td>群会话工作目录与角色工作目录，随数据根迁移</td></tr>
+          <tr data-k="sibling" tabindex="0"><td>dataDir 兄弟目录</td><td><code>qq-work/&lt;账号&gt;_&lt;群&gt;/</code>、<code>agent-work/&lt;角色&gt;/</code>、<code>agent-work/sub-agents/&lt;agentId&gt;/</code></td><td>群会话工作目录、角色工作目录与 SubAgent 独立工作目录（宿主生成，v24），随数据根迁移</td></tr>
         </tbody>
       </table>
     </div>
@@ -69,12 +70,13 @@
 
   <section id="core-db">
     <h2>ruukoto.db：一份核心库，按职责分组</h2>
-    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v23</code>（v22 → v23 是 <code>standing_permissions</code> 长期操作授权表 + <code>confirmations</code> 长期授权关联两列的加列迁移，迁移不产生任何授权、不改旧批准事实；v21 → v22 是 <code>inbound_events</code> 加 <code>event_kind</code> 宿主类别列的加列迁移，旧记录默认 <code>task</code>）：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
+    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v24</code>（v23 → v24 是通用 SubAgent 委派（agent-direction issue 11，ADR 0020）的新表 <code>sub_agents</code> / <code>work_delegations</code> 与 <code>tasks</code> 四个新可空列 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code>，旧任务四列均为空，迁移不产生任何委派；v22 → v23 是 <code>standing_permissions</code> 长期操作授权表 + <code>confirmations</code> 长期授权关联两列的加列迁移，迁移不产生任何授权、不改旧批准事实；v21 → v22 是 <code>inbound_events</code> 加 <code>event_kind</code> 宿主类别列的加列迁移，旧记录默认 <code>task</code>）：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>分组</th><th>表</th><th>职责</th></tr></thead>
         <tbody>
-          <tr data-k="work" tabindex="0"><td>会话与工作</td><td><code>projects</code> · <code>sessions</code> · <code>tasks</code></td><td>项目（指令列表与 Web Search 开关带乐观并发版本 <code>settings_version</code>，v20，保存同事务核对并递增；工作区根目录归属 <code>root_*</code> 四列，v19；同一真实目录至多一个工作区）/会话（工作区组织归属 <code>workspace_project_id</code>，v21，仅展示归属，资料身份仍是 <code>project_id</code>）与任务本体（状态、请求键、提交摘要）</td></tr>
+          <tr data-k="work" tabindex="0"><td>会话与工作</td><td><code>projects</code> · <code>sessions</code> · <code>tasks</code></td><td>项目（指令列表与 Web Search 开关带乐观并发版本 <code>settings_version</code>，v20，保存同事务核对并递增；工作区根目录归属 <code>root_*</code> 四列，v19；同一真实目录至多一个工作区）/会话（工作区组织归属 <code>workspace_project_id</code>，v21，仅展示归属，资料身份仍是 <code>project_id</code>）与任务本体（状态、请求键、提交摘要；SubAgent 委派关联四列 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code>，v24，均可空、旧任务为空）</td></tr>
+          <tr data-k="subagents" tabindex="0"><td>工作委托与 SubAgent</td><td><code>sub_agents</code> · <code>work_delegations</code></td><td>通用 SubAgent 委派（v24，agent-direction issue 11，ADR 0020）：<code>sub_agents</code> 存动态身份（独立 ID 与其 <code>session_id</code> 独立子会话 UNIQUE、宿主生成的 <code>work_dir</code>、当前工作/任务指针 <code>active_work_id</code> / <code>current_task_id</code>、状态 <code>running</code> / <code>idle</code> / <code>unverified</code>，空闲零模型与 worker 进程、身份保留）；<code>work_delegations</code> 存工作（父会话 <code>parent_session_id</code>、发起任务、首次委派 <code>request_key</code> 与 <code>params_digest</code>，（父会话, 键）唯一），工作内每次执行以 <code>sdelegate:&lt;workId&gt;:&lt;key&gt;</code> 请求键查重。一次任务终态不等于工作关闭或 Agent 关闭</td></tr>
           <tr data-k="occupancy" tabindex="0"><td>目录占用</td><td><code>occupancy</code></td><td>整项任务级的目录占用登记，防并行写冲突</td></tr>
           <tr data-k="events" tabindex="0"><td>事件与恢复</td><td><code>events</code> · <code>inbound_events</code> · <code>tool_ops</code> · <code>confirmations</code></td><td>持久事件流、入站事件（去重键；宿主类别 <code>event_kind</code> 区分普通任务入站与 IM 审批控制消息，v22）、工具操作账本、审批与批准消费（长期授权关联 <code>standing_permission_id/version</code>，v23）</td></tr>
           <tr data-k="roles" tabindex="0"><td>角色与群聊结果</td><td><code>agent_roles</code> · <code>chat_result_acceptances</code></td><td>旧架构逻辑角色（main/coding/chat）引导记录；main 显式接收的群聊结果快照</td></tr>
@@ -127,7 +129,7 @@
           <tr><td>拥有者令牌</td><td><code>&lt;controlDir&gt;/owner.token</code>（0600）</td><td>控制面认证；部署时以 0400 复制给拥有者，或用环境变量指向拷贝</td></tr>
           <tr><td>产品归属</td><td>核心库 <code>meta</code> 的 <code>product.type</code></td><td>首次启动登记；另一产品再开同一数据目录直接拒绝（issue 01，旧库无此键照常打开并补记）</td></tr>
           <tr><td>迁移回执</td><td>核心库 <code>meta</code> 的 <code>migration_receipt:*</code></td><td>组织迁移（apply_workspace_migration）按请求键登记成功成果与原映射；同键重放返回原成果、异参 request_conflict；回退按回执校验当前值，认领的根目录身份不回滚</td></tr>
-          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v23</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
+          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v24</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
         </tbody>
       </table>
     </div>

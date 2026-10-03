@@ -26,6 +26,11 @@
  * 关联与新决定来源 standing_permission；新增 standing_permission.* 事件与
  * service_grant_list/get/revoke 操作（不获得创建或扩大授权的能力）。旧客户端
  * 须升级；持久历史中的旧来源与事件保持可读。
+ *
+ * v11（agent-direction issue 11）：通用 SubAgent 委派——快照新增工作委托、
+ * SubAgent 与其内部会话 ID 列表；新增 work_delegation.created 与
+ * subagent_task.* 事件、work_list/work_get 操作（只读）。旧客户端须升级；
+ * 持久旧事件与记录保持可读。
  */
 
 import {
@@ -34,7 +39,9 @@ import {
   type PersistentEvent,
   type Project,
   type Session,
+  type SubAgent,
   type Task,
+  type WorkDelegation,
 } from "../core/types.ts";
 import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
 
@@ -60,6 +67,12 @@ export interface ConnectSnapshot {
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
   /** 逻辑角色绑定的会话（工作区入口不以其作为自动归属依据；旧后台缺省）。 */
   roleSessionIds?: string[];
+  /** SubAgent 的内部工作会话（普通工作区列表排除；旧后台缺省）。 */
+  subAgentSessionIds?: string[];
+  /** 工作委托（issue 11；只读视图，状态/历史/任务事件与产物沿用既有接口）。 */
+  workDelegations?: WorkDelegation[];
+  /** 动态 SubAgent 身份（含运行/空闲/待核实状态）。 */
+  subAgents?: SubAgent[];
 }
 
 /** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */

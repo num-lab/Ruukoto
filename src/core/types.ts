@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 export interface ModelSelection {
   provider: string;
@@ -125,13 +125,70 @@ export type AgentRoleId = "main" | "coding" | "chat";
 export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"];
 
 /**
+ * SubAgent（agent-direction issue 11，ADR 0017 的一层 SubAgent 模型）：主 Agent
+ * （普通开发会话或 main）为一项工作委托创建的动态从属身份。与旧固定角色
+ * （AgentRoleId）分开保存；不创建下级、不直接与拥有者交互。
+ * 状态：running = 有活动执行任务；idle = 任务终态且执行单元已核实退出；
+ * unverified = 任务终态但旧执行单元退出未核实（占用保留）。
+ */
+export type SubAgentState = "running" | "idle" | "unverified";
+
+/** 动态 SubAgent（sub_agents 表；宿主管理，模型与工作参数不能修改）。 */
+export interface SubAgent {
+  id: string;
+  /** 所属父用户会话（工作委托归属；资料身份随该会话原项目）。 */
+  parentSessionId: string;
+  /** 独立子会话（JSONL 历史所在）。 */
+  sessionId: string;
+  /** 宿主生成的独立工作目录（保护根之外）。 */
+  workDir: string;
+  /** 当前承接的工作委托；null = 空闲无当前工作。 */
+  activeWorkId: string | null;
+  /** 当前活动任务；null = 无活动任务。 */
+  currentTaskId: string | null;
+  state: SubAgentState;
+  createdAt: string;
+}
+
+/**
+ * 工作委托（work_delegations 表）：拥有者交给主 Agent 的一项工作，可跨
+ * 多轮对话、包含同一 SubAgent 的多次执行任务。与每次执行（Task）分开保存；
+ * 一次任务终态不等于工作关闭。
+ */
+export interface WorkDelegation {
+  id: string;
+  /** 所属父用户会话（普通开发会话或 main 角色会话）。 */
+  parentSessionId: string;
+  /** 发起任务（首次委派时的拥有者任务）。 */
+  originTaskId: string;
+  /** 承接的 SubAgent（首版每项工作一个）。 */
+  subAgentId: string;
+  /** 首次委派的幂等键（父会话内唯一）。 */
+  requestKey: string;
+  /** 首次委派规范化参数的 sha256（不含本次调用的父任务 id，跨轮次重放可核对）。 */
+  paramsDigest: string;
+  createdAt: string;
+}
+
+/**
+ * SubAgent 任务的限定资料范围（tasks.read_scope JSON）：
+ * - paths：宿主钉定的只读路径（经 worker init 传入，模型参数不能替换）；
+ *   每个路径保存规范化 realpath 与目录身份（dev/ino 供启动复核）。
+ * - sourceRefs：main 选定资料的来源引用（启动与每次发送上下文前重新 verify）。
+ */
+export interface SubAgentReadScope {
+  paths: Array<{ path: string; dev: number; ino: number; purpose: string }>;
+  sourceRefs: unknown[];
+}
+
+/**
  * 工具类别：按工具注册来源划分（编码工具/宿主资料与记忆/Web Search/MCP/应用数据/
  * 调度/委派/群结果/服务器服务/技能）。各会话类别开放哪些类别由 tool-availability
  * 的清单决定，装配、激活、发送前与调用门共用同一结论；app_data、scheduler、
  * delegation、chat_results、service 只在 main 的清单中（service 另要求产品与
  * 部署配置具备，见 tool-availability 与 Driver 装配）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -283,6 +340,16 @@ export interface Task {
   resultSummary: string | null;
   /** 结果引用（JSON：完整结果的查询位置，如 {"sessionId","taskId"}）。 */
   resultRef: string | null;
+  /**
+   * SubAgent 执行任务的关联（agent-direction issue 11；旧任务恒为空）：
+   * 所属工作委托与执行身份。动态 ID 不进入 agent_id（旧角色 CHECK 不变）。
+   */
+  workId: string | null;
+  subAgentId: string | null;
+  /** 本任务的限定资料范围（SubAgent 任务；null = 无钉定范围）。 */
+  readScope: SubAgentReadScope | null;
+  /** 结果已注入父会话某次模型上下文的时刻（dev 父会话的结果注入；null = 尚未注入）。 */
+  resultDeliveredAt: string | null;
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
@@ -692,6 +759,13 @@ export type PersistentEventBody =
   | { type: "child_task.timeout"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; deadline: string }
   /** 子任务结果未知（如后台重启中断）；不自动重放任何外部副作用。 */
   | { type: "child_task.result_unknown"; taskId: string; parentTaskId: string | null; agentId: AgentRoleId; reason: string }
+  /** 工作委托已登记（agent-direction issue 11）：原子登记工作/Agent/会话/任务的审计记录。 */
+  | { type: "work_delegation.created"; workId: string; parentSessionId: string; subAgentId: string; agentSessionId: string; taskId: string }
+  /** SubAgent 执行任务终态（结果摘要与引用已记录在任务上；refs 指向父会话，供 TUI 归属展示）。 */
+  | { type: "subagent_task.completed"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; summary: string; resultRef: string }
+  | { type: "subagent_task.failed"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; errorMessage: string }
+  | { type: "subagent_task.timeout"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; deadline: string }
+  | { type: "subagent_task.result_unknown"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; reason: string }
   /**
    * 应用数据能力不可用（issue 02）：main.db 丢失、实例身份不符、损坏或存储
    * 格式过新/迁移失败。不自动重建、不覆盖既有实例绑定；工具保持关闭。

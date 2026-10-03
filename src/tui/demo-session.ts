@@ -62,6 +62,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
     deadline: null,
     resultSummary: null,
     resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null,
     createdAt: ts(60),
     startedAt: ts(59),
     endedAt: ts(50),
@@ -406,6 +407,12 @@ function demoEvents(): PersistentEvent[] {
     { type: "child_task.failed", taskId: "task_failed00000", parentTaskId: "task_running000000", agentId: "coding", errorMessage: "模型返回 429：速率限制" },
     { type: "child_task.timeout", taskId: "task_canceled000", parentTaskId: "task_running000000", agentId: "coding", deadline: ts(5) },
     { type: "child_task.result_unknown", taskId: "task_interrupt00", parentTaskId: null, agentId: "main", reason: "backend_restart" },
+    // agent-direction issue 11：工作委托登记与 SubAgent 结果
+    { type: "work_delegation.created", workId: "work_demo00000000001", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", agentSessionId: "sess_demoagent000000", taskId: "task_subagent000001" },
+    { type: "subagent_task.completed", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000001", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", summary: "只读分析结论：接口一致", resultRef: "{\"workId\":\"work_demo00000000001\",\"taskId\":\"task_subagent000001\"}" },
+    { type: "subagent_task.failed", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000002", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", errorMessage: "模型返回错误" },
+    { type: "subagent_task.timeout", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000003", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", deadline: ts(5) },
+    { type: "subagent_task.result_unknown", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000004", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", reason: "backend_restart" },
     // issue 02：main 应用数据空间（能力停止与操作拒绝）
     { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },
     { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },
@@ -476,6 +483,9 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
     instanceId: "inst_demo",
     execution: { backend: "container", note: "合成会话：不执行任何任务" },
     defaultModel: { provider: MODEL.provider, id: MODEL.modelId, name: "Demo Model", thinkingLevel: MODEL.thinkingLevel },
+    subAgentSessionIds: [],
+    workDelegations: [],
+    subAgents: [],
   });
 
   // 按 op 表应答（名字与返回形状由类型检查对照服务端）；未列出的 op 明确拒绝，

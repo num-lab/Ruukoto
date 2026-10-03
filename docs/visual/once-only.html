@@ -135,9 +135,9 @@
           </tr>
           <tr data-k="child" tabindex="0">
             <td><strong>子任务</strong><br><code class="src" data-src="src/runtime/orchestrator.ts#delegateCoding">orchestrator.ts · delegateCoding</code></td>
-            <td>子任务是 <code>tasks</code> 行，请求键由编排器拼出：<code>deleg:&lt;父任务&gt;:&lt;幂等键&gt;</code>（幂等键来自委派工具参数）；唤醒父任务用 <code>wake:&lt;子任务&gt;</code></td>
+            <td>子任务是 <code>tasks</code> 行，请求键由编排器拼出：<code>deleg:&lt;父任务&gt;:&lt;幂等键&gt;</code>（幂等键来自委派工具参数）；唤醒父任务用 <code>wake:&lt;子任务&gt;</code>。通用 SubAgent 委派（agent-direction issue 11）的每次执行任务请求键为 <code>sdelegate:&lt;工作&gt;:&lt;幂等键&gt;</code>（另以（父会话, 键）唯一查工作），main 父会话的唤醒同用 <code>wake:&lt;子任务&gt;</code></td>
             <td>委派在编排器串行链上查重：同键同参返回原子任务，异参冲突；结果以条件更新写一次（<code>result_summary</code> 为空才写），写成的一方才唤醒父任务</td>
-            <td>后台重启中断的子任务记结果未知（<code>child_task.result_unknown</code>），不重放；结果已写而唤醒缺失时，启动巡检按原键补发唤醒，不会建第二个唤醒任务。可证明无写入效果的失败 analyze 子任务会被自动重试一次（见下文）</td>
+            <td>后台重启中断的子任务记结果未知（<code>child_task.result_unknown</code>），不重放；结果已写而唤醒缺失时，启动巡检按原键补发唤醒，不会建第二个唤醒任务。可证明无写入效果的失败 analyze 子任务会被自动重试一次（见下文）。SubAgent 执行任务同口径：结果未知记 <code>subagent_task.result_unknown</code>、不重放、不自动重试；dev 父会话不产生唤醒，结果经下一个任务的宿主上下文注入送达（<code>result_delivered_at</code>）</td>
           </tr>
         </tbody>
       </table>
@@ -206,7 +206,7 @@
         <tbody>
           <tr><td>平台限流退回（ADR 0011）</td><td>渠道抛 <code class="src" data-src="src/scheduler/runtime.ts#class RetryLaterError">scheduler/runtime.ts · RetryLaterError</code>：平台明确限流拒绝、可证明未发送。目前只有 Telegram 渠道在 HTTP 429 时抛出，等待时间取平台的 retry_after</td><td>发送操作从 sending 退回 pending 并写 not_before（<code class="src" data-src="src/scheduler/store.ts#release(id: string">store.ts · release</code>），到时用原目标、原正文、原键再领取；领取期间已请求取消的直接 canceled。其他明确拒绝仍是 failed，超时、5xx 与断线仍是 effect_unknown，都不重发。</td></tr>
           <tr><td>控制面同键重发</td><td>应答丢失后按原键核实，后台没有这条请求（提交：find_task 查不到；工作区入口：客户端状态里没有同一 create_request_id 的会话）</td><td>以原键和落盘的原参数重发；撞上 <code>request_conflict</code> 先再核实一次，查到就关联。不换新键绕过。</td></tr>
-          <tr><td>编排器自动重试</td><td>analyze 模式的委派子任务状态为 failed；不是入站事件派生、本身不是重试；没有效果未知；没有已批准或已消费的审批；每个工具操作都有结果且属无写入效果（<code class="src" data-src="src/agent/tool-op-ledger.ts#hasNoWriteEffect">tool-op-ledger.ts · hasNoWriteEffect</code>）</td><td>以 <code>&lt;原请求键&gt;:retry</code> 再委派一次，不计入委派上限；首次结果标注由谁重试，只由重试的结果唤醒父任务；重试再失败不再重试（<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code>）。</td></tr>
+          <tr><td>编排器自动重试</td><td>旧 coding 委派链 analyze 模式的委派子任务状态为 failed（issue 11 的通用 SubAgent 执行任务不自动重试）；不是入站事件派生、本身不是重试；没有效果未知；没有已批准或已消费的审批；每个工具操作都有结果且属无写入效果（<code class="src" data-src="src/agent/tool-op-ledger.ts#hasNoWriteEffect">tool-op-ledger.ts · hasNoWriteEffect</code>）</td><td>以 <code>&lt;原请求键&gt;:retry</code> 再委派一次，不计入委派上限；首次结果标注由谁重试，只由重试的结果唤醒父任务；重试再失败不再重试（<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code>）。</td></tr>
         </tbody>
       </table>
     </div>

@@ -830,7 +830,9 @@ test("main → coding 子任务链的审批：沿 parentTaskId 核实 IM 来源�
     }
     if (req.messages.at(-1)?.role === "tool") return { kind: "text", text: "done" };
     if (text.includes("TGDELEG")) {
-      return { kind: "tool_calls", calls: [{ id: "c-an1", name: "coding_delegate", arguments: { request: "读取外部文件并汇总", mode: "analyze", key: "an1" } }] };
+      // analyze 自 issue 11 起转通用只读链路（无 request_file_access 审批链）；
+      // 本用例沿 parentTaskId 核实 IM 审批，须走旧 coding 的 draft 路径
+      return { kind: "tool_calls", calls: [{ id: "c-an1", name: "coding_delegate", arguments: { request: "读取外部文件并汇总", mode: "draft", key: "an1" } }] };
     }
     return { kind: "text", text: "REPLY-TEXT" };
   };

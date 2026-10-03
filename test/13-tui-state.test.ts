@@ -83,6 +83,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     deadline: null,
     resultSummary: null,
     resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null,
     createdAt: "2026-09-20T00:00:00Z",
     startedAt: null,
     endedAt: null,

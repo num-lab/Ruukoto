@@ -65,7 +65,7 @@ export interface ToolRouterDeps {
    * 产物读取的范围判定（issue 05 §1）：同项目旧任务的产物在授权范围内可读，
    * 跨项目需有效授权；未提供时退回"仅当前任务"（兼容旧装配）。
    */
-  artifactAccess?: (task: Task, artifact: { taskId: string; sessionId: string }) => boolean;
+  artifactAccess?: (task: Task, artifact: { taskId: string; sessionId: string; name: string }) => boolean;
   /** 审批闸门（架构工单 04）：审批全程与等待解除。 */
   approvals: Pick<ApprovalGate, "request" | "supersedeAll">;
   /**
@@ -207,11 +207,17 @@ export class ToolRouter {
     const launcher = this.deps.launcherFor(task.accessMode); // 未配置 → 明确失败，不回退
     const session = this.deps.store.getSession(task.sessionId);
     if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
+    // SubAgent 任务的宿主钉定只读范围（agent-direction issue 11）：经 LaunchSpec → init 帧
+    // 传入工作进程，模型参数不能替换；无 readScope 的旧任务恒为 undefined（旧语义不变）
+    const scope = task.readScope;
     const startPromise = ToolWorkerHost.start(launcher, {
       taskId: task.id,
       mode: task.accessMode,
       workspace: session.cwdReal,
       grantedPaths: task.grantedPaths,
+      readRoots: scope?.paths?.length
+        ? scope.paths.map(({ path, dev, ino }) => ({ path, dev, ino }))
+        : undefined,
     });
     // 启动窗口登记占位（agent-direction issue 04）：工具意图落库早于 ready，此
     // 窗口内的停止路径必须能找到并回收执行单元——否则 killManagedProcesses 看到

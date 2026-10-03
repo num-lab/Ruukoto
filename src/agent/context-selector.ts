@@ -156,6 +156,7 @@ const CONTEXT_CATEGORIES = {
   mandatoryTurn: "当前任务",
   currentTaskBatches: "当前任务工具批次",
   historyTurns: "历史轮次",
+  subagentResults: "SubAgent 结果",
 } as const;
 
 export type ContextCategory = keyof typeof CONTEXT_CATEGORIES;

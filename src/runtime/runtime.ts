@@ -38,8 +38,10 @@ import {
   type Session,
   type SessionKind,
   type StandingPermission,
+  type SubAgent,
   type InboundEvent,
   type Task,
+  type WorkDelegation,
   type ToolOp,
   randomId,
 } from "../core/types.ts";
@@ -111,6 +113,7 @@ import {
 import { GitHubWebhook, GITHUB_SOURCE } from "../github/webhook.ts";
 import { GitHubEvents, parseGitHubEventsConfig, webhookSecret, type GitHubEventsConfig } from "../github/events.ts";
 import { Orchestrator } from "./orchestrator.ts";
+import { SubAgentManager, subagentOpCheck } from "./subagents.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
 import { appDataOpCheck } from "../agent/app-data/tools.ts";
@@ -298,6 +301,11 @@ export class Runtime {
   private appDataUnavailableReason: string | null = null;
   /** 后台编排器（issue 01）：角色引导、入站事件派发、子任务结果回传与超时。 */
   orchestrator: Orchestrator | null = null;
+  /**
+   * 通用 SubAgent 委派（agent-direction issue 11）：工作委托、动态身份与
+   * 执行任务的集中登记；普通开发会话与 main 的委派工具经它提交。
+   */
+  subagents: SubAgentManager | null = null;
   /** Telegram owner 入口配置（issue 04）。 */
   readonly telegramStore: TelegramStore;
   /** Telegram 适配器（start 时创建；null = 未创建或 dev 停用）。 */
@@ -377,6 +385,7 @@ export class Runtime {
       scheduler: schedulerOpCheck(this.sched),
       delegation: delegationOpCheck(store),
       chat_result: chatResultOpCheck(store),
+      subagent: subagentOpCheck(store),
     });
     this.telegramStore = new TelegramStore(store);
     // IM 审批命令（agent-direction issue 08）：绑定拥有者的 QQ/Telegram 私聊
@@ -611,6 +620,27 @@ export class Runtime {
         ...fullConfig.telegram,
       });
     }
+    // 通用 SubAgent 委派（agent-direction issue 11）：子工作目录在 agent-work/
+    // 下（保护根之外）；登记事务前的准备与提交后的 kick 由管理器执行
+    runtime.subagents = new SubAgentManager({
+      store: runtime.store,
+      workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "sub-agents"),
+      sources: runtime.sources,
+      resolveSelection: (selection) => runtime.resolveSelection(selection),
+      launcherFor: (mode) => runtime.launcherFor(mode),
+      defaultModelSelection: () => runtime.defaultSelection,
+      kickSession: (sessionId) => runtime.kick(sessionId),
+      protectedRoots: () => runtime.protectedRoots(),
+      dataDir: fullConfig.dataDir,
+      // 容器后端：按容器固定 uid/gid 核实执行身份；local 即后台账户（null）
+      executionReaderIdentity: () => {
+        if ((fullConfig.execution?.backend ?? "local") !== "container") return null;
+        return {
+          uid: fullConfig.execution?.container?.uid ?? Number(process.env.RUUKOTO_CONTAINER_UID ?? 1000),
+          gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
+        };
+      },
+    });
     // 编排器（issue 01）：引导 main/coding/chat 角色、恢复已登记未建任务的
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
     runtime.orchestrator = new Orchestrator({
@@ -1927,6 +1957,14 @@ export class Runtime {
     if (isPlanInput(input.input) && (session.kind !== "dev" || this.store.getAgentRoleBySession(session.id))) {
       throw new RuntimeApiError("invalid_params", "计划模式（/plan）只能在普通开发会话中使用");
     }
+    // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
+    // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
+    if (this.store.getSubAgentBySession(session.id)) {
+      throw new RuntimeApiError(
+        "invalid_state",
+        "该会话是 SubAgent 的独立工作会话，不能用作用户对话提交（委派经 subagent_delegate，结果经 subagent_result 查询）",
+      );
+    }
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
     }
@@ -2062,6 +2100,9 @@ export class Runtime {
   async setSessionDefaultMode(input: { sessionId: string; mode: AccessMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
+    if (this.store.getSubAgentBySession(input.sessionId)) {
+      throw new RuntimeApiError("invalid_state", "SubAgent 的独立工作会话不允许修改默认模式");
+    }
     if (!isAccessMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `会话默认模式无效：${input.mode}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
     }
@@ -2085,6 +2126,9 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    if (task.subAgentId || this.store.getSubAgentBySession(task.sessionId)) {
+      throw new RuntimeApiError("invalid_state", "SubAgent 执行任务的权限模式由宿主固定为请求确认，不允许切换");
+    }
     if (!isAccessMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${input.mode}`);
     }
@@ -2591,6 +2635,14 @@ export class Runtime {
           this.store.releaseOccupancy(session.cwdReal, task.id);
         });
       } finally {
+        // SubAgent 子会话（agent-direction issue 11）：driver.run 收尾后释放运行
+        // 对象（SDK 缓存与 MCP 连接）；身份、会话、JSONL 与产物保留——释放
+        // SDK 不等于删除 SubAgent。终态事件监听已在提交边界同步完成。
+        if (this.store.getSubAgentBySession(sessionId)) {
+          const current = this.drivers.get(sessionId);
+          this.drivers.delete(sessionId);
+          if (current) await current.dispose();
+        }
         this.kickAll();
       }
     }
@@ -2676,9 +2728,23 @@ export class Runtime {
             if (!this.orchestrator) throw new Error("编排器未启动");
             return this.orchestrator.delegateCoding(input);
           },
+          analyzeDelegate: this.subagents ? (input) => this.subagents!.delegate(input) : undefined,
           readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
           resultNotice: (task) => this.githubEvents.notice(task),
         },
+        // 通用 SubAgent 委派（agent-direction issue 11）：普通开发会话与 main
+        subagents: this.subagents
+          ? {
+              sources: this.sources,
+              delegate: (input) => this.subagents!.delegate(input),
+              readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+            }
+          : undefined,
+        subagentResults: {
+          pending: (sessionId) => this.store.listUndeliveredSubAgentResults(sessionId),
+          markDelivered: (taskIds) => this.store.markSubAgentResultsDelivered(taskIds, new Date().toISOString()),
+        },
+        verifyTaskSources: (projectId, refs) => this.sources.verify(projectId, refs as any[]),
       });
       this.drivers.set(session.id, driver);
     } else {
@@ -2865,6 +2931,9 @@ export class Runtime {
     execution: { backend: string; note: string };
     defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
     roleSessionIds: string[];
+    subAgentSessionIds: string[];
+    workDelegations: WorkDelegation[];
+    subAgents: SubAgent[];
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -2895,7 +2964,41 @@ export class Runtime {
       execution: this.executionInfo(),
       defaultModel: this.modelInfo(),
       roleSessionIds: this.store.listAgentRoles().map((r) => r.sessionId),
+      subAgentSessionIds: this.store.listSubAgents().map((a) => a.sessionId),
+      workDelegations: this.store.listWorkDelegations(),
+      subAgents: this.store.listSubAgents(),
       seq: this.store.getMaxSeq(),
+    };
+  }
+
+  // ---------- 工作委托与 SubAgent（agent-direction issue 11；只读视图） ----------
+
+  /** 工作委托列表（可选按父用户会话过滤）；每项附 SubAgent 与执行任务状态。 */
+  workList(parentSessionId?: string): { works: Array<{ work: WorkDelegation; agent: SubAgent | null; tasks: Pick<Task, "id" | "status" | "createdAt" | "endedAt" | "resultSummary">[] }> } {
+    const works = parentSessionId ? this.store.listWorkDelegationsBySession(parentSessionId) : this.store.listWorkDelegations();
+    return {
+      works: works.map((work) => ({
+        work,
+        agent: this.store.getSubAgent(work.subAgentId),
+        tasks: this.store.listTasksByWork(work.id).map((t) => ({
+          id: t.id,
+          status: t.status,
+          createdAt: t.createdAt,
+          endedAt: t.endedAt,
+          resultSummary: t.resultSummary,
+        })),
+      })),
+    };
+  }
+
+  /** 单项工作详情：委托、SubAgent（含归属与状态）、全部执行任务。 */
+  workGet(workId: string): { work: WorkDelegation; agent: SubAgent | null; tasks: Task[] } {
+    const work = this.store.getWorkDelegation(workId);
+    if (!work) throw new RuntimeApiError("not_found", `工作委托不存在：${workId}`);
+    return {
+      work,
+      agent: this.store.getSubAgent(work.subAgentId),
+      tasks: this.store.listTasksByWork(work.id),
     };
   }
 

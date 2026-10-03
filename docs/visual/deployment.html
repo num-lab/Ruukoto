@@ -177,13 +177,13 @@
           <tr data-k="m-mount" tabindex="0">
             <td>工作进程帧协议</td>
             <td>换行分帧 JSON over stdin/stdout，双向；容器经 <code>docker run -i</code>、完全访问经 <code>systemd-run --pipe</code> 透传</td>
-            <td>帧上限 <code>MAX_FRAME_BYTES</code> 4 MiB，数据块 512 KiB base64；工作进程只接受 <code>init</code> / <code>tool_call</code> / <code>abort</code> / <code>shutdown</code>，不拿到审批、模式或控制面凭据</td>
+            <td>帧上限 <code>MAX_FRAME_BYTES</code> 4 MiB，数据块 512 KiB base64；工作进程只接受 <code>init</code> / <code>tool_call</code> / <code>abort</code> / <code>shutdown</code>，不拿到审批、模式或控制面凭据；<code>init</code> 可携带宿主钉定的只读根 <code>readRoots</code>（SubAgent 限定资料范围，agent-direction issue 11；缺省 = 不启用限定）</td>
             <td>超限帧断开并停止整个执行单元；进程退出时在途调用按结果缺失处理（见<a href="tool-call-path.html">工具调用路径</a>）</td>
           </tr>
           <tr data-k="m-mount" tabindex="0">
             <td>工作区挂载</td>
             <td>容器 bind mount，宿主 → 容器</td>
-            <td>只挂授权工作区与任务级授予路径，按宿主原路径一对一挂载；只读授予加 <code>:ro</code>，工作区同时是容器工作目录</td>
+            <td>只挂授权工作区、任务级授予路径与 SubAgent 任务的钉定只读根（readScope，issue 11），按宿主原路径一对一挂载；只读授予与只读根加 <code>:ro</code>，工作区同时是容器工作目录</td>
             <td>挂载点以外的宿主路径在容器里不存在（<code>hostfs.absent:*</code> 全通过）；保护根不能成为工作区或授予路径</td>
           </tr>
           <tr data-k="m-acl" tabindex="0">
@@ -213,7 +213,7 @@
         </tbody>
       </table>
     </div>
-    <p>工作进程一侧的实现锚点：<code class="src" data-src="src/agent/tool-worker/host.ts#static async start">host.ts · start</code> 启动后等 <code>ready</code> 帧（30 s 超时、<code>fatal</code> 报错），失败时先回收执行单元再抛错；<code class="src" data-src="src/agent/tool-worker/host.ts#async stop()">host.ts · stop</code> 先发 <code>shutdown</code>、给 3 s 优雅窗口，然后停整个执行单元并核实退出（<code>false</code> = 无法确认，调用方保留目录占用）。</p>
+    <p>工作进程一侧的实现锚点：<code class="src" data-src="src/agent/tool-worker/host.ts#static async start">host.ts · start</code> 启动后等 <code>ready</code> 帧（30 s 超时、<code>fatal</code> 报错），失败时先回收执行单元再抛错；<code class="src" data-src="src/agent/tool-worker/host.ts#async stop()">host.ts · stop</code> 先发 <code>shutdown</code>、给 3 s 优雅窗口，然后停整个执行单元并核实退出（<code>false</code> = 无法确认，调用方保留目录占用）。SubAgent 任务的宿主钉定只读范围（agent-direction issue 11）沿 <code class="src" data-src="src/agent/execution/launchers.ts#readRoots?: Array<{ path: string; dev: number; ino: number }>">LaunchSpec.readRoots</code> → <code>init</code> 帧 <code>readRoots</code> 透传：容器启动器把每个根按 <code>-v path:path:ro</code> 挂载（local / systemd 忽略该字段）；工作进程 init 时对每个根 realpath 后复核 dev/ino（<code class="src" data-src="src/agent/tool-worker/worker.ts#function pinReadRoots">worker.ts · pinReadRoots</code>），不符即 <code>fatal</code> 退出，并从此把 read 工具的访问限定在 cwd 与各只读根内（<code class="src" data-src="src/agent/tool-worker/worker.ts#function scopedResolveInReadScope">scopedResolveInReadScope</code>：逐段 lstat 拒符号链接、realpath 前缀判定；读正文用 O_NOFOLLOW 打开防 TOCTOU）——这是 local 后端（无 OS 隔离）下唯一的只读强制点；init 未携带 readRoots 时完全保持旧行为。</p>
   </section>
 
   <section id="secrets">
@@ -452,7 +452,7 @@
           <tr><td>启动命令</td><td><code>docker run --rm -i --name ruukoto-task- &lt;taskId&gt;-&lt;base36 pid&gt;</code></td><td><code>sudo ruukoto-exec-launch &lt;taskId&gt;</code> → <code>systemd-run --pipe --wait --unit ruukoto-exec-&lt;taskId&gt;</code></td><td><code>node --import tsx …/worker.ts</code>（<code>detached</code>）</td></tr>
           <tr><td>身份</td><td><code>--user</code> <code>RUUKOTO_CONTAINER_UID</code>:<code>GID</code>（默认 1000，非 root）</td><td><code>--uid</code>/<code>--gid</code> 取 <code>RUUKOTO_EXEC_UID</code>/<code>GID</code>（默认 1002）</td><td>后台账户本身</td></tr>
           <tr><td>权限与文件系统</td><td><code>--cap-drop ALL</code>、<code>no-new-privileges</code>、<code>--read-only</code> + <code>tmpfs /tmp</code>（<code>rw,nosuid,size=64m</code>）</td><td>执行账户已有的系统权限，不额外隔离</td><td>后台账户已有的权限，不额外隔离</td></tr>
-          <tr><td>挂载</td><td>工作区 + 授予路径，均按宿主原路径挂载，只读授予加 <code>:ro</code>；<code>-w</code> 为工作区</td><td>无挂载（直接使用宿主文件系统）</td><td>无挂载</td></tr>
+          <tr><td>挂载</td><td>工作区 + 授予路径 + SubAgent 只读根（readScope），均按宿主原路径挂载，只读授予与只读根加 <code>:ro</code>；<code>-w</code> 为工作区</td><td>无挂载（直接使用宿主文件系统）</td><td>无挂载（readScope 由工作进程内强制）</td></tr>
           <tr><td>网络</td><td><code>--network none</code></td><td>继承宿主网络</td><td>继承宿主网络</td></tr>
           <tr><td>环境变量</td><td><code>PATH</code> 一条</td><td>sudo 清空环境，只 <code>env_keep</code> 执行账户 uid/gid</td><td>只留 <code>PATH</code>/<code>HOME</code>/<code>LANG</code>/<code>LC_ALL</code>/<code>TMPDIR</code></td></tr>
           <tr><td>停止与核实</td><td><code>docker kill</code> → <code>docker rm -f</code> → <code>docker inspect</code> 失败即确认</td><td>包装脚本 <code>systemctl stop</code> 后按 <code>is-active</code> 反转换取退出码；直连时 <code>systemctl stop</code> + <code>is-active</code></td><td>进程组 SIGTERM → SIGKILL，各 3000 ms 上限</td></tr>

@@ -8,8 +8,11 @@ import type {
   PersistentEvent,
   Project,
   Session,
+  SubAgent,
+  SubAgentState,
   Task,
   TaskStatus,
+  WorkDelegation,
 } from "../core/types.ts";
 import { ACTIVE_TASK_STATUSES } from "../core/types.ts";
 import type { ConnectResult } from "../control/protocol.ts";
@@ -56,6 +59,12 @@ export class ViewState {
   execution: { backend: string; note: string } = { backend: "", note: "" };
   /** 逻辑角色绑定的会话（快照提供；角色只在后台启动时引导，不随事件新增）。 */
   roleSessionIds: string[] = [];
+  /** SubAgent 的内部工作会话（快照 + work_delegation.created 事件补齐；普通工作区入口排除）。 */
+  subAgentSessionIds: string[] = [];
+  /** 工作委托（issue 11；快照 + work_delegation.created 事件补齐）。 */
+  workDelegations: WorkDelegation[] = [];
+  /** 动态 SubAgent 身份（快照 + 委派事件补齐；状态以快照为准）。 */
+  subAgents: SubAgent[] = [];
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string } = {
     provider: "",
     id: "",
@@ -93,6 +102,9 @@ export class ViewState {
     this.execution = result.snapshot.execution;
     this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
     this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
+    this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
+    this.workDelegations = result.snapshot.workDelegations ?? [];
+    this.subAgents = result.snapshot.subAgents ?? [];
     if (instanceChanged) {
       this.sessionViews.clear();
       this.unsavedCommands.clear();
@@ -214,6 +226,7 @@ export class ViewState {
           deadline: null,
           resultSummary: null,
           resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null,
           createdAt: event.createdAt,
           startedAt: null,
           endedAt: null,
@@ -370,6 +383,51 @@ export class ViewState {
       case "session.history_unreadable":
         this.note(body.sessionId, `历史读取异常：${body.error}`);
         return;
+      case "work_delegation.created": {
+        // issue 11：登记记录同步进状态（子会话立即排除出普通列表，不等重连快照）；
+        // originTaskId/requestKey/paramsDigest 不在事件载荷里，置空且展示不引用
+        if (!this.subAgentSessionIds.includes(body.agentSessionId)) this.subAgentSessionIds.push(body.agentSessionId);
+        if (!this.workDelegations.some((w) => w.id === body.workId)) {
+          this.workDelegations.push({
+            id: body.workId,
+            parentSessionId: body.parentSessionId,
+            originTaskId: "",
+            subAgentId: body.subAgentId,
+            requestKey: "",
+            paramsDigest: "",
+            createdAt: event.createdAt,
+          });
+        }
+        if (!this.subAgents.some((a) => a.id === body.subAgentId)) {
+          this.subAgents.push({
+            id: body.subAgentId,
+            parentSessionId: body.parentSessionId,
+            sessionId: body.agentSessionId,
+            workDir: "",
+            activeWorkId: body.workId,
+            currentTaskId: body.taskId,
+            state: "running",
+            createdAt: event.createdAt,
+          });
+        } else {
+          // 委派成功后台恒置 running + 当前任务（含同一 SubAgent 的新工作）
+          const agent = this.subAgents.find((a) => a.id === body.subAgentId)!;
+          Object.assign(agent, { state: "running", activeWorkId: body.workId, currentTaskId: body.taskId });
+        }
+        this.note(body.parentSessionId, `工作委托已登记：${body.workId.slice(0, 12)}…（SubAgent ${body.subAgentId.slice(0, 12)}…）`, event.createdAt);
+        return;
+      }
+      case "subagent_task.completed":
+      case "subagent_task.failed":
+      case "subagent_task.timeout":
+      case "subagent_task.result_unknown": {
+        // 任务已终态（事件可证）；idle/unverified 之分取决于占用核实，以重连快照为准
+        const agent = this.subAgents.find((a) => a.id === body.subAgentId);
+        if (agent?.currentTaskId === body.taskId) agent.currentTaskId = null;
+        const label = body.type === "subagent_task.completed" ? "完成" : body.type === "subagent_task.failed" ? "失败" : body.type === "subagent_task.timeout" ? "超时" : "结果未知";
+        this.note(body.parentSessionId, `SubAgent 任务${label}：${body.workId.slice(0, 12)}…（SubAgent ${body.subAgentId.slice(0, 12)}…）`, event.createdAt);
+        return;
+      }
       // issue 17：github.* 事件已随专用模块退役，仅为历史事件重放的只读展示保留
       case "github.draft_saved":
         this.note(body.sessionId, `GitHub 草稿（历史记录）：${body.draftId.slice(0, 12)} v${body.version}（${body.kind}，${body.bodyBytes} 字节）`);
@@ -562,6 +620,34 @@ export class ViewState {
     return this.tasksFor(sessionId).filter((t) => t.status === "queued");
   }
 
+  /** 本会话发起的工作委托（issue 11；按登记顺序）。 */
+  worksForSession(sessionId: string): WorkDelegation[] {
+    return this.workDelegations
+      .filter((w) => w.parentSessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+
+  /** 普通工作区入口排除的内部会话（逻辑角色绑定 + SubAgent 内部工作会话）。 */
+  excludedPickerSessionIds(): Set<string> {
+    return new Set([...this.roleSessionIds, ...this.subAgentSessionIds]);
+  }
+
+  /** 本会话的工作委托汇总文本；没有委托时返回 null（不展示任何内容）。 */
+  worksSummaryForSession(sessionId: string): string | null {
+    const works = this.worksForSession(sessionId);
+    if (!works.length) return null;
+    const parts = works.map((work) => {
+      const agent = this.subAgents.find((a) => a.id === work.subAgentId);
+      const agentText = agent ? subAgentStateLabel(agent.state) : "未知";
+      const latest = [...this.tasks.values()]
+        .filter((t) => t.workId === work.id)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+        .at(-1);
+      return `${work.id.slice(0, 12)}…（${agentText}${latest ? ` · 最近任务${formatTaskStatus(latest.status)}` : ""}）`;
+    });
+    return `工作委托 ${parts.join("；")}`;
+  }
+
   pendingApprovals(): ConfirmationRequestView[] {
     return this.confirmations.filter((c) => c.status === "pending");
   }
@@ -629,6 +715,18 @@ export function accessModeStyle(mode: AccessMode): (s: string) => string {
       return (s) => `\x1b[38;5;214m${s}\x1b[0m`; // 橙黄：完全访问
     default:
       return (s) => s; // 请求确认：默认前景色
+  }
+}
+
+/** SubAgent 状态显示名（issue 11 展示；状态本身以快照为准）。 */
+export function subAgentStateLabel(state: SubAgentState): string {
+  switch (state) {
+    case "idle":
+      return "空闲";
+    case "running":
+      return "运行中";
+    case "unverified":
+      return "待核实";
   }
 }
 

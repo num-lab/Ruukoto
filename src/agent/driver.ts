@@ -58,6 +58,7 @@ import type { AppDataStore } from "./app-data/store.ts";
 import type { AppDataQueryRunner } from "./app-data/query.ts";
 import { createSchedulerTools, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
 import { createDelegationTools, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
+import { createSubAgentTools, SUBAGENT_TOOL_NAMES, type SubAgentToolsDeps } from "./subagent-tools.ts";
 import { createChatResultTools, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
 import { createServiceTools, SERVICE_TOOL_NAMES, type ServiceManagerConfig } from "./service-tools.ts";
 import type { QqStore } from "../qq/store.ts";
@@ -65,7 +66,7 @@ import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } fro
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
 import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
-import { allowsCategory, sessionToolClass, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
+import { allowsCategory, sessionToolClass, SUBAGENT_READONLY_TOOL_NAMES, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -154,7 +155,22 @@ export interface DriverDeps {
   /**
    * 委派 coding（issue 05）：仅 main 角色会话装配。
    */
-  delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply" | "resultNotice">;
+  delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "analyzeDelegate" | "readReply" | "resultNotice">;
+  /**
+   * 通用 SubAgent 委派（agent-direction issue 11）：普通开发会话与 main 装配；
+   * readReply 读指定任务的最终回答，delegate 走集中登记（不阻塞父任务）。
+   */
+  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "readReply">;
+  /**
+   * dev 父会话待注入的 SubAgent 结果：任务开始时收集并由 driver 标记送达
+   * （注入随下一次模型调用送达；崩溃窗口不丢失，持久事件与 subagent_result 可查）。
+   */
+  subagentResults?: { pending(sessionId: string): Task[]; markDelivered(taskIds: string[]): void };
+  /**
+   * main 委派资料的发送前复核（仅 subagent 类会话；撤销阻止后续注入，
+   * 已保存快照正文不重新解析）。
+   */
+  verifyTaskSources?: (projectId: string, refs: unknown[]) => string | null;
   /**
    * 服务器服务管理（agent-direction issue 09）：仅 main 清单含 service 类别时装配；
    * Runtime 只在产品 ruukoto + Linux + 显式部署配置齐备时提供。
@@ -248,6 +264,10 @@ export class Driver {
       launcherFor: deps.launcherFor,
       protectedRoots: deps.protectedRoots,
       artifactAccess: (task, artifact) => {
+        // SubAgent 只读本次自产；模型上下文快照不是交付产物，拒绝
+        if (this.toolClass === "subagent") {
+          return artifact.taskId === task.id && !artifact.name.startsWith("prompt-snapshot:");
+        }
         if (artifact.taskId === task.id) return true;
         const artifactSession = deps.store.getSession(artifact.sessionId);
         if (!artifactSession) return false;
@@ -279,9 +299,15 @@ export class Driver {
     return this.roleConfig;
   }
 
-  /** 会话工具类别（工具可用性）：QQ 群归 chat，角色会话按宿主绑定，其余为普通开发会话。 */
+  /**
+   * 会话工具类别（工具可用性）：QQ 群归 chat，角色会话按宿主绑定，其余为普通
+   * 开发会话；宿主绑定的动态 SubAgent 子会话（sub_agents 表）归 subagent，
+   * 不能因没有固定角色而落入默认 dev 类别。
+   */
   private get toolClass(): SessionToolClass {
-    this.toolClassCache ??= sessionToolClass(this.session.kind, this.role()?.id ?? null);
+    this.toolClassCache ??= this.deps.store.getSubAgentBySession(this.session.id)
+      ? "subagent"
+      : sessionToolClass(this.session.kind, this.role()?.id ?? null);
     return this.toolClassCache;
   }
 
@@ -321,12 +347,30 @@ export class Driver {
   }
 
   /**
-   * 资料范围受宿主约束的会话（issue 07 qq_group；issue 01 chat 角色）：
-   * 上下文注入排除个人共享记忆与项目指令，记忆/资料工具按受限身份判定。
+   * 资料范围受宿主约束的会话（issue 07 qq_group；issue 01 chat 角色；
+   * agent-direction issue 11 SubAgent）：
+   * 上下文注入排除个人共享记忆、项目指令与技能目录，记忆/资料工具按受限身份判定。
    * 工具白名单管工具可见性，本约束管资料范围，两者独立生效。
    */
   private get dataScopeRestricted(): boolean {
-    return this.toolClass === "chat";
+    return this.toolClass === "chat" || this.toolClass === "subagent";
+  }
+
+  /**
+   * SubAgent 委派工具的宿主重核（agent-direction issue 11）：每次调用核实会话、
+   * 项目与任务归属，以及会话是具备委派资格的身份（普通开发会话或 main；
+   * 绑定 SubAgent/coding/chat 的会话、群会话一律拒绝）。
+   */
+  private verifyDelegationHost(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
+    if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
+    if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
+    if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
+    if (this.deps.store.getSubAgentBySession(ctx.sessionId)) return "SubAgent 不能委派下级";
+    const role = this.deps.store.getAgentRoleBySession(ctx.sessionId);
+    if (role && role.id !== "main") return "只有普通开发会话或 main 可以委派 SubAgent";
+    const task = this.deps.store.getTask(ctx.taskId);
+    if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
+    return null;
   }
 
   get currentTaskId(): string | null {
@@ -429,6 +473,19 @@ export class Driver {
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
           })
         : [];
+    // 通用 SubAgent 委派（agent-direction issue 11）：普通开发会话与 main 装配；
+    // 每次调用仍重核宿主身份（普通 dev/main 绑定、SubAgent 拒绝）
+    const subagentTools =
+      this.allows("subagent") && this.deps.subagents
+        ? createSubAgentTools({
+            ...this.deps.subagents,
+            coreStore: this.deps.store,
+            artifacts: this.deps.artifacts,
+            taskContext: () => this.hostToolCtx,
+            bindCall: this.bindHostCall,
+            verifyHost: (ctx) => this.verifyDelegationHost(ctx),
+          })
+        : [];
     const chatResultTools = this.allows("chat_results")
       ? createChatResultTools({
           coreStore: this.deps.store, qqStore: this.deps.qqStore,
@@ -462,6 +519,11 @@ export class Driver {
       : createSkillTools({ library: () => this.pinnedSkills, bindCall: this.bindHostCall });
     const allTools = [
       ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
+      // SubAgent（agent-direction issue 11）：静态白名单外不装配（不发、不调用）；
+      // 装配即收窄，发送前与调用门由 taskTools 复用同一结论
+      ...(this.toolClass === "subagent"
+        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter((t) => SUBAGENT_READONLY_TOOL_NAMES.has(t.name))
+        : []),
       // 工作清单（issue 25）：与编码工具同一类别——开发会话与 coding，main/chat 不装配
       ...(this.allows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
       ...hostDataTools,
@@ -469,6 +531,7 @@ export class Driver {
       ...appDataTools,
       ...schedulerTools,
       ...delegationTools,
+      ...subagentTools,
       ...chatResultTools,
       ...serviceTools,
       ...skillTools,
@@ -486,7 +549,8 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      // 按会话类别固定（issue 24）：QQ 群与 chat 角色用 chat 提示；coding 含 GitHub 评审子任务
+      // 按会话类别固定（issue 24）：QQ 群与 chat 角色用 chat 提示；coding 含 GitHub 评审子任务；
+      // subagent 用只读分析提示
       systemPrompt: SYSTEM_PROMPTS[this.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
@@ -570,6 +634,12 @@ export class Driver {
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
       throw new ContextSendBlocked("model_selection_mismatch:实际模型或思考强度与任务记录不一致");
     }
+    // SubAgent 的资料授权复核（agent-direction issue 11）：每次向模型发送上下文
+    // 前重新 verify 任务的来源引用；撤销后阻止后续注入（快照正文不重新解析）
+    if (this.toolClass === "subagent" && task.readScope && task.readScope.sourceRefs.length > 0 && this.deps.verifyTaskSources) {
+      const problem = this.deps.verifyTaskSources(this.session.projectId, task.readScope.sourceRefs);
+      if (problem) throw new ContextSendBlocked(`task_sources_revoked:${problem}`);
+    }
     // 工具可用性（架构工单 03）：发送载荷中的每个工具都必须在本任务允许的集合内
     // （按实际载荷检查，覆盖全部注册来源；QQ 群与 chat 的集合为空）
     if (Array.isArray(context?.tools)) {
@@ -644,6 +714,23 @@ export class Driver {
       this.pinnedPlan = this.toolClass === "dev" && isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
     }
     this.pinnedSkills = this.dataScopeRestricted ? null : loadSkillLibrary(this.deps.agentDir);
+    // SubAgent 结果注入（agent-direction issue 11）：dev 父会话的下一个拥有者
+    // 任务开始时收集待注入结果并标记送达（同事务）；摘要由宿主写定，不伪装
+    // 拥有者新请求，也不授予委派权限。
+    let subagentResults: Array<{ workId: string; subAgentId: string; taskId: string; status: string; summary: string }> | undefined;
+    if (this.toolClass === "dev" && this.deps.subagentResults) {
+      const pending = this.deps.subagentResults.pending(this.session.id);
+      if (pending.length > 0) {
+        subagentResults = pending.map((t) => ({
+          workId: t.workId!,
+          subAgentId: t.subAgentId!,
+          taskId: t.id,
+          status: t.status,
+          summary: t.resultSummary ?? "",
+        }));
+        this.deps.store.withTx(() => this.deps.subagentResults!.markDelivered(pending.map((t) => t.id)));
+      }
+    }
     this.assembly = beginContextAssembly({
       task,
       session: this.session,
@@ -654,6 +741,7 @@ export class Driver {
         : undefined,
       plan: this.pinnedPlan,
       skills: this.pinnedSkills,
+      subagentResults,
     }, this.deps);
     this.runPromise = this.runInner(task);
     try {
@@ -768,7 +856,13 @@ export class Driver {
       plan: this.pinnedPlan,
       webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
       mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
-      narrow: allowTaskTool ? (name, effect) => allowTaskTool(task, name, effect) : undefined,
+      // SubAgent 任务收窄到静态只读白名单（装配已收窄，此处复用同一结论兜底）
+      narrow:
+        this.toolClass === "subagent"
+          ? (name) => SUBAGENT_READONLY_TOOL_NAMES.has(name)
+          : allowTaskTool
+            ? (name, effect) => allowTaskTool(task, name, effect)
+            : undefined,
     });
     sdk.setActiveToolsByName([...this.taskTools.allowed]);
 
@@ -1093,6 +1187,7 @@ export class Driver {
       (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (SUBAGENT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (SERVICE_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (SKILL_TOOL_NAMES as readonly string[]).includes(event.toolName) ||

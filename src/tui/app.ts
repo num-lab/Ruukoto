@@ -2830,7 +2830,8 @@ export class TuiApp {
   private isVisiblePickerSession(sessionId: string): boolean {
     if (!this.devProductPicker()) return true;
     const session = this.state.sessions.find((s) => s.id === sessionId);
-    return !session || (session.kind === "dev" && !this.state.roleSessionIds.includes(session.id));
+    // issue 11：SubAgent 内部工作会话与逻辑角色会话一样不进入普通入口；未知会话如旧放行
+    return !session || (session.kind === "dev" && !this.state.excludedPickerSessionIds().has(session.id));
   }
 
   private openProjectPicker(): void {
@@ -2855,7 +2856,8 @@ export class TuiApp {
           const { workspaces, legacy } = workspacePickerProjects({
             projects: this.state.projects,
             sessions: this.state.sessions,
-            roleSessionIds: this.state.roleSessionIds,
+            // SubAgent 内部工作会话并入排除集（issue 11）：只含内部会话的项目不进普通列表
+            roleSessionIds: [...this.state.excludedPickerSessionIds()],
           });
           return [...workspaces.map((p) => itemOf(p, "工作区")), ...legacy.map((p) => itemOf(p, "旧项目"))];
         })()
@@ -3031,9 +3033,12 @@ export class TuiApp {
     const titleName = this.state.projectName(title?.projectId ?? view.projectId);
     // 来源标注紧随工作区名（行尾是长 cwd，可能被截断）
     const sourceNote = title?.sourceProjectId ? dim(`（配置与资料来源：${this.state.projectName(title.sourceProjectId)}）`) : "";
+    // issue 11：本会话的工作委托多出一行展示；没有委托不加行
+    const worksText = this.state.worksSummaryForSession(view.sessionId);
     this.header.setText(
       `${titleTag}${bold(titleName)}${sourceNote} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
-        `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}`,
+        `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}` +
+        (worksText ? `\n${dim(worksText)}` : ""),
     );
     this.tui.requestRender();
   }

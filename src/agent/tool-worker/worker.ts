@@ -30,6 +30,7 @@ import {
   type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
 import { statsFromPatch } from "../../core/history.ts";
+import { grantCoversPath } from "../../core/worktree.ts";
 import type { EditStats } from "../../core/types.ts";
 import {
   DATA_CHUNK_BYTES,
@@ -186,6 +187,85 @@ function readOperations(): ReadOperations {
   };
 }
 
+// ---------- 宿主钉定的只读范围（SubAgent 限定资料范围，agent-direction issue 11） ----------
+// ponytail：范围只覆盖 read；write/edit/bash 的口子由"工具不装配"堵住
+// （只读 SubAgent 会话的宿主工具清单不含这三个工具，模型无从调用）。
+
+/** 经 realpath 的只读根列表（含会话 cwd）；null = init 未提供 readRoots，完全保持旧行为。 */
+let readScopeRoots: string[] | null = null;
+
+/** 启动钉定复核：每个只读根 realpath 后 dev/ino 必须与宿主钉定一致（范围变化 = 明确失败）。 */
+function pinReadRoots(cwd: string, roots: Array<{ path: string; dev: number; ino: number }>): void {
+  const pinned: string[] = [];
+  for (const root of roots) {
+    const real = fs.realpathSync(root.path);
+    const st = fs.statSync(real);
+    if (st.dev !== root.dev || st.ino !== root.ino) {
+      throw new Error(`只读根已变化（宿主钉定不符）：${root.path}`);
+    }
+    pinned.push(real);
+  }
+  readScopeRoots = [fs.realpathSync(cwd), ...pinned];
+}
+
+/**
+ * 受限解析并核对只读范围：逐段 lstat 拒绝符号链接组件（最后一段可缺失，
+ * 不存在文件的"不存在"错误照常上报）；解析到真实目标后要求落在 cwd 或任一
+ * 只读根之内（realpath 前缀比较 + path.sep 边界）。
+ */
+function scopedResolveInReadScope(target: string): string {
+  const resolved = path.resolve(target);
+  const parts = resolved.split(path.sep).filter((p) => p.length > 0);
+  let current = "";
+  for (let i = 0; i < parts.length; i++) {
+    current = `${current}/${parts[i]}`;
+    let st: fs.Stats;
+    try {
+      st = fs.lstatSync(current);
+    } catch {
+      if (i === parts.length - 1) break; // 目标可不存在：前缀判定只依赖已逐段核实的上层路径
+      throw new Error(`路径超出宿主钉定的只读范围（中间路径段不可达：${current}）`);
+    }
+    if (st.isSymbolicLink()) {
+      throw new Error(`路径超出宿主钉定的只读范围（符号链接组件：${current}）`);
+    }
+  }
+  let realTarget = resolved;
+  try {
+    realTarget = fs.realpathSync(resolved); // 逐段无符号链接时与 resolved 一致；仍取 realpath 作规范化
+  } catch {
+    // 目标不存在：resolved 已逐段确认无符号链接，直接用于前缀比较
+  }
+  for (const root of readScopeRoots!) {
+    if (grantCoversPath(root, realTarget)) return resolved;
+  }
+  throw new Error("路径超出宿主钉定的只读范围");
+}
+
+/** 只读范围启用时的受限 ReadOperations（init 未提供 readRoots 时完全不启用）。 */
+function scopedReadOperations(): ReadOperations {
+  return {
+    readFile: async (absolutePath) => {
+      const resolved = scopedResolveInReadScope(absolutePath);
+      // O_NOFOLLOW 打开 + fstat + readFileSync(fd)：防打开瞬间目标被替换（TOCTOU）
+      const fd = fs.openSync(resolved, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try {
+        if (fs.fstatSync(fd).isDirectory()) throw new Error("目标是目录，无正文可读");
+        const buf = fs.readFileSync(fd);
+        const opId = currentOpId("read");
+        if (opId) streamData(opId, "file_read", buf);
+        return buf;
+      } finally {
+        fs.closeSync(fd);
+      }
+    },
+    access: async (absolutePath) => {
+      const resolved = scopedResolveInReadScope(absolutePath);
+      await fs.promises.access(resolved, fs.constants.R_OK);
+    },
+  };
+}
+
 function editOperations(): EditOperations {
   return {
     readFile: async (absolutePath) => fs.promises.readFile(absolutePath),
@@ -229,7 +309,7 @@ interface LoadedTools {
 
 function loadTools(cwd: string): LoadedTools {
   const tools = new Map<string, ToolDefinition<any, any, any>>([
-    ["read", createReadToolDefinition(cwd, { operations: readOperations() })],
+    ["read", createReadToolDefinition(cwd, { operations: readScopeRoots ? scopedReadOperations() : readOperations() })],
     ["edit", createEditToolDefinition(cwd, { operations: editOperations() })],
     ["bash", createBashToolDefinition(cwd, { operations: bashOperations(), exposeSessionEnvironment: false })],
   ]);
@@ -316,6 +396,17 @@ async function handleMessage(raw: string): Promise<void> {
   switch (req.type) {
     case "init": {
       const cwd = path.resolve(req.cwd);
+      if (req.readRoots !== undefined) {
+        try {
+          pinReadRoots(cwd, req.readRoots);
+        } catch (err) {
+          // 范围变化明确失败：不带着与宿主钉定不符的范围服务（host 收 fatal 后回收执行单元）
+          fail(`宿主钉定的只读范围复核失败：${(err as Error).message}`);
+          // sendMessage 的写入是排队的异步链：给 fatal 帧落管道的机会再退出（上不封顶等会卡死，封 500ms）
+          await Promise.race([stdoutDrained, sleep(500)]);
+          process.exit(1);
+        }
+      }
       initPromise = (async () => {
         await fs.promises.mkdir(cwd, { recursive: true }).catch(() => {});
         loaded = loadTools(cwd);

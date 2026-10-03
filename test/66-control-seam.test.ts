@@ -168,7 +168,8 @@ function task(overrides: Partial<Task> = {}): Task {
     submissionDigest: null, status: "queued", accessMode: "confirm", permissionVersion: 1, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
-    resultSummary: null, resultRef: null, createdAt: T0, startedAt: null, endedAt: null, ...overrides,
+    resultSummary: null, resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: T0, startedAt: null, endedAt: null, ...overrides,
   };
 }
 

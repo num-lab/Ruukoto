@@ -35,10 +35,14 @@ import {
   type SessionDefaultMode,
   type SessionKind,
   type StandingPermission,
+  type SubAgent,
+  type SubAgentReadScope,
+  type SubAgentState,
   type Task,
   type TaskStatus,
   type ToolCategory,
   type ToolOp,
+  type WorkDelegation,
   randomId,
 } from "./types.ts";
 
@@ -577,6 +581,10 @@ export class Store {
     parentTaskId?: string | null;
     sourceEventId?: string | null;
     deadline?: string | null;
+    /** SubAgent 执行关联（agent-direction issue 11）：仅集中委派登记时携带。 */
+    workId?: string | null;
+    subAgentId?: string | null;
+    readScope?: SubAgentReadScope | null;
   }): { task: Task; duplicate: boolean } {
     const accessMode = input.accessMode ?? "confirm";
     const grantedPaths = input.grantedPaths ?? [];
@@ -606,6 +614,10 @@ export class Store {
       deadline: input.deadline ?? null,
       resultSummary: null,
       resultRef: null,
+      workId: input.workId ?? null,
+      subAgentId: input.subAgentId ?? null,
+      readScope: input.readScope ?? null,
+      resultDeliveredAt: null,
       createdAt: new Date().toISOString(),
       startedAt: null,
       endedAt: null,
@@ -616,8 +628,9 @@ export class Store {
          granted_paths, pending_access_mode, interrupt_reason,
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
          created_at, started_at, ended_at, model_selection, submission_digest,
-         agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref)
-         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+         agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
+         work_id, sub_agent_id, read_scope, result_delivered_at)
+         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
       )
       .run(
         task.id,
@@ -634,6 +647,9 @@ export class Store {
         task.parentTaskId,
         task.sourceEventId,
         task.deadline,
+        task.workId,
+        task.subAgentId,
+        task.readScope ? JSON.stringify(task.readScope) : null,
       );
     this.appendEvent(
       {
@@ -821,6 +837,10 @@ export class Store {
       deadline: row.deadline ?? null,
       resultSummary: row.result_summary ?? null,
       resultRef: row.result_ref ?? null,
+      workId: row.work_id ?? null,
+      subAgentId: row.sub_agent_id ?? null,
+      readScope: row.read_scope ? (JSON.parse(row.read_scope) as SubAgentReadScope) : null,
+      resultDeliveredAt: row.result_delivered_at ?? null,
       createdAt: row.created_at,
       startedAt: row.started_at,
       endedAt: row.ended_at,
@@ -856,33 +876,180 @@ export class Store {
     return Number(row.n);
   }
 
-  /** 已到终态但结果尚未记录的角色任务（启动巡检补记结果与事件）。 */
+  /** 已到终态但结果尚未记录的角色/SubAgent 任务（启动巡检补记结果与事件）。 */
   listRoleTasksPendingResult(): Task[] {
     const rows = this.db
       .prepare(
-        "SELECT * FROM tasks WHERE agent_id IS NOT NULL AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted') ORDER BY created_at, id",
+        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL)
+           AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted')
+         ORDER BY created_at, id`,
       )
       .all() as any[];
     return rows.map((r) => this.rowToTask(r));
   }
 
   /**
-   * 终态、结果已记录、但父会话中尚无对应唤醒任务的角色子任务（唤醒投递的
-   * 持久核对）：唤醒任务的请求键 wake:<childId> 即投递记录——结果已落库而
-   * 唤醒缺失（提交失败或崩溃窗口）时，启动巡检按原幂等键补发。
+   * 终态、结果已记录、但父会话中尚无对应唤醒任务的角色/SubAgent 子任务（唤醒
+   * 投递的持久核对）：唤醒任务的请求键 wake:<childId> 即投递记录——结果已落
+   * 库而唤醒缺失（提交失败或崩溃窗口）时，启动巡检按原幂等键补发。
+   * 只有父会话绑定角色的子任务需要唤醒；dev 父会话（无角色绑定）的 SubAgent
+   * 结果经下次模型调用的资料注入送达（result_delivered_at），不产生唤醒任务，
+   * 故不再列入本清单重复巡检。
    */
   listRoleTasksPendingWake(): Task[] {
     const rows = this.db
       .prepare(
         `SELECT t.* FROM tasks t JOIN tasks p ON p.id = t.parent_task_id
-         WHERE t.agent_id IS NOT NULL AND t.parent_task_id IS NOT NULL AND t.result_summary IS NOT NULL
+         WHERE (t.agent_id IS NOT NULL OR t.sub_agent_id IS NOT NULL) AND t.parent_task_id IS NOT NULL
+           AND t.result_summary IS NOT NULL
            AND t.status IN ('completed','failed','canceled','interrupted')
+           AND EXISTS (SELECT 1 FROM agent_roles r WHERE r.session_id = p.session_id)
            AND NOT EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = p.session_id AND w.request_id = 'wake:' || t.id)
            AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.parent_task_id = t.parent_task_id AND r.request_id = t.request_id || ':retry')
          ORDER BY t.created_at, t.id`,
       )
       .all() as any[];
     return rows.map((r) => this.rowToTask(r));
+  }
+
+  // ---------- SubAgent 与工作委托（agent-direction issue 11；宿主管理） ----------
+
+  insertSubAgent(agent: SubAgent): void {
+    this.db
+      .prepare(
+        `INSERT INTO sub_agents (id, parent_session_id, session_id, work_dir, active_work_id, current_task_id, state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(agent.id, agent.parentSessionId, agent.sessionId, agent.workDir, agent.activeWorkId, agent.currentTaskId, agent.state, agent.createdAt);
+  }
+
+  getSubAgent(id: string): SubAgent | null {
+    const row = this.db.prepare("SELECT * FROM sub_agents WHERE id = ?").get(id) as any;
+    return row ? this.rowToSubAgent(row) : null;
+  }
+
+  /** 按独立子会话反查 SubAgent 绑定（宿主识别动态身份的唯一依据）。 */
+  getSubAgentBySession(sessionId: string): SubAgent | null {
+    const row = this.db.prepare("SELECT * FROM sub_agents WHERE session_id = ?").get(sessionId) as any;
+    return row ? this.rowToSubAgent(row) : null;
+  }
+
+  listSubAgents(): SubAgent[] {
+    const rows = this.db.prepare("SELECT * FROM sub_agents ORDER BY created_at, id").all() as any[];
+    return rows.map((r) => this.rowToSubAgent(r));
+  }
+
+  /** 更新运行/空闲状态与当前工作/任务指针（与结果登记同一事务；终态竞争由 setTaskResult 的一次写入仲裁）。 */
+  setSubAgentState(id: string, state: SubAgentState, current: { activeWorkId?: string | null; currentTaskId?: string | null }): void {
+    if (current.activeWorkId !== undefined && current.currentTaskId !== undefined) {
+      this.db
+        .prepare("UPDATE sub_agents SET state = ?, active_work_id = ?, current_task_id = ? WHERE id = ?")
+        .run(state, current.activeWorkId, current.currentTaskId, id);
+    } else if (current.currentTaskId !== undefined) {
+      this.db.prepare("UPDATE sub_agents SET state = ?, current_task_id = ? WHERE id = ?").run(state, current.currentTaskId, id);
+    } else {
+      this.db.prepare("UPDATE sub_agents SET state = ? WHERE id = ?").run(state, id);
+    }
+  }
+
+  private rowToSubAgent(row: any): SubAgent {
+    return {
+      id: row.id,
+      parentSessionId: row.parent_session_id,
+      sessionId: row.session_id,
+      workDir: row.work_dir,
+      activeWorkId: row.active_work_id ?? null,
+      currentTaskId: row.current_task_id ?? null,
+      state: row.state as SubAgentState,
+      createdAt: row.created_at,
+    };
+  }
+
+  insertWorkDelegation(work: WorkDelegation): void {
+    this.db
+      .prepare(
+        `INSERT INTO work_delegations (id, parent_session_id, origin_task_id, sub_agent_id, request_key, params_digest, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(work.id, work.parentSessionId, work.originTaskId, work.subAgentId, work.requestKey, work.paramsDigest, work.createdAt);
+  }
+
+  getWorkDelegation(id: string): WorkDelegation | null {
+    const row = this.db.prepare("SELECT * FROM work_delegations WHERE id = ?").get(id) as any;
+    return row ? this.rowToWorkDelegation(row) : null;
+  }
+
+  /** 按父会话与首次委派键查既有工作（跨对话轮次的重复委派核实）。 */
+  findWorkDelegation(parentSessionId: string, requestKey: string): WorkDelegation | null {
+    const row = this.db
+      .prepare("SELECT * FROM work_delegations WHERE parent_session_id = ? AND request_key = ?")
+      .get(parentSessionId, requestKey) as any;
+    return row ? this.rowToWorkDelegation(row) : null;
+  }
+
+  listWorkDelegationsBySession(parentSessionId: string): WorkDelegation[] {
+    const rows = this.db
+      .prepare("SELECT * FROM work_delegations WHERE parent_session_id = ? ORDER BY created_at, id")
+      .all(parentSessionId) as any[];
+    return rows.map((r) => this.rowToWorkDelegation(r));
+  }
+
+  listWorkDelegations(): WorkDelegation[] {
+    const rows = this.db.prepare("SELECT * FROM work_delegations ORDER BY created_at, id").all() as any[];
+    return rows.map((r) => this.rowToWorkDelegation(r));
+  }
+
+  private rowToWorkDelegation(row: any): WorkDelegation {
+    return {
+      id: row.id,
+      parentSessionId: row.parent_session_id,
+      originTaskId: row.origin_task_id,
+      subAgentId: row.sub_agent_id,
+      requestKey: row.request_key,
+      paramsDigest: row.params_digest,
+      createdAt: row.created_at,
+    };
+  }
+
+  /** 属一项工作委托的全部执行任务（按创建序）。 */
+  listTasksByWork(workId: string): Task[] {
+    const rows = this.db.prepare("SELECT * FROM tasks WHERE work_id = ? ORDER BY created_at, id").all(workId) as any[];
+    return rows.map((r) => this.rowToTask(r));
+  }
+
+  /** 指定父用户会话的活动 SubAgent 执行任务数（委派限额；查重先于限额）。 */
+  countActiveSubAgentTasks(parentSessionId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks t JOIN work_delegations w ON w.id = t.work_id
+         WHERE w.parent_session_id = ? AND t.status IN ('queued','running','awaiting_confirmation')`,
+      )
+      .get(parentSessionId) as any;
+    return Number(row.n);
+  }
+
+  /**
+   * dev 父会话待注入的 SubAgent 结果：终态、结果已记录、尚未注入开发模型
+   * 上下文的执行任务（result_delivered_at 为 null）。注入时按 id 标记者在
+   * 同一事务内；崩溃窗口丢失注入不丢失结果（持久事件与 subagent_result 可查）。
+   */
+  listUndeliveredSubAgentResults(parentSessionId: string): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.* FROM tasks t JOIN work_delegations w ON w.id = t.work_id
+         WHERE w.parent_session_id = ? AND t.sub_agent_id IS NOT NULL
+           AND t.result_summary IS NOT NULL AND t.result_delivered_at IS NULL
+           AND t.status IN ('completed','failed','canceled','interrupted')
+         ORDER BY t.created_at, t.id`,
+      )
+      .all(parentSessionId) as any[];
+    return rows.map((r) => this.rowToTask(r));
+  }
+
+  markSubAgentResultsDelivered(taskIds: string[], deliveredAt: string): void {
+    for (const id of taskIds) {
+      this.db.prepare("UPDATE tasks SET result_delivered_at = ? WHERE id = ? AND result_delivered_at IS NULL").run(deliveredAt, id);
+    }
   }
 
   // ---------- 逻辑角色（issue 01；宿主管理） ----------

@@ -474,7 +474,9 @@ test("QQ owner main 可调用 coding_delegate，子任务固定 confirm，结果
     if (text.startsWith("[委派 coding")) return { kind: "text", text: "CODING-DONE\n测试：通过\n需要拥有者：否" };
     if (text.startsWith("[编排器]")) return { kind: "text", text: "WAKE-DONE" };
     if (req.messages.at(-1)?.role === "tool") return { kind: "text", text: "已委派 coding" };
-    return { kind: "tool_calls", calls: [{ id: "qq-delegate", name: "coding_delegate", arguments: { request: "分析当前仓库", mode: "analyze", key: "qq-code" } }] };
+    // analyze 自 issue 11 起转通用只读链路；本子任务链（confirm 固定、不自动回发）
+    // 的既有语义走旧 coding 的 draft 路径
+    return { kind: "tool_calls", calls: [{ id: "qq-delegate", name: "coding_delegate", arguments: { request: "生成仓库修改草稿", mode: "draft", key: "qq-code" } }] };
   });
   const rt = await Runtime.start(h.config);
   try {

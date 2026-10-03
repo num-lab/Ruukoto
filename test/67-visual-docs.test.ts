@@ -3,9 +3,10 @@
  *
  * 1. 源码锚点：每个 data-src 指向的文件存在，且 # 之后的文本逐字出现在该文件里；
  * 2. 覆盖：源码里的状态、表、op、事件类型等取值，对应页面的 <code> 里逐字出现；
- * 3. index.html 链接到每个页面。
+ * 3. index.html 链接到每个页面；
+ * 4. 页面间的相对链接指向存在的文件，#锚点在目标页存在。
  *
- * 只核对「提到了」，不核对说得对不对；维护规则见 AGENTS.md「可视化文档」。
+ * 只核对「提到了」，不核对说得对不对；维护流程见 .skills/visual-docs/SKILL.md。
  */
 
 import { test } from "node:test";
@@ -157,4 +158,18 @@ test("可视化文档：index.html 链接每个页面", () => {
   const unlinked = htmlPages().filter((p) => p !== "index.html" && !index.includes(`href="${p}"`));
   assert.deepEqual(unlinked, []);
   assert.deepEqual(Object.keys(COVERAGE).filter((p) => !htmlPages().includes(p)), [], "COVERAGE 里的页面都应存在");
+});
+
+test("可视化文档：相对链接与锚点有效", () => {
+  const broken: string[] = [];
+  for (const page of htmlPages()) {
+    for (const [, href] of read(`${DOCS}/${page}`).matchAll(/href="([^"]+)"/g)) {
+      if (/^[a-z]+:/.test(href!)) continue; // 外部链接不查
+      const [file, frag] = decode(href!).split("#") as [string, string | undefined];
+      const rel = path.posix.join(DOCS, file || page);
+      if (!fs.existsSync(path.join(ROOT, rel))) broken.push(`${page}：${href} 指向的文件不存在`);
+      else if (frag && rel.endsWith(".html") && !read(rel).includes(`id="${frag}"`)) broken.push(`${page}：${href} 的锚点不存在`);
+    }
+  }
+  assert.deepEqual(broken, [], "页面或 section id 改名后请同步链接");
 });

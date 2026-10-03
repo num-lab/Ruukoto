@@ -69,14 +69,14 @@
 
   <section id="core-db">
     <h2>ruukoto.db：一份核心库，按职责分组</h2>
-    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v22</code>（v21 → v22 是 <code>inbound_events</code> 加 <code>event_kind</code> 宿主类别列的加列迁移，旧记录默认 <code>task</code>，历史入站与回执关系保留；v20 → v21 是 <code>sessions</code> 加 <code>workspace_project_id</code> 的加列迁移，旧会话默认无组织归属）：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
+    <p>核心库为 WAL + 全同步（<code class="src" data-src="src/core/db.ts#class Db">db.ts · Db</code>）。schema 版本当前为 <code>v23</code>（v22 → v23 是 <code>standing_permissions</code> 长期操作授权表 + <code>confirmations</code> 长期授权关联两列的加列迁移，迁移不产生任何授权、不改旧批准事实；v21 → v22 是 <code>inbound_events</code> 加 <code>event_kind</code> 宿主类别列的加列迁移，旧记录默认 <code>task</code>）：旧程序打开更新的库直接拒绝；同版本内的兼容扩展只做加法（加列带默认值、加 meta 键），不重建既有表，旧记录保持可读。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>分组</th><th>表</th><th>职责</th></tr></thead>
         <tbody>
           <tr data-k="work" tabindex="0"><td>会话与工作</td><td><code>projects</code> · <code>sessions</code> · <code>tasks</code></td><td>项目（指令列表与 Web Search 开关带乐观并发版本 <code>settings_version</code>，v20，保存同事务核对并递增；工作区根目录归属 <code>root_*</code> 四列，v19；同一真实目录至多一个工作区）/会话（工作区组织归属 <code>workspace_project_id</code>，v21，仅展示归属，资料身份仍是 <code>project_id</code>）与任务本体（状态、请求键、提交摘要）</td></tr>
           <tr data-k="occupancy" tabindex="0"><td>目录占用</td><td><code>occupancy</code></td><td>整项任务级的目录占用登记，防并行写冲突</td></tr>
-          <tr data-k="events" tabindex="0"><td>事件与恢复</td><td><code>events</code> · <code>inbound_events</code> · <code>tool_ops</code> · <code>confirmations</code></td><td>持久事件流、入站事件（去重键；宿主类别 <code>event_kind</code> 区分普通任务入站与 IM 审批控制消息，v22）、工具操作账本、审批与批准消费</td></tr>
+          <tr data-k="events" tabindex="0"><td>事件与恢复</td><td><code>events</code> · <code>inbound_events</code> · <code>tool_ops</code> · <code>confirmations</code></td><td>持久事件流、入站事件（去重键；宿主类别 <code>event_kind</code> 区分普通任务入站与 IM 审批控制消息，v22）、工具操作账本、审批与批准消费（长期授权关联 <code>standing_permission_id/version</code>，v23）</td></tr>
           <tr data-k="roles" tabindex="0"><td>角色与群聊结果</td><td><code>agent_roles</code> · <code>chat_result_acceptances</code></td><td>旧架构逻辑角色（main/coding/chat）引导记录；main 显式接收的群聊结果快照</td></tr>
           <tr data-k="ctx" tabindex="0"><td>上下文与历史</td><td><code>selection_records</code> · <code>context_checkpoints</code> · <code>history_index</code> · <code>history_index_state</code></td><td>每次调用的选择记录、压缩点、JSONL 历史的可重建位置索引</td></tr>
           <tr data-k="memory" tabindex="0"><td>记忆与产物</td><td><code>memories</code> · <code>memory_versions</code> · <code>artifacts</code></td><td>长期记忆（来源与版本）与任务产物元数据（文件本体在数据目录下）</td></tr>
@@ -84,6 +84,7 @@
           <tr data-k="im" tabindex="0"><td>IM 入口</td><td><code>qq_config</code> · <code>qq_sessions</code> · <code>qq_inbox</code> · <code>qq_outbox</code> · <code>telegram_config</code></td><td>QQ 配置/群会话/收件/发件账本与 Telegram 配置（各带配置版本）</td></tr>
           <tr data-k="sched" tabindex="0"><td>调度与通知</td><td><code>schedules</code> · <code>schedule_runs</code> · <code>notification_ops</code></td><td>调度计划、按（计划、版本、原定时刻）唯一的运行、外发操作账本</td></tr>
           <tr data-k="meta" tabindex="0"><td>实例登记</td><td><code>meta</code></td><td>实例级键值：后台实例标识、应用数据实例绑定、产品归属（product.type）等</td></tr>
+          <tr data-k="standing" tabindex="0"><td>长期操作授权</td><td><code>standing_permissions</code></td><td>versioned 限定范围 + 钉版修订与入口绑定（v23）；部分唯一索引保证同一 main、稳定入口（channel/account/chat/actor）与目标（机器/单元/动作）至多一条未撤销授权，来源审批唯一；撤销/失效递增版本并保留记录（agent-direction issue 10）</td></tr>
         </tbody>
       </table>
     </div>
@@ -126,7 +127,7 @@
           <tr><td>拥有者令牌</td><td><code>&lt;controlDir&gt;/owner.token</code>（0600）</td><td>控制面认证；部署时以 0400 复制给拥有者，或用环境变量指向拷贝</td></tr>
           <tr><td>产品归属</td><td>核心库 <code>meta</code> 的 <code>product.type</code></td><td>首次启动登记；另一产品再开同一数据目录直接拒绝（issue 01，旧库无此键照常打开并补记）</td></tr>
           <tr><td>迁移回执</td><td>核心库 <code>meta</code> 的 <code>migration_receipt:*</code></td><td>组织迁移（apply_workspace_migration）按请求键登记成功成果与原映射；同键重放返回原成果、异参 request_conflict；回退按回执校验当前值，认领的根目录身份不回滚</td></tr>
-          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v22</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
+          <tr><td>schema 版本</td><td>核心库头部（当前 <code>v23</code>）</td><td>比程序新的库拒绝打开；同版本只做加法扩展，旧记录保持可读</td></tr>
         </tbody>
       </table>
     </div>

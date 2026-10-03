@@ -1,0 +1,70 @@
+/**
+ * 保存、使用和撤销限定的长期操作授权（agent-direction issue 10）之本地驱动。
+ *
+ * 结构（同 smoke-09）：
+ *  1. 本机（mac）只做驱动：rsync 当前仓库（develop HEAD + 未提交改动）到
+ *     tx:/tmp/ruukoto-smoke10-src，远端 npm ci，然后让
+ *     .scratch/agent-direction/smoke10-remote.mts 在 tx 上自包含跑完全程。
+ *  2. 远端脚本输出即证据：approve-standing 主链路、第二任务自动放行、
+ *     授权目录/详情、CLI 撤销、恢复人工审批、真实 systemd-run 被杀后的
+ *     结果未知与授权失效、账户边界。
+ *
+ * 真实：Linux systemd / root helper（仓库当前版本，含派发如实性修正）/ sudoers /
+ *   测试服务真实 restart / 隔离后台（Runtime/SQLite/审批/长期授权）/ 真实控制面 CLI。
+ * 模拟：模型与 NapCat OneBot（QQ 私聊）；真实 QQ/Telegram 平台未实测。
+ *
+ * 结果约定：0 = 远端全部通过；非 0 = 驱动步骤失败或远端有 FAIL。
+ * 运行：npx tsx .scratch/agent-direction/smoke-10-standing-permissions.mts
+ */
+
+import * as childProcess from "node:child_process";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
+const REMOTE = "tx";
+const RDIR = "/tmp/ruukoto-smoke10-src";
+const REMOTE_SCRIPT = ".scratch/agent-direction/smoke10-remote.mts";
+const startedAt = Date.now();
+
+function run(label: string, cmd: string, args: string[], opts: { allowFail?: boolean; timeoutMs?: number } = {}): { code: number; out: string } {
+  console.log(`\n=== ${label} ===`);
+  const r = childProcess.spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: opts.timeoutMs ?? 600_000 });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  const code = r.status ?? (r.signal ? -1 : 1);
+  if (code !== 0 && !opts.allowFail) {
+    console.error(`驱动步骤失败（${label}，退出码 ${code}${r.signal ? `，信号 ${r.signal}` : ""}）`);
+    process.exit(1);
+  }
+  return { code, out: r.stdout ?? "" };
+}
+
+run("探测 tx 环境", "ssh", [REMOTE, [
+  "set -e",
+  "echo user=$(whoami)",
+  "sudo -n true && echo sudo-n-ok",
+  "node --version",
+  "id ruukoto-backend >/dev/null && echo backend-account-ok",
+  "id ruukoto-exec >/dev/null && echo exec-account-ok",
+  "systemctl --version | head -1",
+  "systemctl is-active ruukoto-backend",
+].join(" && ")], { timeoutMs: 60_000 });
+
+run("记录代码状态", "bash", ["-lc", `git -C ${repoRoot} rev-parse --abbrev-ref HEAD; git -C ${repoRoot} rev-parse HEAD; git -C ${repoRoot} status --short`]);
+
+run("rsync 仓库到 tx", "rsync", [
+  "-az", "--delete",
+  "--exclude", "node_modules",
+  "--exclude", ".git",
+  "--exclude", ".idea",
+  "--exclude", "*.log",
+  `${repoRoot}/`, `${REMOTE}:${RDIR}/`,
+], { timeoutMs: 300_000 });
+
+run("远端 npm ci", "ssh", [REMOTE, `cd ${RDIR} && npm ci --no-audit --no-fund --prefer-offline`], { timeoutMs: 600_000 });
+
+const remote = run("远端编排器", "ssh", [REMOTE, `cd ${RDIR} && node_modules/.bin/tsx ${REMOTE_SCRIPT}`], { allowFail: true, timeoutMs: 900_000 });
+
+console.log(`\n=== 驱动结束：远端退出码 ${remote.code}，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s ===`);
+if (remote.code !== 0) process.exit(1);

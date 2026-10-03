@@ -5,6 +5,8 @@
  * - 结果与 `task.tool_result` 事件成对写入，落库与事件是同一句；条件更新以
  *   先写者为准，重复补记不重复发布；
  * - 效果未知：操作标记 + `task.tool_effect_unknown` + 任务标记，已标记即跳过；
+ *   已消费的服务审批范围另使同目标（main/本机/单元/动作）所有有效长期授权失效
+ *   （agent-direction issue 10；与效果未知登记同一事务）；
  * - 分类（对结果缺失、未标未知的操作，停止与重启同一个）：
  *   1. 有审批且全部未消费 → 已知未执行（批准没消费即证明没执行，证据强于其余各条）；
  *   2. 无写入效果的工具 → 「未完成：只读操作…中止，无写入效果」；
@@ -167,6 +169,19 @@ export class ToolOpLedger {
       { taskId: task.id, sessionId: task.sessionId },
     );
     this.store.setEffectUnknown(task.id);
+    // 长期授权失效扩散（agent-direction issue 10）：已消费的服务审批范围 → 同一
+    // main、本机、单元与动作的所有有效长期授权失效（覆盖所有入口；记录触发操作 ID）。
+    // 效果未知阻止换 ID 自动重试；重新建立授权需要拥有者显式决定。
+    for (const c of this.store.listConfirmationsByTask(task.id)) {
+      if (c.toolOpId !== opId || c.consumedAt === null || c.scope.kind !== "service_operation") continue;
+      this.store.invalidateStandingForTarget({
+        sessionId: c.sessionId,
+        machineId: c.scope.machineId,
+        unit: c.scope.unit,
+        action: c.scope.action,
+        opId,
+      });
+    }
     return true;
   }
 

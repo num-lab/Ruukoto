@@ -82,8 +82,14 @@
           <tr data-k="approval" tabindex="0">
             <td><strong>批准消费</strong><br><code class="src" data-src="src/core/store.ts#consumeApproval">store.ts · consumeApproval</code></td>
             <td><code>confirmations</code> 行（<code>status</code> 与 <code>consumed_at</code>），登记审批请求时写入；主键是审批 id，行上记宿主操作 id 与权限版本</td>
-            <td>获批后在同一事务内先复核，再做一次条件更新：状态为 approved、<code>consumed_at</code> 为空、审批与任务的权限版本都等于预期、任务仍是 running 或 awaiting_confirmation。IM 来源的审批在条件更新之前还要过一次宿主固定身份复核（<code class="src" data-src="src/agent/approval-gate.ts#consumeRecheck">consumeRecheck</code>）：当前平台目标与收件时钉版目标逐项相同（含配置版本），不符即批准失效、不消费——批准接受之后、执行开始之前的重新绑定与凭据变化在这里拦截</td>
+            <td>获批后在同一事务内先复核，再做一次条件更新：状态为 approved、<code>consumed_at</code> 为空、审批与任务的权限版本都等于预期、任务仍是 running 或 awaiting_confirmation。IM 来源的审批在条件更新之前还要过一次宿主固定身份复核（<code class="src" data-src="src/agent/approval-gate.ts#consumeRecheck">consumeRecheck</code>）：当前平台目标与收件时钉版目标逐项相同（含配置版本），不符即批准失效、不消费——批准接受之后、执行开始之前的重新绑定与凭据变化在这里拦截。关联长期授权的批准（<code>standing_permission_id/version</code>，issue 10）在公共消费处重读授权版本与未撤销状态：撤销先提交则本次放行失效，不能成为独立批准</td>
             <td>复核或消费失败 → 批准失效（stale），按已知未执行记。消费即执行开始：停止或重启时已消费、结果缺失的操作记效果未知；HTTP 以请求头与正文交给操作系统为界，之前的失败是已知错误，之后的超时、连接重置、中止记效果未知，GET/HEAD 除外（无写入效果）；MCP 写与副作用不明工具的超时、连接失败、取消也记效果未知</td>
+          </tr>
+          <tr data-k="standing" tabindex="0">
+            <td><strong>长期操作授权</strong><br><code class="src" data-src="src/agent/approval-gate.ts#requestStanding">approval-gate.ts · requestStanding</code></td>
+            <td><code>standing_permissions</code> 行（issue 10）：授权 ID + 行级版本，范围创建后不修改（main、入口稳定身份与钉版目标、机器/单元/固定 restart、策略与单元修订）；同一 main、稳定入口与目标至多一条未撤销授权（部分唯一索引），来源审批唯一</td>
+            <td>每次执行都在单个同步事务内重读授权版本与未撤销状态、对执行快照逐项核实完整范围、核实活动任务与取消状态，然后为本次 taskId/hostOpId 创建独立的初始已批准记录并公共消费：命中即整笔提交，核实不再成立整笔回滚并回落人工审批，不使用旧候选执行；授权本身不被消费，原单次批准也不被重复使用</td>
+            <td>已消费的服务操作效果未知（派发后失败/协议错误/应答不符/产物未保全/超时/中止）在工具操作账本的统一事务路径里使同一 main、本机、单元与动作的所有入口有效授权失效（<code>reason = effect_unknown</code>，事件携带触发操作 ID）；重新建立授权需要拥有者显式决定，旧未知记录不改写</td>
           </tr>
           <tr data-k="notify" tabindex="0">
             <td><strong>通知发送</strong><br><code class="src" data-src="src/scheduler/runtime.ts#private async sendOne">scheduler/runtime.ts · sendOne</code></td>

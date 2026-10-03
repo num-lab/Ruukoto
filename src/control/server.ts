@@ -831,6 +831,24 @@ export class ControlServer {
         return runtime.notificationGet(requireString("op_id"));
       case "notification_cancel":
         return runtime.notificationCancel({ opId: requireString("op_id"), reason: requireString("reason") });
+      // ---------- issue 10：长期操作授权目录（只查询/带版本撤销，不获得创建或扩大能力） ----------
+      case "service_grant_list": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.serviceGrantList({
+          cursor: typeof params["cursor"] === "string" ? params["cursor"] : undefined,
+          limit,
+        });
+      }
+      case "service_grant_get":
+        return runtime.serviceGrantGet(requireString("permission_id"));
+      case "service_grant_revoke": {
+        const expected = params["expected_version"];
+        if (!Number.isInteger(expected) || (expected as number) < 1) throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });
+        return runtime.serviceGrantRevoke(requireString("permission_id"), expected as number);
+      }
       case "stop": {
         void runtime.stop("control_plane").catch(() => {});
         return { accepted: true };

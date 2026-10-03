@@ -45,6 +45,7 @@ const LEGACY_COMMANDS = new Set([
   "schedule",
   "notify",
   "grant",
+  "service-grant",
   "history-search",
   "memory",
   "selection-records",

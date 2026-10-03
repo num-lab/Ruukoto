@@ -145,7 +145,7 @@
           <tr><td><code>mcp_tool</code></td><td>服务身份与配置版本、远端工具名、参数摘要、副作用类别</td></tr>
           <tr><td><code>app_data_change</code></td><td>应用库身份、任务与操作 ID、表与破坏性类别、版本与受影响数量</td></tr>
           <tr><td><code>notification</code></td><td>通知外发：完整正文指纹、目标与配置版本、时间规则与持续范围；单次消费，完全访问模式下也须确认</td></tr>
-          <tr><td><code>service_operation</code></td><td>服务器服务管理（root 提权 helper）：本机身份、精确单元名、固定动作、策略与单元定义修订指纹、任务与宿主操作 ID；任何访问模式都逐次审批，参数快照含 unit/action/machine_id/policy_revision/unit_revision/state_before/note，消费事务内复核策略修订，helper 在请求 systemd 前再复核单元修订</td></tr>
+          <tr><td><code>service_operation</code></td><td>服务器服务管理（root 提权 helper）：本机身份、精确单元名、固定动作、策略与单元定义修订指纹、任务与宿主操作 ID；任何访问模式都逐次审批（例外：issue 10 限定长期授权逐项核实成立时自动放行——见下节），参数快照含 unit/action/machine_id/policy_revision/unit_revision/state_before/note，消费事务内复核策略修订，helper 在请求 systemd 前再复核单元修订</td></tr>
           <tr><td><code>github_publish</code></td><td>已退役范围：旧 GitHub 发布模块的审批记录只读展示，新任务不再产生</td></tr>
         </tbody>
       </table>
@@ -155,6 +155,12 @@
   <section id="auto-review">
     <h2>自动审查不扩大授权</h2>
     <p><code>auto-review</code> 下越界的外部读取先经一次独立的无工具调用（<code class="src" data-src="src/agent/review.ts#export type ReviewDecision">review.ts · ReviewDecision</code>），结论只有三种：<code>approve</code>（放行该操作）、<code>reject</code>（拒绝）、<code>ask_owner</code>（转拥有者确认）；无法确认或审查失败一律按 <code>ask_owner</code> 处理。审查的输入不构成授权依据，结论也不升级为完全访问。</p>
+  </section>
+
+  <section id="standing">
+    <h2>长期操作授权：窄服务范围的有效授权（agent-direction issue 10）</h2>
+    <p>ADR 0019 的逐次审批有一个明确例外：拥有者经原 IM 平台的待审批把某次 service restart 审批保存为<strong>限定长期授权</strong>（<code>/approve-standing</code>，见<a href="inbound-events.html#im-approval">入站事件</a>）。授权行存 <code>standing_permissions</code>（scope 不可变 + 行级版本；同一 main、入口稳定身份与目标至多一条未撤销授权，来源审批唯一，见 <a href="storage-layout.html">存储布局</a>）。模型、子任务消息、TUI 提交与各平台文本都不能创建或扩大。</p>
+    <p><code>service_manage</code> 每次执行都重新核实：宿主按当前 main、任务来源入口身份、钉版目标代次、本机/单元/动作与两项修订查找候选（候选不是执行依据；观察到失配的旧授权同事务明确失效）。命中时经闸门的窄路径（<code class="src" data-src="src/agent/approval-gate.ts#requestStanding">approval-gate.ts · requestStanding</code>）在单个同步事务内重读授权版本与未撤销状态、对执行快照逐项核实完整范围、核实活动任务与取消状态，创建<strong>独立的初始已批准记录</strong>（不发布等待事件、任务保持 running、不启动自动审查），经公共消费边界单次消费；决定来源记 <code>standing_permission</code> 并关联授权 ID/版本（事件与 TUI 详情如实标注）。候选读取后撤销/取消/版本变化即整笔回滚并回落人工审批。效果未知另使同目标所有入口的有效授权失效（见 <a href="once-only.html">只执行一次</a>）。</p>
   </section>
 
   <section id="ledger">

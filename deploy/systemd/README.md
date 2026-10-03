@@ -151,6 +151,12 @@ stderr 混入 stderr，机器调用方按前缀行提取）：
   RuntimeMaxSec=120）内以 root 执行固定的 `systemctl --system restart`
   （应答含实际执行身份 root 与退出码；派发后的意外失败按已启动上报，
   由调用方记效果未知，绝不重写为已知未执行）。
+  
+  `systemd-run` spawn 结果如实区分（agent-direction issue 10 修正，验收覆盖）：
+  只有可证明命令根本未启动（ENOENT/EACCES/ENOTDIR）才报 `launched:false`
+  （可信的未派发证明，调用方记已知未执行并消耗本次批准）；启动后的错误
+  （缓冲超限等）与被信号杀死一律报 `ok:false, launched:true`（「可能已派发」，
+  不猜退出码——调用方记效果未知、不自动重发、同目标长期授权失效）。
 - `stop-op <hostOpId>`：先阻断后续启动（认领/stop-requested 标记），再停
   派生命令单元；只有查询确认 LoadState/ActiveState/MainPID/ControlPID 全部
   退出才报告 exited（权限错误、bus 不可达、查询失败都不当作已退出）。

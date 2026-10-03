@@ -8,6 +8,13 @@
  * - service_inspect 无写入效果，直接执行；service_manage 首版固定 restart，
  *   任何访问模式（含 full_access）都逐次审批——root 分支是后台的提权能力，
  *   不属于执行账户已有权限；执行参数取自审批记录保存的不可变快照；
+ *   例外（issue 10）：拥有者保存的限定长期授权逐项核实成立时按授权范围自动放行
+ *   （独立的已批准记录 + 单次消费；授权本身不被消费），撤销/失效/范围不符回落
+ *   人工逐次审批；
+ * - 消费后的结果分类只认可信结论：确定的请求前拒绝（launched:false）为已知未
+ *   执行，确定的管理命令结果如实记录（含非零退出），其余消费后无可信结果的
+ *   （协议错误/应答不符/产物保存失败/派发后失败/超时/中止）一律效果未知，不
+ *   自动重发，并使同目标有效长期授权失效；
  * - 审批消费事务内同步复核 main 身份与策略修订；helper 在发送任何 restart
  *   请求前再次核实本机、白名单、策略与已加载单元修订；sqlite 消费与 systemd
  *   效果之间不存在跨系统事务；
@@ -202,6 +209,8 @@ export interface ServiceToolsDeps {
   verifyMain(ctx: HostToolContext): string | null;
   /** 审批闸门（窄回调；不向模型暴露控制面）。 */
   requestApproval: ApprovalGate["request"];
+  /** 长期授权窄路径（issue 10）：宿主提供时先试命中；null 回退人工逐次审批。 */
+  requestStanding?: ApprovalGate["requestStanding"];
   /** 产物引用登记（接到 task.tool_result 事件）。 */
   recordArtifact(hostOpId: string, artifactId: string): void;
   /** 已消费操作无确定结果时标效果未知（超时/调用中止；不自动重发）。 */
@@ -399,7 +408,7 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
           taskId: ctx.taskId,
           toolOpId: ctx.hostOpId,
         };
-        const approval = await deps.requestApproval({
+        const approvalInput = {
           task: taskOf(ctx),
           hostOpId: ctx.hostOpId,
           toolName: "service_manage",
@@ -418,12 +427,22 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
             }
             return fresh !== policyRevision ? "服务管理策略在确认期间已变化，原批准失效（未执行）；请重新检查后申请" : null;
           },
-        });
+        };
+        // 长期授权（issue 10）：宿主逐项核实候选并重建完整范围核验后自动放行
+        // （独立的已批准记录 + 单次消费）；无候选或核实不再成立回落人工逐次审批
+        const standing = deps.requestStanding?.(approvalInput) ?? null;
+        const approval = standing ?? (await deps.requestApproval(approvalInput));
         if (!approval.approved) failText(approval.text);
         // 执行参数取自审批保存的不可变快照
         const p = approval.params as typeof snapshot;
         const approvedUnit = String(p.unit);
         const hostOpId = ctx.hostOpId;
+        // 授权依据如实标注（issue 10）：本次使用长期授权 vs 拥有者单次批准
+        const grantLink = deps.coreStore.getConfirmation(approval.approvalId);
+        const basisLine =
+          grantLink?.decisionSource === "standing_permission" && grantLink.standingPermissionId
+            ? `授权依据：长期授权 ${grantLink.standingPermissionId} v${grantLink.standingPermissionVersion}（本次执行前已重新核实授权版本与完整范围）`
+            : null;
         registerOp();
         let restartReply: Extract<HelperReply, { ok: true; verb: "restart" }>;
         try {
@@ -439,12 +458,9 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
               // helper 明确证明尚未请求 systemd：已知未执行（修订复核/单次执行保护/停止标记拦截）
               failText(`管理操作未执行：helper 在请求 systemd 前拒绝（${reply.reasonCode ?? "unknown"}：${reply.error ?? "未给出原因"}）。本次批准已消费，再次操作需要新的审批。`);
             }
-            if (reply.launched === true) {
-              // 派发后的失败：restart 可能已生效，效果未知（不自动重发）
-              deps.markEffectUnknown(hostOpId);
-              failText(`管理命令结果未知：helper 在 systemd 派发后失败（${reply.reasonCode ?? "unknown"}：${reply.error ?? "未给出原因"}）。restart 可能已生效，不自动重发；请核实后重新申请`);
-            }
-            throw new ServiceHelperError(`服务管理 helper 拒绝（${reply.reasonCode ?? "unknown"}）：${reply.error ?? "未给出原因"}`, reply.reasonCode ?? "refused");
+            // 派发后失败或应答缺可信未派发证明：restart 可能已生效，效果未知（不自动重发）
+            deps.markEffectUnknown(hostOpId);
+            failText(`管理命令结果未知：helper 应答为派发后失败或未含可信的未派发证明（${reply.reasonCode ?? "unknown"}：${reply.error ?? "未给出原因"}）。restart 可能已生效，不自动重发；请核实后重新申请`);
           }
           if (reply.verb !== "restart" || reply.hostOpId !== hostOpId || reply.opUnit !== opUnitFor(hostOpId)) {
             throw new ServiceHelperError("helper 应答的操作 ID 与请求不符", "protocol_error");
@@ -456,10 +472,16 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
             deps.markEffectUnknown(hostOpId);
             failText(`管理命令结果未知（helper 调用${err.reasonCode === "timeout" ? "超时" : "被中止"}）：restart 请求可能已提交，不自动重发；请核实后重新申请`);
           }
+          // 消费后应答协议错误/原始输出未保全：无可信结果，一律效果未知（issue 10）
+          if (err instanceof ServiceHelperError && (err.reasonCode === "protocol_error" || err.reasonCode === "capture_failed")) {
+            deps.markEffectUnknown(hostOpId);
+            failText(`管理命令结果未知（${err.reasonCode === "protocol_error" ? "helper 应答不可信" : "helper 原始输出未保全"}）：restart 可能已生效，不自动重发；请核实后重新申请`);
+          }
           throw err;
         }
 
         const lines: string[] = [];
+        if (basisLine) lines.push(basisLine);
         if (restartReply.exitCode !== 0) {
           // 命令已提交的非零退出：如实报告退出码与输出；可能包含部分效果（不能描述为零执行）
           failText(

@@ -34,6 +34,7 @@ import {
   type Session,
   type SessionDefaultMode,
   type SessionKind,
+  type StandingPermission,
   type Task,
   type TaskStatus,
   type ToolCategory,
@@ -1217,6 +1218,8 @@ export class Store {
       reviewModel: input.review?.model ?? null,
       reviewPolicyVersion: input.review?.policyVersion ?? null,
       decisionSource: null,
+      standingPermissionId: null,
+      standingPermissionVersion: null,
     };
     this.db
       .prepare(
@@ -1396,6 +1399,346 @@ export class Store {
       .run(new Date().toISOString(), id);
   }
 
+  /**
+   * 初始已批准记录（agent-direction issue 10 长期授权窄路径）：命中有效授权时宿主
+   * 为本次执行创建的独立批准——不发布 task.awaiting_confirmation、任务保持 running、
+   * 不启动自动审查；与单次消费在同一事务提交（调用方已核实完整范围再调用本方法；
+   * 后续任何一步失败由调用方事务整体回滚）。
+   */
+  insertApprovedConfirmation(input: {
+    taskId: string;
+    sessionId: string;
+    toolOpId: string;
+    toolName: string;
+    params: Record<string, unknown>;
+    scope: ApprovalScope;
+    permissionVersion: number;
+    standingPermissionId: string;
+    standingPermissionVersion: number;
+  }): ConfirmationRequest {
+    const session = this.getSession(input.sessionId);
+    const now = new Date().toISOString();
+    const confirmation: ConfirmationRequest = {
+      id: randomId("conf"),
+      taskId: input.taskId,
+      sessionId: input.sessionId,
+      toolOpId: input.toolOpId,
+      toolName: input.toolName,
+      params: input.params,
+      scope: input.scope,
+      cwdDev: session?.cwdDev ?? 0,
+      cwdIno: session?.cwdIno ?? 0,
+      permissionVersion: input.permissionVersion,
+      status: "approved",
+      createdAt: now,
+      respondedAt: now,
+      consumedAt: null,
+      reviewStatus: null,
+      reviewDecision: null,
+      reviewReason: null,
+      reviewModel: null,
+      reviewPolicyVersion: null,
+      decisionSource: "standing_permission",
+      standingPermissionId: input.standingPermissionId,
+      standingPermissionVersion: input.standingPermissionVersion,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, scope, cwd_dev, cwd_ino, permission_version, status, created_at, responded_at, consumed_at,
+         decision_source, standing_permission_id, standing_permission_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, NULL, 'standing_permission', ?, ?)`,
+      )
+      .run(
+        confirmation.id,
+        confirmation.taskId,
+        confirmation.sessionId,
+        confirmation.toolOpId,
+        confirmation.toolName,
+        JSON.stringify(confirmation.params),
+        JSON.stringify(confirmation.scope),
+        confirmation.cwdDev,
+        confirmation.cwdIno,
+        confirmation.permissionVersion,
+        confirmation.createdAt,
+        confirmation.respondedAt,
+        confirmation.standingPermissionId,
+        confirmation.standingPermissionVersion,
+      );
+    return confirmation;
+  }
+
+  /**
+   * 决定同事务内关联长期授权（agent-direction issue 10）：批准来源记为
+   * standing_permission 并钉版授权 ID/版本；消费时在公共消费处重读授权。
+   */
+  linkConfirmationStanding(confirmationId: string, standingPermissionId: string, standingPermissionVersion: number): void {
+    this.db
+      .prepare(
+        "UPDATE confirmations SET decision_source = 'standing_permission', standing_permission_id = ?, standing_permission_version = ? WHERE id = ? AND status = 'approved'",
+      )
+      .run(standingPermissionId, standingPermissionVersion, confirmationId);
+  }
+
+  /** 某长期授权的独立批准/使用记录（详情展示；新 → 旧，有界）。 */
+  listConfirmationsByStanding(standingPermissionId: string, limit = 20): ConfirmationRequest[] {
+    const cap = Math.min(Math.max(1, limit), 100);
+    const rows = this.db
+      .prepare("SELECT * FROM confirmations WHERE standing_permission_id = ? ORDER BY created_at DESC, id DESC LIMIT ?")
+      .all(standingPermissionId, cap) as any[];
+    return rows.map((r) => this.rowToConfirmation(r));
+  }
+
+  // ---------- 长期操作授权（agent-direction issue 10） ----------
+
+  /**
+   * 保存长期授权（调用方事务内，与决定/审计事件/控制事件终态/回执同事务提交）。
+   * 范围不可变：同目标未撤销授权已由数据库部分唯一索引拦截，来源审批只能建一次
+   * 授权（approval_id UNIQUE；旧命令重投不能重新建授权），冲突抛 StoreConflictError。
+   */
+  createStandingPermission(input: {
+    sessionId: string;
+    projectId: string;
+    machineId: string;
+    unit: string;
+    action: "restart";
+    policyRevision: string;
+    unitRevision: string;
+    channel: string;
+    account: string;
+    chatId: string;
+    actor: string;
+    pinnedTarget: NotifyTarget;
+    approvalId: string;
+    createdByEventId: string;
+  }): StandingPermission {
+    const permission: StandingPermission = {
+      id: randomId("sp"),
+      version: 1,
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      machineId: input.machineId,
+      unit: input.unit,
+      action: input.action,
+      policyRevision: input.policyRevision,
+      unitRevision: input.unitRevision,
+      channel: input.channel,
+      account: input.account,
+      chatId: input.chatId,
+      actor: input.actor,
+      pinnedTarget: input.pinnedTarget,
+      approvalId: input.approvalId,
+      createdByEventId: input.createdByEventId,
+      createdAt: new Date().toISOString(),
+      revokedAt: null,
+      revokedReason: null,
+    };
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO standing_permissions (id, version, session_id, project_id, machine_id, unit, action,
+           policy_revision, unit_revision, channel, account, chat_id, actor, pinned_target,
+           approval_id, created_by_event_id, created_at)
+           VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          permission.id,
+          permission.sessionId,
+          permission.projectId,
+          permission.machineId,
+          permission.unit,
+          permission.action,
+          permission.policyRevision,
+          permission.unitRevision,
+          permission.channel,
+          permission.account,
+          permission.chatId,
+          permission.actor,
+          JSON.stringify(permission.pinnedTarget),
+          permission.approvalId,
+          permission.createdByEventId,
+          permission.createdAt,
+        );
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
+        throw new StoreConflictError("本目标已有有效长期授权，或来源审批已建过授权；不得重复保存", "duplicate");
+      }
+      throw err;
+    }
+    this.appendEvent(
+      {
+        type: "standing_permission.created",
+        permissionId: permission.id,
+        approvalId: permission.approvalId,
+        eventId: permission.createdByEventId,
+        sessionId: permission.sessionId,
+        channel: permission.channel,
+        account: permission.account,
+        chatId: permission.chatId,
+        actor: permission.actor,
+        machineId: permission.machineId,
+        unit: permission.unit,
+        action: permission.action,
+      },
+      { sessionId: permission.sessionId },
+    );
+    return permission;
+  }
+
+  getStandingPermission(id: string): StandingPermission | null {
+    const row = this.db.prepare("SELECT * FROM standing_permissions WHERE id = ?").get(id) as any;
+    return row ? this.rowToStandingPermission(row) : null;
+  }
+
+  /** 全部未撤销授权（宿主内部核实；展示分页请用 listStandingPermissionsPaged）。 */
+  listActiveStandingPermissions(): StandingPermission[] {
+    const rows = this.db.prepare("SELECT * FROM standing_permissions WHERE revoked_at IS NULL ORDER BY created_at, id").all() as any[];
+    return rows.map((r) => this.rowToStandingPermission(r));
+  }
+
+  /**
+   * 使用资格候选（issue 10）：按 main、入口稳定身份、本机、单元与固定动作查找
+   * 未撤销授权（至多一条，部分唯一索引保证）。候选不是执行依据：目标代次与
+   * 策略/单元修订由调用方在消费事务内逐项核实。
+   */
+  findStandingCandidate(input: {
+    sessionId: string;
+    channel: string;
+    account: string;
+    chatId: string;
+    actor: string;
+    machineId: string;
+    unit: string;
+    action: "restart";
+  }): StandingPermission | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM standing_permissions
+         WHERE session_id = ? AND channel = ? AND account = ? AND chat_id = ? AND actor = ?
+           AND machine_id = ? AND unit = ? AND action = ? AND revoked_at IS NULL`,
+      )
+      .get(input.sessionId, input.channel, input.account, input.chatId, input.actor, input.machineId, input.unit, input.action) as any;
+    return row ? this.rowToStandingPermission(row) : null;
+  }
+
+  /**
+   * 长期授权分页列表（新 → 旧，键集分页；before 为上一页最后一条的 id）。
+   * 可选按入口稳定身份过滤（IM 目录只看本入口自己的授权）。
+   */
+  listStandingPermissionsPaged(
+    opts: { before?: string; limit?: number; channel?: string; account?: string; chatId?: string; actor?: string } = {},
+  ): { items: StandingPermission[]; hasMore: boolean } {
+    const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);
+    const filters: string[] = [];
+    const values: unknown[] = [];
+    if (opts.channel !== undefined) {
+      filters.push("channel = ?", "account = ?", "chat_id = ?", "actor = ?");
+      values.push(opts.channel, opts.account, opts.chatId, opts.actor);
+    }
+    if (opts.before !== undefined) {
+      const cursor = this.getStandingPermission(opts.before);
+      if (!cursor) throw new StoreConflictError(`分页游标授权不存在：${opts.before}`, "invalid_cursor");
+      filters.push("(created_at < ? OR (created_at = ? AND id < ?))");
+      values.push(cursor.createdAt, cursor.createdAt, cursor.id);
+    }
+    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM standing_permissions ${where} ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(...(values as any[]), limit + 1) as any[];
+    const hasMore = rows.length > limit;
+    return { items: rows.slice(0, limit).map((r) => this.rowToStandingPermission(r)), hasMore };
+  }
+
+  /**
+   * 撤销长期授权（条件更新：ID + 期望版本 + 未撤销；递增版本并保留记录）。
+   * 已撤销的是幂等返回（重复撤销不再次变更、不产生事件）；版本不符抛 version_conflict。
+   * 调用方事务内与审计事件、控制事件终态与回执同事务提交。
+   */
+  revokeStandingPermission(id: string, expectedVersion: number): { permission: StandingPermission; changed: boolean } {
+    const current = this.getStandingPermission(id);
+    if (!current) throw new StoreConflictError(`长期授权不存在：${id}`, "not_found");
+    if (current.revokedAt !== null) return { permission: current, changed: false };
+    if (current.version !== expectedVersion) {
+      throw new StoreConflictError(
+        `长期授权版本已变化（当前 v${current.version}，请求 v${expectedVersion}）：请刷新详情后重新决定`,
+        "version_conflict",
+      );
+    }
+    const changed = this.invalidateStandingRow(current, "owner_revoked", {});
+    return { permission: this.getStandingPermission(id)!, changed };
+  }
+
+  /**
+   * 目标效果未知（issue 10 §3）：同一 main、本机、单元与动作的所有有效长期授权
+   * 失效（覆盖所有入口；另一平台的授权同样失效）。调用方事务内与效果未知登记
+   * 同事务提交；返回失效的授权 id。
+   */
+  invalidateStandingForTarget(input: { sessionId: string; machineId: string; unit: string; action: "restart"; opId: string }): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM standing_permissions
+         WHERE session_id = ? AND machine_id = ? AND unit = ? AND action = ? AND revoked_at IS NULL`,
+      )
+      .all(input.sessionId, input.machineId, input.unit, input.action) as any[];
+    const invalidated: string[] = [];
+    for (const row of rows) {
+      if (this.invalidateStandingRow(this.rowToStandingPermission(row), "effect_unknown", { opId: input.opId })) invalidated.push(row.id);
+    }
+    return invalidated;
+  }
+
+  /**
+   * 经核实后的明确失效（非撤销）：入口代次/身份变化（entry_changed）或策略/单元
+   * 修订不符（revision_changed）；与撤销共用版本递增与保留记录的边界。
+   */
+  invalidateStandingPermission(id: string, reason: "entry_changed" | "revision_changed"): boolean {
+    const current = this.getStandingPermission(id);
+    if (!current || current.revokedAt !== null) return false;
+    return this.invalidateStandingRow(current, reason, {});
+  }
+
+  /** 单行条件失效：版本递增 + 审计事件；已撤销不误报（返回 false）。 */
+  private invalidateStandingRow(
+    current: StandingPermission,
+    reason: "owner_revoked" | "effect_unknown" | "entry_changed" | "revision_changed",
+    extra: { opId?: string },
+  ): boolean {
+    const info = this.db
+      .prepare(
+        "UPDATE standing_permissions SET version = ?, revoked_at = ?, revoked_reason = ? WHERE id = ? AND version = ? AND revoked_at IS NULL",
+      )
+      .run(current.version + 1, new Date().toISOString(), reason, current.id, current.version);
+    if (Number(info.changes) !== 1) return false;
+    this.appendEvent(
+      { type: "standing_permission.revoked", permissionId: current.id, version: current.version + 1, reason, ...(extra.opId ? { opId: extra.opId } : {}) },
+      { sessionId: current.sessionId },
+    );
+    return true;
+  }
+
+  private rowToStandingPermission(row: any): StandingPermission {
+    return {
+      id: row.id,
+      version: Number(row.version),
+      sessionId: row.session_id,
+      projectId: row.project_id,
+      machineId: row.machine_id,
+      unit: row.unit,
+      action: row.action,
+      policyRevision: row.policy_revision,
+      unitRevision: row.unit_revision,
+      channel: row.channel,
+      account: row.account,
+      chatId: row.chat_id,
+      actor: row.actor,
+      pinnedTarget: JSON.parse(row.pinned_target) as NotifyTarget,
+      approvalId: row.approval_id,
+      createdByEventId: row.created_by_event_id,
+      createdAt: row.created_at,
+      revokedAt: row.revoked_at ?? null,
+      revokedReason: row.revoked_reason ?? null,
+    };
+  }
+
   private rowToConfirmation(row: any): ConfirmationRequest {
     return {
       id: row.id,
@@ -1418,6 +1761,8 @@ export class Store {
       reviewModel: row.review_model ?? null,
       reviewPolicyVersion: row.review_policy_version ?? null,
       decisionSource: (row.decision_source ?? null) as ConfirmationRequest["decisionSource"],
+      standingPermissionId: row.standing_permission_id ?? null,
+      standingPermissionVersion: row.standing_permission_version === null || row.standing_permission_version === undefined ? null : Number(row.standing_permission_version),
     };
   }
 
@@ -1501,6 +1846,14 @@ export class Store {
 
   markToolOpEffectUnknown(toolOpId: string): void {
     this.db.prepare("UPDATE tool_ops SET effect_unknown = 1 WHERE id = ?").run(toolOpId);
+  }
+
+  /** 指定工具的效果未知操作（issue 10：创建长期授权时提示拥有者先核实的对象；有界）。 */
+  listEffectUnknownToolOps(toolName: string, limit = 20): ToolOp[] {
+    const rows = this.db
+      .prepare("SELECT * FROM tool_ops WHERE tool_name = ? AND effect_unknown = 1 ORDER BY intent_recorded_at, id LIMIT ?")
+      .all(toolName, Math.min(Math.max(1, limit), 100)) as any[];
+    return rows.map(Store.rowToToolOp);
   }
 
   // ---------- 工具正文产物 ----------

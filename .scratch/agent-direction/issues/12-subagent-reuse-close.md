@@ -152,3 +152,7 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 - 对每个改动的 `src/` 文件执行 `grep -l <路径> docs/visual/*.html`，预计命中 orchestrator、tool-call-path、storage-layout、control-protocol、context-pipeline、deployment，同步后跑 test/67。
 
 完成时逐条登记六项验收证据，区分离线逻辑测试、真实后台与执行边界、模拟模型/平台和真实平台。本次只保存计划，工单状态与验收勾选保持不变。
+
+### 2026-10-04：与委派失败清理的协调
+
+`delegate` 准备阶段现有两处清理缺口：正文超过 `INPUT_TEXT_CAP` 时新建目录会残留；沿原工作委派失败时写入的快照文件会残留。两处已登记为 [visual-docs-review 工单 03](../../visual-docs-review/issues/03-subagent-delegate-leaves-files.md)。本工单改快照命名、改造准备阶段时，如果先合入，请让失败清理覆盖新命名的文件，或者顺手把 03 一起修掉。

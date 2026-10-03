@@ -2472,7 +2472,15 @@ export class TuiApp {
         }
       }
       if (c.decisionSource !== null) {
-        lines.push(`决定来源：${c.decisionSource === "auto_review" ? "自动审查" : "拥有者"}`);
+        lines.push(
+          `决定来源：${
+            c.decisionSource === "auto_review"
+              ? "自动审查"
+              : c.decisionSource === "standing_permission"
+                ? `长期授权 ${c.standingPermissionId ?? "（未知）"} v${c.standingPermissionVersion ?? "?"}（本次使用该授权）`
+                : "拥有者"
+          }`,
+        );
       }
       header.setText(lines.join("\n"));
     };

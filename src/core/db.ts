@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -468,6 +468,35 @@ CREATE TABLE IF NOT EXISTS telegram_config (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- v23：长期操作授权（agent-direction issue 10）。不可变限定范围 + 版本化撤销/失效；
+-- 同一 main 会话、同一入口(ch/account/chat/actor)与同一目标（机器/单元/动作）最多
+-- 一条未撤销授权（部分唯一索引）；来源审批唯一（approval_id），持久保留删除记录不删行。
+-- pinned_target/channel/account/chat_id/actor 不参与唯一键的修订指纹（policy/unit revision
+-- 与配置代次只在使用资格核实中比对，不进唯一键）。
+CREATE TABLE IF NOT EXISTS standing_permissions (
+  id TEXT PRIMARY KEY,
+  version INTEGER NOT NULL DEFAULT 1,
+  session_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  machine_id TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('restart')),
+  policy_revision TEXT NOT NULL,
+  unit_revision TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  account TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  pinned_target TEXT NOT NULL,
+  approval_id TEXT NOT NULL UNIQUE,
+  created_by_event_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  revoked_reason TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_standing_permissions_active ON standing_permissions
+  (session_id, channel, account, chat_id, actor, machine_id, unit, action) WHERE revoked_at IS NULL;
 `;
 
 /**
@@ -576,7 +605,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 21) {
+    } else if (version >= 2 && version <= 22) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -599,6 +628,9 @@ export class Db {
       // agent-direction issue 07）；旧会话默认 NULL，不扫描目录、不迁移业务记录。
       // v21 → v22：inbound_events 补 event_kind 宿主类别列（ensureColumns，
       // agent-direction issue 08）；旧记录默认 task，历史入站与回执关系保留。
+      // v22 → v23：新增 standing_permissions 表 + confirmations 补长期授权关联
+      // 两列（ensureColumns，agent-direction issue 10）；迁移不产生任何授权、
+      // 不改旧批准事实（旧记录关联列恒为 NULL）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -856,6 +888,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // v22（agent-direction issue 08）：入站事件宿主类别（区分普通任务入站与 IM
     // 审批控制消息）；旧记录默认 task
     add("inbound_events", "event_kind", "event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval'))");
+    // v23（agent-direction issue 10）：批准的长期授权关联（可空，旧批准恒为空；
+    // 迁移不把历史单次批准转换成长期授权）
+    add("confirmations", "standing_permission_id", "standing_permission_id TEXT");
+    add("confirmations", "standing_permission_version", "standing_permission_version INTEGER");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

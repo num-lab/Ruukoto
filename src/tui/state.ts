@@ -303,6 +303,8 @@ export class ViewState {
             reviewModel: body.reviewModel ?? null,
             reviewPolicyVersion: body.reviewPolicyVersion ?? null,
             decisionSource: null,
+            standingPermissionId: null,
+            standingPermissionVersion: null,
           });
           // 新审批提示（不抢输入焦点；计数同时显示在状态行）
           this.note(

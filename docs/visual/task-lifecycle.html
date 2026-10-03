@@ -149,7 +149,7 @@
             <td><code class="st wait">awaiting_confirmation</code> → <code class="st run">running</code></td>
             <td>审批闸门</td>
             <td>本任务所有等待中的审批都已结束（批准、拒绝、停止解除、模式切换失效或 IM 绑定失效的定向解除），等待计数归零；转换单独一个事务。决定与审计事件在同一事务提交（来自 IM 命令的决定把控制事件终态与回执并入同一事务，任何失败整笔回滚），等待者在提交成功后才被唤醒。<br><code class="src" data-src="src/agent/approval-gate.ts#pendingCount">approval-gate.ts · pendingCount</code> <code class="src" data-src="src/agent/approval-gate.ts#supersedeConfirmations(ids">approval-gate.ts · supersedeConfirmations</code></td>
-            <td>无独立事件；拥有者或自动审查的决定另发 <code>task.confirmation_resolved</code></td>
+            <td>无独立事件；拥有者、自动审查或长期授权（standing_permission）的决定另发 <code>task.confirmation_resolved</code></td>
           </tr>
           <tr data-k="e-done" tabindex="0">
             <td>执行中 → <code class="st ok">completed</code></td>

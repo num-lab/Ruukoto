@@ -141,6 +141,8 @@ const CONFIRMATION: ConfirmationRequest = {
   reviewModel: "demo/demo-model",
   reviewPolicyVersion: "auto-review-v1",
   decisionSource: null,
+  standingPermissionId: null,
+  standingPermissionVersion: null,
 };
 
 /** 历史条目：覆盖各角色与边界（截断、工具错误、含非文本内容）。 */
@@ -351,6 +353,8 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.confirmation_reviewed", taskId: "task_awaiting0000", confirmationId: CONFIRMATION.id, decision: "ask_owner", reason: "带凭据的写入不属于自动批准范围" },
     { type: "task.confirmation_resolved", taskId: "task_awaiting0000", confirmationId: "conf_old000000000", decision: "rejected" },
     { type: "task.approval_consumed", taskId: "task_completed000", confirmationId: "conf_old000000001", toolOpId: "toolop_demo000001", toolName: "read" },
+    { type: "standing_permission.created", permissionId: "sp_demo00000000001", approvalId: "conf_old000000002", eventId: "evt_demo00000000001", sessionId: SESSION_ID, channel: "qq_private", account: "880001", chatId: "880001", actor: "qq_private:880001", machineId: "demo-machine-0001", unit: "ruukoto-service-test.service", action: "restart" },
+    { type: "standing_permission.revoked", permissionId: "sp_demo00000000001", version: 2, reason: "effect_unknown", opId: "op_svc_demo0000001" },
     { type: "task.mode_switch_requested", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access" },
     { type: "task.mode_switched", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access", permissionVersion: 2 },
     { type: "task.mode_switch_failed", taskId: "task_failed00000", sessionId: SESSION_ID, to: "full_access", reason: "任务已结束" },

@@ -19,6 +19,7 @@
  *   ruukoto events                                    订阅并打印事件流
  *   ruukoto interrupt <task> | cancel <task> | resume-queue <session>
  *   ruukoto confirm <confirmation-id> approve|reject
+ *   ruukoto service-grant list [--cursor C] [--limit N] | show <id> | revoke <id> --expected-version N
  *   ruukoto read-artifact <task> <artifact> [--offset N] [--length N]
  *   ruukoto credentials list
  *   ruukoto credentials add --name N --host H --header H --purpose P --secret-env VAR
@@ -720,6 +721,36 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
       );
       return 1;
     }
+    case "service-grant": {
+      // 长期操作授权（agent-direction issue 10）：入口停用后的遗留目录管理；
+      // 目录权限不能用于放行旧授权；创建首版只经原 IM 待审批请求
+      const sub = positional[0];
+      if (sub === "list") {
+        print(await withClient((c) => c.request("service_grant_list", {
+          cursor: flags["cursor"],
+          limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
+        })));
+        return 0;
+      }
+      if (sub === "show" && positional[1]) {
+        print(await withClient((c) => c.request("service_grant_get", { permission_id: positional[1] })));
+        return 0;
+      }
+      if (sub === "revoke" && positional[1]) {
+        print(await withClient((c) => c.request("service_grant_revoke", {
+          permission_id: positional[1],
+          expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
+        })));
+        return 0;
+      }
+      console.error(
+        "用法：\n" +
+          "  ruukoto service-grant list [--cursor C] [--limit N]\n" +
+          "  ruukoto service-grant show <授权ID>\n" +
+          "  ruukoto service-grant revoke <授权ID> --expected-version N",
+      );
+      return 1;
+    }
     case "grant": {
       const sub = positional[0];
       if (sub === "create") {
@@ -889,7 +920,7 @@ function defaultHelp(): string {
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
-    "      grant | history-search | memory | selection-records |\n" +
+    "      grant | service-grant list/show/revoke | history-search | memory | selection-records |\n" +
     "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +

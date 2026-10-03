@@ -493,6 +493,10 @@
           <tr><td><code>schedule_get</code></td><td>单条计划与运行历史</td><td>—</td><td>—</td></tr>
           <tr><td><code>schedule_cancel</code></td><td>取消计划（首版不支持编辑，只能取消后重建）</td><td>是</td><td>版本号</td></tr>
           <tr><td><code>notification_list</code></td><td>发送操作账本列表</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="4"><b>长期操作授权（issue 10，只查询/撤销；不获得创建或扩大能力）</b></td></tr>
+          <tr><td><code>service_grant_list</code></td><td>长期授权分页列表（入口停用后仍可管理的遗留目录）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>service_grant_get</code></td><td>单条授权详情（完整范围、版本、存续原因与使用记录）</td><td>—</td><td>—</td></tr>
+          <tr><td><code>service_grant_revoke</code></td><td>带版本撤销（期望版本条件更新，重复撤销幂等）</td><td>是</td><td>版本号</td></tr>
           <tr><td><code>notification_get</code></td><td>单条发送操作状态</td><td>—</td><td>—</td></tr>
           <tr><td><code>notification_cancel</code></td><td>取消未发送的通知</td><td>是</td><td>—</td></tr>
         </tbody>
@@ -531,9 +535,11 @@
           <tr><td><code>task.context_experiment</code></td><td>Jev 选择尝试的记录，即使主模型未发送也留档</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
           <tr><td><code>task.context_compaction</code></td><td>上下文压缩的 started / finished（finished 与压缩点同一事务；摘要失败时 checkpointId 为 null）</td><td><a href="context-pipeline.html">上下文组装</a></td></tr>
           <tr><td><code>task.awaiting_confirmation</code></td><td>任务等待拥有者审批某个操作（含工具、参数与自动审查状态）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
-          <tr><td><code>task.confirmation_resolved</code></td><td>审批被批准或拒绝（来源为拥有者或自动审查）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.confirmation_resolved</code></td><td>审批被批准或拒绝（来源为拥有者、自动审查或经长期授权 standing_permission + 授权 ID/版本）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
           <tr><td><code>task.confirmation_reviewed</code></td><td>自动审查无法定论，转拥有者确认（审批仍 pending）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
-          <tr><td><code>task.approval_consumed</code></td><td>批准在真正执行前被原子消费（消费即执行开始）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>task.approval_consumed</code></td><td>批准在真正执行前被原子消费（消费即执行开始；关联长期授权时携带授权 ID/版本）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>standing_permission.created</code></td><td>限定长期授权已保存（issue 10：来源审批唯一，范围不可变）</td><td><a href="once-only.html">只执行一次</a></td></tr>
+          <tr><td><code>standing_permission.revoked</code></td><td>长期授权已撤销/失效（版本递增、保留记录；effect_unknown 时携带触发操作 ID）</td><td><a href="once-only.html">只执行一次</a></td></tr>
           <tr><td><code>task.mode_switch_requested</code></td><td>收到模式切换请求</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
           <tr><td><code>task.mode_switched</code></td><td>模式切换完成（带新的权限版本）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
           <tr><td><code>task.mode_switch_failed</code></td><td>模式切换失败（旧执行单元退出无法核实等）</td><td><a href="task-lifecycle.html">任务生命周期</a></td></tr>
@@ -628,7 +634,7 @@
 
   <section id="versions">
     <h2>协议版本演进</h2>
-    <p>协议版本写在每一帧的 <code>v</code> 里。服务端只服务与它完全相同的一版：不匹配就回 <code>protocol_version</code>，客户端提示升级而不是静默重试。当前值 <code>PROTOCOL_VERSION</code> = <code>v9</code>。持久事件中的旧格式兼容（缺少偏移的片段、旧格式幂等摘要）不代表线上协议向后兼容。</p>
+    <p>协议版本写在每一帧的 <code>v</code> 里。服务端只服务与它完全相同的一版：不匹配就回 <code>protocol_version</code>，客户端提示升级而不是静默重试。当前值 <code>PROTOCOL_VERSION</code> = <code>v10</code>。持久事件中的旧格式兼容（缺少偏移的片段、旧格式幂等摘要）不代表线上协议向后兼容。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>版本</th><th>变化</th></tr></thead>
@@ -637,10 +643,11 @@
           <tr><td><code>v3</code></td><td>快照有界化（活动任务 + 每会话近期结束任务，更早经 <code>list_tasks</code> 分页）；握手返回数据实例标识与执行后端说明；活动 / 中断任务携带输出预览；确认请求与工具操作经有界参数视图传输；新增历史读取与 <code>request_id</code> 核实接口</td></tr>
           <tr><td><code>v8</code></td><td>专用 GitHub 模块退役：<code>github_*</code> 业务接口移除，旧客户端因版本不匹配被拒绝，旧命令只保留静态迁移提示</td></tr>
           <tr><td><code>v9</code></td><td>正文按连续显示段发送 UTF-8 增量；新增持久思考阶段、<code>read_task_events</code> 分页与 <code>get_task</code> 快照水位；持久旧事件的累计尾部格式仍可读</td></tr>
+          <tr><td><code>v10</code></td><td>长期操作授权（agent-direction issue 10）：批准新增可空的授权 ID/版本关联与新决定来源 <code>standing_permission</code>；新增 <code>standing_permission.*</code> 事件与 <code>service_grant_list/get/revoke</code> 操作（不获得创建或扩大授权的能力）；持久历史中的旧来源与事件保持可读</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="muted">源码注释里只有 v2、v3、v8、v9 四段变化记录；这四段之外的中间版本没有留下说明。</p>
+    <p class="muted">源码注释里只有 v2、v3、v8、v9、v10 五段变化记录；这五段之外的中间版本没有留下说明。</p>
   </section>
 
   <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>

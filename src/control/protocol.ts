@@ -21,6 +21,11 @@
  *
  * v9：正文按连续显示段发送 UTF-8 增量，新增持久思考阶段、read_task_events
  * 分页及 get_task 快照水位。旧客户端须升级；持久旧事件的累计尾部格式仍可读。
+ *
+ * v10（agent-direction issue 10）：长期操作授权——批准新增可空的授权 ID/版本
+ * 关联与新决定来源 standing_permission；新增 standing_permission.* 事件与
+ * service_grant_list/get/revoke 操作（不获得创建或扩大授权的能力）。旧客户端
+ * 须升级；持久历史中的旧来源与事件保持可读。
  */
 
 import {

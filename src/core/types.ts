@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 export interface ModelSelection {
   provider: string;
@@ -471,8 +471,58 @@ export interface ConfirmationRequest {
   reviewModel: string | null;
   /** 审查策略版本（随规则演进递增，供审计核对）。 */
   reviewPolicyVersion: string | null;
-  /** 最终决定来源：owner = 拥有者；auto_review = 自动审查。 */
-  decisionSource: "owner" | "auto_review" | null;
+  /** 最终决定来源：owner = 拥有者；auto_review = 自动审查；standing_permission = 经长期授权（见关联列）。 */
+  decisionSource: "owner" | "auto_review" | "standing_permission" | null;
+  /**
+   * 关联的长期授权（agent-direction issue 10；null = 普通批准）：/approve-standing
+   * 的当前批准与每次自动放行都钉版授权 ID 与版本；消费时在公共消费处重读，
+   * 撤销/版本变化即不再放行。旧记录恒为 null（迁移不把旧批准转成长期授权）。
+   */
+  standingPermissionId: string | null;
+  standingPermissionVersion: number | null;
+}
+
+/**
+ * 长期操作授权（agent-direction issue 10，ADR 0017 与 ADR 0019 阶段的例外）：
+ * 拥有者经原 IM 平台的待审批明确保存的限定授权——允许本机对指定白名单服务执行
+ * 固定动作（首版仅 restart）。授权存放于后台保护的核心库，模型、子任务消息与
+ * 普通平台文本都不能创建或扩大；范围创建后不修改，修改经撤销后新建完成。
+ *
+ * 失效：撤销（owner_revoked）或核实失败后明确失效（入口代次/身份变化
+ * entry_changed、策略/单元修订不符 revision_changed、目标效果未知 effect_unknown），
+ * 都递增版本并保留记录；同一 main 会话、同一稳定入口身份与同一目标最多一条
+ * 未撤销授权。使用资格逐项核实（原目标代次、main、本机/单元/动作与两项修订），
+ * 共享主会话不使另一平台继承授权。
+ */
+export interface StandingPermission {
+  id: string;
+  /** 修订版本（创建为 1；撤销/失效递增，条件更新防重复变更）。 */
+  version: number;
+  /** 授权目标：main 会话及资料身份。 */
+  sessionId: string;
+  projectId: string;
+  /** 入口身份：机器/单元/动作与入口绑定逐项核实用的钉版字段。 */
+  machineId: string;
+  unit: string;
+  action: "restart";
+  /** 创建时的策略/单元修订指纹；使用资格核实（变化即不再自动放行）。 */
+  policyRevision: string;
+  unitRevision: string;
+  /** 原 IM 入口与拥有者绑定（稳定键：channel/account/chatId/actor）。 */
+  channel: string;
+  account: string;
+  chatId: string;
+  /** 当前 IM actor（拥有者平台身份）。 */
+  actor: string;
+  /** 创建时钉版的 NotifyTarget（含配置版本；代次变化即失效）。 */
+  pinnedTarget: NotifyTarget;
+  /** 来源审批（唯一）与创建控制事件。 */
+  approvalId: string;
+  createdByEventId: string;
+  createdAt: string;
+  /** 撤销/失效时间与原因；非 null 即已失效。 */
+  revokedAt: string | null;
+  revokedReason: string | null;
 }
 
 export interface ToolOp {
@@ -549,10 +599,14 @@ export type PersistentEventBody =
       summaryStatus?: ContextCheckpoint["summaryStatus"]; summaryError?: string | null;
     }
   | { type: "task.awaiting_confirmation"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean; scope: ApprovalScope; permissionVersion?: number; reviewStatus?: "in_progress" | null; reviewModel?: string | null; reviewPolicyVersion?: string | null }
-  | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected"; source?: "owner" | "auto_review"; reason?: string }
+  | { type: "task.confirmation_resolved"; taskId: string; confirmationId: string; decision: "approved" | "rejected"; source?: "owner" | "auto_review" | "standing_permission"; reason?: string; standingPermissionId?: string; standingPermissionVersion?: number }
   /** 自动审查转人工（issue 15）：审批仍 pending，等待拥有者决定。 */
   | { type: "task.confirmation_reviewed"; taskId: string; confirmationId: string; decision: "ask_owner"; reason: string }
-  | { type: "task.approval_consumed"; taskId: string; confirmationId: string; toolOpId: string; toolName: string }
+  | { type: "task.approval_consumed"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; standingPermissionId?: string; standingPermissionVersion?: number }
+  /** 长期操作授权已保存（agent-direction issue 10）：范围不可变，来源审批唯一。 */
+  | { type: "standing_permission.created"; permissionId: string; approvalId: string; eventId: string; sessionId: string; channel: string; account: string; chatId: string; actor: string; machineId: string; unit: string; action: string }
+  /** 长期操作授权已撤销/失效（版本递增，保留记录；重复撤销不产生本事件）。 */
+  | { type: "standing_permission.revoked"; permissionId: string; version: number; reason: "owner_revoked" | "effect_unknown" | "entry_changed" | "revision_changed"; opId?: string }
   | { type: "task.mode_switch_requested"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode }
   | { type: "task.mode_switched"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode; permissionVersion: number }
   | { type: "task.mode_switch_failed"; taskId: string; sessionId: string; to: AccessMode; reason: string }

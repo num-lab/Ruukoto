@@ -32,7 +32,7 @@ import {
 import type { ModelCatalog } from "./model-selection.ts";
 import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
+import type { AccessMode, AgentRole, ApprovalScope, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
@@ -123,6 +123,14 @@ export interface DriverDeps {
   approvalIm?: {
     notifyCreated?: (confirmation: ConfirmationRequest, task: Task) => void;
     consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
+    /**
+     * 长期授权候选（agent-direction issue 10）：宿主按当前 main、任务来源入口身份
+     * 与两项修订逐项核实；返回 null 走人工路径。
+     */
+    standingCandidate?: (
+      task: Task,
+      scope: Extract<ApprovalScope, { kind: "service_operation" }>,
+    ) => { id: string; version: number } | null;
   };
   /**
    * QQ 群聊会话的撤回消息过滤（issue 07）：每次模型调用前移出已撤回交互
@@ -229,6 +237,7 @@ export class Driver {
       reviewer: () => this.deps.reviewer,
       notifyConfirmation: deps.approvalIm?.notifyCreated,
       consumeRecheck: deps.approvalIm?.consumeRecheck,
+      standingCandidate: deps.approvalIm?.standingCandidate,
     });
     this.router = new ToolRouter({
       store: deps.store,
@@ -439,6 +448,7 @@ export class Driver {
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
             requestApproval: (input) => this.approvals.request(input),
+            requestStanding: (input) => this.approvals.requestStanding(input),
             recordArtifact: (hostOpId, artifactId) => this.recordHostToolArtifact(hostOpId, artifactId),
             markEffectUnknown: (hostOpId) => {
               const task = this.currentTask;
@@ -1133,7 +1143,7 @@ export class Driver {
   }
 
   /** 控制面/IM 应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
-  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: () => void }): boolean {
+  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: () => void | { standingPermission?: { id: string; version: number } } }): boolean {
     return this.approvals.resolve(confirmationId, decision, opts);
   }
 

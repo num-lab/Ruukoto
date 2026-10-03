@@ -26,6 +26,7 @@ import {
   SESSION_DEFAULT_MODES,
   type AccessMode,
   type AgentRoleId,
+  type ApprovalScope,
   type Artifact,
   type ConfirmationRequest,
   type ContextCheckpoint,
@@ -36,6 +37,7 @@ import {
   type Project,
   type Session,
   type SessionKind,
+  type StandingPermission,
   type InboundEvent,
   type Task,
   type ToolOp,
@@ -389,6 +391,15 @@ export class Runtime {
         const driver = this.drivers.get(confirmation.sessionId);
         if (!driver) return false;
         return driver.resolveConfirmation(confirmation.id, decision, { txExtra });
+      },
+      // 长期授权（issue 10）：创建前同步核对部署策略当前修订；无服务管理能力返回 null
+      servicePolicyRevision: () => {
+        if (!this.serviceManager) return null;
+        try {
+          return createHash("sha256").update(fs.readFileSync(this.serviceManager.policyPath)).digest("hex");
+        } catch {
+          return null;
+        }
       },
       kickSender: () => this.scheduler?.kickSender(),
     });
@@ -837,6 +848,15 @@ export class Runtime {
       }
       return capChars(JSON.stringify(c.scope), 300);
     };
+    // 同目标历史效果未知操作（issue 10）：批准前的核实参照——长期授权不代替核实
+    let unknownOpsNote: string | null = null;
+    if (confirmation.scope.kind === "service_operation") {
+      const scope = confirmation.scope;
+      const unknown = this.store.listEffectUnknownToolOps("service_manage", 5).filter((op) => op.params["unit"] === scope.unit && op.params["machine_id"] === scope.machineId);
+      if (unknown.length) {
+        unknownOpsNote = `注意：该目标存在 ${unknown.length} 项结果未知的历史操作（${unknown.map((o) => o.id).join(", ")}）；长期授权前请先核实其实际效果，授权不代替核实。`;
+      }
+    }
     const text = [
       `【需要审批】${confirmation.toolName}`,
       `审批 ID：${confirmation.id}`,
@@ -844,9 +864,15 @@ export class Runtime {
       `任务：${confirmation.taskId}`,
       `范围：${scopeBrief(confirmation)}`,
       `参数摘要（数据展示，完整见详情）：${capChars(JSON.stringify(confirmation.params), 300)}`,
-      `批准：/approve ${confirmation.id} ${confirmation.permissionVersion}`,
+      `批准（仅本次）：/approve ${confirmation.id} ${confirmation.permissionVersion}`,
       `拒绝：/reject ${confirmation.id} ${confirmation.permissionVersion}`,
+      ...(confirmation.scope.kind === "service_operation"
+        ? [
+            `长期批准（保存本机对该服务的 restart 授权并批准本次；以 root 经后台固定 helper 提权执行；之后独立任务命中相同范围与修订自动放行，持续至撤销或修订/绑定变化；批准后可用 /service-grants 查看、/revoke-service-grant <授权ID> <版本> 撤销）：/approve-standing ${confirmation.id} ${confirmation.permissionVersion}`,
+          ]
+        : []),
       `详情：/approval ${confirmation.id}`,
+      ...(unknownOpsNote ? [unknownOpsNote] : []),
     ].join("\n");
     this.sched.insertOp({
       sourceKind: "confirmation",
@@ -879,6 +905,8 @@ export class Runtime {
    * IM 固定身份失效（issue 08）：未消费的待决与已批准请求失效并解除等待
    * （不能永久挂起）；仅影响原平台来源，不波及另一平台在共享 main 会话中的
    * 工作；暂时离线（wait）不作废；已消费的批准不动（消费即执行开始）。
+   * 同一事务内，该入口稳定身份已死的长期授权一并明确失效（递增版本，保留记录；
+   * issue 10），另一平台原本独立的授权不受影响。
    */
   private invalidateImApprovals(source: string): void {
     const released = new Map<string, Set<string>>();
@@ -896,9 +924,59 @@ export class Runtime {
           released.set(c.sessionId, ids);
         }
       }
+      // 长期授权（issue 10）：入口代次/拥有者绑定已死的明确失效；暂时离线
+      // （target() 仍按配置给出，gate 为 wait）不算绑定变化，正常重启也保留。
+      const currentTarget = this.notifyChannel(source)?.target() ?? null;
+      const expectedActor = this.imExpectedActor(source);
+      for (const sp of this.store.listActiveStandingPermissions()) {
+        if (sp.channel !== source) continue;
+        const alive = currentTarget !== null && sameTarget(currentTarget, sp.pinnedTarget) && sp.actor === expectedActor;
+        if (!alive) this.store.invalidateStandingPermission(sp.id, "entry_changed");
+      }
     });
     // 解除活动 Driver 的审批等待（已知未执行记录由闸门照常补记），不动其他审批
     for (const [sessionId, ids] of released) this.drivers.get(sessionId)?.supersedeApprovals(ids);
+  }
+
+  /**
+   * 长期授权候选（agent-direction issue 10）：宿主按当前 main、任务来源入口身份、
+   * 本机/单元/固定动作与两项修订逐项核实；观察到失配的旧授权在同一事务内明确
+   * 失效（revision_changed/entry_changed）。候选 ≠ 执行依据：授权版本/未撤销与
+   * 完整范围在消费事务内重新核实（ApprovalGate.requestStanding）。无 IM 来源
+   * （TUI 提交、调度、GitHub、子任务消息等）恒为 null，不能因共用 main 而继承。
+   * 在 service_manage 的请求路径调用（helper 已给出本次真实修订）。
+   */
+  private standingCandidate(task: Task, scope: Extract<ApprovalScope, { kind: "service_operation" }>): { id: string; version: number } | null {
+    if (!this.serviceManager) return null;
+    const event = this.imApprovals.imSourceEvent(task.id);
+    if (!event?.actor || !event.replyTarget) return null;
+    return this.store.withTx(() => {
+      const sp = this.store.findStandingCandidate({
+        sessionId: task.sessionId,
+        channel: event.source,
+        account: event.replyTarget!.account,
+        chatId: event.replyTarget!.chatId,
+        actor: event.actor!,
+        machineId: scope.machineId,
+        unit: scope.unit,
+        action: "restart",
+      });
+      if (!sp) return null;
+      // 入口代次：钉版目标与当前完全一致（含配置版本），actor 仍是当前绑定拥有者；
+      // 引擎内的钉版代次差异由消费事务的固定身份复核拦截（不在此失效）
+      const current = this.notifyChannel(event.source)?.target() ?? null;
+      const alive = current !== null && sameTarget(current, sp.pinnedTarget) && sp.actor === this.imExpectedActor(event.source);
+      if (!alive) {
+        this.store.invalidateStandingPermission(sp.id, "entry_changed");
+        return null;
+      }
+      // 策略/单元修订两项都要求原目标代次完全一致；失配的旧授权明确失效
+      if (sp.policyRevision !== scope.policyRevision || sp.unitRevision !== scope.unitRevision) {
+        this.store.invalidateStandingPermission(sp.id, "revision_changed");
+        return null;
+      }
+      return { id: sp.id, version: sp.version };
+    });
   }
 
   /** 拥有者控制面：计划分页列表 / 详情（含最近运行） / 取消。 */
@@ -915,6 +993,40 @@ export class Runtime {
     const schedule = this.sched.getSchedule(scheduleId);
     if (!schedule) throw new RuntimeApiError("not_found", `计划不存在：${scheduleId}`);
     return { schedule, runs: this.sched.listRuns(scheduleId, 20) };
+  }
+
+  // ---------- 长期操作授权（拥有者控制面；agent-direction issue 10） ----------
+
+  /**
+   * 长期授权分页列表（入口停用后仍可管理的遗留目录；只查询，目录权限不能用于
+   * 放行旧授权）。光标为上一页最后一条授权 id。
+   */
+  serviceGrantList(input: { cursor?: string; limit?: number }): { items: StandingPermission[]; nextCursor: string | null } {
+    try {
+      const { items, hasMore } = this.store.listStandingPermissionsPaged({ before: input.cursor, limit: input.limit ?? 50 });
+      return { items, nextCursor: hasMore && items.length > 0 ? items[items.length - 1]!.id : null };
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError("invalid_params", err.message);
+      throw err;
+    }
+  }
+
+  /** 长期授权详情：完整范围、版本、存续状态、来源与独立使用记录（有界）。 */
+  serviceGrantGet(permissionId: string): { permission: StandingPermission; usages: ConfirmationRequest[] } {
+    const permission = this.store.getStandingPermission(permissionId);
+    if (!permission) throw new RuntimeApiError("not_found", `长期授权不存在：${permissionId}`);
+    return { permission, usages: this.store.listConfirmationsByStanding(permissionId, 50) };
+  }
+
+  /** 带版本撤销长期授权；已撤销的幂等返回（重复撤销不再次变更）。 */
+  serviceGrantRevoke(permissionId: string, expectedVersion: number): StandingPermission {
+    try {
+      const { permission } = this.store.withTx(() => this.store.revokeStandingPermission(permissionId, expectedVersion));
+      return permission;
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code === "not_found" ? "not_found" : err.code, err.message);
+      throw err;
+    }
   }
 
   async scheduleCancel(input: { scheduleId: string; expectedVersion: number; reason: string }) {
@@ -2515,10 +2627,12 @@ export class Runtime {
         mcp: { store: this.mcp, ...this.config.mcp },
         allowTaskTool: (task, name, effect) => this.githubEvents.allowTool(task, name, effect),
         reviewer: this.reviewer,
-        // IM 审批（agent-direction issue 08）：创建通知与消费前固定身份复核
+        // IM 审批（agent-direction issue 08）：创建通知与消费前固定身份复核；
+        // 长期授权候选（issue 10）：共享 main 不继承其他入口；无 IM 来源的任务恒无候选
         approvalIm: {
           notifyCreated: (confirmation, task) => this.imApprovalNotice(confirmation, task),
           consumeRecheck: (confirmation, task) => this.imApprovalConsumeRecheck(confirmation, task),
+          standingCandidate: (task, scope) => this.standingCandidate(task, scope),
         },
         // QQ 群聊会话（issue 07）：每次模型调用前移出已撤回交互（只改视图）
         qqRecalledFilter: (sessionId, messages) =>

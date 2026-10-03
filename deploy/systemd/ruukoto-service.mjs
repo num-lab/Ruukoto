@@ -296,12 +296,19 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
     ],
     { env: {}, encoding: "buffer", maxBuffer: 4 * 1024 * 1024 },
   );
-  if (run.error) throw new Refuse("systemd_unavailable", `systemd-run 调用失败：${run.error.message}`);
+  // 只有可证明命令根本未启动（ENOENT/EACCES/ENOTDIR 等 exec 未成功）才报未派发；
+  // 其余错误（缓冲超限 ENOBUFS 等启动后的异常）与被信号杀死：systemd-run 已启动
+  // 就可能已派发——不能报成零效果，也不能报成确定退出码。
+  if (run.error && ["ENOENT", "EACCES", "ENOTDIR"].includes(run.error.code)) {
+    throw new Refuse("systemd_unavailable", `systemd-run 不可执行，未派发 systemd：${run.error.message}`);
+  }
   // 已派发：此后（透传/应答写出失败等）一律按已启动上报——不能把可能已生效的
   // restart 误报为已知未执行（顶层 catch 据此决定 launched 标志）
   dispatched = true;
   if (run.stdout?.length) fs.writeSync(1, run.stdout);
   if (run.stderr?.length) fs.writeSync(2, run.stderr);
+  if (run.error) throw new Error(`systemd-run 已启动但结果不确定（spawn 错误：${run.error.message}）`);
+  if (run.status === null) throw new Error(`systemd-run 已启动但被信号${run.signal ? ` ${run.signal}` : ""}结束，restart 是否完成不确定`);
   reply({
     verb: "restart",
     ok: true,
@@ -310,7 +317,7 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
     opUnit,
     launched: true,
     execIdentity: "root",
-    exitCode: run.status ?? 1,
+    exitCode: run.status,
     observedAt: new Date().toISOString(),
   });
 }

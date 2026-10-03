@@ -176,7 +176,7 @@ const CONFIRMATION: ConfirmationRequest = {
   id: "conf_fake", taskId: "task_fake", sessionId: "sess_fake", toolOpId: "toolop_fake", toolName: "mock_gate",
   params: { note: "批准我" }, scope: { kind: "tool", workspaceOnly: true }, cwdDev: 0, cwdIno: 0, permissionVersion: 1,
   status: "pending", createdAt: T0, respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null,
-  reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null,
+  reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null, standingPermissionId: null, standingPermissionVersion: null,
 };
 
 /** 待审批任务的快照与详情应答（审批用例共用）。 */

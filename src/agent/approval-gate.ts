@@ -17,6 +17,12 @@ import { classifyForReview, ReviewAbortedError, REVIEW_POLICY_VERSION, type Appr
 
 type ConfirmationDecision = "approved" | "rejected" | "canceled" | "superseded";
 
+/** txExtra 的返回：/approve-standing 时携带刚创建的长期授权关联（写入批准与决定事件）。 */
+type ResolveTxExtra = () => void | { standingPermission?: { id: string; version: number } };
+
+/** 长期授权窄路径的内部哨兵：滥用范围即转人工（整笔回滚，不留下任何记录差异）。 */
+class StandingFallback extends Error {}
+
 export interface ApprovalRequest<T> {
   task: Task;
   hostOpId: string;
@@ -65,6 +71,16 @@ export interface ApprovalGateDeps {
    * 条件更新之前执行；返回原因即放弃消费并使批准失效。不得再开核心库事务。
    */
   consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
+  /**
+   * 长期授权候选（agent-direction issue 10）：宿主按当前 main、任务来源入口身份、
+   * 本机/单元/固定动作逐项核实后的候选（候选 ≠ 依据：目标代次与修订在消费事务内
+   * 重新核实）。返回 null = 无候选，走人工路径。模型不能指定授权；TUI 提交、调度
+   * 与子任务消息不能因共用 main 而继承原 IM 授权。
+   */
+  standingCandidate?: (
+    task: Task,
+    scope: Extract<ApprovalScope, { kind: "service_operation" }>,
+  ) => { id: string; version: number } | null;
 }
 
 export class ApprovalGate {
@@ -87,6 +103,97 @@ export class ApprovalGate {
     const waited = await this.wait(input);
     if (!waited.approved) return waited;
     return this.consume(input, waited.confirmationId);
+  }
+
+  /**
+   * 长期授权窄路径（agent-direction issue 10）：候选核实通过时，在单个同步事务内
+   * 重读授权版本与未撤销状态、对本次执行快照逐项核实完整范围（目标代次与修订由
+   * 候选检索方先行核实，消费事务内按授权行复核）、核实活动任务与取消状态、创建
+   * 独立的初始已批准记录并单次消费；任务保持 running，不发布等待事件、不启动
+   * 自动审查。返回 null = 无候选或核实不再成立（调用方回退人工路径重新判定，
+   * 不使用旧缓存执行）；持久化失败向上抛出（不得在落库失败后继续启动执行）。
+   * 长期授权本身不被消费，原单次批准也不被重复使用。
+   */
+  requestStanding<T>(input: ApprovalRequest<T>): ApprovalResult<T> | null {
+    if (input.scope.kind !== "service_operation" || !this.deps.standingCandidate) return null;
+    const store = this.deps.store;
+    const scope: Extract<ApprovalScope, { kind: "service_operation" }> = input.scope;
+    const candidate = this.deps.standingCandidate(input.task, scope);
+    if (!candidate) return null;
+    try {
+      return store.withTx((): ApprovalResult<T> => {
+        // 授权版本与未撤销状态重读（候选读取后撤销/失效即不再放行；撤销先提交赢得竞争）
+        const sp = store.getStandingPermission(candidate.id);
+        if (!sp || sp.revokedAt !== null || sp.version !== candidate.version) throw new StandingFallback();
+        // 完整范围逐项核实：授权不可变范围 vs 本次执行快照（机器/单元/固定动作/两项修订）
+        if (
+          sp.machineId !== scope.machineId ||
+          sp.unit !== scope.unit ||
+          sp.action !== scope.action ||
+          sp.policyRevision !== scope.policyRevision ||
+          sp.unitRevision !== scope.unitRevision
+        ) {
+          throw new StandingFallback();
+        }
+        // 活动任务与取消状态（命中授权的任务保持 running；取消意图即自行转人工）
+        const task = store.getTask(input.task.id);
+        if (!task || task.status !== "running" || task.cancelRequested) throw new StandingFallback();
+        if (task.permissionVersion !== input.task.permissionVersion) throw new StandingFallback();
+        // 复核钩子与人工路径同一个（main 身份 + 可同步核实的部署策略）；不符则转人工
+        if ((input.recheck?.() ?? null) !== null) throw new StandingFallback();
+        // 独立的初始已批准记录（timestamps 即决定时刻；decisionSource + 授权关联）
+        const confirmation = store.insertApprovedConfirmation({
+          taskId: task.id,
+          sessionId: task.sessionId,
+          toolOpId: input.hostOpId,
+          toolName: input.toolName,
+          params: input.params,
+          scope: input.scope,
+          permissionVersion: task.permissionVersion,
+          standingPermissionId: sp.id,
+          standingPermissionVersion: sp.version,
+        });
+        // IM 固定身份复核（原入站钉版目标 vs 当前；批准的等待型消费共用此钩子）
+        if ((this.deps.consumeRecheck?.(confirmation, task) ?? null) !== null) throw new StandingFallback();
+        // 公共消费边界：未消费 + 权限版本匹配 + 任务仍活动（事务内已逐项核实，失败即回滚）
+        const ok = store.consumeApproval({
+          confirmationId: confirmation.id,
+          expectedPermissionVersion: task.permissionVersion,
+          activeStatuses: ["running"],
+        });
+        if (!ok) throw new Error("长期授权放行后单次消费失败（事务内核实应一致）");
+        store.appendEvent(
+          {
+            type: "task.confirmation_resolved",
+            taskId: task.id,
+            confirmationId: confirmation.id,
+            decision: "approved",
+            source: "standing_permission",
+            standingPermissionId: sp.id,
+            standingPermissionVersion: sp.version,
+          },
+          { taskId: task.id, sessionId: task.sessionId },
+        );
+        store.appendEvent(
+          {
+            type: "task.approval_consumed",
+            taskId: task.id,
+            confirmationId: confirmation.id,
+            toolOpId: input.hostOpId,
+            toolName: input.toolName,
+            standingPermissionId: sp.id,
+            standingPermissionVersion: sp.version,
+          },
+          { taskId: task.id, sessionId: task.sessionId },
+        );
+        const value = input.commit ? input.commit(confirmation.id) : (undefined as T);
+        return { approved: true, approvalId: confirmation.id, params: confirmation.params, value };
+      });
+    } catch (err) {
+      // 核实不再成立：整笔回滚（不留下任何批准/使用记录），交回调用方走人工路径
+      if (err instanceof StandingFallback) return null;
+      throw err;
+    }
   }
 
   private async wait(input: ApprovalRequest<unknown>): Promise<{ approved: true; confirmationId: string } | { approved: false; text: string }> {
@@ -187,6 +294,15 @@ export class ApprovalGate {
           store.invalidateConfirmation(confirmationId);
           return { approved: false, text: imReason };
         }
+        // 关联长期授权的批准（issue 10，/approve-standing 的当前操作）：消费时
+        // 重读授权版本与未撤销状态——撤销先提交则本次放行失效，不能成为独立批准
+        if (confirmation.standingPermissionId !== null) {
+          const sp = store.getStandingPermission(confirmation.standingPermissionId);
+          if (!sp || sp.revokedAt !== null || sp.version !== confirmation.standingPermissionVersion) {
+            store.invalidateConfirmation(confirmationId);
+            return { approved: false, text: `本次批准关联的长期授权 ${confirmation.standingPermissionId} 已撤销或失效，${input.toolName} 未执行；如仍需要请重新审批` };
+          }
+        }
         const ok = store.consumeApproval({
           confirmationId,
           expectedPermissionVersion: confirmation.permissionVersion,
@@ -197,7 +313,16 @@ export class ApprovalGate {
           return { approved: false, text: `批准已失效（任务结束、权限版本变化或已被消费），${input.toolName} 未执行` };
         }
         store.appendEvent(
-          { type: "task.approval_consumed", taskId: input.task.id, confirmationId, toolOpId: input.hostOpId, toolName: input.toolName },
+          {
+            type: "task.approval_consumed",
+            taskId: input.task.id,
+            confirmationId,
+            toolOpId: input.hostOpId,
+            toolName: input.toolName,
+            ...(confirmation.standingPermissionId !== null
+              ? { standingPermissionId: confirmation.standingPermissionId, standingPermissionVersion: confirmation.standingPermissionVersion! }
+              : {}),
+          },
           { taskId: input.task.id, sessionId: input.task.sessionId },
         );
         const value = input.commit ? input.commit(confirmationId) : (undefined as T);
@@ -223,19 +348,30 @@ export class ApprovalGate {
    * 决定与审计事件在同一事务提交（IM 控制事件登记与回执可经 txExtra 并入同一事务，
    * 不得再开核心库事务；抛错则整笔回滚）；提交成功后才唤醒等待者。
    */
-  resolve(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: () => void }): boolean {
+  resolve(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: ResolveTxExtra }): boolean {
     const waiter = this.waiters.get(confirmationId);
     if (!waiter) return false;
     const store = this.deps.store;
-    // 人工决定：记录来源；进行中的自动审查同事务标记 superseded
+    // 人工决定：记录来源；进行中的自动审查同事务标记 superseded。
+    // txExtra（IM 控制事件终态/回执/长期授权创建）与决定同事务提交；
+    // txExtra 携带长期授权时，批准来源与授权关联写进批准与决定事件（issue 10）。
     const applied = store.withTx(() => {
       const ok = store.respondConfirmation(confirmationId, decision, { source: "owner" });
       if (!ok) return false;
+      const extra = opts?.txExtra?.();
+      const link = decision === "approved" ? (extra === undefined || extra === null ? undefined : extra.standingPermission) : undefined;
+      if (link) store.linkConfirmationStanding(confirmationId, link.id, link.version);
       store.appendEvent(
-        { type: "task.confirmation_resolved", taskId: waiter.task.id, confirmationId, decision, source: "owner" },
+        {
+          type: "task.confirmation_resolved",
+          taskId: waiter.task.id,
+          confirmationId,
+          decision,
+          source: link ? "standing_permission" : "owner",
+          ...(link ? { standingPermissionId: link.id, standingPermissionVersion: link.version } : {}),
+        },
         { taskId: waiter.task.id, sessionId: waiter.task.sessionId },
       );
-      opts?.txExtra?.();
       return true;
     });
     if (!applied) return false;

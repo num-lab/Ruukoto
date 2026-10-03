@@ -47,6 +47,8 @@ export interface LaunchSpec {
   workspace: string;
   /** 拥有者为该任务显式授予的工作区外路径。 */
   grantedPaths: GrantedPath[];
+  /** 宿主钉定的额外只读根（SubAgent 限定资料范围）：容器按只读挂载；local/systemd 忽略。 */
+  readRoots?: Array<{ path: string; dev: number; ino: number }>;
 }
 
 export interface WorkerLauncher {
@@ -187,6 +189,9 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
       ];
       for (const granted of spec.grantedPaths) {
         args.push("-v", `${granted.path}:${granted.path}${granted.access === "read" ? ":ro" : ""}`);
+      }
+      for (const root of spec.readRoots ?? []) {
+        args.push("-v", `${root.path}:${root.path}:ro`);
       }
       args.push(config.image, "node", CONTAINER_WORKER_PATH);
 

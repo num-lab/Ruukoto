@@ -557,7 +557,7 @@ export class Orchestrator {
         continue;
       }
       const task = this.store.getTask(body.taskId);
-      if (!task || !task.agentId) continue; // 只处理编排器创建的角色任务
+      if (!task || (!task.agentId && !task.subAgentId)) continue; // 只处理角色任务与 SubAgent 执行任务
       const outcome: ChildOutcome =
         body.type === "task.completed"
           ? "completed"
@@ -603,6 +603,10 @@ export class Orchestrator {
 
   private async handleTerminal(task: Task, outcome: ChildOutcome): Promise<void> {
     if (this.store.getTask(task.id)?.resultSummary != null) return;
+    if (task.subAgentId) {
+      await this.handleSubAgentTerminal(task, outcome);
+      return;
+    }
     const agentId = task.agentId!;
     const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
     const reply = replyPage?.text.trim() || null;
@@ -698,6 +702,115 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * SubAgent 执行任务终态（agent-direction issue 11）：结果与空闲状态在同一
+   * 事务登记——正常退出且占用已核实回收入 idle；执行单元尚未确认退出
+   * （keepOccupancy）记 unverified。重复终态通知或补记只产生一份逻辑结果。
+   * 不自动重试；后台异常沿用 interrupted/占用保留路径。
+   */
+  private async handleSubAgentTerminal(task: Task, outcome: ChildOutcome): Promise<void> {
+    const work = task.workId ? this.store.getWorkDelegation(task.workId) : null;
+    const agent = this.store.getSubAgent(task.subAgentId!);
+    if (!work || !agent) {
+      this.log(`SubAgent 任务 ${task.id} 缺少工作/身份记录，跳过结果登记`);
+      return;
+    }
+    const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
+    const reply = replyPage?.text.trim() || null;
+    const summary = this.resultSummary(task, outcome, reply);
+    // 结果引用：工作/身份/本次执行/原直接父任务/所属父会话分别核实
+    const resultRef = JSON.stringify({
+      sessionId: task.sessionId,
+      taskId: task.id,
+      workId: work.id,
+      subAgentId: agent.id,
+      parentSessionId: work.parentSessionId,
+      parentTaskId: task.parentTaskId,
+      outcome,
+      artifactIds: this.store
+        .listArtifactsByTask(task.id)
+        .filter((a) => !a.name.startsWith("prompt-snapshot:"))
+        .map((a) => a.id),
+      failure: outcome === "completed" ? null : (task.errorMessage ?? task.interruptReason ?? OUTCOME_TEXT[outcome]),
+    });
+    const recorded = this.store.withTx(() => {
+      if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
+      const occupancyHeld = this.store.listAllOccupancy().some((o) => o.sessionId === task.sessionId);
+      this.store.setSubAgentState(agent.id, occupancyHeld ? "unverified" : "idle", {
+        activeWorkId: work.id,
+        currentTaskId: null,
+      });
+      const refs = { taskId: task.id, sessionId: work.parentSessionId };
+      switch (outcome) {
+        case "completed":
+          this.store.appendEvent(
+            {
+              type: "subagent_task.completed",
+              workId: work.id,
+              subAgentId: agent.id,
+              taskId: task.id,
+              parentSessionId: work.parentSessionId,
+              parentTaskId: task.parentTaskId!,
+              summary,
+              resultRef,
+            },
+            refs,
+          );
+          break;
+        case "failed":
+          this.store.appendEvent(
+            {
+              type: "subagent_task.failed",
+              workId: work.id,
+              subAgentId: agent.id,
+              taskId: task.id,
+              parentSessionId: work.parentSessionId,
+              parentTaskId: task.parentTaskId!,
+              errorMessage: task.errorMessage ?? "已取消或失败",
+            },
+            refs,
+          );
+          break;
+        case "timeout":
+          this.store.appendEvent(
+            {
+              type: "subagent_task.timeout",
+              workId: work.id,
+              subAgentId: agent.id,
+              taskId: task.id,
+              parentSessionId: work.parentSessionId,
+              parentTaskId: task.parentTaskId!,
+              deadline: task.deadline ?? "",
+            },
+            refs,
+          );
+          break;
+        case "unknown":
+          this.store.appendEvent(
+            {
+              type: "subagent_task.result_unknown",
+              workId: work.id,
+              subAgentId: agent.id,
+              taskId: task.id,
+              parentSessionId: work.parentSessionId,
+              parentTaskId: task.parentTaskId!,
+              reason: task.interruptReason ?? "interrupted",
+            },
+            refs,
+          );
+          break;
+      }
+      return true;
+    });
+    if (!recorded) return;
+    // dev 父会话不产生唤醒任务：结果经下次模型调用的宿主资料注入送达
+    // （result_delivered_at），持久事件已指向父会话；main 按稳定 wake 键回报。
+    const parent = task.parentTaskId ? this.store.getTask(task.parentTaskId) : null;
+    if (!parent) return;
+    if (!this.store.getAgentRoleBySession(parent.sessionId)) return;
+    await this.wakeParent(task, outcome, summary);
+  }
+
   private resultSummary(task: Task, outcome: ChildOutcome, reply: string | null): string {
     const cap = (s: string) => {
       const chars = [...s], suffix = "…（截断）";
@@ -778,10 +891,15 @@ export class Orchestrator {
         `效果未知：${result.effect === "unknown" ? "是" : "否"}${result.failure ? ` · 失败原因：${result.failure.slice(0, 300)}` : ""}\n` +
         `产物：${result.artifactIds.length > 0 ? result.artifactIds.slice(0, 20).join(", ") : "无"}\n` +
         `完整结果：用 coding_result 读取（task_id ${child.id}；part=reply 分页读最终回答，part=artifact 读产物）`
-      : `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
-        `子任务：${child.id}（角色 ${child.agentId}）\n` +
-        `摘要：${summary}\n` +
-        `完整结果：session ${child.sessionId} task ${child.id}（经 get_task / read_history 查询）`;
+      : child.subAgentId
+        ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
+          `子任务：${child.id}（SubAgent ${child.subAgentId} · 工作 ${child.workId}）\n` +
+          `摘要：${summary}\n` +
+          `完整结果：用 subagent_result 按 work_id ${child.workId} 读取（part=reply 分页读最终回答，part=artifact 读产物）`
+        : `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
+          `子任务：${child.id}（角色 ${child.agentId}）\n` +
+          `摘要：${summary}\n` +
+          `完整结果：session ${child.sessionId} task ${child.id}（经 get_task / read_history 查询）`;
     try {
       await this.deps.bridge.submit({
         sessionId: parent.sessionId,

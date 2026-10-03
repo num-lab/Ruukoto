@@ -101,7 +101,12 @@ export class ToolWorkerHost {
     }
     host.readyListeners = [];
     // 容器按宿主原路径挂载工作区，各启动器的工作目录都是工作区本身
-    host.sendRequest({ type: "init", cwd: spec.workspace, label: spec.taskId });
+    host.sendRequest({
+      type: "init",
+      cwd: spec.workspace,
+      label: spec.taskId,
+      ...(spec.readRoots ? { readRoots: spec.readRoots } : {}),
+    });
     return host;
   }
 

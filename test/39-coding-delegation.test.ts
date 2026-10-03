@@ -43,7 +43,7 @@ test("main 委派 coding：宿主固定 confirm 模式与截止时间；工具�
     if (afterTool(req)) return { kind: "text", text: `已交给 coding：${lastToolText(req).slice(0, 200)}` };
     return {
       kind: "tool_calls",
-      calls: [{ id: "d1", name: "coding_delegate", arguments: { request: "分析仓库的测试覆盖", mode: "analyze", key: "cov1" } }],
+      calls: [{ id: "d1", name: "coding_delegate", arguments: { request: "生成测试覆盖草稿", mode: "draft", key: "cov1" } }],
     };
   };
   const t = await startTestRuntime("deleg-basic", responder);
@@ -65,8 +65,8 @@ test("main 委派 coding：宿主固定 confirm 模式与截止时间；工具�
     const child = children[0]!;
     assert.equal(child.agentId, "coding");
     assert.equal(child.accessMode, "confirm", "不继承 coding 会话默认 full_access");
-    assert.match(child.input, /^\[委派 coding · analyze\]/);
-    assert.ok(child.input.includes("分析仓库的测试覆盖"));
+    assert.match(child.input, /^\[委派 coding · draft\]/);
+    assert.ok(child.input.includes("生成测试覆盖草稿"));
     assert.ok(child.deadline, "宿主固定截止时间");
     assert.ok(Date.parse(child.deadline!) > Date.now());
 
@@ -175,7 +175,7 @@ test("结果协议：结构化结果随唤醒回到 main，完整回答经 codin
       return { kind: "tool_calls", calls: [{ id: "r1", name: "coding_result", arguments: { task_id: taskId, part: "reply", offset: replyOffset, length: 4096 } }] };
     }
     if (afterTool(req)) return { kind: "text", text: "已交给 coding" };
-    return { kind: "tool_calls", calls: [{ id: "d1", name: "coding_delegate", arguments: { request: "找缺陷", mode: "analyze", key: "bug1" } }] };
+    return { kind: "tool_calls", calls: [{ id: "d1", name: "coding_delegate", arguments: { request: "找缺陷", mode: "draft", key: "bug1" } }] };
   };
   const t = await startTestRuntime("deleg-result", responder);
   try {
@@ -192,7 +192,7 @@ test("结果协议：结构化结果随唤醒回到 main，完整回答经 codin
     assert.ok(done.resultSummary!.length < 1100, "摘要有界");
     const result = JSON.parse(done.resultRef!);
     assert.equal(result.taskId, child.id);
-    assert.equal(result.mode, "analyze");
+    assert.equal(result.mode, "draft");
     assert.equal(result.outcome, "completed");
     assert.equal(result.tests, "failed");
     assert.equal(result.needsOwner, true);
@@ -216,7 +216,7 @@ test("结果协议：结构化结果随唤醒回到 main，完整回答经 codin
 });
 
 test("委派入口：只有拥有者发起的 main 任务可委派；唤醒与其他来源被拒；coding 伪造调用被拦截", async () => {
-  const delegateCall = (key: string) => ({ kind: "tool_calls" as const, calls: [{ id: `c-${key}`, name: "coding_delegate", arguments: { request: `请求-${key}`, mode: "analyze", key } }] });
+  const delegateCall = (key: string) => ({ kind: "tool_calls" as const, calls: [{ id: `c-${key}`, name: "coding_delegate", arguments: { request: `请求-${key}`, mode: "draft", key } }] });
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
     if (afterTool(req)) return { kind: "text", text: `TOOL-ECHO ${lastToolText(req).slice(0, 300)}` };
@@ -286,6 +286,9 @@ test("委派入口：只有拥有者发起的 main 任务可委派；唤醒与�
 });
 
 test("自动重试：analyze 失败只重试一次且只唤醒一次；draft 失败不重试直接唤醒", async () => {
+  // agent-direction issue 11 起 coding_delegate(mode=analyze) 经工具层转入通用
+  // 只读链路；本用例覆盖仍由编排器直建的 analyze 子任务（GitHub review 同形）
+  // 的旧语义：自动重试与唤醒规则（19 迁移评审职责前保持有效）。
   let analyzeAttempts = 0;
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
@@ -296,10 +299,6 @@ test("自动重试：analyze 失败只重试一次且只唤醒一次；draft 失
     }
     if (text.includes("请求-dr")) throw new Error("模型故障（草稿）");
     if (text.includes("[编排器]")) return { kind: "text", text: "已汇报" };
-    // mock 每轮只发一个工具调用：按已有工具结果数依次委派两次
-    const done = req.messages.filter((m) => m.role === "tool").length;
-    if (done === 0) return { kind: "tool_calls", calls: [{ id: "a", name: "coding_delegate", arguments: { request: "请求-an", mode: "analyze", key: "an" } }] };
-    if (done === 1) return { kind: "tool_calls", calls: [{ id: "b", name: "coding_delegate", arguments: { request: "请求-dr", mode: "draft", key: "dr" } }] };
     return { kind: "text", text: "已委派" };
   };
   const t = await startTestRuntime("deleg-retry", responder);
@@ -307,9 +306,9 @@ test("自动重试：analyze 失败只重试一次且只唤醒一次；draft 失
     const rt = t.runtime;
     const main = rt.store.getAgentRole("main")!;
     const parent = await rt.submit({ sessionId: main.sessionId, requestId: "p4", input: "两件事", modelSelection: rt.defaultSelection });
-    await waitFor("两个委派已创建", () => rt.store.countDelegations(parent.id) === 2);
-    const an = rt.store.findChildTask(parent.id, `deleg:${parent.id}:an`)!;
-    const dr = rt.store.findChildTask(parent.id, `deleg:${parent.id}:dr`)!;
+    await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const an = await rt.orchestrator!.delegateCoding({ parentTaskId: parent.id, mode: "analyze", request: "请求-an", idempotencyKey: "an" });
+    const dr = await rt.orchestrator!.delegateCoding({ parentTaskId: parent.id, mode: "draft", request: "请求-dr", idempotencyKey: "dr" });
     const wakes = () => rt.store.listTasksBySession(main.sessionId).filter((x) => x.requestId.startsWith("wake:"));
 
     await waitFor("重试子任务完成并唤醒", () => {
@@ -341,6 +340,8 @@ test("自动重试：analyze 失败只重试一次且只唤醒一次；draft 失
 });
 
 test("analyze 已执行工作区写入后失败，不自动重试", async () => {
+  // analyze 子任务由编排器直建（同上：新链路经工具层的 analyze 硬只读，
+  // 本用例只验证旧语义的重试保护——GitHub review 同形任务在迁移前照旧）。
   const t = await startTestRuntime("deleg-write", async (req) => {
     const text = lastUserText(req);
     if (text.includes("[编排器]")) return { kind: "text", text: "已汇报" };
@@ -348,21 +349,18 @@ test("analyze 已执行工作区写入后失败，不自动重试", async () => 
       if (afterTool(req)) throw new Error("写入后模型故障");
       return { kind: "tool_calls", calls: [{ id: "write", name: "write", arguments: { path: "draft.txt", content: "保留这次修改" } }] };
     }
-    if (afterTool(req)) return { kind: "text", text: "已委派" };
-    return { kind: "tool_calls", calls: [{ id: "d", name: "coding_delegate", arguments: { request: "分析代码", mode: "analyze", key: "write" } }] };
+    return { kind: "text", text: "已委派" };
   }, { config: realTools() });
   try {
     const rt = t.runtime;
     const main = rt.store.getAgentRole("main")!;
     const coding = rt.store.getAgentRole("coding")!;
     const parent = await rt.submit({ sessionId: main.sessionId, requestId: "p", input: "检查代码", modelSelection: rt.defaultSelection });
-    await waitFor("写入任务结果回传", () => {
-      const child = rt.store.findChildTask(parent.id, `deleg:${parent.id}:write`);
-      return child?.resultRef != null;
-    });
+    await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const child = await rt.orchestrator!.delegateCoding({ parentTaskId: parent.id, mode: "analyze", request: "分析代码", idempotencyKey: "write" });
+    await waitFor("写入任务结果回传", () => rt.store.getTask(child.id)!.resultRef != null);
     assert.equal(fs.readFileSync(path.join(coding.workDir, "draft.txt"), "utf8"), "保留这次修改");
     assert.equal(rt.store.findChildTask(parent.id, `deleg:${parent.id}:write:retry`), null);
-    const child = rt.store.findChildTask(parent.id, `deleg:${parent.id}:write`)!;
     await waitFor("失败唤醒完成", () => rt.store.listTasksBySession(main.sessionId).some((w) => w.requestId === `wake:${child.id}` && w.status === "completed"));
   } finally {
     await t.shutdown();
@@ -495,7 +493,7 @@ test("结果读取：仅允许 main 的 coding 子任务及其交付产物，UTF
     const read = await rt.submit({ sessionId: main.sessionId, requestId: "read", input: "RESULT-CASES", modelSelection: rt.defaultSelection });
     await waitFor("结果读取完成", () => rt.store.getTask(read.id)!.status === "completed");
     const returns = t.server.calls.filter((c) => lastUserText(c) === "RESULT-CASES" && afterTool(c)).map(lastToolText);
-    assert.match(returns[0]!, /只能读取 main 委派/);
+    assert.match(returns[0]!, /只能读取本会话委派/);
     assert.match(returns[1]!, /不属于该子任务/);
     assert.match(returns[2]!, /不属于该子任务|不属于交付产物/);
     assert.match(returns[3]!, /继续用 offset=255/);

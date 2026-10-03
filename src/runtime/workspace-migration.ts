@@ -278,7 +278,8 @@ function scanSourceProject(deps: MigrationDeps, projectId: string, limit: number
   const project = store.getProject(projectId);
   if (!project) fail("not_found", `项目不存在：${projectId}`);
   const roles = store.listAgentRoles();
-  const roleSessionIds = new Set(roles.map((r) => r.sessionId));
+  // SubAgent 的内部工作会话（issue 11）与固定角色会话一样不参与迁移扫描与组织映射
+  const roleSessionIds = new Set([...roles.map((r) => r.sessionId), ...store.listSubAgents().map((a) => a.sessionId)]);
   const projects = store.listProjects();
   const allOfProject = store.listSessions().filter((s) => s.projectId === projectId);
   const truncated = allOfProject.length > limit;

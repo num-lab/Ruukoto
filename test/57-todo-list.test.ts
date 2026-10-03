@@ -254,6 +254,8 @@ test("集成：整表替换与校验、三种访问模式无审批、跨任务�
 });
 
 test("集成：委派的 analyze 子任务含 todo_write；工具记录只有 todo_write 时失败仍自动重试一次", async () => {
+  // analyze 自 issue 11 起经工具层转通用只读链路（硬只读、不自动重试）；
+  // 本用例覆盖编排器直建的 analyze 子任务（GitHub review 同形）的旧语义。
   let failed = false;
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
@@ -266,20 +268,19 @@ test("集成：委派的 analyze 子任务含 todo_write；工具记录只有 to
       return { kind: "text", text: "重试成功\n测试：未运行\n需要拥有者：否" };
     }
     if (text.includes("[编排器]")) return { kind: "text", text: "已汇报" };
-    if (req.messages.some((m) => m.role === "tool")) return { kind: "text", text: "已委派" };
-    return { kind: "tool_calls", calls: [{ id: "d", name: "coding_delegate", arguments: { request: "请求-todo", mode: "analyze", key: "td" } }] };
+    return { kind: "text", text: "已委派" };
   };
   const t = await startTestRuntime("todo-retry", responder);
   try {
     const rt = t.runtime;
     const main = rt.store.getAgentRole("main")!;
     const parent = await rt.submit({ sessionId: main.sessionId, requestId: "p", input: "委派分析", modelSelection: rt.defaultSelection });
-    await waitFor("委派已创建", () => rt.store.countDelegations(parent.id) === 1);
+    await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const child = await rt.orchestrator!.delegateCoding({ parentTaskId: parent.id, mode: "analyze", request: "请求-todo", idempotencyKey: "td" });
     await waitFor("重试子任务完成", () => {
       const retry = rt.store.findChildTask(parent.id, `deleg:${parent.id}:td:retry`);
       return retry !== null && rt.store.getTask(retry.id)!.status === "completed";
     }, 30_000);
-    const child = rt.store.findChildTask(parent.id, `deleg:${parent.id}:td`)!;
     assert.equal(rt.store.getTask(child.id)!.status, "failed");
     assert.deepEqual(rt.store.listToolOpsByTask(child.id).map((op) => op.toolName), ["todo_write"]);
     const childCall = t.server.calls.find((x) => lastUserText(x).includes("请求-todo"))!;

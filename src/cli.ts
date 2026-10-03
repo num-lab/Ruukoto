@@ -721,6 +721,26 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
       );
       return 1;
     }
+    case "work": {
+      // 工作委托与 SubAgent（agent-direction issue 11）：只读查询；委派经模型工具
+      const sub = positional[0];
+      if (sub === "list") {
+        print(await withClient((c) => c.request("work_list", {
+          session_id: flags["session"],
+        })));
+        return 0;
+      }
+      if (sub === "show" && positional[1]) {
+        print(await withClient((c) => c.request("work_get", { work_id: positional[1] })));
+        return 0;
+      }
+      console.error(
+        "用法：\n" +
+          "  ruukoto work list [--session <会话ID>]\n" +
+          "  ruukoto work show <工作ID>",
+      );
+      return 1;
+    }
     case "service-grant": {
       // 长期操作授权（agent-direction issue 10）：入口停用后的遗留目录管理；
       // 目录权限不能用于放行旧授权；创建首版只经原 IM 待审批请求
@@ -920,7 +940,7 @@ function defaultHelp(): string {
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
-    "      grant | service-grant list/show/revoke | history-search | memory | selection-records |\n" +
+    "      grant | service-grant list/show/revoke | work list/show | history-search | memory | selection-records |\n" +
     "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +

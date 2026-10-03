@@ -35,10 +35,11 @@ import type { DELEGATION_TOOL_NAMES } from "./delegation-tools.ts";
 import type { CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
 import type { SERVICE_TOOL_NAMES } from "./service-tools.ts";
 import type { MOCK_TOOL_NAMES } from "./mock-tools.ts";
+import type { SUBAGENT_TOOL_NAMES } from "./subagent-tools.ts";
 
 type TaskRef = { id: string; sessionId: string };
 
-export type ToolOpFamily = "app_data" | "scheduler" | "delegation" | "chat_result";
+export type ToolOpFamily = "app_data" | "scheduler" | "delegation" | "chat_result" | "subagent";
 
 /** 工具族的核实：写操作是否已提交，及两种结论的证据文案（`when` 如「停止前」）。 */
 export interface FamilyCheck {
@@ -60,6 +61,7 @@ type StaticToolName =
   | (typeof DELEGATION_TOOL_NAMES)[number]
   | (typeof CHAT_RESULT_TOOL_NAMES)[number]
   | (typeof SERVICE_TOOL_NAMES)[number]
+  | (typeof SUBAGENT_TOOL_NAMES)[number]
   | (typeof MOCK_TOOL_NAMES)[number];
 
 type Rule = "no_effect" | "approval" | ToolOpFamily;
@@ -95,13 +97,17 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   notification_enqueue: "scheduler",
   notification_cancel: "scheduler",
   coding_result: "no_effect",
-  coding_delegate: "delegation",
+  // analyze 已转通用只读链路（issue 11）：按 SubAgent 登记核实；draft 仍按旧 coding 子任务核实
+  coding_delegate: (p) => (p.mode === "analyze" ? "subagent" : "delegation"),
   chat_result_list: "no_effect",
   chat_result_accept: "chat_result",
   // 服务器服务管理（issue 09）：状态检查无写入效果；restart 已消费且无确定
   // 结果为效果未知（approval 规则：批准未消费→已知未执行；已消费无法核实→未知）
   service_inspect: "no_effect",
   service_manage: "approval",
+  // 通用 SubAgent 委派（agent-direction issue 11）：按工作/Agent/会话/任务关联核实
+  subagent_delegate: "subagent",
+  subagent_result: "no_effect",
   // 模拟工具代表可能有副作用的通用工具（mock_mark 写外部标记）
   mock_delay: "approval",
   mock_gate: "approval",

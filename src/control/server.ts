@@ -253,6 +253,9 @@ export class ControlServer {
             execution: snapshot.execution,
             defaultModel: snapshot.defaultModel,
             roleSessionIds: snapshot.roleSessionIds,
+            subAgentSessionIds: snapshot.subAgentSessionIds,
+            workDelegations: snapshot.workDelegations,
+            subAgents: snapshot.subAgents,
           },
         };
         this.subscribers.add(socket);
@@ -844,6 +847,16 @@ export class ControlServer {
       }
       case "service_grant_get":
         return runtime.serviceGrantGet(requireString("permission_id"));
+      // ---------- issue 11：工作委托与 SubAgent（只读查询；委派经模型委派工具） ----------
+      case "work_list": {
+        const sessionId = params["session_id"];
+        if (sessionId !== undefined && (typeof sessionId !== "string" || !sessionId.trim())) {
+          throw Object.assign(new Error("session_id 必须是非空字符串"), { code: "invalid_params" });
+        }
+        return runtime.workList(sessionId as string | undefined);
+      }
+      case "work_get":
+        return runtime.workGet(requireString("work_id"));
       case "service_grant_revoke": {
         const expected = params["expected_version"];
         if (!Number.isInteger(expected) || (expected as number) < 1) throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });

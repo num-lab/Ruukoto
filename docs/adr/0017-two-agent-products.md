@@ -37,3 +37,8 @@ Ruukoto Agent 包括两个工具：`ruukoto-dev` 是运行在开发机器上、�
 - ADR 0012 的 QQ 私聊与 Telegram 共享 main，以及 ADR 0016 区分完整历史和有界模型上下文的机制，是可复用的现有基础。旧文档中的 coding/chat 适用范围须在迁移时重新映射。
 
 完整产品规格、首期验收场景与决策确认记录见 [方向调整规格](../../.scratch/agent-direction/spec.md)。
+
+## 实施记录
+
+- agent-direction issue 11（2026-10-03）：通用只读委派首版——工作委托/SubAgent/执行任务分开保存、普通开发会话与 main 的非阻塞只读委派、结果回传与空闲保留、main 分析委派转通用链路，决定见 [ADR 0020](0020-work-delegation-subagent-task.md)。继续委派复用、同级通信、显式关闭与整项取消、恢复分别由 issue 12–15 实施。
+

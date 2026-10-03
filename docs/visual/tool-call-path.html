@@ -33,11 +33,14 @@
         <code class="src" data-src="src/agent/execution/launchers.ts#createLauncherFor">agent/execution/launchers.ts</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#recordResult">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/core/types.ts#export type AccessMode">core/types.ts</code>
+        <code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentTools">agent/subagent-tools.ts</code>
+        <code class="src" data-src="src/runtime/subagents.ts#class SubAgentManager">runtime/subagents.ts</code>
       </dd></div>
       <div><dt>决策</dt><dd>
         <a href="../adr/0003-enforce-explicit-access-modes.md">ADR 0003 访问模式</a>
         <a href="../adr/0004-tool-worker-per-task-container-exec-account.md">ADR 0004 单任务工作进程</a>
         <a href="../adr/0005-auto-review-mode.md">ADR 0005 自动审查</a>
+        <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="task-lifecycle.html">任务生命周期</a>
@@ -75,8 +78,11 @@
 
   <section id="availability">
     <h2>可用性：会话类别定清单，任务再收窄</h2>
-    <p>静态清单在 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>：普通开发会话与 coding 角色拿到 <code>coding</code>（含共享的待办工具）、<code>host_data</code>、<code>web_search</code>、<code>mcp</code>、<code>skills</code>；main 在此基础上换成 <code>app_data</code>、<code>scheduler</code>、<code>delegation</code>、<code>chat_results</code>、<code>service</code>（没有 <code>coding</code>）；chat 为空清单。ruukoto-dev（Coding Agent）不创建调度器，main 的 <code>scheduler</code> 工具不装配（agent-direction issue 01）。<code>service</code>（<code class="src" data-src="src/core/types.ts#ToolCategory">types.ts · ToolCategory</code>，service_inspect / service_manage，服务器服务管理）进了 main 的清单只是可见的前提：实际装配另要求产品 ruukoto + Linux + 显式部署配置齐备（缺一则不装配，不是静默放行）。</p>
+    <p>静态清单在 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>：普通开发会话与 coding 角色拿到 <code>coding</code>（含共享的待办工具）、<code>host_data</code>、<code>web_search</code>、<code>mcp</code>、<code>skills</code>；main 在此基础上换成 <code>app_data</code>、<code>scheduler</code>、<code>delegation</code>、<code>chat_results</code>、<code>service</code>（没有 <code>coding</code>）；chat 为空清单。普通开发会话与 main 的清单另含 <code>subagent</code>（<code class="src" data-src="src/core/types.ts#ToolCategory">types.ts · ToolCategory</code>，subagent_delegate / subagent_result 通用 SubAgent 委派，见下节）。ruukoto-dev（Coding Agent）不创建调度器，main 的 <code>scheduler</code> 工具不装配（agent-direction issue 01）。<code>service</code>（types.ts · ToolCategory，service_inspect / service_manage，服务器服务管理）进了 main 的清单只是可见的前提：实际装配另要求产品 ruukoto + Linux + 显式部署配置齐备（缺一则不装配，不是静默放行）。</p>
     <p>装配之外还有逐任务收窄：计划模式只留只读；项目关掉 Web Search 时 <code>web_search</code> 整类不装；宿主可按任务钉一份更小的工具集。收窄只减不增——任务不能拿到清单外的类别。</p>
+    <h3>通用 SubAgent 委派（agent-direction issue 11，ADR 0020）</h3>
+    <p>普通开发会话与 main 的模型经 <code>subagent_delegate</code> 登记一项分析工作（dev 用 <code>read_paths</code> 限定父工作区或父任务已授予范围的只读路径；main 用 <code>materials</code> 指定资料，委派时解析为文本快照），<code class="src" data-src="src/runtime/subagents.ts#class SubAgentManager">subagents.ts · SubAgentManager</code> 在事务外完成准备（模型门闩预检、受限执行入口预检、宿主生成的独立工作目录、路径与资料核实、快照落盘），再于单个同步事务内登记工作、SubAgent 身份、独立子会话与排队任务（审计事件 <code>work_delegation.created</code>），提交后才 kick 子会话；工具在子任务入队后立即返回，不等待子模型结束。只有拥有者发起的任务（直接提交，或已核实身份的 Telegram / QQ 私聊入站）可委派；调度唤醒、子任务回报与 SubAgent 任务一律拒绝，不能委派下级。首版是只读委派：SubAgent 子会话的注册类别清单为空，模型实际只有 <code>read</code> 与 <code>read_artifact</code>——装配、发送前复核与调用门共用同一份静态白名单（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">tool-availability.ts · SUBAGENT_READONLY_TOOL_NAMES</code>）；访问模式固定 <code>confirm</code>，不继承父任务模式、单次批准与长期授权。</p>
+    <p>终态沿用结果一次写入与摘要上报：main 父会话按稳定请求键 <code>wake:&lt;子任务&gt;</code> 收到唤醒任务；dev 父会话不产生唤醒任务，下一个任务开始时由宿主把有界的结果摘要与引用注入为 <code>[SubAgent 结果]</code> 任务级参考块（注入即记 <code>result_delivered_at</code>；持久事件始终指向父会话，崩溃窗口不丢记录）。完整结果经 <code>subagent_result</code> 读取（<code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentTools">subagent-tools.ts</code>，窄口：只读本会话登记的工作与执行任务）。main 的 <code>coding_delegate</code>（mode=analyze）转入本链路（硬只读、不自动重试），<code>coding_result</code> 按同一归属窄口兼容读取新旧分析结果；draft 修改委派保留旧 coding 路径（见<a href="orchestrator.html">编排器</a>）。存储落点见<a href="storage-layout.html">存储布局</a>，控制面只读查询见<a href="control-protocol.html">控制面协议</a>。</p>
   </section>
 
   <section id="modes">

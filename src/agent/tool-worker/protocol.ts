@@ -17,7 +17,13 @@ export const DATA_CHUNK_BYTES = 512 * 1024;
 
 /** 后台 → 工作进程。 */
 export type WorkerRequest =
-  | { type: "init"; cwd: string; label: string }
+  | {
+      type: "init";
+      cwd: string;
+      label: string;
+      /** 宿主钉定的额外只读根（path 为宿主 realpath，dev/ino 供启动复核）；缺省 = 不启用限定，保持旧语义。 */
+      readRoots?: Array<{ path: string; dev: number; ino: number }>;
+    }
   | {
       type: "tool_call";
       /** 宿主操作 id（协议关联键）。 */

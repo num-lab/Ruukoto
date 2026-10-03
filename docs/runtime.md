@@ -38,11 +38,14 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   超时、连接重置、任务停止中止）标 `effect_unknown`，不自动重发。任务停止即中止
   在途请求，不等超时。
 - **工具可用性（架构工单 03）**：`src/agent/tool-availability.ts` 回答「这个会话、
-  这个任务允许哪些工具」。会话类别（普通开发会话、main、coding、chat；QQ 群按会话
-  类型归入 chat）各有一份工具类别清单，是唯一来源：普通开发会话与 coding 为编码
-  工具（含工作清单）、资料与记忆、Web Search、MCP、技能；main 为资料与记忆、Web
-  Search、应用数据、调度与通知、委派、群结果、技能；chat 为空。新工具族写进哪份
-  清单才出现。任务开始时算一次本任务允许的工具（已装配的工具减去计划模式、GitHub
+  这个任务允许哪些工具」。会话类别（普通开发会话、main、coding、chat、SubAgent 子
+  身份 subagent；QQ 群按会话类型归入 chat）各有一份工具类别清单，是唯一来源：普通
+  开发会话为编码
+  工具（含工作清单）、资料与记忆、Web Search、MCP、技能、SubAgent 委派；coding 为
+  编码工具、资料与记忆、Web Search、MCP、技能；main 为资料与记忆、Web
+  Search、应用数据、调度与通知、委派、群结果、技能、SubAgent 委派；chat 与 subagent
+  为空（SubAgent 的 read / read_artifact 由驱动器按类别单独装配，静态白名单）。
+  新工具族写进哪份清单才出现。任务开始时算一次本任务允许的工具（已装配的工具减去计划模式、GitHub
   评审等宿主按任务收窄与项目关闭的 Web Search），激活、发送前检查
   （`task_tools_forbidden`）与调用门共用这一集合。获批后的复核属于审批闸门（下条）；
   Web Search 开关的现场检查与委派只限拥有者发起的任务由各工具执行时自行完成，都不
@@ -1350,9 +1353,10 @@ main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，�
   main 完整会话历史，也不授予 coding 读取 main 应用数据或其他原始资料的
   API 权限。宿主模板、请求和资料合计最多 8192 字符，超限拒绝，不截断。
 - **工作目录与模式**：coding 复用编码工具和既有审批边界，需要仓库时在角色
-  工作目录内自行 `git clone`，不另设仓库白名单。`analyze` 表示读取与分析
-  意图，用于结果标注与重试判定；它不是只读沙箱，`confirm` 本身允许工作区内
-  已授权的写入。`draft` 可生成修改草稿，不提交、不推送；GitHub 评论、PR
+  工作目录内自行 `git clone`，不另设仓库白名单。自 agent-direction issue 11 起
+  `analyze` 转入通用只读 SubAgent 链路（硬只读、不自动重试，见「通用 SubAgent
+  委派」节）；本节其余内容为 `draft` 修改委派与旧持久 analyze 记录的既有语义。
+  `draft` 可生成修改草稿，不提交、不推送；GitHub 评论、PR
   或其他外部发布仍须拥有者在可信入口确认。委派不开放任意工作目录、网络、
   凭据或角色权限修改能力。
 
@@ -1408,6 +1412,9 @@ main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，�
 
 ### 自动重试与恢复
 
+自 agent-direction issue 11 起新发起的 `analyze` 转通用链路、不自动重试；
+本节的自动重试只适用于旧持久 analyze 子任务（历史记录）与既有重试键核实。
+
 只有首次 `analyze` 子任务以 `failed` 状态结束，且宿主可证明没有执行写入或
 副作用不明的操作、没有效果未知记录、没有已批准或已消费审批时，才自动重试一次。
 `draft`、超时、中断、取消、结果未知与无法证明安全的失败均不自动重试；
@@ -1433,6 +1440,64 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 `wake:<childId>` 唤醒键，不生成新键重复创建；补发唤醒排除已有重试接替的
 首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
 结果未知事实，不自动重放其执行。
+
+## 通用 SubAgent 委派（agent-direction issue 11，ADR 0020）
+
+主 Agent（拥有者的普通开发会话或 main）经宿主工具 `subagent_delegate` 登记
+工作委托、创建动态 SubAgent 与独立子会话并派出一次只读执行任务；结果经
+`subagent_result` 读取。两个工具属于 `subagent` 类别，仅普通开发会话与
+main 装配，每次调用重新核实宿主任务、会话与身份绑定；群、固定 coding/chat、
+动态 SubAgent、调度与回报唤醒任务不能委派下级。
+
+### 登记与执行范围
+
+- **触发来源**：只有拥有者在父会话直接提交的任务，或经 Telegram/QQ owner
+  入口核实身份的入站任务可以委派；定时唤醒、子任务回报及其他来源拒绝。
+- **输入与固定参数**：模型只提供 `request / key / work_id? / read_paths?
+  （dev）| materials?（main）`。首版分析能力固定为只读（`read` 与
+  `read_artifact`），权限模式固定 `confirm`，不继承父任务/会话默认模式、
+  单次批准与长期授权；不提供模型自选角色、执行账户、访问模式、父会话、
+  任意 cwd 或自由工具列表。截止时间固定为父任务开始时刻 + 60 分钟；同一父
+  用户会话最多 3 个活动（queued/running/awaiting_confirmation）执行任务。
+- **幂等**：首次委派以（父会话, key）唯一查工作；工作内以
+  `sdelegate:<workId>:<key>` 查任务。参数摘要不包含本次调用的直接父任务 id
+  与模型选择——跨对话轮次重放核实同一逻辑委派，返回首次记录；同键异参明确
+  冲突；查重先于限额与资料解析。
+- **登记事务**：先异步准备（模型门闩预检、受限执行入口预检、宿主生成的独立
+  工作目录 `<dataDir>/../agent-work/sub-agents/<agentId>`、路径核实与资料快照），
+  再在一个同步事务内重核后登记工作/Agent/Session/排队任务与审计事件
+  （`work_delegation.created`），提交后才 kick 子会话；工具在子任务入队后
+  立即返回，不等待子模型结束。准备或落库失败只清理本次新建目录。
+- **资料与读范围**：main 的 `materials`（1–8 个来源，复用来源解析器）解析为
+  文本快照写入子工作目录 `materials-<key>.txt`（按执行键命名，后续执行不覆写），
+  来源引用随任务保存，启动与每次向
+  模型发送上下文前重新 verify（撤销即阻止注入，快照正文不重新解析）；
+  dev 的 `read_paths` 限父工作区内或父任务已授予范围（交集后的只读钉定），
+  保存 realpath 与目录身份，路径经 LaunchSpec/init 传入 worker，模型参数
+  不能替换；绝对系统路径、保护根、符号链接越界与目录身份变化明确拒绝。
+- **上下文**：SubAgent 的模型上下文只含固定任务说明、选定快照与自己的
+  JSONL——不注入父项目指令、个人共享记忆、技能目录、父完整历史或继续
+  来源；产物只读本次自产（不含 `prompt-snapshot:*`）。
+
+### 结果、通知与空闲
+
+- 终态沿用 `setTaskResult` 一次写入与结果提取；结果引用
+  （`resultRef` JSON）明确 `workId / subAgentId / taskId / 原直接父任务 /
+  所属父会话 / outcome / artifactIds`，与子身份空闲状态同事务登记
+  （占用未回收记 `unverified`，否则 `idle`）。完成/失败/超时/结果未知如实
+  保存，重复终态只记一份；不自动重试。
+- dev 父会话：持久 `subagent_task.*` 事件指向父会话（TUI 可见归属），不产生
+  唤醒任务；下一次父模型调用注入有界的宿主结果摘要与引用（`[SubAgent 结果]`
+  参考块，注入后标记 `result_delivered_at`，崩溃窗口不丢记录）；main 沿用
+  稳定 `wake:<childId>` 回报键（固定 confirm，不复制原 IM 来源事件）。
+- 身份在完成、TUI 退出与等待后仍保留，空闲零模型/worker 进程；任务收尾后
+  释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
+- `coding_delegate(mode=analyze)` 转入本链路（硬只读、不自动重试）；
+  `coding_result` 按同一归属窄口兼容读取新旧分析结果；`draft` 保留旧
+  coding 路径。GitHub webhook 评审沿用旧 coding 只读路径（19 再迁移）。
+- 控制面只读查询：`work_list` / `work_get`（CLI `ruukoto work list/show`）；
+  快照携带工作委托、SubAgent 与其内部会话 ID（普通工作区列表排除）。
+  普通控制面 submit/continue/switch-mode/会话默认模式不能作用于子会话。
 
 ## GitHub：MCP 操作与 PR webhook（ADR 0007/0013）
 

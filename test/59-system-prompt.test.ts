@@ -73,8 +73,8 @@ test("系统提示：开发会话、main、coding、chat 各用宿主提示，SY
     for (const role of ["main", "coding", "chat"] as const) {
       assertPrompts(rt, rt.store.getAgentRole(role)!.sessionId, SYSTEM_PROMPTS[role], role);
     }
-    // 四份各不相同
-    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 4);
+    // 五份各不相同（含 issue 11 的 SubAgent 只读分析提示）
+    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 5);
   } finally {
     await t.shutdown();
   }

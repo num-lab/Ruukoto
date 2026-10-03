@@ -146,7 +146,7 @@
     <div class="seq" style="--n:3">
       <div class="who"><span>客户端</span><span>后台执行</span><span>事件存储</span></div>
       <div class="m" style="--from:1;--to:2"><span>connect {since: 上次应对齐的序号}</span></div>
-      <div class="m l" style="--from:2;--to:3"><span>getMaxSeq() → N；snapshot()（项目/会话/有界任务/未决审批/产物/输出预览/instanceId/执行后端/默认模型）</span></div>
+      <div class="m l" style="--from:2;--to:3"><span>getMaxSeq() → N；snapshot()（项目/会话/有界任务/未决审批/产物/输出预览/工作委托与 SubAgent/instanceId/执行后端/默认模型）</span></div>
       <div class="m l" style="--from:2;--to:3"><span>getEventLog(since, 5001)：读 (since, N] 的补发事件</span></div>
       <div class="note" style="--from:2;--to:3">快照读取与 this.subscribers.add(socket) 在同一个同步段内完成（Node 单线程）。这两步之间没有 await，因此不会出现「快照已经含 seq N、订阅却从 N+1 之后才开始」的缺口。</div>
       <div class="m l ok" style="--from:2;--to:1"><span>应答 {seq: N, replay: (since, N] 的事件, snapshot}；此后实时推送自 seq &gt; N 开始</span></div>
@@ -172,7 +172,7 @@
           <path class="e accent" stroke-width="4" d="M380 120H1000"/>
           <path class="e" stroke-dasharray="4 4" d="M60 120H140"/>
           <text class="el start" x="0" y="66">① 补发区间 (since, N]：replay，只补齐显示记录（kind="replay"）</text>
-          <text class="el start" x="0" y="46">② 快照本身：项目 / 会话 / 有界任务 / 未决审批 / 产物 / 输出预览 / instanceId / 执行后端</text>
+          <text class="el start" x="0" y="46">② 快照本身：项目 / 会话 / 有界任务 / 未决审批 / 产物 / 输出预览 / 工作委托与 SubAgent / instanceId / 执行后端</text>
           <text class="el start" x="0" y="26">③ 补发上限 REPLAY_LIMIT = 5000 条：区间再大就不补发，回 cursor_too_old 让客户端重取快照</text>
           <text class="el start" x="0" y="176">缺口：appliedSeq + 1 ≠ event.seq → 重新同步（快照 + 历史全量对齐）</text>
           <text class="el start" x="0" y="196">invalid_cursor：since 不是非负整数，或 since &gt; maxSeq → 重新同步</text>
@@ -396,7 +396,7 @@
 
   <section id="ops">
     <h2>op 目录</h2>
-    <p>服务端 <code>dispatch</code> 的 switch 里共有 81 个 op，另有 <code>auth</code> 在 switch 之外单独处理（见「认证」）。下表按领域分组；<b>写</b>列标出会改变后台状态的操作，<b>幂等键</b>列标出带 <code>request_id</code> 去重的操作。</p>
+    <p>服务端 <code>dispatch</code> 的 switch 里共有 86 个 op，另有 <code>auth</code> 在 switch 之外单独处理（见「认证」）。下表按领域分组；<b>写</b>列标出会改变后台状态的操作，<b>幂等键</b>列标出带 <code>request_id</code> 去重的操作。</p>
 
     <div class="scroll">
       <table class="tbl">
@@ -499,6 +499,9 @@
           <tr><td><code>service_grant_revoke</code></td><td>带版本撤销（期望版本条件更新，重复撤销幂等）</td><td>是</td><td>版本号</td></tr>
           <tr><td><code>notification_get</code></td><td>单条发送操作状态</td><td>—</td><td>—</td></tr>
           <tr><td><code>notification_cancel</code></td><td>取消未发送的通知</td><td>是</td><td>—</td></tr>
+          <tr><td colspan="4"><b>工作委托与 SubAgent（agent-direction issue 11，只读查询；委派经模型委派工具，不经控制面）</b></td></tr>
+          <tr><td><code>work_list</code></td><td>工作委托列表（可选 <code>session_id</code> 限定父会话），每项带 SubAgent 身份与执行任务的状态与结果摘要</td><td>—</td><td>—</td></tr>
+          <tr><td><code>work_get</code></td><td>单个工作详情（<code>work_id</code> 必填）：工作、SubAgent 身份与全部执行任务</td><td>—</td><td>—</td></tr>
         </tbody>
       </table>
     </div>
@@ -583,6 +586,11 @@
           <tr><td><code>child_task.failed</code></td><td>子任务失败</td><td><a href="orchestrator.html">编排器</a></td></tr>
           <tr><td><code>child_task.timeout</code></td><td>子任务超过截止时间被编排器取消</td><td><a href="orchestrator.html">编排器</a></td></tr>
           <tr><td><code>child_task.result_unknown</code></td><td>子任务结果未知（如后台重启中断），不自动重放外部副作用</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>work_delegation.created</code></td><td>通用 SubAgent 委派已登记（工作、SubAgent、独立子会话与排队任务同一事务；载荷 workId / parentSessionId / subAgentId / agentSessionId / taskId）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
+          <tr><td><code>subagent_task.completed</code></td><td>SubAgent 执行任务完成（结果与身份空闲同一事务；带摘要与 resultRef；事件始终指向父会话）</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>subagent_task.failed</code></td><td>SubAgent 执行任务失败（含排队中取消；带错误信息）</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>subagent_task.timeout</code></td><td>SubAgent 执行任务超过截止时间（父任务开始 + 60 分钟）被取消（带截止时间）</td><td><a href="orchestrator.html">编排器</a></td></tr>
+          <tr><td><code>subagent_task.result_unknown</code></td><td>SubAgent 执行任务结果未知（如后台重启中断），不自动重试</td><td><a href="orchestrator.html">编排器</a></td></tr>
           <tr><td><code>app_data.unavailable</code></td><td>应用数据能力不可用（文件丢失、实例不符、损坏或格式过新）</td><td><a href="storage-layout.html">存储布局</a></td></tr>
           <tr><td><code>app_data.rejected</code></td><td>应用数据操作被拒绝（身份 / 校验 / 预算 / 超时，只记来源与错误码）</td><td><a href="tool-call-path.html">工具调用路径</a></td></tr>
           <tr><td><code>schedule.changed</code></td><td>调度计划创建 / 取消 / 一次性完成（只落事件表，不唤醒模型）</td><td><a href="outbox.html">通知 outbox</a></td></tr>
@@ -634,7 +642,7 @@
 
   <section id="versions">
     <h2>协议版本演进</h2>
-    <p>协议版本写在每一帧的 <code>v</code> 里。服务端只服务与它完全相同的一版：不匹配就回 <code>protocol_version</code>，客户端提示升级而不是静默重试。当前值 <code>PROTOCOL_VERSION</code> = <code>v10</code>。持久事件中的旧格式兼容（缺少偏移的片段、旧格式幂等摘要）不代表线上协议向后兼容。</p>
+    <p>协议版本写在每一帧的 <code>v</code> 里。服务端只服务与它完全相同的一版：不匹配就回 <code>protocol_version</code>，客户端提示升级而不是静默重试。当前值 <code>PROTOCOL_VERSION</code> = <code>v11</code>。持久事件中的旧格式兼容（缺少偏移的片段、旧格式幂等摘要）不代表线上协议向后兼容。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>版本</th><th>变化</th></tr></thead>
@@ -644,10 +652,11 @@
           <tr><td><code>v8</code></td><td>专用 GitHub 模块退役：<code>github_*</code> 业务接口移除，旧客户端因版本不匹配被拒绝，旧命令只保留静态迁移提示</td></tr>
           <tr><td><code>v9</code></td><td>正文按连续显示段发送 UTF-8 增量；新增持久思考阶段、<code>read_task_events</code> 分页与 <code>get_task</code> 快照水位；持久旧事件的累计尾部格式仍可读</td></tr>
           <tr><td><code>v10</code></td><td>长期操作授权（agent-direction issue 10）：批准新增可空的授权 ID/版本关联与新决定来源 <code>standing_permission</code>；新增 <code>standing_permission.*</code> 事件与 <code>service_grant_list/get/revoke</code> 操作（不获得创建或扩大授权的能力）；持久历史中的旧来源与事件保持可读</td></tr>
+          <tr><td><code>v11</code></td><td>通用 SubAgent 委派（agent-direction issue 11，ADR 0020）：快照新增 <code>subAgentSessionIds</code> / <code>workDelegations</code> / <code>subAgents</code>；新增只读 op <code>work_list</code>（可选 <code>session_id</code>）与 <code>work_get</code>；新增 <code>work_delegation.created</code> 与 <code>subagent_task.*</code> 事件；委派经模型工具产生，控制面不获得建委派的能力</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="muted">源码注释里只有 v2、v3、v8、v9、v10 五段变化记录；这五段之外的中间版本没有留下说明。</p>
+    <p class="muted">源码注释里只有 v2、v3、v8、v9、v10、v11 六段变化记录；这六段之外的中间版本没有留下说明。</p>
   </section>
 
   <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>

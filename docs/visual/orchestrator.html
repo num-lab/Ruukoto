@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>orchestrator.html</span></nav>
     <p class="eyebrow">编排</p>
     <h1>编排器</h1>
-    <p class="lede">编排器是后台内的宿主组件：派发入站事件，在委派出去的任务到达终态时记录结果、发出事件并回报父会话。现行代码里两套委派并存：旧架构的 main、coding、chat 三个固定逻辑角色（main 把修改草稿委派给共享的 coding 会话，结果发 child_task.*），以及新方向的通用 SubAgent（主 Agent 登记工作委托，由独立的只读 SubAgent 执行，结果与 SubAgent 的状态变更（idle 或 unverified）同一事务登记，发 subagent_task.*）。超时、重启和 PR 事件都沿用宿主写定的请求键，不换键、不重放。</p>
+    <p class="lede">编排器是后台内的宿主组件：派发入站事件，在委派出去的任务到达终态时记录结果、发出事件并回报父会话。现行代码里两套委派并存：旧架构的 main、coding、chat 三个固定逻辑角色（main 把修改草稿委派给共享的 coding 会话，结果发 child_task.*），以及新方向的通用 SubAgent（主 Agent 登记工作委托，由独立的只读 SubAgent 执行，结果与 SubAgent 的状态变更（idle 或 unverified）同一事务登记，发 subagent_task.*；空闲的 SubAgent 可沿原工作继续或复用承接新工作，关闭由主 Agent 或拥有者显式发起，发 subagent.closed）。超时、重启和 PR 事件都沿用宿主写定的请求键，不换键、不重放。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/runtime/orchestrator.ts#export class Orchestrator">runtime/orchestrator.ts</code>
@@ -117,14 +117,14 @@
 
   <section id="bridge">
     <h2>窄接口</h2>
-    <p>编排器只经 <code class="src" data-src="src/runtime/orchestrator.ts#export interface OrchestratorBridge">orchestrator.ts · OrchestratorBridge</code> 调用 Runtime，接口由 Runtime 在启动时注入。它不持有拥有者 token，也不是模型工具：模型工具直接调用的编排器方法只有 <code>coding_delegate</code>（<code>mode=draft</code>）背后的 <code>delegateCoding</code>；调度工具只经调度器间接用到编排器的派发与串行链（<code class="src" data-src="src/scheduler/runtime.ts#cancelSchedule(input">scheduler/runtime.ts · cancelSchedule</code>）。<code>subagent_delegate</code> 与 <code>coding_delegate</code>（<code>mode=analyze</code>）进的是另一个宿主组件 <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">SubAgentManager</code>，它自己登记任务，不经编排器，也不经 Runtime 的提交入口；编排器只在这些执行任务到达终态时登记结果。<code>coding_result</code>、<code>subagent_result</code> 与群聊结果工具直接读 Store。窄接口只约束编排器能调用的 Runtime 方法：它自己的持久记录（结果、入站事件、角色行、子任务事件、SubAgent 状态、群收件状态）直接写 Store 与 QqStore。旧架构的部分是角色任务的提交与唤醒；入站派发与结果登记在新方向里继续使用。</p>
+    <p>编排器只经 <code class="src" data-src="src/runtime/orchestrator.ts#export interface OrchestratorBridge">orchestrator.ts · OrchestratorBridge</code> 调用 Runtime，接口由 Runtime 在启动时注入。它不持有拥有者 token，也不是模型工具：模型工具直接调用的编排器方法只有 <code>coding_delegate</code>（<code>mode=draft</code>）背后的 <code>delegateCoding</code>；调度工具只经调度器间接用到编排器的派发与串行链（<code class="src" data-src="src/scheduler/runtime.ts#cancelSchedule(input">scheduler/runtime.ts · cancelSchedule</code>）。<code>subagent_delegate</code> 与 <code>coding_delegate</code>（<code>mode=analyze</code>）进的是另一个宿主组件 <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">SubAgentManager</code>，它自己登记任务，不经编排器，也不经 Runtime 的提交入口；编排器只在这些执行任务到达终态时登记结果。<code>subagent_close</code> 同样直接落在 SubAgentManager 的核实与写入上（<code class="src" data-src="src/runtime/subagents.ts#close(input: { subAgentId">subagents.ts · close</code>）。<code>coding_result</code>、<code>subagent_result</code> 与群聊结果工具直接读 Store。窄接口只约束编排器能调用的 Runtime 方法：它自己的持久记录（结果、入站事件、角色行、子任务事件、SubAgent 状态、群收件状态）直接写 Store 与 QqStore。旧架构的部分是角色任务的提交与唤醒；入站派发与结果登记在新方向里继续使用。</p>
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 468" role="img" aria-label="编排器组件关系：拥有者客户端经控制面进入 Runtime；main 任务的 draft 委派调用编排器的 delegateCoding；主 Agent 任务的 subagent_delegate 与 analyze 委派进入 SubAgentManager，它在同一事务里直接写 Store，再经注入的闭包做预检与 kick，不经编排器；宿主适配器向编排器登记入站事件或请求派发；编排器只经 OrchestratorBridge 调用 Runtime 的 submitInternal 与少数其他方法，审批、改访问模式与资料授权不在接口内；Runtime 把终态事件回送编排器；编排器直接读写 Store。">
+        <svg viewBox="0 0 1040 468" role="img" aria-label="编排器组件关系：拥有者客户端经控制面进入 Runtime；main 任务的 draft 委派调用编排器的 delegateCoding；主 Agent 任务的 subagent_delegate、subagent_close 与 analyze 委派进入 SubAgentManager，它在同一事务里直接写 Store，再经注入的闭包做预检与 kick，不经编排器；宿主适配器向编排器登记入站事件或请求派发；编排器只经 OrchestratorBridge 调用 Runtime 的 submitInternal 与少数其他方法，审批、改访问模式与资料授权不在接口内；Runtime 把终态事件回送编排器；编排器直接读写 Store。">
           <g class="n"><rect x="20" y="20" width="190" height="52" rx="8"/><text x="115" y="38">拥有者客户端</text><text class="sub" x="115" y="57">持有 owner token</text></g>
           <g class="n"><rect x="20" y="200" width="190" height="52" rx="8"/><text x="115" y="218">main 任务</text><text class="sub" x="115" y="237">coding_delegate · draft</text></g>
-          <g class="n"><rect x="20" y="330" width="190" height="52" rx="8"/><text x="115" y="348">主 Agent 任务</text><text class="sub" x="115" y="367">subagent_delegate · analyze</text></g>
+          <g class="n"><rect x="20" y="330" width="190" height="52" rx="8"/><text x="115" y="348">主 Agent 任务</text><text class="sub" x="115" y="367">subagent_delegate · subagent_close</text></g>
           <g class="n"><rect x="320" y="100" width="160" height="52" rx="8"/><text x="400" y="118">宿主适配器</text><text class="sub" x="400" y="137">入站与调度</text></g>
           <g class="n accent"><rect x="320" y="190" width="200" height="72" rx="8"/><text x="420" y="214">Orchestrator</text><text class="sub" x="420" y="238">编排器 · 宿主组件</text></g>
           <g class="n"><rect x="320" y="330" width="200" height="52" rx="8"/><text x="420" y="348">SubAgentManager</text><text class="sub" x="420" y="367">委派登记 · 宿主组件</text></g>
@@ -200,17 +200,17 @@
 
   <section id="subagent">
     <h2>工作委托与 SubAgent</h2>
-    <p>新方向的委派入口是 <code>subagent_delegate</code>：主 Agent（拥有者的普通开发会话或 main）为一项工作登记工作委托，宿主为它创建一个动态 SubAgent，再派出一次只读执行任务（ADR 0020）。登记由 <code class="src" data-src="src/runtime/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · SubAgentManager.delegate</code> 集中完成；执行沿用普通的会话队列与驱动器；终态由编排器登记（见<a href="#subagent-state">下一节</a>）。main 的 <code>coding_delegate</code> 在 <code>mode=analyze</code> 时也转进这条链路（<code class="src" data-src="src/runtime/runtime.ts#analyzeDelegate: this.subagents">runtime.ts · analyzeDelegate</code>），硬只读、不自动重试。</p>
+    <p>新方向的委派入口是 <code>subagent_delegate</code>：主 Agent（拥有者的普通开发会话或 main）为一项工作登记工作委托，宿主为它创建一个动态 SubAgent，再派出一次只读执行任务（ADR 0020）；空闲后可沿原工作继续（<code>work_id</code>）或复用承接新工作（<code>sub_agent_id</code>），不再需要时显式关闭（<code>subagent_close</code> 或控制面 / CLI，见<a href="#subagent-close">继续、复用与关闭</a>）。登记由 <code class="src" data-src="src/runtime/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · SubAgentManager.delegate</code> 集中完成；执行沿用普通的会话队列与驱动器；终态由编排器登记（见<a href="#subagent-state">下一节</a>）。main 的 <code>coding_delegate</code> 在 <code>mode=analyze</code> 时也转进这条链路（<code class="src" data-src="src/runtime/runtime.ts#analyzeDelegate: this.subagents">runtime.ts · analyzeDelegate</code>），硬只读、不自动重试。</p>
 
     <h3>三层记录</h3>
-    <p>一项工作、承接它的 Agent、每一次执行，分三处记录。核心库 schema v24（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>）新增 <code>sub_agents</code> 与 <code>work_delegations</code> 两张表（<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS work_delegations">db.ts · work_delegations</code>），并给 <code>tasks</code> 补四个可空列；旧任务的这四列都是空的。</p>
+    <p>一项工作、承接它的 Agent、每一次执行，分三处记录。核心库 schema v24 新增 <code>sub_agents</code> 与 <code>work_delegations</code> 两张表（<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS work_delegations">db.ts · work_delegations</code>），并给 <code>tasks</code> 补四个可空列；v25（当前版本，<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>）再给 <code>sub_agents</code> 补 <code>closed_at</code> / <code>closed_by</code> 两个可空列。旧任务的四个关联列、旧 Agent 的两个关闭列都是空的。</p>
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 330" role="img" aria-label="三层记录：work_delegations 与 sub_agents 都归属父用户会话；work_delegations 经 sub_agent_id 指向承接它的 SubAgent；tasks 的每一行经 work_id 指向工作、经 sub_agent_id 指向身份；sub_agents 经 session_id 指向自己的子会话。">
+        <svg viewBox="0 0 1040 330" role="img" aria-label="三层记录：work_delegations 与 sub_agents 都归属父用户会话；work_delegations 经 sub_agent_id 指向承接它的 SubAgent；tasks 的每一行经 work_id 指向工作、经 sub_agent_id 指向身份；sub_agents 经 session_id 指向自己的子会话，closed_at / closed_by 独立于 state 记关闭。">
           <g class="n"><rect x="20" y="110" width="190" height="110" rx="8"/><text x="115" y="134">父用户会话</text><text class="sub" x="115" y="158">普通开发会话或 main</text><text class="sub" x="115" y="178">父任务由拥有者发起</text><text class="sub" x="115" y="198">sessions.kind = dev</text></g>
           <g class="n"><rect x="300" y="20" width="300" height="118" rx="8"/><text x="450" y="42">work_delegations</text><text class="sub" x="450" y="66">工作：一项委托，可跨多轮对话</text><text class="sub" x="450" y="86">parent_session_id · origin_task_id</text><text class="sub" x="450" y="106">request_key · params_digest</text><text class="sub" x="450" y="126">sub_agent_id</text></g>
-          <g class="n"><rect x="300" y="186" width="300" height="126" rx="8"/><text x="450" y="208">sub_agents</text><text class="sub" x="450" y="232">身份：执行结束后保留</text><text class="sub" x="450" y="252">parent_session_id · session_id</text><text class="sub" x="450" y="272">work_dir · state</text><text class="sub" x="450" y="292">active_work_id · current_task_id</text></g>
+          <g class="n"><rect x="300" y="186" width="300" height="126" rx="8"/><text x="450" y="208">sub_agents</text><text class="sub" x="450" y="232">身份：执行结束后保留</text><text class="sub" x="450" y="252">parent_session_id · session_id</text><text class="sub" x="450" y="272">work_dir · state</text><text class="sub" x="450" y="290">active_work_id · current_task_id · closed_at/by</text></g>
           <g class="n"><rect x="720" y="20" width="300" height="178" rx="8"/><text x="870" y="42">tasks</text><text class="sub" x="870" y="66">执行：每次委派一行</text><text class="sub" x="870" y="86">work_id · sub_agent_id</text><text class="sub" x="870" y="106">parent_task_id（直接父任务）</text><text class="sub" x="870" y="126">request_id = sdelegate:…</text><text class="sub" x="870" y="146">read_scope · deadline</text><text class="sub" x="870" y="166">result_summary · result_ref</text><text class="sub" x="870" y="186">result_delivered_at</text></g>
           <g class="n"><rect x="720" y="246" width="300" height="66" rx="8"/><text x="870" y="268">子会话</text><text class="sub" x="870" y="290">独立 JSONL · cwd = work_dir</text></g>
 
@@ -245,8 +245,8 @@
           <tr>
             <td>身份</td>
             <td><code>sub_agents</code><br><code class="src" data-src="src/core/types.ts#export interface SubAgent">types.ts · SubAgent</code></td>
-            <td>所属父会话、独立子会话 <code>session_id</code>（唯一）、宿主生成的 <code>work_dir</code>、状态 <code>state</code>、当前工作 <code>active_work_id</code> 与当前任务 <code>current_task_id</code>。</td>
-            <td>首次委派建行（<code class="src" data-src="src/core/store.ts#insertSubAgent">insertSubAgent</code>）；之后只改状态与两个指针（<code class="src" data-src="src/core/store.ts#setSubAgentState">setSubAgentState</code>）。</td>
+            <td>所属父会话、独立子会话 <code>session_id</code>（唯一）、宿主生成的 <code>work_dir</code>、状态 <code>state</code>、当前工作 <code>active_work_id</code> 与当前任务 <code>current_task_id</code>，以及独立于 <code>state</code> 的关闭两列 <code>closed_at</code> / <code>closed_by</code>（见<a href="#subagent-close">继续、复用与关闭</a>）。</td>
+            <td>首次委派建行（<code class="src" data-src="src/core/store.ts#insertSubAgent">insertSubAgent</code>）；之后只改状态与两个指针（<code class="src" data-src="src/core/store.ts#setSubAgentState">setSubAgentState</code>），另有一次条件写入的关闭（<code class="src" data-src="src/core/store.ts#closeSubAgent">closeSubAgent</code>）。</td>
             <td>身份、目录与上下文在执行结束后保留，供同一工作继续派活；动态 ID 不能进 <code>agent_roles</code> 或 <code>tasks.agent_id</code>，后者的 CHECK 只允许三个固定角色。</td>
           </tr>
           <tr>
@@ -265,14 +265,14 @@
       <div class="scroll">
         <div class="seq" style="--n:6">
           <div class="who"><span>主 Agent 任务</span><span>委派工具</span><span>SubAgentManager</span><span>Store</span><span>SubAgent 子会话</span><span>编排器</span></div>
-          <div class="m" style="--from:1;--to:2"><span>subagent_delegate(request, key, work_id?, read_paths? | materials?)</span></div>
-          <div class="note" style="--from:2;--to:2">重核宿主身份与拥有者来源；校验参数，算参数摘要</div>
+          <div class="m" style="--from:1;--to:2"><span>subagent_delegate(request, key, work_id? | sub_agent_id?, read_paths? | materials?)</span></div>
+          <div class="note" style="--from:2;--to:2">重核宿主身份与拥有者来源；校验参数（work_id 与 sub_agent_id 互斥），算参数摘要</div>
           <div class="m" style="--from:2;--to:3"><span>delegate(父任务, key, request, 资料, 摘要)</span></div>
-          <div class="m" style="--from:3;--to:4"><span>查重：（父会话, key）查工作；sdelegate:&lt;工作&gt;:&lt;key&gt; 查任务</span></div>
+          <div class="m" style="--from:3;--to:4"><span>查重：（父会话, key）查工作；sdelegate:&lt;工作&gt;:&lt;key&gt; 查任务；同参命中即返回原记录，即使目标已关闭或忙碌</span></div>
           <div class="m l" style="--from:4;--to:3"><span>命中：同参返回原记录，异参 request_conflict</span></div>
           <div class="note" style="--from:3;--to:3">限额：本会话活动执行任务少于 3 个</div>
           <div class="note" style="--from:3;--to:3">事务外准备：执行入口与模型门闩预检、建目录、资料快照或钉定路径</div>
-          <div class="m ok" style="--from:3;--to:4"><span>同一事务：重核门闩与资料授权，写工作、身份、子会话、排队任务、work_delegation.created</span></div>
+          <div class="m ok" style="--from:3;--to:4"><span>同一事务：重核门闩、可用性与资料授权（该 Agent 历史来源与本批的并集），写工作、身份、子会话、排队任务、work_delegation.created</span></div>
           <div class="m" style="--from:3;--to:5"><span>提交后 kick 子会话</span></div>
           <div class="m l" style="--from:3;--to:2"><span>返回登记记录</span></div>
           <div class="m l" style="--from:2;--to:1"><span>立即返回：workId、subAgentId、taskId、截止时间</span></div>
@@ -282,8 +282,10 @@
           <div class="m l ok" style="--from:6;--to:4"><span>同一事务：结果、状态 idle / unverified、subagent_task.*</span></div>
           <div class="m l" style="--from:6;--to:1"><span>main 父会话：提交 wake:&lt;子任务&gt;</span></div>
           <div class="note" style="--from:1;--to:1">dev 父会话：下一个任务开始时注入 [SubAgent 结果]</div>
-          <div class="m" style="--from:1;--to:2"><span>subagent_result(work_id, part)</span></div>
-          <div class="m l dash" style="--from:2;--to:1"><span>result / reply / artifact 分页</span></div>
+          <div class="m" style="--from:1;--to:2"><span>subagent_result(work_id?, part)</span></div>
+          <div class="m l dash" style="--from:2;--to:1"><span>省略时总览；result / reply / artifact 分页</span></div>
+          <div class="m" style="--from:1;--to:2"><span>subagent_close(sub_agent_id)</span></div>
+          <div class="m l dash" style="--from:2;--to:1"><span>已关闭幂等；忙碌拒绝 (busy)</span></div>
         </div>
       </div>
       <figcaption>工具在执行任务入队后立即返回，不等子模型结束，主 Agent 可以照常结束本轮、继续处理拥有者的新消息。登记前的准备在事务外；登记本身是一个事务，工作、身份、子会话、排队任务与审计事件一起提交或都不提交，提交之后才 kick 子会话。查重排在限额与资料解析之前，重复调用不会重新解析可能已经变化的资料。</figcaption>
@@ -297,15 +299,16 @@
             <thead><tr><th>位置</th><th>拒绝条件</th><th>结果</th><th>留下什么</th></tr></thead>
             <tbody>
               <tr><td>工具身份重核 <code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code></td><td>会话、项目或当前任务对不上；会话是 SubAgent 子会话；会话绑定的角色不是 main</td><td>身份校验失败</td><td>无记录</td></tr>
-              <tr><td>拥有者来源 <code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code></td><td>任务本身是 SubAgent 任务；或既不是拥有者直接提交，也不是 Telegram / QQ 私聊入站（调度唤醒、子任务回报）</td><td>报错</td><td>无记录</td></tr>
-              <tr><td>工具参数</td><td><code>key</code> 不是 1–64 位字母、数字、<code>_</code> 或 <code>-</code>；main 给了 <code>read_paths</code>、dev 给了 <code>materials</code>，或两者都没给；<code>materials</code> 含已接收的群聊结果</td><td>报错</td><td>无记录</td></tr>
+              <tr><td>拥有者来源 <code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code></td><td>任务本身是 SubAgent 任务；或既不是拥有者直接提交，也不是 Telegram / QQ 私聊入站（调度唤醒、子任务回报）。<code>subagent_close</code> 没有这道来源门（只收窄能力），回报唤醒轮次也可以关闭</td><td>报错</td><td>无记录</td></tr>
+              <tr><td>工具参数</td><td><code>key</code> 不是 1–64 位字母、数字、<code>_</code> 或 <code>-</code>；<code>work_id</code> 与 <code>sub_agent_id</code> 同时给出（互斥）；main 给了 <code>read_paths</code>、dev 给了 <code>materials</code>，或两者都没给；<code>materials</code> 含已接收的群聊结果</td><td>报错</td><td>无记录</td></tr>
               <tr><td>父会话类别</td><td>父会话不是 dev 类（QQ 群会话）</td><td><code>forbidden</code></td><td>无记录</td></tr>
               <tr><td>查重</td><td>同键异参</td><td><code>request_conflict</code></td><td>原记录不变</td></tr>
               <tr><td>限额</td><td>本会话的活动执行任务已到上限</td><td><code>limit_exceeded</code></td><td>无记录</td></tr>
-              <tr><td>事务外准备</td><td><code>work_id</code> 不存在或不属于本会话；受限执行入口或模型门闩不可用；目录落在保护根；路径不存在、超出父工作区与已授予范围、执行身份读不到；资料解析失败</td><td><code>not_found</code> / <code>forbidden</code> / <code>invalid_params</code> 等</td><td>删掉本次新建的目录（如已建）</td></tr>
-              <tr><td>拼任务正文 <code class="src" data-src="src/runtime/subagents.ts#private taskInput">subagents.ts · taskInput</code></td><td>宿主模板加请求超过 <code class="src" data-src="src/runtime/subagents.ts#const INPUT_TEXT_CAP = 8192">INPUT_TEXT_CAP</code>（8192 字符），拒绝，不截断</td><td><code>invalid_params</code></td><td>这一步在清理范围之外：本次新建的目录（含资料快照）留在磁盘上，但没有入库；沿原工作再委派时，写进原目录的快照文件同样留下</td></tr>
-              <tr><td>登记事务</td><td>首次委派时同键的并发请求已先提交（（父会话，key）唯一约束失败，不论参数是否相同）；沿原工作再委派时同键已被另一请求登记且参数不同（<code>request_conflict</code>，参数相同则返回那条记录）；资料授权在准备后被撤销；父任务归属变化；门闩重检失败</td><td>事务回滚</td><td>删掉本次新建的目录（目录名是本次新生成的 SubAgent ID，不会碰到竞争请求的目录）；沿原工作再委派时目录不删，已写的快照文件留下</td></tr>
-              <tr><td>工具调用中断（停止、重启）</td><td>结果没落库</td><td>按 <code class="src" data-src="src/runtime/subagents.ts#export function subagentOpCheck">subagentOpCheck</code> 核实：工作、身份、子会话与任务都在算已委派，否则已知未委派</td><td>不记效果未知（<code>coding_delegate</code> 的 analyze 调用归同一族，<code class="src" data-src="src/agent/tool-op-ledger.ts#subagent_delegate">tool-op-ledger.ts</code>）</td></tr>
+              <tr><td>可用性（继续 / 复用）</td><td>目标 Agent 不属于本父会话、已关闭、非 idle 或有活动任务、目录不存在 / 被替换或目录身份与子会话记录不符（<code class="src" data-src="src/runtime/subagents.ts#private assertAvailable">subagents.ts · assertAvailable</code>，准备前与登记事务内各核一次）</td><td><code>forbidden</code> / <code>closed</code> / <code>busy</code> / <code>workdir_gone</code></td><td>无记录；忙碌明确拒绝不排队</td></tr>
+              <tr><td>事务外准备</td><td><code>work_id</code> 或 <code>sub_agent_id</code> 不存在或不属于本会话；受限执行入口或模型门闩不可用；目录落在保护根；路径不存在、超出父工作区与已授予范围、执行身份读不到；资料解析失败</td><td><code>not_found</code> / <code>forbidden</code> / <code>invalid_params</code> 等</td><td>删掉本次新建的目录，或本次写入的快照文件</td></tr>
+              <tr><td>拼任务正文 <code class="src" data-src="src/runtime/subagents.ts#private taskInput">subagents.ts · taskInput</code></td><td>宿主模板加请求超过 <code class="src" data-src="src/runtime/subagents.ts#const INPUT_TEXT_CAP = 8192">INPUT_TEXT_CAP</code>（8192 字符），拒绝，不截断（准备在 try 内，正文构造失败走同一清理）</td><td><code>invalid_params</code></td><td>删掉本次新建的目录，或本次写入的快照文件</td></tr>
+              <tr><td>登记事务</td><td>省略 <code>work_id</code> / <code>sub_agent_id</code> 时同键并发先提交，先按（父会话，key）仲裁：同参返回那条记录，异参 <code>request_conflict</code>，不落到唯一约束；沿原工作再委派时同键已被另一请求登记且参数不同（<code>request_conflict</code>，参数相同则返回那条记录）；可用性在事务内重核（继续 / 复用）；资料授权复核改按该 Agent 全部历史任务的 <code>sourceRefs</code> 与本次的并集，撤销才拒；父任务归属变化；门闩重检失败</td><td>事务回滚</td><td>删掉本次新建的目录，或本次写入的快照文件；不碰竞争请求已用的目录或既有快照</td></tr>
+              <tr><td>工具调用中断（停止、重启）</td><td>结果没落库</td><td>按 <code class="src" data-src="src/runtime/subagents.ts#export function subagentOpCheck">subagentOpCheck</code> 核实：委派看工作 / Agent / 会话 / 任务关联；<code>subagent_close</code> 按 <code>closed_at</code> 核实，幂等关闭同样以该列为准</td><td>不记效果未知（<code>coding_delegate</code> 的 analyze 调用归同一族，<code class="src" data-src="src/agent/tool-op-ledger.ts#subagent_delegate">tool-op-ledger.ts</code>）</td></tr>
             </tbody>
           </table>
         </div>
@@ -314,14 +317,46 @@
 
     <h3>幂等、限额与截止</h3>
     <ul>
-      <li><b>两级幂等</b>：首次委派（不带 <code>work_id</code>）以（父会话，<code>key</code>）查工作（<code class="src" data-src="src/runtime/subagents.ts#private dedupNewKey">dedupNewKey</code>）；工作内每次执行的请求键是 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code>（<code class="src" data-src="src/runtime/subagents.ts#export function subAgentTaskRequestId">subAgentTaskRequestId</code>），在子会话里唯一。任务的提交摘要（<code class="src" data-src="src/runtime/subagents.ts#export function taskSubmissionDigest">taskSubmissionDigest</code>）只覆盖参数摘要、工作与身份，不含本次调用的父任务 ID、模型选择与截止时间，所以下一轮对话用同一个键重放会拿回首次记录，而不是误报冲突。</li>
+      <li><b>两级幂等</b>：新工作路径（省略 <code>work_id</code> 与 <code>sub_agent_id</code>，或带 <code>sub_agent_id</code> 复用）以（父会话，<code>key</code>）查工作（<code class="src" data-src="src/runtime/subagents.ts#private dedupNewKey">dedupNewKey</code>，登记事务内的竞争仲裁同一条）；工作内每次执行的请求键是 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code>（<code class="src" data-src="src/runtime/subagents.ts#export function subAgentTaskRequestId">subAgentTaskRequestId</code>），在子会话里唯一。工具的参数摘要（<code class="src" data-src="src/agent/mcp/tools.ts#canonicalParamsDigest">canonicalParamsDigest</code>）只在给 <code>sub_agent_id</code> 时纳入它，省略时摘要与此前相同，重放不因此冲突。任务的提交摘要（<code class="src" data-src="src/runtime/subagents.ts#export function taskSubmissionDigest">taskSubmissionDigest</code>）只覆盖参数摘要、工作与身份，不含本次调用的父任务 ID、模型选择与截止时间，所以下一轮对话用同一个键重放会拿回首次记录，而不是误报冲突；查重排在限额与可用性之前，同键同参命中即返回原记录，即使目标已关闭或忙碌，也不新建执行。</li>
       <li><b>限额</b>：同一父会话的活动执行任务（queued、running、awaiting_confirmation）至多 <code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">SUBAGENT_LIMITS</code>.perParentSession = 3 个（<code class="src" data-src="src/core/store.ts#countActiveSubAgentTasks">store.ts · countActiveSubAgentTasks</code>）。空闲的身份不占名额。</li>
       <li><b>截止</b>：直接父任务的开始时刻（尚未开始取创建时刻）加 deadlineMs（60 分钟），包含排队与审批等待；到期由编排器的截止巡检取消，与旧委派同一套（见<a href="#child">子任务结果与异常路径</a>）。</li>
-      <li><b>继续原工作</b>：带 <code>work_id</code> 时沿原工作派一次新执行（<code class="src" data-src="src/runtime/subagents.ts#private dedupExistingWork">dedupExistingWork</code> 查重）：同一个 SubAgent、同一个子会话与目录，上下文接着原 JSONL；不新建工作，不发 <code>work_delegation.created</code>。</li>
+      <li><b>继续原工作</b>：带 <code>work_id</code> 时沿原工作派一次新执行（<code class="src" data-src="src/runtime/subagents.ts#private dedupExistingWork">dedupExistingWork</code> 查重）：同一个 SubAgent、同一个子会话与目录，上下文接着原 JSONL；不新建工作，不发 <code>work_delegation.created</code>；读范围与资料按本次新的任务重新确定，前次批准不延续。</li>
+      <li><b>复用 SubAgent</b>：带 <code>sub_agent_id</code>（与 <code>work_id</code> 互斥）时，让本会话名下另一个空闲且未关闭的 SubAgent 承接一项全新工作：登记事务里新插入一行 <code>work_delegations</code> 指向它（发 <code>work_delegation.created</code>），子会话上下文延续（ JSONL 接着旧工作），只读路径与资料按本次重新钉定，任务正文里另有一句「此前承接过其他工作，旧范围不延续」（<code class="src" data-src="src/runtime/subagents.ts#此前承接过其他工作">taskInput</code>）；快照文件按工作加执行键命名（<code>materials-&lt;workId&gt;-&lt;key&gt;.txt</code>），不覆写旧工作的快照。</li>
+      <li><b>资料快照命名</b>：<code class="src" data-src="src/runtime/subagents.ts#materialsFileFor(workId">materialsFileFor</code> 按 (workId, key) 命名；v25 之前的旧目录里呈 <code>materials-&lt;key&gt;.txt</code> 的快照仍在磁盘与个人产物登记里有效，只是新的委派不再产生这个名字。</li>
+    </ul>
+
+    <h3 id="subagent-close">继续、复用与关闭</h3>
+    <p>首次委派之后，同一个 SubAgent（独立子会话与目录都保留）可以被主 Agent 继续沿原工作派活（<code>work_id</code>）、复用承接新工作（<code>sub_agent_id</code>），或显式关闭。继续与复用都经 <code>subagent_delegate</code> 走同一登记与幂等链路（见上「一次委派怎样登记」），且都要先过可用性核查（<code class="src" data-src="src/runtime/subagents.ts#private assertAvailable">subagents.ts · assertAvailable</code>）——准备前与登记事务内各核一次；关闭是 <code>subagent_close</code>（主 Agent 的工具调用）或控制面 <code>subagent_close</code> 操作 / CLI <code>ruukoto work close</code>（拥有者，见<a href="#subagent-state">下一节</a>）。</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>可用性核查</th><th>结果</th></tr></thead>
+        <tbody>
+          <tr><td>目标 <code>SubAgent</code> 的 <code>parent_session_id</code> 是当前父用户会话</td><td>不属于本父会话拒绝 <code>forbidden</code>（关闭由拥有者发起时不受这条限制）</td></tr>
+          <tr><td><code>closed_at</code> 为空（未关闭）</td><td>已关闭拒绝 <code>closed</code>，提示「请新建 SubAgent」</td></tr>
+          <tr><td><code>state</code> 是 <code class="st idle">idle</code> 且没有活动任务（queued / running / awaiting_confirmation，<code class="src" data-src="src/core/store.ts#findActiveSubAgentTask">store.ts · findActiveSubAgentTask</code>）</td><td>忙碌或待核实拒绝 <code>busy</code>，给出任务 id，<strong>不排队</strong>（堵住「running 时再委派覆盖当前任务指针、在跑任务显示空闲」的缺口）</td></tr>
+          <tr><td>工作目录必须仍存在，且 realpath 与目录身份（realpath、dev、ino）与子会话登记的 <code>cwd_real</code> / <code>cwd_dev</code> / <code>cwd_ino</code> 一致</td><td>目录不存在、被替换或不符拒绝 <code>workdir_gone</code>，提示「请新建 SubAgent」</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>复用时生效上下文是延续的（同一子会话 JSONL 接着旧工作），资料与读范围按新的任务重新钉定：旧资料若已被撤销会先在登记事务的并集复核里被拦掉；子任务正文里另有一句告知模型旧范围不延续。快照文件命名为 <code>materials-&lt;workId&gt;-&lt;key&gt;.txt</code>，复用同一 Agent 时不会覆写旧工作的快照。</p>
+
+    <div class="seq" style="--n:2">
+      <div class="who"><span>主 Agent / 控制面</span><span>SubAgentManager · 同一同步事务</span></div>
+      <div class="m" style="--from:1;--to:2"><span>subagent_close(sub_agent_id) 或 subagent_close {sub_agent_id}</span></div>
+      <div class="note" style="--from:2;--to:2">核实：存在、归属（agent 发起必须本父会话）、未关闭、无活动任务</div>
+      <div class="m l bad" style="--from:2;--to:1"><span>任一不符：not_found · forbidden · busy（含任务 id）· closed（幂等）</span></div>
+      <div class="note ok" style="--from:2;--to:2">条件写入 closeSubAgent，并发 subagent.closed</div>
+      <div class="m l ok" style="--from:2;--to:1"><span>返回：不再接受新委派；历史与产物保留</span></div>
+    </div>
+    <ul>
+      <li><b>两个入口</b>：主 Agent 的工具 <code>subagent_close</code>（普通 dev 与 main 装配；回报唤醒轮次也允许，因为关闭只收窄能力；<code class="src" data-src="src/agent/subagent-tools.ts#const subagentClose">subagent-tools.ts · subagentClose</code>）；拥有者经控制面 <code>subagent_close</code>（<code class="src" data-src="src/runtime/runtime.ts#closeSubAgent(subAgentId">runtime.ts · closeSubAgent</code>，CLI <code>ruukoto work close</code>）。主 Agent 的 <code>closedBy</code> 记为 <code>agent:&lt;发起任务 ID&gt;</code>，拥有者记为 <code>owner</code>（<code class="src" data-src="src/core/types.ts#export type SubAgentClosedBy">types.ts · SubAgentClosedBy</code>）。</li>
+      <li><b>幂等与并发</b>：关闭在一个同步事务里核实与写入；有活动任务报 <code>busy</code> 并给出任务 id，已关闭幂等返回（不再发事件），竞争与委派由条件写入（<code class="src" data-src="src/core/store.ts#closeSubAgent">store.ts · closeSubAgent</code>）与登记事务的可用性重核二选一胜负——不存在「已关闭且有活动任务」的中间态。关闭后新委派拒绝 <code>closed</code>。</li>
+      <li><b>不自动关闭</b>：任务终态（<code>idle</code>）、TUI 退出与空闲都不自动关闭；关闭不改 <code>state</code>，历史、子目录与 JSONL 保留可查。</li>
+      <li><b>事件</b>：每次核实通过写一条 <code>subagent.closed</code>（<code class="src" data-src="src/core/types.ts#type: &quot;subagent.closed&quot;">types.ts · subagent.closed</code>：subAgentId、parentSessionId、closedBy，主 Agent 发起时另带 taskId，拥有者关闭为 null），事件归父会话，TUI 在父会话线里显示（<code class="src" data-src="src/tui/state.ts#SubAgent 已关闭">tui/state.ts · subagent.closed</code>）。</li>
     </ul>
 
     <h3>执行范围由宿主钉定</h3>
-    <p>模型只给正文、键、可选的 <code>work_id</code> 与资料；身份、目录、模式、工具与读范围都由宿主写定，其中读范围（钉定路径与来源引用）存进任务的 <code>read_scope</code>（<code class="src" data-src="src/core/types.ts#export interface SubAgentReadScope">types.ts · SubAgentReadScope</code>）。</p>
+    <p>模型只给正文、键、可选的 <code>work_id</code> / <code>sub_agent_id</code> 与资料；身份、目录、模式、工具与读范围都由宿主写定，其中读范围（钉定路径与来源引用）存进任务的 <code>read_scope</code>（<code class="src" data-src="src/core/types.ts#export interface SubAgentReadScope">types.ts · SubAgentReadScope</code>）。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>范围</th><th>宿主怎样固定</th><th>在哪里核实</th></tr></thead>
@@ -338,8 +373,8 @@
           </tr>
           <tr>
             <td>资料（main）</td>
-            <td><code>materials</code> 1–8 个，按父项目的有效权限解析成文本快照，写进子目录的 <code>materials-&lt;key&gt;.txt</code>（<code class="src" data-src="src/runtime/subagents.ts#function materialsFileFor">materialsFileFor</code>）；来源引用存进 <code>read_scope.sourceRefs</code>。SubAgent 用 <code>read</code> 读这个文件。</td>
-            <td>登记事务内核实一次；之后每次向模型发送上下文前再核实，撤销即阻断发送（<code class="src" data-src="src/agent/driver.ts#task_sources_revoked">task_sources_revoked</code>）。快照正文不重新解析。</td>
+            <td><code>materials</code> 1–8 个，按父项目的有效权限解析成文本快照，写进子目录的 <code>materials-&lt;workId&gt;-&lt;key&gt;.txt</code>（<code class="src" data-src="src/runtime/subagents.ts#function materialsFileFor">materialsFileFor</code>：按工作 + 执行键命名，复用同一 Agent 时不覆写旧工作的快照）；来源引用存进 <code>read_scope.sourceRefs</code>。SubAgent 用 <code>read</code> 读这个文件。</td>
+            <td>登记事务内复核一次（对象为「该 SubAgent 全部历史任务的 <code>sourceRefs</code> 与本次的并集」，<code class="src" data-src="src/core/store.ts#listTasksBySession">store.ts · listTasksBySession</code>；含复用旧工作的旧资料）；之后每次向模型发送上下文前，driver 在子会话按同一并集重新核实（<code class="src" data-src="src/agent/driver.ts#task_sources_revoked">task_sources_revoked</code>），撤销即阻断发送。快照正文不重新解析。</td>
           </tr>
           <tr>
             <td>资料（dev）</td>
@@ -367,34 +402,36 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 318" role="img" aria-label="SubAgent 状态机：首次委派的登记事务创建身份并置 running；执行任务终态时，目录占用已回收则进入 idle，占用仍在则进入 unverified；idle 与 unverified 都可以因带 work_id 再委派回到 running；running 时再委派同一工作仍停在 running，是已知缺口。">
-          <g class="n" data-k="s-new"><rect x="20" y="128" width="130" height="50" rx="25"/><text x="85" y="145">首次委派</text><text class="sub" x="85" y="164">登记事务</text></g>
+        <svg viewBox="0 0 1040 368" role="img" aria-label="SubAgent 状态机：首次委派的登记事务创建身份并置 running；执行任务终态时，目录占用已回收则进入 idle，占用仍在则进入 unverified；只有 idle 且未关闭、目录身份一致才能继续或复用，回到 running；委派忙碌、已关闭、unverified 或目录失效一律拒绝；关闭是不改 state 的独立两列，显式发起，不自动发生。">
+          <g class="n" data-k="s-new"><rect x="20" y="158" width="130" height="50" rx="25"/><text x="85" y="175">首次委派</text><text class="sub" x="85" y="194">登记事务</text></g>
           <g class="n run"><rect x="250" y="120" width="190" height="66" rx="8"/><text x="345" y="143">running</text><text class="sub" x="345" y="166">有活动执行任务</text></g>
-          <g class="n idle"><rect x="660" y="40" width="220" height="66" rx="8"/><text x="770" y="63">idle</text><text class="sub" x="770" y="86">终态 · 占用已回收</text></g>
-          <g class="n unk"><rect x="660" y="200" width="220" height="66" rx="8"/><text x="770" y="223">unverified</text><text class="sub" x="770" y="246">终态 · 退出未核实</text></g>
+          <g class="n idle"><rect x="660" y="30" width="220" height="66" rx="8"/><text x="770" y="53">idle</text><text class="sub" x="770" y="76">终态 · 占用已回收 · 可继续</text></g>
+          <g class="n unk"><rect x="660" y="210" width="220" height="66" rx="8"/><text x="770" y="233">unverified</text><text class="sub" x="770" y="256">终态 · 退出未核实</text></g>
 
-          <path class="e" data-k="s-new" d="M150 153H248" marker-end="url(#ah)"/>
-          <text class="el" data-k="s-new" x="199" y="145">建身份</text>
+          <path class="e" data-k="s-new" d="M150 183C200 183 200 153 248 153" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-new" x="199" y="163">建身份</text>
 
-          <path class="e" data-k="s-idle" d="M440 140C550 140 550 73 658 73" marker-end="url(#ah)"/>
-          <text class="el" data-k="s-idle" x="598" y="62">终态 · 已回收</text>
-          <path class="e unk" data-k="s-unv" d="M440 166C550 166 550 233 658 233" marker-end="url(#ah-unk)"/>
-          <text class="el" data-k="s-unv" x="598" y="258">终态 · 占用保留</text>
+          <path class="e" data-k="s-idle" d="M440 136C550 136 550 63 658 63" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-idle" x="598" y="52">终态 · 已回收</text>
+          <path class="e unk" data-k="s-unv" d="M440 168C550 168 550 243 658 243" marker-end="url(#ah-unk)"/>
+          <text class="el" data-k="s-unv" x="598" y="208">终态 · 占用保留</text>
 
-          <path class="e" data-k="s-again" d="M770 40V20H380V118" marker-end="url(#ah)"/>
-          <text class="el" data-k="s-again" x="575" y="14">带 work_id 再委派</text>
-          <path class="e" data-k="s-again-u" d="M770 266V292H380V188" marker-end="url(#ah)"/>
-          <text class="el" data-k="s-again-u" x="575" y="308">带 work_id 再委派</text>
+          <path class="e" data-k="s-again" d="M770 30V14H380V118" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-again" x="575" y="8">继续 / 复用（仅 idle · 未关闭）</text>
 
-          <path class="e dash" data-k="s-busy" d="M290 186C290 236 330 236 330 188" marker-end="url(#ah)"/>
-          <text class="el" data-k="s-busy" x="310" y="252">运行中再委派</text>
+          <path class="e bad dash" d="M345 186V286" marker-end="url(#ah-bad)"/>
+          <g class="n bad" data-k="s-busy"><rect x="215" y="290" width="260" height="56" rx="8"/><text x="345" y="310">委派拒绝</text><text class="sub" x="345" y="329">忙碌 / 已关闭 / 待核实 / 目录失效</text></g>
+
+          <g class="n idle" data-k="s-close"><rect x="660" y="290" width="220" height="56" rx="8"/><text x="770" y="310">显式关闭</text><text class="sub" x="770" y="329">独立两列 · 不改 state · 不自动发生</text></g>
+          <path class="e dash" data-k="s-close" d="M880 96V286" marker-end="url(#ah)"/>
         </svg>
       </div>
-      <figcaption>状态只说明执行单元，不说明工作是否完成，也不表示 SubAgent 被关闭：首版没有关闭，身份一直保留。unverified 目前没有回到 idle 的代码路径：拥有者核实后用 resume_queue 释放遗留占用，sub_agents 上仍记 unverified，直到同一工作再委派把它置回 running。悬停下表的行会高亮对应的边。</figcaption>
+      <figcaption>状态只说明执行单元，不说明工作是否完成，也不表示关闭：关闭是旁路的独立两列（见<a href="#subagent-close">继续、复用与关闭</a>）。继续与复用只有从 idle 出发；「再委派」在其余情形一律拒绝——忙碌明确拒绝不排队，这取代了此前「执行中再委派会让在跑任务显示空闲」的缺口。unverified 目前没有回到 idle 的处分路径：拥有者核实后用 resume_queue 释放遗留占用，sub_agents 上仍记 unverified，拒绝继续与复用。悬停下表的行会高亮对应的边与节点。</figcaption>
       <ul class="legend">
         <li><i class="run"></i>有活动执行任务</li>
-        <li><i class="idle"></i>空闲，零模型与进程</li>
+        <li><i class="idle"></i>空闲，零模型与进程 / 已关闭</li>
         <li><i class="unk"></i>待拥有者核实旧执行</li>
+        <li><i class="bad"></i>拒绝</li>
       </ul>
     </figure>
 
@@ -405,7 +442,7 @@
           <tr data-k="s-new" tabindex="0">
             <td>（无）→ <code class="st run">running</code></td>
             <td>SubAgentManager 登记</td>
-            <td>首次委派，查重未命中、限额未满、准备成功。登记事务里先以 running 插入身份，插入排队任务后再写一次 running 与 <code>current_task_id</code>。<br><code class="src" data-src="src/runtime/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · delegate</code></td>
+            <td>首次委派，查重未命中、限额未满、准备成功（继续 / 复用另有可用性核查，见<a href="#subagent-close">下一节</a>）。登记事务里先以 running 插入身份，插入排队任务后再写一次 running 与 <code>current_task_id</code>。<br><code class="src" data-src="src/runtime/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · delegate</code></td>
             <td><code>work_delegation.created</code>、子会话的 <code>task.queued</code></td>
           </tr>
           <tr data-k="s-idle" tabindex="0">
@@ -423,20 +460,14 @@
           <tr data-k="s-again" tabindex="0">
             <td><code class="st idle">idle</code> → <code class="st run">running</code></td>
             <td>SubAgentManager 登记</td>
-            <td>带 <code>work_id</code> 沿原工作再委派、用新键：在同一子会话插入新的排队任务，状态置 running。</td>
-            <td>子会话的 <code>task.queued</code>（不发 <code>work_delegation.created</code>）</td>
-          </tr>
-          <tr data-k="s-again-u" tabindex="0">
-            <td><code class="st unk">unverified</code> → <code class="st run">running</code></td>
-            <td>SubAgentManager 登记</td>
-            <td>同上：登记不检查状态。新任务要等旧占用释放（拥有者核实后 resume_queue）才能取得目录占用开始执行。</td>
+            <td>同一父会话、未关闭、无活动任务、目录身份与子会话记录一致（可用性核查，见<a href="#subagent-close">下一节</a>；准备前与登记事务内各核一次）。带 <code>work_id</code> 继续原工作，或带 <code>sub_agent_id</code> 复用承接新工作：在同一子会话插入新的排队任务，状态置 running；继续原工作不发 <code>work_delegation.created</code>，复用承接新工作仍在登记事务里发。</td>
             <td>子会话的 <code>task.queued</code></td>
           </tr>
           <tr data-k="s-busy" tabindex="0">
-            <td><code class="st run">running</code> → <code class="st run">running</code></td>
-            <td>SubAgentManager 登记</td>
-            <td>已知缺口：执行中再委派同一工作，新任务排队并覆盖 <code>current_task_id</code>；前一任务终态时状态被写成 idle 或 unverified，后一任务随后照常执行，记录却显示空闲。</td>
-            <td>子会话的 <code>task.queued</code></td>
+            <td>继续 / 复用被拒</td>
+            <td>SubAgentManager</td>
+            <td>目标 Agent 状态不是 <code class="st idle">idle</code> 或有活动任务（queued / running / awaiting_confirmation）→ <code>busy</code> 并给出任务 id，不排队（此前「执行中再委派会让在跑任务显示空闲」的缺口已堵死）；已关闭 → <code>closed</code>；unverified 同样按「正忙或待核实」拒（报错 <code>busy</code>）；目录不存在、被替换或目录身份（realpath、dev、ino）与子会话记录不符 → <code>workdir_gone</code>，提示新建。</td>
+            <td>无</td>
           </tr>
         </tbody>
       </table>
@@ -455,8 +486,8 @@
       </div>
     </div>
     <ul>
-      <li><b>读结果</b>：<code>subagent_result</code> 只读工作登记在当前会话的记录：<code>part=result</code>（默认）给工作、SubAgent 状态与每次执行的摘要；<code>part=reply</code> 按 UTF-8 字节分页读最终回答，每页至多 <code class="src" data-src="src/agent/subagent-tools.ts#READ_LIMITS">READ_LIMITS</code>.replyBytes（16 KiB）；<code>part=artifact</code> 读该次执行自己的产物，每页至多 artifactBytes（64 KiB）。不给 <code>task_id</code> 时取最近一个已有结果的执行，都还没有结果时取最近一个。main 的 <code>coding_result</code> 也能读这些执行任务（见<a href="#delegate">main 委派 coding</a>）。</li>
-      <li><b>拥有者查看</b>：控制面只读操作 <code>work_list</code> / <code>work_get</code>（CLI <code>ruukoto work list</code> / <code>ruukoto work show</code>）列出工作、SubAgent 与执行任务；普通的提交、继续、切换模式与会话默认模式都不能作用于子会话。协议见<a href="control-protocol.html">控制面协议</a>。</li>
+      <li><b>读结果</b>：<code>subagent_result</code> 只读工作登记在当前会话的记录：省略 <code>work_id</code> 时返回本会话 SubAgent 的总览（状态或已关闭、当前工作、名下工作、最近任务状态，供挑选继续或复用对象，<code class="src" data-src="src/core/store.ts#listSubAgentsBySession">store.ts · listSubAgentsBySession</code>）；指定时 <code>part=result</code>（默认）给工作、SubAgent 是否已关闭 / 状态与每次执行的摘要；<code>part=reply</code> 按 UTF-8 字节分页读最终回答，每页至多 <code class="src" data-src="src/agent/subagent-tools.ts#READ_LIMITS">READ_LIMITS</code>.replyBytes（16 KiB）；<code>part=artifact</code> 读该次执行自己的产物，每页至多 artifactBytes（64 KiB）。不给 <code>task_id</code> 时取最近一个已有结果的执行，都还没有结果时取最近一个。已关闭后历史与产物仍按原窄口可读。main 的 <code>coding_result</code> 也能读这些执行任务（见<a href="#delegate">main 委派 coding</a>）。</li>
+      <li><b>拥有者查看与关闭</b>：控制面只读操作 <code>work_list</code> / <code>work_get</code>（CLI <code>ruukoto work list</code> / <code>ruukoto work show</code>）列出工作、SubAgent（含关闭两列）与执行任务；拥有者经 <code>subagent_close</code>（<code class="src" data-src="src/runtime/runtime.ts#closeSubAgent(subAgentId">runtime.ts · closeSubAgent</code>，CLI <code>ruukoto work close</code>，<code class="src" data-src="src/cli.ts#case &quot;work&quot;:">cli.ts</code>）随时显式关闭——有活动任务报 <code>busy</code> 并给任务 id，等任务结束或先 <code>ruukoto cancel</code> 再关，已关闭幂等；停止中（<code>stopping</code>）拒绝。普通的提交、继续、切换模式与会话默认模式都不能作用于子会话。协议见<a href="control-protocol.html">控制面协议</a>。</li>
     </ul>
 
     <h3>停止与重启时</h3>
@@ -464,6 +495,7 @@
       <li><b>执行中的任务</b>：后台停止（<code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code>）或崩溃后恢复（<code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code>）时把它转为 interrupted，这时编排器已经停下或还没启动，没人监听；编排器启动时由巡检 ① 补记（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingResult">listRoleTasksPendingResult</code> 同时选带 sub_agent_id 的任务），结局为结果未知，发 <code>subagent_task.result_unknown</code>。留下了占用的（崩溃，或停止时没能回收工具进程），恢复时子会话被暂停为 <code>occupancy_unverified</code>，SubAgent 记 unverified；停止时工具进程已回收的记 idle。main 父会话随后被唤醒，dev 父会话等它下一个任务开始时注入。</li>
       <li><b>排队中的任务</b>：Runtime 恢复时把子会话队列暂停为 <code>backend_restart</code>。编排器只自动恢复三个角色会话的队列，SubAgent 子会话不在其中：任务留在 queued，身份仍是 running，直到拥有者对该会话 resume_queue，或截止巡检按 <code>deadline_exceeded</code> 取消它（结局 timeout，身份按占用情况转 idle 或 unverified）。</li>
       <li><b>不重放、不重试</b>：结果未知的执行不自动重发，也没有自动重试。</li>
+      <li><b>关闭与重启</b>：关闭只写 <code>closed_at</code> / <code>closed_by</code> 两列并记一条 <code>subagent.closed</code>（归父会话的持久事件）；不取消在途任务——有活动任务报 <code>busy</code> 并给任务 id，等任务结束或由拥有者 <code>ruukoto cancel</code> 后再关；不撤销既有产物、子目录、JSONL 与工作记录。</li>
     </ul>
 
     <h3>与旧 coding 委派的差别</h3>
@@ -481,14 +513,14 @@
           <tr><td>自动重试</td><td>analyze 满足重试门时一次</td><td>无</td></tr>
           <tr><td>结果与事件</td><td><code>DelegationResult</code>，<code>child_task.*</code></td><td>工作与身份关联的结果引用，<code>subagent_task.*</code>；同一事务改 SubAgent 状态</td></tr>
           <tr><td>回报</td><td>唤醒 main（<code>wake:&lt;子任务&gt;</code>）</td><td>main 同样唤醒；dev 父会话注入 <code>[SubAgent 结果]</code></td></tr>
-          <tr><td>执行结束后</td><td>coding 会话继续承接下一个子任务</td><td>SubAgent 转空闲并保留，可沿原工作再委派</td></tr>
+          <tr><td>执行结束后</td><td>coding 会话继续承接下一个子任务</td><td>SubAgent 转空闲并保留：可沿原工作继续（<code>work_id</code>）、复用承接新工作（<code>sub_agent_id</code>），或显式关闭（模型 <code>subagent_close</code>、控制面 <code>subagent_close</code> / CLI <code>ruukoto work close</code>）；关闭只收窄能力，历史与产物不变</td></tr>
         </tbody>
       </table>
     </div>
 
     <aside class="callout limit">
       <b>首版限制</b>
-      <p>首版只做只读分析。已有：首次委派、带 <code>work_id</code> 沿原工作再派一次执行、结果回报与查询。还没有实现：把空闲 SubAgent 用于另一项工作、显式关闭（agent-direction 工单 12）；同项工作的 SubAgent 互发消息（13）；取消整项工作（14）；后台重启后的 SubAgent 恢复状态机（15）；并行 worktree 与汇总改动（16、17）；GitHub 评审迁到 SubAgent（19）。代码里已知的缺口：执行中再委派同一工作会覆盖当前任务指针（见上表，12 修复）；unverified 没有回到 idle 的路径；重启时排队的执行任务不会自动恢复。</p>
+      <p>首版只做只读分析。已有：首次委派、沿原工作继续（<code>work_id</code>）、复用承接新工作（<code>sub_agent_id</code>）、结果回报与查询（含总览）、主 Agent 与拥有者两侧的显式关闭（<code>subagent_close</code> 与 <code>subagent_close</code> op / <code>ruukoto work close</code>）。还没有实现：同项工作的 SubAgent 互发消息（13）；取消整项工作（14）；后台重启后的 SubAgent 恢复状态机（15）；并行 worktree 与汇总改动（16、17）；GitHub 评审迁到 SubAgent（19）。代码里已知的缺口（不作新派遣之外的口径）：unverified 没有回到 idle 的路径；重启时排队的执行任务不会自动恢复。此前「执行中再委派同一工作覆盖当前任务指针」的缺口已堵死——继续与复用要求 idle，忙碌明确拒绝不排队。</p>
     </aside>
   </section>
 

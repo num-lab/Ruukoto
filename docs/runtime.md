@@ -1441,43 +1441,76 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
 结果未知事实，不自动重放其执行。
 
-## 通用 SubAgent 委派（agent-direction issue 11，ADR 0020）
+## 通用 SubAgent 委派（agent-direction issue 11–12，ADR 0020）
 
 主 Agent（拥有者的普通开发会话或 main）经宿主工具 `subagent_delegate` 登记
 工作委托、创建动态 SubAgent 与独立子会话并派出一次只读执行任务；结果经
-`subagent_result` 读取。两个工具属于 `subagent` 类别，仅普通开发会话与
-main 装配，每次调用重新核实宿主任务、会话与身份绑定；群、固定 coding/chat、
-动态 SubAgent、调度与回报唤醒任务不能委派下级。
+`subagent_result` 读取（省略 `work_id` 时列出本会话 SubAgent 总览），不再
+需要后续协作时用 `subagent_close` 显式关闭。三个工具属于 `subagent` 类别，
+仅普通开发会话与 main 装配，每次调用重新核实宿主任务、会话与身份绑定；
+群、固定 coding/chat、动态 SubAgent、调度与回报唤醒任务不能委派下级
+（`subagent_close` 例外：回报唤醒轮次也允许，关闭只收窄能力）。
 
 ### 登记与执行范围
 
 - **触发来源**：只有拥有者在父会话直接提交的任务，或经 Telegram/QQ owner
   入口核实身份的入站任务可以委派；定时唤醒、子任务回报及其他来源拒绝。
-- **输入与固定参数**：模型只提供 `request / key / work_id? / read_paths?
-  （dev）| materials?（main）`。首版分析能力固定为只读（`read` 与
-  `read_artifact`），权限模式固定 `confirm`，不继承父任务/会话默认模式、
-  单次批准与长期授权；不提供模型自选角色、执行账户、访问模式、父会话、
-  任意 cwd 或自由工具列表。截止时间固定为父任务开始时刻 + 60 分钟；同一父
-  用户会话最多 3 个活动（queued/running/awaiting_confirmation）执行任务。
-- **幂等**：首次委派以（父会话, key）唯一查工作；工作内以
+- **输入与固定参数**：模型只提供 `request / key / work_id? | sub_agent_id?
+  （两者互斥）/ read_paths?（dev）| materials?（main）`。首版分析能力固定
+  为只读（`read` 与 `read_artifact`），权限模式固定 `confirm`，不继承父
+  任务/会话默认模式、单次批准与长期授权；不提供模型自选角色、执行账户、
+  访问模式、父会话、任意 cwd 或自由工具列表。截止时间固定为父任务开始
+  时刻 + 60 分钟；同一父用户会话最多 3 个活动（queued/running/
+  awaiting_confirmation）执行任务。
+- **幂等**：首次委派与复用委派以（父会话, key）唯一查工作（`sub_agent_id`
+  只在提供时纳入参数摘要，保持旧重放摘要不变）；工作内以
   `sdelegate:<workId>:<key>` 查任务。参数摘要不包含本次调用的直接父任务 id
   与模型选择——跨对话轮次重放核实同一逻辑委派，返回首次记录；同键异参明确
-  冲突；查重先于限额与资料解析。
+  冲突；查重先于限额与资料解析，同键同参的重放即使目标已关闭或忙碌也返回
+  原记录。
 - **登记事务**：先异步准备（模型门闩预检、受限执行入口预检、宿主生成的独立
   工作目录 `<dataDir>/../agent-work/sub-agents/<agentId>`、路径核实与资料快照），
   再在一个同步事务内重核后登记工作/Agent/Session/排队任务与审计事件
   （`work_delegation.created`），提交后才 kick 子会话；工具在子任务入队后
-  立即返回，不等待子模型结束。准备或落库失败只清理本次新建目录。
+  立即返回，不等待子模型结束。准备或落库失败只清理本次产物：新建目录整删，
+  沿用目录时只删本次写入的快照文件。
 - **资料与读范围**：main 的 `materials`（1–8 个来源，复用来源解析器）解析为
-  文本快照写入子工作目录 `materials-<key>.txt`（按执行键命名，后续执行不覆写），
-  来源引用随任务保存，启动与每次向
-  模型发送上下文前重新 verify（撤销即阻止注入，快照正文不重新解析）；
+  文本快照写入子工作目录 `materials-<workId>-<key>.txt`（按工作 + 执行键命名，
+  复用承接新工作不覆写旧工作的快照），
+  来源引用随任务保存，登记事务与每次向
+  模型发送上下文前按该 Agent 全部历史任务来源引用与本次的并集重新 verify
+  （任一撤销即拒绝登记或阻断发送 `task_sources_revoked`，快照正文不重新解析）；
   dev 的 `read_paths` 限父工作区内或父任务已授予范围（交集后的只读钉定），
   保存 realpath 与目录身份，路径经 LaunchSpec/init 传入 worker，模型参数
   不能替换；绝对系统路径、保护根、符号链接越界与目录身份变化明确拒绝。
 - **上下文**：SubAgent 的模型上下文只含固定任务说明、选定快照与自己的
   JSONL——不注入父项目指令、个人共享记忆、技能目录、父完整历史或继续
   来源；产物只读本次自产（不含 `prompt-snapshot:*`）。
+
+### 继续、复用与关闭（issue 12）
+
+- **继续**（`work_id`）：沿原工作增加新的分析执行；**复用**（`sub_agent_id`）：
+  同一父会话内把相关的另一项工作交给同一个空闲 SubAgent，登记一条新
+  `work_delegations` 行指向既有 Agent（同一子会话，保留上下文），任务输入
+  带宿主说明「此前的范围不延续」。两者各自登记独立任务记录（id/工作/
+  readScope/结果互不改写），每次执行重新固定读范围、资料、confirm 与
+  截止时间，前次批准不延续。
+- **可用性**：继续与复用要求目标 Agent 同一父会话、未关闭、`idle` 且无活动
+  任务（忙碌明确拒绝，不排队），工作目录 realpath 与 dev/ino 和子会话记录
+  一致（目录被删除/替换时报「请新建 SubAgent」）；准备前与登记事务内各核
+  一次。复用另复核该 Agent 历史任务来源引用与本次的并集，任一撤销即拒绝。
+- **关闭**：`sub_agents.closed_at`/`closed_by` 独立两列（`owner` 或
+  `agent:<任务ID>`），不改 `state` 语义（v25 迁移只补列，旧行两列为空）。
+  主 Agent 用 `subagent_close` 工具关闭本会话名下的 Agent；拥有者经控制面
+  `subagent_close`（CLI `ruukoto work close`）关闭；已关闭幂等返回；有活动
+  任务拒绝并给出任务 id（先 `ruukoto cancel` 再关闭）。关闭不删除工作目录、
+  会话、JSONL、产物与工作记录；关闭后新委派报「已关闭」，同键同参重放仍
+  返回原记录；发 `subagent.closed` 事件（refs 指向父会话）。
+- **竞争**：关闭与新委派在同一个同步事务内定胜负——先关闭则委派报「已关闭」
+  且零新任务，先登记则关闭报「有活动任务」；不存在「已关闭且有活动任务」
+  的中间态。
+- **不自动关闭**：任务终态、TUI 退出（控制面断开）与等待都不关闭；空闲零
+  模型/worker 进程；重启后关闭状态与空闲 Agent 的可复用性原样保持。
 
 ### 结果、通知与空闲
 
@@ -1495,7 +1528,9 @@ main 装配，每次调用重新核实宿主任务、会话与身份绑定；群
 - `coding_delegate(mode=analyze)` 转入本链路（硬只读、不自动重试）；
   `coding_result` 按同一归属窄口兼容读取新旧分析结果；`draft` 保留旧
   coding 路径。GitHub webhook 评审沿用旧 coding 只读路径（19 再迁移）。
-- 控制面只读查询：`work_list` / `work_get`（CLI `ruukoto work list/show`）；
+- 控制面只读查询：`work_list` / `work_get`（CLI `ruukoto work list/show`，
+  agent 对象含 `closedAt`/`closedBy`）；写操作仅 `subagent_close`（CLI
+  `ruukoto work close`，停止中拒绝）。
   快照携带工作委托、SubAgent 与其内部会话 ID（普通工作区列表排除）。
   普通控制面 submit/continue/switch-mode/会话默认模式不能作用于子会话。
 

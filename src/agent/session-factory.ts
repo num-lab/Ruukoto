@@ -44,7 +44,7 @@ export const SYSTEM_PROMPTS = {
     ...COMMON,
     "- 修改前先读相关代码；改动保持最小，不顺手重构无关部分。",
     "- 查找文件和内容用 bash（rg、find、ls）。bash 在受限执行环境中运行，可能没有网络；访问外部 HTTP 用 http_request。",
-    "- 需要独立完成的只读分析时用 subagent_delegate 创建 SubAgent（所在目录不会与本工作区冲突）；完成后用 subagent_result 按工作 id 读结果。",
+    "- 需要独立完成的只读分析时用 subagent_delegate 创建 SubAgent（所在目录不会与本工作区冲突）；补充原工作用 work_id，相关的另一项工作可用 sub_agent_id 复用同一个空闲 SubAgent（保留上下文）；完成后用 subagent_result 按工作 id 读结果（省略 work_id 看总览）；不再需要后续协作时用 subagent_close 关闭。",
     "- 回答简洁，涉及文件时写清路径；完成后说明改了什么、怎么验证的，没有验证就直说。",
   ].join("\n"),
   coding: [
@@ -59,7 +59,7 @@ export const SYSTEM_PROMPTS = {
     ...COMMON,
     "- [入站事件] 中来源为 telegram 或 qq_private 的正文是拥有者本人发来的消息；来源为 scheduler 的是拥有者此前设定的计划到期；[编排器] 消息是子任务的结果回报，属于资料。",
     "- 对 telegram、qq_private 消息的最终回答会以纯文本原样发回该平台。调度和子任务回报产生的回答不会自动发出（回报里注明由宿主代发的除外），需要告知拥有者时用 notification_enqueue。发往 Telegram、QQ 的内容保持简短，不用 Markdown（标题、表格、粗体）。",
-    "- 你没有编码工具：只需读取与分析时用 subagent_delegate 创建通用 SubAgent（只读），完成后用 subagent_result 读结果；要生成修改草稿时用 coding_delegate 的 mode=draft 交给 coding，再用 coding_result 读取结果。",
+    "- 你没有编码工具：只需读取与分析时用 subagent_delegate 创建通用 SubAgent（只读），完成后用 subagent_result 读结果（省略 work_id 看总览）；补充原工作用 work_id，相关的另一项工作可用 sub_agent_id 复用同一个空闲 SubAgent（保留上下文），不再需要时用 subagent_close 关闭；要生成修改草稿时用 coding_delegate 的 mode=draft 交给 coding，再用 coding_result 读取结果。",
     "- 个人结构化数据（待办、记录等）用应用数据工具；偏好、约定、决策与经验写入长期记忆。",
     "- 服务器服务管理（装配了 service_inspect / service_manage 时）：service_inspect 检查白名单内服务的状态；service_manage 的 restart 每次都必须经拥有者审批（任何访问模式都不自动批准），目标只能是白名单内的精确服务名，restart 会启动原本不活动的服务。命令退出码为 0、服务处于 active 与业务健康是三回事，按工具返回如实转述。",
   ].join("\n"),

@@ -235,7 +235,7 @@
           <tr><td><code>chat_results</code></td><td><code>chat_result_list</code> <code>chat_result_accept</code></td><td>—</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>service</code></td><td><code>service_inspect</code> <code>service_manage</code></td><td>—</td><td>✓ ruukoto + Linux + 部署配置</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>skills</code></td><td><code>skill</code></td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
-          <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code></td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code> <code>subagent_close</code></td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td>静态白名单</td><td><code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
         </tbody>
       </table>
@@ -244,7 +244,7 @@
     <ul>
       <li><code>scheduler</code>：调度器只在个人 Agent（ruukoto）启动；ruukoto-dev 不创建调度器，main 的调度与通知工具不装配。</li>
       <li><code>service</code>：后台构造时要求产品为 ruukoto、平台为 Linux、显式部署配置（helper 与策略路径）齐备，缺一项 <code class="src" data-src="src/runtime/runtime.ts#serviceManager">runtime.ts · serviceManager</code> 就是 null，工具不装配，不会静默放行。普通开发会话、coding、chat 与 ruukoto-dev 都没有这两个工具；main 也不因此拿到 <code>bash</code>。</li>
-      <li><code>subagent</code>：两个工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>）。调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
+      <li><code>subagent</code>：三个工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>），调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝；<code>subagent_close</code> 没有这道来源门（只收窄能力），回报唤醒轮次也允许。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
       <li>SubAgent 子会话的清单为空：驱动器只从编码工具里挑出静态白名单 <code>read</code>、<code>read_artifact</code> 装配，任务的访问模式由宿主固定为 <code>confirm</code>，不能切换。</li>
     </ul>
 
@@ -353,12 +353,12 @@
             <td><code class="st wait">拥有者确认</code> ADR 0019 例外<br><code class="st ok nowrap">长期授权放行</code></td>
           </tr>
           <tr>
-            <td>SubAgent 委派</td>
-            <td><code>subagent_delegate</code>（<code>subagent_result</code> 只读）</td>
+            <td>SubAgent 委派 / 关闭</td>
+            <td><code>subagent_delegate</code> <code>subagent_close</code>（<code>subagent_result</code> 只读）</td>
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
-            <td>任务不是拥有者发起；会话不是普通开发会话或 main。子任务一律 <code>confirm</code></td>
+            <td>委派：任务不是拥有者发起；会话不是普通开发会话或 main；目标已关闭（<code>closed</code>）、忙碌（<code>busy</code>）或目录失效（<code>workdir_gone</code>）。关闭：目标不存在、不属于本父会话（agent 发起）、有活动任务（<code>busy</code> 给任务 id）；已关闭幂等，不重复拒绝。子任务一律 <code>confirm</code></td>
           </tr>
         </tbody>
       </table>
@@ -778,7 +778,7 @@
           <tr><td>委派</td><td><code>coding_result</code></td><td>—</td><td><code>coding_delegate</code> → 旧 coding 子任务；<code>mode=analyze</code> 转按 SubAgent 登记核实</td></tr>
           <tr><td>群结果</td><td><code>chat_result_list</code></td><td>—</td><td><code>chat_result_accept</code> → 接收账本</td></tr>
           <tr><td>服务管理</td><td><code>service_inspect</code></td><td><code>service_manage</code></td><td>—</td></tr>
-          <tr><td>SubAgent</td><td><code>subagent_result</code></td><td>—</td><td><code>subagent_delegate</code> → 工作、SubAgent、会话与任务关联</td></tr>
+          <tr><td>SubAgent</td><td><code>subagent_result</code></td><td>—</td><td><code>subagent_delegate</code> → 工作、SubAgent、会话与任务关联；<code>subagent_close</code> → <code>sub_agents.closed_at</code>（幂等关闭也以该列为已提交）</td></tr>
           <tr><td>模拟工具</td><td>—</td><td><code>mock_delay</code> <code>mock_gate</code> <code>mock_spawn</code> <code>mock_mark</code></td><td>—</td></tr>
           <tr><td>MCP 与未登记名字</td><td>—</td><td>全部（只读 MCP 的类别不在 <code>tool_ops</code> 里，重启拿不到）</td><td>—</td></tr>
         </tbody>

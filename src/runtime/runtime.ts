@@ -113,7 +113,7 @@ import {
 import { GitHubWebhook, GITHUB_SOURCE } from "../github/webhook.ts";
 import { GitHubEvents, parseGitHubEventsConfig, webhookSecret, type GitHubEventsConfig } from "../github/events.ts";
 import { Orchestrator } from "./orchestrator.ts";
-import { SubAgentManager, subagentOpCheck } from "./subagents.ts";
+import { SubAgentDelegationError, SubAgentManager, subagentOpCheck } from "./subagents.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
 import { appDataOpCheck } from "../agent/app-data/tools.ts";
@@ -2732,11 +2732,12 @@ export class Runtime {
           readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
           resultNotice: (task) => this.githubEvents.notice(task),
         },
-        // 通用 SubAgent 委派（agent-direction issue 11）：普通开发会话与 main
+        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭）
         subagents: this.subagents
           ? {
               sources: this.sources,
               delegate: (input) => this.subagents!.delegate(input),
+              close: (input) => this.subagents!.close(input),
               readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
             }
           : undefined,
@@ -3000,6 +3001,21 @@ export class Runtime {
       agent: this.store.getSubAgent(work.subAgentId),
       tasks: this.store.listTasksByWork(work.id),
     };
+  }
+
+  /**
+   * 拥有者显式关闭 SubAgent（agent-direction issue 12；控制面 op subagent_close）。
+   * 有活动任务拒绝并提示先取消；已关闭幂等。历史、产物与工作目录保留可查。
+   */
+  closeSubAgent(subAgentId: string): { agent: SubAgent; alreadyClosed: boolean } {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    if (!this.subagents) throw new RuntimeApiError("unavailable", "SubAgent 管理器未启动");
+    try {
+      return this.subagents.close({ subAgentId, by: "owner" });
+    } catch (err) {
+      if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   /** 活动任务与最近结束任务的产物元数据（正文在产物文件，按 id 查询）。 */

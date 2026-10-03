@@ -734,10 +734,16 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
         print(await withClient((c) => c.request("work_get", { work_id: positional[1] })));
         return 0;
       }
+      // 显式关闭 SubAgent（issue 12）：有活动任务拒绝并提示先 cancel；已关闭幂等
+      if (sub === "close" && positional[1]) {
+        print(await withClient((c) => c.request("subagent_close", { sub_agent_id: positional[1] })));
+        return 0;
+      }
       console.error(
         "用法：\n" +
           "  ruukoto work list [--session <会话ID>]\n" +
-          "  ruukoto work show <工作ID>",
+          "  ruukoto work show <工作ID>\n" +
+          "  ruukoto work close <SubAgentID>",
       );
       return 1;
     }
@@ -940,7 +946,7 @@ function defaultHelp(): string {
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
-    "      grant | service-grant list/show/revoke | work list/show | history-search | memory | selection-records |\n" +
+    "      grant | service-grant list/show/revoke | work list/show/close | history-search | memory | selection-records |\n" +
     "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +

@@ -164,7 +164,7 @@ test("settings_version：v19 旧库升级到当前版本后旧项目获得初始
       const cols = (upgraded.prepare("PRAGMA table_info(projects)").all() as any[]).map((c) => c.name);
       assert.ok(cols.includes("settings_version"), "补列 settings_version");
       const p = current.getProject(project.id)!;
-      assert.equal(SCHEMA_VERSION, 24, "当前 schema 为 v24");
+      assert.equal(SCHEMA_VERSION, 25, "当前 schema 为 v25");
       assert.equal(p.settingsVersion, 1, "旧项目升级为初始版本 1");
       assert.deepEqual(p.instructionFiles, ["LEGACY.md"], "旧指令列表保留");
       assert.equal(p.webSearch, "disabled", "旧开关保留");

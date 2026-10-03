@@ -75,11 +75,11 @@
           <text class="el start" x="0" y="38">请求带 v、id、op（params 可省）；应答带 v、id、ok 与 result 或 error；推送带 push:"event"，没有 id</text>
           <g class="n accent"><rect x="0" y="80" width="180" height="56" rx="8"/><text x="90" y="100">客户端</text><text class="sub" x="90" y="120">TUI / CLI / 配置中心</text></g>
           <g class="n accent"><rect x="860" y="80" width="180" height="56" rx="8"/><text x="950" y="100">ControlServer</text><text class="sub" x="950" y="120">control.sock</text></g>
-          <text class="el start" x="205" y="82">{v:11, id:"req-1", op:"connect", params:{…}}</text>
+          <text class="el start" x="205" y="82">{v:12, id:"req-1", op:"connect", params:{…}}</text>
           <path class="e accent" marker-end="url(#ah-accent)" d="M205 92H835"/>
-          <text class="el" x="520" y="133">{v:11, id:"req-1", ok:true, result:{…}} / ok:false + error{code, message}</text>
+          <text class="el" x="520" y="133">{v:12, id:"req-1", ok:true, result:{…}} / ok:false + error{code, message}</text>
           <path class="e" marker-end="url(#ah)" d="M835 142H205"/>
-          <text class="el start" x="205" y="177">{v:11, push:"event", event:{seq, taskId, sessionId, body, createdAt}}</text>
+          <text class="el start" x="205" y="177">{v:12, push:"event", event:{seq, taskId, sessionId, body, createdAt}}</text>
           <path class="e ok dash" marker-end="url(#ah-ok)" d="M835 187H205"/>
           <text class="el start" x="0" y="232">事件先落库，事务提交成功才广播（Store.onCommitted → Runtime.onEventBroadcast → ControlServer.broadcast）；回滚的事务不广播</text>
           <text class="el start" x="0" y="252">请求行超限，或未换行的缓冲超限：服务端直接销毁该 socket，不回应答</text>
@@ -238,7 +238,7 @@
   <section id="handshake">
     <h2>握手与事件流：快照、补发、实时</h2>
     <p>认证之后的 <code>connect</code> 同时做三件事：读一张有界快照、补发游标之后漏掉的事件、把这条连接登记为订阅者。首次连接、断线重连、发现缺口后的重新同步都走这一步，恢复的是观察，不是执行。</p>
-    <p>快照（<code class="src" data-src="src/control/protocol.ts#export interface ConnectSnapshot">protocol.ts · ConnectSnapshot</code>）包含：项目、会话、任务（全部活动任务，加每个会话最近结束的 20 个，常量 <code class="src" data-src="src/runtime/runtime.ts#const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20">SNAPSHOT_ENDED_TASKS_PER_SESSION</code>；更早的经 <code>list_tasks</code> 分页）、待决审批（参数为有界预览）、活动任务的产物元数据、输出预览（执行中任务的生成中正文，以及中断、失败、取消任务尚未落为历史条目的残片）、数据实例标识 <code>instanceId</code>、执行后端说明、后台默认模型，以及 <code>roleSessionIds</code>（逻辑角色绑定的会话，旧架构）、<code>subAgentSessionIds</code>、<code>workDelegations</code>、<code>subAgents</code>。后四项对旧后台可缺省。</p>
+    <p>快照（<code class="src" data-src="src/control/protocol.ts#export interface ConnectSnapshot">protocol.ts · ConnectSnapshot</code>）包含：项目、会话、任务（全部活动任务，加每个会话最近结束的 20 个，常量 <code class="src" data-src="src/runtime/runtime.ts#const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20">SNAPSHOT_ENDED_TASKS_PER_SESSION</code>；更早的经 <code>list_tasks</code> 分页）、待决审批（参数为有界预览）、活动任务的产物元数据、输出预览（执行中任务的生成中正文，以及中断、失败、取消任务尚未落为历史条目的残片）、数据实例标识 <code>instanceId</code>、执行后端说明、后台默认模型，以及 <code>roleSessionIds</code>（逻辑角色绑定的会话，旧架构）、<code>subAgentSessionIds</code>、<code>workDelegations</code>、<code>subAgents</code>。后四项对旧后台可缺省。<code>subAgents</code> 的每条身份除了 <code>state</code>（running / idle / unverified）还带独立于 state 的 <code>closedAt</code> / <code>closedBy</code>（关闭后委派拒绝 <code>closed</code>；TUI 显示时关闭优先于 state）。</p>
 
     <div class="seq" style="--n:3">
       <div class="who"><span>客户端（ControlConnection）</span><span>ControlServer</span><span>Runtime / 事件表</span></div>
@@ -633,6 +633,7 @@
           <tr><td colspan="5"><b>工作委托与 SubAgent（只读；委派经模型的委派工具产生，控制面不能建委派）</b></td></tr>
           <tr><td><code>work_list</code></td><td>工作委托列表（可选 <code>session_id</code> 限定父会话），每项带 SubAgent 身份与各次执行任务的状态和结果摘要</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>work_get</code></td><td>单个工作详情：工作、SubAgent 身份与全部执行任务</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td><code>subagent_close</code></td><td>显式关闭一个 SubAgent（参数 <code>sub_agent_id</code>；<code class="src" data-src="src/control/server.ts#case &quot;subagent_close&quot;:">server.ts · subagent_close</code>）：有活动任务（queued / running / awaiting_confirmation）拒绝并给任务 id，等任务结束或先 <code>cancel</code> 再关；已关闭幂等；关闭后新委派拒绝 <code>closed</code>，历史、产物与目录保留。CLI：<code>ruukoto work close</code></td><td>是</td><td>已关闭幂等（不再发事件）</td><td>—</td></tr>
         </tbody>
       </table>
     </div>
@@ -727,6 +728,7 @@
           <tr><td><code>child_task.timeout</code></td><td>子任务超过截止时间被编排器取消</td><td><a href="orchestrator.html#child">编排器</a></td></tr>
           <tr><td><code>child_task.result_unknown</code></td><td>子任务结果未知（如后台重启中断），不自动重放外部副作用</td><td><a href="orchestrator.html#child">编排器</a></td></tr>
           <tr><td><code>work_delegation.created</code></td><td>通用 SubAgent 委派已登记：工作、SubAgent、独立会话与排队任务同一事务</td><td><a href="orchestrator.html#subagent">编排器</a></td></tr>
+          <tr><td><code>subagent.closed</code></td><td>SubAgent 已显式关闭（归父会话；主 Agent 经 <code>subagent_close</code> 或拥有者经控制面 <code>subagent_close</code> 发起，<code>closedBy</code> 记 <code>owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）。与关闭两列同事务；关闭只收窄能力，历史与产物保留</td><td><a href="orchestrator.html#subagent-close">编排器</a></td></tr>
           <tr><td><code>subagent_task.completed</code></td><td>SubAgent 执行任务完成；结果与 SubAgent 状态（空闲，执行单元未确认退出时为待核实）同一事务；事件归到父会话</td><td><a href="orchestrator.html#subagent-state">编排器</a></td></tr>
           <tr><td><code>subagent_task.failed</code></td><td>SubAgent 执行任务失败（不是超时引起的取消也算失败）</td><td><a href="orchestrator.html#subagent-state">编排器</a></td></tr>
           <tr><td><code>subagent_task.timeout</code></td><td>超过截止时间被取消；截止时间为父任务开始后 60 分钟（<code class="src" data-src="src/runtime/subagents.ts#deadlineMs: 60 * 60_000">SUBAGENT_LIMITS.deadlineMs</code>）</td><td><a href="orchestrator.html#subagent-state">编排器</a></td></tr>
@@ -780,7 +782,7 @@
 
   <section id="versions">
     <h2>协议版本演进</h2>
-    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v11</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 11">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
+    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v12</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 12">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>版本</th><th>变化（据 protocol.ts 头注释）</th></tr></thead>
@@ -791,6 +793,7 @@
           <tr><td><code>v9</code></td><td>正文按连续显示段发送 UTF-8 增量；新增持久思考阶段、<code>read_task_events</code> 分页与 <code>get_task</code> 快照水位；持久旧事件的累计尾部格式仍可读</td></tr>
           <tr><td><code>v10</code></td><td>长期操作授权（agent-direction 工单 10）：批准新增可空的授权 ID 与版本关联，以及新决定来源 <code>standing_permission</code>；新增 <code>standing_permission.*</code> 事件与 <code>service_grant_list</code> / <code>service_grant_get</code> / <code>service_grant_revoke</code>，控制面不获得创建或扩大授权的能力</td></tr>
           <tr><td><code>v11</code></td><td>通用 SubAgent 委派（agent-direction 工单 11，ADR 0020）：快照新增 <code>workDelegations</code>、<code>subAgents</code> 与 <code>subAgentSessionIds</code>；新增 <code>work_delegation.created</code> 与 <code>subagent_task.*</code> 事件，只读 op <code>work_list</code> / <code>work_get</code></td></tr>
+          <tr><td><code>v12</code></td><td>SubAgent 继续、复用与显式关闭（agent-direction 工单 12）：<code>subAgents</code> 身份另带 <code>closedAt</code> / <code>closedBy</code>；新增 <code>subagent.closed</code> 事件与 op <code>subagent_close</code>（工作委托与工作 / SubAgent 的只读列表照旧）；委派复用经模型工具的 <code>sub_agent_id</code> 参数</td></tr>
         </tbody>
       </table>
     </div>

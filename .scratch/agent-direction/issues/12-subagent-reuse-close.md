@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 12 — 继续委派、跨工作复用并显式关闭 SubAgent
 
@@ -10,12 +10,12 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 同一主 Agent、同一用户会话内，先补充原工作，再复用同一 SubAgent 承接另一工作，各次执行保留独立记录。
-- [ ] 复用时重新确定当前工作、有效工具、资料、工作目录与权限，前次批准不延续。
-- [ ] 任务终态、TUI 退出及空闲超时均不自动关闭；空闲不要求继续调用模型或运行工具进程。
-- [ ] 主 Agent 和拥有者可查看并显式关闭，关闭后拒绝新委派；历史、产物及未汇总改动保持可查。
-- [ ] 关闭与新委派发生竞争时结果明确，不能出现显示已关闭却继续接收任务的状态。
-- [ ] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+- [x] 同一主 Agent、同一用户会话内，先补充原工作，再复用同一 SubAgent 承接另一工作，各次执行保留独立记录。
+- [x] 复用时重新确定当前工作、有效工具、资料、工作目录与权限，前次批准不延续。
+- [x] 任务终态、TUI 退出及空闲超时均不自动关闭；空闲不要求继续调用模型或运行工具进程。
+- [x] 主 Agent 和拥有者可查看并显式关闭，关闭后拒绝新委派；历史、产物及未汇总改动保持可查。
+- [x] 关闭与新委派发生竞争时结果明确，不能出现显示已关闭却继续接收任务的状态。
+- [x] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
 
 ## Comments
 
@@ -156,3 +156,21 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 ### 2026-10-04：与委派失败清理的协调
 
 `delegate` 准备阶段现有两处清理缺口：正文超过 `INPUT_TEXT_CAP` 时新建目录会残留；沿原工作委派失败时写入的快照文件会残留。两处已登记为 [visual-docs-review 工单 03](../../visual-docs-review/issues/03-subagent-delegate-leaves-files.md)。本工单改快照命名、改造准备阶段时，如果先合入，请让失败清理覆盖新命名的文件，或者顺手把 03 一起修掉。
+
+### 2026-10-04：实施完成与验收证据
+
+按 2026-10-03 计划实施（计划中的「19 已落地」分支不适用：19 未先于本单实施）。全部取舍按「默认取舍」执行，另有两点超计划的必要修复：把先前缺失的 `work` 命令登记补进 `cli-entry.ts` 的 `LEGACY_COMMANDS`（否则 `work list/show/close` 全部落到工作区路径分支报错）；按 2026-10-04 协调意见顺带修复 visual-docs-review 工单 03 的两处准备清理缺口（失败时清理本次新建目录或本次写入的新命名快照文件）。
+
+**验收证据（离线逻辑测试，模型为 MockModelServer 模拟）：**
+
+1. **独立记录**：`test/81`「复用与继续（dev/read_paths）」与「复用（main/materials）」——三条任务 id/工作/readScope/结果各自独立，A 首次 resultSummary/resultRef 逐字节不变，activeWorkId 依次切换，B 的模型请求含 A 的回复正文与任务输入；快照按 `materials-<workId>-<key>.txt` 命名不覆写；dev 与 main 各走一遍。
+2. **重新确定**：`test/81`「重新确定」——B 的 readScope 只有 B、worker 实际拒读 A 路径、confirm 固定、grantedPaths 空、无审批记录、任务输入写明工作 B 与复用说明；「来源并集」——A 的资料授权撤销后复用委派报「资料授权已在提交前变化」，登记后才撤销时发送被 `task_sources_revoked` 阻断；目录删除/替换报「请新建 SubAgent」；跨父会话复用拒绝。「查看与关闭」覆盖主 Agent 关闭、幂等、关闭后拒绝与同键重放返回原记录、历史/产物/目录/subagent_result 仍可读、跨父会话不能关闭、拥有者控制面关闭幂等；「竞争」覆盖准备中关闭→事务内报已关闭零新任务、先提交→关闭报活动任务并给出任务 id、`cancel` 后可关闭、双并发复用一胜一负、SQL 不变式（已关闭∧活动任务 = 0）。
+3. **不自动关闭**：`test/81`「不自动关闭」——终态后断开已认证控制面客户端（相当于 TUI 退出）并等待，`closedAt` 仍为空、模型请求零增量、子会话 Driver 已 dispose；重启后空闲 Agent 可复用、关闭状态保持。
+4. **迁移与账本**：`test/81`「v24 → v25 迁移」——旧 sub_agents/工作/会话保留、closed 两列为空、条件写入幂等；`subagent_close` 经 `subagentOpCheck` 按 `closedAt` 核实 committed/not_committed。`test/80` 继续委派用例按新口径改为先等 Agent idle。
+5. **仓库要求的验证**：`npm run typecheck` 无错；计划列出的全部定向套件（81/80/27/39×2/62/64/66/59 与 13/14/29/34/36，另含受影响的 19/75/67）通过；`npm test` 全量 883 项：882 通过、0 失败、1 跳过（基线同前）；`test/67-visual-docs` 4/4。code-review 两轴：无硬性违规；事务内查重收敛到 `dedupNewKey`、close 内重复三元提取 `byTaskId` 两处评审意见已采纳；TUI 标签调用点核实为误报（唯一调用点已随签名更新）。visual-docs-review 工单 03 的清理测试随 test/81「登记失败清理」一并交付并在该工单登记。
+
+**真实环境（模型/平台仍为模拟，模型为 MockModelServer）：** `smoke-12-subagent-reuse-close.mts` 在真实 Runtime + 控制面 + SQLite + 独立 JSONL + Docker 受限 worker（本地 macOS 与 `ssh tx` Linux 各一轮）6/6 PASS：继续/复用执行记录独立、复用后旧路径在真实容器实际被拒、真实 CLI `ruukoto-dev work close` 关闭后委派被拒、关闭后历史/产物/目录保留、空闲无残余容器、重启后关闭保持且空闲 Agent 可复用。
+
+**同步**：`CONTEXT.md` SubAgent 条目、`docs/runtime.md` 通用 SubAgent 节（继续/复用/关闭/可用性/快照命名/控制面 op）、ADR 0020 补充段「继续、复用与关闭（issue 12）」、ADR 0017 实施记录、`docs/visual/`（orchestrator / context-pipeline / storage-layout / control-protocol / tool-call-path / once-only 六页，shoot.sh 逐张核对）。核心库 v24 → v25、控制协议 v11 → v12。
+
+**未实测**：真实 QQ/Telegram 平台（模型与消息平台均为模拟，分别记录）。

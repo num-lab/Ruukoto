@@ -41,4 +41,5 @@ Ruukoto Agent 包括两个工具：`ruukoto-dev` 是运行在开发机器上、�
 ## 实施记录
 
 - agent-direction issue 11（2026-10-03）：通用只读委派首版——工作委托/SubAgent/执行任务分开保存、普通开发会话与 main 的非阻塞只读委派、结果回传与空闲保留、main 分析委派转通用链路，决定见 [ADR 0020](0020-work-delegation-subagent-task.md)。继续委派复用、同级通信、显式关闭与整项取消、恢复分别由 issue 12–15 实施。
+- agent-direction issue 12（2026-10-04）：继续、复用与显式关闭——同一父会话内沿 `work_id` 补充原工作、用 `sub_agent_id` 复用空闲 Agent 承接新工作（重新确定读范围/资料/目录/权限）、主 Agent 工具与拥有者控制面/CLI 显式关闭（独立 `closed_at`/`closed_by` 列，不自动关闭，含活动任务拒绝），决定见 ADR 0020 补充段。同级通信、整项取消与恢复分别由 issue 13–15 实施。
 

@@ -31,6 +31,11 @@
  * SubAgent 与其内部会话 ID 列表；新增 work_delegation.created 与
  * subagent_task.* 事件、work_list/work_get 操作（只读）。旧客户端须升级；
  * 持久旧事件与记录保持可读。
+ *
+ * v12（agent-direction issue 12）：SubAgent 继续/复用/显式关闭——SubAgent 新增
+ * closedAt/closedBy；新增 subagent.closed 事件与 subagent_close 操作（工作委托
+ * 列表照旧）；委派复用经模型工具的 sub_agent_id 参数。旧客户端须升级；
+ * 持久旧事件与记录保持可读。
  */
 
 import {

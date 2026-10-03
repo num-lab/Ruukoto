@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 export interface ModelSelection {
   provider: string;
@@ -130,8 +130,13 @@ export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"]
  * （AgentRoleId）分开保存；不创建下级、不直接与拥有者交互。
  * 状态：running = 有活动执行任务；idle = 任务终态且执行单元已核实退出；
  * unverified = 任务终态但旧执行单元退出未核实（占用保留）。
+ * 关闭（issue 12）用独立列表示：state 继续只表示执行状态，关闭后拒绝新委派，
+ * 历史、产物与工作目录保留可查；任务终态、TUI 退出与空闲不自动关闭。
  */
 export type SubAgentState = "running" | "idle" | "unverified";
+
+/** SubAgent 的关闭发起方：拥有者（控制面）或主 Agent（agent:<发起任务ID>）。 */
+export type SubAgentClosedBy = "owner" | `agent:${string}`;
 
 /** 动态 SubAgent（sub_agents 表；宿主管理，模型与工作参数不能修改）。 */
 export interface SubAgent {
@@ -147,6 +152,10 @@ export interface SubAgent {
   /** 当前活动任务；null = 无活动任务。 */
   currentTaskId: string | null;
   state: SubAgentState;
+  /** 关闭时刻；null = 未关闭（可继续或复用）。 */
+  closedAt: string | null;
+  /** 关闭发起方；null = 未关闭。 */
+  closedBy: SubAgentClosedBy | null;
   createdAt: string;
 }
 
@@ -766,6 +775,8 @@ export type PersistentEventBody =
   | { type: "subagent_task.failed"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; errorMessage: string }
   | { type: "subagent_task.timeout"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; deadline: string }
   | { type: "subagent_task.result_unknown"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; reason: string }
+  /** SubAgent 已显式关闭（issue 12；taskId = 主 Agent 关闭的发起任务，拥有者关闭为 null）。 */
+  | { type: "subagent.closed"; subAgentId: string; parentSessionId: string; closedBy: SubAgentClosedBy; taskId: string | null }
   /**
    * 应用数据能力不可用（issue 02）：main.db 丢失、实例身份不符、损坏或存储
    * 格式过新/迁移失败。不自动重建、不覆盖既有实例绑定；工具保持关闭。

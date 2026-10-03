@@ -383,7 +383,7 @@
         <tbody>
           <tr><td>任务状态</td><td><code>task_canceled</code></td><td>任务已停止、没有组装实例或请求 signal 已中止</td><td>不记为阻断原因，终态由停止路径决定</td></tr>
           <tr><td>模型与思考强度</td><td><code>model_selection_mismatch</code></td><td>实际 provider、模型或思考强度与任务记录不一致</td><td>中断 + 暂停队列</td></tr>
-          <tr><td>SubAgent 资料复核</td><td><code>task_sources_revoked</code></td><td>只对 SubAgent 子会话、且任务 <code>read_scope.sourceRefs</code> 非空（main 用 <code>materials</code> 委派）：来源的资料授权已撤销或来源不可读（<code class="src" data-src="src/agent/scheduler-tools.ts#verify(mainProjectId">scheduler-tools.ts · verify</code>）</td><td>中断 + 暂停子会话队列</td></tr>
+          <tr><td>SubAgent 资料复核</td><td><code>task_sources_revoked</code></td><td>只对 SubAgent 子会话、且该子会话全部历史任务的 <code>read_scope.sourceRefs</code> 并集非空（main 用 <code>materials</code> 委派）：来源的资料授权已撤销或来源不可读（<code class="src" data-src="src/agent/scheduler-tools.ts#verify(mainProjectId">scheduler-tools.ts · verify</code>）</td><td>中断 + 暂停子会话队列</td></tr>
           <tr><td>工具白名单</td><td><code>task_tools_forbidden</code></td><td>发送载荷里有本任务不允许的工具（按实际载荷检查）</td><td>中断 + 暂停队列</td></tr>
           <tr><td>预算配置</td><td>普通错误</td><td>模型缺少可靠的窗口或输出上限，或预留合计达到窗口</td><td>任务 <code>failed</code>，队列不暂停</td></tr>
           <tr><td>组装时记下的失败</td><td><code>context_budget_exceeded</code> · <code>context_selection_failed</code></td><td>assemble 记下的原因，此处原样抛出</td><td>中断 + 暂停队列</td></tr>
@@ -446,7 +446,7 @@
     <p>SubAgent 是主 Agent 委派出去的只读分析身份，它的身份、工作委托、独立目录与读范围见<a href="orchestrator.html#subagent">编排器</a>。驱动器先按 <code>sub_agents</code> 表反查会话，命中即归 <code>subagent</code> 工具类别（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>），同时算作资料受限会话，组装实例构造时 <code>restricted</code> 为真。所以子会话的模型上下文比委派方少得多，结果再以参考块的形式回到普通开发会话。</p>
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 336" role="img" aria-label="SubAgent 上下文的数据流：父会话任务 T1 调用 subagent_delegate，SubAgentManager 在同一事务里登记，写子任务输入；main 委派时另把资料快照写成子目录里的 materials 文件，子任务用 read 读入；子任务每次调用前复核资料授权，撤销即以 task_sources_revoked 拦下；子任务终态后编排器写结果摘要；父会话下一个任务 T2 开始时取出未送达的结果并标记送达，作为任务级参考块放进 T2 的每次调用">
+        <svg viewBox="0 0 1040 336" role="img" aria-label="SubAgent 上下文的数据流：父会话任务 T1 调用 subagent_delegate，SubAgentManager 在同一事务里登记，写子任务输入；main 委派时另把资料快照（按工作命名）写成子目录里的 materials 文件，子任务用 read 读入；子任务每次调用前按子会话全部任务的来源并集复核资料授权，撤销即以 task_sources_revoked 拦下；子任务终态后编排器写结果摘要；父会话下一个任务 T2 开始时取出未送达的结果并标记送达，作为任务级参考块放进 T2 的每次调用">
           <text class="zone-t" x="0" y="14">dev 父会话（普通开发会话）</text>
           <g class="n"><rect x="0" y="24" width="220" height="56" rx="8"/><text x="110" y="44">T1 · 委派</text><text class="sub" x="110" y="64">调用 subagent_delegate</text></g>
           <g class="n"><rect x="520" y="24" width="220" height="56" rx="8"/><text x="630" y="44">T2 开始</text><text class="sub" x="630" y="64">取出并标记 result_delivered_at</text></g>
@@ -459,7 +459,7 @@
           <g class="n"><rect x="520" y="144" width="260" height="56" rx="8"/><text x="650" y="164">编排器</text><text class="sub" x="650" y="184">终态：写 result_summary</text></g>
 
           <text class="zone-t" x="0" y="254">SubAgent 子会话（资料受限）</text>
-          <g class="n"><rect x="0" y="264" width="200" height="56" rx="8" stroke-dasharray="5 4"/><text x="100" y="284">materials-&lt;key&gt;.txt</text><text class="sub" x="100" y="304">仅 main 委派：资料快照</text></g>
+          <g class="n"><rect x="0" y="264" width="230" height="56" rx="8" stroke-dasharray="5 4"/><text x="115" y="284">materials-&lt;workId&gt;-&lt;key&gt;.txt</text><text class="sub" x="115" y="304">仅 main 委派：资料快照（按工作）</text></g>
           <g class="n run"><rect x="250" y="264" width="330" height="56" rx="8"/><text x="415" y="284">子任务每次调用</text><text class="sub" x="415" y="304">subagent 提示 · 子会话历史 · 任务输入 · read 结果</text></g>
           <g class="n bad"><rect x="800" y="264" width="240" height="56" rx="8"/><text x="920" y="284">task_sources_revoked</text><text class="sub" x="920" y="304">资料授权已撤销：请求不发出</text></g>
 
@@ -490,9 +490,9 @@
           <tr><td>工具定义</td><td>本会话类别装配的工具</td><td>只有 <code>read</code> 与 <code>read_artifact</code>（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">tool-availability.ts · SUBAGENT_READONLY_TOOL_NAMES</code>）；装配与本任务允许集合用同一张白名单</td></tr>
           <tr><td>前缀参考块与记忆</td><td>项目指令、技能目录、长期记忆</td><td>都没有：不注入父项目的指令、技能目录、项目记忆与个人共享记忆</td></tr>
           <tr><td>任务级参考块</td><td>继续来源、SubAgent 结果、计划说明</td><td>都没有</td></tr>
-          <tr><td>会话历史</td><td>本会话 JSONL</td><td>子会话自己的 JSONL；带 <code>work_id</code> 再委派同一工作时接着用。父会话历史不进来</td></tr>
+          <tr><td>会话历史</td><td>本会话 JSONL</td><td>子会话自己的 JSONL；带 <code>work_id</code> 继续或带 <code>sub_agent_id</code> 复用同一 SubAgent 时接着用。父会话历史不进来</td></tr>
           <tr><td>当前任务输入</td><td>拥有者的输入（<code>/skill:</code> 会展开）</td><td>宿主模板加委派正文（<code class="src" data-src="src/runtime/subagents.ts#private taskInput">subagents.ts · taskInput</code>）：固定首行、工作 ID、快照文件名、宿主钉定的只读路径、能力说明，再接模型给的 <code>request</code>。<code>/skill:</code> 不展开</td></tr>
-          <tr><td>资料快照</td><td>—</td><td>不注入。main 的 <code>materials</code> 在委派时解析成文本，写进子目录的 <code>materials-&lt;key&gt;.txt</code>（<code class="src" data-src="src/runtime/subagents.ts#function materialsFileFor">subagents.ts · materialsFileFor</code>）；SubAgent <code>read</code> 之后才以工具结果进入上下文</td></tr>
+          <tr><td>资料快照</td><td>—</td><td>不注入。main 的 <code>materials</code> 在委派时解析成文本，写进子目录的 <code>materials-&lt;workId&gt;-&lt;key&gt;.txt</code>（<code class="src" data-src="src/runtime/subagents.ts#function materialsFileFor">subagents.ts · materialsFileFor</code>：按工作 + 执行键命名，复用同一 Agent 时不覆写旧工作的快照）；SubAgent <code>read</code> 之后才以工具结果进入上下文</td></tr>
           <tr><td>压缩与 Jev</td><td>按前文规则</td><td>都不做；预算不够时照样整轮移出，但不加移出标记</td></tr>
           <tr><td>发送前复核</td><td>见<a href="#send">发送前复核</a></td><td>多一项 <code>task_sources_revoked</code>（下文）</td></tr>
           <tr><td>选择记录与 prompt 快照</td><td>照常落盘</td><td>照常落盘，记在子会话名下；<code>read_artifact</code> 只放行本任务自产的产物，<code>prompt-snapshot:*</code> 也不放行（<code class="src" data-src="src/agent/driver.ts#SubAgent 只读本次自产">driver.ts · artifactAccess</code>）</td></tr>
@@ -500,7 +500,7 @@
       </table>
     </div>
     <h3>资料授权的复核</h3>
-    <p>main 委派时，<code>materials</code> 按父会话原项目的资料权限解析（<code class="src" data-src="src/agent/scheduler-tools.ts#createSourceResolver">scheduler-tools.ts · createSourceResolver</code>），来源引用存进任务的 <code>read_scope.sourceRefs</code>（<code class="src" data-src="src/core/types.ts#export interface SubAgentReadScope">types.ts · SubAgentReadScope</code>）。登记事务里核实一次，之后子任务每次发送前由 <code>checkBeforeSend</code> 再核实（<code class="src" data-src="src/agent/driver.ts#task_sources_revoked">driver.ts · task_sources_revoked</code>）。核实只看 <code>task_result</code> 与 <code>artifact</code> 两类来源能否经资料授权读到；<code>text</code> 与 <code>app_data</code> 没有可撤销的授权，不复核；<code>chat_result</code> 不能作为委派资料。</p>
+    <p>main 委派时，<code>materials</code> 按父会话原项目的资料权限解析（<code class="src" data-src="src/agent/scheduler-tools.ts#createSourceResolver">scheduler-tools.ts · createSourceResolver</code>），来源引用存进任务的 <code>read_scope.sourceRefs</code>（<code class="src" data-src="src/core/types.ts#export interface SubAgentReadScope">types.ts · SubAgentReadScope</code>）。复核的对象不是本次委派的那批来源，而是这个 SubAgent 名下全部历史任务的 <code>sourceRefs</code> 与本次的并集（<code class="src" data-src="src/core/store.ts#listTasksBySession">store.ts · listTasksBySession</code>）——复用保留的子会话上下文里仍可能有旧工作的资料，旧资料撤销后同样要拦。登记事务里核实一次，之后子任务每次发送前由 <code>checkBeforeSend</code> 按子会话全部任务再核实（<code class="src" data-src="src/agent/driver.ts#task_sources_revoked">driver.ts · task_sources_revoked</code>）。核实只看 <code>task_result</code> 与 <code>artifact</code> 两类来源能否经资料授权读到；<code>text</code> 与 <code>app_data</code> 没有可撤销的授权，不复核；<code>chat_result</code> 不能作为委派资料。</p>
     <p>快照正文不重新解析。撤销只拦住之后的请求：子任务以 <code>interrupted</code> 结束、子会话队列暂停，编排器把它归为结果未知；已经读进子会话历史的内容留在 JSONL 里。普通开发会话用 <code>read_paths</code> 委派时没有来源引用，读范围由宿主钉定的路径与目录身份约束，在工具执行一侧检查（见<a href="orchestrator.html#subagent">编排器</a>）。</p>
     <h3>结果回到父会话</h3>
     <ul>

@@ -157,10 +157,11 @@ export interface DriverDeps {
    */
   delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "analyzeDelegate" | "readReply" | "resultNotice">;
   /**
-   * 通用 SubAgent 委派（agent-direction issue 11）：普通开发会话与 main 装配；
-   * readReply 读指定任务的最终回答，delegate 走集中登记（不阻塞父任务）。
+   * 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭）：
+   * 普通开发会话与 main 装配；readReply 读指定任务的最终回答，delegate 走集中
+   * 登记（不阻塞父任务），close 显式关闭（只收窄能力）。
    */
-  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "readReply">;
+  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "readReply">;
   /**
    * dev 父会话待注入的 SubAgent 结果：任务开始时收集并由 driver 标记送达
    * （注入随下一次模型调用送达；崩溃窗口不丢失，持久事件与 subagent_result 可查）。
@@ -634,11 +635,17 @@ export class Driver {
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
       throw new ContextSendBlocked("model_selection_mismatch:实际模型或思考强度与任务记录不一致");
     }
-    // SubAgent 的资料授权复核（agent-direction issue 11）：每次向模型发送上下文
-    // 前重新 verify 任务的来源引用；撤销后阻止后续注入（快照正文不重新解析）
-    if (this.toolClass === "subagent" && task.readScope && task.readScope.sourceRefs.length > 0 && this.deps.verifyTaskSources) {
-      const problem = this.deps.verifyTaskSources(this.session.projectId, task.readScope.sourceRefs);
-      if (problem) throw new ContextSendBlocked(`task_sources_revoked:${problem}`);
+    // SubAgent 的资料授权复核（agent-direction issue 11；issue 12 并集）：每次向
+    // 模型发送上下文前重新 verify 本会话全部任务的来源引用并集——复用保留的
+    // 上下文含旧工作资料，旧资料撤销后同样阻止发送（快照正文不重新解析）
+    if (this.toolClass === "subagent" && this.deps.verifyTaskSources) {
+      const refs = this.deps.store
+        .listTasksBySession(this.session.id)
+        .flatMap((t) => t.readScope?.sourceRefs ?? []);
+      if (refs.length > 0) {
+        const problem = this.deps.verifyTaskSources(this.session.projectId, refs);
+        if (problem) throw new ContextSendBlocked(`task_sources_revoked:${problem}`);
+      }
     }
     // 工具可用性（架构工单 03）：发送载荷中的每个工具都必须在本任务允许的集合内
     // （按实际载荷检查，覆盖全部注册来源；QQ 群与 chat 的集合为空）

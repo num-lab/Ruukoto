@@ -59,6 +59,7 @@ import type { AppDataQueryRunner } from "./app-data/query.ts";
 import { createSchedulerTools, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
 import { createDelegationTools, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
 import { createChatResultTools, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
+import { createServiceTools, SERVICE_TOOL_NAMES, type ServiceManagerConfig } from "./service-tools.ts";
 import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
@@ -146,6 +147,11 @@ export interface DriverDeps {
    * 委派 coding（issue 05）：仅 main 角色会话装配。
    */
   delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply" | "resultNotice">;
+  /**
+   * 服务器服务管理（agent-direction issue 09）：仅 main 清单含 service 类别时装配；
+   * Runtime 只在产品 ruukoto + Linux + 显式部署配置齐备时提供。
+   */
+  service?: { config: ServiceManagerConfig };
 }
 
 export class Driver {
@@ -184,6 +190,8 @@ export class Driver {
   private hostToolCtx: HostToolContext | null = null;
   /** 本任务内 sdkCallId → 宿主数据工具上下文（并发调用各自独立）。 */
   private hostToolCalls = new Map<string, HostToolContext>();
+  /** 宿主工具（非路由器）登记的产物引用：hostOpId → 产物 id（接到 task.tool_result 事件）。 */
+  private hostToolArtifacts = new Map<string, string[]>();
   /** SDK 会话登记的全部工具名（任务开始钉版工具清单的基准）。 */
   private allToolNames: string[] = [];
   /** 当前任务钉版的 MCP 工具名集合（handleToolCall 分派依据；任务间比对签名）。 */
@@ -419,6 +427,25 @@ export class Driver {
           verifyMain: (ctx) => this.verifyMainBinding(ctx),
         })
       : [];
+    // 服务器服务管理（agent-direction issue 09）：仅 main 的清单含 service 且部署配置齐备
+    const serviceTools =
+      this.allows("service") && this.deps.service
+        ? createServiceTools({
+            coreStore: this.deps.store,
+            artifacts: this.deps.artifacts,
+            registry: this.registry,
+            config: this.deps.service.config,
+            taskContext: () => this.hostToolCtx,
+            bindCall: this.bindHostCall,
+            verifyMain: (ctx) => this.verifyMainBinding(ctx),
+            requestApproval: (input) => this.approvals.request(input),
+            recordArtifact: (hostOpId, artifactId) => this.recordHostToolArtifact(hostOpId, artifactId),
+            markEffectUnknown: (hostOpId) => {
+              const task = this.currentTask;
+              if (task) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, hostOpId));
+            },
+          })
+        : [];
     // 技能工具（issue 22）：读取任务钉版的技能库
     const skillTools = !this.allows("skills")
       ? []
@@ -433,6 +460,7 @@ export class Driver {
       ...schedulerTools,
       ...delegationTools,
       ...chatResultTools,
+      ...serviceTools,
       ...skillTools,
       // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
       // 固定，工具集合变化由 runInner 先重建会话再走到这里
@@ -472,6 +500,13 @@ export class Driver {
       this.hostToolCalls.delete(sdkCallId);
     };
   };
+
+  /** 宿主工具（不经路由器）登记产物引用（issue 09：接到 task.tool_result 事件）。 */
+  private recordHostToolArtifact(hostOpId: string, artifactId: string): void {
+    const list = this.hostToolArtifacts.get(hostOpId) ?? [];
+    list.push(artifactId);
+    this.hostToolArtifacts.set(hostOpId, list);
+  }
 
   // ---------- 模型上下文（组装见 context-assembly）与发送前检查 ----------
 
@@ -589,6 +624,7 @@ export class Driver {
     this.registry.clear();
     this.hostToolCtx = null;
     this.hostToolCalls = new Map();
+    this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;
     this.taskTools = null;
     // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；只限普通开发会话（同提交入口）
@@ -1048,6 +1084,7 @@ export class Driver {
       (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
+      (SERVICE_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (SKILL_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
       (TODO_TOOL_NAMES as readonly string[]).includes(event.toolName)
     ) {
@@ -1248,7 +1285,9 @@ export class Driver {
         const editStats = editStatsFromResult(event.toolName, event.isError, event.result?.details);
         // SDK 调用 id → 宿主操作 id（不同任务复用调用 id 时不串用记录）
         const hostOpId = this.callMap.get(event.toolCallId) ?? event.toolCallId;
-        const artifactIds = this.deps.store.getToolOp(hostOpId) ? this.router.artifactIdsFor(hostOpId) : [];
+        const artifactIds = this.deps.store.getToolOp(hostOpId)
+          ? [...this.router.artifactIdsFor(hostOpId), ...(this.hostToolArtifacts.get(hostOpId) ?? [])]
+          : [];
         try {
           this.deps.store.withTx(() => this.deps.ledger.recordResult(task, hostOpId, summary, event.isError, { artifactIds, editStats }));
         } catch (err) {

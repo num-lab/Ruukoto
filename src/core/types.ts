@@ -126,11 +126,12 @@ export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"]
 
 /**
  * 工具类别：按工具注册来源划分（编码工具/宿主资料与记忆/Web Search/MCP/应用数据/
- * 调度/委派/群结果/技能）。各会话类别开放哪些类别由 tool-availability 的清单决定，
- * 装配、激活、发送前与调用门共用同一结论；app_data、scheduler、delegation、
- * chat_results 只在 main 的清单中。
+ * 调度/委派/群结果/服务器服务/技能）。各会话类别开放哪些类别由 tool-availability
+ * 的清单决定，装配、激活、发送前与调用门共用同一结论；app_data、scheduler、
+ * delegation、chat_results、service 只在 main 的清单中（service 另要求产品与
+ * 部署配置具备，见 tool-availability 与 Driver 装配）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "skills";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -387,6 +388,29 @@ export type ApprovalScope =
       duration: "until_canceled" | "single";
       /** 来源引用摘要（正文已在登记前解析为最终文本）。 */
       sourceRefs: string[];
+    }
+  | {
+      /**
+       * 服务器服务管理（agent-direction issue 09，ADR 0019）：固定本机身份、
+       * 白名单内的规范单元名、固定动作、策略与单元定义修订，以及发起任务和
+       * 宿主操作 ID。批准单次消费；full_access 也须逐次确认（root 分支是后台
+       * 经 sudo helper 的提权能力，不属于执行账户已有权限）。活动状态、PID、
+       * InvocationID 属于观察结果，不进入修订指纹。
+       */
+      kind: "service_operation";
+      /** 本机身份（policy.machineId，helper 每次调用与 /etc/machine-id 核对）。 */
+      machineId: string;
+      /** 白名单内的规范 .service 单元名（精确匹配，无别名/模板/通配符）。 */
+      unit: string;
+      /** 固定动作（首版仅 restart；restart 会启动原本不活动的服务）。 */
+      action: "restart";
+      /** 请求时的策略内容 sha256；消费前同步重读核对。 */
+      policyRevision: string;
+      /** 请求时的单元定义修订（fragment/drop-in 内容指纹 + 已加载状态）。 */
+      unitRevision: string;
+      /** 发起任务与宿主操作（审批范围的固定锚点；helper 操作单元由它派生）。 */
+      taskId: string;
+      toolOpId: string;
     }
   | {
       /**

@@ -21,10 +21,11 @@ test("会话类别：QQ 群无论有无角色绑定都归 chat，角色会话按
 });
 
 test("会话类别 × 工具类别：每个会话类别只开放清单内的类别", () => {
-  const categories: ToolCategory[] = ["coding", "host_data", "web_search", "mcp", "app_data", "scheduler", "delegation", "chat_results", "skills"];
+  const categories: ToolCategory[] = ["coding", "host_data", "web_search", "mcp", "app_data", "scheduler", "delegation", "chat_results", "service", "skills"];
   const expected: Record<SessionToolClass, ToolCategory[]> = {
     dev: ["coding", "host_data", "web_search", "mcp", "skills"],
-    main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "skills"],
+    // service（agent-direction issue 09）：仅 main；装配另要求产品/Linux/显式部署配置
+    main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills"],
     coding: ["coding", "host_data", "web_search", "mcp", "skills"],
     chat: [],
   };

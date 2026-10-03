@@ -225,6 +225,20 @@ export interface RuntimeConfig {
   /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
   appData?: { queryStallMs?: number };
   /**
+   * 服务器服务管理（agent-direction issue 09，ADR 0019）：显式部署配置（受保护
+   * helper 与策略路径，生产经环境变量注入，见 deploy/systemd/README.md）。装配
+   * 另要求产品 ruukoto + Linux；缺任一条件即无此能力（工具不装配，不是静默放行）。
+   * allowNonLinuxPlatform 与 timeouts 仅测试注入（受控 helper 替身的离线协议测试）。
+   */
+  service?: {
+    helperPath: string;
+    policyPath: string;
+    useSudo?: boolean;
+    sudoPath?: string;
+    allowNonLinuxPlatform?: boolean;
+    timeouts?: { inspectMs?: number; restartMs?: number; stopMs?: number };
+  };
+  /**
    * 调度器与通知：测试可替换默认 Telegram 渠道，QQ 按操作目标走自身适配器；
    * 未加载发送器时保留 pending。时钟/间隔/发送时限仅测试覆盖。
    */
@@ -296,6 +310,8 @@ export class Runtime {
   private readonly ledger: ToolOpLedger;
   /** 调度器（issue 03）：扫描循环 + 发送循环；仅个人 Agent 产品在 start 时创建。 */
   scheduler: Scheduler | null = null;
+  /** 服务器服务管理（issue 09）：产品/Linux/显式配置齐备时的部署配置；否则 null（无此能力）。 */
+  private readonly serviceManager: import("../agent/service-tools.ts").ServiceManagerConfig | null = null;
   /** 产品身份（issue 01）：缺省 ruukoto。 */
   readonly productType: ProductType;
   private sources!: SourceResolver;
@@ -330,6 +346,18 @@ export class Runtime {
   private constructor(config: RuntimeConfig, db: Db, store: Store, lock: AcquiredLock, configLock: AcquiredLock) {
     this.config = config;
     this.productType = config.productType ?? "ruukoto";
+    // 服务管理能力（issue 09）：产品 ruukoto + Linux + 显式部署配置齐备才装配；
+    // 缺任一条件保持 null（main 不装配 service_inspect/service_manage）
+    const svc = config.service;
+    if (svc && this.productType === "ruukoto" && (process.platform === "linux" || svc.allowNonLinuxPlatform === true)) {
+      this.serviceManager = {
+        helperPath: svc.helperPath,
+        policyPath: svc.policyPath,
+        useSudo: svc.useSudo ?? true,
+        sudoPath: svc.sudoPath ?? "/usr/bin/sudo",
+        timeouts: svc.timeouts,
+      };
+    }
     this.db = db;
     this.store = store;
     this.lock = lock;
@@ -799,12 +827,22 @@ export class Runtime {
       const chars = [...text];
       return chars.length <= cap ? text : `${chars.slice(0, cap - 1).join("")}…`;
     };
+    // 服务管理（issue 09）：准确目标、提权身份、动作影响与请求时状态必须完整
+    // 可见（JSON 截断不能藏住它们）；其余范围沿用 JSON 摘要 + 详情命令
+    const scopeBrief = (c: ConfirmationRequest): string => {
+      if (c.scope.kind === "service_operation") {
+        const before = (c.params.state_before ?? null) as { activeState?: string; subState?: string } | null;
+        const stateText = before?.activeState ? `；请求时状态 ${before.activeState}/${before.subState ?? "?"}` : "";
+        return `服务管理 ${c.scope.action} ${c.scope.unit}（root 提权，经后台固定 helper；原本不活动会被启动；中断后效果可能无法确认且不自动重发${stateText}；策略/单元修订 ${c.scope.policyRevision.slice(0, 8)}…/${c.scope.unitRevision.slice(0, 8)}…）`;
+      }
+      return capChars(JSON.stringify(c.scope), 300);
+    };
     const text = [
       `【需要审批】${confirmation.toolName}`,
       `审批 ID：${confirmation.id}`,
       `权限版本：v${confirmation.permissionVersion}`,
       `任务：${confirmation.taskId}`,
-      `范围：${capChars(JSON.stringify(confirmation.scope), 300)}`,
+      `范围：${scopeBrief(confirmation)}`,
       `参数摘要（数据展示，完整见详情）：${capChars(JSON.stringify(confirmation.params), 300)}`,
       `批准：/approve ${confirmation.id} ${confirmation.permissionVersion}`,
       `拒绝：/reject ${confirmation.id} ${confirmation.permissionVersion}`,
@@ -2514,6 +2552,9 @@ export class Runtime {
               now: this.config.scheduler?.now ?? (() => Date.now()),
             }
           : undefined,
+        // 服务器服务管理（agent-direction issue 09）：仅 main 清单含 service；
+        // 能力边界（产品/Linux/配置）已在构造时判定
+        service: this.serviceManager ? { config: this.serviceManager } : undefined,
         // 委派 coding（issue 05）：仅 main 角色会话装配；宿主固定参数在编排器
         delegation: {
           sources: this.sources,

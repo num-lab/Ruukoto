@@ -1,20 +1,27 @@
 /**
  * QQ 连接配置与群聊持久化（issue 07，NapCat OneBot v11）。私聊 owner 绑定
  * 进入 qq_config，私聊收发分别复用 inbound_events / notification_ops（issue 06）。
+ * 核心群聊已退役（agent-direction issue 20）：qq_sessions/qq_inbox/qq_outbox
+ * 不再新增，保留为只读归档（接收复核与撤回标记仍在）；正式外挂在后续阶段交付。
  *
- * - qq_config：单行连接配置（端点、凭据绑定名、预期登录账号、群允许列表、
- *   启停、运行保护参数）；任何变化递增 config_version 并随事件提交；
+ * - qq_config：单行连接配置（端点、凭据绑定名、预期登录账号、启停、历史群
+ *   允许列表）；任何变化递增 config_version 并随事件提交；
  *   token 等秘密值只在 CredentialStore，本表只存绑定名。
- * - qq_sessions：登录账号+群 → 独立项目/会话/专用工作目录（不同群隔离）。
- * - qq_inbox：收件登记（先持久化再入队；dedup_key = account:group:message_id）。
- * - qq_outbox：发送记录（先保存固定目标/正文/本地操作 id 再发送；
- *   unknown = effect_unknown，不自动重发）。
+ * - qq_sessions：登录账号+群 → 独立项目/会话/专用工作目录（旧归档，不同群隔离）。
+ * - qq_inbox：旧收件登记（dedup_key = account:group:message_id；撤回标记仍更新）。
+ * - qq_outbox：旧发送记录（unknown = effect_unknown）。
  */
 
 import type { Db } from "../core/db.ts";
 import { randomId } from "../core/types.ts";
 
 export const QQ_GROUP_SOURCE = "qq_group";
+
+/**
+ * 核心群聊退役的统一收尾原因（agent-direction issue 20）：入站门卫弃、
+ * 遗留排队任务取消、启动收尾共用同一文本（前缀即持久化原因标识）。
+ */
+export const CORE_GROUP_CHAT_RETIRED = "core_group_chat_retired:核心群聊已退役（正式外挂后续交付）";
 
 export interface QqConfig {
   /** OneBot 正向 WebSocket 端点（ws://host:port；生产默认回环/受控私网）。 */
@@ -185,20 +192,6 @@ export class QqStore {
     if (!existing) return null;
     const next = { ...existing, configVersion: existing.configVersion + 1, updatedAt: new Date().toISOString() };
     this.db.prepare("UPDATE qq_config SET config_version = ?, updated_at = ? WHERE id = 1").run(next.configVersion, next.updatedAt);
-    return next;
-  }
-
-  /** 群允许列表增删（配置变化，版本递增）。返回 null = 未配置。 */
-  setGroups(groups: string[], expectedVersion?: number): QqConfig | null {
-    const existing = this.getConfig();
-    if (!existing) return null;
-    if (expectedVersion !== undefined && expectedVersion !== existing.configVersion) {
-      throw new QqVersionConflictError(expectedVersion, existing.configVersion);
-    }
-    const next = { ...existing, groups, configVersion: existing.configVersion + 1, updatedAt: new Date().toISOString() };
-    this.db
-      .prepare("UPDATE qq_config SET groups = ?, config_version = ?, updated_at = ? WHERE id = 1")
-      .run(JSON.stringify(groups), next.configVersion, next.updatedAt);
     return next;
   }
 
@@ -391,22 +384,6 @@ export class QqStore {
       )
       .run(row.opId, row.taskId, row.account, row.groupId, row.replyToMessageId, row.text, now, now);
     return row;
-  }
-
-  /**
-   * 启动时核对遗留 pending 发送（崩溃窗口：已发送/未发送不可知）：
-   * 一律定 unknown（effect_unknown，不自动重发），对应收件标记 reply_unknown。
-   */
-  reconcilePendingOutboxOnBoot(): number {
-    const pending = this.listPendingOutbox();
-    for (const row of pending) {
-      if (this.settleOutbox(row.opId, "unknown", { error: "后台重启时发送结果未确认（effect_unknown）" })) {
-        this.db
-          .prepare("UPDATE qq_inbox SET status = 'reply_unknown' WHERE task_id = ? AND status = 'queued'")
-          .run(row.taskId);
-      }
-    }
-    return pending.length;
   }
 
   /** 终态落库（仅 pending 可转换；返回 false = 已被竞争路径定态）。 */

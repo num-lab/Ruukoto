@@ -25,7 +25,7 @@
  *   ruukoto credentials add --name N --host H --header H --purpose P --secret-env VAR
  *   ruukoto credentials remove <name>
  *   ruukoto qq configure --endpoint ws://... --self-id N [--credential N] | status | enable | disable
- *   ruukoto qq group add|remove <群号> | qq inbox|outbox [--group G] [--limit N]
+ *   ruukoto qq inbox|outbox [--group G] [--limit N]（旧群归档；核心群聊已退役）
  *   ruukoto telegram configure --credential N --user-id U [--chat-id C] [--api-base URL] | status | enable | disable
  *   ruukoto stop
  *
@@ -627,21 +627,9 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
         );
         return 0;
       }
+      // 核心群聊已退役（agent-direction issue 20）：旧命令只打印退役提示
       if (sub === "group") {
-        const action = positional[1];
-        if (action === "add" || action === "remove") {
-          print(
-            await withClient((c) =>
-              c.request("qq_group_update", {
-                group_id: positional[2] ?? "",
-                allow: action === "add",
-                expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
-              }),
-            ),
-          );
-          return 0;
-        }
-        console.error("用法：ruukoto qq group add <群号> | remove <群号>");
+        console.error("核心群聊已退役：不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）；旧群资料可用 ruukoto qq inbox / outbox 查阅");
         return 1;
       }
       if (sub === "inbox" || sub === "outbox") {
@@ -661,8 +649,7 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
           "    （owner 私聊需 token；仅接好友纯文本，共享 main 会话；--no-owner 关闭私聊）\n" +
           "    （token 先经 ruukoto credentials add --name N --host H --header authorization --purpose qq_onebot --secret-env VAR 登记）\n" +
           "  ruukoto qq status | enable | disable\n" +
-          "  ruukoto qq group add <群号> | remove <群号>\n" +
-          "  ruukoto qq inbox [--group <群号>] [--limit N] | outbox [--group <群号>] [--limit N]",
+          "  ruukoto qq inbox [--group <群号>] [--limit N] | outbox [--group <群号>] [--limit N]（旧群归档）",
       );
       return 1;
     }

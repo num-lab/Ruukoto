@@ -1268,6 +1268,15 @@ export class Store {
     } : null;
   }
 
+  /** 归档视图兜底（issue 20）：main 角色缺失时按任务反查接收账本，不误报为未接收。 */
+  getAcceptedChatResultForTask(taskId: string): AcceptedChatResult | null {
+    const row = this.db.prepare("SELECT * FROM chat_result_acceptances WHERE task_id = ? ORDER BY accepted_at, main_project_id LIMIT 1").get(taskId) as any;
+    return row ? {
+      taskId: row.task_id, mainProjectId: row.main_project_id, acceptedByTaskId: row.accepted_by_task_id,
+      acceptedByOpId: row.accepted_by_op_id, reason: row.reason, summary: row.summary, acceptedAt: row.accepted_at,
+    } : null;
+  }
+
   /** 调用方在事务内核实 main 身份与来源后写入；首次快照固定，重复接收不改写。 */
   acceptChatResult(input: Omit<AcceptedChatResult, "acceptedAt">): AcceptedChatResult {
     const acceptedAt = new Date().toISOString();

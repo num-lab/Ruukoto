@@ -33,7 +33,6 @@
         <code class="src" data-src="src/core/access.ts#canAccess(accessor">core/access.ts</code>
         <code class="src" data-src="src/core/store.ts#insertAgentRole">core/store.ts</code>
         <code class="src" data-src="src/qq/store.ts#getGroupSession">qq/store.ts</code>
-        <code class="src" data-src="src/qq/adapter.ts#private async ensureGroupSession">qq/adapter.ts</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/core/types.ts#export type AgentRoleId">core/types.ts</code>
         <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">runtime/subagents.ts</code>
@@ -67,9 +66,9 @@
     <h2>逻辑角色与引导（旧架构）</h2>
     <aside class="callout limit">
       <b>旧架构的现行实现</b>
-      <p>本节与下文「窄接口」「main 委派 coding」「子任务结果与异常路径」「群聊结果」描述的固定角色机制仍在运行，但属于旧架构：新方向取消固定 coding 与 chat，由主 Agent 派发通用 SubAgent（ADR 0017、ADR 0020）。GitHub 评审已由 agent-direction 工单 19 迁到通用 SubAgent（见「GitHub PR 评审编排」，升级前在途的旧 coding 评审子任务沿原路径接管）；核心退出群聊、迁移旧实例与清理固定角色分别是工单 20、21–22、23，都还没有实施。新机制见<a href="#subagent">工作委托与 SubAgent</a>。</p>
+      <p>本节与下文「窄接口」「main 委派 coding」「子任务结果与异常路径」「群聊结果」描述的固定角色机制仍在运行，但属于旧架构：新方向取消固定 coding 与 chat，由主 Agent 派发通用 SubAgent（ADR 0017、ADR 0020）。GitHub 评审已由 agent-direction 工单 19 迁到通用 SubAgent（见「GitHub PR 评审编排」，升级前在途的旧 coding 评审子任务沿原路径接管）；核心群聊已退役（agent-direction 工单 20）：chat 角色不再引导，群消息直接忽略，旧群资料保留为只读归档；本侧旧实例开发资料迁入已由工单 21 交付（ruukoto-dev legacy-import）。跨实例迁移与清理固定角色分别是工单 22、23，都还没有实施。新机制见<a href="#subagent">工作委托与 SubAgent</a>。</p>
     </aside>
-    <p>逻辑角色只有三个（<code class="src" data-src="src/core/types.ts#export type AgentRoleId">types.ts · AgentRoleId</code>）。后台启动时，<code class="src" data-src="src/runtime/orchestrator.ts#private async ensureRoles">orchestrator.ts · ensureRoles</code> 按 <code class="src" data-src="src/runtime/orchestrator.ts#ROLE_DEFINITIONS">ROLE_DEFINITIONS</code> 逐个检查：<code>agent_roles</code> 已有该角色的行就跳过；没有就找到或创建项目 <code>agent-&lt;角色&gt;</code>，建工作目录 <code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;</code>（权限 0700，放在数据目录之外以避开保护根），经桥接创建会话，再写一行角色配置（<code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>）。</p>
+    <p>逻辑角色的类型仍是三个取值（<code class="src" data-src="src/core/types.ts#export type AgentRoleId">types.ts · AgentRoleId</code>），但引导定义只剩 main 与 coding 两个：chat 已退役（核心不再引导，旧安装的 <code>agent-chat</code> 行保留为归档标识，见下文角色表）。后台启动时，<code class="src" data-src="src/runtime/orchestrator.ts#private async ensureRoles">orchestrator.ts · ensureRoles</code> 按 <code class="src" data-src="src/runtime/orchestrator.ts#ROLE_DEFINITIONS">ROLE_DEFINITIONS</code> 逐个检查：<code>agent_roles</code> 已有该角色的行就跳过；没有就找到或创建项目 <code>agent-&lt;角色&gt;</code>，建工作目录 <code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;</code>（权限 0700，放在数据目录之外以避开保护根），经桥接创建会话，再写一行角色配置（<code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>）。</p>
 
     <div class="scroll">
       <table class="tbl">
@@ -90,11 +89,11 @@
             <td>main 的 <code>draft</code> 委派。<code>analyze</code> 委派与 GitHub 评审子任务已分别改经 SubAgent 执行（工单 11/19；升级前在途的旧评审子任务沿原路径接管）</td>
           </tr>
           <tr>
-            <td><code>chat</code></td>
-            <td><code>agent-chat</code> 会话之外，每个「登录账号 + 群」一个 <code>qq_group</code> 会话</td>
+            <td><code>chat</code>（已退役）</td>
+            <td>旧安装的 <code>agent-chat</code> 行与各「登录账号 + 群」一个的 <code>qq_group</code> 会话保留为只读归档；不再引导、不新建</td>
             <td>空集合</td>
             <td>群会话为 <code>qq_group</code>，其他 chat 会话为 <code>role_restricted</code>：只读本项目，不查资料授权，owner_note 来源不自动可读</td>
-            <td>QQ 群入站事件，进各群会话；<code>agent-chat</code> 会话本身没有宿主来源</td>
+            <td>无：群消息直接忽略，不再产生 qq_group 入站事件；退役前为 QQ 群入站事件</td>
           </tr>
         </tbody>
       </table>
@@ -104,16 +103,16 @@
     <ul>
       <li><b>工具</b>：会话类别到工具类别是一张静态表 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>。角色行里的 <code>tools</code> 列只是引导时写入的副本，运行时不读回；<code class="src" data-src="src/agent/tool-availability.ts#export function sessionToolClass">sessionToolClass</code> 把 <code>qq_group</code> 会话一律归入 chat，其余角色会话按角色绑定。装配、激活与调用门的细节见<a href="tool-call-path.html">工具调用路径</a>。</li>
       <li><b>资料</b>：驱动器按会话给出资料身份（<code class="src" data-src="src/agent/driver.ts#private accessor">driver.ts · accessor</code>），<code class="src" data-src="src/core/access.ts#canAccess(accessor">access.ts · canAccess</code> 判定。main 与 coding 所在项目读取任何 <code>qq_group</code> 项目一律拒绝，且优先于资料授权，coding 因此不能成为读取群资料的旁路（ADR 0012）。</li>
-      <li><b>模型</b>：引导时 <code>model_selection</code> 写 null，Store 也没有改写它的方法，所以编排器提交的角色任务用后台默认模型；群任务依次取群会话、角色、后台默认的模型配置。拥有者直接提交到角色会话时用自己给的模型。</li>
+      <li><b>模型</b>：引导时 <code>model_selection</code> 写 null，Store 也没有改写它的方法，所以编排器提交的角色任务用后台默认模型；退役前的群任务依次取群会话、角色、后台默认的模型配置。拥有者直接提交到角色会话时用自己给的模型。</li>
     </ul>
 
-    <p>chat 共用一份角色工具策略，群与群之间的资料却是隔离的：QQ 适配器在某群首次触发时建项目 <code>qq-&lt;账号&gt;-&lt;群&gt;</code>、专用空目录 <code>&lt;dataDir&gt;/../qq-work/&lt;账号&gt;_&lt;群&gt;</code> 与 <code>qq_group</code> 会话，并登记到 <code>qq_sessions</code>，主键为（账号，群）（<code class="src" data-src="src/qq/adapter.ts#private async ensureGroupSession">qq/adapter.ts · ensureGroupSession</code>）。按会话反查角色时，<code class="src" data-src="src/core/store.ts#getAgentRoleBySession">store.ts · getAgentRoleBySession</code> 把这些群会话合成为 chat 角色，项目、会话与工作目录取群绑定，工具取 chat 行。</p>
+    <p>chat 共用一份角色工具策略，群与群之间的资料却是隔离的：退役前 QQ 适配器在某群首次触发时建项目 <code>qq-&lt;账号&gt;-&lt;群&gt;</code>、专用空目录 <code>&lt;dataDir&gt;/../qq-work/&lt;账号&gt;_&lt;群&gt;</code> 与 <code>qq_group</code> 会话，并登记到 <code>qq_sessions</code>（主键为账号、群）；退役后这些旧绑定保留为归档，<code>qq_sessions</code> 无新增。按会话反查角色时，<code class="src" data-src="src/core/store.ts#getAgentRoleBySession">store.ts · getAgentRoleBySession</code> 把这些群会话合成为 chat 角色，项目、会话与工作目录取群绑定，工具取 chat 行。</p>
 
     <p>通用 SubAgent 不进这张角色表，也不进 <code>agent_roles</code>：<code>AgentRoleId</code> 与 <code>tasks.agent_id</code> 保持三个固定角色的语义（列上有 CHECK 约束），动态身份记在 <code>sub_agents</code> 表，宿主按会话反查识别（<code class="src" data-src="src/core/store.ts#getSubAgentBySession">store.ts · getSubAgentBySession</code>）。驱动器先查这张表：命中的会话归 <code>subagent</code> 工具类别（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>），不会因为没有角色绑定落进默认的 dev 类别。见<a href="#subagent">工作委托与 SubAgent</a>。</p>
 
     <aside class="callout inv">
       <b>角色配置只由编排器写</b>
-      <p>Store 对 <code>agent_roles</code> 只有 <code>insertAgentRole</code> 一个写方法（INSERT，同 id 已存在即冲突，不覆盖），调用方只有 <code>ensureRoles</code>。控制面的 create_session 不带角色身份，输入正文、项目指令与模型结果都没有入口改动角色的项目、会话、工作目录、模型或工具类别。</p>
+      <p>Store 对 <code>agent_roles</code> 只有 <code>insertAgentRole</code> 一个写方法（INSERT，同 id 已存在即冲突，不覆盖），调用方只有 <code>ensureRoles</code>。控制面的 create_session 不带角色身份，输入正文、项目指令与模型结果都没有入口改动角色的项目、会话、工作目录、模型或工具类别。chat 退役后不再引导：引导定义只剩 main 与 coding，旧安装的 chat 行原样保留，不删除也不改写。</p>
     </aside>
   </section>
 
@@ -686,7 +685,7 @@
           </tr>
           <tr data-k="c-record" tabindex="0">
             <td>已终态 → 结果已记录</td>
-            <td>编排器：事件监听 <code class="src" data-src="src/runtime/orchestrator.ts#onRuntimeEvents">onRuntimeEvents</code>、启动巡检 ①，或群任务派发时发现任务已终态</td>
+            <td>编排器：事件监听 <code class="src" data-src="src/runtime/orchestrator.ts#onRuntimeEvents">onRuntimeEvents</code>、启动巡检 ①，或派发回填时发现任务已有结果（dispatchEvent 回填事务补写事件终态）</td>
             <td>只处理带 agent_id 的角色任务与带 sub_agent_id 的 SubAgent 执行任务（过滤条件（agent_id IS NOT NULL OR sub_agent_id IS NOT NULL），事件监听与巡检同一口径）。一个事务里：<code class="src" data-src="src/core/store.ts#setTaskResult">store.ts · setTaskResult</code> 条件写入；任务就是来源事件关联的任务时把事件置 done / failed；有来源事件时调用 onInboundTerminal（owner 回复或 GitHub 通知的登记）；<code>requestId</code> 以 <code>wake:</code> 开头时另调用 <code class="src" data-src="src/runtime/orchestrator.ts#task.requestId.startsWith(&quot;wake:&quot;)">onWakeTerminal</code>（工作最终汇报的登记，见 <a href="#subagent-state">上文</a>）；追加 child_task.* 事件。SubAgent 执行任务改走 handleSubAgentTerminal：结果、SubAgent 状态与 subagent_task.* 同一事务（见<a href="#subagent-state">上文</a>）。</td>
             <td><code>child_task.completed</code> 等四种；SubAgent 任务为 subagent_task.* 四种</td>
           </tr>
@@ -765,7 +764,7 @@
         <thead><tr><th>请求键</th><th>所在会话</th><th>谁提交</th></tr></thead>
         <tbody>
           <tr><td><code>evt:&lt;事件&gt;</code></td><td>目标角色会话</td><td>入站事件派发（Telegram、QQ 私聊、调度唤醒等）<code class="src" data-src="src/runtime/orchestrator.ts#private async dispatchEvent">dispatchEvent</code></td></tr>
-          <tr><td><code>qq:&lt;收件键&gt;</code></td><td>该群的 <code>qq_group</code> 会话</td><td>QQ 群入站派发，原键取自群收件记录（<code class="src" data-src="src/qq/store.ts#qq:${dedupKey}">qq/store.ts</code>）</td></tr>
+          <tr><td><code>qq:&lt;收件键&gt;</code>（归档）</td><td>该群的 <code>qq_group</code> 会话</td><td>核心群聊已退役，不再有新提交；退役前为 QQ 群入站派发，原键取自群收件记录（<code class="src" data-src="src/qq/store.ts#qq:${dedupKey}">qq/store.ts</code>）</td></tr>
           <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;</code></td><td>coding</td><td>main 的 draft 委派</td></tr>
           <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;:retry</code></td><td>coding</td><td>自动重试门</td></tr>
           <tr><td><code>wake:&lt;子任务&gt;</code></td><td>父任务所在的角色会话</td><td>结果回传与启动巡检 ②</td></tr>
@@ -827,19 +826,19 @@
 
   <section id="chat">
     <h2>群聊结果（旧架构）</h2>
-    <p>本节是旧架构的核心群聊入口：chat 角色与 QQ 群会话由核心运行时处理。新方向把群聊移到可独立停用的 QQ 群聊外挂，核心退出群聊是 agent-direction 工单 20，尚未实施。QQ 群任务完成后，编排器照常记录摘要与 <code>child_task.completed</code>，但群任务没有父任务，所以不唤醒 main；它的来源事件是 <code>qq_group</code>，owner 回复登记直接跳过。群内的普通回复走独立的 qq_outbox（见<a href="inbound-events.html">入站事件</a>）。main 想用群里的结果，必须显式接收（ADR 0014）。</p>
+    <p>核心群聊已退役（agent-direction 工单 20）：chat 角色与 QQ 群会话不再产生新任务，本节只有「接收与复核旧结果」仍然生效，其余描述均为退役前行为。退役前 QQ 群任务完成后，编排器照常记录摘要与 <code>child_task.completed</code>，但群任务没有父任务，所以不唤醒 main；它的来源事件是 <code>qq_group</code>，owner 回复登记直接跳过。群内的普通回复走独立的 qq_outbox（见<a href="inbound-events.html">入站事件</a>，两者都不再有新增）。main 想用群里的结果，必须显式接收（ADR 0014）。</p>
 
     <div class="flow">
-      <div class="stage"><b>群任务完成</b><br>编排器写 result_summary（最终回答）；不唤醒 main，不产生 owner 回复。</div>
+      <div class="stage"><b>群任务完成（退役前）</b><br>编排器写 result_summary（最终回答）；不唤醒 main，不产生 owner 回复。退役后不再有新结果。</div>
       <div class="stage"><b><code>chat_result_list</code></b><br>只列宿主元数据：任务、来源事件、账号、群、消息 ID、完成时间、是否已接收；不读正文。</div>
       <div class="stage"><b><code>chat_result_accept</code></b><br>同一事务复核来源与撤回，保存摘要快照与接收理由。</div>
       <div class="stage"><b>通知引用</b><br><code>{kind:'chat_result', task_id}</code> 作为通知来源；每次解析再复核，仍经拥有者审批。</div>
     </div>
 
     <ul>
-      <li><b>能接收什么</b>：<code class="src" data-src="src/agent/chat-result-tools.ts#function sourceOf">chat-result-tools.ts · sourceOf</code> 只放行已完成且已记录结果的 chat 任务，并核对会话类别为 qq_group、收件记录、群绑定、入站事件（done、目标 chat、actor 与收件一致）彼此对应。两个工具都只在宿主绑定的 main 任务里可用。</li>
+      <li><b>能接收什么</b>：<code class="src" data-src="src/agent/chat-result-tools.ts#function sourceOf">chat-result-tools.ts · sourceOf</code> 只放行归档中已完成且已记录结果的 chat 任务，并核对会话类别为 qq_group、收件记录、群绑定、入站事件（done、目标 chat、actor 与收件一致）彼此对应。两个工具都只在宿主绑定的 main 任务里可用。</li>
       <li><b>快照</b>：接收保存 result_summary 的前 <code class="src" data-src="src/agent/chat-result-tools.ts#SUMMARY_CHARS">SUMMARY_CHARS</code> = 1000 个 Unicode 字符、来源任务、接收任务、宿主操作 ID 与理由（1–1024 字节）。（main 项目，任务）为主键，首次快照固定，重复接收不改写，只有首次写入发 <code>chat_result.accepted</code>（<code class="src" data-src="src/core/store.ts#acceptChatResult">store.ts · acceptChatResult</code>）。列表每页 1–50 条，默认 20（<code class="src" data-src="src/agent/chat-result-tools.ts#params.limit ?? 20">chat_result_list</code>）。</li>
-      <li><b>撤回使摘要失效</b>：该群任何一条在任务结束前收到、并在任务开始后（或时间未记）被撤回的消息，都会让这次结果不可接收，已接收的快照也不能再被解析或外发。这是按时间窗的保守判定，可能拒掉其实没引用被撤回消息的摘要。已经进入 main 历史或已发送的副本不追溯清除。</li>
+      <li><b>撤回使摘要失效</b>：该群任何一条在任务结束前收到、并在任务开始后（或时间未记）被撤回的消息，都会让这次结果不可接收，已接收的快照也不能再被解析或外发。这是按时间窗的保守判定，可能拒掉其实没引用被撤回消息的摘要。退役后撤回仍打标记（见<a href="inbound-events.html#sources">入站事件</a>），这项复核继续生效；撤回事件只在 NapCat 连接期间观察到，缺口如实记录（见<a href="inbound-events.html#sources">qq.receive_gap</a>）。已经进入 main 历史或已发送的副本不追溯清除。</li>
       <li><b>接收不是外发授权</b>：通知与通知计划引用快照时经 <code class="src" data-src="src/agent/chat-result-tools.ts#resolveAcceptedChatResult">resolveAcceptedChatResult</code> 核对 main 项目与撤回，登记仍要拥有者审批（<a href="outbox.html">通知 outbox</a>）。快照也不开放原始群历史、产物或带群来源的记忆，<code>coding_delegate</code> 与 <code>subagent_delegate</code> 都不能把它当委派资料。</li>
       <li><b>停止或重启时</b>：未落结果的 <code>chat_result_accept</code> 按接收账本核实（<code class="src" data-src="src/agent/chat-result-tools.ts#chatResultOpCheck">chatResultOpCheck</code>），不记效果未知。</li>
     </ul>

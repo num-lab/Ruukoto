@@ -75,7 +75,7 @@
     <div class="cards">
       <div class="card">
         <h3><a href="orchestrator.html">编排器</a></h3>
-        <p>主 Agent 怎样登记工作委托、委派只读分析或按工作隔离修改的 SubAgent，SubAgent 的状态怎样转换、结果怎样交回，唤醒的收尾怎样由宿主判定并把工作最终汇报发回发起入口，整项工作怎样取消；旧架构的 main、coding、chat 角色，子任务回传、GitHub 评审编排与群聊结果。</p>
+        <p>主 Agent 怎样登记工作委托、委派只读分析或按工作隔离修改的 SubAgent，SubAgent 的状态怎样转换、结果怎样交回，唤醒的收尾怎样由宿主判定并把工作最终汇报发回发起入口，整项工作怎样取消；旧架构的 main、coding 与已退役的 chat 角色，子任务回传、GitHub 评审编排与群聊结果（核心群聊退役后不再有新结果，复核仍作用于归档）。</p>
         <p><code class="src" data-src="src/runtime/orchestrator.ts">orchestrator.ts</code></p>
       </div>
       <div class="card">
@@ -85,7 +85,7 @@
       </div>
       <div class="card">
         <h3><a href="outbox.html">通知 outbox</a></h3>
-        <p>外发通知的状态机、发送循环与限流退回，IM 审批通知与回执怎样走同一本账、固定目标换代后怎样失效，调度计划怎样在漏过周期时只补一次，新闻计划；owner 回复与工作最终汇报怎样共用回复槽与目标核对，以及公共 outbox 与 QQ 群回复账本的区别。</p>
+        <p>外发通知的状态机、发送循环与限流退回，IM 审批通知与回执怎样走同一本账、固定目标换代后怎样失效，调度计划怎样在漏过周期时只补一次，新闻计划；owner 回复与工作最终汇报怎样共用回复槽与目标核对，以及公共 outbox 与已退役的 QQ 群回复账本（只读归档）的区别。</p>
         <p><code class="src" data-src="src/scheduler/runtime.ts">scheduler/</code></p>
       </div>
     </div>

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 20 — 退出核心群聊并保全旧群资料
 
@@ -10,13 +10,13 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 新核心不再创建群聊角色或接收新的群任务；QQ 拥有者私聊与 Telegram 主会话继续可用。
-- [ ] 旧群历史、结果接收记录、撤回标记、来源关系和发送账本可归档查询，不能把旧群会话转成普通开发会话来绕过限制。
-- [ ] 原始群资料隔离与已接收结果快照的授权边界保持，不能通过删除角色而扩大读取范围。
-- [ ] 已有个人通知和调度中的群结果引用仍能复核来源及撤回；归档后无法核实时阻断外发并说明原因，不能仅凭复制的摘要继续发送。
-- [ ] 排队或在途群任务、待发或未知发送得到明确收尾；重复升级和重启不重放群任务或消息。
-- [ ] 发布说明明确正式外挂在后续阶段交付；本单交付核心退役及资料保全，不依赖尚未确定的外挂接口。
-- [ ] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+- [x] 新核心不再创建群聊角色或接收新的群任务；QQ 拥有者私聊与 Telegram 主会话继续可用。
+- [x] 旧群历史、结果接收记录、撤回标记、来源关系和发送账本可归档查询，不能把旧群会话转成普通开发会话来绕过限制。
+- [x] 原始群资料隔离与已接收结果快照的授权边界保持，不能通过删除角色而扩大读取范围。
+- [x] 已有个人通知和调度中的群结果引用仍能复核来源及撤回；归档后无法核实时阻断外发并说明原因，不能仅凭复制的摘要继续发送。
+- [x] 排队或在途群任务、待发或未知发送得到明确收尾；重复升级和重启不重放群任务或消息。
+- [x] 发布说明明确正式外挂在后续阶段交付；本单交付核心退役及资料保全，不依赖尚未确定的外挂接口。
+- [x] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
 
 ## Comments
 
@@ -170,3 +170,38 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 模型与 OneBot 为模拟，分别记录；真实 QQ 群与 NapCat 没有入口，记为未实测。用 tx 生产库副本做升级演练需要 `ruukoto-backend` 权限，未经拥有者授权不做，验收记录写明未做。
 
 完成时逐条登记七项验收证据，区分离线逻辑测试、真实后台与升级路径、模拟模型/平台和真实平台。本次只保存计划，工单状态与验收勾选保持不变。
+
+### 2026-10-04：实施完成（分支 quiet-gliding-ember）
+
+按计划实施，计划基于 e542261、实施时 HEAD 已含 issue 12/14/16/18：协议版本核为 v14（v13 是 issue 14）；issue 18 的 owner_reply 只认 QQ 私聊/Telegram 来源，群发起工作本就不汇报，与退役无冲突。两处对计划的偏离均有记录：createSession 的项目拒绝按计划原文复用 openWorkspace 判定（覆盖全部角色项目，不只 chat/群项目）；test/48 不经改造即通过（其夹具本就是 store 直写播种，无运行路径依赖），未强行改用播种助手。
+
+#### 验收证据（逐条；区分验证层次）
+
+1. **新核心不接群任务、私聊/Telegram 继续**：离线逻辑 test/85 验收1（模拟 OneBot/FakeBotApi + 真实 Runtime/SQLite/socket）；真实升级路径 smoke-20 验收1（旧代码数据目录上启动新后台，群消息零新增、私聊回复钉版原消息）。
+2. **归档可查、不能转开发会话**：test/85 验收2（inbox 附接收账本与复核结论、outbox 账本、read_history 读群会话；create_session/submit/continue/open_workspace 拒绝）；smoke-20 验收2（真实升级后 inbox 复核结论、撤回观测标记）。main 角色缺失时不误报（评审后补：getAcceptedChatResultForTask 兜底 + 断言）。
+3. **隔离不扩大**：test/85 验收3（无 chat 角色行实例，AccessScope 按 sessions.kind 拒绝 main/coding；快照仅 main）；test/26 保留 qq_group 资料身份用例；test/41 回归。
+4. **通知/调度复核**：test/85 验收4a/4b/4c/4d（批准发送、撤回/篡改/删除映射阻断记 source_revoked、调度运行同阻断）；test/49 全链路（播种归档 + 审批 + 撤回）；smoke-20 验收4（真实升级路径上已批准待发通知 B 因快照篡改被取消，A 已送达事实不改写）。
+5. **收尾明确且幂等**：test/85 验收5（播种各形态 + 三次启动幂等、零发送零模型调用）；smoke-20 验收5+幂等（旧代码真实产生的排队/运行中/pending 发送，SIGKILL 后升级收尾，第二次重启计数不变）。
+6. **发布说明**：docs/runtime.md「QQ 群聊（issue 07）」节改写为已退役（含外挂后续交付、本单不依赖外挂接口），README 第 7 行与 /qq 行同步；CONTEXT.md、ADR 0014 头部实施修订（含撤回观测上限）、ADR 0017 实施记录。
+7. **检查与验证**：`npm run typecheck` 通过；`npm test` 全量 878 项——876 通过、1 项跳过（test/06 真实模型门控未启用）、1 项失败为 test/32「档案路径」——该断言硬编码仓库目录名 `ruukoto`，在本 worktree（目录名 quiet-gliding-ember）必然失败，与本单无关（src/dev.ts 未改动，主检出目录名为 ruukoto 时通过）。
+
+#### 测试改写
+
+新增 test/85（6 项验收）与 test/helpers/legacy-group-archive.ts（按退役前 v24 持久形态播种）；删除 test/47（恢复语义由验收 5 取代）；改写 test/26（保留连接/配置/token/账号/掉线与资料身份，新增「群消息被忽略」）、test/40/59/78（群触发改断言零任务）、test/49（播种归档）、test/58（播种 + 退役拒绝断言）、test/27/28/53/56/57/65（chat 角色不再引导的连带改写）。
+
+#### 真实环境验证
+
+`.scratch/agent-direction/smoke-20-retire-group-chat.mts`：macOS 本机 7/7（14.3s）；`--remote` 在 tx（Ubuntu 24.04、Docker、ruukoto-worker 镜像、容器 uid/gid 1003）7/7（15.3s）。旧数据由 `git archive e542261` 的工作副本经旧 CLI 与模拟 OneBot 真实产生（接收×2、已送达通知 A、已批准待发通知 B、排队×1、运行中×1、pending 发送×1），SIGKILL 后新代码升级启动，第二次重启核对幂等。
+
+- 模拟（打桩）：模型（MockModelServer）、NapCat OneBot 协议（MockOneBot）、Telegram Bot API（FakeBotApi，仅 test/85）。
+- 真实：两份 bin/ruukoto.mjs 后台进程（e542261 与当前代码）、SIGKILL/正常停止/再启动、控制面 socket 与令牌（旧段经旧 CLI，v13/v14 各自匹配）、SQLite 账本、Docker 受限 worker。
+- 未实测：真实 QQ 群与 NapCat（没有入口）；tx 生产库副本升级演练未做（需 `ruukoto-backend` 权限，未经拥有者授权）。
+
+#### 图解同步（.skills/visual-docs）
+
+inbound-events（群入口全节退役化：忽略/门恒 drop/归档状态表/恢复步骤）、orchestrator（两角色引导、chat 行归档、群聊结果节）、outbox（qq_outbox 只读归档、退役收尾）、once-only（群回复行退役）、control-protocol（删 qq_group_update、v14）、task-lifecycle（退役兜底取消、恢复节）、storage-layout（四张 qq 表归档语义、引导两角色）、context-pipeline（撤回过滤不再注入，遗留至 23）、deployment、index 卡片。test/67 全绿，改动图经 shoot.sh 渲染逐张检查。不一致记录：outbox 页沿用了「ADR 0010 明确 qq_outbox 暂不迁移」的页面原说法（未逐字核对 ADR）；QqStore 群写方法与 Driver qq_group 参数保留为预期（播种测试与 issue 23），已在 23 工单登记具体清单。
+
+#### /code-review 两轴结论与处理
+
+- Standards：无硬违规。处理：runQueueLoop 兜底注释收敛为一行；其余（QqStore 群写方法、qqDedupKey/qqMessageTag、QqStartGateResult、queueTtlMs/maxReplyChars 字段）为计划内留 23 项，已在 23 工单逐项登记。
+- Spec：处理一项——main 角色缺失时 qq inbox 归档视图可能把被阻断来源误报为「未接收/可用」，已修（store.getAcceptedChatResultForTask 兜底 + test/85 断言）。其余判定为误报或计划内：reconcilePendingOutboxOnBoot 按计划在 retireGroupChat 处理 qq_outbox 遗留 pending（公共 notification_ops 的 pending/sending 语义由调度器 prepareRecovery 承担，未变）；createSession 覆盖全部角色项目系计划原文（复用 openWorkspace 判定）；test/27 改写是 chat 不引导的必要连带。

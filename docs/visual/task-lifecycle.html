@@ -127,13 +127,13 @@
           <tr data-k="e-start" tabindex="0">
             <td><code class="st wait">queued</code> → <code class="st run">running</code></td>
             <td>调度循环</td>
-            <td>会话队列为 active、任务是 FIFO 队首、入站门、wake 门与 QQ 群门放行、目录身份核对通过；同一事务内取得目录占用并条件更新，后台停止开始后不再转入。目录被占用时本轮不启动，等占用释放后的唤醒。wake 门：属于已取消工作的 SubAgent 回报唤醒（<code>wake:&lt;子任务&gt;</code>）在启动前被直接取消（work_canceled），不进入本行。<br><code class="src" data-src="src/runtime/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code> <code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td>
+            <td>会话队列为 active、任务是 FIFO 队首、入站门、wake 门与退役兜底放行、目录身份核对通过；同一事务内取得目录占用并条件更新，后台停止开始后不再转入。目录被占用时本轮不启动，等占用释放后的唤醒。wake 门：属于已取消工作的 SubAgent 回报唤醒（<code>wake:&lt;子任务&gt;</code>）在启动前被直接取消（work_canceled），不进入本行。退役兜底：QQ 群会话的排队任务在此一律取消（原因 <code>core_group_chat_retired</code>），不进入本行。<br><code class="src" data-src="src/runtime/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code> <code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td>
             <td><code>task.started</code></td>
           </tr>
           <tr data-k="e-q-cancel" tabindex="0">
             <td><code class="st wait">queued</code> → <code class="st idle">canceled</code></td>
-            <td>拥有者 cancel；编排器截止巡检；调度计划取消；整项工作取消；入站门或 QQ 群门判定丢弃（过期、越权）；QQ 撤回或停用；IM 入口（QQ 私聊、Telegram）配置变化</td>
-            <td>条件更新只从 queued 出发，已开始的任务改走停止路径。取消原因（有的话）写入 error_message，截止巡检写 <code>deadline_exceeded</code>，整项取消与 wake 门写 <code>work_canceled</code>。<br><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td>
+            <td>拥有者 cancel；编排器截止巡检；调度计划取消；整项工作取消；入站门判定丢弃；IM 入口（QQ 私聊、Telegram）配置变化；核心群聊退役收尾与兜底取消遗留的群任务</td>
+            <td>条件更新只从 queued 出发，已开始的任务改走停止路径。取消原因（有的话）写入 error_message，截止巡检写 <code>deadline_exceeded</code>，整项取消与 wake 门写 <code>work_canceled</code>，群退役写 <code>core_group_chat_retired</code>。<br><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td>
             <td><code>task.canceled</code></td>
           </tr>
           <tr data-k="e-q-fail" tabindex="0">
@@ -295,14 +295,15 @@
       <table class="tbl">
         <thead><tr><th>暂停原因</th><th>谁暂停</th><th>什么时候</th><th>谁恢复</th></tr></thead>
         <tbody>
-          <tr><td><code>backend_restart</code></td><td class="nowrap">重启恢复</td><td>重启时会话里还有排队任务，且会话此前是 active。</td><td>编排器（旧架构的角色会话）；QQ 适配器（旧架构的群会话）；宿主评审子会话由编排器在派发评审事件时恢复（<code class="src" data-src="src/runtime/orchestrator.ts#resumeQueue(task.sessionId">orchestrator.ts · dispatchEvent</a>）；其余（含其他 SubAgent 子会话）等拥有者</td></tr>
-          <tr><td><code>occupancy_unverified</code></td><td class="nowrap">重启恢复</td><td>旧后台留下占用行，且会话此前是 active。遗留占用一律视为无法确认旧执行已停止，不论部署方式（后台服务单元的 KillMode=control-group 只覆盖后台进程树，容器另行回收）。</td><td>拥有者；QQ 群会话由适配器启动时恢复</td></tr>
-          <tr><td><code>context_overflow</code></td><td>驱动器</td><td>provider 报告上下文超限，任务已中断。</td><td>拥有者；QQ 群会话由适配器启动时恢复</td></tr>
-          <tr><td>发送前复核的拦截码</td><td>驱动器</td><td>某次模型调用在发送前被拦下，任务已中断。</td><td>拥有者；QQ 群会话由适配器启动时恢复</td></tr>
+          <tr><td><code>backend_restart</code></td><td class="nowrap">重启恢复</td><td>重启时会话里还有排队任务，且会话此前是 active。</td><td>编排器（旧架构的角色会话；现存安装即 main 与 coding）；宿主评审子会话由编排器在派发评审事件时恢复（<code class="src" data-src="src/runtime/orchestrator.ts#resumeQueue(task.sessionId">orchestrator.ts · dispatchEvent</code>）；其余（含其他 SubAgent 子会话、旧群会话）等拥有者</td></tr>
+          <tr><td><code>occupancy_unverified</code></td><td class="nowrap">重启恢复</td><td>旧后台留下占用行，且会话此前是 active。遗留占用一律视为无法确认旧执行已停止，不论部署方式（后台服务单元的 KillMode=control-group 只覆盖后台进程树，容器另行回收）。</td><td>拥有者</td></tr>
+          <tr><td><code>context_overflow</code></td><td>驱动器</td><td>provider 报告上下文超限，任务已中断。</td><td>拥有者</td></tr>
+          <tr><td>发送前复核的拦截码</td><td>驱动器</td><td>某次模型调用在发送前被拦下，任务已中断。</td><td>拥有者</td></tr>
         </tbody>
       </table>
     </div>
-    <p>恢复都经 <code class="src" data-src="src/runtime/runtime.ts#async resumeQueue">runtime.ts · resumeQueue</code>：拥有者调用 <code>resume_queue</code>，或后台启动时的两处自动调用——编排器恢复角色会话里以 <code>backend_restart</code> 暂停的队列（<code class="src" data-src="src/runtime/orchestrator.ts#async start">orchestrator.ts · start</code>），QQ 适配器不论原因恢复所有暂停的 QQ 群会话，群会话没有工具执行（<code class="src" data-src="src/qq/adapter.ts#private async startOnce">qq/adapter.ts · startOnce</code>）。它只释放本会话所属任务已经结束的遗留占用，本会话有活动任务持有占用时整个请求被拒（<code>occupancy_active</code>）；旧版本留下的排队任务没有记录模型配置时，要求显式给出 model_selection 并写回（<code>tasks.model_selection_recorded</code>）；最后置 active、发 <code>session.queue_resumed</code> 并唤醒本会话的调度循环。暂停时发的是 <code>session.queue_paused</code>。</p>
+    <p>恢复都经 <code class="src" data-src="src/runtime/runtime.ts#async resumeQueue">runtime.ts · resumeQueue</code>：拥有者调用 <code>resume_queue</code>，或后台启动时编排器恢复角色会话里以 <code>backend_restart</code> 暂停的队列（<code class="src" data-src="src/runtime/orchestrator.ts#async start">orchestrator.ts · start</code>）。它只释放本会话所属任务已经结束的遗留占用，本会话有活动任务持有占用时整个请求被拒（<code>occupancy_active</code>）；旧版本留下的排队任务没有记录模型配置时，要求显式给出 model_selection 并写回（<code>tasks.model_selection_recorded</code>）；最后置 active、发 <code>session.queue_resumed</code> 并唤醒本会话的调度循环。暂停时发的是 <code>session.queue_paused</code>。</p>
+    <p>核心群聊已退役（agent-direction 工单 20）：启动时 <code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">retireGroupChat</code> 把旧群会话的遗留排队任务一律取消（原因 <code class="src" data-src="src/qq/store.ts#export const CORE_GROUP_CHAT_RETIRED">CORE_GROUP_CHAT_RETIRED</code>）、在途群回复定 unknown、未终态收件记 skipped，此后队列循环对群会话任务只做固定取消的兜底，运行中的群任务由通用恢复定 interrupted 不重放。</p>
   </section>
 
   <section id="subagent">

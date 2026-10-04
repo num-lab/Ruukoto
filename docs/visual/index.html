@@ -54,7 +54,7 @@
     <div class="cards">
       <div class="card">
         <h3><a href="storage-layout.html">存储布局</a></h3>
-        <p>两个产品各自的目录与文件、谁读谁写、哪份是权威，SQLite、JSONL 与产物文件之间怎么对齐；核心库全表目录、schema 迁移、旧会话映射到工作区，以及跨实例的 legacy-import 迁入。</p>
+        <p>两个产品各自的目录与文件、谁读谁写、哪份是权威，SQLite、JSONL 与产物文件之间怎么对齐；核心库全表目录、schema 迁移、旧会话映射到工作区，以及跨实例的 legacy-import 迁入（开发资料与个人资料两个方向）。</p>
         <p><code class="src" data-src="src/core/db.ts">db.ts</code> <code class="src" data-src="src/core/store.ts">store.ts</code></p>
       </div>
       <div class="card">
@@ -64,7 +64,7 @@
       </div>
       <div class="card">
         <h3><a href="deployment.html">部署与信任边界</a></h3>
-        <p>两个产品怎样部署与启动，系统身份、进程与容器，服务器与开发机的执行边界、受控服务 helper，每道边界挡住什么，秘密放在哪、谁能读；含 ruukoto-dev 的离线管理命令 legacy-import。</p>
+        <p>两个产品怎样部署与启动，系统身份、进程与容器，服务器与开发机的执行边界、受控服务 helper，每道边界挡住什么，秘密放在哪、谁能读；含两个产品分流的离线管理命令 legacy-import。</p>
         <p><code class="src" data-src="deploy/systemd/README.md">deploy/systemd</code> <code class="src" data-src="src/agent/execution/launchers.ts">launchers.ts</code></p>
       </div>
     </div>

@@ -33,7 +33,7 @@
         <code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS inbound_events">core/db.ts</code>
         <code class="src" data-src="src/agent/approval-gate.ts#resolve(confirmationId">agent/approval-gate.ts</code>
         <code class="src" data-src="src/telegram/adapter.ts#private async handleUpdate">telegram/adapter.ts</code>
-        <code class="src" data-src="src/qq/adapter.ts#private async handleGroupMessage">qq/adapter.ts</code>
+        <code class="src" data-src="src/qq/adapter.ts#private async handleEvent">qq/adapter.ts</code>
         <code class="src" data-src="src/qq/onebot.ts#export class OneBotClient">qq/onebot.ts</code>
         <code class="src" data-src="src/qq/store.ts#registerInbox(input">qq/store.ts</code>
         <code class="src" data-src="src/github/webhook.ts#private async receive">github/webhook.ts</code>
@@ -64,14 +64,14 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 410" role="img" aria-label="五个来源汇入 inbound_events：telegram 与 qq_private 经编排器登记；qq_group 先登记 qq_inbox 收件，再按收件键登记；scheduler 在到期事务内、github 在自己的登记事务内直接写入。编排器的 dispatchEvent 在串行链上派发：telegram、qq_private、scheduler 进 main 会话，qq_group 进该群的 qq_group 会话，github 建 main 父任务与评审 SubAgent 子任务。">
+        <svg viewBox="0 0 1040 410" role="img" aria-label="五个来源汇入 inbound_events：telegram 与 qq_private 经编排器登记；qq_group 已退役，群消息直接忽略不入库，退役前的旧链路是先登记 qq_inbox 收件再按收件键登记入站事件；scheduler 在到期事务内、github 在自己的登记事务内直接写入。编排器的 dispatchEvent 在串行链上派发：telegram、qq_private、scheduler 进 main 会话，github 建 main 父任务与评审 SubAgent 子任务。">
           <g class="n"><rect x="16" y="24" width="180" height="52" rx="8"/><text x="106" y="42">telegram</text><text class="sub" x="106" y="61">getUpdates 轮询</text></g>
           <g class="n"><rect x="16" y="102" width="180" height="52" rx="8"/><text x="106" y="120">qq_private</text><text class="sub" x="106" y="139">NapCat · 固定好友</text></g>
-          <g class="n"><rect x="16" y="180" width="180" height="52" rx="8"/><text x="106" y="198">qq_group</text><text class="sub" x="106" y="217">NapCat · @登录号</text></g>
+          <g class="n idle"><rect x="16" y="180" width="180" height="52" rx="8"/><text x="106" y="198">qq_group</text><text class="sub" x="106" y="217">已退役 · 消息忽略</text></g>
           <g class="n"><rect x="16" y="258" width="180" height="52" rx="8"/><text x="106" y="276">scheduler</text><text class="sub" x="106" y="295">wake_main 到期</text></g>
           <g class="n"><rect x="16" y="336" width="180" height="52" rx="8"/><text x="106" y="354">github</text><text class="sub" x="106" y="373">签名 PR webhook</text></g>
 
-          <g class="n accent"><rect x="252" y="180" width="130" height="52" rx="8"/><text x="317" y="198">qq_inbox</text><text class="sub" x="317" y="217">收件先登记</text></g>
+          <g class="n idle"><rect x="252" y="180" width="130" height="52" rx="8"/><text x="317" y="198">qq_inbox</text><text class="sub" x="317" y="217">归档 · 无新增</text></g>
 
           <g class="n accent"><rect x="452" y="24" width="150" height="364" rx="8"/><text x="527" y="188">inbound_events</text><text class="sub" x="527" y="210">source + external_id</text><text class="sub" x="527" y="228">唯一即幂等键</text></g>
 
@@ -79,10 +79,10 @@
           <text class="el" x="323" y="42">编排器登记</text>
           <path class="e" d="M196 128H450" marker-end="url(#ah)"/>
           <text class="el" x="323" y="120">编排器登记</text>
-          <path class="e" d="M196 206H250" marker-end="url(#ah)"/>
-          <text class="el" x="223" y="198">先登记</text>
-          <path class="e" d="M382 206H450" marker-end="url(#ah)"/>
-          <text class="el" x="416" y="198">收件键</text>
+          <path class="e dash" d="M196 206H250" marker-end="url(#ah)"/>
+          <text class="el" x="223" y="198">退役前</text>
+          <path class="e dash" d="M382 206H450" marker-end="url(#ah)"/>
+          <text class="el" x="416" y="198">退役前</text>
           <path class="e" d="M196 284H450" marker-end="url(#ah)"/>
           <text class="el" x="323" y="276">到期事务内</text>
           <path class="e" d="M196 362H450" marker-end="url(#ah)"/>
@@ -93,17 +93,17 @@
           <text class="el" x="626" y="198">派发</text>
 
           <g class="n"><rect x="860" y="84" width="164" height="52" rx="8"/><text x="942" y="102">main 会话</text><text class="sub" x="942" y="121">evt:&lt;事件&gt;</text></g>
-          <g class="n"><rect x="860" y="180" width="164" height="52" rx="8"/><text x="942" y="198">qq_group 会话</text><text class="sub" x="942" y="217">qq:&lt;收件键&gt;</text></g>
+          <g class="n idle"><rect x="860" y="180" width="164" height="52" rx="8"/><text x="942" y="198">旧 qq_group 事件</text><text class="sub" x="942" y="217">门恒 drop 作废</text></g>
           <g class="n"><rect x="860" y="276" width="164" height="52" rx="8"/><text x="942" y="294">main → coding</text><text class="sub" x="942" y="313">PR 只读评审</text></g>
           <path class="e" d="M802 196H826V110H858" marker-end="url(#ah)"/>
           <text class="el" x="842" y="102">main</text>
-          <path class="e" d="M802 206H858" marker-end="url(#ah)"/>
-          <text class="el" x="843" y="198">chat</text>
+          <path class="e bad dash" d="M802 206H858" marker-end="url(#ah-bad)"/>
+          <text class="el" x="843" y="198">drop</text>
           <path class="e" d="M802 216H826V302H858" marker-end="url(#ah)"/>
           <text class="el" x="842" y="294">评审</text>
         </svg>
       </div>
-      <figcaption>左列是来源（source 列的取值）。Telegram 与 QQ 私聊经宿主的 registerImInbound 交给编排器的 registerInboundEvent 登记（整条审批命令在这里先分流到 <a href="#im-approval">IM 审批路径</a>，不进这张图），正文按 INPUT_TEXT_CAP 截断；QQ 群只把收件键交给编排器（<code class="src" data-src="src/runtime/orchestrator.ts#async registerQqGroup">registerQqGroup</code>），事件的正文、触发者、收到时刻与回复目标全部取自宿主收件记录；调度器与 GitHub 在各自的事务里直接写 Store，再请编排器派发。派发时建的任务一律是 confirm 模式。</figcaption>
+      <figcaption>左列是来源（source 列的取值）。Telegram 与 QQ 私聊经宿主的 registerImInbound 交给编排器的 registerInboundEvent 登记（整条审批命令在这里先分流到 <a href="#im-approval">IM 审批路径</a>，不进这张图），正文按 INPUT_TEXT_CAP 截断；调度器与 GitHub 在各自的事务里直接写 Store，再请编排器派发。核心群聊已退役（agent-direction 工单 20）：群消息直接忽略，不再登记 qq_inbox 与 qq_group 事件，虚线的旧链路仅解释归档数据；退役前仍 registered 的 qq_group 事件被入站门固定丢弃（<code>core_group_chat_retired</code>，见<a href="#dispatch">派发与门控</a>）。派发时建的任务一律是 confirm 模式。</figcaption>
     </figure>
 
     <p>登记在 <code class="src" data-src="src/core/store.ts#registerInboundEvent(input">store.ts · registerInboundEvent</code>：<code>INSERT … ON CONFLICT (source, external_id) DO NOTHING</code>，插入成功才发 <code>inbound.registered</code>，键已存在时返回原事件（created = false），不发事件、不建任务。经编排器登记的来源还会校验目标角色有效、source 与 external_id 非空，并把正文截到 <code class="src" data-src="src/runtime/orchestrator.ts#const INPUT_TEXT_CAP = 8192">orchestrator.ts · INPUT_TEXT_CAP</code> 字符（<code class="src" data-src="src/runtime/orchestrator.ts#async registerInboundEvent(input">orchestrator.ts · registerInboundEvent</code>）。登记与派发分开：先提交登记事务，再在编排器的串行链上建任务，两者之间崩溃由启动恢复补上。</p>
@@ -162,7 +162,7 @@
         <tbody>
           <tr data-k="e-reg" tabindex="0">
             <td>新键 → <code class="st wait">registered</code></td>
-            <td>Telegram、QQ 私聊、QQ 群经编排器；调度器到期事务；GitHub 登记事务</td>
+            <td>Telegram、QQ 私聊经编排器；调度器到期事务；GitHub 登记事务（退役前还有 QQ 群）</td>
             <td>插入成功即生效，与调用方的其他写入同一事务（调度运行、GitHub 旧结果的失效标记）。<br><code class="src" data-src="src/core/store.ts#ON CONFLICT (source, external_id) DO NOTHING">store.ts · registerInboundEvent</code></td>
             <td><code>inbound.registered</code></td>
           </tr>
@@ -175,7 +175,7 @@
           <tr data-k="e-dup" tabindex="0">
             <td>已有键 → 原事件</td>
             <td>平台重投、恢复重提、Telegram 偏移未推进时的重读</td>
-            <td>返回已存在的行，状态不变。编排器入口只在 created 时触发派发；QQ 群入口（<code class="src" data-src="src/runtime/orchestrator.ts#async registerQqGroup">registerQqGroup</code>）不看 created，照常排一次派发（派发前复读状态，不会重复建任务）。IM 审批命令的重投在插入之前就按原键读出原记录（见<a href="#im-approval">IM 审批控制消息</a>），不靠这条约束。</td>
+            <td>返回已存在的行，状态不变。编排器入口只在 created 时触发派发；退役前的 QQ 群入口不看 created，照常排一次派发（派发前复读状态，不会重复建任务；该入口已随退役删除）。IM 审批命令的重投在插入之前就按原键读出原记录（见<a href="#im-approval">IM 审批控制消息</a>），不靠这条约束。</td>
             <td>无</td>
           </tr>
           <tr data-k="e-wait" tabindex="0">
@@ -187,13 +187,13 @@
           <tr data-k="e-queue" tabindex="0">
             <td><code class="st wait">registered</code> → <code class="st run">queued</code></td>
             <td>编排器派发</td>
-            <td>任务已提交（或按原请求键找回既有任务）后，一个事务里回填 task_id；QQ 群另在同一事务里回填任务的 agent_id 与 source_event_id、关联收件。若回填时任务已经记了结果（崩溃窗口），同一事务里接着定终态。<br><code class="src" data-src="src/core/store.ts#markInboundQueued">store.ts · markInboundQueued</code></td>
+            <td>任务已提交（或按原请求键找回既有任务）后，一个事务里回填 task_id。若回填时任务已经记了结果（崩溃窗口），同一事务里接着定终态。退役前的 QQ 群路径另在同一事务里关联收件；该路径已删除。<br><code class="src" data-src="src/core/store.ts#markInboundQueued">store.ts · markInboundQueued</code></td>
             <td><code>inbound.queued</code></td>
           </tr>
           <tr data-k="e-drop" tabindex="0">
             <td><code class="st wait">registered</code> → <code class="st bad">failed</code></td>
             <td>编排器派发的门；调度计划取消；QQ 私聊或 Telegram 配置变化</td>
-            <td>派发时门返回 drop：同一事务写 failed 与跳过事件，QQ 群收件记 skipped，同键的旧群任务未结束则取消。派发时遇到类别不是 task 的事件（正常路径不会产生：控制消息插入时就是终态，这是防御分支），同样作废并记原因 <code>control_event_not_dispatched</code>。计划取消（<code class="src" data-src="src/scheduler/runtime.ts#cancelSchedule(input">scheduler/runtime.ts · cancelSchedule</code>）与 IM 配置变化后的复核（<code class="src" data-src="src/runtime/runtime.ts#private async reconcileQqPrivate">runtime.ts · reconcileQqPrivate</code>、<code class="src" data-src="src/runtime/runtime.ts#private async reconcileTelegram">reconcileTelegram</code>）也走这条条件更新，但不发 <code>inbound.skipped</code>。<br><code class="src" data-src="src/core/store.ts#failRegisteredInbound">store.ts · failRegisteredInbound</code></td>
+            <td>派发时门返回 drop：同一事务写 failed 与跳过事件；退役遗留的 qq_group 事件由门固定以 <code class="src" data-src="src/qq/store.ts#export const CORE_GROUP_CHAT_RETIRED">core_group_chat_retired</code> 丢弃，若有对应群收件记 skipped，同键的旧群任务未结束则取消。派发时遇到类别不是 task 的事件（正常路径不会产生：控制消息插入时就是终态，这是防御分支），同样作废并记原因 <code>control_event_not_dispatched</code>。计划取消（<code class="src" data-src="src/scheduler/runtime.ts#cancelSchedule(input">scheduler/runtime.ts · cancelSchedule</code>）与 IM 配置变化后的复核（<code class="src" data-src="src/runtime/runtime.ts#private async reconcileQqPrivate">runtime.ts · reconcileQqPrivate</code>、<code class="src" data-src="src/runtime/runtime.ts#private async reconcileTelegram">reconcileTelegram</code>）也走这条条件更新，但不发 <code>inbound.skipped</code>。<br><code class="src" data-src="src/core/store.ts#failRegisteredInbound">store.ts · failRegisteredInbound</code></td>
             <td>派发时作废发 <code>inbound.skipped</code>（带原因）；其余无</td>
           </tr>
           <tr data-k="e-done" tabindex="0">
@@ -214,7 +214,7 @@
 
     <aside class="callout inv">
       <b>不变量</b>
-      <p>没有登记就没有任务：每个入站任务的 source_event_id 都指向一条已提交的事件，建任务用的请求键由事件或收件派生（<code>evt:&lt;事件&gt;</code>、<code>qq:&lt;收件键&gt;</code>、<code>evt:&lt;事件&gt;:main</code> 与评审工作的 <code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>，升级接管为旧 <code>deleg:&lt;父任务&gt;:review</code>），同键重提由提交幂等返回原任务。已建任务的事件（queued → done / failed）只由编排器写终态：通常在结果事务里，与任务结果、<code>child_task.*</code> 事件和 owner 回复登记一起提交；任务在回填 task_id 之前就已记了结果时（崩溃窗口），由派发的回填事务补写终态，owner 回复早已随那次结果事务登记。还没建任务的事件（registered → failed）另有调度器取消计划与 Runtime 复核 QQ 私聊 / Telegram 入口三处会作废；以上都是 <code>event_kind = task</code> 的普通事件，<code>im_approval</code> 控制消息登记即终态；万一出现 registered 的控制事件（正常路径不会产生），由派发作废。</p>
+      <p>没有登记就没有任务：每个入站任务的 source_event_id 都指向一条已提交的事件，建任务用的请求键由事件或收件派生（<code>evt:&lt;事件&gt;</code>，退役前的 QQ 群为 <code>qq:&lt;收件键&gt;</code>（归档键，不再有新增），<code>evt:&lt;事件&gt;:main</code> 与评审工作的 <code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>，升级接管为旧 <code>deleg:&lt;父任务&gt;:review</code>），同键重提由提交幂等返回原任务。已建任务的事件（queued → done / failed）只由编排器写终态：通常在结果事务里，与任务结果、<code>child_task.*</code> 事件和 owner 回复登记一起提交；任务在回填 task_id 之前就已记了结果时（崩溃窗口），由派发的回填事务补写终态，owner 回复早已随那次结果事务登记。还没建任务的事件（registered → failed）另有调度器取消计划与 Runtime 复核 QQ 私聊 / Telegram 入口三处会作废；以上都是 <code>event_kind = task</code> 的普通事件，<code>im_approval</code> 控制消息登记即终态；万一出现 registered 的控制事件（正常路径不会产生），由派发作废。</p>
     </aside>
   </section>
 
@@ -243,12 +243,8 @@
             <td>不登记，不记事件</td>
           </tr>
           <tr>
-            <td><code>qq_group</code><br>（旧架构）</td>
-            <td>收件键 <code>&lt;account&gt;:&lt;group&gt;:&lt;message_id&gt;</code></td>
-            <td>同上的连接与 self_id 核对；群在允许列表；有指向登录号的结构化 at 段</td>
-            <td>该「登录账号 + 群」的 qq_group 会话，chat 角色，<code>qq:&lt;收件键&gt;</code></td>
-            <td>群、登录账号、收件时的配置版本；<code>gateGroup</code> 用 <code>sameTarget</code> 比对。另有收件原文与引用消息 ID</td>
-            <td>不触发的消息不登记；超大或过期的登记收件后记 <code>skipped</code></td>
+            <td><code>qq_group</code><br>（已退役）</td>
+            <td colspan="5">核心群聊已退役（agent-direction 工单 20）：群消息在适配器直接忽略，不登记收件、不建任务、不回复；退役前的归档取收件键 <code>&lt;account&gt;:&lt;group&gt;:&lt;message_id&gt;</code>、进该群的 qq_group 会话（请求键 <code>qq:&lt;收件键&gt;</code>）；退役前登记仍 registered 的旧事件由入站门固定丢弃（原因 <code>core_group_chat_retired</code>，见<a href="#dispatch">派发与门控</a>）</td>
           </tr>
           <tr>
             <td><code>scheduler</code></td>
@@ -282,69 +278,40 @@
     <h3>QQ 私聊</h3>
     <p>QQ 私聊与群聊共用一条 NapCat OneBot v11 正向 WebSocket 连接（<code class="src" data-src="src/qq/onebot.ts#export class OneBotClient">onebot.ts · OneBotClient</code>）。连接打开后并行调 <code>get_login_info</code> 与 <code>get_status</code>，之后每 <code class="src" data-src="src/qq/onebot.ts#probeIntervalMs ?? 30_000">probeIntervalMs ?? 30_000</code> 毫秒再探一次；心跳事件的 status 也参与判断。拿到有效登录号、且状态同时是 online 与 good（<code class="src" data-src="src/qq/onebot.ts#function isOnlineStatus">isOnlineStatus</code>）才算在线；WebSocket 还连着、账号离线时同样算不在线。</p>
     <ul>
-      <li><b>公共核对</b>（<code class="src" data-src="src/qq/adapter.ts#private async handleEvent">qq/adapter.ts · handleEvent</code>，私聊与群聊都走）：适配器已启动、QQ 入口已启用、连接在线、连接核实的登录号等于配置的 self_id、连接代次仍是当前配置、事件 self_id 等于配置。连接代次由连接键决定（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>：端点、凭据名与值、登录号、配置版本）——任何配置或凭据变化都要求重建连接，旧连接上的事件不再接纳。任何一条不满足，事件直接丢弃。</li>
+      <li><b>公共核对</b>（<code class="src" data-src="src/qq/adapter.ts#private async handleEvent">qq/adapter.ts · handleEvent</code>，私聊与撤回通知都走）：适配器已启动、QQ 入口已启用、连接在线、连接核实的登录号等于配置的 self_id、连接代次仍是当前配置、事件 self_id 等于配置。连接代次由连接键决定（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>：端点、凭据名与值、登录号、配置版本）——任何配置或凭据变化都要求重建连接，旧连接上的事件不再接纳。任何一条不满足，事件直接丢弃。群消息不在这条核对之后分流：群分支已随退役删除，群消息到达即忽略。</li>
       <li><b>私聊接纳</b>（<code class="src" data-src="src/qq/adapter.ts#private async handlePrivateMessage">handlePrivateMessage</code>）：私聊入口可用（配了 owner、取得到 token）；sub_type 为 friend，发送者等于配置的 owner 且不是登录号本身，没有 group_id，sender 与 user_id 一致；消息段只能是 text 与 reply，出现其他段整条忽略；拼出的文本非空且不超过 <code class="src" data-src="src/qq/adapter.ts#const MAX_INBOUND_TEXT_CHARS = 8192">MAX_INBOUND_TEXT_CHARS</code> 字符。不满足的一律静默忽略，不记事件。引用只记被回复消息的 ID，不读原文；拼出的原始发送文本另作为 <code>commandText</code> 交给宿主（引用内容不进这个字段），供识别审批命令。</li>
       <li><b>入站时固定</b>：外部 ID 由 <code class="src" data-src="src/qq/adapter.ts#export function qqPrivateExternalId">qqPrivateExternalId</code> 拼成，actor 为 <code>qq_private:&lt;owner&gt;</code>，回复目标取接收那一刻的 <code class="src" data-src="src/qq/adapter.ts#target(): NotifyTarget | null">target()</code>：平台 <code>qq_private</code>、登录账号、owner、配置版本，存进事件的 reply_target。之后派发、任务启动与 owner 回复都拿它与当前配置逐字段比对（两平台共用 <code class="src" data-src="src/core/notify-target.ts#sameTarget">notify-target.ts · sameTarget</code>），配置换了就不改发给新目标。</li>
     </ul>
     <aside class="callout limit">
       <b>接收不是投递确认</b>
-      <p>QQ 私聊登记失败（编排器未就绪、后台正在停止）只记诊断日志，这条消息不会重试。连接断开或账号离线再恢复时，适配器记一条 <code>qq.receive_gap</code>，带离线的起止时刻；这段时间的私聊与群消息都不补抓、不假定平台会重投。Telegram 靠持久偏移让平台重投，只要平台还保留着这些 update，就没有这类缺口。</p>
+      <p>QQ 私聊登记失败（编排器未就绪、后台正在停止）只记诊断日志，这条消息不会重试。连接断开或账号离线再恢复时，适配器记一条 <code>qq.receive_gap</code>，带离线的起止时刻；这段时间的私聊消息不补抓、不假定平台会重投（群消息退役后直接忽略）。Telegram 靠持久偏移让平台重投，只要平台还保留着这些 update，就没有这类缺口。</p>
     </aside>
 
-    <h3>QQ 群（旧架构）</h3>
-    <p>这是旧架构「QQ 群聊入口」的现行实现：核心运行时按登录账号和群维护独立会话，由 chat 角色处理。新方向要把它迁移成可独立运行和停用的 QQ 群聊外挂，迁移前下面的机制照常生效。</p>
-    <p>群消息先登记到 QQ 自己的收件表 <code>qq_inbox</code>（<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS qq_inbox">db.ts · qq_inbox</code>），再登记 <code>qq_group</code> 入站事件。收件是群入口的宿主记录：会话、原文、发言人、配置版本都从这里取，入站事件和派发时的核对都以它为准。</p>
+    <h3>QQ 群（已退役）</h3>
+    <p>核心群聊已退役（agent-direction 工单 20，ADR 0017 修订 ADR 0014）：适配器 <code class="src" data-src="src/qq/adapter.ts#private async handleEvent">handleEvent</code> 没有群分支，群消息直接忽略——不登记收件、不建会话、不建任务、不回复，也不逐条记日志。旧群资料保留为只读归档：<code>qq_inbox</code> / <code>qq_outbox</code> / <code>qq_sessions</code> 不再有新增（见 <a href="storage-layout.html">存储布局</a>），可经 <code>ruukoto qq inbox</code> 与 <code>qq outbox</code> 查阅；正式群聊外挂在后续阶段交付。</p>
+    <p>退役前（旧架构）群消息先登记到 QQ 自己的收件表 <code>qq_inbox</code>（<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS qq_inbox">db.ts · qq_inbox</code>），再登记 <code>qq_group</code> 入站事件：收件是群入口的宿主记录，会话、原文、发言人、配置版本都从这里取。升级遗留的非终态行由每次启动的退役收尾（<code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime.ts · retireGroupChat</code>）按状态幂等地终结，不会重新处理（见 <a href="#recovery">重启恢复</a>）；仍 registered 的旧 qq_group 事件由派发补上作废（见 <a href="#dispatch">派发与门控</a>）。</p>
     <ul>
-      <li><b>触发</b>（<code class="src" data-src="src/qq/adapter.ts#private async handleGroupMessage">handleGroupMessage</code>）：群号、发言人、消息 ID 齐全；发言人不是登录号（自身消息与 message_sent 回声不触发）；群在允许列表；消息是结构化段数组，只含 at、text、reply，出现图片、语音、转发等任何其他段整条忽略；必须有一个 at 段的 qq 等于登录号，不按显示名或正文里的 @ 字符匹配；去掉首尾空白后文本非空。</li>
-      <li><b>收件键与原文</b>：<code class="src" data-src="src/qq/store.ts#export function qqDedupKey">qqDedupKey</code> 拼成 <code>account:group:message_id</code>，请求键固定为 <code>qq:</code> 加收件键（<code class="src" data-src="src/qq/store.ts#requestId: `qq:${dedupKey}`">qq/store.ts · registerInbox</code>）。任务输入以消息标记 <code class="src" data-src="src/qq/store.ts#export function qqMessageTag">qqMessageTag</code> 开头，接发言人与正文；被引用的消息只有在本群收件里、且没被撤回时才附上前 <code class="src" data-src="src/qq/adapter.ts#const QUOTE_TEXT_CAP = 200">QUOTE_TEXT_CAP</code> 个字符，并记下引用消息 ID。</li>
-      <li><b>超大与过期</b>：正文超过 <code>MAX_INBOUND_TEXT_CHARS</code> 字符，或消息时间早于排队有效期（配置里固定 <code class="src" data-src="src/qq/store.ts#queueTtlMs: 300_000">queueTtlMs: 300_000</code> 毫秒，不能经配置修改），照样登记收件，随即记 <code class="st idle">skipped</code>，不登记入站事件。这样断线期间积压、重连后被重投的旧消息有明确结局。</li>
-      <li><b>会话</b>：首次触发时建项目 <code>qq-&lt;账号&gt;-&lt;群&gt;</code>、数据目录旁 <code>qq-work/</code> 下的专用空目录和 qq_group 类别会话（<code class="src" data-src="src/qq/adapter.ts#private async ensureGroupSession">ensureGroupSession</code>），不同群互相隔离。群会话的角色能力归<a href="orchestrator.html">编排器</a>。</li>
-      <li><b>撤回</b>（<code class="src" data-src="src/qq/adapter.ts#private async handleRecall">handleRecall</code>）：<code>group_recall</code> 通知按收件键条件标记 recalled（未登记或已标记的不处理，撤回事件丢失时不宣称已知撤回）。该消息与引用它的消息里尚未完成的收件：未结束的任务取消，已登记在途的群回复记 unknown、收件记 <code class="st unk">reply_unknown</code>；随后触发一次派发，还没建任务的事件在门上以 <code>qq_recalled</code> 丢弃。撤回的消息在之后的模型调用前从上下文视图移出，不改写历史（见<a href="context-pipeline.html">上下文组装</a>）。</li>
+      <li><b>触发、会话与回复链路已删除</b>：原 handleGroupMessage、ensureGroupSession、registerQqGroup、gateGroup、gate、sendReply、recoverInbox、recoverCompletedInbox、cancelInvalidGroupWork、cancelQqWork、onGroupRemoved、reconcilePendingOutboxOnBoot 都不复存在。归档中的收件键仍取退役前格式：<code class="src" data-src="src/qq/store.ts#export function qqDedupKey">qqDedupKey</code> 拼成 <code>account:group:message_id</code>，请求键为 <code>qq:</code> 加收件键（<code class="src" data-src="src/qq/store.ts#requestId: `qq:${dedupKey}`">qq/store.ts · registerInbox</code>），任务输入以消息标记 <code class="src" data-src="src/qq/store.ts#export function qqMessageTag">qqMessageTag</code> 开头。</li>
+      <li><b>撤回仍打标记</b>（<code class="src" data-src="src/qq/adapter.ts#private async handleRecall">handleRecall</code>）：<code>group_recall</code> 通知照旧走公共核对，但只做一件事——<code class="src" data-src="src/qq/store.ts#markRecalled">qq/store.ts · markRecalled</code> 按收件键给已登记的旧收件打 recalled 标记（未登记或已标记的不处理，撤回事件丢失时不宣称已知撤回）。不再取消任务、不补发回复、不再触发派发。标记仍支撑已接收群结果的撤回复核（见 <a href="orchestrator.html#chat">编排器 · 群聊结果</a>）。</li>
     </ul>
 
-    <figure class="fig">
-      <div class="scroll">
-        <div class="seq" style="--n:6">
-          <div class="who"><span>NapCat</span><span>QQ 适配器</span><span>qq_inbox</span><span>编排器</span><span>inbound_events</span><span>Runtime 队列</span></div>
-          <div class="m" style="--from:1;--to:2"><span>群消息事件（结构化段）</span></div>
-          <div class="note" style="--from:2;--to:3">公共核对 · 群允许 · @登录号 · 只有文本</div>
-          <div class="m" style="--from:2;--to:3"><span>registerInbox · 去重</span></div>
-          <div class="note" style="--from:3;--to:4">超大或已过期：skipped，到此为止</div>
-          <div class="m" style="--from:2;--to:3"><span>绑定群会话</span></div>
-          <div class="m" style="--from:2;--to:4"><span>registerQqGroup(收件键)</span></div>
-          <div class="m" style="--from:4;--to:5"><span>登记 qq_group 事件</span></div>
-          <div class="phase"><span>派发串行链</span></div>
-          <div class="note" style="--from:3;--to:5">gateGroup：绑定、配置版本、撤回、有效期、在线</div>
-          <div class="m" style="--from:4;--to:6"><span>submit：qq:&lt;收件键&gt;，confirm（或找回同键旧任务）</span></div>
-          <div class="note wait" style="--from:5;--to:6">提交时的 kick：事件还没关联本任务，不启动</div>
-          <div class="phase"><span>同一事务</span></div>
-          <div class="m l" style="--from:4;--to:3"><span>linkInboxTask</span></div>
-          <div class="m" style="--from:4;--to:5"><span>markInboundQueued</span></div>
-          <div class="phase"><span>提交之后</span></div>
-          <div class="m" style="--from:4;--to:6"><span>kickSession</span></div>
-          <div class="note ok" style="--from:5;--to:6">来源门与群会话门放行 → running</div>
-        </div>
-      </div>
-      <figcaption>同一事务里收件 registered → queued、事件 registered → queued，并回填任务的 agent_id 与 source_event_id，提交后才唤醒群会话；事件的正文、actor、收到时刻与目标都取自收件（入站事件没有会话字段），建任务用的群会话取自收件绑定与群会话映射。Runtime 看到群任务的来源事件尚未指向它时直接返回（<code class="src" data-src="src/runtime/runtime.ts#sourceEvent.taskId !== task.id">runtime.ts · runQueueLoop</code>），所以提交里那次立即 kick 抢不到执行。登记这一步失败（后台停止中、编排器未就绪、群会话建不起来）时收件保持 registered，不标 skipped，由下次适配器启动的恢复按原收件键重新登记；事件已登记、建任务失败的，事件留在 registered，由补派重试。</figcaption>
-    </figure>
-
-    <p>收件状态（<code class="src" data-src="src/qq/store.ts#export type QqInboxStatus">qq/store.ts · QqInboxStatus</code>）记的是「这条群消息最后怎样了」，包括回复发没发出去；群回复的发送账本 <code>qq_outbox</code> 见<a href="outbox.html">通知 outbox</a>。</p>
+    <p>收件状态（<code class="src" data-src="src/qq/store.ts#export type QqInboxStatus">qq/store.ts · QqInboxStatus</code>）记的是「这条群消息最后怎样了」，包括回复发没发出去；群回复账本 <code>qq_outbox</code> 见 <a href="outbox.html">通知 outbox</a>。退役后不再有新收件，<code class="st wait">registered</code> 与 <code class="st run">queued</code> 也不再产生：升级遗留的这两类行由退役收尾一次性清理（queued 且回复在途的记 <code>reply_unknown</code>，其余未终态记 <code>skipped</code>）。下表第三列的退役前写法仅解释归档中已有的行。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>收件状态</th><th>含义</th><th>谁写、什么时候</th></tr></thead>
         <tbody>
-          <tr><td><code class="st wait">registered</code></td><td>已登记，还没关联任务</td><td>登记收件时；入队失败时保持</td></tr>
-          <tr><td><code class="st run">queued</code></td><td>已关联任务</td><td>派发的回填事务，只从 registered 转入（<code class="src" data-src="src/qq/store.ts#linkInboxTask">qq/store.ts · linkInboxTask</code>）</td></tr>
-          <tr><td><code class="st ok">done</code></td><td>回复已发出</td><td><code>send_group_msg</code> 回执带有效 message_id，群回复记为 sent（<code class="src" data-src="src/qq/adapter.ts#private async sendReply">sendReply</code>）</td></tr>
-          <tr><td><code class="st bad">reply_failed</code></td><td>回复明确没发出</td><td>平台明确失败；没有入站事件的旧收件在发送时未连接。任务完成但读不到回答文本时也会先写这个值，随即被第二次 sendReply 覆盖为 skipped（见下）</td></tr>
-          <tr><td><code class="st unk">reply_unknown</code></td><td>回复结果不明</td><td>动作超时、断线或回执无效；撤回、停用或移出群时回复在途；启动时遗留 pending（<code class="src" data-src="src/qq/store.ts#reconcilePendingOutboxOnBoot(): number">reconcilePendingOutboxOnBoot</code>）；平台在别处定态后才返回</td></tr>
-          <tr><td><code class="st idle">skipped</code></td><td>不回复</td><td>超大或过期；门丢弃；任务以 failed、canceled、interrupted 结束；发送前复核不通过（不在线、停用、账号或群变化、撤回、收件已不是 queued）；读不到回答文本（见下）；恢复时入口已停用、登录号已变或群不在允许列表</td></tr>
+          <tr><td><code class="st wait">registered</code></td><td>已登记，还没关联任务</td><td>退役前：登记收件时，入队失败时保持；升级遗留的一律经退役收尾记 skipped</td></tr>
+          <tr><td><code class="st run">queued</code></td><td>已关联任务</td><td>退役前：派发的回填事务（<code class="src" data-src="src/qq/store.ts#linkInboxTask">qq/store.ts · linkInboxTask</code>），只从 registered 转入；遗留行若回复在途记 reply_unknown，否则 skipped</td></tr>
+          <tr><td><code class="st ok">done</code></td><td>回复已发出</td><td>退役前：<code>send_group_msg</code> 回执带有效 message_id，群回复记为 sent</td></tr>
+          <tr><td><code class="st bad">reply_failed</code></td><td>回复明确没发出</td><td>退役前：平台明确失败；旧收件在发送时未连接等</td></tr>
+          <tr><td><code class="st unk">reply_unknown</code></td><td>回复结果不明</td><td>退役收尾把退役时遗留的 pending 群回复定 unknown，对应仍在 queued 的收件记本值；退役前：动作超时、断线或回执无效，撤回或停用时回复在途</td></tr>
+          <tr><td><code class="st idle">skipped</code></td><td>不回复</td><td>退役收尾：剩余未终态收件一律记本值；退役遗留的 qq_group 门丢弃同一事务里也记本值；退役前：超大或过期、门丢弃、任务非正常结束、发送前复核不通过</td></tr>
         </tbody>
       </table>
     </div>
     <aside class="callout limit">
       <b>收件状态写入不带条件</b>
-      <p><code class="src" data-src="src/qq/store.ts#setInboxStatus">setInboxStatus</code> 直接覆盖（linkInboxTask 与启动核对里的更新另带起点条件）。群任务完成时 <code>task.completed</code> 与随后的 <code>child_task.completed</code> 各触发一次 sendReply，已登记群回复的第二次直接返回；但第一次若因读不到回答文本记了 <code>reply_failed</code>、没有登记群回复，第二次看到收件已不是 queued，会改记 <code>skipped</code>。</p>
+      <p><code class="src" data-src="src/qq/store.ts#setInboxStatus">setInboxStatus</code> 直接覆盖（退役收尾里的回复定态与 linkInboxTask 另带起点条件）。退役收尾依赖这条让重复启动幂等：先把回复在途的收件定 reply_unknown，再对剩余 registered/queued 收件一律记 skipped，已到终态的行一律不动。</p>
     </aside>
 
     <h3>调度器 wake_main</h3>
@@ -364,13 +331,13 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 450" role="img" aria-label="派发与启动前的两道门。派发时：事件已不是 registered 则不派发；inboundGate 返回 drop 时事件记 failed 并发 inbound.skipped，返回 wait 时保持 registered；run 时按来源以 confirm 模式建任务，提交失败也保持 registered；提交成功后在回填事务里转 queued。唤醒会话后，启动前：群任务的来源事件尚未指向本任务则留在 queued；来源门与群会话门返回 wait 时留在 queued，返回 drop 时任务取消并把原因写入 error_message；放行后进入目录核对与 running。">
+        <svg viewBox="0 0 1040 450" role="img" aria-label="派发与启动前的门。派发时：事件已不是 registered 则不派发；inboundGate 返回 drop 时事件记 failed 并发 inbound.skipped，返回 wait 时保持 registered；run 时按来源以 confirm 模式建任务，提交失败也保持 registered；提交成功后在回填事务里转 queued。唤醒会话后，启动前：来源门返回 wait 时留在 queued，返回 drop 时任务取消并把原因写入 error_message；qq_group 会话的任务由退役兜底固定取消；放行后进入目录核对与 running。">
           <rect class="zone-r" x="8" y="8" width="1024" height="194" rx="12"/>
           <text class="zone-t" x="22" y="30">派发时 · dispatchEvent</text>
           <g class="n"><rect x="24" y="46" width="160" height="52" rx="8"/><text x="104" y="64">registered?</text><text class="sub" x="104" y="83">派发前复读状态</text></g>
           <g class="n"><rect x="244" y="46" width="160" height="52" rx="8"/><text x="324" y="64">inboundGate</text><text class="sub" x="324" y="83">按来源分派</text></g>
           <g class="n run"><rect x="474" y="46" width="190" height="52" rx="8"/><text x="569" y="64">按来源建任务</text><text class="sub" x="569" y="83">confirm · 原请求键</text></g>
-          <g class="n ok"><rect x="734" y="46" width="282" height="52" rx="8"/><text x="875" y="64">回填事务</text><text class="sub" x="875" y="83">queued · 群收件关联 · 补写终态</text></g>
+          <g class="n ok"><rect x="734" y="46" width="282" height="52" rx="8"/><text x="875" y="64">回填事务</text><text class="sub" x="875" y="83">queued · 补写终态</text></g>
           <path class="e" d="M184 72H242" marker-end="url(#ah)"/>
           <text class="el" x="213" y="64">是</text>
           <path class="e ok" d="M404 72H472" marker-end="url(#ah-ok)"/>
@@ -395,25 +362,23 @@
 
           <rect class="zone-r" x="8" y="226" width="1024" height="216" rx="12"/>
           <text class="zone-t" x="22" y="248">启动前 · runQueueLoop</text>
-          <g class="n"><rect x="24" y="270" width="150" height="52" rx="8"/><text x="99" y="288">群任务已关联</text><text class="sub" x="99" y="307">来源事件指向本任务</text></g>
-          <g class="n"><rect x="254" y="270" width="220" height="52" rx="8"/><text x="364" y="288">来源门 · 群会话门</text><text class="sub" x="364" y="307">inboundGate · gate</text></g>
-          <g class="n run"><rect x="544" y="270" width="220" height="52" rx="8"/><text x="654" y="288">running</text><text class="sub" x="654" y="307">目录核对 · 取占用</text></g>
-          <path class="e" d="M174 296H252" marker-end="url(#ah)"/>
-          <text class="el" x="214" y="288">已关联 · 非群</text>
-          <path class="e ok" d="M474 296H542" marker-end="url(#ah-ok)"/>
-          <text class="el" x="508" y="288">run</text>
+          <g class="n"><rect x="24" y="270" width="200" height="52" rx="8"/><text x="124" y="288">inboundGate</text><text class="sub" x="124" y="307">带来源事件的任务判一次</text></g>
+          <g class="n idle"><rect x="304" y="270" width="180" height="52" rx="8"/><text x="394" y="288">qq_group 会话</text><text class="sub" x="394" y="307">退役兜底</text></g>
+          <g class="n run"><rect x="594" y="270" width="220" height="52" rx="8"/><text x="704" y="288">running</text><text class="sub" x="704" y="307">目录核对 · 取占用</text></g>
+          <path class="e ok" d="M224 296H592" marker-end="url(#ah-ok)"/>
+          <text class="el" x="508" y="288">run · 非群会话</text>
 
           <g class="n wait"><rect x="24" y="362" width="250" height="48" rx="8"/><text x="149" y="378">留在 queued</text><text class="sub" x="149" y="396">等下一次 kick</text></g>
-          <g class="n idle"><rect x="304" y="362" width="240" height="48" rx="8"/><text x="424" y="378">canceled</text><text class="sub" x="424" y="396">原因写入 error_message</text></g>
-          <path class="e wait" d="M99 322V360" marker-end="url(#ah-wait)"/>
-          <text class="el start" x="105" y="346">未关联</text>
-          <path class="e wait" d="M300 322L240 360" marker-end="url(#ah-wait)"/>
-          <text class="el end" x="262" y="338">wait</text>
-          <path class="e" d="M420 322V360" marker-end="url(#ah)"/>
-          <text class="el start" x="426" y="346">drop</text>
+          <g class="n idle"><rect x="304" y="362" width="240" height="48" rx="8"/><text x="424" y="378">canceled</text><text class="sub" x="424" y="396">core_group_chat_retired</text></g>
+          <path class="e wait" d="M124 322V360" marker-end="url(#ah-wait)"/>
+          <text class="el start" x="130" y="346">wait</text>
+          <path class="e" d="M149 322L296 360" marker-end="url(#ah)"/>
+          <text class="el end" x="240" y="338">drop</text>
+          <path class="e" d="M394 322V360" marker-end="url(#ah)"/>
+          <text class="el start" x="400" y="346">固定取消</text>
         </svg>
       </div>
-      <figcaption>两道门用同一个 <code class="src" data-src="src/runtime/runtime.ts#private inboundGate">runtime.ts · inboundGate</code>：派发时判的是「还要不要建任务」，启动前在 <code class="src" data-src="src/runtime/runtime.ts#private async runQueueLoop">runQueueLoop</code> 里对带来源事件的队首任务再判一次，因为排队期间配置、撤回或 PR 修订都可能变了。非群任务在提交时就被唤醒，不等回填；群任务要等回填事务提交后的 kickSession。类别不是 task 的事件在过门之前就作废（同样记 failed 与 <code>inbound.skipped</code>，原因 <code>control_event_not_dispatched</code>）。running 之后的目录核对与占用见<a href="task-lifecycle.html">任务生命周期</a>。</figcaption>
+      <figcaption>派发与启动前用同一个 <code class="src" data-src="src/runtime/runtime.ts#private inboundGate">runtime.ts · inboundGate</code>：派发时判的是「还要不要建任务」，启动前在 <code class="src" data-src="src/runtime/runtime.ts#private async runQueueLoop">runQueueLoop</code> 里对带来源事件的队首任务再判一次，因为排队期间配置、撤回或 PR 修订都可能变了。qq_group 来源的门固定 drop <code>core_group_chat_retired</code>：退役遗留的 registered 事件在派发时作废，不再建任务。类别不是 task 的事件在过门之前就作废（同样记 failed 与 <code>inbound.skipped</code>，原因 <code>control_event_not_dispatched</code>）。启动前另有退役兜底：qq_group 会话的队首任务一律固定取消，通常已被退役收尾处理完（见 <a href="#recovery">重启恢复</a>）。running 之后的目录核对与占用见<a href="task-lifecycle.html">任务生命周期</a>。</figcaption>
       <ul class="legend">
         <li><i class="wait"></i>等待</li>
         <li><i class="run"></i>建任务 · 执行</li>
@@ -424,7 +389,7 @@
     </figure>
 
     <h3>各来源的门</h3>
-    <p><code>inboundGate</code> 按来源分派：<code>qq_group</code> 交 <code class="src" data-src="src/qq/adapter.ts#gateGroup(event: InboundEvent)">gateGroup</code>，<code>github</code> 交 <code class="src" data-src="src/github/events.ts#gate(event: InboundEvent)">events.ts · gate</code>，<code>telegram</code> 交 <code class="src" data-src="src/runtime/runtime.ts#private telegramGate">telegramGate</code>（适配器的 gatePrivate），其余交 <code class="src" data-src="src/runtime/runtime.ts#private qqPrivateGate">qqPrivateGate</code>，它对非 <code>qq_private</code> 来源直接放行。QQ 适配器未创建（ruukoto-dev，或进程设了 <code>RUUKOTO_DISABLE_QQ=1</code>，开发实例固定注入）时两个 QQ 门都返回 wait；Telegram 适配器未创建时 Telegram 门以 <code>telegram_unavailable</code> 丢弃。QQ 与 Telegram 门的丢弃原因以代码前缀开头、后接说明，GitHub 门直接写说明；原因写进 <code>inbound.skipped</code> 或任务的 error_message。</p>
+    <p><code>inboundGate</code> 按来源分派：<code>qq_group</code> 恒为固定丢弃 <code class="src" data-src="src/qq/store.ts#export const CORE_GROUP_CHAT_RETIRED">core_group_chat_retired</code>（核心群聊已退役，完整文本为 <code>core_group_chat_retired:核心群聊已退役（正式外挂后续交付）</code>）；<code>github</code> 交 <code class="src" data-src="src/github/events.ts#gate(event: InboundEvent)">events.ts · gate</code>，<code>telegram</code> 交 <code class="src" data-src="src/runtime/runtime.ts#private telegramGate">telegramGate</code>（适配器的 gatePrivate），其余交 <code class="src" data-src="src/runtime/runtime.ts#private qqPrivateGate">qqPrivateGate</code>，它对非 <code>qq_private</code> 来源直接放行。QQ 适配器未创建（ruukoto-dev，或进程设了 <code>RUUKOTO_DISABLE_QQ=1</code>，开发实例固定注入）时 QQ 私聊门返回 wait（qq_group 门不依赖适配器）；Telegram 适配器未创建时 Telegram 门以 <code>telegram_unavailable</code> 丢弃。QQ 与 Telegram 门的丢弃原因以代码前缀开头、后接说明，GitHub 门直接写说明；原因写进 <code>inbound.skipped</code> 或任务的 error_message。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>门</th><th>run</th><th>wait</th><th>drop</th></tr></thead>
@@ -448,10 +413,10 @@
             <td><code>qq_private_target_changed</code>：QQ 入口停用、owner 或 token 缺失、账号 / owner / 配置版本与入站时不同、actor 不符</td>
           </tr>
           <tr>
-            <td><code>qq_group</code><br><code>gateGroup</code></td>
-            <td>绑定、配置、撤回、有效期都通过，且适配器已启动、连接在线、参数是当前配置</td>
-            <td>同左的在线条件不满足</td>
-            <td><code>qq_group_binding_changed</code> 收件、群会话映射、会话类别、actor 或正文对不上；<code>qq_group_disabled</code> 入口停用、登录号变化或群移出允许列表；<code>qq_group_config_changed</code> 配置版本已变；<code>qq_recalled</code> 消息或它引用的消息已撤回；<code>qq_queue_expired</code> 任务尚未开始且收件已超过排队有效期</td>
+            <td><code>qq_group</code>（已退役，入站门固定）</td>
+            <td>无</td>
+            <td>无</td>
+            <td>恒 drop：原因是 <code>core_group_chat_retired</code>（完整文本 <code>core_group_chat_retired:核心群聊已退役（正式外挂后续交付）</code>）。退役前 gateGroup 的按原因分类判定（<code>qq_group_binding_changed</code>、<code>qq_group_disabled</code>、<code>qq_group_config_changed</code>、<code>qq_recalled</code>、<code>qq_queue_expired</code>）已随退役删除</td>
           </tr>
           <tr>
             <td><code>github</code><br><code>gate</code></td>
@@ -460,15 +425,15 @@
             <td>快照不可读或仓库已不在配置；PR 已关闭或为 draft；同一 PR 有更新时刻相同或更晚、修订或状态不同的事件（<code class="src" data-src="src/github/events.ts#staleReason(event">staleReason</code>）</td>
           </tr>
           <tr>
-            <td>群会话门（只在启动前，对 qq_group 会话的所有任务）<br><code class="src" data-src="src/qq/adapter.ts#gate(session: Session, task: Task)">gate</code></td>
-            <td>同下各条都不成立且连接在线</td>
-            <td>连接不在线或登录号不符</td>
-            <td><code>qq_disabled</code> <code>qq_session_unmapped</code> <code>qq_group_not_allowed</code> <code>qq_account_changed</code> <code>qq_recalled</code> <code>qq_queue_expired</code>（按任务创建时刻算）</td>
+            <td>退役兜底（只在启动前，qq_group 会话的排队任务）</td>
+            <td>无</td>
+            <td>无</td>
+            <td>一律固定取消，error_message 为 <code>core_group_chat_retired</code>；退役收尾通常已先把遗留排队任务取消</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p>任何 QQ 配置变化都递增配置版本，旧授权不延续到新配置：改群列表、改回复上限之后，此前收到的群消息与私聊消息在门上都按配置已变丢弃，已经在执行的也会被取消。群这边，配置变化后适配器逐条复核待处理的收件（<code class="src" data-src="src/qq/adapter.ts#private async cancelInvalidGroupWork">cancelInvalidGroupWork</code>）：门不放行的收件记 skipped，活动任务（包括 running，也包括其他群的）取消；移出某个群时只收尾该群（<code class="src" data-src="src/qq/adapter.ts#async onGroupRemoved">onGroupRemoved</code>），其他群的排队任务在启动前的门上丢弃，在途的完成后在发送前复核时记 skipped。私聊这边，Runtime 逐条复核 registered 与 queued 的私聊事件（<code>reconcileQqPrivate</code>）：registered 的直接作废，已建的任务只要还是活动状态（包括 running）就取消。Telegram 配置或凭据变化后有同款的 <code class="src" data-src="src/runtime/runtime.ts#private async reconcileTelegram">reconcileTelegram</code>。两处复核的末尾还会收尾该平台的 IM 审批（<code class="src" data-src="src/runtime/runtime.ts#private invalidateImApprovals">invalidateImApprovals</code>）：来源入口的门已判 drop 的未消费审批（待决与已批准）失效、定向解除等待，入口已失效的长期授权记 <code>entry_changed</code>。只影响原平台来源，不波及另一平台在共享 main 会话中的工作；配置未变只是暂时离线的不作废，已消费的不动。</p>
+    <p>任何 QQ 或 Telegram 配置变化都递增配置版本，旧授权不延续到新配置：改回复上限等之后，此前收到的私聊消息在门上都按配置已变丢弃，已经在执行的也会被取消。QQ 侧由 Runtime 逐条复核 registered 与 queued 的私聊事件（<code>reconcileQqPrivate</code>）：registered 的直接作废，已建的任务只要还是活动状态（包括 running）就取消。Telegram 配置或凭据变化后有同款的 <code class="src" data-src="src/runtime/runtime.ts#private async reconcileTelegram">reconcileTelegram</code>。两处复核的末尾还会收尾该平台的 IM 审批（<code class="src" data-src="src/runtime/runtime.ts#private invalidateImApprovals">invalidateImApprovals</code>）：来源入口的门已判 drop 的未消费审批（待决与已批准）失效、定向解除等待，入口已失效的长期授权记 <code>entry_changed</code>。只影响原平台来源，不波及另一平台在共享 main 会话中的工作；配置未变只是暂时离线的不作废，已消费的不动。退役前群一侧由适配器逐条复核亦取消活动任务（cancelInvalidGroupWork 与 onGroupRemoved）的机制已随退役删除；旧群口径由启动收尾一次性处理（见 <a href="#recovery">重启恢复</a>）。</p>
 
     <h3>门说「等」之后谁来重试</h3>
     <div class="cards">
@@ -476,20 +441,20 @@
         <h4>保持 registered 的事件</h4>
         <ul>
           <li>调度器每轮扫描发现还有 registered 的普通任务事件时（<code class="src" data-src="src/scheduler/runtime.ts#private hasUndispatched">hasUndispatched</code> 只数 <code>event_kind = 'task'</code>，所有来源都算，IM 审批控制消息不算），按 <code class="src" data-src="src/scheduler/runtime.ts#redispatchMs: 30_000">SCHEDULER_LIMITS.redispatchMs</code>（30 秒）的间隔补派。</li>
-          <li>QQ 连接恢复在线、收到撤回、配置变化后，适配器请编排器派发一次。</li>
+          <li>QQ 连接恢复在线、配置变化后，适配器请编排器派发一次（退役前的撤回促发已随群分支删除）。</li>
           <li>新登记的普通任务事件都会排一次派发，顺带处理积压的事件（IM 审批控制消息不触发派发）；后台启动时编排器先重提一遍。</li>
         </ul>
       </div>
       <div class="card">
         <h4>留在 queued 的任务</h4>
         <ul>
-          <li>QQ 适配器每 <code class="src" data-src="src/qq/adapter.ts#sweepIntervalMs ?? 15_000">sweepIntervalMs ?? 15_000</code> 毫秒唤醒所有群会话与 main 会话，过期的在门上丢弃，恢复在线的开始执行；Telegram 轮询未连上时等待的 main 任务也靠这次唤醒重试。没有创建 QQ 适配器的实例没有这项巡检。</li>
+          <li>QQ 适配器每 <code class="src" data-src="src/qq/adapter.ts#sweepIntervalMs ?? 15_000">sweepIntervalMs ?? 15_000</code> 毫秒唤醒 main 会话，Telegram 轮询未连上时等待的 main 任务也靠这次唤醒重试（退役前同样唤醒各群会话）。没有创建 QQ 适配器的实例没有这项巡检。</li>
           <li>QQ 连接恢复在线、配置变化时同样唤醒；私聊授权复核后唤醒 main。</li>
           <li>其余唤醒（新提交、占用释放）照常触发一次调度循环。</li>
         </ul>
       </div>
     </div>
-    <p>启动前的 drop 有两种落法：来源门判定丢弃时调用 <code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code>，任务从 queued 取消、原因写进 error_message；群会话门判定丢弃时，调度循环自己条件更新 queued → canceled 并记 <code>task.canceled</code>。两种都随后由编排器回传结果，事件转 failed。</p>
+    <p>启动前的 drop 与退役兜底走同一条路：来源门判定丢弃时调用 <code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code>，任务从 queued 取消、原因写进 error_message；qq_group 会话的退役兜底由调度循环自己条件更新 queued → canceled 并记 <code>task.canceled</code>。两种随后都由编排器回传结果（有来源事件的转 failed）。</p>
   </section>
 
   <section id="im-approval">
@@ -703,8 +668,8 @@
     <h3>另外两类回复</h3>
     <div class="cards">
       <div class="card">
-        <h4>QQ 群回复</h4>
-        <p>不走 owner 回复，也不走公共 outbox。QQ 适配器收到群任务的 <code>task.completed</code> 或 chat 的 <code>child_task.completed</code> 后调用 <code class="src" data-src="src/qq/adapter.ts#private async sendReply">sendReply</code>：已登记过群回复就返回；否则用同一个 <code>gateGroup</code> 与收件状态复核，通过才写 qq_outbox 并调用 <code>send_group_msg</code>，引用原消息，每个任务一条，超长截短不拆分。任务以 failed、canceled、interrupted 结束时不发送，收件记 skipped。账本与结果分类见<a href="outbox.html">通知 outbox</a>。</p>
+        <h4>QQ 群回复（已退役）</h4>
+        <p>核心群聊退役后不再产生：<code>qq_group</code> 来源的任务不再建出，owner 回复也不登记；sendReply 与事件监听已删除，旧账本 <code>qq_outbox</code> 为只读归档（账本与结果分类见<a href="outbox.html">通知 outbox</a>）。退役前：不走 owner 回复、不走公共 outbox，群任务完成后适配器把回复写进自己的 qq_outbox 再调 <code>send_group_msg</code>，每个任务一条。</p>
       </div>
       <div class="card">
         <h4>GitHub 评审摘要</h4>
@@ -715,13 +680,14 @@
 
   <section id="recovery">
     <h2>重启恢复与停止</h2>
-    <p>崩溃可能落在任何两步之间：登记之后、建任务之前；建任务之后、回填之前；任务结束之后、结果登记之前；群回复登记之后、平台回执之前。恢复不换新键，也不重放外部效果，每个窗口都按原键核实后接着做。后台启动时的相关顺序：</p>
+    <p>崩溃可能落在任何两步之间：登记之后、建任务之前；建任务之后、回填之前；任务结束之后、结果登记之前。恢复不换新键，也不重放外部效果，每个窗口都按原键核实后接着做。后台启动时的相关顺序：</p>
     <ol class="steps">
       <li>任务层恢复：running 与 awaiting_confirmation 转 interrupted，见<a href="task-lifecycle.html">任务生命周期</a>。</li>
-      <li>编排器启动（<code class="src" data-src="src/runtime/runtime.ts#await runtime.orchestrator.start()">runtime.ts · Runtime.start</code>）。先按 <code>received_at, rowid</code> 的顺序逐条重提仍为 registered 的事件（<code class="src" data-src="src/runtime/orchestrator.ts#private async recoverInbound">recoverInbound</code>），经过同样的门，用同样的请求键：任务已在上次提交时落库的，提交幂等返回原任务再回填；回填时发现任务已有结果的，同一事务补写事件终态。这时 QQ 适配器还没启动、Telegram 也还没开始轮询，仍然有效的 QQ 与 Telegram 事件在门上等待（未启动、未在线即 wait），留给第 4 步的 QQ 派发与第 6 步的补派；已经失效的照常丢弃；类别不是 task 的控制事件（正常不会有遗留）一律以 <code>control_event_not_dispatched</code> 作废，不重放。</li>
-      <li>编排器补记结果（<code class="src" data-src="src/runtime/orchestrator.ts#private async sweepPendingResults">sweepPendingResults</code>）：重启窗口里已到终态、结果还没写的角色任务走同一个结果事务，owner 回复随之补登，工作最终汇报也在这条事务里按同一条结果补登；interrupted 一律按结果未知，回复与汇报都只发固定提示。结果只写一次，已记录结果的任务不会再登记回复或汇报。</li>
-      <li>QQ 适配器启动（<code class="src" data-src="src/qq/adapter.ts#private async startOnce">startOnce</code>）：遗留 pending 的群回复一律记 unknown，收件记 <code>reply_unknown</code>，不重发；按 <code>created_at, rowid</code> 的顺序（<code class="src" data-src="src/qq/store.ts#ORDER BY created_at, rowid">qq/store.ts · listPendingInbox</code>）逐条接管 registered 与 queued 的收件（<code class="src" data-src="src/qq/adapter.ts#private async recoverInbox">recoverInbox</code>）：入口已停用、登录号已变或群已不在允许列表的记 skipped，其余按原收件键重新登记入站事件（已有则不变），升级前只有收件、没有事件的旧任务先核实原键原文再补关联；自动恢复暂停的群会话队列；最后连接 NapCat。每次连上都派发一次积压的入站事件（所有来源）；首次连上时还补齐「任务已完成、群回复还没登记」的收件（<code class="src" data-src="src/qq/adapter.ts#private recoverCompletedInbox">recoverCompletedInbox</code>，每个进程一次；已有群回复记录的只同步收件状态，从不重发）。</li>
-      <li>Telegram 开始轮询（入口启用时），从持久偏移继续；平台仍保留的积压 update 依次处理，重投的命中原外部 ID。轮询上线本身不触发派发，第 2 步留下的 Telegram 事件等下一条新登记、QQ 连上时的那次派发或第 6 步的补派。</li>
+      <li>核心群聊退役收尾（<code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime.ts · retireGroupChat</code>，每次启动执行、按状态幂等，一个事务）：遗留 pending 的群回复一律定 unknown（错误注明 <code>core_group_chat_retired</code>，不重发），对应仍在 queued 的收件记 <code>reply_unknown</code>；各旧群会话（<code class="src" data-src="src/qq/store.ts#listGroupSessions">qq/store.ts · listGroupSessions</code>）里排队的任务条件更新 queued → canceled（error_message 为 <code>core_group_chat_retired</code>），同一事务发 <code>task.canceled</code>；剩余 registered/queued 的收件（<code class="src" data-src="src/qq/store.ts#listPendingInbox">qq/store.ts · listPendingInbox</code>）一律记 skipped。运行中的群任务不在此处理：第 1 步的通用恢复已定 interrupted，由编排器启动时的结果巡检补记（见下）。</li>
+      <li>编排器启动（<code class="src" data-src="src/runtime/runtime.ts#await runtime.orchestrator.start()">runtime.ts · Runtime.start</code>）。先按 <code>received_at, rowid</code> 的顺序逐条重提仍为 registered 的事件（<code class="src" data-src="src/runtime/orchestrator.ts#private async recoverInbound">recoverInbound</code>），经过同样的门，用同样的请求键：任务已在上次提交时落库的，提交幂等返回原任务再回填；回填时发现任务已有结果的，同一事务补写事件终态。退役遗留的 qq_group 事件在这一步被入站门固定丢弃（<code>core_group_chat_retired</code>），同一事务作废并发 <code>inbound.skipped</code>，关联的群收件记 skipped、同键未结束的旧群任务随后被取消。这时 QQ 适配器还没启动、Telegram 也还没开始轮询，仍然有效的 QQ 私聊与 Telegram 事件在门上等待（未启动、未在线即 wait），留给第 5 步的 QQ 派发与第 7 步的补派；已经失效的照常丢弃；类别不是 task 的控制事件（正常不会有遗留）一律以 <code>control_event_not_dispatched</code> 作废，不重放。</li>
+      <li>编排器补记结果（<code class="src" data-src="src/runtime/orchestrator.ts#private async sweepPendingResults">sweepPendingResults</code>）：重启窗口里已到终态、结果还没写的角色任务走同一个结果事务，owner 回复随之补登，工作最终汇报也在这条事务里按同一条结果补登；运行中的旧群任务由第 1 步定为 interrupted，同样在这里按结果未知补记（<code>child_task.result_unknown</code>）。结果只写一次，已记录结果的任务不会再登记回复或汇报。</li>
+      <li>QQ 适配器启动（<code class="src" data-src="src/qq/adapter.ts#private async startOnce">startOnce</code>）：只服务私聊——按配置连接 NapCat、每 15 秒唤醒一次 main 会话；群侧收尾已由第 2 步完成。每次连上都派发一次积压的入站事件（所有来源）。</li>
+      <li>Telegram 开始轮询（入口启用时），从持久偏移继续；平台仍保留的积压 update 依次处理，重投的命中原外部 ID。轮询上线本身不触发派发，第 3 步留下的 Telegram 事件等下一条新登记、QQ 连上时的那次派发或第 7 步的补派。</li>
       <li>调度器启动（只有 ruukoto 产品创建调度器）。首轮扫描发现仍为 registered 的普通任务事件就补派一次，之后距上次派发满 30 秒（<code class="src" data-src="src/scheduler/runtime.ts#redispatchMs: 30_000">redispatchMs</code>）再补派（控制消息不算未派发）；GitHub webhook 最后开始监听。</li>
     </ol>
 
@@ -735,7 +701,7 @@
 
     <aside class="callout limit">
       <b>不补抓</b>
-      <p>恢复只处理已经落库的记录。没登记上的消息（QQ 断线期间、QQ 私聊登记失败、GitHub 没送达的 webhook）不会被补抓，QQ 的缺口只以 <code>qq.receive_gap</code> 如实记下。群消息收件已登记、入站事件没登记上的，要等下次适配器启动才重提。</p>
+      <p>恢复只处理已经落库的记录。没登记上的消息（QQ 断线期间、QQ 私聊登记失败、GitHub 没送达的 webhook）不会被补抓，QQ 的缺口只以 <code>qq.receive_gap</code> 如实记下；退役后的群消息直接忽略，也不产生任何记录。退役前遗留的未终态群行由启动收尾一次性了结，不再重提为任务。</p>
     </aside>
   </section>
 

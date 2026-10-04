@@ -438,10 +438,7 @@ test("非 main 不得使用：dev 会话与 QQ 群被白名单阻止（helper �
     assert.ok(modelSawBlocked(h.model, "bash"), "main 不获得 bash");
     assert.equal(h.svc.calls().length, 0);
 
-    // QQ 群会话（chat 类别空工具集合）提出 service_inspect → 拒绝（群需显式放行才会受理；
-    // 代次推进会重连，等回在线并稳定后再推——WS 推送在断线窗口会丢）
-    await rt.qqGroupUpdate({ groupId: "100001", allow: true });
-    await waitFor("群放行后 QQ 回在线", () => rt.qqStatus().online === true);
+    // 核心群聊已退役（issue 20）：群 @ 消息被忽略——零收件、零任务、零模型调用
     await new Promise((r) => setTimeout(r, 300));
     h.onebot.pushGroupMessage({
       groupId: "100001",
@@ -452,8 +449,9 @@ test("非 main 不得使用：dev 会话与 QQ 群被白名单阻止（helper �
         { type: "text", data: { text: " TRY-SVC-INSPECT" } },
       ],
     });
-    await waitFor("群消息已受理", () => (rt.store.db.prepare("SELECT * FROM qq_inbox").all() as any[]).length >= 1);
-    await waitFor("群会话调用被阻止", () => modelSawBlocked(h.model, "service_inspect"));
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal((rt.store.db.prepare("SELECT * FROM qq_inbox").all() as any[]).length, 0, "群消息不登记收件");
+    assert.ok(!h.model.calls.some((call) => lastUserText(call).includes("TRY-SVC-INSPECT")), "群消息零模型调用");
     assert.equal(h.svc.calls().length, 0, "群入口 helper 零调用");
   } finally {
     await h.rt?.stop("test_end");

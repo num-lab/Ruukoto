@@ -105,7 +105,7 @@ test("技能库：嵌套包、符号链接、缺描述、YAML 错误、同名冲
 
 // ---------- 集成 ----------
 
-test("集成：main/coding 注入技能目录（无主机路径、无仅显式技能），chat 无目录无工具；/skills 可见诊断", async () => {
+test("集成：main/coding 注入技能目录（无主机路径、无仅显式技能；chat 已退役不引导，issue 20）；/skills 可见诊断", async () => {
   const t = await startTestRuntime("skills-roles", async (req) => ({ kind: "text", text: `ok:${lastUserText(req).slice(0, 20)}` }));
   try {
     const lib = path.join(t.dirs.agentDir, "skills");
@@ -117,14 +117,11 @@ test("集成：main/coding 注入技能目录（无主机路径、无仅显式�
     assert.deepEqual(listed.skills.map((s: any) => [s.name, s.explicitOnly]), [["alpha", false], ["beta", true]]);
     assert.ok(listed.diagnostics.some((d: string) => d.includes("nodesc")), "诊断经控制面可见");
 
-    const orch = t.runtime.orchestrator!;
-    await orch.registerInboundEvent({ source: "test", externalId: "chat-s", targetRole: "chat", body: "CHAT-SKILL-MARK" });
     const main = t.runtime.store.getAgentRole("main")!;
     const coding = t.runtime.store.getAgentRole("coding")!;
     const m = await t.runtime.submit({ sessionId: main.sessionId, requestId: "m-s", input: "MAIN-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
     const c = await t.runtime.submit({ sessionId: coding.sessionId, requestId: "c-s", input: "CODING-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
     await waitFor("main/coding 完成", () => ["completed"].includes(t.runtime.store.getTask(m.id)!.status) && t.runtime.store.getTask(c.id)!.status === "completed");
-    await waitFor("chat 完成", () => t.runtime.store.getInboundEvent(t.runtime.store.findInboundEvent("test", "chat-s")!.id)!.status === "done");
 
     for (const mark of ["MAIN-SKILL-MARK", "CODING-SKILL-MARK"]) {
       const call = t.server.calls.find((x) => lastUserText(x).includes(mark))!;
@@ -136,9 +133,6 @@ test("集成：main/coding 注入技能目录（无主机路径、无仅显式�
       assert.ok(!text.includes(t.dirs.agentDir), "目录不含主机路径");
       assert.ok(toolNames(call).includes("skill"), `${mark} 有 skill 工具`);
     }
-    const chatCall = t.server.calls.find((x) => lastUserText(x).includes("CHAT-SKILL-MARK"))!;
-    assert.ok(!JSON.stringify(chatCall.messages).includes("技能目录"), "chat 无技能目录");
-    assert.ok(!toolNames(chatCall).includes("skill"), "chat 无 skill 工具");
   } finally {
     await t.shutdown();
   }

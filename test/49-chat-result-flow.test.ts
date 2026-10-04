@@ -1,12 +1,12 @@
-/** issue 09：真实 Driver/审批/outbox 链路，模型与 QQ 均为本地 mock。 */
+/** issue 09 + issue 20：真实 Driver/审批/outbox 链路；群结果由播种助手按旧形态直接写入（核心群聊已退役，不再有群运行路径）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { NotifyTarget } from "../src/core/types.ts";
-import { qqDedupKey } from "../src/qq/store.ts";
 import type { NotifyChannel } from "../src/scheduler/runtime.ts";
 import { lastUserText, pendingConfirmation, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot } from "./helpers/mock-onebot.ts";
+import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
 
 const GROUP = "100001";
 const USER = "880001";
@@ -15,12 +15,11 @@ const SUMMARY = "群讨论结果：周五发布。";
 const toolNames = (req: RecordedRequest) => (req.tools ?? []).map((tool: any) => tool.function?.name ?? tool.name);
 type Call = { name: string; arguments: Record<string, unknown> };
 
-/** 每个 main 请求按实际模型回合依次调用工具，群回复只返回文本。 */
+/** 每个 main 请求按实际模型回合依次调用工具。 */
 function scripted(actions: (input: string) => Call[]): Responder {
   const steps = new Map<string, number>();
   return async (req) => {
     const input = lastUserText(req);
-    if (input.startsWith("[qq:")) return { kind: "text", text: SUMMARY };
     const step = steps.get(input) ?? 0;
     steps.set(input, step + 1);
     const action = actions(input)[step];
@@ -53,18 +52,17 @@ async function harness(prefix: string, responder: Responder) {
   const rt = t.runtime;
   await rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
   await rt.qqConfigure({ endpoint: onebot.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq-test" });
-  await rt.qqGroupUpdate({ groupId: GROUP, allow: true });
   await rt.qqSetEnabled(true);
   await waitFor("本地 QQ 在线", () => rt.qqStatus().online === true);
   const main = rt.store.getAgentRole("main")!;
+  const archive = legacyGroupArchive({ store: rt.store, qq: rt.qqStore, workRoot: t.dirs.root });
+  const group = archive.seedGroup({ account: MOCK_QQ_ACCOUNT, groupId: GROUP });
   return {
-    ...t, onebot, channel, main,
-    async group(messageId: number) {
-      onebot.pushGroupMessage({ groupId: GROUP, userId: USER, messageId,
-        segments: [{ type: "at", data: { qq: MOCK_QQ_ACCOUNT } }, { type: "text", data: { text: `GROUP-PRIVATE-${messageId}` } }] });
-      const key = qqDedupKey(MOCK_QQ_ACCOUNT, GROUP, String(messageId));
-      await waitFor("群回复完成并登记 chat 结果", () => rt.qqStore.getInbox(key)?.status === "done" && rt.store.findInboundEvent("qq_group", key)?.status === "done");
-      return rt.store.getTask(rt.qqStore.getInbox(key)!.taskId!)!;
+    ...t, onebot, channel, main, archive, group,
+    /** 播种一条已完成并被正确记录的旧群结果（含收件/入站/任务与结果）。 */
+    groupResult(messageId: string) {
+      const seeded = group.seedTask({ userId: USER, messageId, state: "completed", summary: SUMMARY });
+      return seeded.task!;
     },
     submit(input: string) {
       return rt.submit({ sessionId: main.sessionId, requestId: input, input, accessMode: "full_access", modelSelection: rt.defaultSelection });
@@ -77,24 +75,25 @@ async function harness(prefix: string, responder: Responder) {
   };
 }
 
-test("群结果工具仅 main 可见；普通群回复不唤醒 main，未接收摘要不能申请通知", async () => {
+test("群结果工具仅 main 可见；归档群结果不唤醒 main，未接收摘要不能申请通知", async () => {
   let taskId = "";
   const h = await harness("chat-flow-tools", scripted((input) => input === "MAIN-UNACCEPTED"
     ? [{ name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "发送群摘要" } }]
     : []));
   const rt = h.runtime;
   try {
-    const group = await h.group(1);
-    taskId = group.id;
-    assert.equal(rt.store.listTasksBySession(h.main.sessionId).length, 0);
-    assert.deepEqual(h.ops(), [], "普通群回复不登记公共通知或 owner_reply");
-    assert.equal(h.onebot.actions.filter((action) => action.action === "send_group_msg").length, 1);
-    assert.deepEqual(toolNames(h.server.calls.find((req) => lastUserText(req).startsWith("[qq:"))!), []);
-    for (const name of ["coding", "chat"] as const) {
-      const role = rt.store.getAgentRole(name)!;
-      const task = await rt.submit({ sessionId: role.sessionId, requestId: name, input: `ROLE-${name}`, modelSelection: rt.defaultSelection });
+    const seeded = h.groupResult("1");
+    taskId = seeded.id;
+    assert.equal(rt.store.listTasksBySession(h.main.sessionId).length, 0, "归档群结果不建 main 任务");
+    assert.deepEqual(h.ops(), [], "归档群结果不登记公共通知或 owner_reply");
+    assert.equal(h.onebot.actions.filter((action) => action.action === "send_group_msg").length, 0, "不再有群回复");
+    assert.ok(!h.server.calls.some((req) => lastUserText(req).startsWith("[qq:")), "不再有群模型调用");
+    assert.equal(rt.store.getAgentRole("chat"), null, "新核心不引导 chat 角色");
+    {
+      const role = rt.store.getAgentRole("coding")!;
+      const task = await rt.submit({ sessionId: role.sessionId, requestId: "coding", input: "ROLE-coding", modelSelection: rt.defaultSelection });
       await h.complete(task.id);
-      const names = toolNames(h.server.calls.find((req) => lastUserText(req) === `ROLE-${name}`)!);
+      const names = toolNames(h.server.calls.find((req) => lastUserText(req) === "ROLE-coding")!);
       assert.ok(!names.includes("chat_result_list") && !names.includes("chat_result_accept"));
     }
     const main = await h.submit("MAIN-UNACCEPTED");
@@ -119,7 +118,7 @@ test("main 接收不外发；群摘要通知在 full_access 下仍需审批，�
   }));
   const rt = h.runtime;
   try {
-    taskId = (await h.group(1)).id;
+    taskId = h.groupResult("1").id;
     const accept = await h.submit("MAIN-ACCEPT");
     await h.complete(accept.id);
     const snapshot = rt.store.getAcceptedChatResult(h.main.projectId, taskId)!;
@@ -154,7 +153,7 @@ test("main 接收不外发；群摘要通知在 full_access 下仍需审批，�
   } finally { await h.close(); }
 });
 
-test("群消息在审批期间或批准后发送前撤回，都不能继续外发摘要", async () => {
+test("归档群消息在审批期间或批准后发送前撤回，都不能继续外发摘要", async () => {
   for (const phase of ["approval", "pending"] as const) {
     let taskId = "";
     const h = await harness(`chat-flow-recall-${phase}`, scripted((input) => input === "MAIN-ACCEPT-NOTIFY" ? [
@@ -163,7 +162,7 @@ test("群消息在审批期间或批准后发送前撤回，都不能继续外�
     ] : []));
     const rt = h.runtime;
     try {
-      taskId = (await h.group(1)).id;
+      taskId = h.groupResult("1").id;
       const task = await h.submit("MAIN-ACCEPT-NOTIFY");
       const confirmation = await pendingConfirmation(h.client, task.id);
       if (phase === "pending") {
@@ -172,6 +171,7 @@ test("群消息在审批期间或批准后发送前撤回，都不能继续外�
         await rt.scheduler!.idle();
         assert.equal(h.ops()[0].status, "pending");
       }
+      // 已退役入口仍观测撤回：只给归档收件打标记，通知/计划的复核据此阻断外发
       h.onebot.pushRecall({ groupId: GROUP, messageId: 1, userId: USER });
       await waitFor("群消息撤回已落库", () => rt.qqStore.getInboxByTask(taskId)?.recalled === true);
       if (phase === "approval") {

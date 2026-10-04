@@ -776,7 +776,7 @@
     <p><code>ruukoto-dev</code> 不走这些步骤：在开发机检出仓库并装依赖，把 <code>bin/ruukoto-dev.mjs</code> 放进 PATH（<code>npm link</code> 或直接加 <code>bin/</code>），装好容器运行时并用 <code>build.sh</code> 构建 <code>ruukoto-worker</code> 镜像，用 <code>ruukoto-dev config</code> 配好模型（否则拉起失败并提示 <code>no_model</code>），之后打开 TUI 即可。升级时替换检出，<code>ruukoto-dev stop</code> 后重开 TUI。</p>
     <aside class="callout limit">
       <b>容易踩的点</b>
-      <p>原生 Linux 的 bind mount 不做 uid 映射（Docker Desktop 会），容器内进程必须能写任务工作区，单拥有者服务器把容器 uid/gid 设为拥有者最简单。没配 ACL 的工作区在完全访问下会 <code>EACCES</code>。后台启动时要建 <code>agent-work/</code> 下的角色目录，<code>/var/lib/ruukoto</code> 本身由 root 创建、后台建不了，缺了 <code>agent-work</code> 即启动失败；README 第 1 步同样没有建 <code>qq-work/</code>，首次创建 QQ 群会话时后台能否自建它，未在目标机核实。也不要为此把 <code>/var/lib/ruukoto</code> 改归后台账户：服务 helper 逐级核对认领目录 <code>/var/lib/ruukoto/service-ops</code> 的父目录必须属 root、组与他人不可写，否则报 <code>deployment_invalid</code>。镜像的 git：<code>Dockerfile</code> 里的安装段已经启用，<code>deploy/worker-image/README.md</code> 仍写着「git 未装入」，以 Dockerfile 为准。</p>
+      <p>原生 Linux 的 bind mount 不做 uid 映射（Docker Desktop 会），容器内进程必须能写任务工作区，单拥有者服务器把容器 uid/gid 设为拥有者最简单。没配 ACL 的工作区在完全访问下会 <code>EACCES</code>。后台启动时要建 <code>agent-work/</code> 下的角色目录，<code>/var/lib/ruukoto</code> 本身由 root 创建、后台建不了，缺了 <code>agent-work</code> 即启动失败。<code>qq-work/</code> 已随核心群聊退役不再需要（旧目录保留为归档）。也不要为此把 <code>/var/lib/ruukoto</code> 改归后台账户：服务 helper 逐级核对认领目录 <code>/var/lib/ruukoto/service-ops</code> 的父目录必须属 root、组与他人不可写，否则报 <code>deployment_invalid</code>。镜像的 git：<code>Dockerfile</code> 里的安装段已经启用，<code>deploy/worker-image/README.md</code> 仍写着「git 未装入」，以 Dockerfile 为准。</p>
     </aside>
 
     <h3>验证到了哪一步</h3>

@@ -594,7 +594,7 @@ function appDataDbFile(dataDir: string): string {
   return path.join(path.resolve(dataDir), "agent-data", "main.db");
 }
 
-test("装配与门控：main 获得六个 app_data 工具；coding/chat/普通会话没有", async () => {
+test("装配与门控：main 获得六个 app_data 工具；coding/普通会话没有（chat 已退役不引导，issue 20）", async () => {
   const t = await startTestRuntime("appdata-tools", async (req) => ({
     kind: "text",
     text: `完成：${lastUserText(req).slice(0, 20)}`,
@@ -602,7 +602,6 @@ test("装配与门控：main 获得六个 app_data 工具；coding/chat/普通�
   try {
     const orch = t.runtime.orchestrator!;
     await orch.registerInboundEvent({ source: "test", externalId: "m1", targetRole: "main", body: "MAIN-MARK 整理" });
-    await orch.registerInboundEvent({ source: "test", externalId: "c1", targetRole: "chat", body: "CHAT-MARK 群聊" });
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     await t.runtime.submit({ sessionId, requestId: "dev-1", input: "DEV-MARK 普通会话", modelSelection: t.runtime.defaultSelection });
     const parent = await t.runtime.submit({
@@ -614,7 +613,6 @@ test("装配与门控：main 获得六个 app_data 工具；coding/chat/普通�
     await t.runtime.orchestrator!.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "CODING-MARK 分析", idempotencyKey: "k1" });
 
     await waitFor("main 事件完成", () => t.runtime.store.getInboundEvent(t.runtime.store.findInboundEvent("test", "m1")!.id)!.status === "done");
-    await waitFor("chat 事件完成", () => t.runtime.store.getInboundEvent(t.runtime.store.findInboundEvent("test", "c1")!.id)!.status === "done");
     await waitFor("coding 子任务完成", () => t.runtime.store.getTask(parent.id)!.status === "completed");
     await waitFor("coding 完成", () =>
       t.runtime.store
@@ -630,8 +628,6 @@ test("装配与门控：main 获得六个 app_data 工具；coding/chat/普通�
     );
     const codingCall = t.server.calls.find((c) => lastUserText(c).includes("CODING-MARK"))!;
     assert.equal(toolNamesOf(codingCall).some((n) => n.startsWith("app_data_")), false, "coding 无应用数据工具");
-    const chatCall = t.server.calls.find((c) => lastUserText(c).includes("CHAT-MARK"))!;
-    assert.equal(toolNamesOf(chatCall).length, 0, "chat 空工具集合");
     const devCall = t.server.calls.find((c) => lastUserText(c).includes("DEV-MARK"))!;
     assert.equal(toolNamesOf(devCall).some((n) => n.startsWith("app_data_")), false, "普通开发会话无应用数据工具");
   } finally {

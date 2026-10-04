@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 export interface ModelSelection {
   provider: string;

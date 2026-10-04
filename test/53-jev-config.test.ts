@@ -7,6 +7,7 @@ import { executeApprovedHttpRequest } from "../src/agent/execution/approved-ops.
 import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_HOST, type JevConfig } from "../src/agent/jev-config.ts";
 import { runConfigTui } from "../src/config-tui/index.ts";
 import { createProjectSession, startTestRuntime, waitFor, type TestRuntime } from "./helpers/testkit.ts";
+import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
 
 const quiet = async () => ({ kind: "text" as const, text: "ok" });
 const secret = "jev-test-secret-never-shown";
@@ -84,7 +85,9 @@ test("Jev 配置：拒绝错误凭据、QQ/chat、坏字段与损坏持久配置
     }
     await assert.rejects(setConfig(t, projectId, { credential: null }), /选择服务凭据/);
     await assert.rejects(setConfig(t, "missing-project"), /项目不存在/);
-    await assert.rejects(setConfig(t, t.runtime.store.getAgentRole("chat")!.projectId), /QQ 群聊与 chat/);
+    // 旧安装的 chat 角色行由播种助手写入（核心群聊已退役，issue 20）
+    const chatRole = legacyGroupArchive({ store: t.runtime.store, qq: t.runtime.qqStore, workRoot: t.dirs.root }).seedChatRole();
+    await assert.rejects(setConfig(t, chatRole.projectId), /QQ 群聊与 chat/);
     t.runtime.store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(sessionId);
     await assert.rejects(setConfig(t, projectId), /QQ 群聊与 chat/);
     for (const config of [

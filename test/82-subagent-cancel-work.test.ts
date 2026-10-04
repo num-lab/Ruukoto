@@ -215,6 +215,7 @@ test("主 Agent 工具取消（main）：subagent_cancel 取消，迟到结果�
       delegate: (input) => rt.subagents!.delegate(input),
       close: (input) => rt.subagents!.close(input),
       cancelWork: (input) => rt.subagents!.cancelWork(input),
+      message: (input) => rt.subagents!.message(input),
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: main.sessionId, projectId: rt.store.getSession(main.sessionId)!.projectId, hostOpId: "opc" }),

@@ -417,6 +417,9 @@ function demoEvents(): PersistentEvent[] {
     { type: "work_delegation.created", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", agentSessionId: "sess_demoagent000000", taskId: "task_subagent000005" },
     // agent-direction issue 14：整项取消（第二项工作的运行中任务被停止）
     { type: "work_delegation.canceled", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", canceledBy: "owner", reason: "不再需要", canceledTaskIds: [], stoppingTaskIds: ["task_subagent000005"] },
+    // agent-direction issue 13：工作内协作消息登记与未投递判定
+    { type: "subagent_message.sent", messageId: "smsg_demo00000000001", workId: "work_demo00000000001", parentSessionId: SESSION_ID, fromSubAgentId: "sagent_demo0000000001", fromTaskId: "task_subagent000001", toSubAgentId: null, delivery: "inject", taskId: null },
+    { type: "subagent_message.dropped", messageId: "smsg_demo00000000002", workId: "work_demo00000000002", parentSessionId: SESSION_ID, toSubAgentId: "sagent_demo0000000001", reason: "work_canceled" },
     { type: "subagent.closed", subAgentId: "sagent_demo0000000001", parentSessionId: SESSION_ID, closedBy: "agent:task_running000000", taskId: "task_running000000" },
     // issue 02：main 应用数据空间（能力停止与操作拒绝）
     { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },

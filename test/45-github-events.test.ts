@@ -493,7 +493,7 @@ test("MCP 配在 main 项目：拥有者委派的 SubAgent 与 main 自身任务
     });
     const subCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[SubAgent 委派 · 只读分析]"));
     assert.ok(subCalls.length > 0);
-    assert.deepEqual(toolNames(subCalls[0]!), ["read", "read_artifact"].sort(), "拥有者委派的 SubAgent 拿不到本项目的 MCP");
+    assert.deepEqual(toolNames(subCalls[0]!), ["read", "read_artifact", "subagent_message"].sort(), "拥有者委派的 SubAgent 拿不到本项目的 MCP");
     const parentCalls = h.server.calls.filter((call) => lastUserText(call) === "分析这些材料");
     assert.ok(parentCalls.length > 0 && toolNames(parentCalls[0]!).length > 0, "main 自身按类别装配工具");
     assert.ok(!toolNames(parentCalls[0]!).some((name) => name.startsWith("mcp_")), "main 自身任务不出现 MCP 工具");

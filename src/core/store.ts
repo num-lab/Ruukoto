@@ -36,6 +36,7 @@ import {
   type SessionKind,
   type StandingPermission,
   type SubAgent,
+  type SubAgentMessage,
   type SubAgentReadScope,
   type SubAgentState,
   type Task,
@@ -1168,6 +1169,120 @@ export class Store {
     for (const id of taskIds) {
       this.db.prepare("UPDATE tasks SET result_delivered_at = ? WHERE id = ? AND result_delivered_at IS NULL").run(deliveredAt, id);
     }
+  }
+
+  // ---------- 工作内协作消息（agent-direction issue 13；宿主管理） ----------
+
+  insertSubAgentMessage(msg: SubAgentMessage): void {
+    this.db
+      .prepare(
+        `INSERT INTO subagent_messages (id, work_id, parent_session_id, from_sub_agent_id, from_task_id,
+         to_sub_agent_id, request_key, params_digest, body, created_at, delivered_task_id, delivered_at, undelivered_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        msg.id,
+        msg.workId,
+        msg.parentSessionId,
+        msg.fromSubAgentId,
+        msg.fromTaskId,
+        msg.toSubAgentId,
+        msg.requestKey,
+        msg.paramsDigest,
+        msg.body,
+        msg.createdAt,
+        msg.deliveredTaskId,
+        msg.deliveredAt,
+        msg.undeliveredReason,
+      );
+  }
+
+  getSubAgentMessage(id: string): SubAgentMessage | null {
+    const row = this.db.prepare("SELECT * FROM subagent_messages WHERE id = ?").get(id) as any;
+    return row ? this.rowToSubAgentMessage(row) : null;
+  }
+
+  /** 按（工作, 发送方, 键）查既有消息——发送方的 null（主 Agent）与会话复用键空间分开。 */
+  findSubAgentMessage(workId: string, fromSubAgentId: string | null, requestKey: string): SubAgentMessage | null {
+    const row = (
+      fromSubAgentId === null
+        ? this.db.prepare("SELECT * FROM subagent_messages WHERE work_id = ? AND request_key = ? AND from_sub_agent_id IS NULL")
+        : this.db.prepare("SELECT * FROM subagent_messages WHERE work_id = ? AND request_key = ? AND from_sub_agent_id = ?")
+    ).get(...(fromSubAgentId === null ? [workId, requestKey] : [workId, requestKey, fromSubAgentId])) as any;
+    return row ? this.rowToSubAgentMessage(row) : null;
+  }
+
+  /** 一项工作的全部消息（按创建序；subagent_result 与 work_get 的来源追溯）。 */
+  listSubAgentMessagesByWork(workId: string): SubAgentMessage[] {
+    const rows = this.db
+      .prepare("SELECT * FROM subagent_messages WHERE work_id = ? ORDER BY created_at, id")
+      .all(workId) as any[];
+    return rows.map((r) => this.rowToSubAgentMessage(r));
+  }
+
+  /**
+   * 待投递/判定的消息（delivered 与 undelivered_reason 均为空），按创建序；
+   * parentSessionId 省略时跨会话全部（启动冲刷）。
+   */
+  listPendingSubAgentMessages(parentSessionId?: string): SubAgentMessage[] {
+    const rows = (
+      parentSessionId === undefined
+        ? this.db.prepare("SELECT * FROM subagent_messages WHERE delivered_at IS NULL AND undelivered_reason IS NULL ORDER BY created_at, id")
+        : this.db.prepare(
+            "SELECT * FROM subagent_messages WHERE delivered_at IS NULL AND undelivered_reason IS NULL AND parent_session_id = ? ORDER BY created_at, id",
+          )
+    ).all(...(parentSessionId === undefined ? [] : [parentSessionId])) as any[];
+    return rows.map((r) => this.rowToSubAgentMessage(r));
+  }
+
+  /**
+   * dev 父会话待注入的工作内消息（发给主 Agent、尚未注入、工作未取消）——
+   * 与待注入结果同一口径：取消的工作不再注入任何父模型。
+   */
+  listUndeliveredParentSubAgentMessages(parentSessionId: string): SubAgentMessage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.* FROM subagent_messages m JOIN work_delegations w ON w.id = m.work_id
+         WHERE m.parent_session_id = ? AND m.to_sub_agent_id IS NULL AND m.delivered_at IS NULL
+           AND m.undelivered_reason IS NULL AND w.canceled_at IS NULL
+         ORDER BY m.created_at, m.id`,
+      )
+      .all(parentSessionId) as any[];
+    return rows.map((r) => this.rowToSubAgentMessage(r));
+  }
+
+  /** 投递登记（一次写入；dev 注入无任务时 taskId 为 null）。 */
+  markSubAgentMessageDelivered(id: string, taskId: string | null, deliveredAt: string): boolean {
+    const res = this.db
+      .prepare("UPDATE subagent_messages SET delivered_task_id = ?, delivered_at = ? WHERE id = ? AND delivered_at IS NULL AND undelivered_reason IS NULL")
+      .run(taskId, deliveredAt, id);
+    return Number(res.changes) > 0;
+  }
+
+  /** 无法投递的明确结果（一次写入；与投递登记互斥）。 */
+  markSubAgentMessageUndelivered(id: string, reason: string): boolean {
+    const res = this.db
+      .prepare("UPDATE subagent_messages SET undelivered_reason = ? WHERE id = ? AND delivered_at IS NULL AND undelivered_reason IS NULL")
+      .run(reason, id);
+    return Number(res.changes) > 0;
+  }
+
+  private rowToSubAgentMessage(row: any): SubAgentMessage {
+    return {
+      id: row.id,
+      workId: row.work_id,
+      parentSessionId: row.parent_session_id,
+      fromSubAgentId: row.from_sub_agent_id ?? null,
+      fromTaskId: row.from_task_id,
+      toSubAgentId: row.to_sub_agent_id ?? null,
+      requestKey: row.request_key,
+      paramsDigest: row.params_digest,
+      body: row.body,
+      createdAt: row.created_at,
+      deliveredTaskId: row.delivered_task_id ?? null,
+      deliveredAt: row.delivered_at ?? null,
+      undeliveredReason: row.undelivered_reason ?? null,
+    };
   }
 
   // ---------- 逻辑角色（issue 01；宿主管理） ----------

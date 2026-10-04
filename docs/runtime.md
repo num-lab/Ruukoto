@@ -1509,11 +1509,14 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 或 issue 16 的修改）；结果经
 `subagent_result` 读取（省略 `work_id` 时列出本会话 SubAgent 总览），不再
 需要的工作用 `subagent_cancel` 整项取消，不再需要后续协作时用
-`subagent_close` 显式关闭。四个工具属于 `subagent` 类别，
-仅普通开发会话与 main 装配，每次调用重新核实宿主任务、会话与身份绑定；
+`subagent_close` 显式关闭；同项工作的参与者之间用 `subagent_message`
+交换有来源的消息（issue 13，见下节）。五个工具属于 `subagent` 类别，
+仅普通开发会话与 main 装配（`subagent_message` 另行对 SubAgent 子会话装配），
+每次调用重新核实宿主任务、会话与身份绑定；
 群、固定 coding/chat、动态 SubAgent、调度与回报唤醒任务不能委派下级
 （`subagent_close`/`subagent_cancel` 例外：回报唤醒轮次也允许，关闭与取消
-只收窄能力）。
+只收窄能力；`subagent_message` 同样允许——主 Agent 在回报唤醒轮次可继续
+向工作内协作方补充，作用范围仍是本会话名下工作，不新建身份、不扩大权限）。
 
 ### 登记与执行范围
 
@@ -1576,6 +1579,45 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   的中间态。
 - **不自动关闭**：任务终态、TUI 退出（控制面断开）与等待都不关闭；空闲零
   模型/worker 进程；重启后关闭状态与空闲 Agent 的可复用性原样保持。
+
+### 工作内消息与协作加入（issue 13）
+
+同项工作的参与者——主 Agent 与当前承接本工作的各 SubAgent——经
+`subagent_message` 交换有来源的消息（`subagent_messages` 表；控制协议 v15）。
+
+- **协作加入**：`work_id` 与 `sub_agent_id` 同现的委派把一个既有空闲
+  SubAgent 拉入既有工作登记一次执行任务（任务关联列指向协作方；工作行保持
+  首次承接者，参与者集合经 `tasks.sub_agent_id` 判定）。只读工作才接受协作
+  方——修改工作同一份文件单一写入者；宿主固定评审工作（入站来源）不接受
+  加入；继续/复用/加入的可用性、竞争仲裁与来源并集复核与 issue 12 同口径。
+  协作加入的幂等键按目标 Agent 的会话核实（不同协作方的同键互相独立）。
+- **发送方身份**：完全由发起任务核实，模型参数不提供身份——工作父会话的
+  任务 = 主 Agent（此时必须指定 `to_sub_agent_id`），本工作的 SubAgent
+  任务 = 该 SubAgent（必须从本工作的任务中发送；省略 `to_sub_agent_id`
+  即发给主 Agent）；其他会话、其他工作的任务一律拒绝。宿主评审 SubAgent
+  不参与工作内通信。
+- **接收方资格**：当前承接本工作（`active_work_id` 正是本工作）且未关闭——
+  复用转做其他工作后旧协作者与迟到的旧消息都失去资格，不把关闭当作
+  重新创建 Agent 的理由；已取消的工作不能投递。登记时同住一同步事务内
+  完成资格核实与幂等查重（（工作, 发送方, 键）；同键同参的重放即使此后
+  已取消/关闭也返回原记录，异参冲突）。
+- **投递渠道**：发给 SubAgent 的投递为它在本工作的一次 `confirm` 执行
+  任务（请求键 `smsg:<消息ID>` 幂等，输入为宿主固定来源首行 + 正文，
+  读范围沿用其在本工作最近任务的钉定——消息不扩大任何一方的工具与
+  资料范围；工具清单仍按工作内容钉版，另加 `subagent_message`）；发给
+  主 Agent 的，dev 父会话经下一次模型调用的宿主参考块 `[工作内消息]`
+  注入（收集与标记送达同事务，取消的工作不注入），main 父会话经唤醒
+  任务（`agentId=main`、confirm、无截止时间）送达。
+- **待投递与冲刷**：接收方忙碌或父会话活动任务名额已满时登记为待投递；
+  宿主机在 SubAgent 任务终态（编排器结果登记后）、启动恢复、整项取消与
+  关闭后冲刷：可投递则投递（同一同步事务仲裁，重入不重复），资格已失
+  （`moved_work`/`closed:<时刻>`/`agent_missing`）或工作已取消记明确
+  未投递结果并发 `subagent_message.dropped` 事件；登记与投递事件为
+  `subagent_message.sent`（含投递渠道）。
+- **可见性**：主 Agent 用 `subagent_result` 的 `part=messages` 查看本工作
+  消息的来源、投递状态与正文预览；拥有者经控制面 `work_get` 的 `messages`
+  列表（CLI `work show`）查看；发送调用按工具操作账本以（工作, 发送方, 键）
+  核实 committed/not_committed；跨实例导入随所属工作的账本条目折叠。
 
 ### 整项取消（issue 14）
 

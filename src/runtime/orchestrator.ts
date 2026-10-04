@@ -87,8 +87,13 @@ export interface OrchestratorDeps {
    * 宿主固定评审（agent-direction issue 19）：PR 评审经通用 SubAgent 执行，
    * 编排器直接调用 delegate（hostReview 入参，不经模型工具）。缺省（如未接线）
    * 时不降级到旧 coding 路径：事件保持 registered，下次派发重试。
+   * flushPending（agent-direction issue 13）：SubAgent 执行任务终态与启动恢复
+   * 时冲刷待投递的工作内消息（可投递则投递，资格已失记明确未投递结果）。
    */
-  subagents?: { delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation> };
+  subagents?: {
+    delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation>;
+    flushPending?(parentSessionId?: string): void;
+  };
   /** 结果落库前保存交付产物与来源元数据；重启补记走同一路径。 */
   resultData?(task: Task, outcome: ChildOutcome): Record<string, unknown>;
   resultNotice?(task: Task): string | null;
@@ -219,6 +224,9 @@ export class Orchestrator {
     // 崩溃窗口恢复②：重启期间到达终态的角色任务补记结果与事件、补唤醒；
     // interrupted 一律按结果未知处理，不自动重放任何外部副作用
     await this.sweepPendingResults();
+    // 崩溃窗口恢复③（issue 13）：待投递的工作内消息统一重核投递资格（边栏触发
+    // 丢失时由这里兜底；资格已失记明确未投递结果）
+    this.deps.subagents?.flushPending?.();
     // 角色会话的队列暂停由编排器自动恢复，但仅限 backend_restart（排队任务
     // 在重启后继续）；occupancy_unverified 等涉及未核实旧执行的暂停必须保留
     // 给拥有者核实（docs/runtime.md 恢复约定——角色任务有工具执行，不同于
@@ -819,6 +827,9 @@ export class Orchestrator {
       return true;
     });
     if (!recorded) return;
+    // 工作内消息（issue 13）：终态登记后冲刷该父会话的待投递消息——刚空闲的
+    // 接收方立即投递（在同一同步续段内，早于任何新委派登记），资格已失记未投递
+    this.deps.subagents?.flushPending?.(work.parentSessionId);
     // dev 父会话不产生唤醒任务：结果经下次模型调用的宿主资料注入送达
     // （result_delivered_at），持久事件已指向父会话；main 按稳定 wake 键回报。
     const parent = task.parentTaskId ? this.store.getTask(task.parentTaskId) : null;

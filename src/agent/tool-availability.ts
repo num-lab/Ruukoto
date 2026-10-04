@@ -36,6 +36,21 @@ const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]>
  */
 export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "read_artifact"]);
 
+/**
+ * SubAgent 任务的写入工具白名单（agent-direction issue 16，工作有写入目标
+ * 时的完整集合）：read/edit/write/bash/read_artifact。无 request_file_access、
+ * http_request、MCP 或委派工件——工作区写入由容器边界约束，不逐次审批。
+ */
+export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "edit", "write", "bash", "read_artifact"]);
+
+/**
+ * SubAgent 任务的允许集：写入目标在哪，工具集就在哪（修改工作为写入集合，
+ * 只读工作为只读分析集合）——装配、发送前与调用门共用同一结论。
+ */
+export function subAgentToolsFor(write: boolean): ReadonlySet<string> {
+  return write ? SUBAGENT_WRITE_TOOL_NAMES : SUBAGENT_READONLY_TOOL_NAMES;
+}
+
 /** QQ 群按会话 kind 归入 chat（不依赖角色绑定）；角色会话按宿主绑定；其余为普通开发会话。 */
 export function sessionToolClass(kind: SessionKind, roleId: AgentRoleId | null): SessionToolClass {
   if (kind === "qq_group") return "chat";

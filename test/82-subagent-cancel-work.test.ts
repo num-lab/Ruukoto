@@ -292,6 +292,7 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
     const gated = new SubAgentManager({
       store: rt.store,
       workRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "sub-agents"),
+      worktreeRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "worktrees"),
       sources: (rt as any).sources,
       resolveSelection: () => new Promise<() => void>((res) => (release = () => res(() => {}))),
       launcherFor: (mode) => rt.launcherFor(mode),

@@ -32,6 +32,7 @@
         <code class="src" data-src="src/agent/tool-op-ledger.ts#const RULES">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/agent/service-tools.ts#SERVICE_TOOL_NAMES">agent/service-tools.ts</code>
         <code class="src" data-src="src/agent/subagent-tools.ts#SUBAGENT_TOOL_NAMES">agent/subagent-tools.ts</code>
+        <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
         <code class="src" data-src="src/agent/host-tools.ts#HOST_DATA_TOOL_NAMES">agent/host-tools.ts</code>
         <code class="src" data-src="src/agent/mcp/tools.ts#planMcpTaskTools">agent/mcp/tools.ts</code>
         <code class="src" data-src="src/agent/app-data/tools.ts#runDestructive">agent/app-data/tools.ts</code>
@@ -64,6 +65,7 @@
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
         <a href="../adr/0019-service-management-controlled-helper.md">ADR 0019 服务管理</a>
         <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 SubAgent</a>
+        <a href="../adr/0021-subagent-worktrees.md">ADR 0021 SubAgent worktree</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="task-lifecycle.html">任务生命周期</a>
@@ -236,7 +238,7 @@
           <tr><td><code>service</code></td><td><code>service_inspect</code> <code>service_manage</code></td><td>—</td><td>✓ ruukoto + Linux + 部署配置</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>skills</code></td><td><code>skill</code></td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
           <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code> <code>subagent_close</code> <code>subagent_cancel</code></td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td>静态白名单</td><td><code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
+          <tr><td>静态白名单</td><td><code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code>；修改工作按 <code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>：<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
         </tbody>
       </table>
     </div>
@@ -245,14 +247,14 @@
       <li><code>scheduler</code>：调度器只在个人 Agent（ruukoto）启动；ruukoto-dev 不创建调度器，main 的调度与通知工具不装配。</li>
       <li><code>service</code>：后台构造时要求产品为 ruukoto、平台为 Linux、显式部署配置（helper 与策略路径）齐备，缺一项 <code class="src" data-src="src/runtime/runtime.ts#serviceManager">runtime.ts · serviceManager</code> 就是 null，工具不装配，不会静默放行。普通开发会话、coding、chat 与 ruukoto-dev 都没有这两个工具；main 也不因此拿到 <code>bash</code>。</li>
       <li><code>subagent</code>：四个工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>），调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝；<code>subagent_close</code> 与 <code>subagent_cancel</code> 没有这道来源门（关闭与取消只收窄能力），回报唤醒轮次也允许。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
-      <li>SubAgent 子会话的清单为空：驱动器只从编码工具里挑出静态白名单 <code>read</code>、<code>read_artifact</code> 装配，任务的访问模式由宿主固定为 <code>confirm</code>，不能切换。</li>
+      <li>SubAgent 子会话的清单为空：驱动器只从编码工具里按本任务所属工作挑出静态白名单装配——只读分析工作 <code>read</code>、<code>read_artifact</code>；修改委派的工作额外给 <code>edit</code>、<code>write</code>、<code>bash</code>（装配、发送前与调用门三处经 <code class="src" data-src="src/agent/tool-availability.ts#subAgentToolsFor">subAgentToolsFor</code> 取同一结论，按本任务 <code>work_delegations.write_target</code> 判定）。写任务仍固定 <code>confirm</code>，不给 <code>request_file_access</code>、<code>http_request</code>、MCP 或委派工具，也没有网络；任务的访问模式由宿主固定为 <code>confirm</code>，不能切换。</li>
     </ul>
 
     <h3>同一个集合，三处使用</h3>
     <p>任务开始时 <code class="src" data-src="src/agent/tool-availability.ts#export function taskToolSet">taskToolSet</code> 算一次本任务允许的工具：已装配的工具（含本任务的 MCP 工具），减去三类收窄。每个任务都从完整注册表重算，宿主对上一个任务的收窄不带进下一个任务。收窄只减不增。</p>
     <ul>
       <li>计划模式：只留 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_TOOL_NAMES">plan-mode.ts · PLAN_TOOL_NAMES</code> 与只读 MCP 工具，今后新增的工具默认不可用。这个名单含 <code>bash</code>、<code>request_file_access</code>、<code>http_request</code>，后两者照常逐次审批。</li>
-      <li>宿主按任务收窄：GitHub 评审事件的 coding 子任务只留 <code>read</code>、<code>read_artifact</code> 与只读 MCP，对应的 main 唤醒任务只留 <code>coding_result</code>（<code class="src" data-src="src/github/events.ts#allowTool">github/events.ts · allowTool</code>）；SubAgent 任务再按静态白名单兜底一次。</li>
+      <li>宿主按任务收窄：GitHub 评审事件的 coding 子任务只留 <code>read</code>、<code>read_artifact</code> 与只读 MCP，对应的 main 唤醒任务只留 <code>coding_result</code>（<code class="src" data-src="src/github/events.ts#allowTool">github/events.ts · allowTool</code>）；SubAgent 任务再按本任务的写入目标白名单（<code class="src" data-src="src/agent/tool-availability.ts#subAgentToolsFor">subAgentToolsFor</code>）兜底一次。</li>
       <li>项目关闭 Web Search：<code>web_search</code> 不进集合，模型看不到。任务进行中才关闭时，由工具在调用时自行检查并拒绝，这不属于可用性。</li>
     </ul>
     <p>算出的集合在三处共用，结论一致：激活（<code>setActiveToolsByName</code>，决定模型看到哪些工具）；每次模型调用发送前，载荷里的每个工具都必须在集合内，否则以 <code>task_tools_forbidden</code> 阻断发送、中断任务并暂停会话队列（<code class="src" data-src="src/agent/driver.ts#private checkBeforeSend">driver.ts · checkBeforeSend</code>，发送前复核的其余检查见<a href="context-pipeline.html#send">上下文组装</a>）；以及上图的可用性门。</p>
@@ -358,7 +360,7 @@
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
-            <td>委派：任务不是拥有者发起；会话不是普通开发会话或 main；目标已关闭（<code>closed</code>）、忙碌（<code>busy</code>）或目录失效（<code>workdir_gone</code>）；工作已取消（<code>invalid_state</code>）。关闭：目标不存在、不属于本父会话（agent 发起）、有活动任务（<code>busy</code> 给任务 id）；已关闭幂等，不重复拒绝。取消：工作不存在、不属于本父会话（agent 发起）；已取消幂等，不重复发事件。子任务一律 <code>confirm</code></td>
+            <td>委派：任务不是拥有者发起；会话不是普通开发会话或 main；目标已关闭（<code>closed</code>）、忙碌（<code>busy</code>）或目录失效（<code>workdir_gone</code> / 修改工作的 <code>worktree_gone</code>）；工作已取消（<code>invalid_state</code>）。修改委派（<code>mode=modify</code>，agent-direction issue 16）另拒：main 或 SubAgent 发起、计划模式任务、继续委派时指定 <code>mode</code>（只读工作不能升级为写入）、<code>target</code> 为空或越出父工作区、共享 Git 目录不在父工作区内、执行身份读/写位不足、目标或副本根触碰宿主管理的 <code>agent-work/worktrees</code>。关闭：目标不存在、不属于本父会话（agent 发起）、有活动任务（<code>busy</code> 给任务 id）；已关闭幂等，不重复拒绝。取消：工作不存在、不属于本父会话（agent 发起）；已取消幂等，不重复发事件。子任务一律 <code>confirm</code></td>
           </tr>
         </tbody>
       </table>
@@ -693,6 +695,9 @@
         </tbody>
       </table>
     </div>
+
+    <h3>LaunchSpec：宿主钉定工作区、只读根与环境</h3>
+    <p>每次启动工作进程的挂载与环境单由宿主算好（<code class="src" data-src="src/agent/tool-router.ts#launchSpecFor">tool-router.ts · launchSpecFor</code>），模型参数进不了这张图。工作区由 <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code> 钉定：普通任务是会话工作目录；SubAgent 修改任务（工作带 <code>write_target</code>）是该工作的副本或写入目录。数值目录身份（<code>workspaceIdentity</code> 与 <code>readRoots</code> 条目的 dev/ino）只在 Linux 下发——原生 bind mount 按宿主原样呈现目录身份；macOS Docker Desktop 经 VM 重新编号 inode（已实测：容器侧 dev/ino 与宿主恒不一致），darwin 不下发数值身份，worker init 只按路径钉定（<code class="src" data-src="src/agent/tool-worker/worker.ts#宿主钉定的工作区身份">worker.ts</code>），目录身份复核由宿主队列回路在任务启动前按 <code>taskWorkspaceFor</code> 承担（runtime.ts）。worktree 修改任务再加两样：仓库的共享 Git 目录作为只读 <code>readRoots</code> 挂载（可 status/diff/log，写不了 refs/hooks/config），以及环境包 <code>GIT_CONFIG_COUNT</code>=1、<code>GIT_CONFIG_KEY_0</code>=<code>safe.directory</code>、<code>GIT_CONFIG_VALUE_0</code>=<code>*</code>（容器 uid 与仓库属主不同时 git 仍能运行）；这些键只在需要时注入，不进 worker 复用键。git 会把副本路径字串写进共享 Git 目录的 <code>worktrees/&lt;name&gt;/gitdir</code> 并据此回核，所以修改委派的创建命令、挂载与 <code>write_target.path</code> 一律用 <code>copyDirReal = fs.realpathSync(copyDir)</code>（macOS TMPDIR 的符号链接会让字串与 realpath 不一致）。</p>
 
     <h3>工作进程协议与产物</h3>
     <p>后台与工作进程之间是 stdio 上的换行分帧 JSON（<code class="src" data-src="src/agent/tool-worker/protocol.ts#export type WorkerRequest">protocol.ts · WorkerRequest</code>）：后台发 <code>init</code>、<code>tool_call</code>（以宿主操作 id 关联）、<code>abort</code>、<code>shutdown</code>；工作进程回 <code>ready</code>、<code>data</code>、<code>result</code>、<code>fatal</code>。单帧上限 <code class="src" data-src="src/agent/tool-worker/protocol.ts#MAX_FRAME_BYTES">MAX_FRAME_BYTES</code>（4 MiB），正文按 <code class="src" data-src="src/agent/tool-worker/protocol.ts#DATA_CHUNK_BYTES">DATA_CHUNK_BYTES</code>（512 KiB）分块、base64 传输，写入侧有背压。等 <code>ready</code> 超过 30 秒即启动失败并回收执行单元（<code class="src" data-src="src/agent/tool-worker/host.ts#工具工作进程启动超时">host.ts · 启动超时</code>）；停止时先发 <code>shutdown</code>，给 3 秒优雅退出，再停整个执行单元并核实退出。</p>

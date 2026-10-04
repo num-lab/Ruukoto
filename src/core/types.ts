@@ -163,11 +163,55 @@ export interface SubAgent {
 }
 
 /**
+ * 工作的写入目标（agent-direction issue 16，work_delegations.write_target JSON）：
+ * 首次委派时钉定，继续委派沿用；null = 只读分析工作（无法升级为写入）。
+ * - worktree：Git 目标的宿主生成 worktree（隔离副本；分支/基线/共享 Git 目录
+ *   与目录身份全部钉定，继续委派逐项复核）；
+ * - direct：非 Git 目标（父工作区内的目标目录，直接写入并与父会话串行）。
+ */
+export type WorkWriteTarget =
+  | {
+      kind: "worktree";
+      /** 仓库根（目标路径向上找到的第一个含 .git 的目录）。 */
+      repoRoot: string;
+      /** 仓库共享 Git 目录（普通仓库 = <repoRoot>/.git；worktree = common dir）。 */
+      commonGitDir: string;
+      /** 本副本的 gitdir（.git 文件指向；普通仓库 = <repoRoot>/.git）。 */
+      gitdir: string;
+      path: string;
+      dev: number;
+      ino: number;
+      branch: string;
+      baseCommit: string;
+    }
+  | { kind: "direct"; path: string; dev: number; ino: number };
+
+/** 读取 work_delegations.write_target（损坏按 null 处理，不阻断历史读取）。 */
+export function parseWorkWriteTarget(json: string | null): WorkWriteTarget | null {
+  if (!json) return null;
+  try {
+    const v = JSON.parse(json) as WorkWriteTarget;
+    if (v?.kind === "worktree") return v;
+    if (v?.kind === "direct") return v;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 写入 work_delegations.write_target（null = 清除；首版只写不清）。 */
+export function writeTargetToJson(target: WorkWriteTarget | null): string | null {
+  return target === null ? null : JSON.stringify(target);
+}
+
+/**
  * 工作委托（work_delegations 表）：拥有者交给主 Agent 的一项工作，可跨
  * 多轮对话、包含同一 SubAgent 的多次执行任务。与每次执行（Task）分开保存；
  * 一次任务终态不等于工作关闭。
  * 取消（issue 14）用独立列表示，一次写入：取消后拒绝继续委派，迟到结果
  * 保存为事实但不再送达父模型；历史、产物与工作记录保留可查。
+ * 写入目标（issue 16）用独立可空列表示：null = 只读分析工作；非 null 即
+ * 修改工作（worktree 隔离副本或父工作区内直接写入），首次委派钉定。
  */
 export interface WorkDelegation {
   id: string;
@@ -187,6 +231,8 @@ export interface WorkDelegation {
   canceledBy: WorkCanceledBy | null;
   /** 取消原因（可选）；null = 未取消或未给原因。 */
   cancelReason: string | null;
+  /** 写入目标（issue 16）；null = 只读分析工作（不能升级为写入）。 */
+  writeTarget: WorkWriteTarget | null;
   createdAt: string;
 }
 

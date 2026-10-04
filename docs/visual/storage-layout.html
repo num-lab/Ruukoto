@@ -62,6 +62,7 @@
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
         <a href="../adr/0018-legacy-workspace-org-attribution.md">ADR 0018 旧数据组织归属</a>
         <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
+        <a href="../adr/0021-subagent-worktrees.md">ADR 0021 SubAgent worktree</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="deployment.html">部署与信任边界</a>
@@ -85,7 +86,7 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 540" role="img" aria-label="单个产品档案根的目录树与归属：保护根内是 data、agent、control 三个目录，后台进程读写全部，离线配置中心持配置锁写 agent 目录，TUI 与 CLI 读拥有者令牌；保护根外是工作目录区（qq-work、agent-work、SubAgent 独立目录，工具工作进程只读 SubAgent 目录）与客户端侧（pending 待核实记录与 TUI 命令回显，由客户端写）。">
+        <svg viewBox="0 0 1040 584" role="img" aria-label="单个产品档案根的目录树与归属：保护根内是 data、agent、control 三个目录，后台进程读写全部，离线配置中心持配置锁写 agent 目录，TUI 与 CLI 读拥有者令牌；保护根外是工作目录区（qq-work、agent-work、SubAgent 独立目录、按工作一份的 worktree 副本）与客户端侧（pending 待核实记录与 TUI 命令回显，由客户端写）。">
           <text class="zone-t" x="16" y="18">&lt;root&gt;   ruukoto ~/.ruukoto · ruukoto-dev ~/.ruukoto-dev-agent</text>
 
           <rect class="zone-r" x="12" y="30" width="700" height="384" rx="12"/>
@@ -114,36 +115,38 @@
           <g class="n"><rect x="540" y="196" width="156" height="36" rx="8"/><text x="618" y="208">spawn.log</text><text class="sub" x="618" y="223">按需拉起日志</text></g>
 
           <g class="n"><rect x="850" y="30" width="170" height="42" rx="8"/><text x="935" y="44">工具工作进程</text><text class="sub" x="935" y="61">按任务启动</text></g>
-          <rect class="zone-r" x="730" y="92" width="298" height="212" rx="12"/>
+          <rect class="zone-r" x="730" y="92" width="298" height="256" rx="12"/>
           <text class="zone-t" x="746" y="112">工作目录 · 保护根外</text>
           <g class="n"><rect x="746" y="124" width="266" height="36" rx="8"/><text x="879" y="136">agent-work/sub-agents/&lt;id&gt;/</text><text class="sub" x="879" y="151">0700 · SubAgent 独立目录</text></g>
           <g class="n"><rect x="776" y="166" width="236" height="36" rx="8"/><text x="894" y="178">materials-*.txt</text><text class="sub" x="894" y="193">0600 · 资料快照</text></g>
-          <g class="n"><rect x="746" y="212" width="266" height="36" rx="8"/><text x="879" y="224">agent-work/&lt;角色&gt;/</text><text class="sub" x="879" y="239">0700 · 角色会话 cwd（旧架构）</text></g>
-          <g class="n"><rect x="746" y="258" width="266" height="36" rx="8"/><text x="879" y="270">qq-work/&lt;账号&gt;_&lt;群&gt;/</text><text class="sub" x="879" y="285">0700 · 群会话 cwd（旧架构）</text></g>
-          <path class="e" d="M935 72V122" marker-end="url(#ah)"/>
-          <text class="el start" x="943" y="84">只读</text>
+          <g class="n run"><rect x="746" y="212" width="266" height="36" rx="8"/><text x="879" y="224">agent-work/worktrees/&lt;workId&gt;/</text><text class="sub" x="879" y="239">0700 根 · 按工作一份 worktree 副本</text></g>
+          <g class="n"><rect x="746" y="256" width="266" height="36" rx="8"/><text x="879" y="268">agent-work/&lt;角色&gt;/</text><text class="sub" x="879" y="283">0700 · 角色会话 cwd（旧架构）</text></g>
+          <g class="n"><rect x="746" y="300" width="266" height="36" rx="8"/><text x="879" y="312">qq-work/&lt;账号&gt;_&lt;群&gt;/</text><text class="sub" x="879" y="327">0700 · 群会话 cwd（旧架构）</text></g>
+          <path class="e" d="M935 72V142" marker-end="url(#ah)"/>
+          <text class="el start" x="943" y="84">按任务决定</text>
+          <text class="el start" x="943" y="102">挂载</text>
 
-          <rect class="zone-r" x="730" y="316" width="298" height="120" rx="12"/>
-          <text class="zone-t" x="746" y="336">客户端侧 · 保护根外</text>
-          <g class="n"><rect x="746" y="346" width="266" height="36" rx="8"/><text x="879" y="358">pending/&lt;request_id&gt;.json</text><text class="sub" x="879" y="373">0700 目录 · 0600 文件</text></g>
-          <g class="n"><rect x="746" y="390" width="266" height="36" rx="8"/><text x="879" y="402">tui/commands.sqlite</text><text class="sub" x="879" y="417">0600 · 命令回显</text></g>
+          <rect class="zone-r" x="730" y="360" width="298" height="120" rx="12"/>
+          <text class="zone-t" x="746" y="380">客户端侧 · 保护根外</text>
+          <g class="n"><rect x="746" y="390" width="266" height="36" rx="8"/><text x="879" y="402">pending/&lt;request_id&gt;.json</text><text class="sub" x="879" y="417">0700 目录 · 0600 文件</text></g>
+          <g class="n"><rect x="746" y="434" width="266" height="36" rx="8"/><text x="879" y="446">tui/commands.sqlite</text><text class="sub" x="879" y="461">0600 · 命令回显</text></g>
 
-          <g class="n accent"><rect x="40" y="478" width="200" height="46" rx="8"/><text x="140" y="493">后台进程</text><text class="sub" x="140" y="511">server · 唯一在线写入方</text></g>
-          <g class="n"><rect x="280" y="478" width="180" height="46" rx="8"/><text x="370" y="493">离线配置中心</text><text class="sub" x="370" y="511">后台不在时</text></g>
-          <g class="n"><rect x="760" y="478" width="180" height="46" rx="8"/><text x="850" y="493">TUI / CLI</text><text class="sub" x="850" y="511">拥有者客户端</text></g>
+          <g class="n accent"><rect x="40" y="522" width="200" height="46" rx="8"/><text x="140" y="537">后台进程</text><text class="sub" x="140" y="555">server · 唯一在线写入方</text></g>
+          <g class="n"><rect x="280" y="522" width="180" height="46" rx="8"/><text x="370" y="537">离线配置中心</text><text class="sub" x="370" y="555">后台不在时</text></g>
+          <g class="n"><rect x="760" y="522" width="180" height="46" rx="8"/><text x="850" y="537">TUI / CLI</text><text class="sub" x="850" y="555">拥有者客户端</text></g>
 
-          <path class="e accent" d="M140 478V416" marker-end="url(#ah-accent)"/>
-          <text class="el start" x="148" y="450">读写全部</text>
-          <path class="e" d="M370 478L404 402" marker-end="url(#ah)"/>
-          <text class="el start" x="396" y="448">持配置锁写</text>
-          <path class="e" d="M760 492H721V172H698" marker-end="url(#ah)"/>
+          <path class="e accent" d="M140 522V416" marker-end="url(#ah-accent)"/>
+          <text class="el start" x="148" y="472">读写全部</text>
+          <path class="e" d="M370 522L404 402" marker-end="url(#ah)"/>
+          <text class="el start" x="396" y="472">持配置锁写</text>
+          <path class="e" d="M760 536H721V172H698" marker-end="url(#ah)"/>
           <text class="el end" x="704" y="300">读令牌</text>
           <text class="el end" x="704" y="318">连 socket</text>
-          <path class="e" d="M850 478V438" marker-end="url(#ah)"/>
-          <text class="el start" x="858" y="462">写</text>
+          <path class="e" d="M850 522V482" marker-end="url(#ah)"/>
+          <text class="el start" x="858" y="506">写</text>
         </svg>
       </div>
-      <figcaption>虚线框是保护根：<code class="src" data-src="src/runtime/runtime.ts#protectedRoots">runtime.ts · protectedRoots</code> 返回 dataDir、agentDir、controlDir 与服务代码根（realpath 规范化），任务授权路径、工作区根和新工作区都不能是它们本身、子级或祖先（所以档案根 <code>~/.ruukoto</code> 本身也不能当工作区）。<code>pending/</code>、<code>tui/</code>、<code>qq-work/</code>、<code>agent-work/</code> 在保护根外：角色、群与 SubAgent 目录都是会话的 cwd，而会话目录不能落进保护根（SubAgent 目录建之前先过 <code>assertGrantNotProtected</code>），所以放在数据目录的兄弟位置。</figcaption>
+      <figcaption>虚线框是保护根：<code class="src" data-src="src/runtime/runtime.ts#protectedRoots">runtime.ts · protectedRoots</code> 返回 dataDir、agentDir、controlDir 与服务代码根（realpath 规范化），任务授权路径、工作区根和新工作区都不能是它们本身、子级或祖先（所以档案根 <code>~/.ruukoto</code> 本身也不能当工作区）。<code>pending/</code>、<code>tui/</code>、<code>qq-work/</code>、<code>agent-work/</code> 在保护根外：角色、群与 SubAgent 目录都是会话的 cwd，而会话目录不能落进保护根（SubAgent 目录建之前先过 <code>assertGrantNotProtected</code>），所以放在数据目录的兄弟位置。<code>worktrees/</code> 是 issue 16 修改委派的按工作副本根：工具工作进程对自己的副本可读写、副本里仓库的共享 Git 目录以只读挂载；覆盖副本根的读写授予会被拒绝（只读仍允许），副本一律保留，没有删除入口（见 <a href="orchestrator.html#subagent-modify">编排器 · 修改委派</a>）。</figcaption>
     </figure>
 
     <div class="scroll">
@@ -171,6 +174,7 @@
           <tr><td><code>&lt;dataDir&gt;/../qq-work/&lt;账号&gt;_&lt;群&gt;/</code></td><td>目录 0700</td><td>QQ 适配器建群会话时创建（旧架构，<code class="src" data-src="src/qq/adapter.ts#&quot;qq-work&quot;">qq/adapter.ts</code>）；群会话的 cwd，群会话归 chat 工具类别，工具集合为空</td><td>—</td><td>是</td></tr>
           <tr><td><code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;/</code></td><td>目录 0700</td><td>编排器引导 main / coding / chat 角色时创建（旧架构，<code class="src" data-src="src/runtime/orchestrator.ts#&quot;agent-work&quot;, def.id">orchestrator.ts</code>）；角色会话的 cwd</td><td>—</td><td>是</td></tr>
           <tr><td><code>&lt;dataDir&gt;/../agent-work/sub-agents/&lt;agentId&gt;/</code></td><td>目录 0700；资料快照 <code>materials-&lt;workId&gt;-&lt;key&gt;.txt</code>（按工作 + 执行键命名）0600</td><td>后台在登记事务前创建并写快照（先核对不落入保护根）；SubAgent 的工作进程只读</td><td>快照可能含选定的个人资料</td><td>否：快照是委派时解析出的文本，之后不重新解析；按工作 + 执行键命名，复用同一 Agent 承接新工作时不覆写旧工作的快照，不同执行各写一份（v25 之前就有的 <code>materials-&lt;key&gt;.txt</code> 旧名快照仍在，不再产生新名）</td></tr>
+          <tr><td><code>&lt;dataDir&gt;/../agent-work/worktrees/&lt;workId&gt;/</code></td><td>副本根 0700（<code class="src" data-src="src/runtime/subagents.ts#worktreeRoot">subagents.ts · worktreeRoot</code>）；副本 &lt;workId&gt;/ 由容器内 git 按现有内容创建</td><td>修改委派（agent-direction issue 16，ADR 0021）：宿主在受限 confirm 容器里执行固定的 <code>git worktree add</code>（宿主进程本身绝不运行 git，<code class="src" data-src="src/runtime/runtime.ts#createWorktreeInContainer">runtime.ts · createWorktreeInContainer</code>）；分支 <code>ruukoto/work-&lt;workId&gt;</code>、基线为委派时仓库 HEAD——父工作区未提交改动不进副本。该 SubAgent 的工作进程对自己的副本可读写（LaunchSpec 的 workspace），副本共享的仓库 Git 目录按只读挂载（<code class="src" data-src="src/agent/tool-router.ts#launchSpecFor">tool-router.ts · launchSpecFor</code>）</td><td>仓库内容的完整副本</td><td>否：一律保留——创建失败保留现场（错误含路径与分支），任务取消/退出不删，本版没有删除副本的入口；覆盖副本根的读写授予被拒（只读仍允许，<code class="src" data-src="src/runtime/runtime.ts#validateGrantedPaths">runtime.ts · validateGrantedPaths</code>）</td></tr>
         </tbody>
       </table>
     </div>
@@ -317,7 +321,7 @@
           <tr data-k="g-ws" tabindex="0"><td rowspan="2">工作区与会话</td><td><code>projects</code></td><td>旧架构项目与工作区共用一张表：工作区就是带根目录归属（<code>root_cwd</code> / <code>root_real</code> / <code>root_dev</code> / <code>root_ino</code>）的项目；<code>instruction_files</code>、<code>web_search</code> 与乐观并发版本 <code>settings_version</code></td><td><code>name</code> UNIQUE；<code>create_request_id</code> 部分唯一；<code>root_real</code> 部分唯一（挂载别名由 <code>findProjectByRoot</code> 按 dev+ino 拦）</td><td><code class="src" data-src="src/core/store.ts#createProject(name: string">store.ts · createProject</code>、<code class="src" data-src="src/core/store.ts#attachProjectRoot">attachProjectRoot</code>（Runtime 建项目、打开工作区、迁移应用）</td></tr>
           <tr data-k="g-ws" tabindex="0"><td><code>sessions</code></td><td>会话：<code>project_id</code>（资料身份与配置来源）、<code>kind</code>（dev / qq_group）、目录身份四列、<code>pi_session_id</code>、<code>session_file</code>、队列状态、<code>workspace_project_id</code>（只作展示归属）</td><td><code>create_request_id</code> 部分唯一</td><td><code class="src" data-src="src/core/store.ts#createSession">store.ts · createSession</code>（Runtime、QQ 适配器、编排器、SubAgentManager）；<code class="src" data-src="src/core/store.ts#setSessionFile">setSessionFile</code>（Driver、recover）；<code class="src" data-src="src/core/store.ts#mapSessionToWorkspace">mapSessionToWorkspace</code>（迁移）</td></tr>
           <tr data-k="g-task" tabindex="0"><td rowspan="2">任务运行时</td><td><code>tasks</code></td><td>每次执行：状态、访问模式与权限版本、中断原因、<code>history_entry_ids</code>、旧角色 <code>agent_id</code> 与 <code>parent_task_id</code>、SubAgent 关联 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code>（见 <a href="task-lifecycle.html">任务生命周期</a>）</td><td>UNIQUE (<code>session_id</code>, <code>request_id</code>) 加 <code>submission_digest</code>：同键同参返回原任务</td><td><code class="src" data-src="src/core/store.ts#insertQueuedTask">store.ts · insertQueuedTask</code>（Runtime、SubAgentManager）；<code class="src" data-src="src/core/store.ts#transitionTask">transitionTask</code></td></tr>
-          <tr data-k="g-task" tabindex="0"><td><code>occupancy</code></td><td>目录占用：<code>cwd_real</code>、<code>cwd_dev</code> / <code>cwd_ino</code>、持有任务</td><td>主键 <code>cwd_real</code>；dev+ino 冲突在写入前查询判定</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code>（调度循环）、<code>releaseOccupancy</code></td></tr>
+          <tr data-k="g-task" tabindex="0"><td><code>occupancy</code></td><td>目录占用：<code>cwd_real</code>、<code>cwd_dev</code> / <code>cwd_ino</code>、持有任务；键是任务的工作区根（issue 16：<code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code>，有写入目标的任务占用其 worktree/写入目录），<code>cwd_real</code> 只是记录</td><td>主键 <code>cwd_real</code>；冲突（含祖先/子孙前缀）在写入前查询判定；释放只按 <code>task_id</code>（<code class="src" data-src="src/core/store.ts#releaseOccupancy(taskId">releaseOccupancy</code>）</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code>（调度循环）、<code>releaseOccupancy</code></td></tr>
           <tr data-k="g-appr" tabindex="0"><td rowspan="3">审批与工具操作</td><td><code>confirmations</code></td><td>审批请求：<code>tool_op_id</code>、结构化 <code>scope</code>、权限版本、状态、<code>consumed_at</code>、自动审查字段、长期授权关联 <code>standing_permission_id</code> / <code>standing_permission_version</code></td><td>主键 <code>id</code>；批准单次消费靠条件更新（见 <a href="tool-call-path.html">工具调用路径</a>）</td><td><code class="src" data-src="src/core/store.ts#createConfirmation">store.ts · createConfirmation</code>、<code>insertApprovedConfirmation</code>（审批闸门）</td></tr>
           <tr data-k="g-appr" tabindex="0"><td><code>tool_ops</code></td><td>工具操作账本：<code>id</code> 即宿主操作 ID、<code>sdk_call_id</code>、执行意图时间、结果、<code>effect_unknown</code></td><td>主键宿主操作 ID（也是应用库回执的键）</td><td><code class="src" data-src="src/core/store.ts#recordToolIntent">store.ts · recordToolIntent</code>（Driver）；结果补记由工具操作账本完成</td></tr>
           <tr data-k="g-appr" tabindex="0"><td><code>standing_permissions</code></td><td>长期操作授权：机器 / 单元 / 动作、策略与单元修订、IM 入口四元组、钉版目标、<code>version</code>、<code>revoked_at</code></td><td><code>approval_id</code> UNIQUE；部分唯一（会话、入口四元组、机器、单元、动作）WHERE <code>revoked_at IS NULL</code></td><td><code class="src" data-src="src/core/store.ts#createStandingPermission">store.ts · createStandingPermission</code>（IM 审批）；撤销与失效按版本条件更新、保留行</td></tr>
@@ -339,7 +343,7 @@
           <tr data-k="g-orch" tabindex="0"><td><code>inbound_events</code></td><td>入站事件：来源、外部 ID、目标角色、宿主类别 <code>event_kind</code>（task / im_approval）、钉版回复目标、关联任务</td><td>UNIQUE (<code>source</code>, <code>external_id</code>)</td><td><code class="src" data-src="src/core/store.ts#registerInboundEvent">store.ts · registerInboundEvent</code>（编排器、Telegram 与 QQ 私聊、调度器、GitHub、IM 审批）</td></tr>
           <tr data-k="g-orch" tabindex="0"><td><code>chat_result_acceptances</code></td><td>main 显式接收的群聊结果快照：来源任务、接收任务、理由、摘要</td><td>主键 (<code>main_project_id</code>, <code>task_id</code>)；<code>accepted_by_op_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#acceptChatResult">store.ts · acceptChatResult</code>（群聊结果工具）</td></tr>
           <tr data-k="g-sub" tabindex="0"><td rowspan="2">SubAgent 与工作委托</td><td><code>sub_agents</code></td><td>动态身份：父会话、独立子会话、宿主生成的 <code>work_dir</code>、当前工作与任务指针、状态 running / idle / unverified，以及独立于 state 的关闭两列 <code>closed_at</code> / <code>closed_by</code>（<code class="src" data-src="src/core/types.ts#SubAgentClosedBy">types.ts · SubAgentClosedBy</code>：<code class="st idle">owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）</td><td>主键 <code>id</code>；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#insertSubAgent">store.ts · insertSubAgent</code>（SubAgentManager）；关闭经 <code class="src" data-src="src/core/store.ts#closeSubAgent">closeSubAgent</code> 条件写入</td></tr>
-          <tr data-k="g-sub" tabindex="0"><td><code>work_delegations</code></td><td>工作：父会话、发起任务、执行它的 SubAgent、首次委派键与参数摘要，以及独立的取消三列 <code>canceled_at</code> / <code>canceled_by</code> / <code>cancel_reason</code>（<code class="src" data-src="src/core/types.ts#WorkCanceledBy">types.ts · WorkCanceledBy</code>：<code class="st idle">owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）；每次执行另是一条 <code>tasks</code>，请求键 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>UNIQUE (<code>parent_session_id</code>, <code>request_key</code>)</td><td><code class="src" data-src="src/core/store.ts#insertWorkDelegation">store.ts · insertWorkDelegation</code>（SubAgentManager，与身份、子会话、任务同事务）；取消经 <code class="src" data-src="src/core/store.ts#cancelWorkDelegation">cancelWorkDelegation</code> 条件写入</td></tr>
+          <tr data-k="g-sub" tabindex="0"><td><code>work_delegations</code></td><td>工作：父会话、发起任务、执行它的 SubAgent、首次委派键与参数摘要，独立的取消三列 <code>canceled_at</code> / <code>canceled_by</code> / <code>cancel_reason</code>（<code class="src" data-src="src/core/types.ts#WorkCanceledBy">types.ts · WorkCanceledBy</code>：<code class="st idle">owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>），以及可空的写入目标 <code>write_target</code>（<code class="src" data-src="src/core/types.ts#WorkWriteTarget">types.ts · WorkWriteTarget</code>：<code class="st run">worktree</code> / <code class="st run">direct</code> JSON，首次委派钉定；空 = 只读分析工作）；每次执行另是一条 <code>tasks</code>，请求键 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>UNIQUE (<code>parent_session_id</code>, <code>request_key</code>)</td><td><code class="src" data-src="src/core/store.ts#insertWorkDelegation">store.ts · insertWorkDelegation</code>（SubAgentManager，与身份、子会话、任务同事务）；取消经 <code class="src" data-src="src/core/store.ts#cancelWorkDelegation">cancelWorkDelegation</code> 条件写入</td></tr>
           <tr data-k="g-sched" tabindex="0"><td rowspan="3">调度与 outbox</td><td><code>schedules</code></td><td>调度计划：动作、时间规则、固定载荷与目标、状态、<code>version</code>、当前运行</td><td><code>create_key</code> UNIQUE</td><td><code class="src" data-src="src/scheduler/store.ts#insertSchedule">scheduler/store.ts · insertSchedule</code>（调度工具）</td></tr>
           <tr data-k="g-sched" tabindex="0"><td><code>schedule_runs</code></td><td>一次到期登记：原定时刻、延迟、合并来源、关联入站事件与发送操作、新闻快照</td><td>UNIQUE (<code>schedule_id</code>, <code>schedule_version</code>, <code>scheduled_for</code>)；每计划至多一个未关闭运行（部分唯一）</td><td><code class="src" data-src="src/scheduler/store.ts#insertRun">scheduler/store.ts · insertRun</code>（调度器）</td></tr>
           <tr data-k="g-sched" tabindex="0"><td><code>notification_ops</code></td><td>发送操作账本：固定目标、正文与哈希、状态</td><td>UNIQUE (<code>source_kind</code>, <code>source_key</code>) 即逻辑发送键</td><td><code class="src" data-src="src/scheduler/store.ts#insertOp">scheduler/store.ts · insertOp</code>（调度器、批准后的 <code>notification_enqueue</code>、owner 回复、IM 审批通知与回执、GitHub 评审）</td></tr>
@@ -367,21 +371,21 @@
 
   <section id="schema">
     <h2>schema 版本与迁移</h2>
-    <p>当前版本 <code>v26</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
+    <p>当前版本 <code>v27</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>文件里的版本</th><th>行为</th></tr></thead>
         <tbody>
           <tr><td>无版本记录（全新库）</td><td>一个 <code>BEGIN IMMEDIATE</code> 事务内建全部表、补列、写版本。</td></tr>
-          <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 25（需升级程序）」，后台启动失败，文件不动。</td></tr>
+          <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 27（需升级程序）」，后台启动失败，文件不动。</td></tr>
           <tr><td>等于程序</td><td>幂等执行建表语句与补列，只补齐缺失对象。</td></tr>
-          <tr><td>1 到 25</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v26）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
+          <tr><td>1 到 26</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v27）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
           <tr><td>其他（如 0）</td><td>「不支持从 schema vN 迁移」，同样回滚。</td></tr>
         </tbody>
       </table>
     </div>
     <p>SQLite 改不了 CHECK 约束，涉及 CHECK 的旧版本用 <code>*_new</code> 临时表重建：版本低于 6 时重建 <code>tasks_new</code> / <code>sessions_new</code>（访问模式加 auto-review，<code class="src" data-src="src/core/db.ts#rebuildModeCheckedTables">db.ts · rebuildModeCheckedTables</code>），13 到 15 重建 <code>notification_ops_new</code>（来源类别加 inbound_event），13 到 17 重建 <code>schedules_new</code>（动作加 news）。步骤是建新表 → 按显式列清单 <code>INSERT … SELECT</code> → 删旧表 → 改名 → 重建索引。外键开关在事务内无效，所以在事务外先关 <code>foreign_keys</code>，提交前跑 <code>PRAGMA foreign_key_check</code>，有违规就抛错回滚，最后在 <code>finally</code> 里重新打开。</p>
-    <p>提交 <code>d139561</code> 时库是 v18，之后的七个版本都只做加法：经建表语句（<code>IF NOT EXISTS</code>）加新表、经 <code>ensureColumns</code> 加可空或带默认值的列，不重建既有表、不改写旧记录。</p>
+    <p>提交 <code>d139561</code> 时库是 v18，之后的九个版本都只做加法：经建表语句（<code>IF NOT EXISTS</code>）加新表、经 <code>ensureColumns</code> 加可空或带默认值的列，不重建既有表、不改写旧记录。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>版本</th><th>改动</th><th>旧数据</th><th>出处</th></tr></thead>
@@ -394,6 +398,7 @@
           <tr><td><code>v24</code></td><td>新表 <code>sub_agents</code>、<code>work_delegations</code>；<code>tasks</code> 加 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code> 及两条索引</td><td>旧任务四列为空，不产生任何委派；旧角色列与 CHECK 不变</td><td>工单 11（<code>e542261</code>）</td></tr>
           <tr><td><code>v25</code></td><td><code>sub_agents</code> 加 <code>closed_at</code> / <code>closed_by</code>（ensureColumns / migrateFrom 注释含 v24 → v25；<code class="src" data-src="src/core/db.ts#closed_at TEXT">db.ts</code>）</td><td>旧 Agent 两列为空（未关闭），<code>state</code> 与 CHECK 不变，不扫描、不改写旧记录</td><td>agent-direction 工单 12（随同批 issue-12 代码提交）</td></tr>
           <tr><td><code>v26</code></td><td><code>work_delegations</code> 加 <code>canceled_at</code> / <code>canceled_by</code> / <code>cancel_reason</code>（ensureColumns / migrateFrom 注释含 v25 → v26；<code class="src" data-src="src/core/db.ts#canceled_at TEXT">db.ts</code>）</td><td>旧工作三列为空（未取消），不扫描、不改写旧记录</td><td>agent-direction 工单 14（随同批 issue-14 代码提交）</td></tr>
+          <tr><td><code>v27</code></td><td><code>work_delegations</code> 加 <code>write_target</code>（ensureColumns / migrateFrom 注释含 v26 → v27；<code class="src" data-src="src/core/db.ts#write_target TEXT">db.ts</code>）</td><td>旧工作恒为 NULL（只读分析工作，不升级），不扫描、不改写旧记录</td><td>agent-direction 工单 16（随同批 issue-16 代码提交）</td>
         </tbody>
       </table>
     </div>

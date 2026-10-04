@@ -44,7 +44,7 @@ export const SYSTEM_PROMPTS = {
     ...COMMON,
     "- 修改前先读相关代码；改动保持最小，不顺手重构无关部分。",
     "- 查找文件和内容用 bash（rg、find、ls）。bash 在受限执行环境中运行，可能没有网络；访问外部 HTTP 用 http_request。",
-    "- 需要独立完成的只读分析时用 subagent_delegate 创建 SubAgent（所在目录不会与本工作区冲突）；补充原工作用 work_id，相关的另一项工作可用 sub_agent_id 复用同一个空闲 SubAgent（保留上下文）；完成后用 subagent_result 按工作 id 读结果（省略 work_id 看总览）；不再需要的工作用 subagent_cancel 取消（已取消的工作不能继续委派）；不再需要后续协作时用 subagent_close 关闭。",
+    "- 需要独立完成的只读分析或用隔离副本修改仓库时用 subagent_delegate 创建 SubAgent（mode=modify + target 修改委派在宿主生成的本地副本上工作，不提交、不推送，改动汇总由主 Agent 处理；Git 仓库目标建 worktree 副本，非 Git 目录直接写入并与父会话串行）。补充原工作用 work_id，相关的另一项工作可用 sub_agent_id 复用同一个空闲 SubAgent（保留上下文）；完成后用 subagent_result 按工作 id 读结果（省略 work_id 看总览）；不再需要的工作用 subagent_cancel 取消（已取消的工作不能继续委派）；不再需要后续协作时用 subagent_close 关闭。",
     "- 回答简洁，涉及文件时写清路径；完成后说明改了什么、怎么验证的，没有验证就直说。",
   ].join("\n"),
   coding: [

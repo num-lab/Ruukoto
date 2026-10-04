@@ -195,12 +195,14 @@ function readOperations(): ReadOperations {
 let readScopeRoots: string[] | null = null;
 
 /** 启动钉定复核：每个只读根 realpath 后 dev/ino 必须与宿主钉定一致（范围变化 = 明确失败）。 */
-function pinReadRoots(cwd: string, roots: Array<{ path: string; dev: number; ino: number }>): void {
+function pinReadRoots(cwd: string, roots: Array<{ path: string; dev?: number; ino?: number }>): void {
   const pinned: string[] = [];
   for (const root of roots) {
     const real = fs.realpathSync(root.path);
     const st = fs.statSync(real);
-    if (st.dev !== root.dev || st.ino !== root.ino) {
+    // dev/ino 缺省 = 挂载经 VM 重新编号（macOS Docker Desktop），宿主与容器侧
+    // inode 恒不可比，数值复核只在 Linux 原生 bind mount 下发
+    if (root.dev !== undefined && root.ino !== undefined && (st.dev !== root.dev || st.ino !== root.ino)) {
       throw new Error(`只读根已变化（宿主钉定不符）：${root.path}`);
     }
     pinned.push(real);
@@ -403,6 +405,22 @@ async function handleMessage(raw: string): Promise<void> {
           // 范围变化明确失败：不带着与宿主钉定不符的范围服务（host 收 fatal 后回收执行单元）
           fail(`宿主钉定的只读范围复核失败：${(err as Error).message}`);
           // sendMessage 的写入是排队的异步链：给 fatal 帧落管道的机会再退出（上不封顶等会卡死，封 500ms）
+          await Promise.race([stdoutDrained, sleep(500)]);
+          process.exit(1);
+        }
+      }
+      // 宿主钉定的工作区身份（issue 16）：cwd 已是写入根的钉定路径（每项任务
+      // 重建 Driver 后，perm dry-run 由 LaunchSpec 带走）。失误时拒绝服务。
+      if (req.workspace !== undefined) {
+        try {
+          const st = fs.statSync(fs.realpathSync(cwd));
+          if (st.dev !== req.workspace.dev || st.ino !== req.workspace.ino) {
+            fail(`宿主钉定的工作区身份复核失败：${cwd}（${st.dev}:${st.ino} ≠ ${req.workspace.dev}:${req.workspace.ino}）`);
+            await Promise.race([stdoutDrained, sleep(500)]);
+            process.exit(1);
+          }
+        } catch (err) {
+          fail(`宿主钉定的工作区身份复核失败：${cwd}（${(err as Error).message}）`);
           await Promise.race([stdoutDrained, sleep(500)]);
           process.exit(1);
         }

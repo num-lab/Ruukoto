@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -525,6 +525,8 @@ CREATE TABLE IF NOT EXISTS work_delegations (
   canceled_at TEXT,
   canceled_by TEXT,
   cancel_reason TEXT,
+  -- v27（agent-direction issue 16）：写入目标 JSON（WorkWriteTarget；旧行为空 = 只读分析工作）
+  write_target TEXT,
   created_at TEXT NOT NULL,
   UNIQUE (parent_session_id, request_key)
 );
@@ -636,7 +638,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 25) {
+    } else if (version >= 2 && version <= 26) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -669,6 +671,9 @@ export class Db {
       // agent-direction issue 12）；旧 Agent 两列为空（未关闭），state 语义不变。
       // v25 → v26：work_delegations 补 canceled_at / canceled_by / cancel_reason
       // 三列（ensureColumns，agent-direction issue 14）；旧工作三列为空（未取消）。
+      // v26 → v27：work_delegations 补 write_target 列（ensureColumns，
+      // agent-direction issue 16）；旧工作恒为 NULL（只读分析工作，不扫描、
+      // 不改写旧记录）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -956,6 +961,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("work_delegations", "canceled_at", "canceled_at TEXT");
     add("work_delegations", "canceled_by", "canceled_by TEXT");
     add("work_delegations", "cancel_reason", "cancel_reason TEXT");
+    // v27（agent-direction issue 16）：工作的写入目标（WorkWriteTarget JSON）；
+    // 独立列、首次委派钉定、继续沿用；旧行恒为空（只读分析工作，不升级）。
+    add("work_delegations", "write_target", "write_target TEXT");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

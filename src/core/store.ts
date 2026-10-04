@@ -50,6 +50,32 @@ import {
 import { tailTextByBytes } from "./history.ts";
 import { FRAGMENT_TEXT_CAP } from "./views.ts";
 import { sameDirIdentity, type DirIdentity } from "./dir-identity.ts";
+import { parseWorkWriteTarget, writeTargetToJson } from "./types.ts";
+import * as path from "node:path";
+
+/**
+ * 占用冲突判定（agent-direction issue 16，模块级纯函数，占用取/放与
+ * subagent_result 提示共用）：dev+ino 相等（同一目录的符号链接/挂载别名都
+ * 会命中）、realpath 相等，或按分隔符边界互为前缀（祖先/子孙）。
+ */
+export function occupancyConflict(
+  a: { cwdReal: string; cwdDev: number; cwdIno: number },
+  b: { cwdReal: string; cwdDev: number; cwdIno: number },
+): boolean {
+  for (const [x, y] of [
+    [a, b] as const,
+    [b, a] as const,
+  ]) {
+    if (x.cwdDev === y.cwdDev && x.cwdIno === y.cwdIno) return true;
+    if (x.cwdReal === y.cwdReal) return true;
+  }
+  return grantPrefixOf(a.cwdReal, b.cwdReal) || grantPrefixOf(b.cwdReal, a.cwdReal);
+}
+
+/** realpath 前缀（按分隔符边界；/a/b 与 /a/bc 互不为前缀）。 */
+function grantPrefixOf(parent: string, candidate: string): boolean {
+  return candidate.startsWith(parent + path.sep);
+}
 
 export class Store {
   /** 内部数据库句柄（含测试故障注入点 faultNextWrite）。 */
@@ -972,6 +998,25 @@ export class Store {
     return Number(res.changes) > 0;
   }
 
+  /**
+   * 修改工作的 SubAgent 会话 cwd 对齐（agent-direction issue 16）：首次修改
+   * 委派钉定 writeTarget 后，该 Agent 的子会话 cwd 从独立宿主目录切换到
+   * writeTarget.path（后续所有任务经 taskWorkspace 复用同一键）。
+   */
+  setSubAgentCwd(subAgentId: string, cwd: string, real: string, dev: number, ino: number): void {
+    this.db
+      .prepare("UPDATE sub_agents SET work_dir = ? WHERE id = ?")
+      .run(cwd, subAgentId);
+    const id = this.db
+      .prepare("SELECT session_id FROM sub_agents WHERE id = ?")
+      .get(subAgentId) as { session_id: string } | undefined;
+    if (id) {
+      this.db
+        .prepare("UPDATE sessions SET cwd = ?, cwd_real = ?, cwd_dev = ?, cwd_ino = ? WHERE id = ?")
+        .run(cwd, real, dev, ino, id.session_id);
+    }
+  }
+
   /** 该 SubAgent 名下的活动执行任务（queued/running/awaiting_confirmation）。 */
   findActiveSubAgentTask(subAgentId: string): Task | null {
     const row = this.db
@@ -1001,10 +1046,10 @@ export class Store {
   insertWorkDelegation(work: WorkDelegation): void {
     this.db
       .prepare(
-        `INSERT INTO work_delegations (id, parent_session_id, origin_task_id, sub_agent_id, request_key, params_digest, canceled_at, canceled_by, cancel_reason, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO work_delegations (id, parent_session_id, origin_task_id, sub_agent_id, request_key, params_digest, canceled_at, canceled_by, cancel_reason, write_target, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(work.id, work.parentSessionId, work.originTaskId, work.subAgentId, work.requestKey, work.paramsDigest, work.canceledAt, work.canceledBy, work.cancelReason, work.createdAt);
+      .run(work.id, work.parentSessionId, work.originTaskId, work.subAgentId, work.requestKey, work.paramsDigest, work.canceledAt, work.canceledBy, work.cancelReason, writeTargetToJson(work.writeTarget), work.createdAt);
   }
 
   getWorkDelegation(id: string): WorkDelegation | null {
@@ -1043,6 +1088,7 @@ export class Store {
       canceledAt: row.canceled_at ?? null,
       canceledBy: row.canceled_by ?? null,
       cancelReason: row.cancel_reason ?? null,
+      writeTarget: parseWorkWriteTarget(row.write_target ?? null),
       createdAt: row.created_at,
     };
   }
@@ -2138,8 +2184,12 @@ export class Store {
   // ---------- 目录占用 ----------
 
   /**
-   * 尝试占用目录。碰撞键：dev+ino（同一目录的符号链接、挂载别名都会命中），
-   * cwd_real 作为附加一致性检查。被占用时返回 null。
+   * 尝试占用目录（agent-direction issue 16：冲突判定升级为祖先/子孙）。
+   * 冲突 = dev+ino 相等（同一目录的符号链接、挂载别名都会命中）、realpath 相等，
+   * 按分隔符边界互为前缀（祖先/子孙）。被占用时返回 false，不抛出。
+   * ponytail：挂载别名（bind mount 后 realpath 不同但 dev/ino 相同的别名目录）
+   * 的祖先/子孙关系识别不出——别名的父目录与本目录 dev/ino 不同，前缀也不含；
+   * 这类拓扑下嵌套 cwd 仍可能并行，需要在边界层另补识别。
    */
   tryAcquireOccupancy(input: {
     cwdReal: string;
@@ -2148,10 +2198,9 @@ export class Store {
     sessionId: string;
     taskId: string;
   }): boolean {
-    const clash = this.db
-      .prepare("SELECT cwd_real FROM occupancy WHERE (cwd_dev = ? AND cwd_ino = ?) OR cwd_real = ?")
-      .get(input.cwdDev, input.cwdIno, input.cwdReal) as { cwd_real: string } | undefined;
-    if (clash) return false;
+    const rows = this.db.prepare("SELECT cwd_real, cwd_dev, cwd_ino FROM occupancy").all() as Array<{ cwd_real: string; cwd_dev: number | bigint; cwd_ino: number | bigint }>;
+    const rowsTyped = rows.map((r) => ({ cwdReal: r.cwd_real, cwdDev: Number(r.cwd_dev), cwdIno: Number(r.cwd_ino) }));
+    if (rowsTyped.some((r) => occupancyConflict(input, r))) return false;
     this.db
       .prepare(
         "INSERT INTO occupancy (cwd_real, cwd_dev, cwd_ino, session_id, task_id, acquired_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -2167,18 +2216,34 @@ export class Store {
     return true;
   }
 
-  releaseOccupancy(cwdReal: string, taskId: string): boolean {
-    const info = this.db
-      .prepare("DELETE FROM occupancy WHERE cwd_real = ? AND task_id = ?")
-      .run(cwdReal, taskId);
+  /** 释放一个任务的占用（issue 16：按 taskId 唯一定位；cwd 是记录不是键）。 */
+  releaseOccupancy(taskId: string): boolean {
+    const info = this.db.prepare("DELETE FROM occupancy WHERE task_id = ?").run(taskId);
     return Number(info.changes) === 1;
   }
 
+  /** 单条占用（写入目标键/父写入根的持有者查询；subagent_result 提示由它判定）。 */
   getOccupancyByDir(cwdReal: string): { taskId: string; sessionId: string } | null {
     const row = this.db
       .prepare("SELECT task_id, session_id FROM occupancy WHERE cwd_real = ?")
       .get(cwdReal) as any;
     return row ? { taskId: row.task_id, sessionId: row.session_id } : null;
+  }
+
+  /**
+   * 谁挡了目标目录（agent-direction issue 16，subagent_result 提示用）：
+   * 与目前任何一条占用取/放同一冲突判定（dev/ino、realpath、分隔符前缀）。
+   * 返回最早挡住它的持锁任务（cwd_real 是占用记录，不是请求匹配目录）。
+   */
+  findBlockingOccupancy(cwdReal: string, dev: number, ino: number): { taskId: string; sessionId: string; cwdReal: string } | null {
+    const rows = this.db.prepare("SELECT cwd_real, cwd_dev, cwd_ino, session_id, task_id FROM occupancy ORDER BY acquired_at, rowid LIMIT 1000").all() as Array<{ cwd_real: string; cwd_dev: number | bigint; cwd_ino: number | bigint; session_id: string; task_id: string }>;
+    for (const row of rows) {
+      const other = { cwdReal: row.cwd_real, cwdDev: Number(row.cwd_dev), cwdIno: Number(row.cwd_ino) };
+      if (occupancyConflict({ cwdReal, cwdDev: dev, cwdIno: ino }, other)) {
+        return { taskId: row.task_id, sessionId: row.session_id, cwdReal: row.cwd_real };
+      }
+    }
+    return null;
   }
 
   /** 全部占用（崩溃恢复时核对：旧执行是否确认停止，未确认前保留）。 */

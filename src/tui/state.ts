@@ -398,6 +398,7 @@ export class ViewState {
             canceledAt: null,
             canceledBy: null,
             cancelReason: null,
+            writeTarget: null,
             createdAt: event.createdAt,
           });
         }
@@ -673,7 +674,11 @@ export class ViewState {
         .filter((t) => t.workId === work.id)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
         .at(-1);
-      return `${work.id.slice(0, 12)}…（${agentText}${latest ? ` · 最近任务${formatTaskStatus(latest.status)}` : ""}）`;
+      // issue 16：写入目标在快照到齐后展示；worktree 标分支与本地副本，非 Git 标直接写入
+      const target = work.writeTarget;
+      const targetText =
+        target?.kind === "worktree" ? ` · worktree 分支 ${target.branch}` : target?.kind === "direct" ? " · 直接写入" : "";
+      return `${work.id.slice(0, 12)}…（${agentText}${latest ? ` · 最近任务${formatTaskStatus(latest.status)}` : ""}${targetText}）`;
     });
     return `工作委托 ${parts.join("；")}`;
   }

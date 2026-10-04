@@ -1441,10 +1441,11 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
 结果未知事实，不自动重放其执行。
 
-## 通用 SubAgent 委派（agent-direction issue 11–14，ADR 0020）
+## 通用 SubAgent 委派（agent-direction issue 11–14/16，ADR 0020/0021）
 
 主 Agent（拥有者的普通开发会话或 main）经宿主工具 `subagent_delegate` 登记
-工作委托、创建动态 SubAgent 与独立子会话并派出一次只读执行任务；结果经
+工作委托、创建动态 SubAgent 与独立子会话并派出一次执行任务（只读分析，
+或 issue 16 的修改）；结果经
 `subagent_result` 读取（省略 `work_id` 时列出本会话 SubAgent 总览），不再
 需要的工作用 `subagent_cancel` 整项取消，不再需要后续协作时用
 `subagent_close` 显式关闭。四个工具属于 `subagent` 类别，
@@ -1458,7 +1459,8 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 - **触发来源**：只有拥有者在父会话直接提交的任务，或经 Telegram/QQ owner
   入口核实身份的入站任务可以委派；定时唤醒、子任务回报及其他来源拒绝。
 - **输入与固定参数**：模型只提供 `request / key / work_id? | sub_agent_id?
-  （两者互斥）/ read_paths?（dev）| materials?（main）`。首版分析能力固定
+  （两者互斥）/ mode? / target?（issue 16，见下节）/ read_paths?（dev）|
+  materials?（main）`。分析委派能力固定
   为只读（`read` 与 `read_artifact`），权限模式固定 `confirm`，不继承父
   任务/会话默认模式、单次批准与长期授权；不提供模型自选角色、执行账户、
   访问模式、父会话、任意 cwd 或自由工具列表。截止时间固定为父任务开始
@@ -1469,7 +1471,7 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   `sdelegate:<workId>:<key>` 查任务。参数摘要不包含本次调用的直接父任务 id
   与模型选择——跨对话轮次重放核实同一逻辑委派，返回首次记录；同键异参明确
   冲突；查重先于限额与资料解析，同键同参的重放即使目标已关闭或忙碌也返回
-  原记录。
+  原记录。修改委派把 `mode/target` 纳入摘要（旧分析重放摘要不变）。
 - **登记事务**：先异步准备（模型门闩预检、受限执行入口预检、宿主生成的独立
   工作目录 `<dataDir>/../agent-work/sub-agents/<agentId>`、路径核实与资料快照），
   再在一个同步事务内重核后登记工作/Agent/Session/排队任务与审计事件
@@ -1562,6 +1564,76 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   TUI 经 `work_delegation.canceled` 事件更新工作字段并追加说明（不新增
   TUI 命令）；dev/main 系统提示说明「不再需要的工作用 `subagent_cancel`，
   已取消的工作不能继续委派」。
+
+### 修改委派（issue 16，ADR 0021）
+
+- **模式与入口**：`subagent_delegate` 增加 `mode`（`analyze` 默认 /
+  `modify`）与 `target`（modify 必填，父工作区内的目录）。只有普通开发
+  会话能发起修改委派——main（由 17 迁移）、计划模式、SubAgent 自身一律
+  拒绝；modify 不带 `read_paths`/`materials`。修改工作固定 `confirm`、在
+  容器中运行，不继承父任务的完全访问；工具只有 `read / edit / write /
+  bash / read_artifact`（无 `request_file_access`、`http_request`、MCP，
+  不能委派下级），装配、发送前与调用门按本任务所属工作是否有写入目标选
+  同一白名单。
+- **写入目标钉定**：`work_delegations.write_target`（v27 补列，可为空，
+  旧行恒空 = 只读分析工作）在首次修改委派时确定、继续委派沿用；只读
+  工作不能升级为写入，继续委派（`work_id`）不接受 `mode`；复用
+  （`sub_agent_id`）承接新工作时另建副本。直接写入目标记
+  `{kind:"direct", path, dev, ino}`；worktree 目标记
+  `{kind:"worktree", repoRoot, commonGitDir, gitdir, path, dev, ino,
+  branch, baseCommit}`。
+- **Git 目标：每项工作一个宿主生成的 worktree**。位置
+  `<dataDir>/../agent-work/worktrees/<workId>`（保护根与父工作区之外），
+  分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD 指向的提交——父
+  工作区未提交的改动不进副本。仓库根从目标向上纯文件系统查找（不运行
+  git，不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。
+  副本在受限 confirm 容器内创建（复用 `ToolWorkerHost`，宿主固定的
+  bash：`git -c core.fsmonitor=false rev-parse --verify HEAD` +
+  `git -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree add`，
+  基线提交按 40 位十六进制从容器输出提取），宿主永不执行 git——
+  仓库的 hooks/config 可能被父任务的容器写入，宿主以后台账户运行 git
+  会执行其中植入的 fsmonitor/filter（hooks 用 /dev/null 跳过、fsmonitor
+  显式关）。宿主在容器启动前预建空副本目录（0700）：挂载源不存在时
+  Docker 会以 root 自动创建、容器内 uid 写 `.git` 被拒；非空目录 = 失败
+  残留，不自动认领或覆盖。子任务的 LaunchSpec 把工作区指向
+  副本、共享 Git 目录只读挂载（`readRoots`，可 status/diff/log，不能
+  add/commit/写 refs/hooks/config），并注入
+  `GIT_CONFIG_COUNT/KEY_0/VALUE_0=safe.directory=*`（容器 uid 与仓库
+  owner 不一致时绕过 dubious ownership 检查）。worker init 的数值目录
+  身份（readRoots dev/ino、workspaceIdentity）只在 Linux 下发——
+  原生 bind mount 按宿主原样呈现目录身份；macOS Docker Desktop 经 VM
+  重新编号 inode（已实测：容器侧 dev/ino 与宿主恒不一致），darwin 不
+  下发数值身份、worker init 只按路径钉定，目录身份复核由宿主队列回路
+  在任务启动前按 `taskWorkspaceFor` 承担（runtime.ts）。git 会把副本
+  路径字串写进共享 Git 目录的 `worktrees/<name>/gitdir` 并据此回核，
+  macOS TMPDIR 的 `/var → /private/var` 符号链接会让字串与 realpath
+  不一致（实测报 "not a git repository"）：创建命令、挂载与
+  `write_target.path` 一律用 `copyDirReal = fs.realpathSync(copyDir)`。
+- **不提交规则**：任务首行写明工作目录、分支、基线与「不要 git
+  add/commit，改动留在工作树由主 Agent 汇总」；副本、分支与写入根的
+  改动一律保留——创建失败保留现场（错误信息含路径与分支），任务取消/
+  退出不删除，本版不提供任何删除副本的入口。
+- **非 Git 目标：直接写入父工作区内目录并串行**（写预检按实际执行身份
+  核实写位：Linux 容器按执行 uid 的 POSIX 权限位；macOS 上 Docker
+  Desktop 的 VM 以宿主身份执行容器内文件访问，darwin 按后台账户核实）。
+  子任务的执行目录与占用键都是写入根（`taskWorkspaceFor`：有写入目标用
+  钉定的 path/dev/ino，否则用会话目录身份）；队列启动前复核目录身份，
+  被替换或消失即失败、不自动重建。首次钉定写入目标后，该 SubAgent 的
+  子会话 cwd 对齐到写入根。
+- **目录占用升级为祖先/子孙判定**：冲突 = dev/ino 相等（符号链接、挂载
+  别名同命中）、realpath 相等，或按分隔符边界互为前缀；释放统一按
+  `taskId`（`releaseOccupancy(taskId)`），占用键是任务写入目标而非会话
+  cwd。效果：非 Git 子任务与父会话串行——父任务本轮结束才释放占用，
+  父任务没有阻塞等待子任务的接口，不会持锁空等；排队中的非 Git 子任务
+  被本会话占用挡住时，`subagent_result` 提示「等待本会话释放目录，请
+  结束本轮」。**行为变化**：已有的嵌套 cwd 会话从此也串行（`/ws` 与
+  `/ws/sub` 之前互不阻塞）。已知上限：挂载别名的祖先关系识别不出
+  （`ponytail:` 注释）。
+- **副本防旁路**：覆盖 `agent-work/worktrees` 或其下位置的读写授予被拒
+  （`validateGrantedPaths`；只读授予仍允许）；worktree 被删除或 `.git`
+  指向变化后继续委派明确失败（`worktree_gone`），不自动重建。
+- **展示**：`work list/show` 与快照自然带上 `writeTarget`；TUI 工作摘要
+  标「worktree 分支 X」或「直接写入」。只加可选字段，协议版本不变。
 
 ### 结果、通知与空闲
 
@@ -2048,6 +2120,7 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | TUI 真实入口按需拉起冒烟（.scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
 | 开发机受限执行边界产品级冒烟（agent-direction 工单 03；经真实容器启动器 + ruukoto-worker 镜像 + 宿主 ToolWorkerHost：容器内 bash、非 root 1000、工作区写入宿主可见、无外网出口、工作区外宿主真实文件不可见、只读根、CapEff 清零、nohup 逃逸孙进程实际运行（对照）且停止后心跳冻结、停止核实容器移除、宿主原路径挂载、只读授予路径可读不可写） | macOS 本机 Docker Desktop 4.x/29.8.0（Linux VM aarch64）；/var/folders 与 /Users 两种工作区各一遍 | 通过（2026-10-02，16/16 ×2；`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`——真实 docker/镜像/文件/进程/网络路径，无模拟层） |
 | macOS sandbox-exec 可行性探针（.scratch/agent-direction/macos-sbx-probe.sh：file-read literal/subpath/regex/file* 与 file-write 拒绝、孙进程继承、网络拒绝对照） | macOS 27.0 (arm64) | **否定**（2026-10-02）：文件规则 0/6 静默未执行，不构成边界；网络拒绝与孙进程继承生效，不足以覆盖文件与凭据；不作为受限执行方式 |
+| SubAgent 修改委派冒烟（.scratch/agent-direction/smoke-16-parallel-worktrees.mts：真实 Runtime/控制面/SQLite + 真实容器后端与镜像 + 真实 git 仓库——容器内建副本、两子任务同一仓库并行 worktree（同时 running、不同分支）、主工作区字节与未提交改动不变、safe.directory 环境容器内 git status/diff 可用、git commit 与写 hooks/config 真实失败（共享 Git 只读挂载）、非 Git 目录与父会话串行、植入 fsmonitor 只在容器内被只读挡住（宿主不执行）、副本创建与任务容器零残余） | macOS 本机 Docker Desktop 29.8.0（真实容器；模型为模拟，消息平台不启用） | 通过（2026-10-04，9/9）；Linux 远端（tx，uid/gid 1003，经 `--remote` 自包含跑完全程）通过（2026-10-04，9/9）；流程教训：worker 代码打进镜像（deploy/worker-image 构建阶段复制 src/agent/tool-worker 与 src/core 后 esbuild 打包），改 tool-worker 必须重建镜像才进容器 |
 | Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |
 | Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
 | 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；.scratch/agent-direction/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx .scratch/agent-direction/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |

@@ -19,7 +19,7 @@ _Avoid_：将个人 Agent 限定为编码助手或 QQ 群聊机器人；将“�
 **主 Agent**：在用户会话中直接与拥有者交互、向若干 SubAgent 派发任务并汇总结果的 Agent；ruukoto 的主 Agent 称为 main。
 _Avoid_：把主 Agent 与整个 Ruukoto Agent 项目或 ruukoto-dev 产品混称。
 
-**SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。当前实现（agent-direction issue 11–12，ADR 0020）：首版只读分析，身份/工作/执行分存于 `sub_agents` / `work_delegations` / `tasks` 关联列；同一父会话内补充原工作用 `work_id` 继续、承接相关新工作用 `sub_agent_id` 复用（要求空闲未关闭；读范围、资料、目录与权限按本次重新确定，前次批准不延续）；主 Agent 用 `subagent_close`、拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）显式关闭，关闭是独立列 `closed_at`/`closed_by`——任务终态、TUI 退出与空闲不自动关闭，关闭后拒绝新委派，历史与产物保留可查；issue 14 的整项取消作用于工作而非 SubAgent（取消不关闭、不销毁身份与成果）；issue 16 增加修改委派（ADR 0021）：普通开发会话用 `mode=modify + target`，Git 目标由宿主在受限容器内生成 worktree 副本（子任务不提交、不推送，改动由主 Agent 汇总），非 Git 目标直接写入并与父会话按目录占用串行；issue 19 增加宿主固定评审：GitHub PR 评审经编排器直接登记的 SubAgent 完成（每个修订一项新工作、一个新 Agent，不占 main 委派名额，空闲后保留但不再复用）；同级通信与恢复由 13、15 后续实现。
+**SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。当前实现（agent-direction issue 11–12，ADR 0020）：首版只读分析，身份/工作/执行分存于 `sub_agents` / `work_delegations` / `tasks` 关联列；同一父会话内补充原工作用 `work_id` 继续、承接相关新工作用 `sub_agent_id` 复用（要求空闲未关闭；读范围、资料、目录与权限按本次重新确定，前次批准不延续）；主 Agent 用 `subagent_close`、拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）显式关闭，关闭是独立列 `closed_at`/`closed_by`——任务终态、TUI 退出与空闲不自动关闭，关闭后拒绝新委派，历史与产物保留可查；issue 14 的整项取消作用于工作而非 SubAgent（取消不关闭、不销毁身份与成果）；issue 16 增加修改委派（ADR 0021）：普通开发会话用 `mode=modify + target`，Git 目标由宿主在受限容器内生成 worktree 副本（子任务不提交、不推送），非 Git 目标直接写入并与父会话按目录占用串行；issue 17 增加改动汇总并开放 main 的修改委派：`subagent_integrate` 把本会话登记的副本相对基线的完整差异套用到父工作区待提交区（预检通过才写入、不代提交、冲突零写入双方保留、已套用幂等返回、直接写入无副本如实告知），取消/关闭不拦汇总（副本与成果保留可找回），旧 `coding_delegate mode=draft` 仅保留迁移期兼容；issue 19 增加宿主固定评审：GitHub PR 评审经编排器直接登记的 SubAgent 完成（每个修订一项新工作、一个新 Agent，不占 main 委派名额，空闲后保留但不再复用）；同级通信与恢复由 13、15 后续实现。
 _Avoid_：把 SubAgent 等同于一次子任务或旧架构中的固定 coding 角色；把任务完成等同于 Agent 关闭。
 
 **主会话**：拥有者通过不同个人消息入口与 ruukoto 持续交互的唯一会话，main 可在委派长任务后继续响应新消息。
@@ -55,7 +55,7 @@ _Avoid_：把选择记录当作发出内容的原文（原文另存为 prompt �
 **长期记忆**：从使用过程中积累的个人偏好、项目约定、已确认决策和经验。每条记忆关联来源，可以修改或撤销，与会话历史分别保存。
 _Avoid_：将全部会话历史或临时任务进度统称为长期记忆。
 
-**工作区**：拥有者选择的开发根目录及其所属会话，可以包含多个仓库；SubAgent 的工作副本是所属工作区的执行副本——当前实现（issue 16）：Git 目标的宿主生成 worktree 位于 `<dataDir>/../agent-work/worktrees/<workId>`（分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD，不含未提交改动，子任务不提交、不推送），非 Git 目标直接写入父工作区内目录并串行；副本一律保留，不提供删除入口。
+**工作区**：拥有者选择的开发根目录及其所属会话，可以包含多个仓库；SubAgent 的工作副本是所属工作区的执行副本——当前实现（issue 16）：Git 目标的宿主生成 worktree 位于 `<dataDir>/../agent-work/worktrees/<workId>`（分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD，不含未提交改动，子任务不提交、不推送），非 Git 目标直接写入父工作区内目录并串行；副本一律保留，不提供删除入口；issue 17 起副本改动由主 Agent 经 `subagent_integrate` 汇入父工作区待提交区（不代提交、冲突不覆盖）。
 _Avoid_：把临时执行副本当作必须单独管理的用户工作区，或把工作区限定为一个 Git 仓库。
 
 **项目（旧架构）**：迁移前组织开发工作及其历史资料的边界，同一项目可包含不同目录的会话。新产品采用工作区与会话的关系，旧项目资料和授权需要在迁移时映射。
@@ -77,7 +77,7 @@ _Avoid_：把技能等同于插件（新增能力）、项目指令（按项目�
 
 **会话**：拥有独立历史的持续交互单元，用户会话承载拥有者与主 Agent 的对话。一项工作可在多轮对话期间继续执行，SubAgent 的独立工作上下文不构成新的用户会话。
 
-**工作委托**：拥有者交给主 Agent 的一项工作，可经过多次对话、由主 Agent 与 SubAgent 执行多个任务共同完成。当前实现（agent-direction issue 11）：`work_delegations` 记录工作、发起任务与首次委派键；与每次执行任务（`tasks.work_id`）分别核实；issue 14 增加整项取消——独立三列 `canceled_at`/`canceled_by`（拥有者或主 Agent）/`cancel_reason` 一次写入、重复取消幂等，拥有者经 `work_cancel`（CLI `ruukoto work cancel`）、主 Agent 经 `subagent_cancel` 发起；登记事务内取消排队任务、给活动任务写取消意图，提交后按现有停止路径逐个处理，已取消的工作拒绝继续委派，迟到结果保存为事实但不再送达父模型，SubAgent 身份、历史与产物不随取消销毁；issue 16 增加可空列 `write_target` 钉定工作的写入目标（首次修改委派确定、继续沿用；空 = 只读分析工作，不能升级为写入）。
+**工作委托**：拥有者交给主 Agent 的一项工作，可经过多次对话、由主 Agent 与 SubAgent 执行多个任务共同完成。当前实现（agent-direction issue 11）：`work_delegations` 记录工作、发起任务与首次委派键；与每次执行任务（`tasks.work_id`）分别核实；issue 14 增加整项取消——独立三列 `canceled_at`/`canceled_by`（拥有者或主 Agent）/`cancel_reason` 一次写入、重复取消幂等，拥有者经 `work_cancel`（CLI `ruukoto work cancel`）、主 Agent 经 `subagent_cancel` 发起；登记事务内取消排队任务、给活动任务写取消意图，提交后按现有停止路径逐个处理，已取消的工作拒绝继续委派，迟到结果保存为事实但不再送达父模型，SubAgent 身份、历史与产物不随取消销毁；issue 16 增加可空列 `write_target` 钉定工作的写入目标（首次修改委派确定、继续沿用；空 = 只读分析工作，不能升级为写入）；issue 17 增加改动汇总：`work_delegation.integrated` 事件记录一次成功套用的分支/基线/父 HEAD/文件清单与统计（取消过的工作与已关闭的 SubAgent 仍可汇总其保留的副本成果）。
 _Avoid_：把整项工作委托与其中某个任务或某个 SubAgent 的生命周期混称；把工作取消等同于任务取消（工作取消作用于名下全部活动与排队任务，不级联到正在运行的唤醒轮次）或 SubAgent 关闭。
 
 **任务**：某个 Agent 接受的一次具体执行，具有自己的状态、结果和授权范围。任务可在交互终端断开后继续运行；因后台异常中断时由拥有者决定是否继续。

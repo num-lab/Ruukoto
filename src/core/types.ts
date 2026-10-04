@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 export interface ModelSelection {
   provider: string;
@@ -890,6 +890,14 @@ export type PersistentEventBody =
    * 提交后按停止路径处理的活动任务。
    */
   | { type: "work_delegation.canceled"; workId: string; parentSessionId: string; subAgentId: string; canceledBy: WorkCanceledBy; reason: string | null; canceledTaskIds: string[]; stoppingTaskIds: string[] }
+  /**
+   * worktree 副本的改动已汇入父工作区（agent-direction issue 17）：taskId =
+   * 发起汇总的主任务（直接父任务）；来源按（分支, baseCommit）钉定，parentHead
+   * 是汇总时刻父仓库 HEAD（null = 读取失败）；文件清单与统计来自汇总时的完整
+   * 差异（files 有界，上限见 INTEGRATE_FILE_LIST_CAP；超出只计数不列名）。只在
+   * 真实套用时登记（幂等命中、空差异与冲突不登记）。
+   */
+  | { type: "work_delegation.integrated"; workId: string; parentSessionId: string; subAgentId: string; taskId: string; branch: string; baseCommit: string; parentHead: string | null; files: string[]; filesChanged: number; insertions: number; deletions: number; patchBytes: number }
   /**
    * 应用数据能力不可用（issue 02）：main.db 丢失、实例身份不符、损坏或存储
    * 格式过新/迁移失败。不自动重建、不覆盖既有实例绑定；工具保持关闭。

@@ -112,6 +112,8 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   subagent_close: "subagent",
   // 整项取消（issue 14）：按 work_delegations.canceled_at 核实（幂等取消亦以取消列为准）
   subagent_cancel: "subagent",
+  // 改动汇总（issue 17）：按 work_delegation.integrated 事件核实；缺事件报无法核实（apply 可能已落字节）
+  subagent_integrate: "subagent",
   // 模拟工具代表可能有副作用的通用工具（mock_mark 写外部标记）
   mock_delay: "approval",
   mock_gate: "approval",

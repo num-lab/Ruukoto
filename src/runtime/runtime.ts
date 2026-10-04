@@ -477,16 +477,19 @@ export class Runtime {
   }
 
   /**
-   * 修改委派 worktree 的容器内创建（issue 16 取舍的受控入口）：用受限确认容器在
-   * 仓库 cwd 里执行宿主固定的 bash（rev-parse HEAD → worktree add），副本目录
-   * 作读写挂载。Grant 的挂载由 worker 前端容器自己决定（env 注入情况与
-   * 跨容器边界下 physical mount 可见性由边界自己承载，宿主不替它承诺）。
+   * 修改委派 worktree 的容器内创建与改动汇总（issue 16/17 取舍的受控入口）：
+   * 用受限确认容器在仓库 cwd 里执行宿主固定的 bash（创建：rev-parse → worktree
+   * add；汇总：add -N → diff → apply --check → apply），副本目录作读写挂载，
+   * extraGrants 挂载 workspace 装不下的共享 Git 目录。Grant 的挂载由 worker
+   * 前端容器自己决定（env 注入情况与跨容器边界下 physical mount 可见性由边界
+   * 自己承载，宿主不替它承诺）。
    */
   async createWorktreeInContainer(input: {
     workspace: string;
     copyDir: string;
     branch: string;
     command: string;
+    extraGrants?: { path: string; access: "read" | "read_write"; purpose: string }[] | null;
   }): Promise<{ isError: boolean; errorMessage?: string; content: string }> {
     const launcher = createLauncherFor(this.config.execution ?? { backend: "local" }, "confirm");
     const { ToolWorkerHost } = await import("../agent/tool-worker/host.ts");
@@ -494,7 +497,10 @@ export class Runtime {
       taskId: `worktree-init-${randomId("wt")}`,
       mode: "confirm" as AccessMode,
       workspace: input.workspace,
-      grantedPaths: [{ path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本初始化（issue 16，host 环绕容器创建）" }],
+      grantedPaths: [
+        { path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本初始化（issue 16，host 环绕容器创建）" },
+        ...(input.extraGrants ?? []),
+      ],
       env: GIT_SAFE_DIRECTORY_ENV,
     };
     let host: Awaited<ReturnType<typeof ToolWorkerHost.start>> | null = null;
@@ -507,13 +513,14 @@ export class Runtime {
         params: { command: input.command, timeout: 120 },
         timeoutMs: 150_000,
       });
-      if (result.isError) {
-        return { isError: true, errorMessage: result.errorMessage ?? "worktree 容器执行失败", content: "" };
-      }
       const text = (result.content ?? [])
         .map((c: any) => (typeof c?.text === "string" ? c.text : ""))
         .join("\n")
         .trim();
+      if (result.isError) {
+        // content 一并带回：错误正文（容器输出）能比 generic errorMessage 更准确定位现场
+        return { isError: true, errorMessage: result.errorMessage ?? "worktree 容器执行失败", content: text };
+      }
       return { isError: false, content: text };
     } catch (err) {
       return { isError: true, errorMessage: (err as Error).message, content: "" };
@@ -2920,13 +2927,14 @@ export class Runtime {
           readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
           resultNotice: (task) => this.githubEvents.notice(task),
         },
-        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；issue 14 整项取消）
+        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；issue 14 整项取消；issue 17 汇总）
         subagents: this.subagents
           ? {
               sources: this.sources,
               delegate: (input) => this.subagents!.delegate(input),
               close: (input) => this.subagents!.close(input),
               cancelWork: (input) => this.subagents!.cancelWork(input),
+              integrate: (input) => this.subagents!.integrate(input),
               readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
               resultNotice: (task) => this.githubEvents.notice(task),
             }

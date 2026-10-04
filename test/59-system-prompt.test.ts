@@ -49,7 +49,7 @@ function assertPrompts(rt: Runtime, sessionId: string, expected: string, label: 
   }
 }
 
-test("系统提示：开发会话、main、coding、chat 各用宿主提示，SYSTEM.md / APPEND_SYSTEM.md 不被发现", async () => {
+test("系统提示：开发会话、main、coding 各用宿主提示，SYSTEM.md / APPEND_SYSTEM.md 不被发现；chat 不再引导", async () => {
   const t = await startTestRuntime("sysprompt-roles", async (req) => ({ kind: "text", text: `完成：${lastUserText(req).slice(0, 20)}` }));
   try {
     const rt = t.runtime;
@@ -60,34 +60,36 @@ test("系统提示：开发会话、main、coding、chat 各用宿主提示，SY
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const dev = await rt.submit({ sessionId, requestId: "dev-1", input: "DEV-MARK", modelSelection: rt.defaultSelection });
     const orch = rt.orchestrator!;
-    await orch.registerInboundEvent({ source: "test", externalId: "c1", targetRole: "chat", body: "CHAT-MARK" });
     const parent = await rt.submit({ sessionId: rt.store.getAgentRole("main")!.sessionId, requestId: "p-1", input: "MAIN-MARK", modelSelection: rt.defaultSelection });
     await orch.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "CODING-MARK", idempotencyKey: "k1" });
 
     await waitFor("开发任务完成", () => rt.store.getTask(dev.id)!.status === "completed");
     await waitFor("main 父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    await waitFor("chat 事件完成", () => rt.store.getInboundEvent(rt.store.findInboundEvent("test", "c1")!.id)!.status === "done");
     await waitFor("coding 完成", () => rt.store.listTasksBySession(rt.store.getAgentRole("coding")!.sessionId).some((x) => x.status === "completed"));
 
     assertPrompts(rt, sessionId, SYSTEM_PROMPTS.dev, "普通开发会话");
-    for (const role of ["main", "coding", "chat"] as const) {
+    for (const role of ["main", "coding"] as const) {
       assertPrompts(rt, rt.store.getAgentRole(role)!.sessionId, SYSTEM_PROMPTS[role], role);
     }
-    // 五份各不相同（含 issue 11 的 SubAgent 只读分析提示）
+    // 核心群聊已退役（issue 20）：chat 不引导，指向 chat 的入站不派发、不建任务
+    assert.equal(rt.store.getAgentRole("chat"), null);
+    await orch.registerInboundEvent({ source: "test", externalId: "c1", targetRole: "chat", body: "CHAT-MARK" });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(rt.store.findInboundEvent("test", "c1")!.status, "registered");
+    assert.ok(!t.server.calls.some((c) => lastUserText(c).includes("CHAT-MARK")), "chat 零模型调用");
+    // 五份各不相同（含 issue 11 的 SubAgent 只读分析提示；chat 提示留待 issue 23 清理）
     assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 5);
   } finally {
     await t.shutdown();
   }
 });
 
-test("系统提示：QQ 群会话用 chat 提示", async () => {
+test("系统提示：核心群聊已退役，群消息零任务（chat 提示留待 issue 23 清理）", async () => {
   const { dirs } = await makeTestDirs("sysprompt-qq", 0);
   const onebot = await startMockOneBot({});
   const model = new MockModelServer(async () => ({ kind: "text", text: "收到" }));
   await writeModelsJson(dirs, await model.start());
   plantDiscovery(dirs.agentDir, false);
-  // 群会话的专用工作目录首次触发时 mkdir -p 创建（src/qq/adapter.ts），可预先放入 .pi/
-  plantDiscovery(path.join(path.dirname(path.resolve(dirs.dataDir)), "qq-work", `${MOCK_QQ_ACCOUNT}_100001`), true);
   const rt = await Runtime.start({
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: createMockTools,
@@ -98,16 +100,17 @@ test("系统提示：QQ 群会话用 chat 提示", async () => {
   try {
     await rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
     await rt.qqConfigure({ endpoint: onebot.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq-test" });
-    await rt.qqGroupUpdate({ groupId: "100001", allow: true });
     await rt.qqSetEnabled(true);
     await waitFor("QQ 登录账号在线", () => rt.qqStatus().online === true);
     onebot.pushGroupMessage({
       groupId: "100001", userId: "880001", messageId: 1,
       segments: [{ type: "at", data: { qq: MOCK_QQ_ACCOUNT } }, { type: "text", data: { text: "MARK-QQ 你好" } }],
     });
-    await waitFor("群回复已发出", () => onebot.actions.some((a) => a.action === "send_group_msg"));
-    const group = rt.store.listSessions().find((s) => s.kind === "qq_group")!;
-    assertPrompts(rt, group.id, SYSTEM_PROMPTS.chat, "QQ 群会话");
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(rt.store.listSessions().filter((s) => s.kind === "qq_group").length, 0, "不建群会话");
+    assert.equal(rt.qqStore.listInbox().length, 0, "不登记收件");
+    assert.ok(!onebot.actions.some((a) => a.action === "send_group_msg"), "不回复");
+    assert.ok(!model.calls.some((c) => lastUserText(c).includes("MARK-QQ")), "零模型调用");
   } finally {
     await rt.stop("test_end");
     await onebot.close();

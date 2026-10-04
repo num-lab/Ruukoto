@@ -14,6 +14,7 @@ import { isPlanInput } from "../src/agent/plan-mode.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
 import { createProjectSession, lastUserText, realTools, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
+import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 const TERMINAL = ["completed", "failed", "interrupted", "canceled"];
@@ -178,18 +179,30 @@ test("集成：三种访问模式下以计划模式运行时访问模式不变�
   }
 });
 
-test("集成：角色会话与 QQ 群会话的 /plan 返回 invalid_params 且不建任务；入站事件包装后不识别为计划模式", async () => {
+test("集成：角色会话与旧 QQ 群会话的 /plan 返回 invalid_params 且不建任务；入站事件包装后不识别为计划模式", async () => {
   const t = await startTestRuntime("plan-sessions", async () => ({ kind: "text", text: "好的" }));
   try {
     const rt = t.runtime;
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
-    const qq = await rt.createSession({ projectId, cwd: t.work[1]!, kind: "qq_group" });
-    const sessions = [...(["main", "coding", "chat"] as const).map((id) => rt.store.getAgentRole(id)!.sessionId), qq.id];
+    await createProjectSession(t.client, t.work[0]!);
+    // 旧安装的 chat 角色行与群会话由播种助手按归档形态写入（核心群聊已退役，issue 20）
+    const archive = legacyGroupArchive({ store: rt.store, qq: rt.qqStore, workRoot: t.dirs.root });
+    archive.seedChatRole();
+    const group = archive.seedGroup({ groupId: "100001" });
+    const sessions = [...(["main", "coding", "chat"] as const).map((id) => rt.store.getAgentRole(id)!.sessionId), group.session.id];
     for (const sessionId of sessions) {
       const before = rt.store.listTasksBySession(sessionId).length;
       await assert.rejects(
         rt.submit({ sessionId, requestId: "plan", input: "/plan 调研", modelSelection: rt.defaultSelection }),
         (err: any) => err.code === "invalid_params" && /计划模式/.test(err.message),
+      );
+      assert.equal(rt.store.listTasksBySession(sessionId).length, before, "不创建任务");
+    }
+    // 退役群会话与 chat 角色会话是只读归档：普通提交同样被拒（invalid_state），不建任务
+    for (const sessionId of [group.session.id, rt.store.getAgentRole("chat")!.sessionId]) {
+      const before = rt.store.listTasksBySession(sessionId).length;
+      await assert.rejects(
+        rt.submit({ sessionId, requestId: "plain", input: "继续聊", modelSelection: rt.defaultSelection }),
+        (err: any) => err.code === "invalid_state" && /核心群聊已退役/.test(err.message),
       );
       assert.equal(rt.store.listTasksBySession(sessionId).length, before, "不创建任务");
     }

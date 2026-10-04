@@ -532,7 +532,7 @@ export class ConfigTuiApp {
       { id: "projects", title: "项目", desc: "指令文件、Web Search、Jev 实验、资料授权", offline: false },
       { id: "sessions", title: "会话", desc: "默认模型、思考档位、权限模式", offline: false },
       { id: "mcp", title: "MCP 服务", desc: "端点、凭据引用、工具允许列表", offline: false },
-      { id: "qq", title: "QQ 入口", desc: "连接配置、启停与允许群", offline: false },
+      { id: "qq", title: "QQ 入口", desc: "连接配置、启停与拥有者私聊", offline: false },
       { id: "credentials", title: "服务凭据", desc: "HTTP 凭据绑定（仅展示元数据）", offline: false },
     ];
     const offline = this.deps.mode === "offline";
@@ -1553,7 +1553,7 @@ export class ConfigTuiApp {
           label: `连接配置：${st.endpoint ?? ""}`,
           description: `登录号 ${st.selfId ?? "?"} · 凭据 ${st.credentialName ?? "（无）"} · 回复上限 ${st.maxReplyChars ?? "默认"} · v${st.configVersion ?? 0}`,
         });
-        items.push({ value: "groups", label: `允许群（${Array.isArray(st.groups) ? st.groups.length : 0}）` });
+        // 允许群界面已删除（核心群聊退役，agent-direction issue 20）；st.groups 为历史值，只读
         items.push({ value: "owner", label: `拥有者私聊：${st.ownerUserId ?? "未开启"}`, description: "固定好友 QQ 号，共享 main 会话；需要 token 凭据" });
         return items;
       },
@@ -1590,8 +1590,6 @@ export class ConfigTuiApp {
             this.notify("QQ 配置已保存");
             return this.refresh();
           }
-          case "groups":
-            return this.pushScreen(this.qqGroupsScreen());
           case "owner": {
             const owner = await this.inputBox("拥有者 QQ 号（留空 = 关闭私聊）", { initial: st.ownerUserId ?? "" });
             if (owner === null) return;
@@ -1604,43 +1602,6 @@ export class ConfigTuiApp {
             this.notify(owner.trim() ? "拥有者私聊已绑定" : "拥有者私聊已关闭");
             return this.refresh();
           }
-        }
-      },
-    };
-  }
-
-  private qqGroupsScreen(): Screen {
-    return {
-      id: "groups",
-      title: "QQ 允许群",
-      watch: (t) => t === "qq.config_changed",
-      load: async () => {
-        const st = (await this.deps.client!.request<any>("qq_status", {})) as Record<string, any>;
-        const groups = Array.isArray(st.groups) ? (st.groups as string[]) : [];
-        const items: SelectItem[] = groups.map((g) => ({ value: `group:${g}`, label: String(g), description: "Enter 移出允许列表" }));
-        items.push({ value: "add", label: "添加允许群" });
-        return items;
-      },
-      onSelect: async (item) => {
-        const client = this.deps.client!;
-        const version = Number(((await client.request<any>("qq_status", {})) as Record<string, any>).configVersion ?? 0);
-        if (item.value === "add") {
-          const gid = await this.inputBox("群号（数字）", {});
-          if (gid === null) return;
-          if (!/^\d{4,20}$/.test(gid.trim())) {
-            this.notify("群号必须是 4-20 位数字", "red");
-            return;
-          }
-          await client.request("qq_group_update", { group_id: gid.trim(), allow: true, expected_version: version });
-          this.notify("群已加入允许列表");
-          return this.refresh();
-        }
-        if (item.value.startsWith("group:")) {
-          const gid = item.value.slice(6);
-          if (!(await this.confirm(`将群 ${gid} 移出允许列表？`, "该群的排队/运行任务将按取消处理"))) return;
-          await client.request("qq_group_update", { group_id: gid, allow: false, expected_version: version });
-          this.notify("群已移除");
-          return this.refresh();
         }
       },
     };

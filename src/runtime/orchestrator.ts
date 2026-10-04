@@ -1,7 +1,8 @@
 /**
- * 后台编排器（issue 01 日常助手）：逻辑角色 main/coding/chat 的引导、持久
+ * 后台编排器（issue 01 日常助手）：逻辑角色 main/coding 的引导、持久
  * 入站事件的登记与派发、父子任务结果回传与有界唤醒、子任务超时取消、
- * 重启恢复。
+ * 重启恢复。核心群聊已退役（agent-direction issue 20）：chat 角色不再引导，
+ * 旧安装的 chat 角色行保留为归档标识；已登记的群入站事件由入站门卫弃。
  *
  * 窄入口：只经 OrchestratorBridge 调用 Runtime 的少量方法；不持有拥有者
  * token，不能审批、改权限、开完全访问或读取其他项目资料。main 的委派工具
@@ -85,11 +86,11 @@ export interface OrchestratorDeps {
   resultNotice?(task: Task): string | null;
 }
 
-/** 角色静态定义（各角色的工具类别见 tool-availability 的会话类别清单）。 */
+/** 角色静态定义（各角色的工具类别见 tool-availability 的会话类别清单）。
+ *  chat 已退役（issue 20）：不再引导；旧 agent_roles 行保留为归档标识。 */
 const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string }> = [
   { id: "main", projectName: "agent-main" },
   { id: "coding", projectName: "agent-coding" },
-  { id: "chat", projectName: "agent-chat" },
 ];
 
 /** 委派/事件输入正文上限（登记时截断，超出部分不入库）。 */
@@ -279,20 +280,6 @@ export class Orchestrator {
 
   // ---------- 入站事件 ----------
 
-  /** 群入口只给收件键：会话、正文、触发者与目标全部从宿主收件记录取得。 */
-  async registerQqGroup(dedupKey: string): Promise<void> {
-    const row = this.deps.qqStore.getInbox(dedupKey);
-    const config = this.deps.qqStore.getConfig();
-    if (!row || !config || !row.sessionId) throw new Error("群收件或宿主会话绑定缺失");
-    this.store.withTx(() => this.store.registerInboundEvent({
-      source: QQ_GROUP_SOURCE, externalId: row.dedupKey, actor: row.userId, targetRole: "chat",
-      // 原文首部的 qq 标签供撤回过滤使用；升级恢复也不得改写原请求参数。
-      body: row.input, receivedAt: row.createdAt,
-      replyTarget: { channel: QQ_GROUP_SOURCE, account: row.account, chatId: row.groupId, configVersion: row.configVersion ?? config.configVersion },
-    }));
-    this.enqueueDispatch();
-  }
-
   /**
    * 登记入站事件（幂等）：重复 (source, externalId) 返回已存在事件且不重复
    * 建任务。登记与派发分离：先持久化，再在串行链上建任务；崩溃窗口由
@@ -456,6 +443,7 @@ export class Orchestrator {
       return;
     }
     const gate = this.deps.inboundGate?.(event) ?? "run";
+    // 已登记的群入站事件（issue 20 退役遗留）：入站门恒 drop，走下方作废分支
     const group = event.source === QQ_GROUP_SOURCE ? this.deps.qqStore.getInbox(event.externalId) : null;
     if (gate === "wait") return;
     if (gate !== "run") {
@@ -480,25 +468,7 @@ export class Orchestrator {
     let task: Task;
     try {
       const review = this.deps.reviewRequest?.(event);
-      if (event.source === QQ_GROUP_SOURCE) {
-        const mapping = group ? this.deps.qqStore.getGroupSession(group.account, group.groupId) : null;
-        const session = mapping ? this.store.getSession(mapping.sessionId) : null;
-        if (!group || !mapping || !session || session.kind !== "qq_group" || group.sessionId !== session.id ||
-            session.projectId !== mapping.projectId || event.targetRole !== "chat" || event.actor !== group.userId || event.body !== group.input) {
-          throw new Error("群入站与宿主会话绑定不匹配");
-        }
-        const existing = this.store.findTaskByRequest(session.id, group.requestId);
-        if (existing && (existing.input !== group.input || existing.accessMode !== "confirm" || existing.parentTaskId ||
-            (existing.agentId !== null && existing.agentId !== "chat") || (existing.sourceEventId !== null && existing.sourceEventId !== event.id))) {
-          throw new Error("旧群请求的任务归属不匹配");
-        }
-        // 旧任务先核实原键和原文再接管，不能新增编排字段后重提而破坏旧摘要。
-        task = existing ?? await this.deps.bridge.submit({
-          sessionId: session.id, requestId: group.requestId, input: group.input,
-          modelSelection: session.modelSelection ?? role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
-          agentId: "chat", sourceEventId: event.id, accessMode: "confirm",
-        });
-      } else if (review !== undefined && review !== null) {
+      if (review !== undefined && review !== null) {
         const main = this.store.getAgentRole("main")!;
         const coding = this.store.getAgentRole("coding")!;
         const deadline = new Date(Date.parse(event.receivedAt) + DELEGATION_LIMITS.deadlineMs).toISOString();
@@ -531,20 +501,11 @@ export class Orchestrator {
       return; // 保持 registered，下次启动恢复重提
     }
     this.store.withTx(() => {
-      if (group) {
-        this.store.db.prepare("UPDATE tasks SET agent_id = 'chat', source_event_id = ? WHERE id = ?").run(event.id, task.id);
-        this.deps.qqStore.linkInboxTask(group.dedupKey, task.sessionId, task.id);
-      }
       this.store.markInboundQueued(event.id, task.id);
       // 任务已落库/已结束、事件回填前崩溃的窗口也沿用原任务。
       const recorded = this.store.getTask(task.id)!;
       if (recorded.resultSummary !== null) this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
     });
-    if (group) {
-      const recorded = this.store.getTask(task.id)!;
-      if (isTerminalTaskStatus(recorded.status)) await this.handleTerminal(recorded, this.outcomeFromStatus(recorded));
-      else this.deps.bridge.kickSession(task.sessionId);
-    }
   }
 
   // ---------- 结果回传与唤醒 ----------

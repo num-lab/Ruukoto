@@ -41,6 +41,11 @@
  * canceledAt/canceledBy/cancelReason；新增 work_delegation.canceled 事件与
  * work_cancel 操作；主 Agent 工具增加 subagent_cancel。旧客户端须升级；
  * 持久旧事件与记录保持可读。
+ *
+ * v14（agent-direction issue 20）：核心群聊退役——qq_group_update 操作删除
+ * （旧 qq_config.groups 保留为历史值）；qq_inbox_list 条目新增 acceptance
+ * （main 接收账本）与 sourceProblem（当前复核结论）字段。旧客户端须升级；
+ * 旧群收件/发送/入站记录保持可读。
  */
 
 import {

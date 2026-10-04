@@ -39,15 +39,16 @@ function toolNamesOf(call: { tools: Array<Record<string, unknown>> | undefined }
   return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n) => typeof n === "string");
 }
 
-test("角色引导：main/coding/chat 绑定独立项目、会话与工作目录", async () => {
+test("角色引导：main/coding 绑定独立项目、会话与工作目录（chat 已退役不引导，issue 20）", async () => {
   const t = await startTestRuntime("orch-boot", async () => ({ kind: "text", text: "ok" }));
   try {
     const roles = t.runtime.store.listAgentRoles();
-    assert.deepEqual(roles.map((r) => r.id).sort(), ["chat", "coding", "main"]);
+    assert.deepEqual(roles.map((r) => r.id).sort(), ["coding", "main"]);
+    assert.equal(t.runtime.store.findProjectByName("agent-chat"), null, "不建 chat 项目");
     const projectIds = new Set(roles.map((r) => r.projectId));
     const sessionIds = new Set(roles.map((r) => r.sessionId));
-    assert.equal(projectIds.size, 3);
-    assert.equal(sessionIds.size, 3);
+    assert.equal(projectIds.size, 2);
+    assert.equal(sessionIds.size, 2);
     for (const role of roles) {
       assert.ok(fs.existsSync(role.workDir), `角色工作目录存在：${role.id}`);
       const session = t.runtime.store.getSession(role.sessionId)!;
@@ -55,10 +56,9 @@ test("角色引导：main/coding/chat 绑定独立项目、会话与工作目录
       assert.equal(session.cwdReal, fs.realpathSync(role.workDir));
     }
     // 白名单：main 无编码工具（issue 02 起含应用数据空间；agent-direction issue 09 起含
-    // service 类别——装配另要求产品/Linux/显式部署配置，见 tool-availability），coding 全量，chat 空
+    // service 类别——装配另要求产品/Linux/显式部署配置，见 tool-availability），coding 全量
     assert.deepEqual(roles.find((r) => r.id === "main")!.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"]);
     assert.deepEqual(roles.find((r) => r.id === "coding")!.tools, ["coding", "host_data", "web_search", "mcp", "skills"]);
-    assert.deepEqual(roles.find((r) => r.id === "chat")!.tools, []);
   } finally {
     await t.shutdown();
   }
@@ -195,8 +195,8 @@ test("父任务完成前子任务结果可查询", async () => {
 
     const child = await orch.delegate({
       parentTaskId: parent.id,
-      targetRole: "chat",
-      input: "群聊摘要请求",
+      targetRole: "main",
+      input: "分析请求",
       idempotencyKey: "k2",
     });
     await waitFor("子任务结果已记录", () => t.runtime.store.getTask(child.id)!.resultSummary !== null);
@@ -370,14 +370,13 @@ test("重启恢复：已登记未建任务可继续；中断子任务记结果�
   }
 });
 
-test("角色工具白名单：chat 空工具、main 无编码工具、coding 全量", async () => {
+test("角色工具白名单：main 无编码工具、coding 全量（chat 已退役，issue 20；空工具清单待 issue 23 清理）", async () => {
   const t = await startTestRuntime("orch-tools", async (req) => ({
     kind: "text",
     text: `完成：${lastUserText(req).slice(0, 20)}`,
   }));
   try {
     const orch = t.runtime.orchestrator!;
-    await orch.registerInboundEvent({ source: "test", externalId: "chat-1", targetRole: "chat", body: "CHAT-MARK 群聊" });
     await orch.registerInboundEvent({ source: "test", externalId: "main-1", targetRole: "main", body: "MAIN-MARK 整理" });
     const mainRole = t.runtime.store.getAgentRole("main")!;
     const parent = await t.runtime.submit({
@@ -393,17 +392,10 @@ test("角色工具白名单：chat 空工具、main 无编码工具、coding 全
       idempotencyKey: "k5",
     });
 
-    await waitFor("chat 事件完成", () => t.runtime.store.getInboundEvent(
-      t.runtime.store.findInboundEvent("test", "chat-1")!.id,
-    )!.status === "done");
     await waitFor("main 事件完成", () => t.runtime.store.getInboundEvent(
       t.runtime.store.findInboundEvent("test", "main-1")!.id,
     )!.status === "done");
     await waitFor("coding 子任务完成", () => t.runtime.store.getTask(child.id)!.status === "completed");
-
-    const chatCall = t.server.calls.find((c) => lastUserText(c).includes("CHAT-MARK"))!;
-    assert.ok(chatCall, "chat 任务已调用模型");
-    assert.equal(toolNamesOf(chatCall).length, 0, "chat 空工具集合");
 
     const mainCall = t.server.calls.find((c) => lastUserText(c).includes("MAIN-MARK"))!;
     const mainTools = toolNamesOf(mainCall);
@@ -572,7 +564,7 @@ test("P1：occupancy_unverified 的角色会话不自动恢复（保留占用，
   }
 });
 
-test("P1：chat 不注入个人共享记忆与项目指令（main 正常注入）", async () => {
+test("P1：main 正常注入个人共享记忆与项目指令（chat 已退役不引导，issue 20）", async () => {
   const t = await startTestRuntime("orch-chatmem", async () => ({ kind: "text", text: "ok" }));
   try {
     // 经拥有者可信入口保存个人共享记忆（唯一标记）
@@ -582,27 +574,16 @@ test("P1：chat 不注入个人共享记忆与项目指令（main 正常注入�
       content: "PERSONAL-MARK-4451 拥有者偏好",
       source_refs: [{ kind: "owner_note", note: "测试注入" }],
     });
-    // 两个角色项目都配置带标记的项目指令：chat 按资料受限会话不注入，main 正常注入
-    for (const id of ["chat", "main"] as const) {
-      const role = t.runtime.store.getAgentRole(id)!;
-      fs.writeFileSync(path.join(role.workDir, "RULES.md"), "INSTR-MARK-7713 项目约定");
-      t.runtime.store.withTx(() => t.runtime.store.updateProjectSettings({ projectId: role.projectId, instructionFiles: ["RULES.md"] }));
-    }
+    const role = t.runtime.store.getAgentRole("main")!;
+    fs.writeFileSync(path.join(role.workDir, "RULES.md"), "INSTR-MARK-7713 项目约定");
+    t.runtime.store.withTx(() => t.runtime.store.updateProjectSettings({ projectId: role.projectId, instructionFiles: ["RULES.md"] }));
     const orch = t.runtime.orchestrator!;
-    await orch.registerInboundEvent({ source: "test", externalId: "chat-mem", targetRole: "chat", body: "CHAT-CTX-MARK 打个招呼" });
     await orch.registerInboundEvent({ source: "test", externalId: "main-mem", targetRole: "main", body: "MAIN-CTX-MARK 整理一下" });
-    await waitFor("chat 事件完成", () => t.runtime.store.getInboundEvent(
-      t.runtime.store.findInboundEvent("test", "chat-mem")!.id,
-    )!.status === "done");
     await waitFor("main 事件完成", () => t.runtime.store.getInboundEvent(
       t.runtime.store.findInboundEvent("test", "main-mem")!.id,
     )!.status === "done");
 
     const payloadOf = (c: { messages: unknown; system: unknown }) => JSON.stringify(c.messages) + JSON.stringify(c.system ?? "");
-    const chatCall = t.server.calls.find((c) => lastUserText(c).includes("CHAT-CTX-MARK"))!;
-    assert.ok(chatCall, "chat 任务已调用模型");
-    assert.ok(!payloadOf(chatCall).includes("PERSONAL-MARK-4451"), "个人共享记忆不得进入 chat 上下文");
-    assert.ok(!payloadOf(chatCall).includes("INSTR-MARK-7713"), "项目指令不得进入 chat 上下文");
     const mainCall = t.server.calls.find((c) => lastUserText(c).includes("MAIN-CTX-MARK"))!;
     assert.ok(payloadOf(mainCall).includes("PERSONAL-MARK-4451"), "main 正常注入个人共享记忆");
     assert.ok(payloadOf(mainCall).includes("INSTR-MARK-7713"), "main 正常注入项目指令");
@@ -662,7 +643,7 @@ test("P2：委派幂等键在父任务范围内唯一——同参返回原任务
     const c2 = await orch.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "同一份正文", idempotencyKey: "dup1" });
     assert.equal(c2.id, c1.id, "同键同参返回原任务");
     await assert.rejects(
-      () => orch.delegate({ parentTaskId: parent.id, targetRole: "chat", input: "同一份正文", idempotencyKey: "dup1" }),
+      () => orch.delegate({ parentTaskId: parent.id, targetRole: "main", input: "同一份正文", idempotencyKey: "dup1" }),
       /幂等键冲突/,
       "同键换角色（会话不同）必须冲突",
     );

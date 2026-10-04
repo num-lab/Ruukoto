@@ -125,9 +125,9 @@ import { loadSkillLibrary, skillsDirFor } from "../agent/skills.ts";
 import { createSourceResolver, schedulerOpCheck, type SourceResolver } from "../agent/scheduler-tools.ts";
 import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
 import { delegationOpCheck } from "../agent/delegation-tools.ts";
-import { chatResultOpCheck } from "../agent/chat-result-tools.ts";
-import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
-import { QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
+import { chatResultOpCheck, resolveAcceptedChatResult } from "../agent/chat-result-tools.ts";
+import { QqAdapter, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
+import { CORE_GROUP_CHAT_RETIRED, QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
   capReply,
   TelegramAdapter,
@@ -173,6 +173,12 @@ const FRAGMENT_PREVIEW_CAP = FRAGMENT_TEXT_CAP;
 
 /** 服务代码根目录（本模块位于 <codeRoot>/src/runtime/）。 */
 const CODE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+
+/** qq_inbox_list 的归档视图行（issue 20）：收件登记 + main 接收账本 + 复核结论。 */
+export interface QqInboxArchiveRow extends QqInboxRow {
+  acceptance: { acceptedAt: string; acceptedByTaskId: string; reason: string; summary: string } | null;
+  sourceProblem: string | null;
+}
 
 export interface RuntimeConfig {
   dataDir: string;
@@ -622,8 +628,11 @@ export class Runtime {
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
-    // QQ 群聊入口（issue 07）：恢复收件登记、自动恢复群会话队列，按配置连接
-    // NapCat（未配置/未启用时保持禁用，不猜测端点与群号）；
+    // 核心群聊退役收尾（agent-direction issue 20）：只把未终态的行改成终态
+    // （排队任务取消、收件跳过、在途发送定 unknown），重复启动幂等不重放
+    runtime.retireGroupChat();
+    // QQ owner 私聊入口（issue 06）：按配置连接 NapCat（未配置/未启用时保持禁用，
+    // 不猜测端点）；核心群聊已退役，群消息由适配器直接忽略；
     // qqDisabled（dev 开发实例）跳过适配器创建，不真实连接
     if (!fullConfig.qqDisabled) {
       runtime.qqAdapter = new QqAdapter({
@@ -631,7 +640,6 @@ export class Runtime {
         qqStore: runtime.qqStore,
         sched: runtime.sched,
         credentials: runtime.credentials,
-        dataDir: fullConfig.dataDir,
         timeouts: fullConfig.qq,
         bridge: {
           registerPrivate: (input) => {
@@ -639,20 +647,9 @@ export class Runtime {
             return runtime.registerImInbound(QQ_PRIVATE_SOURCE, input);
           },
           dispatchInbound: () => runtime.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
-          registerGroup: (key) => {
-            if (runtime.stopping || !runtime.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
-            return runtime.orchestrator.registerQqGroup(key);
-          },
-          cancelTask: (taskId) => runtime.cancelTask(taskId),
-          findProjectByName: (name) => runtime.store.findProjectByName(name),
-          createProject: (name) => runtime.createProject(name),
-          createSession: (input) => runtime.createSession(input),
-          readTaskReplyText: (taskId) => runtime.readTaskReplyText(taskId),
-          resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
           kickSession: (sessionId) => runtime.kick(sessionId),
         },
       });
-      runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
     }
     // Telegram owner 入口（issue 04）：先创建（编排器启动巡检补登 owner 回复要读
     // 固定目标），编排器启动后才开始轮询；dev 开发实例不创建
@@ -694,7 +691,7 @@ export class Runtime {
       },
       createWorktreeInContainer: (input) => runtime.createWorktreeInContainer(input),
     });
-    // 编排器（issue 01）：引导 main/coding/chat 角色、恢复已登记未建任务的
+    // 编排器（issue 01）：引导 main/coding 角色、恢复已登记未建任务的
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
     runtime.orchestrator = new Orchestrator({
       store: runtime.store,
@@ -834,7 +831,8 @@ export class Runtime {
   }
 
   private inboundGate(event: InboundEvent): "run" | "wait" | { drop: string } {
-    if (event.source === QQ_GROUP_SOURCE) return this.qqAdapter?.gateGroup(event) ?? "wait";
+    // 核心群聊已退役（agent-direction issue 20）：旧群入站事件一律作废
+    if (event.source === QQ_GROUP_SOURCE) return { drop: CORE_GROUP_CHAT_RETIRED };
     if (event.source === TELEGRAM_SOURCE) return this.telegramGate(event);
     return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.qqPrivateGate(event);
   }
@@ -1417,6 +1415,39 @@ export class Runtime {
     });
   }
 
+  /**
+   * 核心群聊退役的启动收尾（agent-direction issue 20）：只把未终态的旧行改成
+   * 终态，每次启动执行、按状态幂等（已终态的行不再改动，重复升级/重启不重放）。
+   * - 群会话排队任务 → canceled（原因 core_group_chat_retired）；运行中的已由
+   *   recover() 定 interrupted（结果未知，不重放）；
+   * - 在途（pending）群回复 → unknown（effect_unknown，不重发），对应收件记
+   *   reply_unknown；完成但未发回复的收件不再补发，与其余未终态收件一并
+   *   记 skipped；
+   * - 已登记的 qq_group 入站事件的作废与 inbound.skipped 由编排器启动恢复
+   *   经入站门固定 drop 统一处理，不在此重复。
+   */
+  private retireGroupChat(): void {
+    this.store.withTx(() => {
+      for (const ob of this.qqStore.listPendingOutbox()) {
+        if (this.qqStore.settleOutbox(ob.opId, "unknown", { error: `${CORE_GROUP_CHAT_RETIRED}（发送结果未确认，effect_unknown，不重发）` })) {
+          this.store.db.prepare("UPDATE qq_inbox SET status = 'reply_unknown' WHERE task_id = ? AND status = 'queued'").run(ob.taskId);
+        }
+      }
+      const now = new Date().toISOString();
+      for (const gs of this.qqStore.listGroupSessions()) {
+        for (const task of this.store.listQueuedTasksFifo(gs.sessionId)) {
+          if (this.store.transitionTask(task.id, ["queued"], "canceled", { errorMessage: CORE_GROUP_CHAT_RETIRED, endedAt: now })) {
+            this.store.appendEvent({ type: "task.canceled", taskId: task.id, sessionId: gs.sessionId }, { taskId: task.id, sessionId: gs.sessionId });
+          }
+        }
+      }
+      // 先于 outbox 定 reply_unknown 的行已离开 queued 状态，不会被覆盖
+      for (const row of this.qqStore.listPendingInbox()) {
+        this.qqStore.setInboxStatus(row.dedupKey, "skipped");
+      }
+    });
+  }
+
   // ---------- 项目与会话 ----------
 
   createProject(name: string, createRequestId?: string): Project {
@@ -1440,8 +1471,6 @@ export class Runtime {
     projectName?: string;
     cwd: string;
     confirmTools?: string[];
-    /** 入口类别（默认 dev；qq_group 仅由 QQ 适配器经窄接口创建）。 */
-    kind?: SessionKind;
     /** 创建幂等键（issue 21）：同键同参返回已存在会话，同键异参报 request_conflict。 */
     createRequestId?: string;
   }): Promise<Session> {
@@ -1452,6 +1481,13 @@ export class Runtime {
     if (input.projectId) {
       const project = this.store.getProject(input.projectId);
       if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+      // 角色与群聊会话所在的项目不能作为普通会话归属（issue 20；与
+      // openWorkspace「角色或群聊项目不能作为工作区认领」同一判定）——否则可在
+      // 群项目里建普通 dev 会话，绕过群会话只读归档边界读取群原始历史
+      const roles = this.store.listAgentRoles();
+      if (roles.some((r) => r.projectId === project.id) || this.store.listSessions().some((s) => s.projectId === project.id && s.kind !== "dev")) {
+        throw new RuntimeApiError("invalid_params", "角色或群聊项目不能创建普通会话");
+      }
     }
     const identity = await this.resolveUsableDir(input.cwd);
     try {
@@ -1460,7 +1496,7 @@ export class Runtime {
         const projectId = input.projectId ?? this.store.createProject(input.projectName!.trim(), input.createRequestId).id;
         return this.store.createSession({
           projectId,
-          kind: input.kind ?? "dev",
+          kind: "dev",
           cwd: identity.cwd,
           cwdReal: identity.cwdReal,
           cwdDev: identity.dev,
@@ -2099,6 +2135,11 @@ export class Runtime {
         "该会话是 SubAgent 的独立工作会话，不能用作用户对话提交（委派经 subagent_delegate，结果经 subagent_result 查询）",
       );
     }
+    // 核心群聊已退役（agent-direction issue 20）：qq_group 会话与 chat 角色会话
+    // 是只读归档，拒绝作为对话入口重新提交；continueTask 经本入口提交，一并覆盖
+    if (session.kind === "qq_group" || this.store.getAgentRoleBySession(session.id)?.id === "chat") {
+      throw new RuntimeApiError("invalid_state", "核心群聊已退役：该会话是只读归档，不能提交任务（历史可经 qq inbox / read_history 查阅）");
+    }
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
     }
@@ -2688,28 +2729,21 @@ export class Runtime {
         }
       }
 
-      // QQ 群聊会话（issue 07 §4）：入队后、模型调用前核对启停/群范围/账号
-      // 在线/排队过期。wait = 暂不启动（上线或巡检时重新 kick）；drop = 过期
-      // 或越权，取消跳过（不回复），继续取下一个。
+      // 兜底（启动收尾见 retireGroupChat）：钻过退役边界的排队群任务固定取消跳过
       if (session.kind === "qq_group") {
-        if (!this.qqAdapter) return;
-        const decision = this.qqAdapter.gate(session, task);
-        if (decision === "wait") return;
-        if (decision !== "run") {
-          this.store.withTx(() => {
-            const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
-              errorMessage: decision.drop,
-              endedAt: new Date().toISOString(),
-            });
-            if (ok) {
-              this.store.appendEvent(
-                { type: "task.canceled", taskId: task.id, sessionId },
-                { taskId: task.id, sessionId },
-              );
-            }
+        this.store.withTx(() => {
+          const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
+            errorMessage: CORE_GROUP_CHAT_RETIRED,
+            endedAt: new Date().toISOString(),
           });
-          continue;
-        }
+          if (ok) {
+            this.store.appendEvent(
+              { type: "task.canceled", taskId: task.id, sessionId },
+              { taskId: task.id, sessionId },
+            );
+          }
+        });
+        continue;
       }
 
       // 任务开始前核对目录身份（issue 16：占用键是任务写入目标；排队期间被
@@ -2836,9 +2870,8 @@ export class Runtime {
           consumeRecheck: (confirmation, task) => this.imApprovalConsumeRecheck(confirmation, task),
           standingCandidate: (task, scope) => this.standingCandidate(task, scope),
         },
-        // QQ 群聊会话（issue 07）：每次模型调用前移出已撤回交互（只改视图）
-        qqRecalledFilter: (sessionId, messages) =>
-          filterRecalledQqMessages(messages, this.qqStore.recalledTagsForSession(sessionId)),
+        // QQ 群聊会话已退役（issue 20）：不再有新群任务运行，撤回过滤不再注入；
+        // Driver 与上下文装配中的 qq_group 参数留待 issue 23 清理
         // main 应用数据空间（issue 02）：仅 main 角色会话装配；不可用时缺省
         // （能力停止，事件已记录），不装配工具
         appData: this.appDataStore
@@ -4014,43 +4047,36 @@ export class Runtime {
     return config;
   }
 
-  /** 群允许列表增删（配置版本递增；移除即取消该群排队/运行任务与未发送回复）。 */
-  async qqGroupUpdate(input: { groupId: string; allow: boolean; expectedVersion?: number }): Promise<QqConfig> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    if (!/^\d{4,20}$/.test(input.groupId)) {
-      throw new RuntimeApiError("invalid_params", `群号必须是数字串：${input.groupId}`);
-    }
-    let config: QqConfig | null;
-    try {
-      config = this.store.withTx(() => {
-        const current = this.qqStore.getConfig();
-        if (!current) return null;
-        const groups = input.allow
-          ? [...new Set([...current.groups, input.groupId])]
-          : current.groups.filter((g) => g !== input.groupId);
-        const c = this.qqStore.setGroups(groups, input.expectedVersion);
-        if (c) {
-          this.store.appendEvent(
-            { type: "qq.config_changed", configVersion: c.configVersion, action: input.allow ? "group_added" : "group_removed", groupId: input.groupId },
-            {},
-          );
+  /**
+   * 旧群收件登记查看（新 → 旧；含状态与撤回标记）。核心群聊已退役（issue 20），
+   * 本视图即归档核查入口：每条记录附 main 的接收账本行（接收时间、接收任务、
+   * 理由、摘要快照）与当前复核结论（null = 可用；否则为不可用原因——归档行
+   * 缺失/不一致、main 不可用或来源已撤回）。未经 main 接收的记录两字段为空。
+   */
+  qqListInbox(input: { groupId?: string; limit?: number } = {}): QqInboxArchiveRow[] {
+    const mainProjectId = this.store.getAgentRole("main")?.projectId ?? null;
+    return this.qqStore.listInbox(input).map((row) => {
+      let accepted = mainProjectId && row.taskId ? this.store.getAcceptedChatResult(mainProjectId, row.taskId) : null;
+      let sourceProblem: string | null = null;
+      if (!mainProjectId && row.taskId) {
+        // main 角色不可用（异常库）：不能把被阻断的来源显示成"未接收/可用"
+        accepted = this.store.getAcceptedChatResultForTask(row.taskId);
+        if (accepted) sourceProblem = "main 角色不可用，无法复核接收来源";
+      } else if (accepted && mainProjectId && row.taskId) {
+        try {
+          resolveAcceptedChatResult(this.store, this.qqStore, mainProjectId, row.taskId);
+        } catch (err) {
+          sourceProblem = (err as Error).message;
         }
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
-    if (!input.allow) await this.qqAdapter?.onGroupRemoved(input.groupId);
-    else await this.qqAdapter?.onConfigChanged();
-    await this.reconcileQqPrivate();
-    return config;
-  }
-
-  /** 收件登记查看（新 → 旧；含状态与撤回标记，供队列与错误排查）。 */
-  qqListInbox(input: { groupId?: string; limit?: number } = {}): QqInboxRow[] {
-    return this.qqStore.listInbox(input);
+      }
+      return {
+        ...row,
+        acceptance: accepted
+          ? { acceptedAt: accepted.acceptedAt, acceptedByTaskId: accepted.acceptedByTaskId, reason: accepted.reason, summary: accepted.summary }
+          : null,
+        sourceProblem,
+      };
+    });
   }
 
   /** 发送记录查看（新 → 旧；含 sent/failed/unknown/canceled 与平台消息 id）。 */

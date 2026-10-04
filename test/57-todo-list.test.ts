@@ -180,11 +180,9 @@ test("事件流：todo_write 每次更新一行完成数/总数，不展开清�
 
 // ---------- 集成 ----------
 
-test("集成：开发会话与 coding 装配 todo_write，main/chat 不装配", async () => {
+test("集成：开发会话与 coding 装配 todo_write，main 不装配（chat 已退役不引导，issue 20）", async () => {
   const t = await startTestRuntime("todo-roles", async () => ({ kind: "text", text: "ok" }));
   try {
-    const orch = t.runtime.orchestrator!;
-    await orch.registerInboundEvent({ source: "test", externalId: "chat-t", targetRole: "chat", body: "CHAT-TODO-MARK" });
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const dev = await submit(t, sessionId, "d1", "DEV-TODO-MARK");
     const main = t.runtime.store.getAgentRole("main")!;
@@ -193,12 +191,10 @@ test("集成：开发会话与 coding 装配 todo_write，main/chat 不装配", 
     const c = await t.runtime.submit({ sessionId: coding.sessionId, requestId: "c-t", input: "CODING-TODO-MARK", modelSelection: t.runtime.defaultSelection });
     await waitDone(t, dev.id);
     await waitFor("main/coding 完成", () => t.runtime.store.getTask(m.id)!.status === "completed" && t.runtime.store.getTask(c.id)!.status === "completed");
-    await waitFor("chat 完成", () => t.runtime.store.getInboundEvent(t.runtime.store.findInboundEvent("test", "chat-t")!.id)!.status === "done");
     const tools = (mark: string) => toolNames(t.server.calls.find((x) => lastUserText(x).includes(mark))!);
     assert.ok(tools("DEV-TODO-MARK").includes("todo_write"), "开发会话");
     assert.ok(tools("CODING-TODO-MARK").includes("todo_write"), "coding 角色");
     assert.ok(!tools("MAIN-TODO-MARK").includes("todo_write"), "main 不装配");
-    assert.ok(!tools("CHAT-TODO-MARK").includes("todo_write"), "chat 不装配");
   } finally {
     await t.shutdown();
   }

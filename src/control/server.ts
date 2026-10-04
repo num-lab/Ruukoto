@@ -772,12 +772,8 @@ export class ControlServer {
         }
         return runtime.qqSetEnabled(params["enabled"], optionalExpectedVersion());
       }
-      case "qq_group_update": {
-        if (typeof params["allow"] !== "boolean") {
-          throw Object.assign(new Error("allow 必须是布尔值"), { code: "invalid_params" });
-        }
-        return runtime.qqGroupUpdate({ groupId: requireString("group_id"), allow: params["allow"], expectedVersion: optionalExpectedVersion() });
-      }
+      // qq_group_update 已删除（核心群聊退役，agent-direction issue 20，协议 v14）；
+      // 旧客户端经版本不匹配被拒，旧 CLI 命令只打印退役提示
       case "qq_inbox_list": {
         const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
         if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {

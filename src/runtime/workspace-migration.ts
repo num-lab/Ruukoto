@@ -138,7 +138,7 @@ const WORKSPACES_LIST_LIMIT = 500;
 // ---------- 规范化与哈希 ----------
 
 /** 规范化 JSON：对象键递归排序（数组保序），同一语义内容产出同一字符串。 */
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   const sortValue = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(sortValue);
     if (v !== null && typeof v === "object") {
@@ -149,7 +149,7 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(sortValue(value));
 }
 
-function sha256(text: string): string {
+export function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
@@ -210,7 +210,7 @@ function isWorktreeDir(dirReal: string): boolean {
 /** 历史文件状态：缺失/未落盘/损坏单独报告，不显示为「没有历史」（空文件是 ok）。
  * 校验样本内每一条完整 JSONL 行——样本上限 64 KiB，截断的最后一段（未读满的
  * 尾部行）按不完整处理不作损坏判定，之后的行无法核实（样本外不做静默结论）。 */
-function historyStatusOf(session: Session): { history: "ok" | "not_flushed" | "missing" | "unreadable"; reason: string | null } {
+export function historyStatusOf(session: Session): { history: "ok" | "not_flushed" | "missing" | "unreadable"; reason: string | null } {
   if (session.sessionFile === null) {
     return { history: "not_flushed", reason: "历史尚未落盘：未登记会话文件" };
   }

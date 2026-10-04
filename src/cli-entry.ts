@@ -50,6 +50,7 @@ const LEGACY_COMMANDS = new Set([
   "history-search",
   "memory",
   "selection-records",
+  "legacy-import",
   "tui",
 ]);
 

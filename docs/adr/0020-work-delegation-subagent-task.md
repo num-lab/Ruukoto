@@ -34,6 +34,12 @@ ADR 0017 确认两个产品支持一层 SubAgent：身份与上下文跨任务�
 5. **迟到结果保存为事实，不送达父模型。** 终态结果照常经 `setTaskResult` 登记（`subagent_task.*` 事件、`subagent_result` 与 `work show` 可查）；取消提交后不再自动送进任何父模型：编排器唤醒前重读工作、队列循环对 `wake:<childId>` 启动前检查所属工作（直接取消该 wake，覆盖排队中、后插入与巡检补发的全部唤醒）、dev 注入查询加 `canceled_at IS NULL`、启动巡检待唤醒清单排除已取消工作。选「不注入」而非「以迟到结果名义注入」，用一条规则排除主 Agent 据此重启工作的可能；需要时由主 Agent 主动 `subagent_result` 读取。main 正在运行的唤醒轮次不级联取消。
 6. **身份与成果保持。** 取消不关闭 SubAgent（任务结束后按占用核实记 idle 或 unverified，之后仍可按 12 复用于其他工作）；工作目录、会话 JSONL、产物、resultRef 与工作记录都不删除。旧 coding draft 没有 `work_id`，不纳入工作取消，仍用 `ruukoto cancel <taskId>`；效果未知的已有操作只标记、不重放，沿用账本既有停止口径。
 
+## 补充：后台重启恢复（agent-direction issue 15，2026-10-05）
+
+1. **排队的委派任务定 interrupted，不自动继续。** 恢复事务（`runtime.ts recover`）把仍未启动的 SubAgent 排队执行任务（拥有者或主 Agent 委派，无 `source_event_id`）与运行中任务同定 `interrupted(backend_restart)`；排队的从未启动，无效果未知问题。不自动继续、不当作成功也不当作新委派：结果由启动巡检按 `setTaskResult` 补记一次（重复启动不重复登记），归属引用（工作/Agent/父会话/父任务）不变，main 父会话按稳定键唤醒、dev 父会话经结果注入得知，继续（沿 `work_id`、`sub_agent_id` 复用）或放弃由拥有者/父 Agent 决定。SubAgent 随之按占用核实记 `idle` 或 `unverified`，恢复「空闲即可委托」的既有规则。宿主固定评审任务带来源事件，不在此列。
+2. **来源事件子会话按角色同口径恢复。** 编排器启动把 `backend_restart` 暂停的自动解除从角色会话扩到 SubAgent 子会话：经第 1 条之后仍能命中的只剩宿主固定评审的排队任务，自动解除即继续执行（issue 19 既定口径：评审不经拥有者核实）。`occupancy_unverified` 暂停与遗留占用不自动解除，恢复任务不与旧执行并发修改同一资源。
+3. **`resume-queue` 是 `unverified` 的唯一出口。** `unverified` 只记「旧执行退出未核实」的事实；拥有者核实后 `resume-queue` 即核实结论：`Runtime.resumeQueue` 释放遗留占用（活动任务持有的占用仍拒绝释放）、解除暂停，并把该会话无活动任务的 SubAgent 从 `unverified` 记回 `idle`，可继续委派、复用或关闭。已取消工作不因启动巡检重新运行、不补发唤醒（issue 14 规则不变）。
+
 ## 与既有决策的关系
 
 - ADR 0017 的通用 SubAgent 目标模型经本决定落地首版；固定 coding/chat 角色继续存在至后续迁移，新旧委派机制兼容共存。

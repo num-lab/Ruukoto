@@ -219,17 +219,17 @@ export class Orchestrator {
     // 崩溃窗口恢复②：重启期间到达终态的角色任务补记结果与事件、补唤醒；
     // interrupted 一律按结果未知处理，不自动重放任何外部副作用
     await this.sweepPendingResults();
-    // 角色会话的队列暂停由编排器自动恢复，但仅限 backend_restart（排队任务
-    // 在重启后继续）；occupancy_unverified 等涉及未核实旧执行的暂停必须保留
-    // 给拥有者核实（docs/runtime.md 恢复约定——角色任务有工具执行，不同于
-    // 无工具的 QQ 会话，不能沿用其无条件恢复前提）
+    // 角色会话与 SubAgent 子会话的队列暂停由编排器自动恢复，但仅限
+    // backend_restart（排队任务在重启后继续）；occupancy_unverified 等涉及
+    // 未核实旧执行的暂停必须保留给拥有者核实（docs/runtime.md 恢复约定——
+    // 角色任务有工具执行，不同于无工具的 QQ 会话，不能沿用其无条件恢复前提）。
+    // 拥有者/主 Agent 委派的 SubAgent 排队任务已由恢复事务定 interrupted
+    // （runtime.ts recover），这里能命中的子会话只剩宿主固定评审的排队任务。
     for (const role of this.store.listAgentRoles()) {
-      const session = this.store.getSession(role.sessionId);
-      if (session && session.queueState === "paused" && session.queuePauseReason === "backend_restart") {
-        await this.deps.bridge
-          .resumeQueue(session.id)
-          .catch((err) => this.log(`恢复角色 ${role.id} 队列失败：${(err as Error).message}`));
-      }
+      await this.resumeRestartPausedQueue(role.sessionId, `角色 ${role.id}`);
+    }
+    for (const agent of this.store.listSubAgents()) {
+      await this.resumeRestartPausedQueue(agent.sessionId, `SubAgent ${agent.id}`);
     }
     const ms = this.deps.deadlineCheckMs ?? 1_000;
     this.deadlineTimer = setInterval(() => void this.checkDeadlines(), ms);
@@ -261,6 +261,21 @@ export class Orchestrator {
     const run = this.dispatchChain.then(fn);
     this.dispatchChain = run.then(() => {}, () => {});
     return run;
+  }
+
+  /**
+   * backend_restart 暂停的会话队列在启动时自动恢复。两层门禁：occupancy_unverified
+   * 保持暂停；会话另持有遗留占用时也不自动恢复（resumeQueue 会一并释放占用——
+   * 那是拥有者核实后的动作，不能自动发生；恢复事务本已按 occupancy_unverified
+   * 拦截，这里再挡住人工暂停叠加遗留占用的形态）。
+   */
+  private async resumeRestartPausedQueue(sessionId: string, label: string): Promise<void> {
+    const session = this.store.getSession(sessionId);
+    if (!session || session.queueState !== "paused" || session.queuePauseReason !== "backend_restart") return;
+    if (this.store.listAllOccupancy().some((o) => o.sessionId === session.id)) return;
+    await this.deps.bridge
+      .resumeQueue(session.id)
+      .catch((err) => this.log(`恢复${label} 队列失败：${(err as Error).message}`));
   }
 
   // ---------- 角色引导 ----------

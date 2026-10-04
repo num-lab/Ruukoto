@@ -941,6 +941,22 @@ export class Store {
     return rows.map((r) => this.rowToTask(r));
   }
 
+  /**
+   * 后台重启恢复（agent-direction issue 15）：仍未启动的 SubAgent 排队执行
+   * 任务，由恢复事务定 interrupted(backend_restart)，不自动继续也不当作新委派。
+   * 宿主固定评审任务带 source_event_id，不列入——其排队保持，由编排器按
+   * 角色会话同口径恢复子会话队列。
+   */
+  listQueuedSubAgentTasks(): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks WHERE sub_agent_id IS NOT NULL AND status = 'queued' AND source_event_id IS NULL
+         ORDER BY created_at, id`,
+      )
+      .all() as any[];
+    return rows.map((r) => this.rowToTask(r));
+  }
+
   // ---------- SubAgent 与工作委托（agent-direction issue 11；宿主管理） ----------
 
   insertSubAgent(agent: SubAgent): void {

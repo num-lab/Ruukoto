@@ -808,6 +808,10 @@ export class Orchestrator {
     const parent = task.parentTaskId ? this.store.getTask(task.parentTaskId) : null;
     if (!parent) return;
     if (!this.store.getAgentRoleBySession(parent.sessionId)) return;
+    // 已取消的工作（issue 14）不建 wake：迟到结果已保存为事实（上文登记，事件与
+    // subagent_result 可查），但不再唤醒父模型——排除主 Agent 据此重启这项工作的
+    // 可能，需要时由主 Agent 主动 subagent_result 读取。
+    if (this.store.getWorkDelegation(work.id)?.canceledAt) return;
     await this.wakeParent(task, outcome, summary);
   }
 

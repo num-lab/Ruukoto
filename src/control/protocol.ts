@@ -36,6 +36,11 @@
  * closedAt/closedBy；新增 subagent.closed 事件与 subagent_close 操作（工作委托
  * 列表照旧）；委派复用经模型工具的 sub_agent_id 参数。旧客户端须升级；
  * 持久旧事件与记录保持可读。
+ *
+ * v13（agent-direction issue 14）：整项工作取消——工作委托新增
+ * canceledAt/canceledBy/cancelReason；新增 work_delegation.canceled 事件与
+ * work_cancel 操作；主 Agent 工具增加 subagent_cancel。旧客户端须升级；
+ * 持久旧事件与记录保持可读。
  */
 
 import {

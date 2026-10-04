@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 export interface ModelSelection {
   provider: string;
@@ -138,6 +138,9 @@ export type SubAgentState = "running" | "idle" | "unverified";
 /** SubAgent 的关闭发起方：拥有者（控制面）或主 Agent（agent:<发起任务ID>）。 */
 export type SubAgentClosedBy = "owner" | `agent:${string}`;
 
+/** 工作委托的取消发起方（issue 14）：拥有者（控制面）或主 Agent（agent:<发起任务ID>）。 */
+export type WorkCanceledBy = "owner" | `agent:${string}`;
+
 /** 动态 SubAgent（sub_agents 表；宿主管理，模型与工作参数不能修改）。 */
 export interface SubAgent {
   id: string;
@@ -163,6 +166,8 @@ export interface SubAgent {
  * 工作委托（work_delegations 表）：拥有者交给主 Agent 的一项工作，可跨
  * 多轮对话、包含同一 SubAgent 的多次执行任务。与每次执行（Task）分开保存；
  * 一次任务终态不等于工作关闭。
+ * 取消（issue 14）用独立列表示，一次写入：取消后拒绝继续委派，迟到结果
+ * 保存为事实但不再送达父模型；历史、产物与工作记录保留可查。
  */
 export interface WorkDelegation {
   id: string;
@@ -176,6 +181,12 @@ export interface WorkDelegation {
   requestKey: string;
   /** 首次委派规范化参数的 sha256（不含本次调用的父任务 id，跨轮次重放可核对）。 */
   paramsDigest: string;
+  /** 取消时刻；null = 未取消。 */
+  canceledAt: string | null;
+  /** 取消发起方；null = 未取消。 */
+  canceledBy: WorkCanceledBy | null;
+  /** 取消原因（可选）；null = 未取消或未给原因。 */
+  cancelReason: string | null;
   createdAt: string;
 }
 
@@ -777,6 +788,12 @@ export type PersistentEventBody =
   | { type: "subagent_task.result_unknown"; workId: string; subAgentId: string; taskId: string; parentSessionId: string; parentTaskId: string; reason: string }
   /** SubAgent 已显式关闭（issue 12；taskId = 主 Agent 关闭的发起任务，拥有者关闭为 null）。 */
   | { type: "subagent.closed"; subAgentId: string; parentSessionId: string; closedBy: SubAgentClosedBy; taskId: string | null }
+  /**
+   * 工作委托已取消（agent-direction issue 14）：取消登记时同事务落盘；
+   * canceledTaskIds = 事务内直接取消的排队任务，stoppingTaskIds = 写取消意图、
+   * 提交后按停止路径处理的活动任务。
+   */
+  | { type: "work_delegation.canceled"; workId: string; parentSessionId: string; subAgentId: string; canceledBy: WorkCanceledBy; reason: string | null; canceledTaskIds: string[]; stoppingTaskIds: string[] }
   /**
    * 应用数据能力不可用（issue 02）：main.db 丢失、实例身份不符、损坏或存储
    * 格式过新/迁移失败。不自动重建、不覆盖既有实例绑定；工具保持关闭。

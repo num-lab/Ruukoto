@@ -125,13 +125,13 @@
           <tr data-k="e-start" tabindex="0">
             <td><code class="st wait">queued</code> → <code class="st run">running</code></td>
             <td>调度循环</td>
-            <td>会话队列为 active、任务是 FIFO 队首、入站门与 QQ 群门放行、目录身份核对通过；同一事务内取得目录占用并条件更新，后台停止开始后不再转入。目录被占用时本轮不启动，等占用释放后的唤醒。<br><code class="src" data-src="src/runtime/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code> <code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td>
+            <td>会话队列为 active、任务是 FIFO 队首、入站门、wake 门与 QQ 群门放行、目录身份核对通过；同一事务内取得目录占用并条件更新，后台停止开始后不再转入。目录被占用时本轮不启动，等占用释放后的唤醒。wake 门：属于已取消工作的 SubAgent 回报唤醒（<code>wake:&lt;子任务&gt;</code>）在启动前被直接取消（work_canceled），不进入本行。<br><code class="src" data-src="src/runtime/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code> <code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td>
             <td><code>task.started</code></td>
           </tr>
           <tr data-k="e-q-cancel" tabindex="0">
             <td><code class="st wait">queued</code> → <code class="st idle">canceled</code></td>
-            <td>拥有者 cancel；编排器截止巡检；调度计划取消；入站门或 QQ 群门判定丢弃（过期、越权）；QQ 撤回或停用；IM 入口（QQ 私聊、Telegram）配置变化</td>
-            <td>条件更新只从 queued 出发，已开始的任务改走停止路径。取消原因（有的话）写入 error_message，截止巡检写 <code>deadline_exceeded</code>。<br><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td>
+            <td>拥有者 cancel；编排器截止巡检；调度计划取消；整项工作取消；入站门或 QQ 群门判定丢弃（过期、越权）；QQ 撤回或停用；IM 入口（QQ 私聊、Telegram）配置变化</td>
+            <td>条件更新只从 queued 出发，已开始的任务改走停止路径。取消原因（有的话）写入 error_message，截止巡检写 <code>deadline_exceeded</code>，整项取消与 wake 门写 <code>work_canceled</code>。<br><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td>
             <td><code>task.canceled</code></td>
           </tr>
           <tr data-k="e-q-fail" tabindex="0">
@@ -184,8 +184,8 @@
           </tr>
           <tr data-k="e-cancel" tabindex="0">
             <td>执行中 → <code class="st idle">canceled</code></td>
-            <td>拥有者 cancel；编排器截止巡检；QQ 撤回或停用；IM 入口（QQ 私聊、Telegram）配置变化</td>
-            <td>走与中断相同的停止路径，只是 cancel_requested 记为真、终态为 canceled；取消原因写入 interrupt_reason（默认 <code>owner_cancel</code>，截止巡检为 <code>deadline_exceeded</code>）。<br><code class="src" data-src="src/agent/driver.ts#async requestStop">driver.ts · requestStop</code></td>
+            <td>拥有者 cancel；编排器截止巡检；整项工作取消；QQ 撤回或停用；IM 入口（QQ 私聊、Telegram）配置变化</td>
+            <td>走与中断相同的停止路径，只是 cancel_requested 记为真、终态为 canceled；取消原因写入 interrupt_reason（默认 <code>owner_cancel</code>，截止巡检为 <code>deadline_exceeded</code>，整项取消为 <code>work_canceled</code>）。Runtime.cancelTask 在 requestStop 之前先在事务内写 cancel_requested=1：落在「已转 running、Driver 未登记 currentTask」窗口的取消不再被吞——请求停止照常找不到当前任务时，runInner 开头读到该标记直接进入本行、不调用模型。<br><code class="src" data-src="src/agent/driver.ts#async requestStop">driver.ts · requestStop</code> <code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code></td>
             <td><code>task.canceled</code></td>
           </tr>
         </tbody>
@@ -202,6 +202,7 @@
     <h2>一次运行的结局怎样判定</h2>
     <p><code class="src" data-src="src/agent/driver.ts#private async runInner">driver.ts · runInner</code> 按下列顺序判定，前面的条件优先。发送前复核拦截与上下文超限都会暂停该会话的队列，排队中的下一个任务不会自动开始。</p>
     <ol class="steps">
+      <li>任务已带取消意图（cancel_requested=1，来自落在「已转 running、Driver 尚未接管」窗口的取消）：<code class="st idle">canceled</code>（interrupt_reason=<code>cancel_requested</code>），不建 SDK 会话、不调用模型。该窗口不保留原始取消原因（超时取消落在此窗口记 canceled 而非 timeout，见 runInner 内的 ponytail: 注释）。</li>
       <li>任务没有记录模型配置、模型解析失败或 SDK 会话创建失败：<code class="st bad">failed</code>。</li>
       <li>prompt 之前已请求停止：<code class="st unk">interrupted</code>（<code>aborted</code>）。它与停止路径各自尝试条件更新，先提交的生效，所以开始前到达的取消也可能以 aborted 中断收场。</li>
       <li>技能展开失败：<code class="st bad">failed</code>。prompt 抛错：未请求停止时 <code class="st bad">failed</code>。</li>
@@ -216,7 +217,7 @@
 
   <section id="stop">
     <h2>停止路径</h2>
-    <p>拥有者中断、拥有者取消、编排器截止巡检、QQ 与 IM 配置变化等后台内部取消，以及后台停止，共用 <code class="src" data-src="src/agent/driver.ts#async requestStop">driver.ts · requestStop</code>。它先把「要停」写下来，再解除所有等待，最后才定终态和释放占用。驱动器当前执行的不是该任务时，它直接返回、什么也不做。</p>
+    <p>拥有者中断、拥有者取消、编排器截止巡检、整项工作取消、QQ 与 IM 配置变化等后台内部取消，以及后台停止，共用 <code class="src" data-src="src/agent/driver.ts#async requestStop">driver.ts · requestStop</code>。它先把「要停」写下来，再解除所有等待，最后才定终态和释放占用。驱动器当前执行的不是该任务时，它直接返回；对取消而言这一支不再吞掉请求——<code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> 在 requestStop 之前已把 cancel_requested=1 落库（独立事务，所有取消调用方共享，含整项取消的事务内写入），runInner 开头读到该标记直接定态 canceled、不调用模型。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -312,7 +313,7 @@
           <tr><td class="nowrap">入队</td><td>委派登记事务直接插入排队任务，提交后 kick 子会话。子会话不接受 submit、continue，也不能改会话默认模式（<code>invalid_state</code>）。</td><td><code class="src" data-src="src/runtime/subagents.ts#async delegate">subagents.ts · delegate</code></td></tr>
           <tr><td class="nowrap">访问模式</td><td>固定 confirm；<code>switch_task_mode</code> 拒绝（<code>invalid_state</code>）。</td><td><code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code></td></tr>
           <tr><td class="nowrap">截止</td><td>直接父任务的开始时刻（尚未开始取创建时刻）加 <code>SUBAGENT_LIMITS.deadlineMs</code>（60 分钟），包含排队与审批等待。到期由编排器截止巡检取消：排队的直接 canceled，执行中的走停止路径；结局记为超时。</td><td><code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">subagents.ts · SUBAGENT_LIMITS</code> <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td></tr>
-          <tr><td class="nowrap">取消</td><td>拥有者可以直接 cancel / interrupt 某次执行。父任务结束不会连带取消它；首版没有取消整项工作的入口。</td><td><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code></td></tr>
+          <tr><td class="nowrap">取消</td><td>拥有者可以直接 cancel / interrupt 某次执行；整项工作也可取消（<code>ruukoto work cancel</code> / 主 Agent 的 <code>subagent_cancel</code>，见<a href="orchestrator.html#subagent-cancel">编排器 · 整项取消</a>）：登记事务直接取消本工作的排队任务、给活动任务写取消意图，提交后每个活动任务按普通停止路径处理，其他工作不受影响；已取消的工作不能继续委派，迟到结果保存为事实但不再唤醒或注入父会话。父任务结束不会连带取消它。</td><td><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/subagents.ts#async cancelWork">subagents.ts · cancelWork</code></td></tr>
           <tr><td class="nowrap">目录占用</td><td>子会话的工作目录是独立 work_dir，与父会话并行（见上图）。</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td></tr>
           <tr><td class="nowrap">终态之后</td><td>编排器在一个事务里写结果、发 subagent_task.* 事件，并按子会话还有没有占用把 SubAgent 记为 idle 或 unverified。不自动重试。</td><td><code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">orchestrator.ts · handleSubAgentTerminal</code></td></tr>
           <tr><td class="nowrap">重启</td><td>执行中的照常转 interrupted（<code>backend_restart</code>），编排器启动巡检补记为结果未知；排队的子会话以 <code>backend_restart</code> 暂停，编排器不自动恢复，直到拥有者 <code>resume_queue</code> 或截止巡检取消它。</td><td><code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></td></tr>

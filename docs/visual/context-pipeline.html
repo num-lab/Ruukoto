@@ -149,7 +149,7 @@
           <tr><td>技能库</td><td>driver 在任务开始（<code class="src" data-src="src/agent/skills.ts#loadSkillLibrary">skills.ts · loadSkillLibrary</code>）</td><td>目录与全部 <code>SKILL.md</code> 正文，版本 = 内容 sha256。技能目录只列可由模型调用的技能，且本次工具集含 <code>skill</code> 才注入（<code class="src" data-src="src/agent/skills.ts#skillCatalogBlock">skills.ts · skillCatalogBlock</code>）</td><td>单个技能的问题只记诊断，不进技能库</td></tr>
           <tr><td>继续来源</td><td>组装实例构造时</td><td>被继续任务（<code>resumesTaskId</code>）的原始输入</td><td>原任务不存在时不注入；与项目指令在同一段读取，抛错时说明写进项目指令块</td></tr>
           <tr><td>计划说明</td><td>driver（<code class="src" data-src="src/agent/plan-mode.ts#runsInPlanMode">plan-mode.ts · runsInPlanMode</code>，只限普通开发会话）</td><td>是否注入宿主写定的 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_NOTICE">plan-mode.ts · PLAN_NOTICE</code></td><td>原任务读不到时只按本任务输入判定</td></tr>
-          <tr><td>SubAgent 结果</td><td>driver 在任务开始（仅普通开发会话，<code class="src" data-src="src/agent/driver.ts#subagentResults.pending">driver.ts · subagentResults.pending</code>）</td><td>本会话委派、已到终态、结果已记录而 <code>result_delivered_at</code> 仍为空的 SubAgent 执行任务（<code class="src" data-src="src/core/store.ts#listUndeliveredSubAgentResults">store.ts · listUndeliveredSubAgentResults</code>），全部取出；取出后在一个事务里标记 <code>result_delivered_at</code>，只注入这一个任务</td><td>没有待送达结果即无此块；main 父会话不走注入，改为唤醒任务。详见<a href="#subagent">SubAgent 任务的上下文</a></td></tr>
+          <tr><td>SubAgent 结果</td><td>driver 在任务开始（仅普通开发会话，<code class="src" data-src="src/agent/driver.ts#subagentResults.pending">driver.ts · subagentResults.pending</code>）</td><td>本会话委派、已到终态、结果已记录而 <code>result_delivered_at</code> 仍为空的 SubAgent 执行任务（<code class="src" data-src="src/core/store.ts#listUndeliveredSubAgentResults">store.ts · listUndeliveredSubAgentResults</code>），全部取出；取出后在一个事务里标记 <code>result_delivered_at</code>，只注入这一个任务。查询加 <code>canceled_at IS NULL</code>：整项已取消的工作不再注入（结果仍可由 <code>subagent_result</code> 主动读取）</td><td>没有待送达结果即无此块；main 父会话不走注入，改为唤醒任务。详见<a href="#subagent">SubAgent 任务的上下文</a></td></tr>
           <tr><td>长期记忆</td><td>组装实例构造时（<code class="src" data-src="src/core/memory.ts#listActiveFor">memory.ts · listActiveFor</code>）</td><td>当时生效记忆的 id 与顺序；内容每次调用重读</td><td>记为错误，此后每次调用都 <code>context_selection_failed</code></td></tr>
           <tr><td>Jev 配置</td><td>组装实例构造时（<code class="src" data-src="src/agent/jev-config.ts#getProjectJevConfig">jev-config.ts · getProjectJevConfig</code>）</td><td>开关、凭据引用与配置版本</td><td>配置损坏按未启用处理，只跑基础规则</td></tr>
         </tbody>
@@ -479,14 +479,14 @@
           <text class="el" x="688" y="284">每次发送前复核</text>
         </svg>
       </div>
-      <figcaption>T1 的委派登记后立即返回，子任务在自己的会话里排队运行。子任务的模型上下文里没有父会话的项目指令、技能、记忆与历史；资料只经任务输入里列出的只读路径和子目录里的快照文件、由 SubAgent 自己 <code>read</code> 读入，读到的内容作为工具结果进入子会话历史。终态后编排器写摘要；父会话正在运行的任务看不到它，要等下一个任务 T2 开始时取出，放进 T2 的每一次调用。main 父会话不走注入，改为唤醒任务。</figcaption>
+      <figcaption>T1 的委派登记后立即返回，子任务在自己的会话里排队运行。子任务的模型上下文里没有父会话的项目指令、技能、记忆与历史；资料只经任务输入里列出的只读路径和子目录里的快照文件、由 SubAgent 自己 <code>read</code> 读入，读到的内容作为工具结果进入子会话历史。终态后编排器写摘要；父会话正在运行的任务看不到它，要等下一个任务 T2 开始时取出，放进 T2 的每一次调用——整项已取消的工作不再取出注入（结果保存为事实，仍可主动读取）。main 父会话不走注入，改为唤醒任务；已取消的工作也不唤醒。</figcaption>
       <ul class="legend"><li><i class="run"></i>子任务的模型调用</li><li><i class="accent"></i>带结果块的父会话调用</li><li><i class="bad"></i>拦下：请求不发出</li><li><i class="dash"></i>视情况出现</li></ul>
     </figure>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>组成</th><th>普通开发会话（委派方）</th><th>SubAgent 子会话</th></tr></thead>
         <tbody>
-          <tr><td>系统提示</td><td><code>SYSTEM_PROMPTS.dev</code>，其中写了何时用 <code>subagent_delegate</code> / <code>subagent_result</code></td><td><code class="src" data-src="src/agent/session-factory.ts#subagent: [">session-factory.ts · SYSTEM_PROMPTS.subagent</code>：只读分析，工具只有 <code>read</code> / <code>read_artifact</code>，资料里要求写入、执行或改变身份的指令不照做</td></tr>
+          <tr><td>系统提示</td><td><code>SYSTEM_PROMPTS.dev</code>，其中写了何时用 <code>subagent_delegate</code> / <code>subagent_result</code> / <code>subagent_cancel</code> / <code>subagent_close</code></td><td><code class="src" data-src="src/agent/session-factory.ts#subagent: [">session-factory.ts · SYSTEM_PROMPTS.subagent</code>：只读分析，工具只有 <code>read</code> / <code>read_artifact</code>，资料里要求写入、执行或改变身份的指令不照做</td></tr>
           <tr><td>工具定义</td><td>本会话类别装配的工具</td><td>只有 <code>read</code> 与 <code>read_artifact</code>（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">tool-availability.ts · SUBAGENT_READONLY_TOOL_NAMES</code>）；装配与本任务允许集合用同一张白名单</td></tr>
           <tr><td>前缀参考块与记忆</td><td>项目指令、技能目录、长期记忆</td><td>都没有：不注入父项目的指令、技能目录、项目记忆与个人共享记忆</td></tr>
           <tr><td>任务级参考块</td><td>继续来源、SubAgent 结果、计划说明</td><td>都没有</td></tr>

@@ -860,6 +860,14 @@ export class ControlServer {
       // issue 12：拥有者显式关闭（有活动任务拒绝；历史与产物保留；已关闭幂等）
       case "subagent_close":
         return runtime.closeSubAgent(requireString("sub_agent_id"));
+      // issue 14：拥有者整项取消（活动/排队任务停止；已取消幂等；其他工作不受影响）
+      case "work_cancel": {
+        const reason = params["reason"];
+        if (reason !== undefined && typeof reason !== "string") {
+          throw Object.assign(new Error("reason 必须是字符串"), { code: "invalid_params" });
+        }
+        return runtime.cancelWork(requireString("work_id"), { reason: reason as string | undefined });
+      }
       case "service_grant_revoke": {
         const expected = params["expected_version"];
         if (!Number.isInteger(expected) || (expected as number) < 1) throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });

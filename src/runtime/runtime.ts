@@ -113,7 +113,7 @@ import {
 import { GitHubWebhook, GITHUB_SOURCE } from "../github/webhook.ts";
 import { GitHubEvents, parseGitHubEventsConfig, webhookSecret, type GitHubEventsConfig } from "../github/events.ts";
 import { Orchestrator } from "./orchestrator.ts";
-import { SubAgentDelegationError, SubAgentManager, subagentOpCheck } from "./subagents.ts";
+import { SubAgentDelegationError, SubAgentManager, subagentOpCheck, type WorkCancellation } from "./subagents.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
 import { appDataOpCheck } from "../agent/app-data/tools.ts";
@@ -630,6 +630,7 @@ export class Runtime {
       launcherFor: (mode) => runtime.launcherFor(mode),
       defaultModelSelection: () => runtime.defaultSelection,
       kickSession: (sessionId) => runtime.kick(sessionId),
+      cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
       protectedRoots: () => runtime.protectedRoots(),
       dataDir: fullConfig.dataDir,
       // 容器后端：按容器固定 uid/gid 核实执行身份；local 即后台账户（null）
@@ -2543,6 +2544,17 @@ export class Runtime {
         }
       }
 
+      // 已取消工作的 SubAgent 回报唤醒（issue 14）：取消前已排队、检查后才插入与
+      // 巡检补发的 wake:<childId> 都在这里被取消，不再唤醒主 Agent（所有唤醒都
+      // 经过本循环）。取消所在轮次的模型调用如已开始则不级联。
+      if (task.requestId.startsWith("wake:")) {
+        const child = this.store.getTask(task.requestId.slice("wake:".length));
+        if (child?.workId && this.store.getWorkDelegation(child.workId)?.canceledAt) {
+          await this.cancelTask(task.id, { reason: "work_canceled" });
+          continue;
+        }
+      }
+
       // QQ 群聊会话（issue 07 §4）：入队后、模型调用前核对启停/群范围/账号
       // 在线/排队过期。wait = 暂不启动（上线或巡检时重新 kick）；drop = 过期
       // 或越权，取消跳过（不回复），继续取下一个。
@@ -2732,12 +2744,13 @@ export class Runtime {
           readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
           resultNotice: (task) => this.githubEvents.notice(task),
         },
-        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭）
+        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；issue 14 整项取消）
         subagents: this.subagents
           ? {
               sources: this.sources,
               delegate: (input) => this.subagents!.delegate(input),
               close: (input) => this.subagents!.close(input),
+              cancelWork: (input) => this.subagents!.cancelWork(input),
               readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
             }
           : undefined,
@@ -2788,6 +2801,12 @@ export class Runtime {
       return this.store.getTask(taskId)!;
     }
     if (task.status === "running" || task.status === "awaiting_confirmation") {
+      // 先持久化取消意图（issue 14 窗口修复）：任务已转 running 而 Driver 尚未
+      // 登记 currentTask 时 requestStop 挡不住；runInner 开头按此标记直接定态
+      // canceled，不调用模型。已在执行的任务 requestStop 会再写同一标记（同值）。
+      this.store.withTx(() => {
+        this.store.setCancelRequested(task.id, true);
+      });
       const driver = await this.getDriver(this.store.getSession(task.sessionId)!);
       await driver.requestStop(task, { terminal: "canceled", reason: opts?.reason ?? "owner_cancel", cancelIntent: true });
       return this.store.getTask(taskId)!;
@@ -3012,6 +3031,23 @@ export class Runtime {
     if (!this.subagents) throw new RuntimeApiError("unavailable", "SubAgent 管理器未启动");
     try {
       return this.subagents.close({ subAgentId, by: "owner" });
+    } catch (err) {
+      if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * 拥有者取消整项工作（agent-direction issue 14；控制面 op work_cancel）：
+   * 登记事务内把本工作的排队任务直接取消、活动任务写取消意图，提交后按
+   * 现有停止路径逐个处理；已取消幂等返回原记录与当前任务状态；其他工作
+   * 不受影响。取消不关闭 SubAgent、不删除历史与产物。
+   */
+  async cancelWork(workId: string, opts?: { reason?: string }): Promise<WorkCancellation> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    if (!this.subagents) throw new RuntimeApiError("unavailable", "SubAgent 管理器未启动");
+    try {
+      return await this.subagents.cancelWork({ workId, by: "owner", reason: opts?.reason ?? null });
     } catch (err) {
       if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
       throw err;

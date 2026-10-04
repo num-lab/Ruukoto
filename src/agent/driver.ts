@@ -167,7 +167,7 @@ export interface DriverDeps {
    * 普通开发会话与 main 装配；readReply 读指定任务的最终回答，delegate 走集中
    * 登记（不阻塞父任务），close 显式关闭（只收窄能力）。
    */
-  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "readReply" | "resultNotice">;
+  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "integrate" | "readReply" | "resultNotice">;
   /**
    * dev 父会话待注入的 SubAgent 结果：任务开始时收集并由 driver 标记送达
    * （注入随下一次模型调用送达；崩溃窗口不丢失，持久事件与 subagent_result 可查）。

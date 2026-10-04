@@ -1136,6 +1136,16 @@ export class Store {
     return Number(row.n);
   }
 
+  /** 该工作是否已登记过改动汇总（agent-direction issue 17：幂等命中/账本核实）。 */
+  hasIntegratedEvent(workId: string): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT 1 AS x FROM events WHERE json_extract(body, '$.type') = 'work_delegation.integrated' AND json_extract(body, '$.workId') = ? LIMIT 1",
+      )
+      .get(workId) as any;
+    return row !== undefined;
+  }
+
   /** 该 SubAgent 是否有源自入站事件的执行任务（issue 19 宿主评审：不可复用，见 SubAgentManager.assertAvailable）。 */
   hasInboundSourcedSubAgentTask(subAgentId: string): boolean {
     const row = this.db

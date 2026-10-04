@@ -19,7 +19,8 @@
  *   不登记工作）；单次任务取消后已写文件仍在；worktree 被删除后的继续委派
  *   明确拒绝；退出未核实的占用按 worktree 键保留，Agent 记 unverified；取消
  *   不触碰副本；继续委派沿用首次钉定目标，复用承接新工作另建副本；
- * - main/计划模式/SubAgent 自身不能发起 modify 委派；只读工作不能升级为写入；
+ * - 计划模式/SubAgent 自身不能发起 modify 委派（main 由 issue 17 开放、固定
+ *   角色拒绝在 test/84 覆盖）；只读工作不能升级为写入；
  *   modify 摘要不进 11 的重放摘要；container 注入边界在冒烟由真实容器验证。
  */
 
@@ -131,6 +132,9 @@ test("并行 worktree：两项修改工作同时 running，各自改动隔离，
 
     await waitFor("A 在 running", () => rt.store.getTask(a.task.id)!.status === "running");
     await waitFor("B 在 running", () => rt.store.getTask(b.task.id)!.status === "running");
+    // running 状态先于模型调用到达：释放闸等调用在途，负载下不塌
+    await waitFor("A 模型调用在途", () => releaseA !== null);
+    await waitFor("B 模型调用在途", () => releaseB !== null);
     releaseA!();
     releaseB!();
     await waitFor("A 完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
@@ -184,6 +188,8 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
       materials: null, readPaths: null, paramsDigest: "dspeca",
     });
     await waitFor("子任务 running", () => rt.store.getTask(a.task.id)!.status === "running");
+    // running 状态先于模型调用到达：释放闸等调用在途，负载下不塌
+    await waitFor("子模型调用在途", () => release !== null);
     const task = rt.store.getTask(a.task.id)!;
     const sessionSub = rt.store.getSession(task.sessionId)!;
     const wtRaw = a.work.writeTarget!;
@@ -323,6 +329,7 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
       delegate: (input) => rt.subagents!.delegate(input),
       close: (input) => rt.subagents!.close(input),
       cancelWork: (input) => rt.subagents!.cancelWork(input),
+      integrate: (input) => rt.subagents!.integrate(input),
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: session.id, projectId, hostOpId: "opd" }),
@@ -607,7 +614,7 @@ test("继续委派沿用首次钉定目标；复用承接新工作另建副本�
   }
 });
 
-test("边界：main/计划模式/SubAgent 自身不能发起修改委派；只读工作不能升级为写入；modify 摘要不进只读重放摘要", async () => {
+test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工作不能升级为写入；modify 摘要不进只读重放摘要（main 开门与固定角色拒绝见 test/84）", async () => {
   const responder: Responder = async () => ({ kind: "text", text: "父回复" });
   const t = await startTestRuntime("wk-gates", responder, { config: realTools(), workDirs: 1 });
   try {
@@ -618,15 +625,6 @@ test("边界：main/计划模式/SubAgent 自身不能发起修改委派；只�
     const session = await rt.createSession({ projectName: "wkgate", cwd: t.work[0]! });
     const dev = await rt.submit({ sessionId: session.id, requestId: "pd", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("dev 完成", () => rt.store.getTask(dev.id)!.status === "completed");
-    // main：modify 被拒（任何修改委派只有普通开发会话能发）
-    const main = rt.store.getAgentRole("main")!;
-    const mparent = await rt.submit({ sessionId: main.sessionId, requestId: "pm", input: "开始", modelSelection: rt.defaultSelection });
-    await waitFor("main 完成", () => rt.store.getTask(mparent.id)!.status === "completed");
-    await assert.rejects(
-      () =>
-        rt.subagents!.delegate({ parentTaskId: mparent.id, key: "gm", request: "x", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "dgm" }),
-      /只有普通开发会话/,
-    );
     // 计划模式：modify 被拒
     await assert.rejects(
       () =>

@@ -1,7 +1,7 @@
 /**
  * 通用 SubAgent 委派（agent-direction issue 11，ADR 0020；issue 12 继续/复用/
  * 关闭；issue 14 整项取消；issue 16 修改委派——worktree 隔离与非 Git 串行；
- * issue 19 宿主固定评审）：
+ * issue 17 改动汇总并开放 main 的修改委派；issue 19 宿主固定评审）：
  * 集中登记工作委托、动态 SubAgent 身份与每次执行任务。
  *
  * 边界：
@@ -69,6 +69,16 @@ export const SUBAGENT_LIMITS = { perParentSession: 3, deadlineMs: 60 * 60_000 };
  */
 function materialsFileFor(workId: string, key: string): string {
   return `materials-${workId}-${key}.txt`;
+}
+
+/** bash 单引号包裹（worktree 创建与改动汇总的容器命令共用）。 */
+function shq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** 共享 Git 目录超出父仓库目录树时的补挂（创建副本与汇总同一取舍）。 */
+function worktreeExtraGrants(repoRootReal: string, commonGitDir: string, purpose: string): { path: string; access: "read_write"; purpose: string }[] | null {
+  return grantCoversPath(repoRootReal, commonGitDir) ? null : [{ path: commonGitDir, access: "read_write", purpose }];
 }
 
 /** 工作内每次执行的请求键（与 (session_id, request_id) 唯一约束配合）。 */
@@ -162,17 +172,42 @@ export interface SubAgentManagerDeps {
    */
   executionReaderIdentity?(): { uid: number; gid: number } | null;
   /**
-   * 在确认容器内执行一条宿主固定的 bash（issue 16，worktree 创建）。
-   * workspace 是工作区；copyDir 是作读写挂载的副本目录（容器内同路径）。
-   * 返回 gh.runBash Git 结果；宿主永不执行 git。
+   * 在确认容器内执行一条宿主固定的 bash（issue 16 worktree 创建；issue 17 改动
+   * 汇总）。workspace 是工作区；copyDir 是作读写挂载的副本目录（容器内同路径）。
+   * extraGrants 是 workspace 装不下的额外挂载（如父仓库本身是 worktree 时的
+   * 共享 Git 目录，按读写挂在容器外位置）。返回 gh.runBash Git 结果；宿主永不
+   * 执行 git。
    */
   createWorktreeInContainer?(input: {
     workspace: string;
     copyDir: string;
     branch: string;
     command: string;
+    extraGrants?: { path: string; access: "read" | "read_write"; purpose: string }[] | null;
   }): Promise<{ isError: boolean; errorMessage?: string; content: string }>;
 }
+
+/**
+ * 改动汇总（agent-direction issue 17）的结果：state 区分四种结论——
+ * applied=差异已套用到父工作区待检查；already=完整差异已在工作区（幂等命中，
+ * 不重复写入、不重复登记）；empty=副本与基线无差异；direct=直接写入工作本就
+ * 没有副本需要汇总。统计与文件清单来自汇总时的完整差异（numstat）。
+ */
+export interface WorkIntegration {
+  work: WorkDelegation;
+  state: "applied" | "already" | "empty" | "direct";
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  files: string[];
+  /** worktree 工作的来源基线提交；其他状态为 null。 */
+  baseCommit: string | null;
+  /** 汇总时刻父仓库 HEAD（读取失败为 null）。 */
+  parentHead: string | null;
+}
+
+/** 汇总事件里文件清单的上限（超出只计数、不列名）。 */
+const INTEGRATE_FILE_LIST_CAP = 64;
 
 export class SubAgentDelegationError extends Error {
   readonly code: string;
@@ -210,10 +245,11 @@ export class SubAgentManager {
     const mode = input.mode ?? "analyze";
     if (mode === "modify") {
       if (this.store.getSubAgentBySession(parent.sessionId)) {
-        throw new SubAgentDelegationError("forbidden", "SubAgent 不能委派下级（修改委派只限普通开发会话）");
+        throw new SubAgentDelegationError("forbidden", "SubAgent 不能委派下级（修改委派只限普通开发会话或 main）");
       }
-      if (this.store.getAgentRoleBySession(parent.sessionId)) {
-        throw new SubAgentDelegationError("forbidden", "只有普通开发会话可以发起修改委派（main 由 issue 17 迁移）");
+      const role = this.store.getAgentRoleBySession(parent.sessionId);
+      if (role && role.id !== "main") {
+        throw new SubAgentDelegationError("forbidden", "只有普通开发会话或 main 可以发起修改委派（固定角色会话不经通用链路登记修改工作）");
       }
       if (input.planMode) throw new SubAgentDelegationError("forbidden", "计划模式不能发起修改委派");
       if (input.workId) {
@@ -625,6 +661,208 @@ export class SubAgentManager {
   }
 
   /**
+   * 改动汇总（agent-direction issue 17）：把 worktree 副本相对基线的完整差异
+   * 套用到父工作区的待提交区，不代提交、不强制覆盖。
+   *
+   * - 只按工作 id 取首次钉定的写入目标——Agent 复用承接新工作后，汇总旧工作
+   *   仍只落旧工作自己的副本（新工作另建副本，互不相干）；
+   * - 套用前核实：工作有活动任务拒绝（busy）；副本 realpath/dev/ino 与 `.git`
+   *   指向逐项复核（worktree_gone，不自动重建、不凭旧记录套用）；原工作区的
+   *   仓库根仍在父会话工作区内且可读；
+   * - 容器命令（宿主固定，宿主永不执行 git）：副本内 `add -N`（含未跟踪）
+   *   → 对基线取完整二进制 diff + numstat → 父仓库 `apply --check` 预检，
+   *   能干净套用才写入（git apply 预检失败不落任何字节）——父工作区同文件的
+   *   本地改动不被覆盖；完整差异已在工作区时按幂等返回 already，不重复登记；
+   * - 冲突：零写入，父工作区原改动与副本成果都保留，错误点名冲突文件；
+   * - 套用时登记 `work_delegation.integrated`（分支/基线/父 HEAD/文件清单与
+   *   统计），取消过的工作与已关闭的 SubAgent 不拦汇总（取消/关闭本就不删
+   *   副本，汇总正是未汇总成果的可找回路径）；
+   * - 非 Git 直接写入工作没有副本：改动本就在父工作区就地落盘，如实告知。
+   *
+   * ponytail: 套用的是「副本此刻对基线的全差异」——汇总后又继续委派产生新
+   * 改动时，再次汇总会命中冲突（已套用的 hunks 挡路），此时按冲突如实报告
+   * 双方保留，由主 Agent 用自己的工具核对差异处理；不引入增量汇总状态。
+   * 登记 busy 检查与容器套用之间登记的新执行可能让副本在套用后继续变化：
+   * 副本原样保留、事件钉定基线与文件清单，事后可核对，不加锁。
+   */
+  async integrate(input: { workId: string; parentTaskId: string; parentSessionId: string }): Promise<WorkIntegration> {
+    const work = this.store.getWorkDelegation(input.workId);
+    if (!work || work.parentSessionId !== input.parentSessionId) {
+      throw new SubAgentDelegationError("not_found", `工作委托不存在或不属于本会话：${input.workId}`);
+    }
+    const target = work.writeTarget;
+    if (!target) {
+      throw new SubAgentDelegationError("invalid_state", `工作 ${work.id} 是只读分析工作：没有写入目标，没有副本可汇总`);
+    }
+    if (target.kind === "direct") {
+      return { work, state: "direct", filesChanged: 0, insertions: 0, deletions: 0, files: [], baseCommit: null, parentHead: null };
+    }
+    const parentSession = this.store.getSession(input.parentSessionId);
+    if (!parentSession) throw new SubAgentDelegationError("not_found", `父会话不存在：${input.parentSessionId}`);
+    const parentTask = this.store.getTask(input.parentTaskId);
+    if (!parentTask || parentTask.sessionId !== input.parentSessionId) {
+      throw new SubAgentDelegationError("forbidden", "发起任务不属于本会话");
+    }
+    // 忙碌：副本可能仍在被在跑的执行改写，等它结束再汇总
+    const active = this.store.listActiveTasksByWork(work.id);
+    if (active.length > 0) {
+      throw new SubAgentDelegationError("busy", `工作有活动任务 ${active[0]!.id}：等该执行结束后再汇总`);
+    }
+    // 副本状态核实（与继续委派同一判定）；原工作区状态：仓库根仍在父工作区内
+    // 且 .git 可读（被替换/移走明确拒绝，不凭钉定记录套用）
+    this.assertWorktreeCopy(work, target, "无法汇总");
+    let repoRootReal: string;
+    try {
+      repoRootReal = fs.realpathSync(target.repoRoot);
+      fs.lstatSync(path.join(repoRootReal, ".git"));
+    } catch {
+      throw new SubAgentDelegationError("worktree_gone", `原工作区仓库根已不存在或不可读，无法汇总（路径 ${target.repoRoot}）`);
+    }
+    if (repoRootReal !== target.repoRoot || !grantCoversPath(parentSession.cwdReal, repoRootReal)) {
+      throw new SubAgentDelegationError("forbidden", `原工作区仓库根已不在父会话工作区内，无法汇总（路径 ${target.repoRoot}）`);
+    }
+    if (!this.deps.createWorktreeInContainer) {
+      throw new SubAgentDelegationError("execution_unavailable", "宿主缺少 worktree 容器入口（执行边界不可用，不回退）");
+    }
+    const dst = target.path;
+    const repo = repoRootReal;
+    const copyDirReal = (() => {
+      try {
+        return fs.realpathSync(dst);
+      } catch {
+        return dst;
+      }
+    })();
+    // 与 issue 16 创建同一硬化口径：关 fsmonitor（仓库 config 可被写入）、hooks 走
+    // /dev/null；apply --check 预检成功才写入，预检失败零写入。apply --check 之后、
+    // apply 落盘之前崩溃会留下部分套用：由 git apply 原子性之外的真实窗口，现场
+    // 可由父工作区 git status 与保留的副本核对（不自动重放，不登记事件）。
+    const command =
+      "set -eu\n" +
+      `git -C ${shq(copyDirReal)} -c core.fsmonitor=false -c core.hooksPath=/dev/null add -N --all\n` +
+      `git -C ${shq(copyDirReal)} -c core.fsmonitor=false diff --binary --no-ext-diff -M ${shq(target.baseCommit)} > /tmp/ruukoto-integrate.patch\n` +
+      `git -C ${shq(copyDirReal)} -c core.fsmonitor=false diff --numstat --no-ext-diff -M ${shq(target.baseCommit)} > /tmp/ruukoto-integrate.numstat\n` +
+      `if [ ! -s /tmp/ruukoto-integrate.patch ]; then echo RUUKOTO_STATE=empty; exit 0; fi\n` +
+      `head=$(git -C ${shq(repo)} rev-parse HEAD 2>/dev/null | head -n1 || true)\n` +
+      `if git -C ${shq(repo)} apply --check /tmp/ruukoto-integrate.patch 2>/tmp/ruukoto-integrate.err; then\n` +
+      `  git -C ${shq(repo)} apply /tmp/ruukoto-integrate.patch\n` +
+      `  echo RUUKOTO_STATE=applied\n` +
+      `elif git -C ${shq(repo)} apply --check --reverse /tmp/ruukoto-integrate.patch 2>/dev/null; then\n` +
+      `  echo RUUKOTO_STATE=already\n` +
+      `else\n` +
+      `  echo RUUKOTO_STATE=conflict\n` +
+      `  cat /tmp/ruukoto-integrate.err\n` +
+      `fi\n` +
+      `echo "RUUKOTO_HEAD=$head"\n` +
+      `echo "RUUKOTO_PATCH_BYTES=$(wc -c < /tmp/ruukoto-integrate.patch | tr -d ' ')"\n` +
+      `cat /tmp/ruukoto-integrate.numstat\n`;
+    // 共享 Git 目录超出父仓库 cwd 的情况（父仓库本身是 worktree）：索引与对象
+    // 写在共享目录里，需要它的读写挂载（钉定记录已核实它在父工作区内）
+    const extraGrants = worktreeExtraGrants(repo, target.commonGitDir, "worktree 副本汇总的共享 Git 目录（issue 17）");
+    const result = await this.deps.createWorktreeInContainer({
+      workspace: repo,
+      copyDir: copyDirReal,
+      branch: target.branch,
+      command,
+      extraGrants,
+    });
+    if (result.isError) {
+      const label = (result.errorMessage ?? result.content).slice(0, 1000);
+      throw new SubAgentDelegationError("integrate_failed", `改动汇总失败（工作 ${work.id}，副本 ${dst}）：${label}；父工作区与副本现场保留供核查`);
+    }
+    const parsed = this.parseIntegrationOutput(result.content);
+    if (parsed.state === "conflict") {
+      throw new SubAgentDelegationError(
+        "integrate_conflict",
+        `汇总冲突（工作 ${work.id}）：副本差异无法干净套用，父工作区同文件已有本地改动或此前已部分汇总。` +
+          `父工作区原改动与副本成果 ${dst} 都保留，未写入任何字节。冲突明细：${parsed.detail}` +
+          `。待处理：由你或拥有者在父工作区核对差异后手动处理，或让 SubAgent 继续修正后再汇总`,
+      );
+    }
+    if (parsed.state === "applied") {
+      this.store.withTx(() => {
+        this.store.appendEvent(
+          {
+            type: "work_delegation.integrated",
+            workId: work.id,
+            parentSessionId: work.parentSessionId,
+            subAgentId: work.subAgentId,
+            taskId: parentTask.id,
+            branch: target.branch,
+            baseCommit: target.baseCommit,
+            parentHead: parsed.parentHead,
+            files: parsed.files.slice(0, INTEGRATE_FILE_LIST_CAP),
+            filesChanged: parsed.filesChanged,
+            insertions: parsed.insertions,
+            deletions: parsed.deletions,
+            patchBytes: parsed.patchBytes,
+          },
+          { taskId: parentTask.id, sessionId: input.parentSessionId },
+        );
+      });
+    }
+    return {
+      work,
+      state: parsed.state,
+      filesChanged: parsed.filesChanged,
+      insertions: parsed.insertions,
+      deletions: parsed.deletions,
+      files: parsed.files,
+      baseCommit: target.baseCommit,
+      parentHead: parsed.parentHead,
+    };
+  }
+
+  /**
+   * 解析汇总容器输出：标记行（RUUKOTO_STATE/HEAD/PATCH_BYTES）与 numstat 行；
+   * conflict 时把 apply 的报错正文作为明细带回（截断）。
+   */
+  private parseIntegrationOutput(content: string): {
+    state: "applied" | "already" | "empty" | "conflict";
+    detail: string;
+    parentHead: string | null;
+    patchBytes: number;
+    filesChanged: number;
+    insertions: number;
+    deletions: number;
+    files: string[];
+  } {
+    const stateM = /^RUUKOTO_STATE=(applied|already|empty|conflict)$/m.exec(content);
+    const state = (stateM?.[1] ?? "conflict") as "applied" | "already" | "empty" | "conflict";
+    const headM = /^RUUKOTO_HEAD=([0-9a-f]{40})$/m.exec(content);
+    const bytesM = /^RUUKOTO_PATCH_BYTES=(\d+)$/m.exec(content);
+    let filesChanged = 0;
+    let insertions = 0;
+    let deletions = 0;
+    const files: string[] = [];
+    for (const line of content.split("\n")) {
+      const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line.trim());
+      if (!m) continue;
+      filesChanged += 1;
+      if (m[1] !== "-") insertions += Number(m[1]);
+      if (m[2] !== "-") deletions += Number(m[2]);
+      files.push(m[3]!.trim());
+    }
+    // 冲突明细：state 标记之后、HEAD 标记之前的报错正文（截断）
+    let detail = "";
+    if (state === "conflict" && stateM) {
+      const rest = content.slice(stateM.index + stateM[0].length);
+      const cut = rest.search(/^RUUKOTO_HEAD=/m);
+      detail = (cut >= 0 ? rest.slice(0, cut) : rest).trim().slice(0, 2000);
+    }
+    return {
+      state,
+      detail,
+      parentHead: headM?.[1] ?? null,
+      patchBytes: bytesM ? Number(bytesM[1]) : 0,
+      filesChanged,
+      insertions,
+      deletions,
+      files,
+    };
+  }
+
+  /**
    * 继续/复用的可用性（issue 12）：同一父会话、未关闭、空闲且无活动任务
    * （忙碌明确拒绝不排队——继续委派覆盖 current_task_id 会让在跑任务显示
    * 空闲）；工作目录的 realpath 与目录身份必须与子会话记录一致（核对实际
@@ -665,23 +903,32 @@ export class SubAgentManager {
     }
     const target = work?.writeTarget ?? null;
     if (target?.kind === "worktree") {
-      try {
-        const tReal = fs.realpathSync(target.path);
-        const tStat = fs.statSync(tReal);
-        if (tReal !== target.path || tStat.dev !== target.dev || tStat.ino !== target.ino) {
-          throw new SubAgentDelegationError("worktree_gone", `工作 ${work!.id} 的 worktree 已被替换，请新建委派（路径 ${target.path}）`);
-        }
-        const gitFile = path.join(tReal, ".git");
-        const content = fs.readFileSync(gitFile, "utf8");
-        const m = /^gitdir:\s*(.+)\s*$/m.exec(content);
-        const resolved = m ? path.resolve(tReal, m[1]!.trim()) : null;
-        if (!resolved || !this.sameRealpath(resolved, target.gitdir)) {
-          throw new SubAgentDelegationError("worktree_gone", `工作 ${work!.id} 的 .git 指向已变化，请新建委派（路径 ${target.path}）`);
-        }
-      } catch (err) {
-        if (err instanceof SubAgentDelegationError) throw err;
-        throw new SubAgentDelegationError("worktree_gone", `工作 ${work!.id} 的 worktree 已不存在，请新建委派（路径 ${target.path}）`);
+      this.assertWorktreeCopy(work!, target, "请新建委派");
+    }
+  }
+
+  /**
+   * worktree 副本状态核实（issue 16 继续委派与 issue 17 汇总共用大门）：目录
+   * realpath/dev/ino 与钉定一致、`.git` 指向的 gitdir 未变化；被替换或消失即
+   * 明确失败，不自动重建、不凭旧记录套用。
+   */
+  private assertWorktreeCopy(work: WorkDelegation, target: Extract<WorkWriteTarget, { kind: "worktree" }>, hint: string): void {
+    try {
+      const tReal = fs.realpathSync(target.path);
+      const tStat = fs.statSync(tReal);
+      if (tReal !== target.path || tStat.dev !== target.dev || tStat.ino !== target.ino) {
+        throw new SubAgentDelegationError("worktree_gone", `工作 ${work.id} 的 worktree 已被替换，${hint}（路径 ${target.path}）`);
       }
+      const gitFile = path.join(tReal, ".git");
+      const content = fs.readFileSync(gitFile, "utf8");
+      const m = /^gitdir:\s*(.+)\s*$/m.exec(content);
+      const resolved = m ? path.resolve(tReal, m[1]!.trim()) : null;
+      if (!resolved || !this.sameRealpath(resolved, target.gitdir)) {
+        throw new SubAgentDelegationError("worktree_gone", `工作 ${work.id} 的 .git 指向已变化，${hint}（路径 ${target.path}）`);
+      }
+    } catch (err) {
+      if (err instanceof SubAgentDelegationError) throw err;
+      throw new SubAgentDelegationError("worktree_gone", `工作 ${work.id} 的 worktree 已不存在，${hint}（路径 ${target.path}）`);
     }
   }
 
@@ -843,7 +1090,6 @@ export class SubAgentManager {
     // 按该字串回核；macOS 上 TMPDIR 走 /var → /private/var 符号链接，字串与
     // realpath 不一致即“not a git repository”。命令与挂载统一用 realpath
     const copyDirReal = fs.realpathSync(copyDir);
-    const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
     // core.fsmonitor=false：仓库 config 里被植入的 fsmonitor 不得在宿主选择的这条
     // 固定命令里参与执行（其 stderr 噪声也会污染基线输出解析）；hooks 已用 /dev/null
     const command =
@@ -851,11 +1097,17 @@ export class SubAgentManager {
       `base=$(git -c core.fsmonitor=false rev-parse --verify HEAD); ` +
       `git -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree add -q -b ${shq(branch)} ${shq(copyDirReal)} "$base"; ` +
       `printf '%s' "$base"`;
+    // 父仓库本身是 worktree（共享 Git 目录在仓库根之外）：创建容器需要把它按
+    // 读写挂载，否则容器内 git 无法解析 `.git` 指针（worktree add 会写 worktrees/
+    // <name> 与 refs，都在共享目录里）；与 issue 17 汇总的补挂是同一取舍
+    const repoRootReal = fs.realpathSync(repoRoot);
+    const extraGrants = worktreeExtraGrants(repoRootReal, commonGitDir, "父仓库本身是 worktree：创建副本需要共享 Git 目录读写（issue 17）");
     const result = await this.deps.createWorktreeInContainer({
-      workspace: repoRoot,
+      workspace: repoRootReal,
       copyDir: copyDirReal,
       branch,
       command,
+      extraGrants,
     });
     if (result.isError) {
       const label = result.errorMessage ?? result.content;
@@ -1067,6 +1319,12 @@ export class SubAgentManager {
         ? "你的工具只有 read / edit / write / bash / read_artifact（在本会话工作区边界内运行）；" +
           "bash 与本目录的读写均以本副本为界，不能修改其他目录或委派下级。"
         : "你的工具只有 read / read_artifact：可以读取上述范围与本目录；不能修改文件、执行命令、访问网络或委派下级。",
+      ...(modify
+        ? [
+            "结束修改前在副本内完成与该改动相关的检查（类型、测试、构建等可见命令），并在结论里如实报告" +
+              "检查命令与结果，或写明尚未验证的部分——主 Agent 汇总改动时依据你的报告与另行的验证决定去留。",
+          ]
+        : []),
       "读不到所需资料就明说能力范围并请主 Agent 补充，不要尝试其他手段。结束时直接给出结论，结论会回到主 Agent。",
       `---\n${input.request}`,
     );
@@ -1079,7 +1337,7 @@ export class SubAgentManager {
   }
 }
 
-/** 工具操作账本族核实：委派按工作/Agent/会话/任务关联核实；关闭按 closed_at 核实；取消按 canceled_at 核实。 */
+/** 工具操作账本族核实：委派按工作/Agent/会话/任务关联核实；关闭按 closed_at 核实；取消按 canceled_at 核实；汇总按 work_delegation.integrated 事件核实。 */
 export function subagentOpCheck(coreStore: Store): {
   verify(op: { taskId: string; toolName?: string; params: Record<string, unknown> }): "committed" | "not_committed" | "unverifiable";
   committed(when: string): string;
@@ -1096,6 +1354,13 @@ export function subagentOpCheck(coreStore: Store): {
         const work = typeof op.params.work_id === "string" ? coreStore.getWorkDelegation(op.params.work_id) : null;
         if (!work) return "not_committed";
         return work.canceledAt !== null ? "committed" : "not_committed";
+      }
+      if (op.toolName === "subagent_integrate") {
+        // 改动汇总（issue 17）：套用与事件登记分两步，缺事件时不能说「未生效」
+        // （可能 apply 已落字节、登记前崩溃）——如实报无法核实
+        const work = typeof op.params.work_id === "string" ? coreStore.getWorkDelegation(op.params.work_id) : null;
+        if (!work) return "unverifiable";
+        return coreStore.hasIntegratedEvent(work.id) ? "committed" : "unverifiable";
       }
       const task = coreStore.getTask(op.taskId);
       if (!task) return "not_committed";

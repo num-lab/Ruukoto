@@ -409,6 +409,9 @@ test("模块级：subagent_result 按所属父会话开窄口，其他会话/工
       cancelWork: async () => {
         throw new Error("not used");
       },
+      integrate: async () => {
+        throw new Error("not used");
+      },
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: sB.sessionId, projectId: (rt.store.getSession(sB.sessionId)!).projectId, hostOpId: "opx" }),

@@ -39,6 +39,7 @@ import {
   type SessionKind,
   type StandingPermission,
   type SubAgent,
+  type SubAgentMessage,
   type InboundEvent,
   type Task,
   type WorkDelegation,
@@ -715,8 +716,12 @@ export class Runtime {
       onWakeTerminal: (task, outcome) => runtime.enqueueWorkReport(task, outcome),
       inboundGate: (event) => runtime.inboundGate(event),
       reviewRequest: (event) => runtime.githubEvents.request(event),
-      // 宿主固定评审（agent-direction issue 19）：编排器直接调用管理器，不经模型工具
-      subagents: { delegate: (input) => runtime.subagents!.delegate(input) },
+      // 宿主固定评审（agent-direction issue 19）：编排器直接调用管理器，不经模型工具。
+      // issue 13：SubAgent 执行任务终态与启动恢复时冲刷待投递的工作内消息
+      subagents: {
+        delegate: (input) => runtime.subagents!.delegate(input),
+        flushPending: (parentSessionId) => runtime.subagents!.flushPendingMessages(parentSessionId),
+      },
       resultData: (task, outcome) => runtime.githubEvents.resultData(task, outcome),
       resultNotice: (task) =>
         [runtime.githubEvents.notice(task), runtime.workReportNotice(task)].filter((n): n is string => n !== null).join("\n") || null,
@@ -2920,13 +2925,15 @@ export class Runtime {
           readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
           resultNotice: (task) => this.githubEvents.notice(task),
         },
-        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；issue 14 整项取消）
+        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；
+        // issue 13 工作内消息；issue 14 整项取消）
         subagents: this.subagents
           ? {
               sources: this.sources,
               delegate: (input) => this.subagents!.delegate(input),
               close: (input) => this.subagents!.close(input),
               cancelWork: (input) => this.subagents!.cancelWork(input),
+              message: (input) => this.subagents!.message(input),
               readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
               resultNotice: (task) => this.githubEvents.notice(task),
             }
@@ -2934,6 +2941,14 @@ export class Runtime {
         subagentResults: {
           pending: (sessionId) => this.store.listUndeliveredSubAgentResults(sessionId),
           markDelivered: (taskIds) => this.store.markSubAgentResultsDelivered(taskIds, new Date().toISOString()),
+        },
+        // issue 13：dev 父会话的工作内消息注入；main 经唤醒任务，不走本通道
+        subagentMessages: {
+          pending: (sessionId) => this.store.listUndeliveredParentSubAgentMessages(sessionId),
+          markDelivered: (messageIds) => {
+            const at = new Date().toISOString();
+            for (const id of messageIds) this.store.markSubAgentMessageDelivered(id, null, at);
+          },
         },
         verifyTaskSources: (projectId, refs) => this.sources.verify(projectId, refs as any[]),
       });
@@ -3188,14 +3203,16 @@ export class Runtime {
     };
   }
 
-  /** 单项工作详情：委托、SubAgent（含归属与状态）、全部执行任务。 */
-  workGet(workId: string): { work: WorkDelegation; agent: SubAgent | null; tasks: Task[] } {
+  /** 单项工作详情：委托、SubAgent（含归属与状态）、全部执行任务与工作内消息。 */
+  workGet(workId: string): { work: WorkDelegation; agent: SubAgent | null; tasks: Task[]; messages: SubAgentMessage[] } {
     const work = this.store.getWorkDelegation(workId);
     if (!work) throw new RuntimeApiError("not_found", `工作委托不存在：${workId}`);
     return {
       work,
       agent: this.store.getSubAgent(work.subAgentId),
       tasks: this.store.listTasksByWork(work.id),
+      // 工作内协作消息（issue 13）：来源与投递结果随详情可查（含协作方的任务归属）
+      messages: this.store.listSubAgentMessagesByWork(work.id),
     };
   }
 

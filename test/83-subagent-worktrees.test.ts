@@ -323,6 +323,7 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
       delegate: (input) => rt.subagents!.delegate(input),
       close: (input) => rt.subagents!.close(input),
       cancelWork: (input) => rt.subagents!.cancelWork(input),
+      message: (input) => rt.subagents!.message(input),
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: session.id, projectId, hostOpId: "opd" }),
@@ -718,7 +719,7 @@ test("子任务调用门与装配：伪造写调用被发送两处拒绝（只�
     await waitFor("子任务完成", () => rt.store.getTask(deleg.task.id)!.status === "completed");
     // 只读工作的装配仍收窄到 read/read_artifact（与迁前一致）
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"))!;
-    assert.deepEqual(toolNamesOf(subCall).sort(), ["read", "read_artifact"].sort(), "只读工作装配保持只在迁前清单");
+    assert.deepEqual(toolNamesOf(subCall).sort(), ["read", "read_artifact", "subagent_message"].sort(), "只读工作装配保持只在迁前清单与工作内消息（issue 13）");
     const toolResults = t.server.calls.filter((c) => afterTool(c) && inputText(c).includes("[SubAgent 委派")).map(lastToolText).join("\n");
     assert.match(toolResults, /not found|白名单不含 edit|本任务工具白名单不含 edit/, "伪造写调用在发送/调用两处被拒");
   } finally {

@@ -221,7 +221,7 @@ test("边界：读范围拒绝、伪造写调用被两处拒绝、下级委派�
     await waitFor("子任务完成", () => rt.store.getTask(deleg.task.id)!.status === "completed");
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"))!;
     const subTools = toolNamesOf(subCall);
-    assert.deepEqual(subTools.sort(), ["read", "read_artifact"].sort(), "SubAgent 只装配只读工具");
+    assert.deepEqual(subTools.sort(), ["read", "read_artifact", "subagent_message"].sort(), "SubAgent 只装配只读工具与工作内消息（issue 13）");
     assert.ok(!subTools.some((n) => ["bash", "edit", "write", "web_search", "subagent_delegate", "skill"].includes(n)));
     const toolResults = t.server.calls.filter((c) => afterTool(c) && inputText(c).includes("[SubAgent 委派"));
     assert.ok(toolResults.some((c) => /not found|白名单不含 edit/.test(lastToolText(c))), "伪造写调用在发送/调用两处被拒，未执行");
@@ -275,7 +275,7 @@ test("main 会话：materials 快照委派、wake 回报与 coding_result 兼容
     const agent = rt.store.getSubAgent(work.subAgentId)!;
     assert.equal(fs.readFileSync(path.join(agent.workDir, `materials-${work.id}-m1.txt`), "utf8"), "材料正文 A");
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"));
-    assert.ok(subCall && toolNamesOf(subCall).length === 2, "只读工具清单");
+    assert.ok(subCall && toolNamesOf(subCall).length === 3 && toolNamesOf(subCall).includes("subagent_message"), "只读工具清单与工作内消息（issue 13）");
 
     // main 的稳定 wake 回报（附工作与动态身份，固定 confirm，不复制 IM 来源）
     await waitFor("wake 任务已建", () => rt.store.findTaskByRequest(main.sessionId, `wake:${task.id}`) !== null);
@@ -375,7 +375,7 @@ test("subagent_result 跨会话拒绝；子上下文不含父历史/项目指令
 
     // 恶意资料中的指令不打开写能力：子上下文仍然没有写工具
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"))!;
-    assert.deepEqual(toolNamesOf(subCall).sort(), ["read", "read_artifact"].sort());
+    assert.deepEqual(toolNamesOf(subCall).sort(), ["read", "read_artifact", "subagent_message"].sort());
     const childCtx = inputText(subCall);
     assert.ok(!childCtx.includes("[项目指令]") && !childCtx.includes("[长期记忆]") && !childCtx.includes("[技能目录]"), "子上下文不注入父项目指令/记忆/技能目录");
   } finally {
@@ -407,6 +407,9 @@ test("模块级：subagent_result 按所属父会话开窄口，其他会话/工
         throw new Error("not used");
       },
       cancelWork: async () => {
+        throw new Error("not used");
+      },
+      message: () => {
         throw new Error("not used");
       },
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),

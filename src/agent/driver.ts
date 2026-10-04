@@ -32,7 +32,17 @@ import {
 import type { ModelCatalog } from "./model-selection.ts";
 import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, ApprovalScope, ConfirmationRequest, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
+import type {
+  AccessMode,
+  AgentRole,
+  ApprovalScope,
+  ConfirmationRequest,
+  PersistentEventBody,
+  Session,
+  SubAgentMessage,
+  Task,
+  ToolCategory,
+} from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
@@ -58,7 +68,7 @@ import type { AppDataStore } from "./app-data/store.ts";
 import type { AppDataQueryRunner } from "./app-data/query.ts";
 import { createSchedulerTools, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
 import { createDelegationTools, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
-import { createSubAgentTools, SUBAGENT_TOOL_NAMES, type SubAgentToolsDeps } from "./subagent-tools.ts";
+import { createSubAgentMessageTool, createSubAgentTools, SUBAGENT_TOOL_NAMES, type SubAgentToolsDeps } from "./subagent-tools.ts";
 import { createChatResultTools, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
 import { createServiceTools, SERVICE_TOOL_NAMES, type ServiceManagerConfig } from "./service-tools.ts";
 import type { QqStore } from "../qq/store.ts";
@@ -163,16 +173,22 @@ export interface DriverDeps {
    */
   delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "analyzeDelegate" | "readReply" | "resultNotice">;
   /**
-   * 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭）：
-   * 普通开发会话与 main 装配；readReply 读指定任务的最终回答，delegate 走集中
-   * 登记（不阻塞父任务），close 显式关闭（只收窄能力）。
+   * 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；
+   * issue 13 工作内消息）：普通开发会话与 main 装配；readReply 读指定任务的
+   * 最终回答，delegate 走集中登记（不阻塞父任务），close 显式关闭（只收窄能力）；
+   * message 供 subagent 类会话装配 subagent_message（发送方身份由发起任务核实）。
    */
-  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "readReply" | "resultNotice">;
+  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "message" | "readReply" | "resultNotice">;
   /**
    * dev 父会话待注入的 SubAgent 结果：任务开始时收集并由 driver 标记送达
    * （注入随下一次模型调用送达；崩溃窗口不丢失，持久事件与 subagent_result 可查）。
    */
   subagentResults?: { pending(sessionId: string): Task[]; markDelivered(taskIds: string[]): void };
+  /**
+   * dev 父会话待注入的工作内协作消息（agent-direction issue 13）：与结果注入
+   * 同一通道与标记口径；main 父会话的消息经唤醒任务，不走本通道。
+   */
+  subagentMessages?: { pending(sessionId: string): SubAgentMessage[]; markDelivered(messageIds: string[]): void };
   /**
    * main 委派资料的发送前复核（仅 subagent 类会话；撤销阻止后续注入，
    * 已保存快照正文不重新解析）。
@@ -536,6 +552,17 @@ export class Driver {
             return subAgentToolsFor(Boolean(work?.writeTarget)).has(t.name);
           })
         : []),
+      // 工作内协作消息（agent-direction issue 13）：subagent 类会话装配同一
+      // 工具定义；宿主评审任务按 taskToolSet 收窄不激活（同一结论）
+      ...(this.toolClass === "subagent" && this.deps.subagents
+        ? [
+            createSubAgentMessageTool({
+              message: (input) => this.deps.subagents!.message(input),
+              taskContext: () => this.hostToolCtx,
+              bindCall: this.bindHostCall,
+            }),
+          ]
+        : []),
       // 工作清单（issue 25）：与编码工具同一类别——开发会话与 coding，main/chat 不装配
       ...(this.allows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
       ...hostDataTools,
@@ -734,21 +761,29 @@ export class Driver {
       this.pinnedPlan = this.toolClass === "dev" && isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
     }
     this.pinnedSkills = this.dataScopeRestricted ? null : loadSkillLibrary(this.deps.agentDir);
-    // SubAgent 结果注入（agent-direction issue 11）：dev 父会话的下一个拥有者
-    // 任务开始时收集待注入结果并标记送达（同事务）；摘要由宿主写定，不伪装
-    // 拥有者新请求，也不授予委派权限。
+    // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
+    // dev 父会话的下一个拥有者任务开始时收集待注入内容并标记送达（同事务）；
+    // 摘要与消息正文由宿主写定，不伪装拥有者新请求，也不授予委派权限。
     let subagentResults: Array<{ workId: string; subAgentId: string; taskId: string; status: string; summary: string }> | undefined;
+    let subagentMessages: SubAgentMessage[] | undefined;
     if (this.toolClass === "dev" && this.deps.subagentResults) {
       const pending = this.deps.subagentResults.pending(this.session.id);
-      if (pending.length > 0) {
-        subagentResults = pending.map((t) => ({
-          workId: t.workId!,
-          subAgentId: t.subAgentId!,
-          taskId: t.id,
-          status: t.status,
-          summary: t.resultSummary ?? "",
-        }));
-        this.deps.store.withTx(() => this.deps.subagentResults!.markDelivered(pending.map((t) => t.id)));
+      const pendingMessages = this.deps.subagentMessages?.pending(this.session.id) ?? [];
+      if (pending.length > 0 || pendingMessages.length > 0) {
+        if (pending.length > 0) {
+          subagentResults = pending.map((t) => ({
+            workId: t.workId!,
+            subAgentId: t.subAgentId!,
+            taskId: t.id,
+            status: t.status,
+            summary: t.resultSummary ?? "",
+          }));
+        }
+        if (pendingMessages.length > 0) subagentMessages = pendingMessages;
+        this.deps.store.withTx(() => {
+          if (pending.length > 0) this.deps.subagentResults!.markDelivered(pending.map((t) => t.id));
+          if (pendingMessages.length > 0) this.deps.subagentMessages!.markDelivered(pendingMessages.map((m) => m.id));
+        });
       }
     }
     this.assembly = beginContextAssembly({
@@ -762,6 +797,7 @@ export class Driver {
       plan: this.pinnedPlan,
       skills: this.pinnedSkills,
       subagentResults,
+      subagentMessages,
     }, this.deps);
     this.runPromise = this.runInner(task);
     try {
@@ -895,6 +931,9 @@ export class Driver {
         this.toolClass === "subagent"
           ? (name, effect) => {
               const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
+              // 工作内协作消息（issue 13）：装配时仅子会话有定义；调用门同一结论。
+              // 宿主评审任务（issue 19 固定单 Agent 流程）不开放
+              if (name === "subagent_message") return !(this.deps.taskMcp?.(task) ?? false);
               return subAgentToolsFor(Boolean(work?.writeTarget)).has(name) || (effect === "read" && (this.deps.taskMcp?.(task) ?? false));
             }
           : allowTaskTool

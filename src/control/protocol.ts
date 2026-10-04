@@ -46,6 +46,11 @@
  * （旧 qq_config.groups 保留为历史值）；qq_inbox_list 条目新增 acceptance
  * （main 接收账本）与 sourceProblem（当前复核结论）字段。旧客户端须升级；
  * 旧群收件/发送/入站记录保持可读。
+ *
+ * v15（agent-direction issue 13）：工作内协作消息——新增 subagent_message.sent /
+ * subagent_message.dropped 事件；work_get 详情新增 messages 列表；主 Agent 工具
+ * 增加 subagent_message，委派 work_id 与 sub_agent_id 同现表示协作加入。旧客户端
+ * 须升级；持久旧事件与记录保持可读。
  */
 
 import {

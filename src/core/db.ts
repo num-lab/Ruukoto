@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -560,6 +560,29 @@ CREATE TABLE IF NOT EXISTS instance_import_items (
   PRIMARY KEY (kind, item_id)
 );
 CREATE INDEX IF NOT EXISTS idx_instance_import_items_import ON instance_import_items (import_id);
+
+-- v29（agent-direction issue 13）：工作内协作消息。同一项工作的参与者
+--（主 Agent 与当前承接本工作的各 SubAgent）之间有来源的消息；幂等键按
+--（工作, 发送方, 键）核实（from_sub_agent_id 为空 = 主 Agent，单独一段键空间）；
+-- 投递为接收方的一次执行任务或父会话注入/唤醒任务，待投递行由宿主机在
+-- 终态/启动/取消/关闭时冲刷，资格已失记 undelivered_reason。
+CREATE TABLE IF NOT EXISTS subagent_messages (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL REFERENCES work_delegations(id),
+  parent_session_id TEXT NOT NULL REFERENCES sessions(id),
+  from_sub_agent_id TEXT REFERENCES sub_agents(id),
+  from_task_id TEXT NOT NULL,
+  to_sub_agent_id TEXT REFERENCES sub_agents(id),
+  request_key TEXT NOT NULL,
+  params_digest TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  delivered_task_id TEXT,
+  delivered_at TEXT,
+  undelivered_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_smsg_work ON subagent_messages (work_id);
+CREATE INDEX IF NOT EXISTS idx_smsg_pending ON subagent_messages (parent_session_id, delivered_at);
 `;
 
 /**
@@ -668,7 +691,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 27) {
+    } else if (version >= 2 && version <= 28) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -707,6 +730,8 @@ export class Db {
       // v27 → v28：新增 instance_imports / instance_import_items 两表
       // （SCHEMA_SQL 幂等建表，agent-direction issue 21 跨实例导入账本）；
       // 旧库两表为空，不扫描、不回填。
+      // v28 → v29：新增 subagent_messages 表（SCHEMA_SQL 幂等建表，
+      // agent-direction issue 13 工作内协作消息）；旧库表为空，不回填。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();

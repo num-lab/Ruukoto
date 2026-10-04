@@ -1,10 +1,10 @@
 /**
  * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭；
- * issue 14 整项取消）：subagent_delegate / subagent_result / subagent_close /
- * subagent_cancel。对拥有者的普通开发会话与 main 角色会话装配；其余身份
- * （群、固定 coding/chat、动态 SubAgent、调度与回报唤醒）一律不装配也不放行
- * （subagent_close / subagent_cancel 例外：回报唤醒轮次也允许，因为关闭与
- * 取消只收窄能力）。
+ * issue 13 工作内协作消息与协作加入；issue 14 整项取消）：subagent_delegate /
+ * subagent_result / subagent_close / subagent_cancel / subagent_message。
+ * 前四个对拥有者的普通开发会话与 main 角色会话装配；其余身份一律不装配
+ * 也不放行（subagent_close / subagent_cancel 例外：回报唤醒轮次也允许，
+ * 因为关闭与取消只收窄能力）。subagent_message 另行对 SubAgent 子会话装配。
  *
  * - 模型只给正文、幂等键、可选既有 workId / subAgentId 与选定资料
  *   （dev: read_paths / main: materials）；目标身份、独立目录、confirm 模式、
@@ -15,18 +15,25 @@
  *   subagent_result 查询，dev 会话再经下一次模型调用的宿主资料注入送达；
  * - subagent_result 省略 work_id 时列出本会话的 SubAgent 总览（供挑选复用
  *   对象）；按 work_id 读取时开窄口：只能读本会话登记的工作，并标明该工作
- *   是否已取消、该 SubAgent 是否已关闭；最终回答与产物沿用 UTF-8/字节分页；
+ *   是否已取消、该 SubAgent 是否已关闭；part=messages 列出工作内协作消息
+ *   （issue 13：来源、投递状态与正文预览）；最终回答与产物沿用 UTF-8/字节分页；
  * - subagent_close 显式关闭：有活动任务拒绝（给出任务 id），已关闭幂等；
  *   关闭后拒绝新委派，历史与产物保留可查；
  * - subagent_cancel 整项取消（issue 14）：停止本工作的活动与排队任务，其他
  *   工作不受影响；已取消幂等；取消后不能沿该工作继续委派；SubAgent 身份、
- *   历史与产物保留，迟到结果仍可按工作读取。
+ *   历史与产物保留，迟到结果仍可按工作读取；
+ * - subagent_message（issue 13）：同项工作的参与者互发有来源的消息——
+ *   发送方身份完全由发起任务核实（工作父会话任务 = 主 Agent，回报唤醒
+ *   轮次同样允许——作用范围仍是本会话名下工作；本工作的 SubAgent
+ *   任务 = 该 SubAgent），不接受模型参数指定身份；接收方是当前承接
+ *   本工作的 SubAgent（复用转做其他工作后资格即失）或主 Agent
+ *   （省略 to_sub_agent_id）；资格核实、幂等与投递见 SubAgentManager.message。
  */
 
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
-import type { SubAgent, Task } from "../core/types.ts";
+import type { SubAgent, SubAgentMessage, Task } from "../core/types.ts";
 import type { HistoryEntryView } from "../core/history.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { TELEGRAM_SOURCE } from "../telegram/adapter.ts";
@@ -34,10 +41,16 @@ import { QQ_PRIVATE_SOURCE } from "../qq/adapter.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import type { SourceResolver } from "./scheduler-tools.ts";
 import { canonicalParamsDigest } from "./mcp/tools.ts";
-import type { SubAgentDelegation, SubAgentDelegateInput, WorkCancellation } from "../runtime/subagents.ts";
+import type {
+  SubAgentDelegation,
+  SubAgentDelegateInput,
+  SubAgentMessageInput,
+  SubAgentMessageResult,
+  WorkCancellation,
+} from "../runtime/subagents.ts";
 import { runsInPlanMode } from "./plan-mode.ts";
 
-export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel"] as const;
+export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel", "subagent_message"] as const;
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** subagent_result 单次读取上限（字节）。 */
@@ -51,6 +64,8 @@ export interface SubAgentToolsDeps {
   close(input: { subAgentId: string; by: `agent:${string}`; parentSessionId: string }): { agent: SubAgent; alreadyClosed: boolean };
   /** 整项取消（issue 14）；by 由宿主按调用身份固定（agent:<任务ID>），模型参数不参与。 */
   cancelWork(input: { workId: string; by: `agent:${string}`; parentSessionId: string; reason?: string | null }): Promise<WorkCancellation>;
+  /** 工作内协作消息（issue 13）；发送方身份由发起任务核实（见 SubAgentManager.message）。 */
+  message(input: SubAgentMessageInput): SubAgentMessageResult;
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
   /** 评审任务前置修订说明（agent-direction issue 19，与 coding_result 一致）。 */
@@ -64,6 +79,84 @@ export interface SubAgentToolsDeps {
 
 function okText(text: string) {
   return { content: [{ type: "text" as const, text }] };
+}
+
+/** subagent_message 的依赖子集（普通开发会话/main 与 SubAgent 子会话共用同一定义）。 */
+export interface SubAgentMessageToolDeps {
+  message(input: SubAgentMessageInput): SubAgentMessageResult;
+  taskContext(): HostToolContext | null;
+  bindCall?(sdkCallId: string): () => void;
+}
+
+/** 消息现状（供回报与同键重放按行解读；与投递判定同一口径）。 */
+function messageStateText(m: SubAgentMessage): string {
+  return m.deliveredTaskId
+    ? `已投递（任务 ${m.deliveredTaskId}）`
+    : m.deliveredAt
+      ? "已随主会话模型调用注入送达"
+      : m.undeliveredReason
+        ? `未投递（${m.undeliveredReason}）`
+        : "待投递（接收方忙/名额满或待注入，宿主机会在任务终态等时机冲刷）";
+}
+
+/**
+ * 工作内协作消息工具（agent-direction issue 13）：发送方身份完全由发起任务
+ * 核实——工作父会话的任务 = 主 Agent，本工作的 SubAgent 任务 = 该 SubAgent；
+ * 模型参数不含身份，资格、幂等与投递由 SubAgentManager.message 执行。
+ */
+export function createSubAgentMessageTool(deps: SubAgentMessageToolDeps): ToolDefinition {
+  return defineTool({
+    name: "subagent_message",
+    label: "subagent_message",
+    description:
+      "在同项工作内向主 Agent 或当前承接本工作的另一个 SubAgent 发送有来源的消息：消息与来源可追溯，" +
+      "不扩大任何一方的工具或资料范围。省略 to_sub_agent_id 发给主 Agent；指定则发给该 SubAgent" +
+      "（它必须当前正承接本工作且未关闭；主 Agent 发送时必填）。接收方正忙时消息登记为待投递，" +
+      "由宿主机在其当前任务结束后投递为对方的一次执行任务；发给主 Agent 的经宿主注入或唤醒送达。" +
+      "同 key 同参返回原记录，异参冲突。",
+    parameters: Type.Object({
+      work_id: Type.String({ description: "工作 id（subagent_delegate 返回的；发送方必须正在本工作内）" }),
+      key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
+      text: Type.String({ description: "消息正文（≤4096 字符；与来源一起送达）" }),
+      to_sub_agent_id: Type.Optional(Type.String({ description: "接收的 SubAgent id；省略 = 发给主 Agent；发送方为主 Agent 时必填" })),
+    }),
+    execute: async (sdkCallId: string, params: any) => {
+      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      try {
+        const ctx = deps.taskContext();
+        if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
+        if (typeof params.work_id !== "string" || !params.work_id.trim()) throw new Error("work_id 必须是非空字符串");
+        if (typeof params.key !== "string" || !KEY_RE.test(params.key)) throw new Error("key 必须是 1–64 位字母、数字、_ 或 -");
+        if (typeof params.text !== "string" || !params.text.trim()) throw new Error("text 不能为空");
+        if (params.to_sub_agent_id !== undefined && (typeof params.to_sub_agent_id !== "string" || !params.to_sub_agent_id.trim())) {
+          throw new Error("to_sub_agent_id 必须是既有 SubAgent id");
+        }
+        const paramsDigest = canonicalParamsDigest({
+          work_id: params.work_id,
+          to_sub_agent_id: params.to_sub_agent_id ?? null,
+          key: params.key,
+          text: params.text,
+        });
+        const result = deps.message({
+          senderTaskId: ctx.taskId,
+          workId: params.work_id,
+          key: params.key,
+          text: params.text,
+          toSubAgentId: params.to_sub_agent_id ?? null,
+          paramsDigest,
+        });
+        const m = result.message;
+        const to = m.toSubAgentId ? `SubAgent ${m.toSubAgentId}` : "主 Agent";
+        return okText(
+          result.created
+            ? `已发送：消息 ${m.id}（工作 ${m.workId} → ${to}），${messageStateText(m)}。`
+            : `同键同参已发送过，返回原记录：消息 ${m.id}（${to}，${messageStateText(m)}）。`,
+        );
+      } finally {
+        unbind();
+      }
+    },
+  } as any);
 }
 
 export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
@@ -104,14 +197,15 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       "开发会话用 read_paths 指定父工作区内或父任务已授予的只读路径；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
       "要修改文件时用 mode=modify + target（父工作区内）：Git 仓库目标建宿主生成的本地 worktree 副本，非 Git 目录直接写入并与父会话串行。" +
       "首次省略两参数建立工作；补充原工作用 work_id（修改继续沿用首次钉定的写入目标）；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
-      "读范围与资料按本次重新确定，要求该 SubAgent 空闲且未关闭）。" +
+      "读范围与资料按本次重新确定，要求该 SubAgent 空闲且未关闭）；work_id 与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入既有工作协作" +
+      "（只读工作；协作者之间与主 Agent 可用 subagent_message 通信）。" +
       "返回 workId、subAgentId、taskId 与截止时间；同 key 同参返回原记录，异参冲突。子任务入队后立即返回，" +
       "结果完成后经宿主通知，用 subagent_result 读取。",
     parameters: Type.Object({
       request: Type.String({ description: "委派正文：要 SubAgent 做什么（目标、范围、验收要求）" }),
       key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
-      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行；修改工作继续沿用首次钉定的写入目标）；与 sub_agent_id 互斥" })),
-      sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent 承接新工作（保留上下文）；与 work_id 互斥" })),
+      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行；修改工作继续沿用首次钉定的写入目标）；与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入本工作协作" })),
+      sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent（保留上下文）：单独用时承接新工作；与 work_id 同现时加入该既有工作作为协作方" })),
       mode: Type.Optional(Type.Union([Type.Literal("analyze"), Type.Literal("modify")], { description: "委派模式；仅首次委派可指定，modify 需要 target（修改委派只限普通开发会话，main/计划模式/SubAgent 自身不能发起）" })),
       target: Type.Optional(Type.String({ description: "modify 的写入目标（父工作区内；Git 仓库建隔离 worktree 副本，非 Git 目录直接写入与父会话串行）" })),
       read_paths: Type.Optional(
@@ -138,7 +232,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       if (params.sub_agent_id !== undefined && (typeof params.sub_agent_id !== "string" || !params.sub_agent_id.trim())) {
         throw new Error("sub_agent_id 必须是既有 SubAgent id");
       }
-      if (params.work_id && params.sub_agent_id) throw new Error("work_id 与 sub_agent_id 互斥：补充原工作用 work_id，承接新工作用 sub_agent_id");
+      if (params.work_id && params.sub_agent_id && params.mode !== undefined) throw new Error("协作加入（work_id 与 sub_agent_id 同现）只限只读分析工作，不能指定 mode");
       const mode = params.mode ?? "analyze";
       if (params.mode !== undefined && params.mode !== "analyze" && params.mode !== "modify") {
         throw new Error("mode 只能是 analyze 或 modify");
@@ -214,6 +308,8 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         paramsDigest,
       });
       const wt = delegation.work.writeTarget;
+      const joined =
+        delegation.created && params.work_id !== undefined && params.sub_agent_id !== undefined && delegation.agent.id !== delegation.work.subAgentId;
       const targetNote =
         delegation.created && wt?.kind === "worktree"
           ? `副本基于提交 ${wt.baseCommit.slice(0, 12)}（分支 ${wt.branch}）：父工作区未提交的改动不在副本内；子任务不能提交，改动留在工作树由你汇总。`
@@ -224,6 +320,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         (delegation.created ? "已委派 SubAgent" : "同键同参已委派过，返回原记录") +
           `：工作 ${delegation.work.id}，SubAgent ${delegation.agent.id}，任务 ${delegation.task.id}` +
           `（截止 ${delegation.task.deadline ?? "无"}）。` +
+          (joined ? "该 SubAgent 已作为协作方加入本工作（彼此与主 Agent 可用 subagent_message 通信）。" : "") +
           (targetNote ? `${targetNote}` : "") +
           "子任务已在后台执行；完成后宿主会通知，完整结果用 subagent_result 按 work_id 读取。",
       );
@@ -247,11 +344,12 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       "读取本会话登记的工作委托与 SubAgent 结果：省略 work_id 列出本会话的全部 SubAgent 总览" +
       "（状态/已关闭、当前工作、名下工作、最近任务状态，供挑选继续或复用对象）；指定 work_id 时 " +
       "part=result（默认）看工作状态、SubAgent（含是否已关闭）与任务摘要；" +
+      "part=messages 看工作内协作消息（来源、投递状态与正文预览）；" +
       "part=reply 按 UTF-8 字节分页读指定/最新任务的最终回答（length 为 256–16384）；" +
       "part=artifact 按字节分页读该任务的产物（artifact_id 见结果中的产物列表）。",
     parameters: Type.Object({
       work_id: Type.Optional(Type.String({ description: "subagent_delegate 返回的工作 id；省略时列出本会话的 SubAgent 总览" })),
-      part: Type.Optional(Type.Union([Type.Literal("result"), Type.Literal("reply"), Type.Literal("artifact")])),
+      part: Type.Optional(Type.Union([Type.Literal("result"), Type.Literal("reply"), Type.Literal("artifact"), Type.Literal("messages")])),
       task_id: Type.Optional(Type.String({ description: "工作内的某次执行任务 id；缺省取最近一次" })),
       artifact_id: Type.Optional(Type.String()),
       offset: Type.Optional(Type.Number()),
@@ -319,6 +417,21 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
           }
         }
         return withText(tasks.at(-1), lines.join("\n"));
+      }
+      if (part === "messages") {
+        // 工作内协作消息（issue 13）：来源、投递状态与正文预览，按创建序
+        const msgs = store.listSubAgentMessagesByWork(work.id);
+        if (msgs.length === 0) return okText(`工作 ${work.id} 尚无协作消息`);
+        return okText(
+          msgs
+            .map(
+              (m) =>
+                `- ${m.id} · ${m.createdAt} · ${m.fromSubAgentId ? `SubAgent ${m.fromSubAgentId}` : "主 Agent"} → ` +
+                `${m.toSubAgentId ? `SubAgent ${m.toSubAgentId}` : "主 Agent"} · ${messageStateText(m)}\n` +
+                `  ${m.body.length > 200 ? `${m.body.slice(0, 200)}…` : m.body.replaceAll("\n", "\n  ")}`,
+            )
+            .join("\n"),
+        );
       }
       const target = params.task_id
         ? tasks.find((t) => t.id === params.task_id) ?? null
@@ -410,5 +523,11 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     }),
   } as any);
 
-  return [subagentDelegate, subagentResult, subagentClose, subagentCancel];
+  const subagentMessage = createSubAgentMessageTool({
+    message: deps.message,
+    taskContext: deps.taskContext,
+    bindCall: deps.bindCall,
+  });
+
+  return [subagentDelegate, subagentResult, subagentClose, subagentCancel, subagentMessage];
 }

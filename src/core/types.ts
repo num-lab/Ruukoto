@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 export interface ModelSelection {
   provider: string;
@@ -219,7 +219,7 @@ export interface WorkDelegation {
   parentSessionId: string;
   /** 发起任务（首次委派时的拥有者任务）。 */
   originTaskId: string;
-  /** 承接的 SubAgent（首版每项工作一个）。 */
+  /** 首次承接的 SubAgent；协作加入的其他 SubAgent（issue 13）经 tasks 的关联列记录。 */
   subAgentId: string;
   /** 首次委派的幂等键（父会话内唯一）。 */
   requestKey: string;
@@ -234,6 +234,43 @@ export interface WorkDelegation {
   /** 写入目标（issue 16）；null = 只读分析工作（不能升级为写入）。 */
   writeTarget: WorkWriteTarget | null;
   createdAt: string;
+}
+
+/**
+ * 工作内协作消息（agent-direction issue 13，subagent_messages 表）：同一项工作
+ * 的参与者（主 Agent 与当前承接本工作的各 SubAgent）之间有来源的消息。
+ * - from/to 的 null 端 = 主 Agent（父会话），非 null = SubAgent；
+ * - 幂等键按（工作, 发送方, 键）核实：同键同参返回原记录，异参冲突；
+ * - 投递：发给 SubAgent 的投递为本工作内的一次执行任务（delivered_task_id），
+ *   发给主 Agent 的经 dev 注入（结果通道）或 main 唤醒任务送达；
+ *   接收方正忙/名额满时保持待投递（delivered_* 与 undelivered_reason 均空），
+ *   由宿主机在终态/启动/取消/关闭时冲刷；资格已失（转做其他工作、已关闭、
+ *   工作已取消）记 undelivered_reason，不再投递；
+ * - 消息只携带正文与来源，不扩大接收方的工具与资料范围。
+ */
+export interface SubAgentMessage {
+  id: string;
+  workId: string;
+  /** 所属父用户会话（范围核实与注入查询的归属）。 */
+  parentSessionId: string;
+  /** 发送的 SubAgent；null = 主 Agent。 */
+  fromSubAgentId: string | null;
+  /** 发送方发起任务（来源可追溯）。 */
+  fromTaskId: string;
+  /** 接收的 SubAgent；null = 主 Agent。 */
+  toSubAgentId: string | null;
+  /** 发送方提供的幂等键。 */
+  requestKey: string;
+  /** 规范化参数的 sha256（同键异参冲突核实）。 */
+  paramsDigest: string;
+  body: string;
+  createdAt: string;
+  /** 投递任务的 id（SubAgent 投递任务 / main 唤醒任务；dev 注入无任务为 null）。 */
+  deliveredTaskId: string | null;
+  /** 投递登记时刻；null = 未投递。 */
+  deliveredAt: string | null;
+  /** 无法投递的明确结果（如 closed / moved_work / work_canceled）；null = 未判定。 */
+  undeliveredReason: string | null;
 }
 
 /**
@@ -890,6 +927,17 @@ export type PersistentEventBody =
    * 提交后按停止路径处理的活动任务。
    */
   | { type: "work_delegation.canceled"; workId: string; parentSessionId: string; subAgentId: string; canceledBy: WorkCanceledBy; reason: string | null; canceledTaskIds: string[]; stoppingTaskIds: string[] }
+  /**
+   * 工作内协作消息已登记（agent-direction issue 13）：与消息行同事务落盘，
+   * 每条消息至多一条（含登记时的投递判定）；delivery：task = 已投递为接收方
+   * 的本工作任务（taskId 非空）；wake = 已投递为 main 唤醒任务；inject = 待
+   * dev 父会话注入；pending = 接收方正忙/名额满，宿主机在终态/启动时冲刷。
+   * 同键同参命中不再产生事件；冲刷改变行与任务但不补发本事件，未送达的
+   * 最终结果由 subagent_message.dropped 记录。
+   */
+  | { type: "subagent_message.sent"; messageId: string; workId: string; parentSessionId: string; fromSubAgentId: string | null; fromTaskId: string; toSubAgentId: string | null; delivery: "task" | "wake" | "inject" | "pending"; taskId: string | null }
+  /** 工作内消息最终无法投递（接收方资格已失或工作已取消）；与判定同事务落盘。 */
+  | { type: "subagent_message.dropped"; messageId: string; workId: string; parentSessionId: string; toSubAgentId: string | null; reason: string }
   /**
    * 应用数据能力不可用（issue 02）：main.db 丢失、实例身份不符、损坏或存储
    * 格式过新/迁移失败。不自动重建、不覆盖既有实例绑定；工具保持关闭。

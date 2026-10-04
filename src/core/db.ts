@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -530,6 +530,36 @@ CREATE TABLE IF NOT EXISTS work_delegations (
   created_at TEXT NOT NULL,
   UNIQUE (parent_session_id, request_key)
 );
+
+-- v28（agent-direction issue 21）：跨实例导入的回执与条目账本。旧实例开发资料
+-- 经目标侧离线 legacy-import 迁入 Coding Agent；回执持久保存（applied/reverted），
+-- 供续跑幂等核实、回退与整库恢复定位；条目账本标识各项资料属于哪次导入，主键
+-- (kind, item_id) 让同一资料至多归属一次导入。
+CREATE TABLE IF NOT EXISTS instance_imports (
+  id TEXT PRIMARY KEY,
+  request_key TEXT NOT NULL UNIQUE,
+  source_instance_id TEXT NOT NULL,
+  source_product TEXT,
+  source_schema_version INTEGER,
+  source_dir TEXT NOT NULL,
+  plan_digest TEXT NOT NULL,
+  target_backup_path TEXT NOT NULL,
+  target_backup_sha256 TEXT NOT NULL,
+  event_seq_from INTEGER,
+  event_seq_to INTEGER,
+  report TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('applied','reverted')),
+  created_at TEXT NOT NULL,
+  reverted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS instance_import_items (
+  kind TEXT NOT NULL CHECK (kind IN
+    ('project','session','sub_agent','work_delegation','memory','grant','mcp','meta','file')),
+  item_id TEXT NOT NULL,
+  import_id TEXT NOT NULL REFERENCES instance_imports(id),
+  PRIMARY KEY (kind, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_instance_import_items_import ON instance_import_items (import_id);
 `;
 
 /**
@@ -638,7 +668,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 26) {
+    } else if (version >= 2 && version <= 27) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -674,6 +704,9 @@ export class Db {
       // v26 → v27：work_delegations 补 write_target 列（ensureColumns，
       // agent-direction issue 16）；旧工作恒为 NULL（只读分析工作，不扫描、
       // 不改写旧记录）。
+      // v27 → v28：新增 instance_imports / instance_import_items 两表
+      // （SCHEMA_SQL 幂等建表，agent-direction issue 21 跨实例导入账本）；
+      // 旧库两表为空，不扫描、不回填。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();

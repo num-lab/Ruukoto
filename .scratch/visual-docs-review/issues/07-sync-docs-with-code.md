@@ -20,7 +20,7 @@ Status: ready-for-agent
   - 资料快照不在模型上下文里，而是子目录里的 `materials-<key>.txt`，由 SubAgent 自己 `read`；
   - 结果在父会话下一个任务开始时注入，并且先标记 `result_delivered_at` 再注入，不是「下一次父模型调用」；
   - 来源引用在登记事务与每次发送前核实，没有单独的启动核实，`verify` 只复核 `task_result` / `artifact` 两类；
-  - 补写：重启后 SubAgent 子会话里排队的任务不会自动恢复（与 agent-direction 工单 15 的评论一致）。
+  - ~~补写：重启后 SubAgent 子会话里排队的任务不会自动恢复（与 agent-direction 工单 15 的评论一致）。~~已被工单 15 的实施取代（2026-10-05）：代码行为已改为「拥有者/主 Agent 委派的排队执行任务重启定 interrupted(backend_restart)、不自动继续，SubAgent 补记结果后回可用；宿主固定评审的排队任务由编排器启动恢复自动继续；resume-queue 是 unverified 回 idle 的出口」，runtime.md「通用 SubAgent 委派 · 后台重启恢复」与「崩溃恢复」已按新行为描述，本项不再适用。
 - [ ] 「结果协议」写普通取消「保留原因并归入 failed」。实际只有排队中取消会把原因写进 error_message；执行中取消的原因在 interrupt_reason，只进 failure 字段。
 - [ ] 「Telegram · 发送」写「2xx 回执 → sent」，代码要求 `res.ok && json.ok`。另外，「429 按 retry_after」实际对任何带 retry_after 的错误都生效。
 - [ ] 「IM 审批」：

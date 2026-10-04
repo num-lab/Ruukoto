@@ -429,11 +429,11 @@
 
   <section id="subagent-state">
     <h2>SubAgent 状态与结果回报</h2>
-    <p>SubAgent 的状态写在 <code>sub_agents.state</code> 上，取值见 <code class="src" data-src="src/core/types.ts#export type SubAgentState">types.ts · SubAgentState</code>：<code class="st run">running</code> 表示有活动执行任务；<code class="st idle">idle</code> 表示执行任务已到终态、目录占用已回收；<code class="st unk">unverified</code> 表示执行任务已到终态，但旧执行单元是否退出没有核实，目录占用还在。只有两处代码改它：委派登记置 running，编排器登记终态时置 idle 或 unverified。空闲时子会话的驱动器已释放，不跑模型，也没有 worker 进程；身份、子会话、JSONL 与产物都保留。</p>
+    <p>SubAgent 的状态写在 <code>sub_agents.state</code> 上，取值见 <code class="src" data-src="src/core/types.ts#export type SubAgentState">types.ts · SubAgentState</code>：<code class="st run">running</code> 表示有活动执行任务；<code class="st idle">idle</code> 表示执行任务已到终态、目录占用已回收；<code class="st unk">unverified</code> 表示执行任务已到终态，但旧执行单元是否退出没有核实，目录占用还在。三处代码改它：委派登记置 running；编排器登记终态时置 idle 或 unverified；拥有者核实旧执行已退出后 resume_queue 把 unverified 置回 idle（同一事务释放占用、解除子会话暂停）。空闲时子会话的驱动器已释放，不跑模型，也没有 worker 进程；身份、子会话、JSONL 与产物都保留。</p>
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 368" role="img" aria-label="SubAgent 状态机：首次委派的登记事务创建身份并置 running；执行任务终态时，目录占用已回收则进入 idle，占用仍在则进入 unverified；只有 idle 且未关闭、目录身份一致才能继续或复用，回到 running；委派忙碌、已关闭、unverified 或目录失效一律拒绝；关闭是不改 state 的独立两列，显式发起，不自动发生。">
+        <svg viewBox="0 0 1040 368" role="img" aria-label="SubAgent 状态机：首次委派的登记事务创建身份并置 running；执行任务终态时，目录占用已回收则进入 idle，占用仍在则进入 unverified；unverified 经拥有者 resume_queue 核实旧执行已退出后回到 idle；只有 idle 且未关闭、目录身份一致才能继续或复用，回到 running；委派忙碌、已关闭、待核实或目录失效一律拒绝；关闭是不改 state 的独立两列，显式发起，不自动发生。">
           <g class="n" data-k="s-new"><rect x="20" y="158" width="130" height="50" rx="25"/><text x="85" y="175">首次委派</text><text class="sub" x="85" y="194">登记事务</text></g>
           <g class="n run"><rect x="250" y="120" width="190" height="66" rx="8"/><text x="345" y="143">running</text><text class="sub" x="345" y="166">有活动执行任务</text></g>
           <g class="n idle"><rect x="660" y="30" width="220" height="66" rx="8"/><text x="770" y="53">idle</text><text class="sub" x="770" y="76">终态 · 占用已回收 · 可继续</text></g>
@@ -446,6 +446,8 @@
           <text class="el" data-k="s-idle" x="598" y="52">终态 · 已回收</text>
           <path class="e unk" data-k="s-unv" d="M440 168C550 168 550 243 658 243" marker-end="url(#ah-unk)"/>
           <text class="el" data-k="s-unv" x="598" y="208">终态 · 占用保留</text>
+          <path class="e" data-k="s-resume" d="M770 210V98" marker-end="url(#ah)"/>
+          <text class="el" data-k="s-resume" x="782" y="160">拥有者核实 · resume_queue</text>
 
           <path class="e" data-k="s-again" d="M770 30V14H380V118" marker-end="url(#ah)"/>
           <text class="el" data-k="s-again" x="575" y="8">继续 / 复用（仅 idle · 未关闭）</text>
@@ -457,7 +459,7 @@
           <path class="e dash" data-k="s-close" d="M880 96V286" marker-end="url(#ah)"/>
         </svg>
       </div>
-      <figcaption>状态只说明执行单元，不说明工作是否完成，也不表示关闭：关闭是旁路的独立两列（见<a href="#subagent-close">继续、复用与关闭</a>）。继续与复用只有从 idle 出发；「再委派」在其余情形一律拒绝——忙碌明确拒绝不排队，这取代了此前「执行中再委派会让在跑任务显示空闲」的缺口。unverified 目前没有回到 idle 的处分路径：拥有者核实后用 resume_queue 释放遗留占用，sub_agents 上仍记 unverified，拒绝继续与复用。悬停下表的行会高亮对应的边与节点。</figcaption>
+      <figcaption>状态只说明执行单元，不说明工作是否完成，也不表示关闭：关闭是旁路的独立两列（见<a href="#subagent-close">继续、复用与关闭</a>）。继续与复用只有从 idle 出发；「再委派」在其余情形一律拒绝——忙碌明确拒绝不排队，这取代了此前「执行中再委派会让在跑任务显示空闲」的缺口。unverified 唯一的出口是拥有者核实旧执行已退出后用 resume_queue：同一事务释放遗留占用、解除子会话暂停，并把无活动任务的 Agent 记回 idle；未核实前拒绝继续与复用。悬停下表的行会高亮对应的边与节点。</figcaption>
       <ul class="legend">
         <li><i class="run"></i>有活动执行任务</li>
         <li><i class="idle"></i>空闲，零模型与进程 / 已关闭</li>
@@ -487,6 +489,12 @@
             <td>编排器</td>
             <td>同上，但终态时子会话的占用还在：停止路径没能回收工具进程而保留了占用，或后台崩溃留下了占用、重启后补记。</td>
             <td>同上四种之一；占用来自停止路径时另有 <code>task.tool_process_unreaped</code>，来自重启时另有 <code>occupancy.stale</code></td>
+          </tr>
+          <tr data-k="s-resume" tabindex="0">
+            <td><code class="st unk">unverified</code> → <code class="st idle">idle</code></td>
+            <td>拥有者 resume_queue</td>
+            <td>拥有者核实旧执行（容器 / 子进程）确已停止后调用 resume_queue（或 CLI <code>ruukoto resume-queue</code>）：一个事务里释放子会话的遗留占用（活动任务持有的占用拒绝释放，<code>occupancy_active</code>）、解除暂停；该会话的 SubAgent 若处于 unverified 且没有活动任务，置回 <code class="st idle">idle</code>，此后可继续、复用或关闭。<br><code class="src" data-src="src/runtime/runtime.ts#async resumeQueue">runtime.ts · resumeQueue</code></td>
+            <td>子会话的 <code>session.queue_resumed</code></td>
           </tr>
           <tr data-k="s-again" tabindex="0">
             <td><code class="st idle">idle</code> → <code class="st run">running</code></td>
@@ -525,7 +533,7 @@
     <h3>停止与重启时</h3>
     <ul>
       <li><b>执行中的任务</b>：后台停止（<code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code>）或崩溃后恢复（<code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code>）时把它转为 interrupted，这时编排器已经停下或还没启动，没人监听；编排器启动时由巡检 ① 补记（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingResult">listRoleTasksPendingResult</code> 同时选带 sub_agent_id 的任务），结局为结果未知，发 <code>subagent_task.result_unknown</code>。留下了占用的（崩溃，或停止时没能回收工具进程），恢复时子会话被暂停为 <code>occupancy_unverified</code>，SubAgent 记 unverified；停止时工具进程已回收的记 idle。main 父会话随后被唤醒，dev 父会话等它下一个任务开始时注入。</li>
-      <li><b>排队中的任务</b>：Runtime 恢复时把子会话队列暂停为 <code>backend_restart</code>。编排器只自动恢复三个角色会话的队列，SubAgent 子会话不在其中：任务留在 queued，身份仍是 running，直到拥有者对该会话 resume_queue，或截止巡检按 <code>deadline_exceeded</code> 取消它（结局 timeout，身份按占用情况转 idle 或 unverified）。</li>
+      <li><b>排队中的任务</b>：重启时仍排队的拥有者 / 主 Agent 委派任务（没有来源事件）由 Runtime 恢复事务直接转为 interrupted（<code>backend_restart</code>，从未启动）：不自动继续、也不当作成功或新委派；编排器巡检 ① 补记结果（<code class="src" data-src="src/core/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>），身份按占用情况记 idle 或 unverified，main 父会话被唤醒、dev 父会话注入，是否重新委派由拥有者 / 父 Agent 决定。宿主固定评审（带来源事件）的排队任务不中断：子会话队列被暂停为 <code>backend_restart</code> 后，由编排器启动恢复自动解除（与角色会话同口径，见<a href="#child">重启恢复</a>），继续执行。</li>
       <li><b>不重放、不重试</b>：结果未知的执行不自动重发，也没有自动重试。</li>
       <li><b>关闭与重启</b>：关闭只写 <code>closed_at</code> / <code>closed_by</code> 两列并记一条 <code>subagent.closed</code>（归父会话的持久事件）；不取消在途任务——有活动任务报 <code>busy</code> 并给任务 id，等任务结束或由拥有者 <code>ruukoto cancel</code> 后再关；不撤销既有产物、子目录、JSONL 与工作记录。</li>
     </ul>
@@ -551,8 +559,8 @@
     </div>
 
     <aside class="callout limit">
-      <b>首版限制</b>
-      <p>首版只做只读分析。已有：首次委派、沿原工作继续（<code>work_id</code>）、复用承接新工作（<code>sub_agent_id</code>）、结果回报与查询（含总览）、主 Agent 与拥有者两侧的显式关闭（<code>subagent_close</code> 与 <code>subagent_close</code> op / <code>ruukoto work close</code>）。还没有实现：同项工作的 SubAgent 互发消息（13）；取消整项工作（14）；后台重启后的 SubAgent 恢复状态机（15）；并行 worktree 与汇总改动（16、17）；GitHub 评审迁到 SubAgent（19）。代码里已知的缺口（不作新派遣之外的口径）：unverified 没有回到 idle 的路径；重启时排队的执行任务不会自动恢复。此前「执行中再委派同一工作覆盖当前任务指针」的缺口已堵死——继续与复用要求 idle，忙碌明确拒绝不排队。</p>
+      <b>范围边界</b>
+      <p>已有：首次委派、沿原工作继续（<code>work_id</code>）、复用承接新工作（<code>sub_agent_id</code>）、整项取消（14）、修改委派与按工作隔离的 worktree（16）、GitHub 固定评审（19）、后台重启恢复（15）、结果回报与查询（含总览）、主 Agent 与拥有者两侧的显式关闭（<code>subagent_close</code> 与 <code>subagent_close</code> op / <code>ruukoto work close</code>）。还没有实现：同项工作的 SubAgent 互发消息（13）；main 侧的修改委派、改动汇总与提交（17）。</p>
     </aside>
   </section>
 
@@ -752,7 +760,7 @@
       <li>已登记、未建任务的入站事件按原请求键串行重提（派发细节见<a href="inbound-events.html">入站事件</a>）；类别不是 <code>task</code> 的控制事件（正常路径不会有遗留）不派发为模型任务，一律以 <code>inbound.skipped</code>（<code>control_event_not_dispatched</code>）作废（<code class="src" data-src="src/runtime/orchestrator.ts#event.eventKind !== &quot;task&quot;">dispatchEvent</code>）。</li>
       <li>巡检 ①：已终态但结果未记录的角色任务与 SubAgent 执行任务补记结果与事件（<code class="src" data-src="src/core/store.ts#listRoleTasksPendingResult">store.ts · listRoleTasksPendingResult</code>）；interrupted 记为结果未知，不重放。</li>
       <li>巡检 ②：结果已记录但缺唤醒的子任务，按 <code>wake:&lt;子任务&gt;</code> 补发（<code class="src" data-src="src/runtime/orchestrator.ts#private async sweepPendingResults">sweepPendingResults</code>）。</li>
-      <li>三个角色会话中，只有因 <code>backend_restart</code> 暂停的队列自动恢复；<code>occupancy_unverified</code> 等涉及未核实旧执行的暂停留给拥有者核实。SubAgent 子会话不在自动恢复之列（见<a href="#subagent-state">停止与重启时</a>）。</li>
+      <li>角色会话与 SubAgent 子会话中，只有因 <code>backend_restart</code> 暂停的队列自动恢复（<code class="src" data-src="src/runtime/orchestrator.ts#private async resumeRestartPausedQueue">resumeRestartPausedQueue</code>）。此时 SubAgent 侧只剩宿主固定评审的排队任务——拥有者 / 主 Agent 委派的排队任务已由 Runtime 恢复定 interrupted（见<a href="#subagent-state">停止与重启时</a>）；<code>occupancy_unverified</code> 等涉及未核实旧执行的暂停留给拥有者核实。</li>
       <li>开始截止巡检。</li>
     </ol>
     <p>后台停止时，编排器在 GitHub webhook、调度器与 Telegram 之后，QQ 适配器与中断活动任务之前停下（<code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code>）：清掉巡检定时器，等派发串行链收尾，此后不再产生取消或唤醒。停止路径随后中断的角色任务没人监听，由下次启动的巡检 ① 按结果未知补记。</p>

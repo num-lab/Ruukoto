@@ -15,6 +15,8 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY src/agent/tool-worker ./src/agent/tool-worker
+# worker.ts 的宿主侧依赖（../../core/*，issue 11 起引入）也必须进构建阶段
+COPY src/core ./src/core
 RUN npx esbuild src/agent/tool-worker/worker.ts \
       --bundle --format=esm --platform=node --target=node24 \
       --external:@earendil-works/* \

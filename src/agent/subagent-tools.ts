@@ -35,6 +35,7 @@ import type { HostToolContext } from "./host-tools.ts";
 import type { SourceResolver } from "./scheduler-tools.ts";
 import { canonicalParamsDigest } from "./mcp/tools.ts";
 import type { SubAgentDelegation, SubAgentDelegateInput, WorkCancellation } from "../runtime/subagents.ts";
+import { runsInPlanMode } from "./plan-mode.ts";
 
 export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel"] as const;
 
@@ -96,18 +97,21 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     name: "subagent_delegate",
     label: "subagent_delegate",
     description:
-      "为一项分析/读取工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录，" +
-      "工具只有 read / read_artifact（只读），权限固定请求确认，不能委派下级。开发会话用 read_paths 指定父工作区内" +
-      "或父任务已授予的只读路径；main 会话用 materials 指定资料（委派时解析为文本快照）。首次两者都省略建立工作；" +
-      "补充原工作用 work_id；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
+      "为一项分析/读取或修改工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录或隔离副本，" +
+      "分析只读（read / read_artifact），修改经宿主后台生成的本地副本隔离（不提交、不推送），权限固定请求确认，不能委派下级。" +
+      "开发会话用 read_paths 指定父工作区内或父任务已授予的只读路径；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
+      "要修改文件时用 mode=modify + target（父工作区内）：Git 仓库目标建宿主生成的本地 worktree 副本，非 Git 目录直接写入并与父会话串行。" +
+      "首次省略两参数建立工作；补充原工作用 work_id（修改继续沿用首次钉定的写入目标）；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
       "读范围与资料按本次重新确定，要求该 SubAgent 空闲且未关闭）。" +
       "返回 workId、subAgentId、taskId 与截止时间；同 key 同参返回原记录，异参冲突。子任务入队后立即返回，" +
       "结果完成后经宿主通知，用 subagent_result 读取。",
     parameters: Type.Object({
       request: Type.String({ description: "委派正文：要 SubAgent 做什么（目标、范围、验收要求）" }),
       key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
-      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行）；与 sub_agent_id 互斥" })),
+      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行；修改工作继续沿用首次钉定的写入目标）；与 sub_agent_id 互斥" })),
       sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent 承接新工作（保留上下文）；与 work_id 互斥" })),
+      mode: Type.Optional(Type.Union([Type.Literal("analyze"), Type.Literal("modify")], { description: "委派模式；仅首次委派可指定，modify 需要 target（修改委派只限普通开发会话，main/计划模式/SubAgent 自身不能发起）" })),
+      target: Type.Optional(Type.String({ description: "modify 的写入目标（父工作区内；Git 仓库建隔离 worktree 副本，非 Git 目录直接写入与父会话串行）" })),
       read_paths: Type.Optional(
         Type.Array(Type.String(), { description: "仅限开发会话：父工作区内或父任务已授予的待读路径（最多 16 个，只读）" }),
       ),
@@ -133,10 +137,33 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         throw new Error("sub_agent_id 必须是既有 SubAgent id");
       }
       if (params.work_id && params.sub_agent_id) throw new Error("work_id 与 sub_agent_id 互斥：补充原工作用 work_id，承接新工作用 sub_agent_id");
+      const mode = params.mode ?? "analyze";
+      if (params.mode !== undefined && params.mode !== "analyze" && params.mode !== "modify") {
+        throw new Error("mode 只能是 analyze 或 modify");
+      }
+      if (params.work_id && params.mode !== undefined) {
+        const existing = typeof params.work_id === "string" ? store.getWorkDelegation(params.work_id) : null;
+        if (existing?.writeTarget) throw new Error("work_id 沿用工作原有模式，不能指定 mode");
+        throw new Error("只读分析工作不能升级为写入（请为修改新建一项工作）");
+      }
+      if (mode === "analyze" && params.target !== undefined) throw new Error("target 仅 mode=modify 使用");
+      const target = params.target === undefined ? null : params.target;
+      if (target !== null && typeof target !== "string") throw new Error("target 必须是路径字符串");
       const role = store.getAgentRoleBySession(ctx.sessionId);
       const isMain = role?.id === "main";
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
       const materials = params.materials === undefined ? null : params.materials;
+      if (mode === "modify") {
+        if (isMain) throw new Error("只有普通开发会话可以发起修改委派（main 由 issue 17 迁移）");
+        // 计划模式只承诺调研：modify 委派跨轮到链上复核（分析委派由工具可用性放行）
+        if (runsInPlanMode({ input: task.input, resumesTaskId: task.resumesTaskId }, (id) => store.getTask(id))) {
+          throw new Error("计划模式不能发起修改委派");
+        }
+        if (target === null || !target.trim()) throw new Error("mode=modify 需要 target");
+        if (readPaths !== null || materials !== null) {
+          throw new Error("mode=modify 时不指定 read_paths 或 materials（写入目标包含自己的资料路径）");
+        }
+      }
       if (readPaths !== null) {
         if (isMain) throw new Error("main 会话不能指定 read_paths（请用 materials 引用资料）");
         if (!Array.isArray(readPaths) || readPaths.length === 0 || readPaths.length > 16 || readPaths.some((p) => typeof p !== "string")) {
@@ -150,32 +177,52 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
           throw new Error("已接收群摘要仅供 main 与通知使用，不能作为委派资料");
         }
       }
-      if (readPaths === null && materials === null) {
+      if (mode === "analyze" && readPaths === null && materials === null) {
         throw new Error("必须指定分析对象：开发会话用 read_paths，main 会话用 materials");
       }
-      const paramsDigest = canonicalParamsDigest({
-        request: params.request,
-        key: params.key,
-        work_id: params.work_id ?? null,
-        // sub_agent_id 只在提供时纳入摘要：保持复用前（issue 11）的重放摘要不变
-        ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
-        read_paths: readPaths ? [...readPaths].sort() : null,
-        materials: materials ?? null,
-      });
+      const paramsDigest = canonicalParamsDigest(
+        mode === "modify"
+          ? {
+              request: params.request,
+              key: params.key,
+              work_id: params.work_id ?? null,
+              mode: "modify",
+              target: target!.trim(),
+            }
+          : {
+              request: params.request,
+              key: params.key,
+              work_id: params.work_id ?? null,
+              // sub_agent_id 只在提供时纳入摘要：保持复用前（issue 11）的重放摘要不变
+              ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
+              read_paths: readPaths ? [...readPaths].sort() : null,
+              materials: materials ?? null,
+            },
+      );
       const delegation = await deps.delegate({
         parentTaskId: task.id,
         key: params.key,
         request: params.request,
         workId: params.work_id ?? null,
         subAgentId: params.sub_agent_id ?? null,
+        mode: mode as "analyze" | "modify",
+        target,
         materials,
         readPaths,
         paramsDigest,
       });
+      const wt = delegation.work.writeTarget;
+      const targetNote =
+        delegation.created && wt?.kind === "worktree"
+          ? `副本基于提交 ${wt.baseCommit.slice(0, 12)}（分支 ${wt.branch}）：父工作区未提交的改动不在副本内；子任务不能提交，改动留在工作树由你汇总。`
+          : delegation.created && wt?.kind === "direct"
+            ? `直接写入 ${wt.path}（与父会话按目录占用串行）。`
+            : "";
       return okText(
         (delegation.created ? "已委派 SubAgent" : "同键同参已委派过，返回原记录") +
           `：工作 ${delegation.work.id}，SubAgent ${delegation.agent.id}，任务 ${delegation.task.id}` +
           `（截止 ${delegation.task.deadline ?? "无"}）。` +
+          (targetNote ? `${targetNote}` : "") +
           "子任务已在后台执行；完成后宿主会通知，完整结果用 subagent_result 按 work_id 读取。",
       );
     }),
@@ -248,6 +295,21 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
           );
         }
         if (tasks.length === 0) lines.push("尚无执行任务");
+        // issue 16：排队中的非 Git 写入任务被父会话占用持锁时如实说明（父未持锁
+        // 空等；唤醒由占用释放驱动）。
+        const wt = work.writeTarget;
+        if (wt?.kind === "direct") {
+          for (const t of tasks) {
+            if (t.status !== "queued") continue;
+            const occ = store.findBlockingOccupancy(wt.path, wt.dev, wt.ino);
+            if (occ && occ.sessionId === ctx.sessionId) {
+              lines.push(
+                "等待本会话释放目录，请结束本轮（子任务将在父任务结束后自然推进）。",
+              );
+              break;
+            }
+          }
+        }
         return okText(lines.join("\n"));
       }
       const target = params.task_id

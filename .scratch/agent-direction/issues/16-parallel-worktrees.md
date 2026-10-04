@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 16 — SubAgent 在独立 worktree 中并行修改
 
@@ -10,12 +10,12 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 两个子任务能在同一所属工作区的独立 worktree 并行产生改动，拥有者可定位各自改动和工作归属。
-- [ ] 主工作区和其他 Agent 的副本不被直接覆盖；共享 Git 元数据及其他授权路径的写入也需遵守边界。
-- [ ] 非 Git 目录对同一份工作文件保持单一写入者，不以不同当前目录假定没有写冲突。
-- [ ] 主任务等待子任务时不会持有阻止子任务执行的同一独占锁。
-- [ ] 创建失败、单个执行任务取消或执行退出时保留已有改动和可核查状态，不自动删除未汇总成果。
-- [ ] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+- [x] 两个子任务能在同一所属工作区的独立 worktree 并行产生改动，拥有者可定位各自改动和工作归属。
+- [x] 主工作区和其他 Agent 的副本不被直接覆盖；共享 Git 元数据及其他授权路径的写入也需遵守边界。
+- [x] 非 Git 目录对同一份工作文件保持单一写入者，不以不同当前目录假定没有写冲突。
+- [x] 主任务等待子任务时不会持有阻止子任务执行的同一独占锁。
+- [x] 创建失败、单个执行任务取消或执行退出时保留已有改动和可核查状态，不自动删除未汇总成果。
+- [x] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
 
 ## Comments
 
@@ -158,3 +158,36 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 - 对每个改动的 `src/` 文件执行 `grep -l <路径> docs/visual/*.html`，预计命中 orchestrator、tool-call-path、task-lifecycle、storage-layout、deployment、context-pipeline、index，同步后跑 test/67。
 
 完成时逐条登记六项验收证据，区分离线逻辑测试、真实后台与执行边界、模拟模型和未实测项。本次只保存计划，工单状态与验收勾选保持不变。
+
+### 2026-10-04：实施完成与验证记录
+
+按计划落地（版本号以实施时为准）：核心库 `SCHEMA_VERSION 26→27`（`work_delegations.write_target` 可空列，ensureColumns + 迁移注释链）；控制协议 v13 不变（`work_list`/`work_get`/快照只加可选 `writeTarget`）。新测试 `test/83-subagent-worktrees.test.ts`（13 用例），新 ADR `docs/adr/0021-subagent-worktrees.md`，冒烟 `.scratch/agent-direction/smoke-16-parallel-worktrees.mts`。
+
+**冒烟结果（真实 Runtime + SQLite + Docker 受限容器 + 真实 git，模型为确定性桩、消息平台不启用）**
+
+| 环境 | 结果 |
+| --- | --- |
+| macOS 本机 Docker Desktop 29.8.0（容器 uid 1000） | 9/9（修复批次后复跑同结果） |
+| Linux 远端 tx（原生 docker，uid/gid 1003，经 `--remote` 自包含全程） | 9/9（修复批次后复跑同结果） |
+
+**逐项验收证据**
+
+1. **两项子任务独立 worktree 并行改动，可定位**：离线 test/83 两项 modify 同时 running、改动只落各自副本、`work show`/`work_get` 与 TUI 摘要带「worktree 分支 X」；真实环境副本 A `a.txt=alpha-A`、副本 B `b.txt=beta-B` 字节级核实，分支 `ruukoto/work-<workId>`、基线为委派时 HEAD（两平台）。
+2. **主工作区与其他副本不被覆盖**：离线 LaunchSpec 钉定（workspace=副本、共享 Git 目录为只读 readRoot、grantedPaths 为空、env 仅 safe.directory）、覆盖副本根的读写授予被拒（只读放行）、共享 Git 越出父工作区拒绝、植入 fsmonitor/hook 后宿主无标记；真实环境主工作区字节与未提交改动不变，容器内 `git commit`/写 hooks/写 config 真实失败（只读 readRoot），植入 fsmonitor 只在容器内被只读挡住（两平台）。
+3. **非 Git 单一写入者**：占用升级为祖先/子孙前缀判定（dev/ino 相等、realpath 相等或分隔符前缀），释放统一按 taskId；离线占用单测覆盖相等/祖先/子孙/兄弟别名与释放唤醒；真实环境父持锁期间子任务保持 queued、本轮结束后自然启动并覆盖 `notes.md`（两平台）。行为变化：既有嵌套 cwd 会话从此串行，已写入 runtime.md；挂载别名祖先关系识别不出的上限以 `ponytail:` 标注。
+4. **不持同一独占锁**：worktree 模式下父持锁子任务立即 running（离线）；非 Git 模式下父任务同轮 `subagent_result` 如实提示「等待本会话释放目录，请结束本轮」，不挂起。
+5. **失败/取消/退出保留**：离线覆盖创建失败保留现场（错误含路径与分支、工作未登记）、单任务取消后文件仍在、退出未核实按 worktree 键保占用并记待核实、worktree 被删/被替换后继续委派明确报 `worktree_gone` 不自动重建；真实环境取消后副本字节保留、副本创建与任务容器零残余（两平台）。本单不提供删除副本入口（12 的关闭、14 的取消同样不触碰副本）。
+6. **验证与文档**：`npm test` 904 项 903 过 0 失败（1 项 skipped）；`npm run typecheck` 0 错误；`test/67` 4/4；v26→v27 迁移用例（旧工作 `write_target` 为空）。CONTEXT.md、docs/runtime.md、ADR 0017 实施记录、新 ADR 0021、图解七页（orchestrator/storage-layout/task-lifecycle/tool-call-path/control-protocol/deployment/context-pipeline/index）已同步。
+
+**模拟与未实测**：模型为模拟桩；消息平台不启用（与本单边界无关）。macOS 完全访问账户未涉及。
+
+**实施中实测修正（对计划的补充，已写入 ADR 0021 与 runtime.md）**
+
+- worker init 的 dev/ino 数值复核（workspaceIdentity 与 readRoots）只在 Linux 下发：macOS Docker Desktop 经 VM 重新编号 inode，容器侧与宿主恒不一致（实测），macOS 由宿主队列回路按 `taskWorkspaceFor` 复核兜底。
+- 副本目录由宿主在容器启动前预建空目录：挂载源不存在时 Docker 以 root 自动创建，容器内写 `.git` 被拒（实测）。
+- worktree 命令、挂载与 `write_target.path` 统一用 `copyDirReal = fs.realpathSync(copyDir)`：git 把副本路径字串写进 `worktrees/<name>/gitdir` 并据此回核，TMPDIR 的 `/var→/private/var` 符号链接会报 "not a git repository"（实测）。
+- 固定命令加 `-c core.fsmonitor=false`（植入的 fsmonitor 不参与执行也不污染基线输出）；基线提交按 40 位十六进制从容器输出提取。
+- `executionCanRead`/`executionCanWrite` 在 macOS 按后台账户 `accessSync` 核实（Docker Desktop VM 以宿主身份执行容器内文件访问，按容器 uid 权限位恒假）；Linux 原生容器按容器 uid 权限位。
+- 流程教训：worker 代码打进镜像（`deploy/worker-image` 打包 `src/agent/tool-worker` 与 `src/core`），改 tool-worker 必须重建镜像才进容器。
+
+**code review（双轴）处置**：删死代码 `inputDigestSha256`、删空调参 `createWorktreeInContainer.baseCommit`、`planModeBlocksModifyDelegation` 包装内联为 `runsInPlanMode`、工具结果补「副本基于提交 X（父工作区未提交改动不在副本内）」明说、共享 Git 目录补执行身份写预检、`resolveCommonGitDir` worktree 分支复用 core/worktree 解析、`GIT_CONFIG safe.directory` 环境收敛为 `GIT_SAFE_DIRECTORY_ENV` 单一事实源；「继续委派复核分类有误」与「Driver 非逐任务重建」两条经核实不成立（实现已正确：复核按 cwd+writeTarget 双层，SubAgent 子会话 run 收尾即释放 Driver）；占用兜底缺口为 issue 15 既有口径，不在本单。

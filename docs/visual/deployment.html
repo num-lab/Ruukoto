@@ -565,7 +565,7 @@
           <tr><td>权限与文件系统</td><td><code>--cap-drop ALL</code>、<code>no-new-privileges</code>、<code>--read-only</code> + <code>tmpfs /tmp</code>（<code>rw,nosuid,size=64m</code>）</td><td>执行账户已有的系统权限，不额外隔离</td><td>后台账户已有的权限，不额外隔离</td></tr>
           <tr><td>挂载</td><td>工作区 + 授予路径 + SubAgent 只读根，都按宿主原路径挂载，只读授予与只读根加 <code>:ro</code>；<code>-w</code> 为工作区</td><td>无挂载（直接用宿主文件系统）</td><td>无挂载</td></tr>
           <tr><td>网络</td><td><code>--network none</code></td><td>继承宿主网络</td><td>继承宿主网络</td></tr>
-          <tr><td>环境变量</td><td>启动器只传 <code>PATH</code>（另有镜像自带的变量）</td><td>sudo 重置环境，<code>env_keep</code> 额外保留执行账户 uid/gid 供包装脚本取用；单元环境由 systemd 设定，包装不带入调用方环境</td><td>只留 <code>PATH</code> / <code>HOME</code> / <code>LANG</code> / <code>LC_ALL</code> / <code>TMPDIR</code></td></tr>
+          <tr><td>环境变量</td><td>启动器只传 <code>PATH</code>（另有镜像自带的变量）；仅 worktree 修改任务与 worktree 副本的创建容器另注入 <code>GIT_CONFIG_COUNT/KEY_0/VALUE_0=safe.directory=*</code>（宿主钉定，容器 uid 与仓库属主不同时 git 仍可运行，见<a href="tool-call-path.html#boundary">工具调用路径 · LaunchSpec</a>）</td><td>sudo 重置环境，<code>env_keep</code> 额外保留执行账户 uid/gid 供包装脚本取用；单元环境由 systemd 设定，包装不带入调用方环境</td><td>只留 <code>PATH</code> / <code>HOME</code> / <code>LANG</code> / <code>LC_ALL</code> / <code>TMPDIR</code></td></tr>
           <tr><td>停止与核实</td><td><code>docker kill</code> → <code>docker rm -f</code> → <code>docker inspect</code> 失败即确认</td><td>包装脚本 <code>systemctl stop</code> 后按 <code>is-active</code> 反转得出退出码</td><td>进程组 SIGTERM → SIGKILL，各 3000 ms 上限</td></tr>
           <tr><td>缺少配置时</td><td>docker CLI 路径含 <code>/</code> 且不存在 → <code>execution_unavailable</code></td><td>没有 <code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code> / <code>STOP_SCRIPT</code>，或脚本文件不存在 → <code>execution_unavailable</code></td><td>工作进程入口不存在 → <code>execution_unavailable</code></td></tr>
           <tr><td>任务结束回收</td><td colspan="3">驱动器在 prompt 返回后统一回收登记的执行单元（<code class="src" data-src="src/agent/driver.ts#private async killManagedProcesses">driver.ts · killManagedProcesses</code>）；停止路径按核实结果决定是否保留目录占用</td></tr>
@@ -573,7 +573,7 @@
       </table>
     </div>
 
-    <p>SubAgent 任务的宿主钉定只读范围沿 <code>LaunchSpec.readRoots</code> → <code>init</code> 帧下发：容器启动器把每个根以 <code>:ro</code> 挂载，local 与 systemd 启动器忽略该字段；工作进程 init 时逐个 realpath 并复核 dev/ino（<code class="src" data-src="src/agent/tool-worker/worker.ts#function pinReadRoots">worker.ts · pinReadRoots</code>），不符即 <code>fatal</code>，之后把 read 限定在工作目录与这些根内（<code class="src" data-src="src/agent/tool-worker/worker.ts#function scopedResolveInReadScope">scopedResolveInReadScope</code>）。在 local 后端下，这是唯一的只读强制点。</p>
+    <p>SubAgent 任务的宿主钉定只读范围沿 <code>LaunchSpec.readRoots</code> → <code>init</code> 帧下发：容器启动器把每个根以 <code>:ro</code> 挂载，local 与 systemd 启动器忽略该字段；工作进程 init 时逐个 realpath 并复核 dev/ino（<code class="src" data-src="src/agent/tool-worker/worker.ts#function pinReadRoots">worker.ts · pinReadRoots</code>），不符即 <code>fatal</code>，之后把 read 限定在工作目录与这些根内（<code class="src" data-src="src/agent/tool-worker/worker.ts#function scopedResolveInReadScope">scopedResolveInReadScope</code>）。worktree 修改任务把工作区指向宿主副本、共享 Git 目录作为只读根挂载（可 status/diff/log，写不了 refs/hooks/config），init 帧另钉定工作区目录身份（dev/ino），工作进程启动复核不一致即拒绝服务。在 local 后端下，这是唯一的只读强制点。</p>
 
     <h3>「明确失败」发生在哪一步</h3>
     <ul>
@@ -764,7 +764,7 @@
       <li>建身份与目录：<code>ruukoto-backend</code>（<code>/var/lib/ruukoto/{data,agent,agent-work}</code> 0700、<code>control</code> 0770）与 <code>ruukoto-exec</code>（建议 uid/gid 1002；HOME 0700，并 <code>git config --global --add safe.directory '*'</code>）。</li>
       <li>代码放 <code>/opt/ruukoto</code>（属主 root，<code>npm ci --omit=dev</code>），再用 esbuild 打出宿主工作进程入口 <code>/opt/ruukoto/worker/worker.mjs</code>（执行包装的固定入口）。</li>
       <li>放 <code>models.json</code> 与 <code>auth.json</code>（0600，属主后台账户）；缺失时后台以 <code>no_model</code> 启动失败。</li>
-      <li><code>deploy/worker-image/build.sh</code> 构建镜像（可信身份执行，打 <code>ruukoto-worker:&lt;pi 版本&gt;</code> 与 <code>:latest</code>），把后台账户加入 <code>docker</code> 组。</li>
+      <li><code>deploy/worker-image/build.sh</code> 构建镜像（可信身份执行，打 <code>ruukoto-worker:&lt;pi 版本&gt;</code> 与 <code>:latest</code>），把后台账户加入 <code>docker</code> 组。<code>Dockerfile</code> 在构建阶段复制 <code>src/agent/tool-worker</code> 与 <code>src/core</code>（worker 经 <code>../../core/*</code> 引用宿主侧工具与类型），再经 esbuild 打成单文件 <code>worker.mjs</code>——修改这两处任一路径都要重建镜像，运行时容器内见到的才是新代码。</li>
       <li>安装 root 拥有的 <code>ruukoto-exec-launch</code> / <code>-stop</code>（0700）与 <code>/etc/sudoers.d/ruukoto</code>（0440）。</li>
       <li>安装 <code>ruukoto-backend.service</code> 并 <code>enable --now</code>；执行账户或容器 uid/gid 与默认不同时用 drop-in 覆盖。</li>
       <li>把 <code>control/owner.token</code> 以 0400 复制给拥有者，拥有者加入 <code>ruukoto-backend</code> 组；主目录给后台与执行账户各配一条 <code>--x</code>，要用完全访问的工作区配 <code>rwX</code> ACL。</li>

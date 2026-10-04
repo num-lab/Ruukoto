@@ -34,6 +34,7 @@
         <code class="src" data-src="src/agent/tool-op-ledger.ts#settleTask">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/core/types.ts#ACTIVE_TASK_STATUSES">core/types.ts</code>
         <code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">runtime/subagents.ts</code>
+        <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
         <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">runtime/orchestrator.ts</code>
       </dd></div>
       <div><dt>决策</dt><dd>
@@ -42,6 +43,7 @@
         <a href="../adr/0004-tool-worker-per-task-container-exec-account.md">ADR 0004 执行边界</a>
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
         <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
+        <a href="../adr/0021-subagent-worktrees.md">ADR 0021 SubAgent worktree</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="tool-call-path.html">工具调用路径</a>
@@ -259,25 +261,25 @@
 
   <section id="queue">
     <h2>会话队列与目录占用</h2>
-    <p>会话队列有 <code>active</code> 与 <code>paused</code> 两种状态（<code class="src" data-src="src/core/types.ts#SessionQueueState">types.ts · SessionQueueState</code>）。暂停只影响「是否自动开始下一个排队任务」，不改变已排队任务本身。目录占用以会话工作目录的身份为键，保证同一工作目录同一时间只有一个任务处于 running 或 awaiting_confirmation。</p>
+    <p>会话队列有 <code>active</code> 与 <code>paused</code> 两种状态（<code class="src" data-src="src/core/types.ts#SessionQueueState">types.ts · SessionQueueState</code>）。暂停只影响「是否自动开始下一个排队任务」，不改变已排队任务本身。目录占用以任务的工作区根（<code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code>：SubAgent 修改任务的工作副本或直接写入根，其余任务为会话工作目录）的身份为键，保证同一目录及其祖先/子孙同一时间只有一个任务处于 running 或 awaiting_confirmation。</p>
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 310" role="img" aria-label="目录占用：会话 A 的任务在转入 running 的同一事务里写入占用行；同一工作区根目录下会话 B 的排队任务取占用失败后等待；A 的终态事务释放占用后唤醒所有有排队任务的会话，B 重新尝试。SubAgent 子会话的工作目录是宿主生成的独立目录，占用键不同，与父会话并行。">
+        <svg viewBox="0 0 1040 310" role="img" aria-label="目录占用：会话 A 的任务在转入 running 的同一事务里写入占用行；同一工作区根目录下会话 B 的排队任务取占用失败后等待；A 的终态事务按任务 id 释放占用后唤醒所有有排队任务的会话，B 重新尝试。只读 SubAgent 子会话的工作目录是宿主生成的独立目录，占用键不同，与父会话并行。">
           <g class="n run"><rect x="20" y="24" width="240" height="52" rx="8"/><text x="140" y="42">会话 A · running</text><text class="sub" x="140" y="61">持有占用</text></g>
           <g class="n wait"><rect x="20" y="134" width="240" height="52" rx="8"/><text x="140" y="152">会话 B · queued</text><text class="sub" x="140" y="171">同一工作区根目录</text></g>
-          <g class="n accent"><rect x="420" y="72" width="250" height="66" rx="8"/><text x="545" y="94">occupancy 行</text><text class="sub" x="545" y="116">cwd_real 或 dev+ino 相同即冲突</text></g>
+          <g class="n accent"><rect x="420" y="72" width="250" height="66" rx="8"/><text x="545" y="94">occupancy 行</text><text class="sub" x="545" y="116">相等或祖先/子孙前缀即冲突</text></g>
           <g class="n"><rect x="820" y="80" width="200" height="50" rx="8"/><text x="920" y="98">工作目录</text><text class="sub" x="920" y="116">realpath · dev/ino</text></g>
           <path class="e accent" d="M260 50C340 50 350 88 418 88" marker-end="url(#ah-accent)"/>
           <text class="el" x="338" y="44">与 running 同一事务写入</text>
           <path class="e wait dash" d="M260 150C330 150 350 124 418 124" marker-end="url(#ah-wait)"/>
           <text class="el" x="330" y="168">取占用失败，本轮不启动</text>
           <path class="e ok dash" d="M545 138C545 186 420 196 264 180" marker-end="url(#ah-ok)"/>
-          <text class="el" x="470" y="204">A 的终态事务释放 → kickAll</text>
+          <text class="el" x="440" y="204">终态事务按任务 id 释放 → kickAll</text>
           <path class="e" d="M670 105H818" marker-end="url(#ah)"/>
           <text class="el" x="744" y="97">同一目录身份</text>
 
-          <g class="n run"><rect x="20" y="236" width="240" height="52" rx="8"/><text x="140" y="254">SubAgent 子会话</text><text class="sub" x="140" y="273">running · 与 A 同时</text></g>
+          <g class="n run"><rect x="20" y="236" width="240" height="52" rx="8"/><text x="140" y="254">SubAgent 子会话 · 只读</text><text class="sub" x="140" y="273">running · 与 A 同时</text></g>
           <g class="n accent"><rect x="420" y="236" width="250" height="52" rx="8"/><text x="545" y="254">另一 occupancy 行</text><text class="sub" x="545" y="273">键不同，不冲突</text></g>
           <g class="n"><rect x="820" y="237" width="200" height="50" rx="8"/><text x="920" y="255">work_dir</text><text class="sub" x="920" y="273">宿主生成的独立目录</text></g>
           <path class="e accent" d="M260 262H418" marker-end="url(#ah-accent)"/>
@@ -286,7 +288,7 @@
           <text class="el" x="744" y="254">另一目录身份</text>
         </svg>
       </div>
-      <figcaption>realpath 相同（符号链接别名）或 dev+ino 相同（挂载别名）都算同一目录。比较只看目录本身：父目录与子目录不冲突，不同目录（包括独立的 Git worktree）可以并行。经 <code>open_workspace</code> 打开的会话都以工作区根目录为工作目录（<code class="src" data-src="src/runtime/runtime.ts#async openWorkspace">runtime.ts · openWorkspace</code>），所以同一工作区的这些会话依次执行（迁移映射到工作区的旧会话保留原目录）；SubAgent 子会话的工作目录是宿主生成的独立目录，与父会话并行。</figcaption>
+      <figcaption>realpath 相同（符号链接别名）或 dev+ino 相同（挂载别名）都算同一目录；issue 16 起冲突判定升级为 <code class="src" data-src="src/core/store.ts#export function occupancyConflict">occupancyConflict</code>：两目录相等，或任一方 realpath 按路径分隔符边界是另一方的前缀（祖先/子孙），都冲突、串行——已有的嵌套工作目录会话（如工作区根与其子目录各一个会话）从此也串行，这是行为变化（已知上限：挂载别名的祖先关系识别不出，<code>ponytail:</code> 注释）。占用键不再是固定的会话工作目录：<code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code> 对有写入目标的任务返回其钉定副本/写入根（核对写入方的目录身份，排队期间被替换即 <code class="st bad">failed</code>），其余任务仍占用会话工作目录；释放统一按任务 id（<code class="src" data-src="src/core/store.ts#releaseOccupancy">store.ts · releaseOccupancy</code>）。经 <code>open_workspace</code> 打开的会话都以工作区根目录为工作目录（<code class="src" data-src="src/runtime/runtime.ts#async openWorkspace">runtime.ts · openWorkspace</code>），所以同一工作区的这些会话依次执行（迁移映射到工作区的旧会话保留原目录）；SubAgent 子会话的工作目录是宿主生成的独立目录，只读工作与父会话并行；issue 16 的修改任务要么在父工作区之外的 worktree 副本执行（继续并行，不会写到同一份内容），要么直接写父工作区内的目录（非 Git 目标）并按前缀规则与父会话串行。</figcaption>
     </figure>
 
     <div class="scroll">
@@ -314,7 +316,7 @@
           <tr><td class="nowrap">访问模式</td><td>固定 confirm；<code>switch_task_mode</code> 拒绝（<code>invalid_state</code>）。</td><td><code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code></td></tr>
           <tr><td class="nowrap">截止</td><td>直接父任务的开始时刻（尚未开始取创建时刻）加 <code>SUBAGENT_LIMITS.deadlineMs</code>（60 分钟），包含排队与审批等待。到期由编排器截止巡检取消：排队的直接 canceled，执行中的走停止路径；结局记为超时。</td><td><code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">subagents.ts · SUBAGENT_LIMITS</code> <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td></tr>
           <tr><td class="nowrap">取消</td><td>拥有者可以直接 cancel / interrupt 某次执行；整项工作也可取消（<code>ruukoto work cancel</code> / 主 Agent 的 <code>subagent_cancel</code>，见<a href="orchestrator.html#subagent-cancel">编排器 · 整项取消</a>）：登记事务直接取消本工作的排队任务、给活动任务写取消意图，提交后每个活动任务按普通停止路径处理，其他工作不受影响；已取消的工作不能继续委派，迟到结果保存为事实但不再唤醒或注入父会话。父任务结束不会连带取消它。</td><td><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/subagents.ts#async cancelWork">subagents.ts · cancelWork</code></td></tr>
-          <tr><td class="nowrap">目录占用</td><td>子会话的工作目录是独立 work_dir，与父会话并行（见上图）。</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td></tr>
+          <tr><td class="nowrap">目录占用</td><td>键是任务的工作区根而非固定的会话工作目录（<code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code>）：只读分析任务占用子会话宿主生成的独立目录，与父会话并行；修改委派（agent-direction issue 16，ADR 0021）的任务占用该工作的写入目标——Git 目标的宿主 worktree 副本（父工作区之外，并行且单一写入者）或非 Git 目标的目录（直接写入，与父会话按前缀规则串行）。首次钉定写入目标后子会话 cwd 对齐到该根（<code class="src" data-src="src/core/store.ts#setSubAgentCwd">store.ts · setSubAgentCwd</code>）。</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td></tr>
           <tr><td class="nowrap">终态之后</td><td>编排器在一个事务里写结果、发 subagent_task.* 事件，并按子会话还有没有占用把 SubAgent 记为 idle 或 unverified。不自动重试。</td><td><code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">orchestrator.ts · handleSubAgentTerminal</code></td></tr>
           <tr><td class="nowrap">重启</td><td>执行中的照常转 interrupted（<code>backend_restart</code>），编排器启动巡检补记为结果未知；排队的子会话以 <code>backend_restart</code> 暂停，编排器不自动恢复，直到拥有者 <code>resume_queue</code> 或截止巡检取消它。</td><td><code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></td></tr>
         </tbody>

@@ -66,7 +66,7 @@ import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } fro
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
 import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
-import { allowsCategory, sessionToolClass, SUBAGENT_READONLY_TOOL_NAMES, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
+import { allowsCategory, sessionToolClass, subAgentToolsFor, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -523,7 +523,12 @@ export class Driver {
       // SubAgent（agent-direction issue 11）：静态白名单外不装配（不发、不调用）；
       // 装配即收窄，发送前与调用门由 taskTools 复用同一结论
       ...(this.toolClass === "subagent"
-        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter((t) => SUBAGENT_READONLY_TOOL_NAMES.has(t.name))
+        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter((t) => {
+            // 装配即收窄：子会话每个任务都有写入目标钉版（本任务工作）；无
+            // 工作（如首任务）按只读集合
+            const work = this.currentTask?.workId ? this.deps.store.getWorkDelegation(this.currentTask.workId) : null;
+            return subAgentToolsFor(Boolean(work?.writeTarget)).has(t.name);
+          })
         : []),
       // 工作清单（issue 25）：与编码工具同一类别——开发会话与 coding，main/chat 不装配
       ...(this.allows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
@@ -637,7 +642,9 @@ export class Driver {
     }
     // SubAgent 的资料授权复核（agent-direction issue 11；issue 12 并集）：每次向
     // 模型发送上下文前重新 verify 本会话全部任务的来源引用并集——复用保留的
-    // 上下文含旧工作资料，旧资料撤销后同样阻止发送（快照正文不重新解析）
+    // 上下文含旧工作资料，旧资料撤销后同样阻止发送（快照正文不重新解析）。
+    // issue 16：有写入目标的工作不发资料快照（readScope.paths 恒空），无
+    // sourceRefs 可核，复核在此为空集通过。
     if (this.toolClass === "subagent" && this.deps.verifyTaskSources) {
       const refs = this.deps.store
         .listTasksBySession(this.session.id)
@@ -873,10 +880,14 @@ export class Driver {
       plan: this.pinnedPlan,
       webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
       mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
-      // SubAgent 任务收窄到静态只读白名单（装配已收窄，此处复用同一结论兜底）
+      // SubAgent 任务收窄（issue 16）：写入目标决定清单（装配、发送前与调用门
+      // 同一结论）。每个任务重建 Driver 后本任务已钉版；收窄不进 workerKey
       narrow:
         this.toolClass === "subagent"
-          ? (name) => SUBAGENT_READONLY_TOOL_NAMES.has(name)
+          ? (name) => {
+              const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
+              return subAgentToolsFor(Boolean(work?.writeTarget)).has(name);
+            }
           : allowTaskTool
             ? (name, effect) => allowTaskTool(task, name, effect)
             : undefined,
@@ -1111,7 +1122,9 @@ export class Driver {
           refs,
         );
       } else {
-        store.releaseOccupancy(this.session.cwdReal, task.id);
+        // agent-direction issue 16：释放按 taskId；占用键是任务写入目标
+        // （taskWorkspace），不是会话 cwd。
+        store.releaseOccupancy(task.id);
       }
     });
     // 占用释放后唤醒其他会话的排队任务

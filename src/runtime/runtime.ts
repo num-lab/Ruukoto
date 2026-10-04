@@ -84,7 +84,7 @@ import {
 import { sessionsDirFor } from "../agent/session-factory.ts";
 import { fileURLToPath } from "node:url";
 import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
-import { grantCoversPath, resolveWorktreeCommonGitDir } from "../core/worktree.ts";
+import { GIT_SAFE_DIRECTORY_ENV, grantCoversPath, resolveWorktreeCommonGitDir, taskWorkspaceFor } from "../core/worktree.ts";
 import { AccessScope, AccessDeniedError } from "../core/access.ts";
 import { isPlanInput } from "../agent/plan-mode.ts";
 import { HistoryIndex, readRawEntryAt, searchHistory, type HistorySearchOptions } from "../core/history-index.ts";
@@ -470,6 +470,56 @@ export class Runtime {
     return createLauncherFor(this.config.execution ?? { backend: "local" }, mode);
   }
 
+  /**
+   * 修改委派 worktree 的容器内创建（issue 16 取舍的受控入口）：用受限确认容器在
+   * 仓库 cwd 里执行宿主固定的 bash（rev-parse HEAD → worktree add），副本目录
+   * 作读写挂载。Grant 的挂载由 worker 前端容器自己决定（env 注入情况与
+   * 跨容器边界下 physical mount 可见性由边界自己承载，宿主不替它承诺）。
+   */
+  async createWorktreeInContainer(input: {
+    workspace: string;
+    copyDir: string;
+    branch: string;
+    command: string;
+  }): Promise<{ isError: boolean; errorMessage?: string; content: string }> {
+    const launcher = createLauncherFor(this.config.execution ?? { backend: "local" }, "confirm");
+    const { ToolWorkerHost } = await import("../agent/tool-worker/host.ts");
+    const spec = {
+      taskId: `worktree-init-${randomId("wt")}`,
+      mode: "confirm" as AccessMode,
+      workspace: input.workspace,
+      grantedPaths: [{ path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本初始化（issue 16，host 环绕容器创建）" }],
+      env: GIT_SAFE_DIRECTORY_ENV,
+    };
+    let host: Awaited<ReturnType<typeof ToolWorkerHost.start>> | null = null;
+    try {
+      host = await ToolWorkerHost.start(launcher, spec);
+      const result = await host.call({
+        opId: randomId("op"),
+        sdkCallId: randomId("call"),
+        name: "bash",
+        params: { command: input.command, timeout: 120 },
+        timeoutMs: 150_000,
+      });
+      if (result.isError) {
+        return { isError: true, errorMessage: result.errorMessage ?? "worktree 容器执行失败", content: "" };
+      }
+      const text = (result.content ?? [])
+        .map((c: any) => (typeof c?.text === "string" ? c.text : ""))
+        .join("\n")
+        .trim();
+      return { isError: false, content: text };
+    } catch (err) {
+      return { isError: true, errorMessage: (err as Error).message, content: "" };
+    } finally {
+      try {
+        if (host) await host.stop();
+      } catch {
+        // 回收失败不影响已收到的容器结果；残余由主管进程登记兜底
+      }
+    }
+  }
+
   static async start(config: RuntimeConfig): Promise<Runtime> {
     const productType: ProductType = config.productType ?? "ruukoto";
     // Coding Agent 产品（issue 01）：消息平台连接与个人调度不属于产品边界；
@@ -625,6 +675,7 @@ export class Runtime {
     runtime.subagents = new SubAgentManager({
       store: runtime.store,
       workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "sub-agents"),
+      worktreeRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "worktrees"),
       sources: runtime.sources,
       resolveSelection: (selection) => runtime.resolveSelection(selection),
       launcherFor: (mode) => runtime.launcherFor(mode),
@@ -641,6 +692,7 @@ export class Runtime {
           gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
         };
       },
+      createWorktreeInContainer: (input) => runtime.createWorktreeInContainer(input),
     });
     // 编排器（issue 01）：引导 main/coding/chat 角色、恢复已登记未建任务的
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
@@ -1893,10 +1945,19 @@ export class Runtime {
 
   /**
    * 校验拥有者为任务显式授予的工作区外路径：必须存在，且不得是保护根
-   * （后台数据、凭据、控制面、服务代码）本身、其子级或其祖先。
+   * （后台数据、凭据、控制面、服务代码）本身、其子级或其祖先；不得覆盖
+   * 宿主管理的工作副本根（agent-work/worktrees，issue 16：子任务副本只能
+   * 经委派范围访问，授予路径是旁路，绕过单一写入者）。
    */
   private validateGrantedPaths(paths: GrantedPath[]): GrantedPath[] {
     const resolved: GrantedPath[] = [];
+    let worktreesRoot = path.join(path.dirname(path.resolve(this.config.dataDir)), "agent-work", "worktrees");
+    try {
+      worktreesRoot = fs.realpathSync(worktreesRoot);
+    } catch {
+      // 根尚未创建：与路径参数的 realpath 比较前以 resolve 的父链归一
+      worktreesRoot = path.resolve(worktreesRoot);
+    }
     for (const p of paths) {
       if (!p.path.trim()) throw new RuntimeApiError("invalid_params", "授予路径不能为空");
       if (p.access !== "read" && p.access !== "read_write") {
@@ -1907,6 +1968,10 @@ export class Runtime {
         real = fs.realpathSync(p.path);
       } catch {
         throw new RuntimeApiError("invalid_params", `授予路径不存在：${p.path}`);
+      }
+      // 副本根守门（issue 16）：覆盖副本根或其下任何位置的读写授予拒绝，只读仍允许
+      if (p.access === "read_write" && (grantCoversPath(real, worktreesRoot) || grantCoversPath(worktreesRoot, real))) {
+        throw new RuntimeApiError("invalid_params", "读写授权不能覆盖宿主管理的工作副本根或其下位置（只读仍允许）");
       }
       try {
         assertGrantNotProtected(real, this.protectedRoots());
@@ -2579,13 +2644,16 @@ export class Runtime {
         }
       }
 
-      // 任务开始前核对目录身份：排队期间被替换或失效的目录拒绝执行
+      // 任务开始前核对目录身份（issue 16：占用键是任务写入目标；排队期间被
+      // 替换或失效的写入目录拒绝执行，不自动重建）
+      const workLaunch = task.workId ? this.store.getWorkDelegation(task.workId) : null;
+      const workspaceLaunch = taskWorkspaceFor({ session, work: workLaunch });
       try {
         await verifyDirIdentity({
-          cwd: session.cwd,
-          cwdReal: session.cwdReal,
-          dev: session.cwdDev,
-          ino: session.cwdIno,
+          cwd: workspaceLaunch.path,
+          cwdReal: workspaceLaunch.path,
+          dev: workspaceLaunch.dev,
+          ino: workspaceLaunch.ino,
         });
       } catch (err) {
         this.store.withTx(() => {
@@ -2607,9 +2675,9 @@ export class Runtime {
         this.store.withTx(() => {
           if (this.stopping) throw new TaskGoneError(); // 停止开始后不再让排队任务转入运行
           if (!this.store.tryAcquireOccupancy({
-            cwdReal: session.cwdReal,
-            cwdDev: session.cwdDev,
-            cwdIno: session.cwdIno,
+            cwdReal: workspaceLaunch.path,
+            cwdDev: workspaceLaunch.dev,
+            cwdIno: workspaceLaunch.ino,
             sessionId,
             taskId: task.id,
           })) {
@@ -2644,7 +2712,9 @@ export class Runtime {
             { type: "task.failed", taskId: task.id, sessionId, errorMessage: (err as Error).message },
             { taskId: task.id, sessionId },
           );
-          this.store.releaseOccupancy(session.cwdReal, task.id);
+          // agent-direction issue 16：释放按 taskId；占用键是任务写入目标
+          // （taskWorkspace），不是会话 cwd。
+          this.store.releaseOccupancy(task.id);
         });
       } finally {
         // SubAgent 子会话（agent-direction issue 11）：driver.run 收尾后释放运行
@@ -2864,7 +2934,7 @@ export class Runtime {
             `任务 ${occ.taskId} 仍在 ${occTask.status}，占用不能释放`,
           );
         }
-        this.store.releaseOccupancy(occ.cwdReal, occ.taskId);
+        this.store.releaseOccupancy(occ.taskId);
       }
       this.store.setSessionQueueState(sessionId, "active", null);
       this.store.appendEvent({ type: "session.queue_resumed", sessionId }, { sessionId });

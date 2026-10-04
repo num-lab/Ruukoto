@@ -508,6 +508,7 @@ test("竞争：准备阶段被关闭→事务内已关闭；先提交→关闭 b
     const gated = new SubAgentManager({
       store: rt.store,
       workRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "sub-agents"),
+      worktreeRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "worktrees"),
       sources: (rt as any).sources,
       resolveSelection: () => new Promise<() => void>((res) => (release = () => res(() => {}))),
       launcherFor: (mode) => rt.launcherFor(mode),

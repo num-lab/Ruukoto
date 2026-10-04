@@ -237,6 +237,56 @@ export interface WorkDelegation {
 }
 
 /**
+ * 跨实例导入回执（agent-direction issue 21，instance_imports 表）：旧 ruukoto
+ * 实例开发资料迁入 Coding Agent 的一次导入记录。导入由目标侧离线 CLI 执行，
+ * 源实例全程只读；回执持久保留（含 reverted 状态），供续跑幂等核实、回退与
+ * 整库恢复定位。
+ */
+export interface InstanceImport {
+  id: string;
+  /** 请求键：CLI 由计划文件内容派生；同键同参重放返回本回执。 */
+  requestKey: string;
+  sourceInstanceId: string;
+  /** 源实例登记的产品（旧库可能未登记）。 */
+  sourceProduct: string | null;
+  /** 源库原始 schema 版本（快照迁移前读取）。 */
+  sourceSchemaVersion: number | null;
+  sourceDir: string;
+  /** 规范化计划的规范化哈希：同键异参报 request_conflict。 */
+  planDigest: string;
+  /** 导入前对目标库的备份（VACUUM INTO）；整库恢复的手工路径。 */
+  targetBackupPath: string;
+  targetBackupSha256: string;
+  /** 导入事件在目标事件日志中的 seq 区间（闭区间；无事件恒为 null）。 */
+  eventSeqFrom: number | null;
+  eventSeqTo: number | null;
+  /** 导入报告 JSON（收尾动作、文件 sha256、待处理项与排除清单）。 */
+  report: string;
+  status: "applied" | "reverted";
+  createdAt: string;
+  revertedAt: string | null;
+}
+
+/** 导入条目账本类别（instance_import_items）；同一资料（kind, item_id）至多归属一次导入。 */
+export type InstanceImportItemKind =
+  | "project"
+  | "session"
+  | "sub_agent"
+  | "work_delegation"
+  | "memory"
+  | "grant"
+  | "mcp"
+  | "meta"
+  | "file";
+
+/** 导入条目账本行：标识某项资料属于哪次导入（回退按账本删行）。 */
+export interface InstanceImportItem {
+  kind: InstanceImportItemKind;
+  itemId: string;
+  importId: string;
+}
+
+/**
  * SubAgent 任务的限定资料范围（tasks.read_scope JSON）：
  * - paths：宿主钉定的只读路径（经 worker init 传入，模型参数不能替换）；
  *   每个路径保存规范化 realpath 与目录身份（dev/ino 供启动复核）。

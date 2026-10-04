@@ -905,16 +905,19 @@ test("v20 旧库：快照迁移只在副本上执行，源 sha 不变，导入�
   }
 });
 
-// ---------- 8. CLI：真实 bin 入口与产品门 ----------
+// ---------- 8. CLI：真实 bin 入口与产品分流 ----------
 
-test("CLI：preview/apply/list/revert 全流程与 ruukoto 产品门拒绝", async () => {
+test("CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流", async () => {
   const src = await buildSource("li-cli");
   const { dirs } = await makeTestDirs("li-tcli");
+  const personal = await makeTestDirs("li-tcli-personal");
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: os.homedir(),
     RUUKOTO_DEV_DATA_DIR: dirs.dataDir,
     RUUKOTO_DEV_AGENT_DIR: dirs.agentDir,
+    RUUKOTO_DATA_DIR: personal.dirs.dataDir,
+    RUUKOTO_AGENT_DIR: personal.dirs.agentDir,
   };
   const run = (bin: string, args: string[]) =>
     spawnSync(process.execPath, [path.join(repoRoot, "bin", bin), ...args], {
@@ -926,9 +929,11 @@ test("CLI：preview/apply/list/revert 全流程与 ruukoto 产品门拒绝", asy
     });
   try {
     const sourceHashBefore = hashTree(src.root);
+    // issue 22 起两产品都提供 legacy-import 并按产品分流：ruukoto 侧为个人方向；
+    // 环境变量指向独立临时目录，不触碰真实档案
     const gate = run("ruukoto.mjs", ["legacy-import", "list"]);
-    assert.equal(gate.status, 1, "ruukoto 产品拒绝");
-    assert.match(gate.stderr, /ruukoto-dev/);
+    assert.equal(gate.status, 0, `ruukoto 侧分流到个人方向（list 空目标）：${gate.stderr}`);
+    assert.deepEqual(JSON.parse(gate.stdout), [], "ruukoto 侧空目标无导入回执");
 
     const planFile = path.join(dirs.root, "plan.json");
     const preview = run("ruukoto-dev.mjs", ["legacy-import", "preview", "--from", src.srcDataDir, "--plan", planFile]);
@@ -963,5 +968,6 @@ test("CLI：preview/apply/list/revert 全流程与 ruukoto 产品门拒绝", asy
   } finally {
     src.cleanup();
     fs.rmSync(dirs.root, { recursive: true, force: true });
+    fs.rmSync(personal.dirs.root, { recursive: true, force: true });
   }
 });

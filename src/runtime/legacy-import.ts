@@ -1,8 +1,10 @@
 /**
  * 旧实例开发资料迁入 Coding Agent（agent-direction issue 21，ADR 0022）。
  *
- * 唯一实现处：预览（preview）、应用（apply）、回退（revert）与列表的全部判断
- * 都集中在本模块；CLI（ruukoto-dev legacy-import）只做离线接线，不走控制面。
+ * 本方向的唯一实现处：预览（preview）、应用（apply）、回退（revert）与列表的
+ * 全部判断都集中在本模块；CLI（ruukoto-dev legacy-import）只做离线接线，不走
+ * 控制面。镜像方向（个人资料迁入全新 ruukoto 实例，issue 22）在
+ * ./personal-import.ts，复用本模块导出的快照/账本/行工具等方向无关辅助。
  * 边界（与 ADR 0017/0018 一致）：
  * - 源实例全程只读：不建锁、不改写、不修复源目录任何文件；快照 = 把 ruukoto.db
  *   （及 WAL 侧车文件）复制到临时目录后在副本上迁移到当前 schema，源目录逐文件
@@ -39,7 +41,7 @@ export class LegacyImportError extends Error {
   }
 }
 
-function fail(code: string, message: string): never {
+export function fail(code: string, message: string): never {
   throw new LegacyImportError(code, message);
 }
 
@@ -67,7 +69,10 @@ export interface LegacyImportDeps {
  * 新表未登记时拒绝导入，避免新表默认被漏判或被复制。列集合在导入表上两库
  * 必须一致（快照已迁到当前 schema，理应恒等）。
  */
-const TABLE_POLICY: Record<string, { policy: "import" } | { policy: "exclude"; reason: string }> = {
+/** 表级策略条目的形状；两个导入方向各自登记一份（allow-list，未登记即拒绝）。 */
+export type TablePolicy = Record<string, { policy: "import" } | { policy: "exclude"; reason: string }>;
+
+const TABLE_POLICY: TablePolicy = {
   projects: { policy: "import" },
   sessions: { policy: "import" },
   tasks: { policy: "import" },
@@ -106,17 +111,31 @@ const TABLE_POLICY: Record<string, { policy: "import" } | { policy: "exclude"; r
   instance_import_items: { policy: "exclude", reason: "导入账本属目标实例自身，不从源复制" },
 };
 
-/** 账本条目类别与插入表的对照。 */
-type LedgerKind = "project" | "session" | "sub_agent" | "work_delegation" | "memory" | "grant" | "mcp" | "meta" | "file";
+/** 账本条目类别与插入表的对照（v29 全集；各方向只用其中子集）。 */
+export type LedgerKind =
+  | "project"
+  | "session"
+  | "sub_agent"
+  | "work_delegation"
+  | "memory"
+  | "grant"
+  | "mcp"
+  | "meta"
+  | "file"
+  | "agent_role"
+  | "schedule"
+  | "platform_config"
+  | "standing_permission"
+  | "credential";
 
-type Row = Record<string, unknown>;
+export type Row = Record<string, unknown>;
 
-function allRows(db: Db, sql: string, params: unknown[] = []): Row[] {
+export function allRows(db: Db, sql: string, params: unknown[] = []): Row[] {
   return db.prepare(sql).all(...(params as any[])) as unknown as Row[];
 }
 
 /** 分块 IN 查询（避免超大参数列表）。 */
-function rowsIn(db: Db, table: string, column: string, ids: string[]): Row[] {
+export function rowsIn(db: Db, table: string, column: string, ids: string[]): Row[] {
   const out: Row[] = [];
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
@@ -126,17 +145,17 @@ function rowsIn(db: Db, table: string, column: string, ids: string[]): Row[] {
   return out;
 }
 
-function tableNames(db: Db): string[] {
+export function tableNames(db: Db): string[] {
   return allRows(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").map(
     (r) => String(r.name),
   );
 }
 
-function columnNames(db: Db, table: string): string[] {
+export function columnNames(db: Db, table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>).map((c) => c.name);
 }
 
-function sha256File(file: string): string {
+export function sha256File(file: string): string {
   const hash = createHash("sha256");
   const fd = fs.openSync(file, "r");
   try {
@@ -150,17 +169,21 @@ function sha256File(file: string): string {
 }
 
 /** 目标/源表登记核对：两库全部表都已登记，导入表的列集合一致。 */
-function checkTablePolicy(snapDb: Db, targetDb: Db | null): void {
+export function checkTablePolicy(snapDb: Db, targetDb: Db | null, policy: TablePolicy = TABLE_POLICY): void {
   const checkCoverage = (names: string[], side: string) => {
     for (const name of names) {
-      if (!TABLE_POLICY[name]) fail("table_policy", `${side}存在未登记表 ${name}：请先在 TABLE_POLICY 登记导入或排除`);
+      if (!policy[name]) fail("table_policy", `${side}存在未登记表 ${name}：请先在 TABLE_POLICY 登记导入或排除`);
     }
   };
   checkCoverage(tableNames(snapDb), "源库");
   if (targetDb) checkCoverage(tableNames(targetDb), "目标库");
-  for (const [name, entry] of Object.entries(TABLE_POLICY)) {
+  const targetTableNames = targetDb ? tableNames(targetDb) : [];
+  for (const [name, entry] of Object.entries(policy)) {
     if (entry.policy !== "import") continue;
     if (!tableNames(snapDb).includes(name)) continue; // 源侧可能缺少本版本新增的账本类表
+    // 目标全新目录可能尚无 v9 起不再创建的遗留表（github_*）：由 apply 按快照
+    // DDL 重建后插入，列一致性在那时由同一份 DDL 保证；目标已有该表才比对
+    if (targetDb && !targetTableNames.includes(name)) continue;
     const snapCols = columnNames(snapDb, name).sort().join(",");
     const targetCols = targetDb ? columnNames(targetDb, name).sort().join(",") : null;
     if (targetCols !== null && snapCols !== targetCols) {
@@ -171,7 +194,7 @@ function checkTablePolicy(snapDb: Db, targetDb: Db | null): void {
 
 // ---------- 源与目标的读取 ----------
 
-interface SourceSnapshot {
+export interface SourceSnapshot {
   dir: string; // 快照临时目录（ruukoto.db 副本所在）
   dataDir: string; // 源数据目录（规范化绝对路径）
   db: Db;
@@ -182,7 +205,7 @@ interface SourceSnapshot {
   originalSchemaVersion: number | null;
 }
 
-function readMetaValue(db: Db, key: string): string | null {
+export function readMetaValue(db: Db, key: string): string | null {
   const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
   return row ? row.value : null;
 }
@@ -192,7 +215,7 @@ function readMetaValue(db: Db, key: string): string | null {
  * 不用 sqlite 读连接/VACUUM 直读源目录——读 WAL 库会在源目录生成 -shm/-wal
  * 侧车文件；复制是唯一逐字节零接触的方式（源后台必须已停止，先经探测拒绝）。
  */
-function openSourceSnapshot(from: string): SourceSnapshot {
+export function openSourceSnapshot(from: string): SourceSnapshot {
   const dataDir = path.resolve(from);
   const dbFile = path.join(dataDir, "ruukoto.db");
   if (!fs.existsSync(dbFile)) {
@@ -249,7 +272,7 @@ function openSourceSnapshot(from: string): SourceSnapshot {
 }
 
 /** 目标视图：预览时以副本只读打开（零写入），应用时打开真实目录。 */
-interface TargetView {
+export interface TargetView {
   exists: boolean;
   db: Db | null;
   cleanup(): void;
@@ -258,14 +281,14 @@ interface TargetView {
   schemaVersion: number | null;
 }
 
-function copyDbFiles(dbFile: string, tmp: string): void {
+export function copyDbFiles(dbFile: string, tmp: string): void {
   for (const suffix of ["", "-wal", "-shm"]) {
     const file = dbFile + suffix;
     if (fs.existsSync(file)) fs.copyFileSync(file, path.join(tmp, "ruukoto.db" + suffix));
   }
 }
 
-function openTargetReadonlyCopy(deps: LegacyImportDeps): TargetView {
+export function openTargetReadonlyCopy(deps: LegacyImportDeps): TargetView {
   const dbFile = path.join(deps.targetDataDir, "ruukoto.db");
   if (!fs.existsSync(dbFile)) {
     return { exists: false, db: null, cleanup: () => {}, instanceId: null, product: null, schemaVersion: null };
@@ -305,10 +328,10 @@ function checkTargetProduct(product: string | null, schemaVersion: number | null
 
 // ---------- 导入集合与各项决策 ----------
 
-interface FilePlanItem {
-  /** 账本标识：sessions/<文件名> 或 artifacts/<id>.bin。 */
+export interface FilePlanItem {
+  /** 账本标识：sessions/<文件名>、artifacts/<id>.bin、agent-data/main.db[-wal] 或 github-archive-manifest.json。 */
   itemId: string;
-  kind: "session" | "artifact";
+  kind: "session" | "artifact" | "app_data" | "manifest";
   /** 关联的会话 / 产物行 id（报告用）。 */
   ownerId: string;
   src: string;
@@ -320,7 +343,7 @@ interface FilePlanItem {
   action?: "copied" | "skipped_same_sha";
 }
 
-interface TaskClosing {
+export interface TaskClosing {
   task_id: string;
   from: string;
   to: "canceled" | "interrupted";
@@ -361,7 +384,7 @@ interface ImportSet {
 }
 
 /** 严格核实登记的目录身份（realpath + dev + ino 三项都要一致）。 */
-function strictDirOk(cwdReal: string, dev: number, ino: number): boolean {
+export function strictDirOk(cwdReal: string, dev: number, ino: number): boolean {
   try {
     const real = fs.realpathSync(cwdReal);
     const stat = fs.statSync(real);
@@ -372,7 +395,7 @@ function strictDirOk(cwdReal: string, dev: number, ino: number): boolean {
 }
 
 /** 记忆来源引用是否全部落在导入范围内（owner_note 不依赖任何行）。 */
-function memoryRefsInScope(
+export function memoryRefsInScope(
   versions: Row[],
   sessionIds: Set<string>,
   artifactSession: Map<string, string>,
@@ -644,13 +667,13 @@ function buildImportSet(
 
 // ---------- 目标状态合并（冲突、改名、根目录与组织映射决策、修订） ----------
 
-interface LedgerState {
+export interface LedgerState {
   /** kind → itemId → 所属导入 id。 */
   items: Map<LedgerKind, Map<string, string>>;
   imports: Array<{ id: string; source_instance_id: string; status: string; created_at: string }>;
 }
 
-function readLedger(db: Db | null): LedgerState {
+export function readLedger(db: Db | null): LedgerState {
   if (!db) return { items: new Map(), imports: [] };
   const imports = allRows(db, "SELECT id, source_instance_id, status, created_at FROM instance_imports ORDER BY created_at") as Array<{
     id: string;
@@ -1261,7 +1284,7 @@ function planDigestOf(input: {
 }
 
 /** 逐行插入（列以目标表为准；行值为快照原值，保持逐字节忠实）。 */
-function insertRows(db: Db, table: string, rows: Row[], drop: string[] = []): void {
+export function insertRows(db: Db, table: string, rows: Row[], drop: string[] = []): void {
   if (rows.length === 0) return;
   const cols = columnNames(db, table).filter((c) => c in rows[0] && !drop.includes(c));
   const stmt = db.prepare(`INSERT INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`);
@@ -1270,7 +1293,7 @@ function insertRows(db: Db, table: string, rows: Row[], drop: string[] = []): vo
   }
 }
 
-function escapeSqlPath(p: string): string {
+export function escapeSqlPath(p: string): string {
   return p.replaceAll("'", "''");
 }
 

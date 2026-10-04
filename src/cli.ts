@@ -260,13 +260,10 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
   const { flags, positional } = parseArgs(rest);
   switch (cmd) {
     case "legacy-import": {
-      // 跨实例导入（agent-direction issue 21，ADR 0022）：只在 ruukoto-dev 产品下可用；
+      // 跨实例导入（agent-direction issue 21/22，ADR 0022/0023）：两条入口按产品
+      // 分流——ruukoto-dev 迁入开发资料，ruukoto 迁入个人资料（镜像方向）；
       // 离线执行（不走控制面），持目标实例锁运行，源实例全程只读
-      if (product !== "ruukoto-dev") {
-        console.error("legacy-import 只在 ruukoto-dev 产品下可用（bin/ruukoto-dev.mjs）；个人 Agent 侧的资料迁移见后续工单");
-        return 1;
-      }
-      return runLegacyImport(positional, flags);
+      return runLegacyImport(positional, flags, product);
     }
     case "create-project":
       print(await withClient((c) => c.request("create_project", { name: positional[0] ?? "" })));
@@ -937,16 +934,49 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
 }
 
 /**
- * 跨实例导入（agent-direction issue 21，ADR 0022）：旧 ruukoto 实例的开发资料
- * 迁入 ruukoto-dev 档案。目标侧离线执行（不走控制面）：预览/应用都要求目标后台
- * 已停止，持目标实例锁运行；源实例全程只读，源后台存活时拒绝。
+ * 跨实例导入（agent-direction issue 21/22，ADR 0022/0023）。按产品分流：
+ * ruukoto-dev 把旧实例开发资料迁入 Coding Agent；ruukoto 把旧实例个人资料
+ * （main 会话、应用数据、调度、平台绑定与必要凭据）迁入全新实例。目标侧离线
+ * 执行（不走控制面）：预览/应用都要求目标后台已停止，持目标实例锁运行；源实例
+ * 全程只读，源后台存活时拒绝。
  *   legacy-import preview --from <源数据目录> [--plan <文件>]
  *   legacy-import apply --plan <文件> [--request-id <id>]
  *   legacy-import revert <导入ID>
  *   legacy-import list
  */
-async function runLegacyImport(positional: string[], flags: Record<string, string>): Promise<number> {
-  const mod = await import("./runtime/legacy-import.ts");
+async function runLegacyImport(positional: string[], flags: Record<string, string>, product: ProductType): Promise<number> {
+  const personal = product === "ruukoto";
+  // 两模块导出同名语义的函数（计划形状略有差异：dev 方向多 personal_memories 选中）；
+  // 动态边界统一为宽松形状，运行时字段由各自模块校验
+  interface ImportPreview {
+    plan: { from: string; renames: Record<string, string>; personal_memories?: string[] };
+    source: { instance_id: string };
+    revision: string | null;
+    plan_errors: string[];
+  }
+  interface ImportFns {
+    preview(deps: unknown, input: { from: string; plan?: Record<string, unknown> }): ImportPreview;
+    apply(deps: unknown, input: Record<string, unknown>): unknown;
+    revert(deps: unknown, importId: string): { ok: boolean };
+    list(deps: unknown): unknown;
+    Err: new (code: string, message: string) => Error & { code: string };
+  }
+  const fns: ImportFns = personal
+    ? await import("./runtime/personal-import.ts").then((m) => ({
+        preview: m.previewPersonalImport as ImportFns["preview"],
+        apply: m.applyPersonalImport as ImportFns["apply"],
+        revert: m.revertPersonalImport,
+        list: m.listLegacyImports,
+        Err: m.LegacyImportError,
+      }))
+    : await import("./runtime/legacy-import.ts").then((m) => ({
+        preview: m.previewLegacyImport as ImportFns["preview"],
+        apply: m.applyLegacyImport as ImportFns["apply"],
+        revert: m.revertLegacyImport,
+        list: m.listLegacyImports,
+        Err: m.LegacyImportError,
+      }));
+  const bin = personal ? "ruukoto" : "ruukoto-dev";
   const dirs = defaultDirs();
   const deps = {
     targetDataDir: flags["data-dir"] ?? dirs.dataDir,
@@ -958,7 +988,7 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
     if (sub === "preview") {
       const from = flags["from"] ?? "";
       if (!from) {
-        console.error("用法：ruukoto-dev legacy-import preview --from <源数据目录> [--plan <文件>] [--data-dir D] [--agent-dir A]");
+        console.error(`用法：${bin} legacy-import preview --from <源数据目录> [--plan <文件>] [--data-dir D] [--agent-dir A]`);
         return 1;
       }
       const planFile = flags["plan"];
@@ -966,9 +996,9 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
       if (planFile && fs.existsSync(planFile)) plan = readJsonFile(planFile) as Record<string, unknown>;
       const lock = lockIfDirExists(deps.targetDataDir);
       try {
-        const preview = mod.previewLegacyImport(deps, { from, plan });
+        const preview = fns.preview(deps, { from, plan });
         if (planFile) {
-          // 把绑定最终选择的修订与源实例写回计划文件（renames/personal_memories 选择不动），供 apply 使用
+          // 把绑定最终选择的修订与源实例写回计划文件（renames 等选择不动），供 apply 使用
           fs.writeFileSync(
             planFile,
             JSON.stringify(
@@ -976,7 +1006,7 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
                 ...(plan ?? {}),
                 from: preview.plan.from,
                 renames: preview.plan.renames,
-                personal_memories: preview.plan.personal_memories,
+                ...(personal ? {} : { personal_memories: preview.plan.personal_memories }),
                 source_instance_id: preview.source.instance_id,
                 revision: preview.revision,
               },
@@ -994,7 +1024,7 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
     if (sub === "apply") {
       const planFile = flags["plan"];
       if (!planFile) {
-        console.error("用法：ruukoto-dev legacy-import apply --plan <文件> [--request-id <id>]（计划文件由 preview --plan 生成）");
+        console.error(`用法：${bin} legacy-import apply --plan <文件> [--request-id <id>]（计划文件由 preview --plan 生成）`);
         return 1;
       }
       const saved = readJsonFile(planFile) as Record<string, unknown>;
@@ -1008,12 +1038,14 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
       fs.mkdirSync(deps.targetDataDir, { recursive: true, mode: 0o700 });
       const lock = acquireInstanceLock(deps.targetDataDir);
       try {
-        const result = mod.applyLegacyImport(deps, {
-          plan: {
-            from,
-            renames: renames as Record<string, string> | undefined,
-            personal_memories: personal_memories as string[] | undefined,
-          },
+        const result = fns.apply(deps, {
+          plan: personal
+            ? { from, renames: renames as Record<string, string> | undefined }
+            : {
+                from,
+                renames: renames as Record<string, string> | undefined,
+                personal_memories: personal_memories as string[] | undefined,
+              },
           source_instance_id: typeof source_instance_id === "string" ? source_instance_id : "",
           revision: typeof revision === "string" ? revision : "",
           request_id: requestId,
@@ -1027,12 +1059,12 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
     if (sub === "revert") {
       const importId = positional[1] ?? "";
       if (!importId) {
-        console.error("用法：ruukoto-dev legacy-import revert <导入ID>（导入 ID 见 legacy-import list）");
+        console.error(`用法：${bin} legacy-import revert <导入ID>（导入 ID 见 legacy-import list）`);
         return 1;
       }
       const lock = lockIfDirExists(deps.targetDataDir);
       try {
-        const result = mod.revertLegacyImport(deps, importId);
+        const result = fns.revert(deps, importId);
         print(result);
         return result.ok ? 0 : 1;
       } finally {
@@ -1042,14 +1074,14 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
     if (sub === "list") {
       const lock = lockIfDirExists(deps.targetDataDir);
       try {
-        print(mod.listLegacyImports(deps));
+        print(fns.list(deps));
         return 0;
       } finally {
         lock?.release();
       }
     }
     console.error(
-      "用法：ruukoto-dev legacy-import preview --from <源数据目录> [--plan <文件>] | apply --plan <文件> [--request-id <id>] | revert <导入ID> | list",
+      `用法：${bin} legacy-import preview --from <源数据目录> [--plan <文件>] | apply --plan <文件> [--request-id <id>] | revert <导入ID> | list`,
     );
     return 1;
   } catch (err) {
@@ -1057,7 +1089,7 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
       console.error(err.message);
       return err.unverifiable ? 1 : INSTANCE_LOCK_EXIT_CODE;
     }
-    if (err instanceof mod.LegacyImportError) {
+    if (err instanceof fns.Err) {
       console.error(`错误[${err.code}]：${err.message}`);
       return 1;
     }
@@ -1079,8 +1111,9 @@ function defaultHelp(): string {
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
     "      grant | service-grant list/show/revoke | work list/show/close | history-search | memory | selection-records |\n" +
     "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
-    "      legacy-import（仅 ruukoto-dev）：旧 ruukoto 实例开发资料迁入 Coding Agent，离线执行，\n" +
-    "      要求目标后台已停止、源后台已停止；preview --from <源数据目录> [--plan 文件] | apply --plan 文件 | revert <导入ID> | list\n" +
+    "      legacy-import（两产品分流）：ruukoto-dev 迁入旧实例开发资料；ruukoto 迁入旧实例个人资料\n" +
+    "      （main/应用数据/调度/平台绑定与必要凭据，目标为全新实例）。离线执行，要求源与目标后台均已停止；\n" +
+    "      preview --from <源数据目录> [--plan 文件] | apply --plan 文件 | revert <导入ID> | list\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +
     "旧拼法：ruukoto tui 仍可用，请迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo\n" +

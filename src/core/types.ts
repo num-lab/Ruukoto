@@ -238,9 +238,10 @@ export interface WorkDelegation {
 
 /**
  * 跨实例导入回执（agent-direction issue 21，instance_imports 表）：旧 ruukoto
- * 实例开发资料迁入 Coding Agent 的一次导入记录。导入由目标侧离线 CLI 执行，
- * 源实例全程只读；回执持久保留（含 reverted 状态），供续跑幂等核实、回退与
- * 整库恢复定位。
+ * 实例经目标侧离线 legacy-import 迁入新档案的一次导入记录——issue 21 为开发
+ * 资料迁入 Coding Agent，issue 22 为个人资料迁入全新 ruukoto（两方向共用本表，
+ * 按目标产品分流）。导入由目标侧离线 CLI 执行，源实例全程只读；回执持久保留
+ * （含 reverted 状态），供续跑幂等核实、回退与整库恢复定位。
  */
 export interface InstanceImport {
   id: string;
@@ -267,7 +268,9 @@ export interface InstanceImport {
   revertedAt: string | null;
 }
 
-/** 导入条目账本类别（instance_import_items）；同一资料（kind, item_id）至多归属一次导入。 */
+/** 导入条目账本类别（instance_import_items）；同一资料（kind, item_id）至多归属一次导入。
+ *  issue 21 方向用前九类；issue 22 个人方向另用 agent_role/schedule/platform_config/
+ *  standing_permission/credential（v29 起）。 */
 export type InstanceImportItemKind =
   | "project"
   | "session"
@@ -277,7 +280,12 @@ export type InstanceImportItemKind =
   | "grant"
   | "mcp"
   | "meta"
-  | "file";
+  | "file"
+  | "agent_role"
+  | "schedule"
+  | "platform_config"
+  | "standing_permission"
+  | "credential";
 
 /** 导入条目账本行：标识某项资料属于哪次导入（回退按账本删行）。 */
 export interface InstanceImportItem {

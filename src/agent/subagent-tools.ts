@@ -1,9 +1,10 @@
 /**
- * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭）：
- * subagent_delegate / subagent_result / subagent_close。对拥有者的普通开发会话
- * 与 main 角色会话装配；其余身份（群、固定 coding/chat、动态 SubAgent、调度与
- * 回报唤醒）一律不装配也不放行（subagent_close 例外：回报唤醒轮次也允许，
- * 因为关闭只收窄能力）。
+ * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭；
+ * issue 14 整项取消）：subagent_delegate / subagent_result / subagent_close /
+ * subagent_cancel。对拥有者的普通开发会话与 main 角色会话装配；其余身份
+ * （群、固定 coding/chat、动态 SubAgent、调度与回报唤醒）一律不装配也不放行
+ * （subagent_close / subagent_cancel 例外：回报唤醒轮次也允许，因为关闭与
+ * 取消只收窄能力）。
  *
  * - 模型只给正文、幂等键、可选既有 workId / subAgentId 与选定资料
  *   （dev: read_paths / main: materials）；目标身份、独立目录、confirm 模式、
@@ -13,10 +14,13 @@
  * - 工具在子任务入队后立即返回，不等待子模型结束；结果经持久事件与
  *   subagent_result 查询，dev 会话再经下一次模型调用的宿主资料注入送达；
  * - subagent_result 省略 work_id 时列出本会话的 SubAgent 总览（供挑选复用
- *   对象）；按 work_id 读取时开窄口：只能读本会话登记的工作，并标明该
- *   SubAgent 是否已关闭；最终回答与产物沿用 UTF-8/字节分页；
+ *   对象）；按 work_id 读取时开窄口：只能读本会话登记的工作，并标明该工作
+ *   是否已取消、该 SubAgent 是否已关闭；最终回答与产物沿用 UTF-8/字节分页；
  * - subagent_close 显式关闭：有活动任务拒绝（给出任务 id），已关闭幂等；
- *   关闭后拒绝新委派，历史与产物保留可查。
+ *   关闭后拒绝新委派，历史与产物保留可查；
+ * - subagent_cancel 整项取消（issue 14）：停止本工作的活动与排队任务，其他
+ *   工作不受影响；已取消幂等；取消后不能沿该工作继续委派；SubAgent 身份、
+ *   历史与产物保留，迟到结果仍可按工作读取。
  */
 
 import { Type } from "typebox";
@@ -30,9 +34,9 @@ import { QQ_PRIVATE_SOURCE } from "../qq/adapter.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import type { SourceResolver } from "./scheduler-tools.ts";
 import { canonicalParamsDigest } from "./mcp/tools.ts";
-import type { SubAgentDelegation, SubAgentDelegateInput } from "../runtime/subagents.ts";
+import type { SubAgentDelegation, SubAgentDelegateInput, WorkCancellation } from "../runtime/subagents.ts";
 
-export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close"] as const;
+export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel"] as const;
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** subagent_result 单次读取上限（字节）。 */
@@ -44,6 +48,8 @@ export interface SubAgentToolsDeps {
   delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation>;
   /** 显式关闭（issue 12）；by 由宿主按调用身份固定（agent:<任务ID>），模型参数不参与。 */
   close(input: { subAgentId: string; by: `agent:${string}`; parentSessionId: string }): { agent: SubAgent; alreadyClosed: boolean };
+  /** 整项取消（issue 14）；by 由宿主按调用身份固定（agent:<任务ID>），模型参数不参与。 */
+  cancelWork(input: { workId: string; by: `agent:${string}`; parentSessionId: string; reason?: string | null }): Promise<WorkCancellation>;
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
   artifacts: ArtifactStore;
@@ -231,7 +237,10 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       if (!agent) throw new Error(`工作 ${work.id} 缺少 SubAgent 记录`);
       const tasks = store.listTasksByWork(work.id);
       if (part === "result") {
-        const lines = [`工作 ${work.id} · SubAgent ${agent.id}（${agentStateText(agent)}）· 发起任务 ${work.originTaskId}`];
+        const cancelText = work.canceledAt
+          ? ` · 已取消（${work.canceledAt}，${work.canceledBy}${work.cancelReason ? `，${work.cancelReason}` : ""}）`
+          : "";
+        const lines = [`工作 ${work.id} · SubAgent ${agent.id}（${agentStateText(agent)}）· 发起任务 ${work.originTaskId}${cancelText}`];
         for (const t of tasks) {
           lines.push(
             `- 任务 ${t.id} · ${t.status} · 直接父任务 ${t.parentTaskId ?? "?"} · 截止 ${t.deadline ?? "无"}` +
@@ -298,5 +307,38 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     }),
   } as any);
 
-  return [subagentDelegate, subagentResult, subagentClose];
+  const subagentCancel = defineTool({
+    name: "subagent_cancel",
+    label: "subagent_cancel",
+    description:
+      "取消本会话名下的一项工作委托：不再需要这项工作时调用。取消停止它的活动与排队任务（效果未知的已有操作只标记、" +
+      "不重放），其他工作不受影响；重复取消幂等返回；取消后不能沿该工作继续委派；SubAgent 不随之关闭，历史、产物与" +
+      "工作目录保留（可经 subagent_result 读取；空闲未关闭的 SubAgent 可复用于其他工作），迟到结果保存为事实但不再主动送达。",
+    parameters: Type.Object({
+      work_id: Type.String({ description: "要取消的工作 id（subagent_result 总览可查看）" }),
+      reason: Type.Optional(Type.String({ description: "取消原因（可选，随记录保存）" })),
+    }),
+    execute: bindExecute(async (ctx, params: any) => {
+      // 回报唤醒轮次也允许取消（只收窄能力）；身份与归属由 verifyHost 与归属核实拒绝
+      if (typeof params.work_id !== "string" || !params.work_id.trim()) throw new Error("work_id 必须是非空字符串");
+      if (params.reason !== undefined && typeof params.reason !== "string") throw new Error("reason 必须是字符串");
+      const result = await deps.cancelWork({
+        workId: params.work_id,
+        by: `agent:${ctx.taskId}`,
+        parentSessionId: ctx.sessionId,
+        reason: params.reason ?? null,
+      });
+      const active = ["queued", "running", "awaiting_confirmation"];
+      const settled = result.tasks.filter((t) => t.status === "canceled").length;
+      const running = result.tasks.filter((t) => active.includes(t.status)).length;
+      const stateText = running > 0 ? `${running} 个任务仍在停止中` : `${settled} 个任务已取消`;
+      return okText(
+        result.alreadyCanceled
+          ? `工作 ${result.work.id} 此前已取消（${result.work.canceledAt}）：幂等返回，历史与产物仍可用 subagent_result 读取。`
+          : `工作 ${result.work.id} 已取消：${stateText}；不能沿该工作继续委派；SubAgent 未关闭，历史、产物与工作目录保留可查，迟到结果保存但不再主动送达。`,
+      );
+    }),
+  } as any);
+
+  return [subagentDelegate, subagentResult, subagentClose, subagentCancel];
 }

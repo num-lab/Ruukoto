@@ -25,6 +25,15 @@ ADR 0017 确认两个产品支持一层 SubAgent：身份与上下文跨任务�
 5. **查看。** `subagent_result` 省略 `work_id` 列出本会话 SubAgent 总览（供跨轮次挑选复用对象），按工作读取标明是否已关闭；`work_list`/`work_get` 的 agent 对象自然带上关闭两列；TUI 经 `subagent.closed` 事件与快照展示「已关闭」，不新增 TUI 命令。任务终态、TUI 退出与空闲不自动关闭，也无需空闲超时配置。
 6. **结果与空闲同事务登记。** 结果沿用 `setTaskResult` 一次写入；无占用残留记空闲，执行单元退出未核实记待核实。dev 父会话经持久事件 + 下一次模型调用的宿主资料注入送达（注入标记 `result_delivered_at`，崩溃窗口不丢记录）；main 沿用稳定 `wake:<childId>` 回报键。main 的 `coding_delegate(mode=analyze)` 转入本链路（硬只读、不自动重试），`coding_result` 经同一归属窄口兼容读取；draft 修改委派保留旧 coding 路径。
 
+## 补充：整项取消（agent-direction issue 14，2026-10-04）
+
+1. **取消用独立列，一次写入。** `work_delegations` 增加 `canceled_at`、`canceled_by`（`owner` 或 `agent:<任务ID>`）、`cancel_reason`（schema v26 只补列，旧行三列为空），条件 `canceled_at IS NULL`，重复取消幂等返回原记录与当前任务状态。工作状态由字段与任务状态派生（已取消/进行中/空闲），不新建状态机，不改写已结束任务的 completed/failed/canceled 结果。
+2. **发起者：拥有者与主 Agent。** 拥有者走控制面 `work_cancel`（协议 v13）与 `ruukoto work cancel <工作ID> [--reason R]`；主 Agent 用 `subagent_cancel(work_id, reason?)`（普通 dev 会话与 main 都装配，回报唤醒轮次也允许——取消只收窄能力，与 12 的关闭同一口径）。SubAgent 自身（无此工具，verifyHost 拒绝）和其他父会话的工作一律拒绝。
+3. **一个事务登记，停止在事务外完成。** 事务内写取消字段、该工作的 queued 任务直接转为 canceled（`errorMessage` 记 `work_canceled`）、running/awaiting 任务写 `cancel_requested=1`，并追加 `work_delegation.canceled` 事件（区分 `canceledTaskIds` 与 `stoppingTaskIds`）；提交后对每个活动任务调用现有 `cancelTask` 停止路径（`Promise.allSettled`）。登记事务与委派登记同为同步事务、天然串行：先登记的任务必然在取消清单内，后登记的字段已写入即被委派检查拒绝；同键同参重放仍返回原记录。无法回收的执行按现有逻辑保留占用，SubAgent 记 unverified。
+4. **单任务取消窗口修复（根因，所有取消调用方共享）。** 取消落在「任务已转 running、`currentTask` 尚未设置」的窗口时旧代码会被吞掉：`cancelTask` 先在事务内写 `cancel_requested=1` 再 `requestStop`，`Driver.runInner` 开头读到该标记直接 `finalize(canceled)`、不调用模型。已知上限：超时取消若正好落在该窗口，终态记 canceled 而非 timeout，不另外存原因（ponytail 注释）。
+5. **迟到结果保存为事实，不送达父模型。** 终态结果照常经 `setTaskResult` 登记（`subagent_task.*` 事件、`subagent_result` 与 `work show` 可查）；取消提交后不再自动送进任何父模型：编排器唤醒前重读工作、队列循环对 `wake:<childId>` 启动前检查所属工作（直接取消该 wake，覆盖排队中、后插入与巡检补发的全部唤醒）、dev 注入查询加 `canceled_at IS NULL`、启动巡检待唤醒清单排除已取消工作。选「不注入」而非「以迟到结果名义注入」，用一条规则排除主 Agent 据此重启工作的可能；需要时由主 Agent 主动 `subagent_result` 读取。main 正在运行的唤醒轮次不级联取消。
+6. **身份与成果保持。** 取消不关闭 SubAgent（任务结束后按占用核实记 idle 或 unverified，之后仍可按 12 复用于其他工作）；工作目录、会话 JSONL、产物、resultRef 与工作记录都不删除。旧 coding draft 没有 `work_id`，不纳入工作取消，仍用 `ruukoto cancel <taskId>`；效果未知的已有操作只标记、不重放，沿用账本既有停止口径。
+
 ## 与既有决策的关系
 
 - ADR 0017 的通用 SubAgent 目标模型经本决定落地首版；固定 coding/chat 角色继续存在至后续迁移，新旧委派机制兼容共存。

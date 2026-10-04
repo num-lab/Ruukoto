@@ -395,6 +395,9 @@ export class ViewState {
             subAgentId: body.subAgentId,
             requestKey: "",
             paramsDigest: "",
+            canceledAt: null,
+            canceledBy: null,
+            cancelReason: null,
             createdAt: event.createdAt,
           });
         }
@@ -426,6 +429,21 @@ export class ViewState {
           agent.closedBy = body.closedBy;
         }
         this.note(body.parentSessionId, `SubAgent 已关闭：${body.subAgentId.slice(0, 12)}…（历史与产物保留）`, event.createdAt);
+        return;
+      }
+      case "work_delegation.canceled": {
+        // issue 14：登记字段同步进状态；任务终态由各自 task.* / subagent_task.* 事件到达
+        const work = this.workDelegations.find((w) => w.id === body.workId);
+        if (work) {
+          work.canceledAt = event.createdAt;
+          work.canceledBy = body.canceledBy;
+          work.cancelReason = body.reason;
+        }
+        this.note(
+          body.parentSessionId,
+          `工作委托已取消：${body.workId.slice(0, 12)}…（${body.canceledBy}${body.reason ? `，${body.reason}` : ""}；历史与产物保留，迟到结果不再送达）`,
+          event.createdAt,
+        );
         return;
       }
       case "subagent_task.completed":
@@ -648,6 +666,7 @@ export class ViewState {
     const works = this.worksForSession(sessionId);
     if (!works.length) return null;
     const parts = works.map((work) => {
+      if (work.canceledAt) return `${work.id.slice(0, 12)}…（已取消，${work.canceledBy}${work.cancelReason ? `，${work.cancelReason}` : ""}）`;
       const agent = this.subAgents.find((a) => a.id === work.subAgentId);
       const agentText = agent ? subAgentStateLabel(agent) : "未知";
       const latest = [...this.tasks.values()]

@@ -339,7 +339,7 @@
           <tr data-k="g-orch" tabindex="0"><td><code>inbound_events</code></td><td>入站事件：来源、外部 ID、目标角色、宿主类别 <code>event_kind</code>（task / im_approval）、钉版回复目标、关联任务</td><td>UNIQUE (<code>source</code>, <code>external_id</code>)</td><td><code class="src" data-src="src/core/store.ts#registerInboundEvent">store.ts · registerInboundEvent</code>（编排器、Telegram 与 QQ 私聊、调度器、GitHub、IM 审批）</td></tr>
           <tr data-k="g-orch" tabindex="0"><td><code>chat_result_acceptances</code></td><td>main 显式接收的群聊结果快照：来源任务、接收任务、理由、摘要</td><td>主键 (<code>main_project_id</code>, <code>task_id</code>)；<code>accepted_by_op_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#acceptChatResult">store.ts · acceptChatResult</code>（群聊结果工具）</td></tr>
           <tr data-k="g-sub" tabindex="0"><td rowspan="2">SubAgent 与工作委托</td><td><code>sub_agents</code></td><td>动态身份：父会话、独立子会话、宿主生成的 <code>work_dir</code>、当前工作与任务指针、状态 running / idle / unverified，以及独立于 state 的关闭两列 <code>closed_at</code> / <code>closed_by</code>（<code class="src" data-src="src/core/types.ts#SubAgentClosedBy">types.ts · SubAgentClosedBy</code>：<code class="st idle">owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）</td><td>主键 <code>id</code>；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#insertSubAgent">store.ts · insertSubAgent</code>（SubAgentManager）；关闭经 <code class="src" data-src="src/core/store.ts#closeSubAgent">closeSubAgent</code> 条件写入</td></tr>
-          <tr data-k="g-sub" tabindex="0"><td><code>work_delegations</code></td><td>工作：父会话、发起任务、执行它的 SubAgent、首次委派键与参数摘要；每次执行另是一条 <code>tasks</code>，请求键 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>UNIQUE (<code>parent_session_id</code>, <code>request_key</code>)</td><td><code class="src" data-src="src/core/store.ts#insertWorkDelegation">store.ts · insertWorkDelegation</code>（SubAgentManager，与身份、子会话、任务同事务）</td></tr>
+          <tr data-k="g-sub" tabindex="0"><td><code>work_delegations</code></td><td>工作：父会话、发起任务、执行它的 SubAgent、首次委派键与参数摘要，以及独立的取消三列 <code>canceled_at</code> / <code>canceled_by</code> / <code>cancel_reason</code>（<code class="src" data-src="src/core/types.ts#WorkCanceledBy">types.ts · WorkCanceledBy</code>：<code class="st idle">owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）；每次执行另是一条 <code>tasks</code>，请求键 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>UNIQUE (<code>parent_session_id</code>, <code>request_key</code>)</td><td><code class="src" data-src="src/core/store.ts#insertWorkDelegation">store.ts · insertWorkDelegation</code>（SubAgentManager，与身份、子会话、任务同事务）；取消经 <code class="src" data-src="src/core/store.ts#cancelWorkDelegation">cancelWorkDelegation</code> 条件写入</td></tr>
           <tr data-k="g-sched" tabindex="0"><td rowspan="3">调度与 outbox</td><td><code>schedules</code></td><td>调度计划：动作、时间规则、固定载荷与目标、状态、<code>version</code>、当前运行</td><td><code>create_key</code> UNIQUE</td><td><code class="src" data-src="src/scheduler/store.ts#insertSchedule">scheduler/store.ts · insertSchedule</code>（调度工具）</td></tr>
           <tr data-k="g-sched" tabindex="0"><td><code>schedule_runs</code></td><td>一次到期登记：原定时刻、延迟、合并来源、关联入站事件与发送操作、新闻快照</td><td>UNIQUE (<code>schedule_id</code>, <code>schedule_version</code>, <code>scheduled_for</code>)；每计划至多一个未关闭运行（部分唯一）</td><td><code class="src" data-src="src/scheduler/store.ts#insertRun">scheduler/store.ts · insertRun</code>（调度器）</td></tr>
           <tr data-k="g-sched" tabindex="0"><td><code>notification_ops</code></td><td>发送操作账本：固定目标、正文与哈希、状态</td><td>UNIQUE (<code>source_kind</code>, <code>source_key</code>) 即逻辑发送键</td><td><code class="src" data-src="src/scheduler/store.ts#insertOp">scheduler/store.ts · insertOp</code>（调度器、批准后的 <code>notification_enqueue</code>、owner 回复、IM 审批通知与回执、GitHub 评审）</td></tr>
@@ -367,7 +367,7 @@
 
   <section id="schema">
     <h2>schema 版本与迁移</h2>
-    <p>当前版本 <code>v25</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
+    <p>当前版本 <code>v26</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>文件里的版本</th><th>行为</th></tr></thead>
@@ -375,7 +375,7 @@
           <tr><td>无版本记录（全新库）</td><td>一个 <code>BEGIN IMMEDIATE</code> 事务内建全部表、补列、写版本。</td></tr>
           <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 25（需升级程序）」，后台启动失败，文件不动。</td></tr>
           <tr><td>等于程序</td><td>幂等执行建表语句与补列，只补齐缺失对象。</td></tr>
-          <tr><td>1 到 24</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v25）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
+          <tr><td>1 到 25</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v26）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
           <tr><td>其他（如 0）</td><td>「不支持从 schema vN 迁移」，同样回滚。</td></tr>
         </tbody>
       </table>
@@ -393,6 +393,7 @@
           <tr><td><code>v23</code></td><td>新表 <code>standing_permissions</code>；<code>confirmations</code> 加 <code>standing_permission_id</code> / <code>standing_permission_version</code></td><td>不产生任何授权，旧批准的关联列为空</td><td>工单 10（<code>24f1ac3</code>）</td></tr>
           <tr><td><code>v24</code></td><td>新表 <code>sub_agents</code>、<code>work_delegations</code>；<code>tasks</code> 加 <code>work_id</code> / <code>sub_agent_id</code> / <code>read_scope</code> / <code>result_delivered_at</code> 及两条索引</td><td>旧任务四列为空，不产生任何委派；旧角色列与 CHECK 不变</td><td>工单 11（<code>e542261</code>）</td></tr>
           <tr><td><code>v25</code></td><td><code>sub_agents</code> 加 <code>closed_at</code> / <code>closed_by</code>（ensureColumns / migrateFrom 注释含 v24 → v25；<code class="src" data-src="src/core/db.ts#closed_at TEXT">db.ts</code>）</td><td>旧 Agent 两列为空（未关闭），<code>state</code> 与 CHECK 不变，不扫描、不改写旧记录</td><td>agent-direction 工单 12（随同批 issue-12 代码提交）</td></tr>
+          <tr><td><code>v26</code></td><td><code>work_delegations</code> 加 <code>canceled_at</code> / <code>canceled_by</code> / <code>cancel_reason</code>（ensureColumns / migrateFrom 注释含 v25 → v26；<code class="src" data-src="src/core/db.ts#canceled_at TEXT">db.ts</code>）</td><td>旧工作三列为空（未取消），不扫描、不改写旧记录</td><td>agent-direction 工单 14（随同批 issue-14 代码提交）</td></tr>
         </tbody>
       </table>
     </div>

@@ -1441,15 +1441,17 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
 结果未知事实，不自动重放其执行。
 
-## 通用 SubAgent 委派（agent-direction issue 11–12，ADR 0020）
+## 通用 SubAgent 委派（agent-direction issue 11–14，ADR 0020）
 
 主 Agent（拥有者的普通开发会话或 main）经宿主工具 `subagent_delegate` 登记
 工作委托、创建动态 SubAgent 与独立子会话并派出一次只读执行任务；结果经
 `subagent_result` 读取（省略 `work_id` 时列出本会话 SubAgent 总览），不再
-需要后续协作时用 `subagent_close` 显式关闭。三个工具属于 `subagent` 类别，
+需要的工作用 `subagent_cancel` 整项取消，不再需要后续协作时用
+`subagent_close` 显式关闭。四个工具属于 `subagent` 类别，
 仅普通开发会话与 main 装配，每次调用重新核实宿主任务、会话与身份绑定；
 群、固定 coding/chat、动态 SubAgent、调度与回报唤醒任务不能委派下级
-（`subagent_close` 例外：回报唤醒轮次也允许，关闭只收窄能力）。
+（`subagent_close`/`subagent_cancel` 例外：回报唤醒轮次也允许，关闭与取消
+只收窄能力）。
 
 ### 登记与执行范围
 
@@ -1512,6 +1514,55 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 - **不自动关闭**：任务终态、TUI 退出（控制面断开）与等待都不关闭；空闲零
   模型/worker 进程；重启后关闭状态与空闲 Agent 的可复用性原样保持。
 
+### 整项取消（issue 14）
+
+- **入口与状态**：拥有者经控制面 `work_cancel`（CLI
+  `ruukoto work cancel <工作ID> [--reason R]`，停止中拒绝）；主 Agent 用
+  `subagent_cancel(work_id, reason?)`（回报唤醒轮次也允许，取消只收窄能力）。
+  SubAgent 自身与其他父会话的旧工作一律拒绝。取消用 `work_delegations` 的
+  独立三列 `canceled_at`/`canceled_by`（`owner` 或 `agent:<任务ID>`）/
+  `cancel_reason`（v26 迁移只补列，旧行三列为空），条件 `canceled_at IS NULL`
+  一次写入，重复取消幂等返回原记录与当前任务状态；工作状态由列与任务状态
+  派生，不新建状态机，不改写已结束任务的结果。取消 SubAgent 名下的其他工作
+  不受影响。
+- **一个事务登记，停止在事务外完成**：事务内写取消字段；该工作的 queued
+  任务直接转为 `canceled`（`errorMessage` 记 `work_canceled`);
+  running/awaiting_confirmation 任务写 `cancel_requested=1`；追加
+  `work_delegation.canceled` 事件（`canceledTaskIds` 与 `stoppingTaskIds`
+  分开记录）。提交后对每个活动任务调用现有 `cancelTask` 停止路径（账本
+  快照、解除审批等待、abort、回收进程组、终态补记），`Promise.allSettled`
+  等待完成；效果未知的已有操作只标记、不重放；无法回收的执行按现有逻辑
+  保留占用，SubAgent 记 `unverified`。
+- **竞争口径**：登记事务与委派登记都是同步事务、天然串行——先登记的任务
+  必然在取消清单内，后登记的字段已写入即被拒。委派在准备前与登记事务内
+  各核一次 `canceled_at`，命中报 `invalid_state: 工作已取消`（零新任务）；
+  同键同参重放的查重仍最先执行，返回原记录不新建任务。新工作与其他工作
+  不受影响；已取消的工作不能再登记新执行。
+- **单任务取消窗口修复（根因）**：`Runtime.cancelTask` 的 running 分支先在
+  事务内写 `cancel_requested=1` 再 `requestStop`；`Driver.runInner` 开头读到
+  该标记直接定态 `canceled`、不调用模型——取消要么被启动检查拦下，要么
+  `requestStop` 已能找到 `currentTask`，「已转 running、未进 Driver」的窗口
+  不再吞取消。已知上限：超时取消若正好落在该窗口，终态记 `canceled`（不知
+  原因）而非 `timeout`（`ponytail:` 注释）。
+- **迟到结果不送达父模型**：终态结果照常经 `setTaskResult` 保存为事实
+  （`subagent_task.*` 事件、`subagent_result` 与 `work show` 可查，头部标明
+  取消时间、发起者与原因），但取消提交后这项工作的结果不再自动送进任何
+  父模型——编排器在唤醒前重读工作（已取消不建 wake）；队列循环对
+  `wake:<childId>` 任务启动前检查所属工作（已取消则直接取消该 wake，覆盖
+  取消前已排队、检查后插入与巡检补发的所有唤醒，不调用模型）；dev 的注入
+  查询加 `canceled_at IS NULL`；启动巡检的待唤醒清单排除已取消工作。选择
+  「不注入」而不是「以迟到结果名义注入」，用一条规则排除主 Agent 据此重启
+  工作的可能；需要时由主 Agent 主动 `subagent_result` 读取。main 正在运行
+  的唤醒轮次不级联取消（取消所在轮次已有回复）。
+- **身份与成果保持**：取消不关闭 SubAgent（任务结束后按占用核实记 `idle`
+  或 `unverified`，之后仍可按 12 的规则复用于其他工作）；工作目录、会话
+  JSONL、产物、resultRef 与工作记录都不删除；旧 coding draft（无
+  `work_id`）不纳入，仍用 `ruukoto cancel <taskId>` 单独取消。
+- **展示**：`work list/show` 的工作对象自然带上取消三列与当前任务状态；
+  TUI 经 `work_delegation.canceled` 事件更新工作字段并追加说明（不新增
+  TUI 命令）；dev/main 系统提示说明「不再需要的工作用 `subagent_cancel`，
+  已取消的工作不能继续委派」。
+
 ### 结果、通知与空闲
 
 - 终态沿用 `setTaskResult` 一次写入与结果提取；结果引用
@@ -1523,14 +1574,16 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   唤醒任务；下一次父模型调用注入有界的宿主结果摘要与引用（`[SubAgent 结果]`
   参考块，注入后标记 `result_delivered_at`，崩溃窗口不丢记录）；main 沿用
   稳定 `wake:<childId>` 回报键（固定 confirm，不复制原 IM 来源事件）。
+  已取消的工作不再注入、不唤醒（见上节「整项取消」）。
 - 身份在完成、TUI 退出与等待后仍保留，空闲零模型/worker 进程；任务收尾后
   释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
 - `coding_delegate(mode=analyze)` 转入本链路（硬只读、不自动重试）；
   `coding_result` 按同一归属窄口兼容读取新旧分析结果；`draft` 保留旧
   coding 路径。GitHub webhook 评审沿用旧 coding 只读路径（19 再迁移）。
 - 控制面只读查询：`work_list` / `work_get`（CLI `ruukoto work list/show`，
-  agent 对象含 `closedAt`/`closedBy`）；写操作仅 `subagent_close`（CLI
-  `ruukoto work close`，停止中拒绝）。
+  agent 对象含 `closedAt`/`closedBy`，work 对象含取消三列）；写操作为
+  `subagent_close`（CLI `ruukoto work close`）与整项取消 `work_cancel`
+  （CLI `ruukoto work cancel <工作ID> [--reason R]`，停止中拒绝）。
   快照携带工作委托、SubAgent 与其内部会话 ID（普通工作区列表排除）。
   普通控制面 submit/continue/switch-mode/会话默认模式不能作用于子会话。
 

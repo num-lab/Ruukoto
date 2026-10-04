@@ -394,6 +394,7 @@ test("查看与关闭：总览、主 Agent 工具关闭与幂等、关闭后拒�
       sources: (rt as any).sources,
       delegate: (input) => rt.subagents!.delegate(input),
       close: (input) => rt.subagents!.close(input),
+      cancelWork: (input) => rt.subagents!.cancelWork(input),
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: session.id, projectId, hostOpId: "opv" }),
@@ -512,6 +513,7 @@ test("竞争：准备阶段被关闭→事务内已关闭；先提交→关闭 b
       launcherFor: (mode) => rt.launcherFor(mode),
       defaultModelSelection: () => rt.defaultSelection,
       kickSession: () => {},
+      cancelTask: (taskId, reason) => rt.cancelTask(taskId, reason ? { reason } : undefined),
       protectedRoots: () => rt.protectedRoots(),
       dataDir: rt.config.dataDir,
     });

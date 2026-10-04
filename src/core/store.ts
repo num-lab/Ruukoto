@@ -42,6 +42,7 @@ import {
   type TaskStatus,
   type ToolCategory,
   type ToolOp,
+  type WorkCanceledBy,
   type WorkDelegation,
   randomId,
 } from "./types.ts";
@@ -894,7 +895,8 @@ export class Store {
    * 库而唤醒缺失（提交失败或崩溃窗口）时，启动巡检按原幂等键补发。
    * 只有父会话绑定角色的子任务需要唤醒；dev 父会话（无角色绑定）的 SubAgent
    * 结果经下次模型调用的资料注入送达（result_delivered_at），不产生唤醒任务，
-   * 故不再列入本清单重复巡检。
+   * 故不再列入本清单重复巡检。已取消的工作（issue 14）同样不列入——巡检
+   * 不为它补发 wake，避免先建 wake 再由队列检查取消。
    */
   listRoleTasksPendingWake(): Task[] {
     const rows = this.db
@@ -906,6 +908,7 @@ export class Store {
            AND EXISTS (SELECT 1 FROM agent_roles r WHERE r.session_id = p.session_id)
            AND NOT EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = p.session_id AND w.request_id = 'wake:' || t.id)
            AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.parent_task_id = t.parent_task_id AND r.request_id = t.request_id || ':retry')
+           AND NOT EXISTS (SELECT 1 FROM work_delegations w2 WHERE w2.id = t.work_id AND w2.canceled_at IS NOT NULL)
          ORDER BY t.created_at, t.id`,
       )
       .all() as any[];
@@ -998,10 +1001,10 @@ export class Store {
   insertWorkDelegation(work: WorkDelegation): void {
     this.db
       .prepare(
-        `INSERT INTO work_delegations (id, parent_session_id, origin_task_id, sub_agent_id, request_key, params_digest, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO work_delegations (id, parent_session_id, origin_task_id, sub_agent_id, request_key, params_digest, canceled_at, canceled_by, cancel_reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(work.id, work.parentSessionId, work.originTaskId, work.subAgentId, work.requestKey, work.paramsDigest, work.createdAt);
+      .run(work.id, work.parentSessionId, work.originTaskId, work.subAgentId, work.requestKey, work.paramsDigest, work.canceledAt, work.canceledBy, work.cancelReason, work.createdAt);
   }
 
   getWorkDelegation(id: string): WorkDelegation | null {
@@ -1037,13 +1040,37 @@ export class Store {
       subAgentId: row.sub_agent_id,
       requestKey: row.request_key,
       paramsDigest: row.params_digest,
+      canceledAt: row.canceled_at ?? null,
+      canceledBy: row.canceled_by ?? null,
+      cancelReason: row.cancel_reason ?? null,
       createdAt: row.created_at,
     };
+  }
+
+  /**
+   * 整项取消（issue 14）：一次条件写入（未取消才生效），与委派登记在同一
+   * 同步事务内定胜负——先登记的任务必然在取消清单内，后登记的必然被拒。
+   */
+  cancelWorkDelegation(id: string, at: string, by: WorkCanceledBy, reason: string | null): boolean {
+    const res = this.db
+      .prepare("UPDATE work_delegations SET canceled_at = ?, canceled_by = ?, cancel_reason = ? WHERE id = ? AND canceled_at IS NULL")
+      .run(at, by, reason, id);
+    return Number(res.changes) > 0;
   }
 
   /** 属一项工作委托的全部执行任务（按创建序）。 */
   listTasksByWork(workId: string): Task[] {
     const rows = this.db.prepare("SELECT * FROM tasks WHERE work_id = ? ORDER BY created_at, id").all(workId) as any[];
+    return rows.map((r) => this.rowToTask(r));
+  }
+
+  /** 属一项工作委托的活动执行任务（queued/running/awaiting_confirmation；整项取消的目标集）。 */
+  listActiveTasksByWork(workId: string): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks WHERE work_id = ? AND status IN ('queued','running','awaiting_confirmation') ORDER BY created_at, id`,
+      )
+      .all(workId) as any[];
     return rows.map((r) => this.rowToTask(r));
   }
 
@@ -1062,12 +1089,14 @@ export class Store {
    * dev 父会话待注入的 SubAgent 结果：终态、结果已记录、尚未注入开发模型
    * 上下文的执行任务（result_delivered_at 为 null）。注入时按 id 标记者在
    * 同一事务内；崩溃窗口丢失注入不丢失结果（持久事件与 subagent_result 可查）。
+   * 已取消的工作（issue 14）不再注入任何父模型——用一条规则排除主 Agent
+   * 据此重启工作；需要时由主 Agent 主动 subagent_result 读取。
    */
   listUndeliveredSubAgentResults(parentSessionId: string): Task[] {
     const rows = this.db
       .prepare(
         `SELECT t.* FROM tasks t JOIN work_delegations w ON w.id = t.work_id
-         WHERE w.parent_session_id = ? AND t.sub_agent_id IS NOT NULL
+         WHERE w.parent_session_id = ? AND t.sub_agent_id IS NOT NULL AND w.canceled_at IS NULL
            AND t.result_summary IS NOT NULL AND t.result_delivered_at IS NULL
            AND t.status IN ('completed','failed','canceled','interrupted')
          ORDER BY t.created_at, t.id`,

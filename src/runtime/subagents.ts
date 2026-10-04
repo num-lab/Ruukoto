@@ -17,6 +17,12 @@
  *   未关闭、空闲且无活动任务、工作目录身份与记录一致；忙碌明确拒绝不排队；
  * - 关闭（issue 12）是独立列（closed_at/closed_by），不改 state：有活动任务
  *   拒绝关闭；已关闭幂等返回；关闭后拒绝新委派，历史/产物/目录保留；
+ * - 整项取消（issue 14）用独立列（canceled_at/canceled_by/cancel_reason），
+ *   一次写入：登记事务内把本工作的排队任务直接转为 canceled、活动任务写
+ *   取消意图，提交后按现有停止路径逐个处理；登记事务与委派登记天然串行，
+ *   先登记的任务必然在取消清单内，后登记的必然被拒；已取消幂等返回；
+ *   取消不关闭 SubAgent、不删除历史/产物/工作目录，迟到结果保存为事实但
+ *   不再送达父模型；
  * - 资料与路径：main 的资料在委派时经 SourceResolver 解析为文本快照写入子工作
  *   目录（来源引用保存在任务 read_scope，启动与每次发送上下文前按该 Agent 全部
  *   历史任务的并集重新 verify）；dev 的待读路径限于父工作区及父任务已授予范围
@@ -35,6 +41,7 @@ import type {
   SubAgentClosedBy,
   SubAgentReadScope,
   Task,
+  WorkCanceledBy,
   WorkDelegation,
 } from "../core/types.ts";
 import { randomId } from "../core/types.ts";
@@ -101,6 +108,14 @@ export interface SubAgentDelegation {
   newWork: boolean;
 }
 
+/** 整项取消（issue 14）的结果：登记后的工作记录与本工作的全部执行任务（停止完成后重读）。 */
+export interface WorkCancellation {
+  work: WorkDelegation;
+  /** true = 此前已取消，幂等返回原记录（本次不产生事件、不动任务）。 */
+  alreadyCanceled: boolean;
+  tasks: Task[];
+}
+
 export interface SubAgentManagerDeps {
   store: Store;
   /** 子工作目录根（保护根之外，如 agent-work/sub-agents/）。 */
@@ -112,6 +127,8 @@ export interface SubAgentManagerDeps {
   launcherFor(mode: AccessMode): WorkerLauncher;
   defaultModelSelection(): ModelSelection;
   kickSession(sessionId: string): void;
+  /** 停止单个执行任务（Runtime 接线；整项取消的登记事务提交后逐一调用）。 */
+  cancelTask(taskId: string, reason?: string): Promise<Task>;
   protectedRoots(): string[];
   /** 后台数据目录（拒绝把工作目录放进保护根）。 */
   dataDir: string;
@@ -169,6 +186,10 @@ export class SubAgentManager {
     }
     if (reusedWork && reusedWork.parentSessionId !== parentSession.id) {
       throw new SubAgentDelegationError("forbidden", "该工作委托不属于本会话");
+    }
+    // 已取消的工作拒绝继续委派（准备前一次；登记事务内再核一次，见下）
+    if (reusedWork?.canceledAt) {
+      throw new SubAgentDelegationError("invalid_state", `工作已取消（${reusedWork.canceledAt}）：不能继续委派`);
     }
     let target = reusedWork ? this.store.getSubAgent(reusedWork.subAgentId) : null;
     if (reusedWork && !target) throw new SubAgentDelegationError("not_found", `工作 ${reusedWork.id} 缺少 SubAgent 记录`);
@@ -251,6 +272,10 @@ export class SubAgentManager {
         }
         // 竞争仲裁（继续原工作）：同键可能已在本调用准备期间提交
         const racedWork = this.store.getWorkDelegation(workId);
+        // 与整项取消的竞争：两个同步事务串行，后到者在这里被拒绝（零新任务）
+        if (racedWork?.canceledAt) {
+          throw new SubAgentDelegationError("invalid_state", `工作已取消（${racedWork.canceledAt}）：不能继续委派`);
+        }
         const racedAgent = racedWork ? this.store.getSubAgent(racedWork.subAgentId) : null;
         const racedTask = racedAgent ? this.store.findTaskByRequest(racedAgent.sessionId, requestId) : null;
         if (racedWork && racedAgent && racedTask) {
@@ -303,6 +328,9 @@ export class SubAgentManager {
             subAgentId: agentNow.id,
             requestKey: input.key,
             paramsDigest: input.paramsDigest,
+            canceledAt: null,
+            canceledBy: null,
+            cancelReason: null,
             createdAt: new Date().toISOString(),
           };
           this.store.insertWorkDelegation(work);
@@ -342,6 +370,9 @@ export class SubAgentManager {
             subAgentId: agentId,
             requestKey: input.key,
             paramsDigest: input.paramsDigest,
+            canceledAt: null,
+            canceledBy: null,
+            cancelReason: null,
             createdAt: now,
           };
           this.store.insertWorkDelegation(work);
@@ -426,6 +457,72 @@ export class SubAgentManager {
       );
       return { agent: this.store.getSubAgent(agent.id)!, alreadyClosed: false };
     });
+  }
+
+  /**
+   * 整项取消（issue 14）：一个事务登记，停止在事务外完成。
+   * - 事务内：写取消字段（条件为未取消，重复取消幂等返回原记录）；本工作的
+   *   排队任务直接转为 canceled（errorMessage 记 work_canceled）；活动任务
+   *   写取消意图（cancel_requested=1，覆盖已转 running 而未登记 currentTask
+   *   的窗口）；追加 work_delegation.canceled 事件。与委派登记同为同步事务
+   *   天然串行：先登记的任务必然在本清单内，后登记的必然被拒，不会遗漏。
+   * - 提交后：对每个活动任务调用 Runtime.cancelTask 按现有停止路径处理
+   *   （快照账本、解除审批等待、abort、回收进程组、终态补记）；无法回收的
+   *   执行按现有逻辑保留占用，SubAgent 记为 unverified。
+   * 主 Agent 发起时核对父会话归属。取消不关闭 SubAgent、不删除历史/产物/
+   * 工作目录；迟到结果保存为事实，但不再自动送进任何父模型（见编排器与
+   * 队列循环的回报门）。
+   */
+  async cancelWork(input: { workId: string; by: WorkCanceledBy; reason?: string | null; parentSessionId?: string }): Promise<WorkCancellation> {
+    const prepared = this.store.withTx(() => {
+      const work = this.store.getWorkDelegation(input.workId);
+      if (!work) throw new SubAgentDelegationError("not_found", `工作委托不存在：${input.workId}`);
+      if (input.by.startsWith("agent:") && work.parentSessionId !== input.parentSessionId) {
+        throw new SubAgentDelegationError("forbidden", "该工作委托不属于本会话");
+      }
+      if (work.canceledAt) return { work, alreadyCanceled: true, stopping: [] as Task[] };
+      const active = this.store.listActiveTasksByWork(work.id);
+      const now = new Date().toISOString();
+      const stopping: Task[] = [];
+      const canceled: Task[] = [];
+      for (const t of active) {
+        if (t.status === "queued") {
+          const ok = this.store.transitionTask(t.id, ["queued"], "canceled", { errorMessage: "work_canceled", endedAt: now });
+          if (ok) {
+            this.store.appendEvent(
+              { type: "task.canceled", taskId: t.id, sessionId: t.sessionId },
+              { taskId: t.id, sessionId: t.sessionId },
+            );
+            canceled.push(t);
+          }
+        } else {
+          this.store.setCancelRequested(t.id, true);
+          stopping.push(t);
+        }
+      }
+      const reason = input.reason?.trim() ? input.reason.trim() : null;
+      if (!this.store.cancelWorkDelegation(work.id, now, input.by, reason)) {
+        return { work: this.store.getWorkDelegation(work.id)!, alreadyCanceled: true, stopping: [] as Task[] };
+      }
+      const byTaskId = input.by.startsWith("agent:") ? input.by.slice("agent:".length) : null;
+      this.store.appendEvent(
+        {
+          type: "work_delegation.canceled",
+          workId: work.id,
+          parentSessionId: work.parentSessionId,
+          subAgentId: work.subAgentId,
+          canceledBy: input.by,
+          reason,
+          canceledTaskIds: canceled.map((t) => t.id),
+          stoppingTaskIds: stopping.map((t) => t.id),
+        },
+        { taskId: byTaskId, sessionId: work.parentSessionId },
+      );
+      return { work: this.store.getWorkDelegation(work.id)!, alreadyCanceled: false, stopping };
+    });
+    // 事务外：活动任务按现有停止路径逐个处理（已自然终态的由 cancelTask 拒绝，忽略）
+    await Promise.allSettled(prepared.stopping.map((t) => this.deps.cancelTask(t.id, "work_canceled")));
+    return { work: prepared.work, alreadyCanceled: prepared.alreadyCanceled, tasks: this.store.listTasksByWork(prepared.work.id) };
   }
 
   /**
@@ -581,7 +678,7 @@ export class SubAgentManager {
   }
 }
 
-/** 工具操作账本族核实：委派按工作/Agent/会话/任务关联核实；关闭按 closed_at 核实。 */
+/** 工具操作账本族核实：委派按工作/Agent/会话/任务关联核实；关闭按 closed_at 核实；取消按 canceled_at 核实。 */
 export function subagentOpCheck(coreStore: Store): {
   verify(op: { taskId: string; toolName?: string; params: Record<string, unknown> }): "committed" | "not_committed" | "unverifiable";
   committed(when: string): string;
@@ -593,6 +690,11 @@ export function subagentOpCheck(coreStore: Store): {
         const agent = typeof op.params.sub_agent_id === "string" ? coreStore.getSubAgent(op.params.sub_agent_id) : null;
         if (!agent) return "not_committed";
         return agent.closedAt !== null ? "committed" : "not_committed";
+      }
+      if (op.toolName === "subagent_cancel") {
+        const work = typeof op.params.work_id === "string" ? coreStore.getWorkDelegation(op.params.work_id) : null;
+        if (!work) return "not_committed";
+        return work.canceledAt !== null ? "committed" : "not_committed";
       }
       const task = coreStore.getTask(op.taskId);
       if (!task) return "not_committed";

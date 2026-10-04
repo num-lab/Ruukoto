@@ -630,10 +630,11 @@
           <tr><td><code>service_grant_list</code></td><td>长期授权分页列表</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>service_grant_get</code></td><td>单条授权：完整范围、版本、状态原因与使用记录</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>service_grant_revoke</code></td><td>撤销授权；重复撤销幂等，不再发事件</td><td>是</td><td><code>expected_version</code></td><td>—</td></tr>
-          <tr><td colspan="5"><b>工作委托与 SubAgent（只读；委派经模型的委派工具产生，控制面不能建委派）</b></td></tr>
-          <tr><td><code>work_list</code></td><td>工作委托列表（可选 <code>session_id</code> 限定父会话），每项带 SubAgent 身份与各次执行任务的状态和结果摘要</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td><code>work_get</code></td><td>单个工作详情：工作、SubAgent 身份与全部执行任务</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td colspan="5"><b>工作委托与 SubAgent（委派经模型的委派工具产生，控制面不能建委派）</b></td></tr>
+          <tr><td><code>work_list</code></td><td>工作委托列表（可选 <code>session_id</code> 限定父会话），每项带 SubAgent 身份与各次执行任务的状态和结果摘要；工作对象含取消三列</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td><code>work_get</code></td><td>单个工作详情：工作、SubAgent 身份与全部执行任务；工作对象含取消三列</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>subagent_close</code></td><td>显式关闭一个 SubAgent（参数 <code>sub_agent_id</code>；<code class="src" data-src="src/control/server.ts#case &quot;subagent_close&quot;:">server.ts · subagent_close</code>）：有活动任务（queued / running / awaiting_confirmation）拒绝并给任务 id，等任务结束或先 <code>cancel</code> 再关；已关闭幂等；关闭后新委派拒绝 <code>closed</code>，历史、产物与目录保留。CLI：<code>ruukoto work close</code></td><td>是</td><td>已关闭幂等（不再发事件）</td><td>—</td></tr>
+          <tr><td><code>work_cancel</code></td><td>整项取消一项工作委托（参数 <code>work_id</code>、可选 <code>reason</code>；<code class="src" data-src="src/control/server.ts#case &quot;work_cancel&quot;:">server.ts · work_cancel</code>）：登记事务内把该工作的排队任务直接取消并给活动任务写取消意图，提交后按普通停止路径逐个停止；已取消幂等返回原记录与任务状态；其他工作不受影响；取消不关闭 SubAgent，历史与产物保留。CLI：<code>ruukoto work cancel</code></td><td>是</td><td>已取消幂等（不再发事件）</td><td>—</td></tr>
         </tbody>
       </table>
     </div>
@@ -729,6 +730,7 @@
           <tr><td><code>child_task.result_unknown</code></td><td>子任务结果未知（如后台重启中断），不自动重放外部副作用</td><td><a href="orchestrator.html#child">编排器</a></td></tr>
           <tr><td><code>work_delegation.created</code></td><td>通用 SubAgent 委派已登记：工作、SubAgent、独立会话与排队任务同一事务</td><td><a href="orchestrator.html#subagent">编排器</a></td></tr>
           <tr><td><code>subagent.closed</code></td><td>SubAgent 已显式关闭（归父会话；主 Agent 经 <code>subagent_close</code> 或拥有者经控制面 <code>subagent_close</code> 发起，<code>closedBy</code> 记 <code>owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）。与关闭两列同事务；关闭只收窄能力，历史与产物保留</td><td><a href="orchestrator.html#subagent-close">编排器</a></td></tr>
+          <tr><td><code>work_delegation.canceled</code></td><td>整项工作已取消（归父会话；主 Agent 经 <code>subagent_cancel</code> 或拥有者经控制面 <code>work_cancel</code> 发起，<code>canceledBy</code> 记 <code>owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）。与取消三列同事务；<code>canceledTaskIds</code>（事务内直接取消的排队任务）与 <code>stoppingTaskIds</code>（事务外按停止路径处理的活动任务）分开记录；迟到结果不再送达父模型</td><td><a href="orchestrator.html#subagent-cancel">编排器</a></td></tr>
           <tr><td><code>subagent_task.completed</code></td><td>SubAgent 执行任务完成；结果与 SubAgent 状态（空闲，执行单元未确认退出时为待核实）同一事务；事件归到父会话</td><td><a href="orchestrator.html#subagent-state">编排器</a></td></tr>
           <tr><td><code>subagent_task.failed</code></td><td>SubAgent 执行任务失败（不是超时引起的取消也算失败）</td><td><a href="orchestrator.html#subagent-state">编排器</a></td></tr>
           <tr><td><code>subagent_task.timeout</code></td><td>超过截止时间被取消；截止时间为父任务开始后 60 分钟（<code class="src" data-src="src/runtime/subagents.ts#deadlineMs: 60 * 60_000">SUBAGENT_LIMITS.deadlineMs</code>）</td><td><a href="orchestrator.html#subagent-state">编排器</a></td></tr>
@@ -782,7 +784,7 @@
 
   <section id="versions">
     <h2>协议版本演进</h2>
-    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v12</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 12">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
+    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v13</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 13">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>版本</th><th>变化（据 protocol.ts 头注释）</th></tr></thead>
@@ -794,6 +796,7 @@
           <tr><td><code>v10</code></td><td>长期操作授权（agent-direction 工单 10）：批准新增可空的授权 ID 与版本关联，以及新决定来源 <code>standing_permission</code>；新增 <code>standing_permission.*</code> 事件与 <code>service_grant_list</code> / <code>service_grant_get</code> / <code>service_grant_revoke</code>，控制面不获得创建或扩大授权的能力</td></tr>
           <tr><td><code>v11</code></td><td>通用 SubAgent 委派（agent-direction 工单 11，ADR 0020）：快照新增 <code>workDelegations</code>、<code>subAgents</code> 与 <code>subAgentSessionIds</code>；新增 <code>work_delegation.created</code> 与 <code>subagent_task.*</code> 事件，只读 op <code>work_list</code> / <code>work_get</code></td></tr>
           <tr><td><code>v12</code></td><td>SubAgent 继续、复用与显式关闭（agent-direction 工单 12）：<code>subAgents</code> 身份另带 <code>closedAt</code> / <code>closedBy</code>；新增 <code>subagent.closed</code> 事件与 op <code>subagent_close</code>（工作委托与工作 / SubAgent 的只读列表照旧）；委派复用经模型工具的 <code>sub_agent_id</code> 参数</td></tr>
+          <tr><td><code>v13</code></td><td>整项工作取消（agent-direction 工单 14）：<code>workDelegations</code> 工作对象另带 <code>canceledAt</code> / <code>canceledBy</code> / <code>cancelReason</code>；新增 <code>work_delegation.canceled</code> 事件与 op <code>work_cancel</code>；主 Agent 工具增加 <code>subagent_cancel</code></td></tr>
         </tbody>
       </table>
     </div>

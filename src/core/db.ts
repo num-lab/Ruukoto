@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -521,6 +521,10 @@ CREATE TABLE IF NOT EXISTS work_delegations (
   sub_agent_id TEXT NOT NULL REFERENCES sub_agents(id),
   request_key TEXT NOT NULL,
   params_digest TEXT NOT NULL,
+  -- v26（agent-direction issue 14）：整项工作取消（独立列，一次写入；旧行三列为空）
+  canceled_at TEXT,
+  canceled_by TEXT,
+  cancel_reason TEXT,
   created_at TEXT NOT NULL,
   UNIQUE (parent_session_id, request_key)
 );
@@ -632,7 +636,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 24) {
+    } else if (version >= 2 && version <= 25) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -663,6 +667,8 @@ export class Db {
       // 长期授权、历史及产物原样保留，旧任务关联列为空。
       // v24 → v25：sub_agents 补 closed_at / closed_by 两列（ensureColumns，
       // agent-direction issue 12）；旧 Agent 两列为空（未关闭），state 语义不变。
+      // v25 → v26：work_delegations 补 canceled_at / canceled_by / cancel_reason
+      // 三列（ensureColumns，agent-direction issue 14）；旧工作三列为空（未取消）。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -945,6 +951,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // 旧行两列为空（未关闭），不扫描、不改写旧记录。
     add("sub_agents", "closed_at", "closed_at TEXT");
     add("sub_agents", "closed_by", "closed_by TEXT");
+    // v26（agent-direction issue 14）：整项工作取消。独立列、一次写入；
+    // 旧行三列为空（未取消），不扫描、不改写旧记录。
+    add("work_delegations", "canceled_at", "canceled_at TEXT");
+    add("work_delegations", "canceled_by", "canceled_by TEXT");
+    add("work_delegations", "cancel_reason", "cancel_reason TEXT");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

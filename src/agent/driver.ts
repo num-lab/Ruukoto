@@ -161,7 +161,7 @@ export interface DriverDeps {
    * 普通开发会话与 main 装配；readReply 读指定任务的最终回答，delegate 走集中
    * 登记（不阻塞父任务），close 显式关闭（只收窄能力）。
    */
-  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "readReply">;
+  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "readReply">;
   /**
    * dev 父会话待注入的 SubAgent 结果：任务开始时收集并由 driver 标记送达
    * （注入随下一次模型调用送达；崩溃窗口不丢失，持久事件与 subagent_result 可查）。
@@ -804,6 +804,16 @@ export class Driver {
   }
 
   private async runInner(task: Task): Promise<void> {
+    // 取消窗口（agent-direction issue 14）：任务已转 running、currentTask 尚未
+    // 登记时到达的取消先持久化了 cancel_requested；这里直接按取消意图定态
+    // canceled，不调用模型、不建 SDK 会话。
+    // ponytail: 落在本窗口的取消不保留原始原因（超时取消会记为 canceled 而非
+    // timeout）；原因在 requestStop 路径才有载体，窗口内没有。窗口写原因需给
+    // 任务再加一列，暂不值得。
+    if (this.deps.store.getTask(task.id)?.cancelRequested) {
+      this.finalize(task, "canceled", { interruptReason: "cancel_requested" });
+      return;
+    }
     let sdk: AgentSession;
     try {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");

@@ -739,11 +739,17 @@ async function runLegacy(cmd: string, rest: string[]): Promise<number> {
         print(await withClient((c) => c.request("subagent_close", { sub_agent_id: positional[1] })));
         return 0;
       }
+      // 整项取消工作（issue 14）：停止其活动与排队任务，其他工作不受影响；已取消幂等
+      if (sub === "cancel" && positional[1]) {
+        print(await withClient((c) => c.request("work_cancel", { work_id: positional[1], reason: flags["reason"] })));
+        return 0;
+      }
       console.error(
         "用法：\n" +
           "  ruukoto work list [--session <会话ID>]\n" +
           "  ruukoto work show <工作ID>\n" +
-          "  ruukoto work close <SubAgentID>",
+          "  ruukoto work close <SubAgentID>\n" +
+          "  ruukoto work cancel <工作ID> [--reason R]",
       );
       return 1;
     }

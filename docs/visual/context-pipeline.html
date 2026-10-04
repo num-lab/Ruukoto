@@ -101,7 +101,7 @@
           <path class="e accent dash" d="M528 36 V20 H250 V32" marker-end="url(#ah-accent)"/>
           <text class="el" x="389" y="13">有摘要等待或落盘：重读输入，再选一次</text>
 
-          <g class="n"><rect x="0" y="36" width="132" height="80" rx="8"/><text x="66" y="58">分支消息</text><text class="sub" x="66" y="80">SDK 当前分支</text><text class="sub" x="66" y="98">QQ 群先滤撤回</text></g>
+          <g class="n"><rect x="0" y="36" width="132" height="80" rx="8"/><text x="66" y="58">分支消息</text><text class="sub" x="66" y="80">SDK 当前分支</text><text class="sub" x="66" y="98">QQ 群滤撤回（遗留）</text></g>
           <g class="n"><rect x="154" y="36" width="132" height="80" rx="8"/><text x="220" y="58">收集输入</text><text class="sub" x="220" y="80">按钉住 id 读记忆</text><text class="sub" x="220" y="98">核对压缩点指纹</text></g>
           <g class="n"><rect x="308" y="36" width="132" height="80" rx="8"/><text x="374" y="58">选择</text><text class="sub" x="374" y="80">必留 → 较早批次</text><text class="sub" x="374" y="98">→ 历史交互</text></g>
           <g class="n accent"><rect x="462" y="36" width="132" height="80" rx="8"/><text x="528" y="58">压缩</text><text class="sub" x="528" y="80">超过 H′ 才规划</text><text class="sub" x="528" y="98">清理 → 摘要</text></g>
@@ -414,7 +414,7 @@
       <div class="card"><h4>默认</h4><p>本项目的历史 / 产物 / 生效记忆 + 个人共享记忆。记忆的每条来源引用都要当前可访问（<code class="src" data-src="src/core/access.ts#sourceRefAccessible">sourceRefAccessible</code>）：来源不再可访问的记忆下一次调用即不注入，选择记录记 <code>source_scope_revoked</code>。</p></div>
       <div class="card"><h4>资料授权</h4><p>拥有者在可信入口（CLI <code>ruukoto grant</code>、配置中心的项目详情）创建的 <code>data_grants</code>：来源项目、目标项目、类别 <code>history</code> / <code>artifact</code> / <code>memory</code>，同项目不需要也不能建（<code class="src" data-src="src/core/access.ts#createGrant">access.ts · createGrant</code>）。可查看、可撤销；撤销自后续查询与上下文注入起生效，不撤回已经发给模型的内容。来源与目标都按原项目 ID 判定，会话的工作区组织归属不改变授权端点。</p></div>
       <div class="card"><h4>受限身份</h4><p><code>qq_group</code>（QQ 群聊入口，旧架构）与 <code>role_restricted</code>（chat 角色，旧架构）只读本项目、不查授权表，<code>owner_note</code> 来源不自动放行。main 与 coding 的项目一律不能读取原始 QQ 群项目，这条先于资料授权判定。</p></div>
-      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">dataScopeRestricted</code>：<code>chat</code> 与 <code>subagent</code> 两个工具类别，即 QQ 群、chat 角色与 SubAgent 子会话）不注入任何参考块与记忆、不跑 Jev、不压缩；QQ 群还会在每次调用前移出已撤回的消息（只改视图，不改写历史）。SubAgent 的资料身份仍是普通的 <code>agent</code>，限制来自上下文与工具，见<a href="#subagent">下一节</a>。</p></div>
+      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">dataScopeRestricted</code>：<code>chat</code> 与 <code>subagent</code> 两个工具类别，即 QQ 群、chat 角色与 SubAgent 子会话）不注入任何参考块与记忆、不跑 Jev、不压缩。核心群聊退役后不再有新群任务运行：Runtime 不再注入撤回过滤；Driver 里按撤回标记移出已撤回消息（只改视图，不改写历史）的 qq_group 分支是退役前的遗留代码，随 issue 23 清理。SubAgent 的资料身份仍是普通的 <code>agent</code>，限制来自上下文与工具，见<a href="#subagent">下一节</a>。</p></div>
     </div>
     <h3 id="workspace-config">工作区配置：按原项目读取</h3>
     <p>工作区就是带根目录归属的项目（项目是旧架构的组织边界），配置仍挂在项目上。旧会话经迁移映射到工作区后只改 <code>sessions.workspace_project_id</code>，这一列只决定会话显示在哪个工作区下（ADR 0018）；下表每一项都按会话的原项目 <code>sessions.project_id</code> 读取，映射前后不变，迁移也不复制配置。迁移流程与两个归属字段见<a href="storage-layout.html#workspace">存储布局</a>。</p>

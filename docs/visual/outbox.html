@@ -30,7 +30,6 @@
         <code class="src" data-src="src/scheduler/news.ts#export async function collectNews">scheduler/news.ts</code>
         <code class="src" data-src="src/agent/scheduler-tools.ts#export function createSchedulerTools">agent/scheduler-tools.ts</code>
         <code class="src" data-src="src/telegram/adapter.ts#async send(input">telegram/adapter.ts</code>
-        <code class="src" data-src="src/qq/adapter.ts#private async sendReply">qq/adapter.ts</code>
         <code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts</code>
         <code class="src" data-src="src/core/notify-target.ts#export function sameTarget">core/notify-target.ts</code>
         <code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime/runtime.ts</code>
@@ -488,11 +487,11 @@
 
   <section id="channels">
     <h2>渠道与两本账</h2>
-    <p>公共 outbox 按发送操作上持久的 <code>target.channel</code> 选发送器（<code class="src" data-src="src/runtime/runtime.ts#private notifyChannel">runtime.ts · notifyChannel</code>）：<code>qq_private</code> 交 QQ 适配器，<code>telegram</code> 交 Telegram 适配器；其他取值，或对应适配器没有创建（入口由启动配置停用），都没有发送器，操作保持 pending。测试可经配置注入模拟渠道（QQ 私聊之外的渠道都交给它）。QQ 群的普通回复（旧架构 QQ 群聊入口的现行实现，新方向迁到可独立停用的群聊外挂）不走公共 outbox，而是 QQ 适配器自己的 <code>qq_outbox</code>。QQ 连接的代次键含配置版本（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>）：任何配置或凭据变化都重建连接，旧连接上的事件不再接纳，断开时旧连接上还没应答的动作按结果不明拒绝（私聊发送记 effect_unknown，群回复记 unknown）。两个平台的配置变化对公共 outbox 的影响都靠目标比对拦截，见<a href="#targets">固定目标</a>。</p>
+    <p>公共 outbox 按发送操作上持久的 <code>target.channel</code> 选发送器（<code class="src" data-src="src/runtime/runtime.ts#private notifyChannel">runtime.ts · notifyChannel</code>）：<code>qq_private</code> 交 QQ 适配器，<code>telegram</code> 交 Telegram 适配器；其他取值，或对应适配器没有创建（入口由启动配置停用），都没有发送器，操作保持 pending。测试可经配置注入模拟渠道（QQ 私聊之外的渠道都交给它）。QQ 群的普通回复（旧架构 QQ 群聊入口）不走公共 outbox，而是 QQ 适配器自己的 <code>qq_outbox</code>；核心群聊已退役（agent-direction 工单 20），<code>qq_outbox</code> 不再有新增，保留为只读归档。QQ 连接的代次键含配置版本（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>）：任何配置或凭据变化都重建连接，旧连接上的事件不再接纳，断开时旧连接上还没应答的动作按结果不明拒绝（私聊发送记 effect_unknown；退役前的群回复记 unknown）。两个平台的配置变化对公共 outbox 的影响都靠目标比对拦截，见<a href="#targets">固定目标</a>。</p>
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 404" role="img" aria-label="两本发送账本：上方，登记方写入 notification_ops，发送循环领取并收尾，按目标渠道调用 Telegram sendMessage 或 QQ send_private_msg；下方，QQ 群任务完成事件触发适配器的 sendReply，它先把回复写入 qq_outbox 再调用 send_group_msg 并按结果定态。两个 QQ 动作共用 NapCat 连接，两本账互不引用。">
+        <svg viewBox="0 0 1040 404" role="img" aria-label="两本发送账本：上方，登记方写入 notification_ops，发送循环领取并收尾，按目标渠道调用 Telegram sendMessage 或 QQ send_private_msg；下方是退役前（旧架构）的群回复链路——QQ 群任务完成事件触发适配器 sendReply，先把回复写入 qq_outbox 再调用 send_group_msg 并按结果定态——核心群聊退役后整条链路不再发生，qq_outbox 为只读归档。两个 QQ 动作共用 NapCat 连接，两本账互不引用。">
           <g class="n"><rect x="16" y="44" width="200" height="52" rx="8"/><text x="116" y="62">登记方</text><text class="sub" x="116" y="81">到期 · 审批 · 结果 · IM 命令</text></g>
           <path class="e" d="M216 70H288" marker-end="url(#ah)"/>
           <text class="el" x="252" y="62">insertOp</text>
@@ -513,19 +512,19 @@
           <path class="e dash" d="M395 98V292"/>
           <text class="el" x="395" y="200">互不引用</text>
 
-          <g class="n"><rect x="16" y="294" width="200" height="52" rx="8"/><text x="116" y="312">QQ 群任务完成</text><text class="sub" x="116" y="331">task.completed</text></g>
-          <g class="n accent"><rect x="290" y="294" width="210" height="52" rx="8"/><text x="395" y="312">qq_outbox</text><text class="sub" x="395" y="331">群回复账本</text></g>
-          <g class="n run"><rect x="580" y="294" width="180" height="52" rx="8"/><text x="670" y="312">sendReply</text><text class="sub" x="670" y="331">适配器直接调用</text></g>
-          <path class="e" d="M116 346V386H670V348" marker-end="url(#ah)"/>
-          <text class="el" x="393" y="380">任务终态事件</text>
-          <path class="e" d="M578 320H502" marker-start="url(#ah)" marker-end="url(#ah)"/>
+          <g class="n idle"><rect x="16" y="294" width="200" height="52" rx="8"/><text x="116" y="312">QQ 群任务完成</text><text class="sub" x="116" y="331">退役前 task.completed</text></g>
+          <g class="n idle"><rect x="290" y="294" width="210" height="52" rx="8"/><text x="395" y="312">qq_outbox</text><text class="sub" x="395" y="331">只读归档 · 无新增</text></g>
+          <g class="n idle"><rect x="580" y="294" width="180" height="52" rx="8"/><text x="670" y="312">sendReply</text><text class="sub" x="670" y="331">已删除</text></g>
+          <path class="e dash" d="M116 346V386H670V348" marker-end="url(#ah)"/>
+          <text class="el" x="393" y="380">退役前：任务终态事件</text>
+          <path class="e dash" d="M578 320H502" marker-start="url(#ah)" marker-end="url(#ah)"/>
           <text class="el" x="540" y="312">先落 · 后定态</text>
-          <g class="n"><rect x="840" y="297" width="180" height="46" rx="8"/><text x="930" y="312">send_group_msg</text><text class="sub" x="930" y="330">QQ 群</text></g>
-          <path class="e" d="M760 320H838" marker-end="url(#ah)"/>
-          <text class="el" x="791" y="312">调用一次</text>
+          <g class="n idle"><rect x="840" y="297" width="180" height="46" rx="8"/><text x="930" y="312">send_group_msg</text><text class="sub" x="930" y="330">QQ 群</text></g>
+          <path class="e dash" d="M760 320H838" marker-end="url(#ah)"/>
+          <text class="el" x="791" y="312">退役前：调用一次</text>
         </svg>
       </div>
-      <figcaption>QQ 私聊的 owner 回复与通知走上半的公共 outbox，与 Telegram 同一套状态机；QQ 群回复走下半。两本账共用一条 NapCat 连接，但互不引用：ADR 0010 明确既有 qq_outbox 暂不迁移到公共账本。</figcaption>
+      <figcaption>QQ 私聊的 owner 回复与通知走上半的公共 outbox，与 Telegram 同一套状态机；下半是退役前的 QQ 群回复链路（虚线，仅解释归档数据）：核心群聊已退役，sendReply 已删除，<code>qq_outbox</code> 不再有新增。两本账共用一条 NapCat 连接，但互不引用：ADR 0010 明确既有 qq_outbox 暂不迁移到公共账本。</figcaption>
     </figure>
 
     <h3>各渠道怎样分类结果</h3>
@@ -555,24 +554,24 @@
     <h3>两本账对照</h3>
     <div class="scroll">
       <table class="tbl">
-        <thead><tr><th></th><th>notification_ops（公共 outbox）</th><th>qq_outbox（QQ 群回复）</th></tr></thead>
+        <thead><tr><th></th><th>notification_ops（公共 outbox）</th><th>qq_outbox（QQ 群回复 · 已退役归档，「退役前」列即旧架构行为）</th></tr></thead>
         <tbody>
           <tr><td>状态</td><td><code>pending</code> <code>sending</code> <code>sent</code> <code>failed</code> <code>effect_unknown</code> <code>canceled</code></td><td><code>pending</code> <code>sent</code> <code>failed</code> <code>unknown</code> <code>canceled</code>（<code class="src" data-src="src/qq/store.ts#export type QqOutboxStatus">qq/store.ts · QqOutboxStatus</code>）</td></tr>
           <tr><td>pending 的含义</td><td>未领取，还没调用平台</td><td>已登记、请求即将或已经发出：发送前一刻写入，没有单独的 sending</td></tr>
           <tr><td>键与去重</td><td><code>(source_kind, source_key)</code> 唯一</td><td><code>op_id</code> 主键；每个任务只登记一条（发送前按任务查重，<code class="src" data-src="src/qq/store.ts#getOutboxByTask">qq/store.ts · getOutboxByTask</code>）</td></tr>
-          <tr><td>登记时机</td><td>审批、到期、新闻采集收尾、编排器结果或 IM 命令处理的事务内</td><td>任务完成事件之后，发送前复核（启停、群范围、账号、在线、撤回）通过才写（<code class="src" data-src="src/qq/adapter.ts#private async sendReply">qq/adapter.ts · sendReply</code>）</td></tr>
-          <tr><td>谁调用平台</td><td>调度器发送循环，一次一个在途</td><td>QQ 适配器直接调用 <code>send_group_msg</code></td></tr>
+          <tr><td>登记时机</td><td>审批、到期、新闻采集收尾、编排器结果或 IM 命令处理的事务内</td><td>退役前：任务完成事件之后，发送前复核通过才写；退役后无新增</td></tr>
+          <tr><td>谁调用平台</td><td>调度器发送循环，一次一个在途</td><td>退役前由 QQ 适配器直接调用 <code>send_group_msg</code></td></tr>
           <tr><td>限流</td><td>RetryLaterError 退回 pending</td><td>无</td></tr>
           <tr><td>结果说不清</td><td><code class="st unk">effect_unknown</code></td><td><code class="st unk">unknown</code>（平台明确失败才是 failed）</td></tr>
           <tr><td>迟到结果</td><td>写 <code>late_receipt</code></td><td>已被别处定态时追加到 error（<code class="src" data-src="src/qq/store.ts#noteLateOutcome">qq/store.ts · noteLateOutcome</code>）</td></tr>
-          <tr><td>撤回与停用</td><td>不适用（取消见上）</td><td>撤回取消该消息及引用它的消息未完成的任务，在途 pending 回复记 unknown；停用或移出群同样把在途回复记 unknown（<code class="src" data-src="src/qq/adapter.ts#private async handleRecall">handleRecall</code> <code class="src" data-src="src/qq/adapter.ts#private async cancelQqWork">cancelQqWork</code>）</td></tr>
+          <tr><td>撤回与停用</td><td>不适用（取消见上）</td><td>退役后撤回只给收件打 recalled 标记（<code class="src" data-src="src/qq/adapter.ts#private async handleRecall">handleRecall</code>）；退役前撤回与停用取消未完成任务、在途 pending 回复记 unknown</td></tr>
           <tr><td>查看</td><td><code>ruukoto notify list|show</code>、<code>notification_query</code></td><td><code>ruukoto qq outbox</code>、TUI <code>/qq outbox</code></td></tr>
         </tbody>
       </table>
     </div>
     <aside class="callout limit">
       <b>已知限制</b>
-      <p>qq_outbox 的 <code>canceled</code> 只在类型与表约束里存在，当前没有代码写入它：撤回时尚未登记的回复因任务被取消而根本不会登记，已登记的在途回复记 <code>unknown</code>。启动后首次连上 NapCat 时补齐回复的恢复（<code class="src" data-src="src/qq/adapter.ts#private recoverCompletedInbox">recoverCompletedInbox</code>）会把它映射为收件 skipped。</p>
+      <p>qq_outbox 的 <code>canceled</code> 只在类型与表约束里存在，任何版本的代码都没有写入它：退役前撤回时尚未登记的回复因任务被取消而根本不会登记，已登记的在途回复记 <code>unknown</code>。退役后不再有新回复产生；每次启动的退役收尾把遗留 pending 一律定 <code>unknown</code>（<code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime.ts · retireGroupChat</code>，效应未知不重发），对应收件记 <code>reply_unknown</code>。</p>
     </aside>
   </section>
 
@@ -652,14 +651,14 @@
       <li>恢复准备（<code class="src" data-src="src/scheduler/runtime.ts#prepareRecovery(): void">runtime.ts · prepareRecovery</code>）：① 关联记录早已终态、只是关闭标记没写上的运行先补关闭；② 到期计划按正常到期事务处理，仍在 registered/queued/running/pending/sending/searching 的运行吸收漏过区间，没有未完成运行的计划补一次；③ 一个事务里把遗留 sending 全部定为 <code class="st unk">effect_unknown</code>（<code>backend_restart</code>）；④ 停在 searching 的采集定为 unknown，登记 <code>news_backend_restart</code> 的 failed 发送操作，同一窗口不重搜。</li>
       <li>通用任务恢复：running 与 awaiting_confirmation 转 interrupted，见<a href="task-lifecycle.html">任务生命周期</a>。</li>
       <li>编排器启动：按原请求键重提已登记未建任务的入站事件，补记重启窗口内结束的任务结果；owner 回复与 GitHub 评审通知随这次结果事务补登。结果只写一次，已记录结果的任务不再登记。</li>
-      <li>QQ 适配器启动：遗留 pending 的群回复一律定为 <code>unknown</code>，对应收件记 reply_unknown（<code class="src" data-src="src/qq/store.ts#reconcilePendingOutboxOnBoot(): number">qq/store.ts · reconcilePendingOutboxOnBoot</code>）。随后 Telegram 开始轮询。</li>
+      <li>核心群聊退役收尾（<code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime.ts · retireGroupChat</code>，通用任务恢复之后、编排器启动之前）：遗留 pending 的群回复一律定为 <code>unknown</code>，对应仍在 queued 的收件记 reply_unknown；群会话排队任务取消（原因 <code>core_group_chat_retired</code>）；剩余未终态收件记 skipped。随后 Telegram 开始轮询，QQ 适配器启动（只为私聊）。</li>
       <li>然后 <code>scheduler.start()</code>（仅个人 Agent 产品）：开定时器，唤醒发送循环与采集循环，到期扫描从这里开始。GitHub webhook 在它之后才开始监听。</li>
     </ol>
     <aside class="callout inv">
       <b>为什么必须在通用恢复之前</b>
       <p>如果先改写，停机时仍在执行的唤醒任务会先变成 interrupted，它的运行被当作已结束而关闭，漏过的周期就会另建一次运行、再唤醒一次 main。先做恢复准备，这类运行还开着，漏过的周期并入它。遗留 sending 同理放在补关闭与合并之后才定为未知：发送中断的运行在这次恢复里仍算未完成，漏过的周期不会另发一次；它在之后的正常关闭中释放。</p>
     </aside>
-    <p>后台停止时，调度器在 GitHub webhook 之后、Telegram 轮询、编排器与 QQ 适配器之前停止（<code class="src" data-src="src/runtime/runtime.ts#await this.scheduler?.stop()">runtime.ts · doStop</code>）：停止扫描与领取，中止在途发送（记 <code>timeout_or_abort</code> 的 effect_unknown）与在途采集（采集记 unknown，登记 <code>news_canceled</code> 的 failed 发送操作）并等待收尾。QQ 适配器停止时不补发，在途的群回复保留 pending，下次启动定为 unknown。</p>
+    <p>后台停止时，调度器在 GitHub webhook 之后、Telegram 轮询、编排器与 QQ 适配器之前停止（<code class="src" data-src="src/runtime/runtime.ts#await this.scheduler?.stop()">runtime.ts · doStop</code>）：停止扫描与领取，中止在途发送（记 <code>timeout_or_abort</code> 的 effect_unknown）与在途采集（采集记 unknown，登记 <code>news_canceled</code> 的 failed 发送操作）并等待收尾。退役后不再有新的群回复；停止前的在途群回复假如仍有 pending，也由下次启动的退役收尾定为 unknown。</p>
   </section>
 
   <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>

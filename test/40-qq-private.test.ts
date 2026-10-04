@@ -74,12 +74,11 @@ test("QQ owner 私聊复用 main、固定 confirm、先登记且去重；群与�
     const main = rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!;
     await rt.setSessionDefaultMode({ sessionId: main.id, mode: "full_access", expectedVersion: main.defaultAccessModeVersion });
     await configure(rt, h.onebot);
-    await rt.qqGroupUpdate({ groupId: GROUP, allow: true });
     await waitOnline(rt);
+    // 核心群聊已退役（issue 20）：群 @ 消息直接忽略——零任务、零收件、零回复
     h.onebot.pushGroupMessage({ groupId: GROUP, userId: OWNER, messageId: 1, segments: [
       { type: "at", data: { qq: MOCK_QQ_ACCOUNT } }, { type: "text", data: { text: "GROUP-SECRET" } },
     ] });
-    await waitFor("独立群会话已回复", () => sends(h.onebot, "send_group_msg").length === 1);
 
     push(h.onebot, 90, "MARK-STRANGER", OTHER);
     push(h.onebot, 91, "MARK-SELF", MOCK_QQ_ACCOUNT);
@@ -106,15 +105,13 @@ test("QQ owner 私聊复用 main、固定 confirm、先登记且去重；群与�
       assert.deepEqual(event.replyTarget, replyOps(rt).find((op) => op.taskId === task.id)!.target);
     }
     assert.equal(rt.store.getSession(main.id)!.defaultAccessMode, "full_access", "消息正文不能修改控制面配置");
-    assert.equal(rt.qqStore.listInbox({}).length, 1, "私聊不写群收件账本");
-    assert.equal(rt.qqStore.listGroupSessions().length, 1);
-    const groupSession = rt.qqStore.listGroupSessions()[0]!;
-    assert.notEqual(groupSession.sessionId, main.id);
-    assert.equal(rt.store.getSession(groupSession.sessionId)!.kind, "qq_group");
+    assert.equal(rt.qqStore.listInbox({}).length, 0, "群消息被忽略不登记收件；私聊不写群收件账本");
+    assert.equal(rt.qqStore.listGroupSessions().length, 0, "退役后不再建群会话");
+    assert.equal(sends(h.onebot, "send_group_msg").length, 0, "群消息零回复");
     const mainCall = h.model.calls.find((call) => lastUserText(call).includes("MARK-TWO"))!;
     assert.ok(JSON.stringify(mainCall.messages).includes("PRIVATE-SECRET"), "沿用 main 会话历史");
-    assert.ok(!JSON.stringify(mainCall.messages).includes("GROUP-SECRET"), "群历史不自动进入 main");
-    assert.ok(!JSON.stringify(h.model.calls.find((call) => lastUserText(call).includes("GROUP-SECRET"))!.messages).includes("PRIVATE-SECRET"));
+    assert.ok(!JSON.stringify(mainCall.messages).includes("GROUP-SECRET"), "群内容不进入 main");
+    assert.ok(!h.model.calls.some((call) => lastUserText(call).includes("GROUP-SECRET")), "群消息零模型调用");
     const toolNames = (mainCall.tools ?? []).map((tool: any) => tool.function?.name ?? tool.name);
     assert.ok(!toolNames.some((name) => ["respond_confirmation", "set_session_default_mode", "qq_configure"].includes(name)), "控制面不作为模型工具暴露");
     assert.deepEqual(replyOps(rt).map((op) => op.target.channel), ["qq_private", "qq_private"]);
@@ -511,7 +508,8 @@ test("schema v14 → v15 保留群配置与收发记录，owner 和已有入站�
     let db = new Db(dirs.dataDir);
     let qq = new QqStore(db);
     qq.upsertConfig({ endpoint: "ws://127.0.0.1:3001/", selfId: MOCK_QQ_ACCOUNT });
-    qq.setGroups([GROUP]);
+    // 历史群允许列表按旧形态直接写入（写入口已随核心群聊退役删除，issue 20）
+    db.prepare("UPDATE qq_config SET groups = ? WHERE id = 1").run(JSON.stringify([GROUP]));
     qq.setEnabled(true);
     qq.registerInbox({ account: MOCK_QQ_ACCOUNT, groupId: GROUP, userId: OWNER, senderName: "owner", messageId: "1", text: "群历史", taskInput: "群历史", messageTime: null });
     qq.createPendingOutbox({ taskId: "old-group-task", account: MOCK_QQ_ACCOUNT, groupId: GROUP, replyToMessageId: "1", text: "原群回复" });

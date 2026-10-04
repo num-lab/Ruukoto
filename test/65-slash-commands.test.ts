@@ -253,15 +253,15 @@ test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命�
   assert.deepEqual(f.log.requests.at(-1), ["qq_status", {}]);
   assert.equal(
     f.log.texts.at(-1),
-    "QQ 入口：已启用；连接 离线（未连接）\n端点 ws://x；预期账号 10；配置 v3；允许群：100、200\n" +
-      "拥有者私聊：未开启（共享 main；发送记录用 ruukoto notify list 查看）\n回复上限 500 字符；排队过期 60000ms\n" +
+    "QQ 入口：已启用；连接 离线（未连接）\n端点 ws://x；预期账号 10；配置 v3；允许群：100、200（历史值，核心群聊已退役）\n" +
+      "拥有者私聊：未开启（共享 main；发送记录用 ruukoto notify list 查看）\n旧群会话归档：\n" +
       "  群 100：会话 sess_abcde… 排队 2，执行中",
   );
   await f.run("/qq disable");
   assert.deepEqual(f.log.requests.at(-1), ["qq_set_enabled", { enabled: false }]);
   assert.equal(f.log.texts.at(-1), "QQ 入口已停用（配置 v5）");
   await f.run("/qq groups");
-  assert.equal(f.log.texts.at(-1), "允许的群：100、200\n增删经 CLI：ruukoto qq group add|remove <群号>");
+  assert.equal(f.log.texts.at(-1), "允许的群：100、200（历史值）\n核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）");
   await f.run("/qq inbox 100");
   assert.deepEqual(f.log.requests.at(-1), ["qq_inbox_list", { group_id: "100", limit: 20 }]);
   assert.equal(f.log.texts.at(-1), "暂无收件登记");
@@ -277,7 +277,7 @@ test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命�
   const idle = fake({ replies: { qq_status: { configured: true, enabled: false, online: false, stateDetail: "适配器未启动" } } });
   await idle.run("/qq");
   await idle.run("/qq groups");
-  assert.deepEqual(idle.log.texts, ["QQ 入口已配置；适配器未启动", "允许的群：（空）\n增删经 CLI：ruukoto qq group add|remove <群号>"]);
+  assert.deepEqual(idle.log.texts, ["QQ 入口已配置；适配器未启动", "允许的群：（空）（历史值）\n核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）"]);
   const broken = fake({ replies: { qq_status: new Error("连接断开") } });
   await broken.run("/qq");
   assert.match(broken.log.notes[0]!, /QQ 操作失败：连接断开/);

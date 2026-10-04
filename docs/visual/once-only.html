@@ -37,7 +37,7 @@
         <code class="src" data-src="src/scheduler/store.ts#claim(id: string)">scheduler/store.ts</code>
         <code class="src" data-src="src/scheduler/runtime.ts#private async sendOne">scheduler/runtime.ts</code>
         <code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts</code>
-        <code class="src" data-src="src/qq/adapter.ts#private async sendReply">qq/adapter.ts</code>
+        <code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime/runtime.ts</code>
         <code class="src" data-src="src/runtime/orchestrator.ts#registerInboundEvent">runtime/orchestrator.ts</code>
         <code class="src" data-src="src/control/submission.ts#class SubmissionGuard">control/submission.ts</code>
         <code class="src" data-src="src/agent/app-data/store.ts#replayIfDuplicate">app-data/store.ts</code>
@@ -118,15 +118,15 @@
             <td>明确成功 sent；渠道抛 <code>NotSentError</code>（可证明未发送）记 failed；超时、中止与其他错误记 effect_unknown；重启时遗留 sending 一律 effect_unknown（<code class="src" data-src="src/scheduler/store.ts#markSendingUnknown">store.ts · markSendingUnknown</code>）；迟到回执只补记、不改状态。唯一退回 pending 的是限流（见下文）</td>
           </tr>
           <tr data-k="qq" tabindex="0">
-            <td><strong>群聊回复</strong>（旧架构）<br><code class="src" data-src="src/qq/adapter.ts#private async sendReply">qq/adapter.ts · sendReply</code></td>
-            <td>收件先记 <code>qq_inbox</code>（主键 <code>dedup_key</code> = 账号:群:消息 id，请求键 <code>qq:&lt;dedup_key&gt;</code>）；回复先记 <code>qq_outbox</code>（pending，主键 <code>op_id</code>，<code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts · createPendingOutbox</code>）再调用平台</td>
-            <td>任务完成后发送：先按任务查 <code>qq_outbox</code>，已有记录就不再发（<code>task_id</code> 上没有唯一约束，靠这次查询）；再核对启停、群范围、账号在线与撤回，然后调用 <code>send_group_msg</code> 一次</td>
-            <td>平台明确失败 failed；超时、断线、回执缺 message_id 记 unknown；重启时遗留 pending 一律 unknown（<code class="src" data-src="src/qq/store.ts#reconcilePendingOutboxOnBoot">qq/store.ts · reconcilePendingOutboxOnBoot</code>）。撤回：还没登记的回复不再发送，已在途的 pending 记 unknown，已发送的不自动撤回</td>
+            <td><strong>群聊回复</strong>（已退役 · 只读归档）<br><code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts · createPendingOutbox</code></td>
+            <td>退役前（旧架构）：收件先记 <code>qq_inbox</code>（主键 <code>dedup_key</code> = 账号:群:消息 id，请求键 <code>qq:&lt;dedup_key&gt;</code>）；回复先记 <code>qq_outbox</code>（pending，主键 <code>op_id</code>）再调用平台。核心群聊退役后两表不再有新增</td>
+            <td>退役前：任务完成后按任务查重（<code>task_id</code> 上没有唯一约束，靠这次查询），核对通过才调用 <code>send_group_msg</code> 一次。退役后不再有登记与发送路径</td>
+            <td>退役时遗留的 pending 由启动收尾一律定 unknown（<code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime.ts · retireGroupChat</code>，<code class="src" data-src="src/qq/store.ts#settleOutbox">qq/store.ts · settleOutbox</code>），对应收件记 <code class="st unk">reply_unknown</code>，不重发；账本保留为只读归档。退役前：平台明确失败 failed，超时、断线、回执缺 message_id 记 unknown；已发送的不自动撤回</td>
           </tr>
           <tr data-k="inbound" tabindex="0">
             <td><strong>入站事件</strong><br><code class="src" data-src="src/runtime/orchestrator.ts#registerInboundEvent">orchestrator.ts · registerInboundEvent</code></td>
             <td><code>inbound_events</code> 行，先登记再建任务；<code>(source, external_id)</code> 唯一，重复登记返回原事件、不建任务</td>
-            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>deleg:&lt;父任务&gt;:review</code>。建好任务后条件更新 registered → queued</td>
+            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>deleg:&lt;父任务&gt;:review</code>。退役遗留的 <code>qq_group</code> 事件被入站门固定丢弃（<code>core_group_chat_retired</code>），不建任务。建好任务后条件更新 registered → queued</td>
             <td>建任务失败的事件保持 registered：调度器按 <code class="src" data-src="src/scheduler/runtime.ts#SCHEDULER_LIMITS">SCHEDULER_LIMITS</code>.redispatchMs 间隔补派，重启时同样按原请求键重提，命中已有任务就沿用；关联任务被中断时事件记 failed，不重放</td>
           </tr>
           <tr data-k="submit" tabindex="0">
@@ -265,7 +265,7 @@
       </div>
       <div class="card">
         <h4>效果未知</h4>
-        <p>工具操作已经开始，却无法确认是否产生了效果：停止或重启时已消费批准、结果缺失的操作；写请求交出后的超时、断线、中止；服务 restart 派发后拿不到可信应答。发送操作的 effect_unknown 语义相同、分开记录（QQ 群回复记 unknown）。不自动重发，由拥有者核实；能从已提交记录证明时（应用数据回执，调度、委派、群聊结果接收与 SubAgent 登记），以核实结果为准。服务操作记效果未知时，同目标的长期授权随之失效。</p>
+        <p>工具操作已经开始，却无法确认是否产生了效果：停止或重启时已消费批准、结果缺失的操作；写请求交出后的超时、断线、中止；服务 restart 派发后拿不到可信应答。发送操作的 effect_unknown 语义相同、分开记录（旧架构 QQ 群回复记 unknown；核心群聊退役后只剩退役收尾给遗留 pending 定 unknown）。不自动重发，由拥有者核实；能从已提交记录证明时（应用数据回执，调度、委派、群聊结果接收与 SubAgent 登记），以核实结果为准。服务操作记效果未知时，同目标的长期授权随之失效。</p>
         <p><code class="src" data-src="src/core/types.ts#task.tool_effect_unknown">types.ts · task.tool_effect_unknown</code></p>
       </div>
       <div class="card">
@@ -289,7 +289,7 @@
         </tbody>
       </table>
     </div>
-    <p>按原键重提不在此列：入站事件补派、群收件恢复、子任务唤醒补发、SubAgent 同键重放都用原请求键提交，已有任务就返回它（异参冲突），不会产生第二次执行。IM 审批命令的平台重投也只读原记录，不再执行。</p>
+    <p>按原键重提不在此列：入站事件补派、子任务唤醒补发、SubAgent 同键重放都用原请求键提交，已有任务就返回它（异参冲突），不会产生第二次执行。IM 审批命令的平台重投也只读原记录，不再执行。</p>
     <aside class="callout limit">
       <b>已知限制</b>
       <p>平台没有幂等支持时，远端可能已经执行而本地无法确认，这种情况只能由拥有者核实。系统不因为「大概没成功」而重发，也不把结果未知显示成取消成功。</p>

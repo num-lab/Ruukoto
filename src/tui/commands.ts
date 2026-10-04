@@ -240,10 +240,9 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
       );
       ctx.showText(
         `QQ 入口：${s.enabled ? "已启用" : "已停用"}；连接 ${s.online ? `在线（账号 ${s.actualSelfId}）` : `离线（${s.stateDetail}）`}\n` +
-          `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${s.groups.join("、") || "（空）"}\n` +
+          `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${s.groups.join("、") || "（空）"}（历史值，核心群聊已退役）\n` +
           `拥有者私聊：${s.ownerUserId ?? "未开启"}（共享 main；发送记录用 ruukoto notify list 查看）\n` +
-          `回复上限 ${s.maxReplyChars} 字符；排队过期 ${s.queueTtlMs}ms\n` +
-          (sessions.length ? sessions.join("\n") : "  （尚无群会话）"),
+          (sessions.length ? `旧群会话归档：\n${sessions.join("\n")}` : "  （无旧群会话）"),
       );
       return;
     }
@@ -258,7 +257,10 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
     }
     if (sub === "groups") {
       const s = await ctx.request("qq_status", {});
-      ctx.showText(`允许的群：${("groups" in s ? s.groups : []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
+      ctx.showText(
+        `允许的群：${("groups" in s ? s.groups : []).join("、") || "（空）"}（历史值）\n` +
+          "核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）",
+      );
       return;
     }
     if (sub === "inbox" || sub === "outbox") {

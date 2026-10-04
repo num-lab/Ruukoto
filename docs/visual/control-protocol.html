@@ -610,10 +610,9 @@
           <tr><td><code>mcp_check</code></td><td>试连服务并列出可用工具</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td colspan="5"><b>QQ</b></td></tr>
           <tr><td><code>qq_configure</code></td><td>配置 OneBot 连接、账号、绑定拥有者与回复上限</td><td>是</td><td><code>expected_version</code>（可选）</td><td>—</td></tr>
-          <tr><td><code>qq_status</code></td><td>连接状态、配置、允许的群与各群会话的排队情况</td><td>—</td><td>—</td><td>是</td></tr>
+          <tr><td><code>qq_status</code></td><td>连接状态、配置、历史允许群列表（核心群聊已退役，只读展示，无写入口；v14 起删除 <code>qq_group_update</code>）与各旧群会话的归档状态</td><td>—</td><td>—</td><td>是</td></tr>
           <tr><td><code>qq_set_enabled</code></td><td>启用或停用入口</td><td>是</td><td><code>expected_version</code>（可选）</td><td>是</td></tr>
-          <tr><td><code>qq_group_update</code></td><td>允许或禁止某个群</td><td>是</td><td><code>expected_version</code>（可选）</td><td>—</td></tr>
-          <tr><td><code>qq_inbox_list</code></td><td>入站队列浏览</td><td>—</td><td>—</td><td>是</td></tr>
+          <tr><td><code>qq_inbox_list</code></td><td>旧群收件归档浏览（核心群聊已退役，无新增）；v14 起每条另带 <code>acceptance</code>（main 接收账本）与 <code>sourceProblem</code>（当前复核结论）</td><td>—</td><td>—</td><td>是</td></tr>
           <tr><td><code>qq_outbox_list</code></td><td>出站记录浏览</td><td>—</td><td>—</td><td>是</td></tr>
           <tr><td colspan="5"><b>Telegram</b></td></tr>
           <tr><td><code>telegram_configure</code></td><td>配置 bot 凭据与 owner 目标</td><td>是</td><td><code>expected_version</code>（可选）</td><td>—</td></tr>
@@ -784,7 +783,7 @@
 
   <section id="versions">
     <h2>协议版本演进</h2>
-    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v13</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 13">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
+    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v14</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 14">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>版本</th><th>变化（据 protocol.ts 头注释）</th></tr></thead>
@@ -797,6 +796,7 @@
           <tr><td><code>v11</code></td><td>通用 SubAgent 委派（agent-direction 工单 11，ADR 0020）：快照新增 <code>workDelegations</code>、<code>subAgents</code> 与 <code>subAgentSessionIds</code>；新增 <code>work_delegation.created</code> 与 <code>subagent_task.*</code> 事件，只读 op <code>work_list</code> / <code>work_get</code></td></tr>
           <tr><td><code>v12</code></td><td>SubAgent 继续、复用与显式关闭（agent-direction 工单 12）：<code>subAgents</code> 身份另带 <code>closedAt</code> / <code>closedBy</code>；新增 <code>subagent.closed</code> 事件与 op <code>subagent_close</code>（工作委托与工作 / SubAgent 的只读列表照旧）；委派复用经模型工具的 <code>sub_agent_id</code> 参数</td></tr>
           <tr><td><code>v13</code></td><td>整项工作取消（agent-direction 工单 14）：<code>workDelegations</code> 工作对象另带 <code>canceledAt</code> / <code>canceledBy</code> / <code>cancelReason</code>；新增 <code>work_delegation.canceled</code> 事件与 op <code>work_cancel</code>；主 Agent 工具增加 <code>subagent_cancel</code>。同版内只加可选字段不升级：工单 16 修改委派后，<code>workDelegations</code> 工作对象与 <code>work_list</code> / <code>work_get</code> 的工作详情另带可选 <code>writeTarget</code>（worktree / direct；缺省 = 只读分析工作）</td></tr>
+          <tr><td><code>v14</code></td><td>核心群聊退役（agent-direction 工单 20）：<code>qq_group_update</code> 操作删除（旧 <code>qq_config.groups</code> 保留为历史值）；<code>qq_inbox_list</code> 条目新增 <code>acceptance</code>（main 接收账本）与 <code>sourceProblem</code>（当前复核结论）字段。旧群收件、发送与入站记录保持可读</td></tr>
         </tbody>
       </table>
     </div>

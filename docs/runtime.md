@@ -77,11 +77,10 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
 - **拥有者认证**：控制面 socket 位于受控目录（数据目录兄弟目录
   `control/`），任何连接须先以拥有者令牌（`owner.token`，0600）auth，
   认证成功前不返回快照、不执行请求；令牌不进命令行、工具环境或日志。
-- **QQ 群聊入口（issue 07）**：NapCat OneBot v11 正向 WebSocket 窄入口
-  （`src/qq/`），按"登录账号+群"映射独立 qq_group 会话：空工具集合、
-  宿主约束资料范围（排除开发历史/个人共享记忆/项目指令/跨项目授权）、
-  专用空工作目录、收件去重与排队过期、宿主固定回复目标、发送结果
-  区分 sent/failed/unknown（effect_unknown 不重发）。详见下文「QQ 群聊」。
+- **QQ 群聊已退役（agent-direction issue 20）**：核心不再创建或执行群聊
+  任务（群消息直接忽略），旧群历史、收发账本与接收记录保留为只读归档
+  并可核查；QQ 拥有者私聊继续可用（NapCat OneBot v11 窄入口，`src/qq/`）。
+  正式 QQ 群聊外挂（独立可选程序）在后续阶段交付。详见下文「QQ 群聊」。
 
 ## 运行命令
 
@@ -119,10 +118,10 @@ npm start -- confirm <confirmationId> approve|reject
 npm start -- read-artifact <taskId> <artifactId> [--offset N] [--length N]
 npm start -- credentials list | add --name N --host H --header H --purpose P --secret-env VAR | remove <name>
 npm start -- project web-search <项目id> on|off   # 按项目启用/禁用 Web Search（默认启用）
-# QQ 群聊入口（issue 07；token 先经 credentials add --purpose qq_onebot 登记）
+# QQ 入口（token 先经 credentials add --purpose qq_onebot 登记）
 npm start -- qq configure --endpoint ws://127.0.0.1:3001 --self-id <QQ号> [--credential <名称>]
-npm start -- qq group add <群号>          # 允许该群 @ 触发（可多次）
-npm start -- qq enable                    # 启用（qq status / disable / inbox / outbox 可查）
+npm start -- qq enable                    # 启用（qq status / disable / inbox / outbox 可查；inbox/outbox 为旧群归档）
+# 核心群聊已退役（issue 20）：qq group add|remove 已删除，旧命令只打印退役提示
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
 
@@ -441,7 +440,7 @@ ID 与自身版本访问）。
 打开核心数据库，也不成为绕过任务审批的入口（任务执行审批仍在任务界面）。
 在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及
 上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料
-授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与允许群、服务凭据。
+授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置、服务凭据。
 服务凭据的同名修改或删除（`add_credential` / `remove_credential`）在写入前单调
 推进引用它的 QQ/Telegram 配置 `config_version`（详见下文「IM 审批」失效规则）：
 旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次；写入失败不恢复旧版本。
@@ -1134,7 +1133,8 @@ ruukoto telegram enable | disable | status
 ## QQ owner 私聊（daily-agent issue 06，ADR 0012）
 
 QQ 好友私聊与 Telegram 共用 main 会话。复用现有 NapCat OneBot v11 正向
-WebSocket 连接；群聊仍使用独立会话与群收发记录。
+WebSocket 连接；核心群聊已退役（issue 20），旧群会话与收发记录保留为
+只读归档（见下文「QQ 群聊」）。
 
 ```bash
 # QQ_ONEBOT_TOKEN 由可信环境提供，凭据只登记一次
@@ -1329,7 +1329,8 @@ main 可检查服务器部署白名单内的服务状态，并经拥有者逐次
 main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，通过宿主工具
 `coding_delegate` 创建 coding 子任务；结果回到 main 会话，通过 `coding_result`
 读取。两个工具属于 `delegation` 类别，仅 main 装配，调用时重新核实任务、
-会话、项目与角色绑定；coding/chat/QQ 群聊与普通开发会话不获得委派能力。
+会话、项目与角色绑定；coding 与普通开发会话不获得委派能力（旧 chat 角色与
+QQ 群聊会话已退役为只读归档，本就不能提交任务）。
 
 ### 委派与执行范围
 
@@ -1946,104 +1947,83 @@ MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
 - 限流（429）与超时：一次终止并明确报错，不自动重试；由拥有者决定重试
   时机。任务取消/中断后迟到结果被忽略，终态与操作记录保持一致。
 
-## QQ 群聊（issue 07）
+## QQ 群聊（issue 07）——核心群聊已退役（agent-direction issue 20）
 
-NapCat OneBot v11 正向 WebSocket 接入 QQ 群聊：ruukoto 主动连接 NapCat
-（不增加公网入站接口），群成员 @机器人 触发纯文本聊天任务。模块在
-`src/qq/`（`onebot.ts` 薄客户端 / `adapter.ts` 适配器 / `store.ts` 持久化）。
+核心不再创建或执行 QQ 群任务：这是 ADR 0017 对 ADR 0014 的修订（取消内建
+chat 角色，群聊改为后续阶段的独立可选外挂）。chat 角色不再引导，旧安装的
+`agent_roles` chat 行保留为归档标识；`AgentRoleId`、CHECK 约束、`qq_group`
+会话类别、chat 工具类别与 Driver 的 qq_group 分支留待 issue 23 收缩。
+QQ 拥有者私聊（issue 06，共享 main 会话）与 Telegram 主会话不受影响。
 
-### 配置与启停（拥有者可信入口）
+### 退役后的入站行为
 
-```bash
-# 1. 登记 OneBot token（值不进入命令行/工单/日志；purpose 固定 qq_onebot）
-ruukoto credentials add --name qq-onebot --host 127.0.0.1:3001 \
-  --header authorization --purpose qq_onebot --secret-env QQ_ONEBOT_TOKEN
-# 2. 配置连接（ws 仅限回环/受控私网，跨主机须 wss；非回环必须配置 token）
-ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <登录QQ号> --credential qq-onebot
-# 3. 允许群并启用
-ruukoto qq group add <群号>
-ruukoto qq enable
-# 查看：qq status / qq inbox / qq outbox；TUI：/qq [status|enable|disable|groups|inbox|outbox]
-```
+- **群消息直接忽略**：适配器收到群消息时不登记收件、不建会话、不建任务、
+  不回复、不保存正文，也不逐条记日志（不在核心继续收集群内容）。
+- **撤回通知继续处理**：`group_recall` 只给已登记的旧收件行打标记（不取消
+  任务、不补发回复）——已接收群结果的撤回复核仍然有效。撤回只能在 NapCat
+  连接仍在、账号仍在群里时观测到；连接中断或退群后发生的撤回无法得知
+  （ADR 0014 的既有边界）。
+- **启动收尾（按状态幂等，重复升级/重启不重放）**：群会话排队任务 →
+  canceled（原因 `core_group_chat_retired`）；运行中任务由通用恢复定
+  `interrupted`（结果未知，不重放，`continue` 被拒绝）；已登记未派发的
+  `qq_group` 入站事件经入站门固定 drop 作废并写 `inbound.skipped`；未终态
+  收件（含完成但未发回复的）记 `skipped`；遗留 pending 发送定 `unknown`
+  （effect_unknown，不重发），对应收件记 `reply_unknown`。
 
-配置存 `qq_config`（单行，含端点、凭据绑定名、预期登录账号、群允许列表、
-`max_reply_chars`），任何变化递增 `config_version` 并发
-`qq.config_changed` 事件；凭据配置后 scope 收紧到 `qq_onebot` 操作，通用
-`http_request` 不得借用。未配置/未启用时适配器保持禁用，不猜测端点与群号。
-`max_reply_chars` 默认 1500（未经真实平台核实，部署时按实测调整）；
-排队过期固定 5 分钟（已确认规则，不设配置项）。
+### 配置与命令（写入口已删除）
 
-### 运行行为
+`qq_config.groups` 原样保留为历史值（`qq status`、`/qq` 照常展示）；
+`qq_group_update` 控制 op、CLI `qq group add|remove`、配置中心允许群界面、
+TUI `/qq groups` 的增删入口已删除——旧命令只打印退役提示。
+`max_reply_chars` 与 `queue_ttl_ms` 从此不再起作用（入口留给 issue 23
+清理）。`qq_configure` / `qq_set_enabled` / `qq status` 只作用于私聊入口。
+正式 QQ 群聊外挂（独立程序，自行管理群会话/历史/发送状态，经有限接口向
+ruukoto 提供结果）在后续阶段交付；本单不依赖尚未确定的外挂接口。
 
-- **触发**：群消息含结构化 `at` 段且目标为登录账号（不按显示名或正文 @
-  字符匹配）；仅文本段（可含引用段）；图片/语音/附件/转发等整条忽略；
-  自身消息与 `message_sent` 回声不触发。无频率限制、冷却或安静时段。
-- **身份核对**：连接后经 `get_login_info` 核实账号，事件 `self_id` 逐条
-  比对；账号离线或身份不匹配时停止接收新任务与发送（排队任务等待，超过
-  5 分钟由启动门过期跳过）。
-- **会话映射**：登录账号+群 → 独立项目/会话/专用空工作目录
-  （`<dataDir>/../qq-work/<账号>_<群>/`）；同群 FIFO（一次一个任务），
-  跨群并行且历史互不可见。
-- **收件纪律**：先登记 `qq_inbox`（`dedup_key = account:group:message_id`）
-  再入队；事件大小（正文 >8192 字符）与有效期（消息时间超过排队过期时长，
-  如离线 backlog 重投）在收件时分别校验，不满足的记录 skipped。登记与入队间
-  的崩溃由启动恢复按原请求键核实重提（幂等，不换新键）；入队失败保持
-  registered 待恢复，不因瞬时故障丢消息。重复事件不产生新任务。WebSocket
-  收事件不等于平台持久投递确认；断线重连成功时发 `qq.receive_gap` 事件
-  标记接收缺口，缺失不补抓。
-- **隔离**：qq_group 会话任务为空工具集合（装配侧不注册编码/宿主数据/
-  Web Search/MCP 工具，发送前最终检查按实际载荷再核对，tool_call 门兜底）；
-  不注入个人共享记忆、项目记忆与项目指令；资料身份 `qq_group` 只读本群
-  项目，不适用 data_grants 与 owner_note 默认放行。QQ 身份不能审批开发
-  任务、修改权限或开启完全访问（任务固定 confirm 模式、无授予路径）。
-- **回复**：任务完成后由宿主固定目标（原群 + 引用原消息段）发送一条最终
-  文本；超过 `max_reply_chars` 缩短（加省略标记），不自动拆分、不转发中间
-  过程/错误栈。任务失败/取消/中断不发送（如实登记 inbox 状态）。
-- **发送纪律**：先落 `qq_outbox`（pending，含固定目标/正文/本地操作 id）
-  再调 `send_group_msg`；平台明确失败（retcode≠0）= `failed`，超时/断线/
-  崩溃 = `unknown`（effect_unknown，不自动换键重发，由拥有者核实）；动作
-  echo 只用于匹配请求与应答，不作幂等键。断线重连不补发失效回复。
-- **撤回**：收到 `group_recall` 后标记原消息（不再进入后续模型上下文——
-  上下文组装在每轮调用前移出该交互的视图，不改写历史原文），取消未完成任务
-  与未发送回复；已发送回复不自动撤回。撤回事件丢失时不宣称已知撤回。
-- **停用/撤群**：一键停用即断连、取消该范围排队与运行中任务（既有取消
-  机制）；在途发送记 unknown 并保留迟到回执，不能宣称已取消远端发送。
-  群移出允许列表同理作用于该群。
-- **恢复**：后台重启后，QQ 会话的队列暂停由适配器自动恢复（QQ 任务无工具
-  执行与外部副作用，发送走 outbox 纪律）；已登记未入队的消息按原请求键
-  重提；遗留 pending 发送一律定 `unknown`（effect_unknown，不自动重发）。
+### 旧群资料（只读归档）
 
-### 群聊与 chat 编排（daily-agent issue 09，ADR 0014）
+- `qq_inbox`（状态、撤回标记与时间、引用关联）、`qq_outbox`（发送账本）、
+  `qq_sessions` 映射、入站事件与 chat 任务行全部保留。`qq inbox` 每条记录
+  附 main 的接收账本行（接收时间、接收任务、理由、摘要快照）与**当前复核
+  结论**（可用，或不可用的原因——归档缺失/不一致、main 不可用、来源已
+  撤回）；`qq outbox` 查账本；拥有者 `read_history` 可读群会话历史。
+- 归档不能变成对话入口：`create_session` 拒绝群项目与角色项目（与
+  `open_workspace` 同一判定），`submit`/`continue` 拒绝 `qq_group` 会话与
+  chat 角色会话；`open_workspace` 认领与工作区迁移对角色/群聊项目的排除
+  不变。
+- **隔离不因退役扩大**：AccessScope 按 `sessions.kind='qq_group'` 判定，
+  不依赖 chat 角色行；main/coding/SubAgent 仍读不到群项目原始历史、产物
+  与带群来源的记忆；`chat_result` 资料仍不能用于 coding 委派；已接收快照
+  只对 main 开放。
 
-群收件经持久 `qq_group` 入站事件派发为 chat 任务，角色绑定从宿主保存的
-“登录账号 + 群”映射取得；各群继续独立使用项目、会话、空目录与 FIFO。
-保持原收件请求键及正文标记，旧任务先核实后补关联。配置版本、撤回与五分钟
-排队有效期在派发和执行前复核。完成回复按任务自身历史读取；启动时补核对
-已完成但尚未登记发送的收件，已有发送记录不会重复发送。
+### 群聊结果（chat_result_*，复核不变）
 
-main 新增 `chat_result_list` 与 `chat_result_accept`。列表只给来源元数据，
-接收保存至多 1000 个 Unicode 字符的摘要及接收任务、操作和理由，不开放原始
-群历史或产物，不自动唤醒 main 或生成 owner 回复。接收后的摘要可以作为
-`notification_enqueue` / `schedule_create` 的 `{kind:'chat_result',task_id}`
-来源，仍需拥有者审批，完全访问模式也不例外；coding 委派不能引用此来源。
-
-schema v17 保留旧会话和发送事实，增加接收账本、引用关联、配置版本与撤回
-时间。查询、接收、批准提交和发送前复核撤回；同群历史撤回可能保守地使已生成
-摘要失效。引用过撤回消息的交互也从后续模型上下文排除；旧版无引用 ID 的
-交互在该群发生撤回后保守排除。已进入 main 历史或已发送的副本不追溯清除。
+`chat_result_list` 与 `chat_result_accept` 保留，作用于归档中已完成且
+已记录结果的旧群 chat 任务：列表只给来源元数据，接收保存至多 1000 个
+Unicode 字符的摘要快照及接收任务、操作和理由，不开放原始群历史或产物。
+已接收摘要仍可被 `notification_enqueue` / `schedule_create` 的
+`{kind:'chat_result',task_id}` 引用（仍需拥有者审批，完全访问模式也不
+例外）；查询、批准提交与发送前复核撤回与宿主来源——归档行缺失/不一致、
+main 不可用或来源已撤回时取消该次发送并记 `source_revoked` 原因，不会只
+凭接收快照正文继续发送。撤回观测的上限同上一节（断连/退群后无法得知）。
 
 ### 验证
 
-`test/26-qq.test.ts`（进程内模拟 OneBot WebSocket 服务 + 真实适配器
-/Runtime/发送控制路径；不向真实群发送消息）：token 错误、登录账号不匹配、
-掉线重连与接收缺口标记、白名单、结构化 @ 判定、非文本忽略、自身回声、重复
-消息去重、同群 FIFO 与跨群并行/隔离、排队过期、一键停用、撤群、发送失败与
-结果未知不重发、响应乱序 echo 关联、撤回（取消未完成/不撤回已发送/后续上下
-文排除）、个人共享记忆与项目指令隔离、空工具集合（发送前快照核对）、拥有者
-  QQ 发言不获控制面能力、qq_group 资料身份、登记-入队与遗留发送的崩溃恢复。
+`test/85-retire-core-group-chat.test.ts`：全新实例不引导 chat、群消息零
+新增（收件/会话/任务/回复/模型调用），同连接 QQ 私聊与 Telegram 照常回复；
+归档查询（inbox 附接收与复核、outbox、read_history）、转 dev 会话与
+submit/continue 全部拒绝；无 chat 角色行的隔离不变；已接收结果通知经批准
+正常发送、撤回/篡改阻断并记 `source_revoked`；排队/在途/待发/未派发事件
+一次性收尾与三次启动幂等。旧数据由 `test/helpers/legacy-group-archive.ts`
+按退役前（核心库 v24）持久形态播种；真实旧代码产生数据的升级路径见
+`.scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）。
 
-真实 NapCat 接入与 Linux 部署未验证（需拥有者指定账号/测试群并明确授权后
-按工单 §5 执行一次真实闭环；模拟测试不代表真实部署已通过）。
+`test/26-qq.test.ts` 保留连接鉴权/身份核对/掉线重连与接收缺口、配置校验、
+qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.test.ts`
+用播种归档数据覆盖接收/审批/撤回复核/不凭快照外发。
+
+真实 QQ 群与 NapCat 没有入口（无真实群闭环可验），记为未实测；
+模拟模型与模拟 OneBot 的验证不代表真实平台行为。
 
 
 
@@ -2135,7 +2115,8 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | 全部离线集成验证（125 项，逐文件顺序执行） | tx（Ubuntu 24.04，Node 24.21.0） | 通过（2026-09-21，17/17 文件 0 失败；修复 15-tui-pty 的 npx 孙进程持有管道导致文件级挂起——detached 进程组 + 整组回收，macOS 回归同过） |
 | 真实 GitHub MCP 只读连通（一次已授权仓库的只读调用，记录工具/权限/结果） | 需拥有者配置独立只读 PAT | 未验证（issue 16 遗留；配置具备时按「MCP 服务」节步骤验收，不以模拟测试冒充） |
 | issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
-| issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环） |
+| issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环）。agent-direction issue 20 起核心群聊已退役，群消息被忽略，见下行 |
+| agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留连接与身份用例、test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
 | 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-dev 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
 | 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |

@@ -295,7 +295,7 @@
       <table class="tbl">
         <thead><tr><th>暂停原因</th><th>谁暂停</th><th>什么时候</th><th>谁恢复</th></tr></thead>
         <tbody>
-          <tr><td><code>backend_restart</code></td><td class="nowrap">重启恢复</td><td>重启时会话里还有排队任务，且会话此前是 active。</td><td>编排器（旧架构的角色会话）；QQ 适配器（旧架构的群会话）；其余（含 SubAgent 子会话）等拥有者</td></tr>
+          <tr><td><code>backend_restart</code></td><td class="nowrap">重启恢复</td><td>重启时会话里还有排队任务，且会话此前是 active。</td><td>编排器（旧架构的角色会话）；QQ 适配器（旧架构的群会话）；宿主评审子会话由编排器在派发评审事件时恢复（<code class="src" data-src="src/runtime/orchestrator.ts#resumeQueue(task.sessionId">orchestrator.ts · dispatchEvent</a>）；其余（含其他 SubAgent 子会话）等拥有者</td></tr>
           <tr><td><code>occupancy_unverified</code></td><td class="nowrap">重启恢复</td><td>旧后台留下占用行，且会话此前是 active。遗留占用一律视为无法确认旧执行已停止，不论部署方式（后台服务单元的 KillMode=control-group 只覆盖后台进程树，容器另行回收）。</td><td>拥有者；QQ 群会话由适配器启动时恢复</td></tr>
           <tr><td><code>context_overflow</code></td><td>驱动器</td><td>provider 报告上下文超限，任务已中断。</td><td>拥有者；QQ 群会话由适配器启动时恢复</td></tr>
           <tr><td>发送前复核的拦截码</td><td>驱动器</td><td>某次模型调用在发送前被拦下，任务已中断。</td><td>拥有者；QQ 群会话由适配器启动时恢复</td></tr>
@@ -318,7 +318,7 @@
           <tr><td class="nowrap">取消</td><td>拥有者可以直接 cancel / interrupt 某次执行；整项工作也可取消（<code>ruukoto work cancel</code> / 主 Agent 的 <code>subagent_cancel</code>，见<a href="orchestrator.html#subagent-cancel">编排器 · 整项取消</a>）：登记事务直接取消本工作的排队任务、给活动任务写取消意图，提交后每个活动任务按普通停止路径处理，其他工作不受影响；已取消的工作不能继续委派，迟到结果保存为事实但不再唤醒或注入父会话。父任务结束不会连带取消它。</td><td><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/subagents.ts#async cancelWork">subagents.ts · cancelWork</code></td></tr>
           <tr><td class="nowrap">目录占用</td><td>键是任务的工作区根而非固定的会话工作目录（<code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code>）：只读分析任务占用子会话宿主生成的独立目录，与父会话并行；修改委派（agent-direction issue 16，ADR 0021）的任务占用该工作的写入目标——Git 目标的宿主 worktree 副本（父工作区之外，并行且单一写入者）或非 Git 目标的目录（直接写入，与父会话按前缀规则串行）。首次钉定写入目标后子会话 cwd 对齐到该根（<code class="src" data-src="src/core/store.ts#setSubAgentCwd">store.ts · setSubAgentCwd</code>）。</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td></tr>
           <tr><td class="nowrap">终态之后</td><td>编排器在一个事务里写结果、发 subagent_task.* 事件，并按子会话还有没有占用把 SubAgent 记为 idle 或 unverified。不自动重试。</td><td><code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">orchestrator.ts · handleSubAgentTerminal</code></td></tr>
-          <tr><td class="nowrap">重启</td><td>执行中的照常转 interrupted（<code>backend_restart</code>），编排器启动巡检补记为结果未知；排队的子会话以 <code>backend_restart</code> 暂停，编排器不自动恢复，直到拥有者 <code>resume_queue</code> 或截止巡检取消它。</td><td><code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></td></tr>
+          <tr><td class="nowrap">重启</td><td>执行中的照常转 interrupted（<code>backend_restart</code>），编排器启动巡检补记为结果未知；排队的子会话以 <code>backend_restart</code> 暂停，编排器不自动恢复，直到拥有者 <code>resume_queue</code> 或截止巡检取消它（宿主评审子会话例外：派发评审事件时编排器按角色会话同口径恢复，见编排器 · GitHub 评审编排）。</td><td><code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></td></tr>
         </tbody>
       </table>
     </div>

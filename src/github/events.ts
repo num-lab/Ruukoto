@@ -136,7 +136,14 @@ export class GitHubEvents {
   allowTool(task: Task, name: string, mcpEffect?: string): boolean {
     if (!this.eventOf(task)) return true;
     if (task.agentId === "coding") return name === "read" || name === "read_artifact" || mcpEffect === "read";
-    return task.agentId === "main" && task.requestId.startsWith("wake:") && name === "coding_result";
+    // main 的评审摘要唤醒：subagent_result 读 SubAgent 评审；coding_result 留给
+    // 升级前在途的旧唤醒（issue 23 再删）
+    return task.agentId === "main" && task.requestId.startsWith("wake:") && (name === "coding_result" || name === "subagent_result");
+  }
+
+  /** 宿主评审任务（agent-direction issue 19）：SubAgent 执行、来源事件为 GitHub。 */
+  isReviewTask(task: Task): boolean {
+    return task.subAgentId !== null && this.eventOf(task) !== null;
   }
 
   notice(task: Task): string | null {
@@ -154,7 +161,8 @@ export class GitHubEvents {
   resultData(task: Task, outcome: ChildOutcome): Record<string, unknown> {
     const event = this.eventOf(task);
     const s = event ? snapshot(event) : null;
-    if (!event || !s || task.agentId !== "coding") return {};
+    // 旧 coding 子任务（升级前在途）与 SubAgent 评审（issue 19）同走一条保存路径
+    if (!event || !s || (task.agentId !== "coding" && !this.isReviewTask(task))) return {};
     const name = `review-draft:${event.id}`;
     let artifact = this.deps.store.listArtifactsByTask(task.id).find((a) => a.name === name && a.status === "complete");
     let captureError: string | null = null;
@@ -162,7 +170,7 @@ export class GitHubEvents {
       try {
         artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name });
         const header = `# PR review 草稿\n\n来源：${s.url}\n事件：${event.id}\n目标 head：${s.headSha}\n目标 base：${s.baseSha}\n` +
-          "这是不可变的分析记录。当前有效性查看任务 result_ref.review 或 coding_result；未经拥有者确认不得发布。\n\n";
+          "这是不可变的分析记录。当前有效性查看任务 result_ref.review 或 subagent_result；未经拥有者确认不得发布。\n\n";
         this.deps.artifacts.append(artifact.id, Buffer.from(header));
         let offset = 0, total: number | null = null;
         for (;;) {
@@ -185,11 +193,11 @@ export class GitHubEvents {
         ...(captureError ? { captureError } : {}) } };
   }
 
-  /** 只接受本事件 coding 子任务的 main 摘要终态；在编排器结果事务内登记一次。 */
+  /** 只接受本事件评审子任务（旧 coding 或新 SubAgent）的 main 摘要终态；在编排器结果事务内登记一次。 */
   terminal(event: InboundEvent, task: Task, outcome: ChildOutcome): void {
     if (task.agentId !== "main" || !task.requestId.startsWith("wake:")) return;
     const child = this.deps.store.getTask(task.requestId.slice(5));
-    if (!child || child.agentId !== "coding" || child.sourceEventId !== event.id) return;
+    if (!child || child.sourceEventId !== event.id || (child.agentId !== "coding" && !this.isReviewTask(child))) return;
     const s = snapshot(event)!;
     const target = event.replyTarget;
     const reason = this.notificationProblem(event);

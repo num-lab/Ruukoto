@@ -32,6 +32,8 @@ import {
 } from "../core/types.ts";
 import { sessionToolCategories } from "../agent/tool-availability.ts";
 import { hasNoWriteEffect } from "../agent/tool-op-ledger.ts";
+import { canonicalParamsDigest } from "../agent/mcp/tools.ts";
+import type { SubAgentDelegateInput, SubAgentDelegation } from "./subagents.ts";
 
 /** 编排器需要的 Runtime 窄接口（宿主注入；除此之外的能力编排器不可见）。 */
 export interface OrchestratorBridge {
@@ -78,8 +80,14 @@ export interface OrchestratorDeps {
   onWakeTerminal?(task: Task, outcome: ChildOutcome): void;
   /** 入站派发前复核宿主配置与在线状态；等待保留原事件，失效则作废。 */
   inboundGate?(event: InboundEvent): "run" | "wait" | { drop: string };
-  /** 宿主为已验证的入站事件安排固定 main 父任务与 coding review；模型不参与派发。 */
+  /** 宿主为已验证的入站事件安排固定 main 父任务与评审请求文本；模型不参与派发。 */
   reviewRequest?(event: InboundEvent): string | null;
+  /**
+   * 宿主固定评审（agent-direction issue 19）：PR 评审经通用 SubAgent 执行，
+   * 编排器直接调用 delegate（hostReview 入参，不经模型工具）。缺省（如未接线）
+   * 时不降级到旧 coding 路径：事件保持 registered，下次派发重试。
+   */
+  subagents?: { delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation> };
   /** 结果落库前保存交付产物与来源元数据；重启补记走同一路径。 */
   resultData?(task: Task, outcome: ChildOutcome): Record<string, unknown>;
   resultNotice?(task: Task): string | null;
@@ -500,21 +508,32 @@ export class Orchestrator {
         });
       } else if (review !== undefined && review !== null) {
         const main = this.store.getAgentRole("main")!;
-        const coding = this.store.getAgentRole("coding")!;
         const deadline = new Date(Date.parse(event.receivedAt) + DELEGATION_LIMITS.deadlineMs).toISOString();
         const parent = this.store.findTaskByRequest(main.sessionId, `evt:${event.id}:main`) ?? await this.deps.bridge.submit({
           sessionId: main.sessionId, requestId: `evt:${event.id}:main`,
-          input: `[编排器] 已接纳 review 事件 ${event.id}。宿主负责创建 coding 子任务；本回合只确认接收，待结果唤醒后再摘要。`,
+          input: `[编排器] 已接纳 review 事件 ${event.id}。宿主负责创建评审 SubAgent；本回合只确认接收，待结果唤醒后再摘要。`,
           modelSelection: main.modelSelection ?? this.deps.bridge.defaultModelSelection(),
           agentId: "main", sourceEventId: event.id, accessMode: "confirm", deadline,
         });
-        // 已在派发串行链中，不能再次调用 delegate() 排到自己后面等待。
-        task = await this.delegateChecked({
-          parentTaskId: parent.id, requestId: `deleg:${parent.id}:review`, roleId: "coding", sessionId: coding.sessionId,
-          modelSelection: coding.modelSelection ?? this.deps.bridge.defaultModelSelection(),
-          body: codingInput(parent.id, "analyze", review), sourceEventId: event.id,
-          deadline,
-        });
+        // 升级窗口接管（agent-direction issue 19）：升级前已按旧路径建出 coding
+        // 评审子任务的事件沿原子任务收尾，不再新建 SubAgent
+        const legacy = this.store.findChildTask(parent.id, `deleg:${parent.id}:review`);
+        if (legacy) {
+          task = legacy;
+        } else {
+          // 宿主固定评审：每个修订一项新工作、一个新 SubAgent。幂等键按事件，
+          // 参数摘要只含 {kind, eventId}——恢复重提与提示文案变化都命中首次记录；
+          // 准备失败（模型门闩、执行入口）抛错后事件保持 registered，下次派发重试
+          if (!this.deps.subagents) throw new Error("评审 SubAgent 管理器未接线");
+          const delegation = await this.deps.subagents.delegate({
+            parentTaskId: parent.id,
+            key: `ghreview-${event.id}`,
+            request: review,
+            paramsDigest: canonicalParamsDigest({ kind: "ghreview", eventId: event.id }),
+            hostReview: { sourceEventId: event.id },
+          });
+          task = delegation.task;
+        }
       } else task = await this.deps.bridge.submit({
         sessionId: role.sessionId,
         requestId: `evt:${event.id}`,
@@ -540,6 +559,21 @@ export class Orchestrator {
       const recorded = this.store.getTask(task.id)!;
       if (recorded.resultSummary !== null) this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
     });
+    if (task.subAgentId) {
+      // 评审子任务（issue 19）：管理器只在新建时 kick；恢复重提命中首次登记时
+      // 子会话可能仍挂着，或因崩溃留下的排队任务被恢复事务按 backend_restart
+      // 暂停——宿主固定评审不经拥有者核实，直接按角色会话同口径恢复（占用
+      // 未核实的 occupancy_unverified 暂停不在此解除）。
+      const recorded = this.store.getTask(task.id)!;
+      if (!isTerminalTaskStatus(recorded.status)) {
+        const session = this.store.getSession(task.sessionId);
+        if (session?.queueState === "paused" && session.queuePauseReason === "backend_restart") {
+          await this.deps.bridge.resumeQueue(task.sessionId).catch((err) => this.log(`恢复评审子会话队列失败：${(err as Error).message}`));
+        } else {
+          this.deps.bridge.kickSession(task.sessionId);
+        }
+      }
+    }
     if (group) {
       const recorded = this.store.getTask(task.id)!;
       if (isTerminalTaskStatus(recorded.status)) await this.handleTerminal(recorded, this.outcomeFromStatus(recorded));
@@ -607,6 +641,18 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * 入站事件终态回写（角色路径与 SubAgent 路径共用，均在结果事务内调用）：
+   * 只有事件钉定的任务正是本任务时才写事件终态；通知/回执由 onInboundTerminal
+   * 的宿主适配决定（GitHub 评审摘要、IM owner 回复）。
+   */
+  private recordInboundTerminal(task: Task, outcome: ChildOutcome): void {
+    if (!task.sourceEventId) return;
+    const event = this.store.getInboundEvent(task.sourceEventId);
+    if (event?.taskId === task.id) this.store.setInboundTerminal(event.id, outcome === "completed" ? "done" : "failed");
+    if (event) this.deps.onInboundTerminal?.(event, task, outcome);
+  }
+
   private async handleTerminal(task: Task, outcome: ChildOutcome): Promise<void> {
     if (this.store.getTask(task.id)?.resultSummary != null) return;
     if (task.subAgentId) {
@@ -657,11 +703,7 @@ export class Orchestrator {
     // 结果一次写入：重复回传（监听与巡检竞争、重启后重扫）只有第一个生效
     const recorded = this.store.withTx(() => {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
-      if (task.sourceEventId) {
-        const event = this.store.getInboundEvent(task.sourceEventId);
-        if (event?.taskId === task.id) this.store.setInboundTerminal(event.id, outcome === "completed" ? "done" : "failed");
-        if (event) this.deps.onInboundTerminal?.(event, task, outcome);
-      }
+      this.recordInboundTerminal(task, outcome);
       if (task.requestId.startsWith("wake:")) this.deps.onWakeTerminal?.(task, outcome);
       const refs = { taskId: task.id, sessionId: task.sessionId };
       switch (outcome) {
@@ -725,6 +767,9 @@ export class Orchestrator {
     const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
     const reply = replyPage?.text.trim() || null;
     const summary = this.resultSummary(task, outcome, reply);
+    // 宿主评审（issue 19）：定稿产物与 review 引用先落盘（补记重入时复用已定稿
+    // 产物）；artifactIds 在其后计算，结果清单才包含刚定稿的评审产物
+    const resultData = this.deps.resultData?.(task, outcome) ?? {};
     // 结果引用：工作/身份/本次执行/原直接父任务/所属父会话分别核实
     const resultRef = JSON.stringify({
       sessionId: task.sessionId,
@@ -739,9 +784,12 @@ export class Orchestrator {
         .filter((a) => !a.name.startsWith("prompt-snapshot:"))
         .map((a) => a.id),
       failure: outcome === "completed" ? null : (task.errorMessage ?? task.interruptReason ?? OUTCOME_TEXT[outcome]),
+      ...resultData,
     });
     const recorded = this.store.withTx(() => {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
+      // 宿主评审任务带来源事件：与角色路径同一处回写入站终态并登记通知（issue 19）
+      this.recordInboundTerminal(task, outcome);
       const occupancyHeld = this.store.listAllOccupancy().some((o) => o.sessionId === task.sessionId);
       this.store.setSubAgentState(agent.id, occupancyHeld ? "unverified" : "idle", {
         activeWorkId: work.id,

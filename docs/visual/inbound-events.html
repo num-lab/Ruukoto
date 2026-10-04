@@ -64,7 +64,7 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 410" role="img" aria-label="五个来源汇入 inbound_events：telegram 与 qq_private 经编排器登记；qq_group 先登记 qq_inbox 收件，再按收件键登记；scheduler 在到期事务内、github 在自己的登记事务内直接写入。编排器的 dispatchEvent 在串行链上派发：telegram、qq_private、scheduler 进 main 会话，qq_group 进该群的 qq_group 会话，github 建 main 父任务与 coding 评审子任务。">
+        <svg viewBox="0 0 1040 410" role="img" aria-label="五个来源汇入 inbound_events：telegram 与 qq_private 经编排器登记；qq_group 先登记 qq_inbox 收件，再按收件键登记；scheduler 在到期事务内、github 在自己的登记事务内直接写入。编排器的 dispatchEvent 在串行链上派发：telegram、qq_private、scheduler 进 main 会话，qq_group 进该群的 qq_group 会话，github 建 main 父任务与评审 SubAgent 子任务。">
           <g class="n"><rect x="16" y="24" width="180" height="52" rx="8"/><text x="106" y="42">telegram</text><text class="sub" x="106" y="61">getUpdates 轮询</text></g>
           <g class="n"><rect x="16" y="102" width="180" height="52" rx="8"/><text x="106" y="120">qq_private</text><text class="sub" x="106" y="139">NapCat · 固定好友</text></g>
           <g class="n"><rect x="16" y="180" width="180" height="52" rx="8"/><text x="106" y="198">qq_group</text><text class="sub" x="106" y="217">NapCat · @登录号</text></g>
@@ -199,7 +199,7 @@
           <tr data-k="e-done" tabindex="0">
             <td><code class="st run">queued</code> → <code class="st ok">done</code></td>
             <td>编排器结果回传</td>
-            <td>事件的 task_id 指向的那个任务以 completed 结束，结果首次写入的同一事务里更新。GitHub 事件的 task_id 是 coding 评审子任务。<br><code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code> <code class="src" data-src="src/core/store.ts#setInboundTerminal">store.ts · setInboundTerminal</code></td>
+            <td>事件的 task_id 指向的那个任务以 completed 结束，结果首次写入的同一事务里更新。GitHub 事件的 task_id 是评审 SubAgent 的执行任务（升级接管为旧 coding 子任务）。<br><code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code> <code class="src" data-src="src/core/store.ts#setInboundTerminal">store.ts · setInboundTerminal</code></td>
             <td>无独立事件；同一事务发 <code>child_task.completed</code></td>
           </tr>
           <tr data-k="e-fail" tabindex="0">
@@ -214,7 +214,7 @@
 
     <aside class="callout inv">
       <b>不变量</b>
-      <p>没有登记就没有任务：每个入站任务的 source_event_id 都指向一条已提交的事件，建任务用的请求键由事件或收件派生（<code>evt:&lt;事件&gt;</code>、<code>qq:&lt;收件键&gt;</code>、<code>evt:&lt;事件&gt;:main</code> 与其下的 <code>deleg:&lt;父任务&gt;:review</code>），同键重提由提交幂等返回原任务。已建任务的事件（queued → done / failed）只由编排器写终态：通常在结果事务里，与任务结果、<code>child_task.*</code> 事件和 owner 回复登记一起提交；任务在回填 task_id 之前就已记了结果时（崩溃窗口），由派发的回填事务补写终态，owner 回复早已随那次结果事务登记。还没建任务的事件（registered → failed）另有调度器取消计划与 Runtime 复核 QQ 私聊 / Telegram 入口三处会作废；以上都是 <code>event_kind = task</code> 的普通事件，<code>im_approval</code> 控制消息登记即终态；万一出现 registered 的控制事件（正常路径不会产生），由派发作废。</p>
+      <p>没有登记就没有任务：每个入站任务的 source_event_id 都指向一条已提交的事件，建任务用的请求键由事件或收件派生（<code>evt:&lt;事件&gt;</code>、<code>qq:&lt;收件键&gt;</code>、<code>evt:&lt;事件&gt;:main</code> 与评审工作的 <code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>，升级接管为旧 <code>deleg:&lt;父任务&gt;:review</code>），同键重提由提交幂等返回原任务。已建任务的事件（queued → done / failed）只由编排器写终态：通常在结果事务里，与任务结果、<code>child_task.*</code> 事件和 owner 回复登记一起提交；任务在回填 task_id 之前就已记了结果时（崩溃窗口），由派发的回填事务补写终态，owner 回复早已随那次结果事务登记。还没建任务的事件（registered → failed）另有调度器取消计划与 Runtime 复核 QQ 私聊 / Telegram 入口三处会作废；以上都是 <code>event_kind = task</code> 的普通事件，<code>im_approval</code> 控制消息登记即终态；万一出现 registered 的控制事件（正常路径不会产生），由派发作废。</p>
     </aside>
   </section>
 
@@ -262,7 +262,7 @@
             <td><code>github</code></td>
             <td>delivery ID（小写）</td>
             <td>原始字节的 HMAC 签名；仓库 ID 在允许列表；PR 字段逐项校验</td>
-            <td>main 父任务 <code>evt:&lt;事件&gt;:main</code> 与 coding 子任务 <code>deleg:&lt;父任务&gt;:review</code></td>
+            <td>main 父任务 <code>evt:&lt;事件&gt;:main</code> 与评审 SubAgent 任务（<code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>）</td>
             <td>所选 notifyChannel 当时的 owner 目标（含配置版本），发摘要前整体相等比对；另存归一化 PR 快照</td>
             <td>非 PR 事件与未支持的 action 返回 202 忽略；校验失败返回 4xx</td>
           </tr>

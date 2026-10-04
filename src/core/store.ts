@@ -1120,15 +1120,28 @@ export class Store {
     return rows.map((r) => this.rowToTask(r));
   }
 
-  /** 指定父用户会话的活动 SubAgent 执行任务数（委派限额；查重先于限额）。 */
+  /**
+   * 指定父用户会话的活动 SubAgent 执行任务数（委派限额；查重先于限额）。
+   * 宿主评审任务（agent-direction issue 19，带来源事件）是固定入站编排、不占
+   * 拥有者模型的委派名额。
+   */
   countActiveSubAgentTasks(parentSessionId: string): number {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM tasks t JOIN work_delegations w ON w.id = t.work_id
-         WHERE w.parent_session_id = ? AND t.status IN ('queued','running','awaiting_confirmation')`,
+         WHERE w.parent_session_id = ? AND t.source_event_id IS NULL
+           AND t.status IN ('queued','running','awaiting_confirmation')`,
       )
       .get(parentSessionId) as any;
     return Number(row.n);
+  }
+
+  /** 该 SubAgent 是否有源自入站事件的执行任务（issue 19 宿主评审：不可复用，见 SubAgentManager.assertAvailable）。 */
+  hasInboundSourcedSubAgentTask(subAgentId: string): boolean {
+    const row = this.db
+      .prepare("SELECT 1 AS x FROM tasks WHERE sub_agent_id = ? AND source_event_id IS NOT NULL LIMIT 1")
+      .get(subAgentId) as any;
+    return row !== undefined;
   }
 
   /**

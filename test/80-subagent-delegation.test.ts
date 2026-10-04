@@ -14,10 +14,14 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { type Responder, type RecordedRequest } from "./helpers/mock-provider.ts";
-import { cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
+import { MockModelServer, type Responder, type RecordedRequest } from "./helpers/mock-provider.ts";
+import { cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { subAgentTaskRequestId } from "../src/runtime/subagents.ts";
+import { createMockTools } from "../src/agent/mock-tools.ts";
+import { CredentialStore } from "../src/agent/execution/credentials.ts";
+import { Runtime } from "../src/runtime/runtime.ts";
 
 function toolNamesOf(call: { tools: Array<Record<string, unknown>> | undefined }): string[] {
   return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n) => typeof n === "string");
@@ -485,6 +489,56 @@ test("终态未核实退出：占用保留时 SubAgent 记 unverified，不虚�
   } finally {
     await t.shutdown();
   }
+});
+
+test("宿主评审（issue 19）：不占 main 委派名额，评审 SubAgent 不能复用或续派", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const { dirs } = await makeTestDirs("sagent-hostreview", 0);
+  const server = new MockModelServer(async (req) => {
+    // 评审与普通 SubAgent 分析都卡在模型侧，保持活动状态供限额核实
+    if (lastUserText(req).startsWith("[SubAgent 委派")) await gate;
+    return { kind: "text", text: "完成" };
+  });
+  await writeModelsJson(dirs, await server.start());
+  new CredentialStore(dirs.agentDir).upsert({ name: "hook", host: "github.com", header: "x-hub-signature-256", purpose: "github_webhook", secret: "s" });
+  const rt = await Runtime.start({
+    dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
+    modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", qqDisabled: true, telegramDisabled: true,
+    toolFactory: (ctx) => createMockTools(ctx),
+    githubWebhook: { port: 0, credential: "hook", repositoryIds: [42] },
+  });
+  try {
+    const main = rt.store.getAgentRole("main")!;
+    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "p-host", input: "委托", modelSelection: rt.defaultSelection });
+    await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const body = JSON.stringify({ repository: { id: 42, fullName: "o/r" }, number: 7, url: "https://github.com/o/r/pull/7",
+      headSha: "a".repeat(40), baseSha: "b".repeat(40), state: "open", draft: false, updatedAt: "2026-09-24T00:00:00Z" });
+    const { event } = rt.store.withTx(() => rt.store.registerInboundEvent({ source: "github", externalId: randomUUID(), actor: "a", targetRole: "main", body }));
+    const review = await rt.subagents!.delegate({ parentTaskId: parent.id, key: `ghreview-${event.id}`, request: "评审 PR", paramsDigest: "r1", hostReview: { sourceEventId: event.id } });
+    await waitFor("评审任务活动", () => rt.store.getTask(review.task.id)!.status === "running");
+    assert.equal(review.task.sourceEventId, event.id);
+    // 评审活动期间，main 的拥有者委派名额不受影响
+    assert.equal(rt.store.countActiveSubAgentTasks(main.sessionId), 0, "宿主评审任务不计入委派名额");
+    for (let i = 0; i < 3; i++) {
+      await rt.subagents!.delegate({ parentTaskId: parent.id, key: `n${i}`, request: "分析", readPaths: ["."], materials: null, paramsDigest: `n${i}` });
+    }
+    await assert.rejects(
+      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "n3", request: "分析", readPaths: ["."], materials: null, paramsDigest: "n3" }),
+      /已达上限/,
+    );
+    release();
+    await waitFor("评审完成空闲", () => rt.store.getSubAgent(review.agent.id)!.state === "idle");
+    // 评审 SubAgent 上下文含不可信 PR 资料：宿主不复用，主 Agent 也不能续派或挪作他用
+    await assert.rejects(
+      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "re1", request: "挪作他用", subAgentId: review.agent.id, readPaths: ["."], materials: null, paramsDigest: "re1" }),
+      /源自入站事件/,
+    );
+    await assert.rejects(
+      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "re2", request: "续派", workId: review.work.id, readPaths: ["."], materials: null, paramsDigest: "re2" }),
+      /源自入站事件/,
+    );
+  } finally { release(); await rt.stop("test_end"); await server.close(); await cleanupDirs(dirs); }
 });
 
 test("v23 → v24 迁移：旧角色/会话/任务/审批保留，新关联列为空，新对象按库补齐", async () => {

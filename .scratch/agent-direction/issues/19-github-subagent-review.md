@@ -10,11 +10,11 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 同一 PR webhook 从登记、去重、通用子任务评审到原有固定通知完整可用，不再新建固定 coding 评审任务。
-- [ ] 保持只读工具与资料限制，不执行 PR 代码，不因此取得评论、合并或任意发布权限。
-- [ ] 旧报告、原始修订、失效状态和来源仍可查看，重复事件及重启不产生重复评审副作用。
-- [ ] 沿用已有 PR 通知授权，不等待 GitHub comment 对话能力，也不重复实现已经退役的旧 GitHub REST 模块。
-- [ ] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+- [x] 同一 PR webhook 从登记、去重、通用子任务评审到原有固定通知完整可用，不再新建固定 coding 评审任务。
+- [x] 保持只读工具与资料限制，不执行 PR 代码，不因此取得评论、合并或任意发布权限。
+- [x] 旧报告、原始修订、失效状态和来源仍可查看，重复事件及重启不产生重复评审副作用。
+- [x] 沿用已有 PR 通知授权，不等待 GitHub comment 对话能力，也不重复实现已经退役的旧 GitHub REST 模块。
+- [x] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
 
 ## Comments
 
@@ -180,6 +180,30 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 - 空闲期间无残余容器。
 
 模型、MCP 与消息平台为模拟，分别记录。真实 GitHub 投递、真实 GitHub MCP 与真实 Telegram/QQ 没有演练入口，记为未实测。
+
+### 2026-10-04：实施完成，验收证据（基于 HEAD `03510b3`，12/14/16/18 已落地）
+
+**默认取舍按计划执行的两处计划调整**：plan 的 `hostReview: { sourceEventId, body }` 实际只需 `{ sourceEventId }`（正文即 `request`，不重复携带）；「旧 coding 结果与新 SubAgent 结果同时标过期」的断言放进 test/45 修订用例（预置旧 coding 评审种子），「评审任务不占名额、复用拒绝」放 test/80 新用例。
+
+**实施中发现的恢复漏洞（已修）**：评审 SubAgent 登记提交后、首次 kick 生效前崩溃，或崩溃窗口把排队子会话按 `backend_restart` 暂停时，恢复重提命中首次登记（管理器不再 kick）会让评审任务永远排队。编排器派发现在补一次幂等 kick，子会话被恢复事务按 `backend_restart` 暂停时按角色会话同口径恢复（`occupancy_unverified` 不解除，仍等拥有者核实）。
+
+**五项验收证据**
+
+1. **完整链路，不新建 coding 评审**（离线逻辑测试 + 真实执行边界）：
+   - test/45 主流程：202/200 去重、HTTP 不等待模型；生成一项工作、一个 SubAgent、一条执行任务（`subAgentId`/`workId`/`sourceEventId` 正），coding 会话零新任务；子任务工具 = `read`/`read_artifact` + 两次 `get_pr` 加 `get_diff` 只读 MCP；跨页正文完整存为 `review-draft:<事件>` 产物、`review` 字段与原断言一致；main 唤醒用 `subagent_result`（迁移期兼容 `coding_result`），恰一条 `inbound_event` 通知且发送成功；`work list` 可见该工作。
+   - smoke-19（真实 Runtime/控制面/SQLite/JSONL/Docker 受限 worker/回环真实监听的签名 webhook 入口；模型、MCP、消息平台模拟）：本机 darwin arm64 8/8，远端 tx（Linux x64、镜像内 uid 1003）8/8。
+2. **只读与权限**：test/45 伪造 write/unknown MCP、bash、`subagent_delegate` 在发送前与调用门两处被拒（MCP 服务记录只有读取命中）；PR 正文注入指令不改变工具/目标/权限（任务固定 confirm、零审批记录、不采纳 `full_access`）；MCP 配在 main 项目时 main 自身任务与拥有者委派的 SubAgent 均无 MCP 工具（test/45 新用例）；评审 SubAgent 无委派工具，不能把评审改派主 Agent；无 `github_drafts` 表；签名秘密不进入模型上下文、不开放通用 HTTP。
+3. **旧记录可查，重复事件与重启不重复**：test/45 新修订把旧 coding 结果（预置）与新 SubAgent 结果同时标过期、取消待发通知，旧草稿完整保留；升级接管用例（父任务与旧 coding 子任务已存在）零新 SubAgent、沿原任务收尾；test/46 五个恢复窗口（父任务已建子任务未建、子任务已提交回执丢失、默认模型变化、报告定稿结果未提交、摘要终态 outbox 未登记）逐一复用原工作/任务/产物/通知键，模型评审恰一次；head/base 变化、同时间戳不同 SHA、关闭事件沿用原断言；新增「出队时修订已过期的评审被取消」用例：零模型调用、不登记通知。smoke-19 C/D 段在真实进程重启下复验（不新建记录、不重复发送）。
+4. **通知授权沿用**：test/45 换 owner 目标、停用 webhook 都取消待发通知不改发；`effect_unknown` 不重发，重复 delivery 与重启不重发；ops 全部为 `inbound_event`（评审工作不产生 issue 18 的 owner_reply 最终汇报，`workOriginEvent` 本就只认 telegram/qq_private，新断言固化）。
+5. **检查**：`npm run typecheck` 通过；test/80 新用例「不占名额 + 复用/续派拒绝」；test/59、62 通过；图示页同步后 test/67 通过。相关文件集：`npx tsx --test test/42 43 44 45 46 27 39×2 24 25 37 59 62 64 66 67 80` 全绿。
+
+**验证层级**：离线逻辑测试见上；真实后台与执行边界 = smoke-19 本机（macOS + Docker `ruukoto-worker`）与远端 `ssh tx`（Linux + Docker，`uid/gid 1003`）各 8/8；模拟 = MockModelServer 模型、本地 mock MCP（配在 main 项目）、进程内通知渠道；未实测 = 真实 GitHub 投递、真实 GitHub MCP 与真实 Telegram/QQ（无演练入口）。
+
+**文档同步**：runtime.md 新增「宿主固定评审（issue 19）」节、PR webhook 配置改 main 项目并写升级步骤、「评审、修订与通知边界」两条改写为 SubAgent 链路、删去「19 再迁移」说法；ADR 0013 追加 issue 19 修订段；ADR 0017 实施记录加行；CONTEXT.md「SubAgent」与「GitHub 评审入口」条目更新。图解页（visual-docs skill 核实）：orchestrator.html（角色表、请求键表、#github 节整节改写为 SubAgent 链路、结构化结果段、SubAgent 工具行）、inbound-events.html（派发图 aria 与三处评审请求键/任务表述）、tool-call-path.html（SubAgent 装配与收窄两条）、context-pipeline.html（SubAgent 工具定义行）、once-only.html（派发幂等行）、task-lifecycle.html（backend_restart 恢复两行补宿主评审例外）；时序图经 shoot.sh 渲染逐张核对，test/67 全绿。未发现文档与代码的新不一致。
+
+**顺手修复**：test/81「登记失败清理」的目录断言用 `f.includes("c3"/"c5")`，随机 workId 含该子串时误命中旧快照（本单全量运行中首次触发）；改为按 `-c3.txt`/`-c5.txt` 后缀匹配。
+
+**全量**：`npm test` 末轮 917 项，915 通过、0 失败、1 项真实模型测试按默认开关跳过；唯一失败为 test/32-dev「档案路径」在 worktree（目录名 `calm-winding-harbor` 而非 `ruukoto`）下的预置断言，与本单无关（不触及档案路径代码），主检出路径下通过。
 
 文档同步：
 

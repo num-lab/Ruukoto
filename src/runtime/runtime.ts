@@ -718,6 +718,8 @@ export class Runtime {
       onWakeTerminal: (task, outcome) => runtime.enqueueWorkReport(task, outcome),
       inboundGate: (event) => runtime.inboundGate(event),
       reviewRequest: (event) => runtime.githubEvents.request(event),
+      // 宿主固定评审（agent-direction issue 19）：编排器直接调用管理器，不经模型工具
+      subagents: { delegate: (input) => runtime.subagents!.delegate(input) },
       resultData: (task, outcome) => runtime.githubEvents.resultData(task, outcome),
       resultNotice: (task) =>
         [runtime.githubEvents.notice(task), runtime.workReportNotice(task)].filter((n): n is string => n !== null).join("\n") || null,
@@ -2828,6 +2830,9 @@ export class Runtime {
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
         allowTaskTool: (task, name, effect) => this.githubEvents.allowTool(task, name, effect),
+        // 宿主评审任务（agent-direction issue 19）按任务另开只读 MCP：GitHub MCP
+        // 配在 main 项目（评审 SubAgent 的会话在 main 项目下；凭据范围按项目核对）
+        taskMcp: (task) => this.githubEvents.isReviewTask(task),
         reviewer: this.reviewer,
         // IM 审批（agent-direction issue 08）：创建通知与消费前固定身份复核；
         // 长期授权候选（issue 10）：共享 main 不继承其他入口；无 IM 来源的任务恒无候选
@@ -2890,6 +2895,7 @@ export class Runtime {
               close: (input) => this.subagents!.close(input),
               cancelWork: (input) => this.subagents!.cancelWork(input),
               readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+              resultNotice: (task) => this.githubEvents.notice(task),
             }
           : undefined,
         subagentResults: {

@@ -126,7 +126,7 @@
           <tr data-k="inbound" tabindex="0">
             <td><strong>入站事件</strong><br><code class="src" data-src="src/runtime/orchestrator.ts#registerInboundEvent">orchestrator.ts · registerInboundEvent</code></td>
             <td><code>inbound_events</code> 行，先登记再建任务；<code>(source, external_id)</code> 唯一，重复登记返回原事件、不建任务</td>
-            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>deleg:&lt;父任务&gt;:review</code>。建好任务后条件更新 registered → queued</td>
+            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>（升级接管为旧 <code>deleg:&lt;父任务&gt;:review</code>）。建好任务后条件更新 registered → queued</td>
             <td>建任务失败的事件保持 registered：调度器按 <code class="src" data-src="src/scheduler/runtime.ts#SCHEDULER_LIMITS">SCHEDULER_LIMITS</code>.redispatchMs 间隔补派，重启时同样按原请求键重提，命中已有任务就沿用；关联任务被中断时事件记 failed，不重放</td>
           </tr>
           <tr data-k="submit" tabindex="0">

@@ -548,11 +548,15 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 │                              #   幂等键、持久事件、跨项目资料授权、长期记忆
 │                              #   当前版本与修订、历史条目位置索引、选择记录、
 │                              #   MCP 服务配置、QQ 入口配置/群会话映射/收件登记/
-│                              #   发送记录（qq_config/qq_sessions/qq_inbox/qq_outbox）
+│                              #   发送记录（qq_config/qq_sessions/qq_inbox/qq_outbox）、
+│                              #   跨实例导入回执与条目账本（issue 21，
+│                              #   instance_imports/instance_import_items）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（issue 02，ADR 0009；独立库，
 │                              #   实例 ID 登记在核心库 meta；丢失/身份不符即停止能力）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
+├── migration/<导入ID>/        # 跨实例导入记录（issue 21，0700）：
+│                              #   target-before.db = 导入前目标库备份（整库恢复路径）
 └── runtime.lock/              # 实例锁（mkdir 原子创建；owner.json 记录 pid）
 
 <dataDir>/../qq-work/           # QQ 群会话专用空工作目录（每 账号_群 一个，0700）
@@ -593,6 +597,59 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 记录核实的操作 → `effect_unknown`，不重放。获批后复核或消费失败的批准标 stale，
 不能再用，操作同样按已知未执行。效果以停止瞬间为准：中止期间才落下的结果不改
 结论。
+
+### 旧实例开发资料迁入（agent-direction issue 21，ADR 0022）
+
+`ruukoto-dev legacy-import` 只在 **ruukoto-dev** 产品下可用（bin/ruukoto-dev.mjs），
+把旧 ruukoto 实例（如 `~/.ruukoto/data` 或服务器实例的副本）中的开发资料迁入
+Coding Agent 档案。目标侧离线执行：preview/apply/revert/list 都要求目标后台
+已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活
+（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制
+到临时目录后在副本上迁移，源目录逐文件 sha256 不变。
+
+```bash
+ruukoto-dev legacy-import preview --from <源数据目录> [--plan 计划文件]
+ruukoto-dev legacy-import apply --plan 计划文件 [--request-id <id>]
+ruukoto-dev legacy-import revert <导入ID>
+ruukoto-dev legacy-import list
+```
+
+流程：preview 列出源/目标实例、每个项目的会话归属（普通 dev/角色/群/子会话）、
+根目录在本机的核实结果、历史状态、未终态任务及收尾方式、待处理审批、记忆
+（可导入/待处理）、授权（导入/跨实例）、凭据绑定缺口、重名与 ID 冲突、
+agentDir 差异（只列名称）与修订值；`--plan` 把修订与源实例写回计划文件。
+拥有者在计划文件中修改 `renames`（重名项目改名）与 `personal_memories`
+（显式选中发布的个人记忆），apply 先查回执/核修订（源或目标变化即
+`revision_conflict`），再备份目标库 `<dataDir>/migration/<导入ID>/target-before.db`
+（VACUUM INTO，回执记录 sha256），复制文件后单事务入库并写回执与条目账本；
+中断后用同一计划重跑即可，同键重放返回原回执。
+
+导入范围（allow-list，行 ID 原样保留）：源项目内的普通 dev 会话及其任务、
+工具操作、审批、产物、选择记录、压缩点、事件与 SubAgent 一层（子会话以
+关闭状态登记）；项目配置（指令/Web Search）、范围内记忆、双端都在导入
+范围的资料授权、MCP 与 Jev 配置（缺凭据绑定时以停用导入，由拥有者重新
+绑定）。不导入：角色绑定会话、QQ 群会话与 main 资料、inbound/调度/通知/
+长期授权/平台配置、历史索引（派生，重建）、目录占用、agentDir 全部配置
+与凭据。未终态任务收尾为 canceled/interrupted（migration），结果未登记且
+可能已开始执行的工具操作与任务置 effect_unknown（审批未消费挡住的操作属
+已知未执行）；未消费审批 stale；`full_access` 会话默认降为 confirm；queued
+会话不在目标入队——导入不调用模型、不重放外发。
+
+恢复与回退：`revert` 按账本删除导入的行、事件区间与经 sha256 核对的复制
+文件（导入后目标侧的自有活动——导入的会话/项目/记忆有新任务、新事件、
+新会话、新授权、组织引用或新版本——逐项列出并拒绝回退）。回执永久保留
+（applied/reverted），`list` 可核实。整库恢复为手工路径：停止 ruukoto-dev
+后台，用备份替换数据库后重启：
+
+```bash
+ruukoto-dev stop  # 确认后台已停止
+cp <dataDir>/migration/<导入ID>/target-before.db <dataDir>/ruukoto.db
+rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm
+# 复制的 JSONL 与产物正文如需一并移除，按回执 report.files 逐项删除
+```
+
+任何路径都不删除或修改源资料；导入不做增量同步（源侧新增只在报告列出，
+可再次导入）。
 
 ## 上下文、历史检索与长期记忆（issue 05）
 

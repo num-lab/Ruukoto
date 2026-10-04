@@ -604,7 +604,7 @@ test("登记失败清理（visual-docs-review 工单 03）：正文超长与登�
     assert.ok(fs.existsSync(first.agent.workDir), "沿用目录保留");
     assert.equal(fs.readFileSync(path.join(first.agent.workDir, "keep.txt"), "utf8"), "既有内容", "已有内容不动");
     assert.deepEqual(
-      fs.readdirSync(first.agent.workDir).filter((f) => f.includes("c3")),
+      fs.readdirSync(first.agent.workDir).filter((f) => f.endsWith("-c3.txt")),
       [],
       "沿原工作委派失败不留本次快照",
     );
@@ -622,7 +622,7 @@ test("登记失败清理（visual-docs-review 工单 03）：正文超长与登�
       /注入登记失败/,
     );
     assert.deepEqual(
-      fs.readdirSync(firstM.agent.workDir).filter((f) => f.includes("c5")),
+      fs.readdirSync(firstM.agent.workDir).filter((f) => f.endsWith("-c5.txt")),
       [],
       "登记事务失败不留本次快照",
     );

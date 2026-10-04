@@ -115,6 +115,12 @@ export interface DriverDeps {
   mcp?: { store: McpStore } & McpTimeouts;
   /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
   allowTaskTool?: (task: Task, name: string, mcpEffect?: McpToolEffect) => boolean;
+  /**
+   * 宿主按任务另开只读 MCP（agent-direction issue 19 的 GitHub 评审 SubAgent）：
+   * subagent 类会话只有该依赖为真时才规划 MCP，收窄为「静态只读白名单 ∪
+   * effect=read 的 MCP」（装配、发送前与调用门同一结论）。
+   */
+  taskMcp?: (task: Task) => boolean;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
   /**
@@ -161,7 +167,7 @@ export interface DriverDeps {
    * 普通开发会话与 main 装配；readReply 读指定任务的最终回答，delegate 走集中
    * 登记（不阻塞父任务），close 显式关闭（只收窄能力）。
    */
-  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "readReply">;
+  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "readReply" | "resultNotice">;
   /**
    * dev 父会话待注入的 SubAgent 结果：任务开始时收集并由 driver 标记送达
    * （注入随下一次模型调用送达；崩溃窗口不丢失，持久事件与 subagent_result 可查）。
@@ -555,8 +561,8 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      // 按会话类别固定（issue 24）：QQ 群与 chat 角色用 chat 提示；coding 含 GitHub 评审子任务；
-      // subagent 用只读分析提示
+      // 按会话类别固定（issue 24）：QQ 群与 chat 角色用 chat 提示；subagent
+      // 用只读分析提示（GitHub 评审 SubAgent 同用，issue 19）
       systemPrompt: SYSTEM_PROMPTS[this.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
@@ -774,10 +780,11 @@ export class Driver {
   }
 
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
-  private async planMcp(): Promise<McpTaskPlan> {
+  private async planMcp(task: Task): Promise<McpTaskPlan> {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
-    // 会话类别的清单不含 mcp 时不注册 MCP 工具（QQ 群与 chat 的清单为空）
-    if (!this.allows("mcp")) return EMPTY_MCP_PLAN;
+    // 会话类别的清单不含 mcp 时不注册 MCP 工具（QQ 群与 chat 的清单为空）；
+    // subagent 类仅宿主评审任务另开只读 MCP（issue 19，其余委派拿不到）
+    if (!this.allows("mcp") && !(this.toolClass === "subagent" && this.deps.taskMcp?.(task))) return EMPTY_MCP_PLAN;
     return planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
@@ -833,7 +840,7 @@ export class Driver {
       }
       // MCP（issue 16）：任务开始重读配置并发现工具，钉版本任务工具清单；
       // 单个服务初始化失败降级为不可用事件，不阻断任务
-      const mcpPlan = await this.planMcp();
+      const mcpPlan = await this.planMcp(task);
       if (this.sdk && mcpPlan.signature !== this.mcpSignature) this.dropSdkForToolChange();
       this.pendingMcpToolDefs = mcpPlan.toolDefs;
       // 计划先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收连接
@@ -881,12 +888,14 @@ export class Driver {
       webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
       mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
       // SubAgent 任务收窄（issue 16）：写入目标决定清单（装配、发送前与调用门
-      // 同一结论）。每个任务重建 Driver 后本任务已钉版；收窄不进 workerKey
+      // 同一结论）。每个任务重建 Driver 后本任务已钉版；收窄不进 workerKey。
+      // 宿主评审任务（issue 19）另加 effect=read 的 MCP（只读资料入口，写与
+      // 副作用不明的 MCP 留在拒绝集）
       narrow:
         this.toolClass === "subagent"
-          ? (name) => {
+          ? (name, effect) => {
               const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
-              return subAgentToolsFor(Boolean(work?.writeTarget)).has(name);
+              return subAgentToolsFor(Boolean(work?.writeTarget)).has(name) || (effect === "read" && (this.deps.taskMcp?.(task) ?? false));
             }
           : allowTaskTool
             ? (name, effect) => allowTaskTool(task, name, effect)

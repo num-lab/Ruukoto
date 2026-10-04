@@ -53,6 +53,8 @@ export interface SubAgentToolsDeps {
   cancelWork(input: { workId: string; by: `agent:${string}`; parentSessionId: string; reason?: string | null }): Promise<WorkCancellation>;
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
+  /** 评审任务前置修订说明（agent-direction issue 19，与 coding_result 一致）。 */
+  resultNotice?(task: Task): string | null;
   artifacts: ArtifactStore;
   taskContext(): HostToolContext | null;
   bindCall?(sdkCallId: string): () => void;
@@ -283,6 +285,12 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       const agent = store.getSubAgent(work.subAgentId);
       if (!agent) throw new Error(`工作 ${work.id} 缺少 SubAgent 记录`);
       const tasks = store.listTasksByWork(work.id);
+      // 评审任务前置修订说明（issue 19，与 coding_result 一致）：按所读任务给出
+      const noticed = (t: Task | null | undefined) => (t ? (deps.resultNotice?.(t) ?? null) : null);
+      const withText = (t: Task | null | undefined, text: string) => {
+        const notice = noticed(t);
+        return okText(notice ? `${notice}\n${text}` : text);
+      };
       if (part === "result") {
         const cancelText = work.canceledAt
           ? ` · 已取消（${work.canceledAt}，${work.canceledBy}${work.cancelReason ? `，${work.cancelReason}` : ""}）`
@@ -310,7 +318,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
             }
           }
         }
-        return okText(lines.join("\n"));
+        return withText(tasks.at(-1), lines.join("\n"));
       }
       const target = params.task_id
         ? tasks.find((t) => t.id === params.task_id) ?? null
@@ -321,9 +329,9 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         const length = intParam(params.length, READ_LIMITS.replyBytes, READ_LIMITS.replyBytes, "length");
         if (length < 256) throw new Error("reply length 必须至少为 256 字节");
         const page = deps.readReply(target.id, offset, length);
-        if (page === null) return okText(`任务 ${target.id}（${target.status}）暂无最终回答`);
+        if (page === null) return withText(target, `任务 ${target.id}（${target.status}）暂无最终回答`);
         const end = page.offset + Buffer.byteLength(page.text);
-        return okText(`[最终回答 第 ${page.offset}–${end} 字节，共 ${page.totalBytes}${end < page.totalBytes ? `；继续用 offset=${end}` : ""}]\n${page.text}`);
+        return withText(target, `[最终回答 第 ${page.offset}–${end} 字节，共 ${page.totalBytes}${end < page.totalBytes ? `；继续用 offset=${end}` : ""}]\n${page.text}`);
       }
       const artifact = typeof params.artifact_id === "string" ? store.getArtifact(params.artifact_id) : null;
       if (!artifact || artifact.taskId !== target.id) throw new Error("产物不存在或不属于该任务的执行");
@@ -340,7 +348,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         throw new Error("产物片段不是合法 UTF-8 文本，或 offset 未对齐字符边界");
       }
       const end = offset + Buffer.byteLength(text);
-      return okText(
+      return withText(target,
         `[产物 ${artifact.id}（${artifact.name}，${artifact.status}）第 ${offset}–${end} 字节，共 ${artifact.byteCount}` +
           `${end < artifact.byteCount ? `；继续用 offset=${end}` : ""}]\n${text}`,
       );

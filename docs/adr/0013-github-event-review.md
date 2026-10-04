@@ -4,6 +4,8 @@
 
 2026-10-02 修订：[ADR 0017](0017-two-agent-products.md) 取消固定 coding 角色，下述 main → coding 评审路径需要迁移；只读评审、固定通知目标及不得隐式取得发布权限的边界保留。GitHub comment 对话属于后续能力，尚未实现。
 
+2026-10-04 修订（agent-direction issue 19）：固定评审路径由旧 coding 子任务迁移到通用 SubAgent——编排器为每个修订直接登记一项新工作、一个新 SubAgent（hostReview 入参不经模型工具；不占 main 委派名额），每个修订用全新上下文、不跨修订复用，评审 SubAgent 空闲后保留但宿主与主 Agent 都不得续派或复用（上下文含不可信 PR 资料）；只读边界改为「静态只读白名单（`read`/`read_artifact`）∪ 按任务开放的 `effect=read` MCP」；GitHub MCP 由「配到 coding 角色的项目」改为配到 main 角色的项目（评审 SubAgent 的会话在 main 项目下，凭据按任务所在项目核对；不做自动迁移——拥有者另建 scope 为 main 项目的只读凭据后执行 `mcp configure --project`，coding 项目旧配置待 23 清理）；main 结果唤醒开放 `subagent_result`（`coding_result` 迁移期继续开放，供升级前未完成的旧唤醒）；升级前已建出旧 coding 评审子任务（`deleg:<父任务>:review`）的事件沿原路径接管，不再新建 SubAgent。只读评审、固定通知目标、不执行 PR 代码、不得隐式取得评论/合并/发布权限的边界不变；结果产物、修订失效标记与一次通知链路不变。
+
 daily-agent issue 08 原规格依赖已由 ADR 0007 退役的 GitHub 草稿机制。拥有者确认沿用退役决定，接入 webhook 后由宿主创建固定的 main 父任务与 coding 子任务；GitHub 资料仍经普通 MCP 读取，评审正文保存为普通 Artifact，修订和有效性记录在 Task result 中。本 ADR 补充 ADR 0007 的运行时边界：允许校验、登记和编排 GitHub 入站事件，不恢复 REST 采集、专用草稿或发布状态机，也不提供 REST 回退。
 
 PR 文本是外部资料。宿主固定角色、项目、会话、工作目录及 `confirm` 模式；coding 只获得 `read`、`read_artifact` 和本地配置标记 `effect = read` 的 MCP 工具，main 接收父任务没有工具，结果唤醒只获得 `coding_result`。评审不执行 PR 代码，不把正文中的指令用于改变权限或发布策略；修改、评论、合并和其他写操作须回到拥有者的可信入口及既有审批流程。

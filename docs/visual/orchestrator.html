@@ -67,7 +67,7 @@
     <h2>逻辑角色与引导（旧架构）</h2>
     <aside class="callout limit">
       <b>旧架构的现行实现</b>
-      <p>本节与下文「窄接口」「main 委派 coding」「子任务结果与异常路径」「GitHub PR 评审编排」「群聊结果」描述的固定角色机制仍在运行，但属于旧架构：新方向取消固定 coding 与 chat，由主 Agent 派发通用 SubAgent（ADR 0017、ADR 0020）。GitHub 评审迁到 SubAgent、核心退出群聊、迁移旧实例与清理固定角色分别是 agent-direction 工单 19、20、21–22、23，都还没有实施。新机制见<a href="#subagent">工作委托与 SubAgent</a>。</p>
+      <p>本节与下文「窄接口」「main 委派 coding」「子任务结果与异常路径」「群聊结果」描述的固定角色机制仍在运行，但属于旧架构：新方向取消固定 coding 与 chat，由主 Agent 派发通用 SubAgent（ADR 0017、ADR 0020）。GitHub 评审已由 agent-direction 工单 19 迁到通用 SubAgent（见「GitHub PR 评审编排」，升级前在途的旧 coding 评审子任务沿原路径接管）；核心退出群聊、迁移旧实例与清理固定角色分别是工单 20、21–22、23，都还没有实施。新机制见<a href="#subagent">工作委托与 SubAgent</a>。</p>
     </aside>
     <p>逻辑角色只有三个（<code class="src" data-src="src/core/types.ts#export type AgentRoleId">types.ts · AgentRoleId</code>）。后台启动时，<code class="src" data-src="src/runtime/orchestrator.ts#private async ensureRoles">orchestrator.ts · ensureRoles</code> 按 <code class="src" data-src="src/runtime/orchestrator.ts#ROLE_DEFINITIONS">ROLE_DEFINITIONS</code> 逐个检查：<code>agent_roles</code> 已有该角色的行就跳过；没有就找到或创建项目 <code>agent-&lt;角色&gt;</code>，建工作目录 <code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;</code>（权限 0700，放在数据目录之外以避开保护根），经桥接创建会话，再写一行角色配置（<code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>）。</p>
 
@@ -87,7 +87,7 @@
             <td><code>agent-coding</code>，一个持久会话</td>
             <td><code>coding</code> <code>host_data</code> <code>web_search</code> <code>mcp</code> <code>skills</code></td>
             <td><code>agent</code>：同 main，也不能读原始 QQ 群项目</td>
-            <td>main 的 <code>draft</code> 委派；GitHub 评审子任务。<code>analyze</code> 委派已改由 SubAgent 执行（见下文）</td>
+            <td>main 的 <code>draft</code> 委派。<code>analyze</code> 委派与 GitHub 评审子任务已分别改经 SubAgent 执行（工单 11/19；升级前在途的旧评审子任务沿原路径接管）</td>
           </tr>
           <tr>
             <td><code>chat</code></td>
@@ -395,7 +395,7 @@
         <tbody>
           <tr>
             <td>工具</td>
-            <td>只有 <code>read</code> 与 <code>read_artifact</code>（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">tool-availability.ts · SUBAGENT_READONLY_TOOL_NAMES</code>）；<code>subagent</code> 类别的清单为空，编码、委派与其他宿主工具都不装配，SubAgent 也就不能再委派下级。</td>
+            <td>只有 <code>read</code> 与 <code>read_artifact</code>（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">tool-availability.ts · SUBAGENT_READONLY_TOOL_NAMES</code>）；<code>subagent</code> 类别的清单为空，编码、委派与其他宿主工具都不装配，SubAgent 也就不能再委派下级。宿主评审任务（工单 19）另按任务开放 <code>effect=read</code> 的 MCP，见<a href="#github">GitHub PR 评审编排</a>。</td>
             <td>装配时过滤，发送前按载荷核对，调用门用同一白名单收窄（<code class="src" data-src="src/agent/driver.ts#private checkBeforeSend">driver.ts · checkBeforeSend</code>）。<code>read_artifact</code> 只读本任务自产的产物，拒绝 <code>prompt-snapshot:*</code>。</td>
           </tr>
           <tr>
@@ -607,7 +607,7 @@
     </ul>
 
     <h3>结构化结果与分页读取</h3>
-    <p>子任务终态后，<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code> 写两样东西：<code>result_summary</code>（完成时为最终回答，至多 <code class="src" data-src="src/runtime/orchestrator.ts#RESULT_SUMMARY_CAP">RESULT_SUMMARY_CAP</code> = 1000 字符，超出注明截断）与 <code>result_ref</code> JSON。委派的 coding 子任务写 <code class="src" data-src="src/runtime/orchestrator.ts#export interface DelegationResult">DelegationResult</code>（下表；<code>analyze</code> 现在只出现在 GitHub 评审子任务与接入 SubAgent 链路之前登记的旧子任务上）；其他角色任务只有 sessionId 与 taskId，GitHub 评审另并入 review。</p>
+    <p>子任务终态后，<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code> 写两样东西：<code>result_summary</code>（完成时为最终回答，至多 <code class="src" data-src="src/runtime/orchestrator.ts#RESULT_SUMMARY_CAP">RESULT_SUMMARY_CAP</code> = 1000 字符，超出注明截断）与 <code>result_ref</code> JSON。委派的 coding 子任务写 <code class="src" data-src="src/runtime/orchestrator.ts#export interface DelegationResult">DelegationResult</code>（下表；<code>analyze</code> 现在只出现在升级前在途的旧 GitHub 评审子任务与接入 SubAgent 链路之前登记的旧子任务上）；其他角色任务只有 sessionId 与 taskId，GitHub 评审另并入 review（SubAgent 评审任务在同一字段上由 <a href="#github">handleSubAgentTerminal 路径</a>并入）。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>字段</th><th>取值</th><th>谁判定</th></tr></thead>
@@ -770,37 +770,38 @@
           <tr><td><code>deleg:&lt;父任务&gt;:&lt;key&gt;:retry</code></td><td>coding</td><td>自动重试门</td></tr>
           <tr><td><code>wake:&lt;子任务&gt;</code></td><td>父任务所在的角色会话</td><td>结果回传与启动巡检 ②</td></tr>
           <tr><td><code>evt:&lt;事件&gt;:main</code></td><td>main</td><td>GitHub 评审父任务</td></tr>
-          <tr><td><code>deleg:&lt;父任务&gt;:review</code></td><td>coding</td><td>GitHub 评审子任务</td></tr>
+          <tr><td><code>deleg:&lt;父任务&gt;:review</code></td><td>coding</td><td>升级前在途的 GitHub 评审子任务（工单 19 起不再新建）</td></tr>
           <tr><td><code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>SubAgent 子会话</td><td>SubAgentManager 登记的每次执行任务；首次委派另以（父会话, 键）查工作（见<a href="#subagent">两级幂等</a>）</td></tr>
+          <tr><td><code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code></td><td>评审 SubAgent 子会话</td><td>GitHub 评审（宿主固定委派，工作键 <code>ghreview-&lt;事件 id&gt;</code>；不占 main 委派名额）</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
   <section id="github">
-    <h2>GitHub PR 评审编排（旧架构）</h2>
-    <p>拥有者启用 webhook 后，每个有效的 PR 事件由宿主固定委派一次只读评审（ADR 0013）。评审子任务仍由固定的 coding 角色执行，没有接入 SubAgent；迁移是 agent-direction 工单 19，尚未实施。签名校验、入站登记与去重见<a href="inbound-events.html">入站事件</a>；通知的发送账本见<a href="outbox.html">通知 outbox</a>。这里只讲编排：派发不经模型，模型也不能改变任务的工具、目标或发送。</p>
+    <h2>GitHub PR 评审编排</h2>
+    <p>拥有者启用 webhook 后，每个有效的 PR 修订由宿主固定登记一次只读评审（ADR 0013；agent-direction 工单 19）：编排器先建（或复用）固定的 main 父任务，再直接调用 <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">SubAgentManager</code>（<code class="src" data-src="src/runtime/subagents.ts#hostReview?: { sourceEventId">hostReview</code> 入参只由编排器传入，不经模型工具）为每个修订登记一项新工作、一个新 SubAgent——不再新建固定的 coding 评审子任务；升级前已按旧路径建出的子任务（<code>deleg:&lt;父任务&gt;:review</code>）沿原路径接管，不另起 SubAgent。签名校验、入站登记与去重见<a href="inbound-events.html">入站事件</a>；通知的发送账本见<a href="outbox.html">通知 outbox</a>。这里只讲编排：派发不经模型，模型也不能改变任务的工具、目标或发送。</p>
 
     <figure class="fig">
       <div class="scroll">
         <div class="seq" style="--n:6">
-          <div class="who"><span>GitHub 适配</span><span>编排器</span><span>main 会话</span><span>coding 会话</span><span>Store · 产物</span><span>outbox</span></div>
+          <div class="who"><span>GitHub 适配</span><span>编排器</span><span>main 会话</span><span>评审 SubAgent</span><span>Store · 产物</span><span>outbox</span></div>
           <div class="m" style="--from:1;--to:5"><span>register：登记入站事件</span></div>
           <div class="note" style="--from:5;--to:6">同一 PR 较新且修订不同：旧任务 result_ref.review.staleReason 写原因，旧事件未发送的通知取消</div>
           <div class="m dash" style="--from:1;--to:2"><span>下一轮事件循环 dispatch</span></div>
           <div class="note" style="--from:2;--to:2">gate：仓库仍在配置内、修订未过期</div>
           <div class="m" style="--from:2;--to:3"><span>父任务 evt:&lt;事件&gt;:main（无工具）</span></div>
-          <div class="m" style="--from:2;--to:4"><span>子任务 deleg:&lt;父任务&gt;:review（analyze）</span></div>
-          <div class="note" style="--from:4;--to:4">只开放 read、read_artifact、effect=read 的 MCP；不执行 PR 代码</div>
+          <div class="m" style="--from:2;--to:4"><span>新工作 + 新 SubAgent；子任务 sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</span></div>
+          <div class="note" style="--from:4;--to:4">只开放 read、read_artifact、按本任务开放的 effect=read 的 MCP（GitHub MCP 配在 main 项目）；不执行 PR 代码</div>
           <div class="m l" style="--from:4;--to:2"><span>终态事件</span></div>
-          <div class="m" style="--from:2;--to:5"><span>resultData：最终回答存为产物，写 result_ref.review</span></div>
-          <div class="m" style="--from:2;--to:3"><span>唤醒 wake:&lt;子任务&gt;（只开放 coding_result）</span></div>
+          <div class="m" style="--from:2;--to:5"><span>resultData：最终回答存为产物，写 result_ref.review；同一结果事务回写入站终态</span></div>
+          <div class="m" style="--from:2;--to:3"><span>唤醒 wake:&lt;子任务&gt;（开放 subagent_result，迁移期兼容 coding_result）</span></div>
           <div class="m l" style="--from:3;--to:2"><span>唤醒任务终态</span></div>
           <div class="m ok" style="--from:2;--to:6"><span>同一结果事务：登记 inbound_event + 事件 ID 的一次通知</span></div>
           <div class="note" style="--from:6;--to:6">发送前复核事件有效、目标未变</div>
         </div>
       </div>
-      <figcaption>评审子任务的截止时间取事件收到时刻 + 60 分钟，与父任务相同；唤醒任务取子任务结束 + 60 分钟。通知只在唤醒产生的 main 摘要任务结束时登记，逻辑键是来源类别 inbound_event 加事件 ID，与 owner 回复无关，每个事件至多一次。</figcaption>
+      <figcaption>评审父任务的截止时间取事件收到时刻 + 60 分钟，评审子任务取父任务开始时刻 + 60 分钟（<code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">SUBAGENT_LIMITS</code>），唤醒任务取子任务结束 + 60 分钟。通知只在唤醒产生的 main 摘要任务结束时登记，逻辑键是来源类别 inbound_event 加事件 ID，与 owner 回复无关，每个事件至多一次。</figcaption>
     </figure>
 
     <div class="scroll">
@@ -808,19 +809,19 @@
         <thead><tr><th>任务</th><th>请求键</th><th>允许的工具</th><th>来源事件</th></tr></thead>
         <tbody>
           <tr><td>main 父任务</td><td><code>evt:&lt;事件&gt;:main</code></td><td>无：只确认接收</td><td>本事件</td></tr>
-          <tr><td>coding 评审子任务</td><td><code>deleg:&lt;父任务&gt;:review</code></td><td><code>read</code>、<code>read_artifact</code>、本地配置标记 <code>effect = read</code> 的 MCP 工具</td><td>本事件（因此不自动重试）</td></tr>
-          <tr><td>main 唤醒任务</td><td><code>wake:&lt;子任务&gt;</code></td><td><code>coding_result</code></td><td>本事件（普通委派的唤醒没有来源事件）</td></tr>
+          <tr><td>评审 SubAgent 执行任务</td><td><code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code></td><td><code>read</code>、<code>read_artifact</code>、按本任务开放的 <code>effect = read</code> MCP 工具</td><td>本事件（因此不自动重试；不占委派名额）</td></tr>
+          <tr><td>main 唤醒任务</td><td><code>wake:&lt;子任务&gt;</code></td><td><code>subagent_result</code>（迁移期兼容 <code>coding_result</code>）</td><td>本事件（普通委派的唤醒没有来源事件）</td></tr>
         </tbody>
       </table>
     </div>
-    <p>工具收窄由 <code class="src" data-src="src/github/events.ts#allowTool(task">events.ts · allowTool</code> 判定，驱动器在任务开始时把它作为宿主按任务收窄并入本任务允许的工具集合；其他任务不受影响。评审正文由宿主模板生成（<code class="src" data-src="src/github/events.ts#request(event">events.ts · request</code>），PR 标题与正文放在「不可信 PR 资料」之后，只作分析材料。</p>
+    <p>评审子任务带来源事件（<code>source_event_id</code>），出队门、修订失效与通知回写与旧 coding 子任务同一链路；评审并行运行、不设并发名额，被新修订取代仍在运行的评审会跑完，结果标为过期、不发通知。评审任务的收窄是「静态只读白名单 ∪ 本任务 effect=read 的 MCP」：subagent 类会话只在 <code class="src" data-src="src/agent/driver.ts#taskMcp">driver.ts · taskMcp</code> 依赖识别为评审任务时规划 MCP（会话项目为 main 项目，凭据按项目核对），装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、下级委派在发送前与调用门两处被拒。main 唤醒的收窄由 <code class="src" data-src="src/github/events.ts#allowTool(task">events.ts · allowTool</code> 判定（<code>subagent_result</code>，迁移期另留 <code>coding_result</code>）；其他任务不受影响。评审正文由宿主模板生成（<code class="src" data-src="src/github/events.ts#request(event">events.ts · request</code>），PR 标题与正文放在「不可信 PR 资料」之后，只作分析材料。评审 SubAgent 空闲后保留但不参与继续/复用——可用性检查对有来源事件任务的 SubAgent 一律拒绝（<code class="src" data-src="src/runtime/subagents.ts#private assertAvailable">subagents.ts · assertAvailable</code>，上下文含不可信 PR 资料）。</p>
 
     <h3>报告与修订有效性</h3>
     <ul>
-      <li><b>报告</b>：子任务完成时，<code class="src" data-src="src/github/events.ts#resultData(task">events.ts · resultData</code> 把最终回答逐页写进产物 <code>review-draft:&lt;事件&gt;</code>，读满记录的总字节数才标记完整。分页缺失或写入失败时产物保持 partial，结果记 captureError 并要求拥有者核实。</li>
+      <li><b>报告</b>：子任务终态登记时（<code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">orchestrator.ts · handleSubAgentTerminal</code>；旧 coding 路径共用），<code class="src" data-src="src/github/events.ts#resultData(task">events.ts · resultData</code> 把最终回答逐页写进产物 <code>review-draft:&lt;事件&gt;</code>，读满记录的总字节数才标记完整。分页缺失或写入失败时产物保持 partial，结果记 captureError 并要求拥有者核实。</li>
       <li><b>有效性</b>：<code>result_ref.review</code> 保存事件 ID、PR URL、仓库 ID、PR 编号、head/base SHA、产物 ID 与 <code>staleReason</code>。<code class="src" data-src="src/github/events.ts#staleReason(event">events.ts · staleReason</code> 在 PR 已关闭或为 draft，或同一 PR 有 updatedAt 不早于本事件、但 head、base、状态或 draft 不同的事件时返回原因。</li>
       <li><b>失效</b>：新事件登记时（<code class="src" data-src="src/github/events.ts#register(s">events.ts · register</code>）在同一事务里给旧事件的评审结果写 staleReason，并取消旧事件尚未发送的通知（发送中的只记取消请求）；旧事件还没派发或还没开始的任务被入站门丢弃（<code class="src" data-src="src/github/events.ts#gate(event">events.ts · gate</code>）。旧产物保留为不可变记录。</li>
-      <li><b>通知</b>：<code class="src" data-src="src/github/events.ts#terminal(event">events.ts · terminal</code> 只接受「本事件 coding 子任务」的唤醒任务；事件已失效、webhook 停用、owner 目标未配置或已变化时改记 <code>inbound.skipped</code>，不发送。</li>
+      <li><b>通知</b>：<code class="src" data-src="src/github/events.ts#terminal(event">events.ts · terminal</code> 只接受「本事件评审子任务」（SubAgent，或升级前在途的旧 coding 子任务）的唤醒任务；事件已失效、webhook 停用、owner 目标未配置或已变化时改记 <code>inbound.skipped</code>，不发送。</li>
     </ul>
   </section>
 

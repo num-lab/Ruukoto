@@ -26,13 +26,15 @@ const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]>
   // chat：群聊，空工具集合
   chat: [],
   // subagent（agent-direction issue 11）：只读分析，read/read_artifact 由 Driver
-  // 按类别单独装配（不走注册来源类别），子身份不能再委派下级
+  // 按类别单独装配（不走注册来源类别），子身份不能再委派下级；宿主评审任务
+  // （issue 19）的只读 MCP 由 Driver 依赖 taskMcp 按任务另开，不在本静态清单
   subagent: [],
 };
 
 /**
  * SubAgent 任务的静态只读工具白名单（装配、发送前与调用门同一结论；伪造调用
- * 与未知工具默认拒绝）。
+ * 与未知工具默认拒绝）。宿主评审任务（issue 19）在此之外另开 effect=read
+ * 的 MCP（收窄规则见 Driver 的任务工具集）。
  */
 export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "read_artifact"]);
 

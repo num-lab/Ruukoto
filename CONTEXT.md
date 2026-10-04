@@ -19,7 +19,7 @@ _Avoid_：将个人 Agent 限定为编码助手或 QQ 群聊机器人；将“�
 **主 Agent**：在用户会话中直接与拥有者交互、向若干 SubAgent 派发任务并汇总结果的 Agent；ruukoto 的主 Agent 称为 main。
 _Avoid_：把主 Agent 与整个 Ruukoto Agent 项目或 ruukoto-dev 产品混称。
 
-**SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。当前实现（agent-direction issue 11–12，ADR 0020）：首版只读分析，身份/工作/执行分存于 `sub_agents` / `work_delegations` / `tasks` 关联列；同一父会话内补充原工作用 `work_id` 继续、承接相关新工作用 `sub_agent_id` 复用（要求空闲未关闭；读范围、资料、目录与权限按本次重新确定，前次批准不延续）；主 Agent 用 `subagent_close`、拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）显式关闭，关闭是独立列 `closed_at`/`closed_by`——任务终态、TUI 退出与空闲不自动关闭，关闭后拒绝新委派，历史与产物保留可查；issue 14 的整项取消作用于工作而非 SubAgent（取消不关闭、不销毁身份与成果）；issue 16 增加修改委派（ADR 0021）：普通开发会话用 `mode=modify + target`，Git 目标由宿主在受限容器内生成 worktree 副本（子任务不提交、不推送，改动由主 Agent 汇总），非 Git 目标直接写入并与父会话按目录占用串行；同级通信与恢复由 13、15 后续实现。
+**SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。当前实现（agent-direction issue 11–12，ADR 0020）：首版只读分析，身份/工作/执行分存于 `sub_agents` / `work_delegations` / `tasks` 关联列；同一父会话内补充原工作用 `work_id` 继续、承接相关新工作用 `sub_agent_id` 复用（要求空闲未关闭；读范围、资料、目录与权限按本次重新确定，前次批准不延续）；主 Agent 用 `subagent_close`、拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）显式关闭，关闭是独立列 `closed_at`/`closed_by`——任务终态、TUI 退出与空闲不自动关闭，关闭后拒绝新委派，历史与产物保留可查；issue 14 的整项取消作用于工作而非 SubAgent（取消不关闭、不销毁身份与成果）；issue 16 增加修改委派（ADR 0021）：普通开发会话用 `mode=modify + target`，Git 目标由宿主在受限容器内生成 worktree 副本（子任务不提交、不推送，改动由主 Agent 汇总），非 Git 目标直接写入并与父会话按目录占用串行；issue 19 增加宿主固定评审：GitHub PR 评审经编排器直接登记的 SubAgent 完成（每个修订一项新工作、一个新 Agent，不占 main 委派名额，空闲后保留但不再复用）；同级通信与恢复由 13、15 后续实现。
 _Avoid_：把 SubAgent 等同于一次子任务或旧架构中的固定 coding 角色；把任务完成等同于 Agent 关闭。
 
 **主会话**：拥有者通过不同个人消息入口与 ruukoto 持续交互的唯一会话，main 可在委派长任务后继续响应新消息。
@@ -161,5 +161,5 @@ _Avoid_：把 QQ 平台身份本身等同于通用控制面身份，把好友私
 **owner 回复**：对拥有者通过绑定入口提交的委托，由 main 汇总并发回原入口、原拥有者的应答，包括已接受委托的异步最终汇报。当前实现（agent-direction issue 18）：IM 来源任务发起的通用工作收尾时，宿主在收尾的 main 唤醒结果事务内经 `owner_reply` 槽登记一份最终汇报（发送键 `<发起事件 id>#work:<workId>:<收尾执行任务 id>`，正文为唤醒轮次最终回答加固定首行，目标为发起事件钉版目标）；判定、取消不汇报、重复/补记幂等与不改发/不重发语义见 [运行文档](docs/runtime.md)「通用 SubAgent 委派」节。
 _Avoid_：把任意定时或子任务唤醒当作主动外发授权；从“会话最新回复”推断某项委托的最终回答。
 
-**GitHub 评审入口**：拥有者启用的 PR 事件入口，对指定仓库的变更进行只读评审并由 main 向固定拥有者汇报，结果归属于明确的 PR 修订。当前实现依赖固定 coding 角色，需随角色退役迁移。
+**GitHub 评审入口**：拥有者启用的 PR 事件入口，对指定仓库的变更进行只读评审并由 main 向固定拥有者汇报，结果归属于明确的 PR 修订。当前实现（agent-direction issue 19）：评审经宿主固定的通用 SubAgent 完成（ADR 0013 修订段），不再新建固定 coding 评审任务；升级前在途的旧 coding 评审子任务沿原路径接管，固定通知授权不变。
 _Avoid_：把评审结果等同于已批准发布的评论，或把未观察到变化理解为远端仍是同一修订。

@@ -1444,7 +1444,7 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
 结果未知事实，不自动重放其执行。
 
-## 通用 SubAgent 委派（agent-direction issue 11–14/16，ADR 0020/0021）
+## 通用 SubAgent 委派（agent-direction issue 11–14/16/19，ADR 0020/0021）
 
 主 Agent（拥有者的普通开发会话或 main）经宿主工具 `subagent_delegate` 登记
 工作委托、创建动态 SubAgent 与独立子会话并派出一次执行任务（只读分析，
@@ -1674,7 +1674,50 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
 - `coding_delegate(mode=analyze)` 转入本链路（硬只读、不自动重试）；
   `coding_result` 按同一归属窄口兼容读取新旧分析结果；`draft` 保留旧
-  coding 路径。GitHub webhook 评审沿用旧 coding 只读路径（19 再迁移）。
+  coding 路径。GitHub webhook 评审经宿主固定 SubAgent（见「宿主固定评审
+  （issue 19）」），不再新建 coding 评审任务。
+
+### 宿主固定评审（issue 19）
+
+- **入口**：PR 入站事件派发时，编排器先建（或复用）固定的 main 父任务
+  （无工具，只确认接收），再**直接调用** `SubAgentManager.delegate`（
+  `hostReview: {sourceEventId}` 入参只由编排器传入，工具层不会产生该字段；
+  拥有者来源检查保持原样）。每个修订登记一项新工作、创建一个新 SubAgent，
+  不跨修订复用（新修订用全新上下文，避免旧 diff/旧报告混入新 head 的核对）；
+  幂等键 `ghreview-<事件 id>`，参数摘要只含 `{kind, eventId}`——升级前后
+  提示文案变化不会误报冲突。管理器准备失败（缺执行入口、模型门闩未就绪）
+  时事件保持 `registered`，下次派发重试，不降级回旧 coding 路径。
+- **升级接管**：升级前已按旧路径建出旧 coding 评审子任务
+  （`deleg:<父任务>:review`）的事件，派发时接管原子任务收尾，不再新建
+  SubAgent；旧 coding 子任务的终态、产物与唤醒分支原样保留（23 再删）。
+- **名额与输入**：宿主评审任务带来源事件（`source_event_id`），不计入 main
+  的 3 个活动委派名额（计数 SQL 排除来源事件任务）；任务输入首行固定为
+  `[SubAgent 委派 · GitHub PR 评审]`，正文沿用 `GitHubEvents.request`。
+  带来源事件的任务出队时走既有入站门（修订已过期即取消）、终态在同一结果
+  事务内回写入站终态并登记通知，与旧 coding 子任务同一链路。重提命中首次
+  登记（管理器不再 kick）或崩溃窗口把排队子会话按 `backend_restart` 暂停时，
+  派发按角色会话同口径补 kick / 恢复子会话队列（占用未核实的
+  `occupancy_unverified` 暂停不在此解除）。
+- **只读 MCP 按任务开放，只给评审任务**：subagent 类会话仅在任务被
+  `taskMcp` 依赖识别为评审（`subAgentId` 非空且来源事件为 GitHub）时才规划
+  MCP；收窄为「静态只读白名单（`read`/`read_artifact`）∪ `effect=read` 的
+  MCP」，装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、
+  下级委派在发送前与调用门两处被拒。owner 委派的 SubAgent、main 自身
+  （类别不含 MCP）与开发会话 SubAgent 均拿不到 MCP。会话项目为 main 角色
+  项目，MCP 凭据按项目核对（见「PR webhook 配置」）。
+- **子身份边界**：评审 SubAgent 空闲后保留（遵守规格，不自动关闭），但宿主
+  不会复用它，主 Agent 也不能用 `sub_agent_id` 把它挪去做其他工作或沿其
+  工作续派——继续/复用的可用性检查对「有来源事件的任务」的 SubAgent 一律
+  拒绝（上下文含不可信 PR 资料）；主 Agent 或拥有者可以显式关闭。
+- **结果与唤醒**：终态沿用 `setTaskResult`；`resultData` 同时识别旧 coding
+  与 SubAgent 评审任务，评审正文完整保存为 `review-draft:<事件 id>` 产物并
+  写入 `result_ref.review`（分页损坏保留 `partial` 与 `captureError`）。
+  main 结果唤醒开放 `subagent_result`（`coding_result` 迁移期继续开放，供
+  升级前未完成的旧唤醒使用）；唤醒输入沿用 `GitHubEvents.notice` 修订说明，
+  `subagent_result` 前置同样的修订说明。评审并行运行、不设并发名额（
+  `ponytail:` 上限与升级方向见 `subagents.ts`）；被新修订取代仍在运行的评审
+  会跑完，结果标为过期、不发通知。评审工作不适用 issue 18 的最终汇报
+  （IM 入口汇报只认 telegram/qq_private 来源），继续走 ADR 0013 的固定通知。
 - 控制面只读查询：`work_list` / `work_get`（CLI `ruukoto work list/show`，
   agent 对象含 `closedAt`/`closedBy`，work 对象含取消三列）；写操作为
   `subagent_close`（CLI `ruukoto work close`）与整项取消 `work_cancel`
@@ -1726,10 +1769,14 @@ ruukoto server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
 GitHub webhook 使用 JSON 与相同 secret，并订阅 Pull requests 事件。
 
 签名凭据的 purpose 固定为 `github_webhook`、host 为 `github.com`；启用时
-scope 收紧到该用途，通用 HTTP 工具不能借用。GitHub MCP 另行配置到 coding
-角色绑定的项目，使用自己的读取凭据和工具允许列表。Webhook 的仓库允许列表
-只限制事件接纳；MCP 可访问的仓库仍由其服务配置和远端令牌权限决定。未配置
-MCP、读取失败或资料缺失须在评审结果中说明，不经 REST 补抓。
+scope 收紧到该用途，通用 HTTP 工具不能借用。GitHub MCP 另行配置到 **main**
+角色绑定的项目（issue 19 起评审 SubAgent 的会话在 main 项目下，凭据按任务
+所在项目核对），使用自己的读取凭据和工具允许列表。升级步骤：先另建一份
+scope 为 main 项目的只读凭据，再执行 `ruukoto mcp configure --project <main
+项目>`；coding 项目的旧配置不再被新评审使用（23 随旧角色一起清理），系统
+不自动迁移凭据范围——改写凭据用途属于授权变更，须拥有者显式完成。Webhook
+的仓库允许列表只限制事件接纳；MCP 可访问的仓库仍由其服务配置和远端令牌
+权限决定。未配置 MCP、读取失败或资料缺失须在评审结果中说明，不经 REST 补抓。
 
 启用配置同时授权一次固定 owner 摘要，因此应先配置并启用所选 Telegram 或
 QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本；未配置目标时
@@ -1744,15 +1791,18 @@ QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本�
   `ping` 返回 200，其他合法事件或未支持 action 返回 202 并忽略。接纳事件
   先保存归一化 JSON 快照，`(github, delivery ID)` 去重；首次登记返回 202，
   重复返回 200。响应不等待模型或子任务，登记失败返回 503。
-- **宿主固定委派**：入站事件异步创建 main 父任务与 coding 子任务，角色、
-  会话、工作目录和 `confirm` 模式由宿主决定。main 父任务只确认接纳且无
-  工具，coding 仅可使用 `read`、`read_artifact` 和本地 `effect = read`
-  的 MCP 工具；结果唤醒的 main 只获得 `coding_result`。PR 标题、正文和
-  工具结果按资料处理，不能修改权限、角色或发布策略，也不能执行 PR 代码。
-- **结果归属**：事件快照记录 head/base SHA、`updatedAt` 与 PR 状态；coding
-  完整最终回答保存为普通报告 Artifact。`result_ref.review` 保存事件 ID、
-  PR URL、仓库 ID、PR 编号、head/base SHA、`artifactId` 与 `staleReason`，
-  main 经 `coding_result` 读取，拥有者经任务详情或 `read-artifact` 查看。
+- **宿主固定委派**：入站事件异步创建 main 父任务，并由编排器为每个修订
+  直接登记一个评审 SubAgent（issue 19；升级前已建的旧 coding 子任务沿原
+  路径接管）。main 父任务只确认接纳且无工具；评审 SubAgent 仅可使用
+  `read`、`read_artifact` 和按任务开放的本地 `effect = read` MCP 工具；
+  结果唤醒的 main 获得 `subagent_result`（迁移期兼容 `coding_result`）。
+  会话、工作目录和 `confirm` 模式由宿主决定。PR 标题、正文和工具结果按
+  资料处理，不能修改权限、角色或发布策略，也不能执行 PR 代码。
+- **结果归属**：事件快照记录 head/base SHA、`updatedAt` 与 PR 状态；评审
+  SubAgent 的完整最终回答保存为普通报告 Artifact。`result_ref.review` 保存
+  事件 ID、PR URL、仓库 ID、PR 编号、head/base SHA、`artifactId` 与
+  `staleReason`，main 经 `subagent_result`（旧任务经 `coding_result`）读取，
+  拥有者经任务详情或 `read-artifact` 查看。
   产物保留原始分析，当前有效性以任务结果为准，不建立旧 GitHub 草稿版本表。
   历史分页缺失或写入失败时保留 `partial`，结果记录 `captureError` 并要求拥有者
   核实；只有完整读取到记录的总字节数才标记 `complete`。
@@ -1761,7 +1811,8 @@ QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本�
   的通知取消。同时间戳不同 SHA 也保守失效。模型须在 MCP 采集前后核对
   head/base，不能核对、分页不完整或 patch 缺失时明确说明；本地未观察到变化
   不保证远端仍未改变，缺失 webhook 不自动补抓。
-- **一次通知**：只有该事件 coding 结果对应的 main 摘要终态才登记通知；
+- **一次通知**：只有该事件评审子任务（SubAgent，或升级前在途的旧 coding）
+  对应的 main 摘要终态才登记通知；
   公共 outbox 使用 `sourceKind = inbound_event` 和事件 ID 作为逻辑键，
   独立于 `owner_reply`，模型不能换目标或另建发送槽。发送前复核事件仍有效、
   入口仍启用且固定 owner 目标未变；过期、停用或配置变化时取消未发送操作。
@@ -1777,9 +1828,14 @@ schema v16 扩展公共通知的 `inbound_event` 来源，升级保留原有发�
 正文、幂等键、限流时间与索引。实际 GitHub webhook、GitHub MCP 和 owner 渠道
 部署需另行验收；本地模拟平台测试不代表真实接入已通过。
 
-本轮本地验证：`test/42` 至 `test/46` 覆盖入口、迁移、任务工具限制、MCP 评审到
-通知的闭环、修订失效、崩溃窗口恢复及 partial 归档。`npm run typecheck` 通过；
-全量 `npm test` 共 437 项，436 通过、0 失败、1 项真实模型测试按默认开关跳过。
+本轮本地验证（agent-direction issue 19）：`test/42` 至 `test/46` 覆盖入口、
+凭据、宿主固定 SubAgent 评审到通知的闭环、修订失效与升级接管、崩溃窗口
+恢复及 partial 归档；`test/80` 覆盖评审不占委派名额与复用/续派拒绝。
+`npm run typecheck` 通过；`.scratch/agent-direction/smoke-19-*.mts` 在本机
+（macOS）与 tx（Linux）真实 Docker 受限 worker 下各 8/8 通过（模型、MCP 与
+消息平台为模拟）。全量 `npm test` 共 917 项，915 通过、0 失败、1 项真实
+模型测试按默认开关跳过；test/32-dev 的档案路径断言在本 worktree（目录名非
+`ruukoto`）下预置失败，与本单无关，主检出路径下通过。
 
 ### 历史资料与迁移
 

@@ -1,6 +1,7 @@
 /**
  * 通用 SubAgent 委派（agent-direction issue 11，ADR 0020；issue 12 继续/复用/
- * 关闭；issue 14 整项取消；issue 16 修改委派——worktree 隔离与非 Git 串行）：
+ * 关闭；issue 14 整项取消；issue 16 修改委派——worktree 隔离与非 Git 串行；
+ * issue 19 宿主固定评审）：
  * 集中登记工作委托、动态 SubAgent 身份与每次执行任务。
  *
  * 边界：
@@ -28,6 +29,11 @@
  *   目录（来源引用保存在任务 read_scope，启动与每次发送上下文前按该 Agent 全部
  *   历史任务的并集重新 verify）；dev 的待读路径限于父工作区及父任务已授予范围
  *   （取交集只读），保存 realpath 与目录身份，路径经宿主钉定传入 worker。
+ * - 宿主固定评审（issue 19）：仅编排器经 hostReview 入参调用（工具层不会
+ *   产生）：每个入站修订登记一项新工作、一个新 SubAgent，跳过拥有者委派名额，
+ *   任务带来源事件以复用出队门与通知回写；评审 SubAgent 空闲后保留但不参与
+ *   继续/复用（assertAvailable 按来源事件拒绝）。
+ * ponytail: 评审并行运行、无并发名额；模型成本成为问题时给宿主评审加并发上限。
  */
 
 import * as fs from "node:fs";
@@ -104,6 +110,13 @@ export interface SubAgentDelegateInput {
   paramsDigest: string;
   /** 计划模式任务钉定（父任务为 /plan 时为 true；modify 委派被拒绝）。 */
   planMode?: boolean;
+  /**
+   * 宿主固定评审（agent-direction issue 19）：仅编排器经 OrchestratorDeps 传入，
+   * 不来自任何模型工具参数。宿主为入站事件固定每次委派一个新 SubAgent：跳过
+   * 委派名额（计数按来源事件排除，见 store），任务带来源事件键，输入走评审
+   * 首行；不配资料/读路径/写入目标，读范围为空，工单详见 GitHubEvents。
+   */
+  hostReview?: { sourceEventId: string } | null;
 }
 
 export interface SubAgentDelegation {
@@ -216,6 +229,12 @@ export class SubAgentManager {
     if (mode === "analyze" && input.target != null) {
       throw new SubAgentDelegationError("invalid_params", "target 仅 mode=modify 使用");
     }
+    if (
+      input.hostReview &&
+      (input.workId || input.subAgentId || mode === "modify" || input.target != null || (input.materials?.length ?? 0) > 0 || (input.readPaths?.length ?? 0) > 0)
+    ) {
+      throw new SubAgentDelegationError("invalid_params", "宿主评审不携带复用/修改/资料参数（每个入站修订一项新工作、一个新 SubAgent）");
+    }
 
     // —— 查重先：重复委派不重新解析可能已变化的资料（同键同参的重放即使目标
     // Agent 已关闭或忙碌也返回原记录，不新建任务）——
@@ -247,13 +266,17 @@ export class SubAgentManager {
       const workNow = reusedWork ?? (input.subAgentId ? null : null);
       this.assertAvailable(target, parentSession, workNow);
     }
-    // 限额（查重后）：同一会话的活动执行任务上限
-    const active = this.store.countActiveSubAgentTasks(parentSession.id);
-    if (active >= SUBAGENT_LIMITS.perParentSession) {
-      throw new SubAgentDelegationError(
-        "limit_exceeded",
-        `本会话的活动 SubAgent 任务已达上限 ${SUBAGENT_LIMITS.perParentSession}，等现有任务结束后再委派`,
-      );
+    // 限额（查重后）：同一会话的活动执行任务上限；宿主评审（issue 19）不占
+    // 模型委派名额（计数 SQL 已按来源事件排除，这里直接跳过，避免宿主固定
+    // 评审被拥有者的活动委派挤掉）
+    if (!input.hostReview) {
+      const active = this.store.countActiveSubAgentTasks(parentSession.id);
+      if (active >= SUBAGENT_LIMITS.perParentSession) {
+        throw new SubAgentDelegationError(
+          "limit_exceeded",
+          `本会话的活动 SubAgent 任务已达上限 ${SUBAGENT_LIMITS.perParentSession}，等现有任务结束后再委派`,
+        );
+      }
     }
 
     // —— 异步准备（无事务；不做文件系统与内核之外的跨系统原子承诺）——
@@ -461,6 +484,7 @@ export class SubAgentManager {
           modelSelection: selection,
           submissionDigest,
           parentTaskId: parent.id,
+          sourceEventId: input.hostReview?.sourceEventId ?? null,
           deadline,
           workId,
           subAgentId: agent.id,
@@ -614,6 +638,11 @@ export class SubAgentManager {
     }
     if (agent.closedAt) {
       throw new SubAgentDelegationError("closed", `SubAgent 已关闭（${agent.closedAt}）：请新建 SubAgent`);
+    }
+    // issue 19 边界（issue 12 复用检查的补充）：宿主评审的 SubAgent 上下文含
+    // 不可信的 PR 资料，宿主不会复用它，也不允许主 Agent 把它挪去承接其他工作
+    if (this.store.hasInboundSourcedSubAgentTask(agent.id)) {
+      throw new SubAgentDelegationError("forbidden", "该 SubAgent 的工作源自入站事件（上下文含不可信外部资料）：不能复用或续派，请新建 SubAgent");
     }
     const activeTask = this.store.findActiveSubAgentTask(agent.id);
     if (agent.state !== "idle" || activeTask) {
@@ -991,6 +1020,23 @@ export class SubAgentManager {
     paths: SubAgentReadScope["paths"],
     writeTarget?: WorkWriteTarget | null,
   ): string {
+    // 宿主评审（issue 19）：固定首行与来源事件行，正文为 GitHubEvents.request；
+    // 每次修订一项新工作、一个全新上下文，避免旧修订资料混进新 head 的核对
+    if (input.hostReview) {
+      const body = [
+        "[SubAgent 委派 · GitHub PR 评审]",
+        `工作 ${workId}（直接父任务 ${parent.id}，原样记录不作身份依据）。`,
+        `来源事件 ${input.hostReview.sourceEventId}（GitHub PR 入站；评审只归属于该事件的修订，修订失效由宿主另行说明）。`,
+        "你的工具只有 read / read_artifact 与宿主为本任务开放的只读 MCP：可以读取本目录与经 MCP 取得的 PR 资料；" +
+          "不能修改文件、执行命令、写外部服务或委派下级。",
+        "读不到所需资料（如无法经 MCP 取得 PR 信息）就明说能力范围，不要尝试其他手段。结束时的最终回答即评审草稿，宿主保存为任务产物并交回主 Agent。",
+        `---\n${input.request}`,
+      ].join("\n");
+      if (body.length > INPUT_TEXT_CAP) {
+        throw new SubAgentDelegationError("invalid_params", `委派正文（含边界说明）超过 ${INPUT_TEXT_CAP} 字符，请精简`);
+      }
+      return body;
+    }
     const modify = (input.mode ?? "analyze") === "modify" && writeTarget;
     const lines: string[] = [
       modify ? "[SubAgent 委派 · 工作区修改]" : "[SubAgent 委派 · 只读分析]",

@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>outbox.html</span></nav>
     <p class="eyebrow">状态机</p>
     <h1>通知 outbox</h1>
-    <p class="lede">一条外发通知从登记到发送的每个状态；为什么结果说不清时不重发；调度计划怎样在重启和漏过周期时只补一次；IM 审批的初始通知与命令回执怎样走同一个 outbox；固定目标在哪几处比对、换代后怎样失效；公共 outbox 与 QQ 群回复账本有什么区别。</p>
+    <p class="lede">一条外发通知从登记到发送的每个状态；为什么结果说不清时不重发；调度计划怎样在重启和漏过周期时只补一次；IM 审批的初始通知与命令回执怎样走同一个 outbox；owner 回复与工作最终汇报怎样共用回复槽与目标核对；固定目标在哪几处比对、换代后怎样失效；公共 outbox 与 QQ 群回复账本有什么区别。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/scheduler/runtime.ts#export class Scheduler">scheduler/runtime.ts</code>
@@ -36,6 +36,7 @@
         <code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime/runtime.ts</code>
         <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/runtime/orchestrator.ts#onInboundTerminal">runtime/orchestrator.ts</code>
+        <code class="src" data-src="src/runtime/orchestrator.ts#onWakeTerminal">runtime/orchestrator.ts</code>
         <code class="src" data-src="src/github/events.ts#verifyNotification">github/events.ts</code>
         <code class="src" data-src="src/agent/web-search.ts#export async function searchTavily">agent/web-search.ts</code>
       </dd></div>
@@ -313,6 +314,12 @@
             <td>本任务自己的最终回答；失败（含取消）、超时、未知只发宿主固定提示。属于 ADR 0011/0012 的自动发送范围，不经审批。目标是收件时钉版的目标，登记前须与当前目标相同，否则不登记、记 <code>*.reply_skipped</code>；登记条件见<a href="inbound-events.html#after">入站事件</a></td>
           </tr>
           <tr>
+            <td><code>owner_reply</code>（工作最终汇报）</td>
+            <td>IM 私聊发起的工作收尾轮次（main 唤醒任务）到达终态，同一结果事务内（<code class="src" data-src="src/runtime/orchestrator.ts#onWakeTerminal">orchestrator.ts · onWakeTerminal</code> 回调）。<br><code class="src" data-src="src/runtime/runtime.ts#private enqueueWorkReport(wake: Task, outcome: ChildOutcome)">runtime.ts · enqueueWorkReport</code></td>
+            <td>发起事件 ID 加 <code>#work:&lt;workId&gt;:&lt;收尾执行 id&gt;</code> 后缀</td>
+            <td>宿主判定收尾并登记一次，不经审批。正文首行固定 <code>[工作 &lt;workId&gt; 最终汇报]</code>，后接该唤醒任务最终回答；唤醒失败或未知只发宿主固定提示。目标沿入站钉版核对，不符则不登记、记 <code>*.reply_skipped</code>（reason 带 <code>work_report:</code> 前缀）。判定与来源链见<a href="inbound-events.html#after">入站事件</a></td>
+          </tr>
+          <tr>
             <td><code>inbound_event</code></td>
             <td>GitHub 评审事件的 main 摘要任务终态，编排器结果事务内。<br><code class="src" data-src="src/github/events.ts#terminal(event: InboundEvent">events.ts · terminal</code></td>
             <td>GitHub 入站事件 ID</td>
@@ -543,7 +550,7 @@
         </tbody>
       </table>
     </div>
-    <p>Telegram bot token 位于请求 URL（<code>/bot&lt;token&gt;/sendMessage</code>），发送与轮询的错误信息先把 token 替换为 <code>&lt;token&gt;</code>，再写入账本、状态或日志（<code class="src" data-src="src/telegram/adapter.ts#private redact">adapter.ts · redact</code>）；脱敏用该次请求自己捕获的 token，凭据轮换或删除后旧请求的迟到错误也不会泄露旧 token。Telegram 的「在线」取轮询健康状态，所以网络断开时操作通常停在 pending 写等待原因，而不是记失败。只有 <code>owner_reply</code> 引用原消息（Telegram 的 reply_parameters、QQ 的 reply 段，<code class="src" data-src="src/telegram/adapter.ts#private replyToMessageId">replyToMessageId</code> <code class="src" data-src="src/qq/adapter.ts#op?.sourceKind === &quot;owner_reply&quot;">qq/adapter.ts · send</code>）；IM 审批初始通知、命令回执、调度通知与 GitHub 通知都不带引用。QQ 私聊另要求来源事件的外部 ID、actor 与钉版目标都对得上当前目标，否则照常发送、只是不引用。</p>
+    <p>Telegram bot token 位于请求 URL（<code>/bot&lt;token&gt;/sendMessage</code>），发送与轮询的错误信息先把 token 替换为 <code>&lt;token&gt;</code>，再写入账本、状态或日志（<code class="src" data-src="src/telegram/adapter.ts#private redact">adapter.ts · redact</code>）；脱敏用该次请求自己捕获的 token，凭据轮换或删除后旧请求的迟到错误也不会泄露旧 token。Telegram 的「在线」取轮询健康状态，所以网络断开时操作通常停在 pending 写等待原因，而不是记失败。只有 <code>owner_reply</code> 引用原消息（Telegram 的 reply_parameters、QQ 的 reply 段，<code class="src" data-src="src/telegram/adapter.ts#private replyToMessageId">replyToMessageId</code> <code class="src" data-src="src/qq/adapter.ts#op?.sourceKind === &quot;owner_reply&quot;">qq/adapter.ts · send</code>）；两个适配器都按 <code>op.sourceKey.split(&quot;#&quot;)[0]</code> 取引用的原事件——工作最终汇报的键带 <code>#work:</code> 后缀（见 <a href="#keys">逻辑发送键</a>），原键不受影响；IM 审批初始通知、命令回执、调度通知与 GitHub 通知都不带引用。QQ 私聊另要求来源事件的外部 ID、actor 与钉版目标都对得上当前目标，否则照常发送、只是不引用。</p>
 
     <h3>两本账对照</h3>
     <div class="scroll">
@@ -624,7 +631,7 @@
       <table class="tbl">
         <thead><tr><th>位置</th><th>比较什么</th><th>不符时</th></tr></thead>
         <tbody>
-          <tr><td>owner 回复登记<br><code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">enqueueOwnerReply</code></td><td>事件钉版目标与当前目标 <code>sameTarget</code>，外部 ID 前缀属于同一账号与 chat</td><td>不登记，记 <code>*.reply_skipped</code>（<code>target_changed</code> 或 <code>target_unavailable</code>）</td></tr>
+          <tr><td>owner 回复登记（含工作最终汇报）<br><code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">enqueueOwnerReply</code> <code class="src" data-src="src/runtime/runtime.ts#private imReplyTarget(event: InboundEvent)">imReplyTarget</code></td><td>事件钉版目标与当前目标 <code>sameTarget</code>，外部 ID 前缀属于同一账号与 chat（owner 回复与工作最终汇报共用这一段核对）</td><td>不登记，记 <code>*.reply_skipped</code>（<code>target_changed</code> 或 <code>target_unavailable</code>；工作最终汇报的 reason 带 <code>work_report:</code> 前缀）</td></tr>
           <tr><td>IM 命令处理<br><code class="src" data-src="src/runtime/im-approvals.ts#async handleCommand">handleCommand</code></td><td>actor 是当前 owner，命令的钉版目标与当前目标 <code>sameTarget</code></td><td>不执行，仍以旧钉版目标登记 <code>identity_failed</code> 回执（发送前会被取消）；命令没有钉版目标时只留控制记录，不登记回执（<code class="src" data-src="src/runtime/im-approvals.ts#private persistNoReceipt">persistNoReceipt</code>）</td></tr>
           <tr><td>IM 初始通知登记<br><code class="src" data-src="src/runtime/runtime.ts#private imApprovalNotice">imApprovalNotice</code></td><td>不比较，直接取原委托事件的钉版目标</td><td>交给发送前复核</td></tr>
           <tr><td>通知审批获批<br><code class="src" data-src="src/agent/scheduler-tools.ts#const approveThenCommit">approveThenCommit</code></td><td>当前目标与审批范围里的目标，JSON 序列化后全等</td><td>批准作废，计划或操作不登记</td></tr>

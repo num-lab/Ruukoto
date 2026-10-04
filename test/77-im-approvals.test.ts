@@ -863,11 +863,12 @@ test("main → coding 子任务链的审批：沿 parentTaskId 核实 IM 来源�
     assert.ok(rt.store.getConfirmation(conf.id)!.consumedAt);
     const toolCalls = h.model.calls.flatMap((c) => c.messages.filter((m) => m.role === "tool"));
     assert.equal(JSON.stringify(toolCalls).split("DELEG-SECRET-CONTENT").length - 1, 1, "文件内容恰好被读取一次");
-    // 唤醒只到 main（异步最终汇报属 issue 18 范围）：main 的任务回答按既有 owner_reply
-    // 回原入口；唤醒任务的模型结论不外发到 IM
+    // 唤醒只到 main：main 的任务回答按既有 owner_reply 回原入口；旧 coding draft
+    // 链的唤醒任务结论不外发到 IM（issue 18 的最终汇报只覆盖通用工作委托链，
+    // draft 旧链的迁移见 issue 17）
     await waitFor("唤醒任务完成", () => rt.store.listTasksBySession(mainTask.sessionId).some((t) => t.requestId.startsWith("wake:") && t.status === "completed"));
     assert.ok(tgTexts(h.api).some((t) => t.includes("done")), "main 委托时的回答已经原入口返回");
-    assert.ok(!tgTexts(h.api).some((t) => t.includes("REPLY-FINAL-DELEG")), "唤醒任务的结论不外发（最终汇报见 issue 18）");
+    assert.ok(!tgTexts(h.api).some((t) => t.includes("REPLY-FINAL-DELEG")), "draft 旧链的唤醒结论不外发（18 只覆盖通用工作委托）");
   } finally {
     await h.rt?.stop("test_end");
     await h.close();

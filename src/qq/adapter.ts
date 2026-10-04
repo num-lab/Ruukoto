@@ -332,7 +332,8 @@ export class QqAdapter implements NotifyChannel {
     if (!client || !this.available()) throw new NotSentError("qq_offline", "QQ 登录账号未确认在线，请求未发出");
     const message: Array<{ type: string; data: Record<string, string> }> = [];
     const op = this.deps.sched.getOp(input.opId);
-    const source = op?.sourceKind === "owner_reply" ? this.deps.store.getInboundEvent(op.sourceKey) : null;
+    // 工作最终汇报的来源键带 #work: 后缀（issue 18），原消息引用取「#」前的入站事件 id
+    const source = op?.sourceKind === "owner_reply" ? this.deps.store.getInboundEvent(op.sourceKey.split("#")[0]!) : null;
     const parts = source?.externalId.split(":");
     const replyId = parts?.length === 3 ? oneBotMessageId(parts[2]) : null;
     if (source?.source === QQ_PRIVATE_SOURCE && source.actor === `${QQ_PRIVATE_SOURCE}:${target.chatId}` &&

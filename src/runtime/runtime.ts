@@ -715,10 +715,12 @@ export class Runtime {
       onInboundTerminal: (event, task, outcome) => event.source === GITHUB_SOURCE
         ? runtime.githubEvents.terminal(event, task, outcome)
         : runtime.enqueueOwnerReply(event, task, outcome),
+      onWakeTerminal: (task, outcome) => runtime.enqueueWorkReport(task, outcome),
       inboundGate: (event) => runtime.inboundGate(event),
       reviewRequest: (event) => runtime.githubEvents.request(event),
       resultData: (task, outcome) => runtime.githubEvents.resultData(task, outcome),
-      resultNotice: (task) => runtime.githubEvents.notice(task),
+      resultNotice: (task) =>
+        [runtime.githubEvents.notice(task), runtime.workReportNotice(task)].filter((n): n is string => n !== null).join("\n") || null,
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
@@ -845,30 +847,96 @@ export class Runtime {
    */
   private enqueueOwnerReply(event: InboundEvent, task: Task, outcome: ChildOutcome): void {
     if (event.source !== TELEGRAM_SOURCE && event.source !== QQ_PRIVATE_SOURCE) return;
-    const skip = (reason: string) => this.store.appendEvent({ type: event.source === QQ_PRIVATE_SOURCE ? "qq_private.reply_skipped" : "telegram.reply_skipped", eventId: event.id, taskId: task.id, reason }, { taskId: task.id });
-    const current = this.notifyChannel(event.source)?.target() ?? null;
-    // 最终回复统一使用收件时钉版的原事件目标（issue 08，两平台一致）；
-    // 旧 Telegram 事件 replyTarget=null 无法证明接收时版本，明确失效
-    const target = event.replyTarget;
-    const externalId = event.source === QQ_PRIVATE_SOURCE ? qqPrivateExternalId : telegramExternalId;
-    // 目标只能是登记该消息的同一 bot + chat（配置换了 bot/chat 不改发到新目标）
-    if (!target || !current || !sameTarget(current, target) || !event.externalId.startsWith(externalId(target.account, target.chatId, ""))) {
-      return skip(target ? "target_changed" : "target_unavailable");
-    }
+    const target = this.imReplyTarget(event);
+    if ("skip" in target) return this.imReplySkipped(event, task.id, target.skip);
     const text =
       outcome === "completed"
         ? this.readTaskReplyText(task.id)?.trim() || "（无文本输出）"
         : `[ruukoto] 这条消息的处理${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
     try {
-      const chars = [...text];
-      const cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
-      const reply = event.source === QQ_PRIVATE_SOURCE
-        ? (chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text)
-        : capReply(text);
-      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: event.id, taskId: task.id, hostOpId: null, target, text: reply, sourceRefs: [] });
+      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: event.id, taskId: task.id, hostOpId: null, target: target.target, text: this.capImReply(event.source, text), sourceRefs: [] });
     } catch (err) {
-      skip(`enqueue_failed：${(err as Error).message}`.slice(0, 200));
+      this.imReplySkipped(event, task.id, `enqueue_failed：${(err as Error).message}`.slice(0, 200));
     }
+  }
+
+  /**
+   * IM 固定目标核对（owner 回复与工作收尾汇报共用）：目标只能是登记该消息的
+   * 同一 bot + chat，且须与当前固定目标一致（配置换了 bot/chat 不改发新目标）；
+   * 旧 Telegram 事件 replyTarget=null 无法证明接收时版本，明确失效。
+   */
+  private imReplyTarget(event: InboundEvent): { target: NotifyTarget } | { skip: string } {
+    const current = this.notifyChannel(event.source)?.target() ?? null;
+    const target = event.replyTarget;
+    const externalId = event.source === QQ_PRIVATE_SOURCE ? qqPrivateExternalId : telegramExternalId;
+    return !target || !current || !sameTarget(current, target) || !event.externalId.startsWith(externalId(target.account, target.chatId, ""))
+      ? { skip: target ? "target_changed" : "target_unavailable" }
+      : { target };
+  }
+
+  /** 按平台截短（owner 回复与工作收尾汇报共用）。 */
+  private capImReply(source: string, text: string): string {
+    const chars = [...text];
+    const cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
+    return source === QQ_PRIVATE_SOURCE
+      ? (chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text)
+      : capReply(text);
+  }
+
+  private imReplySkipped(event: InboundEvent, taskId: string, reason: string): void {
+    this.store.appendEvent({ type: event.source === QQ_PRIVATE_SOURCE ? "qq_private.reply_skipped" : "telegram.reply_skipped", eventId: event.id, taskId, reason }, { taskId });
+  }
+
+  /** IM 发起的工作的发起事件（经发起任务钉版的来源链派生，不取会话最新状态）。 */
+  private workOriginEvent(work: WorkDelegation): InboundEvent | null {
+    const origin = this.store.getTask(work.originTaskId);
+    const event = origin?.sourceEventId ? this.store.getInboundEvent(origin.sourceEventId) : null;
+    return event && event.eventKind === "task" && (event.source === TELEGRAM_SOURCE || event.source === QQ_PRIVATE_SOURCE) ? event : null;
+  }
+
+  /**
+   * 工作最终汇报（agent-direction issue 18）：IM 发起的通用工作收尾时，main
+   * 唤醒轮次的最终回答经 owner_reply 槽发回工作发起入口一次。收尾判定由宿主
+   * 执行（模型不能选择不汇报）：该工作没有活动执行任务，且每条已终态执行
+   * 任务的唤醒均已登记结果（本轮除外——并发时由后终态的唤醒汇报）。拥有者
+   * 在后续消息轮次续派会产生活动任务，汇报自然推迟（唤醒轮次本身不能委派）。
+   * 已取消的工作不汇报（issue 14）；
+   * 键含本次收尾的执行任务，补充原工作再次收尾产生新的一份。发送目标沿用
+   * 入站钉版核对，离线等待/限流重试/结果未知不重发全部沿用 outbox 语义。
+   */
+  private enqueueWorkReport(wake: Task, outcome: ChildOutcome): void {
+    const child = this.store.getTask(wake.requestId.slice("wake:".length));
+    const work = child?.workId ? this.store.getWorkDelegation(child.workId) : null;
+    if (!child || !work || work.canceledAt) return;
+    const event = this.workOriginEvent(work);
+    if (!event) return; // TUI、定时、群与 GitHub 发起的工作一律不发
+    if (this.store.listActiveTasksByWork(work.id).length > 0) return;
+    for (const exec of this.store.listTasksByWork(work.id)) {
+      if (exec.id === child.id) continue;
+      const other = this.store.findTaskByRequest(wake.sessionId, `wake:${exec.id}`);
+      if (!other || other.resultSummary === null) return;
+    }
+    const target = this.imReplyTarget(event);
+    if ("skip" in target) return this.imReplySkipped(event, wake.id, `work_report:${target.skip}`);
+    const text =
+      outcome === "completed"
+        ? `[工作 ${work.id} 最终汇报]\n${this.readTaskReplyText(wake.id)?.trim() || "（无文本输出）"}`
+        : `[工作 ${work.id} 最终汇报] 汇报轮次${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
+    try {
+      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: `${event.id}#work:${work.id}:${child.id}`, taskId: wake.id, hostOpId: null, target: target.target, text: this.capImReply(event.source, text), sourceRefs: [] });
+    } catch (err) {
+      this.imReplySkipped(event, wake.id, `work_report:enqueue_failed：${(err as Error).message}`.slice(0, 200));
+    }
+  }
+
+  /**
+   * 唤醒输入的宿主固定说明（issue 18）：IM 发起的工作告知 main 收尾规则——
+   * 本工作没有其他进行中任务时本轮最终回答会作为最终汇报发回原入口一次。
+   */
+  private workReportNotice(task: Task): string | null {
+    const work = task.subAgentId && task.workId ? this.store.getWorkDelegation(task.workId) : null;
+    if (!work || work.canceledAt || !this.workOriginEvent(work)) return null;
+    return `[最终汇报] 本工作（${work.id}）没有其他进行中任务时，本轮最终回答会作为工作最终汇报向原 IM 入口发送一次；请汇总全部子任务结果。`;
   }
 
   // ---------- IM 审批（agent-direction issue 08） ----------

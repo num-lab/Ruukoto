@@ -6,6 +6,8 @@
 
 2026-10-03 实施修订（agent-direction issue 08）：绑定拥有者的 Telegram 私聊审批已由 IM 审批命令实现（`/approvals`、`/approval`、`/approve`、`/reject`），控制消息以 `inbound_events.event_kind = im_approval` 直接处理、回信经公共 outbox；入站事件在收件时按捕获配置钉版 `reply_target` 与配置版本，派发/任务启动/发送前复核。旧 Telegram 私聊通知与“需要审批的操作仍在 TUI 确认”的阶段性描述被本条取代；固定目标、权限模式与未知结果不重发的规则保持不变。异步最终汇报的范围由 issue 18 单独实施。
 
+2026-10-04 实施修订（agent-direction issue 18）：最终汇报已实施——IM 来源任务发起的通用 SubAgent 工作收尾时，宿主在收尾的 main 唤醒结果事务内经 `owner_reply` 槽登记一次最终汇报（键 `<发起事件 id>#work:<workId>:<收尾执行任务 id>`，正文为唤醒轮次最终回答加固定首行，目标沿用发起事件钉版目标）；第 2 条“子任务唤醒不产生 owner 回复”的例外仅限该收尾轮次，旧 coding draft 链唤醒仍不外发。
+
 ## 背景
 
 daily-agent issue 04 让拥有者经 Telegram 私聊使用 main。消息来自外部平台，任务不能借用 main 会话默认的完全访问；回复需要自动发回，但不能扩展成模型可控的外发能力；Telegram 对发送频率有平台限流（429 + `retry_after`）。

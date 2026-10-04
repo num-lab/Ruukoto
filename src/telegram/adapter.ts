@@ -404,7 +404,8 @@ export class TelegramAdapter implements NotifyChannel {
   private replyToMessageId(opId: string): number | null {
     const op = this.deps.sched.getOp(opId);
     if (op?.sourceKind !== "owner_reply") return null;
-    const event = this.deps.store.getInboundEvent(op.sourceKey);
+    // 工作最终汇报的来源键带 #work: 后缀（issue 18），原消息引用取「#」前的入站事件 id
+    const event = this.deps.store.getInboundEvent(op.sourceKey.split("#")[0]!);
     const id = Number(event?.externalId.split(":").at(-1));
     return Number.isSafeInteger(id) ? id : null;
   }

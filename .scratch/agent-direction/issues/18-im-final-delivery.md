@@ -1,5 +1,7 @@
 Status: ready-for-agent
 
+Status: resolved
+
 # 18 — 把异步工作最终结果送回原 IM 入口
 
 **What to build:** main 在初次确认委派后继续响应，工作最终完成或失败时汇总多个子任务并回复原拥有者。
@@ -10,12 +12,12 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 拥有者先收到受理或初次回复，期间可以继续对话；工作完成或失败后收到与原委托对应的最终汇报。
-- [ ] 按工作委托及固定原入口确定结果和发送目标，不从会话最新回答猜测，不向其他入口广播。
-- [ ] 重复结果、崩溃恢复和多子任务结束不会重复产生同一次最终汇报；正文和来源可核查。
-- [ ] 原目标停用或绑定变化时不改发，暂时离线等待，发送效果未知不自动重发。
-- [ ] 此发送授权限于已接收委托的汇报，不扩大为任意主动通知；保留现有独立审批通知路径。
-- [ ] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+- [x] 拥有者先收到受理或初次回复，期间可以继续对话；工作完成或失败后收到与原委托对应的最终汇报。
+- [x] 按工作委托及固定原入口确定结果和发送目标，不从会话最新回答猜测，不向其他入口广播。
+- [x] 重复结果、崩溃恢复和多子任务结束不会重复产生同一次最终汇报；正文和来源可核查。
+- [x] 原目标停用或绑定变化时不改发，暂时离线等待，发送效果未知不自动重发。
+- [x] 此发送授权限于已接收委托的汇报，不扩大为任意主动通知；保留现有独立审批通知路径。
+- [x] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
 
 ## Comments
 
@@ -167,3 +169,35 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 - 对 `src/runtime/orchestrator.ts`、`src/runtime/runtime.ts`、`src/qq/adapter.ts`、`src/telegram/adapter.ts` 逐个执行 `grep -l <路径> docs/visual/*.html`。预计命中 outbox（`owner_reply` 来源表约 296 行与引用说明约 526 行）、orchestrator、inbound-events、once-only、task-lifecycle、index；同步后跑 test/67。
 
 完成时逐条登记六项验收证据，区分离线逻辑测试、真实后台与执行边界、模拟模型与平台、真实平台。本次只保存计划，工单状态与验收勾选保持不变。
+
+
+### 2026-10-04：实施完成（提交 87db634，基线 HEAD dedd537）
+
+按上方计划实施，三个「需拥有者确认」项按默认取舍（推荐即规格）执行：宿主自动判定收尾 main 不能选择不汇报；续派来自另一个入口仍发回发起入口；已取消的工作不自动汇报（14 已先实施，判定直接纳入 `canceledAt`）。
+
+**实现**（与计划步骤 1–4 逐项对应）：
+- 编排器 `OrchestratorDeps.onWakeTerminal?(task, outcome)`，`handleTerminal` 结果事务内 requestId 以 `wake:` 开头时与 `onInboundTerminal` 并列调用；巡检补记走同一路径（orchestrator.ts:78、:665）。
+- Runtime `enqueueWorkReport`：发起事件经 `originTaskId → source_event_id → inbound_events` 派生（仅 telegram/qq_private 且 `eventKind === "task"`）；收尾判定 = `listActiveTasksByWork` 为空 + 其余执行的 `wake:<id>` 已存在且已记结果；目标核对与截短从 `enqueueOwnerReply` 抽为共用的 `imReplyTarget` / `capImReply` / `imReplySkipped`；键 `<eventId>#work:<workId>:<childTaskId>` 复用 `owner_reply` 槽；skip 前缀 `work_report:`。`workReportNotice` 与 GitHub notice 组合进唤醒输入。
+- 两个适配器按 `op.sourceKey.split("#")[0]` 取原消息引用（各一行）。
+- test/77 唤醒不外发的注释改为点名 draft 旧链。
+
+**对计划的两处澄清（实施时发现，记录备查）**：
+1. 计划假设「main 本轮若继续委派同一工作」。实际 `subagent_delegate` 的 `ownerOriginated` 检查拒绝一切带 agentId 的唤醒任务——唤醒轮次本身不能委派，续派只发生在拥有者/IM 消息轮次。收尾判定不受影响（续派产生活动任务自然推迟汇报，测试已覆盖）；唤醒输入的固定说明相应删去「就在本轮继续委派」一句，只保留收尾告知。
+2. 计划验收点「main 在唤醒轮次调用 notification_enqueue 仍需审批」。实际现有通知路径在唤醒轮次直接拒绝（无钉版可信目标，「未配置可信 owner 通知目标，不能外发」），不产生审批记录。测试断言拒绝且零外发；IM 来源任务的审批路径（仍需审批）已由 test/40、test/77 既有断言覆盖，本单不改。
+
+**命令**：`npm run typecheck` 通过；`npx tsx --test test/84（9 条）…回归批次（27/38/40/77/80/81/82 共 70 条、37/43/42/45/46/59/79/83 共 77 条、67 4 条）` 全部通过；`npm test` 912 通过 / 0 失败 / 1 跳过（exit 0）。
+
+**code-review**（双轴，基点 dedd537）：Standards 无成文标准违反（两处轻度 judgement call：适配器各一行的 `split("#")[0]` 键解析与 `work_report:` 前缀拼接，与仓库既有字符串键惯例 `wake:`/`im-approval:` 一致，保留）；Spec 无 scope creep，唤醒轮次委派与通知审批两处按上文澄清处理。
+
+**验收证据（按工单要求分区）**：
+
+| 验收标准 | 离线逻辑测试（模拟模型与平台） | 真实后台与执行边界 |
+| --- | --- | --- |
+| 1 受理先行、可续聊、后汇报 | test/84 QQ+TG 各一条：受理→第二条消息回复→（子模型挂起放行后）汇报送达，渠道内顺序与引用原消息逐条断言 | smoke-18 场景1/2（真实 bin/ruukoto.mjs + Docker 受限 worker，macOS 7/7、ssh tx Linux 7/7） |
+| 2 按工作钉版目标与正文 | test/84 跨入口续派仍发 QQ、TG 零汇报、正文不随后续回答变化；op.sourceKey/taskId/target 逐项断言；TUI/dev/定时来源零记录 | smoke-18 场景2b：SQLite 直核 notification_ops 行（键前缀=发起事件、尾部=收尾执行任务）、平台桩消息 |
+| 3 不重复 | test/84：并发两唤醒只后终态汇报一份、重复终态事件一份、重启补记幂等（两次巡检仍一份）、补充再收尾键不同 | smoke-18 场景5：唤醒运行中 SIGKILL 再重启，恰好一份「中断」汇报 |
+| 4 不改发/等待/不重发 | test/84：登记时目标失效记 `work_report:` skip；configVersion 推进后 pending 取消 target_changed 且新目标零发送；离线等待原因+恢复一次；effect_unknown 含重启不重发；429 同一记录按 not_before 再发 | smoke-18 场景3（离线 wait_reason→恢复一次）与场景4（重绑取消、OTHER 零发送） |
+| 5 授权不扩大 | test/84：未收尾唤醒回答不外发、唤醒轮次外发请求被拒零外发零审批、无新工具；test/40/77 draft 旧链与 `im-approval` 槽回归不变 | smoke-18 各场景平台收到的消息无越界外发 |
+| 6 验证与文档 | test/67-visual-docs 4/4；图解页按 .skills/visual-docs 流程同步并经渲染切片核查 | 冒烟记录模拟（MockModelServer/MockOneBot/FakeBotApi）与真实（后台/控制面/SQLite/outbox 账本/容器 worker）分离 |
+
+**真实 QQ/Telegram**：无演练入口，未实测，不继承 08/10 的模拟平台结论。文档同步：runtime.md（Telegram/QQ 回复段与「通用 SubAgent 委派·结果、通知与空闲」节）、CONTEXT.md「owner 回复」、ADR 0011/0012 文首实施修订、ADR 0017 实施记录、docs/visual（inbound-events/orchestrator/outbox/once-only/index）。

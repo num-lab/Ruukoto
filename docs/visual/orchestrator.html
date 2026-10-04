@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>orchestrator.html</span></nav>
     <p class="eyebrow">编排</p>
     <h1>编排器</h1>
-    <p class="lede">编排器是后台内的宿主组件：派发入站事件，在委派出去的任务到达终态时记录结果、发出事件并回报父会话。现行代码里两套委派并存：旧架构的 main、coding、chat 三个固定逻辑角色（main 把修改草稿委派给共享的 coding 会话，结果发 child_task.*），以及新方向的通用 SubAgent（主 Agent 登记工作委托，由独立的 SubAgent 执行只读分析或按工作隔离的修改——修改工作时 Git 仓库建宿主 worktree 副本、非 Git 目录直接写入并串行，结果与 SubAgent 的状态变更（idle 或 unverified）同一事务登记，发 subagent_task.*；空闲的 SubAgent 可沿原工作继续或复用承接新工作，关闭由主 Agent 或拥有者显式发起，发 subagent.closed；整项工作可取消，取消三个独立列不改写已结束任务的结果，发 work_delegation.canceled，不关闭 SubAgent）。超时、重启和 PR 事件都沿用宿主写定的请求键，不换键、不重放。</p>
+    <p class="lede">编排器是后台内的宿主组件：派发入站事件，在委派出去的任务到达终态时记录结果、发出事件并回报父会话。现行代码里两套委派并存：旧架构的 main、coding、chat 三个固定逻辑角色（main 把修改草稿委派给共享的 coding 会话，结果发 child_task.*），以及新方向的通用 SubAgent（主 Agent 登记工作委托，由独立的 SubAgent 执行只读分析或按工作隔离的修改——修改工作时 Git 仓库建宿主 worktree 副本、非 Git 目录直接写入并串行，结果与 SubAgent 的状态变更（idle 或 unverified）同一事务登记，发 subagent_task.*；空闲的 SubAgent 可沿原工作继续或复用承接新工作，关闭由主 Agent 或拥有者显式发起，发 subagent.closed；整项工作可取消，取消三个独立列不改写已结束任务的结果，发 work_delegation.canceled，不关闭 SubAgent；IM 发起的工作在收尾的 main 唤醒结果事务里由宿主登记工作最终汇报，发回发起入口）。超时、重启和 PR 事件都沿用宿主写定的请求键，不换键、不重放。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/runtime/orchestrator.ts#export class Orchestrator">runtime/orchestrator.ts</code>
@@ -510,7 +510,7 @@
     <div class="cards">
       <div class="card">
         <h4>main 父会话：唤醒</h4>
-        <p>沿用旧链路的 <code class="src" data-src="src/runtime/orchestrator.ts#private async wakeParent">wakeParent</code>：以 <code>wake:&lt;子任务&gt;</code>、<code>confirm</code> 向 main 会话提交唤醒任务，不带来源事件，所以没有自动外发授权。唤醒正文只有固定字段与截断后的摘要，并提示用 <code>subagent_result</code> 按 work_id 读完整结果。提交失败由启动巡检 ② 按原键补发。</p>
+        <p>沿用旧链路的 <code class="src" data-src="src/runtime/orchestrator.ts#private async wakeParent">wakeParent</code>：以 <code>wake:&lt;子任务&gt;</code>、<code>confirm</code> 向 main 会话提交唤醒任务，不带来源事件，所以没有自动外发授权。唤醒正文只有固定字段与截断后的摘要，并提示用 <code>subagent_result</code> 按 work_id 读完整结果；IM 发起的工作另在末尾附一段宿主固定的最终汇报说明（<code class="src" data-src="src/runtime/runtime.ts#private workReportNotice(task: Task)">runtime.ts · workReportNotice</code>，与 GitHub notice 组合后由 wakeParent 附在唤醒输入尾部）：没有其他进行中任务时这轮最终回答会作为工作最终汇报发回发起入口。main 本轮续派就得在拥有者轮次或下一条 IM 消息里继续——这个唤醒轮次本身经来源门核实不允许再委派（见<a href="tool-call-path.html">工具调用路径</a>）——汇报因此自然推迟到真正收尾的唤醒轮次。提交失败由启动巡检 ② 按原键补发。</p>
       </div>
       <div class="card">
         <h4>dev 父会话：下一个任务开始时注入</h4>
@@ -519,6 +519,7 @@
     </div>
     <ul>
       <li><b>读结果</b>：<code>subagent_result</code> 只读工作登记在当前会话的记录：省略 <code>work_id</code> 时返回本会话 SubAgent 的总览（状态或已关闭、当前工作、名下工作、最近任务状态，供挑选继续或复用对象，<code class="src" data-src="src/core/store.ts#listSubAgentsBySession">store.ts · listSubAgentsBySession</code>）；指定时 <code>part=result</code>（默认）给工作、SubAgent 是否已关闭 / 状态与每次执行的摘要；<code>part=reply</code> 按 UTF-8 字节分页读最终回答，每页至多 <code class="src" data-src="src/agent/subagent-tools.ts#READ_LIMITS">READ_LIMITS</code>.replyBytes（16 KiB）；<code>part=artifact</code> 读该次执行自己的产物，每页至多 artifactBytes（64 KiB）。不给 <code>task_id</code> 时取最近一个已有结果的执行，都还没有结果时取最近一个。已关闭后历史与产物仍按原窄口可读。main 的 <code>coding_result</code> 也能读这些执行任务（见<a href="#delegate">main 委派 coding</a>）。</li>
+      <li><b>唤醒终态后由宿主判定收尾，向发起入口登记工作最终汇报</b>：main 唤醒任务到达终态时，编排器在结果事务内除照常写结果与 <code>child_task.*</code> 之外，只要这条结果首次写入，就在同一事务里调用 <code class="src" data-src="src/runtime/orchestrator.ts#onWakeTerminal?(task: Task, outcome: ChildOutcome): void;">onWakeTerminal</code>（<code>requestId</code> 以 <code>wake:</code> 开头时，与 <code>onInboundTerminal</code> 并列，都是结果事务的一部分；重启巡检补记结果时一并补登）。Runtime 接线到 <code class="src" data-src="src/runtime/runtime.ts#runtime.enqueueWorkReport(task, outcome)">runtime.ts · enqueueWorkReport</code>：宿主判定满足才登记 <code>owner_reply</code>——工作未取消、发起事件是 IM 私聊的普通任务、没有活动执行任务、其余执行的唤醒都已记录结果——满足即发回 work 的发起入口，内容与目标规则见<a href="inbound-events.html#after">入站事件 · 工作最终汇报发回发起入口</a>。旧 coding draft 链（见<a href="#delegate">main 委派 coding</a>）没有这条路径，仍不外发。</li>
       <li><b>拥有者查看与关闭</b>：控制面只读操作 <code>work_list</code> / <code>work_get</code>（CLI <code>ruukoto work list</code> / <code>ruukoto work show</code>）列出工作、SubAgent（含关闭两列）与执行任务；拥有者经 <code>subagent_close</code>（<code class="src" data-src="src/runtime/runtime.ts#closeSubAgent(subAgentId">runtime.ts · closeSubAgent</code>，CLI <code>ruukoto work close</code>，<code class="src" data-src="src/cli.ts#case &quot;work&quot;:">cli.ts</code>）随时显式关闭——有活动任务报 <code>busy</code> 并给任务 id，等任务结束或先 <code>ruukoto cancel</code> 再关，已关闭幂等；停止中（<code>stopping</code>）拒绝。普通的提交、继续、切换模式与会话默认模式都不能作用于子会话。协议见<a href="control-protocol.html">控制面协议</a>。</li>
     </ul>
 
@@ -601,7 +602,7 @@
       <li><b>幂等键</b>：<code>key</code> 为 1–64 位字母、数字、<code>_</code> 或 <code>-</code>（<code class="src" data-src="src/agent/delegation-tools.ts#KEY_RE">KEY_RE</code>），请求键 <code>deleg:&lt;父任务&gt;:&lt;key&gt;</code>。工具先比对原始参数的规范化摘要；编排器在串行链上再核一次（角色、正文或摘要、截止时间、来源事件），同键异参抛冲突，不产生第二个子任务。</li>
       <li><b>资料</b>：<code>materials</code> 在委派时按 main 的可读范围解析成文本快照，追加在请求后面；coding 拿不到原始引用 ID。已接收的群聊结果（<code>chat_result</code>）不能作为委派资料。</li>
       <li><b>固定参数</b>：每个父任务至多 <code class="src" data-src="src/runtime/orchestrator.ts#DELEGATION_LIMITS">DELEGATION_LIMITS</code>.perParent = 3 个首次委派（<code class="src" data-src="src/core/store.ts#countDelegations">store.ts · countDelegations</code> 不计 <code>:retry</code>）；截止时间 = 父任务开始时刻（尚未开始取创建时刻）+ deadlineMs（60 分钟），是确定值，同键重试不会因时间变化而冲突；宿主模板加请求加资料合计超过 <code class="src" data-src="src/runtime/orchestrator.ts#INPUT_TEXT_CAP">INPUT_TEXT_CAP</code>（8192 字符）直接拒绝，不截断。</li>
-      <li><b>不继承来源事件</b>：委派不把父任务的来源事件传给子任务，子任务终态不会回写 Telegram / QQ 私聊事件，子任务和它的唤醒任务都不产生 owner 回复（owner 回复的登记见 <code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">runtime.ts · enqueueOwnerReply</code> 与<a href="inbound-events.html">入站事件</a>）。</li>
+      <li><b>不继承来源事件</b>：委派不把父任务的来源事件传给子任务，子任务终态不会回写 Telegram / QQ 私聊事件，子任务和它的唤醒任务都不产生 owner 回复（owner 回复的登记见 <code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">runtime.ts · enqueueOwnerReply</code> 与<a href="inbound-events.html">入站事件</a>；本句说的是与来源事件绑定的 owner 回复路径——subagent_delegate 的唤醒终态时另有「工作最终汇报」例外，见 <a href="#subagent-state">SubAgent 状态与结果回报</a>）。</li>
       <li><b>停止或重启时</b>：未落结果的 draft 调用按原请求键核实子任务是否存在（<code class="src" data-src="src/agent/delegation-tools.ts#delegationOpCheck">delegationOpCheck</code>），存在即已委派，不存在即已知未委派，不记效果未知；analyze 调用改按 SubAgent 族核实（见上文的登记失败表）。</li>
     </ul>
 
@@ -658,7 +659,7 @@
           <text class="el" data-k="c-again" x="375" y="344">重试子任务重新排队</text>
         </svg>
       </div>
-      <figcaption>结果只写一次：setTaskResult 的条件是 result_summary 仍为空，事件监听与启动巡检同时回传时只有先提交的一次生效，后到的看到 0 行就退出，也不再唤醒。没有父任务的角色任务（入站任务、群任务、唤醒任务本身）停在「结果已记录」；父任务不在角色会话里时也不唤醒。悬停下表的行会高亮对应的边。</figcaption>
+      <figcaption>结果只写一次：setTaskResult 的条件是 result_summary 仍为空，事件监听与启动巡检同时回传时只有先提交的一次生效，后到的看到 0 行就退出，也不再唤醒。唤醒任务本身（<code>wake:&lt;子任务&gt;</code>）没有父任务，停在「结果已记录」；只有 IM 发起工作的收尾唤醒多走一次终态回调登记工作最终汇报（见 <a href="#subagent-state">SubAgent 状态与结果回报</a>）。父任务不在角色会话里时也不唤醒。悬停下表的行会高亮对应的边。</figcaption>
       <ul class="legend">
         <li><i class="run"></i>执行中</li>
         <li><i class="wait"></i>等待编排器记录</li>
@@ -686,7 +687,7 @@
           <tr data-k="c-record" tabindex="0">
             <td>已终态 → 结果已记录</td>
             <td>编排器：事件监听 <code class="src" data-src="src/runtime/orchestrator.ts#onRuntimeEvents">onRuntimeEvents</code>、启动巡检 ①，或群任务派发时发现任务已终态</td>
-            <td>只处理带 agent_id 的角色任务与带 sub_agent_id 的 SubAgent 执行任务（过滤条件（agent_id IS NOT NULL OR sub_agent_id IS NOT NULL），事件监听与巡检同一口径）。一个事务里：<code class="src" data-src="src/core/store.ts#setTaskResult">store.ts · setTaskResult</code> 条件写入；任务就是来源事件关联的任务时把事件置 done / failed；有来源事件时调用 onInboundTerminal（owner 回复或 GitHub 通知的登记）；追加 child_task.* 事件。SubAgent 执行任务改走 handleSubAgentTerminal：结果、SubAgent 状态与 subagent_task.* 同一事务（见<a href="#subagent-state">上文</a>）。</td>
+            <td>只处理带 agent_id 的角色任务与带 sub_agent_id 的 SubAgent 执行任务（过滤条件（agent_id IS NOT NULL OR sub_agent_id IS NOT NULL），事件监听与巡检同一口径）。一个事务里：<code class="src" data-src="src/core/store.ts#setTaskResult">store.ts · setTaskResult</code> 条件写入；任务就是来源事件关联的任务时把事件置 done / failed；有来源事件时调用 onInboundTerminal（owner 回复或 GitHub 通知的登记）；<code>requestId</code> 以 <code>wake:</code> 开头时另调用 <code class="src" data-src="src/runtime/orchestrator.ts#task.requestId.startsWith(&quot;wake:&quot;)">onWakeTerminal</code>（工作最终汇报的登记，见 <a href="#subagent-state">上文</a>）；追加 child_task.* 事件。SubAgent 执行任务改走 handleSubAgentTerminal：结果、SubAgent 状态与 subagent_task.* 同一事务（见<a href="#subagent-state">上文</a>）。</td>
             <td><code>child_task.completed</code> 等四种；SubAgent 任务为 subagent_task.* 四种</td>
           </tr>
           <tr data-k="c-retry" tabindex="0">

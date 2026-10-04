@@ -70,6 +70,12 @@ export interface OrchestratorDeps {
    * 同事务提交，重启巡检补记结果时一并补登，不会重复。
    */
   onInboundTerminal?(event: InboundEvent, task: Task, outcome: ChildOutcome): void;
+  /**
+   * main 唤醒任务（requestId 以 wake: 开头）的结果事务内回调（agent-direction
+   * issue 18 工作收尾汇报）；与结果同事务提交，重启巡检补记结果时一并补登，
+   * 不重复。
+   */
+  onWakeTerminal?(task: Task, outcome: ChildOutcome): void;
   /** 入站派发前复核宿主配置与在线状态；等待保留原事件，失效则作废。 */
   inboundGate?(event: InboundEvent): "run" | "wait" | { drop: string };
   /** 宿主为已验证的入站事件安排固定 main 父任务与 coding review；模型不参与派发。 */
@@ -656,6 +662,7 @@ export class Orchestrator {
         if (event?.taskId === task.id) this.store.setInboundTerminal(event.id, outcome === "completed" ? "done" : "failed");
         if (event) this.deps.onInboundTerminal?.(event, task, outcome);
       }
+      if (task.requestId.startsWith("wake:")) this.deps.onWakeTerminal?.(task, outcome);
       const refs = { taskId: task.id, sessionId: task.sessionId };
       switch (outcome) {
         case "completed":

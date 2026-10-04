@@ -1115,8 +1115,10 @@ ruukoto telegram enable | disable | status
   发送操作（发送键 = 入站事件 id，目标 = 该事件收件时钉版的 `reply_target`，且须
   与当前固定 owner 目标一致，配置换了 bot/chat 不改发）。正文取**本任务**历史条目
   的最终回答（不取会话最新一条），超 4000 字截短注明；失败/超时/未知只发宿主固定
-  提示。重启时结果未落库的任务由编排器巡检补记并补登回复。定时唤醒与普通子任务
-  唤醒不产生 `owner_reply`（需要时 main 用 `notification_enqueue` 另行确认）；
+  提示。重启时结果未落库的任务由编排器巡检补记并补登回复。定时唤醒与旧 coding
+  链的子任务唤醒不产生 `owner_reply`（需要时 main 用 `notification_enqueue`
+  另行确认）；通用 SubAgent 工作的收尾唤醒按「通用 SubAgent 委派」节的最终
+  汇报规则例外发回工作发起入口（agent-direction issue 18）；
   GitHub 结果通知按 ADR 0013 单独授权。目标不可用时记 `telegram.reply_skipped`。
 - **发送**：`sendMessage` 纯文本，带 `reply_parameters` 关联原消息。outbox 领取后、
   实际请求前再次核对启停、固定目标与配置版本（不一致即 `target_changed`，可证明
@@ -1172,7 +1174,8 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
   的 `owner_reply`，按原平台和原 owner 发送。QQ 回复按 `max_reply_chars`
   截短后入账（默认 1500，实际平台上限待真实验收），单条纯文本，可引用原消息。
   明确失败为 `failed`，超时、断线、异步接受或缺少有效消息 ID 的回执为
-  `effect_unknown`，均不自动重发。定时和子任务唤醒不自动外发。
+  `effect_unknown`，均不自动重发。定时和旧 coding 链的子任务唤醒不自动外发；
+  通用 SubAgent 工作收尾汇报的例外见「通用 SubAgent 委派」节（issue 18）。
 - **通知**：QQ 入站任务申请的新通知或定时发送绑定收件时的 QQ 目标，经统一
   审批后发送；定时唤醒、子任务唤醒和直接 TUI 任务仍沿用 Telegram 默认目标。
   目标版本变化使旧操作取消，不切换到其他平台。QQ 私聊记录用 `notify list/show`
@@ -1647,6 +1650,26 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   参考块，注入后标记 `result_delivered_at`，崩溃窗口不丢记录）；main 沿用
   稳定 `wake:<childId>` 回报键（固定 confirm，不复制原 IM 来源事件）。
   已取消的工作不再注入、不唤醒（见上节「整项取消」）。
+- **工作最终汇报（issue 18）**：IM（QQ 私聊/Telegram 私聊）来源任务发起的
+  工作，在其 main 唤醒轮次到达终态时由宿主判定收尾并登记一次最终汇报——
+  判定 = 该工作没有 queued/running/awaiting_confirmation 的执行任务，且每条已
+  终态执行任务的 `wake:<id>` 都已存在并记录结果（本轮除外，因此并发或
+  补充委派时由后一个收尾的唤醒汇报；唤醒轮次本身不能委派，见上文入口
+  限制）。唤醒输入附宿主固定说明，告知本轮最终回答会成为汇报。汇报经
+  `owner_reply` 槽登记，发送键 = `<发起事件 id>#work:<workId>:<收尾执行
+  任务 id>`（同键幂等，重复终态与补记只产生一份；补充原工作再次收尾键不同
+  即新的一份），任务引用 = 收尾唤醒任务。目标 = 发起任务来源事件钉版的
+  `reply_target`（与当前固定目标核对；不从会话最新回答或当前入口推断；
+  续派来自另一入口仍发回发起入口；登记时目标不一致按 `work_report:` 前缀
+  记 `*.reply_skipped`，发送前再核对一次，停用或变化即取消不改发）。正文
+  = 首行 `[工作 <workId> 最终汇报]` + 该唤醒任务的最终回答；唤醒失败/超时/
+  被重启中断时发宿主固定提示并注明详情见 TUI；两平台均引用原入站消息
+  （来源键按 `#` 截断取原事件）。发送等待、限流重试、结果未知不重发全部
+  沿用 outbox 语义；正文与来源经 `ruukoto notify show` 可查。已取消的
+  工作不自动汇报（取消所在轮次已有回复）。TUI、定时、群与 GitHub 发起的
+  工作一律不汇报；该路径不新增工具、不扩大 main 的外发授权（唤醒轮次的
+  `notification_enqueue` 仍按原规则核实可信目标）。旧 coding draft 链不
+  纳入（17 迁移后自动适用），GitHub 来源工作继续走 ADR 0013 的固定通知。
 - 身份在完成、TUI 退出与等待后仍保留，空闲零模型/worker 进程；任务收尾后
   释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
 - `coding_delegate(mode=analyze)` 转入本链路（硬只读、不自动重试）；

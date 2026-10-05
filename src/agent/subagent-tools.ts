@@ -57,6 +57,7 @@ import type {
   WorkIntegration,
 } from "../runtime/subagents.ts";
 import { runsInPlanMode } from "./plan-mode.ts";
+import { messageStateText } from "../runtime/parent-delivery.ts";
 
 export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel", "subagent_message", "subagent_integrate"] as const;
 
@@ -93,20 +94,10 @@ function okText(text: string) {
 
 /** subagent_message 的依赖子集（普通开发会话/main 与 SubAgent 子会话共用同一定义）。 */
 export interface SubAgentMessageToolDeps {
+  store: Store;
   message(input: SubAgentMessageInput): SubAgentMessageResult;
   taskContext(): HostToolContext | null;
   bindCall?(sdkCallId: string): () => void;
-}
-
-/** 消息现状（供回报与同键重放按行解读；与投递判定同一口径）。 */
-function messageStateText(m: SubAgentMessage): string {
-  return m.deliveredTaskId
-    ? `已投递（任务 ${m.deliveredTaskId}）`
-    : m.deliveredAt
-      ? "已随主会话模型调用注入送达"
-      : m.undeliveredReason
-        ? `未投递（${m.undeliveredReason}）`
-        : "待投递（接收方忙/名额满或待注入，宿主机会在任务终态等时机冲刷）";
 }
 
 /**
@@ -159,8 +150,8 @@ export function createSubAgentMessageTool(deps: SubAgentMessageToolDeps): ToolDe
         const to = m.toSubAgentId ? `SubAgent ${m.toSubAgentId}` : "主 Agent";
         return okText(
           result.created
-            ? `已发送：消息 ${m.id}（工作 ${m.workId} → ${to}），${messageStateText(m)}。`
-            : `同键同参已发送过，返回原记录：消息 ${m.id}（${to}，${messageStateText(m)}）。`,
+            ? `已发送：消息 ${m.id}（工作 ${m.workId} → ${to}），${messageStateText(deps.store, m)}。`
+            : `同键同参已发送过，返回原记录：消息 ${m.id}（${to}，${messageStateText(deps.store, m)}）。`,
         );
       } finally {
         unbind();
@@ -436,7 +427,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
             .map(
               (m) =>
                 `- ${m.id} · ${m.createdAt} · ${m.fromSubAgentId ? `SubAgent ${m.fromSubAgentId}` : "主 Agent"} → ` +
-                `${m.toSubAgentId ? `SubAgent ${m.toSubAgentId}` : "主 Agent"} · ${messageStateText(m)}\n` +
+                `${m.toSubAgentId ? `SubAgent ${m.toSubAgentId}` : "主 Agent"} · ${messageStateText(store, m)}\n` +
                 `  ${m.body.length > 200 ? `${m.body.slice(0, 200)}…` : m.body.replaceAll("\n", "\n  ")}`,
             )
             .join("\n"),
@@ -533,6 +524,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
   } as any);
 
   const subagentMessage = createSubAgentMessageTool({
+    store,
     message: deps.message,
     taskContext: deps.taskContext,
     bindCall: deps.bindCall,

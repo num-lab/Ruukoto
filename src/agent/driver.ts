@@ -510,6 +510,7 @@ export class Driver {
       ...(this.profile.toolClass === "subagent" && this.deps.subagents
         ? [
             createSubAgentMessageTool({
+              store: this.deps.store,
               message: (input) => this.deps.subagents!.message(input),
               taskContext: () => this.hostToolCtx,
               bindCall: this.bindHostCall,

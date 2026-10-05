@@ -69,6 +69,7 @@ const MAX_INBOUND_TEXT_CHARS = 8192;
 
 export class QqAdapter implements ImEntry {
   readonly source = QQ_PRIVATE_SOURCE;
+  readonly replySkippedEvent = "qq_private.reply_skipped";
   private client: OneBotClient | null = null;
   /** 已建连接的参数指纹（端点/凭据/账号不变则不重建）。 */
   private clientKey: string | null = null;

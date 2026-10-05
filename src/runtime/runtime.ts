@@ -1344,6 +1344,32 @@ export class Runtime {
         }
       }
 
+      // 1b. 排队的 SubAgent 执行任务（agent-direction issue 15）从未启动 →
+      //     同定 interrupted（backend_restart）：不自动继续也不当作新委派，
+      //     巡检补记一次结果后 Agent 回到可用，继续与否由拥有者/父 Agent
+      //     决定。宿主固定评审（带 source_event_id）不在此列：排队保持，由
+      //     编排器启动恢复按角色会话同口径解除子会话的 backend_restart 暂停。
+      for (const task of store.listQueuedSubAgentTasks()) {
+        const changed = store.transitionTask(task.id, ["queued"], "interrupted", {
+          interruptReason: "backend_restart",
+          endedAt: new Date().toISOString(),
+        });
+        if (changed) {
+          store.appendEvent(
+            {
+              type: "task.interrupted",
+              taskId: task.id,
+              sessionId: task.sessionId,
+              reason: "backend_restart",
+              cancelRequested: task.cancelRequested,
+              effectUnknown: task.effectUnknown,
+            },
+            { taskId: task.id, sessionId: task.sessionId },
+          );
+          interruptedTaskIds.push(task.id);
+        }
+      }
+
       // 2. 遗留占用：旧后台已死但其子进程状态无法确认 → 保留占用，暂停会话，
       //    由拥有者核实后 resume_queue 释放（systemd KillMode=control-group 下
       //    子进程随服务终止，正常部署不会出现）。
@@ -3057,6 +3083,13 @@ export class Runtime {
           );
         }
         this.store.releaseOccupancy(occ.taskId);
+      }
+      // SubAgent 待核实出口（agent-direction issue 15）：unverified 只记「旧执行
+      // 退出未核实」的事实，拥有者 resume-queue 即核实结论；活动任务的占用上面
+      // 已拒绝释放，此处把无活动任务的 Agent 放回 idle，可继续委派、复用或关闭
+      const agent = this.store.getSubAgentBySession(sessionId);
+      if (agent && agent.state === "unverified" && !this.store.findActiveSubAgentTask(agent.id)) {
+        this.store.setSubAgentState(agent.id, "idle", {});
       }
       this.store.setSessionQueueState(sessionId, "active", null);
       this.store.appendEvent({ type: "session.queue_resumed", sessionId }, { sessionId });

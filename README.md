@@ -317,10 +317,14 @@ ruukoto-dev 产品（档案根 `~/.ruukoto-dev-agent`，由 `ruukoto-dev` 命令
 1. 原 `running` / `awaiting_confirmation` 任务标记为 `interrupted`，未决审批失效，
    已批准未消费的操作记为"已知未执行"；执行已开始但结果缺失的记为 `effect_unknown`，
    不自动重放模型调用或工具操作。
-2. 有排队任务的会话暂停自动调度，拥有者核实后用 `ruukoto resume-queue <会话 id>`
-   显式恢复。
-3. 崩溃时遗留的目录占用无法确认旧执行是否停止时，保留占用并暂停会话；核实容器/
-   子进程确已停止后再 `resume-queue` 释放。
+2. 有排队任务的会话暂停自动调度；以 `backend_restart` 暂停的角色会话与携来源事件的
+   SubAgent 子会话由后台自动恢复，其余（普通开发会话等）由拥有者核实后用
+   `ruukoto resume-queue <会话 id>` 显式恢复。SubAgent 的排队委派任务不自动继续：
+   恢复时与运行中任务同定 `interrupted` 并补记一次结果，拥有者/父 Agent 决定是否
+   重新委派。
+3. 崩溃时遗留的目录占用无法确认旧执行是否停止时，保留占用并暂停会话
+   （SubAgent 记为待核实并拒绝新委派）；核实容器/子进程确已停止后再 `resume-queue`
+   释放占用并解除暂停（SubAgent 随之回到空闲，可继续委派）。
 4. 继续中断任务用 `ruukoto continue <任务 id> <request-id> "..."`：创建带来源标记的
    新任务，默认回到请求确认模式（旧批准不继承），不补造工具结果。
 

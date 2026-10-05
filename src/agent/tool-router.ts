@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AccessMode, ApprovalScope, GrantedPath, Session, Task } from "../core/types.ts";
-import { GIT_SAFE_DIRECTORY_ENV } from "../core/worktree.ts";
+import { GIT_SAFE_DIRECTORY_ENV, taskWorkspaceFor } from "../core/worktree.ts";
 import type { Store } from "../core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
@@ -157,13 +157,12 @@ export class ToolRouter {
    * 改仓库即多一个独立副本任务进 LaunchSpec（共享 Git 只读）。
    */
   launchSpecFor(task: Task, session: Session): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
-    const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
-    const target = work?.writeTarget ?? null;
+    const ws = taskWorkspaceFor({ session, work: task.workId ? this.deps.store.getWorkDelegation(task.workId) : null });
     const scope = task.readScope;
     const base = {
       taskId: task.id,
       mode: task.accessMode,
-      workspace: target ? target.path : session.cwdReal,
+      workspace: ws.path,
       grantedPaths: task.grantedPaths,
     } as {
       taskId: string;
@@ -180,15 +179,15 @@ export class ToolRouter {
     // taskWorkspaceFor 复核承担
     const inodeOpaque = process.platform === "darwin";
     if (!inodeOpaque) {
-      base.workspaceIdentity = target ? { dev: target.dev, ino: target.ino } : { dev: session.cwdDev, ino: session.cwdIno };
+      base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
     }
     const readRoots: Array<{ path: string; dev?: number; ino?: number }> = [];
     if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => (inodeOpaque ? { path } : { path, dev, ino })));
-    if (target?.kind === "worktree") {
+    if (ws.commonGitDir) {
       // worktree 副本：共享 Git 目录作为只读 readRoot（子任务可 status/diff/log），
       // 不入白名单编辑；`.git` 指向由工作副本钉定，钩子在容器边界外不可达。
-      const st = fs.statSync(target.commonGitDir);
-      readRoots.push(inodeOpaque ? { path: target.commonGitDir } : { path: target.commonGitDir, dev: st.dev, ino: st.ino });
+      const st = fs.statSync(ws.commonGitDir);
+      readRoots.push(inodeOpaque ? { path: ws.commonGitDir } : { path: ws.commonGitDir, dev: st.dev, ino: st.ino });
       base.env = GIT_SAFE_DIRECTORY_ENV;
     }
     if (readRoots.length > 0) base.readRoots = readRoots;

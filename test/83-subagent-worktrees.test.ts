@@ -615,6 +615,34 @@ test("继续委派沿用首次钉定目标；复用承接新工作另建副本�
   }
 });
 
+test("复用同一 SubAgent 从只读工作转到修改工作：新任务拿到写入工具（SDK 签名含画像工具集，不靠每任务释放 Driver）", async () => {
+  const responder: Responder = async () => ({ kind: "text", text: "done" });
+  const t = await startTestRuntime("wk-ro2rw", responder, { config: realTools(), workDirs: 1 });
+  try {
+    const rt = t.runtime;
+    fs.mkdirSync(path.join(t.work[0]!, "src"), { recursive: true });
+    fs.writeFileSync(path.join(t.work[0]!, "src/a.ts"), "export const v = 1\n", "utf8");
+    initGitRepo(t.work[0]!);
+    const session = await rt.createSession({ projectName: "wkro2rw", cwd: t.work[0]! });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
+    await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const ro = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "r1", request: "RO-先只读", readPaths: ["."], materials: null, paramsDigest: "dr1" });
+    await waitFor("只读完成", () => rt.store.getTask(ro.task.id)!.resultSummary !== null);
+    await waitFor("Agent 空闲", () => rt.store.getSubAgent(ro.agent.id)!.state === "idle");
+    const rw = await rt.subagents!.delegate({
+      parentTaskId: parent.id, key: "r2", request: "RW-再修改", subAgentId: ro.agent.id, mode: "modify", target: ".",
+      materials: null, readPaths: null, paramsDigest: "dr2",
+    });
+    assert.equal(rw.agent.id, ro.agent.id, "同一 SubAgent 承接");
+    await waitFor("修改完成", () => rt.store.getTask(rw.task.id)!.resultSummary !== null);
+    const callOf = (mark: string) => t.server.calls.find((c) => lastUserText(c).includes(mark))!;
+    assert.deepEqual(toolNamesOf(callOf("RO-先只读")).sort(), ["read", "read_artifact", "subagent_message"].sort());
+    assert.deepEqual(toolNamesOf(callOf("RW-再修改")).sort(), ["bash", "edit", "read", "read_artifact", "subagent_message", "write"].sort(), "复用到修改工作拿到写入工具");
+  } finally {
+    await t.shutdown();
+  }
+});
+
 test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工作不能升级为写入；modify 摘要不进只读重放摘要（main 开门与固定角色拒绝见 test/84）", async () => {
   const responder: Responder = async () => ({ kind: "text", text: "父回复" });
   const t = await startTestRuntime("wk-gates", responder, { config: realTools(), workDirs: 1 });

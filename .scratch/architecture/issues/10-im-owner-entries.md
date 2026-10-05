@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # IM 拥有者入口：QQ 私聊与 Telegram 站到它们已实现的 seam 后面
 
@@ -69,3 +69,19 @@ Runtime 持一张按来源索引的拥有者 IM 入口表；每个入口回答 g
 - QQ 启动停用的新 drop 原因文本取 `qq_private_unavailable:QQ 私聊入口未启动（启动配置停用）`，与 Telegram 的 `telegram_unavailable:Telegram 适配器未启动` 同形。
 - 启动顺序不变：编排器启动后 `await` QQ 的 start、再启动 Telegram 轮询（`runtime.ts:750–752`）；停止顺序不变（Telegram 在编排器之前停、QQ 在编排器之后停，`runtime.ts:4251–4262`）。
 - 分支与提交方式同工单 08：每步 typecheck + 全量测试后本地提交，不 push。
+
+### 2026-10-06：交付记录（分支 im-entries，未 push）
+
+提交：`2b8b0c3` 访谈决定；`5bba300` 步骤 1–2（合为一个提交）；`e3d6fcc` 步骤 3 文档；其后一个评审修正提交。
+
+- `ImEntry`（`src/runtime/im-entries.ts`）由 `QqAdapter` / `TelegramAdapter` 实现：来源、`replySkippedEvent`、`startupDisabled`、`gatePrivate`、`expectedActor`、`replyCapChars` / `capReply`、`externalIdPrefix`、`usesCredential` / `bumpGeneration`、`onConfigChanged`，外加 `NotifyChannel`。`status`、`configure`、`setEnabled` 留在具体 adapter 上（两平台签名不同，按决定 3「不合并」），Runtime 经非空字段 `qqAdapter` / `telegram` 一行委托后调 `imEntries.applyConfig(source)`。字段名未改，77 号无需改动。
+- `ImEntries`：`gate`、`reconcile`、`applyConfig`、`enqueueOwnerReply` / `sendWorkReport`、`bumpForCredential` / `reconcileAfterCredential`、`channel` / `target` / `notificationTarget`。`ImApprovals` 的三依赖换成 `entry(source)`；`GitHubEvents.capReply` 走入口截断。
+- 两个 adapter 在 Runtime 构造时创建；启动停用是 `startupDisabled: "product" | "dev"` 标志（start 为空操作，target 为 null，门作废，status 沿用原文案）。`RuntimeApiError` 移到 `src/core/api-error.ts`（adapter 的 configure 要抛它），`runtime.ts` 原样再导出。
+- 测试：`test/89-im-entries.test.ts`（假入口：按来源 reconcile、owner 回复/工作汇报的截断与跳过、凭据只推进引用者、缺省渠道覆盖与 QQ 特判；真 adapter + 回环探针：启动停用不连接不轮询、门 drop、reconcile 取消）。「后面的任务照常运行」需要真队列循环，放在 40 号新用例（重启为 qqDisabled 后 QQ 排队任务按 `qq_private_unavailable` 取消、TUI 任务完成；在旧 `wait` 门上该用例超时失败，已核对）。全量 906 项中 904 通过，仅 test/08 DNS 用例失败（本机基线即失败）。
+- 文档：`docs/runtime.md` 架构要点加「拥有者 IM 入口」；图解页 inbound-events（门表、派发、配置变化复核、owner 回复、IM 审批身份）、outbox、orchestrator、task-lifecycle、deployment 同步；test/67 全绿，改过的门表已渲染核对。README 的 `RUUKOTO_DISABLE_QQ` 说明随决定 1 改。
+
+请拥有者复核的取舍：
+
+1. **outbox 在启动停用时仍等待、不取消**：`ImEntries.channel()` 对启动停用的入口返回 null，排队的发送操作保持 pending（`sender_unavailable`，37 号现状），而配置停用会让目标为 null、操作取消。决定 1 只把入站与排队任务改为同义，未提 outbox，为守「其余语义不变」保留现状。因此 CONTEXT.md「配置停用与启动配置停用同义」对 outbox 并不成立；要么在术语里限定为「入站与任务」，要么另开工单让 outbox 也取消。
+2. **IM 审批不再经缺省渠道的测试覆盖**：旧 `currentTarget` 经 `notifyChannel`，在 `config.scheduler.channel`（仅测试）下会取覆盖渠道的目标。现在 `ImApprovals` 与 Runtime 的三个审批钩子统一取入口自身目标。生产无差别，现有测试未在覆盖下走 IM 审批。
+3. 评审中记下、未处理的判断项：Telegram 启动停用状态未像 QQ 那样抽出 helper；`ImApprovals` 对未知来源的 `?? 4000` 仍是未命名常量（沿用旧值）；adapter 以 type-only 方式依赖 `runtime/im-entries.ts`。

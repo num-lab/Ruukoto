@@ -928,7 +928,7 @@ export class Runtime {
   private imApprovalConsumeRecheck(confirmation: ConfirmationRequest, task: Task): string | null {
     const event = this.imApprovals.imSourceEvent(task.id);
     if (!event) return null;
-    const current = this.imEntries.target(event.source);
+    const current = this.imEntries.entry(event.source)?.target() ?? null;
     if (!current || !sameTarget(current, event.replyTarget)) {
       return `批准已失效（IM 入口停用或绑定/配置版本已变化），${confirmation.toolName} 未执行`;
     }
@@ -960,7 +960,7 @@ export class Runtime {
       }
       // 长期授权（issue 10）：入口代次/拥有者绑定已死的明确失效；暂时离线
       // （target() 仍按配置给出，gate 为 wait）不算绑定变化，正常重启也保留。
-      const currentTarget = this.imEntries.target(source);
+      const currentTarget = this.imEntries.entry(source)?.target() ?? null;
       const expectedActor = this.imEntries.entry(source)?.expectedActor() ?? null;
       for (const sp of this.store.listActiveStandingPermissions()) {
         if (sp.channel !== source) continue;
@@ -998,7 +998,7 @@ export class Runtime {
       if (!sp) return null;
       // 入口代次：钉版目标与当前完全一致（含配置版本），actor 仍是当前绑定拥有者；
       // 引擎内的钉版代次差异由消费事务的固定身份复核拦截（不在此失效）
-      const current = this.imEntries.target(event.source);
+      const current = this.imEntries.entry(event.source)?.target() ?? null;
       const alive = current !== null && sameTarget(current, sp.pinnedTarget) && sp.actor === (this.imEntries.entry(event.source)?.expectedActor() ?? null);
       if (!alive) {
         this.store.invalidateStandingPermission(sp.id, "entry_changed");

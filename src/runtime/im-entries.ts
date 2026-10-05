@@ -26,6 +26,8 @@ import type { WorkReport } from "./parent-delivery.ts";
 export interface ImEntry extends NotifyChannel {
   /** 入站来源，也是钉版目标的 channel。 */
   readonly source: string;
+  /** owner 回复/工作汇报跳过时追加的持久事件名。 */
+  readonly replySkippedEvent: "qq_private.reply_skipped" | "telegram.reply_skipped";
   /** 启动配置停用：不连接、target() 为 null、gate 作废（与入口停用同义，ADR 0012 修订段）。 */
   readonly startupDisabled: boolean;
   /** 入站派发/任务启动门：来源、actor 与钉版目标逐项核对；暂时离线 wait。 */
@@ -65,6 +67,7 @@ export class ImEntries {
     this.entries = new Map(deps.entries.map((e) => [e.source, e]));
   }
 
+  /** 按来源取入口；IM 审批按入口自身的钉版目标核对，不经缺省渠道的测试覆盖。 */
   entry(source: string): ImEntry | null {
     return this.entries.get(source) ?? null;
   }
@@ -182,7 +185,7 @@ export class ImEntries {
   private enqueueReply(event: InboundEvent, sourceKey: string, taskId: string, text: string, skipPrefix: string): void {
     const entry = this.entries.get(event.source)!;
     const skip = (reason: string) =>
-      this.deps.store.appendEvent({ type: `${event.source}.reply_skipped` as "qq_private.reply_skipped" | "telegram.reply_skipped", eventId: event.id, taskId, reason: `${skipPrefix}${reason}` }, { taskId });
+      this.deps.store.appendEvent({ type: entry.replySkippedEvent, eventId: event.id, taskId, reason: `${skipPrefix}${reason}` }, { taskId });
     const current = this.target(event.source);
     const target = event.replyTarget;
     if (!target || !current || !sameTarget(current, target) || !event.externalId.startsWith(entry.externalIdPrefix(target))) {

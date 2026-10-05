@@ -163,6 +163,7 @@ export interface TelegramDeps {
 
 export class TelegramAdapter implements ImEntry {
   readonly source = TELEGRAM_SOURCE;
+  readonly replySkippedEvent = "telegram.reply_skipped";
   private loop: Promise<void> | null = null;
   private aborter: AbortController | null = null;
   private online = false;

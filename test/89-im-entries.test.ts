@@ -28,6 +28,7 @@ type FakeEntry = ImEntry & { current: NotifyTarget | null; gateResult: "run" | "
 function fakeEntry(source: string): FakeEntry {
   const entry: FakeEntry = {
     source,
+    replySkippedEvent: `${source}.reply_skipped` as FakeEntry["replySkippedEvent"],
     startupDisabled: false,
     current: { channel: source, account: "acct", chatId: "chat", configVersion: 1 },
     gateResult: "run",
@@ -120,7 +121,7 @@ test("owner 回复与工作汇报：目标一致时按入口截断登记，目�
     const task = k.store.getTask(sent.taskId!)! as Task;
     k.replies.set(task.id, "  完整回答很长  ");
     im.enqueueOwnerReply(sent, task, "completed");
-    im.sendWorkReport({ event: sent, key: `${sent.id}#work:w1`, wakeTaskId: task.id, text: "工作汇报正文" } as never);
+    im.sendWorkReport({ event: sent, key: `${sent.id}#work:w1`, wakeTaskId: task.id, text: "工作汇报正文" });
     assert.deepEqual(k.ops().map((op) => [op.sourceKey, op.text, op.target.channel]).sort(), [
       [`${sent.id}#work:w1`, "工作汇报正", "telegram"],
       [sent.id, "完整回答很", "telegram"],
@@ -130,7 +131,7 @@ test("owner 回复与工作汇报：目标一致时按入口截断登记，目�
     k.tg.current = { channel: "telegram", account: "acct", chatId: "chat", configVersion: 2 };
     const changed = k.event("telegram", { queued: true });
     im.enqueueOwnerReply(changed, k.store.getTask(changed.taskId!)!, "failed");
-    im.sendWorkReport({ event: changed, key: `${changed.id}#work:w2`, wakeTaskId: changed.taskId!, text: "x" } as never);
+    im.sendWorkReport({ event: changed, key: `${changed.id}#work:w2`, wakeTaskId: changed.taskId!, text: "x" });
     // externalId 不是由钉版账号 + chat 登记的
     k.tg.current = { channel: "telegram", account: "other", chatId: "chat", configVersion: 1 };
     const foreign = k.event("telegram", { queued: true, target: { channel: "telegram", account: "other", chatId: "chat", configVersion: 1 } });
@@ -200,7 +201,7 @@ test("启动配置停用：入口照常创建但不连接、不轮询；门作�
   await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
   const port = (probe.address() as net.AddressInfo).port;
   const credentials = new CredentialStore(path.join(k.root, "agent"));
-  const qqStore = new QqStore((k.store as unknown as { db: Db }).db);
+  const qqStore = new QqStore(k.store.db);
   const tgStore = new TelegramStore(k.store);
   try {
     credentials.upsert({ name: "qq", host: `127.0.0.1:${port}`, header: "authorization", purpose: "qq_onebot", secret: "s" });

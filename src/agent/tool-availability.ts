@@ -46,14 +46,6 @@ export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read"
  */
 export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "edit", "write", "bash", "read_artifact"]);
 
-/**
- * SubAgent 任务的允许集：写入目标在哪，工具集就在哪（修改工作为写入集合，
- * 只读工作为只读分析集合）——装配、发送前与调用门共用同一结论。
- */
-function subAgentToolsFor(write: boolean): ReadonlySet<string> {
-  return write ? SUBAGENT_WRITE_TOOL_NAMES : SUBAGENT_READONLY_TOOL_NAMES;
-}
-
 /** SubAgent 本任务的工具集：写入目标决定只读或写入集合；宿主评审另开只读 MCP、关 subagent_message。 */
 export interface SubAgentToolSet {
   write: boolean;
@@ -64,7 +56,8 @@ export interface SubAgentToolSet {
 export function subAgentAllows(set: SubAgentToolSet, name: string, effect?: McpToolEffect): boolean {
   // 工作内协作消息（issue 13）；宿主评审任务（issue 19 固定单 Agent 流程）不开放
   if (name === "subagent_message") return !set.review;
-  return subAgentToolsFor(set.write).has(name) || (set.review && effect === "read");
+  // 写入目标在哪，工具集就在哪：修改工作为写入集合，只读工作为只读分析集合
+  return (set.write ? SUBAGENT_WRITE_TOOL_NAMES : SUBAGENT_READONLY_TOOL_NAMES).has(name) || (set.review && effect === "read");
 }
 
 /**

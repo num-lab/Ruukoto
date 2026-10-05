@@ -38,7 +38,6 @@ import type {
   ConfirmationRequest,
   PersistentEventBody,
   Session,
-  SubAgentMessage,
   Task,
   ToolCategory,
 } from "../core/types.ts";
@@ -68,6 +67,7 @@ import type { AppDataQueryRunner } from "./app-data/query.ts";
 import { createSchedulerTools, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
 import { createDelegationTools, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
 import { createSubAgentMessageTool, createSubAgentTools, SUBAGENT_TOOL_NAMES, type SubAgentToolsDeps } from "./subagent-tools.ts";
+import type { ParentDelivery } from "../runtime/parent-delivery.ts";
 import { createChatResultTools, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
 import { createServiceTools, SERVICE_TOOL_NAMES, type ServiceManagerConfig } from "./service-tools.ts";
 import type { QqStore } from "../qq/store.ts";
@@ -177,7 +177,7 @@ export interface DriverDeps {
    * 父级送达的注入入口（架构工单 09 入口 3）：任务开始时取普通开发会话待注入的
    * SubAgent 结果与工作内消息，同事务标记已投递；其他身份恒为空。
    */
-  parentInjection?(sessionId: string): { results: Task[]; messages: SubAgentMessage[] };
+  parentInjection?: ParentDelivery["takeInjection"];
   /**
    * main 委派资料的发送前复核（仅 subagent 类会话；撤销阻止后续注入，
    * 已保存快照正文不重新解析）。

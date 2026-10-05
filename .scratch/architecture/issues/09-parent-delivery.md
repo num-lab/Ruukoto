@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 父级送达：一个模块回答「父级会收到这项工作的什么、何时收到」
 
@@ -67,3 +67,31 @@ Status: ready-for-agent
 - ADR 0010：owner 回复发送键与「结果未知不换键重发」不动。
 
 ## Comments
+
+### 2026-10-06 交付记录
+
+分支 `parent-delivery`（自 develop b7303cc），本地提交，未 push。
+
+- 步骤 1（c87409d）：工单 09–16、审查索引、CONTEXT.md「送达」。
+- 步骤 2（295eba9）：先写 86「main 截住排队的消息唤醒」，改动前失败（消息唤醒 `completed`）；新模块 `src/runtime/parent-delivery.ts` 的 `wakeAdmitted` 接入队列循环后转绿。消息状态文本（决定 7）同步移入模块，因为该用例断言「（工作已取消，未送达）」。
+- 步骤 3–4 合为一个提交（ee89ac2）：入口 1 结果唤醒、2 消息唤醒、5 启动补建，3 普通开发会话注入，最终汇报（`wakeTerminal` + Runtime `sendWorkReport` 回调）与唤醒说明要互相配合，分开会有中间接线，所以没有拆。test/67 要求图解页同步，所以图解页（context-pipeline、inbound-events、orchestrator、outbox）也在这个提交里同步。
+- 步骤 5（274f51f）：`docs/runtime.md` 架构要点加「送达」与父级送达模块；整项取消节改口径。
+- 评审修正：放行判定收窄到 main 唤醒（`agentId === "main"`），与入口 4 的范围一致；SubAgent 子会话的 `smsg:` 投递任务仍由整项取消在登记事务内直接取消，88 补了对应用例。模块内的取消判定统一走 `workCanceled`。driver 依赖改用 `ParentDelivery["takeInjection"]` 类型。
+
+与计划的差异：
+
+- `store.ts` `listRoleTasksPendingWake` 的 SQL 仍保留 `EXISTS agent_roles` 粗筛，因为 82:623 断言这条查询；模块另按会话身份复核，只给 main 建唤醒。
+- 待投递的发给主 Agent 的消息，所属工作取消后由 SubAgent 管理器冲刷记 `work_canceled`。这条规则留在管理器，因为它是消息账本的一次写入结果，不是送达判定；模块的启动补建跳过这类消息。
+
+变异核对：
+
+- 去掉 `wakeWorkId` 的 `smsg:` 分支后，86 新例失败。
+- 去掉 `resultRecorded` 的取消检查后，88 的结果送达矩阵失败。
+
+未做的事项：
+
+- `"work_canceled"` 字面量散落在 runtime、subagents 与 parent-delivery 三处，没有收成常量。
+- `messageStateText` 是从 agent/ 到 runtime/ 的值导入。
+- test 86 里 `createSubAgentTools` 的装配有重复。
+
+全量测试：900 项。`test/08` 的「DNS 在批准时固定」在 develop 基线上同样失败（环境 DNS，60 s 超时），与本单无关。

@@ -52,7 +52,7 @@ function kit() {
       subAgentId: opts.subAgentId ?? null,
       parentTaskId: opts.parentTaskId ?? null,
       sourceEventId: opts.sourceEventId ?? null,
-      agentId: requestIdIsWake(opts.requestId) ? "main" : null,
+      agentId: sessionId === mainSession.id && requestIdIsWake(opts.requestId) ? "main" : null,
     });
     if (opts.status && opts.status !== "queued") {
       store.transitionTask(task.id, ["queued"], opts.status, { endedAt: new Date().toISOString(), errorMessage: opts.errorMessage ?? null });
@@ -132,6 +132,11 @@ test("放行判定：wake: 与 smsg: 同一规则——所属工作已取消即�
       assert.equal(k.delivery.wakeAdmitted(resultWake), !cancelAfterQueue, "结果唤醒");
       assert.equal(k.delivery.wakeAdmitted(messageWake), !cancelAfterQueue, "消息唤醒");
     }
+    // SubAgent 子会话的 smsg: 投递任务不归放行判定（整项取消在登记事务内直接取消它们）
+    const sw = k.work(k.mainSession.id);
+    const toSub = k.message(sw, sw.exec().id, { toSubAgentId: sw.agentId, fromSubAgentId: null });
+    sw.cancel();
+    assert.equal(k.delivery.wakeAdmitted(k.task(sw.sub.id, { requestId: `smsg:${toSub.id}`, workId: sw.workId, subAgentId: sw.agentId })), true);
     // 不是唤醒、或唤醒的子任务无工作（旧 coding 子任务）一律放行
     assert.equal(k.delivery.wakeAdmitted(k.task(k.mainSession.id)), true);
     const legacyChild = k.task(k.mainSession.id, { status: "completed" });

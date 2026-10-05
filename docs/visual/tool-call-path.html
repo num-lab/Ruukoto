@@ -221,7 +221,7 @@
 
   <section id="availability">
     <h2>可用性：会话类别定清单，任务再收窄</h2>
-    <p>「这个会话、这个任务能用哪些工具」只有一个答案来源：<code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>，一张会话类别 → 工具类别的静态表。会话类别（<code class="src" data-src="src/agent/tool-availability.ts#export type SessionToolClass">SessionToolClass</code>）由驱动器判定（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>）：绑定了 SubAgent 的子会话是 <code>subagent</code>；main 角色会话是 <code>main</code>（旧架构的逻辑角色）；其余是普通开发会话 <code>dev</code>。QQ 群会话与 chat、coding 角色会话已退役，是只读归档，不归任何类别（<code class="src" data-src="src/agent/tool-availability.ts#export function sessionToolClass">sessionToolClass</code> 返回 null）：提交入口与队列兜底先行拒绝，驱动器被要求运行这类会话时直接报错。新工具族默认对所有会话不可见，写进哪份清单才出现。</p>
+    <p>「这个会话、这个任务能用哪些工具」只有一个答案来源：<code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>，一张会话类别 → 工具类别的静态表。会话类别（<code class="src" data-src="src/agent/tool-availability.ts#export type SessionToolClass">SessionToolClass</code>）由驱动器判定（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>）：绑定了 SubAgent 的子会话是 <code>subagent</code>；main 角色会话是 <code>main</code>（旧架构的逻辑角色）；其余是普通开发会话 <code>dev</code>。QQ 群会话与 chat、coding 角色会话已退役，是只读归档，不归任何类别（会话身份为已退役归档，<code class="src" data-src="src/core/session-identity.ts#export function classifySession">session-identity.ts · classifySession</code>）：提交入口与队列兜底先行拒绝，驱动器被要求运行这类会话时直接报错。新工具族默认对所有会话不可见，写进哪份清单才出现。</p>
 
     <div class="scroll">
       <table class="tbl wrap">

@@ -79,8 +79,8 @@ export function createChatResultTools(deps: ChatResultToolsDeps): ToolDefinition
       try {
         const ctx = deps.taskContext();
         if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
-        const role = store.getAgentRoleBySession(ctx.sessionId);
-        if (role?.id !== "main" || role.projectId !== ctx.projectId || store.getTask(ctx.taskId)?.sessionId !== ctx.sessionId) {
+        const identity = store.getSessionIdentity(ctx.sessionId);
+        if (identity?.kind !== "main" || identity.role.projectId !== ctx.projectId || store.getTask(ctx.taskId)?.sessionId !== ctx.sessionId) {
           throw new Error("群结果工具仅宿主绑定的 main 任务可用");
         }
         const problem = deps.verifyMain(ctx);

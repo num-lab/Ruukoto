@@ -76,7 +76,7 @@ import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } fro
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
 import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
-import { allowsCategory, sessionToolClass, subAgentToolsFor, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
+import { allowsCategory, subAgentToolsFor, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -246,8 +246,6 @@ export class Driver {
   private sdkConfigStale = false;
   /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
   private pendingMcpToolDefs: ToolDefinition[] = [];
-  /** 角色配置缓存（undefined = 未查询；null = 非角色会话）。 */
-  private roleConfig: AgentRole | null | undefined = undefined;
   /** 会话工具类别缓存（Driver 生命周期内不变）。 */
   private toolClassCache: SessionToolClass | undefined = undefined;
   /** 本任务允许的工具（任务开始时算一次；激活、发送前与调用门共用；null = 尚未算出，一律拒绝）。 */
@@ -302,29 +300,14 @@ export class Driver {
   }
 
   /**
-   * 角色会话（issue 01）：宿主引导的角色绑定（agent_roles 表，按会话反查）；
-   * 非角色会话为 null。绑定只由宿主设置，任务/工具参数与模型结果不能修改。
-   */
-  private role(): AgentRole | null {
-    if (this.roleConfig === undefined) {
-      this.roleConfig = this.deps.store.getAgentRoleBySession(this.session.id);
-    }
-    return this.roleConfig;
-  }
-
-  /**
-   * 会话工具类别（工具可用性）：main 角色会话按宿主绑定，其余为普通开发会话；
-   * 宿主绑定的动态 SubAgent 子会话（sub_agents 表）归 subagent，不能因没有固定
-   * 角色而落入默认 dev 类别。已退役的归档会话（QQ 群、chat/coding 角色）不运行
-   * 任务（提交入口与队列兜底先行拒绝），走到这里即拒绝。
+   * 会话工具类别即会话身份（架构工单 08）。已退役的归档会话不运行任务（提交
+   * 入口与队列兜底先行拒绝），走到这里即拒绝。
    */
   private get toolClass(): SessionToolClass {
     if (this.toolClassCache === undefined) {
-      const cls = this.deps.store.getSubAgentBySession(this.session.id)
-        ? "subagent"
-        : sessionToolClass(this.session.kind, this.role()?.id ?? null);
-      if (cls === null) throw new Error(`会话 ${this.session.id} 是已退役的只读归档，不运行任务`);
-      this.toolClassCache = cls;
+      const identity = this.deps.store.getSessionIdentity(this.session.id);
+      if (!identity || identity.kind === "retired") throw new Error(`会话 ${this.session.id} 是已退役的只读归档，不运行任务`);
+      this.toolClassCache = identity.kind;
     }
     return this.toolClassCache;
   }
@@ -348,9 +331,9 @@ export class Driver {
   private verifyMainBinding(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
     if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
     if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
-    const role = this.deps.store.getAgentRoleBySession(ctx.sessionId);
-    if (!role || role.id !== "main") return "会话未绑定 main 角色";
-    if (role.projectId !== this.session.projectId) return "main 角色项目绑定不匹配";
+    const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
+    if (identity?.kind !== "main") return "会话未绑定 main 角色";
+    if (identity.role.projectId !== this.session.projectId) return "main 角色项目绑定不匹配";
     if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
     const task = this.deps.store.getTask(ctx.taskId);
     if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
@@ -380,9 +363,9 @@ export class Driver {
     if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
     if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
     if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
-    if (this.deps.store.getSubAgentBySession(ctx.sessionId)) return "SubAgent 不能委派下级";
-    const role = this.deps.store.getAgentRoleBySession(ctx.sessionId);
-    if (role && role.id !== "main") return "只有普通开发会话或 main 可以委派 SubAgent";
+    const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
+    if (identity?.kind === "subagent") return "SubAgent 不能委派下级";
+    if (identity?.kind !== "dev" && identity?.kind !== "main") return "只有普通开发会话或 main 可以委派 SubAgent";
     const task = this.deps.store.getTask(ctx.taskId);
     if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
     return null;

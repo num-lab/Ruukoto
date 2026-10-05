@@ -128,7 +128,8 @@ import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
 import { delegationOpCheck } from "../agent/delegation-tools.ts";
 import { chatResultOpCheck, resolveAcceptedChatResult } from "../agent/chat-result-tools.ts";
 import { QqAdapter, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
-import { CORE_GROUP_CHAT_RETIRED, QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
+import { CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED } from "../core/session-identity.ts";
+import { QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
   capReply,
   TelegramAdapter,
@@ -170,7 +171,6 @@ import {
 /** 快照中每个会话保留的近期已结束任务数（更早的经 list_tasks 分页查询）。 */
 const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20;
 /** 固定 coding 角色退役（agent-direction issue 23）的任务取消原因。 */
-const CODING_ROLE_RETIRED = "coding_role_retired:固定 coding 角色已退役（委派改用通用 SubAgent）";
 /** 快照/get_task 中输出预览的字节上限。 */
 const FRAGMENT_PREVIEW_CAP = FRAGMENT_TEXT_CAP;
 
@@ -1457,13 +1457,6 @@ export class Runtime {
     });
   }
 
-  /** 已退役的只读归档会话（群会话、chat/coding 角色会话）的退役原因；其余为 null。 */
-  private retiredSessionReason(session: Session): string | null {
-    if (session.kind === "qq_group") return CORE_GROUP_CHAT_RETIRED;
-    const role = this.store.getAgentRoleBySession(session.id)?.id;
-    return role === "chat" ? CORE_GROUP_CHAT_RETIRED : role === "coding" ? CODING_ROLE_RETIRED : null;
-  }
-
   /**
    * 固定角色退役的启动收尾（agent-direction issue 20 群聊、issue 23 coding）：只把
    * 未终态的旧行改成终态，每次启动执行、按状态幂等（已终态的行不再改动，重复
@@ -2178,26 +2171,25 @@ export class Runtime {
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
-    // 计划模式（issue 26）只限普通开发会话：角色会话各有固定职责与工具
-    if (isPlanInput(input.input) && (session.kind !== "dev" || this.store.getAgentRoleBySession(session.id))) {
-      throw new RuntimeApiError("invalid_params", "计划模式（/plan）只能在普通开发会话中使用");
-    }
+    const identity = this.store.getSessionIdentity(session.id)!;
     // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
     // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
-    if (this.store.getSubAgentBySession(session.id)) {
+    if (identity.kind === "subagent") {
       throw new RuntimeApiError(
         "invalid_state",
         "该会话是 SubAgent 的独立工作会话，不能用作用户对话提交（委派经 subagent_delegate，结果经 subagent_result 查询）",
       );
     }
+    // 计划模式（issue 26）只限普通开发会话：main 与退役归档各有固定职责
+    if (isPlanInput(input.input) && identity.kind !== "dev") {
+      throw new RuntimeApiError("invalid_params", "计划模式（/plan）只能在普通开发会话中使用");
+    }
     // 固定角色已退役（agent-direction issue 20/23）：qq_group 会话与 chat/coding
     // 角色会话是只读归档，拒绝作为对话入口重新提交；continueTask 经本入口提交，一并覆盖
-    const retired = this.retiredSessionReason(session);
-    if (retired === CORE_GROUP_CHAT_RETIRED) {
-      throw new RuntimeApiError("invalid_state", "核心群聊已退役：该会话是只读归档，不能提交任务（历史可经 qq inbox / read_history 查阅）");
-    }
-    if (retired) {
-      throw new RuntimeApiError("invalid_state", "固定 coding 角色已退役：该会话是只读归档，不能提交任务（委派改用 subagent_delegate，旧结果经 coding_result / read_history 查阅）");
+    if (identity.kind === "retired") {
+      throw new RuntimeApiError("invalid_state", identity.reason === CORE_GROUP_CHAT_RETIRED
+        ? "核心群聊已退役：该会话是只读归档，不能提交任务（历史可经 qq inbox / read_history 查阅）"
+        : "固定 coding 角色已退役：该会话是只读归档，不能提交任务（委派改用 subagent_delegate，旧结果经 coding_result / read_history 查阅）");
     }
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
@@ -2334,7 +2326,7 @@ export class Runtime {
   async setSessionDefaultMode(input: { sessionId: string; mode: AccessMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
-    if (this.store.getSubAgentBySession(input.sessionId)) {
+    if (this.store.getSessionIdentity(input.sessionId)?.kind === "subagent") {
       throw new RuntimeApiError("invalid_state", "SubAgent 的独立工作会话不允许修改默认模式");
     }
     if (!isAccessMode(input.mode)) {
@@ -2360,7 +2352,7 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
-    if (task.subAgentId || this.store.getSubAgentBySession(task.sessionId)) {
+    if (task.subAgentId || this.store.getSessionIdentity(task.sessionId)?.kind === "subagent") {
       throw new RuntimeApiError("invalid_state", "SubAgent 执行任务的权限模式由宿主固定为请求确认，不允许切换");
     }
     if (!isAccessMode(input.mode)) {
@@ -2789,11 +2781,11 @@ export class Runtime {
       }
 
       // 兜底（启动收尾见 retireLegacyRoles）：钻过退役边界的排队归档会话任务固定取消跳过
-      const retiredReason = this.retiredSessionReason(session);
-      if (retiredReason) {
+      const identity = this.store.getSessionIdentity(sessionId)!;
+      if (identity.kind === "retired") {
         this.store.withTx(() => {
           const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
-            errorMessage: retiredReason,
+            errorMessage: identity.reason,
             endedAt: new Date().toISOString(),
           });
           if (ok) {
@@ -2882,7 +2874,7 @@ export class Runtime {
         // SubAgent 子会话（agent-direction issue 11）：driver.run 收尾后释放运行
         // 对象（SDK 缓存与 MCP 连接）；身份、会话、JSONL 与产物保留——释放
         // SDK 不等于删除 SubAgent。终态事件监听已在提交边界同步完成。
-        if (this.store.getSubAgentBySession(sessionId)) {
+        if (identity.kind === "subagent") {
           const current = this.drivers.get(sessionId);
           this.drivers.delete(sessionId);
           if (current) await current.dispose();
@@ -3109,7 +3101,8 @@ export class Runtime {
       // SubAgent 待核实出口（agent-direction issue 15）：unverified 只记「旧执行
       // 退出未核实」的事实，拥有者 resume-queue 即核实结论；活动任务的占用上面
       // 已拒绝释放，此处把无活动任务的 Agent 放回 idle，可继续委派、复用或关闭
-      const agent = this.store.getSubAgentBySession(sessionId);
+      const identity = this.store.getSessionIdentity(sessionId);
+      const agent = identity?.kind === "subagent" ? identity.agent : null;
       if (agent && agent.state === "unverified" && !this.store.findActiveSubAgentTask(agent.id)) {
         this.store.setSubAgentState(agent.id, "idle", {});
       }

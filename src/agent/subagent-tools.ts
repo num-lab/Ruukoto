@@ -1,10 +1,13 @@
 /**
  * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭；
- * issue 13 工作内协作消息与协作加入；issue 14 整项取消）：subagent_delegate /
- * subagent_result / subagent_close / subagent_cancel / subagent_message。
- * 前四个对拥有者的普通开发会话与 main 角色会话装配；其余身份一律不装配
- * 也不放行（subagent_close / subagent_cancel 例外：回报唤醒轮次也允许，
- * 因为关闭与取消只收窄能力）。subagent_message 另行对 SubAgent 子会话装配。
+ * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭；
+ * issue 13 工作内协作消息与协作加入；issue 14 整项取消；issue 17 改动汇总与
+ * main 修改委派）：subagent_delegate / subagent_result / subagent_close /
+ * subagent_cancel / subagent_message / subagent_integrate。前五个对拥有者的普通
+ * 开发会话与 main 角色会话装配（subagent_message 另行对 SubAgent 子会话装配）；
+ * 其余身份一律不装配也不放行（subagent_close / subagent_cancel / subagent_integrate
+ * 例外：回报唤醒轮次也允许——关闭与取消只收窄能力，汇总只作用于本会话自己
+ * 登记的成果）。
  *
  * - 模型只给正文、幂等键、可选既有 workId / subAgentId 与选定资料
  *   （dev: read_paths / main: materials）；目标身份、独立目录、confirm 模式、
@@ -28,6 +31,10 @@
  *   任务 = 该 SubAgent），不接受模型参数指定身份；接收方是当前承接
  *   本工作的 SubAgent（复用转做其他工作后资格即失）或主 Agent
  *   （省略 to_sub_agent_id）；资格核实、幂等与投递见 SubAgentManager.message。
+ * - subagent_integrate 改动汇总（issue 17）：把本会话登记的 worktree 副本相对
+ *   基线的完整差异套用到父工作区待提交区（不代提交、不强制覆盖）；冲突时
+ *   零写入并点名冲突文件；幂等命中如实返回；直接写入工作如实告知没有副本；
+ *   取消过的工作与已关闭的 SubAgent 不拦汇总（成果可找回）。
  */
 
 import { Type } from "typebox";
@@ -47,10 +54,11 @@ import type {
   SubAgentMessageInput,
   SubAgentMessageResult,
   WorkCancellation,
+  WorkIntegration,
 } from "../runtime/subagents.ts";
 import { runsInPlanMode } from "./plan-mode.ts";
 
-export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel", "subagent_message"] as const;
+export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel", "subagent_message", "subagent_integrate"] as const;
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** subagent_result 单次读取上限（字节）。 */
@@ -66,6 +74,8 @@ export interface SubAgentToolsDeps {
   cancelWork(input: { workId: string; by: `agent:${string}`; parentSessionId: string; reason?: string | null }): Promise<WorkCancellation>;
   /** 工作内协作消息（issue 13）；发送方身份由发起任务核实（见 SubAgentManager.message）。 */
   message(input: SubAgentMessageInput): SubAgentMessageResult;
+  /** 改动汇总（issue 17）；发起任务由宿主按调用身份固定（当前任务），模型参数只给 work_id。 */
+  integrate(input: { workId: string; parentTaskId: string; parentSessionId: string }): Promise<WorkIntegration>;
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
   /** 评审任务前置修订说明（agent-direction issue 19，与 coding_result 一致）。 */
@@ -195,7 +205,8 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       "为一项分析/读取或修改工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录或隔离副本，" +
       "分析只读（read / read_artifact），修改经宿主后台生成的本地副本隔离（不提交、不推送），权限固定请求确认，不能委派下级。" +
       "开发会话用 read_paths 指定父工作区内或父任务已授予的只读路径；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
-      "要修改文件时用 mode=modify + target（父工作区内）：Git 仓库目标建宿主生成的本地 worktree 副本，非 Git 目录直接写入并与父会话串行。" +
+      "要修改文件时用 mode=modify + target（父工作区内）：Git 仓库目标建宿主生成的本地 worktree 副本，非 Git 目录直接写入并与父会话串行；" +
+      "副本改动由你用 subagent_integrate 按工作 id 汇回当前工作区（冲突时不覆盖、双方保留）。" +
       "首次省略两参数建立工作；补充原工作用 work_id（修改继续沿用首次钉定的写入目标）；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
       "读范围与资料按本次重新确定，要求该 SubAgent 空闲且未关闭）；work_id 与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入既有工作协作" +
       "（只读工作；协作者之间与主 Agent 可用 subagent_message 通信）。" +
@@ -206,7 +217,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
       work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行；修改工作继续沿用首次钉定的写入目标）；与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入本工作协作" })),
       sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent（保留上下文）：单独用时承接新工作；与 work_id 同现时加入该既有工作作为协作方" })),
-      mode: Type.Optional(Type.Union([Type.Literal("analyze"), Type.Literal("modify")], { description: "委派模式；仅首次委派可指定，modify 需要 target（修改委派只限普通开发会话，main/计划模式/SubAgent 自身不能发起）" })),
+      mode: Type.Optional(Type.Union([Type.Literal("analyze"), Type.Literal("modify")], { description: "委派模式；仅首次委派可指定，modify 需要 target（dev 与 main 均可发起；计划模式与 SubAgent 自身不能发起）" })),
       target: Type.Optional(Type.String({ description: "modify 的写入目标（父工作区内；Git 仓库建隔离 worktree 副本，非 Git 目录直接写入与父会话串行）" })),
       read_paths: Type.Optional(
         Type.Array(Type.String(), { description: "仅限开发会话：父工作区内或父任务已授予的待读路径（最多 16 个，只读）" }),
@@ -250,7 +261,6 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
       const materials = params.materials === undefined ? null : params.materials;
       if (mode === "modify") {
-        if (isMain) throw new Error("只有普通开发会话可以发起修改委派（main 由 issue 17 迁移）");
         // 计划模式只承诺调研：modify 委派跨轮到链上复核（分析委派由工具可用性放行）
         if (runsInPlanMode({ input: task.input, resumesTaskId: task.resumesTaskId }, (id) => store.getTask(id))) {
           throw new Error("计划模式不能发起修改委派");
@@ -529,5 +539,47 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     bindCall: deps.bindCall,
   });
 
-  return [subagentDelegate, subagentResult, subagentClose, subagentCancel, subagentMessage];
+  
+  const subagentIntegrate = defineTool({
+    name: "subagent_integrate",
+    label: "subagent_integrate",
+    description:
+      "把本会话登记的一项 worktree 修改工作的副本改动汇回当前工作区：宿主在受限容器里取副本相对基线的完整差异，" +
+      "能干净套用才写入你的待提交改动区（不代提交、不强制覆盖）；同文件已有本地改动或此前已部分汇总时拒绝并点名冲突文件，" +
+      "双方成果都保留供处理；完整差异已在工作区时按幂等返回不重复写入；取消过的工作与已关闭的 SubAgent 也可以汇总（成果可找回）。" +
+      "非 Git 直接写入的工作没有副本，调用只会如实告知。" +
+      "只读分析工作没有写入目标、不能汇总。汇总后用你自己的检查（类型、测试等）验证改动，验证不过的待处理内容如实告诉拥有者。",
+    parameters: Type.Object({
+      work_id: Type.String({ description: "要汇总的工作 id（subagent_delegate 返回；subagent_result 总览可查看）" }),
+    }),
+    execute: bindExecute(async (ctx, params: any) => {
+      // 回报唤醒轮次也允许汇总（只作用于本会话登记的成果）；身份与归属由 verifyHost 与归属核实拒绝
+      if (typeof params.work_id !== "string" || !params.work_id.trim()) throw new Error("work_id 必须是非空字符串");
+      const r = await deps.integrate({ workId: params.work_id, parentTaskId: ctx.taskId, parentSessionId: ctx.sessionId });
+      if (r.state === "direct") {
+        return okText(
+          `工作 ${r.work.id} 是非 Git 直接写入：改动在子任务执行时已就地落在父工作区（${(r.work.writeTarget as any)?.path ?? "写入根"}），没有副本需要汇总。` +
+            "改动未经副本隔离，请自行检查并验证。",
+        );
+      }
+      if (r.state === "empty") {
+        return okText(`工作 ${r.work.id} 的副本与基线 ${r.baseCommit?.slice(0, 12)} 之间没有差异：无可汇总的改动。`);
+      }
+      if (r.state === "already") {
+        return okText(
+          `工作 ${r.work.id} 的完整差异已在当前工作区（此前已套用）：幂等返回，未重复写入、未重复登记。` +
+            "如需重新核对，可比较副本与当前工作区；副本原样保留。",
+        );
+      }
+      return okText(
+        `已汇总工作 ${r.work.id} 的改动：${r.filesChanged} 个文件（+${r.insertions}/-${r.deletions}）` +
+          `${r.files.length ? `：${r.files.join("、")}` : ""}。` +
+          `来源为分支副本（基线 ${r.baseCommit?.slice(0, 12)}，汇总时父 HEAD ${r.parentHead ? r.parentHead.slice(0, 12) : "读取失败"}）；` +
+          "差异落在待提交区，未代提交。副本原样保留（取消/关闭都不删除），冲突或验证失败都能找回。请接着用自己的检查验证改动；验证不过的待处理内容如实告诉拥有者。",
+      );
+    }),
+  } as any);
+
+
+  return [subagentDelegate, subagentResult, subagentClose, subagentCancel, subagentMessage, subagentIntegrate];
 }

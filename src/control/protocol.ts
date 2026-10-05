@@ -47,9 +47,11 @@
  * （main 接收账本）与 sourceProblem（当前复核结论）字段。旧客户端须升级；
  * 旧群收件/发送/入站记录保持可读。
  *
- * v15（agent-direction issue 13）：工作内协作消息——新增 subagent_message.sent /
+ * v15（agent-direction issue 13 + 17）：工作内协作消息——新增 subagent_message.sent /
  * subagent_message.dropped 事件；work_get 详情新增 messages 列表；主 Agent 工具
- * 增加 subagent_message，委派 work_id 与 sub_agent_id 同现表示协作加入。旧客户端
+ * 增加 subagent_message，委派 work_id 与 sub_agent_id 同现表示协作加入。改动汇总——
+ * 新增 work_delegation.integrated 事件与主 Agent 工具 subagent_integrate；main 会话
+ * 的修改委派开放（通用 SubAgent 产生改动、宿主汇总进父工作区待提交区）。旧客户端
  * 须升级；持久旧事件与记录保持可读。
  */
 

@@ -421,6 +421,8 @@ function demoEvents(): PersistentEvent[] {
     { type: "subagent_message.sent", messageId: "smsg_demo00000000001", workId: "work_demo00000000001", parentSessionId: SESSION_ID, fromSubAgentId: "sagent_demo0000000001", fromTaskId: "task_subagent000001", toSubAgentId: null, delivery: "inject", taskId: null },
     { type: "subagent_message.dropped", messageId: "smsg_demo00000000002", workId: "work_demo00000000002", parentSessionId: SESSION_ID, toSubAgentId: "sagent_demo0000000001", reason: "work_canceled" },
     { type: "subagent.closed", subAgentId: "sagent_demo0000000001", parentSessionId: SESSION_ID, closedBy: "agent:task_running000000", taskId: "task_running000000" },
+    // agent-direction issue 17：改动汇总（已取消工作、已关闭 SubAgent 的副本成果仍可找回汇总）
+    { type: "work_delegation.integrated", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", taskId: "task_running000000", branch: "ruukoto/work-work_demo00000000002", baseCommit: "0123456789abcdef0123456789abcdef01234567", parentHead: "89abcdef0123456789abcdef0123456789abcd", files: ["src/a.ts"], filesChanged: 1, insertions: 12, deletions: 3, patchBytes: 742 },
     // issue 02：main 应用数据空间（能力停止与操作拒绝）
     { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },
     { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },

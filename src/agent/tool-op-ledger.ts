@@ -114,6 +114,8 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   subagent_cancel: "subagent",
   // 工作内协作消息（issue 13）：按（工作, 发送方, 键）的消息行核实
   subagent_message: "subagent",
+  // 改动汇总（issue 17）：按 work_delegation.integrated 事件核实；缺事件报无法核实（apply 可能已落字节）
+  subagent_integrate: "subagent",
   // 模拟工具代表可能有副作用的通用工具（mock_mark 写外部标记）
   mock_delay: "approval",
   mock_gate: "approval",

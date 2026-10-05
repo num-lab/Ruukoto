@@ -97,7 +97,9 @@ export function createDelegationTools(deps: DelegationToolsDeps): ToolDefinition
     description:
       "拥有者明确提出编码、仓库、PR、测试或修改请求时委派执行。mode=analyze 经通用只读 SubAgent 完成读取与分析" +
       "（硬只读、不产出修改、不自动重试；完成、失败、超时或结果未知时编排器会唤醒 main）；" +
-      "mode=draft 委派给 coding 角色在宿主固定的工作目录生成修改草稿（需要仓库时自行 git clone；不重试；外部发布仍需拥有者审批），" +
+      "mode=draft 是旧固定路径（仅迁移期兼容）：委派给 coding 角色在宿主固定的工作目录生成修改草稿（需要仓库时自行 git clone；不重试；" +
+      "外部发布仍需拥有者审批）——修改工作优先 subagent_delegate 的 mode=modify + target（通用 SubAgent 在隔离副本产生改动），" +
+      "再用 subagent_integrate 汇总并验证。" +
       "权限模式固定为请求确认。同 key 同参返回原子任务，异参冲突。普通只读分析也可直接用 subagent_delegate。",
     parameters: Type.Object({
       request: Type.String({ description: "委派正文：要 coding 做什么（仓库地址、目标、验收要求）" }),

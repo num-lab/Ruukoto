@@ -12,9 +12,20 @@ import { test } from "node:test";
 import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 import type { SubAgentMessage, Task, TaskStatus } from "../src/core/types.ts";
-import { ParentDelivery, messageStateText } from "../src/runtime/parent-delivery.ts";
+import { ParentDelivery, messageStateText, type ParentDeliveryDeps, type WorkReport } from "../src/runtime/parent-delivery.ts";
+import type { ChildOutcome } from "../src/runtime/orchestrator.ts";
 
 const SELECTION = { provider: "mock", modelId: "mock", thinkingLevel: "off" as const };
+
+const requestIdIsWake = (requestId?: string) => Boolean(requestId?.startsWith("wake:") || requestId?.startsWith("smsg:"));
+
+/** 结局 → 子任务的持久终态（超时 = 截止取消，结果未知 = 中断）。 */
+const OUTCOMES: Array<{ outcome: ChildOutcome; status: TaskStatus; errorMessage?: string; text: string }> = [
+  { outcome: "completed", status: "completed", text: "已完成" },
+  { outcome: "failed", status: "failed", errorMessage: "boom", text: "失败" },
+  { outcome: "timeout", status: "canceled", errorMessage: "deadline_exceeded", text: "超时" },
+  { outcome: "unknown", status: "interrupted", text: "结果未知" },
+];
 
 function kit() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-parent-delivery-"));
@@ -27,7 +38,10 @@ function kit() {
   const mainSession = session();
   store.insertAgentRole({ id: "main", projectId: project.id, sessionId: mainSession.id, workDir: root, modelSelection: null, tools: [], createdAt: mainSession.createdAt });
   const devSession = session();
-  const task = (sessionId: string, opts: { requestId?: string; status?: TaskStatus; workId?: string; subAgentId?: string; parentTaskId?: string } = {}): Task => {
+  const task = (
+    sessionId: string,
+    opts: { requestId?: string; status?: TaskStatus; workId?: string; subAgentId?: string; parentTaskId?: string; sourceEventId?: string | null; errorMessage?: string } = {},
+  ): Task => {
     const { task } = store.insertQueuedTask({
       sessionId,
       requestId: opts.requestId ?? `r${++n}`,
@@ -37,19 +51,24 @@ function kit() {
       workId: opts.workId ?? null,
       subAgentId: opts.subAgentId ?? null,
       parentTaskId: opts.parentTaskId ?? null,
+      sourceEventId: opts.sourceEventId ?? null,
+      agentId: requestIdIsWake(opts.requestId) ? "main" : null,
     });
-    if (opts.status && opts.status !== "queued") store.transitionTask(task.id, ["queued"], opts.status, { endedAt: new Date().toISOString() });
+    if (opts.status && opts.status !== "queued") {
+      store.transitionTask(task.id, ["queued"], opts.status, { endedAt: new Date().toISOString(), errorMessage: opts.errorMessage ?? null });
+    }
     return store.getTask(task.id)!;
   };
   /** 父会话下一项工作：父任务 + SubAgent（独立会话）+ 工作行。 */
-  const work = (parentSessionId: string) => {
-    const parent = task(parentSessionId, { status: "completed" });
+  const work = (parentSessionId: string, sourceEventId: string | null = null) => {
+    const parent = task(parentSessionId, { status: "completed", sourceEventId });
     const sub = session();
     const agentId = `sa${++n}`;
     const workId = `work${++n}`;
     store.insertSubAgent({ id: agentId, parentSessionId, sessionId: sub.id, workDir: root, activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
     store.insertWorkDelegation({ id: workId, parentSessionId, originTaskId: parent.id, subAgentId: agentId, requestKey: `k${n}`, paramsDigest: "d", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: sub.createdAt });
-    const exec = (status: TaskStatus = "completed") => task(sub.id, { status, workId, subAgentId: agentId, parentTaskId: parent.id });
+    const exec = (status: TaskStatus = "completed", opts: { errorMessage?: string; sourceEventId?: string | null } = {}) =>
+      task(sub.id, { status, workId, subAgentId: agentId, parentTaskId: parent.id, ...opts });
     const cancel = () => store.cancelWorkDelegation(workId, new Date().toISOString(), "owner", null);
     return { parent, sub, agentId, workId, exec, cancel };
   };
@@ -73,12 +92,31 @@ function kit() {
     store.insertSubAgentMessage(msg);
     return msg;
   };
-  const delivery = new ParentDelivery({ store });
+  /** 记录桩：按请求键插入排队任务（与 submit 一样幂等），记录每次调用。 */
+  const submits: Array<Parameters<ParentDeliveryDeps["submit"]>[0]> = [];
+  const kicks: string[] = [];
+  const reports: WorkReport[] = [];
+  const replies = new Map<string, string>();
+  const delivery = new ParentDelivery({
+    store,
+    submit: async (input) => {
+      submits.push(input);
+      return store.insertQueuedTask({ ...input, submissionDigest: input.requestId }).task;
+    },
+    kick: (sessionId) => kicks.push(sessionId),
+    defaultModelSelection: () => SELECTION,
+    readReply: (taskId) => replies.get(taskId) ?? null,
+    isReviewEvent: (event) => event.source === "github",
+    resultNotice: () => null,
+    sendWorkReport: (report) => reports.push(report),
+  });
+  const inbound = (source: string) =>
+    store.withTx(() => store.registerInboundEvent({ source, externalId: `x${++n}`, actor: null, targetRole: "main", body: "b" })).event;
   const cleanup = () => {
     db.close();
     fs.rmSync(root, { recursive: true, force: true });
   };
-  return { store, mainSession, devSession, task, work, message, delivery, cleanup };
+  return { store, mainSession, devSession, task, work, message, delivery, submits, kicks, reports, replies, inbound, cleanup };
 }
 
 test("放行判定：wake: 与 smsg: 同一规则——所属工作已取消即不放行，其他任务照常", () => {
@@ -122,6 +160,204 @@ test("消息状态文本：发给主 Agent 的消息承载唤醒被截住时补�
     assert.equal(messageStateText(k.store, k.message(w, child.id, { deliveredAt: new Date().toISOString() })), "已随主会话模型调用注入送达");
     assert.equal(messageStateText(k.store, k.message(w, child.id, { undeliveredReason: "work_canceled" })), "未投递（work_canceled）");
     assert.match(messageStateText(k.store, k.message(w, child.id)), /^待投递/);
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("结果送达矩阵：父会话 × 结局 × 取消 → 结果唤醒、注入清单与放行判定", async () => {
+  const k = kit();
+  try {
+    for (const parentKind of ["main", "dev"] as const) {
+      for (const o of OUTCOMES) {
+        for (const cancel of ["none", "before_result", "after_wake"] as const) {
+          const label = `${parentKind}/${o.outcome}/${cancel}`;
+          const w = k.work(parentKind === "main" ? k.mainSession.id : k.devSession.id);
+          const child = w.exec(o.status, { errorMessage: o.errorMessage });
+          k.store.setTaskResult(child.id, `摘要-${label}`, "{}");
+          if (cancel === "before_result") w.cancel();
+          const before = k.submits.length;
+          await k.delivery.resultRecorded(k.store.getTask(child.id)!, o.outcome, `摘要-${label}`);
+          const built = k.submits.slice(before);
+          if (parentKind === "main" && cancel !== "before_result") {
+            assert.equal(built.length, 1, `${label}：建一次结果唤醒`);
+            assert.equal(built[0]!.requestId, `wake:${child.id}`);
+            assert.equal(built[0]!.agentId, "main");
+            assert.equal(built[0]!.accessMode, "confirm");
+            assert.equal(built[0]!.sourceEventId, null);
+            assert.match(built[0]!.input, new RegExp(`子任务${o.text}`));
+            assert.match(built[0]!.input, new RegExp(`摘要：摘要-${label}`));
+            const wake = k.store.findTaskByRequest(k.mainSession.id, `wake:${child.id}`)!;
+            if (cancel === "after_wake") w.cancel();
+            assert.equal(k.delivery.wakeAdmitted(wake), cancel === "none", `${label}：放行判定`);
+          } else {
+            assert.equal(built.length, 0, `${label}：不建结果唤醒`);
+            if (cancel === "after_wake") w.cancel();
+          }
+          // 注入清单：只有普通开发会话、且工作未取消；取走即标记，不重复
+          const injected = k.delivery.takeInjection(parentKind === "main" ? k.mainSession.id : k.devSession.id).results.map((t) => t.id);
+          assert.deepEqual(injected, parentKind === "dev" && cancel === "none" ? [child.id] : [], `${label}：注入清单`);
+          assert.deepEqual(k.delivery.takeInjection(k.devSession.id).results, [], `${label}：注入不重复`);
+        }
+      }
+    }
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("消息送达方向：main 在消息事务内建消息唤醒并写投递登记；普通开发会话待注入", () => {
+  const k = kit();
+  try {
+    const mw = k.work(k.mainSession.id);
+    const mchild = mw.exec();
+    const mmsg = k.message(mw, mchild.id);
+    assert.equal(k.store.withTx(() => k.delivery.messageRecorded(mmsg, k.store.getWorkDelegation(mw.workId)!)), "wake");
+    const wake = k.store.findTaskByRequest(k.mainSession.id, `smsg:${mmsg.id}`)!;
+    assert.equal(wake.agentId, "main");
+    assert.equal(wake.accessMode, "confirm");
+    assert.equal(wake.deadline, null);
+    assert.match(wake.input, new RegExp(`来自：SubAgent ${mw.agentId}（工作 ${mw.workId}，执行任务 ${mchild.id}）`));
+    assert.equal(k.store.getSubAgentMessage(mmsg.id)!.deliveredTaskId, wake.id);
+    // 重入幂等：同一请求键不建第二个唤醒
+    k.store.withTx(() => k.delivery.messageRecorded(mmsg, k.store.getWorkDelegation(mw.workId)!));
+    assert.equal(k.store.listTasksBySession(k.mainSession.id).filter((t) => t.requestId === `smsg:${mmsg.id}`).length, 1);
+    assert.deepEqual(k.delivery.takeInjection(k.mainSession.id).messages, [], "main 不走注入");
+
+    const dw = k.work(k.devSession.id);
+    const dchild = dw.exec();
+    const dmsg = k.message(dw, dchild.id);
+    assert.equal(k.store.withTx(() => k.delivery.messageRecorded(dmsg, k.store.getWorkDelegation(dw.workId)!)), "inject");
+    assert.equal(k.store.findTaskByRequest(k.devSession.id, `smsg:${dmsg.id}`), null);
+    // 注入：同事务标记已投递（无承载任务），已取消工作的消息不注入
+    const canceled = k.work(k.devSession.id);
+    const cmsg = k.message(canceled, canceled.exec().id);
+    canceled.cancel();
+    assert.deepEqual(k.delivery.takeInjection(k.devSession.id).messages.map((m) => m.id), [dmsg.id]);
+    const done = k.store.getSubAgentMessage(dmsg.id)!;
+    assert.ok(done.deliveredAt !== null && done.deliveredTaskId === null);
+    assert.equal(k.store.getSubAgentMessage(cmsg.id)!.deliveredAt, null);
+    assert.deepEqual(k.delivery.takeInjection(k.devSession.id).messages, []);
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("启动补建：缺失的结果唤醒与消息唤醒各补一次；已取消与普通开发会话不补；重复巡检不重复", async () => {
+  const k = kit();
+  try {
+    const result = (parentSessionId: string) => {
+      const w = k.work(parentSessionId);
+      const child = w.exec("canceled", { errorMessage: "deadline_exceeded" });
+      k.store.setTaskResult(child.id, "摘要", "{}");
+      return { w, child };
+    };
+    const missing = result(k.mainSession.id);
+    const canceled = result(k.mainSession.id);
+    canceled.w.cancel();
+    const dev = result(k.devSession.id);
+    const pendingToMain = k.message(missing.w, missing.child.id);
+    const pendingCanceled = k.message(canceled.w, canceled.child.id);
+    const pendingDev = k.message(dev.w, dev.child.id);
+
+    await k.delivery.sweep();
+    assert.deepEqual(k.submits.map((x) => x.requestId), [`wake:${missing.child.id}`]);
+    assert.match(k.submits[0]!.input, /子任务超时/, "结局按持久状态推导");
+    assert.ok(k.store.findTaskByRequest(k.mainSession.id, `smsg:${pendingToMain.id}`), "补建消息唤醒");
+    assert.equal(k.store.getSubAgentMessage(pendingToMain.id)!.deliveredTaskId, k.store.findTaskByRequest(k.mainSession.id, `smsg:${pendingToMain.id}`)!.id);
+    assert.deepEqual(k.kicks, [k.mainSession.id], "消息唤醒提交后 kick");
+    assert.equal(k.store.getSubAgentMessage(pendingCanceled.id)!.deliveredAt, null, "已取消工作的消息不补建（由管理器冲刷记未投递）");
+    assert.equal(k.store.getSubAgentMessage(pendingDev.id)!.deliveredAt, null, "普通开发会话的消息仍待注入");
+    assert.equal(k.store.listTasksBySession(k.devSession.id).filter((t) => t.requestId.startsWith("wake:")).length, 0);
+
+    await k.delivery.sweep();
+    assert.equal(k.submits.length, 1, "重复巡检不重复补建");
+    assert.deepEqual(k.kicks, [k.mainSession.id]);
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("最终汇报：来源（IM / TUI / GitHub 评审）× 取消 → 是否到期、发送键与正文；唤醒说明随来源", async () => {
+  const k = kit();
+  try {
+    const cases = [
+      { source: "telegram", canceled: false, due: true },
+      { source: "qq_private", canceled: false, due: true },
+      { source: "telegram", canceled: true, due: false },
+      { source: null, canceled: false, due: false },
+      { source: "github", canceled: false, due: false },
+    ];
+    for (const c of cases) {
+      const label = `${c.source ?? "tui"}/${c.canceled ? "canceled" : "live"}`;
+      const event = c.source ? k.inbound(c.source) : null;
+      const w = k.work(k.mainSession.id, event?.id ?? null);
+      // GitHub 评审：执行任务自身带来源事件（结果唤醒保留来源与截止时间）
+      const child = w.exec("completed", { sourceEventId: c.source === "github" ? event!.id : null });
+      k.store.setTaskResult(child.id, "摘要", "{}");
+      const before = k.submits.length;
+      await k.delivery.resultRecorded(k.store.getTask(child.id)!, "completed", "摘要");
+      if (c.source === "github") {
+        assert.equal(k.submits[before]!.sourceEventId, event!.id, `${label}：评审唤醒保留来源`);
+        assert.ok(k.submits[before]!.deadline !== null, `${label}：评审唤醒有截止时间`);
+      }
+      const wake = k.store.findTaskByRequest(k.mainSession.id, `wake:${child.id}`)!;
+      k.store.transitionTask(wake.id, ["queued"], "completed", { endedAt: new Date().toISOString() });
+      k.replies.set(wake.id, `汇报正文-${label}`);
+      if (c.canceled) w.cancel();
+      const reports = k.reports.length;
+      k.delivery.wakeTerminal(wake, "completed");
+      const sent = k.reports.slice(reports);
+      if (c.due) {
+        assert.equal(sent.length, 1, `${label}：到期汇报一次`);
+        assert.equal(sent[0]!.key, `${event!.id}#work:${w.workId}:${child.id}`);
+        assert.equal(sent[0]!.wakeTaskId, wake.id);
+        assert.equal(sent[0]!.text, `[工作 ${w.workId} 最终汇报]\n汇报正文-${label}`);
+        assert.match(k.submits[before]!.input, /\[最终汇报\]/, `${label}：唤醒说明收尾规则`);
+      } else {
+        assert.equal(sent.length, 0, `${label}：不汇报`);
+        if (!c.canceled) assert.doesNotMatch(k.submits[before]!.input, /\[最终汇报\]/, `${label}：无唤醒说明`);
+      }
+    }
+
+    // 非完成结局：正文说明汇报轮次的结局，不读回答
+    const event = k.inbound("telegram");
+    const w = k.work(k.mainSession.id, event.id);
+    const child = w.exec();
+    const wake = k.task(k.mainSession.id, { requestId: `wake:${child.id}`, status: "interrupted" });
+    k.delivery.wakeTerminal(wake, "unknown");
+    assert.equal(k.reports.at(-1)!.text, `[工作 ${w.workId} 最终汇报] 汇报轮次被后台重启中断，结果未知，详情见 TUI。`);
+    // 不是结果唤醒（消息唤醒、普通任务）不触发汇报
+    const count = k.reports.length;
+    k.delivery.wakeTerminal(k.task(k.mainSession.id, { requestId: `smsg:x`, status: "completed" }), "completed");
+    k.delivery.wakeTerminal(k.task(k.mainSession.id, { status: "completed" }), "completed");
+    assert.equal(k.reports.length, count);
+  } finally {
+    k.cleanup();
+  }
+});
+
+test("最终汇报到期：仍有活动执行任务或其他执行任务的结果唤醒未出结果时不到期，后终态的唤醒汇报一次", () => {
+  const k = kit();
+  try {
+    const event = k.inbound("telegram");
+    const w = k.work(k.mainSession.id, event.id);
+    const first = w.exec();
+    const second = w.exec("running");
+    const firstWake = k.task(k.mainSession.id, { requestId: `wake:${first.id}`, status: "completed" });
+    k.delivery.wakeTerminal(firstWake, "completed");
+    assert.equal(k.reports.length, 0, "仍有活动执行任务");
+
+    k.store.transitionTask(second.id, ["running"], "completed", { endedAt: new Date().toISOString() });
+    const secondWake = k.task(k.mainSession.id, { requestId: `wake:${second.id}`, status: "running" });
+    k.store.setTaskResult(firstWake.id, "汇报", "{}");
+    k.delivery.wakeTerminal(firstWake, "completed");
+    assert.equal(k.reports.length, 0, "另一执行任务的结果唤醒尚无结果");
+
+    k.store.transitionTask(secondWake.id, ["running"], "completed", { endedAt: new Date().toISOString() });
+    k.delivery.wakeTerminal(secondWake, "completed");
+    assert.equal(k.reports.length, 1);
+    assert.equal(k.reports[0]!.key, `${event.id}#work:${w.workId}:${second.id}`, "键含本次收尾的执行任务");
   } finally {
     k.cleanup();
   }

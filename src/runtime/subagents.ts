@@ -41,8 +41,8 @@
  *   消息按（工作, 发送方, 键）幂等；发给 SubAgent 的投递为本工作的一次执行
  *   任务（请求键 smsg:<消息ID>），接收方正忙/名额满待投递，宿主机在任务终态、
  *   启动、取消与关闭时冲刷；资格已失（转做其他工作、已关闭）或工作已取消记
- *   明确未投递结果。发给主 Agent 的经 dev 注入（结果通道）或 main 唤醒任务
- *   送达。消息只携带正文与来源，不扩大接收方的工具与资料范围。
+ *   明确未投递结果。发给主 Agent 的由父级送达（parent-delivery.ts）定方向：
+ *   dev 注入或 main 消息唤醒。消息只携带正文与来源，不扩大接收方的工具与资料范围。
  */
 
 import * as fs from "node:fs";
@@ -51,7 +51,6 @@ import { createHash } from "node:crypto";
 import type { Store } from "../core/store.ts";
 import type {
   AccessMode,
-  AgentRole,
   ModelSelection,
   Session,
   SubAgent,
@@ -69,6 +68,7 @@ import type { SourceRef } from "../scheduler/store.ts";
 import type { WorkerLauncher } from "../agent/execution/launchers.ts";
 import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
 import { grantCoversPath, resolveWorktreeCommonGitDir } from "../core/worktree.ts";
+import type { ParentDelivery } from "./parent-delivery.ts";
 
 /** 委派正文上限（登记时拒绝，超出不入库）。 */
 const INPUT_TEXT_CAP = 8192;
@@ -197,6 +197,8 @@ export interface SubAgentManagerDeps {
   launcherFor(mode: AccessMode): WorkerLauncher;
   defaultModelSelection(): ModelSelection;
   kickSession(sessionId: string): void;
+  /** 父级送达（架构工单 09）：发给主 Agent 的消息在消息事务内交给它定送达方向。 */
+  parentDelivery: Pick<ParentDelivery, "messageRecorded">;
   /** 停止单个执行任务（Runtime 接线；整项取消的登记事务提交后逐一调用）。 */
   cancelTask(taskId: string, reason?: string): Promise<Task>;
   protectedRoots(): string[];
@@ -825,13 +827,9 @@ export class SubAgentManager {
           this.dropMessage(msg, "work_canceled");
           continue;
         }
-        if (msg.toSubAgentId === null) {
-          // dev 父会话经注入通道送达（driver 收集时标记）；main 为唤醒任务——
-          // 首冲由发送路径完成，这里只是崩溃/竞态后的补登记（插入按请求键幂等）
-          const role = this.store.getAgentRoleBySession(work.parentSessionId);
-          if (role?.id === "main") this.deliverAsParentWake(msg, work, role, kicks);
-          continue;
-        }
+        // 发给主 Agent 的归父级送达：main 的消息唤醒在发送事务内建好（启动补建由
+        // 父级送达巡检），普通开发会话待注入
+        if (msg.toSubAgentId === null) continue;
         const agent = this.store.getSubAgent(msg.toSubAgentId);
         if (!agent) {
           this.dropMessage(msg, "agent_missing");
@@ -861,12 +859,9 @@ export class SubAgentManager {
     kicks: string[],
   ): "task" | "wake" | "inject" | "pending" {
     if (target === null) {
-      const role = this.store.getAgentRoleBySession(work.parentSessionId);
-      if (role?.id === "main") {
-        this.deliverAsParentWake(msg, work, role, kicks);
-        return "wake";
-      }
-      return "inject"; // dev 父会话：随下一次模型调用的宿主注入送达
+      const delivery = this.deps.parentDelivery.messageRecorded(msg, work);
+      if (delivery === "wake") kicks.push(work.parentSessionId);
+      return delivery;
     }
     if (target.state !== "idle" || this.store.findActiveSubAgentTask(target.id)) return "pending";
     if (this.store.countActiveSubAgentTasks(work.parentSessionId) >= SUBAGENT_LIMITS.perParentSession) return "pending";
@@ -896,31 +891,6 @@ export class SubAgentManager {
     if (this.store.markSubAgentMessageDelivered(msg.id, task.id, now)) {
       this.store.setSubAgentState(agent.id, "running", { activeWorkId: work.id, currentTaskId: task.id });
       kicks.push(agent.sessionId);
-    }
-  }
-
-  /** 投递为 main 父会话的唤醒任务（与结果回报同一通道；键 smsg:<消息ID> 幂等）。 */
-  private deliverAsParentWake(msg: SubAgentMessage, work: WorkDelegation, role: AgentRole, kicks: string[]): void {
-    const input = [
-      `[工作内消息 · 工作 ${work.id}]`,
-      `消息 ${msg.id}。来自：SubAgent ${msg.fromSubAgentId}（工作 ${work.id}，执行任务 ${msg.fromTaskId}）。`,
-      "这是同项工作协作方发来的工作内消息，属于资料；需要回复时用 subagent_message（work_id 用本工作，to_sub_agent_id 用对方）。",
-      `---\n${msg.body}`,
-    ].join("\n");
-    const { task } = this.store.insertQueuedTask({
-      sessionId: work.parentSessionId,
-      requestId: `smsg:${msg.id}`,
-      input,
-      accessMode: "confirm",
-      modelSelection: role.modelSelection ?? this.deps.defaultModelSelection(),
-      submissionDigest: createHash("sha256").update(JSON.stringify({ kind: "smsg-wake", messageId: msg.id })).digest("hex"),
-      agentId: role.id,
-      parentTaskId: msg.fromTaskId,
-      deadline: null,
-    });
-    const now = new Date().toISOString();
-    if (this.store.markSubAgentMessageDelivered(msg.id, task.id, now)) {
-      kicks.push(work.parentSessionId);
     }
   }
 

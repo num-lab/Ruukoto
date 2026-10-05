@@ -36,8 +36,8 @@
         <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">runtime/subagents.ts</code>
         <code class="src" data-src="src/scheduler/store.ts#claim(id: string)">scheduler/store.ts</code>
         <code class="src" data-src="src/scheduler/runtime.ts#private async sendOne">scheduler/runtime.ts</code>
-        <code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts</code>
-        <code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime/runtime.ts</code>
+        <code class="src" data-src="src/qq/store.ts#settleOutbox">qq/store.ts</code>
+        <code class="src" data-src="src/runtime/runtime.ts#private retireLegacyRoles">runtime/runtime.ts</code>
         <code class="src" data-src="src/runtime/orchestrator.ts#registerInboundEvent">runtime/orchestrator.ts</code>
         <code class="src" data-src="src/control/submission.ts#class SubmissionGuard">control/submission.ts</code>
         <code class="src" data-src="src/agent/app-data/store.ts#replayIfDuplicate">app-data/store.ts</code>
@@ -118,15 +118,15 @@
             <td>明确成功 sent；渠道抛 <code>NotSentError</code>（可证明未发送）记 failed；超时、中止与其他错误记 effect_unknown；重启时遗留 sending 一律 effect_unknown（<code class="src" data-src="src/scheduler/store.ts#markSendingUnknown">store.ts · markSendingUnknown</code>）；迟到回执只补记、不改状态。唯一退回 pending 的是限流（见下文）</td>
           </tr>
           <tr data-k="qq" tabindex="0">
-            <td><strong>群聊回复</strong>（已退役 · 只读归档）<br><code class="src" data-src="src/qq/store.ts#createPendingOutbox">qq/store.ts · createPendingOutbox</code></td>
-            <td>退役前（旧架构）：收件先记 <code>qq_inbox</code>（主键 <code>dedup_key</code> = 账号:群:消息 id，请求键 <code>qq:&lt;dedup_key&gt;</code>）；回复先记 <code>qq_outbox</code>（pending，主键 <code>op_id</code>）再调用平台。核心群聊退役后两表不再有新增</td>
+            <td><strong>群聊回复</strong>（已退役 · 只读归档）<br><code class="src" data-src="src/qq/store.ts#listPendingOutbox">qq/store.ts · listPendingOutbox</code></td>
+            <td>退役前（旧架构）：收件先记 <code>qq_inbox</code>（主键 <code>dedup_key</code> = 账号:群:消息 id，请求键 <code>qq:&lt;dedup_key&gt;</code>）；回复先记 <code>qq_outbox</code>（pending，主键 <code>op_id</code>）再调用平台。核心群聊退役后两表不再有新增，QqStore 也已删去写入它们的方法</td>
             <td>退役前：任务完成后按任务查重（<code>task_id</code> 上没有唯一约束，靠这次查询），核对通过才调用 <code>send_group_msg</code> 一次。退役后不再有登记与发送路径</td>
-            <td>退役时遗留的 pending 由启动收尾一律定 unknown（<code class="src" data-src="src/runtime/runtime.ts#private retireGroupChat">runtime.ts · retireGroupChat</code>，<code class="src" data-src="src/qq/store.ts#settleOutbox">qq/store.ts · settleOutbox</code>），对应收件记 <code class="st unk">reply_unknown</code>，不重发；账本保留为只读归档。退役前：平台明确失败 failed，超时、断线、回执缺 message_id 记 unknown；已发送的不自动撤回</td>
+            <td>退役时遗留的 pending 由启动收尾一律定 unknown（<code class="src" data-src="src/runtime/runtime.ts#private retireLegacyRoles">runtime.ts · retireLegacyRoles</code>，<code class="src" data-src="src/qq/store.ts#settleOutbox">qq/store.ts · settleOutbox</code>），对应收件记 <code class="st unk">reply_unknown</code>，不重发；账本保留为只读归档。退役前：平台明确失败 failed，超时、断线、回执缺 message_id 记 unknown；已发送的不自动撤回</td>
           </tr>
           <tr data-k="inbound" tabindex="0">
             <td><strong>入站事件</strong><br><code class="src" data-src="src/runtime/orchestrator.ts#registerInboundEvent">orchestrator.ts · registerInboundEvent</code></td>
             <td><code>inbound_events</code> 行，先登记再建任务；<code>(source, external_id)</code> 唯一，重复登记返回原事件、不建任务</td>
-            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；退役前的群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>（退役遗留的 <code>qq_group</code> 事件被入站门固定丢弃（<code>core_group_chat_retired</code>），不建任务）；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>（升级接管为旧 <code>deleg:&lt;父任务&gt;:review</code>）。建好任务后条件更新 registered → queued</td>
+            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；退役前的群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>（退役遗留的 <code>qq_group</code> 事件被入站门固定丢弃（<code>core_group_chat_retired</code>），不建任务）；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>。建好任务后条件更新 registered → queued</td>
             <td>建任务失败的事件保持 registered：调度器按 <code class="src" data-src="src/scheduler/runtime.ts#SCHEDULER_LIMITS">SCHEDULER_LIMITS</code>.redispatchMs 间隔补派，重启时同样按原请求键重提，命中已有任务就沿用；关联任务被中断时事件记 failed，不重放</td>
           </tr>
           <tr data-k="submit" tabindex="0">
@@ -148,10 +148,10 @@
             <td>漏过周期只补一次：已有未关闭运行就并入它（原键、原正文），否则登记一次延迟补发。重启时 <code class="src" data-src="src/scheduler/runtime.ts#prepareRecovery">runtime.ts · prepareRecovery</code> 先补关闭关联记录已终态的运行，再处理到期计划，最后把遗留 sending 记 effect_unknown</td>
           </tr>
           <tr data-k="child" tabindex="0">
-            <td><strong>coding 子任务</strong>（旧架构）<br><code class="src" data-src="src/runtime/orchestrator.ts#delegateCoding">orchestrator.ts · delegateCoding</code></td>
-            <td>子任务是 <code>tasks</code> 行，请求键由编排器拼出：<code>deleg:&lt;父任务&gt;:&lt;幂等键&gt;</code>（幂等键来自委派工具参数）；唤醒父任务用 <code>wake:&lt;子任务&gt;</code></td>
-            <td>委派在编排器串行链上查重：同键同参返回原子任务，异参冲突；结果以条件更新写一次（<code>result_summary</code> 为空才写），写成的一方才唤醒父任务</td>
-            <td>后台重启中断的子任务记结果未知（<code>child_task.result_unknown</code>），不重放；结果已写而唤醒缺失时，启动巡检按原键补发唤醒，不会建第二个唤醒任务。接入 SubAgent 链路之前登记的 analyze 子任务失败且可证明无写入效果时，会被自动重试一次（见下文）</td>
+            <td><strong>旧 coding 子任务</strong>（旧架构 · 已退役）<br><code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code></td>
+            <td>升级前已登记的 <code>tasks</code> 行，请求键 <code>deleg:&lt;父任务&gt;:&lt;幂等键&gt;</code>；固定 coding 退役后不再新建。唤醒父任务用 <code>wake:&lt;子任务&gt;</code></td>
+            <td>升级后首次启动收尾：排队的转 canceled，执行中的由恢复转 interrupted；编排器巡检以条件更新写一次结果（<code>result_summary</code> 为空才写），写成的一方才唤醒 main</td>
+            <td>结果未知（<code>child_task.result_unknown</code>）不重放；结果已写而唤醒缺失时，启动巡检按原键补发，不会建第二个唤醒任务。重复启动不再改动已终态的行（见<a href="orchestrator.html#legacy-coding">编排器 · 旧 coding 子任务</a>）</td>
           </tr>
           <tr data-k="subagent" tabindex="0">
             <td><strong>SubAgent 委派</strong><br><code class="src" data-src="src/runtime/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · delegate</code></td>
@@ -260,7 +260,7 @@
     <div class="cards">
       <div class="card">
         <h4>已知未执行</h4>
-        <p>能证明没有执行：审批被拒绝、取消或失效；获批后复核或消费失败；请求没交出（HTTP 未发出、渠道抛 NotSentError、控制面请求未送出、服务 helper 在请求 systemd 前拒绝）；发送操作在领取前被取消。服务 helper 那一种批准已经消费，再做要新审批。发送操作里可证明未发送的记 failed。只读操作中止另记「无写入效果」，也不算效果未知。要再做一次，由模型或拥有者重新发起；系统自己再试的只有下一节三处。</p>
+        <p>能证明没有执行：审批被拒绝、取消或失效；获批后复核或消费失败；请求没交出（HTTP 未发出、渠道抛 NotSentError、控制面请求未送出、服务 helper 在请求 systemd 前拒绝）；发送操作在领取前被取消。服务 helper 那一种批准已经消费，再做要新审批。发送操作里可证明未发送的记 failed。只读操作中止另记「无写入效果」，也不算效果未知。要再做一次，由模型或拥有者重新发起；系统自己再试的只有下一节两处。</p>
         <p><code class="src" data-src="src/agent/approval-gate.ts#notExecutedText">approval-gate.ts · notExecutedText</code> <code class="src" data-src="src/scheduler/runtime.ts#class NotSentError">runtime.ts · NotSentError</code></p>
       </div>
       <div class="card">
@@ -278,14 +278,13 @@
 
   <section id="exceptions">
     <h2>只重试「证明没产生效果」的那一次</h2>
-    <p>未知结果不重发是默认规则。系统自己再做一次的只有下面三处，共同点是能证明上一次没有产生写入效果：</p>
+    <p>未知结果不重发是默认规则。系统自己再做一次的只有下面两处，共同点是能证明上一次没有产生写入效果：</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>例外</th><th>条件</th><th>怎样再试</th></tr></thead>
         <tbody>
           <tr><td>平台限流退回（ADR 0011）</td><td>渠道抛 <code class="src" data-src="src/scheduler/runtime.ts#class RetryLaterError">scheduler/runtime.ts · RetryLaterError</code>：平台明确限流拒绝、可证明未发送。目前只有 Telegram 渠道在 HTTP 429 时抛出，等待时间取平台的 retry_after</td><td>发送操作从 sending 退回 pending 并写 not_before（<code class="src" data-src="src/scheduler/store.ts#release(id: string">store.ts · release</code>），到时用原目标、原正文、原键再领取；领取期间已请求取消的直接 canceled。其他明确拒绝仍是 failed，超时、5xx 与断线仍是 effect_unknown，都不重发。</td></tr>
           <tr><td>控制面同键重发</td><td>应答丢失后按原键核实，后台没有这条请求（提交：find_task 查不到；工作区入口：客户端状态里没有同一 create_request_id 的会话）</td><td>以原键和落盘的原参数重发；撞上 <code>request_conflict</code> 先再核实一次，查到就关联。不换新键绕过。</td></tr>
-          <tr><td>编排器自动重试（旧架构）</td><td>旧 coding 委派链里 analyze 模式的子任务以 failed 结束。新的 analyze 委派走 SubAgent、不自动重试，所以这一条只对接入 SubAgent 链路之前登记、之后才结束的旧子任务起作用。其余条件：不是入站事件派生、本身不是重试；没有效果未知；没有已批准或已消费的审批；每个工具操作都有结果且属无写入效果（<code class="src" data-src="src/agent/tool-op-ledger.ts#hasNoWriteEffect">tool-op-ledger.ts · hasNoWriteEffect</code>）</td><td>以 <code>&lt;原请求键&gt;:retry</code> 再委派一次，不计入委派上限；首次结果标注由谁重试，只由重试的结果唤醒父任务；重试再失败不再重试（<code class="src" data-src="src/runtime/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code>）。</td></tr>
         </tbody>
       </table>
     </div>

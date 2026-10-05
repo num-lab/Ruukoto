@@ -62,7 +62,9 @@ type StaticToolName =
   | (typeof CHAT_RESULT_TOOL_NAMES)[number]
   | (typeof SERVICE_TOOL_NAMES)[number]
   | (typeof SUBAGENT_TOOL_NAMES)[number]
-  | (typeof MOCK_TOOL_NAMES)[number];
+  | (typeof MOCK_TOOL_NAMES)[number]
+  // 已删除的旧工具（agent-direction issue 23）：升级前在途操作的恢复核实仍按原规则
+  | "coding_delegate";
 
 type Rule = "no_effect" | "approval" | ToolOpFamily;
 
@@ -97,7 +99,7 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   notification_enqueue: "scheduler",
   notification_cancel: "scheduler",
   coding_result: "no_effect",
-  // analyze 已转通用只读链路（issue 11）：按 SubAgent 登记核实；draft 仍按旧 coding 子任务核实
+  // 旧工具已删除（issue 23），只读兼容：analyze 按 SubAgent 登记核实，draft 按旧 coding 子任务核实
   coding_delegate: (p) => (p.mode === "analyze" ? "subagent" : "delegation"),
   chat_result_list: "no_effect",
   chat_result_accept: "chat_result",
@@ -130,7 +132,7 @@ function ruleOf(op: Pick<ToolOp, "toolName" | "params">): Rule {
   return typeof rule === "function" ? rule(op.params) : rule;
 }
 
-/** 该操作是否不产生写入效果（编排器的重试门共用）。 */
+/** 该操作是否不产生写入效果（工具路由的效果未知判定共用）。 */
 export function hasNoWriteEffect(op: Pick<ToolOp, "toolName" | "params">): boolean {
   return ruleOf(op) === "no_effect";
 }

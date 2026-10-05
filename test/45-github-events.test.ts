@@ -10,6 +10,7 @@ import type { NotifyChannel } from "../src/scheduler/runtime.ts";
 import { startMockMcp, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
 import { MockModelServer, type RecordedRequest } from "./helpers/mock-provider.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
+import { completeCodingChild, seedCodingChild, seedCodingRole } from "./helpers/legacy-coding.ts";
 
 const SECRET = "github-hook-test-secret";
 const HEAD = "a".repeat(40);
@@ -97,17 +98,11 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
       }
       return { kind: "text", text: DRAFT };
     }
-    if (input.startsWith("[委派 coding")) {
-      return { kind: "text", text: "旧评审草稿：已在升级前创建。\n测试：未运行\n需要拥有者：否" };
-    }
     if (input.startsWith("[SubAgent 委派 · 只读分析]")) return { kind: "text", text: "SUB-ANALYZE 完成" };
     if (input.startsWith("[编排器] 子任务")) {
       if (results.length === 0) {
-        const sub = /用 subagent_result 按 work_id (\S+) 读取/.exec(input);
-        if (sub) return { kind: "tool_calls", calls: [{ id: "result", name: "subagent_result", arguments: { work_id: sub[1] } }] };
-        // 旧 coding 子任务的唤醒（升级窗口接管路径）仍用 coding_result
-        const legacy = /用 coding_result 读取（task_id ([^；\s]+)/.exec(input)!;
-        return { kind: "tool_calls", calls: [{ id: "result", name: "coding_result", arguments: { task_id: legacy[1] } }] };
+        const sub = /用 subagent_result 按 work_id (\S+) 读取/.exec(input)!;
+        return { kind: "tool_calls", calls: [{ id: "result", name: "subagent_result", arguments: { work_id: sub[1] } }] };
       }
       return { kind: "text", text: SUMMARY };
     }
@@ -181,8 +176,7 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
     const event = h.runtime.store.findInboundEvent("github", delivery)!;
     assert.equal(event.actor, "contributor");
     assert.deepEqual(event.replyTarget, TARGET);
-    const coding = h.runtime.store.getAgentRole("coding")!;
-    assert.equal(h.runtime.store.listTasksBySession(coding.sessionId).length, 0, "不再新建固定 coding 评审任务");
+    assert.equal(h.runtime.store.getAgentRole("coding"), null, "不再引导固定 coding（issue 23）");
     assert.equal(h.channel.sends.length, 0, "HTTP 响应不等待评审与通知");
     release();
     const { child, parent, wake, op } = await h.complete(delivery);
@@ -212,7 +206,7 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
     assert.deepEqual(toolNames(parentCall), [], "MCP 配在 main 项目，main 自身的确认接收任务也不出现工具");
     assert.deepEqual(toolNames(childCalls[0]!), ["mcp_github_get_diff", "mcp_github_get_pr", "read", "read_artifact"].sort(),
       "评审 SubAgent 只有静态只读与只读 MCP，不能把评审改派给主 Agent");
-    assert.deepEqual(toolNames(wakeCalls[0]!), ["coding_result", "subagent_result"].sort());
+    assert.deepEqual(toolNames(wakeCalls[0]!), ["coding_result", "subagent_result"].sort(), "coding_result 只读查阅退役前的旧评审");
     assert.deepEqual(h.mcp.hits.filter((hit) => hit.rpcMethod === "tools/call").map((hit) => hit.toolName), ["get_pr", "get_diff", "get_pr"],
       "伪造的 write/unknown MCP 调用从未到达服务");
     assert.deepEqual(h.runtime.store.listToolOpsByTask(child.id).map((tool) => tool.toolName).sort(), ["mcp_github_get_diff", "mcp_github_get_pr", "mcp_github_get_pr"].sort());
@@ -269,14 +263,9 @@ test("GitHub 修订：每个修订一个新 SubAgent，旧 coding 与新 SubAgen
     const { event: legacyEvent } = rt.store.withTx(() => rt.store.registerInboundEvent({
       source: "github", externalId: randomUUID(), actor: "contributor", targetRole: "main", body: legacyEventBody, replyTarget: TARGET,
     }));
-    const coding = rt.store.getAgentRole("coding")!;
-    const bridge0 = (rt.orchestrator as any).deps.bridge;
-    const legacyTask = await bridge0.submit({
-      sessionId: coding.sessionId, requestId: "deleg:legacy:review", input: "[委派 coding · analyze]\n旧评审。\n---\n读一下",
-      modelSelection: bridge0.defaultModelSelection(), agentId: "coding", sourceEventId: legacyEvent.id, accessMode: "confirm",
-    });
-    await waitFor("旧 coding 评审完成", () => rt.store.getTask(legacyTask.id)!.status === "completed");
-    rt.store.setTaskResult(legacyTask.id, "旧评审摘要", JSON.stringify({ review: {
+    const coding = seedCodingRole(rt.store, path.dirname(rt.config.dataDir));
+    const legacyTask = seedCodingChild(rt.store, coding.sessionId, { key: "review", mark: "旧评审", sourceEventId: legacyEvent.id });
+    completeCodingChild(rt.store, legacyTask.id, "旧评审摘要", JSON.stringify({ review: {
       eventId: legacyEvent.id, url: "https://github.com/sample/repo/pull/7", repositoryId: 42, number: 7,
       headSha: "9".repeat(40), baseSha: BASE, artifactId: null, staleReason: null,
     } }));
@@ -427,57 +416,6 @@ test("GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重�
     assert.equal(h.channel.sends.length, 1);
     assert.equal(h.server.calls.length, modelCalls);
     assert.equal(h.runtime.sched.listOps({}).items.length, 1);
-  } finally { await h.close(); }
-});
-
-test("升级接管：升级前已建父任务与旧 coding 评审子任务的事件沿原子任务收尾，零新 SubAgent", async () => {
-  const h = await harness("github-takeover");
-  try {
-    const rt = h.runtime;
-    const main = rt.store.getAgentRole("main")!;
-    const coding = rt.store.getAgentRole("coding")!;
-    // 升级窗口现场（不经过新版派发）：事件 registered，main 父任务与旧 coding 评审子任务已存在
-    const delivery = randomUUID();
-    const body = JSON.stringify({
-      deliveryId: delivery, action: "opened",
-      repository: { id: 42, owner: "sample", name: "repo", fullName: "sample/repo" }, number: 7,
-      url: "https://github.com/sample/repo/pull/7", title: "修复缓存", body: "", bodyTruncated: false,
-      headSha: HEAD, baseSha: BASE, headRef: "patch", baseRef: "main", sender: "contributor",
-      state: "open", draft: false, updatedAt: "2026-09-24T00:00:00Z",
-    });
-    const { event } = rt.store.withTx(() => rt.store.registerInboundEvent({
-      source: "github", externalId: delivery, actor: "contributor", targetRole: "main", body, replyTarget: TARGET,
-    }));
-    const bridge = (rt.orchestrator as any).deps.bridge;
-    const parent = await bridge.submit({
-      sessionId: main.sessionId, requestId: `evt:${event.id}:main`,
-      input: `[编排器] 已接纳 review 事件 ${event.id}（升级前创建的父任务）。`,
-      modelSelection: bridge.defaultModelSelection(), agentId: "main", sourceEventId: event.id, accessMode: "confirm",
-    });
-    rt.store.setSessionQueueState(coding.sessionId, "paused", "backend_restart");
-    const legacy = await rt.orchestrator!.delegate({
-      parentTaskId: parent.id, targetRole: "coding", sourceEventId: event.id,
-      input: "[委派 coding · analyze]\n来自 main 的委派（升级前旧评审子任务）。\n---\n读一下",
-      idempotencyKey: "review",
-    });
-    assert.equal(legacy.requestId, `deleg:${parent.id}:review`);
-    assert.equal(legacy.status, "queued");
-    await rt.orchestrator!.dispatchRegisteredEvents();
-    assert.equal(rt.store.getInboundEvent(event.id)!.taskId, legacy.id, "接管升级前已存在的旧子任务");
-    assert.equal(rt.store.getInboundEvent(event.id)!.status, "queued");
-    assert.equal(rt.store.listSubAgents().length, 0, "升级接管不新建 SubAgent");
-    assert.equal(rt.store.listWorkDelegations().length, 0);
-    await bridge.resumeQueue(coding.sessionId);
-    await waitFor("旧子任务摘要通知已登记", () => !!rt.sched.findOpBySource("inbound_event", event.id));
-    assert.equal(rt.store.getInboundEvent(event.id)!.status, "done");
-    const review = JSON.parse(rt.store.getTask(legacy.id)!.resultRef!).review;
-    assert.equal(review.headSha, HEAD);
-    assert.equal(review.staleReason, null);
-    assert.ok(rt.artifacts.read(review.artifactId).toString("utf8").includes("旧评审草稿"), "旧结果仍可读");
-    assert.equal(rt.store.listSubAgents().length, 0);
-    const wake = rt.store.findTaskByRequest(main.sessionId, `wake:${legacy.id}`)!;
-    assert.equal(wake.status, "completed");
-    assert.deepEqual(rt.store.listToolOpsByTask(wake.id).map((tool) => tool.toolName), ["coding_result"], "迁移期旧唤醒继续用 coding_result");
   } finally { await h.close(); }
 });
 

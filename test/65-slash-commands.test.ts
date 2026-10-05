@@ -12,6 +12,7 @@ import {
   VISIBLE_COMMANDS,
   commandHelpLines,
   dispatchInput,
+  LEGACY_PROJECT_WRITE_HINT,
   type CommandEnv,
   type CommandHost,
   type CommandResult,
@@ -238,7 +239,7 @@ test("/memory：list（带项目 / 无会话）、show、revoke / restore 的版
 test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命令、请求失败", async () => {
   const status = {
     configured: true, enabled: true, online: false, stateDetail: "未连接", endpoint: "ws://x", selfId: "10", actualSelfId: null,
-    configVersion: 3, groups: ["100", "200"], ownerUserId: null, maxReplyChars: 500, queueTtlMs: 60000,
+    configVersion: 3, groups: ["100", "200"], ownerUserId: null, maxReplyChars: 500,
     sessions: [{ groupId: "100", sessionId: "sess_abcdefghijk", queued: 2, active: true }],
   };
   const f = fake({
@@ -344,4 +345,16 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
   await f.run("/new-project 断");
   assert.match(f.log.notes.at(-1)!, /创建项目未发送：连接不可用/);
   assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4, "都只发一次");
+
+  // ruukoto-dev 不再提供旧项目写入路径（agent-direction issue 23）：只提示工作区入口，不发请求
+  const saved = process.env.RUUKOTO_PRODUCT;
+  process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
+  try {
+    await f.run("/new-project 新");
+    assert.equal(f.log.notes.at(-1), LEGACY_PROJECT_WRITE_HINT);
+    assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4);
+  } finally {
+    if (saved === undefined) delete process.env.RUUKOTO_PRODUCT;
+    else process.env.RUUKOTO_PRODUCT = saved;
+  }
 });

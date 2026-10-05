@@ -13,6 +13,7 @@ import type { Session } from "../src/core/types.ts";
 import type { HostToolContext } from "../src/agent/host-tools.ts";
 import { chatResultOpCheck, createChatResultTools, resolveAcceptedChatResult } from "../src/agent/chat-result-tools.ts";
 import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
+import { seedGroupSessionRow, seedInboxRow, seedLinkInboxTask, seedPendingOutbox } from "./helpers/legacy-group-archive.ts";
 
 const at = (seconds: number) => new Date(Date.parse("2026-09-24T00:00:00.000Z") + seconds * 1000).toISOString();
 
@@ -37,7 +38,7 @@ function fixture() {
     if (name === "main" || name === "coding") {
       store.insertAgentRole({ id: name, projectId: project.id, sessionId: session.id, workDir: cwd, modelSelection, tools: [], createdAt: session.createdAt });
     } else {
-      qq.insertGroupSession({ account: "1000", groupId: name === "a" ? "2000" : "3000", sessionId: session.id, projectId: project.id, workDir: cwd });
+      seedGroupSessionRow(store, { account: "1000", groupId: name === "a" ? "2000" : "3000", sessionId: session.id, projectId: project.id, workDir: cwd });
     }
   }
   const mainTask = store.insertQueuedTask({ sessionId: sessions.main.id, requestId: "owner", input: "整理群摘要", modelSelection, submissionDigest: "owner" }).task;
@@ -54,13 +55,13 @@ function fixture() {
   const source = (name: "a" | "b", messageId: string, summary: string, time: number, complete = true) => {
     const session = sessions[name];
     const groupId = name === "a" ? "2000" : "3000";
-    const { row } = qq.registerInbox({ account: "1000", groupId, userId: "4000", senderName: "PRIVATE-NAME", messageId,
+    const { row } = seedInboxRow(store, qq, { account: "1000", groupId, userId: "4000", senderName: "PRIVATE-NAME", messageId,
       text: `PRIVATE-INPUT-${messageId}`, taskInput: `PRIVATE-INPUT-${messageId}`, messageTime: at(time) });
     db.prepare("UPDATE qq_inbox SET created_at = ? WHERE dedup_key = ?").run(at(time), row.dedupKey);
     const { event } = store.registerInboundEvent({ source: "qq_group", externalId: row.dedupKey, actor: row.userId, targetRole: "chat", body: row.input });
     const { task } = store.insertQueuedTask({ sessionId: session.id, requestId: row.requestId, input: row.input, modelSelection,
       submissionDigest: row.dedupKey, agentId: "chat", sourceEventId: event.id });
-    qq.linkInboxTask(row.dedupKey, session.id, task.id);
+    seedLinkInboxTask(store, row.dedupKey, session.id, task.id);
     store.markInboundQueued(event.id, task.id);
     store.transitionTask(task.id, ["queued"], "running", { startedAt: at(time + 1) });
     if (complete) {
@@ -154,7 +155,7 @@ test("schema v16 → v17 保留群任务、收件与发送事实，旧撤回时�
   try {
     const source = f.source("a", "old", "OLD-RESULT", 1);
     f.qq.markRecalled("1000", "2000", "old");
-    f.qq.createPendingOutbox({ taskId: source.task.id, account: "1000", groupId: "2000", replyToMessageId: "old", text: "原发送正文" });
+    seedPendingOutbox(f.store, f.qq, { taskId: source.task.id, account: "1000", groupId: "2000", replyToMessageId: "old", text: "原发送正文" });
     const task = f.store.getTask(source.task.id);
     const groups = f.qq.listGroupSessions();
     const sends = f.qq.listOutbox();

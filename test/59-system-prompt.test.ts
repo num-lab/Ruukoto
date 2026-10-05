@@ -49,7 +49,7 @@ function assertPrompts(rt: Runtime, sessionId: string, expected: string, label: 
   }
 }
 
-test("系统提示：开发会话、main、coding 各用宿主提示，SYSTEM.md / APPEND_SYSTEM.md 不被发现；chat 不再引导", async () => {
+test("系统提示：开发会话、main 各用宿主提示，SYSTEM.md / APPEND_SYSTEM.md 不被发现；chat/coding 不再引导", async () => {
   const t = await startTestRuntime("sysprompt-roles", async (req) => ({ kind: "text", text: `完成：${lastUserText(req).slice(0, 20)}` }));
   try {
     const rt = t.runtime;
@@ -61,30 +61,25 @@ test("系统提示：开发会话、main、coding 各用宿主提示，SYSTEM.md
     const dev = await rt.submit({ sessionId, requestId: "dev-1", input: "DEV-MARK", modelSelection: rt.defaultSelection });
     const orch = rt.orchestrator!;
     const parent = await rt.submit({ sessionId: rt.store.getAgentRole("main")!.sessionId, requestId: "p-1", input: "MAIN-MARK", modelSelection: rt.defaultSelection });
-    await orch.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "CODING-MARK", idempotencyKey: "k1" });
 
     await waitFor("开发任务完成", () => rt.store.getTask(dev.id)!.status === "completed");
     await waitFor("main 父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    await waitFor("coding 完成", () => rt.store.listTasksBySession(rt.store.getAgentRole("coding")!.sessionId).some((x) => x.status === "completed"));
 
     assertPrompts(rt, sessionId, SYSTEM_PROMPTS.dev, "普通开发会话");
-    for (const role of ["main", "coding"] as const) {
-      assertPrompts(rt, rt.store.getAgentRole(role)!.sessionId, SYSTEM_PROMPTS[role], role);
-    }
-    // 核心群聊已退役（issue 20）：chat 不引导，指向 chat 的入站不派发、不建任务
+    assertPrompts(rt, rt.store.getAgentRole("main")!.sessionId, SYSTEM_PROMPTS.main, "main");
+    // 固定角色已退役（issue 20/23）：chat/coding 不引导，指向它们的入站登记即拒绝
     assert.equal(rt.store.getAgentRole("chat"), null);
-    await orch.registerInboundEvent({ source: "test", externalId: "c1", targetRole: "chat", body: "CHAT-MARK" });
-    await new Promise((r) => setTimeout(r, 300));
-    assert.equal(rt.store.findInboundEvent("test", "c1")!.status, "registered");
-    assert.ok(!t.server.calls.some((c) => lastUserText(c).includes("CHAT-MARK")), "chat 零模型调用");
-    // 五份各不相同（含 issue 11 的 SubAgent 只读分析提示；chat 提示留待 issue 23 清理）
-    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 5);
+    assert.equal(rt.store.getAgentRole("coding"), null);
+    await assert.rejects(() => orch.registerInboundEvent({ source: "test", externalId: "c1", targetRole: "chat" as "main", body: "CHAT-MARK" }), /目标角色无效/);
+    assert.equal(rt.store.findInboundEvent("test", "c1"), null);
+    // dev、main 与 SubAgent 三份提示各不相同
+    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 3);
   } finally {
     await t.shutdown();
   }
 });
 
-test("系统提示：核心群聊已退役，群消息零任务（chat 提示留待 issue 23 清理）", async () => {
+test("系统提示：核心群聊已退役，群消息零任务", async () => {
   const { dirs } = await makeTestDirs("sysprompt-qq", 0);
   const onebot = await startMockOneBot({});
   const model = new MockModelServer(async () => ({ kind: "text", text: "收到" }));

@@ -538,8 +538,8 @@
           <tr><td><code>connect</code></td><td>快照 + 补发 + 登记订阅（见<a href="#handshake">握手</a>）；TUI 经 <code>handshake()</code> 调用</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td><code>stop</code></td><td>请求后台停止，立即回 <code>accepted</code></td><td>是</td><td>—</td><td>—</td></tr>
           <tr><td colspan="5"><b>项目、会话与工作区</b></td></tr>
-          <tr><td><code>create_project</code></td><td>建项目</td><td>是</td><td><code>request_id</code>（可选）</td><td>是</td></tr>
-          <tr><td><code>create_session</code></td><td>建会话；可经 <code>project_name</code> 同事务自动建项目</td><td>是</td><td><code>request_id</code>（可选）</td><td>是</td></tr>
+          <tr><td><code>create_project</code></td><td>建项目。op 本身不分产品；ruukoto-dev 的 CLI <code>create-project</code> 与 TUI <code>/new-project</code> 在客户端直接拒绝并提示改用工作区（<code class="src" data-src="src/cli.ts#function legacyProjectWriteRefused">cli.ts · legacyProjectWriteRefused</code>、<code class="src" data-src="src/tui/commands.ts#LEGACY_PROJECT_WRITE_HINT">tui/commands.ts · LEGACY_PROJECT_WRITE_HINT</code>）</td><td>是</td><td><code>request_id</code>（可选）</td><td>是</td></tr>
+          <tr><td><code>create_session</code></td><td>建会话；可经 <code>project_name</code> 同事务自动建项目。ruukoto-dev 的 CLI <code>create-session</code> 在客户端拒绝；TUI 只在有根目录的工作区里新建会话，旧项目拒绝（<code class="src" data-src="src/tui/app.ts#private async createAndSwitch">tui/app.ts · createAndSwitch</code>）。向已退役的 coding / chat 角色会话或 QQ 群会话提交返回 <code>invalid_state</code></td><td>是</td><td><code>request_id</code>（可选）</td><td>是</td></tr>
           <tr><td><code>open_workspace</code></td><td>按目录身份复用或创建工作区并新建会话；可带 <code>project_id</code> 认领旧项目（见<a href="#workspace-entry">工作区入口</a>）</td><td>是</td><td><code>request_id</code>（可选，TUI 必带）</td><td>是</td></tr>
           <tr><td><code>get_session</code></td><td>读单个会话</td><td>—</td><td>—</td><td>是</td></tr>
           <tr><td><code>list_session_summaries</code></td><td>会话摘要：<code>project_id</code>（按原身份）与 <code>workspace_id</code>（按组织归属，含已映射的旧会话）必须且只能给一个；带首条任务输入与最后活动时间</td><td>—</td><td>—</td><td>是</td></tr>

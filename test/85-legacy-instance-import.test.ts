@@ -54,6 +54,7 @@ import {
 } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
+import { seedCodingRole } from "./helpers/legacy-coding.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -195,15 +196,15 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   );
   store.withTx(() => store.mapSessionToWorkspace(sb2.id, ws.id));
 
-  // 角色会话与 main 项目：启动时已按角色登记（main/coding 各一），直接复用；
-  // chat 已退役（issue 20），源是旧安装，chat 角色行按归档形态手动播种
-  const roles = store.listAgentRoles();
-  const roleOf = (id: "main" | "coding") => roles.find((r) => r.id === id)!;
-  const mainProj = { id: roleOf("main").projectId };
-  const sessMain = { id: roleOf("main").sessionId };
-  const sessCoding = { id: roleOf("coding").sessionId };
+  // 角色会话与 main 项目：启动时已登记 main，直接复用；chat/coding 已退役
+  // （issue 20/23），源是旧安装，两个角色行按归档形态手动播种
+  const main = store.getAgentRole("main")!;
+  const mainProj = { id: main.projectId };
+  const sessMain = { id: main.sessionId };
+  const coding = seedCodingRole(store, t.dirs.root);
+  const sessCoding = { id: coding.sessionId };
   const sessChat = { id: legacyGroupArchive({ store, qq: t.runtime.qqStore, workRoot: t.dirs.root }).seedChatRole().sessionId };
-  const codingProj = { id: roleOf("coding").projectId };
+  const codingProj = { id: coding.projectId };
   // 混在 coding 角色项目里的普通 dev 会话：issue 20 起控制面拒绝在角色项目新建，
   // 源是旧安装，直接按旧行形态写库
   const codingDev = store.withTx(() =>

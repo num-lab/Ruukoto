@@ -13,18 +13,17 @@ import type { McpToolEffect } from "./mcp/store.ts";
 import { PLAN_TOOL_NAMES } from "./plan-mode.ts";
 import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 
-/** dev = 普通开发会话；chat = chat 角色与 QQ 群会话（ADR 0014 共用一份策略）；subagent = 动态 SubAgent 子会话。 */
-export type SessionToolClass = "dev" | "main" | "coding" | "chat" | "subagent";
+/**
+ * dev = 普通开发会话；subagent = 动态 SubAgent 子会话。固定 coding/chat 角色与
+ * QQ 群会话已退役（agent-direction issue 20/23），是只读归档，不运行任务、不归任何类别。
+ */
+export type SessionToolClass = "dev" | "main" | "subagent";
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
   dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent"],
   // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
   // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
   main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"],
-  // coding：仓库/测试/PR 分析
-  coding: ["coding", "host_data", "web_search", "mcp", "skills"],
-  // chat：群聊，空工具集合
-  chat: [],
   // subagent（agent-direction issue 11）：只读分析，read/read_artifact 由 Driver
   // 按类别单独装配（不走注册来源类别），子身份不能再委派下级；宿主评审任务
   // （issue 19）的只读 MCP 由 Driver 依赖 taskMcp 按任务另开，不在本静态清单
@@ -53,9 +52,9 @@ export function subAgentToolsFor(write: boolean): ReadonlySet<string> {
   return write ? SUBAGENT_WRITE_TOOL_NAMES : SUBAGENT_READONLY_TOOL_NAMES;
 }
 
-/** QQ 群按会话 kind 归入 chat（不依赖角色绑定）；角色会话按宿主绑定；其余为普通开发会话。 */
-export function sessionToolClass(kind: SessionKind, roleId: AgentRoleId | null): SessionToolClass {
-  if (kind === "qq_group") return "chat";
+/** main 角色会话归 main，其余普通会话归 dev；已退役的归档会话（QQ 群、chat/coding 角色）为 null。 */
+export function sessionToolClass(kind: SessionKind, roleId: AgentRoleId | null): SessionToolClass | null {
+  if (kind === "qq_group" || roleId === "coding" || roleId === "chat") return null;
   return roleId ?? "dev";
 }
 

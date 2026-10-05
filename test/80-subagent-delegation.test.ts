@@ -8,7 +8,7 @@
  * - 幂等与限额：同键同参（含跨轮次）返回同一组记录，异参冲突，限额拒绝；
  * - 边界：SubAgent 只有 read/read_artifact（发送与调用两处拒绝伪造写调用）、
  *   读范围外拒绝、父 full_access 不扩大子权限、控制面不能把子会话当用户会话、
- *   下级委派拒绝；main analyze 转通用只读链路（不自动重试），coding_result 兼容。
+ *   下级委派拒绝；coding_result 兼容读取 SubAgent 结果（固定 coding 已退役，issue 23）。
  */
 
 import assert from "node:assert/strict";
@@ -293,65 +293,6 @@ test("main 会话：materials 快照委派、wake 回报与 coding_result 兼容
       .join("\n");
     assert.match(wakeToolText, /子任务 .*completed/, "coding_result 读到结果");
     assert.match(wakeToolText, new RegExp(work.id));
-  } finally {
-    await t.shutdown();
-  }
-});
-
-test("main analyze 转通用只读链路：coding_delegate(mode=analyze) 建新 SubAgent、不自动重试", async () => {
-  let subCallCount = 0;
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) {
-      subCallCount += 1;
-      return { kind: "text", text: "SUB-DONE ANALYZE\n测试：通过\n需要拥有者：否" };
-    }
-    if (text.includes("[委派 coding")) return { kind: "text", text: "CODING-DRAFT" };
-    if (text.includes("[编排器]")) return { kind: "text", text: "已汇报" };
-    if (afterTool(req)) return { kind: "text", text: "已委派" };
-    return { kind: "tool_calls", calls: [{ id: "d1", name: "coding_delegate", arguments: { request: "分析仓库", mode: "analyze", key: "ana9" } }] };
-  };
-  const t = await startTestRuntime("sagent-analyze", responder, { config: realTools() });
-  try {
-    const rt = t.runtime;
-    const main = rt.store.getAgentRole("main")!;
-    const coding = rt.store.getAgentRole("coding")!;
-    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "pa1", input: "分析", modelSelection: rt.defaultSelection });
-    await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-
-    const works = rt.store.listWorkDelegationsBySession(main.sessionId);
-    assert.equal(works.length, 1, "analyze 登记通用工作委托");
-    const task = rt.store.listTasksByWork(works[0]!.id)[0]!;
-    assert.equal(task.subAgentId !== null, true);
-    assert.equal(rt.store.listTasksBySession(coding.sessionId).filter((x) => x.parentTaskId === parent.id).length, 0, "analyze 不再走旧 coding 会话");
-    await waitFor("新分析完成", () => rt.store.getTask(task.id)!.resultSummary !== null);
-    assert.equal(subCallCount, 1, "新分析不自动重试");
-    const wakeTask = rt.store.findTaskByRequest(main.sessionId, `wake:${task.id}`)!;
-    assert.ok(wakeTask, "结果唤醒 main");
-  } finally {
-    await t.shutdown();
-  }
-});
-
-test("入口边界：群/coding/chat/SubAgent/回报唤醒不能创建通用孩子", async () => {
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) return { kind: "text", text: "SUB-DONE" };
-    if (text.includes("[编排器]")) return { kind: "text", text: "已汇报" };
-    if (afterTool(req)) return { kind: "text", text: "已委派" };
-    return { kind: "tool_calls", calls: [{ id: "d1", name: "subagent_delegate", arguments: { request: "x", key: "e1", read_paths: ["."] } }] };
-  };
-  const t = await startTestRuntime("sagent-gate", responder, { config: realTools() });
-  try {
-    const rt = t.runtime;
-    const coding = rt.store.getAgentRole("coding")!;
-    // coding 会话不装配委派工具
-    const task = await rt.orchestrator!.delegate({ parentTaskId: (await rt.submit({ sessionId: rt.store.getAgentRole("main")!.sessionId, requestId: "p", input: "x", modelSelection: rt.defaultSelection })).id, targetRole: "coding", input: "试委派", idempotencyKey: "x" });
-    await waitFor("coding 任务结束", () => ["completed", "failed"].includes(rt.store.getTask(task.id)!.status));
-    const codingTools = toolNamesOf(t.server.calls.find((c) => lastUserText(c).includes("试委派"))!);
-    assert.ok(!codingTools.includes("subagent_delegate"), "coding 无委派工具");
-    assert.equal(rt.store.listWorkDelegations().length, 0, "coding 不能登记工作委托");
-    assert.equal(rt.store.listSubAgents().length, 0, "coding 不能创建通用孩子");
   } finally {
     await t.shutdown();
   }

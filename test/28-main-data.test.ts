@@ -6,7 +6,7 @@
  * - 迁移版本冲突不会静默覆盖；
  * - 破坏性操作进入确认（三种权限模式、拒绝、重复批准、陈旧版本、取消）；
  * - 核心任务、审批、事件和凭据表无法被应用数据工具访问；
- * - coding/chat/普通开发会话默认无法查询 main 数据；
+ * - 普通开发会话默认无法查询 main 数据（固定 coding/chat 已退役）；
  * - 大查询、恶意表名、超大字段和超时被拒绝并留下事件；
  * - 双库恢复：回执补记已提交 / 无回执记未提交 / 应用库不可用保留未知效果。
  */
@@ -594,7 +594,7 @@ function appDataDbFile(dataDir: string): string {
   return path.join(path.resolve(dataDir), "agent-data", "main.db");
 }
 
-test("装配与门控：main 获得六个 app_data 工具；coding/普通会话没有（chat 已退役不引导，issue 20）", async () => {
+test("装配与门控：main 获得六个 app_data 工具；普通会话没有（coding/chat 已退役，issue 20/23）", async () => {
   const t = await startTestRuntime("appdata-tools", async (req) => ({
     kind: "text",
     text: `完成：${lastUserText(req).slice(0, 20)}`,
@@ -604,21 +604,8 @@ test("装配与门控：main 获得六个 app_data 工具；coding/普通会话�
     await orch.registerInboundEvent({ source: "test", externalId: "m1", targetRole: "main", body: "MAIN-MARK 整理" });
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     await t.runtime.submit({ sessionId, requestId: "dev-1", input: "DEV-MARK 普通会话", modelSelection: t.runtime.defaultSelection });
-    const parent = await t.runtime.submit({
-      sessionId: t.runtime.store.getAgentRole("main")!.sessionId,
-      requestId: "p-1",
-      input: "父任务",
-      modelSelection: t.runtime.defaultSelection,
-    });
-    await t.runtime.orchestrator!.delegate({ parentTaskId: parent.id, targetRole: "coding", input: "CODING-MARK 分析", idempotencyKey: "k1" });
-
     await waitFor("main 事件完成", () => t.runtime.store.getInboundEvent(t.runtime.store.findInboundEvent("test", "m1")!.id)!.status === "done");
-    await waitFor("coding 子任务完成", () => t.runtime.store.getTask(parent.id)!.status === "completed");
-    await waitFor("coding 完成", () =>
-      t.runtime.store
-        .listTasksBySession(t.runtime.store.getAgentRole("coding")!.sessionId)
-        .some((x) => x.status === "completed"),
-    );
+    await waitFor("普通会话完成", () => t.server.calls.some((c) => lastUserText(c).includes("DEV-MARK")));
 
     const mainCall = t.server.calls.find((c) => lastUserText(c).includes("MAIN-MARK"))!;
     const mainTools = toolNamesOf(mainCall);
@@ -626,8 +613,6 @@ test("装配与门控：main 获得六个 app_data 工具；coding/普通会话�
       mainTools.filter((n) => n.startsWith("app_data_")).sort(),
       ["app_data_define_table", "app_data_delete", "app_data_insert", "app_data_migrate", "app_data_query", "app_data_update"].sort(),
     );
-    const codingCall = t.server.calls.find((c) => lastUserText(c).includes("CODING-MARK"))!;
-    assert.equal(toolNamesOf(codingCall).some((n) => n.startsWith("app_data_")), false, "coding 无应用数据工具");
     const devCall = t.server.calls.find((c) => lastUserText(c).includes("DEV-MARK"))!;
     assert.equal(toolNamesOf(devCall).some((n) => n.startsWith("app_data_")), false, "普通开发会话无应用数据工具");
   } finally {
@@ -924,7 +909,7 @@ test("确认期间版本变化使批准失效，不执行新出现的行", async
   }
 });
 
-test("伪造身份：coding 会话调用 app_data 工具不执行、不读数据（装配层即边界）", async () => {
+test("伪造身份：普通开发会话调用 app_data 工具不执行、不读数据（装配层即边界）", async () => {
   let queried = 0;
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
@@ -944,15 +929,15 @@ test("伪造身份：coding 会话调用 app_data 工具不执行、不读数据
     appStore.defineTable({ table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "建表", opId: "op_seed_f", ctx: CTX });
     appStore.insert({ table: "todos", records: [{ title: "MAIN-SECRET-9901" }], reason: "r", opId: "op_seed_f2", ctx: CTX });
 
-    const coding = t.runtime.store.getAgentRole("coding")!;
-    const task = await t.runtime.submit({ sessionId: coding.sessionId, requestId: "atk", input: "CODING-ATTACK 查数据", modelSelection: t.runtime.defaultSelection });
+    const { sessionId: devSessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await t.runtime.submit({ sessionId: devSessionId, requestId: "atk", input: "CODING-ATTACK 查数据", modelSelection: t.runtime.defaultSelection });
     await waitFor("任务完成", () => t.runtime.store.getTask(task.id)!.status === "completed");
     assert.ok(queried >= 1);
     // 未注册工具：SDK 直接拒绝，不产生执行意图、不读数据
     assert.equal(t.runtime.store.listToolOpsByTask(task.id).filter((o) => o.toolName === "app_data_query").length, 0, "不产生执行意图");
     assert.equal(t.runtime.store.listConfirmationsByTask(task.id).length, 0, "不产生审批");
-    const history = fs.readFileSync(t.runtime.store.getSession(coding.sessionId)!.sessionFile!, "utf8");
-    assert.ok(!history.includes("MAIN-SECRET-9901"), "main 数据未进入 coding 会话");
+    const history = fs.readFileSync(t.runtime.store.getSession(devSessionId)!.sessionFile!, "utf8");
+    assert.ok(!history.includes("MAIN-SECRET-9901"), "main 数据未进入开发会话");
   } finally {
     await t.shutdown();
   }

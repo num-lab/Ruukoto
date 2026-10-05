@@ -169,6 +169,8 @@ import {
 
 /** 快照中每个会话保留的近期已结束任务数（更早的经 list_tasks 分页查询）。 */
 const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20;
+/** 固定 coding 角色退役（agent-direction issue 23）的任务取消原因。 */
+const CODING_ROLE_RETIRED = "coding_role_retired:固定 coding 角色已退役（委派改用通用 SubAgent）";
 /** 快照/get_task 中输出预览的字节上限。 */
 const FRAGMENT_PREVIEW_CAP = FRAGMENT_TEXT_CAP;
 
@@ -636,9 +638,9 @@ export class Runtime {
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
-    // 核心群聊退役收尾（agent-direction issue 20）：只把未终态的行改成终态
+    // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
     // （排队任务取消、收件跳过、在途发送定 unknown），重复启动幂等不重放
-    runtime.retireGroupChat();
+    runtime.retireLegacyRoles();
     // QQ owner 私聊入口（issue 06）：按配置连接 NapCat（未配置/未启用时保持禁用，
     // 不猜测端点）；核心群聊已退役，群消息由适配器直接忽略；
     // qqDisabled（dev 开发实例）跳过适配器创建，不真实连接
@@ -1455,18 +1457,27 @@ export class Runtime {
     });
   }
 
+  /** 已退役的只读归档会话（群会话、chat/coding 角色会话）的退役原因；其余为 null。 */
+  private retiredSessionReason(session: Session): string | null {
+    if (session.kind === "qq_group") return CORE_GROUP_CHAT_RETIRED;
+    const role = this.store.getAgentRoleBySession(session.id)?.id;
+    return role === "chat" ? CORE_GROUP_CHAT_RETIRED : role === "coding" ? CODING_ROLE_RETIRED : null;
+  }
+
   /**
-   * 核心群聊退役的启动收尾（agent-direction issue 20）：只把未终态的旧行改成
-   * 终态，每次启动执行、按状态幂等（已终态的行不再改动，重复升级/重启不重放）。
-   * - 群会话排队任务 → canceled（原因 core_group_chat_retired）；运行中的已由
-   *   recover() 定 interrupted（结果未知，不重放）；
+   * 固定角色退役的启动收尾（agent-direction issue 20 群聊、issue 23 coding）：只把
+   * 未终态的旧行改成终态，每次启动执行、按状态幂等（已终态的行不再改动，重复
+   * 升级/重启不重放）。
+   * - 群会话与 coding 角色会话的排队任务 → canceled（原因按角色）；运行中的已由
+   *   recover() 定 interrupted（结果未知，不重放）；旧 coding 子任务的结果与 main
+   *   唤醒由编排器启动巡检补记一次；
    * - 在途（pending）群回复 → unknown（effect_unknown，不重发），对应收件记
    *   reply_unknown；完成但未发回复的收件不再补发，与其余未终态收件一并
    *   记 skipped；
    * - 已登记的 qq_group 入站事件的作废与 inbound.skipped 由编排器启动恢复
    *   经入站门固定 drop 统一处理，不在此重复。
    */
-  private retireGroupChat(): void {
+  private retireLegacyRoles(): void {
     this.store.withTx(() => {
       for (const ob of this.qqStore.listPendingOutbox()) {
         if (this.qqStore.settleOutbox(ob.opId, "unknown", { error: `${CORE_GROUP_CHAT_RETIRED}（发送结果未确认，effect_unknown，不重发）` })) {
@@ -1474,10 +1485,14 @@ export class Runtime {
         }
       }
       const now = new Date().toISOString();
-      for (const gs of this.qqStore.listGroupSessions()) {
-        for (const task of this.store.listQueuedTasksFifo(gs.sessionId)) {
-          if (this.store.transitionTask(task.id, ["queued"], "canceled", { errorMessage: CORE_GROUP_CHAT_RETIRED, endedAt: now })) {
-            this.store.appendEvent({ type: "task.canceled", taskId: task.id, sessionId: gs.sessionId }, { taskId: task.id, sessionId: gs.sessionId });
+      const retired = [
+        ...this.qqStore.listGroupSessions().map((gs) => ({ sessionId: gs.sessionId, reason: CORE_GROUP_CHAT_RETIRED })),
+        ...this.store.listAgentRoles().filter((r) => r.id === "coding").map((r) => ({ sessionId: r.sessionId, reason: CODING_ROLE_RETIRED })),
+      ];
+      for (const { sessionId, reason } of retired) {
+        for (const task of this.store.listQueuedTasksFifo(sessionId)) {
+          if (this.store.transitionTask(task.id, ["queued"], "canceled", { errorMessage: reason, endedAt: now })) {
+            this.store.appendEvent({ type: "task.canceled", taskId: task.id, sessionId }, { taskId: task.id, sessionId });
           }
         }
       }
@@ -2175,10 +2190,14 @@ export class Runtime {
         "该会话是 SubAgent 的独立工作会话，不能用作用户对话提交（委派经 subagent_delegate，结果经 subagent_result 查询）",
       );
     }
-    // 核心群聊已退役（agent-direction issue 20）：qq_group 会话与 chat 角色会话
-    // 是只读归档，拒绝作为对话入口重新提交；continueTask 经本入口提交，一并覆盖
-    if (session.kind === "qq_group" || this.store.getAgentRoleBySession(session.id)?.id === "chat") {
+    // 固定角色已退役（agent-direction issue 20/23）：qq_group 会话与 chat/coding
+    // 角色会话是只读归档，拒绝作为对话入口重新提交；continueTask 经本入口提交，一并覆盖
+    const retired = this.retiredSessionReason(session);
+    if (retired === CORE_GROUP_CHAT_RETIRED) {
       throw new RuntimeApiError("invalid_state", "核心群聊已退役：该会话是只读归档，不能提交任务（历史可经 qq inbox / read_history 查阅）");
+    }
+    if (retired) {
+      throw new RuntimeApiError("invalid_state", "固定 coding 角色已退役：该会话是只读归档，不能提交任务（委派改用 subagent_delegate，旧结果经 coding_result / read_history 查阅）");
     }
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
@@ -2769,11 +2788,12 @@ export class Runtime {
         }
       }
 
-      // 兜底（启动收尾见 retireGroupChat）：钻过退役边界的排队群任务固定取消跳过
-      if (session.kind === "qq_group") {
+      // 兜底（启动收尾见 retireLegacyRoles）：钻过退役边界的排队归档会话任务固定取消跳过
+      const retiredReason = this.retiredSessionReason(session);
+      if (retiredReason) {
         this.store.withTx(() => {
           const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
-            errorMessage: CORE_GROUP_CHAT_RETIRED,
+            errorMessage: retiredReason,
             endedAt: new Date().toISOString(),
           });
           if (ok) {
@@ -2901,7 +2921,7 @@ export class Runtime {
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
-        allowTaskTool: (task, name, effect) => this.githubEvents.allowTool(task, name, effect),
+        allowTaskTool: (task, name) => this.githubEvents.allowTool(task, name),
         // 宿主评审任务（agent-direction issue 19）按任务另开只读 MCP：GitHub MCP
         // 配在 main 项目（评审 SubAgent 的会话在 main 项目下；凭据范围按项目核对）
         taskMcp: (task) => this.githubEvents.isReviewTask(task),
@@ -2947,14 +2967,8 @@ export class Runtime {
         // 服务器服务管理（agent-direction issue 09）：仅 main 清单含 service；
         // 能力边界（产品/Linux/配置）已在构造时判定
         service: this.serviceManager ? { config: this.serviceManager } : undefined,
-        // 委派 coding（issue 05）：仅 main 角色会话装配；宿主固定参数在编排器
+        // 旧 coding 子任务结果只读（coding_result；固定 coding 已退役，agent-direction issue 23）
         delegation: {
-          sources: this.sources,
-          delegate: (input) => {
-            if (!this.orchestrator) throw new Error("编排器未启动");
-            return this.orchestrator.delegateCoding(input);
-          },
-          analyzeDelegate: this.subagents ? (input) => this.subagents!.delegate(input) : undefined,
           readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
           resultNotice: (task) => this.githubEvents.notice(task),
         },

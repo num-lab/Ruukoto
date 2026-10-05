@@ -55,6 +55,7 @@ import {
 } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
+import { seedCodingRole } from "./helpers/legacy-coding.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -193,13 +194,13 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
     ino: fs.statSync(t.work[0]!).ino,
   };
 
-  // 角色会话与项目（启动登记）；chat 按归档形态播种（issue 20）
-  const roles = store.listAgentRoles();
-  const roleOf = (id: "main" | "coding") => roles.find((r) => r.id === id)!;
-  const mainProj = roleOf("main").projectId;
-  const sessMain = roleOf("main").sessionId;
-  const codingProj = roleOf("coding").projectId;
-  const sessCoding = roleOf("coding").sessionId;
+  // 角色会话与项目（启动登记 main）；chat/coding 按归档形态播种（issue 20/23）
+  const main = store.getAgentRole("main")!;
+  const mainProj = main.projectId;
+  const sessMain = main.sessionId;
+  const coding = seedCodingRole(store, t.dirs.root);
+  const codingProj = coding.projectId;
+  const sessCoding = coding.sessionId;
   const archive = legacyGroupArchive({ store, qq: t.runtime.qqStore, workRoot: t.dirs.root });
   const sessChat = archive.seedChatRole().sessionId;
 

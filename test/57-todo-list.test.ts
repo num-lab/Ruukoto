@@ -180,20 +180,17 @@ test("事件流：todo_write 每次更新一行完成数/总数，不展开清�
 
 // ---------- 集成 ----------
 
-test("集成：开发会话与 coding 装配 todo_write，main 不装配（chat 已退役不引导，issue 20）", async () => {
+test("集成：开发会话装配 todo_write，main 不装配（chat/coding 已退役，issue 20/23）", async () => {
   const t = await startTestRuntime("todo-roles", async () => ({ kind: "text", text: "ok" }));
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const dev = await submit(t, sessionId, "d1", "DEV-TODO-MARK");
     const main = t.runtime.store.getAgentRole("main")!;
-    const coding = t.runtime.store.getAgentRole("coding")!;
     const m = await t.runtime.submit({ sessionId: main.sessionId, requestId: "m-t", input: "MAIN-TODO-MARK", modelSelection: t.runtime.defaultSelection });
-    const c = await t.runtime.submit({ sessionId: coding.sessionId, requestId: "c-t", input: "CODING-TODO-MARK", modelSelection: t.runtime.defaultSelection });
     await waitDone(t, dev.id);
-    await waitFor("main/coding 完成", () => t.runtime.store.getTask(m.id)!.status === "completed" && t.runtime.store.getTask(c.id)!.status === "completed");
+    await waitFor("main 完成", () => t.runtime.store.getTask(m.id)!.status === "completed");
     const tools = (mark: string) => toolNames(t.server.calls.find((x) => lastUserText(x).includes(mark))!);
     assert.ok(tools("DEV-TODO-MARK").includes("todo_write"), "开发会话");
-    assert.ok(tools("CODING-TODO-MARK").includes("todo_write"), "coding 角色");
     assert.ok(!tools("MAIN-TODO-MARK").includes("todo_write"), "main 不装配");
   } finally {
     await t.shutdown();
@@ -244,43 +241,6 @@ test("集成：整表替换与校验、三种访问模式无审批、跨任务�
     const fresh = await createProjectSession(t.client, t.work[1]!);
     await waitDone(t, (await submit(t, fresh.sessionId, "n1", "你好")).id);
     assert.equal(await currentList(t, fresh.sessionId), null, "新会话没有清单");
-  } finally {
-    await t.shutdown();
-  }
-});
-
-test("集成：委派的 analyze 子任务含 todo_write；工具记录只有 todo_write 时失败仍自动重试一次", async () => {
-  // analyze 自 issue 11 起经工具层转通用只读链路（硬只读、不自动重试）；
-  // 本用例覆盖编排器直建的 analyze 子任务（GitHub review 同形）的旧语义。
-  let failed = false;
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("请求-todo")) {
-      if (toolResultsSinceUser(req) === 0) return todoCall("t", todos(["分析", "in_progress"]));
-      if (!failed) {
-        failed = true;
-        throw new Error("模型故障（首次）");
-      }
-      return { kind: "text", text: "重试成功\n测试：未运行\n需要拥有者：否" };
-    }
-    if (text.includes("[编排器]")) return { kind: "text", text: "已汇报" };
-    return { kind: "text", text: "已委派" };
-  };
-  const t = await startTestRuntime("todo-retry", responder);
-  try {
-    const rt = t.runtime;
-    const main = rt.store.getAgentRole("main")!;
-    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "p", input: "委派分析", modelSelection: rt.defaultSelection });
-    await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const child = await rt.orchestrator!.delegateCoding({ parentTaskId: parent.id, mode: "analyze", request: "请求-todo", idempotencyKey: "td" });
-    await waitFor("重试子任务完成", () => {
-      const retry = rt.store.findChildTask(parent.id, `deleg:${parent.id}:td:retry`);
-      return retry !== null && rt.store.getTask(retry.id)!.status === "completed";
-    }, 30_000);
-    assert.equal(rt.store.getTask(child.id)!.status, "failed");
-    assert.deepEqual(rt.store.listToolOpsByTask(child.id).map((op) => op.toolName), ["todo_write"]);
-    const childCall = t.server.calls.find((x) => lastUserText(x).includes("请求-todo"))!;
-    assert.ok(toolNames(childCall).includes("todo_write"), "委派子任务的工具集含 todo_write");
   } finally {
     await t.shutdown();
   }

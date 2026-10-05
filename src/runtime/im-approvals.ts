@@ -26,6 +26,7 @@ import type { ConfirmationRequest, InboundEvent, NotifyTarget, StandingPermissio
 import { sameTarget } from "../core/notify-target.ts";
 import { sliceTextByBytes } from "../core/history.ts";
 import type { SchedulerStore } from "../scheduler/store.ts";
+import type { ImEntry } from "./im-entries.ts";
 
 /** 每页列出的审批/授权条数（有界分页）。 */
 const LIST_PAGE_SIZE = 5;
@@ -129,12 +130,11 @@ export interface ImControlInput {
 export interface ImApprovalsDeps {
   store: Store;
   sched: SchedulerStore;
-  /** 当前有效固定目标（平台适配器 target()；null = 停用/凭据不可用）。 */
-  currentTarget(source: string): NotifyTarget | null;
-  /** 当前配置期望的 actor（owner 身份）；null = 未绑定，任何命令都不接纳。 */
-  expectedActor(source: string): string | null;
-  /** 单条回执字符上限（QQ 按配置、Telegram 按平台消息上限）。 */
-  replyCapChars(source: string): number;
+  /**
+   * 按来源取拥有者 IM 入口（架构工单 10）：当前钉版目标（null = 停用/凭据不可用）、
+   * 期望的 actor（null = 未绑定，任何命令都不接纳）与单条回执字符上限。
+   */
+  entry(source: string): ImEntry | null;
   /**
    * 决定执行：经活动 Driver 的审批闸门把决定、审计事件与 txExtra 在同一事务
    * 提交后唤醒等待者；返回 false = 无活动执行或已被其他入口处理。txExtra 抛错
@@ -177,8 +177,9 @@ export class ImApprovals {
     if (existing) return this.handleRedelivery(existing, input, canonical);
 
     // 身份核实：平台目标与 actor 逐项核对（当前绑定 vs 收件钉版）
-    const current = this.deps.currentTarget(input.source);
-    const expectedActor = this.deps.expectedActor(input.source);
+    const entry = this.deps.entry(input.source);
+    const current = entry?.target() ?? null;
+    const expectedActor = entry?.expectedActor() ?? null;
     if (!input.replyTarget) {
       // 无钉版目标（凭据暂不可用等异常）：不可执行也无可靠回执渠道，只留控制记录
       return this.persistNoReceipt(input, canonical, command, "identity_failed");
@@ -468,8 +469,9 @@ export class ImApprovals {
               : "已失效（策略或单元修订变化）";
       return `${reason} · 版本 v${sp.version}`;
     }
-    const current = this.deps.currentTarget(sp.channel);
-    const entryAlive = current !== null && sameTarget(current, sp.pinnedTarget) && sp.actor === this.deps.expectedActor(sp.channel);
+    const entry = this.deps.entry(sp.channel);
+    const current = entry?.target() ?? null;
+    const entryAlive = current !== null && sameTarget(current, sp.pinnedTarget) && sp.actor === entry?.expectedActor();
     return entryAlive ? `有效 · 版本 v${sp.version}` : `入口已失效 · 版本 v${sp.version}（入口代次不再一致，不能放行）`;
   }
 
@@ -706,7 +708,7 @@ export class ImApprovals {
         : []),
     ];
     // 字节 ≤ 字符数：按字节分段天然不超字符上限（UTF-8 每字符至少 1 字节）
-    const capChars = this.deps.replyCapChars(source);
+    const capChars = this.replyCapChars(source);
     const headChars = [...head.join("\n")].length;
     const tailReserve = [...tail[0]!].length + 120;
     const budget = Math.max(100, capChars - headChars - tailReserve);
@@ -721,7 +723,11 @@ export class ImApprovals {
   }
 
   private cap(source: string, text: string): string {
-    return this.capText(text, this.deps.replyCapChars(source));
+    return this.capText(text, this.replyCapChars(source));
+  }
+
+  private replyCapChars(source: string): number {
+    return this.deps.entry(source)?.replyCapChars() ?? 4000;
   }
 
   private capText(text: string, cap: number): string {

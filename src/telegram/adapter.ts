@@ -17,7 +17,9 @@ import type { Store } from "../core/store.ts";
 import type { InboundEvent, NotifyTarget } from "../core/types.ts";
 import { sameTarget } from "../core/notify-target.ts";
 import type { SchedulerStore } from "../scheduler/store.ts";
-import { NotSentError, RetryLaterError, type NotifyChannel } from "../scheduler/runtime.ts";
+import { NotSentError, RetryLaterError } from "../scheduler/runtime.ts";
+import { RuntimeApiError } from "../core/api-error.ts";
+import type { ImEntry } from "../runtime/im-entries.ts";
 
 export const TELEGRAM_CREDENTIAL_PURPOSE = "telegram_bot";
 export const TELEGRAM_SOURCE = "telegram";
@@ -151,9 +153,16 @@ export interface TelegramDeps {
   pollTimeoutSec?: number;
   /** 断线初始退避（默认 1s，指数增长到 30s）。 */
   backoffMs?: number;
+  /**
+   * 启动配置停用（架构工单 10；dev 开发实例经 RUUKOTO_DISABLE_TELEGRAM=1 注入，
+   * ruukoto-dev 按产品边界强制）：入口照常存在，但不轮询、target() 为 null、
+   * 入站作废；telegram 控制面操作仍作用于配置存储。
+   */
+  startupDisabled?: "product" | "dev";
 }
 
-export class TelegramAdapter implements NotifyChannel {
+export class TelegramAdapter implements ImEntry {
+  readonly source = TELEGRAM_SOURCE;
   private loop: Promise<void> | null = null;
   private aborter: AbortController | null = null;
   private online = false;
@@ -162,9 +171,13 @@ export class TelegramAdapter implements NotifyChannel {
 
   constructor(private readonly deps: TelegramDeps) {}
 
+  get startupDisabled(): boolean {
+    return this.deps.startupDisabled !== undefined;
+  }
+
   start(): void {
     const config = this.deps.tg.getConfig();
-    if (this.stopped || !config?.enabled) return;
+    if (this.startupDisabled || this.stopped || !config?.enabled) return;
     const aborter = new AbortController();
     this.aborter = aborter;
     this.loop = this.poll(aborter.signal).catch((err) => this.deps.log(`轮询循环异常退出：${this.redact((err as Error).message)}`));
@@ -202,6 +215,17 @@ export class TelegramAdapter implements NotifyChannel {
 
   status(): Record<string, unknown> {
     const config = this.deps.tg.getConfig();
+    if (this.deps.startupDisabled) {
+      return {
+        configured: config !== null,
+        enabled: false,
+        online: false,
+        disabledByConfig: true,
+        stateDetail: this.deps.startupDisabled === "product"
+          ? "Coding Agent（ruukoto-dev）不连接消息平台"
+          : "已由启动配置停用（dev 开发实例不连接真实 Telegram）",
+      };
+    }
     return {
       configured: config !== null,
       enabled: config?.enabled ?? false,
@@ -224,7 +248,7 @@ export class TelegramAdapter implements NotifyChannel {
 
   /** 按捕获的配置与凭据钉版目标（收件/发送共用；不要求当前配置仍有效。） */
   private targetFor(config: TelegramConfig, token: string | null): NotifyTarget | null {
-    if (!config.enabled || !token) return null;
+    if (this.startupDisabled || !config.enabled || !token) return null;
     return { channel: TELEGRAM_SOURCE, account: telegramBotId(token), chatId: config.ownerChatId, configVersion: config.configVersion };
   }
 
@@ -244,6 +268,7 @@ export class TelegramAdapter implements NotifyChannel {
    * 核对；版本未变的暂时离线等待恢复，配置变化/停用/旧 null 目标明确失效。
    */
   gatePrivate(event: InboundEvent): "run" | "wait" | { drop: string } {
+    if (this.startupDisabled) return { drop: "telegram_unavailable:Telegram 适配器未启动" };
     const config = this.deps.tg.getConfig();
     const target = this.target();
     if (!target || !config || event.source !== TELEGRAM_SOURCE || event.actor !== `telegram:${config.ownerUserId}` ||
@@ -292,6 +317,115 @@ export class TelegramAdapter implements NotifyChannel {
     }
     // 5xx / 成功状态但回执不可解析：平台可能已接收
     throw new Error(this.redact(`发送结果未知：HTTP ${res.status}`, token));
+  }
+
+  // ---------- 拥有者 IM 入口（架构工单 10） ----------
+
+  /** 当前配置期望的 actor（owner user_id）；停用为 null（任何命令都不接纳）。 */
+  expectedActor(): string | null {
+    const config = this.deps.tg.getConfig();
+    return config?.enabled ? `telegram:${config.ownerUserId}` : null;
+  }
+
+  replyCapChars(): number {
+    return REPLY_CAP;
+  }
+
+  capReply(text: string): string {
+    return capReply(text);
+  }
+
+  externalIdPrefix(target: NotifyTarget): string {
+    return telegramExternalId(target.account, target.chatId, "");
+  }
+
+  usesCredential(name: string): boolean {
+    return this.deps.tg.getConfig()?.credentialName === name;
+  }
+
+  bumpGeneration(): void {
+    const c = this.deps.tg.bumpConfigVersion();
+    if (c) this.deps.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: "credential_changed" }, {});
+  }
+
+  /**
+   * 配置/更新 Telegram bot 与固定 owner（拥有者操作）。bot token 经凭据绑定
+   * 引用（purpose=telegram_bot，host 与 API 地址一致；配置后 scope 收紧到
+   * telegram_bot 操作）；API 地址默认官方端点，可指向受控反代（http 仅限回环）。
+   * 任何变化递增 configVersion；调用方随后重连并 reconcile，旧目标上未发送的操作不改发。
+   */
+  configure(input: { apiBase?: string; credential: string; ownerUserId: string; ownerChatId?: string; expectedVersion?: number }): TelegramConfig {
+    let api: URL;
+    try {
+      api = new URL(input.apiBase ?? TELEGRAM_DEFAULT_API);
+    } catch {
+      throw new RuntimeApiError("invalid_params", `api_base 不是合法 URL：${input.apiBase}`);
+    }
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname.toLowerCase());
+    if (api.protocol !== "https:" && !(api.protocol === "http:" && loopback)) {
+      throw new RuntimeApiError("invalid_params", "api_base 必须是 https://（http:// 仅限回环地址）");
+    }
+    const ownerChatId = input.ownerChatId ?? input.ownerUserId;
+    if (!/^\d{1,20}$/.test(input.ownerUserId) || !/^\d{1,20}$/.test(ownerChatId)) {
+      throw new RuntimeApiError("invalid_params", "user_id / chat_id 必须是数字串（私聊的 chat_id 即 owner 的 user_id）");
+    }
+    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
+    }
+    const cred = this.deps.credentials.get(input.credential);
+    if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${input.credential}`);
+    if (cred.purpose !== TELEGRAM_CREDENTIAL_PURPOSE) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 用途是 ${cred.purpose}，Telegram 入口需要 purpose=${TELEGRAM_CREDENTIAL_PURPOSE} 的凭据`);
+    }
+    if (cred.host !== api.host.toLowerCase()) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的 host（${cred.host}）与 API 地址 host（${api.host}）不一致`);
+    }
+    if (!/^\d+:[\w-]+$/.test(cred.secret)) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的值不是 bot token 格式（<数字>:<密钥>）`);
+    }
+    if (cred.scope?.projectId !== undefined || (cred.scope?.operations !== undefined && !cred.scope.operations.includes(TELEGRAM_CREDENTIAL_PURPOSE))) {
+      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已有其他使用范围，与 telegram_bot 冲突；请另建凭据`);
+    }
+    let config: TelegramConfig;
+    try {
+      config = this.deps.store.withTx(() => {
+        const c = this.deps.tg.upsertConfig({
+          apiBase: api.toString().replace(/\/+$/, ""),
+          credentialName: input.credential,
+          ownerUserId: input.ownerUserId,
+          ownerChatId,
+          expectedVersion: input.expectedVersion,
+        });
+        this.deps.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: "upsert" });
+        return c;
+      });
+    } catch (err) {
+      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    // scope 收紧：通用 http_request 与其他入口不得借用 bot token
+    this.deps.credentials.upsert({ ...cred, scope: { operations: [TELEGRAM_CREDENTIAL_PURPOSE] } });
+    return config;
+  }
+
+  /** 一键启停（事务与配置事件）；调用方随后停止/重启轮询并 reconcile，未发送的回复因目标停用而取消（不改发）。 */
+  setEnabled(enabled: boolean, expectedVersion?: number): TelegramConfig {
+    let config: TelegramConfig | null;
+    try {
+      config = this.deps.store.withTx(() => {
+        const prev = this.deps.tg.getConfig();
+        const c = this.deps.tg.setEnabled(enabled, expectedVersion);
+        if (c && c.configVersion !== prev?.configVersion) {
+          this.deps.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: enabled ? "enabled" : "disabled" });
+        }
+        return c;
+      });
+    } catch (err) {
+      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    if (!config) throw new RuntimeApiError("not_found", "Telegram 入口未配置（先 telegram_configure）");
+    return config;
   }
 
   // ---------- 接收 ----------

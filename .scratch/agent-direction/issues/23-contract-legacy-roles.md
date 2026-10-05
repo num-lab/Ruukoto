@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 23 — 清理固定角色和迁移期兼容写入口
 
@@ -71,3 +71,7 @@ issue 20（核心群聊退役）实施时按“旧类型、工具类别和角色
 - 文档：runtime.md（新「固定 coding 角色退役」节替换原 main 委派 coding 节，及工具可用性、系统提示、技能、工作清单、计划模式、GitHub、QQ 群聊、恢复、ruukoto-dev 差别各处）、CONTEXT.md、ADR 0013/0017/0020；docs/visual 十页（orchestrator 改动最大：`#delegate` 换为 `#legacy-coding`、删重试门与对照表；outbox 启动顺序原写反已按代码更正；context-pipeline 重复行删除），test/67 通过，改动图经 shoot.sh 渲染核对。
 
 **待拥有者决定（验收第 2 条的剩余部分）**：ruukoto 产品中普通开发会话/旧项目的写入口未移除——开发实例 `npm run dev` 跑的就是 ruukoto 产品并靠普通开发会话开发本项目。选项：(a) 开发实例改用 ruukoto-dev（需迁移现有开发档案：数据目录产品归属会拒绝直接切换），随后 ruukoto 后台拒绝 dev 会话的创建与提交；(b) 保留现状。本单保持 `ready-for-agent`，待决定后补做或关闭。
+
+### 2026-10-05：拥有者决定（验收第 2 条剩余部分）
+
+选 (b)：ruukoto 产品**不拒绝**普通开发会话的创建与提交，开发实例 `npm run dev` 继续以 ruukoto 产品、普通开发会话开发本项目；旧项目写入口按 ruukoto-dev 已有的提示处理，不再扩展到 ruukoto。本单无剩余实施项，关闭。（决定于架构工单 08 访谈中作出：会话身份模块因此不需要产品维度。）

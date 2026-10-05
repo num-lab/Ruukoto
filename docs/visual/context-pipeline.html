@@ -142,7 +142,7 @@
     </figure>
 
     <h3>任务开始钉住的内容</h3>
-    <p>每个任务一个组装实例（<code class="src" data-src="src/agent/context-assembly.ts#beginContextAssembly">context-assembly.ts · beginContextAssembly</code>），任务结束时 driver 中止它在途的 Jev 与摘要请求并丢弃实例；下一任务重新读取，这就是拥有者刷新项目指令、技能与记忆的入口。项目指令、Jev 配置与记忆都按会话的原项目（<code>sessions.project_id</code>）读取，工作区组织归属不参与（见<a href="#workspace-config">工作区配置</a>）。资料受限会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">driver.ts · dataScopeRestricted</code>：SubAgent 子会话）以下各项都为空。</p>
+    <p>每个任务一个组装实例（<code class="src" data-src="src/agent/context-assembly.ts#beginContextAssembly">context-assembly.ts · beginContextAssembly</code>），任务结束时 driver 中止它在途的 Jev 与摘要请求并丢弃实例；下一任务重新读取，这就是拥有者刷新项目指令、技能与记忆的入口。项目指令、Jev 配置与记忆都按会话的原项目（<code>sessions.project_id</code>）读取，工作区组织归属不参与（见<a href="#workspace-config">工作区配置</a>）。资料受限会话（执行画像的 <code>restricted</code>，<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>：SubAgent 子会话）以下各项都为空。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>内容</th><th>谁读取</th><th>钉住什么</th><th>读不到时</th></tr></thead>
@@ -417,7 +417,7 @@
       <div class="card"><h4>默认</h4><p>本项目的历史 / 产物 / 生效记忆 + 个人共享记忆。记忆的每条来源引用都要当前可访问（<code class="src" data-src="src/core/access.ts#sourceRefAccessible">sourceRefAccessible</code>）：来源不再可访问的记忆下一次调用即不注入，选择记录记 <code>source_scope_revoked</code>。</p></div>
       <div class="card"><h4>资料授权</h4><p>拥有者在可信入口（CLI <code>ruukoto grant</code>、配置中心的项目详情）创建的 <code>data_grants</code>：来源项目、目标项目、类别 <code>history</code> / <code>artifact</code> / <code>memory</code>，同项目不需要也不能建（<code class="src" data-src="src/core/access.ts#createGrant">access.ts · createGrant</code>）。可查看、可撤销；撤销自后续查询与上下文注入起生效，不撤回已经发给模型的内容。来源与目标都按原项目 ID 判定，会话的工作区组织归属不改变授权端点。</p></div>
       <div class="card"><h4>受限身份</h4><p>访问判定里仍有 <code>qq_group</code> 与 <code>role_restricted</code> 两种受限身份（旧架构的群聊入口与 chat 角色）：只读本项目、不查授权表，<code>owner_note</code> 来源不自动放行。群聊与 chat 角色退役后，驱动器只给出 <code>agent</code> 身份（<code class="src" data-src="src/agent/driver.ts#private accessor()">driver.ts · accessor</code>），已没有会话以这两种身份运行。main（与旧 coding）角色的项目一律不能读取原始 QQ 群项目，这条先于资料授权判定，群资料仍是归档。</p></div>
-      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">dataScopeRestricted</code>：只有 <code>subagent</code> 工具类别，即 SubAgent 子会话）不注入任何参考块与记忆、不跑 Jev、不压缩。旧群会话的撤回过滤已随群聊退役删除。SubAgent 的资料身份仍是普通的 <code>agent</code>，限制来自上下文与工具，见<a href="#subagent">下一节</a>。</p></div>
+      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（执行画像的 <code>restricted</code>，<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">executionProfile</code>：只有 <code>subagent</code> 工具类别，即 SubAgent 子会话）不注入任何参考块与记忆、不跑 Jev、不压缩。旧群会话的撤回过滤已随群聊退役删除。SubAgent 的资料身份仍是普通的 <code>agent</code>，限制来自上下文与工具，见<a href="#subagent">下一节</a>。</p></div>
     </div>
     <h3 id="workspace-config">工作区配置：按原项目读取</h3>
     <p>工作区就是带根目录归属的项目（项目是旧架构的组织边界），配置仍挂在项目上。旧会话经迁移映射到工作区后只改 <code>sessions.workspace_project_id</code>，这一列只决定会话显示在哪个工作区下（ADR 0018）；下表每一项都按会话的原项目 <code>sessions.project_id</code> 读取，映射前后不变，迁移也不复制配置。迁移流程与两个归属字段见<a href="storage-layout.html#workspace">存储布局</a>。</p>
@@ -446,7 +446,7 @@
 
   <section id="subagent">
     <h2>SubAgent 任务的上下文</h2>
-    <p>SubAgent 是主 Agent 委派出去的执行身份（只读分析，或 issue 16 按工作隔离的修改），它的身份、工作委托、独立目录、写入目标与读范围见<a href="orchestrator.html#subagent">编排器</a>。驱动器先按 <code>sub_agents</code> 表反查会话，命中即归 <code>subagent</code> 工具类别（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>），同时算作资料受限会话，组装实例构造时 <code>restricted</code> 为真。所以子会话的模型上下文比委派方少得多，结果再以参考块的形式回到普通开发会话。</p>
+    <p>SubAgent 是主 Agent 委派出去的执行身份（只读分析，或 issue 16 按工作隔离的修改），它的身份、工作委托、独立目录、写入目标与读范围见<a href="orchestrator.html#subagent">编排器</a>。会话身份先看 <code>sub_agents</code> 行（<code class="src" data-src="src/core/session-identity.ts#export function classifySession">session-identity.ts · classifySession</code>），命中即 SubAgent 会话；驱动器在任务开始算出的执行画像因此归 <code>subagent</code> 工具类别并资料受限（<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">executionProfile</code>），组装实例构造时 <code>restricted</code> 为真。所以子会话的模型上下文比委派方少得多，结果再以参考块的形式回到普通开发会话。</p>
     <figure class="fig">
       <div class="scroll">
         <svg viewBox="0 0 1040 336" role="img" aria-label="SubAgent 上下文的数据流：父会话任务 T1 调用 subagent_delegate，SubAgentManager 在同一事务里登记，写子任务输入；main 委派时另把资料快照（按工作命名）写成子目录里的 materials 文件，子任务用 read 读入；子任务每次调用前按子会话全部任务的来源并集复核资料授权，撤销即以 task_sources_revoked 拦下；子任务终态后编排器写结果摘要；父会话下一个任务 T2 开始时取出未送达的结果并标记送达，作为任务级参考块放进 T2 的每次调用">

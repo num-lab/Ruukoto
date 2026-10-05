@@ -28,4 +28,5 @@ daily-agent issue 04 让拥有者经 Telegram 私聊使用 main。消息来自�
 
 - 拥有者把 main 会话默认设为 full_access 后，Telegram 触发的任务仍会在需要审批的操作处停下等待 TUI 确认。
 - 持续限流时回复会延迟但不丢失、不重复；停用或换目标时未发送的回复按 ADR 0010 取消，不改发。
+- 启动配置停用（`RUUKOTO_DISABLE_TELEGRAM`）的入口按停用处理，入站作废、排队任务按 `telegram_unavailable` 取消；QQ 私聊自 2026-10-06 起一致（见 ADR 0012 修订段）。
 - 连接未建立（ECONNREFUSED 等）的发送记 `failed`；由于渠道可用性取轮询健康状态，网络断开时回复通常停在 `pending` 等待而非失败。

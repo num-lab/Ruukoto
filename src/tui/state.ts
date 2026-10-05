@@ -447,6 +447,15 @@ export class ViewState {
         );
         return;
       }
+      case "work_delegation.integrated": {
+        // issue 17：汇总只落事件（不想状态字段，TUI 按提示如实展示来源与规模）
+        this.note(
+          body.parentSessionId,
+          `改动已汇总：工作 ${body.workId.slice(0, 12)}…（${body.filesChanged} 个文件，+${body.insertions}/-${body.deletions}；副本分支 ${body.branch}，基线 ${body.baseCommit.slice(0, 12)}${body.parentHead ? `，父 HEAD ${body.parentHead.slice(0, 12)}` : ""}）`,
+          event.createdAt,
+        );
+        return;
+      }
       case "subagent_task.completed":
       case "subagent_task.failed":
       case "subagent_task.timeout":

@@ -212,6 +212,7 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
       close: (input) => rt.subagents!.close(input),
       cancelWork: (input) => rt.subagents!.cancelWork(input),
       message: (input) => rt.subagents!.message(input),
+      integrate: (input) => rt.subagents!.integrate(input),
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: session.id, projectId, hostOpId: "opm" }),

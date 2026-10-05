@@ -396,6 +396,7 @@ test("查看与关闭：总览、主 Agent 工具关闭与幂等、关闭后拒�
       close: (input) => rt.subagents!.close(input),
       cancelWork: (input) => rt.subagents!.cancelWork(input),
       message: (input) => rt.subagents!.message(input),
+      integrate: (input) => rt.subagents!.integrate(input),
       readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
       artifacts: rt.artifacts,
       taskContext: () => ({ taskId: parent.id, sessionId: session.id, projectId, hostOpId: "opv" }),

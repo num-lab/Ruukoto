@@ -308,13 +308,13 @@
           </tr>
           <tr>
             <td><code>owner_reply</code></td>
-            <td>Telegram 或 QQ 私聊入站任务到达终态，编排器结果事务内。<br><code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">runtime.ts · enqueueOwnerReply</code> <code class="src" data-src="src/runtime/orchestrator.ts#this.deps.onInboundTerminal?.(event, task, outcome)">orchestrator.ts · onInboundTerminal</code></td>
+            <td>Telegram 或 QQ 私聊入站任务到达终态，编排器结果事务内。<br><code class="src" data-src="src/runtime/im-entries.ts#enqueueOwnerReply(event: InboundEvent">im-entries.ts · enqueueOwnerReply</code> <code class="src" data-src="src/runtime/orchestrator.ts#this.deps.onInboundTerminal?.(event, task, outcome)">orchestrator.ts · onInboundTerminal</code></td>
             <td>入站事件 ID</td>
             <td>本任务自己的最终回答；失败（含取消）、超时、未知只发宿主固定提示。属于 ADR 0011/0012 的自动发送范围，不经审批。目标是收件时钉版的目标，登记前须与当前目标相同，否则不登记、记 <code>*.reply_skipped</code>；登记条件见<a href="inbound-events.html#after">入站事件</a></td>
           </tr>
           <tr>
             <td><code>owner_reply</code>（工作最终汇报）</td>
-            <td>IM 私聊发起的工作收尾轮次（main 唤醒任务）到达终态，同一结果事务内（到期判定 <code class="src" data-src="src/runtime/parent-delivery.ts#wakeTerminal(wake: Task, outcome: ChildOutcome)">parent-delivery.ts · wakeTerminal</code>）。<br><code class="src" data-src="src/runtime/runtime.ts#private sendWorkReport(report: WorkReport)">runtime.ts · sendWorkReport</code></td>
+            <td>IM 私聊发起的工作收尾轮次（main 唤醒任务）到达终态，同一结果事务内（到期判定 <code class="src" data-src="src/runtime/parent-delivery.ts#wakeTerminal(wake: Task, outcome: ChildOutcome)">parent-delivery.ts · wakeTerminal</code>）。<br><code class="src" data-src="src/runtime/im-entries.ts#sendWorkReport(report: WorkReport)">im-entries.ts · sendWorkReport</code></td>
             <td>发起事件 ID 加 <code>#work:&lt;workId&gt;:&lt;收尾执行 id&gt;</code> 后缀</td>
             <td>宿主判定收尾并登记一次，不经审批。正文首行固定 <code>[工作 &lt;workId&gt; 最终汇报]</code>，后接该唤醒任务最终回答；唤醒失败或未知只发宿主固定提示。目标沿入站钉版核对，不符则不登记、记 <code>*.reply_skipped</code>（reason 带 <code>work_report:</code> 前缀）。判定与来源链见<a href="inbound-events.html#after">入站事件</a></td>
           </tr>
@@ -347,7 +347,7 @@
       </div>
       <div class="card">
         <h4>目标只来自可信渠道配置</h4>
-        <p>工具拿到的目标由宿主给：来源是 QQ 私聊的任务绑定该消息登记时的 QQ 目标（须与当前配置相同），其余沿用 Telegram 默认目标（<code class="src" data-src="src/runtime/runtime.ts#return this.notifyChannel()?.target() ?? null;">runtime.ts · scheduler.target</code>）。未配置目标即拒绝创建外发。目标配置版本变化或停用后，未领取的旧操作在发送前复核时取消，已领取的由适配器记 failed，都不改发到新目标或另一平台（见<a href="#targets">固定目标</a>）。</p>
+        <p>工具拿到的目标由宿主给：来源是 QQ 私聊的任务绑定该消息登记时的 QQ 目标（须与当前配置相同），其余沿用 Telegram 默认目标（<code class="src" data-src="src/runtime/im-entries.ts#notificationTarget(sourceEvent: InboundEvent | null)">im-entries.ts · notificationTarget</code>）。未配置目标即拒绝创建外发。目标配置版本变化或停用后，未领取的旧操作在发送前复核时取消，已领取的由适配器记 failed，都不改发到新目标或另一平台（见<a href="#targets">固定目标</a>）。</p>
       </div>
     </div>
   </section>
@@ -487,7 +487,7 @@
 
   <section id="channels">
     <h2>渠道与两本账</h2>
-    <p>公共 outbox 按发送操作上持久的 <code>target.channel</code> 选发送器（<code class="src" data-src="src/runtime/runtime.ts#private notifyChannel">runtime.ts · notifyChannel</code>）：<code>qq_private</code> 交 QQ 适配器，<code>telegram</code> 交 Telegram 适配器；其他取值，或对应适配器没有创建（入口由启动配置停用），都没有发送器，操作保持 pending。测试可经配置注入模拟渠道（QQ 私聊之外的渠道都交给它）。QQ 群的普通回复（旧架构 QQ 群聊入口）不走公共 outbox，而是 QQ 适配器自己的 <code>qq_outbox</code>；核心群聊已退役（agent-direction 工单 20），<code>qq_outbox</code> 不再有新增，保留为只读归档。QQ 连接的代次键含配置版本（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>）：任何配置或凭据变化都重建连接，旧连接上的事件不再接纳，断开时旧连接上还没应答的动作按结果不明拒绝（私聊发送记 effect_unknown；退役前的群回复记 unknown）。两个平台的配置变化对公共 outbox 的影响都靠目标比对拦截，见<a href="#targets">固定目标</a>。</p>
+    <p>公共 outbox 按发送操作上持久的 <code>target.channel</code> 选发送器（<code class="src" data-src="src/runtime/im-entries.ts#channel(source: string = TELEGRAM_SOURCE)">im-entries.ts · channel</code>）：<code>qq_private</code> 交 QQ 适配器，<code>telegram</code> 交 Telegram 适配器；其他取值，或对应入口由启动配置停用（适配器照常创建，但不算已加载的发送器），都没有发送器，操作保持 pending。测试可经配置注入模拟渠道（QQ 私聊之外的渠道都交给它）。QQ 群的普通回复（旧架构 QQ 群聊入口）不走公共 outbox，而是 QQ 适配器自己的 <code>qq_outbox</code>；核心群聊已退役（agent-direction 工单 20），<code>qq_outbox</code> 不再有新增，保留为只读归档。QQ 连接的代次键含配置版本（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>）：任何配置或凭据变化都重建连接，旧连接上的事件不再接纳，断开时旧连接上还没应答的动作按结果不明拒绝（私聊发送记 effect_unknown；退役前的群回复记 unknown）。两个平台的配置变化对公共 outbox 的影响都靠目标比对拦截，见<a href="#targets">固定目标</a>。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -630,7 +630,7 @@
       <table class="tbl">
         <thead><tr><th>位置</th><th>比较什么</th><th>不符时</th></tr></thead>
         <tbody>
-          <tr><td>owner 回复登记（含工作最终汇报）<br><code class="src" data-src="src/runtime/runtime.ts#private enqueueOwnerReply">enqueueOwnerReply</code> <code class="src" data-src="src/runtime/runtime.ts#private imReplyTarget(event: InboundEvent)">imReplyTarget</code></td><td>事件钉版目标与当前目标 <code>sameTarget</code>，外部 ID 前缀属于同一账号与 chat（owner 回复与工作最终汇报共用这一段核对）</td><td>不登记，记 <code>*.reply_skipped</code>（<code>target_changed</code> 或 <code>target_unavailable</code>；工作最终汇报的 reason 带 <code>work_report:</code> 前缀）</td></tr>
+          <tr><td>owner 回复登记（含工作最终汇报）<br><code class="src" data-src="src/runtime/im-entries.ts#enqueueOwnerReply(event: InboundEvent">enqueueOwnerReply</code> <code class="src" data-src="src/runtime/im-entries.ts#private enqueueReply(">enqueueReply</code></td><td>事件钉版目标与当前目标 <code>sameTarget</code>，外部 ID 前缀属于同一账号与 chat（owner 回复与工作最终汇报共用这一段核对）</td><td>不登记，记 <code>*.reply_skipped</code>（<code>target_changed</code> 或 <code>target_unavailable</code>；工作最终汇报的 reason 带 <code>work_report:</code> 前缀）</td></tr>
           <tr><td>IM 命令处理<br><code class="src" data-src="src/runtime/im-approvals.ts#async handleCommand">handleCommand</code></td><td>actor 是当前 owner，命令的钉版目标与当前目标 <code>sameTarget</code></td><td>不执行，仍以旧钉版目标登记 <code>identity_failed</code> 回执（发送前会被取消）；命令没有钉版目标时只留控制记录，不登记回执（<code class="src" data-src="src/runtime/im-approvals.ts#private persistNoReceipt">persistNoReceipt</code>）</td></tr>
           <tr><td>IM 初始通知登记<br><code class="src" data-src="src/runtime/runtime.ts#private imApprovalNotice">imApprovalNotice</code></td><td>不比较，直接取原委托事件的钉版目标</td><td>交给发送前复核</td></tr>
           <tr><td>通知审批获批<br><code class="src" data-src="src/agent/scheduler-tools.ts#const approveThenCommit">approveThenCommit</code></td><td>当前目标与审批范围里的目标，JSON 序列化后全等</td><td>批准作废，计划或操作不登记</td></tr>
@@ -645,7 +645,7 @@
 
   <section id="restart">
     <h2>重启恢复与停止</h2>
-    <p>本节按个人 Agent 产品 ruukoto 的启动顺序写。Coding Agent ruukoto-dev 不创建调度器，也不创建 QQ 与 Telegram 适配器（agent-direction issue 01），下面第 1、2、6、7 步对它都不发生。启动顺序里，调度器的恢复准备排在通用任务恢复之前（<code class="src" data-src="src/runtime/runtime.ts#scheduler!.prepareRecovery()">runtime.ts · prepareRecovery 调用处</code>）：它要先按关联记录的真实状态决定运行开着还是关着，再让通用恢复把 running 任务改写为 interrupted。</p>
+    <p>本节按个人 Agent 产品 ruukoto 的启动顺序写。Coding Agent ruukoto-dev 不创建调度器，QQ 与 Telegram 适配器照常创建但按启动配置停用、不连接（agent-direction issue 01，架构工单 10），下面第 1、2、6、7 步对它都不发生。启动顺序里，调度器的恢复准备排在通用任务恢复之前（<code class="src" data-src="src/runtime/runtime.ts#scheduler!.prepareRecovery()">runtime.ts · prepareRecovery 调用处</code>）：它要先按关联记录的真实状态决定运行开着还是关着，再让通用恢复把 running 任务改写为 interrupted。</p>
     <ol class="steps">
       <li>创建调度器（<code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime.ts · initScheduler</code>；仅个人 Agent 产品），此时不启动定时器、不派发、不发送。</li>
       <li>恢复准备（<code class="src" data-src="src/scheduler/runtime.ts#prepareRecovery(): void">runtime.ts · prepareRecovery</code>）：① 关联记录早已终态、只是关闭标记没写上的运行先补关闭；② 到期计划按正常到期事务处理，仍在 registered/queued/running/pending/sending/searching 的运行吸收漏过区间，没有未完成运行的计划补一次；③ 一个事务里把遗留 sending 全部定为 <code class="st unk">effect_unknown</code>（<code>backend_restart</code>）；④ 停在 searching 的采集定为 unknown，登记 <code>news_backend_restart</code> 的 failed 发送操作，同一窗口不重搜。</li>

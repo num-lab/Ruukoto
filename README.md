@@ -304,7 +304,7 @@ ruukoto-dev 产品（档案根 `~/.ruukoto-dev-agent`，由 `ruukoto-dev` 命令
 | `RUUKOTO_PENDING_DIR` | 待核实提交记录目录（默认 `~/.ruukoto/pending`） |
 | `RUUKOTO_PRODUCT` | 产品身份（`ruukoto` 默认 / `ruukoto-dev`；两条 bin 入口固定注入，非法取值拒绝启动） |
 | `RUUKOTO_DEV_DATA_DIR` / `RUUKOTO_DEV_AGENT_DIR` / `RUUKOTO_DEV_CONTROL_DIR` / `RUUKOTO_DEV_PENDING_DIR` | ruukoto-dev 产品的对应目录（默认 `~/.ruukoto-dev-agent/...`；ruukoto-dev 只读这组，不读 `RUUKOTO_*_DIR`） |
-| `RUUKOTO_DISABLE_QQ` | `=1` 时后台不启动 QQ 适配器（开发实例默认注入） |
+| `RUUKOTO_DISABLE_QQ` | `=1` 时后台不连接 QQ，QQ 私聊入站作废（开发实例默认注入） |
 | `RUUKOTO_EXECUTION_BACKEND` | 执行后端 `local` / `container` |
 | `RUUKOTO_EXEC_UID` / `RUUKOTO_EXEC_GID` | 完全访问任务的执行账户 |
 | `RUUKOTO_CONTAINER_UID` / `RUUKOTO_CONTAINER_GID` | 容器内进程 uid/gid（原生 Linux 的 bind mount 不做 uid 映射） |

@@ -8,6 +8,10 @@
 
 import type { AgentRole, Session, SubAgent } from "./types.ts";
 
+/**
+ * 退役原因（agent-direction issue 20 核心群聊、issue 23 固定 coding）：入站门卫弃、
+ * 遗留排队任务取消、启动收尾与提交拒绝共用同一文本（前缀即持久化原因标识）。
+ */
 export const CORE_GROUP_CHAT_RETIRED = "core_group_chat_retired:核心群聊已退役（正式外挂后续交付）";
 export const CODING_ROLE_RETIRED = "coding_role_retired:固定 coding 角色已退役（委派改用通用 SubAgent）";
 

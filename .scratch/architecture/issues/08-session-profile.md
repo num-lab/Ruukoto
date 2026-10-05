@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 会话身份与执行画像：一次判定「这个会话是什么」，按任务给出执行画像
 
@@ -73,3 +73,12 @@ Status: ready-for-agent
 - 工单 03（工具可用性）：类别表仍是可见性的唯一来源。
 
 ## Comments
+
+### 2026-10-06：交付记录（分支 session-identity，未合入 develop）
+
+- 步骤 1（68a7b29）：`src/core/session-identity.ts`（`SessionIdentity` 四种身份、纯函数 `classifySession`，SubAgent 行优先；退役原因常量 `CORE_GROUP_CHAT_RETIRED`/`CODING_ROLE_RETIRED` 归入此处，`qq/store.ts` 不再定义）与 `Store.getSessionIdentity`；删 `sessionToolClass`、`retiredSessionReason`。Runtime 提交（检查顺序 SubAgent → `/plan` → 归档，与原可达行为一致：归档 + `/plan` 仍返回计划模式的 invalid_params）、改默认模式、切换模式、队列兜底、SubAgent 释放、resume-queue 按身份；5 处每次调用重核改用同一解析（仍新鲜读取）；`delegate` 父会话合成一条身份判定（两种 mode）。
+- 步骤 2（aa1f089）：`executionProfile`/`subAgentAllows`（`tool-availability.ts`）；driver 装配过滤、任务收窄、MCP 规划、资料受限、计划资格、系统提示改读画像，SDK 会话签名 = 画像工具签名 + MCP 清单签名；`launchSpecFor` 改用 `taskWorkspaceFor`。test/62 分类与画像表，test/83 新例。**变异核对**：临时去掉 `runtime.ts` 的 SubAgent 每任务释放，新例仍通过；再把签名退回只含 MCP，新例失败（确认该例确实盯住时序耦合）。均已还原。
+- 步骤 3（65a1296 + 评审修正）：`docs/runtime.md` 架构要点新增「会话身份与执行画像」；图解页同步：tool-call-path#availability（类别来源、SubAgent 工具集、签名重建、收窄）、orchestrator（角色表与 SubAgent 识别、委派失败表「父会话身份」行与 verifyDelegationHost 行、修改委派另拒项、资料受限）、context-pipeline（资料受限会话三处）、task-lifecycle / inbound-events（退役原因锚点）；orchestrator 改动表格经 shoot.sh 渲染核对。核实中未发现文档与代码不一致。
+- 评审（/code-review 两轴）后修正：删 runtime.ts 残留注释；画像注释改为「钉到下一任务开始」（不在任务结束清空，调用方都在任务内）；`taskMcp` 只对 SubAgent 求值；内联 `subAgentToolsFor`；去掉 `!` 断言；test/85 改从 session-identity 导入；画像表补 dev/main 带写入目标与评审、main 无 `/plan`、SubAgent 写入 + 评审各行。
+- 测试：每步 typecheck 通过；全量 892 项中 891 通过，唯一失败 `test/08` 「DNS 在批准时固定」在 develop 基线同样失败（本机 `.invalid` 解析超时，环境问题，与本单无关）。
+

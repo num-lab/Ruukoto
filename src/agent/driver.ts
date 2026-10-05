@@ -245,7 +245,7 @@ export class Driver {
   private sdkConfigStale = false;
   /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
   private pendingMcpToolDefs: ToolDefinition[] = [];
-  /** 执行画像（架构工单 08）：任务开始算一次、钉到任务结束；首个任务前为 null。 */
+  /** 执行画像（架构工单 08）：任务开始算一次、钉到下一任务开始；首个任务前为 null。 */
   private pinnedProfile: ExecutionProfile | null = null;
   /** 本任务允许的工具（任务开始时算一次；激活、发送前与调用门共用；null = 尚未算出，一律拒绝）。 */
   private taskTools: TaskToolSet | null = null;
@@ -296,9 +296,9 @@ export class Driver {
     return this.currentTask !== null;
   }
 
-  /** 本任务的执行画像；任务之外没有画像（调用方都在任务内）。 */
+  /** 本任务的执行画像（调用方都在任务内；首个任务前读取即抛）。 */
   private get profile(): ExecutionProfile {
-    if (!this.pinnedProfile) throw new Error("执行画像未确定（任务之外）");
+    if (!this.pinnedProfile) throw new Error("执行画像未确定（尚未运行任务）");
     return this.pinnedProfile;
   }
 
@@ -495,14 +495,15 @@ export class Driver {
     const skillTools = !this.allows("skills")
       ? []
       : createSkillTools({ library: () => this.pinnedSkills, bindCall: this.bindHostCall });
+    const subAgentTools = this.profile.subAgentTools;
     const allTools = [
       ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
       // SubAgent（agent-direction issue 11）：画像工具集外不装配（不发、不调用）；
       // 装配即收窄，发送前与调用门由 taskTools 复用同一结论。工具集在 SDK 签名
       // 里，变化时 runInner 先重建会话（架构工单 08）
-      ...(this.profile.subAgentTools
+      ...(subAgentTools
         ? this.deps.toolFactory({ registry: this.registry, router: this.router })
-            .filter((t) => subAgentAllows(this.profile.subAgentTools!, t.name))
+            .filter((t) => subAgentAllows(subAgentTools, t.name))
         : []),
       // 工作内协作消息（agent-direction issue 13）：subagent 类会话装配同一
       // 工具定义；宿主评审任务按 taskToolSet 收窄不激活（同一结论）
@@ -701,7 +702,7 @@ export class Driver {
     this.pinnedProfile = executionProfile({
       identity,
       writeTarget: Boolean(task.workId && this.deps.store.getWorkDelegation(task.workId)?.writeTarget),
-      review: this.deps.taskMcp?.(task) ?? false,
+      review: identity.kind === "subagent" && (this.deps.taskMcp?.(task) ?? false),
       planInput,
     });
     this.currentTask = task;
@@ -880,6 +881,7 @@ export class Driver {
     // 任务内的禁用由工具按调用新鲜检查立即阻止）。每次从完整注册表重算，宿主对当前
     // 任务的限制不带入下一任务。
     const allowTaskTool = this.deps.allowTaskTool;
+    const subAgentTools = this.profile.subAgentTools;
     this.taskTools = taskToolSet({
       registered: this.allToolNames,
       plan: this.profile.plan,
@@ -889,8 +891,8 @@ export class Driver {
       // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
       // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
       narrow:
-        this.profile.subAgentTools
-          ? (name, effect) => subAgentAllows(this.profile.subAgentTools!, name, effect)
+        subAgentTools
+          ? (name, effect) => subAgentAllows(subAgentTools, name, effect)
           : allowTaskTool
             ? (name, effect) => allowTaskTool(task, name, effect)
             : undefined,

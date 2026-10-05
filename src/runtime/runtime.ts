@@ -170,7 +170,6 @@ import {
 
 /** 快照中每个会话保留的近期已结束任务数（更早的经 list_tasks 分页查询）。 */
 const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20;
-/** 固定 coding 角色退役（agent-direction issue 23）的任务取消原因。 */
 /** 快照/get_task 中输出预览的字节上限。 */
 const FRAGMENT_PREVIEW_CAP = FRAGMENT_TEXT_CAP;
 

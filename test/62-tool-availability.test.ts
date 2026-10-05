@@ -81,13 +81,17 @@ test("执行画像：身份 × 工作（无 / 只读 / 写入）× 宿主评审 
   const main: SessionIdentity = { kind: "main", role: role("main") };
   const sub: SessionIdentity = { kind: "subagent", agent };
   const rows: Array<[SessionIdentity, boolean, boolean, boolean, Omit<ExecutionProfile, "toolSignature">]> = [
-    // 身份, 写入目标, 宿主评审, /plan 输入 → 画像
+    // 身份, 写入目标（无工作与只读工作同为 false）, 宿主评审, /plan 输入 → 画像；
+    // 写入目标与评审只作用于 SubAgent，计划资格只给普通开发会话
     [{ kind: "dev" }, false, false, false, { toolClass: "dev", subAgentTools: null, planMcp: true, restricted: false, plan: false }],
     [{ kind: "dev" }, false, false, true, { toolClass: "dev", subAgentTools: null, planMcp: true, restricted: false, plan: true }],
-    [main, false, false, true, { toolClass: "main", subAgentTools: null, planMcp: false, restricted: false, plan: false }],
+    [{ kind: "dev" }, true, true, false, { toolClass: "dev", subAgentTools: null, planMcp: true, restricted: false, plan: false }],
+    [main, false, false, false, { toolClass: "main", subAgentTools: null, planMcp: false, restricted: false, plan: false }],
+    [main, true, true, true, { toolClass: "main", subAgentTools: null, planMcp: false, restricted: false, plan: false }],
     [sub, false, false, true, { toolClass: "subagent", subAgentTools: { write: false, review: false }, planMcp: false, restricted: true, plan: false }],
     [sub, true, false, false, { toolClass: "subagent", subAgentTools: { write: true, review: false }, planMcp: false, restricted: true, plan: false }],
     [sub, false, true, false, { toolClass: "subagent", subAgentTools: { write: false, review: true }, planMcp: true, restricted: true, plan: false }],
+    [sub, true, true, false, { toolClass: "subagent", subAgentTools: { write: true, review: true }, planMcp: true, restricted: true, plan: false }],
   ];
   for (const [identity, writeTarget, review, planInput, expected] of rows) {
     const { toolSignature: _, ...profile } = executionProfile({ identity, writeTarget, review, planInput });

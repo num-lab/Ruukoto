@@ -424,6 +424,40 @@ test("私聊配置必须有 token 和固定 owner；停用、换 owner、清除 
   }
 });
 
+test("启动配置停用的 QQ 入口按停用处理：排队任务按 qq_private_unavailable 取消，main 队列后面的任务照常运行", async () => {
+  const h = await harness("qq-private-startup-disabled", reply, { tickMs: 0 });
+  let rt = await Runtime.start(h.config);
+  let queuedId = "";
+  try {
+    await configure(rt, h.onebot);
+    await waitOnline(rt);
+    const main = rt.store.getAgentRole("main")!;
+    rt.store.setSessionQueueState(main.sessionId, "paused", "test_fixture");
+    push(h.onebot, 1, "MARK-BEFORE-DISABLE");
+    await waitFor("QQ 任务排队", () => mainTasks(rt).some((task) => task.input.includes("MARK-BEFORE-DISABLE") && task.status === "queued"));
+    queuedId = mainTasks(rt).find((task) => task.input.includes("MARK-BEFORE-DISABLE"))!.id;
+  } finally {
+    await rt.stop("test_end");
+  }
+  h.config.qqDisabled = true;
+  rt = await Runtime.start(h.config);
+  try {
+    assert.equal((rt.qqStatus() as { disabledByConfig?: boolean }).disabledByConfig, true);
+    const main = rt.store.getAgentRole("main")!;
+    const tui = await rt.submit({ sessionId: main.sessionId, requestId: "after-qq", input: "MARK-TUI-AFTER", accessMode: "confirm", modelSelection: rt.defaultSelection });
+    await rt.resumeQueue(main.sessionId);
+    await waitFor("后面的 TUI 任务照常完成", () => rt.store.getTask(tui.id)?.status === "completed");
+    const canceled = rt.store.getTask(queuedId)!;
+    assert.equal(canceled.status, "canceled");
+    assert.match(canceled.errorMessage ?? "", /^qq_private_unavailable:/);
+    assert.ok(!h.model.calls.some((call) => lastUserText(call).includes("MARK-BEFORE-DISABLE")), "停用入口的任务不调用模型");
+    assert.equal(h.onebot.connectionCount(), 0, "启动停用后不连接 NapCat");
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
 test("重启恢复已登记未建任务；补登只取原任务回答；sending 记未知且重投不重复", async () => {
   const h = await harness("qq-private-recover", reply, { tickMs: 0 });
   let rt = await Runtime.start(h.config);

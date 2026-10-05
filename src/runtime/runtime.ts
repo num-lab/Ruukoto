@@ -127,24 +127,15 @@ import { createSourceResolver, schedulerOpCheck, type SourceResolver } from "../
 import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
 import { delegationOpCheck } from "../agent/delegation-tools.ts";
 import { chatResultOpCheck, resolveAcceptedChatResult } from "../agent/chat-result-tools.ts";
-import { QqAdapter, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
-import { ParentDelivery, type WorkReport } from "./parent-delivery.ts";
+import { QqAdapter, QQ_PRIVATE_SOURCE, type QqAdapterTimeouts } from "../qq/adapter.ts";
+import { ParentDelivery } from "./parent-delivery.ts";
 import { CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED } from "../core/session-identity.ts";
-import { QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
-import {
-  capReply,
-  TelegramAdapter,
-  TelegramStore,
-  TelegramVersionConflictError,
-  telegramExternalId,
-  TELEGRAM_CREDENTIAL_PURPOSE,
-  TELEGRAM_DEFAULT_API,
-  TELEGRAM_SOURCE,
-  type TelegramConfig,
-} from "../telegram/adapter.ts";
-import type { ChildOutcome } from "./orchestrator.ts";
+import { QQ_GROUP_SOURCE, QqStore, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
+import { TelegramAdapter, TelegramStore, TELEGRAM_SOURCE, type TelegramConfig } from "../telegram/adapter.ts";
 import { ImApprovals } from "./im-approvals.ts";
+import { ImEntries } from "./im-entries.ts";
 import { sameTarget } from "../core/notify-target.ts";
+import { RuntimeApiError } from "../core/api-error.ts";
 import {
   readHistoryEntryText,
   readToolResult,
@@ -218,12 +209,12 @@ export interface RuntimeConfig {
   qq?: QqAdapterTimeouts;
   /**
    * 停用真实 QQ 通道（issue 21 §1，dev 开发实例经 RUUKOTO_DISABLE_QQ=1 注入）：
-   * 不创建/启动适配器；qq 控制面操作仍作用于配置存储，qqStatus 标注停用来源。
+   * 入口照常创建但不连接、入站作废（架构工单 10）；qq 控制面操作仍作用于配置存储，qqStatus 标注停用来源。
    */
   qqDisabled?: boolean;
   /**
    * 停用真实 Telegram 通道（issue 04，dev 开发实例经 RUUKOTO_DISABLE_TELEGRAM=1 注入）：
-   * 不创建适配器；telegram 控制面操作仍作用于配置存储。
+   * 入口照常创建但不轮询、入站作废（架构工单 10）；telegram 控制面操作仍作用于配置存储。
    */
   telegramDisabled?: boolean;
   /**
@@ -261,13 +252,7 @@ export interface RuntimeConfig {
   githubWebhook?: GitHubEventsConfig;
 }
 
-export class RuntimeApiError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
+export { RuntimeApiError };
 
 /** 先核对结构，再进行幂等核实；模型能力与认证只检查尚未接收的请求。 */
 export function parseModelSelection(value: unknown): ModelSelection {
@@ -298,8 +283,8 @@ export class Runtime {
   readonly mcp: McpStore;
   /** QQ 连接配置与群聊收发记录（私聊使用编排器与公共 outbox）。 */
   readonly qqStore: QqStore;
-  /** QQ 群聊与 owner 私聊适配器（null = 尚未启动或开发实例停用）。 */
-  private qqAdapter: QqAdapter | null = null;
+  /** QQ owner 私聊入口（启动配置停用时也存在，见 RuntimeConfig.qqDisabled）。 */
+  private readonly qqAdapter: QqAdapter;
   /**
    * main 应用数据空间（issue 02）：独立 main.db + 只读查询子进程运行器。
    * unavailableReason 非空时能力停止（丢失/身份不符/损坏/格式过新），
@@ -317,8 +302,10 @@ export class Runtime {
   subagents: SubAgentManager | null = null;
   /** Telegram owner 入口配置（issue 04）。 */
   readonly telegramStore: TelegramStore;
-  /** Telegram 适配器（start 时创建；null = 未创建或 dev 停用）。 */
-  private telegram: TelegramAdapter | null = null;
+  /** Telegram owner 入口（启动配置停用时也存在，见 RuntimeConfig.telegramDisabled）。 */
+  private readonly telegram: TelegramAdapter;
+  /** 拥有者 IM 入口表（架构工单 10）：门、reconcile、owner 回复与工作汇报、凭据代次、通知目标。 */
+  private readonly imEntries: ImEntries;
   private githubWebhook: GitHubWebhook | null = null;
   private readonly githubEvents: GitHubEvents;
   /** 父级送达（架构工单 09）：结果与工作内消息怎样、何时进入主 Agent 的模型调用。 */
@@ -399,14 +386,55 @@ export class Runtime {
       subagent: subagentOpCheck(store),
     });
     this.telegramStore = new TelegramStore(store);
+    // 拥有者 IM 入口（issue 04/06，架构工单 10）：始终创建；启动配置停用（dev 开发实例、
+    // ruukoto-dev 产品边界）只是入口标志。编排器启动后才连接/轮询（见 start）
+    const startupDisabled = this.productType === "ruukoto-dev" ? "product" : "dev";
+    this.qqAdapter = new QqAdapter({
+      store,
+      qqStore: this.qqStore,
+      sched: this.sched,
+      credentials: this.credentials,
+      timeouts: config.qq,
+      startupDisabled: config.qqDisabled ? startupDisabled : undefined,
+      bridge: {
+        registerPrivate: (input) => {
+          if (this.stopping || !this.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
+          return this.registerImInbound(QQ_PRIVATE_SOURCE, input);
+        },
+        dispatchInbound: () => this.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
+        kickSession: (sessionId) => this.kick(sessionId),
+      },
+    });
+    this.telegram = new TelegramAdapter({
+      store,
+      tg: this.telegramStore,
+      sched: this.sched,
+      credentials: this.credentials,
+      register: (input) => {
+        if (!this.orchestrator) throw new Error("编排器未启动");
+        return this.registerImInbound(TELEGRAM_SOURCE, input);
+      },
+      log: (message) => process.stderr.write(`[ruukoto:telegram] ${message}\n`),
+      ...config.telegram,
+      startupDisabled: config.telegramDisabled ? startupDisabled : undefined,
+    });
+    this.imEntries = new ImEntries({
+      store,
+      sched: this.sched,
+      entries: [this.qqAdapter, this.telegram],
+      defaultChannel: config.scheduler?.channel,
+      readReply: (taskId) => this.readTaskReplyText(taskId),
+      cancelTask: (taskId, reason) => this.cancelTask(taskId, { reason }),
+      invalidateApprovals: (source) => this.invalidateImApprovals(source),
+      kick: (sessionId) => this.kick(sessionId),
+      kickSender: () => this.scheduler?.kickSender(),
+    });
     // IM 审批命令（agent-direction issue 08）：绑定拥有者的 QQ/Telegram 私聊
     // 控制消息直接进入审批处理路径，不经编排器派发、不建任务
     this.imApprovals = new ImApprovals({
       store,
       sched: this.sched,
-      currentTarget: (source) => this.notifyChannel(source)?.target() ?? null,
-      expectedActor: (source) => this.imExpectedActor(source),
-      replyCapChars: (source) => (source === QQ_PRIVATE_SOURCE ? (this.qqStore.getConfig()?.maxReplyChars ?? 1500) : 4000),
+      entry: (source) => this.imEntries.entry(source),
       applyDecision: (confirmation, decision, txExtra) => {
         const driver = this.drivers.get(confirmation.sessionId);
         if (!driver) return false;
@@ -425,14 +453,10 @@ export class Runtime {
     });
     this.githubEvents = new GitHubEvents({
       store, artifacts: this.artifacts, sched: this.sched, config: config.githubWebhook,
-      target: (channel) => this.notifyChannel(channel)?.target() ?? null,
+      target: (channel) => this.imEntries.target(channel),
       readReply: (id, offset, length) => this.readTaskReply(id, offset, length),
       dispatch: () => !this.stopping && this.orchestrator ? this.orchestrator.dispatchRegisteredEvents() : Promise.resolve(),
-      capReply: (target, text) => {
-        if (target.channel !== QQ_PRIVATE_SOURCE) return capReply(text);
-        const chars = [...text], cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
-        return chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text;
-      },
+      capReply: (target, text) => (this.imEntries.entry(target.channel) ?? this.telegram).capReply(text),
     });
     this.parentDelivery = new ParentDelivery({
       store,
@@ -442,7 +466,7 @@ export class Runtime {
       readReply: (taskId) => this.readTaskReplyText(taskId),
       isReviewEvent: (event) => this.githubEvents.request(event) !== null,
       resultNotice: (task) => this.githubEvents.notice(task),
-      sendWorkReport: (report) => this.sendWorkReport(report),
+      sendWorkReport: (report) => this.imEntries.sendWorkReport(report),
     });
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
@@ -653,42 +677,6 @@ export class Runtime {
     // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
     // （排队任务取消、收件跳过、在途发送定 unknown），重复启动幂等不重放
     runtime.retireLegacyRoles();
-    // QQ owner 私聊入口（issue 06）：按配置连接 NapCat（未配置/未启用时保持禁用，
-    // 不猜测端点）；核心群聊已退役，群消息由适配器直接忽略；
-    // qqDisabled（dev 开发实例）跳过适配器创建，不真实连接
-    if (!fullConfig.qqDisabled) {
-      runtime.qqAdapter = new QqAdapter({
-        store: runtime.store,
-        qqStore: runtime.qqStore,
-        sched: runtime.sched,
-        credentials: runtime.credentials,
-        timeouts: fullConfig.qq,
-        bridge: {
-          registerPrivate: (input) => {
-            if (runtime.stopping || !runtime.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
-            return runtime.registerImInbound(QQ_PRIVATE_SOURCE, input);
-          },
-          dispatchInbound: () => runtime.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
-          kickSession: (sessionId) => runtime.kick(sessionId),
-        },
-      });
-    }
-    // Telegram owner 入口（issue 04）：先创建（编排器启动巡检补登 owner 回复要读
-    // 固定目标），编排器启动后才开始轮询；dev 开发实例不创建
-    if (!fullConfig.telegramDisabled) {
-      runtime.telegram = new TelegramAdapter({
-        store: runtime.store,
-        tg: runtime.telegramStore,
-        sched: runtime.sched,
-        credentials: runtime.credentials,
-        register: (input) => {
-          if (!runtime.orchestrator) throw new Error("编排器未启动");
-          return runtime.registerImInbound(TELEGRAM_SOURCE, input);
-        },
-        log: (message) => process.stderr.write(`[ruukoto:telegram] ${message}\n`),
-        ...fullConfig.telegram,
-      });
-    }
     // 通用 SubAgent 委派（agent-direction issue 11）：子工作目录在 agent-work/
     // 下（保护根之外）；登记事务前的准备与提交后的 kick 由管理器执行
     runtime.subagents = new SubAgentManager({
@@ -734,7 +722,7 @@ export class Runtime {
       },
       onInboundTerminal: (event, task, outcome) => event.source === GITHUB_SOURCE
         ? runtime.githubEvents.terminal(event, task, outcome)
-        : runtime.enqueueOwnerReply(event, task, outcome),
+        : runtime.imEntries.enqueueOwnerReply(event, task, outcome),
       parentDelivery: runtime.parentDelivery,
       inboundGate: (event) => runtime.inboundGate(event),
       reviewRequest: (event) => runtime.githubEvents.request(event),
@@ -748,8 +736,10 @@ export class Runtime {
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
-    await runtime.qqAdapter?.start();
-    runtime.telegram?.start();
+    // 拥有者 IM 入口（issue 04/06）：编排器启动后才连接 NapCat / 开始轮询（编排器启动
+    // 巡检补登 owner 回复要读固定目标）；未配置/未启用时保持断开，不猜测端点
+    await runtime.qqAdapter.start();
+    runtime.telegram.start();
     // 恢复与角色引导完成后才开放调度事件派发与发送（ruukoto-dev 无调度器）
     runtime.scheduler?.start();
     if (fullConfig.githubWebhook) {
@@ -793,12 +783,11 @@ export class Runtime {
 
   private initScheduler(): void {
     const now = this.config.scheduler?.now ?? (() => Date.now());
-    const channel = (source: string) => this.notifyChannel(source);
     this.scheduler = new Scheduler({
       store: this.store,
       sched: this.sched,
       now,
-      channel,
+      channel: (source) => this.imEntries.channel(source),
       // 编排器在 start 末尾创建；调度扫描只在其后开放，恢复准备不派发
       dispatchRegistered: () => this.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
       serial: (fn) => (this.orchestrator ? this.orchestrator.serial(fn) : fn()),
@@ -840,91 +829,10 @@ export class Runtime {
     });
   }
 
-  /** 按已固定的渠道选择发送器；缺省通知仍沿用 Telegram，不能把旧操作改发到另一平台。 */
-  private notifyChannel(source?: string): NotifyChannel | null {
-    if (source === QQ_PRIVATE_SOURCE) return this.qqAdapter;
-    if (this.config.scheduler?.channel) return this.config.scheduler.channel;
-    return source === undefined || source === TELEGRAM_SOURCE ? this.telegram : null;
-  }
-
-  private qqPrivateGate(event: InboundEvent): "run" | "wait" | { drop: string } {
-    if (event.source !== QQ_PRIVATE_SOURCE) return "run";
-    return this.qqAdapter?.gatePrivate(event) ?? "wait";
-  }
-
-  private telegramGate(event: InboundEvent): "run" | "wait" | { drop: string } {
-    if (event.source !== TELEGRAM_SOURCE) return "run";
-    return this.telegram?.gatePrivate(event) ?? { drop: "telegram_unavailable:Telegram 适配器未启动" };
-  }
-
   private inboundGate(event: InboundEvent): "run" | "wait" | { drop: string } {
     // 核心群聊已退役（agent-direction issue 20）：旧群入站事件一律作废
     if (event.source === QQ_GROUP_SOURCE) return { drop: CORE_GROUP_CHAT_RETIRED };
-    if (event.source === TELEGRAM_SOURCE) return this.telegramGate(event);
-    return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.qqPrivateGate(event);
-  }
-
-  /**
-   * owner 回复（issue 04/06）：私聊入站任务到达终态时，在编排器的结果事务内
-   * 登记一条发送操作——发送键为入站事件 id，目标由宿主固定，正文取本任务的
-   * 最终回答（失败/超时/未知只发宿主固定提示）。定时唤醒与子任务唤醒产生的
-   * 任务没有私聊来源事件，不会自动外发。
-   */
-  private enqueueOwnerReply(event: InboundEvent, task: Task, outcome: ChildOutcome): void {
-    if (event.source !== TELEGRAM_SOURCE && event.source !== QQ_PRIVATE_SOURCE) return;
-    const target = this.imReplyTarget(event);
-    if ("skip" in target) return this.imReplySkipped(event, task.id, target.skip);
-    const text =
-      outcome === "completed"
-        ? this.readTaskReplyText(task.id)?.trim() || "（无文本输出）"
-        : `[ruukoto] 这条消息的处理${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
-    try {
-      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: event.id, taskId: task.id, hostOpId: null, target: target.target, text: this.capImReply(event.source, text), sourceRefs: [] });
-    } catch (err) {
-      this.imReplySkipped(event, task.id, `enqueue_failed：${(err as Error).message}`.slice(0, 200));
-    }
-  }
-
-  /**
-   * IM 固定目标核对（owner 回复与工作收尾汇报共用）：目标只能是登记该消息的
-   * 同一 bot + chat，且须与当前固定目标一致（配置换了 bot/chat 不改发新目标）；
-   * 旧 Telegram 事件 replyTarget=null 无法证明接收时版本，明确失效。
-   */
-  private imReplyTarget(event: InboundEvent): { target: NotifyTarget } | { skip: string } {
-    const current = this.notifyChannel(event.source)?.target() ?? null;
-    const target = event.replyTarget;
-    const externalId = event.source === QQ_PRIVATE_SOURCE ? qqPrivateExternalId : telegramExternalId;
-    return !target || !current || !sameTarget(current, target) || !event.externalId.startsWith(externalId(target.account, target.chatId, ""))
-      ? { skip: target ? "target_changed" : "target_unavailable" }
-      : { target };
-  }
-
-  /** 按平台截短（owner 回复与工作收尾汇报共用）。 */
-  private capImReply(source: string, text: string): string {
-    const chars = [...text];
-    const cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
-    return source === QQ_PRIVATE_SOURCE
-      ? (chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text)
-      : capReply(text);
-  }
-
-  private imReplySkipped(event: InboundEvent, taskId: string, reason: string): void {
-    this.store.appendEvent({ type: event.source === QQ_PRIVATE_SOURCE ? "qq_private.reply_skipped" : "telegram.reply_skipped", eventId: event.id, taskId, reason }, { taskId });
-  }
-
-  /**
-   * 工作最终汇报的 IM 发送（agent-direction issue 18；到期判定、键与正文由父级送达
-   * 决定）：发送目标沿用入站钉版核对，离线等待/限流重试/结果未知不重发全部沿用
-   * outbox 语义。在结果唤醒的结果事务内调用。
-   */
-  private sendWorkReport(report: WorkReport): void {
-    const target = this.imReplyTarget(report.event);
-    if ("skip" in target) return this.imReplySkipped(report.event, report.wakeTaskId, `work_report:${target.skip}`);
-    try {
-      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: report.key, taskId: report.wakeTaskId, hostOpId: null, target: target.target, text: this.capImReply(report.event.source, report.text), sourceRefs: [] });
-    } catch (err) {
-      this.imReplySkipped(report.event, report.wakeTaskId, `work_report:enqueue_failed：${(err as Error).message}`.slice(0, 200));
-    }
+    return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.imEntries.gate(event);
   }
 
   // ---------- IM 审批（agent-direction issue 08） ----------
@@ -949,19 +857,6 @@ export class Runtime {
       if (outcome) return outcome;
     }
     return this.orchestrator!.registerInboundEvent({ source, targetRole: "main", ...registration });
-  }
-
-  /** 平台配置当前期望的 actor（owner 身份）；未绑定/停用为 null（任何命令都不接纳）。 */
-  private imExpectedActor(source: string): string | null {
-    if (source === QQ_PRIVATE_SOURCE) {
-      const config = this.qqStore.getConfig();
-      return config?.enabled && config.ownerUserId ? `${QQ_PRIVATE_SOURCE}:${config.ownerUserId}` : null;
-    }
-    if (source === TELEGRAM_SOURCE) {
-      const config = this.telegramStore.getConfig();
-      return config?.enabled ? `telegram:${config.ownerUserId}` : null;
-    }
-    return null;
   }
 
   /**
@@ -1033,7 +928,7 @@ export class Runtime {
   private imApprovalConsumeRecheck(confirmation: ConfirmationRequest, task: Task): string | null {
     const event = this.imApprovals.imSourceEvent(task.id);
     if (!event) return null;
-    const current = this.notifyChannel(event.source)?.target() ?? null;
+    const current = this.imEntries.target(event.source);
     if (!current || !sameTarget(current, event.replyTarget)) {
       return `批准已失效（IM 入口停用或绑定/配置版本已变化），${confirmation.toolName} 未执行`;
     }
@@ -1065,8 +960,8 @@ export class Runtime {
       }
       // 长期授权（issue 10）：入口代次/拥有者绑定已死的明确失效；暂时离线
       // （target() 仍按配置给出，gate 为 wait）不算绑定变化，正常重启也保留。
-      const currentTarget = this.notifyChannel(source)?.target() ?? null;
-      const expectedActor = this.imExpectedActor(source);
+      const currentTarget = this.imEntries.target(source);
+      const expectedActor = this.imEntries.entry(source)?.expectedActor() ?? null;
       for (const sp of this.store.listActiveStandingPermissions()) {
         if (sp.channel !== source) continue;
         const alive = currentTarget !== null && sameTarget(currentTarget, sp.pinnedTarget) && sp.actor === expectedActor;
@@ -1103,8 +998,8 @@ export class Runtime {
       if (!sp) return null;
       // 入口代次：钉版目标与当前完全一致（含配置版本），actor 仍是当前绑定拥有者；
       // 引擎内的钉版代次差异由消费事务的固定身份复核拦截（不在此失效）
-      const current = this.notifyChannel(event.source)?.target() ?? null;
-      const alive = current !== null && sameTarget(current, sp.pinnedTarget) && sp.actor === this.imExpectedActor(event.source);
+      const current = this.imEntries.target(event.source);
+      const alive = current !== null && sameTarget(current, sp.pinnedTarget) && sp.actor === (this.imEntries.entry(event.source)?.expectedActor() ?? null);
       if (!alive) {
         this.store.invalidateStandingPermission(sp.id, "entry_changed");
         return null;
@@ -2445,9 +2340,9 @@ export class Runtime {
     // 凭据写失败不恢复旧版本，明确报错
     if (!existing || existing.secret !== input.secret || existing.host !== input.host.toLowerCase() ||
         existing.header !== input.header || existing.purpose !== input.purpose) {
-      this.bumpImGenerationForCredential(input.name);
+      this.imEntries.bumpForCredential(input.name);
       this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope });
-      await this.reconcileImAfterCredential(input.name);
+      await this.imEntries.reconcileAfterCredential(input.name);
     } else {
       this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope });
     }
@@ -2457,44 +2352,10 @@ export class Runtime {
   async removeCredentialBinding(name: string): Promise<boolean> {
     if (!this.credentials.get(name)) return false;
     // 先使引用它的 IM 配置代次失效，再删除凭据；删除失败不恢复旧版本
-    this.bumpImGenerationForCredential(name);
+    this.imEntries.bumpForCredential(name);
     const removed = this.credentials.remove(name);
-    await this.reconcileImAfterCredential(name);
+    await this.imEntries.reconcileAfterCredential(name);
     return removed;
-  }
-
-  /**
-   * 凭据写入前的代次推进（agent-direction issue 08，同步事务部分）：单调递增
-   * 引用该凭据的 IM 配置 configVersion——旧连接、旧入站与旧批准立即失效，
-   * A→B→A 轮换也不恢复旧代次；Telegram 轮询偏移归零。SQLite 与凭据文件没有
-   * 跨文件事务，先保证旧授权失效，不宣称二者原子提交。
-   */
-  private bumpImGenerationForCredential(name: string): void {
-    const qqAffected = this.qqStore.getConfig()?.credentialName === name;
-    const telegramAffected = this.telegramStore.getConfig()?.credentialName === name;
-    if (!qqAffected && !telegramAffected) return;
-    this.store.withTx(() => {
-      if (qqAffected) {
-        const c = this.qqStore.bumpConfigVersion();
-        if (c) this.store.appendEvent({ type: "qq.config_changed", configVersion: c.configVersion, action: "credential_changed" }, {});
-      }
-      if (telegramAffected) {
-        const c = this.telegramStore.bumpConfigVersion();
-        if (c) this.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: "credential_changed" }, {});
-      }
-    });
-  }
-
-  /** 凭据写入后的重连与旧代次授权撤销（读到的是新凭据事实，与磁盘一致）。 */
-  private async reconcileImAfterCredential(name: string): Promise<void> {
-    if (this.qqStore.getConfig()?.credentialName === name) {
-      await this.qqAdapter?.onConfigChanged();
-      await this.reconcileQqPrivate();
-    }
-    if (this.telegramStore.getConfig()?.credentialName === name) {
-      await this.telegram?.onConfigChanged();
-      await this.reconcileTelegram();
-    }
   }
 
   // ---------- MCP 服务配置（issue 16 §2/§6） ----------
@@ -2916,12 +2777,7 @@ export class Runtime {
               target: () => {
                 const taskId = this.drivers.get(session.id)?.currentTaskId;
                 const task = taskId ? this.store.getTask(taskId) : null;
-                const event = task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
-                if (event?.source === QQ_PRIVATE_SOURCE) {
-                  const current = this.notifyChannel(QQ_PRIVATE_SOURCE)?.target() ?? null;
-                  return current && sameTarget(current, event.replyTarget) ? current : null;
-                }
-                return this.notifyChannel()?.target() ?? null;
+                return this.imEntries.notificationTarget(task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null);
               },
               now: this.config.scheduler?.now ?? (() => Date.now()),
             }
@@ -3890,190 +3746,24 @@ export class Runtime {
 
   // ---------- QQ 群聊入口（issue 07；拥有者管理入口） ----------
 
-  /**
-   * 配置/更新 NapCat OneBot 连接（拥有者操作）。端点 ws/wss：ws 仅限回环或
-   * 受控私网地址，跨主机须 wss 受保护传输；非回环端点必须配置 token 凭据
-   * （CredentialStore 绑定，purpose=qq_onebot，host 与端点一致；配置后 scope
-   * 收紧到 qq_onebot 操作）。任何变化递增 configVersion 并即时重建连接。
-   */
-  async qqConfigure(input: {
-    endpoint: string;
-    credential?: string | null;
-    selfId: string;
-    ownerUserId?: string | null;
-    maxReplyChars?: number;
-    expectedVersion?: number;
-  }): Promise<QqConfig> {
+  /** 配置/更新 NapCat OneBot 连接（拥有者操作；校验见 QqAdapter.configure）。 */
+  async qqConfigure(input: Parameters<QqAdapter["configure"]>[0]): Promise<QqConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let endpoint: URL;
-    try {
-      endpoint = new URL(input.endpoint);
-    } catch {
-      throw new RuntimeApiError("invalid_params", `端点不是合法 URL：${input.endpoint}`);
-    }
-    if (endpoint.protocol !== "ws:" && endpoint.protocol !== "wss:") {
-      throw new RuntimeApiError("invalid_params", `端点必须是 ws:// 或 wss://：${input.endpoint}`);
-    }
-    const host = endpoint.hostname.toLowerCase();
-    const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-    const isPrivate =
-      /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.endsWith(".local");
-    if (endpoint.protocol === "ws:" && !isLoopback && !isPrivate) {
-      throw new RuntimeApiError("invalid_params", "ws:// 明文连接仅限回环或受控私网地址；跨主机请使用 wss:// 受保护传输");
-    }
-    if (!/^[1-9]\d{3,19}$/.test(input.selfId) || !Number.isSafeInteger(Number(input.selfId))) {
-      throw new RuntimeApiError("invalid_params", `self_id 必须是 QQ 号数字串：${input.selfId}`);
-    }
-    const previous = this.qqStore.getConfig();
-    const credentialName = input.credential !== undefined ? input.credential : previous?.credentialName ?? null;
-    const ownerUserId = input.ownerUserId !== undefined ? input.ownerUserId : previous?.ownerUserId ?? null;
-    if (ownerUserId !== null && (typeof ownerUserId !== "string" || !/^[1-9]\d{3,19}$/.test(ownerUserId) || !Number.isSafeInteger(Number(ownerUserId)) || ownerUserId === input.selfId)) {
-      throw new RuntimeApiError("invalid_params", "owner_user_id 必须是与登录账号不同的 QQ 号数字串");
-    }
-    if (ownerUserId !== null && !credentialName) {
-      throw new RuntimeApiError("invalid_params", "QQ 私聊入口必须配置 token 凭据");
-    }
-    if (input.maxReplyChars !== undefined && (!Number.isInteger(input.maxReplyChars) || input.maxReplyChars < 100 || input.maxReplyChars > 20000)) {
-      throw new RuntimeApiError("invalid_params", "max_reply_chars 必须是 100–20000 的整数");
-    }
-    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
-      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
-    }
-    if (credentialName) {
-      const cred = this.credentials.get(credentialName);
-      if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${credentialName}`);
-      if (cred.host !== endpoint.host) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 的 host（${cred.host}）与端点 host（${endpoint.host}）不一致`);
-      }
-      if (cred.purpose !== QQ_CREDENTIAL_PURPOSE) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 用途是 ${cred.purpose}，QQ 入口需要 purpose=${QQ_CREDENTIAL_PURPOSE} 的凭据`);
-      }
-      if (cred.header.toLowerCase() !== "authorization") {
-        throw new RuntimeApiError("invalid_params", `QQ 凭据须使用 authorization 头（Bearer）：${credentialName}`);
-      }
-      if (cred.scope && cred.scope.operations !== undefined && !cred.scope.operations.includes(QQ_CREDENTIAL_PURPOSE)) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 已有使用范围（操作 ${cred.scope.operations.join(",")}），与 qq_onebot 冲突；请另建凭据`);
-      }
-      if (cred.scope?.projectId !== undefined) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 已绑定项目范围（QQ 入口凭据不按项目限定）；请另建凭据`);
-      }
-    }
-    if (!isLoopback && !credentialName) {
-      throw new RuntimeApiError("invalid_params", "非回环端点必须配置 token 凭据（credential）");
-    }
-    let config: QqConfig;
-    try {
-      config = this.store.withTx(() => {
-        const c = this.qqStore.upsertConfig({
-          endpoint: endpoint.toString(),
-          credentialName,
-          selfId: input.selfId,
-          ownerUserId,
-          maxReplyChars: input.maxReplyChars,
-          expectedVersion: input.expectedVersion,
-        });
-        this.store.appendEvent({ type: "qq.config_changed", configVersion: c.configVersion, action: "upsert" }, {});
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    // 凭据 scope 收紧到 qq_onebot 操作：通用 http_request 与其他入口不得借用
-    if (config.credentialName) {
-      const cred = this.credentials.get(config.credentialName)!;
-      const ops = cred.scope?.operations;
-      this.credentials.upsert({
-        ...cred,
-        scope: { ...cred.scope, operations: ops ? [...new Set([...ops, QQ_CREDENTIAL_PURPOSE])] : [QQ_CREDENTIAL_PURPOSE] },
-      });
-    }
-    await this.qqAdapter?.onConfigChanged();
-    await this.reconcileQqPrivate();
+    const config = this.qqAdapter.configure(input);
+    await this.imEntries.applyConfig(QQ_PRIVATE_SOURCE);
     return config;
-  }
-
-  /** 配置变化立即撤销私聊旧授权；不能把同一 main 会话中 Telegram 的任务一并取消。 */
-  private async reconcileQqPrivate(): Promise<void> {
-    for (const event of this.store.listInboundByStatus(["registered", "queued"])) {
-      if (event.source !== QQ_PRIVATE_SOURCE) continue;
-      const gate = this.qqPrivateGate(event);
-      if (gate === "run" || gate === "wait") continue;
-      if (event.status === "registered") {
-        this.store.withTx(() => this.store.failRegisteredInbound(event.id));
-      } else if (event.taskId) {
-        const task = this.store.getTask(event.taskId);
-        if (task && (ACTIVE_TASK_STATUSES as readonly string[]).includes(task.status)) {
-          await this.cancelTask(task.id, { reason: gate.drop });
-        }
-      }
-    }
-    this.invalidateImApprovals(QQ_PRIVATE_SOURCE);
-    const main = this.store.getAgentRole("main");
-    if (main) this.kick(main.sessionId);
-    this.scheduler?.kickSender();
-  }
-
-  /** Telegram 配置变化立即撤销旧授权（issue 08，与 QQ 私聊对齐）；不波及同一 main 会话中 QQ 的任务。 */
-  private async reconcileTelegram(): Promise<void> {
-    for (const event of this.store.listInboundByStatus(["registered", "queued"])) {
-      if (event.source !== TELEGRAM_SOURCE) continue;
-      const gate = this.telegramGate(event);
-      if (gate === "run" || gate === "wait") continue;
-      if (event.status === "registered") {
-        this.store.withTx(() => this.store.failRegisteredInbound(event.id));
-      } else if (event.taskId) {
-        const task = this.store.getTask(event.taskId);
-        if (task && (ACTIVE_TASK_STATUSES as readonly string[]).includes(task.status)) {
-          await this.cancelTask(task.id, { reason: gate.drop });
-        }
-      }
-    }
-    this.invalidateImApprovals(TELEGRAM_SOURCE);
-    const main = this.store.getAgentRole("main");
-    if (main) this.kick(main.sessionId);
-    this.scheduler?.kickSender();
   }
 
   /** QQ 入口状态（配置视图 + 运行期连接状态；不含 token 与消息正文）。 */
   qqStatus() {
-    return (
-      this.qqAdapter?.status() ?? {
-        configured: this.qqStore.getConfig() !== null,
-        enabled: false,
-        online: false,
-        // qqDisabled 与未启动区分标注（产品边界 / dev 开发实例两种来源），避免误以为连接异常
-        ...(this.config.qqDisabled ? { disabledByConfig: true } : {}),
-        stateDetail: this.config.qqDisabled
-          ? this.productType === "ruukoto-dev"
-            ? "Coding Agent（ruukoto-dev）不连接消息平台"
-            : "已由启动配置停用（dev 开发实例不连接真实 QQ 通道）"
-          : "适配器未启动",
-      }
-    );
+    return this.qqAdapter.status();
   }
 
   /** 一键停用/启用：停用即断开连接、阻止新接收与后续发送，运行中任务按取消机制收尾。 */
   async qqSetEnabled(enabled: boolean, expectedVersion?: number): Promise<QqConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let config: QqConfig | null;
-    try {
-      config = this.store.withTx(() => {
-        const prev = this.qqStore.getConfig();
-        const c = this.qqStore.setEnabled(enabled, expectedVersion);
-        // 同值调用不递增版本（无变化），也不产生无变化的配置事件
-        if (c && c.configVersion !== prev?.configVersion) {
-          this.store.appendEvent({ type: "qq.config_changed", configVersion: c.configVersion, action: enabled ? "enabled" : "disabled" }, {});
-        }
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
-    await this.qqAdapter?.onConfigChanged();
-    await this.reconcileQqPrivate();
+    const config = this.qqAdapter.setEnabled(enabled, expectedVersion);
+    await this.imEntries.applyConfig(QQ_PRIVATE_SOURCE);
     return config;
   }
 
@@ -4116,114 +3806,24 @@ export class Runtime {
 
   // ---------- Telegram owner 入口（issue 04；拥有者管理入口） ----------
 
-  /**
-   * 配置/更新 Telegram bot 与固定 owner（拥有者操作）。bot token 经凭据绑定
-   * 引用（purpose=telegram_bot，host 与 API 地址一致；配置后 scope 收紧到
-   * telegram_bot 操作）；API 地址默认官方端点，可指向受控反代（http 仅限回环）。
-   * 任何变化递增 configVersion 并即时重连；旧目标上未发送的操作不改发。
-   */
-  async telegramConfigure(input: {
-    apiBase?: string;
-    credential: string;
-    ownerUserId: string;
-    ownerChatId?: string;
-    expectedVersion?: number;
-  }): Promise<TelegramConfig> {
+  /** 配置/更新 Telegram bot 与固定 owner（拥有者操作；校验见 TelegramAdapter.configure）。 */
+  async telegramConfigure(input: Parameters<TelegramAdapter["configure"]>[0]): Promise<TelegramConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let api: URL;
-    try {
-      api = new URL(input.apiBase ?? TELEGRAM_DEFAULT_API);
-    } catch {
-      throw new RuntimeApiError("invalid_params", `api_base 不是合法 URL：${input.apiBase}`);
-    }
-    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname.toLowerCase());
-    if (api.protocol !== "https:" && !(api.protocol === "http:" && loopback)) {
-      throw new RuntimeApiError("invalid_params", "api_base 必须是 https://（http:// 仅限回环地址）");
-    }
-    const ownerChatId = input.ownerChatId ?? input.ownerUserId;
-    if (!/^\d{1,20}$/.test(input.ownerUserId) || !/^\d{1,20}$/.test(ownerChatId)) {
-      throw new RuntimeApiError("invalid_params", "user_id / chat_id 必须是数字串（私聊的 chat_id 即 owner 的 user_id）");
-    }
-    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
-      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
-    }
-    const cred = this.credentials.get(input.credential);
-    if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${input.credential}`);
-    if (cred.purpose !== TELEGRAM_CREDENTIAL_PURPOSE) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 用途是 ${cred.purpose}，Telegram 入口需要 purpose=${TELEGRAM_CREDENTIAL_PURPOSE} 的凭据`);
-    }
-    if (cred.host !== api.host.toLowerCase()) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的 host（${cred.host}）与 API 地址 host（${api.host}）不一致`);
-    }
-    if (!/^\d+:[\w-]+$/.test(cred.secret)) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的值不是 bot token 格式（<数字>:<密钥>）`);
-    }
-    if (cred.scope?.projectId !== undefined || (cred.scope?.operations !== undefined && !cred.scope.operations.includes(TELEGRAM_CREDENTIAL_PURPOSE))) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已有其他使用范围，与 telegram_bot 冲突；请另建凭据`);
-    }
-    let config: TelegramConfig;
-    try {
-      config = this.store.withTx(() => {
-        const c = this.telegramStore.upsertConfig({
-          apiBase: api.toString().replace(/\/+$/, ""),
-          credentialName: input.credential,
-          ownerUserId: input.ownerUserId,
-          ownerChatId,
-          expectedVersion: input.expectedVersion,
-        });
-        this.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: "upsert" });
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    // scope 收紧：通用 http_request 与其他入口不得借用 bot token
-    this.credentials.upsert({ ...cred, scope: { operations: [TELEGRAM_CREDENTIAL_PURPOSE] } });
-    await this.telegram?.onConfigChanged();
-    await this.reconcileTelegram();
+    const config = this.telegram.configure(input);
+    await this.imEntries.applyConfig(TELEGRAM_SOURCE);
     return config;
   }
 
   /** Telegram 入口状态（配置视图 + 轮询状态；不含 token 与消息正文）。 */
   telegramStatus(): Record<string, unknown> {
-    if (this.telegram) return this.telegram.status();
-    return {
-      configured: this.telegramStore.getConfig() !== null,
-      enabled: false,
-      online: false,
-      ...(this.config.telegramDisabled
-        ? {
-            disabledByConfig: true,
-            stateDetail:
-              this.productType === "ruukoto-dev"
-                ? "Coding Agent（ruukoto-dev）不连接消息平台"
-                : "已由启动配置停用（dev 开发实例不连接真实 Telegram）",
-          }
-        : {}),
-    };
+    return this.telegram.status();
   }
 
   /** 一键启停：停用即停止轮询；未发送的 owner 回复与通知因目标停用而取消（不改发）。 */
   async telegramSetEnabled(enabled: boolean, expectedVersion?: number): Promise<TelegramConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let config: TelegramConfig | null;
-    try {
-      config = this.store.withTx(() => {
-        const prev = this.telegramStore.getConfig();
-        const c = this.telegramStore.setEnabled(enabled, expectedVersion);
-        if (c && c.configVersion !== prev?.configVersion) {
-          this.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: enabled ? "enabled" : "disabled" });
-        }
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    if (!config) throw new RuntimeApiError("not_found", "Telegram 入口未配置（先 telegram_configure）");
-    await this.telegram?.onConfigChanged();
-    await this.reconcileTelegram();
+    const config = this.telegram.setEnabled(enabled, expectedVersion);
+    await this.imEntries.applyConfig(TELEGRAM_SOURCE);
     return config;
   }
 
@@ -4248,7 +3848,7 @@ export class Runtime {
     // 之后编排器等待派发链，关闭数据库前不再有发送回调写库
     await this.scheduler?.stop().catch(() => {});
     // Telegram 轮询停止（issue 04）：之后不再登记入站事件、不再写轮询偏移
-    await this.telegram?.stop().catch(() => {});
+    await this.telegram.stop().catch(() => {});
     // 编排器先行停止：停超时巡检，停止路径不再产生新的取消/唤醒
     if (this.orchestrator) {
       await this.orchestrator.stop().catch(() => {});
@@ -4257,10 +3857,7 @@ export class Runtime {
 
     // QQ 适配器先行停止：断开 NapCat 连接、停止接收新事件（在途任务由下方
     // 统一中断路径收尾；未发送回复保留 pending 事实，不在停止路径补发）
-    if (this.qqAdapter) {
-      await this.qqAdapter.stop().catch(() => {});
-      this.qqAdapter = null;
-    }
+    await this.qqAdapter.stop().catch(() => {});
 
     // 中断活动任务（queued 保留）；requestStop 内部完成终态、占用与事件
     const active = this.store.listTasksByStatus(ACTIVE_TASK_STATUSES.filter((s) => s !== "queued"));

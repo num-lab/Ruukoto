@@ -14,7 +14,7 @@
  * - 汇总前核实副本与原工作区状态：副本被替换/删除明确拒绝；忙碌拒绝；
  *   Agent 复用承接新工作后，按工作 id 汇总的仍只是该工作的产出；
  * - main 的修改委派转通用链路（mode=modify + subagent_integrate）跑通；
- *   固定 coding 角色会话仍拒绝 modify；
+ *   旧 coding 角色会话的任务不能作为委派父任务；
  * - 边界：直接写入目标无副本（如实告知）、无差异为 empty、只读工作拒绝。
  */
 
@@ -31,6 +31,7 @@ import {
   waitFor,
 } from "./helpers/testkit.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
+import { completeCodingChild, seedCodingChild, seedCodingRole } from "./helpers/legacy-coding.ts";
 import { ViewState } from "../src/tui/state.ts";
 import { subagentOpCheck } from "../src/runtime/subagents.ts";
 
@@ -344,7 +345,7 @@ test("复用隔离与状态核实：按工作 id 汇总的只是该工作产出�
   }
 });
 
-test("main 经通用修改委派跑通（mode=modify + integrate）；固定 coding 角色会话仍拒绝 modify", async () => {
+test("main 经通用修改委派跑通（mode=modify + integrate）；旧 coding 角色会话的任务不能发起 modify", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
     if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("PATCH-MAIN")) {
@@ -357,7 +358,6 @@ test("main 经通用修改委派跑通（mode=modify + integrate）；固定 cod
   try {
     const rt = t.runtime;
     const main = rt.store.getAgentRole("main")!;
-    const coding = rt.store.getAgentRole("coding")!;
     const mainCwd = rt.store.getSession(main.sessionId)!.cwdReal;
     // main 工作区放一份仓库
     fs.mkdirSync(path.join(mainCwd, "src"), { recursive: true });
@@ -372,9 +372,10 @@ test("main 经通用修改委派跑通（mode=modify + integrate）；固定 cod
     assert.equal(rm.state, "applied");
     assert.equal(fs.readFileSync(path.join(mainCwd, "src/a.ts"), "utf8"), "export const v = 151\n", "main 工作区经副本汇总完成修改");
 
-    // 固定 coding 角色会话仍不能发起 modify（旧入口仅迁移期兼容，不经通用链路登记）
-    const cparent = await rt.submit({ sessionId: coding.sessionId, requestId: "pc", input: "开始（coding）", modelSelection: rt.defaultSelection });
-    await waitFor("coding 父完成", () => rt.store.getTask(cparent.id)!.status === "completed");
+    // 旧 coding 角色会话（issue 23 退役，只读归档）的任务不能作为 modify 的父任务
+    const coding = seedCodingRole(rt.store, t.dirs.root);
+    const cparent = seedCodingChild(rt.store, coding.sessionId, { key: "pc", mark: "旧任务" });
+    completeCodingChild(rt.store, cparent.id, "旧结论", "{}");
     await assert.rejects(
       () => rt.subagents!.delegate({ parentTaskId: cparent.id, key: "icd", request: "x", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d7-icd" }),
       /只有普通开发会话或 main|固定角色/,

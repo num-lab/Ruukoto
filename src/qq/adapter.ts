@@ -56,9 +56,6 @@ export interface QqAdapterDeps {
   timeouts?: QqAdapterTimeouts;
 }
 
-/** 任务启动门结论（runQueueLoop 在占用目录前调用）。 */
-export type QqStartGateResult = "run" | "wait" | { drop: string };
-
 /** 入站消息正文字符上限（事件大小校验；超出登记 skipped，不入队）。 */
 const MAX_INBOUND_TEXT_CHARS = 8192;
 
@@ -205,7 +202,7 @@ export class QqAdapter implements NotifyChannel {
   // ---------- 私聊任务启动门（runQueueLoop 对私聊来源事件调用） ----------
 
   /** 私聊来源钉住接收时的 owner 与配置版本；离线待恢复，配置变化不改发。 */
-  gatePrivate(event: InboundEvent): QqStartGateResult {
+  gatePrivate(event: InboundEvent): "run" | "wait" | { drop: string } {
     const target = this.target();
     if (!target || !sameTarget(target, event.replyTarget) || event.source !== QQ_PRIVATE_SOURCE || event.actor !== `${QQ_PRIVATE_SOURCE}:${target.chatId}`) {
       return { drop: "qq_private_target_changed:QQ 私聊入口已停用或固定身份发生变化" };
@@ -347,7 +344,6 @@ export class QqAdapter implements NotifyChannel {
       /** 历史值（核心群聊已退役，issue 20）：只读展示，不再有写入口。 */
       groups: config?.groups ?? [],
       maxReplyChars: config?.maxReplyChars ?? null,
-      queueTtlMs: config?.queueTtlMs ?? null,
       configVersion: config?.configVersion ?? 0,
       online: this.client?.online ?? false,
       actualSelfId: this.client?.selfId ?? null,
@@ -362,40 +358,4 @@ export class QqAdapter implements NotifyChannel {
       })),
     };
   }
-}
-
-/**
- * 撤回消息的上下文过滤（Driver 在每次模型调用前执行）：移出带撤回标记的
- * user 消息及其后的 assistant 回复（QQ 任务无工具调用，无配对约束问题）。
- * 只改模型视图，不改写历史原文。
- *
- * 核心群聊退役后不再有新群任务运行；本函数与 Driver 的 qq_group 分支一并
- * 留给 issue 23 清理。
- */
-export function filterRecalledQqMessages(messages: any[], recalledTags: Set<string>): any[] {
-  if (recalledTags.size === 0) return messages;
-  const textOf = (m: any): string => {
-    const content = m?.content;
-    if (typeof content === "string") return content;
-    if (Array.isArray(content)) {
-      return content.map((c: any) => (c?.type === "text" && typeof c.text === "string" ? c.text : "")).join("");
-    }
-    return "";
-  };
-  const out: any[] = [];
-  let skipping = false;
-  for (const m of messages) {
-    if (m?.role === "user") {
-      skipping = false;
-      const text = textOf(m);
-      for (const tag of recalledTags) {
-        if (text.startsWith(tag)) {
-          skipping = true;
-          break;
-        }
-      }
-    }
-    if (!skipping) out.push(m);
-  }
-  return out;
 }

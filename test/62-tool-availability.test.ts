@@ -1,7 +1,7 @@
 /**
  * 架构工单 03：工具可用性（纯函数，不起 Runtime）。
  *
- * - 会话类别：QQ 群按会话 kind 归入 chat（不依赖角色绑定），角色会话按绑定，其余为普通开发会话；
+ * - 会话类别：main 角色按绑定，其余为普通开发会话；已退役的 QQ 群、chat/coding 角色会话不归任何类别；
  * - 会话类别 × 工具类别的完整矩阵（新工具族默认不可见，「仅 main」只靠清单）；
  * - 本任务允许的工具：计划模式、宿主按任务收窄、关闭的 Web Search 及其组合，拒绝原因。
  */
@@ -11,12 +11,12 @@ import assert from "node:assert/strict";
 import type { ToolCategory } from "../src/core/types.ts";
 import { allowsCategory, sessionToolClass, taskToolSet, type SessionToolClass } from "../src/agent/tool-availability.ts";
 
-test("会话类别：QQ 群无论有无角色绑定都归 chat，角色会话按绑定，其余为普通开发会话", () => {
-  assert.equal(sessionToolClass("qq_group", null), "chat", "qq_sessions 联表查不到角色也不按普通开发会话放行");
-  assert.equal(sessionToolClass("qq_group", "chat"), "chat");
+test("会话类别：main 按绑定，其余为普通开发会话；退役归档（QQ 群、chat/coding 角色）不归任何类别", () => {
+  assert.equal(sessionToolClass("qq_group", null), null, "qq_sessions 联表查不到角色也不按普通开发会话放行");
+  assert.equal(sessionToolClass("qq_group", "chat"), null);
   assert.equal(sessionToolClass("dev", "main"), "main");
-  assert.equal(sessionToolClass("dev", "coding"), "coding");
-  assert.equal(sessionToolClass("dev", "chat"), "chat");
+  assert.equal(sessionToolClass("dev", "coding"), null);
+  assert.equal(sessionToolClass("dev", "chat"), null);
   assert.equal(sessionToolClass("dev", null), "dev");
 });
 
@@ -26,9 +26,7 @@ test("会话类别 × 工具类别：每个会话类别只开放清单内的类�
     dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent"],
     // service（agent-direction issue 09）：仅 main；装配另要求产品/Linux/显式部署配置
     main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"],
-    coding: ["coding", "host_data", "web_search", "mcp", "skills"],
     subagent: [],
-    chat: [],
   };
   for (const [cls, open] of Object.entries(expected) as Array<[SessionToolClass, ToolCategory[]]>) {
     assert.deepEqual(categories.filter((c) => allowsCategory(cls, c)), open, cls);

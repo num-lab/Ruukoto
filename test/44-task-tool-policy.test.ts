@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import type { DriverDeps } from "../src/agent/driver.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
-import { lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
+import { createProjectSession, lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普通任务恢复同一 SDK 的全部工具", async () => {
   const mcp = await startMockMcp({ tools: [
@@ -32,11 +32,11 @@ test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普�
     return { kind: "tool_calls", calls: [{ id: "mark", name: "mock_mark", arguments: { path: marker, content: "owner" } }] };
   });
   try {
-    const role = t.runtime.store.getAgentRole("coding")!;
-    const session = t.runtime.store.getSession(role.sessionId)!;
-    marker = path.join(role.workDir, "owner-marker");
+    const { sessionId, projectId } = await createProjectSession(t.client, t.work[0]!);
+    const session = t.runtime.store.getSession(sessionId)!;
+    marker = path.join(session.cwdReal, "owner-marker");
     await t.client.request("mcp_configure", {
-      project_id: role.projectId,
+      project_id: projectId,
       name: "policy",
       endpoint: mcp.url,
       tool_allowlist: ["get", { name: "write", effect: "write" }, { name: "unknown", effect: "unknown" }],

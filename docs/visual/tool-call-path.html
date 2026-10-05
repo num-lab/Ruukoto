@@ -123,7 +123,7 @@
           <rect class="zone-r" x="322" y="200" width="320" height="210" rx="10"/>
           <text class="zone-t" x="334" y="220">宿主工具 · 身份由宿主注入</text>
           <g class="n run" data-k="d-host"><rect x="336" y="232" width="292" height="48" rx="8"/><text x="482" y="248">直接执行</text><text class="sub" x="482" y="266">资料与记忆 · Web Search · 技能 · 工作清单</text></g>
-          <g class="n run" data-k="d-host"><rect x="336" y="290" width="292" height="48" rx="8"/><text x="482" y="306">委派与群结果</text><text class="sub" x="482" y="324">coding 委派 · SubAgent · 群结果接收</text></g>
+          <g class="n run" data-k="d-host"><rect x="336" y="290" width="292" height="48" rx="8"/><text x="482" y="306">委派与群结果</text><text class="sub" x="482" y="324">旧 coding 结果 · SubAgent · 群结果接收</text></g>
           <g class="n wait" data-k="d-host"><rect x="336" y="348" width="292" height="48" rx="8"/><text x="482" y="364">带审批的族</text><text class="sub" x="482" y="382">应用数据 · 调度与通知 · 服务管理</text></g>
 
           <rect class="zone-r" x="658" y="200" width="220" height="210" rx="10"/>
@@ -221,31 +221,31 @@
 
   <section id="availability">
     <h2>可用性：会话类别定清单，任务再收窄</h2>
-    <p>「这个会话、这个任务能用哪些工具」只有一个答案来源：<code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>，一张会话类别 → 工具类别的静态表。会话类别由驱动器判定（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>）：绑定了 SubAgent 的子会话是 <code>subagent</code>；QQ 群会话是 <code>chat</code>；角色会话按宿主绑定（main / coding / chat，属旧架构的逻辑角色，新方向会迁移）；其余是普通开发会话 <code>dev</code>。新工具族默认对所有会话不可见，写进哪份清单才出现。</p>
+    <p>「这个会话、这个任务能用哪些工具」只有一个答案来源：<code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>，一张会话类别 → 工具类别的静态表。会话类别（<code class="src" data-src="src/agent/tool-availability.ts#export type SessionToolClass">SessionToolClass</code>）由驱动器判定（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>）：绑定了 SubAgent 的子会话是 <code>subagent</code>；main 角色会话是 <code>main</code>（旧架构的逻辑角色）；其余是普通开发会话 <code>dev</code>。QQ 群会话与 chat、coding 角色会话已退役，是只读归档，不归任何类别（<code class="src" data-src="src/agent/tool-availability.ts#export function sessionToolClass">sessionToolClass</code> 返回 null）：提交入口与队列兜底先行拒绝，驱动器被要求运行这类会话时直接报错。新工具族默认对所有会话不可见，写进哪份清单才出现。</p>
 
     <div class="scroll">
       <table class="tbl wrap">
-        <thead><tr><th>工具类别（<code class="src" data-src="src/core/types.ts#export type ToolCategory">ToolCategory</code>）</th><th>工具</th><th>dev</th><th>main</th><th>coding</th><th>chat · QQ 群</th><th>subagent</th></tr></thead>
+        <thead><tr><th>工具类别（<code class="src" data-src="src/core/types.ts#export type ToolCategory">ToolCategory</code>）</th><th>工具</th><th>dev</th><th>main</th><th>subagent</th></tr></thead>
         <tbody>
-          <tr><td><code>coding</code></td><td><code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>request_file_access</code> <code>http_request</code> <code>read_artifact</code>，以及工作清单 <code>todo_write</code></td><td>✓</td><td>—</td><td>✓</td><td>—</td><td>—</td></tr>
-          <tr><td><code>host_data</code></td><td><code>history_search</code> <code>history_read</code> <code>memory_list</code> <code>memory_read</code> <code>memory_save</code> <code>memory_revoke</code></td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
-          <tr><td><code>web_search</code></td><td><code>web_search</code></td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
-          <tr><td><code>mcp</code></td><td>任务开始按项目配置发现的 <code>mcp_&lt;服务&gt;_&lt;工具&gt;</code></td><td>✓</td><td>—</td><td>✓</td><td>—</td><td>—</td></tr>
-          <tr><td><code>app_data</code></td><td><code>app_data_define_table</code> <code>app_data_migrate</code> <code>app_data_query</code> <code>app_data_insert</code> <code>app_data_update</code> <code>app_data_delete</code></td><td>—</td><td>✓ 应用库可用时</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td><code>scheduler</code></td><td><code>schedule_create</code> <code>schedule_query</code> <code>schedule_cancel</code> <code>notification_enqueue</code> <code>notification_query</code> <code>notification_cancel</code></td><td>—</td><td>✓ 仅 ruukoto</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td><code>delegation</code></td><td><code>coding_delegate</code> <code>coding_result</code></td><td>—</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td><code>chat_results</code></td><td><code>chat_result_list</code> <code>chat_result_accept</code></td><td>—</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td><code>service</code></td><td><code>service_inspect</code> <code>service_manage</code></td><td>—</td><td>✓ ruukoto + Linux + 部署配置</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td><code>skills</code></td><td><code>skill</code></td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
-          <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code> <code>subagent_close</code> <code>subagent_cancel</code> <code>subagent_integrate</code></td><td>✓</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
-          <tr><td>静态白名单</td><td><code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code>；修改工作按 <code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>：<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
+          <tr><td><code>coding</code></td><td><code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>request_file_access</code> <code>http_request</code> <code>read_artifact</code>，以及工作清单 <code>todo_write</code></td><td>✓</td><td>—</td><td>—</td></tr>
+          <tr><td><code>host_data</code></td><td><code>history_search</code> <code>history_read</code> <code>memory_list</code> <code>memory_read</code> <code>memory_save</code> <code>memory_revoke</code></td><td>✓</td><td>✓</td><td>—</td></tr>
+          <tr><td><code>web_search</code></td><td><code>web_search</code></td><td>✓</td><td>✓</td><td>—</td></tr>
+          <tr><td><code>mcp</code></td><td>任务开始按项目配置发现的 <code>mcp_&lt;服务&gt;_&lt;工具&gt;</code></td><td>✓</td><td>—</td><td>—</td></tr>
+          <tr><td><code>app_data</code></td><td><code>app_data_define_table</code> <code>app_data_migrate</code> <code>app_data_query</code> <code>app_data_insert</code> <code>app_data_update</code> <code>app_data_delete</code></td><td>—</td><td>✓ 应用库可用时</td><td>—</td></tr>
+          <tr><td><code>scheduler</code></td><td><code>schedule_create</code> <code>schedule_query</code> <code>schedule_cancel</code> <code>notification_enqueue</code> <code>notification_query</code> <code>notification_cancel</code></td><td>—</td><td>✓ 仅 ruukoto</td><td>—</td></tr>
+          <tr><td><code>delegation</code></td><td><code>coding_result</code>（旧 coding 子任务与 SubAgent 执行结果的只读查阅；<code>coding_delegate</code> 已删除）</td><td>—</td><td>✓</td><td>—</td></tr>
+          <tr><td><code>chat_results</code></td><td><code>chat_result_list</code> <code>chat_result_accept</code></td><td>—</td><td>✓</td><td>—</td></tr>
+          <tr><td><code>service</code></td><td><code>service_inspect</code> <code>service_manage</code></td><td>—</td><td>✓ ruukoto + Linux + 部署配置</td><td>—</td></tr>
+          <tr><td><code>skills</code></td><td><code>skill</code></td><td>✓</td><td>✓</td><td>—</td></tr>
+          <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code> <code>subagent_close</code> <code>subagent_cancel</code> <code>subagent_integrate</code></td><td>✓</td><td>✓</td><td>—</td></tr>
+          <tr><td>静态白名单</td><td><code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code>；修改工作按 <code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>：<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
         </tbody>
       </table>
     </div>
     <p>清单含某类别只是装配的前提，各族还有自己的装配条件（<code class="src" data-src="src/agent/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）：</p>
     <ul>
       <li><code>scheduler</code>：调度器只在个人 Agent（ruukoto）启动；ruukoto-dev 不创建调度器，main 的调度与通知工具不装配。</li>
-      <li><code>service</code>：后台构造时要求产品为 ruukoto、平台为 Linux、显式部署配置（helper 与策略路径）齐备，缺一项 <code class="src" data-src="src/runtime/runtime.ts#serviceManager">runtime.ts · serviceManager</code> 就是 null，工具不装配，不会静默放行。普通开发会话、coding、chat 与 ruukoto-dev 都没有这两个工具；main 也不因此拿到 <code>bash</code>。</li>
+      <li><code>service</code>：后台构造时要求产品为 ruukoto、平台为 Linux、显式部署配置（helper 与策略路径）齐备，缺一项 <code class="src" data-src="src/runtime/runtime.ts#serviceManager">runtime.ts · serviceManager</code> 就是 null，工具不装配，不会静默放行。普通开发会话、SubAgent 与 ruukoto-dev 都没有这两个工具；main 也不因此拿到 <code>bash</code>。</li>
       <li><code>subagent</code>：五个工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>），调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝；<code>subagent_close</code> / <code>subagent_cancel</code> / <code>subagent_integrate</code> 没有这道来源门（关闭与取消只收窄能力；汇总只作用于本会话登记的成果），回报唤醒轮次也允许。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
       <li>SubAgent 子会话的清单为空：驱动器只从编码工具里按本任务所属工作挑出静态白名单装配——只读分析工作 <code>read</code>、<code>read_artifact</code>；修改委派的工作额外给 <code>edit</code>、<code>write</code>、<code>bash</code>（装配、发送前与调用门三处经 <code class="src" data-src="src/agent/tool-availability.ts#subAgentToolsFor">subAgentToolsFor</code> 取同一结论，按本任务 <code>work_delegations.write_target</code> 判定）。写任务仍固定 <code>confirm</code>，不给 <code>request_file_access</code>、<code>http_request</code>、MCP 或委派工具，也没有网络；任务的访问模式由宿主固定为 <code>confirm</code>，不能切换。唯一的例外是宿主评审任务（GitHub PR，工单 19）：<code class="src" data-src="src/agent/driver.ts#taskMcp">driver.ts · taskMcp</code> 依赖为真时按本会话项目规划 MCP，收窄为静态白名单 ∪ <code>effect=read</code> 的 MCP（GitHub MCP 配在 main 项目；owner 委派的 SubAgent 拿不到）。</li>
       <li>issue 13 的 <code>subagent_message</code> 由 dev / main 装配（与 <code>subagent_delegate</code> 同一装配链路），SubAgent 子会话另行装配 <code>createSubAgentMessageTool</code>（<code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentTools">subagent-tools.ts</code>；发送方身份由发起任务核实、不接受参数）。<code class="src" data-src="src/agent/driver.ts#if (name === &quot;subagent_message&quot;)">driver.ts · taskToolSet</code> 对 <code>subagent_message</code> 放行：SubAgent 任务里允许向主 Agent 或当前承接本工作的其他 SubAgent 发送；宿主评审任务（GitHub PR，<code>taskMcp</code>）除外——同一收窄不放行（管理器侧同样拒绝评审 SubAgent 收发）。工作内消息的登记、投递与冲刷见<a href="orchestrator.html#subagent-message">编排器 · 协作加入与工作内消息</a>。</li>
@@ -255,7 +255,7 @@
     <p>任务开始时 <code class="src" data-src="src/agent/tool-availability.ts#export function taskToolSet">taskToolSet</code> 算一次本任务允许的工具：已装配的工具（含本任务的 MCP 工具），减去三类收窄。每个任务都从完整注册表重算，宿主对上一个任务的收窄不带进下一个任务。收窄只减不增。</p>
     <ul>
       <li>计划模式：只留 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_TOOL_NAMES">plan-mode.ts · PLAN_TOOL_NAMES</code> 与只读 MCP 工具，今后新增的工具默认不可用。这个名单含 <code>bash</code>、<code>request_file_access</code>、<code>http_request</code>，后两者照常逐次审批。</li>
-      <li>宿主按任务收窄：GitHub 评审 SubAgent 收窄为静态白名单 ∪ 本任务 <code>effect=read</code> 的 MCP（升级前在途的旧 coding 评审子任务仍由 <code class="src" data-src="src/github/events.ts#allowTool">github/events.ts · allowTool</code> 收窄为 <code>read</code>、<code>read_artifact</code> 与只读 MCP）；对应的 main 唤醒任务经 allowTool 只留 <code>subagent_result</code>（迁移期兼容 <code>coding_result</code>）；其余 SubAgent 任务再按本任务的写入目标白名单（<code class="src" data-src="src/agent/tool-availability.ts#subAgentToolsFor">subAgentToolsFor</code>）兜底一次。</li>
+      <li>宿主按任务收窄：GitHub 评审 SubAgent 收窄为静态白名单 ∪ 本任务 <code>effect=read</code> 的 MCP；对应的 main 唤醒任务经 <code class="src" data-src="src/github/events.ts#allowTool">github/events.ts · allowTool</code> 只留 <code>subagent_result</code> 与只读的 <code>coding_result</code>，带 GitHub 来源事件的其他非 SubAgent 任务（评审父任务）一律不放行任何工具；其余 SubAgent 任务再按本任务的写入目标白名单（<code class="src" data-src="src/agent/tool-availability.ts#subAgentToolsFor">subAgentToolsFor</code>）兜底一次。</li>
       <li>项目关闭 Web Search：<code>web_search</code> 不进集合，模型看不到。任务进行中才关闭时，由工具在调用时自行检查并拒绝，这不属于可用性。</li>
     </ul>
     <p>算出的集合在三处共用，结论一致：激活（<code>setActiveToolsByName</code>，决定模型看到哪些工具）；每次模型调用发送前，载荷里的每个工具都必须在集合内，否则以 <code>task_tools_forbidden</code> 阻断发送、中断任务并暂停会话队列（<code class="src" data-src="src/agent/driver.ts#private checkBeforeSend">driver.ts · checkBeforeSend</code>，发送前复核的其余检查见<a href="context-pipeline.html#send">上下文组装</a>）；以及上图的可用性门。</p>
@@ -769,7 +769,7 @@
     </div>
 
     <h3>规则表</h3>
-    <p><code class="src" data-src="src/agent/tool-op-ledger.ts#const RULES">tool-op-ledger.ts · RULES</code> 按静态工具名穷尽登记，漏登记即编译错误；MCP 动态工具与未登记的名字按 approval 判定。编排器的自动重试门也用这张表的「无写入效果」判定（<code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">hasNoWriteEffect</code>）。</p>
+    <p><code class="src" data-src="src/agent/tool-op-ledger.ts#const RULES">tool-op-ledger.ts · RULES</code> 按静态工具名穷尽登记，漏登记即编译错误；MCP 动态工具与未登记的名字按 approval 判定。已删除的 <code>coding_delegate</code> 仍留在表里，只为核实升级前在途的调用。工具路由器判定已发出的调用是否效果未知时也用这张表的「无写入效果」（<code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">hasNoWriteEffect</code>，<code class="src" data-src="src/agent/tool-router.ts#hasNoWriteEffect({ toolName">tool-router.ts</code>）。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>工具族</th><th><code>no_effect</code> 无写入效果</th><th><code>approval</code> 按审批判定</th><th>工具族核实</th></tr></thead>
@@ -781,7 +781,7 @@
           <tr><td>Web Search · 技能 · 工作清单</td><td><code>web_search</code> <code>skill</code> <code>todo_write</code></td><td>—</td><td>—</td></tr>
           <tr><td>应用数据</td><td><code>app_data_query</code></td><td>—</td><td><code>app_data_define_table</code> <code>app_data_migrate</code> <code>app_data_insert</code> <code>app_data_update</code> <code>app_data_delete</code> → 应用库回执</td></tr>
           <tr><td>调度与通知</td><td><code>schedule_query</code> <code>notification_query</code></td><td>—</td><td><code>schedule_create</code> <code>schedule_cancel</code> <code>notification_enqueue</code> <code>notification_cancel</code> → 调度账本</td></tr>
-          <tr><td>委派</td><td><code>coding_result</code></td><td>—</td><td><code>coding_delegate</code> → 旧 coding 子任务；<code>mode=analyze</code> 转按 SubAgent 登记核实</td></tr>
+          <tr><td>委派</td><td><code>coding_result</code></td><td>—</td><td><code>coding_delegate</code>（已删除，只读兼容）→ 旧 coding 子任务；<code>mode=analyze</code> 按 SubAgent 登记核实</td></tr>
           <tr><td>群结果</td><td><code>chat_result_list</code></td><td>—</td><td><code>chat_result_accept</code> → 接收账本</td></tr>
           <tr><td>服务管理</td><td><code>service_inspect</code></td><td><code>service_manage</code></td><td>—</td></tr>
           <tr><td>SubAgent</td><td><code>subagent_result</code></td><td>—</td><td><code>subagent_delegate</code> → 工作、SubAgent、会话与任务关联；<code>subagent_close</code> → <code>sub_agents.closed_at</code>（幂等关闭也以该列为已提交）；<code>subagent_cancel</code> → <code>work_delegations.canceled_at</code>（幂等取消也以该列为已提交）；<code>subagent_message</code> → <code>subagent_messages</code> 行（按（工作, 发送方, 键）核实；发送方由发起任务的 SubAgent 关联推出）；<code>subagent_integrate</code> → <code class="src" data-src="src/core/store.ts#hasIntegratedEvent">work_delegation.integrated</code> 事件（缺事件如实报无法核实，不报「未生效」）</td></tr>

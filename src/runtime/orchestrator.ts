@@ -1,13 +1,13 @@
 /**
- * 后台编排器（issue 01 日常助手）：逻辑角色 main/coding 的引导、持久
- * 入站事件的登记与派发、父子任务结果回传与有界唤醒、子任务超时取消、
- * 重启恢复。核心群聊已退役（agent-direction issue 20）：chat 角色不再引导，
- * 旧安装的 chat 角色行保留为归档标识；已登记的群入站事件由入站门卫弃。
+ * 后台编排器（issue 01 日常助手）：main 角色的引导、持久入站事件的登记与
+ * 派发、子任务结果回传与有界唤醒、子任务超时取消、重启恢复。固定角色已退役：
+ * chat（agent-direction issue 20）与 coding（issue 23）不再引导、不接受新任务，
+ * 旧安装的角色行保留为归档标识；已登记的群入站事件由入站门卫弃，退役前在途
+ * 的旧 coding 子任务经启动收尾与巡检补记一次结果后唤醒 main，不重放。
  *
  * 窄入口：只经 OrchestratorBridge 调用 Runtime 的少量方法；不持有拥有者
- * token，不能审批、改权限、开完全访问或读取其他项目资料。main 的委派工具
- * 只经 delegateCoding 提交受限请求，控制面 ops 不接受编排字段，只有本组件
- * 能创建子任务。
+ * token，不能审批、改权限、开完全访问或读取其他项目资料。委派经通用
+ * SubAgent 管理器（宿主固定评审由本组件直接登记），控制面 ops 不接受编排字段。
  *
  * 角色配置（项目/会话/工作目录/模型/工具白名单）只由本组件在引导时写入
  * agent_roles 表；输入正文、项目指令与模型结果不能修改。
@@ -19,8 +19,6 @@ import type { Store } from "../core/store.ts";
 import type { HistoryEntryView } from "../core/history.ts";
 import { QQ_GROUP_SOURCE, type QqStore } from "../qq/store.ts";
 import {
-  AGENT_ROLE_IDS,
-  normalizeIsoInstant,
   isTerminalTaskStatus,
   type AccessMode,
   type AgentRole,
@@ -32,7 +30,6 @@ import {
   type Task,
 } from "../core/types.ts";
 import { sessionToolCategories } from "../agent/tool-availability.ts";
-import { hasNoWriteEffect } from "../agent/tool-op-ledger.ts";
 import { canonicalParamsDigest } from "../agent/mcp/tools.ts";
 import type { SubAgentDelegateInput, SubAgentDelegation } from "./subagents.ts";
 
@@ -86,7 +83,7 @@ export interface OrchestratorDeps {
   /**
    * 宿主固定评审（agent-direction issue 19）：PR 评审经通用 SubAgent 执行，
    * 编排器直接调用 delegate（hostReview 入参，不经模型工具）。缺省（如未接线）
-   * 时不降级到旧 coding 路径：事件保持 registered，下次派发重试。
+   * 时事件保持 registered，下次派发重试。
    * flushPending（agent-direction issue 13）：SubAgent 执行任务终态与启动恢复
    * 时冲刷待投递的工作内消息（可投递则投递，资格已失记明确未投递结果）。
    */
@@ -99,12 +96,10 @@ export interface OrchestratorDeps {
   resultNotice?(task: Task): string | null;
 }
 
-/** 角色静态定义（各角色的工具类别见 tool-availability 的会话类别清单）。
- *  chat 已退役（issue 20）：不再引导；旧 agent_roles 行保留为归档标识。 */
-const ROLE_DEFINITIONS: Array<{ id: AgentRoleId; projectName: string }> = [
-  { id: "main", projectName: "agent-main" },
-  { id: "coding", projectName: "agent-coding" },
-];
+/** 角色静态定义（工具类别见 tool-availability 的会话类别清单）。
+ *  chat（issue 20）与 coding（agent-direction issue 23）已退役：不再引导；旧
+ *  agent_roles 行保留为归档标识，旧任务与历史经它们查阅。 */
+const ROLE_DEFINITIONS: Array<{ id: "main"; projectName: string }> = [{ id: "main", projectName: "agent-main" }];
 
 /** 委派/事件输入正文上限（登记时截断，超出部分不入库）。 */
 const INPUT_TEXT_CAP = 8192;
@@ -113,47 +108,11 @@ const RESULT_SUMMARY_CAP = 1000;
 /** 超时取消的持久化原因（canceled 事件与启动巡检据此判定 timeout，重启后不丢）。 */
 const DEADLINE_REASON = "deadline_exceeded";
 
-/** coding 委派意图（非只读沙箱）：analyze 读取分析，draft 在工作目录生成修改草稿。 */
-export type DelegationMode = "analyze" | "draft";
-/** 委派 coding 的宿主固定参数：每个父任务的委派上限与子任务时限。 */
-export const DELEGATION_LIMITS = { perParent: 3, deadlineMs: 60 * 60_000 };
-/** 委派正文首行由宿主写入（模式的持久记录；模型正文在其后，不能伪造首行）。 */
-const DELEGATION_HEADER = /^\[委派 coding · (analyze|draft)\]\n/;
-
-/** 委派 coding 的子任务模式（非委派任务为 null）。 */
-export function delegationMode(task: Task): DelegationMode | null {
-  return task.agentId === "coding" ? ((DELEGATION_HEADER.exec(task.input)?.[1] as DelegationMode | undefined) ?? null) : null;
-}
-
-/** 原始委派参数的宿主摘要；正文快照变化不改变同参委派的身份。 */
-export function delegationRequestDigest(task: Task): string | null {
-  if (task.agentId !== "coding") return null;
-  return /^\[委派 coding · (?:analyze|draft)\]\n\[委派参数 SHA-256：([a-f0-9]{64})\]\n/.exec(task.input)?.[1] ?? null;
-}
+/** 宿主固定评审与其结果唤醒的截止时限。 */
+const REVIEW_DEADLINE_MS = 60 * 60_000;
 
 /** 子任务终态口径（completed/failed/timeout/unknown），事件、摘要与唤醒共用。 */
 export type ChildOutcome = "completed" | "failed" | "timeout" | "unknown";
-
-/**
- * 委派 coding 的结构化结果（issue 05，写入 result_ref JSON；保留 sessionId/taskId）。
- * tests 与自报的需要拥有者来自 coding 最终回答末尾的固定格式；其余由宿主按任务事实判定。
- */
-export interface DelegationResult {
-  sessionId: string;
-  taskId: string;
-  mode: DelegationMode;
-  outcome: ChildOutcome;
-  tests: "passed" | "failed" | "not_run" | "unreported";
-  needsOwner: boolean;
-  needsOwnerReason: string | null;
-  effect: "unknown" | "none_unknown";
-  failure: string | null;
-  artifactIds: string[];
-  /** 已自动重试时指向重试子任务（本次结果不再唤醒 main）。 */
-  retriedBy?: string;
-}
-
-const TESTS_TEXT: Record<DelegationResult["tests"], string> = { passed: "通过", failed: "失败", not_run: "未运行", unreported: "未报告" };
 
 const OUTCOME_TEXT: Record<ChildOutcome, string> = {
   completed: "已完成",
@@ -166,33 +125,6 @@ function capInput(text: string): string {
   return text.length > INPUT_TEXT_CAP
     ? `${text.slice(0, INPUT_TEXT_CAP)}…（截断，原 ${text.length} 字符）`
     : text;
-}
-
-function codingInput(parentId: string, mode: DelegationMode, request: string, digest?: string): string {
-  const body = `[委派 coding · ${mode}]\n` +
-    (digest ? `[委派参数 SHA-256：${digest}]\n` : "") +
-    `来自 main 的委派（父任务 ${parentId}）。工作目录由宿主固定为当前会话目录；需要仓库时在此目录内 git clone。\n` +
-    (mode === "analyze" ? "模式 analyze：只做读取、运行与分析，不修改文件。\n" : "模式 draft：可在工作目录内生成修改草稿（不提交、不推送）。\n") +
-    "不得发布到 GitHub 或其他外部服务（评论、PR、推送须拥有者在可信入口确认）。\n" +
-    "结束时最后两行按格式报告：\n测试：通过|失败|未运行\n需要拥有者：是（原因）|否\n" +
-    `---\n${request}`;
-  if (body.length > INPUT_TEXT_CAP) throw new Error(`委派正文（含资料）超过 ${INPUT_TEXT_CAP} 字符，请精简或改用引用`);
-  return body;
-}
-
-/** 一次委派的已核实参数（delegate 校验后经串行链交给 delegateChecked）。 */
-interface DelegateArgs {
-  parentTaskId: string;
-  requestId: string;
-  roleId: AgentRoleId;
-  sessionId: string;
-  modelSelection: ModelSelection;
-  body: string;
-  deadline: string | null;
-  sourceEventId: string | null;
-  requestDigest?: string;
-  /** 父任务内的委派上限（仅 delegateCoding 设置；重复委派同键不计入）。 */
-  maxChildren?: number;
 }
 
 export class Orchestrator {
@@ -320,12 +252,13 @@ export class Orchestrator {
     source: string;
     externalId: string;
     actor?: string | null;
-    targetRole: AgentRoleId;
+    targetRole: "main";
     body: string;
     artifactRefs?: string[];
     replyTarget?: NotifyTarget | null;
   }): Promise<{ event: InboundEvent; created: boolean }> {
-    if (!AGENT_ROLE_IDS.includes(input.targetRole)) throw new Error(`目标角色无效：${input.targetRole}`);
+    // 只有 main 接受新入站（coding/chat 已退役，agent-direction issue 20/23）
+    if (input.targetRole !== "main") throw new Error(`目标角色无效：${input.targetRole}`);
     if (!input.source.trim() || !input.externalId.trim()) throw new Error("入站事件的 source 与 external_id 不能为空");
     const { event, created } = this.store.withTx(() =>
       this.store.registerInboundEvent({
@@ -340,103 +273,6 @@ export class Orchestrator {
     );
     if (created) this.enqueueDispatch();
     return { event, created };
-  }
-
-  /**
-   * 内部委派（issue 01）：只有编排器能创建子任务。幂等键在父任务范围内唯一
-   * （请求键 deleg:<parentTaskId>:<key>）：同一父任务重复委派同参返回同一
-   * 子任务；同键换参数（如更换目标角色，会落到另一角色会话）明确冲突，不
-   * 产生第二个子任务。查重与提交串行执行（跨会话的唯一约束覆盖不到同键）。
-   */
-  async delegate(input: {
-    parentTaskId: string;
-    targetRole: AgentRoleId;
-    input: string;
-    deadline?: string | null;
-    idempotencyKey: string;
-    sourceEventId?: string | null;
-    requestDigest?: string;
-    maxChildren?: number;
-  }): Promise<Task> {
-    const parent = this.store.getTask(input.parentTaskId);
-    if (!parent) throw new Error(`父任务不存在：${input.parentTaskId}`);
-    const role = this.store.getAgentRole(input.targetRole);
-    if (!role) throw new Error(`角色未引导：${input.targetRole}`);
-    if (!input.idempotencyKey.trim()) throw new Error("委派幂等键不能为空");
-    let deadline: string | null = null;
-    if (input.deadline != null) {
-      deadline = normalizeIsoInstant(input.deadline);
-      if (deadline === null) throw new Error(`截止时间无效：${input.deadline}`);
-    }
-    const args: DelegateArgs = {
-      parentTaskId: parent.id,
-      requestId: `deleg:${parent.id}:${input.idempotencyKey}`,
-      roleId: role.id,
-      sessionId: role.sessionId,
-      modelSelection: role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
-      // 跨角色传递只带固定字段：委派正文 + 截止；不复制父任务的会话历史
-      body: capInput(input.input),
-      deadline,
-      sourceEventId: input.sourceEventId ?? null,
-      requestDigest: input.requestDigest,
-      maxChildren: input.maxChildren,
-    };
-    const run = this.dispatchChain.then(() => this.delegateChecked(args));
-    this.dispatchChain = run.then(() => {}, () => {});
-    return run;
-  }
-
-  /**
-   * main 委派 coding（issue 05，coding_delegate 工具的宿主入口）：目标角色、
-   * 工作目录（角色会话）、confirm 模式与截止时间由宿主固定，模型只给正文、
-   * 模式与幂等键。截止时间取父任务开始时刻 + 时限（确定值：同键重试不因
-   * 时间变化而冲突）。
-   */
-  delegateCoding(input: { parentTaskId: string; mode: DelegationMode; request: string; idempotencyKey: string; requestDigest?: string }): Promise<Task> {
-    const parent = this.store.getTask(input.parentTaskId);
-    if (!parent) throw new Error(`父任务不存在：${input.parentTaskId}`);
-    const body = codingInput(parent.id, input.mode, input.request, input.requestDigest);
-    return this.delegate({
-      parentTaskId: parent.id,
-      targetRole: "coding",
-      input: body,
-      deadline: new Date(Date.parse(parent.startedAt ?? parent.createdAt) + DELEGATION_LIMITS.deadlineMs).toISOString(),
-      idempotencyKey: input.idempotencyKey,
-      requestDigest: input.requestDigest,
-      // 不传父任务的来源事件：子任务终态会回写来源事件并触发 owner 回复
-      // （ADR 0011：子任务结果不自动外发）；来源经 parentTaskId 可追溯
-      maxChildren: DELEGATION_LIMITS.perParent,
-    });
-  }
-
-  private async delegateChecked(args: DelegateArgs): Promise<Task> {
-    const existing = this.store.findChildTask(args.parentTaskId, args.requestId);
-    if (existing) {
-      const same =
-        existing.agentId === args.roleId &&
-        (existing.input === args.body || (args.requestDigest !== undefined && delegationRequestDigest(existing) === args.requestDigest)) &&
-        (existing.deadline ?? null) === args.deadline &&
-        (existing.sourceEventId ?? null) === args.sourceEventId;
-      if (!same) {
-        throw new Error(`委派幂等键冲突：${args.requestId} 已绑定参数不同的子任务 ${existing.id}`);
-      }
-      return existing;
-    }
-    if (args.maxChildren !== undefined && this.store.countDelegations(args.parentTaskId) >= args.maxChildren) {
-      throw new Error(`父任务 ${args.parentTaskId} 的委派已达上限 ${args.maxChildren}`);
-    }
-    return this.deps.bridge.submit({
-      sessionId: args.sessionId,
-      requestId: args.requestId,
-      input: args.body,
-      modelSelection: args.modelSelection,
-      agentId: args.roleId,
-      parentTaskId: args.parentTaskId,
-      sourceEventId: args.sourceEventId,
-      deadline: args.deadline,
-      // 子任务一律采用宿主固定的 confirm 模式：不继承目标角色会话的默认模式
-      accessMode: "confirm",
-    });
   }
 
   /** 已登记未建任务的事件串行重提（启动恢复）。 */
@@ -501,32 +337,25 @@ export class Orchestrator {
       const review = this.deps.reviewRequest?.(event);
       if (review !== undefined && review !== null) {
         const main = this.store.getAgentRole("main")!;
-        const deadline = new Date(Date.parse(event.receivedAt) + DELEGATION_LIMITS.deadlineMs).toISOString();
+        const deadline = new Date(Date.parse(event.receivedAt) + REVIEW_DEADLINE_MS).toISOString();
         const parent = this.store.findTaskByRequest(main.sessionId, `evt:${event.id}:main`) ?? await this.deps.bridge.submit({
           sessionId: main.sessionId, requestId: `evt:${event.id}:main`,
           input: `[编排器] 已接纳 review 事件 ${event.id}。宿主负责创建评审 SubAgent；本回合只确认接收，待结果唤醒后再摘要。`,
           modelSelection: main.modelSelection ?? this.deps.bridge.defaultModelSelection(),
           agentId: "main", sourceEventId: event.id, accessMode: "confirm", deadline,
         });
-        // 升级窗口接管（agent-direction issue 19）：升级前已按旧路径建出 coding
-        // 评审子任务的事件沿原子任务收尾，不再新建 SubAgent
-        const legacy = this.store.findChildTask(parent.id, `deleg:${parent.id}:review`);
-        if (legacy) {
-          task = legacy;
-        } else {
-          // 宿主固定评审：每个修订一项新工作、一个新 SubAgent。幂等键按事件，
-          // 参数摘要只含 {kind, eventId}——恢复重提与提示文案变化都命中首次记录；
-          // 准备失败（模型门闩、执行入口）抛错后事件保持 registered，下次派发重试
-          if (!this.deps.subagents) throw new Error("评审 SubAgent 管理器未接线");
-          const delegation = await this.deps.subagents.delegate({
-            parentTaskId: parent.id,
-            key: `ghreview-${event.id}`,
-            request: review,
-            paramsDigest: canonicalParamsDigest({ kind: "ghreview", eventId: event.id }),
-            hostReview: { sourceEventId: event.id },
-          });
-          task = delegation.task;
-        }
+        // 宿主固定评审：每个修订一项新工作、一个新 SubAgent。幂等键按事件，
+        // 参数摘要只含 {kind, eventId}——恢复重提与提示文案变化都命中首次记录；
+        // 准备失败（模型门闩、执行入口）抛错后事件保持 registered，下次派发重试
+        if (!this.deps.subagents) throw new Error("评审 SubAgent 管理器未接线");
+        const delegation = await this.deps.subagents.delegate({
+          parentTaskId: parent.id,
+          key: `ghreview-${event.id}`,
+          request: review,
+          paramsDigest: canonicalParamsDigest({ kind: "ghreview", eventId: event.id }),
+          hostReview: { sourceEventId: event.id },
+        });
+        task = delegation.task;
       } else task = await this.deps.bridge.submit({
         sessionId: role.sessionId,
         requestId: `evt:${event.id}`,
@@ -647,43 +476,8 @@ export class Orchestrator {
     const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
     const reply = replyPage?.text.trim() || null;
     const summary = this.resultSummary(task, outcome, reply);
-    const mode = delegationMode(task);
-    const result = mode ? this.delegationResult(task, mode, outcome, replyPage) : null;
-    if (
-      mode === "analyze" && task.parentTaskId && !task.sourceEventId && task.status === "failed" &&
-      !task.effectUnknown && !task.requestId.endsWith(":retry") &&
-      !this.store.listConfirmationsByTask(task.id).some((c) => c.status === "approved" || c.consumedAt !== null) &&
-      // 仅重试可证明无写入效果的操作（工具操作账本的规则表）；bash、MCP、记忆写入及未知工具一律不猜测副作用
-      this.store.listToolOpsByTask(task.id).every((op) => hasNoWriteEffect(op) && !op.effectUnknown && op.resultSummary !== null)
-    ) {
-      // 先以确定参数建重试，再记录首次结果；崩溃后同键重提只返回原重试。
-      try {
-        const retry = await this.delegate({
-          parentTaskId: task.parentTaskId,
-          targetRole: "coding",
-          input: task.input,
-          idempotencyKey: `${task.requestId.slice(`deleg:${task.parentTaskId}:`.length)}:retry`,
-          deadline: new Date(Date.parse(task.endedAt!) + DELEGATION_LIMITS.deadlineMs).toISOString(),
-        });
-        result!.retriedBy = retry.id;
-      } catch (err) {
-        // 提交可能已落库但应答失败：先按固定键核实，不能另建或提前唤醒。
-        const retry = this.store.findChildTask(task.parentTaskId, `${task.requestId}:retry`);
-        if (retry) {
-          result!.retriedBy = retry.id;
-        } else {
-          result!.needsOwner = true;
-          result!.needsOwnerReason = [result!.needsOwnerReason, `自动重试创建失败：${(err as Error).message}`].filter(Boolean).join("；");
-        }
-      }
-    }
     const resultData = this.deps.resultData?.(task, outcome) ?? {};
-    if (result?.needsOwnerReason && typeof resultData.needsOwnerReason === "string") {
-      resultData.needsOwnerReason = `${result.needsOwnerReason}；${resultData.needsOwnerReason}`;
-    }
-    // 宿主保存的交付产物也进入现有结果清单。
-    if (result) result.artifactIds = this.store.listArtifactsByTask(task.id).filter((a) => !a.name.startsWith("prompt-snapshot:")).map((a) => a.id);
-    const resultRef = JSON.stringify({ ...(result ?? { sessionId: task.sessionId, taskId: task.id }), ...resultData });
+    const resultRef = JSON.stringify({ sessionId: task.sessionId, taskId: task.id, outcome, ...resultData });
     // 结果一次写入：重复回传（监听与巡检竞争、重启后重扫）只有第一个生效
     const recorded = this.store.withTx(() => {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
@@ -730,7 +524,7 @@ export class Orchestrator {
       }
       return true;
     });
-    if (recorded && task.parentTaskId && !result?.retriedBy) {
+    if (recorded && task.parentTaskId) {
       await this.wakeParent(task, outcome, summary);
     }
   }
@@ -874,45 +668,6 @@ export class Orchestrator {
     }
   }
 
-  private delegationResult(task: Task, mode: DelegationMode, outcome: ChildOutcome, firstPage: HistoryEntryView | null): DelegationResult {
-    let tests: string | undefined;
-    let selfOwner: RegExpMatchArray | undefined;
-    let pending = "";
-    // 先拼齐跨页的行，再取最后一次自报；长原因不能把字段名挤出固定尾窗。
-    for (let page = firstPage; page;) {
-      const end = page.offset + Buffer.byteLength(page.text);
-      pending += page.text;
-      const boundary = end >= page.totalBytes ? pending.length : pending.lastIndexOf("\n") + 1;
-      const complete = pending.slice(0, boundary);
-      const lastMatch = (re: RegExp) => [...complete.matchAll(re)].at(-1);
-      tests = lastMatch(/^测试：\s*(通过|失败|未运行)/gm)?.[1] ?? tests;
-      selfOwner = lastMatch(/^需要拥有者：[ \t]*(是|否)[ \t]*(?:[（(]([^）)\n]*)[）)])?/gm) ?? selfOwner;
-      pending = pending.slice(boundary);
-      if (end >= page.totalBytes || !page.text) break;
-      page = this.deps.bridge.readTaskReply(task.id, end, 64 * 1024);
-    }
-    const reasons = [
-      outcome === "unknown" ? "后台中断，结果未知，需要核实" : null,
-      task.effectUnknown ? "存在效果未知的操作" : null,
-      // 未答复即失效的才算未处理；获批后复核或消费失败而失效的（有决定来源）不算
-      this.store.listConfirmationsByTask(task.id).some((c) => c.status === "pending" || (c.status === "stale" && c.decisionSource === null)) ? "有未处理的审批请求" : null,
-      selfOwner?.[1] === "是" ? `coding 自报：${selfOwner[2]?.trim().slice(0, RESULT_SUMMARY_CAP) || "需要拥有者"}` : null,
-    ].filter((r): r is string => r !== null);
-    return {
-      sessionId: task.sessionId,
-      taskId: task.id,
-      mode,
-      outcome,
-      tests: tests === "通过" ? "passed" : tests === "失败" ? "failed" : tests === "未运行" ? "not_run" : "unreported",
-      needsOwner: reasons.length > 0,
-      needsOwnerReason: reasons.length > 0 ? reasons.join("；") : null,
-      effect: task.effectUnknown ? "unknown" : "none_unknown",
-      failure: outcome === "completed" ? null : (task.errorMessage ?? task.interruptReason ?? OUTCOME_TEXT[outcome]),
-      // 模型上下文快照（prompt-snapshot:*）是宿主诊断记录，不是 coding 的产物
-      artifactIds: this.store.listArtifactsByTask(task.id).filter((a) => !a.name.startsWith("prompt-snapshot:")).map((a) => a.id),
-    };
-  }
-
   /**
    * main 的有界唤醒输入：固定模板 + 截断摘要（上限 RESULT_SUMMARY_CAP），
    * 只带固定字段与结果引用，不复制子任务完整历史；请求键 wake:<childId>
@@ -924,28 +679,19 @@ export class Orchestrator {
     if (!parent) return;
     const parentRole = this.store.getAgentRoleBySession(parent.sessionId);
     if (!parentRole) return;
-    const recorded = this.store.getTask(child.id) ?? child;
-    const result = delegationMode(recorded) && recorded.resultRef ? (JSON.parse(recorded.resultRef) as DelegationResult) : null;
     const source = child.sourceEventId ? this.store.getInboundEvent(child.sourceEventId) : null;
     const reviewSource = source && this.deps.reviewRequest?.(source) ? source : null;
     const notice = this.deps.resultNotice?.(child);
-    const input = result
-      ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
-        `子任务：${child.id}（角色 coding · 模式 ${result.mode}${child.requestId.endsWith(":retry") ? " · 自动重试后" : ""}）\n` +
-        `摘要：${summary}\n` +
-        `测试：${TESTS_TEXT[result.tests]}（coding 自报） · 需要拥有者：${result.needsOwner ? `是（${result.needsOwnerReason?.slice(0, 300)}）` : "否"} · ` +
-        `效果未知：${result.effect === "unknown" ? "是" : "否"}${result.failure ? ` · 失败原因：${result.failure.slice(0, 300)}` : ""}\n` +
-        `产物：${result.artifactIds.length > 0 ? result.artifactIds.slice(0, 20).join(", ") : "无"}\n` +
-        `完整结果：用 coding_result 读取（task_id ${child.id}；part=reply 分页读最终回答，part=artifact 读产物）`
-      : child.subAgentId
+    const input = child.subAgentId
         ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
           `子任务：${child.id}（SubAgent ${child.subAgentId} · 工作 ${child.workId}）\n` +
           `摘要：${summary}\n` +
           `完整结果：用 subagent_result 按 work_id ${child.workId} 读取（part=reply 分页读最终回答，part=artifact 读产物）`
+        // 旧 coding 子任务（agent-direction issue 23 退役前在途，启动收尾后补记一次）
         : `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
           `子任务：${child.id}（角色 ${child.agentId}）\n` +
           `摘要：${summary}\n` +
-          `完整结果：session ${child.sessionId} task ${child.id}（经 get_task / read_history 查询）`;
+          `完整结果：用 coding_result 读取（task_id ${child.id}；part=reply 分页读最终回答，part=artifact 读产物）`;
     try {
       await this.deps.bridge.submit({
         sessionId: parent.sessionId,
@@ -955,7 +701,7 @@ export class Orchestrator {
         agentId: parentRole.id,
         // 入站 review 的摘要保留宿主来源；普通 owner 委派仍无自动外发授权。
         sourceEventId: reviewSource?.id ?? null,
-        deadline: reviewSource ? new Date(Date.parse(child.endedAt!) + DELEGATION_LIMITS.deadlineMs).toISOString() : null,
+        deadline: reviewSource ? new Date(Date.parse(child.endedAt!) + REVIEW_DEADLINE_MS).toISOString() : null,
         // 子任务结果属于外部内容，不能继承 main 会话默认的完全访问。
         accessMode: "confirm",
       });

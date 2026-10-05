@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS qq_config (
   groups TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 0,
   max_reply_chars INTEGER NOT NULL DEFAULT 1500,
-  queue_ttl_ms INTEGER NOT NULL DEFAULT 300000,
+  queue_ttl_ms INTEGER NOT NULL DEFAULT 300000, -- 群聊退役后无读取方（issue 23），列保留不迁移
   config_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

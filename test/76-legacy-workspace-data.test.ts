@@ -49,6 +49,7 @@ import type { MigrationPreview } from "../src/runtime/workspace-migration.ts";
 import { ViewState } from "../src/tui/state.ts";
 import type { PersistentEvent, Project, Session } from "../src/core/types.ts";
 import { startTestRuntime, createProjectSession, waitFor, realTools, lastUserText, type TestRuntime } from "./helpers/testkit.ts";
+import { seedCodingRole } from "./helpers/legacy-coding.ts";
 import { previewWorkspaceMigration, applyWorkspaceMigration } from "../src/runtime/workspace-migration.ts";
 
 // ---------- v20 → v21 迁移 ----------
@@ -1333,6 +1334,7 @@ test("角色绑定变化使预览修订过期（角色绑定是修订输入）",
   const t = await startTestRuntime("ws76-role-stale", async () => ({ kind: "text", text: "x" }));
   try {
     const { projectId, sessionId: s1 } = await createProjectSession(t.client, t.work[0]!, { projectName: "角色过期项目" });
+    seedCodingRole(t.runtime.store, t.dirs.root); // 旧安装保留的 coding 角色行（issue 23 起不再引导）
     const plan: MigrationPreview["plan"] = { action: "claim_source", root: fs.realpathSync(t.work[0]!) };
     const before = await preview(t, projectId, { plan });
     assert.ok(before.revision, `初始修订：${before.plan_errors.join(";")}`);

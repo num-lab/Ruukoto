@@ -15,6 +15,7 @@ import { cleanupDirs, connectAuthedClient, lastUserText, makeTestDirs, realTools
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
+import { seedInboxRow, seedPendingOutbox } from "./helpers/legacy-group-archive.ts";
 
 const OWNER = "880001";
 const OTHER = "880002";
@@ -129,7 +130,7 @@ test("QQ owner 私聊复用 main、固定 confirm、先登记且去重；群与�
   }
 });
 
-test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权限或批准 coding 操作", async () => {
+test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权限或批准开发会话操作", async () => {
   let outside = "";
   let confirmationId = "";
   let mainId = "";
@@ -161,9 +162,11 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
     await owner.request("qq_configure", { endpoint: h.onebot.url, self_id: MOCK_QQ_ACCOUNT, credential: "qq-test", owner_user_id: OWNER });
     await owner.request("qq_set_enabled", { enabled: true });
     await waitOnline(rt);
-    const coding = rt.store.getAgentRole("coding")!;
-    const task = await rt.submit({ sessionId: coding.sessionId, requestId: "approval", input: "CODING-APPROVAL", accessMode: "confirm", modelSelection: rt.defaultSelection });
-    await waitFor("coding 操作等待真实审批", () => {
+    const devDir = path.join(h.dirs.root, "dev-work");
+    fs.mkdirSync(devDir, { recursive: true });
+    const dev = await rt.createSession({ projectName: "dev", cwd: devDir });
+    const task = await rt.submit({ sessionId: dev.id, requestId: "approval", input: "CODING-APPROVAL", accessMode: "confirm", modelSelection: rt.defaultSelection });
+    await waitFor("开发会话操作等待真实审批", () => {
       confirmationId = rt.getTaskDetail(task.id)?.confirmations.find((item) => item.status === "pending")?.id ?? "";
       return confirmationId !== "";
     });
@@ -465,43 +468,6 @@ test("重启恢复已登记未建任务；补登只取原任务回答；sending 
   }
 });
 
-test("QQ owner main 可调用 coding_delegate，子任务固定 confirm，结果唤醒不自动回发 QQ", async () => {
-  const h = await harness("qq-private-coding", async (req) => {
-    const text = lastUserText(req);
-    if (text.startsWith("[委派 coding")) return { kind: "text", text: "CODING-DONE\n测试：通过\n需要拥有者：否" };
-    if (text.startsWith("[编排器]")) return { kind: "text", text: "WAKE-DONE" };
-    if (req.messages.at(-1)?.role === "tool") return { kind: "text", text: "已委派 coding" };
-    // analyze 自 issue 11 起转通用只读链路；本子任务链（confirm 固定、不自动回发）
-    // 的既有语义走旧 coding 的 draft 路径
-    return { kind: "tool_calls", calls: [{ id: "qq-delegate", name: "coding_delegate", arguments: { request: "生成仓库修改草稿", mode: "draft", key: "qq-code" } }] };
-  });
-  const rt = await Runtime.start(h.config);
-  try {
-    await configure(rt, h.onebot);
-    await waitOnline(rt);
-    push(h.onebot, 1, "请分析仓库");
-    const main = rt.store.getAgentRole("main")!;
-    const coding = rt.store.getAgentRole("coding")!;
-    await waitFor("QQ 发起的 coding 子任务完成", () => rt.store.listTasksBySession(coding.sessionId).some((task) => task.status === "completed"));
-    const child = rt.store.listTasksBySession(coding.sessionId)[0]!;
-    const parent = rt.store.getTask(child.parentTaskId!)!;
-    assert.equal(rt.store.getInboundEvent(parent.sourceEventId!)!.source, "qq_private");
-    assert.equal(child.accessMode, "confirm");
-    assert.equal(child.agentId, "coding");
-    assert.deepEqual(child.grantedPaths, []);
-    await waitFor("子任务结果唤醒完成", () => rt.store.findTaskByRequest(main.sessionId, `wake:${child.id}`)?.status === "completed");
-    await waitFor("QQ 原任务已回复", () => replyOps(rt).some((op) => op.status === "sent"));
-    await rt.scheduler!.tick();
-    assert.equal(replyOps(rt).length, 1);
-    assert.equal(replyOps(rt)[0]!.taskId, parent.id);
-    assert.equal(replyOps(rt)[0]!.text, "已委派 coding");
-    assert.equal(sends(h.onebot).length, 1, "唤醒回答不外发");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
 test("schema v14 → v15 保留群配置与收发记录，owner 和已有入站目标默认 null", async () => {
   const { dirs } = await makeTestDirs("qq-private-migrate", 0);
   try {
@@ -511,9 +477,9 @@ test("schema v14 → v15 保留群配置与收发记录，owner 和已有入站�
     // 历史群允许列表按旧形态直接写入（写入口已随核心群聊退役删除，issue 20）
     db.prepare("UPDATE qq_config SET groups = ? WHERE id = 1").run(JSON.stringify([GROUP]));
     qq.setEnabled(true);
-    qq.registerInbox({ account: MOCK_QQ_ACCOUNT, groupId: GROUP, userId: OWNER, senderName: "owner", messageId: "1", text: "群历史", taskInput: "群历史", messageTime: null });
-    qq.createPendingOutbox({ taskId: "old-group-task", account: MOCK_QQ_ACCOUNT, groupId: GROUP, replyToMessageId: "1", text: "原群回复" });
     const store = new Store(db);
+    seedInboxRow(store, qq, { account: MOCK_QQ_ACCOUNT, groupId: GROUP, userId: OWNER, senderName: "owner", messageId: "1", text: "群历史", taskInput: "群历史", messageTime: null });
+    seedPendingOutbox(store, qq, { taskId: "old-group-task", account: MOCK_QQ_ACCOUNT, groupId: GROUP, replyToMessageId: "1", text: "原群回复" });
     const { event } = store.registerInboundEvent({ source: "scheduler", externalId: "old-event", actor: null, targetRole: "main", body: "原入站" });
     db.exec("ALTER TABLE qq_config DROP COLUMN owner_user_id; ALTER TABLE inbound_events DROP COLUMN reply_target; UPDATE meta SET value = '14' WHERE key = 'schema_version'");
     db.close();

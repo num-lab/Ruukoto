@@ -40,6 +40,7 @@ import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 import { legacyGroupArchive, seedAcceptedResult } from "./helpers/legacy-group-archive.ts";
+import { seedCodingRole } from "./helpers/legacy-coding.ts";
 
 const GROUP = "100001";
 const GROUP_B = "100002";
@@ -52,7 +53,7 @@ const pause = (ms = 350) => new Promise<void>((resolve) => setTimeout(resolve, m
 
 // ---------- 验收 1：新核心不接群任务；私聊与 Telegram 主会话继续 ----------
 
-test("验收1：全新实例只有 main/coding；群消息零新增；同连接私聊与 Telegram 照常回复", async () => {
+test("验收1：全新实例只有 main（chat/coding 已退役，issue 20/23）；群消息零新增；同连接私聊与 Telegram 照常回复", async () => {
   const onebot = await startMockOneBot({});
   const api = new FakeBotApi({ token: TG_TOKEN, ownerId: TG_OWNER });
   const apiBase = await api.start();
@@ -65,8 +66,8 @@ test("验收1：全新实例只有 main/coding；群消息零新增；同连接�
   });
   try {
     const rt = t.runtime;
-    // 只引导 main/coding；不建 agent-chat 项目
-    assert.deepEqual(rt.store.listAgentRoles().map((r) => r.id).sort(), ["coding", "main"]);
+    // 只引导 main；不建 agent-chat 项目
+    assert.deepEqual(rt.store.listAgentRoles().map((r) => r.id), ["main"]);
     assert.equal(rt.store.findProjectByName("agent-chat"), null, "不建 chat 项目");
 
     await rt.addCredentialBinding({ name: "qq", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
@@ -207,7 +208,8 @@ test("验收3：无 chat 角色行的实例中 main/coding/SubAgent 仍读不到
     rt.store.db.prepare("UPDATE projects SET name = 'ordinary-project' WHERE id = ?").run(group.projectId);
     const done = group.seedTask({ userId: OWNER, messageId: "1", state: "completed", summary: "GROUP-SECRET 内部排期" });
     const mainRole = rt.store.getAgentRole("main")!;
-    const codingRole = rt.store.getAgentRole("coding")!;
+    // 旧安装保留的 coding 角色行（issue 23 起不再引导）：群项目边界照旧
+    const codingRole = { id: "coding", ...seedCodingRole(rt.store, t.dirs.root) };
     seedAcceptedResult(rt.store, { mainProjectId: mainRole.projectId, acceptedByTaskId: done.task!.id, taskId: done.task!.id, summary: "GROUP-SECRET 内部排期" });
 
     const access = new AccessScope(rt.store.db);

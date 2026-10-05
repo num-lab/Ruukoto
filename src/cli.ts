@@ -46,6 +46,7 @@ import { ControlClient, requestOutcome } from "./control/client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, resolveOwnerToken } from "./control/connect.ts";
 import { acquireInstanceLock, INSTANCE_LOCK_EXIT_CODE, InstanceLockError } from "./core/instance-lock.ts";
 import { dirEnvFor, productFromEnv, type ProductType } from "./core/product.ts";
+import { LEGACY_PROJECT_WRITE_HINT } from "./tui/commands.ts";
 import { SESSION_DEFAULT_MODES, isAccessMode, type AccessMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
@@ -255,6 +256,12 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
   return 0;
 }
 
+/** ruukoto-dev 不再提供旧项目写入路径（agent-direction issue 23）：新会话一律经工作区入口。 */
+function legacyProjectWriteRefused(): number {
+  console.error(LEGACY_PROJECT_WRITE_HINT);
+  return 1;
+}
+
 /** 管理命令与旧拼法 tui：保持既有手卷解析与输出，供脚本与非 TTY 使用。 */
 async function runLegacy(cmd: string, rest: string[], product: ProductType): Promise<number> {
   const { flags, positional } = parseArgs(rest);
@@ -266,6 +273,7 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
       return runLegacyImport(positional, flags, product);
     }
     case "create-project":
+      if (product === "ruukoto-dev") return legacyProjectWriteRefused();
       print(await withClient((c) => c.request("create_project", { name: positional[0] ?? "" })));
       return 0;
     case "project": {
@@ -350,6 +358,7 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
       return 1;
     }
     case "create-session": {
+      if (product === "ruukoto-dev") return legacyProjectWriteRefused();
       const confirmTools = (flags["confirm-tools"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
       print(
         await withClient((c) =>

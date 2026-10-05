@@ -1,4 +1,6 @@
 /** issue 09 + issue 20：真实 Driver/审批/outbox 链路；群结果由播种助手按旧形态直接写入（核心群聊已退役，不再有群运行路径）。 */
+import * as fs from "node:fs";
+import * as path from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { NotifyTarget } from "../src/core/types.ts";
@@ -90,10 +92,13 @@ test("群结果工具仅 main 可见；归档群结果不唤醒 main，未接收
     assert.ok(!h.server.calls.some((req) => lastUserText(req).startsWith("[qq:")), "不再有群模型调用");
     assert.equal(rt.store.getAgentRole("chat"), null, "新核心不引导 chat 角色");
     {
-      const role = rt.store.getAgentRole("coding")!;
-      const task = await rt.submit({ sessionId: role.sessionId, requestId: "coding", input: "ROLE-coding", modelSelection: rt.defaultSelection });
+      // 普通开发会话（固定 coding 已退役，issue 23）没有群结果工具
+      const dir = path.join(h.dirs.root, "dev-work");
+      fs.mkdirSync(dir, { recursive: true });
+      const dev = await rt.createSession({ projectName: "dev", cwd: dir });
+      const task = await rt.submit({ sessionId: dev.id, requestId: "dev", input: "ROLE-dev", modelSelection: rt.defaultSelection });
       await h.complete(task.id);
-      const names = toolNames(h.server.calls.find((req) => lastUserText(req) === "ROLE-coding")!);
+      const names = toolNames(h.server.calls.find((req) => lastUserText(req) === "ROLE-dev")!);
       assert.ok(!names.includes("chat_result_list") && !names.includes("chat_result_accept"));
     }
     const main = await h.submit("MAIN-UNACCEPTED");

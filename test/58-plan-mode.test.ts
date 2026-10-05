@@ -15,6 +15,7 @@ import { startMockMcp } from "./helpers/mock-mcp.ts";
 import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
 import { createProjectSession, lastUserText, realTools, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
 import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
+import { seedCodingRole } from "./helpers/legacy-coding.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 const TERMINAL = ["completed", "failed", "interrupted", "canceled"];
@@ -188,7 +189,8 @@ test("集成：角色会话与旧 QQ 群会话的 /plan 返回 invalid_params �
     const archive = legacyGroupArchive({ store: rt.store, qq: rt.qqStore, workRoot: t.dirs.root });
     archive.seedChatRole();
     const group = archive.seedGroup({ groupId: "100001" });
-    const sessions = [...(["main", "coding", "chat"] as const).map((id) => rt.store.getAgentRole(id)!.sessionId), group.session.id];
+    const coding = seedCodingRole(rt.store, t.dirs.root);
+    const sessions = [...(["main", "chat"] as const).map((id) => rt.store.getAgentRole(id)!.sessionId), coding.sessionId, group.session.id];
     for (const sessionId of sessions) {
       const before = rt.store.listTasksBySession(sessionId).length;
       await assert.rejects(
@@ -206,6 +208,11 @@ test("集成：角色会话与旧 QQ 群会话的 /plan 返回 invalid_params �
       );
       assert.equal(rt.store.listTasksBySession(sessionId).length, before, "不创建任务");
     }
+    // 退役的 coding 角色会话同为只读归档（issue 23）
+    await assert.rejects(
+      rt.submit({ sessionId: coding.sessionId, requestId: "plain", input: "继续", modelSelection: rt.defaultSelection }),
+      (err: any) => err.code === "invalid_state" && /固定 coding 角色已退役/.test(err.message),
+    );
 
     // Telegram/QQ 私聊等入站正文由编排器包装为 [入站事件]…，不以 /plan 开头
     await rt.orchestrator!.registerInboundEvent({ source: "test", externalId: "owner-plan", targetRole: "main", body: "/plan 调研" });

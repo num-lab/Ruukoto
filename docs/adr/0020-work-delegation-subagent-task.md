@@ -54,3 +54,5 @@ ADR 0017 确认两个产品支持一层 SubAgent：身份与上下文跨任务�
 - ADR 0017 的通用 SubAgent 目标模型经本决定落地首版；固定 coding/chat 角色继续存在至后续迁移，新旧委派机制兼容共存。
 - ADR 0003 的访问模式边界不变：SubAgent 任务一律 confirm，快照与读范围是授权边界的收窄而非扩大。
 - ADR 0016 的上下文分类新增 `subagentResults` 宿主参考块（dev 父会话结果注入），与会话历史分开；issue 13 再增 `subagentMessages` 参考块（dev 父会话工作内消息注入），同一性质。
+
+2026-10-05 补充（agent-direction issue 23）：`coding_delegate`（含 analyze 转接与 draft 旧路径）删除，main 的分析与修改委派只经 `subagent_delegate`；`coding_result` 保留为旧 coding 子任务与本会话 SubAgent 结果的只读窄口。`AgentRoleId`/`agent_roles`/`tasks.agent_id` 的 CHECK 仍保留旧取值（旧行实值），新任务只会以 main 或 SubAgent 身份登记。

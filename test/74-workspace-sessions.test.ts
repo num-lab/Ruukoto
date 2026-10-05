@@ -50,6 +50,7 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
+import { LEGACY_PROJECT_WRITE_HINT } from "../src/tui/commands.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 
@@ -666,7 +667,7 @@ test("ruukoto-dev：已映射旧会话归入工作区计数与列表；恢复后
   }
 });
 
-test("ruukoto-dev：无映射旧会话保持旧行为（选择状态与 /new 用来源项目身份）", async () => {
+test("ruukoto-dev：无映射旧会话选择状态不变；旧项目不再新建会话（/new 只提示工作区入口，issue 23）", async () => {
   const t = await startTestRuntime("ws74-unmapped", async () => ({ kind: "text", text: "x" }));
   process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
   try {
@@ -680,10 +681,12 @@ test("ruukoto-dev：无映射旧会话保持旧行为（选择状态与 /new 用
       assert.equal(h.state.currentSessionId, legacySession);
       assert.equal((h.app as any).selectedProjectId, legacyId, "无映射旧会话选择状态不变");
       assert.ok(!h.terminal.output().includes("配置与资料来源"), "无映射不显示配置来源标注");
+      const notes: string[] = [];
+      const notify = (h.app as any).notify.bind(h.app);
+      (h.app as any).notify = (text: string) => { notes.push(text); notify(text); };
       await (h.app as any).cmdNew();
-      await waitFor("新会话创建于来源项目", () =>
-        t.runtime.store.listSessions().filter((s) => s.projectId === legacyId).length === 2,
-      );
+      assert.deepEqual(notes, [LEGACY_PROJECT_WRITE_HINT], "只提示工作区入口");
+      assert.equal(t.runtime.store.listSessions().filter((s) => s.projectId === legacyId).length, 1, "旧项目不新建会话");
       h.app.quit(0);
       await waitFor("退出", () => h.exitCode() === 0);
     } finally {

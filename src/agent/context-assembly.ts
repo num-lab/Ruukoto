@@ -105,10 +105,8 @@ export interface ContextAssemblyInput {
   session: { id: string; projectId: string; cwdReal: string };
   /** 资料访问身份：记忆来源授权按它判定。 */
   accessor: Accessor;
-  /** 资料受限会话（issue 07 QQ 群；issue 01 chat 角色）：不注入参考块（含记忆），不跑 Jev 与压缩。 */
+  /** 资料受限会话（agent-direction issue 11 SubAgent）：不注入参考块（含记忆），不跑 Jev 与压缩。 */
   restricted: boolean;
-  /** QQ 群会话的撤回过滤：每次调用前移出已撤回交互（只改模型视图，不改写历史）。 */
-  recalledFilter?: (messages: any[]) => any[];
   /** 以计划模式运行（issue 26；driver 钉版）。 */
   plan: boolean;
   /** 任务钉版的技能库（issue 22；driver 钉版，null = 不读取）。 */
@@ -149,7 +147,6 @@ export class ContextAssembly {
   private readonly subagentMessages: ContextAssemblyInput["subagentMessages"];
   private readonly accessor: Accessor;
   private readonly restricted: boolean;
-  private readonly recalledFilter: ((messages: any[]) => any[]) | undefined;
   /** 计划模式与技能库：资料受限会话在构造时归一为 false / null（参考块与版本不再另行判断）。 */
   private readonly plan: boolean;
   private readonly skills: SkillLibrary | null;
@@ -183,7 +180,6 @@ export class ContextAssembly {
     this.session = input.session;
     this.accessor = input.accessor;
     this.restricted = input.restricted;
-    this.recalledFilter = input.recalledFilter;
     this.plan = !input.restricted && input.plan;
     this.skills = input.restricted ? null : input.skills;
     this.subagentResults = input.restricted ? undefined : input.subagentResults;
@@ -229,8 +225,6 @@ export class ContextAssembly {
     this.pendingExperiment = null;
     this.pendingJevCredentialSnapshot = null;
     try {
-      // QQ 群聊会话（issue 07 §3）：已撤回的群消息及其回复移出本轮模型视图（不改写历史原文）
-      if (this.recalledFilter) messages = this.recalledFilter(messages);
       let input = this.contextInput(messages, sdk);
       let selection = selectContext(input);
       // 上下文压缩（issue 30）：按生效压缩点选择后估算仍超过 H' 才规划新压缩点；
@@ -286,7 +280,7 @@ export class ContextAssembly {
       memories,
       preExcludedMemories,
       budget: this.budgetConfig(sdk.model),
-      // 资料受限会话（qq_group 与 chat）不压缩，维持现状
+      // 资料受限会话（SubAgent）不压缩
       compaction: this.restricted ? null : { sessionId: this.session.id, checkpoint: this.validatedCheckpoint(messages) },
     };
   }
@@ -565,7 +559,7 @@ export class ContextAssembly {
    * - 长期记忆（issue 29）：当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序）。
    */
   private loadPinnedContext(): typeof this.pinnedContext {
-    // 资料受限会话（issue 07 qq_group；issue 01 chat 角色）：不读取/注入项目指令与记忆
+    // 资料受限会话（SubAgent）：不读取/注入项目指令与记忆
     if (this.restricted) return { instructions: null, resumedFrom: null, memoryIds: [] };
     const task = this.task;
     let resumedFrom: { taskId: string; input: string } | null = null;

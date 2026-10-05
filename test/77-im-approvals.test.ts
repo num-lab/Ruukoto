@@ -817,65 +817,6 @@ test("旧 token 的迟到错误在账本与事件里均脱敏（凭据轮换期�
 });
 
 
-// ---------- 9. main → coding 子任务链 ----------
-
-test("main → coding 子任务链的审批：沿 parentTaskId 核实 IM 来源，批准后子任务恰好执行一次，结果回原入口", async () => {
-  const outsideHolder: { outside?: string } = {};
-  const delegResponder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[编排器]")) return { kind: "text", text: "REPLY-FINAL-DELEG" };
-    if (text.includes("[委派 coding")) {
-      if (req.messages.at(-1)?.role === "tool") return { kind: "text", text: "完成\n测试：未运行\n需要拥有者：否" };
-      return { kind: "tool_calls", calls: [{ id: "c-read", name: "request_file_access", arguments: { path: outsideHolder.outside, operation: "read", reason: "读取测试文件" } }] };
-    }
-    if (req.messages.at(-1)?.role === "tool") return { kind: "text", text: "done" };
-    if (text.includes("TGDELEG")) {
-      // analyze 自 issue 11 起转通用只读链路（无 request_file_access 审批链）；
-      // 本用例沿 parentTaskId 核实 IM 审批，须走旧 coding 的 draft 路径
-      return { kind: "tool_calls", calls: [{ id: "c-an1", name: "coding_delegate", arguments: { request: "读取外部文件并汇总", mode: "draft", key: "an1" } }] };
-    }
-    return { kind: "text", text: "REPLY-TEXT" };
-  };
-  const h = await imHarness("im08-delegation", delegResponder);
-  h.config.toolFactory = realTools().toolFactory;
-  outsideHolder.outside = path.join(fs.realpathSync(h.dirs.root), "outside.txt");
-  fs.writeFileSync(outsideHolder.outside, "DELEG-SECRET-CONTENT");
-  const rt = await startWithPlatforms(h);
-  try {
-    h.api.push({ text: "TGDELEG 委托读取" });
-    await waitPending(rt);
-    const conf = solePending(rt);
-    assert.equal(conf.toolName, "request_file_access");
-    const childTask = rt.store.getTask(conf.taskId)!;
-    assert.equal(childTask.sourceEventId, null, "子任务不经委派继承平台回复授权");
-    const mainTask = rt.store.getTask(childTask.parentTaskId!)!;
-    // 通知按父链钉版目标送达 Telegram（来源核实 = 通知的持久目标 + 原 task/事件 + actor）
-    await waitFor("通知送达", () => tgTexts(h.api).some((t) => t.includes(conf.id)));
-    const noticeOp = noticeOps(rt).find((op) => op.sourceKey === `im-approval:${conf.id}`)!;
-    assert.deepEqual(noticeOp.target, rt.store.getInboundEvent(mainTask.sourceEventId!)!.replyTarget);
-    // 列表可见（链核实归属）
-    h.api.push({ text: "/approvals" });
-    await waitFor("列表含子任务审批", () => tgTexts(h.api).some((t) => t.includes("待处理审批 1 项") && t.includes(conf.id)));
-    // 批准 → 子任务恰好执行一次
-    h.api.push({ text: `/approve ${conf.id} ${conf.permissionVersion}` });
-    await waitFor("批准回执", () => tgTexts(h.api).some((t) => t.includes("已接受批准") && t.includes(conf.id)));
-    await waitFor("子任务完成", () => rt.store.getTask(conf.taskId)!.status === "completed");
-    assert.ok(rt.store.getConfirmation(conf.id)!.consumedAt);
-    const toolCalls = h.model.calls.flatMap((c) => c.messages.filter((m) => m.role === "tool"));
-    assert.equal(JSON.stringify(toolCalls).split("DELEG-SECRET-CONTENT").length - 1, 1, "文件内容恰好被读取一次");
-    // 唤醒只到 main：main 的任务回答按既有 owner_reply 回原入口；旧 coding draft
-    // 链的唤醒任务结论不外发到 IM（issue 18 的最终汇报只覆盖通用工作委托链，
-    // draft 旧链的迁移见 issue 17）
-    await waitFor("唤醒任务完成", () => rt.store.listTasksBySession(mainTask.sessionId).some((t) => t.requestId.startsWith("wake:") && t.status === "completed"));
-    assert.ok(tgTexts(h.api).some((t) => t.includes("done")), "main 委托时的回答已经原入口返回");
-    assert.ok(!tgTexts(h.api).some((t) => t.includes("REPLY-FINAL-DELEG")), "draft 旧链的唤醒结论不外发（18 只覆盖通用工作委托）");
-  } finally {
-    await h.rt?.stop("test_end");
-    await h.close();
-  }
-});
-
-
 // ---------- 10. 分页 ----------
 
 test("列表翻页与详情参数分段：/approvals 游标与 /approval 偏移逐段到达全部数据", async () => {

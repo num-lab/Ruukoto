@@ -84,6 +84,7 @@ import {
   commandHelpLines,
   dispatchInput,
   writeFailure,
+  LEGACY_PROJECT_WRITE_HINT,
   SlashCommandAutocomplete,
   VISIBLE_COMMANDS,
   type CommandEnv,
@@ -1738,7 +1739,7 @@ export class TuiApp {
     // issue 07 步骤 4：从已映射旧会话新建会话到当前目标工作区（ruukoto 沿用原身份）
     const projectId = this.currentDisplayProjectId() ?? this.selectedProjectId ?? this.state.projects[0]?.id;
     if (!projectId) {
-      this.notify("尚无项目：先 /new-project <名称>");
+      this.notify(this.devProductPicker() ? LEGACY_PROJECT_WRITE_HINT : "尚无项目：先 /new-project <名称>");
       return;
     }
     await this.createAndSwitch(projectId, cwd);
@@ -1752,13 +1753,18 @@ export class TuiApp {
     }
     const projectId = this.currentDisplayProjectId();
     if (!projectId) {
-      this.notify("尚无项目：先 /new-project <名称>");
+      this.notify(this.devProductPicker() ? LEGACY_PROJECT_WRITE_HINT : "尚无项目：先 /new-project <名称>");
       return;
     }
     await this.createAndSwitch(projectId, view.cwd);
   }
 
   private async createAndSwitch(projectId: string, cwd: string): Promise<void> {
+    // ruukoto-dev（agent-direction issue 23）：旧项目（无根目录）不再新建会话，新会话走工作区
+    if (this.devProductPicker() && !this.state.projects.find((p) => p.id === projectId)?.rootDir) {
+      this.notify(LEGACY_PROJECT_WRITE_HINT);
+      return;
+    }
     try {
       const session = await this.connection.request("create_session", { project_id: projectId, cwd });
       this.switchSession(session.id);

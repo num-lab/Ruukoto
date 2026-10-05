@@ -9,9 +9,54 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Store } from "../../src/core/store.ts";
-import { QQ_GROUP_SOURCE, type QqInboxRow, type QqOutboxRow, type QqStore } from "../../src/qq/store.ts";
+import { QQ_GROUP_SOURCE, qqDedupKey, type QqInboxRow, type QqOutboxRow, type QqStore } from "../../src/qq/store.ts";
 import type { AcceptedChatResult, InboundEvent, ModelSelection, Task } from "../../src/core/types.ts";
 import { randomId, type Session } from "../../src/core/types.ts";
+
+// ---------- 旧群写入（QqStore 群写方法已随 issue 23 删除；只供播种旧归档） ----------
+
+export function seedGroupSessionRow(store: Store, row: { account: string; groupId: string; sessionId: string; projectId: string; workDir: string }): void {
+  store.db
+    .prepare("INSERT INTO qq_sessions (account, group_id, session_id, project_id, work_dir, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(row.account, row.groupId, row.sessionId, row.projectId, row.workDir, new Date().toISOString());
+}
+
+/** 旧收件登记（幂等：同键已存在返回原行）。 */
+export function seedInboxRow(store: Store, qq: QqStore, input: {
+  account: string; groupId: string; userId: string; senderName: string; messageId: string;
+  text: string; taskInput: string; messageTime: string | null; replyToMessageId?: string | null; configVersion?: number | null;
+}): { created: boolean; row: QqInboxRow } {
+  const dedupKey = qqDedupKey(input.account, input.groupId, input.messageId);
+  const existing = qq.getInbox(dedupKey);
+  if (existing) return { created: false, row: existing };
+  store.db
+    .prepare(
+      `INSERT INTO qq_inbox (dedup_key, account, group_id, user_id, sender_name, message_id,
+       request_id, session_id, task_id, text, input, status, recalled, message_time, created_at, reply_to_message_id, config_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'registered', 0, ?, ?, ?, ?)`,
+    )
+    .run(dedupKey, input.account, input.groupId, input.userId, input.senderName, input.messageId, `qq:${dedupKey}`, input.text,
+      input.taskInput, input.messageTime, new Date().toISOString(), input.replyToMessageId ?? null, input.configVersion ?? null);
+  return { created: true, row: qq.getInbox(dedupKey)! };
+}
+
+export function seedLinkInboxTask(store: Store, dedupKey: string, sessionId: string, taskId: string): void {
+  store.db
+    .prepare("UPDATE qq_inbox SET session_id = ?, task_id = ?, status = CASE WHEN status = 'registered' THEN 'queued' ELSE status END WHERE dedup_key = ?")
+    .run(sessionId, taskId, dedupKey);
+}
+
+export function seedPendingOutbox(store: Store, qq: QqStore, input: { taskId: string; account: string; groupId: string; replyToMessageId: string | null; text: string }): QqOutboxRow {
+  const opId = randomId("qqsend");
+  const now = new Date().toISOString();
+  store.db
+    .prepare(
+      `INSERT INTO qq_outbox (op_id, task_id, account, group_id, reply_to_message_id, text, status, sent_message_id, error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)`,
+    )
+    .run(opId, input.taskId, input.account, input.groupId, input.replyToMessageId, input.text, now, now);
+  return qq.listPendingOutbox().find((o) => o.opId === opId)!;
+}
 
 const DEFAULT_SELECTION: ModelSelection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 const at = (seconds: number) => new Date(Date.parse("2026-09-24T00:00:00.000Z") + seconds * 1000).toISOString();
@@ -96,7 +141,7 @@ export function legacyGroupArchive(deps: { store: Store; qq: QqStore; workRoot: 
       projectId: project.id, kind: "qq_group", cwd: workDir, cwdReal: fs.realpathSync(workDir),
       cwdDev: stat.dev, cwdIno: stat.ino, piSessionId: randomId("pi"), confirmTools: [], modelSelection,
     });
-    qq.insertGroupSession({ account, groupId: opts.groupId, sessionId: session.id, projectId: project.id, workDir });
+    seedGroupSessionRow(store, { account, groupId: opts.groupId, sessionId: session.id, projectId: project.id, workDir });
     let seq = 0;
 
     const group: LegacyGroup = {
@@ -110,7 +155,7 @@ export function legacyGroupArchive(deps: { store: Store; qq: QqStore; workRoot: 
         const senderName = topts.senderName ?? `user-${userId}`;
         const text = topts.text ?? `群消息-${topts.messageId}`;
         const time = topts.time ?? ++seq;
-        const { row } = qq.registerInbox({
+        const { row } = seedInboxRow(store, qq, {
           account, groupId: opts.groupId, userId, senderName,
           messageId: topts.messageId, text, taskInput: `[qq:${opts.groupId}:${topts.messageId}] ${senderName}(${userId}): ${text}`,
           messageTime: at(time),
@@ -122,7 +167,7 @@ export function legacyGroupArchive(deps: { store: Store; qq: QqStore; workRoot: 
         }
         if (topts.state === "inboxOnly") return { inbox: qq.getInbox(row.dedupKey)!, event: null, task: null };
         // 旧流程先入站绑定会话再登记事件（收件保持 registered，linkInboxTask 才转 queued）
-        qq.bindInboxSession(row.dedupKey, group.session.id);
+        store.db.prepare("UPDATE qq_inbox SET session_id = ? WHERE dedup_key = ? AND session_id IS NULL").run(group.session.id, row.dedupKey);
         const { event } = store.registerInboundEvent({
           source: QQ_GROUP_SOURCE, externalId: row.dedupKey, actor: userId, targetRole: "chat", body: row.input,
           replyTarget: { channel: QQ_GROUP_SOURCE, account, chatId: opts.groupId, configVersion: 1 },
@@ -132,7 +177,7 @@ export function legacyGroupArchive(deps: { store: Store; qq: QqStore; workRoot: 
           sessionId: group.session.id, requestId: row.requestId, input: row.input, modelSelection,
           submissionDigest: row.dedupKey, agentId: "chat", sourceEventId: event.id, accessMode: "confirm",
         });
-        qq.linkInboxTask(row.dedupKey, group.session.id, task.id);
+        seedLinkInboxTask(store, row.dedupKey, group.session.id, task.id);
         store.markInboundQueued(event.id, task.id);
         if (topts.state === "running" || topts.state === "completed") {
           store.transitionTask(task.id, ["queued"], "running", { startedAt: at(time + 1) });
@@ -146,7 +191,7 @@ export function legacyGroupArchive(deps: { store: Store; qq: QqStore; workRoot: 
         return { inbox: qq.getInbox(row.dedupKey)!, event, task: store.getTask(task.id)! };
       },
       seedPendingReply(popts) {
-        return qq.createPendingOutbox({
+        return seedPendingOutbox(store, qq, {
           taskId: popts.taskId, account, groupId: opts.groupId,
           replyToMessageId: popts.messageId, text: popts.text ?? "未确认是否送达的群回复",
         });

@@ -150,11 +150,6 @@ export interface DriverDeps {
     ) => { id: string; version: number } | null;
   };
   /**
-   * QQ 群聊会话的撤回消息过滤（issue 07）：每次模型调用前移出已撤回交互
-   * （只改模型视图，不改写历史）。仅 kind=qq_group 会话调用。
-   */
-  qqRecalledFilter?: (sessionId: string, messages: any[]) => any[];
-  /**
    * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具
    * （停止与重启的回执核实在工具操作账本）。
    */
@@ -169,9 +164,9 @@ export interface DriverDeps {
    */
   scheduler?: Pick<SchedulerToolsDeps, "sched" | "scheduler" | "sources" | "target" | "now">;
   /**
-   * 委派 coding（issue 05）：仅 main 角色会话装配。
+   * 旧 coding 子任务结果只读（coding_result，agent-direction issue 23）：仅 main 角色会话装配。
    */
-  delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "analyzeDelegate" | "readReply" | "resultNotice">;
+  delegation?: Pick<DelegationToolsDeps, "readReply" | "resultNotice">;
   /**
    * 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；
    * issue 13 工作内消息）：普通开发会话与 main 装配；readReply 读指定任务的
@@ -306,11 +301,6 @@ export class Driver {
     return this.currentTask !== null;
   }
 
-  /** QQ 群聊入口会话（issue 07）：空工具集合 + 宿主约束资料范围。 */
-  private get isQqGroup(): boolean {
-    return this.session.kind === "qq_group";
-  }
-
   /**
    * 角色会话（issue 01）：宿主引导的角色绑定（agent_roles 表，按会话反查）；
    * 非角色会话为 null。绑定只由宿主设置，任务/工具参数与模型结果不能修改。
@@ -323,14 +313,19 @@ export class Driver {
   }
 
   /**
-   * 会话工具类别（工具可用性）：QQ 群归 chat，角色会话按宿主绑定，其余为普通
-   * 开发会话；宿主绑定的动态 SubAgent 子会话（sub_agents 表）归 subagent，
-   * 不能因没有固定角色而落入默认 dev 类别。
+   * 会话工具类别（工具可用性）：main 角色会话按宿主绑定，其余为普通开发会话；
+   * 宿主绑定的动态 SubAgent 子会话（sub_agents 表）归 subagent，不能因没有固定
+   * 角色而落入默认 dev 类别。已退役的归档会话（QQ 群、chat/coding 角色）不运行
+   * 任务（提交入口与队列兜底先行拒绝），走到这里即拒绝。
    */
   private get toolClass(): SessionToolClass {
-    this.toolClassCache ??= this.deps.store.getSubAgentBySession(this.session.id)
-      ? "subagent"
-      : sessionToolClass(this.session.kind, this.role()?.id ?? null);
+    if (this.toolClassCache === undefined) {
+      const cls = this.deps.store.getSubAgentBySession(this.session.id)
+        ? "subagent"
+        : sessionToolClass(this.session.kind, this.role()?.id ?? null);
+      if (cls === null) throw new Error(`会话 ${this.session.id} 是已退役的只读归档，不运行任务`);
+      this.toolClassCache = cls;
+    }
     return this.toolClassCache;
   }
 
@@ -362,21 +357,18 @@ export class Driver {
     return null;
   }
 
-  /** 宿主注入的资料访问身份（qq_group 与 chat 角色不适用跨项目授权与 owner_note 默认放行）。 */
+  /** 宿主注入的资料访问身份。 */
   private accessor(): Accessor {
-    if (this.isQqGroup) return { kind: "qq_group", projectId: this.session.projectId };
-    if (this.role()?.id === "chat") return { kind: "role_restricted", projectId: this.session.projectId };
     return { kind: "agent", projectId: this.session.projectId };
   }
 
   /**
-   * 资料范围受宿主约束的会话（issue 07 qq_group；issue 01 chat 角色；
-   * agent-direction issue 11 SubAgent）：
+   * 资料范围受宿主约束的会话（agent-direction issue 11 SubAgent）：
    * 上下文注入排除个人共享记忆、项目指令与技能目录，记忆/资料工具按受限身份判定。
    * 工具白名单管工具可见性，本约束管资料范围，两者独立生效。
    */
   private get dataScopeRestricted(): boolean {
-    return this.toolClass === "chat" || this.toolClass === "subagent";
+    return this.toolClass === "subagent";
   }
 
   /**
@@ -425,8 +417,7 @@ export class Driver {
 
   private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
-    // 工具可用性（架构工单 03）：各注册来源只在会话类别的清单含其类别时装配；
-    // chat 与 QQ 群的清单为空，即空工具集合
+    // 工具可用性（架构工单 03）：各注册来源只在会话类别的清单含其类别时装配
     const hostDataTools = !this.allows("host_data")
       ? []
       : createHostDataTools({
@@ -484,7 +475,7 @@ export class Driver {
             requestApproval: (input) => this.approvals.request(input),
           })
         : [];
-    // 委派 coding 工具（issue 05）：只有 main 的清单含 delegation
+    // 旧 coding 子任务结果只读（coding_result，agent-direction issue 23）：只有 main 的清单含 delegation
     const delegationTools =
       this.allows("delegation") && this.deps.delegation
         ? createDelegationTools({
@@ -563,7 +554,7 @@ export class Driver {
             }),
           ]
         : []),
-      // 工作清单（issue 25）：与编码工具同一类别——开发会话与 coding，main/chat 不装配
+      // 工作清单（issue 25）：与编码工具同一类别——开发会话装配，main 不装配
       ...(this.allows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
       ...hostDataTools,
       ...webSearchTools,
@@ -588,8 +579,8 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      // 按会话类别固定（issue 24）：QQ 群与 chat 角色用 chat 提示；subagent
-      // 用只读分析提示（GitHub 评审 SubAgent 同用，issue 19）
+      // 按会话类别固定（issue 24）：subagent 用 SubAgent 提示（GitHub 评审
+      // SubAgent 同用，issue 19）
       systemPrompt: SYSTEM_PROMPTS[this.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
@@ -688,7 +679,7 @@ export class Driver {
       }
     }
     // 工具可用性（架构工单 03）：发送载荷中的每个工具都必须在本任务允许的集合内
-    // （按实际载荷检查，覆盖全部注册来源；QQ 群与 chat 的集合为空）
+    // （按实际载荷检查，覆盖全部注册来源）
     if (Array.isArray(context?.tools)) {
       const forbidden = context.tools
         .map((t: any) => t?.name ?? t?.function?.name)
@@ -791,9 +782,6 @@ export class Driver {
       session: this.session,
       accessor: this.accessor(),
       restricted: this.dataScopeRestricted,
-      recalledFilter: this.isQqGroup && this.deps.qqRecalledFilter
-        ? (messages) => this.deps.qqRecalledFilter!(this.session.id, messages)
-        : undefined,
       plan: this.pinnedPlan,
       skills: this.pinnedSkills,
       subagentResults,
@@ -818,7 +806,7 @@ export class Driver {
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
   private async planMcp(task: Task): Promise<McpTaskPlan> {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
-    // 会话类别的清单不含 mcp 时不注册 MCP 工具（QQ 群与 chat 的清单为空）；
+    // 会话类别的清单不含 mcp 时不注册 MCP 工具；
     // subagent 类仅宿主评审任务另开只读 MCP（issue 19，其余委派拿不到）
     if (!this.allows("mcp") && !(this.toolClass === "subagent" && this.deps.taskMcp?.(task))) return EMPTY_MCP_PLAN;
     return planMcpTaskTools({

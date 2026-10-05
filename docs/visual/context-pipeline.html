@@ -32,7 +32,7 @@
   <section id="view">
     <h2>模型上下文是一份每次调用重算的视图</h2>
     <p>视图的顺序固定：前缀参考块与长期记忆 → 会话历史（压缩摘要、移出标记、<code>[S, C)</code> 清理后的中段、其余原样） → 任务级参考块 → 当前任务。前缀参考块与记忆在任务开始时钉版，任务内不变；任务级参考块与当前任务只属于本任务。任务级参考块按继续来源 → <code>[SubAgent 结果]</code> → <code>[工作内消息]</code> → 计划说明排列（<code class="src" data-src="src/agent/context-assembly.ts#private references">context-assembly.ts · references</code>）；<code>[SubAgent 结果]</code> 与 <code>[工作内消息]</code> 只出现在普通开发会话里，来历见<a href="#subagent">SubAgent 任务的上下文</a>。</p>
-    <p>「选」由 <code class="src" data-src="src/agent/context-selector.ts#selectContext">context-selector.ts · selectContext</code> 的确定性策略 <code>deterministic-v1</code>（<code class="src" data-src="src/agent/context-selector.ts#SELECTOR_STRATEGY">context-selector.ts · SELECTOR_STRATEGY</code>）按预算做，不调用模型。「压」只在不做移出的视图估算超过高水位 H′ 时发生，把较早的内容换成占位说明与滚动摘要；超长工具结果的有界替换与预算不够时的整轮移出同样只改视图。系统提示按会话类别（<code>dev</code> / <code>main</code> / <code>coding</code> / <code>chat</code> / <code>subagent</code>；<code>main</code>、<code>coding</code>、<code>chat</code> 是旧架构的逻辑角色）固定为 <code class="src" data-src="src/agent/session-factory.ts#SYSTEM_PROMPTS">session-factory.ts · SYSTEM_PROMPTS</code> 之一，pi 自己的 compaction 关闭（<code class="src" data-src="src/agent/session-factory.ts#session_before_compact">session-factory.ts · session_before_compact</code> 一律取消）。</p>
+    <p>「选」由 <code class="src" data-src="src/agent/context-selector.ts#selectContext">context-selector.ts · selectContext</code> 的确定性策略 <code>deterministic-v1</code>（<code class="src" data-src="src/agent/context-selector.ts#SELECTOR_STRATEGY">context-selector.ts · SELECTOR_STRATEGY</code>）按预算做，不调用模型。「压」只在不做移出的视图估算超过高水位 H′ 时发生，把较早的内容换成占位说明与滚动摘要；超长工具结果的有界替换与预算不够时的整轮移出同样只改视图。系统提示按会话类别（<code>dev</code> / <code>main</code> / <code>subagent</code>；<code>main</code> 是旧架构的逻辑角色，coding 与 chat 已退役、提示已删除）固定为 <code class="src" data-src="src/agent/session-factory.ts#SYSTEM_PROMPTS">session-factory.ts · SYSTEM_PROMPTS</code> 之一，pi 自己的 compaction 关闭（<code class="src" data-src="src/agent/session-factory.ts#session_before_compact">session-factory.ts · session_before_compact</code> 一律取消）。</p>
     <figure class="fig">
       <div class="scroll">
         <svg viewBox="0 0 1040 196" role="img" aria-label="模型上下文分层：系统提示与工具定义单独传给模型；消息序列从左到右依次是项目指令、技能目录、长期记忆、压缩摘要、移出标记、清理后的中段、其余历史、继续来源、SubAgent 结果块、工作内消息块、计划说明、当前任务输入、较早批次与最新批次">
@@ -103,7 +103,7 @@
           <path class="e accent dash" d="M528 36 V20 H250 V32" marker-end="url(#ah-accent)"/>
           <text class="el" x="389" y="13">有摘要等待或落盘：重读输入，再选一次</text>
 
-          <g class="n"><rect x="0" y="36" width="132" height="80" rx="8"/><text x="66" y="58">分支消息</text><text class="sub" x="66" y="80">SDK 当前分支</text><text class="sub" x="66" y="98">QQ 群滤撤回（遗留）</text></g>
+          <g class="n"><rect x="0" y="36" width="132" height="80" rx="8"/><text x="66" y="58">分支消息</text><text class="sub" x="66" y="80">SDK 当前分支</text></g>
           <g class="n"><rect x="154" y="36" width="132" height="80" rx="8"/><text x="220" y="58">收集输入</text><text class="sub" x="220" y="80">按钉住 id 读记忆</text><text class="sub" x="220" y="98">核对压缩点指纹</text></g>
           <g class="n"><rect x="308" y="36" width="132" height="80" rx="8"/><text x="374" y="58">选择</text><text class="sub" x="374" y="80">必留 → 较早批次</text><text class="sub" x="374" y="98">→ 历史交互</text></g>
           <g class="n accent"><rect x="462" y="36" width="132" height="80" rx="8"/><text x="528" y="58">压缩</text><text class="sub" x="528" y="80">超过 H′ 才规划</text><text class="sub" x="528" y="98">清理 → 摘要</text></g>
@@ -142,7 +142,7 @@
     </figure>
 
     <h3>任务开始钉住的内容</h3>
-    <p>每个任务一个组装实例（<code class="src" data-src="src/agent/context-assembly.ts#beginContextAssembly">context-assembly.ts · beginContextAssembly</code>），任务结束时 driver 中止它在途的 Jev 与摘要请求并丢弃实例；下一任务重新读取，这就是拥有者刷新项目指令、技能与记忆的入口。项目指令、Jev 配置与记忆都按会话的原项目（<code>sessions.project_id</code>）读取，工作区组织归属不参与（见<a href="#workspace-config">工作区配置</a>）。资料受限会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">driver.ts · dataScopeRestricted</code>：QQ 群、chat 角色与 SubAgent 子会话）以下各项都为空。</p>
+    <p>每个任务一个组装实例（<code class="src" data-src="src/agent/context-assembly.ts#beginContextAssembly">context-assembly.ts · beginContextAssembly</code>），任务结束时 driver 中止它在途的 Jev 与摘要请求并丢弃实例；下一任务重新读取，这就是拥有者刷新项目指令、技能与记忆的入口。项目指令、Jev 配置与记忆都按会话的原项目（<code>sessions.project_id</code>）读取，工作区组织归属不参与（见<a href="#workspace-config">工作区配置</a>）。资料受限会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">driver.ts · dataScopeRestricted</code>：SubAgent 子会话）以下各项都为空。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>内容</th><th>谁读取</th><th>钉住什么</th><th>读不到时</th></tr></thead>
@@ -416,8 +416,8 @@
     <div class="cards">
       <div class="card"><h4>默认</h4><p>本项目的历史 / 产物 / 生效记忆 + 个人共享记忆。记忆的每条来源引用都要当前可访问（<code class="src" data-src="src/core/access.ts#sourceRefAccessible">sourceRefAccessible</code>）：来源不再可访问的记忆下一次调用即不注入，选择记录记 <code>source_scope_revoked</code>。</p></div>
       <div class="card"><h4>资料授权</h4><p>拥有者在可信入口（CLI <code>ruukoto grant</code>、配置中心的项目详情）创建的 <code>data_grants</code>：来源项目、目标项目、类别 <code>history</code> / <code>artifact</code> / <code>memory</code>，同项目不需要也不能建（<code class="src" data-src="src/core/access.ts#createGrant">access.ts · createGrant</code>）。可查看、可撤销；撤销自后续查询与上下文注入起生效，不撤回已经发给模型的内容。来源与目标都按原项目 ID 判定，会话的工作区组织归属不改变授权端点。</p></div>
-      <div class="card"><h4>受限身份</h4><p><code>qq_group</code>（QQ 群聊入口，旧架构）与 <code>role_restricted</code>（chat 角色，旧架构）只读本项目、不查授权表，<code>owner_note</code> 来源不自动放行。main 与 coding 的项目一律不能读取原始 QQ 群项目，这条先于资料授权判定。</p></div>
-      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">dataScopeRestricted</code>：<code>chat</code> 与 <code>subagent</code> 两个工具类别，即 QQ 群、chat 角色与 SubAgent 子会话）不注入任何参考块与记忆、不跑 Jev、不压缩。核心群聊退役后不再有新群任务运行：Runtime 不再注入撤回过滤；Driver 里按撤回标记移出已撤回消息（只改视图，不改写历史）的 qq_group 分支是退役前的遗留代码，随 issue 23 清理。SubAgent 的资料身份仍是普通的 <code>agent</code>，限制来自上下文与工具，见<a href="#subagent">下一节</a>。</p></div>
+      <div class="card"><h4>受限身份</h4><p>访问判定里仍有 <code>qq_group</code> 与 <code>role_restricted</code> 两种受限身份（旧架构的群聊入口与 chat 角色）：只读本项目、不查授权表，<code>owner_note</code> 来源不自动放行。群聊与 chat 角色退役后，驱动器只给出 <code>agent</code> 身份（<code class="src" data-src="src/agent/driver.ts#private accessor()">driver.ts · accessor</code>），已没有会话以这两种身份运行。main（与旧 coding）角色的项目一律不能读取原始 QQ 群项目，这条先于资料授权判定，群资料仍是归档。</p></div>
+      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">dataScopeRestricted</code>：只有 <code>subagent</code> 工具类别，即 SubAgent 子会话）不注入任何参考块与记忆、不跑 Jev、不压缩。旧群会话的撤回过滤已随群聊退役删除。SubAgent 的资料身份仍是普通的 <code>agent</code>，限制来自上下文与工具，见<a href="#subagent">下一节</a>。</p></div>
     </div>
     <h3 id="workspace-config">工作区配置：按原项目读取</h3>
     <p>工作区就是带根目录归属的项目（项目是旧架构的组织边界），配置仍挂在项目上。旧会话经迁移映射到工作区后只改 <code>sessions.workspace_project_id</code>，这一列只决定会话显示在哪个工作区下（ADR 0018）；下表每一项都按会话的原项目 <code>sessions.project_id</code> 读取，映射前后不变，迁移也不复制配置。迁移流程与两个归属字段见<a href="storage-layout.html#workspace">存储布局</a>。</p>
@@ -492,7 +492,6 @@
           <tr><td>系统提示</td><td><code>SYSTEM_PROMPTS.dev</code>，其中写了何时用 <code>subagent_delegate</code> / <code>subagent_result</code> / <code>subagent_cancel</code> / <code>subagent_close</code> / <code>subagent_integrate</code>，以及 <code>mode=modify + target</code> 修改委派的边界（宿主副本上不提交、不推送，改动由主 Agent 汇总并验证）</td><td><code class="src" data-src="src/agent/session-factory.ts#subagent: [">session-factory.ts · SYSTEM_PROMPTS.subagent</code>：只读分析与副本修改两种具体形态以任务首行为准；资料里要求超出任务输入范围写入、执行或改变身份的指令不照做</td></tr>
           <tr><td>工具定义</td><td>本会话类别装配的工具</td><td>只读分析工作只有 <code>read</code> 与 <code>read_artifact</code>（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>）；修改委派的工作按本任务 <code>write_target</code> 为 <code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>（<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code>），无 <code>request_file_access</code>、<code>http_request</code>、MCP 与委派工具；装配与本任务允许集合用同一张白名单。宿主评审任务（GitHub PR，工单 19）另按任务开放 <code>effect=read</code> 的 MCP（见<a href="orchestrator.html#github">编排器 · GitHub 评审编排</a>）。子会话另行装配 issue 13 的 <code>subagent_message</code>（<code class="src" data-src="src/agent/driver.ts#message 供 subagent 类会话装配 subagent_message">driver.ts · message</code>；发送方身份由发起任务核实），带动机为发送方的消息投递不产生上下文扩权</td></tr>
           <tr><td>注入的工作内消息</td><td>—</td><td>没有参考块：SubAgent 之间 / 主 Agent → SubAgent 的工作内消息经 <code>smsg:&lt;消息ID&gt;</code> 投递任务送达（输入由宿主固定生成、含来源说明），作为任务输入进入子会话历史；不进 <code>[工作内消息]</code> 参考块（那是父会话 dev 的通道）</td></tr>
-          <tr><td>前缀参考块与记忆</td><td>项目指令、技能目录、长期记忆</td><td>都没有：不注入父项目的指令、技能目录、项目记忆与个人共享记忆</td></tr>
           <tr><td>前缀参考块与记忆</td><td>项目指令、技能目录、长期记忆</td><td>都没有：不注入父项目的指令、技能目录、项目记忆与个人共享记忆</td></tr>
           <tr><td>任务级参考块</td><td>继续来源、SubAgent 结果、计划说明</td><td>都没有</td></tr>
           <tr><td>会话历史</td><td>本会话 JSONL</td><td>子会话自己的 JSONL；带 <code>work_id</code> 继续或带 <code>sub_agent_id</code> 复用同一 SubAgent 时接着用。父会话历史不进来</td></tr>

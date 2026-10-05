@@ -105,7 +105,7 @@ test("技能库：嵌套包、符号链接、缺描述、YAML 错误、同名冲
 
 // ---------- 集成 ----------
 
-test("集成：main/coding 注入技能目录（无主机路径、无仅显式技能；chat 已退役不引导，issue 20）；/skills 可见诊断", async () => {
+test("集成：main 与开发会话注入技能目录（无主机路径、无仅显式技能；chat/coding 已退役，issue 20/23）；/skills 可见诊断", async () => {
   const t = await startTestRuntime("skills-roles", async (req) => ({ kind: "text", text: `ok:${lastUserText(req).slice(0, 20)}` }));
   try {
     const lib = path.join(t.dirs.agentDir, "skills");
@@ -118,12 +118,12 @@ test("集成：main/coding 注入技能目录（无主机路径、无仅显式�
     assert.ok(listed.diagnostics.some((d: string) => d.includes("nodesc")), "诊断经控制面可见");
 
     const main = t.runtime.store.getAgentRole("main")!;
-    const coding = t.runtime.store.getAgentRole("coding")!;
+    const { sessionId: devSessionId } = await createProjectSession(t.client, t.work[0]!);
     const m = await t.runtime.submit({ sessionId: main.sessionId, requestId: "m-s", input: "MAIN-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
-    const c = await t.runtime.submit({ sessionId: coding.sessionId, requestId: "c-s", input: "CODING-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
-    await waitFor("main/coding 完成", () => ["completed"].includes(t.runtime.store.getTask(m.id)!.status) && t.runtime.store.getTask(c.id)!.status === "completed");
+    const c = await t.runtime.submit({ sessionId: devSessionId, requestId: "c-s", input: "DEV-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
+    await waitFor("main/开发会话完成", () => ["completed"].includes(t.runtime.store.getTask(m.id)!.status) && t.runtime.store.getTask(c.id)!.status === "completed");
 
-    for (const mark of ["MAIN-SKILL-MARK", "CODING-SKILL-MARK"]) {
+    for (const mark of ["MAIN-SKILL-MARK", "DEV-SKILL-MARK"]) {
       const call = t.server.calls.find((x) => lastUserText(x).includes(mark))!;
       const text = JSON.stringify(call.messages);
       assert.ok(text.includes("[技能目录]") && text.includes("alpha：ALPHA-DESC"), `${mark} 含技能目录，块头不含版本`);

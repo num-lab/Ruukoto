@@ -41,8 +41,8 @@ test("review 恢复：父任务/子任务提交窗口、模型变化、产物与
     };
     let rt = await Runtime.start(config);
     try {
-      const main = rt.store.getAgentRole("main")!, coding = rt.store.getAgentRole("coding")!;
-      for (const role of [main, coding]) rt.store.setSessionQueueState(role.sessionId, "paused", "backend_restart");
+      const main = rt.store.getAgentRole("main")!;
+      rt.store.setSessionQueueState(main.sessionId, "paused", "backend_restart");
       const deliveryId = randomUUID();
       const payload: GitHubPullRequestEvent = { deliveryId, action: "opened", repository: { id: 42, owner: "owner", name: "repo", fullName: "owner/repo" }, number: 7,
         url: "https://github.com/owner/repo/pull/7", headSha: "a".repeat(40), baseSha: "b".repeat(40), headRef: "feature", baseRef: "main", sender: "contributor",
@@ -60,7 +60,7 @@ test("review 恢复：父任务/子任务提交窗口、模型变化、产物与
       assert.ok(parent);
       assert.equal(rt.store.getInboundEvent(event.id)!.status, "registered");
       assert.equal(rt.store.listSubAgents().length, window === "child_committed" ? 1 : 0);
-      assert.equal(rt.store.listTasksBySession(coding.sessionId).length, 0, "不降级回旧 coding 路径");
+      assert.equal(rt.store.getAgentRole("coding"), null, "无旧 coding 路径可降级（issue 23）");
       await rt.stop("test_restart");
 
       // 恢复时后台默认模型已变：原父任务的提交不能拿新模型形成幂等冲突。
@@ -82,7 +82,6 @@ test("review 恢复：父任务/子任务提交窗口、模型变化、产物与
       assert.equal(result.review.headSha, payload.headSha);
       const artifactId = result.review.artifactId;
       assert.ok(rt.artifacts.read(artifactId).toString().includes("草稿：需核实资料。"));
-      assert.equal(rt.store.listTasksBySession(coding.sessionId).length, 0);
       assert.equal(rt.store.findTaskByRequest(main.sessionId, `evt:${event.id}:main`)!.modelSelection!.modelId, "mock-model");
       const reviewCalls = server.calls.filter((call) => lastUserText(call).startsWith(REVIEW_HEADER)).length;
       assert.equal(reviewCalls, 1, "恢复不重跑 review");

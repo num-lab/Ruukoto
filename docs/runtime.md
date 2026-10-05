@@ -38,12 +38,13 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   超时、连接重置、任务停止中止）标 `effect_unknown`，不自动重发。任务停止即中止
   在途请求，不等超时。
 - **工具可用性（架构工单 03）**：`src/agent/tool-availability.ts` 回答「这个会话、
-  这个任务允许哪些工具」。会话类别（普通开发会话、main、coding、chat、SubAgent 子
-  身份 subagent；QQ 群按会话类型归入 chat）各有一份工具类别清单，是唯一来源：普通
+  这个任务允许哪些工具」。会话类别（普通开发会话、main、SubAgent 子身份 subagent；已退役的 QQ 群会话与
+  chat/coding 角色会话是只读归档、不归任何类别，Driver 拒绝运行）各有一份工具类别
+  清单，是唯一来源：普通
   开发会话为编码
-  工具（含工作清单）、资料与记忆、Web Search、MCP、技能、SubAgent 委派；coding 为
-  编码工具、资料与记忆、Web Search、MCP、技能；main 为资料与记忆、Web
-  Search、应用数据、调度与通知、委派、群结果、技能、SubAgent 委派；chat 与 subagent
+  工具（含工作清单）、资料与记忆、Web Search、MCP、技能、SubAgent 委派；main 为
+  资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、
+  SubAgent 委派；subagent
   为空（SubAgent 的 read / read_artifact 由驱动器按类别单独装配，静态白名单）。
   新工具族写进哪份清单才出现。任务开始时算一次本任务允许的工具（已装配的工具减去计划模式、GitHub
   评审等宿主按任务收窄与项目关闭的 Web Search），激活、发送前检查
@@ -144,6 +145,10 @@ ruukoto-dev 的行为差别：
   控制面身份，不是路径归属）；导出了这两个变量的 shell 对两个产品都有认证能力。
 - 不启动 QQ/Telegram 连接与个人调度（调度器不创建；状态视图按 ruukoto-dev
   标注停用原因）；其余命令、控制面与审批机制相同。
+- 不提供旧项目写入路径（agent-direction issue 23）：TUI `/new-project`、在无
+  根目录的旧项目里 `/new` / `/new-session`，以及 CLI `create-project` /
+  `create-session` 只提示改用 `ruukoto-dev <目录>` 打开工作区；旧项目保留查看，
+  需要时经 `project migration-preview` 映射到工作区。控制面 op 不变。
 - 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的
   入口打开已归属的数据目录直接拒绝。
 - 开发机执行权限的边界已在工单 03 验证、工单 04 接入产品：受限模式的执行边界
@@ -482,7 +487,7 @@ ID 与自身版本访问）。
   `set_summary_model`（`provider`/`model_id`，同为 null 即清除，带
   `expected_revision`），`get_model_config` 返回 `summaryModel`；保存时核对模型
   在目录中。「模型与提供方」页头显示「摘要模型：未设置（用会话当前模型）」或所选
-  模型，列表项「设置摘要模型」首项为「不设置」。设置后，main、coding 与开发会话较早
+  模型，列表项「设置摘要模型」首项为「不设置」。设置后，main 与开发会话较早
   的对话（含工具结果）会发给该模型的提供方做摘要。每次摘要读取当前配置，不按任务
   钉版；已配置但无法解析时本次摘要按失败处理，不改用会话模型。
   `test_model_connection` 是显式网络探测，本地校验不代表模型服务可用。
@@ -781,9 +786,9 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
   说明只属于当前任务，插在当前任务输入之前，不打断其前的历史。记忆没有变化、没有
   继续来源与计划说明、历史未移出且 Jev 关闭时，同一会话连续调用中前一次的消息序列
   是后一次的前缀，提示缓存覆盖整段历史。`/context` 分类与估算口径不变。
-- 系统提示（issue 24）：由宿主按会话类别固定为四份之一（`SYSTEM_PROMPTS`，
-  `src/agent/session-factory.ts`）——普通开发会话、main、coding（含 GitHub
-  评审子任务）、chat（chat 角色与 QQ 群会话）；pi 只在末尾追加
+- 系统提示（issue 24）：由宿主按会话类别固定为三份之一（`SYSTEM_PROMPTS`，
+  `src/agent/session-factory.ts`）——普通开发会话、main、SubAgent（含 GitHub
+  评审 SubAgent；coding/chat 提示随角色退役删除，agent-direction issue 23）；pi 只在末尾追加
   `Current working directory: <cwd>`，不输出默认模板的工具段、guidelines 与
   pi 文档路径。装配时显式传入 `systemPrompt` 与空 `appendSystemPrompt`，
   pi 不查找也不读取工作区 `.pi/` 与 agentDir 下的 `SYSTEM.md` /
@@ -907,11 +912,10 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 - 钉版：任务开始时（与项目指令同一时点）读取技能库，目录与全部 `SKILL.md`
   正文钉在内存，本任务内的 `skill` 加载与 `/skill` 展开都用这份；版本 = 钉版
   内容的 sha256，写入选择记录 `skillVersion`。
-- 上下文：main、coding 与普通开发会话注入「技能目录」参考消息（只含名称与
+- 上下文：main 与普通开发会话注入「技能目录」参考消息（只含名称与
   描述，不含主机路径与 `disable-model-invocation` 技能），计入固定预算，超
   预算按 `context_budget_exceeded` 中断，不截断；`/context` 显示「技能」类别。
-  chat 与 QQ 群不注入目录、不装配工具；GitHub 评审任务的收窄工具集不含
-  `skill`，也不注入目录。
+  SubAgent（含 GitHub 评审）不注入目录、不装配 `skill`。
 - `skill` 宿主工具（只读，任何访问模式都不产生审批）：只传 `name` 返回钉版
   正文与版本（仅显式调用的技能被拒绝）；再传 `path` 读取该技能目录内的引用
   文件——相对路径、不含 `..`、realpath 仍在技能目录内、普通 UTF-8 文本，调用
@@ -937,10 +941,8 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
   预览仍保留 32 项、每串 256 字符），TUI 总能拿到完整清单。
 - 用法写在工具描述中（3 步以上的工作才使用、同时只标一项进行中、完成一项
   立即更新），不改系统提示、不做定期提醒；「只有一项进行中」不校验。
-- 适用会话：与编码工具同一条件装配——普通开发会话与 coding 角色（含 main
-  委派的 coding 子任务）；main、chat 与 QQ 群不装配，GitHub 评审任务由收窄
-  工具集排除。无副作用：任何访问模式都不产生审批；可重试（失败的 analyze
-  委派子任务若只含可重试操作，仍自动重试一次）。
+- 适用会话：与编码工具同一条件装配——普通开发会话；main 与 SubAgent 不装配。
+  无副作用：任何访问模式都不产生审批。
 - 清单跟随会话：会话中最近一次成功调用的参数即当前清单，跨任务延续；校验
   失败的调用不改变清单；新会话没有清单。不建表、不另存文件，会话历史与
   工具记录是唯一来源。
@@ -955,7 +957,7 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 - 提交：TUI `/plan <内容>` 把整行作为任务输入提交（CLI `ruukoto submit … "/plan …"`
   同一路径，沿用 `request_id` 去重）；不带内容只显示用法。标记规则：任务输入以
   `/plan` 加空白开头且其后有内容。不加会话状态，不改控制协议与表结构。
-- 适用会话：只限普通开发会话。角色会话（main、coding、chat）与 QQ 群会话提交
+- 适用会话：只限普通开发会话。角色会话（main，以及已退役的 coding/chat 归档）与 QQ 群会话提交
   带标记的输入返回 `invalid_params`，不创建任务；Telegram/QQ 私聊正文经编排器
   包装为 `[入站事件]…`，不会被识别。
 - 判定：任务开始时钉版——输入带标记，或经 `continue` 逐级继续的原任务带标记。
@@ -1257,7 +1259,7 @@ ruukoto telegram enable | disable | status
   与当前固定 owner 目标一致，配置换了 bot/chat 不改发）。正文取**本任务**历史条目
   的最终回答（不取会话最新一条），超 4000 字截短注明；失败/超时/未知只发宿主固定
   提示。重启时结果未落库的任务由编排器巡检补记并补登回复。定时唤醒与旧 coding
-  链的子任务唤醒不产生 `owner_reply`（需要时 main 用 `notification_enqueue`
+  子任务（已退役）的唤醒不产生 `owner_reply`（需要时 main 用 `notification_enqueue`
   另行确认）；通用 SubAgent 工作的收尾唤醒按「通用 SubAgent 委派」节的最终
   汇报规则例外发回工作发起入口（agent-direction issue 18）；
   GitHub 结果通知按 ADR 0013 单独授权。目标不可用时记 `telegram.reply_skipped`。
@@ -1394,7 +1396,7 @@ main 可检查服务器部署白名单内的服务状态，并经拥有者逐次
 - **装配边界**：`service_inspect` / `service_manage` 仅 main，且要求产品
   ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER` /
   `RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动）；
-  普通 dev、coding、chat、QQ 群与 ruukoto-dev 都不获得该能力，main 不因此
+  普通 dev、SubAgent 与 ruukoto-dev 都不获得该能力，main 不因此
   获得 bash。模型只提供白名单服务名与固定动作；主机身份、taskId、hostOpId、
   执行身份与策略由宿主注入。
 - **helper 边界**（`deploy/systemd/ruukoto-service.mjs`，root 0700，仅后台
@@ -1466,126 +1468,33 @@ main 可检查服务器部署白名单内的服务状态，并经拥有者逐次
   `standing_permission.created/revoked` 事件与 `service_grant_list/get/revoke`
   操作；旧客户端明确拒绝升级提示，持久历史中的旧来源与事件保持可读。
 
-## main 委派 coding（daily-agent issue 05）
+## 固定 coding 角色退役（agent-direction issue 23）
 
-main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，通过宿主工具
-`coding_delegate` 创建 coding 子任务；结果回到 main 会话，通过 `coding_result`
-读取。两个工具属于 `delegation` 类别，仅 main 装配，调用时重新核实任务、
-会话、项目与角色绑定；coding 与普通开发会话不获得委派能力（旧 chat 角色与
-QQ 群聊会话已退役为只读归档，本就不能提交任务）。
+固定 `coding` 角色（daily-agent issue 05 的 main → coding 委派）已退役，委派与
+GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，不删数据：
 
-### 委派与执行范围
-
-- **触发来源**：只有拥有者在 main 会话直接提交的任务，或经 Telegram/QQ owner
-  入口核实身份的入站任务可以委派。定时唤醒、子任务结果唤醒及其他来源任务
-  拒绝委派；消息正文、项目指令和资料中的身份声明不能替代宿主来源记录。
-- **输入与固定参数**：模型只提供 `request / mode（analyze|draft）/ key /
-  materials?`。宿主固定目标为 `coding`、项目与会话为 coding 角色绑定、
-  工作目录为角色 `workDir`（`<dataDir>/../agent-work/coding/`）、权限模式
-  为 `confirm`，不继承 coding 会话默认模式。截止时间固定为父任务开始时刻
-  （尚无开始时刻则取创建时刻）+ 60 分钟，包含排队与审批等待；每个父任务
-  最多 3 个首次委派，同键重复调用与宿主自动重试不占新名额。
-- **幂等键**：`key` 为 1–64 位字母、数字、`_` 或 `-`，请求键为
-  `deleg:<parentTaskId>:<key>`。同父任务、同键同参返回原子任务，同键异参
-  明确冲突；原始参数的规范化摘要随宿主委派模板持久化，资料随后变化时，
-  同参重提仍复用首次快照。应答丢失时核实原请求键，不换键重复委派。
-- **资料快照**：`materials` 可省略，提供时为 1–8 个来源；复用
-  `createSourceResolver` 在委派时按 main 的可读范围解析，支持
-  `{kind:'text',text}`、`{kind:'task_result',task_id}`、
-  `{kind:'artifact',artifact_id,offset?,length?}` 与
-  `{kind:'app_data',table,row_id,field}`。任务来源取已完成且已记录的结果摘要；
-  产物来源取已定稿的 UTF-8 片段（偏移/长度按字节，单片最多 8 KiB）。来源
-  解析后的文本写入子任务正文，不传原始引用 ID；后续源数据变化不改写既有快照。不复制
-  main 完整会话历史，也不授予 coding 读取 main 应用数据或其他原始资料的
-  API 权限。宿主模板、请求和资料合计最多 8192 字符，超限拒绝，不截断。
-- **工作目录与模式**：coding 复用编码工具和既有审批边界，需要仓库时在角色
-  工作目录内自行 `git clone`，不另设仓库白名单。自 agent-direction issue 11 起
-  `analyze` 转入通用只读 SubAgent 链路（硬只读、不自动重试，见「通用 SubAgent
-  委派」节）；本节其余内容为 `draft` 修改委派与旧持久 analyze 记录的既有语义。
-  `draft` 可生成修改草稿，不提交、不推送；GitHub 评论、PR
-  或其他外部发布仍须拥有者在可信入口确认。委派不开放任意工作目录、网络、
-  凭据或角色权限修改能力。
-
-### 结果协议与分页读取
-
-终态摘要保存到 `result_summary`（正文最多 1000 字符，超出注明截断），
-结构化结果使用既有 `result_ref` JSON，保留 `sessionId / taskId`：
-
-- `mode`：`analyze / draft`；`outcome`：`completed / failed / timeout / unknown`。
-  截止时间取消记为 `timeout`，中断记为 `unknown`，普通取消保留原因并归入
-  `failed`；是否自动重试还须核实原任务状态，不能只看 `outcome`。
-- `tests`：`passed / failed / not_run / unreported`，来自 coding 自报，
-  不代表宿主独立验证通过；未按格式报告时为 `unreported`。
-- `needsOwner / needsOwnerReason`：宿主依据中断、效果未知、未处理审批等事实
-  判定，并合并 coding 自报的需要拥有者及原因；完整分页识别报告后，原因保留
-  最多 1000 字符，完整正文经 `coding_result` 读取。自报“否”不能覆盖宿主判定。
-- `effect`：`unknown / none_unknown`，依据宿主操作记录；`none_unknown` 只表示
-  未记录效果未知，不表示没有写入或其他副作用，也不足以证明可以重试。
-- `failure`：失败、超时、中断或取消的原因，完成时为空；`artifactIds`：该
-  子任务的产物引用，不含 `prompt-snapshot:*` 宿主诊断快照；`retriedBy`：
-  首次失败被自动重试接替时，记录重试子任务 ID。
-
-宿主要求 coding 在最终回答末尾按以下两行自报（各取适用值，需拥有者时附原因）：
-
-```text
-测试：通过|失败|未运行
-需要拥有者：是（原因）|否
-```
-
-`coding_result` 只读父任务属于当前 main 会话的 coding 子任务，结果唤醒产生
-的新 main 任务也可读取；这是按父子关系开放的窄入口，不扩大通用跨项目资料
-授权。输入为 `task_id / part? / artifact_id? / offset? / length?`：
-
-- `part=result`（默认）：返回任务状态、截止时间、结构化结果、摘要与产物 ID，
-  尚无结果时明确说明。
-- `part=reply`：读取该子任务自己的最终回答，按 UTF-8 字节分页；`offset /
-  length` 均以字节计，`length` 为 256–16384，默认 16384（16 KiB）。共用
-  `Runtime.readTaskReply`，可继续读取超过旧接口 256 KiB 上限的回答内容，
-  不从 coding 会话最新一条回答推断。任务完成前返回暂无最终回答，避免把
-  中间消息和最终回答拼入同一组分页。
-- `part=artifact`：须提供 `artifact_id`，并核实产物属于该子任务且不是宿主上下文
-  快照；按 UTF-8 字节分页，长度为 4–65536，默认 64 KiB，返回产物状态与正文片段。
-  非文本或未对齐的起始偏移明确报错，页尾保留未完成字符给下一页。两种正文读取的
-  `offset` 默认 0，响应注明总字节数与下一页偏移；续读使用响应给出的偏移。
-
-编排器记录 `child_task.*` 事件，以固定 `confirm` 模式、限长摘要和结果引用唤醒 main，
-不继承 main 会话默认的完全访问。
-完整回答与产物通过上述工具按需读取。子任务不继承父任务的 Telegram 来源
-事件，子任务及其唤醒任务均不产生 `owner_reply`，结果不自动发回 Telegram
-（ADR 0011）；需要外发时由 main 经 `notification_enqueue` 另行请求确认。
-此处指 `coding_delegate` 的拥有者委派路径；GitHub webhook 由宿主固定委派，
-来源事件和一次摘要通知另按下节的 ADR 0013 处理。
-
-### 自动重试与恢复
-
-自 agent-direction issue 11 起新发起的 `analyze` 转通用链路、不自动重试；
-本节的自动重试只适用于旧持久 analyze 子任务（历史记录）与既有重试键核实。
-
-只有首次 `analyze` 子任务以 `failed` 状态结束，且宿主可证明没有执行写入或
-副作用不明的操作、没有效果未知记录、没有已批准或已消费审批时，才自动重试一次。
-`draft`、超时、中断、取消、结果未知与无法证明安全的失败均不自动重试；
-不能仅凭 `analyze` 意图、自报结果或没有 `effect_unknown` 就重放任务。
-
-宿主按持久化工具记录保守核实：已有操作必须全部属于已知只读集合
-（`read / read_artifact / history_search / history_read / memory_list /
-memory_read / web_search`），结果已记录且效果已知。任何 `bash`、MCP、
-记忆写入、其他写工具或未知工具调用均不自动重试，包括经 `bash` 执行的
-`git clone`。
-
-重试保留原父任务、正文（含资料快照）、coding 角色与 `confirm` 模式，请求键
-固定为原请求键加 `:retry`，截止时间为首次任务结束时刻 + 60 分钟；重试任务
-本身不能再次自动重试。先按固定键提交或核实重试子任务，再为首次任务记录
-`retriedBy` 与结果；首次失败不唤醒 main，待重试终态后只唤醒一次。
-重试创建被拒且确认没有子任务时，保存原始失败与需要拥有者的原因，继续结果
-回传和后台恢复；已创建的重试仍按原键核实。执行后端暂不可用时，唤醒保留到
-后续恢复补发。
-
-停止或重启时，未落结果的 `coding_delegate` 按原请求键核实子任务是否存在：
-存在即已委派，不存在即已知未委派，不按通用操作标为 `effect_unknown`；
-`coding_result` 是只读查询。恢复沿用原委派键、固定重试键和
-`wake:<childId>` 唤醒键，不生成新键重复创建；补发唤醒排除已有重试接替的
-首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
-结果未知事实，不自动重放其执行。
+- **不再引导、不再接受新任务**：编排器只引导 main；新实例没有 `agent-coding`
+  项目与 coding 角色行。旧安装保留的 coding 角色行、项目与会话是归档标识，
+  旧任务、历史、产物与 `result_ref` 原样保留；向 coding 角色会话提交（含继续、
+  计划模式）一律 `invalid_state`。`coding_delegate` 已删除，入站登记只接受
+  目标 `main`。
+- **升级收尾，不重放**：启动时（与群聊退役收尾同一事务）coding 角色会话里
+  排队的任务定 `canceled`（原因 `coding_role_retired:…`），运行中的照常由恢复
+  定 `interrupted`；编排器启动巡检为这些旧子任务各补记一次结果
+  （`child_task.*` 事件）并以 `wake:<子任务>` 唤醒 main 一次，结果已落库而
+  唤醒缺失的旧子任务同样按原键补发。旧子任务正文不再交给模型执行。
+- **只读查阅**：main 保留 `coding_result`（`delegation` 类别，只读），读取本
+  会话旧 coding 子任务与本会话委派的 SubAgent 执行任务：`part=result`（默认）
+  展示状态与旧结构化结果（模式、测试自报、需要拥有者、效果、产物），
+  `part=reply` 按 UTF-8 字节分页读最终回答（256–16384 字节），`part=artifact`
+  分页读该子任务的交付产物（4–65536 字节，不含 `prompt-snapshot:*`）。其他
+  任务一律拒绝，不扩大跨项目资料授权。新工作用 `subagent_result`。
+- **恢复兼容**：升级前在途、尚未落结果的 `coding_delegate` 工具操作仍按原
+  请求键核实子任务是否存在（工具账本保留该规则）。
+- **存储不收缩**：`tasks.agent_id`、`agent_roles.id`、`inbound_events.target_role`
+  的 CHECK 仍含 `coding`/`chat`，`sessions.kind` 仍含 `qq_group`——旧行就是这些
+  取值，收缩约束等于改写历史。群项目的资料边界（main/coding 角色项目不能借授权
+  读原始群项目）照旧。
 
 ## 通用 SubAgent 委派（agent-direction issue 11–17/19，ADR 0020/0021）
 
@@ -1746,8 +1655,7 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   的唤醒轮次不级联取消（取消所在轮次已有回复）。
 - **身份与成果保持**：取消不关闭 SubAgent（任务结束后按占用核实记 `idle`
   或 `unverified`，之后仍可按 12 的规则复用于其他工作）；工作目录、会话
-  JSONL、产物、resultRef 与工作记录都不删除；旧 coding draft（无
-  `work_id`）不纳入，仍用 `ruukoto cancel <taskId>` 单独取消。
+  JSONL、产物、resultRef 与工作记录都不删除。
 - **展示**：`work list/show` 的工作对象自然带上取消三列与当前任务状态；
   TUI 经 `work_delegation.canceled` 事件更新工作字段并追加说明（不新增
   TUI 命令）；dev/main 系统提示说明「不再需要的工作用 `subagent_cancel`，
@@ -1757,8 +1665,9 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 
 - **模式与入口**：`subagent_delegate` 增加 `mode`（`analyze` 默认 /
   `modify`）与 `target`（modify 必填，父工作区内的目录）。普通开发会话
-  与 main（issue 17 开放，承接旧 `coding_delegate mode=draft` 的修改职责）
-  都能发起；固定 coding/chat 角色会话、计划模式、SubAgent 自身一律拒绝；
+  与 main（issue 17 开放，承接旧固定 coding draft 的修改职责）
+  都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话
+  本就不接受任务）；
   modify 不带 `read_paths`/`materials`。修改工作固定 `confirm`、在
   容器中运行，不继承父任务的完全访问；工具只有 `read / edit / write /
   bash / read_artifact`（无 `request_file_access`、`http_request`、MCP，
@@ -1859,10 +1768,6 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   `work_delegation.integrated` 事件与工具进 v15 协议。
 - **取消/关闭与汇总**：整项取消与显式关闭本就保留副本与成果，汇总不按
   取消/关闭状态拦截——取消后、关闭后的成果仍可按工作找回汇总。
-- **旧固定入口仅迁移期兼容**：`coding_delegate` 的 `mode=analyze` 已走通用
-  只读链路，`mode=draft` 保留旧 coding 路径（与子任务审查、GitHub 通知
-  等既有流程一致），提示文案引导修改工作走 `subagent_delegate(mode=modify)`
-  + `subagent_integrate`。旧 draft 子任务没有 `work_id`，不纳入汇总。
 
 ### 结果、通知与空闲
 
@@ -1894,14 +1799,13 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   沿用 outbox 语义；正文与来源经 `ruukoto notify show` 可查。已取消的
   工作不自动汇报（取消所在轮次已有回复）。TUI、定时、群与 GitHub 发起的
   工作一律不汇报；该路径不新增工具、不扩大 main 的外发授权（唤醒轮次的
-  `notification_enqueue` 仍按原规则核实可信目标）。旧 coding draft 链不
-  纳入（17 迁移后自动适用），GitHub 来源工作继续走 ADR 0013 的固定通知。
+  `notification_enqueue` 仍按原规则核实可信目标）。GitHub 来源工作继续走
+  ADR 0013 的固定通知。
 - 身份在完成、TUI 退出与等待后仍保留，空闲零模型/worker 进程；任务收尾后
   释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
-- `coding_delegate(mode=analyze)` 转入本链路（硬只读、不自动重试）；
-  `coding_result` 按同一归属窄口兼容读取新旧分析结果；`draft` 保留旧
-  coding 路径。GitHub webhook 评审经宿主固定 SubAgent（见「宿主固定评审
-  （issue 19）」），不再新建 coding 评审任务。
+- `coding_result` 按同一归属窄口兼容读取本会话委派的 SubAgent 执行结果
+  （见「固定 coding 角色退役」）。GitHub webhook 评审经宿主固定 SubAgent
+  （见「宿主固定评审（issue 19）」）。
 
 ### 宿主固定评审（issue 19）
 
@@ -1913,14 +1817,11 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   幂等键 `ghreview-<事件 id>`，参数摘要只含 `{kind, eventId}`——升级前后
   提示文案变化不会误报冲突。管理器准备失败（缺执行入口、模型门闩未就绪）
   时事件保持 `registered`，下次派发重试，不降级回旧 coding 路径。
-- **升级接管**：升级前已按旧路径建出旧 coding 评审子任务
-  （`deleg:<父任务>:review`）的事件，派发时接管原子任务收尾，不再新建
-  SubAgent；旧 coding 子任务的终态、产物与唤醒分支原样保留（23 再删）。
 - **名额与输入**：宿主评审任务带来源事件（`source_event_id`），不计入 main
   的 3 个活动委派名额（计数 SQL 排除来源事件任务）；任务输入首行固定为
   `[SubAgent 委派 · GitHub PR 评审]`，正文沿用 `GitHubEvents.request`。
   带来源事件的任务出队时走既有入站门（修订已过期即取消）、终态在同一结果
-  事务内回写入站终态并登记通知，与旧 coding 子任务同一链路。重提命中首次
+  事务内回写入站终态并登记通知。重提命中首次
   登记（管理器不再 kick）或崩溃窗口把排队子会话按 `backend_restart` 暂停时，
   派发按角色会话同口径补 kick / 恢复子会话队列（占用未核实的
   `occupancy_unverified` 暂停不在此解除）。
@@ -1935,11 +1836,10 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   不会复用它，主 Agent 也不能用 `sub_agent_id` 把它挪去做其他工作或沿其
   工作续派——继续/复用的可用性检查对「有来源事件的任务」的 SubAgent 一律
   拒绝（上下文含不可信 PR 资料）；主 Agent 或拥有者可以显式关闭。
-- **结果与唤醒**：终态沿用 `setTaskResult`；`resultData` 同时识别旧 coding
-  与 SubAgent 评审任务，评审正文完整保存为 `review-draft:<事件 id>` 产物并
+- **结果与唤醒**：终态沿用 `setTaskResult`；`resultData` 识别 SubAgent 评审
+  任务，评审正文完整保存为 `review-draft:<事件 id>` 产物并
   写入 `result_ref.review`（分页损坏保留 `partial` 与 `captureError`）。
-  main 结果唤醒开放 `subagent_result`（`coding_result` 迁移期继续开放，供
-  升级前未完成的旧唤醒使用）；唤醒输入沿用 `GitHubEvents.notice` 修订说明，
+  main 结果唤醒开放 `subagent_result` 与只读的 `coding_result`（后者查阅 issue 23 退役前在途、经收尾补记的旧 coding 评审）；唤醒输入沿用 `GitHubEvents.notice` 修订说明，
   `subagent_result` 前置同样的修订说明。评审并行运行、不设并发名额（
   `ponytail:` 上限与升级方向见 `subagents.ts`）；被新修订取代仍在运行的评审
   会跑完，结果标为过期、不发通知。评审工作不适用 issue 18 的最终汇报
@@ -2042,16 +1942,16 @@ QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本�
   先保存归一化 JSON 快照，`(github, delivery ID)` 去重；首次登记返回 202，
   重复返回 200。响应不等待模型或子任务，登记失败返回 503。
 - **宿主固定委派**：入站事件异步创建 main 父任务，并由编排器为每个修订
-  直接登记一个评审 SubAgent（issue 19；升级前已建的旧 coding 子任务沿原
-  路径接管）。main 父任务只确认接纳且无工具；评审 SubAgent 仅可使用
+  直接登记一个评审 SubAgent（issue 19）。main 父任务只确认接纳且无工具；评审 SubAgent 仅可使用
   `read`、`read_artifact` 和按任务开放的本地 `effect = read` MCP 工具；
-  结果唤醒的 main 获得 `subagent_result`（迁移期兼容 `coding_result`）。
+  结果唤醒的 main 获得 `subagent_result` 与只读 `coding_result`。
   会话、工作目录和 `confirm` 模式由宿主决定。PR 标题、正文和工具结果按
   资料处理，不能修改权限、角色或发布策略，也不能执行 PR 代码。
 - **结果归属**：事件快照记录 head/base SHA、`updatedAt` 与 PR 状态；评审
   SubAgent 的完整最终回答保存为普通报告 Artifact。`result_ref.review` 保存
   事件 ID、PR URL、仓库 ID、PR 编号、head/base SHA、`artifactId` 与
-  `staleReason`，main 经 `subagent_result`（旧任务经 `coding_result`）读取，
+  `staleReason`，main 经 `subagent_result` 读取（issue 23 前的旧 coding 评审结果仍可经
+  `coding_result` 只读查阅），
   拥有者经任务详情或 `read-artifact` 查看。
   产物保留原始分析，当前有效性以任务结果为准，不建立旧 GitHub 草稿版本表。
   历史分页缺失或写入失败时保留 `partial`，结果记录 `captureError` 并要求拥有者
@@ -2061,8 +1961,8 @@ QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本�
   的通知取消。同时间戳不同 SHA 也保守失效。模型须在 MCP 采集前后核对
   head/base，不能核对、分页不完整或 patch 缺失时明确说明；本地未观察到变化
   不保证远端仍未改变，缺失 webhook 不自动补抓。
-- **一次通知**：只有该事件评审子任务（SubAgent，或升级前在途的旧 coding）
-  对应的 main 摘要终态才登记通知；
+- **一次通知**：只有该事件评审 SubAgent 对应的 main 摘要终态才登记通知
+  （issue 23 起旧 coding 评审子任务不再登记）；
   公共 outbox 使用 `sourceKind = inbound_event` 和事件 ID 作为逻辑键，
   独立于 `owner_reply`，模型不能换目标或另建发送槽。发送前复核事件仍有效、
   入口仍启用且固定 owner 目标未变；过期、停用或配置变化时取消未发送操作。
@@ -2256,8 +2156,9 @@ MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
 
 核心不再创建或执行 QQ 群任务：这是 ADR 0017 对 ADR 0014 的修订（取消内建
 chat 角色，群聊改为后续阶段的独立可选外挂）。chat 角色不再引导，旧安装的
-`agent_roles` chat 行保留为归档标识；`AgentRoleId`、CHECK 约束、`qq_group`
-会话类别、chat 工具类别与 Driver 的 qq_group 分支留待 issue 23 收缩。
+`agent_roles` chat 行保留为归档标识。issue 23 删除了 chat 工具类别与提示、
+Driver/上下文装配的 qq_group 分支与撤回过滤、QqStore 的群写方法；
+`AgentRoleId`、CHECK 约束与 `qq_group` 会话类别对应旧行实值，保留不收缩。
 QQ 拥有者私聊（issue 06，共享 main 会话）与 Telegram 主会话不受影响。
 
 ### 退役后的入站行为
@@ -2280,8 +2181,8 @@ QQ 拥有者私聊（issue 06，共享 main 会话）与 Telegram 主会话不�
 `qq_config.groups` 原样保留为历史值（`qq status`、`/qq` 照常展示）；
 `qq_group_update` 控制 op、CLI `qq group add|remove`、配置中心允许群界面、
 TUI `/qq groups` 的增删入口已删除——旧命令只打印退役提示。
-`max_reply_chars` 与 `queue_ttl_ms` 从此不再起作用（入口留给 issue 23
-清理）。`qq_configure` / `qq_set_enabled` / `qq status` 只作用于私聊入口。
+`queue_ttl_ms` 已无读取方（issue 23 移出配置类型，列保留不迁移）；
+`max_reply_chars` 仍是私聊回复的字符上限。`qq_configure` / `qq_set_enabled` / `qq status` 只作用于私聊入口。
 正式 QQ 群聊外挂（独立程序，自行管理群会话/历史/发送状态，经有限接口向
 ruukoto 提供结果）在后续阶段交付；本单不依赖尚未确定的外挂接口。
 
@@ -2294,11 +2195,11 @@ ruukoto 提供结果）在后续阶段交付；本单不依赖尚未确定的外
   撤回）；`qq outbox` 查账本；拥有者 `read_history` 可读群会话历史。
 - 归档不能变成对话入口：`create_session` 拒绝群项目与角色项目（与
   `open_workspace` 同一判定），`submit`/`continue` 拒绝 `qq_group` 会话与
-  chat 角色会话；`open_workspace` 认领与工作区迁移对角色/群聊项目的排除
+  chat/coding 角色会话；`open_workspace` 认领与工作区迁移对角色/群聊项目的排除
   不变。
 - **隔离不因退役扩大**：AccessScope 按 `sessions.kind='qq_group'` 判定，
   不依赖 chat 角色行；main/coding/SubAgent 仍读不到群项目原始历史、产物
-  与带群来源的记忆；`chat_result` 资料仍不能用于 coding 委派；已接收快照
+  与带群来源的记忆；`chat_result` 资料仍不能用于 SubAgent 委派；已接收快照
   只对 main 开放。
 
 ### 群聊结果（chat_result_*，复核不变）
@@ -2370,8 +2271,8 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
    请求键（`evt:<eventId>`）核实重提；重启窗口内到达终态的角色任务补记
    结果并补发 `child_task.*` 事件与有界唤醒（interrupted 一律按结果未知，
    不自动重放外部副作用）；结果已落库而唤醒缺失的子任务按原幂等键
-   （`wake:<childId>`）补发，已有自动重试接替的首次 coding 任务不补唤醒
-   （见「main 委派 coding」），重复恢复不重复投递。角色会话与 SubAgent 子
+   （`wake:<childId>`）补发，重复恢复不重复投递；退役前在途的旧 coding
+   子任务也在这里补记（见「固定 coding 角色退役」）。角色会话与 SubAgent 子
    会话的队列暂停只有 `backend_restart` 才自动恢复（SubAgent 侧此时只剩
    宿主固定评审的排队任务，其余排队委派任务已在第 2 步定 interrupted）；
    `occupancy_unverified`（旧执行未核实）保留暂停与占用，由拥有者核实后

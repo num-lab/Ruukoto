@@ -27,6 +27,7 @@
         <code class="src" data-src="src/runtime/orchestrator.ts#private async dispatchEvent">runtime/orchestrator.ts</code>
         <code class="src" data-src="src/runtime/runtime.ts#private inboundGate">runtime/runtime.ts</code>
         <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
+        <code class="src" data-src="src/runtime/parent-delivery.ts#export class ParentDelivery">runtime/parent-delivery.ts</code>
         <code class="src" data-src="src/core/notify-target.ts#export function sameTarget">core/notify-target.ts</code>
         <code class="src" data-src="src/core/store.ts#registerInboundEvent(input">core/store.ts</code>
         <code class="src" data-src="src/core/types.ts#export type InboundEventStatus">core/types.ts</code>
@@ -629,26 +630,28 @@
     <p>跳过判定的原因码见 <code class="src" data-src="src/runtime/runtime.ts#&quot;target_changed&quot; : &quot;target_unavailable&quot;">enqueueOwnerReply</code>。两个平台的比对都含配置版本，所以入站之后、任务结束之前的任何 IM 配置或凭据变化（代次递增）都会让这条消息的回复记 <code>target_changed</code>，不改发给新目标（发送时的目标核对见<a href="outbox.html">通知 outbox</a>）。</p>
 
     <h3>工作最终汇报发回发起入口</h3>
-    <p>IM 私聊发起的工作（通用 SubAgent 委派）完成多个子任务后，最终结果由宿主守着收尾、发回最初那条私聊——拥有者不等在会话边上，也知道这项异步工作有了结论。main 处理该工作子任务结果的唤醒任务（<code>wake:&lt;子任务&gt;</code>，由编排器在子任务的结果事务之后有界提交，输入尾部附宿主固定的最终汇报说明，见<a href="orchestrator.html#subagent-state">编排器 · 结果怎样回到主 Agent</a>）到达终态时，编排器除了照常记录结果与 <code>child_task.*</code> 之外，在同一结果事务里调用 <code class="src" data-src="src/runtime/orchestrator.ts#onWakeTerminal?(task: Task, outcome: ChildOutcome): void;">onWakeTerminal</code> 回调，Runtime 接线到 <code class="src" data-src="src/runtime/runtime.ts#private enqueueWorkReport(wake: Task, outcome: ChildOutcome)">runtime.ts · enqueueWorkReport</code>。宿主判定全部满足才登记工作最终汇报，模型不能选择不汇报：</p>
+    <p>IM 私聊发起的工作（通用 SubAgent 委派）完成多个子任务后，最终结果由宿主守着收尾、发回最初那条私聊——拥有者不等在会话边上，也知道这项异步工作有了结论。main 处理该工作子任务结果的唤醒任务（<code>wake:&lt;子任务&gt;</code>，由父级送达在子任务的结果事务之后有界提交，输入尾部附宿主固定的最终汇报说明，见<a href="orchestrator.html#subagent-state">编排器 · 结果怎样回到主 Agent</a>）到达终态时，编排器除了照常记录结果与 <code>child_task.*</code> 之外，在同一结果事务里调用父级送达的 <code class="src" data-src="src/runtime/parent-delivery.ts#wakeTerminal(wake: Task, outcome: ChildOutcome)">parent-delivery.ts · wakeTerminal</code>。到期判定、发送键与正文由父级送达决定，IM 机制（目标核对、按平台截短、写发送操作）经回调留在 Runtime（<code class="src" data-src="src/runtime/runtime.ts#private sendWorkReport(report: WorkReport)">runtime.ts · sendWorkReport</code>）。宿主判定全部满足才登记工作最终汇报，模型不能选择不汇报：</p>
     <ul>
       <li>唤醒对应的执行属于一项未取消的工作（<code>work_delegations</code> 的取消三列为空）。已取消的工作不汇报：整项取消处理所在轮次已有 owner 回复。</li>
-      <li>发起事件存在且是 <code>telegram</code> 或 <code>qq_private</code> 的普通任务入站：经工作发起任务（<code>origin_task_id</code>）的 <code>source_event_id</code> 派生（<code class="src" data-src="src/runtime/runtime.ts#private workOriginEvent(work: WorkDelegation)">workOriginEvent</code>），不从会话最新回答推断。TUI、定时、群与 GitHub 发起的工作一律不发。</li>
-      <li>收尾判定两条：该工作没有 <code>queued</code> / <code>running</code> / <code>awaiting_confirmation</code> 的执行任务（<code class="src" data-src="src/runtime/runtime.ts#listActiveTasksByWork(work.id)">listActiveTasksByWork</code>）；且其他每条执行任务的 <code>wake:&lt;执行&gt;</code> 在唤醒会话里已存在并已记录结果（<code class="src" data-src="src/runtime/runtime.ts#findTaskByRequest(wake.sessionId">findTaskByRequest</code>）。main 本轮续派会产生活动任务，汇报自然推迟到下一个收尾的唤醒；两条执行并发收尾时，先终态的唤醒看到对方唤醒还没有结果，只有后终态的汇报一次。唤醒任务本身经来源门核实（回报唤醒轮次不允许再委派，见<a href="tool-call-path.html">工具调用路径</a>），续派只发生在拥有者与 IM 任务轮次。</li>
+      <li>发起事件存在且是 <code>telegram</code> 或 <code>qq_private</code> 的普通任务入站：经工作发起任务（<code>origin_task_id</code>）的 <code>source_event_id</code> 派生（<code class="src" data-src="src/runtime/parent-delivery.ts#private workOriginEvent(work: WorkDelegation)">workOriginEvent</code>），不从会话最新回答推断。TUI、定时、群与 GitHub 发起的工作一律不发。</li>
+      <li>收尾判定两条：该工作没有 <code>queued</code> / <code>running</code> / <code>awaiting_confirmation</code> 的执行任务（<code class="src" data-src="src/runtime/parent-delivery.ts#listActiveTasksByWork(work.id)">listActiveTasksByWork</code>）；且其他每条执行任务的 <code>wake:&lt;执行&gt;</code> 在唤醒会话里已存在并已记录结果（<code class="src" data-src="src/runtime/parent-delivery.ts#findTaskByRequest(wake.sessionId">findTaskByRequest</code>）。main 本轮续派会产生活动任务，汇报自然推迟到下一个收尾的唤醒；两条执行并发收尾时，先终态的唤醒看到对方唤醒还没有结果，只有后终态的汇报一次。唤醒任务本身经来源门核实（回报唤醒轮次不允许再委派，见<a href="tool-call-path.html">工具调用路径</a>），续派只发生在拥有者与 IM 任务轮次。</li>
     </ul>
     <figure class="fig">
       <div class="scroll">
-        <div class="seq" style="--n:5">
-          <div class="who"><span>唤醒任务终态</span><span>编排器</span><span>Store · 同一事务</span><span>Runtime · 工作最终汇报</span><span>发送循环</span></div>
-          <div class="note" style="--from:2;--to:3">唤醒输入尾部附宿主固定的汇报说明（<code class="src" data-src="src/runtime/runtime.ts#private workReportNotice(task: Task)">workReportNotice</code>）</div>
+        <div class="seq" style="--n:6">
+          <div class="who"><span>唤醒任务终态</span><span>编排器</span><span>Store · 同一事务</span><span>父级送达</span><span>Runtime · IM 发送</span><span>发送循环</span></div>
+          <div class="note" style="--from:4;--to:4">建唤醒时输入尾部已附汇报说明（<code class="src" data-src="src/runtime/parent-delivery.ts#private workReportNotice(child: Task)">workReportNotice</code>）</div>
           <div class="phase"><span>结果事务</span></div>
           <div class="m" style="--from:2;--to:3"><span>setTaskResult（只写一次）</span></div>
-          <div class="m" style="--from:2;--to:4"><span>onWakeTerminal(任务, 结局)</span></div>
-          <div class="note" style="--from:4;--to:4">未取消 · IM 发起 · 收尾判定 · 目标核对</div>
-          <div class="m l ok" style="--from:4;--to:3"><span>insertOp(owner_reply · #work:)</span></div>
-          <div class="m l bad dash" style="--from:4;--to:3"><span>或 *.reply_skipped · work_report:</span></div>
+          <div class="m" style="--from:2;--to:4"><span>wakeTerminal(任务, 结局)</span></div>
+          <div class="note" style="--from:4;--to:4">未取消 · IM 发起 · 收尾判定</div>
+          <div class="m" style="--from:4;--to:5"><span>sendWorkReport(键, 正文)</span></div>
+          <div class="note" style="--from:5;--to:5">目标核对</div>
+          <div class="m l ok" style="--from:5;--to:3"><span>insertOp(owner_reply · #work:)</span></div>
+          <div class="m l bad dash" style="--from:5;--to:3"><span>或 *.reply_skipped · work_report:</span></div>
           <div class="m" style="--from:2;--to:3"><span>child_task.* 事件</span></div>
           <div class="phase"><span>提交之后</span></div>
-          <div class="m dash" style="--from:3;--to:5"><span>领取 pending 的发送操作</span></div>
+          <div class="m dash" style="--from:3;--to:6"><span>领取 pending 的发送操作</span></div>
         </div>
       </div>
       <figcaption>工作最终汇报是普通 owner 回复之外的第二种 owner_reply：不占上节的来源事件路径，判定由宿主执行，登记、跳过记录与正文规则都和上节共用同一套。同键幂等：每次收尾的键不同（收尾执行不同），重复终态与巡检补记撞到同一键也只返回原操作；后终态的唤醒汇报一次，先终态的不登记。唤醒的非完成结局与 owner 回复同口径发送固定提示（含工作 id），不说成任务成功。</figcaption>
@@ -657,10 +660,10 @@
       <table class="tbl wrap">
         <thead><tr><th></th><th>owner 回复（上节）</th><th>工作最终汇报</th></tr></thead>
         <tbody>
-          <tr><td>键</td><td>入站事件 ID</td><td><code>&lt;发起事件 id&gt;#work:&lt;workId&gt;:&lt;收尾执行 id&gt;</code>（<code class="src" data-src="src/runtime/runtime.ts#sourceKey: `${event.id}#work:${work.id}:${child.id}`">runtime.ts · enqueueWorkReport</code>）。同键幂等；补充原工作再次收尾键不同，是新的另一份</td></tr>
+          <tr><td>键</td><td>入站事件 ID</td><td><code>&lt;发起事件 id&gt;#work:&lt;workId&gt;:&lt;收尾执行 id&gt;</code>（<code class="src" data-src="src/runtime/parent-delivery.ts#key: `${event.id}#work:${work.id}:${child.id}`">parent-delivery.ts · wakeTerminal</code>）。同键幂等；补充原工作再次收尾键不同，是新的另一份</td></tr>
           <tr><td>正文</td><td>入站任务自己的最终回答</td><td>首行宿主固定 <code>[工作 &lt;workId&gt; 最终汇报]</code>，接该唤醒任务的最终回答；唤醒失败、超时、结果未知发宿主固定提示（含工作 id，注明详情见 TUI）。截短口径与 owner 回复相同；两个平台照常引用原消息（键按 <code>#</code> 截断取发起事件，见<a href="outbox.html#keys">通知 outbox</a>）</td></tr>
           <tr><td>目标</td><td colspan="2">同一核对：发起事件收件时钉版的目标与当前固定目标一致（<code class="src" data-src="src/runtime/runtime.ts#private imReplyTarget(event: InboundEvent)">imReplyTarget</code>，含配置版本与外部 ID 前缀），续派来自另一个入口也发回发起入口；不符即跳过，不登记、不改发</td></tr>
-          <tr><td>跳过</td><td>原因码原文</td><td>同一核对不符时记对应的 <code>*.reply_skipped</code>，reason 带 <code>work_report:</code> 前缀（如 <code>work_report:target_changed</code>，<code class="src" data-src="src/runtime/runtime.ts#`work_report:${target.skip}`">runtime.ts · enqueueWorkReport</code>）；登记失败的跟进记录同样带此前缀（<code>work_report:enqueue_failed：</code>）</td></tr>
+          <tr><td>跳过</td><td>原因码原文</td><td>同一核对不符时记对应的 <code>*.reply_skipped</code>，reason 带 <code>work_report:</code> 前缀（如 <code>work_report:target_changed</code>，<code class="src" data-src="src/runtime/runtime.ts#`work_report:${target.skip}`">runtime.ts · sendWorkReport</code>）；登记失败的跟进记录同样带此前缀（<code>work_report:enqueue_failed：</code>）</td></tr>
         </tbody>
       </table>
     </div>

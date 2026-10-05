@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -532,9 +532,12 @@ CREATE TABLE IF NOT EXISTS work_delegations (
 );
 
 -- v28（agent-direction issue 21）：跨实例导入的回执与条目账本。旧实例开发资料
--- 经目标侧离线 legacy-import 迁入 Coding Agent；回执持久保存（applied/reverted），
+-- 经目标侧离线 legacy-import 迁入 Coding Agent（issue 22 增加镜像方向：个人资料
+-- 迁入全新 ruukoto 实例，共用本两表）；回执持久保存（applied/reverted），
 -- 供续跑幂等核实、回退与整库恢复定位；条目账本标识各项资料属于哪次导入，主键
 -- (kind, item_id) 让同一资料至多归属一次导入。
+-- v30（agent-direction issue 22）：条目类别扩五类（agent_role / schedule /
+-- platform_config / standing_permission / credential），v28 / v29 库经重建迁移。
 CREATE TABLE IF NOT EXISTS instance_imports (
   id TEXT PRIMARY KEY,
   request_key TEXT NOT NULL UNIQUE,
@@ -554,7 +557,8 @@ CREATE TABLE IF NOT EXISTS instance_imports (
 );
 CREATE TABLE IF NOT EXISTS instance_import_items (
   kind TEXT NOT NULL CHECK (kind IN
-    ('project','session','sub_agent','work_delegation','memory','grant','mcp','meta','file')),
+    ('project','session','sub_agent','work_delegation','memory','grant','mcp','meta','file',
+     'agent_role','schedule','platform_config','standing_permission','credential')),
   item_id TEXT NOT NULL,
   import_id TEXT NOT NULL REFERENCES instance_imports(id),
   PRIMARY KEY (kind, item_id)
@@ -638,7 +642,8 @@ export class Db {
       // 访问模式与新闻动作的 CHECK 需重建被引用的表；FK pragma 在事务内无效，
       // 必须在事务外关闭，提交前校验外键，结束后恢复。
       const rebuildModeChecks = row !== undefined && version < 6;
-      const rebuildTables = rebuildModeChecks || (row !== undefined && version >= 13 && version < 18);
+      const rebuildTables =
+        rebuildModeChecks || (row !== undefined && version >= 13 && version < 18) || (row !== undefined && version === 28);
       if (rebuildTables) this.db.exec("PRAGMA foreign_keys = OFF;");
       // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
       try {
@@ -732,6 +737,8 @@ export class Db {
       // 旧库两表为空，不扫描、不回填。
       // v28 → v29：新增 subagent_messages 表（SCHEMA_SQL 幂等建表，
       // agent-direction issue 13 工作内协作消息）；旧库表为空，不回填。
+      // v29 → v30：instance_import_items 的类别 CHECK 扩五类（agent-direction
+      // issue 22 个人方向导入）；CHECK 变更由下方重建处理，账本行原样保留。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -742,6 +749,28 @@ export class Db {
     if (version >= 13 && version <= 15) this.rebuildNotificationSourceCheck();
     // v18：新闻计划复用调度运行与通知 outbox，保留旧计划和运行的引用关系。
     if (version >= 13 && version <= 17) this.rebuildScheduleActionCheck();
+    // v30：条目账本类别扩五类；既有回执与账本行逐行复制保留。
+    // v28 起的库既有表带着旧 CHECK（v29 的 subagent_messages 不动本表），都重建。
+    if (version >= 28 && version <= 29) this.rebuildImportItemsKindCheck();
+  }
+
+  /** v30：重建条目账本类别 CHECK；调用前外键已在事务外关闭。 */
+  private rebuildImportItemsKindCheck(): void {
+    this.db.exec(`
+CREATE TABLE instance_import_items_new (
+  kind TEXT NOT NULL CHECK (kind IN
+    ('project','session','sub_agent','work_delegation','memory','grant','mcp','meta','file',
+     'agent_role','schedule','platform_config','standing_permission','credential')),
+  item_id TEXT NOT NULL,
+  import_id TEXT NOT NULL REFERENCES instance_imports(id),
+  PRIMARY KEY (kind, item_id)
+);
+INSERT INTO instance_import_items_new (kind, item_id, import_id)
+SELECT kind, item_id, import_id FROM instance_import_items;
+DROP TABLE instance_import_items;
+ALTER TABLE instance_import_items_new RENAME TO instance_import_items;
+CREATE INDEX idx_instance_import_items_import ON instance_import_items (import_id);
+`);
   }
 
   /** v18：重建计划动作 CHECK；调用前外键已在事务外关闭。 */

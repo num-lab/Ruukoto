@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 19 — 把现有 GitHub 评审迁移到通用 SubAgent
 

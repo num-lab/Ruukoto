@@ -173,12 +173,13 @@ export class ParentDelivery {
   }
 
   /**
-   * 队列循环在任务启动前调用（所有唤醒都经过它）：所属工作已取消即不放行——
-   * 取消前已排队、取消后才插入与启动补建的唤醒都在这里截住，调用方按
-   * work_canceled 取消该任务。
+   * 队列循环在任务启动前调用（所有唤醒都经过它）：main 唤醒所属工作已取消即不
+   * 放行——取消前已排队、取消后才插入与启动补建的唤醒都在这里截住，调用方按
+   * work_canceled 取消该任务。SubAgent 子会话的 smsg: 投递任务不归这里（整项
+   * 取消在登记事务内直接取消它们）。
    */
   wakeAdmitted(task: Task): boolean {
-    return !this.workCanceled(this.wakeWorkId(task));
+    return task.agentId !== "main" || !this.workCanceled(this.wakeWorkId(task));
   }
 
   // ---------- 入口 5：后台启动 ----------
@@ -196,7 +197,7 @@ export class ParentDelivery {
       const out = new Set<string>();
       for (const msg of this.store.listPendingSubAgentMessages()) {
         const work = msg.toSubAgentId === null ? this.store.getWorkDelegation(msg.workId) : null;
-        if (!work || work.canceledAt) continue; // 缺失与已取消由管理器冲刷记明确未投递结果
+        if (!work || this.workCanceled(work.id)) continue; // 缺失与已取消由管理器冲刷记明确未投递结果
         if (this.messageRecorded(msg, work) === "wake") out.add(work.parentSessionId);
       }
       return out;
@@ -219,7 +220,7 @@ export class ParentDelivery {
    */
   private workReportNotice(child: Task): string | null {
     const work = child.subAgentId && child.workId ? this.store.getWorkDelegation(child.workId) : null;
-    if (!work || work.canceledAt || !this.workOriginEvent(work)) return null;
+    if (!work || this.workCanceled(work.id) || !this.workOriginEvent(work)) return null;
     return `[最终汇报] 本工作（${work.id}）没有其他进行中任务时，本轮最终回答会作为工作最终汇报向原 IM 入口发送一次；请汇总全部子任务结果。`;
   }
 
@@ -233,7 +234,7 @@ export class ParentDelivery {
     if (!wake.requestId.startsWith("wake:")) return;
     const child = this.store.getTask(wake.requestId.slice("wake:".length));
     const work = child?.workId ? this.store.getWorkDelegation(child.workId) : null;
-    if (!child || !work || work.canceledAt) return;
+    if (!child || !work || this.workCanceled(work.id)) return;
     const event = this.workOriginEvent(work);
     if (!event) return; // TUI、定时、群与 GitHub 发起的工作一律不发
     if (this.store.listActiveTasksByWork(work.id).length > 0) return;

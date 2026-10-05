@@ -1502,7 +1502,7 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
 首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
 结果未知事实，不自动重放其执行。
 
-## 通用 SubAgent 委派（agent-direction issue 11–14/16/19，ADR 0020/0021）
+## 通用 SubAgent 委派（agent-direction issue 11–16/19，ADR 0020/0021）
 
 主 Agent（拥有者的普通开发会话或 main）经宿主工具 `subagent_delegate` 登记
 工作委托、创建动态 SubAgent 与独立子会话并派出一次执行任务（只读分析，
@@ -1824,6 +1824,30 @@ memory_read / web_search`），结果已记录且效果已知。任何 `bash`、
   （CLI `ruukoto work cancel <工作ID> [--reason R]`，停止中拒绝）。
   快照携带工作委托、SubAgent 与其内部会话 ID（普通工作区列表排除）。
   普通控制面 submit/continue/switch-mode/会话默认模式不能作用于子会话。
+
+### 后台重启恢复（issue 15）
+
+后台异常重启后（通用规则见文末「崩溃恢复」）：
+
+- **排队的委派任务定 interrupted，不自动继续**：重启时仍未启动的 SubAgent
+  执行任务（拥有者或主 Agent 委派，无 `source_event_id`）与运行中任务同定
+  `interrupted`（`backend_restart`；排队的从未启动，`started_at` 为空）——
+  不自动继续、不当作成功也不当作新委派。启动巡检按 `setTaskResult` 补记一次
+  结果与 `subagent_task.result_unknown`（重复启动不重复登记），结果引用的
+  工作/Agent/父会话/父任务归属不变；SubAgent 回到可用状态（占用已核实记
+  `idle`），main 父会话按稳定键唤醒、dev 父会话在下一个任务开始时注入，
+  继续与否（沿 `work_id` 继续、`sub_agent_id` 复用，或放弃）由拥有者或
+  父 Agent 决定。
+- **宿主固定评审的排队任务自动恢复**：带 `source_event_id` 的排队任务不在
+  上一条之列；编排器启动恢复把 `backend_restart` 暂停的自动解除从角色会话
+  扩到 SubAgent 子会话，此时能命中的只剩评审排队任务，自动解除暂停并继续
+  执行（issue 19 既定口径：不经拥有者核实）。
+- **未核实的旧执行保留占用**：遗留占用与 `occupancy_unverified` 暂停不自动
+  解除，Agent 记 `unverified` 并拒绝新委派（恢复任务不与旧执行并发修改同一
+  资源）。拥有者核实旧执行确已退出后经 `resume-queue`（CLI `ruukoto
+  resume-queue <会话 id>`）释放占用、解除暂停——这同时是 `unverified` 回到
+  `idle` 的出口（释放后无活动任务即记回 `idle`，可继续委派、复用或关闭）。
+- 已取消工作的迟到结果不因此重新运行、不补发唤醒（issue 14 规则不变）。
 
 ## GitHub：MCP 操作与 PR webhook（ADR 0007/0013）
 
@@ -2190,6 +2214,12 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 2. 恢复逻辑自动执行（单事务）：
    - 原 `running / awaiting_confirmation` 任务 → `interrupted`（原因
      `backend_restart`）；其未决确认请求标记 `stale`，失效批准不得再执行。
+   - 排队的 SubAgent 执行任务（拥有者/主 Agent 委派，无 `source_event_id`；
+     agent-direction issue 15）→ 同定 `interrupted`（原因 `backend_restart`，
+     从未启动）：不自动继续也不当作新委派，由编排器巡检补记一次结果后
+     SubAgent 回到可用，继续与否由拥有者/父 Agent 决定；宿主固定评审任务
+     （带 `source_event_id`）不在此列，其排队保持——因此有排队任务的
+     SubAgent 子会话只剩评审会话会按下一条暂停。
    - 结果缺失的工具操作按工具操作账本的分类器补记（架构工单 05）：覆盖已终态
      任务残留的操作；审批未消费 → 记录"已知未执行"结果（批准不跨重启执行）；
      只读工具 → 未完成且无写入效果；其余 → `effect_unknown` 并发
@@ -2215,9 +2245,12 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
    结果并补发 `child_task.*` 事件与有界唤醒（interrupted 一律按结果未知，
    不自动重放外部副作用）；结果已落库而唤醒缺失的子任务按原幂等键
    （`wake:<childId>`）补发，已有自动重试接替的首次 coding 任务不补唤醒
-   （见「main 委派 coding」），重复恢复不重复投递。角色会话的队列暂停只有
-   `backend_restart` 才自动恢复；`occupancy_unverified`（旧执行未核实）
-   保留暂停与占用，由拥有者核实后 `resume-queue`——角色任务有工具执行，
+   （见「main 委派 coding」），重复恢复不重复投递。角色会话与 SubAgent 子
+   会话的队列暂停只有 `backend_restart` 才自动恢复（SubAgent 侧此时只剩
+   宿主固定评审的排队任务，其余排队委派任务已在第 2 步定 interrupted）；
+   `occupancy_unverified`（旧执行未核实）保留暂停与占用，由拥有者核实后
+   `resume-queue`——这同时是 SubAgent `unverified` 回到 `idle` 的出口
+   （释放占用后无活动任务即记回 `idle`）。角色任务有工具执行，
    不沿用 QQ 无工具会话的无条件恢复前提。
 8. 调度器（issue 03）的恢复准备在第 2 步之前执行（须读到 running 任务的
    原始状态）：关联任务/发送已终态但运行未关闭的先补关闭；到期计划按
@@ -2272,6 +2305,8 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 | issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
 | issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环）。agent-direction issue 20 起核心群聊已退役，群消息被忽略，见下行 |
 | agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留连接与身份用例、test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
+| agent-direction issue 15 后台重启恢复 SubAgent（test/86 共 3 项：排队委派任务重启定 interrupted 且不自动继续/不当作新委派（零模型请求）、补记一次重复启动不重复登记、结果归属保持、Agent 回 idle 可继续委派且 dev 父会话注入；遗留占用保留与 occupancy_unverified 暂停不被启动恢复解除、unverified 拒绝委派、拥有者 resume-queue 后回 idle 可委派；宿主固定评审排队任务不中断、启动恢复自动解除子会话暂停并继续执行） | macOS 本机（mock 模型 + 临时目录 + 进程内真实 Runtime 重启（stop→Runtime.start，含崩溃形态 SQL 置位）+ realTools local 后端） | 通过（2026-10-05，3/3；模拟环境。真实容器/CLI 证据见下行） |
+| agent-direction issue 15 冒烟（.scratch/agent-direction/smoke-15-recover-subagents.mts：真实 Runtime/控制面/SQLite + 真实受限容器后端与镜像 + 真实 CLI resume-queue——排队委派任务重启中断零容器零模型请求、结果归属、dev 注入、沿 work_id 真实容器继续；遗留占用保留与暂停不被启动恢复解除、unverified 拒绝委派、CLI resume-queue 后回 idle 可继续；带来源事件的评审排队任务自动恢复真实完成；重复重启不重复登记、无残余容器） | macOS 本机 Docker Desktop（真实容器；模型为模拟，消息平台不启用；崩溃形态按库内容置位，判定输入与真实崩溃一致） | 通过（2026-10-05，8/8）；冒烟期间发现并修复：backend_restart 暂停叠加持占用会话不再被启动恢复自动释放（runtime 守卫） |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
 | 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-dev 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
 | 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |

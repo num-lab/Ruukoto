@@ -85,6 +85,9 @@ const TABLE_POLICY: TablePolicy = {
   mcp_services: { policy: "import" },
   sub_agents: { policy: "import" },
   work_delegations: { policy: "import" },
+  // 工作内消息（agent-direction issue 13）：随所属工作的账本条目折叠（不设新
+  // 账本类别——行只属其工作，工作的续跑跳过与回退删除同时覆盖它）
+  subagent_messages: { policy: "import" },
   meta: { policy: "import" }, // 仅 app_data.main_instance_id / github_retirement_done / jev.project.<导入项目> 键
   agent_roles: { policy: "import" },
   inbound_events: { policy: "import" },
@@ -277,6 +280,7 @@ interface PersonalImportSet {
   sessions: Row[];
   subAgents: Row[];
   workDelegations: Row[];
+  subagentMessages: Row[];
   tasks: Row[];
   toolOps: Row[];
   confirmations: Row[];
@@ -587,12 +591,18 @@ function buildImportSet(snap: PersonalSnapshot, deps: LegacyImportDeps): Persona
     });
   }
 
+  const worksIncluded = allRows(db, "SELECT * FROM work_delegations").filter((r) => sessionIds.has(String(r.parent_session_id)));
   return {
     roles,
     projects: includedProjects,
     sessions: includedSessions,
     subAgents: subAgents.filter((r) => sessionIds.has(String(r.session_id))),
-    workDelegations: allRows(db, "SELECT * FROM work_delegations").filter((r) => sessionIds.has(String(r.parent_session_id))),
+    // 工作内消息（agent-direction issue 13）：随纳入的工作折叠收集（不设新账本
+    // 类别——工作行的续跑跳过与回退删除同时覆盖它）
+    subagentMessages: allRows(db, "SELECT * FROM subagent_messages").filter((r) =>
+      worksIncluded.some((w) => String(w.id) === String(r.work_id)),
+    ),
+    workDelegations: worksIncluded,
     tasks,
     toolOps,
     confirmations,
@@ -1737,6 +1747,7 @@ export function applyPersonalImport(
         state: "idle",
       }));
     const worksToInsert = set.workDelegations.filter((r) => analysis.ids.workDelegations.includes(String(r.id)));
+    const messagesToInsert = set.subagentMessages.filter((r) => worksToInsert.some((w) => String(w.id) === String(r.work_id)));
     const tasksToInsert = newTasks.map((t) => {
       const closing = closingById.get(String(t.id));
       if (!closing) return t;
@@ -1838,6 +1849,7 @@ export function applyPersonalImport(
       sessions: sessionsToInsert.length,
       sub_agents: subAgentsToInsert.length,
       work_delegations: worksToInsert.length,
+      subagent_messages: messagesToInsert.length,
       tasks: tasksToInsert.length,
       tool_ops: toolOpsToInsert.length,
       confirmations: confirmationsToInsert.length,
@@ -1987,6 +1999,7 @@ export function applyPersonalImport(
       insertRows(tdb, "qq_sessions", byManifest("qq_sessions", set.qqSessions));
       insertRows(tdb, "sub_agents", subAgentsToInsert);
       insertRows(tdb, "work_delegations", worksToInsert);
+      insertRows(tdb, "subagent_messages", messagesToInsert);
       insertRows(tdb, "tasks", tasksToInsert);
       insertRows(tdb, "tool_ops", toolOpsToInsert);
       insertRows(tdb, "confirmations", confirmationsToInsert);
@@ -2315,6 +2328,8 @@ export function revertPersonalImport(deps: LegacyImportDeps, importId: string): 
       }
       del(`DELETE FROM tool_ops WHERE task_id IN (${inMarks([...sessionTaskIds])})`, [...sessionTaskIds], "tool_ops");
       del(`DELETE FROM tasks WHERE session_id IN (${inMarks(sessionIds)})`, sessionIds, "tasks");
+      // 工作内消息（issue 13）随工作折叠回退：先于所属工作删除
+      del(`DELETE FROM subagent_messages WHERE work_id IN (${inMarks(workIds)})`, workIds, "subagent_messages");
       del(`DELETE FROM work_delegations WHERE id IN (${inMarks(workIds)})`, workIds, "work_delegations");
       del(`DELETE FROM sub_agents WHERE id IN (${inMarks(subAgentIds)})`, subAgentIds, "sub_agents");
       del(`DELETE FROM memory_versions WHERE memory_id IN (${inMarks(memoryIds)})`, memoryIds, "memory_versions");

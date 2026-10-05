@@ -8,16 +8,16 @@
  * - 不管分派（怎么执行）、获批后的复核与资料范围。
  */
 
-import type { AgentRoleId, SessionKind, ToolCategory } from "../core/types.ts";
+import type { ToolCategory } from "../core/types.ts";
+import type { SessionIdentity } from "../core/session-identity.ts";
 import type { McpToolEffect } from "./mcp/store.ts";
 import { PLAN_TOOL_NAMES } from "./plan-mode.ts";
 import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 
 /**
- * dev = 普通开发会话；subagent = 动态 SubAgent 子会话。固定 coding/chat 角色与
- * QQ 群会话已退役（agent-direction issue 20/23），是只读归档，不运行任务、不归任何类别。
+ * 会话类别即会话身份（core/session-identity）：已退役归档不运行任务、不归任何类别。
  */
-export type SessionToolClass = "dev" | "main" | "subagent";
+export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired">;
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
   dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent"],
@@ -50,12 +50,6 @@ export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "
  */
 export function subAgentToolsFor(write: boolean): ReadonlySet<string> {
   return write ? SUBAGENT_WRITE_TOOL_NAMES : SUBAGENT_READONLY_TOOL_NAMES;
-}
-
-/** main 角色会话归 main，其余普通会话归 dev；已退役的归档会话（QQ 群、chat/coding 角色）为 null。 */
-export function sessionToolClass(kind: SessionKind, roleId: AgentRoleId | null): SessionToolClass | null {
-  if (kind === "qq_group" || roleId === "coding" || roleId === "chat") return null;
-  return roleId ?? "dev";
 }
 
 export function allowsCategory(cls: SessionToolClass, category: ToolCategory): boolean {

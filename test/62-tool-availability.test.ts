@@ -1,23 +1,27 @@
 /**
  * 架构工单 03：工具可用性（纯函数，不起 Runtime）。
  *
- * - 会话类别：main 角色按绑定，其余为普通开发会话；已退役的 QQ 群、chat/coding 角色会话不归任何类别；
+ * - 会话身份（架构工单 08）：SubAgent / main / 普通开发会话 / 已退役归档（带原因）的纯分类；
  * - 会话类别 × 工具类别的完整矩阵（新工具族默认不可见，「仅 main」只靠清单）；
  * - 本任务允许的工具：计划模式、宿主按任务收窄、关闭的 Web Search 及其组合，拒绝原因。
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ToolCategory } from "../src/core/types.ts";
-import { allowsCategory, sessionToolClass, taskToolSet, type SessionToolClass } from "../src/agent/tool-availability.ts";
+import type { AgentRole, AgentRoleId, SubAgent, ToolCategory } from "../src/core/types.ts";
+import { classifySession, CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED } from "../src/core/session-identity.ts";
+import { allowsCategory, taskToolSet, type SessionToolClass } from "../src/agent/tool-availability.ts";
 
-test("会话类别：main 按绑定，其余为普通开发会话；退役归档（QQ 群、chat/coding 角色）不归任何类别", () => {
-  assert.equal(sessionToolClass("qq_group", null), null, "qq_sessions 联表查不到角色也不按普通开发会话放行");
-  assert.equal(sessionToolClass("qq_group", "chat"), null);
-  assert.equal(sessionToolClass("dev", "main"), "main");
-  assert.equal(sessionToolClass("dev", "coding"), null);
-  assert.equal(sessionToolClass("dev", "chat"), null);
-  assert.equal(sessionToolClass("dev", null), "dev");
+const role = (id: AgentRoleId): AgentRole => ({ id, projectId: "p", sessionId: "s", workDir: "/w", modelSelection: null, tools: [], createdAt: "" });
+const agent: SubAgent = { id: "a", parentSessionId: "ps", sessionId: "s", workDir: "/w", activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
+
+test("会话身份：SubAgent 行优先，main 按绑定，其余为普通开发会话；QQ 群与 chat/coding 角色是已退役归档并带原因", () => {
+  assert.deepEqual(classifySession({ kind: "dev" }, null, agent), { kind: "subagent", agent }, "会话类别 dev 的 SubAgent 会话仍是 SubAgent 会话");
+  assert.deepEqual(classifySession({ kind: "qq_group" }, null, null), { kind: "retired", reason: CORE_GROUP_CHAT_RETIRED }, "qq_sessions 联表查不到角色也不按普通开发会话放行");
+  assert.deepEqual(classifySession({ kind: "dev" }, role("chat"), null), { kind: "retired", reason: CORE_GROUP_CHAT_RETIRED });
+  assert.deepEqual(classifySession({ kind: "dev" }, role("coding"), null), { kind: "retired", reason: CODING_ROLE_RETIRED });
+  assert.deepEqual(classifySession({ kind: "dev" }, role("main"), null), { kind: "main", role: role("main") });
+  assert.deepEqual(classifySession({ kind: "dev" }, null, null), { kind: "dev" });
 });
 
 test("会话类别 × 工具类别：每个会话类别只开放清单内的类别", () => {

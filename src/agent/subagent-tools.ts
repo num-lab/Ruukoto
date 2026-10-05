@@ -256,8 +256,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       if (mode === "analyze" && params.target !== undefined) throw new Error("target 仅 mode=modify 使用");
       const target = params.target === undefined ? null : params.target;
       if (target !== null && typeof target !== "string") throw new Error("target 必须是路径字符串");
-      const role = store.getAgentRoleBySession(ctx.sessionId);
-      const isMain = role?.id === "main";
+      const isMain = store.getSessionIdentity(ctx.sessionId)?.kind === "main";
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
       const materials = params.materials === undefined ? null : params.materials;
       if (mode === "modify") {

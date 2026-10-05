@@ -9,6 +9,7 @@
  */
 
 import type { Db } from "./db.ts";
+import { classifySession, type SessionIdentity } from "./session-identity.ts";
 import {
   ACTIVE_TASK_STATUSES,
   isTerminalTaskStatus,
@@ -964,6 +965,12 @@ export class Store {
   getSubAgent(id: string): SubAgent | null {
     const row = this.db.prepare("SELECT * FROM sub_agents WHERE id = ?").get(id) as any;
     return row ? this.rowToSubAgent(row) : null;
+  }
+
+  /** 会话身份（架构工单 08）：一次读出会话、角色行与 SubAgent 行并分类；会话不存在为 null。 */
+  getSessionIdentity(sessionId: string): SessionIdentity | null {
+    const session = this.getSession(sessionId);
+    return session ? classifySession(session, this.getAgentRoleBySession(sessionId), this.getSubAgentBySession(sessionId)) : null;
   }
 
   /** 按独立子会话反查 SubAgent 绑定（宿主识别动态身份的唯一依据）。 */

@@ -20,7 +20,7 @@ export const QQ_GROUP_SOURCE = "qq_group";
  * 核心群聊退役的统一收尾原因（agent-direction issue 20）：入站门卫弃、
  * 遗留排队任务取消、启动收尾共用同一文本（前缀即持久化原因标识）。
  */
-export const CORE_GROUP_CHAT_RETIRED = "core_group_chat_retired:核心群聊已退役（正式外挂后续交付）";
+export { CORE_GROUP_CHAT_RETIRED } from "../core/session-identity.ts";
 
 export interface QqConfig {
   /** OneBot 正向 WebSocket 端点（ws://host:port；生产默认回环/受控私网）。 */

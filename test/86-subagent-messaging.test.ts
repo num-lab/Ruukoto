@@ -558,6 +558,7 @@ test("幂等与账本：同键同参返回原记录（含工具层重放），�
 
     // 工具层重放（真实装配）：同一任务上下文同键同参直接返回原记录
     const messageTool = createSubAgentMessageTool({
+      store: rt.store,
       message: (input) => rt.subagents!.message(input),
       taskContext: () => ({ taskId: parent.id, sessionId: session.id, projectId: rt.store.getSession(session.id)!.projectId, hostOpId: "opx" }),
       bindCall: undefined,
@@ -575,6 +576,77 @@ test("幂等与账本：同键同参返回原记录（含工具层重放），�
     // 发送方区分：同键但不同发送方（A 的任务）独立核实
     assert.equal(check.verify({ taskId: a.task.id, toolName: "subagent_message", params: { work_id: W, key: "k2" } }), "not_committed");
   } finally {
+    await t.shutdown();
+  }
+});
+
+test("main 截住排队的消息唤醒：main 本轮阻塞时 SubAgent 发消息，本轮 subagent_cancel 后消息唤醒按 work_canceled 取消、零模型调用", async () => {
+  let wId = "";
+  let release: (() => void) | undefined;
+  const marks: string[] = [];
+  const responder: Responder = async (req) => {
+    const text = lastUserText(req);
+    if (text.includes("[SubAgent 委派")) return { kind: "text", text: "分析结论" };
+    if (text.includes("[工作内消息")) {
+      marks.push(inputText(req));
+      return { kind: "text", text: "不应到达" };
+    }
+    if (text.includes("阻塞轮")) {
+      if (afterTool(req)) return { kind: "text", text: "已取消" };
+      await new Promise<void>((res) => (release = res));
+      return { kind: "tool_calls", calls: [{ id: "c1", name: "subagent_cancel", arguments: { work_id: wId } }] };
+    }
+    return { kind: "text", text: "main 回复" };
+  };
+  const t = await startTestRuntime("smsg-main-cancel", responder, { config: realTools() });
+  try {
+    const rt = t.runtime;
+    const main = rt.store.getAgentRole("main")!;
+    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "pm1", input: "开始", modelSelection: rt.defaultSelection });
+    await waitFor("main 父完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const a = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "w1", request: "核对", materials: [{ kind: "text", text: "材料" }], readPaths: null, paramsDigest: "dw1" });
+    wId = a.work.id;
+    await waitFor("结果唤醒完成", () => rt.store.findTaskByRequest(main.sessionId, `wake:${a.task.id}`)?.status === "completed");
+    await waitIdle(rt, a.agent.id);
+
+    // main 本轮阻塞在模型调用中；SubAgent 此时发来消息，消息唤醒排在本轮之后
+    const blocking = await rt.submit({ sessionId: main.sessionId, requestId: "pm2", input: "阻塞轮", modelSelection: rt.defaultSelection });
+    await waitFor("main 本轮模型调用在途", () => release !== undefined);
+    const sent = rt.subagents!.message({ senderTaskId: a.task.id, workId: wId, key: "late", text: "迟到消息CAP-LATE", paramsDigest: "dl" } as any);
+    assert.equal(sent.delivery, "wake");
+    const wake = rt.store.findTaskByRequest(main.sessionId, `smsg:${sent.message.id}`)!;
+    assert.equal(wake.status, "queued");
+
+    // main 本轮调用 subagent_cancel；本轮结束后队列门截住消息唤醒
+    release!();
+    await waitFor("本轮完成", () => rt.store.getTask(blocking.id)!.status === "completed");
+    assert.ok(rt.store.getWorkDelegation(wId)!.canceledAt !== null);
+    await waitFor("消息唤醒到达终态", () => ["canceled", "completed", "failed"].includes(rt.store.getTask(wake.id)!.status));
+    assert.equal(rt.store.getTask(wake.id)!.status, "canceled");
+    assert.equal(rt.store.getTask(wake.id)!.errorMessage, "work_canceled");
+    assert.equal(marks.length, 0, "被截住的消息唤醒不调用模型");
+
+    // 消息行不改（投递登记仍指向承载任务），读取时标明未送达
+    assert.equal(rt.store.getSubAgentMessage(sent.message.id)!.deliveredTaskId, wake.id);
+    const tools = createSubAgentTools({
+      coreStore: rt.store,
+      sources: (rt as any).sources,
+      delegate: (input) => rt.subagents!.delegate(input),
+      close: (input) => rt.subagents!.close(input),
+      cancelWork: (input) => rt.subagents!.cancelWork(input),
+      message: (input) => rt.subagents!.message(input),
+      integrate: (input) => rt.subagents!.integrate(input),
+      readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
+      artifacts: rt.artifacts,
+      taskContext: () => ({ taskId: parent.id, sessionId: main.sessionId, projectId: rt.store.getSession(main.sessionId)!.projectId, hostOpId: "opmc" }),
+      bindCall: undefined,
+      verifyHost: () => null,
+    });
+    const resultTool = tools.find((x) => x.name === "subagent_result")!;
+    const shown = ((await resultTool.execute("sdkmc", { work_id: wId, part: "messages" }, undefined as any, undefined as any, {} as any)).content[0] as any).text as string;
+    assert.ok(shown.includes(`已投递（任务 ${wake.id}）（工作已取消，未送达）`), shown);
+  } finally {
+    release?.();
     await t.shutdown();
   }
 });

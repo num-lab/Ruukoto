@@ -128,6 +128,7 @@ import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
 import { delegationOpCheck } from "../agent/delegation-tools.ts";
 import { chatResultOpCheck, resolveAcceptedChatResult } from "../agent/chat-result-tools.ts";
 import { QqAdapter, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
+import { ParentDelivery } from "./parent-delivery.ts";
 import { CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED } from "../core/session-identity.ts";
 import { QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import {
@@ -320,6 +321,8 @@ export class Runtime {
   private telegram: TelegramAdapter | null = null;
   private githubWebhook: GitHubWebhook | null = null;
   private readonly githubEvents: GitHubEvents;
+  /** 父级送达（架构工单 09）：结果与工作内消息怎样、何时进入主 Agent 的模型调用。 */
+  private readonly parentDelivery: ParentDelivery;
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
   /** IM 审批命令处理（agent-direction issue 08）；绑定拥有者的私聊控制消息入口。 */
@@ -431,6 +434,7 @@ export class Runtime {
         return chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text;
       },
     });
+    this.parentDelivery = new ParentDelivery({ store });
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
       for (const listener of this.eventListeners) {
@@ -2768,15 +2772,11 @@ export class Runtime {
         }
       }
 
-      // 已取消工作的 SubAgent 回报唤醒（issue 14）：取消前已排队、检查后才插入与
-      // 巡检补发的 wake:<childId> 都在这里被取消，不再唤醒主 Agent（所有唤醒都
-      // 经过本循环）。取消所在轮次的模型调用如已开始则不级联。
-      if (task.requestId.startsWith("wake:")) {
-        const child = this.store.getTask(task.requestId.slice("wake:".length));
-        if (child?.workId && this.store.getWorkDelegation(child.workId)?.canceledAt) {
-          await this.cancelTask(task.id, { reason: "work_canceled" });
-          continue;
-        }
+      // 父级送达的放行判定（工单 09 入口 4）：已取消工作的结果唤醒与消息唤醒在此
+      // 截住。取消所在轮次的模型调用如已开始则不级联。
+      if (!this.parentDelivery.wakeAdmitted(task)) {
+        await this.cancelTask(task.id, { reason: "work_canceled" });
+        continue;
       }
 
       // 兜底（启动收尾见 retireLegacyRoles）：钻过退役边界的排队归档会话任务固定取消跳过

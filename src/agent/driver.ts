@@ -34,7 +34,6 @@ import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import type {
   AccessMode,
-  AgentRole,
   ApprovalScope,
   ConfirmationRequest,
   PersistentEventBody,
@@ -76,7 +75,7 @@ import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } fro
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
 import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
-import { allowsCategory, subAgentToolsFor, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
+import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -240,22 +239,20 @@ export class Driver {
   private mcpToolNames = new Set<string>();
   /** 当前任务钉版的 MCP 计划（工具元数据 + 按服务持有的连接；结束/取消/关闭时回收）。 */
   private currentMcpPlan: McpTaskPlan | null = null;
-  /** 上次 SDK 会话创建时的 MCP 工具清单签名（不一致则重建会话换工具定义）。 */
-  private mcpSignature: string | null = null;
+  /** 上次 SDK 会话创建时的工具签名（画像工具集 + MCP 清单；不一致则重建会话换工具定义）。 */
+  private toolSignature: string | null = null;
   /** 模型配置已应用、存活 SDK 会话待丢弃重建（issue 21 §4；见 updateModelDeps）。 */
   private sdkConfigStale = false;
   /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
   private pendingMcpToolDefs: ToolDefinition[] = [];
-  /** 会话工具类别缓存（Driver 生命周期内不变）。 */
-  private toolClassCache: SessionToolClass | undefined = undefined;
+  /** 执行画像（架构工单 08）：任务开始算一次、钉到任务结束；首个任务前为 null。 */
+  private pinnedProfile: ExecutionProfile | null = null;
   /** 本任务允许的工具（任务开始时算一次；激活、发送前与调用门共用；null = 尚未算出，一律拒绝）。 */
   private taskTools: TaskToolSet | null = null;
   /** 本任务的模型上下文组装（任务开始时建、结束即丢；context 钩子与发送前复核共用）。 */
   private assembly: ContextAssembly | null = null;
   /** 原始 streamFunction（包装前保存；发送前检查在委托前执行）。 */
   private originalStreamFn: any = null;
-  /** 任务开始时钉版：以计划模式运行（issue 26，决定计划说明与工具白名单）。 */
-  private pinnedPlan = false;
   /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
   private pinnedSkills: SkillLibrary | null = null;
 
@@ -281,7 +278,7 @@ export class Driver {
       protectedRoots: deps.protectedRoots,
       artifactAccess: (task, artifact) => {
         // SubAgent 只读本次自产；模型上下文快照不是交付产物，拒绝
-        if (this.toolClass === "subagent") {
+        if (this.profile.restricted) {
           return artifact.taskId === task.id && !artifact.name.startsWith("prompt-snapshot:");
         }
         if (artifact.taskId === task.id) return true;
@@ -299,22 +296,15 @@ export class Driver {
     return this.currentTask !== null;
   }
 
-  /**
-   * 会话工具类别即会话身份（架构工单 08）。已退役的归档会话不运行任务（提交
-   * 入口与队列兜底先行拒绝），走到这里即拒绝。
-   */
-  private get toolClass(): SessionToolClass {
-    if (this.toolClassCache === undefined) {
-      const identity = this.deps.store.getSessionIdentity(this.session.id);
-      if (!identity || identity.kind === "retired") throw new Error(`会话 ${this.session.id} 是已退役的只读归档，不运行任务`);
-      this.toolClassCache = identity.kind;
-    }
-    return this.toolClassCache;
+  /** 本任务的执行画像；任务之外没有画像（调用方都在任务内）。 */
+  private get profile(): ExecutionProfile {
+    if (!this.pinnedProfile) throw new Error("执行画像未确定（任务之外）");
+    return this.pinnedProfile;
   }
 
   /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
   private allows(category: ToolCategory): boolean {
-    return allowsCategory(this.toolClass, category);
+    return allowsCategory(this.profile.toolClass, category);
   }
 
   /** 不在本任务允许集合内的工具的拒绝原因。 */
@@ -343,15 +333,6 @@ export class Driver {
   /** 宿主注入的资料访问身份。 */
   private accessor(): Accessor {
     return { kind: "agent", projectId: this.session.projectId };
-  }
-
-  /**
-   * 资料范围受宿主约束的会话（agent-direction issue 11 SubAgent）：
-   * 上下文注入排除个人共享记忆、项目指令与技能目录，记忆/资料工具按受限身份判定。
-   * 工具白名单管工具可见性，本约束管资料范围，两者独立生效。
-   */
-  private get dataScopeRestricted(): boolean {
-    return this.toolClass === "subagent";
   }
 
   /**
@@ -516,19 +497,16 @@ export class Driver {
       : createSkillTools({ library: () => this.pinnedSkills, bindCall: this.bindHostCall });
     const allTools = [
       ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
-      // SubAgent（agent-direction issue 11）：静态白名单外不装配（不发、不调用）；
-      // 装配即收窄，发送前与调用门由 taskTools 复用同一结论
-      ...(this.toolClass === "subagent"
-        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter((t) => {
-            // 装配即收窄：子会话每个任务都有写入目标钉版（本任务工作）；无
-            // 工作（如首任务）按只读集合
-            const work = this.currentTask?.workId ? this.deps.store.getWorkDelegation(this.currentTask.workId) : null;
-            return subAgentToolsFor(Boolean(work?.writeTarget)).has(t.name);
-          })
+      // SubAgent（agent-direction issue 11）：画像工具集外不装配（不发、不调用）；
+      // 装配即收窄，发送前与调用门由 taskTools 复用同一结论。工具集在 SDK 签名
+      // 里，变化时 runInner 先重建会话（架构工单 08）
+      ...(this.profile.subAgentTools
+        ? this.deps.toolFactory({ registry: this.registry, router: this.router })
+            .filter((t) => subAgentAllows(this.profile.subAgentTools!, t.name))
         : []),
       // 工作内协作消息（agent-direction issue 13）：subagent 类会话装配同一
       // 工具定义；宿主评审任务按 taskToolSet 收窄不激活（同一结论）
-      ...(this.toolClass === "subagent" && this.deps.subagents
+      ...(this.profile.toolClass === "subagent" && this.deps.subagents
         ? [
             createSubAgentMessageTool({
               message: (input) => this.deps.subagents!.message(input),
@@ -564,7 +542,7 @@ export class Driver {
       tools: allTools,
       // 按会话类别固定（issue 24）：subagent 用 SubAgent 提示（GitHub 评审
       // SubAgent 同用，issue 19）
-      systemPrompt: SYSTEM_PROMPTS[this.toolClass],
+      systemPrompt: SYSTEM_PROMPTS[this.profile.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -652,7 +630,7 @@ export class Driver {
     // 上下文含旧工作资料，旧资料撤销后同样阻止发送（快照正文不重新解析）。
     // issue 16：有写入目标的工作不发资料快照（readScope.paths 恒空），无
     // sourceRefs 可核，复核在此为空集通过。
-    if (this.toolClass === "subagent" && this.deps.verifyTaskSources) {
+    if (this.profile.restricted && this.deps.verifyTaskSources) {
       const refs = this.deps.store
         .listTasksBySession(this.session.id)
         .flatMap((t) => t.readScope?.sourceRefs ?? []);
@@ -709,6 +687,23 @@ export class Driver {
     if (this.runPromise) {
       throw new Error(`会话 ${this.session.id} 已有任务在运行`);
     }
+    // 执行画像（架构工单 08）：任务开始算一次、钉到任务结束。已退役归档会话不运行
+    // 任务（提交入口与队列兜底先行拒绝），走到这里即抛。
+    // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记
+    let planInput: boolean;
+    try {
+      planInput = runsInPlanMode(task, (id) => this.deps.store.getTask(id));
+    } catch {
+      planInput = isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
+    }
+    const identity = this.deps.store.getSessionIdentity(this.session.id);
+    if (!identity) throw new Error(`会话不存在：${this.session.id}`);
+    this.pinnedProfile = executionProfile({
+      identity,
+      writeTarget: Boolean(task.workId && this.deps.store.getWorkDelegation(task.workId)?.writeTarget),
+      review: this.deps.taskMcp?.(task) ?? false,
+      planInput,
+    });
     this.currentTask = task;
     this.stopRequested = false;
     this.flushedEntryIds = new Set();
@@ -728,19 +723,13 @@ export class Driver {
     this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;
     this.taskTools = null;
-    // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；只限普通开发会话（同提交入口）
-    try {
-      this.pinnedPlan = this.toolClass === "dev" && runsInPlanMode(task, (id) => this.deps.store.getTask(id));
-    } catch {
-      this.pinnedPlan = this.toolClass === "dev" && isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
-    }
-    this.pinnedSkills = this.dataScopeRestricted ? null : loadSkillLibrary(this.deps.agentDir);
+    this.pinnedSkills = this.profile.restricted ? null : loadSkillLibrary(this.deps.agentDir);
     // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
     // dev 父会话的下一个拥有者任务开始时收集待注入内容并标记送达（同事务）；
     // 摘要与消息正文由宿主写定，不伪装拥有者新请求，也不授予委派权限。
     let subagentResults: Array<{ workId: string; subAgentId: string; taskId: string; status: string; summary: string }> | undefined;
     let subagentMessages: SubAgentMessage[] | undefined;
-    if (this.toolClass === "dev" && this.deps.subagentResults) {
+    if (identity.kind === "dev" && this.deps.subagentResults) {
       const pending = this.deps.subagentResults.pending(this.session.id);
       const pendingMessages = this.deps.subagentMessages?.pending(this.session.id) ?? [];
       if (pending.length > 0 || pendingMessages.length > 0) {
@@ -764,8 +753,8 @@ export class Driver {
       task,
       session: this.session,
       accessor: this.accessor(),
-      restricted: this.dataScopeRestricted,
-      plan: this.pinnedPlan,
+      restricted: this.profile.restricted,
+      plan: this.profile.plan,
       skills: this.pinnedSkills,
       subagentResults,
       subagentMessages,
@@ -789,9 +778,8 @@ export class Driver {
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
   private async planMcp(task: Task): Promise<McpTaskPlan> {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
-    // 会话类别的清单不含 mcp 时不注册 MCP 工具；
-    // subagent 类仅宿主评审任务另开只读 MCP（issue 19，其余委派拿不到）
-    if (!this.allows("mcp") && !(this.toolClass === "subagent" && this.deps.taskMcp?.(task))) return EMPTY_MCP_PLAN;
+    // 画像决定是否规划：类别含 mcp，或 SubAgent 宿主评审任务另开只读 MCP（issue 19）
+    if (!this.profile.planMcp) return EMPTY_MCP_PLAN;
     return planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
@@ -848,13 +836,16 @@ export class Driver {
       // MCP（issue 16）：任务开始重读配置并发现工具，钉版本任务工具清单；
       // 单个服务初始化失败降级为不可用事件，不阻断任务
       const mcpPlan = await this.planMcp(task);
-      if (this.sdk && mcpPlan.signature !== this.mcpSignature) this.dropSdkForToolChange();
+      // SDK 会话签名 = 画像工具集 + MCP 清单（架构工单 08）：复用的 SubAgent 从只读
+      // 转到写入工作时重建，正确性不依赖 Runtime 每任务释放 Driver
+      const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}`;
+      if (this.sdk && toolSignature !== this.toolSignature) this.dropSdkForToolChange();
       this.pendingMcpToolDefs = mcpPlan.toolDefs;
       // 计划先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收连接
       this.currentMcpPlan = mcpPlan;
       sdk = await this.ensureSdk(model, task.modelSelection.thinkingLevel);
       this.pendingMcpToolDefs = [];
-      this.mcpSignature = mcpPlan.signature;
+      this.toolSignature = toolSignature;
       this.mcpToolNames = new Set(mcpPlan.toolDefs.map((t) => t.name));
       for (const u of mcpPlan.unavailable) {
         this.deps.store.withTx(() => {
@@ -891,22 +882,15 @@ export class Driver {
     const allowTaskTool = this.deps.allowTaskTool;
     this.taskTools = taskToolSet({
       registered: this.allToolNames,
-      plan: this.pinnedPlan,
+      plan: this.profile.plan,
       webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
       mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
-      // SubAgent 任务收窄（issue 16）：写入目标决定清单（装配、发送前与调用门
-      // 同一结论）。每个任务重建 Driver 后本任务已钉版；收窄不进 workerKey。
-      // 宿主评审任务（issue 19）另加 effect=read 的 MCP（只读资料入口，写与
-      // 副作用不明的 MCP 留在拒绝集）
+      // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
+      // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
+      // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
       narrow:
-        this.toolClass === "subagent"
-          ? (name, effect) => {
-              const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
-              // 工作内协作消息（issue 13）：装配时仅子会话有定义；调用门同一结论。
-              // 宿主评审任务（issue 19 固定单 Agent 流程）不开放
-              if (name === "subagent_message") return !(this.deps.taskMcp?.(task) ?? false);
-              return subAgentToolsFor(Boolean(work?.writeTarget)).has(name) || (effect === "read" && (this.deps.taskMcp?.(task) ?? false));
-            }
+        this.profile.subAgentTools
+          ? (name, effect) => subAgentAllows(this.profile.subAgentTools!, name, effect)
           : allowTaskTool
             ? (name, effect) => allowTaskTool(task, name, effect)
             : undefined,
@@ -933,7 +917,7 @@ export class Driver {
     // 进入历史；不交给 pi 的 /skill: 展开。资料受限会话不识别。
     let promptText: string;
     try {
-      promptText = this.dataScopeRestricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
+      promptText = this.profile.restricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
     } catch (err) {
       this.finalize(task, "failed", { errorMessage: (err as Error).message });
       return;

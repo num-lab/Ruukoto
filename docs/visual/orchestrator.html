@@ -101,14 +101,14 @@
 
     <p>角色能力与资料范围都由宿主决定，互不替代：</p>
     <ul>
-      <li><b>工具</b>：会话类别到工具类别是一张静态表 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>。角色行里的 <code>tools</code> 列只是引导时写入的副本，运行时不读回；会话类别即会话身份（<code class="src" data-src="src/core/session-identity.ts#export function classifySession">classifySession</code>）：SubAgent 会话归 subagent，main 角色会话归 main，其余普通会话归 dev；<code>qq_group</code> 会话与 chat / coding 角色会话是已退役归档，不归任何类别，驱动器被要求运行这类会话时直接报错（<code class="src" data-src="src/agent/driver.ts#是已退役的只读归档，不运行任务">driver.ts · toolClass</code>）。装配、激活与调用门的细节见<a href="tool-call-path.html">工具调用路径</a>。</li>
+      <li><b>工具</b>：会话类别到工具类别是一张静态表 <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>。角色行里的 <code>tools</code> 列只是引导时写入的副本，运行时不读回；会话类别即会话身份（<code class="src" data-src="src/core/session-identity.ts#export function classifySession">classifySession</code>）：SubAgent 会话归 subagent，main 角色会话归 main，其余普通会话归 dev；<code>qq_group</code> 会话与 chat / coding 角色会话是已退役归档，不归任何类别，驱动器被要求运行这类会话时，算执行画像即报错（<code class="src" data-src="src/agent/tool-availability.ts#已退役的只读归档不运行任务">tool-availability.ts · executionProfile</code>）。装配、激活与调用门的细节见<a href="tool-call-path.html">工具调用路径</a>。</li>
       <li><b>资料</b>：驱动器按会话给出资料身份（<code class="src" data-src="src/agent/driver.ts#private accessor">driver.ts · accessor</code>），<code class="src" data-src="src/core/access.ts#canAccess(accessor">access.ts · canAccess</code> 判定。main（与旧 coding）角色所在项目读取任何 <code>qq_group</code> 项目一律拒绝，且优先于资料授权（ADR 0012，<code class="src" data-src="src/core/access.ts#isQqGroupProject">access.ts · isQqGroupProject</code>）；这条边界在群聊退役后保留，旧群资料仍是归档。</li>
       <li><b>模型</b>：引导时 <code>model_selection</code> 写 null，Store 也没有改写它的方法，所以编排器提交的 main 任务用后台默认模型。拥有者直接提交到 main 会话时用自己给的模型。</li>
     </ul>
 
     <p>退役前 QQ 适配器在某群首次触发时建项目 <code>qq-&lt;账号&gt;-&lt;群&gt;</code>、专用空目录 <code>&lt;dataDir&gt;/../qq-work/&lt;账号&gt;_&lt;群&gt;</code> 与 <code>qq_group</code> 会话，并登记到 <code>qq_sessions</code>（主键为账号、群）；退役后这些旧绑定保留为归档，QqStore 已没有写 <code>qq_sessions</code> 的方法。按会话反查角色时，<code class="src" data-src="src/core/store.ts#getAgentRoleBySession">store.ts · getAgentRoleBySession</code> 把这些群会话合成为 chat 角色，项目、会话与工作目录取群绑定，工具取 chat 行。</p>
 
-    <p>通用 SubAgent 不进这张角色表，也不进 <code>agent_roles</code>：<code>AgentRoleId</code> 与 <code>tasks.agent_id</code> 保持三个固定角色的语义（列上有 CHECK 约束），动态身份记在 <code>sub_agents</code> 表，宿主按会话反查识别（<code class="src" data-src="src/core/store.ts#getSubAgentBySession">store.ts · getSubAgentBySession</code>）。驱动器先查这张表：命中的会话归 <code>subagent</code> 工具类别（<code class="src" data-src="src/agent/driver.ts#private get toolClass">driver.ts · toolClass</code>），不会因为没有角色绑定落进默认的 dev 类别。见<a href="#subagent">工作委托与 SubAgent</a>。</p>
+    <p>通用 SubAgent 不进这张角色表，也不进 <code>agent_roles</code>：<code>AgentRoleId</code> 与 <code>tasks.agent_id</code> 保持三个固定角色的语义（列上有 CHECK 约束），动态身份记在 <code>sub_agents</code> 表，宿主按会话反查识别（<code class="src" data-src="src/core/store.ts#getSubAgentBySession">store.ts · getSubAgentBySession</code>）。会话身份先查这张表：命中的会话是 SubAgent 会话、归 <code>subagent</code> 工具类别（<code class="src" data-src="src/core/session-identity.ts#export function classifySession">session-identity.ts · classifySession</code>），不会因为没有角色绑定落进默认的 dev 类别。见<a href="#subagent">工作委托与 SubAgent</a>。</p>
 
     <aside class="callout inv">
       <b>角色配置只由编排器写</b>
@@ -433,7 +433,7 @@
           </tr>
           <tr>
             <td>上下文</td>
-            <td>按资料受限会话装配：不注入项目指令、长期记忆与技能目录，也不做上下文压缩（<code class="src" data-src="src/agent/driver.ts#private get dataScopeRestricted">driver.ts · dataScopeRestricted</code>）。</td>
+            <td>按资料受限会话装配：不注入项目指令、长期记忆与技能目录，也不做上下文压缩（执行画像的 <code>restricted</code>，<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>）。</td>
             <td>细节见<a href="context-pipeline.html">上下文组装</a>。</td>
           </tr>
         </tbody>

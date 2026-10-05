@@ -274,17 +274,13 @@ export class SubAgentManager {
     if (!parent) throw new SubAgentDelegationError("not_found", `父任务不存在：${input.parentTaskId}`);
     const parentSession = this.store.getSession(parent.sessionId);
     if (!parentSession) throw new SubAgentDelegationError("not_found", `父任务会话不存在：${parent.sessionId}`);
-    if (parentSession.kind !== "dev") throw new SubAgentDelegationError("forbidden", "只有用户会话可以登记工作委托");
+    // 父会话按身份判定（架构工单 08）：只有普通开发会话与 main 会话可以委派，两种 mode 同一口径
+    const parentKind = this.store.getSessionIdentity(parent.sessionId)?.kind;
+    if (parentKind === "subagent") throw new SubAgentDelegationError("forbidden", "SubAgent 不能委派下级（只有普通开发会话或 main 可以登记工作委托）");
+    if (parentKind !== "dev" && parentKind !== "main") throw new SubAgentDelegationError("forbidden", "只有普通开发会话或 main 可以登记工作委托（已退役归档会话不能委派）");
     if (!input.request.trim()) throw new SubAgentDelegationError("invalid_params", "委派正文不能为空");
     const mode = input.mode ?? "analyze";
     if (mode === "modify") {
-      if (this.store.getSubAgentBySession(parent.sessionId)) {
-        throw new SubAgentDelegationError("forbidden", "SubAgent 不能委派下级（修改委派只限普通开发会话或 main）");
-      }
-      const role = this.store.getAgentRoleBySession(parent.sessionId);
-      if (role && role.id !== "main") {
-        throw new SubAgentDelegationError("forbidden", "只有普通开发会话或 main 可以发起修改委派（固定角色会话不经通用链路登记修改工作）");
-      }
       if (input.planMode) throw new SubAgentDelegationError("forbidden", "计划模式不能发起修改委派");
       if (input.workId) {
         // 继续委派沿用工作原有模式，不能指定 mode——凡 mode=modify 与 workId 同现，

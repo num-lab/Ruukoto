@@ -348,8 +348,8 @@ export class ImApprovals {
       return receipt(`审批 ${c.id} 已失效（任务${task ? `状态 ${task.status}` : "不存在"}）；未执行。`, "stale", c.taskId);
     }
     // 活动 main 绑定核实（服务工具只对 main 装配；共享主会话不改变授权归属）
-    const role = this.deps.store.getAgentRoleBySession(c.sessionId);
-    if (!role || role.id !== "main") {
+    const identity = this.deps.store.getSessionIdentity(c.sessionId);
+    if (identity?.kind !== "main") {
       return receipt(`审批 ${c.id} 不属于 main 会话；未执行。`, "not_main", c.taskId);
     }
     const scope = c.scope;
@@ -389,7 +389,7 @@ export class ImApprovals {
         });
         const sp = this.deps.store.createStandingPermission({
           sessionId: c.sessionId,
-          projectId: role.projectId,
+          projectId: identity.role.projectId,
           machineId: scope.machineId,
           unit: scope.unit,
           action: "restart",

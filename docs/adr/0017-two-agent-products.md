@@ -38,6 +38,10 @@ Ruukoto Agent 包括两个工具：`ruukoto-dev` 是运行在开发机器上、�
 
 完整产品规格、首期验收场景与决策确认记录见 [方向调整规格](../../.scratch/agent-direction/spec.md)。
 
+## 补充：ruukoto 保留普通开发会话（2026-10-05）
+
+ruukoto 产品不拒绝普通开发会话的创建与提交。开发本项目的开发实例（`npm run dev`）运行的就是 ruukoto 产品，并以普通开发会话工作；按产品拒绝会直接打断它，而把开发实例改为 ruukoto-dev 又要迁移现有开发档案（数据目录的产品归属拒绝直接切换）。两个产品的定位不变：Coding Agent 仍是编码的主要入口，ruukoto 中的普通开发会话是保留的能力，不是新的产品方向。旧项目的新建入口只在 ruukoto-dev 改为工作区提示（agent-direction issue 23），不扩展到 ruukoto。
+
 ## 实施记录
 
 - agent-direction issue 11（2026-10-03）：通用只读委派首版——工作委托/SubAgent/执行任务分开保存、普通开发会话与 main 的非阻塞只读委派、结果回传与空闲保留、main 分析委派转通用链路，决定见 [ADR 0020](0020-work-delegation-subagent-task.md)。继续委派复用、同级通信、显式关闭与整项取消、恢复分别由 issue 12–15 实施。
@@ -52,5 +56,5 @@ Ruukoto Agent 包括两个工具：`ruukoto-dev` 是运行在开发机器上、�
 - agent-direction issue 21（2026-10-04）：旧实例开发资料迁入 Coding Agent——目标侧离线 `ruukoto-dev legacy-import`（preview/apply/revert/list），源全程只读（文件级快照），行 ID 原样保留、allow-list 导入单位、未终态收尾不重放、个人记忆仅显式选中、凭据不迁移（缺绑定以停用导入）、回执与条目账本（v28）支持幂等续跑与回退，决定见 [ADR 0022](0022-legacy-instance-import.md)。
 - agent-direction issue 15（2026-10-05）：后台重启后恢复 SubAgent 与工作记录——排队的委派执行任务定 interrupted(backend_restart)、不自动继续也不当作新委派，巡检补记一次结果后按占用核实记 idle/unverified，继续与否由拥有者/父 Agent 决定；宿主固定评审排队任务由编排器启动恢复自动继续；`resume-queue` 是 unverified 回 idle 的出口，决定见 ADR 0020 补充段。
 - agent-direction issue 22（2026-10-05）：旧主会话与服务状态迁入全新 Personal Agent——镜像方向 `ruukoto legacy-import`：角色会话与群归档、应用数据、调度、平台绑定（config_version 与 telegram 偏移原样）、长期授权、GitHub 归档与必要凭据（平台/webhook 绑定，同名异值拒绝）整体迁入，目标须为全新实例；不重放收尾扩到交接面（运行关闭、pending 发送取消、sending 置效果未知、入站落定），执行归属随导入切换（逾期调度在目标触发一次、入站按偏移续消费），易变行按回执 manifest 逐行 sha 核对、目标启动后活动为回退阻挡项（v30 账本扩五类），决定见 [ADR 0023](0023-personal-instance-import.md)。
-- agent-direction issue 23（2026-10-05）：固定角色退役收尾——编排器只引导 main，`coding_delegate` 与旧 coding 委派/自动重试/GitHub 旧评审接管分支删除，coding 角色会话与 chat/群会话同为只读归档（提交拒绝、启动收尾取消排队任务，在途旧子任务补记一次结果与唤醒、不重放），`coding_result` 保留只读查阅；chat 工具类别与提示、Driver/上下文的 qq_group 分支与撤回过滤、QqStore 群写方法删除。存储 CHECK、`AgentRoleId` 与 `qq_group` 会话类别对应旧行实值，保留不收缩；ruukoto-dev 的用户入口不再提供旧项目新建路径。ruukoto 产品中普通开发会话的写入口因开发实例依赖暂未移除，待拥有者决定。
+- agent-direction issue 23（2026-10-05）：固定角色退役收尾——编排器只引导 main，`coding_delegate` 与旧 coding 委派/自动重试/GitHub 旧评审接管分支删除，coding 角色会话与 chat/群会话同为只读归档（提交拒绝、启动收尾取消排队任务，在途旧子任务补记一次结果与唤醒、不重放），`coding_result` 保留只读查阅；chat 工具类别与提示、Driver/上下文的 qq_group 分支与撤回过滤、QqStore 群写方法删除。存储 CHECK、`AgentRoleId` 与 `qq_group` 会话类别对应旧行实值，保留不收缩；ruukoto-dev 的用户入口不再提供旧项目新建路径。ruukoto 产品中普通开发会话的写入口保留，见上文补充段。
 

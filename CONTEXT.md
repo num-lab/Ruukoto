@@ -77,6 +77,9 @@ _Avoid_：把技能等同于插件（新增能力）、项目指令（按项目�
 
 **会话**：拥有独立历史的持续交互单元，用户会话承载拥有者与主 Agent 的对话。一项工作可在多轮对话期间继续执行，SubAgent 的独立工作上下文不构成新的用户会话。
 
+**会话身份**：宿主为会话确定的四种身份之一，决定会话能接受哪些入口与执行什么：**普通开发会话**（不绑定角色、拥有者直接对话的用户会话；两个产品都有）、**main 会话**（宿主为 main 绑定的会话；在 ruukoto 中即主会话）、**SubAgent 会话**（某个 SubAgent 的独立工作会话，只承接委派，不是用户会话）、**已退役归档会话**（QQ 群会话与 chat/coding 旧角色会话，只读，不运行任务）。身份只由宿主绑定确定，任务、工具参数与模型结果不能改变它。
+_Avoid_：把会话身份与会话类别（dev / qq_group）混称——SubAgent 会话的类别也是 dev；把 SubAgent 会话当作普通开发会话。
+
 **工作委托**：拥有者交给主 Agent 的一项工作，可经过多次对话、由主 Agent 与 SubAgent 执行多个任务共同完成。当前实现（agent-direction issue 11）：`work_delegations` 记录工作、发起任务与首次委派键；与每次执行任务（`tasks.work_id`）分别核实；issue 14 增加整项取消——独立三列 `canceled_at`/`canceled_by`（拥有者或主 Agent）/`cancel_reason` 一次写入、重复取消幂等，拥有者经 `work_cancel`（CLI `ruukoto work cancel`）、主 Agent 经 `subagent_cancel` 发起；登记事务内取消排队任务、给活动任务写取消意图，提交后按现有停止路径逐个处理，已取消的工作拒绝继续委派，迟到结果保存为事实但不再送达父模型，SubAgent 身份、历史与产物不随取消销毁；issue 16 增加可空列 `write_target` 钉定工作的写入目标（首次修改委派确定、继续沿用；空 = 只读分析工作，不能升级为写入）；issue 13 允许把空闲 SubAgent 协作加入既有只读工作（`work_id` 与 `sub_agent_id` 同现，参与者经任务关联列记录），同项工作的协作消息另存 `subagent_messages` 表（见 SubAgent 条目）；issue 17 增加改动汇总：`work_delegation.integrated` 事件记录一次成功套用的分支/基线/父 HEAD/文件清单与统计（取消过的工作与已关闭的 SubAgent 仍可汇总其保留的副本成果）。
 _Avoid_：把整项工作委托与其中某个任务或某个 SubAgent 的生命周期混称；把工作取消等同于任务取消（工作取消作用于名下全部活动与排队任务，不级联到正在运行的唤醒轮次）或 SubAgent 关闭。
 

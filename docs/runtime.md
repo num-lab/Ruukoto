@@ -37,15 +37,31 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   系统发出为界，之前失败（连接被拒、TLS、凭据）是已知错误，之后失败（等响应
   超时、连接重置、任务停止中止）标 `effect_unknown`，不自动重发。任务停止即中止
   在途请求，不等超时。
+- **会话身份与执行画像（架构工单 08）**：「这个会话是什么」由
+  `src/core/session-identity.ts` 一次判定：`Store.getSessionIdentity` 读出会话、
+  角色行与 SubAgent 行，纯函数 `classifySession` 分为普通开发会话、main 会话、
+  SubAgent 会话（SubAgent 行优先，会话类别也是 dev）与已退役归档（QQ 群、chat/coding
+  角色，附退役原因）。Runtime 各入口按身份一行判定（提交：SubAgent 拒绝、计划模式只限
+  普通开发会话、归档按原因拒绝；改默认模式与切换模式：SubAgent 拒绝；队列兜底：归档
+  按原因取消；resume-queue 从身份取 Agent 行），错误码与文案留在各入口；每次调用的
+  宿主身份重核（main 绑定、委派资格、群结果工具、IM 长期授权）用同一解析，但每次
+  新鲜读取。委派登记的父会话必须是普通开发会话或 main 会话，两种 mode 同一口径。
+  给定任务，`tool-availability.ts` 的 `executionProfile` 由身份、任务所属工作是否有
+  写入目标与是否宿主评审算出执行画像：会话类别（工具类别表与系统提示键）、SubAgent
+  工具集（只读 / 写入 / 宿主评审：另开只读 MCP、关 `subagent_message`）、是否规划
+  MCP、资料受限（SubAgent）、计划资格（只普通开发会话）。任务开始算一次、钉到任务
+  结束；装配过滤、任务收窄与 SDK 会话签名同用这一份，工具集变化时重建 SDK 会话，
+  不依赖 Runtime 每任务释放 SubAgent 的 Driver（那只是资源回收）。工作区不进画像，
+  占用键与 LaunchSpec 都取 `core/worktree.ts` 的 `taskWorkspaceFor`。
 - **工具可用性（架构工单 03）**：`src/agent/tool-availability.ts` 回答「这个会话、
   这个任务允许哪些工具」。会话类别（普通开发会话、main、SubAgent 子身份 subagent；已退役的 QQ 群会话与
-  chat/coding 角色会话是只读归档、不归任何类别，Driver 拒绝运行）各有一份工具类别
+  chat/coding 角色会话是只读归档、不归任何类别，算执行画像即拒绝）各有一份工具类别
   清单，是唯一来源：普通
   开发会话为编码
   工具（含工作清单）、资料与记忆、Web Search、MCP、技能、SubAgent 委派；main 为
   资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、
   SubAgent 委派；subagent
-  为空（SubAgent 的 read / read_artifact 由驱动器按类别单独装配，静态白名单）。
+  为空（SubAgent 的工具按执行画像的 SubAgent 工具集单独装配，静态白名单）。
   新工具族写进哪份清单才出现。任务开始时算一次本任务允许的工具（已装配的工具减去计划模式、GitHub
   评审等宿主按任务收窄与项目关闭的 Web Search），激活、发送前检查
   （`task_tools_forbidden`）与调用门共用这一集合。获批后的复核属于审批闸门（下条）；
@@ -1672,7 +1688,8 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
   容器中运行，不继承父任务的完全访问；工具只有 `read / edit / write /
   bash / read_artifact`（无 `request_file_access`、`http_request`、MCP，
   不能委派下级），装配、发送前与调用门按本任务所属工作是否有写入目标选
-  同一白名单。
+  同一白名单（执行画像；工具集在 SDK 会话签名里，同一 SubAgent 从只读工作
+  复用到修改工作时重建会话）。
 - **写入目标钉定**：`work_delegations.write_target`（v27 补列，可为空，
   旧行恒空 = 只读分析工作）在首次修改委派时确定、继续委派沿用；只读
   工作不能升级为写入，继续委派（`work_id`）不接受 `mode`；复用

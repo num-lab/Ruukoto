@@ -252,7 +252,7 @@
     </aside>
 
     <h3>IM 入口配置变化</h3>
-    <p>QQ 私聊或 Telegram 入口的配置变化（停用、重新绑定、凭据变化）由 <code class="src" data-src="src/runtime/runtime.ts#private async reconcileQqPrivate">runtime.ts · reconcileQqPrivate</code> 与 <code class="src" data-src="src/runtime/runtime.ts#private async reconcileTelegram">reconcileTelegram</code> 处理，暂时离线（门控为 wait）不算变化。分两层：</p>
+    <p>QQ 私聊或 Telegram 入口的配置变化（停用、重新绑定、凭据变化）由拥有者 IM 入口表按来源处理（<code class="src" data-src="src/runtime/im-entries.ts#async reconcile(source: string)">im-entries.ts · reconcile</code>），暂时离线（门控为 wait）不算变化；入口由启动配置停用与入口停用同义，门控为丢弃。分两层：</p>
     <ul>
       <li>直接由该入口消息建立、仍在活动的任务按取消处理：排队的条件更新为 canceled，执行中的走上面的停止路径；原因是门控丢弃码。</li>
       <li>沿父任务链追溯到该入口的其他任务（如委派出的子任务）不停止：归属该入口、尚未消费的审批（待决与已批准）作废，再只解除这些审批的等待（<code class="src" data-src="src/runtime/runtime.ts#private invalidateImApprovals">invalidateImApprovals</code> → <code class="src" data-src="src/agent/approval-gate.ts#supersedeConfirmations">supersedeConfirmations</code>）。工具按已知未执行返回，同会话其他审批照常，已消费的不动。同一事务里，该入口身份已变的长期授权记 entry_changed 失效。</li>

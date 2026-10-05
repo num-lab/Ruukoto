@@ -650,6 +650,91 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm
 任何路径都不删除或修改源资料；导入不做增量同步（源侧新增只在报告列出，
 可再次导入）。
 
+### 旧实例个人资料迁入（agent-direction issue 22，ADR 0023）
+
+`ruukoto legacy-import` 只在 **ruukoto** 产品下可用（bin/ruukoto.mjs），把旧
+ruukoto 实例（如 `~/.ruukoto/data` 或 tx 服务器实例的副本）中的个人资料迁入
+**全新** ruukoto 实例——main 会话、应用数据、调度、平台绑定与必要凭据；旧
+coding/chat 档案与发送事实随迁为只读归档。离线语义与开发方向相同：preview/
+apply/revert/list 都要求目标后台已停止（CLI 持目标实例锁），源全程只读
+（`ruukoto.db` 与 `agent-data/main.db` 均逐文件复制到快照后读取）。目标必须
+未初始化：目标后台启动过（有自有角色行与 main 会话）即拒绝；源或目标后台
+存活、同一路径、同一实例 ID 也都拒绝。
+
+```bash
+ruukoto legacy-import preview --from <源数据目录> [--plan 计划文件]
+ruukoto legacy-import apply --plan 计划文件 [--request-id <id>]
+ruukoto legacy-import revert <导入ID>
+ruukoto legacy-import list
+```
+
+preview 列出**交接清单**（平台配置含 config_version 与 telegram 偏移、活动
+调度、生效中的长期授权）、应用数据与绑定核对、会话归属（main/coding/chat/
+群/SubAgent/dev 排除）、各项收尾计数（任务、审批、发送、入站、运行）、
+记忆与授权分类、MCP/Jev 停用项、凭据动作（copy/skip/conflict）、归档计数、
+冲突与修订值；`--plan` 写回绑定字段后由 apply 核验（`revision_conflict` 时
+重新 preview）。
+
+导入范围（allow-list，行 ID 原样保留）：main/coding/chat 角色行及其项目与
+会话（角色工作目录在目标 `<dataDir>/../agent-work/<角色>` 重建并取目标身份，
+角色会话 cwd 随之改写）、QQ 群会话与群归档四表（`qq_sessions`/`qq_inbox`/
+`qq_outbox`/`chat_result_acceptances`）、这些会话的任务/工具操作/审批/产物/
+选择记录/压缩点/事件、main 的一层 SubAgent 与工作委托（以关闭状态登记）、
+内全部 `inbound_events`、`schedules`/`schedule_runs`、`notification_ops`、
+`standing_permissions`、`qq_config`/`telegram_config`（含 `last_update_id`）、
+GitHub 归档三表与 `github-archive-manifest.json`（v9 前遗留表在全新目标按快照
+DDL 重建）、`agent-data/main.db`（+WAL，经 sha256 核对复制）与 meta
+`app_data.main_instance_id`/`github_retirement_done`、可核验来源的 main 项目与
+personal 记忆（同产品延续，不做计划选中；引用 dev 会话的记忆列待处理，正文
+留源实例）、两端都导入的资料授权、导入项目的 MCP 与 Jev 配置（缺凭据以停用
+导入）。**必要凭据**：平台配置引用的绑定与 purpose `github_webhook` 的绑定从
+源 credentials.json 合并进目标（同名同值跳过、异值拒绝，报告只记 sha256）；
+MCP/Jev 凭据不复制。排除：普通 dev 会话及其 SubAgent 与项目（经 issue 21 迁入
+Coding Agent）、历史索引两表（派生重建）、目录占用、导入账本自身、模型目录
+与 API key（配置中心负责）；普通 dev 项目的记忆与授权按来源规则不进目标。
+
+不重放收尾（与运行时恢复同口径）：queued 任务 canceled、running/
+awaiting_confirmation interrupted（结果未登记且可能已开始的操作与任务置
+effect_unknown）、未消费审批 stale；未关闭调度运行置 `closed_at`；发送账本
+pending→canceled（error_kind=migration，已知未发送不当作新请求重发）、
+sending→effect_unknown；入站 registered/queued→failed；SubAgent 关闭登记；
+main 会话访问模式原样保留（同产品延续，不降级）。
+
+**执行归属交接与旧实例停用**：apply 完成后，平台连接与调度的执行归属移到
+目标——目标以导入的 telegram `last_update_id` 继续消费（入站去重表随行，
+不看旧事件）、活动调度在目标按恢复语义各触发一次（旧 pending 发送已取消，
+不产生双发）、长期授权在同机同入口身份下继续有效（不符即在使用侧 fail-
+closed）。**拥有者务必在 apply 后停止并退役旧实例：不得再启动旧后台消费
+平台入站或调度**，否则两端会各自轮询同一 bot、独立触发同一批通知——这是
+一次性切换，导入工具不改源实例一字。GitHub webhook 监听地址为启动参数
+（`--github-webhook-config`），需要在目标启动时重新给出（凭据绑定已随迁）；
+GitHub 侧 webhook URL 指向新地址属拥有者的平台外操作。
+
+恢复与回退：幂等与备份机制与开发方向一致。`revert` 按账本删除导入行、
+事件区间与经 sha256 核对的复制文件（含 `agent-data/main.db`），并按回执摘除
+导入的凭据绑定。回退阻挡项逐项列出：导入的会话/项目/记忆有新任务、新事件、
+新会话、新授权或新版本；目标启动后有新入站事件、新发送操作、新调度/运行、
+新长期授权；导入行被目标运行时改写（已发送、已 advance、已消费偏移、撤回
+标记更新，经回执 manifest 逐行 sha256 核对）；应用数据文件被写；导入凭据被
+轮换。即：切换期间新增的执行及发送事实是目标侧事实，不能抹掉，回退只在一
+切未发生时整体移除。导入写入的产品归属（meta `product.type`）与目标备份
+不随回退移除——回退回到"已登记 ruukoto 的空实例"，与开发方向一致。整库
+恢复为手工路径（替换 `target-before.db`），仅在回退路径不可用且确认无切换
+后事实时使用——恢复出的旧库不重演备份后的任何发送与调度（备份时刻全部
+未定终态已按迁移规则落定）。
+
+```bash
+ruukoto stop  # 确认后台已停止
+cp <dataDir>/migration/<导入ID>/target-before.db <dataDir>/ruukoto.db
+rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/main.db*
+# 复制的 JSONL/产物/归档文件需一并移除时，按回执 report.files 逐项删除；
+# 凭据摘除按回执 report.credentials 逐项核对
+```
+
+演练参见 `.scratch/agent-direction/smoke-22-migrate-personal-instance.mts`
+（真实 bin 双实例 + telegram stub 证实偏移连续与一次触发）；验证记录区分
+模拟模型与真实进程，见工单 22。
+
 ## 上下文、历史检索与长期记忆（issue 05）
 
 ### 统一资料访问范围（§1）

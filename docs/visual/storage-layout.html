@@ -34,6 +34,7 @@
         <code class="src" data-src="src/core/dir-identity.ts#sameDirIdentity">core/dir-identity.ts</code>
         <code class="src" data-src="src/runtime/workspace-migration.ts#applyWorkspaceMigration">runtime/workspace-migration.ts</code>
         <code class="src" data-src="src/runtime/legacy-import.ts#previewLegacyImport">runtime/legacy-import.ts</code>
+        <code class="src" data-src="src/runtime/personal-import.ts#previewPersonalImport">runtime/personal-import.ts</code>
         <code class="src" data-src="src/runtime/runtime.ts#private recover">runtime/runtime.ts</code>
         <code class="src" data-src="src/runtime/github-retirement.ts#retireGitHubModule">runtime/github-retirement.ts</code>
         <code class="src" data-src="src/runtime/subagents.ts#materialsFileFor">runtime/subagents.ts</code>
@@ -361,7 +362,7 @@
           <tr data-k="g-tg" tabindex="0"><td>Telegram</td><td><code>telegram_config</code></td><td>单行配置：API 地址、凭据绑定名、拥有者 user / chat、<code>config_version</code>、长轮询偏移 <code>last_update_id</code></td><td><code>id = 1</code></td><td><code class="src" data-src="src/telegram/adapter.ts#class TelegramStore">telegram/adapter.ts · TelegramStore</code></td></tr>
           <tr data-k="g-meta" tabindex="0"><td>元数据</td><td><code>meta</code></td><td>实例级键值，键见下表</td><td>主键 <code>key</code></td><td><code>Db</code> 构造；<code class="src" data-src="src/core/store.ts#setMetaValue">store.ts · setMetaValue</code></td></tr>
           <tr data-k="g-imp" tabindex="0"><td rowspan="2">导入账本</td><td><code>instance_imports</code></td><td>跨实例导入回执（agent-direction 工单 21，ADR 0022）：<code>request_key</code>、来源实例 / 产品 / 原 schema 版本 / 数据目录、计划摘要 <code>plan_digest</code>、导入前目标库备份路径与 sha256、本批追加事件区间 <code>event_seq_from</code> … <code>event_seq_to</code>、完整报告 JSON、状态 <code>applied</code> / <code>reverted</code></td><td><code>request_key</code> UNIQUE：同键重放返回原回执、同键异参 <code>request_conflict</code></td><td rowspan="2"><code class="src" data-src="src/runtime/legacy-import.ts#applyLegacyImport">legacy-import.ts · applyLegacyImport</code>（与导入行同一事务）；回退经 <code class="src" data-src="src/runtime/legacy-import.ts#revertLegacyImport">revertLegacyImport</code> 删账本项目、回执改 <code>reverted</code> 保留（见 <a href="#legacy-import">工作区迁移与实例导入</a>）</td></tr>
-          <tr data-k="g-imp" tabindex="0"><td><code>instance_import_items</code></td><td>条目账本：每项资料（含复制文件）唯一归属一次导入；<code>kind</code> 九类见类型 <code class="src" data-src="src/core/types.ts#InstanceImportItemKind">types.ts · InstanceImportItemKind</code>，<code>import_id</code> 外键引用回执（<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS instance_import_items">db.ts · instance_import_items</code>）</td><td>主键 (<code>kind</code>, <code>item_id</code>)；索引 <code>idx_instance_import_items_import</code></td></tr>
+          <tr data-k="g-imp" tabindex="0"><td><code>instance_import_items</code></td><td>条目账本：每项资料（含复制文件与迁入凭据）唯一归属一次导入；<code>kind</code> 十四类见类型 <code class="src" data-src="src/core/types.ts#InstanceImportItemKind">types.ts · InstanceImportItemKind</code>（v30 扩 <code>agent_role</code> / <code>schedule</code> / <code>platform_config</code> / <code>standing_permission</code> / <code>credential</code> 五类，个人方向用），<code>import_id</code> 外键引用回执（<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS instance_import_items">db.ts · instance_import_items</code>）</td><td>主键 (<code>kind</code>, <code>item_id</code>)；索引 <code>idx_instance_import_items_import</code></td></tr>
         </tbody>
       </table>
     </div>
@@ -384,7 +385,7 @@
 
   <section id="schema">
     <h2>schema 版本与迁移</h2>
-    <p>当前版本 <code>v29</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
+    <p>当前版本 <code>v30</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>文件里的版本</th><th>行为</th></tr></thead>
@@ -392,7 +393,7 @@
           <tr><td>无版本记录（全新库）</td><td>一个 <code>BEGIN IMMEDIATE</code> 事务内建全部表、补列、写版本。</td></tr>
           <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 29（需升级程序）」，后台启动失败，文件不动。</td></tr>
           <tr><td>等于程序</td><td>幂等执行建表语句与补列，只补齐缺失对象。</td></tr>
-          <tr><td>1 到 28</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v29）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
+          <tr><td>1 到 28</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v30）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
           <tr><td>其他（如 0）</td><td>「不支持从 schema vN 迁移」，同样回滚。</td></tr>
         </tbody>
       </table>
@@ -414,6 +415,7 @@
           <tr><td><code>v27</code></td><td><code>work_delegations</code> 加 <code>write_target</code>（ensureColumns / migrateFrom 注释含 v26 → v27；<code class="src" data-src="src/core/db.ts#write_target TEXT">db.ts</code>）</td><td>旧工作恒为 NULL（只读分析工作，不升级），不扫描、不改写旧记录</td><td>agent-direction 工单 16（随同批 issue-16 代码提交）</td></tr>
           <tr><td><code>v28</code></td><td>新表 <code>instance_imports</code>（跨实例导入回执）、<code>instance_import_items</code>（条目账本，主键 (<code>kind</code>, <code>item_id</code>)，建表注释含 v28；<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS instance_imports">db.ts · instance_imports</code>）</td><td>旧库两表为空，没有导入记录、不扫描旧资料；回执持久保留（含 <code>reverted</code>）</td><td>agent-direction 工单 21（ADR 0022）</td></tr>
           <tr><td><code>v29</code></td><td>新表 <code>subagent_messages</code>（工作内协作消息，见<a href="orchestrator.html#subagent-message">编排器 · 工作内消息</a>；建表注释 v28 → v29；<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS subagent_messages">db.ts · subagent_messages</code>）与 <code>idx_smsg_work</code> / <code>idx_smsg_pending</code> 两条索引</td><td>旧库此表为空，没有历史消息；投递列全空</td><td>agent-direction 工单 13</td></tr>
+          <tr><td><code>v30</code></td><td><code>instance_import_items</code> 的类别 CHECK 扩五类（<code>agent_role</code> / <code>schedule</code> / <code>platform_config</code> / <code>standing_permission</code> / <code>credential</code>）；CHECK 变更经重建表迁移（<code class="src" data-src="src/core/db.ts#private rebuildImportItemsKindCheck">db.ts · rebuildImportItemsKindCheck</code>，v28 / v29 库都重建）</td><td>既有回执与账本行逐行复制保留；v28 及更早的类别不变</td><td>agent-direction 工单 22（ADR 0023）</td></tr>
         </tbody>
       </table>
     </div>
@@ -519,8 +521,8 @@
       <li><b>回退</b>：<code>action: revert</code> 指向一次成功的 <code>map_sessions</code> 回执，逐个核对会话当前的 <code>workspace_project_id</code> 仍等于当时写入的值（否则 <code>revision_conflict</code>），再在一个事务里恢复原值并写新回执（<code class="src" data-src="src/runtime/workspace-migration.ts#function applyRevert">applyRevert</code>）。<code>claim_source</code> 不可回退，回退不能再回退；新建的工作区、已认领的根与迁移后产生的执行事实都保留。</li>
     </ul>
 
-    <h3 id="legacy-import">实例导入：把旧实例的开发资料迁入 Coding Agent</h3>
-    <p>「把旧数据迁到工作区」在同一个实例里只改组织归属；跨实例的迁入（agent-direction 工单 21，ADR 0022）不经过控制面，由 <code>ruukoto-dev legacy-import</code> 在目标侧离线执行：CLI 们持目标实例锁（<code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">instance-lock.ts · acquireInstanceLock</code>）运行，要求目标后台已停止；预览对目标零写入，目标库也经只读副本核对（<code class="src" data-src="src/runtime/legacy-import.ts#openTargetReadonlyCopy">legacy-import.ts · openTargetReadonlyCopy</code>）。全部判断集中在 <code>src/runtime/legacy-import.ts</code>。<strong>目标必须已在当前 schema</strong>：库版本不等于程序版本时报 <code>target_schema</code>，先启动一次 ruukoto-dev 后台完成迁移再导入（<code class="src" data-src="src/runtime/legacy-import.ts#checkTargetProduct">checkTargetProduct</code>）。</p>
+    <h3 id="legacy-import">实例导入 · 开发方向：把旧实例的开发资料迁入 Coding Agent</h3>
+    <p>「把旧数据迁到工作区」在同一个实例里只改组织归属；跨实例的迁入不经过控制面，由目标侧离线 CLI 执行，两个方向按产品分流、共用同一副骨架：<code>ruukoto-dev legacy-import</code> 迁开发资料（agent-direction 工单 21，ADR 0022，本节）；<code>ruukoto legacy-import</code> 迁个人资料（工单 22，ADR 0023，下节）。CLI 们持目标实例锁（<code class="src" data-src="src/core/instance-lock.ts#acquireInstanceLock">instance-lock.ts · acquireInstanceLock</code>）运行，要求目标后台已停止；预览对目标零写入，目标库也经只读副本核对（<code class="src" data-src="src/runtime/legacy-import.ts#openTargetReadonlyCopy">legacy-import.ts · openTargetReadonlyCopy</code>）。开发方向的全部判断集中在 <code>src/runtime/legacy-import.ts</code>。<strong>目标必须已在当前 schema</strong>：库版本不等于程序版本时报 <code>target_schema</code>，先启动一次目标产品后台完成迁移再导入（<code class="src" data-src="src/runtime/legacy-import.ts#checkTargetProduct">checkTargetProduct</code>）。</p>
     <p><strong>源全程只读。</strong>源库不能用 SQLite 读连接或 <code>VACUUM</code> 直读——只读连接会恢复 WAL、在源目录生成 <code>-shm</code> / <code>-wal</code> 来写侧车；改为把 <code>ruukoto.db</code> 及其侧车逐文件复制到 <code>mkdtemp</code> 临时目录（0700），在副本上迁到当前 schema 再核对完整性（<code class="src" data-src="src/runtime/legacy-import.ts#function openSourceSnapshot">openSourceSnapshot</code>）。动手之前先经只读探测核实源后台已停止（锁持有且命令像后台 → <code>source_active</code>；身份无法核实 → <code>source_unverifiable</code>；<code class="src" data-src="src/core/instance-lock.ts#probeLockHolder">instance-lock.ts · probeLockHolder</code>，见 <a href="deployment.html#instance-lock">部署与信任边界 · 实例锁</a>）；源已登记为别的产品报 <code>product_mismatch</code>。导入只读源目录与 <code>agent</code> 目录的名称清单，任何路径都不修改源资料。</p>
     <p>表级 <code class="src" data-src="src/runtime/legacy-import.ts#const TABLE_POLICY">TABLE_POLICY</code>：快照与目标库的每张表都必须逐张登记为「导入」或「排除 + 理由」，哪边出现未登记的表都以 <code>table_policy</code> 拒绝（<code class="src" data-src="src/runtime/legacy-import.ts#function checkTablePolicy">checkTablePolicy</code>），新加的表不会被默认漏判或默认复制。<code>subagent_messages</code> 按「import」登记，但行不独立搬运：预览按纳入导入的工作收集其消息（<code class="src" data-src="src/runtime/legacy-import.ts#subagent_messages">legacy-import.ts</code>）、apply 时随所属工作同批插入、revert 时先于工作按 <code>work_id</code> 删除（见下「工作区迁移与实例导入」的列表）。</p>
 
@@ -586,6 +588,15 @@
     <aside class="callout limit">
       <b>首版与首版限制</b>
       <p>不做增量同步——源侧在导入后新增的条目只在报告列出，可再次按同一源导入；不做在线 / 控制面导入；agentDir 文件（models / auth / default-model / credentials / skills）与 qq / telegram 表一律不复制，预览只列名称与差异、不读凭据值。<code class="src" data-src="src/runtime/workspace-migration.ts#canonicalJson">canonicalJson</code> / <code class="src" data-src="src/runtime/workspace-migration.ts#sha256">sha256</code> / <code class="src" data-src="src/runtime/workspace-migration.ts#historyStatusOf">historyStatusOf</code> 由 workspace-migration.ts 导出复用，本工单不改其行为。</p>
+    </aside>
+
+    <h3 id="personal-import">实例导入 · 个人方向：迁入全新 ruukoto，平台与调度归属显式交接</h3>
+    <p>镜像方向（agent-direction 工单 22，ADR 0023）在 <code>src/runtime/personal-import.ts</code>，机制骨架复用 legacy-import.ts 的导出，不建通用框架。导入单位反转：main / coding / chat 角色行及其项目与会话（含 main 一层 SubAgent）、QQ 群会话与群归档四表全量导入，普通 dev 会话一律排除（经开发方向迁移，预览列出并指过去）。<strong>目标必须是全新实例</strong>：目标后台启动过（有自有角色行与 main 会话）即拒绝，源与目标同一路径或同一实例 ID 也拒绝（<code class="src" data-src="src/runtime/personal-import.ts#checkNotSelf">personal-import.ts · checkNotSelf</code>）；角色工作目录在目标 <code>agent-work/&lt;角色&gt;</code> 重建并取目标身份，<code>ensureRoles</code> 幂等跳过导入角色行。应用数据是文件级迁移：<code>agent-data/main.db</code>（+WAL）与 <code>github-archive-manifest.json</code> 同 JSONL、产物一样按 sha256 核对复制，绑定 meta 与退役 meta 随行；v9 前遗留的 github_* 三表在全新目标按快照自身 DDL 重建。main 会话访问模式<strong>原样保留</strong>（同产品延续，不做开发方向的降级）；personal 记忆同产品延续、不做计划选中，只用来源规则（全部版本来源落在导入范围或为 owner_note 才导入，引用 dev 的列待处理）。</p>
+    <p><strong>不重放收尾与开发方向同口径并扩到交接面</strong>：未关闭调度运行置 <code>closed_at</code>；发送账本 <code>pending → canceled</code>（<code>error_kind = migration</code>，已知未发送不当作新请求重发）、<code>sending → effect_unknown</code>；入站 <code>registered / queued → failed</code>。<strong>执行归属显式交接：</strong><code>qq_config</code> / <code>telegram_config</code> 原样随迁（含 <code>config_version</code> 与 telegram <code>last_update_id</code>）、入站去重表全量随行——目标以偏移继续消费、钉版目标不换代；活动调度原样接管，逾期按启动恢复语义在目标各触发一次（合并进未完成运行，旧 pending 已取消、无双发）；长期授权原样导入，身份链在使用侧逐次核实、不符即 fail-closed。<strong>必要凭据</strong>——平台配置引用的绑定与 purpose 为 <code>github_webhook</code> 的绑定——从源 <code>credentials.json</code> 合并进目标（同名同值跳过、异值报 <code>credential_conflict</code>；<code class="src" data-src="src/runtime/personal-import.ts#mergeCredentials">personal-import.ts · mergeCredentials</code>，报告只记 sha256）；MCP / Jev 凭据不复制、缺绑定停用导入。旧实例侧不改一字：导入完成后拥有者不得再启动旧实例消费平台入站或调度。</p>
+    <p><strong>易变行按回执 manifest 管理</strong>（不走逐项账本）：调度运行、发送账本、入站事件、群归档与 GitHub 归档按导入行 id 列表 + 整行 sha256 记入回执报告（按其写入目标的转换后行计算）；续跑时同源此前（applied）回执的 manifest 是唯一「目标行确为本源导入所写」的证据——同键同 sha 跳过、其余同键报 <code>id_conflict</code>。回退（<code class="src" data-src="src/runtime/personal-import.ts#revertPersonalImport">personal-import.ts · revertPersonalImport</code>）在开发方向阻挡项之外另拦交接事实：目标启动后的新入站事件、新发送操作、新调度 / 运行、新长期授权，导入行被运行时改写（已发送、已 advance、已消费偏移、撤回标记）、应用数据文件被写、导入凭据被轮换——逐项 sha256 核对、逐项列出并拒绝，切换期间新增的执行及发送事实不抹掉；凭据摘除同样经 sha 核对。v30 账本扩五类（<code>agent_role</code> / <code>schedule</code> / <code>platform_config</code> / <code>standing_permission</code> / <code>credential</code>，见上表），开发方向不受影响。</p>
+    <aside class="callout limit">
+      <b>首版限制</b>
+      <p>不做增量同步、不在线导入；不做源侧写入（含「停用旧平台」的源侧写入——旧实例的停用是拥有者的部署动作，见运行文档）；外部平台重配置（GitHub webhook URL、新的监听地址由启动参数重新给出）不在导入范围。与开发方向不互相预抽象：两模块共享快照 / 账本 / 行工具导出，各自的预览 / 应用 / 回退判断独立。</p>
     </aside>
   </section>
 

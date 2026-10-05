@@ -66,7 +66,7 @@
     <h2>逻辑角色与引导（旧架构）</h2>
     <aside class="callout limit">
       <b>旧架构的现行实现</b>
-      <p>本节与下文「窄接口」「main 委派 coding」「子任务结果与异常路径」「群聊结果」描述的固定角色机制仍在运行，但属于旧架构：新方向取消固定 coding 与 chat，由主 Agent 派发通用 SubAgent（ADR 0017、ADR 0020）。GitHub 评审已由 agent-direction 工单 19 迁到通用 SubAgent（见「GitHub PR 评审编排」，升级前在途的旧 coding 评审子任务沿原路径接管）；核心群聊已退役（agent-direction 工单 20）：chat 角色不再引导，群消息直接忽略，旧群资料保留为只读归档；本侧旧实例开发资料迁入已由工单 21 交付（ruukoto-dev legacy-import）。跨实例迁移与清理固定角色分别是工单 22、23，都还没有实施。新机制见<a href="#subagent">工作委托与 SubAgent</a>。</p>
+      <p>本节与下文「窄接口」「main 委派 coding」「子任务结果与异常路径」「群聊结果」描述的固定角色机制仍在运行，但属于旧架构：新方向取消固定 coding 与 chat，由主 Agent 派发通用 SubAgent（ADR 0017、ADR 0020）。GitHub 评审已由 agent-direction 工单 19 迁到通用 SubAgent（见「GitHub PR 评审编排」，升级前在途的旧 coding 评审子任务沿原路径接管）；核心群聊已退役（agent-direction 工单 20）：chat 角色不再引导，群消息直接忽略，旧群资料保留为只读归档；本侧旧实例开发资料迁入已由工单 21 交付（ruukoto-dev legacy-import），个人资料迁入全新 ruukoto 已由工单 22 交付（ruukoto legacy-import，ADR 0023）。清理固定角色是工单 23，还没有实施。新机制见<a href="#subagent">工作委托与 SubAgent</a>。</p>
     </aside>
     <p>逻辑角色的类型仍是三个取值（<code class="src" data-src="src/core/types.ts#export type AgentRoleId">types.ts · AgentRoleId</code>），但引导定义只剩 main 与 coding 两个：chat 已退役（核心不再引导，旧安装的 <code>agent-chat</code> 行保留为归档标识，见下文角色表）。后台启动时，<code class="src" data-src="src/runtime/orchestrator.ts#private async ensureRoles">orchestrator.ts · ensureRoles</code> 按 <code class="src" data-src="src/runtime/orchestrator.ts#ROLE_DEFINITIONS">ROLE_DEFINITIONS</code> 逐个检查：<code>agent_roles</code> 已有该角色的行就跳过；没有就找到或创建项目 <code>agent-&lt;角色&gt;</code>，建工作目录 <code>&lt;dataDir&gt;/../agent-work/&lt;角色&gt;</code>（权限 0700，放在数据目录之外以避开保护根），经桥接创建会话，再写一行角色配置（<code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>）。</p>
 

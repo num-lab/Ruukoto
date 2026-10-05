@@ -174,15 +174,10 @@ export interface DriverDeps {
    */
   subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "message" | "integrate" | "readReply" | "resultNotice">;
   /**
-   * dev 父会话待注入的 SubAgent 结果：任务开始时收集并由 driver 标记送达
-   * （注入随下一次模型调用送达；崩溃窗口不丢失，持久事件与 subagent_result 可查）。
+   * 父级送达的注入入口（架构工单 09 入口 3）：任务开始时取普通开发会话待注入的
+   * SubAgent 结果与工作内消息，同事务标记已投递；其他身份恒为空。
    */
-  subagentResults?: { pending(sessionId: string): Task[]; markDelivered(taskIds: string[]): void };
-  /**
-   * dev 父会话待注入的工作内协作消息（agent-direction issue 13）：与结果注入
-   * 同一通道与标记口径；main 父会话的消息经唤醒任务，不走本通道。
-   */
-  subagentMessages?: { pending(sessionId: string): SubAgentMessage[]; markDelivered(messageIds: string[]): void };
+  parentInjection?(sessionId: string): { results: Task[]; messages: SubAgentMessage[] };
   /**
    * main 委派资料的发送前复核（仅 subagent 类会话；撤销阻止后续注入，
    * 已保存快照正文不重新解析）。
@@ -727,30 +722,12 @@ export class Driver {
     this.taskTools = null;
     this.pinnedSkills = this.profile.restricted ? null : loadSkillLibrary(this.deps.agentDir);
     // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
-    // dev 父会话的下一个拥有者任务开始时收集待注入内容并标记送达（同事务）；
     // 摘要与消息正文由宿主写定，不伪装拥有者新请求，也不授予委派权限。
-    let subagentResults: Array<{ workId: string; subAgentId: string; taskId: string; status: string; summary: string }> | undefined;
-    let subagentMessages: SubAgentMessage[] | undefined;
-    if (identity.kind === "dev" && this.deps.subagentResults) {
-      const pending = this.deps.subagentResults.pending(this.session.id);
-      const pendingMessages = this.deps.subagentMessages?.pending(this.session.id) ?? [];
-      if (pending.length > 0 || pendingMessages.length > 0) {
-        if (pending.length > 0) {
-          subagentResults = pending.map((t) => ({
-            workId: t.workId!,
-            subAgentId: t.subAgentId!,
-            taskId: t.id,
-            status: t.status,
-            summary: t.resultSummary ?? "",
-          }));
-        }
-        if (pendingMessages.length > 0) subagentMessages = pendingMessages;
-        this.deps.store.withTx(() => {
-          if (pending.length > 0) this.deps.subagentResults!.markDelivered(pending.map((t) => t.id));
-          if (pendingMessages.length > 0) this.deps.subagentMessages!.markDelivered(pendingMessages.map((m) => m.id));
-        });
-      }
-    }
+    const injection = this.deps.parentInjection?.(this.session.id);
+    const subagentResults = injection?.results.length
+      ? injection.results.map((t) => ({ workId: t.workId!, subAgentId: t.subAgentId!, taskId: t.id, status: t.status, summary: t.resultSummary ?? "" }))
+      : undefined;
+    const subagentMessages = injection?.messages.length ? injection.messages : undefined;
     this.assembly = beginContextAssembly({
       task,
       session: this.session,

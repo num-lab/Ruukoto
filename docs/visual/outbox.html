@@ -34,8 +34,8 @@
         <code class="src" data-src="src/core/notify-target.ts#export function sameTarget">core/notify-target.ts</code>
         <code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime/runtime.ts</code>
         <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
+        <code class="src" data-src="src/runtime/parent-delivery.ts#export class ParentDelivery">runtime/parent-delivery.ts</code>
         <code class="src" data-src="src/runtime/orchestrator.ts#onInboundTerminal">runtime/orchestrator.ts</code>
-        <code class="src" data-src="src/runtime/orchestrator.ts#onWakeTerminal">runtime/orchestrator.ts</code>
         <code class="src" data-src="src/github/events.ts#verifyNotification">github/events.ts</code>
         <code class="src" data-src="src/agent/web-search.ts#export async function searchTavily">agent/web-search.ts</code>
       </dd></div>
@@ -314,7 +314,7 @@
           </tr>
           <tr>
             <td><code>owner_reply</code>（工作最终汇报）</td>
-            <td>IM 私聊发起的工作收尾轮次（main 唤醒任务）到达终态，同一结果事务内（<code class="src" data-src="src/runtime/orchestrator.ts#onWakeTerminal">orchestrator.ts · onWakeTerminal</code> 回调）。<br><code class="src" data-src="src/runtime/runtime.ts#private enqueueWorkReport(wake: Task, outcome: ChildOutcome)">runtime.ts · enqueueWorkReport</code></td>
+            <td>IM 私聊发起的工作收尾轮次（main 唤醒任务）到达终态，同一结果事务内（到期判定 <code class="src" data-src="src/runtime/parent-delivery.ts#wakeTerminal(wake: Task, outcome: ChildOutcome)">parent-delivery.ts · wakeTerminal</code>）。<br><code class="src" data-src="src/runtime/runtime.ts#private sendWorkReport(report: WorkReport)">runtime.ts · sendWorkReport</code></td>
             <td>发起事件 ID 加 <code>#work:&lt;workId&gt;:&lt;收尾执行 id&gt;</code> 后缀</td>
             <td>宿主判定收尾并登记一次，不经审批。正文首行固定 <code>[工作 &lt;workId&gt; 最终汇报]</code>，后接该唤醒任务最终回答；唤醒失败或未知只发宿主固定提示。目标沿入站钉版核对，不符则不登记、记 <code>*.reply_skipped</code>（reason 带 <code>work_report:</code> 前缀）。判定与来源链见<a href="inbound-events.html#after">入站事件</a></td>
           </tr>

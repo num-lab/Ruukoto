@@ -40,7 +40,7 @@
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Store } from "../core/store.ts";
-import type { SubAgent, SubAgentMessage, Task } from "../core/types.ts";
+import type { SubAgent, Task } from "../core/types.ts";
 import type { HistoryEntryView } from "../core/history.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { TELEGRAM_SOURCE } from "../telegram/adapter.ts";

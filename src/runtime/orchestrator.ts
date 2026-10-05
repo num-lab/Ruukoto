@@ -32,6 +32,7 @@ import {
 import { sessionToolCategories } from "../agent/tool-availability.ts";
 import { canonicalParamsDigest } from "../agent/mcp/tools.ts";
 import type { SubAgentDelegateInput, SubAgentDelegation } from "./subagents.ts";
+import type { ParentDelivery } from "./parent-delivery.ts";
 
 /** 编排器需要的 Runtime 窄接口（宿主注入；除此之外的能力编排器不可见）。 */
 export interface OrchestratorBridge {
@@ -71,11 +72,10 @@ export interface OrchestratorDeps {
    */
   onInboundTerminal?(event: InboundEvent, task: Task, outcome: ChildOutcome): void;
   /**
-   * main 唤醒任务（requestId 以 wake: 开头）的结果事务内回调（agent-direction
-   * issue 18 工作收尾汇报）；与结果同事务提交，重启巡检补记结果时一并补登，
-   * 不重复。
+   * 父级送达（架构工单 09）：子任务结果登记后建结果唤醒、结果唤醒终态的最终汇报
+   * （结果事务内）与启动补建。
    */
-  onWakeTerminal?(task: Task, outcome: ChildOutcome): void;
+  parentDelivery: Pick<ParentDelivery, "resultRecorded" | "wakeTerminal" | "sweep">;
   /** 入站派发前复核宿主配置与在线状态；等待保留原事件，失效则作废。 */
   inboundGate?(event: InboundEvent): "run" | "wait" | { drop: string };
   /** 宿主为已验证的入站事件安排固定 main 父任务与评审请求文本；模型不参与派发。 */
@@ -93,7 +93,6 @@ export interface OrchestratorDeps {
   };
   /** 结果落库前保存交付产物与来源元数据；重启补记走同一路径。 */
   resultData?(task: Task, outcome: ChildOutcome): Record<string, unknown>;
-  resultNotice?(task: Task): string | null;
 }
 
 /** 角色静态定义（工具类别见 tool-availability 的会话类别清单）。
@@ -109,17 +108,30 @@ const RESULT_SUMMARY_CAP = 1000;
 const DEADLINE_REASON = "deadline_exceeded";
 
 /** 宿主固定评审与其结果唤醒的截止时限。 */
-const REVIEW_DEADLINE_MS = 60 * 60_000;
+export const REVIEW_DEADLINE_MS = 60 * 60_000;
 
 /** 子任务终态口径（completed/failed/timeout/unknown），事件、摘要与唤醒共用。 */
 export type ChildOutcome = "completed" | "failed" | "timeout" | "unknown";
 
-const OUTCOME_TEXT: Record<ChildOutcome, string> = {
+export const OUTCOME_TEXT: Record<ChildOutcome, string> = {
   completed: "已完成",
   failed: "失败",
   timeout: "超时",
   unknown: "结果未知",
 };
+
+/** 超时取消的判定：取消原因在取消时持久化（errorMessage/interruptReason），重启后仍可核对。 */
+function isDeadlineCancel(task: Task): boolean {
+  return task.errorMessage === DEADLINE_REASON || task.interruptReason === DEADLINE_REASON;
+}
+
+/** 由任务持久状态推导终态口径（启动巡检与补建唤醒共用）。 */
+export function childOutcome(task: Task): ChildOutcome {
+  if (task.status === "completed") return "completed";
+  if (task.status === "interrupted") return "unknown";
+  if (task.status === "canceled" && isDeadlineCancel(task)) return "timeout";
+  return "failed";
+}
 
 function capInput(text: string): string {
   return text.length > INPUT_TEXT_CAP
@@ -416,42 +428,22 @@ export class Orchestrator {
           ? "completed"
           : body.type === "task.interrupted"
             ? "unknown"
-            : this.isDeadlineCancel(task)
+            : isDeadlineCancel(task)
               ? "timeout"
               : "failed";
       void this.handleTerminal(task, outcome).catch((err) => this.log(`结果回传失败：${(err as Error).message}`));
     }
   }
 
-  /** 超时取消的判定：取消原因在取消时持久化（errorMessage/interruptReason），重启后仍可核对。 */
-  private isDeadlineCancel(task: Task): boolean {
-    return task.errorMessage === DEADLINE_REASON || task.interruptReason === DEADLINE_REASON;
-  }
-
-  /** 由任务持久状态推导终态口径（启动巡检与补发唤醒共用）。 */
-  private outcomeFromStatus(task: Task): ChildOutcome {
-    if (task.status === "completed") return "completed";
-    if (task.status === "interrupted") return "unknown";
-    if (task.status === "canceled" && this.isDeadlineCancel(task)) return "timeout";
-    return "failed";
-  }
-
   /**
-   * 启动巡检：
-   * ① 重启窗口内到达终态的角色任务补记结果与事件（handleTerminal 内含唤醒）；
-   * ② 结果已落库但唤醒缺失（提交失败或①之前的崩溃窗口）的子任务，按原
-   *   幂等键 wake:<childId> 补发——唤醒任务的存在即投递记录，重复恢复不重复
-   *   投递。
+   * 启动巡检：① 重启窗口内到达终态的角色任务补记结果与事件（handleTerminal 内含
+   * 建唤醒）；② 父级送达补建缺失的结果唤醒与消息唤醒。
    */
   private async sweepPendingResults(): Promise<void> {
     for (const task of this.store.listRoleTasksPendingResult()) {
-      await this.handleTerminal(task, this.outcomeFromStatus(task));
+      await this.handleTerminal(task, childOutcome(task));
     }
-    for (const task of this.store.listRoleTasksPendingWake()) {
-      const parent = this.store.getTask(task.parentTaskId!);
-      if (!parent || !this.store.getAgentRoleBySession(parent.sessionId)) continue; // 与 wakeParent 同一口径
-      await this.wakeParent(task, this.outcomeFromStatus(task), task.resultSummary!);
-    }
+    await this.deps.parentDelivery.sweep();
   }
 
   /**
@@ -482,7 +474,7 @@ export class Orchestrator {
     const recorded = this.store.withTx(() => {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
       this.recordInboundTerminal(task, outcome);
-      if (task.requestId.startsWith("wake:")) this.deps.onWakeTerminal?.(task, outcome);
+      this.deps.parentDelivery.wakeTerminal(task, outcome);
       const refs = { taskId: task.id, sessionId: task.sessionId };
       switch (outcome) {
         case "completed":
@@ -524,9 +516,7 @@ export class Orchestrator {
       }
       return true;
     });
-    if (recorded && task.parentTaskId) {
-      await this.wakeParent(task, outcome, summary);
-    }
+    if (recorded) await this.deps.parentDelivery.resultRecorded(task, outcome, summary);
   }
 
   /**
@@ -639,16 +629,7 @@ export class Orchestrator {
     // 工作内消息（issue 13）：终态登记后冲刷该父会话的待投递消息——刚空闲的
     // 接收方立即投递（在同一同步续段内，早于任何新委派登记），资格已失记未投递
     this.deps.subagents?.flushPending?.(work.parentSessionId);
-    // dev 父会话不产生唤醒任务：结果经下次模型调用的宿主资料注入送达
-    // （result_delivered_at），持久事件已指向父会话；main 按稳定 wake 键回报。
-    const parent = task.parentTaskId ? this.store.getTask(task.parentTaskId) : null;
-    if (!parent) return;
-    if (!this.store.getAgentRoleBySession(parent.sessionId)) return;
-    // 已取消的工作（issue 14）不建 wake：迟到结果已保存为事实（上文登记，事件与
-    // subagent_result 可查），但不再唤醒父模型——排除主 Agent 据此重启这项工作的
-    // 可能，需要时由主 Agent 主动 subagent_result 读取。
-    if (this.store.getWorkDelegation(work.id)?.canceledAt) return;
-    await this.wakeParent(task, outcome, summary);
+    await this.deps.parentDelivery.resultRecorded(task, outcome, summary);
   }
 
   private resultSummary(task: Task, outcome: ChildOutcome, reply: string | null): string {
@@ -665,48 +646,6 @@ export class Orchestrator {
         return `子任务超过截止时间 ${task.deadline ?? "?"}，已取消`;
       case "unknown":
         return "子任务被后台重启/中断，结果未知（未自动重放任何外部副作用）";
-    }
-  }
-
-  /**
-   * main 的有界唤醒输入：固定模板 + 截断摘要（上限 RESULT_SUMMARY_CAP），
-   * 只带固定字段与结果引用，不复制子任务完整历史；请求键 wake:<childId>
-   * 幂等，重复结果回传只唤醒一次。唤醒只投向角色会话（main 等）——父任务
-   * 在拥有者交互会话时结果经 get_task 查询，不向该会话注入输入。
-   */
-  private async wakeParent(child: Task, outcome: ChildOutcome, summary: string): Promise<void> {
-    const parent = this.store.getTask(child.parentTaskId!);
-    if (!parent) return;
-    const parentRole = this.store.getAgentRoleBySession(parent.sessionId);
-    if (!parentRole) return;
-    const source = child.sourceEventId ? this.store.getInboundEvent(child.sourceEventId) : null;
-    const reviewSource = source && this.deps.reviewRequest?.(source) ? source : null;
-    const notice = this.deps.resultNotice?.(child);
-    const input = child.subAgentId
-        ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
-          `子任务：${child.id}（SubAgent ${child.subAgentId} · 工作 ${child.workId}）\n` +
-          `摘要：${summary}\n` +
-          `完整结果：用 subagent_result 按 work_id ${child.workId} 读取（part=reply 分页读最终回答，part=artifact 读产物）`
-        // 旧 coding 子任务（agent-direction issue 23 退役前在途，启动收尾后补记一次）
-        : `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
-          `子任务：${child.id}（角色 ${child.agentId}）\n` +
-          `摘要：${summary}\n` +
-          `完整结果：用 coding_result 读取（task_id ${child.id}；part=reply 分页读最终回答，part=artifact 读产物）`;
-    try {
-      await this.deps.bridge.submit({
-        sessionId: parent.sessionId,
-        requestId: `wake:${child.id}`,
-        input: input + (notice ? `\n${notice}` : ""),
-        modelSelection: parentRole.modelSelection ?? this.deps.bridge.defaultModelSelection(),
-        agentId: parentRole.id,
-        // 入站 review 的摘要保留宿主来源；普通 owner 委派仍无自动外发授权。
-        sourceEventId: reviewSource?.id ?? null,
-        deadline: reviewSource ? new Date(Date.parse(child.endedAt!) + REVIEW_DEADLINE_MS).toISOString() : null,
-        // 子任务结果属于外部内容，不能继承 main 会话默认的完全访问。
-        accessMode: "confirm",
-      });
-    } catch (err) {
-      this.log(`唤醒父任务会话失败（child=${child.id}）：${(err as Error).message}`);
     }
   }
 

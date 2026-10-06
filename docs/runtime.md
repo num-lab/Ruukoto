@@ -1,11 +1,11 @@
 # 后台任务运行时（issue 02/03/04/05）
 
 任务生命周期独立于交互终端的实现：单个后台进程负责调度、状态与事件，
-每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](../adr/0002-detach-terminal-from-task-runtime.md)）。
-issue 03 接入真实编码工具与两种权限模式（[ADR 0003](../adr/0003-enforce-explicit-access-modes.md)、
-[ADR 0004](../adr/0004-tool-worker-per-task-container-exec-account.md)）。
-issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读取、断开重连与
-输入去重；当前控制协议为 v10，包含事件流恢复接口。
+每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](adr/0002-detach-terminal-from-task-runtime.md)）。
+issue 03 接入真实编码工具与两种权限模式（[ADR 0003](adr/0003-enforce-explicit-access-modes.md)、
+[ADR 0004](adr/0004-tool-worker-per-task-container-exec-account.md)）。
+TUI 是独立客户端，含历史读取、断开重连与输入去重；`ruukoto-dev` 打开 TUI 时
+[按需拉起本机后台](visual/control-protocol.html#ensure)。当前控制协议为 v15，包含事件流恢复接口。
 
 ## 架构要点
 
@@ -236,8 +236,9 @@ ruukoto-dev 的行为差别：
   执行；`--execution local` / `RUUKOTO_EXECUTION_BACKEND=local` 仍可显式选择；
   两产品以 local 生效时都打印同一条无隔离警告。后端缺失或失效（docker 不可
   用、镜像缺失）在执行前明确拒绝、不静默回退到普通账户。完全访问需要专用执行
-  账户（Linux：ruukoto-exec 经 systemd 包装入口，经既有部署验证；macOS 的本机
-  独立账户与 sudo 包装属部署前置、尚未验证）——未配置入口时完全访问提交在执
+  账户（Linux：ruukoto-exec 经 systemd 包装入口，已有部署与本次 Coding Agent
+  受控配置验证；macOS 未提供经过验证的本机入口，现有 systemd 包装只适用于
+  Linux）——未配置入口时完全访问提交在执
   行前以 `execution_unavailable` 拒绝，不静默降级。产品级冒烟
   `.scratch/agent-direction/smoke-04-desktop-execution.mts`（真实容器、镜像、
   文件、网络与审批路径，模型打桩；0 全过、2 基础设施缺失）在本机与原生 Linux
@@ -541,8 +542,9 @@ ID 与自身版本访问）。
   = invalid_params）。任务 TUI 与配置中心都投影该事件刷新项目展示；配置中心冲突后先
   实际重读后台数据（不刷旧缓存）、再刷新当前分区。
 - **项目分区（agent-direction issue 06）**：ruukoto-dev 的「项目」分区把工作区列在前
-  （标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品不分类。
-  项目详情显示分类与根目录，指令、Web Search、Jev、MCP 与资料授权都在已选项目内完成：
+  （标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品平铺
+  项目名称，列表不展示工作区分类或根目录前缀。ruukoto-dev 的项目详情显示分类与根目录，
+  指令、Web Search、Jev、MCP 与资料授权都在已选项目内完成：
   指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务、新增固定
   归属跳过项目选择（全局 MCP 分区复用同一页面与表单，新增仍按工作区/旧项目选择项目；
   进入归属不符的服务详情会提示并返回）。资料授权页标注出向/入向；新建方向固定为本
@@ -722,7 +724,9 @@ agentDir 差异（只列名称）与修订值；`--plan` 把修订与源实例�
 
 恢复与回退：`revert` 按账本删除导入的行、事件区间与经 sha256 核对的复制
 文件（导入后目标侧的自有活动——导入的会话/项目/记忆有新任务、新事件、
-新会话、新授权、组织引用或新版本——逐项列出并拒绝回退）。回执永久保留
+新会话、新授权、组织引用或新版本——逐项列出并拒绝回退）。阻挡时返回
+`ok: false`、`status: applied`，回执与已导入资料保持原状；成功回退返回
+`status: reverted`。回执永久保留
 （applied/reverted），`list` 可核实。整库恢复为手工路径：停止 ruukoto-dev
 后台，用备份替换数据库后重启：
 
@@ -802,7 +806,8 @@ GitHub 侧 webhook URL 指向新地址属拥有者的平台外操作。
 新会话、新授权或新版本；目标启动后有新入站事件、新发送操作、新调度/运行、
 新长期授权；导入行被目标运行时改写（已发送、已 advance、已消费偏移、撤回
 标记更新，经回执 manifest 逐行 sha256 核对）；应用数据文件被写；导入凭据被
-轮换。即：切换期间新增的执行及发送事实是目标侧事实，不能抹掉，回退只在一
+轮换。阻挡时返回 `ok: false`、`status: applied`，回执与目标资料保持原状；
+成功回退返回 `status: reverted`。即：切换期间新增的执行及发送事实是目标侧事实，不能抹掉，回退只在一
 切未发生时整体移除。导入写入的产品归属（meta `product.type`）与目标备份
 不随回退移除——回退回到"已登记 ruukoto 的空实例"，与开发方向一致。整库
 恢复为手工路径（替换 `target-before.db`），仅在回退路径不可用且确认无切换
@@ -2429,6 +2434,12 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 
 ## 验证状态（诚实清单）
 
+双产品迁移首期的发布范围、安装升级与旧实例切换步骤、工单 01–23 证据矩阵见
+[发布与验收说明](release-acceptance.md)。三个首期场景按本地编码、IM 服务器管理、
+长任务持续响应与协作的顺序验收；本次联合演练和检查结果独立记录在
+[agent-direction 工单 24](../.scratch/agent-direction/issues/24-release-acceptance.md)，
+下表保留各次已有记录。真实进程或容器通过不代表真实 IM 平台已通过。
+
 | 检查 | 环境 | 结果 |
 | --- | --- | --- |
 | 全部离线集成验证（43 项：issue 02 的 16 项 + 真实工具路由×3、审批×11（含崩溃恢复区分、DNS 前置、v1→v2 迁移）、产物×5、模式与认证×8） | macOS 本机（Node 24.15.0，local 执行后端） | 通过 |
@@ -2466,7 +2477,7 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 | Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
 | 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；.scratch/agent-direction/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx .scratch/agent-direction/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |
 | ruukoto-dev 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
-| macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；可行机制为独立本机执行账户 + sudo 包装（同 Linux exec 账户一类），创建账户与 sudoers 属拥有者部署动作、本单未做；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
+| macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；现有启动器使用 systemd 包装，只适用于 Linux；macOS 未提供经过验证的本机入口；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
 | 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-dev 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
 | 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-dev.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
 | 服务器服务管理离线验证（agent-direction issue 09；test/78：QQ/Telegram 检查→逐次审批→批准恰好一次→原入口结果、拒绝/重复决定/篡改目标零执行、非 main 与错误产品/无配置/非 Linux 门、auto-review 转人工、策略与单元修订变化失效、同 ID 重复启动拒绝、取消与跨重启的效果未知不自动重发、产物引用与 partial、后状态查询失败保留命令结果） | macOS 本机（模拟 IM 平台 + mock 模型 + 受控 helper 替身，文件系统模拟 systemd，协议逐字节同生产） | 通过（2026-10-03，22/22；真实 systemd/提权证据非本项，见下行） |

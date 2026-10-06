@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>deployment.html</span></nav>
     <p class="eyebrow">拓扑</p>
     <h1>部署与信任边界</h1>
-    <p class="lede">两个产品分别装在哪、怎样启动；生产服务器上有哪些系统身份、进程与容器，每道边界挡住什么、放行什么，秘密放在哪、谁能读；缺少隔离能力时后台为什么直接拒绝，而不是退回后台账户执行。</p>
+    <p class="lede">两个产品分别装在哪、怎样启动；生产服务器上有哪些系统身份、进程与容器，每道边界挡住什么、放行什么，秘密放在哪、谁能读；缺少隔离能力时怎样明确拒绝，首期交付按什么顺序验收，哪些真实部署项目仍未覆盖。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="deploy/systemd/README.md">deploy/systemd/README.md</code>
@@ -591,7 +591,7 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 400" role="img" aria-label="三列对比 macOS 开发机、Linux 开发机与 Linux 服务器。受限模式三处都是每任务容器：macOS 跑在 Docker Desktop 的 Linux VM 里，容器 uid 1000、挂载权限由 VM 代管；Linux 开发机用原生 docker，容器 uid 须能写工作区；服务器由单元设 container 后端。完全访问：macOS 没有执行账户入口，提交即 execution_unavailable，未验证；Linux 开发机要自行建执行账户、sudo 包装与 sudoers（仓库的 sudoers 只放行 ruukoto-backend），未验证，未配置时提交即拒绝；服务器为 ruukoto-exec 单元，tx 实测。local 在三处都是后台账户的进程组、无隔离：ruukoto-dev 要显式选择，ruukoto 的 CLI 默认就是 local，两个产品都打印无隔离警告。macOS sandbox-exec 的文件拒绝规则静默不执行，已否决。">
+        <svg viewBox="0 0 1040 400" role="img" aria-label="三列对比 macOS 开发机、Linux 开发机与 Linux 服务器。受限模式三处都是每任务容器：macOS 跑在 Docker Desktop 的 Linux VM 里，容器 uid 1000、挂载权限由 VM 代管；Linux 开发机用原生 docker，容器 uid 须能写工作区；服务器由单元设 container 后端。完全访问：macOS 没有执行账户入口，提交即 execution_unavailable，未验证；Linux 开发机要配置独立执行账户、sudo 包装与 sudoers，本次在 tx 用 ruukoto-dev 与临时固定入口核实 uid/gid 986，未配置时提交即拒绝；服务器为 ruukoto-exec 单元，tx 实测。local 在三处都是后台账户的进程组、无隔离：ruukoto-dev 要显式选择，ruukoto 的 CLI 默认就是 local，两个产品都打印无隔离警告。macOS sandbox-exec 的文件拒绝规则静默不执行，已否决。">
           <text x="325" y="36" text-anchor="middle">macOS 开发机</text>
           <text x="615" y="36" text-anchor="middle">Linux 开发机</text>
           <text x="895" y="36" text-anchor="middle">Linux 服务器（ruukoto）</text>
@@ -605,7 +605,7 @@
           <text x="24" y="186">完全访问</text>
           <text class="el start" x="24" y="204">full_access</text>
           <g class="n bad"><rect x="190" y="150" width="270" height="76" rx="8"/><text x="325" y="172">提交即拒绝</text><text class="sub" x="325" y="193">execution_unavailable</text><text class="sub" x="325" y="211">没有执行账户入口 · 未验证</text></g>
-          <g class="n"><rect x="480" y="150" width="270" height="76" rx="8"/><text x="615" y="172">sudo 包装 → systemd-run</text><text class="sub" x="615" y="193">需自建执行账户与 sudoers · 未验证</text><text class="sub" x="615" y="211">未配置 → 提交即拒绝</text></g>
+          <g class="n ok"><rect x="480" y="150" width="270" height="76" rx="8"/><text x="615" y="172">sudo 包装 → systemd-run</text><text class="sub" x="615" y="193">临时固定入口 · uid/gid 986 实测</text><text class="sub" x="615" y="211">需执行账户与 sudoers · 缺配置拒绝</text></g>
           <g class="n ok"><rect x="770" y="150" width="250" height="76" rx="8"/><text x="895" y="172">ruukoto-exec 单元</text><text class="sub" x="895" y="193">sudo ruukoto-exec-launch</text><text class="sub" x="895" y="211">tx 实测</text></g>
 
           <text x="24" y="276">local</text>
@@ -616,7 +616,7 @@
           <g class="n bad"><rect x="190" y="322" width="830" height="60" rx="8"/><text x="605" y="343">macOS sandbox-exec</text><text class="sub" x="605" y="364">文件读写拒绝规则在 macOS 27 上静默不执行（0/6），网络拒绝生效但不足以覆盖文件与凭据 → 不作为受限边界</text></g>
         </svg>
       </div>
-      <figcaption>受限模式三处是同一套容器启动器，差别只在容器运行时与 uid 处理；完全访问只有服务器上有经过实测的执行账户入口。开发机缺入口时，完全访问在提交时就被拒绝，受限模式则在启动工作进程时失败，都不会悄悄换成 local。</figcaption>
+      <figcaption>受限模式三处是同一套容器启动器，差别只在容器运行时与 uid 处理；Linux 完全访问已分别核实服务器执行账户与 Coding Agent 的临时固定入口，macOS 尚无经过验证的本机入口，现有 systemd 包装只适用于 Linux。开发机缺入口时，完全访问在提交时就被拒绝，受限模式则在启动工作进程时失败，都不会悄悄换成 local。</figcaption>
       <ul class="legend">
         <li><i class="ok"></i>可用且实测过</li>
         <li><i class="bad"></i>拒绝执行 / 已否决</li>
@@ -627,7 +627,8 @@
     <ul>
       <li><strong>macOS 受限</strong>：容器跑在 Docker Desktop 的 Linux VM 里，宿主路径按原样挂载；容器 uid 1000 写挂载的工作区不受宿主权限位约束（VM 代管）。前提是装好并运行 Docker Desktop、工作区在它的文件共享范围内、镜像由可信身份用 <code>build.sh</code> 构建。工单 03 的冒烟 16/16（含逃逸孙进程的回收与停止核实），sandbox-exec 的探针见 <code class="src" data-src=".scratch/agent-direction/macos-sbx-probe.sh">macos-sbx-probe.sh</code>。</li>
       <li><strong>Linux 开发机受限</strong>：原生 docker，bind mount 不做 uid 映射，要用 <code>RUUKOTO_CONTAINER_UID</code> / <code>GID</code> 把容器 uid 设成能写工作区的值（通常是拥有者）。</li>
-      <li><strong>完全访问</strong>：必须是独立的执行账户。同 uid 的进程能读 <code>~/.ruukoto-dev-agent/control/owner.token</code>，等于持有控制面拥有者身份。仓库里的包装脚本调用 <code>/usr/bin/systemd-run</code>，只适用于 Linux；macOS 上的本机账户与 sudo 包装属部署前置，尚未验证。没有设置 <code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code> / <code>STOP_SCRIPT</code> 时，提交即 <code>execution_unavailable</code>。</li>
+      <li><strong>完全访问</strong>：必须是独立的执行账户。同 uid 的进程能读 <code>~/.ruukoto-dev-agent/control/owner.token</code>，等于持有控制面拥有者身份。仓库里的包装脚本调用 <code>/usr/bin/systemd-run</code>，只适用于 Linux；macOS 尚未提供经过验证的本机执行账户入口，不能直接使用这套 Linux 包装。没有设置 <code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code> / <code>STOP_SCRIPT</code> 时，提交即 <code>execution_unavailable</code>。</li>
+      <li><strong>Linux 完全访问复验</strong>：本次在 tx 上用 <code>ruukoto-dev</code> 的真实 Runtime，经临时 root 固定包装与 sudoers 运行当前 worker：<code>uid:gid=986:986</code>，修前检查失败、修后通过，读取后台 <code>owner.token</code> 与核心库被拒；模型为桩，日常实例不参与（<code class="src" data-src=".scratch/agent-direction/release-24-linux-full-access.mts">release-24-linux-full-access.mts</code>）。该临时入口在演练后清理，新部署仍需配置自己的执行账户与固定入口。</li>
       <li><strong>产品级验证</strong>：工单 04 的冒烟（代码修改与检查、外网 / 宿主文件 / 只读根约束、越界审批单次消费、完全访问缺入口拒绝、中断回收容器含启动窗口）在 Docker Desktop 与原生 Linux 各 6/6，见 <code class="src" data-src=".scratch/agent-direction/issues/04-desktop-execution.md">04-desktop-execution.md</code>。</li>
     </ul>
 
@@ -738,6 +739,28 @@
     </div>
   </section>
 
+  <section id="acceptance">
+    <h2>首期场景与验证边界</h2>
+    <p>首期验收沿 <a href="../adr/0017-two-agent-products.md">ADR 0017</a> 确定的顺序进行。下图表示验收顺序，各阶段的执行仍发生在各自产品本地；已有证据与本次联合演练分别记录在 <a href="../release-acceptance.md">发布与验收说明</a>和<a href="../../.scratch/agent-direction/issues/24-release-acceptance.md">验收工单</a>。</p>
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 126" role="img" aria-label="首期验收顺序：先在 Coding Agent 完成本地修改与测试，再在个人 Agent 验证 IM 服务管理，最后验证长任务期间持续响应、同项工作协作、复用与显式关闭。箭头表示下一项验收，不表示两个产品之间的运行依赖。">
+          <g class="n"><rect x="20" y="34" width="280" height="68" rx="8"/><text x="160" y="58">本地修改与测试</text><text class="sub" x="160" y="80">ruukoto-dev · 工作区与容器</text></g>
+          <g class="n"><rect x="380" y="34" width="280" height="68" rx="8"/><text x="520" y="58">IM 服务管理</text><text class="sub" x="520" y="80">ruukoto · 审批与限定授权</text></g>
+          <g class="n"><rect x="740" y="34" width="280" height="68" rx="8"/><text x="880" y="58">持续响应与协作</text><text class="sub" x="880" y="80">SubAgent · 复用与显式关闭</text></g>
+          <path class="e" d="M300 68H378" marker-end="url(#ah)"/><text class="el" x="340" y="60">再验收</text>
+          <path class="e" d="M660 68H738" marker-end="url(#ah)"/><text class="el" x="700" y="60">再验收</text>
+        </svg>
+      </div>
+      <figcaption>每个阶段同时核对权限、重启与取消后的账本，不把后续能力混入首期交付。运行机制分别见<a href="#execution">执行边界</a>、<a href="#service">服务管理</a>与<a href="orchestrator.html#subagent">SubAgent</a>。</figcaption>
+    </figure>
+    <p>两个 bin 使用独立档案根与路径变量（<code class="src" data-src="src/core/product.ts#export function productRootDir">product.ts · productRootDir</code>、<code class="src" data-src="src/core/product.ts#export function dirEnvFor">dirEnvFor</code>），工作、控制面与配置留在本端。受限任务通过容器启动器执行，缺边界不会回退为宿主执行；完全访问另需独立执行账户（<code class="src" data-src="src/agent/execution/launchers.ts#createLauncherFor">launchers.ts · createLauncherFor</code>）。</p>
+    <aside class="callout limit">
+      <b>真实部署覆盖</b>
+      <p>已有 macOS / Linux 真实容器与 Linux systemd 服务证据中的模型、OneBot 和 Bot API 多为桩。真实 QQ / Telegram 平台、macOS 完全访问本机入口与 tx 生产库切换仍需分别验收，不能用模拟平台或临时实例的结果推定。跨端共享记忆、邮件、GitHub comment 对话和正式 QQ 群聊外挂属于后续范围；当前核心群消息直接忽略（<code class="src" data-src="src/qq/adapter.ts#private async handleEvent">qq/adapter.ts · handleEvent</code>）。</p>
+    </aside>
+  </section>
+
   <section id="dev-deploy">
     <h2>开发实例、部署与验证</h2>
     <p><code>npm run dev</code> 启动的开发实例是同一份代码的隔离运行：档案固定在仓库外（<code class="src" data-src="src/dev.ts#export function devProfileFor">dev.ts · devProfileFor</code>），派生后台前清洗进程环境（<code class="src" data-src="src/dev.ts#SCRUB_PREFIXES">dev.ts · SCRUB_PREFIXES</code>），所以即使档案库里存着 QQ / Telegram 配置，也不会连上真实的消息通道。</p>
@@ -776,7 +799,7 @@
     <p><code>ruukoto-dev</code> 不走这些步骤：在开发机检出仓库并装依赖，把 <code>bin/ruukoto-dev.mjs</code> 放进 PATH（<code>npm link</code> 或直接加 <code>bin/</code>），装好容器运行时并用 <code>build.sh</code> 构建 <code>ruukoto-worker</code> 镜像，用 <code>ruukoto-dev config</code> 配好模型（否则拉起失败并提示 <code>no_model</code>），之后打开 TUI 即可。升级时替换检出，<code>ruukoto-dev stop</code> 后重开 TUI。</p>
     <aside class="callout limit">
       <b>容易踩的点</b>
-      <p>原生 Linux 的 bind mount 不做 uid 映射（Docker Desktop 会），容器内进程必须能写任务工作区，单拥有者服务器把容器 uid/gid 设为拥有者最简单。没配 ACL 的工作区在完全访问下会 <code>EACCES</code>。后台启动时要建 <code>agent-work/</code> 下的角色目录，<code>/var/lib/ruukoto</code> 本身由 root 创建、后台建不了，缺了 <code>agent-work</code> 即启动失败。<code>qq-work/</code> 已随核心群聊退役不再需要（旧目录保留为归档）。也不要为此把 <code>/var/lib/ruukoto</code> 改归后台账户：服务 helper 逐级核对认领目录 <code>/var/lib/ruukoto/service-ops</code> 的父目录必须属 root、组与他人不可写，否则报 <code>deployment_invalid</code>。镜像的 git：<code>Dockerfile</code> 里的安装段已经启用，<code>deploy/worker-image/README.md</code> 仍写着「git 未装入」，以 Dockerfile 为准。</p>
+      <p>原生 Linux 的 bind mount 不做 uid 映射（Docker Desktop 会），容器内进程必须能写任务工作区，单拥有者服务器把容器 uid/gid 设为拥有者最简单。没配 ACL 的工作区在完全访问下会 <code>EACCES</code>。后台启动时要建 <code>agent-work/</code> 下的角色目录，<code>/var/lib/ruukoto</code> 本身由 root 创建、后台建不了，缺了 <code>agent-work</code> 即启动失败。<code>qq-work/</code> 已随核心群聊退役不再需要（旧目录保留为归档）。也不要为此把 <code>/var/lib/ruukoto</code> 改归后台账户：服务 helper 逐级核对认领目录 <code>/var/lib/ruukoto/service-ops</code> 的父目录必须属 root、组与他人不可写，否则报 <code>deployment_invalid</code>。镜像的运行阶段通过 apt 安装 <code>git</code> 与 <code>ca-certificates</code>，worktree 创建与汇总使用容器里的 git（<code class="src" data-src="deploy/worker-image/Dockerfile#apt-get install -y --no-install-recommends git">Dockerfile · git 安装段</code>）。</p>
     </aside>
 
     <h3>验证到了哪一步</h3>
@@ -790,7 +813,8 @@
           <tr><td>开发机受限 / 完全访问</td><td>工单 04 冒烟，Docker Desktop 与 tx 原生 Linux；sandbox-exec 探针</td><td>各 6/6；sandbox-exec 文件规则 0/6 生效，否决；macOS 完全访问身份未验证</td></tr>
           <tr><td>双产品与按需拉起</td><td>进程级测试（真实 bin 进程、socket、SQLite，模型打桩）与 pty 冒烟</td><td>同机并存、<code>product_mismatch</code>、并发拉起收敛、启动失败附日志、关闭 TUI 后台不停均通过（2026-10-02）</td></tr>
           <tr><td>服务管理与长期授权</td><td>tx 真实 systemd / sudo / helper / 测试服务，IM 与模型为桩（<code class="src" data-src=".scratch/agent-direction/issues/09-linux-service-management.md">09</code>、<code class="src" data-src=".scratch/agent-direction/issues/10-standing-permissions.md">10</code>）</td><td>各 14/14：真实重启 InvocationID 变化且计数恰 +1、执行账户调用 helper / 写策略 / 读令牌全拒、同 ID <code>already_claimed</code>、改策略或不 daemon-reload 即失效、杀掉在途 <code>systemd-run</code> 记效果未知（2026-10-03）</td></tr>
-          <tr><td>未覆盖</td><td colspan="2">macOS 完全访问的本机执行账户；TUI 断开重连在目标机的人工检查；Git worktree 共享元数据挂载；真实 NapCat、真实 Tavily；服务审批经真实 QQ / Telegram 平台</td></tr>
+          <tr><td>SubAgent 改动汇总</td><td>macOS Docker Desktop 与 tx 原生 Linux 的真实 git / 容器，模型为桩（<code class="src" data-src=".scratch/agent-direction/issues/17-integrate-worktree-results.md">17</code>）</td><td>各 7/7：冲突零写入，取消与关闭后成果可找回；父仓库自身为 worktree 时，共享 Git 元数据补挂后创建副本与汇总通过（2026-10-05）</td></tr>
+          <tr><td>未覆盖</td><td colspan="2">macOS 完全访问缺经过验证的本机入口；TUI 断开重连在目标机的人工检查；真实 NapCat、真实 Tavily；服务审批经真实 QQ / Telegram 平台；tx 生产库切换。逐项证据见<a href="../release-acceptance.md">发布与验收说明</a></td></tr>
         </tbody>
       </table>
     </div>

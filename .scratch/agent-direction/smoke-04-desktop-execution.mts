@@ -148,6 +148,7 @@ function flowRouter(): Responder {
 }
 
 let t: TestRuntime | null = null;
+const taskIds: string[] = [];
 try {
   t = await startTestRuntime("smoke04", flowRouter(), {
     workDirs: 0,
@@ -166,13 +167,15 @@ try {
   // 每流一个独立会话：mock 路由按「本会话工具消息数」推进，会话共享会跨任务串计数
   const submit = async (label: string, input: string, mode?: string) => {
     const { sessionId } = await createProjectSession(client, workDir);
-    return client.request<any>("submit", {
+    const task = await client.request<any>("submit", {
       session_id: sessionId,
       request_id: label,
       input,
       ...(mode ? { access_mode: mode } : {}),
       model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
     });
+    taskIds.push(task.id);
+    return task;
   };
 
   // ---- 1. 代码修改与检查（confirm，容器内） ----
@@ -278,7 +281,7 @@ try {
   await client.close();
 } finally {
   if (t) await t.shutdown();
-  docker(["ps", "-aq", "--filter", "name=ruukoto-task-"])
+  for (const taskId of taskIds) docker(["ps", "-aq", "--filter", `name=ruukoto-task-${taskId}`])
     .split("\n")
     .filter(Boolean)
     .forEach((id) => {

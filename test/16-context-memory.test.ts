@@ -1007,9 +1007,11 @@ test("组装：工作区根目录失效或被替换时拒绝读取替代目录�
     const ws = workspaceFixture(kit, kit.work[0]!);
     kit.store.withTx(() => kit.store.updateProjectSettings({ projectId: ws.projectId, instructionFiles: ["TEAM.md"] }));
 
-    // 替换：删除后重建同路径目录（ino 变化），替代目录里放同名文件
-    fs.rmSync(ws.rootDir.cwdReal, { recursive: true, force: true });
+    // 保留原目录，使同路径新目录不能复用其 inode。
+    fs.renameSync(ws.rootDir.cwdReal, `${ws.rootDir.cwdReal}-original`);
     fs.mkdirSync(ws.rootDir.cwdReal, { recursive: true });
+    const replacement = fs.statSync(ws.rootDir.cwdReal);
+    assert.notDeepEqual([replacement.dev, replacement.ino], [ws.rootDir.dev, ws.rootDir.ino]);
     fs.writeFileSync(path.join(ws.rootDir.cwdReal, "TEAM.md"), "替代目录的指令：REPLACED-MARK");
 
     const { view } = await kit.send(kit.begin(kit.task(ws.session, "你好"), ws.session), [user("你好")]);

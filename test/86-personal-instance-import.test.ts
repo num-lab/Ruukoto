@@ -988,6 +988,7 @@ test("故障注入续跑无重复；同键重放/异参冲突；修订冲突；�
       fs.appendFileSync(path.join(dirs.dataDir, "agent-data", "main.db-wal"), "x");
       const refused = revertPersonalImport(depsOf(dirs), applied.import_id);
       assert.equal(refused.ok, false);
+      assert.equal(refused.status, "applied", "回退被挡时响应与回执状态一致");
       const text = (refused.blockers ?? []).join("\n");
       assert.ok(text.includes("新入站事件"), "列出新入站");
       assert.ok(text.includes("telegram_config"), "列出被改写的平台配置");

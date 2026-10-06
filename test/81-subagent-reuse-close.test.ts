@@ -269,8 +269,11 @@ test("重新确定：读范围只按本次、来源撤销拒绝与发送阻断�
     // —— 工作目录被替换：复用明确失败（核对实际文件状态）——
     const agent = rt.store.getSubAgent(first.agent.id)!;
     await waitIdle(rt, agent.id);
-    fs.rmSync(agent.workDir, { recursive: true, force: true });
-    fs.mkdirSync(agent.workDir, { recursive: true }); // 同名新目录：dev/ino 不同
+    const original = fs.statSync(agent.workDir);
+    fs.renameSync(agent.workDir, `${agent.workDir}-original`);
+    fs.mkdirSync(agent.workDir, { recursive: true });
+    const replacement = fs.statSync(agent.workDir);
+    assert.notDeepEqual([replacement.dev, replacement.ino], [original.dev, original.ino]);
     await assert.rejects(
       () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "s3", request: "再来", subAgentId: agent.id, readPaths: [fileB], materials: null, paramsDigest: "ds3" }),
       /工作目录已不存在或被替换/,

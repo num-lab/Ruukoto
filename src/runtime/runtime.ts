@@ -26,7 +26,6 @@ import {
   SESSION_DEFAULT_MODES,
   type AccessMode,
   type AgentRoleId,
-  type ApprovalScope,
   type Artifact,
   type ConfirmationRequest,
   type ContextCheckpoint,
@@ -426,7 +425,7 @@ export class Runtime {
       defaultChannel: config.scheduler?.channel,
       readReply: (taskId) => this.readTaskReplyText(taskId),
       cancelTask: (taskId, reason) => this.cancelTask(taskId, { reason }),
-      invalidateApprovals: (source) => this.invalidateImApprovals(source),
+      invalidateApprovals: (source) => this.imApprovals.invalidate(source),
       kick: (sessionId) => this.kick(sessionId),
       kickSender: () => this.scheduler?.kickSender(),
     });
@@ -441,6 +440,8 @@ export class Runtime {
         if (!driver) return false;
         return driver.resolveConfirmation(confirmation.id, decision, { txExtra });
       },
+      supersedeApprovals: (sessionId, ids) => this.drivers.get(sessionId)?.supersedeApprovals(ids),
+      serviceAvailable: () => this.serviceManager !== null,
       // 长期授权（issue 10）：创建前同步核对部署策略当前修订；无服务管理能力返回 null
       servicePolicyRevision: () => {
         if (!this.serviceManager) return null;
@@ -861,160 +862,6 @@ export class Runtime {
       if (outcome) return outcome;
     }
     return this.orchestrator!.registerInboundEvent({ source, targetRole: "main", ...registration });
-  }
-
-  /**
-   * 审批创建接线（在审批登记事务内调用）：IM 来源的审批同事务登记初始 IM
-   * 通知（键 im-approval:<confirmationId>，避开 task:<taskId> 的一次通知槽；
-   * 目标为原委托收件时钉版的目标）。非 IM 来源不通知；通知暂时发送失败不使
-   * 操作获批，审批的有效性继续由原请求与宿主核实。
-   */
-  private imApprovalNotice(confirmation: ConfirmationRequest, task: Task): void {
-    const event = this.imApprovals.imSourceEvent(task.id);
-    if (!event) return;
-    const capChars = (text: string, cap: number): string => {
-      const chars = [...text];
-      return chars.length <= cap ? text : `${chars.slice(0, cap - 1).join("")}…`;
-    };
-    // 服务管理（issue 09）：准确目标、提权身份、动作影响与请求时状态必须完整
-    // 可见（JSON 截断不能藏住它们）；其余范围沿用 JSON 摘要 + 详情命令
-    const scopeBrief = (c: ConfirmationRequest): string => {
-      if (c.scope.kind === "service_operation") {
-        const before = (c.params.state_before ?? null) as { activeState?: string; subState?: string } | null;
-        const stateText = before?.activeState ? `；请求时状态 ${before.activeState}/${before.subState ?? "?"}` : "";
-        return `服务管理 ${c.scope.action} ${c.scope.unit}（root 提权，经后台固定 helper；原本不活动会被启动；中断后效果可能无法确认且不自动重发${stateText}；策略/单元修订 ${c.scope.policyRevision.slice(0, 8)}…/${c.scope.unitRevision.slice(0, 8)}…）`;
-      }
-      return capChars(JSON.stringify(c.scope), 300);
-    };
-    // 同目标历史效果未知操作（issue 10）：批准前的核实参照——长期授权不代替核实
-    let unknownOpsNote: string | null = null;
-    if (confirmation.scope.kind === "service_operation") {
-      const scope = confirmation.scope;
-      const unknown = this.store.listEffectUnknownToolOps("service_manage", 5).filter((op) => op.params["unit"] === scope.unit && op.params["machine_id"] === scope.machineId);
-      if (unknown.length) {
-        unknownOpsNote = `注意：该目标存在 ${unknown.length} 项结果未知的历史操作（${unknown.map((o) => o.id).join(", ")}）；长期授权前请先核实其实际效果，授权不代替核实。`;
-      }
-    }
-    const text = [
-      `【需要审批】${confirmation.toolName}`,
-      `审批 ID：${confirmation.id}`,
-      `权限版本：v${confirmation.permissionVersion}`,
-      `任务：${confirmation.taskId}`,
-      `范围：${scopeBrief(confirmation)}`,
-      `参数摘要（数据展示，完整见详情）：${capChars(JSON.stringify(confirmation.params), 300)}`,
-      `批准（仅本次）：/approve ${confirmation.id} ${confirmation.permissionVersion}`,
-      `拒绝：/reject ${confirmation.id} ${confirmation.permissionVersion}`,
-      ...(confirmation.scope.kind === "service_operation"
-        ? [
-            `长期批准（保存本机对该服务的 restart 授权并批准本次；以 root 经后台固定 helper 提权执行；之后独立任务命中相同范围与修订自动放行，持续至撤销或修订/绑定变化；批准后可用 /service-grants 查看、/revoke-service-grant <授权ID> <版本> 撤销）：/approve-standing ${confirmation.id} ${confirmation.permissionVersion}`,
-          ]
-        : []),
-      `详情：/approval ${confirmation.id}`,
-      ...(unknownOpsNote ? [unknownOpsNote] : []),
-    ].join("\n");
-    this.sched.insertOp({
-      sourceKind: "confirmation",
-      sourceKey: `im-approval:${confirmation.id}`,
-      taskId: confirmation.taskId,
-      hostOpId: null,
-      target: event.replyTarget!,
-      text,
-      sourceRefs: [],
-    });
-    // 提交成功后尽早送达（微任务只在同步创建回调全部完成后才执行）
-    queueMicrotask(() => this.scheduler?.kickSender());
-  }
-
-  /**
-   * 消费前 IM 固定身份复核（在消费事务内调用）：批准已接受、尚未消费期间的
-   * 重新绑定/停用/凭据变化在此拦截；非 IM 来源无此约束；已消费不受影响。
-   */
-  private imApprovalConsumeRecheck(confirmation: ConfirmationRequest, task: Task): string | null {
-    const event = this.imApprovals.imSourceEvent(task.id);
-    if (!event) return null;
-    const current = this.imEntries.entry(event.source)?.target() ?? null;
-    if (!current || !sameTarget(current, event.replyTarget)) {
-      return `批准已失效（IM 入口停用或绑定/配置版本已变化），${confirmation.toolName} 未执行`;
-    }
-    return null;
-  }
-
-  /**
-   * IM 固定身份失效（issue 08）：未消费的待决与已批准请求失效并解除等待
-   * （不能永久挂起）；仅影响原平台来源，不波及另一平台在共享 main 会话中的
-   * 工作；暂时离线（wait）不作废；已消费的批准不动（消费即执行开始）。
-   * 同一事务内，该入口稳定身份已死的长期授权一并明确失效（递增版本，保留记录；
-   * issue 10），另一平台原本独立的授权不受影响。
-   */
-  private invalidateImApprovals(source: string): void {
-    const released = new Map<string, Set<string>>();
-    this.store.withTx(() => {
-      for (const status of ["pending", "approved"] as const) {
-        for (const c of this.store.listConfirmationsByStatus(status)) {
-          if (c.consumedAt !== null) continue;
-          const event = this.imApprovals.imSourceEvent(c.taskId);
-          if (!event || event.source !== source) continue;
-          const gate = this.inboundGate(event);
-          if (gate === "run" || gate === "wait") continue;
-          this.store.invalidateConfirmation(c.id);
-          const ids = released.get(c.sessionId) ?? new Set<string>();
-          ids.add(c.id);
-          released.set(c.sessionId, ids);
-        }
-      }
-      // 长期授权（issue 10）：入口代次/拥有者绑定已死的明确失效；暂时离线
-      // （target() 仍按配置给出，gate 为 wait）不算绑定变化，正常重启也保留。
-      const currentTarget = this.imEntries.entry(source)?.target() ?? null;
-      const expectedActor = this.imEntries.entry(source)?.expectedActor() ?? null;
-      for (const sp of this.store.listActiveStandingPermissions()) {
-        if (sp.channel !== source) continue;
-        const alive = currentTarget !== null && sameTarget(currentTarget, sp.pinnedTarget) && sp.actor === expectedActor;
-        if (!alive) this.store.invalidateStandingPermission(sp.id, "entry_changed");
-      }
-    });
-    // 解除活动 Driver 的审批等待（已知未执行记录由闸门照常补记），不动其他审批
-    for (const [sessionId, ids] of released) this.drivers.get(sessionId)?.supersedeApprovals(ids);
-  }
-
-  /**
-   * 长期授权候选（agent-direction issue 10）：宿主按当前 main、任务来源入口身份、
-   * 本机/单元/固定动作与两项修订逐项核实；观察到失配的旧授权在同一事务内明确
-   * 失效（revision_changed/entry_changed）。候选 ≠ 执行依据：授权版本/未撤销与
-   * 完整范围在消费事务内重新核实（ApprovalGate.requestStanding）。无 IM 来源
-   * （TUI 提交、调度、GitHub、子任务消息等）恒为 null，不能因共用 main 而继承。
-   * 在 service_manage 的请求路径调用（helper 已给出本次真实修订）。
-   */
-  private standingCandidate(task: Task, scope: Extract<ApprovalScope, { kind: "service_operation" }>): { id: string; version: number } | null {
-    if (!this.serviceManager) return null;
-    const event = this.imApprovals.imSourceEvent(task.id);
-    if (!event?.actor || !event.replyTarget) return null;
-    return this.store.withTx(() => {
-      const sp = this.store.findStandingCandidate({
-        sessionId: task.sessionId,
-        channel: event.source,
-        account: event.replyTarget!.account,
-        chatId: event.replyTarget!.chatId,
-        actor: event.actor!,
-        machineId: scope.machineId,
-        unit: scope.unit,
-        action: "restart",
-      });
-      if (!sp) return null;
-      // 入口代次：钉版目标与当前完全一致（含配置版本），actor 仍是当前绑定拥有者；
-      // 引擎内的钉版代次差异由消费事务的固定身份复核拦截（不在此失效）
-      const current = this.imEntries.entry(event.source)?.target() ?? null;
-      const alive = current !== null && sameTarget(current, sp.pinnedTarget) && sp.actor === (this.imEntries.entry(event.source)?.expectedActor() ?? null);
-      if (!alive) {
-        this.store.invalidateStandingPermission(sp.id, "entry_changed");
-        return null;
-      }
-      // 策略/单元修订两项都要求原目标代次完全一致；失配的旧授权明确失效
-      if (sp.policyRevision !== scope.policyRevision || sp.unitRevision !== scope.unitRevision) {
-        this.store.invalidateStandingPermission(sp.id, "revision_changed");
-        return null;
-      }
-      return { id: sp.id, version: sp.version };
-    });
   }
 
   /** 拥有者控制面：计划分页列表 / 详情（含最近运行） / 取消。 */
@@ -2808,9 +2655,9 @@ export class Runtime {
         // IM 审批（agent-direction issue 08）：创建通知与消费前固定身份复核；
         // 长期授权候选（issue 10）：共享 main 不继承其他入口；无 IM 来源的任务恒无候选
         approvalIm: {
-          notifyCreated: (confirmation, task) => this.imApprovalNotice(confirmation, task),
-          consumeRecheck: (confirmation, task) => this.imApprovalConsumeRecheck(confirmation, task),
-          standingCandidate: (task, scope) => this.standingCandidate(task, scope),
+          notifyCreated: (confirmation, task) => this.imApprovals.notifyCreated(confirmation, task),
+          consumeRecheck: (confirmation, task) => this.imApprovals.consumeRecheck(confirmation, task),
+          standingCandidate: (task, scope) => this.imApprovals.standingCandidate(task, scope),
         },
         parentInjection: (sessionId) => this.parentDelivery.takeInjection(sessionId),
         verifyTaskSources: (projectId, refs) => this.sources.verify(projectId, refs as any[]),

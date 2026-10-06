@@ -19,7 +19,8 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import type { Store } from "../core/store.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
-import type { HostToolContext } from "./host-tools.ts";
+import { hostCallFor } from "./host-tools.ts";
+import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
 
 export const WEB_SEARCH_TOOL_NAMES = ["web_search"] as const;
 const TAVILY_DEFAULT_BASE_URL = "https://api.tavily.com";
@@ -62,7 +63,7 @@ export interface WebSearchToolsDeps {
   /** 当前任务上下文（宿主注入；工具执行时读取）。 */
   taskContext(): HostToolContext | null;
   /** 绑定一次工具调用的上下文；返回解除函数（execute 包装在 finally 中调用）。 */
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
   /** 目标 API 根（默认 https://api.tavily.com）；仅拥有者配置/测试注入可覆盖。 */
   baseUrl?: string;
   /** 单次请求超时（默认 15 秒）；测试可压短。 */
@@ -405,8 +406,7 @@ export async function searchTavily(
 }
 
 export function createWebSearchTools(deps: WebSearchToolsDeps): ToolDefinition[] {
-  const requireCtx = () => {
-    const ctx = deps.taskContext();
+  const requireCtx = (ctx: HostToolContext | null) => {
     if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
     return ctx;
   };
@@ -415,11 +415,11 @@ export function createWebSearchTools(deps: WebSearchToolsDeps): ToolDefinition[]
     fn: (params: P, ctx: HostToolContext, signal: AbortSignal | undefined) => Promise<{ content: Array<{ type: "text"; text: string }> }>,
   ) => {
     return async (sdkCallId: string, params: P, signal?: AbortSignal) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        return await fn(params, requireCtx(), signal);
+        return await fn(params, requireCtx(call.context), signal);
       } finally {
-        unbind();
+        call.release();
       }
     };
   };

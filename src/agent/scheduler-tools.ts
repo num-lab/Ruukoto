@@ -22,7 +22,8 @@ import type { ApprovalScope, NotifyTarget, Task } from "../core/types.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { AppDataStore } from "./app-data/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
-import type { HostToolContext } from "./host-tools.ts";
+import { hostCallFor } from "./host-tools.ts";
+import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
 import { describeRule, firstDue, parseRule, RuleError, tzDataVersion, type ScheduleRule } from "../scheduler/time.ts";
 import { SchedulerConflictError, sha256, type NotificationOp, type Schedule, type SchedulerStore, type SourceRef } from "../scheduler/store.ts";
 import { SCHEDULER_LIMITS, type Scheduler } from "../scheduler/runtime.ts";
@@ -195,7 +196,7 @@ export interface SchedulerToolsDeps {
   target(): NotifyTarget | null;
   now(): number;
   taskContext(): HostToolContext | null;
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
   verifyMain(ctx: HostToolContext): string | null;
   /** 审批闸门（窄回调；不向模型暴露控制面）。 */
   requestApproval: ApprovalGate["request"];
@@ -235,8 +236,7 @@ function opLine(op: NotificationOp): string {
 
 export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[] {
   const store = deps.coreStore;
-  const requireCtx = (): HostToolContext => {
-    const ctx = deps.taskContext();
+  const requireCtx = (ctx: HostToolContext | null): HostToolContext => {
     if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
     const problem = deps.verifyMain(ctx);
     if (problem) throw new Error(`身份校验失败：${problem}`);
@@ -244,16 +244,16 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
   };
   const bindExecute = <P extends Record<string, unknown>>(fn: (ctx: HostToolContext, params: P, signal?: AbortSignal) => Promise<{ content: Array<{ type: "text"; text: string }> }>) =>
     async (sdkCallId: string, params: P, signal?: AbortSignal) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        const ctx = requireCtx();
+        const ctx = requireCtx(call.context);
         if (bytes(JSON.stringify(params ?? {})) > NOTIFY_LIMITS.paramsBytes) throw new Error(`参数超过 ${NOTIFY_LIMITS.paramsBytes} 字节`);
         return await fn(ctx, params, signal);
       } catch (err) {
         if (err instanceof RuleError || err instanceof SchedulerConflictError) throw new Error(err.message);
         throw err;
       } finally {
-        unbind();
+        call.release();
       }
     };
 

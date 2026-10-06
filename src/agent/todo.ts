@@ -8,6 +8,8 @@
 
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { hostCallFor } from "./host-tool-families.ts";
+import type { HostCallBinder } from "./host-tool-families.ts";
 
 export const TODO_TOOL_NAMES = ["todo_write"] as const;
 export type TodoStatus = "pending" | "in_progress" | "completed";
@@ -43,7 +45,7 @@ export function parseTodos(value: unknown): TodoItem[] {
   });
 }
 
-export function createTodoTools(deps: { bindCall?(sdkCallId: string): () => void }): ToolDefinition[] {
+export function createTodoTools(deps: { bindCall?: HostCallBinder }): ToolDefinition[] {
   const todoWrite = defineTool({
     name: "todo_write",
     label: "todo_write",
@@ -61,7 +63,7 @@ export function createTodoTools(deps: { bindCall?(sdkCallId: string): () => void
       ),
     }, { additionalProperties: false }),
     execute: async (sdkCallId: string, params: { todos: unknown }) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, () => null, sdkCallId);
       try {
         // 错误以异常返回：pi 据此生成 isError=true 的 toolResult
         const list = parseTodos(params.todos);
@@ -69,7 +71,7 @@ export function createTodoTools(deps: { bindCall?(sdkCallId: string): () => void
         const text = list.length === 0 ? "已清空" : `已更新：完成 ${done}/${list.length}`;
         return { content: [{ type: "text" as const, text }], details: undefined };
       } finally {
-        unbind();
+        call.release();
       }
     },
   } as any);

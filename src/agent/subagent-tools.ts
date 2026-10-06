@@ -45,7 +45,8 @@ import type { HistoryEntryView } from "../core/history.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { TELEGRAM_SOURCE } from "../telegram/adapter.ts";
 import { QQ_PRIVATE_SOURCE } from "../qq/adapter.ts";
-import type { HostToolContext } from "./host-tools.ts";
+import { hostCallFor } from "./host-tools.ts";
+import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
 import type { SourceResolver } from "./scheduler-tools.ts";
 import { canonicalParamsDigest } from "./mcp/tools.ts";
 import type {
@@ -83,7 +84,7 @@ export interface SubAgentToolsDeps {
   resultNotice?(task: Task): string | null;
   artifacts: ArtifactStore;
   taskContext(): HostToolContext | null;
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
   /** Driver 注入：会话/任务/绑定重核（普通开发会话或 main；SubAgent 拒绝）。 */
   verifyHost(ctx: HostToolContext): string | null;
 }
@@ -97,7 +98,7 @@ export interface SubAgentMessageToolDeps {
   store: Store;
   message(input: SubAgentMessageInput): SubAgentMessageResult;
   taskContext(): HostToolContext | null;
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
 }
 
 /**
@@ -122,9 +123,9 @@ export function createSubAgentMessageTool(deps: SubAgentMessageToolDeps): ToolDe
       to_sub_agent_id: Type.Optional(Type.String({ description: "接收的 SubAgent id；省略 = 发给主 Agent；发送方为主 Agent 时必填" })),
     }),
     execute: async (sdkCallId: string, params: any) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        const ctx = deps.taskContext();
+        const ctx = call.context;
         if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
         if (typeof params.work_id !== "string" || !params.work_id.trim()) throw new Error("work_id 必须是非空字符串");
         if (typeof params.key !== "string" || !KEY_RE.test(params.key)) throw new Error("key 必须是 1–64 位字母、数字、_ 或 -");
@@ -154,7 +155,7 @@ export function createSubAgentMessageTool(deps: SubAgentMessageToolDeps): ToolDe
             : `同键同参已发送过，返回原记录：消息 ${m.id}（${to}，${messageStateText(deps.store, m)}）。`,
         );
       } finally {
-        unbind();
+        call.release();
       }
     },
   } as any);
@@ -164,15 +165,15 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
   const store = deps.coreStore;
   const bindExecute = <P extends Record<string, unknown>>(fn: (ctx: HostToolContext, params: P) => Promise<{ content: Array<{ type: "text"; text: string }> }>) =>
     async (sdkCallId: string, params: P) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        const ctx = deps.taskContext();
+        const ctx = call.context;
         if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
         const problem = deps.verifyHost(ctx);
         if (problem) throw new Error(`身份校验失败：${problem}`);
         return await fn(ctx, params);
       } finally {
-        unbind();
+        call.release();
       }
     };
 

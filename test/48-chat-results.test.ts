@@ -11,7 +11,7 @@ import { AccessScope } from "../src/core/access.ts";
 import { QqStore } from "../src/qq/store.ts";
 import type { Session } from "../src/core/types.ts";
 import type { HostToolContext } from "../src/agent/host-tools.ts";
-import { chatResultOpCheck, createChatResultTools, resolveAcceptedChatResult } from "../src/agent/chat-result-tools.ts";
+import { CHAT_RESULT_LEDGER, chatResultOpCheck, createChatResultTools, resolveAcceptedChatResult } from "../src/agent/chat-result-tools.ts";
 import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
 import { seedGroupSessionRow, seedInboxRow, seedLinkInboxTask, seedPendingOutbox } from "./helpers/legacy-group-archive.ts";
 
@@ -137,7 +137,7 @@ test("群结果：拒绝错误身份、未完成任务和伪造来源；停止�
     const committed = f.store.getToolOp(f.lastOp())!;
     const missingId = "accept-never-committed";
     f.store.recordToolIntent({ id: missingId, taskId: f.mainTask.id, sessionId: f.sessions.main.id, toolName: "chat_result_accept", params: { task_id: running.task.id } });
-    const ledger = new ToolOpLedger(f.store, { chat_result: chatResultOpCheck(f.store) });
+    const ledger = new ToolOpLedger(f.store, {}, [{ ...CHAT_RESULT_LEDGER, familyCheck: chatResultOpCheck(f.store) }]);
     f.store.withTx(() => ledger.settleAll());
     assert.match(f.store.getToolOp(committed.id)!.resultSummary!, /^已提交/);
     assert.match(f.store.getToolOp(missingId)!.resultSummary!, /^已知未提交/);

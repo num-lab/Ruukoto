@@ -17,6 +17,11 @@ import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 import type { ApprovalScope } from "../src/core/types.ts";
 import { ToolOpLedger, hasNoWriteEffect, type FamilyCheck } from "../src/agent/tool-op-ledger.ts";
+import { APP_DATA_LEDGER } from "../src/agent/app-data/tools.ts";
+import { SCHEDULER_LEDGER } from "../src/agent/scheduler-tools.ts";
+import { CHAT_RESULT_LEDGER } from "../src/agent/chat-result-tools.ts";
+import { WEB_SEARCH_LEDGER } from "../src/agent/web-search.ts";
+import { HOST_DATA_LEDGER } from "../src/agent/host-tools.ts";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
@@ -32,7 +37,7 @@ function kit(families: ConstructorParameters<typeof ToolOpLedger>[1] = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ledger-"));
   const db = new Db(root);
   const store = new Store(db);
-  const ledger = new ToolOpLedger(store, families);
+  const ledger = new ToolOpLedger(store, families, [APP_DATA_LEDGER, SCHEDULER_LEDGER, CHAT_RESULT_LEDGER]);
   const project = store.createProject("p");
   const session = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: 1, cwdIno: 1, piSessionId: "pi-1", confirmTools: [] });
   let n = 0;
@@ -194,11 +199,11 @@ test("结果写入失败：只对族能核实的操作即时补记", () => {
 });
 
 test("无写入效果按工具名或持久化参数判定", () => {
-  assert.equal(hasNoWriteEffect({ toolName: "web_search", params: {} }), true);
+  assert.equal(hasNoWriteEffect({ toolName: "web_search", params: {} }, [WEB_SEARCH_LEDGER]), true);
   assert.equal(hasNoWriteEffect({ toolName: "http_request", params: { method: "HEAD" } }), true);
   assert.equal(hasNoWriteEffect({ toolName: "http_request", params: { method: "DELETE" } }), false);
   assert.equal(hasNoWriteEffect({ toolName: "request_file_access", params: { operation: "write" } }), false);
-  assert.equal(hasNoWriteEffect({ toolName: "memory_revoke", params: {} }), false);
+  assert.equal(hasNoWriteEffect({ toolName: "memory_revoke", params: {} }, [HOST_DATA_LEDGER]), false);
   assert.equal(hasNoWriteEffect({ toolName: "mcp_svc_read", params: {} }), false, "动态名字按审批判定");
   assert.equal(hasNoWriteEffect({ toolName: "hasOwnProperty", params: {} }), false, "原型链上的键不当作规则");
 });

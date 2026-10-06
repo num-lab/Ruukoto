@@ -9,9 +9,19 @@
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { hostCallFor } from "./host-tool-families.ts";
-import type { HostCallBinder } from "./host-tool-families.ts";
+import type { HostCallBinder, HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const TODO_TOOL_NAMES = ["todo_write"] as const;
+export const TODO_LEDGER: HostToolLedger = { names: TODO_TOOL_NAMES, ruleFor: () => "no_effect" };
+
+export function createTodoFamily(): HostToolFamily {
+  return {
+    category: "coding",
+    names: TODO_TOOL_NAMES,
+    build: (runtime) => createTodoTools({ bindCall: runtime.call.bindCall }),
+    ledger: TODO_LEDGER,
+  };
+}
 export type TodoStatus = "pending" | "in_progress" | "completed";
 export interface TodoItem {
   content: string;

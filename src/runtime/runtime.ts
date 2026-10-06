@@ -74,6 +74,17 @@ import { createApprovalReviewer, type ApprovalReviewer } from "../agent/review.t
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
 import { createCodingTools } from "../agent/tool-router.ts";
+import { createHostDataFamily } from "../agent/host-tools.ts";
+import { createWebSearchFamily } from "../agent/web-search.ts";
+import { createAppDataFamily } from "../agent/app-data/tools.ts";
+import { createSchedulerFamily, createSourceResolver, type SourceResolver } from "../agent/scheduler-tools.ts";
+import { createDelegationFamily, delegationOpCheck } from "../agent/delegation-tools.ts";
+import { createSubAgentFamily } from "../agent/subagent-tools.ts";
+import { createChatResultFamily, resolveAcceptedChatResult } from "../agent/chat-result-tools.ts";
+import { createServiceFamily } from "../agent/service-tools.ts";
+import { createSkillFamily } from "../agent/skills.ts";
+import { createTodoFamily } from "../agent/todo.ts";
+import type { HostToolFamily } from "../agent/host-tool-families.ts";
 import { ArtifactStore } from "../agent/artifacts.ts";
 import { CredentialStore } from "../agent/execution/credentials.ts";
 import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "../agent/jev-config.ts";
@@ -117,16 +128,12 @@ import { Orchestrator } from "./orchestrator.ts";
 import { SubAgentDelegationError, SubAgentManager, subagentOpCheck, type WorkCancellation } from "./subagents.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
-import { appDataOpCheck } from "../agent/app-data/tools.ts";
 import { ToolOpLedger } from "../agent/tool-op-ledger.ts";
 import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { searchTavily, WebSearchError } from "../agent/web-search.ts";
 import { loadSkillLibrary, skillsDirFor } from "../agent/skills.ts";
-import { createSourceResolver, schedulerOpCheck, type SourceResolver } from "../agent/scheduler-tools.ts";
 import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
-import { delegationOpCheck } from "../agent/delegation-tools.ts";
-import { chatResultOpCheck, resolveAcceptedChatResult } from "../agent/chat-result-tools.ts";
 import { QqAdapter, QQ_PRIVATE_SOURCE, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { ParentDelivery } from "./parent-delivery.ts";
 import { CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED } from "../core/session-identity.ts";
@@ -315,7 +322,8 @@ export class Runtime {
   /** IM 审批命令处理（agent-direction issue 08）；绑定拥有者的私聊控制消息入口。 */
   private readonly imApprovals: ImApprovals;
   /** 工具操作账本（架构工单 05）：结果、效果未知与停止/重启补记。 */
-  private readonly ledger: ToolOpLedger;
+  private ledger!: ToolOpLedger;
+  private hostToolFamilies!: readonly HostToolFamily[];
   /** 调度器（issue 03）：扫描循环 + 发送循环；仅个人 Agent 产品在 start 时创建。 */
   scheduler: Scheduler | null = null;
   /** 服务器服务管理（issue 09）：产品/Linux/显式配置齐备时的部署配置；否则 null（无此能力）。 */
@@ -378,13 +386,6 @@ export class Runtime {
     this.mcp = new McpStore(db);
     this.qqStore = new QqStore(db);
     this.sched = new SchedulerStore(store);
-    this.ledger = new ToolOpLedger(store, {
-      app_data: appDataOpCheck((opId) => this.appDataWriteVerdict(opId)),
-      scheduler: schedulerOpCheck(this.sched),
-      delegation: delegationOpCheck(store),
-      chat_result: chatResultOpCheck(store),
-      subagent: subagentOpCheck(store),
-    });
     this.telegramStore = new TelegramStore(store);
     // 拥有者 IM 入口（issue 04/06，架构工单 10）：始终创建；启动配置停用（dev 开发实例、
     // ruukoto-dev 产品边界）只是入口标志。编排器启动后才连接/轮询（见 start）
@@ -671,6 +672,7 @@ export class Runtime {
       runtime.initScheduler();
       runtime.scheduler!.prepareRecovery();
     }
+    runtime.initHostToolFamilies();
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
@@ -2715,13 +2717,83 @@ export class Runtime {
     }
   }
 
+  /** 同一份清单用于会话装配与后台恢复；能力停用仍保留历史操作的核实规则。 */
+  private initHostToolFamilies(): void {
+    this.hostToolFamilies = [
+      createTodoFamily(),
+      createHostDataFamily({
+        store: this.store,
+        access: this.access,
+        historyIndex: this.historyIndex,
+        memories: this.memories,
+        sessionFileFor: (sessionId) => this.store.getSession(sessionId)?.sessionFile ?? null,
+        projectOfSession: (sessionId) => this.store.getSession(sessionId)?.projectId ?? null,
+        syncSession: (sessionId) => {
+          const file = this.store.getSession(sessionId)?.sessionFile;
+          if (!file) return { unindexed: true };
+          this.historyIndex.sync(sessionId, file);
+          return { unindexed: !this.historyIndex.isIndexed(sessionId) };
+        },
+      }),
+      createWebSearchFamily({
+        store: this.store,
+        artifacts: this.artifacts,
+        credentials: this.credentials,
+        ...this.config.webSearch,
+      }),
+      createAppDataFamily({
+        store: this.appDataStore,
+        runner: this.appDataRunner,
+        coreStore: this.store,
+        queryStallMs: () => this.config.appData?.queryStallMs,
+        writeVerdict: (opId) => this.appDataWriteVerdict(opId),
+      }),
+      createSchedulerFamily({
+        coreStore: this.store,
+        sched: this.sched,
+        scheduler: this.scheduler,
+        sources: this.sources,
+        target: (ctx) => {
+          const task = this.store.getTask(ctx.taskId);
+          return this.imEntries.notificationTarget(task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null);
+        },
+        now: this.config.scheduler?.now ?? (() => Date.now()),
+      }),
+      createDelegationFamily({
+        coreStore: this.store,
+        artifacts: this.artifacts,
+        readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+        resultNotice: (task) => this.githubEvents.notice(task),
+      }),
+      createSubAgentFamily({
+        coreStore: this.store,
+        sources: this.sources,
+        delegate: (input) => this.subagents!.delegate(input),
+        close: (input) => this.subagents!.close(input),
+        cancelWork: (input) => this.subagents!.cancelWork(input),
+        message: (input) => this.subagents!.message(input),
+        integrate: (input) => this.subagents!.integrate(input),
+        readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+        resultNotice: (task) => this.githubEvents.notice(task),
+        artifacts: this.artifacts,
+      }),
+      createChatResultFamily({ coreStore: this.store, qqStore: this.qqStore }),
+      createServiceFamily({ coreStore: this.store, artifacts: this.artifacts, config: this.serviceManager }),
+      createSkillFamily(),
+    ];
+    this.ledger = new ToolOpLedger(this.store, {
+      // 已删除的 coding_delegate 仍按 analyze / draft 分别核实，不能依赖当前装配。
+      delegation: delegationOpCheck(this.store),
+      subagent: subagentOpCheck(this.store),
+    }, this.hostToolFamilies.flatMap((family) => family.ledger ? [family.ledger] : []));
+  }
+
   private async getDriver(session: Session): Promise<Driver> {
     let driver = this.drivers.get(session.id);
     if (!driver) {
       driver = new Driver(session, {
         store: this.store,
         ledger: this.ledger,
-        qqStore: this.qqStore,
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,
         modelRuntime: this.modelRuntime,
@@ -2740,7 +2812,7 @@ export class Runtime {
         historyIndex: this.historyIndex,
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
-        webSearch: this.config.webSearch,
+        hostToolFamilies: this.hostToolFamilies,
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
@@ -2756,54 +2828,6 @@ export class Runtime {
           consumeRecheck: (confirmation, task) => this.imApprovalConsumeRecheck(confirmation, task),
           standingCandidate: (task, scope) => this.standingCandidate(task, scope),
         },
-        // QQ 群聊会话已退役（issue 20）：不再有新群任务运行，撤回过滤不再注入；
-        // Driver 与上下文装配中的 qq_group 参数留待 issue 23 清理
-        // main 应用数据空间（issue 02）：仅 main 角色会话装配；不可用时缺省
-        // （能力停止，事件已记录），不装配工具
-        appData: this.appDataStore
-          ? {
-              store: this.appDataStore,
-              runner: this.appDataRunner,
-              queryStallMs: this.config.appData?.queryStallMs,
-            }
-          : undefined,
-        // 调度与通知（issue 03）：仅 main 角色会话装配；目标只来自可信宿主渠道；
-        // ruukoto-dev 无调度器，不装配（issue 01）
-        scheduler: this.scheduler
-          ? {
-              sched: this.sched,
-              scheduler: this.scheduler,
-              sources: this.sources,
-              target: () => {
-                const taskId = this.drivers.get(session.id)?.currentTaskId;
-                const task = taskId ? this.store.getTask(taskId) : null;
-                return this.imEntries.notificationTarget(task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null);
-              },
-              now: this.config.scheduler?.now ?? (() => Date.now()),
-            }
-          : undefined,
-        // 服务器服务管理（agent-direction issue 09）：仅 main 清单含 service；
-        // 能力边界（产品/Linux/配置）已在构造时判定
-        service: this.serviceManager ? { config: this.serviceManager } : undefined,
-        // 旧 coding 子任务结果只读（coding_result；固定 coding 已退役，agent-direction issue 23）
-        delegation: {
-          readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
-          resultNotice: (task) => this.githubEvents.notice(task),
-        },
-        // 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；
-        // issue 13 工作内消息；issue 14 整项取消；issue 17 汇总）
-        subagents: this.subagents
-          ? {
-              sources: this.sources,
-              delegate: (input) => this.subagents!.delegate(input),
-              close: (input) => this.subagents!.close(input),
-              cancelWork: (input) => this.subagents!.cancelWork(input),
-              message: (input) => this.subagents!.message(input),
-              integrate: (input) => this.subagents!.integrate(input),
-              readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
-              resultNotice: (task) => this.githubEvents.notice(task),
-            }
-          : undefined,
         parentInjection: (sessionId) => this.parentDelivery.takeInjection(sessionId),
         verifyTaskSources: (projectId, refs) => this.sources.verify(projectId, refs as any[]),
       });

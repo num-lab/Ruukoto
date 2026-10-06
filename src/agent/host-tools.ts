@@ -21,7 +21,7 @@ import { MemoryConflictError, MemoryNotFoundError, MemoryStore, MemoryValidation
 import type { MemorySourceRef } from "../core/types.ts";
 import { sliceTextByBytes } from "../core/history.ts";
 import { hostCallFor } from "./host-tool-families.ts";
-import type { HostCallBinder, HostToolContext } from "./host-tool-families.ts";
+import type { HostCallBinder, HostToolContext, HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 export type { HostCallBinder, HostToolContext } from "./host-tool-families.ts";
 export { hostCallFor } from "./host-tool-families.ts";
 
@@ -32,7 +32,7 @@ export interface HostDataToolsDeps {
   memories: MemoryStore;
   /** 当前任务上下文（宿主注入；工具执行时读取）。 */
   taskContext(): HostToolContext | null;
-  /** 绑定一次工具调用的上下文；返回解除函数（execute 包装在 finally 中调用）。 */
+  /** 绑定一次工具调用的独立句柄；execute 在 finally 中释放。 */
   bindCall?: HostCallBinder;
   /** 会话文件解析（sessionId → 文件路径；宿主侧映射，不接受模型路径）。 */
   sessionFileFor(sessionId: string): string | null;
@@ -444,6 +444,20 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
 }
 
 export const HOST_DATA_TOOL_NAMES = ["history_search", "history_read", "memory_list", "memory_read", "memory_save", "memory_revoke"] as const;
+
+export const HOST_DATA_LEDGER: HostToolLedger = {
+  names: HOST_DATA_TOOL_NAMES,
+  ruleFor: (name) => ["memory_save", "memory_revoke"].includes(name) ? "approval" : "no_effect",
+};
+
+export function createHostDataFamily(config: Omit<HostDataToolsDeps, "taskContext" | "bindCall">): HostToolFamily {
+  return {
+    category: "host_data",
+    names: HOST_DATA_TOOL_NAMES,
+    build: (runtime) => createHostDataTools({ ...config, ...runtime.call }),
+    ledger: HOST_DATA_LEDGER,
+  };
+}
 
 function formatHit(hit: HistorySearchHit): string {
   return `- [${hit.sessionId}/${hit.entryId}]（${hit.role ?? "?"}，${hit.timestamp ?? "无时间"}，命中 ${hit.matchCount} 次）${hit.snippet.replace(/\n/g, " ⏎ ")}`;

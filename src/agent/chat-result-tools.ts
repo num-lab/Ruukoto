@@ -11,8 +11,22 @@ import type { AcceptedChatResult } from "../core/types.ts";
 import type { QqStore } from "../qq/store.ts";
 import { hostCallFor } from "./host-tools.ts";
 import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const CHAT_RESULT_TOOL_NAMES = ["chat_result_list", "chat_result_accept"] as const;
+export const CHAT_RESULT_LEDGER: HostToolLedger = {
+  names: CHAT_RESULT_TOOL_NAMES,
+  ruleFor: (name) => name === "chat_result_list" ? "no_effect" : { family: "chat_result" },
+};
+
+export function createChatResultFamily(config: Omit<ChatResultToolsDeps, "taskContext" | "bindCall" | "verifyMain">): HostToolFamily {
+  return {
+    category: "chat_results",
+    names: CHAT_RESULT_TOOL_NAMES,
+    build: (runtime) => createChatResultTools({ ...config, ...runtime.call, verifyMain: runtime.identity.verifyMain }),
+    ledger: { ...CHAT_RESULT_LEDGER, familyCheck: chatResultOpCheck(config.coreStore) },
+  };
+}
 const SUMMARY_CHARS = 1000;
 class ChatResultUnavailable extends Error {}
 

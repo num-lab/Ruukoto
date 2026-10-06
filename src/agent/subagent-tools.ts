@@ -47,6 +47,7 @@ import { TELEGRAM_SOURCE } from "../telegram/adapter.ts";
 import { QQ_PRIVATE_SOURCE } from "../qq/adapter.ts";
 import { hostCallFor } from "./host-tools.ts";
 import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 import type { SourceResolver } from "./scheduler-tools.ts";
 import { canonicalParamsDigest } from "./mcp/tools.ts";
 import type {
@@ -59,8 +60,24 @@ import type {
 } from "../runtime/subagents.ts";
 import { runsInPlanMode } from "./plan-mode.ts";
 import { messageStateText } from "../runtime/parent-delivery.ts";
+import { subagentOpCheck } from "../runtime/subagents.ts";
 
 export const SUBAGENT_TOOL_NAMES = ["subagent_delegate", "subagent_result", "subagent_close", "subagent_cancel", "subagent_message", "subagent_integrate"] as const;
+export const SUBAGENT_LEDGER: HostToolLedger = {
+  names: SUBAGENT_TOOL_NAMES,
+  ruleFor: (name) => name === "subagent_result" ? "no_effect" : { family: "subagent" },
+};
+
+export function createSubAgentFamily(config: Omit<SubAgentToolsDeps, "taskContext" | "bindCall" | "verifyHost">): HostToolFamily {
+  return {
+    category: "subagent",
+    names: (runtime) => runtime.toolClass === "subagent" ? ["subagent_message"] : SUBAGENT_TOOL_NAMES,
+    build: (runtime) => runtime.toolClass === "subagent"
+      ? [createSubAgentMessageTool({ store: config.coreStore, message: config.message, ...runtime.call })]
+      : createSubAgentTools({ ...config, ...runtime.call, verifyHost: runtime.identity.verifyHost }),
+    ledger: { ...SUBAGENT_LEDGER, familyCheck: subagentOpCheck(config.coreStore) },
+  };
+}
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** subagent_result 单次读取上限（字节）。 */

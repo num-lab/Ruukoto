@@ -60,21 +60,10 @@ import type { MemoryStore } from "../core/memory.ts";
 import type { SelectorBudgetConfig } from "./context-selector.ts";
 import { beginContextAssembly, ContextSendBlocked, type ContextAssembly } from "./context-assembly.ts";
 import type { JevRequestConfig } from "./jev.ts";
-import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
-import { createAppDataTools, APP_DATA_TOOL_NAMES, type AppToolContext } from "./app-data/tools.ts";
-import type { AppDataStore } from "./app-data/store.ts";
-import type { AppDataQueryRunner } from "./app-data/query.ts";
-import { createSchedulerTools, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
-import { createDelegationTools, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
-import { createSubAgentMessageTool, createSubAgentTools, SUBAGENT_TOOL_NAMES, type SubAgentToolsDeps } from "./subagent-tools.ts";
+import type { HostToolContext } from "./host-tools.ts";
 import type { ParentDelivery } from "../runtime/parent-delivery.ts";
-import { createChatResultTools, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
-import { createServiceTools, SERVICE_TOOL_NAMES, type ServiceManagerConfig } from "./service-tools.ts";
-import type { QqStore } from "../qq/store.ts";
-import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
-import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
-import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
-import type { HostCall } from "./host-tool-families.ts";
+import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
+import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
 import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
 import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
@@ -88,7 +77,6 @@ export interface DriverDeps {
   store: Store;
   /** 工具操作账本（架构工单 05）：结果、效果未知与停止补记只经它写。 */
   ledger: ToolOpLedger;
-  qqStore: QqStore;
   sessionsDir: string;
   agentDir: string;
   modelRuntime: ModelRuntime;
@@ -115,8 +103,8 @@ export interface DriverDeps {
   memories: MemoryStore;
   /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留）。 */
   budgetOverrides?: Partial<SelectorBudgetConfig>;
-  /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点）。 */
-  webSearch?: WebSearchConfig;
+  /** 静态宿主工具族；Runtime 负责捕获族专属依赖，Driver 负责当前调用接缝。 */
+  hostToolFamilies: readonly HostToolFamily[];
   /** Jev 的本地模拟服务与超时覆盖，仅宿主测试注入。 */
   jev?: JevRequestConfig;
   /** 上下文压缩的摘要超时覆盖（issue 30），仅测试注入；生产 180 s。 */
@@ -150,31 +138,6 @@ export interface DriverDeps {
     ) => { id: string; version: number } | null;
   };
   /**
-   * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具
-   * （停止与重启的回执核实在工具操作账本）。
-   */
-  appData?: {
-    store: AppDataStore;
-    runner: AppDataQueryRunner;
-    /** 查询子进程挂点（仅测试注入；模型不可达）。 */
-    queryStallMs?: number;
-  };
-  /**
-   * 调度计划与通知（issue 03）：仅 main 角色会话装配六个 scheduler 工具。
-   */
-  scheduler?: Pick<SchedulerToolsDeps, "sched" | "scheduler" | "sources" | "target" | "now">;
-  /**
-   * 旧 coding 子任务结果只读（coding_result，agent-direction issue 23）：仅 main 角色会话装配。
-   */
-  delegation?: Pick<DelegationToolsDeps, "readReply" | "resultNotice">;
-  /**
-   * 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/关闭；
-   * issue 13 工作内消息）：普通开发会话与 main 装配；readReply 读指定任务的
-   * 最终回答，delegate 走集中登记（不阻塞父任务），close 显式关闭（只收窄能力）；
-   * message 供 subagent 类会话装配 subagent_message（发送方身份由发起任务核实）。
-   */
-  subagents?: Pick<SubAgentToolsDeps, "sources" | "delegate" | "close" | "cancelWork" | "message" | "integrate" | "readReply" | "resultNotice">;
-  /**
    * 父级送达的注入入口（架构工单 09 入口 3）：任务开始时取普通开发会话待注入的
    * SubAgent 结果与工作内消息，同事务标记已投递；其他身份恒为空。
    */
@@ -184,11 +147,7 @@ export interface DriverDeps {
    * 已保存快照正文不重新解析）。
    */
   verifyTaskSources?: (projectId: string, refs: unknown[]) => string | null;
-  /**
-   * 服务器服务管理（agent-direction issue 09）：仅 main 清单含 service 类别时装配；
-   * Runtime 只在产品 ruukoto + Linux + 显式部署配置齐备时提供。
-   */
-  service?: { config: ServiceManagerConfig };
+
 }
 
 export class Driver {
@@ -229,6 +188,8 @@ export class Driver {
   private hostToolArtifacts = new Map<string, string[]>();
   /** SDK 会话登记的全部工具名（任务开始钉版工具清单的基准）。 */
   private allToolNames: string[] = [];
+  /** 当前任务已装配的静态宿主工具名（由族清单派生）。 */
+  private hostToolNames: ReadonlySet<string> = new Set<string>();
   /** 当前任务钉版的 MCP 工具名集合（handleToolCall 分派依据；任务间比对签名）。 */
   private mcpToolNames = new Set<string>();
   /** 当前任务钉版的 MCP 计划（工具元数据 + 按服务持有的连接；结束/取消/关闭时回收）。 */
@@ -373,161 +334,51 @@ export class Driver {
     if (this.sdk) this.sdkConfigStale = true;
   }
 
+  private hostToolRuntime(): HostToolRuntime {
+    return {
+      registry: this.registry,
+      toolClass: this.profile.toolClass,
+      call: { taskContext: () => null, bindCall: this.bindHostCall },
+      identity: {
+        verifyMain: (ctx) => this.verifyMainBinding(ctx),
+        verifyHost: (ctx) => this.verifyDelegationHost(ctx),
+      },
+      approval: {
+        request: (input) => this.approvals.request(input),
+        requestStanding: (input) => this.approvals.requestStanding(input),
+      },
+      effects: {
+        recordArtifact: (hostOpId, artifactId) => this.recordHostToolArtifact(hostOpId, artifactId),
+        markEffectUnknown: (hostOpId) => {
+          const task = this.currentTask;
+          if (task) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, hostOpId));
+        },
+      },
+      skills: () => this.pinnedSkills,
+    };
+  }
+
   private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
-    // 工具可用性（架构工单 03）：各注册来源只在会话类别的清单含其类别时装配
-    const hostDataTools = !this.allows("host_data")
-      ? []
-      : createHostDataTools({
-          store: this.deps.store,
-          access: this.deps.access,
-          historyIndex: this.deps.historyIndex,
-          memories: this.deps.memories,
-          taskContext: () => null,
-          bindCall: this.bindHostCall,
-          sessionFileFor: (sessionId) => this.deps.store.getSession(sessionId)?.sessionFile ?? null,
-          projectOfSession: (sessionId) => this.deps.store.getSession(sessionId)?.projectId ?? null,
-          syncSession: (sessionId) => {
-            const file = this.deps.store.getSession(sessionId)?.sessionFile;
-            if (!file) return { unindexed: true };
-            this.deps.historyIndex.sync(sessionId, file);
-            return { unindexed: !this.deps.historyIndex.isIndexed(sessionId) };
-          },
-        });
-    // Web Search 宿主工具（issue 20）：同一身份注入；项目禁用与否在任务开始
-    // 钉版工具清单时判定（runInner），调用时另有新鲜检查
-    const webSearchTools = !this.allows("web_search")
-      ? []
-      : createWebSearchTools({
-          store: this.deps.store,
-          artifacts: this.deps.artifacts,
-          credentials: this.deps.credentials,
-          taskContext: () => null,
-          bindCall: this.bindHostCall,
-          baseUrl: this.deps.webSearch?.baseUrl,
-          timeoutMs: this.deps.webSearch?.timeoutMs,
-        });
-    // main 应用数据工具（issue 02）：只有 main 的清单含 app_data；执行入口每次调用仍重新核实 main 绑定
-    const appDataTools =
-      this.allows("app_data") && this.deps.appData
-        ? createAppDataTools({
-            store: this.deps.appData.store,
-            runner: this.deps.appData.runner,
-            coreStore: this.deps.store,
-            taskContext: () => null,
-            bindCall: this.bindHostCall,
-            verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            requestApproval: (input) => this.approvals.request(input),
-            queryStallMs: () => this.deps.appData?.queryStallMs,
-          })
-        : [];
-    // 调度与通知工具（issue 03）：只有 main 的清单含 scheduler
-    const schedulerTools =
-      this.allows("scheduler") && this.deps.scheduler
-        ? createSchedulerTools({
-            ...this.deps.scheduler,
-            coreStore: this.deps.store,
-            taskContext: () => null,
-            bindCall: this.bindHostCall,
-            verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            requestApproval: (input) => this.approvals.request(input),
-          })
-        : [];
-    // 旧 coding 子任务结果只读（coding_result，agent-direction issue 23）：只有 main 的清单含 delegation
-    const delegationTools =
-      this.allows("delegation") && this.deps.delegation
-        ? createDelegationTools({
-            ...this.deps.delegation,
-            coreStore: this.deps.store,
-            artifacts: this.deps.artifacts,
-            taskContext: () => null,
-            bindCall: this.bindHostCall,
-            verifyMain: (ctx) => this.verifyMainBinding(ctx),
-          })
-        : [];
-    // 通用 SubAgent 委派（agent-direction issue 11）：普通开发会话与 main 装配；
-    // 每次调用仍重核宿主身份（普通 dev/main 绑定、SubAgent 拒绝）
-    const subagentTools =
-      this.allows("subagent") && this.deps.subagents
-        ? createSubAgentTools({
-            ...this.deps.subagents,
-            coreStore: this.deps.store,
-            artifacts: this.deps.artifacts,
-          taskContext: () => null,
-            bindCall: this.bindHostCall,
-            verifyHost: (ctx) => this.verifyDelegationHost(ctx),
-          })
-        : [];
-    const chatResultTools = this.allows("chat_results")
-      ? createChatResultTools({
-          coreStore: this.deps.store, qqStore: this.deps.qqStore,
-          taskContext: () => null, bindCall: this.bindHostCall,
-          verifyMain: (ctx) => this.verifyMainBinding(ctx),
-        })
-      : [];
-    // 服务器服务管理（agent-direction issue 09）：仅 main 的清单含 service 且部署配置齐备
-    const serviceTools =
-      this.allows("service") && this.deps.service
-        ? createServiceTools({
-            coreStore: this.deps.store,
-            artifacts: this.deps.artifacts,
-            registry: this.registry,
-            config: this.deps.service.config,
-            taskContext: () => null,
-            bindCall: this.bindHostCall,
-            verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            requestApproval: (input) => this.approvals.request(input),
-            requestStanding: (input) => this.approvals.requestStanding(input),
-            recordArtifact: (hostOpId, artifactId) => this.recordHostToolArtifact(hostOpId, artifactId),
-            markEffectUnknown: (hostOpId) => {
-              const task = this.currentTask;
-              if (task) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, hostOpId));
-            },
-          })
-        : [];
-    // 技能工具（issue 22）：读取任务钉版的技能库
-    const skillTools = !this.allows("skills")
-      ? []
-      : createSkillTools({ library: () => this.pinnedSkills, bindCall: this.bindHostCall });
+    const hostToolSet = buildHostToolSet(
+      this.deps.hostToolFamilies.filter((family) =>
+        this.allows(family.category) || (family.category === "subagent" && this.profile.toolClass === "subagent")),
+      this.hostToolRuntime(),
+    );
     const subAgentTools = this.profile.subAgentTools;
     const allTools = [
       ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
-      // SubAgent（agent-direction issue 11）：画像工具集外不装配（不发、不调用）；
-      // 装配即收窄，发送前与调用门由 taskTools 复用同一结论。工具集在 SDK 签名
-      // 里，变化时 runInner 先重建会话（架构工单 08）
       ...(subAgentTools
         ? this.deps.toolFactory({ registry: this.registry, router: this.router })
             .filter((t) => subAgentAllows(subAgentTools, t.name))
         : []),
-      // 工作内协作消息（agent-direction issue 13）：subagent 类会话装配同一
-      // 工具定义；宿主评审任务按 taskToolSet 收窄不激活（同一结论）
-      ...(this.profile.toolClass === "subagent" && this.deps.subagents
-        ? [
-            createSubAgentMessageTool({
-              store: this.deps.store,
-              message: (input) => this.deps.subagents!.message(input),
-              taskContext: () => null,
-              bindCall: this.bindHostCall,
-            }),
-          ]
-        : []),
-      // 工作清单（issue 25）：与编码工具同一类别——开发会话装配，main 不装配
-      ...(this.allows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
-      ...hostDataTools,
-      ...webSearchTools,
-      ...appDataTools,
-      ...schedulerTools,
-      ...delegationTools,
-      ...subagentTools,
-      ...chatResultTools,
-      ...serviceTools,
-      ...skillTools,
-      // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
-      // 固定，工具集合变化由 runInner 先重建会话再走到这里
+      ...hostToolSet.tools,
       ...this.pendingMcpToolDefs,
     ];
     this.pendingMcpToolDefs = [];
+    this.hostToolNames = hostToolSet.names;
     this.allToolNames = allTools.map((t) => t.name);
+    if (new Set(this.allToolNames).size !== allTools.length) throw new Error("工具装配存在重复名字");
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -536,8 +387,6 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      // 按会话类别固定（issue 24）：subagent 用 SubAgent 提示（GitHub 评审
-      // SubAgent 同用，issue 19）
       systemPrompt: SYSTEM_PROMPTS[this.profile.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
@@ -1196,18 +1045,7 @@ export class Driver {
 
     // 资料与记忆宿主工具（issue 05）、Web Search 宿主工具（issue 20）与
     // main 应用数据工具（issue 02）：身份由宿主注入，不经路由器/工作进程
-    if (
-      (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SUBAGENT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SERVICE_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SKILL_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (TODO_TOOL_NAMES as readonly string[]).includes(event.toolName)
-    ) {
+    if (this.hostToolNames.has(event.toolName)) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,
         sessionId: task.sessionId,

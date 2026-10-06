@@ -21,8 +21,19 @@ import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import { hostCallFor } from "./host-tools.ts";
 import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const WEB_SEARCH_TOOL_NAMES = ["web_search"] as const;
+export const WEB_SEARCH_LEDGER: HostToolLedger = { names: WEB_SEARCH_TOOL_NAMES, ruleFor: () => "no_effect" };
+
+export function createWebSearchFamily(config: Omit<WebSearchToolsDeps, "taskContext" | "bindCall">): HostToolFamily {
+  return {
+    category: "web_search",
+    names: WEB_SEARCH_TOOL_NAMES,
+    build: (runtime) => createWebSearchTools({ ...config, ...runtime.call, recordArtifact: runtime.effects.recordArtifact }),
+    ledger: WEB_SEARCH_LEDGER,
+  };
+}
 const TAVILY_DEFAULT_BASE_URL = "https://api.tavily.com";
 const TAVILY_CREDENTIAL_PURPOSE = "tavily_search";
 
@@ -62,8 +73,9 @@ export interface WebSearchToolsDeps {
   credentials: CredentialStore;
   /** 当前任务上下文（宿主注入；工具执行时读取）。 */
   taskContext(): HostToolContext | null;
-  /** 绑定一次工具调用的上下文；返回解除函数（execute 包装在 finally 中调用）。 */
+  /** 绑定一次工具调用的独立句柄；execute 在 finally 中释放。 */
   bindCall?: HostCallBinder;
+  recordArtifact?(hostOpId: string, artifactId: string): void;
   /** 目标 API 根（默认 https://api.tavily.com）；仅拥有者配置/测试注入可覆盖。 */
   baseUrl?: string;
   /** 单次请求超时（默认 15 秒）；测试可压短。 */
@@ -428,6 +440,7 @@ export function createWebSearchTools(deps: WebSearchToolsDeps): ToolDefinition[]
   const saveRawResponse = (ctx: HostToolContext, body: Buffer, meta: Record<string, unknown>): string => {
     try {
       const artifact = deps.artifacts.begin({ taskId: ctx.taskId, sessionId: ctx.sessionId, name: "web-search-response" });
+      deps.recordArtifact?.(ctx.hostOpId, artifact.id);
       try {
         deps.artifacts.append(artifact.id, body);
         deps.artifacts.append(artifact.id, Buffer.from(`\n\n---\ncapture-meta: ${JSON.stringify(meta)}\n`, "utf8"));

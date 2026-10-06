@@ -54,7 +54,7 @@ export interface ImEntriesDeps {
   defaultChannel?: NotifyChannel;
   readReply(taskId: string): string | null;
   cancelTask(taskId: string, reason: string): Promise<unknown>;
-  /** 撤销该来源已死代次的 IM 审批与长期授权（仍在 Runtime，工单 13 迁入 ImApprovals）。 */
+  /** 撤销该来源已死代次的 IM 审批与长期授权（由 ImApprovals 负责）。 */
   invalidateApprovals(source: string): void;
   kick(sessionId: string): void;
   kickSender(): void;

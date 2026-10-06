@@ -23,12 +23,14 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { test } from "node:test";
 import { MockModelServer, type Responder, type RecordedRequest } from "./helpers/mock-provider.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
+import { randomId, type SubAgentMessage } from "../src/core/types.ts";
 import { subAgentTaskRequestId } from "../src/runtime/subagents.ts";
 
 /** 请求中所有消息的文本串联（content 支持 string 与 parts 数组）。 */
@@ -126,6 +128,18 @@ function seedQueued(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], p
   );
 }
 
+/** 启动或配置门闩窗口遗留的消息：真实持久行，补投由 Runtime 入口接线触发。 */
+function seedPending(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], parentTaskId: string, marker: string): SubAgentMessage {
+  const msg: SubAgentMessage = {
+    id: randomId("smsg"), workId: d.work.id, parentSessionId: d.work.parentSessionId,
+    fromSubAgentId: null, fromTaskId: parentTaskId, toSubAgentId: d.agent.id,
+    requestKey: marker, paramsDigest: `digest-${marker}`, body: marker, createdAt: new Date().toISOString(),
+    deliveredTaskId: null, deliveredAt: null, undeliveredReason: null,
+  };
+  rt.store.withTx(() => rt.store.insertSubAgentMessage(msg));
+  return msg;
+}
+
 test("排队中的拥有者委派：重启定 interrupted、补记一次、Agent 回 idle、由拥有者决定继续", async () => {
   const kit = await startKit("recover-queued");
   let rt = kit.rt;
@@ -193,6 +207,7 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
   try {
     const { parent, d } = await baseWork(kit, rt, "q2");
     const seeded = seedQueued(rt, d, parent.id, "b-running", "运行中任务MARK-R1");
+    const pending = seedPending(rt, d, parent.id, "RECOVER-PENDING-MARK");
     await rt.stop("test_restart");
     // 崩溃前的持久形态：任务已 running 且持有对其工作目录的占用（优雅 stop 会
     // 把 running 定 backend_stop 并回收占用，故在两个实例之间用新连接置位）
@@ -227,6 +242,8 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
     assert.equal(agent.state, "unverified");
     assert.equal(agent.currentTaskId, null);
     assert.equal(kit.server.calls.filter((c) => inputText(c).includes("MARK-R1")).length, 0, "旧执行不并发重跑");
+    assert.deepEqual(rt.store.getSubAgentMessage(pending.id), pending, "重启后占用未核实，消息保持 pending");
+    assert.equal(rt.store.findTaskByRequest(d.agent.sessionId, `smsg:${pending.id}`), null);
 
     // —— 未核实前拒绝新委派 ——
     await assert.rejects(
@@ -245,9 +262,16 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
 
     // —— 拥有者核实旧执行已退出：resume-queue 释放占用、解除暂停、Agent 回 idle ——
     await rt.resumeQueue(d.agent.sessionId);
-    assert.equal(rt.store.listAllOccupancy().filter((o) => o.sessionId === d.agent.sessionId).length, 0);
+    assert.equal(rt.store.listAllOccupancy().filter((o) => o.taskId === seeded.id).length, 0, "旧执行占用已释放");
     assert.equal(rt.store.getSession(d.agent.sessionId)!.queueState, "active");
-    assert.equal(rt.store.getSubAgent(d.agent.id)!.state, "idle");
+    const delivered = rt.store.getSubAgentMessage(pending.id)!;
+    assert.ok(delivered.deliveredTaskId, "实际 resumeQueue 提交后自动补投");
+    assert.equal(rt.store.getTask(delivered.deliveredTaskId!)!.requestId, `smsg:${pending.id}`);
+    await waitFor("恢复消息执行完成", () => rt.store.getTask(delivered.deliveredTaskId!)!.resultSummary !== null);
+    await waitFor("恢复消息结束后 Agent 空闲", () => rt.store.getSubAgent(d.agent.id)!.state === "idle");
+    await rt.resumeQueue(d.agent.sessionId);
+    assert.equal(rt.store.listTasksBySession(d.agent.sessionId).filter((t) => t.requestId === `smsg:${pending.id}`).length, 1, "重复恢复不补第二个任务");
+    assert.equal(kit.server.calls.filter((c) => lastUserText(c).includes("RECOVER-PENDING-MARK")).length, 1, "恢复消息实际调用模型一次");
 
     // —— 回 idle 后可沿同一工作继续委派 ——
     const d2 = await rt.subagents!.delegate({
@@ -291,3 +315,56 @@ test("宿主固定评审排队任务：不中断，启动恢复自动解除子�
     await kit.shutdown(rt);
   }
 });
+
+for (const rollback of [false, true]) {
+  test(`模型配置${rollback ? "回滚" : "成功应用"}后：实际 Runtime 解除门闩并补投 pending 消息一次`, async () => {
+    const kit = await startKit(`recover-config-${rollback ? "rollback" : "apply"}`);
+    const rt = kit.rt;
+    let release!: () => void;
+    try {
+      const { parent, d } = await baseWork(kit, rt, "config");
+      const pending = seedPending(rt, d, parent.id, "CONFIG-PENDING-MARK");
+      const configFile = path.join(kit.dirs.agentDir, "models.json");
+      const original = fs.readFileSync(configFile, "utf8");
+      const changed = JSON.parse(original);
+      changed.providers.mock.models[0].name = "配置应用后的模型";
+      let entered = false;
+      const applying = (rt as any).applyModelConfigChange(["mock"], async () => {
+        fs.writeFileSync(configFile, JSON.stringify(changed));
+        entered = true;
+        await new Promise<void>((resolve) => { release = resolve; });
+        if (rollback) throw new Error("CONFIG-ROLLBACK-FAULT");
+      }) as Promise<void>;
+      const settled = applying.then(() => null, (err: Error) => err);
+      await waitFor("配置门闩窗口", () => entered && release !== undefined);
+      await assert.rejects(() => rt.subagents!.message({
+        senderTaskId: parent.id, workId: d.work.id, key: "during-config", text: "门闩内的新消息",
+        toSubAgentId: d.agent.id, paramsDigest: "during-config",
+      }), { code: "model_config_busy" });
+      assert.equal(rt.store.listSubAgentMessagesByWork(d.work.id).length, 1, "门闩拒绝新消息不新增记录");
+      await rt.subagents!.flushPendingMessages(d.work.parentSessionId);
+      assert.deepEqual(rt.store.getSubAgentMessage(pending.id), pending, "门闩中既有消息保持 pending");
+      assert.equal(rt.store.findTaskByRequest(d.agent.sessionId, `smsg:${pending.id}`), null);
+
+      release();
+      const error = await settled;
+      if (rollback) {
+        assert.match(error!.message, /CONFIG-ROLLBACK-FAULT/);
+        assert.equal(fs.readFileSync(configFile, "utf8"), original, "失败恢复原配置字节");
+      } else {
+        assert.equal(error, null);
+        assert.equal(JSON.parse(fs.readFileSync(configFile, "utf8")).providers.mock.models[0].name, changed.providers.mock.models[0].name);
+      }
+      const delivered = rt.store.getSubAgentMessage(pending.id)!;
+      assert.ok(delivered.deliveredTaskId, "配置入口本身在解除门闩后触发补投");
+      assert.equal(delivered.undeliveredReason, null);
+      await waitFor("配置恢复后的消息执行完成", () => rt.store.getTask(delivered.deliveredTaskId!)!.resultSummary !== null);
+      await rt.subagents!.flushPendingMessages();
+      assert.equal(rt.store.listTasksBySession(d.agent.sessionId).filter((t) => t.requestId === `smsg:${pending.id}`).length, 1);
+      assert.equal(kit.server.calls.filter((c) => lastUserText(c).includes("CONFIG-PENDING-MARK")).length, 1, "自动补投实际调用模型一次");
+    } finally {
+      release?.();
+      await kit.shutdown(rt);
+    }
+  });
+}

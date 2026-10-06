@@ -462,7 +462,6 @@ export class Runtime {
     this.parentDelivery = new ParentDelivery({
       store,
       submit: (input) => this.submitInternal(input),
-      kick: (sessionId) => this.kick(sessionId),
       defaultModelSelection: () => this.defaultSelection,
       readReply: (taskId) => this.readTaskReplyText(taskId),
       isReviewEvent: (event) => this.githubEvents.request(event) !== null,
@@ -672,13 +671,6 @@ export class Runtime {
       runtime.initScheduler();
       runtime.scheduler!.prepareRecovery();
     }
-    runtime.initHostToolFamilies();
-    runtime.recover();
-    // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
-    retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
-    // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
-    // （排队任务取消、收件跳过、在途发送定 unknown），重复启动幂等不重放
-    runtime.retireLegacyRoles();
     // 通用 SubAgent 委派（agent-direction issue 11）：子工作目录在 agent-work/
     // 下（保护根之外）；登记事务前的准备与提交后的 kick 由管理器执行
     runtime.subagents = new SubAgentManager({
@@ -690,6 +682,7 @@ export class Runtime {
       launcherFor: (mode) => runtime.launcherFor(mode),
       defaultModelSelection: () => runtime.defaultSelection,
       kickSession: (sessionId) => runtime.kick(sessionId),
+      resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
       parentDelivery: runtime.parentDelivery,
       cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
       protectedRoots: () => runtime.protectedRoots(),
@@ -704,6 +697,13 @@ export class Runtime {
       },
       createWorktreeInContainer: (input) => runtime.createWorktreeInContainer(input),
     });
+    runtime.initHostToolFamilies();
+    runtime.recover();
+    // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
+    retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
+    // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
+    // （排队任务取消、收件跳过、在途发送定 unknown），重复启动幂等不重放
+    runtime.retireLegacyRoles();
     // 编排器（issue 01）：引导 main/coding 角色、恢复已登记未建任务的
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
     runtime.orchestrator = new Orchestrator({
@@ -732,6 +732,8 @@ export class Runtime {
       // issue 13：SubAgent 执行任务终态与启动恢复时冲刷待投递的工作内消息
       subagents: {
         delegate: (input) => runtime.subagents!.delegate(input),
+        resultRecorded: (task) => runtime.subagents!.resultRecorded(task),
+        start: () => runtime.subagents!.start(),
         flushPending: (parentSessionId) => runtime.subagents!.flushPendingMessages(parentSessionId),
       },
       resultData: (task, outcome) => runtime.githubEvents.resultData(task, outcome),
@@ -1224,31 +1226,7 @@ export class Runtime {
         }
       }
 
-      // 1b. 排队的 SubAgent 执行任务（agent-direction issue 15）从未启动 →
-      //     同定 interrupted（backend_restart）：不自动继续也不当作新委派，
-      //     巡检补记一次结果后 Agent 回到可用，继续与否由拥有者/父 Agent
-      //     决定。宿主固定评审（带 source_event_id）不在此列：排队保持，由
-      //     编排器启动恢复按角色会话同口径解除子会话的 backend_restart 暂停。
-      for (const task of store.listQueuedSubAgentTasks()) {
-        const changed = store.transitionTask(task.id, ["queued"], "interrupted", {
-          interruptReason: "backend_restart",
-          endedAt: new Date().toISOString(),
-        });
-        if (changed) {
-          store.appendEvent(
-            {
-              type: "task.interrupted",
-              taskId: task.id,
-              sessionId: task.sessionId,
-              reason: "backend_restart",
-              cancelRequested: task.cancelRequested,
-              effectUnknown: task.effectUnknown,
-            },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-          interruptedTaskIds.push(task.id);
-        }
-      }
+      interruptedTaskIds.push(...this.subagents!.recoverQueuedTasks());
 
       // 2. 遗留占用：旧后台已死但其子进程状态无法确认 → 保留占用，暂停会话，
       //    由拥有者核实后 resume_queue 释放（systemd KillMode=control-group 下
@@ -1670,6 +1648,12 @@ export class Runtime {
     } finally {
       this.modelConfigGate = null;
       settle();
+      // 成功与回滚都解除门闩，既有待投递消息用原键和当前配置重新核实。
+      if (!this.stopping) {
+        await this.subagents?.flushPendingMessages().catch((err) => {
+          process.stderr.write(`[ruukoto] 模型配置应用后冲刷消息失败：${(err as Error).message}\n`);
+        });
+      }
     }
   }
 
@@ -2919,6 +2903,7 @@ export class Runtime {
     }
     // 模型配置应用门闩（issue 21 §4）：显式确认的 provider 受影响时拒绝
     const check = selection ? await this.resolveSelection(parseModelSelection(selection)) : null;
+    let parentSessionId: string | null = null;
     this.store.withTx(() => {
       check?.();
       if (this.store.countLegacyQueuedTasks(sessionId) > 0) {
@@ -2937,17 +2922,15 @@ export class Runtime {
         }
         this.store.releaseOccupancy(occ.taskId);
       }
-      // SubAgent 待核实出口（agent-direction issue 15）：unverified 只记「旧执行
-      // 退出未核实」的事实，拥有者 resume-queue 即核实结论；活动任务的占用上面
-      // 已拒绝释放，此处把无活动任务的 Agent 放回 idle，可继续委派、复用或关闭
-      const identity = this.store.getSessionIdentity(sessionId);
-      const agent = identity?.kind === "subagent" ? identity.agent : null;
-      if (agent && agent.state === "unverified" && !this.store.findActiveSubAgentTask(agent.id)) {
-        this.store.setSubAgentState(agent.id, "idle", {});
+      try { parentSessionId = this.subagents?.executionVerified(sessionId) ?? null; }
+      catch (err) {
+        if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
+        throw err;
       }
       this.store.setSessionQueueState(sessionId, "active", null);
       this.store.appendEvent({ type: "session.queue_resumed", sessionId }, { sessionId });
     });
+    if (parentSessionId) await this.subagents!.flushPendingMessages(parentSessionId);
     this.kick(sessionId);
     return this.store.getSession(sessionId)!;
   }

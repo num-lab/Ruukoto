@@ -516,6 +516,7 @@ test("竞争：准备阶段被关闭→事务内已关闭；先提交→关闭 b
       launcherFor: (mode) => rt.launcherFor(mode),
       defaultModelSelection: () => rt.defaultSelection,
       kickSession: () => {},
+      resumeQueue: (sessionId) => rt.resumeQueue(sessionId),
       parentDelivery: (rt as any).parentDelivery,
       cancelTask: (taskId, reason) => rt.cancelTask(taskId, reason ? { reason } : undefined),
       protectedRoots: () => rt.protectedRoots(),

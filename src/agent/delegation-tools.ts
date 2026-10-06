@@ -17,9 +17,21 @@ import type { FamilyCheck } from "./tool-op-ledger.ts";
 import type { Task } from "../core/types.ts";
 import type { HistoryEntryView } from "../core/history.ts";
 import type { ArtifactStore } from "./artifacts.ts";
-import type { HostToolContext } from "./host-tools.ts";
+import { hostCallFor } from "./host-tools.ts";
+import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const DELEGATION_TOOL_NAMES = ["coding_result"] as const;
+export const DELEGATION_LEDGER: HostToolLedger = { names: DELEGATION_TOOL_NAMES, ruleFor: () => "no_effect" };
+
+export function createDelegationFamily(config: Omit<DelegationToolsDeps, "taskContext" | "bindCall" | "verifyMain">): HostToolFamily {
+  return {
+    category: "delegation",
+    names: DELEGATION_TOOL_NAMES,
+    build: (runtime) => createDelegationTools({ ...config, ...runtime.call, verifyMain: runtime.identity.verifyMain }),
+    ledger: { ...DELEGATION_LEDGER, familyCheck: delegationOpCheck(config.coreStore) },
+  };
+}
 
 /** 旧 coding 委派写入 result_ref 的结构化结果（只读解析，issue 05 格式）。 */
 interface LegacyCodingResult {
@@ -53,7 +65,7 @@ export interface DelegationToolsDeps {
   resultNotice?(task: Task): string | null;
   artifacts: ArtifactStore;
   taskContext(): HostToolContext | null;
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
   verifyMain(ctx: HostToolContext): string | null;
 }
 
@@ -65,15 +77,15 @@ export function createDelegationTools(deps: DelegationToolsDeps): ToolDefinition
   const store = deps.coreStore;
   const bindExecute = <P extends Record<string, unknown>>(fn: (ctx: HostToolContext, params: P) => Promise<{ content: Array<{ type: "text"; text: string }> }>) =>
     async (sdkCallId: string, params: P) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        const ctx = deps.taskContext();
+        const ctx = call.context;
         if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
         const problem = deps.verifyMain(ctx);
         if (problem) throw new Error(`身份校验失败：${problem}`);
         return await fn(ctx, params);
       } finally {
-        unbind();
+        call.release();
       }
     };
 

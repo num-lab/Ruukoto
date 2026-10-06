@@ -24,6 +24,7 @@ import type { AppDataStore } from "./app-data/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import { hostCallFor } from "./host-tools.ts";
 import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 import { describeRule, firstDue, parseRule, RuleError, tzDataVersion, type ScheduleRule } from "../scheduler/time.ts";
 import { SchedulerConflictError, sha256, type NotificationOp, type Schedule, type SchedulerStore, type SourceRef } from "../scheduler/store.ts";
 import { SCHEDULER_LIMITS, type Scheduler } from "../scheduler/runtime.ts";
@@ -39,6 +40,26 @@ export const SCHEDULER_TOOL_NAMES = [
   "notification_query",
   "notification_cancel",
 ] as const;
+
+export const SCHEDULER_LEDGER: HostToolLedger = {
+  names: SCHEDULER_TOOL_NAMES,
+  ruleFor: (name) => ["schedule_query", "notification_query"].includes(name) ? "no_effect" : { family: "scheduler" },
+};
+
+export function createSchedulerFamily(config: Omit<SchedulerToolsDeps, "scheduler" | "taskContext" | "bindCall" | "verifyMain" | "requestApproval"> & { scheduler: Scheduler | null }): HostToolFamily {
+  return {
+    category: "scheduler",
+    names: config.scheduler ? SCHEDULER_TOOL_NAMES : [],
+    build: (runtime) => config.scheduler ? createSchedulerTools({
+      ...config,
+      scheduler: config.scheduler,
+      ...runtime.call,
+      verifyMain: runtime.identity.verifyMain,
+      requestApproval: runtime.approval.request,
+    }) : [],
+    ledger: { ...SCHEDULER_LEDGER, familyCheck: schedulerOpCheck(config.sched) },
+  };
+}
 
 export const NOTIFY_LIMITS = {
   textChars: 2000,
@@ -193,7 +214,7 @@ export interface SchedulerToolsDeps {
   scheduler: Scheduler;
   sources: SourceResolver;
   /** 可信宿主通知目标（null = 未配置，拒绝创建外发）。 */
-  target(): NotifyTarget | null;
+  target(ctx: HostToolContext): NotifyTarget | null;
   now(): number;
   taskContext(): HostToolContext | null;
   bindCall?: HostCallBinder;
@@ -279,7 +300,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       recheck: () => {
         const problem = deps.verifyMain(input.ctx);
         if (problem) return `身份校验失败：${problem}`;
-        if (JSON.stringify(deps.target()) !== JSON.stringify(input.scope.target)) return "通知目标配置在确认期间已变化或停用，原批准失效（未登记）";
+        if (JSON.stringify(deps.target(input.ctx)) !== JSON.stringify(input.scope.target)) return "通知目标配置在确认期间已变化或停用，原批准失效（未登记）";
         const sourceProblem = deps.sources.verify(input.ctx.projectId, (input.params.source_refs ?? []) as SourceRef[]);
         return sourceProblem ? `通知资料已失效：${sourceProblem}` : null;
       },
@@ -360,7 +381,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
         );
         return okText(`已登记：${scheduleLine(s)}`);
       }
-      const target = deps.target();
+      const target = deps.target(ctx);
       if (!target) throw new Error("未配置可信 owner 通知目标，不能创建外发计划（不猜测接收者）");
       if (news) {
         const text = newsPolicyText(news);
@@ -420,7 +441,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       limit: Type.Optional(Type.Number()),
     }),
     execute: bindExecute(async (ctx, params: any) => {
-      const head = `通知目标：${targetText(deps.target())}`;
+      const head = `通知目标：${targetText(deps.target(ctx))}`;
       if (typeof params.schedule_id === "string") {
         const s = deps.sched.getSchedule(params.schedule_id);
         if (!s) throw new Error(`计划不存在：${params.schedule_id}`);
@@ -484,7 +505,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
     }),
     execute: bindExecute(async (ctx, params: any, signal) => {
       const reason = validateReason(params.reason);
-      const target = deps.target();
+      const target = deps.target(ctx);
       if (!target) throw new Error("未配置可信 owner 通知目标，不能外发（不猜测接收者）");
       const { text, refs } = deps.sources.resolve(ctx.projectId, params.content);
       checkText(text, "通知正文");

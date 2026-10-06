@@ -19,8 +19,19 @@ import type { HistoryEntryView } from "../core/history.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { hostCallFor } from "./host-tools.ts";
 import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const DELEGATION_TOOL_NAMES = ["coding_result"] as const;
+export const DELEGATION_LEDGER: HostToolLedger = { names: DELEGATION_TOOL_NAMES, ruleFor: () => "no_effect" };
+
+export function createDelegationFamily(config: Omit<DelegationToolsDeps, "taskContext" | "bindCall" | "verifyMain">): HostToolFamily {
+  return {
+    category: "delegation",
+    names: DELEGATION_TOOL_NAMES,
+    build: (runtime) => createDelegationTools({ ...config, ...runtime.call, verifyMain: runtime.identity.verifyMain }),
+    ledger: { ...DELEGATION_LEDGER, familyCheck: delegationOpCheck(config.coreStore) },
+  };
+}
 
 /** 旧 coding 委派写入 result_ref 的结构化结果（只读解析，issue 05 格式）。 */
 interface LegacyCodingResult {

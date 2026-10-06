@@ -33,6 +33,7 @@ import { AppDataQueryRunner, validateQueryRequest, type RunnerOptions } from "./
 
 import { hostCallFor } from "../host-tools.ts";
 import type { HostCallBinder, HostToolContext } from "../host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "../host-tool-families.ts";
 
 /** 应用数据工具的执行上下文（身份由宿主注入，不从工具参数取得）。 */
 export type AppToolContext = HostToolContext;
@@ -44,7 +45,7 @@ export interface AppDataToolsDeps {
   coreStore: Store;
   /** 当前调用上下文（宿主注入；绑定一次工具调用）。 */
   taskContext(): AppToolContext | null;
-  /** 绑定一次工具调用的上下文；返回解除函数。 */
+  /** 绑定一次工具调用的独立句柄；execute 在 finally 中释放。 */
   bindCall?: HostCallBinder;
   /** 执行入口每次重新核实宿主任务/会话/项目与 main 角色绑定；null=通过。 */
   verifyMain(ctx: AppToolContext): string | null;
@@ -62,6 +63,26 @@ export const APP_DATA_TOOL_NAMES = [
   "app_data_update",
   "app_data_delete",
 ] as const;
+
+export const APP_DATA_LEDGER: HostToolLedger = {
+  names: APP_DATA_TOOL_NAMES,
+  ruleFor: (name) => name === "app_data_query" ? "no_effect" : { family: "app_data" },
+};
+
+export function createAppDataFamily(config: Omit<AppDataToolsDeps, "store" | "taskContext" | "bindCall" | "verifyMain" | "requestApproval"> & { store: AppDataStore | null; writeVerdict: (hostOpId: string) => "committed" | "not_committed" | "unverifiable" }): HostToolFamily {
+  return {
+    category: "app_data",
+    names: config.store ? APP_DATA_TOOL_NAMES : [],
+    build: (runtime) => config.store ? createAppDataTools({
+      ...config,
+      store: config.store,
+      ...runtime.call,
+      verifyMain: runtime.identity.verifyMain,
+      requestApproval: runtime.approval.request,
+    }) : [],
+    ledger: { ...APP_DATA_LEDGER, familyCheck: appDataOpCheck(config.writeVerdict) },
+  };
+}
 
 /** 工具操作账本的族核实（issue 02，ADR 0009 §7）：写操作按应用库回执核实；应用库丢失/损坏即无法核实。 */
 export function appDataOpCheck(writeVerdict: (hostOpId: string) => "committed" | "not_committed" | "unverifiable"): FamilyCheck {

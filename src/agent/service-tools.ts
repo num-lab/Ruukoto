@@ -38,8 +38,32 @@ import type { ArtifactStore } from "./artifacts.ts";
 import type { ManagedProcessRegistry } from "./managed-processes.ts";
 import { hostCallFor } from "./host-tools.ts";
 import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const SERVICE_TOOL_NAMES = ["service_inspect", "service_manage"] as const;
+export const SERVICE_LEDGER: HostToolLedger = {
+  names: SERVICE_TOOL_NAMES,
+  ruleFor: (name) => name === "service_inspect" ? "no_effect" : "approval",
+};
+
+export function createServiceFamily(config: Omit<ServiceToolsDeps, "config" | "registry" | "taskContext" | "bindCall" | "verifyMain" | "requestApproval" | "requestStanding" | "recordArtifact" | "markEffectUnknown"> & { config: ServiceManagerConfig | null }): HostToolFamily {
+  return {
+    category: "service",
+    names: config.config ? SERVICE_TOOL_NAMES : [],
+    build: (runtime) => config.config ? createServiceTools({
+      ...config,
+      config: config.config,
+      registry: runtime.registry,
+      ...runtime.call,
+      verifyMain: runtime.identity.verifyMain,
+      requestApproval: runtime.approval.request,
+      requestStanding: runtime.approval.requestStanding,
+      recordArtifact: runtime.effects.recordArtifact,
+      markEffectUnknown: runtime.effects.markEffectUnknown,
+    }) : [],
+    ledger: SERVICE_LEDGER,
+  };
+}
 
 /** 服务管理部署配置（宿主注入；模型与任务参数不提供任何路径或身份）。 */
 export interface ServiceManagerConfig {

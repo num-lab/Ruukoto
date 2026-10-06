@@ -300,6 +300,7 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
       launcherFor: (mode) => rt.launcherFor(mode),
       defaultModelSelection: () => rt.defaultSelection,
       kickSession: () => {},
+      resumeQueue: (sessionId) => rt.resumeQueue(sessionId),
       parentDelivery: (rt as any).parentDelivery,
       cancelTask: (taskId, reason) => rt.cancelTask(taskId, reason ? { reason } : undefined),
       protectedRoots: () => rt.protectedRoots(),

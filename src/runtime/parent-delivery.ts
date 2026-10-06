@@ -12,9 +12,9 @@
  * 汇报到期判定与唤醒输入的宿主说明。结果登记本身留在编排器；发给 SubAgent 的投递
  * 留在 SubAgent 管理器。
  *
- * 两种唤醒的建立方式不同（决定 5）：结果唤醒在结果事务提交后经 submit（模型门闩与
- * 执行入口检查；崩溃由启动按 wake:<子任务> 键补建）；消息唤醒在消息事务内直接插入
- * （键 smsg:<消息>）。
+ * 两种唤醒的建立方式不同：结果唤醒在结果事务提交后经 submit，启动按 wake:<子任务>
+ * 键补建；消息唤醒由 SubAgent 管理器预检后在消息事务内插入（键 smsg:<消息>），
+ * 启动补建和投递重核也归管理器。
  */
 
 import { createHash } from "node:crypto";
@@ -38,8 +38,6 @@ export interface ParentDeliveryDeps {
   store: Store;
   /** 建结果唤醒（Runtime.submitInternal：模型门闩与执行入口检查）。 */
   submit: OrchestratorBridge["submit"];
-  /** 消息唤醒插入与启动补建提交后唤醒队列。 */
-  kick(sessionId: string): void;
   defaultModelSelection(): ModelSelection;
   /** 指定任务的最终回答文本（最终汇报正文）。 */
   readReply(taskId: string): string | null;
@@ -117,13 +115,14 @@ export class ParentDelivery {
   // ---------- 入口 2：发给主 Agent 的消息已登记 ----------
 
   /**
-   * SubAgent 管理器在消息事务内调用（发送与冲刷共用）。main → 在同一事务内插入
+   * SubAgent 管理器预检并重核后在消息事务内调用（发送与冲刷共用）。main → 同事务插入
    * 消息唤醒并写投递登记（键 smsg:<消息> 幂等），返回 "wake"，调用方提交后 kick；
    * 普通开发会话 → 待注入，返回 "inject"。
    */
-  messageRecorded(msg: SubAgentMessage, work: WorkDelegation): "wake" | "inject" {
+  messageRecorded(msg: SubAgentMessage, work: WorkDelegation, selection: ModelSelection | null): "wake" | "inject" {
     const identity = this.store.getSessionIdentity(work.parentSessionId);
     if (identity?.kind !== "main") return "inject";
+    if (!selection) throw new Error("消息唤醒缺少已核实的模型选择");
     const input = [
       `[工作内消息 · 工作 ${work.id}]`,
       `消息 ${msg.id}。来自：SubAgent ${msg.fromSubAgentId}（工作 ${work.id}，执行任务 ${msg.fromTaskId}）。`,
@@ -135,7 +134,7 @@ export class ParentDelivery {
       requestId: `smsg:${msg.id}`,
       input,
       accessMode: "confirm",
-      modelSelection: identity.role.modelSelection ?? this.deps.defaultModelSelection(),
+      modelSelection: selection,
       submissionDigest: createHash("sha256").update(JSON.stringify({ kind: "smsg-wake", messageId: msg.id })).digest("hex"),
       agentId: identity.role.id,
       parentTaskId: msg.fromTaskId,
@@ -185,24 +184,13 @@ export class ParentDelivery {
   // ---------- 入口 5：后台启动 ----------
 
   /**
-   * 启动巡检（编排器在补记重启窗口内的结果之后调用）：结果已落库而唤醒缺失
-   * （提交失败或崩溃窗口）的子任务按原键 wake:<子任务> 补建；待投递的发给 main
-   * 的消息补建消息唤醒。唤醒任务的存在即投递登记，重复恢复不重复投递。
+   * 启动巡检：结果已落库而唤醒缺失（提交失败或崩溃窗口）的子任务按原键补建。
+   * 消息唤醒的补建由管理器执行，不能绕过消息的模型与执行入口预检。
    */
   async sweep(): Promise<void> {
     for (const task of this.store.listRoleTasksPendingWake()) {
       await this.resultRecorded(task, childOutcome(task), task.resultSummary!);
     }
-    const kicks = this.store.withTx(() => {
-      const out = new Set<string>();
-      for (const msg of this.store.listPendingSubAgentMessages()) {
-        const work = msg.toSubAgentId === null ? this.store.getWorkDelegation(msg.workId) : null;
-        if (!work || this.workCanceled(work.id)) continue; // 缺失与已取消由管理器冲刷记明确未投递结果
-        if (this.messageRecorded(msg, work) === "wake") out.add(work.parentSessionId);
-      }
-      return out;
-    });
-    for (const sessionId of kicks) this.deps.kick(sessionId);
   }
 
   // ---------- 最终汇报（agent-direction issue 18） ----------

@@ -652,17 +652,23 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
     fs.writeFileSync(path.join(t.work[0]!, "src/a.ts"), "export const v = 1\n", "utf8");
     initGitRepo(t.work[0]!);
     const session = await rt.createSession({ projectName: "wkgate", cwd: t.work[0]! });
-    const dev = await rt.submit({ sessionId: session.id, requestId: "pd", input: "开始", modelSelection: rt.defaultSelection });
+    const dev = await rt.submit({ sessionId: session.id, requestId: "pd", input: "/plan 先调研再修改", modelSelection: rt.defaultSelection });
     await waitFor("dev 完成", () => rt.store.getTask(dev.id)!.status === "completed");
+    const planCall = t.server.calls.find((c) => lastUserText(c).includes("/plan 先调研再修改"))!;
+    assert.ok(planCall, "真实计划任务已调用模型");
+    assert.ok(!toolNamesOf(planCall).some((name) => ["edit", "write", "subagent_delegate", "subagent_integrate"].includes(name)), "计划模式没有开放修改和委派工具");
     // 计划模式：modify 被拒
     await assert.rejects(
       () =>
-        rt.subagents!.delegate({ parentTaskId: dev.id, key: "gp", request: "x", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "dgp", planMode: true }),
+        rt.subagents!.delegate({ parentTaskId: dev.id, key: "gp", request: "x", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "dgp" }),
       /计划模式/,
     );
+
+    const normal = await rt.submit({ sessionId: session.id, requestId: "normal", input: "开始执行", modelSelection: rt.defaultSelection });
+    await waitFor("普通父任务完成", () => rt.store.getTask(normal.id)!.status === "completed");
     // SubAgent 自身（非用户会话）：委派入口已友好拒绝
     const mainSub = await rt.subagents!.delegate({
-      parentTaskId: dev.id, key: "gs", request: "x", mode: "modify", target: ".",
+      parentTaskId: normal.id, key: "gs", request: "x", mode: "modify", target: ".",
       materials: null, readPaths: null, paramsDigest: "dgs",
     });
     // SubAgent 会话的会话由宿主识别；子会话不能充当父（parentTaskId 子任务直接拒绝）
@@ -674,13 +680,13 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
 
     // 只读工作不能升级为写入
     const readOnly = await rt.subagents!.delegate({
-      parentTaskId: dev.id, key: "ro1", request: "只读分析片段", readPaths: ["."], materials: null, paramsDigest: "dro1",
+      parentTaskId: normal.id, key: "ro1", request: "只读分析片段", readPaths: ["."], materials: null, paramsDigest: "dro1",
     });
     await waitFor("只读工作登记", () => rt.store.getWorkDelegation(readOnly.work.id) !== null);
     await assert.rejects(
       () =>
         rt.subagents!.delegate({
-          parentTaskId: dev.id, key: "ro2", request: "升级cannot", workId: readOnly.work.id, mode: "modify",
+          parentTaskId: normal.id, key: "ro2", request: "升级cannot", workId: readOnly.work.id, mode: "modify",
           materials: null, readPaths: null, paramsDigest: "dro2",
         }),
       /只读|不能升级为写入/,
@@ -688,7 +694,7 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
 
     // 只读重放摘要保持原参不变（modify 字段不入只读路径）
     const replay = await rt.subagents!.delegate({
-      parentTaskId: dev.id, key: "ro1", request: "只读分析片段", readPaths: ["."], materials: null, paramsDigest: "dro1",
+      parentTaskId: normal.id, key: "ro1", request: "只读分析片段", readPaths: ["."], materials: null, paramsDigest: "dro1",
     });
     assert.equal(replay.created, false, "11 的重放摘要保持逐字节（modify 字段不入只读路径）");
   } finally {

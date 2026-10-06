@@ -55,7 +55,8 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   占用键与 LaunchSpec 都取 `core/worktree.ts` 的 `taskWorkspaceFor`。
 - **静态宿主工具族**：Runtime 先初始化应用库、资料解析器和个人产品的调度器，
   再经 `initHostToolFamilies` 建立一份全局静态族清单及工具操作账本，随后
-  `recover` 核实遗留操作；SubAgentManager 与编排器在恢复后创建。
+  `recover` 核实遗留操作；SubAgentManager 在恢复前创建，恢复事务调用其
+  `recoverQueuedTasks`，编排器在恢复后创建。
   Runtime 捕获资料、凭据、应用库、调度器等各族依赖，把同一份清单交给 Driver；
   `src/agent/host-tool-families.ts` 定义族的类别、
   工具名、构建入口与账本声明。Driver 按执行画像筛选并构建工具，校验声明的
@@ -74,13 +75,25 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   登记。送达方向按会话身份判定（main 建唤醒，普通开发会话待注入）。五个入口：子任务
   结果已登记（编排器在结果事务后调用一次，main 经 `submit` 建 `wake:<子任务>`）；发给
   主 Agent 的消息已登记（SubAgent 管理器在消息事务内调用，main 直接插入
-  `smsg:<消息>`）；普通开发会话的任务开始（driver 取待注入的结果与消息，同事务标记）；
+  `smsg:<消息>`，使用管理器在事务外核实、事务内重检的模型选择）；普通开发会话的
+  任务开始（driver 取待注入的结果与消息，同事务标记）；
   唤醒任务即将运行（队列循环的放行判定，`wake:` 与 `smsg:` 同一规则——所属工作已取消
-  即按 `work_canceled` 取消、零模型调用）；后台启动（补建缺失的结果唤醒与消息唤醒）。
+  即按 `work_canceled` 取消、零模型调用）；后台启动（`sweep` 只补建缺失的结果唤醒，
+  消息补建统一由 `SubAgentManager.flushPendingMessages` 完成）。
   被截住的消息唤醒不改消息行，`subagent_result` 读取时补「（工作已取消，未送达）」。
   IM 发起工作的最终汇报的到期规则、发送键与正文也归本模块，IM 机制（目标核对、截短、
   写 `owner_reply`）经 `sendWorkReport` 回调交拥有者 IM 入口表。结果登记本身留在编排器，
   发给 SubAgent 的投递留在 SubAgent 管理器。
+- **SubAgent 生命周期（架构工单 12）**：`src/runtime/subagents.ts` 的
+  `SubAgentManager` 是在线 SubAgent 状态、当前工作与当前任务指针的唯一写入者，
+  Store 保留 SQL 原语；离线导入沿用自己的收尾。编排器在结果事务内调用
+  `resultRecorded(task)`，只有 `currentTaskId === task.id` 才按子会话占用记
+  `idle` / `unverified` 并清空当前任务，旧任务首次补记不改当前新工作与任务。
+  Runtime 在 `resumeQueue` 释放占用的事务内调用 `executionVerified(sessionId)`：
+  无活动任务且当前终态任务已有结果，才可在占用释放后回到 `idle`；结果缺失
+  报 `invalid_state`，整笔恢复拒绝。返回的父会话 ID 用于提交后
+  `await flushPendingMessages`。管理器 `start` 先冲刷消息，再恢复无遗留占用的
+  `backend_restart` 子会话；角色队列恢复仍归编排器。
 - **拥有者 IM 入口（架构工单 10）**：QQ 私聊与 Telegram 各是一个入口，适配器实现
   `ImEntry`（`src/runtime/im-entries.ts`）：来源、入站门、当前钉版目标、预期发送者、
   回复截断、externalId 前缀、是否引用某凭据与事务内推进配置版本（含各自的
@@ -544,6 +557,9 @@ ID 与自身版本访问）。
   占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不
   自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime /
   模型目录 / 审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。
+  应用结束时在 `finally` 中 `await flushPendingMessages`（成功或回滚）；门闩忙碌
+  等预检失败保留这些消息等待后续投递。需要新建执行任务的消息预检失败则
+  不登记消息、任务或事件；纯 dev 父会话注入不新建执行任务，不经过这道预检。
   应用成功后持久配置与内存一致，重启后仍有效。删除 provider 或模型前核对后台
   默认、摘要模型、会话与 agent_roles 引用（`provider_in_use`）；后台默认模型保存为
   `<agentDir>/default-model.json`，显式启动参数 `--model` 优先于它。
@@ -1628,13 +1644,18 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
   任务（忙碌明确拒绝，不排队），工作目录 realpath 与 dev/ino 和子会话记录
   一致（目录被删除/替换时报「请新建 SubAgent」）；准备前与登记事务内各核
   一次。复用另复核该 Agent 历史任务来源引用与本次的并集，任一撤销即拒绝。
+  继续、复用、协作加入、消息登记与冲刷共用管理器的私有资格判断：关闭、
+  跨父会话、宿主固定评审、工作取消或已转做其他工作均明确拒绝或记未投递；
+  委派遇忙碌拒绝，消息遇忙碌或名额满保留待投递。
 - **关闭**：`sub_agents.closed_at`/`closed_by` 独立两列（`owner` 或
   `agent:<任务ID>`），不改 `state` 语义（v25 迁移只补列，旧行两列为空）。
   主 Agent 用 `subagent_close` 工具关闭本会话名下的 Agent；拥有者经控制面
   `subagent_close`（CLI `ruukoto work close`）关闭；已关闭幂等返回；有活动
   任务拒绝并给出任务 id（先 `ruukoto cancel` 再关闭）。关闭不删除工作目录、
   会话、JSONL、产物与工作记录；关闭后新委派报「已关闭」，同键同参重放仍
-  返回原记录；发 `subagent.closed` 事件（refs 指向父会话）。
+  返回原记录；发 `subagent.closed` 事件（refs 指向父会话）。关闭保持同步：
+  关闭事务内用同一 `pendingMessageContext` 资格判定清理发给该 Agent 的待投递
+  消息，不异步冲刷其他 Agent；关闭前无活动任务，因此不需要释放名额。
 - **竞争**：关闭与新委派在同一个同步事务内定胜负——先关闭则委派报「已关闭」
   且零新任务，先登记则关闭报「有活动任务」；不存在「已关闭且有活动任务」
   的中间态。
@@ -1659,9 +1680,15 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
   不参与工作内通信。
 - **接收方资格**：当前承接本工作（`active_work_id` 正是本工作）且未关闭——
   复用转做其他工作后旧协作者与迟到的旧消息都失去资格，不把关闭当作
-  重新创建 Agent 的理由；已取消的工作不能投递。登记时同住一同步事务内
-  完成资格核实与幂等查重（（工作, 发送方, 键）；同键同参的重放即使此后
-  已取消/关闭也返回原记录，异参冲突）。
+  重新创建 Agent 的理由；已取消的工作不能投递。按（工作, 发送方, 键）查重
+  先于执行预检：同键同参的重放即使此后已取消/关闭也返回原记录，异参冲突。
+  `message` 异步准备后在登记事务内再次查重并核实当前资格。
+- **消息执行预检**：发给子会话或 main 唤醒的消息，在事务外核实模型配置与
+  受限执行入口；事务内执行核实返回的 `check`，并重读当前模型选择与资格。
+  模型选择变动或 `model_config_busy` 等预检失败，整次新消息零新增消息、
+  任务和事件；忙碌或名额满也不能绕过预检。纯 dev 父会话注入不新建执行，
+  无需这道执行预检。`ParentDelivery.messageRecorded(msg, work, selection)`
+  只用管理器已经核实的模型选择插入 main 消息唤醒。
 - **投递渠道**：发给 SubAgent 的投递为它在本工作的一次 `confirm` 执行
   任务（请求键 `smsg:<消息ID>` 幂等，输入为宿主固定来源首行 + 正文，
   读范围沿用其在本工作最近任务的钉定——消息不扩大任何一方的工具与
@@ -1670,11 +1697,15 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
   注入（收集与标记送达同事务，取消的工作不注入），main 父会话经唤醒
   任务（`agentId=main`、confirm、无截止时间）送达。
 - **待投递与冲刷**：接收方忙碌或父会话活动任务名额已满时登记为待投递；
-  宿主机在 SubAgent 任务终态（编排器结果登记后）、启动恢复、整项取消与
-  关闭后冲刷：可投递则投递（同一同步事务仲裁，重入不重复），资格已失
-  （`moved_work`/`closed:<时刻>`/`agent_missing`）或工作已取消记明确
+  宿主机在 SubAgent 任务终态（编排器结果登记后）、启动恢复、整项取消、
+  resume-queue 核实完成与模型配置应用结束后 `await flushPendingMessages`：
+  冲刷先核资格，忙碌 / 名额满保持待投递且不做执行预检；可投递时才预检，
+  任意预检失败均保留已登记消息并输出诊断。可投递则在同步事务内投递；异步准备
+  期间可能登记新委派，投递事务必须重核当前工作与资格，旧消息不能进入新工作。
+  资格已失（`moved_work`/`closed:<时刻>`/`agent_missing`）或工作已取消记明确
   未投递结果并发 `subagent_message.dropped` 事件；登记与投递事件为
-  `subagent_message.sent`（含投递渠道）。
+  `subagent_message.sent`（含投递渠道）。关闭路径只在自身关闭事务内清理该
+  Agent 的待投递消息，不触发其他 Agent 的异步冲刷。
 - **可见性**：主 Agent 用 `subagent_result` 的 `part=messages` 查看本工作
   消息的来源、投递状态与正文预览；拥有者经控制面 `work_get` 的 `messages`
   列表（CLI `work show`）查看；发送调用按工具操作账本以（工作, 发送方, 键）
@@ -1737,6 +1768,10 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
   与 main（issue 17 开放，承接旧固定 coding draft 的修改职责）
   都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话
   本就不接受任务）；
+  管理器从父 Task 的输入与 `resumesTaskId` 链自行判定计划模式，不接收
+  `planMode` 入参；计划模式既拒绝显式 `modify`，也拒绝沿已有 `writeTarget`
+  的工作继续。模型工具清单仍由 `PLAN_TOOL_NAMES` 收窄，未开放
+  `subagent_delegate`，不能据此声称计划模式模型可发起分析委派。
   modify 不带 `read_paths`/`materials`。修改工作固定 `confirm`、在
   容器中运行，不继承父任务的完全访问；工具只有 `read / edit / write /
   bash / read_artifact`（无 `request_file_access`、`http_request`、MCP，
@@ -1843,8 +1878,10 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
 
 - 终态沿用 `setTaskResult` 一次写入与结果提取；结果引用
   （`resultRef` JSON）明确 `workId / subAgentId / taskId / 原直接父任务 /
-  所属父会话 / outcome / artifactIds`，与子身份空闲状态同事务登记
-  （占用未回收记 `unverified`，否则 `idle`）。完成/失败/超时/结果未知如实
+  所属父会话 / outcome / artifactIds`。编排器在同一结果事务内调用管理器
+  `resultRecorded(task)`，只在当前任务仍是本任务时按占用记 `unverified` 或
+  `idle` 并清空当前任务；旧任务首次补记保留结果与事件，不倒写新工作与任务。
+  完成/失败/超时/结果未知如实
   保存，重复终态只记一份；不自动重试。
 - dev 父会话：持久 `subagent_task.*` 事件指向父会话（TUI 可见归属），不产生
   唤醒任务；下一次父模型调用注入有界的宿主结果摘要与引用（`[SubAgent 结果]`
@@ -1928,6 +1965,7 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
 - **排队的委派任务定 interrupted，不自动继续**：重启时仍未启动的 SubAgent
   执行任务（拥有者或主 Agent 委派，无 `source_event_id`）与运行中任务同定
   `interrupted`（`backend_restart`；排队的从未启动，`started_at` 为空）——
+  该排队转换由 Runtime 恢复事务调用 `SubAgentManager.recoverQueuedTasks` 完成。
   不自动继续、不当作成功也不当作新委派。启动巡检按 `setTaskResult` 补记一次
   结果与 `subagent_task.result_unknown`（重复启动不重复登记），结果引用的
   工作/Agent/父会话/父任务归属不变；SubAgent 回到可用状态（占用已核实记
@@ -1935,14 +1973,18 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
   继续与否（沿 `work_id` 继续、`sub_agent_id` 复用，或放弃）由拥有者或
   父 Agent 决定。
 - **宿主固定评审的排队任务自动恢复**：带 `source_event_id` 的排队任务不在
-  上一条之列；编排器启动恢复把 `backend_restart` 暂停的自动解除从角色会话
-  扩到 SubAgent 子会话，此时能命中的只剩评审排队任务，自动解除暂停并继续
-  执行（issue 19 既定口径：不经拥有者核实）。
+  上一条之列；编排器补记结果后，管理器异步 `start` 先冲刷待投递消息，再
+  自动恢复无遗留占用且以 `backend_restart` 暂停的 SubAgent 子会话，此时剩下
+  的评审排队任务继续执行（issue 19 既定口径：不经拥有者核实）。角色队列
+  仍由编排器恢复。
 - **未核实的旧执行保留占用**：遗留占用与 `occupancy_unverified` 暂停不自动
   解除，Agent 记 `unverified` 并拒绝新委派（恢复任务不与旧执行并发修改同一
   资源）。拥有者核实旧执行确已退出后经 `resume-queue`（CLI `ruukoto
   resume-queue <会话 id>`）释放占用、解除暂停——这同时是 `unverified` 回到
-  `idle` 的出口（释放后无活动任务即记回 `idle`，可继续委派、复用或关闭）。
+  `idle` 的出口：释放占用的同一事务调用管理器 `executionVerified`，无活动
+  任务且当前终态任务已有结果时才记回 `idle`；当前终态任务结果缺失报
+  `invalid_state` 并回滚恢复，须先补记结果。提交后按返回的父会话 ID 等待
+  冲刷消息，再继续委派、复用或关闭。
 - 已取消工作的迟到结果不因此重新运行、不补发唤醒（issue 14 规则不变）。
 
 ## GitHub：MCP 操作与 PR webhook（ADR 0007/0013）
@@ -2345,12 +2387,14 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
    结果并补发 `child_task.*` 事件与有界唤醒（interrupted 一律按结果未知，
    不自动重放外部副作用）；结果已落库而唤醒缺失的子任务按原幂等键
    （`wake:<childId>`）补发，重复恢复不重复投递；退役前在途的旧 coding
-   子任务也在这里补记（见「固定 coding 角色退役」）。角色会话与 SubAgent 子
-   会话的队列暂停只有 `backend_restart` 才自动恢复（SubAgent 侧此时只剩
-   宿主固定评审的排队任务，其余排队委派任务已在第 2 步定 interrupted）；
+   子任务也在这里补记（见「固定 coding 角色退役」）。编排器恢复角色会话，
+   管理器 `start` 冲刷消息后恢复 SubAgent 子会话：只自动恢复无遗留占用的
+   `backend_restart` 队列（SubAgent 侧宿主固定评审排队任务继续，其余排队
+   委派任务已在第 2 步经管理器 `recoverQueuedTasks` 定 interrupted）；
    `occupancy_unverified`（旧执行未核实）保留暂停与占用，由拥有者核实后
    `resume-queue`——这同时是 SubAgent `unverified` 回到 `idle` 的出口
-   （释放占用后无活动任务即记回 `idle`）。角色任务有工具执行，
+   （释放占用事务内经 `executionVerified` 核实无活动任务且当前终态结果已
+   登记才记回 `idle`，结果缺失拒绝；提交后等待冲刷消息）。角色任务有工具执行，
    不沿用 QQ 无工具会话的无条件恢复前提。
 8. 调度器（issue 03）的恢复准备在第 2 步之前执行（须读到 running 任务的
    原始状态）：关联任务/发送已终态但运行未关闭的先补关闭；到期计划按

@@ -248,7 +248,7 @@
 
     <aside class="callout limit">
       <b>回收失败时</b>
-      <p>无法确认执行单元已经退出时，任务照常进入终态，但目录占用保留，同一目录的新任务不会启动（<code>task.tool_process_unreaped</code>）。拥有者核实容器或子进程确已停止后，用 <code>resume_queue</code> 释放遗留占用。若是 SubAgent 执行任务，SubAgent 在该任务进入终态时就已按占用仍在记为 unverified；resume_queue 同时是它的出口：释放占用后该 Agent 被记回 idle（见<a href="orchestrator.html#subagent-state">编排器</a>）。</p>
+      <p>无法确认执行单元已经退出时，任务照常进入终态，但目录占用保留，同一目录的新任务不会启动（<code>task.tool_process_unreaped</code>）。拥有者核实容器或子进程确已停止后，用 <code>resume_queue</code> 释放遗留占用。若是 SubAgent 执行任务，结果补记事务核实它仍是当前任务时，管理器才按占用仍在记为 unverified；resume_queue 同时是它的出口：释放占用的事务内调用管理器 executionVerified，无活动任务且当前终态结果已登记时回 idle；结果缺失报 invalid_state，连同遗留占用释放一起回滚。提交后等待冲刷待投递消息（见<a href="orchestrator.html#subagent-state">编排器</a>）。</p>
     </aside>
 
     <h3>IM 入口配置变化</h3>
@@ -295,14 +295,14 @@
       <table class="tbl">
         <thead><tr><th>暂停原因</th><th>谁暂停</th><th>什么时候</th><th>谁恢复</th></tr></thead>
         <tbody>
-          <tr><td><code>backend_restart</code></td><td class="nowrap">重启恢复</td><td>重启时会话里还有排队任务，且会话此前是 active。</td><td>编排器：启动时恢复角色会话与 SubAgent 子会话（<code class="src" data-src="src/runtime/orchestrator.ts#async start()">orchestrator.ts · start</code>），后者此时只剩宿主固定评审的排队任务——拥有者 / 主 Agent 委派的排队任务已由恢复事务定 interrupted（见下文「SubAgent 执行任务」），评审事件重提时也按同口径补恢复（<code class="src" data-src="src/runtime/orchestrator.ts#resumeQueue(task.sessionId">dispatchEvent</code>）；其余（普通开发会话等）由拥有者核实后 resume_queue</td></tr>
+          <tr><td><code>backend_restart</code></td><td class="nowrap">重启恢复</td><td>重启时会话里还有排队任务，且会话此前是 active。</td><td>编排器恢复角色队列；<code class="src" data-src="src/runtime/subagents.ts#async start">SubAgentManager.start</code> 先冲刷消息，再恢复无遗留占用的 SubAgent 子会话，其保留的宿主固定评审排队任务继续——拥有者 / 主 Agent 委派的排队任务已由恢复事务定 interrupted（见下文「SubAgent 执行任务」），评审事件重提时也按同口径补恢复（<code class="src" data-src="src/runtime/orchestrator.ts#resumeQueue(task.sessionId">dispatchEvent</code>）；其余（普通开发会话等）由拥有者核实后 resume_queue</td></tr>
           <tr><td><code>occupancy_unverified</code></td><td class="nowrap">重启恢复</td><td>旧后台留下占用行，且会话此前是 active。遗留占用一律视为无法确认旧执行已停止，不论部署方式（后台服务单元的 KillMode=control-group 只覆盖后台进程树，容器另行回收）。</td><td>拥有者</td></tr>
           <tr><td><code>context_overflow</code></td><td>驱动器</td><td>provider 报告上下文超限，任务已中断。</td><td>拥有者</td></tr>
           <tr><td>发送前复核的拦截码</td><td>驱动器</td><td>某次模型调用在发送前被拦下，任务已中断。</td><td>拥有者</td></tr>
         </tbody>
       </table>
     </div>
-    <p>恢复都经 <code class="src" data-src="src/runtime/runtime.ts#async resumeQueue">runtime.ts · resumeQueue</code>：拥有者调用 <code>resume_queue</code>，或后台启动时编排器恢复角色会话与 SubAgent 子会话里以 <code>backend_restart</code> 暂停的队列（<code class="src" data-src="src/runtime/orchestrator.ts#async start">orchestrator.ts · start</code>）。它只释放本会话所属任务已经结束的遗留占用，本会话有活动任务持有占用时整个请求被拒（<code>occupancy_active</code>）；旧版本留下的排队任务没有记录模型配置时，要求显式给出 model_selection 并写回（<code>tasks.model_selection_recorded</code>）；最后置 active、发 <code>session.queue_resumed</code> 并唤醒本会话的调度循环——若该会话的 SubAgent 处于 unverified 且没有活动任务，一并把它记回 <code class="st idle">idle</code>（unverified 的唯一出口，见<a href="orchestrator.html#subagent-state">编排器</a>）。暂停时发的是 <code>session.queue_paused</code>。</p>
+    <p>恢复都经 <code class="src" data-src="src/runtime/runtime.ts#async resumeQueue">runtime.ts · resumeQueue</code>：拥有者调用 <code>resume_queue</code>，或后台启动时编排器恢复角色队列、管理器恢复 SubAgent 子会话的 <code>backend_restart</code> 队列（两者均要求无遗留占用）。它只释放本会话所属任务已经结束的遗留占用，本会话有活动任务持有占用时整个请求被拒（<code>occupancy_active</code>）；旧版本留下的排队任务没有记录模型配置时，要求显式给出 model_selection 并写回（<code>tasks.model_selection_recorded</code>）；同一事务内调用管理器 <code class="src" data-src="src/runtime/subagents.ts#executionVerified">executionVerified</code>，无活动任务且当前终态结果已登记时可回 <code class="st idle">idle</code>；当前终态结果缺失报 <code>invalid_state</code>，整笔恢复回滚，已释放的遗留占用也恢复。再置 active、发 <code>session.queue_resumed</code>，提交后按管理器返回的父会话 ID 等待 <code class="src" data-src="src/runtime/subagents.ts#async flushPendingMessages">flushPendingMessages</code>，并唤醒调度循环（见<a href="orchestrator.html#subagent-state">编排器</a>）。暂停时发的是 <code>session.queue_paused</code>。</p>
     <p>固定角色已退役（agent-direction 工单 20 核心群聊、工单 23 固定 coding）：每次启动在 <code>recover</code> 之后执行 <code class="src" data-src="src/runtime/runtime.ts#private retireLegacyRoles">retireLegacyRoles</code>，按状态幂等：旧群会话的遗留排队任务取消（原因 <code class="src" data-src="src/core/session-identity.ts#export const CORE_GROUP_CHAT_RETIRED">CORE_GROUP_CHAT_RETIRED</code>），coding 角色会话的遗留排队任务取消（原因 <code class="src" data-src="src/core/session-identity.ts#export const CODING_ROLE_RETIRED">CODING_ROLE_RETIRED</code>），在途群回复定 unknown、未终态收件记 skipped。运行中的任务由通用恢复定 interrupted，不重放；旧 coding 子任务的结果与 main 唤醒由编排器启动巡检补记一次（见<a href="orchestrator.html#legacy-coding">编排器 · 旧 coding 子任务</a>）。此后这些归档会话只读：提交入口拒绝（<code>invalid_state</code>），队列循环只做固定取消的兜底，驱动器不运行它们的任务。</p>
   </section>
 
@@ -318,8 +318,8 @@
           <tr><td class="nowrap">截止</td><td>直接父任务的开始时刻（尚未开始取创建时刻）加 <code>SUBAGENT_LIMITS.deadlineMs</code>（60 分钟），包含排队与审批等待。到期由编排器截止巡检取消：排队的直接 canceled，执行中的走停止路径；结局记为超时。</td><td><code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">subagents.ts · SUBAGENT_LIMITS</code> <code class="src" data-src="src/runtime/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td></tr>
           <tr><td class="nowrap">取消</td><td>拥有者可以直接 cancel / interrupt 某次执行；整项工作也可取消（<code>ruukoto work cancel</code> / 主 Agent 的 <code>subagent_cancel</code>，见<a href="orchestrator.html#subagent-cancel">编排器 · 整项取消</a>）：登记事务直接取消本工作的排队任务、给活动任务写取消意图，提交后每个活动任务按普通停止路径处理，其他工作不受影响；已取消的工作不能继续委派，迟到结果保存为事实但不再唤醒或注入父会话。父任务结束不会连带取消它。</td><td><code class="src" data-src="src/runtime/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="src/runtime/subagents.ts#async cancelWork">subagents.ts · cancelWork</code></td></tr>
           <tr><td class="nowrap">目录占用</td><td>键是任务的工作区根而非固定的会话工作目录（<code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code>）：只读分析任务占用子会话宿主生成的独立目录，与父会话并行；修改委派（agent-direction issue 16，ADR 0021）的任务占用该工作的写入目标——Git 目标的宿主 worktree 副本（父工作区之外，并行且单一写入者）或非 Git 目标的目录（直接写入，与父会话按前缀规则串行）。首次钉定写入目标后子会话 cwd 对齐到该根（<code class="src" data-src="src/core/store.ts#setSubAgentCwd">store.ts · setSubAgentCwd</code>）。</td><td><code class="src" data-src="src/core/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td></tr>
-          <tr><td class="nowrap">终态之后</td><td>编排器在一个事务里写结果、发 subagent_task.* 事件，并按子会话还有没有占用把 SubAgent 记为 idle 或 unverified。不自动重试。</td><td><code class="src" data-src="src/runtime/orchestrator.ts#private async handleSubAgentTerminal">orchestrator.ts · handleSubAgentTerminal</code></td></tr>
-          <tr><td class="nowrap">重启</td><td>执行中的照常转 interrupted（<code>backend_restart</code>），编排器启动巡检补记为结果未知；重启仍排队的拥有者 / 主 Agent 委派任务（没有来源事件）由恢复事务一并转 interrupted（<code>backend_restart</code>，从未启动，不自动继续也不当作新委派，<code class="src" data-src="src/core/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>），巡检同样补记，是否重新委派由拥有者 / 父 Agent 决定；宿主固定评审（带来源事件）的排队任务不中断：子会话以 <code>backend_restart</code> 暂停后由编排器启动恢复自动解除并继续执行（见编排器 · GitHub 评审编排）。</td><td><code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></td></tr>
+          <tr><td class="nowrap">终态之后</td><td>编排器在结果事务内调用管理器 resultRecorded：当前任务匹配才按占用置 idle / unverified，旧任务首次补记不倒写新工作与任务。提交后异步冲刷消息；不自动重试，细节见<a href="orchestrator.html#subagent-state">编排器 · 状态与结果</a>。</td><td><code class="src" data-src="src/runtime/subagents.ts#resultRecorded">subagents.ts · resultRecorded</code></td></tr>
+          <tr><td class="nowrap">重启</td><td>执行中的照常转 interrupted（<code>backend_restart</code>），编排器启动巡检补记为结果未知；重启仍排队的拥有者 / 主 Agent 委派任务（没有来源事件）由恢复事务一并转 interrupted（<code>backend_restart</code>，从未启动，不自动继续也不当作新委派，<code class="src" data-src="src/core/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>），巡检同样补记，是否重新委派由拥有者 / 父 Agent 决定；宿主固定评审（带来源事件）的排队任务不中断：子会话以 <code>backend_restart</code> 暂停后由管理器 start 在无遗留占用时恢复并继续执行（见<a href="orchestrator.html#child">编排器 · 重启恢复</a>）。</td><td><code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></td></tr>
         </tbody>
       </table>
     </div>
@@ -343,7 +343,7 @@
         <p>启动时先核对数据目录登记的产品归属，属于另一产品即拒绝启动（<code class="src" data-src="src/runtime/runtime.ts#product_mismatch">product_mismatch</code>）。打开应用库（个人 Agent 还先做调度器的恢复准备）后，在编排器与各入口启动之前，用<strong>一个事务</strong>完成：</p>
         <ol class="steps">
           <li>按工具操作账本的分类器补记所有结果缺失的操作（<code class="src" data-src="src/agent/tool-op-ledger.ts#settleAll">settleAll</code>），已消费的服务操作被标效果未知时同目标的长期授权一并失效；running 与 awaiting_confirmation 一律转 interrupted（<code>backend_restart</code>），未决与已批准未消费的审批一律失效（<code class="src" data-src="src/core/store.ts#stalePendingConfirmations">stalePendingConfirmations</code>：consumed_at 为空即随任务终结，已消费的不动）。</li>
-          <li>仍排队的 SubAgent 执行任务（拥有者 / 主 Agent 委派，没有来源事件）同样转 interrupted（<code>backend_restart</code>，从未启动）：不自动继续也不当作新委派（<code class="src" data-src="src/core/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>）；宿主固定评审（带来源事件）的排队任务保持，由编排器启动恢复继续。</li>
+          <li>仍排队的 SubAgent 执行任务（拥有者 / 主 Agent 委派，没有来源事件）由恢复事务调用 <code class="src" data-src="src/runtime/subagents.ts#recoverQueuedTasks">SubAgentManager.recoverQueuedTasks</code> 转 interrupted（<code>backend_restart</code>，从未启动）：不自动继续也不当作新委派（<code class="src" data-src="src/core/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>）；宿主固定评审（带来源事件）的排队任务保持，由管理器 start 在无遗留占用时恢复继续。</li>
           <li>遗留占用记 <code>occupancy.stale</code>、保留不删，所属会话仍为 active 时以 <code>occupancy_unverified</code> 暂停。</li>
           <li>有排队任务、仍为 active 的会话以 <code>backend_restart</code> 暂停；上一步已暂停的会话保留原因。</li>
           <li>会话登记的 JSONL 缺失时改用同 pi session id 的最新文件；改用与找不到都记 <code>session.history_unreadable</code>。</li>
@@ -354,7 +354,7 @@
     <p>ruukoto-dev 的后台可以由 TUI 按需拉起（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>，只属 ruukoto-dev：<code class="src" data-src="src/control/ensure-backend.ts#tuiSpawnsBackendOnDemand">tuiSpawnsBackendOnDemand</code>；ruukoto 仍显式启动）。它先探测控制面，认证与握手通过即复用；socket 可连但被拒（令牌或协议版本）也不拉起。拉起的进程就是 <code>server</code>，启动后照常执行上面的恢复；多个终端同时拉起由实例锁仲裁成单个后台，败者以 <code class="src" data-src="src/core/instance-lock.ts#INSTANCE_LOCK_EXIT_CODE">INSTANCE_LOCK_EXIT_CODE</code> 退出。子进程 detached 并 unref：关闭 TUI 不停止后台、不取消任务，后台只按上面的停止路径结束。界面重新打开沿握手快照复现任务（见<a href="control-protocol.html">控制面协议</a>），连接丢失不触发任何重新执行。</p>
     <aside class="callout inv">
       <b>不重放</b>
-      <p>重启不重新调用模型、不重放工具操作。想继续中断的任务，拥有者用 continue 提交一个带 resumesTaskId 的新任务：它沿用会话默认访问模式（提交时可显式指定），旧任务的批准不继承，也不补造工具结果。</p>
+      <p>重启不重放已中断任务的模型调用或工具操作；宿主固定评审尚未启动的排队任务可自动继续（见<a href="#subagent">SubAgent 执行任务</a>）。想继续普通开发会话的中断任务，拥有者用 continue 提交一个带 resumesTaskId 的新任务：它沿用会话默认访问模式（提交时可显式指定），旧任务的批准不继承，也不补造工具结果。</p>
     </aside>
   </section>
 

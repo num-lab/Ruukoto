@@ -32,7 +32,7 @@
         <code class="src" data-src="deploy/systemd/ruukoto-service.mjs#function cmdRestart">deploy/systemd/ruukoto-service.mjs</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#settleAll">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/agent/driver.ts#handleToolCall">agent/driver.ts</code>
-        <code class="src" data-src="src/runtime/runtime.ts#private standingCandidate">runtime/runtime.ts</code>
+        <code class="src" data-src="src/runtime/im-approvals.ts#standingCandidate">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/runtime/subagents.ts#export class SubAgentManager">runtime/subagents.ts</code>
         <code class="src" data-src="src/scheduler/store.ts#claim(id: string)">scheduler/store.ts</code>
         <code class="src" data-src="src/scheduler/runtime.ts#private async sendOne">scheduler/runtime.ts</code>
@@ -90,7 +90,7 @@
           <tr data-k="approval" tabindex="0">
             <td><strong>批准消费</strong><br><code class="src" data-src="src/core/store.ts#consumeApproval">store.ts · consumeApproval</code></td>
             <td><code>confirmations</code> 行，登记审批请求时写入，与任务转 awaiting_confirmation 同一事务；主键是审批 id，行上记宿主操作 id、权限版本与参数快照，执行参数只取这份快照</td>
-            <td>决定是一次条件更新 pending → approved / rejected（<code class="src" data-src="src/core/store.ts#respondConfirmation(">store.ts · respondConfirmation</code>）：TUI、IM 命令与自动审查谁先提交谁生效。获批后在同一事务内先复核：工具族复核；IM 来源再核固定身份，当前平台目标与收件时钉版目标逐项相同，含配置版本（<code class="src" data-src="src/runtime/runtime.ts#private imApprovalConsumeRecheck">imApprovalConsumeRecheck</code>）；关联长期授权的批准重读授权版本与未撤销状态。然后条件更新写 <code>consumed_at</code>：状态为 approved、<code>consumed_at</code> 为空、审批与任务的权限版本都等于预期、任务仍是 running 或 awaiting_confirmation</td>
+            <td>决定是一次条件更新 pending → approved / rejected（<code class="src" data-src="src/core/store.ts#respondConfirmation(">store.ts · respondConfirmation</code>）：TUI、IM 命令与自动审查谁先提交谁生效。获批后在同一事务内先复核：工具族复核；IM 来源再核固定身份，当前平台目标与收件时钉版目标逐项相同，含配置版本（<code class="src" data-src="src/runtime/im-approvals.ts#consumeRecheck">consumeRecheck</code>）；关联长期授权的批准重读授权版本与未撤销状态。然后条件更新写 <code>consumed_at</code>：状态为 approved、<code>consumed_at</code> 为空、审批与任务的权限版本都等于预期、任务仍是 running 或 awaiting_confirmation</td>
             <td>复核或消费失败 → 批准失效（stale），按已知未执行记。消费即执行开始：停止或重启时已消费、结果缺失的操作，除非工具族能按宿主操作 id 核实，都记效果未知；HTTP 以 Node <code>ClientRequest</code> 的 <code>finish</code> 事件为界（<code class="src" data-src="src/agent/execution/approved-ops.ts">approved-ops.ts</code>），之前的失败（凭据不符、主机解析失败、连接被拒）是已知错误，之后拿不到状态码的超时、连接重置、中止记效果未知（TLS 握手错误可能落在 <code>finish</code> 之后，同样记效果未知），GET/HEAD 除外（无写入效果）；MCP 写与副作用不明工具的超时、连接失败、取消也记效果未知</td>
           </tr>
           <tr data-k="im" tabindex="0">
@@ -220,7 +220,7 @@
       <figcaption>一次调用经过三道单次关卡。批准有两个来源，二选一：拥有者从 TUI 或 IM 命令给出的决定是 pending → approved 的条件更新，只有先提交的生效（服务范围不属于自动审查可批准的类别，审查只会转人工）；长期授权本身不被消费，每次重读版本、逐项核实后新建一条已批准记录。任何来源的批准都只能被 <code>consumed_at</code> 条件更新消费一次；helper 用以宿主操作 id 命名的 <code>mkdir</code> 认领执行权，同一个 id 第二次到达直接被拒。消费之前的失败使批准失效，按已知未执行收尾；消费之后，helper 证明没请求 systemd 的是已知未执行，有退出码的照实记，其余一律效果未知，并在同一事务里让同一 main、本机、单元与动作的长期授权失效。</figcaption>
       <ul class="legend"><li><i class="wait"></i>已落盘、未消费</li><li><i class="run"></i>执行已开始</li><li><i class="ok"></i>有结论</li><li><i class="unk"></i>待核实</li><li><i class="idle"></i>未执行 / 已失效</li></ul>
     </figure>
-    <p>这条链上的每道关卡都对应源码里一处条件：决定 <code class="src" data-src="src/core/store.ts#respondConfirmation(">respondConfirmation</code>，长期授权 <code class="src" data-src="src/agent/approval-gate.ts#requestStanding">requestStanding</code>，消费 <code class="src" data-src="src/core/store.ts#consumeApproval">consumeApproval</code>，认领 <code class="src" data-src="deploy/systemd/ruukoto-service.mjs#function cmdRestart">cmdRestart</code>，效果未知与授权失效 <code class="src" data-src="src/agent/tool-op-ledger.ts#markEffectUnknown(task: TaskRef">markEffectUnknown</code>。只有 IM 来源的任务有授权候选（<code class="src" data-src="src/runtime/runtime.ts#private standingCandidate">standingCandidate</code>）；TUI 提交、调度、GitHub 与子任务消息恒无候选，走人工审批。</p>
+    <p>这条链上的每道关卡都对应源码里一处条件：决定 <code class="src" data-src="src/core/store.ts#respondConfirmation(">respondConfirmation</code>，长期授权 <code class="src" data-src="src/agent/approval-gate.ts#requestStanding">requestStanding</code>，消费 <code class="src" data-src="src/core/store.ts#consumeApproval">consumeApproval</code>，认领 <code class="src" data-src="deploy/systemd/ruukoto-service.mjs#function cmdRestart">cmdRestart</code>，效果未知与授权失效 <code class="src" data-src="src/agent/tool-op-ledger.ts#markEffectUnknown(task: TaskRef">markEffectUnknown</code>。只有 IM 来源的任务有授权候选（<code class="src" data-src="src/runtime/im-approvals.ts#standingCandidate">standingCandidate</code>）；TUI 提交、调度、GitHub 与子任务消息恒无候选，走人工审批。</p>
   </section>
 
   <section id="outcomes">

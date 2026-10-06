@@ -283,13 +283,10 @@ export class SubAgentManager {
   recoverQueuedTasks(): string[] {
     const ids: string[] = [];
     for (const task of this.store.listQueuedSubAgentTasks()) {
-      if (!this.store.transitionTask(task.id, ["queued"], "interrupted", {
+      if (!this.store.endTask(task.id, ["queued"], "interrupted", {
         interruptReason: "backend_restart", endedAt: new Date().toISOString(),
+        keepOccupancy: true,
       })) continue;
-      this.store.appendEvent({
-        type: "task.interrupted", taskId: task.id, sessionId: task.sessionId,
-        reason: "backend_restart", cancelRequested: task.cancelRequested, effectUnknown: task.effectUnknown,
-      }, { taskId: task.id, sessionId: task.sessionId });
       ids.push(task.id);
     }
     return ids;
@@ -735,12 +732,8 @@ export class SubAgentManager {
       const canceled: Task[] = [];
       for (const t of active) {
         if (t.status === "queued") {
-          const ok = this.store.transitionTask(t.id, ["queued"], "canceled", { errorMessage: "work_canceled", endedAt: now });
+          const ok = this.store.endTask(t.id, ["queued"], "canceled", { errorMessage: "work_canceled", endedAt: now });
           if (ok) {
-            this.store.appendEvent(
-              { type: "task.canceled", taskId: t.id, sessionId: t.sessionId },
-              { taskId: t.id, sessionId: t.sessionId },
-            );
             canceled.push(t);
           }
         } else {

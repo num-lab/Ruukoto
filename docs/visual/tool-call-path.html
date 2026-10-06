@@ -486,7 +486,7 @@
     <p>状态取值见 <code class="src" data-src="src/core/types.ts#export type ConfirmationStatus">types.ts · ConfirmationStatus</code>：<code class="st wait">pending</code> 待决定；<code class="st ok">approved</code> 已批准，<code>consumed_at</code> 为空即尚未执行；<code class="st bad">rejected</code> 已拒绝；<code class="st idle">stale</code> 已失效，再也不能消费。消费不改状态，只写 <code>consumed_at</code>；已消费的批准不会再被标 stale。</p>
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 330" role="img" aria-label="审批状态机：闸门登记为 pending，长期授权窄路径直接新建 approved 并在同一事务消费；pending 经拥有者、IM 或自动审查批准成为 approved，拒绝成为 rejected；pending 在模式切换或授予路径变化、任务中断或取消、重启或 IM 入口失效时成为 stale；approved 在复核或消费失败、或在消费前遇到同样情形时成为 stale；approved 消费一次只写 consumed_at。">
+        <svg viewBox="0 0 1040 330" role="img" aria-label="审批状态机：闸门登记为 pending，长期授权窄路径直接新建 approved 并在同一事务消费；pending 经拥有者、IM 或自动审查批准成为 approved，拒绝成为 rejected；pending 在模式切换或授予路径变化、任务到达终态、重启或 IM 入口失效时成为 stale；approved 在复核或消费失败、或在消费前遇到同样情形时成为 stale；approved 消费一次只写 consumed_at。">
           <g class="n" data-k="c-create"><rect x="20" y="150" width="110" height="46" rx="23"/><text x="75" y="165">新审批</text><text class="sub" x="75" y="183">闸门登记</text></g>
           <g class="n wait"><rect x="200" y="50" width="160" height="56" rx="8"/><text x="280" y="70">pending</text><text class="sub" x="280" y="90">等决定</text></g>
           <g class="n ok"><rect x="470" y="50" width="180" height="56" rx="8"/><text x="560" y="70">approved</text><text class="sub" x="560" y="90">consumed_at 未写即未执行</text></g>
@@ -502,14 +502,14 @@
           <path class="e bad" data-k="c-reject" d="M330 106C330 180 400 248 468 248" marker-end="url(#ah-bad)"/>
           <text class="el" data-k="c-reject" x="372" y="200">拒绝</text>
           <path class="e" data-k="c-stale-p" d="M250 106V310H905V198" marker-end="url(#ah)"/>
-          <text class="el" data-k="c-stale-p" x="680" y="304">切换 · 中断或取消 · 重启 · IM 失效</text>
+          <text class="el" data-k="c-stale-p" x="680" y="304">切换 · 任务终态 · 重启 · IM 失效</text>
           <path class="e" data-k="c-stale-a" d="M650 72C730 72 760 120 798 150" marker-end="url(#ah)"/>
           <text class="el" data-k="c-stale-a" x="742" y="92">复核或消费失败</text>
           <path class="e ok" data-k="c-consume" d="M600 50C600 26 640 26 640 50" marker-end="url(#ah-ok)"/>
           <text class="el start" data-k="c-consume" x="648" y="36">消费一次</text>
         </svg>
       </div>
-      <figcaption>stale 的入口很多，但规则只有一条：未消费的 pending 与 approved 随权限版本递增、任务中断或取消、重启或绑定入口失效一起失效（<code class="src" data-src="src/core/store.ts#stalePendingConfirmations">store.ts · stalePendingConfirmations</code>、<code class="src" data-src="src/core/store.ts#invalidateConfirmation">invalidateConfirmation</code>）。悬停下表的行会高亮对应的边。</figcaption>
+      <figcaption>未消费的 pending 与 approved 随权限版本递增、任务到达任意终态、重启或绑定入口失效一起失效（<code class="src" data-src="src/core/store.ts#stalePendingConfirmations">store.ts · stalePendingConfirmations</code>、<code class="src" data-src="src/core/store.ts#invalidateConfirmation">invalidateConfirmation</code>）。任务的统一收尾见<a href="task-lifecycle.html#states">任务生命周期</a>。悬停下表的行会高亮对应的边。</figcaption>
       <ul class="legend"><li><i class="wait"></i>等待中</li><li><i class="ok"></i>已批准</li><li><i class="bad"></i>已拒绝</li><li><i class="idle"></i>已失效</li></ul>
     </figure>
     <div class="scroll">
@@ -543,8 +543,8 @@
           <tr data-k="c-stale-p" tabindex="0">
             <td><code class="st wait">pending</code> → <code class="st idle">stale</code></td>
             <td>Runtime、驱动器、审批闸门</td>
-            <td>模式切换或授予路径变化（递增权限版本）；任务中断或取消（终态事务；<code>completed</code> / <code>failed</code> 不走这一步）；重启恢复；IM 入口停用、重绑或凭据代次变化（只影响原平台来源的审批）；等待前任务已收到中止信号。</td>
-            <td>无独立事件，随 <code>task.mode_switched</code>、<code>task.interrupted</code> / <code>task.canceled</code> 等</td>
+            <td>模式切换或授予路径变化（递增权限版本）；任务到达任意终态（<code>completed</code> / <code>failed</code> / <code>canceled</code> / <code>interrupted</code>，在 <code class="src" data-src="src/core/store.ts#endTask">Store.endTask</code> 事务内）；重启恢复；IM 入口停用、重绑或凭据代次变化（只影响原平台来源的审批）；等待前任务已收到中止信号。</td>
+            <td>无独立事件，随 <code>task.mode_switched</code> 或任务终态事件等</td>
           </tr>
           <tr data-k="c-stale-a" tabindex="0">
             <td><code class="st ok">approved</code> → <code class="st idle">stale</code></td>

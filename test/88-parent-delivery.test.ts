@@ -1,6 +1,6 @@
 /**
  * 父级送达（架构工单 09）：模块在临时 Store 上直接构造，不起 Runtime 与模型服务；
- * 建结果唤醒用记录桩，kick 用探针。集成证据（队列循环、driver、编排器确实调用
+ * 建结果唤醒用记录桩。集成证据（队列循环、driver、编排器确实调用
  * 本模块）在 82、84-im-final-delivery、86。
  */
 
@@ -94,7 +94,6 @@ function kit() {
   };
   /** 记录桩：按请求键插入排队任务（与 submit 一样幂等），记录每次调用。 */
   const submits: Array<Parameters<ParentDeliveryDeps["submit"]>[0]> = [];
-  const kicks: string[] = [];
   const reports: WorkReport[] = [];
   const replies = new Map<string, string>();
   const delivery = new ParentDelivery({
@@ -103,7 +102,6 @@ function kit() {
       submits.push(input);
       return store.insertQueuedTask({ ...input, submissionDigest: input.requestId }).task;
     },
-    kick: (sessionId) => kicks.push(sessionId),
     defaultModelSelection: () => SELECTION,
     readReply: (taskId) => replies.get(taskId) ?? null,
     isReviewEvent: (event) => event.source === "github",
@@ -116,7 +114,7 @@ function kit() {
     db.close();
     fs.rmSync(root, { recursive: true, force: true });
   };
-  return { store, mainSession, devSession, task, work, message, delivery, submits, kicks, reports, replies, inbound, cleanup };
+  return { store, mainSession, devSession, task, work, message, delivery, submits, reports, replies, inbound, cleanup };
 }
 
 test("放行判定：wake: 与 smsg: 同一规则——所属工作已取消即不放行，其他任务照常", () => {
@@ -217,22 +215,24 @@ test("消息送达方向：main 在消息事务内建消息唤醒并写投递登
     const mw = k.work(k.mainSession.id);
     const mchild = mw.exec();
     const mmsg = k.message(mw, mchild.id);
-    assert.equal(k.store.withTx(() => k.delivery.messageRecorded(mmsg, k.store.getWorkDelegation(mw.workId)!)), "wake");
+    const verified = { ...SELECTION, modelId: "verified-before-transaction" };
+    assert.equal(k.store.withTx(() => k.delivery.messageRecorded(mmsg, k.store.getWorkDelegation(mw.workId)!, verified)), "wake");
     const wake = k.store.findTaskByRequest(k.mainSession.id, `smsg:${mmsg.id}`)!;
+    assert.deepEqual(wake.modelSelection, verified, "使用事务外已核实的选择，不重新取默认模型");
     assert.equal(wake.agentId, "main");
     assert.equal(wake.accessMode, "confirm");
     assert.equal(wake.deadline, null);
     assert.match(wake.input, new RegExp(`来自：SubAgent ${mw.agentId}（工作 ${mw.workId}，执行任务 ${mchild.id}）`));
     assert.equal(k.store.getSubAgentMessage(mmsg.id)!.deliveredTaskId, wake.id);
     // 重入幂等：同一请求键不建第二个唤醒
-    k.store.withTx(() => k.delivery.messageRecorded(mmsg, k.store.getWorkDelegation(mw.workId)!));
+    k.store.withTx(() => k.delivery.messageRecorded(mmsg, k.store.getWorkDelegation(mw.workId)!, verified));
     assert.equal(k.store.listTasksBySession(k.mainSession.id).filter((t) => t.requestId === `smsg:${mmsg.id}`).length, 1);
     assert.deepEqual(k.delivery.takeInjection(k.mainSession.id).messages, [], "main 不走注入");
 
     const dw = k.work(k.devSession.id);
     const dchild = dw.exec();
     const dmsg = k.message(dw, dchild.id);
-    assert.equal(k.store.withTx(() => k.delivery.messageRecorded(dmsg, k.store.getWorkDelegation(dw.workId)!)), "inject");
+    assert.equal(k.store.withTx(() => k.delivery.messageRecorded(dmsg, k.store.getWorkDelegation(dw.workId)!, null)), "inject");
     assert.equal(k.store.findTaskByRequest(k.devSession.id, `smsg:${dmsg.id}`), null);
     // 注入：同事务标记已投递（无承载任务），已取消工作的消息不注入
     const canceled = k.work(k.devSession.id);
@@ -248,7 +248,7 @@ test("消息送达方向：main 在消息事务内建消息唤醒并写投递登
   }
 });
 
-test("启动补建：缺失的结果唤醒与消息唤醒各补一次；已取消与普通开发会话不补；重复巡检不重复", async () => {
+test("启动巡检：只补缺失的结果唤醒；消息由 SubAgentManager 冲刷", async () => {
   const k = kit();
   try {
     const result = (parentSessionId: string) => {
@@ -260,24 +260,15 @@ test("启动补建：缺失的结果唤醒与消息唤醒各补一次；已取�
     const missing = result(k.mainSession.id);
     const canceled = result(k.mainSession.id);
     canceled.w.cancel();
-    const dev = result(k.devSession.id);
-    const pendingToMain = k.message(missing.w, missing.child.id);
-    const pendingCanceled = k.message(canceled.w, canceled.child.id);
-    const pendingDev = k.message(dev.w, dev.child.id);
-
+    result(k.devSession.id);
     await k.delivery.sweep();
     assert.deepEqual(k.submits.map((x) => x.requestId), [`wake:${missing.child.id}`]);
     assert.match(k.submits[0]!.input, /子任务超时/, "结局按持久状态推导");
-    assert.ok(k.store.findTaskByRequest(k.mainSession.id, `smsg:${pendingToMain.id}`), "补建消息唤醒");
-    assert.equal(k.store.getSubAgentMessage(pendingToMain.id)!.deliveredTaskId, k.store.findTaskByRequest(k.mainSession.id, `smsg:${pendingToMain.id}`)!.id);
-    assert.deepEqual(k.kicks, [k.mainSession.id], "消息唤醒提交后 kick");
-    assert.equal(k.store.getSubAgentMessage(pendingCanceled.id)!.deliveredAt, null, "已取消工作的消息不补建（由管理器冲刷记未投递）");
-    assert.equal(k.store.getSubAgentMessage(pendingDev.id)!.deliveredAt, null, "普通开发会话的消息仍待注入");
+    assert.equal(k.store.listTasksBySession(k.mainSession.id).filter((t) => t.requestId.startsWith("smsg:")).length, 0, "消息唤醒由管理器负责");
     assert.equal(k.store.listTasksBySession(k.devSession.id).filter((t) => t.requestId.startsWith("wake:")).length, 0);
 
     await k.delivery.sweep();
     assert.equal(k.submits.length, 1, "重复巡检不重复补建");
-    assert.deepEqual(k.kicks, [k.mainSession.id]);
   } finally {
     k.cleanup();
   }

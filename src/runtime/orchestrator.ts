@@ -31,7 +31,7 @@ import {
 } from "../core/types.ts";
 import { sessionToolCategories } from "../agent/tool-availability.ts";
 import { canonicalParamsDigest } from "../agent/mcp/tools.ts";
-import type { SubAgentDelegateInput, SubAgentDelegation } from "./subagents.ts";
+import type { SubAgentDelegateInput, SubAgentDelegation, SubAgentManager } from "./subagents.ts";
 import type { ParentDelivery } from "./parent-delivery.ts";
 
 /** 编排器需要的 Runtime 窄接口（宿主注入；除此之外的能力编排器不可见）。 */
@@ -89,7 +89,9 @@ export interface OrchestratorDeps {
    */
   subagents?: {
     delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation>;
-    flushPending?(parentSessionId?: string): void;
+    resultRecorded: SubAgentManager["resultRecorded"];
+    start: SubAgentManager["start"];
+    flushPending: SubAgentManager["flushPendingMessages"];
   };
   /** 结果落库前保存交付产物与来源元数据；重启补记走同一路径。 */
   resultData?(task: Task, outcome: ChildOutcome): Record<string, unknown>;
@@ -168,20 +170,14 @@ export class Orchestrator {
     // 崩溃窗口恢复②：重启期间到达终态的角色任务补记结果与事件、补唤醒；
     // interrupted 一律按结果未知处理，不自动重放任何外部副作用
     await this.sweepPendingResults();
-    // 崩溃窗口恢复③（issue 13）：待投递的工作内消息统一重核投递资格（边栏触发
-    // 丢失时由这里兜底；资格已失记明确未投递结果）
-    this.deps.subagents?.flushPending?.();
-    // 角色会话与 SubAgent 子会话的队列暂停由编排器自动恢复，但仅限
+    // SubAgent 管理器接管消息补投与安全的子会话启动恢复。
+    await this.deps.subagents?.start();
+    // 角色会话的队列暂停由编排器自动恢复，但仅限
     // backend_restart（排队任务在重启后继续）；occupancy_unverified 等涉及
     // 未核实旧执行的暂停必须保留给拥有者核实（docs/runtime.md 恢复约定——
     // 角色任务有工具执行，不同于无工具的 QQ 会话，不能沿用其无条件恢复前提）。
-    // 拥有者/主 Agent 委派的 SubAgent 排队任务已由恢复事务定 interrupted
-    // （runtime.ts recover），这里能命中的子会话只剩宿主固定评审的排队任务。
     for (const role of this.store.listAgentRoles()) {
       await this.resumeRestartPausedQueue(role.sessionId, `角色 ${role.id}`);
-    }
-    for (const agent of this.store.listSubAgents()) {
-      await this.resumeRestartPausedQueue(agent.sessionId, `SubAgent ${agent.id}`);
     }
     const ms = this.deps.deadlineCheckMs ?? 1_000;
     this.deadlineTimer = setInterval(() => void this.checkDeadlines(), ms);
@@ -558,11 +554,7 @@ export class Orchestrator {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
       // 宿主评审任务带来源事件：与角色路径同一处回写入站终态并登记通知（issue 19）
       this.recordInboundTerminal(task, outcome);
-      const occupancyHeld = this.store.listAllOccupancy().some((o) => o.sessionId === task.sessionId);
-      this.store.setSubAgentState(agent.id, occupancyHeld ? "unverified" : "idle", {
-        activeWorkId: work.id,
-        currentTaskId: null,
-      });
+      this.deps.subagents?.resultRecorded(task);
       const refs = { taskId: task.id, sessionId: work.parentSessionId };
       switch (outcome) {
         case "completed":
@@ -626,9 +618,8 @@ export class Orchestrator {
       return true;
     });
     if (!recorded) return;
-    // 工作内消息（issue 13）：终态登记后冲刷该父会话的待投递消息——刚空闲的
-    // 接收方立即投递（在同一同步续段内，早于任何新委派登记），资格已失记未投递
-    this.deps.subagents?.flushPending?.(work.parentSessionId);
+    // 终态登记后冲刷待投递消息；异步准备后在事务内重核当前工作与活动执行。
+    await this.deps.subagents?.flushPending(work.parentSessionId);
     await this.deps.parentDelivery.resultRecorded(task, outcome, summary);
   }
 

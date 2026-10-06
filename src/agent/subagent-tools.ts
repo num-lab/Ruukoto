@@ -58,7 +58,6 @@ import type {
   WorkCancellation,
   WorkIntegration,
 } from "../runtime/subagents.ts";
-import { runsInPlanMode } from "./plan-mode.ts";
 import { messageStateText } from "../runtime/parent-delivery.ts";
 import { subagentOpCheck } from "../runtime/subagents.ts";
 
@@ -92,7 +91,7 @@ export interface SubAgentToolsDeps {
   /** 整项取消（issue 14）；by 由宿主按调用身份固定（agent:<任务ID>），模型参数不参与。 */
   cancelWork(input: { workId: string; by: `agent:${string}`; parentSessionId: string; reason?: string | null }): Promise<WorkCancellation>;
   /** 工作内协作消息（issue 13）；发送方身份由发起任务核实（见 SubAgentManager.message）。 */
-  message(input: SubAgentMessageInput): SubAgentMessageResult;
+  message(input: SubAgentMessageInput): Promise<SubAgentMessageResult>;
   /** 改动汇总（issue 17）；发起任务由宿主按调用身份固定（当前任务），模型参数只给 work_id。 */
   integrate(input: { workId: string; parentTaskId: string; parentSessionId: string }): Promise<WorkIntegration>;
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
@@ -113,7 +112,7 @@ function okText(text: string) {
 /** subagent_message 的依赖子集（普通开发会话/main 与 SubAgent 子会话共用同一定义）。 */
 export interface SubAgentMessageToolDeps {
   store: Store;
-  message(input: SubAgentMessageInput): SubAgentMessageResult;
+  message(input: SubAgentMessageInput): Promise<SubAgentMessageResult>;
   taskContext(): HostToolContext | null;
   bindCall?: HostCallBinder;
 }
@@ -156,7 +155,7 @@ export function createSubAgentMessageTool(deps: SubAgentMessageToolDeps): ToolDe
           key: params.key,
           text: params.text,
         });
-        const result = deps.message({
+        const result = await deps.message({
           senderTaskId: ctx.taskId,
           workId: params.work_id,
           key: params.key,
@@ -252,27 +251,16 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       if (params.sub_agent_id !== undefined && (typeof params.sub_agent_id !== "string" || !params.sub_agent_id.trim())) {
         throw new Error("sub_agent_id 必须是既有 SubAgent id");
       }
-      if (params.work_id && params.sub_agent_id && params.mode !== undefined) throw new Error("协作加入（work_id 与 sub_agent_id 同现）只限只读分析工作，不能指定 mode");
       const mode = params.mode ?? "analyze";
       if (params.mode !== undefined && params.mode !== "analyze" && params.mode !== "modify") {
         throw new Error("mode 只能是 analyze 或 modify");
       }
-      if (params.work_id && params.mode !== undefined) {
-        const existing = typeof params.work_id === "string" ? store.getWorkDelegation(params.work_id) : null;
-        if (existing?.writeTarget) throw new Error("work_id 沿用工作原有模式，不能指定 mode");
-        throw new Error("只读分析工作不能升级为写入（请为修改新建一项工作）");
-      }
-      if (mode === "analyze" && params.target !== undefined) throw new Error("target 仅 mode=modify 使用");
       const target = params.target === undefined ? null : params.target;
       if (target !== null && typeof target !== "string") throw new Error("target 必须是路径字符串");
       const isMain = store.getSessionIdentity(ctx.sessionId)?.kind === "main";
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
       const materials = params.materials === undefined ? null : params.materials;
       if (mode === "modify") {
-        // 计划模式只承诺调研：modify 委派跨轮到链上复核（分析委派由工具可用性放行）
-        if (runsInPlanMode({ input: task.input, resumesTaskId: task.resumesTaskId }, (id) => store.getTask(id))) {
-          throw new Error("计划模式不能发起修改委派");
-        }
         if (target === null || !target.trim()) throw new Error("mode=modify 需要 target");
         if (readPaths !== null || materials !== null) {
           throw new Error("mode=modify 时不指定 read_paths 或 materials（写入目标包含自己的资料路径）");
@@ -319,7 +307,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         request: params.request,
         workId: params.work_id ?? null,
         subAgentId: params.sub_agent_id ?? null,
-        mode: mode as "analyze" | "modify",
+        ...(params.mode !== undefined ? { mode: params.mode as "analyze" | "modify" } : {}),
         target,
         materials,
         readPaths,

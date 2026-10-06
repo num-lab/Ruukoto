@@ -823,6 +823,75 @@ export class Store {
     return changed;
   }
 
+  /**
+   * 终态收尾：调用方须以 withTx 包住。条件更新成功后，在同一事务内清理
+   * 审批与待生效模式、写 task.* 事件并释放占用；keepOccupancy 用于旧执行单元
+   * 尚未核实退出的路径。onChanged 供工具账本在终态事件前补记效果未知；
+   * modeSwitchFailure 保留模式切换未核实路径的专用事件。
+   */
+  endTask(
+    taskId: string,
+    from: TaskStatus[],
+    to: Extract<TaskStatus, "completed" | "failed" | "canceled" | "interrupted">,
+    extra: Partial<Pick<Task, "interruptReason" | "errorMessage" | "endedAt">> & {
+      keepOccupancy?: boolean;
+      occupancyIssueReason?: string | null;
+      onChanged?: (task: Task) => void;
+      modeSwitchFailure?: { to: AccessMode; reason: string };
+    } = {},
+  ): boolean {
+    const changed = this.transitionTask(taskId, from.filter((status) => ACTIVE_TASK_STATUSES.includes(status)), to, {
+      interruptReason: extra.interruptReason,
+      errorMessage: extra.errorMessage,
+      endedAt: extra.endedAt ?? new Date().toISOString(),
+    });
+    if (!changed) return false;
+
+    extra.onChanged?.(this.getTask(taskId)!);
+    this.stalePendingConfirmations(taskId);
+    this.clearPendingModeSwitch(taskId);
+
+    const task = this.getTask(taskId)!;
+    const refs = { taskId, sessionId: task.sessionId };
+    if (to === "interrupted" && extra.modeSwitchFailure) {
+      this.appendEvent({ type: "task.mode_switch_failed", ...refs, ...extra.modeSwitchFailure }, refs);
+    } else switch (to) {
+      case "completed":
+        this.appendEvent({ type: "task.completed", taskId, sessionId: task.sessionId }, refs);
+        break;
+      case "failed":
+        this.appendEvent({ type: "task.failed", taskId, sessionId: task.sessionId, errorMessage: extra.errorMessage ?? task.errorMessage ?? "" }, refs);
+        break;
+      case "canceled":
+        this.appendEvent({ type: "task.canceled", taskId, sessionId: task.sessionId }, refs);
+        break;
+      case "interrupted":
+        this.appendEvent(
+          {
+            type: "task.interrupted",
+            taskId,
+            sessionId: task.sessionId,
+            reason: task.interruptReason ?? "unknown",
+            cancelRequested: task.cancelRequested,
+            effectUnknown: task.effectUnknown,
+          },
+          refs,
+        );
+        break;
+    }
+    if (extra.keepOccupancy) {
+      if (extra.occupancyIssueReason) {
+        this.appendEvent(
+          { type: "task.tool_process_unreaped", taskId, sessionId: task.sessionId, reason: extra.occupancyIssueReason },
+          refs,
+        );
+      }
+    } else {
+      this.releaseOccupancy(taskId);
+    }
+    return true;
+  }
+
   /** 提交停止意图（不改变状态；中断原因与取消意图分开记录）。 */
   setCancelRequested(taskId: string, cancelIntent: boolean): void {
     this.db
@@ -1805,7 +1874,7 @@ export class Store {
   }
 
   /**
-   * 任务中断/取消/重启恢复时，其未决与"已批准未消费"的确认请求一律标记 stale
+   * 任务到达任何终态，或权限范围变化时，其未决与"已批准未消费"的确认请求标记 stale
    * （失效批准不得再执行，旧 waiter 不重建；consumed_at 即执行开始，已消费不动）；
    * 进行中的自动审查一并标记 superseded（后台重启后不再有审查结果到达，不能永远显示"审查中"）。
    */

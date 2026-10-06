@@ -900,66 +900,16 @@ export class Driver {
     this.endThinking();
     this.deps.store.withTx(() => {
       const store = this.deps.store;
-      const ok = store.transitionTask(task.id, ["running", "awaiting_confirmation"], to, {
+      store.endTask(task.id, ["running", "awaiting_confirmation"], to, {
         interruptReason: extra.interruptReason ?? null,
         errorMessage: extra.errorMessage ?? null,
         endedAt: new Date().toISOString(),
+        keepOccupancy: extra.keepOccupancy,
+        occupancyIssueReason: extra.occupancyIssueReason,
+        onChanged: () => {
+          for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
+        },
       });
-      if (!ok) return; // 已被竞争路径定态
-      store.clearPendingModeSwitch(task.id);
-
-      for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
-
-      // 中断/取消时清理未决确认（标记 stale，防止失效批准再执行）
-      if (to === "interrupted" || to === "canceled") {
-        store.stalePendingConfirmations(task.id);
-      }
-
-      const refs = { taskId: task.id, sessionId: task.sessionId };
-      switch (to) {
-        case "completed":
-          store.appendEvent({ type: "task.completed", taskId: task.id, sessionId: task.sessionId }, refs);
-          break;
-        case "failed":
-          store.appendEvent(
-            { type: "task.failed", taskId: task.id, sessionId: task.sessionId, errorMessage: extra.errorMessage ?? "" },
-            refs,
-          );
-          break;
-        case "canceled":
-          store.appendEvent({ type: "task.canceled", taskId: task.id, sessionId: task.sessionId }, refs);
-          break;
-        case "interrupted":
-          store.appendEvent(
-            {
-              type: "task.interrupted",
-              taskId: task.id,
-              sessionId: task.sessionId,
-              reason: extra.interruptReason ?? "unknown",
-              cancelRequested: store.getTask(task.id)?.cancelRequested ?? false,
-              effectUnknown: store.getTask(task.id)?.effectUnknown ?? false,
-            },
-            refs,
-          );
-          break;
-      }
-
-      if (extra.keepOccupancy) {
-        // 无法确认旧执行已退出：保留占用并报错，不允许同目录新任务启动
-        store.appendEvent(
-          {
-            type: "task.tool_process_unreaped",
-            taskId: task.id,
-            sessionId: task.sessionId,
-            reason: extra.occupancyIssueReason ?? "unknown",
-          },
-          refs,
-        );
-      } else {
-        // agent-direction issue 16：释放按 taskId；占用键是任务写入目标
-        // （taskWorkspace），不是会话 cwd。
-        store.releaseOccupancy(task.id);
-      }
     });
     // 占用释放后唤醒其他会话的排队任务
     this.deps.onOccupancyReleased();

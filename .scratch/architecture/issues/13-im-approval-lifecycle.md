@@ -24,3 +24,8 @@ IM 审批的通知 → 命令 → 决定 → 获批后复核 → 长期授权候
 - ADR 0008：统一审批不动。
 
 ## Comments
+
+### 2026-10-06：先后已定（工单 10 访谈决定 5）
+
+先做工单 10，本单单独做。10 把 `currentTarget`、`expectedActor`、`replyCapChars` 三个依赖换成按来源取拥有者 IM 入口的一个依赖，reconcile 经回调调用仍在 Runtime 的 `invalidateImApprovals`；本单再把四个 Runtime 钩子（`imApprovalNotice`、`imApprovalConsumeRecheck`、`invalidateImApprovals`、`standingCandidate`）迁入 `ImApprovals`。本单「待访谈」的先后问题随之关闭，访谈时以 10 落地后的代码为准重新核对行号。
+

@@ -65,8 +65,22 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   即按 `work_canceled` 取消、零模型调用）；后台启动（补建缺失的结果唤醒与消息唤醒）。
   被截住的消息唤醒不改消息行，`subagent_result` 读取时补「（工作已取消，未送达）」。
   IM 发起工作的最终汇报的到期规则、发送键与正文也归本模块，IM 机制（目标核对、截短、
-  写 `owner_reply`）经 `sendWorkReport` 回调留在 Runtime。结果登记本身留在编排器，
+  写 `owner_reply`）经 `sendWorkReport` 回调交拥有者 IM 入口表。结果登记本身留在编排器，
   发给 SubAgent 的投递留在 SubAgent 管理器。
+- **拥有者 IM 入口（架构工单 10）**：QQ 私聊与 Telegram 各是一个入口，适配器实现
+  `ImEntry`（`src/runtime/im-entries.ts`）：来源、入站门、当前钉版目标、预期发送者、
+  回复截断、externalId 前缀、是否引用某凭据与事务内推进配置版本（含各自的
+  `*.config_changed` 事件）；`configure` / `setEnabled` 的信任边界校验各留在自己的
+  适配器，不合并。`ImEntries` 持入口表，承担跨平台部分：按来源分派入站门；配置或凭据
+  变化后按来源 reconcile（作废 registered、按丢弃原因取消活动任务、撤销该来源 IM
+  审批，不波及共享 main 会话中另一平台的工作）；owner 回复与工作最终汇报（目标须与
+  当前钉版目标一致，否则记 `<来源>.reply_skipped`、不改发）；凭据变化时先推进、写入
+  后重连并 reconcile 引用它的入口；缺省通知渠道（Telegram，测试可覆盖）与通知工具的
+  目标（QQ 来源任务只在钉版目标仍一致时发 QQ）。两个适配器始终创建；启动配置停用
+  （ruukoto-dev、`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`）是适配器的标志：
+  不连接、不轮询、目标为 null，门以 `qq_private_unavailable` / `telegram_unavailable`
+  丢弃（与入口停用同义，ADR 0012 2026-10-06 修订），outbox 视为发送器未加载而等待。
+  GitHub webhook 是事件来源，不进入口表，其门仍由 `inboundGate` 单独分派。
 - **工具可用性（架构工单 03）**：`src/agent/tool-availability.ts` 回答「这个会话、
   这个任务允许哪些工具」。会话类别（普通开发会话、main、SubAgent 子身份 subagent；已退役的 QQ 群会话与
   chat/coding 角色会话是只读归档、不归任何类别，算执行画像即拒绝）各有一份工具类别
@@ -1258,7 +1272,8 @@ ruukoto telegram enable | disable | status
   重投由外部 id 去重）。凭据的同名修改或删除也在写入前单调推进 `config_version`
   并归零偏移——旧连接、旧消息与旧批准失效，A→B→A 轮换不恢复旧代次。旧目标上
   未发送的操作因版本变化取消，不改发新目标。
-- dev 开发实例固定注入 `RUUKOTO_DISABLE_TELEGRAM=1`，不创建适配器。
+- dev 开发实例固定注入 `RUUKOTO_DISABLE_TELEGRAM=1`：适配器照常创建但不轮询，
+  Telegram 入站作废、排队任务按 `telegram_unavailable` 取消。
 
 ### 运行行为
 
@@ -1354,7 +1369,8 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
   审批后发送；定时唤醒、子任务唤醒和直接 TUI 任务仍沿用 Telegram 默认目标。
   目标版本变化使旧操作取消，不切换到其他平台。QQ 私聊记录用 `notify list/show`
   查看；`qq inbox/outbox` 继续显示群记录。
-- **开发与验证**：`RUUKOTO_DISABLE_QQ=1` 同时关闭群和私聊连接。测试使用本地
+- **开发与验证**：`RUUKOTO_DISABLE_QQ=1` 同时关闭群和私聊连接；私聊入站作废、
+  排队任务按 `qq_private_unavailable` 取消，不停住 main 队列（ADR 0012 2026-10-06 修订）。测试使用本地
   模拟 OneBot 与模型，不向真实 QQ 账号发送；真实 NapCat 版本、消息格式与收发
   闭环须拥有者另行授权后验收。
 

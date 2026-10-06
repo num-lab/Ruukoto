@@ -52,7 +52,7 @@
         <code class="src" data-src="src/agent/artifacts.ts#class ArtifactStore">agent/artifacts.ts</code>
         <code class="src" data-src="src/agent/managed-processes.ts#ManagedUnitKind">agent/managed-processes.ts</code>
         <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
-        <code class="src" data-src="src/runtime/runtime.ts#private standingCandidate">runtime/runtime.ts</code>
+        <code class="src" data-src="src/runtime/runtime.ts#private async getDriver">runtime/runtime.ts</code>
         <code class="src" data-src="src/runtime/subagents.ts#accessMode: &quot;confirm&quot;">runtime/subagents.ts</code>
         <code class="src" data-src="src/core/store.ts#consumeApproval">core/store.ts</code>
         <code class="src" data-src="src/core/types.ts#export type ApprovalScope">core/types.ts</code>
@@ -605,7 +605,7 @@
       <li>审批仍是 pending，命令中的权限版本等于审批记录的版本（否则回执 <code>version_mismatch</code>），任务仍在 awaiting_confirmation。</li>
       <li>交给活动驱动器的闸门：决定、<code>task.confirmation_resolved</code>、控制事件终态与回执作为 <code>txExtra</code> 在同一事务提交。任一写失败整笔回滚，决定不记录，另记一条失败回执请拥有者重发。</li>
     </ol>
-    <p>批准接受不等于操作成功。消费前，闸门经宿主挂钩再做一次 IM 固定身份复核（<code class="src" data-src="src/runtime/runtime.ts#private imApprovalConsumeRecheck">runtime.ts · imApprovalConsumeRecheck</code>）：批准接受之后、消费之前若入口重绑、停用或配置代次变化，批准失效、操作不执行。IM 入口失效时，Runtime 另把该平台来源的未消费审批全部失效并定向放开等待，另一平台在共享主会话里的审批不受影响。</p>
+    <p>批准接受不等于操作成功。消费前，闸门经宿主挂钩再做一次 IM 固定身份复核（<code class="src" data-src="src/runtime/im-approvals.ts#consumeRecheck">im-approvals.ts · consumeRecheck</code>）：批准接受之后、消费之前若入口重绑、停用或配置代次变化，批准失效、操作不执行。IM 入口失效时，ImApprovals 另把该平台来源的未消费审批全部失效并定向放开等待，另一平台在共享主会话里的审批不受影响。</p>
   </section>
 
   <section id="auto-review">
@@ -645,7 +645,7 @@
       </div>
       <div class="card">
         <h4>使用：先找候选，再在消费事务里核实</h4>
-        <p><code>service_manage</code> 先经 helper 拿到本次真实修订，再调 <code class="src" data-src="src/agent/approval-gate.ts#requestStanding&lt;T&gt;">approval-gate.ts · requestStanding</code>。宿主按当前 main、任务来源入口的稳定身份、本机、单元与动作找候选（<code class="src" data-src="src/runtime/runtime.ts#private standingCandidate">runtime.ts · standingCandidate</code>）：钉版目标或 actor 与当前不符记 <code>entry_changed</code> 失效，修订不符记 <code>revision_changed</code> 失效。候选不是执行依据，消费事务内还要按授权行逐项重核（上方时序图 ①）。没有 IM 来源的任务（TUI 提交、调度、GitHub、子任务消息）恒无候选。</p>
+        <p><code>service_manage</code> 先经 helper 拿到本次真实修订，再调 <code class="src" data-src="src/agent/approval-gate.ts#requestStanding&lt;T&gt;">approval-gate.ts · requestStanding</code>。ImApprovals 按当前 main、任务来源入口的稳定身份、本机、单元与动作找候选（<code class="src" data-src="src/runtime/im-approvals.ts#standingCandidate">im-approvals.ts · standingCandidate</code>）：钉版目标或 actor 与当前不符记 <code>entry_changed</code> 失效，修订不符记 <code>revision_changed</code> 失效。候选不是执行依据，消费事务内还要按授权行逐项重核（上方时序图 ①）。没有 IM 来源的任务（TUI 提交、调度、GitHub、子任务消息）恒无候选。</p>
       </div>
       <div class="card">
         <h4>记录：审批与账本怎样写</h4>
@@ -658,7 +658,7 @@
         <thead><tr><th>失效原因（<code>revoked_reason</code>）</th><th>触发</th><th>位置</th></tr></thead>
         <tbody>
           <tr><td><code>owner_revoked</code></td><td><code>/revoke-service-grant &lt;授权ID&gt; &lt;版本&gt;</code>、控制面 <code>service_grant_revoke</code>、<code>ruukoto service-grant revoke</code>，都带期望版本；重复撤销幂等</td><td><code class="src" data-src="src/core/store.ts#revokeStandingPermission">store.ts · revokeStandingPermission</code></td></tr>
-          <tr><td><code>entry_changed</code></td><td>IM 入口重绑、停用、拥有者或凭据代次变化（暂时离线与后台正常重启不算）；候选检索时钉版目标或 actor 与当前不符</td><td><code class="src" data-src="src/runtime/runtime.ts#private invalidateImApprovals">runtime.ts · invalidateImApprovals</code>、<code>standingCandidate</code></td></tr>
+          <tr><td><code>entry_changed</code></td><td>IM 入口重绑、停用、拥有者或凭据代次变化（暂时离线与后台正常重启不算）；候选检索时钉版目标或 actor 与当前不符</td><td><code class="src" data-src="src/runtime/im-approvals.ts#invalidate">im-approvals.ts · invalidate</code>、<code>standingCandidate</code></td></tr>
           <tr><td><code>revision_changed</code></td><td>候选检索时策略修订或单元定义修订与授权不符</td><td><code>standingCandidate</code></td></tr>
           <tr><td><code>effect_unknown</code></td><td>同一 main、本机、单元与动作的某次已消费服务操作被标效果未知：所有入口的有效授权一起失效，阻止换操作 ID 自动重试</td><td><code class="src" data-src="src/core/store.ts#invalidateStandingForTarget">store.ts · invalidateStandingForTarget</code>，由账本在同一事务调用</td></tr>
         </tbody>

@@ -434,7 +434,7 @@
         </tbody>
       </table>
     </div>
-    <p>任何 QQ 或 Telegram 配置变化都递增配置版本，旧授权不延续到新配置：改回复上限等之后，此前收到的私聊消息在门上都按配置已变丢弃，已经在执行的也会被取消。QQ 私聊或 Telegram 配置、凭据变化后，拥有者 IM 入口表按来源逐条复核 registered 与 queued 的事件（<code class="src" data-src="src/runtime/im-entries.ts#async reconcile(source: string)">im-entries.ts · reconcile</code>，两个平台共用同一段）：registered 的直接作废，已建的任务只要还是活动状态（包括 running）就取消。复核的末尾还会收尾该平台的 IM 审批（<code class="src" data-src="src/runtime/runtime.ts#private invalidateImApprovals">invalidateImApprovals</code>）：来源入口的门已判 drop 的未消费审批（待决与已批准）失效、定向解除等待，入口已失效的长期授权记 <code>entry_changed</code>。只影响原平台来源，不波及另一平台在共享 main 会话中的工作；配置未变只是暂时离线的不作废，已消费的不动。退役前群一侧由适配器逐条复核亦取消活动任务（cancelInvalidGroupWork 与 onGroupRemoved）的机制已随退役删除；旧群口径由启动收尾一次性处理（见 <a href="#recovery">重启恢复</a>）。</p>
+    <p>任何 QQ 或 Telegram 配置变化都递增配置版本，旧授权不延续到新配置：改回复上限等之后，此前收到的私聊消息在门上都按配置已变丢弃，已经在执行的也会被取消。QQ 私聊或 Telegram 配置、凭据变化后，拥有者 IM 入口表按来源逐条复核 registered 与 queued 的事件（<code class="src" data-src="src/runtime/im-entries.ts#async reconcile(source: string)">im-entries.ts · reconcile</code>，两个平台共用同一段）：registered 的直接作废，已建的任务只要还是活动状态（包括 running）就取消。复核的末尾还会收尾该平台的 IM 审批（<code class="src" data-src="src/runtime/im-approvals.ts#invalidate">invalidate</code>）：来源入口的门已判 drop 的未消费审批（待决与已批准）失效、定向解除等待，入口已失效的长期授权记 <code>entry_changed</code>。只影响原平台来源，不波及另一平台在共享 main 会话中的工作；配置未变只是暂时离线的不作废，已消费的不动。退役前群一侧由适配器逐条复核亦取消活动任务（cancelInvalidGroupWork 与 onGroupRemoved）的机制已随退役删除；旧群口径由启动收尾一次性处理（见 <a href="#recovery">重启恢复</a>）。</p>
 
     <h3>门说「等」之后谁来重试</h3>
     <div class="cards">
@@ -574,9 +574,9 @@
 
     <h3>与审批通知、长期授权的关系</h3>
     <ul>
-      <li><b>初始通知</b>：IM 来源任务的审批登记时，宿主在同一事务里给原委托入口登记一条通知（<code class="src" data-src="src/runtime/runtime.ts#private imApprovalNotice">runtime.ts · imApprovalNotice</code>，<code>sourceKind = confirmation</code>，键 <code>im-approval:&lt;审批ID&gt;</code>，目标是原委托收件时钉版的目标），写明审批 ID、权限版本和 <code>/approve</code>、<code>/reject</code>、<code>/approval</code> 的完整命令，服务 restart 审批另附 <code>/approve-standing</code>。发送前审批已决定或失效就不再发。通知发不出去不会让操作获批。</li>
+      <li><b>初始通知</b>：IM 来源任务的审批登记时，ImApprovals 在同一事务里给原委托入口登记一条通知（<code class="src" data-src="src/runtime/im-approvals.ts#notifyCreated">im-approvals.ts · notifyCreated</code>，<code>sourceKind = confirmation</code>，键 <code>im-approval:&lt;审批ID&gt;</code>，目标是原委托收件时钉版的目标），写明审批 ID、权限版本和 <code>/approve</code>、<code>/reject</code>、<code>/approval</code> 的完整命令，服务 restart 审批另附 <code>/approve-standing</code>。发送前审批已决定或失效就不再发。通知发不出去不会让操作获批。</li>
       <li><b>长期授权</b>：<code>/approve-standing</code> 是创建长期授权的唯一入口（<code class="src" data-src="src/runtime/im-approvals.ts#private handleApproveStanding">handleApproveStanding</code>）。范围全部取自原审批记录，入口取自这条命令；控制事件终态、授权创建、回执与审计事件作为 <code>txExtra</code>，与本次批准、批准与授权的关联在闸门的同一事务里提交。原 <code>/approve</code> 只批准一次，从不顺带保存授权。<code>/service-grants</code>、<code>/service-grant</code>、<code>/revoke-service-grant</code> 按入口的稳定身份（平台、账号、chat、actor）选授权，不看配置代次，所以旧代次建的授权也能查看和撤销，目录里标「入口已失效」；命令本身照样先过当前入口身份核实。撤销与回执同一事务。授权怎样逐次核实后放行、何时失效，见<a href="tool-call-path.html#standing">工具调用路径 · 长期操作授权</a>。</li>
-      <li><b>失效</b>：入口停用、重新绑定、凭据变化或其他使配置版本递增的改动之后，Runtime 的复核（<code class="src" data-src="src/runtime/runtime.ts#private invalidateImApprovals">invalidateImApprovals</code>）让该平台来源的未消费审批失效并解除等待，入口已失效的长期授权记 <code>entry_changed</code>。批准已接受、还没消费时，消费前另有一次固定身份复核（<code class="src" data-src="src/runtime/runtime.ts#private imApprovalConsumeRecheck">imApprovalConsumeRecheck</code>）。暂时离线不作废；另一平台在共享 main 会话里的审批不受影响。</li>
+      <li><b>失效</b>：入口停用、重新绑定、凭据变化或其他使配置版本递增的改动之后，ImApprovals 的复核（<code class="src" data-src="src/runtime/im-approvals.ts#invalidate">invalidate</code>）让该平台来源的未消费审批失效并解除等待，入口已失效的长期授权记 <code>entry_changed</code>。批准已接受、还没消费时，消费前另有一次固定身份复核（<code class="src" data-src="src/runtime/im-approvals.ts#consumeRecheck">consumeRecheck</code>）。暂时离线不作废；另一平台在共享 main 会话里的审批不受影响。</li>
     </ul>
 
     <aside class="callout inv">

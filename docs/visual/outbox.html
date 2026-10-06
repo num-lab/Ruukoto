@@ -302,7 +302,7 @@
           </tr>
           <tr>
             <td><code>confirmation</code></td>
-            <td>IM 来源任务的审批请求登记时，与审批记录、任务转 awaiting_confirmation 同一事务（<code class="src" data-src="src/runtime/runtime.ts#private imApprovalNotice">runtime.ts · imApprovalNotice</code>）。「IM 来源」指沿 parentTaskId 追到的根任务来自 Telegram 或 QQ 私聊的普通入站。</td>
+            <td>IM 来源任务的审批请求登记时，与审批记录、任务转 awaiting_confirmation 同一事务（<code class="src" data-src="src/runtime/im-approvals.ts#notifyCreated">im-approvals.ts · notifyCreated</code>）。「IM 来源」指沿 parentTaskId 追到的根任务来自 Telegram 或 QQ 私聊的普通入站。</td>
             <td><code>im-approval:</code> + 审批 ID，不占用任务的一次通知槽</td>
             <td>宿主模板：工具、审批 ID、权限版本、任务、范围、参数摘要与带版本的 <code>/approve</code>、<code>/reject</code>、<code>/approval</code> 完整命令（服务 restart 审批另附 <code>/approve-standing</code>）。不经审批，是宿主对原委托入口的自动通知；发不出去不会让操作获批。见<a href="#im">IM 审批的外发</a></td>
           </tr>
@@ -343,7 +343,7 @@
       </div>
       <div class="card">
         <h4>获批后同事务重核</h4>
-        <p>批准消费的事务里先重核身份（按调用开始时捕获的上下文）、目标是否仍与审批时相同、来源资料是否仍可读；IM 来源任务的审批另核 IM 固定身份（<code class="src" data-src="src/runtime/runtime.ts#private imApprovalConsumeRecheck">runtime.ts · imApprovalConsumeRecheck</code>）。全部通过才消费批准并写入计划或发送操作；任一失败即作废批准、不登记。闸门细节与单次消费见<a href="tool-call-path.html#approval">工具调用路径</a>。</p>
+        <p>批准消费的事务里先重核身份（按调用开始时捕获的上下文）、目标是否仍与审批时相同、来源资料是否仍可读；IM 来源任务的审批另核 IM 固定身份（<code class="src" data-src="src/runtime/im-approvals.ts#consumeRecheck">im-approvals.ts · consumeRecheck</code>）。全部通过才消费批准并写入计划或发送操作；任一失败即作废批准、不登记。闸门细节与单次消费见<a href="tool-call-path.html#approval">工具调用路径</a>。</p>
       </div>
       <div class="card">
         <h4>目标只来自可信渠道配置</h4>
@@ -601,7 +601,7 @@
           <div class="m l ok" style="--from:2;--to:1"><span>回执：已接受批准，执行前仍复核</span></div>
         </div>
       </div>
-      <figcaption>两类外发的目标都是收件时钉版的目标，不按当前配置重新取。初始通知由审批闸门在审批登记事务里经宿主挂钩写入（<code class="src" data-src="src/agent/approval-gate.ts#notifyConfirmation?.(c, input.task)">approval-gate.ts · notifyConfirmation</code> → <code class="src" data-src="src/runtime/runtime.ts#private imApprovalNotice">imApprovalNotice</code>），提交后的微任务立即唤醒发送循环（<code class="src" data-src="src/runtime/runtime.ts#queueMicrotask(() => this.scheduler?.kickSender());">runtime.ts · kickSender</code>）。回执由 <code class="src" data-src="src/runtime/im-approvals.ts#private persistTx">persistTx</code> 写入；经 <code class="src" data-src="src/runtime/im-approvals.ts#private persist(">persist</code> 落库的命令与撤销授权在提交后立即唤醒，决定与长期批准提交成功时不另行唤醒，由下一轮扫描（每 1 s）带起。</figcaption>
+      <figcaption>两类外发的目标都是收件时钉版的目标，不按当前配置重新取。初始通知由审批闸门在审批登记事务里经 ImApprovals 写入（<code class="src" data-src="src/agent/approval-gate.ts#notifyConfirmation?.(c, input.task)">approval-gate.ts · notifyConfirmation</code> → <code class="src" data-src="src/runtime/im-approvals.ts#notifyCreated">notifyCreated</code>），提交后的微任务立即唤醒发送循环（<code class="src" data-src="src/runtime/im-approvals.ts#notifyCreated">im-approvals.ts · notifyCreated</code>）。回执由 <code class="src" data-src="src/runtime/im-approvals.ts#private persistTx">persistTx</code> 写入；经 <code class="src" data-src="src/runtime/im-approvals.ts#private persist(">persist</code> 落库的命令与撤销授权在提交后立即唤醒，决定与长期批准提交成功时不另行唤醒，由下一轮扫描（每 1 s）带起。</figcaption>
     </figure>
 
     <details>
@@ -632,7 +632,7 @@
         <tbody>
           <tr><td>owner 回复登记（含工作最终汇报）<br><code class="src" data-src="src/runtime/im-entries.ts#enqueueOwnerReply(event: InboundEvent">enqueueOwnerReply</code> <code class="src" data-src="src/runtime/im-entries.ts#private enqueueReply(">enqueueReply</code></td><td>事件钉版目标与当前目标 <code>sameTarget</code>，外部 ID 前缀属于同一账号与 chat（owner 回复与工作最终汇报共用这一段核对）</td><td>不登记，记 <code>*.reply_skipped</code>（<code>target_changed</code> 或 <code>target_unavailable</code>；工作最终汇报的 reason 带 <code>work_report:</code> 前缀）</td></tr>
           <tr><td>IM 命令处理<br><code class="src" data-src="src/runtime/im-approvals.ts#async handleCommand">handleCommand</code></td><td>actor 是当前 owner，命令的钉版目标与当前目标 <code>sameTarget</code></td><td>不执行，仍以旧钉版目标登记 <code>identity_failed</code> 回执（发送前会被取消）；命令没有钉版目标时只留控制记录，不登记回执（<code class="src" data-src="src/runtime/im-approvals.ts#private persistNoReceipt">persistNoReceipt</code>）</td></tr>
-          <tr><td>IM 初始通知登记<br><code class="src" data-src="src/runtime/runtime.ts#private imApprovalNotice">imApprovalNotice</code></td><td>不比较，直接取原委托事件的钉版目标</td><td>交给发送前复核</td></tr>
+          <tr><td>IM 初始通知登记<br><code class="src" data-src="src/runtime/im-approvals.ts#notifyCreated">notifyCreated</code></td><td>不比较，直接取原委托事件的钉版目标</td><td>交给发送前复核</td></tr>
           <tr><td>通知审批获批<br><code class="src" data-src="src/agent/scheduler-tools.ts#const approveThenCommit">approveThenCommit</code></td><td>当前目标与审批范围里的目标，JSON 序列化后全等</td><td>批准作废，计划或操作不登记</td></tr>
           <tr><td>发送前复核<br><code class="src" data-src="src/scheduler/runtime.ts#private async sendOne">sendOne</code></td><td>渠道当前目标与操作目标，JSON 序列化后全等</td><td>pending → canceled：当前目标为空记 <code>target_disabled</code>，不同记 <code>target_changed</code></td></tr>
           <tr><td>GitHub 通知登记与来源核实<br><code class="src" data-src="src/github/events.ts#private notificationProblem">notificationProblem</code></td><td>事件钉版目标与当前目标深比较（<code>isDeepStrictEqual</code>）</td><td>登记时不登记、记 <code>inbound.skipped</code>；发送前 pending → canceled，<code>source_revoked</code></td></tr>

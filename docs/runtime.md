@@ -1414,8 +1414,10 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
 ## IM 审批（agent-direction issue 08，ADR 0017/0011/0012）
 
 绑定拥有者在 QQ 私聊或 Telegram 私聊中查看审批详情并批准或拒绝已有受控操作，
-结果继续回到原入口。模块在 `src/runtime/im-approvals.ts`；平台身份不等于通用
-控制面访问权，审批身份、操作与范围仍由宿主核实。
+结果继续回到原入口。`src/runtime/im-approvals.ts` 的 `ImApprovals` 统一持有
+审批通知、命令、消费前复核、配置失效和长期授权候选；Runtime 只提供入口查询、
+解除指定审批等待和服务能力检查等依赖。平台身份不等于通用控制面访问权，审批
+身份、操作与范围仍由宿主核实。
 
 ```text
 /approvals [页码]                    # 待决审批分页列表（每页 5 条）

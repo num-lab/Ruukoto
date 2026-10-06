@@ -194,7 +194,7 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     assert.ok(sent.every((e) => e.delivery === "task" && typeof e.taskId === "string"));
 
     // 主 Agent 补充（上级向协作中的 SubAgent 发送）：投递为 A 的本工作任务
-    const sup = rt.subagents!.message({ senderTaskId: parent.id, workId: wId, key: "s1", text: "补充CAP-SUP1", toSubAgentId: aId, paramsDigest: "ds1" });
+    const sup = await rt.subagents!.message({ senderTaskId: parent.id, workId: wId, key: "s1", text: "补充CAP-SUP1", toSubAgentId: aId, paramsDigest: "ds1" });
     assert.equal(sup.delivery, "task");
     const aAll = deliveryTasksOf(rt, rt.store.getSubAgent(aId)!.sessionId);
     await waitFor("补充任务完成", () => rt.store.getTask(aAll[1]!.id)!.resultSummary !== null);
@@ -323,37 +323,37 @@ test("范围拒绝：跨身份/跨工作/资格已失/已关闭/已取消/自发
     const count = () => rt.store.listSubAgentMessagesByWork(W).length;
 
     // 主 Agent 发送必须指定接收的 SubAgent
-    assert.throws(() => send({}), /必须指定接收的 SubAgent/);
+    await assert.rejects(() => send({}), /必须指定接收的 SubAgent/);
     // 跨父会话：其他会话的任务不能在该工作中发言
-    assert.throws(() => send({ senderTaskId: otherParent.id, toSubAgentId: a.agent.id }), /只能在本工作的父会话/);
+    await assert.rejects(() => send({ senderTaskId: otherParent.id, toSubAgentId: a.agent.id }), /只能在本工作的父会话/);
     // 发送方不在本工作：A 的任务对 B 的工作发言
-    assert.throws(
+    await assert.rejects(
       () => rt.subagents!.message({ senderTaskId: a.task.id, workId: b.work.id, key: "k", text: "hi", paramsDigest: "d" }),
       /只能从本工作的执行任务/,
     );
     // 接收方不在本工作：B 的当前工作不是 W
-    assert.throws(() => send({ toSubAgentId: b.agent.id }), /当前工作不是本工作/);
+    await assert.rejects(() => send({ toSubAgentId: b.agent.id }), /当前工作不是本工作/);
     // User 身份不能伪造：发送方只能是主 Agent 或本工作 SubAgent（会话其余任务）
     const fakeTask = { id: "task_none_00000000" };
-    assert.throws(() => rt.subagents!.message({ senderTaskId: fakeTask.id, workId: W, key: "k", text: "hi", paramsDigest: "d" }), /发起任务不存在/);
+    await assert.rejects(() => rt.subagents!.message({ senderTaskId: fakeTask.id, workId: W, key: "k", text: "hi", paramsDigest: "d" }), /发起任务不存在/);
     // 自发自收
-    assert.throws(
+    await assert.rejects(
       () => rt.subagents!.message({ senderTaskId: a.task.id, workId: W, key: "k", text: "hi", toSubAgentId: a.agent.id, paramsDigest: "d" }),
       /不能发送给自己/,
     );
     // 正文超限
-    assert.throws(() => send({ toSubAgentId: a.agent.id, text: "x".repeat(4097) }), /超过 4096 字符/);
+    await assert.rejects(() => send({ toSubAgentId: a.agent.id, text: "x".repeat(4097) }), /超过 4096 字符/);
     // 幂等冲突：同键异参
-    const ok = send({ toSubAgentId: a.agent.id });
+    const ok = await send({ toSubAgentId: a.agent.id });
     assert.equal(ok.created, true);
-    assert.throws(() => send({ toSubAgentId: a.agent.id, paramsDigest: "d-other" }), /幂等键冲突/);
+    await assert.rejects(() => send({ toSubAgentId: a.agent.id, paramsDigest: "d-other" }), /幂等键冲突/);
     await waitFor("投递完成", () => rt.store.getTask(ok.message.deliveredTaskId!)!.resultSummary !== null);
     await waitIdle(rt, a.agent.id);
 
     // 已关闭：明确拒绝，且不把关闭当作重建 Agent 的理由（换键避免命中上方查重）
     rt.subagents!.close({ subAgentId: b.agent.id, by: "owner" });
     try {
-      send({ toSubAgentId: b.agent.id, key: "k-closed" });
+      await send({ toSubAgentId: b.agent.id, key: "k-closed" });
       assert.fail("应拒绝");
     } catch (err) {
       assert.match((err as Error).message, /已关闭/);
@@ -362,7 +362,7 @@ test("范围拒绝：跨身份/跨工作/资格已失/已关闭/已取消/自发
     }
     // 已取消的工作不能投递（换键避免命中上方查重）
     await rt.subagents!.cancelWork({ workId: W, by: "owner" });
-    assert.throws(() => send({ toSubAgentId: a.agent.id, key: "k-canceled" }), /工作已取消/);
+    await assert.rejects(() => send({ toSubAgentId: a.agent.id, key: "k-canceled" }), /工作已取消/);
     assert.equal(count(), 1, "全部拒绝没有产生新消息行");
   } finally {
     await t.shutdown();
@@ -395,11 +395,11 @@ test("复用后资格转移：旧协作方消息被拒，迟到旧消息不进�
     assert.equal(rt.store.getSubAgent(b.agent.id)!.activeWorkId, w2.work.id);
     await waitFor("W2 完成", () => rt.store.getTask(w2.task.id)!.resultSummary !== null);
     await waitIdle(rt, b.agent.id);
-    assert.throws(
+    await assert.rejects(
       () => rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "旧工作CAP-OLD-MSG", toSubAgentId: b.agent.id, paramsDigest: "dk1" }),
-      /当前工作不是本工作.*资格按当前工作确定/,
+      { code: "invalid_state", message: /当前工作不是本工作/ },
     );
-    assert.throws(
+    await assert.rejects(
       () => rt.subagents!.message({ senderTaskId: a.task.id, workId: W, key: "k1", text: "hi", toSubAgentId: b.agent.id, paramsDigest: "dk1" }),
       /当前工作不是本工作/,
     );
@@ -409,8 +409,8 @@ test("复用后资格转移：旧协作方消息被拒，迟到旧消息不进�
     assert.ok(w2Calls.length > 0 && w2Calls.every((c) => !inputText(c).includes("CAP-OLD-MSG")));
 
     // 冲刷守卫（单测级）：待投递消息的接收方已转做其他工作时记 moved_work 不投递。
-    // 触发时序说明：正常路径里终态冲刷早于任何复用登记（同一同步续段），复合
-    // 状态只能由「忙时登记 → 转做其他工作」构成，这里按最终状态直接布置。
+    // 用活动任务把消息确定停于 pending；接收方随后转做其他工作，冲刷必须
+    // 重核当前工作，不能让等待期间准备好的投递进入新工作上下文。
     rt.store.setSessionQueueState(rt.store.getSubAgent(b.agent.id)!.sessionId, "paused", "test_fixture");
     const busyFixture = rt.store.withTx(() =>
       rt.store.insertQueuedTask({
@@ -425,11 +425,11 @@ test("复用后资格转移：旧协作方消息被拒，迟到旧消息不进�
       }),
     ).task;
     rt.store.setSubAgentState(b.agent.id, "running", { activeWorkId: W, currentTaskId: busyFixture.id });
-    const pending = rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k2", text: "迟到CAP-LATE", toSubAgentId: b.agent.id, paramsDigest: "dk2" });
+    const pending = await rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k2", text: "迟到CAP-LATE", toSubAgentId: b.agent.id, paramsDigest: "dk2" });
     assert.equal(pending.delivery, "pending");
     // 随后 B 转做其他工作（复用登记的等价结果）：冲刷判定资格已失
     rt.store.setSubAgentState(b.agent.id, "idle", { activeWorkId: w2.work.id, currentTaskId: null });
-    rt.subagents!.flushPendingMessages(session.id);
+    await rt.subagents!.flushPendingMessages(session.id);
     const dropped = rt.store.getSubAgentMessage(pending.message.id)!;
     assert.equal(dropped.undeliveredReason, "moved_work");
     assert.equal(dropped.deliveredTaskId, null);
@@ -481,15 +481,14 @@ test("关闭后的投递有明确结果：冲刷记 closed；消息错误不把�
       }),
     );
     rt.store.setSubAgentState(b.agent.id, "running", { activeWorkId: W });
-    const pending = rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "看到请回", toSubAgentId: b.agent.id, paramsDigest: "dk1" });
+    const pending = await rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "看到请回", toSubAgentId: b.agent.id, paramsDigest: "dk1" });
     assert.equal(pending.delivery, "pending");
-    // 真实路径里，active→idle 的任何转变都先经终态冲刷（投递先于关闭可用），
-    // pending + closed 复合态只能来自名额上限留待投递的窗口；按最终状态布置
-    // （先写出关闭列再冲刷、最后才清理占队任务——顺序反过来会让终态冲刷先投递）。
+    // 名额上限或异步冲刷窗口可能留下 pending；按关闭后的最终状态布置，先
+    // 写关闭列再冲刷，最后清理占队任务，避免夹具清理先触发实际投递。
     // 关闭列由 store 条件写入；关闭路径的 flushPendingMessages 与本断言共用同一判定
     const closedAt = new Date().toISOString();
     assert.equal(rt.store.closeSubAgent(b.agent.id, closedAt, "owner"), true);
-    rt.subagents!.flushPendingMessages(session.id);
+    await rt.subagents!.flushPendingMessages(session.id);
     const dropped = rt.store.getSubAgentMessage(pending.message.id)!;
     assert.equal(dropped.undeliveredReason, "closed:" + closedAt);
     assert.equal(eventsOf(rt, "subagent_message.dropped", session.id).at(-1)!.reason, `closed:${closedAt}`);
@@ -497,7 +496,7 @@ test("关闭后的投递有明确结果：冲刷记 closed；消息错误不把�
     await rt.cancelTask(stuck.id);
     assert.equal(deliveryTasksOf(rt, rt.store.getSubAgent(b.agent.id)!.sessionId).length, 0);
     // 同键重放仍返回原记录（对账的是同一条逻辑消息，不是重新创建）
-    const replay = rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "看到请回", toSubAgentId: b.agent.id, paramsDigest: "dk1" });
+    const replay = await rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "看到请回", toSubAgentId: b.agent.id, paramsDigest: "dk1" });
     assert.equal(replay.created, false);
     assert.equal(replay.message.id, pending.message.id);
     await rt.resumeQueue(rt.store.getSubAgent(b.agent.id)!.sessionId).catch(() => {});
@@ -537,18 +536,18 @@ test("幂等与账本：同键同参返回原记录（含工具层重放），�
       }),
     );
     rt.store.setSubAgentState(a.agent.id, "running", { activeWorkId: W });
-    const sent = rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "排队CAP-Q", toSubAgentId: a.agent.id, paramsDigest: "dk1" });
+    const sent = await rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "排队CAP-Q", toSubAgentId: a.agent.id, paramsDigest: "dk1" });
     assert.equal(sent.delivery, "pending");
     // 同键同参（忙碌中也返回原记录，不重复形成同一条逻辑消息）
-    const again = rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "排队CAP-Q", toSubAgentId: a.agent.id, paramsDigest: "dk1" });
+    const again = await rt.subagents!.message({ senderTaskId: parent.id, workId: W, key: "k1", text: "排队CAP-Q", toSubAgentId: a.agent.id, paramsDigest: "dk1" });
     assert.equal(again.created, false);
     assert.equal(again.message.id, sent.message.id);
     assert.equal(rt.store.listSubAgentMessagesByWork(W).length, 1);
     const stuck = rt.store.findTaskByRequest(agentSession, "smsg-fixture-busy3")!;
     await rt.cancelTask(stuck.id);
     rt.store.setSubAgentState(a.agent.id, "idle", { activeWorkId: W, currentTaskId: null });
-    rt.subagents!.flushPendingMessages(session.id);
-    rt.subagents!.flushPendingMessages(session.id); // 重入不重复
+    await rt.subagents!.flushPendingMessages(session.id);
+    await rt.subagents!.flushPendingMessages(session.id); // 重入不重复
     assert.equal(deliveryTasksOf(rt, agentSession).length, 1);
     assert.equal(eventsOf(rt, "subagent_message.sent", session.id).filter((e) => e.messageId === sent.message.id).length, 1);
     const deliveredTaskId = rt.store.getSubAgentMessage(sent.message.id)!.deliveredTaskId!;
@@ -612,7 +611,7 @@ test("main 截住排队的消息唤醒：main 本轮阻塞时 SubAgent 发消息
     // main 本轮阻塞在模型调用中；SubAgent 此时发来消息，消息唤醒排在本轮之后
     const blocking = await rt.submit({ sessionId: main.sessionId, requestId: "pm2", input: "阻塞轮", modelSelection: rt.defaultSelection });
     await waitFor("main 本轮模型调用在途", () => release !== undefined);
-    const sent = rt.subagents!.message({ senderTaskId: a.task.id, workId: wId, key: "late", text: "迟到消息CAP-LATE", paramsDigest: "dl" } as any);
+    const sent = await rt.subagents!.message({ senderTaskId: a.task.id, workId: wId, key: "late", text: "迟到消息CAP-LATE", paramsDigest: "dl" } as any);
     assert.equal(sent.delivery, "wake");
     const wake = rt.store.findTaskByRequest(main.sessionId, `smsg:${sent.message.id}`)!;
     assert.equal(wake.status, "queued");
@@ -672,9 +671,9 @@ test("dev 注入通道：SubAgent→主 Agent 随下一次模型调用送达并�
     const beforeOwnerCalls = marker.length;
 
     // 两条发给主 Agent 的消息：一条送达注入，一条所属工作随后取消
-    const m1 = rt.subagents!.message({ senderTaskId: a.task.id, workId: a.work.id, key: "p1", text: "汇报CAP-P1", paramsDigest: "dp1" } as any);
+    const m1 = await rt.subagents!.message({ senderTaskId: a.task.id, workId: a.work.id, key: "p1", text: "汇报CAP-P1", paramsDigest: "dp1" } as any);
     assert.equal(m1.delivery, "inject");
-    const m2 = rt.subagents!.message({ senderTaskId: b.task.id, workId: b.work.id, key: "p2", text: "汇报CAP-P2", paramsDigest: "dp2" } as any);
+    const m2 = await rt.subagents!.message({ senderTaskId: b.task.id, workId: b.work.id, key: "p2", text: "汇报CAP-P2", paramsDigest: "dp2" } as any);
     await rt.subagents!.cancelWork({ workId: b.work.id, by: "owner" });
     assert.equal(rt.store.getSubAgentMessage(m2.message.id)!.undeliveredReason, "work_canceled");
 

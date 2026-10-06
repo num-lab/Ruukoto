@@ -1051,26 +1051,12 @@ export class Runtime {
       //    未完成执行 → interrupted。
       this.ledger.settleAll();
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
-        const changed = store.transitionTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
+        const changed = store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
           interruptReason: "backend_restart",
           endedAt: new Date().toISOString(),
+          keepOccupancy: true,
         });
-        if (changed) {
-          store.stalePendingConfirmations(task.id);
-          store.appendEvent(
-            {
-              type: "task.interrupted",
-              taskId: task.id,
-              sessionId: task.sessionId,
-              reason: "backend_restart",
-              cancelRequested: task.cancelRequested,
-              // 补记之后读取的任务标记（含本次新标与此前运行时已标），与停止路径同一口径
-              effectUnknown: task.effectUnknown,
-            },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-          interruptedTaskIds.push(task.id);
-        }
+        if (changed) interruptedTaskIds.push(task.id);
       }
 
       interruptedTaskIds.push(...this.subagents!.recoverQueuedTasks());
@@ -1180,9 +1166,7 @@ export class Runtime {
       ];
       for (const { sessionId, reason } of retired) {
         for (const task of this.store.listQueuedTasksFifo(sessionId)) {
-          if (this.store.transitionTask(task.id, ["queued"], "canceled", { errorMessage: reason, endedAt: now })) {
-            this.store.appendEvent({ type: "task.canceled", taskId: task.id, sessionId }, { taskId: task.id, sessionId });
-          }
+          this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: reason, endedAt: now });
         }
       }
       // 先于 outbox 定 reply_unknown 的行已离开 queued 状态，不会被覆盖
@@ -2083,16 +2067,15 @@ export class Runtime {
       if (!reaped) {
         // 无法核实旧执行单元退出：任务中断、占用保留（不可安全继续）
         this.store.withTx(() => {
-          if (this.store.transitionTask(task.id, ["queued", "running", "awaiting_confirmation"], "interrupted", {
+          this.store.endTask(task.id, ["queued", "running", "awaiting_confirmation"], "interrupted", {
             interruptReason: "mode_switch_unverified",
             endedAt: new Date().toISOString(),
-          })) {
-            this.store.stalePendingConfirmations(task.id);
-            this.store.appendEvent(
-              { type: "task.mode_switch_failed", taskId: task.id, sessionId: task.sessionId, to: input.mode, reason: "无法核实旧执行单元已退出" },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
-          }
+            keepOccupancy: true,
+            modeSwitchFailure: {
+              to: input.mode,
+              reason: "无法核实旧执行单元已退出",
+            },
+          });
         });
         throw new RuntimeApiError("mode_switch_unverified", "无法核实旧执行单元已退出，任务已中断（占用保留待核实）");
       }
@@ -2448,16 +2431,10 @@ export class Runtime {
       const identity = this.store.getSessionIdentity(sessionId)!;
       if (identity.kind === "retired") {
         this.store.withTx(() => {
-          const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
+          this.store.endTask(task.id, ["queued"], "canceled", {
             errorMessage: identity.reason,
             endedAt: new Date().toISOString(),
           });
-          if (ok) {
-            this.store.appendEvent(
-              { type: "task.canceled", taskId: task.id, sessionId },
-              { taskId: task.id, sessionId },
-            );
-          }
         });
         continue;
       }
@@ -2475,16 +2452,10 @@ export class Runtime {
         });
       } catch (err) {
         this.store.withTx(() => {
-          const ok = this.store.transitionTask(task.id, ["queued"], "failed", {
+          this.store.endTask(task.id, ["queued"], "failed", {
             errorMessage: (err as Error).message,
             endedAt: new Date().toISOString(),
           });
-          if (ok) {
-            this.store.appendEvent(
-              { type: "task.failed", taskId: task.id, sessionId, errorMessage: (err as Error).message },
-              { taskId: task.id, sessionId },
-            );
-          }
         });
         continue; // 该会话其余任务共用同一目录，同样会被拒绝
       }
@@ -2522,17 +2493,10 @@ export class Runtime {
       } catch (err) {
         // driver.run 内部已兜底；此处防御性记录，避免调度循环中断
         this.store.withTx(() => {
-          this.store.transitionTask(task.id, ["running", "awaiting_confirmation"], "failed", {
+          this.store.endTask(task.id, ["running", "awaiting_confirmation"], "failed", {
             errorMessage: `驱动器异常：${(err as Error).message}`,
             endedAt: new Date().toISOString(),
           });
-          this.store.appendEvent(
-            { type: "task.failed", taskId: task.id, sessionId, errorMessage: (err as Error).message },
-            { taskId: task.id, sessionId },
-          );
-          // agent-direction issue 16：释放按 taskId；占用键是任务写入目标
-          // （taskWorkspace），不是会话 cwd。
-          this.store.releaseOccupancy(task.id);
         });
       } finally {
         // SubAgent 子会话（agent-direction issue 11）：driver.run 收尾后释放运行
@@ -2688,17 +2652,11 @@ export class Runtime {
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${taskId}`);
     if (task.status === "queued") {
       this.store.withTx(() => {
-        const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
+        this.store.endTask(task.id, ["queued"], "canceled", {
           endedAt: new Date().toISOString(),
           // 编排器超时取消等场景持久化原因（undefined 时保持原状不写入）
           errorMessage: opts?.reason,
         });
-        if (ok) {
-          this.store.appendEvent(
-            { type: "task.canceled", taskId: task.id, sessionId: task.sessionId },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
       });
       return this.store.getTask(taskId)!;
     }
@@ -3727,16 +3685,11 @@ export class Runtime {
       } else {
         // 已占用运行中但驱动器缺失（异常路径）：条件更新中断并保留占用事实
         this.store.withTx(() => {
-          if (this.store.transitionTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
+          this.store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
             interruptReason: "backend_stop",
             endedAt: new Date().toISOString(),
-          })) {
-            this.store.stalePendingConfirmations(task.id);
-            this.store.appendEvent(
-              { type: "task.interrupted", taskId: task.id, sessionId: task.sessionId, reason: "backend_stop", cancelRequested: false, effectUnknown: false },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
-          }
+            keepOccupancy: true,
+          });
         });
       }
     }

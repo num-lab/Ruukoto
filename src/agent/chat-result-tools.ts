@@ -9,9 +9,24 @@ import type { Store } from "../core/store.ts";
 import type { FamilyCheck } from "./tool-op-ledger.ts";
 import type { AcceptedChatResult } from "../core/types.ts";
 import type { QqStore } from "../qq/store.ts";
-import type { HostToolContext } from "./host-tools.ts";
+import { hostCallFor } from "./host-tools.ts";
+import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const CHAT_RESULT_TOOL_NAMES = ["chat_result_list", "chat_result_accept"] as const;
+export const CHAT_RESULT_LEDGER: HostToolLedger = {
+  names: CHAT_RESULT_TOOL_NAMES,
+  ruleFor: (name) => name === "chat_result_list" ? "no_effect" : { family: "chat_result" },
+};
+
+export function createChatResultFamily(config: Omit<ChatResultToolsDeps, "taskContext" | "bindCall" | "verifyMain">): HostToolFamily {
+  return {
+    category: "chat_results",
+    names: CHAT_RESULT_TOOL_NAMES,
+    build: (runtime) => createChatResultTools({ ...config, ...runtime.call, verifyMain: runtime.identity.verifyMain }),
+    ledger: { ...CHAT_RESULT_LEDGER, familyCheck: chatResultOpCheck(config.coreStore) },
+  };
+}
 const SUMMARY_CHARS = 1000;
 class ChatResultUnavailable extends Error {}
 
@@ -19,7 +34,7 @@ export interface ChatResultToolsDeps {
   coreStore: Store;
   qqStore: QqStore;
   taskContext(): HostToolContext | null;
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
   verifyMain(ctx: HostToolContext): string | null;
 }
 
@@ -75,9 +90,9 @@ export function createChatResultTools(deps: ChatResultToolsDeps): ToolDefinition
   const store = deps.coreStore;
   const bindExecute = (fn: (ctx: HostToolContext, params: Record<string, unknown>) => ReturnType<typeof okText>) =>
     async (sdkCallId: string, params: Record<string, unknown>) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        const ctx = deps.taskContext();
+        const ctx = call.context;
         if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
         const identity = store.getSessionIdentity(ctx.sessionId);
         if (identity?.kind !== "main" || identity.role.projectId !== ctx.projectId || store.getTask(ctx.taskId)?.sessionId !== ctx.sessionId) {
@@ -87,7 +102,7 @@ export function createChatResultTools(deps: ChatResultToolsDeps): ToolDefinition
         if (problem) throw new Error(`身份校验失败：${problem}`);
         return fn(ctx, params);
       } finally {
-        unbind();
+        call.release();
       }
     };
 

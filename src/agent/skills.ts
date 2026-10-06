@@ -17,8 +17,20 @@ import { Type } from "typebox";
 import { defineTool, loadSkillsFromDir, stripFrontmatter, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { grantCoversPath } from "../core/worktree.ts";
 import type { ReferenceBlock } from "./context-selector.ts";
+import { hostCallFor } from "./host-tool-families.ts";
+import type { HostCallBinder, HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const SKILL_TOOL_NAMES = ["skill"] as const;
+export const SKILL_LEDGER: HostToolLedger = { names: SKILL_TOOL_NAMES, ruleFor: () => "no_effect" };
+
+export function createSkillFamily(): HostToolFamily {
+  return {
+    category: "skills",
+    names: SKILL_TOOL_NAMES,
+    build: (runtime) => createSkillTools({ library: runtime.skills, bindCall: runtime.call.bindCall }),
+    ledger: SKILL_LEDGER,
+  };
+}
 const MAX_SKILL_FILE_BYTES = 64 * 1024;
 
 export interface PinnedSkill {
@@ -179,7 +191,7 @@ export function readSkill(lib: SkillLibrary | null, name: string, relPath?: stri
 export function createSkillTools(deps: {
   /** 当前任务钉版的技能库（null = 本会话不可用）。 */
   library(): SkillLibrary | null;
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
 }): ToolDefinition[] {
   const skill = defineTool({
     name: "skill",
@@ -193,12 +205,12 @@ export function createSkillTools(deps: {
       path: Type.Optional(Type.String({ description: "引用文件相对技能目录的路径（可选）" })),
     }),
     execute: async (sdkCallId: string, params: { name: string; path?: string }) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, () => null, sdkCallId);
       try {
         // 错误以异常返回：pi 据此生成 isError=true 的 toolResult
         return { content: [{ type: "text" as const, text: readSkill(deps.library(), String(params.name ?? ""), params.path) }], details: undefined };
       } finally {
-        unbind();
+        call.release();
       }
     },
   } as any);

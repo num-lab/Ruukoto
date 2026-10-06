@@ -31,7 +31,9 @@ import {
 } from "./store.ts";
 import { AppDataQueryRunner, validateQueryRequest, type RunnerOptions } from "./query.ts";
 
-import type { HostToolContext } from "../host-tools.ts";
+import { hostCallFor } from "../host-tools.ts";
+import type { HostCallBinder, HostToolContext } from "../host-tools.ts";
+import type { HostToolFamily, HostToolLedger } from "../host-tool-families.ts";
 
 /** 应用数据工具的执行上下文（身份由宿主注入，不从工具参数取得）。 */
 export type AppToolContext = HostToolContext;
@@ -43,8 +45,8 @@ export interface AppDataToolsDeps {
   coreStore: Store;
   /** 当前调用上下文（宿主注入；绑定一次工具调用）。 */
   taskContext(): AppToolContext | null;
-  /** 绑定一次工具调用的上下文；返回解除函数。 */
-  bindCall?(sdkCallId: string): () => void;
+  /** 绑定一次工具调用的独立句柄；execute 在 finally 中释放。 */
+  bindCall?: HostCallBinder;
   /** 执行入口每次重新核实宿主任务/会话/项目与 main 角色绑定；null=通过。 */
   verifyMain(ctx: AppToolContext): string | null;
   /** 审批闸门（窄回调；不向模型暴露控制面）。 */
@@ -61,6 +63,26 @@ export const APP_DATA_TOOL_NAMES = [
   "app_data_update",
   "app_data_delete",
 ] as const;
+
+export const APP_DATA_LEDGER: HostToolLedger = {
+  names: APP_DATA_TOOL_NAMES,
+  ruleFor: (name) => name === "app_data_query" ? "no_effect" : { family: "app_data" },
+};
+
+export function createAppDataFamily(config: Omit<AppDataToolsDeps, "store" | "taskContext" | "bindCall" | "verifyMain" | "requestApproval"> & { store: AppDataStore | null; writeVerdict: (hostOpId: string) => "committed" | "not_committed" | "unverifiable" }): HostToolFamily {
+  return {
+    category: "app_data",
+    names: config.store ? APP_DATA_TOOL_NAMES : [],
+    build: (runtime) => config.store ? createAppDataTools({
+      ...config,
+      store: config.store,
+      ...runtime.call,
+      verifyMain: runtime.identity.verifyMain,
+      requestApproval: runtime.approval.request,
+    }) : [],
+    ledger: { ...APP_DATA_LEDGER, familyCheck: appDataOpCheck(config.writeVerdict) },
+  };
+}
 
 /** 工具操作账本的族核实（issue 02，ADR 0009 §7）：写操作按应用库回执核实；应用库丢失/损坏即无法核实。 */
 export function appDataOpCheck(writeVerdict: (hostOpId: string) => "committed" | "not_committed" | "unverifiable"): FamilyCheck {
@@ -80,20 +102,19 @@ function sha256Of(value: unknown): string {
 }
 
 export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
-  const requireCtx = (): AppToolContext => {
-    const ctx = deps.taskContext();
+  const requireCtx = (ctx: AppToolContext | null): AppToolContext => {
     if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
     return ctx;
   };
   const bindExecute = <P extends Record<string, unknown>>(
-    fn: (params: P, signal?: AbortSignal) => Promise<{ content: Array<{ type: string; text: string }> }>,
+    fn: (params: P, ctx: AppToolContext, signal?: AbortSignal) => Promise<{ content: Array<{ type: string; text: string }> }>,
   ) => {
     return async (sdkCallId: string, params: P, signal?: AbortSignal) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        return await fn(params, signal);
+        return await fn(params, requireCtx(call.context), signal);
       } finally {
-        unbind();
+        call.release();
       }
     };
   };
@@ -219,8 +240,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       expected_schema_version: Type.Number({ description: "预期当前 schema 版本（先 app_data_query mode=schema 获取）" }),
       reason: Type.String({ description: `创建理由（必填，≤${LIMITS.maxReasonBytes} 字节）` }),
     }),
-    execute: bindExecute(async (params) => {
-      const ctx = requireCtx();
+    execute: bindExecute(async (params, ctx) => {
       try {
         checkIdentity(ctx, "app_data_define_table");
         const out = deps.store.defineTable({ ...params, opId: ctx.hostOpId, ctx: opCtx(ctx) });
@@ -242,8 +262,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       steps: Type.Array(Type.Record(Type.String(), Type.Unknown()), { description: `迁移步骤（≤${LIMITS.maxMigrateSteps} 步）` }),
       reason: Type.String({ description: "迁移理由（必填）" }),
     }),
-    execute: bindExecute(async (params, signal) => {
-      const ctx = requireCtx();
+    execute: bindExecute(async (params, ctx, signal) => {
       try {
         checkIdentity(ctx, "app_data_migrate");
         const analysis = analyzeMigrate(deps.store, params);
@@ -296,8 +315,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       limit: Type.Optional(Type.Number({ description: "每页行数（默认 50，上限 100）" })),
       op_id: Type.Optional(Type.String({ description: "changes：按宿主操作 ID 核实提交结果" })),
     }),
-    execute: bindExecute(async (params) => {
-      const ctx = requireCtx();
+    execute: bindExecute(async (params, ctx) => {
       try {
         checkIdentity(ctx, "app_data_query");
         // 工具契约的 op_id 映射到内部请求的 opId（直接透传会丢失过滤条件）
@@ -326,8 +344,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       expected_schema_version: Type.Optional(Type.Number({ description: "预期当前 schema 版本（提供时校验，不一致即冲突）" })),
       reason: Type.String({ description: "插入理由（必填）" }),
     }),
-    execute: bindExecute(async (params) => {
-      const ctx = requireCtx();
+    execute: bindExecute(async (params, ctx) => {
       try {
         checkIdentity(ctx, "app_data_insert");
         const out = deps.store.insert({ ...params, opId: ctx.hostOpId, ctx: opCtx(ctx) });
@@ -357,8 +374,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
         expected_schema_version: Type.Optional(Type.Number({ description: "预期当前 schema 版本（提供时校验，不一致即冲突）" })),
         reason: Type.String({ description: `${kind === "update" ? "更新" : "删除"}理由（必填）` }),
       }),
-      execute: bindExecute(async (params, signal) => {
-        const ctx = requireCtx();
+      execute: bindExecute(async (params, ctx, signal) => {
         const toolName = `app_data_${kind}` as const;
         try {
           checkIdentity(ctx, toolName);

@@ -8,8 +8,20 @@
 
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { hostCallFor } from "./host-tool-families.ts";
+import type { HostCallBinder, HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
 
 export const TODO_TOOL_NAMES = ["todo_write"] as const;
+export const TODO_LEDGER: HostToolLedger = { names: TODO_TOOL_NAMES, ruleFor: () => "no_effect" };
+
+export function createTodoFamily(): HostToolFamily {
+  return {
+    category: "coding",
+    names: TODO_TOOL_NAMES,
+    build: (runtime) => createTodoTools({ bindCall: runtime.call.bindCall }),
+    ledger: TODO_LEDGER,
+  };
+}
 export type TodoStatus = "pending" | "in_progress" | "completed";
 export interface TodoItem {
   content: string;
@@ -43,7 +55,7 @@ export function parseTodos(value: unknown): TodoItem[] {
   });
 }
 
-export function createTodoTools(deps: { bindCall?(sdkCallId: string): () => void }): ToolDefinition[] {
+export function createTodoTools(deps: { bindCall?: HostCallBinder }): ToolDefinition[] {
   const todoWrite = defineTool({
     name: "todo_write",
     label: "todo_write",
@@ -61,7 +73,7 @@ export function createTodoTools(deps: { bindCall?(sdkCallId: string): () => void
       ),
     }, { additionalProperties: false }),
     execute: async (sdkCallId: string, params: { todos: unknown }) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, () => null, sdkCallId);
       try {
         // 错误以异常返回：pi 据此生成 isError=true 的 toolResult
         const list = parseTodos(params.todos);
@@ -69,7 +81,7 @@ export function createTodoTools(deps: { bindCall?(sdkCallId: string): () => void
         const text = list.length === 0 ? "已清空" : `已更新：完成 ${done}/${list.length}`;
         return { content: [{ type: "text" as const, text }], details: undefined };
       } finally {
-        unbind();
+        call.release();
       }
     },
   } as any);

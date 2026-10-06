@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>tool-call-path.html</span></nav>
     <p class="eyebrow">流水线</p>
     <h1>工具调用路径</h1>
-    <p class="lede">模型发出的每个 tool_call 先过本任务的工具集合，再由驱动器记下执行意图、按工具名分派。越界操作经审批闸门登记，等拥有者、自动审查或长期授权给出决定后单次消费；执行边界由访问模式决定；结果与效果未知只在工具操作账本里写，结果不明一律不自动重做。</p>
+    <p class="lede">Runtime 提供静态宿主工具族，驱动器按执行画像构建工具集合，每次宿主调用持有独立上下文。模型发出的 tool_call 先过本任务的工具集合，再记意图、按名字分派；越界操作经审批闸门单次消费，执行边界由访问模式决定。各族声明账本分类，结果、产物引用与效果未知由工具操作账本记录，结果不明不自动重做。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">agent/tool-availability.ts</code>
@@ -29,11 +29,17 @@
         <code class="src" data-src="src/agent/tool-router.ts#ROUTED_TOOL_NAMES">agent/tool-router.ts</code>
         <code class="src" data-src="src/agent/approval-gate.ts#export class ApprovalGate">agent/approval-gate.ts</code>
         <code class="src" data-src="src/agent/review.ts#export type ReviewDecision">agent/review.ts</code>
-        <code class="src" data-src="src/agent/tool-op-ledger.ts#const RULES">agent/tool-op-ledger.ts</code>
+        <code class="src" data-src="src/agent/tool-op-ledger.ts#export class ToolOpLedger">agent/tool-op-ledger.ts</code>
+        <code class="src" data-src="src/agent/host-tool-families.ts">agent/host-tool-families.ts</code>
         <code class="src" data-src="src/agent/service-tools.ts#SERVICE_TOOL_NAMES">agent/service-tools.ts</code>
         <code class="src" data-src="src/agent/subagent-tools.ts#SUBAGENT_TOOL_NAMES">agent/subagent-tools.ts</code>
         <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
         <code class="src" data-src="src/agent/host-tools.ts#HOST_DATA_TOOL_NAMES">agent/host-tools.ts</code>
+        <code class="src" data-src="src/agent/web-search.ts#createWebSearchTools">agent/web-search.ts</code>
+        <code class="src" data-src="src/agent/delegation-tools.ts#createDelegationTools">agent/delegation-tools.ts</code>
+        <code class="src" data-src="src/agent/chat-result-tools.ts#createChatResultTools">agent/chat-result-tools.ts</code>
+        <code class="src" data-src="src/agent/skills.ts#createSkillTools">agent/skills.ts</code>
+        <code class="src" data-src="src/agent/todo.ts#createTodoTools">agent/todo.ts</code>
         <code class="src" data-src="src/agent/mcp/tools.ts#planMcpTaskTools">agent/mcp/tools.ts</code>
         <code class="src" data-src="src/agent/app-data/tools.ts#runDestructive">agent/app-data/tools.ts</code>
         <code class="src" data-src="src/agent/scheduler-tools.ts#approveThenCommit">agent/scheduler-tools.ts</code>
@@ -108,7 +114,7 @@
           <path class="e" data-k="d-routed" d="M161 160V198" marker-end="url(#ah)"/>
           <text class="el start" data-k="d-routed" x="169" y="184">① ROUTED_TOOL_NAMES</text>
           <path class="e" data-k="d-host" d="M482 160V198" marker-end="url(#ah)"/>
-          <text class="el start" data-k="d-host" x="490" y="184">② 宿主工具名单</text>
+          <text class="el start" data-k="d-host" x="490" y="184">② 已装配宿主集合</text>
           <path class="e" data-k="d-mcp" d="M830 160V198" marker-end="url(#ah)"/>
           <text class="el end" data-k="d-mcp" x="822" y="184">③ mcpToolNames</text>
           <path class="e" data-k="d-mock" d="M959 160V198" marker-end="url(#ah)"/>
@@ -188,9 +194,9 @@
           </tr>
           <tr data-k="d-host" tabindex="0">
             <td>② 宿主工具</td>
-            <td>名字在资料与记忆、Web Search、应用数据、调度、委派、SubAgent、群结果、服务管理、技能、工作清单任一名单内</td>
+            <td>名字在静态工具族构建出的宿主名称集合内（<code class="src" data-src="src/agent/host-tool-families.ts#export function buildHostToolSet">buildHostToolSet</code>）</td>
             <td>见<a href="#availability">可用性</a>矩阵</td>
-            <td>后台进程内。驱动器登记 <code>{taskId, sessionId, projectId, hostOpId}</code>，工具执行时经 <code>bindCall</code> 取回；模型参数不能提供这些身份</td>
+            <td>后台进程内。驱动器登记 <code>{taskId, sessionId, projectId, hostOpId}</code>，执行入口按 SDK 调用 id 取得独立 <code>HostCall</code>，在 <code>finally</code> 释放本次绑定；模型参数不能提供这些身份</td>
             <td>应用数据破坏性变更、通知外发、服务操作经闸门；其余不审批</td>
           </tr>
           <tr data-k="d-mcp" tabindex="0">
@@ -217,6 +223,24 @@
         </tbody>
       </table>
     </div>
+
+    <h3>静态宿主族与独立调用上下文</h3>
+    <p>Runtime 先初始化应用库、资料解析器和个人产品的调度器，再建立全局静态族清单及工具操作账本，随后恢复遗留操作；SubAgentManager 与编排器在恢复后创建（<code class="src" data-src="src/runtime/runtime.ts#private initHostToolFamilies">runtime.ts · initHostToolFamilies</code>）。同一份清单捕获各族的资料、凭据与存储依赖，并交给驱动器。驱动器按执行画像筛选族，构建工具时向族提供身份复核、审批、产物登记、效果未知登记与读取任务钉版技能的闭包；每次执行再按 SDK 调用 id 取得独立 <code>HostCall</code>（<code class="src" data-src="src/agent/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）。<code class="src" data-src="src/agent/host-tool-families.ts#export function buildHostToolSet">buildHostToolSet</code> 核对族声明的名称集合与构建结果一致，并拒绝族间重名；返回的名称集合用于宿主分派。编码、结构化审批、产物读取与 MCP 继续走上图各自的执行路径。</p>
+    <figure class="fig">
+      <div class="seq" style="--n:3">
+        <div class="who"><span>Runtime</span><span>Driver</span><span>宿主工具族</span></div>
+        <div class="m" style="--from:1;--to:2"><span>注入同一份全局静态族清单</span></div>
+        <div class="m" style="--from:2;--to:3"><span>按执行画像构建工具</span></div>
+        <div class="m l" style="--from:3;--to:2"><span>返回该族的工具定义</span></div>
+        <div class="phase"><span>每次宿主调用：驱动器已按 SDK 调用 id 登记上下文</span></div>
+        <div class="m l" style="--from:3;--to:2"><span>执行入口按 SDK 调用 id 取得绑定</span></div>
+        <div class="m" style="--from:2;--to:3"><span>返回独立 HostCall 与宿主身份</span></div>
+        <div class="m l" style="--from:3;--to:2"><span>finally 释放本次绑定，可重复释放</span></div>
+      </div>
+      <figcaption>每个调用持有自己的身份与宿主操作编号。调用交错执行时，释放一个绑定不会清空另一个调用的上下文。</figcaption>
+    </figure>
+    <p><code class="src" data-src="src/agent/host-tool-families.ts#export interface HostCall">HostCall</code> 的上下文由宿主记录取得，<code class="src" data-src="src/agent/driver.ts#private readonly bindHostCall">driver.ts · bindHostCall</code> 只释放对应 SDK 调用 id 的记录，工具包装在 <code>finally</code> 释放句柄（<code class="src" data-src="src/agent/host-tool-families.ts#export function hostCallFor">hostCallFor</code>）。没有绑定器的模块测试可直接提供 <code>taskContext</code>。调度通知目标也使用本次调用的 <code>taskId</code> 读取来源事件，再由拥有者 IM 入口确定（<code class="src" data-src="src/runtime/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。</p>
+    <p>执行期间按宿主操作编号登记产物引用；例如 <code>web_search</code> 保存超限或畸形响应时，先创建 <code>web-search-response</code> 产物并登记引用，再写正文（<code class="src" data-src="src/agent/web-search.ts#const saveRawResponse">web-search.ts · saveRawResponse</code>）。正常回收 <code>tool_execution_end</code> 时，驱动器把这些引用并入 <code>task.tool_result</code> 的 <code>artifactIds</code>；正文写入不完整时，已登记的引用仍可随错误结果返回，创建失败时没有引用。</p>
   </section>
 
   <section id="availability">
@@ -237,18 +261,19 @@
           <tr><td><code>chat_results</code></td><td><code>chat_result_list</code> <code>chat_result_accept</code></td><td>—</td><td>✓</td><td>—</td></tr>
           <tr><td><code>service</code></td><td><code>service_inspect</code> <code>service_manage</code></td><td>—</td><td>✓ ruukoto + Linux + 部署配置</td><td>—</td></tr>
           <tr><td><code>skills</code></td><td><code>skill</code></td><td>✓</td><td>✓</td><td>—</td></tr>
-          <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code> <code>subagent_close</code> <code>subagent_cancel</code> <code>subagent_integrate</code></td><td>✓</td><td>✓</td><td>—</td></tr>
+          <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code> <code>subagent_close</code> <code>subagent_cancel</code> <code>subagent_message</code> <code>subagent_integrate</code></td><td>✓</td><td>✓</td><td>—</td></tr>
           <tr><td>静态白名单</td><td><code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code>；修改工作按 <code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>：<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
+          <tr><td>子会话协作消息</td><td><code>subagent_message</code>：SubAgent 子类别清单为 <code>[]</code>，由对应宿主族单独装配</td><td>—</td><td>—</td><td>✓ 单独装配；宿主评审不激活</td></tr>
         </tbody>
       </table>
     </div>
-    <p>清单含某类别只是装配的前提，各族还有自己的装配条件（<code class="src" data-src="src/agent/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）：</p>
+    <p>清单含某类别只是装配的前提。全局清单包含各宿主族，应用库、调度器或服务管理不可用时，对应族提供空的名称与构建结果，恢复规则仍保留（<a href="#ledger">账本分类</a>）；驱动器按类别构建工具。SubAgent 的编码工具按执行画像单独筛选，协作消息由对应宿主族提供，之后仍过任务收窄（<a href="#path">装配与调用上下文</a>，<code class="src" data-src="src/agent/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）：</p>
     <ul>
       <li><code>scheduler</code>：调度器只在个人 Agent（ruukoto）启动；ruukoto-dev 不创建调度器，main 的调度与通知工具不装配。</li>
       <li><code>service</code>：后台构造时要求产品为 ruukoto、平台为 Linux、显式部署配置（helper 与策略路径）齐备，缺一项 <code class="src" data-src="src/runtime/runtime.ts#serviceManager">runtime.ts · serviceManager</code> 就是 null，工具不装配，不会静默放行。普通开发会话、SubAgent 与 ruukoto-dev 都没有这两个工具；main 也不因此拿到 <code>bash</code>。</li>
-      <li><code>subagent</code>：五个工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>），调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝；<code>subagent_close</code> / <code>subagent_cancel</code> / <code>subagent_integrate</code> 没有这道来源门（关闭与取消只收窄能力；汇总只作用于本会话登记的成果），回报唤醒轮次也允许。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
+      <li><code>subagent</code>：委派、结果、关闭、取消与汇总工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>），调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝；<code>subagent_close</code> / <code>subagent_cancel</code> / <code>subagent_integrate</code> 没有这道来源门（关闭与取消只收窄能力；汇总只作用于本会话登记的成果），回报唤醒轮次也允许。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
       <li>SubAgent 子会话的清单为空：驱动器只从编码工具里按执行画像的 SubAgent 工具集挑出静态白名单装配——只读分析工作 <code>read</code>、<code>read_artifact</code>；修改委派的工作额外给 <code>edit</code>、<code>write</code>、<code>bash</code>（装配、发送前与调用门三处经 <code class="src" data-src="src/agent/tool-availability.ts#export function subAgentAllows">subAgentAllows</code> 取同一结论，工具集按本任务 <code>work_delegations.write_target</code> 与是否宿主评审在任务开始钉定）。工具集进 SDK 会话签名，与 MCP 清单签名拼在一起（<code class="src" data-src="src/agent/driver.ts#const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}`">driver.ts · runInner</code>）：同一 SubAgent 从只读工作复用到修改工作时签名变化，SDK 会话重建，装配拿到写入工具；这不依赖 Runtime 每任务释放 SubAgent 的驱动器（那只是回收 SDK 缓存与 MCP 连接）。写任务仍固定 <code>confirm</code>，不给 <code>request_file_access</code>、<code>http_request</code>、MCP 或委派工具，也没有网络；任务的访问模式由宿主固定为 <code>confirm</code>，不能切换。唯一的例外是宿主评审任务（GitHub PR，工单 19）：<code class="src" data-src="src/agent/driver.ts#taskMcp">driver.ts · taskMcp</code> 依赖为真时画像的 <code>planMcp</code> 为真，按本会话项目规划 MCP，收窄为静态白名单 ∪ <code>effect=read</code> 的 MCP（GitHub MCP 配在 main 项目；owner 委派的 SubAgent 拿不到）。</li>
-      <li>issue 13 的 <code>subagent_message</code> 由 dev / main 装配（与 <code>subagent_delegate</code> 同一装配链路），SubAgent 子会话另行装配 <code>createSubAgentMessageTool</code>（<code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentTools">subagent-tools.ts</code>；发送方身份由发起任务核实、不接受参数）。<code class="src" data-src="src/agent/tool-availability.ts#if (name === &quot;subagent_message&quot;)">tool-availability.ts · subAgentAllows</code> 对 <code>subagent_message</code> 放行：SubAgent 任务里允许向主 Agent 或当前承接本工作的其他 SubAgent 发送；宿主评审任务（GitHub PR，<code>taskMcp</code>）除外——同一收窄不放行（管理器侧同样拒绝评审 SubAgent 收发）。工作内消息的登记、投递与冲刷见<a href="orchestrator.html#subagent-message">编排器 · 协作加入与工作内消息</a>。</li>
+      <li>同一 SubAgent 宿主族为 dev / main 构建委派工具与 <code>subagent_message</code>，为 SubAgent 子会话只构建协作消息工具（<code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentFamily">subagent-tools.ts · createSubAgentFamily</code>；发送方身份由发起任务核实、不接受参数）。<code class="src" data-src="src/agent/tool-availability.ts#if (name === &quot;subagent_message&quot;)">tool-availability.ts · subAgentAllows</code> 对 <code>subagent_message</code> 放行：SubAgent 任务里允许向主 Agent 或当前承接本工作的其他 SubAgent 发送；宿主评审任务（GitHub PR，<code>taskMcp</code>）除外——同一收窄不放行（管理器侧同样拒绝评审 SubAgent 收发）。工作内消息的登记、投递与冲刷见<a href="orchestrator.html#subagent-message">编排器 · 协作加入与工作内消息</a>。</li>
     </ul>
 
     <h3>同一个集合，三处使用</h3>
@@ -768,8 +793,10 @@
       </table>
     </div>
 
-    <h3>规则表</h3>
-    <p><code class="src" data-src="src/agent/tool-op-ledger.ts#const RULES">tool-op-ledger.ts · RULES</code> 按静态工具名穷尽登记，漏登记即编译错误；MCP 动态工具与未登记的名字按 approval 判定。已删除的 <code>coding_delegate</code> 仍留在表里，只为核实升级前在途的调用。工具路由器判定已发出的调用是否效果未知时也用这张表的「无写入效果」（<code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">hasNoWriteEffect</code>，<code class="src" data-src="src/agent/tool-router.ts#hasNoWriteEffect({ toolName">tool-router.ts</code>）。</p>
+    <h3>各族声明与账本分类</h3>
+    <p>宿主工具的名称与分类规则由各族模块声明，能核实提交结果的族另提供核实入口（<code class="src" data-src="src/agent/host-tool-families.ts#export interface HostToolLedger">HostToolLedger</code>）。Runtime 从同一份全局族清单派生账本声明（<code class="src" data-src="src/runtime/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。应用库、调度器或服务管理停用时，对应族的工具名与构建结果为空，账本声明仍保留完整规则，恢复不依赖当前会话是否装配该族；应用库无法核实时仍定效果未知。编码、结构化审批、产物读取与模拟工具保留固定规则，只有已删除的 <code>coding_delegate</code> 另保留 <code>delegation</code> / <code>subagent</code> 核实映射，处理升级前在途调用。</p>
+    <p>MCP 动态工具与未登记名字按 <code>approval</code> 判定。该分类表示结果缺失时按审批证据判断，并不表示工具一定产生审批：记忆写入就是没有审批的例子。工具路由器判定已发出的 HTTP 调用是否效果未知时，也复用「无写入效果」规则（<code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">hasNoWriteEffect</code>，<code class="src" data-src="src/agent/tool-router.ts#hasNoWriteEffect({ toolName">tool-router.ts</code>）。</p>
+    <p>下表汇总执行与恢复时使用的分类；宿主族声明分别位于资料与记忆、Web Search、应用数据、调度、旧 coding 结果、群结果、服务、SubAgent、技能与工作清单的模块，见页头源码。提交核实仍按宿主操作编号查询原有回执或关联记录。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>工具族</th><th><code>no_effect</code> 无写入效果</th><th><code>approval</code> 按审批判定</th><th>工具族核实</th></tr></thead>

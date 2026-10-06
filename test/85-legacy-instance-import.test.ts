@@ -834,6 +834,7 @@ test("中断、续跑与回退：故障续跑无重复、同键重放、修订�
     );
     const blocked = revertLegacyImport(deps, ok.import_id);
     assert.equal(blocked.ok, false);
+    assert.equal(blocked.status, "applied", "回退被挡时响应与回执状态一致");
     assert.ok(blocked.blockers!.some((b) => /新任务|新事件/.test(b)), `阻挡项逐项列出：${blocked.blockers}`);
     assert.equal(allRows(tdb, "SELECT status FROM instance_imports WHERE id = ?", [ok.import_id])[0]!.status, "applied", "拒绝后状态不变");
     tdb.close();

@@ -346,6 +346,7 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
     releaseParent!();
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
     await waitFor("子任务启动", () => rt.store.getTask(a.task.id)!.status === "running");
+    await waitFor("子模型调用在途", () => release !== null);
     release!();
     await waitFor("子完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     assert.ok(marks.includes("child-started"), "子任务在父结束后启动");

@@ -2275,7 +2275,7 @@ export function revertPersonalImport(deps: LegacyImportDeps, importId: string): 
       credentialsToRemove.push(name);
     }
     if (blockers.length > 0) {
-      return { ok: false, import_id: importId, status: "reverted", removed: {}, files_removed: [], files_kept: filesKept, blockers };
+      return { ok: false, import_id: importId, status: "applied", removed: {}, files_removed: [], files_kept: filesKept, blockers };
     }
 
     const removed: Record<string, number> = {};

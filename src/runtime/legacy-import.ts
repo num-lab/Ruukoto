@@ -1692,7 +1692,7 @@ export function applyLegacyImport(
 export interface LegacyImportRevertResult {
   ok: boolean;
   import_id: string;
-  status: "reverted";
+  status: "applied" | "reverted";
   removed: Record<string, number>;
   files_removed: string[];
   files_kept: Array<{ item: string; reason: string }>;
@@ -1790,7 +1790,7 @@ export function revertLegacyImport(deps: LegacyImportDeps, importId: string): Le
       filesToRemove.push({ itemId: f.itemId, dest: f.dest });
     }
     if (blockers.length > 0) {
-      return { ok: false, import_id: importId, status: "reverted", removed: {}, files_removed: [], files_kept: filesKept, blockers };
+      return { ok: false, import_id: importId, status: "applied", removed: {}, files_removed: [], files_kept: filesKept, blockers };
     }
     // 事件区间必须整段都属于本次导入（单事务追加到尾部，本来如此；核实再删）
     const seqFrom = receipt.event_seq_from === null ? null : Number(receipt.event_seq_from);

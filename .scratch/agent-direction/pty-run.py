@@ -8,7 +8,7 @@ grace = float(os.environ.get("GRACE", "8"))
 
 pid, fd = pty.fork()
 if pid == 0:
-    os.execvp("node", ["node", bin_path])
+    os.execvp("node", ["node", bin_path, *sys.argv[2:]])
 
 out = b""
 deadline = time.time() + grace

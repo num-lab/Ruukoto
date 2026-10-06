@@ -454,7 +454,7 @@ test("ruukoto-dev：项目分区先列工作区（显示根目录）再列旧项
       const out = hStd.terminal.output();
       assert.ok(!out.includes("工作区 ·"), "ruukoto 不标工作区");
       assert.ok(!out.includes("旧项目 ·"), "ruukoto 不标旧项目");
-      assert.ok(!out.includes(`根目录 ${rootReal}`), "ruukoto 分区不展示根目录前缀");
+      assert.ok(!out.includes(`根目录 ${rootReal.slice(0, 40)}`), "ruukoto 分区不展示根目录前缀");
     } finally {
       assert.equal(await hStd.quit(), 0);
     }

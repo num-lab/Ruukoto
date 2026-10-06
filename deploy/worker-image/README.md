@@ -15,6 +15,5 @@ bash deploy/worker-image/build.sh   # 产物：ruukoto-worker:<pi 版本> 与 :l
 镜像版本随 pi 发布版固定；升级 pi 时更新 tag 并重建。工作区访问按任务挂载，
 容器内的系统工具与临时文件属于基础执行环境，不构成对宿主的任何承诺。
 
-工具链：node 24 + bash + coreutils（slim 基础镜像）。git 未装入——本仓库
-开发机的网络无法访问 apt 源；在目标服务器构建时恢复 Dockerfile 顶部注释
-中的 apt 安装步骤即可（git 是编码检查的常用工具，建议恢复）。
+工具链：node 24 + bash + coreutils + git。Dockerfile 的运行阶段通过 apt
+安装 git 与 ca-certificates，容器中的检查、worktree 创建及改动汇总可直接使用 git。

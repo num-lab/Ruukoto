@@ -109,12 +109,14 @@ async function killDev(run: DevRun): Promise<void> {
 
 test("档案路径：稳定、按仓库区分、在仓库外、随 HOME 参数变化", () => {
   const home = tmpHome();
-  const a = devProfileFor(repoRoot, home);
-  const b = devProfileFor(repoRoot, home);
+  const fixtureRepo = path.join(home, "fixture-repo");
+  fs.mkdirSync(fixtureRepo);
+  const a = devProfileFor(fixtureRepo, home);
+  const b = devProfileFor(fixtureRepo, home);
   assert.deepEqual(a, b, "同一仓库同一 HOME 结果稳定");
-  const real = fs.realpathSync(repoRoot);
+  const real = fs.realpathSync(fixtureRepo);
   const hash = crypto.createHash("sha256").update(real).digest("hex").slice(0, 8);
-  assert.equal(a.root, path.join(home, ".ruukoto-dev", `ruukoto-${hash}`));
+  assert.equal(a.root, path.join(home, ".ruukoto-dev", `fixture-repo-${hash}`));
   assert.ok(!a.root.startsWith(real + path.sep), "档案在仓库外（保护根不含它）");
   for (const sub of [a.dataDir, a.agentDir, a.controlDir, a.pendingDir, a.logsDir]) {
     assert.ok(sub.startsWith(a.root + path.sep));
@@ -123,7 +125,7 @@ test("档案路径：稳定、按仓库区分、在仓库外、随 HOME 参数�
   const other = devProfileFor(path.join(home, "another-repo"), home);
   assert.notEqual(other.root, a.root, "不同仓库不同档案目录");
   const home2 = tmpHome();
-  assert.notEqual(devProfileFor(repoRoot, home2).root, a.root, "HOME 覆盖生效");
+  assert.notEqual(devProfileFor(fixtureRepo, home2).root, a.root, "HOME 覆盖生效");
 });
 
 test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 QQ 停用注入", () => {

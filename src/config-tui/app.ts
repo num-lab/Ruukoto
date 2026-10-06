@@ -1030,7 +1030,7 @@ export class ConfigTuiApp {
         this.orderedProjects().map(({ project: p, tag }) => ({
           value: `project:${p.id}`,
           label: tag ? `${tag} · ${p.name}` : p.name,
-          description: `${p.rootDir ? `根目录 ${p.rootDir.cwdReal} · ` : ""}指令 ${p.instructionFiles.length} 个 · Web Search ${p.webSearch === "enabled" ? "启用" : "禁用"}`,
+          description: `${this.product === "ruukoto-dev" && p.rootDir ? `根目录 ${p.rootDir.cwdReal} · ` : ""}指令 ${p.instructionFiles.length} 个 · Web Search ${p.webSearch === "enabled" ? "启用" : "禁用"}`,
         })),
       onSelect: async (item) => {
         if (item.value.startsWith("project:")) return this.pushScreen(this.projectScreen(item.value.slice("project:".length)));

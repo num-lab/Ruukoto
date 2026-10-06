@@ -74,6 +74,7 @@ import type { QqStore } from "../qq/store.ts";
 import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
 import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
 import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
+import type { HostCall } from "./host-tool-families.ts";
 import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
 import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
@@ -222,8 +223,6 @@ export class Driver {
   private runPromise: Promise<void> | null = null;
   /** SDK 扩展桥注入的 appendEntry（宿主标记条目，custom，不进模型上下文）。 */
   private markerApi: ((customType: string, data: unknown) => void) | null = null;
-  /** 当前正在执行的宿主数据工具上下文（taskContext 注入用）。 */
-  private hostToolCtx: HostToolContext | null = null;
   /** 本任务内 sdkCallId → 宿主数据工具上下文（并发调用各自独立）。 */
   private hostToolCalls = new Map<string, HostToolContext>();
   /** 宿主工具（非路由器）登记的产物引用：hostOpId → 产物 id（接到 task.tool_result 事件）。 */
@@ -384,7 +383,7 @@ export class Driver {
           access: this.deps.access,
           historyIndex: this.deps.historyIndex,
           memories: this.deps.memories,
-          taskContext: () => this.hostToolCtx,
+          taskContext: () => null,
           bindCall: this.bindHostCall,
           sessionFileFor: (sessionId) => this.deps.store.getSession(sessionId)?.sessionFile ?? null,
           projectOfSession: (sessionId) => this.deps.store.getSession(sessionId)?.projectId ?? null,
@@ -403,7 +402,7 @@ export class Driver {
           store: this.deps.store,
           artifacts: this.deps.artifacts,
           credentials: this.deps.credentials,
-          taskContext: () => this.hostToolCtx,
+          taskContext: () => null,
           bindCall: this.bindHostCall,
           baseUrl: this.deps.webSearch?.baseUrl,
           timeoutMs: this.deps.webSearch?.timeoutMs,
@@ -415,7 +414,7 @@ export class Driver {
             store: this.deps.appData.store,
             runner: this.deps.appData.runner,
             coreStore: this.deps.store,
-            taskContext: () => this.hostToolCtx,
+            taskContext: () => null,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
             requestApproval: (input) => this.approvals.request(input),
@@ -428,7 +427,7 @@ export class Driver {
         ? createSchedulerTools({
             ...this.deps.scheduler,
             coreStore: this.deps.store,
-            taskContext: () => this.hostToolCtx,
+            taskContext: () => null,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
             requestApproval: (input) => this.approvals.request(input),
@@ -441,7 +440,7 @@ export class Driver {
             ...this.deps.delegation,
             coreStore: this.deps.store,
             artifacts: this.deps.artifacts,
-            taskContext: () => this.hostToolCtx,
+            taskContext: () => null,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
           })
@@ -454,7 +453,7 @@ export class Driver {
             ...this.deps.subagents,
             coreStore: this.deps.store,
             artifacts: this.deps.artifacts,
-            taskContext: () => this.hostToolCtx,
+          taskContext: () => null,
             bindCall: this.bindHostCall,
             verifyHost: (ctx) => this.verifyDelegationHost(ctx),
           })
@@ -462,7 +461,7 @@ export class Driver {
     const chatResultTools = this.allows("chat_results")
       ? createChatResultTools({
           coreStore: this.deps.store, qqStore: this.deps.qqStore,
-          taskContext: () => this.hostToolCtx, bindCall: this.bindHostCall,
+          taskContext: () => null, bindCall: this.bindHostCall,
           verifyMain: (ctx) => this.verifyMainBinding(ctx),
         })
       : [];
@@ -474,7 +473,7 @@ export class Driver {
             artifacts: this.deps.artifacts,
             registry: this.registry,
             config: this.deps.service.config,
-            taskContext: () => this.hostToolCtx,
+            taskContext: () => null,
             bindCall: this.bindHostCall,
             verifyMain: (ctx) => this.verifyMainBinding(ctx),
             requestApproval: (input) => this.approvals.request(input),
@@ -507,7 +506,7 @@ export class Driver {
             createSubAgentMessageTool({
               store: this.deps.store,
               message: (input) => this.deps.subagents!.message(input),
-              taskContext: () => this.hostToolCtx,
+              taskContext: () => null,
               bindCall: this.bindHostCall,
             }),
           ]
@@ -554,13 +553,17 @@ export class Driver {
   }
 
   /** 工具执行入口按 sdkCallId 绑定宿主上下文（execute 包装时调用）。 */
-  private readonly bindHostCall = (sdkCallId: string): (() => void) => {
+  private readonly bindHostCall = (sdkCallId: string): HostCall => {
     const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
-    this.hostToolCtx = ctx;
-    return () => {
-      this.hostToolCtx = null;
-      this.hostToolCalls.delete(sdkCallId);
-    };
+    let released = false;
+    return {
+      context: ctx,
+      release: () => {
+        if (released) return;
+        released = true;
+        this.hostToolCalls.delete(sdkCallId);
+      },
+    } satisfies HostCall;
   };
 
   /** 宿主工具（不经路由器）登记产物引用（issue 09：接到 task.tool_result 事件）。 */
@@ -715,7 +718,6 @@ export class Driver {
     this.thinking = null;
     this.thinkingIndex = null;
     this.registry.clear();
-    this.hostToolCtx = null;
     this.hostToolCalls = new Map();
     this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;

@@ -20,14 +20,10 @@ import { readRawEntryAt, searchHistory, type HistorySearchHit } from "../core/hi
 import { MemoryConflictError, MemoryNotFoundError, MemoryStore, MemoryValidationError } from "../core/memory.ts";
 import type { MemorySourceRef } from "../core/types.ts";
 import { sliceTextByBytes } from "../core/history.ts";
-
-/** 宿主数据工具的执行上下文（身份由宿主注入，不从工具参数取得）。 */
-export interface HostToolContext {
-  taskId: string;
-  sessionId: string;
-  projectId: string;
-  hostOpId: string;
-}
+import { hostCallFor } from "./host-tool-families.ts";
+import type { HostCallBinder, HostToolContext } from "./host-tool-families.ts";
+export type { HostCallBinder, HostToolContext } from "./host-tool-families.ts";
+export { hostCallFor } from "./host-tool-families.ts";
 
 export interface HostDataToolsDeps {
   store: Store;
@@ -37,7 +33,7 @@ export interface HostDataToolsDeps {
   /** 当前任务上下文（宿主注入；工具执行时读取）。 */
   taskContext(): HostToolContext | null;
   /** 绑定一次工具调用的上下文；返回解除函数（execute 包装在 finally 中调用）。 */
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
   /** 会话文件解析（sessionId → 文件路径；宿主侧映射，不接受模型路径）。 */
   sessionFileFor(sessionId: string): string | null;
   /** 会话所属项目（宿主侧映射）。 */
@@ -71,22 +67,21 @@ function errorText(err: unknown): string {
 }
 
 export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
-  const requireCtx = () => {
-    const ctx = deps.taskContext();
+  const requireCtx = (ctx: HostToolContext | null) => {
     if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
     return ctx;
   };
   const accessorOf = (projectId: string): Accessor => ({ kind: "agent", projectId });
   /** 包装 execute：按 sdkCallId 绑定宿主上下文，结束后解除（finally 保证）。 */
   const bindExecute = <P extends Record<string, unknown>>(
-    fn: (params: P) => Promise<{ content: Array<{ type: string; text: string }> }>,
+    fn: (params: P, ctx: HostToolContext) => Promise<{ content: Array<{ type: string; text: string }> }>,
   ) => {
     return async (sdkCallId: string, params: P) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        return await fn(params);
+        return await fn(params, requireCtx(call.context));
       } finally {
-        unbind();
+        call.release();
       }
     };
   };
@@ -109,9 +104,8 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
         Type.Object({ session_id: Type.String(), byte_offset: Type.Number() }, { description: "上一页的继续游标" }),
       ),
     }),
-    execute: bindExecute(async (params) => {
+    execute: bindExecute(async (params, ctx) => {
       try {
-        const ctx = requireCtx();
         const query = String(params.query ?? "");
         if (!query) return failText("query 不能为空");
         const accessor = accessorOf(ctx.projectId);
@@ -209,9 +203,8 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
       offset: Type.Optional(Type.Number({ description: "正文字节偏移（默认 0）" })),
       length: Type.Optional(Type.Number({ description: `正文读取字节数（默认/上限 ${READ_TEXT_CAP}）` })),
     }),
-    execute: bindExecute(async (params) => {
+    execute: bindExecute(async (params, ctx) => {
       try {
-        const ctx = requireCtx();
         const sessionId = String(params.session_id ?? "");
         const entryId = String(params.entry_id ?? "");
         const projectId = deps.projectOfSession(sessionId);
@@ -257,9 +250,8 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
     parameters: Type.Object({
       include_revoked: Type.Optional(Type.Boolean({ description: "同时列出已撤销的记忆（默认 false）" })),
     }),
-    execute: bindExecute(async (params) => {
+    execute: bindExecute(async (params, ctx) => {
       try {
-        const ctx = requireCtx();
         const accessor = accessorOf(ctx.projectId);
         const active = deps.memories.listActiveFor(ctx.projectId)
           .filter((m) => m.sourceRefs.every((ref) => deps.access.sourceRefAccessible(accessor, ref)));
@@ -290,9 +282,8 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
       memory_id: Type.String({ description: "记忆 id" }),
       version: Type.Optional(Type.Number({ description: "指定版本（默认当前版本）" })),
     }),
-    execute: bindExecute(async (params) => {
+    execute: bindExecute(async (params, ctx) => {
       try {
-        const ctx = requireCtx();
         const memoryId = String(params.memory_id ?? "");
         const memory = deps.memories.getMemory(memoryId);
         if (!memory) return failText(`记忆不存在：${memoryId}`);
@@ -350,9 +341,8 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
       ),
       reason: Type.Optional(Type.String({ description: "修改原因" })),
     }),
-    execute: bindExecute(async (params) => {
+    execute: bindExecute(async (params, ctx) => {
       try {
-        const ctx = requireCtx();
         const category = String(params.category ?? "") as any;
         const content = String(params.content ?? "");
         const refs = parseSourceRefs(params.source_refs);
@@ -420,9 +410,8 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
       expected_version: Type.Number({ description: "预期当前版本号（并发保护）" }),
       reason: Type.Optional(Type.String({ description: "撤销原因" })),
     }),
-    execute: bindExecute(async (params) => {
+    execute: bindExecute(async (params, ctx) => {
       try {
-        const ctx = requireCtx();
         const memoryId = String(params.memory_id ?? "");
         const existing = deps.memories.getMemory(memoryId);
         if (!existing) return failText(`记忆不存在：${memoryId}`);

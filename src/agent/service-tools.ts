@@ -36,7 +36,8 @@ import type { ApprovalScope, Task } from "../core/types.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { ManagedProcessRegistry } from "./managed-processes.ts";
-import type { HostToolContext } from "./host-tools.ts";
+import { hostCallFor } from "./host-tools.ts";
+import type { HostCallBinder, HostToolContext } from "./host-tools.ts";
 
 export const SERVICE_TOOL_NAMES = ["service_inspect", "service_manage"] as const;
 
@@ -204,7 +205,7 @@ export interface ServiceToolsDeps {
   config: ServiceManagerConfig;
   /** 当前调用上下文（宿主注入；绑定一次工具调用）。 */
   taskContext(): HostToolContext | null;
-  bindCall?(sdkCallId: string): () => void;
+  bindCall?: HostCallBinder;
   /** 执行入口每次重新核实宿主任务/会话/项目与 main 角色绑定；null=通过。 */
   verifyMain(ctx: HostToolContext): string | null;
   /** 审批闸门（窄回调；不向模型暴露控制面）。 */
@@ -244,20 +245,19 @@ function formatState(state: ServiceState): string {
 
 export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
   const cfg = deps.config;
-  const requireCtx = (): HostToolContext => {
-    const ctx = deps.taskContext();
+  const requireCtx = (ctx: HostToolContext | null): HostToolContext => {
     if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
     return ctx;
   };
   const bindExecute = <P extends Record<string, unknown>>(
-    fn: (params: P, signal?: AbortSignal) => Promise<{ content: Array<{ type: string; text: string }> }>,
+    fn: (ctx: HostToolContext, params: P, signal?: AbortSignal) => Promise<{ content: Array<{ type: string; text: string }> }>,
   ) => {
     return async (sdkCallId: string, params: P, signal?: AbortSignal) => {
-      const unbind = deps.bindCall?.(sdkCallId) ?? (() => {});
+      const call = hostCallFor(deps.bindCall, deps.taskContext, sdkCallId);
       try {
-        return await fn(params, signal);
+        return await fn(requireCtx(call.context), params, signal);
       } finally {
-        unbind();
+        call.release();
       }
     };
   };
@@ -332,9 +332,8 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
     parameters: Type.Object({
       unit: Type.String({ description: "白名单内的精确 .service 单元名（不支持别名、模板、路径或通配符）" }),
     }),
-    execute: bindExecute(async (params, signal) => {
+    execute: bindExecute(async (ctx, params, signal) => {
       try {
-        const ctx = requireCtx();
         const identity = deps.verifyMain(ctx);
         if (identity) failText(identity);
         const unit = String(params.unit ?? "");
@@ -364,8 +363,7 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
       unit: Type.String({ description: "白名单内的精确 .service 单元名" }),
       action: Type.Union([Type.Literal("restart")], { description: "固定动作（首版仅 restart）" }),
     }),
-    execute: bindExecute(async (params, signal) => {
-      const ctx = requireCtx();
+    execute: bindExecute(async (ctx, params, signal) => {
       const unit = String(params.unit ?? "");
       let opRegistered = false;
       const registerOp = () => {

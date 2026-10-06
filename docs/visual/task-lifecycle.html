@@ -28,6 +28,7 @@
         <code class="src" data-src="src/agent/driver.ts#requestStop">agent/driver.ts</code>
         <code class="src" data-src="src/agent/approval-gate.ts#class ApprovalGate">agent/approval-gate.ts</code>
         <code class="src" data-src="src/core/store.ts#transitionTask">core/store.ts</code>
+        <code class="src" data-src="src/core/store.ts#endTask">core/store.ts · endTask</code>
         <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">control/ensure-backend.ts</code>
         <code class="src" data-src="src/core/dir-identity.ts#verifyDirIdentity">core/dir-identity.ts</code>
         <code class="src" data-src="src/agent/tool-router.ts#prepareToolBoundary">agent/tool-router.ts</code>
@@ -176,7 +177,7 @@
           <tr data-k="e-fail" tabindex="0">
             <td>执行中 → <code class="st bad">failed</code></td>
             <td>驱动器；调度循环兜底</td>
-            <td>任务缺模型配置或 SDK 会话创建失败、技能展开失败、prompt 抛错、模型返回错误；驱动器自身抛出的异常由调度循环捕获后记为失败并释放占用，这条兜底不看条件更新结果，事件与占用释放照做。<br><code class="src" data-src="src/agent/driver.ts#runInner">driver.ts · runInner</code> <code class="src" data-src="src/runtime/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code></td>
+            <td>任务缺模型配置或 SDK 会话创建失败、技能展开失败、prompt 抛错、模型返回错误；驱动器自身抛出的异常由调度循环捕获后经同一终态入口收尾，条件更新失败时不重复写失败事件，也不删除原任务保留待核实的占用。<br><code class="src" data-src="src/agent/driver.ts#runInner">driver.ts · runInner</code> <code class="src" data-src="src/runtime/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code> <code class="src" data-src="src/core/store.ts#endTask">store.ts · endTask</code></td>
             <td><code>task.failed</code></td>
           </tr>
           <tr data-k="e-int" tabindex="0">
@@ -197,7 +198,7 @@
 
     <aside class="callout inv">
       <b>不变量</b>
-      <p>每次转换都是 <code class="src" data-src="src/core/store.ts#transitionTask">store.ts · transitionTask</code> 的条件更新：<code>WHERE id = ? AND status IN (起点集合)</code>。取消与自然完成、人工中断与后台停止同时发生时，只有先提交的那一次生效，后到的路径看到更新 0 行就退出，不会写出第二个终态（例外：调度循环的兜底 catch 照写 <code>task.failed</code> 事件）。状态、占用与对应事件在同一事务里提交，提交成功后才广播给客户端。</p>
+      <p>终态由 <code class="src" data-src="src/core/store.ts#endTask">store.ts · endTask</code> 收尾：内部使用 <code class="src" data-src="src/core/store.ts#transitionTask">store.ts · transitionTask</code> 的条件更新（<code>WHERE id = ? AND status IN (起点集合)</code>），再在同一事务内清除待生效模式、使未消费审批失效、写对应事件并按任务 id 释放占用。取消与自然完成、人工中断与后台停止同时发生时，只有先提交的那一次生效；后到路径看到更新 0 行就退出。状态、占用与对应事件在同一事务里提交，提交成功后才广播给客户端。</p>
     </aside>
   </section>
 
@@ -238,7 +239,7 @@
           <div class="m" style="--from:3;--to:6"><span>settleTask：补记结果缺失的操作</span></div>
           <div class="m l unk" style="--from:6;--to:3"><span>效果未知的操作</span></div>
           <div class="phase"><span>终态事务</span></div>
-          <div class="m ok" style="--from:3;--to:7"><span>finalize：条件更新终态、未消费审批 stale、标效果未知、写事件</span></div>
+          <div class="m ok" style="--from:3;--to:7"><span>endTask：条件更新终态、审批 stale、标效果未知、写事件</span></div>
           <div class="note unk" style="--from:6;--to:7">reaped 才释放占用；否则保留占用并记 task.tool_process_unreaped</div>
           <div class="m l dash" style="--from:7;--to:1"><span>提交后广播 task.interrupted / task.canceled</span></div>
           <div class="m l" style="--from:3;--to:2"><span>kickAll：唤醒有排队任务的会话</span></div>
@@ -334,7 +335,7 @@
         <p>由控制面 <code>stop</code> 操作、进程收到 SIGINT / SIGTERM，或启动时 GitHub webhook 起不来触发（<code class="src" data-src="src/control/server.ts#control_plane">server.ts · stop</code>）。</p>
         <ol class="steps">
           <li>记 <code>backend.stopping</code>，先停所有入口：GitHub webhook、调度器（等在途发送收尾）、Telegram 轮询、编排器、QQ 适配器。ruukoto-dev 没有调度器、Telegram 与 QQ，跳过。</li>
-          <li>对 running 与 awaiting_confirmation 的任务走停止路径，原因 <code>backend_stop</code>；驱动器缺失的任务直接条件更新为 interrupted，占用保留。排队任务保持 queued，停止开始后不再转入 running。</li>
+          <li>对 running 与 awaiting_confirmation 的任务走停止路径，原因 <code>backend_stop</code>；驱动器缺失的任务经 Store.endTask 转 interrupted，清除待生效模式、失效未消费审批并保留占用，事件读实际取消意图与效果未知标记。排队任务保持 queued，停止开始后不再转入 running。</li>
           <li>释放各会话驱动器，等调度循环全部退出。</li>
           <li>关闭控制面与应用数据库，记 <code>backend.stopped</code>，关核心库、释放实例锁与配置锁、删除 socket。</li>
         </ol>
@@ -343,7 +344,7 @@
         <h3>重启恢复 <code class="src" data-src="src/runtime/runtime.ts#private recover">runtime.ts · recover</code></h3>
         <p>启动时先核对数据目录登记的产品归属，属于另一产品即拒绝启动（<code class="src" data-src="src/runtime/runtime.ts#product_mismatch">product_mismatch</code>）。打开应用库（个人 Agent 还先做调度器的恢复准备）后，在编排器与各入口启动之前，用<strong>一个事务</strong>完成：</p>
         <ol class="steps">
-          <li>按工具操作账本的分类器补记所有结果缺失的操作（<code class="src" data-src="src/agent/tool-op-ledger.ts#settleAll">settleAll</code>），已消费的服务操作被标效果未知时同目标的长期授权一并失效；running 与 awaiting_confirmation 一律转 interrupted（<code>backend_restart</code>），未决与已批准未消费的审批一律失效（<code class="src" data-src="src/core/store.ts#stalePendingConfirmations">stalePendingConfirmations</code>：consumed_at 为空即随任务终结，已消费的不动）。</li>
+          <li>按工具操作账本的分类器补记所有结果缺失的操作（<code class="src" data-src="src/agent/tool-op-ledger.ts#settleAll">settleAll</code>），已消费的服务操作被标效果未知时同目标的长期授权一并失效；running 与 awaiting_confirmation 经 Store.endTask 转 interrupted（<code>backend_restart</code>），清待生效模式并保留占用，未决与已批准未消费的审批一律失效（<code class="src" data-src="src/core/store.ts#stalePendingConfirmations">stalePendingConfirmations</code>：consumed_at 为空即随任务终结，已消费的不动）。</li>
           <li>仍排队的 SubAgent 执行任务（拥有者 / 主 Agent 委派，没有来源事件）由恢复事务调用 <code class="src" data-src="src/runtime/subagents.ts#recoverQueuedTasks">SubAgentManager.recoverQueuedTasks</code> 转 interrupted（<code>backend_restart</code>，从未启动）：不自动继续也不当作新委派（<code class="src" data-src="src/core/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>）；宿主固定评审（带来源事件）的排队任务保持，由管理器 start 在无遗留占用时恢复继续。</li>
           <li>遗留占用记 <code>occupancy.stale</code>、保留不删，所属会话仍为 active 时以 <code>occupancy_unverified</code> 暂停。</li>
           <li>有排队任务、仍为 active 的会话以 <code>backend_restart</code> 暂停；上一步已暂停的会话保留原因。</li>

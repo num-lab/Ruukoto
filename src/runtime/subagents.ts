@@ -64,7 +64,6 @@ import type {
   WorkWriteTarget,
 } from "../core/types.ts";
 import { randomId } from "../core/types.ts";
-import { runsInPlanMode } from "../agent/plan-mode.ts";
 import type { SourceResolver } from "../agent/scheduler-tools.ts";
 import type { SourceRef } from "../scheduler/store.ts";
 import type { WorkerLauncher } from "../agent/execution/launchers.ts";
@@ -308,7 +307,7 @@ export class SubAgentManager {
     if (parentKind !== "dev" && parentKind !== "main") throw new SubAgentDelegationError("forbidden", "只有普通开发会话或 main 可以登记工作委托（已退役归档会话不能委派）");
     if (!input.request.trim()) throw new SubAgentDelegationError("invalid_params", "委派正文不能为空");
     const mode = input.mode ?? "analyze";
-    if (runsInPlanMode(parent, (id) => this.store.getTask(id)) &&
+    if (parent.planMode &&
         (mode === "modify" || (input.workId && this.store.getWorkDelegation(input.workId)?.writeTarget))) {
       throw new SubAgentDelegationError("forbidden", "计划模式不能发起修改委派或继续修改工作");
     }

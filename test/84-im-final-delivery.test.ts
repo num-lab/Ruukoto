@@ -159,7 +159,7 @@ test("QQ：先受理、可续聊、收尾后唯一最终汇报引用原消息；
     push(h.onebot, 2, "MARK-SECOND 子任务还在跑，先回我这条");
     await waitFor("第二条消息已回复（委派不阻塞会话）", () => sendTexts(h.onebot).some((t) => t.includes("SECOND-ANSWER")), 20_000);
     subGate.resolve();
-    await waitFor("最终汇报已送达", () => sendTexts(h.onebot).some((t) => t.includes("最终汇报")), 30_000);
+    await waitFor("最终汇报已送达", () => reportOps(rt).some((op) => op.status === "sent"), 30_000);
 
     const work = soleWork(rt);
     const child = rt.store.listTasksByWork(work.id)[0]!;

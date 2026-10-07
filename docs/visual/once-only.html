@@ -132,7 +132,7 @@
           <tr data-k="submit" tabindex="0">
             <td><strong>控制面提交</strong><br><code class="src" data-src="src/control/submission.ts#async reconcile">submission.ts · reconcile</code></td>
             <td>客户端先把待确认提交原子写入本地文件（临时文件 + rename）再发送；后台 <code>tasks</code> 上 <code>(session_id, request_id)</code> 唯一，行上存提交摘要 <code>submission_digest</code></td>
-            <td>同键同摘要返回原任务，同键异摘要返回 <code>request_conflict</code>（<code class="src" data-src="src/core/store.ts#findMatchingSubmission">store.ts · findMatchingSubmission</code>）</td>
+            <td>摘要绑定原请求参数，隐式模式记 <code>null</code>；后续默认值变化不影响重试。同键同摘要返回原任务，同键异摘要返回 <code>request_conflict</code>（<code class="src" data-src="src/core/store.ts#findMatchingSubmission">store.ts · findMatchingSubmission</code>）</td>
             <td>应答丢失时按原键核实：查到就关联原任务，查不到才以原键原参数重发，查询失败保留待核实</td>
           </tr>
           <tr data-k="appdata" tabindex="0">

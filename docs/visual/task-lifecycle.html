@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>task-lifecycle.html</span></nav>
     <p class="eyebrow">状态机</p>
     <h1>任务生命周期</h1>
-    <p class="lede">任务从提交、排队、执行到终态的每一次状态变化，以及停止、重启和模式切换时后台怎样保证只有一个终态、不重放任何执行。</p>
+    <p class="lede">任务从提交、排队、执行到终态的每一次状态变化，会话默认模式如何固定到新任务，以及停止、重启和任务模式切换时后台怎样保证只有一个终态、不重放任何执行。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/runtime/runtime.ts#runQueueLoop">runtime/runtime.ts</code>
@@ -34,6 +34,7 @@
         <code class="src" data-src="src/agent/tool-router.ts#prepareToolBoundary">agent/tool-router.ts</code>
         <code class="src" data-src="src/agent/tool-op-ledger.ts#settleTask">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/core/types.ts#ACTIVE_TASK_STATUSES">core/types.ts</code>
+        <code class="src" data-src="src/tui/app.ts">tui/app.ts</code>
         <code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">runtime/subagents.ts</code>
         <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
@@ -46,6 +47,7 @@
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
         <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
         <a href="../adr/0021-subagent-worktrees.md">ADR 0021 SubAgent worktree</a>
+        <a href="../adr/0025-plan-session-mode.md">ADR 0025 Plan 模式选择</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="tool-call-path.html">工具调用路径</a>
@@ -147,7 +149,7 @@
           <tr data-k="e-q-int" tabindex="0">
             <td><code class="st wait">queued</code> → <code class="st unk">interrupted</code></td>
             <td>拥有者切换访问模式</td>
-            <td>停止本会话驱动器当前的执行单元后无法核实它已退出（<code>mode_switch_unverified</code>），任务不能安全继续，不释放任何占用。awaiting_confirmation 的任务走同一分支。SubAgent 执行任务不能切换模式，见下文。<br><code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code></td>
+            <td>停止本会话驱动器当前的执行单元后无法核实它已退出（<code>mode_switch_unverified</code>），任务不能安全继续，不释放任何占用。awaiting_confirmation 的任务走同一分支。SubAgent 执行任务与 Plan 任务不能切换模式，见下文。<br><code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code></td>
             <td><code>task.mode_switch_failed</code></td>
           </tr>
           <tr data-k="e-await" tabindex="0">
@@ -356,17 +358,20 @@
     <p>ruukoto-dev 的后台可以由 TUI 按需拉起（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>，只属 ruukoto-dev：<code class="src" data-src="src/control/ensure-backend.ts#tuiSpawnsBackendOnDemand">tuiSpawnsBackendOnDemand</code>；ruukoto 仍显式启动）。它先探测控制面，认证与握手通过即复用；socket 可连但被拒（令牌或协议版本）也不拉起。拉起的进程就是 <code>server</code>，启动后照常执行上面的恢复；多个终端同时拉起由实例锁仲裁成单个后台，败者以 <code class="src" data-src="src/core/instance-lock.ts#INSTANCE_LOCK_EXIT_CODE">INSTANCE_LOCK_EXIT_CODE</code> 退出。子进程 detached 并 unref：关闭 TUI 不停止后台、不取消任务，后台只按上面的停止路径结束。界面重新打开沿握手快照复现任务（见<a href="control-protocol.html">控制面协议</a>），连接丢失不触发任何重新执行。</p>
     <aside class="callout inv">
       <b>不重放</b>
-      <p>重启不重放已中断任务的模型调用或工具操作；宿主固定评审尚未启动的排队任务可自动继续（见<a href="#subagent">SubAgent 执行任务</a>）。想继续普通开发会话的中断任务，拥有者用 continue 提交一个带 resumesTaskId 的新任务：它沿用会话默认访问模式（提交时可显式指定），旧任务的批准不继承，也不补造工具结果。</p>
+      <p>重启不重放已中断任务的模型调用或工具操作；宿主固定评审尚未启动的排队任务可自动继续（见<a href="#subagent">SubAgent 执行任务</a>）。想继续普通开发会话的中断任务，拥有者用 continue 提交一个带 <code>resumesTaskId</code> 的新任务：采用本次提交时的会话默认模式，显式模式优先。Plan 同样按本次选择决定，不从源任务输入或继续链继承；旧任务的批准不继承，也不补造工具结果（<code class="src" data-src="src/runtime/runtime.ts#async continueTask">runtime.ts · continueTask</code>）。</p>
     </aside>
   </section>
 
   <section id="mode">
-    <h2>访问模式切换</h2>
-    <p>任务携带访问模式与权限版本。只有拥有者能切换（<code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code>），切换只在没有工具正在执行的边界生效，并递增权限版本、使未消费的审批失效（<code class="src" data-src="src/core/store.ts#applyModeSwitch">store.ts · applyModeSwitch</code>）。各模式的含义见<a href="tool-call-path.html">工具调用路径</a>。</p>
+    <h2>会话默认模式与任务模式切换</h2>
+    <p>会话默认模式（<code class="src" data-src="src/core/types.ts#SESSION_DEFAULT_MODES">types.ts · SESSION_DEFAULT_MODES</code>）包含 <code>confirm</code>、<code>full_access</code>、<code>auto-review</code>；普通开发会话另可选择 <code>plan</code>。拥有者经 <code>set_session_mode</code> 带 <code>expected_version</code> 条件保存，发出 <code>session.default_mode_changed</code>；旧版本请求返回 <code>default_mode_conflict</code>，不覆盖现值（<code class="src" data-src="src/runtime/runtime.ts#async setSessionDefaultMode">runtime.ts · setSessionDefaultMode</code>、<code class="src" data-src="src/core/store.ts#setSessionDefaultMode">store.ts · setSessionDefaultMode</code>）。TUI 的 <code>/mode</code> 与 Shift+Tab 沿用此入口；切换普通开发会话时，把源会话选择同步到目标会话并保存。</p>
+    <p>默认值只影响后续新任务，提交时保存任务的 <code>planMode</code> 与 <code>accessMode</code>。Plan 固定为 <code>planMode=true</code>、<code>accessMode=auto-review</code>，持续到拥有者手动更换默认值；计划完成和“开始实现”消息不自动退出。排队、执行或等待审批中的任务保留提交时选择，底栏显示任务模式；与后续任务默认值不同时，另显示会话默认模式。计划说明与工具收窄的边界见<a href="tool-call-path.html#availability">工具调用路径</a>。</p>
+    <p>任务级 <code>switch_mode</code> 只接受原访问模式。Plan 任务拒绝改变权限模式；请求 <code>plan</code> 也会被拒绝，不能在任务内部进入或退出 Plan。拒绝不改写任务、权限版本或审批；需要转换时先中断，再按当前会话选择继续。非 Plan 任务仍携带访问模式与权限版本，只有拥有者能切换（<code class="src" data-src="src/runtime/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code>），在没有工具正在执行的边界生效，递增权限版本并使未消费的审批失效（<code class="src" data-src="src/core/store.ts#applyModeSwitch">store.ts · applyModeSwitch</code>）。访问策略含义见<a href="tool-call-path.html#modes">工具调用路径</a>。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>切换时任务处于</th><th>行为</th><th>事件</th></tr></thead>
         <tbody>
+          <tr><td>Plan 任务，或目标模式为 <code>plan</code></td><td>Plan 任务拒绝（<code>invalid_state</code>）；目标 <code>plan</code> 无效（<code>invalid_params</code>），均不修改权限版本与审批。</td><td>无</td></tr>
           <tr><td><code class="st wait">queued</code> 或 <code class="st wait">awaiting_confirmation</code></td><td>立即应用：停止本会话驱动器当前的执行单元并核实已退出（没有驱动器视为已退出），写入新模式与权限版本；等待中的审批全部失效。</td><td><code>task.mode_switched</code></td></tr>
           <tr><td>同上，但无法核实旧执行单元退出</td><td>任务中断（<code>mode_switch_unverified</code>），不释放占用，请求以同名错误码失败。</td><td><code>task.mode_switch_failed</code></td></tr>
           <tr><td><code class="st run">running</code></td><td>登记待生效模式；执行中的调用沿用开始时的范围，下一次工具调用前在边界应用（<code class="src" data-src="src/agent/tool-router.ts#prepareToolBoundary">tool-router.ts · prepareToolBoundary</code>）。任务先到终态时待生效模式随之清除。要立刻停下请用中断。</td><td><code>task.mode_switch_requested</code>，应用时 <code>task.mode_switched</code></td></tr>

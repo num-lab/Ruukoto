@@ -334,12 +334,12 @@ test("恢复拒绝结果缺失：invalid_state 回滚占用释放，不虚称空
   } finally { k.cleanup(); }
 });
 
-test("计划模式由真实父任务和多级 continue 链判定：修改和沿用既有写目标均拒绝，只读可委派", async () => {
+test("计划模式由父任务固定模式判定，继续链不决定资格：修改和沿用既有写目标均拒绝，只读可委派", async () => {
   const k = kit("dev");
   try {
-    const plan = k.complete(k.task(k.parentSession.id, { input: "/plan 调研变更" }));
+    const plan = k.complete(k.task(k.parentSession.id, { input: "调研变更", planMode: true }));
     const resumed = k.complete(k.task(k.parentSession.id, { input: "继续", resumesTaskId: plan.id }));
-    const continued = k.complete(k.task(k.parentSession.id, { input: "再继续", resumesTaskId: resumed.id }));
+    const continued = k.complete(k.task(k.parentSession.id, { input: "再继续", resumesTaskId: resumed.id, planMode: true }));
     const writeWork = k.newWork({ kind: "direct", path: k.sub.cwdReal, dev: k.sub.cwdDev, ino: k.sub.cwdIno });
     for (const parent of [plan, continued]) {
       for (const extra of [{ mode: "modify" as const, target: "." }, { workId: writeWork.id }]) {

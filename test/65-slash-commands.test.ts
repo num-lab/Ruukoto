@@ -108,16 +108,15 @@ test("派发：/quit 不回显；未知命令回显并注记；空输入无动�
   assert.equal(f.log.echoes.length, 1);
 });
 
-test("派发：/plan <内容> 作任务输入不回显；只输入 /plan 显示用法并回显", async () => {
+test("/plan 已移除：带内容和裸命令均为未知命令，补全与帮助不再提供", async () => {
   const f = fake();
   await f.run("  /plan 调研  登录 ");
-  assert.deepEqual(f.log.host, [["submit", "/plan 调研  登录"]]);
-  assert.deepEqual(f.log.echoes, []);
-
   await f.run("/plan");
-  assert.deepEqual(f.log.echoes, ["/plan"]);
-  assert.match(f.log.notes[0]!, /^用法：\/plan <内容>/);
-  assert.equal(f.log.host.length, 1);
+  assert.deepEqual(f.log.host, []);
+  assert.deepEqual(f.log.echoes, ["/plan 调研  登录", "/plan"]);
+  assert.deepEqual(f.log.notes, Array(2).fill("未知命令：/plan（/help 查看命令列表）"));
+  assert.ok(!commandHelpLines().some((line) => line.includes("/plan")));
+  assert.equal(await new SlashCommandAutocomplete(VISIBLE_COMMANDS).getSuggestions(["/pl"], 0, 3), null);
 });
 
 test("派发：/skill <名称> 与 /skill:<名称> 都作任务输入不回显，按 trim 过的整行提交参数原文；不带名称列出技能库", async () => {

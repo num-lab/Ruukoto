@@ -122,6 +122,7 @@ const ACCESS_MODE_LABELS: Record<string, string> = {
   confirm: "请求确认（越界操作逐次审批）",
   full_access: "完全访问（容器外执行账户，不逐次确认）",
   "auto-review": "自动审查（独立审查调用自动审批，失败转人工）",
+  plan: "Plan（持续调研和完善计划，固定自动审查；执行前手动切换）",
 };
 
 const GRANT_CATEGORY_LABELS: Record<string, string> = {
@@ -153,6 +154,7 @@ export class ConfigTuiApp {
   private sessions: Session[] = [];
   // 工作区/旧项目分类所需的角色会话标识（协议快照可选字段，旧后台缺省为 []）
   private roleSessionIds: string[] = [];
+  private subAgentSessionIds: string[] = [];
   private readonly product: ProductType;
   private instanceId = "";
   private modelView: ModelConfigView | null = null;
@@ -172,6 +174,7 @@ export class ConfigTuiApp {
       this.projects = deps.snapshot.projects;
       this.sessions = deps.snapshot.sessions;
       this.roleSessionIds = deps.snapshot.roleSessionIds ?? [];
+      this.subAgentSessionIds = deps.snapshot.subAgentSessionIds ?? [];
       this.instanceId = deps.snapshot.instanceId;
     }
     this.reloadFile = this.deps.mode === "online" ? reloadStatePathFromEnv() : null;
@@ -503,6 +506,9 @@ export class ConfigTuiApp {
       case "session.created":
         void this.refreshSnapshotFromServer();
         break;
+      case "work_delegation.created":
+        if (!this.subAgentSessionIds.includes(body.agentSessionId)) this.subAgentSessionIds.push(body.agentSessionId);
+        break;
       default:
         break;
     }
@@ -519,6 +525,7 @@ export class ConfigTuiApp {
       this.projects = result.snapshot.projects;
       this.sessions = result.snapshot.sessions;
       this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
+      this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
     } catch {
       // 刷新失败：保留旧视图，下个事件再试
     }
@@ -530,7 +537,7 @@ export class ConfigTuiApp {
     const defs: Array<{ id: string; title: string; desc: string; offline: boolean }> = [
       { id: "models", title: "模型与提供方", desc: "模型目录、API key、后台默认模型", offline: true },
       { id: "projects", title: "项目", desc: "指令文件、Web Search、Jev 实验、资料授权", offline: false },
-      { id: "sessions", title: "会话", desc: "默认模型、思考档位、权限模式", offline: false },
+      { id: "sessions", title: "会话", desc: "默认模型、思考档位、默认模式", offline: false },
       { id: "mcp", title: "MCP 服务", desc: "端点、凭据引用、工具允许列表", offline: false },
       { id: "qq", title: "QQ 入口", desc: "连接配置、启停与拥有者私聊", offline: false },
       { id: "credentials", title: "服务凭据", desc: "HTTP 凭据绑定（仅展示元数据）", offline: false },
@@ -1310,7 +1317,7 @@ export class ConfigTuiApp {
         const sel = s.modelSelection ? `${s.modelSelection.provider}/${s.modelSelection.modelId} · ${s.modelSelection.thinkingLevel}` : "后台默认";
         return [
           { value: "model", label: `默认模型：${sel}`, description: `选择 provider/model/思考档位` },
-          { value: "mode", label: `权限模式：${ACCESS_MODE_LABELS[s.defaultAccessMode] ?? s.defaultAccessMode}` },
+          { value: "mode", label: `默认模式：${ACCESS_MODE_LABELS[s.defaultAccessMode] ?? s.defaultAccessMode}` },
         ];
       },
       onSelect: async (item) => {
@@ -1327,14 +1334,14 @@ export class ConfigTuiApp {
           }
           case "mode": {
             const value = await this.pick(
-              "会话权限模式（新建任务的默认）",
-              SESSION_DEFAULT_MODES.map((m) => ({ value: m, label: ACCESS_MODE_LABELS[m] ?? m })),
+              "会话默认模式（新建任务使用）",
+              SESSION_DEFAULT_MODES.filter((m) => m !== "plan" || (s.kind === "dev" && !this.roleSessionIds.includes(s.id) && !this.subAgentSessionIds.includes(s.id))).map((m) => ({ value: m, label: ACCESS_MODE_LABELS[m] ?? m })),
               { description: `当前：${s.defaultAccessMode}` },
             );
             if (value === null) return;
-            await client.request("set_session_mode", { session_id: sessionId, mode: value, expected_version: s.defaultAccessModeVersion });
-            this.patchSession(sessionId, { defaultAccessMode: value as Session["defaultAccessMode"], defaultAccessModeVersion: s.defaultAccessModeVersion + 1 });
-            this.notify("会话权限模式已保存");
+            const saved = await client.request<Session>("set_session_mode", { session_id: sessionId, mode: value, expected_version: s.defaultAccessModeVersion });
+            this.patchSession(sessionId, { defaultAccessMode: saved.defaultAccessMode, defaultAccessModeVersion: saved.defaultAccessModeVersion });
+            this.notify("会话默认模式已保存");
             return this.refresh();
           }
         }

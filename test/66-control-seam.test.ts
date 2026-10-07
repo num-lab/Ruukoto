@@ -165,7 +165,7 @@ function session(overrides: Partial<Session> = {}): Session {
 function task(overrides: Partial<Task> = {}): Task {
   return {
     id: "task_fake", sessionId: "sess_fake", requestId: "req_fake", input: "输入", modelSelection: { ...MODEL },
-    submissionDigest: null, status: "queued", accessMode: "confirm", permissionVersion: 1, grantedPaths: [],
+    submissionDigest: null, status: "queued", accessMode: "confirm", planMode: false, permissionVersion: 1, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
     resultSummary: null, resultRef: null,

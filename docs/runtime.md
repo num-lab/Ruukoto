@@ -5,7 +5,7 @@
 issue 03 接入真实编码工具与两种权限模式（[ADR 0003](adr/0003-enforce-explicit-access-modes.md)、
 [ADR 0004](adr/0004-tool-worker-per-task-container-exec-account.md)）。
 TUI 是独立客户端，含历史读取、断开重连与输入去重；`ruukoto-dev` 打开 TUI 时
-[按需拉起本机后台](visual/control-protocol.html#ensure)。当前控制协议为 v15，包含事件流恢复接口。
+[按需拉起本机后台](visual/control-protocol.html#ensure)。当前控制协议为 v16，包含事件流恢复接口。
 
 ## 架构要点
 
@@ -193,7 +193,8 @@ export RUUKOTO_DATA_DIR=~/.ruukoto/data
 npm start -- create-project my-project
 npm start -- create-session my-project /path/to/workdir
 npm start -- submit <sessionId> <requestId> "任务输入" \
-  [--mode confirm|full_access|auto-review] [--grant <path>:<read|read_write>[:用途];...]
+  [--mode confirm|full_access|auto-review|plan] [--grant <path>:<read|read_write>[:用途];...]
+npm start -- set-session-mode <sessionId> confirm|full_access|auto-review|plan
 npm start -- switch-mode <taskId> confirm|full_access|auto-review [--grant ...]
 npm start -- status [taskId]          # 快照或单任务（工具操作、审批、产物引用）
 npm start -- events                   # 订阅持久事件流（seq 单调递增）
@@ -388,10 +389,10 @@ ID 与自身版本访问）。
   `/artifact <id 前缀>` 按字节分页查看产物正文；`/approvals` 待处理审批
   （详情内 `a` 批准 / `r` 拒绝，Esc/q 关闭不等于拒绝）；`/interrupt`、
   `/cancel <taskId>`、`/continue [taskId]`、`/resume-queue` 为明确的任务
-  操作；`/mode` 通过列表设置会话默认权限模式，作用于后续任务；`/model`
+  操作；`/mode` 通过列表设置会话默认模式，作用于后续任务；`/model`
   选择后续任务的模型和思考档位；`/skill <名称>
-  [参数]` 显式调用技能、`/skills` 查看技能库与诊断（见「技能」）；`/plan <内容>`
-  以计划模式提交任务（见「计划模式」）；`/quit` 或 `Ctrl+C`（空草稿时）退出客户端。
+  [参数]` 显式调用技能、`/skills` 查看技能库与诊断（见「技能」）；`/quit` 或
+  `Ctrl+C`（空草稿时）退出客户端。
   命令以 `src/tui/commands.ts` 的条目表为准（架构工单 06）：补全、`/help`、派发、
   回显、是否作为任务输入与是否保留成功结果都由条目推出。
   会话选择列表每项两行：首行使用最早用户输入作为名称（无输入时显示未命名会话），
@@ -399,10 +400,11 @@ ID 与自身版本访问）。
   会话之间留一行空白。名称过长时截断，选中任意一行都进入对应会话。
   项目选择列表采用相同布局：首行显示 `项目名 · 会话数`，次行显示会话的工作区路径；
   多个工作区去重后在同一行展示，没有会话时显示“尚无工作区”，项目之间空一行。
-  切换会话时沿用切换前选择的权限模式、模型和思考档位，保存为目标会话的默认设置；
+  切换普通开发会话时沿用切换前选择的模式（含 Plan）、模型和思考档位，保存为目标会话的默认设置；
   提交新任务会等待设置保存完成，已有任务继续使用创建时的设置。
-  输入框获得焦点时，`Shift+Tab` 按 Ask for approval → Full access → Auto review
-  循环切换后续任务的默认权限模式，保留草稿；连续按键依次保存，后台确认后
+  输入框获得焦点时，`Shift+Tab` 按 Ask for approval → Full access → Auto review → Plan
+  循环切换普通开发会话后续任务的默认模式，其他适用会话只显示访问模式选项。
+  切换保留草稿；连续按键依次保存，后台确认后
   更新显示。窗口与选择悬浮层打开时不触发此快捷键。
 - **悬浮层**：简单覆盖下层内容，打开时保留主界面可见。`/mode`、`/model`
   的选择内容与斜杠补全以悬浮层展示。`/todo` 在右上角显示带完整
@@ -445,7 +447,7 @@ ID 与自身版本访问）。
   事件时按该阶段计时。没有公开思考时，
   从每轮请求发出到正文或工具调用开始计时，包含网络等待。正文完整流式
   保留，可向上滚动，不受原有 8 KiB 尾部预览限制。
-- **命令结果**：命令在当前客户端回显（`/plan <内容>`、`/skill <名称> [参数]`
+- **命令结果**：命令在当前客户端回显（`/skill <名称> [参数]`
   作为任务输入提交，只显示任务输入一行）；`/mode` 和 `/model` 追加
   `⎿ Switched to ...`，`/context` 在命令下保留 `⎿ Context Usage`、分色上下文长条
   与分类数据。`/prompt`、`/search`、`/memory`、
@@ -630,14 +632,14 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v31；
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v32；
 │                              #   meta 含实例标识、应用数据绑定、产品归属
 │                              #   product.type——跨产品复用被拒绝）
 │                              #   项目（含项目指令文件与 Web Search 开关、
 │                              #   settings_version 并发保护）、会话
 │                              #   （含 kind：dev/qq_group；workspace_project_id
 │                              #   组织归属仅展示，资料身份仍是 project_id）、任务
-│                              #   （accessMode/权限版本/授予路径）、确认请求
+│                              #   （accessMode/planMode/权限版本/授予路径）、确认请求
 │                              #   （结构化范围/消费时间）、工具操作（宿主操作
 │                              #   id + SDK 调用 id）、产物元数据、目录占用、
 │                              #   幂等键、持久事件、跨项目资料授权、长期记忆
@@ -689,6 +691,10 @@ schema v31 新增 `inbound_media_messages` 与 `inbound_media`，分别保存图
 拒绝状态及按原顺序的图片下载和最终归属记录；`artifacts` 新增可空 `mime_type` 与
 `content_hash`，旧产物保持空值。暂存与拒绝账本不跨实例导入，已提升图片沿任务产物
 复制并保留 MIME 与哈希。恢复与过期清理见「私聊图片入站」。
+
+schema v32 为 `tasks` 增加 `plan_mode`（默认 0），重建会话默认模式的 CHECK 以接受
+`plan`；原访问模式、会话设置、任务与索引保留。旧输入不回填计划状态，旧 `/plan`
+文本与继续链均不决定执行模式。
 
 任务状态机：`queued → running → awaiting_confirmation → running`；结束进入
 `completed / failed / canceled / interrupted`。中断原因、取消意图与外部
@@ -1058,35 +1064,42 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
   需要时自行重写。不做每次调用注入（清单一改就会让其后整段历史的提示缓存
   失效）。
 
-### 计划模式（issue 26）
+### 计划模式（issue 31，ADR 0025）
 
-- 提交：TUI `/plan <内容>` 把整行作为任务输入提交（CLI `ruukoto submit … "/plan …"`
-  同一路径，沿用 `request_id` 去重）；不带内容只显示用法。标记规则：任务输入以
-  `/plan` 加空白开头且其后有内容。不加会话状态，不改控制协议与表结构。
-- 适用会话：只限普通开发会话。角色会话（main，以及已退役的 coding/chat 归档）与 QQ 群会话提交
-  带标记的输入返回 `invalid_params`，不创建任务；Telegram/QQ 私聊正文经编排器
-  包装为 `[入站事件]…`，不会被识别。
-- 判定：任务开始时钉版——输入带标记，或经 `continue` 逐级继续的原任务带标记。
-  以计划模式运行的任务中断后，继续时仍按计划模式运行。
-- 上下文：任务输入照原样保存、显示与发给模型；计划说明（只调研、不修改；bash 只
-  运行只读命令；最终回答给出计划）作为宿主固定的参考消息，与继续来源一起插在
-  当前任务输入之前（不是前缀消息），只在计划模式中出现，`/context` 显示「计划
-  模式」类别。回答格式自由，宿主
-  不解析步骤；进度交给工作清单。
+- 选择：普通开发会话通过 `/mode` 或 Shift+Tab 选择 Plan，CLI 可用
+  `set-session-mode <session> plan` 保存默认选择，`submit/continue --mode plan` 只覆盖本次
+  提交。控制面的 `set_session_mode.mode` 与 `submit/continue.access_mode` 同样接受
+  `plan`。会话默认值持久化并带版本更新、事件广播与重连刷新，持续到拥有者手动更换；
+  main、SubAgent、退役归档和 IM 入口不能选择 Plan，后台按会话身份核实。
+- 固定表示：提交时将最终选择保存为任务的 `planMode=true` 与
+  `accessMode=auto-review`，会话默认模式变化不改写排队、运行或等待审批中的任务。
+  计划完成或收到“开始实现”仍保留计划约束，Agent 提示拥有者先手动切换模式。
+- 继续与切换：`continue` 创建新任务，采用提交时的会话默认值，显式一次性模式优先。
+  保持 Plan 后继续仍有计划约束，切到 Full access 后继续开放执行工具；反向同样成立。
+  不读取源任务输入或 `resumesTaskId` 链决定模式，旧批准不继承。任务级 `switch_mode`
+  不能进入或退出 Plan，也不能改其固定 Auto review 策略；拒绝前不改权限版本与审批。
+  非 Plan 任务仍可在原三种访问模式间切换。
+- 上下文：任务输入照原样保存、显示与发给模型；宿主按任务 `planMode` 注入计划说明，
+  要求持续调研和完善计划、不修改文件、长期记忆或外部状态，bash 只运行只读命令，
+  执行前由拥有者手动切换模式。说明与继续来源一起插在当前任务输入之前，属于任务级
+  参考块，`/context` 显示「计划模式」类别。回答格式自由，宿主不解析步骤；进度交给工作清单。
 - 工具白名单（与 GitHub 评审的按任务收窄组合，在激活、发送前与调用时三处检查）：
   `read`、`bash`、`request_file_access`、`http_request`、`read_artifact`、
   `history_search`、`history_read`、`memory_list`、`memory_read`、`web_search`、
   `todo_write`、`skill` 与类别为只读的 MCP 工具。`edit`、`write`、`memory_save`、
   `memory_revoke` 与非只读 MCP 工具不可用；今后新增的工具默认不可用。
-- 不是安全边界：bash 保留，只靠计划说明约束，仍可能写入工作区（需要硬保证时改为
-  容器只读挂载或去掉 bash）。`request_file_access`、`http_request` 的审批与普通任务
-  一致，逐次审批不变。访问模式不变（提交时的会话默认或显式模式），计划模式只
-  收窄工具，不扩大授权。
-- 执行：计划完成后拥有者的下一条普通消息即按计划执行，工具集恢复、没有计划说明。
-  批准计划不等于审批其中的操作：执行任务仍按访问模式逐次审批。
-- TUI：以计划模式运行的任务在底栏访问模式旁显示「计划」（继续的任务按原任务输入
-  判定）。输入或原任务不在本地时不标注：其他客户端（如 CLI）提交的任务在重新同步
-  或 `/status` 前不标注。
+- 权限与边界：固定采用 Auto review 的受限执行环境；符合 ADR 0005 策略的越界读取
+  进入独立无工具审查，写入、带凭据请求和不能确认的操作转人工，审查失败不放宽权限。
+  保留的 `bash` 仍可能写入工作区，`request_file_access` 与 `http_request` 也支持经人工
+  批准的写入参数；白名单与说明不提供全面只读保证。Plan 不扩大授权、不新增访问策略。
+  批准计划不等于审批其中具体操作，执行任务仍按所选访问模式审批。
+- TUI：模式列表与循环按会话资格展示 Plan，Esc 取消不保存；底栏显示当前任务模式，
+  与后续任务默认值不同时另显示会话默认模式；任务标识来自后台 `planMode`。切换普通开发会话时，Plan 按已有
+  设置同步路径保存到目标会话，覆盖目标原默认值；新提交等待保存完成。
+- 删除旧入口：TUI 的 `/plan` 注册、补全和帮助已移除，按未知命令处理。CLI/API
+  的 `/plan …` 仅作为普通输入，历史文本保持原样；新旧任务都不从文本或继续链识别 Plan。
+- 提交去重：摘要保存原请求参数，未显式模式以缺省值表示；第一次接收才固定当时的
+  最终模式。同键同参重试返回原任务，之后更换默认值不会重复建任务或改写原任务模式。
 
 ### Jev 上下文筛选实验（issue 08）
 
@@ -1840,7 +1853,7 @@ GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，
   与 main（issue 17 开放，承接旧固定 coding draft 的修改职责）
   都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话
   本就不接受任务）；
-  管理器从父 Task 的输入与 `resumesTaskId` 链自行判定计划模式，不接收
+  管理器从父 Task 的固定 `planMode` 判定计划模式，不接收
   `planMode` 入参；计划模式既拒绝显式 `modify`，也拒绝沿已有 `writeTarget`
   的工作继续。模型工具清单仍由 `PLAN_TOOL_NAMES` 收窄，未开放
   `subagent_delegate`，不能据此声称计划模式模型可发起分析委派。

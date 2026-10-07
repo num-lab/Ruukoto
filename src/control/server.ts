@@ -24,8 +24,8 @@ import {
 import { capEventForWire, frameBytes } from "../core/views.ts";
 import { ensureOwnerToken, tokenMatches } from "./owner-token.ts";
 import type { Runtime } from "../runtime/runtime.ts";
-import type { AccessMode, DataCategory, GrantedPath, Memory, MemorySourceRef, PersistentEvent } from "../core/types.ts";
-import { SESSION_DEFAULT_MODES, isAccessMode } from "../core/types.ts";
+import type { SessionDefaultMode, DataCategory, GrantedPath, Memory, MemorySourceRef, PersistentEvent } from "../core/types.ts";
+import { SESSION_DEFAULT_MODES, isAccessMode, isSessionDefaultMode } from "../core/types.ts";
 
 const REPLAY_LIMIT = 5000;
 
@@ -167,10 +167,10 @@ export class ControlServer {
     }
   }
 
-  private parseAccessMode(params: Record<string, unknown>): AccessMode | undefined {
+  private parseAccessMode(params: Record<string, unknown>): SessionDefaultMode | undefined {
     const mode = params["access_mode"];
     if (mode === undefined) return undefined;
-    if (isAccessMode(mode)) return mode;
+    if (isSessionDefaultMode(mode)) return mode;
     throw Object.assign(new Error(`访问模式无效：${String(mode)}（${SESSION_DEFAULT_MODES.join(" | ")}）`), { code: "invalid_params" });
   }
 
@@ -371,7 +371,7 @@ export class ControlServer {
         return runtime.testModelConnection({ provider: params["provider"], modelId: params["model_id"] });
       case "set_session_mode": {
         const mode = params["mode"];
-        if (!isAccessMode(mode)) {
+        if (!isSessionDefaultMode(mode)) {
           throw Object.assign(new Error(`mode 必须是 ${SESSION_DEFAULT_MODES.join(" 或 ")}`), { code: "invalid_params" });
         }
         return runtime.setSessionDefaultMode({ sessionId: requireString("session_id"), mode, expectedVersion: params["expected_version"] as number });
@@ -398,6 +398,7 @@ export class ControlServer {
       case "switch_mode": {
         const mode = this.parseAccessMode({ access_mode: params["mode"] });
         if (!mode) throw Object.assign(new Error(`mode 必须给出（${SESSION_DEFAULT_MODES.join(" | ")}）`), { code: "invalid_params" });
+        if (!isAccessMode(mode)) throw Object.assign(new Error("任务级模式切换不能进入或退出 Plan；请先中断，再按当前会话模式继续"), { code: "invalid_params" });
         return runtime.switchTaskMode({
           taskId: requireString("task_id"),
           mode,

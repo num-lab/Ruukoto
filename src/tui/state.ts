@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   AccessMode,
+  SessionDefaultMode,
   ModelSelection,
   Artifact,
   PersistentEvent,
@@ -211,6 +212,7 @@ export class ViewState {
           submissionDigest: null,
           status: "queued",
           accessMode: body.accessMode,
+          planMode: body.planMode,
           permissionVersion: 1,
           grantedPaths: [],
           pendingAccessMode: null,
@@ -575,7 +577,7 @@ export class ViewState {
     }
   }
 
-  applySessionDefaultMode(sessionId: string, mode: AccessMode, version: number): void {
+  applySessionDefaultMode(sessionId: string, mode: SessionDefaultMode, version: number): void {
     const session = this.sessions.find((s) => s.id === sessionId);
     if (session && version >= session.defaultAccessModeVersion) {
       session.defaultAccessMode = mode;
@@ -731,8 +733,10 @@ export class ViewState {
 }
 
 /** 访问模式显示名（/mode 列表、状态栏、模式提示共用）。 */
-export function accessModeLabel(mode: AccessMode): string {
+export function accessModeLabel(mode: SessionDefaultMode): string {
   switch (mode) {
+    case "plan":
+      return "☷ Plan";
     case "full_access":
       return "⏵⏵ Full access";
     case "auto-review":
@@ -742,7 +746,7 @@ export function accessModeLabel(mode: AccessMode): string {
   }
 }
 
-export function formatAccessMode(mode: AccessMode, pending: AccessMode | null): string {
+export function formatAccessMode(mode: SessionDefaultMode, pending: AccessMode | null): string {
   const base = accessModeLabel(mode);
   return pending ? `${base}（待切换：${accessModeLabel(pending)}）` : base;
 }
@@ -751,8 +755,9 @@ export function formatAccessMode(mode: AccessMode, pending: AccessMode | null): 
  * 模式名的着色（左下角状态栏）。返回样式函数，调用方决定包裹范围。
  * 颜色只在状态栏用，不进入 /mode 列表与事件文案（那些地方靠文字区分）。
  */
-export function accessModeStyle(mode: AccessMode): (s: string) => string {
+export function accessModeStyle(mode: SessionDefaultMode): (s: string) => string {
   switch (mode) {
+    case "plan":
     case "auto-review":
       return (s) => `\x1b[38;5;75m${s}\x1b[0m`; // 蓝：自动审查
     case "full_access":

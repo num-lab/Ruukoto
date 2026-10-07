@@ -21,11 +21,12 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>inbound-events.html</span></nav>
     <p class="eyebrow">入口</p>
     <h1>入站事件</h1>
-    <p class="lede">Telegram 与 QQ 的消息、调度器的定时唤醒、GitHub 的 PR 事件，都先登记成一条持久的入站事件，再由编排器建任务。本页讲每个来源怎样取外部 ID、核对身份、在什么情况下被拒或跳过，派发与启动前的门怎样决定放行、等待或丢弃，任务结束后怎样登记 owner 回复——还有一种把 IM 发起的工作的最终汇报发回同一入口的 owner_reply，以及重启后怎样不换键地接着做。绑定拥有者在私聊里发的整条审批命令是另一条路：同样先落库（类别 <code>event_kind = im_approval</code>），但不派发、不建任务，宿主在一个同步事务里直接处理到终态并回执。</p>
+    <p class="lede">Telegram 与 QQ 的消息、调度器的定时唤醒、GitHub 的 PR 事件，进入普通任务路径时先登记持久入站事件，再由编排器建任务。私聊图片先下载、校验与暂存，永久拒绝另留媒体账本与固定回执。本页讲每个来源怎样取外部 ID、核对身份、在什么情况下被拒或跳过，派发与启动前的门怎样决定放行、等待或丢弃，任务结束后怎样登记 owner 回复——还有一种把 IM 发起的工作的最终汇报发回同一入口的 owner_reply，以及重启后怎样不换键地接着做。绑定拥有者在私聊里发的整条审批命令是另一条路：同样先落库（类别 <code>event_kind = im_approval</code>），但不派发、不建任务，宿主在一个同步事务里直接处理到终态并回执。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/runtime/orchestrator.ts#private async dispatchEvent">runtime/orchestrator.ts</code>
         <code class="src" data-src="src/runtime/runtime.ts#private inboundGate">runtime/runtime.ts</code>
+        <code class="src" data-src="src/runtime/inbound-media.ts#export class InboundMediaStore">runtime/inbound-media.ts</code>
         <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/runtime/parent-delivery.ts#export class ParentDelivery">runtime/parent-delivery.ts</code>
         <code class="src" data-src="src/core/notify-target.ts#export function sameTarget">core/notify-target.ts</code>
@@ -47,7 +48,7 @@
         <a href="../adr/0013-github-event-review.md">ADR 0013 GitHub PR 评审</a>
         <a href="../adr/0014-qq-group-chat-results.md">ADR 0014 群聊结果</a>
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
-      </dd></div>
+       <a href="../adr/0024-inbound-image-staging.md">ADR 0024 入站图片</a></dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="orchestrator.html">编排器</a>
         <a href="tool-call-path.html">工具调用路径</a>
@@ -230,7 +231,7 @@
           <tr>
             <td><code>telegram</code></td>
             <td><code>&lt;botId&gt;:&lt;chatId&gt;:&lt;messageId&gt;</code>，botId 是 token 冒号前一段</td>
-            <td>chat.type 为 private，from.id 与 chat.id 等于配置的 owner，text 是字符串；登记前配置代次未变</td>
+            <td>chat.type 为 private，from.id 与 chat.id 等于配置的 owner；接受 text 或 photo，caption 可空；登记前配置代次未变</td>
             <td>main 角色会话，请求键 <code>evt:&lt;事件&gt;</code></td>
             <td>平台、bot（由本轮捕获的凭据派生）、owner chat、配置版本；派发、启动与回复都用 <code>sameTarget</code> 与当前目标比对</td>
             <td>不登记，记 <code>telegram.rejected</code>；代次已变的静默不登记</td>
@@ -270,8 +271,8 @@
     <h3>Telegram 私聊</h3>
     <p><code class="src" data-src="src/telegram/adapter.ts#private async poll">telegram/adapter.ts · poll</code> 用 long polling 调 <code>getUpdates</code>：offset 取持久的 <code>last_update_id + 1</code>，只收 <code>message</code>，长轮询 <code class="src" data-src="src/telegram/adapter.ts#pollTimeoutSec ?? 25">pollTimeoutSec ?? 25</code> 秒。每条 update 先处理（登记或记拒绝），成功后才在独立事务里推进偏移（<code class="src" data-src="src/telegram/adapter.ts#setLastUpdateId">setLastUpdateId</code>，只增不减）；推进前先核对当前配置与本轮捕获的仍是同一代次（配置版本与凭据绑定名都未变），否则不写回旧偏移，重投由外部 ID 去重。登记抛错时偏移不动，本轮退出、按退避等待，下一轮平台重投同一批 update，已登记的命中原外部 ID。轮询失败标离线，退避从 1 秒翻倍到 30 秒封顶（<code class="src" data-src="src/telegram/adapter.ts#Math.min(backoff * 2, 30_000)">adapter.ts · poll</code>），平台回应带 retry_after（如 429）时按它等待。</p>
     <ul>
-      <li><b>身份</b>：<code class="src" data-src="src/telegram/adapter.ts#private async handleUpdate">handleUpdate</code> 依次判定 <code>unsupported_update</code>（不是 message）、<code>not_private</code>、<code>not_owner</code>（from.id 或 chat.id 与配置不符）、<code>non_text</code>。命中任何一条都只记 <code>telegram.rejected</code>，带 update / chat / user id 与原因，不含正文，不建任务；偏移照常推进。转发消息（<code>forward_origin/forward_date</code>）照常登记建任务，但其内容不解释为审批命令（不入 <code>commandText</code>）。登记前还再核对本轮捕获的配置与凭据仍是当前代次，轮换/重绑期间的消息不登记。</li>
-      <li><b>登记</b>：外部 ID 由 <code class="src" data-src="src/telegram/adapter.ts#export function telegramExternalId">telegramExternalId</code> 拼成，message_id 只在 bot + chat 内唯一，带上 botId 后换 bot 不会撞键。actor 为 <code>telegram:&lt;user_id&gt;</code>。正文是固定模板（<code class="src" data-src="src/telegram/adapter.ts#function inboundBody">inboundBody</code>）：平台、chat、user、message id、原消息时间，回复某条消息时附被回复消息的摘录（≤ <code class="src" data-src="src/telegram/adapter.ts#const QUOTE_CAP = 500">QUOTE_CAP</code> 字符），最后是原文。回复目标按该次轮询捕获的配置与凭据钉版（<code class="src" data-src="src/telegram/adapter.ts#private targetFor">targetFor</code>，与 QQ 私聊同款），存进事件的 reply_target，不用后来的配置重新包装旧消息；原始发送文本（未加模板与摘录）另作为 <code>commandText</code> 交给宿主，供识别审批命令。</li>
+      <li><b>身份</b>：<code class="src" data-src="src/telegram/adapter.ts#private async handleUpdate">handleUpdate</code> 依次判定 <code>unsupported_update</code>（不是 message）、<code>not_private</code>、<code>not_owner</code>（from.id 或 chat.id 与配置不符）、<code>non_text</code>（既无 text 也无 photo）。命中任何一条都只记 <code>telegram.rejected</code>，带 update / chat / user id 与原因，不含正文，不建任务；偏移照常推进。转发消息（<code>forward_origin/forward_date</code>）照常登记建任务，但其内容不解释为审批命令（不入 <code>commandText</code>）。登记前还再核对本轮捕获的配置与凭据仍是当前代次，轮换/重绑期间的消息不登记。</li>
+      <li><b>登记</b>：外部 ID 由 <code class="src" data-src="src/telegram/adapter.ts#export function telegramExternalId">telegramExternalId</code> 拼成，message_id 只在 bot + chat 内唯一，带上 botId 后换 bot 不会撞键。actor 为 <code>telegram:&lt;user_id&gt;</code>。正文是固定模板（<code class="src" data-src="src/telegram/adapter.ts#function inboundBody">inboundBody</code>）：平台、chat、user、message id、原消息时间，回复某条消息时附被回复消息的摘录（≤ <code class="src" data-src="src/telegram/adapter.ts#const QUOTE_CAP = 500">QUOTE_CAP</code> 字符），最后是 text 或 caption；被回复消息也可摘录 caption。photo 的多个 PhotoSize 只取最大分辨率，经 getFile 下载一张图片（<code class="src" data-src="src/telegram/adapter.ts#private async downloadPhoto">downloadPhoto</code>）。下载响应为 application/octet-stream 或没有 Content-Type 时，从 getFile 的 jpg/jpeg/png/webp 文件扩展得到声明 MIME，仍核对实际 magic；其他响应 MIME 直接校验。图片消息先走<a href="#media">下载与暂存</a>。回复目标按该次轮询捕获的配置与凭据钉版（<code class="src" data-src="src/telegram/adapter.ts#private targetFor">targetFor</code>，与 QQ 私聊同款），存进事件的 reply_target，不用后来的配置重新包装旧消息；纯文本消息的原始发送文本（未加模板与摘录）另作为 <code>commandText</code> 交给宿主，供识别审批命令；图片消息不提供 commandText。</li>
       <li><b>凭据</b>：bot token 只在 CredentialStore，按 purpose <code>telegram_bot</code> 取用（<code class="src" data-src="src/telegram/adapter.ts#TELEGRAM_CREDENTIAL_PURPOSE">TELEGRAM_CREDENTIAL_PURPOSE</code>）；<code>telegram_config</code> 只存 API 地址、绑定名、owner 的 user_id 与 chat_id、启停、配置版本与偏移。取不到 token 时轮询直接退出、保持未连接。token 位于请求 URL，错误信息写日志与状态前先用该次请求捕获的 token 脱敏（<code class="src" data-src="src/telegram/adapter.ts#private redact">redact</code>），凭据轮换后旧请求的迟到错误也不会泄露旧 token。</li>
       <li><b>派发门与配置变化</b>：Telegram 与 QQ 私聊一样有入站门（<code class="src" data-src="src/telegram/adapter.ts#gatePrivate(event">gatePrivate</code>）：来源、actor（配置的 owner user_id，不能由 chatId 推断）与收件时钉版的目标及配置版本逐项核对（<code class="src" data-src="src/core/notify-target.ts#sameTarget">sameTarget</code>）；不符即以 <code>telegram_target_changed</code> 丢弃，配置未变只是暂时离线则等待恢复。配置版本是代次：重新配置递增版本并把偏移归零，启停只递增版本，两者都让适配器重连；凭据同名修改或删除在写入前也单调递增版本并归零偏移（<code class="src" data-src="src/telegram/adapter.ts#bumpConfigVersion(): TelegramConfig | null">TelegramStore.bumpConfigVersion</code>），平台重投的旧 update 由外部 ID 去重。配置或凭据变化后拥有者 IM 入口表按来源逐条复核在途事件（<code class="src" data-src="src/runtime/im-entries.ts#async reconcile(source: string)">im-entries.ts · reconcile</code>，QQ 私聊共用同一段）：registered 的作废，活动任务取消，该平台未消费的审批与入口已失效的长期授权一并失效（见<a href="#im-approval">IM 审批控制消息</a>）。ruukoto-dev 与设了 <code>RUUKOTO_DISABLE_TELEGRAM=1</code> 的进程（开发实例固定注入）照常创建适配器，但它不轮询、目标为 null，门以 <code>telegram_unavailable</code> 丢弃。</li>
     </ul>
@@ -280,12 +281,12 @@
     <p>QQ 私聊与群聊共用一条 NapCat OneBot v11 正向 WebSocket 连接（<code class="src" data-src="src/qq/onebot.ts#export class OneBotClient">onebot.ts · OneBotClient</code>）。连接打开后并行调 <code>get_login_info</code> 与 <code>get_status</code>，之后每 <code class="src" data-src="src/qq/onebot.ts#probeIntervalMs ?? 30_000">probeIntervalMs ?? 30_000</code> 毫秒再探一次；心跳事件的 status 也参与判断。拿到有效登录号、且状态同时是 online 与 good（<code class="src" data-src="src/qq/onebot.ts#function isOnlineStatus">isOnlineStatus</code>）才算在线；WebSocket 还连着、账号离线时同样算不在线。</p>
     <ul>
       <li><b>公共核对</b>（<code class="src" data-src="src/qq/adapter.ts#private async handleEvent">qq/adapter.ts · handleEvent</code>，私聊与撤回通知都走）：适配器已启动、QQ 入口已启用、连接在线、连接核实的登录号等于配置的 self_id、连接代次仍是当前配置、事件 self_id 等于配置。连接代次由连接键决定（<code class="src" data-src="src/qq/adapter.ts#private connectionKey">connectionKey</code>：端点、凭据名与值、登录号、配置版本）——任何配置或凭据变化都要求重建连接，旧连接上的事件不再接纳。任何一条不满足，事件直接丢弃。群消息不在这条核对之后分流：群分支已随退役删除，群消息到达即忽略。</li>
-      <li><b>私聊接纳</b>（<code class="src" data-src="src/qq/adapter.ts#private async handlePrivateMessage">handlePrivateMessage</code>）：私聊入口可用（配了 owner、取得到 token）；sub_type 为 friend，发送者等于配置的 owner 且不是登录号本身，没有 group_id，sender 与 user_id 一致；消息段只能是 text 与 reply，出现其他段整条忽略；拼出的文本非空且不超过 <code class="src" data-src="src/qq/adapter.ts#const MAX_INBOUND_TEXT_CHARS = 8192">MAX_INBOUND_TEXT_CHARS</code> 字符。不满足的一律静默忽略，不记事件。引用只记被回复消息的 ID，不读原文；拼出的原始发送文本另作为 <code>commandText</code> 交给宿主（引用内容不进这个字段），供识别审批命令。</li>
+      <li><b>私聊接纳</b>（<code class="src" data-src="src/qq/adapter.ts#private async handlePrivateMessage">handlePrivateMessage</code>）：私聊入口可用（配了 owner、取得到 token）；sub_type 为 friend，发送者等于配置的 owner 且不是登录号本身，没有 group_id，sender 与 user_id 一致；消息段只能是 text、reply 与 image，出现其他段整条忽略；纯文本须非空且不超过 <code class="src" data-src="src/qq/adapter.ts#const MAX_INBOUND_TEXT_CHARS = 8192">MAX_INBOUND_TEXT_CHARS</code> 字符；含图允许无文字，正文按普通入站上限截断，接收文字另保存在媒体信封。不满足的一律静默忽略，不记事件。引用只记被回复消息的 ID，不读原文；纯文本拼出的原始发送文本另作为 <code>commandText</code> 交给宿主（引用内容不进这个字段），供识别审批命令；图片消息不提供。图片按段顺序下载：url 或 HTTP(S) file 可直接取用，文件标识经 OneBot <code>get_image</code> 解析，只接受可下载的 HTTP(S) 地址，不读取远端服务返回的本地路径（<code class="src" data-src="src/qq/adapter.ts#private async downloadImage">downloadImage</code>）。</li>
       <li><b>入站时固定</b>：外部 ID 由 <code class="src" data-src="src/qq/adapter.ts#export function qqPrivateExternalId">qqPrivateExternalId</code> 拼成，actor 为 <code>qq_private:&lt;owner&gt;</code>，回复目标取接收那一刻的 <code class="src" data-src="src/qq/adapter.ts#target(): NotifyTarget | null">target()</code>：平台 <code>qq_private</code>、登录账号、owner、配置版本，存进事件的 reply_target。之后派发、任务启动与 owner 回复都拿它与当前配置逐字段比对（两平台共用 <code class="src" data-src="src/core/notify-target.ts#sameTarget">notify-target.ts · sameTarget</code>），配置换了就不改发给新目标。</li>
     </ul>
     <aside class="callout limit">
       <b>接收不是投递确认</b>
-      <p>QQ 私聊登记失败（编排器未就绪、后台正在停止）只记诊断日志，这条消息不会重试。连接断开或账号离线再恢复时，适配器记一条 <code>qq.receive_gap</code>，带离线的起止时刻；这段时间的私聊消息不补抓、不假定平台会重投（群消息退役后直接忽略）。Telegram 靠持久偏移让平台重投，只要平台还保留着这些 update，就没有这类缺口。</p>
+      <p>QQ 纯文本登记失败（编排器未就绪、后台正在停止）只记诊断日志；图片下载已完成但登记失败时，安全信封和文件会由启动恢复补登（见<a href="#media">图片暂存</a>）。连接断开或账号离线再恢复时，适配器记一条 <code>qq.receive_gap</code>，带离线的起止时刻；这段时间的私聊消息不补抓、不假定平台会重投（群消息退役后直接忽略）。Telegram 靠持久偏移让平台重投，只要平台还保留着这些 update，就没有这类缺口。</p>
     </aside>
 
     <h3>QQ 群（已退役）</h3>
@@ -324,6 +325,43 @@
       <li><b>登记</b>（<code class="src" data-src="src/github/events.ts#register(s: GitHubPullRequestEvent)">events.ts · register</code>）：先再核一次仓库在允许列表，再在一个事务里登记 source <code>github</code>、外部 ID 为小写 delivery ID、actor 为 PR 发送者、目标 main 的事件，正文是归一化 JSON 快照（PR body 只存前 4000 字符并标记截断，不经 INPUT_TEXT_CAP），回复目标取所选 notifyChannel 当时的 owner 目标。首次登记时，同一事务里给同一 PR 修订或状态已变的旧事件结果写 staleReason，并取消它们未发送的通知。</li>
       <li><b>应答</b>：首次登记 202，重复 delivery 200，登记失败或后台停止中 503。应答不等模型与任务：派发放到下一轮事件循环（setImmediate）。父子任务的编排、只读工具与通知见<a href="orchestrator.html">编排器</a>。</li>
     </ul>
+  </section>
+
+  <section id="media">
+    <h2>图片下载、暂存与任务归属</h2>
+    <p>Personal Agent 的 Telegram 与 QQ owner 私聊接受 JPEG、PNG、WebP，文字可以为空；caption 与文本段保留为同一条用户消息。每条最多 <code class="src" data-src="src/runtime/inbound-media.ts#MAX_INBOUND_IMAGES">MAX_INBOUND_IMAGES</code> = 4 张，每张不超过 <code class="src" data-src="src/runtime/inbound-media.ts#MAX_INBOUND_IMAGE_BYTES">MAX_INBOUND_IMAGE_BYTES</code> = 8 MiB。宿主检查声明 MIME、下载响应 MIME、实际 magic bytes 与真实流字节数；SVG、GIF、伪造类型、大小或数量超限直接拒绝，不转码、不缩放。平台错误正文、下载 URL 与 token 不进入暂存账本或模型上下文。</p>
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:5">
+          <div class="who"><span>owner 私聊</span><span>适配器</span><span>暂存账本与文件</span><span>编排器</span><span>任务产物</span></div>
+          <div class="m" style="--from:1;--to:2"><span>caption / 文本 + 图片段</span></div>
+          <div class="m" style="--from:2;--to:3"><span>stage：先持久化安全消息信封</span></div>
+          <div class="note" style="--from:2;--to:3">下载闭包只存在内存；按 source、externalId、mediaIndex 去重</div>
+          <div class="m ok" style="--from:2;--to:3"><span>下载 + 校验 + ready</span></div>
+          <div class="m" style="--from:2;--to:4"><span>media: true，登记普通入站事件</span></div>
+          <div class="note" style="--from:4;--to:4">任务创建前核对模型 input 包含 image；不支持时拒绝，不建任务</div>
+          <div class="m" style="--from:4;--to:5"><span>建任务后准备不可变图片文件</span></div>
+          <div class="m l ok" style="--from:4;--to:3"><span>同一事务：markInboundQueued + promote</span></div>
+          <div class="note" style="--from:3;--to:5">产物元数据、event.artifact_refs 与最终 task/artifact 归属共同提交，提交后唤醒会话</div>
+        </div>
+      </div>
+      <figcaption>下载成功后才登记普通入站。文件与 SQLite 没有跨文件事务：提升先准备文件，再原子登记引用；事务回滚后沿相同产物 ID 重试，任务启动前再次核实绑定。视觉块恢复见<a href="context-pipeline.html#images">上下文组装</a>，固定拒绝回执见<a href="outbox.html#media-receipt">通知 outbox</a>。</figcaption>
+    </figure>
+    <ul class="legend"><li><i class="ok"></i>已校验或已提交</li></ul>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>消息状态</th><th>单图状态</th><th>含义与恢复</th></tr></thead>
+        <tbody>
+          <tr><td><code class="st run">staging</code></td><td><code class="st wait">pending</code> / <code class="st run">downloading</code></td><td>已记信封，尚未全部下载。重启时已 rename 的文件重新校验并补记 ready；缺少可校验文件时记固定拒绝原因。</td></tr>
+          <tr><td><code class="st ok">ready</code></td><td><code class="st ok">ready</code></td><td>全部图片已校验，可恢复登记事件；已有事件按原键继续建任务。</td></tr>
+          <tr><td><code class="st ok">bound</code></td><td><code class="st ok">promoted</code></td><td>已绑定任务和不可变图片产物，重复提升返回原引用；按已有任务产物保留。</td></tr>
+          <tr><td><code class="st bad">rejected</code></td><td><code class="st bad">rejected</code></td><td>固定原因永久拒绝；同外部 ID 重投读取原事实，不重复下载，不创建普通模型任务。</td></tr>
+          <tr><td><code class="st idle">expired</code></td><td><code class="st idle">expired</code></td><td>没有关联任务的暂存超过 <code class="src" data-src="src/runtime/inbound-media.ts#INBOUND_MEDIA_ORPHAN_TTL_MS">INBOUND_MEDIA_ORPHAN_TTL_MS</code> = 24 小时清理文件；保留账本，已登记而未建任务的事件作废；活动下载与按 evt 请求键核实已创建的任务继续保留恢复所需文件。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code class="src" data-src="src/runtime/inbound-media.ts#private async download">inbound-media.ts · download</code> 对临时网络错误最多尝试 <code class="src" data-src="src/runtime/inbound-media.ts#INBOUND_MEDIA_DOWNLOAD_ATTEMPTS">INBOUND_MEDIA_DOWNLOAD_ATTEMPTS</code> = 3 次，每次完整下载的时限为 <code class="src" data-src="src/runtime/inbound-media.ts#INBOUND_MEDIA_DOWNLOAD_TIMEOUT_MS">INBOUND_MEDIA_DOWNLOAD_TIMEOUT_MS</code> = 15 秒。超时、连接中断在有界重试后记 <code>download_failed</code>；重启时没有完整文件的下载记 <code>download_interrupted</code>。Telegram 在最终决定与登记成功前不推进 offset，父 signal 中止时保留暂存；QQ 在适配器收件链内完成重试后记拒绝，不依赖平台重投。拒绝与 24 小时清理不会伪装成普通 InboundEvent 的任务状态。</p>
+    <p><code class="src" data-src="src/runtime/runtime.ts#private async registerImInbound">runtime.ts · registerImInbound</code> 对含图片的文字关闭审批命令解析，即使 caption 是 <code>/approve</code> 也只作任务正文；普通文本的命令路径照常。首次与继续任务的图片按产物引用恢复，发送前仍核对模型能力，不自动切换模型或引入 OCR。暂存清理在启动恢复与编排器每 <code class="src" data-src="src/runtime/orchestrator.ts#MEDIA_CLEANUP_INTERVAL_MS">MEDIA_CLEANUP_INTERVAL_MS</code> = 1 小时的巡检中执行。</p>
   </section>
 
   <section id="dispatch">
@@ -442,7 +480,7 @@
         <h4>保持 registered 的事件</h4>
         <ul>
           <li>调度器每轮扫描发现还有 registered 的普通任务事件时（<code class="src" data-src="src/scheduler/runtime.ts#private hasUndispatched">hasUndispatched</code> 只数 <code>event_kind = 'task'</code>，所有来源都算，IM 审批控制消息不算），按 <code class="src" data-src="src/scheduler/runtime.ts#redispatchMs: 30_000">SCHEDULER_LIMITS.redispatchMs</code>（30 秒）的间隔补派。</li>
-          <li>QQ 连接恢复在线、配置变化后，适配器请编排器派发一次（退役前的撤回促发已随群分支删除）。</li>
+          <li>QQ 连接恢复在线、配置变化后，适配器请编排器派发一次；Telegram 轮询由离线转在线时经 onOnline 补派一次（退役前的 QQ 撤回促发已随群分支删除）。</li>
           <li>新登记的普通任务事件都会排一次派发，顺带处理积压的事件（IM 审批控制消息不触发派发）；后台启动时编排器先重提一遍。</li>
         </ul>
       </div>
@@ -450,7 +488,7 @@
         <h4>留在 queued 的任务</h4>
         <ul>
           <li>QQ 适配器每 <code class="src" data-src="src/qq/adapter.ts#sweepIntervalMs ?? 15_000">sweepIntervalMs ?? 15_000</code> 毫秒唤醒 main 会话，Telegram 轮询未连上时等待的 main 任务也靠这次唤醒重试（退役前同样唤醒各群会话）。QQ 由启动配置停用的实例（适配器的 start 为空操作）没有这项巡检。</li>
-          <li>QQ 连接恢复在线、配置变化时同样唤醒；私聊授权复核后唤醒 main。</li>
+          <li>QQ 连接恢复在线、配置变化时同样唤醒；Telegram 首次轮询上线与恢复在线也经 onOnline 唤醒 main。私聊授权复核后唤醒 main。</li>
           <li>其余唤醒（新提交、占用释放）照常触发一次调度循环。</li>
         </ul>
       </div>
@@ -553,7 +591,7 @@
           <g class="n bad"><rect x="746" y="756" width="278" height="52" rx="8"/><text x="885" y="774">failed</text><text class="sub" x="885" y="793">另记失败回执，请重发</text></g>
         </svg>
       </div>
-      <figcaption>除「重投」与「failed · 无回执」外，每个终点都在同一事务里写控制事件终态、<code>im_approval.processed</code> 与一条回执。决定类的三个结局里，只有左下的「已提交」改变了审批状态；「条件更新落空」包括 TUI、自动审查或另一条命令先决定了，以及审批所在会话没有活动驱动器、闸门里没有这条审批的等待者。左下的结局写进回执后，宿主不另行唤醒发送循环（见下文「回执怎么发回」）。<code>/approve-standing</code> 进闸门前另核：审批是 <code>service_manage</code> 的 restart，会话属于 main，同步重读的部署策略修订与审批范围相同。撤销核实不符同样只回执；授权此前已撤销或失效时结局是 <code>already_revoked</code>。上方虚线：Telegram 转发消息不带 <code>commandText</code>，直接按普通入站登记。</figcaption>
+      <figcaption>除「重投」与「failed · 无回执」外，每个终点都在同一事务里写控制事件终态、<code>im_approval.processed</code> 与一条回执。决定类的三个结局里，只有左下的「已提交」改变了审批状态；「条件更新落空」包括 TUI、自动审查或另一条命令先决定了，以及审批所在会话没有活动驱动器、闸门里没有这条审批的等待者。左下的结局写进回执后，宿主不另行唤醒发送循环（见下文「回执怎么发回」）。<code>/approve-standing</code> 进闸门前另核：审批是 <code>service_manage</code> 的 restart，会话属于 main，同步重读的部署策略修订与审批范围相同。撤销核实不符同样只回执；授权此前已撤销或失效时结局是 <code>already_revoked</code>。上方虚线：Telegram 转发消息不带 <code>commandText</code>，直接按普通入站登记。两平台的图片消息也不进入命令解析，下载与任务路径见<a href="#media">图片入站</a>。</figcaption>
       <ul class="legend">
         <li><i class="ok"></i>已处理并回执</li>
         <li><i class="idle"></i>只回执，未执行</li>
@@ -563,7 +601,7 @@
     </figure>
 
     <ul>
-      <li><b>识别</b>：<code>commandText</code> 是原始发送文本。Telegram 取 <code>message.text</code>，转发消息（<code>forward_origin</code> / <code>forward_date</code>）不提供这个字段；QQ 取全部 text 段拼接，reply 段只留消息 ID。正文模板、被引用消息的摘录、群消息与模型输出都进不了这个字段，所以引用里、转发来的命令不会被执行。</li>
+      <li><b>识别</b>：<code>commandText</code> 是原始发送文本。只限纯文本：Telegram 取 <code>message.text</code>，转发消息（<code>forward_origin</code> / <code>forward_date</code>）不提供这个字段；QQ 取全部 text 段拼接，reply 段只留消息 ID；含图的 caption 或 text 完全关闭命令路径。正文模板、被引用消息的摘录、群消息与模型输出都进不了这个字段，所以引用里、转发来的命令不会被执行。</li>
       <li><b>入口身份</b>：命令收件时必须有钉版目标；当前目标（适配器的 <code>target()</code>）与钉版目标 <code>sameTarget</code>，发送者 actor 等于当前配置期望的 owner（各适配器的 <code class="src" data-src="src/qq/adapter.ts#expectedActor(): string | null">expectedActor</code>，经入口表按来源取：入口须启用，QQ 还须绑定了 owner）。适配器已先滤掉非 owner 的消息，这一步拦的是收件之后配置或凭据已经换代的命令。</li>
       <li><b>审批归属</b>：审批必须来自同一钉版身份委托出去的任务。<code class="src" data-src="src/runtime/im-approvals.ts#imSourceEvent(taskId">imSourceEvent</code> 从审批所属任务沿 parentTaskId 找到根任务（最多 <code class="src" data-src="src/runtime/im-approvals.ts#const CHAIN_WALK_LIMIT = 16">CHAIN_WALK_LIMIT</code> 层，断链或循环即拒绝），根任务的来源事件必须是 <code>telegram</code> 或 <code>qq_private</code> 的普通任务入站，平台、actor 与钉版目标都与命令相同，不从会话最近消息推断。列表只列通过这项核实的审批；不属于本入口的审批与不存在的审批回同样的 <code>not_found</code>，不给详情。</li>
       <li><b>决定与回执同一事务</b>：决定经活动驱动器的审批闸门提交（<code class="src" data-src="src/agent/approval-gate.ts#resolve(confirmationId">approval-gate.ts · resolve</code>）：条件更新 pending → approved / rejected、<code>task.confirmation_resolved</code>，以及作为 <code>txExtra</code> 传入的控制事件终态、回执与审计事件，一起提交，等待者在提交之后才被唤醒。任何一步写失败整笔回滚，决定没有记录；宿主另开事务记一条 failed 控制事件和失败回执，请拥有者恢复后重发（新消息有新的外部 ID）。这条也写不进去时异常抛回适配器：Telegram 不推进偏移、等平台重投，QQ 只记日志。批准回执写明「已接受」，执行前仍要复核，不说操作已成功。</li>
@@ -687,10 +725,10 @@
     <ol class="steps">
       <li>任务层恢复：running 与 awaiting_confirmation 转 interrupted，见<a href="task-lifecycle.html">任务生命周期</a>。</li>
       <li>固定角色退役收尾（<code class="src" data-src="src/runtime/runtime.ts#private retireLegacyRoles">runtime.ts · retireLegacyRoles</code>，每次启动执行、按状态幂等，一个事务）：遗留 pending 的群回复一律定 unknown（错误注明 <code>core_group_chat_retired</code>，不重发），对应仍在 queued 的收件记 <code>reply_unknown</code>；各旧群会话（<code class="src" data-src="src/qq/store.ts#listGroupSessions">qq/store.ts · listGroupSessions</code>）里排队的任务条件更新 queued → canceled（error_message 为 <code>core_group_chat_retired</code>），同一事务发 <code>task.canceled</code>；旧 coding 角色会话里排队的任务同样取消（error_message 为 <code>coding_role_retired:…</code>）；剩余 registered/queued 的收件（<code class="src" data-src="src/qq/store.ts#listPendingInbox">qq/store.ts · listPendingInbox</code>）一律记 skipped。运行中的群任务不在此处理：第 1 步的通用恢复已定 interrupted，由编排器启动时的结果巡检补记（见下）。</li>
-      <li>编排器启动（<code class="src" data-src="src/runtime/runtime.ts#await runtime.orchestrator.start()">runtime.ts · Runtime.start</code>）。先按 <code>received_at, rowid</code> 的顺序逐条重提仍为 registered 的事件（<code class="src" data-src="src/runtime/orchestrator.ts#private async recoverInbound">recoverInbound</code>），经过同样的门，用同样的请求键：任务已在上次提交时落库的，提交幂等返回原任务再回填；回填时发现任务已有结果的，同一事务补写事件终态。退役遗留的 qq_group 事件在这一步被入站门固定丢弃（<code>core_group_chat_retired</code>），同一事务作废并发 <code>inbound.skipped</code>，关联的群收件记 skipped、同键未结束的旧群任务随后被取消。这时 QQ 适配器还没启动、Telegram 也还没开始轮询，仍然有效的 QQ 私聊与 Telegram 事件在门上等待（未启动、未在线即 wait），留给第 5 步的 QQ 派发与第 7 步的补派；已经失效的照常丢弃；类别不是 task 的控制事件（正常不会有遗留）一律以 <code>control_event_not_dispatched</code> 作废，不重放。</li>
+      <li>编排器启动时引导 main 后恢复图片暂存（<code class="src" data-src="src/runtime/runtime.ts#private async recoverInboundMedia">recoverInboundMedia</code>）：重新核实已下载文件，沿安全信封补登入站或固定拒绝回执；已建任务的窗口保留原任务，派发回填时同事务补齐产物归属。随后在启动流程（<code class="src" data-src="src/runtime/runtime.ts#await runtime.orchestrator.start()">runtime.ts · Runtime.start</code>）按 <code>received_at, rowid</code> 的顺序逐条重提仍为 registered 的事件（<code class="src" data-src="src/runtime/orchestrator.ts#private async recoverInbound">recoverInbound</code>），经过同样的门，用同样的请求键：任务已在上次提交时落库的，提交幂等返回原任务再回填；回填时发现任务已有结果的，同一事务补写事件终态。退役遗留的 qq_group 事件在这一步被入站门固定丢弃（<code>core_group_chat_retired</code>），同一事务作废并发 <code>inbound.skipped</code>，关联的群收件记 skipped、同键未结束的旧群任务随后被取消。这时 QQ 适配器还没启动、Telegram 也还没开始轮询，仍然有效的 QQ 私聊与 Telegram 事件在门上等待（未启动、未在线即 wait），留给第 5、6 步入口上线派发与第 7 步补派；已经失效的照常丢弃；类别不是 task 的控制事件（正常不会有遗留）一律以 <code>control_event_not_dispatched</code> 作废，不重放。</li>
       <li>编排器补记结果（<code class="src" data-src="src/runtime/orchestrator.ts#private async sweepPendingResults">sweepPendingResults</code>）：重启窗口里已到终态、结果还没写的角色任务走同一个结果事务，owner 回复随之补登，工作最终汇报也在这条事务里按同一条结果补登；运行中的旧群任务由第 1 步定为 interrupted，同样在这里按结果未知补记（<code>child_task.result_unknown</code>）。结果只写一次，已记录结果的任务不会再登记回复或汇报。</li>
       <li>QQ 适配器启动（<code class="src" data-src="src/qq/adapter.ts#private async startOnce">startOnce</code>）：只服务私聊——按配置连接 NapCat、每 15 秒唤醒一次 main 会话；群侧收尾已由第 2 步完成。每次连上都派发一次积压的入站事件（所有来源）。</li>
-      <li>Telegram 开始轮询（入口启用时），从持久偏移继续；平台仍保留的积压 update 依次处理，重投的命中原外部 ID。轮询上线本身不触发派发，第 3 步留下的 Telegram 事件等下一条新登记、QQ 连上时的那次派发或第 7 步的补派。</li>
+      <li>Telegram 开始轮询（入口启用时），从持久偏移继续；平台仍保留的积压 update 依次处理，重投的命中原外部 ID。轮询由离线转在线时触发 <code class="src" data-src="src/telegram/adapter.ts#this.deps.onOnline?.()">onOnline</code>，唤醒 main 会话并补派积压入站；第 3 步留下的有效事件因此可继续。</li>
       <li>调度器启动（只有 ruukoto 产品创建调度器）。首轮扫描发现仍为 registered 的普通任务事件就补派一次，之后距上次派发满 30 秒（<code class="src" data-src="src/scheduler/runtime.ts#redispatchMs: 30_000">redispatchMs</code>）再补派（控制消息不算未派发）；GitHub webhook 最后开始监听。</li>
     </ol>
 
@@ -704,7 +742,7 @@
 
     <aside class="callout limit">
       <b>不补抓</b>
-      <p>恢复只处理已经落库的记录。没登记上的消息（QQ 断线期间、QQ 私聊登记失败、GitHub 没送达的 webhook）不会被补抓，QQ 的缺口只以 <code>qq.receive_gap</code> 如实记下；退役后的群消息直接忽略，也不产生任何记录。退役前遗留的未终态群行由启动收尾一次性了结，不再重提为任务。</p>
+      <p>恢复只处理已经落库的记录；图片暂存信封也属于可恢复记录。没有任何持久记录的消息（QQ 断线期间、纯文本登记失败、GitHub 没送达的 webhook）不会被补抓，QQ 的缺口只以 <code>qq.receive_gap</code> 如实记下；退役后的群消息直接忽略，也不产生任何记录。退役前遗留的未终态群行由启动收尾一次性了结，不再重提为任务。</p>
     </aside>
   </section>
 

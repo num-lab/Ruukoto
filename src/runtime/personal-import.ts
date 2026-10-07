@@ -91,6 +91,8 @@ const TABLE_POLICY: TablePolicy = {
   meta: { policy: "import" }, // 仅 app_data.main_instance_id / github_retirement_done / jev.project.<导入项目> 键
   agent_roles: { policy: "import" },
   inbound_events: { policy: "import" },
+  inbound_media_messages: { policy: "exclude", reason: "图片暂存与拒绝账本绑定原实例和平台入口，不跨实例恢复" },
+  inbound_media: { policy: "exclude", reason: "只导入已提升的任务图片产物，不导入暂存文件" },
   chat_result_acceptances: { policy: "import" },
   schedules: { policy: "import" },
   schedule_runs: { policy: "import" },

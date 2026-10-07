@@ -95,6 +95,11 @@ export interface OrchestratorDeps {
   };
   /** 结果落库前保存交付产物与来源元数据；重启补记走同一路径。 */
   resultData?(task: Task, outcome: ChildOutcome): Record<string, unknown>;
+  /** 图片在普通入站之前恢复；派发前核对视觉模型，入队事务内提升任务产物。 */
+  recoverMedia?(): Promise<void>;
+  prepareMedia?(event: InboundEvent, selection: ModelSelection): Promise<boolean>;
+  promoteMedia?(event: InboundEvent, task: Task): void;
+  cleanupMedia?(): void;
 }
 
 /** 角色静态定义（工具类别见 tool-availability 的会话类别清单）。
@@ -111,6 +116,7 @@ const DEADLINE_REASON = "deadline_exceeded";
 
 /** 宿主固定评审与其结果唤醒的截止时限。 */
 export const REVIEW_DEADLINE_MS = 60 * 60_000;
+export const MEDIA_CLEANUP_INTERVAL_MS = 60 * 60_000;
 
 /** 子任务终态口径（completed/failed/timeout/unknown），事件、摘要与唤醒共用。 */
 export type ChildOutcome = "completed" | "failed" | "timeout" | "unknown";
@@ -148,6 +154,7 @@ export class Orchestrator {
   private deadlineTimer: NodeJS.Timeout | null = null;
   /** 事件派发串行化（注册与恢复共用同一入口，避免并发重提）。 */
   private dispatchChain: Promise<void> = Promise.resolve();
+  private lastMediaCleanup = 0;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
@@ -165,6 +172,7 @@ export class Orchestrator {
   async start(): Promise<void> {
     this.started = true;
     await this.ensureRoles();
+    await this.deps.recoverMedia?.();
     // 崩溃窗口恢复①：已登记未建任务的事件按原请求键核实重提（幂等，不换新键）
     await this.recoverInbound();
     // 崩溃窗口恢复②：重启期间到达终态的角色任务补记结果与事件、补唤醒；
@@ -336,12 +344,15 @@ export class Orchestrator {
       this.log(`事件 ${event.id} 目标角色 ${event.targetRole} 未引导，跳过`);
       return;
     }
+    const prior = this.store.findTaskByRequest(role.sessionId, `evt:${event.id}`);
+    const selection = prior?.modelSelection ?? role.modelSelection ?? this.deps.bridge.defaultModelSelection();
     const input =
       `[入站事件] 来源：${event.source} 外部 id：${event.externalId} actor：${event.actor ?? "未知"}\n` +
       event.body +
       (event.artifactRefs.length > 0 ? `\n产物引用：${JSON.stringify(event.artifactRefs)}` : "");
     let task: Task;
     try {
+      if (this.deps.prepareMedia && !await this.deps.prepareMedia(event, selection)) return;
       const review = this.deps.reviewRequest?.(event);
       if (review !== undefined && review !== null) {
         const main = this.store.getAgentRole("main")!;
@@ -368,7 +379,7 @@ export class Orchestrator {
         sessionId: role.sessionId,
         requestId: `evt:${event.id}`,
         input,
-        modelSelection: role.modelSelection ?? this.deps.bridge.defaultModelSelection(),
+        modelSelection: selection,
         agentId: role.id,
         sourceEventId: event.id,
         // 入站事件（定时唤醒、Telegram 等）一律采用宿主固定的 confirm 模式：
@@ -379,12 +390,19 @@ export class Orchestrator {
       this.log(`事件 ${event.id} 建任务失败：${(err as Error).message}`);
       return; // 保持 registered，下次启动恢复重提
     }
-    this.store.withTx(() => {
-      this.store.markInboundQueued(event.id, task.id);
-      // 任务已落库/已结束、事件回填前崩溃的窗口也沿用原任务。
-      const recorded = this.store.getTask(task.id)!;
-      if (recorded.resultSummary !== null) this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
-    });
+    try {
+      this.store.withTx(() => {
+        this.store.markInboundQueued(event.id, task.id);
+        this.deps.promoteMedia?.(event, task);
+        // 任务已落库/已结束、事件回填前崩溃的窗口也沿用原任务。
+        const recorded = this.store.getTask(task.id)!;
+        if (recorded.resultSummary !== null) this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
+      });
+    } catch {
+      this.log(`事件 ${event.id} 产物归属未完成，等待恢复`);
+      return;
+    }
+    this.deps.bridge.kickSession(task.sessionId);
     if (task.subAgentId) {
       // 评审子任务（issue 19）：管理器只在新建时 kick；恢复重提命中首次登记时
       // 子会话可能仍挂着，或因崩溃留下的排队任务被恢复事务按 backend_restart
@@ -644,6 +662,10 @@ export class Orchestrator {
 
   private async checkDeadlines(): Promise<void> {
     if (!this.started) return;
+    if (Date.now() - this.lastMediaCleanup >= MEDIA_CLEANUP_INTERVAL_MS) {
+      this.lastMediaCleanup = Date.now();
+      this.deps.cleanupMedia?.();
+    }
     const now = new Date().toISOString();
     for (const task of this.store.listOverdueTasks(now)) {
       try {

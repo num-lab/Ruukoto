@@ -46,6 +46,7 @@ import { loadSummaryModel } from "./model-config.ts";
 import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
 import { PLAN_NOTICE } from "./plan-mode.ts";
 import { skillCatalogBlock, type SkillLibrary } from "./skills.ts";
+import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, imageReferenceSnapshot, imageReferenceView, restoreImageInput } from "./inbound-images.ts";
 
 /** 请求前最终检查失败（预算/选择失败/选择缺失/配对/资料变化）：阻断发送。 */
 export class ContextSendBlocked extends Error {
@@ -225,6 +226,7 @@ export class ContextAssembly {
     this.pendingExperiment = null;
     this.pendingJevCredentialSnapshot = null;
     try {
+      messages = imageReferenceView(messages, this.session.id);
       let input = this.contextInput(messages, sdk);
       let selection = selectContext(input);
       // 上下文压缩（issue 30）：按生效压缩点选择后估算仍超过 H' 才规划新压缩点；
@@ -693,6 +695,9 @@ export class ContextAssembly {
       // context 钩子未运行（异常被吞）或策略未产生结果：拒绝发送，不退回全量
       throw new ContextSendBlocked("context_selection_missing:上下文选择未产生有效结果（扩展异常或策略失败），拒绝发送");
     }
+    if (hasImageInput(context?.messages ?? []) && !model?.input?.includes("image")) {
+      throw new ContextSendBlocked(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
+    }
     if (experiment?.status === "applied" &&
         (!this.pinnedJev || JSON.stringify(this.jevCredential(this.pinnedJev)) !== jevCredentialSnapshot)) {
       throw new ContextSendBlocked("context_configuration_changed:Jev 配置或凭据在选择后失效，拒绝发送旧视图");
@@ -721,6 +726,11 @@ export class ContextAssembly {
       throw new ContextSendBlocked(
         `context_budget_exceeded:最终检查估算 ${total} 超过输入预算 ${selection.budget}（选择时估算 ${selection.estimatedTotal}）`,
       );
+    }
+    try {
+      context.messages = restoreImageInput(context?.messages ?? [], this.deps.artifacts, this.deps.store);
+    } catch {
+      throw new ContextSendBlocked("image_reference_invalid:入站图片产物无法恢复，拒绝发送缺图请求");
     }
     // 选择记录先于请求落盘；落盘失败即拒绝发送
     const recordId = randomId("sel");
@@ -771,7 +781,7 @@ export class ContextAssembly {
 
   /**
    * 发送前输入快照（issue 13）：把交给 SDK 提供方发送函数的
-   * systemPrompt/messages/tools 原样序列化为受保护产物，并与刚落盘的
+   * systemPrompt/messages/tools 序列化为受保护产物（入站图片正文换成稳定引用），并与刚落盘的
    * 选择记录同事务关联。快照在委托发送函数之前捕获；发送失败/中断时
    * 快照保留，usage 留空表示发送结果未回填。
    */
@@ -793,7 +803,7 @@ export class ContextAssembly {
       reasoning: options?.reasoning ?? "off",
       maxTokens: options?.maxTokens ?? null,
       systemPrompt: typeof context?.systemPrompt === "string" ? context.systemPrompt : "",
-      messages: Array.isArray(context?.messages) ? context.messages : [],
+      messages: Array.isArray(context?.messages) ? imageReferenceSnapshot(context.messages) : [],
       tools: Array.isArray(context?.tools) ? context.tools : [],
     };
     try {

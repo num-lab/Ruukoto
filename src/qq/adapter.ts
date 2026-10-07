@@ -10,7 +10,7 @@
  * 边界与纪律：
  * - 窄入口：只经 QqRuntimeBridge 调用 Runtime 的少量方法；不持有拥有者
  *   token，不能审批、改权限、开完全访问或读取其他项目资料；
- * - 私聊只接绑定拥有者的好友纯文本；发送目标由宿主固定，断线不重投；
+ * - 私聊只接绑定拥有者的好友文本与图片；发送目标由宿主固定，断线不重投；
  *   超时/断线/崩溃 = unknown（effect_unknown，不自动重发）。
  */
 
@@ -24,6 +24,7 @@ import type { SchedulerStore } from "../scheduler/store.ts";
 import { NotSentError } from "../scheduler/runtime.ts";
 import { RuntimeApiError } from "../core/api-error.ts";
 import type { ImEntry } from "../runtime/im-entries.ts";
+import { MediaError, type InboundMediaStore, type InboundMediaDownload } from "../runtime/inbound-media.ts";
 
 /** QQ 入口凭据用途（CredentialStore 绑定 purpose 与 scope.operations）。 */
 export const QQ_CREDENTIAL_PURPOSE = "qq_onebot";
@@ -35,7 +36,7 @@ export function qqPrivateExternalId(account: string, owner: string, messageId: s
 
 /** 适配器需要的 Runtime 窄接口（宿主注入；除此之外的能力适配器不可见）。 */
 export interface QqRuntimeBridge {
-  registerPrivate(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget; commandText?: string }): Promise<unknown>;
+  registerPrivate(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget; commandText?: string; media?: boolean }): Promise<unknown>;
   dispatchInbound(): Promise<unknown>;
   kickSession(sessionId: string): void;
 }
@@ -54,6 +55,7 @@ export interface QqAdapterDeps {
   qqStore: QqStore;
   sched: SchedulerStore;
   credentials: CredentialStore;
+  media: InboundMediaStore;
   bridge: QqRuntimeBridge;
   timeouts?: QqAdapterTimeouts;
   /**
@@ -456,31 +458,66 @@ export class QqAdapter implements ImEntry {
         owner === config.selfId || messageId === null || event["group_id"] != null) return;
     const sender = event["sender"] as Record<string, unknown> | undefined;
     if (sender?.["user_id"] !== undefined && oneBotAccountId(sender["user_id"]) !== owner) return;
-    // 只解析结构化文本与 reply ID；字符串中的 CQ 码没有可靠的类型边界。
+    // 只解析结构化文本、图片与 reply ID；字符串中的 CQ 码没有可靠的类型边界。
     const segments = event["message"];
     if (!Array.isArray(segments)) return;
     const texts: string[] = [];
+    const media: InboundMediaDownload[] = [];
+    const client = this.client!;
     let replyId: string | null = null;
     for (const seg of segments) {
       if (seg?.type === "text" && typeof seg.data?.text === "string") texts.push(seg.data.text);
       else if (seg?.type === "reply" && replyId === null && oneBotMessageId(seg.data?.id) !== null) replyId = oneBotMessageId(seg.data.id);
+      else if (seg?.type === "image") media.push({
+        declaredMime: typeof seg.data?.mime_type === "string" ? seg.data.mime_type : undefined,
+        sizeBytes: typeof seg.data?.file_size === "number" ? seg.data.file_size : undefined,
+        download: (signal) => this.downloadImage(client, seg.data, signal),
+      });
       else return;
     }
     const text = texts.join("");
-    if (!text.trim() || [...text].length > MAX_INBOUND_TEXT_CHARS) return;
+    if (media.length === 0 && (!text.trim() || [...text].length > MAX_INBOUND_TEXT_CHARS)) return;
     const timestamp = typeof event["time"] === "number" ? new Date(event["time"] * 1000) : null;
     const time = timestamp && Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : "未知";
     const body = [`[QQ 私聊] account ${config.selfId} user ${owner} message ${messageId} 时间 ${time}`];
     if (replyId !== null) body.push(`回复关联：message ${replyId}（未读取引用原文）`);
     body.push("正文：", text);
-    await this.deps.bridge.registerPrivate({
+    const input = {
       externalId: qqPrivateExternalId(config.selfId, owner, messageId),
       actor: `${QQ_PRIVATE_SOURCE}:${owner}`,
       body: body.join("\n"),
       replyTarget: target,
+    };
+    if (media.length > 0) {
+      await this.deps.media.stage({ ...input, source: QQ_PRIVATE_SOURCE, media });
+      if (!this.started || this.client !== client || !sameTarget(target, this.target())) return;
+      await this.deps.bridge.registerPrivate({ ...input, media: true });
+      return;
+    }
+    await this.deps.bridge.registerPrivate({
+      ...input,
       // 原始发送文本（未加模板/引用摘录）：宿主据此识别审批命令；引用内容不进入此字段
       commandText: text,
     });
+  }
+
+  private async downloadImage(client: OneBotClient, data: any, signal: AbortSignal): Promise<Response> {
+    let source = typeof data?.url === "string" && data.url ? data.url : data?.file;
+    if (typeof source !== "string" || !source) throw new MediaError("download_unavailable");
+    if (!/^https?:\/\//i.test(source)) {
+      // file 是 OneBot 文件标识；远程服务的本地路径不可作为宿主文件读取。
+      let result: any;
+      try { result = await client.call("get_image", { file: source }, signal); }
+      catch (err) {
+        if (err instanceof OneBotError && err.definite) throw new MediaError("download_unavailable");
+        throw err;
+      }
+      source = typeof result?.url === "string" && result.url ? result.url : result?.file;
+    }
+    let url: URL;
+    try { url = new URL(source); } catch { throw new MediaError("download_unavailable"); }
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new MediaError("download_unavailable");
+    return fetch(url, { signal });
   }
 
   /**

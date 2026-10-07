@@ -162,7 +162,9 @@ export class ImEntries {
   enqueueOwnerReply(event: InboundEvent, task: Task, outcome: ChildOutcome): void {
     if (!this.entries.has(event.source)) return;
     const text =
-      outcome === "completed"
+      task.errorMessage?.includes("image_input_unsupported")
+        ? "[ruukoto] 当前模型不支持图片输入，这条图片消息未执行。请在配置中选择支持图片的模型后重新发送。"
+        : outcome === "completed"
         ? this.deps.readReply(task.id)?.trim() || "（无文本输出）"
         : `[ruukoto] 这条消息的处理${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
     this.enqueueReply(event, event.id, task.id, text, "");

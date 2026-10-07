@@ -21,7 +21,7 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>storage-layout.html</span></nav>
     <p class="eyebrow">数据与协议</p>
     <h1>存储布局</h1>
-    <p class="lede">每份数据在哪、谁写谁读、哪份是权威、崩溃后怎么对齐。两个产品各有一棵档案目录；会话历史以 pi JSONL 为唯一权威，<code>ruukoto.db</code> 存元数据、事件与可重建的索引，产物正文在产物文件，main 的应用数据另有一个独立库。这几份之间没有跨文件事务，靠写入顺序与重启恢复对齐。</p>
+    <p class="lede">每份数据在哪、谁写谁读、哪份是权威、崩溃后怎么对齐。两个产品各有一棵档案目录；会话历史以 pi JSONL 为唯一权威，<code>ruukoto.db</code> 存元数据、事件与可重建的索引，产物正文在产物文件，入站图片在任务创建前另有安全暂存，main 的应用数据另有一个独立库。这几份之间没有跨文件事务，靠写入顺序与重启恢复对齐。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">core/db.ts</code>
@@ -42,6 +42,7 @@
         <code class="src" data-src="src/agent/session-factory.ts#sessionsDirFor">agent/session-factory.ts</code>
         <code class="src" data-src="src/agent/driver.ts#verifyAndLinkHistory">agent/driver.ts</code>
         <code class="src" data-src="src/agent/artifacts.ts#class ArtifactStore">agent/artifacts.ts</code>
+        <code class="src" data-src="src/runtime/inbound-media.ts#export class InboundMediaStore">runtime/inbound-media.ts</code>
         <code class="src" data-src="src/agent/app-data/store.ts#class AppDataStore">agent/app-data/store.ts</code>
         <code class="src" data-src="src/agent/execution/credentials.ts#class CredentialStore">agent/execution/credentials.ts</code>
         <code class="src" data-src="src/agent/model-config.ts#atomicWrite">agent/model-config.ts</code>
@@ -67,7 +68,7 @@
         <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
         <a href="../adr/0021-subagent-worktrees.md">ADR 0021 SubAgent worktree</a>
         <a href="../adr/0022-legacy-instance-import.md">ADR 0022 旧实例开发资料迁入</a>
-      </dd></div>
+       <a href="../adr/0024-inbound-image-staging.md">ADR 0024 入站图片</a></dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="deployment.html">部署与信任边界</a>
         <a href="control-protocol.html">控制面协议</a>
@@ -90,7 +91,7 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 626" role="img" aria-label="单个产品档案根的目录树与归属：保护根内是 data、agent、control 三个目录，后台进程读写全部（data 下有 ruukoto.db、sessions、artifacts、agent-data、migration、runtime.lock），离线配置中心持配置锁写 agent 目录，TUI 与 CLI 读拥有者令牌；保护根外是工作目录区（qq-work（旧架构归档）、agent-work、SubAgent 独立目录、按工作一份的 worktree 副本）与客户端侧（pending 待核实记录与 TUI 命令回显，由客户端写）。">
+        <svg viewBox="0 0 1040 626" role="img" aria-label="单个产品档案根的目录树与归属：保护根内是 data、agent、control 三个目录，后台进程读写全部（data 下有 ruukoto.db、sessions、artifacts、inbound-media、agent-data、migration、runtime.lock），离线配置中心持配置锁写 agent 目录，TUI 与 CLI 读拥有者令牌；保护根外是工作目录区（qq-work（旧架构归档）、agent-work、SubAgent 独立目录、按工作一份的 worktree 副本）与客户端侧（pending 待核实记录与 TUI 命令回显，由客户端写）。">
           <text class="zone-t" x="16" y="18">&lt;root&gt;   ruukoto ~/.ruukoto · ruukoto-dev ~/.ruukoto-dev-agent</text>
 
           <rect class="zone-r" x="12" y="30" width="700" height="426" rx="12"/>
@@ -104,6 +105,7 @@
           <g class="n"><rect x="28" y="280" width="280" height="36" rx="8"/><text x="168" y="292">migration/&lt;导入ID&gt;/</text><text class="sub" x="168" y="307">0700 · 导入前目标库备份</text></g>
           <g class="n"><rect x="28" y="322" width="280" height="36" rx="8"/><text x="168" y="334">runtime.lock/</text><text class="sub" x="168" y="349">实例锁 · owner.json</text></g>
           <g class="n"><rect x="28" y="364" width="280" height="36" rx="8"/><text x="168" y="376">github-archive-manifest.json</text><text class="sub" x="168" y="391">退役导出清单</text></g>
+          <g class="n"><rect x="28" y="406" width="280" height="36" rx="8"/><text x="168" y="418">inbound-media/&lt;id&gt;.bin</text><text class="sub" x="168" y="433">0700 目录 · 0600 入站图片暂存</text></g>
 
           <g class="n accent"><rect x="324" y="62" width="200" height="40" rx="8"/><text x="424" y="75">agent/</text><text class="sub" x="424" y="91">0700 · agentDir</text></g>
           <g class="n"><rect x="324" y="112" width="200" height="36" rx="8"/><text x="424" y="124">models.json</text><text class="sub" x="424" y="139">0600 · 含 apiKey</text></g>
@@ -161,7 +163,8 @@
           <tr><td><code>&lt;dataDir&gt;/</code></td><td>目录 0700</td><td>后台启动时创建（<code class="src" data-src="src/runtime/runtime.ts#static async start">runtime.ts · start</code>）</td><td>—</td><td>—</td></tr>
           <tr><td><code>ruukoto.db</code>、<code>-wal</code>、<code>-shm</code></td><td>代码不设文件 mode，按 umask；靠目录 0700</td><td>后台读写；客户端不直接读库</td><td>不存凭据秘密值（只存绑定名），但含任务输入、审批参数等个人资料</td><td>否：任务状态、审批与事件的唯一记录</td></tr>
           <tr><td><code>sessions/&lt;创建时间&gt;_&lt;piSessionId&gt;.jsonl</code></td><td>目录 0700；文件由 pi 创建，代码不设 mode</td><td>后台进程内的 pi SDK 追加；后台读（历史查看、检索、完成核对）（<code class="src" data-src="src/agent/session-factory.ts#sessionsDirFor">session-factory.ts · sessionsDirFor</code>）</td><td>完整对话与工具结果</td><td>否：会话历史唯一权威</td></tr>
-          <tr><td><code>artifacts/&lt;artifactId&gt;.bin</code></td><td>目录 0700</td><td>工作进程把原始字节发回后台，后台追加落盘（<code class="src" data-src="src/agent/artifacts.ts#append(artifactId">artifacts.ts · append</code>）；后台按偏移读</td><td>工具输出里的任何内容</td><td>否</td></tr>
+          <tr><td><code>artifacts/&lt;artifactId&gt;.bin</code></td><td>目录 0700</td><td>工作进程把原始字节发回后台，后台追加落盘（<code class="src" data-src="src/agent/artifacts.ts#append(artifactId">artifacts.ts · append</code>）；图片通过 <code class="src" data-src="src/agent/artifacts.ts#importImage">importImage</code> 原子准备不可变文件并绑定任务，文件 0600；后台按偏移读，模型发出前由 <code class="src" data-src="src/agent/artifacts.ts#readImage">readImage</code> 核实并恢复原字节</td><td>工具输出与入站图片</td><td>否</td></tr>
+          <tr><td><code>inbound-media/&lt;mediaId&gt;.bin</code>、<code>.part</code></td><td>目录 0700，文件 0600</td><td>后台下载、校验与暂存（<code class="src" data-src="src/runtime/inbound-media.ts#private async stageMessage">stageMessage</code>），任务创建后提升；无任务暂存 24 小时清理，账本保留</td><td>owner 私聊图片；不存下载 URL 与 token</td><td>否：下载闭包不持久化，缺完整文件时明确拒绝</td></tr>
           <tr><td><code>agent-data/main.db</code></td><td>目录 0700</td><td>后台读写；查询子进程只读打开</td><td>main 的个人结构化数据</td><td>否：丢失即能力停止，不建空库</td></tr>
           <tr><td><code>runtime.lock/owner.json</code></td><td><code>mkdir</code> 原子创建</td><td>后台（持有期间）</td><td>无</td><td>是：呆锁核实后接管</td></tr>
           <tr><td><code>migration/&lt;导入ID&gt;/target-before.db</code></td><td>目录 0700</td><td><code>legacy-import apply</code> 在导入事务之前用 <code>VACUUM INTO</code> 写入（原子备份，见 <a href="#legacy-import">工作区迁移与实例导入</a>）；只写一次，不回滚它</td><td>与目标库相同：含完整既有资料</td><td>否：整库恢复的手工核对副本</td></tr>
@@ -194,9 +197,9 @@
     <h2>三份权威来源，没有跨文件事务</h2>
     <p><code class="src" data-src="src/core/db.ts#实现不得声称两者原子">db.ts</code> 开头写明：SQLite 与 JSONL 没有跨文件事务，实现不得声称两者原子。各份数据的权威划分如下：</p>
     <ul>
-      <li><b>会话历史</b>：pi JSONL 是唯一权威副本，SQLite 不存消息正文。读取严格解析（<code class="src" data-src="src/core/history.ts#parseSessionFileStrict">history.ts · parseSessionFileStrict</code>）：完整行损坏即报 <code>history_corrupt</code>，不静默跳过；尾部没有换行的行视为正在写入，不算完整消息。但 pi SDK 下次打开这个文件时会先给尾部补一个换行，崩溃留下的半行由此变成完整的坏行，之后严格解析就报 <code>history_corrupt</code>。</li>
+      <li><b>会话历史</b>：pi JSONL 是唯一权威副本，SQLite 不重复存会话消息正文；入站信封与任务输入另有宿主记录。读取严格解析（<code class="src" data-src="src/core/history.ts#parseSessionFileStrict">history.ts · parseSessionFileStrict</code>）：完整行损坏即报 <code>history_corrupt</code>，不静默跳过；尾部没有换行的行视为正在写入，不算完整消息。但 pi SDK 下次打开这个文件时会先给尾部补一个换行，崩溃留下的半行由此变成完整的坏行，之后严格解析就报 <code>history_corrupt</code>。</li>
       <li><b>任务状态、审批、事件与其余元数据</b>：<code>ruukoto.db</code> 是权威。JSONL 里的任务结束标记只是「历史已写完」的证据，不决定任务状态。</li>
-      <li><b>产物正文</b>：<code>artifacts/&lt;id&gt;.bin</code> 是权威；<code>artifacts</code> 表只存归属、字节计数与 <code>partial</code> / <code>complete</code>。</li>
+      <li><b>产物正文</b>：<code>artifacts/&lt;id&gt;.bin</code> 是权威；<code>artifacts</code> 表存归属、字节计数与 <code>partial</code> / <code>complete</code>，图片另有 <code>mime_type</code> 与 <code>content_hash</code>（SHA-256）。暂存尚不属于产物；提升、崩溃恢复与无任务暂存清理见<a href="inbound-events.html#media">图片入站</a>。</li>
       <li><b>可重建的派生数据</b>：<code>history_index</code> 记录每条 JSONL 条目的字节位置，<code>history_index_state</code> 记录文件身份（路径 + dev + ino）与已处理字节数。检索时按需增量同步；文件被替换、截断或状态缺失时删掉该会话的索引从头重建，只动索引、不碰源文件（<code class="src" data-src="src/core/history-index.ts#sync(sessionId: string, filePath: string)">history-index.ts · sync</code>）。</li>
     </ul>
     <p>本项目代码里没有删除或改写 JSONL 与产物文件的路径；上下文压缩只作用于模型上下文（ADR 0016），迁移也不搬动这些文件（ADR 0018）。改动 JSONL 的只有 pi SDK 打开会话文件时的修复：尾部补换行、空文件写入会话头、旧格式版本整文件重写。</p>
@@ -270,7 +273,7 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 586" role="img" aria-label="核心库表分组与引用：任务运行时以 session_id 外键引用工作区与会话；资料与记忆、QQ、SubAgent 与工作委托以外键引用会话或项目；审批与工具操作、资料（产物）、编排与入站以外键引用任务；上下文、事件、调度与 outbox、MCP 只按列值引用、没有外键；tasks 以 work_id 与 sub_agent_id 列关联 SubAgent；调度运行以 inbound_event_id 关联入站事件；导入账本 instance_import_items 外键引用 instance_imports、kind/item_id 按列值关联各表；元数据与 Telegram 没有引用。">
+        <svg viewBox="0 0 1040 586" role="img" aria-label="核心库表分组与引用：任务运行时以 session_id 外键引用工作区与会话；资料与记忆、QQ、SubAgent 与工作委托以外键引用会话或项目；审批与工具操作、资料（产物）、编排与入站及其媒体账本以外键引用任务；上下文、事件、调度与 outbox、MCP 只按列值引用、没有外键；tasks 以 work_id 与 sub_agent_id 列关联 SubAgent；调度运行以 inbound_event_id 关联入站事件；导入账本 instance_import_items 外键引用 instance_imports、kind/item_id 按列值关联各表；元数据与 Telegram 没有引用。">
           <g class="n" data-k="g-meta"><rect x="20" y="16" width="220" height="52" rx="8"/><text x="130" y="33">元数据</text><text class="sub" x="130" y="52">meta</text></g>
           <g class="n" data-k="g-tg"><rect x="800" y="16" width="220" height="52" rx="8"/><text x="910" y="33">Telegram</text><text class="sub" x="910" y="52">telegram_config</text></g>
 
@@ -283,7 +286,7 @@
 
           <g class="n accent" data-k="g-task"><rect x="410" y="296" width="220" height="64" rx="8"/><text x="520" y="316">任务运行时</text><text class="sub" x="520" y="338">tasks · occupancy</text></g>
           <g class="n" data-k="g-ctx"><rect x="20" y="310" width="220" height="64" rx="8"/><text x="130" y="326">上下文</text><text class="sub" x="130" y="346">selection_records</text><text class="sub" x="130" y="362">context_checkpoints</text></g>
-          <g class="n" data-k="g-orch"><rect x="800" y="310" width="220" height="64" rx="8"/><text x="910" y="326">编排与入站</text><text class="sub" x="910" y="346">agent_roles · inbound_events</text><text class="sub" x="910" y="362">chat_result_acceptances</text></g>
+          <g class="n" data-k="g-orch"><rect x="800" y="310" width="220" height="84" rx="8"/><text x="910" y="326">编排与入站</text><text class="sub" x="910" y="346">agent_roles · inbound_events</text><text class="sub" x="910" y="362">chat_result_acceptances</text><text class="sub" x="910" y="378">inbound_media · _messages</text></g>
 
           <g class="n" data-k="g-appr"><rect x="20" y="430" width="220" height="64" rx="8"/><text x="130" y="446">审批与工具操作</text><text class="sub" x="130" y="466">confirmations · tool_ops</text><text class="sub" x="130" y="482">standing_permissions</text></g>
           <g class="n" data-k="g-evt"><rect x="410" y="430" width="220" height="64" rx="8"/><text x="520" y="450">事件</text><text class="sub" x="520" y="472">events</text></g>
@@ -311,8 +314,8 @@
           <text class="el" data-k="g-sub" x="716" y="290">work_id · sub_agent_id</text>
           <path class="e" data-k="g-orch" d="M800 342H632" marker-end="url(#ah)"/>
           <text class="el" data-k="g-orch" x="716" y="334">task_id</text>
-          <path class="e dash" data-k="g-sched" d="M910 430V376" marker-end="url(#ah)"/>
-          <text class="el start" data-k="g-sched" x="918" y="406">inbound_event_id</text>
+          <path class="e dash" data-k="g-sched" d="M910 430V396" marker-end="url(#ah)"/>
+          <text class="el start" data-k="g-sched" x="918" y="415">inbound_event_id</text>
           <path class="e dash" data-k="g-sched" d="M800 462C690 462 600 420 600 362" marker-end="url(#ah)"/>
           <text class="el" data-k="g-sched" x="659" y="428">task_id</text>
 
@@ -323,7 +326,7 @@
           <text class="el" data-k="g-imp" x="269" y="518">kind + item_id</text>
         </svg>
       </div>
-      <figcaption>实线是 <code>REFERENCES</code> 外键（<code>foreign_keys = ON</code> 时由 SQLite 强制），虚线是只按列值关联、没有外键约束的引用；箭头从引用方指向被引用方。图上省略了组内引用和部分跨组外键：<code>agent_roles</code> 引用 <code>projects</code> 与 <code>sessions</code>，<code>chat_result_acceptances</code> 引用 <code>projects</code>，<code>qq_sessions</code> 除会话外也引用 <code>projects</code>，<code>work_delegations</code> 引用 <code>sub_agents</code>，<code>memory_versions</code> 引用 <code>memories</code>，<code>schedule_runs</code> 引用 <code>schedules</code>。悬停下表的行会高亮对应的组。</figcaption>
+      <figcaption>实线是 <code>REFERENCES</code> 外键（<code>foreign_keys = ON</code> 时由 SQLite 强制），虚线是只按列值关联、没有外键约束的引用；箭头从引用方指向被引用方。图上省略了组内引用和部分跨组外键：<code>agent_roles</code> 引用 <code>projects</code> 与 <code>sessions</code>，<code>chat_result_acceptances</code> 引用 <code>projects</code>，<code>qq_sessions</code> 除会话外也引用 <code>projects</code>，<code>work_delegations</code> 引用 <code>sub_agents</code>，<code>memory_versions</code> 引用 <code>memories</code>，<code>schedule_runs</code> 引用 <code>schedules</code>；<code>inbound_media</code> 引用其消息账本与 <code>artifacts</code>，两张媒体表都引用 <code>inbound_events</code> 与 <code>tasks</code>。悬停下表的行会高亮对应的组。</figcaption>
     </figure>
 
     <div class="scroll">
@@ -338,7 +341,7 @@
           <tr data-k="g-appr" tabindex="0"><td><code>tool_ops</code></td><td>工具操作账本：<code>id</code> 即宿主操作 ID、<code>sdk_call_id</code>、执行意图时间、结果、<code>effect_unknown</code></td><td>主键宿主操作 ID（也是应用库回执的键）</td><td><code class="src" data-src="src/core/store.ts#recordToolIntent">store.ts · recordToolIntent</code>（Driver）；结果补记由工具操作账本完成</td></tr>
           <tr data-k="g-appr" tabindex="0"><td><code>standing_permissions</code></td><td>长期操作授权：机器 / 单元 / 动作、策略与单元修订、IM 入口四元组、钉版目标、<code>version</code>、<code>revoked_at</code></td><td><code>approval_id</code> UNIQUE；部分唯一（会话、入口四元组、机器、单元、动作）WHERE <code>revoked_at IS NULL</code></td><td><code class="src" data-src="src/core/store.ts#createStandingPermission">store.ts · createStandingPermission</code>（IM 审批）；撤销与失效按版本条件更新、保留行</td></tr>
           <tr data-k="g-evt" tabindex="0"><td>事件</td><td><code>events</code></td><td>持久事件流：<code>seq</code> 自增、<code>task_id</code> / <code>session_id</code>、JSON <code>body</code>（见 <a href="control-protocol.html">控制面协议</a>）</td><td><code>seq</code> AUTOINCREMENT</td><td><code class="src" data-src="src/core/store.ts#appendEvent">store.ts · appendEvent</code>：与引发它的状态变更同事务</td></tr>
-          <tr data-k="g-data" tabindex="0"><td rowspan="6">资料与记忆</td><td><code>artifacts</code></td><td>产物元数据：任务、会话、名称、<code>byte_count</code>、<code>partial</code> / <code>complete</code>；正文在 <code>artifacts/&lt;id&gt;.bin</code></td><td>主键 <code>id</code></td><td><code class="src" data-src="src/core/store.ts#createArtifact">store.ts · createArtifact</code>（ArtifactStore）</td></tr>
+          <tr data-k="g-data" tabindex="0"><td rowspan="6">资料与记忆</td><td><code>artifacts</code></td><td>产物元数据：任务、会话、名称、<code>byte_count</code>、<code>partial</code> / <code>complete</code>；图片另有 <code>mime_type</code> / <code>content_hash</code>，正文在 <code>artifacts/&lt;id&gt;.bin</code></td><td>主键 <code>id</code></td><td><code class="src" data-src="src/core/store.ts#createArtifact">createArtifact</code> / <code class="src" data-src="src/core/store.ts#createImageArtifact">createImageArtifact</code>（ArtifactStore）</td></tr>
           <tr data-k="g-data" tabindex="0"><td><code>data_grants</code></td><td>资料授权：来源项目 × 目标项目 × 类别（history / artifact / memory）、<code>revoked_at</code></td><td>主键 <code>id</code></td><td><code class="src" data-src="src/core/access.ts#createGrant">access.ts · createGrant</code>（Runtime，配置中心）</td></tr>
           <tr data-k="g-data" tabindex="0"><td><code>memories</code></td><td>长期记忆当前版本：项目、<code>scope</code>（project / personal）、类别、<code>current_version</code>、状态</td><td>主键 <code>id</code>；修改按预期版本条件更新</td><td><code class="src" data-src="src/core/memory.ts#class MemoryStore">memory.ts · MemoryStore</code></td></tr>
           <tr data-k="g-data" tabindex="0"><td><code>memory_versions</code></td><td>追加式修订：正文、来源引用、作者（agent / owner）</td><td>主键 (<code>memory_id</code>, <code>version</code>)</td><td>MemoryStore（不删旧版本）</td></tr>
@@ -351,15 +354,17 @@
           <tr data-k="g-qq" tabindex="0"><td><code>qq_sessions</code></td><td>只读归档（核心群聊退役，无新增）：登录账号 + 群 → 独立项目、会话与工作目录</td><td>主键 (<code>account</code>, <code>group_id</code>)；<code>session_id</code> UNIQUE</td><td>无写者（退役前由 QQ 适配器写入）</td></tr>
           <tr data-k="g-qq" tabindex="0"><td><code>qq_inbox</code></td><td>只读归档（无新增；撤回仍打标记，见 <a href="inbound-events.html">入站事件</a>）：旧群收件登记</td><td>主键 <code>dedup_key</code> = 账号:群:消息号</td><td>现况：<code>markRecalled</code> 与退役收尾；退役前的登记方法已删除</td></tr>
           <tr data-k="g-qq" tabindex="0"><td><code>qq_outbox</code></td><td>只读归档（无新增；见 <a href="outbox.html">通知 outbox</a>）：旧群发件记录</td><td>主键 <code>op_id</code></td><td>现况：退役收尾把遗留 pending 定 unknown；退役前的登记方法已删除</td></tr>
-          <tr data-k="g-orch" tabindex="0"><td rowspan="3">编排与入站</td><td><code>agent_roles</code></td><td>旧架构固定角色：绑定项目、会话、工作目录。引导只写 main；coding 与 chat 行是退役归档（见 <a href="orchestrator.html#roles">编排器</a>）</td><td>主键 <code>id</code>（CHECK 三选一）；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>（编排器引导）</td></tr>
+          <tr data-k="g-orch" tabindex="0"><td rowspan="5">编排与入站</td><td><code>agent_roles</code></td><td>旧架构固定角色：绑定项目、会话、工作目录。引导只写 main；coding 与 chat 行是退役归档（见 <a href="orchestrator.html#roles">编排器</a>）</td><td>主键 <code>id</code>（CHECK 三选一）；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#insertAgentRole">store.ts · insertAgentRole</code>（编排器引导）</td></tr>
           <tr data-k="g-orch" tabindex="0"><td><code>inbound_events</code></td><td>入站事件：来源、外部 ID、目标角色、宿主类别 <code>event_kind</code>（task / im_approval）、钉版回复目标、关联任务</td><td>UNIQUE (<code>source</code>, <code>external_id</code>)</td><td><code class="src" data-src="src/core/store.ts#registerInboundEvent">store.ts · registerInboundEvent</code>（编排器、Telegram 与 QQ 私聊、调度器、GitHub、IM 审批）</td></tr>
+          <tr data-k="g-orch" tabindex="0"><td><code>inbound_media_messages</code></td><td>安全消息信封：actor、body、钉版目标、媒体数、状态与固定拒绝原因、event/task 最终归属、创建/更新时间；状态见<a href="inbound-events.html#media">图片入站</a></td><td>UNIQUE (<code>source</code>, <code>external_id</code>)</td><td><code class="src" data-src="src/core/store.ts#createInboundMediaMessage">createInboundMediaMessage</code>；Runtime 恢复登记和拒绝回执</td></tr>
+          <tr data-k="g-orch" tabindex="0"><td><code>inbound_media</code></td><td>每图顺序、声明与实际 MIME、大小、SHA-256、受保护文件名、状态及 event/task/artifact 归属；不存下载 URL 或 token</td><td>UNIQUE (<code>source</code>, <code>external_id</code>, <code>media_index</code>)</td><td><code class="src" data-src="src/core/store.ts#createInboundMedia">createInboundMedia</code>；<code class="src" data-src="src/core/store.ts#bindInboundMedia">bindInboundMedia</code> 与事件 queued 同事务</td></tr>
           <tr data-k="g-orch" tabindex="0"><td><code>chat_result_acceptances</code></td><td>main 显式接收的群聊结果快照：来源任务、接收任务、理由、摘要</td><td>主键 (<code>main_project_id</code>, <code>task_id</code>)；<code>accepted_by_op_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#acceptChatResult">store.ts · acceptChatResult</code>（群聊结果工具）</td></tr>
           <tr data-k="g-sub" tabindex="0"><td rowspan="3">SubAgent 与工作委托</td><td><code>sub_agents</code></td><td>动态身份：父会话、独立子会话、宿主生成的 <code>work_dir</code>、当前工作与任务指针、状态 running / idle / unverified，以及独立于 state 的关闭两列 <code>closed_at</code> / <code>closed_by</code>（<code class="src" data-src="src/core/types.ts#SubAgentClosedBy">types.ts · SubAgentClosedBy</code>：<code class="st idle">owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>）</td><td>主键 <code>id</code>；<code>session_id</code> UNIQUE</td><td><code class="src" data-src="src/core/store.ts#insertSubAgent">store.ts · insertSubAgent</code>（SubAgentManager）；关闭经 <code class="src" data-src="src/core/store.ts#closeSubAgent">closeSubAgent</code> 条件写入</td></tr>
           <tr data-k="g-sub" tabindex="0"><td><code>work_delegations</code></td><td>工作：父会话、发起任务、执行它的 SubAgent、首次委派键与参数摘要，独立的取消三列 <code>canceled_at</code> / <code>canceled_by</code> / <code>cancel_reason</code>（<code class="src" data-src="src/core/types.ts#WorkCanceledBy">types.ts · WorkCanceledBy</code>：<code class="st idle">owner</code> 或 <code>agent:&lt;发起任务 ID&gt;</code>），以及可空的写入目标 <code>write_target</code>（<code class="src" data-src="src/core/types.ts#WorkWriteTarget">types.ts · WorkWriteTarget</code>：<code class="st run">worktree</code> / <code class="st run">direct</code> JSON，首次委派钉定；空 = 只读分析工作）；每次执行另是一条 <code>tasks</code>，请求键 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code></td><td>UNIQUE (<code>parent_session_id</code>, <code>request_key</code>)</td><td><code class="src" data-src="src/core/store.ts#insertWorkDelegation">store.ts · insertWorkDelegation</code>（SubAgentManager，与身份、子会话、任务同事务）；取消经 <code class="src" data-src="src/core/store.ts#cancelWorkDelegation">cancelWorkDelegation</code> 条件写入</td></tr>
           <tr data-k="g-sub" tabindex="0"><td><code>subagent_messages</code></td><td>工作内协作消息（issue 13，v29）：来自读范围来源与参照任务，投递给接收方在本工作的确认执行任务或其父会话的唤醒/注入；<code>delivered_at</code> 未填即待投递（<code>findSubAgentMessage</code> 按（工作, 发送方, 键）查重）、<code>undelivered_reason</code> 填过即有明确未投递结果（投递/终态/启动冲刷；详见 <a href="orchestrator.html#subagent-message">编排器 · 工作内消息</a>）</td><td>主键 <code>id</code>；<code>idx_smsg_work</code>（work_id）、<code>idx_smsg_pending</code>（parent_session_id, delivered_at）</td><td><code class="src" data-src="src/core/store.ts#insertSubAgentMessage">insertSubAgentMessage</code>（SubAgentManager 的 message 同一事务）；投递经 <code class="src" data-src="src/core/store.ts#markSubAgentMessageDelivered">markSubAgentMessageDelivered</code> / <code class="src" data-src="src/core/store.ts#markSubAgentMessageUndelivered">markSubAgentMessageUndelivered</code>；work_get 全量 <code class="src" data-src="src/core/store.ts#listSubAgentMessagesByWork">listSubAgentMessagesByWork</code>、父会话未送达 <code class="src" data-src="src/core/store.ts#listUndeliveredParentSubAgentMessages">listUndeliveredParentSubAgentMessages</code>、待投递 <code class="src" data-src="src/core/store.ts#listPendingSubAgentMessages">listPendingSubAgentMessages</code>；legacy-import 随所属工作成批 import（见下「工作区迁移与实例导入」）</td></tr>
           <tr data-k="g-sched" tabindex="0"><td rowspan="3">调度与 outbox</td><td><code>schedules</code></td><td>调度计划：动作、时间规则、固定载荷与目标、状态、<code>version</code>、当前运行</td><td><code>create_key</code> UNIQUE</td><td><code class="src" data-src="src/scheduler/store.ts#insertSchedule">scheduler/store.ts · insertSchedule</code>（调度工具）</td></tr>
           <tr data-k="g-sched" tabindex="0"><td><code>schedule_runs</code></td><td>一次到期登记：原定时刻、延迟、合并来源、关联入站事件与发送操作、新闻快照</td><td>UNIQUE (<code>schedule_id</code>, <code>schedule_version</code>, <code>scheduled_for</code>)；每计划至多一个未关闭运行（部分唯一）</td><td><code class="src" data-src="src/scheduler/store.ts#insertRun">scheduler/store.ts · insertRun</code>（调度器）</td></tr>
-          <tr data-k="g-sched" tabindex="0"><td><code>notification_ops</code></td><td>发送操作账本：固定目标、正文与哈希、状态</td><td>UNIQUE (<code>source_kind</code>, <code>source_key</code>) 即逻辑发送键</td><td><code class="src" data-src="src/scheduler/store.ts#insertOp">scheduler/store.ts · insertOp</code>（调度器、批准后的 <code>notification_enqueue</code>、owner 回复、IM 审批通知与回执、GitHub 评审）</td></tr>
+          <tr data-k="g-sched" tabindex="0"><td><code>notification_ops</code></td><td>发送操作账本：固定目标、正文与哈希、状态</td><td>UNIQUE (<code>source_kind</code>, <code>source_key</code>) 即逻辑发送键</td><td><code class="src" data-src="src/scheduler/store.ts#insertOp">scheduler/store.ts · insertOp</code>（调度器、批准后的 <code>notification_enqueue</code>、owner 回复、IM 审批通知与回执、图片固定拒绝回执、GitHub 评审）</td></tr>
           <tr data-k="g-tg" tabindex="0"><td>Telegram</td><td><code>telegram_config</code></td><td>单行配置：API 地址、凭据绑定名、拥有者 user / chat、<code>config_version</code>、长轮询偏移 <code>last_update_id</code></td><td><code>id = 1</code></td><td><code class="src" data-src="src/telegram/adapter.ts#class TelegramStore">telegram/adapter.ts · TelegramStore</code></td></tr>
           <tr data-k="g-meta" tabindex="0"><td>元数据</td><td><code>meta</code></td><td>实例级键值，键见下表</td><td>主键 <code>key</code></td><td><code>Db</code> 构造；<code class="src" data-src="src/core/store.ts#setMetaValue">store.ts · setMetaValue</code></td></tr>
           <tr data-k="g-imp" tabindex="0"><td rowspan="2">导入账本</td><td><code>instance_imports</code></td><td>跨实例导入回执（agent-direction 工单 21，ADR 0022）：<code>request_key</code>、来源实例 / 产品 / 原 schema 版本 / 数据目录、计划摘要 <code>plan_digest</code>、导入前目标库备份路径与 sha256、本批追加事件区间 <code>event_seq_from</code> … <code>event_seq_to</code>、完整报告 JSON、状态 <code>applied</code> / <code>reverted</code></td><td><code>request_key</code> UNIQUE：同键重放返回原回执、同键异参 <code>request_conflict</code></td><td rowspan="2"><code class="src" data-src="src/runtime/legacy-import.ts#applyLegacyImport">legacy-import.ts · applyLegacyImport</code>（与导入行同一事务）；回退经 <code class="src" data-src="src/runtime/legacy-import.ts#revertLegacyImport">revertLegacyImport</code> 删账本项目、回执改 <code>reverted</code> 保留（见 <a href="#legacy-import">工作区迁移与实例导入</a>）</td></tr>
@@ -386,21 +391,21 @@
 
   <section id="schema">
     <h2>schema 版本与迁移</h2>
-    <p>当前版本 <code>v30</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
+    <p>当前版本 <code>v31</code>（<code class="src" data-src="src/core/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>文件里的版本</th><th>行为</th></tr></thead>
         <tbody>
           <tr><td>无版本记录（全新库）</td><td>一个 <code>BEGIN IMMEDIATE</code> 事务内建全部表、补列、写版本。</td></tr>
-          <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 29（需升级程序）」，后台启动失败，文件不动。</td></tr>
+          <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 31（需升级程序）」，后台启动失败，文件不动。</td></tr>
           <tr><td>等于程序</td><td>幂等执行建表语句与补列，只补齐缺失对象。</td></tr>
-          <tr><td>1 到 28</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v30）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
+          <tr><td>1 到 30</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="src/core/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v31）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
           <tr><td>其他（如 0）</td><td>「不支持从 schema vN 迁移」，同样回滚。</td></tr>
         </tbody>
       </table>
     </div>
-    <p>SQLite 改不了 CHECK 约束，涉及 CHECK 的旧版本用 <code>*_new</code> 临时表重建：版本低于 6 时重建 <code>tasks_new</code> / <code>sessions_new</code>（访问模式加 auto-review，<code class="src" data-src="src/core/db.ts#rebuildModeCheckedTables">db.ts · rebuildModeCheckedTables</code>），13 到 15 重建 <code>notification_ops_new</code>（来源类别加 inbound_event），13 到 17 重建 <code>schedules_new</code>（动作加 news）。步骤是建新表 → 按显式列清单 <code>INSERT … SELECT</code> → 删旧表 → 改名 → 重建索引。外键开关在事务内无效，所以在事务外先关 <code>foreign_keys</code>，提交前跑 <code>PRAGMA foreign_key_check</code>，有违规就抛错回滚，最后在 <code>finally</code> 里重新打开。</p>
-    <p>提交 <code>d139561</code> 时库是 v18，之后的十个版本都只做加法：经建表语句（<code>IF NOT EXISTS</code>）加新表、经 <code>ensureColumns</code> 加可空或带默认值的列，不重建既有表、不改写旧记录。</p>
+    <p>SQLite 改不了 CHECK 约束，涉及 CHECK 的旧版本用 <code>*_new</code> 临时表重建：版本低于 6 时重建 <code>tasks_new</code> / <code>sessions_new</code>（访问模式加 auto-review，<code class="src" data-src="src/core/db.ts#rebuildModeCheckedTables">db.ts · rebuildModeCheckedTables</code>），13 到 15 重建 <code>notification_ops_new</code>（来源类别加 inbound_event），13 到 17 重建 <code>schedules_new</code>（动作加 news），28 / 29 重建 <code>instance_import_items_new</code>（导入账本类别扩展）。步骤是建新表 → 按显式列清单 <code>INSERT … SELECT</code> → 删旧表 → 改名 → 重建索引。外键开关在事务内无效，所以在事务外先关 <code>foreign_keys</code>，提交前跑 <code>PRAGMA foreign_key_check</code>，有违规就抛错回滚，最后在 <code>finally</code> 里重新打开。</p>
+    <p>提交 <code>d139561</code> 时库是 v18；v19 至 v29 通过建表语句（<code>IF NOT EXISTS</code>）增加表与 <code>ensureColumns</code> 补列。v30 重建导入账本的 CHECK 并保留行，v31 增加入站媒体两表与图片产物元数据。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>版本</th><th>改动</th><th>旧数据</th><th>出处</th></tr></thead>
@@ -417,6 +422,7 @@
           <tr><td><code>v28</code></td><td>新表 <code>instance_imports</code>（跨实例导入回执）、<code>instance_import_items</code>（条目账本，主键 (<code>kind</code>, <code>item_id</code>)，建表注释含 v28；<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS instance_imports">db.ts · instance_imports</code>）</td><td>旧库两表为空，没有导入记录、不扫描旧资料；回执持久保留（含 <code>reverted</code>）</td><td>agent-direction 工单 21（ADR 0022）</td></tr>
           <tr><td><code>v29</code></td><td>新表 <code>subagent_messages</code>（工作内协作消息，见<a href="orchestrator.html#subagent-message">编排器 · 工作内消息</a>；建表注释 v28 → v29；<code class="src" data-src="src/core/db.ts#CREATE TABLE IF NOT EXISTS subagent_messages">db.ts · subagent_messages</code>）与 <code>idx_smsg_work</code> / <code>idx_smsg_pending</code> 两条索引</td><td>旧库此表为空，没有历史消息；投递列全空</td><td>agent-direction 工单 13</td></tr>
           <tr><td><code>v30</code></td><td><code>instance_import_items</code> 的类别 CHECK 扩五类（<code>agent_role</code> / <code>schedule</code> / <code>platform_config</code> / <code>standing_permission</code> / <code>credential</code>）；CHECK 变更经重建表迁移（<code class="src" data-src="src/core/db.ts#private rebuildImportItemsKindCheck">db.ts · rebuildImportItemsKindCheck</code>，v28 / v29 库都重建）</td><td>既有回执与账本行逐行复制保留；v28 及更早的类别不变</td><td>agent-direction 工单 22（ADR 0023）</td></tr>
+          <tr><td><code>v31</code></td><td>新表 <code>inbound_media_messages</code> / <code>inbound_media</code>；<code>artifacts</code> 补 <code>mime_type</code> / <code>content_hash</code>（<code class="src" data-src="src/core/db.ts#private ensureColumns">ensureColumns</code>）</td><td>旧媒体账本为空；旧工具产物两列 NULL，不伪装成图片</td><td>agent-direction 工单 25</td></tr>
         </tbody>
       </table>
     </div>
@@ -426,7 +432,7 @@
     <p>Runtime 启动时打开核心库之后读 <code>product.type</code>（<code class="src" data-src="src/runtime/runtime.ts#product_mismatch">runtime.ts · start</code>）：记录的产品与当前产品不同，就关库、释放配置锁与实例锁，以 <code>product_mismatch</code> 拒绝启动；没有记录（全新库，或工单 01 之前的旧库）就在事务外直接补记当前产品。</p>
     <aside class="callout limit">
       <b>已知限制</b>
-      <p>产品核对排在 <code>new Db()</code> 之后，所以用错误的产品打开一个版本较旧的数据目录时，schema 迁移会先完成，然后才被拒绝。登记了 <code>product.type</code> 的目录至少是 v18（工单 01 时的版本），从那里起的迁移都是加法；但原产品若仍在用旧版本程序，之后再打开这个目录会因版本过新被拒。原产品的后台正在运行时不会出现：实例锁在 <code>new Db()</code> 之前取得，后来者先在锁上失败。</p>
+      <p>产品核对排在 <code>new Db()</code> 之后，所以用错误的产品打开一个版本较旧的数据目录时，schema 迁移会先完成，然后才被拒绝。登记了 <code>product.type</code> 的目录至少是 v18（工单 01 时的版本），之后的迁移在事务内保留旧行（v30 重建导入账本 CHECK）；但原产品若仍在用旧版本程序，之后再打开这个目录会因版本过新被拒。原产品的后台正在运行时不会出现：实例锁在 <code>new Db()</code> 之前取得，后来者先在锁上失败。</p>
       <p>从 v5 或更早迁移时，<code>sessions_new</code> 的列清单里没有 <code>workspace_project_id</code>：重建排在 <code>ensureColumns</code> 之后，所以迁移完成的那次启动里 <code>sessions</code> 缺这一列，下次以同版本打开时 <code>ensureColumns</code> 才补回（用当前代码对一个改成 v5 的库实测如此）。</p>
     </aside>
   </section>
@@ -590,6 +596,8 @@
       <b>首版与首版限制</b>
       <p>不做增量同步——源侧在导入后新增的条目只在报告列出，可再次按同一源导入；不做在线 / 控制面导入；agentDir 文件（models / auth / default-model / credentials / skills）与 qq / telegram 表一律不复制，预览只列名称与差异、不读凭据值。<code class="src" data-src="src/runtime/workspace-migration.ts#canonicalJson">canonicalJson</code> / <code class="src" data-src="src/runtime/workspace-migration.ts#sha256">sha256</code> / <code class="src" data-src="src/runtime/workspace-migration.ts#historyStatusOf">historyStatusOf</code> 由 workspace-migration.ts 导出复用，本工单不改其行为。</p>
     </aside>
+
+    <p>两个导入方向都排除 <code>inbound_media_messages</code> / <code>inbound_media</code> 及暂存文件、拒绝账本，避免目标启动重放半接收消息；已绑定任务的图片作为既有 ArtifactStore 产物复制，MIME 与内容哈希随元数据行保留（<code class="src" data-src="src/runtime/legacy-import.ts#TABLE_POLICY">legacy-import.ts · TABLE_POLICY</code>、<code class="src" data-src="src/runtime/personal-import.ts#TABLE_POLICY">personal-import.ts · TABLE_POLICY</code>）。</p>
 
     <h3 id="personal-import">实例导入 · 个人方向：迁入全新 ruukoto，平台与调度归属显式交接</h3>
     <p>镜像方向（agent-direction 工单 22，ADR 0023）在 <code>src/runtime/personal-import.ts</code>，机制骨架复用 legacy-import.ts 的导出，不建通用框架。导入单位反转：main / coding / chat 角色行及其项目与会话（含 main 一层 SubAgent）、QQ 群会话与群归档四表全量导入，普通 dev 会话一律排除（经开发方向迁移，预览列出并指过去）。<strong>目标必须是全新实例</strong>：目标后台启动过（有自有角色行与 main 会话）即拒绝，源与目标同一路径或同一实例 ID 也拒绝（<code class="src" data-src="src/runtime/personal-import.ts#checkNotSelf">personal-import.ts · checkNotSelf</code>）；角色工作目录在目标 <code>agent-work/&lt;角色&gt;</code> 重建并取目标身份，<code>ensureRoles</code> 幂等跳过导入角色行。应用数据是文件级迁移：<code>agent-data/main.db</code>（+WAL）与 <code>github-archive-manifest.json</code> 同 JSONL、产物一样按 sha256 核对复制，绑定 meta 与退役 meta 随行；v9 前遗留的 github_* 三表在全新目标按快照自身 DDL 重建。main 会话访问模式<strong>原样保留</strong>（同产品延续，不做开发方向的降级）；personal 记忆同产品延续、不做计划选中，只用来源规则（全部版本来源落在导入范围或为 owner_note 才导入，引用 dev 的列待处理）。</p>

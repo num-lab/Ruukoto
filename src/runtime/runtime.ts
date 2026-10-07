@@ -85,6 +85,7 @@ import { createSkillFamily } from "../agent/skills.ts";
 import { createTodoFamily } from "../agent/todo.ts";
 import type { HostToolFamily } from "../agent/host-tool-families.ts";
 import { ArtifactStore } from "../agent/artifacts.ts";
+import { InboundMediaStore, type InboundMediaMessage } from "./inbound-media.ts";
 import { CredentialStore } from "../agent/execution/credentials.ts";
 import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "../agent/jev-config.ts";
 import {
@@ -281,6 +282,7 @@ export class Runtime {
   private readonly db: Db;
   readonly store: Store;
   readonly artifacts: ArtifactStore;
+  readonly inboundMedia: InboundMediaStore;
   readonly credentials: CredentialStore;
   /** 统一数据访问范围（issue 05 §1）：身份由宿主注入，跨项目仅经拥有者授权。 */
   readonly access: AccessScope;
@@ -381,6 +383,7 @@ export class Runtime {
     this.lock = lock;
     this.configLock = configLock;
     this.artifacts = new ArtifactStore(config.dataDir, store);
+    this.inboundMedia = new InboundMediaStore(config.dataDir, store, this.artifacts);
     this.credentials = new CredentialStore(config.agentDir);
     this.access = new AccessScope(db);
     this.historyIndex = new HistoryIndex(db);
@@ -394,6 +397,7 @@ export class Runtime {
     const startupDisabled = this.productType === "ruukoto-dev" ? "product" : "dev";
     this.qqAdapter = new QqAdapter({
       store,
+      media: this.inboundMedia,
       qqStore: this.qqStore,
       sched: this.sched,
       credentials: this.credentials,
@@ -410,12 +414,18 @@ export class Runtime {
     });
     this.telegram = new TelegramAdapter({
       store,
+      media: this.inboundMedia,
       tg: this.telegramStore,
       sched: this.sched,
       credentials: this.credentials,
       register: (input) => {
         if (!this.orchestrator) throw new Error("编排器未启动");
         return this.registerImInbound(TELEGRAM_SOURCE, input);
+      },
+      onOnline: () => {
+        void this.orchestrator?.dispatchRegisteredEvents().catch(() => {});
+        const main = this.store.getAgentRole("main");
+        if (main) this.kick(main.sessionId);
       },
       log: (message) => process.stderr.write(`[ruukoto:telegram] ${message}\n`),
       ...config.telegram,
@@ -730,9 +740,12 @@ export class Runtime {
         kickSession: (sessionId) => runtime.kick(sessionId),
         defaultModelSelection: () => runtime.defaultSelection,
       },
-      onInboundTerminal: (event, task, outcome) => event.source === GITHUB_SOURCE
-        ? runtime.githubEvents.terminal(event, task, outcome)
-        : runtime.imEntries.enqueueOwnerReply(event, task, outcome),
+      onInboundTerminal: (event, task, outcome) => {
+        // 未完成归属的图片拒绝只使用媒体账本回执，取消排队任务不再另发 owner 回复。
+        if (runtime.inboundMedia.hasMedia(event) && event.taskId !== task.id) return;
+        if (event.source === GITHUB_SOURCE) runtime.githubEvents.terminal(event, task, outcome);
+        else runtime.imEntries.enqueueOwnerReply(event, task, outcome);
+      },
       parentDelivery: runtime.parentDelivery,
       inboundGate: (event) => runtime.inboundGate(event),
       reviewRequest: (event) => runtime.githubEvents.request(event),
@@ -745,6 +758,12 @@ export class Runtime {
         flushPending: (parentSessionId) => runtime.subagents!.flushPendingMessages(parentSessionId),
       },
       resultData: (task, outcome) => runtime.githubEvents.resultData(task, outcome),
+      recoverMedia: () => runtime.recoverInboundMedia(),
+      prepareMedia: (event, selection) => runtime.prepareInboundMedia(event, selection),
+      promoteMedia: (event, task) => {
+        if (runtime.inboundMedia.hasMedia(event)) runtime.inboundMedia.promote(event.id, task.id, task.sessionId);
+      },
+      cleanupMedia: () => runtime.inboundMedia.cleanup(),
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
@@ -808,6 +827,14 @@ export class Runtime {
         // IM 审批控制消息回执（issue 08）：宿主已在处理时核实身份；发送前核对
         // 原控制事件与钉版目标，不经仅适用于 GitHub 的入站核实
         if (op.sourceKind === "inbound_event") {
+          if (op.sourceKey.startsWith("media:")) {
+            const message = this.inboundMedia.getMessageById(op.sourceKey.slice("media:".length));
+            const entry = message ? this.imEntries.entry(message.source) : null;
+            const current = entry?.target();
+            return message && ["rejected", "expired"].includes(message.status) && entry && message.actor === entry.expectedActor() &&
+              message.replyTarget && current && sameTarget(message.replyTarget, op.target) && sameTarget(current, op.target)
+              ? null : "图片拒绝回执来源已失效";
+          }
           const event = this.store.getInboundEvent(op.sourceKey);
           if (event?.eventKind === "im_approval") {
             return event.actor && event.replyTarget && sameTarget(event.replyTarget, op.target)
@@ -855,10 +882,24 @@ export class Runtime {
    */
   private async registerImInbound(
     source: string,
-    input: { externalId: string; actor: string | null; body: string; replyTarget: NotifyTarget | null; commandText?: string },
+    input: { externalId: string; actor: string | null; body: string; replyTarget: NotifyTarget | null; commandText?: string; media?: boolean },
   ): Promise<unknown> {
-    const { commandText, ...registration } = input;
-    if (commandText !== undefined) {
+    const { commandText, media, ...registration } = input;
+    if (media) {
+      const message = this.inboundMedia.getMessage(source, input.externalId);
+      if (!message) throw new Error("图片暂存记录缺失");
+      if (message.status === "rejected" || message.status === "expired") {
+        this.store.withTx(() => this.enqueueMediaReceipt(message));
+        this.scheduler?.kickSender();
+        return message;
+      }
+      if (message.status !== "ready" && message.status !== "bound") return message;
+      // 重投沿用首次下载时的拥有者与配置代次，不能用新入口重新包装旧图片。
+      registration.actor = message.actor;
+      registration.body = message.body;
+      registration.replyTarget = message.replyTarget;
+    }
+    if (!media && commandText !== undefined) {
       const outcome = await this.imApprovals.handleCommand({
         source,
         externalId: input.externalId,
@@ -868,7 +909,59 @@ export class Runtime {
       });
       if (outcome) return outcome;
     }
-    return this.orchestrator!.registerInboundEvent({ source, targetRole: "main", ...registration });
+    const result = await this.orchestrator!.registerInboundEvent({ source, targetRole: "main", ...registration });
+    if (media) this.inboundMedia.attachEvent(source, input.externalId, result.event.id);
+    return result;
+  }
+
+  private enqueueMediaReceipt(message: InboundMediaMessage): void {
+    if (!message.replyTarget) return;
+    this.sched.insertOp({
+      sourceKind: "inbound_event", sourceKey: `media:${message.id}`, taskId: null, hostOpId: null,
+      target: message.replyTarget, sourceRefs: [],
+      text: message.reason === "image_input_unsupported"
+        ? "[ruukoto] 当前模型不支持图片输入，这条图片消息未执行。请在配置中选择支持图片的模型后重新发送。"
+        : message.reason === "download_failed" || message.reason === "download_interrupted"
+          ? "[ruukoto] 图片下载未能完成，这条消息未执行。请稍后重新发送图片。"
+          : "[ruukoto] 图片接收失败，这条消息未执行。请发送 JPEG、PNG 或 WebP，每条最多 4 张，每张不超过 8 MiB。",
+    });
+  }
+
+  private async recoverInboundMedia(): Promise<void> {
+    this.inboundMedia.recover();
+    for (const message of this.inboundMedia.listRejectedMessages()) this.store.withTx(() => this.enqueueMediaReceipt(message));
+    for (const message of this.inboundMedia.listReadyMessages()) {
+      await this.registerImInbound(message.source, { externalId: message.externalId, actor: message.actor,
+        body: message.body, replyTarget: message.replyTarget, media: true });
+    }
+  }
+
+  private async prepareInboundMedia(event: InboundEvent, selection: ModelSelection): Promise<boolean> {
+    if (!this.inboundMedia.hasMedia(event)) return true;
+    const message = this.inboundMedia.getMessage(event.source, event.externalId)!;
+    if (["rejected", "expired"].includes(message.status)) {
+      this.store.withTx(() => {
+        this.store.failRegisteredInbound(event.id);
+        this.enqueueMediaReceipt(message);
+      });
+      const role = this.store.getAgentRole(event.targetRole);
+      const pending = role ? this.store.findTaskByRequest(role.sessionId, `evt:${event.id}`) : null;
+      if (pending?.status === "queued") await this.cancelTask(pending.id, { reason: "inbound_media_rejected" });
+      return false;
+    }
+    // 已创建任务的重启窗口沿用原模型与请求键；能力在 Driver 发出请求前再次核实。
+    const role = this.store.getAgentRole(event.targetRole);
+    if (role && this.store.findTaskByRequest(role.sessionId, `evt:${event.id}`)) return true;
+    const model = await this.modelCatalog.resolve(selection);
+    if (model.input.includes("image")) return true;
+    this.inboundMedia.rejectMessage(event.source, event.externalId, "image_input_unsupported");
+    this.store.withTx(() => {
+      this.store.failRegisteredInbound(event.id);
+      this.enqueueMediaReceipt(this.inboundMedia.getMessage(event.source, event.externalId)!);
+      this.store.appendEvent({ type: "inbound.skipped", eventId: event.id, source: event.source, reason: "image_input_unsupported" });
+    });
+    this.scheduler?.kickSender();
+    return false;
   }
 
   /** 拥有者控制面：计划分页列表 / 详情（含最近运行） / 取消。 */
@@ -1424,10 +1517,11 @@ export class Runtime {
    * 的 await 期间门闩生效，或一次应用已整体完成（目录被重建，如 provider 已
    * 删除且引用核实已通过）时拒绝，不让新引用钻过 §4 的删除/应用边界。
    */
-  private async resolveSelection(selection: ModelSelection): Promise<() => void> {
+  private async resolveSelection(selection: ModelSelection, requireImages = false): Promise<() => void> {
     this.assertModelConfigIdle(selection.provider);
     const catalog = this.modelCatalog;
-    await catalog.resolve(selection);
+    const model = await catalog.resolve(selection);
+    if (requireImages && !model.input.includes("image")) throw new RuntimeApiError("image_input_unsupported", "所选模型不支持图片输入");
     return () => {
       this.assertModelConfigIdle(selection.provider);
       if (this.modelCatalog !== catalog) throw new RuntimeApiError("model_config_busy", "模型配置刚刚更新，请重试");
@@ -1927,7 +2021,8 @@ export class Runtime {
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
     // this.submit 走同一检查
-    const check = await this.resolveSelection(selection);
+    const sourceEvent = input.sourceEventId ? this.store.getInboundEvent(input.sourceEventId) : null;
+    const check = await this.resolveSelection(selection, sourceEvent !== null && this.inboundMedia.hasMedia(sourceEvent));
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
     try {
@@ -2419,8 +2514,13 @@ export class Runtime {
       // 私聊与 Telegram 共用 main 队列，仍按这条消息的固定配置重核，不能凭会话身份放行。
       const sourceEvent = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
       if (sourceEvent) {
+        const media = this.inboundMedia.getMessage(sourceEvent.source, sourceEvent.externalId);
+        if (media && ["rejected", "expired"].includes(media.status) && sourceEvent.taskId !== task.id) {
+          await this.cancelTask(task.id, { reason: "inbound_media_rejected" });
+          continue;
+        }
         // 群任务须先原子关联收件、入站与任务，避免提交后的立即 kick 抢先执行。
-        if (sourceEvent.source === QQ_GROUP_SOURCE && sourceEvent.taskId !== task.id) return;
+        if ((sourceEvent.source === QQ_GROUP_SOURCE || this.inboundMedia.hasMedia(sourceEvent)) && sourceEvent.taskId !== task.id) return;
         const decision = this.inboundGate(sourceEvent);
         if (decision === "wait") return;
         if (decision !== "run") {

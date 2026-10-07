@@ -1,7 +1,7 @@
 /**
  * Telegram owner 入口（daily-agent issue 04）：Bot API long polling + owner 回复渠道。
  *
- * - 只接纳私聊、固定 owner user_id + chat_id 的文本消息；其余不登记、不建任务，
+ * - 只接纳私聊、固定 owner user_id + chat_id 的文本与图片消息；其余不登记、不建任务，
  *   只记受限事件（id 与原因，不含正文）；
  * - 入站先经编排器持久化（(source, external_id) 去重），之后才推进轮询偏移：
  *   崩溃/断线后平台重投的 update 命中原外部 id，不重复建任务；
@@ -20,6 +20,7 @@ import type { SchedulerStore } from "../scheduler/store.ts";
 import { NotSentError, RetryLaterError } from "../scheduler/runtime.ts";
 import { RuntimeApiError } from "../core/api-error.ts";
 import type { ImEntry } from "../runtime/im-entries.ts";
+import { MediaError, type InboundMediaStore, type InboundMediaDownload } from "../runtime/inbound-media.ts";
 
 export const TELEGRAM_CREDENTIAL_PURPOSE = "telegram_bot";
 export const TELEGRAM_SOURCE = "telegram";
@@ -146,8 +147,11 @@ export interface TelegramDeps {
   tg: TelegramStore;
   sched: SchedulerStore;
   credentials: CredentialStore;
+  media: InboundMediaStore;
   /** 编排器登记入口（固定 source=telegram、目标 main；目标为收件时按捕获配置钉版）。 */
-  register(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget | null; commandText?: string }): Promise<unknown>;
+  register(input: { externalId: string; actor: string; body: string; replyTarget: NotifyTarget | null; commandText?: string; media?: boolean }): Promise<unknown>;
+  /** 轮询恢复在线时唤起已持久化、等待连接恢复的入站与 main 队列。 */
+  onOnline?(): void;
   log(message: string): void;
   /** getUpdates 长轮询秒数（默认 25；测试压短）。 */
   pollTimeoutSec?: number;
@@ -471,13 +475,15 @@ export class TelegramAdapter implements ImEntry {
           const seconds = Number(json?.parameters?.retry_after);
           throw new TelegramApiError(res.status, String(json?.description ?? `HTTP ${res.status}`), Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null);
         }
+        const becameOnline = !this.online;
         this.online = true;
         this.lastError = null;
         backoff = base;
+        if (becameOnline) this.deps.onOnline?.();
         for (const update of json.result) {
           if (signal.aborted) return;
           // 先持久化（登记失败抛出 → 不推进偏移，下一轮平台重投）
-          await this.handleUpdate(config, token, update);
+          await this.handleUpdate(config, token, update, signal);
           if (signal.aborted) return;
           // 推进偏移前核对仍是同一代次：配置/凭据在登记期间变化（版本递增、
           // 偏移已归零）时不写回旧偏移，重投由外部 id 去重
@@ -500,8 +506,9 @@ export class TelegramAdapter implements ImEntry {
     }
   }
 
-  private async handleUpdate(config: TelegramConfig, token: string, update: any): Promise<void> {
+  private async handleUpdate(config: TelegramConfig, token: string, update: any, signal: AbortSignal): Promise<void> {
     const m = update?.message;
+    const hasPhoto = Array.isArray(m?.photo) && m.photo.length > 0;
     const chatId = m?.chat?.id !== undefined ? String(m.chat.id) : null;
     const userId = m?.from?.id !== undefined ? String(m.from.id) : null;
     const reason = !m
@@ -510,7 +517,7 @@ export class TelegramAdapter implements ImEntry {
         ? "not_private"
         : userId !== config.ownerUserId || chatId !== config.ownerChatId
           ? "not_owner"
-          : typeof m.text !== "string"
+          : typeof m.text !== "string" && !hasPhoto
             ? "non_text"
             : null;
     if (reason) {
@@ -523,16 +530,59 @@ export class TelegramAdapter implements ImEntry {
     // （偏移也不推进，重投由外部 id 去重）
     const fresh = this.deps.tg.getConfig();
     if (!fresh || fresh.configVersion !== config.configVersion || fresh.credentialName !== config.credentialName) return;
-    await this.deps.register({
+    const input = {
       externalId: telegramExternalId(telegramBotId(token), chatId!, m.message_id),
       actor: `telegram:${userId}`,
       body: inboundBody(m, chatId!, userId!),
       // 目标按该次轮询捕获的配置/凭据钉版，不用后来的配置重新包装旧消息
       replyTarget: this.targetFor(config, token),
+    };
+    if (hasPhoto) {
+      // PhotoSize 是同一张图片的多个尺寸；只下载最大分辨率，不按 file_size 选缩略图。
+      const photo = m.photo.reduce((largest: any, item: any) =>
+        Number(item.width) * Number(item.height) > Number(largest.width) * Number(largest.height) ? item : largest);
+      const download: InboundMediaDownload = {
+        sizeBytes: typeof photo.file_size === "number" ? photo.file_size : undefined,
+        download: (downloadSignal) => this.downloadPhoto(config, token, photo.file_id, downloadSignal, download),
+      };
+      await this.deps.media.stage({
+        ...input, source: TELEGRAM_SOURCE, signal,
+        media: [download],
+      });
+      signal.throwIfAborted();
+      const current = this.deps.tg.getConfig();
+      if (!current || current.configVersion !== config.configVersion || current.credentialName !== config.credentialName) return;
+      await this.deps.register({ ...input, media: true });
+      return;
+    }
+    await this.deps.register({
+      ...input,
       // 原始发送文本（未加模板/引用摘录）：宿主据此识别审批命令；
       // 转发消息照常建任务，但其内容不解释为审批命令
       commandText: m.forward_origin != null || m.forward_date != null ? undefined : m.text,
     });
+  }
+
+  private async downloadPhoto(config: TelegramConfig, token: string, fileId: unknown, signal: AbortSignal, download: InboundMediaDownload): Promise<Response> {
+    if (typeof fileId !== "string" || !fileId) throw new MediaError("download_unavailable");
+    const response = await fetch(`${config.apiBase}/bot${token}/getFile`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file_id: fileId }), signal,
+    });
+    if (!response.ok) {
+      if (response.status >= 400 && response.status < 500 && response.status !== 429) throw new MediaError("download_unavailable");
+      throw new Error("Telegram 图片下载暂时不可用");
+    }
+    const json = await response.json() as any;
+    const path = json?.result?.file_path;
+    if (!json?.ok || typeof path !== "string" || !path || path.startsWith("/") || path.includes("\\") ||
+        path.split("/").some((part: string) => part === "..") || /[?#]/.test(path)) throw new MediaError("download_unavailable");
+    const file = await fetch(`${config.apiBase}/file/bot${token}/${path}`, { signal });
+    const mime = file.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    // Bot API 下载可能只声明二进制流；以平台 file_path 声明类型，再由暂存核对 magic。
+    download.declaredMime = !mime || mime === "application/octet-stream"
+      ? ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" } as Record<string, string>)[path.split(".").at(-1)!.toLowerCase()]
+      : undefined;
+    return file;
   }
 
   /** owner 回复关联原消息：op 来源键 = 入站事件 id，外部 id 末段即 message_id。 */
@@ -551,12 +601,12 @@ function inboundBody(m: any, chatId: string, userId: string): string {
   const lines = [`[Telegram 私聊] chat ${chatId} user ${userId} message ${m.message_id} 时间 ${new Date(Number(m.date) * 1000).toISOString()}`];
   const r = m.reply_to_message;
   if (r) {
-    const quote = typeof r.text === "string" ? r.text : "（非文本）";
+    const quote = typeof r.text === "string" ? r.text : typeof r.caption === "string" ? r.caption : "（非文本）";
     lines.push(
       `回复关联：message ${r.message_id}（${r.from?.is_bot ? "本 bot 发送" : "owner 发送"}）：` +
         (quote.length > QUOTE_CAP ? `${quote.slice(0, QUOTE_CAP)}…` : quote),
     );
   }
-  lines.push("正文：", m.text);
+  lines.push("正文：", typeof m.text === "string" ? m.text : typeof m.caption === "string" ? m.caption : "");
   return lines.join("\n");
 }

@@ -97,6 +97,8 @@ const TABLE_POLICY: TablePolicy = {
   occupancy: { policy: "exclude", reason: "运行时目录占用，不属于资料" },
   agent_roles: { policy: "exclude", reason: "角色绑定会话与 main 资料不迁入开发产品" },
   inbound_events: { policy: "exclude", reason: "个人平台入站不属于开发资料" },
+  inbound_media_messages: { policy: "exclude", reason: "图片暂存与拒绝账本绑定原实例和平台入口，不跨实例恢复" },
+  inbound_media: { policy: "exclude", reason: "未提升的图片文件不属于任务产物，不跨实例导入" },
   chat_result_acceptances: { policy: "exclude", reason: "群聊结果接收，属 chat 外挂边界" },
   schedules: { policy: "exclude", reason: "main 的调度计划不迁入" },
   schedule_runs: { policy: "exclude", reason: "main 的调度运行不迁入" },

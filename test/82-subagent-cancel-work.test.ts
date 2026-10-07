@@ -30,6 +30,7 @@ import { cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, w
 import { createSubAgentTools } from "../src/agent/subagent-tools.ts";
 import { type Runtime } from "../src/runtime/runtime.ts";
 import { subagentOpCheck, subAgentTaskRequestId, SubAgentManager } from "../src/runtime/subagents.ts";
+import { WorkCopyManager } from "../src/runtime/work-copy.ts";
 
 /** 本轮请求的最后一条是工具结果（模型拿到工具返回后的下一次调用）。 */
 function afterTool(req: RecordedRequest): boolean {
@@ -294,7 +295,10 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
     const gated = new SubAgentManager({
       store: rt.store,
       workRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "sub-agents"),
-      worktreeRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "worktrees"),
+      workCopies: new WorkCopyManager({
+        worktreeRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "worktrees"),
+        protectedRoots: () => rt.protectedRoots(),
+      }),
       sources: (rt as any).sources,
       resolveSelection: () => new Promise<() => void>((res) => (release = () => res(() => {}))),
       launcherFor: (mode) => rt.launcherFor(mode),

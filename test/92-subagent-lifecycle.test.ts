@@ -9,6 +9,7 @@ import { Store } from "../src/core/store.ts";
 import { randomId, type ModelSelection, type SubAgentMessage, type Task, type WorkDelegation } from "../src/core/types.ts";
 import { ParentDelivery } from "../src/runtime/parent-delivery.ts";
 import { SubAgentDelegationError, SubAgentManager, type SubAgentManagerDeps } from "../src/runtime/subagents.ts";
+import { WorkCopyManager } from "../src/runtime/work-copy.ts";
 
 const DEFAULT: ModelSelection = { provider: "mock", modelId: "default", thinkingLevel: "off" };
 const MAIN: ModelSelection = { ...DEFAULT, modelId: "main-override" };
@@ -75,7 +76,8 @@ function kit(parentKind: "main" | "dev" = "main") {
     sendWorkReport: () => {},
   });
   const deps: SubAgentManagerDeps = {
-    store, dataDir, workRoot: path.join(root, "sub-agents"), worktreeRoot: path.join(root, "worktrees"),
+    store, dataDir, workRoot: path.join(root, "sub-agents"),
+    workCopies: new WorkCopyManager({ worktreeRoot: path.join(root, "worktrees"), protectedRoots: () => [dataDir] }),
     sources: { resolve: () => ({ text: "材料", refs: [] }), verify: () => null },
     resolveSelection: async (selection) => {
       assert.equal(inTx, false, "模型预检不能持有数据库事务");

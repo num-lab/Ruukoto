@@ -391,7 +391,8 @@ test("占用取放：相等/祖先（分隔符）/子孙/兄弟/dev-ino 别名�
 
 test("创建失败保留现场：容器副本创建被拦，错误含路径与分支，副本根现场存在，不登记工作", async () => {
   const responder: Responder = async () => ({ kind: "text", text: "父回复" });
-  const t = await startTestRuntime("wk-cfail", responder, { config: realTools(), workDirs: 1 });
+  const workCopyExecutor = async () => ({ isError: true, errorMessage: "副本容器创建失败（注入）", content: "" });
+  const t = await startTestRuntime("wk-cfail", responder, { config: { ...realTools(), workCopyExecutor }, workDirs: 1 });
   try {
     const rt = t.runtime;
     fs.mkdirSync(path.join(t.work[0]!, "src"), { recursive: true });
@@ -400,9 +401,6 @@ test("创建失败保留现场：容器副本创建被拦，错误含路径与�
     const session = await rt.createSession({ projectName: "wkcf", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    // 拦截宿主的副本创建入口（容器失败 → 委派报 worktree_failed）；宿主永不直接执行 git
-    const orig = (rt as any).createWorktreeInContainer;
-    (rt as any).createWorktreeInContainer = async () => ({ isError: true, errorMessage: "副本容器创建失败（注入）", content: "" });
     const worksBefore = rt.store.listWorkDelegations().length;
     let error: unknown = null;
     try {
@@ -414,7 +412,6 @@ test("创建失败保留现场：容器副本创建被拦，错误含路径与�
       error = err;
     }
     assert.ok(error, "委派被拒绝（容器注入失败）");
-    (rt as any).createWorktreeInContainer = orig;
     const msg = String((error as { message?: unknown }).message);
     assert.match(msg, /副本创建失败/, "错误含创建失败原因");
     assert.match(msg, /agent-work\/worktrees|ruukoto\/work-/, "错误含副本路径或分支名（现场位置可查）");

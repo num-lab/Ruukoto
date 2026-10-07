@@ -135,6 +135,7 @@ import { loadSkillLibrary, skillsDirFor } from "../agent/skills.ts";
 import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
 import { QqAdapter, QQ_PRIVATE_SOURCE, type QqAdapterTimeouts } from "../qq/adapter.ts";
 import { ParentDelivery } from "./parent-delivery.ts";
+import { WorkCopyManager, assertWorktreeGrantAllowed, type WorkCopyExecutor } from "./work-copy.ts";
 import { CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED } from "../core/session-identity.ts";
 import { QQ_GROUP_SOURCE, QqStore, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
 import { TelegramAdapter, TelegramStore, TELEGRAM_SOURCE, type TelegramConfig } from "../telegram/adapter.ts";
@@ -197,6 +198,8 @@ export interface RuntimeConfig {
    * 省略时取 local：只适用于开发与模拟验证，生产部署必须显式配置。
    */
   execution?: ExecutionBackendConfig;
+  /** 工作副本容器入口的测试替身；生产由 Runtime 自己装配。 */
+  workCopyExecutor?: WorkCopyExecutor;
   /** 默认注册真实编码工具（路由器 + 工具工作进程）；模拟测试可覆盖。 */
   toolFactory?: (ctx: { registry: import("../agent/managed-processes.ts").ManagedProcessRegistry; router: import("../agent/tool-router.ts").ToolRouter }) => ToolDefinition[];
   /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留；测试用小窗口时收紧预留）。 */
@@ -674,10 +677,23 @@ export class Runtime {
     }
     // 通用 SubAgent 委派（agent-direction issue 11）：子工作目录在 agent-work/
     // 下（保护根之外）；登记事务前的准备与提交后的 kick 由管理器执行
+    const worktreeRoot = path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "worktrees");
+    const workCopies = new WorkCopyManager({
+      worktreeRoot,
+      protectedRoots: () => runtime.protectedRoots(),
+      executionReaderIdentity: () => {
+        if ((fullConfig.execution?.backend ?? "local") !== "container") return null;
+        return {
+          uid: fullConfig.execution?.container?.uid ?? Number(process.env.RUUKOTO_CONTAINER_UID ?? 1000),
+          gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
+        };
+      },
+      execute: fullConfig.workCopyExecutor ?? ((input) => runtime.createWorktreeInContainer(input)),
+    });
     runtime.subagents = new SubAgentManager({
       store: runtime.store,
       workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "sub-agents"),
-      worktreeRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "worktrees"),
+      workCopies,
       sources: runtime.sources,
       resolveSelection: (selection) => runtime.resolveSelection(selection),
       launcherFor: (mode) => runtime.launcherFor(mode),
@@ -688,15 +704,6 @@ export class Runtime {
       cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
       protectedRoots: () => runtime.protectedRoots(),
       dataDir: fullConfig.dataDir,
-      // 容器后端：按容器固定 uid/gid 核实执行身份；local 即后台账户（null）
-      executionReaderIdentity: () => {
-        if ((fullConfig.execution?.backend ?? "local") !== "container") return null;
-        return {
-          uid: fullConfig.execution?.container?.uid ?? Number(process.env.RUUKOTO_CONTAINER_UID ?? 1000),
-          gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
-        };
-      },
-      createWorktreeInContainer: (input) => runtime.createWorktreeInContainer(input),
     });
     runtime.initHostToolFamilies();
     runtime.recover();
@@ -1807,9 +1814,11 @@ export class Runtime {
       } catch {
         throw new RuntimeApiError("invalid_params", `授予路径不存在：${p.path}`);
       }
-      // 副本根守门（issue 16）：覆盖副本根或其下任何位置的读写授予拒绝，只读仍允许
-      if (p.access === "read_write" && (grantCoversPath(real, worktreesRoot) || grantCoversPath(worktreesRoot, real))) {
-        throw new RuntimeApiError("invalid_params", "读写授权不能覆盖宿主管理的工作副本根或其下位置（只读仍允许）");
+      // 工作副本模块统一负责旁路写入保护；Runtime 仍负责将错误翻译为控制面错误。
+      try {
+        assertWorktreeGrantAllowed(real, p.access, worktreesRoot);
+      } catch (err) {
+        throw new RuntimeApiError("invalid_params", (err as Error).message);
       }
       try {
         assertGrantNotProtected(real, this.protectedRoots());

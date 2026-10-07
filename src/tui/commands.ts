@@ -8,7 +8,6 @@
  */
 
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
-import { isPlanInput } from "../agent/plan-mode.ts";
 import { requestOutcome } from "../control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "../control/ops.ts";
 import { productFromEnv } from "../core/product.ts";
@@ -311,16 +310,8 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>", run: (ctx, { arg }) => ctx.host.cancel(arg) },
   { name: "model", description: "切换模型", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.continueTask(arg) },
-  {
-    name: "plan",
-    description: "计划模式",
-    argumentHint: "<内容>",
-    // /plan <内容>：整行即计划模式的任务输入（issue 26）；不带内容时显示用法
-    taskInput: (line) => (isPlanInput(line) ? line : null),
-    run: (ctx) => ctx.notify("用法：/plan <内容>（只调研不修改，最终回答即计划）"),
-  },
   { name: "resume-queue", description: "恢复已暂停的会话队列", run: (ctx) => ctx.host.resumeQueue() },
-  { name: "mode", description: "选择当前会话的访问模式", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
+  { name: "mode", description: "选择当前会话的默认模式", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
   {
     name: "status",
     description: "刷新并查看当前任务详情",

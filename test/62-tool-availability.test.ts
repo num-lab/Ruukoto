@@ -4,7 +4,7 @@
  * - 会话身份（架构工单 08）：SubAgent / main / 普通开发会话 / 已退役归档（带原因）的纯分类；
  * - 会话类别 × 工具类别的完整矩阵（新工具族默认不可见，「仅 main」只靠清单）；
  * - 本任务允许的工具：计划模式、宿主按任务收窄、关闭的 Web Search 及其组合，拒绝原因；
- * - 执行画像：身份 × 工作 × 宿主评审 × /plan 的画像表，SubAgent 三种工具集与 SDK 签名。
+ * - 执行画像：身份 × 工作 × 宿主评审 × Plan 的画像表，SubAgent 三种工具集与 SDK 签名。
  */
 
 import { test } from "node:test";
@@ -77,11 +77,11 @@ test("本任务允许的工具：项目关闭 Web Search 时拒绝 web_search；
   assert.equal(all.reasonFor("bash"), "", "允许的工具没有拒绝原因");
 });
 
-test("执行画像：身份 × 工作（无 / 只读 / 写入）× 宿主评审 × /plan → 工具集、规划 MCP、资料受限、计划资格与提示键", () => {
+test("执行画像：身份 × 工作（无 / 只读 / 写入）× 宿主评审 × Plan → 工具集、规划 MCP、资料受限、计划资格与提示键", () => {
   const main: SessionIdentity = { kind: "main", role: role("main") };
   const sub: SessionIdentity = { kind: "subagent", agent };
   const rows: Array<[SessionIdentity, boolean, boolean, boolean, Omit<ExecutionProfile, "toolSignature">]> = [
-    // 身份, 写入目标（无工作与只读工作同为 false）, 宿主评审, /plan 输入 → 画像；
+    // 身份, 写入目标（无工作与只读工作同为 false）, 宿主评审, Plan 选择 → 画像；
     // 写入目标与评审只作用于 SubAgent，计划资格只给普通开发会话
     [{ kind: "dev" }, false, false, false, { toolClass: "dev", subAgentTools: null, planMcp: true, restricted: false, plan: false }],
     [{ kind: "dev" }, false, false, true, { toolClass: "dev", subAgentTools: null, planMcp: true, restricted: false, plan: true }],
@@ -93,16 +93,16 @@ test("执行画像：身份 × 工作（无 / 只读 / 写入）× 宿主评审 
     [sub, false, true, false, { toolClass: "subagent", subAgentTools: { write: false, review: true }, planMcp: true, restricted: true, plan: false }],
     [sub, true, true, false, { toolClass: "subagent", subAgentTools: { write: true, review: true }, planMcp: true, restricted: true, plan: false }],
   ];
-  for (const [identity, writeTarget, review, planInput, expected] of rows) {
-    const { toolSignature: _, ...profile } = executionProfile({ identity, writeTarget, review, planInput });
-    assert.deepEqual(profile, expected, JSON.stringify({ identity: identity.kind, writeTarget, review, planInput }));
+  for (const [identity, writeTarget, review, planMode, expected] of rows) {
+    const { toolSignature: _, ...profile } = executionProfile({ identity, writeTarget, review, planMode });
+    assert.deepEqual(profile, expected, JSON.stringify({ identity: identity.kind, writeTarget, review, planMode }));
   }
-  assert.throws(() => executionProfile({ identity: { kind: "retired", reason: CODING_ROLE_RETIRED }, writeTarget: false, review: false, planInput: false }), /已退役/);
+  assert.throws(() => executionProfile({ identity: { kind: "retired", reason: CODING_ROLE_RETIRED }, writeTarget: false, review: false, planMode: false }), /已退役/);
 });
 
 test("执行画像：SubAgent 只读 / 写入 / 评审工具集——装配与收窄同一结论，三种 SDK 签名互不相同", () => {
   const sub: SessionIdentity = { kind: "subagent", agent };
-  const p = (writeTarget: boolean, review: boolean) => executionProfile({ identity: sub, writeTarget, review, planInput: false });
+  const p = (writeTarget: boolean, review: boolean) => executionProfile({ identity: sub, writeTarget, review, planMode: false });
   const read = p(false, false), write = p(true, false), review = p(false, true);
   const names = ["read", "edit", "write", "bash", "read_artifact", "subagent_message", "mcp_svc_get", "mcp_svc_put"];
   const allowed = (prof: ExecutionProfile) => names.filter((n) => subAgentAllows(prof.subAgentTools!, n, EFFECTS[n]));
@@ -110,5 +110,5 @@ test("执行画像：SubAgent 只读 / 写入 / 评审工具集——装配与�
   assert.deepEqual(allowed(write), ["read", "edit", "write", "bash", "read_artifact", "subagent_message"]);
   assert.deepEqual(allowed(review), ["read", "read_artifact", "mcp_svc_get"], "宿主评审另开只读 MCP、关 subagent_message");
   assert.equal(new Set([read, write, review, p(false, false)].map((x) => x.toolSignature)).size, 3);
-  assert.notEqual(executionProfile({ identity: { kind: "dev" }, writeTarget: false, review: false, planInput: false }).toolSignature, read.toolSignature);
+  assert.notEqual(executionProfile({ identity: { kind: "dev" }, writeTarget: false, review: false, planMode: false }).toolSignature, read.toolSignature);
 });

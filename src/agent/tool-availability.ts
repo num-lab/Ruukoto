@@ -88,8 +88,8 @@ export function executionProfile(input: {
   writeTarget: boolean;
   /** 宿主评审任务（issue 19）。 */
   review: boolean;
-  /** 输入（或逐级继续的原任务）带 /plan。 */
-  planInput: boolean;
+  /** 提交时固定到任务的 Plan 选择。 */
+  planMode: boolean;
 }): ExecutionProfile {
   const { identity } = input;
   if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
@@ -99,7 +99,7 @@ export function executionProfile(input: {
     subAgentTools: sub,
     planMcp: allowsCategory(identity.kind, "mcp") || Boolean(sub?.review),
     restricted: sub !== null,
-    plan: identity.kind === "dev" && input.planInput,
+    plan: identity.kind === "dev" && input.planMode,
     toolSignature: sub ? `subagent:${sub.write ? "write" : "read"}${sub.review ? "+review" : ""}` : identity.kind,
   };
 }

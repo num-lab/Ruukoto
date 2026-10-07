@@ -19,7 +19,7 @@ const tool = (extra: Partial<Extract<FlowEntry, { kind: "tool" }>> = {}): FlowEn
 function task(extra: Partial<Task> = {}): Task {
   return {
     id: "task-1", sessionId: "session-1", requestId: "request-1", input: "test", modelSelection: null,
-    submissionDigest: null, status: "running", accessMode: "confirm", permissionVersion: 1, grantedPaths: [],
+    submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
     resultSummary: null, resultRef: null,

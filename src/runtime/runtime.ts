@@ -21,10 +21,12 @@ import {
   ACTIVE_TASK_STATUSES,
   AGENT_ROLE_IDS,
   isAccessMode,
+  isSessionDefaultMode,
   isTerminalTaskStatus,
   normalizeIsoInstant,
   SESSION_DEFAULT_MODES,
   type AccessMode,
+  type SessionDefaultMode,
   type AgentRoleId,
   type Artifact,
   type ConfirmationRequest,
@@ -98,7 +100,6 @@ import { fileURLToPath } from "node:url";
 import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
 import { GIT_SAFE_DIRECTORY_ENV, grantCoversPath, resolveWorktreeCommonGitDir, taskWorkspaceFor } from "../core/worktree.ts";
 import { AccessScope, AccessDeniedError } from "../core/access.ts";
-import { isPlanInput } from "../agent/plan-mode.ts";
 import { HistoryIndex, readRawEntryAt, searchHistory, type HistorySearchOptions } from "../core/history-index.ts";
 import {
   MemoryConflictError,
@@ -1942,7 +1943,7 @@ export class Runtime {
     sessionId: string;
     requestId: string;
     input: string;
-    accessMode?: AccessMode;
+    accessMode?: SessionDefaultMode;
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string;
     modelSelection: ModelSelection;
@@ -1969,10 +1970,6 @@ export class Runtime {
         "该会话是 SubAgent 的独立工作会话，不能用作用户对话提交（委派经 subagent_delegate，结果经 subagent_result 查询）",
       );
     }
-    // 计划模式（issue 26）只限普通开发会话：main 与退役归档各有固定职责
-    if (isPlanInput(input.input) && identity.kind !== "dev") {
-      throw new RuntimeApiError("invalid_params", "计划模式（/plan）只能在普通开发会话中使用");
-    }
     // 固定角色已退役（agent-direction issue 20/23）：qq_group 会话与 chat/coding
     // 角色会话是只读归档，拒绝作为对话入口重新提交；continueTask 经本入口提交，一并覆盖
     if (identity.kind === "retired") {
@@ -1990,33 +1987,40 @@ export class Runtime {
       deadline = normalizeIsoInstant(input.deadline);
       if (deadline === null) throw new RuntimeApiError("invalid_params", `截止时间无效：${input.deadline}`);
     }
-    // 未显式指定时固定为提交瞬间的会话默认模式（issue 12）；幂等摘要据此计算，
-    // 默认值之后的变更不会漂移已接收任务。
-    const accessMode = input.accessMode ?? session.defaultAccessMode;
-    if (!isAccessMode(accessMode)) {
-      throw new RuntimeApiError("invalid_params", `访问模式无效：${accessMode}`);
+    // 默认模式只决定新任务；重试摘要绑定原请求，后续修改默认值不会改变已接收任务。
+    const mode = input.accessMode ?? session.defaultAccessMode;
+    if (!isSessionDefaultMode(mode)) {
+      throw new RuntimeApiError("invalid_params", `模式无效：${mode}`);
     }
+    const planMode = mode === "plan";
+    if (planMode && identity.kind !== "dev") {
+      throw new RuntimeApiError("invalid_params", "Plan 只能在普通开发会话中使用");
+    }
+    const accessMode = mode === "plan" ? "auto-review" : mode;
     const selection = parseModelSelection(input.modelSelection);
-    // 摘要键序固定（v11 前的旧算法为前五个键）：旧格式摘要据同一对象核对
+    // 未指定模式记录 null；有效模式另存于任务，重试不重新采用会话默认值。
     const digestBase = {
-      input: input.input, accessMode,
+      input: input.input, accessMode: input.accessMode ?? null,
       grantedPaths: (input.grantedPaths ?? []).map(p => ({ path: p.path, access: p.access, purpose: p.purpose || "未说明" })),
       resumesTaskId: input.resumesTaskId ?? null, modelSelection: selection,
     };
-    const submissionDigest = createHash("sha256").update(JSON.stringify({
+    const submission = {
       ...digestBase,
       agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null,
       sourceEventId: input.sourceEventId ?? null, deadline,
-    })).digest("hex");
-    // 升级兼容（schema v11 引入编排字段前的已接收请求）：编排字段全空的提交
-    // 附带旧格式摘要，同参重试仍可核实；编排字段非空时不提供旧格式，同键异参
-    // 校验不放宽
-    const legacyDigest =
-      (input.agentId ?? null) === null && (input.parentTaskId ?? null) === null &&
-      (input.sourceEventId ?? null) === null && deadline === null
-        ? createHash("sha256").update(JSON.stringify(digestBase)).digest("hex")
-        : undefined;
-    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
+    };
+    const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+    const submissionDigest = `request-v2:${digest(submission)}`;
+    // 通用摘要升级：旧格式只保存最终访问模式，隐式请求需按原三种模式核实，
+    // 不借用现在的会话默认值或可能已切换的任务模式。Plan 不匹配任何旧摘要。
+    const legacyModes = input.accessMode === undefined ? SESSION_DEFAULT_MODES.filter(isAccessMode)
+      : isAccessMode(input.accessMode) ? [input.accessMode] : [];
+    const legacyDigests = legacyModes.flatMap((accessMode) => [
+      digest({ ...submission, accessMode }),
+      ...(submission.agentId === null && submission.parentTaskId === null && submission.sourceEventId === null && deadline === null
+        ? [digest({ ...digestBase, accessMode })] : []),
+    ]);
+    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
     if (existing) return existing;
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
@@ -2043,7 +2047,7 @@ export class Runtime {
         // 门闩重检必须在入队事务内（issue 21 §4）：应用方的门闩设置与活动
         // 任务核查是同一同步段，这里在插入前重检才能保证"检查到应用完成
         // 之间"没有受影响任务钻过边界；重复提交先仲裁返回，不受门闩影响
-        const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
+        const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
         if (raced) return { task: raced, duplicate: true };
         check();
         return this.store.insertQueuedTask({
@@ -2051,11 +2055,12 @@ export class Runtime {
           requestId: input.requestId,
           input: input.input,
           accessMode,
+          planMode,
           grantedPaths,
           resumesTaskId: input.resumesTaskId,
           modelSelection: selection,
           submissionDigest,
-          legacyDigest,
+          legacyDigests,
           agentId: input.agentId ?? null,
           parentTaskId: input.parentTaskId ?? null,
           sourceEventId: input.sourceEventId ?? null,
@@ -2091,7 +2096,7 @@ export class Runtime {
    * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
    * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
    */
-  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: AccessMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
+  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
     if (input.sessionId !== undefined && input.sessionId !== old.sessionId) throw new RuntimeApiError("invalid_params", "源任务不属于指定会话");
@@ -2113,14 +2118,17 @@ export class Runtime {
    * 拥有者设置会话默认访问模式（issue 12）：只影响之后新建且未显式指定
    * 模式的任务；不改写既有任务、待生效模式或待处理审批。
    */
-  async setSessionDefaultMode(input: { sessionId: string; mode: AccessMode; expectedVersion: number }): Promise<Session> {
+  async setSessionDefaultMode(input: { sessionId: string; mode: SessionDefaultMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
     if (this.store.getSessionIdentity(input.sessionId)?.kind === "subagent") {
       throw new RuntimeApiError("invalid_state", "SubAgent 的独立工作会话不允许修改默认模式");
     }
-    if (!isAccessMode(input.mode)) {
+    if (!isSessionDefaultMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `会话默认模式无效：${input.mode}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
+    }
+    if (input.mode === "plan" && this.store.getSessionIdentity(input.sessionId)?.kind !== "dev") {
+      throw new RuntimeApiError("invalid_params", "Plan 只能在普通开发会话中使用");
     }
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
     try {
@@ -2147,6 +2155,9 @@ export class Runtime {
     }
     if (!isAccessMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${input.mode}`);
+    }
+    if (task.planMode) {
+      throw new RuntimeApiError("invalid_state", "Plan 任务不能切换权限模式；请先中断，再按当前会话模式继续");
     }
     if (task.accessMode === input.mode && !input.grantedPaths) {
       throw new RuntimeApiError("invalid_state", `任务已是 ${input.mode} 模式`);

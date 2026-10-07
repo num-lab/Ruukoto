@@ -113,7 +113,7 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 | `/interrupt [taskId]`、`/cancel <taskId>`、`/continue [taskId]` | 中断 / 取消 / 继续任务 |
 | `/resume-queue` | 恢复已暂停的会话队列 |
 | `/model` | 模型切换面板（提供方 / 模型 / 思考强度），作用于之后提交的任务 |
-| `/mode` | 列表选择当前会话的默认访问模式（Ask for approval / Full access / Auto review），作用于之后新建的任务 |
+| `/mode` | 选择会话默认模式（Ask for approval / Full access / Auto review；普通开发会话另有 Plan），作用于后续新任务；Shift+Tab 循环切换 |
 | `/status` | 刷新并查看当前任务详情 |
 | `/search <关键词>` | 搜索会话历史原文（字面匹配） |
 | `/memory <子命令>` | 长期记忆：list / show / revoke / restore |
@@ -121,7 +121,6 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 | `/prompt` | 查看本会话模型请求列表与每次调用的 prompt 详情 |
 | `/skill <名称> [参数]` | 显式调用技能库中的技能（提交任务；不带名称时同 `/skills`） |
 | `/skills` | 查看技能库（名称、是否仅显式调用、描述摘要）与诊断 |
-| `/plan <内容>` | 计划模式：只调研不修改，最终回答即计划；下一条普通消息即按计划执行（逐次审批不变） |
 | `/qq <子命令>` | QQ 入口：status / enable / disable / groups / inbox / outbox（核心群聊已退役；groups 为历史值，inbox/outbox 为旧群归档） |
 | `/quit` | 退出客户端（后台任务继续运行） |
 
@@ -150,8 +149,9 @@ TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不�
 ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container] [--model provider/model]
 ruukoto create-project <名称>                 # 返回项目 id（后续命令用 id，不是名称）
 ruukoto create-session <项目 id> <工作目录>
-ruukoto submit <会话 id> <request-id> "任务输入" [--mode confirm|full_access|auto-review] [--grant <路径>:<read|read_write>[:用途];...]
+ruukoto submit <会话 id> <request-id> "任务输入" [--mode confirm|full_access|auto-review|plan] [--grant <路径>:<read|read_write>[:用途];...]
 ruukoto continue <任务 id> <request-id> "继续输入" [--mode ...] [--grant ...]
+ruukoto set-session-mode <会话 id> confirm|full_access|auto-review|plan
 ruukoto switch-mode <任务 id> confirm|full_access|auto-review [--grant ...]
 ruukoto status [任务 id]                      # 无参数 = 全局快照
 ruukoto events                                # 订阅持久事件流（seq 单调递增）
@@ -161,6 +161,12 @@ ruukoto stop                                  # 优雅停止（SIGTERM/SIGINT �
 
 `request_id` 由客户端生成，唯一范围是会话。提交已落盘但应答丢失时，同键同参数
 （含模式与授权范围）重试返回原任务。
+
+Plan 仅普通开发会话可选，持续到手动切换模式。它固定采用 Auto review 的受限执行
+环境与审批策略，保留调研工具并要求不修改文件、长期记忆和外部状态；保留的 `bash`
+等工具仍可能产生写入，因此不提供全面只读保证。计划完成后需先切换模式再开始实现。
+继续中断任务使用当前会话选择或显式 `--mode`；任务级 `switch-mode` 不能进入或退出
+Plan。TUI 中 `/plan` 为未知命令，CLI/API 的 `/plan …` 仅作为普通输入。
 
 ### 审批与产物
 

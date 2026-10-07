@@ -238,7 +238,7 @@
   <section id="handshake">
     <h2>握手与事件流：快照、补发、实时</h2>
     <p>认证之后的 <code>connect</code> 同时做三件事：读一张有界快照、补发游标之后漏掉的事件、把这条连接登记为订阅者。首次连接、断线重连、发现缺口后的重新同步都走这一步，恢复的是观察，不是执行。</p>
-    <p>快照（<code class="src" data-src="src/control/protocol.ts#export interface ConnectSnapshot">protocol.ts · ConnectSnapshot</code>）包含：项目、会话、任务（全部活动任务，加每个会话最近结束的 20 个，常量 <code class="src" data-src="src/runtime/runtime.ts#const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20">SNAPSHOT_ENDED_TASKS_PER_SESSION</code>；更早的经 <code>list_tasks</code> 分页）、待决审批（参数为有界预览）、活动任务的产物元数据、输出预览（执行中任务的生成中正文，以及中断、失败、取消任务尚未落为历史条目的残片）、数据实例标识 <code>instanceId</code>、执行后端说明、后台默认模型，以及 <code>roleSessionIds</code>（逻辑角色绑定的会话，旧架构）、<code>subAgentSessionIds</code>、<code>workDelegations</code>、<code>subAgents</code>。后四项对旧后台可缺省。<code>subAgents</code> 的每条身份除了 <code>state</code>（running / idle / unverified）还带独立于 state 的 <code>closedAt</code> / <code>closedBy</code>（关闭后委派拒绝 <code>closed</code>；TUI 显示时关闭优先于 state）；<code>workDelegations</code> 每条另带可选 <code>writeTarget</code>（agent-direction 工单 16 修改委派钉定的写入目标：<code>worktree</code> 宿主副本或 <code>direct</code> 直接写入根；缺省 = 只读分析工作——TUI 工作摘要据此标「worktree 分支 X」或「直接写入」）。</p>
+    <p>快照（<code class="src" data-src="src/control/protocol.ts#export interface ConnectSnapshot">protocol.ts · ConnectSnapshot</code>）包含：项目、会话、任务（全部活动任务，加每个会话最近结束的 20 个，常量 <code class="src" data-src="src/runtime/runtime.ts#const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20">SNAPSHOT_ENDED_TASKS_PER_SESSION</code>；更早的经 <code>list_tasks</code> 分页）、待决审批（参数为有界预览）、活动任务的产物元数据、输出预览（执行中任务的生成中正文，以及中断、失败、取消任务尚未落为历史条目的残片）、数据实例标识 <code>instanceId</code>、执行后端说明、后台默认模型，以及 <code>roleSessionIds</code>（逻辑角色绑定的会话，旧架构）、<code>subAgentSessionIds</code>、<code>workDelegations</code>、<code>subAgents</code>。后四项对旧后台可缺省。会话携带 <code>defaultAccessMode</code> 与版本，任务携带 <code>planMode</code> 与 <code>accessMode</code>，因此重连按后台快照恢复 Plan 选择，不读文本推断。<code>subAgents</code> 的每条身份除了 <code>state</code>（running / idle / unverified）还带独立于 state 的 <code>closedAt</code> / <code>closedBy</code>（关闭后委派拒绝 <code>closed</code>；TUI 显示时关闭优先于 state）；<code>workDelegations</code> 每条另带可选 <code>writeTarget</code>（agent-direction 工单 16 修改委派钉定的写入目标：<code>worktree</code> 宿主副本或 <code>direct</code> 直接写入根；缺省 = 只读分析工作——TUI 工作摘要据此标「worktree 分支 X」或「直接写入」）。</p>
 
     <div class="seq" style="--n:3">
       <div class="who"><span>客户端（ControlConnection）</span><span>ControlServer</span><span>Runtime / 事件表</span></div>
@@ -507,7 +507,7 @@
     <details>
       <summary>后台怎样判定同键：同参与异参</summary>
       <div class="body">
-        <p><b>同键同参</b>返回原任务，<b>同键异参</b>回 <code>request_conflict</code>，客户端不换新键、不重发，展示冲突让人处理。键是（会话，<code>request_id</code>）；「参数」是提交摘要：原文、访问模式（未显式指定时取提交瞬间的会话默认模式）、授权范围、继续来源、模型选择与编排字段的 sha256（<code class="src" data-src="src/core/store.ts#findMatchingSubmission">store.ts · findMatchingSubmission</code>）。schema v11 之前接收的提交没有编排字段，编排字段全空的新提交会另带一份旧格式摘要参与核对；连摘要都没记录的旧任务一律回 <code>request_conflict</code>，请拥有者用 <code>find_task</code> 核实。</p>
+        <p><b>同键同参</b>返回原任务，<b>同键异参</b>回 <code>request_conflict</code>，客户端不换新键、不重发，展示冲突让人处理。键是（会话，<code>request_id</code>）；「参数」是提交摘要：原文、显式模式（未指定时为 <code>null</code>）、授权范围、继续来源、模型选择与编排字段的 sha256；最终模式只在首次接收时保存到任务，之后更换会话默认值不改变同一请求的摘要或已接收任务（<code class="src" data-src="src/runtime/runtime.ts#async submit">runtime.ts · submit</code>、<code class="src" data-src="src/core/store.ts#findMatchingSubmission">store.ts · findMatchingSubmission</code>）。新摘要带 <code>request-v2:</code> 前缀。升级前的通用提交摘要按原访问模式生成候选核对；未显式模式时核对原三种访问模式，不依赖当前默认值或任务后来切换的模式。编排字段全空时另核对 schema v11 之前的格式；显式 <code>plan</code> 不匹配旧摘要。连摘要都没记录的旧任务一律回 <code>request_conflict</code>，请拥有者用 <code>find_task</code> 核实。</p>
         <p><b>缺模型</b>：明确未接收、但记录里没有模型选择（早期版本落盘的）时不能原样重发，转为 <code>needs_resubmit</code>：拥有者确认后把原文恢复进原会话的草稿，用 <code>/model</code> 选好再提交；按 Esc 则保留记录。</p>
         <p><b>记录目录</b>：每个产品自己的档案根下的 <code>pending/</code>（ruukoto 为 <code>~/.ruukoto/pending</code>，ruukoto-dev 为 <code>~/.ruukoto-dev-agent/pending</code>），可用 <code>RUUKOTO_PENDING_DIR</code> / <code>RUUKOTO_DEV_PENDING_DIR</code> 覆盖（<code class="src" data-src="src/control/pending-requests.ts#export function defaultPendingDir">pending-requests.ts · defaultPendingDir</code>）。目录 0700、记录 0600；解析不了的文件留在磁盘上单独列出，不静默丢弃。令牌等凭据永不写入这里。</p>
       </div>
@@ -557,10 +557,10 @@
           <tr><td><code>set_summary_model</code></td><td>设置上下文压缩用的摘要模型；provider 与 model_id 同为 null 即清除</td><td>是</td><td><code>expected_revision</code></td><td>—</td></tr>
           <tr><td><code>test_model_connection</code></td><td>试连 provider / 模型</td><td>—</td><td>—</td><td>—</td></tr>
           <tr><td colspan="5"><b>任务</b></td></tr>
-          <tr><td><code>submit</code></td><td>提交新任务（会话、原文、模型、可选访问模式与授权范围）</td><td>是</td><td><code>request_id</code></td><td>是</td></tr>
-          <tr><td><code>continue</code></td><td>以新任务继续一个 interrupted 任务</td><td>是</td><td><code>request_id</code></td><td>是</td></tr>
-          <tr><td><code>switch_mode</code></td><td>切换任务访问模式（可带新授权范围）</td><td>是</td><td>—</td><td>—</td></tr>
-          <tr><td><code>set_session_mode</code></td><td>设置会话默认访问模式（作用于后续任务；SubAgent 会话拒绝）</td><td>是</td><td><code>expected_version</code></td><td>是</td></tr>
+          <tr><td><code>submit</code></td><td>提交新任务（会话、原文、模型、可选模式与授权范围；普通开发会话接受 <code>plan</code>，任务固定计划字段与 Auto review）</td><td>是</td><td><code>request_id</code></td><td>是</td></tr>
+          <tr><td><code>continue</code></td><td>以新任务继续一个 interrupted 任务，采用当前会话默认模式或显式模式，不沿源任务继承 Plan</td><td>是</td><td><code>request_id</code></td><td>是</td></tr>
+          <tr><td><code>switch_mode</code></td><td>切换非 Plan 任务的访问模式（可带新授权范围）；不能进入或退出 Plan</td><td>是</td><td>—</td><td>—</td></tr>
+          <tr><td><code>set_session_mode</code></td><td>设置会话默认模式（作用于后续任务；Plan 只限普通开发会话，SubAgent 会话拒绝）</td><td>是</td><td><code>expected_version</code></td><td>是</td></tr>
           <tr><td><code>interrupt</code></td><td>中断执行中或等待审批的任务</td><td>是</td><td>—</td><td>是</td></tr>
           <tr><td><code>cancel</code></td><td>取消任务：排队的直接取消，执行中或等待审批的经驱动器停止</td><td>是</td><td>—</td><td>是</td></tr>
           <tr><td><code>resume_queue</code></td><td>恢复被暂停的会话队列（可带模型选择）</td><td>是</td><td>—</td><td>是</td></tr>
@@ -665,14 +665,14 @@
           <tr><td><code>session.created</code></td><td>会话创建（入口类别、工作目录、初始模型、创建标识）</td><td><a href="storage-layout.html#workspace">存储布局</a></td></tr>
           <tr><td><code>session.workspace_mapped</code></td><td>会话的工作区组织归属已设置，null 为恢复未映射；只是展示归属，资料身份仍是原项目</td><td><a href="storage-layout.html#workspace">存储布局</a></td></tr>
           <tr><td><code>session.model_selection_changed</code></td><td>会话模型或思考档位变更（带版本）</td><td>—</td></tr>
-          <tr><td><code>session.default_mode_changed</code></td><td>会话默认访问模式变更（带版本）</td><td><a href="tool-call-path.html#modes">工具调用路径</a></td></tr>
+          <tr><td><code>session.default_mode_changed</code></td><td>会话默认模式变更（带版本与 <code>defaultAccessMode</code>，可含 <code>plan</code>）</td><td><a href="tool-call-path.html#modes">工具调用路径</a></td></tr>
           <tr><td><code>session.usage_updated</code></td><td>实际 usage 保存后，通知客户端重新查询会话用量</td><td><a href="context-pipeline.html#observe">上下文组装</a></td></tr>
           <tr><td><code>session.queue_paused</code></td><td>会话队列暂停（附原因）</td><td><a href="task-lifecycle.html#queue">任务生命周期</a></td></tr>
           <tr><td><code>session.queue_resumed</code></td><td>会话队列恢复</td><td><a href="task-lifecycle.html#queue">任务生命周期</a></td></tr>
           <tr><td><code>session.history_unreadable</code></td><td>会话历史文件缺失或损坏，读取失败如实记录</td><td><a href="storage-layout.html#authority">存储布局</a></td></tr>
           <tr><td colspan="3"><b>任务</b></td></tr>
           <tr><td><code>tasks.model_selection_recorded</code></td><td>恢复队列时，旧版本留下的、未记录模型的排队任务被补记拥有者确认的模型选择（按载荷大小分批发）</td><td><a href="task-lifecycle.html#queue">任务生命周期</a></td></tr>
-          <tr><td><code>task.queued</code></td><td>任务入队（<code>request_id</code>、访问模式、模型选择）</td><td><a href="task-lifecycle.html#states">任务生命周期</a></td></tr>
+          <tr><td><code>task.queued</code></td><td>任务入队（<code>request_id</code>、访问模式、<code>planMode</code>、模型选择）</td><td><a href="task-lifecycle.html#states">任务生命周期</a></td></tr>
           <tr><td><code>task.started</code></td><td>任务开始执行</td><td><a href="task-lifecycle.html#states">任务生命周期</a></td></tr>
           <tr><td><code>task.continued</code></td><td>以新任务继续中断任务（<code>resumesTaskId</code> 指向来源）</td><td><a href="task-lifecycle.html#states">任务生命周期</a></td></tr>
           <tr><td><code>task.mode_switch_requested</code></td><td>执行中收到模式切换，待边界应用</td><td><a href="task-lifecycle.html#mode">任务生命周期</a></td></tr>
@@ -786,7 +786,7 @@
 
   <section id="versions">
     <h2>协议版本演进</h2>
-    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v15</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 15">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
+    <p>每一帧的 <code>v</code> 都是协议版本，当前 <code>PROTOCOL_VERSION</code> = <code>v16</code>（<code class="src" data-src="src/core/types.ts#export const PROTOCOL_VERSION = 16">types.ts · PROTOCOL_VERSION</code>）。服务端只服务完全相同的一版：不一致就回 <code>protocol_version</code>，连接状态机进 failed，按需拉起的探测也按「后台在运行、需要升级」报错，都不静默重试。持久事件里的旧格式兼容（没有偏移的片段、旧格式幂等摘要、旧决定来源）不代表线上协议向后兼容。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>版本</th><th>变化（据 protocol.ts 头注释）</th></tr></thead>
@@ -801,10 +801,11 @@
           <tr><td><code>v13</code></td><td>整项工作取消（agent-direction 工单 14）：<code>workDelegations</code> 工作对象另带 <code>canceledAt</code> / <code>canceledBy</code> / <code>cancelReason</code>；新增 <code>work_delegation.canceled</code> 事件与 op <code>work_cancel</code>；主 Agent 工具增加 <code>subagent_cancel</code>。同版内只加可选字段不升级：工单 16 修改委派后，<code>workDelegations</code> 工作对象与 <code>work_list</code> / <code>work_get</code> 的工作详情另带可选 <code>writeTarget</code>（worktree / direct；缺省 = 只读分析工作）</td></tr>
           <tr><td><code>v14</code></td><td>核心群聊退役（agent-direction 工单 20）：<code>qq_group_update</code> 操作删除（旧 <code>qq_config.groups</code> 保留为历史值）；<code>qq_inbox_list</code> 条目新增 <code>acceptance</code>（main 接收账本）与 <code>sourceProblem</code>（当前复核结论）字段。旧群收件、发送与入站记录保持可读</td></tr>
           <tr><td><code>v15</code></td><td>工作内协作消息与改动汇总（agent-direction 工单 13 + 17）：新增 <code>subagent_message.sent</code> / <code>subagent_message.dropped</code> / <code>work_delegation.integrated</code> 事件；<code>work_get</code> 详情新增 <code>messages</code> 列表；主 Agent 工具增加 <code>subagent_message</code> 与 <code>subagent_integrate</code>，委派 <code>work_id</code> 与 <code>sub_agent_id</code> 同现表示协作加入；main 会话的修改委派开放（通用 SubAgent 产生改动、宿主汇总进父工作区待提交区）。旧客户端须升级</td></tr>
+          <tr><td><code>v16</code></td><td>会话模式加入 <code>plan</code>；新任务用独立 <code>planMode</code> 与固定 <code>accessMode=auto-review</code> 表示计划工作方式。快照、<code>session.default_mode_changed</code> 与 <code>task.queued</code> 恢复完整选择；提交与继续支持显式 Plan，任务内切换拒绝 Plan（personal-agent 工单 31，ADR 0025）</td></tr>
         </tbody>
       </table>
     </div>
-    <p>头注释只记了这六段变化，其余中间版本没有说明。工作区（<code>open_workspace</code>）、迁移 op 与 <code>list_session_summaries</code> 的 <code>workspace_id</code> 参数是 v9 期间（agent-direction 工单 05–07）加入的，当时没有升协议版本，注释里也没有记录：同为 v9 的旧客户端仍能通过版本检查。</p>
+    <p>头注释记录了表内的变化，其余中间版本没有说明。工作区（<code>open_workspace</code>）、迁移 op 与 <code>list_session_summaries</code> 的 <code>workspace_id</code> 参数是 v9 期间（agent-direction 工单 05–07）加入的，当时没有升协议版本，注释里也没有记录：同为 v9 的旧客户端仍能通过版本检查。</p>
   </section>
 
   <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>

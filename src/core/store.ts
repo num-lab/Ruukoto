@@ -603,12 +603,13 @@ export class Store {
     requestId: string;
     input: string;
     accessMode?: AccessMode;
+    planMode?: boolean;
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string | null;
     modelSelection: ModelSelection;
     submissionDigest: string;
     /** 旧格式摘要（升级兼容；见 findMatchingSubmission）。 */
-    legacyDigest?: string;
+    legacyDigests?: readonly string[];
     /** 编排字段（issue 01）：仅编排器提交时携带；控制面提交恒为 null。 */
     agentId?: AgentRoleId | null;
     parentTaskId?: string | null;
@@ -619,7 +620,11 @@ export class Store {
     subAgentId?: string | null;
     readScope?: SubAgentReadScope | null;
   }): { task: Task; duplicate: boolean } {
-    const accessMode = input.accessMode ?? "confirm";
+    const planMode = input.planMode ?? false;
+    const accessMode = input.accessMode ?? (planMode ? "auto-review" : "confirm");
+    if (typeof planMode !== "boolean" || (planMode && accessMode !== "auto-review")) {
+      throw new StoreConflictError("Plan 任务必须使用 auto-review 访问策略", "invalid_params");
+    }
     const grantedPaths = input.grantedPaths ?? [];
     const existing = this.findMatchingSubmission(input);
     if (existing) return { task: existing, duplicate: true };
@@ -632,6 +637,7 @@ export class Store {
       submissionDigest: input.submissionDigest,
       status: "queued",
       accessMode,
+      planMode,
       permissionVersion: 1,
       grantedPaths,
       pendingAccessMode: null,
@@ -657,13 +663,13 @@ export class Store {
     };
     this.db
       .prepare(
-        `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version,
+        `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, plan_mode, permission_version,
          granted_paths, pending_access_mode, interrupt_reason,
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
          created_at, started_at, ended_at, model_selection, submission_digest,
          agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
          work_id, sub_agent_id, read_scope, result_delivered_at)
-         VALUES (?, ?, ?, ?, 'queued', ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
+         VALUES (?, ?, ?, ?, 'queued', ?, ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
       )
       .run(
         task.id,
@@ -671,6 +677,7 @@ export class Store {
         task.requestId,
         task.input,
         task.accessMode,
+        task.planMode ? 1 : 0,
         JSON.stringify(task.grantedPaths),
         task.resumesTaskId,
         task.createdAt,
@@ -691,6 +698,7 @@ export class Store {
         sessionId: task.sessionId,
         requestId: task.requestId,
         accessMode: task.accessMode,
+        planMode: task.planMode,
         modelSelection: input.modelSelection,
       },
       { taskId: task.id, sessionId: task.sessionId },
@@ -709,14 +717,14 @@ export class Store {
     sessionId: string;
     requestId: string;
     submissionDigest: string;
-    /** 升级前的旧格式摘要（schema v11 前，无编排字段）；仅全空编排字段的提交提供。 */
-    legacyDigest?: string;
+    /** 通用旧摘要候选；包含 schema v11 前无编排字段的格式。 */
+    legacyDigests?: readonly string[];
   }): Task | null {
     const task = this.findTaskByRequest(input.sessionId, input.requestId);
     if (!task) return null;
     const matched =
       task.submissionDigest === input.submissionDigest ||
-      (input.legacyDigest !== undefined && task.submissionDigest === input.legacyDigest);
+      (task.submissionDigest !== null && Boolean(input.legacyDigests?.includes(task.submissionDigest)));
     if (!task.submissionDigest || !matched) {
       throw new StoreConflictError(
         task.submissionDigest ? `request_id 已存在且提交参数不同：task=${task.id}` : `旧任务未记录原始提交参数，请通过 find_task 核实：task=${task.id}`,
@@ -924,6 +932,7 @@ export class Store {
       submissionDigest: row.submission_digest ?? null,
       status: row.status as TaskStatus,
       accessMode: (row.access_mode ?? "confirm") as AccessMode,
+      planMode: Number(row.plan_mode ?? 0) === 1,
       permissionVersion: Number(row.permission_version ?? 1),
       grantedPaths: JSON.parse(row.granted_paths ?? "[]") as GrantedPath[],
       pendingAccessMode: (row.pending_access_mode ?? null) as AccessMode | null,
@@ -1750,6 +1759,9 @@ export class Store {
 
   /** 请求模式切换（记录待生效模式；不改变当前模式）。 */
   requestModeSwitch(taskId: string, to: AccessMode): boolean {
+    if (this.getTask(taskId)?.planMode) {
+      throw new StoreConflictError("Plan 任务不能切换模式，请中断后按所选模式继续", "invalid_params");
+    }
     const info = this.db
       .prepare("UPDATE tasks SET pending_access_mode = ? WHERE id = ? AND status IN ('queued','running','awaiting_confirmation')")
       .run(to, taskId);
@@ -1768,6 +1780,9 @@ export class Store {
   applyModeSwitch(taskId: string, to: AccessMode): number {
     const task = this.getTask(taskId);
     if (!task) throw new StoreConflictError(`任务不存在：${taskId}`, "not_found");
+    if (task.planMode) {
+      throw new StoreConflictError("Plan 任务不能切换模式，请中断后按所选模式继续", "invalid_params");
+    }
     const newVersion = task.permissionVersion + 1;
     this.db
       .prepare(

@@ -53,6 +53,9 @@
  * 新增 work_delegation.integrated 事件与主 Agent 工具 subagent_integrate；main 会话
  * 的修改委派开放（通用 SubAgent 产生改动、宿主汇总进父工作区待提交区）。旧客户端
  * 须升级；持久旧事件与记录保持可读。
+ *
+ * v16（issue 31）：会话默认与提交支持 Plan，任务与 task.queued 新增 planMode，
+ * 固定采用 auto-review；计划行为由模式设置确定，输入文本与继续链不决定模式。
  */
 
 import {

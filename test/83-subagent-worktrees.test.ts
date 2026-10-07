@@ -650,9 +650,9 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
     fs.writeFileSync(path.join(t.work[0]!, "src/a.ts"), "export const v = 1\n", "utf8");
     initGitRepo(t.work[0]!);
     const session = await rt.createSession({ projectName: "wkgate", cwd: t.work[0]! });
-    const dev = await rt.submit({ sessionId: session.id, requestId: "pd", input: "/plan 先调研再修改", modelSelection: rt.defaultSelection });
+    const dev = await rt.submit({ sessionId: session.id, requestId: "pd", input: "先调研再修改", accessMode: "plan", modelSelection: rt.defaultSelection });
     await waitFor("dev 完成", () => rt.store.getTask(dev.id)!.status === "completed");
-    const planCall = t.server.calls.find((c) => lastUserText(c).includes("/plan 先调研再修改"))!;
+    const planCall = t.server.calls.find((c) => lastUserText(c).includes("先调研再修改"))!;
     assert.ok(planCall, "真实计划任务已调用模型");
     assert.ok(!toolNamesOf(planCall).some((name) => ["edit", "write", "subagent_delegate", "subagent_integrate"].includes(name)), "计划模式没有开放修改和委派工具");
     // 计划模式：modify 被拒

@@ -1,38 +1,24 @@
 /**
- * 计划模式（issue 26）：拥有者以 `/plan <内容>` 提交的一次性任务——只调研、不修改，
- * 最终回答即计划。标记只看任务输入，不加会话状态；只收窄工具，访问模式不变。
+ * 计划模式（issue 31）：由可信模式选择固定到任务，采用 Auto review 并收窄工具。
+ * 会话持续选择 Plan，直到拥有者手动切换；任务输入与继续链不决定模式。
  */
 
-import type { Task } from "../core/types.ts";
 import type { ReferenceBlock } from "./context-selector.ts";
-
-type PlanTaskView = Pick<Task, "input" | "resumesTaskId">;
 
 /** 计划说明：宿主写定的任务级参考块，紧邻当前任务输入。 */
 export const PLAN_NOTICE: ReferenceBlock = {
   category: "planMode",
   placement: "task",
   text: [
-    "[计划模式：拥有者以 /plan 提交本任务；宿主固定说明]",
+    "[计划模式：拥有者选择 Plan；宿主固定说明]",
     "只调研、不修改：不修改文件、长期记忆或外部状态，改动留到执行时再做。",
     "bash 只运行只读命令（如搜索、查看文件、git log），不运行会写入文件或产生其他副作用的命令。",
-    "最终回答给出计划；拥有者的下一条消息即按计划执行。",
+    "持续调研并完善计划，最终回答给出计划；生成计划后仍保持 Plan，直到拥有者手动切换模式。",
+    "即使拥有者要求开始实现，也先提示拥有者切换模式，不自行退出 Plan。",
+    "Plan 固定采用 Auto review；工具收窄与以上说明不提供严格只读保证，保留工具的获批操作仍可能写文件或产生外部副作用。",
     "[/计划模式]",
   ].join("\n"),
 };
-
-/** 标记规则：任务输入以 `/plan` 加空白开头且其后有内容。 */
-export function isPlanInput(input: string): boolean {
-  return /^\/plan\s+\S/.test(input);
-}
-
-/** 以计划模式运行：输入带标记，或经 continue 逐级继续的原任务带标记（查不到的原任务按不带标记处理）。 */
-export function runsInPlanMode(task: PlanTaskView, getTask: (id: string) => PlanTaskView | null): boolean {
-  for (let t: PlanTaskView | null = task; t; t = t.resumesTaskId ? getTask(t.resumesTaskId) : null) {
-    if (isPlanInput(t.input)) return true;
-  }
-  return false;
-}
 
 /**
  * 计划模式的工具白名单（另加类别为只读的 MCP 工具）：今后新增的工具默认不可用。

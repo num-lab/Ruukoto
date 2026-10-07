@@ -40,6 +40,7 @@
         <code class="src" data-src="src/agent/chat-result-tools.ts#createChatResultTools">agent/chat-result-tools.ts</code>
         <code class="src" data-src="src/agent/skills.ts#createSkillTools">agent/skills.ts</code>
         <code class="src" data-src="src/agent/todo.ts#createTodoTools">agent/todo.ts</code>
+        <code class="src" data-src="src/agent/plan-mode.ts#PLAN_TOOL_NAMES">agent/plan-mode.ts</code>
         <code class="src" data-src="src/agent/mcp/tools.ts#planMcpTaskTools">agent/mcp/tools.ts</code>
         <code class="src" data-src="src/agent/app-data/tools.ts#runDestructive">agent/app-data/tools.ts</code>
         <code class="src" data-src="src/agent/scheduler-tools.ts#approveThenCommit">agent/scheduler-tools.ts</code>
@@ -72,6 +73,7 @@
         <a href="../adr/0019-service-management-controlled-helper.md">ADR 0019 服务管理</a>
         <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 SubAgent</a>
         <a href="../adr/0021-subagent-worktrees.md">ADR 0021 SubAgent worktree</a>
+        <a href="../adr/0025-plan-session-mode.md">ADR 0025 Plan 模式选择</a>
       </dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="task-lifecycle.html">任务生命周期</a>
@@ -279,7 +281,7 @@
     <h3>同一个集合，三处使用</h3>
     <p>任务开始时 <code class="src" data-src="src/agent/tool-availability.ts#export function taskToolSet">taskToolSet</code> 算一次本任务允许的工具：已装配的工具（含本任务的 MCP 工具），减去三类收窄。每个任务都从完整注册表重算，宿主对上一个任务的收窄不带进下一个任务。收窄只减不增。</p>
     <ul>
-      <li>计划模式：只留 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_TOOL_NAMES">plan-mode.ts · PLAN_TOOL_NAMES</code> 与只读 MCP 工具，今后新增的工具默认不可用。这个名单含 <code>bash</code>、<code>request_file_access</code>、<code>http_request</code>，后两者照常逐次审批；未开放 <code>subagent_delegate</code>。管理器的计划模式校验不增加模型工具，不能据此发起分析委派。</li>
+      <li>计划模式：执行画像从任务固定的 <code>planMode</code> 确定（<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>），只留 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_TOOL_NAMES">plan-mode.ts · PLAN_TOOL_NAMES</code> 与只读 MCP 工具，今后新增的工具默认不可用。固定采用 <code>auto-review</code>；名单含 <code>bash</code>、<code>request_file_access</code>、<code>http_request</code>，符合策略的越界读取进入独立审查，写入等非合格操作转人工。保留工具仍可能写入，计划说明与白名单不提供全面只读保证。未开放 <code>subagent_delegate</code>，管理器的计划资格校验不增加模型工具，不能据此发起分析委派。选择与继续见<a href="task-lifecycle.html#mode">任务生命周期</a>。</li>
       <li>宿主按任务收窄：SubAgent 任务按执行画像的工具集收窄（<code class="src" data-src="src/agent/tool-availability.ts#export function subAgentAllows">subAgentAllows</code>，与装配同一结论）——写入目标白名单兜底一次，GitHub 评审 SubAgent 收窄为静态白名单 ∪ 本任务 <code>effect=read</code> 的 MCP；其他任务经 <code class="src" data-src="src/github/events.ts#allowTool">github/events.ts · allowTool</code>：评审对应的 main 唤醒任务只留 <code>subagent_result</code> 与只读的 <code>coding_result</code>，带 GitHub 来源事件的其他任务（评审父任务）一律不放行任何工具。</li>
       <li>项目关闭 Web Search：<code>web_search</code> 不进集合，模型看不到。任务进行中才关闭时，由工具在调用时自行检查并拒绝，这不属于可用性。</li>
     </ul>
@@ -288,7 +290,7 @@
 
   <section id="modes">
     <h2>访问模式矩阵：哪些操作要谁点头</h2>
-    <p>任务带一个访问模式（<code class="src" data-src="src/core/types.ts#export type AccessMode">types.ts · AccessMode</code>）：<code>confirm</code> 请求确认、<code>full_access</code> 完全访问、<code>auto-review</code> 自动审查。模式只由拥有者选择；入站事件、子任务回报唤醒、委派出的子任务与 SubAgent 任务都由宿主固定为 <code>confirm</code>，不继承会话默认模式。「是否要审批」不由一处统一决定，而是写在各工具族里，下表逐格对照了代码；自动审查只在闸门内部生效。</p>
+    <p>任务带一个访问模式（<code class="src" data-src="src/core/types.ts#export type AccessMode">types.ts · AccessMode</code>）：<code>confirm</code> 请求确认、<code>full_access</code> 完全访问、<code>auto-review</code> 自动审查。Plan 任务固定组合计划工作方式与 <code>auto-review</code>，复用下表自动审查策略。拥有者选择只影响对应任务；入站事件、子任务回报唤醒、委派出的子任务与 SubAgent 任务都由宿主固定为 <code>confirm</code>，不继承会话默认模式。「是否要审批」写在各工具族里，下表逐格对照代码；自动审查只在闸门内部生效。</p>
 
     <div class="scroll">
       <table class="tbl wrap">
@@ -386,7 +388,7 @@
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
-            <td>委派：任务不是拥有者发起；会话不是普通开发会话或 main；目标已关闭（<code>closed</code>）、忙碌（<code>busy</code>）或目录失效（<code>workdir_gone</code> / 修改工作的 <code>worktree_gone</code>）；工作已取消（<code>invalid_state</code>）。修改委派（<code>mode=modify</code>，agent-direction issue 16）另拒：固定角色会话或 SubAgent 发起、计划模式任务（管理器从父 Task 与 <code>resumesTaskId</code> 链自行判断，显式 modify 或继续已有 writeTarget 都拒绝，不接收 planMode 入参；见<a href="orchestrator.html#subagent-modify">编排器</a>）、继续委派时指定 <code>mode</code>（只读工作不能升级为写入）、<code>target</code> 为空或越出父工作区、共享 Git 目录不在父工作区内、执行身份读/写位不足、目标或副本根触碰宿主管理的 <code>agent-work/worktrees</code>。关闭：目标不存在、不属于本父会话（agent 发起）、有活动任务（<code>busy</code> 给任务 id）；已关闭幂等，不重复拒绝。取消：工作不存在、不属于本父会话（agent 发起）；已取消幂等，不重复发事件。汇总（agent-direction issue 17）：只读分析工作（<code>invalid_state</code>）、工作有活动任务（<code>busy</code>）、副本或仓库根失效（<code>worktree_gone</code>）拒绝；套用差异无法干净套用报 <code>integrate_conflict</code>（零写入、双方保留）；完整差异已在工作区按幂等返回 already，不重复登记；取消过的工作与已关闭的 SubAgent 不拦汇总。子任务一律 <code>confirm</code></td>
+            <td>委派：任务不是拥有者发起；会话不是普通开发会话或 main；目标已关闭（<code>closed</code>）、忙碌（<code>busy</code>）或目录失效（<code>workdir_gone</code> / 修改工作的 <code>worktree_gone</code>）；工作已取消（<code>invalid_state</code>）。修改委派（<code>mode=modify</code>，agent-direction issue 16）另拒：固定角色会话或 SubAgent 发起、计划模式任务（管理器从父 Task 的固定 <code>planMode</code> 判断，显式 modify 或继续已有 writeTarget 都拒绝，不接收调用方的 planMode 入参；见<a href="orchestrator.html#subagent-modify">编排器</a>）、继续委派时指定 <code>mode</code>（只读工作不能升级为写入）、<code>target</code> 为空或越出父工作区、共享 Git 目录不在父工作区内、执行身份读/写位不足、目标或副本根触碰宿主管理的 <code>agent-work/worktrees</code>。关闭：目标不存在、不属于本父会话（agent 发起）、有活动任务（<code>busy</code> 给任务 id）；已关闭幂等，不重复拒绝。取消：工作不存在、不属于本父会话（agent 发起）；已取消幂等，不重复发事件。汇总（agent-direction issue 17）：只读分析工作（<code>invalid_state</code>）、工作有活动任务（<code>busy</code>）、副本或仓库根失效（<code>worktree_gone</code>）拒绝；套用差异无法干净套用报 <code>integrate_conflict</code>（零写入、双方保留）；完整差异已在工作区按幂等返回 already，不重复登记；取消过的工作与已关闭的 SubAgent 不拦汇总。子任务一律 <code>confirm</code></td>
           </tr>
         </tbody>
       </table>

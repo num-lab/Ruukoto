@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 32;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT NOT NULL CHECK (status IN
     ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
   access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access','auto-review')),
+  plan_mode INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0,1)),
   permission_version INTEGER NOT NULL DEFAULT 1,
   granted_paths TEXT NOT NULL DEFAULT '[]',
   pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access','auto-review')),
@@ -681,11 +682,10 @@ export class Db {
       this.db.exec(SCHEMA_SQL);
       this.ensureColumns();
     } else {
-      // 访问模式与新闻动作的 CHECK 需重建被引用的表；FK pragma 在事务内无效，
+      // 会话模式与新闻动作的 CHECK 需重建被引用的表；FK pragma 在事务内无效，
       // 必须在事务外关闭，提交前校验外键，结束后恢复。
       const rebuildModeChecks = row !== undefined && version < 6;
-      const rebuildTables =
-        rebuildModeChecks || (row !== undefined && version >= 13 && version < 18) || (row !== undefined && version === 28);
+      const rebuildTables = row !== undefined && version < SCHEMA_VERSION;
       if (rebuildTables) this.db.exec("PRAGMA foreign_keys = OFF;");
       // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
       try {
@@ -698,6 +698,7 @@ export class Db {
         if (rebuildModeChecks) {
           this.rebuildModeCheckedTables();
         }
+        if (rebuildTables) this.rebuildSessionModeCheck();
         if (rebuildTables && this.db.prepare("PRAGMA foreign_key_check").get()) {
           throw new Error("重建表后外键检查失败");
         }
@@ -738,7 +739,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 30) {
+    } else if (version >= 2 && version <= 31) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -782,6 +783,8 @@ export class Db {
       // v29 → v30：instance_import_items 的类别 CHECK 扩五类（agent-direction
       // issue 22 个人方向导入）；CHECK 变更由下方重建处理，账本行原样保留。
       // v30 → v31：新增入站图片暂存两表，artifacts 补 MIME/hash；旧产物两列为空。
+      // v31 → v32：tasks 补 plan_mode（默认 false）；会话默认 CHECK 加入 plan，
+      // 由统一重建步骤处理，不从旧任务输入推导计划状态。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -898,7 +901,7 @@ CREATE INDEX idx_notification_ops_task ON notification_ops (task_id);
   }
 
   /**
-   * v6：tasks/sessions 的访问模式 CHECK 加入 'auto-review'。SQLite 不能修改
+   * v6：tasks 的访问模式 CHECK 加入 'auto-review'。SQLite 不能修改
    * CHECK 约束，按官方推荐流程重建表：显式列清单复制（保留原模式与权限版本
    * 等全部取值）→ 换名 → 重建索引。调用前外键已在事务外关闭。
    */
@@ -912,6 +915,7 @@ CREATE TABLE tasks_new (
   status TEXT NOT NULL CHECK (status IN
     ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
   access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access','auto-review')),
+  plan_mode INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0,1)),
   permission_version INTEGER NOT NULL DEFAULT 1,
   granted_paths TEXT NOT NULL DEFAULT '[]',
   pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access','auto-review')),
@@ -938,16 +942,16 @@ CREATE TABLE tasks_new (
   result_delivered_at TEXT,
   UNIQUE (session_id, request_id)
 );
-INSERT INTO tasks_new (id, session_id, request_id, input, status, access_mode, permission_version,
+INSERT INTO tasks_new (id, session_id, request_id, input, status, access_mode, plan_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
   history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
   agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
   work_id, sub_agent_id, read_scope, result_delivered_at)
-SELECT id, session_id, request_id, input, status, access_mode, permission_version,
+SELECT id, session_id, request_id, input, status, access_mode, plan_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
   history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
   agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
-  NULL, NULL, NULL, NULL
+  work_id, sub_agent_id, read_scope, result_delivered_at
 FROM tasks;
 DROP TABLE tasks;
 ALTER TABLE tasks_new RENAME TO tasks;
@@ -957,6 +961,12 @@ CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline);
 CREATE INDEX IF NOT EXISTS idx_tasks_work ON tasks (work_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_sub_agent ON tasks (sub_agent_id);
+`);
+  }
+
+  /** v32：会话默认 CHECK 加入 plan；全部既有字段与外键关系原样保留。 */
+  private rebuildSessionModeCheck(): void {
+    this.db.exec(`
 CREATE TABLE sessions_new (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id),
@@ -971,18 +981,19 @@ CREATE TABLE sessions_new (
   create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
+  workspace_project_id TEXT REFERENCES projects(id),
   created_at TEXT NOT NULL,
   model_selection TEXT,
   model_selection_version INTEGER NOT NULL DEFAULT 0,
-  default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review')),
+  default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review','plan')),
   default_access_mode_version INTEGER NOT NULL DEFAULT 0
 );
-INSERT INTO sessions_new (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
+INSERT INTO sessions_new (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
   confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-  default_access_mode, default_access_mode_version)
-SELECT id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
+  default_access_mode, default_access_mode_version, workspace_project_id)
+SELECT id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
   confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-  default_access_mode, default_access_mode_version
+  default_access_mode, default_access_mode_version, workspace_project_id
 FROM sessions;
 DROP TABLE sessions;
 ALTER TABLE sessions_new RENAME TO sessions;
@@ -1002,10 +1013,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("artifacts", "content_hash", "content_hash TEXT");
     add("sessions", "model_selection", "model_selection TEXT");
     add("sessions", "model_selection_version", "model_selection_version INTEGER NOT NULL DEFAULT 0");
-    add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review'))");
+    add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review','plan'))");
     add("sessions", "default_access_mode_version", "default_access_mode_version INTEGER NOT NULL DEFAULT 0");
     add("tasks", "model_selection", "model_selection TEXT");
     add("tasks", "submission_digest", "submission_digest TEXT");
+    add("tasks", "plan_mode", "plan_mode INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0,1))");
     add("projects", "instruction_files", "instruction_files TEXT NOT NULL DEFAULT '[]'");
     // v7（issue 20）：项目级 Web Search 开关，默认启用，拥有者可显式禁用
     add("projects", "web_search", "web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled'))");

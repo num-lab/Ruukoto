@@ -115,6 +115,7 @@ test("合成会话支持新 TUI 的任务与事件分页恢复，并提供完整
       before = page.tasks.at(-1)!.id;
     }
     assert.equal(new Set(tasks.map((task) => task.id)).size, snapshot.tasks.length);
+    assert.ok(tasks.every((task) => task.planMode === false), "合成任务明确携带计划工作方式");
     const completed = tasks.find((task) => task.status === "completed")!;
     const detail = await client.request("get_task", { task_id: completed.id });
     assert.ok(Number.isSafeInteger(detail.seq) && detail.seq > 0);

@@ -64,7 +64,6 @@ import type { HostToolContext } from "./host-tools.ts";
 import type { ParentDelivery } from "../runtime/parent-delivery.ts";
 import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
 import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
-import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
 import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
@@ -544,20 +543,13 @@ export class Driver {
     }
     // 执行画像（架构工单 08）：任务开始算一次、钉到任务结束。已退役归档会话不运行
     // 任务（提交入口与队列兜底先行拒绝），走到这里即抛。
-    // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记
-    let planInput: boolean;
-    try {
-      planInput = runsInPlanMode(task, (id) => this.deps.store.getTask(id));
-    } catch {
-      planInput = isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
-    }
     const identity = this.deps.store.getSessionIdentity(this.session.id);
     if (!identity) throw new Error(`会话不存在：${this.session.id}`);
     this.pinnedProfile = executionProfile({
       identity,
       writeTarget: Boolean(task.workId && this.deps.store.getWorkDelegation(task.workId)?.writeTarget),
       review: identity.kind === "subagent" && (this.deps.taskMcp?.(task) ?? false),
-      planInput,
+      planMode: task.planMode,
     });
     this.currentTask = task;
     this.stopRequested = false;

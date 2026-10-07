@@ -23,8 +23,12 @@ import type { Terminal } from "@earendil-works/pi-tui";
 import { readOwnerToken } from "../src/control/owner-token.ts";
 import { acquireConfigLock } from "../src/core/instance-lock.ts";
 import { runConfigTui } from "../src/config-tui/index.ts";
+import { ConfigTuiApp } from "../src/config-tui/app.ts";
+import { OfflineModelBackend } from "../src/config-tui/index.ts";
+import type { Session } from "../src/core/types.ts";
 import {
   startTestRuntime,
+  createProjectSession,
   makeTestDirs,
   cleanupDirs,
   writeModelsJson,
@@ -89,6 +93,9 @@ class FakeTerminal implements Terminal {
   output(): string {
     return this.written.join("");
   }
+  clearOutput(): void {
+    this.written = [];
+  }
 }
 
 const DOWN = "\x1b[B";
@@ -129,6 +136,84 @@ function startConfig(t: TestRuntime, opts: { offline?: boolean; product?: "ruuko
 const textResponder = async () => ({ kind: "text", text: "ok" }) as any;
 
 // ---------- 测试 ----------
+
+test("在线：会话默认列表含 Plan，Esc 取消不保存，选择后持久化并在重新进入时显示", async () => {
+  const t = await startTestRuntime("cfg-tui-plan", textResponder);
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!, { projectName: "Plan测试" });
+    const sessionIndex = t.runtime.store.listSessions().findIndex((s) => s.id === sessionId);
+    const h = startConfig(t);
+    try {
+      await waitForText(h.terminal, "配置分区");
+      h.terminal.send(DOWN + DOWN + ENTER);
+      await waitForText(h.terminal, "Plan测试");
+      h.terminal.send(DOWN.repeat(sessionIndex) + ENTER);
+      await waitForText(h.terminal, "默认模式：请求确认");
+      h.terminal.send(DOWN + ENTER);
+      await waitForText(h.terminal, "Plan（持续调研和完善计划，固定自动审查");
+      h.terminal.send(ESC);
+      assert.equal((await t.client.request<Session>("get_session", { session_id: sessionId })).defaultAccessModeVersion, 0);
+      h.terminal.clearOutput();
+      h.terminal.send(ENTER);
+      await waitForText(h.terminal, "会话默认模式（新建任务使用）");
+      h.terminal.send(DOWN + DOWN + DOWN + ENTER);
+      await waitForText(h.terminal, "会话默认模式已保存");
+      const saved = await t.client.request<Session>("get_session", { session_id: sessionId });
+      assert.equal(saved.defaultAccessMode, "plan");
+      assert.equal(saved.defaultAccessModeVersion, 1);
+    } finally {
+      await h.quit();
+    }
+    const reopened = startConfig(t);
+    try {
+      await waitForText(reopened.terminal, "配置分区");
+      reopened.terminal.send(DOWN + DOWN + ENTER);
+      await waitForText(reopened.terminal, "Plan测试");
+      reopened.terminal.send(DOWN.repeat(sessionIndex) + ENTER);
+      await waitForText(reopened.terminal, "默认模式：Plan");
+    } finally {
+      await reopened.quit();
+    }
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("配置中心按后台身份仅向普通开发会话提供 Plan，main、SubAgent 和归档不提供", async () => {
+  const t = await startTestRuntime("cfg-tui-plan-identity", textResponder);
+  try {
+    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const store = t.runtime.store;
+    const create = async () => t.client.request<Session>("create_session", { project_id: projectId, cwd: t.work[0]! });
+    const main = store.getSession(store.getAgentRole("main")!.sessionId)!;
+    const sub = await create();
+    store.insertSubAgent({ id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
+    const archive = await create();
+    store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(archive.id);
+    const snapshot = (await t.client.handshake()).snapshot;
+    const app = new ConfigTuiApp({ mode: "online", modelBackend: new OfflineModelBackend(t.dirs.agentDir), agentDir: t.dirs.agentDir, client: t.client, snapshot, terminal: new FakeTerminal(), onExit: () => {} }) as any;
+    let values: string[] = [];
+    app.pick = async (_title: string, items: Array<{ value: string }>) => { values = items.map((item) => item.value); return null; };
+    for (const [id, eligible] of [[sessionId, true], [main.id, false], [sub.id, false], [archive.id, false]] as const) {
+      await app.sessionScreen(id).onSelect({ value: "mode" });
+      assert.equal(values.includes("plan"), eligible, id);
+      assert.equal(values.length, eligible ? 4 : 3);
+    }
+    app.refresh = async () => {};
+    for (const [mode, version] of [["plan", 1], ["plan", 1], ["full_access", 2]] as const) {
+      app.pick = async () => mode;
+      await app.sessionScreen(sessionId).onSelect({ value: "mode" });
+      const saved = await t.client.request<Session>("get_session", { session_id: sessionId });
+      const local = app.sessions.find((s: Session) => s.id === sessionId)!;
+      assert.equal(saved.defaultAccessMode, mode);
+      assert.equal(saved.defaultAccessModeVersion, version);
+      assert.equal(local.defaultAccessMode, saved.defaultAccessMode);
+      assert.equal(local.defaultAccessModeVersion, version, "选中现有 Plan 不递增版本，界面保存后台返回的实际版本");
+    }
+  } finally {
+    await t.shutdown();
+  }
+});
 
 test("在线：设置后台默认模型并经控制面核实", async () => {
   const t = await startTestRuntime("cfg-tui-default", textResponder);

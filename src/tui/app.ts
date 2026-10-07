@@ -56,7 +56,7 @@ import {
 import { productFromEnv } from "../core/product.ts";
 import type { DirIdentity } from "../core/dir-identity.ts";
 import type { ConfirmationRequestView } from "../core/views.ts";
-import type { AccessMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session, Task } from "../core/types.ts";
+import type { SessionDefaultMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session, Task } from "../core/types.ts";
 import type { ModelOption } from "../agent/model-selection.ts";
 import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { ContextBreakdown } from "../agent/context-selector.ts";
@@ -79,7 +79,6 @@ import { formatPromptSnapshot } from "./prompt-format.ts";
 import { formatContextTokens } from "./context-format.ts";
 import type { FlowEntry } from "./event-flow.ts";
 import { latestTodos, TodoPanel } from "./todo-panel.ts";
-import { runsInPlanMode } from "../agent/plan-mode.ts";
 import {
   commandHelpLines,
   dispatchInput,
@@ -799,7 +798,7 @@ export class TuiApp {
   private submitting = false;
   private modeCycle: Promise<void> = Promise.resolve();
   private sessionSettingsSync: Promise<void> = Promise.resolve();
-  private carriedSettings: { mode: AccessMode; model: ModelSelection | null } | null = null;
+  private carriedSettings: { mode: SessionDefaultMode; model: ModelSelection | null } | null = null;
   private selectedProjectId: string | null = null;
   private readonly sessionUsage = new Map<string, { input: number; output: number }>();
   private readonly usageRequests = new Map<string, number>();
@@ -1381,7 +1380,7 @@ export class TuiApp {
             this.state.note(sessionId, red(`沿用会话设置：${text}`));
           }
         };
-        if (target.defaultAccessMode !== settings.mode) {
+        if (target.defaultAccessMode !== settings.mode && this.sessionModes(target).includes(settings.mode)) {
           await this.sendSessionMode(sessionId, target.defaultAccessModeVersion, settings.mode, result);
         }
         if (settings.model && (target.modelSelection?.provider !== settings.model.provider || target.modelSelection?.modelId !== settings.model.modelId || target.modelSelection?.thinkingLevel !== settings.model.thinkingLevel)) {
@@ -1888,6 +1887,10 @@ export class TuiApp {
     });
   }
 
+  private sessionModes(session: Session): readonly SessionDefaultMode[] {
+    return SESSION_DEFAULT_MODES.filter((mode) => mode !== "plan" || (session.kind === "dev" && !this.state.excludedPickerSessionIds().has(session.id)));
+  }
+
   private async cycleMode(sessionId: string | null): Promise<void> {
     await this.sessionSettingsSync.catch(() => {});
     const session = this.state.sessions.find((item) => item.id === sessionId);
@@ -1895,8 +1898,9 @@ export class TuiApp {
       this.notify("尚未选择会话");
       return;
     }
-    const index = SESSION_DEFAULT_MODES.indexOf(session.defaultAccessMode);
-    const mode = SESSION_DEFAULT_MODES[(index + 1) % SESSION_DEFAULT_MODES.length]!;
+    const modes = this.sessionModes(session);
+    const index = modes.indexOf(session.defaultAccessMode);
+    const mode = modes[(index + 1) % modes.length]!;
     await this.sendSessionMode(session.id, session.defaultAccessModeVersion, mode, (text, isError) => {
       if (isError) this.state.note(session.id, red(text));
     });
@@ -1916,7 +1920,7 @@ export class TuiApp {
     }
     const sessionId = session.id;
     const version = session.defaultAccessModeVersion;
-    const items: SelectItem[] = SESSION_DEFAULT_MODES.map((mode) => ({
+    const items: SelectItem[] = this.sessionModes(session).map((mode) => ({
       value: mode,
       label: `${accessModeLabel(mode)}`,
       description:
@@ -1924,14 +1928,16 @@ export class TuiApp {
           ? "编辑外部文件和访问网络时始终询问"
           : mode === "auto-review"
             ? "自动审查操作"
-            : "完全访问",
+            : mode === "plan"
+              ? "持续调研和完善计划，固定自动审查；执行前手动切换模式"
+              : "完全访问",
     }));
-    this.showBareList(`审批模式`, items, (item) => {
-      void this.sendSessionMode(sessionId, version, item.value as AccessMode, result);
+    this.showBareList(`会话默认模式`, items, (item) => {
+      void this.sendSessionMode(sessionId, version, item.value as SessionDefaultMode, result);
     });
   }
 
-  private async sendSessionMode(sessionId: string, version: number, mode: AccessMode, result: CommandResult): Promise<void> {
+  private async sendSessionMode(sessionId: string, version: number, mode: SessionDefaultMode, result: CommandResult): Promise<void> {
     const label = accessModeLabel(mode);
     try {
       const saved = await this.connection.request("set_session_mode", { session_id: sessionId, mode, expected_version: version });
@@ -3015,20 +3021,16 @@ export class TuiApp {
     const session = this.state.sessions.find((s) => s.id === view.sessionId);
     const active = this.state.activeTaskFor(view.sessionId);
     const modeTask = active ?? this.state.queuedTasksFor(view.sessionId).at(-1) ?? null;
-    const modeText = modeTask ? formatAccessMode(modeTask.accessMode, modeTask.pendingAccessMode) : null;
-    const mode: AccessMode = modeTask?.accessMode ?? session?.defaultAccessMode ?? "confirm";
+    const mode: SessionDefaultMode = modeTask?.planMode ? "plan" : modeTask?.accessMode ?? session?.defaultAccessMode ?? "confirm";
+    const modeText = modeTask ? formatAccessMode(mode, modeTask.pendingAccessMode) : null;
     const defaultText = session ? accessModeLabel(session.defaultAccessMode) : accessModeLabel("confirm");
     // 任务模式与会话默认相同时不重复显示（同一句话打两遍看不出差别）
     const sameAsDefault = !modeText || modeText === defaultText;
     const modeDisplay = sameAsDefault ? (modeText ?? defaultText) : `${modeText} · 会话默认 ${defaultText}`;
-    // 以计划模式运行时在访问模式旁标注（issue 26）；继续的任务查原任务输入。
-    // ponytail: 输入或原任务不在本地时不标注（task.queued 不带输入：其他客户端提交的任务
-    // 在重新同步前没有输入；原任务可能不在快照），需要时按 get_task 补取
-    const planTag = active && runsInPlanMode(active, (id) => this.state.getTask(id)) ? " · 计划" : "";
     // 左下角：当前模式。模式名不能包在 dim 里，否则颜色被压暗。
     const modeStyled = sameAsDefault
-      ? `${accessModeStyle(mode)(modeDisplay)}${planTag}`
-      : `${accessModeStyle(mode)(modeText!)}${planTag}${dim(` · 会话默认 ${defaultText}`)}`;
+      ? accessModeStyle(mode)(modeDisplay)
+      : `${accessModeStyle(mode)(modeText!)}${dim(` · 会话默认 ${defaultText}`)}`;
     const usage = this.sessionUsage.get(view.sessionId);
     const usageText = usage ? `↑ ${formatTokenCount(usage.input)} ↓ ${formatTokenCount(usage.output)}` : "";
     this.footer.set(modeStyled, dim(this.modelInfoText()), usageText);

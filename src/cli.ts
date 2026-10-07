@@ -11,7 +11,7 @@
  *   ruukoto tui                                旧拼法：打印迁移指引后仍启动任务界面
  *   ruukoto create-project <name>
  *   ruukoto create-session <project> <cwd> [--confirm-tools a,b]
- *   ruukoto submit <session> <request-id> [--mode confirm|full_access|auto-review]
+ *   ruukoto submit <session> <request-id> [--mode confirm|full_access|auto-review|plan]
  *                  [--grant <path>:<read|read_write>[:<用途>];...] <input...>
  *   ruukoto continue <task> <request-id> [--mode ...] [--grant ...] <input...>
  *   ruukoto switch-mode <task> <confirm|full_access|auto-review> [--grant ...]
@@ -47,7 +47,7 @@ import { controlDirFor, defaultAgentDir, defaultDataDir, resolveClientConfig, re
 import { acquireInstanceLock, INSTANCE_LOCK_EXIT_CODE, InstanceLockError } from "./core/instance-lock.ts";
 import { dirEnvFor, productFromEnv, type ProductType } from "./core/product.ts";
 import { LEGACY_PROJECT_WRITE_HINT } from "./tui/commands.ts";
-import { SESSION_DEFAULT_MODES, isAccessMode, type AccessMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
+import { SESSION_DEFAULT_MODES, isSessionDefaultMode, type SessionDefaultMode, type GrantedPath, type ModelSelection, type Session, type Task } from "./core/types.ts";
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
   const flags: Record<string, string> = {};
@@ -117,9 +117,9 @@ function parseSelection(raw: string | undefined, thinking: string | undefined): 
   return { provider: raw.slice(0, split), modelId: raw.slice(split + 1), thinkingLevel: thinking as ModelSelection["thinkingLevel"] };
 }
 
-function parseMode(raw: string | undefined): AccessMode | undefined {
+function parseMode(raw: string | undefined): SessionDefaultMode | undefined {
   if (!raw) return undefined;
-  if (isAccessMode(raw)) return raw;
+  if (isSessionDefaultMode(raw)) return raw;
   throw new Error(`--mode 无效：${raw}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
 }
 
@@ -1115,7 +1115,7 @@ function defaultHelp(): string {
     "      ruukoto -- <路径>                             显式工作区入口（目录与命令同名时用，如 ruukoto -- config）\n" +
     "      ruukoto config [--offline]                    独立配置中心\n" +
     "      ruukoto server [启动参数]                     前台启动后台（start 为兼容别名，文档推荐 server）\n" +
-    "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review> |\n" +
+    "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review|plan> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
     "      grant | service-grant list/show/revoke | work list/show/close | history-search | memory | selection-records |\n" +

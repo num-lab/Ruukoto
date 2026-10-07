@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 export interface ModelSelection {
   provider: string;
@@ -34,17 +34,22 @@ export interface ModelSelection {
 export type AccessMode = "confirm" | "full_access" | "auto-review";
 
 /**
- * 会话默认访问模式（issue 12）：新建任务在未显式指定模式时沿用。
- * 取值与 AccessMode 相同。
+ * 会话默认模式：新建任务在未显式指定模式时沿用；Plan 使用 auto-review
+ * 访问策略，并固定任务的计划工作方式（issue 31）。
  */
-export type SessionDefaultMode = AccessMode;
+export type SessionDefaultMode = AccessMode | "plan";
 
 /** 会话默认模式的取值列表（显示与入参校验共用）。 */
-export const SESSION_DEFAULT_MODES: readonly SessionDefaultMode[] = ["confirm", "full_access", "auto-review"];
+export const SESSION_DEFAULT_MODES: readonly SessionDefaultMode[] = ["confirm", "full_access", "auto-review", "plan"];
 
 /** 访问模式入参校验（CLI/控制面/运行时共用的类型守卫，消除字面量重复）。 */
 export function isAccessMode(value: unknown): value is AccessMode {
-  return typeof value === "string" && (SESSION_DEFAULT_MODES as readonly string[]).includes(value);
+  return value === "confirm" || value === "full_access" || value === "auto-review";
+}
+
+/** 会话与新任务可选择的模式；任务中切换仍只接受 AccessMode。 */
+export function isSessionDefaultMode(value: unknown): value is SessionDefaultMode {
+  return value === "plan" || isAccessMode(value);
 }
 
 /** 已授权工作区外的具体路径权限（拥有者在可信入口为任务显式配置）。 */
@@ -514,6 +519,8 @@ export interface Task {
   status: TaskStatus;
   /** 任务访问模式；默认请求确认。只有已认证拥有者能选择完全访问。 */
   accessMode: AccessMode;
+  /** 提交时固定的计划工作方式；为 true 时访问策略恒为 auto-review。 */
+  planMode: boolean;
   /** 提交时会话权限版本快照；切换/授权变化递增，旧审批消费时核对。 */
   permissionVersion: number;
   /** 拥有者为本任务显式授予的工作区外路径（如 worktree 的 Git 元数据）。 */
@@ -858,7 +865,7 @@ export type PersistentEventBody =
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; modelSelection: ModelSelection }
+  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; planMode: boolean; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }

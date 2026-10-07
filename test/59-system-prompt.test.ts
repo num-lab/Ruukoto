@@ -137,7 +137,7 @@ test("参考块块头只保留名称、id、类别与范围；资料受限会话
     const heads = view.map((m) => textOf(m).split("\n")[0]);
     for (const head of [
       "[项目指令]", "[技能目录]", `[长期记忆 ${memory.id} v1 · preference · 个人共享]`,
-      `[继续来源：本任务继续已中断任务 ${old.id}；其原始要求如下]`, "[计划模式：拥有者以 /plan 提交本任务；宿主固定说明]",
+      `[继续来源：本任务继续已中断任务 ${old.id}；其原始要求如下]`, "[计划模式：拥有者选择 Plan；宿主固定说明]",
     ]) {
       assert.ok(heads.includes(head), `缺 ${head}\n${heads.join("\n")}`);
     }

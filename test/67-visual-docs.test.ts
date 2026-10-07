@@ -20,7 +20,7 @@ const DOCS = "docs/visual";
 
 /** 页面 → 必须覆盖的取值来源（文件#类型名 / 常量名 / 目录名）。 */
 const COVERAGE: Record<string, string[]> = {
-  "task-lifecycle.html": ["src/core/types.ts#TaskStatus", "src/core/types.ts#SessionQueueState"],
+  "task-lifecycle.html": ["src/core/types.ts#TaskStatus", "src/core/types.ts#SessionQueueState", "src/core/types.ts#AccessMode", "src/core/types.ts#SessionDefaultMode"],
   "tool-call-path.html": [
     "src/core/types.ts#AccessMode",
     "src/core/types.ts#ApprovalScope",

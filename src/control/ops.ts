@@ -6,7 +6,7 @@
  */
 
 import type { Runtime } from "../runtime/runtime.ts";
-import type { AccessMode, GrantedPath, ModelSelection } from "../core/types.ts";
+import type { SessionDefaultMode, GrantedPath, ModelSelection } from "../core/types.ts";
 
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
@@ -18,7 +18,7 @@ type Submit = {
   request_id: string;
   input: string;
   model_selection: ModelSelection;
-  access_mode?: AccessMode;
+  access_mode?: SessionDefaultMode;
   granted_paths?: GrantedPath[];
 };
 
@@ -46,7 +46,7 @@ export interface TuiOps {
     result: R<"setSessionModel">;
   };
   set_session_mode: {
-    params: { session_id: string; mode: AccessMode; expected_version: number };
+    params: { session_id: string; mode: SessionDefaultMode; expected_version: number };
     result: R<"setSessionDefaultMode">;
   };
   create_project: { params: { name: string; request_id?: string }; result: R<"createProject"> };

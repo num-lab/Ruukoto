@@ -630,7 +630,7 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v21；
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v31；
 │                              #   meta 含实例标识、应用数据绑定、产品归属
 │                              #   product.type——跨产品复用被拒绝）
 │                              #   项目（含项目指令文件与 Web Search 开关、
@@ -650,6 +650,7 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 ├── agent-data/main.db         # main 应用数据空间（issue 02，ADR 0009；独立库，
 │                              #   实例 ID 登记在核心库 meta；丢失/身份不符即停止能力）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
+├── inbound-media/             # 0700；入站图片暂存（文件0600），尚未成为任务产物
 ├── migration/<导入ID>/        # 跨实例导入记录（issue 21，0700）：
 │                              #   target-before.db = 导入前目标库备份（整库恢复路径）
 └── runtime.lock/              # 实例锁（mkdir 原子创建；owner.json 记录 pid）
@@ -660,7 +661,7 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 ├── control.sock               # 控制面 Unix socket（0660）
 └── owner.token                # 拥有者令牌（0600；部署时复制给拥有者 0400）
 
-<dataDir>/artifacts/           # 0700；工具正文产物（<artifactId>.bin）
+<dataDir>/artifacts/           # 0700；工具正文与不可变图片产物（<artifactId>.bin）
 
 <agentDir>/                    # 0700（RUUKOTO_AGENT_DIR，默认 ~/.ruukoto/agent）
 ├── models.json                # 模型配置（显式指定，不读 ~/.pi/agent）
@@ -683,6 +684,11 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 职责边界：pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；
 产物正文在产物文件，SQLite 只存其元数据。三者没有跨文件事务，不得声称
 原子提交。
+
+schema v31 新增 `inbound_media_messages` 与 `inbound_media`，分别保存图片消息信封、
+拒绝状态及按原顺序的图片下载和最终归属记录；`artifacts` 新增可空 `mime_type` 与
+`content_hash`，旧产物保持空值。暂存与拒绝账本不跨实例导入，已提升图片沿任务产物
+复制并保留 MIME 与哈希。恢复与过期清理见「私聊图片入站」。
 
 任务状态机：`queued → running → awaiting_confirmation → running`；结束进入
 `completed / failed / canceled / interrupted`。中断原因、取消意图与外部
@@ -865,6 +871,12 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 
 ### 上下文选择（§3/§4）
 
+- 私聊图片的会话历史只保存 `ruukotoMediaRefs`（产物、任务、会话 ID、MIME、
+  字节数及内容哈希）。选择时恢复带空 data 的标准图片占位块，按现有 SDK 图片
+  估算计入预算；发送前按引用读取并验证不可变产物，生成真实 `image` 内容块。
+  prompt 快照只保存 `image_ref`，不重复保存完整 base64。`resumesTaskId` 继续链的
+  源图片绑定本轮用户消息，因此源交互被压缩或移出时仍能重放；摘要不保留视觉细节。
+  所选模型不支持 image 时拒绝请求，文件或引用校验失败时也不发送缺图请求。
 - 策略 `deterministic-v1`（`src/agent/context-selector.ts`）：必须项 = 宿主系统
   指令、参考块（项目指令、技能目录、继续来源任务要求、计划说明）、按记忆预算选入的
   长期记忆、当前任务输入、最新完成的工具批次；历史按完整交互（一轮用户+助手+工具消息）
@@ -1328,11 +1340,13 @@ ruukoto telegram enable | disable | status
 ### 运行行为
 
 - **接收**：long polling `getUpdates`（25s，只收 `message`）。只接纳
-  `chat.type = private` 且 `from.id / chat.id` 与配置一致的文本消息；其余不登记、
+  `chat.type = private` 且 `from.id / chat.id` 与配置一致的文本或 photo 消息；其余不登记、
   不建任务、不调用模型，只记 `telegram.rejected`（update/chat/user id 与原因
   `not_owner / not_private / non_text / unsupported_update`，不含正文）。转发
   （`forward_origin/forward_date`）消息照常登记建任务，但其内容不解释为审批命令
-  （不进入 `commandText` 解析）。
+  （不进入 `commandText` 解析）。photo 取像素面积最大的 PhotoSize，先调用 `getFile`
+  再下载；caption 可为空，回复图片消息的 caption 也可成为有界摘录。图片接收规则见
+  「私聊图片入站」。
 - **先持久化再推进偏移**：接纳的消息经编排器登记为入站事件
   （`source = telegram`，外部 id `<botId>:<chatId>:<messageId>`，目标 main），
   登记成功后才写 `last_update_id`；推进偏移前再次核对仍是同一代次。崩溃/断线后
@@ -1391,8 +1405,10 @@ ruukoto notify list
 schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
 `inbound_events` 增加可空 `reply_target`；旧库的群配置和收发记录保留，默认不开私聊。
 
-- **接收与身份**：仅接收固定 owner 的 `private/friend` 结构化文本消息，可含
-  回复消息 ID；不读取引用原文。临时群私聊、陌生人、自身回声、图片、附件和
+- **接收与身份**：仅接收固定 owner 的 `private/friend` 结构化文本或图片消息，可含
+  回复消息 ID；不读取引用原文。图片可以没有文字，多个图片段按原顺序处理。
+  下载来源限图片段的 `url/file`；file 无 HTTP 来源时调用 OneBot `get_image`，远程
+  OneBot 返回宿主无法读取的本地文件路径时明确拒绝。临时群私聊、陌生人、自身回声、附件和
   CQ 字符串格式不触发任务。登录账号和事件 `self_id` 必须匹配；
   `get_status` 与 `heartbeat.status` 同时检查 QQ 在线状态，WebSocket 存活但
   账号离线时也不接收新任务。token 不进入历史、日志或模型输入。
@@ -1423,6 +1439,47 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
   排队任务按 `qq_private_unavailable` 取消，不停住 main 队列（ADR 0012 2026-10-06 修订）。测试使用本地
   模拟 OneBot 与模型，不向真实 QQ 账号发送；真实 NapCat 版本、消息格式与收发
   闭环须拥有者另行授权后验收。
+
+## 私聊图片入站（agent-direction issue 25，ADR 0024）
+
+仅个人 Agent 的 Telegram／QQ 拥有者私聊接收 JPEG、PNG、WebP，每条最多 4 张，
+每张最多 8 MiB。不转码或缩放；声明 MIME 与文件 magic bytes 必须一致，GIF、SVG、
+伪造 MIME、大小或数量超限永久拒绝。Telegram photo 的尺寸列表代表同一张图片；
+媒体组按平台的独立消息处理。QQ 的多个图片段组成同一条用户消息。
+
+`src/runtime/inbound-media.ts` 统一负责下载、校验、暂存、提升与恢复，两个适配器
+只提供安全消息信封和临时下载闭包。账本与文件不保存 URL、平台 token 或平台错误
+正文。最多下载 3 次，每次最多 15 秒，暂时网络失败依次等待 250、500 毫秒后重试；
+4xx（429 除外）、格式与上限错误直接拒绝。Telegram 在普通事件登记成功或媒体
+拒绝落账及回执登记前不推进 update offset；QQ 在适配器内完成重试后保存拒绝事实。
+
+接收按 `(source, external_id)` 去重，每张图片按消息与 `media_index` 去重。
+下载校验完成才登记普通 `InboundEvent`。模型不支持 image 时将媒体消息记为
+`rejected`、已登记事件记为 failed，并保留原消息与 `image_input_unsupported` 原因，
+不创建普通模型任务。继续任务或历史图片进入不支持视觉的模型时，Driver 在发出
+请求前使任务明确失败。两种路径都使用固定模型能力回执。
+
+编排器创建任务后先准备不可变产物文件，再在同一 SQLite 事务内提交入站事件的
+task_id、artifact_refs、产物元数据与媒体归属；任务启动须确认该事件已绑定本任务。
+文件与数据库没有跨文件事务，确定的产物 ID 和哈希核实让提升可以沿原键重试。
+会话历史及 prompt 快照保存稳定引用，视觉输入在发送边界从产物恢复。含图片消息
+的 caption／文字只作为任务输入，不解析 `/approve` 等 IM 审批命令；出站保持文本。
+
+启动时恢复下载完成未登记、登记未建任务及建任务未提升的窗口；未完成下载没有
+可恢复下载闭包时明确拒绝，已完成文件在重新校验后继续登记。平台重新在线时补派
+并唤醒主会话队列。没有绑定任务的暂存超过 24 小时清理并保留可核查状态；后台启动
+及之后每小时检查一次。已经创建任务但尚未完成提升的恢复记录不清理，已绑定图片
+沿任务产物保留。
+
+格式或上限拒绝、下载最终失败、视觉模型不支持分别使用三种宿主固定纯文本回执。
+回执经公共 outbox 登记，`sourceKind=inbound_event`、`sourceKey=media:<媒体消息ID>`，
+原消息重投、重启补登共用同一键。发送前核对拒绝账本、原拥有者与钉版目标；配置
+变化不改发，结果未知不重发。拒绝记录独立于普通任务入站，不能被派发成模型任务。
+
+模拟验证使用真实 Runtime／SQLite／文件和本地 Telegram Bot API、OneBot、模型
+服务：`test/90-inbound-media.test.ts`、`test/95-media-adapters.test.ts`、
+`test/96-vision-driver.test.ts`、`test/97-media-recovery.test.ts`。真实 Telegram／QQ
+图片收发 smoke 尚未执行，模拟 payload 通过不表示真实平台已通过。
 
 ## IM 审批（agent-direction issue 08，ADR 0017/0011/0012）
 

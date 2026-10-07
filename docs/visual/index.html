@@ -43,7 +43,7 @@
       </div>
       <div class="card">
         <h3><a href="context-pipeline.html">上下文组装</a></h3>
-        <p>一次模型调用的上下文从哪来、按什么规则选、什么时候压缩、发送前怎样复核；工作区配置怎样按原项目读取，SubAgent 任务的上下文有什么不同。</p>
+        <p>一次模型调用的上下文从哪来、按什么规则选、什么时候压缩、发送前怎样复核；工作区配置怎样按原项目读取，SubAgent 任务的上下文有什么不同；私聊图片的稳定引用怎样在发送前恢复成视觉块。</p>
         <p><code class="src" data-src="src/agent/context-assembly.ts">context-assembly.ts</code> <code class="src" data-src="src/agent/context-selector.ts">context-selector.ts</code></p>
       </div>
     </div>
@@ -54,7 +54,7 @@
     <div class="cards">
       <div class="card">
         <h3><a href="storage-layout.html">存储布局</a></h3>
-        <p>两个产品各自的目录与文件、谁读谁写、哪份是权威，SQLite、JSONL 与产物文件之间怎么对齐；核心库全表目录、schema 迁移、旧会话映射到工作区，以及跨实例的 legacy-import 迁入（开发资料与个人资料两个方向）。</p>
+        <p>两个产品各自的目录与文件、谁读谁写、哪份是权威，SQLite、JSONL 与产物文件之间怎么对齐；入站图片暂存与不可变媒体产物、核心库全表目录、schema 迁移、旧会话映射到工作区，以及跨实例的 legacy-import 迁入（开发资料与个人资料两个方向）。</p>
         <p><code class="src" data-src="src/core/db.ts">db.ts</code> <code class="src" data-src="src/core/store.ts">store.ts</code></p>
       </div>
       <div class="card">
@@ -80,12 +80,12 @@
       </div>
       <div class="card">
         <h3><a href="inbound-events.html">入站事件</a></h3>
-        <p>IM 消息、定时唤醒与 GitHub 事件怎么先落库再变成任务，每个来源怎样去重、核对身份，派发与启动前的门怎样放行或丢弃；绑定拥有者怎样在 IM 私聊里查看与回应审批；结束后怎么登记 owner 回复，IM 发起的工作收尾时又怎样把最终汇报发回同一入口；重启后怎样不换键地接着做。</p>
+        <p>IM 消息、定时唤醒与 GitHub 事件怎么先落库再变成任务，每个来源怎样去重、核对身份，派发与启动前的门怎样放行或丢弃；私聊图片怎样下载、暂存与恢复，绑定拥有者怎样用纯文本查看与回应审批；结束后怎么登记 owner 回复，IM 发起的工作收尾时又怎样把最终汇报发回同一入口；重启后怎样不换键地接着做。</p>
         <p><code class="src" data-src="src/telegram/adapter.ts">telegram/</code> <code class="src" data-src="src/qq/adapter.ts">qq/</code></p>
       </div>
       <div class="card">
         <h3><a href="outbox.html">通知 outbox</a></h3>
-        <p>外发通知的状态机、发送循环与限流退回，IM 审批通知与回执怎样走同一本账、固定目标换代后怎样失效，调度计划怎样在漏过周期时只补一次，新闻计划；owner 回复与工作最终汇报怎样共用回复槽与目标核对，以及公共 outbox 与已退役的 QQ 群回复账本（只读归档）的区别。</p>
+        <p>外发通知的状态机、发送循环与限流退回，IM 审批通知、命令与图片拒绝回执怎样走同一本账、固定目标换代后怎样失效，调度计划怎样在漏过周期时只补一次，新闻计划；owner 回复与工作最终汇报怎样共用回复槽与目标核对，以及公共 outbox 与已退役的 QQ 群回复账本（只读归档）的区别。</p>
         <p><code class="src" data-src="src/scheduler/runtime.ts">scheduler/</code></p>
       </div>
     </div>

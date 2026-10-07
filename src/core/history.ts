@@ -149,7 +149,7 @@ function extractMessageView(entry: ParsedSessionEntry): { text: string; view: Om
   const content = message.content;
   const textParts: string[] = [];
   const toolCalls: HistoryToolCallRef[] = [];
-  let hasNonTextContent = false;
+  let hasNonTextContent = Array.isArray(message.ruukotoMediaRefs) && message.ruukotoMediaRefs.length > 0;
   if (typeof content === "string") {
     textParts.push(content);
   } else if (Array.isArray(content)) {

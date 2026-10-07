@@ -26,6 +26,10 @@ import {
   type InboundEvent,
   type InboundEventKind,
   type InboundEventStatus,
+  type InboundMedia,
+  type InboundMediaMessage,
+  type InboundMediaMessageStatus,
+  type ImageMimeType,
   type ModelSelection,
   type NotifyTarget,
   type PersistentEvent,
@@ -1642,6 +1646,106 @@ export class Store {
     };
   }
 
+  // ---------- 入站图片暂存：不属于普通入站事件或任务产物 ----------
+
+  createInboundMediaMessage(input: {
+    source: string; externalId: string; actor: string | null; body: string;
+    replyTarget: NotifyTarget | null; receivedAt: string; mediaCount: number;
+  }): InboundMediaMessage {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO inbound_media_messages
+      (id, source, external_id, actor, body, reply_target, received_at, media_count, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'staging', ?, ?) ON CONFLICT (source, external_id) DO NOTHING`)
+      .run(randomId("imm"), input.source, input.externalId, input.actor, input.body,
+        input.replyTarget ? JSON.stringify(input.replyTarget) : null, input.receivedAt, input.mediaCount, now, now);
+    return this.findInboundMediaMessage(input.source, input.externalId)!;
+  }
+
+  getInboundMediaMessage(id: string): InboundMediaMessage | null {
+    const row = this.db.prepare("SELECT * FROM inbound_media_messages WHERE id = ?").get(id) as any;
+    return row ? this.rowToInboundMediaMessage(row) : null;
+  }
+
+  findInboundMediaMessage(source: string, externalId: string): InboundMediaMessage | null {
+    const row = this.db.prepare("SELECT * FROM inbound_media_messages WHERE source = ? AND external_id = ?").get(source, externalId) as any;
+    return row ? this.rowToInboundMediaMessage(row) : null;
+  }
+
+  listInboundMediaMessages(statuses?: InboundMediaMessageStatus[]): InboundMediaMessage[] {
+    const rows = statuses
+      ? this.db.prepare(`SELECT * FROM inbound_media_messages WHERE status IN (${statuses.map(() => "?").join(",")}) ORDER BY created_at, rowid`).all(...statuses)
+      : this.db.prepare("SELECT * FROM inbound_media_messages ORDER BY created_at, rowid").all();
+    return (rows as any[]).map((row) => this.rowToInboundMediaMessage(row));
+  }
+
+  setInboundMediaMessageState(id: string, status: InboundMediaMessageStatus, reason: string | null = null): void {
+    this.db.prepare("UPDATE inbound_media_messages SET status = ?, reason = ?, updated_at = ? WHERE id = ? AND status IN ('staging','ready')")
+      .run(status, reason, new Date().toISOString(), id);
+  }
+
+  createInboundMedia(message: InboundMediaMessage, mediaIndex: number, declaredMime: string | null): InboundMedia {
+    const id = randomId("med");
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO inbound_media (id, message_id, source, external_id, media_index, declared_mime, file_name, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT (source, external_id, media_index) DO NOTHING`)
+      .run(id, message.id, message.source, message.externalId, mediaIndex, declaredMime, `${id}.bin`, now, now);
+    return this.listInboundMedia(message.id).find((row) => row.mediaIndex === mediaIndex)!;
+  }
+
+  listInboundMedia(messageId: string): InboundMedia[] {
+    return (this.db.prepare("SELECT * FROM inbound_media WHERE message_id = ? ORDER BY media_index").all(messageId) as any[])
+      .map((row): InboundMedia => ({ id: row.id, messageId: row.message_id, source: row.source,
+        externalId: row.external_id, mediaIndex: Number(row.media_index), declaredMime: row.declared_mime,
+        mimeType: row.mime_type, byteCount: Number(row.byte_count), contentHash: row.content_hash, fileName: row.file_name,
+        status: row.status, reason: row.reason, eventId: row.event_id, taskId: row.task_id,
+        artifactId: row.artifact_id, createdAt: row.created_at, updatedAt: row.updated_at }));
+  }
+
+  setInboundMediaDownloading(id: string, declaredMime: string): void {
+    this.db.prepare("UPDATE inbound_media SET status = 'downloading', declared_mime = ?, updated_at = ? WHERE id = ? AND status IN ('pending','downloading')")
+      .run(declaredMime, new Date().toISOString(), id);
+  }
+
+  setInboundMediaReady(id: string, input: { mimeType: ImageMimeType; byteCount: number; contentHash: string }): void {
+    this.db.prepare("UPDATE inbound_media SET status = 'ready', mime_type = ?, byte_count = ?, content_hash = ?, updated_at = ? WHERE id = ? AND status IN ('pending','downloading','ready')")
+      .run(input.mimeType, input.byteCount, input.contentHash, new Date().toISOString(), id);
+  }
+
+  rejectInboundMedia(messageId: string, reason: string, expired = false): void {
+    const status = expired ? "expired" : "rejected";
+    this.setInboundMediaMessageState(messageId, status, reason);
+    this.db.prepare("UPDATE inbound_media SET status = ?, reason = ?, updated_at = ? WHERE message_id = ? AND task_id IS NULL")
+      .run(status, reason, new Date().toISOString(), messageId);
+  }
+
+  attachInboundMediaEvent(messageId: string, eventId: string): void {
+    this.db.prepare("UPDATE inbound_media_messages SET event_id = ?, updated_at = ? WHERE id = ? AND (event_id IS NULL OR event_id = ?)")
+      .run(eventId, new Date().toISOString(), messageId, eventId);
+    this.db.prepare("UPDATE inbound_media SET event_id = ?, updated_at = ? WHERE message_id = ? AND (event_id IS NULL OR event_id = ?)")
+      .run(eventId, new Date().toISOString(), messageId, eventId);
+  }
+
+  /** 与宿主建任务的事务共同提交；文件已准备好，任何引用都不会指向未定稿产物。 */
+  bindInboundMedia(messageId: string, eventId: string, taskId: string, artifactRefs: string[]): void {
+    const rows = this.listInboundMedia(messageId);
+    if (rows.length !== artifactRefs.length) throw new Error("入站图片归属数量不一致");
+    this.db.prepare("UPDATE inbound_events SET artifact_refs = ? WHERE id = ? AND task_id = ?").run(JSON.stringify(artifactRefs), eventId, taskId);
+    this.db.prepare("UPDATE inbound_media_messages SET status = 'bound', event_id = ?, task_id = ?, updated_at = ? WHERE id = ? AND status IN ('ready','bound')")
+      .run(eventId, taskId, new Date().toISOString(), messageId);
+    for (const [index, row] of rows.entries()) {
+      this.db.prepare("UPDATE inbound_media SET status = 'promoted', event_id = ?, task_id = ?, artifact_id = ?, updated_at = ? WHERE id = ? AND status IN ('ready','promoted')")
+        .run(eventId, taskId, artifactRefs[index]!, new Date().toISOString(), row.id);
+    }
+  }
+
+  private rowToInboundMediaMessage(row: any): InboundMediaMessage {
+    return { id: row.id, source: row.source, externalId: row.external_id, actor: row.actor,
+      body: row.body, replyTarget: row.reply_target ? JSON.parse(row.reply_target) : null,
+      receivedAt: row.received_at, mediaCount: Number(row.media_count),
+      mediaRefs: this.listInboundMedia(row.id).map((media) => media.id), status: row.status, reason: row.reason,
+      eventId: row.event_id, taskId: row.task_id, createdAt: row.created_at, updatedAt: row.updated_at };
+  }
+
   // ---------- 访问模式与权限版本 ----------
 
   /** 请求模式切换（记录待生效模式；不改变当前模式）。 */
@@ -2379,6 +2483,17 @@ export class Store {
     return artifact;
   }
 
+  createImageArtifact(input: { id: string; taskId: string; sessionId: string; name: string; mimeType: ImageMimeType; contentHash: string; byteCount: number }): Artifact {
+    this.db.prepare(`INSERT INTO artifacts (id, task_id, session_id, name, byte_count, status, mime_type, content_hash, created_at)
+      VALUES (?, ?, ?, ?, ?, 'complete', ?, ?, ?) ON CONFLICT (id) DO NOTHING`)
+      .run(input.id, input.taskId, input.sessionId, input.name, input.byteCount, input.mimeType, input.contentHash, new Date().toISOString());
+    const artifact = this.getArtifact(input.id)!;
+    if (artifact.taskId !== input.taskId || artifact.sessionId !== input.sessionId || artifact.contentHash !== input.contentHash || artifact.mimeType !== input.mimeType || artifact.byteCount !== input.byteCount) {
+      throw new Error("图片产物归属或内容不一致");
+    }
+    return artifact;
+  }
+
   /** 追加捕获字节数（元数据；正文写在产物文件里，SQLite 不复制内容）。 */
   addArtifactBytes(id: string, bytes: number): void {
     this.db.prepare("UPDATE artifacts SET byte_count = byte_count + ? WHERE id = ?").run(bytes, id);
@@ -2408,6 +2523,8 @@ export class Store {
       name: row.name,
       byteCount: Number(row.byte_count),
       status: row.status as "complete" | "partial",
+      mimeType: row.mime_type ?? null,
+      contentHash: row.content_hash ?? null,
       createdAt: row.created_at,
     };
   }

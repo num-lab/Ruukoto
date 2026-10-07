@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 31;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
   name TEXT NOT NULL,
   byte_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'partial' CHECK (status IN ('partial','complete')),
+  mime_type TEXT CHECK (mime_type IS NULL OR mime_type IN ('image/jpeg','image/png','image/webp')),
+  content_hash TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts (task_id);
@@ -364,6 +366,46 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   UNIQUE (source, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_events_status ON inbound_events (status);
+
+-- v31：入站图片下载账本与安全消息信封；暂存尚不属于任务产物。
+CREATE TABLE IF NOT EXISTS inbound_media_messages (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  actor TEXT,
+  body TEXT NOT NULL,
+  reply_target TEXT,
+  received_at TEXT NOT NULL,
+  media_count INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('staging','ready','bound','rejected','expired')),
+  reason TEXT,
+  event_id TEXT REFERENCES inbound_events(id),
+  task_id TEXT REFERENCES tasks(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (source, external_id)
+);
+CREATE TABLE IF NOT EXISTS inbound_media (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES inbound_media_messages(id),
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  media_index INTEGER NOT NULL,
+  declared_mime TEXT,
+  mime_type TEXT CHECK (mime_type IS NULL OR mime_type IN ('image/jpeg','image/png','image/webp')),
+  byte_count INTEGER NOT NULL DEFAULT 0,
+  content_hash TEXT,
+  file_name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','downloading','ready','promoted','rejected','expired')),
+  reason TEXT,
+  event_id TEXT REFERENCES inbound_events(id),
+  task_id TEXT REFERENCES tasks(id),
+  artifact_id TEXT REFERENCES artifacts(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (source, external_id, media_index)
+);
+CREATE INDEX IF NOT EXISTS idx_inbound_media_status ON inbound_media (status, created_at);
 
 -- v17：main 显式接收的固定群聊结果；来源仍需在读取与外发前复核撤回状态。
 CREATE TABLE IF NOT EXISTS chat_result_acceptances (
@@ -696,7 +738,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 28) {
+    } else if (version >= 2 && version <= 30) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -739,6 +781,7 @@ export class Db {
       // agent-direction issue 13 工作内协作消息）；旧库表为空，不回填。
       // v29 → v30：instance_import_items 的类别 CHECK 扩五类（agent-direction
       // issue 22 个人方向导入）；CHECK 变更由下方重建处理，账本行原样保留。
+      // v30 → v31：新增入站图片暂存两表，artifacts 补 MIME/hash；旧产物两列为空。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -955,6 +998,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
         this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
       }
     };
+    add("artifacts", "mime_type", "mime_type TEXT CHECK (mime_type IS NULL OR mime_type IN ('image/jpeg','image/png','image/webp'))");
+    add("artifacts", "content_hash", "content_hash TEXT");
     add("sessions", "model_selection", "model_selection TEXT");
     add("sessions", "model_selection_version", "model_selection_version INTEGER NOT NULL DEFAULT 0");
     add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review'))");

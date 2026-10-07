@@ -70,6 +70,7 @@ import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "../core/access.ts";
+import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, taskImageReferences, type ImageReference } from "./inbound-images.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
 
@@ -210,6 +211,8 @@ export class Driver {
   private originalStreamFn: any = null;
   /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
   private pinnedSkills: SkillLibrary | null = null;
+  /** 用户消息落盘前附稳定图片引用；不把图片正文交给 SDK 历史写入。 */
+  private pendingUserImages: ImageReference[] = [];
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
@@ -469,6 +472,9 @@ export class Driver {
 
   /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
+    if (hasImageInput(context?.messages ?? []) && !model?.input?.includes("image")) {
+      throw new ContextSendBlocked(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
+    }
     const expected = task.modelSelection;
     if (!expected || model?.provider !== expected.provider || model?.id !== expected.modelId ||
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
@@ -570,6 +576,7 @@ export class Driver {
     this.hostToolCalls = new Map();
     this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;
+    this.pendingUserImages = [];
     this.taskTools = null;
     this.pinnedSkills = this.profile.restricted ? null : loadSkillLibrary(this.deps.agentDir);
     // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
@@ -657,6 +664,10 @@ export class Driver {
     try {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
       const model = await this.deps.modelCatalog.resolve(task.modelSelection);
+      this.pendingUserImages = taskImageReferences(task, this.deps.store);
+      if (this.pendingUserImages.length > 0 && !model?.input?.includes("image")) {
+        throw new Error(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
+      }
       // 模型配置应用后（issue 21 §4）：旧 SDK 会话闭包持有旧 ModelRuntime，
       // 任务边界处丢弃，由 ensureSdk 以新模型栈重建（历史在会话文件中）
       if (this.sdkConfigStale) {
@@ -778,6 +789,11 @@ export class Driver {
     // 不缩短输入后重试。依据宿主保存的原因识别，不靠 prompt() reject 文案。
     const blockedReason = this.consumeBlockedReason(lastAssistant);
     if (blockedReason !== null) {
+      if (blockedReason.startsWith(`${IMAGE_INPUT_UNSUPPORTED}:`)) {
+        this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "failed", reason: blockedReason });
+        this.finalize(task, "failed", { errorMessage: blockedReason });
+        return;
+      }
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: blockedReason });
       this.pauseQueue(blockedReason);
       this.finalize(task, "interrupted", { interruptReason: blockedReason });
@@ -1180,6 +1196,11 @@ export class Driver {
         return;
       }
       case "message_end": {
+        if (event.message.role === "user" && this.pendingUserImages.length > 0) {
+          // pi 的监听通知先于 appendMessage；同一对象也留在 agent.state 中。
+          (event.message as any).ruukotoMediaRefs = this.pendingUserImages;
+          this.pendingUserImages = [];
+        }
         if (event.message.role !== "assistant") return;
         const text = extractText(event.message.content);
         const seen = this.currentPreview?.text ?? "";

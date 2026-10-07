@@ -21,11 +21,12 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>outbox.html</span></nav>
     <p class="eyebrow">状态机</p>
     <h1>通知 outbox</h1>
-    <p class="lede">一条外发通知从登记到发送的每个状态；为什么结果说不清时不重发；调度计划怎样在重启和漏过周期时只补一次；IM 审批的初始通知与命令回执怎样走同一个 outbox；owner 回复与工作最终汇报怎样共用回复槽与目标核对；固定目标在哪几处比对、换代后怎样失效；公共 outbox 与 QQ 群回复账本有什么区别。</p>
+    <p class="lede">一条外发通知从登记到发送的每个状态；为什么结果说不清时不重发；调度计划怎样在重启和漏过周期时只补一次；IM 审批通知、命令回执与图片固定拒绝回执怎样走同一个 outbox；owner 回复与工作最终汇报怎样共用回复槽与目标核对；固定目标在哪几处比对、换代后怎样失效；公共 outbox 与 QQ 群回复账本有什么区别。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
         <code class="src" data-src="src/scheduler/runtime.ts#export class Scheduler">scheduler/runtime.ts</code>
         <code class="src" data-src="src/scheduler/store.ts#export class SchedulerStore">scheduler/store.ts</code>
+        <code class="src" data-src="src/runtime/inbound-media.ts#export class InboundMediaStore">runtime/inbound-media.ts</code>
         <code class="src" data-src="src/scheduler/time.ts#export function parseRule">scheduler/time.ts</code>
         <code class="src" data-src="src/scheduler/news.ts#export async function collectNews">scheduler/news.ts</code>
         <code class="src" data-src="src/agent/scheduler-tools.ts#export function createSchedulerTools">agent/scheduler-tools.ts</code>
@@ -46,7 +47,7 @@
         <a href="../adr/0013-github-event-review.md">ADR 0013 GitHub 评审通知</a>
         <a href="../adr/0015-scheduled-news.md">ADR 0015 新闻计划</a>
         <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品与 IM 审批</a>
-      </dd></div>
+       <a href="../adr/0024-inbound-image-staging.md">ADR 0024 入站图片</a></dd></div>
       <div><dt>相关页面</dt><dd>
         <a href="inbound-events.html">入站事件</a>
         <a href="tool-call-path.html">工具调用路径</a>
@@ -217,7 +218,7 @@
           <tr><td>渠道当前可信目标存在</td><td>canceled，<code>target_disabled</code></td></tr>
           <tr><td>当前目标与登记目标完全相同（整个目标 JSON 序列化后全等，含配置版本；见<a href="#targets">固定目标</a>）</td><td>canceled，<code>target_changed</code>，不改发新目标</td></tr>
           <tr><td>来源是 <code>schedule_run</code> 时，计划仍存在且未取消</td><td>canceled，<code>schedule_canceled</code></td></tr>
-          <tr><td>来源核实（<code class="src" data-src="src/runtime/runtime.ts#verifySources: (op)">runtime.ts · verifySources</code>），按来源分流：IM 命令回执（来源事件的 <code>event_kind</code> 为 <code>im_approval</code>）只核控制事件仍带 actor 与同一钉版目标，不经 GitHub 那套核实；IM 初始通知（键 <code>im-approval:</code> 开头）要求审批仍是 pending；GitHub 评审通知要求事件仍有效、目标未变；新闻运行要求 main 的 Web Search 仍启用；最后按来源引用核对资料授权（main 角色须已引导）</td><td>canceled，<code>source_revoked</code></td></tr>
+          <tr><td>来源核实（<code class="src" data-src="src/runtime/runtime.ts#verifySources: (op)">runtime.ts · verifySources</code>），按来源分流：图片固定回执重读媒体账本的拒绝状态、actor 与原钉版目标（见<a href="#media-receipt">图片回执</a>）；IM 命令回执（来源事件的 <code>event_kind</code> 为 <code>im_approval</code>）只核控制事件仍带 actor 与同一钉版目标，不经 GitHub 那套核实；IM 初始通知（键 <code>im-approval:</code> 开头）要求审批仍是 pending；GitHub 评审通知要求事件仍有效、目标未变；新闻运行要求 main 的 Web Search 仍启用；最后按来源引用核对资料授权（main 角色须已引导）</td><td>canceled，<code>source_revoked</code></td></tr>
           <tr><td>渠道在线</td><td>保持 pending，<code>channel_offline</code></td></tr>
         </tbody>
       </table>
@@ -330,9 +331,29 @@
             <td>IM 审批控制事件 ID</td>
             <td>宿主写定的命令回执（决定、列表、详情、用法或身份失效说明）；身份由宿主在命令处理时核实，目标是命令收件时钉版的目标。重投读取原回执，不重复执行、不换键重发。见<a href="#im">IM 审批的外发</a></td>
           </tr>
+          <tr>
+            <td><code>inbound_event</code>（图片拒绝）</td>
+            <td>图片拒绝已落盘后由 Runtime 登记，启动恢复补登同键回执</td>
+            <td><code>media:</code> + 媒体消息账本 ID</td>
+            <td>宿主按固定原因选择纯文本，目标是原收件时钉版的入口，不经模型；见<a href="#media-receipt">图片固定回执</a></td>
+          </tr>
         </tbody>
       </table>
     </div>
+
+    <h3 id="media-receipt">图片拒绝的固定文本回执</h3>
+    <p>宿主 <code class="src" data-src="src/runtime/runtime.ts#private enqueueMediaReceipt">runtime.ts · enqueueMediaReceipt</code> 把图片永久拒绝、重试耗尽与模型不支持登记为 <code>inbound_event</code> 发送操作，键固定为 <code>media:&lt;消息暂存ID&gt;</code>；该 ID 由媒体消息账本的 <code>(source, external_id)</code> 唯一约束确定，不冒充普通入站事件 ID。图片拒绝不建普通模型任务；模型不支持在入站已登记后的派发前判定时作废该事件，仍不建任务。下载拒绝已落盘但回执未登记的窗口，启动恢复补登同一个键，不因重投重复发送。</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>拒绝类别</th><th>固定回执</th><th>来源记录</th></tr></thead>
+        <tbody>
+          <tr><td>MIME、magic、大小、数量或图片不可取得</td><td>提示只支持 JPEG、PNG、WebP，每条 4 张、每张 8 MiB，并说明消息未执行</td><td>媒体账本的永久拒绝事实；上限与原因见<a href="inbound-events.html#media">图片入站</a></td></tr>
+          <tr><td><code>download_failed</code> / <code>download_interrupted</code></td><td>提示图片下载未完成、消息未执行，请稍后重新发送</td><td>有界重试耗尽或重启时缺完整文件；不发送平台错误正文或下载 URL</td></tr>
+          <tr><td><code>image_input_unsupported</code></td><td>提示当前模型不支持图片、消息未执行，请配置视觉模型后重新发送</td><td>模型能力不含 image；已建任务或继续任务的防御复核失败用既有 <code>owner_reply</code> 槽发送相同固定提示（<code class="src" data-src="src/runtime/im-entries.ts#image_input_unsupported">im-entries.ts · enqueueOwnerReply</code>）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>回执目标固定为原收件入口；发送前 <code class="src" data-src="src/runtime/runtime.ts#op.sourceKey.startsWith(&quot;media:&quot;)">Runtime · verifySources</code> 重读媒体消息，要求状态 <code>rejected</code> 或 <code>expired</code>、actor 是该入口的预期拥有者、消息钉版目标和操作目标、当前目标一致。入口换代后取消发送，不改发；发出结果未知照常保留 <code>effect_unknown</code> 并停止自动重发。模型自由生成内容不会成为错误回执。</p>
 
     <h3>固定发送授权</h3>
     <div class="cards">
@@ -549,7 +570,7 @@
         </tbody>
       </table>
     </div>
-    <p>Telegram bot token 位于请求 URL（<code>/bot&lt;token&gt;/sendMessage</code>），发送与轮询的错误信息先把 token 替换为 <code>&lt;token&gt;</code>，再写入账本、状态或日志（<code class="src" data-src="src/telegram/adapter.ts#private redact">adapter.ts · redact</code>）；脱敏用该次请求自己捕获的 token，凭据轮换或删除后旧请求的迟到错误也不会泄露旧 token。Telegram 的「在线」取轮询健康状态，所以网络断开时操作通常停在 pending 写等待原因，而不是记失败。只有 <code>owner_reply</code> 引用原消息（Telegram 的 reply_parameters、QQ 的 reply 段，<code class="src" data-src="src/telegram/adapter.ts#private replyToMessageId">replyToMessageId</code> <code class="src" data-src="src/qq/adapter.ts#op?.sourceKind === &quot;owner_reply&quot;">qq/adapter.ts · send</code>）；两个适配器都按 <code>op.sourceKey.split(&quot;#&quot;)[0]</code> 取引用的原事件——工作最终汇报的键带 <code>#work:</code> 后缀（见 <a href="#keys">逻辑发送键</a>），原键不受影响；IM 审批初始通知、命令回执、调度通知与 GitHub 通知都不带引用。QQ 私聊另要求来源事件的外部 ID、actor 与钉版目标都对得上当前目标，否则照常发送、只是不引用。</p>
+    <p>Telegram bot token 位于请求 URL（<code>/bot&lt;token&gt;/sendMessage</code>），发送与轮询的错误信息先把 token 替换为 <code>&lt;token&gt;</code>，再写入账本、状态或日志（<code class="src" data-src="src/telegram/adapter.ts#private redact">adapter.ts · redact</code>）；脱敏用该次请求自己捕获的 token，凭据轮换或删除后旧请求的迟到错误也不会泄露旧 token。Telegram 的「在线」取轮询健康状态，所以网络断开时操作通常停在 pending 写等待原因，而不是记失败。只有 <code>owner_reply</code> 引用原消息（Telegram 的 reply_parameters、QQ 的 reply 段，<code class="src" data-src="src/telegram/adapter.ts#private replyToMessageId">replyToMessageId</code> <code class="src" data-src="src/qq/adapter.ts#op?.sourceKind === &quot;owner_reply&quot;">qq/adapter.ts · send</code>）；两个适配器都按 <code>op.sourceKey.split(&quot;#&quot;)[0]</code> 取引用的原事件——工作最终汇报的键带 <code>#work:</code> 后缀（见 <a href="#keys">逻辑发送键</a>），原键不受影响；IM 审批初始通知、命令回执、图片固定拒绝回执、调度通知与 GitHub 通知都不带引用。QQ 私聊另要求来源事件的外部 ID、actor 与钉版目标都对得上当前目标，否则照常发送、只是不引用。</p>
 
     <h3>两本账对照</h3>
     <div class="scroll">
@@ -559,7 +580,7 @@
           <tr><td>状态</td><td><code>pending</code> <code>sending</code> <code>sent</code> <code>failed</code> <code>effect_unknown</code> <code>canceled</code></td><td><code>pending</code> <code>sent</code> <code>failed</code> <code>unknown</code> <code>canceled</code>（<code class="src" data-src="src/qq/store.ts#export type QqOutboxStatus">qq/store.ts · QqOutboxStatus</code>）</td></tr>
           <tr><td>pending 的含义</td><td>未领取，还没调用平台</td><td>已登记、请求即将或已经发出：发送前一刻写入，没有单独的 sending</td></tr>
           <tr><td>键与去重</td><td><code>(source_kind, source_key)</code> 唯一</td><td><code>op_id</code> 主键；每个任务只登记一条（发送前按任务查重，<code class="src" data-src="src/qq/store.ts#getOutboxByTask">qq/store.ts · getOutboxByTask</code>）</td></tr>
-          <tr><td>登记时机</td><td>审批、到期、新闻采集收尾、编排器结果或 IM 命令处理的事务内</td><td>退役前：任务完成事件之后，发送前复核通过才写；退役后无新增</td></tr>
+          <tr><td>登记时机</td><td>审批、到期、新闻采集收尾、编排器结果、IM 命令或图片固定回执登记事务内</td><td>退役前：任务完成事件之后，发送前复核通过才写；退役后无新增</td></tr>
           <tr><td>谁调用平台</td><td>调度器发送循环，一次一个在途</td><td>退役前由 QQ 适配器直接调用 <code>send_group_msg</code></td></tr>
           <tr><td>限流</td><td>RetryLaterError 退回 pending</td><td>无</td></tr>
           <tr><td>结果说不清</td><td><code class="st unk">effect_unknown</code></td><td><code class="st unk">unknown</code>（平台明确失败才是 failed）</td></tr>
@@ -651,7 +672,7 @@
       <li>恢复准备（<code class="src" data-src="src/scheduler/runtime.ts#prepareRecovery(): void">runtime.ts · prepareRecovery</code>）：① 关联记录早已终态、只是关闭标记没写上的运行先补关闭；② 到期计划按正常到期事务处理，仍在 registered/queued/running/pending/sending/searching 的运行吸收漏过区间，没有未完成运行的计划补一次；③ 一个事务里把遗留 sending 全部定为 <code class="st unk">effect_unknown</code>（<code>backend_restart</code>）；④ 停在 searching 的采集定为 unknown，登记 <code>news_backend_restart</code> 的 failed 发送操作，同一窗口不重搜。</li>
       <li>通用任务恢复：running 与 awaiting_confirmation 转 interrupted，见<a href="task-lifecycle.html">任务生命周期</a>。</li>
       <li>固定角色退役收尾（<code class="src" data-src="src/runtime/runtime.ts#private retireLegacyRoles">runtime.ts · retireLegacyRoles</code>，通用任务恢复之后、编排器启动之前）：遗留 pending 的群回复一律定为 <code>unknown</code>，对应仍在 queued 的收件记 reply_unknown；群会话排队任务取消（原因 <code>core_group_chat_retired</code>），旧 coding 角色会话的排队任务取消（原因 <code>coding_role_retired:…</code>）；剩余未终态收件记 skipped。</li>
-      <li>编排器启动：按原请求键重提已登记未建任务的入站事件，补记重启窗口内结束的任务结果；owner 回复与 GitHub 评审通知随这次结果事务补登。结果只写一次，已记录结果的任务不再登记。</li>
+      <li>编排器启动：先恢复图片暂存并补登固定拒绝回执（见<a href="inbound-events.html#media">图片入站</a>），再按原请求键重提已登记未建任务的入站事件，补记重启窗口内结束的任务结果；owner 回复与 GitHub 评审通知随这次结果事务补登。结果只写一次，已记录结果的任务不再登记。</li>
       <li>QQ 适配器启动（只为私聊），Telegram 开始轮询。</li>
       <li>然后 <code>scheduler.start()</code>（仅个人 Agent 产品）：开定时器，唤醒发送循环与采集循环，到期扫描从这里开始。GitHub webhook 在它之后才开始监听。</li>
     </ol>

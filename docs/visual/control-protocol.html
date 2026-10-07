@@ -719,7 +719,7 @@
           <tr><td><code>qq.receive_gap</code></td><td>QQ 断线后重连成功，标记中断窗口（不补抓、不补发）</td><td><a href="inbound-events.html#sources">入站事件</a></td></tr>
           <tr><td><code>qq_private.reply_skipped</code></td><td>QQ 私聊任务到终态但未登记 owner 回复</td><td><a href="inbound-events.html#after">入站事件</a></td></tr>
           <tr><td><code>telegram.config_changed</code></td><td>Telegram 入口配置变化（不含 token；凭据变化或删除同样递增代次）</td><td><a href="inbound-events.html#sources">入站事件</a></td></tr>
-          <tr><td><code>telegram.rejected</code></td><td>非 owner、非私聊或非文本消息被忽略（只记 id 与原因）</td><td><a href="inbound-events.html#sources">入站事件</a></td></tr>
+          <tr><td><code>telegram.rejected</code></td><td>非 owner、非私聊或不支持的消息被忽略（只记 id 与原因）；图片下载或校验拒绝另记媒体账本，见<a href="inbound-events.html#media">图片入站</a></td><td><a href="inbound-events.html#sources">入站事件</a></td></tr>
           <tr><td><code>telegram.reply_skipped</code></td><td>Telegram 私聊任务到终态但未登记 owner 回复</td><td><a href="inbound-events.html#after">入站事件</a></td></tr>
           <tr><td colspan="3"><b>编排、委派与调度</b></td></tr>
           <tr><td><code>chat_result.accepted</code></td><td>main 接收一次群聊结果的固定快照</td><td><a href="orchestrator.html#chat">编排器</a></td></tr>

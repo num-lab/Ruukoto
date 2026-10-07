@@ -421,6 +421,49 @@ export interface InboundEvent {
   taskId: string | null;
 }
 
+export type ImageMimeType = "image/jpeg" | "image/png" | "image/webp";
+export type InboundMediaMessageStatus = "staging" | "ready" | "bound" | "rejected" | "expired";
+export type InboundMediaStatus = "pending" | "downloading" | "ready" | "promoted" | "rejected" | "expired";
+
+/** 下载 URL 与凭据仅存在于适配器闭包；此信封足以恢复已下载但尚未登记的消息。 */
+export interface InboundMediaMessage {
+  id: string;
+  source: string;
+  externalId: string;
+  actor: string | null;
+  body: string;
+  replyTarget: NotifyTarget | null;
+  receivedAt: string;
+  mediaCount: number;
+  mediaRefs: string[];
+  status: InboundMediaMessageStatus;
+  reason: string | null;
+  eventId: string | null;
+  taskId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InboundMedia {
+  id: string;
+  messageId: string;
+  source: string;
+  externalId: string;
+  mediaIndex: number;
+  declaredMime: string | null;
+  mimeType: ImageMimeType | null;
+  byteCount: number;
+  contentHash: string | null;
+  fileName: string;
+  status: InboundMediaStatus;
+  reason: string | null;
+  eventId: string | null;
+  taskId: string | null;
+  artifactId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Session {
   id: string;
   projectId: string;
@@ -782,6 +825,9 @@ export interface Artifact {
   byteCount: number;
   /** complete：结果已回收后定稿；partial：中断/写入失败等场景的已捕获部分。 */
   status: "complete" | "partial";
+  /** 图片产物的不可变 MIME 与 SHA-256；旧工具正文产物为空。 */
+  mimeType?: ImageMimeType | null;
+  contentHash?: string | null;
   createdAt: string;
 }
 

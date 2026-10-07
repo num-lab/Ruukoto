@@ -19,6 +19,8 @@ import { QqStore } from "../src/qq/store.ts";
 import { SchedulerStore } from "../src/scheduler/store.ts";
 import { TelegramAdapter, TelegramStore } from "../src/telegram/adapter.ts";
 import { ImEntries, type ImEntry } from "../src/runtime/im-entries.ts";
+import { InboundMediaStore } from "../src/runtime/inbound-media.ts";
+import { ArtifactStore } from "../src/agent/artifacts.ts";
 
 const SELECTION = { provider: "mock", modelId: "mock", thinkingLevel: "off" as const };
 
@@ -203,14 +205,15 @@ test("启动配置停用：入口照常创建但不连接、不轮询；门作�
   const credentials = new CredentialStore(path.join(k.root, "agent"));
   const qqStore = new QqStore(k.store.db);
   const tgStore = new TelegramStore(k.store);
+  const media = new InboundMediaStore(k.root, k.store, new ArtifactStore(k.root, k.store));
   try {
     credentials.upsert({ name: "qq", host: `127.0.0.1:${port}`, header: "authorization", purpose: "qq_onebot", secret: "s" });
     credentials.upsert({ name: "tg", host: `127.0.0.1:${port}`, header: "none", purpose: "telegram_bot", secret: "123:abc" });
     const qq = new QqAdapter({
-      store: k.store, qqStore, sched: k.sched, credentials, startupDisabled: "dev",
+      store: k.store, media, qqStore, sched: k.sched, credentials, startupDisabled: "dev",
       bridge: { registerPrivate: async () => {}, dispatchInbound: async () => {}, kickSession: () => {} },
     });
-    const tg = new TelegramAdapter({ store: k.store, tg: tgStore, sched: k.sched, credentials, register: async () => {}, log: () => {}, startupDisabled: "product" });
+    const tg = new TelegramAdapter({ store: k.store, media, tg: tgStore, sched: k.sched, credentials, register: async () => {}, log: () => {}, startupDisabled: "product" });
     qq.configure({ endpoint: `ws://127.0.0.1:${port}/`, credential: "qq", selfId: "10001", ownerUserId: "10002" });
     qq.setEnabled(true);
     tg.configure({ apiBase: `http://127.0.0.1:${port}`, credential: "tg", ownerUserId: "42" });

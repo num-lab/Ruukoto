@@ -58,6 +58,8 @@ const COVERAGE: Record<string, string[]> = {
   "inbound-events.html": [
     "src/core/types.ts#InboundEventStatus",
     "src/core/types.ts#InboundEventKind",
+    "src/core/types.ts#InboundMediaMessageStatus",
+    "src/core/types.ts#InboundMediaStatus",
     "src/qq/store.ts#QqInboxStatus",
     "src/telegram/adapter.ts#TELEGRAM_SOURCE",
     "src/qq/store.ts#QQ_GROUP_SOURCE",

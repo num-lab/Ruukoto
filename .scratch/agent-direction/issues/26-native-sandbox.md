@@ -51,3 +51,50 @@ ruukoto-code 当前默认使用 container。工具 worker 承载 read/edit/write
 ### 2026-10-08：规格访谈
 
 本工单经 grilling 与 ponytail 核实。拥有者在 Q1—Q6 确认：原生为唯一受限后端、使用宿主工具链、同一工单覆盖两平台、直接接入 Seatbelt/bubblewrap、显式旧 container 配置报错并提供迁移指引、正式入口拒绝 local。拥有者在 Q7 确认最终规格，状态登记为 ready-for-agent。
+
+### 2026-10-08：第一阶段真实验证与未通过的前置条件
+
+本轮按工单要求先建立可复跑边界探针。第一阶段没有通过，当前没有修改 `src/` 或 `deploy/`、没有切换默认后端、没有将工单标记 resolved。以下均为真实文件、进程、OS 沙箱与自建服务验证，不使用模型打桩或 local 冒充原生边界；报告会明确列出未启动或尚未验证的项目。
+
+**交付与复跑**
+
+- [运行说明](../../../verification/foundation/scripts/native-isolation/README.md)：命令、退出码、被测策略与尚未覆盖的产品验收。
+- [macOS Seatbelt 探针](../../../verification/foundation/scripts/native-isolation/macos-probe.py)与[报告](../../../verification/foundation/results/native-macos-report.md)：规范化后的文件规则、授权与只读授予、SubAgent 范围、共享 Git 目录、路径别名、符号链接、网络、环境、FD、信号/进程信息、Mach/共享内存、工具链启动和后代停止。
+- [macOS launchd 探针](../../../verification/foundation/scripts/native-isolation/macos-launchd-probe.py)与[报告](../../../verification/foundation/results/native-macos-launchd.md)：独立验证 job 消失是否代表脱离进程组的后代停止。
+- [Linux bubblewrap 探针](../../../verification/foundation/scripts/native-isolation/linux-native-probes.py)、[运行说明](../../../verification/foundation/scripts/native-isolation/linux-README.md)与[报告](../../../verification/foundation/results/native-linux-report.md)：包含有效宿主对照、完整 namespace 候选、文件/grants/IPC/FD/子进程/停止、启动缺项与系统策略诊断。
+- 旧 `.scratch/agent-direction/macos-sbx-probe.sh` 入口复用新 macOS 脚本；保留工单 03 的旧记录并追加路径错误及判定错误的更正。探针退出 0 为被测项通过，1 为真实边界失败，2 为不可验证；没有 started、无效对照和清理失败均不能算通过。
+
+**macOS 的确定发现**
+
+环境为 macOS 27.0 / Darwin 27.0.0 / arm64。旧 `/tmp` 字串没有匹配 `/private/tmp` 中的真实目标；规范化后的 literal/subpath/regex 读取拒绝、写入拒绝及两层 Shell 继承均生效。新策略按必要运行时目录只读开放，没有默认开放拥有者主目录或整个文件系统。每个拒绝结论均有本轮虚拟资料的成功宿主对照，使用实际操作 errno，程序启动失败另列。
+
+最终被测集合为 56 项：53 通过、3 失败、0 unavailable，整体退出 1；file* 旧规则覆盖也已恢复。失败为 NOTE_TRACK 不支持、posix_spawn 的 setpgroup/setsid 后代停止失败；相同严格策略下逃离后代的文件与网络拒绝仍生效。报告 missing=0 只表示本脚本列举项都已运行；SysV IPC、生命周期启动窗口、父进程异常与模式/授权变化尚未实测，产品 WorkerLauncher 等验收也未开始。
+
+`(deny syscall-unix (syscall-number SYS_setsid SYS_setpgid))` 能拒绝直接调用，但 `posix_spawn(setpgroup=0)` 和 `posix_spawn(setsid=True)` 能创建新的 PGID/SID。原组 SIGKILL 后，逃离后代仍持续写本次心跳；普通组内后代停止并不能覆盖这些后代。`kqueue NOTE_TRACK` 实测 errno 45（ENOTSUP），与 [Apple XNU filt_procattach](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_event.c) 的拒绝分支相符。这个结果只否决被测回收策略，尚未证明所有 Seatbelt 原生机制均不可能。
+
+另外独立创建了临时唯一 launchd job（RunAtLoad=true、KeepAlive=false、ExitTimeOut=1、AbandonProcessGroup=false）。Python setsid 与 Node detached 两案都有真实运行对照；`bootout` 返回 0，job 查询返回 113 且父 PID 退出后，后代心跳仍增长。probe finally 只按本次 argv/PID 身份清理，验证进程退出与心跳冻结；job 消失不能用来判整单元退出。精确数值及清理结果保存在 JSON。
+
+**Linux 的确定发现**
+
+通过 `ssh tx` 在 Ubuntu 24.04.4 LTS / Linux 6.8.0-117-generic / x86_64 / UID:GID 1003:1003 实跑。系统没有已安装 bwrap，仅在 `/tmp` 解包官方 Ubuntu bubblewrap 0.9.0-1ubuntu0.3；没有改 AppArmor、sysctl 或在线个人 Agent。虚拟文件、别名、FD、TCP/Unix socket、SysV/POSIX IPC 与宿主 PID 对照实际成功；另有双重 fork + setsid + 忽略 TERM 的心跳对照，证实父退出后后代仍在运行，清理后心跳冻结。
+
+完整 bwrap 在探针 started 前退出 1：`loopback: Failed RTM_NEWADDR: Operation not permitted`。拆分 user/pid/ipc 的启动在 uid_map 阶段 Permission denied；net、完整 unshare-all 与临时 user-systemd service 同样失败；`unshare -Ur true` 也被拒。AppArmor enabled=Y、apparmor_restrict_unprivileged_userns=1、unprivileged_userns_clone=1。当前是 2 个对照通过、35 个真实边界全部 unavailable，整体退出 2；不能算 Linux 边界通过。尚不能确认把 bwrap 安装到正式路径后的结果，需要在满足管理员系统策略的环境复跑。
+
+**接入范围核查与后续前置条件**
+
+接入必须覆盖 `launchers.ts` 的 backend/kind/LaunchSpec、CLI 默认及显式旧 flag/env 拒绝、Runtime 的入口预检与 executionInfo、ToolRouter 的 native dev/ino 复核、受管单元登记/停止/恢复、WorkCopyManager 的执行身份、worktree 创建与汇总的共享 Git 目录，以及相应测试和图解。现有 macOS Docker Desktop 的 inodeOpaque 与 VM 权限例外不适用于 native；ruukoto 的 container/systemd 与完全访问的专用身份仍需保留。
+
+静态核查还发现共享生命周期会丢弃停止失败：ready 失败后 stop(false) 被忽略，starting 占位将启动失败当作已回收，重复 stop 在句柄置空后返回 true，worktree 临时 worker 没有受管登记且忽略停止失败。按 visual-docs 的记录要求登记为[工单 27](27-preserve-unverified-worker-stop.md)，本轮未修实现；这些发现不作为真实 OS 边界通过的证据。
+
+继续接入前须先提供并实测 macOS 的完整后代回收机制，并在允许完整 namespace 的 Linux 环境跑完真实边界。然后才能进行无 Docker 的 read/edit/write/bash、SubAgent/worktree/汇总、审批单次消费、启动取消、授权变化重建与后台恢复验收。当前证据不足，不勾选完整验收项。
+
+**文档核实与仓库检查**
+
+- 更新 `docs/visual/deployment.html#execution` 与 `#dev-deploy`：正文、SVG/aria-label、图例、验证表格同步更正旧 Seatbelt 否决；标明原生尚未接入，并列出停止失败传播的既有限制。
+- 核实锚点：`createLauncherFor` / `createLocalLauncher` / `createContainerLauncher` / `createSystemdLauncher`，`ToolRouter.ensureWorker` / `launchSpecFor`，`ToolWorkerHost.start` / `stop`，`killProcessGroup` / `Driver.killManagedProcesses`，`Runtime.createWorktreeInContainer`、`cli.runServer`、`dev.buildChildEnv` / `devProfileFor` / `BACKEND_KILL_GRACE_MS`，以及执行包装、Dockerfile 与现有真实验证报告。页面继续描述当前实现，ADR 0004/0017/0021 和 runtime.md 只追加验证门槛与证据，未把计划写成已实施。
+- 修正的文档不一致：旧图把 Seatbelt 文件规则 0/6 当作机制失效，实际是路径规则未匹配；旧图把所有停止入口的返回值都等同于整单元核实，实际存在上述传播缺口与 local 仅查主 PID 的限制。
+- `npm run typecheck` 通过；`npm test` 共 1008 项，1007 通过、1 跳过、0 失败；新脚本的语法与判定自检另跑，真实原生探针的失败/不可验证按报告记录，不混入库层回归通过数。图解枚举/锚点/链接检查 4/4 通过，渲染核实见下。
+
+图解渲染检查已完成：运行 `.skills/visual-docs/shoot.sh docs/visual/deployment.html` 并逐张检查全部 16 张切片，本次修改的图、表与文字无溢出、遮挡或箭头问题；发现既有 `#service` sudoers 卡片中的长路径略超卡片右边界，未改本次范围外的布局。新探针经独立只读审查，修正了子程序未启动被误判拒绝、遗漏回执、清理失败未影响判定等问题；Linux 自检通过，macOS 同轮包含策略解析失败与程序启动失败分类的真实自检。
+
+旧 macOS 入口最终由主代理独立复跑：56 项、53 通过、3 失败、0 unavailable、缺失集合为空，实际退出 1；核实虚拟资料已清理。两次结果都符合真实失败的退出约定。

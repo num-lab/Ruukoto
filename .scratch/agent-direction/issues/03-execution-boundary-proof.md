@@ -67,3 +67,11 @@ Status: resolved
 4. 环境/方式/限制/复跑步骤全录；sandbox-exec 否定与 macOS 完全访问账户未验证均如实记录；local 未计入任何通过项。
 5. Linux 复用既有探针与部署开展复核，从零建设的只有 5 行冒烟扩展与 1 个取证脚本。
 6. 端到端（冒烟+探针）、tsc、test/67、全量 npm test 完成；runtime.md 与 deployment.html 已同步；模拟/真实分列见上。
+
+### 2026-10-08：Seatbelt 文件规则结论更正（工单 26 第一阶段）
+
+保留上面的 2026-10-02 历史记录，但撤回其中“文件规则静默不执行，所以 Seatbelt 不构成文件边界”的判断。旧脚本在 `/tmp` 建资料并直接用该字串生成 literal/subpath/regex 规则；本机真实路径为 `/private/tmp`，规则未匹配目标。规范化路径后，文件拒绝生效。旧脚本还把任意非零退出当作拒绝、用非空 stderr 判子进程拒绝，并在边界失败时退出 0；这些判定已更正。
+
+旧入口 `bash .scratch/agent-direction/macos-sbx-probe.sh` 现在复用新的真实 macOS 探针。探针先验证未沙箱对照，再用 started 标记与实际操作的 errno 区分策略解析或程序启动失败、真实拒绝和未被拒绝；退出码 0 表示被测项通过，1 表示边界失败，2 表示基础设施或判定缺失。所有材料、监听服务和目标进程均由探针临时创建，不读取真实凭据。
+
+这项更正只确认 Seatbelt 文件机制可用。工单 26 的完整原生替换仍未通过第一阶段：`posix_spawn` 可以绕过 `SYS_setsid/SYS_setpgid` 拒绝规则，让后代脱离原进程组；可信宿主杀原组后，后代心跳继续增长。`kqueue NOTE_TRACK` 实测为 `ENOTSUP`。临时 launchd job 的 `bootout` 成功与 job 消失同样不能证明后代停止。可复跑脚本与完整证据见[工单 26](26-native-sandbox.md)。容器的已有实测结果继续作为容器边界证据，不能据此替原生边界验收。

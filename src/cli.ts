@@ -6,7 +6,7 @@
  *   ruukoto -- <路径>                          显式工作区入口（目录与命令同名时使用，如 ruukoto -- config）
  *   ruukoto config [--offline]                 独立配置中心
  *   ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container]
- *                  （默认：ruukoto = local，ruukoto-dev = container）
+ *                  （默认：ruukoto = local，ruukoto-code = container）
  *   ruukoto start                              server 的兼容别名（同一代码路径；文档推荐 server）
  *   ruukoto tui                                旧拼法：打印迁移指引后仍启动任务界面
  *   ruukoto create-project <name>
@@ -29,11 +29,11 @@
  *   ruukoto telegram configure --credential N --user-id U [--chat-id C] [--api-base URL] | status | enable | disable
  *   ruukoto stop
  *
- * 两条 bin 入口：ruukoto（个人 Agent）与 ruukoto-dev（Coding Agent，ADR 0017，
+ * 两条 bin 入口：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent，ADR 0017，
  * issue 01），产品身份经 RUUKOTO_PRODUCT 固定注入。数据目录默认 ~/.ruukoto
- * （ruukoto-dev 为 ~/.ruukoto-dev-agent）；控制面目录为其兄弟目录 control/
+ * （ruukoto-code 为 ~/.ruukoto-code）；控制面目录为其兄弟目录 control/
  * （socket 与拥有者令牌）。路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，
- * ruukoto-dev 读 RUUKOTO_DEV_*_DIR。管理命令都需要拥有者令牌：取
+ * ruukoto-code 读 RUUKOTO_CODE_*_DIR。管理命令都需要拥有者令牌：取
  * RUUKOTO_OWNER_TOKEN 或受控目录的 owner.token（0600，部署时以 0400 复制给
  * 拥有者）。
  */
@@ -194,7 +194,7 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
   // 的受限执行以已验证的容器边界为默认，不在生产入口静默降级；个人 Agent 的
   // CLI 默认仍为 local，生产部署经 --execution container 或环境变量显式启用。
   // 这里覆盖的是 CLI 生产入口；库层默认（local）供测试与开发实例按各自入口使用。
-  const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? (product === "ruukoto-dev" ? "container" : "local");
+  const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? (product === "ruukoto-code" ? "container" : "local");
   if (execFlag !== "local" && execFlag !== "container") {
     console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
     return 1;
@@ -225,7 +225,7 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
   const runtime = await Runtime.start({
     dataDir,
     agentDir,
-    // 路径环境变量按产品隔离（issue 01）：ruukoto-dev 只读 RUUKOTO_DEV_CONTROL_DIR
+    // 路径环境变量按产品隔离（issue 01）：ruukoto-code 只读 RUUKOTO_CODE_CONTROL_DIR
     controlDir: dirEnvFor(product, "CONTROL"),
     productType: product,
     // 未显式指定时不传：持久默认的思考档位才能生效（显式 --thinking 优先）
@@ -256,7 +256,7 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
   return 0;
 }
 
-/** ruukoto-dev 不再提供旧项目写入路径（agent-direction issue 23）：新会话一律经工作区入口。 */
+/** ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）：新会话一律经工作区入口。 */
 function legacyProjectWriteRefused(): number {
   console.error(LEGACY_PROJECT_WRITE_HINT);
   return 1;
@@ -268,12 +268,12 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
   switch (cmd) {
     case "legacy-import": {
       // 跨实例导入（agent-direction issue 21/22，ADR 0022/0023）：两条入口按产品
-      // 分流——ruukoto-dev 迁入开发资料，ruukoto 迁入个人资料（镜像方向）；
+      // 分流——ruukoto-code 迁入开发资料，ruukoto 迁入个人资料（镜像方向）；
       // 离线执行（不走控制面），持目标实例锁运行，源实例全程只读
       return runLegacyImport(positional, flags, product);
     }
     case "create-project":
-      if (product === "ruukoto-dev") return legacyProjectWriteRefused();
+      if (product === "ruukoto-code") return legacyProjectWriteRefused();
       print(await withClient((c) => c.request("create_project", { name: positional[0] ?? "" })));
       return 0;
     case "project": {
@@ -358,7 +358,7 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
       return 1;
     }
     case "create-session": {
-      if (product === "ruukoto-dev") return legacyProjectWriteRefused();
+      if (product === "ruukoto-code") return legacyProjectWriteRefused();
       const confirmTools = (flags["confirm-tools"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
       print(
         await withClient((c) =>
@@ -944,7 +944,7 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
 
 /**
  * 跨实例导入（agent-direction issue 21/22，ADR 0022/0023）。按产品分流：
- * ruukoto-dev 把旧实例开发资料迁入 Coding Agent；ruukoto 把旧实例个人资料
+ * ruukoto-code 把旧实例开发资料迁入 Coding Agent；ruukoto 把旧实例个人资料
  * （main 会话、应用数据、调度、平台绑定与必要凭据）迁入全新实例。目标侧离线
  * 执行（不走控制面）：预览/应用都要求目标后台已停止，持目标实例锁运行；源实例
  * 全程只读，源后台存活时拒绝。
@@ -985,7 +985,7 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
         list: m.listLegacyImports,
         Err: m.LegacyImportError,
       }));
-  const bin = personal ? "ruukoto" : "ruukoto-dev";
+  const bin = personal ? "ruukoto" : "ruukoto-code";
   const dirs = defaultDirs();
   const deps = {
     targetDataDir: flags["data-dir"] ?? dirs.dataDir,
@@ -1108,9 +1108,9 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
 
 function defaultHelp(): string {
   return (
-    "产品：ruukoto（个人 Agent）与 ruukoto-dev（Coding Agent）两条入口共用本 CLI（ADR 0017）。\n" +
-    "      ruukoto-dev 使用独立档案目录（默认 ~/.ruukoto-dev-agent，环境变量 RUUKOTO_DEV_*_DIR），\n" +
-    "      不启动 QQ/Telegram 连接与个人调度；路径环境变量按产品隔离（RUUKOTO_*_DIR / RUUKOTO_DEV_*_DIR）。\n" +
+    "产品：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent）两条入口共用本 CLI（ADR 0017）。\n" +
+    "      ruukoto-code 使用独立档案目录（默认 ~/.ruukoto-code，环境变量 RUUKOTO_CODE_*_DIR），\n" +
+    "      不启动 QQ/Telegram 连接与个人调度；路径环境变量按产品隔离（RUUKOTO_*_DIR / RUUKOTO_CODE_*_DIR）。\n" +
     "用法：ruukoto [路径] [--session <id> | --demo]      任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）\n" +
     "      ruukoto -- <路径>                             显式工作区入口（目录与命令同名时用，如 ruukoto -- config）\n" +
     "      ruukoto config [--offline]                    独立配置中心\n" +
@@ -1120,7 +1120,7 @@ function defaultHelp(): string {
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
     "      grant | service-grant list/show/revoke | work list/show/close | history-search | memory | selection-records |\n" +
     "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
-    "      legacy-import（两产品分流）：ruukoto-dev 迁入旧实例开发资料；ruukoto 迁入旧实例个人资料\n" +
+    "      legacy-import（两产品分流）：ruukoto-code 迁入旧实例开发资料；ruukoto 迁入旧实例个人资料\n" +
     "      （main/应用数据/调度/平台绑定与必要凭据，目标为全新实例）。离线执行，要求源与目标后台均已停止；\n" +
     "      preview --from <源数据目录> [--plan 文件] | apply --plan 文件 | revert <导入ID> | list\n" +
     "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +

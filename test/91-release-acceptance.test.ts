@@ -47,7 +47,7 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     const preview = previewLegacyImport(deps, { from: source.dirs.dataDir });
     const imported = applyLegacyImport(deps, { plan: { from: source.dirs.dataDir }, source_instance_id: preview.source.instance_id, revision: preview.revision!, request_id: "release-import" });
     await writeModelsJson(dirs, await server.start());
-    const config: RuntimeConfig = { dataDir: dirs.dataDir, agentDir: dirs.agentDir, productType: "ruukoto-dev", modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools() };
+    const config: RuntimeConfig = { dataDir: dirs.dataDir, agentDir: dirs.agentDir, productType: "ruukoto-code", modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools() };
     rt = await Runtime.start(config);
     await rt.stop("test_restart");
     rt = await Runtime.start(config);

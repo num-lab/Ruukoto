@@ -2,7 +2,7 @@
  * 旧实例开发资料迁入 Coding Agent（agent-direction issue 21，ADR 0022）。
  *
  * 本方向的唯一实现处：预览（preview）、应用（apply）、回退（revert）与列表的
- * 全部判断都集中在本模块；CLI（ruukoto-dev legacy-import）只做离线接线，不走
+ * 全部判断都集中在本模块；CLI（ruukoto-code legacy-import）只做离线接线，不走
  * 控制面。镜像方向（个人资料迁入全新 ruukoto 实例，issue 22）在
  * ./personal-import.ts，复用本模块导出的快照/账本/行工具等方向无关辅助。
  * 边界（与 ADR 0017/0018 一致）：
@@ -320,13 +320,13 @@ export function openTargetReadonlyCopy(deps: LegacyImportDeps): TargetView {
 }
 
 function checkTargetProduct(product: string | null, schemaVersion: number | null, exists: boolean): void {
-  if (product !== null && product !== "ruukoto-dev") {
-    fail("product_mismatch", `目标数据目录已登记为产品 ${product}，legacy-import 只能迁入 ruukoto-dev 档案`);
+  if (product !== null && product !== "ruukoto-code") {
+    fail("product_mismatch", `目标数据目录已登记为产品 ${product}，legacy-import 只能迁入 ruukoto-code 档案`);
   }
   if (exists && schemaVersion !== SCHEMA_VERSION) {
     fail(
       "target_schema",
-      `目标库 schema 版本为 ${schemaVersion}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto-dev 后台完成迁移，再执行导入`,
+      `目标库 schema 版本为 ${schemaVersion}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto-code 后台完成迁移，再执行导入`,
     );
   }
 }
@@ -1342,7 +1342,7 @@ export function applyLegacyImport(
       raw.close();
     }
     if (version !== SCHEMA_VERSION) {
-      fail("target_schema", `目标库 schema 版本为 ${version}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto-dev 后台完成迁移，再执行导入`);
+      fail("target_schema", `目标库 schema 版本为 ${version}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto-code 后台完成迁移，再执行导入`);
     }
   }
   const tdb = new Db(deps.targetDataDir);
@@ -1613,8 +1613,8 @@ export function applyLegacyImport(
     let seqFrom: number | null = null;
     let seqTo: number | null = null;
     tdb.tx(() => {
-      // 产品归属：目标从未登记时补记为 ruukoto-dev（已核 null 或 ruukoto-dev）
-      tdb.prepare(`INSERT INTO meta (key, value) VALUES ('${PRODUCT_META_KEY}', 'ruukoto-dev') ON CONFLICT(key) DO NOTHING`).run();
+      // 产品归属：目标从未登记时补记为 ruukoto-code（已核 null 或 ruukoto-code）
+      tdb.prepare(`INSERT INTO meta (key, value) VALUES ('${PRODUCT_META_KEY}', 'ruukoto-code') ON CONFLICT(key) DO NOTHING`).run();
       insertRows(tdb, "projects", projectsToInsert);
       deps.__testHooks?.insideImportTx?.();
       insertRows(tdb, "sessions", sessionsToInsert);

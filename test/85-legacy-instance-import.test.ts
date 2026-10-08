@@ -367,7 +367,7 @@ async function bootTarget(root: string, dataDir: string, agentDir: string) {
     modelProvider: "mock",
     modelId: "mock-model",
     toolFactory: (ctx) => createMockTools(ctx),
-    productType: "ruukoto-dev",
+    productType: "ruukoto-code",
   });
   await ControlServer.start(runtime);
   const client = await connectAuthedClient(runtime);
@@ -468,11 +468,11 @@ test("门禁：源后台存活拒绝；源/目标产品错配拒绝", async () =
     tdb.close();
     assert.equal(errCode(() => previewLegacyImport(deps, { from: live.dirs.dataDir })), "product_mismatch");
     fs.rmSync(deps.targetDataDir, { recursive: true, force: true });
-    // 来源是 ruukoto-dev 目录：拒绝
+    // 来源是 ruukoto-code 目录：拒绝
     const devSrc = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-li-devsrc-"));
     fs.mkdirSync(path.join(devSrc, "data"), { recursive: true });
     const sdb = new Db(path.join(devSrc, "data"));
-    new Store(sdb).setMetaValue("product.type", "ruukoto-dev");
+    new Store(sdb).setMetaValue("product.type", "ruukoto-code");
     sdb.close();
     const deps2 = { targetDataDir: path.join(targetRoot, "data2"), targetAgentDir: path.join(targetRoot, "agent2") };
     assert.equal(errCode(() => previewLegacyImport(deps2, { from: path.join(devSrc, "data") })), "product_mismatch");
@@ -916,8 +916,8 @@ test("CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流", async () 
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: os.homedir(),
-    RUUKOTO_DEV_DATA_DIR: dirs.dataDir,
-    RUUKOTO_DEV_AGENT_DIR: dirs.agentDir,
+    RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
+    RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
     RUUKOTO_DATA_DIR: personal.dirs.dataDir,
     RUUKOTO_AGENT_DIR: personal.dirs.agentDir,
   };
@@ -938,33 +938,33 @@ test("CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流", async () 
     assert.deepEqual(JSON.parse(gate.stdout), [], "ruukoto 侧空目标无导入回执");
 
     const planFile = path.join(dirs.root, "plan.json");
-    const preview = run("ruukoto-dev.mjs", ["legacy-import", "preview", "--from", src.srcDataDir, "--plan", planFile]);
+    const preview = run("ruukoto-code.mjs", ["legacy-import", "preview", "--from", src.srcDataDir, "--plan", planFile]);
     assert.equal(preview.status, 0, preview.stderr);
     const plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
     assert.ok(typeof plan.source_instance_id === "string" && plan.source_instance_id.length > 0);
     assert.ok(typeof plan.revision === "string" && plan.revision.startsWith("r1."));
     assert.equal(fs.existsSync(path.join(dirs.dataDir, "ruukoto.db")), false, "预览对目标零写入");
 
-    const applied = run("ruukoto-dev.mjs", ["legacy-import", "apply", "--plan", planFile]);
+    const applied = run("ruukoto-code.mjs", ["legacy-import", "apply", "--plan", planFile]);
     assert.equal(applied.status, 0, applied.stderr);
     const appliedJson = JSON.parse(applied.stdout);
     assert.equal(appliedJson.replayed, false);
     assert.ok(appliedJson.import_id);
-    const replay = run("ruukoto-dev.mjs", ["legacy-import", "apply", "--plan", planFile]);
+    const replay = run("ruukoto-code.mjs", ["legacy-import", "apply", "--plan", planFile]);
     assert.equal(replay.status, 0);
     assert.equal(JSON.parse(replay.stdout).replayed, true, "同一计划文件重放返回回执");
 
-    const list = run("ruukoto-dev.mjs", ["legacy-import", "list"]);
+    const list = run("ruukoto-code.mjs", ["legacy-import", "list"]);
     assert.equal(list.status, 0);
     const items = JSON.parse(list.stdout);
     assert.equal(items.length, 1);
     assert.equal(items[0].status, "applied");
     assert.ok(items[0].item_count > 0);
 
-    const reverted = run("ruukoto-dev.mjs", ["legacy-import", "revert", appliedJson.import_id]);
+    const reverted = run("ruukoto-code.mjs", ["legacy-import", "revert", appliedJson.import_id]);
     assert.equal(reverted.status, 0, reverted.stderr);
     assert.equal(JSON.parse(reverted.stdout).ok, true);
-    const listedAfter = run("ruukoto-dev.mjs", ["legacy-import", "list"]);
+    const listedAfter = run("ruukoto-code.mjs", ["legacy-import", "list"]);
     assert.equal(JSON.parse(listedAfter.stdout)[0].status, "reverted");
     assert.equal(hashTree(src.root), sourceHashBefore, "CLI 全流程后源目录不变");
   } finally {

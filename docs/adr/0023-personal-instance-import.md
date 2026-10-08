@@ -4,11 +4,11 @@
 
 状态：已接受。依据已确认方向规格（agent-direction spec）与 [ADR 0017](0017-two-agent-products.md)、[ADR 0022](0022-legacy-instance-import.md)，经 schema v30 账本类别扩展、集中模块 `src/runtime/personal-import.ts` 与 `ruukoto legacy-import` CLI 落地。
 
-[ADR 0022](0022-legacy-instance-import.md) 交付了旧实例开发资料迁入 Coding Agent（`ruukoto-dev legacy-import`）；本记录是它的镜像方向：旧 ruukoto 实例的 main 会话、应用数据、调度、平台绑定与必要凭据迁入全新 ruukoto 实例（Personal Agent），旧 coding/chat 档案与发送事实保留为可核查的只读归档。与 0022 不同，本方向存在执行归属的交接维度：平台连接与调度计划是"活"状态，导入即把执行权交给目标。机制骨架（源只读快照、目标离线、回执/账本幂等、修订哈希、目标备份、回退阻挡项）复用 0022 的导出，不新建通用框架。
+[ADR 0022](0022-legacy-instance-import.md) 交付了旧实例开发资料迁入 Coding Agent（`ruukoto-code legacy-import`）；本记录是它的镜像方向：旧 ruukoto 实例的 main 会话、应用数据、调度、平台绑定与必要凭据迁入全新 ruukoto 实例（Personal Agent），旧 coding/chat 档案与发送事实保留为可核查的只读归档。与 0022 不同，本方向存在执行归属的交接维度：平台连接与调度计划是"活"状态，导入即把执行权交给目标。机制骨架（源只读快照、目标离线、回执/账本幂等、修订哈希、目标备份、回退阻挡项）复用 0022 的导出，不新建通用框架。
 
 决策：
 
-1. **目标侧离线执行，命令按产品分流。** `ruukoto legacy-import preview --from <源数据目录> [--plan 文件]`、`apply --plan 文件`、`revert <导入ID>`、`list` 在 ruukoto 产品下可用（`ruukoto-dev legacy-import` 仍为 0022 方向），不走控制面；预览与应用都要求目标后台已停止，CLI 持目标实例锁运行。源与目标同为 ruukoto 产品（或均未登记）且**不同数据目录**：源或目标后台存活、同路径、同实例 ID（同一实例或其副本）都拒绝。
+1. **目标侧离线执行，命令按产品分流。** `ruukoto legacy-import preview --from <源数据目录> [--plan 文件]`、`apply --plan 文件`、`revert <导入ID>`、`list` 在 ruukoto 产品下可用（`ruukoto-code legacy-import` 仍为 0022 方向），不走控制面；预览与应用都要求目标后台已停止，CLI 持目标实例锁运行。源与目标同为 ruukoto 产品（或均未登记）且**不同数据目录**：源或目标后台存活、同路径、同实例 ID（同一实例或其副本）都拒绝。
 2. **目标必须是全新实例。** 目标后台一旦启动过就有自有角色行与 main 会话；导入源角色行会与其冲突。预览/应用核对：目标已有非同源导入的角色行时拒绝（提示换新目录或先回退同源此前导入），不覆盖未核实的目标数据。角色会话 cwd、`agent_roles.work_dir` 与角色项目根改写为目标 `<dataDir>/../agent-work/<角色>`（apply 时建目录并取目标 dev/ino/realpath）；编排器 `ensureRoles` 幂等跳过已有角色行，启动不重建。
 3. **导入单位是角色会话与 QQ 群会话（含 main 的一层 SubAgent），行 ID 原样保留。** main/coding/chat 角色行及其项目与会话、QQ 群会话与群归档四表全量导入；普通 dev 会话及其 SubAgent 与项目一律排除（经 issue 21 迁入 Coding Agent，预览列出并指向）。保留 ID 让 `app_audit.task_id`、记忆 `source_refs`、发送钉版 `source_key`、长期授权 `approval_id`/`created_by_event_id` 都不需重写。表级策略（方向自有的 `TABLE_POLICY`）登记每张表导入或排除+理由，未登记的新表使导入拒绝。记忆只受来源规则约束：全部版本来源落在导入范围（或 owner_note）才导入；**personal 记忆不再要求计划选中**——同产品延续不是跨产品发布（0022 的 `personal_memories` 字段仅属开发方向）。资料授权两端都导入才入库，否则只记回执（跨实例、不生效）。MCP/Jev 配置导入，缺凭据绑定时以停用导入。应用数据是文件级迁移：`agent-data/main.db`（+WAL）经 sha256 核对复制，绑定 meta `app_data.main_instance_id` 随行，`github_retirement_done` 随迁避免目标重跑退役迁移。模型目录、API key 与 agentDir 其余配置不复制（配置中心负责）。
 4. **不重放收尾。** 未终态任务收尾为 canceled / interrupted（migration），结果未登记且可能已开始执行的工具操作与任务置 effect_unknown（口径与运行时恢复一致）；未消费审批 stale；未关闭调度运行置 `closed_at`；发送账本 pending→canceled（已知未发送，不当作新请求重发）、sending→effect_unknown；入站 registered/queued→failed；SubAgent 按关闭状态登记；main 会话访问模式**原样保留**（同产品延续，不做 0022 的降级）。目标启动恢复扫描遇到的都是已定终态，不做任何重派、重发或重跑。

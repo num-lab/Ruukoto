@@ -22,7 +22,7 @@ Status: resolved
 
 ### 2026-10-05：实施计划
 
-基于 HEAD `d2f6f74` 制定。01/19/20 均已交付（19 的工单头漏标 resolved，一并在本单修正）。当前核心库 v28、控制协议见 `src/control/`；21 已交付跨实例导入骨架（ADR 0022，schema v28 两表、`src/runtime/legacy-import.ts`、`ruukoto-dev legacy-import`、test/85、smoke-21）。本单是 21 的镜像方向：旧 ruukoto 实例的个人侧资料迁入**全新 ruukoto 实例**（源与目标同为 ruukoto 产品，目标为另一数据目录）。
+基于 HEAD `d2f6f74` 制定。01/19/20 均已交付（19 的工单头漏标 resolved，一并在本单修正）。当前核心库 v28、控制协议见 `src/control/`；21 已交付跨实例导入骨架（ADR 0022，schema v28 两表、`src/runtime/legacy-import.ts`、`ruukoto-code legacy-import`、test/85、smoke-21）。本单是 21 的镜像方向：旧 ruukoto 实例的个人侧资料迁入**全新 ruukoto 实例**（源与目标同为 ruukoto 产品，目标为另一数据目录）。
 
 #### 现状核实
 
@@ -33,7 +33,7 @@ Status: resolved
 
 #### 默认取舍（推荐即规格，有异议再改）
 
-- **执行方式与命令面。** 与 21 同构：目标侧离线 CLI、不走控制面、持目标实例锁、源全程只读（`ruukoto.db` 与 `agent-data/main.db` 都逐文件复制到快照后读取）。命令复用 `legacy-import` 子命令，按产品分流：`ruukoto legacy-import` = 本单的个人方向；`ruukoto-dev legacy-import` = 21 的开发方向（不变）。两方向共享错误码与回执表。
+- **执行方式与命令面。** 与 21 同构：目标侧离线 CLI、不走控制面、持目标实例锁、源全程只读（`ruukoto.db` 与 `agent-data/main.db` 都逐文件复制到快照后读取）。命令复用 `legacy-import` 子命令，按产品分流：`ruukoto legacy-import` = 本单的个人方向；`ruukoto-code legacy-import` = 21 的开发方向（不变）。两方向共享错误码与回执表。
 - **导入范围（allow-list）。** 导入：main/coding/chat 角色行及其项目与会话（含一层 SubAgent 与工作委托）、QQ 群会话与群归档四表、这些会话的任务/工具操作/审批/产物/选择记录/压缩点/事件、调度两表、发送账本、长期授权、`inbound_events` 全量、`qq_config`/`telegram_config`、GitHub 归档三表与 `github-archive-manifest.json`、`agent-data/main.db`（+WAL）与 meta `app_data.main_instance_id`/`github_retirement_done`/导入项目的 `jev.project.*`、main 项目与可核验来源的 personal 记忆、两端都导入的资料授权、导入项目的 MCP 服务。排除：普通 dev 会话及其 SubAgent 与项目（属 Coding Agent，经 21 迁移；预览列出并指向 21）、history_index 两表（可重建）、occupancy（运行时占用）、instance_imports/_items（目标自有账本）、跨到 dev 项目的记忆正文与授权（只进回执）。
 - **身份与路径重写。** 行 ID 一律原样保留。角色会话 cwd 与 `agent_roles.work_dir`、角色项目根四列改写为目标 `<dataDir>/../agent-work/<角色>`（apply 时建目录并取目标 dev/ino/realpath——`ensureRoles` 幂等跳过既有行，不会重建）；普通会话 `session_file` 改写为目标 `sessions/` 下同名文件；会话 `create_request_id` 置空。main 会话 `default_access_mode` 原样保留（同产品延续，不做 21 的降级）。
 - **不重放收尾（关键状态全部落定）。** 任务/审批沿用 21 口径（queued→canceled、running/awaiting_confirmation→interrupted 且 effect_unknown 同口径、未消费审批 stale，原因 migration）。新增：未关闭的调度运行置 `closed_at`（pending news 随运行关闭自然落空，schedule 的下个到期在目标正常触发）；发送账本 `pending→canceled`（`error_kind=migration`，已知未发送不当作新请求重发）、`sending→effect_unknown`、其余终态原样；`inbound_events` 的 registered/queued→failed（不再重派，任务侧已收尾）。SubAgent 按 21 规则以关闭状态登记。
@@ -62,7 +62,7 @@ Status: resolved
 
 验收对应检查（六项）：
 
-1. **预览与不覆盖**：预览完整（交接清单、收尾方式、待处理逐项）；目标零写入；源目录前后逐文件 sha 不变（含 v20 旧库只在快照迁移）；源/目标后台存活、目标为 ruukoto-dev、源为 ruukoto-dev、目标与源同实例（同 instance_id 或同路径）、目标已初始化自有角色行均拒绝；同名异值凭据冲突拒绝且零写入；目标备份存在且 sha 与回执一致。
+1. **预览与不覆盖**：预览完整（交接清单、收尾方式、待处理逐项）；目标零写入；源目录前后逐文件 sha 不变（含 v20 旧库只在快照迁移）；源/目标后台存活、目标为 ruukoto-code、源为 ruukoto-code、目标与源同实例（同 instance_id 或同路径）、目标已初始化自有角色行均拒绝；同名异值凭据冲突拒绝且零写入；目标备份存在且 sha 与回执一致。
 2. **迁移可用与可核查**：目标启动后 main 会话历史/产物逐字节可读；应用数据工具可查询且审计回执（task_id 引用）完整；记忆按来源规则注入（选择记录证明）；调度在目标恢复逾期触发；`qq inbox/outbox`、群结果、coding/chat 历史、GitHub 归档、发送账本全部可查。
 3. **交接归属**：目标 telegram 适配器以导入的 `last_update_id` 继续轮询（入站不重复消费；去重表随行）；dd 钉版目标的待发/审批按 configVersion 核实通过；活动调度只在目标触发一次（旧 pending 已取消，无双发）；长期授权在目标按原范围核实放行；`inbound_events` 无重派。
 4. **来源与待处理**：引用 dev 会话的记忆不导入列待处理；跨到 dev 项目的授权只进回执；MCP/Jev 缺凭据停用导入；models/auth 不复制；`TABLE_POLICY` 全表登记核对（新表未登记测试失败）。

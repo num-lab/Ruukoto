@@ -230,7 +230,7 @@ export interface RuntimeConfig {
   telegramDisabled?: boolean;
   /**
    * 产品身份（agent-direction issue 01，ADR 0017）：缺省 ruukoto（个人 Agent）。
-   * ruukoto-dev（Coding Agent）启动时强制停用 QQ/Telegram 适配器、不创建调度器，
+   * ruukoto-code（Coding Agent）启动时强制停用 QQ/Telegram 适配器、不创建调度器，
    * 并把产品归属登记到数据目录 meta（跨产品复用同一数据目录直接拒绝）。
    */
   productType?: ProductType;
@@ -394,8 +394,8 @@ export class Runtime {
     this.sched = new SchedulerStore(store);
     this.telegramStore = new TelegramStore(store);
     // 拥有者 IM 入口（issue 04/06，架构工单 10）：始终创建；启动配置停用（dev 开发实例、
-    // ruukoto-dev 产品边界）只是入口标志。编排器启动后才连接/轮询（见 start）
-    const startupDisabled = this.productType === "ruukoto-dev" ? "product" : "dev";
+    // ruukoto-code 产品边界）只是入口标志。编排器启动后才连接/轮询（见 start）
+    const startupDisabled = this.productType === "ruukoto-code" ? "product" : "dev";
     this.qqAdapter = new QqAdapter({
       store,
       media: this.inboundMedia,
@@ -592,8 +592,8 @@ export class Runtime {
     // Coding Agent 产品（issue 01）：消息平台连接与个人调度不属于产品边界；
     // 与显式 qqDisabled/telegramDisabled 同源生效（状态视图按产品标注原因）
     const fullConfig: RuntimeConfig = { ...config, execution: config.execution ?? { backend: "local" },
-      qqDisabled: productType === "ruukoto-dev" ? true : config.qqDisabled,
-      telegramDisabled: productType === "ruukoto-dev" ? true : config.telegramDisabled,
+      qqDisabled: productType === "ruukoto-code" ? true : config.qqDisabled,
+      telegramDisabled: productType === "ruukoto-code" ? true : config.telegramDisabled,
       githubWebhook: config.githubWebhook ? parseGitHubEventsConfig(config.githubWebhook) : undefined };
     fs.mkdirSync(fullConfig.dataDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(fullConfig.agentDir, { recursive: true, mode: 0o700 });
@@ -681,7 +681,7 @@ export class Runtime {
     runtime.initSources();
     // 调度器（issue 03）：恢复准备须在通用 recover() 改写 running 任务之前——
     // 先按关联记录真实状态补关闭/合并漏过周期，再把遗留 sending 定为未知。
-    // 个人调度只属于个人 Agent 产品（issue 01）：ruukoto-dev 不创建调度器
+    // 个人调度只属于个人 Agent 产品（issue 01）：ruukoto-code 不创建调度器
     if (runtime.productType === "ruukoto") {
       runtime.initScheduler();
       runtime.scheduler!.prepareRecovery();
@@ -772,7 +772,7 @@ export class Runtime {
     // 巡检补登 owner 回复要读固定目标）；未配置/未启用时保持断开，不猜测端点
     await runtime.qqAdapter.start();
     runtime.telegram.start();
-    // 恢复与角色引导完成后才开放调度事件派发与发送（ruukoto-dev 无调度器）
+    // 恢复与角色引导完成后才开放调度事件派发与发送（ruukoto-code 无调度器）
     runtime.scheduler?.start();
     if (fullConfig.githubWebhook) {
       try {
@@ -1017,7 +1017,7 @@ export class Runtime {
 
   async scheduleCancel(input: { scheduleId: string; expectedVersion: number; reason: string }) {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
-    // ruukoto-dev 无调度器：取消计划的合并语义不可用，明确拒绝而不是静默改写
+    // ruukoto-code 无调度器：取消计划的合并语义不可用，明确拒绝而不是静默改写
     if (!this.scheduler) throw new RuntimeApiError("unavailable", "该实例未启动个人调度（Coding Agent 产品边界）");
     if (!input.reason.trim()) throw new RuntimeApiError("invalid_params", "reason 不能为空");
     try {

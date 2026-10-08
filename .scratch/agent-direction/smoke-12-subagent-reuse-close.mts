@@ -4,7 +4,7 @@
  * 模拟：模型（MockModelServer 确定性脚本）与消息平台（不启用）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （Docker 容器后端，04/11 已验证的 macOS 受限执行边界）+ 真实文件读取与
- * 只读范围 + 真实 CLI（bin/ruukoto-dev.mjs work close，经 socket 与拥有者令牌）。
+ * 只读范围 + 真实 CLI（bin/ruukoto-code.mjs work close，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应）：
  *  A1. 继续委派与复用的执行记录相互独立（三件套分别核实；A 首次结果不改写）；
@@ -150,7 +150,7 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto-dev：真实容器 worker + 真实 CLI ============
+// ============ ruukoto-code：真实容器 worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
 const dataDir = path.join(root, "data");
@@ -165,7 +165,7 @@ const config: RuntimeConfig = {
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  productType: "ruukoto-dev",
+  productType: "ruukoto-code",
   ...realTools(),
   execution: { backend: "container", container: { uid: UID, gid: GID } },
 };
@@ -235,9 +235,9 @@ try {
   });
 
   await check("A4 真实 CLI work close 后，继续与复用委派均被拒", async () => {
-    const env = { ...process.env, RUUKOTO_DEV_DATA_DIR: dataDir };
+    const env = { ...process.env, RUUKOTO_CODE_DATA_DIR: dataDir };
     // 异步 spawn：同进程的控制面需要事件循环服务 CLI 的连接（execFileSync 会阻塞）
-    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-dev.mjs"), "work", "close", agent1Id], { encoding: "utf8", env, timeout: 60_000 });
+    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-code.mjs"), "work", "close", agent1Id], { encoding: "utf8", env, timeout: 60_000 });
     assert.match(out, /"alreadyClosed": false/, out);
     assert.equal(rt.store.getSubAgent(agent1Id)!.closedBy, "owner");
     await assert.rejects(() => rt.subagents!.delegate({ parentTaskId: parent.id, key: "sk4", request: "x", workId: workA, readPaths: [fileA], paramsDigest: "d-sk4" }), /已关闭/);

@@ -7,7 +7,7 @@
  * 3. 在线：修订冲突时提示「已重新加载」并刷新出新数据；
  * 4. 离线：后台持有配置锁时拒绝进入；独立目录可写 key/默认模型且退出后释放锁；
  * 5. 重载状态：导航分区持久化、重启恢复、损坏文件提示后回主菜单；
- * 6. 工作区设置入口（agent-direction issue 06 步骤 3）：ruukoto-dev 的项目分区按
+ * 6. 工作区设置入口（agent-direction issue 06 步骤 3）：ruukoto-code 的项目分区按
  *    工作区/旧项目分类（ruukoto 不标注）、工作区详情内 MCP 固定归属、设置冲突
  *    重读后台、资料授权方向/同范围/已撤销、重载恢复沿用既有菜单 id；
  *    mcp_remove 的可选期望版本在协议层验证（CLI --expected-version 为同形透传）。
@@ -114,7 +114,7 @@ async function waitForText(term: FakeTerminal, text: string, desc = text, timeou
   await waitFor(`屏幕出现「${desc}」`, () => term.output().includes(text), timeoutMs);
 }
 
-function startConfig(t: TestRuntime, opts: { offline?: boolean; product?: "ruukoto" | "ruukoto-dev" } = {}): ConfigHarness {
+function startConfig(t: TestRuntime, opts: { offline?: boolean; product?: "ruukoto" | "ruukoto-code" } = {}): ConfigHarness {
   const terminal = new FakeTerminal();
   const done = runConfigTui({
     offline: opts.offline,
@@ -503,7 +503,7 @@ test("重载状态：分区路径持久化与恢复，损坏文件提示后回�
 
 const UP = "\x1b[A";
 
-test("ruukoto-dev：项目分区先列工作区（显示根目录）再列旧项目；ruukoto 不标注", async () => {
+test("ruukoto-code：项目分区先列工作区（显示根目录）再列旧项目；ruukoto 不标注", async () => {
   const t = await startTestRuntime("cfg-tui-ws-partition", textResponder);
   try {
     const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-part-1" })) as any;
@@ -511,7 +511,7 @@ test("ruukoto-dev：项目分区先列工作区（显示根目录）再列旧项
     await t.client.request("create_session", { project_id: legacy.id, cwd: t.work[1]! });
     const rootReal = fs.realpathSync(t.work[0]!);
 
-    const hDev = startConfig(t, { product: "ruukoto-dev" });
+    const hDev = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(hDev.terminal, "配置分区");
       hDev.terminal.send(DOWN + ENTER); // 项目
@@ -548,7 +548,7 @@ test("ruukoto-dev：项目分区先列工作区（显示根目录）再列旧项
   }
 });
 
-test("ruukoto-dev：工作区详情的 MCP 只列本项目服务，新增固定归属且跳过项目选择；全局入口仍按分类选择", async () => {
+test("ruukoto-code：工作区详情的 MCP 只列本项目服务，新增固定归属且跳过项目选择；全局入口仍按分类选择", async () => {
   const t = await startTestRuntime("cfg-tui-ws-mcp", textResponder);
   try {
     const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-mcp-a" })) as any;
@@ -562,7 +562,7 @@ test("ruukoto-dev：工作区详情的 MCP 只列本项目服务，新增固定�
       project_id: projectB, name: "otherb", endpoint: "https://b.example.com/mcp", tool_allowlist: [],
     });
 
-    const h = startConfig(t, { product: "ruukoto-dev" });
+    const h = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h.terminal, "配置分区");
       h.terminal.send(DOWN + ENTER); // 项目
@@ -625,12 +625,12 @@ test("ruukoto-dev：工作区详情的 MCP 只列本项目服务，新增固定�
   }
 });
 
-test("ruukoto-dev：设置编辑期另一客户端保存后，本界面旧表单保存冲突并重读后台展示新值", async () => {
+test("ruukoto-code：设置编辑期另一客户端保存后，本界面旧表单保存冲突并重读后台展示新值", async () => {
   const t = await startTestRuntime("cfg-tui-ws-conflict", textResponder);
   try {
     const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-conflict-1" })) as any;
     const projectId = a.session.projectId as string;
-    const h = startConfig(t, { product: "ruukoto-dev" });
+    const h = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h.terminal, "配置分区");
       h.terminal.send(DOWN + ENTER);
@@ -662,7 +662,7 @@ test("ruukoto-dev：设置编辑期另一客户端保存后，本界面旧表单
   }
 });
 
-test("ruukoto-dev：资料授权标注出向/入向；同范围多条撤销提示不夸大；撤销后可在已撤销记录查看", async () => {
+test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提示不夸大；撤销后可在已撤销记录查看", async () => {
   const t = await startTestRuntime("cfg-tui-ws-grants", textResponder);
   try {
     const pa = (await t.client.request<any>("create_project", { name: "alpha-g" })) as any;
@@ -673,7 +673,7 @@ test("ruukoto-dev：资料授权标注出向/入向；同范围多条撤销提�
     const preRevoked = (await t.client.request<any>("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "artifact" })) as any;
     await t.client.request("revoke_data_grant", { grant_id: preRevoked.id });
 
-    const h = startConfig(t, { product: "ruukoto-dev" });
+    const h = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h.terminal, "配置分区");
       h.terminal.send(DOWN + ENTER); // 项目
@@ -735,7 +735,7 @@ test("重载恢复：项目 → 某项目 → MCP 沿用既有 id 序列持久�
   try {
     const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-reload-1" })) as any;
     const projectId = a.session.projectId as string;
-    const h1 = startConfig(t, { product: "ruukoto-dev" });
+    const h1 = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h1.terminal, "配置分区");
       h1.terminal.send(DOWN + ENTER);
@@ -756,7 +756,7 @@ test("重载恢复：项目 → 某项目 → MCP 沿用既有 id 序列持久�
       assert.equal(await h1.quit(), 0);
     }
 
-    const h2 = startConfig(t, { product: "ruukoto-dev" });
+    const h2 = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h2.terminal, `MCP 服务（${a.projectName}）`, "重载后直接恢复到该项目的 MCP 分区");
     } finally {
@@ -791,7 +791,7 @@ test("重载状态指向其他项目的服务：不打开归属不符的服务�
       section: ["projects", `project:${projectA}`, "mcp", `svc:${svcB.id}`],
       updatedAt: "",
     }));
-    const h = startConfig(t, { product: "ruukoto-dev" });
+    const h = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h.terminal, "已不存在", "归属其他项目的服务不随重载打开");
       assert.ok(h.terminal.output().includes("docsa"), "停留在本项目 MCP 列表");
@@ -839,7 +839,7 @@ test("mcp_remove 期望版本：匹配删除成功；陈旧版本冲突且服务
   }
 });
 
-test("ruukoto-dev：工作区详情列出关联旧资料与原配置入口；来源设置按来源版本访问（issue 07 步骤 4）", async () => {
+test("ruukoto-code：工作区详情列出关联旧资料与原配置入口；来源设置按来源版本访问（issue 07 步骤 4）", async () => {
   const t = await startTestRuntime("cfg-tui-ws-sources", textResponder);
   try {
     const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-src-1" })) as any;
@@ -854,7 +854,7 @@ test("ruukoto-dev：工作区详情列出关联旧资料与原配置入口；来
       from_project_id: legacy.id, to_project_id: wsId, category: "history", purpose: "旧历史供工作区查阅",
     });
 
-    const h = startConfig(t, { product: "ruukoto-dev" });
+    const h = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h.terminal, "配置分区");
       h.terminal.send(DOWN + ENTER); // 项目

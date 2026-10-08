@@ -1,6 +1,6 @@
 # 双产品迁移首期发布与验收
 
-首期交付包含开发机上的 Coding Agent `ruukoto-dev`、Linux 服务器上的个人 Agent
+首期交付包含开发机上的 Coding Agent `ruukoto-code`、Linux 服务器上的个人 Agent
 `ruukoto`、一层通用 SubAgent，以及旧实例的两种离线导入方向。两个产品各自使用档案、
 控制面和模型配置；`npm run dev` 仍是开发本项目的隔离实例，运行的是 `ruukoto`。
 产品定位与保留普通开发会话的决定见 [ADR 0017](adr/0017-two-agent-products.md)。
@@ -13,7 +13,7 @@
 
 ## 已交付行为
 
-`ruukoto-dev` 以工作区和会话组织编码工作，首次打开 TUI 时按需拉起后台，退出 TUI 后
+`ruukoto-code` 以工作区和会话组织编码工作，首次打开 TUI 时按需拉起后台，退出 TUI 后
 任务继续。受限任务默认使用每任务容器，缺少执行能力时明确失败；完全访问需要独立
 执行账户。Git 修改委派按工作生成 worktree，主 Agent 汇总到父工作区待提交区后验证；
 冲突时保留双方成果，非 Git 写入按目录占用串行。
@@ -46,7 +46,7 @@ tx 的服务、helper、策略与 sudoers 使用隔离演练资源，日常后�
 | 场景 1：本地修改、检查、TUI 退出后继续与重连 | macOS arm64、Node 24.15；真实 `mirasim/kimi-k3`、默认容器后端、生产 bin 与 PTY TUI | [smoke-24](../.scratch/agent-direction/smoke-24-release-acceptance.mts) 全程 5/5，含下行的安装升级；原 `check.mjs` 字节不变，修前检查实际失败、修后实际通过，TUI 退出时任务仍 running，重连可查终态与工具产物 |
 | 双产品分别安装、升级与停止 | macOS 与 tx 各用两份独立检出执行 `npm ci`，从 `1aba2f1` 逐端替换为当前源码 | macOS 包含于上述 5/5，Linux `--upgrade-only` 4/4；模型为桩。另一端 PID 保持、停端期间任务成功、原历史及 instanceId 保持；两产品档案与控制面分别使用 |
 | 受限执行与缺入口拒绝 | macOS Docker Desktop 与 tx 原生 Docker，真实文件、进程、网络与 worker | [smoke-04](../.scratch/agent-direction/smoke-04-desktop-execution.mts) 两端各 6/6；模型为桩；容器内修改/检查、越界单次审批、中断后回收、完全访问缺入口时明确拒绝 |
-| Linux Coding Agent 完全访问 | tx `ruukoto-dev` 的真实 Runtime，经临时固定 sudo/systemd 入口运行当前 worker，`uid:gid=986:986` | [full-access 演练](../.scratch/agent-direction/release-24-linux-full-access.mts) 一次任务的四次工具操作完成修前失败/修后通过，后台 `owner.token` 与核心库拒读；模型为桩，未使用 macOS 原生完全访问入口 |
+| Linux Coding Agent 完全访问 | tx `ruukoto-code` 的真实 Runtime，经临时固定 sudo/systemd 入口运行当前 worker，`uid:gid=986:986` | [full-access 演练](../.scratch/agent-direction/release-24-linux-full-access.mts) 一次任务的四次工具操作完成修前失败/修后通过，后台 `owner.token` 与核心库拒读；模型为桩，未使用 macOS 原生完全访问入口 |
 | 场景 2：IM 服务管理与限定长期授权 | tx 真实 systemd、sudo、root helper、测试服务与账本 | [smoke-09](../.scratch/agent-direction/smoke-09-linux-service-management.mts) 14/14、[smoke-10](../.scratch/agent-direction/smoke-10-standing-permissions.mts) 14/14；模型、OneBot 与 Bot API 为桩，真实重启和授权保存/使用/撤销/失效有外部效果证据 |
 | 场景 3：同项工作协作 | tx 真实 Runtime、控制面、SQLite、独立 JSONL 与受限容器 | [smoke-13](../.scratch/agent-direction/smoke-13-subagent-messaging.mts) 6/6；模型为桩，双向消息、来源、复用后旧资格拒绝、显式关闭与重启记录核实 |
 | 场景 3：恢复与原入口最终汇报 | tx 真实容器、CLI、后台重启与 SIGKILL、outbox | [smoke-15](../.scratch/agent-direction/smoke-15-recover-subagents.mts) 首次 Linux 复验 8/8、[smoke-18](../.scratch/agent-direction/smoke-18-im-final-delivery.mts) 7/7；模型和消息平台为桩，持续响应、固定原入口、离线等待、重绑失效与一次汇报已核实 |
@@ -54,7 +54,7 @@ tx 的服务、helper、策略与 sudoers 使用隔离演练资源，日常后�
 | 回退状态修复 | 两方向导入的真实数据库与回执 | [test/85](../test/85-legacy-instance-import.test.ts) 与 [test/86 personal](../test/86-personal-instance-import.test.ts) 合计 12/12；联合检查先捕获旧错误，再验证阻挡响应 `status: applied` 与回执一致，成功才为 `reverted` |
 
 本次发现并修复了两方向回退被阻挡时响应误报 `reverted` 的问题；数据库原本保留
-`applied`，现在响应与回执一致。配置中心项目列表的根目录描述也收回到 `ruukoto-dev`
+`applied`，现在响应与回执一致。配置中心项目列表的根目录描述也收回到 `ruukoto-code`
 产品，个人产品 `ruukoto` 继续平铺项目名称。最终 macOS `npm test` 为 915 项、913 通过、1 跳过、1 失败：
 `test/08` 的 DNS 前提在本机不成立，`nonexistent.invalid` 解析到 `198.18.0.71`，
 干净基线 `33571b4` 同用例也超时。最终 Linux `npm test` 为 915 项、914 通过、1 跳过、
@@ -101,16 +101,16 @@ tx 的服务、helper、策略与 sudoers 使用隔离演练资源，日常后�
 ## 安装、升级与切换
 
 开发端在开发机检出代码、安装依赖、构建可信 `ruukoto-worker` 镜像，通过
-`ruukoto-dev config` 配置本端模型后打开目录。个人端按
+`ruukoto-code config` 配置本端模型后打开目录。个人端按
 [systemd 部署说明](../deploy/systemd/README.md) 配置独立后台账户、执行账户、容器和
 可选服务 helper。不要将两个产品指向同一个数据目录；产品归属不符时会拒绝启动。
 
 升级前停止需要升级的产品，保留其档案并替换该端检出。修改 worker 或其使用的核心
-代码后重建镜像；`ruukoto-dev stop` 后重开 TUI 可拉起新代码，个人端按部署说明重启
+代码后重建镜像；`ruukoto-code stop` 后重开 TUI 可拉起新代码，个人端按部署说明重启
 systemd 单元。分别安装在各自机器或检出中的产品不要求同时升级，另一端不提供本地
 任务执行所需的控制面或存储。协议与 schema 版本以本端代码为准。
 
-迁移时先停止旧实例和目标后台，开发资料使用 `ruukoto-dev legacy-import`，个人资料
+迁移时先停止旧实例和目标后台，开发资料使用 `ruukoto-code legacy-import`，个人资料
 使用 `ruukoto legacy-import`；依次执行 `preview`、核对计划、`apply`、目标启动查阅。
 个人方向必须使用全新目标，核对入口代次、Telegram 偏移、长期授权与发送账本后，把
 平台和调度执行权交给目标，旧实例保持停止。命令不会修改或停用源实例。
@@ -125,7 +125,7 @@ systemd 单元。分别安装在各自机器或检出中的产品不要求同时
 ## 发布验收边界
 
 真实受限执行边界已在 macOS Docker Desktop 与 tx 原生 Linux 取得证据；Linux 个人端
-执行账户及服务提权入口已有真实部署验证。本次另在 tx 的 `ruukoto-dev` 使用临时
+执行账户及服务提权入口已有真实部署验证。本次另在 tx 的 `ruukoto-code` 使用临时
 固定入口核实完全访问 `uid:gid=986:986`、代码修改与检查、后台令牌和核心库拒读；模型
 为桩，临时入口演练后清理。macOS 完全访问未提供经过验证的本机入口，现有
 `createSystemdLauncher` 与 `deploy/systemd` 包装只适用于 Linux；目前缺配置时明确拒绝，

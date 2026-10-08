@@ -4,7 +4,7 @@
 
 状态：已接受。拥有者通过三轮访谈确认全部 19 项方向决定；本记录描述目标架构，代码迁移与具体技术验证尚待实施。
 
-Ruukoto Agent 包括两个工具：`ruukoto-dev` 是运行在开发机器上、以 TUI 为主要入口的 Coding Agent，重心是 Agentic coding，首期支持 macOS 与 Linux；`ruukoto` 是运行在专用 Linux 服务器上、以 QQ 私聊和 Telegram 等 IM 为主要入口的 Personal Agent，面向多样化任务，也允许通过邮件、GitHub comment 等渠道交流。两端独立安装、运行和升级，在同一仓库复用适用代码；一端停止或两端失联时，另一端仍能执行本地任务。共享范围先限于明确选定的个人偏好与通用经验，项目约定保留所属范围，不默认同步完整历史、日程或任务进度；共享信息不可用时只影响其新鲜度，发布与交换机制另行确定。
+Ruukoto Agent 包括两个工具：`ruukoto-code` 是运行在开发机器上、以 TUI 为主要入口的 Coding Agent，重心是 Agentic coding，首期支持 macOS 与 Linux；`ruukoto` 是运行在专用 Linux 服务器上、以 QQ 私聊和 Telegram 等 IM 为主要入口的 Personal Agent，面向多样化任务，也允许通过邮件、GitHub comment 等渠道交流。两端独立安装、运行和升级，在同一仓库复用适用代码；一端停止或两端失联时，另一端仍能执行本地任务。共享范围先限于明确选定的个人偏好与通用经验，项目约定保留所属范围，不默认同步完整历史、日程或任务进度；共享信息不可用时只影响其新鲜度，发布与交换机制另行确定。
 
 取消旧架构中的固定 `coding` 角色，原因是它与开发工具的能力重复。取消内建 `chat` 角色，QQ 群聊改为独立可选程序，自行管理群会话、历史和发送状态，通过有限接口向 ruukoto 提供结果，停用不影响主会话；代码可以留在同一仓库。这样避免将通用个人助手限定为群聊用途，也使群聊扩展可以独立演进。
 
@@ -14,13 +14,13 @@ Ruukoto Agent 包括两个工具：`ruukoto-dev` 是运行在开发机器上、�
 
 工作委托可以跨越多轮对话和多个任务；每次委派执行都有独立任务记录和有效权限，之前的单次批准不延续。保留 SubAgent 身份不要求空闲时持续运行模型或工具进程。取消整项委托会停止其活动与排队子任务，不影响其他委托；迟到结果保留供查阅，不重启已取消的工作，未汇总的改动与产物保留。
 
-`ruukoto-dev` 的用户界面采用工作区 → 会话：工作区对应拥有者选择的开发根目录，可包含多个仓库；SubAgent 的临时 worktree 是该工作区的执行副本，旧项目关系在迁移时映射。首次启动时按需拉起本机后台，退出 TUI 后任务继续，显式停止才结束后台；崩溃后保留记录并提示恢复，不自动重放结果未知的操作。
+`ruukoto-code` 的用户界面采用工作区 → 会话：工作区对应拥有者选择的开发根目录，可包含多个仓库；SubAgent 的临时 worktree 是该工作区的执行副本，旧项目关系在迁移时映射。首次启动时按需拉起本机后台，退出 TUI 后任务继续，显式停止才结束后台；崩溃后保留记录并提示恢复，不自动重放结果未知的操作。
 
 同一份工作文件只允许一个 Agent 写入；并行编码使用独立 Git worktree，由主 Agent 汇总改动并验证，非 Git 目录的写任务串行。上下文独立不等于文件改动隔离，现有目录占用机制需要按此行为调整。
 
 `ruukoto` 只有一个面向拥有者的持续主会话，SubAgent 可以有独立工作上下文，main 委派长任务后继续响应新消息。完成或失败后的最终结果由 main 汇总，自动发回原入口和原拥有者，需要审批时及时通知；普通进度按需提供，不广播到其他入口。单会话不要求所有实际工作串行，完整历史与有界模型上下文仍分别管理。
 
-`ruukoto` 通过专用账户按明确授权管理服务器，绑定的拥有者私聊应能完成审批。拥有者可为具体操作和目标保存可查看、可撤销的长期授权，例如重启指定服务；范围外仍需审批，不默认长期授予任意 root 权限。`ruukoto-dev` 在 macOS/Linux 上均须提供有技术约束的受限执行模式，并另设拥有者显式选择的完全访问模式；所需执行边界缺失时拒绝启动受限任务，不静默降级，具体隔离实现先验证再选择。
+`ruukoto` 通过专用账户按明确授权管理服务器，绑定的拥有者私聊应能完成审批。拥有者可为具体操作和目标保存可查看、可撤销的长期授权，例如重启指定服务；范围外仍需审批，不默认长期授予任意 root 权限。`ruukoto-code` 在 macOS/Linux 上均须提供有技术约束的受限执行模式，并另设拥有者显式选择的完全访问模式；所需执行边界缺失时拒绝启动受限任务，不静默降级，具体隔离实现先验证再选择。
 
 共享记忆由 Agent 提出候选，经拥有者确认发布或修改跨端偏好；本端记忆的正常积累不依赖另一端在线。具体同步机制在共享功能实施阶段决定。
 
@@ -40,7 +40,11 @@ Ruukoto Agent 包括两个工具：`ruukoto-dev` 是运行在开发机器上、�
 
 ## 补充：ruukoto 保留普通开发会话（2026-10-05）
 
-ruukoto 产品不拒绝普通开发会话的创建与提交。开发本项目的开发实例（`npm run dev`）运行的就是 ruukoto 产品，并以普通开发会话工作；按产品拒绝会直接打断它，而把开发实例改为 ruukoto-dev 又要迁移现有开发档案（数据目录的产品归属拒绝直接切换）。两个产品的定位不变：Coding Agent 仍是编码的主要入口，ruukoto 中的普通开发会话是保留的能力，不是新的产品方向。旧项目的新建入口只在 ruukoto-dev 改为工作区提示（agent-direction issue 23），不扩展到 ruukoto。
+ruukoto 产品不拒绝普通开发会话的创建与提交。开发本项目的开发实例（`npm run dev`）运行的就是 ruukoto 产品，并以普通开发会话工作；按产品拒绝会直接打断它，而把开发实例改为 ruukoto-code 又要迁移现有开发档案（数据目录的产品归属拒绝直接切换）。两个产品的定位不变：Coding Agent 仍是编码的主要入口，ruukoto 中的普通开发会话是保留的能力，不是新的产品方向。旧项目的新建入口只在 ruukoto-code 改为工作区提示（agent-direction issue 23），不扩展到 ruukoto。
+
+## 补充：Coding Agent 入口改名（2026-10-08）
+
+Coding Agent 的产品入口由 `ruukoto-dev` 改为 `ruukoto-code`。同步更新了 bin 入口、产品身份、默认档案根（`~/.ruukoto-code`）和路径环境变量前缀（`RUUKOTO_CODE_*_DIR`）。用于开发本项目的隔离开发实例仍使用 `npm run dev` 与 `~/.ruukoto-dev/`，两者概念不同。
 
 ## 实施记录
 
@@ -53,8 +57,7 @@ ruukoto 产品不拒绝普通开发会话的创建与提交。开发本项目的
 - agent-direction issue 18（2026-10-04）：异步工作最终结果送回原 IM 入口——IM 来源任务发起的通用工作，由宿主在收尾的 main 唤醒结果事务内经 `owner_reply` 槽登记一次最终汇报（键 `<发起事件 id>#work:<workId>:<收尾执行任务 id>`、正文为唤醒轮次最终回答加固定首行、目标沿用发起事件钉版目标；重复/补记幂等，已取消工作不汇报，离线等待与效果未知不重发沿用 outbox）；ADR 0011/0012「子任务唤醒不产生 owner 回复」的例外仅限该收尾轮次，授权不扩大（不新增工具、唤醒轮次外发请求仍按原规则核实）。旧 draft 链与 GitHub 来源不纳入（17/19 迁移后自动适用规则已定）。
 - agent-direction issue 19（2026-10-04）：GitHub PR 评审迁移到通用 SubAgent——每个修订由编排器直接登记一项新工作、一个新 SubAgent（hostReview 不经模型工具、不占 main 名额、带来源事件复用出队门与通知回写），只读 MCP 按任务开放且只给评审任务（GitHub MCP 改配 main 角色项目），main 结果唤醒开放 `subagent_result`；升级前在途的旧 coding 评审子任务沿原路径接管，不再新建；决定见 [ADR 0013](0013-github-event-review.md) 修订段。评审工作不适用 issue 18 的最终汇报（固定通知沿用 ADR 0013）。
 - agent-direction issue 20（2026-10-04）：核心群聊退役与旧群资料保全——执行本决策对 ADR 0014 的修订：chat 角色不再引导，群消息直接忽略，允许群写入口删除（控制协议 v14），旧群资料原地保留为只读归档（inbox 附接收账本与当前复核结论），升级收尾按状态幂等只定终态不重放；`chat_result_*` 与发送前复核不变，撤回观测上限不变（断连/退群后无法得知）。旧类型、工具类别与角色行的收缩由 issue 23 实施，跨实例迁移由 issue 22 实施，正式群聊外挂在后续阶段交付（本单不依赖外挂接口）。
-- agent-direction issue 21（2026-10-04）：旧实例开发资料迁入 Coding Agent——目标侧离线 `ruukoto-dev legacy-import`（preview/apply/revert/list），源全程只读（文件级快照），行 ID 原样保留、allow-list 导入单位、未终态收尾不重放、个人记忆仅显式选中、凭据不迁移（缺绑定以停用导入）、回执与条目账本（v28）支持幂等续跑与回退，决定见 [ADR 0022](0022-legacy-instance-import.md)。
+- agent-direction issue 21（2026-10-04）：旧实例开发资料迁入 Coding Agent——目标侧离线 `ruukoto-code legacy-import`（preview/apply/revert/list），源全程只读（文件级快照），行 ID 原样保留、allow-list 导入单位、未终态收尾不重放、个人记忆仅显式选中、凭据不迁移（缺绑定以停用导入）、回执与条目账本（v28）支持幂等续跑与回退，决定见 [ADR 0022](0022-legacy-instance-import.md)。
 - agent-direction issue 15（2026-10-05）：后台重启后恢复 SubAgent 与工作记录——排队的委派执行任务定 interrupted(backend_restart)、不自动继续也不当作新委派，巡检补记一次结果后按占用核实记 idle/unverified，继续与否由拥有者/父 Agent 决定；宿主固定评审排队任务由编排器启动恢复自动继续；`resume-queue` 是 unverified 回 idle 的出口，决定见 ADR 0020 补充段。
 - agent-direction issue 22（2026-10-05）：旧主会话与服务状态迁入全新 Personal Agent——镜像方向 `ruukoto legacy-import`：角色会话与群归档、应用数据、调度、平台绑定（config_version 与 telegram 偏移原样）、长期授权、GitHub 归档与必要凭据（平台/webhook 绑定，同名异值拒绝）整体迁入，目标须为全新实例；不重放收尾扩到交接面（运行关闭、pending 发送取消、sending 置效果未知、入站落定），执行归属随导入切换（逾期调度在目标触发一次、入站按偏移续消费），易变行按回执 manifest 逐行 sha 核对、目标启动后活动为回退阻挡项（v30 账本扩五类），决定见 [ADR 0023](0023-personal-instance-import.md)。
-- agent-direction issue 23（2026-10-05）：固定角色退役收尾——编排器只引导 main，`coding_delegate` 与旧 coding 委派/自动重试/GitHub 旧评审接管分支删除，coding 角色会话与 chat/群会话同为只读归档（提交拒绝、启动收尾取消排队任务，在途旧子任务补记一次结果与唤醒、不重放），`coding_result` 保留只读查阅；chat 工具类别与提示、Driver/上下文的 qq_group 分支与撤回过滤、QqStore 群写方法删除。存储 CHECK、`AgentRoleId` 与 `qq_group` 会话类别对应旧行实值，保留不收缩；ruukoto-dev 的用户入口不再提供旧项目新建路径。ruukoto 产品中普通开发会话的写入口保留，见上文补充段。
-
+- agent-direction issue 23（2026-10-05）：固定角色退役收尾——编排器只引导 main，`coding_delegate` 与旧 coding 委派/自动重试/GitHub 旧评审接管分支删除，coding 角色会话与 chat/群会话同为只读归档（提交拒绝、启动收尾取消排队任务，在途旧子任务补记一次结果与唤醒、不重放），`coding_result` 保留只读查阅；chat 工具类别与提示、Driver/上下文的 qq_group 分支与撤回过滤、QqStore 群写方法删除。存储 CHECK、`AgentRoleId` 与 `qq_group` 会话类别对应旧行实值，保留不收缩；ruukoto-code 的用户入口不再提供旧项目新建路径。ruukoto 产品中普通开发会话的写入口保留，见上文补充段。

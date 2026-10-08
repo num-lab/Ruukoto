@@ -345,9 +345,9 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
   assert.match(f.log.notes.at(-1)!, /创建项目未发送：连接不可用/);
   assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4, "都只发一次");
 
-  // ruukoto-dev 不再提供旧项目写入路径（agent-direction issue 23）：只提示工作区入口，不发请求
+  // ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）：只提示工作区入口，不发请求
   const saved = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
+  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
   try {
     await f.run("/new-project 新");
     assert.equal(f.log.notes.at(-1), LEGACY_PROJECT_WRITE_HINT);

@@ -169,7 +169,7 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 4. **迁移与账本**：`test/81`「v24 → v25 迁移」——旧 sub_agents/工作/会话保留、closed 两列为空、条件写入幂等；`subagent_close` 经 `subagentOpCheck` 按 `closedAt` 核实 committed/not_committed。`test/80` 继续委派用例按新口径改为先等 Agent idle。
 5. **仓库要求的验证**：`npm run typecheck` 无错；计划列出的全部定向套件（81/80/27/39×2/62/64/66/59 与 13/14/29/34/36，另含受影响的 19/75/67）通过；`npm test` 全量 883 项：882 通过、0 失败、1 跳过（基线同前）；`test/67-visual-docs` 4/4。code-review 两轴：无硬性违规；事务内查重收敛到 `dedupNewKey`、close 内重复三元提取 `byTaskId` 两处评审意见已采纳；TUI 标签调用点核实为误报（唯一调用点已随签名更新）。visual-docs-review 工单 03 的清理测试随 test/81「登记失败清理」一并交付并在该工单登记。
 
-**真实环境（模型/平台仍为模拟，模型为 MockModelServer）：** `smoke-12-subagent-reuse-close.mts` 在真实 Runtime + 控制面 + SQLite + 独立 JSONL + Docker 受限 worker（本地 macOS 与 `ssh tx` Linux 各一轮）6/6 PASS：继续/复用执行记录独立、复用后旧路径在真实容器实际被拒、真实 CLI `ruukoto-dev work close` 关闭后委派被拒、关闭后历史/产物/目录保留、空闲无残余容器、重启后关闭保持且空闲 Agent 可复用。
+**真实环境（模型/平台仍为模拟，模型为 MockModelServer）：** `smoke-12-subagent-reuse-close.mts` 在真实 Runtime + 控制面 + SQLite + 独立 JSONL + Docker 受限 worker（本地 macOS 与 `ssh tx` Linux 各一轮）6/6 PASS：继续/复用执行记录独立、复用后旧路径在真实容器实际被拒、真实 CLI `ruukoto-code work close` 关闭后委派被拒、关闭后历史/产物/目录保留、空闲无残余容器、重启后关闭保持且空闲 Agent 可复用。
 
 **同步**：`CONTEXT.md` SubAgent 条目、`docs/runtime.md` 通用 SubAgent 节（继续/复用/关闭/可用性/快照命名/控制面 op）、ADR 0020 补充段「继续、复用与关闭（issue 12）」、ADR 0017 实施记录、`docs/visual/`（orchestrator / context-pipeline / storage-layout / control-protocol / tool-call-path / once-only 六页，shoot.sh 逐张核对）。核心库 v24 → v25、控制协议 v11 → v12。
 

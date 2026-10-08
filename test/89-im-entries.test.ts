@@ -228,7 +228,7 @@ test("启动配置停用：入口照常创建但不连接、不轮询；门作�
     assert.equal(tg.target(), null);
     assert.match(String(qq.status().stateDetail), /dev 开发实例/);
     assert.equal((qq.status() as { disabledByConfig?: boolean }).disabledByConfig, true);
-    assert.match(String(tg.status().stateDetail), /ruukoto-dev/);
+    assert.match(String(tg.status().stateDetail), /ruukoto-code/);
 
     const im = new ImEntries({ store: k.store, sched: k.sched, entries: [qq, tg],
       readReply: () => null, cancelTask: async (taskId, reason) => void k.log.canceled.push([taskId, reason]),

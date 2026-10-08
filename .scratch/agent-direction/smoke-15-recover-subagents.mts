@@ -7,7 +7,7 @@
  * running 并种下遗留占用——恢复的判定输入与真实崩溃后的库内容一致）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （Docker 容器后端，04/11/12/14 已验证的 macOS 受限执行边界）+ 真实 CLI
- * （bin/ruukoto-dev.mjs resume-queue，经 socket 与拥有者令牌）。
+ * （bin/ruukoto-code.mjs resume-queue，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应）：
  *  B1. 重启时排队的委派任务定 interrupted（backend_restart）：不自动继续
@@ -153,7 +153,7 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto-dev：真实容器 worker + 真实 CLI ============
+// ============ ruukoto-code：真实容器 worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
 const dataDir = path.join(root, "data");
@@ -168,14 +168,14 @@ const config: RuntimeConfig = {
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  productType: "ruukoto-dev",
+  productType: "ruukoto-code",
   ...realTools(),
   execution: { backend: "container", container: { uid: UID, gid: GID } },
 };
 
 let rt = await Runtime.start(config);
 await ControlServer.start(rt);
-const env = { ...process.env, RUUKOTO_DEV_DATA_DIR: dataDir };
+const env = { ...process.env, RUUKOTO_CODE_DATA_DIR: dataDir };
 
 /** 播种子会话的排队任务；先按 backend_restart 暂停会话（崩溃遗留形态），避免循环提前取走。 */
 function seedQueued(sessionId: string, workId: string, subAgentId: string, parentTaskId: string, key: string, input: string, sourceEventId: string | null = null) {
@@ -306,7 +306,7 @@ try {
     assert.equal(server.calls.filter((c) => inputText(c).includes("SMOKE15-R1")).length, 0, "旧执行不并发重跑");
   });
   await check("B2 真实 CLI resume-queue：释放占用、解除暂停、Agent 回 idle", async () => {
-    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-dev.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
+    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-code.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
     assert.match(out, /"queueState": "active"/, out);
     assert.equal(rt.store.listAllOccupancy().filter((o) => o.sessionId === agent.sessionId).length, 0, "占用释放");
     assert.equal(rt.store.getSession(agent.sessionId)!.queueState, "active");

@@ -26,12 +26,12 @@ const controls = new Map<string, string>();
 let passed = 0;
 const model = new MockModelServer(() => ({ kind: "text", text: "独立运行完成" }));
 
-function profile(name: string, product: "ruukoto" | "ruukoto-dev") {
+function profile(name: string, product: "ruukoto" | "ruukoto-code") {
   const dir = path.join(root, name);
   const dataDir = path.join(dir, "data"), agentDir = path.join(dir, "agent"), controlDir = path.join(dir, "control");
   fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
   controls.set(controlDir, path.join(dataDir, "runtime.lock"));
-  const prefix = product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_DEV";
+  const prefix = product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_CODE";
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, TERM: "xterm-256color",
     [`${prefix}_DATA_DIR`]: dataDir, [`${prefix}_AGENT_DIR`]: agentDir,
     [`${prefix}_CONTROL_DIR`]: controlDir, [`${prefix}_PENDING_DIR`]: path.join(dir, "pending") };
@@ -86,7 +86,7 @@ function pass(name: string) { passed++; console.log(`PASS ${name}`); }
 try {
   console.log(`环境：${process.platform} ${process.arch}，Node ${process.version}；升级基点 ${base}`);
   if (!process.argv.includes("--upgrade-only")) {
-    const p = profile("real", "ruukoto-dev");
+    const p = profile("real", "ruukoto-code");
     const source = process.env.SMOKE24_MODELS ?? path.join(os.homedir(), ".ruukoto-dev/ruukoto-2159f2e3/agent/models.json");
     const config = JSON.parse(fs.readFileSync(source, "utf8"));
     const provider = config.providers?.mirasim;
@@ -97,7 +97,7 @@ try {
     fs.writeFileSync(path.join(workspace, "sum.mjs"), "export function sum(xs) { let total = 1; for (const x of xs) total += x; return total; }\n");
     const checkSource = 'import assert from "node:assert/strict"; import { sum } from "./sum.mjs"; assert.equal(sum([]), 0); assert.equal(sum([1,2,3]), 6); console.log("CHECK_PASS");\n';
     fs.writeFileSync(path.join(workspace, "check.mjs"), checkSource);
-    const tui = spawn("python3", [path.join(repo, ".scratch/agent-direction/pty-run.py"), path.join(repo, "bin/ruukoto-dev.mjs"), workspace],
+    const tui = spawn("python3", [path.join(repo, ".scratch/agent-direction/pty-run.py"), path.join(repo, "bin/ruukoto-code.mjs"), workspace],
       { cwd: repo, env: { ...p.env, GRACE: "10" }, stdio: ["ignore", "pipe", "pipe"] });
     children.push(tui);
     let tuiOutput = "";
@@ -112,7 +112,7 @@ try {
     });
     const task = await complete(client, session, "real-coding", true);
     assert.equal(await tuiExit, 0);
-    assert.match(tuiOutput, /已按需拉起 ruukoto-dev 后台/);
+    assert.match(tuiOutput, /已按需拉起 ruukoto-code 后台/);
     assert.match(tuiOutput, /已退出 TUI；后台任务继续运行/);
     assert.equal((await taskStatus(client, task.id)).task.status, "running", "TUI 退出时任务应仍在执行");
     const detail = await finished(client, task.id, 240_000);
@@ -132,7 +132,7 @@ try {
   }
 
   const endpoint = await model.start();
-  const personal = profile("p", "ruukoto"), coding = profile("d", "ruukoto-dev");
+  const personal = profile("p", "ruukoto"), coding = profile("d", "ruukoto-code");
   const trees = [path.join(root, "install-personal"), path.join(root, "install-coding")];
   for (const [index, tree] of trees.entries()) {
     fs.mkdirSync(tree);

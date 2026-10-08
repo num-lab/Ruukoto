@@ -58,7 +58,7 @@ Status: resolved
 
 3. **在现有配置中心提供完整的工作区设置入口。**
 
-   以 `ruukoto-dev config` 作为可信管理入口。沿用 `workspacePickerProjects` 的工作区与旧项目分类，并保存刷新所需的会话及角色会话标识；工作区展示根目录，旧项目明确标注。详情提供指令、Web Search、Jev、MCP 和资料授权，所有操作固定使用所选项目 ID。`ruukoto` 的管理界面继续支持其既有项目，离线模式仍仅管理已有模型配置。
+   以 `ruukoto-code config` 作为可信管理入口。沿用 `workspacePickerProjects` 的工作区与旧项目分类，并保存刷新所需的会话及角色会话标识；工作区展示根目录，旧项目明确标注。详情提供指令、Web Search、Jev、MCP 和资料授权，所有操作固定使用所选项目 ID。`ruukoto` 的管理界面继续支持其既有项目，离线模式仍仅管理已有模型配置。
 
    给现有 MCP 页面与新增表单传入可选目标项目，工作区详情按目标过滤服务，新增时固定归属，编辑、启停和删除核对服务归属。全局 MCP 入口复用同一页面；不另建一套表单。凭据继续使用原项目和操作范围，显示引用及元数据，不能因工作区认领或选择而复制、扩大凭据 scope。
 
@@ -115,7 +115,7 @@ npm test
 
 1. **settings_version 并发保护**（schema v19→v20 加列迁移，旧项目初始版本 1，不复制旧字段）：只保护指令列表与 Web Search，MCP/Jev/会话默认各自的版本不合并。`Store.updateProjectSettings` 为唯一写入路径（旧 `setProjectInstructionFiles`/`setProjectWebSearch` 已删除，全部真实调用方已迁移）：同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed`（携项目/设置版本/配置字段，不含指令正文或秘密）；冲突 `version_conflict` 零效果零事件；省略版本 = 旧入口兼容写入（同一行、同一版本、同一事件，带版本客户端随后保存必然冲突，不能绕过冲突检测）。同值保存幂等（不递增、无事件，对齐 MCP 启停语义；实施计划未明文外的取舍，登记于此）。`expected_version` 依运行层校验为 v1 起正整数。任务 TUI 与配置中心投影事件刷新；配置中心冲突后先重读后台快照再刷新，`refreshSessionsFromServer` 更名 `refreshSnapshotFromServer` 以符其实。
 2. **指令按工作区根目录读取**：基准目录 = `project.rootDir?.cwdReal ?? session.cwdReal`；带根目录先 `verifyDirIdentitySync`（`verifyDirIdentity` 的同步变体，共用 `assertIdentityUnchanged` 比对）核实根目录身份，失效/被替换拒绝读取替代目录并明确说明（不退回会话子目录）；绝对路径/`..` 拒绝、符号链接逃逸按基准目录拒绝、256 KiB 上限、内容哈希+捕获产物钉版全部保留；旧项目按会话目录行为不变。
-3. **配置中心工作区入口**（ruukoto-dev 按 product 分流，离线仍仅模型配置）：「项目」分区沿用 `workspacePickerProjects` 工作区在前（展示根目录）/旧项目在后标注；项目详情给出指令、Web Search、Jev、MCP、资料授权，MCP 只列本项目服务、新增固定归属、服务详情核对归属（不符提示返回），全局 MCP 分区复用同一页面；`mcp_remove` 补可选 `expected_version`（CLI `--expected-version`），编辑/启停沿用既有版本校验。资料授权复用既有三个 op（无新列表 API）：出向/入向标注、同范围多条撤销时确认与结果均明示「不关闭该类访问」、「查看已撤销」只读记录含撤销时间、新建方向固定本项目 → 目标（目标同分类）。凭据零改动、不复制不扩大 scope。菜单标识沿用（重载恢复有专门用例）。
+3. **配置中心工作区入口**（ruukoto-code 按 product 分流，离线仍仅模型配置）：「项目」分区沿用 `workspacePickerProjects` 工作区在前（展示根目录）/旧项目在后标注；项目详情给出指令、Web Search、Jev、MCP、资料授权，MCP 只列本项目服务、新增固定归属、服务详情核对归属（不符提示返回），全局 MCP 分区复用同一页面；`mcp_remove` 补可选 `expected_version`（CLI `--expected-version`），编辑/启停沿用既有版本校验。资料授权复用既有三个 op（无新列表 API）：出向/入向标注、同范围多条撤销时确认与结果均明示「不关闭该类访问」、「查看已撤销」只读记录含撤销时间、新建方向固定本项目 → 目标（目标同分类）。凭据零改动、不复制不扩大 scope。菜单标识沿用（重载恢复有专门用例）。
 4. **资料边界**：归属按稳定 projectId（同名目录、符号链接、挂载别名不产生第二配置键，入口覆盖见工单 05 的 test/74/30）；核查 `access.ts`/`memory.ts`/`host-tools.ts`/`context-assembly.ts` 未发现绕过，未改边界代码。三类别生命周期、方向与第三工作区隔离、撤销时机（运行中任务的后续查询、上下文选择完成与发送之间的撤销由 `context_source_changed` 拦下）均有用例。完全访问与 grantedPaths 不隐含扩大（既有约束未动）；撤销不承诺撤回已发送内容，注入与查询两个时机重新校验。
 
 **评审发现与处置**（/code-review 双轴，对未提交 diff）
@@ -125,7 +125,7 @@ npm test
 
 **验证（真实环境与模拟分列）**
 
-- **产品级冒烟** `.scratch/agent-direction/smoke-06-workspace-settings.mts`（真实 bin/ruukoto-dev.mjs 后台两次拉起、真实控制面 socket/SQLite/文件与目录身份、控制协议全部操作；**模拟：模型服务 MockModelServer**）：macOS 本机两轮 **6/6 通过**（两工作区并存、设置版本与冲突、根/子目录会话指令注入、授权/撤销、旧项目认领与幂等、重启持久化）。未验证真实外部服务。
+- **产品级冒烟** `.scratch/agent-direction/smoke-06-workspace-settings.mts`（真实 bin/ruukoto-code.mjs 后台两次拉起、真实控制面 socket/SQLite/文件与目录身份、控制协议全部操作；**模拟：模型服务 MockModelServer**）：macOS 本机两轮 **6/6 通过**（两工作区并存、设置版本与冲突、根/子目录会话指令注入、授权/撤销、旧项目认领与幂等、重启持久化）。未验证真实外部服务。
 - **离线测试**（进程内真实 Runtime/socket/SQLite/文件，模型打桩）：工单验证序列全绿——test/75 12/12、33 14/14、16 33/33、09/23/24/25/53/55/74 92/92、19/13/27/30/51/59/60/66 与 test/67 3/3；`npm run typecheck` 通过。
 - **全量 `npm test`（最终两轮 2026-10-02）**：769 项中 **767 通过、1 跳过**（真实模型门控的既有跳过）、**1 失败**——08-approvals「DNS 在批准时固定」：本机 DNS 对不可解析名 60s 超时，干净 HEAD 复现同一失败（git stash 后单跑 test/08 同样 60s 超时），工单 05 已记录同一环境性既有失败，与本单无关，如实记录。首轮全量中 test/33 授权用例曾负载型超时（见评审 R1，加固后两轮全量通过）。
 

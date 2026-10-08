@@ -25,12 +25,12 @@ Status: resolved
 
 1. **工作区 = 带根目录归属的项目**（`projects.root_cwd/root_real/root_dev/root_ino`，schema v18→v19 只做加法；`idx_projects_root_real` 部分唯一索引兜底，同一真实目录至多一个工作区；`DirIdentity` 复用 realpath/dev+ino 判定、`sameDirIdentity` 提取共享）。旧项目四列为 NULL，不另建并行状态；issue 06/07 的配置与迁移继续落在这个归属上。
 2. **新 op `open_workspace`**（`Runtime.openWorkspace`）：目录校验（存在/realpath/保护根）先于写入；已归属工作区直接复用；旧项目经 `project_id` 认领根目录（`project.root_attached` 事件留痕，角色/群聊项目后台兜底拒绝认领，已归属他目录拒绝改归属）；否则同事务建工作区项目+会话（自动名取根目录名、重名仅展示层去重）；每次打开都新建会话；同一请求标识重发返回原成果（同键异目录——同样按 realpath 或 dev+ino——报 request_conflict）。`create_project`/`create_session` 旧 op 行为不变（不写归属）。
-3. **TUI（仅 ruukoto-dev 产品）**：工作区入口改走 `open_workspace`（先按根目录归属命中，再退到遗留候选，多候选照旧先选择）；选择面板拆为工作区/旧项目两段，纯角色（main/coding/chat）与 QQ 群聊会话所在的项目及会话不进普通列表（含普通 dev 会话的混合旧项目保留，逐会话过滤）；ruukoto 产品行为不变。内部子任务是任务而非会话，本来不在列表。
+3. **TUI（仅 ruukoto-code 产品）**：工作区入口改走 `open_workspace`（先按根目录归属命中，再退到遗留候选，多候选照旧先选择）；选择面板拆为工作区/旧项目两段，纯角色（main/coding/chat）与 QQ 群聊会话所在的项目及会话不进普通列表（含普通 dev 会话的混合旧项目保留，逐会话过滤）；ruukoto 产品行为不变。内部子任务是任务而非会话，本来不在列表。
 4. **审查修正**（/code-review 两轴）：删除无人再用的客户端 `suggestProjectName`（命名逻辑只在后台）；重放目录比较与一般归属统一为 `sameDirIdentity`；提取 `isRootDirClash`； `workspacePickerProjects` 改为逐会话判定；补角色/群聊认领的后台拒绝。
 
 **验证（真实环境与模拟分列）**
 
-- **产品级冒烟** `.scratch/agent-direction/smoke-05-workspace-sessions.mts`（真实 bin/ruukoto-dev.mjs 后台、真实 socket/SQLite/文件，模型打桩）：macOS 本机 **6/6**（多仓库根目录打开、符号链接与路径变体复用、同名目录去重、请求标识幂等、旧项目认领与自动归属、提交执行与历史查看）。
+- **产品级冒烟** `.scratch/agent-direction/smoke-05-workspace-sessions.mts`（真实 bin/ruukoto-code.mjs 后台、真实 socket/SQLite/文件，模型打桩）：macOS 本机 **6/6**（多仓库根目录打开、符号链接与路径变体复用、同名目录去重、请求标识幂等、旧项目认领与自动归属、提交执行与历史查看）。
 - **离线测试**：test/74（15/15：open_workspace 各路径、v18→v19 迁移库可读、纯函数与两产品的选择面板伪终端用例）；受影响回归 test/30/66/19/13/50/67 全过；`npx tsc --noEmit` 通过；test/67 3/3。
 - **顺带修复的既有失败**（本单范围外但同仓红绿要求）：test/13 显示名期望跟进 9509cb0 的 ⏵⏵/⏸ 前缀；test/19 合成会话补齐 `session.usage_updated` 演示事件（并随本单新增 `project.root_attached`）；test/50 迁移回滚断言的目标版本号改为 SCHEMA_VERSION；test/30 取消回落用例的断言由页眉「未选择会话」的弱匹配改为真实的「选择项目」面板（页面积压赶走首帧时随机超时的根因，issue 04 曾把同一抖动记为环境问题）。
 - **全量 `npm test`（最终一轮 2026-10-02）**：731 项中 **729 通过、1 跳过**（真实模型门控的既有跳过）、**1 失败**——08-approvals「DNS 在批准时固定」：本机 DNS 对不可解析名 60s 超时，干净 HEAD（e7b4d11 worktree）同路径复现，环境性既有失败与本单无关，如实记录。

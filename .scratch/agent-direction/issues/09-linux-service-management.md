@@ -47,7 +47,7 @@ Status: resolved
 
 2. **将 main 的服务工具接入统一审批，固定本机、动作和单元。**
 
-   新增集中的 `src/agent/service-tools.ts`，在 `ToolCategory`/工具可用性表中登记服务类别，仅向 main 开放。Runtime/Driver 装配同时要求产品为 `ruukoto`、运行于 Linux、服务管理有显式部署配置；普通 dev、coding、chat、QQ 群及 `ruukoto-dev` 都不能获得该能力。发送给模型与实际调用使用同一任务工具集合，调用时继续核实 main、任务、会话及原资料身份。main 系统提示说明两个工具及审批边界，编码任务继续按现有委派路径处理。
+   新增集中的 `src/agent/service-tools.ts`，在 `ToolCategory`/工具可用性表中登记服务类别，仅向 main 开放。Runtime/Driver 装配同时要求产品为 `ruukoto`、运行于 Linux、服务管理有显式部署配置；普通 dev、coding、chat、QQ 群及 `ruukoto-code` 都不能获得该能力。发送给模型与实际调用使用同一任务工具集合，调用时继续核实 main、任务、会话及原资料身份。main 系统提示说明两个工具及审批边界，编码任务继续按现有委派路径处理。
 
    模型只提供白名单服务名与固定动作；主机身份、taskId、hostOpId、执行身份及策略版本由宿主注入。`service_inspect` 无写入效果，可以直接执行；`service_manage` 的 restart 始终调用 `ApprovalGate.request`，新 scope 在 auto-review 中归入 `ask_owner`。不增加自然语言批准、不切换任务权限，也不创建长期授权。
 

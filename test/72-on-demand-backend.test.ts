@@ -1,5 +1,5 @@
 /**
- * ruukoto-dev TUI 启动按需拉起本机后台（agent-direction issue 02，ADR 0017）。
+ * ruukoto-code TUI 启动按需拉起本机后台（agent-direction issue 02，ADR 0017）。
  *
  * 测试接缝（预先约定）：
  * - src/control/ensure-backend.ts：ensureBackend 的可观察行为——探测、拉起、并发收敛、
@@ -12,7 +12,7 @@
  *   且锁保留，遗留锁按安全规则接管（评审 R10）；
  *   探测被拒保留原始原因（协议版本不兼容显示版本与升级指引，评审 R8）；传输中断或无
  *   凭据时重判当前 socket，已消失即进入按需拉起（评审 R9）；
- * - TUI 入口门控（按需拉起只属于 ruukoto-dev；ruukoto 沿用显式 server/systemd）。
+ * - TUI 入口门控（按需拉起只属于 ruukoto-code；ruukoto 沿用显式 server/systemd）。
  *
  * 沿用既有规则不得破坏：实例锁是单实例仲裁；重连只恢复观察；关闭客户端不停止后台
  * 或取消任务；重开看到同一任务，不重复提交。
@@ -34,23 +34,23 @@ import { killProcessTree } from "./helpers/backend.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 
 const repoRoot = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
-const RUUKOTO_DEV_BIN = nodePath.join(repoRoot, "bin", "ruukoto-dev.mjs");
+const RUUKOTO_CODE_BIN = nodePath.join(repoRoot, "bin", "ruukoto-code.mjs");
 
 // ---- 单元：门控 ----
 
-test("门控：只有 ruukoto-dev 的 TUI 按需拉起后台（ruukoto 沿用显式启动）", () => {
-  assert.equal(tuiSpawnsBackendOnDemand("ruukoto-dev"), true);
+test("门控：只有 ruukoto-code 的 TUI 按需拉起后台（ruukoto 沿用显式启动）", () => {
+  assert.equal(tuiSpawnsBackendOnDemand("ruukoto-code"), true);
   assert.equal(tuiSpawnsBackendOnDemand("ruukoto"), false);
 });
 
 // ---- 进程级（真实 bin 后台、文件、socket、SQLite；模型打桩） ----
 
 function devSpawnArgv(dirs: { dataDir: string; agentDir: string }): string[] {
-  return [RUUKOTO_DEV_BIN, "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"];
+  return [RUUKOTO_CODE_BIN, "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"];
 }
 
 function cleanEnv(controlDir: string): NodeJS.ProcessEnv {
-  return { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_DEV_CONTROL_DIR: controlDir };
+  return { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CODE_CONTROL_DIR: controlDir };
 }
 
 function devOpts(dirs: { root: string; dataDir: string; agentDir: string }): Parameters<typeof ensureBackend>[0] {
@@ -201,7 +201,7 @@ test("启动失败给出明确状态：服务进程提前退出，附日志尾�
     assert.match(r.error, /后台启动失败/);
     assert.match(r.error, /spawn\.log/);
     assert.match(r.error, /no_model|未找到可用模型/, "失败状态必须带服务进程的实际错误");
-    assert.match(r.error, /ruukoto-dev config/, "未配置模型时必须给出配置入口提示");
+    assert.match(r.error, /ruukoto-code config/, "未配置模型时必须给出配置入口提示");
     // 失败不得残留后台
     assert.ok(!fs.existsSync(nodePath.join(controlDir, "control.sock")), "启动失败不得留下可连接后台");
   } finally {
@@ -374,7 +374,7 @@ test("默认拉起入口两种形态都能按需拉起：真实 bin 与 npm star
   // 默认派生参数按 argv[1] 形态区分：JS 入口（真实 bin）原样复用；npm start 下 tsx 执行
   // src/cli.ts，argv[1] 指向 TypeScript 文件，必须换用能加载 TypeScript 的固定 bin 服务入口
   const entries: Array<[string, string]> = [
-    ["od-bin", RUUKOTO_DEV_BIN],
+    ["od-bin", RUUKOTO_CODE_BIN],
     ["od-npm", nodePath.join(repoRoot, "src", "cli.ts")],
   ];
   try {
@@ -434,7 +434,7 @@ test("历史日志里的锁错误不误判本次启动失败：保留失败原�
     assert.match(r.error, /后台启动失败/, "历史锁错误不得把本次失败误判为锁竞争等待");
     assert.doesNotMatch(r.error, /等待后台就绪超时/);
     assert.match(r.error, /no_model|未找到可用模型/, "保留本次启动的实际失败原因");
-    assert.match(r.error, /ruukoto-dev config/, "保留模型配置指引");
+    assert.match(r.error, /ruukoto-code config/, "保留模型配置指引");
     assert.match(r.error, /spawn\.log/);
     assert.ok(!fs.existsSync(nodePath.join(controlDir, "control.sock")), "启动失败不得留下可连接后台");
   } finally {
@@ -540,7 +540,7 @@ test("并发拉起窗口内他进程锁错误不归属本进程：各自失败�
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       controlDir,
-      spawnArgv: ["-e", 'setTimeout(() => { console.error("no_model: 未找到可用模型（校验 models.json 与 ruukoto-dev config）"); process.exit(1); }, 350)'],
+      spawnArgv: ["-e", 'setTimeout(() => { console.error("no_model: 未找到可用模型（校验 models.json 与 ruukoto-code config）"); process.exit(1); }, 350)'],
       env: cleanEnv(controlDir),
       deadlineMs: 5000,
       exitGraceMs: 300,
@@ -560,7 +560,7 @@ test("并发拉起窗口内他进程锁错误不归属本进程：各自失败�
       assert.match(ra.error, /后台启动失败/, "A 是普通启动失败：B 的锁文本不得让 A 按锁竞争等待");
       assert.doesNotMatch(ra.error, /等待后台就绪超时/);
       assert.match(ra.error, /no_model|未找到可用模型/, "A 保留本次启动的实际失败原因");
-      assert.match(ra.error, /ruukoto-dev config/, "A 保留模型配置指引");
+      assert.match(ra.error, /ruukoto-code config/, "A 保留模型配置指引");
     }
     assert.equal(rb.ok, false);
     if (!rb.ok) assert.match(rb.error, /等待后台就绪超时/, "B 退出码为锁冲突：按锁竞争等胜者（无胜者按时限标注）");
@@ -639,7 +639,7 @@ test("无法核实持锁身份不按锁竞争等待：普通启动失败展示�
     // 预置锁：记录的 PID 指向存活进程；子进程 PATH="" 使 ps 无法运行，身份无法核实
     const lockDir = nodePath.join(dirs.dataDir, "runtime.lock");
     fs.mkdirSync(lockDir, { recursive: true });
-    const ownerJson = JSON.stringify({ pid: process.pid, command: "ruukoto-backend node bin/ruukoto-dev.mjs server", startedAt: new Date().toISOString() });
+    const ownerJson = JSON.stringify({ pid: process.pid, command: "ruukoto-backend node bin/ruukoto-code.mjs server", startedAt: new Date().toISOString() });
     fs.writeFileSync(nodePath.join(lockDir, "owner.json"), ownerJson);
     const r = await ensureBackend({
       dataDir: dirs.dataDir,
@@ -682,7 +682,7 @@ test("遗留锁（PID 已死）不影响按需拉起：按既有安全规则接�
     fs.mkdirSync(lockDir, { recursive: true });
     fs.writeFileSync(
       nodePath.join(lockDir, "owner.json"),
-      JSON.stringify({ pid: dead.pid, command: "ruukoto-backend node bin/ruukoto-dev.mjs server", startedAt: new Date().toISOString() }),
+      JSON.stringify({ pid: dead.pid, command: "ruukoto-backend node bin/ruukoto-code.mjs server", startedAt: new Date().toISOString() }),
     );
     const r = await ensureBackend(devOpts(dirs));
     assert.equal(r.ok, true, r.ok ? "" : r.error);

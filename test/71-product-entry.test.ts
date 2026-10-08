@@ -6,11 +6,11 @@
  *   档案根、路径环境变量隔离）；
  * - src/control/connect.ts 与 pending-requests.ts：默认目录解析按产品取本产品的环境
  *   变量与档案根，不读对方产品的路径变量；
- * - src/dev.ts buildChildEnv：开发实例洗落产品身份与 ruukoto-dev 产品目录变量（不误用
+ * - src/dev.ts buildChildEnv：开发实例洗落产品身份与 ruukoto-code 产品目录变量（不误用
  *   新产品与开发实例）；
- * - Runtime.start 的产品 gating 可观察行为：ruukoto-dev 停用 QQ/Telegram 适配器、个人
+ * - Runtime.start 的产品 gating 可观察行为：ruukoto-code 停用 QQ/Telegram 适配器、个人
  *   调度不可用、数据目录跨产品复用被拒绝（meta 登记，兼容扩展）；
- * - 进程冒烟：bin/ruukoto-dev.mjs 入口与非法 RUUKOTO_PRODUCT 的快速失败（不需要后台）。
+ * - 进程冒烟：bin/ruukoto-code.mjs 入口与非法 RUUKOTO_PRODUCT 的快速失败（不需要后台）。
  * - 进程级：两条 bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时查询与停止只作用于
  *   本产品（评审 R6，真实 bin 后台进程）。
  */
@@ -22,11 +22,11 @@ import { PRODUCT_TYPES, dirEnvFor, productFromEnv, productRootDir } from "../src
 
 // ---- 单元：产品身份 ----
 
-test("productFromEnv：未设置/空串默认 ruukoto，ruukoto-dev 显式可选", () => {
+test("productFromEnv：未设置/空串默认 ruukoto，ruukoto-code 显式可选", () => {
   assert.equal(productFromEnv({}), "ruukoto");
   assert.equal(productFromEnv({ RUUKOTO_PRODUCT: "" }), "ruukoto");
   assert.equal(productFromEnv({ RUUKOTO_PRODUCT: "ruukoto" }), "ruukoto");
-  assert.equal(productFromEnv({ RUUKOTO_PRODUCT: "ruukoto-dev" }), "ruukoto-dev");
+  assert.equal(productFromEnv({ RUUKOTO_PRODUCT: "ruukoto-code" }), "ruukoto-code");
 });
 
 test("productFromEnv：非法取值直接报错（不静默落到错误产品）", () => {
@@ -34,13 +34,13 @@ test("productFromEnv：非法取值直接报错（不静默落到错误产品）
 });
 
 test("产品枚举恰好两个且不重叠", () => {
-  assert.deepStrictEqual([...PRODUCT_TYPES].sort(), ["ruukoto", "ruukoto-dev"]);
+  assert.deepStrictEqual([...PRODUCT_TYPES].sort(), ["ruukoto", "ruukoto-code"]);
 });
 
 test("productRootDir：两产品独立根，均不等于开发实例根 ~/.ruukoto-dev", () => {
   const home = "/home/tester";
   const a = productRootDir("ruukoto", home);
-  const b = productRootDir("ruukoto-dev", home);
+  const b = productRootDir("ruukoto-code", home);
   assert.notEqual(a, b);
   assert.equal(a, "/home/tester/.ruukoto");
   assert.notEqual(b, "/home/tester/.ruukoto-dev");
@@ -49,15 +49,15 @@ test("productRootDir：两产品独立根，均不等于开发实例根 ~/.ruuko
 
 // ---- 单元：路径环境变量按产品隔离 ----
 
-test("dirEnvFor：ruukoto 读 RUUKOTO_*_DIR，ruukoto-dev 只读 RUUKOTO_DEV_*_DIR", () => {
+test("dirEnvFor：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读 RUUKOTO_CODE_*_DIR", () => {
   const env: NodeJS.ProcessEnv = {
     RUUKOTO_DATA_DIR: "/shared/data",
-    RUUKOTO_DEV_DATA_DIR: "/dev/data",
+    RUUKOTO_CODE_DATA_DIR: "/dev/data",
   };
   assert.equal(dirEnvFor("ruukoto", "DATA", env), "/shared/data");
-  assert.equal(dirEnvFor("ruukoto-dev", "DATA", env), "/dev/data");
+  assert.equal(dirEnvFor("ruukoto-code", "DATA", env), "/dev/data");
   // 未设置对应产品的变量时回落到空，不读对方产品的变量
-  assert.equal(dirEnvFor("ruukoto-dev", "AGENT", env), undefined);
+  assert.equal(dirEnvFor("ruukoto-code", "AGENT", env), undefined);
   assert.equal(dirEnvFor("ruukoto", "AGENT", env), undefined);
 });
 
@@ -73,10 +73,10 @@ const DIR_ENV_VARS = [
   "RUUKOTO_AGENT_DIR",
   "RUUKOTO_CONTROL_DIR",
   "RUUKOTO_PENDING_DIR",
-  "RUUKOTO_DEV_DATA_DIR",
-  "RUUKOTO_DEV_AGENT_DIR",
-  "RUUKOTO_DEV_CONTROL_DIR",
-  "RUUKOTO_DEV_PENDING_DIR",
+  "RUUKOTO_CODE_DATA_DIR",
+  "RUUKOTO_CODE_AGENT_DIR",
+  "RUUKOTO_CODE_CONTROL_DIR",
+  "RUUKOTO_CODE_PENDING_DIR",
 ] as const;
 
 /** 覆盖/清空一组环境变量执行 fn，结束后还原（测试运行器自身环境可能带 RUUKOTO_*）。 */
@@ -112,23 +112,23 @@ test("ruukoto（默认产品）：沿用 ~/.ruukoto 布局与 RUUKOTO_*_DIR 覆�
   });
 });
 
-test("ruukoto-dev：独立档案根与 RUUKOTO_DEV_*_DIR 覆盖，不读对方产品的路径变量", () => {
-  const product = { RUUKOTO_PRODUCT: "ruukoto-dev" };
+test("ruukoto-code：独立档案根与 RUUKOTO_CODE_*_DIR 覆盖，不读对方产品的路径变量", () => {
+  const product = { RUUKOTO_PRODUCT: "ruukoto-code" };
   withCleanEnv(product, () => {
-    assert.ok(defaultDataDir().endsWith(nodePath.join(".ruukoto-dev-agent", "data")));
-    assert.ok(defaultAgentDir().endsWith(nodePath.join(".ruukoto-dev-agent", "agent")));
-    assert.ok(controlDirFor(defaultDataDir()).endsWith(nodePath.join(".ruukoto-dev-agent", "control")));
-    assert.ok(defaultPendingDir().endsWith(nodePath.join(".ruukoto-dev-agent", "pending")));
+    assert.ok(defaultDataDir().endsWith(nodePath.join(".ruukoto-code", "data")));
+    assert.ok(defaultAgentDir().endsWith(nodePath.join(".ruukoto-code", "agent")));
+    assert.ok(controlDirFor(defaultDataDir()).endsWith(nodePath.join(".ruukoto-code", "control")));
+    assert.ok(defaultPendingDir().endsWith(nodePath.join(".ruukoto-code", "pending")));
   });
   withCleanEnv(
     {
       ...product,
       RUUKOTO_DATA_DIR: "/shared/data",
-      RUUKOTO_DEV_DATA_DIR: "/dev/data",
+      RUUKOTO_CODE_DATA_DIR: "/dev/data",
       RUUKOTO_CONTROL_DIR: "/shared/control",
-      RUUKOTO_DEV_CONTROL_DIR: "/dev/control",
+      RUUKOTO_CODE_CONTROL_DIR: "/dev/control",
       RUUKOTO_PENDING_DIR: "/shared/pending",
-      RUUKOTO_DEV_PENDING_DIR: "/dev/pending",
+      RUUKOTO_CODE_PENDING_DIR: "/dev/pending",
     },
     () => {
       assert.equal(defaultDataDir(), "/dev/data");
@@ -143,23 +143,23 @@ test("ruukoto-dev：独立档案根与 RUUKOTO_DEV_*_DIR 覆盖，不读对方�
 
 import { buildChildEnv, devProfileFor } from "../src/dev.ts";
 
-test("buildChildEnv：洗落 RUUKOTO_PRODUCT 与 RUUKOTO_DEV_*_DIR，开发实例保持产品 ruukoto", () => {
+test("buildChildEnv：洗落 RUUKOTO_PRODUCT 与 RUUKOTO_CODE_*_DIR，开发实例保持产品 ruukoto", () => {
   const profile = devProfileFor("/some/repo", "/home/tester");
   const env = buildChildEnv(
     {
-      RUUKOTO_PRODUCT: "ruukoto-dev",
-      RUUKOTO_DEV_DATA_DIR: "/dev/data",
-      RUUKOTO_DEV_AGENT_DIR: "/dev/agent",
-      RUUKOTO_DEV_CONTROL_DIR: "/dev/control",
-      RUUKOTO_DEV_PENDING_DIR: "/dev/pending",
+      RUUKOTO_PRODUCT: "ruukoto-code",
+      RUUKOTO_CODE_DATA_DIR: "/dev/data",
+      RUUKOTO_CODE_AGENT_DIR: "/dev/agent",
+      RUUKOTO_CODE_CONTROL_DIR: "/dev/control",
+      RUUKOTO_CODE_PENDING_DIR: "/dev/pending",
       RUUKOTO_DATA_DIR: "/leak/data",
       PATH: "/usr/bin",
     },
     profile,
   );
   assert.equal(env.RUUKOTO_PRODUCT, undefined);
-  assert.equal(env.RUUKOTO_DEV_DATA_DIR, undefined);
-  assert.equal(env.RUUKOTO_DEV_CONTROL_DIR, undefined);
+  assert.equal(env.RUUKOTO_CODE_DATA_DIR, undefined);
+  assert.equal(env.RUUKOTO_CODE_CONTROL_DIR, undefined);
   // 档案目录注入保持原行为
   assert.equal(env.RUUKOTO_DATA_DIR, profile.dataDir);
   assert.equal(env.RUUKOTO_DISABLE_QQ, "1");
@@ -171,18 +171,18 @@ import { Runtime } from "../src/runtime/runtime.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, makeTestDirs, startTestRuntime, writeModelsJson } from "./helpers/testkit.ts";
 
-test("ruukoto-dev：不创建 QQ/Telegram 适配器、个人调度不可用、旧记录仍可读", async () => {
+test("ruukoto-code：不创建 QQ/Telegram 适配器、个人调度不可用、旧记录仍可读", async () => {
   const t = await startTestRuntime("product-dev", async () => ({ kind: "text", text: "ok" }), {
-    config: { productType: "ruukoto-dev" },
+    config: { productType: "ruukoto-code" },
   });
   try {
     // 消息平台适配器不创建：状态明确标注为产品 gating，而不是"未启动/连接异常"
     const qq = t.runtime.qqStatus() as { disabledByConfig?: boolean; stateDetail?: string };
     assert.equal(qq.disabledByConfig, true);
-    assert.match(qq.stateDetail ?? "", /ruukoto-dev/);
+    assert.match(qq.stateDetail ?? "", /ruukoto-code/);
     const telegram = t.runtime.telegramStatus() as { disabledByConfig?: boolean; stateDetail?: string };
     assert.equal(telegram.disabledByConfig, true);
-    assert.match(telegram.stateDetail ?? "", /ruukoto-dev/);
+    assert.match(telegram.stateDetail ?? "", /ruukoto-code/);
     // 个人调度：调度器不启动；取消操作明确拒绝而不是静默丢弃
     assert.equal(t.runtime.scheduler, null);
     await assert.rejects(
@@ -230,7 +230,7 @@ test("数据目录归属：跨产品复用被拒绝，同产品重启正常（me
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
-  const startRuntime = (productType: "ruukoto" | "ruukoto-dev") =>
+  const startRuntime = (productType: "ruukoto" | "ruukoto-code") =>
     Runtime.start({
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
@@ -239,12 +239,12 @@ test("数据目录归属：跨产品复用被拒绝，同产品重启正常（me
       productType,
     });
   try {
-    const first = await startRuntime("ruukoto-dev");
+    const first = await startRuntime("ruukoto-code");
     await first.stop("test_end");
     // 同一数据目录换产品启动：拒绝（配置与数据不串用）
     await assert.rejects(startRuntime("ruukoto"), /product_mismatch|归属产品/);
     // 同产品重启：正常（登记不重复要求）
-    const second = await startRuntime("ruukoto-dev");
+    const second = await startRuntime("ruukoto-code");
     await second.stop("test_end");
   } finally {
     await server.close();
@@ -270,8 +270,8 @@ function runNode(argv: string[], env: NodeJS.ProcessEnv = {}): { status: number 
   return { status: r.status, stderr: r.stderr };
 }
 
-test("进程：bin/ruukoto-dev.mjs 入口引导 TS，未知名字按工作区处理（非 TTY 退出 1）", () => {
-  const r = runNode([nodePath.join(repoRoot, "bin", "ruukoto-dev.mjs"), "bogus"]);
+test("进程：bin/ruukoto-code.mjs 入口引导 TS，未知名字按工作区处理（非 TTY 退出 1）", () => {
+  const r = runNode([nodePath.join(repoRoot, "bin", "ruukoto-code.mjs"), "bogus"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /TTY/);
 });
@@ -299,13 +299,13 @@ interface SpawnedBackend {
 
 /** spawn 真实 bin 后台（detached 便于整组回收）；注入干净环境，只给本产品的控制面变量。 */
 async function spawnProductBackend(
-  product: "ruukoto" | "ruukoto-dev",
+  product: "ruukoto" | "ruukoto-code",
   dirs: { dataDir: string; agentDir: string; root: string },
 ): Promise<SpawnedBackend> {
   const controlDir = nodePath.join(dirs.root, "control");
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME };
-  env[product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_DEV_CONTROL_DIR"] = controlDir;
-  const binFile = product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-dev.mjs";
+  env[product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"] = controlDir;
+  const binFile = product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-code.mjs";
   const child = childProcess.spawn(
     process.execPath,
     [nodePath.join(repoRoot, "bin", binFile), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"],
@@ -366,13 +366,13 @@ test("进程级：两产品同机并存、独立停止；跨产品打开目录�
   let dev: SpawnedBackend | null = null;
   try {
     prod = await spawnProductBackend("ruukoto", { dataDir: prodDirs.dataDir, agentDir: prodDirs.agentDir, root: prodDirs.root });
-    dev = await spawnProductBackend("ruukoto-dev", { dataDir: devDirs.dataDir, agentDir: devDirs.agentDir, root: devDirs.root });
+    dev = await spawnProductBackend("ruukoto-code", { dataDir: devDirs.dataDir, agentDir: devDirs.agentDir, root: devDirs.root });
 
     const devClient = await connectAuthed(dev.controlDir);
     const qq = (await devClient.request<any>("qq_status")) as { disabledByConfig?: boolean; stateDetail?: string };
     assert.equal(qq.disabledByConfig, true);
-    assert.match(qq.stateDetail ?? "", /ruukoto-dev/);
-    // 独立停止：停 ruukoto-dev 不影响 ruukoto
+    assert.match(qq.stateDetail ?? "", /ruukoto-code/);
+    // 独立停止：停 ruukoto-code 不影响 ruukoto
     await devClient.request("stop");
     devClient.close();
     assert.equal(await dev.exit(), 0);
@@ -385,7 +385,7 @@ test("进程级：两产品同机并存、独立停止；跨产品打开目录�
     dev = null;
     prod = null;
 
-    // 后台已停（锁释放）：以 ruukoto-dev 打开已归属 ruukoto 的数据目录 → 拒绝
+    // 后台已停（锁释放）：以 ruukoto-code 打开已归属 ruukoto 的数据目录 → 拒绝
     const misuse = childProcess.spawn(
       process.execPath,
       [
@@ -397,7 +397,7 @@ test("进程级：两产品同机并存、独立停止；跨产品打开目录�
         "--agent-dir",
         prodDirs.agentDir,
       ],
-      { cwd: repoRoot, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_PRODUCT: "ruukoto-dev" }, stdio: ["ignore", "ignore", "pipe"] },
+      { cwd: repoRoot, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_PRODUCT: "ruukoto-code" }, stdio: ["ignore", "ignore", "pipe"] },
     );
     let errText = "";
     misuse.stderr!.on("data", (c: Buffer) => (errText += c.toString("utf8")));
@@ -425,13 +425,13 @@ test("进程级：bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT
   try {
     // 两个真实 bin 后台各自启动于本产品（启动入口本身即固定身份路径）
     prod = await spawnProductBackend("ruukoto", { dataDir: prodDirs.dataDir, agentDir: prodDirs.agentDir, root: prodDirs.root });
-    dev = await spawnProductBackend("ruukoto-dev", { dataDir: devDirs.dataDir, agentDir: devDirs.agentDir, root: devDirs.root });
+    dev = await spawnProductBackend("ruukoto-code", { dataDir: devDirs.dataDir, agentDir: devDirs.agentDir, root: devDirs.root });
 
     // shell 继承相反产品变量（两个产品的控制面变量同时可见）：ruukoto bin 不得采信
     const env = {
-      RUUKOTO_PRODUCT: "ruukoto-dev",
+      RUUKOTO_PRODUCT: "ruukoto-code",
       RUUKOTO_CONTROL_DIR: prod.controlDir,
-      RUUKOTO_DEV_CONTROL_DIR: dev.controlDir,
+      RUUKOTO_CODE_CONTROL_DIR: dev.controlDir,
     };
     const prodStatus = runNode([nodePath.join(repoRoot, "bin", "ruukoto.mjs"), "status"], env);
     assert.equal(prodStatus.status, 0, `个人 bin 查询应指向个人后台：${prodStatus.stderr}`);
@@ -441,10 +441,10 @@ test("进程级：bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT
     const devClient = await connectAuthed(dev.controlDir); // 开发后台不受影响：仍可握手
     devClient.close();
 
-    // 对称：ruukoto-dev bin 在 RUUKOTO_PRODUCT=ruukoto 下只作用于开发产品
-    const devStatus = runNode([nodePath.join(repoRoot, "bin", "ruukoto-dev.mjs"), "status"], { ...env, RUUKOTO_PRODUCT: "ruukoto" });
+    // 对称：ruukoto-code bin 在 RUUKOTO_PRODUCT=ruukoto 下只作用于开发产品
+    const devStatus = runNode([nodePath.join(repoRoot, "bin", "ruukoto-code.mjs"), "status"], { ...env, RUUKOTO_PRODUCT: "ruukoto" });
     assert.equal(devStatus.status, 0, `开发 bin 查询应指向开发后台：${devStatus.stderr}`);
-    assert.equal(runNode([nodePath.join(repoRoot, "bin", "ruukoto-dev.mjs"), "stop"], { ...env, RUUKOTO_PRODUCT: "ruukoto" }).status, 0);
+    assert.equal(runNode([nodePath.join(repoRoot, "bin", "ruukoto-code.mjs"), "stop"], { ...env, RUUKOTO_PRODUCT: "ruukoto" }).status, 0);
     assert.equal(await dev.exit(), 0, "开发后台被自己的 bin 停止");
     dev = null;
   } finally {

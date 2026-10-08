@@ -1,7 +1,7 @@
 /**
  * 工作区设置与资料授权的产品级冒烟（agent-direction issue 06，ADR 0017）。
  *
- * 模型层打桩（MockModelServer，确定性脚本），其余全真：真实 bin/ruukoto-dev.mjs
+ * 模型层打桩（MockModelServer，确定性脚本），其余全真：真实 bin/ruukoto-code.mjs
  * 后台进程（两次拉起）、真实 socket / SQLite / 文件系统与控制面协议。
  *
  * 覆盖（与工单 06 验收标准对应）：
@@ -61,10 +61,10 @@ let stderr = "";
 function spawnBackend(): void {
   child = childProcess.spawn(
     process.execPath,
-    [path.join(repoRoot, "bin", "ruukoto-dev.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"],
+    [path.join(repoRoot, "bin", "ruukoto-code.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"],
     {
       cwd: repoRoot,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_DEV_CONTROL_DIR: controlDir },
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CODE_CONTROL_DIR: controlDir },
       stdio: ["ignore", "ignore", "pipe"],
       detached: true,
     },
@@ -322,6 +322,6 @@ try {
 
 const failed = results.filter((r) => !r.ok);
 console.log("\n模拟：模型服务（MockModelServer，本地 OpenAI 兼容打桩，确定性应答）");
-console.log("真实：bin/ruukoto-dev.mjs 后台进程（两次拉起）、控制面 socket、SQLite 数据库、文件系统与目录身份、控制协议全部操作");
+console.log("真实：bin/ruukoto-code.mjs 后台进程（两次拉起）、控制面 socket、SQLite 数据库、文件系统与目录身份、控制协议全部操作");
 console.log(`\n结果：${results.length - failed.length}/${results.length} 通过（环境：${process.platform} ${process.arch}，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s）`);
 if (failed.length > 0) process.exit(1);

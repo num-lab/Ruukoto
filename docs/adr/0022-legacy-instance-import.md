@@ -2,13 +2,13 @@
 
 日期：2026-10-04
 
-状态：已接受。依据已确认方向规格（agent-direction spec）与 [ADR 0017](0017-two-agent-products.md)、[ADR 0018](0018-legacy-workspace-org-attribution.md)，经 schema v28 两表、集中模块 `src/runtime/legacy-import.ts` 与 `ruukoto-dev legacy-import` CLI 落地。
+状态：已接受。依据已确认方向规格（agent-direction spec）与 [ADR 0017](0017-two-agent-products.md)、[ADR 0018](0018-legacy-workspace-org-attribution.md)，经 schema v28 两表、集中模块 `src/runtime/legacy-import.ts` 与 `ruukoto-code legacy-import` CLI 落地。
 
 01/07 交付后，旧开发会话与资料仍在 ruukoto 产品目录混存：普通 dev 会话与 main/coding/chat 角色会话、QQ 群会话、应用数据、调度与 IM 配置共存。07 只在同一实例内做组织映射，跨实例的导入、备份与切换由本记录负责。预览 → 计划文件 → 应用的流程沿用 07（ADR 0018）的模式：拥有者先核对再执行，请求键由计划文件派生，回执先行。
 
 决策：
 
-1. **目标侧离线执行。** `ruukoto-dev legacy-import preview --from <源数据目录> [--plan 文件]`、`apply --plan 文件`、`revert <导入ID>`、`list` 只在 ruukoto-dev 产品下可用，不走控制面；预览与应用都要求目标后台已停止，CLI 持目标实例锁运行。在线导入要处理事件广播与缓存，离线导入后由拥有者启动后台、客户端重连取新快照（补发超限时重取），语义更简单也更可核实。
+1. **目标侧离线执行。** `ruukoto-code legacy-import preview --from <源数据目录> [--plan 文件]`、`apply --plan 文件`、`revert <导入ID>`、`list` 只在 ruukoto-code 产品下可用，不走控制面；预览与应用都要求目标后台已停止，CLI 持目标实例锁运行。在线导入要处理事件广播与缓存，离线导入后由拥有者启动后台、客户端重连取新快照（补发超限时重取），语义更简单也更可核实。
 2. **源全程只读。** 源后台存活（或持锁进程身份无法核实）时拒绝，提示先停止或改用副本。快照 = 把 `ruukoto.db` 及其 WAL 侧车文件逐文件复制到临时目录（0700，命令结束删除），在副本上迁到当前 schema；不用 SQLite 连接直读源目录——读 WAL 库会在源目录生成 `-shm/-wal` 写入侧车。整个流程源目录逐文件 sha256 不变，任何错误路径都不修改源资料。
 3. **导入单位是 allow-list 的源项目内普通 dev 会话（含其一层 SubAgent），行 ID 原样保留。** 角色绑定会话、QQ 群会话与 main 资料一律排除。保留 ID 让 JSONL、`result_ref`、记忆 `source_refs` 与产物 ID 都无需重写（ADR 0018 的同一原则跨实例延伸）。目标已有同 ID 且不属于本源此前导入的行：拒绝，不覆盖未核实的目标数据；同一源续跑时已导入项按账本识别跳过。表级策略（`TABLE_POLICY`）登记每张表导入或排除+理由，未登记的新表使导入拒绝，避免新表被漏判或误复制。
 4. **不完整的历史与失效身份如实保留，不伪造。** 会话文件改写为目标 `sessions/` 下同名文件，导入前逐项记录 sha256；源文件缺失或损坏照常导入记录并在报告列出，不生成空历史、不补空文件。项目根四列只在「本机严格核实身份一致（realpath + dev + ino）且目标无同根工作区」时保留，其余清空成为旧来源项目并在回执记录原值与占用方；组织映射按 07 规则保留、改指同根目标工作区或置空待 `project migration-preview` 重新组织。会话 cwd 失效照常导入、标记仅可查阅，继续执行由既有目录身份核查拒绝。

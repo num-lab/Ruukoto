@@ -84,7 +84,7 @@ Status: resolved
 
    TUI 中选择工作区、恢复已映射旧会话后，当前工作区选择状态继续指向目标工作区，不能被 `view.projectId` 改回源项目。会话标题或详情显示“工作区”和“配置与资料来源”。`/resume`、工作区列表、重连快照及重载恢复使用同一组织归属规则；历史、产物、prompt、审批与任务操作仍按原会话/任务 ID 读取。
 
-   ruukoto-dev 的 `/new`、`/new-session` 从当前目标工作区创建新会话，使用目标工作区 Project ID 和配置，不跟随旧会话的来源身份。没有工作区映射的旧会话继续旧行为。`ruukoto` 的原项目界面和旧 API 查询语义保留。
+   ruukoto-code 的 `/new`、`/new-session` 从当前目标工作区创建新会话，使用目标工作区 Project ID 和配置，不跟随旧会话的来源身份。没有工作区映射的旧会话继续旧行为。`ruukoto` 的原项目界面和旧 API 查询语义保留。
 
    配置中心工作区详情列出关联旧资料与原配置入口：项目 ID、对应会话、指令解析基准、MCP/Jev 引用及原授权方向。多个来源的配置并列显示，不推断优先级，不合并指令或允许列表。访问源设置仍使用 06 的设置版本及各配置版本，新工作区设置只作用于使用该身份的新会话。
 
@@ -155,9 +155,9 @@ npm test
 实施计划步骤 4 已完成；步骤 1-4 的实施全部落地。文档全量同步（runtime.md/CONTEXT.md/ADR/visual 细化）、smoke-07 与验收登记属后续阶段，工单保持 ready-for-agent：
 
 - **归属查询**：`list_session_summaries` 增加 `workspace_id` 参数（与 `project_id` 互斥、必填其一，双传/空传 `invalid_params`）；`Store.listSessionSummariesForWorkspace` 以 `COALESCE(s.workspace_project_id, s.project_id)` 归属（显式映射优先、未映射留在来源项目），与按原身份查询共享同一条 SQL 与活动时间算法；`session.workspace_mapped` 不带任务引用，不会让已映射旧会话显示为刚刚执行任务。CLI 无此命令；TUI 与旧 API 语义不变，ruukoto 产品恒用 `project_id` 原身份查询。
-- **任务 TUI（仅 ruukoto-dev）**：选择面板计数与会话列表按展示归属（含已映射旧会话）；`switchSession` 的选择状态（`selectedProjectId`）、《`/resume` 的默认项目（`currentDisplayProjectId`）、重连/启动/重载恢复（同一 `switchSession` 路径）都按组织归属——恢复已映射旧会话后选择状态继续指向目标工作区，不被 `view.projectId` 改回源项目；ruukoto 产品恒用原身份。会话标题经纯函数 `sessionTitleAttribution`（`src/tui/state.ts`，app 渲染与断言共用）：工作区加「工作区 」标注，mapped 另注「（配置与资料来源：原项目）」（紧随工作区名，不被行尾 cwd 截断）。历史/产物/prompt/审批/任务操作仍按原会话与任务 ID（未动）。
-- **`/new` 与 `/new-session`**（ruukoto-dev）：项目取 `currentDisplayProjectId`——从已映射旧会话创建新会话落到目标工作区（目标 Project ID 与配置），不跟随来源身份；无映射旧会话与 ruukoto 产品保持旧行为（来源项目身份）。
-- **配置中心（ruukoto-dev）**：工作区详情经已映射会话派生列出「关联旧资料来源」（`workspaceMappedSources` 于 `src/control/workspace.ts`，不保存映射副本）：来源项目 ID/名称、映射会话数、MCP 项数、Jev 启停、原授权出/入向计数、设置版本、指令基准目录，并列显示不合并、不推断优先级；行值沿用 `project:<id>`（重载恢复按值匹配既有菜单 id，进入原配置入口——来源的设置/MCP/Jev/授权各按来源项目 ID 与其自身版本访问）。授权页沿用 06 实现（原授权 ID/方向/类别/撤销态、按原 ID 撤销、新建方向固定本项目，关联来源不作隐式授权端点），未改动；记忆不做迁移或合并（配置中心无记忆合并入口，CLI/工具按原 projectId 读取）。
+- **任务 TUI（仅 ruukoto-code）**：选择面板计数与会话列表按展示归属（含已映射旧会话）；`switchSession` 的选择状态（`selectedProjectId`）、《`/resume` 的默认项目（`currentDisplayProjectId`）、重连/启动/重载恢复（同一 `switchSession` 路径）都按组织归属——恢复已映射旧会话后选择状态继续指向目标工作区，不被 `view.projectId` 改回源项目；ruukoto 产品恒用原身份。会话标题经纯函数 `sessionTitleAttribution`（`src/tui/state.ts`，app 渲染与断言共用）：工作区加「工作区 」标注，mapped 另注「（配置与资料来源：原项目）」（紧随工作区名，不被行尾 cwd 截断）。历史/产物/prompt/审批/任务操作仍按原会话与任务 ID（未动）。
+- **`/new` 与 `/new-session`**（ruukoto-code）：项目取 `currentDisplayProjectId`——从已映射旧会话创建新会话落到目标工作区（目标 Project ID 与配置），不跟随来源身份；无映射旧会话与 ruukoto 产品保持旧行为（来源项目身份）。
+- **配置中心（ruukoto-code）**：工作区详情经已映射会话派生列出「关联旧资料来源」（`workspaceMappedSources` 于 `src/control/workspace.ts`，不保存映射副本）：来源项目 ID/名称、映射会话数、MCP 项数、Jev 启停、原授权出/入向计数、设置版本、指令基准目录，并列显示不合并、不推断优先级；行值沿用 `project:<id>`（重载恢复按值匹配既有菜单 id，进入原配置入口——来源的设置/MCP/Jev/授权各按来源项目 ID 与其自身版本访问）。授权页沿用 06 实现（原授权 ID/方向/类别/撤销态、按原 ID 撤销、新建方向固定本项目，关联来源不作隐式授权端点），未改动；记忆不做迁移或合并（配置中心无记忆合并入口，CLI/工具按原 projectId 读取）。
 - **测试**：test/76（互斥/归属查询/活跃时间不受映射事件影响/ruukoto 原样，共 17）;test/69（存储层 COALESCE 归属与映射事件不算活跃）;test/74（工作区计数/会话列表归属/选择状态/无映射旧行为；**抗抖说明**：伪终端 ENTER 选择在全量并行负载下有输入批处理抖动（issue 05 既有记录），切换与新建改经与按键同一实现的 `switchSession`/`cmdNew` 处理器断言，面板读侧保留终端断言;标题归属断言改经与渲染共用的 `sessionTitleAttribution` 纯函数）;test/33（工作区详情关联来源行与原配置入口）。
 - **验证**：检查块 (76/33/69/74) 54/54、(09/11/16/24/53/55/75/13/19/30/66) 143/143；test/67 3/3（control-protocol 的 list_session_summaries 行补 workspace_id 说明）;`npm run typecheck` 通过;**全量 `npm test`：788 项中 786 通过、1 跳过（真实模型门控既有）、1 失败**——test/08「DNS 在批准时固定」60s 超时，干净 HEAD（步骤 1 worktree）复现同一失败，环境性既有失败与本单无关。另一次同源排查：本阶段初两次并行批运行曾判 test/33 授权用例 60s 超时，stash 二分证明与内容无关（并发批负载，同 issue 06 R1 记录的负载型等待），同内容复跑通过。
 - **至此步骤 1-4 实施完成**。后续阶段待办：`docs/runtime.md`/`CONTEXT.md`/ADR 与 visual 页面全量同步（本阶段 visual 为最小一致性）、`.scratch/agent-direction/smoke-07-legacy-workspace-data.mts`（真实 bin/后台/SQLite/JSONL 与重启核实）、逐条验收登记与评审。
@@ -174,7 +174,7 @@ npm test
 
 **验证（真实环境与模拟分列）**
 
-- **产品级冒烟**（真实 bin/ruukoto-dev.mjs 后台两次拉起、真实 control socket、SQLite（含直接读取核对 schema v21、workspace_project_id 归属与回执）、CLI migration-preview/--plan/apply、JSONL 历史文件、产物文件、目录身份；模拟：模型服务 MockModelServer）：**macOS 本机两轮 9/9**（2.1s/轮）；**Linux（ssh tx，/tmp 隔离目录，npm ci 真实安装，Node v24）一轮 9/9（7.6s）**，用毕已清理服务器目录。场景：旧入口造多目录数据与原授权 → CLI 只读预览（结构完整 + 事件数不变） → --plan 修订写回 → apply 两个目录各成工作区 → SQLite 核对归属与来源标识 → 同计划文件重放 replayed / 交换分配同派生键 request_conflict → 原历史与 prompt 快照产物字节一致 → 原授权 ID/方向保持与撤销 → 目标工作区新会话与 workspace_id 归属查询（project_id 旧语义不变） → 重启后归属/回执/撤销状态都在。
+- **产品级冒烟**（真实 bin/ruukoto-code.mjs 后台两次拉起、真实 control socket、SQLite（含直接读取核对 schema v21、workspace_project_id 归属与回执）、CLI migration-preview/--plan/apply、JSONL 历史文件、产物文件、目录身份；模拟：模型服务 MockModelServer）：**macOS 本机两轮 9/9**（2.1s/轮）；**Linux（ssh tx，/tmp 隔离目录，npm ci 真实安装，Node v24）一轮 9/9（7.6s）**，用毕已清理服务器目录。场景：旧入口造多目录数据与原授权 → CLI 只读预览（结构完整 + 事件数不变） → --plan 修订写回 → apply 两个目录各成工作区 → SQLite 核对归属与来源标识 → 同计划文件重放 replayed / 交换分配同派生键 request_conflict → 原历史与 prompt 快照产物字节一致 → 原授权 ID/方向保持与撤销 → 目标工作区新会话与 workspace_id 归属查询（project_id 旧语义不变） → 重启后归属/回执/撤销状态都在。
 - **离线测试**（进程内真实 Runtime/socket/SQLite/文件，模型打桩）：计划检查序列 (76/33/69/74) 60/60；(09/11/16/24/53/55/75/13/19/30/66) 143/143；test/67 3/3；`npm run typecheck` 通过。**全量 `npm test`（2026-10-03）：794 项中 792 通过、1 跳过（真实模型门控既有）、1 失败**——test/08「DNS 在批准时固定」60s 超时，干净 HEAD（步骤 1 worktree）复现同一失败，为环境性既有失败，与本单无关。
 - 过程性抖动登记：test/33 授权用例在满负载全量中偶发 60s 超时（issue 06 R1 已登记的负载型等待，内容无关，stash 二分证实）；本单 test/74 归属用例曾两次因等待文本匹配到空状态提示语「选择会话」而断言先行帧（已修正为以会话行本身等待，随后三轮全量证实稳定）。
 
@@ -210,7 +210,7 @@ npm test
 
 ### 2026-10-03：验收登记
 
-五项验收标准逐条登记最终证据（模拟 = 模型经 MockModelServer 打桩；真实 = 真实 bin/ruukoto-dev.mjs 后台、控制面 socket、SQLite（含直接读取核对）、JSONL 历史文件、产物文件、目录身份与 CLI 端到端）：
+五项验收标准逐条登记最终证据（模拟 = 模型经 MockModelServer 打桩；真实 = 真实 bin/ruukoto-code.mjs 后台、控制面 socket、SQLite（含直接读取核对）、JSONL 历史文件、产物文件、目录身份与 CLI 端到端）：
 
 1. **可核查的工作区映射，歧义明确列出**：预览目录分组与 findings（多目录/同目录多旧项目/失效/被替换/嵌套/worktree/根外会话/混合排除）、修订与应用校验、目录入口收紧（test/76 预览·拒绝·收紧用例、test/30、33、69；模拟）；CLI 预览/计划/应用到 SQLite 归属核对（冒烟场景 2/3/3b：macOS 两轮 9/9 + 父级复核，Linux ssh tx 隔离目录 9/9，服务器副本已清理；真实）。
 2. **来源可定位，旧标识保留**：pi 会话 ID、历史文件路径、JSONL 与产物字节、任务与选择记录迁移前后逐项一致；指令/Web Search/MCP/Jev/凭据/记忆来源不变（test/76 字节核对与配置来源用例、preview 历史缺失/未落盘/损坏单独报告；模拟）；原历史与 prompt 快照产物字节一致（冒烟场景 5；真实）。

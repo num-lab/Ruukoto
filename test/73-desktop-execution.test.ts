@@ -2,8 +2,8 @@
  * 开发机受限/完全访问接入（agent-direction issue 04，ADR 0003/0004/0017）。
  *
  * 测试接缝（预先约定）：
- * - ruukoto/ruukoto-dev 的 `server` 进程入口：执行后端按产品解析默认值
- *   （ruukoto-dev = container，ruukoto = local），`--execution` 与
+ * - ruukoto/ruukoto-code 的 `server` 进程入口：执行后端按产品解析默认值
+ *   （ruukoto-code = container，ruukoto = local），`--execution` 与
  *   RUUKOTO_EXECUTION_BACKEND 显式覆盖；local 生效时打印无隔离警告；
  * - 握手快照 `snapshot.execution`（TUI 展示的来源）后台声明的实际后端；
  * - `submit`：容器后端下完全访问缺少执行账户入口时，以 execution_unavailable
@@ -42,7 +42,7 @@ interface SpawnedBackend {
 }
 
 async function spawnBackend(opts: {
-  product: "ruukoto" | "ruukoto-dev";
+  product: "ruukoto" | "ruukoto-code";
   dataDir: string;
   agentDir: string;
   root: string;
@@ -51,8 +51,8 @@ async function spawnBackend(opts: {
 }): Promise<SpawnedBackend> {
   const controlDir = nodePath.join(opts.root, "control");
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, ...opts.extraEnv };
-  env[opts.product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_DEV_CONTROL_DIR"] = controlDir;
-  const binFile = opts.product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-dev.mjs";
+  env[opts.product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"] = controlDir;
+  const binFile = opts.product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-code.mjs";
   const child = childProcess.spawn(
     process.execPath,
     [nodePath.join(repoRoot, "bin", binFile), "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir, "--tools", "mock", ...(opts.extraArgv ?? [])],
@@ -115,18 +115,18 @@ async function stopBackend(backend: SpawnedBackend): Promise<void> {
 
 type TestDirs = { dataDir: string; agentDir: string; root: string };
 
-test("ruukoto-dev 默认执行后端 = 容器（已验证边界）；完全访问缺执行账户入口时在执行前拒绝、不回退", async () => {
+test("ruukoto-code 默认执行后端 = 容器（已验证边界）；完全访问缺执行账户入口时在执行前拒绝、不回退", async () => {
   const { dirs, work } = await makeTestDirs("x73dev", 1);
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   let backend: SpawnedBackend | null = null;
   try {
-    backend = await spawnBackend({ product: "ruukoto-dev", ...(dirs as TestDirs) });
+    backend = await spawnBackend({ product: "ruukoto-code", ...(dirs as TestDirs) });
     const client = await connectAuthed(backend.controlDir);
     try {
       const { snapshot } = await client.handshake();
-      assert.equal(snapshot.execution.backend, "container", "ruukoto-dev 未显式指定时须以容器后端启动");
+      assert.equal(snapshot.execution.backend, "container", "ruukoto-code 未显式指定时须以容器后端启动");
       assert.match(snapshot.execution.note, /容器/, "执行后端说明不得暗示无隔离");
       assert.doesNotMatch(backend.stderr(), /尚在验证/, "验证已完成，不得再打印受限模式待验证提示");
 
@@ -169,7 +169,7 @@ test("ruukoto-dev 默认执行后端 = 容器（已验证边界）；完全访�
   }
 });
 
-test("ruukoto-dev 显式 local（flag 或环境变量）：local 生效并打印无隔离警告", async () => {
+test("ruukoto-code 显式 local（flag 或环境变量）：local 生效并打印无隔离警告", async () => {
   for (const override of [
     { name: "flag", extraArgv: ["--execution", "local"] },
     { name: "env", extraEnv: { RUUKOTO_EXECUTION_BACKEND: "local" } },
@@ -180,7 +180,7 @@ test("ruukoto-dev 显式 local（flag 或环境变量）：local 生效并打印
     await writeModelsJson(dirs, baseUrl);
     let backend: SpawnedBackend | null = null;
     try {
-      backend = await spawnBackend({ product: "ruukoto-dev", ...(dirs as TestDirs), ...override });
+      backend = await spawnBackend({ product: "ruukoto-code", ...(dirs as TestDirs), ...override });
       const client = await connectAuthed(backend.controlDir);
       try {
         const { snapshot } = await client.handshake();
@@ -240,7 +240,7 @@ test("非法 --execution 取值仍在入口拒绝", async () => {
         "--execution",
         "bogus",
       ],
-      { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_PRODUCT: "ruukoto-dev" } },
+      { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_PRODUCT: "ruukoto-code" } },
     );
     assert.equal(r.status, 1);
     assert.match(r.stderr, /--execution 取值无效/);

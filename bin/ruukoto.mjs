@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 个人 Agent 产品入口（ADR 0017，agent-direction issue 01）：与 ruukoto-dev 同一 CLI，
+// 个人 Agent 产品入口（ADR 0017，agent-direction issue 01）：与 ruukoto-code 同一 CLI，
 // 产品身份由入口固定注入——不读取外部环境中的 RUUKOTO_PRODUCT，避免落到错误产品。
 process.env.RUUKOTO_PRODUCT = "ruukoto";
 import { register } from "tsx/esm/api";

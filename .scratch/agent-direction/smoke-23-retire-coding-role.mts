@@ -8,7 +8,7 @@
  *   3. SIGKILL 后台，换新代码（本仓库当前状态）在同一数据目录启动。
  * 核对：旧子任务收尾（A interrupted、B canceled coding_role_retired），各补记
  * 一次结果并唤醒 main 一次、正文不重放；coding 角色行保留、角色会话拒绝提交；
- * 第二次重启幂等；ruukoto-dev 的 create-project / create-session 拒绝旧项目写入。
+ * 第二次重启幂等；ruukoto-code 的 create-project / create-session 拒绝旧项目写入。
  *
  * 模拟（打桩）：MockModelServer（模型）。真实：两份 bin 后台进程、SIGKILL +
  * 正常停止 + 再启动、控制面 socket 与令牌、SQLite 核心库、CLI 进程。
@@ -116,7 +116,7 @@ function spawnBackend(tree: string): void {
   child.stderr!.on("data", (c: Buffer) => (stderr += c.toString("utf8")));
 }
 function cli(tree: string, args: string[], extraEnv: Record<string, string> = {}) {
-  return spawnSync(process.execPath, [path.join(tree, "bin", args[0] === "dev" ? "ruukoto-dev.mjs" : "ruukoto.mjs"), ...args.slice(args[0] === "dev" ? 1 : 0)],
+  return spawnSync(process.execPath, [path.join(tree, "bin", args[0] === "dev" ? "ruukoto-code.mjs" : "ruukoto.mjs"), ...args.slice(args[0] === "dev" ? 1 : 0)],
     { cwd: tree, env: { ...env, ...extraEnv }, encoding: "utf8", timeout: 60_000 });
 }
 async function connect(): Promise<ControlClient> {
@@ -205,13 +205,13 @@ try {
   await stopBackend(client);
   client = null;
 
-  // ===== ruukoto-dev 不提供旧项目写入路径（拒绝发生在连接后台之前） =====
-  await check("ruukoto-dev create-project / create-session 拒绝并提示工作区入口", () => {
-    const devEnv = { RUUKOTO_DEV_DATA_DIR: path.join(dirs.root, "dev-data"), RUUKOTO_DEV_CONTROL_DIR: path.join(dirs.root, "dev-control") };
+  // ===== ruukoto-code 不提供旧项目写入路径（拒绝发生在连接后台之前） =====
+  await check("ruukoto-code create-project / create-session 拒绝并提示工作区入口", () => {
+    const devEnv = { RUUKOTO_CODE_DATA_DIR: path.join(dirs.root, "dev-data"), RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "dev-control") };
     for (const args of [["dev", "create-project", "旧项目"], ["dev", "create-session", "p", dirs.root]]) {
       const r = cli(repoRoot, args, devEnv);
       assert.equal(r.status, 1, `${args.join(" ")} 退出码`);
-      assert.match(r.stderr, /ruukoto-dev 使用工作区/);
+      assert.match(r.stderr, /ruukoto-code 使用工作区/);
     }
   });
 } catch (err) {

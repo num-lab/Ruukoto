@@ -4,7 +4,7 @@
  * 模拟：模型（MockModelServer 确定性脚本）与消息平台（不启用）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （Docker 容器后端，04/11 已验证的 macOS 受限执行边界）+ 真实文件读取与
- * 只读范围 + 真实 CLI（bin/ruukoto-dev.mjs work show，经 socket 与拥有者令牌）。
+ * 只读范围 + 真实 CLI（bin/ruukoto-code.mjs work show，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应）：
  *  S1. 协作加入：B 经 work_id + sub_agent_id 拉入既有工作 W，执行记录独立；
@@ -143,7 +143,7 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto-dev：真实容器 worker + 真实 CLI ============
+// ============ ruukoto-code：真实容器 worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
 const dataDir = path.join(root, "data");
@@ -157,7 +157,7 @@ const config: RuntimeConfig = {
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  productType: "ruukoto-dev",
+  productType: "ruukoto-code",
   ...realTools(),
   execution: { backend: "container", container: { uid: UID, gid: GID } },
 };
@@ -316,8 +316,8 @@ try {
   });
 
   await check("S6 真实 CLI work show 读消息列表；重启后记录保留、冲刷不重放", async () => {
-    const env = { ...process.env, RUUKOTO_DEV_DATA_DIR: dataDir };
-    const { stdout } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-dev.mjs"), "work", "show", wId], { encoding: "utf8", env, timeout: 60_000 });
+    const env = { ...process.env, RUUKOTO_CODE_DATA_DIR: dataDir };
+    const { stdout } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-code.mjs"), "work", "show", wId], { encoding: "utf8", env, timeout: 60_000 });
     const parsed = JSON.parse(stdout);
     assert.ok(Array.isArray(parsed.messages) && parsed.messages.length === 4, `work show 消息数：${parsed.messages?.length}`);
     assert.ok(parsed.messages.some((m: any) => m.fromSubAgentId === aId && m.toSubAgentId === bId && m.deliveredTaskId));

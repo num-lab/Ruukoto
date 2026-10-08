@@ -1759,7 +1759,7 @@ export class TuiApp {
   }
 
   private async createAndSwitch(projectId: string, cwd: string): Promise<void> {
-    // ruukoto-dev（agent-direction issue 23）：旧项目（无根目录）不再新建会话，新会话走工作区
+    // ruukoto-code（agent-direction issue 23）：旧项目（无根目录）不再新建会话，新会话走工作区
     if (this.devProductPicker() && !this.state.projects.find((p) => p.id === projectId)?.rootDir) {
       this.notify(LEGACY_PROJECT_WRITE_HINT);
       return;
@@ -2819,13 +2819,13 @@ export class TuiApp {
 
   // ---------- 会话选择 ----------
 
-  /** ruukoto-dev（issue 05）：普通列表只含 dev 且非逻辑角色的会话；ruukoto 不过滤。 */
+  /** ruukoto-code（issue 05）：普通列表只含 dev 且非逻辑角色的会话；ruukoto 不过滤。 */
   private devProductPicker(): boolean {
-    return productFromEnv() === "ruukoto-dev";
+    return productFromEnv() === "ruukoto-code";
   }
 
   /**
-   * 当前归属项目（issue 07 步骤 4）：ruukoto-dev 按组织展示归属（已映射的旧
+   * 当前归属项目（issue 07 步骤 4）：ruukoto-code 按组织展示归属（已映射的旧
    * 会话归入目标工作区，选择状态不随会话的 projectId 回到源项目）；ruukoto
    * 产品与其他场景恒为会话的实际身份（原项目界面与旧 API 语义不变）。
    */
@@ -2847,7 +2847,7 @@ export class TuiApp {
   }
 
   private openProjectPicker(): void {
-    // ruukoto-dev（issue 05）：工作区（带根目录归属）在前、旧项目在后，角色与
+    // ruukoto-code（issue 05）：工作区（带根目录归属）在前、旧项目在后，角色与
     // 群聊项目不进入普通列表；ruukoto 沿用旧行为（主会话等原样列出）
     const devProduct = this.devProductPicker();
     const itemOf = (project: Project, tag: string | null) => {
@@ -2875,7 +2875,7 @@ export class TuiApp {
         })()
       : this.state.projects.map((p) => itemOf(p, null));
     if (!items.length) {
-      this.notify(devProduct ? "尚无工作区：ruukoto-dev <目录> 打开目录创建工作区" : "尚无项目：/new-project <名称> 创建项目");
+      this.notify(devProduct ? "尚无工作区：ruukoto-code <目录> 打开目录创建工作区" : "尚无项目：/new-project <名称> 创建项目");
       return;
     }
     const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
@@ -2927,7 +2927,7 @@ export class TuiApp {
       return;
     }
     if (generation !== this.generation) return;
-    // ruukoto-dev（issue 05）：会话列表同样不混入角色与群聊会话
+    // ruukoto-code（issue 05）：会话列表同样不混入角色与群聊会话
     const items = summaries.filter((session) => this.isVisiblePickerSession(session.sessionId)).map((session) => ({
       value: session.sessionId,
       label: sanitizeForDisplay(session.name ?? `未命名会话 · ${session.sessionId.slice(0, 14)}…`).replace(/\s+/g, " ").trim(),

@@ -6,7 +6,7 @@
  * （Docker 容器后端，04 已验证的 macOS 受限执行边界）+ 真实文件读取与只读范围。
  *
  * 覆盖（与工单验收对应）：
- *  A. ruukoto-dev 开发会话：登记 → 独立子身份/会话/任务 → 真实受控读取
+ *  A. ruukoto-code 开发会话：登记 → 独立子身份/会话/任务 → 真实受控读取
  *     （范围内可读、范围外实际拒绝）→ 原文件未变 → 子模型挂起期间父第二条
  *     消息先得到回复 → 结果回传与幂等 → 空闲且无残余进程 → 重启后身份保留、
  *     旧子任务不自动运行；
@@ -116,7 +116,7 @@ function lastToolText(req: RecordedRequest): string {
 
 const evidence: string[] = [];
 
-// ============ Phase A：ruukoto-dev 开发会话（真实容器 worker） ============
+// ============ Phase A：ruukoto-code 开发会话（真实容器 worker） ============
 const seenToolErrors: string[] = [];
 let releaseChild!: () => void;
 const childGate = new Promise<void>((resolve) => {
@@ -145,7 +145,7 @@ try {
   tA = await startTestRuntime("smoke11-dev", responderA, {
     config: {
       ...realTools(),
-      productType: "ruukoto-dev",
+      productType: "ruukoto-code",
       execution: { backend: "container", container: { uid: UID, gid: GID } },
     },
   });

@@ -111,7 +111,7 @@ npx tsx --test test/67-visual-docs.test.ts
 npm test
 ```
 
-新增 `.scratch/agent-direction/smoke-11-subagent-delegation.mts`，用真实产品后台、隔离 profile/socket、SQLite、独立 JSONL、实际受限 worker 与可控文件验证 ruukoto-dev 开发会话及 ruukoto main。模型及消息平台可以打桩，必须分别记录；本机 macOS 使用 04 已验证的受限后端，Linux `ssh tx` 使用现有受限执行环境，不能以本地无隔离替身替代执行边界证据。保存父/子 sessionId、workId、Agent/Task、实际读取内容、原文件未变、第二条父消息先得到回复、结果/通知幂等、空闲无进程及身份仍保留的证据。真实 QQ/Telegram 演练没有入口时仍记未实测，不能继承 10 的模拟平台结果作为真实平台验收。
+新增 `.scratch/agent-direction/smoke-11-subagent-delegation.mts`，用真实产品后台、隔离 profile/socket、SQLite、独立 JSONL、实际受限 worker 与可控文件验证 ruukoto-code 开发会话及 ruukoto main。模型及消息平台可以打桩，必须分别记录；本机 macOS 使用 04 已验证的受限后端，Linux `ssh tx` 使用现有受限执行环境，不能以本地无隔离替身替代执行边界证据。保存父/子 sessionId、workId、Agent/Task、实际读取内容、原文件未变、第二条父消息先得到回复、结果/通知幂等、空闲无进程及身份仍保留的证据。真实 QQ/Telegram 演练没有入口时仍记未实测，不能继承 10 的模拟平台结果作为真实平台验收。
 
 同步 `CONTEXT.md`、`docs/runtime.md` 的工作委托/Task/SubAgent 分离、只读能力、异步回报、空闲及兼容范围，更新 ADR 0017 的实施说明并记录必要的新 ADR；当前阶段的复用、通信、取消、恢复及异步 IM 汇报分别链接 12–15、18。对每个实际修改的 `src/`、`deploy/` 文件按仓库约定执行 `grep -l <文件路径> docs/visual/*.html`，同步命中的图、表和正文，重点核查编排器、工具调用、任务生命周期、存储、上下文、控制协议及部署页面，并运行 test/67。
 

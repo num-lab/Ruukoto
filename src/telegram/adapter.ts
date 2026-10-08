@@ -159,7 +159,7 @@ export interface TelegramDeps {
   backoffMs?: number;
   /**
    * 启动配置停用（架构工单 10；dev 开发实例经 RUUKOTO_DISABLE_TELEGRAM=1 注入，
-   * ruukoto-dev 按产品边界强制）：入口照常存在，但不轮询、target() 为 null、
+   * ruukoto-code 按产品边界强制）：入口照常存在，但不轮询、target() 为 null、
    * 入站作废；telegram 控制面操作仍作用于配置存储。
    */
   startupDisabled?: "product" | "dev";
@@ -227,7 +227,7 @@ export class TelegramAdapter implements ImEntry {
         online: false,
         disabledByConfig: true,
         stateDetail: this.deps.startupDisabled === "product"
-          ? "Coding Agent（ruukoto-dev）不连接消息平台"
+          ? "Coding Agent（ruukoto-code）不连接消息平台"
           : "已由启动配置停用（dev 开发实例不连接真实 Telegram）",
       };
     }

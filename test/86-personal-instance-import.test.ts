@@ -640,12 +640,12 @@ test("预览覆盖交接清单与各项收尾，两侧零写入；门禁逐项�
       fs.rmSync(copyDirs.root, { recursive: true, force: true });
     }
 
-    // 目标产品错配（ruukoto-dev 登记目录）
+    // 目标产品错配（ruukoto-code 登记目录）
     {
       const devDirs = targetDirs("p1dev");
       fs.mkdirSync(devDirs.dataDir, { recursive: true });
       const tdb = new Db(devDirs.dataDir);
-      tdb.prepare("INSERT INTO meta (key, value) VALUES ('product.type', 'ruukoto-dev')").run();
+      tdb.prepare("INSERT INTO meta (key, value) VALUES ('product.type', 'ruukoto-code')").run();
       tdb.close();
       assert.equal(errCode(() => previewPersonalImport(depsOf(devDirs), { from: src.srcDataDir })), "product_mismatch");
       fs.rmSync(devDirs.root, { recursive: true, force: true });

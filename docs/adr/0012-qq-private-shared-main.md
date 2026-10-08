@@ -8,7 +8,7 @@
 
 2026-10-04 实施修订（agent-direction issue 18）：最终汇报已实施（规则同 ADR 0011 同日修订）：IM 来源任务发起的通用 SubAgent 工作收尾时经 `owner_reply` 槽登记一次最终汇报，引用原入站消息；“排除子任务唤醒”的例外仅限 IM 发起通用工作的收尾轮次，旧 coding draft 链唤醒仍不外发。
 
-2026-10-06 修订（架构工单 10）：启动配置停用的入口按停用处理。QQ 入口在启动配置停用（`RUUKOTO_DISABLE_QQ`，dev 开发实例固定注入；ruukoto-dev 强制停用）时不再让私聊入站停在 `registered`、让排队任务停住整条 main 队列，而是与 Telegram 一致：入站作废并记 `inbound.skipped`，排队任务按 `qq_private_unavailable` 取消。理由：启动时停用的入口无法证明钉版目标仍有效，与拥有者停用入口同义；暂时离线（适配器在、连接未确认）仍是 wait，语义不变。
+2026-10-06 修订（架构工单 10）：启动配置停用的入口按停用处理。QQ 入口在启动配置停用（`RUUKOTO_DISABLE_QQ`，dev 开发实例固定注入；ruukoto-code 强制停用）时不再让私聊入站停在 `registered`、让排队任务停住整条 main 队列，而是与 Telegram 一致：入站作废并记 `inbound.skipped`，排队任务按 `qq_private_unavailable` 取消。理由：启动时停用的入口无法证明钉版目标仍有效，与拥有者停用入口同义；暂时离线（适配器在、连接未确认）仍是 wait，语义不变。
 
 daily-agent issue 06 的 QQ 好友私聊与 Telegram 共用 main 身份和主会话。复用现有 NapCat 连接，私聊单独通过持久入站事件进入编排器；不复用群会话或群发送账本。只接收已配置 owner 的好友纯文本，登录账号由 get_login_info 核对，在线状态由 get_status 与心跳核对。私聊必须配置 token，QQ 身份不授予控制面权限。
 

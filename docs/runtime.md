@@ -4,7 +4,7 @@
 每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](adr/0002-detach-terminal-from-task-runtime.md)）。
 issue 03 接入真实编码工具与两种权限模式（[ADR 0003](adr/0003-enforce-explicit-access-modes.md)、
 [ADR 0004](adr/0004-tool-worker-per-task-container-exec-account.md)）。
-TUI 是独立客户端，含历史读取、断开重连与输入去重；`ruukoto-dev` 打开 TUI 时
+TUI 是独立客户端，含历史读取、断开重连与输入去重；`ruukoto-code` 打开 TUI 时
 [按需拉起本机后台](visual/control-protocol.html#ensure)。当前控制协议为 v16，包含事件流恢复接口。
 
 ## 架构要点
@@ -112,7 +112,7 @@ TUI 是独立客户端，含历史读取、断开重连与输入去重；`ruukot
   当前钉版目标一致，否则记 `<来源>.reply_skipped`、不改发）；凭据变化时先推进、写入
   后重连并 reconcile 引用它的入口；缺省通知渠道（Telegram，测试可覆盖）与通知工具的
   目标（QQ 来源任务只在钉版目标仍一致时发 QQ）。两个适配器始终创建；启动配置停用
-  （ruukoto-dev、`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`）是适配器的标志：
+  （ruukoto-code、`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`）是适配器的标志：
   不连接、不轮询、目标为 null，门以 `qq_private_unavailable` / `telegram_unavailable`
   丢弃（与入口停用同义，ADR 0012 2026-10-06 修订），outbox 视为发送器未加载而等待。
   GitHub webhook 是事件来源，不进入口表，其门仍由 `inboundGate` 单独分派。
@@ -217,31 +217,31 @@ npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一�
 
 ```bash
 ruukoto ...                 # 个人 Agent（bin 入口）
-ruukoto-dev ...             # Coding Agent（bin 入口）：同一 CLI，产品身份经
-                            # RUUKOTO_PRODUCT=ruukoto-dev 固定注入（仓库内等价于
-                            # RUUKOTO_PRODUCT=ruukoto-dev npm start -- ...）
+ruukoto-code ...             # Coding Agent（bin 入口）：同一 CLI，产品身份经
+                            # RUUKOTO_PRODUCT=ruukoto-code 固定注入（仓库内等价于
+                            # RUUKOTO_PRODUCT=ruukoto-code npm start -- ...）
 ```
 
-ruukoto-dev 的行为差别：
+ruukoto-code 的行为差别：
 
-- 独立档案根 `~/.ruukoto-dev-agent/{data,agent,control,pending}`；路径环境变量
-  只读 `RUUKOTO_DEV_DATA_DIR` / `RUUKOTO_DEV_AGENT_DIR` / `RUUKOTO_DEV_CONTROL_DIR`
-  / `RUUKOTO_DEV_PENDING_DIR`，不读对方产品的 `RUUKOTO_*_DIR`；同机并存时目录、
+- 独立档案根 `~/.ruukoto-code/{data,agent,control,pending}`；路径环境变量
+  只读 `RUUKOTO_CODE_DATA_DIR` / `RUUKOTO_CODE_AGENT_DIR` / `RUUKOTO_CODE_CONTROL_DIR`
+  / `RUUKOTO_CODE_PENDING_DIR`，不读对方产品的 `RUUKOTO_*_DIR`；同机并存时目录、
   实例锁、配置锁、socket 与 owner token 文件各自独立，升级与互停互不牵连。
   注意：`RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` 两产品共用（令牌是
   控制面身份，不是路径归属）；导出了这两个变量的 shell 对两个产品都有认证能力。
-- 不启动 QQ/Telegram 连接与个人调度（调度器不创建；状态视图按 ruukoto-dev
+- 不启动 QQ/Telegram 连接与个人调度（调度器不创建；状态视图按 ruukoto-code
   标注停用原因）；其余命令、控制面与审批机制相同。
 - 不提供旧项目写入路径（agent-direction issue 23）：TUI `/new-project`、在无
   根目录的旧项目里 `/new` / `/new-session`，以及 CLI `create-project` /
-  `create-session` 只提示改用 `ruukoto-dev <目录>` 打开工作区；旧项目保留查看，
+  `create-session` 只提示改用 `ruukoto-code <目录>` 打开工作区；旧项目保留查看，
   需要时经 `project migration-preview` 映射到工作区。控制面 op 不变。
 - 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的
   入口打开已归属的数据目录直接拒绝。
 - 开发机执行权限的边界已在工单 03 验证、工单 04 接入产品：受限模式的执行边界
   是经本机容器运行时复用的每任务容器（macOS 为 Docker Desktop 的 Linux VM，
   原生 Linux 直接运行；sandbox-exec 的文件规则在本机静默不执行、不作为边界）。
-  **ruukoto-dev 的默认执行后端为 container**（工单 04）：受限任务在容器边界内
+  **ruukoto-code 的默认执行后端为 container**（工单 04）：受限任务在容器边界内
   执行；`--execution local` / `RUUKOTO_EXECUTION_BACKEND=local` 仍可显式选择；
   两产品以 local 生效时都打印同一条无隔离警告。后端缺失或失效（docker 不可
   用、镜像缺失）在执行前明确拒绝、不静默回退到普通账户。完全访问需要专用执行
@@ -254,33 +254,33 @@ ruukoto-dev 的行为差别：
   各 6/6：容器内完成代码修改与检查、子进程不再见宿主文件与外网、只读根、越
   界读取审批单次消费、中断回收执行单元（含工作进程启动窗口）。
 - 打开 TUI 时按需拉起本机后台（issue 02，见下文「按需拉起后台」）：首次打开
-  `ruukoto-dev` 不必先 `server`；关闭 TUI 不停止后台或取消任务，显式
-  `ruukoto-dev stop` 才结束后台。
+  `ruukoto-code` 不必先 `server`；关闭 TUI 不停止后台或取消任务，显式
+  `ruukoto-code stop` 才结束后台。
 
-按需拉起后台（issue 02，仅 ruukoto-dev 的 TUI 入口）：
+按需拉起后台（issue 02，仅 ruukoto-code 的 TUI 入口）：
 
-- 打开任务界面（`ruukoto-dev`、`ruukoto-dev <路径>`、`--session`）时先探测控制面
+- 打开任务界面（`ruukoto-code`、`ruukoto-code <路径>`、`--session`）时先探测控制面
   （socket 可连且令牌认证握手通过）：已在运行直接复用，不启动第二个实例；不在运行
   才拉起 detached 后台进程（标准输出/错误追加到 `<controlDir>/spawn.log`），就绪后
   打印一行提示并进入界面。拉起的后台与 TUI 生命周期无关：退出 TUI、终端断开都
-  不停止后台或取消任务，显式 `ruukoto-dev stop` 才结束。
+  不停止后台或取消任务，显式 `ruukoto-code stop` 才结束。
 - 两个终端同时打开时并发拉起由后台实例锁（`<dataDir>/runtime.lock`）收敛为单个实例，
   不另设客户端锁：败于锁竞争的进程退出，TUI 侧不误判为启动失败，继续探测到胜者
   就绪后按复用进入（不算本进程拉起）。
 - 状态明确（拉起失败均打印错误并非零退出，不进入连接状态机）：socket 可连而令牌
   认证不通过 → 后台其实在运行，给出令牌核对指引（不再拉起）；服务进程以非实例锁
   原因提前退出且宽限窗口后探测仍不通过 → 「后台启动失败」并附 spawn.log 尾部
-  （常见原因：未配置可用模型 → 先 `ruukoto-dev config`）；到期限仍未就绪 → 等待超时，
+  （常见原因：未配置可用模型 → 先 `ruukoto-code config`）；到期限仍未就绪 → 等待超时，
   单独标注且不杀进程。运行中断线仍按既有规则显示重连中，**重连只恢复观察，不会
   再次拉起后台**；后台不可用要再拉起时重开 TUI 即可。后台明确拒绝（令牌无效、协议
   版本不符）照旧终止重连并给出修复指引（不兼容版本不属于可拉起解决的问题）。
 - 拉起即是正常后台启动：异常中断后的恢复沿用既有规则（标记 interrupted、暂停队列、
   效果未知不重放——见文末「崩溃恢复」），拉起与重连都不构成重新执行授权。
-  拉起的后台沿用产品默认执行后端（ruukoto-dev = container）；需要 local 时在环境显式设置
+  拉起的后台沿用产品默认执行后端（ruukoto-code = container）；需要 local 时在环境显式设置
   `RUUKOTO_EXECUTION_BACKEND=local`（生效时打印无隔离警告）。
 - `ruukoto`（个人 Agent）不按需拉起：后台由显式 `server` 或 systemd 管理，TUI 打开
   时仍只连接已运行的后台。
-- 手动后台照旧：`ruukoto-dev server --data-dir … --agent-dir …` 前台运行，与按需
+- 手动后台照旧：`ruukoto-code server --data-dir … --agent-dir …` 前台运行，与按需
   拉起共用同一实例锁（谁在运行谁生效，重复启动被拒绝）。
 
 开发调试（issue 21，详见下文「开发实例」）：
@@ -295,7 +295,7 @@ npm run dev [-- --tui | --config] [--import-models <目录>]
 `ruukoto --session <id>` / `--demo` 对应原 `tui --session/--demo`）：顶部为项目/会话/工作目录/连接状态/任务权限
 模式/执行后端，中间滚动显示消息与工具记录，输入框上横线右侧显示工作区目录名，底栏显示权限模式、token 用量及模型选择；工作清单经 `/todo` 悬浮层查看。
 TUI 只连接本机后台（Unix socket + 拥有者令牌），不创建 SDK 会话、
-不加载模型凭据、不直接读取后台数据库或 JSONL；ruukoto-dev 在连接前按需拉起
+不加载模型凭据、不直接读取后台数据库或 JSONL；ruukoto-code 在连接前按需拉起
 本机后台（见上文「按需拉起后台」），ruukoto 只连接已运行的后台。后台不可达
 （含启动时后台尚未就绪）、认证或同步超时、断线时显示连接状态并按有上限的
 退避重连，不会悄悄另起同一任务；只有后台明确拒绝（令牌无效、协议版本不符）
@@ -357,7 +357,7 @@ create_session 幂等键，同键重发返回原记录、同键异参报 request
 
 工作区查阅与新建（步骤 4）：`list_session_summaries` 增加与 `project_id`
 互斥的 `workspace_id` 参数（组织归属查询，活动时间算法不变，映射事件不算
-任务活跃）；ruukoto-dev 的选择面板计数与会话列表、恢复旧会话后的当前
+任务活跃）；ruukoto-code 的选择面板计数与会话列表、恢复旧会话后的当前
 选择状态、`/resume` 默认项都按组织归属（ruukoto 产品与旧 API 恒按原
 身份）。会话标题对 mapped 会话标注「工作区（配置与资料来源：来源项目）」；
 从已映射旧会话 `/new` 或 `/new-session` 创建的新会话落到目标工作区
@@ -365,7 +365,7 @@ create_session 幂等键，同键重发返回原记录、同键异参报 request
 经已映射会话派生列出「关联旧资料来源」（来源 ID、会话数、MCP/Jev、
 授权出入向、设置版本、指令基准；并列显示不合并，来源设置各按来源项目
 ID 与自身版本访问）。
-**选择面板（agent-direction issue 05）**：ruukoto-dev 的 `/project` 与工作区→会话
+**选择面板（agent-direction issue 05）**：ruukoto-code 的 `/project` 与工作区→会话
 选择中，带根目录归属的工作区列在前、旧项目列在后，逻辑角色（main/coding/chat）
 与 QQ 群聊会话所在的项目不进入普通列表，会话列表同样过滤；ruukoto 产品沿用
 旧行为（主会话等原样列出）。内部子任务是任务而非会话，本就不出现在会话列表。
@@ -383,7 +383,7 @@ ID 与自身版本访问）。
   输出取 provider 实际输出，用量缺失的调用不计入，不使用估算。数量按千进制
   转换为 K、M、B，最多一位小数；宽度不足以显示统计和完整模型信息时，整段
   统计隐藏。每次实际用量保存后更新，切换会话及重连时从后台恢复累计值。
-- **命令**：`/resume` 切换当前项目中的会话，`/project` 切换项目（ruukoto-dev 为工作区/旧项目列表，见上文「选择面板」）；`/new-project`、`/new-session <目录>` 创建；
+- **命令**：`/resume` 切换当前项目中的会话，`/project` 切换项目（ruukoto-code 为工作区/旧项目列表，见上文「选择面板」）；`/new-project`、`/new-session <目录>` 创建；
   滚动到顶部自动加载更早历史，保留当前查看位置；加载中不重复请求，已加载的更早历史不会被初始 300 条限制裁掉。
   点击工具返回结果行在事件流中展开，再次点击收起；
   `/artifact <id 前缀>` 按字节分页查看产物正文；`/approvals` 待处理审批
@@ -551,9 +551,9 @@ ID 与自身版本访问）。
   `set_project_web_search` 接受可选 `expected_version`（v1 起正整数；0/负数/非整数
   = invalid_params）。任务 TUI 与配置中心都投影该事件刷新项目展示；配置中心冲突后先
   实际重读后台数据（不刷旧缓存）、再刷新当前分区。
-- **项目分区（agent-direction issue 06）**：ruukoto-dev 的「项目」分区把工作区列在前
+- **项目分区（agent-direction issue 06）**：ruukoto-code 的「项目」分区把工作区列在前
   （标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品平铺
-  项目名称，列表不展示工作区分类或根目录前缀。ruukoto-dev 的项目详情显示分类与根目录，
+  项目名称，列表不展示工作区分类或根目录前缀。ruukoto-code 的项目详情显示分类与根目录，
   指令、Web Search、Jev、MCP 与资料授权都在已选项目内完成：
   指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务、新增固定
   归属跳过项目选择（全局 MCP 分区复用同一页面与表单，新增仍按工作区/旧项目选择项目；
@@ -597,8 +597,8 @@ ID 与自身版本访问）。
 
 `npm run dev [-- --tui | --config] [--import-models <目录>]` 启动隔离的
 开发后台与可选界面，监听源码变更自动重启。开发实例是开发本项目的隔离环境，
-运行的是默认产品 ruukoto，不是 ruukoto-dev 产品（新产品档案根为
-`~/.ruukoto-dev-agent`，两者目录、锁与控制面互不相同）：
+运行的是默认产品 ruukoto，不是 ruukoto-code 产品（新产品档案根为
+`~/.ruukoto-code`，两者目录、锁与控制面互不相同）：
 
 - **隔离 profile**：`~/.ruukoto-dev/<仓库名>-<路径哈希>/{data,agent,control,
   pending,logs}`，稳定复用、保留开发历史，位于代码目录外（QQ 等工作目录
@@ -626,7 +626,7 @@ ID 与自身版本访问）。
 ## 数据布局
 
 档案根按产品分开：ruukoto 默认 `~/.ruukoto`（环境变量 `RUUKOTO_*_DIR`），
-ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`），内容
+ruukoto-code 默认 `~/.ruukoto-code`（环境变量 `RUUKOTO_CODE_*_DIR`），内容
 结构一致；开发实例 `~/.ruukoto-dev/<仓库>-<哈希>/` 不属于任一产品。以下为单个
 产品实例的布局（以 ruukoto 默认路径为例）：
 
@@ -674,13 +674,13 @@ ruukoto-dev 默认 `~/.ruukoto-dev-agent`（环境变量 `RUUKOTO_DEV_*_DIR`）�
 └── config.lock/               # 配置独占锁（issue 21；后台运行期间持有，
                                #   离线配置据以互斥，语义同实例锁）
 
-~/.ruukoto-dev-agent/          # ruukoto-dev 产品档案根（ADR 0017，0700）：
+~/.ruukoto-code/          # ruukoto-code 产品档案根（ADR 0017，0700）：
                                #   data/ agent/ control/ pending/
 
 ~/.ruukoto-dev/<仓库>-<哈希>/   # 开发实例 profile（npm run dev，0700）：
                                #   data/ agent/ control/ pending/ logs/
                                #   与日常实例完全隔离，不继承生产凭据与配置；
-                               #   不是 ruukoto-dev 产品，新产品不会读写它
+                               #   不是 ruukoto-code 产品，新产品不会读写它
 ```
 
 职责边界：pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；
@@ -707,7 +707,7 @@ schema v32 为 `tasks` 增加 `plan_mode`（默认 0），重建会话默认模�
 
 ### 旧实例开发资料迁入（agent-direction issue 21，ADR 0022）
 
-`ruukoto-dev legacy-import` 只在 **ruukoto-dev** 产品下可用（bin/ruukoto-dev.mjs），
+`ruukoto-code legacy-import` 只在 **ruukoto-code** 产品下可用（bin/ruukoto-code.mjs），
 把旧 ruukoto 实例（如 `~/.ruukoto/data` 或服务器实例的副本）中的开发资料迁入
 Coding Agent 档案。目标侧离线执行：preview/apply/revert/list 都要求目标后台
 已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活
@@ -715,10 +715,10 @@ Coding Agent 档案。目标侧离线执行：preview/apply/revert/list 都要�
 到临时目录后在副本上迁移，源目录逐文件 sha256 不变。
 
 ```bash
-ruukoto-dev legacy-import preview --from <源数据目录> [--plan 计划文件]
-ruukoto-dev legacy-import apply --plan 计划文件 [--request-id <id>]
-ruukoto-dev legacy-import revert <导入ID>
-ruukoto-dev legacy-import list
+ruukoto-code legacy-import preview --from <源数据目录> [--plan 计划文件]
+ruukoto-code legacy-import apply --plan 计划文件 [--request-id <id>]
+ruukoto-code legacy-import revert <导入ID>
+ruukoto-code legacy-import list
 ```
 
 流程：preview 列出源/目标实例、每个项目的会话归属（普通 dev/角色/群/子会话）、
@@ -747,11 +747,11 @@ agentDir 差异（只列名称）与修订值；`--plan` 把修订与源实例�
 新会话、新授权、组织引用或新版本——逐项列出并拒绝回退）。阻挡时返回
 `ok: false`、`status: applied`，回执与已导入资料保持原状；成功回退返回
 `status: reverted`。回执永久保留
-（applied/reverted），`list` 可核实。整库恢复为手工路径：停止 ruukoto-dev
+（applied/reverted），`list` 可核实。整库恢复为手工路径：停止 ruukoto-code
 后台，用备份替换数据库后重启：
 
 ```bash
-ruukoto-dev stop  # 确认后台已停止
+ruukoto-code stop  # 确认后台已停止
 cp <dataDir>/migration/<导入ID>/target-before.db <dataDir>/ruukoto.db
 rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm
 # 复制的 JSONL 与产物正文如需一并移除，按回执 report.files 逐项删除
@@ -1564,7 +1564,7 @@ main 可检查服务器部署白名单内的服务状态，并经拥有者逐次
 - **装配边界**：`service_inspect` / `service_manage` 仅 main，且要求产品
   ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER` /
   `RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动）；
-  普通 dev、SubAgent 与 ruukoto-dev 都不获得该能力，main 不因此
+  普通 dev、SubAgent 与 ruukoto-code 都不获得该能力，main 不因此
   获得 bash。模型只提供白名单服务名与固定动作；主机身份、taskId、hostOpId、
   执行身份与策略由宿主注入。
 - **helper 边界**（`deploy/systemd/ruukoto-service.mjs`，root 0700，仅后台
@@ -2434,7 +2434,7 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 
 
 1. 后台异常退出后重新启动（systemd 自动拉起、手工 `npm start -- start`，或
-   ruukoto-dev 的 TUI 按需拉起——多个终端并发拉起经同一实例锁仲裁收敛为单个
+   ruukoto-code 的 TUI 按需拉起——多个终端并发拉起经同一实例锁仲裁收敛为单个
    实例，败者进程退出后 TUI 侧连到胜者）。
    启动时先取数据目录实例锁：记录的 pid 存活且确为本后台 → 拒绝启动；
    pid 已死或被无关进程复用 → 接管；无法核实 → 保留锁并要求人工处理。
@@ -2502,12 +2502,12 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 服务器服务管理（root 拥有的服务 helper 与白名单策略、可控测试服务，见
 上文「服务器服务管理」节）。
 
-该单元只承载个人 Agent 产品 ruukoto。Coding Agent（ruukoto-dev）装在开发
-机器上：同一仓库检出加 `bin/ruukoto-dev.mjs` 入口（`npm link` 或直接把 bin
-目录加入 PATH），默认档案根 `~/.ruukoto-dev-agent`；首次打开 TUI 即按需拉起
+该单元只承载个人 Agent 产品 ruukoto。Coding Agent（ruukoto-code）装在开发
+机器上：同一仓库检出加 `bin/ruukoto-code.mjs` 入口（`npm link` 或直接把 bin
+目录加入 PATH），默认档案根 `~/.ruukoto-code`；首次打开 TUI 即按需拉起
 本机后台（见上文「按需拉起后台」），无需预置服务单元。两端各自的安装与升级
 （替换检出后按产品 `stop`/`server` 重启）互不要求对方同时升级或停止；
-按需拉起的后台在升级替换检出后同样经 `ruukoto-dev stop` 停下，下次打开 TUI
+按需拉起的后台在升级替换检出后同样经 `ruukoto-code stop` 停下，下次打开 TUI
 自动以新代码拉起。
 
 ## 验证状态（诚实清单）
@@ -2543,9 +2543,9 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 | agent-direction issue 15 后台重启恢复 SubAgent（test/86 共 3 项：排队委派任务重启定 interrupted 且不自动继续/不当作新委派（零模型请求）、补记一次重复启动不重复登记、结果归属保持、Agent 回 idle 可继续委派且 dev 父会话注入；遗留占用保留与 occupancy_unverified 暂停不被启动恢复解除、unverified 拒绝委派、拥有者 resume-queue 后回 idle 可委派；宿主固定评审排队任务不中断、启动恢复自动解除子会话暂停并继续执行） | macOS 本机（mock 模型 + 临时目录 + 进程内真实 Runtime 重启（stop→Runtime.start，含崩溃形态 SQL 置位）+ realTools local 后端） | 通过（2026-10-05，3/3；模拟环境。真实容器/CLI 证据见下行） |
 | agent-direction issue 15 冒烟（.scratch/agent-direction/smoke-15-recover-subagents.mts：真实 Runtime/控制面/SQLite + 真实受限容器后端与镜像 + 真实 CLI resume-queue——排队委派任务重启中断零容器零模型请求、结果归属、dev 注入、沿 work_id 真实容器继续；遗留占用保留与暂停不被启动恢复解除、unverified 拒绝委派、CLI resume-queue 后回 idle 可继续；带来源事件的评审排队任务自动恢复真实完成；重复重启不重复登记、无残余容器） | macOS 本机 Docker Desktop（真实容器；模型为模拟，消息平台不启用；崩溃形态按库内容置位，判定输入与真实崩溃一致） | 通过（2026-10-05，8/8）；冒烟期间发现并修复：backend_restart 暂停叠加持占用会话不再被启动恢复自动释放（runtime 守卫） |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
-| 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-dev 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
+| 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-code 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
 | 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |
-| ruukoto-dev TUI 按需拉起后台（agent-direction issue 02；test/72 进程级用例：后台不在时拉起、并发两个终端收敛为单实例（含锁竞败者等慢胜者复用）、已运行不重复拉起、启动失败附 spawn.log 尾部、后台在运行但令牌不符的认证指引、关闭客户端不停止后台/取消任务、重开看到同一任务与幂等键核实） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02，8/8；模拟结果与真实环境分列：模型层为模拟，进程/存储/控制面为真实环境） |
+| ruukoto-code TUI 按需拉起后台（agent-direction issue 02；test/72 进程级用例：后台不在时拉起、并发两个终端收敛为单实例（含锁竞败者等慢胜者复用）、已运行不重复拉起、启动失败附 spawn.log 尾部、后台在运行但令牌不符的认证指引、关闭客户端不停止后台/取消任务、重开看到同一任务与幂等键核实） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02，8/8；模拟结果与真实环境分列：模型层为模拟，进程/存储/控制面为真实环境） |
 | TUI 真实入口按需拉起冒烟（.scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
 | 开发机受限执行边界产品级冒烟（agent-direction 工单 03；经真实容器启动器 + ruukoto-worker 镜像 + 宿主 ToolWorkerHost：容器内 bash、非 root 1000、工作区写入宿主可见、无外网出口、工作区外宿主真实文件不可见、只读根、CapEff 清零、nohup 逃逸孙进程实际运行（对照）且停止后心跳冻结、停止核实容器移除、宿主原路径挂载、只读授予路径可读不可写） | macOS 本机 Docker Desktop 4.x/29.8.0（Linux VM aarch64）；/var/folders 与 /Users 两种工作区各一遍 | 通过（2026-10-02，16/16 ×2；`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`——真实 docker/镜像/文件/进程/网络路径，无模拟层） |
 | macOS sandbox-exec 可行性探针（.scratch/agent-direction/macos-sbx-probe.sh：file-read literal/subpath/regex/file* 与 file-write 拒绝、孙进程继承、网络拒绝对照） | macOS 27.0 (arm64) | **否定**（2026-10-02）：文件规则 0/6 静默未执行，不构成边界；网络拒绝与孙进程继承生效，不足以覆盖文件与凭据；不作为受限执行方式 |
@@ -2554,10 +2554,10 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 | Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |
 | Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
 | 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；.scratch/agent-direction/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx .scratch/agent-direction/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |
-| ruukoto-dev 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
+| ruukoto-code 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
 | macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；现有启动器使用 systemd 包装，只适用于 Linux；macOS 未提供经过验证的本机入口；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
-| 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-dev 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
-| 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-dev.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
+| 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-code 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
+| 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-code.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
 | 服务器服务管理离线验证（agent-direction issue 09；test/78：QQ/Telegram 检查→逐次审批→批准恰好一次→原入口结果、拒绝/重复决定/篡改目标零执行、非 main 与错误产品/无配置/非 Linux 门、auto-review 转人工、策略与单元修订变化失效、同 ID 重复启动拒绝、取消与跨重启的效果未知不自动重发、产物引用与 partial、后状态查询失败保留命令结果） | macOS 本机（模拟 IM 平台 + mock 模型 + 受控 helper 替身，文件系统模拟 systemd，协议逐字节同生产） | 通过（2026-10-03，22/22；真实 systemd/提权证据非本项，见下行） |
 | 服务器服务管理真实 Linux 冒烟（.scratch/agent-direction/smoke-09-linux-service-management.mts：模拟 IM 平台 + 真实 systemd/sudo/提权/测试服务——部署安装、主链路真实重启（InvocationID 变化、starts 恰 +1、批准消费一次、op 单元实录）、执行账户调用/写策略/读控制面令牌全拒绝、同 hostOpId already_claimed、策略篡改消费前失效、改单元不 daemon-reload 修订拒绝、基础设施目标拒绝、op 已派发时 kill -9 恢复效果未知不自动重发、拒绝零执行） | tx（Ubuntu 24.04，systemd 255） | 通过（2026-10-03，14/14 ×3 轮幂等，末轮为最终代码态复跑；发现并修复 fd3 协议在 sudo 下全断（closefrom=3）改为 stderr 前缀应答；IM/模型为桩，真实 QQ/Telegram 平台未实测） |
 

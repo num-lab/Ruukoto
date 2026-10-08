@@ -1,21 +1,21 @@
 /**
  * 产品身份（agent-direction issue 01，ADR 0017）：ruukoto（个人 Agent，Linux 服务器、
- * IM 入口与个人调度）与 ruukoto-dev（Coding Agent，开发机器、TUI 入口）共用一份代码，
+ * IM 入口与个人调度）与 ruukoto-code（Coding Agent，开发机器、TUI 入口）共用一份代码，
  * 以兼容扩展方式区分：
  * - 产品身份只经 RUUKOTO_PRODUCT 注入（对应 bin 入口固定赋值），缺省 ruukoto，
  *   旧部署与旧记录零改动；
  * - 数据目录归属经 meta 键 product.type 首次启动登记（Runtime 启动时核对，跨产品复用
  *   同一数据目录直接拒绝）；
- * - 路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，ruukoto-dev 只读
- *   RUUKOTO_DEV_*_DIR，同机并存不串用；
- * - ruukoto-dev 档案根独立，避开开发本项目的隔离实例根 ~/.ruukoto-dev（~/.ruukoto-dev
+ * - 路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读
+ *   RUUKOTO_CODE_*_DIR，同机并存不串用；
+ * - ruukoto-code 档案根独立，避开开发本项目的隔离实例根 ~/.ruukoto-dev（~/.ruukoto-dev
  *   继续只属于 `npm run dev` 开发实例）。
  */
 
 import * as os from "node:os";
 import * as path from "node:path";
 
-export const PRODUCT_TYPES = ["ruukoto", "ruukoto-dev"] as const;
+export const PRODUCT_TYPES = ["ruukoto", "ruukoto-code"] as const;
 export type ProductType = (typeof PRODUCT_TYPES)[number];
 
 /** 数据目录归属登记的 meta 键（旧库缺省无此键，首次启动按当前产品补记）。 */
@@ -31,14 +31,14 @@ export function productFromEnv(env: NodeJS.ProcessEnv = process.env): ProductTyp
 
 /** 产品档案根目录。homeDir 参数供测试注入；生产取 os.homedir()。 */
 export function productRootDir(product: ProductType, homeDir: string = os.homedir()): string {
-  return path.join(homeDir, product === "ruukoto" ? ".ruukoto" : ".ruukoto-dev-agent");
+  return path.join(homeDir, product === "ruukoto" ? ".ruukoto" : ".ruukoto-code");
 }
 
-/** 路径环境变量名前缀按产品隔离：ruukoto 用 RUUKOTO_*_DIR，ruukoto-dev 用 RUUKOTO_DEV_*_DIR。 */
+/** 路径环境变量名前缀按产品隔离：ruukoto 用 RUUKOTO_*_DIR，ruukoto-code 用 RUUKOTO_CODE_*_DIR。 */
 export function dirEnvFor(
   product: ProductType,
   kind: "DATA" | "AGENT" | "CONTROL" | "PENDING",
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  return env[`${product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_DEV"}_${kind}_DIR`];
+  return env[`${product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_CODE"}_${kind}_DIR`];
 }

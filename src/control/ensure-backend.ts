@@ -1,7 +1,7 @@
 /**
  * TUI 启动时按需拉起本机后台（agent-direction issue 02，ADR 0017）。
  *
- * - 只属 ruukoto-dev：Coding Agent 打开 TUI 即进入任务界面，后台按需拉起；
+ * - 只属 ruukoto-code：Coding Agent 打开 TUI 即进入任务界面，后台按需拉起；
  *   ruukoto（个人 Agent）沿用显式 server/systemd 启动，TUI 不越权拉起；
  * - 探测优先：控制面可认证握手即视为在运行，绝不启动第二个实例；探测令牌
  *   与客户端同一来源（RUUKOTO_OWNER_TOKEN → RUUKOTO_OWNER_TOKEN_FILE →
@@ -70,9 +70,9 @@ async function socketConnectable(socketPath: string): Promise<boolean> {
   }
 }
 
-/** TUI 按需拉起门控：只属 ruukoto-dev。 */
+/** TUI 按需拉起门控：只属 ruukoto-code。 */
 export function tuiSpawnsBackendOnDemand(product: ProductType): boolean {
-  return product === "ruukoto-dev";
+  return product === "ruukoto-code";
 }
 
 export interface EnsureBackendOptions {
@@ -105,8 +105,8 @@ function logTail(logPath: string, from = 0, maxChars = 1200): string {
   }
 }
 
-/** 固定服务入口：bin/ruukoto-dev.mjs（纯 JS，内部注册 tsx loader 后加载 src/cli.ts）。 */
-const FIXED_SERVER_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../bin/ruukoto-dev.mjs");
+/** 固定服务入口：bin/ruukoto-code.mjs（纯 JS，内部注册 tsx loader 后加载 src/cli.ts）。 */
+const FIXED_SERVER_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../bin/ruukoto-code.mjs");
 
 /**
  * 默认服务进程参数：JS 入口（bin）原样复用；TypeScript 入口（npm start 经 tsx 执行
@@ -147,7 +147,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
   }
 
   const argv = opts.spawnArgv ?? defaultServerArgv(opts);
-  if (!argv) return { ok: false, error: "无法确定本产品的服务启动入口（process.argv[1] 缺失），请改用 ruukoto-dev server 显式启动" };
+  if (!argv) return { ok: false, error: "无法确定本产品的服务启动入口（process.argv[1] 缺失），请改用 ruukoto-code server 显式启动" };
 
   fs.mkdirSync(opts.controlDir, { recursive: true, mode: 0o770 });
   const logPath = path.join(opts.controlDir, "spawn.log");
@@ -188,7 +188,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     const now = Date.now();
     if (!lostLockRace && exitedAt !== null && now - exitedAt >= exitGraceMs) {
       const tail = logTail(logPath, logStart);
-      const hint = /no_model|未找到可用模型/.test(tail) ? "\n提示：未配置可用模型，先运行「ruukoto-dev config」；修复后重开 TUI 会重新拉起。" : "";
+      const hint = /no_model|未找到可用模型/.test(tail) ? "\n提示：未配置可用模型，先运行「ruukoto-code config」；修复后重开 TUI 会重新拉起。" : "";
       return {
         ok: false,
         error:
@@ -200,15 +200,15 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     if (now >= deadline) {
       return {
         ok: false,
-        error: `等待后台就绪超时（${Math.round((opts.deadlineMs ?? 60_000) / 1000)}s；日志 ${logPath}）。进程未被杀，可能就绪较慢或有并发启动在途；也可 ruukoto-dev status 查看`,
+        error: `等待后台就绪超时（${Math.round((opts.deadlineMs ?? 60_000) / 1000)}s；日志 ${logPath}）。进程未被杀，可能就绪较慢或有并发启动在途；也可 ruukoto-code status 查看`,
       };
     }
     await new Promise((r) => setTimeout(r, pollMs));
   }
 }
 
-/** ruukoto-dev 产品默认目录的按需拉起（TUI 入口调用）。 */
-export async function ensureRuukotoDevBackend(opts: Partial<EnsureBackendOptions> = {}): Promise<EnsureBackendResult> {
+/** ruukoto-code 产品默认目录的按需拉起（TUI 入口调用）。 */
+export async function ensureRuukotoCodeBackend(opts: Partial<EnsureBackendOptions> = {}): Promise<EnsureBackendResult> {
   const dataDir = opts.dataDir ?? defaultDataDir();
   const agentDir = opts.agentDir ?? defaultAgentDir();
   return ensureBackend({ ...opts, dataDir, agentDir, controlDir: opts.controlDir ?? controlDirFor(dataDir) });

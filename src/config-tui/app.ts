@@ -81,7 +81,7 @@ export interface ConfigTuiAppDeps {
   client?: ControlClient;
   snapshot?: ConnectResult["snapshot"];
   terminal?: Terminal;
-  /** 产品身份（agent-direction issue 06）：ruukoto-dev 的项目分区按工作区/旧项目分类；缺省按 RUUKOTO_PRODUCT。 */
+  /** 产品身份（agent-direction issue 06）：ruukoto-code 的项目分区按工作区/旧项目分类；缺省按 RUUKOTO_PRODUCT。 */
   product?: ProductType;
   onExit: (code: number) => void;
 }
@@ -1017,9 +1017,9 @@ export class ConfigTuiApp {
     this.projects = this.projects.map((p) => (p.id === projectId ? { ...p, ...patch } : p));
   }
 
-  /** 项目列表顺序与标注：ruukoto-dev 沿用任务界面的工作区/旧项目分类（工作区在前）；ruukoto 平铺不标注。 */
+  /** 项目列表顺序与标注：ruukoto-code 沿用任务界面的工作区/旧项目分类（工作区在前）；ruukoto 平铺不标注。 */
   private orderedProjects(): Array<{ project: Project; tag: "工作区" | "旧项目" | null }> {
-    if (this.product !== "ruukoto-dev") return this.projects.map((project) => ({ project, tag: null }));
+    if (this.product !== "ruukoto-code") return this.projects.map((project) => ({ project, tag: null }));
     const { workspaces, legacy } = workspacePickerProjects({
       projects: this.projects,
       sessions: this.sessions,
@@ -1037,7 +1037,7 @@ export class ConfigTuiApp {
         this.orderedProjects().map(({ project: p, tag }) => ({
           value: `project:${p.id}`,
           label: tag ? `${tag} · ${p.name}` : p.name,
-          description: `${this.product === "ruukoto-dev" && p.rootDir ? `根目录 ${p.rootDir.cwdReal} · ` : ""}指令 ${p.instructionFiles.length} 个 · Web Search ${p.webSearch === "enabled" ? "启用" : "禁用"}`,
+          description: `${this.product === "ruukoto-code" && p.rootDir ? `根目录 ${p.rootDir.cwdReal} · ` : ""}指令 ${p.instructionFiles.length} 个 · Web Search ${p.webSearch === "enabled" ? "启用" : "禁用"}`,
         })),
       onSelect: async (item) => {
         if (item.value.startsWith("project:")) return this.pushScreen(this.projectScreen(item.value.slice("project:".length)));
@@ -1052,7 +1052,7 @@ export class ConfigTuiApp {
       watch: (t) =>
         t === "project.created" || t === "project.settings_changed" || t === "project.root_attached" || t === "session.workspace_mapped",
       intro: () => {
-        if (this.product !== "ruukoto-dev") return [];
+        if (this.product !== "ruukoto-code") return [];
         const p = this.findProject(projectId);
         if (!p) return [];
         if (!p.rootDir) return ["旧项目（尚无工作区根目录归属）"];
@@ -1073,7 +1073,7 @@ export class ConfigTuiApp {
           { value: "grants", label: "资料授权", description: "跨项目历史/产物/记忆读取授权" },
         ];
         // issue 07 步骤 4：工作区列出关联旧资料来源及原配置入口（并列显示，不推断优先级）
-        if (this.product === "ruukoto-dev" && p.rootDir) {
+        if (this.product === "ruukoto-code" && p.rootDir) {
           const sources = workspaceMappedSources({ sessions: this.sessions }, projectId);
           if (sources.size > 0) {
             const grantResult = await this.deps.client!.request<any>("list_data_grants", {});

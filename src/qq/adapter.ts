@@ -59,7 +59,7 @@ export interface QqAdapterDeps {
   bridge: QqRuntimeBridge;
   timeouts?: QqAdapterTimeouts;
   /**
-   * 启动配置停用（架构工单 10；dev 开发实例经 RUUKOTO_DISABLE_QQ=1 注入，ruukoto-dev
+   * 启动配置停用（架构工单 10；dev 开发实例经 RUUKOTO_DISABLE_QQ=1 注入，ruukoto-code
    * 按产品边界强制）：入口照常存在，但不连接、target() 为 null、入站作废；
    * qq 控制面操作仍作用于配置存储。
    */
@@ -544,7 +544,7 @@ export class QqAdapter implements ImEntry {
       enabled: false as const,
       online: false as const,
       disabledByConfig: true,
-      stateDetail: by === "product" ? "Coding Agent（ruukoto-dev）不连接消息平台" : "已由启动配置停用（dev 开发实例不连接真实 QQ 通道）",
+      stateDetail: by === "product" ? "Coding Agent（ruukoto-code）不连接消息平台" : "已由启动配置停用（dev 开发实例不连接真实 QQ 通道）",
     };
   }
 

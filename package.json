@@ -5,7 +5,7 @@
   "type": "module",
   "bin": {
     "ruukoto": "bin/ruukoto.mjs",
-    "ruukoto-dev": "bin/ruukoto-dev.mjs"
+    "ruukoto-code": "bin/ruukoto-code.mjs"
   },
   "description": "个人 Agent：后台任务运行时（issue 02）。消息历史以 pi JSONL 会话文件为唯一权威副本，元数据存 node:sqlite。",
   "engines": {

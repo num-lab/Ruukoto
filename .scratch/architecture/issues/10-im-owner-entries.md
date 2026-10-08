@@ -16,7 +16,7 @@ Runtime 持一张按来源索引的拥有者 IM 入口表；每个入口回答 g
 - `ImApprovals` 的 `currentTarget`、`expectedActor`、`replyCapChars` 三个依赖（`im-approvals.ts:129–137`，接线 `runtime.ts:407–409`）就是入口表的隐含 interface。
 - owner 回复与工作汇报在 Runtime：`enqueueOwnerReply`（:873）、`imReplyTarget`（:893）、`capImReply`（:903）、`imReplySkipped`（:911）、`sendWorkReport`（:920，经 :445 接给父级送达）。
 - 入站 gate 在两处用：编排器派发（`orchestrator.ts:324`，wait 留 registered）与队列循环任务启动前（`runtime.ts:2738`，**wait 即 return，整条 main 队列停住**，TUI 与 Telegram 任务一并等待）。
-- adapter 缺失（启动配置停用：`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`，dev 开发实例固定注入；ruukoto-dev 强制停用，`runtime.ts:556–557`）时：QQ 门返回 `"wait"`（:852，issue 06 起）、Telegram 返回 `drop: telegram_unavailable`（:857，issue 08 起）。没有 ADR 或工单说明差异。
+- adapter 缺失（启动配置停用：`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`，dev 开发实例固定注入；ruukoto-code 强制停用，`runtime.ts:556–557`）时：QQ 门返回 `"wait"`（:852，issue 06 起）、Telegram 返回 `drop: telegram_unavailable`（:857，issue 08 起）。没有 ADR 或工单说明差异。
 - 通知目标：`notifyChannel`（:844）缺省 Telegram（ADR 0010），测试可经 `config.scheduler.channel` 覆盖；scheduler 工具的 `target()`（:2913–2925）对 QQ 来源任务特判（钉版目标一致才发 QQ，否则 null），其余走缺省渠道。
 - 测 Telegram 停用后的 reconcile 现在要临时目录、MockModelServer、models.json、HTTP 上的 FakeBotApi、完整 `Runtime.start` 与 `waitFor`（38、40、77、84 号）；77 号经 `(rt as any).qqAdapter` 取内部字段。
 

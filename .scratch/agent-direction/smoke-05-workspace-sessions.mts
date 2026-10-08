@@ -1,7 +1,7 @@
 /**
  * 按工作区创建和切换开发会话的产品级冒烟（agent-direction issue 05，ADR 0017）。
  *
- * 模型层打桩（MockModelServer，确定性脚本），其余全真：真实 bin/ruukoto-dev.mjs
+ * 模型层打桩（MockModelServer，确定性脚本），其余全真：真实 bin/ruukoto-code.mjs
  * 后台进程、真实 socket / SQLite / 文件系统。
  *
  * 覆盖（与工单 05 验收标准对应）：
@@ -48,10 +48,10 @@ await writeModelsJson(dirs, baseUrl);
 
 const child = childProcess.spawn(
   process.execPath,
-  [path.join(repoRoot, "bin", "ruukoto-dev.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"],
+  [path.join(repoRoot, "bin", "ruukoto-code.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"],
   {
     cwd: repoRoot,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_DEV_CONTROL_DIR: controlDir },
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CODE_CONTROL_DIR: controlDir },
     stdio: ["ignore", "ignore", "pipe"],
     detached: true,
   },

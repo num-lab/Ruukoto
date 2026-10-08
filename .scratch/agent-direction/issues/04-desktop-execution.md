@@ -22,7 +22,7 @@ Status: resolved
 
 **判定与改动（依据工单 03 的验证结论）**
 
-1. **ruukoto-dev 默认执行后端 local → container**（`src/cli.ts:runServer`）：受限任务默认在工单 03 验证的每任务容器边界内执行，不再「以 local 运行并打印提示」。`--execution local` / `RUUKOTO_EXECUTION_BACKEND=local` 仍可显式选择，两产品以 local 生效时打印同一条无隔离警告；ruukoto（个人 Agent）默认不变。按需拉起的后台不传 `--execution`，沿用产品默认。受限后端缺失（docker 不可用）时的拒绝点在工具工作进程启动：任务可入队（提交时容器路径无法预知 docker 是否失效），首个工具调用以 `execution_unavailable` 拒绝、命令不执行、不回退——这是工单 03 已定的边界判例（「既有 test/22/07 覆盖构造期与启动期失败」），本单把默认后端切到 container 后 test/07 既有用例继续证明该路径。完全访问则如 ADR 0003/0004 要求在提交前拒绝（任务不创建）。
+1. **ruukoto-code 默认执行后端 local → container**（`src/cli.ts:runServer`）：受限任务默认在工单 03 验证的每任务容器边界内执行，不再「以 local 运行并打印提示」。`--execution local` / `RUUKOTO_EXECUTION_BACKEND=local` 仍可显式选择，两产品以 local 生效时打印同一条无隔离警告；ruukoto（个人 Agent）默认不变。按需拉起的后台不传 `--execution`，沿用产品默认。受限后端缺失（docker 不可用）时的拒绝点在工具工作进程启动：任务可入队（提交时容器路径无法预知 docker 是否失效），首个工具调用以 `execution_unavailable` 拒绝、命令不执行、不回退——这是工单 03 已定的边界判例（「既有 test/22/07 覆盖构造期与启动期失败」），本单把默认后端切到 container 后 test/07 既有用例继续证明该路径。完全访问则如 ADR 0003/0004 要求在提交前拒绝（任务不创建）。
 2. **修复工作进程启动窗口的中断竞争**（冒烟发现的真 bug）：工具意图落库早于工作进程 ready，此窗口内的中断看到空受管登记表，`abort()` 等待一个无人停止的工具调用——中断挂死到工具自然结束（test/07 旧行为 20s+ 超时复现，本地后端的 sleep 30 任务同样命中）。修复：ready 前以 `starting` 占位登记受管单元（`tool-router.ts` 的 ensureWorker + `managed-processes.ts` 的 ManagedUnitKind 增第四取值），停止时等启动落定后按对应种类回收；`driver.killManagedProcesses` 读表前让出一个宏任务，使已记录意图的派发先完成登记。
 3. 权限模式选择沿用既有机制：完全访问只能经拥有者显式入口（submit `--mode`、`switch-mode`、TUI `/mode`）选择；完全访问什么环境下都不进容器（`createSystemdLauncher` 固定执行账户，执行身份拿不到控制面材料——Linux 2026-09-26 实测在用身份读不到 owner.token，本单沿用该结论，部署配置 2026-10-02 工单 03 复核未漂移）。
 
@@ -39,7 +39,7 @@ Status: resolved
 - 产品级冒烟：`npx tsx .scratch/agent-direction/smoke-04-desktop-execution.mts`（需 docker + ruukoto-worker 镜像；`TMPDIR` 换工作区位置；原生 Linux 容器 uid/gid 默认取当前进程、`RUUKOTO_CONTAINER_UID/GID` 可覆盖）。
 - 离线：`npx tsx --test test/73-desktop-execution.test.ts test/07-real-tools.test.ts`；全量 `npm test`。
 
-**同步**：`docs/runtime.md`（ruukoto-dev 行为差别、按需拉起默认值、验证状态表）、`docs/visual/deployment.html`（产品默认后端、`starting` 取值、工单 04 接入说明）、`docs/visual/task-lifecycle.html`（停止路径补启动窗口与占位登记说明）。
+**同步**：`docs/runtime.md`（ruukoto-code 行为差别、按需拉起默认值、验证状态表）、`docs/visual/deployment.html`（产品默认后端、`starting` 取值、工单 04 接入说明）、`docs/visual/task-lifecycle.html`（停止路径补启动窗口与占位登记说明）。
 
 **与验收标准对应**
 

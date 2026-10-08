@@ -15,7 +15,7 @@ git log ff289e2..606e15f --oneline
 
 按时间顺序审查以下提交：
 
-1. `42fb710`：ruukoto-dev 产品入口与两产品独立启动（工单 01）。
+1. `42fb710`：ruukoto-code 产品入口与两产品独立启动（工单 01）。
 2. `f18470d`：TUI 打开时按需拉起本机后台（工单 02）。
 3. `6f38667`：开发机执行边界验证与记录（工单 03）。
 4. `e7b4d11`：开发机受限与完全访问接入开发任务（工单 04）。
@@ -61,12 +61,12 @@ git log ff289e2..606e15f --oneline
 
 位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，默认启动参数，第 88—89 行。关联工单：[02](issues/02-coding-daemon.md)。
 
-运行说明支持 `RUUKOTO_PRODUCT=ruukoto-dev npm start -- …`。该路径由 tsx 执行 `src/cli.ts`，因此 `process.argv[1]` 指向 TypeScript 文件；按需启动却使用裸 `node` 派生 `src/cli.ts server`，没有 TypeScript loader。后台加载含参数属性的类时发生语法错误，按需启动失败。
+运行说明支持 `RUUKOTO_PRODUCT=ruukoto-code npm start -- …`。该路径由 tsx 执行 `src/cli.ts`，因此 `process.argv[1]` 指向 TypeScript 文件；按需启动却使用裸 `node` 派生 `src/cli.ts server`，没有 TypeScript loader。后台加载含参数属性的类时发生语法错误，按需启动失败。
 
 复现证据：macOS 本机 Node 24.15.0，使用默认派生路径调用 `ensureBackend` 返回 `ok: false`，日志包含 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`，指向 `src/agent/model-selection.ts` 的 TypeScript 参数属性。以下命令也可单独确认被派生的后台入口错误：
 
 ```bash
-RUUKOTO_PRODUCT=ruukoto-dev node src/cli.ts server
+RUUKOTO_PRODUCT=ruukoto-code node src/cli.ts server
 ```
 
 修复建议：使用能够加载 TypeScript 的固定服务入口，或为 TypeScript 入口配置 loader。验收时分别覆盖真实 bin 入口与文档支持的 npm start 入口；两者都应能首次拉起后台，并在再次打开时复用同一实例。
@@ -118,9 +118,9 @@ R1、R2 的修复符合目录身份与冲突处理要求，未发现本次修复
 
 状态：已在 `3ebaa5f` 修复，第三轮复查通过。以下保留第二轮发现时的行为和位置：[src/cli.ts](../../src/cli.ts)，第 116—118 行；身份注入入口见 [bin/ruukoto.mjs](../../bin/ruukoto.mjs)。关联工单：[01](issues/01-independent-products.md)。
 
-个人产品 bin 没有固定 `RUUKOTO_PRODUCT`，CLI 会采信继承的环境变量。如果 shell 导出 `RUUKOTO_PRODUCT=ruukoto-dev`，运行个人产品的 `ruukoto stop` 实际使用开发产品的目录和 socket，可能停止开发后台并中断其任务，违反工单 01 的产品独立与停止互不影响要求。
+个人产品 bin 没有固定 `RUUKOTO_PRODUCT`，CLI 会采信继承的环境变量。如果 shell 导出 `RUUKOTO_PRODUCT=ruukoto-code`，运行个人产品的 `ruukoto stop` 实际使用开发产品的目录和 socket，可能停止开发后台并中断其任务，违反工单 01 的产品独立与停止互不影响要求。
 
-复现证据：使用隔离的 data、agent、control 目录启动两个真实 bin 后台；在子进程环境设置 `RUUKOTO_PRODUCT=ruukoto-dev` 后运行 `node bin/ruukoto.mjs stop`，命令返回 0，开发后台退出 0，个人后台仍可握手应答。模型层打桩，进程与控制面真实；所有临时后台和目录已清理。
+复现证据：使用隔离的 data、agent、control 目录启动两个真实 bin 后台；在子进程环境设置 `RUUKOTO_PRODUCT=ruukoto-code` 后运行 `node bin/ruukoto.mjs stop`，命令返回 0，开发后台退出 0，个人后台仍可握手应答。模型层打桩，进程与控制面真实；所有临时后台和目录已清理。
 
 修复建议：在个人产品 bin 固定 `ruukoto` 身份，保留 `npm start` 通过环境变量选择产品的能力。验收时在继承相反产品环境变量的情况下分别调用两个真实 bin，确认每条入口的启动、查询和停止均只作用于指定产品。
 
@@ -138,7 +138,7 @@ R1、R2 的修复符合目录身份与冲突处理要求，未发现本次修复
 
 状态：已在 `3ebaa5f` 修复，第三轮复查确认原版本提示问题已解决；修复引入的断线回归另记为 R9。以下保留第二轮发现时的行为和位置：[src/control/ensure-backend.ts](../../src/control/ensure-backend.ts)，第 95—99 行；原始错误在 `probeControlPlane` 第 33—34 行被吞掉。关联工单：[02](issues/02-coding-daemon.md)。
 
-后台返回 `protocol_version` 后，探测只返回 `false`，socket 可连分支统一提示核对令牌。ruukoto-dev 的 TUI 随即退出，无法进入原有连接层的协议错误展示路径，拥有者看不到版本不兼容及升级指引。工单 02 明确要求不兼容版本给出明确状态。
+后台返回 `protocol_version` 后，探测只返回 `false`，socket 可连分支统一提示核对令牌。ruukoto-code 的 TUI 随即退出，无法进入原有连接层的协议错误展示路径，拥有者看不到版本不兼容及升级指引。工单 02 明确要求不兼容版本给出明确状态。
 
 复现证据：通过本地 Unix socket 模拟旧版本服务端的 v8 拒绝响应，返回与真实 ControlServer 相同形状的 `protocol_version` 错误。直接 ControlClient 显示“服务端 v8，请求 v9；请升级客户端”，`ensureBackend` 却只输出核对 `RUUKOTO_OWNER_TOKEN` 或令牌文件的提示。本次验证使用协议响应模拟，没有运行旧版本完整后台。
 

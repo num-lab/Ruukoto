@@ -57,7 +57,7 @@ Status: resolved
 
 - 本单全部边界证据为真实环境：真实容器引擎/镜像/进程/文件/网络/权限位；冒烟不发生模型调用，无模拟件。登录项：`container-worker-smoke.mts` 16/16（mac，两种工作区路径各一遍）、linux:probes 32/32 ×2（mac 的 Docker VM 与 tx 原生 Linux）、`macos-sbx-probe.sh` 一次（文件规则 0/6 未执行，网络拒绝与孙进程继承 2/2 生效、宿主对照通过）、tx 盘点一致。
 - 仓库验证：`npx tsc --noEmit` 通过；`npx tsx --test test/67-visual-docs.test.ts` 通过（3/3）；全量 `npm test` 712 项：709 通过、1 跳过、仅 main 上既有 2 项失败（13-tui-state accessModeLabel、19-tui-demo usage 事件覆盖，与本单无关，干净 HEAD 可复现，issue 01/02 已记录），本单改动无新增失败。
-- 文档同步：`docs/runtime.md`（ruukoto-dev 行为差别：验证结论替换“尚在验证”；验证状态诚实清单新增 5 行）、`docs/visual/deployment.html`（边界总图补开发机对照段）。
+- 文档同步：`docs/runtime.md`（ruukoto-code 行为差别：验证结论替换“尚在验证”；验证状态诚实清单新增 5 行）、`docs/visual/deployment.html`（边界总图补开发机对照段）。
 
 **与验收标准对应**
 

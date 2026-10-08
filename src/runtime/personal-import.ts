@@ -362,7 +362,7 @@ function buildImportSet(snap: PersonalSnapshot, deps: LegacyImportDeps): Persona
     if (sessionIds.has(String(s.id))) continue;
     const reason = subAgentBySession.has(String(s.id))
       ? "SubAgent 子会话的父会话为 dev 会话，随父留在源实例（经 issue 21 迁入 Coding Agent）"
-      : "普通 dev 会话，经 issue 21 迁入 Coding Agent（ruukoto-dev legacy-import）";
+      : "普通 dev 会话，经 issue 21 迁入 Coding Agent（ruukoto-code legacy-import）";
     excludedSessions.push({ id: String(s.id), project_id: String(s.project_id), reason });
   }
 
@@ -2122,7 +2122,7 @@ export function revertPersonalImport(deps: LegacyImportDeps, importId: string): 
       credentials?: Array<{ name: string; sha256: string | null }>;
     };
     if (report.direction !== "personal-into-ruukoto") {
-      fail("invalid_params", `导入 ${importId} 不是个人方向的导入回执（ruukoto-dev 侧导入请用 ruukoto-dev legacy-import revert）`);
+      fail("invalid_params", `导入 ${importId} 不是个人方向的导入回执（ruukoto-code 侧导入请用 ruukoto-code legacy-import revert）`);
     }
     const items = allRows(tdb, "SELECT kind, item_id FROM instance_import_items WHERE import_id = ?", [importId]);
     const byKind = (kind: LedgerKind) => items.filter((i) => String(i.kind) === kind).map((i) => String(i.item_id));

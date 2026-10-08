@@ -50,7 +50,7 @@ export interface ConfigTuiOptions {
   connect?: { socketPath: string; token: string };
   /** 测试注入：模型配置目录（默认 RUUKOTO_AGENT_DIR ?? ~/.ruukoto/agent）。 */
   agentDir?: string;
-  /** 产品身份（agent-direction issue 06）：ruukoto-dev 的项目分区按工作区/旧项目分类；缺省按 RUUKOTO_PRODUCT。 */
+  /** 产品身份（agent-direction issue 06）：ruukoto-code 的项目分区按工作区/旧项目分类；缺省按 RUUKOTO_PRODUCT。 */
   product?: ProductType;
 }
 

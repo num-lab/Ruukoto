@@ -1,6 +1,6 @@
 # Ruukoto Agent
 
-本项目包括开发工具 ruukoto-dev 与通用个人助手 ruukoto，分别服务于开发机器上的编码工作和专用 Linux 服务器上的个人事务。产品、SubAgent、工作区与长期操作授权的核心路径已按 [ADR 0017](docs/adr/0017-two-agent-products.md) 实施；跨端共享记忆仍属于后续方向。标注为旧架构的内容用于迁移参考，实际实现状态与验证边界见 [运行文档](docs/runtime.md)。
+本项目包括开发工具 ruukoto-code 与通用个人助手 ruukoto，分别服务于开发机器上的编码工作和专用 Linux 服务器上的个人事务。产品、SubAgent、工作区与长期操作授权的核心路径已按 [ADR 0017](docs/adr/0017-two-agent-products.md) 实施；跨端共享记忆仍属于后续方向。标注为旧架构的内容用于迁移参考，实际实现状态与验证边界见 [运行文档](docs/runtime.md)。
 
 ## 领域术语
 
@@ -10,14 +10,14 @@ _Avoid_：与隐藏主界面的窗口混称。
 **窗口**：TUI 中由完整边框包围、打开时隐藏主界面的独立交互内容。
 _Avoid_：将窗口称为悬浮层。
 
-**Coding Agent（ruukoto-dev）**：运行在开发机器上、以 TUI 为主要交互渠道的开发工具，重心是 Agentic coding。它支持多个工作区，每个工作区可有多个会话，也可使用一层 SubAgent 协作。
+**Coding Agent（ruukoto-code，原名 ruukoto-dev）**：运行在开发机器上、以 TUI 为主要交互渠道的开发工具，重心是 Agentic coding。它支持多个工作区，每个工作区可有多个会话，也可使用一层 SubAgent 协作。
 _Avoid_：与旧 coding 角色、普通会话的 dev 类别或用于开发本项目的开发实例混称。
 
 **个人 Agent（Personal Agent，ruukoto）**：运行在专用 Linux 服务器上、以 IM 为主要交互渠道的通用个人助手，面向多样化任务并持续扩展任务处理范围。
 _Avoid_：将个人 Agent 限定为编码助手或 QQ 群聊机器人；将“通用”理解为首版必须具备所有能力。
 
 **主 Agent**：在用户会话中直接与拥有者交互、向若干 SubAgent 派发任务并汇总结果的 Agent；ruukoto 的主 Agent 称为 main。
-_Avoid_：把主 Agent 与整个 Ruukoto Agent 项目或 ruukoto-dev 产品混称。
+_Avoid_：把主 Agent 与整个 Ruukoto Agent 项目或 ruukoto-code 产品混称。
 
 **SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。当前实现（agent-direction issue 11–12，ADR 0020）：首版只读分析，身份/工作/执行分存于 `sub_agents` / `work_delegations` / `tasks` 关联列；同一父会话内补充原工作用 `work_id` 继续、承接相关新工作用 `sub_agent_id` 复用（要求空闲未关闭；读范围、资料、目录与权限按本次重新确定，前次批准不延续）；主 Agent 用 `subagent_close`、拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）显式关闭，关闭是独立列 `closed_at`/`closed_by`——任务终态、TUI 退出与空闲不自动关闭，关闭后拒绝新委派，历史与产物保留可查；issue 14 的整项取消作用于工作而非 SubAgent（取消不关闭、不销毁身份与成果）；issue 16 增加修改委派（ADR 0021）：普通开发会话用 `mode=modify + target`，Git 目标由宿主在受限容器内生成 worktree 副本（子任务不提交、不推送），非 Git 目标直接写入并与父会话按目录占用串行；issue 17 增加改动汇总并开放 main 的修改委派：`subagent_integrate` 把本会话登记的副本相对基线的完整差异套用到父工作区待提交区（预检通过才写入、不代提交、冲突零写入双方保留、已套用幂等返回、直接写入无副本如实告知），取消/关闭不拦汇总（副本与成果保留可找回）；issue 23 删除固定 coding 委派（`coding_delegate`），旧 coding 子任务结果只经 `coding_result` 只读查阅；issue 19 增加宿主固定评审：GitHub PR 评审经编排器直接登记的 SubAgent 完成（每个修订一项新工作、一个新 Agent，不占 main 委派名额，空闲后保留但不再复用）；issue 13 增加同项工作内的协作通信：`work_id` 与 `sub_agent_id` 同现把空闲 Agent 拉入既有只读工作（修改工作单一写入者、宿主评审固定流程不接受加入；参与者经任务关联列记录，工作行保持首次承接者），参与者经 `subagent_message` 交换有来源的消息——发送方身份由发起任务核实、按（工作, 发送方, 键）幂等、消息不扩大任何一方的工具与资料范围；发给 SubAgent 的投递为其本工作的一次执行任务（忙/名额满待投递，终态、启动、取消与关闭时冲刷，转做其他工作、已关闭或工作已取消记明确未投递结果），发给主 Agent 的经 dev 注入（`[工作内消息]` 参考块）或 main 唤醒任务送达；issue 15 增加后台重启恢复：重启时排队的委派执行任务定 interrupted(backend_restart)、不自动继续也不当作新委派，巡检补记一次结果后按占用核实记 idle/unverified，继续与否由拥有者/父 Agent 决定；宿主固定评审的排队任务由编排器启动恢复自动继续；`resume-queue` 是 unverified 回 idle 的出口（决定见 ADR 0020 补充段）。
 _Avoid_：把 SubAgent 等同于一次子任务或旧架构中的固定 coding 角色；把任务完成等同于 Agent 关闭。
@@ -28,7 +28,7 @@ _Avoid_：把单一主会话理解为只有一个执行任务或禁止 SubAgent 
 **拥有者 IM 入口**：拥有者在某个 IM 平台上与 ruukoto 的私聊通道（当前为 QQ 私聊与 Telegram），共用主会话。宿主为它钉定目标（平台、登录账号/bot、chat 与配置版本）和预期发送者，配置或凭据的任何变化都开启新的代次，旧代次的消息、批准与发送一律失效、不改发；配置停用与启动配置停用同义（架构工单 10）。
 _Avoid_：把 GitHub webhook 等事件来源当作拥有者 IM 入口；把已退役的 QQ 群聊入口当作拥有者 IM 入口。
 
-**共享记忆**：经拥有者确认发布、供 ruukoto-dev 与 ruukoto 共同使用的个人偏好和通用经验，修改跨端偏好也由拥有者确认。
+**共享记忆**：经拥有者确认发布、供 ruukoto-code 与 ruukoto 共同使用的个人偏好和通用经验，修改跨端偏好也由拥有者确认。
 _Avoid_：把共享记忆等同于完整会话历史、日程或任务进度；把现有实例内的个人记忆范围当作已经实现了跨实例共享。
 
 **插件**：拥有者为个人 Agent 添加或定制能力的扩展单元。本项目不以建设插件平台为目标；具体扩展边界仍待明确。
@@ -66,7 +66,7 @@ _Avoid_：把临时执行副本当作必须单独管理的用户工作区，或�
 **工作区组织归属**：旧会话在工作区下的展示归属（`sessions.workspace_project_id`，ADR 0018）：拥有者经迁移流程显式设定，组织查询与普通列表按它归类（显式映射优先，未映射按原归属）。它只是展示归属——资料身份与配置来源恒为会话原项目（历史、产物、记忆、指令、工具配置、授权与凭据按原标识定位），不影响任务身份与执行，不迁移内容。
 _Avoid_：把它当作资料或配置的重新归属、迁移 JSONL/产物/配置的同义词，或用于 AccessScope、模型工具身份与凭据范围判定。
 
-**实例导入（跨实例导入）**：把旧 ruukoto 实例中的资料迁入新档案的一次性迁移，两个方向按产品分流、共用回执（`instance_imports`）与条目账本（`instance_import_items`）。开发方向（agent-direction issue 21，ADR 0022）：`ruukoto-dev legacy-import` 把源项目内普通 dev 会话及其一层 SubAgent 迁入 Coding Agent（角色绑定会话、QQ 群会话与 main 资料排除），`full_access` 会话默认降为 confirm，personal 记忆只导入计划中显式选中的条目，凭据不迁移。个人方向（agent-direction issue 22，ADR 0023）：`ruukoto legacy-import` 把 main/coding/chat 角色会话（含 SubAgent）、QQ 群会话与群归档、应用数据（`agent-data/main.db` 与绑定 meta）、调度、发送账本、平台配置（qq/telegram，含 config_version 与 telegram 偏移）、长期授权、GitHub 归档与必要凭据（平台绑定与 webhook 绑定，同名异值拒绝）迁入**全新** ruukoto 实例（目标已有自有角色行即拒绝），普通 dev 会话排除；访问模式原样保留，personal 记忆同产品延续不做计划选中。两方向共同：拥有者经 preview → 计划文件 → apply / revert / list；目标侧离线执行（持目标实例锁，不走控制面），源实例全程只读；行 ID 原样保留；未终态任务收尾为 canceled/interrupted 不重放，未消费审批 stale。个人方向另有交接维度：平台连接与调度执行归属随导入移到目标（活动调度逾期按恢复语义在目标触发一次、旧 pending 发送取消不双发），旧实例不得再启动消费同一入站或同一批通知；易变行以回执 manifest 逐行 sha256 核对，目标启动后新增入站/发送/调度及对导入行的运行时改写都是回退阻挡项。账本支持请求键幂等、中断续跑与按账本回退；导入前对目标库的备份在 `<dataDir>/migration/<导入ID>/`，整库恢复为手工路径。它不是跨端同步：源侧新增只在报告列出，可再次导入，任何路径不修改源资料。
+**实例导入（跨实例导入）**：把旧 ruukoto 实例中的资料迁入新档案的一次性迁移，两个方向按产品分流、共用回执（`instance_imports`）与条目账本（`instance_import_items`）。开发方向（agent-direction issue 21，ADR 0022）：`ruukoto-code legacy-import` 把源项目内普通 dev 会话及其一层 SubAgent 迁入 Coding Agent（角色绑定会话、QQ 群会话与 main 资料排除），`full_access` 会话默认降为 confirm，personal 记忆只导入计划中显式选中的条目，凭据不迁移。个人方向（agent-direction issue 22，ADR 0023）：`ruukoto legacy-import` 把 main/coding/chat 角色会话（含 SubAgent）、QQ 群会话与群归档、应用数据（`agent-data/main.db` 与绑定 meta）、调度、发送账本、平台配置（qq/telegram，含 config_version 与 telegram 偏移）、长期授权、GitHub 归档与必要凭据（平台绑定与 webhook 绑定，同名异值拒绝）迁入**全新** ruukoto 实例（目标已有自有角色行即拒绝），普通 dev 会话排除；访问模式原样保留，personal 记忆同产品延续不做计划选中。两方向共同：拥有者经 preview → 计划文件 → apply / revert / list；目标侧离线执行（持目标实例锁，不走控制面），源实例全程只读；行 ID 原样保留；未终态任务收尾为 canceled/interrupted 不重放，未消费审批 stale。个人方向另有交接维度：平台连接与调度执行归属随导入移到目标（活动调度逾期按恢复语义在目标触发一次、旧 pending 发送取消不双发），旧实例不得再启动消费同一入站或同一批通知；易变行以回执 manifest 逐行 sha256 核对，目标启动后新增入站/发送/调度及对导入行的运行时改写都是回退阻挡项。账本支持请求键幂等、中断续跑与按账本回退；导入前对目标库的备份在 `<dataDir>/migration/<导入ID>/`，整库恢复为手工路径。它不是跨端同步：源侧新增只在报告列出，可再次导入，任何路径不修改源资料。
 _Avoid_：把实例导入当作跨端记忆同步机制的已实现部分；把组织归属（07）与跨实例内容迁移（21/22）混称；把目标备份当作可在线回滚的工具；把个人方向的凭据复制理解为全部服务凭据随迁（MCP/Jev 凭据不复制，缺绑定停用）。
 
 **资料授权**：拥有者在可信入口显式开放的资料读取范围，可查看、可撤销，撤销自后续查询与上下文注入起生效。当前实现以来源项目、目标项目和历史/产物/记忆类别界定范围，归属随工作区迁移映射。

@@ -1,6 +1,6 @@
 #!/bin/bash
 # macOS 内置 sandbox-exec（seatbelt）可行性探针（agent-direction 工单 03）。
-# 目的：判定 sandbox-exec 能否作为 ruukoto-dev 受限执行边界。
+# 目的：判定 sandbox-exec 能否作为 ruukoto-code 受限执行边界。
 # 判定口径：文件读写规则的拒绝必须实际生效才构成文件边界；网络拒绝生效只覆盖网络一项。
 # 退出码：0 = 探针全部执行完毕（发现如实打印）；2 = 基础设施缺失（sandbox-exec 不存在、
 #         对照不可达等），本次输出不得作为结论依据。

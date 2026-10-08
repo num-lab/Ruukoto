@@ -5,7 +5,7 @@
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （Docker 容器后端，04/11/14 已验证的受限执行边界）+ 真实 git 仓库与
  * worktree 副本 + 容器内执行 git（safe.directory 环境方案）+ 真实 CLI
- * （bin/ruukoto-dev.mjs work cancel，经 socket 与拥有者令牌）。
+ * （bin/ruukoto-code.mjs work cancel，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应，离线断言见 test/83）：
  *  W1. 容器内建副本：两个子任务同一仓库并行 worktree（同时 running、
@@ -209,7 +209,7 @@ fs.appendFileSync(path.join(repoDir, ".git", "config"), `\n[core]\nfsmonitor = /
   };
 
   const t = await startTestRuntime("smoke16-parallel", responder, {
-    config: { ...realTools(), productType: "ruukoto-dev", execution: { backend: "container", container: { uid: UID, gid: GID } },
+    config: { ...realTools(), productType: "ruukoto-code", execution: { backend: "container", container: { uid: UID, gid: GID } },
   } });
   const rt = t.runtime;
   try {
@@ -333,7 +333,7 @@ fs.appendFileSync(path.join(repoDir, ".git", "config"), `\n[core]\nfsmonitor = /
     return { kind: "text", text: "done" };
   };
   const t = await startTestRuntime("smoke16-plain", responder, {
-    config: { ...realTools(), productType: "ruukoto-dev", execution: { backend: "container", container: { uid: UID, gid: GID } },
+    config: { ...realTools(), productType: "ruukoto-code", execution: { backend: "container", container: { uid: UID, gid: GID } },
   } });
   const rt = t.runtime;
   try {

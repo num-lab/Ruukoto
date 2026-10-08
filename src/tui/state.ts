@@ -804,7 +804,7 @@ export function isActiveStatus(status: TaskStatus): boolean {
 }
 
 /**
- * 会话标题的组织归属（issue 07 步骤 4）：ruukoto-dev 按展示归属给出工作区标注
+ * 会话标题的组织归属（issue 07 步骤 4）：ruukoto-code 按展示归属给出工作区标注
  * 与「配置与资料来源」项目（仅 mapped 时）；ruukoto 产品与其他场景用原身份。
  * 标题拼接（app.ts）与测试断言共用同一结论。
  */

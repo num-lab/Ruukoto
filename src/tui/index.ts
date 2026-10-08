@@ -1,8 +1,8 @@
 /**
- * TUI 入口：只连接本机后台（ruukoto-dev 按需拉起，见下），不创建 SDK 会话、
+ * TUI 入口：只连接本机后台（ruukoto-code 按需拉起，见下），不创建 SDK 会话、
  * 不加载模型凭据、不直接打开后台数据库或 JSONL。
  *
- * - ruukoto-dev（issue 02）：后台不在时按需拉起（detached，关闭 TUI 不停止后台），
+ * - ruukoto-code（issue 02）：后台不在时按需拉起（detached，关闭 TUI 不停止后台），
  *   启动失败给出日志位置并非零退出；ruukoto 沿用显式 server / systemd；
  * - 非 TTY 环境不启动交互页面，提示使用已有 CLI 命令；
  * - 仅连接本机 Unix socket；远程使用沿用登录服务器后启动 TUI 的方式；
@@ -17,7 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { resolveClientConfig } from "../control/connect.ts";
-import { ensureRuukotoDevBackend, tuiSpawnsBackendOnDemand } from "../control/ensure-backend.ts";
+import { ensureRuukotoCodeBackend, tuiSpawnsBackendOnDemand } from "../control/ensure-backend.ts";
 import { productFromEnv } from "../core/product.ts";
 import { createDemoClient } from "./demo-session.ts";
 import { ControlConnection } from "../control/connection.ts";
@@ -48,15 +48,15 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
   // 合成调试会话不读配置、不需要令牌（也不产生任何真实副作用）
   let config: { socketPath: string; token: string } | null = null;
   if (!opts.demo) {
-    // 按需拉起本机后台（issue 02，仅 ruukoto-dev）：已在运行不重复拉起，并发由实例锁收敛；
+    // 按需拉起本机后台（issue 02，仅 ruukoto-code）：已在运行不重复拉起，并发由实例锁收敛；
     // ruukoto（个人 Agent）沿用显式 server / systemd，不由 TUI 越权拉起
     if (tuiSpawnsBackendOnDemand(productFromEnv())) {
-      const ensured = await ensureRuukotoDevBackend();
+      const ensured = await ensureRuukotoCodeBackend();
       if (!ensured.ok) {
         console.error(ensured.error);
         return 1;
       }
-      if (ensured.spawned) console.error("已按需拉起 ruukoto-dev 后台（关闭 TUI 不停止后台；显式停止：ruukoto-dev stop）");
+      if (ensured.spawned) console.error("已按需拉起 ruukoto-code 后台（关闭 TUI 不停止后台；显式停止：ruukoto-code stop）");
     }
     try {
       config = resolveClientConfig();

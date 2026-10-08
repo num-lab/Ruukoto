@@ -277,8 +277,8 @@
     </aside>
 
     <aside class="callout limit">
-      <b>ruukoto-dev 没有调度器</b>
-      <p>调度器只在个人 Agent 产品 ruukoto 里创建（<code class="src" data-src="src/runtime/runtime.ts#if (runtime.productType === &quot;ruukoto&quot;) {">runtime.ts · 创建条件</code>）。Coding Agent ruukoto-dev 启动时跳过创建、恢复准备与启动，所以没有扫描、采集与发送三个循环，各处的 <code>scheduler?.kickSender()</code> 都是空操作；会话不装配 <code>schedule_*</code> 与 <code>notification_*</code> 工具。QQ 与 Telegram 适配器被强制停用（<code class="src" data-src="src/runtime/runtime.ts#qqDisabled: productType === &quot;ruukoto-dev&quot; ? true : config.qqDisabled">runtime.ts · qqDisabled</code>），所以也没有 owner 回复、IM 审批命令与初始通知的来源；即使配置了 GitHub webhook，事件入站时取不到通知目标，结束时只记 <code>inbound.skipped</code>（<code class="src" data-src="src/github/events.ts#owner 通知目标未配置">events.ts · terminal</code>）。控制面的计划与发送记录照常可查，<code>notification_cancel</code> 照常改库；<code>schedule_cancel</code> 返回 <code>unavailable</code>（<code class="src" data-src="src/runtime/runtime.ts#if (!this.scheduler) throw new RuntimeApiError(&quot;unavailable&quot;">runtime.ts · scheduleCancel</code>）。</p>
+      <b>ruukoto-code 没有调度器</b>
+      <p>调度器只在个人 Agent 产品 ruukoto 里创建（<code class="src" data-src="src/runtime/runtime.ts#if (runtime.productType === &quot;ruukoto&quot;) {">runtime.ts · 创建条件</code>）。Coding Agent ruukoto-code 启动时跳过创建、恢复准备与启动，所以没有扫描、采集与发送三个循环，各处的 <code>scheduler?.kickSender()</code> 都是空操作；会话不装配 <code>schedule_*</code> 与 <code>notification_*</code> 工具。QQ 与 Telegram 适配器被强制停用（<code class="src" data-src="src/runtime/runtime.ts#qqDisabled: productType === &quot;ruukoto-code&quot; ? true : config.qqDisabled">runtime.ts · qqDisabled</code>），所以也没有 owner 回复、IM 审批命令与初始通知的来源；即使配置了 GitHub webhook，事件入站时取不到通知目标，结束时只记 <code>inbound.skipped</code>（<code class="src" data-src="src/github/events.ts#owner 通知目标未配置">events.ts · terminal</code>）。控制面的计划与发送记录照常可查，<code>notification_cancel</code> 照常改库；<code>schedule_cancel</code> 返回 <code>unavailable</code>（<code class="src" data-src="src/runtime/runtime.ts#if (!this.scheduler) throw new RuntimeApiError(&quot;unavailable&quot;">runtime.ts · scheduleCancel</code>）。</p>
     </aside>
   </section>
 
@@ -666,7 +666,7 @@
 
   <section id="restart">
     <h2>重启恢复与停止</h2>
-    <p>本节按个人 Agent 产品 ruukoto 的启动顺序写。Coding Agent ruukoto-dev 不创建调度器，QQ 与 Telegram 适配器照常创建但按启动配置停用、不连接（agent-direction issue 01，架构工单 10），下面第 1、2、6、7 步对它都不发生。启动顺序里，调度器的恢复准备排在通用任务恢复之前（<code class="src" data-src="src/runtime/runtime.ts#scheduler!.prepareRecovery()">runtime.ts · prepareRecovery 调用处</code>）：它要先按关联记录的真实状态决定运行开着还是关着，再让通用恢复把 running 任务改写为 interrupted。</p>
+    <p>本节按个人 Agent 产品 ruukoto 的启动顺序写。Coding Agent ruukoto-code 不创建调度器，QQ 与 Telegram 适配器照常创建但按启动配置停用、不连接（agent-direction issue 01，架构工单 10），下面第 1、2、6、7 步对它都不发生。启动顺序里，调度器的恢复准备排在通用任务恢复之前（<code class="src" data-src="src/runtime/runtime.ts#scheduler!.prepareRecovery()">runtime.ts · prepareRecovery 调用处</code>）：它要先按关联记录的真实状态决定运行开着还是关着，再让通用恢复把 running 任务改写为 interrupted。</p>
     <ol class="steps">
       <li>创建调度器（<code class="src" data-src="src/runtime/runtime.ts#private initScheduler">runtime.ts · initScheduler</code>；仅个人 Agent 产品），此时不启动定时器、不派发、不发送。</li>
       <li>恢复准备（<code class="src" data-src="src/scheduler/runtime.ts#prepareRecovery(): void">runtime.ts · prepareRecovery</code>）：① 关联记录早已终态、只是关闭标记没写上的运行先补关闭；② 到期计划按正常到期事务处理，仍在 registered/queued/running/pending/sending/searching 的运行吸收漏过区间，没有未完成运行的计划补一次；③ 一个事务里把遗留 sending 全部定为 <code class="st unk">effect_unknown</code>（<code>backend_restart</code>）；④ 停在 searching 的采集定为 unknown，登记 <code>news_backend_restart</code> 的 failed 发送操作，同一窗口不重搜。</li>

@@ -21,11 +21,11 @@ Status: resolved
 
 ### 2026-10-03：实施计划
 
-基于 HEAD `e542261` 制定。01 已交付两个产品入口与分开的档案根：ruukoto 为 `~/.ruukoto`，ruukoto-dev 为 `~/.ruukoto-dev-agent`。07 已交付同一实例内的旧项目 → 工作区组织映射。当前核心库 v24、控制协议 v11；12 的计划会把核心库升到 v25，本单的版本号实施时核实。
+基于 HEAD `e542261` 制定。01 已交付两个产品入口与分开的档案根：ruukoto 为 `~/.ruukoto`，ruukoto-code 为 `~/.ruukoto-code`。07 已交付同一实例内的旧项目 → 工作区组织映射。当前核心库 v24、控制协议 v11；12 的计划会把核心库升到 v25，本单的版本号实施时核实。
 
 #### 现状核实
 
-- **源与目标的含义。** 旧开发资料在 ruukoto 产品的数据目录里：普通 dev 会话与 main、coding、chat 角色会话、QQ 群会话、应用数据、调度、IM 配置混存。本机 `~/.ruukoto` 存在；tx 上的旧实例在 `/var/lib/ruukoto`，数据库只有 ruukoto-backend 能读。目标是 ruukoto-dev 的数据目录，本机 `~/.ruukoto-dev-agent` 尚不存在。产品归属登记在 meta `product.type`，跨产品打开同一目录会被拒绝（`src/runtime/runtime.ts:508`、`src/core/product.ts:22`）。
+- **源与目标的含义。** 旧开发资料在 ruukoto 产品的数据目录里：普通 dev 会话与 main、coding、chat 角色会话、QQ 群会话、应用数据、调度、IM 配置混存。本机 `~/.ruukoto` 存在；tx 上的旧实例在 `/var/lib/ruukoto`，数据库只有 ruukoto-backend 能读。目标是 ruukoto-code 的数据目录，本机 `~/.ruukoto-code` 尚不存在。产品归属登记在 meta `product.type`，跨产品打开同一目录会被拒绝（`src/runtime/runtime.ts:508`、`src/core/product.ts:22`）。
 - **07 只在同一实例内映射。** 07 计划明确把“旧实例与 Coding Agent 独立档案之间的导入、备份及切换”交给本单。可以复用的部分：`historyStatusOf`（`src/runtime/workspace-migration.ts:213`）区分历史缺失、未落盘与损坏；`resolveDirIdentitySync`、`sameDirIdentity`（`src/core/dir-identity.ts`）做严格的目录身份核实；预览 → 计划文件 → 应用、请求键由计划文件派生的回执模式（`src/cli.ts:285`）。
 - **Schema 迁移可直接复用。** `new Db(dir)` 打开时会在事务内把任意旧版本迁到当前版本（`src/core/db.ts:553`）。`Db.prepare` 是公开方法（`db.ts:964`）。
 - **文件布局。**
@@ -50,11 +50,11 @@ Status: resolved
 
 #### 默认取舍（推荐即规格，有异议再改）
 
-- **方向与执行方式：目标侧离线 CLI。** 命令只在 ruukoto-dev 产品下可用：
-  - `ruukoto-dev legacy-import preview --from <源数据目录> [--plan <文件>]`
-  - `ruukoto-dev legacy-import apply --plan <文件>`
-  - `ruukoto-dev legacy-import revert <导入ID>`
-  - `ruukoto-dev legacy-import list`
+- **方向与执行方式：目标侧离线 CLI。** 命令只在 ruukoto-code 产品下可用：
+  - `ruukoto-code legacy-import preview --from <源数据目录> [--plan <文件>]`
+  - `ruukoto-code legacy-import apply --plan <文件>`
+  - `ruukoto-code legacy-import revert <导入ID>`
+  - `ruukoto-code legacy-import list`
 
   预览和应用都要求目标后台已停止，CLI 持目标实例锁执行。这样不与运行中的任务、编排器或事件推送交错；导入后由拥有者启动后台，客户端重连取新快照。不走控制面，因为在线导入要处理事件广播与缓存，收益不大。
 - **源全程只读。** 先用只读连接（`readOnly: true`）对源库做 `VACUUM INTO`，生成临时快照（mkdtemp，0700，命令结束即删除），再用 `new Db(快照目录)` 把快照迁到当前 schema。之后的读取都基于快照；JSONL 与产物从源目录按需读取。
@@ -118,7 +118,7 @@ Status: resolved
    - `src/core/types.ts`：回执类型。不新增事件类型，回执行本身就是审计记录，避免协议与 TUI 改动。
 2. **集中模块 `src/runtime/legacy-import.ts`。** 预览、应用、回退的全部判断都在这里，CLI 只做接线，与 07 的 `workspace-migration.ts` 同构。
    - 快照：只读 `VACUUM INTO` 到 mkdtemp，再 `new Db` 迁移。
-   - 校验：源 `product.type` 必须为 ruukoto 或未登记；源后台不能存活；目标 `product.type` 必须为 ruukoto-dev 或未登记（未登记时补记）；快照 `PRAGMA integrity_check` 通过。
+   - 校验：源 `product.type` 必须为 ruukoto 或未登记；源后台不能存活；目标 `product.type` 必须为 ruukoto-code 或未登记（未登记时补记）；快照 `PRAGMA integrity_check` 通过。
    - 预览输出：
      - 源/目标实例 ID、产品、schema、路径；目标是否为空、已有项目数与此前导入；
      - 每个项目：会话归属（普通 / 角色 / 群 / 子会话）、工作区与根在本机的核实结果、历史状态（`historyStatusOf`）、产物文件缺失、未终态任务及收尾方式、待处理审批；
@@ -126,7 +126,7 @@ Status: resolved
      - 修订值。
    - 应用：按上一节流程执行，`ATTACH` 必须在事务外完成。
    - 一张 `TABLE_POLICY` 表登记每张表“导入 / 排除 + 理由”。导入前核对目标库的全部表都已登记、两库列集合相同，否则拒绝，避免新表默认被漏判或被复制。
-3. **CLI**（`src/cli.ts`）。增加 `legacy-import` 子命令：产品不是 ruukoto-dev 时拒绝；复用 `defaultDirs()` 与 `--data-dir`；持 `acquireInstanceLock(目标数据目录)`。`preview --plan` 把修订值写回计划文件（07 的做法）；`apply` 的请求键由计划文件内容派生。结构化 JSON 输出到 stdout。
+3. **CLI**（`src/cli.ts`）。增加 `legacy-import` 子命令：产品不是 ruukoto-code 时拒绝；复用 `defaultDirs()` 与 `--data-dir`；持 `acquireInstanceLock(目标数据目录)`。`preview --plan` 把修订值写回计划文件（07 的做法）；`apply` 的请求键由计划文件内容派生。结构化 JSON 输出到 stdout。
 4. **文档。**
    - `docs/runtime.md`：数据布局一节增加旧实例导入的流程、导入与排除范围、回退和整库恢复。
    - `CONTEXT.md`：如需要，补“实例导入”词条。
@@ -150,12 +150,12 @@ Status: resolved
 - QQ/Telegram 配置、调度、长期授权；
 - 一个 v20 旧库 fixture（沿用 test/76 的做法）。
 
-源实例停止后导入到 ruukoto-dev 临时目录。各项验收对应的检查：
+源实例停止后导入到 ruukoto-code 临时目录。各项验收对应的检查：
 
 1. **预览与不覆盖。**
    - 预览内容完整、目标数据零写入。
    - 源目录前后逐文件 sha256 不变（含 v20 旧库只在快照上迁移）。
-   - 源后台存活时拒绝；产品错配时拒绝（目标是 ruukoto 目录，或源是 ruukoto-dev 目录）。
+   - 源后台存活时拒绝；产品错配时拒绝（目标是 ruukoto 目录，或源是 ruukoto-code 目录）。
    - 目标已有数据时：同 ID 冲突、文件 sha 冲突、重名未改名均拒绝且零写入；按计划改名后可以导入。
    - 目标备份存在且 sha256 与回执一致。
 2. **资料可定位，映射保留。** 启动目标后台后：
@@ -190,9 +190,9 @@ npx tsx --test test/67-visual-docs.test.ts
 npm test   # nohup + 退出码文件，跑时不改 src/test
 ```
 
-**冒烟脚本（模拟模型、真实进程）。** 新增 `.scratch/agent-direction/smoke-21-migrate-coding-instance.mts`，使用真实 `bin/ruukoto.mjs` 与 `bin/ruukoto-dev.mjs`、socket、SQLite、JSONL 和产物文件，模型打桩。流程：用 ruukoto 造源数据 → 停止 → `legacy-import preview/apply` → 启动 ruukoto-dev → CLI 读取历史与产物 → 重启 → `revert` → 源哈希不变。macOS 本机与 `ssh tx` 的 `/tmp` 隔离目录各跑一轮，跑完清理。
+**冒烟脚本（模拟模型、真实进程）。** 新增 `.scratch/agent-direction/smoke-21-migrate-coding-instance.mts`，使用真实 `bin/ruukoto.mjs` 与 `bin/ruukoto-code.mjs`、socket、SQLite、JSONL 和产物文件，模型打桩。流程：用 ruukoto 造源数据 → 停止 → `legacy-import preview/apply` → 启动 ruukoto-code → CLI 读取历史与产物 → 重启 → `revert` → 源哈希不变。macOS 本机与 `ssh tx` 的 `/tmp` 隔离目录各跑一轮，跑完清理。
 
-**真实代表性数据演练。** 使用本机 `~/.ruukoto/data`：以只读方式作为源，导入到临时 ruukoto-dev 档案（`RUUKOTO_DEV_*_DIR` 指向临时目录）。依次执行预览、应用、启动并查阅若干会话的历史与产物、回退，前后核对源目录哈希树。实施时先核实本机普通 dev 会话的规模；不足以代表时，用 tx 旧实例的副本。读取 `/var/lib/ruukoto` 需要 `sudo -u ruukoto-backend`，必须先征得拥有者同意；不同意则在记录中写明“tx 真实数据未实测”。模型在演练中打桩或不调用，分开记录。
+**真实代表性数据演练。** 使用本机 `~/.ruukoto/data`：以只读方式作为源，导入到临时 ruukoto-code 档案（`RUUKOTO_CODE_*_DIR` 指向临时目录）。依次执行预览、应用、启动并查阅若干会话的历史与产物、回退，前后核对源目录哈希树。实施时先核实本机普通 dev 会话的规模；不足以代表时，用 tx 旧实例的副本。读取 `/var/lib/ruukoto` 需要 `sudo -u ruukoto-backend`，必须先征得拥有者同意；不同意则在记录中写明“tx 真实数据未实测”。模型在演练中打桩或不调用，分开记录。
 
 **文档同步。** 对每个改动的 `src/` 文件执行 `grep -l <路径> docs/visual/*.html`，预计命中 storage-layout（新表、导入回执、`migration/` 目录）、deployment（cli.ts、instance-lock）、index（db.ts），同步后跑 test/67。
 
@@ -202,7 +202,7 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 
 按 2026-10-03 计划实施并交付。当前核心库 v27 → v28（新增 `instance_imports` / `instance_import_items`）；决策记录新增 [ADR 0022](../../../docs/adr/0022-legacy-instance-import.md)，ADR 0017 实施记录已加行。
 
-**交付物**：`src/core/db.ts`（v28 两表）、`src/core/instance-lock.ts`（`probeLockHolder` 只读探测）、`src/core/types.ts`（回执类型）、`src/runtime/legacy-import.ts`（预览/应用/回退/列表全部逻辑与 TABLE_POLICY）、`src/cli.ts` + `src/cli-entry.ts`（`legacy-import` 子命令，仅 ruukoto-dev）、`test/85-legacy-instance-import.test.ts`（7 项子测试）、`.scratch/agent-direction/smoke-21-migrate-coding-instance.mts`、`docs/runtime.md`（数据布局 + 迁入节）、`CONTEXT.md`（实例导入词条）、`docs/visual/`（storage-layout 新增实例导入小节与账本两表、deployment 锁探测与命令、index 卡片）。
+**交付物**：`src/core/db.ts`（v28 两表）、`src/core/instance-lock.ts`（`probeLockHolder` 只读探测）、`src/core/types.ts`（回执类型）、`src/runtime/legacy-import.ts`（预览/应用/回退/列表全部逻辑与 TABLE_POLICY）、`src/cli.ts` + `src/cli-entry.ts`（`legacy-import` 子命令，仅 ruukoto-code）、`test/85-legacy-instance-import.test.ts`（7 项子测试）、`.scratch/agent-direction/smoke-21-migrate-coding-instance.mts`、`docs/runtime.md`（数据布局 + 迁入节）、`CONTEXT.md`（实例导入词条）、`docs/visual/`（storage-layout 新增实例导入小节与账本两表、deployment 锁探测与命令、index 卡片）。
 
 **与计划的实施差异（均已记录于 ADR 0022）**：
 - 源快照改为逐文件复制 `ruukoto.db`+WAL 侧车到临时目录后迁移：实测只读连接 `VACUUM INTO` 会在源目录生成 `-shm/-wal` 侧车写入，复制是唯一零接触方式。

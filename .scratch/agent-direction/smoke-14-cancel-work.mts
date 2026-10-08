@@ -4,7 +4,7 @@
  * 模拟：模型（MockModelServer 确定性脚本）与消息平台（不启用）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （Docker 容器后端，04/11/12 已验证的 macOS 受限执行边界）+ 真实 CLI
- * （bin/ruukoto-dev.mjs work cancel，经 socket 与拥有者令牌）。
+ * （bin/ruukoto-code.mjs work cancel，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应）：
  *  A1. 同一父会话两项工作并行：经真实 CLI `work cancel` 取消其中一项；
@@ -155,7 +155,7 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto-dev：真实容器 worker + 真实 CLI ============
+// ============ ruukoto-code：真实容器 worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
 const dataDir = path.join(root, "data");
@@ -170,7 +170,7 @@ const config: RuntimeConfig = {
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  productType: "ruukoto-dev",
+  productType: "ruukoto-code",
   ...realTools(),
   execution: { backend: "container", container: { uid: UID, gid: GID } },
 };
@@ -184,7 +184,7 @@ let agentASession = "";
 let taskA1 = "";
 let taskA2 = "";
 let taskB = "";
-const env = { ...process.env, RUUKOTO_DEV_DATA_DIR: dataDir };
+const env = { ...process.env, RUUKOTO_CODE_DATA_DIR: dataDir };
 try {
   const session = await rt.createSession({ projectName: "smoke14", cwd: workDir });
   // —— 工作 A：running（模型挂起前的真实容器）+ 直接落库的排队任务 ——
@@ -223,7 +223,7 @@ try {
     const containers = docker(["ps", "--filter", `name=ruukoto-task-${taskA1}`, "--format", "{{.Names}}"]);
     assert.notEqual(containers, "", "取消前 A 的真实容器应在运行");
     // 异步 spawn：同进程的控制面需要事件循环服务 CLI 的连接（execFileSync 会阻塞）
-    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-dev.mjs"), "work", "cancel", workA, "--reason", "smoke14 验证取消"], { encoding: "utf8", env, timeout: 60_000 });
+    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-code.mjs"), "work", "cancel", workA, "--reason", "smoke14 验证取消"], { encoding: "utf8", env, timeout: 60_000 });
     assert.match(out, /"alreadyCanceled": false/, out);
     assert.match(out, /"canceledBy": "owner"/, out);
     const record = rt.store.getWorkDelegation(workA)!;

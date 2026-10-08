@@ -15,7 +15,7 @@ const responder: Responder = req => {
   ];
   return done < calls.length ? { kind: "tool_calls", calls: [calls[done]!] } : { kind: "text", text: "完全访问修改与测试完成" };
 };
-const t = await startTestRuntime("release24-full", responder, { workDirs: 1, config: { productType: "ruukoto-dev", ...realTools(), execution: { backend: "container", container: { uid: 986, gid: 986 } } } });
+const t = await startTestRuntime("release24-full", responder, { workDirs: 1, config: { productType: "ruukoto-code", ...realTools(), execution: { backend: "container", container: { uid: 986, gid: 986 } } } });
 try {
   const workspace = t.work[0]!;
   fs.chmodSync(t.dirs.root, 0o755); fs.chmodSync(workspace, 0o777);

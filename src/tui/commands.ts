@@ -12,9 +12,9 @@ import { requestOutcome } from "../control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "../control/ops.ts";
 import { productFromEnv } from "../core/product.ts";
 
-/** ruukoto-dev 不再提供旧项目写入路径（agent-direction issue 23）时的提示。 */
+/** ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）时的提示。 */
 export const LEGACY_PROJECT_WRITE_HINT =
-  "ruukoto-dev 使用工作区：ruukoto-dev <目录> 打开或创建工作区；旧项目只保留查看，需要时用 project migration-preview 映射到工作区";
+  "ruukoto-code 使用工作区：ruukoto-code <目录> 打开或创建工作区；旧项目只保留查看，需要时用 project migration-preview 映射到工作区";
 
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 
@@ -98,7 +98,7 @@ export function writeFailure(action: string, err: unknown, check: string): strin
 }
 
 async function newProject(ctx: CommandContext, name: string): Promise<void> {
-  if (productFromEnv() === "ruukoto-dev") {
+  if (productFromEnv() === "ruukoto-code") {
     ctx.notify(LEGACY_PROJECT_WRITE_HINT);
     return;
   }

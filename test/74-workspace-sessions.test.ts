@@ -14,7 +14,7 @@
  *    不再充当遗留候选；混合旧项目不作目录候选）/ workspacePickerProjects（工作区与
  *    旧项目分列，角色与群聊项目不进入普通列表）；
  * 5. store 层目录身份：attachProjectRoot 对相同 dev+ino 的挂载别名拒绝认领（评审 R1）；
- * 6. TUI 选择面板：ruukoto-dev 产品下列出工作区与旧项目、不出现角色与群聊项目；
+ * 6. TUI 选择面板：ruukoto-code 产品下列出工作区与旧项目、不出现角色与群聊项目；
  *    ruukoto 产品下行为不变（角色项目仍列出）。
  *
  * 本文件只做离线进程级断言（模型打桩，进程/文件/socket/SQLite/Pseudo-Terminal 真实）；
@@ -566,9 +566,9 @@ async function seedPickerData(t: TestRuntime): Promise<void> {
   });
 }
 
-test("ruukoto-dev：选择面板列出工作区与旧项目，不出现角色与群聊项目", async () => {
+test("ruukoto-code：选择面板列出工作区与旧项目，不出现角色与群聊项目", async () => {
   const t = await startTestRuntime("ws74-tui-dev", async () => ({ kind: "text", text: "x" }));
-  process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
+  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
   try {
     await seedPickerData(t);
     const h = await startPickerApp(t);
@@ -617,9 +617,9 @@ test("ruukoto：选择面板行为不变，角色项目仍列出", async () => {
 
 // ---------- 组织归属打通（agent-direction issue 07 步骤 4） ----------
 
-test("ruukoto-dev：已映射旧会话归入工作区计数与列表；恢复后选择状态与新建会话指向目标工作区", async () => {
+test("ruukoto-code：已映射旧会话归入工作区计数与列表；恢复后选择状态与新建会话指向目标工作区", async () => {
   const t = await startTestRuntime("ws74-attribution", async () => ({ kind: "text", text: "x" }));
-  process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
+  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
   try {
     const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "boot-attr" })) as any;
     const wsId = ws.session.projectId as string;
@@ -667,9 +667,9 @@ test("ruukoto-dev：已映射旧会话归入工作区计数与列表；恢复后
   }
 });
 
-test("ruukoto-dev：无映射旧会话选择状态不变；旧项目不再新建会话（/new 只提示工作区入口，issue 23）", async () => {
+test("ruukoto-code：无映射旧会话选择状态不变；旧项目不再新建会话（/new 只提示工作区入口，issue 23）", async () => {
   const t = await startTestRuntime("ws74-unmapped", async () => ({ kind: "text", text: "x" }));
-  process.env.RUUKOTO_PRODUCT = "ruukoto-dev";
+  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
   try {
     const { projectId: legacyId, sessionId: legacySession } = await createProjectSession(t.client, t.work[0]!, { projectName: "unmapped-legacy" });
     const h = await startPickerApp(t);

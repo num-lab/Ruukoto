@@ -459,7 +459,7 @@ test("非 main 不得使用：dev 会话与 QQ 群被白名单阻止（helper �
   }
 });
 
-test("错误产品：ruukoto-dev 配置齐备也不装配（覆盖点 5）", async () => {
+test("错误产品：ruukoto-code 配置齐备也不装配（覆盖点 5）", async () => {
   const { dirs } = await makeTestDirs("svc-dev-product", 0);
   const model = new MockModelServer(svcResponder());
   try {
@@ -473,7 +473,7 @@ test("错误产品：ruukoto-dev 配置齐备也不装配（覆盖点 5）", asy
       modelProvider: "mock",
       modelId: "mock-model",
       toolFactory: (ctx) => createMockTools(ctx),
-      productType: "ruukoto-dev",
+      productType: "ruukoto-code",
       service: svc.service(),
     });
     try {

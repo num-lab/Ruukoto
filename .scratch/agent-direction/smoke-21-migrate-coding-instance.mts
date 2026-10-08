@@ -2,17 +2,17 @@
  * 旧开发资料迁入 Coding Agent 的产品级冒烟（agent-direction issue 21，ADR 0022）。
  *
  * 模型层打桩（MockModelServer，确定性脚本），其余全真：真实 bin/ruukoto.mjs 与
- * bin/ruukoto-dev.mjs 后台进程、控制面 socket、SQLite、JSONL 历史文件、产物
+ * bin/ruukoto-code.mjs 后台进程、控制面 socket、SQLite、JSONL 历史文件、产物
  * 文件、实例锁与离线 legacy-import CLI（预览/应用/回退/列表）。
  *
  * 覆盖（与工单 21 验收对应的产品级流程）：
  *  1. 真实 bin/ruukoto.mjs 造源：dev 项目 + 会话 + 种子任务（历史 + prompt 快照
  *     产物）+ 双端授权；停止后台；
- *  2. CLI legacy-import preview --from --plan：目标（尚不存在的 ruukoto-dev 档案）
+ *  2. CLI legacy-import preview --from --plan：目标（尚不存在的 ruukoto-code 档案）
  *     零写入，计划文件写回 source_instance_id 与 revision；源后台已停止可通过探测；
  *  3. CLI apply --plan：回执返回 import_id 与备份 sha256；同一计划文件再 apply
  *     返回 replayed；list 显示 applied；
- *  4. 启动 bin/ruukoto-dev.mjs 目标后台：read_history 含种子输入、pong；prompt
+ *  4. 启动 bin/ruukoto-code.mjs 目标后台：read_history 含种子输入、pong；prompt
  *     快照产物字节与源一致；授权 ID/方向保留；注入新任务实际完成；
  *  5. 重启持久化：第二次拉起目标后台，回执仍在（list），历史仍可读；
  *  6. CLI revert：行与复制文件移除，list 显示 reverted；源目录在整个流程前后
@@ -124,9 +124,9 @@ async function stopBackend(client: ControlClient, backend: Backend): Promise<num
 function runCli(args: string[], over?: { dataDir: string; agentDir: string }): Promise<{ code: number; stdout: string; stderr: string }> {
   const t = over ?? dstDirs;
   return new Promise((resolve) => {
-    const proc = childProcess.spawn(process.execPath, [path.join(repoRoot, "bin", "ruukoto-dev.mjs"), ...args], {
+    const proc = childProcess.spawn(process.execPath, [path.join(repoRoot, "bin", "ruukoto-code.mjs"), ...args], {
       cwd: repoRoot,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_DEV_DATA_DIR: t.dataDir, RUUKOTO_DEV_AGENT_DIR: t.agentDir },
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CODE_DATA_DIR: t.dataDir, RUUKOTO_CODE_AGENT_DIR: t.agentDir },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -216,8 +216,8 @@ await check("场景3 legacy-import apply：回执与备份；同文件重放 rep
 });
 
 // ---------- 场景 4：启动目标后台：历史与产物可读、授权保留、新任务完成 ----------
-await check("场景4 bin/ruukoto-dev.mjs 目标后台：历史可读、产物字节一致、授权保留、新任务完成", async () => {
-  const dstBackend = spawnBackend("ruukoto-dev.mjs", dstDirs.dataDir, dstDirs.agentDir, dstControl, "RUUKOTO_DEV_CONTROL_DIR");
+await check("场景4 bin/ruukoto-code.mjs 目标后台：历史可读、产物字节一致、授权保留、新任务完成", async () => {
+  const dstBackend = spawnBackend("ruukoto-code.mjs", dstDirs.dataDir, dstDirs.agentDir, dstControl, "RUUKOTO_CODE_CONTROL_DIR");
   try {
     const c = await connect(dstBackend.child, dstControl, dstBackend.stderr);
     const history = (await c.request<any>("read_history", { session_id: s1.id })) as any;
@@ -243,7 +243,7 @@ await check("场景4 bin/ruukoto-dev.mjs 目标后台：历史可读、产物字
 await check("场景5 目标重启持久化：回执（list 需后台停止）与历史跨重启可读", async () => {
   const list = await cliJson(["legacy-import", "list"]);
   assert.equal(list[0].status, "applied", "回执跨进程保持");
-  const dstBackend = spawnBackend("ruukoto-dev.mjs", dstDirs.dataDir, dstDirs.agentDir, dstControl, "RUUKOTO_DEV_CONTROL_DIR");
+  const dstBackend = spawnBackend("ruukoto-code.mjs", dstDirs.dataDir, dstDirs.agentDir, dstControl, "RUUKOTO_CODE_CONTROL_DIR");
   try {
     const c = await connect(dstBackend.child, dstControl, dstBackend.stderr);
     const history = (await c.request<any>("read_history", { session_id: s1.id })) as any;
@@ -299,6 +299,6 @@ await cleanupDirs(dstDirs);
 
 const failed = results.filter((r) => !r.ok);
 console.log("\n模拟：模型服务（MockModelServer，本地 OpenAI 兼容打桩，确定性应答）");
-console.log("真实：bin/ruukoto.mjs 与 bin/ruukoto-dev.mjs 后台进程（各 1–2 次拉起）、控制面 socket、SQLite（含只读直读核对）、JSONL 历史文件、产物文件、实例锁、legacy-import CLI 离线全流程");
+console.log("真实：bin/ruukoto.mjs 与 bin/ruukoto-code.mjs 后台进程（各 1–2 次拉起）、控制面 socket、SQLite（含只读直读核对）、JSONL 历史文件、产物文件、实例锁、legacy-import CLI 离线全流程");
 console.log(`\n结果：${results.length - failed.length}/${results.length} 通过（环境：${process.platform} ${process.arch}，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s）`);
 if (failed.length > 0) process.exit(1);

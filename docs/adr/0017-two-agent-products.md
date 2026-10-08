@@ -48,6 +48,8 @@ Coding Agent 的产品入口由 `ruukoto-dev` 改为 `ruukoto-code`。同步更�
 
 ## 实施记录
 
+- agent-direction issue 26（2026-10-08，第一阶段未通过）：建立 Seatbelt / bubblewrap 原生候选的真实边界探针；更正旧 macOS `/tmp` 路径别名导致的文件规则否决依据。尚未接入产品、未切换 container 默认值；macOS 脱离进程组的后代回收与 tx 的 namespace 能力仍未满足前置验收。见 ADR 0004 的验证门槛与工单 26。
+
 - agent-direction issue 11（2026-10-03）：通用只读委派首版——工作委托/SubAgent/执行任务分开保存、普通开发会话与 main 的非阻塞只读委派、结果回传与空闲保留、main 分析委派转通用链路，决定见 [ADR 0020](0020-work-delegation-subagent-task.md)。继续委派复用、同级通信、显式关闭与整项取消、恢复分别由 issue 12–15 实施。
 - agent-direction issue 12（2026-10-04）：继续、复用与显式关闭——同一父会话内沿 `work_id` 补充原工作、用 `sub_agent_id` 复用空闲 Agent 承接新工作（重新确定读范围/资料/目录/权限）、主 Agent 工具与拥有者控制面/CLI 显式关闭（独立 `closed_at`/`closed_by` 列，不自动关闭，含活动任务拒绝），决定见 ADR 0020 补充段。同级通信、整项取消与恢复分别由 issue 13–15 实施。
 - agent-direction issue 14（2026-10-04）：整项工作取消——拥有者控制面 `work_cancel`（CLI `ruukoto work cancel`）与主 Agent 工具 `subagent_cancel`，取消为 `work_delegations` 独立三列（一次写入、幂等），登记事务内取消排队任务并给活动任务写取消意图、提交后按现有停止路径处理；已取消的工作拒绝继续委派，迟到结果保存为事实但不送达父模型，取消不关闭 SubAgent、不删历史与产物；并作根因修复：单任务取消落在「已转 running、未进 Driver」窗口不再被吞（`cancel_requested` 先持久化 + `runInner` 启动检查）。决定见 ADR 0020 补充段。同级通信与恢复由 issue 13、15 后续实施。

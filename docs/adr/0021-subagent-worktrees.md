@@ -24,6 +24,8 @@ ADR 0017 确认并行编码使用独立 Git worktree、非 Git 目录写任务�
 
 ## 与既有决策的关系
 
+2026-10-08 的[工单 26](../../.scratch/agent-direction/issues/26-native-sandbox.md) 要求将 Coding Agent 的所有受限调用统一替换为原生边界，包括本决策的 worktree 创建、子任务只读共享 Git 目录与改动汇总。两平台第一阶段尚未通过，当前实现仍使用上述容器路径；“宿主永不执行不可信仓库中的 Git 命令”、目录身份复核、成果保留与无法核实停止时保留占用的要求继续有效。原生接入时必须重新核实宿主 UID 与 dev/ino，不能延用 Docker Desktop 的 VM 权限和 inode 例外。
+
 - ADR 0017：落实「并行编码用独立 worktree、非 Git 串行、占用按此调整」；改动汇总、提交与冲突处理由 issue 17 实施（同样需在容器内执行 git）。
 - ADR 0020：第 5 条「首版只读」由本决定扩展为 analyze/modify 两种模式；登记事务、幂等与查看口径不变，只加可选字段（协议版本不变）。
 - ADR 0003：SubAgent 任务仍一律 confirm，写入目标是容器边界内的收窄而非授权扩大；不继承长期授权。

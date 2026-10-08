@@ -1,0 +1,64 @@
+{
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "macos": "27.0",
+  "tested_at": "2026-10-08T21:56:54+0900",
+  "cases": [
+    {
+      "case": "python-setsid",
+      "status": "FAIL",
+      "parent": {
+        "pid": 31262,
+        "pgid": 31262,
+        "sid": 1
+      },
+      "descendant": {
+        "pid": 31264,
+        "pgid": 31264,
+        "sid": 31264
+      },
+      "running_control": [
+        0,
+        3
+      ],
+      "bootout_exit_code": 0,
+      "job_print_exit_code": 113,
+      "parent_alive_after_bootout": false,
+      "heartbeat_after_bootout": [
+        6,
+        9
+      ],
+      "descendant_alive_after_bootout": true
+    },
+    {
+      "case": "node-posix-spawn",
+      "status": "FAIL",
+      "parent": {
+        "pid": 31377
+      },
+      "descendant": {
+        "pid": 31378,
+        "pgid": 31378,
+        "sid": 31378
+      },
+      "running_control": [
+        0,
+        3
+      ],
+      "bootout_exit_code": 0,
+      "job_print_exit_code": 113,
+      "parent_alive_after_bootout": false,
+      "heartbeat_after_bootout": [
+        5,
+        8
+      ],
+      "descendant_alive_after_bootout": true
+    }
+  ],
+  "node_version": "v24.15.0",
+  "status": "FAIL",
+  "cleanup": {
+    "verified": true,
+    "temporary_directory_removed": true,
+    "errors": []
+  }
+}

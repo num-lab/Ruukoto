@@ -240,7 +240,10 @@ ruukoto-code 的行为差别：
   入口打开已归属的数据目录直接拒绝。
 - 开发机执行权限的边界已在工单 03 验证、工单 04 接入产品：受限模式的执行边界
   是经本机容器运行时复用的每任务容器（macOS 为 Docker Desktop 的 Linux VM，
-  原生 Linux 直接运行；sandbox-exec 的文件规则在本机静默不执行、不作为边界）。
+  原生 Linux 直接运行）。2026-10-08 更正：工单 03 的 sandbox-exec 文件探针
+  使用了 `/tmp` 别名，规则没有匹配 `/private/tmp` 中的真实目标，不能据此
+  否决 Seatbelt 文件机制；规范化路径后的文件拒绝已复核生效。工单 26 的
+  原生替换仍处于边界验证阶段：完整后代停止尚未通过，尚未接入产品。
   **ruukoto-code 的默认执行后端为 container**（工单 04）：受限任务在容器边界内
   执行；`--execution local` / `RUUKOTO_EXECUTION_BACKEND=local` 仍可显式选择；
   两产品以 local 生效时都打印同一条无隔离警告。后端缺失或失效（docker 不可
@@ -2548,7 +2551,9 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 | ruukoto-code TUI 按需拉起后台（agent-direction issue 02；test/72 进程级用例：后台不在时拉起、并发两个终端收敛为单实例（含锁竞败者等慢胜者复用）、已运行不重复拉起、启动失败附 spawn.log 尾部、后台在运行但令牌不符的认证指引、关闭客户端不停止后台/取消任务、重开看到同一任务与幂等键核实） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02，8/8；模拟结果与真实环境分列：模型层为模拟，进程/存储/控制面为真实环境） |
 | TUI 真实入口按需拉起冒烟（.scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
 | 开发机受限执行边界产品级冒烟（agent-direction 工单 03；经真实容器启动器 + ruukoto-worker 镜像 + 宿主 ToolWorkerHost：容器内 bash、非 root 1000、工作区写入宿主可见、无外网出口、工作区外宿主真实文件不可见、只读根、CapEff 清零、nohup 逃逸孙进程实际运行（对照）且停止后心跳冻结、停止核实容器移除、宿主原路径挂载、只读授予路径可读不可写） | macOS 本机 Docker Desktop 4.x/29.8.0（Linux VM aarch64）；/var/folders 与 /Users 两种工作区各一遍 | 通过（2026-10-02，16/16 ×2；`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`——真实 docker/镜像/文件/进程/网络路径，无模拟层） |
-| macOS sandbox-exec 可行性探针（.scratch/agent-direction/macos-sbx-probe.sh：file-read literal/subpath/regex/file* 与 file-write 拒绝、孙进程继承、网络拒绝对照） | macOS 27.0 (arm64) | **否定**（2026-10-02）：文件规则 0/6 静默未执行，不构成边界；网络拒绝与孙进程继承生效，不足以覆盖文件与凭据；不作为受限执行方式 |
+| macOS sandbox-exec 旧探针（.scratch/agent-direction/macos-sbx-probe.sh） | macOS 27.0 (arm64) | 2026-10-02 的“文件规则 0/6 静默未执行”结论于 2026-10-08 更正：旧规则用 `/tmp`，目标实际位于 `/private/tmp`；旧结果不能证明 Seatbelt 文件机制失效。已修正规范化路径与启动/拒绝判定，复跑见工单 26；文件拒绝通过不代表完整产品边界通过 |
+| 原生 Seatbelt 候选及 launchd 后代回收（agent-direction 工单 26 第一阶段） | macOS 27.0 / Darwin 27.0.0 / arm64；仅临时虚拟资料、自建服务和真实进程，无模型 | 未通过：文件规范化更正生效；`posix_spawn` 后代可脱离进程组且停止原组后仍写心跳；`kqueue NOTE_TRACK` 为 `ENOTSUP`；临时 launchd job 移除后逃离后代仍活动。复跑及逐项证据见 [原生探针说明](../verification/foundation/scripts/native-isolation/README.md)，未接入产品 |
+| 原生 bubblewrap 候选（agent-direction 工单 26 第一阶段） | tx：Ubuntu 24.04.4 / Linux 6.8.0-117-generic / x86_64 / UID 1003；临时解包 bubblewrap 0.9.0 | 不可验证：2 个未沙箱对照通过，35 个真实边界项 unavailable；namespace 建立时 `RTM_NEWADDR` / `uid_map` 被拒，探针尚未启动，退出 2。系统策略未修改；[完整报告](../verification/foundation/results/native-linux-report.md)。不能切换默认后端 |
 | SubAgent 修改委派冒烟（.scratch/agent-direction/smoke-16-parallel-worktrees.mts：真实 Runtime/控制面/SQLite + 真实容器后端与镜像 + 真实 git 仓库——容器内建副本、两子任务同一仓库并行 worktree（同时 running、不同分支）、主工作区字节与未提交改动不变、safe.directory 环境容器内 git status/diff 可用、git commit 与写 hooks/config 真实失败（共享 Git 只读挂载）、非 Git 目录与父会话串行、植入 fsmonitor 只在容器内被只读挡住（宿主不执行）、副本创建与任务容器零残余） | macOS 本机 Docker Desktop 29.8.0（真实容器；模型为模拟，消息平台不启用） | 通过（2026-10-04，9/9）；Linux 远端（tx，uid/gid 1003，经 `--remote` 自包含跑完全程）通过（2026-10-04，9/9）；流程教训：worker 代码打进镜像（deploy/worker-image 构建阶段复制 src/agent/tool-worker 与 src/core 后 esbuild 打包），改 tool-worker 必须重建镜像才进容器 |
 | SubAgent 改动汇总冒烟（.scratch/agent-direction/smoke-issue17.mts：真实 Runtime/SQLite + 真实容器后端与镜像 + 真实 git 仓库——宿主容器创建 worktree 副本、子任务容器真实 edit/write、汇总容器 add -N→diff→apply --check→apply 落入父工作区待提交区、父 HEAD 不变、`work_delegation.integrated` 事件登记、already 幂等不重复登记、冲突零写入点名文件双方保留、取消+关闭后汇总不拦、父仓库本身是 worktree 时共享 Git 目录补挂读写、副本创建与汇总照常、`ruukoto-task-*` 容器零残余） | macOS 本机 Docker Desktop（真实容器边界；模型为模拟）；tx（Ubuntu 24.04 原生 Linux，Docker 29.5.2，uid/gid 1003，RUUKOTO_CONTAINER_UID/GID=1003） | 通过（2026-10-05，7/7 ×2）；离线断言在 test/84（local 后端模拟边界，git 语义为真实 git）；流程教训：副本创建与汇总在「父仓库本身是 worktree」时必须把共享 Git 目录补挂读写（issue 17 起生效），否则容器内 git 无法解析 `.git` 指针 |
 | Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |

@@ -56,3 +56,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 linuxkit 6.12.76 / Debian 13），验证的是**容器边界本身**；
 目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时）未验证，
 清单见 findings 文档。
+
+## Coding Agent 原生边界验证（工单 26）
+
+`scripts/native-isolation/` 保存 Seatbelt / bubblewrap 的可复跑真实探针，步骤与退出码见[运行说明](scripts/native-isolation/README.md)。2026-10-08 第一阶段未通过：macOS 的原生候选尚未实现脱离进程组后代的完整回收，tx 的 bubblewrap 在 namespace 建立时被系统拒绝；报告保存在 `results/native-*`。这些是候选边界证据，尚未接入产品，不代表无 Docker 的产品验收通过。

@@ -1,0 +1,319 @@
+{
+  "timestamp": "2026-10-08T12:58:15.415824+00:00",
+  "environment": {
+    "platform": "Linux-6.8.0-117-generic-x86_64-with-glibc2.39",
+    "uid": 1003,
+    "gid": 1003,
+    "/proc/self/attr/current": "unconfined",
+    "/sys/module/apparmor/parameters/enabled": "Y",
+    "/etc/os-release": "PRETTY_NAME=\"Ubuntu 24.04.4 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.4 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo",
+    "kernel/unprivileged_userns_clone": "1",
+    "kernel/apparmor_restrict_unprivileged_userns": "1",
+    "user/max_user_namespaces": "14566"
+  },
+  "evidence": {
+    "control_heartbeat_cleanup": {
+      "stopped": true,
+      "killed_host_pids": [
+        4012588
+      ],
+      "bytes": [
+        80,
+        80
+      ]
+    },
+    "bwrap_version": "bubblewrap 0.9.0",
+    "launch": {
+      "exit_code": 1,
+      "stderr": "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n",
+      "argv": [
+        "/tmp/ruukoto-native-linux-bwrap.e0GOKM/extracted/usr/bin/bwrap",
+        "--unshare-all",
+        "--die-with-parent",
+        "--new-session",
+        "--clearenv",
+        "--cap-drop",
+        "ALL",
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--symlink",
+        "usr/bin",
+        "/bin",
+        "--symlink",
+        "usr/sbin",
+        "/sbin",
+        "--symlink",
+        "usr/lib",
+        "/lib",
+        "--symlink",
+        "usr/lib64",
+        "/lib64",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--dir",
+        "/sandbox-home",
+        "--setenv",
+        "HOME",
+        "/sandbox-home",
+        "--setenv",
+        "PATH",
+        "/usr/local/bin:/usr/bin:/bin",
+        "--setenv",
+        "LANG",
+        "C.UTF-8",
+        "--ro-bind",
+        "/tmp/ruukoto-native-linux-bwrap.e0GOKM/linux-native-probes.py",
+        "/probe.py",
+        "--bind",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/workspace",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/workspace",
+        "--ro-bind",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/read-grant/file",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/read-grant/file",
+        "--bind",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/write-grant/file",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/write-grant/file",
+        "--ro-bind",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/subagent/allowed",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/subagent/allowed",
+        "--ro-bind",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/shared-git",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/shared-git",
+        "--chdir",
+        "/tmp/ruukoto-native-linux-5ax4wi_s/workspace"
+      ],
+      "stdout": ""
+    },
+    "capability_diagnostics": [
+      {
+        "namespace": "user",
+        "exit_code": 1,
+        "stderr": "bwrap: setting up uid map: Permission denied\n"
+      },
+      {
+        "namespace": "pid",
+        "exit_code": 1,
+        "stderr": "bwrap: setting up uid map: Permission denied\n"
+      },
+      {
+        "namespace": "ipc",
+        "exit_code": 1,
+        "stderr": "bwrap: setting up uid map: Permission denied\n"
+      },
+      {
+        "namespace": "net",
+        "exit_code": 1,
+        "stderr": "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n"
+      }
+    ],
+    "unshare_uid_map": {
+      "exit_code": 1,
+      "stderr": "unshare: write failed /proc/self/uid_map: Operation not permitted\n"
+    },
+    "user_systemd_launch": {
+      "exit_code": 1,
+      "stderr": "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n",
+      "unit": "ruukoto-native-capability-e1d861d5e6ed44a6bc36d4bc3d310d57"
+    },
+    "unavailable_reason": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+  },
+  "probes": [
+    {
+      "probe": "controls.fixtures-and-services",
+      "status": "pass",
+      "detail": "虚拟敏感文件可读写，符号链接/父路径/proc 别名可读；TCP、文件及 abstract Unix socket、FD、SysV/POSIX IPC 与宿主 PID 对照有效"
+    },
+    {
+      "probe": "controls.detached-heartbeat-cleanup",
+      "status": "pass",
+      "detail": "初始化 ready→release 后心跳实际启动；双重 fork + setsid + 忽略 TERM 的未沙箱后代在主进程 SIGKILL 后继续写入；宿主按唯一 argv 核实并回收后心跳冻结"
+    },
+    {
+      "probe": "workspace.read",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "workspace.write",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "workspace.identity",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "grant.read",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "grant.read-only",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "grant.read-write",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "subagent.read",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "subagent.identity",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "subagent.read-only",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "subagent.ungranted-sibling",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "git.shared-read",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "git.shared-read-only",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "host.secret-read",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "host.secret-write",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "host.control-read",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "host.symlink",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "host.parent-alias",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "host.proc-root-alias",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "credentials.environment",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "credentials.inherited-fd",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "control.loopback",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "network.host-interface",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "control.unix-private",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "control.unix-workspace",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "control.unix-abstract",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "control.sysv-ipc",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "control.posix-shm",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "control.host-pid",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "subprocess.secret-read",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "subprocess.loopback",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "toolchain.node",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "toolchain.git",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "stop.detached-descendant",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "stop.launch-window",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    },
+    {
+      "probe": "stop.parent-crash",
+      "status": "unavailable",
+      "detail": "RuntimeError: bwrap 探针未完整执行（退出 1）：bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    }
+  ],
+  "controller_status": "unavailable",
+  "exit_code": 2,
+  "limitations": [
+    "尚未接入产品；未验证 WorkerLauncher、审批消费、授权变化重建或占用恢复。",
+    "工作区中的宿主 Unix socket 必须不可达；纯文件 bind 与网络 namespace 不足时此项将失败。",
+    "启动窗口使用 sandbox Python 的 ready 握手和延迟初始化；不代表完整产品启动竞态已通过。"
+  ]
+}

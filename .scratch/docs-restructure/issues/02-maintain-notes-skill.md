@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 写项目版 maintain-notes skill，接入 verify-notes
 
@@ -20,8 +20,17 @@ Status: ready-for-agent
 
 ## 验收
 
-- [ ] `npm run verify-notes` 对现有决策 note 通过。临时造一篇缺备选方案、状态与目录不符的 note，两项都会报错（结果记在 Comments，不保留文件）。
-- [ ] `npm run check:static` 包含 verify-notes 并通过。
-- [ ] SKILL.md 不再出现 `write-notes-like-deepseek` 的安装路径或 npm 脚本名的旧说法；所有命令都能在仓库根直接运行。
+- [x] `npm run verify-notes` 对现有决策 note 通过。临时造一篇缺备选方案、状态与目录不符的 note，两项都会报错（结果记在 Comments，不保留文件）。
+- [x] `npm run check:static` 包含 verify-notes 并通过。
+- [x] SKILL.md 不再出现 `write-notes-like-deepseek` 的安装路径或 npm 脚本名的旧说法；所有命令都能在仓库根直接运行。
 
 ## Comments
+
+2026-10-09：完成。
+
+- `.agents/skills/maintain-notes/`：SKILL.md 按六条定制改写；references 保留 note-format、classification、when-to-write、archiving、prose-checklist、quality-gate 六篇，节名改为中文，路径改指本 skill。note-format 补了「原编号」行和 grandfather 例外的写法，when-to-write 第 5 节改成本仓库的代码锚点约定。simplification-checklist（DeepSeek 自身的包路径）和 verification（并入 SKILL.md 第 7 节）没有带过来。templates 三份改用中文节名。
+- 脚本：vendor 了 6 个，只改了 `FORMAT_ADOPTED = "2026-10-10"`。脚本只依赖 node 标准库，由仓库已有的 tsx 运行；eslint 与 tsc 本来就不扫 `.agents/`。
+- `package.json`：新增 `verify-notes`（tree → format → archived），`check:static` 末尾接上它。
+- AGENTS.md：新增「决策记录」一节指针。
+- 验证：`npm run verify-notes` 对决策 note 三项通过（0 篇归档，0 个封印）。临时样本（检查完已删除）：状态与目录不符、缺备选方案都报错，退出码 1；日期 2026-10-12 的笔记用 grandfather 注释报「only valid before 2026-10-10」；日期 2026-09-19、带「原编号」行和 grandfather 注释的样本通过。`npm run check:static` 退出码 0。
+- 已知限制：CI 没有设置 `AGENT_NOTE_ARCHIVE_BASE_REF`，所以封印只增不改的检查在 CI 上退化为哈希自校验，这一点已写进 SKILL.md。等到真有归档篇时，再考虑在 `check.yml` 里传入基线提交。

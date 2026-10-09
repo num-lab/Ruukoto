@@ -10,6 +10,6 @@
 
 ## 2026-10-08：Coding Agent 原生替换的验证门槛
 
-[工单 26](../../.agents/scratch/agent-direction/issues/26-native-sandbox.md) 确认 ruukoto-code 的替换目标为 macOS Seatbelt / sandbox-exec 与 Linux bubblewrap，直接复用 WorkerLauncher、LaunchSpec、worker 协议及审批；宿主工具链按必要依赖开放。替换范围包括主任务、SubAgent、worktree 创建与改动汇总，完全访问继续使用专用执行账户，ruukoto 的共享容器与部署契约不变。
+[工单 26](../../.scratch/agent-direction/issues/26-native-sandbox.md) 确认 ruukoto-code 的替换目标为 macOS Seatbelt / sandbox-exec 与 Linux bubblewrap，直接复用 WorkerLauncher、LaunchSpec、worker 协议及审批；宿主工具链按必要依赖开放。替换范围包括主任务、SubAgent、worktree 创建与改动汇总，完全访问继续使用专用执行账户，ruukoto 的共享容器与部署契约不变。
 
 两平台完整边界实测通过是接入前置条件，尚未通过时保留当前 container 实现，不能把原生候选当作已交付，也不能回退到 local。2026-10-08 的规范化路径复核更正了旧 macOS 文件规则否决依据；当前新的进程组策略与临时 launchd job 均未能回收脱离进程组的后代，tx 的 bubblewrap 在 namespace 建立时被系统拒绝。因此本次只交付可复跑的第一阶段探针与证据，尚未改变执行后端选择。完整结果、缺项及复跑步骤见工单 26。

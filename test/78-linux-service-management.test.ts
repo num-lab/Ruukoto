@@ -5,7 +5,7 @@
  * 受控 helper 替身（test/helpers/fake-service-helper.mjs，文件系统模拟 systemd，
  * fd2 前缀行 JSON 协议与拒绝原因码同 deploy/systemd/ruukoto-service.mjs）；真实
  * systemd/提权/sudoers/真实 .service 重启证据见
- * .agents/scratch/agent-direction/smoke-09-linux-service-management.mts（另案在真实 Linux 执行）。
+ * .scratch/agent-direction/smoke-09-linux-service-management.mts（另案在真实 Linux 执行）。
  *
  * 端到端（真实 Runtime + mock 模型 + helper 替身真实 spawn）：
  * - Telegram/QQ 双平台：状态检查 → 恰一个逐次审批（service_operation 范围）→ 原入口

@@ -1,0 +1,28 @@
+
+  ../release24-worker.mjs  13.5kb
+
+⚡ Done in 26ms
+/tmp/ruukoto-release24-sudoers-xCQrbd: parsed OK
+[
+  {
+    "call": "read",
+    "error": false,
+    "result": "export function sum(xs) { let total = 1; for (const x of xs) total += x; return total; }\n[完整正文已捕获：artifact art_7bcd6dc1527a18812fe12d95（89 字节，read 文件正文）——需要更多内容时用 read_artifact 工具按偏移查询]"
+  },
+  {
+    "call": "before",
+    "error": true,
+    "result": "工具执行失败：node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n7 !== 6\n\n    at file:///tmp/ruukoto-it-release24-full-typSBa/work-0/check.mjs:1:80\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n"
+  },
+  {
+    "call": "edit",
+    "error": false,
+    "result": "Successfully replaced 1 block(s) in sum.mjs."
+  },
+  {
+    "call": "after",
+    "error": false,
+    "result": "PASS\n[完整正文已捕获：artifact art_165fbaddcea93ff87ef7c52d（5 字节，bash stdout）——需要更多内容时用 read_artifact 工具按偏移查询]"
+  }
+]
+PASS 完全访问专用 uid:gid=986:986 修改代码/修前失败/修后通过；owner.token 与核心库读取拒绝；task=task_03215be5924de51ed1f16fac; operations=4; mode=full_access

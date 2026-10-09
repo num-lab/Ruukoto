@@ -25,4 +25,4 @@
 - ADR 0018：同一原则——保留原 ID 与来源身份，组织归属只作展示——从实例内延伸到跨实例；本记录不绕过产品目录隔离，导入只发生在拥有者显式发起的离线流程。实例内重新组织仍用 07 的工具。
 - ADR 0001 与 ADR 0016（完整历史、有损处理只作用于模型上下文）：导入不改写 JSONL、不重建会话、不改动历史字节；上下文压缩点与选择记录随会话原样迁移。
 
-实施与验证记录见工单 `.agents/scratch/agent-direction/issues/21-migrate-coding-instance.md`；运行步骤见 [运行文档](../runtime.md)「数据布局 / 旧实例开发资料迁入」。
+实施与验证记录见工单 `.scratch/agent-direction/issues/21-migrate-coding-instance.md`；运行步骤见 [运行文档](../runtime.md)「数据布局 / 旧实例开发资料迁入」。

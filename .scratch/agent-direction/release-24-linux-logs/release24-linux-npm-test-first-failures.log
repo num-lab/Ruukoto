@@ -1,0 +1,130 @@
+✔ CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流 (2118.03575ms)
+✔ 验收1：全新实例只有 main（chat/coding 已退役，issue 20/23）；群消息零新增；同连接私聊与 Telegram 照常回复 (1088.464655ms)
+✔ 验收2：inbox 附接收与复核结论、outbox 账本、read_history 可读；转 dev 会话与提交全部拒绝 (316.960395ms)
+✔ 验收3：无 chat 角色行的实例中 main/coding/SubAgent 仍读不到群项目；已接收快照仅 main (166.998902ms)
+✔ 验收4a：已接收群结果的通知经批准后在退役后正常发送 (432.565517ms)
+✔ 验收4b/4c/4d：撤回与归档篡改阻断待发通知与调度运行（source_revoked 及原因），不只凭快照正文继续 (472.20612ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ 验收5：排队/在途/待发/未派发事件一次性收尾只定终态；三次启动幂等 (2547.639478ms)
+✔ 预览覆盖交接清单与各项收尾，两侧零写入；门禁逐项拒绝 (1304.958881ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ 应用后目标启动：main 与应用数据可用，档案可查，交接恰一次且不重放 (847.969063ms)
+✔ 故障注入续跑无重复；同键重放/异参冲突；修订冲突；回退与阻挡项 (1338.560029ms)
+✔ v20 旧库（个人方向）：快照迁移只在副本上执行，源 sha 不变 (190.736583ms)
+✔ CLI：ruukoto legacy-import preview/apply/list/revert 全流程 (2268.370526ms)
+✔ dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent 补充；工具白名单不扩大 (1175.663692ms)
+✔ main 通道：SubAgent→主 Agent 经唤醒任务送达；主 Agent→SubAgent 补充 (814.152246ms)
+✔ 范围拒绝：跨身份/跨工作/资格已失/已关闭/已取消/自发自收/参数；均无消息行 (379.707276ms)
+✔ 复用后资格转移：旧协作方消息被拒，迟到旧消息不进入新工作上下文；冲刷记 moved_work (371.947126ms)
+✔ 关闭后的投递有明确结果：冲刷记 closed；消息错误不把关闭当作重建理由 (322.913458ms)
+✔ 幂等与账本：同键同参返回原记录（含工具层重放），异参冲突；冲刷重入不重复 (284.883085ms)
+✔ main 截住排队的消息唤醒：main 本轮阻塞时 SubAgent 发消息，本轮 subagent_cancel 后消息唤醒按 work_canceled 取消、零模型调用 (376.640145ms)
+✔ dev 注入通道：SubAgent→主 Agent 随下一次模型调用送达并标记；已取消不注入 (377.249432ms)
+✔ v28 → v29 迁移：补 subagent_messages 表，旧记录保留、表为空；账本核实 (83.61683ms)
+✔ 排队中的拥有者委派：重启定 interrupted、补记一次、Agent 回 idle、由拥有者决定继续 (689.080325ms)
+✔ 占用未核实：保留占用与 unverified、不解除暂停；拥有者 resume-queue 后回 idle 可委派 (326.550726ms)
+✔ 宿主固定评审排队任务：不中断，启动恢复自动解除子会话暂停并继续执行 (348.549842ms)
+✔ 升级收尾：在途旧 coding 子任务各补记一次结果与唤醒，不重放；角色会话拒绝新任务，重复重启不重复 (1271.795323ms)
+✔ coding_result 只读兼容：读旧子任务结构化结果与交付产物，UTF-8 分页不损坏；其他任务拒绝 (426.529862ms)
+✔ 放行判定：wake: 与 smsg: 同一规则——所属工作已取消即不放行，其他任务照常 (237.352101ms)
+✔ 消息状态文本：发给主 Agent 的消息承载唤醒被截住时补标未送达；发给 SubAgent 的不补标 (147.114371ms)
+✔ 结果送达矩阵：父会话 × 结局 × 取消 → 结果唤醒、注入清单与放行判定 (1008.906052ms)
+✔ 消息送达方向：main 在消息事务内建消息唤醒并写投递登记；普通开发会话待注入 (167.139865ms)
+✔ 启动补建：缺失的结果唤醒与消息唤醒各补一次；已取消与普通开发会话不补；重复巡检不重复 (248.731706ms)
+✔ 最终汇报：来源（IM / TUI / GitHub 评审）× 取消 → 是否到期、发送键与正文；唤醒说明随来源 (389.078689ms)
+✔ 最终汇报到期：仍有活动执行任务或其他执行任务的结果唤醒未出结果时不到期，后终态的唤醒汇报一次 (150.778865ms)
+✔ 按来源 reconcile：作废门已作废的 registered、按 drop 原因取消活动任务，不波及另一平台 (84.883618ms)
+✔ owner 回复与工作汇报：目标一致时按入口截断登记，目标变化/前缀不符/旧 null 目标跳过 (132.091945ms)
+✔ 凭据变化只推进并 reconcile 引用该凭据的入口 (47.677952ms)
+✔ 缺省渠道 Telegram 可被测试覆盖；QQ 来源通知只在钉版目标一致时发 QQ (62.14243ms)
+✔ 启动配置停用：入口照常创建但不连接、不轮询；门作废、目标为 null、outbox 视为未加载，reconcile 取消排队任务 (278.588236ms)
+✔ 宿主工具族从同一 names 清单构建并拒绝重复或漂移 (3.515059ms)
+▶ 真实宿主 execute 并发持有独立上下文，先释放的调用不影响另一个，异步异常也经 finally 释放
+  ✔ 后一个调用正常完成 (6.195143ms)
+  ✔ 后一个调用异步失败 (1.227536ms)
+✔ 真实宿主 execute 并发持有独立上下文，先释放的调用不影响另一个，异步异常也经 finally 释放 (8.676239ms)
+✔ 宿主调用句柄按 sdkCallId 保持独立上下文 (0.850211ms)
+✔ 族声明参与 beginStop/settleTask：真实只读族不进快照，自定义族按核实结果补记 (142.856205ms)
+✔ 族声明参与 settleAll：终态残留同样补记，自定义族不能核实时只标一次效果未知 (116.400684ms)
+✔ 族声明参与 settleAfterWriteFailure：只即时补记可核实的自定义族，保留首次结果 (74.362211ms)
+✔ 迁移与重启后协作取消：迟到同级消息不重启工作，副本冲突保留成果，回退保护目标事实 (15988.52558ms)
+ℹ tests 915
+ℹ suites 0
+ℹ pass 909
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 494299.899506
+
+✖ failing tests:
+
+test at test/16-context-memory.test.ts:1004:1
+✖ 组装：工作区根目录失效或被替换时拒绝读取替代目录的指令 (82.417587ms)
+  AssertionError [ERR_ASSERTION]: 明确说明根目录核实失败
+      at TestContext.<anonymous> (/tmp/ruukoto-release24-src-20261006/test/16-context-memory.test.ts:1017:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/32-dev.test.ts:110:1
+✖ 档案路径：稳定、按仓库区分、在仓库外、随 HOME 参数变化 (5.306663ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '/tmp/ruukoto-test-dev-x8f0N6/.ruukoto-dev/ruukoto-release24-src-20261006-8c286fdb'
+  - '/tmp/ruukoto-test-dev-x8f0N6/.ruukoto-dev/ruukoto-8c286fdb'
+  
+      at TestContext.<anonymous> (/tmp/ruukoto-release24-src-20261006/test/32-dev.test.ts:117:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '/tmp/ruukoto-test-dev-x8f0N6/.ruukoto-dev/ruukoto-release24-src-20261006-8c286fdb',
+    expected: '/tmp/ruukoto-test-dev-x8f0N6/.ruukoto-dev/ruukoto-8c286fdb',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/33-config-tui.test.ts:421:1
+✖ ruukoto-dev：项目分区先列工作区（显示根目录）再列旧项目；ruukoto 不标注 (289.823762ms)
+  AssertionError [ERR_ASSERTION]: ruukoto 分区不展示根目录前缀
+      at TestContext.<anonymous> (/tmp/ruukoto-release24-src-20261006/test/33-config-tui.test.ts:457:14)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/81-subagent-reuse-close.test.ts:232:1
+✖ 重新确定：读范围只按本次、来源撤销拒绝与发送阻断、目录替换拒绝、跨父会话拒绝 (5292.840566ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/tmp/ruukoto-release24-src-20261006/test/81-subagent-reuse-close.test.ts:274:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /工作目录已不存在或被替换/,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at test/83-subagent-worktrees.test.ts:284:1
+✖ 非 Git 目录写入：父持锁时子任务 queued，父本轮结束经占用释放启动；subagent_result 如实说明 (644.886453ms)
+  TypeError: release is not a function
+      at TestContext.<anonymous> (/tmp/ruukoto-release24-src-20261006/test/83-subagent-worktrees.test.ts:349:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)

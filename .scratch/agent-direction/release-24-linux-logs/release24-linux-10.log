@@ -1,0 +1,136 @@
+smoke-10 远端编排器开始（2026-10-06T07:33:06.409Z）
+--- 证据 环境基线 ---
+node v24.21.0  platform linux
+systemd 255 (255.4-1ubuntu8.15)
+日常后台状态：active（演练期间不中断、不修改）
+machineId fd410411419d40079742fdbc36dec028
+PASS 准备：账户/权限/sudo -n 就位
+--- 证据 systemd-analyze verify（安装语法小步验证） ---
+/etc/systemd/system/tat_agent.service:7: PIDFile= references a path below legacy directory /var/run/, updating /var/run/tat_agent.pid → /run/tat_agent.pid; please update the unit file accordingly.
+PASS 安装演练：helper（仓库当前版本）/策略/ops/sudoers/测试服务（幂等重装）
+--- 证据 初始状态 ---
+InvocationID=5e56a6122dce493481af1755a7d9d812
+starts.log=1
+--- 证据 helper inspect ---
+MainPID=3265733
+Result=success
+Id=ruukoto-service-release24-test.service
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/etc/systemd/system/ruukoto-service-release24-test.service
+DropInPaths=/etc/systemd/system/ruukoto-service-release24-test.service.d/50-smoke10-execstop.conf
+ActiveEnterTimestamp=Tue 2026-10-06 15:33:07 CST
+NeedDaemonReload=no
+InvocationID=5e56a6122dce493481af1755a7d9d812
+RUUKOTO_SERVICE_REPLY {"v":1,"verb":"inspect","ok":true,"machineId":"fd410411419d40079742fdbc36dec028","policyRevision":"0621814ce6a7fc058d65076c676c0acc1ef1a560052e34776db82c170d19c1c3","unitRevision":"30a286a54423b195b5e49961a1d2d9e822c45c54d0ef3ca196f6115529454e4b","unit":"ruukoto-service-release24-test.service","state":{"id":"ruukoto-service-release24-test.service","loadState":"loaded","activeState":"active","subState":"running","mainPid":3265733,"invocationId":"5e56a6122dce493481af1755a7d9d812","result":"success","activeEnterTimestamp":"Tue 2026-10-06 15:33:07 CST"},"execIdentity":{"uid":986,"gid":986},"observedAt":"2026-10-06T07:33:07.712Z"}
+PASS 小步验证：后台账户经 sudoers 固定入口直接 inspect（真实 helper/sudo/systemd）
+热身回路走通（T+5s）
+--- 证据 A1 审批通知 ---
+【需要审批】service_manage
+审批 ID：conf_41b29708e447b66bf74b94c4
+权限版本：v1
+任务：task_a3a1f84f6ce90aa6ce346662
+范围：服务管理 restart ruukoto-service-release24-test.service（root 提权，经后台固定 helper；原本不活动会被启动；中断后效果可能无法确认且不自动重发；请求时状态 active/running；策略/单元修订 0621814c…/30a286a5…）
+参数摘要（数据展示，完整见详情）：{"unit":"ruukoto-service-release24-test.service","action":"restart","machine_id":"fd410411419d40079742fdbc36dec028","policy_revision":"0621814ce6a7fc058d65076c676c0acc1ef1a560052e34776db82c170d19c1c3","unit_revision":"30a286a54423b195b5e49961a1d2d9e822c45c54d0ef3ca196f6115529454e4b","state_before":…
+批准（仅本次）：/approve conf_41b29708e447b66bf74b94c4 1
+拒绝：/reject conf_41b29708e447b66bf74b94c4 1
+长期批准（保存本机对该服务的 restart 授权并批准本次；以 root 经后台固定 helper 提权执行；之后独立任务命中相同范围与修订自动放行，持续至撤销或修订/绑定变化；批准后可用 /service-grants 查看、/revoke-service-grant <授权ID> <版本> 撤销）：/approve-standing conf_41b29708e447b66bf74b94c4 1
+详情：/approval conf_41b29708e447b66bf74b94c4
+PASS A1 申请通知同时提供单次与长期批准说明；空授权目录
+--- 证据 A2 回执与授权行 ---
+长期授权已保存：sp_70d6dbfd742257161a8771c2 v1（本机 restart ruukoto-service-release24-test.service；策略/单元修订已钉版；绑定本入口）。
+本次批准已接受：不代表操作已经成功，执行结果经原入口回复。
+有效期：持续到撤销、修订变化、入口绑定变化或目标效果未知。
+查看：/service-grant sp_70d6dbfd742257161a8771c2｜撤销：/revoke-service-grant sp_70d6dbfd742257161a8771c2 1
+---
+{"version":1,"session_id":"sess_4ed75bfc9ac41e8a8f262e6c","project_id":"proj_635a208e37c945fe63de3328","machine_id":"fd410411419d40079742fdbc36dec028","unit":"ruukoto-service-release24-test.service","action":"restart","channel":"qq_private","account":"990001","chat_id":"880001","actor":"qq_private:880001","approval_id":"conf_41b29708e447b66bf74b94c4","created_by_event_id":"evt_b8a5baf977384f697bbe0a83","revoked_at":null}
+--- 证据 starts.log ---
+2026-10-06T07:33:07Z 5e56a6122dce493481af1755a7d9d812
+2026-10-06T07:33:32Z 2b9124125ade4431993f9b389d038752
+PASS A2 /approve-standing：授权已保存+本次接受（不代表已成功）；真实执行恰好一次
+--- 证据 A3 两次使用记录 ---
+[
+  {
+    "conf": "conf_41b29708e447b66bf74b94c4",
+    "task": "task_a3a1f84f6ce90aa6ce346662",
+    "op": "op_8d9f6d60cc928778b28b0777",
+    "consumed": "2026-10-06T07:33:12.151Z"
+  },
+  {
+    "conf": "conf_b3761326115ce453911b7807",
+    "task": "task_5acd925bc4ad4b78cbea8525",
+…（共 14 行）
+PASS A3 第二项独立任务命中精确范围：零新审批、自动放行恰好一次；两次独立批准/消费
+--- 证据 A4 详情原文 ---
+长期授权 sp_70d6dbfd742257161a8771c2
+范围：本机 fd410411419d… 对 ruukoto-service-release24-test.service 执行 restart（root 提权经后台固定 helper）
+修订钉版：策略 0621814ce6a7…｜单元 30a286a54423…
+状态：有效 · 版本 v1
+来源：审批 conf_41b29708e447b66bf74b94c4｜创建 2026-10-06T07:33:12.143Z
+存续条件：持续到撤销、修订变化、入口绑定变化或目标效果未知；绑定平台 qq_private 账号 990001 会话 880001（qq_private:880001）
+使用记录 2 次（第 0–1 条，新 → 旧）：
+- 审批 conf_b3761326115ce453911b7807｜操作 op_b9b662e023078e9e5ada4375｜approved（已消费）
+- 审批 conf_41b29708e447b66bf74b94c4｜操作 op_8d9f6d60cc928778b28b0777｜approved（已消费）
+撤销：/revoke-service-grant sp_70d6dbfd742257161a8771c2 1
+--- 证据 A4 详情回执 ---
+长期授权 sp_70d6dbfd742257161a8771c2
+范围：本机 fd410411419d… 对 ruukoto-service-release24-test.service 执行 restart（root 提权经后台固定 helper）
+修订钉版：策略 0621814ce6a7…｜单元 30a286a54423…
+状态：有效 · 版本 v1
+来源：审批 conf_41b29708e447b66bf74b94c4｜创建 2026-10-06T07:33:12.143Z
+存续条件：持续到撤销、修订变化、入口绑定变化或目标效果未知；绑定平台 qq_private 账号 990001 会话 880001（qq_private:880001）
+使用记录 2 次（第 0–1 条，新 → 旧）：
+- 审批 conf_b3761326115ce453911b7807｜操作 op_b9b662e023078e9e5ada4375｜approved（已消费）
+- 审批 conf_41b29708e447b66bf74b94c4｜操作 op_8d9f6d60cc928778b28b0777｜approved（已消费）
+撤销：/revoke-service-grant sp_70d6dbfd742257161a8771c2 1
+PASS A4 /service-grant 详情两次独立消费；/service-grants 列表有效
+--- 证据 B1 CLI 输出摘录 ---
+list:
+{
+  "items": [
+    {
+      "id": "sp_70d6dbfd742257161a8771c2",
+      "version": 1,
+      "sessionId": "sess_4ed75bfc9ac41e8a8f262e6c",
+      "projectId": "proj_635a208e37c945fe63de3328",
+      "machineId": "fd410411419d40079742fdbc36dec028",
+      "unit": "ruukoto-service-release24-test.service",
+      "action": "restart",
+      "policyRevision": "0621814ce6a7fc058d65076c676c0acc1ef1a560052e34776db82c170d19c1c3",
+      "unitRevision": "30a286a54423b195b5e49961a1d2d9e822c45c54d0ef3ca196f61155294
+show:
+{
+  "permission": {
+…（共 29 行）
+PASS B1 真实 CLI：service-grant list/show 有据；错误版本撤销拒绝；未认证不可达由账户边界覆盖
+PASS B2 CLI 撤销：v1 → v2 递增；第三任务恢复人工审批，拒绝零执行
+PASS C1 重建授权：/approve-standing（修订未变允许重建）
+--- 证据 C2 派发窗口 ---
+ruukoto-service-op-op_79bbfce7d2895df77c450668.service loaded active running /usr/bin/systemctl --system restart ruukoto-service-release24-test.service
+claim: /var/lib/ruukoto-release24/service-ops/op_79bbfce7d2895df77c450668
+--- 证据 C2 账本 ---
+{"opRow":{"effect_unknown":1},"spRow":{"version":2,"revoked_reason":"effect_unknown","revoked_at":"2026-10-06T07:34:40.275Z"},"revokedEvt":{"reason":"effect_unknown","opId":"op_79bbfce7d2895df77c450668"}}
+--- 证据 starts.log ---
+2026-10-06T07:33:07Z 5e56a6122dce493481af1755a7d9d812
+2026-10-06T07:33:32Z 2b9124125ade4431993f9b389d038752
+2026-10-06T07:33:54Z ae4c306783e14b1c8f784209d6cef290
+2026-10-06T07:34:19Z 4d7421d254c24ab997f84f5a0ef8e05e
+2026-10-06T07:34:40Z 2aaed395a2634128b3894929dd1c4804
+PASS C2 真实派发后杀 systemd-run：helper 报「可能已派发」（非零效果/非确定退出码）→ 效果未知 + 授权失效
+PASS D 失效后新任务恢复人工审批（换 ID 不自动重试）；核实后拒绝零执行
+--- 证据 E 越权拒绝（预期非零） ---
+[helper] exit=1
+[写策略] exit=1
+[读令牌] exit=1
+PASS E 边界：执行账户无提权（helper EACCES / 策略写拒绝 / 令牌读拒绝）；长期授权不升级其能力
+PASS 收尾：日常后台未被波及
+
+--- 清理状态 ---
+已还原：测试服务停用并卸载（单元/drop-in/启动程序/状态目录删除）；隔离后台已停止；/var/lib/ruukoto-release24-smoke10 已删除
+本次独立部署资源已清理：/usr/local/libexec/ruukoto-release24/ruukoto-service（root 0700，仓库当前版本含派发如实性修正）、/etc/ruukoto-release24/services.json（root 0644）、/var/lib/ruukoto-release24/service-ops（root 0700，含历次认领标记）、/etc/sudoers.d/ruukoto-release24-service（仓库版本）
+
+模拟：模型（MockModelServer）、NapCat/OneBot（MockOneBot QQ 私聊）——打桩平台，不代表真实 QQ/Telegram 已验收
+真实：Linux systemd（systemctl/systemd-run/journald）、root helper + sudoers 固定入口、白名单策略、测试服务真实 start/restart、隔离后台 + 真实 Runtime/SQLite/审批/长期授权、真实控制面 CLI（service-grant list/show/revoke）、systemd-run 被真实杀死后 helper 如实报「可能已派发」、系统账户边界
+
+结果：14/14 通过（耗时 118.8s）

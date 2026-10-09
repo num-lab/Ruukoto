@@ -1,0 +1,121 @@
+smoke-09 远端编排器开始（2026-10-06T07:31:13.836Z）
+--- 证据 环境基线 ---
+node v24.21.0  platform linux
+systemd 255 (255.4-1ubuntu8.15)
+日常后台状态：active（演练期间不中断、不修改）
+machineId fd410411419d40079742fdbc36dec028
+PASS 准备：账户/权限/sudo -n 就位
+--- 证据 systemd-analyze verify（安装语法小步验证） ---
+/etc/systemd/system/tat_agent.service:7: PIDFile= references a path below legacy directory /var/run/, updating /var/run/tat_agent.pid → /run/tat_agent.pid; please update the unit file accordingly.
+PASS 安装演练：helper/策略/ops/sudoers/测试服务（幂等）
+--- 证据 安装后策略 ---
+{
+  "machineId": "fd410411419d40079742fdbc36dec028",
+  "execUid": 986,
+  "execGid": 986,
+  "services": {
+    "ruukoto-service-release24-test.service": {
+      "actions": [
+        "restart"
+      ]
+    }
+…（共 12 行）
+--- 证据 现役 sudoers（仓库版本） ---
+ruukoto-backend ALL=(root) NOPASSWD: /usr/local/libexec/ruukoto-release24/ruukoto-service
+--- 证据 测试服务初始状态 ---
+ExecStart={ path=/usr/local/libexec/ruukoto-release24/ruukoto-service-test.sh ; argv[]=/usr/local/libexec/ruukoto-release24/ruukoto-service-test.sh ; ignore_errors=no ; start_time=[Tue 2026-10-06 15:31:15 CST] ; stop_time=[n/a] ; pid=3262394 ; code=(null) ; status=0/0 }
+ExecStop={ path=/bin/sleep ; argv[]=/bin/sleep 20 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }
+User=ruukoto-exec
+ActiveState=active
+InvocationID=21524b23cf664a51aea08497535c1a97
+--- 证据 初始 InvocationID 与 starts.log ---
+InvocationID=21524b23cf664a51aea08497535c1a97
+starts.log 行数=1
+2026-10-06T07:31:15Z 21524b23cf664a51aea08497535c1a97
+--- 证据 helper inspect（fd1 原始行 + stderr RUUKOTO_SERVICE_REPLY 应答） ---
+MainPID=3262394
+Result=success
+Id=ruukoto-service-release24-test.service
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/etc/systemd/system/ruukoto-service-release24-test.service
+DropInPaths=/etc/systemd/system/ruukoto-service-release24-test.service.d/50-smoke09-execstop.conf
+ActiveEnterTimestamp=Tue 2026-10-06 15:31:15 CST
+NeedDaemonReload=no
+InvocationID=21524b23cf664a51aea08497535c1a97
+RUUKOTO_SERVICE_REPLY {"v":1,"verb":"inspect","ok":true,"machineId":"fd410411419d40079742fdbc36dec028","policyRevision":"0621814ce6a7fc058d65076c676c0acc1ef1a560052e34776db82c170d19c1c3","unitRevision":"5cbf121ad7737c6be8c6c1973d394283fb51489bba2964cd0c0344ae7f03b302","unit":"ruukoto-service-release24-test.service","state":{"id":"ruukoto-service-release24-test.service","loadState":"loaded","activeState":"active","subState":"running","mainPid":3262394,"invocationId":"21524b23cf664a51aea08497535c1a97","result":"success","activeEnterTimestamp":"Tue 2026-10-06 15:31:15 CST"},"execIdentity":{"uid":986,"gid":986},"observedAt":"2026-10-06T07:31:15.532Z"}
+PASS 小步验证：后台账户经 sudoers 固定入口直接 inspect（真实 helper/sudo/systemd）
+隔离后台已启动并完成 QQ 私聊配置（mock onebot 回环）
+热身回路走通（T+6s）
+--- 证据 A1 最终回答摘录 ---
+FINAL: 服务 ruukoto-service-release24-test.service 状态（2026-10-06T07:31:19.945Z 观察；本机 fd410411419d…；检查以执行账户 uid/gid 986/986 运行）：
+LoadState=loaded ActiveState=active SubState=running
+MainPID=3262394 InvocationID=21524b23cf664a51aea08497535c1a97 Result=success
+ActiveEnterTimestamp=Tue 2026-10-06 15:31:15 CST
+…（共 5 行）
+PASS A1 状态检查：QQ 私聊 SVC-STATUS → 真实 systemctl 状态回原入口
+--- 证据 A2 最终回答摘录 ---
+FINAL: 管理命令结果：systemctl restart ruukoto-service-release24-test.service 已完成（退出码 0，已等待命令结束；实际执行身份 root，命令单元 ruukoto-service-op-op_b1f10df0aae9bf91f82aead5.service）。退出码 0 表示 systemd 接受并完成重启动作，不代表应用业务健康。
+随后观察到的服务状态（2026-10-06T07:31:41.332Z）：
+LoadState=loaded ActiveState=active SubState=running
+MainPID=3262929 InvocationID=3afc052cedea4c7e9a0b57f3c0340c40 Result=success
+ActiveEnterTimestamp=Tue 2026-10-06 15:31:41 CST
+InvocationID 已变化：服务确实经过了新的启动周期。
+--- 证据 starts.log（真实启动计数） ---
+2026-10-06T07:31:15Z 21524b23cf664a51aea08497535c1a97
+2026-10-06T07:31:41Z 3afc052cedea4c7e9a0b57f3c0340c40
+PASS A2 批准流程：通知 → 详情 → /approve → 真实重启恰好一次，结果与状态分述
+--- 证据 journalctl -u ruukoto-service-op-op_b1f10df0aae9bf91f82aead5.service ---
+Started ruukoto-service-op-op_b1f10df0aae9bf91f82aead5.service - /usr/bin/systemctl --system restart ruukoto-service-release24-test.service.
+ruukoto-service-op-op_b1f10df0aae9bf91f82aead5.service: Deactivated successfully.
+--- 证据 claim.json ---
+{
+  "unit": "ruukoto-service-release24-test.service",
+  "expectedPolicyRev": "0621814ce6a7fc058d65076c676c0acc1ef1a560052e34776db82c170d19c1c3",
+  "expectedUnitRev": "5cbf121ad7737c6be8c6c1973d394283fb51489bba2964cd0c0344ae7f03b302",
+  "claimedAt": "2026-10-06T07:31:21.141Z"
+}
+PASS A3 派生命令单元曾真实存在：journalctl 记录 ruukoto-service-op-<hostOpId>
+--- 证据 B 越权拒绝（预期非零） ---
+[ruukoto-exec helper] exit=1 sudo: unable to execute /usr/local/libexec/ruukoto-release24/ruukoto-service: Permission denied
+[ruukoto-exec 写策略] exit=1 tee: /etc/ruukoto-release24/services.json: Permission denied
+[ruukoto-exec 读令牌] exit=1 cat: /var/lib/ruukoto-release24-smoke09/control/owner.token: Permission denied
+[ruukoto-backend sudo -n inspect] exit=0（可用）
+PASS B 边界：执行账户无提权（helper EACCES / 策略写拒绝 / 控制面令牌读拒绝）；后台 sudo -n 入口可用
+--- 证据 C1 already_claimed 应答 ---
+RUUKOTO_SERVICE_REPLY {"v":1,"verb":"restart","ok":false,"launched":false,"reasonCode":"already_claimed","error":"同一操作 ID 已认领过执行权，拒绝再次启动：op_b1f10df0aae9bf91f82aead5"}
+PASS C1 同 hostOpId 重复启动：already_claimed，真实零重启
+--- 证据 C2 最终回答摘录 ---
+FINAL: 操作失败：服务管理策略在确认期间已变化，原批准失效（未执行）；请重新检查后申请
+PASS C2 批准期间策略被改：消费事务 recheck 失效，零重启（随后恢复策略）
+--- 证据 C3 最终回答摘录 ---
+FINAL: 操作失败：管理操作未执行：helper 在请求 systemd 前拒绝（revision_mismatch：单元定义修订与批准快照不符，拒绝请求 systemd）。本次批准已消费，再次操作需要新的审批。
+PASS C3 单元已改未 daemon-reload：helper 拒绝请求（revision_mismatch/reload_required），starts 不增（随后恢复）
+--- 证据 C4 摘录 ---
+FINAL: 服务管理不可用：服务管理 helper 拒绝（unit_denied）：固定拒绝把基础设施列作管理目标：ruukoto-backend.service
+---
+FINAL: 服务管理不可用：服务管理 helper 拒绝（not_whitelisted）：目标不在服务管理白名单内：other.service
+PASS C4 越界目标：ruukoto-backend.service（固定拒绝清单）与 other.service（白名单外）全部拒绝
+--- 证据 D 派发窗口 ---
+ruukoto-service-op-op_c1f68fd882d6f9891deffb14.service loaded failed failed  /usr/bin/systemctl --system restart ruukoto-service-release24-test.service
+ruukoto-service-op-op_cc1fddfa05003157dbfc1e45.service loaded active running /usr/bin/systemctl --system restart ruukoto-service-release24-test.service
+claim: /var/lib/ruukoto-release24/service-ops/op_cc1fddfa05003157dbfc1e45
+--- 证据 D 账本行 ---
+{"op":{"result_summary":null,"effect_unknown":1},"confirmation":{"status":"approved","consumed_at":"2026-10-06T07:31:47.031Z"},"task":{"status":"interrupted","effect_unknown":1}}
+--- 证据 D starts.log ---
+2026-10-06T07:31:15Z 21524b23cf664a51aea08497535c1a97
+2026-10-06T07:31:41Z 3afc052cedea4c7e9a0b57f3c0340c40
+2026-10-06T07:32:07Z da9de848556b4b7e8f6ba06d233aefa6
+PASS D 中断恢复：派发后 kill -9 隔离后台 → op 效果未知、starts 恰 +1、不自动重发
+PASS E 拒绝：/reject 零执行，starts 不变；崩溃后会话队列暂停，resume 后排队消息才调度
+PASS 收尾：日常后台未被波及
+
+--- 清理状态 ---
+已还原：测试服务停用并卸载（单元/drop-in/启动程序/状态目录删除）；隔离后台已停止；/var/lib/ruukoto-release24-smoke09 已删除
+本次独立部署资源已清理：/usr/local/libexec/ruukoto-release24/ruukoto-service（root 0700）、/etc/ruukoto-release24/services.json（root 0644）、/var/lib/ruukoto-release24/service-ops（root 0700，含历次认领标记）、/etc/sudoers.d/ruukoto-release24-service（仓库版本）
+
+模拟：模型（MockModelServer）、NapCat/OneBot（MockOneBot QQ 私聊）——打桩平台，不代表真实 QQ/Telegram 已验收
+真实：Linux systemd（systemctl/systemd-run/journald）、root helper + sudoers 固定入口、白名单策略、测试服务真实 start/restart、隔离后台（ruukoto-backend 身份）+ 真实 Runtime/SQLite/审批/中断恢复、系统账户边界（ruukoto-exec 无提权）
+
+结果：14/14 通过（耗时 89.8s）

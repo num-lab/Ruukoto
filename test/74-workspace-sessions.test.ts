@@ -18,7 +18,7 @@
  *    ruukoto 产品下行为不变（角色项目仍列出）。
  *
  * 本文件只做离线进程级断言（模型打桩，进程/文件/socket/SQLite/Pseudo-Terminal 真实）；
- * 真实环境（macOS 本机真实 bin）验证记录见 .agents/scratch/agent-direction/smoke-05-workspace-sessions.mts
+ * 真实环境（macOS 本机真实 bin）验证记录见 .scratch/agent-direction/smoke-05-workspace-sessions.mts
  * 与工单 Comments。
  */
 

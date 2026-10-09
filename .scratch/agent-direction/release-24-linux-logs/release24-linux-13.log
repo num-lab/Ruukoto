@@ -1,0 +1,16 @@
+环境：linux x64；镜像 ruukoto-worker:latest；容器 uid:gid 1003:1003
+PASS S1 协作加入：B 拉入既有工作，执行记录独立
+PASS S2 双向消息与来源：A→B、B→A 投递为本工作任务，来源可追溯
+PASS S3 上级通道：主 Agent 补充投递为本工作任务；SubAgent→主 Agent 经 dev 注入送达
+PASS S4 重复投递不重复：同键重放与冲刷重入；无残余容器
+PASS S5 复用后资格转移与关闭明确结果
+PASS S6 真实 CLI work show 读消息列表；重启后记录保留、冲刷不重放
+
+===== 证据 =====
+协作加入：工作 work_567c8521df0d1750abfd0d85 的执行含 A（首次）与 B（加入）
+消息 smsg_7e2f4fb4ce0e9ab4c51425cb（A→B，任务 task_3cf9d31d01d6854715d409da）、smsg_7ed547de0b99f3056eab2c31（B→A，任务 task_181d46be2132d8e105815edf）
+主 Agent 补充 → 任务 task_9dca2e4cd3af597f5b95c28b；SubAgent→主 Agent 注入消息 smsg_fa34416649c59c44f48454f7
+B 复用 work_ff26822b50324c9348fd0b9a 后旧消息被拒；关闭后投递报已关闭（关闭方 owner）
+CLI work show：messages 4 条（含 A→B 已投递）
+
+6/6 PASS

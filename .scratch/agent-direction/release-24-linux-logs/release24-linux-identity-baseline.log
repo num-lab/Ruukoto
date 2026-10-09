@@ -1,0 +1,40 @@
+✖ 组装：工作区根目录失效或被替换时拒绝读取替代目录的指令 (135.201427ms)
+✖ 重新确定：读范围只按本次、来源撤销拒绝与发送阻断、目录替换拒绝、跨父会话拒绝 (5357.039591ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8577.081594
+
+✖ failing tests:
+
+test at test/16-context-memory.test.ts:1004:1
+✖ 组装：工作区根目录失效或被替换时拒绝读取替代目录的指令 (135.201427ms)
+  AssertionError [ERR_ASSERTION]: 明确说明根目录核实失败
+      at TestContext.<anonymous> (/tmp/ruukoto-release24-clean33571/ruukoto/test/16-context-memory.test.ts:1017:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/81-subagent-reuse-close.test.ts:232:1
+✖ 重新确定：读范围只按本次、来源撤销拒绝与发送阻断、目录替换拒绝、跨父会话拒绝 (5357.039591ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/tmp/ruukoto-release24-clean33571/ruukoto/test/81-subagent-reuse-close.test.ts:274:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /工作目录已不存在或被替换/,
+    operator: 'rejects',
+    diff: 'simple'
+  }

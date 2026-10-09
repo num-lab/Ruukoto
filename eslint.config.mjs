@@ -3,7 +3,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default [
-  { ignores: ["**/node_modules/**", ".agents/**", "worker/**", "verification/archive/**"] },
+  { ignores: ["**/node_modules/**", ".agents/**", ".scratch/**", "worker/**", "verification/archive/**"] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {

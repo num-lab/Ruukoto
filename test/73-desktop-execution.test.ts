@@ -10,7 +10,7 @@
  *   在执行前拒绝且不回退；confirm 提交照常完成。
  *
  * 边界本身的文件/子进程/网络约束与停止回收属工单 03 与
- * .agents/scratch/agent-direction/smoke-04-desktop-execution.mts 的真实环境验证，
+ * .scratch/agent-direction/smoke-04-desktop-execution.mts 的真实环境验证，
  * 本文件只做离线进程级断言（模型打桩，进程/文件/socket/SQLite 真实）。
  */
 

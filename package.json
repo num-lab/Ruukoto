@@ -14,6 +14,7 @@
   "scripts": {
     "start": "tsx src/cli.ts",
     "dev": "tsx src/dev.ts",
+    "code": "tsx src/code.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:model": "RUN_MODEL_CHECK=1 tsx --test test/06-connectivity.test.ts"

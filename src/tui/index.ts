@@ -4,6 +4,7 @@
  *
  * - ruukoto-code（issue 02）：后台不在时按需拉起（detached，关闭 TUI 不停止后台），
  *   启动失败给出日志位置并非零退出；ruukoto 沿用显式 server / systemd；
+ *   开发前端有重载状态标记时只连接，由开发启动器管理后台；
  * - 非 TTY 环境不启动交互页面，提示使用已有 CLI 命令；
  * - 仅连接本机 Unix socket；远程使用沿用登录服务器后启动 TUI 的方式；
  * - 正常退出、SIGTERM、SIGHUP 与可处理的异常都关闭 socket、停止 TUI 并
@@ -50,7 +51,8 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
   if (!opts.demo) {
     // 按需拉起本机后台（issue 02，仅 ruukoto-code）：已在运行不重复拉起，并发由实例锁收敛；
     // ruukoto（个人 Agent）沿用显式 server / systemd，不由 TUI 越权拉起
-    if (tuiSpawnsBackendOnDemand(productFromEnv())) {
+    // 开发启动器管理后台；重载失败时也只重连，避免派生不受启动器管理的后台。
+    if (tuiSpawnsBackendOnDemand(productFromEnv()) && !reloadStatePathFromEnv()) {
       const ensured = await ensureRuukotoCodeBackend();
       if (!ensured.ok) {
         console.error(ensured.error);

@@ -93,13 +93,26 @@ ruukoto qq enable
 ### 开发本项目
 
 ```bash
-npm run dev -- --tui        # 隔离的开发后台 + 任务界面，源码变更自动重启
-npm run dev -- --config     # 改为配置界面（与 --tui 互斥）
-npm run dev -- --import-models ~/.ruukoto/agent   # 导入现有模型配置
+npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启
+npm run dev -- --config     # 打开 ruukoto 开发实例的配置中心
+npm run code               # 启动 ruukoto-code 开发后台并打开 TUI
+npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
+npm run code -- --config    # 打开 ruukoto-code 开发实例的配置中心
+npm run code -- --import-models ~/.ruukoto-code/agent   # 显式复制模型配置
 ```
 
-开发实例运行的是 `ruukoto` 产品，profile 在 `~/.ruukoto-dev/<仓库>-<哈希>/`，与日常
-实例的数据、凭据和控制面完全隔离，默认不连 QQ / Telegram。它不是 `ruukoto-code` 产品。
+`dev` 继续使用 `~/.ruukoto-dev/<仓库>-<哈希>/`，`code` 使用独立的
+`~/.ruukoto-code-dev/<仓库>-<哈希>/`，各自与日常实例的数据、锁和控制面隔离，
+不自动迁移历史。两个入口都支持 `--import-models <目录>`，只复制 `models.json` 与
+`auth.json`；首次运行可先用对应的 `--config` 配置模型。旧 `dev -- --tui` 已删除。
+
+`code` 的路径参数只接受一个已存在的目录，相对路径按 npm 脚本的当前目录
+（通常为本仓库）解析；路径含空格时加引号，不能与 `--config` 同用。
+源码重载时恢复原会话和草稿，不重复创建会话。
+
+开发实例固定停用 QQ / Telegram，不继承生产拥有者令牌和执行账户配置。
+`dev` 默认使用无隔离的 `local` 后端，`code` 默认使用 `container`，受限任务需要
+Docker 和 worker 镜像。退出 TUI、配置中心或启动终端会停止整组开发进程。
 
 ## 权限模式
 

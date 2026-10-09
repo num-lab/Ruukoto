@@ -8,8 +8,8 @@
  *   同一数据目录直接拒绝）；
  * - 路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读
  *   RUUKOTO_CODE_*_DIR，同机并存不串用；
- * - ruukoto-code 档案根独立，避开开发本项目的隔离实例根 ~/.ruukoto-dev（~/.ruukoto-dev
- *   继续只属于 `npm run dev` 开发实例）。
+ * - 日常档案与开发本项目的档案隔离：npm run dev 使用 ~/.ruukoto-dev，
+ *   npm run code 使用 ~/.ruukoto-code-dev。
  */
 
 import * as os from "node:os";

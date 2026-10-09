@@ -46,6 +46,16 @@ ruukoto 产品不拒绝普通开发会话的创建与提交。开发本项目的
 
 Coding Agent 的产品入口由 `ruukoto-dev` 改为 `ruukoto-code`。同步更新了 bin 入口、产品身份、默认档案根（`~/.ruukoto-code`）和路径环境变量前缀（`RUUKOTO_CODE_*_DIR`）。用于开发本项目的隔离开发实例仍使用 `npm run dev` 与 `~/.ruukoto-dev/`，两者概念不同。
 
+## 补充：两个产品的开发启动入口（2026-10-09）
+
+`npm run dev` 继续启动 ruukoto 开发后台，保留 `npm run dev -- --config` 配置入口；`npm run code` 启动 ruukoto-code 开发后台并默认打开 TUI，`npm run code -- --config` 打开其配置中心。开发启动器不再接受 `--tui`。
+
+两个开发入口复用源码监听、重载与进程管理能力，但分别保存档案：ruukoto 沿用 `~/.ruukoto-dev/<仓库>-<哈希>/`，ruukoto-code 新建 `~/.ruukoto-code-dev/<仓库>-<哈希>/`。现有开发数据库已有 ruukoto 产品归属，直接切换产品会被拒绝，因此本次不自动迁移历史；模型配置经已有 `--import-models` 显式复制。两个档案与日常产品档案分别持有数据、配置、凭据、锁与控制面，可以同时运行。
+
+开发入口固定产品身份，不继承日常实例的路径、拥有者令牌或受保护执行账户配置，并继续停用真实 QQ / Telegram 通道。执行后端沿用 CLI 的产品默认值：ruukoto 使用 local，ruukoto-code 使用 container；container 环境不可用时任务明确失败，不回退到 local。完全访问所需的执行账户配置不在本次扩展。
+
+两个入口均由开发启动器管理后台，退出 TUI 或配置中心、Ctrl+C 或关闭终端时停止本次启动的开发进程。开发前端不自行拉起后台，避免源码重载失败时派生未受启动器管理的进程。日常 ruukoto-code 关闭 TUI 后后台继续运行的规则仍适用于日常入口。
+
 ## 实施记录
 
 - agent-direction issue 26（2026-10-08，第一阶段未通过）：建立 Seatbelt / bubblewrap 原生候选的真实边界探针；更正旧 macOS `/tmp` 路径别名导致的文件规则否决依据。尚未接入产品、未切换 container 默认值；macOS 脱离进程组的后代回收与 tx 的 namespace 能力仍未满足前置验收。见 ADR 0004 的验证门槛与工单 26。

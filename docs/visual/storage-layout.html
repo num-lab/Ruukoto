@@ -54,6 +54,7 @@
         <code class="src" data-src="src/scheduler/store.ts#class SchedulerStore">scheduler/store.ts</code>
         <code class="src" data-src="src/qq/store.ts#class QqStore">qq/store.ts</code>
         <code class="src" data-src="src/dev.ts#devProfileFor">dev.ts</code>
+        <code class="src" data-src="src/code.ts#runDev">code.ts</code>
         <code class="src" data-src="src/cli.ts#defaultDirs">cli.ts</code>
       </dd></div>
       <div><dt>决策</dt><dd>
@@ -87,7 +88,7 @@
     <h2>目录与文件：按产品分开</h2>
     <p>产品身份只来自环境变量 <code>RUUKOTO_PRODUCT</code>（两条 bin 入口固定注入；缺省为 <code>ruukoto</code>，非法取值直接报错，<code class="src" data-src="src/core/product.ts#productFromEnv">product.ts · productFromEnv</code>）。档案根按产品分开（<code class="src" data-src="src/core/product.ts#productRootDir">product.ts · productRootDir</code>）：个人 Agent 是 <code>~/.ruukoto</code>，Coding Agent 是 <code>~/.ruukoto-code</code>。数据、agent、pending 三个目录默认在根下（<code>data/</code>、<code>agent/</code>、<code>pending/</code>），控制面目录默认是数据目录的兄弟目录 <code>control/</code>（<code class="src" data-src="src/control/connect.ts#controlDirFor">connect.ts · controlDirFor</code>）；<code>server</code> 的 <code>--data-dir</code> / <code>--agent-dir</code> 参数优先于默认值。</p>
     <p>路径环境变量同样按产品隔离（<code class="src" data-src="src/core/product.ts#dirEnvFor">product.ts · dirEnvFor</code>）：ruukoto 只读 <code>RUUKOTO_DATA_DIR</code> / <code>RUUKOTO_AGENT_DIR</code> / <code>RUUKOTO_CONTROL_DIR</code> / <code>RUUKOTO_PENDING_DIR</code>，ruukoto-code 只读 <code>RUUKOTO_CODE_DATA_DIR</code> / <code>RUUKOTO_CODE_AGENT_DIR</code> / <code>RUUKOTO_CODE_CONTROL_DIR</code> / <code>RUUKOTO_CODE_PENDING_DIR</code>。拥有者令牌的 <code>RUUKOTO_OWNER_TOKEN</code> / <code>RUUKOTO_OWNER_TOKEN_FILE</code> 不分产品，两边同名。各类工作目录（<code>qq-work/</code>、<code>agent-work/</code>）由 <code>dirname(dataDir)</code> 推出，跟着数据目录走，而不是跟着档案根走。</p>
-    <p>开发本项目用的开发实例另有档案（<code class="src" data-src="src/dev.ts#devProfileFor">dev.ts · devProfileFor</code>）：<code>~/.ruukoto-dev/&lt;仓库名&gt;-&lt;realpath 哈希前 8 位&gt;/</code>，下有 <code>data/ agent/ control/ pending/ logs/</code> 与 <code>reload-state.json</code>。它不是两个产品的正式档案：后台直接以 <code>src/cli.ts</code> 启动，子进程环境清除 <code>RUUKOTO_PRODUCT</code>、令牌与 <code>RUUKOTO_CODE_*</code>，再注入 <code>RUUKOTO_*_DIR</code> 指向档案（<code class="src" data-src="src/dev.ts#buildChildEnv">dev.ts · buildChildEnv</code>），所以开发实例按缺省以 ruukoto 产品身份运行、在自己的库里登记 <code>product.type = ruukoto</code>，并固定停用 QQ 与 Telegram。</p>
+    <p>开发本项目时，<code>npm run dev</code> 以 ruukoto 身份继续使用 <code>~/.ruukoto-dev/&lt;仓库名&gt;-&lt;realpath 哈希前 8 位&gt;/</code>，<code>npm run code</code> 以 ruukoto-code 身份使用独立的 <code>~/.ruukoto-code-dev/&lt;仓库名&gt;-&lt;realpath 哈希前 8 位&gt;/</code>（<code class="src" data-src="src/dev.ts#devProfileFor">dev.ts · devProfileFor</code>，哈希长度来自 <code class="src" data-src="src/dev.ts#slice(0, 8)">slice(0, 8)</code>）。各档案下有 <code>data/ agent/ control/ pending/ logs/</code> 与 <code>reload-state.json</code>，与日常产品档案分开，不自动迁移历史。后台直接以 <code>src/cli.ts</code> 启动；子进程先清除两产品目录变量、外部产品身份与生产认证和执行配置，再显式注入 <code>RUUKOTO_PRODUCT</code> 与本产品的 <code>RUUKOTO_*_DIR</code> 或 <code>RUUKOTO_CODE_*_DIR</code>（<code class="src" data-src="src/dev.ts#buildChildEnv">dev.ts · buildChildEnv</code>），各库按本产品登记 <code>product.type</code>。入口、执行后端与停用消息通道的规则见<a href="deployment.html#dev-deploy">开发实例</a>。</p>
 
     <figure class="fig">
       <div class="scroll">

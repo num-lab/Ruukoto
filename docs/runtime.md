@@ -289,7 +289,10 @@ ruukoto-code 的行为差别：
 开发调试（issue 21，详见下文「开发实例」）：
 
 ```bash
-npm run dev [-- --tui | --config] [--import-models <目录>]
+npm run dev [-- --config]                        # ruukoto 开发后台 / 配置中心
+npm run code [-- --config]                       # ruukoto-code TUI / 配置中心
+npm run code -- <路径>                           # 创建或复用工作区并进入新会话
+# 两个入口均可加 --import-models <目录>，只复制模型配置
 ```
 
 ## TUI（issue 04）
@@ -598,39 +601,54 @@ ID 与自身版本访问）。
 
 ## 开发实例（issue 21）
 
-`npm run dev [-- --tui | --config] [--import-models <目录>]` 启动隔离的
-开发后台与可选界面，监听源码变更自动重启。开发实例是开发本项目的隔离环境，
-运行的是默认产品 ruukoto，不是 ruukoto-code 产品（新产品档案根为
-`~/.ruukoto-code`，两者目录、锁与控制面互不相同）：
+`npm run dev` 启动 ruukoto 开发后台，`npm run code` 启动 ruukoto-code 开发后台
+并默认打开 TUI。`npm run dev -- --config` 与 `npm run code -- --config` 分别打开
+对应开发实例的配置中心，两个入口都不再接受 `--tui`，均支持
+`--import-models <目录>`。共享启动器 `src/dev.ts` 管理隔离档案与源码自动重载，
+`src/code.ts` 以 ruukoto-code 产品身份调用它：
 
-- **隔离 profile**：`~/.ruukoto-dev/<仓库名>-<路径哈希>/{data,agent,control,
-  pending,logs}`，稳定复用、保留开发历史，位于代码目录外（QQ 等工作目录
-  不落入保护根）。不继承生产 owner token、执行账户配置或消息平台凭据；
-  QQ 适配器在 dev 下默认停用（`RUUKOTO_DISABLE_QQ=1`，每次启动生效）；
-  真实模型须显式配置（`dev --config` 离线初始化，或 `--import-models` 从
-  指定目录复制 models.json/auth.json，不共享可写的生产 agentDir）。
-- **进程与重载**：dev 管理自己启动的整组进程；退出界面或 Ctrl+C、关闭
+- **工作区入口**：`npm run code -- <路径>` 接受一个已存在的目录，按真实目录身份
+  创建或复用工作区，并进入新会话；不新建目标目录。相对路径按 npm 脚本的当前
+  目录（通常为本仓库）解析，路径含空格时加引号，目录与 CLI 命令同名也可使用。
+  路径不能与 `--config` 同用，`dev` 不接受路径；目录身份与保护根校验沿用
+  日常工作区入口，代码仓库本身不能用作工作区。路径只传给首次 TUI 启动，
+  源码重载后恢复原会话、草稿与继续意图，不再次创建会话。
+- **隔离 profile**：`dev` 继续使用 `~/.ruukoto-dev/<仓库名>-<路径哈希>/`，
+  `code` 使用 `~/.ruukoto-code-dev/<仓库名>-<路径哈希>/`，下有
+  `data/agent/control/pending/logs`，稳定复用、保留各自开发历史，位于代码目录外。
+  新 code 档案不自动迁入现有 dev 历史，两个开发档案与日常产品档案的锁和控制面
+  分开。子进程先清除两产品目录变量、生产 owner token、执行账户配置与外部产品
+  身份，再按 profile 显式注入 `RUUKOTO_PRODUCT` 与本产品的 `*_DIR`；固定注入
+  `RUUKOTO_DISABLE_QQ=1` 与 `RUUKOTO_DISABLE_TELEGRAM=1`，每次启动生效。
+  真实模型须显式配置：对应入口的 `--config` 可离线初始化，或 `--import-models`
+  从指定目录只复制 `models.json` / `auth.json`，不复制服务凭据和默认模型文件。
+- **执行后端**：沿用产品默认值，`dev` 为无隔离的 `local`，`code` 为
+  `container`。code 受限任务需要 Docker 与 worker 镜像，缺少执行环境时明确失败；
+  开发入口不继承生产完全访问执行账户配置。
+- **进程与重载**：两个启动器管理自己启动的整组进程；退出界面或 Ctrl+C、关闭
   终端都统一清理后台/界面/监听。同一开发实例已有后台时报错，不附加或
   停止外部进程。监听仅限 `src/` 源码：后台代码变更优雅重启后台（活动
   任务保留中断事实，不自动重放），任务界面自动重连，配置界面不重连、随
   后台一并重载并恢复所在分区；只改任务/配置界面代码时不重启后台；
   共享模块变更两者都重启。连续变更合并处理，旧进程退出并释放锁后才
-  启动替代进程。
-- **界面状态恢复**：dev 启动的任务界面把当前会话、未提交草稿与继续任务
+  启动替代进程。修改 `src/dev.ts` 或 `src/code.ts` 时提示手动重启当前 npm 命令。
+- **界面状态恢复**：code 启动的任务界面把当前会话、未提交草稿与继续任务
   意图原子保存到 profile 的重载状态文件（0600；秘密表单值不写入，重载后
   重新输入）；重载后按数据实例标识核实恢复，记录无效时给出提示并按正常
-  入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次 dev 启动
-  内使用，新的一次独立 dev 命令遵循正常入口规则。
+  入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次启动内使用，
+  新的一次独立 npm 命令遵循正常入口规则。
 - **日志与终端**：后台日志写 `<profile>/logs/backend.log`，监听诊断写
   `dev.log`（无界面时打印到终端），不与界面输入/绘制串写。
-- `dev --config` 缺少有效模型时先打开离线配置界面；保存有效配置并释放
+- 对应入口的 `--config` 缺少有效模型时先打开离线配置界面；保存有效配置并释放
   配置锁后启动开发后台，再切换为在线配置；放弃或保存失败不启动后台。
+  配置中心退出后结束本次开发启动。
 
 ## 数据布局
 
 档案根按产品分开：ruukoto 默认 `~/.ruukoto`（环境变量 `RUUKOTO_*_DIR`），
 ruukoto-code 默认 `~/.ruukoto-code`（环境变量 `RUUKOTO_CODE_*_DIR`），内容
-结构一致；开发实例 `~/.ruukoto-dev/<仓库>-<哈希>/` 不属于任一产品。以下为单个
+结构一致；两个产品的开发实例另用 `~/.ruukoto-dev/<仓库>-<哈希>/` 与
+`~/.ruukoto-code-dev/<仓库>-<哈希>/`。以下为单个
 产品实例的布局（以 ruukoto 默认路径为例）：
 
 ```
@@ -680,10 +698,13 @@ ruukoto-code 默认 `~/.ruukoto-code`（环境变量 `RUUKOTO_CODE_*_DIR`），�
 ~/.ruukoto-code/          # ruukoto-code 产品档案根（ADR 0017，0700）：
                                #   data/ agent/ control/ pending/
 
-~/.ruukoto-dev/<仓库>-<哈希>/   # 开发实例 profile（npm run dev，0700）：
+~/.ruukoto-dev/<仓库>-<哈希>/   # ruukoto 开发 profile（npm run dev，0700）：
                                #   data/ agent/ control/ pending/ logs/
                                #   与日常实例完全隔离，不继承生产凭据与配置；
-                               #   不是 ruukoto-code 产品，新产品不会读写它
+                               #   保留现有 ruukoto 开发历史
+
+~/.ruukoto-code-dev/<仓库>-<哈希>/ # ruukoto-code 开发 profile（npm run code，0700）：
+                               #   同上结构；不自动迁入 dev 历史
 ```
 
 职责边界：pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；

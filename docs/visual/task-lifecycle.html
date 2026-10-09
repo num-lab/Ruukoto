@@ -35,6 +35,7 @@
         <code class="src" data-src="src/agent/tool-op-ledger.ts#settleTask">agent/tool-op-ledger.ts</code>
         <code class="src" data-src="src/core/types.ts#ACTIVE_TASK_STATUSES">core/types.ts</code>
         <code class="src" data-src="src/tui/app.ts">tui/app.ts</code>
+        <code class="src" data-src="src/tui/index.ts#export async function runTui">tui/index.ts</code>
         <code class="src" data-src="src/runtime/subagents.ts#SUBAGENT_LIMITS">runtime/subagents.ts</code>
         <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
         <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
@@ -336,7 +337,7 @@
         <h3>后台停止 <code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code></h3>
         <p>由控制面 <code>stop</code> 操作、进程收到 SIGINT / SIGTERM，或启动时 GitHub webhook 起不来触发（<code class="src" data-src="src/control/server.ts#control_plane">server.ts · stop</code>）。</p>
         <ol class="steps">
-          <li>记 <code>backend.stopping</code>，先停所有入口：GitHub webhook、调度器（等在途发送收尾）、Telegram 轮询、编排器、QQ 适配器。ruukoto-code 没有调度器、Telegram 与 QQ，跳过。</li>
+          <li>记 <code>backend.stopping</code>，先停所有入口：GitHub webhook、调度器（等在途发送收尾）、Telegram 轮询、编排器、QQ 适配器。ruukoto-code 没有调度器；QQ 与 Telegram 适配器仍存在，但按产品停用连接与轮询。</li>
           <li>对 running 与 awaiting_confirmation 的任务走停止路径，原因 <code>backend_stop</code>；驱动器缺失的任务经 Store.endTask 转 interrupted，清除待生效模式、失效未消费审批并保留占用，事件读实际取消意图与效果未知标记。排队任务保持 queued，停止开始后不再转入 running。</li>
           <li>释放各会话驱动器，等调度循环全部退出。</li>
           <li>关闭控制面与应用数据库，记 <code>backend.stopped</code>，关核心库、释放实例锁与配置锁、删除 socket。</li>
@@ -352,10 +353,11 @@
           <li>有排队任务、仍为 active 的会话以 <code>backend_restart</code> 暂停；上一步已暂停的会话保留原因。</li>
           <li>会话登记的 JSONL 缺失时改用同 pi session id 的最新文件；改用与找不到都记 <code>session.history_unreadable</code>。</li>
         </ol>
-        <p>事务末尾记 <code>backend.recovered</code>，列出被中断的任务与被暂停的会话。编排器、QQ、Telegram、调度器与 GitHub webhook 都启动之后才记 <code>backend.started</code>（QQ、Telegram 与调度器只有个人 Agent 产品创建；<code>backend.started</code> 带产品身份）。随恢复失效的审批，尚未发出的 IM 通知在发送前核对审批已不是 pending，不再发出；入口未变的长期授权不因重启失效。</p>
+        <p>事务末尾记 <code>backend.recovered</code>，列出被中断的任务与被暂停的会话。编排器、QQ、Telegram、调度器与 GitHub webhook 的启动步骤完成之后才记 <code>backend.started</code>（调度器只在个人 Agent 产品创建；QQ 与 Telegram 适配器始终创建，ruukoto-code 按产品停用；webhook 仅在显式配置后监听；<code>backend.started</code> 带产品身份）。随恢复失效的审批，尚未发出的 IM 通知在发送前核对审批已不是 pending，不再发出；入口未变的长期授权不因重启失效。</p>
       </div>
     </div>
-    <p>ruukoto-code 的后台可以由 TUI 按需拉起（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>，只属 ruukoto-code：<code class="src" data-src="src/control/ensure-backend.ts#tuiSpawnsBackendOnDemand">tuiSpawnsBackendOnDemand</code>；ruukoto 仍显式启动）。它先探测控制面，认证与握手通过即复用；socket 可连但被拒（令牌或协议版本）也不拉起。拉起的进程就是 <code>server</code>，启动后照常执行上面的恢复；多个终端同时拉起由实例锁仲裁成单个后台，败者以 <code class="src" data-src="src/core/instance-lock.ts#INSTANCE_LOCK_EXIT_CODE">INSTANCE_LOCK_EXIT_CODE</code> 退出。子进程 detached 并 unref：关闭 TUI 不停止后台、不取消任务，后台只按上面的停止路径结束。界面重新打开沿握手快照复现任务（见<a href="control-protocol.html">控制面协议</a>），连接丢失不触发任何重新执行。</p>
+    <p>日常 ruukoto-code 的后台可以由 TUI 按需拉起（<code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>，只属 ruukoto-code：<code class="src" data-src="src/control/ensure-backend.ts#tuiSpawnsBackendOnDemand">tuiSpawnsBackendOnDemand</code>；ruukoto 仍显式启动）。它先探测控制面，认证与握手通过即复用；socket 可连但被拒（令牌或协议版本）也不拉起。拉起的进程就是 <code>server</code>，启动后照常执行上面的恢复；多个终端同时拉起由实例锁仲裁成单个后台，败者以 <code class="src" data-src="src/core/instance-lock.ts#INSTANCE_LOCK_EXIT_CODE">INSTANCE_LOCK_EXIT_CODE</code> 退出。子进程 detached 并 unref：关闭 TUI 不停止后台、不取消任务，后台只按上面的停止路径结束。界面重新打开沿握手快照复现任务（见<a href="control-protocol.html">控制面协议</a>），连接丢失不触发任何重新执行。</p>
+    <p>开发入口 <code>npm run code</code> 的 TUI 只连接启动器管理的后台（<code class="src" data-src="src/tui/index.ts#!reloadStatePathFromEnv()">runTui · 开发前端</code>），退出 TUI 后由启动器停止整组进程。两个开发入口的源码重载与退出规则见<a href="deployment.html#dev-deploy">开发实例</a>。</p>
     <aside class="callout inv">
       <b>不重放</b>
       <p>重启不重放已中断任务的模型调用或工具操作；宿主固定评审尚未启动的排队任务可自动继续（见<a href="#subagent">SubAgent 执行任务</a>）。想继续普通开发会话的中断任务，拥有者用 continue 提交一个带 <code>resumesTaskId</code> 的新任务：采用本次提交时的会话默认模式，显式模式优先。Plan 同样按本次选择决定，不从源任务输入或继续链继承；旧任务的批准不继承，也不补造工具结果（<code class="src" data-src="src/runtime/runtime.ts#async continueTask">runtime.ts · continueTask</code>）。</p>

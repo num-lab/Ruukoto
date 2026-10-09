@@ -2,7 +2,10 @@
 
 首期交付包含开发机上的 Coding Agent `ruukoto-code`、Linux 服务器上的个人 Agent
 `ruukoto`、一层通用 SubAgent，以及旧实例的两种离线导入方向。两个产品各自使用档案、
-控制面和模型配置；`npm run dev` 仍是开发本项目的隔离实例，运行的是 `ruukoto`。
+控制面和模型配置。开发本项目时，`npm run dev` 启动隔离的 `ruukoto` 后台，
+`npm run code` 启动隔离的 `ruukoto-code` 后台并打开 TUI；两者分别使用
+`~/.ruukoto-dev/` 与 `~/.ruukoto-code-dev/` 下的仓库档案，与日常实例分开。
+开发实例退出界面后停止后台；下文的 TUI 退出后继续执行指日常产品入口。
 产品定位与保留普通开发会话的决定见 [ADR 0017](adr/0017-two-agent-products.md)。
 
 首期验收顺序固定为：本地仓库修改与测试 → IM 服务器管理 → 长任务期间持续响应、

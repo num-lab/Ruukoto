@@ -264,7 +264,6 @@ function canonicalJson(value: unknown): string {
 
 /** 有界清理：去控制字符（保留 \t\n\r）。外部内容按不可信数据处理。 */
 function cleanText(value: string): string {
-  // eslint-disable-next-line no-control-regex
   return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
 }
 

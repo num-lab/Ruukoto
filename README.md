@@ -37,14 +37,14 @@
 
 ## 快速开始
 
-需要 Node ≥ 22.19；受限模式需要 Docker（macOS 用 Docker Desktop）。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或
+Linux 的普通用户账户。受限模式另需 Docker（macOS 用 Docker Desktop）。
 
 ```bash
-npm install
-npm run typecheck
-npm test            # 全部离线集成测试：mock 模型，不联网、不需要凭据
+npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
+npm run check       # 构建 worker、lint、类型检查、应用与基础验证的全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
-deploy/worker-image/build.sh   # 构建受限模式的工具镜像 ruukoto-worker
+npm run build:worker-image   # 使用 Docker 构建受限模式的工具镜像 ruukoto-worker
 ```
 
 ### ruukoto-code（开发机）
@@ -91,6 +91,9 @@ ruukoto qq enable
 最终结果沿发起时的入口汇报。
 
 ### 开发本项目
+
+修改时先运行 `npm run check:static` 与相关测试，收尾运行 `npm run check`。
+独立检查、测试导航、CI、环境配置与验收入口见 [开发说明](docs/development.md)。
 
 ```bash
 npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启
@@ -224,6 +227,7 @@ ruukoto legacy-import preview | apply | revert | list   # 从旧实例离线导�
 - [CONTEXT.md](CONTEXT.md)：领域术语
 - [docs/adr/](docs/adr/)：架构决策记录
 - [docs/runtime.md](docs/runtime.md)：实现细节、完整命令与验证状态
+- [docs/development.md](docs/development.md)：可复现环境、开发检查与测试导航
 - [docs/visual/index.html](docs/visual/index.html)：状态机、调用路径、协议、存储与部署图解
 - [docs/release-acceptance.md](docs/release-acceptance.md)：首期发布与验收证据
 - [AGENTS.md](AGENTS.md)：面向编码代理的仓库约定

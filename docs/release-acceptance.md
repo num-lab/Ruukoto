@@ -41,18 +41,20 @@ QQ 群消息。跨端共享记忆、邮件、GitHub comment 对话和正式 QQ �
 本次先完成本地编码，再演练 IM 服务管理，最后检查协作、恢复与最终汇报。macOS
 真实模型只用于下表的编码路径，其余模型使用桩。拥有者确认当前没有独立真实 IM
 测试入口，QQ/Telegram 始终通过模拟平台验证，未使用日常绑定进行平台演练。
-tx 的服务、helper、策略与 sudoers 使用隔离演练资源，日常后台保持运行，本次资源
-在演练后清理。
+2026-10-06 的本地演练记录注明，上传副本先经[额外准备](../verification/archive/release-24-prepare.py.txt)改写系统资源路径，再清理本次
+独立后台、测试服务、档案及改写后的 helper、策略、sudoers 和账本。当前 Git 归档保存
+未经这一步改写的 09/10 源码，它们覆盖并保留固定共享路径的系统资源；可安全复跑的
+系统隔离仍待改造，不能把历史准备过程当作当前脚本已有的保证。
 
 | 检查 | 本次真实环境 | 结果与模拟边界 |
 | --- | --- | --- |
-| 场景 1：本地修改、检查、TUI 退出后继续与重连 | macOS arm64、Node 24.15；真实 `mirasim/kimi-k3`、默认容器后端、生产 bin 与 PTY TUI | [smoke-24](../.agents/scratch/agent-direction/smoke-24-release-acceptance.mts) 全程 5/5，含下行的安装升级；原 `check.mjs` 字节不变，修前检查实际失败、修后实际通过，TUI 退出时任务仍 running，重连可查终态与工具产物 |
+| 场景 1：本地修改、检查、TUI 退出后继续与重连 | macOS arm64、Node 24.15；真实 `mirasim/kimi-k3`、默认容器后端、生产 bin 与 PTY TUI | [smoke-24](../verification/smoke/smoke-24-release-acceptance.mts) 全程 5/5，含下行的安装升级；原 `check.mjs` 字节不变，修前检查实际失败、修后实际通过，TUI 退出时任务仍 running，重连可查终态与工具产物 |
 | 双产品分别安装、升级与停止 | macOS 与 tx 各用两份独立检出执行 `npm ci`，从 `1aba2f1` 逐端替换为当前源码 | macOS 包含于上述 5/5，Linux `--upgrade-only` 4/4；模型为桩。另一端 PID 保持、停端期间任务成功、原历史及 instanceId 保持；两产品档案与控制面分别使用 |
-| 受限执行与缺入口拒绝 | macOS Docker Desktop 与 tx 原生 Docker，真实文件、进程、网络与 worker | [smoke-04](../.agents/scratch/agent-direction/smoke-04-desktop-execution.mts) 两端各 6/6；模型为桩；容器内修改/检查、越界单次审批、中断后回收、完全访问缺入口时明确拒绝 |
-| Linux Coding Agent 完全访问 | tx `ruukoto-code` 的真实 Runtime，经临时固定 sudo/systemd 入口运行当前 worker，`uid:gid=986:986` | [full-access 演练](../.agents/scratch/agent-direction/release-24-linux-full-access.mts) 一次任务的四次工具操作完成修前失败/修后通过，后台 `owner.token` 与核心库拒读；模型为桩，未使用 macOS 原生完全访问入口 |
-| 场景 2：IM 服务管理与限定长期授权 | tx 真实 systemd、sudo、root helper、测试服务与账本 | [smoke-09](../.agents/scratch/agent-direction/smoke-09-linux-service-management.mts) 14/14、[smoke-10](../.agents/scratch/agent-direction/smoke-10-standing-permissions.mts) 14/14；模型、OneBot 与 Bot API 为桩，真实重启和授权保存/使用/撤销/失效有外部效果证据 |
-| 场景 3：同项工作协作 | tx 真实 Runtime、控制面、SQLite、独立 JSONL 与受限容器 | [smoke-13](../.agents/scratch/agent-direction/smoke-13-subagent-messaging.mts) 6/6；模型为桩，双向消息、来源、复用后旧资格拒绝、显式关闭与重启记录核实 |
-| 场景 3：恢复与原入口最终汇报 | tx 真实容器、CLI、后台重启与 SIGKILL、outbox | [smoke-15](../.agents/scratch/agent-direction/smoke-15-recover-subagents.mts) 首次 Linux 复验 8/8、[smoke-18](../.agents/scratch/agent-direction/smoke-18-im-final-delivery.mts) 7/7；模型和消息平台为桩，持续响应、固定原入口、离线等待、重绑失效与一次汇报已核实 |
+| 受限执行与缺入口拒绝 | macOS Docker Desktop 与 tx 原生 Docker，真实文件、进程、网络与 worker | [smoke-04](../verification/smoke/smoke-04-desktop-execution.mts) 两端各 6/6；模型为桩；容器内修改/检查、越界单次审批、中断后回收、完全访问缺入口时明确拒绝 |
+| Linux Coding Agent 完全访问 | tx `ruukoto-code` 的真实 Runtime，经临时固定 sudo/systemd 入口运行当前 worker，`uid:gid=986:986` | [full-access 历史源码](../verification/archive/release-24-linux-full-access.mts.txt) 一次任务的四次工具操作完成修前失败/修后通过，后台 `owner.token` 与核心库拒读；模型为桩，未使用 macOS 原生完全访问入口 |
+| 场景 2：IM 服务管理与限定长期授权 | tx 真实 systemd、sudo、root helper、测试服务与账本 | [smoke-09 历史源码](../verification/archive/smoke-09-linux-service-management.mts.txt) 14/14、[smoke-10 历史源码](../verification/archive/smoke-10-standing-permissions.mts.txt) 14/14；模型、OneBot 与 Bot API 为桩，真实重启和授权保存/使用/撤销/失效有外部效果证据 |
+| 场景 3：同项工作协作 | tx 真实 Runtime、控制面、SQLite、独立 JSONL 与受限容器 | [smoke-13](../verification/smoke/smoke-13-subagent-messaging.mts) 6/6；模型为桩，双向消息、来源、复用后旧资格拒绝、显式关闭与重启记录核实 |
+| 场景 3：恢复与原入口最终汇报 | tx 真实容器、CLI、后台重启与 SIGKILL、outbox | [smoke-15](../verification/smoke/smoke-15-recover-subagents.mts) 首次 Linux 复验 8/8、[smoke-18](../verification/smoke/smoke-18-im-final-delivery.mts) 7/7；模型和消息平台为桩，持续响应、固定原入口、离线等待、重绑失效与一次汇报已核实 |
 | 迁移→重启→协作→取消→冲突→回退联合路径 | macOS 的真实 Runtime、SQLite、JSONL、Git 与文件 | [test/91](../test/91-release-acceptance.test.ts) 1/1；模型为桩，工具后端 local，无隔离证据。两次重启、取消后迟到消息零新模型调用、冲突零写入与成果保全、源库/产物字节不变、活动回退阻挡与干净回退均覆盖 |
 | 回退状态修复 | 两方向导入的真实数据库与回执 | [test/85](../test/85-legacy-instance-import.test.ts) 与 [test/86 personal](../test/86-personal-instance-import.test.ts) 合计 12/12；联合检查先捕获旧错误，再验证阻挡响应 `status: applied` 与回执一致，成功才为 `reverted` |
 
@@ -67,6 +69,33 @@ tx 的服务、helper、策略与 sudoers 使用隔离演练资源，日常后�
 [Linux 实机记录](../.agents/scratch/agent-direction/release-24-linux-results.md)；macOS 环境失败不计为全量通过。
 
 工单 24 转为 `ready-for-human`，保留真实 IM 与 macOS 完全访问验证未完成的验收项。
+
+## 当前复跑入口
+
+关键验收脚本及 PTY 助手已经进入 `verification/smoke/`，完整 clone 可按
+[运行说明](../verification/smoke/README.md)复跑。先在根目录完成 `npm run setup` 与
+`npm run check`；Docker 验收先运行 `npm run build:worker-image`，再运行
+`npm run test:docker`。升级使用 `npm run test:upgrade`；真实模型编码验收显式指定配置
+和模型，避免读取某位开发者的固定档案：
+
+```bash
+npm run test:release-model -- --models /path/to/models.json --model provider/model
+```
+
+真实模型编码与安装升级分开运行，执行其中一个不会自动完成另一个。
+真实模型入口在启动 TUI 前离线核实所选模型的配置、认证、思考档位与预算；配置须能
+独立认证，不继承模型 API key 环境变量或读取个人及相邻的 `auth.json`。前提缺失退出 2，
+不计为验收通过。具体配置契约见上述脚本运行说明。
+
+上节是 2026-10-06 的历史证据，链接指向迁入 Git 的当前脚本或历史源码，历史结果不代表
+当前检出已经复跑。当前升级脚本默认从 `60fa19e` 检查已有 `ruukoto-code` 产品身份的升级；
+旧基点 `1aba2f1` 使用此前的 Coding Agent 名称，不能以当前脚本将跨产品名称迁移判为通过。
+指定其他基点前先核对它具备当前产品身份和入口。
+
+Linux systemd / sudo 演练的六份相关源码保存在
+[特权脚本归档](../verification/archive/README.md)。旧脚本包含固定系统路径写入，完整
+准备与清理尚未成为独立安全入口；本轮只归档源码与前提，特权隔离另做一批。
+当前开发检查的范围和实测基线见 [开发说明](development.md)。
 
 ## 已有证据矩阵
 

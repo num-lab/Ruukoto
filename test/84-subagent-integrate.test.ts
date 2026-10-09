@@ -329,7 +329,7 @@ test("复用隔离与状态核实：按工作 id 汇总的只是该工作产出�
 
     // 忙碌拒绝：新工作的另一次执行在跑（持有副本）
     const busyWork = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "ibz", request: "PATCH-BUSY 挂起", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d6-ibz" });
-    await waitFor("忙碌任务在跑", () => release !== null || rt.store.getTask(busyWork.task.id)!.status === "running");
+    await waitFor("忙碌模型请求已挂起", () => release !== null);
     await assert.rejects(
       () => rt.subagents!.integrate({ workId: busyWork.work.id, parentTaskId: parent.id, parentSessionId: session.id }),
       (e: any) => e.code === "busy" || /活动任务/.test(String(e.message)),

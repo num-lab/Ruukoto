@@ -29,10 +29,8 @@ sudo rsync -a --delete \
   ./ /opt/ruukoto/
 sudo -u root sh -c 'cd /opt/ruukoto && npm ci --omit=dev'
 # 宿主工作进程打包产物（完全访问包装脚本的固定入口 /opt/ruukoto/worker/worker.mjs；
-# esbuild 来自 pi-coding-agent 的传递依赖，--omit=dev 也会安装）
-sudo -u root sh -c 'cd /opt/ruukoto && node_modules/.bin/esbuild src/agent/tool-worker/worker.ts \
-  --bundle --format=esm --platform=node --target=node24 \
-  --external:@earendil-works/* --outfile=worker/worker.mjs'
+# esbuild 是直接运行依赖，--omit=dev 也会安装）
+sudo -u root sh -c 'cd /opt/ruukoto && npm run build'
 
 # 2b. 模型配置与凭据（启动前置；缺失时后台以 no_model 启动失败）
 sudo install -o ruukoto-backend -g ruukoto-backend -m 0600 \
@@ -50,7 +48,7 @@ sudo install -o ruukoto-backend -g ruukoto-backend -m 0600 \
 #    目标机无法访问 Docker Hub 时，先经可用镜像站拉取并打回原名，例如：
 #      sudo docker pull <镜像站>/library/node:24-slim
 #      sudo docker tag <镜像站>/library/node:24-slim node:24-slim
-sudo bash /opt/ruukoto/deploy/worker-image/build.sh
+sudo -u root sh -c 'cd /opt/ruukoto && npm run build:worker-image'
 sudo usermod -aG docker ruukoto-backend   # 容器管理权限只给可信后台
 
 # 4. 提权启动入口（root 拥有；仅后台账户经 sudoers 调用，固定参数）

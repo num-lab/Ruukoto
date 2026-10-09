@@ -1514,13 +1514,14 @@ export class Store {
 
   chatResultOpCommitted(opId: string): boolean {
     // 重复接收沿用首次记录；停止/恢复时也能核实“已接收”的只读重复调用。
+    // Node 22 将 ?1 视为命名参数，须按名称绑定。
     return this.db.prepare(
       `SELECT 1 FROM chat_result_acceptances WHERE accepted_by_op_id = ?1
        UNION ALL SELECT 1 FROM tool_ops o JOIN tasks owner_task ON owner_task.id = o.task_id
        JOIN sessions s ON s.id = owner_task.session_id
        JOIN chat_result_acceptances a ON a.main_project_id = s.project_id AND a.task_id = json_extract(o.params, '$.task_id')
        WHERE o.id = ?1 AND o.tool_name = 'chat_result_accept' LIMIT 1`,
-    ).get(opId) !== undefined;
+    ).get({ "?1": opId }) !== undefined;
   }
 
   // ---------- 入站事件（issue 01；先持久化再建任务） ----------

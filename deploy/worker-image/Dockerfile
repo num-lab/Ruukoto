@@ -17,10 +17,7 @@ RUN npm ci --ignore-scripts
 COPY src/agent/tool-worker ./src/agent/tool-worker
 # worker.ts 的宿主侧依赖（../../core/*，issue 11 起引入）也必须进构建阶段
 COPY src/core ./src/core
-RUN npx esbuild src/agent/tool-worker/worker.ts \
-      --bundle --format=esm --platform=node --target=node24 \
-      --external:@earendil-works/* \
-      --outfile=worker.mjs
+RUN npm run build
 
 FROM node:24-slim
 RUN apt-get update \
@@ -30,7 +27,7 @@ RUN apt-get update \
 WORKDIR /opt/ruukoto/worker
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY --from=build /build/worker.mjs ./worker.mjs
+COPY --from=build /build/worker/worker.mjs ./worker.mjs
 RUN chown -R 1000:1000 /opt/ruukoto/worker
 
 LABEL org.opencontainers.image.title="ruukoto-worker" \

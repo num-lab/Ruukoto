@@ -136,6 +136,7 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     assert.match(bDelivery[0]!.input, /CAP-MSG1/);
     assert.match(bDelivery[0]!.input, /不扩大你的资料范围与工具权限/);
     // 工具白名单不扩大：B 的投递任务的模型调用仍只有只读工具与消息工具
+    await waitFor("B 的投递任务已调用模型", () => t.server.calls.some((c) => inputText(c).includes("[工作内消息") && inputText(c).includes("A问B")));
     const bCall = t.server.calls.find((c) => inputText(c).includes("[工作内消息") && inputText(c).includes("A问B"))!;
     assert.deepEqual(toolNamesOf(bCall).sort(), ["read", "read_artifact", "subagent_message"].sort());
 

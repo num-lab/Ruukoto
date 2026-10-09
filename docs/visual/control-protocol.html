@@ -157,7 +157,8 @@
 
   <section id="ensure">
     <h2>建连之前：确保后台在运行</h2>
-    <p>只有 ruukoto-code 的任务界面在建连前做这一步（<code class="src" data-src="src/control/ensure-backend.ts#export function tuiSpawnsBackendOnDemand">ensure-backend.ts · tuiSpawnsBackendOnDemand</code>，条件是产品为 <code>ruukoto-code</code>）。<code class="src" data-src="src/tui/index.ts#tuiSpawnsBackendOnDemand(productFromEnv())">tui/index.ts · runTui</code> 在创建 <code>ControlConnection</code> 之前调用 <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureRuukotoCodeBackend">ensureRuukotoCodeBackend</code>：<code>ruukoto-code</code>、<code>ruukoto-code &lt;路径&gt;</code>、<code>--session</code> 都经过这里，<code>--demo</code> 不连后台也不拉起。ruukoto（个人 Agent）的后台由显式 <code>server</code> 或 systemd 管理，TUI 只连接：后台不在时，只要能取到令牌就直接进入下一节的退避重连；取不到令牌（例如后台从未启动、<code>owner.token</code> 还没生成）就打印指引并以 1 退出。</p>
+    <p>日常 ruukoto-code 的任务界面在建连前做这一步（<code class="src" data-src="src/control/ensure-backend.ts#export function tuiSpawnsBackendOnDemand">ensure-backend.ts · tuiSpawnsBackendOnDemand</code>，条件是产品为 <code>ruukoto-code</code> 且没有开发重载状态标记）。<code class="src" data-src="src/tui/index.ts#tuiSpawnsBackendOnDemand(productFromEnv())">tui/index.ts · runTui</code> 在创建 <code>ControlConnection</code> 之前调用 <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureRuukotoCodeBackend">ensureRuukotoCodeBackend</code>：<code>ruukoto-code</code>、<code>ruukoto-code &lt;路径&gt;</code>、<code>--session</code> 都经过这里，<code>--demo</code> 不连后台也不拉起。ruukoto（个人 Agent）的后台由显式 <code>server</code> 或 systemd 管理，TUI 只连接：后台不在时，只要能取到令牌就直接进入下一节的退避重连；取不到令牌（例如后台从未启动、<code>owner.token</code> 还没生成）就打印指引并以 1 退出。</p>
+    <p>下图与表格描述日常入口。<code>npm run code</code> 的前端带开发启动器注入的重载状态标记（<code class="src" data-src="src/tui/index.ts#!reloadStatePathFromEnv()">runTui · 开发前端</code>），因此只连接受管后台：后台重载失败后也不派生独立后台。退出界面会由开发启动器停止整组进程，见<a href="deployment.html#dev-deploy">开发实例</a>。</p>
 
     <figure class="fig">
       <div class="scroll">

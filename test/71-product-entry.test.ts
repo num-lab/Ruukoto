@@ -6,9 +6,9 @@
  *   档案根、路径环境变量隔离）；
  * - src/control/connect.ts 与 pending-requests.ts：默认目录解析按产品取本产品的环境
  *   变量与档案根，不读对方产品的路径变量；
- * - src/dev.ts buildChildEnv：开发实例洗落产品身份与 ruukoto-code 产品目录变量（不误用
- *   新产品与开发实例）；
- * - Runtime.start 的产品 gating 可观察行为：ruukoto-code 停用 QQ/Telegram 适配器、个人
+ * - src/dev.ts buildChildEnv：开发实例洗落继承的产品身份与双方产品目录变量，
+ *   按开发入口钉定身份与自身档案（不误用日常产品与开发实例）；
+ * - Runtime.start 的产品 gating 可观察行为：ruukoto-code 停用 QQ/Telegram 连接与轮询、个人
  *   调度不可用、数据目录跨产品复用被拒绝（meta 登记，兼容扩展）；
  * - 进程冒烟：bin/ruukoto-code.mjs 入口与非法 RUUKOTO_PRODUCT 的快速失败（不需要后台）。
  * - 进程级：两条 bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时查询与停止只作用于
@@ -139,30 +139,48 @@ test("ruukoto-code：独立档案根与 RUUKOTO_CODE_*_DIR 覆盖，不读对方
   );
 });
 
-// ---- 开发实例不继承新产品身份与目录 ----
+// ---- 开发实例不继承日常产品身份与目录 ----
 
 import { buildChildEnv, devProfileFor } from "../src/dev.ts";
 
-test("buildChildEnv：洗落 RUUKOTO_PRODUCT 与 RUUKOTO_CODE_*_DIR，开发实例保持产品 ruukoto", () => {
-  const profile = devProfileFor("/some/repo", "/home/tester");
-  const env = buildChildEnv(
-    {
-      RUUKOTO_PRODUCT: "ruukoto-code",
-      RUUKOTO_CODE_DATA_DIR: "/dev/data",
-      RUUKOTO_CODE_AGENT_DIR: "/dev/agent",
-      RUUKOTO_CODE_CONTROL_DIR: "/dev/control",
-      RUUKOTO_CODE_PENDING_DIR: "/dev/pending",
-      RUUKOTO_DATA_DIR: "/leak/data",
-      PATH: "/usr/bin",
-    },
-    profile,
-  );
-  assert.equal(env.RUUKOTO_PRODUCT, undefined);
-  assert.equal(env.RUUKOTO_CODE_DATA_DIR, undefined);
-  assert.equal(env.RUUKOTO_CODE_CONTROL_DIR, undefined);
-  // 档案目录注入保持原行为
-  assert.equal(env.RUUKOTO_DATA_DIR, profile.dataDir);
-  assert.equal(env.RUUKOTO_DISABLE_QQ, "1");
+test("buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目录并钉定各自档案", () => {
+  for (const product of PRODUCT_TYPES) {
+    const profile = devProfileFor("/some/repo", "/home/tester", product);
+    const env = buildChildEnv(
+      {
+        RUUKOTO_PRODUCT: product === "ruukoto" ? "ruukoto-code" : "ruukoto",
+        RUUKOTO_CODE_DATA_DIR: "/daily-code/data",
+        RUUKOTO_CODE_AGENT_DIR: "/daily-code/agent",
+        RUUKOTO_CODE_CONTROL_DIR: "/daily-code/control",
+        RUUKOTO_CODE_PENDING_DIR: "/daily-code/pending",
+        RUUKOTO_DATA_DIR: "/daily-personal/data",
+        RUUKOTO_AGENT_DIR: "/daily-personal/agent",
+        RUUKOTO_CONTROL_DIR: "/daily-personal/control",
+        RUUKOTO_PENDING_DIR: "/daily-personal/pending",
+        RUUKOTO_OWNER_TOKEN: "daily-token",
+        RUUKOTO_OWNER_TOKEN_FILE: "/daily-owner.token",
+        RUUKOTO_EXECUTION_BACKEND: "local",
+        RUUKOTO_EXEC_UID: "900",
+        RUUKOTO_CONTAINER_IMAGE: "daily-image",
+        RUUKOTO_WORKER_IMAGE: "daily-worker",
+        PATH: "/usr/bin",
+      },
+      profile,
+    );
+    const prefix = product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_CODE";
+    const otherPrefix = product === "ruukoto" ? "RUUKOTO_CODE" : "RUUKOTO";
+    assert.equal(env.RUUKOTO_PRODUCT, product);
+    for (const [kind, dir] of Object.entries({ DATA: profile.dataDir, AGENT: profile.agentDir, CONTROL: profile.controlDir, PENDING: profile.pendingDir })) {
+      assert.equal(env[`${prefix}_${kind}_DIR`], dir);
+      assert.equal(env[`${otherPrefix}_${kind}_DIR`], undefined, "不保留另一个产品的日常目录");
+    }
+    for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_EXECUTION_BACKEND", "RUUKOTO_EXEC_UID", "RUUKOTO_CONTAINER_IMAGE", "RUUKOTO_WORKER_IMAGE"]) {
+      assert.equal(env[key], undefined, `${product} 不继承 ${key}`);
+    }
+    assert.equal(env.PATH, "/usr/bin");
+    assert.equal(env.RUUKOTO_DISABLE_QQ, "1");
+    assert.equal(env.RUUKOTO_DISABLE_TELEGRAM, "1");
+  }
 });
 
 // ---- Runtime 产品 gating（集成，MockModelServer，模拟模型、真实存储与锁） ----
@@ -171,12 +189,12 @@ import { Runtime } from "../src/runtime/runtime.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, makeTestDirs, startTestRuntime, writeModelsJson } from "./helpers/testkit.ts";
 
-test("ruukoto-code：不创建 QQ/Telegram 适配器、个人调度不可用、旧记录仍可读", async () => {
+test("ruukoto-code：停用 QQ/Telegram 连接与轮询、个人调度不可用、旧记录仍可读", async () => {
   const t = await startTestRuntime("product-dev", async () => ({ kind: "text", text: "ok" }), {
     config: { productType: "ruukoto-code" },
   });
   try {
-    // 消息平台适配器不创建：状态明确标注为产品 gating，而不是"未启动/连接异常"
+    // 消息平台连接与轮询停用：状态明确标注为产品 gating，而不是"未启动/连接异常"
     const qq = t.runtime.qqStatus() as { disabledByConfig?: boolean; stateDetail?: string };
     assert.equal(qq.disabledByConfig, true);
     assert.match(qq.stateDetail ?? "", /ruukoto-code/);

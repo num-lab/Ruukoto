@@ -55,6 +55,7 @@
         <code class="src" data-src="src/agent/tool-worker/protocol.ts#MAX_FRAME_BYTES">agent/tool-worker/protocol.ts</code>
         <code class="src" data-src="src/agent/service-tools.ts#async function callHelper">agent/service-tools.ts</code>
         <code class="src" data-src="src/dev.ts#SCRUB_PREFIXES">dev.ts</code>
+        <code class="src" data-src="src/code.ts#runDev">code.ts</code>
         <code class="src" data-src="verification/foundation/results/linux-isolation-report-tx.md">verification/foundation/results/*.md</code>
       </dd></div>
       <div><dt>决策</dt><dd>
@@ -80,7 +81,7 @@
 
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 470" role="img" aria-label="三条入口汇到同一个 src/cli.ts：bin/ruukoto.mjs 与 bin/ruukoto-code.mjs 各自固定注入 RUUKOTO_PRODUCT，systemd 单元直接运行 cli.ts、缺省为 ruukoto。cli.ts 按产品解析目录：ruukoto 用 ~/.ruukoto（服务器为 /var/lib/ruukoto）并装配 QQ、Telegram、调度器与服务管理工具，后台由 systemd 或显式 server 启动；ruukoto-code 用 ~/.ruukoto-code，没有消息适配器与调度器，后台由 TUI 按需拉起。两个数据目录的核心库各自登记 product.type，用另一个产品打开即以 product_mismatch 拒绝。">
+        <svg viewBox="0 0 1040 470" role="img" aria-label="三条日常入口汇到同一个 src/cli.ts：bin/ruukoto.mjs 与 bin/ruukoto-code.mjs 各自固定注入 RUUKOTO_PRODUCT，systemd 单元直接运行 cli.ts、缺省为 ruukoto。cli.ts 按产品解析目录：ruukoto 用 ~/.ruukoto（服务器为 /var/lib/ruukoto）并装配 QQ、Telegram、调度器与服务管理工具，后台由 systemd 或显式 server 启动；ruukoto-code 用 ~/.ruukoto-code，QQ 与 Telegram 适配器按产品停用，不创建调度器，后台由 TUI 按需拉起。两个数据目录的核心库各自登记 product.type，用另一个产品打开即以 product_mismatch 拒绝。">
           <g class="n"><rect x="40" y="24" width="280" height="54" rx="8"/><text x="180" y="44">bin/ruukoto.mjs</text><text class="sub" x="180" y="63">固定 RUUKOTO_PRODUCT=ruukoto</text></g>
           <g class="n"><rect x="380" y="24" width="280" height="54" rx="8"/><text x="520" y="44">ruukoto-backend.service</text><text class="sub" x="520" y="63">ExecStart 直接跑 cli.ts</text></g>
           <g class="n"><rect x="720" y="24" width="280" height="54" rx="8"/><text x="860" y="44">bin/ruukoto-code.mjs</text><text class="sub" x="860" y="63">固定 RUUKOTO_PRODUCT=ruukoto-code</text></g>
@@ -108,7 +109,7 @@
           <text class="zone-t" x="594" y="224">Coding Agent · ruukoto-code</text>
           <g class="n"><rect x="600" y="238" width="400" height="54" rx="8"/><text x="800" y="257">~/.ruukoto-code/{data,agent,control,pending}</text><text class="sub" x="800" y="276">只读 RUUKOTO_CODE_*_DIR</text></g>
           <g class="n"><rect x="600" y="306" width="220" height="54" rx="8"/><text x="710" y="325">product.type = ruukoto-code</text><text class="sub" x="710" y="344">核心库 meta · 首次启动登记</text></g>
-          <g class="n"><rect x="832" y="306" width="168" height="54" rx="8"/><text x="916" y="325">无 QQ / Telegram</text><text class="sub" x="916" y="344">无调度器 · 无 service 工具</text></g>
+          <g class="n"><rect x="832" y="306" width="168" height="54" rx="8"/><text x="916" y="325">IM 入口停用</text><text class="sub" x="916" y="344">无调度器 · 无 service 工具</text></g>
           <g class="n"><rect x="600" y="374" width="400" height="62" rx="8"/><text x="800" y="393">后台：TUI 按需拉起</text><text class="sub" x="800" y="411">退出 TUI 不停 · ruukoto-code stop 才停</text><text class="sub" x="800" y="426">默认执行后端 container</text></g>
 
           <path class="e bad dash" d="M442 333H598" marker-start="url(#ah-bad)" marker-end="url(#ah-bad)"/>
@@ -444,7 +445,7 @@
           <text class="el start" x="908" y="447">systemd-run</text>
         </svg>
       </div>
-      <figcaption>适配器、webhook 监听与调度器只是同一进程里的组件，不需要单独的单元（调度器与两个适配器只属于 <code>ruukoto</code>）。<code>KillMode=control-group</code> 覆盖的是服务进程树：local 工作进程、docker CLI、sudo 与 helper 客户端都在里面；下排的容器与两种单元由 dockerd / systemd 创建，不在这个 cgroup 里，按任务登记、另行回收（<code>ManagedUnitKind</code>，见「执行边界」）。图上没画的还有应用数据的只读查询子进程（<code class="src" data-src="src/agent/app-data/query.ts#export class AppDataQueryRunner">query.ts · AppDataQueryRunner</code>），它与后台同账户，环境只留 <code>PATH</code> 与库路径。</figcaption>
+      <figcaption>适配器、webhook 监听与调度器只是同一进程里的组件，不需要单独的单元（调度器只在 <code>ruukoto</code> 创建，两个适配器始终创建，ruukoto-code 按产品停用）。<code>KillMode=control-group</code> 覆盖的是服务进程树：local 工作进程、docker CLI、sudo 与 helper 客户端都在里面；下排的容器与两种单元由 dockerd / systemd 创建，不在这个 cgroup 里，按任务登记、另行回收（<code>ManagedUnitKind</code>，见「执行边界」）。图上没画的还有应用数据的只读查询子进程（<code class="src" data-src="src/agent/app-data/query.ts#export class AppDataQueryRunner">query.ts · AppDataQueryRunner</code>），它与后台同账户，环境只留 <code>PATH</code> 与库路径。</figcaption>
       <ul class="legend">
         <li><i class="run"></i>实际执行单元（容器 / systemd 单元）</li>
       </ul>
@@ -470,8 +471,8 @@
       <li><code>cli.ts</code> 先解析产品身份（非法值退出 1）；<code>runServer</code> 校验 <code>--execution</code>（未指定时取 <code>RUUKOTO_EXECUTION_BACKEND</code>，再按产品默认），local 生效时打印无隔离警告；两个 service 变量只设一个则退出 1。</li>
       <li>建 <code>data/</code>、<code>agent/</code>、会话目录（0700），取实例锁 <code>&lt;dataDir&gt;/runtime.lock</code> 与配置锁 <code>&lt;agentDir&gt;/config.lock</code>。锁冲突抛 <code>InstanceLockError</code>，<code>cli.ts</code> 以 <code class="src" data-src="src/core/instance-lock.ts#INSTANCE_LOCK_EXIT_CODE">INSTANCE_LOCK_EXIT_CODE</code>（42）退出；无法核实持锁进程身份时退出 1 并保留锁。</li>
       <li>打开核心库、核对产品归属（不符即 <code>product_mismatch</code>）、有 webhook 配置时核实其签名凭据并把凭据范围收紧到 <code>github_webhook</code>、创建模型运行时；<code>models.json</code> 里找不到可用模型即 <code>no_model</code>。</li>
-      <li>恢复：先打开应用数据空间，调度器做恢复准备（仅 <code>ruukoto</code>），<code>recover</code> 把遗留的执行中任务转 <code class="st unk">interrupted</code>、失效未决审批（见<a href="task-lifecycle.html">任务生命周期</a>）。</li>
-      <li>创建 SubAgent 管理器与编排器，依次启动编排器、QQ、Telegram、调度器（QQ、Telegram 适配器在构造 Runtime 时已创建；是否连接看各自配置，<code>ruukoto-code</code> 或 <code>RUUKOTO_DISABLE_QQ=1</code> / <code>RUUKOTO_DISABLE_TELEGRAM=1</code> 时启动为空操作，不连接、不轮询）；有 webhook 配置时打开监听，失败则先停止整个后台再抛错。</li>
+      <li>恢复：先打开应用数据空间，调度器做恢复准备（仅 <code>ruukoto</code>），创建 SubAgent 管理器，再由 <code>recover</code> 把遗留的执行中任务转 <code class="st unk">interrupted</code>、失效未决审批（见<a href="task-lifecycle.html">任务生命周期</a>）。</li>
+      <li>创建并启动编排器，再启动 QQ、Telegram、调度器（QQ、Telegram 适配器在构造 Runtime 时已创建；是否连接看各自配置，<code>ruukoto-code</code> 或 <code>RUUKOTO_DISABLE_QQ=1</code> / <code>RUUKOTO_DISABLE_TELEGRAM=1</code> 时启动为空操作，不连接、不轮询）；有 webhook 配置时打开监听，失败则先停止整个后台再抛错。</li>
       <li>写 <code>backend.started</code>（带执行后端与产品），然后 <code>ControlServer</code> 绑定 socket：确保 <code>owner.token</code>（缺失则生成 0600，已有则复用），删掉遗留 socket 文件，监听后把 socket 设为 0660。</li>
     </ol>
     <p>停止（SIGTERM / SIGINT，或控制面 <code>stop</code>）走同一条路（<code class="src" data-src="src/runtime/runtime.ts#private async doStop">runtime.ts · doStop</code>）：先停 webhook、调度器、Telegram 轮询、编排器、QQ 适配器，再把 running / awaiting_confirmation 的任务以 <code>backend_stop</code> 中断（排队任务保持排队），释放驱动器、关闭控制面与应用数据查询子进程，写 <code>backend.stopped</code>，关库、释放两把锁、删除 socket。</p>
@@ -487,7 +488,8 @@
 
   <section id="ondemand">
     <h2>按需拉起：开发机上的 ruukoto-code 后台</h2>
-    <p>Coding Agent 不装服务单元。打开任务界面（<code>ruukoto-code</code>、<code>ruukoto-code &lt;路径&gt;</code>、<code>--session</code>）时，<code class="src" data-src="src/tui/index.ts#ensureRuukotoCodeBackend()">tui/index.ts · runTui</code> 在连接之前调用 <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>：后台在就复用，不在才拉起。门控只放行 <code>ruukoto-code</code>（<code class="src" data-src="src/control/ensure-backend.ts#export function tuiSpawnsBackendOnDemand">tuiSpawnsBackendOnDemand</code>）；<code>ruukoto</code> 仍由 systemd 或显式 <code>server</code> 管理，TUI 只连接。</p>
+    <p>日常 Coding Agent 不装服务单元。打开任务界面（<code>ruukoto-code</code>、<code>ruukoto-code &lt;路径&gt;</code>、<code>--session</code>）时，<code class="src" data-src="src/tui/index.ts#ensureRuukotoCodeBackend()">tui/index.ts · runTui</code> 在连接之前调用 <code class="src" data-src="src/control/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>：后台在就复用，不在才拉起。门控只放行 <code>ruukoto-code</code>（<code class="src" data-src="src/control/ensure-backend.ts#export function tuiSpawnsBackendOnDemand">tuiSpawnsBackendOnDemand</code>），并排除有开发重载状态标记的前端；<code>ruukoto</code> 仍由 systemd 或显式 <code>server</code> 管理，TUI 只连接。</p>
+    <p><code>npm run code</code> 的后台由开发启动器管理，TUI 只连接，退出界面后整组进程停止（<code class="src" data-src="src/tui/index.ts#!reloadStatePathFromEnv()">runTui · 开发前端</code>）。下面的拉起与退出规则属于日常入口；开发规则见<a href="#dev-deploy">开发实例</a>。</p>
 
     <p>探测怎样判定「后台在运行」、什么情况下拉起、怎样轮询到就绪、各时限（首次探测、轮询间隔、退出宽限、总截止）与报错分类，归<a href="control-protocol.html#ensure">控制面协议 · 建连之前</a>讲，本页不重复。和部署相关的只有下面几点：拉起参数是 <code>&lt;入口&gt; server --data-dir … --agent-dir …</code>（<code class="src" data-src="src/control/ensure-backend.ts#function defaultServerArgv">ensure-backend.ts · defaultServerArgv</code>），入口默认复用当前脚本，<code>npm start</code> 的 TypeScript 入口换成固定的 <code>bin/ruukoto-code.mjs</code>；环境整份继承 TUI 的环境。不传 <code>--execution</code>，所以执行后端取继承来的 <code>RUUKOTO_EXECUTION_BACKEND</code>，没设时才是产品默认的 <code>container</code>。子进程输出追加到控制面目录下的 <code>spawn.log</code>。</p>
     <ul>
@@ -766,25 +768,26 @@
 
   <section id="dev-deploy">
     <h2>开发实例、部署与验证</h2>
-    <p><code>npm run dev</code> 启动的开发实例是同一份代码的隔离运行：档案固定在仓库外（<code class="src" data-src="src/dev.ts#export function devProfileFor">dev.ts · devProfileFor</code>），派生后台前清洗进程环境（<code class="src" data-src="src/dev.ts#SCRUB_PREFIXES">dev.ts · SCRUB_PREFIXES</code>），所以即使档案库里存着 QQ / Telegram 配置，也不会连上真实的消息通道。</p>
+    <p><code>npm run dev</code> 启动 ruukoto 开发后台，<code>npm run code</code> 启动 ruukoto-code 开发后台并默认打开 TUI；两个入口的 <code>--config</code> 分别打开本产品开发实例的配置中心，均不再接受 <code>--tui</code>（<code class="src" data-src="src/dev.ts#parseDevArgs">dev.ts · parseDevArgs</code>）。<code class="src" data-src="src/code.ts#runDev">code.ts</code> 调用共享的 <code class="src" data-src="src/dev.ts#export async function runDev">dev.ts · runDev</code>，档案固定在仓库外，派生后台前清洗进程环境；即使开发库里保存着 QQ / Telegram 配置，也不会连上消息通道。</p>
+    <p><code>npm run code -- &lt;路径&gt;</code> 接受一个已存在的目录，创建或复用工作区并进入新会话；相对路径按 npm 脚本的当前目录解析，路径含空格时加引号，目录与 CLI 命令同名也可使用。路径不能与 <code>--config</code> 同用，dev 不接受路径（<code class="src" data-src="src/dev.ts#parseDevArgs">parseDevArgs</code>）。开发启动器只在首次 TUI 启动时传入路径，源码重载后恢复原会话和草稿，不重复创建（<code class="src" data-src="src/dev.ts#private spawnFrontend">spawnFrontend</code>）。工作区目录身份与保护根校验沿用日常入口，不新建目标目录（<code class="src" data-src="src/runtime/runtime.ts#async openWorkspace">runtime.ts · openWorkspace</code>），详见<a href="storage-layout.html#workspace">工作区根目录</a>。</p>
     <div class="scroll">
       <table class="tbl wrap">
-        <thead><tr><th></th><th>生产实例（systemd 单元）</th><th>开发实例 <code>npm run dev</code></th></tr></thead>
+        <thead><tr><th></th><th>生产实例（systemd 单元）</th><th>开发实例 <code>npm run dev</code> / <code>npm run code</code></th></tr></thead>
         <tbody>
-          <tr><td>产品与身份</td><td><code>ruukoto</code>，<code>ruukoto-backend</code> 系统账户</td><td>固定为默认产品 <code>ruukoto</code>，开发者自己的账户</td></tr>
-          <tr><td>目录</td><td><code>/var/lib/ruukoto/{data,agent,agent-work}</code> 0700、<code>control</code> 0770</td><td><code>~/.ruukoto-dev/&lt;仓库名&gt;-&lt;realpath 哈希 8 位&gt;/{data,agent,control,pending,logs}</code></td></tr>
-          <tr><td>环境</td><td>单元里写定执行后端与执行入口</td><td>删除 <code>RUUKOTO_OWNER_TOKEN</code>、<code>RUUKOTO_OWNER_TOKEN_FILE</code>、<code>RUUKOTO_EXECUTION_BACKEND</code>、<code>RUUKOTO_WORKER_IMAGE</code>、<code>RUUKOTO_PRODUCT</code>、<code>RUUKOTO_RELOAD_STATE_FILE</code>，以及 <code>RUUKOTO_EXEC_*</code>、<code>RUUKOTO_CONTAINER_*</code>、<code>RUUKOTO_CODE_*</code> 前缀的全部变量，再注入档案目录</td></tr>
-          <tr><td>消息通道</td><td>按配置连接 Telegram / QQ / webhook</td><td>固定注入 <code>RUUKOTO_DISABLE_QQ=1</code> 与 <code>RUUKOTO_DISABLE_TELEGRAM=1</code>，适配器照常创建但不连接、不轮询，两个入口的入站一律作废；派生后台时不传 <code>--github-webhook-config</code>，webhook 不监听</td></tr>
-          <tr><td>执行后端</td><td><code>container</code></td><td>变量被清洗、又不传 <code>--execution</code>，落到 <code>ruukoto</code> 的默认 <code>local</code>：无隔离，仅本机开发</td></tr>
-          <tr><td>模型与凭据</td><td>部署时放置 <code>models.json</code> / <code>auth.json</code>；服务凭据经 <code>ruukoto credentials add</code> 等命令登记进 <code>credentials.json</code></td><td><code>--config</code> 离线初始化，或 <code>--import-models &lt;目录&gt;</code> 只复制 <code>models.json</code> 与 <code>auth.json</code>（<code class="src" data-src="src/dev.ts#绝不碰 credentials.json">credentials.json 不导入</code>）</td></tr>
-          <tr><td>保护根</td><td>数据、agent、控制面目录 + <code>/opt/ruukoto</code></td><td>同一套检查；<code>CODE_ROOT</code> 就是仓库本身，所以仓库不能当工作区，档案也必须放在仓库外</td></tr>
+          <tr><td class="nowrap">产品与身份</td><td><code>ruukoto</code>，<code>ruukoto-backend</code> 系统账户</td><td>dev 固定为 <code>ruukoto</code>，code 固定为 <code>ruukoto-code</code>；均用开发者自己的账户</td></tr>
+          <tr><td class="nowrap">目录</td><td><code>/var/lib/ruukoto/{data,agent,agent-work}</code> 0700、<code>control</code> 0770</td><td>dev 为 <code>~/.ruukoto-dev/&lt;仓库名&gt;-&lt;哈希&gt;/</code>，code 为 <code>~/.ruukoto-code-dev/&lt;仓库名&gt;-&lt;哈希&gt;/</code>；各含 <code>data/agent/control/pending/logs</code>。哈希取 realpath 的 SHA-256 前 8 位（<code class="src" data-src="src/dev.ts#slice(0, 8)">devProfileFor</code>）</td></tr>
+          <tr><td class="nowrap">环境</td><td>单元里写定执行后端与执行入口</td><td>删除 <code>RUUKOTO_OWNER_TOKEN</code>、<code>RUUKOTO_OWNER_TOKEN_FILE</code>、<code>RUUKOTO_EXECUTION_BACKEND</code>、<code>RUUKOTO_WORKER_IMAGE</code>、<code>RUUKOTO_PRODUCT</code>、<code>RUUKOTO_RELOAD_STATE_FILE</code>、<code>RUUKOTO_*_DIR</code>，以及 <code>RUUKOTO_EXEC_*</code>、<code>RUUKOTO_CONTAINER_*</code>、<code>RUUKOTO_CODE_*</code> 前缀的全部变量，再显式注入产品身份与本产品的档案目录（<code class="src" data-src="src/dev.ts#buildChildEnv">buildChildEnv</code>）</td></tr>
+          <tr><td class="nowrap">消息通道</td><td>按配置连接 Telegram / QQ / webhook</td><td>固定注入 <code>RUUKOTO_DISABLE_QQ=1</code> 与 <code>RUUKOTO_DISABLE_TELEGRAM=1</code>，适配器照常创建但不连接、不轮询，两个入口的入站一律作废；派生后台时不传 <code>--github-webhook-config</code>，webhook 不监听</td></tr>
+          <tr><td class="nowrap">执行后端</td><td><code>container</code></td><td>沿用产品默认：dev 为无隔离的 <code>local</code>，code 为 <code>container</code>（<code class="src" data-src="src/cli.ts#product === &quot;ruukoto-code&quot; ? &quot;container&quot; : &quot;local&quot;">cli.ts · 产品默认</code>）。code 受限任务缺 Docker 或 worker 镜像时明确失败；完全访问执行账户环境不继承</td></tr>
+          <tr><td class="nowrap">模型与凭据</td><td>部署时放置 <code>models.json</code> / <code>auth.json</code>；服务凭据经 <code>ruukoto credentials add</code> 等命令登记进 <code>credentials.json</code></td><td><code>--config</code> 离线初始化，或 <code>--import-models &lt;目录&gt;</code> 只复制 <code>models.json</code> 与 <code>auth.json</code>（<code class="src" data-src="src/dev.ts#绝不碰 credentials.json">credentials.json 不导入</code>）</td></tr>
+          <tr><td class="nowrap">保护根</td><td>数据、agent、控制面目录 + <code>/opt/ruukoto</code></td><td>同一套检查；<code>CODE_ROOT</code> 就是仓库本身，所以仓库不能当工作区，档案也必须放在仓库外</td></tr>
         </tbody>
       </table>
     </div>
-    <p>启动前它会探测控制面：socket 可连且令牌认证通过就报错退出，不接管、不停止外来进程；进程内的实例锁与配置锁照常生效。界面退出或 dev 收到 SIGINT / SIGTERM / SIGHUP（关终端）时停后台：SIGTERM，<code class="src" data-src="src/dev.ts#BACKEND_KILL_GRACE_MS = 10_000">10 s</code> 后升级 SIGKILL。源码变更按影响范围只重启后台、只重启界面或两者都重启。</p>
+    <p>启动前探测控制面：socket 可连且令牌认证通过就报错退出，不接管、不停止外来进程；进程内的实例锁与配置锁照常生效。界面退出或启动器收到 SIGINT / SIGTERM / SIGHUP（关终端）时停后台：SIGTERM，<code class="src" data-src="src/dev.ts#BACKEND_KILL_GRACE_MS = 10_000">10 s</code> 后升级 SIGKILL。源码变更按影响范围只重启后台、只重启界面或两者都重启（<code class="src" data-src="src/dev.ts#planWatchRestart">planWatchRestart</code>）；修改 <code>src/dev.ts</code> 或 <code>src/code.ts</code> 时提示手动重启当前 npm 命令（<code class="src" data-src="src/dev.ts#classifyWatchPath">classifyWatchPath</code>）。缺有效模型时提示本入口的 <code>--config</code>；配置中心先离线初始化，退出后模型配置有效才启动后台并切换为在线配置，配置中心退出结束本次启动。</p>
     <aside class="callout inv">
-      <b>不是同一个东西</b>
-      <p>开发实例不是 <code>ruukoto-code</code> 产品。<code>ruukoto-code</code> 是装在开发机上的 Coding Agent，档案根 <code>~/.ruukoto-code</code>，后台由 TUI 按需拉起；开发实例只是开发本项目用的隔离环境，档案根 <code>~/.ruukoto-dev</code>，跑的是 <code>ruukoto</code> 并监听源码重启。两者的目录、锁与控制面互不相同。</p>
+      <b>各实例独立运行</b>
+      <p>两个开发入口的档案、锁、socket 与日常 <code>~/.ruukoto</code> / <code>~/.ruukoto-code</code> 分开。code 创建自己的开发档案，不自动迁入 dev 历史，<code>--import-models</code> 只显式复制模型配置。日常 <code>ruukoto-code</code> 退出 TUI 后后台继续运行，开发 <code>npm run code</code> 退出 TUI 后整组进程停止。</p>
     </aside>
 
     <h3>部署步骤</h3>

@@ -54,9 +54,9 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function tmpHome(prefix = "ruukoto-test-dev-"): string {
+function tmpHome(prefix = "rk-dev-"): string {
   // macOS Unix socket 路径上限约 104 字符：os.tmpdir()（/var/folders/…）下的
-  // 档案 control.sock 会超限（listen EINVAL），测试 HOME 一律用 /tmp 短路径
+  // 档案 control.sock 会超限（listen EINVAL）；克隆目录名也占长度，HOME 前缀保持短。
   return fs.mkdtempSync(path.join("/tmp", prefix));
 }
 
@@ -359,7 +359,12 @@ test(
     try {
       await waitFor(
         "dev 后台就绪",
-        async () => probeControlPlane(path.join(profile.controlDir, "control.sock"), readOwnerToken(profile.controlDir), 800),
+        async () => {
+          if (run.child.exitCode !== null || run.child.signalCode !== null) {
+            throw new Error(`dev 在后台就绪前退出（code=${run.child.exitCode} signal=${run.child.signalCode}）\nstdout:\n${run.stdout().slice(-2000)}\nstderr:\n${run.stderr().slice(-2000)}`);
+          }
+          return probeControlPlane(path.join(profile.controlDir, "control.sock"), readOwnerToken(profile.controlDir), 800);
+        },
         120_000,
       );
       // 令牌来自档案文件（清洗后的环境），QQ 入口按 dev 标记停用
@@ -402,11 +407,13 @@ test("dev：开发实例已在运行 → 报错退出且不碰外来后台", { t
   fs.mkdirSync(profile.dataDir, { recursive: true });
   fs.mkdirSync(profile.agentDir, { recursive: true });
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
-  const baseUrl = await server.start();
-  await writeMockModelConfig(profile.agentDir, baseUrl);
-  const backend = await spawnBackend(profile.dataDir, profile.agentDir);
-  const run = runDev(home);
+  let backend: Awaited<ReturnType<typeof spawnBackend>> | undefined;
+  let run: DevRun | undefined;
   try {
+    const baseUrl = await server.start();
+    await writeMockModelConfig(profile.agentDir, baseUrl);
+    backend = await spawnBackend(profile.dataDir, profile.agentDir);
+    run = runDev(home);
     const code = await run.waitExit();
     assert.equal(code, 1);
     assert.ok(run.stderr().includes("已在运行"), run.stderr());
@@ -415,8 +422,8 @@ test("dev：开发实例已在运行 → 报错退出且不碰外来后台", { t
       "外来后台仍在运行，dev 不得停止它",
     );
   } finally {
-    await killDev(run);
-    await killBackend(backend);
+    if (run) await killDev(run);
+    if (backend) await killBackend(backend);
     await server.close();
     fs.rmSync(home, { recursive: true, force: true });
   }

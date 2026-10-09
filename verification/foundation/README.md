@@ -1,23 +1,27 @@
 # 阶段 0 基础验证（issue 01）
 
-验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API 是否满足
-`.agents/scratch/personal-agent/spec.md` 已确认的行为要求，以及 Linux 受限执行方案的
-边界。本目录是**验证脚手架**，不是应用框架；结论沉淀在
+验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API：并发会话、完整磁盘历史、
+可控模型上下文、工具与扩展、RPC，以及 Linux 受限执行边界。本目录是验证脚手架；
+关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于
 `.agents/scratch/personal-agent/foundation-findings.md`。
 
-模型服务复用仓库内的 `test/helpers/mock-provider.ts`，从本仓库运行这些验证。
+模型服务复用仓库内的 `test/helpers/mock-provider.ts`。使用完整仓库，以下命令均在
+仓库根目录运行；环境、提交钩子与全部检查入口见 [开发说明](../../docs/development.md)。
 
 ## 运行
 
 ```bash
-npm install
-npm test                 # 全部离线验证（mock 模型，不联网、不需要凭据）
-npm run typecheck
-RUN_MODEL_CHECK=1 npm run test:model   # 真实模型连通性（一次短往返，走本机 pi 凭据）
+npm run setup            # 按根目录与本目录的锁文件安装依赖
+npm run test:foundation  # 本目录全部离线验证（mock 模型，不联网、不需要凭据）
+npm run typecheck        # 应用与本目录一起检查
+npm --prefix verification/foundation run test:model   # 真实模型短往返，走本机 pi 凭据
 npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 ```
 
 ## 验证项与结论索引
+
+下面保留阶段 0 的历史结论，当前检出是否通过以复跑结果为准。后续产品与原生 Linux
+证据见 [运行文档](../../docs/runtime.md)和[发布验收](../../docs/release-acceptance.md)。
 
 | 测试 | 验证内容 | 结论 |
 | --- | --- | --- |
@@ -54,10 +58,10 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 - 系统身份：root 持有的 0600 控制面状态，任务 uid 读写均被内核拒绝
 
 结果写入 `results/linux-isolation-report.{json,md}`。
-注意：本次运行环境是 Docker Desktop（macOS 上的 Linux VM，
+注意：阶段 0 的运行环境是 Docker Desktop（macOS 上的 Linux VM，
 linuxkit 6.12.76 / Debian 13），验证的是**容器边界本身**；
-目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时）未验证，
-清单见 findings 文档。
+该阶段尚未验证目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时），
+后续实机记录见上述运行文档。
 
 ## Coding Agent 原生边界验证（工单 26）
 

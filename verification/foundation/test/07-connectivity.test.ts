@@ -17,7 +17,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
-test("真实模型连通性：一次短往返", { skip: process.env.RUN_MODEL_CHECK ? false : "设置 RUN_MODEL_CHECK=1 后运行" }, async () => {
+test("真实模型连通性：一次短往返", { skip: process.env.RUN_MODEL_CHECK === "1" ? false : "设置 RUN_MODEL_CHECK=1 后运行" }, async () => {
   const modelRuntime = await ModelRuntime.create();
   const available = await modelRuntime.getAvailable();
   assert.ok(available.length > 0, "本机应有已配置凭据的模型");

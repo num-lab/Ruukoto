@@ -328,7 +328,6 @@ function httpError(res: RawResponse, redact: (text: string) => string): WebSearc
 /** 有界清理：去控制字符 + 限长。外部内容按不可信数据处理。 */
 function cleanText(value: unknown, cap: number): string {
   if (typeof value !== "string") return "";
-  // eslint-disable-next-line no-control-regex
   return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim().slice(0, cap);
 }
 

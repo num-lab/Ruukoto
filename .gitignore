@@ -5,3 +5,8 @@ node_modules/
 .ruukoto-data/
 undefined/
 .agents/scratch
+# 构建产物和本机凭据
+/worker/
+.env
+.env.*
+!.env.example

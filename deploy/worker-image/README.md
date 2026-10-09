@@ -9,11 +9,13 @@
 构建（可信身份执行；容器按任务启动，任务结束回收）：
 
 ```bash
-bash deploy/worker-image/build.sh   # 产物：ruukoto-worker:<pi 版本> 与 :latest
+npm run build:worker-image   # 产物：ruukoto-worker:<pi 版本> 与 :latest
 ```
 
 镜像版本随 pi 发布版固定；升级 pi 时更新 tag 并重建。工作区访问按任务挂载，
 容器内的系统工具与临时文件属于基础执行环境，不构成对宿主的任何承诺。
+
+Dockerfile 与宿主共用 `npm run build`，生成 `worker/worker.mjs`；打包器版本由根锁文件固定。
 
 工具链：node 24 + bash + coreutils + git。Dockerfile 的运行阶段通过 apt
 安装 git 与 ca-certificates，容器中的检查、worktree 创建及改动汇总可直接使用 git。

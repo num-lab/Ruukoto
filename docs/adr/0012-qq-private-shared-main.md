@@ -4,6 +4,12 @@
 
 2026-10-02 修订：[ADR 0017](0017-two-agent-products.md) 保留 QQ 私聊与 Telegram 共享主会话，并允许绑定拥有者通过私聊审批、接收 main 汇总的原委托异步最终结果。固定 coding/chat 角色将退役；群资料边界随外挂迁移，不能因角色删除而自动放宽。
 
+2026-10-03 实施修订（agent-direction issue 08）：绑定拥有者的 QQ 私聊审批已由 IM 审批命令实现（与 Telegram 同一组命令；控制消息 `event_kind = im_approval` 直接处理）。QQ 连接代次纳入配置版本（含凭据引用变化触发的单调推进）：旧连接、旧消息与旧批准失效，A→B→A 轮换不恢复旧代次。Telegram 侧同一修订补齐了与 QQ 对齐的收件钉版目标、派发/启动/发送复核与凭据代次。异步最终汇报的范围由 issue 18 单独实施。
+
+2026-10-04 实施修订（agent-direction issue 18）：最终汇报已实施（规则同 ADR 0011 同日修订）：IM 来源任务发起的通用 SubAgent 工作收尾时经 `owner_reply` 槽登记一次最终汇报，引用原入站消息；“排除子任务唤醒”的例外仅限 IM 发起通用工作的收尾轮次，旧 coding draft 链唤醒仍不外发。
+
+2026-10-06 修订（架构工单 10）：启动配置停用的入口按停用处理。QQ 入口在启动配置停用（`RUUKOTO_DISABLE_QQ`，dev 开发实例固定注入；ruukoto-code 强制停用）时不再让私聊入站停在 `registered`、让排队任务停住整条 main 队列，而是与 Telegram 一致：入站作废并记 `inbound.skipped`，排队任务按 `qq_private_unavailable` 取消。理由：启动时停用的入口无法证明钉版目标仍有效，与拥有者停用入口同义；暂时离线（适配器在、连接未确认）仍是 wait，语义不变。
+
 daily-agent issue 06 的 QQ 好友私聊与 Telegram 共用 main 身份和主会话。复用现有 NapCat 连接，私聊单独通过持久入站事件进入编排器；不复用群会话或群发送账本。只接收已配置 owner 的好友纯文本，登录账号由 get_login_info 核对，在线状态由 get_status 与心跳核对。私聊必须配置 token，QQ 身份不授予控制面权限。
 
 本决策将 ADR 0011 第 2 条的自动 owner 回复范围扩展到 `qq_private` 来源，继续排除定时与子任务唤醒。QQ 入站时持久化固定平台、登录账号、owner 和配置版本；派发、任务启动与发送均复核该身份。配置变化使旧授权失效，不把旧消息或回复改发到新目标。公共 outbox 按持久目标选择渠道，未知发送结果不重发；QQ 发起的新通知审批也绑定 QQ 原目标，其他任务沿用 Telegram 默认目标。

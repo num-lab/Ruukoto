@@ -1,0 +1,961 @@
+{
+  "timestamp": "2026-10-08T22:05:11+0900",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "kernel": "27.0.0",
+  "machine": "arm64",
+  "python": "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/python3.14",
+  "policy_scope": "候选 deny-default 文件/网络/IPC 策略；生命周期候选为 syscall 拒绝 + PGID 回收。",
+  "limitations": [
+    "仅当前 macOS 版本；未验证产品 WorkerLauncher、审批、恢复及 SubAgent 集成。",
+    "宿主工具链仅测试 --version 启动，不等价于真实 Git 操作或编译验收。",
+    "未实测 SysV IPC、生命周期启动窗口、父进程异常及模式或授予范围变化时的回收。",
+    "missing_probes=0 仅代表本脚本列举的探针无缺失，不代表覆盖工单全部要求。",
+    "失败只否决被测策略，不据此宣称所有 Seatbelt 策略都不可能。"
+  ],
+  "probes": [
+    {
+      "probe": "probe.profile-parse-classification",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "stage": "profile-parse",
+        "rc": 65,
+        "detail": "sandbox-exec: unbound variable: undefined-probe-rule at <input string>, line 1, column 13\n\nBacktrace: \n<input string>:1:13:\n\tundefined-probe-rule"
+      }
+    },
+    {
+      "probe": "probe.launch-failure-classification",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "stage": "launch",
+        "rc": 71,
+        "detail": "sandbox-exec: execvp() of '/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/python3.14' failed: Operation not permitted"
+      }
+    },
+    {
+      "probe": "legacy.canonical-read-literal",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-read-subpath",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-read-regex",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-file-star",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.grandchild-file-denial",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.noncanonical-rule-demonstration",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.workspace.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.workspace.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-ro.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-ro.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/grant-ro/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-rw.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-rw.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.shared-git.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.shared-git.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/shared-git/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.outside.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.outside.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.symlink.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/escape'"
+        }
+      }
+    },
+    {
+      "probe": "files.symlink.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/escape'"
+        }
+      }
+    },
+    {
+      "probe": "files.tmp-alias.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.tmp-alias.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/tmp/ruukoto-native-macos-ecz3q9_z/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.parent-traversal.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/../owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.parent-traversal.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/../owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.readonly-symlink-write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/readonly-alias'"
+        }
+      }
+    },
+    {
+      "probe": "files.hardlink-source-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/owner/material' -> '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/hardlink'"
+        }
+      }
+    },
+    {
+      "probe": "subagent.assigned-read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "subagent.sibling-read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/material'"
+        }
+      }
+    },
+    {
+      "probe": "subagent.assigned-write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace/assigned/material'"
+        }
+      }
+    },
+    {
+      "probe": "network.loopback-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "network.unix-in-workspace-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "network.grandchild-loopback-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "credentials.environment-scrubbed",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "只检查测试注入的虚拟环境变量"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "detail": "只检查测试注入的虚拟环境变量"
+        }
+      }
+    },
+    {
+      "probe": "credentials.descriptor-closed",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "只检查测试注入的虚拟描述符"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 9,
+          "detail": "[Errno 9] Bad file descriptor"
+        }
+      }
+    },
+    {
+      "probe": "control-plane.signal-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "control-plane.pidpath-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] proc_pidpath"
+        }
+      }
+    },
+    {
+      "probe": "control-plane.process-environment-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] sysctl(KERN_PROCARGS2)"
+        }
+      }
+    },
+    {
+      "probe": "ipc.mach-lookup-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "mach_code": 0,
+          "detail": "bootstrap_look_up"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "mach_code": 1100,
+          "detail": "bootstrap_look_up"
+        }
+      }
+    },
+    {
+      "probe": "ipc.shared-memory-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] shm_open"
+        }
+      }
+    },
+    {
+      "probe": "toolchain.node",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "v24.15.0"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "v24.15.0"
+        }
+      }
+    },
+    {
+      "probe": "toolchain.git",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "git version 2.54.0"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "git version 2.54.0"
+        }
+      }
+    },
+    {
+      "probe": "toolchain.clang",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Too"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Too"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.setpgid-syscall-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.setsid-syscall-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.kqueue-descendant-tracking",
+      "pass": false,
+      "unavailable": false,
+      "detail": "NOTE_TRACK 未支持 errno=45，无法用它补齐后代跟踪"
+    },
+    {
+      "probe": "lifecycle.normal-file-inheritance",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "pid": 58399,
+        "errno": 1,
+        "control": "主探针已证明同一虚拟目标可访问"
+      }
+    },
+    {
+      "probe": "lifecycle.normal-network-inheritance",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "pid": 58399,
+        "errno": 1,
+        "control": "主探针已证明同一虚拟目标可访问"
+      }
+    },
+    {
+      "probe": "lifecycle.setpgroup-file-inheritance",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "pid": 58400,
+        "errno": 1,
+        "control": "主探针已证明同一虚拟目标可访问"
+      }
+    },
+    {
+      "probe": "lifecycle.setpgroup-network-inheritance",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "pid": 58400,
+        "errno": 1,
+        "control": "主探针已证明同一虚拟目标可访问"
+      }
+    },
+    {
+      "probe": "lifecycle.setsid-file-inheritance",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "pid": 58401,
+        "errno": 1,
+        "control": "主探针已证明同一虚拟目标可访问"
+      }
+    },
+    {
+      "probe": "lifecycle.setsid-network-inheritance",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "pid": 58401,
+        "errno": 1,
+        "control": "主探针已证明同一虚拟目标可访问"
+      }
+    },
+    {
+      "probe": "lifecycle.stop-normal-descendant",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "name": "normal",
+        "pid": 58399,
+        "pgid": 58398,
+        "sid": 58398,
+        "file_denial_errno": 1,
+        "network_denial_errno": 1,
+        "heartbeat_grows_after_group_kill": false,
+        "pid_exited": true,
+        "worker_pgid": 58398,
+        "worker_sid": 58398
+      }
+    },
+    {
+      "probe": "lifecycle.stop-setpgroup-descendant",
+      "pass": false,
+      "unavailable": false,
+      "detail": {
+        "name": "setpgroup",
+        "pid": 58400,
+        "pgid": 58400,
+        "sid": 58398,
+        "file_denial_errno": 1,
+        "network_denial_errno": 1,
+        "heartbeat_grows_after_group_kill": true,
+        "pid_exited": false,
+        "worker_pgid": 58398,
+        "worker_sid": 58398
+      }
+    },
+    {
+      "probe": "lifecycle.stop-setsid-descendant",
+      "pass": false,
+      "unavailable": false,
+      "detail": {
+        "name": "setsid",
+        "pid": 58401,
+        "pgid": 58401,
+        "sid": 58401,
+        "file_denial_errno": 1,
+        "network_denial_errno": 1,
+        "heartbeat_grows_after_group_kill": true,
+        "pid_exited": false,
+        "worker_pgid": 58398,
+        "worker_sid": 58398
+      }
+    },
+    {
+      "probe": "lifecycle.probe-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "heartbeat_frozen": true,
+        "captured_pids_exited": true,
+        "all_spawn_receipts_verified": true
+      }
+    }
+  ],
+  "path_normalization": {
+    "requested": "/tmp/ruukoto-native-macos-ecz3q9_z",
+    "canonical": "/private/tmp/ruukoto-native-macos-ecz3q9_z",
+    "alias": "/tmp/ruukoto-native-macos-ecz3q9_z",
+    "temporary_materials_cleaned_after_run": true
+  },
+  "runtime_readonly_roots": [
+    "/Applications/Xcode.app",
+    "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr",
+    "/Library/Developer",
+    "/System",
+    "/Users/eitrous/.local/share/mise/installs/node/24.15.0",
+    "/Users/eitrous/Developer/ruukoto/verification/foundation/scripts/native-isolation",
+    "/bin",
+    "/opt/homebrew/Cellar/gettext/1.0/lib",
+    "/opt/homebrew/Cellar/git/2.54.0",
+    "/opt/homebrew/Cellar/pcre2/10.47_1/lib",
+    "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14",
+    "/opt/homebrew/opt/gettext/lib",
+    "/opt/homebrew/opt/pcre2/lib",
+    "/private/var/select",
+    "/usr/bin",
+    "/usr/lib",
+    "/usr/share"
+  ],
+  "candidate_profile": "(version 1)\n(deny default)\n(allow process-exec process-fork sysctl-read)\n(deny sysctl-read (sysctl-name-regex #\"^kern\\.proc.*\"))\n(allow signal (target self) (target same-sandbox))\n(deny process-info*)\n(allow process-info* (target self))\n(allow file-read* (literal \"/\"))\n(allow file-read* file-write* (literal \"/dev/null\"))\n(deny syscall-unix (syscall-number SYS_setsid SYS_setpgid))\n(allow file-read-metadata (literal \"/\"))\n(allow file-read-metadata (literal \"/Applications\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer/Toolchains\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain\"))\n(allow file-read-metadata (literal \"/Library\"))\n(allow file-read-metadata (literal \"/Users\"))\n(allow file-read-metadata (literal \"/Users/eitrous\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise/installs\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise/installs/node\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification/foundation\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification/foundation/scripts\"))\n(allow file-read-metadata (literal \"/dev\"))\n(allow file-read-metadata (literal \"/opt\"))\n(allow file-read-metadata (literal \"/opt/homebrew\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/gettext\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/gettext/1.0\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/git\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/pcre2\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/pcre2/10.47_1\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt/gettext\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt/pcre2\"))\n(allow file-read-metadata (literal \"/private\"))\n(allow file-read-metadata (literal \"/private/tmp\"))\n(allow file-read-metadata (literal \"/private/tmp/ruukoto-native-macos-ecz3q9_z\"))\n(allow file-read-metadata (literal \"/private/var\"))\n(allow file-read-metadata (literal \"/usr\"))\n(allow file-read* (subpath \"/Applications/Xcode.app\"))\n(allow file-read* (subpath \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr\"))\n(allow file-read* (subpath \"/Library/Developer\"))\n(allow file-read* (subpath \"/System\"))\n(allow file-read* (subpath \"/Users/eitrous/.local/share/mise/installs/node/24.15.0\"))\n(allow file-read* (subpath \"/Users/eitrous/Developer/ruukoto/verification/foundation/scripts/native-isolation\"))\n(allow file-read* (subpath \"/bin\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/gettext/1.0/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/git/2.54.0\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/pcre2/10.47_1/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14\"))\n(allow file-read* (subpath \"/opt/homebrew/opt/gettext/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/opt/pcre2/lib\"))\n(allow file-read* (subpath \"/private/var/select\"))\n(allow file-read* (subpath \"/usr/bin\"))\n(allow file-read* (subpath \"/usr/lib\"))\n(allow file-read* (subpath \"/usr/share\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/grant-ro\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/grant-rw\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/shared-git\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/tmp\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/workspace\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/grant-rw\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-macos-ecz3q9_z/tmp\"))\n",
+  "missing_probes": [],
+  "status": "failed",
+  "summary": {
+    "total": 56,
+    "passed": 53,
+    "failed": 3,
+    "unavailable": 0
+  }
+}

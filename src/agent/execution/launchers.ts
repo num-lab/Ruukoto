@@ -47,6 +47,21 @@ export interface LaunchSpec {
   workspace: string;
   /** 拥有者为该任务显式授予的工作区外路径。 */
   grantedPaths: GrantedPath[];
+  /** 宿主钉定的额外只读根（SubAgent 限定资料范围）：容器按只读挂载；local/systemd 忽略。
+   *  dev/ino 是宿主侧目录身份供 worker init 复核；macOS Docker Desktop 经 VM 重新编号
+   *  inode，容器侧恒不一致，不下发身份（缺省 dev/ino = 仅按路径复核）。 */
+  readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
+  /**
+   * 宿主钉定的工作区目录身份（agent-direction issue 16，写入目标的副本）：
+   * worker init 复核 cwd 的 dev/ino；缺省 = 维持旧语义（cwd 即工作区，不另复核）。
+   */
+  workspaceIdentity?: { dev: number; ino: number };
+  /**
+   * 容器环境聚合包（agent-direction issue 16）：只在 worktree 副本创建与子
+   * 任务挂载副本时由宿主注入（Git safe.directory 等）；其余任务恒为 undefined，
+   * env 键不进入 workerKey。
+   */
+  env?: Record<string, string>;
 }
 
 export interface WorkerLauncher {
@@ -187,6 +202,16 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
       ];
       for (const granted of spec.grantedPaths) {
         args.push("-v", `${granted.path}:${granted.path}${granted.access === "read" ? ":ro" : ""}`);
+      }
+      for (const root of spec.readRoots ?? []) {
+        args.push("-v", `${root.path}:${root.path}:ro`);
+      }
+      // 宿主注入的环境聚合包（issue 16：worktree 创建/挂载时的 Git safe.directory；
+      // 其余任务不传入，容器环境不变）
+      if (spec.env) {
+        for (const [key, value] of Object.entries(spec.env)) {
+          args.push("--env", `${key}=${value}`);
+        }
       }
       args.push(config.image, "node", CONTAINER_WORKER_PATH);
 

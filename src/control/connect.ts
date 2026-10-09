@@ -9,8 +9,8 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { dirEnvFor, productFromEnv, productRootDir } from "../core/product.ts";
 import { readOwnerToken } from "./owner-token.ts";
 
 export interface ClientConnectConfig {
@@ -20,16 +20,18 @@ export interface ClientConnectConfig {
 }
 
 export function defaultDataDir(): string {
-  return process.env.RUUKOTO_DATA_DIR ?? path.join(os.homedir(), ".ruukoto", "data");
+  const product = productFromEnv();
+  return dirEnvFor(product, "DATA") ?? path.join(productRootDir(product), "data");
 }
 
 export function defaultAgentDir(): string {
-  return process.env.RUUKOTO_AGENT_DIR ?? path.join(os.homedir(), ".ruukoto", "agent");
+  const product = productFromEnv();
+  return dirEnvFor(product, "AGENT") ?? path.join(productRootDir(product), "agent");
 }
 
-/** 控制面目录：与运行时默认一致（数据目录的兄弟目录 control/）。 */
+/** 控制面目录：与运行时默认一致（数据目录的兄弟目录 control/）；按产品读对应的环境变量。 */
 export function controlDirFor(dataDir: string): string {
-  return process.env.RUUKOTO_CONTROL_DIR ?? path.join(path.dirname(path.resolve(dataDir)), "control");
+  return dirEnvFor(productFromEnv(), "CONTROL") ?? path.join(path.dirname(path.resolve(dataDir)), "control");
 }
 
 export function socketPathFor(controlDir: string): string {
@@ -56,6 +58,15 @@ export function resolveOwnerToken(controlDir: string): string {
     `无法读取拥有者令牌：${path.join(controlDir, "owner.token")} 不存在或不可读；` +
       "也可用 RUUKOTO_OWNER_TOKEN 或 RUUKOTO_OWNER_TOKEN_FILE 指定",
   );
+}
+
+/** 探测用宽松解析：同一来源优先级，但取不到（后台尚未启动、令牌未生成）返回 null 而非抛错。 */
+export function tryResolveOwnerToken(controlDir: string): string | null {
+  try {
+    return resolveOwnerToken(controlDir);
+  } catch {
+    return null;
+  }
 }
 
 export function resolveClientConfig(opts: { dataDir?: string; controlDir?: string } = {}): ClientConnectConfig {

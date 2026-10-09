@@ -440,6 +440,12 @@ test("服务故障：认证失败/限流/服务错误/畸形响应/超大响应�
       assert.equal(artifacts[0]!.taskId, taskId, "产物归属当前任务");
       assert.ok(artifacts[0]!.byteCount > 0);
       assert.ok(!t.runtime.artifacts.read(artifacts[0]!.id, 0, artifacts[0]!.byteCount).includes(SECRET), "错误产物不得保存服务回显的凭据");
+      const op = t.runtime.store.listToolOpsByTask(taskId).find((op) => op.toolName === "web_search")!;
+      const results = t.runtime.store.getEventsAfter(0).map((event) => event.body).filter(
+        (body) => body.type === "task.tool_result" && body.taskId === taskId && body.toolOpId === op.id,
+      );
+      assert.equal(results.length, 1, "对应搜索操作应有唯一的结果事件");
+      assert.deepEqual((results[0] as { artifactIds: string[] }).artifactIds, [artifacts[0]!.id], "结果事件关联实际保存的响应产物");
     }
     const hugeArtifact = t.runtime.store
       .listArtifactsByTask(artifactTaskIds[1]!)
@@ -568,7 +574,7 @@ INSERT INTO projects (id, name, created_at) VALUES ('proj_old', '旧项目', '20
       const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
       assert.equal(version.value, String(SCHEMA_VERSION), "迁移到当前 schema 版本");
       assert.equal(store.getProject("proj_old")!.webSearch, "enabled", "旧项目默认启用 Web Search");
-      store.setProjectWebSearch("proj_old", "disabled");
+      store.withTx(() => store.updateProjectSettings({ projectId: "proj_old", webSearch: "disabled" }));
       assert.equal(store.getProject("proj_old")!.webSearch, "disabled", "新库可读写开关");
     } finally {
       db.close();

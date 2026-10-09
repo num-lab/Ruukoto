@@ -21,27 +21,34 @@ import {
   ACTIVE_TASK_STATUSES,
   AGENT_ROLE_IDS,
   isAccessMode,
+  isSessionDefaultMode,
   isTerminalTaskStatus,
   normalizeIsoInstant,
   SESSION_DEFAULT_MODES,
   type AccessMode,
+  type SessionDefaultMode,
   type AgentRoleId,
   type Artifact,
   type ConfirmationRequest,
   type ContextCheckpoint,
   type GrantedPath,
   type ModelSelection,
+  type NotifyTarget,
   type PersistentEvent,
   type Project,
   type Session,
   type SessionKind,
+  type StandingPermission,
+  type SubAgent,
+  type SubAgentMessage,
   type InboundEvent,
   type Task,
+  type WorkDelegation,
   type ToolOp,
   randomId,
 } from "../core/types.ts";
 import { acquireConfigLock, acquireInstanceLock, type AcquiredLock } from "../core/instance-lock.ts";
-import { resolveDirIdentity, verifyDirIdentity, DirIdentityError } from "../core/dir-identity.ts";
+import { resolveDirIdentity, verifyDirIdentity, sameDirIdentity, legacyProjectClaimableFromDir, DirIdentityError, type DirIdentity } from "../core/dir-identity.ts";
 import { createModelCatalog, type ModelCatalog, type ModelOption } from "../agent/model-selection.ts";
 import {
   configRevision,
@@ -68,7 +75,19 @@ import { createApprovalReviewer, type ApprovalReviewer } from "../agent/review.t
 import { Driver } from "../agent/driver.ts";
 import { createMockTools } from "../agent/mock-tools.ts";
 import { createCodingTools } from "../agent/tool-router.ts";
+import { createHostDataFamily } from "../agent/host-tools.ts";
+import { createWebSearchFamily } from "../agent/web-search.ts";
+import { createAppDataFamily } from "../agent/app-data/tools.ts";
+import { createSchedulerFamily, createSourceResolver, type SourceResolver } from "../agent/scheduler-tools.ts";
+import { createDelegationFamily, delegationOpCheck } from "../agent/delegation-tools.ts";
+import { createSubAgentFamily } from "../agent/subagent-tools.ts";
+import { createChatResultFamily, resolveAcceptedChatResult } from "../agent/chat-result-tools.ts";
+import { createServiceFamily } from "../agent/service-tools.ts";
+import { createSkillFamily } from "../agent/skills.ts";
+import { createTodoFamily } from "../agent/todo.ts";
+import type { HostToolFamily } from "../agent/host-tool-families.ts";
 import { ArtifactStore } from "../agent/artifacts.ts";
+import { InboundMediaStore, type InboundMediaMessage } from "./inbound-media.ts";
 import { CredentialStore } from "../agent/execution/credentials.ts";
 import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_CREDENTIAL_PURPOSE, type JevConfig } from "../agent/jev-config.ts";
 import {
@@ -79,9 +98,8 @@ import {
 import { sessionsDirFor } from "../agent/session-factory.ts";
 import { fileURLToPath } from "node:url";
 import { assertGrantNotProtected } from "../agent/execution/approved-ops.ts";
-import { grantCoversPath, resolveWorktreeCommonGitDir } from "../core/worktree.ts";
+import { GIT_SAFE_DIRECTORY_ENV, grantCoversPath, resolveWorktreeCommonGitDir, taskWorkspaceFor } from "../core/worktree.ts";
 import { AccessScope, AccessDeniedError } from "../core/access.ts";
-import { isPlanInput } from "../agent/plan-mode.ts";
 import { HistoryIndex, readRawEntryAt, searchHistory, type HistorySearchOptions } from "../core/history-index.ts";
 import {
   MemoryConflictError,
@@ -97,34 +115,36 @@ import { McpStore, McpVersionConflictError, allowlistEffectFor, normalizeToolAll
 import { connectMcpService, parseMcpEndpoint, MCP_CREDENTIAL_PURPOSE, type McpConnection, type McpTimeouts } from "../agent/mcp/client.ts";
 import { validateRemoteTool } from "../agent/mcp/tools.ts";
 import { retireGitHubModule } from "./github-retirement.ts";
+import {
+  previewWorkspaceMigration,
+  applyWorkspaceMigration,
+  type MigrationApplyInput,
+  type MigrationApplyResult,
+  type MigrationPreview,
+  type MigrationPreviewInput,
+} from "./workspace-migration.ts";
 import { GitHubWebhook, GITHUB_SOURCE } from "../github/webhook.ts";
 import { GitHubEvents, parseGitHubEventsConfig, webhookSecret, type GitHubEventsConfig } from "../github/events.ts";
 import { Orchestrator } from "./orchestrator.ts";
+import { SubAgentDelegationError, SubAgentManager, subagentOpCheck, type WorkCancellation } from "./subagents.ts";
 import { AppDataStore, AppDataError } from "../agent/app-data/store.ts";
 import { AppDataQueryRunner } from "../agent/app-data/query.ts";
-import { appDataOpCheck } from "../agent/app-data/tools.ts";
 import { ToolOpLedger } from "../agent/tool-op-ledger.ts";
 import { SchedulerStore, SchedulerConflictError, type NotificationStatus, type ScheduleStatus } from "../scheduler/store.ts";
 import { Scheduler, type NotifyChannel } from "../scheduler/runtime.ts";
 import { searchTavily, WebSearchError } from "../agent/web-search.ts";
 import { loadSkillLibrary, skillsDirFor } from "../agent/skills.ts";
-import { createSourceResolver, schedulerOpCheck, type SourceResolver } from "../agent/scheduler-tools.ts";
-import { delegationOpCheck } from "../agent/delegation-tools.ts";
-import { chatResultOpCheck } from "../agent/chat-result-tools.ts";
-import { QqAdapter, filterRecalledQqMessages, QQ_CREDENTIAL_PURPOSE, QQ_PRIVATE_SOURCE, qqPrivateExternalId, type QqAdapterTimeouts } from "../qq/adapter.ts";
-import { QQ_GROUP_SOURCE, QqStore, QqVersionConflictError, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
-import {
-  capReply,
-  TelegramAdapter,
-  TelegramStore,
-  TelegramVersionConflictError,
-  telegramExternalId,
-  TELEGRAM_CREDENTIAL_PURPOSE,
-  TELEGRAM_DEFAULT_API,
-  TELEGRAM_SOURCE,
-  type TelegramConfig,
-} from "../telegram/adapter.ts";
-import type { ChildOutcome } from "./orchestrator.ts";
+import { PRODUCT_META_KEY, type ProductType } from "../core/product.ts";
+import { QqAdapter, QQ_PRIVATE_SOURCE, type QqAdapterTimeouts } from "../qq/adapter.ts";
+import { ParentDelivery } from "./parent-delivery.ts";
+import { WorkCopyManager, assertWorktreeGrantAllowed, type WorkCopyExecutor } from "./work-copy.ts";
+import { CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED } from "../core/session-identity.ts";
+import { QQ_GROUP_SOURCE, QqStore, type QqConfig, type QqInboxRow, type QqOutboxRow } from "../qq/store.ts";
+import { TelegramAdapter, TelegramStore, TELEGRAM_SOURCE, type TelegramConfig } from "../telegram/adapter.ts";
+import { ImApprovals } from "./im-approvals.ts";
+import { ImEntries } from "./im-entries.ts";
+import { sameTarget } from "../core/notify-target.ts";
+import { RuntimeApiError } from "../core/api-error.ts";
 import {
   readHistoryEntryText,
   readToolResult,
@@ -157,6 +177,12 @@ const FRAGMENT_PREVIEW_CAP = FRAGMENT_TEXT_CAP;
 /** 服务代码根目录（本模块位于 <codeRoot>/src/runtime/）。 */
 const CODE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
+/** qq_inbox_list 的归档视图行（issue 20）：收件登记 + main 接收账本 + 复核结论。 */
+export interface QqInboxArchiveRow extends QqInboxRow {
+  acceptance: { acceptedAt: string; acceptedByTaskId: string; reason: string; summary: string } | null;
+  sourceProblem: string | null;
+}
+
 export interface RuntimeConfig {
   dataDir: string;
   /** pi 凭据与模型配置目录（显式指定，不读 ~/.pi/agent）。 */
@@ -174,6 +200,8 @@ export interface RuntimeConfig {
    * 省略时取 local：只适用于开发与模拟验证，生产部署必须显式配置。
    */
   execution?: ExecutionBackendConfig;
+  /** 工作副本容器入口的测试替身；生产由 Runtime 自己装配。 */
+  workCopyExecutor?: WorkCopyExecutor;
   /** 默认注册真实编码工具（路由器 + 工具工作进程）；模拟测试可覆盖。 */
   toolFactory?: (ctx: { registry: import("../agent/managed-processes.ts").ManagedProcessRegistry; router: import("../agent/tool-router.ts").ToolRouter }) => ToolDefinition[];
   /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留；测试用小窗口时收紧预留）。 */
@@ -192,20 +220,40 @@ export interface RuntimeConfig {
   qq?: QqAdapterTimeouts;
   /**
    * 停用真实 QQ 通道（issue 21 §1，dev 开发实例经 RUUKOTO_DISABLE_QQ=1 注入）：
-   * 不创建/启动适配器；qq 控制面操作仍作用于配置存储，qqStatus 标注停用来源。
+   * 入口照常创建但不连接、入站作废（架构工单 10）；qq 控制面操作仍作用于配置存储，qqStatus 标注停用来源。
    */
   qqDisabled?: boolean;
   /**
    * 停用真实 Telegram 通道（issue 04，dev 开发实例经 RUUKOTO_DISABLE_TELEGRAM=1 注入）：
-   * 不创建适配器；telegram 控制面操作仍作用于配置存储。
+   * 入口照常创建但不轮询、入站作废（架构工单 10）；telegram 控制面操作仍作用于配置存储。
    */
   telegramDisabled?: boolean;
+  /**
+   * 产品身份（agent-direction issue 01，ADR 0017）：缺省 ruukoto（个人 Agent）。
+   * ruukoto-code（Coding Agent）启动时强制停用 QQ/Telegram 适配器、不创建调度器，
+   * 并把产品归属登记到数据目录 meta（跨产品复用同一数据目录直接拒绝）。
+   */
+  productType?: ProductType;
   /** Telegram 入口（issue 04）：长轮询秒数/断线退避覆盖（仅测试注入；生产取默认）。 */
   telegram?: { pollTimeoutSec?: number; backoffMs?: number };
   /** 编排器（issue 01）：超时巡检间隔覆盖（仅测试注入；生产取默认）。 */
   orchestrator?: { deadlineCheckMs?: number };
   /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
   appData?: { queryStallMs?: number };
+  /**
+   * 服务器服务管理（agent-direction issue 09，ADR 0019）：显式部署配置（受保护
+   * helper 与策略路径，生产经环境变量注入，见 deploy/systemd/README.md）。装配
+   * 另要求产品 ruukoto + Linux；缺任一条件即无此能力（工具不装配，不是静默放行）。
+   * allowNonLinuxPlatform 与 timeouts 仅测试注入（受控 helper 替身的离线协议测试）。
+   */
+  service?: {
+    helperPath: string;
+    policyPath: string;
+    useSudo?: boolean;
+    sudoPath?: string;
+    allowNonLinuxPlatform?: boolean;
+    timeouts?: { inspectMs?: number; restartMs?: number; stopMs?: number };
+  };
   /**
    * 调度器与通知：测试可替换默认 Telegram 渠道，QQ 按操作目标走自身适配器；
    * 未加载发送器时保留 pending。时钟/间隔/发送时限仅测试覆盖。
@@ -215,13 +263,7 @@ export interface RuntimeConfig {
   githubWebhook?: GitHubEventsConfig;
 }
 
-export class RuntimeApiError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
+export { RuntimeApiError };
 
 /** 先核对结构，再进行幂等核实；模型能力与认证只检查尚未接收的请求。 */
 export function parseModelSelection(value: unknown): ModelSelection {
@@ -241,6 +283,7 @@ export class Runtime {
   private readonly db: Db;
   readonly store: Store;
   readonly artifacts: ArtifactStore;
+  readonly inboundMedia: InboundMediaStore;
   readonly credentials: CredentialStore;
   /** 统一数据访问范围（issue 05 §1）：身份由宿主注入，跨项目仅经拥有者授权。 */
   readonly access: AccessScope;
@@ -252,8 +295,8 @@ export class Runtime {
   readonly mcp: McpStore;
   /** QQ 连接配置与群聊收发记录（私聊使用编排器与公共 outbox）。 */
   readonly qqStore: QqStore;
-  /** QQ 群聊与 owner 私聊适配器（null = 尚未启动或开发实例停用）。 */
-  private qqAdapter: QqAdapter | null = null;
+  /** QQ owner 私聊入口（启动配置停用时也存在，见 RuntimeConfig.qqDisabled）。 */
+  private readonly qqAdapter: QqAdapter;
   /**
    * main 应用数据空间（issue 02）：独立 main.db + 只读查询子进程运行器。
    * unavailableReason 非空时能力停止（丢失/身份不符/损坏/格式过新），
@@ -264,18 +307,34 @@ export class Runtime {
   private appDataUnavailableReason: string | null = null;
   /** 后台编排器（issue 01）：角色引导、入站事件派发、子任务结果回传与超时。 */
   orchestrator: Orchestrator | null = null;
+  /**
+   * 通用 SubAgent 委派（agent-direction issue 11）：工作委托、动态身份与
+   * 执行任务的集中登记；普通开发会话与 main 的委派工具经它提交。
+   */
+  subagents: SubAgentManager | null = null;
   /** Telegram owner 入口配置（issue 04）。 */
   readonly telegramStore: TelegramStore;
-  /** Telegram 适配器（start 时创建；null = 未创建或 dev 停用）。 */
-  private telegram: TelegramAdapter | null = null;
+  /** Telegram owner 入口（启动配置停用时也存在，见 RuntimeConfig.telegramDisabled）。 */
+  private readonly telegram: TelegramAdapter;
+  /** 拥有者 IM 入口表（架构工单 10）：门、reconcile、owner 回复与工作汇报、凭据代次、通知目标。 */
+  private readonly imEntries: ImEntries;
   private githubWebhook: GitHubWebhook | null = null;
   private readonly githubEvents: GitHubEvents;
+  /** 父级送达（架构工单 09）：结果与工作内消息怎样、何时进入主 Agent 的模型调用。 */
+  private readonly parentDelivery: ParentDelivery;
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
+  /** IM 审批命令处理（agent-direction issue 08）；绑定拥有者的私聊控制消息入口。 */
+  private readonly imApprovals: ImApprovals;
   /** 工具操作账本（架构工单 05）：结果、效果未知与停止/重启补记。 */
-  private readonly ledger: ToolOpLedger;
-  /** 调度器（issue 03）：扫描循环 + 发送循环；start 时创建。 */
-  scheduler!: Scheduler;
+  private ledger!: ToolOpLedger;
+  private hostToolFamilies!: readonly HostToolFamily[];
+  /** 调度器（issue 03）：扫描循环 + 发送循环；仅个人 Agent 产品在 start 时创建。 */
+  scheduler: Scheduler | null = null;
+  /** 服务器服务管理（issue 09）：产品/Linux/显式配置齐备时的部署配置；否则 null（无此能力）。 */
+  private readonly serviceManager: import("../agent/service-tools.ts").ServiceManagerConfig | null = null;
+  /** 产品身份（issue 01）：缺省 ruukoto。 */
+  readonly productType: ProductType;
   private sources!: SourceResolver;
   /** 额外事件监听（QQ 适配器等宿主内订阅者；控制面广播仍走 onEventBroadcast）。 */
   private readonly eventListeners = new Set<(events: PersistentEvent[]) => void>();
@@ -307,11 +366,25 @@ export class Runtime {
 
   private constructor(config: RuntimeConfig, db: Db, store: Store, lock: AcquiredLock, configLock: AcquiredLock) {
     this.config = config;
+    this.productType = config.productType ?? "ruukoto";
+    // 服务管理能力（issue 09）：产品 ruukoto + Linux + 显式部署配置齐备才装配；
+    // 缺任一条件保持 null（main 不装配 service_inspect/service_manage）
+    const svc = config.service;
+    if (svc && this.productType === "ruukoto" && (process.platform === "linux" || svc.allowNonLinuxPlatform === true)) {
+      this.serviceManager = {
+        helperPath: svc.helperPath,
+        policyPath: svc.policyPath,
+        useSudo: svc.useSudo ?? true,
+        sudoPath: svc.sudoPath ?? "/usr/bin/sudo",
+        timeouts: svc.timeouts,
+      };
+    }
     this.db = db;
     this.store = store;
     this.lock = lock;
     this.configLock = configLock;
     this.artifacts = new ArtifactStore(config.dataDir, store);
+    this.inboundMedia = new InboundMediaStore(config.dataDir, store, this.artifacts);
     this.credentials = new CredentialStore(config.agentDir);
     this.access = new AccessScope(db);
     this.historyIndex = new HistoryIndex(db);
@@ -319,23 +392,96 @@ export class Runtime {
     this.mcp = new McpStore(db);
     this.qqStore = new QqStore(db);
     this.sched = new SchedulerStore(store);
-    this.ledger = new ToolOpLedger(store, {
-      app_data: appDataOpCheck((opId) => this.appDataWriteVerdict(opId)),
-      scheduler: schedulerOpCheck(this.sched),
-      delegation: delegationOpCheck(store),
-      chat_result: chatResultOpCheck(store),
-    });
     this.telegramStore = new TelegramStore(store);
+    // 拥有者 IM 入口（issue 04/06，架构工单 10）：始终创建；启动配置停用（dev 开发实例、
+    // ruukoto-code 产品边界）只是入口标志。编排器启动后才连接/轮询（见 start）
+    const startupDisabled = this.productType === "ruukoto-code" ? "product" : "dev";
+    this.qqAdapter = new QqAdapter({
+      store,
+      media: this.inboundMedia,
+      qqStore: this.qqStore,
+      sched: this.sched,
+      credentials: this.credentials,
+      timeouts: config.qq,
+      startupDisabled: config.qqDisabled ? startupDisabled : undefined,
+      bridge: {
+        registerPrivate: (input) => {
+          if (this.stopping || !this.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
+          return this.registerImInbound(QQ_PRIVATE_SOURCE, input);
+        },
+        dispatchInbound: () => this.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
+        kickSession: (sessionId) => this.kick(sessionId),
+      },
+    });
+    this.telegram = new TelegramAdapter({
+      store,
+      media: this.inboundMedia,
+      tg: this.telegramStore,
+      sched: this.sched,
+      credentials: this.credentials,
+      register: (input) => {
+        if (!this.orchestrator) throw new Error("编排器未启动");
+        return this.registerImInbound(TELEGRAM_SOURCE, input);
+      },
+      onOnline: () => {
+        void this.orchestrator?.dispatchRegisteredEvents().catch(() => {});
+        const main = this.store.getAgentRole("main");
+        if (main) this.kick(main.sessionId);
+      },
+      log: (message) => process.stderr.write(`[ruukoto:telegram] ${message}\n`),
+      ...config.telegram,
+      startupDisabled: config.telegramDisabled ? startupDisabled : undefined,
+    });
+    this.imEntries = new ImEntries({
+      store,
+      sched: this.sched,
+      entries: [this.qqAdapter, this.telegram],
+      defaultChannel: config.scheduler?.channel,
+      readReply: (taskId) => this.readTaskReplyText(taskId),
+      cancelTask: (taskId, reason) => this.cancelTask(taskId, { reason }),
+      invalidateApprovals: (source) => this.imApprovals.invalidate(source),
+      kick: (sessionId) => this.kick(sessionId),
+      kickSender: () => this.scheduler?.kickSender(),
+    });
+    // IM 审批命令（agent-direction issue 08）：绑定拥有者的 QQ/Telegram 私聊
+    // 控制消息直接进入审批处理路径，不经编排器派发、不建任务
+    this.imApprovals = new ImApprovals({
+      store,
+      sched: this.sched,
+      entry: (source) => this.imEntries.entry(source),
+      applyDecision: (confirmation, decision, txExtra) => {
+        const driver = this.drivers.get(confirmation.sessionId);
+        if (!driver) return false;
+        return driver.resolveConfirmation(confirmation.id, decision, { txExtra });
+      },
+      supersedeApprovals: (sessionId, ids) => this.drivers.get(sessionId)?.supersedeApprovals(ids),
+      serviceAvailable: () => this.serviceManager !== null,
+      // 长期授权（issue 10）：创建前同步核对部署策略当前修订；无服务管理能力返回 null
+      servicePolicyRevision: () => {
+        if (!this.serviceManager) return null;
+        try {
+          return createHash("sha256").update(fs.readFileSync(this.serviceManager.policyPath)).digest("hex");
+        } catch {
+          return null;
+        }
+      },
+      kickSender: () => this.scheduler?.kickSender(),
+    });
     this.githubEvents = new GitHubEvents({
       store, artifacts: this.artifacts, sched: this.sched, config: config.githubWebhook,
-      target: (channel) => this.notifyChannel(channel)?.target() ?? null,
+      target: (channel) => this.imEntries.target(channel),
       readReply: (id, offset, length) => this.readTaskReply(id, offset, length),
       dispatch: () => !this.stopping && this.orchestrator ? this.orchestrator.dispatchRegisteredEvents() : Promise.resolve(),
-      capReply: (target, text) => {
-        if (target.channel !== QQ_PRIVATE_SOURCE) return capReply(text);
-        const chars = [...text], cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
-        return chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text;
-      },
+      capReply: (target, text) => (this.imEntries.entry(target.channel) ?? this.telegram).capReply(text),
+    });
+    this.parentDelivery = new ParentDelivery({
+      store,
+      submit: (input) => this.submitInternal(input),
+      defaultModelSelection: () => this.defaultSelection,
+      readReply: (taskId) => this.readTaskReplyText(taskId),
+      isReviewEvent: (event) => this.githubEvents.request(event) !== null,
+      resultNotice: (task) => this.githubEvents.notice(task),
+      sendWorkReport: (report) => this.imEntries.sendWorkReport(report),
     });
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
@@ -384,8 +530,70 @@ export class Runtime {
     return createLauncherFor(this.config.execution ?? { backend: "local" }, mode);
   }
 
+  /**
+   * 修改委派 worktree 的容器内创建与改动汇总（issue 16/17 取舍的受控入口）：
+   * 用受限确认容器在仓库 cwd 里执行宿主固定的 bash（创建：rev-parse → worktree
+   * add；汇总：add -N → diff → apply --check → apply），副本目录作读写挂载，
+   * extraGrants 挂载 workspace 装不下的共享 Git 目录。Grant 的挂载由 worker
+   * 前端容器自己决定（env 注入情况与跨容器边界下 physical mount 可见性由边界
+   * 自己承载，宿主不替它承诺）。
+   */
+  async createWorktreeInContainer(input: {
+    workspace: string;
+    copyDir: string;
+    branch: string;
+    command: string;
+    extraGrants?: { path: string; access: "read" | "read_write"; purpose: string }[] | null;
+  }): Promise<{ isError: boolean; errorMessage?: string; content: string }> {
+    const launcher = createLauncherFor(this.config.execution ?? { backend: "local" }, "confirm");
+    const { ToolWorkerHost } = await import("../agent/tool-worker/host.ts");
+    const spec = {
+      taskId: `worktree-init-${randomId("wt")}`,
+      mode: "confirm" as AccessMode,
+      workspace: input.workspace,
+      grantedPaths: [
+        { path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本初始化（issue 16，host 环绕容器创建）" },
+        ...(input.extraGrants ?? []),
+      ],
+      env: GIT_SAFE_DIRECTORY_ENV,
+    };
+    let host: Awaited<ReturnType<typeof ToolWorkerHost.start>> | null = null;
+    try {
+      host = await ToolWorkerHost.start(launcher, spec);
+      const result = await host.call({
+        opId: randomId("op"),
+        sdkCallId: randomId("call"),
+        name: "bash",
+        params: { command: input.command, timeout: 120 },
+        timeoutMs: 150_000,
+      });
+      const text = (result.content ?? [])
+        .map((c: any) => (typeof c?.text === "string" ? c.text : ""))
+        .join("\n")
+        .trim();
+      if (result.isError) {
+        // content 一并带回：错误正文（容器输出）能比 generic errorMessage 更准确定位现场
+        return { isError: true, errorMessage: result.errorMessage ?? "worktree 容器执行失败", content: text };
+      }
+      return { isError: false, content: text };
+    } catch (err) {
+      return { isError: true, errorMessage: (err as Error).message, content: "" };
+    } finally {
+      try {
+        if (host) await host.stop();
+      } catch {
+        // 回收失败不影响已收到的容器结果；残余由主管进程登记兜底
+      }
+    }
+  }
+
   static async start(config: RuntimeConfig): Promise<Runtime> {
+    const productType: ProductType = config.productType ?? "ruukoto";
+    // Coding Agent 产品（issue 01）：消息平台连接与个人调度不属于产品边界；
+    // 与显式 qqDisabled/telegramDisabled 同源生效（状态视图按产品标注原因）
     const fullConfig: RuntimeConfig = { ...config, execution: config.execution ?? { backend: "local" },
+      qqDisabled: productType === "ruukoto-code" ? true : config.qqDisabled,
+      telegramDisabled: productType === "ruukoto-code" ? true : config.telegramDisabled,
       githubWebhook: config.githubWebhook ? parseGitHubEventsConfig(config.githubWebhook) : undefined };
     fs.mkdirSync(fullConfig.dataDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(fullConfig.agentDir, { recursive: true, mode: 0o700 });
@@ -411,6 +619,20 @@ export class Runtime {
       lock.release();
       throw err;
     }
+
+    // 产品归属登记（issue 01，兼容扩展）：旧库无该 meta 键，首次启动按当前产品补记；
+    // 已归属另一产品的数据目录拒绝以本产品启动——配置、数据与控制面不跨产品串用
+    const recordedProduct = runtime.store.getMetaValue(PRODUCT_META_KEY);
+    if (recordedProduct !== null && recordedProduct !== productType) {
+      runtime.db.close();
+      configLock.release();
+      lock.release();
+      throw new RuntimeApiError(
+        "product_mismatch",
+        `该数据目录已归属产品 ${recordedProduct}，不能以 ${productType} 启动；检查 --data-dir、RUUKOTO_*_DIR 或 RUUKOTO_PRODUCT`,
+      );
+    }
+    if (recordedProduct === null) runtime.store.setMetaValue(PRODUCT_META_KEY, productType);
 
     try {
       if (fullConfig.githubWebhook) webhookSecret(runtime.credentials, fullConfig.githubWebhook, true);
@@ -456,62 +678,52 @@ export class Runtime {
     // main 应用数据空间（issue 02）：先于恢复打开/登记 main.db 并核对实例绑定
     // （恢复要按应用库回执核实未落结果的应用数据操作）；不可用则能力停止
     runtime.initAppData();
+    runtime.initSources();
     // 调度器（issue 03）：恢复准备须在通用 recover() 改写 running 任务之前——
-    // 先按关联记录真实状态补关闭/合并漏过周期，再把遗留 sending 定为未知
-    runtime.initScheduler();
-    runtime.scheduler.prepareRecovery();
+    // 先按关联记录真实状态补关闭/合并漏过周期，再把遗留 sending 定为未知。
+    // 个人调度只属于个人 Agent 产品（issue 01）：ruukoto-code 不创建调度器
+    if (runtime.productType === "ruukoto") {
+      runtime.initScheduler();
+      runtime.scheduler!.prepareRecovery();
+    }
+    // 通用 SubAgent 委派（agent-direction issue 11）：子工作目录在 agent-work/
+    // 下（保护根之外）；登记事务前的准备与提交后的 kick 由管理器执行
+    const worktreeRoot = path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "worktrees");
+    const workCopies = new WorkCopyManager({
+      worktreeRoot,
+      protectedRoots: () => runtime.protectedRoots(),
+      executionReaderIdentity: () => {
+        if ((fullConfig.execution?.backend ?? "local") !== "container") return null;
+        return {
+          uid: fullConfig.execution?.container?.uid ?? Number(process.env.RUUKOTO_CONTAINER_UID ?? 1000),
+          gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
+        };
+      },
+      execute: fullConfig.workCopyExecutor ?? ((input) => runtime.createWorktreeInContainer(input)),
+    });
+    runtime.subagents = new SubAgentManager({
+      store: runtime.store,
+      workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "sub-agents"),
+      workCopies,
+      sources: runtime.sources,
+      resolveSelection: (selection) => runtime.resolveSelection(selection),
+      launcherFor: (mode) => runtime.launcherFor(mode),
+      defaultModelSelection: () => runtime.defaultSelection,
+      kickSession: (sessionId) => runtime.kick(sessionId),
+      resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
+      parentDelivery: runtime.parentDelivery,
+      cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
+      protectedRoots: () => runtime.protectedRoots(),
+      dataDir: fullConfig.dataDir,
+    });
+    runtime.initHostToolFamilies();
     runtime.recover();
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
-    // QQ 群聊入口（issue 07）：恢复收件登记、自动恢复群会话队列，按配置连接
-    // NapCat（未配置/未启用时保持禁用，不猜测端点与群号）；
-    // qqDisabled（dev 开发实例）跳过适配器创建，不真实连接
-    if (!fullConfig.qqDisabled) {
-      runtime.qqAdapter = new QqAdapter({
-        store: runtime.store,
-        qqStore: runtime.qqStore,
-        sched: runtime.sched,
-        credentials: runtime.credentials,
-        dataDir: fullConfig.dataDir,
-        timeouts: fullConfig.qq,
-        bridge: {
-          registerPrivate: async (input) => {
-            if (runtime.stopping || !runtime.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
-            return runtime.orchestrator.registerInboundEvent({ source: QQ_PRIVATE_SOURCE, targetRole: "main", ...input });
-          },
-          dispatchInbound: () => runtime.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
-          registerGroup: (key) => {
-            if (runtime.stopping || !runtime.orchestrator) throw new Error("编排器尚未就绪或后台正在停止");
-            return runtime.orchestrator.registerQqGroup(key);
-          },
-          cancelTask: (taskId) => runtime.cancelTask(taskId),
-          findProjectByName: (name) => runtime.store.findProjectByName(name),
-          createProject: (name) => runtime.createProject(name),
-          createSession: (input) => runtime.createSession(input),
-          readTaskReplyText: (taskId) => runtime.readTaskReplyText(taskId),
-          resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
-          kickSession: (sessionId) => runtime.kick(sessionId),
-        },
-      });
-      runtime.addEventListener((events) => runtime.qqAdapter?.onRuntimeEvents(events));
-    }
-    // Telegram owner 入口（issue 04）：先创建（编排器启动巡检补登 owner 回复要读
-    // 固定目标），编排器启动后才开始轮询；dev 开发实例不创建
-    if (!fullConfig.telegramDisabled) {
-      runtime.telegram = new TelegramAdapter({
-        store: runtime.store,
-        tg: runtime.telegramStore,
-        sched: runtime.sched,
-        credentials: runtime.credentials,
-        register: async (input) => {
-          if (!runtime.orchestrator) throw new Error("编排器未启动");
-          return runtime.orchestrator.registerInboundEvent({ source: TELEGRAM_SOURCE, targetRole: "main", ...input });
-        },
-        log: (message) => process.stderr.write(`[ruukoto:telegram] ${message}\n`),
-        ...fullConfig.telegram,
-      });
-    }
-    // 编排器（issue 01）：引导 main/coding/chat 角色、恢复已登记未建任务的
+    // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
+    // （排队任务取消、收件跳过、在途发送定 unknown），重复启动幂等不重放
+    runtime.retireLegacyRoles();
+    // 编排器（issue 01）：引导 main/coding 角色、恢复已登记未建任务的
     // 入站事件、补记重启窗口内结束的子任务结果；监听任务终态事件做结果回传
     runtime.orchestrator = new Orchestrator({
       store: runtime.store,
@@ -529,20 +741,39 @@ export class Runtime {
         kickSession: (sessionId) => runtime.kick(sessionId),
         defaultModelSelection: () => runtime.defaultSelection,
       },
-      onInboundTerminal: (event, task, outcome) => event.source === GITHUB_SOURCE
-        ? runtime.githubEvents.terminal(event, task, outcome)
-        : runtime.enqueueOwnerReply(event, task, outcome),
+      onInboundTerminal: (event, task, outcome) => {
+        // 未完成归属的图片拒绝只使用媒体账本回执，取消排队任务不再另发 owner 回复。
+        if (runtime.inboundMedia.hasMedia(event) && event.taskId !== task.id) return;
+        if (event.source === GITHUB_SOURCE) runtime.githubEvents.terminal(event, task, outcome);
+        else runtime.imEntries.enqueueOwnerReply(event, task, outcome);
+      },
+      parentDelivery: runtime.parentDelivery,
       inboundGate: (event) => runtime.inboundGate(event),
       reviewRequest: (event) => runtime.githubEvents.request(event),
+      // 宿主固定评审（agent-direction issue 19）：编排器直接调用管理器，不经模型工具。
+      // issue 13：SubAgent 执行任务终态与启动恢复时冲刷待投递的工作内消息
+      subagents: {
+        delegate: (input) => runtime.subagents!.delegate(input),
+        resultRecorded: (task) => runtime.subagents!.resultRecorded(task),
+        start: () => runtime.subagents!.start(),
+        flushPending: (parentSessionId) => runtime.subagents!.flushPendingMessages(parentSessionId),
+      },
       resultData: (task, outcome) => runtime.githubEvents.resultData(task, outcome),
-      resultNotice: (task) => runtime.githubEvents.notice(task),
+      recoverMedia: () => runtime.recoverInboundMedia(),
+      prepareMedia: (event, selection) => runtime.prepareInboundMedia(event, selection),
+      promoteMedia: (event, task) => {
+        if (runtime.inboundMedia.hasMedia(event)) runtime.inboundMedia.promote(event.id, task.id, task.sessionId);
+      },
+      cleanupMedia: () => runtime.inboundMedia.cleanup(),
     });
     runtime.addEventListener((events) => runtime.orchestrator?.onRuntimeEvents(events));
     await runtime.orchestrator.start();
-    await runtime.qqAdapter?.start();
-    runtime.telegram?.start();
-    // 恢复与角色引导完成后才开放调度事件派发与发送
-    runtime.scheduler.start();
+    // 拥有者 IM 入口（issue 04/06）：编排器启动后才连接 NapCat / 开始轮询（编排器启动
+    // 巡检补登 owner 回复要读固定目标）；未配置/未启用时保持断开，不猜测端点
+    await runtime.qqAdapter.start();
+    runtime.telegram.start();
+    // 恢复与角色引导完成后才开放调度事件派发与发送（ruukoto-code 无调度器）
+    runtime.scheduler?.start();
     if (fullConfig.githubWebhook) {
       try {
         runtime.githubWebhook = await GitHubWebhook.start({
@@ -559,7 +790,7 @@ export class Runtime {
       }
     }
     runtime.store.withTx(() => {
-      runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend });
+      runtime.store.appendEvent({ type: "backend.started", dataDir: fullConfig.dataDir, executionBackend: fullConfig.execution!.backend, product: productType });
     });
     return runtime;
   }
@@ -572,25 +803,52 @@ export class Runtime {
 
   // ---------- 调度器与通知（issue 03） ----------
 
-  private initScheduler(): void {
-    const now = this.config.scheduler?.now ?? (() => Date.now());
-    const channel = (source: string) => this.notifyChannel(source);
+  /** 来源核实（issue 03/05）：通知与委派的来源校验共用；与调度器生命周期无关。 */
+  private initSources(): void {
     this.sources = createSourceResolver({
       store: this.store,
       access: this.access,
       artifacts: this.artifacts,
       appData: () => this.appDataStore,
     });
+  }
+
+  private initScheduler(): void {
+    const now = this.config.scheduler?.now ?? (() => Date.now());
     this.scheduler = new Scheduler({
       store: this.store,
       sched: this.sched,
       now,
-      channel,
+      channel: (source) => this.imEntries.channel(source),
       // 编排器在 start 末尾创建；调度扫描只在其后开放，恢复准备不派发
       dispatchRegistered: () => this.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
       serial: (fn) => (this.orchestrator ? this.orchestrator.serial(fn) : fn()),
       cancelTask: (taskId) => this.cancelTask(taskId),
       verifySources: (op) => {
+        // IM 审批控制消息回执（issue 08）：宿主已在处理时核实身份；发送前核对
+        // 原控制事件与钉版目标，不经仅适用于 GitHub 的入站核实
+        if (op.sourceKind === "inbound_event") {
+          if (op.sourceKey.startsWith("media:")) {
+            const message = this.inboundMedia.getMessageById(op.sourceKey.slice("media:".length));
+            const entry = message ? this.imEntries.entry(message.source) : null;
+            const current = entry?.target();
+            return message && ["rejected", "expired"].includes(message.status) && entry && message.actor === entry.expectedActor() &&
+              message.replyTarget && current && sameTarget(message.replyTarget, op.target) && sameTarget(current, op.target)
+              ? null : "图片拒绝回执来源已失效";
+          }
+          const event = this.store.getInboundEvent(op.sourceKey);
+          if (event?.eventKind === "im_approval") {
+            return event.actor && event.replyTarget && sameTarget(event.replyTarget, op.target)
+              ? null
+              : "IM 审批回执来源不可核实";
+          }
+        }
+        // IM 审批初始通知：发送前检查请求仍有效（已决定/已失效的未发出通知不发出）；
+        // 不影响 task:<taskId> 的一次通知槽
+        if (op.sourceKind === "confirmation" && op.sourceKey.startsWith("im-approval:")) {
+          const confirmation = this.store.getConfirmation(op.sourceKey.slice("im-approval:".length));
+          if (!confirmation || confirmation.status !== "pending") return "审批已决定或失效，通知不再发出";
+        }
         const problem = this.githubEvents.verifyNotification(op);
         if (problem) return problem;
         const main = this.store.getAgentRole("main");
@@ -611,53 +869,100 @@ export class Runtime {
     });
   }
 
-  /** 按已固定的渠道选择发送器；缺省通知仍沿用 Telegram，不能把旧操作改发到另一平台。 */
-  private notifyChannel(source?: string): NotifyChannel | null {
-    if (source === QQ_PRIVATE_SOURCE) return this.qqAdapter;
-    if (this.config.scheduler?.channel) return this.config.scheduler.channel;
-    return source === undefined || source === TELEGRAM_SOURCE ? this.telegram : null;
-  }
-
-  private qqPrivateGate(event: InboundEvent): "run" | "wait" | { drop: string } {
-    if (event.source !== QQ_PRIVATE_SOURCE) return "run";
-    return this.qqAdapter?.gatePrivate(event) ?? "wait";
-  }
-
   private inboundGate(event: InboundEvent): "run" | "wait" | { drop: string } {
-    if (event.source === QQ_GROUP_SOURCE) return this.qqAdapter?.gateGroup(event) ?? "wait";
-    return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.qqPrivateGate(event);
+    // 核心群聊已退役（agent-direction issue 20）：旧群入站事件一律作废
+    if (event.source === QQ_GROUP_SOURCE) return { drop: CORE_GROUP_CHAT_RETIRED };
+    return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.imEntries.gate(event);
   }
+
+  // ---------- IM 审批（agent-direction issue 08） ----------
 
   /**
-   * owner 回复（issue 04/06）：私聊入站任务到达终态时，在编排器的结果事务内
-   * 登记一条发送操作——发送键为入站事件 id，目标由宿主固定，正文取本任务的
-   * 最终回答（失败/超时/未知只发宿主固定提示）。定时唤醒与子任务唤醒产生的
-   * 任务没有私聊来源事件，不会自动外发。
+   * IM 入站登记：审批命令整条匹配时直接进入宿主审批路径（不派发、不建任务、
+   * 不排在等待审批的普通任务后面）；普通正文保持现有入站路径。
    */
-  private enqueueOwnerReply(event: InboundEvent, task: Task, outcome: ChildOutcome): void {
-    if (event.source !== TELEGRAM_SOURCE && event.source !== QQ_PRIVATE_SOURCE) return;
-    const skip = (reason: string) => this.store.appendEvent({ type: event.source === QQ_PRIVATE_SOURCE ? "qq_private.reply_skipped" : "telegram.reply_skipped", eventId: event.id, taskId: task.id, reason }, { taskId: task.id });
-    const current = this.notifyChannel(event.source)?.target() ?? null;
-    const target = event.source === QQ_PRIVATE_SOURCE ? event.replyTarget : current;
-    const externalId = event.source === QQ_PRIVATE_SOURCE ? qqPrivateExternalId : telegramExternalId;
-    // 目标只能是登记该消息的同一 bot + chat（配置换了 bot/chat 不改发到新目标）
-    if (!target || !current || !isDeepStrictEqual(target, current) || !event.externalId.startsWith(externalId(target.account, target.chatId, ""))) {
-      return skip(target ? "target_changed" : "target_unavailable");
+  private async registerImInbound(
+    source: string,
+    input: { externalId: string; actor: string | null; body: string; replyTarget: NotifyTarget | null; commandText?: string; media?: boolean },
+  ): Promise<unknown> {
+    const { commandText, media, ...registration } = input;
+    if (media) {
+      const message = this.inboundMedia.getMessage(source, input.externalId);
+      if (!message) throw new Error("图片暂存记录缺失");
+      if (message.status === "rejected" || message.status === "expired") {
+        this.store.withTx(() => this.enqueueMediaReceipt(message));
+        this.scheduler?.kickSender();
+        return message;
+      }
+      if (message.status !== "ready" && message.status !== "bound") return message;
+      // 重投沿用首次下载时的拥有者与配置代次，不能用新入口重新包装旧图片。
+      registration.actor = message.actor;
+      registration.body = message.body;
+      registration.replyTarget = message.replyTarget;
     }
-    const text =
-      outcome === "completed"
-        ? this.readTaskReplyText(task.id)?.trim() || "（无文本输出）"
-        : `[ruukoto] 这条消息的处理${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
-    try {
-      const chars = [...text];
-      const cap = this.qqStore.getConfig()?.maxReplyChars ?? 1500;
-      const reply = event.source === QQ_PRIVATE_SOURCE
-        ? (chars.length > cap ? `${chars.slice(0, cap - 1).join("")}…` : text)
-        : capReply(text);
-      this.sched.insertOp({ sourceKind: "owner_reply", sourceKey: event.id, taskId: task.id, hostOpId: null, target, text: reply, sourceRefs: [] });
-    } catch (err) {
-      skip(`enqueue_failed：${(err as Error).message}`.slice(0, 200));
+    if (!media && commandText !== undefined) {
+      const outcome = await this.imApprovals.handleCommand({
+        source,
+        externalId: input.externalId,
+        actor: input.actor,
+        replyTarget: input.replyTarget,
+        commandText,
+      });
+      if (outcome) return outcome;
     }
+    const result = await this.orchestrator!.registerInboundEvent({ source, targetRole: "main", ...registration });
+    if (media) this.inboundMedia.attachEvent(source, input.externalId, result.event.id);
+    return result;
+  }
+
+  private enqueueMediaReceipt(message: InboundMediaMessage): void {
+    if (!message.replyTarget) return;
+    this.sched.insertOp({
+      sourceKind: "inbound_event", sourceKey: `media:${message.id}`, taskId: null, hostOpId: null,
+      target: message.replyTarget, sourceRefs: [],
+      text: message.reason === "image_input_unsupported"
+        ? "[ruukoto] 当前模型不支持图片输入，这条图片消息未执行。请在配置中选择支持图片的模型后重新发送。"
+        : message.reason === "download_failed" || message.reason === "download_interrupted"
+          ? "[ruukoto] 图片下载未能完成，这条消息未执行。请稍后重新发送图片。"
+          : "[ruukoto] 图片接收失败，这条消息未执行。请发送 JPEG、PNG 或 WebP，每条最多 4 张，每张不超过 8 MiB。",
+    });
+  }
+
+  private async recoverInboundMedia(): Promise<void> {
+    this.inboundMedia.recover();
+    for (const message of this.inboundMedia.listRejectedMessages()) this.store.withTx(() => this.enqueueMediaReceipt(message));
+    for (const message of this.inboundMedia.listReadyMessages()) {
+      await this.registerImInbound(message.source, { externalId: message.externalId, actor: message.actor,
+        body: message.body, replyTarget: message.replyTarget, media: true });
+    }
+  }
+
+  private async prepareInboundMedia(event: InboundEvent, selection: ModelSelection): Promise<boolean> {
+    if (!this.inboundMedia.hasMedia(event)) return true;
+    const message = this.inboundMedia.getMessage(event.source, event.externalId)!;
+    if (["rejected", "expired"].includes(message.status)) {
+      this.store.withTx(() => {
+        this.store.failRegisteredInbound(event.id);
+        this.enqueueMediaReceipt(message);
+      });
+      const role = this.store.getAgentRole(event.targetRole);
+      const pending = role ? this.store.findTaskByRequest(role.sessionId, `evt:${event.id}`) : null;
+      if (pending?.status === "queued") await this.cancelTask(pending.id, { reason: "inbound_media_rejected" });
+      return false;
+    }
+    // 已创建任务的重启窗口沿用原模型与请求键；能力在 Driver 发出请求前再次核实。
+    const role = this.store.getAgentRole(event.targetRole);
+    if (role && this.store.findTaskByRequest(role.sessionId, `evt:${event.id}`)) return true;
+    const model = await this.modelCatalog.resolve(selection);
+    if (model.input.includes("image")) return true;
+    this.inboundMedia.rejectMessage(event.source, event.externalId, "image_input_unsupported");
+    this.store.withTx(() => {
+      this.store.failRegisteredInbound(event.id);
+      this.enqueueMediaReceipt(this.inboundMedia.getMessage(event.source, event.externalId)!);
+      this.store.appendEvent({ type: "inbound.skipped", eventId: event.id, source: event.source, reason: "image_input_unsupported" });
+    });
+    this.scheduler?.kickSender();
+    return false;
   }
 
   /** 拥有者控制面：计划分页列表 / 详情（含最近运行） / 取消。 */
@@ -676,8 +981,44 @@ export class Runtime {
     return { schedule, runs: this.sched.listRuns(scheduleId, 20) };
   }
 
+  // ---------- 长期操作授权（拥有者控制面；agent-direction issue 10） ----------
+
+  /**
+   * 长期授权分页列表（入口停用后仍可管理的遗留目录；只查询，目录权限不能用于
+   * 放行旧授权）。光标为上一页最后一条授权 id。
+   */
+  serviceGrantList(input: { cursor?: string; limit?: number }): { items: StandingPermission[]; nextCursor: string | null } {
+    try {
+      const { items, hasMore } = this.store.listStandingPermissionsPaged({ before: input.cursor, limit: input.limit ?? 50 });
+      return { items, nextCursor: hasMore && items.length > 0 ? items[items.length - 1]!.id : null };
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError("invalid_params", err.message);
+      throw err;
+    }
+  }
+
+  /** 长期授权详情：完整范围、版本、存续状态、来源与独立使用记录（有界）。 */
+  serviceGrantGet(permissionId: string): { permission: StandingPermission; usages: ConfirmationRequest[] } {
+    const permission = this.store.getStandingPermission(permissionId);
+    if (!permission) throw new RuntimeApiError("not_found", `长期授权不存在：${permissionId}`);
+    return { permission, usages: this.store.listConfirmationsByStanding(permissionId, 50) };
+  }
+
+  /** 带版本撤销长期授权；已撤销的幂等返回（重复撤销不再次变更）。 */
+  serviceGrantRevoke(permissionId: string, expectedVersion: number): StandingPermission {
+    try {
+      const { permission } = this.store.withTx(() => this.store.revokeStandingPermission(permissionId, expectedVersion));
+      return permission;
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code === "not_found" ? "not_found" : err.code, err.message);
+      throw err;
+    }
+  }
+
   async scheduleCancel(input: { scheduleId: string; expectedVersion: number; reason: string }) {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    // ruukoto-code 无调度器：取消计划的合并语义不可用，明确拒绝而不是静默改写
+    if (!this.scheduler) throw new RuntimeApiError("unavailable", "该实例未启动个人调度（Coding Agent 产品边界）");
     if (!input.reason.trim()) throw new RuntimeApiError("invalid_params", "reason 不能为空");
     try {
       return await this.scheduler.cancelSchedule({ ...input, source: "owner", cancelOpId: null });
@@ -811,27 +1152,15 @@ export class Runtime {
       //    未完成执行 → interrupted。
       this.ledger.settleAll();
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
-        const changed = store.transitionTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
+        const changed = store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
           interruptReason: "backend_restart",
           endedAt: new Date().toISOString(),
+          keepOccupancy: true,
         });
-        if (changed) {
-          store.stalePendingConfirmations(task.id);
-          store.appendEvent(
-            {
-              type: "task.interrupted",
-              taskId: task.id,
-              sessionId: task.sessionId,
-              reason: "backend_restart",
-              cancelRequested: task.cancelRequested,
-              // 补记之后读取的任务标记（含本次新标与此前运行时已标），与停止路径同一口径
-              effectUnknown: task.effectUnknown,
-            },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-          interruptedTaskIds.push(task.id);
-        }
+        if (changed) interruptedTaskIds.push(task.id);
       }
+
+      interruptedTaskIds.push(...this.subagents!.recoverQueuedTasks());
 
       // 2. 遗留占用：旧后台已死但其子进程状态无法确认 → 保留占用，暂停会话，
       //    由拥有者核实后 resume_queue 释放（systemd KillMode=control-group 下
@@ -911,6 +1240,43 @@ export class Runtime {
     });
   }
 
+  /**
+   * 固定角色退役的启动收尾（agent-direction issue 20 群聊、issue 23 coding）：只把
+   * 未终态的旧行改成终态，每次启动执行、按状态幂等（已终态的行不再改动，重复
+   * 升级/重启不重放）。
+   * - 群会话与 coding 角色会话的排队任务 → canceled（原因按角色）；运行中的已由
+   *   recover() 定 interrupted（结果未知，不重放）；旧 coding 子任务的结果与 main
+   *   唤醒由编排器启动巡检补记一次；
+   * - 在途（pending）群回复 → unknown（effect_unknown，不重发），对应收件记
+   *   reply_unknown；完成但未发回复的收件不再补发，与其余未终态收件一并
+   *   记 skipped；
+   * - 已登记的 qq_group 入站事件的作废与 inbound.skipped 由编排器启动恢复
+   *   经入站门固定 drop 统一处理，不在此重复。
+   */
+  private retireLegacyRoles(): void {
+    this.store.withTx(() => {
+      for (const ob of this.qqStore.listPendingOutbox()) {
+        if (this.qqStore.settleOutbox(ob.opId, "unknown", { error: `${CORE_GROUP_CHAT_RETIRED}（发送结果未确认，effect_unknown，不重发）` })) {
+          this.store.db.prepare("UPDATE qq_inbox SET status = 'reply_unknown' WHERE task_id = ? AND status = 'queued'").run(ob.taskId);
+        }
+      }
+      const now = new Date().toISOString();
+      const retired = [
+        ...this.qqStore.listGroupSessions().map((gs) => ({ sessionId: gs.sessionId, reason: CORE_GROUP_CHAT_RETIRED })),
+        ...this.store.listAgentRoles().filter((r) => r.id === "coding").map((r) => ({ sessionId: r.sessionId, reason: CODING_ROLE_RETIRED })),
+      ];
+      for (const { sessionId, reason } of retired) {
+        for (const task of this.store.listQueuedTasksFifo(sessionId)) {
+          this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: reason, endedAt: now });
+        }
+      }
+      // 先于 outbox 定 reply_unknown 的行已离开 queued 状态，不会被覆盖
+      for (const row of this.qqStore.listPendingInbox()) {
+        this.qqStore.setInboxStatus(row.dedupKey, "skipped");
+      }
+    });
+  }
+
   // ---------- 项目与会话 ----------
 
   createProject(name: string, createRequestId?: string): Project {
@@ -934,8 +1300,6 @@ export class Runtime {
     projectName?: string;
     cwd: string;
     confirmTools?: string[];
-    /** 入口类别（默认 dev；qq_group 仅由 QQ 适配器经窄接口创建）。 */
-    kind?: SessionKind;
     /** 创建幂等键（issue 21）：同键同参返回已存在会话，同键异参报 request_conflict。 */
     createRequestId?: string;
   }): Promise<Session> {
@@ -946,23 +1310,22 @@ export class Runtime {
     if (input.projectId) {
       const project = this.store.getProject(input.projectId);
       if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+      // 角色与群聊会话所在的项目不能作为普通会话归属（issue 20；与
+      // openWorkspace「角色或群聊项目不能作为工作区认领」同一判定）——否则可在
+      // 群项目里建普通 dev 会话，绕过群会话只读归档边界读取群原始历史
+      const roles = this.store.listAgentRoles();
+      if (roles.some((r) => r.projectId === project.id) || this.store.listSessions().some((s) => s.projectId === project.id && s.kind !== "dev")) {
+        throw new RuntimeApiError("invalid_params", "角色或群聊项目不能创建普通会话");
+      }
     }
-    const identity = await resolveDirIdentity(input.cwd).catch((err: DirIdentityError) =>
-      Promise.reject(new RuntimeApiError("invalid_params", err.message)),
-    );
-    // 工作区不得是保护根（后台数据、凭据、控制面、服务代码）本身、其子级或其祖先
-    try {
-      assertGrantNotProtected(identity.cwdReal, this.protectedRoots());
-    } catch (err) {
-      throw new RuntimeApiError("invalid_params", `工作区不可用：${(err as Error).message}`);
-    }
+    const identity = await this.resolveUsableDir(input.cwd);
     try {
       return this.store.withTx(() => {
         // 目录校验先于任何写入；项目与会话同一事务，会话失败则项目一并回滚
         const projectId = input.projectId ?? this.store.createProject(input.projectName!.trim(), input.createRequestId).id;
         return this.store.createSession({
           projectId,
-          kind: input.kind ?? "dev",
+          kind: "dev",
           cwd: identity.cwd,
           cwdReal: identity.cwdReal,
           cwdDev: identity.dev,
@@ -981,6 +1344,130 @@ export class Runtime {
     }
   }
 
+  /**
+   * 打开工作区（agent-direction issue 05）：按真实目录身份（realpath/dev+ino）
+   * 复用或创建工作区并新建会话。工作区实例上是带根目录归属的项目；旧项目可经
+   * projectId 认领根目录（保留旧关系），已归属他目录的项目拒绝改归属。同一
+   * createRequestId 重发返回原会话；目录校验与认领/建项目/建会话在同一事务，
+   * 失败不留空项目。
+   */
+  async openWorkspace(input: {
+    cwd: string;
+    /** 指定既有项目（旧项目认领或显式选择）；缺省按目录身份自动复用/创建。 */
+    projectId?: string;
+    /** 启动请求标识（幂等键）：重发返回原会话。 */
+    createRequestId?: string;
+  }): Promise<{ session: Session; projectName: string; createdProject: boolean }> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    const identity = await this.resolveUsableDir(input.cwd);
+    try {
+      return this.store.withTx(() => {
+        // 应答丢失后的同一标识重发：直接返回首次成果，项目/会话都不重建；
+        // 同键异目录按 request_conflict 处理（与 create_session 同一纪律，
+        // 目录身份同样是 realpath 或 dev+ino 别名判定）
+        if (input.createRequestId) {
+          const replay = this.store.findSessionByCreateRequestId(input.createRequestId);
+          if (replay) {
+            const replayIdentity: DirIdentity = { cwd: replay.cwd, cwdReal: replay.cwdReal, dev: replay.cwdDev, ino: replay.cwdIno };
+            if (!sameDirIdentity(replayIdentity, identity)) {
+              throw new StoreConflictError(`request_id 已存在且目录不同：session=${replay.id}`, "request_conflict");
+            }
+            return { session: replay, projectName: this.store.getProject(replay.projectId)!.name, createdProject: false };
+          }
+        }
+        let project: Project | null = null;
+        let createdProject = false;
+        if (input.projectId) {
+          const target = this.store.getProject(input.projectId);
+          if (!target) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+          project = target;
+          // 逻辑角色与群聊会话所在的项目不是可认领的旧项目（可信入口不会发，后台兜底）
+          const rolesOfRuntime = this.store.listAgentRoles();
+          if (rolesOfRuntime.some((r) => r.projectId === target.id) || this.store.listSessions().some((s) => s.projectId === target.id && s.kind !== "dev")) {
+            throw new RuntimeApiError("invalid_params", "角色或群聊项目不能作为工作区认领");
+          }
+          // 多目录旧项目不能在迁移流程之外认领到其中一个目录（issue 07 步骤 2 收紧；
+          // 与 control/workspace.ts 的候选筛选同一判定（legacyProjectClaimableFromDir）；
+          // 目录仍否有效由迁移预览核实，不在此做文件系统检查
+          if (!legacyProjectClaimableFromDir(this.store.listSessions().filter((s) => s.projectId === target.id), rolesOfRuntime.map((r) => r.sessionId))) {
+            throw new RuntimeApiError("invalid_params", "旧项目会话分布在多个目录，不能在迁移流程之外认领到其中一个目录；请用 project migration-preview 组织迁移");
+          }
+          if (!project.rootDir) {
+            this.store.attachProjectRoot(project.id, identity);
+          } else if (!sameDirIdentity(project.rootDir, identity)) {
+            throw new RuntimeApiError("invalid_params", `项目已归属其他工作区目录：${project.rootDir.cwdReal}`);
+          }
+        } else {
+          project = this.store.findProjectByRoot(identity);
+          if (!project) {
+            // 自动项目名取根目录名，重名仅展示层去重（同名不同目录绝不合并）
+            const base = path.basename(identity.cwdReal) || "workspace";
+            for (let n = 1; ; n++) {
+              const name = n === 1 ? base : `${base} (${n})`;
+              if (!this.store.findProjectByName(name)) {
+                project = this.store.createProject(name, input.createRequestId, identity);
+                createdProject = true;
+                break;
+              }
+            }
+          }
+        }
+        const session = this.store.createSession({
+          projectId: project.id,
+          kind: "dev",
+          cwd: identity.cwd,
+          cwdReal: identity.cwdReal,
+          cwdDev: identity.dev,
+          cwdIno: identity.ino,
+          piSessionId: randomUUID(),
+          confirmTools: [],
+          createRequestId: input.createRequestId,
+          modelSelection: this.defaultSelection,
+        });
+        return { session, projectName: project.name, createdProject };
+      });
+    } catch (err) {
+      if (err instanceof StoreConflictError) {
+        throw new RuntimeApiError(err.code, err.message);
+      }
+      throw err;
+    }
+  }
+
+  /** 解析目录身份并校验不是保护根本身、其子级或其祖先。 */
+  private async resolveUsableDir(cwd: string): Promise<DirIdentity> {
+    const identity = await resolveDirIdentity(cwd).catch((err: DirIdentityError) =>
+      Promise.reject(new RuntimeApiError("invalid_params", err.message)),
+    );
+    try {
+      assertGrantNotProtected(identity.cwdReal, this.protectedRoots());
+    } catch (err) {
+      throw new RuntimeApiError("invalid_params", `工作区不可用：${(err as Error).message}`);
+    }
+    return identity;
+  }
+
+  /**
+   * 旧数据 → 工作区的组织迁移（agent-direction issue 07 步骤 2/3）：
+   * 全部推断集中在 workspace-migration.ts，这里只做接线。预览零写入；
+   * 应用先查成功回执再核修订，单事务提交，失败整体回滚。
+   */
+  previewWorkspaceMigration(input: MigrationPreviewInput): MigrationPreview {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    return previewWorkspaceMigration(
+      { store: this.store, instanceId: this.db.getInstanceId(), protectedRoots: this.protectedRoots() },
+      input,
+    );
+  }
+
+  applyWorkspaceMigration(input: MigrationApplyInput): MigrationApplyResult {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    return applyWorkspaceMigration(
+      { store: this.store, instanceId: this.db.getInstanceId(), protectedRoots: this.protectedRoots() },
+      input,
+    );
+  }
+
   async listModels(input: { provider?: string; offset?: number; limit?: number } = {}) {
     return this.modelCatalog.list(input);
   }
@@ -991,9 +1478,16 @@ export class Runtime {
     return session;
   }
 
-  listSessionSummaries(projectId: string) {
-    if (!this.store.getProject(projectId)) throw new RuntimeApiError("not_found", "项目不存在");
-    return this.store.listSessionSummaries(projectId);
+  /**
+   * 会话摘要查询（issue 07 步骤 4）：project_id 按原身份查询（旧语义）；
+   * workspace_id 按组织归属查询（已映射旧会话归入目标工作区）。两个参数互斥。
+   */
+  listSessionSummaries(input: { projectId?: string; workspaceId?: string }) {
+    const id = input.workspaceId ?? input.projectId;
+    if (!id) throw new RuntimeApiError("invalid_params", "project_id 或 workspace_id 必填其一");
+    if (input.projectId && input.workspaceId) throw new RuntimeApiError("invalid_params", "project_id 与 workspace_id 互斥，只能传其一");
+    if (!this.store.getProject(id)) throw new RuntimeApiError("not_found", "项目不存在");
+    return input.workspaceId ? this.store.listSessionSummariesForWorkspace(id) : this.store.listSessionSummaries(id);
   }
 
   async setSessionModel(input: { sessionId: string; modelSelection: ModelSelection; expectedVersion: number }): Promise<Session> {
@@ -1024,10 +1518,11 @@ export class Runtime {
    * 的 await 期间门闩生效，或一次应用已整体完成（目录被重建，如 provider 已
    * 删除且引用核实已通过）时拒绝，不让新引用钻过 §4 的删除/应用边界。
    */
-  private async resolveSelection(selection: ModelSelection): Promise<() => void> {
+  private async resolveSelection(selection: ModelSelection, requireImages = false): Promise<() => void> {
     this.assertModelConfigIdle(selection.provider);
     const catalog = this.modelCatalog;
-    await catalog.resolve(selection);
+    const model = await catalog.resolve(selection);
+    if (requireImages && !model.input.includes("image")) throw new RuntimeApiError("image_input_unsupported", "所选模型不支持图片输入");
     return () => {
       this.assertModelConfigIdle(selection.provider);
       if (this.modelCatalog !== catalog) throw new RuntimeApiError("model_config_busy", "模型配置刚刚更新，请重试");
@@ -1086,6 +1581,12 @@ export class Runtime {
     } finally {
       this.modelConfigGate = null;
       settle();
+      // 成功与回滚都解除门闩，既有待投递消息用原键和当前配置重新核实。
+      if (!this.stopping) {
+        await this.subagents?.flushPendingMessages().catch((err) => {
+          process.stderr.write(`[ruukoto] 模型配置应用后冲刷消息失败：${(err as Error).message}\n`);
+        });
+      }
     }
   }
 
@@ -1384,10 +1885,19 @@ export class Runtime {
 
   /**
    * 校验拥有者为任务显式授予的工作区外路径：必须存在，且不得是保护根
-   * （后台数据、凭据、控制面、服务代码）本身、其子级或其祖先。
+   * （后台数据、凭据、控制面、服务代码）本身、其子级或其祖先；不得覆盖
+   * 宿主管理的工作副本根（agent-work/worktrees，issue 16：子任务副本只能
+   * 经委派范围访问，授予路径是旁路，绕过单一写入者）。
    */
   private validateGrantedPaths(paths: GrantedPath[]): GrantedPath[] {
     const resolved: GrantedPath[] = [];
+    let worktreesRoot = path.join(path.dirname(path.resolve(this.config.dataDir)), "agent-work", "worktrees");
+    try {
+      worktreesRoot = fs.realpathSync(worktreesRoot);
+    } catch {
+      // 根尚未创建：与路径参数的 realpath 比较前以 resolve 的父链归一
+      worktreesRoot = path.resolve(worktreesRoot);
+    }
     for (const p of paths) {
       if (!p.path.trim()) throw new RuntimeApiError("invalid_params", "授予路径不能为空");
       if (p.access !== "read" && p.access !== "read_write") {
@@ -1398,6 +1908,12 @@ export class Runtime {
         real = fs.realpathSync(p.path);
       } catch {
         throw new RuntimeApiError("invalid_params", `授予路径不存在：${p.path}`);
+      }
+      // 工作副本模块统一负责旁路写入保护；Runtime 仍负责将错误翻译为控制面错误。
+      try {
+        assertWorktreeGrantAllowed(real, p.access, worktreesRoot);
+      } catch (err) {
+        throw new RuntimeApiError("invalid_params", (err as Error).message);
       }
       try {
         assertGrantNotProtected(real, this.protectedRoots());
@@ -1427,7 +1943,7 @@ export class Runtime {
     sessionId: string;
     requestId: string;
     input: string;
-    accessMode?: AccessMode;
+    accessMode?: SessionDefaultMode;
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string;
     modelSelection: ModelSelection;
@@ -1445,9 +1961,21 @@ export class Runtime {
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
-    // 计划模式（issue 26）只限普通开发会话：角色会话各有固定职责与工具
-    if (isPlanInput(input.input) && (session.kind !== "dev" || this.store.getAgentRoleBySession(session.id))) {
-      throw new RuntimeApiError("invalid_params", "计划模式（/plan）只能在普通开发会话中使用");
+    const identity = this.store.getSessionIdentity(session.id)!;
+    // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
+    // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
+    if (identity.kind === "subagent") {
+      throw new RuntimeApiError(
+        "invalid_state",
+        "该会话是 SubAgent 的独立工作会话，不能用作用户对话提交（委派经 subagent_delegate，结果经 subagent_result 查询）",
+      );
+    }
+    // 固定角色已退役（agent-direction issue 20/23）：qq_group 会话与 chat/coding
+    // 角色会话是只读归档，拒绝作为对话入口重新提交；continueTask 经本入口提交，一并覆盖
+    if (identity.kind === "retired") {
+      throw new RuntimeApiError("invalid_state", identity.reason === CORE_GROUP_CHAT_RETIRED
+        ? "核心群聊已退役：该会话是只读归档，不能提交任务（历史可经 qq inbox / read_history 查阅）"
+        : "固定 coding 角色已退役：该会话是只读归档，不能提交任务（委派改用 subagent_delegate，旧结果经 coding_result / read_history 查阅）");
     }
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
@@ -1459,38 +1987,46 @@ export class Runtime {
       deadline = normalizeIsoInstant(input.deadline);
       if (deadline === null) throw new RuntimeApiError("invalid_params", `截止时间无效：${input.deadline}`);
     }
-    // 未显式指定时固定为提交瞬间的会话默认模式（issue 12）；幂等摘要据此计算，
-    // 默认值之后的变更不会漂移已接收任务。
-    const accessMode = input.accessMode ?? session.defaultAccessMode;
-    if (!isAccessMode(accessMode)) {
-      throw new RuntimeApiError("invalid_params", `访问模式无效：${accessMode}`);
+    // 默认模式只决定新任务；重试摘要绑定原请求，后续修改默认值不会改变已接收任务。
+    const mode = input.accessMode ?? session.defaultAccessMode;
+    if (!isSessionDefaultMode(mode)) {
+      throw new RuntimeApiError("invalid_params", `模式无效：${mode}`);
     }
+    const planMode = mode === "plan";
+    if (planMode && identity.kind !== "dev") {
+      throw new RuntimeApiError("invalid_params", "Plan 只能在普通开发会话中使用");
+    }
+    const accessMode = mode === "plan" ? "auto-review" : mode;
     const selection = parseModelSelection(input.modelSelection);
-    // 摘要键序固定（v11 前的旧算法为前五个键）：旧格式摘要据同一对象核对
+    // 未指定模式记录 null；有效模式另存于任务，重试不重新采用会话默认值。
     const digestBase = {
-      input: input.input, accessMode,
+      input: input.input, accessMode: input.accessMode ?? null,
       grantedPaths: (input.grantedPaths ?? []).map(p => ({ path: p.path, access: p.access, purpose: p.purpose || "未说明" })),
       resumesTaskId: input.resumesTaskId ?? null, modelSelection: selection,
     };
-    const submissionDigest = createHash("sha256").update(JSON.stringify({
+    const submission = {
       ...digestBase,
       agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null,
       sourceEventId: input.sourceEventId ?? null, deadline,
-    })).digest("hex");
-    // 升级兼容（schema v11 引入编排字段前的已接收请求）：编排字段全空的提交
-    // 附带旧格式摘要，同参重试仍可核实；编排字段非空时不提供旧格式，同键异参
-    // 校验不放宽
-    const legacyDigest =
-      (input.agentId ?? null) === null && (input.parentTaskId ?? null) === null &&
-      (input.sourceEventId ?? null) === null && deadline === null
-        ? createHash("sha256").update(JSON.stringify(digestBase)).digest("hex")
-        : undefined;
-    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
+    };
+    const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+    const submissionDigest = `request-v2:${digest(submission)}`;
+    // 通用摘要升级：旧格式只保存最终访问模式，隐式请求需按原三种模式核实，
+    // 不借用现在的会话默认值或可能已切换的任务模式。Plan 不匹配任何旧摘要。
+    const legacyModes = input.accessMode === undefined ? SESSION_DEFAULT_MODES.filter(isAccessMode)
+      : isAccessMode(input.accessMode) ? [input.accessMode] : [];
+    const legacyDigests = legacyModes.flatMap((accessMode) => [
+      digest({ ...submission, accessMode }),
+      ...(submission.agentId === null && submission.parentTaskId === null && submission.sourceEventId === null && deadline === null
+        ? [digest({ ...digestBase, accessMode })] : []),
+    ]);
+    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
     if (existing) return existing;
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
     // this.submit 走同一检查
-    const check = await this.resolveSelection(selection);
+    const sourceEvent = input.sourceEventId ? this.store.getInboundEvent(input.sourceEventId) : null;
+    const check = await this.resolveSelection(selection, sourceEvent !== null && this.inboundMedia.hasMedia(sourceEvent));
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
     try {
@@ -1511,7 +2047,7 @@ export class Runtime {
         // 门闩重检必须在入队事务内（issue 21 §4）：应用方的门闩设置与活动
         // 任务核查是同一同步段，这里在插入前重检才能保证"检查到应用完成
         // 之间"没有受影响任务钻过边界；重复提交先仲裁返回，不受门闩影响
-        const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigest });
+        const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
         if (raced) return { task: raced, duplicate: true };
         check();
         return this.store.insertQueuedTask({
@@ -1519,11 +2055,12 @@ export class Runtime {
           requestId: input.requestId,
           input: input.input,
           accessMode,
+          planMode,
           grantedPaths,
           resumesTaskId: input.resumesTaskId,
           modelSelection: selection,
           submissionDigest,
-          legacyDigest,
+          legacyDigests,
           agentId: input.agentId ?? null,
           parentTaskId: input.parentTaskId ?? null,
           sourceEventId: input.sourceEventId ?? null,
@@ -1559,7 +2096,7 @@ export class Runtime {
    * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
    * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
    */
-  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: AccessMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
+  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
     if (input.sessionId !== undefined && input.sessionId !== old.sessionId) throw new RuntimeApiError("invalid_params", "源任务不属于指定会话");
@@ -1581,11 +2118,17 @@ export class Runtime {
    * 拥有者设置会话默认访问模式（issue 12）：只影响之后新建且未显式指定
    * 模式的任务；不改写既有任务、待生效模式或待处理审批。
    */
-  async setSessionDefaultMode(input: { sessionId: string; mode: AccessMode; expectedVersion: number }): Promise<Session> {
+  async setSessionDefaultMode(input: { sessionId: string; mode: SessionDefaultMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
-    if (!isAccessMode(input.mode)) {
+    if (this.store.getSessionIdentity(input.sessionId)?.kind === "subagent") {
+      throw new RuntimeApiError("invalid_state", "SubAgent 的独立工作会话不允许修改默认模式");
+    }
+    if (!isSessionDefaultMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `会话默认模式无效：${input.mode}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
+    }
+    if (input.mode === "plan" && this.store.getSessionIdentity(input.sessionId)?.kind !== "dev") {
+      throw new RuntimeApiError("invalid_params", "Plan 只能在普通开发会话中使用");
     }
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
     try {
@@ -1607,8 +2150,14 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    if (task.subAgentId || this.store.getSessionIdentity(task.sessionId)?.kind === "subagent") {
+      throw new RuntimeApiError("invalid_state", "SubAgent 执行任务的权限模式由宿主固定为请求确认，不允许切换");
+    }
     if (!isAccessMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${input.mode}`);
+    }
+    if (task.planMode) {
+      throw new RuntimeApiError("invalid_state", "Plan 任务不能切换权限模式；请先中断，再按当前会话模式继续");
     }
     if (task.accessMode === input.mode && !input.grantedPaths) {
       throw new RuntimeApiError("invalid_state", `任务已是 ${input.mode} 模式`);
@@ -1633,16 +2182,15 @@ export class Runtime {
       if (!reaped) {
         // 无法核实旧执行单元退出：任务中断、占用保留（不可安全继续）
         this.store.withTx(() => {
-          if (this.store.transitionTask(task.id, ["queued", "running", "awaiting_confirmation"], "interrupted", {
+          this.store.endTask(task.id, ["queued", "running", "awaiting_confirmation"], "interrupted", {
             interruptReason: "mode_switch_unverified",
             endedAt: new Date().toISOString(),
-          })) {
-            this.store.stalePendingConfirmations(task.id);
-            this.store.appendEvent(
-              { type: "task.mode_switch_failed", taskId: task.id, sessionId: task.sessionId, to: input.mode, reason: "无法核实旧执行单元已退出" },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
-          }
+            keepOccupancy: true,
+            modeSwitchFailure: {
+              to: input.mode,
+              reason: "无法核实旧执行单元已退出",
+            },
+          });
         });
         throw new RuntimeApiError("mode_switch_unverified", "无法核实旧执行单元已退出，任务已中断（占用保留待核实）");
       }
@@ -1700,7 +2248,7 @@ export class Runtime {
     return this.credentials.list();
   }
 
-  addCredentialBinding(input: { name: string; host: string; header: string; purpose: string; secret: string }) {
+  async addCredentialBinding(input: { name: string; host: string; header: string; purpose: string; secret: string }) {
     if (!input.name.trim() || !input.host.trim() || !input.header.trim() || !input.secret) {
       throw new RuntimeApiError("invalid_params", "凭据绑定的名称、主机、头与秘密值都不能为空");
     }
@@ -1719,12 +2267,26 @@ export class Runtime {
       // 保存时即收紧操作范围，配置项目之前也不能被通用 http_request 借用。
       scope = { ...scope, operations: [JEV_CREDENTIAL_PURPOSE] };
     }
-    this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope });
+    // 内容有变化时先使引用它的 IM 配置代次失效（agent-direction issue 08），再写凭据；
+    // 凭据写失败不恢复旧版本，明确报错
+    if (!existing || existing.secret !== input.secret || existing.host !== input.host.toLowerCase() ||
+        existing.header !== input.header || existing.purpose !== input.purpose) {
+      this.imEntries.bumpForCredential(input.name);
+      this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope });
+      await this.imEntries.reconcileAfterCredential(input.name);
+    } else {
+      this.credentials.upsert({ ...input, host: input.host.toLowerCase(), scope });
+    }
     return { name: input.name, host: input.host.toLowerCase(), header: input.header, purpose: input.purpose };
   }
 
-  removeCredentialBinding(name: string): boolean {
-    return this.credentials.remove(name);
+  async removeCredentialBinding(name: string): Promise<boolean> {
+    if (!this.credentials.get(name)) return false;
+    // 先使引用它的 IM 配置代次失效，再删除凭据；删除失败不恢复旧版本
+    this.imEntries.bumpForCredential(name);
+    const removed = this.credentials.remove(name);
+    await this.imEntries.reconcileAfterCredential(name);
+    return removed;
   }
 
   // ---------- MCP 服务配置（issue 16 §2/§6） ----------
@@ -1849,11 +2411,17 @@ export class Runtime {
     return service;
   }
 
-  mcpRemoveService(serviceId: string): boolean {
+  mcpRemoveService(serviceId: string, expectedVersion?: number): boolean {
     const service = this.mcp.getService(serviceId);
     if (!service) return false;
     return this.store.withTx(() => {
-      const removed = this.mcp.removeService(serviceId);
+      let removed: boolean;
+      try {
+        removed = this.mcp.removeService(serviceId, expectedVersion);
+      } catch (err) {
+        if (err instanceof McpVersionConflictError) throw new RuntimeApiError(err.code, err.message);
+        throw err;
+      }
       if (removed) {
         this.store.appendEvent(
           { type: "mcp.service_changed", serviceId, projectId: service.projectId, name: service.name, endpoint: service.endpoint, configVersion: service.configVersion + 1, action: "removed" },
@@ -1957,8 +2525,13 @@ export class Runtime {
       // 私聊与 Telegram 共用 main 队列，仍按这条消息的固定配置重核，不能凭会话身份放行。
       const sourceEvent = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
       if (sourceEvent) {
+        const media = this.inboundMedia.getMessage(sourceEvent.source, sourceEvent.externalId);
+        if (media && ["rejected", "expired"].includes(media.status) && sourceEvent.taskId !== task.id) {
+          await this.cancelTask(task.id, { reason: "inbound_media_rejected" });
+          continue;
+        }
         // 群任务须先原子关联收件、入站与任务，避免提交后的立即 kick 抢先执行。
-        if (sourceEvent.source === QQ_GROUP_SOURCE && sourceEvent.taskId !== task.id) return;
+        if ((sourceEvent.source === QQ_GROUP_SOURCE || this.inboundMedia.hasMedia(sourceEvent)) && sourceEvent.taskId !== task.id) return;
         const decision = this.inboundGate(sourceEvent);
         if (decision === "wait") return;
         if (decision !== "run") {
@@ -1967,50 +2540,42 @@ export class Runtime {
         }
       }
 
-      // QQ 群聊会话（issue 07 §4）：入队后、模型调用前核对启停/群范围/账号
-      // 在线/排队过期。wait = 暂不启动（上线或巡检时重新 kick）；drop = 过期
-      // 或越权，取消跳过（不回复），继续取下一个。
-      if (session.kind === "qq_group") {
-        if (!this.qqAdapter) return;
-        const decision = this.qqAdapter.gate(session, task);
-        if (decision === "wait") return;
-        if (decision !== "run") {
-          this.store.withTx(() => {
-            const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
-              errorMessage: decision.drop,
-              endedAt: new Date().toISOString(),
-            });
-            if (ok) {
-              this.store.appendEvent(
-                { type: "task.canceled", taskId: task.id, sessionId },
-                { taskId: task.id, sessionId },
-              );
-            }
-          });
-          continue;
-        }
+      // 父级送达的放行判定（工单 09 入口 4）：已取消工作的结果唤醒与消息唤醒在此
+      // 截住。取消所在轮次的模型调用如已开始则不级联。
+      if (!this.parentDelivery.wakeAdmitted(task)) {
+        await this.cancelTask(task.id, { reason: "work_canceled" });
+        continue;
       }
 
-      // 任务开始前核对目录身份：排队期间被替换或失效的目录拒绝执行
+      // 兜底（启动收尾见 retireLegacyRoles）：钻过退役边界的排队归档会话任务固定取消跳过
+      const identity = this.store.getSessionIdentity(sessionId)!;
+      if (identity.kind === "retired") {
+        this.store.withTx(() => {
+          this.store.endTask(task.id, ["queued"], "canceled", {
+            errorMessage: identity.reason,
+            endedAt: new Date().toISOString(),
+          });
+        });
+        continue;
+      }
+
+      // 任务开始前核对目录身份（issue 16：占用键是任务写入目标；排队期间被
+      // 替换或失效的写入目录拒绝执行，不自动重建）
+      const workLaunch = task.workId ? this.store.getWorkDelegation(task.workId) : null;
+      const workspaceLaunch = taskWorkspaceFor({ session, work: workLaunch });
       try {
         await verifyDirIdentity({
-          cwd: session.cwd,
-          cwdReal: session.cwdReal,
-          dev: session.cwdDev,
-          ino: session.cwdIno,
+          cwd: workspaceLaunch.path,
+          cwdReal: workspaceLaunch.path,
+          dev: workspaceLaunch.dev,
+          ino: workspaceLaunch.ino,
         });
       } catch (err) {
         this.store.withTx(() => {
-          const ok = this.store.transitionTask(task.id, ["queued"], "failed", {
+          this.store.endTask(task.id, ["queued"], "failed", {
             errorMessage: (err as Error).message,
             endedAt: new Date().toISOString(),
           });
-          if (ok) {
-            this.store.appendEvent(
-              { type: "task.failed", taskId: task.id, sessionId, errorMessage: (err as Error).message },
-              { taskId: task.id, sessionId },
-            );
-          }
         });
         continue; // 该会话其余任务共用同一目录，同样会被拒绝
       }
@@ -2019,9 +2584,9 @@ export class Runtime {
         this.store.withTx(() => {
           if (this.stopping) throw new TaskGoneError(); // 停止开始后不再让排队任务转入运行
           if (!this.store.tryAcquireOccupancy({
-            cwdReal: session.cwdReal,
-            cwdDev: session.cwdDev,
-            cwdIno: session.cwdIno,
+            cwdReal: workspaceLaunch.path,
+            cwdDev: workspaceLaunch.dev,
+            cwdIno: workspaceLaunch.ino,
             sessionId,
             taskId: task.id,
           })) {
@@ -2048,20 +2613,94 @@ export class Runtime {
       } catch (err) {
         // driver.run 内部已兜底；此处防御性记录，避免调度循环中断
         this.store.withTx(() => {
-          this.store.transitionTask(task.id, ["running", "awaiting_confirmation"], "failed", {
+          this.store.endTask(task.id, ["running", "awaiting_confirmation"], "failed", {
             errorMessage: `驱动器异常：${(err as Error).message}`,
             endedAt: new Date().toISOString(),
           });
-          this.store.appendEvent(
-            { type: "task.failed", taskId: task.id, sessionId, errorMessage: (err as Error).message },
-            { taskId: task.id, sessionId },
-          );
-          this.store.releaseOccupancy(session.cwdReal, task.id);
         });
       } finally {
+        // SubAgent 子会话（agent-direction issue 11）：driver.run 收尾后释放运行
+        // 对象（SDK 缓存与 MCP 连接）；身份、会话、JSONL 与产物保留——释放
+        // SDK 不等于删除 SubAgent。终态事件监听已在提交边界同步完成。
+        if (identity.kind === "subagent") {
+          const current = this.drivers.get(sessionId);
+          this.drivers.delete(sessionId);
+          if (current) await current.dispose();
+        }
         this.kickAll();
       }
     }
+  }
+
+  /** 同一份清单用于会话装配与后台恢复；能力停用仍保留历史操作的核实规则。 */
+  private initHostToolFamilies(): void {
+    this.hostToolFamilies = [
+      createTodoFamily(),
+      createHostDataFamily({
+        store: this.store,
+        access: this.access,
+        historyIndex: this.historyIndex,
+        memories: this.memories,
+        sessionFileFor: (sessionId) => this.store.getSession(sessionId)?.sessionFile ?? null,
+        projectOfSession: (sessionId) => this.store.getSession(sessionId)?.projectId ?? null,
+        syncSession: (sessionId) => {
+          const file = this.store.getSession(sessionId)?.sessionFile;
+          if (!file) return { unindexed: true };
+          this.historyIndex.sync(sessionId, file);
+          return { unindexed: !this.historyIndex.isIndexed(sessionId) };
+        },
+      }),
+      createWebSearchFamily({
+        store: this.store,
+        artifacts: this.artifacts,
+        credentials: this.credentials,
+        ...this.config.webSearch,
+      }),
+      createAppDataFamily({
+        store: this.appDataStore,
+        runner: this.appDataRunner,
+        coreStore: this.store,
+        queryStallMs: () => this.config.appData?.queryStallMs,
+        writeVerdict: (opId) => this.appDataWriteVerdict(opId),
+      }),
+      createSchedulerFamily({
+        coreStore: this.store,
+        sched: this.sched,
+        scheduler: this.scheduler,
+        sources: this.sources,
+        target: (ctx) => {
+          const task = this.store.getTask(ctx.taskId);
+          return this.imEntries.notificationTarget(task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null);
+        },
+        now: this.config.scheduler?.now ?? (() => Date.now()),
+      }),
+      createDelegationFamily({
+        coreStore: this.store,
+        artifacts: this.artifacts,
+        readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+        resultNotice: (task) => this.githubEvents.notice(task),
+      }),
+      createSubAgentFamily({
+        coreStore: this.store,
+        sources: this.sources,
+        delegate: (input) => this.subagents!.delegate(input),
+        close: (input) => this.subagents!.close(input),
+        cancelWork: (input) => this.subagents!.cancelWork(input),
+        message: (input) => this.subagents!.message(input),
+        integrate: (input) => this.subagents!.integrate(input),
+        readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
+        resultNotice: (task) => this.githubEvents.notice(task),
+        artifacts: this.artifacts,
+      }),
+      createChatResultFamily({ coreStore: this.store, qqStore: this.qqStore }),
+      createServiceFamily({ coreStore: this.store, artifacts: this.artifacts, config: this.serviceManager }),
+      createSkillFamily(),
+    ];
+    this.ledger = new ToolOpLedger(this.store, {
+      // 已删除的 coding_delegate 仍按 analyze / draft 分别核实，不能依赖当前装配。
+      delegation: delegationOpCheck(this.store),
+      subagent: subagentOpCheck(this.store),
+    }, this.hostToolFamilies.flatMap((family) => family.ledger ? [family.ledger] : []));
   }
 
   private async getDriver(session: Session): Promise<Driver> {
@@ -2070,7 +2709,6 @@ export class Runtime {
       driver = new Driver(session, {
         store: this.store,
         ledger: this.ledger,
-        qqStore: this.qqStore,
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,
         modelRuntime: this.modelRuntime,
@@ -2089,51 +2727,24 @@ export class Runtime {
         historyIndex: this.historyIndex,
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
-        webSearch: this.config.webSearch,
+        hostToolFamilies: this.hostToolFamilies,
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
-        allowTaskTool: (task, name, effect) => this.githubEvents.allowTool(task, name, effect),
+        allowTaskTool: (task, name) => this.githubEvents.allowTool(task, name),
+        // 宿主评审任务（agent-direction issue 19）按任务另开只读 MCP：GitHub MCP
+        // 配在 main 项目（评审 SubAgent 的会话在 main 项目下；凭据范围按项目核对）
+        taskMcp: (task) => this.githubEvents.isReviewTask(task),
         reviewer: this.reviewer,
-        // QQ 群聊会话（issue 07）：每次模型调用前移出已撤回交互（只改视图）
-        qqRecalledFilter: (sessionId, messages) =>
-          filterRecalledQqMessages(messages, this.qqStore.recalledTagsForSession(sessionId)),
-        // main 应用数据空间（issue 02）：仅 main 角色会话装配；不可用时缺省
-        // （能力停止，事件已记录），不装配工具
-        appData: this.appDataStore
-          ? {
-              store: this.appDataStore,
-              runner: this.appDataRunner,
-              queryStallMs: this.config.appData?.queryStallMs,
-            }
-          : undefined,
-        // 调度与通知（issue 03）：仅 main 角色会话装配；目标只来自可信宿主渠道
-        scheduler: {
-          sched: this.sched,
-          scheduler: this.scheduler,
-          sources: this.sources,
-          target: () => {
-            const taskId = this.drivers.get(session.id)?.currentTaskId;
-            const task = taskId ? this.store.getTask(taskId) : null;
-            const event = task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
-            if (event?.source === QQ_PRIVATE_SOURCE) {
-              const current = this.notifyChannel(QQ_PRIVATE_SOURCE)?.target() ?? null;
-              return isDeepStrictEqual(current, event.replyTarget) ? current : null;
-            }
-            return this.notifyChannel()?.target() ?? null;
-          },
-          now: this.config.scheduler?.now ?? (() => Date.now()),
+        // IM 审批（agent-direction issue 08）：创建通知与消费前固定身份复核；
+        // 长期授权候选（issue 10）：共享 main 不继承其他入口；无 IM 来源的任务恒无候选
+        approvalIm: {
+          notifyCreated: (confirmation, task) => this.imApprovals.notifyCreated(confirmation, task),
+          consumeRecheck: (confirmation, task) => this.imApprovals.consumeRecheck(confirmation, task),
+          standingCandidate: (task, scope) => this.imApprovals.standingCandidate(task, scope),
         },
-        // 委派 coding（issue 05）：仅 main 角色会话装配；宿主固定参数在编排器
-        delegation: {
-          sources: this.sources,
-          delegate: (input) => {
-            if (!this.orchestrator) throw new Error("编排器未启动");
-            return this.orchestrator.delegateCoding(input);
-          },
-          readReply: (taskId, offset, length) => this.readTaskReply(taskId, offset, length),
-          resultNotice: (task) => this.githubEvents.notice(task),
-        },
+        parentInjection: (sessionId) => this.parentDelivery.takeInjection(sessionId),
+        verifyTaskSources: (projectId, refs) => this.sources.verify(projectId, refs as any[]),
       });
       this.drivers.set(session.id, driver);
     } else {
@@ -2161,21 +2772,21 @@ export class Runtime {
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${taskId}`);
     if (task.status === "queued") {
       this.store.withTx(() => {
-        const ok = this.store.transitionTask(task.id, ["queued"], "canceled", {
+        this.store.endTask(task.id, ["queued"], "canceled", {
           endedAt: new Date().toISOString(),
           // 编排器超时取消等场景持久化原因（undefined 时保持原状不写入）
           errorMessage: opts?.reason,
         });
-        if (ok) {
-          this.store.appendEvent(
-            { type: "task.canceled", taskId: task.id, sessionId: task.sessionId },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        }
       });
       return this.store.getTask(taskId)!;
     }
     if (task.status === "running" || task.status === "awaiting_confirmation") {
+      // 先持久化取消意图（issue 14 窗口修复）：任务已转 running 而 Driver 尚未
+      // 登记 currentTask 时 requestStop 挡不住；runInner 开头按此标记直接定态
+      // canceled，不调用模型。已在执行的任务 requestStop 会再写同一标记（同值）。
+      this.store.withTx(() => {
+        this.store.setCancelRequested(task.id, true);
+      });
       const driver = await this.getDriver(this.store.getSession(task.sessionId)!);
       await driver.requestStop(task, { terminal: "canceled", reason: opts?.reason ?? "owner_cancel", cancelIntent: true });
       return this.store.getTask(taskId)!;
@@ -2217,6 +2828,7 @@ export class Runtime {
     }
     // 模型配置应用门闩（issue 21 §4）：显式确认的 provider 受影响时拒绝
     const check = selection ? await this.resolveSelection(parseModelSelection(selection)) : null;
+    let parentSessionId: string | null = null;
     this.store.withTx(() => {
       check?.();
       if (this.store.countLegacyQueuedTasks(sessionId) > 0) {
@@ -2233,11 +2845,17 @@ export class Runtime {
             `任务 ${occ.taskId} 仍在 ${occTask.status}，占用不能释放`,
           );
         }
-        this.store.releaseOccupancy(occ.cwdReal, occ.taskId);
+        this.store.releaseOccupancy(occ.taskId);
+      }
+      try { parentSessionId = this.subagents?.executionVerified(sessionId) ?? null; }
+      catch (err) {
+        if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
+        throw err;
       }
       this.store.setSessionQueueState(sessionId, "active", null);
       this.store.appendEvent({ type: "session.queue_resumed", sessionId }, { sessionId });
     });
+    if (parentSessionId) await this.subagents!.flushPendingMessages(parentSessionId);
     this.kick(sessionId);
     return this.store.getSession(sessionId)!;
   }
@@ -2320,6 +2938,9 @@ export class Runtime {
     execution: { backend: string; note: string };
     defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
     roleSessionIds: string[];
+    subAgentSessionIds: string[];
+    workDelegations: WorkDelegation[];
+    subAgents: SubAgent[];
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -2350,8 +2971,76 @@ export class Runtime {
       execution: this.executionInfo(),
       defaultModel: this.modelInfo(),
       roleSessionIds: this.store.listAgentRoles().map((r) => r.sessionId),
+      subAgentSessionIds: this.store.listSubAgents().map((a) => a.sessionId),
+      workDelegations: this.store.listWorkDelegations(),
+      subAgents: this.store.listSubAgents(),
       seq: this.store.getMaxSeq(),
     };
+  }
+
+  // ---------- 工作委托与 SubAgent（agent-direction issue 11；只读视图） ----------
+
+  /** 工作委托列表（可选按父用户会话过滤）；每项附 SubAgent 与执行任务状态。 */
+  workList(parentSessionId?: string): { works: Array<{ work: WorkDelegation; agent: SubAgent | null; tasks: Pick<Task, "id" | "status" | "createdAt" | "endedAt" | "resultSummary">[] }> } {
+    const works = parentSessionId ? this.store.listWorkDelegationsBySession(parentSessionId) : this.store.listWorkDelegations();
+    return {
+      works: works.map((work) => ({
+        work,
+        agent: this.store.getSubAgent(work.subAgentId),
+        tasks: this.store.listTasksByWork(work.id).map((t) => ({
+          id: t.id,
+          status: t.status,
+          createdAt: t.createdAt,
+          endedAt: t.endedAt,
+          resultSummary: t.resultSummary,
+        })),
+      })),
+    };
+  }
+
+  /** 单项工作详情：委托、SubAgent（含归属与状态）、全部执行任务与工作内消息。 */
+  workGet(workId: string): { work: WorkDelegation; agent: SubAgent | null; tasks: Task[]; messages: SubAgentMessage[] } {
+    const work = this.store.getWorkDelegation(workId);
+    if (!work) throw new RuntimeApiError("not_found", `工作委托不存在：${workId}`);
+    return {
+      work,
+      agent: this.store.getSubAgent(work.subAgentId),
+      tasks: this.store.listTasksByWork(work.id),
+      // 工作内协作消息（issue 13）：来源与投递结果随详情可查（含协作方的任务归属）
+      messages: this.store.listSubAgentMessagesByWork(work.id),
+    };
+  }
+
+  /**
+   * 拥有者显式关闭 SubAgent（agent-direction issue 12；控制面 op subagent_close）。
+   * 有活动任务拒绝并提示先取消；已关闭幂等。历史、产物与工作目录保留可查。
+   */
+  closeSubAgent(subAgentId: string): { agent: SubAgent; alreadyClosed: boolean } {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    if (!this.subagents) throw new RuntimeApiError("unavailable", "SubAgent 管理器未启动");
+    try {
+      return this.subagents.close({ subAgentId, by: "owner" });
+    } catch (err) {
+      if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * 拥有者取消整项工作（agent-direction issue 14；控制面 op work_cancel）：
+   * 登记事务内把本工作的排队任务直接取消、活动任务写取消意图，提交后按
+   * 现有停止路径逐个处理；已取消幂等返回原记录与当前任务状态；其他工作
+   * 不受影响。取消不关闭 SubAgent、不删除历史与产物。
+   */
+  async cancelWork(workId: string, opts?: { reason?: string }): Promise<WorkCancellation> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    if (!this.subagents) throw new RuntimeApiError("unavailable", "SubAgent 管理器未启动");
+    try {
+      return await this.subagents.cancelWork({ workId, by: "owner", reason: opts?.reason ?? null });
+    } catch (err) {
+      if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   /** 活动任务与最近结束任务的产物元数据（正文在产物文件，按 id 查询）。 */
@@ -2652,29 +3341,50 @@ export class Runtime {
   /**
    * 设置项目指令文件（issue 05 §3；拥有者入口）。工作区相对路径列表；
    * 任务开始时经受限读取钉版。传空数组 = 清除项目指令。
+   * expected_version（issue 06）：携带时做乐观并发校验（v1 起的正整数），
+   * 省略 = 旧入口兼容写入；两条路径都更新同一行、递增同一设置版本并产生
+   * 同一 project.settings_changed 事件。
    */
-  setProjectInstructions(input: { projectId: string; files: string[] }): Project {
+  setProjectInstructions(input: { projectId: string; files: string[]; expectedVersion?: number }): Project {
     const project = this.store.getProject(input.projectId);
     if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+    if (input.expectedVersion !== undefined && (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 须为正整数（设置版本从 1 起）");
+    }
     for (const file of input.files) {
       if (typeof file !== "string" || !file || path.isAbsolute(file) || file.split(/[\\/]/).includes("..")) {
         throw new RuntimeApiError("invalid_params", `指令文件须为工作区相对路径且不含 ..：${String(file)}`);
       }
     }
-    this.store.setProjectInstructionFiles(project.id, input.files);
-    return this.store.getProject(project.id)!;
+    try {
+      return this.store.withTx(() =>
+        this.store.updateProjectSettings({ projectId: project.id, instructionFiles: input.files, expectedVersion: input.expectedVersion }),
+      );
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   /**
    * 按项目启用/禁用 Web Search（issue 20；拥有者入口）。默认启用；
    * 禁用立即阻止后续调用（工具按调用新鲜检查），启用从下一任务生效
-   * （任务开始固定工具清单）。
+   * （任务开始固定工具清单）。expected_version 语义同 setProjectInstructions。
    */
-  setProjectWebSearch(input: { projectId: string; enabled: boolean }): Project {
+  setProjectWebSearch(input: { projectId: string; enabled: boolean; expectedVersion?: number }): Project {
     const project = this.store.getProject(input.projectId);
     if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
-    this.store.setProjectWebSearch(project.id, input.enabled ? "enabled" : "disabled");
-    return this.store.getProject(project.id)!;
+    if (input.expectedVersion !== undefined && (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)) {
+      throw new RuntimeApiError("invalid_params", "expected_version 须为正整数（设置版本从 1 起）");
+    }
+    try {
+      return this.store.withTx(() =>
+        this.store.updateProjectSettings({ projectId: project.id, webSearch: input.enabled ? "enabled" : "disabled", expectedVersion: input.expectedVersion }),
+      );
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
   }
 
   getProjectJev(projectId: string): JevConfig {
@@ -2968,204 +3678,57 @@ export class Runtime {
 
   // ---------- QQ 群聊入口（issue 07；拥有者管理入口） ----------
 
-  /**
-   * 配置/更新 NapCat OneBot 连接（拥有者操作）。端点 ws/wss：ws 仅限回环或
-   * 受控私网地址，跨主机须 wss 受保护传输；非回环端点必须配置 token 凭据
-   * （CredentialStore 绑定，purpose=qq_onebot，host 与端点一致；配置后 scope
-   * 收紧到 qq_onebot 操作）。任何变化递增 configVersion 并即时重建连接。
-   */
-  async qqConfigure(input: {
-    endpoint: string;
-    credential?: string | null;
-    selfId: string;
-    ownerUserId?: string | null;
-    maxReplyChars?: number;
-    expectedVersion?: number;
-  }): Promise<QqConfig> {
+  /** 配置/更新 NapCat OneBot 连接（拥有者操作；校验见 QqAdapter.configure）。 */
+  async qqConfigure(input: Parameters<QqAdapter["configure"]>[0]): Promise<QqConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let endpoint: URL;
-    try {
-      endpoint = new URL(input.endpoint);
-    } catch {
-      throw new RuntimeApiError("invalid_params", `端点不是合法 URL：${input.endpoint}`);
-    }
-    if (endpoint.protocol !== "ws:" && endpoint.protocol !== "wss:") {
-      throw new RuntimeApiError("invalid_params", `端点必须是 ws:// 或 wss://：${input.endpoint}`);
-    }
-    const host = endpoint.hostname.toLowerCase();
-    const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-    const isPrivate =
-      /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.endsWith(".local");
-    if (endpoint.protocol === "ws:" && !isLoopback && !isPrivate) {
-      throw new RuntimeApiError("invalid_params", "ws:// 明文连接仅限回环或受控私网地址；跨主机请使用 wss:// 受保护传输");
-    }
-    if (!/^[1-9]\d{3,19}$/.test(input.selfId) || !Number.isSafeInteger(Number(input.selfId))) {
-      throw new RuntimeApiError("invalid_params", `self_id 必须是 QQ 号数字串：${input.selfId}`);
-    }
-    const previous = this.qqStore.getConfig();
-    const credentialName = input.credential !== undefined ? input.credential : previous?.credentialName ?? null;
-    const ownerUserId = input.ownerUserId !== undefined ? input.ownerUserId : previous?.ownerUserId ?? null;
-    if (ownerUserId !== null && (typeof ownerUserId !== "string" || !/^[1-9]\d{3,19}$/.test(ownerUserId) || !Number.isSafeInteger(Number(ownerUserId)) || ownerUserId === input.selfId)) {
-      throw new RuntimeApiError("invalid_params", "owner_user_id 必须是与登录账号不同的 QQ 号数字串");
-    }
-    if (ownerUserId !== null && !credentialName) {
-      throw new RuntimeApiError("invalid_params", "QQ 私聊入口必须配置 token 凭据");
-    }
-    if (input.maxReplyChars !== undefined && (!Number.isInteger(input.maxReplyChars) || input.maxReplyChars < 100 || input.maxReplyChars > 20000)) {
-      throw new RuntimeApiError("invalid_params", "max_reply_chars 必须是 100–20000 的整数");
-    }
-    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
-      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
-    }
-    if (credentialName) {
-      const cred = this.credentials.get(credentialName);
-      if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${credentialName}`);
-      if (cred.host !== endpoint.host) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 的 host（${cred.host}）与端点 host（${endpoint.host}）不一致`);
-      }
-      if (cred.purpose !== QQ_CREDENTIAL_PURPOSE) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 用途是 ${cred.purpose}，QQ 入口需要 purpose=${QQ_CREDENTIAL_PURPOSE} 的凭据`);
-      }
-      if (cred.header.toLowerCase() !== "authorization") {
-        throw new RuntimeApiError("invalid_params", `QQ 凭据须使用 authorization 头（Bearer）：${credentialName}`);
-      }
-      if (cred.scope && cred.scope.operations !== undefined && !cred.scope.operations.includes(QQ_CREDENTIAL_PURPOSE)) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 已有使用范围（操作 ${cred.scope.operations.join(",")}），与 qq_onebot 冲突；请另建凭据`);
-      }
-      if (cred.scope?.projectId !== undefined) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credentialName} 已绑定项目范围（QQ 入口凭据不按项目限定）；请另建凭据`);
-      }
-    }
-    if (!isLoopback && !credentialName) {
-      throw new RuntimeApiError("invalid_params", "非回环端点必须配置 token 凭据（credential）");
-    }
-    let config: QqConfig;
-    try {
-      config = this.store.withTx(() => {
-        const c = this.qqStore.upsertConfig({
-          endpoint: endpoint.toString(),
-          credentialName,
-          selfId: input.selfId,
-          ownerUserId,
-          maxReplyChars: input.maxReplyChars,
-          expectedVersion: input.expectedVersion,
-        });
-        this.store.appendEvent({ type: "qq.config_changed", configVersion: c.configVersion, action: "upsert" }, {});
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    // 凭据 scope 收紧到 qq_onebot 操作：通用 http_request 与其他入口不得借用
-    if (config.credentialName) {
-      const cred = this.credentials.get(config.credentialName)!;
-      const ops = cred.scope?.operations;
-      this.credentials.upsert({
-        ...cred,
-        scope: { ...cred.scope, operations: ops ? [...new Set([...ops, QQ_CREDENTIAL_PURPOSE])] : [QQ_CREDENTIAL_PURPOSE] },
-      });
-    }
-    await this.qqAdapter?.onConfigChanged();
-    await this.reconcileQqPrivate();
+    const config = this.qqAdapter.configure(input);
+    await this.imEntries.applyConfig(QQ_PRIVATE_SOURCE);
     return config;
-  }
-
-  /** 配置变化立即撤销私聊旧授权；不能把同一 main 会话中 Telegram 的任务一并取消。 */
-  private async reconcileQqPrivate(): Promise<void> {
-    for (const event of this.store.listInboundByStatus(["registered", "queued"])) {
-      if (event.source !== QQ_PRIVATE_SOURCE) continue;
-      const gate = this.qqPrivateGate(event);
-      if (gate === "run" || gate === "wait") continue;
-      if (event.status === "registered") {
-        this.store.withTx(() => this.store.failRegisteredInbound(event.id));
-      } else if (event.taskId) {
-        const task = this.store.getTask(event.taskId);
-        if (task && (ACTIVE_TASK_STATUSES as readonly string[]).includes(task.status)) {
-          await this.cancelTask(task.id, { reason: gate.drop });
-        }
-      }
-    }
-    const main = this.store.getAgentRole("main");
-    if (main) this.kick(main.sessionId);
-    this.scheduler.kickSender();
   }
 
   /** QQ 入口状态（配置视图 + 运行期连接状态；不含 token 与消息正文）。 */
   qqStatus() {
-    return (
-      this.qqAdapter?.status() ?? {
-        configured: this.qqStore.getConfig() !== null,
-        enabled: false,
-        online: false,
-        // qqDisabled（dev 开发实例）与未启动区分标注，避免误以为连接异常
-        ...(this.config.qqDisabled ? { disabledByConfig: true } : {}),
-        stateDetail: this.config.qqDisabled ? "已由启动配置停用（dev 开发实例不连接真实 QQ 通道）" : "适配器未启动",
-      }
-    );
+    return this.qqAdapter.status();
   }
 
   /** 一键停用/启用：停用即断开连接、阻止新接收与后续发送，运行中任务按取消机制收尾。 */
   async qqSetEnabled(enabled: boolean, expectedVersion?: number): Promise<QqConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let config: QqConfig | null;
-    try {
-      config = this.store.withTx(() => {
-        const prev = this.qqStore.getConfig();
-        const c = this.qqStore.setEnabled(enabled, expectedVersion);
-        // 同值调用不递增版本（无变化），也不产生无变化的配置事件
-        if (c && c.configVersion !== prev?.configVersion) {
-          this.store.appendEvent({ type: "qq.config_changed", configVersion: c.configVersion, action: enabled ? "enabled" : "disabled" }, {});
-        }
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
-    await this.qqAdapter?.onConfigChanged();
-    await this.reconcileQqPrivate();
+    const config = this.qqAdapter.setEnabled(enabled, expectedVersion);
+    await this.imEntries.applyConfig(QQ_PRIVATE_SOURCE);
     return config;
   }
 
-  /** 群允许列表增删（配置版本递增；移除即取消该群排队/运行任务与未发送回复）。 */
-  async qqGroupUpdate(input: { groupId: string; allow: boolean; expectedVersion?: number }): Promise<QqConfig> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    if (!/^\d{4,20}$/.test(input.groupId)) {
-      throw new RuntimeApiError("invalid_params", `群号必须是数字串：${input.groupId}`);
-    }
-    let config: QqConfig | null;
-    try {
-      config = this.store.withTx(() => {
-        const current = this.qqStore.getConfig();
-        if (!current) return null;
-        const groups = input.allow
-          ? [...new Set([...current.groups, input.groupId])]
-          : current.groups.filter((g) => g !== input.groupId);
-        const c = this.qqStore.setGroups(groups, input.expectedVersion);
-        if (c) {
-          this.store.appendEvent(
-            { type: "qq.config_changed", configVersion: c.configVersion, action: input.allow ? "group_added" : "group_removed", groupId: input.groupId },
-            {},
-          );
+  /**
+   * 旧群收件登记查看（新 → 旧；含状态与撤回标记）。核心群聊已退役（issue 20），
+   * 本视图即归档核查入口：每条记录附 main 的接收账本行（接收时间、接收任务、
+   * 理由、摘要快照）与当前复核结论（null = 可用；否则为不可用原因——归档行
+   * 缺失/不一致、main 不可用或来源已撤回）。未经 main 接收的记录两字段为空。
+   */
+  qqListInbox(input: { groupId?: string; limit?: number } = {}): QqInboxArchiveRow[] {
+    const mainProjectId = this.store.getAgentRole("main")?.projectId ?? null;
+    return this.qqStore.listInbox(input).map((row) => {
+      let accepted = mainProjectId && row.taskId ? this.store.getAcceptedChatResult(mainProjectId, row.taskId) : null;
+      let sourceProblem: string | null = null;
+      if (!mainProjectId && row.taskId) {
+        // main 角色不可用（异常库）：不能把被阻断的来源显示成"未接收/可用"
+        accepted = this.store.getAcceptedChatResultForTask(row.taskId);
+        if (accepted) sourceProblem = "main 角色不可用，无法复核接收来源";
+      } else if (accepted && mainProjectId && row.taskId) {
+        try {
+          resolveAcceptedChatResult(this.store, this.qqStore, mainProjectId, row.taskId);
+        } catch (err) {
+          sourceProblem = (err as Error).message;
         }
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof QqVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    if (!config) throw new RuntimeApiError("not_found", "QQ 入口未配置（先 qq_configure）");
-    if (!input.allow) await this.qqAdapter?.onGroupRemoved(input.groupId);
-    else await this.qqAdapter?.onConfigChanged();
-    await this.reconcileQqPrivate();
-    return config;
-  }
-
-  /** 收件登记查看（新 → 旧；含状态与撤回标记，供队列与错误排查）。 */
-  qqListInbox(input: { groupId?: string; limit?: number } = {}): QqInboxRow[] {
-    return this.qqStore.listInbox(input);
+      }
+      return {
+        ...row,
+        acceptance: accepted
+          ? { acceptedAt: accepted.acceptedAt, acceptedByTaskId: accepted.acceptedByTaskId, reason: accepted.reason, summary: accepted.summary }
+          : null,
+        sourceProblem,
+      };
+    });
   }
 
   /** 发送记录查看（新 → 旧；含 sent/failed/unknown/canceled 与平台消息 id）。 */
@@ -3175,104 +3738,24 @@ export class Runtime {
 
   // ---------- Telegram owner 入口（issue 04；拥有者管理入口） ----------
 
-  /**
-   * 配置/更新 Telegram bot 与固定 owner（拥有者操作）。bot token 经凭据绑定
-   * 引用（purpose=telegram_bot，host 与 API 地址一致；配置后 scope 收紧到
-   * telegram_bot 操作）；API 地址默认官方端点，可指向受控反代（http 仅限回环）。
-   * 任何变化递增 configVersion 并即时重连；旧目标上未发送的操作不改发。
-   */
-  async telegramConfigure(input: {
-    apiBase?: string;
-    credential: string;
-    ownerUserId: string;
-    ownerChatId?: string;
-    expectedVersion?: number;
-  }): Promise<TelegramConfig> {
+  /** 配置/更新 Telegram bot 与固定 owner（拥有者操作；校验见 TelegramAdapter.configure）。 */
+  async telegramConfigure(input: Parameters<TelegramAdapter["configure"]>[0]): Promise<TelegramConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let api: URL;
-    try {
-      api = new URL(input.apiBase ?? TELEGRAM_DEFAULT_API);
-    } catch {
-      throw new RuntimeApiError("invalid_params", `api_base 不是合法 URL：${input.apiBase}`);
-    }
-    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname.toLowerCase());
-    if (api.protocol !== "https:" && !(api.protocol === "http:" && loopback)) {
-      throw new RuntimeApiError("invalid_params", "api_base 必须是 https://（http:// 仅限回环地址）");
-    }
-    const ownerChatId = input.ownerChatId ?? input.ownerUserId;
-    if (!/^\d{1,20}$/.test(input.ownerUserId) || !/^\d{1,20}$/.test(ownerChatId)) {
-      throw new RuntimeApiError("invalid_params", "user_id / chat_id 必须是数字串（私聊的 chat_id 即 owner 的 user_id）");
-    }
-    if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
-      throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
-    }
-    const cred = this.credentials.get(input.credential);
-    if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${input.credential}`);
-    if (cred.purpose !== TELEGRAM_CREDENTIAL_PURPOSE) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 用途是 ${cred.purpose}，Telegram 入口需要 purpose=${TELEGRAM_CREDENTIAL_PURPOSE} 的凭据`);
-    }
-    if (cred.host !== api.host.toLowerCase()) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的 host（${cred.host}）与 API 地址 host（${api.host}）不一致`);
-    }
-    if (!/^\d+:[\w-]+$/.test(cred.secret)) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 的值不是 bot token 格式（<数字>:<密钥>）`);
-    }
-    if (cred.scope?.projectId !== undefined || (cred.scope?.operations !== undefined && !cred.scope.operations.includes(TELEGRAM_CREDENTIAL_PURPOSE))) {
-      throw new RuntimeApiError("invalid_params", `凭据 ${input.credential} 已有其他使用范围，与 telegram_bot 冲突；请另建凭据`);
-    }
-    let config: TelegramConfig;
-    try {
-      config = this.store.withTx(() => {
-        const c = this.telegramStore.upsertConfig({
-          apiBase: api.toString().replace(/\/+$/, ""),
-          credentialName: input.credential,
-          ownerUserId: input.ownerUserId,
-          ownerChatId,
-          expectedVersion: input.expectedVersion,
-        });
-        this.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: "upsert" });
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    // scope 收紧：通用 http_request 与其他入口不得借用 bot token
-    this.credentials.upsert({ ...cred, scope: { operations: [TELEGRAM_CREDENTIAL_PURPOSE] } });
-    await this.telegram?.onConfigChanged();
+    const config = this.telegram.configure(input);
+    await this.imEntries.applyConfig(TELEGRAM_SOURCE);
     return config;
   }
 
   /** Telegram 入口状态（配置视图 + 轮询状态；不含 token 与消息正文）。 */
   telegramStatus(): Record<string, unknown> {
-    if (this.telegram) return this.telegram.status();
-    return {
-      configured: this.telegramStore.getConfig() !== null,
-      enabled: false,
-      online: false,
-      ...(this.config.telegramDisabled ? { disabledByConfig: true, stateDetail: "已由启动配置停用（dev 开发实例不连接真实 Telegram）" } : {}),
-    };
+    return this.telegram.status();
   }
 
   /** 一键启停：停用即停止轮询；未发送的 owner 回复与通知因目标停用而取消（不改发）。 */
   async telegramSetEnabled(enabled: boolean, expectedVersion?: number): Promise<TelegramConfig> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let config: TelegramConfig | null;
-    try {
-      config = this.store.withTx(() => {
-        const prev = this.telegramStore.getConfig();
-        const c = this.telegramStore.setEnabled(enabled, expectedVersion);
-        if (c && c.configVersion !== prev?.configVersion) {
-          this.store.appendEvent({ type: "telegram.config_changed", configVersion: c.configVersion, action: enabled ? "enabled" : "disabled" });
-        }
-        return c;
-      });
-    } catch (err) {
-      if (err instanceof TelegramVersionConflictError) throw new RuntimeApiError(err.code, err.message);
-      throw err;
-    }
-    if (!config) throw new RuntimeApiError("not_found", "Telegram 入口未配置（先 telegram_configure）");
-    await this.telegram?.onConfigChanged();
+    const config = this.telegram.setEnabled(enabled, expectedVersion);
+    await this.imEntries.applyConfig(TELEGRAM_SOURCE);
     return config;
   }
 
@@ -3297,7 +3780,7 @@ export class Runtime {
     // 之后编排器等待派发链，关闭数据库前不再有发送回调写库
     await this.scheduler?.stop().catch(() => {});
     // Telegram 轮询停止（issue 04）：之后不再登记入站事件、不再写轮询偏移
-    await this.telegram?.stop().catch(() => {});
+    await this.telegram.stop().catch(() => {});
     // 编排器先行停止：停超时巡检，停止路径不再产生新的取消/唤醒
     if (this.orchestrator) {
       await this.orchestrator.stop().catch(() => {});
@@ -3306,10 +3789,7 @@ export class Runtime {
 
     // QQ 适配器先行停止：断开 NapCat 连接、停止接收新事件（在途任务由下方
     // 统一中断路径收尾；未发送回复保留 pending 事实，不在停止路径补发）
-    if (this.qqAdapter) {
-      await this.qqAdapter.stop().catch(() => {});
-      this.qqAdapter = null;
-    }
+    await this.qqAdapter.stop().catch(() => {});
 
     // 中断活动任务（queued 保留）；requestStop 内部完成终态、占用与事件
     const active = this.store.listTasksByStatus(ACTIVE_TASK_STATUSES.filter((s) => s !== "queued"));
@@ -3325,16 +3805,11 @@ export class Runtime {
       } else {
         // 已占用运行中但驱动器缺失（异常路径）：条件更新中断并保留占用事实
         this.store.withTx(() => {
-          if (this.store.transitionTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
+          this.store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
             interruptReason: "backend_stop",
             endedAt: new Date().toISOString(),
-          })) {
-            this.store.stalePendingConfirmations(task.id);
-            this.store.appendEvent(
-              { type: "task.interrupted", taskId: task.id, sessionId: task.sessionId, reason: "backend_stop", cancelRequested: false, effectUnknown: false },
-              { taskId: task.id, sessionId: task.sessionId },
-            );
-          }
+            keepOccupancy: true,
+          });
         });
       }
     }

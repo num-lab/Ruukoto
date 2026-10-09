@@ -3,13 +3,17 @@
 import { randomUUID } from "node:crypto";
 import type {
   AccessMode,
+  SessionDefaultMode,
   ModelSelection,
   Artifact,
   PersistentEvent,
   Project,
   Session,
+  SubAgent,
+  SubAgentState,
   Task,
   TaskStatus,
+  WorkDelegation,
 } from "../core/types.ts";
 import { ACTIVE_TASK_STATUSES } from "../core/types.ts";
 import type { ConnectResult } from "../control/protocol.ts";
@@ -17,6 +21,7 @@ import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "../core
 import type { HistoryEntryView, HistoryPage } from "../core/history.ts";
 import type { PendingRequest } from "../control/pending-requests.ts";
 import { EventFlow, type CommandEntry } from "./event-flow.ts";
+import { sessionDisplayAttribution } from "../control/workspace.ts";
 import type { CommandHistoryStore } from "./command-history.ts";
 
 /** 每个会话在内存中保留的已加载历史条目上限（超出丢弃最旧；原文可翻页找回）。 */
@@ -55,6 +60,12 @@ export class ViewState {
   execution: { backend: string; note: string } = { backend: "", note: "" };
   /** 逻辑角色绑定的会话（快照提供；角色只在后台启动时引导，不随事件新增）。 */
   roleSessionIds: string[] = [];
+  /** SubAgent 的内部工作会话（快照 + work_delegation.created 事件补齐；普通工作区入口排除）。 */
+  subAgentSessionIds: string[] = [];
+  /** 工作委托（issue 11；快照 + work_delegation.created 事件补齐）。 */
+  workDelegations: WorkDelegation[] = [];
+  /** 动态 SubAgent 身份（快照 + 委派事件补齐；状态以快照为准）。 */
+  subAgents: SubAgent[] = [];
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string } = {
     provider: "",
     id: "",
@@ -92,6 +103,9 @@ export class ViewState {
     this.execution = result.snapshot.execution;
     this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
     this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
+    this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
+    this.workDelegations = result.snapshot.workDelegations ?? [];
+    this.subAgents = result.snapshot.subAgents ?? [];
     if (instanceChanged) {
       this.sessionViews.clear();
       this.unsavedCommands.clear();
@@ -146,14 +160,29 @@ export class ViewState {
     switch (body.type) {
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
-          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt });
+          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: event.createdAt });
         }
         return;
+      case "project.root_attached": {
+        const project = this.projects.find((p) => p.id === body.projectId);
+        if (project && !project.rootDir) project.rootDir = body.rootDir;
+        return;
+      }
+      case "project.settings_changed": {
+        const project = this.projects.find((p) => p.id === body.projectId);
+        if (project) {
+          project.instructionFiles = body.instructionFiles;
+          project.webSearch = body.webSearch;
+          project.settingsVersion = body.settingsVersion;
+        }
+        return;
+      }
       case "session.created":
         if (!this.sessions.some((s) => s.id === body.sessionId)) {
           this.sessions.push({
             id: body.sessionId,
             projectId: body.projectId,
+            workspaceProjectId: null,
             kind: body.kind ?? "dev",
             cwd: body.cwd,
             cwdReal: body.cwd,
@@ -183,6 +212,7 @@ export class ViewState {
           submissionDigest: null,
           status: "queued",
           accessMode: body.accessMode,
+          planMode: body.planMode,
           permissionVersion: 1,
           grantedPaths: [],
           pendingAccessMode: null,
@@ -198,11 +228,18 @@ export class ViewState {
           deadline: null,
           resultSummary: null,
           resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null,
           createdAt: event.createdAt,
           startedAt: null,
           endedAt: null,
         });
         return;
+      case "session.workspace_mapped": {
+        // agent-direction issue 07：仅组织展示归属；资料身份仍是 projectId
+        const session = this.sessions.find((s) => s.id === body.sessionId);
+        if (session) session.workspaceProjectId = body.workspaceProjectId;
+        return;
+      }
       case "session.model_selection_changed":
         this.applySessionModel(body.sessionId, body.modelSelection, body.modelSelectionVersion);
         return;
@@ -281,6 +318,8 @@ export class ViewState {
             reviewModel: body.reviewModel ?? null,
             reviewPolicyVersion: body.reviewPolicyVersion ?? null,
             decisionSource: null,
+            standingPermissionId: null,
+            standingPermissionVersion: null,
           });
           // 新审批提示（不抢输入焦点；计数同时显示在状态行）
           this.note(
@@ -346,6 +385,90 @@ export class ViewState {
       case "session.history_unreadable":
         this.note(body.sessionId, `历史读取异常：${body.error}`);
         return;
+      case "work_delegation.created": {
+        // issue 11：登记记录同步进状态（子会话立即排除出普通列表，不等重连快照）；
+        // originTaskId/requestKey/paramsDigest 不在事件载荷里，置空且展示不引用
+        if (!this.subAgentSessionIds.includes(body.agentSessionId)) this.subAgentSessionIds.push(body.agentSessionId);
+        if (!this.workDelegations.some((w) => w.id === body.workId)) {
+          this.workDelegations.push({
+            id: body.workId,
+            parentSessionId: body.parentSessionId,
+            originTaskId: "",
+            subAgentId: body.subAgentId,
+            requestKey: "",
+            paramsDigest: "",
+            canceledAt: null,
+            canceledBy: null,
+            cancelReason: null,
+            writeTarget: null,
+            createdAt: event.createdAt,
+          });
+        }
+        if (!this.subAgents.some((a) => a.id === body.subAgentId)) {
+          this.subAgents.push({
+            id: body.subAgentId,
+            parentSessionId: body.parentSessionId,
+            sessionId: body.agentSessionId,
+            workDir: "",
+            activeWorkId: body.workId,
+            currentTaskId: body.taskId,
+            state: "running",
+            closedAt: null,
+            closedBy: null,
+            createdAt: event.createdAt,
+          });
+        } else {
+          // 委派成功后台恒置 running + 当前任务（含同一 SubAgent 的新工作）
+          const agent = this.subAgents.find((a) => a.id === body.subAgentId)!;
+          Object.assign(agent, { state: "running", activeWorkId: body.workId, currentTaskId: body.taskId });
+        }
+        this.note(body.parentSessionId, `工作委托已登记：${body.workId.slice(0, 12)}…（SubAgent ${body.subAgentId.slice(0, 12)}…）`, event.createdAt);
+        return;
+      }
+      case "subagent.closed": {
+        const agent = this.subAgents.find((a) => a.id === body.subAgentId);
+        if (agent) {
+          agent.closedAt = event.createdAt;
+          agent.closedBy = body.closedBy;
+        }
+        this.note(body.parentSessionId, `SubAgent 已关闭：${body.subAgentId.slice(0, 12)}…（历史与产物保留）`, event.createdAt);
+        return;
+      }
+      case "work_delegation.canceled": {
+        // issue 14：登记字段同步进状态；任务终态由各自 task.* / subagent_task.* 事件到达
+        const work = this.workDelegations.find((w) => w.id === body.workId);
+        if (work) {
+          work.canceledAt = event.createdAt;
+          work.canceledBy = body.canceledBy;
+          work.cancelReason = body.reason;
+        }
+        this.note(
+          body.parentSessionId,
+          `工作委托已取消：${body.workId.slice(0, 12)}…（${body.canceledBy}${body.reason ? `，${body.reason}` : ""}；历史与产物保留，迟到结果不再送达）`,
+          event.createdAt,
+        );
+        return;
+      }
+      case "work_delegation.integrated": {
+        // issue 17：汇总只落事件（不想状态字段，TUI 按提示如实展示来源与规模）
+        this.note(
+          body.parentSessionId,
+          `改动已汇总：工作 ${body.workId.slice(0, 12)}…（${body.filesChanged} 个文件，+${body.insertions}/-${body.deletions}；副本分支 ${body.branch}，基线 ${body.baseCommit.slice(0, 12)}${body.parentHead ? `，父 HEAD ${body.parentHead.slice(0, 12)}` : ""}）`,
+          event.createdAt,
+        );
+        return;
+      }
+      case "subagent_task.completed":
+      case "subagent_task.failed":
+      case "subagent_task.timeout":
+      case "subagent_task.result_unknown": {
+        // 任务已终态（事件可证）；idle/unverified 之分取决于占用核实，以重连快照为准
+        const agent = this.subAgents.find((a) => a.id === body.subAgentId);
+        if (agent?.currentTaskId === body.taskId) agent.currentTaskId = null;
+        const label = body.type === "subagent_task.completed" ? "完成" : body.type === "subagent_task.failed" ? "失败" : body.type === "subagent_task.timeout" ? "超时" : "结果未知";
+        this.note(body.parentSessionId, `SubAgent 任务${label}：${body.workId.slice(0, 12)}…（SubAgent ${body.subAgentId.slice(0, 12)}…）`, event.createdAt);
+        return;
+      }
       // issue 17：github.* 事件已随专用模块退役，仅为历史事件重放的只读展示保留
       case "github.draft_saved":
         this.note(body.sessionId, `GitHub 草稿（历史记录）：${body.draftId.slice(0, 12)} v${body.version}（${body.kind}，${body.bodyBytes} 字节）`);
@@ -454,7 +577,7 @@ export class ViewState {
     }
   }
 
-  applySessionDefaultMode(sessionId: string, mode: AccessMode, version: number): void {
+  applySessionDefaultMode(sessionId: string, mode: SessionDefaultMode, version: number): void {
     const session = this.sessions.find((s) => s.id === sessionId);
     if (session && version >= session.defaultAccessModeVersion) {
       session.defaultAccessMode = mode;
@@ -538,6 +661,39 @@ export class ViewState {
     return this.tasksFor(sessionId).filter((t) => t.status === "queued");
   }
 
+  /** 本会话发起的工作委托（issue 11；按登记顺序）。 */
+  worksForSession(sessionId: string): WorkDelegation[] {
+    return this.workDelegations
+      .filter((w) => w.parentSessionId === sessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+
+  /** 普通工作区入口排除的内部会话（逻辑角色绑定 + SubAgent 内部工作会话）。 */
+  excludedPickerSessionIds(): Set<string> {
+    return new Set([...this.roleSessionIds, ...this.subAgentSessionIds]);
+  }
+
+  /** 本会话的工作委托汇总文本；没有委托时返回 null（不展示任何内容）。 */
+  worksSummaryForSession(sessionId: string): string | null {
+    const works = this.worksForSession(sessionId);
+    if (!works.length) return null;
+    const parts = works.map((work) => {
+      if (work.canceledAt) return `${work.id.slice(0, 12)}…（已取消，${work.canceledBy}${work.cancelReason ? `，${work.cancelReason}` : ""}）`;
+      const agent = this.subAgents.find((a) => a.id === work.subAgentId);
+      const agentText = agent ? subAgentStateLabel(agent) : "未知";
+      const latest = [...this.tasks.values()]
+        .filter((t) => t.workId === work.id)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+        .at(-1);
+      // issue 16：写入目标在快照到齐后展示；worktree 标分支与本地副本，非 Git 标直接写入
+      const target = work.writeTarget;
+      const targetText =
+        target?.kind === "worktree" ? ` · worktree 分支 ${target.branch}` : target?.kind === "direct" ? " · 直接写入" : "";
+      return `${work.id.slice(0, 12)}…（${agentText}${latest ? ` · 最近任务${formatTaskStatus(latest.status)}` : ""}${targetText}）`;
+    });
+    return `工作委托 ${parts.join("；")}`;
+  }
+
   pendingApprovals(): ConfirmationRequestView[] {
     return this.confirmations.filter((c) => c.status === "pending");
   }
@@ -577,8 +733,10 @@ export class ViewState {
 }
 
 /** 访问模式显示名（/mode 列表、状态栏、模式提示共用）。 */
-export function accessModeLabel(mode: AccessMode): string {
+export function accessModeLabel(mode: SessionDefaultMode): string {
   switch (mode) {
+    case "plan":
+      return "☷ Plan";
     case "full_access":
       return "⏵⏵ Full access";
     case "auto-review":
@@ -588,7 +746,7 @@ export function accessModeLabel(mode: AccessMode): string {
   }
 }
 
-export function formatAccessMode(mode: AccessMode, pending: AccessMode | null): string {
+export function formatAccessMode(mode: SessionDefaultMode, pending: AccessMode | null): string {
   const base = accessModeLabel(mode);
   return pending ? `${base}（待切换：${accessModeLabel(pending)}）` : base;
 }
@@ -597,14 +755,28 @@ export function formatAccessMode(mode: AccessMode, pending: AccessMode | null): 
  * 模式名的着色（左下角状态栏）。返回样式函数，调用方决定包裹范围。
  * 颜色只在状态栏用，不进入 /mode 列表与事件文案（那些地方靠文字区分）。
  */
-export function accessModeStyle(mode: AccessMode): (s: string) => string {
+export function accessModeStyle(mode: SessionDefaultMode): (s: string) => string {
   switch (mode) {
+    case "plan":
     case "auto-review":
       return (s) => `\x1b[38;5;75m${s}\x1b[0m`; // 蓝：自动审查
     case "full_access":
       return (s) => `\x1b[38;5;214m${s}\x1b[0m`; // 橙黄：完全访问
     default:
       return (s) => s; // 请求确认：默认前景色
+  }
+}
+
+/** SubAgent 状态显示名（issue 11 展示；状态本身以快照为准；issue 12 已关闭优先）。 */
+export function subAgentStateLabel(agent: Pick<SubAgent, "state" | "closedAt">): string {
+  if (agent.closedAt) return "已关闭";
+  switch (agent.state) {
+    case "idle":
+      return "空闲";
+    case "running":
+      return "运行中";
+    case "unverified":
+      return "待核实";
   }
 }
 
@@ -629,4 +801,23 @@ export function formatTaskStatus(status: TaskStatus): string {
 
 export function isActiveStatus(status: TaskStatus): boolean {
   return (ACTIVE_TASK_STATUSES as readonly TaskStatus[]).includes(status);
+}
+
+/**
+ * 会话标题的组织归属（issue 07 步骤 4）：ruukoto-code 按展示归属给出工作区标注
+ * 与「配置与资料来源」项目（仅 mapped 时）；ruukoto 产品与其他场景用原身份。
+ * 标题拼接（app.ts）与测试断言共用同一结论。
+ */
+export function sessionTitleAttribution(
+  session: Session,
+  projects: Project[],
+  devProduct: boolean,
+): { workspace: boolean; projectId: string; sourceProjectId: string | null } {
+  if (!devProduct) return { workspace: false, projectId: session.projectId, sourceProjectId: null };
+  const attribution = sessionDisplayAttribution(session, projects);
+  return {
+    workspace: attribution.kind !== "legacy",
+    projectId: attribution.projectId,
+    sourceProjectId: attribution.kind === "mapped" ? session.projectId : null,
+  };
 }

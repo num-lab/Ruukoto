@@ -1,0 +1,22 @@
+[Unit]
+Description=ruukoto 服务管理演练的可控测试服务（agent-direction issue 09；安装步骤见 deploy/systemd/README.md）
+
+[Service]
+Type=simple
+User=ruukoto-exec
+Group=ruukoto-exec
+ExecStart=/usr/local/libexec/ruukoto/ruukoto-service-test.sh
+Restart=no
+# 无网络、无业务凭据、最小攻击面
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ruukoto-service-test
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

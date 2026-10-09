@@ -34,7 +34,7 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
-import type { Task } from "../src/core/types.ts";
+import type { Session, Task } from "../src/core/types.ts";
 import type { HistoryPage } from "../src/core/history.ts";
 import type { FlowEntry } from "../src/tui/event-flow.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
@@ -962,44 +962,76 @@ test("/skill 与 /skills：显式调用提交 /skill:<名称> 任务，列表展
   }
 });
 
-test("/plan：不带内容只显示用法；带内容原样提交与显示，运行时状态栏显示「计划」，继续后仍显示", async () => {
+test("Plan 持续用于普通消息和继续，状态栏显示固定任务模式与默认值，重连不重复提交", async () => {
   const held: Array<() => void> = [];
-  const t = await startTestRuntime("tui-plan", async (req) => {
-    if (["/plan 调研登录", "接着调研"].includes(lastUserText(req))) await new Promise<void>((resolve) => held.push(resolve));
+  const t = await startTestRuntime("tui-plan", async () => {
+    await new Promise<void>((resolve) => held.push(resolve));
     return { kind: "text", text: "先改 a" };
   });
   const apps: AppHarness[] = [];
-  const screen = () => stripTerminalSequences(h.terminal.output());
-  const footer = () => stripTerminalSequences((h.app as any).footer.render(100)[0]);
   let h!: AppHarness;
+  const footer = () => stripTerminalSequences((h.app as any).footer.render(180)[0]);
+  const setMode = async (mode: "plan" | "full_access") => {
+    const session = h.state.sessions.find((s) => s.id === h.state.currentSessionId)!;
+    await (h.app as any).sendSessionMode(session.id, session.defaultAccessModeVersion, mode, (text: string, isError?: boolean) => assert.ok(!isError, text));
+  };
+  const active = () => h.state.activeTaskFor(h.state.currentSessionId!)!;
+  const interrupt = async (id: string) => {
+    await submitViaEditor(h, "/interrupt");
+    await waitFor("任务中断", () => h.state.getTask(id)?.status === "interrupted");
+    held.splice(0).forEach((release) => release());
+  };
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     h = await startApp(t, { sessionId });
     apps.push(h);
+    for (const input of ["/plan", "/plan 调研登录"]) {
+      await submitViaEditor(h, input);
+      assert.equal(h.state.tasks.size, 0, "已移除命令不能提交任务");
+    }
+    assert.ok(stripTerminalSequences(h.terminal.output()).includes("未知命令：/plan"));
 
-    await submitViaEditor(h, "/plan");
-    await waitFor("用法提示", () => screen().includes("用法：/plan <内容>"));
-    assert.equal(h.state.tasks.size, 0, "不带内容不提交");
+    await setMode("plan");
+    await submitViaEditor(h, "调研登录");
+    await waitFor("Plan 任务运行", () => active()?.status === "running" && held.length > 0);
+    const first = active();
+    assert.equal(first.input, "调研登录");
+    assert.equal(first.planMode, true);
+    assert.equal(first.accessMode, "auto-review");
+    assert.ok(footer().startsWith("☷ Plan"));
+    await interrupt(first.id);
+    assert.ok(footer().startsWith("☷ Plan"), "中断后会话仍选中 Plan");
 
-    await submitViaEditor(h, "/plan 调研登录");
-    await waitFor("计划模式的任务运行", () => [...h.state.tasks.values()][0]?.status === "running" && held.length > 0);
-    const first = [...h.state.tasks.values()][0]!;
-    assert.equal(first.input, "/plan 调研登录", "整行作为任务输入");
-    await waitFor("状态栏显示计划", () => footer().startsWith("⏸ Ask for approval · 计划"));
-    assert.ok(screen().includes("❯ /plan 调研登录"), "事件流原样显示输入");
-
-    h.terminal.send("/interrupt\r");
-    await waitFor("任务中断", () => first.status === "interrupted" || h.state.getTask(first.id)?.status === "interrupted");
-    held.splice(0).forEach((release) => release());
-    await waitFor("无活动任务时不显示", () => !footer().includes("计划"));
-
-    h.terminal.send("/continue\r");
-    await renderFlush();
+    await submitViaEditor(h, "/continue");
     await submitViaEditor(h, "接着调研");
-    await waitFor("继续任务运行", () => [...h.state.tasks.values()].some((x) => x.resumesTaskId === first.id && x.status === "running") && held.length > 0);
-    await waitFor("继续的任务仍显示计划", () => footer().startsWith("⏸ Ask for approval · 计划"));
+    await waitFor("继续任务运行", () => active()?.resumesTaskId === first.id && held.length > 0);
+    const second = active();
+    assert.equal(second.planMode, true);
+    assert.equal(second.accessMode, "auto-review");
     held.splice(0).forEach((release) => release());
-    await waitFor("完成", () => [...h.state.tasks.values()].every((x) => x.status !== "running"));
+    await waitFor("计划完成", () => h.state.getTask(second.id)?.status === "completed");
+    assert.ok(footer().startsWith("☷ Plan"), "计划完成不退出 Plan");
+
+    await submitViaEditor(h, "开始实现");
+    await waitFor("开始实现仍是 Plan", () => active()?.input === "开始实现" && held.length > 0);
+    const third = active();
+    assert.equal(third.planMode, true);
+    await setMode("full_access");
+    assert.ok(footer().startsWith("☷ Plan · 会话默认 ⏵⏵ Full access"), "默认值切换不改当前任务");
+    h.app.quit(0);
+    h = await startApp(t, { sessionId });
+    apps.push(h);
+    await waitFor("重连恢复实际模式", () => footer().startsWith("☷ Plan · 会话默认 ⏵⏵ Full access"));
+    assert.equal(h.state.tasks.size, 3, "重连不重复建任务");
+    await interrupt(third.id);
+    await submitViaEditor(h, "/continue");
+    await submitViaEditor(h, "按计划实现");
+    await waitFor("切换后继续运行", () => active()?.resumesTaskId === third.id && held.length > 0);
+    assert.equal(active().planMode, false, "继续使用提交时的选择，不继承 Plan");
+    assert.equal(active().accessMode, "full_access");
+    assert.ok(footer().startsWith("⏵⏵ Full access") && !footer().includes("Plan"));
+    held.splice(0).forEach((release) => release());
+    await waitFor("完成", () => !active());
   } finally {
     held.splice(0).forEach((release) => release());
     quitAll(apps);
@@ -1117,7 +1149,7 @@ test("Shift+Tab 循环切换默认模式，连续按键落盘且保留草稿，�
     assert.equal(current().defaultAccessMode, "confirm");
     h.terminal.send("未提交草稿");
 
-    for (const [index, mode] of ["full_access", "auto-review", "confirm"].entries()) {
+    for (const [index, mode] of ["full_access", "auto-review", "plan", "confirm"].entries()) {
       h.terminal.send("\x1b[Z");
       await waitFor(`快捷键切换至 ${mode}`, () => current().defaultAccessModeVersion === initialVersion + index + 1);
       const saved = await t.client.request<any>("get_session", { session_id: sessionId });
@@ -1126,12 +1158,12 @@ test("Shift+Tab 循环切换默认模式，连续按键落盘且保留草稿，�
       assert.equal(app.editor.getText(), "未提交草稿", "切换模式不改变草稿");
     }
 
-    h.terminal.send("\x1b[Z\x1b[Z\x1b[Z");
-    await waitFor("连续三次切换全部完成", () => current().defaultAccessModeVersion === initialVersion + 6);
+    h.terminal.send("\x1b[Z\x1b[Z\x1b[Z\x1b[Z");
+    await waitFor("连续四次切换全部完成", () => current().defaultAccessModeVersion === initialVersion + 8);
     const saved = await t.client.request<any>("get_session", { session_id: sessionId });
-    assert.equal(saved.defaultAccessMode, "confirm", "连续三次切换完成完整循环");
-    assert.equal(saved.defaultAccessModeVersion, initialVersion + 6);
-    assert.deepEqual(requests.filter((request) => request.op === "set_session_mode").map((request) => request.params?.expected_version), Array.from({ length: 6 }, (_, index) => initialVersion + index), "连续按键按后台版本串行提交，不冲突或丢失");
+    assert.equal(saved.defaultAccessMode, "confirm", "连续四次切换完成完整循环");
+    assert.equal(saved.defaultAccessModeVersion, initialVersion + 8);
+    assert.deepEqual(requests.filter((request) => request.op === "set_session_mode").map((request) => request.params?.expected_version), Array.from({ length: 8 }, (_, index) => initialVersion + index), "连续按键按后台版本串行提交，不冲突或丢失");
 
     for (const open of [() => app.cmdMode([], () => {}), () => app.openHelp()]) {
       await open();
@@ -1140,8 +1172,8 @@ test("Shift+Tab 循环切换默认模式，连续按键落盘且保留草稿，�
       h.terminal.send("\x1b[Z");
       await renderFlush();
       const unchanged = await t.client.request<any>("get_session", { session_id: sessionId });
-      assert.equal(unchanged.defaultAccessModeVersion, initialVersion + 6, "悬浮层和窗口获得焦点时不修改模式");
-      assert.equal(requests.filter((request) => request.op === "set_session_mode").length, 6);
+      assert.equal(unchanged.defaultAccessModeVersion, initialVersion + 8, "悬浮层和窗口获得焦点时不修改模式");
+      assert.equal(requests.filter((request) => request.op === "set_session_mode").length, 8);
       h.terminal.send("\x1b");
       assert.equal(app.editor.getText(), "未提交草稿");
     }
@@ -1172,7 +1204,7 @@ test("切换会话沿用当前模式、模型与思考强度，提交等待目�
     const current = () => h.state.sessions.find((session) => session.id === h.state.currentSessionId)!;
     const low = { provider: "second", modelId: "reasoner", thinkingLevel: "low" };
     const checkResult = (text: string, isError?: boolean) => assert.ok(!isError, text);
-    await app.sendSessionMode(sessionId, current().defaultAccessModeVersion, "full_access", checkResult);
+    await app.sendSessionMode(sessionId, current().defaultAccessModeVersion, "plan", checkResult);
     await app.saveModelSelection(sessionId, current().modelSelectionVersion, low, checkResult);
     const request = h.connection.request.bind(h.connection);
     let settingsBlocked = false;
@@ -1191,10 +1223,11 @@ test("切换会话沿用当前模式、模型与思考强度，提交等待目�
     release();
     await waitFor("切换后的任务完成", () => [...h.state.tasks.values()].some((task) => task.sessionId === sessionB && task.status === "completed"));
     const task = [...h.state.tasks.values()].find((item) => item.sessionId === sessionB)!;
-    assert.equal(task.accessMode, "full_access");
+    assert.equal(task.accessMode, "auto-review");
+    assert.equal(task.planMode, true);
     assert.deepEqual(task.modelSelection, low);
     const savedB = await t.client.request<any>("get_session", { session_id: sessionB });
-    assert.equal(savedB.defaultAccessMode, "full_access");
+    assert.equal(savedB.defaultAccessMode, "plan");
     assert.deepEqual(savedB.modelSelection, low, "沿用的模型与思考强度在目标会话落盘");
 
     const high = { ...low, thinkingLevel: "high" };
@@ -1214,7 +1247,7 @@ test("切换会话沿用当前模式、模型与思考强度，提交等待目�
   }
 });
 
-test("/mode：列表含 Auto review 并可选择，状态栏显示 Auto review", async () => {
+test("/mode：列表提供四种模式并可选择 Plan，取消不改状态", async () => {
   const t = await startTestRuntime("tui-mode", async () => ({ kind: "text", text: "done" }));
   const apps: AppHarness[] = [];
   try {
@@ -1222,6 +1255,8 @@ test("/mode：列表含 Auto review 并可选择，状态栏显示 Auto review",
     const h = await startApp(t, { sessionId });
     apps.push(h);
 
+    const before = h.state.sessions.find((s) => s.id === sessionId)!;
+    const initialVersion = before.defaultAccessModeVersion;
     for (const command of ["/mode", "/model"]) {
       for (const key of ["q", "\x1b"]) {
         h.terminal.clearOutput();
@@ -1237,6 +1272,8 @@ test("/mode：列表含 Auto review 并可选择，状态栏显示 Auto review",
         await renderFlush();
         assert.equal(tui.hasOverlay(), false, `${command} 可用 q 和 Esc 关闭`);
         assert.equal((h.app as any).editor.getText(), "", "关闭按键不进入草稿");
+        assert.equal(before.defaultAccessMode, "confirm");
+        assert.equal(before.defaultAccessModeVersion, initialVersion, "取消不修改默认模式");
       }
     }
 
@@ -1247,22 +1284,97 @@ test("/mode：列表含 Auto review 并可选择，状态栏显示 Auto review",
     assert.match(stripTerminalSequences((h.app as any).tui.currentLayout.lines.join("\n")), /连接：/, "模式列表保持原有主界面布局");
     assert.match(stripTerminalSequences((h.app as any).tui.previousScreen.join("\n")), /Auto review/, "模式列表仍在当前画面中");
     const listOut = h.terminal.output();
-    assert.ok(listOut.includes("Ask for approval") && listOut.includes("Full access") && listOut.includes("Auto review"), "三种模式都在列表中");
+    assert.ok(listOut.includes("Ask for approval") && listOut.includes("Full access") && listOut.includes("Auto review") && listOut.includes("Plan"), "四种模式都在列表中");
 
-    // 列表顺序 confirm / full_access / auto-review：下移两项选中 Auto review
+    // 列表顺序 confirm / full_access / auto-review / plan：下移三项选中 Plan
     h.terminal.clearOutput();
+    h.terminal.send("\x1b[B");
     h.terminal.send("\x1b[B");
     h.terminal.send("\x1b[B");
     await renderFlush();
     h.terminal.send("\r");
-    await waitFor("模式已切换", () => h.state.sessions.find((s) => s.id === sessionId)?.defaultAccessMode === "auto-review");
+    await waitFor("模式已切换", () => h.state.sessions.find((s) => s.id === sessionId)?.defaultAccessMode === "plan");
     const session = await t.client.request<any>("get_session", { session_id: sessionId });
-    assert.equal(session.defaultAccessMode, "auto-review", "set_session_mode 落库");
+    assert.equal(session.defaultAccessMode, "plan", "set_session_mode 落库");
 
-    // 选择后的渲染帧里，状态区（模式：X · 工作区）显示 Auto review
-    await waitFor("状态栏显示 Auto review", () => h.terminal.output().includes("Auto review ·"));
+    // 选择后状态区显示会话持久化的 Plan
+    await waitFor("状态栏显示 Plan", () => h.terminal.output().includes("Plan ·"));
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("非普通开发身份的 /mode 与 Shift+Tab 仅提供三个访问模式，Plan 不随会话切换进入", async () => {
+  const t = await startTestRuntime("tui-plan-identity", async () => ({ kind: "text", text: "done" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const create = async () => t.client.request<Session>("create_session", { project_id: projectId, cwd: t.work[0]! });
+    const main = t.runtime.store.getSession(t.runtime.store.getAgentRole("main")!.sessionId)!;
+    const sub = await create();
+    t.runtime.store.insertSubAgent({ id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
+    const archive = await create();
+    t.runtime.store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(archive.id);
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    const app = h.app as any;
+    const result = (text: string, isError?: boolean) => assert.ok(!isError, text);
+    await app.sendSessionMode(sessionId, 0, "plan", result);
+    for (const id of [main.id, sub.id, archive.id]) {
+      app.switchSession(id);
+      await app.sessionSettingsSync;
+      assert.equal(h.state.sessions.find((s) => s.id === id)!.defaultAccessMode, "confirm", "Plan 不同步进无资格身份");
+      await app.cmdMode([], result);
+      await renderFlush();
+      const screen = stripTerminalSequences(app.tui.previousScreen.join("\n"));
+      assert.ok(screen.includes("Auto review") && !screen.includes("Plan"));
+      h.terminal.send("\x1b");
+      if (id === sub.id) {
+        h.terminal.send("\x1b[Z");
+        await renderFlush();
+        assert.equal(h.state.sessions.find((s) => s.id === id)!.defaultAccessMode, "confirm", "SubAgent 原有默认模式修改禁令保留");
+        continue;
+      }
+      for (const mode of ["full_access", "auto-review", "confirm"]) {
+        h.terminal.send("\x1b[Z");
+        await waitFor(`无 Plan 循环至 ${mode}`, () => h.state.sessions.find((s) => s.id === id)!.defaultAccessMode === mode);
+      }
+    }
+  } finally {
+    quitAll(apps);
+    await new Promise((r) => setTimeout(r, 100));
+    await t.shutdown();
+  }
+});
+
+test("其他客户端排队的 Plan 通过事件标记显示，版本冲突后恢复后台默认值", async () => {
+  const t = await startTestRuntime("tui-plan-remote", async () => ({ kind: "text", text: "done" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    t.runtime.store.setSessionQueueState(sessionId, "paused", "owner_pause");
+    await t.client.request("set_session_mode", { session_id: sessionId, mode: "full_access", expected_version: 0 });
+    const h = await startApp(t, { sessionId });
+    apps.push(h);
+    const app = h.app as any;
+    const task = await t.client.request<Task>("submit", { session_id: sessionId, request_id: "remote-plan", input: "外部客户端调研", access_mode: "plan", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
+    await waitFor("其他客户端的 Plan 排队事件", () => h.state.getTask(task.id)?.planMode === true);
+    assert.equal(h.state.getTask(task.id)!.input, "", "事件无需携带输入");
+    const footer = () => stripTerminalSequences(app.footer.render(180)[0]);
+    assert.ok(footer().startsWith("☷ Plan · 会话默认 ⏵⏵ Full access"));
+    await t.client.request("set_session_mode", { session_id: sessionId, mode: "plan", expected_version: 1 });
+    const errors: string[] = [];
+    await app.sendSessionMode(sessionId, 1, "confirm", (text: string, isError?: boolean) => { if (isError) errors.push(text); });
+    assert.ok(errors.some((text) => text.includes("其他客户端修改")));
+    const session = h.state.sessions.find((s) => s.id === sessionId)!;
+    assert.equal(session.defaultAccessMode, "plan");
+    assert.equal(session.defaultAccessModeVersion, 2);
+    assert.ok(footer().startsWith("☷ Plan") && !footer().includes("会话默认"));
+    assert.equal(h.state.getTask(task.id)!.accessMode, "auto-review");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));

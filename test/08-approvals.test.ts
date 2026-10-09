@@ -701,7 +701,14 @@ test("崩溃恢复区分审批消费状态：已消费标 effect_unknown，未�
   }
 });
 
-test("DNS 在批准时固定：不可解析目标在提出审批前失败（防重绑定的前置校验）", async () => {
+test("DNS 在批准时固定：不可解析目标在提出审批前失败（防重绑定的前置校验）", async (ctx) => {
+  // 固定该目标的 ENOTFOUND：本机 fake-IP DNS 代理可能为 .invalid 返回可解析地址。
+  const dns = await import("node:dns");
+  const lookup = dns.promises.lookup.bind(dns.promises);
+  ctx.mock.method(dns.promises, "lookup", async (...args: any[]) => {
+    if (args[0] === "nonexistent.invalid") throw Object.assign(new Error("getaddrinfo ENOTFOUND nonexistent.invalid"), { code: "ENOTFOUND" });
+    return lookup(args[0], args[1]);
+  });
   const responder: Responder = (req) => {
     const done = req.messages.filter((m) => m?.role === "tool").length;
     if (done === 0) {

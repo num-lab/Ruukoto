@@ -12,6 +12,7 @@ import {
   VISIBLE_COMMANDS,
   commandHelpLines,
   dispatchInput,
+  LEGACY_PROJECT_WRITE_HINT,
   type CommandEnv,
   type CommandHost,
   type CommandResult,
@@ -107,16 +108,15 @@ test("派发：/quit 不回显；未知命令回显并注记；空输入无动�
   assert.equal(f.log.echoes.length, 1);
 });
 
-test("派发：/plan <内容> 作任务输入不回显；只输入 /plan 显示用法并回显", async () => {
+test("/plan 已移除：带内容和裸命令均为未知命令，补全与帮助不再提供", async () => {
   const f = fake();
   await f.run("  /plan 调研  登录 ");
-  assert.deepEqual(f.log.host, [["submit", "/plan 调研  登录"]]);
-  assert.deepEqual(f.log.echoes, []);
-
   await f.run("/plan");
-  assert.deepEqual(f.log.echoes, ["/plan"]);
-  assert.match(f.log.notes[0]!, /^用法：\/plan <内容>/);
-  assert.equal(f.log.host.length, 1);
+  assert.deepEqual(f.log.host, []);
+  assert.deepEqual(f.log.echoes, ["/plan 调研  登录", "/plan"]);
+  assert.deepEqual(f.log.notes, Array(2).fill("未知命令：/plan（/help 查看命令列表）"));
+  assert.ok(!commandHelpLines().some((line) => line.includes("/plan")));
+  assert.equal(await new SlashCommandAutocomplete(VISIBLE_COMMANDS).getSuggestions(["/pl"], 0, 3), null);
 });
 
 test("派发：/skill <名称> 与 /skill:<名称> 都作任务输入不回显，按 trim 过的整行提交参数原文；不带名称列出技能库", async () => {
@@ -238,7 +238,7 @@ test("/memory：list（带项目 / 无会话）、show、revoke / restore 的版
 test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命令、请求失败", async () => {
   const status = {
     configured: true, enabled: true, online: false, stateDetail: "未连接", endpoint: "ws://x", selfId: "10", actualSelfId: null,
-    configVersion: 3, groups: ["100", "200"], ownerUserId: null, maxReplyChars: 500, queueTtlMs: 60000,
+    configVersion: 3, groups: ["100", "200"], ownerUserId: null, maxReplyChars: 500,
     sessions: [{ groupId: "100", sessionId: "sess_abcdefghijk", queued: 2, active: true }],
   };
   const f = fake({
@@ -253,15 +253,15 @@ test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命�
   assert.deepEqual(f.log.requests.at(-1), ["qq_status", {}]);
   assert.equal(
     f.log.texts.at(-1),
-    "QQ 入口：已启用；连接 离线（未连接）\n端点 ws://x；预期账号 10；配置 v3；允许群：100、200\n" +
-      "拥有者私聊：未开启（共享 main；发送记录用 ruukoto notify list 查看）\n回复上限 500 字符；排队过期 60000ms\n" +
+    "QQ 入口：已启用；连接 离线（未连接）\n端点 ws://x；预期账号 10；配置 v3；允许群：100、200（历史值，核心群聊已退役）\n" +
+      "拥有者私聊：未开启（共享 main；发送记录用 ruukoto notify list 查看）\n旧群会话归档：\n" +
       "  群 100：会话 sess_abcde… 排队 2，执行中",
   );
   await f.run("/qq disable");
   assert.deepEqual(f.log.requests.at(-1), ["qq_set_enabled", { enabled: false }]);
   assert.equal(f.log.texts.at(-1), "QQ 入口已停用（配置 v5）");
   await f.run("/qq groups");
-  assert.equal(f.log.texts.at(-1), "允许的群：100、200\n增删经 CLI：ruukoto qq group add|remove <群号>");
+  assert.equal(f.log.texts.at(-1), "允许的群：100、200（历史值）\n核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）");
   await f.run("/qq inbox 100");
   assert.deepEqual(f.log.requests.at(-1), ["qq_inbox_list", { group_id: "100", limit: 20 }]);
   assert.equal(f.log.texts.at(-1), "暂无收件登记");
@@ -277,7 +277,7 @@ test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命�
   const idle = fake({ replies: { qq_status: { configured: true, enabled: false, online: false, stateDetail: "适配器未启动" } } });
   await idle.run("/qq");
   await idle.run("/qq groups");
-  assert.deepEqual(idle.log.texts, ["QQ 入口已配置；适配器未启动", "允许的群：（空）\n增删经 CLI：ruukoto qq group add|remove <群号>"]);
+  assert.deepEqual(idle.log.texts, ["QQ 入口已配置；适配器未启动", "允许的群：（空）（历史值）\n核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）"]);
   const broken = fake({ replies: { qq_status: new Error("连接断开") } });
   await broken.run("/qq");
   assert.match(broken.log.notes[0]!, /QQ 操作失败：连接断开/);
@@ -344,4 +344,16 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
   await f.run("/new-project 断");
   assert.match(f.log.notes.at(-1)!, /创建项目未发送：连接不可用/);
   assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4, "都只发一次");
+
+  // ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）：只提示工作区入口，不发请求
+  const saved = process.env.RUUKOTO_PRODUCT;
+  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
+  try {
+    await f.run("/new-project 新");
+    assert.equal(f.log.notes.at(-1), LEGACY_PROJECT_WRITE_HINT);
+    assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4);
+  } finally {
+    if (saved === undefined) delete process.env.RUUKOTO_PRODUCT;
+    else process.env.RUUKOTO_PRODUCT = saved;
+  }
 });

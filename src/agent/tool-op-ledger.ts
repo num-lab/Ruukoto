@@ -5,14 +5,16 @@
  * - 结果与 `task.tool_result` 事件成对写入，落库与事件是同一句；条件更新以
  *   先写者为准，重复补记不重复发布；
  * - 效果未知：操作标记 + `task.tool_effect_unknown` + 任务标记，已标记即跳过；
+ *   已消费的服务审批范围另使同目标（main/本机/单元/动作）所有有效长期授权失效
+ *   （agent-direction issue 10；与效果未知登记同一事务）；
  * - 分类（对结果缺失、未标未知的操作，停止与重启同一个）：
  *   1. 有审批且全部未消费 → 已知未执行（批准没消费即证明没执行，证据强于其余各条）；
  *   2. 无写入效果的工具 → 「未完成：只读操作…中止，无写入效果」；
  *   3. 工具族能按宿主操作 ID 核实 → 已提交 / 已知未提交；无法核实 → 效果未知；
  *   4. 其余 → 效果未知（不重放，由拥有者核实）。
  *
- * 规则表按静态工具名穷尽登记（漏登记即编译错误）；MCP 动态工具与未登记名字按
- * 审批判定。记忆族不登记核实：`memory_revoke` 只改状态、不写带 tool_op_id 的
+ * 静态宿主工具的规则由族清单提供；路由工具与旧操作的规则仍穷尽登记。
+ * MCP 动态工具与未登记名字按审批判定。记忆族不登记核实：`memory_revoke` 只改状态、不写带 tool_op_id 的
  * 版本行，无法从磁盘证明撤销已发生。MCP 读工具的副作用类别不在 tool_ops 里，
  * 重启时拿不到钉版计划，也按审批判定。
  *
@@ -21,21 +23,11 @@
 
 import type { Store } from "../core/store.ts";
 import type { ConfirmationRequest, EditStats, ToolOp } from "../core/types.ts";
-// 名字常量只用于规则表的穷尽类型（type-only：不引入运行时依赖）
 import type { APPROVAL_TOOL_NAMES, ARTIFACT_TOOL_NAME, CODING_TOOL_NAMES } from "./tool-router.ts";
-import type { HOST_DATA_TOOL_NAMES } from "./host-tools.ts";
-import type { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
-import type { SKILL_TOOL_NAMES } from "./skills.ts";
-import type { TODO_TOOL_NAMES } from "./todo.ts";
-import type { APP_DATA_TOOL_NAMES } from "./app-data/tools.ts";
-import type { SCHEDULER_TOOL_NAMES } from "./scheduler-tools.ts";
-import type { DELEGATION_TOOL_NAMES } from "./delegation-tools.ts";
-import type { CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
 import type { MOCK_TOOL_NAMES } from "./mock-tools.ts";
+import type { HostToolLedger, HostToolRule } from "./host-tool-families.ts";
 
 type TaskRef = { id: string; sessionId: string };
-
-export type ToolOpFamily = "app_data" | "scheduler" | "delegation" | "chat_result";
 
 /** 工具族的核实：写操作是否已提交，及两种结论的证据文案（`when` 如「停止前」）。 */
 export interface FamilyCheck {
@@ -48,17 +40,11 @@ type StaticToolName =
   | (typeof CODING_TOOL_NAMES)[number]
   | (typeof APPROVAL_TOOL_NAMES)[number]
   | typeof ARTIFACT_TOOL_NAME
-  | (typeof HOST_DATA_TOOL_NAMES)[number]
-  | (typeof WEB_SEARCH_TOOL_NAMES)[number]
-  | (typeof SKILL_TOOL_NAMES)[number]
-  | (typeof TODO_TOOL_NAMES)[number]
-  | (typeof APP_DATA_TOOL_NAMES)[number]
-  | (typeof SCHEDULER_TOOL_NAMES)[number]
-  | (typeof DELEGATION_TOOL_NAMES)[number]
-  | (typeof CHAT_RESULT_TOOL_NAMES)[number]
-  | (typeof MOCK_TOOL_NAMES)[number];
+  | (typeof MOCK_TOOL_NAMES)[number]
+  // 已删除的旧工具（agent-direction issue 23）：升级前在途操作的恢复核实仍按原规则
+  | "coding_delegate";
 
-type Rule = "no_effect" | "approval" | ToolOpFamily;
+type Rule = HostToolRule;
 
 const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) => Rule)> = {
   read: "no_effect",
@@ -68,32 +54,8 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   request_file_access: (p) => (p.operation === "write" ? "approval" : "no_effect"),
   http_request: (p) => (["GET", "HEAD"].includes(String(p.method ?? "").toUpperCase()) ? "no_effect" : "approval"),
   read_artifact: "no_effect",
-  history_search: "no_effect",
-  history_read: "no_effect",
-  memory_list: "no_effect",
-  memory_read: "no_effect",
-  memory_save: "approval",
-  memory_revoke: "approval",
-  web_search: "no_effect",
-  skill: "no_effect",
-  // 清单不另存，只由成功调用的参数推出：未完成的调用没有效果
-  todo_write: "no_effect",
-  app_data_query: "no_effect",
-  app_data_define_table: "app_data",
-  app_data_migrate: "app_data",
-  app_data_insert: "app_data",
-  app_data_update: "app_data",
-  app_data_delete: "app_data",
-  schedule_query: "no_effect",
-  notification_query: "no_effect",
-  schedule_create: "scheduler",
-  schedule_cancel: "scheduler",
-  notification_enqueue: "scheduler",
-  notification_cancel: "scheduler",
-  coding_result: "no_effect",
-  coding_delegate: "delegation",
-  chat_result_list: "no_effect",
-  chat_result_accept: "chat_result",
+  // 旧工具已删除（issue 23），只读兼容：analyze 按 SubAgent 登记核实，draft 按旧 coding 子任务核实
+  coding_delegate: (p) => ({ family: p.mode === "analyze" ? "subagent" : "delegation" }),
   // 模拟工具代表可能有副作用的通用工具（mock_mark 写外部标记）
   mock_delay: "approval",
   mock_gate: "approval",
@@ -101,16 +63,21 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   mock_mark: "approval",
 };
 
-function ruleOf(op: Pick<ToolOp, "toolName" | "params">): Rule {
+function ruleOf(op: Pick<ToolOp, "toolName" | "params">, hostLedgers: readonly HostToolLedger[] = []): Rule {
   // 动态名字（MCP）与未登记名字按审批判定；hasOwn 防原型链上的键
-  if (!Object.hasOwn(RULES, op.toolName)) return "approval";
-  const rule = RULES[op.toolName as StaticToolName];
-  return typeof rule === "function" ? rule(op.params) : rule;
+  if (Object.hasOwn(RULES, op.toolName)) {
+    const rule = RULES[op.toolName as StaticToolName];
+    return typeof rule === "function" ? rule(op.params) : rule;
+  }
+  for (const ledger of hostLedgers) {
+    if (ledger.names.includes(op.toolName)) return ledger.ruleFor(op.toolName, op.params);
+  }
+  return "approval";
 }
 
-/** 该操作是否不产生写入效果（编排器的重试门共用）。 */
-export function hasNoWriteEffect(op: Pick<ToolOp, "toolName" | "params">): boolean {
-  return ruleOf(op) === "no_effect";
+/** 该操作是否不产生写入效果（工具路由的效果未知判定共用）。 */
+export function hasNoWriteEffect(op: Pick<ToolOp, "toolName" | "params">, hostLedgers: readonly HostToolLedger[] = []): boolean {
+  return ruleOf(op, hostLedgers) === "no_effect";
 }
 
 const OCCASIONS = {
@@ -126,7 +93,8 @@ function approvalUnconsumed(op: ToolOp, confirmations: ConfirmationRequest[]): b
 export class ToolOpLedger {
   constructor(
     readonly store: Store,
-    private readonly families: Partial<Record<ToolOpFamily, FamilyCheck>> = {},
+    private readonly legacyChecks: Partial<Record<string, FamilyCheck>> = {},
+    private readonly hostLedgers: readonly HostToolLedger[] = [],
   ) {}
 
   recordResult(
@@ -161,6 +129,19 @@ export class ToolOpLedger {
       { taskId: task.id, sessionId: task.sessionId },
     );
     this.store.setEffectUnknown(task.id);
+    // 长期授权失效扩散（agent-direction issue 10）：已消费的服务审批范围 → 同一
+    // main、本机、单元与动作的所有有效长期授权失效（覆盖所有入口；记录触发操作 ID）。
+    // 效果未知阻止换 ID 自动重试；重新建立授权需要拥有者显式决定。
+    for (const c of this.store.listConfirmationsByTask(task.id)) {
+      if (c.toolOpId !== opId || c.consumedAt === null || c.scope.kind !== "service_operation") continue;
+      this.store.invalidateStandingForTarget({
+        sessionId: c.sessionId,
+        machineId: c.scope.machineId,
+        unit: c.scope.unit,
+        action: c.scope.action,
+        opId,
+      });
+    }
     return true;
   }
 
@@ -172,7 +153,7 @@ export class ToolOpLedger {
     const confirmations = this.store.listConfirmationsByTask(taskId);
     return this.store
       .listUnresolvedToolOps(taskId)
-      .filter((op) => ruleOf(op) === "approval" && !approvalUnconsumed(op, confirmations))
+      .filter((op) => ruleOf(op, this.hostLedgers) === "approval" && !approvalUnconsumed(op, confirmations))
       .map((op) => op.id);
   }
 
@@ -222,7 +203,7 @@ export class ToolOpLedger {
       this.recordResult(task, op.id, notExecuted, true);
       return true;
     }
-    if (ruleOf(op) === "no_effect") {
+    if (ruleOf(op, this.hostLedgers) === "no_effect") {
       this.recordResult(task, op.id, `未完成：只读操作在${when}中止，无写入效果`, true);
       return true;
     }
@@ -230,8 +211,9 @@ export class ToolOpLedger {
   }
 
   private recordFamilyVerdict(task: TaskRef, op: ToolOp, when: string): boolean {
-    const rule = ruleOf(op);
-    const check = rule === "no_effect" || rule === "approval" ? undefined : this.families[rule];
+    const rule = ruleOf(op, this.hostLedgers);
+    const hostCheck = this.hostLedgers.find((ledger) => ledger.names.includes(op.toolName))?.familyCheck;
+    const check = rule === "no_effect" || rule === "approval" ? undefined : hostCheck ?? this.legacyChecks[rule.family];
     const verdict = check?.verify(op) ?? "unverifiable";
     if (!check || verdict === "unverifiable") return false;
     const committed = verdict === "committed";

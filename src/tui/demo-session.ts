@@ -47,6 +47,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
     modelSelection: MODEL,
     submissionDigest: null,
     accessMode: "confirm",
+    planMode: false,
     permissionVersion: 1,
     grantedPaths: [],
     pendingAccessMode: null,
@@ -62,6 +63,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
     deadline: null,
     resultSummary: null,
     resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null,
     createdAt: ts(60),
     startedAt: ts(59),
     endedAt: ts(50),
@@ -89,11 +91,12 @@ function demoTasks(): Task[] {
   ];
 }
 
-const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId: null, instructionFiles: ["AGENTS.md"], webSearch: "enabled", createdAt: ts(120) };
+const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId: null, rootDir: null, instructionFiles: ["AGENTS.md"], webSearch: "enabled", settingsVersion: 2, createdAt: ts(120) };
 
 const SESSION: Session = {
   id: SESSION_ID,
   projectId: PROJECT_ID,
+  workspaceProjectId: null,
   kind: "dev",
   cwd: "/srv/demo/work",
   cwdReal: "/srv/demo/work",
@@ -140,6 +143,8 @@ const CONFIRMATION: ConfirmationRequest = {
   reviewModel: "demo/demo-model",
   reviewPolicyVersion: "auto-review-v1",
   decisionSource: null,
+  standingPermissionId: null,
+  standingPermissionVersion: null,
 };
 
 /** 历史条目：覆盖各角色与边界（截断、工具错误、含非文本内容）。 */
@@ -291,12 +296,16 @@ function demoEvents(): PersistentEvent[] {
   const first = answer.slice(0, split);
   const second = answer.slice(split);
   const bodies: PersistentEventBody[] = [
-    { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container" },
-    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null },
+    { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container", product: "ruukoto" },
+    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: null },
+    { type: "project.root_attached", projectId: PROJECT_ID, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
+    // agent-direction issue 07：会话工作区组织归属（仅展示归属，资料身份仍是原 projectId）
+    { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
+    { type: "session.usage_updated", sessionId: SESSION_ID },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
-    { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", planMode: false, modelSelection: MODEL },
     { type: "task.started", taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: first, totalBytes: Buffer.byteLength(first), truncated: false, partial: true, contentIndex: 0, offset: 0, startedAt: ts(39.5) },
     { type: "task.thinking", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", thinkingId: "thought_demo1", startedAt: ts(39.4), endedAt: null, text: "I'll inspect the layout and keep each event in its original position." },
@@ -328,7 +337,7 @@ function demoEvents(): PersistentEvent[] {
       },
     },
     { type: "task.completed", taskId: "task_completed000", sessionId: SESSION_ID },
-    { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "auto-review", modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "auto-review", planMode: false, modelSelection: MODEL },
     { type: "task.started", taskId: "task_awaiting0000", sessionId: SESSION_ID },
     {
       type: "task.awaiting_confirmation",
@@ -346,15 +355,17 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.confirmation_reviewed", taskId: "task_awaiting0000", confirmationId: CONFIRMATION.id, decision: "ask_owner", reason: "带凭据的写入不属于自动批准范围" },
     { type: "task.confirmation_resolved", taskId: "task_awaiting0000", confirmationId: "conf_old000000000", decision: "rejected" },
     { type: "task.approval_consumed", taskId: "task_completed000", confirmationId: "conf_old000000001", toolOpId: "toolop_demo000001", toolName: "read" },
+    { type: "standing_permission.created", permissionId: "sp_demo00000000001", approvalId: "conf_old000000002", eventId: "evt_demo00000000001", sessionId: SESSION_ID, channel: "qq_private", account: "880001", chatId: "880001", actor: "qq_private:880001", machineId: "demo-machine-0001", unit: "ruukoto-service-test.service", action: "restart" },
+    { type: "standing_permission.revoked", permissionId: "sp_demo00000000001", version: 2, reason: "effect_unknown", opId: "op_svc_demo0000001" },
     { type: "task.mode_switch_requested", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access" },
     { type: "task.mode_switched", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access", permissionVersion: 2 },
     { type: "task.mode_switch_failed", taskId: "task_failed00000", sessionId: SESSION_ID, to: "full_access", reason: "任务已结束" },
     { type: "task.thinking", taskId: "task_running000000", sessionId: SESSION_ID, messageId: "msg_live", thinkingId: "thought_live", startedAt: ts(2), endedAt: null, text: "正在检查任务恢复与终端宽度。最新内容保留在这一行的尾部。" },
-    { type: "task.queued", taskId: "task_failed00000", sessionId: SESSION_ID, requestId: "req-3", accessMode: "confirm", modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_failed00000", sessionId: SESSION_ID, requestId: "req-3", accessMode: "confirm", planMode: false, modelSelection: MODEL },
     { type: "task.failed", taskId: "task_failed00000", sessionId: SESSION_ID, errorMessage: "模型返回 429：速率限制" },
-    { type: "task.queued", taskId: "task_canceled000", sessionId: SESSION_ID, requestId: "req-4", accessMode: "confirm", modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_canceled000", sessionId: SESSION_ID, requestId: "req-4", accessMode: "confirm", planMode: false, modelSelection: MODEL },
     { type: "task.canceled", taskId: "task_canceled000", sessionId: SESSION_ID },
-    { type: "task.queued", taskId: "task_interrupt00", sessionId: SESSION_ID, requestId: "req-5", accessMode: "confirm", modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_interrupt00", sessionId: SESSION_ID, requestId: "req-5", accessMode: "confirm", planMode: false, modelSelection: MODEL },
     { type: "task.interrupted", taskId: "task_interrupt00", sessionId: SESSION_ID, reason: "backend_restart", cancelRequested: false, effectUnknown: true },
     { type: "task.continued", taskId: "task_contd000000", sessionId: SESSION_ID, resumesTaskId: "task_interrupt00" },
     { type: "task.tool_process_unreaped", taskId: "task_interrupt00", sessionId: SESSION_ID, reason: "容器未在期限内回收" },
@@ -377,6 +388,8 @@ function demoEvents(): PersistentEvent[] {
     { type: "github.publish_settled", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", status: "effect_unknown", remoteUrl: null, errorMessage: "发送后超时" },
     { type: "mcp.service_changed", serviceId: "mcps_demo000000", projectId: PROJECT_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
     { type: "project.jev_changed", projectId: PROJECT_ID, configVersion: 2, enabled: true },
+    // agent-direction issue 06：项目指令与 Web Search 的设置版本并发保护
+    { type: "project.settings_changed", projectId: PROJECT_ID, settingsVersion: 2, instructionFiles: ["AGENTS.md"], webSearch: "enabled" },
     { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", projectId: PROJECT_ID, taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
     // issue 07：QQ 群聊入口配置变化（群允许列表增删/启停/连接参数）
     { type: "qq.config_changed", configVersion: 3, action: "group_added", groupId: "100001" },
@@ -387,11 +400,30 @@ function demoEvents(): PersistentEvent[] {
     { type: "inbound.registered", eventId: "evt_demo000000001", source: "telegram", externalId: "msg-42", targetRole: "main", actor: "owner" },
     { type: "inbound.queued", eventId: "evt_demo000000001", taskId: "task_completed000", targetRole: "main" },
     { type: "inbound.skipped", eventId: "evt_demo000000002", source: "qq_private", reason: "qq_private_target_changed" },
+    // agent-direction issue 08：IM 审批控制消息回执与同键重投拒绝
+    { type: "im_approval.processed", eventId: "evt_demo000000003", source: "qq_private", commandKind: "decide", outcome: "approved" },
+    { type: "im_approval.redelivery_rejected", eventId: "evt_demo000000003", source: "qq_private", externalId: "990001:880001:42", reason: "同键异命令或身份不一致" },
     { type: "chat_result.accepted", taskId: "task_completed000", acceptedByTaskId: "task_running000000", acceptedByOpId: "op_chat_accept000" },
     { type: "child_task.completed", taskId: "task_completed000", parentTaskId: "task_running000000", agentId: "coding", summary: "分析结论：仓库健康", resultRef: "{\"sessionId\":\"sess_demo0000000000000000\",\"taskId\":\"task_completed000\"}" },
     { type: "child_task.failed", taskId: "task_failed00000", parentTaskId: "task_running000000", agentId: "coding", errorMessage: "模型返回 429：速率限制" },
     { type: "child_task.timeout", taskId: "task_canceled000", parentTaskId: "task_running000000", agentId: "coding", deadline: ts(5) },
     { type: "child_task.result_unknown", taskId: "task_interrupt00", parentTaskId: null, agentId: "main", reason: "backend_restart" },
+    // agent-direction issue 11：工作委托登记与 SubAgent 结果
+    { type: "work_delegation.created", workId: "work_demo00000000001", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", agentSessionId: "sess_demoagent000000", taskId: "task_subagent000001" },
+    { type: "subagent_task.completed", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000001", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", summary: "只读分析结论：接口一致", resultRef: "{\"workId\":\"work_demo00000000001\",\"taskId\":\"task_subagent000001\"}" },
+    { type: "subagent_task.failed", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000002", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", errorMessage: "模型返回错误" },
+    { type: "subagent_task.timeout", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000003", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", deadline: ts(5) },
+    { type: "subagent_task.result_unknown", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000004", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", reason: "backend_restart" },
+    // agent-direction issue 12：同一 SubAgent 复用登记新工作，随后显式关闭
+    { type: "work_delegation.created", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", agentSessionId: "sess_demoagent000000", taskId: "task_subagent000005" },
+    // agent-direction issue 14：整项取消（第二项工作的运行中任务被停止）
+    { type: "work_delegation.canceled", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", canceledBy: "owner", reason: "不再需要", canceledTaskIds: [], stoppingTaskIds: ["task_subagent000005"] },
+    // agent-direction issue 13：工作内协作消息登记与未投递判定
+    { type: "subagent_message.sent", messageId: "smsg_demo00000000001", workId: "work_demo00000000001", parentSessionId: SESSION_ID, fromSubAgentId: "sagent_demo0000000001", fromTaskId: "task_subagent000001", toSubAgentId: null, delivery: "inject", taskId: null },
+    { type: "subagent_message.dropped", messageId: "smsg_demo00000000002", workId: "work_demo00000000002", parentSessionId: SESSION_ID, toSubAgentId: "sagent_demo0000000001", reason: "work_canceled" },
+    { type: "subagent.closed", subAgentId: "sagent_demo0000000001", parentSessionId: SESSION_ID, closedBy: "agent:task_running000000", taskId: "task_running000000" },
+    // agent-direction issue 17：改动汇总（已取消工作、已关闭 SubAgent 的副本成果仍可找回汇总）
+    { type: "work_delegation.integrated", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", taskId: "task_running000000", branch: "ruukoto/work-work_demo00000000002", baseCommit: "0123456789abcdef0123456789abcdef01234567", parentHead: "89abcdef0123456789abcdef0123456789abcd", files: ["src/a.ts"], filesChanged: 1, insertions: 12, deletions: 3, patchBytes: 742 },
     // issue 02：main 应用数据空间（能力停止与操作拒绝）
     { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },
     { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },
@@ -462,6 +494,9 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
     instanceId: "inst_demo",
     execution: { backend: "container", note: "合成会话：不执行任何任务" },
     defaultModel: { provider: MODEL.provider, id: MODEL.modelId, name: "Demo Model", thinkingLevel: MODEL.thinkingLevel },
+    subAgentSessionIds: [],
+    workDelegations: [],
+    subAgents: [],
   });
 
   // 按 op 表应答（名字与返回形状由类型检查对照服务端）；未列出的 op 明确拒绝，

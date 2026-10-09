@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 06 — 在工作区管理配置与资料授权
 
@@ -10,8 +10,136 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 从工作区界面或可信管理入口查看、修改指令及已支持的工具配置，新任务读取正确版本。
-- [ ] 按工作区创建、查看和撤销资料授权，实际历史、产物、记忆查询及上下文注入执行对应边界。
-- [ ] 多工作区并存时修改只作用于目标，符号链接和旧项目映射不导致改错归属。
-- [ ] 保留旧配置的读取及兼容写入，先迁移真实调用方再删除旧入口，不另建一套与旧配置并行漂移的状态。
-- [ ] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+- [x] 从工作区界面或可信管理入口查看、修改指令及已支持的工具配置，新任务读取正确版本。
+- [x] 按工作区创建、查看和撤销资料授权，实际历史、产物、记忆查询及上下文注入执行对应边界。
+- [x] 多工作区并存时修改只作用于目标，符号链接和旧项目映射不导致改错归属。
+- [x] 保留旧配置的读取及兼容写入，先迁移真实调用方再删除旧入口，不另建一套与旧配置并行漂移的状态。
+- [x] 完成相关端到端检查、类型检查及仓库要求的验证；同步本次行为涉及的运行说明和图解，验证记录区分模拟结果与真实环境结果。
+
+## Comments
+
+### 2026-10-02：实施计划
+
+本计划依据当前代码与两项并行只读核查制定，使用 ponytail skill。前置工单 05 已完成，工作区已采用带 `rootDir` 的原 `Project`，本单可以开始实施。以下是待执行方案，尚未修改运行代码或运行验收；工单状态与验收勾选保留。
+
+#### 已核实的基础与缺口
+
+工作区配置可以继续使用原 `projectId`：指令与 Web Search 在 `projects` 中，MCP 在 `mcp_services` 中，Jev 已有项目配置，资料授权在 `data_grants` 中。历史、产物、记忆来源也按这些标识校验，工作区认领不需要复制配置或授权。
+
+目前有三个需要处理的缺口：
+
+1. `src/agent/context-assembly.ts` 的 `loadProjectInstructions` 按 `session.cwdReal` 解析指令并检查范围。工作区会话进入子目录后，可能读不到根目录指令，或读取子目录中的同名文件。
+2. `Runtime.setProjectInstructions` 和 `setProjectWebSearch` 直接保存，没有期望版本检查或变更事件。配置中心仅修补自己的缓存，另一个客户端的保存不能可靠刷新，也可能被旧表单覆盖。`docs/runtime.md` 已描述项目配置有版本保护，实际实现需要补齐。
+3. 配置中心仍以项目名称组织设置，未显示工作区根目录；MCP 是全局分区，新增时重新选择所属项目。需要让拥有者在已选工作区内完成设置，并明确资料授权的来源、目标与类别。
+
+资料访问的底层边界已有实现：`AccessScope` 每次读取有效授权；宿主历史、产物和记忆工具使用宿主确定的身份；派生记忆在上下文选择与发送前校验来源。已有能力需用工作区场景验收，不能仅验证管理界面保存成功。
+
+#### 实施步骤
+
+1. **为现有指令与 Web Search 设置补齐并发保护。**
+
+   在 `projects` 增加一个 `settings_version`，映射为 `Project.settingsVersion`，只保护指令列表和 Web Search 开关。当前 schema 为 v19，采用加列迁移并为旧项目设置初始版本；不复制旧字段。MCP、Jev 继续使用各自已有的 `configVersion`，不把互不相关的配置合并成一个总版本。
+
+   现有 `set_project_instructions`、`set_project_web_search` 接受可选 `expected_version`。Store 在同一事务中核对版本、更新目标字段、递增版本并追加 `project.settings_changed` 事件；冲突返回 `version_conflict`，不修改配置、不产生成功事件。事件携带目标项目、设置版本及可供视图更新的配置字段，不含指令正文或秘密。
+
+   新配置中心必须携带开始编辑时读取的版本。旧 CLI、旧控制面调用暂可省略版本，兼容写入仍更新同一行、递增同一版本并产生同一事件；不能通过旧入口绕过有版本客户端的冲突检测。同步更新配置中心与任务 TUI 的事件投影；冲突后实际重读后台数据，再重建页面，不能只刷新旧缓存。MCP 编辑与启停沿用既有版本校验，删除补可选期望版本，新界面带版本，旧删除调用仍兼容。
+
+   主要落点：`src/core/db.ts`、`src/core/store.ts`、`src/core/types.ts`、`src/runtime/runtime.ts`、`src/control/server.ts`、`src/config-tui/app.ts`、`src/tui/state.ts`。需要同步新增事件涉及的演示数据与事件覆盖检查。
+
+2. **让指令按已确认的工作区根目录读取。**
+
+   指令基准目录统一取 `project.rootDir?.cwdReal ?? session.cwdReal`。带根目录的工作区在读取前按已有 realpath、dev、ino 规则核实根目录身份；目录失效或被替换时拒绝读取替代目录，并给出明确说明。文件 realpath 的范围检查也使用同一个基准目录，保留绝对路径与 `..` 拒绝、符号链接逃逸拒绝、256 KiB 限制、缺失说明和捕获失败不注入正文的处理。
+
+   保留任务开始时捕获正文、内容哈希和来源产物的机制：排队任务在实际开始时读当前配置；已开始任务继续使用捕获内容，下一任务读取新内容。设置版本用于并发保存，正文哈希与产物用于追溯任务实际使用的指令，两者分别保留。
+
+   没有根目录归属的旧项目继续按会话目录解释相对路径。旧项目认领为工作区后，新任务明确按根目录解释同一指令列表；不能在根目录文件缺失时偷偷退回子目录。包含不同旧目录的资料重新归属由工单 07 处理，本单不猜测、拆分或重写旧会话关系。
+
+   主要落点：`src/agent/context-assembly.ts` 与任务启动时已有目录身份核查路径；复用 `src/core/dir-identity.ts` 的校验能力。
+
+3. **在现有配置中心提供完整的工作区设置入口。**
+
+   以 `ruukoto-code config` 作为可信管理入口。沿用 `workspacePickerProjects` 的工作区与旧项目分类，并保存刷新所需的会话及角色会话标识；工作区展示根目录，旧项目明确标注。详情提供指令、Web Search、Jev、MCP 和资料授权，所有操作固定使用所选项目 ID。`ruukoto` 的管理界面继续支持其既有项目，离线模式仍仅管理已有模型配置。
+
+   给现有 MCP 页面与新增表单传入可选目标项目，工作区详情按目标过滤服务，新增时固定归属，编辑、启停和删除核对服务归属。全局 MCP 入口复用同一页面；不另建一套表单。凭据继续使用原项目和操作范围，显示引用及元数据，不能因工作区认领或选择而复制、扩大凭据 scope。
+
+   资料授权复用 `create_data_grant`、`list_data_grants`、`revoke_data_grant`。页面显示“来源工作区 → 可读取的目标工作区 → 历史/产物/记忆类别”，在当前归属下查看入向与出向授权，并提供已撤销记录查看。新建目标使用同一工作区/旧项目选择规则，保持有方向、按类别授权。撤销按单条授权 ID 执行；同范围还有其他有效授权时明确显示，不把撤销一条记录描述为已经关闭全部访问。现有拥有者全量读取后按来源/目标过滤已可满足本单，不必新增列表 API。
+
+   项目创建、根目录认领、设置变更和授权变更事件应刷新相关页面；另一客户端修改后不能继续展示过期值。沿用现有菜单标识以兼容重载恢复，不新增任务 TUI 命令、路径配置命令或工作区控制协议。
+
+   主要落点：`src/config-tui/app.ts`，复用 `src/control/workspace.ts`；仅在入口确有需要时调整 `src/config-tui/index.ts`。
+
+4. **验收真实资料读取边界与旧入口兼容。**
+
+   继续按稳定 `projectId` 判定归属；同名目录、符号链接、挂载别名不能成为另一个配置键。认领旧项目后，原指令、工具配置、授权记录及凭据引用仍能通过新界面和旧 API 访问，旧入口的后续写入能在新界面看到。
+
+   分别验证 history、artifact、memory 授权；只给其中一类不能开放其他类别，A → B 不能变成 B → A 或传递到 C。撤销后运行中任务的下一次查询及后续派生记忆注入重新校验；无其他有效授权且在上下文选择完成、模型发送之前撤销时，旧视图也必须被拦住。保留完全访问模式、文件 grantedPaths 和受限角色不隐式扩大资料 API 范围的规则。
+
+   授权不自动把其他工作区记忆全部加入模型上下文；候选仍为本项目与既有个人共享记忆，跨范围读取按工具显式请求处理。撤销不承诺撤回已经发送的内容，不清洗或改写完整历史。若工作区端到端用例发现实际绕过，只在现有访问校验处修正，不另建授权体系。
+
+   主要核查落点：`src/core/access.ts`、`src/core/memory.ts`、`src/agent/host-tools.ts`、`src/agent/context-assembly.ts`。旧项目一对多迁移、跨端共享与角色退役继续由各自工单负责。
+
+#### 验证与验收
+
+优先扩展已有测试，复用 `test/helpers/testkit.ts` 与模拟 MCP，不增加依赖或另造测试框架。界面交互放在 `test/33-config-tui.test.ts`；指令解析与钉版放在 `test/16-context-memory.test.ts`。需要串联工作区控制面和任务执行的新增用例集中在 `test/75-workspace-settings.test.ts`，编号在实施时核实。
+
+必须覆盖以下场景：
+
+- 两个工作区并存，含多仓库根目录与子目录会话；根目录、子目录各有同名指令文件，任务只能使用工作区根目录文件。
+- 指令文件逃逸、根目录失效或替换时明确拒绝；旧项目无根目录时保留原解析；符号链接打开及挂载别名仍使用同一配置归属。
+- 两客户端编辑同一设置：后保存的旧版本失败，重读后可保存；旧入口写入使新界面刷新并让旧表单冲突；修改 A 不影响 B。
+- 指令本任务钉版、下一任务更新；排队期间修改后启动读取新值。Web Search 启用从下一任务生效，禁用阻止后续调用；MCP/Jev 保留原版本及停用语义。
+- 工作区详情中的 MCP 列表和新增固定归属，另一工作区的服务与凭据不能串用；编辑期间配置改变后，旧版本修改与删除失败。
+- 历史、产物、记忆三类授权分别经历默认拒绝、授权可读、最后一条有效授权撤销后拒绝；验证方向、类别及第三工作区隔离，包含运行中任务与上下文发送前的撤销竞争。多个等价授权存在时，撤销其中一条仍可读，撤销全部后拒绝。
+- 旧项目认领、旧 API 写入和旧库升级后，配置、来源标识与授权范围保留；重复启动不重复迁移或复制状态。
+- 配置中心展示根目录、工作区与旧项目、入向/出向及已撤销授权；跨客户端刷新、冲突恢复、重载恢复与离线限制均通过真实控制面配合伪终端验证。
+
+实施后的检查顺序：
+
+```bash
+npx tsx --test test/75-workspace-settings.test.ts test/33-config-tui.test.ts test/16-context-memory.test.ts
+npx tsx --test test/09-artifacts.test.ts test/23-web-search.test.ts test/24-mcp.test.ts test/25-mcp-write.test.ts test/53-jev-config.test.ts test/55-jev-runtime.test.ts test/74-workspace-sessions.test.ts
+npm run typecheck
+npx tsx --test test/67-visual-docs.test.ts
+npm test
+```
+
+新增产品级冒烟 `.scratch/agent-direction/smoke-06-workspace-settings.mts`，沿用工单 05 的真实 bin 后台、隔离档案、socket、SQLite 和文件路径，串联打开两工作区、旧项目认领、保存设置、执行任务、授权/撤销与重启持久化。macOS 本机执行，Linux 使用 `ssh tx` 在隔离测试目录执行；不修改日常实例。模型与远端工具可打桩，记录必须明确这些部分为模拟，同时单列真实文件、目录身份、控制面、数据库和进程结果；未验证真实外部服务时不能记录为已通过外部服务验收。
+
+同步 `docs/runtime.md` 的工作区配置入口、相对路径、版本、应用时机和授权边界。对每个实际改动的 `src/` 或 `deploy/` 文件，按仓库要求运行 `grep -l <文件路径> docs/visual/*.html`，逐页核对行为并同步图、表及正文；预计重点为 `control-protocol.html`、`context-pipeline.html`、`storage-layout.html`，其余命中页也需检查。遵守 `docs/visual/style.css` 约定并完成 test/67。
+
+完成后按五条验收标准登记证据，区分模拟与真实环境；既有或环境性失败需给出基线复现，不能直接归为无关。以上行为均符合 ADR 0017 与现有资料、MCP 和上下文边界，不需要另建工作区配置架构。
+
+### 2026-10-02：实施完成（bd19ab1）
+
+**判定与改动**
+
+1. **settings_version 并发保护**（schema v19→v20 加列迁移，旧项目初始版本 1，不复制旧字段）：只保护指令列表与 Web Search，MCP/Jev/会话默认各自的版本不合并。`Store.updateProjectSettings` 为唯一写入路径（旧 `setProjectInstructionFiles`/`setProjectWebSearch` 已删除，全部真实调用方已迁移）：同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed`（携项目/设置版本/配置字段，不含指令正文或秘密）；冲突 `version_conflict` 零效果零事件；省略版本 = 旧入口兼容写入（同一行、同一版本、同一事件，带版本客户端随后保存必然冲突，不能绕过冲突检测）。同值保存幂等（不递增、无事件，对齐 MCP 启停语义；实施计划未明文外的取舍，登记于此）。`expected_version` 依运行层校验为 v1 起正整数。任务 TUI 与配置中心投影事件刷新；配置中心冲突后先重读后台快照再刷新，`refreshSessionsFromServer` 更名 `refreshSnapshotFromServer` 以符其实。
+2. **指令按工作区根目录读取**：基准目录 = `project.rootDir?.cwdReal ?? session.cwdReal`；带根目录先 `verifyDirIdentitySync`（`verifyDirIdentity` 的同步变体，共用 `assertIdentityUnchanged` 比对）核实根目录身份，失效/被替换拒绝读取替代目录并明确说明（不退回会话子目录）；绝对路径/`..` 拒绝、符号链接逃逸按基准目录拒绝、256 KiB 上限、内容哈希+捕获产物钉版全部保留；旧项目按会话目录行为不变。
+3. **配置中心工作区入口**（ruukoto-code 按 product 分流，离线仍仅模型配置）：「项目」分区沿用 `workspacePickerProjects` 工作区在前（展示根目录）/旧项目在后标注；项目详情给出指令、Web Search、Jev、MCP、资料授权，MCP 只列本项目服务、新增固定归属、服务详情核对归属（不符提示返回），全局 MCP 分区复用同一页面；`mcp_remove` 补可选 `expected_version`（CLI `--expected-version`），编辑/启停沿用既有版本校验。资料授权复用既有三个 op（无新列表 API）：出向/入向标注、同范围多条撤销时确认与结果均明示「不关闭该类访问」、「查看已撤销」只读记录含撤销时间、新建方向固定本项目 → 目标（目标同分类）。凭据零改动、不复制不扩大 scope。菜单标识沿用（重载恢复有专门用例）。
+4. **资料边界**：归属按稳定 projectId（同名目录、符号链接、挂载别名不产生第二配置键，入口覆盖见工单 05 的 test/74/30）；核查 `access.ts`/`memory.ts`/`host-tools.ts`/`context-assembly.ts` 未发现绕过，未改边界代码。三类别生命周期、方向与第三工作区隔离、撤销时机（运行中任务的后续查询、上下文选择完成与发送之间的撤销由 `context_source_changed` 拦下）均有用例。完全访问与 grantedPaths 不隐含扩大（既有约束未动）；撤销不承诺撤回已发送内容，注入与查询两个时机重新校验。
+
+**评审发现与处置**（/code-review 双轴，对未提交 diff）
+
+- Standards：无 P1。R1 [P2] test/33 授权用例在全量并行负载下曾 15s 等待超时（隔离复跑 5/5 通过；负载型等待）——等待预算放宽至 60s；R2 [P3] 目录身份比对重复——提取 `assertIdentityUnchanged`；R3 [P3] 方法名不副实——更名；R4 [P3] 冗余类型断言——删除。
+- Spec：P1 冒烟缺旧项目认领场景——已补（场景 6，并重跑全过）；P3 同值幂等取舍登记（见上）；P3 符号链接/挂载别名归属依赖工单 05 既有覆盖（test/74 别名用例），本单未重复。
+
+**验证（真实环境与模拟分列）**
+
+- **产品级冒烟** `.scratch/agent-direction/smoke-06-workspace-settings.mts`（真实 bin/ruukoto-code.mjs 后台两次拉起、真实控制面 socket/SQLite/文件与目录身份、控制协议全部操作；**模拟：模型服务 MockModelServer**）：macOS 本机两轮 **6/6 通过**（两工作区并存、设置版本与冲突、根/子目录会话指令注入、授权/撤销、旧项目认领与幂等、重启持久化）。未验证真实外部服务。
+- **离线测试**（进程内真实 Runtime/socket/SQLite/文件，模型打桩）：工单验证序列全绿——test/75 12/12、33 14/14、16 33/33、09/23/24/25/53/55/74 92/92、19/13/27/30/51/59/60/66 与 test/67 3/3；`npm run typecheck` 通过。
+- **全量 `npm test`（最终两轮 2026-10-02）**：769 项中 **767 通过、1 跳过**（真实模型门控的既有跳过）、**1 失败**——08-approvals「DNS 在批准时固定」：本机 DNS 对不可解析名 60s 超时，干净 HEAD 复现同一失败（git stash 后单跑 test/08 同样 60s 超时），工单 05 已记录同一环境性既有失败，与本单无关，如实记录。首轮全量中 test/33 授权用例曾负载型超时（见评审 R1，加固后两轮全量通过）。
+
+**复跑步骤**
+
+- 冒烟：`npx tsx .scratch/agent-direction/smoke-06-workspace-settings.mts`。
+- 离线：`npx tsx --test test/75-workspace-settings.test.ts test/33-config-tui.test.ts test/16-context-memory.test.ts test/09-artifacts.test.ts test/23-web-search.test.ts test/24-mcp.test.ts test/25-mcp-write.test.ts test/53-jev-config.test.ts test/55-jev-runtime.test.ts test/74-workspace-sessions.test.ts`；`npm run typecheck`；`npx tsx --test test/67-visual-docs.test.ts`；全量 `npm test`。
+
+**同步**：`docs/runtime.md`（配置中心并发与项目分区、项目指令基准目录、mcp remove 用法、数据布局 schema v20）、`docs/visual/control-protocol.html`（`project.settings_changed` 事件行、三个 op 的 expected_version）、`storage-layout.html`（v20 与 settings_version）、`context-pipeline.html`（指令基准目录与根目录核实）。
+
+**与验收标准对应**
+
+1. 工作区设置入口与正确版本 → 配置中心项目分区/详情 + settings_version（test/33、75；冒烟 2/3）。
+2. 资料授权管理与实际边界 → 授权页与三类别生命周期、撤销时机（test/75、16 发送前竞争用例；冒烟 4）。
+3. 并存隔离与归属 → test/75 同名目录设置隔离；符号链接/别名归属 test/74（工单 05 既有）；认领不串归属 test/75。
+4. 旧配置读取与兼容写入 → 兼容写入与 v19→v20 迁移（test/75）、认领后配置/授权/凭据保留（test/75；冒烟 6）、旧 store 方法调用方全部迁移后删除。
+5. 端到端/类型检查/文档同步、模拟与真实分列 → 上节与「同步」。

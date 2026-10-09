@@ -24,8 +24,8 @@ import {
 import { capEventForWire, frameBytes } from "../core/views.ts";
 import { ensureOwnerToken, tokenMatches } from "./owner-token.ts";
 import type { Runtime } from "../runtime/runtime.ts";
-import type { AccessMode, DataCategory, GrantedPath, Memory, MemorySourceRef, PersistentEvent } from "../core/types.ts";
-import { SESSION_DEFAULT_MODES, isAccessMode } from "../core/types.ts";
+import type { SessionDefaultMode, DataCategory, GrantedPath, Memory, MemorySourceRef, PersistentEvent } from "../core/types.ts";
+import { SESSION_DEFAULT_MODES, isAccessMode, isSessionDefaultMode } from "../core/types.ts";
 
 const REPLAY_LIMIT = 5000;
 
@@ -167,10 +167,10 @@ export class ControlServer {
     }
   }
 
-  private parseAccessMode(params: Record<string, unknown>): AccessMode | undefined {
+  private parseAccessMode(params: Record<string, unknown>): SessionDefaultMode | undefined {
     const mode = params["access_mode"];
     if (mode === undefined) return undefined;
-    if (isAccessMode(mode)) return mode;
+    if (isSessionDefaultMode(mode)) return mode;
     throw Object.assign(new Error(`访问模式无效：${String(mode)}（${SESSION_DEFAULT_MODES.join(" | ")}）`), { code: "invalid_params" });
   }
 
@@ -253,6 +253,9 @@ export class ControlServer {
             execution: snapshot.execution,
             defaultModel: snapshot.defaultModel,
             roleSessionIds: snapshot.roleSessionIds,
+            subAgentSessionIds: snapshot.subAgentSessionIds,
+            workDelegations: snapshot.workDelegations,
+            subAgents: snapshot.subAgents,
           },
         };
         this.subscribers.add(socket);
@@ -270,12 +273,61 @@ export class ControlServer {
             : undefined,
           createRequestId: optionalRequestId(),
         });
+      case "open_workspace":
+        return runtime.openWorkspace({
+          cwd: requireString("cwd"),
+          projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
+          createRequestId: optionalRequestId(),
+        });
+      // ---------- agent-direction issue 07：旧数据 → 工作区组织迁移 ----------
+      case "preview_workspace_migration": {
+        const plan = params["plan"];
+        if (plan !== undefined && (plan === null || typeof plan !== "object" || Array.isArray(plan))) {
+          throw Object.assign(new Error("plan 必须是对象"), { code: "invalid_params" });
+        }
+        const limit = params["limit"];
+        if (limit !== undefined && (!Number.isInteger(limit) || (limit as number) < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.previewWorkspaceMigration({
+          projectId: requireString("project_id"),
+          plan,
+          limit: limit as number | undefined,
+        });
+      }
+      case "apply_workspace_migration": {
+        const plan = params["plan"];
+        if (plan === null || typeof plan !== "object" || Array.isArray(plan)) {
+          throw Object.assign(new Error("plan 必须是非空对象"), { code: "invalid_params" });
+        }
+        const revision = params["expected_revision"];
+        if (revision !== undefined && (typeof revision !== "string" || !revision)) {
+          throw Object.assign(new Error("expected_revision 必须是字符串"), { code: "invalid_params" });
+        }
+        return runtime.applyWorkspaceMigration({
+          projectId: requireString("project_id"),
+          instanceId: requireString("instance_id"),
+          requestId: requireString("request_id"),
+          plan,
+          expectedRevision: revision as string | undefined,
+        });
+      }
       case "get_session_usage":
         return runtime.getSessionUsage(requireString("session_id"));
       case "get_session":
         return runtime.getSession(requireString("session_id"));
-      case "list_session_summaries":
-        return runtime.listSessionSummaries(requireString("project_id"));
+      case "list_session_summaries": {
+        // issue 07 步骤 4：project_id（原身份）与 workspace_id（组织归属）互斥
+        const projectId = params["project_id"];
+        const workspaceId = params["workspace_id"];
+        const id = (v: unknown): string | undefined => (typeof v === "string" && v.trim().length > 0 ? v : undefined);
+        if (id(projectId) && id(workspaceId)) {
+          throw Object.assign(new Error("project_id 与 workspace_id 互斥，只能传其一"), { code: "invalid_params" });
+        }
+        if (id(workspaceId)) return runtime.listSessionSummaries({ workspaceId: workspaceId as string });
+        if (id(projectId)) return runtime.listSessionSummaries({ projectId: projectId as string });
+        throw Object.assign(new Error("project_id 或 workspace_id 必填其一"), { code: "invalid_params" });
+      }
       case "list_models": {
         for (const key of ["offset", "limit"]) {
           if (params[key] !== undefined && (!Number.isInteger(params[key]) || Number(params[key]) < (key === "limit" ? 1 : 0))) {
@@ -319,7 +371,7 @@ export class ControlServer {
         return runtime.testModelConnection({ provider: params["provider"], modelId: params["model_id"] });
       case "set_session_mode": {
         const mode = params["mode"];
-        if (!isAccessMode(mode)) {
+        if (!isSessionDefaultMode(mode)) {
           throw Object.assign(new Error(`mode 必须是 ${SESSION_DEFAULT_MODES.join(" 或 ")}`), { code: "invalid_params" });
         }
         return runtime.setSessionDefaultMode({ sessionId: requireString("session_id"), mode, expectedVersion: params["expected_version"] as number });
@@ -346,6 +398,7 @@ export class ControlServer {
       case "switch_mode": {
         const mode = this.parseAccessMode({ access_mode: params["mode"] });
         if (!mode) throw Object.assign(new Error(`mode 必须给出（${SESSION_DEFAULT_MODES.join(" | ")}）`), { code: "invalid_params" });
+        if (!isAccessMode(mode)) throw Object.assign(new Error("任务级模式切换不能进入或退出 Plan；请先中断，再按当前会话模式继续"), { code: "invalid_params" });
         return runtime.switchTaskMode({
           taskId: requireString("task_id"),
           mode,
@@ -520,6 +573,7 @@ export class ControlServer {
         return runtime.setProjectInstructions({
           projectId: requireString("project_id"),
           files: files as string[],
+          expectedVersion: optionalExpectedVersion(),
         });
       }
       case "set_project_web_search": {
@@ -527,7 +581,11 @@ export class ControlServer {
         if (typeof enabled !== "boolean") {
           throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
         }
-        return runtime.setProjectWebSearch({ projectId: requireString("project_id"), enabled });
+        return runtime.setProjectWebSearch({
+          projectId: requireString("project_id"),
+          enabled,
+          expectedVersion: optionalExpectedVersion(),
+        });
       }
       case "get_project_jev":
         return runtime.getProjectJev(requireString("project_id"));
@@ -654,7 +712,7 @@ export class ControlServer {
           secret: requireString("secret"),
         });
       case "remove_credential":
-        return { removed: runtime.removeCredentialBinding(requireString("name")) };
+        return { removed: await runtime.removeCredentialBinding(requireString("name")) };
       // ---------- issue 16：MCP 服务配置 ----------
       case "mcp_configure": {
         const allowlist = params["tool_allowlist"];
@@ -687,7 +745,7 @@ export class ControlServer {
         return runtime.mcpSetEnabled(requireString("service_id"), params["enabled"] as boolean, optionalExpectedVersion());
       }
       case "mcp_remove":
-        return { removed: runtime.mcpRemoveService(requireString("service_id")) };
+        return { removed: runtime.mcpRemoveService(requireString("service_id"), optionalExpectedVersion()) };
       case "mcp_check":
         return runtime.mcpCheckService(requireString("service_id"));
       // ---------- issue 07：QQ 群聊入口（NapCat OneBot） ----------
@@ -715,12 +773,8 @@ export class ControlServer {
         }
         return runtime.qqSetEnabled(params["enabled"], optionalExpectedVersion());
       }
-      case "qq_group_update": {
-        if (typeof params["allow"] !== "boolean") {
-          throw Object.assign(new Error("allow 必须是布尔值"), { code: "invalid_params" });
-        }
-        return runtime.qqGroupUpdate({ groupId: requireString("group_id"), allow: params["allow"], expectedVersion: optionalExpectedVersion() });
-      }
+      // qq_group_update 已删除（核心群聊退役，agent-direction issue 20，协议 v14）；
+      // 旧客户端经版本不匹配被拒，旧 CLI 命令只打印退役提示
       case "qq_inbox_list": {
         const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
         if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
@@ -777,6 +831,45 @@ export class ControlServer {
         return runtime.notificationGet(requireString("op_id"));
       case "notification_cancel":
         return runtime.notificationCancel({ opId: requireString("op_id"), reason: requireString("reason") });
+      // ---------- issue 10：长期操作授权目录（只查询/带版本撤销，不获得创建或扩大能力） ----------
+      case "service_grant_list": {
+        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
+        }
+        return runtime.serviceGrantList({
+          cursor: typeof params["cursor"] === "string" ? params["cursor"] : undefined,
+          limit,
+        });
+      }
+      case "service_grant_get":
+        return runtime.serviceGrantGet(requireString("permission_id"));
+      // ---------- issue 11：工作委托与 SubAgent（只读查询；委派经模型委派工具） ----------
+      case "work_list": {
+        const sessionId = params["session_id"];
+        if (sessionId !== undefined && (typeof sessionId !== "string" || !sessionId.trim())) {
+          throw Object.assign(new Error("session_id 必须是非空字符串"), { code: "invalid_params" });
+        }
+        return runtime.workList(sessionId as string | undefined);
+      }
+      case "work_get":
+        return runtime.workGet(requireString("work_id"));
+      // issue 12：拥有者显式关闭（有活动任务拒绝；历史与产物保留；已关闭幂等）
+      case "subagent_close":
+        return runtime.closeSubAgent(requireString("sub_agent_id"));
+      // issue 14：拥有者整项取消（活动/排队任务停止；已取消幂等；其他工作不受影响）
+      case "work_cancel": {
+        const reason = params["reason"];
+        if (reason !== undefined && typeof reason !== "string") {
+          throw Object.assign(new Error("reason 必须是字符串"), { code: "invalid_params" });
+        }
+        return runtime.cancelWork(requireString("work_id"), { reason: reason as string | undefined });
+      }
+      case "service_grant_revoke": {
+        const expected = params["expected_version"];
+        if (!Number.isInteger(expected) || (expected as number) < 1) throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });
+        return runtime.serviceGrantRevoke(requireString("permission_id"), expected as number);
+      }
       case "stop": {
         void runtime.stop("control_plane").catch(() => {});
         return { accepted: true };

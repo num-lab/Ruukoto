@@ -129,7 +129,7 @@ test("新闻迁移失败时整体回滚旧 CHECK、运行列、数据与版本�
     db = new DatabaseSync(path.join(root, "ruukoto.db"));
     const before = snapshot(db);
     db.exec(`CREATE TRIGGER reject_schema_version BEFORE UPDATE ON meta
-      WHEN NEW.key = 'schema_version' AND NEW.value = '18'
+      WHEN NEW.key = 'schema_version' AND NEW.value = '${SCHEMA_VERSION}'
       BEGIN SELECT RAISE(ABORT, 'version failure'); END`);
     db.close();
     db = undefined;

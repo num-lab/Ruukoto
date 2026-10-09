@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "ruukoto": "bin/ruukoto.mjs"
+    "ruukoto": "bin/ruukoto.mjs",
+    "ruukoto-code": "bin/ruukoto-code.mjs"
   },
   "description": "个人 Agent：后台任务运行时（issue 02）。消息历史以 pi JSONL 会话文件为唯一权威副本，元数据存 node:sqlite。",
   "engines": {
@@ -13,6 +14,7 @@
   "scripts": {
     "start": "tsx src/cli.ts",
     "dev": "tsx src/dev.ts",
+    "code": "tsx src/code.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:model": "RUN_MODEL_CHECK=1 tsx --test test/06-connectivity.test.ts"

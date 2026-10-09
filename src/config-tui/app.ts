@@ -33,6 +33,8 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ControlClient } from "../control/client.ts";
 import type { ConnectResult } from "../control/protocol.ts";
+import { workspaceMappedSources, workspacePickerProjects } from "../control/workspace.ts";
+import { productFromEnv, type ProductType } from "../core/product.ts";
 import type { ModelSelection, PersistentEvent, Project, Session, DataGrant } from "../core/types.ts";
 import { SESSION_DEFAULT_MODES } from "../core/types.ts";
 import type { McpServiceConfig } from "../agent/mcp/store.ts";
@@ -79,6 +81,8 @@ export interface ConfigTuiAppDeps {
   client?: ControlClient;
   snapshot?: ConnectResult["snapshot"];
   terminal?: Terminal;
+  /** 产品身份（agent-direction issue 06）：ruukoto-code 的项目分区按工作区/旧项目分类；缺省按 RUUKOTO_PRODUCT。 */
+  product?: ProductType;
   onExit: (code: number) => void;
 }
 
@@ -118,6 +122,7 @@ const ACCESS_MODE_LABELS: Record<string, string> = {
   confirm: "请求确认（越界操作逐次审批）",
   full_access: "完全访问（容器外执行账户，不逐次确认）",
   "auto-review": "自动审查（独立审查调用自动审批，失败转人工）",
+  plan: "Plan（持续调研和完善计划，固定自动审查；执行前手动切换）",
 };
 
 const GRANT_CATEGORY_LABELS: Record<string, string> = {
@@ -147,6 +152,10 @@ export class ConfigTuiApp {
   // 在线快照的本地补丁副本（项目/会话列表；分区每步操作前仍会重读版本）
   private projects: Project[] = [];
   private sessions: Session[] = [];
+  // 工作区/旧项目分类所需的角色会话标识（协议快照可选字段，旧后台缺省为 []）
+  private roleSessionIds: string[] = [];
+  private subAgentSessionIds: string[] = [];
+  private readonly product: ProductType;
   private instanceId = "";
   private modelView: ModelConfigView | null = null;
 
@@ -158,11 +167,14 @@ export class ConfigTuiApp {
     this.deps = deps;
     this.terminal = deps.terminal ?? new ProcessTerminal();
     this.onExit = deps.onExit;
+    this.product = deps.product ?? productFromEnv();
     setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS));
     this.tui = new TuiAltScreen(this.terminal, true);
     if (deps.snapshot) {
       this.projects = deps.snapshot.projects;
       this.sessions = deps.snapshot.sessions;
+      this.roleSessionIds = deps.snapshot.roleSessionIds ?? [];
+      this.subAgentSessionIds = deps.snapshot.subAgentSessionIds ?? [];
       this.instanceId = deps.snapshot.instanceId;
     }
     this.reloadFile = this.deps.mode === "online" ? reloadStatePathFromEnv() : null;
@@ -301,6 +313,8 @@ export class ConfigTuiApp {
         const e = err as Error & { code?: string };
         if (typeof e.code === "string" && e.code.endsWith("_conflict")) {
           this.modelView = null; // 缓存视图已过期：重读后再刷新
+          // 项目/会话缓存同样已过期：实际重读后台数据，不能只刷新旧缓存
+          await this.refreshSnapshotFromServer();
           this.notify("配置已被其他客户端修改，已重新加载", "yellow");
           await this.refresh();
         } else {
@@ -469,16 +483,31 @@ export class ConfigTuiApp {
     // 项目/会话列表的轻量补丁（与任务 TUI 的 ViewState 同源语义，这里只留展示字段）
     switch (body.type) {
       case "project.created":
-        this.projects = [...this.projects.filter((p) => p.id !== body.projectId), { id: body.projectId, name: body.name, createRequestId: body.createRequestId, instructionFiles: [], webSearch: "enabled", createdAt: event.createdAt } as Project];
+        this.projects = [...this.projects.filter((p) => p.id !== body.projectId), { id: body.projectId, name: body.name, createRequestId: body.createRequestId, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: event.createdAt } as Project];
+        break;
+      case "project.settings_changed":
+        this.projects = this.projects.map((p) =>
+          p.id === body.projectId ? { ...p, instructionFiles: body.instructionFiles, webSearch: body.webSearch, settingsVersion: body.settingsVersion } : p,
+        );
+        break;
+      case "project.root_attached":
+        this.projects = this.projects.map((p) => (p.id === body.projectId && !p.rootDir ? { ...p, rootDir: body.rootDir } : p));
         break;
       case "session.model_selection_changed":
         this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, modelSelection: body.modelSelection, modelSelectionVersion: body.modelSelectionVersion } : s));
+        break;
+      case "session.workspace_mapped":
+        // agent-direction issue 07：仅组织展示归属，与任务 TUI 的 ViewState 同源更新
+        this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, workspaceProjectId: body.workspaceProjectId } : s));
         break;
       case "session.default_mode_changed":
         this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, defaultAccessMode: body.defaultAccessMode, defaultAccessModeVersion: body.defaultAccessModeVersion } : s));
         break;
       case "session.created":
-        void this.refreshSessionsFromServer();
+        void this.refreshSnapshotFromServer();
+        break;
+      case "work_delegation.created":
+        if (!this.subAgentSessionIds.includes(body.agentSessionId)) this.subAgentSessionIds.push(body.agentSessionId);
         break;
       default:
         break;
@@ -488,12 +517,15 @@ export class ConfigTuiApp {
     if (screen?.watch?.(body.type)) void this.refresh();
   }
 
-  private async refreshSessionsFromServer(): Promise<void> {
+  /** 重读后台握手快照（项目/会话/角色会话标识）；事件刷新与冲突重读共用。 */
+  private async refreshSnapshotFromServer(): Promise<void> {
     if (!this.deps.client) return;
     try {
       const result = await this.deps.client.handshake();
       this.projects = result.snapshot.projects;
       this.sessions = result.snapshot.sessions;
+      this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
+      this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
     } catch {
       // 刷新失败：保留旧视图，下个事件再试
     }
@@ -505,9 +537,9 @@ export class ConfigTuiApp {
     const defs: Array<{ id: string; title: string; desc: string; offline: boolean }> = [
       { id: "models", title: "模型与提供方", desc: "模型目录、API key、后台默认模型", offline: true },
       { id: "projects", title: "项目", desc: "指令文件、Web Search、Jev 实验、资料授权", offline: false },
-      { id: "sessions", title: "会话", desc: "默认模型、思考档位、权限模式", offline: false },
+      { id: "sessions", title: "会话", desc: "默认模型、思考档位、默认模式", offline: false },
       { id: "mcp", title: "MCP 服务", desc: "端点、凭据引用、工具允许列表", offline: false },
-      { id: "qq", title: "QQ 入口", desc: "连接配置、启停与允许群", offline: false },
+      { id: "qq", title: "QQ 入口", desc: "连接配置、启停与拥有者私聊", offline: false },
       { id: "credentials", title: "服务凭据", desc: "HTTP 凭据绑定（仅展示元数据）", offline: false },
     ];
     const offline = this.deps.mode === "offline";
@@ -985,16 +1017,27 @@ export class ConfigTuiApp {
     this.projects = this.projects.map((p) => (p.id === projectId ? { ...p, ...patch } : p));
   }
 
+  /** 项目列表顺序与标注：ruukoto-code 沿用任务界面的工作区/旧项目分类（工作区在前）；ruukoto 平铺不标注。 */
+  private orderedProjects(): Array<{ project: Project; tag: "工作区" | "旧项目" | null }> {
+    if (this.product !== "ruukoto-code") return this.projects.map((project) => ({ project, tag: null }));
+    const { workspaces, legacy } = workspacePickerProjects({
+      projects: this.projects,
+      sessions: this.sessions,
+      roleSessionIds: this.roleSessionIds,
+    });
+    return [...workspaces.map((project) => ({ project, tag: "工作区" as const })), ...legacy.map((project) => ({ project, tag: "旧项目" as const }))];
+  }
+
   private projectsScreen(): Screen {
     return {
       id: "projects",
       title: "项目",
-      watch: (t) => t === "project.created",
+      watch: (t) => t === "project.created" || t === "project.settings_changed" || t === "project.root_attached",
       load: async () =>
-        this.projects.map((p) => ({
+        this.orderedProjects().map(({ project: p, tag }) => ({
           value: `project:${p.id}`,
-          label: p.name,
-          description: `指令 ${p.instructionFiles.length} 个 · Web Search ${p.webSearch === "enabled" ? "启用" : "禁用"}`,
+          label: tag ? `${tag} · ${p.name}` : p.name,
+          description: `${this.product === "ruukoto-code" && p.rootDir ? `根目录 ${p.rootDir.cwdReal} · ` : ""}指令 ${p.instructionFiles.length} 个 · Web Search ${p.webSearch === "enabled" ? "启用" : "禁用"}`,
         })),
       onSelect: async (item) => {
         if (item.value.startsWith("project:")) return this.pushScreen(this.projectScreen(item.value.slice("project:".length)));
@@ -1006,16 +1049,54 @@ export class ConfigTuiApp {
     return {
       id: `project:${projectId}`,
       title: `项目 ${this.findProject(projectId)?.name ?? projectId}`,
-      watch: (t) => t === "project.created",
+      watch: (t) =>
+        t === "project.created" || t === "project.settings_changed" || t === "project.root_attached" || t === "session.workspace_mapped",
+      intro: () => {
+        if (this.product !== "ruukoto-code") return [];
+        const p = this.findProject(projectId);
+        if (!p) return [];
+        if (!p.rootDir) return ["旧项目（尚无工作区根目录归属）"];
+        const lines = [`工作区 · 根目录：${p.rootDir.cwdReal}`];
+        // issue 07 步骤 4：关联旧资料来源并列显示，组织映射不改变资料与配置归属
+        const sources = workspaceMappedSources({ sessions: this.sessions }, projectId);
+        if (sources.size > 0) lines.push(`关联旧资料来源 ${sources.size} 项：仅组织归属，各来源的配置与资料仍按原项目 ID 读取（不合并）`);
+        return lines;
+      },
       load: async () => {
         const p = this.findProject(projectId);
         if (!p) return [];
-        return [
-          { value: "instructions", label: `指令文件：${p.instructionFiles.join("，") || "（无）"}`, description: "工作区相对路径，逗号分隔" },
+        const items: SelectItem[] = [
+          { value: "instructions", label: `指令文件：${p.instructionFiles.join("，") || "（无）"}`, description: `工作区相对路径，逗号分隔 · 设置版本 v${p.settingsVersion}` },
           { value: "websearch", label: `Web Search：${p.webSearch === "enabled" ? "启用" : "禁用"}` },
           { value: "jev", label: "Jev 上下文筛选实验", description: "默认关闭，按项目选择服务凭据与启停" },
+          { value: "mcp", label: "MCP 服务", description: "本项目的端点、凭据引用与工具允许列表" },
           { value: "grants", label: "资料授权", description: "跨项目历史/产物/记忆读取授权" },
         ];
+        // issue 07 步骤 4：工作区列出关联旧资料来源及原配置入口（并列显示，不推断优先级）
+        if (this.product === "ruukoto-code" && p.rootDir) {
+          const sources = workspaceMappedSources({ sessions: this.sessions }, projectId);
+          if (sources.size > 0) {
+            const grantResult = await this.deps.client!.request<any>("list_data_grants", {});
+            const grants = (grantResult.grants as DataGrant[] | undefined) ?? [];
+            for (const [sourceId, sessions] of sources) {
+              const source = this.findProject(sourceId);
+              const mcp = await this.deps.client!.request<{ services: unknown[] }>("mcp_list", { project_id: sourceId });
+              const jev = await this.deps.client!.request<JevConfig>("get_project_jev", { project_id: sourceId });
+              const outgoing = grants.filter((g) => g.fromProjectId === sourceId && g.revokedAt === null).length;
+              const incoming = grants.filter((g) => g.toProjectId === sourceId && g.revokedAt === null).length;
+              items.push({
+                // ponytail: value 沿用 project:<id>（重载恢复按值匹配菜单，不引入新菜单 id）
+                value: `project:${sourceId}`,
+                label: `关联旧资料：${source?.name ?? sourceId}`,
+                description:
+                  `${sessions.length} 个映射会话 · MCP ${mcp.services.length} 项 · Jev ${jev.enabled ? "启用" : "关闭"}` +
+                  ` · 授权 出 ${outgoing} / 入 ${incoming} · v${source?.settingsVersion ?? "?"}` +
+                  ` · 指令基准 ${source?.rootDir?.cwdReal ?? [...new Set(sessions.map((s) => s.cwdReal))].join("，")}`,
+              });
+            }
+          }
+        }
+        return items;
       },
       onSelect: async (item) => {
         const client = this.deps.client!;
@@ -1024,13 +1105,17 @@ export class ConfigTuiApp {
           this.notify("项目已不存在", "yellow");
           return this.popScreen();
         }
+        // issue 07 步骤 4：原配置入口——关联来源的设置、MCP/Jev 与授权都按来源项目 ID 与本设置的各自版本访问
+        // （关联来源行的值为 project:<来源id>，与本项目自身的功能值不冲突）
+        if (item.value.startsWith("project:")) return this.pushScreen(this.projectScreen(item.value.slice("project:".length)));
         switch (item.value) {
           case "instructions": {
             const value = await this.inputBox("项目指令文件（工作区相对路径，逗号/换行分隔；留空清除）", { initial: p.instructionFiles.join(", ") });
             if (value === null) return;
             const files = value.split(/[\n,，;；]+/).map((s) => s.trim()).filter(Boolean);
-            await client.request("set_project_instructions", { project_id: projectId, files });
-            this.patchProject(projectId, { instructionFiles: files });
+            // 携带开始编辑时读取的版本；冲突（另一客户端已保存）由 act() 重读后台后刷新
+            const saved = await client.request<Project>("set_project_instructions", { project_id: projectId, files, expected_version: p.settingsVersion });
+            this.patchProject(projectId, saved);
             this.notify(files.length > 0 ? `已保存 ${files.length} 个指令文件` : "已清除项目指令");
             return this.refresh();
           }
@@ -1040,8 +1125,8 @@ export class ConfigTuiApp {
               { value: "disabled", label: "禁用（立即阻止后续调用）" },
             ]);
             if (value === null) return;
-            await client.request("set_project_web_search", { project_id: projectId, enabled: value === "enabled" });
-            this.patchProject(projectId, { webSearch: value as Project["webSearch"] });
+            const saved = await client.request<Project>("set_project_web_search", { project_id: projectId, enabled: value === "enabled", expected_version: p.settingsVersion });
+            this.patchProject(projectId, saved);
             this.notify(value === "enabled" ? "Web Search 已启用" : "Web Search 已禁用");
             return this.refresh();
           }
@@ -1049,6 +1134,8 @@ export class ConfigTuiApp {
             return this.pushScreen(this.grantsScreen(projectId));
           case "jev":
             return this.pushScreen(this.jevScreen(projectId));
+          case "mcp":
+            return this.pushScreen(this.mcpScreen(projectId));
         }
       },
     };
@@ -1111,20 +1198,37 @@ export class ConfigTuiApp {
         const items: SelectItem[] = grants.map((g) => ({
           value: `grant:${g.id}`,
           label: `${projectName(g.fromProjectId)} → ${projectName(g.toProjectId)} · ${GRANT_CATEGORY_LABELS[g.category] ?? g.category}`,
-          description: `${g.purpose || "（无用途说明）"} · Enter 撤销`,
+          description: `${g.fromProjectId === projectId ? "出向（本项目的资料可被目标读取）" : "入向（本项目可读取来源的资料）"} · ${g.purpose || "（无用途说明）"} · Enter 撤销`,
         }));
-        items.push({ value: "create", label: "新建授权", description: "从本项目授权给其他项目" });
+        items.push({ value: "create", label: "新建授权", description: "从本项目授权给其他项目（方向固定：本项目 → 目标）" });
+        items.push({ value: "revoked-log", label: "查看已撤销", description: "只读记录（含撤销时间），不可操作" });
         return items;
       },
       onSelect: async (item) => {
         const client = this.deps.client!;
+        if (item.value === "revoked-log") {
+          const result = await client.request<any>("list_data_grants", { include_revoked: true });
+          const revoked = ((result.grants as DataGrant[] | undefined) ?? []).filter(
+            (g) => g.revokedAt !== null && (g.fromProjectId === projectId || g.toProjectId === projectId),
+          );
+          this.showText(
+            "已撤销的资料授权",
+            revoked.length === 0
+              ? ["（无已撤销记录）"]
+              : revoked.map(
+                  (g) =>
+                    `${projectName(g.fromProjectId)} → ${projectName(g.toProjectId)} · ${GRANT_CATEGORY_LABELS[g.category] ?? g.category} · 撤销于 ${g.revokedAt}${g.purpose ? ` · ${g.purpose}` : ""}`,
+                ),
+          );
+          return;
+        }
         if (item.value === "create") {
-          const others = this.projects.filter((p) => p.id !== projectId);
+          const others = this.orderedProjects().filter(({ project }) => project.id !== projectId);
           if (others.length === 0) {
             this.notify("没有其他项目可作为授权目标", "yellow");
             return;
           }
-          const to = await this.pick("授权目标项目（可读取本项目资料）", others.map((p) => ({ value: p.id, label: p.name })));
+          const to = await this.pick("授权目标项目（可读取本项目资料）", others.map(({ project: p, tag }) => ({ value: p.id, label: tag ? `${tag} · ${p.name}` : p.name })));
           if (to === null) return;
           const category = await this.pick(
             "资料类别",
@@ -1144,9 +1248,26 @@ export class ConfigTuiApp {
         }
         if (item.value.startsWith("grant:")) {
           const grantId = item.value.slice(6);
-          if (!(await this.confirm("撤销该授权？", grantId))) return;
+          // 重读有效授权：定位本条并统计同范围（同来源/目标/类别）的其他有效授权
+          const result = await client.request<any>("list_data_grants", {});
+          const active = ((result.grants as DataGrant[] | undefined) ?? []).filter((g) => g.revokedAt === null);
+          const grant = active.find((g) => g.id === grantId);
+          if (!grant) {
+            this.notify("授权已不存在", "yellow");
+            return this.refresh();
+          }
+          const siblings = active.filter(
+            (g) => g.id !== grantId && g.fromProjectId === grant.fromProjectId && g.toProjectId === grant.toProjectId && g.category === grant.category,
+          ).length;
+          const scope = `${projectName(grant.fromProjectId)} → ${projectName(grant.toProjectId)} · ${GRANT_CATEGORY_LABELS[grant.category] ?? grant.category}`;
+          // 撤销按单条授权 ID 执行：同范围还有其他有效授权时，该类访问不会被本条撤销关闭
+          const detail =
+            siblings > 0
+              ? `${scope}；同范围还有 ${siblings} 条有效授权，撤销本条后该类访问仍开放`
+              : `${scope}；同范围最后一条有效授权，撤销后该类访问关闭`;
+          if (!(await this.confirm("撤销该授权？", detail))) return;
           await client.request("revoke_data_grant", { grant_id: grantId });
-          this.notify("授权已撤销");
+          this.notify(siblings > 0 ? `授权已撤销；同范围还有 ${siblings} 条有效授权，该类访问仍开放` : "授权已撤销");
           return this.refresh();
         }
       },
@@ -1196,7 +1317,7 @@ export class ConfigTuiApp {
         const sel = s.modelSelection ? `${s.modelSelection.provider}/${s.modelSelection.modelId} · ${s.modelSelection.thinkingLevel}` : "后台默认";
         return [
           { value: "model", label: `默认模型：${sel}`, description: `选择 provider/model/思考档位` },
-          { value: "mode", label: `权限模式：${ACCESS_MODE_LABELS[s.defaultAccessMode] ?? s.defaultAccessMode}` },
+          { value: "mode", label: `默认模式：${ACCESS_MODE_LABELS[s.defaultAccessMode] ?? s.defaultAccessMode}` },
         ];
       },
       onSelect: async (item) => {
@@ -1213,14 +1334,14 @@ export class ConfigTuiApp {
           }
           case "mode": {
             const value = await this.pick(
-              "会话权限模式（新建任务的默认）",
-              SESSION_DEFAULT_MODES.map((m) => ({ value: m, label: ACCESS_MODE_LABELS[m] ?? m })),
+              "会话默认模式（新建任务使用）",
+              SESSION_DEFAULT_MODES.filter((m) => m !== "plan" || (s.kind === "dev" && !this.roleSessionIds.includes(s.id) && !this.subAgentSessionIds.includes(s.id))).map((m) => ({ value: m, label: ACCESS_MODE_LABELS[m] ?? m })),
               { description: `当前：${s.defaultAccessMode}` },
             );
             if (value === null) return;
-            await client.request("set_session_mode", { session_id: sessionId, mode: value, expected_version: s.defaultAccessModeVersion });
-            this.patchSession(sessionId, { defaultAccessMode: value as Session["defaultAccessMode"], defaultAccessModeVersion: s.defaultAccessModeVersion + 1 });
-            this.notify("会话权限模式已保存");
+            const saved = await client.request<Session>("set_session_mode", { session_id: sessionId, mode: value, expected_version: s.defaultAccessModeVersion });
+            this.patchSession(sessionId, { defaultAccessMode: saved.defaultAccessMode, defaultAccessModeVersion: saved.defaultAccessModeVersion });
+            this.notify("会话默认模式已保存");
             return this.refresh();
           }
         }
@@ -1230,25 +1351,36 @@ export class ConfigTuiApp {
 
   // ---------- MCP 服务 ----------
 
-  private mcpScreen(): Screen {
+  /** MCP 服务列表：传入 projectId 时只列该项目服务（项目详情内入口），新增固定归属；缺省为全局分区。 */
+  private mcpScreen(projectId?: string): Screen {
+    const scopedName = projectId === undefined ? null : (this.findProject(projectId)?.name ?? projectId);
     return {
       id: "mcp",
-      title: "MCP 服务",
+      title: scopedName ? `MCP 服务（${scopedName}）` : "MCP 服务",
       watch: (t) => t === "mcp.service_changed",
       load: async () => {
-        const result = await this.deps.client!.request<any>("mcp_list", {});
+        const result = await this.deps.client!.request<any>("mcp_list", projectId === undefined ? {} : { project_id: projectId });
         const services = (result.services as McpServiceConfig[] | undefined) ?? [];
         const items: SelectItem[] = services.map((s) => ({
           value: `svc:${s.id}`,
-          label: `${s.name}（${this.findProject(s.projectId)?.name ?? s.projectId}）${s.enabled ? "" : " · 已禁用"}`,
+          label: `${s.name}${projectId === undefined ? `（${this.findProject(s.projectId)?.name ?? s.projectId}）` : ""}${s.enabled ? "" : " · 已禁用"}`,
           description: `${s.endpoint} · v${s.configVersion}`,
         }));
-        items.push({ value: "add", label: "新增服务", description: this.projects.length > 0 ? "注册 Streamable HTTP MCP 端点" : "需要先有项目" });
+        items.push({
+          value: "add",
+          label: "新增服务",
+          description:
+            projectId === undefined
+              ? this.projects.length > 0
+                ? "注册 Streamable HTTP MCP 端点"
+                : "需要先有项目"
+              : `固定归属项目「${scopedName}」`,
+        });
         return items;
       },
       onSelect: async (item) => {
-        if (item.value === "add") return this.addMcpService();
-        if (item.value.startsWith("svc:")) return this.pushScreen(this.mcpServiceScreen(item.value.slice(4)));
+        if (item.value === "add") return this.addMcpService(projectId);
+        if (item.value.startsWith("svc:")) return this.pushScreen(this.mcpServiceScreen(item.value.slice(4), projectId));
       },
     };
   }
@@ -1258,7 +1390,8 @@ export class ConfigTuiApp {
     return (((result.services as McpServiceConfig[] | undefined) ?? []).find((s) => s.id === serviceId)) ?? null;
   }
 
-  private mcpServiceScreen(serviceId: string): Screen {
+  /** 服务详情；expectedProjectId 非空时核对实际归属（项目详情内入口不能把其他项目的服务串改）。 */
+  private mcpServiceScreen(serviceId: string, expectedProjectId?: string): Screen {
     return {
       id: `svc:${serviceId}`,
       title: `MCP 服务 ${serviceId.slice(0, 12)}…`,
@@ -1266,6 +1399,11 @@ export class ConfigTuiApp {
       load: async () => {
         const s = await this.readMcpService(serviceId);
         if (!s) return [];
+        if (expectedProjectId !== undefined && s.projectId !== expectedProjectId) {
+          this.notify("该服务归属其他项目，已从当前项目返回", "yellow");
+          void this.popScreen();
+          return [];
+        }
         return [
           { value: "endpoint", label: `端点：${s.endpoint}` },
           { value: "credential", label: `凭据引用：${s.credential ?? "（无）"}` },
@@ -1280,6 +1418,10 @@ export class ConfigTuiApp {
         const s = await this.readMcpService(serviceId);
         if (!s) {
           this.notify("服务已不存在", "yellow");
+          return this.popScreen();
+        }
+        if (expectedProjectId !== undefined && s.projectId !== expectedProjectId) {
+          this.notify("该服务归属其他项目，已从当前项目返回", "yellow");
           return this.popScreen();
         }
         /** 单字段更新：携带当前允许列表与期望版本；凭据缺省 = 保留。 */
@@ -1344,7 +1486,7 @@ export class ConfigTuiApp {
           }
           case "remove": {
             if (!(await this.confirm(`删除 MCP 服务 ${s.name}？`, s.endpoint))) return;
-            await client.request("mcp_remove", { service_id: s.id });
+            await client.request("mcp_remove", { service_id: s.id, expected_version: s.configVersion });
             this.notify("服务已删除");
             return this.popScreen();
           }
@@ -1353,14 +1495,22 @@ export class ConfigTuiApp {
     };
   }
 
-  private async addMcpService(): Promise<void> {
-    if (this.projects.length === 0) {
-      this.notify("需要先有项目", "yellow");
+  /** 新增服务：fixedProjectId（项目详情入口）跳过项目选择、固定归属；全局入口仍按工作区/旧项目分类选择。 */
+  private async addMcpService(fixedProjectId?: string): Promise<void> {
+    const client = this.deps.client!;
+    let projectId = fixedProjectId ?? null;
+    if (projectId !== null && !this.findProject(projectId)) {
+      this.notify("目标项目已不存在", "yellow");
       return;
     }
-    const client = this.deps.client!;
-    const projectId = await this.pick("所属项目", this.projects.map((p) => ({ value: p.id, label: p.name })));
-    if (projectId === null) return;
+    if (projectId === null) {
+      if (this.projects.length === 0) {
+        this.notify("需要先有项目", "yellow");
+        return;
+      }
+      projectId = await this.pick("所属项目", this.orderedProjects().map(({ project: p, tag }) => ({ value: p.id, label: tag ? `${tag} · ${p.name}` : p.name })));
+      if (projectId === null) return;
+    }
     const name = await this.inputBox("服务名（项目内唯一 slug）", { placeholder: "如 docs" });
     if (name === null) return;
     const endpoint = await this.inputBox("端点 URL", { placeholder: "https://…/mcp/（http 仅限回环模拟）" });
@@ -1410,7 +1560,7 @@ export class ConfigTuiApp {
           label: `连接配置：${st.endpoint ?? ""}`,
           description: `登录号 ${st.selfId ?? "?"} · 凭据 ${st.credentialName ?? "（无）"} · 回复上限 ${st.maxReplyChars ?? "默认"} · v${st.configVersion ?? 0}`,
         });
-        items.push({ value: "groups", label: `允许群（${Array.isArray(st.groups) ? st.groups.length : 0}）` });
+        // 允许群界面已删除（核心群聊退役，agent-direction issue 20）；st.groups 为历史值，只读
         items.push({ value: "owner", label: `拥有者私聊：${st.ownerUserId ?? "未开启"}`, description: "固定好友 QQ 号，共享 main 会话；需要 token 凭据" });
         return items;
       },
@@ -1447,8 +1597,6 @@ export class ConfigTuiApp {
             this.notify("QQ 配置已保存");
             return this.refresh();
           }
-          case "groups":
-            return this.pushScreen(this.qqGroupsScreen());
           case "owner": {
             const owner = await this.inputBox("拥有者 QQ 号（留空 = 关闭私聊）", { initial: st.ownerUserId ?? "" });
             if (owner === null) return;
@@ -1461,43 +1609,6 @@ export class ConfigTuiApp {
             this.notify(owner.trim() ? "拥有者私聊已绑定" : "拥有者私聊已关闭");
             return this.refresh();
           }
-        }
-      },
-    };
-  }
-
-  private qqGroupsScreen(): Screen {
-    return {
-      id: "groups",
-      title: "QQ 允许群",
-      watch: (t) => t === "qq.config_changed",
-      load: async () => {
-        const st = (await this.deps.client!.request<any>("qq_status", {})) as Record<string, any>;
-        const groups = Array.isArray(st.groups) ? (st.groups as string[]) : [];
-        const items: SelectItem[] = groups.map((g) => ({ value: `group:${g}`, label: String(g), description: "Enter 移出允许列表" }));
-        items.push({ value: "add", label: "添加允许群" });
-        return items;
-      },
-      onSelect: async (item) => {
-        const client = this.deps.client!;
-        const version = Number(((await client.request<any>("qq_status", {})) as Record<string, any>).configVersion ?? 0);
-        if (item.value === "add") {
-          const gid = await this.inputBox("群号（数字）", {});
-          if (gid === null) return;
-          if (!/^\d{4,20}$/.test(gid.trim())) {
-            this.notify("群号必须是 4-20 位数字", "red");
-            return;
-          }
-          await client.request("qq_group_update", { group_id: gid.trim(), allow: true, expected_version: version });
-          this.notify("群已加入允许列表");
-          return this.refresh();
-        }
-        if (item.value.startsWith("group:")) {
-          const gid = item.value.slice(6);
-          if (!(await this.confirm(`将群 ${gid} 移出允许列表？`, "该群的排队/运行任务将按取消处理"))) return;
-          await client.request("qq_group_update", { group_id: gid, allow: false, expected_version: version });
-          this.notify("群已移除");
-          return this.refresh();
         }
       },
     };

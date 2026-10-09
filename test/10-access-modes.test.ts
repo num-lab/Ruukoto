@@ -18,7 +18,10 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
   startTestRuntime,
   routeResponder,
@@ -29,6 +32,8 @@ import {
   realTools,
 } from "./helpers/testkit.ts";
 import { ControlClient } from "../src/control/client.ts";
+import { ControlServer } from "../src/control/server.ts";
+import { Runtime } from "../src/runtime/runtime.ts";
 import { readOwnerToken, TOKEN_FILE_NAME } from "../src/control/owner-token.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { createLauncherFor } from "../src/agent/execution/launchers.ts";
@@ -157,6 +162,114 @@ test("continue 新任务默认请求确认，拥有者可显式选择完全访�
   } finally {
     await t.shutdown();
   }
+});
+
+test("新旧请求摘要：历史模式变化后仍可重试，显式 Plan 与新请求显隐式模式不得混淆", async () => {
+  const t = await startTestRuntime("mode-digest-upgrade", modeRoutes(), { workDirs: 1 });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    t.runtime.store.withTx(() => t.runtime.store.setSessionQueueState(sessionId, "paused", "test"));
+    const model = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
+    const params = { session_id: sessionId, request_id: "old-nine", input: "原始请求", model_selection: model };
+    const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+    const oldBase = { input: params.input, accessMode: "confirm", grantedPaths: [], resumesTaskId: null, modelSelection: model };
+    const oldTask = await t.client.request<any>("submit", params);
+    // 真实旧九键格式只保存提交时的最终访问模式，不记录原请求是否显式选择。
+    t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?")
+      .run(hash({ ...oldBase, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null }), oldTask.id);
+    await t.client.request("switch_mode", { task_id: oldTask.id, mode: "full_access" });
+    await t.client.request("set_session_mode", { session_id: sessionId, mode: "plan", expected_version: 0 });
+    const retried = await t.client.request<any>("submit", params);
+    assert.equal(retried.id, oldTask.id);
+    assert.equal(retried.accessMode, "full_access");
+    assert.equal(retried.planMode, false, "历史重试保留已接收任务，当前 Plan 默认值不参与重建");
+    await assert.rejects(t.client.request("submit", { ...params, input: "改变原始请求" }), { code: "request_conflict" });
+
+    const oldFiveParams = { ...params, request_id: "old-five", access_mode: "auto-review" };
+    const oldFiveTask = await t.client.request<any>("submit", oldFiveParams);
+    t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?")
+      .run(hash({ ...oldBase, accessMode: "auto-review" }), oldFiveTask.id);
+    assert.equal((await t.client.request<any>("submit", oldFiveParams)).id, oldFiveTask.id);
+    await assert.rejects(t.client.request("submit", { ...oldFiveParams, input: "改变原始请求" }), { code: "request_conflict" });
+    await assert.rejects(t.client.request("submit", { ...oldFiveParams, access_mode: "plan" }), { code: "request_conflict" });
+
+    const modernParams = { ...params, request_id: "new-request" };
+    const modern = await t.client.request<any>("submit", modernParams);
+    assert.equal(modern.planMode, true);
+    assert.match(modern.submissionDigest, /^request-v2:/);
+    await assert.rejects(t.client.request("submit", { ...modernParams, access_mode: "plan" }), { code: "request_conflict" });
+    await t.client.request("set_session_mode", { session_id: sessionId, mode: "full_access", expected_version: 1 });
+    assert.equal((await t.client.request<any>("submit", modernParams)).id, modern.id);
+    assert.equal(t.runtime.store.listTasksBySession(sessionId).length, 3, "重试与冲突均不新增任务");
+  } finally { await t.shutdown(); }
+});
+
+test("Plan 默认值与任务固定模式跨后台重启保留，控制面握手恢复真实选择", async () => {
+  const t = await startTestRuntime("mode-plan-restart", modeRoutes(), { workDirs: 1 });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    t.runtime.store.withTx(() => t.runtime.store.setSessionQueueState(sessionId, "paused", "test"));
+    const model = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
+    await t.client.request("set_session_mode", { session_id: sessionId, mode: "plan", expected_version: 0 });
+    const params = { session_id: sessionId, request_id: "before-restart", input: "完善计划", model_selection: model };
+    const plan = await t.client.request<any>("submit", params);
+    const ordinary = await t.client.request<any>("submit", { ...params, request_id: "explicit-confirm", access_mode: "confirm" });
+    const seq = t.runtime.store.getMaxSeq();
+    const instanceId = t.runtime.store.db.getInstanceId();
+    await t.runtime.stop("test_restart");
+    const runtime = await Runtime.start({ dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir, socketPath: t.runtime.socketPath(),
+      thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: (ctx) => createMockTools(ctx) });
+    let client: ControlClient | null = null;
+    try {
+      await ControlServer.start(runtime);
+      client = await connectAuthedClient(runtime);
+      const { snapshot, replay } = await client.handshake(seq);
+      const restored = snapshot.sessions.find(session => session.id === sessionId)!;
+      assert.equal(restored.defaultAccessMode, "plan");
+      assert.equal(restored.defaultAccessModeVersion, 1);
+      assert.equal(runtime.store.db.getInstanceId(), instanceId);
+      const pinned = snapshot.tasks.find(task => task.id === plan.id)!;
+      assert.equal(pinned.planMode, true);
+      assert.equal(pinned.accessMode, "auto-review");
+      assert.equal(pinned.status, "queued");
+      assert.equal(snapshot.tasks.find(task => task.id === ordinary.id)!.planMode, false);
+      assert.ok(replay.some(event => event.body.type === "backend.stopping"));
+      assert.equal((await client.request<any>("submit", params)).id, plan.id);
+      const next = await client.request<any>("submit", { ...params, request_id: "after-restart" });
+      assert.equal(next.planMode, true);
+      assert.equal(next.accessMode, "auto-review");
+    } finally { client?.close(); await runtime.stop("test_end"); }
+  } finally { await t.shutdown(); }
+});
+
+test("CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使用同一可信选择", async () => {
+  const t = await startTestRuntime("mode-plan-cli", modeRoutes(), { workDirs: 1 });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    fs.symlinkSync(t.runtime.socketPath(), path.join(t.runtime.controlDir(), "control.sock"));
+    const cli = async (...args: string[]) => {
+      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../bin/ruukoto.mjs", import.meta.url)), ...args], {
+        timeout: 20_000,
+        env: { ...process.env, RUUKOTO_DATA_DIR: t.dirs.dataDir, RUUKOTO_AGENT_DIR: t.dirs.agentDir,
+          RUUKOTO_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
+      });
+      return JSON.parse(stdout);
+    };
+    assert.equal((await cli("set-session-mode", sessionId, "plan")).defaultAccessMode, "plan");
+    const plan = await cli("submit", sessionId, "cli-plan", "--mode", "plan", "QUICK:调研");
+    assert.equal(plan.planMode, true);
+    assert.equal(plan.accessMode, "auto-review");
+    await waitFor("CLI 计划完成", () => t.runtime.store.getTask(plan.id)!.status === "completed");
+    const source = await cli("submit", sessionId, "cli-source", "--mode", "confirm", "SLOW:执行");
+    await waitFor("CLI 源任务运行", () => t.runtime.store.getTask(source.id)!.status === "running");
+    await t.client.request("interrupt", { task_id: source.id });
+    assert.equal((await cli("set-session-mode", sessionId, "full_access")).defaultAccessMode, "full_access");
+    const continued = await cli("continue", source.id, "cli-continue", "--mode", "plan", "QUICK:重新调研");
+    assert.equal(continued.resumesTaskId, source.id);
+    assert.equal(continued.planMode, true);
+    assert.equal(continued.accessMode, "auto-review");
+    assert.equal(continued.permissionVersion, 1);
+  } finally { await t.shutdown(); }
 });
 
 test("会话默认模式：CAS 更新、新任务固定提交瞬间的默认值、既有任务不改写", async () => {

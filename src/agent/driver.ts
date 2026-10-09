@@ -32,7 +32,15 @@ import {
 import type { ModelCatalog } from "./model-selection.ts";
 import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
-import type { AccessMode, AgentRole, PersistentEventBody, Session, Task, ToolCategory } from "../core/types.ts";
+import type {
+  AccessMode,
+  ApprovalScope,
+  ConfirmationRequest,
+  PersistentEventBody,
+  Session,
+  Task,
+  ToolCategory,
+} from "../core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "../core/types.ts";
 import type { Store } from "../core/store.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "../core/history.ts";
@@ -52,23 +60,16 @@ import type { MemoryStore } from "../core/memory.ts";
 import type { SelectorBudgetConfig } from "./context-selector.ts";
 import { beginContextAssembly, ContextSendBlocked, type ContextAssembly } from "./context-assembly.ts";
 import type { JevRequestConfig } from "./jev.ts";
-import { createHostDataTools, HOST_DATA_TOOL_NAMES, type HostToolContext } from "./host-tools.ts";
-import { createAppDataTools, APP_DATA_TOOL_NAMES, type AppToolContext } from "./app-data/tools.ts";
-import type { AppDataStore } from "./app-data/store.ts";
-import type { AppDataQueryRunner } from "./app-data/query.ts";
-import { createSchedulerTools, SCHEDULER_TOOL_NAMES, type SchedulerToolsDeps } from "./scheduler-tools.ts";
-import { createDelegationTools, DELEGATION_TOOL_NAMES, type DelegationToolsDeps } from "./delegation-tools.ts";
-import { createChatResultTools, CHAT_RESULT_TOOL_NAMES } from "./chat-result-tools.ts";
-import type { QqStore } from "../qq/store.ts";
-import { createWebSearchTools, WEB_SEARCH_TOOL_NAMES, type WebSearchConfig } from "./web-search.ts";
-import { createSkillTools, expandSkillCommand, loadSkillLibrary, SKILL_TOOL_NAMES, type SkillLibrary } from "./skills.ts";
-import { createTodoTools, TODO_TOOL_NAMES } from "./todo.ts";
-import { isPlanInput, runsInPlanMode } from "./plan-mode.ts";
-import { allowsCategory, sessionToolClass, taskToolSet, type SessionToolClass, type TaskToolSet } from "./tool-availability.ts";
+import type { HostToolContext } from "./host-tools.ts";
+import type { ParentDelivery } from "../runtime/parent-delivery.ts";
+import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
+import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
+import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "../core/access.ts";
+import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, taskImageReferences, type ImageReference } from "./inbound-images.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
 
@@ -76,7 +77,6 @@ export interface DriverDeps {
   store: Store;
   /** 工具操作账本（架构工单 05）：结果、效果未知与停止补记只经它写。 */
   ledger: ToolOpLedger;
-  qqStore: QqStore;
   sessionsDir: string;
   agentDir: string;
   modelRuntime: ModelRuntime;
@@ -103,8 +103,8 @@ export interface DriverDeps {
   memories: MemoryStore;
   /** 上下文预算覆盖（默认取模型 contextWindow/maxTokens + 默认预留）。 */
   budgetOverrides?: Partial<SelectorBudgetConfig>;
-  /** Web Search（issue 20）：Tavily 目标/超时覆盖（仅测试注入；生产缺省官方端点）。 */
-  webSearch?: WebSearchConfig;
+  /** 静态宿主工具族；Runtime 负责捕获族专属依赖，Driver 负责当前调用接缝。 */
+  hostToolFamilies: readonly HostToolFamily[];
   /** Jev 的本地模拟服务与超时覆盖，仅宿主测试注入。 */
   jev?: JevRequestConfig;
   /** 上下文压缩的摘要超时覆盖（issue 30），仅测试注入；生产 180 s。 */
@@ -113,31 +113,41 @@ export interface DriverDeps {
   mcp?: { store: McpStore } & McpTimeouts;
   /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
   allowTaskTool?: (task: Task, name: string, mcpEffect?: McpToolEffect) => boolean;
+  /**
+   * 宿主按任务另开只读 MCP（agent-direction issue 19 的 GitHub 评审 SubAgent）：
+   * subagent 类会话只有该依赖为真时才规划 MCP，收窄为「静态只读白名单 ∪
+   * effect=read 的 MCP」（装配、发送前与调用门同一结论）。
+   */
+  taskMcp?: (task: Task) => boolean;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
   /**
-   * QQ 群聊会话的撤回消息过滤（issue 07）：每次模型调用前移出已撤回交互
-   * （只改模型视图，不改写历史）。仅 kind=qq_group 会话调用。
+   * IM 审批宿主接线（agent-direction issue 08）：审批创建通知与消费前固定身份
+   * 复核由宿主注入；均在审批创建/消费事务内执行，不得再开核心库事务。
    */
-  qqRecalledFilter?: (sessionId: string, messages: any[]) => any[];
-  /**
-   * main 应用数据空间（issue 02）：仅 main 角色会话装配六个受控工具
-   * （停止与重启的回执核实在工具操作账本）。
-   */
-  appData?: {
-    store: AppDataStore;
-    runner: AppDataQueryRunner;
-    /** 查询子进程挂点（仅测试注入；模型不可达）。 */
-    queryStallMs?: number;
+  approvalIm?: {
+    notifyCreated?: (confirmation: ConfirmationRequest, task: Task) => void;
+    consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
+    /**
+     * 长期授权候选（agent-direction issue 10）：宿主按当前 main、任务来源入口身份
+     * 与两项修订逐项核实；返回 null 走人工路径。
+     */
+    standingCandidate?: (
+      task: Task,
+      scope: Extract<ApprovalScope, { kind: "service_operation" }>,
+    ) => { id: string; version: number } | null;
   };
   /**
-   * 调度计划与通知（issue 03）：仅 main 角色会话装配六个 scheduler 工具。
+   * 父级送达的注入入口（架构工单 09 入口 3）：任务开始时取普通开发会话待注入的
+   * SubAgent 结果与工作内消息，同事务标记已投递；其他身份恒为空。
    */
-  scheduler?: Pick<SchedulerToolsDeps, "sched" | "scheduler" | "sources" | "target" | "now">;
+  parentInjection?: ParentDelivery["takeInjection"];
   /**
-   * 委派 coding（issue 05）：仅 main 角色会话装配。
+   * main 委派资料的发送前复核（仅 subagent 类会话；撤销阻止后续注入，
+   * 已保存快照正文不重新解析）。
    */
-  delegation?: Pick<DelegationToolsDeps, "sources" | "delegate" | "readReply" | "resultNotice">;
+  verifyTaskSources?: (projectId: string, refs: unknown[]) => string | null;
+
 }
 
 export class Driver {
@@ -172,42 +182,49 @@ export class Driver {
   private runPromise: Promise<void> | null = null;
   /** SDK 扩展桥注入的 appendEntry（宿主标记条目，custom，不进模型上下文）。 */
   private markerApi: ((customType: string, data: unknown) => void) | null = null;
-  /** 当前正在执行的宿主数据工具上下文（taskContext 注入用）。 */
-  private hostToolCtx: HostToolContext | null = null;
   /** 本任务内 sdkCallId → 宿主数据工具上下文（并发调用各自独立）。 */
   private hostToolCalls = new Map<string, HostToolContext>();
+  /** 宿主工具（非路由器）登记的产物引用：hostOpId → 产物 id（接到 task.tool_result 事件）。 */
+  private hostToolArtifacts = new Map<string, string[]>();
   /** SDK 会话登记的全部工具名（任务开始钉版工具清单的基准）。 */
   private allToolNames: string[] = [];
+  /** 当前任务已装配的静态宿主工具名（由族清单派生）。 */
+  private hostToolNames: ReadonlySet<string> = new Set<string>();
   /** 当前任务钉版的 MCP 工具名集合（handleToolCall 分派依据；任务间比对签名）。 */
   private mcpToolNames = new Set<string>();
   /** 当前任务钉版的 MCP 计划（工具元数据 + 按服务持有的连接；结束/取消/关闭时回收）。 */
   private currentMcpPlan: McpTaskPlan | null = null;
-  /** 上次 SDK 会话创建时的 MCP 工具清单签名（不一致则重建会话换工具定义）。 */
-  private mcpSignature: string | null = null;
+  /** 上次 SDK 会话创建时的工具签名（画像工具集 + MCP 清单；不一致则重建会话换工具定义）。 */
+  private toolSignature: string | null = null;
   /** 模型配置已应用、存活 SDK 会话待丢弃重建（issue 21 §4；见 updateModelDeps）。 */
   private sdkConfigStale = false;
   /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
   private pendingMcpToolDefs: ToolDefinition[] = [];
-  /** 角色配置缓存（undefined = 未查询；null = 非角色会话）。 */
-  private roleConfig: AgentRole | null | undefined = undefined;
-  /** 会话工具类别缓存（Driver 生命周期内不变）。 */
-  private toolClassCache: SessionToolClass | undefined = undefined;
+  /** 执行画像（架构工单 08）：任务开始算一次、钉到下一任务开始；首个任务前为 null。 */
+  private pinnedProfile: ExecutionProfile | null = null;
   /** 本任务允许的工具（任务开始时算一次；激活、发送前与调用门共用；null = 尚未算出，一律拒绝）。 */
   private taskTools: TaskToolSet | null = null;
   /** 本任务的模型上下文组装（任务开始时建、结束即丢；context 钩子与发送前复核共用）。 */
   private assembly: ContextAssembly | null = null;
   /** 原始 streamFunction（包装前保存；发送前检查在委托前执行）。 */
   private originalStreamFn: any = null;
-  /** 任务开始时钉版：以计划模式运行（issue 26，决定计划说明与工具白名单）。 */
-  private pinnedPlan = false;
   /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
   private pinnedSkills: SkillLibrary | null = null;
+  /** 用户消息落盘前附稳定图片引用；不把图片正文交给 SDK 历史写入。 */
+  private pendingUserImages: ImageReference[] = [];
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
     this.deps = deps;
     this.registry = createManagedProcessRegistry();
-    this.approvals = new ApprovalGate({ store: deps.store, ledger: deps.ledger, reviewer: () => this.deps.reviewer });
+    this.approvals = new ApprovalGate({
+      store: deps.store,
+      ledger: deps.ledger,
+      reviewer: () => this.deps.reviewer,
+      notifyConfirmation: deps.approvalIm?.notifyCreated,
+      consumeRecheck: deps.approvalIm?.consumeRecheck,
+      standingCandidate: deps.approvalIm?.standingCandidate,
+    });
     this.router = new ToolRouter({
       store: deps.store,
       ledger: deps.ledger,
@@ -217,6 +234,10 @@ export class Driver {
       launcherFor: deps.launcherFor,
       protectedRoots: deps.protectedRoots,
       artifactAccess: (task, artifact) => {
+        // SubAgent 只读本次自产；模型上下文快照不是交付产物，拒绝
+        if (this.profile.restricted) {
+          return artifact.taskId === task.id && !artifact.name.startsWith("prompt-snapshot:");
+        }
         if (artifact.taskId === task.id) return true;
         const artifactSession = deps.store.getSession(artifact.sessionId);
         if (!artifactSession) return false;
@@ -232,31 +253,15 @@ export class Driver {
     return this.currentTask !== null;
   }
 
-  /** QQ 群聊入口会话（issue 07）：空工具集合 + 宿主约束资料范围。 */
-  private get isQqGroup(): boolean {
-    return this.session.kind === "qq_group";
-  }
-
-  /**
-   * 角色会话（issue 01）：宿主引导的角色绑定（agent_roles 表，按会话反查）；
-   * 非角色会话为 null。绑定只由宿主设置，任务/工具参数与模型结果不能修改。
-   */
-  private role(): AgentRole | null {
-    if (this.roleConfig === undefined) {
-      this.roleConfig = this.deps.store.getAgentRoleBySession(this.session.id);
-    }
-    return this.roleConfig;
-  }
-
-  /** 会话工具类别（工具可用性）：QQ 群归 chat，角色会话按宿主绑定，其余为普通开发会话。 */
-  private get toolClass(): SessionToolClass {
-    this.toolClassCache ??= sessionToolClass(this.session.kind, this.role()?.id ?? null);
-    return this.toolClassCache;
+  /** 本任务的执行画像（调用方都在任务内；首个任务前读取即抛）。 */
+  private get profile(): ExecutionProfile {
+    if (!this.pinnedProfile) throw new Error("执行画像未确定（尚未运行任务）");
+    return this.pinnedProfile;
   }
 
   /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
   private allows(category: ToolCategory): boolean {
-    return allowsCategory(this.toolClass, category);
+    return allowsCategory(this.profile.toolClass, category);
   }
 
   /** 不在本任务允许集合内的工具的拒绝原因。 */
@@ -273,29 +278,35 @@ export class Driver {
   private verifyMainBinding(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
     if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
     if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
-    const role = this.deps.store.getAgentRoleBySession(ctx.sessionId);
-    if (!role || role.id !== "main") return "会话未绑定 main 角色";
-    if (role.projectId !== this.session.projectId) return "main 角色项目绑定不匹配";
+    const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
+    if (identity?.kind !== "main") return "会话未绑定 main 角色";
+    if (identity.role.projectId !== this.session.projectId) return "main 角色项目绑定不匹配";
     if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
     const task = this.deps.store.getTask(ctx.taskId);
     if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
     return null;
   }
 
-  /** 宿主注入的资料访问身份（qq_group 与 chat 角色不适用跨项目授权与 owner_note 默认放行）。 */
+  /** 宿主注入的资料访问身份。 */
   private accessor(): Accessor {
-    if (this.isQqGroup) return { kind: "qq_group", projectId: this.session.projectId };
-    if (this.role()?.id === "chat") return { kind: "role_restricted", projectId: this.session.projectId };
     return { kind: "agent", projectId: this.session.projectId };
   }
 
   /**
-   * 资料范围受宿主约束的会话（issue 07 qq_group；issue 01 chat 角色）：
-   * 上下文注入排除个人共享记忆与项目指令，记忆/资料工具按受限身份判定。
-   * 工具白名单管工具可见性，本约束管资料范围，两者独立生效。
+   * SubAgent 委派工具的宿主重核（agent-direction issue 11）：每次调用核实会话、
+   * 项目与任务归属，以及会话是具备委派资格的身份（普通开发会话或 main；
+   * 绑定 SubAgent/coding/chat 的会话、群会话一律拒绝）。
    */
-  private get dataScopeRestricted(): boolean {
-    return this.toolClass === "chat";
+  private verifyDelegationHost(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
+    if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
+    if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
+    if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
+    const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
+    if (identity?.kind === "subagent") return "SubAgent 不能委派下级";
+    if (identity?.kind !== "dev" && identity?.kind !== "main") return "只有普通开发会话或 main 可以委派 SubAgent";
+    const task = this.deps.store.getTask(ctx.taskId);
+    if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
+    return null;
   }
 
   get currentTaskId(): string | null {
@@ -325,107 +336,51 @@ export class Driver {
     if (this.sdk) this.sdkConfigStale = true;
   }
 
+  private hostToolRuntime(): HostToolRuntime {
+    return {
+      registry: this.registry,
+      toolClass: this.profile.toolClass,
+      call: { taskContext: () => null, bindCall: this.bindHostCall },
+      identity: {
+        verifyMain: (ctx) => this.verifyMainBinding(ctx),
+        verifyHost: (ctx) => this.verifyDelegationHost(ctx),
+      },
+      approval: {
+        request: (input) => this.approvals.request(input),
+        requestStanding: (input) => this.approvals.requestStanding(input),
+      },
+      effects: {
+        recordArtifact: (hostOpId, artifactId) => this.recordHostToolArtifact(hostOpId, artifactId),
+        markEffectUnknown: (hostOpId) => {
+          const task = this.currentTask;
+          if (task) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, hostOpId));
+        },
+      },
+      skills: () => this.pinnedSkills,
+    };
+  }
+
   private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
-    // 工具可用性（架构工单 03）：各注册来源只在会话类别的清单含其类别时装配；
-    // chat 与 QQ 群的清单为空，即空工具集合
-    const hostDataTools = !this.allows("host_data")
-      ? []
-      : createHostDataTools({
-          store: this.deps.store,
-          access: this.deps.access,
-          historyIndex: this.deps.historyIndex,
-          memories: this.deps.memories,
-          taskContext: () => this.hostToolCtx,
-          bindCall: this.bindHostCall,
-          sessionFileFor: (sessionId) => this.deps.store.getSession(sessionId)?.sessionFile ?? null,
-          projectOfSession: (sessionId) => this.deps.store.getSession(sessionId)?.projectId ?? null,
-          syncSession: (sessionId) => {
-            const file = this.deps.store.getSession(sessionId)?.sessionFile;
-            if (!file) return { unindexed: true };
-            this.deps.historyIndex.sync(sessionId, file);
-            return { unindexed: !this.deps.historyIndex.isIndexed(sessionId) };
-          },
-        });
-    // Web Search 宿主工具（issue 20）：同一身份注入；项目禁用与否在任务开始
-    // 钉版工具清单时判定（runInner），调用时另有新鲜检查
-    const webSearchTools = !this.allows("web_search")
-      ? []
-      : createWebSearchTools({
-          store: this.deps.store,
-          artifacts: this.deps.artifacts,
-          credentials: this.deps.credentials,
-          taskContext: () => this.hostToolCtx,
-          bindCall: this.bindHostCall,
-          baseUrl: this.deps.webSearch?.baseUrl,
-          timeoutMs: this.deps.webSearch?.timeoutMs,
-        });
-    // main 应用数据工具（issue 02）：只有 main 的清单含 app_data；执行入口每次调用仍重新核实 main 绑定
-    const appDataTools =
-      this.allows("app_data") && this.deps.appData
-        ? createAppDataTools({
-            store: this.deps.appData.store,
-            runner: this.deps.appData.runner,
-            coreStore: this.deps.store,
-            taskContext: () => this.hostToolCtx,
-            bindCall: this.bindHostCall,
-            verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            requestApproval: (input) => this.approvals.request(input),
-            queryStallMs: () => this.deps.appData?.queryStallMs,
-          })
-        : [];
-    // 调度与通知工具（issue 03）：只有 main 的清单含 scheduler
-    const schedulerTools =
-      this.allows("scheduler") && this.deps.scheduler
-        ? createSchedulerTools({
-            ...this.deps.scheduler,
-            coreStore: this.deps.store,
-            taskContext: () => this.hostToolCtx,
-            bindCall: this.bindHostCall,
-            verifyMain: (ctx) => this.verifyMainBinding(ctx),
-            requestApproval: (input) => this.approvals.request(input),
-          })
-        : [];
-    // 委派 coding 工具（issue 05）：只有 main 的清单含 delegation
-    const delegationTools =
-      this.allows("delegation") && this.deps.delegation
-        ? createDelegationTools({
-            ...this.deps.delegation,
-            coreStore: this.deps.store,
-            artifacts: this.deps.artifacts,
-            taskContext: () => this.hostToolCtx,
-            bindCall: this.bindHostCall,
-            verifyMain: (ctx) => this.verifyMainBinding(ctx),
-          })
-        : [];
-    const chatResultTools = this.allows("chat_results")
-      ? createChatResultTools({
-          coreStore: this.deps.store, qqStore: this.deps.qqStore,
-          taskContext: () => this.hostToolCtx, bindCall: this.bindHostCall,
-          verifyMain: (ctx) => this.verifyMainBinding(ctx),
-        })
-      : [];
-    // 技能工具（issue 22）：读取任务钉版的技能库
-    const skillTools = !this.allows("skills")
-      ? []
-      : createSkillTools({ library: () => this.pinnedSkills, bindCall: this.bindHostCall });
+    const hostToolSet = buildHostToolSet(
+      this.deps.hostToolFamilies.filter((family) =>
+        this.allows(family.category) || (family.category === "subagent" && this.profile.toolClass === "subagent")),
+      this.hostToolRuntime(),
+    );
+    const subAgentTools = this.profile.subAgentTools;
     const allTools = [
       ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
-      // 工作清单（issue 25）：与编码工具同一类别——开发会话与 coding，main/chat 不装配
-      ...(this.allows("coding") ? createTodoTools({ bindCall: this.bindHostCall }) : []),
-      ...hostDataTools,
-      ...webSearchTools,
-      ...appDataTools,
-      ...schedulerTools,
-      ...delegationTools,
-      ...chatResultTools,
-      ...skillTools,
-      // MCP 动态工具（issue 16）：runInner 按任务计划装配；SDK 白名单创建时
-      // 固定，工具集合变化由 runInner 先重建会话再走到这里
+      ...(subAgentTools
+        ? this.deps.toolFactory({ registry: this.registry, router: this.router })
+            .filter((t) => subAgentAllows(subAgentTools, t.name))
+        : []),
+      ...hostToolSet.tools,
       ...this.pendingMcpToolDefs,
     ];
     this.pendingMcpToolDefs = [];
+    this.hostToolNames = hostToolSet.names;
     this.allToolNames = allTools.map((t) => t.name);
+    if (new Set(this.allToolNames).size !== allTools.length) throw new Error("工具装配存在重复名字");
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -434,8 +389,7 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      // 按会话类别固定（issue 24）：QQ 群与 chat 角色用 chat 提示；coding 含 GitHub 评审子任务
-      systemPrompt: SYSTEM_PROMPTS[this.toolClass],
+      systemPrompt: SYSTEM_PROMPTS[this.profile.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -450,14 +404,25 @@ export class Driver {
   }
 
   /** 工具执行入口按 sdkCallId 绑定宿主上下文（execute 包装时调用）。 */
-  private readonly bindHostCall = (sdkCallId: string): (() => void) => {
+  private readonly bindHostCall = (sdkCallId: string): HostCall => {
     const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
-    this.hostToolCtx = ctx;
-    return () => {
-      this.hostToolCtx = null;
-      this.hostToolCalls.delete(sdkCallId);
-    };
+    let released = false;
+    return {
+      context: ctx,
+      release: () => {
+        if (released) return;
+        released = true;
+        this.hostToolCalls.delete(sdkCallId);
+      },
+    } satisfies HostCall;
   };
+
+  /** 宿主工具（不经路由器）登记产物引用（issue 09：接到 task.tool_result 事件）。 */
+  private recordHostToolArtifact(hostOpId: string, artifactId: string): void {
+    const list = this.hostToolArtifacts.get(hostOpId) ?? [];
+    list.push(artifactId);
+    this.hostToolArtifacts.set(hostOpId, list);
+  }
 
   // ---------- 模型上下文（组装见 context-assembly）与发送前检查 ----------
 
@@ -506,13 +471,30 @@ export class Driver {
 
   /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
+    if (hasImageInput(context?.messages ?? []) && !model?.input?.includes("image")) {
+      throw new ContextSendBlocked(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
+    }
     const expected = task.modelSelection;
     if (!expected || model?.provider !== expected.provider || model?.id !== expected.modelId ||
         this.sdk?.thinkingLevel !== expected.thinkingLevel || (options?.reasoning ?? "off") !== expected.thinkingLevel) {
       throw new ContextSendBlocked("model_selection_mismatch:实际模型或思考强度与任务记录不一致");
     }
+    // SubAgent 的资料授权复核（agent-direction issue 11；issue 12 并集）：每次向
+    // 模型发送上下文前重新 verify 本会话全部任务的来源引用并集——复用保留的
+    // 上下文含旧工作资料，旧资料撤销后同样阻止发送（快照正文不重新解析）。
+    // issue 16：有写入目标的工作不发资料快照（readScope.paths 恒空），无
+    // sourceRefs 可核，复核在此为空集通过。
+    if (this.profile.restricted && this.deps.verifyTaskSources) {
+      const refs = this.deps.store
+        .listTasksBySession(this.session.id)
+        .flatMap((t) => t.readScope?.sourceRefs ?? []);
+      if (refs.length > 0) {
+        const problem = this.deps.verifyTaskSources(this.session.projectId, refs);
+        if (problem) throw new ContextSendBlocked(`task_sources_revoked:${problem}`);
+      }
+    }
     // 工具可用性（架构工单 03）：发送载荷中的每个工具都必须在本任务允许的集合内
-    // （按实际载荷检查，覆盖全部注册来源；QQ 群与 chat 的集合为空）
+    // （按实际载荷检查，覆盖全部注册来源）
     if (Array.isArray(context?.tools)) {
       const forbidden = context.tools
         .map((t: any) => t?.name ?? t?.function?.name)
@@ -559,6 +541,16 @@ export class Driver {
     if (this.runPromise) {
       throw new Error(`会话 ${this.session.id} 已有任务在运行`);
     }
+    // 执行画像（架构工单 08）：任务开始算一次、钉到任务结束。已退役归档会话不运行
+    // 任务（提交入口与队列兜底先行拒绝），走到这里即抛。
+    const identity = this.deps.store.getSessionIdentity(this.session.id);
+    if (!identity) throw new Error(`会话不存在：${this.session.id}`);
+    this.pinnedProfile = executionProfile({
+      identity,
+      writeTarget: Boolean(task.workId && this.deps.store.getWorkDelegation(task.workId)?.writeTarget),
+      review: identity.kind === "subagent" && (this.deps.taskMcp?.(task) ?? false),
+      planMode: task.planMode,
+    });
     this.currentTask = task;
     this.stopRequested = false;
     this.flushedEntryIds = new Set();
@@ -573,27 +565,28 @@ export class Driver {
     this.thinking = null;
     this.thinkingIndex = null;
     this.registry.clear();
-    this.hostToolCtx = null;
     this.hostToolCalls = new Map();
+    this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;
+    this.pendingUserImages = [];
     this.taskTools = null;
-    // 计划模式（issue 26）：输入带 `/plan` 标记，或逐级继续的原任务带标记；只限普通开发会话（同提交入口）
-    try {
-      this.pinnedPlan = this.toolClass === "dev" && runsInPlanMode(task, (id) => this.deps.store.getTask(id));
-    } catch {
-      this.pinnedPlan = this.toolClass === "dev" && isPlanInput(task.input); // 原任务读取失败时只按本任务输入判定
-    }
-    this.pinnedSkills = this.dataScopeRestricted ? null : loadSkillLibrary(this.deps.agentDir);
+    this.pinnedSkills = this.profile.restricted ? null : loadSkillLibrary(this.deps.agentDir);
+    // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
+    // 摘要与消息正文由宿主写定，不伪装拥有者新请求，也不授予委派权限。
+    const injection = this.deps.parentInjection?.(this.session.id);
+    const subagentResults = injection?.results.length
+      ? injection.results.map((t) => ({ workId: t.workId!, subAgentId: t.subAgentId!, taskId: t.id, status: t.status, summary: t.resultSummary ?? "" }))
+      : undefined;
+    const subagentMessages = injection?.messages.length ? injection.messages : undefined;
     this.assembly = beginContextAssembly({
       task,
       session: this.session,
       accessor: this.accessor(),
-      restricted: this.dataScopeRestricted,
-      recalledFilter: this.isQqGroup && this.deps.qqRecalledFilter
-        ? (messages) => this.deps.qqRecalledFilter!(this.session.id, messages)
-        : undefined,
-      plan: this.pinnedPlan,
+      restricted: this.profile.restricted,
+      plan: this.profile.plan,
       skills: this.pinnedSkills,
+      subagentResults,
+      subagentMessages,
     }, this.deps);
     this.runPromise = this.runInner(task);
     try {
@@ -612,10 +605,10 @@ export class Driver {
   }
 
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
-  private async planMcp(): Promise<McpTaskPlan> {
+  private async planMcp(task: Task): Promise<McpTaskPlan> {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
-    // 会话类别的清单不含 mcp 时不注册 MCP 工具（QQ 群与 chat 的清单为空）
-    if (!this.allows("mcp")) return EMPTY_MCP_PLAN;
+    // 画像决定是否规划：类别含 mcp，或 SubAgent 宿主评审任务另开只读 MCP（issue 19）
+    if (!this.profile.planMcp) return EMPTY_MCP_PLAN;
     return planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
@@ -649,10 +642,24 @@ export class Driver {
   }
 
   private async runInner(task: Task): Promise<void> {
+    // 取消窗口（agent-direction issue 14）：任务已转 running、currentTask 尚未
+    // 登记时到达的取消先持久化了 cancel_requested；这里直接按取消意图定态
+    // canceled，不调用模型、不建 SDK 会话。
+    // ponytail: 落在本窗口的取消不保留原始原因（超时取消会记为 canceled 而非
+    // timeout）；原因在 requestStop 路径才有载体，窗口内没有。窗口写原因需给
+    // 任务再加一列，暂不值得。
+    if (this.deps.store.getTask(task.id)?.cancelRequested) {
+      this.finalize(task, "canceled", { interruptReason: "cancel_requested" });
+      return;
+    }
     let sdk: AgentSession;
     try {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
       const model = await this.deps.modelCatalog.resolve(task.modelSelection);
+      this.pendingUserImages = taskImageReferences(task, this.deps.store);
+      if (this.pendingUserImages.length > 0 && !model?.input?.includes("image")) {
+        throw new Error(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
+      }
       // 模型配置应用后（issue 21 §4）：旧 SDK 会话闭包持有旧 ModelRuntime，
       // 任务边界处丢弃，由 ensureSdk 以新模型栈重建（历史在会话文件中）
       if (this.sdkConfigStale) {
@@ -661,14 +668,17 @@ export class Driver {
       }
       // MCP（issue 16）：任务开始重读配置并发现工具，钉版本任务工具清单；
       // 单个服务初始化失败降级为不可用事件，不阻断任务
-      const mcpPlan = await this.planMcp();
-      if (this.sdk && mcpPlan.signature !== this.mcpSignature) this.dropSdkForToolChange();
+      const mcpPlan = await this.planMcp(task);
+      // SDK 会话签名 = 画像工具集 + MCP 清单（架构工单 08）：复用的 SubAgent 从只读
+      // 转到写入工作时重建，正确性不依赖 Runtime 每任务释放 Driver
+      const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}`;
+      if (this.sdk && toolSignature !== this.toolSignature) this.dropSdkForToolChange();
       this.pendingMcpToolDefs = mcpPlan.toolDefs;
       // 计划先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收连接
       this.currentMcpPlan = mcpPlan;
       sdk = await this.ensureSdk(model, task.modelSelection.thinkingLevel);
       this.pendingMcpToolDefs = [];
-      this.mcpSignature = mcpPlan.signature;
+      this.toolSignature = toolSignature;
       this.mcpToolNames = new Set(mcpPlan.toolDefs.map((t) => t.name));
       for (const u of mcpPlan.unavailable) {
         this.deps.store.withTx(() => {
@@ -703,12 +713,21 @@ export class Driver {
     // 任务内的禁用由工具按调用新鲜检查立即阻止）。每次从完整注册表重算，宿主对当前
     // 任务的限制不带入下一任务。
     const allowTaskTool = this.deps.allowTaskTool;
+    const subAgentTools = this.profile.subAgentTools;
     this.taskTools = taskToolSet({
       registered: this.allToolNames,
-      plan: this.pinnedPlan,
+      plan: this.profile.plan,
       webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
       mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
-      narrow: allowTaskTool ? (name, effect) => allowTaskTool(task, name, effect) : undefined,
+      // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
+      // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
+      // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
+      narrow:
+        subAgentTools
+          ? (name, effect) => subAgentAllows(subAgentTools, name, effect)
+          : allowTaskTool
+            ? (name, effect) => allowTaskTool(task, name, effect)
+            : undefined,
     });
     sdk.setActiveToolsByName([...this.taskTools.allowed]);
 
@@ -732,7 +751,7 @@ export class Driver {
     // 进入历史；不交给 pi 的 /skill: 展开。资料受限会话不识别。
     let promptText: string;
     try {
-      promptText = this.dataScopeRestricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
+      promptText = this.profile.restricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
     } catch (err) {
       this.finalize(task, "failed", { errorMessage: (err as Error).message });
       return;
@@ -762,6 +781,11 @@ export class Driver {
     // 不缩短输入后重试。依据宿主保存的原因识别，不靠 prompt() reject 文案。
     const blockedReason = this.consumeBlockedReason(lastAssistant);
     if (blockedReason !== null) {
+      if (blockedReason.startsWith(`${IMAGE_INPUT_UNSUPPORTED}:`)) {
+        this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "failed", reason: blockedReason });
+        this.finalize(task, "failed", { errorMessage: blockedReason });
+        return;
+      }
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: blockedReason });
       this.pauseQueue(blockedReason);
       this.finalize(task, "interrupted", { interruptReason: blockedReason });
@@ -852,6 +876,9 @@ export class Driver {
   }
 
   private async killManagedProcesses(): Promise<boolean> {
+    // 执行意图落库（hook 处）与工作进程登记（工具 execute 处）之间隔着
+    // promise 边界；让出一个宏任务，使已记录意图的派发先完成登记，再读登记表
+    await new Promise((r) => setImmediate(r));
     const processes = this.registry.list();
     if (processes.length === 0) return true;
     let allReaped = true;
@@ -881,64 +908,16 @@ export class Driver {
     this.endThinking();
     this.deps.store.withTx(() => {
       const store = this.deps.store;
-      const ok = store.transitionTask(task.id, ["running", "awaiting_confirmation"], to, {
+      store.endTask(task.id, ["running", "awaiting_confirmation"], to, {
         interruptReason: extra.interruptReason ?? null,
         errorMessage: extra.errorMessage ?? null,
         endedAt: new Date().toISOString(),
+        keepOccupancy: extra.keepOccupancy,
+        occupancyIssueReason: extra.occupancyIssueReason,
+        onChanged: () => {
+          for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
+        },
       });
-      if (!ok) return; // 已被竞争路径定态
-      store.clearPendingModeSwitch(task.id);
-
-      for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
-
-      // 中断/取消时清理未决确认（标记 stale，防止失效批准再执行）
-      if (to === "interrupted" || to === "canceled") {
-        store.stalePendingConfirmations(task.id);
-      }
-
-      const refs = { taskId: task.id, sessionId: task.sessionId };
-      switch (to) {
-        case "completed":
-          store.appendEvent({ type: "task.completed", taskId: task.id, sessionId: task.sessionId }, refs);
-          break;
-        case "failed":
-          store.appendEvent(
-            { type: "task.failed", taskId: task.id, sessionId: task.sessionId, errorMessage: extra.errorMessage ?? "" },
-            refs,
-          );
-          break;
-        case "canceled":
-          store.appendEvent({ type: "task.canceled", taskId: task.id, sessionId: task.sessionId }, refs);
-          break;
-        case "interrupted":
-          store.appendEvent(
-            {
-              type: "task.interrupted",
-              taskId: task.id,
-              sessionId: task.sessionId,
-              reason: extra.interruptReason ?? "unknown",
-              cancelRequested: store.getTask(task.id)?.cancelRequested ?? false,
-              effectUnknown: store.getTask(task.id)?.effectUnknown ?? false,
-            },
-            refs,
-          );
-          break;
-      }
-
-      if (extra.keepOccupancy) {
-        // 无法确认旧执行已退出：保留占用并报错，不允许同目录新任务启动
-        store.appendEvent(
-          {
-            type: "task.tool_process_unreaped",
-            taskId: task.id,
-            sessionId: task.sessionId,
-            reason: extra.occupancyIssueReason ?? "unknown",
-          },
-          refs,
-        );
-      } else {
-        store.releaseOccupancy(this.session.cwdReal, task.id);
-      }
     });
     // 占用释放后唤醒其他会话的排队任务
     this.deps.onOccupancyReleased();
@@ -1024,16 +1003,7 @@ export class Driver {
 
     // 资料与记忆宿主工具（issue 05）、Web Search 宿主工具（issue 20）与
     // main 应用数据工具（issue 02）：身份由宿主注入，不经路由器/工作进程
-    if (
-      (HOST_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (APP_DATA_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SCHEDULER_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (DELEGATION_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (CHAT_RESULT_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (SKILL_TOOL_NAMES as readonly string[]).includes(event.toolName) ||
-      (TODO_TOOL_NAMES as readonly string[]).includes(event.toolName)
-    ) {
+    if (this.hostToolNames.has(event.toolName)) {
       this.hostToolCalls.set(event.toolCallId, {
         taskId: task.id,
         sessionId: task.sessionId,
@@ -1078,9 +1048,14 @@ export class Driver {
     return this.runPromise ?? Promise.resolve();
   }
 
-  /** 控制面应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
-  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected"): boolean {
-    return this.approvals.resolve(confirmationId, decision);
+  /** 控制面/IM 应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
+  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: () => void | { standingPermission?: { id: string; version: number } } }): boolean {
+    return this.approvals.resolve(confirmationId, decision, opts);
+  }
+
+  /** 定向解除指定审批的等待（IM 绑定失效后 release waiter，issue 08）。 */
+  supersedeApprovals(ids: ReadonlySet<string>): void {
+    this.approvals.supersedeConfirmations(ids);
   }
 
   // ---------- 会话事件观察 ----------
@@ -1213,6 +1188,11 @@ export class Driver {
         return;
       }
       case "message_end": {
+        if (event.message.role === "user" && this.pendingUserImages.length > 0) {
+          // pi 的监听通知先于 appendMessage；同一对象也留在 agent.state 中。
+          (event.message as any).ruukotoMediaRefs = this.pendingUserImages;
+          this.pendingUserImages = [];
+        }
         if (event.message.role !== "assistant") return;
         const text = extractText(event.message.content);
         const seen = this.currentPreview?.text ?? "";
@@ -1226,7 +1206,9 @@ export class Driver {
         const editStats = editStatsFromResult(event.toolName, event.isError, event.result?.details);
         // SDK 调用 id → 宿主操作 id（不同任务复用调用 id 时不串用记录）
         const hostOpId = this.callMap.get(event.toolCallId) ?? event.toolCallId;
-        const artifactIds = this.deps.store.getToolOp(hostOpId) ? this.router.artifactIdsFor(hostOpId) : [];
+        const artifactIds = this.deps.store.getToolOp(hostOpId)
+          ? [...this.router.artifactIdsFor(hostOpId), ...(this.hostToolArtifacts.get(hostOpId) ?? [])]
+          : [];
         try {
           this.deps.store.withTx(() => this.deps.ledger.recordResult(task, hostOpId, summary, event.isError, { artifactIds, editStats }));
         } catch (err) {

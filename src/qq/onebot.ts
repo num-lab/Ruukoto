@@ -108,7 +108,8 @@ export class OneBotClient {
    * 调用 OneBot 动作（echo 关联应答）。平台明确失败抛 OneBotError(definite=true,
    * 含 retcode)；超时/断线抛 OneBotError(definite=false) = 结果不明。
    */
-  call(action: string, params: Record<string, unknown>): Promise<unknown> {
+  call(action: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(new OneBotError("OneBot 动作已取消", { definite: false }));
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new OneBotError("OneBot 连接不可用", { definite: false }));
@@ -116,15 +117,29 @@ export class OneBotClient {
     const echo = `rkk_${Date.now().toString(36)}_${(this.echoCounter++).toString(36)}`;
     const timeoutMs = this.opts.actionTimeoutMs ?? 15_000;
     return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", aborted);
+      };
+      const aborted = () => {
+        cleanup();
+        this.pending.delete(echo);
+        reject(new OneBotError("OneBot 动作已取消", { definite: false }));
+      };
       const timer = setTimeout(() => {
+        cleanup();
         this.pending.delete(echo);
         reject(new OneBotError(`动作 ${action} 响应超时（${timeoutMs}ms）`, { definite: false }));
       }, timeoutMs);
-      this.pending.set(echo, { resolve, reject, timer });
+      this.pending.set(echo, {
+        resolve: (data) => { cleanup(); resolve(data); },
+        reject: (err) => { cleanup(); reject(err); }, timer,
+      });
+      signal?.addEventListener("abort", aborted, { once: true });
       try {
         ws.send(JSON.stringify({ action, params, echo }));
       } catch (err) {
-        clearTimeout(timer);
+        cleanup();
         this.pending.delete(echo);
         reject(new OneBotError(this.redact(`动作 ${action} 发送失败：${(err as Error).message}`), { definite: false }));
       }

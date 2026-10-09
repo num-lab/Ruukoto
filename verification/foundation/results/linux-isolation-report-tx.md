@@ -1,12 +1,12 @@
 # Linux 受限执行探针报告
 
-- 时间：2026-09-21T10:47:10
+- 时间：2026-10-02T09:48:19
 - 宿主: Linux 6.8.0-117-generic
 容器引擎: Docker version 29.5.2, build 79eb04c
 - 容器环境：Linux 6.8.0-117-generic / NAME="Debian GNU/Linux"
-- 注意：探针验证容器边界本身；本次宿主为 tx（Ubuntu 24.04 原生 Linux，
-  Docker 29.5.2）；原生 Linux 的 bind mount 无 uid 映射，工作区写权限处理见
-  deploy/systemd/README.md 第 5 步。
+- 注意：探针验证容器边界本身；宿主环境见上方宿主信息行（macOS Docker Desktop
+  的 Linux VM 与原生 Linux 均已验证；原生 Linux 的 bind mount 无 uid 映射，
+  工作区写权限处理见 deploy/systemd/README.md 第 5 步）。
 
 | 探针 | 预期 | 结果 | 说明 |
 | --- | --- | --- | --- |

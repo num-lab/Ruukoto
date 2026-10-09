@@ -24,8 +24,11 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
   const provider = http.createServer(async (req, res) => {
     res.on("error", () => {});
     const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    const body = JSON.parse(Buffer.concat(chunks).toString());
+    try { for await (const chunk of req) chunks.push(Buffer.from(chunk)); }
+    catch (error) { if (req.aborted) return; throw error; }
+    const raw = Buffer.concat(chunks);
+    if (!raw.length) { res.writeHead(400); res.end(); return; }
+    const body = JSON.parse(raw.toString());
     const cancel = /CANCEL_(STREAM|TEXT)/.test(JSON.stringify(body.messages));
     const hidden = JSON.stringify(body.messages).includes("CANCEL_TEXT");
     const toolDone = body.messages.some((m: any) => m.role === "tool");

@@ -14,10 +14,11 @@ const messages = (flow: EventFlow) => flow.items.filter((entry) => entry.kind ==
 function task(id = "task", extra: Partial<Task> = {}): Task {
   return {
     id, sessionId: "session", requestId: `request:${id}`, input: "same input", modelSelection: null,
-    submissionDigest: null, status: "running", accessMode: "confirm", permissionVersion: 1, grantedPaths: [],
+    submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
-    resultSummary: null, resultRef: null, createdAt: at(0), startedAt: at(1), endedAt: null, ...extra,
+    resultSummary: null, resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at(0), startedAt: at(1), endedAt: null, ...extra,
   };
 }
 function history(entryId: string, role: string, text: string, extra: Partial<HistoryEntryView> = {}): HistoryEntryView {

@@ -3,9 +3,10 @@
  *
  * 1. 源码锚点：每个 data-src 指向的文件存在，且 # 之后的文本逐字出现在该文件里；
  * 2. 覆盖：源码里的状态、表、op、事件类型等取值，对应页面的 <code> 里逐字出现；
- * 3. index.html 链接到每个页面。
+ * 3. index.html 链接到每个页面；
+ * 4. 页面间的相对链接指向存在的文件，#锚点在目标页存在。
  *
- * 只核对「提到了」，不核对说得对不对；维护规则见 AGENTS.md「可视化文档」。
+ * 只核对「提到了」，不核对说得对不对；维护流程见 .skills/visual-docs/SKILL.md。
  */
 
 import { test } from "node:test";
@@ -19,13 +20,15 @@ const DOCS = "docs/visual";
 
 /** 页面 → 必须覆盖的取值来源（文件#类型名 / 常量名 / 目录名）。 */
 const COVERAGE: Record<string, string[]> = {
-  "task-lifecycle.html": ["src/core/types.ts#TaskStatus", "src/core/types.ts#SessionQueueState"],
+  "task-lifecycle.html": ["src/core/types.ts#TaskStatus", "src/core/types.ts#SessionQueueState", "src/core/types.ts#AccessMode", "src/core/types.ts#SessionDefaultMode"],
   "tool-call-path.html": [
     "src/core/types.ts#AccessMode",
     "src/core/types.ts#ApprovalScope",
     "src/core/types.ts#ToolCategory",
     "src/core/types.ts#ConfirmationStatus",
     "src/agent/review.ts#ReviewDecision",
+    "src/agent/service-tools.ts#SERVICE_TOOL_NAMES",
+    "src/agent/subagent-tools.ts#SUBAGENT_TOOL_NAMES",
   ],
   "context-pipeline.html": [
     "src/agent/context-selector.ts#CONTEXT_CATEGORIES",
@@ -34,17 +37,29 @@ const COVERAGE: Record<string, string[]> = {
     "src/core/types.ts#MemoryCategory",
     "src/core/types.ts#DataCategory",
   ],
-  "storage-layout.html": ["src/core/db.ts#tables", "src/agent/app-data/store.ts#tables", "src/core/db.ts#SCHEMA_VERSION"],
+  "storage-layout.html": [
+    "src/core/db.ts#tables",
+    "src/agent/app-data/store.ts#tables",
+    "src/core/db.ts#SCHEMA_VERSION",
+    "src/runtime/workspace-migration.ts#DirGroupStatus",
+  ],
   "control-protocol.html": [
     "src/control/server.ts#ops",
     "src/core/types.ts#PROTOCOL_VERSION",
     "src/control/client.ts#RequestOutcome",
     "src/core/types.ts#events",
   ],
-  "deployment.html": ["src/agent/managed-processes.ts#ManagedUnitKind"],
-  "orchestrator.html": ["src/core/types.ts#AgentRoleId", "src/core/types.ts#events:child_task."],
+  "deployment.html": ["src/agent/managed-processes.ts#ManagedUnitKind", "src/core/product.ts#PRODUCT_TYPES"],
+  "orchestrator.html": [
+    "src/core/types.ts#AgentRoleId",
+    "src/core/types.ts#events:child_task.",
+    "src/core/types.ts#SubAgentState",
+  ],
   "inbound-events.html": [
     "src/core/types.ts#InboundEventStatus",
+    "src/core/types.ts#InboundEventKind",
+    "src/core/types.ts#InboundMediaMessageStatus",
+    "src/core/types.ts#InboundMediaStatus",
     "src/qq/store.ts#QqInboxStatus",
     "src/telegram/adapter.ts#TELEGRAM_SOURCE",
     "src/qq/store.ts#QQ_GROUP_SOURCE",
@@ -91,10 +106,12 @@ function valuesOf(ref: string): string[] {
     values = literals(slice(rel, "export type ApprovalScope", "export interface"), /kind: "([a-z_]+)"/g);
   } else if (spec === "CONTEXT_CATEGORIES") {
     values = literals(slice(rel, "const CONTEXT_CATEGORIES = {", "} as const"), /^\s*([A-Za-z]+):/gm);
+  } else if (/^[A-Z][A-Z0-9_]*$/.test(spec) && read(rel).includes(`export const ${spec} = [`)) {
+    values = literals(slice(rel, `export const ${spec} = [`, "]"), /"([^"]+)"/g); // 名称数组常量
   } else if (/^[A-Z][A-Z0-9_]*$/.test(spec)) {
     const m = new RegExp(String.raw`export const ${spec}\s*=\s*("?)([^";\n]+)\1;`).exec(read(rel));
     assert.ok(m, `${rel} 里找不到 export const ${spec}`);
-    values = [m[1] ? m[2]! : `v${m[2]}`]; // 数字常量是版本号，页面写成 v18 / v9
+    values = [m[1] ? m[2]! : `v${m[2]}`]; // 数字常量是版本号，页面写成 v24 / v11
   } else {
     values = literals(slice(rel, `export type ${spec} =`, ";"), /"([^"]+)"/g);
   }
@@ -143,4 +160,18 @@ test("可视化文档：index.html 链接每个页面", () => {
   const unlinked = htmlPages().filter((p) => p !== "index.html" && !index.includes(`href="${p}"`));
   assert.deepEqual(unlinked, []);
   assert.deepEqual(Object.keys(COVERAGE).filter((p) => !htmlPages().includes(p)), [], "COVERAGE 里的页面都应存在");
+});
+
+test("可视化文档：相对链接与锚点有效", () => {
+  const broken: string[] = [];
+  for (const page of htmlPages()) {
+    for (const [, href] of read(`${DOCS}/${page}`).matchAll(/href="([^"]+)"/g)) {
+      if (/^[a-z]+:/.test(href!)) continue; // 外部链接不查
+      const [file, frag] = decode(href!).split("#") as [string, string | undefined];
+      const rel = path.posix.join(DOCS, file || page);
+      if (!fs.existsSync(path.join(ROOT, rel))) broken.push(`${page}：${href} 指向的文件不存在`);
+      else if (frag && rel.endsWith(".html") && !read(rel).includes(`id="${frag}"`)) broken.push(`${page}：${href} 的锚点不存在`);
+    }
+  }
+  assert.deepEqual(broken, [], "页面或 section id 改名后请同步链接");
 });

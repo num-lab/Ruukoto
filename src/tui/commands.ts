@@ -8,9 +8,13 @@
  */
 
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
-import { isPlanInput } from "../agent/plan-mode.ts";
 import { requestOutcome } from "../control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "../control/ops.ts";
+import { productFromEnv } from "../core/product.ts";
+
+/** ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）时的提示。 */
+export const LEGACY_PROJECT_WRITE_HINT =
+  "ruukoto-code 使用工作区：ruukoto-code <目录> 打开或创建工作区；旧项目只保留查看，需要时用 project migration-preview 映射到工作区";
 
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 
@@ -94,6 +98,10 @@ export function writeFailure(action: string, err: unknown, check: string): strin
 }
 
 async function newProject(ctx: CommandContext, name: string): Promise<void> {
+  if (productFromEnv() === "ruukoto-code") {
+    ctx.notify(LEGACY_PROJECT_WRITE_HINT);
+    return;
+  }
   if (!name) {
     ctx.notify("用法：/new-project <名称>");
     return;
@@ -240,10 +248,9 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
       );
       ctx.showText(
         `QQ 入口：${s.enabled ? "已启用" : "已停用"}；连接 ${s.online ? `在线（账号 ${s.actualSelfId}）` : `离线（${s.stateDetail}）`}\n` +
-          `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${s.groups.join("、") || "（空）"}\n` +
+          `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${s.groups.join("、") || "（空）"}（历史值，核心群聊已退役）\n` +
           `拥有者私聊：${s.ownerUserId ?? "未开启"}（共享 main；发送记录用 ruukoto notify list 查看）\n` +
-          `回复上限 ${s.maxReplyChars} 字符；排队过期 ${s.queueTtlMs}ms\n` +
-          (sessions.length ? sessions.join("\n") : "  （尚无群会话）"),
+          (sessions.length ? `旧群会话归档：\n${sessions.join("\n")}` : "  （无旧群会话）"),
       );
       return;
     }
@@ -258,7 +265,10 @@ async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
     }
     if (sub === "groups") {
       const s = await ctx.request("qq_status", {});
-      ctx.showText(`允许的群：${("groups" in s ? s.groups : []).join("、") || "（空）"}\n增删经 CLI：ruukoto qq group add|remove <群号>`);
+      ctx.showText(
+        `允许的群：${("groups" in s ? s.groups : []).join("、") || "（空）"}（历史值）\n` +
+          "核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）",
+      );
       return;
     }
     if (sub === "inbox" || sub === "outbox") {
@@ -300,16 +310,8 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>", run: (ctx, { arg }) => ctx.host.cancel(arg) },
   { name: "model", description: "切换模型", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.continueTask(arg) },
-  {
-    name: "plan",
-    description: "计划模式",
-    argumentHint: "<内容>",
-    // /plan <内容>：整行即计划模式的任务输入（issue 26）；不带内容时显示用法
-    taskInput: (line) => (isPlanInput(line) ? line : null),
-    run: (ctx) => ctx.notify("用法：/plan <内容>（只调研不修改，最终回答即计划）"),
-  },
   { name: "resume-queue", description: "恢复已暂停的会话队列", run: (ctx) => ctx.host.resumeQueue() },
-  { name: "mode", description: "选择当前会话的访问模式", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
+  { name: "mode", description: "选择当前会话的默认模式", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
   {
     name: "status",
     description: "刷新并查看当前任务详情",

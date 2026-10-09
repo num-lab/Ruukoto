@@ -21,59 +21,61 @@
     <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>context-pipeline.html</span></nav>
     <p class="eyebrow">流水线</p>
     <h1>上下文组装</h1>
-    <p class="lede">一次模型调用的模型上下文从哪里来、按什么规则选、何时压缩、发送前如何复核。会话历史完整保存在会话文件里，这里描述的每一步都只作用于本次调用的模型上下文。</p>
+    <p class="lede">一次模型调用的模型上下文从哪里来、按什么规则选、何时压缩、发送前如何复核。会话历史完整保存在会话文件里，这里描述的每一步都只作用于本次调用的模型上下文。私聊图片在历史中保存稳定产物引用，选入本轮后于发送前恢复为视觉块。</p>
     <dl class="meta">
-      <div><dt>源码</dt><dd><code class="src" data-src="src/agent/context-assembly.ts">agent/context-assembly.ts</code> <code class="src" data-src="src/agent/context-selector.ts">agent/context-selector.ts</code> <code class="src" data-src="src/agent/compaction.ts">agent/compaction.ts</code> <code class="src" data-src="src/agent/jev.ts">agent/jev.ts</code> <code class="src" data-src="src/agent/jev-config.ts">agent/jev-config.ts</code> <code class="src" data-src="src/agent/skills.ts">agent/skills.ts</code> <code class="src" data-src="src/agent/plan-mode.ts">agent/plan-mode.ts</code> <code class="src" data-src="src/agent/session-factory.ts">agent/session-factory.ts</code> <code class="src" data-src="src/agent/driver.ts">agent/driver.ts</code> <code class="src" data-src="src/agent/model-selection.ts">agent/model-selection.ts</code> <code class="src" data-src="src/agent/host-tools.ts">agent/host-tools.ts</code> <code class="src" data-src="src/core/memory.ts">core/memory.ts</code> <code class="src" data-src="src/core/access.ts">core/access.ts</code> <code class="src" data-src="src/core/history-index.ts">core/history-index.ts</code></dd></div>
-      <div><dt>决策</dt><dd><a href="../adr/0001-preserve-session-history.md">ADR 0001</a> <a href="../adr/0016-lossy-context-compaction.md">ADR 0016</a></dd></div>
-      <div><dt>相关页面</dt><dd><a href="task-lifecycle.html">任务生命周期</a> <a href="tool-call-path.html">工具调用路径</a> <a href="storage-layout.html">存储布局</a></dd></div>
+      <div><dt>源码</dt><dd><code class="src" data-src="src/agent/context-assembly.ts">agent/context-assembly.ts</code> <code class="src" data-src="src/agent/inbound-images.ts">agent/inbound-images.ts</code> <code class="src" data-src="src/agent/artifacts.ts">agent/artifacts.ts</code> <code class="src" data-src="src/agent/context-selector.ts">agent/context-selector.ts</code> <code class="src" data-src="src/agent/compaction.ts">agent/compaction.ts</code> <code class="src" data-src="src/agent/jev.ts">agent/jev.ts</code> <code class="src" data-src="src/agent/jev-config.ts">agent/jev-config.ts</code> <code class="src" data-src="src/agent/skills.ts">agent/skills.ts</code> <code class="src" data-src="src/agent/plan-mode.ts">agent/plan-mode.ts</code> <code class="src" data-src="src/agent/tool-availability.ts">agent/tool-availability.ts</code> <code class="src" data-src="src/agent/session-factory.ts">agent/session-factory.ts</code> <code class="src" data-src="src/agent/driver.ts">agent/driver.ts</code> <code class="src" data-src="src/agent/model-selection.ts">agent/model-selection.ts</code> <code class="src" data-src="src/agent/host-tools.ts">agent/host-tools.ts</code> <code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentFamily">agent/subagent-tools.ts</code> <code class="src" data-src="src/core/memory.ts">core/memory.ts</code> <code class="src" data-src="src/core/access.ts">core/access.ts</code> <code class="src" data-src="src/core/history-index.ts">core/history-index.ts</code> <code class="src" data-src="src/core/dir-identity.ts#verifyDirIdentitySync">core/dir-identity.ts</code> <code class="src" data-src="src/runtime/subagents.ts#SubAgentReadScope">runtime/subagents.ts</code> <code class="src" data-src="src/runtime/parent-delivery.ts#takeInjection">runtime/parent-delivery.ts</code> <code class="src" data-src="src/agent/scheduler-tools.ts#createSourceResolver">agent/scheduler-tools.ts</code></dd></div>
+      <div><dt>决策</dt><dd><a href="../adr/0001-preserve-session-history.md">ADR 0001</a> <a href="../adr/0016-lossy-context-compaction.md">ADR 0016</a> <a href="../adr/0018-legacy-workspace-org-attribution.md">ADR 0018</a> <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020</a> <a href="../adr/0021-subagent-worktrees.md">ADR 0021</a> <a href="../adr/0024-inbound-image-staging.md">ADR 0024 入站图片</a></dd></div>
+      <div><dt>相关页面</dt><dd><a href="task-lifecycle.html">任务生命周期</a> <a href="tool-call-path.html">工具调用路径</a> <a href="storage-layout.html">存储布局</a> <a href="orchestrator.html">编排器</a></dd></div>
     </dl>
   </header>
 
   <section id="view">
     <h2>模型上下文是一份每次调用重算的视图</h2>
-    <p>视图的顺序固定：前缀参考块与长期记忆 → 会话历史（压缩摘要、移出标记、<code>[S, C)</code> 清理后的中段、其余原样） → 任务级参考块 → 当前任务。前缀参考块与记忆在任务开始时钉版，任务内不变；任务级参考块与当前任务只属于本任务。</p>
-    <p>「选」由 <code class="src" data-src="src/agent/context-selector.ts#selectContext">context-selector.ts · selectContext</code> 的确定性策略 <code>deterministic-v1</code>（<code class="src" data-src="src/agent/context-selector.ts#SELECTOR_STRATEGY">context-selector.ts · SELECTOR_STRATEGY</code>）按预算做，不调用模型。「压」只在不做移出的视图估算超过高水位 H′ 时发生，把较早的内容换成占位说明与滚动摘要；超长工具结果的有界替换与预算不够时的整轮移出同样只改视图。系统提示按会话类别固定为 <code class="src" data-src="src/agent/session-factory.ts#SYSTEM_PROMPTS">session-factory.ts · SYSTEM_PROMPTS</code> 之一，pi 自己的 compaction 关闭（<code class="src" data-src="src/agent/session-factory.ts#session_before_compact">session-factory.ts · session_before_compact</code> 一律取消）。</p>
+    <p>视图的顺序固定：前缀参考块与长期记忆 → 会话历史（压缩摘要、移出标记、<code>[S, C)</code> 清理后的中段、其余原样） → 任务级参考块 → 当前任务。前缀参考块与记忆在任务开始时钉版，任务内不变；任务级参考块与当前任务只属于本任务。任务级参考块按继续来源 → <code>[SubAgent 结果]</code> → <code>[工作内消息]</code> → 计划说明排列（<code class="src" data-src="src/agent/context-assembly.ts#private references">context-assembly.ts · references</code>）；<code>[SubAgent 结果]</code> 与 <code>[工作内消息]</code> 只出现在普通开发会话里，来历见<a href="#subagent">SubAgent 任务的上下文</a>。</p>
+    <p>「选」由 <code class="src" data-src="src/agent/context-selector.ts#selectContext">context-selector.ts · selectContext</code> 的确定性策略 <code>deterministic-v1</code>（<code class="src" data-src="src/agent/context-selector.ts#SELECTOR_STRATEGY">context-selector.ts · SELECTOR_STRATEGY</code>）按预算做，不调用模型。「压」只在不做移出的视图估算超过高水位 H′ 时发生，把较早的内容换成占位说明与滚动摘要；超长工具结果的有界替换与预算不够时的整轮移出同样只改视图。系统提示按会话类别（<code>dev</code> / <code>main</code> / <code>subagent</code>；<code>main</code> 是旧架构的逻辑角色，coding 与 chat 已退役、提示已删除）固定为 <code class="src" data-src="src/agent/session-factory.ts#SYSTEM_PROMPTS">session-factory.ts · SYSTEM_PROMPTS</code> 之一，pi 自己的 compaction 关闭（<code class="src" data-src="src/agent/session-factory.ts#session_before_compact">session-factory.ts · session_before_compact</code> 一律取消）。</p>
     <figure class="fig">
       <div class="scroll">
-        <svg viewBox="0 0 1040 196" role="img" aria-label="模型上下文分层：系统提示与工具定义单独传给模型；消息序列从左到右依次是项目指令、技能目录、长期记忆、压缩摘要、移出标记、清理后的中段、其余历史、继续来源、计划说明、当前任务输入、较早批次与最新批次">
+        <svg viewBox="0 0 1040 196" role="img" aria-label="模型上下文分层：系统提示与工具定义单独传给模型；消息序列从左到右依次是项目指令、技能目录、长期记忆、压缩摘要、移出标记、清理后的中段、其余历史、继续来源、SubAgent 结果块、工作内消息块、计划说明、当前任务输入、较早批次与最新批次">
           <text class="zone-t" x="0" y="14">发给模型的输入：系统提示与工具定义单独传，其余是一条消息序列（从左到右 = 发送顺序）</text>
           <g class="n"><rect x="0" y="26" width="300" height="30" rx="6"/><text x="150" y="41">systemPrompt · toolSchemas</text></g>
           <text class="el start" x="312" y="45">不在消息序列里，由发送函数单独传给模型</text>
 
-          <g class="n"><rect x="0" y="76" width="81" height="56" rx="6"/><text x="40.5" y="96">项目指令</text><text class="sub" x="40.5" y="116">前缀块</text></g>
-          <g class="n"><rect x="87" y="76" width="81" height="56" rx="6"/><text x="127.5" y="96">技能目录</text><text class="sub" x="127.5" y="116">前缀块</text></g>
-          <g class="n"><rect x="174" y="76" width="81" height="56" rx="6"/><text x="214.5" y="96">长期记忆</text><text class="sub" x="214.5" y="116">独立预算</text></g>
-          <g class="n accent"><rect x="261" y="76" width="81" height="56" rx="6"/><text x="301.5" y="96">压缩摘要</text><text class="sub" x="301.5" y="116">替代 [0, S)</text></g>
-          <g class="n"><rect x="348" y="76" width="81" height="56" rx="6" stroke-dasharray="5 4"/><text x="388.5" y="96">移出标记</text><text class="sub" x="388.5" y="116">有移出才加</text></g>
-          <g class="n accent"><rect x="435" y="76" width="81" height="56" rx="6" stroke-dasharray="5 4"/><text x="475.5" y="96">中段</text><text class="sub" x="475.5" y="116">[S, C) 清理</text></g>
-          <g class="n"><rect x="522" y="76" width="81" height="56" rx="6"/><text x="562.5" y="96">其余历史</text><text class="sub" x="562.5" y="116">原样</text></g>
-          <g class="n"><rect x="609" y="76" width="81" height="56" rx="6"/><text x="649.5" y="96">继续来源</text><text class="sub" x="649.5" y="116">任务级块</text></g>
-          <g class="n"><rect x="696" y="76" width="81" height="56" rx="6"/><text x="736.5" y="96">计划说明</text><text class="sub" x="736.5" y="116">任务级块</text></g>
-          <g class="n run"><rect x="783" y="76" width="81" height="56" rx="6"/><text x="823.5" y="96">任务输入</text><text class="sub" x="823.5" y="116">必留</text></g>
-          <g class="n run"><rect x="870" y="76" width="81" height="56" rx="6"/><text x="910.5" y="96">较早批次</text><text class="sub" x="910.5" y="116">由近及远</text></g>
-          <g class="n run"><rect x="957" y="76" width="81" height="56" rx="6"/><text x="997.5" y="96">最新批次</text><text class="sub" x="997.5" y="116">必留</text></g>
+          <g class="n"><rect x="2" y="76" width="75" height="56" rx="6"/><text x="39.5" y="96">项目指令</text><text class="sub" x="39.5" y="116">前缀块</text></g>
+          <g class="n"><rect x="82" y="76" width="75" height="56" rx="6"/><text x="119.5" y="96">技能目录</text><text class="sub" x="119.5" y="116">前缀块</text></g>
+          <g class="n"><rect x="162" y="76" width="75" height="56" rx="6"/><text x="199.5" y="96">长期记忆</text><text class="sub" x="199.5" y="116">独立预算</text></g>
+          <g class="n accent"><rect x="242" y="76" width="75" height="56" rx="6"/><text x="279.5" y="96">压缩摘要</text><text class="sub" x="279.5" y="116">替代 [0, S)</text></g>
+          <g class="n"><rect x="322" y="76" width="75" height="56" rx="6" stroke-dasharray="5 4"/><text x="359.5" y="96">移出标记</text><text class="sub" x="359.5" y="116">有移出才加</text></g>
+          <g class="n accent"><rect x="402" y="76" width="75" height="56" rx="6" stroke-dasharray="5 4"/><text x="439.5" y="96">中段</text><text class="sub" x="439.5" y="116">[S, C) 清理</text></g>
+          <g class="n"><rect x="482" y="76" width="75" height="56" rx="6"/><text x="519.5" y="96">其余历史</text><text class="sub" x="519.5" y="116">原样</text></g>
+          <g class="n"><rect x="562" y="76" width="75" height="56" rx="6"/><text x="599.5" y="96">继续来源</text><text class="sub" x="599.5" y="116">任务级块</text></g>
+          <g class="n"><rect x="640" y="76" width="72" height="56" rx="6"/><text x="676" y="96">SubAgent</text><text class="sub" x="676" y="116">结果 · 任务级</text></g>
+          <g class="n"><rect x="716" y="76" width="72" height="56" rx="6"/><text x="752" y="96">工作内消息</text><text class="sub" x="752" y="116">任务级块</text></g>
+          <g class="n"><rect x="792" y="76" width="72" height="56" rx="6"/><text x="828" y="96">计划说明</text><text class="sub" x="828" y="116">任务级块</text></g>
+          <g class="n run"><rect x="868" y="76" width="72" height="56" rx="6"/><text x="904" y="96">任务输入</text><text class="sub" x="904" y="116">必留</text></g>
+          <g class="n run"><rect x="944" y="76" width="46" height="56" rx="6"/><text x="967" y="96">较早批</text><text class="sub" x="967" y="116">由近及远</text></g>
+          <g class="n run"><rect x="994" y="76" width="46" height="56" rx="6"/><text x="1017" y="96">最新批</text><text class="sub" x="1017" y="116">必留</text></g>
 
-          <path class="e" d="M2 140 V148 H253 V140"/>
-          <text class="el" x="127.5" y="166">前缀：任务开始钉版</text>
-          <path class="e" d="M263 140 V148 H601 V140"/>
-          <text class="el" x="432" y="166">会话历史的视图（由压缩点决定）</text>
-          <text class="el" x="432" y="184">预算不够时最老的交互先整轮移出</text>
-          <path class="e" d="M611 140 V148 H775 V140"/>
-          <text class="el" x="693" y="166">任务级参考块</text>
-          <path class="e" d="M785 140 V148 H1036 V140"/>
-          <text class="el" x="910.5" y="166">当前任务</text>
-          <text class="el" x="910.5" y="184">较早批次先移出</text>
+          <path class="e" d="M4 140 V148 H235 V140"/>
+          <text class="el" x="119.5" y="166">前缀：任务开始钉版</text>
+          <path class="e" d="M244 140 V148 H555 V140"/>
+          <text class="el" x="399.5" y="166">会话历史的视图（由压缩点决定）</text>
+          <text class="el" x="399.5" y="184">预算不够时最老的交互先整轮移出</text>
+          <path class="e" d="M564 140 V148 H863 V140"/>
+          <text class="el" x="713.5" y="166">任务级参考块</text>
+          <path class="e" d="M870 140 V148 H1038 V140"/>
+          <text class="el" x="954" y="166">当前任务</text>
+          <text class="el" x="954" y="184">较早批次先移出</text>
         </svg>
       </div>
-      <figcaption>选择器只决定每一段进不进来、是否截取，顺序始终如图。压缩摘要、移出标记与占位说明是上下文压缩的有损标注，不是参考块；技能正文也不在前缀里，它经 <code>skill</code> 工具结果或 <code>/skill</code> 展开进入会话历史。</figcaption>
-      <ul class="legend"><li><i style="background:var(--accent-bg);border-color:var(--accent)"></i>上下文压缩的产物</li><li><i class="run"></i>当前任务</li><li><i style="border-style:dashed"></i>视情况出现或已替换</li></ul>
+      <figcaption>选择器只决定每一段进不进来、是否截取，顺序始终如图（<code class="src" data-src="src/agent/context-selector.ts#前缀参考块与记忆 → 摘要块 → 移出标记">context-selector.ts · selectContext</code> 末尾的拼接）。没有内容的段直接省略：参考块只在有内容时出现，<code>SubAgent</code> 结果块与 <code>工作内消息</code> 块只出现在普通开发会话。压缩摘要、移出标记与占位说明是上下文压缩的有损标注，不是参考块；技能正文也不在前缀里，它经 <code>skill</code> 工具结果或 <code>/skill</code> 展开进入会话历史。</figcaption>
+      <ul class="legend"><li><i class="accent"></i>上下文压缩的产物</li><li><i class="run"></i>当前任务</li><li><i class="dash"></i>视情况出现或已替换</li></ul>
     </figure>
     <p>每一段的估算按分类记账（<code class="src" data-src="src/agent/context-selector.ts#CONTEXT_CATEGORIES">context-selector.ts · CONTEXT_CATEGORIES</code>）；<code>/context</code> 与选择记录的 <code>estimates</code> 用同一张表，按下表顺序展示：</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>键</th><th><code>/context</code> 标签</th><th>计入什么</th></tr></thead>
         <tbody>
-          <tr><td><code>systemPrompt</code></td><td>系统提示</td><td>本会话类别的系统提示全文</td></tr>
+          <tr><td><code>systemPrompt</code></td><td>系统提示</td><td>本次发给模型的系统提示全文（会话类别的固定提示，加 pi 追加的 cwd 行）</td></tr>
           <tr><td><code>toolSchemas</code></td><td>工具定义</td><td>本次工具集的名称、描述与参数 JSON</td></tr>
           <tr><td><code>projectInstructions</code></td><td>项目指令</td><td>项目指令参考块（前缀）</td></tr>
           <tr><td><code>skills</code></td><td>技能</td><td>技能目录参考块（前缀；本次工具集含 <code>skill</code> 才注入）</td></tr>
@@ -84,6 +86,8 @@
           <tr><td><code>mandatoryTurn</code></td><td>当前任务</td><td>全部必留消息：当前任务输入、最新批次、当前任务最近一次成功 <code>todo_write</code> 所在批次</td></tr>
           <tr><td><code>currentTaskBatches</code></td><td>当前任务工具批次</td><td>预算内纳入的其余较早批次</td></tr>
           <tr><td><code>historyTurns</code></td><td>历史轮次</td><td>纳入的历史交互（清理或有界替换后的视图）与移出标记</td></tr>
+          <tr><td><code>subagentResults</code></td><td>SubAgent 结果</td><td>普通开发会话的 <code>[SubAgent 结果]</code> 任务级参考块：本会话委派的 SubAgent 执行任务的终态摘要与读取指引；本任务没有待注入结果时为 0</td></tr>
+          <tr><td><code>subagentMessages</code></td><td>工作内消息</td><td>普通开发会话的 <code>[工作内消息]</code> 任务级参考块：本会话父级、待送达的工作内协作消息（issue 13），带来源标注；本任务没有待注入消息时为 0</td></tr>
         </tbody>
       </table>
     </div>
@@ -99,7 +103,7 @@
           <path class="e accent dash" d="M528 36 V20 H250 V32" marker-end="url(#ah-accent)"/>
           <text class="el" x="389" y="13">有摘要等待或落盘：重读输入，再选一次</text>
 
-          <g class="n"><rect x="0" y="36" width="132" height="80" rx="8"/><text x="66" y="58">分支消息</text><text class="sub" x="66" y="80">SDK 当前分支</text><text class="sub" x="66" y="98">QQ 群先滤撤回</text></g>
+          <g class="n"><rect x="0" y="36" width="132" height="80" rx="8"/><text x="66" y="58">分支消息</text><text class="sub" x="66" y="80">SDK 当前分支</text></g>
           <g class="n"><rect x="154" y="36" width="132" height="80" rx="8"/><text x="220" y="58">收集输入</text><text class="sub" x="220" y="80">按钉住 id 读记忆</text><text class="sub" x="220" y="98">核对压缩点指纹</text></g>
           <g class="n"><rect x="308" y="36" width="132" height="80" rx="8"/><text x="374" y="58">选择</text><text class="sub" x="374" y="80">必留 → 较早批次</text><text class="sub" x="374" y="98">→ 历史交互</text></g>
           <g class="n accent"><rect x="462" y="36" width="132" height="80" rx="8"/><text x="528" y="58">压缩</text><text class="sub" x="528" y="80">超过 H′ 才规划</text><text class="sub" x="528" y="98">清理 → 摘要</text></g>
@@ -134,32 +138,53 @@
         </svg>
       </div>
       <figcaption>压缩在第一次选择之后按需求值：按生效压缩点选一次，不做移出的视图估算仍超过 H′ 才规划新压缩点；有摘要等待或新压缩点落盘时，重读输入（记忆可能已变化）再选一次。必留项超预算时不再压缩、也不找 Jev。Jev 只退回候选的取舍，消息、预算与必留项始终由本地选择器产出。四类拦下都让任务中断并暂停会话队列，不自动摘要、不重试（例外见「发送前复核」）。</figcaption>
-      <ul class="legend"><li><i class="bad"></i>拦下：请求不发出</li><li><i style="background:var(--accent-bg);border-color:var(--accent)"></i>上下文压缩</li><li><i style="border-style:dashed"></i>可选步骤</li></ul>
+      <ul class="legend"><li><i class="bad"></i>拦下：请求不发出</li><li><i class="accent"></i>上下文压缩</li><li><i class="dash"></i>可选步骤</li></ul>
     </figure>
 
     <h3>任务开始钉住的内容</h3>
-    <p>每个任务一个组装实例（<code class="src" data-src="src/agent/context-assembly.ts#beginContextAssembly">context-assembly.ts · beginContextAssembly</code>），任务结束时 driver 中止它在途的 Jev 与摘要请求并丢弃实例；下一任务重新读取，这就是拥有者刷新项目指令、技能与记忆的入口。资料受限会话（<code>restricted</code>：QQ 群与 chat 角色）以下各项都为空。</p>
+    <p>每个任务一个组装实例（<code class="src" data-src="src/agent/context-assembly.ts#beginContextAssembly">context-assembly.ts · beginContextAssembly</code>），任务结束时 driver 中止它在途的 Jev 与摘要请求并丢弃实例；下一任务重新读取，这就是拥有者刷新项目指令、技能与记忆的入口。项目指令、Jev 配置与记忆都按会话的原项目（<code>sessions.project_id</code>）读取，工作区组织归属不参与（见<a href="#workspace-config">工作区配置</a>）。资料受限会话（执行画像的 <code>restricted</code>，<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>：SubAgent 子会话）以下各项都为空。</p>
     <div class="scroll">
-      <table class="tbl">
+      <table class="tbl wrap">
         <thead><tr><th>内容</th><th>谁读取</th><th>钉住什么</th><th>读不到时</th></tr></thead>
         <tbody>
-          <tr><td>项目指令</td><td>组装实例构造时（<code class="src" data-src="src/agent/context-assembly.ts#loadProjectInstructions">context-assembly.ts · loadProjectInstructions</code>）</td><td>项目配置的工作区相对路径；realpath 后须仍在工作区内，单个文件不超过 <code class="src" data-src="src/agent/context-assembly.ts#MAX_INSTRUCTION_BYTES">MAX_INSTRUCTION_BYTES</code>（256 KiB）。正文捕获为任务产物，版本 = 内容哈希 + 产物 id</td><td>缺失、不可读、越出工作区、超大逐条写进块里的「注意」，不静默省略；产物捕获失败则不注入正文</td></tr>
+          <tr><td>项目指令</td><td>组装实例构造时（<code class="src" data-src="src/agent/context-assembly.ts#loadProjectInstructions">context-assembly.ts · loadProjectInstructions</code>）</td><td>原项目配置的指令文件列表（工作区相对路径，不能是绝对路径或含 <code>..</code>）。基准目录：项目有根目录归属（工作区）时取 <code>rootDir</code> 的 cwdReal，读取前核实根目录身份（<code class="src" data-src="src/core/dir-identity.ts#verifyDirIdentitySync">dir-identity.ts · verifyDirIdentitySync</code>，realpath + dev + ino）；没有根目录归属的旧项目取会话目录。文件 realpath 后须仍在基准目录内，单个文件不超过 <code class="src" data-src="src/agent/context-assembly.ts#MAX_INSTRUCTION_BYTES">MAX_INSTRUCTION_BYTES</code>（256 KiB）。正文捕获为任务产物，版本 = 内容哈希 + 产物 id</td><td>列表为空时没有此块。缺失、不可读、越出基准目录、超大逐条写进块里的「注意」，不静默省略；根目录失效或被替换时拒绝读取替代目录，块里只有说明（不退回会话目录）；产物捕获失败则不注入正文</td></tr>
           <tr><td>技能库</td><td>driver 在任务开始（<code class="src" data-src="src/agent/skills.ts#loadSkillLibrary">skills.ts · loadSkillLibrary</code>）</td><td>目录与全部 <code>SKILL.md</code> 正文，版本 = 内容 sha256。技能目录只列可由模型调用的技能，且本次工具集含 <code>skill</code> 才注入（<code class="src" data-src="src/agent/skills.ts#skillCatalogBlock">skills.ts · skillCatalogBlock</code>）</td><td>单个技能的问题只记诊断，不进技能库</td></tr>
-          <tr><td>继续来源</td><td>组装实例构造时</td><td>被继续任务（<code>resumesTaskId</code>）的原始输入</td><td>原任务不存在时不注入；与项目指令同一次读取，读取抛错时以说明注入</td></tr>
-          <tr><td>计划说明</td><td>driver（<code class="src" data-src="src/agent/plan-mode.ts#runsInPlanMode">plan-mode.ts · runsInPlanMode</code>，只限普通开发会话）</td><td>是否注入宿主写定的 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_NOTICE">plan-mode.ts · PLAN_NOTICE</code></td><td>原任务读不到时只按本任务输入判定</td></tr>
+          <tr><td>继续来源</td><td>组装实例构造时</td><td>被继续任务（<code>resumesTaskId</code>）的原始输入</td><td>原任务不存在时不注入；与项目指令在同一段读取，抛错时说明写进项目指令块</td></tr>
+          <tr><td>计划说明</td><td>driver 从本任务 <code>planMode</code> 的执行画像确定（<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>），只限普通开发会话</td><td>是否注入宿主写定的 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_NOTICE">plan-mode.ts · PLAN_NOTICE</code>：持续调研、完善计划，执行前由拥有者手动切换；说明如实指出没有全面只读保证</td><td>不读取任务输入或继续链决定模式；非 Plan 任务不注入，源任务存在与否不影响判定</td></tr>
+          <tr><td>SubAgent 结果</td><td>driver 在任务开始向父级送达取出（仅普通开发会话，<code class="src" data-src="src/runtime/parent-delivery.ts#takeInjection">parent-delivery.ts · takeInjection</code>）</td><td>本会话委派、已到终态、结果已记录而 <code>result_delivered_at</code> 仍为空的 SubAgent 执行任务（<code class="src" data-src="src/core/store.ts#listUndeliveredSubAgentResults">store.ts · listUndeliveredSubAgentResults</code>），在一个事务里全部取出并标记 <code>result_delivered_at</code>，只注入这一个任务。查询加 <code>canceled_at IS NULL</code>：整项已取消的工作不再注入（结果仍可由 <code>subagent_result</code> 主动读取）</td><td>没有待送达结果即无此块；main 父会话不走注入，改为唤醒任务。详见<a href="#subagent">SubAgent 任务的上下文</a></td></tr>
+          <tr><td>工作内消息</td><td>driver 在任务开始向父级送达取出（仅普通开发会话，<code class="src" data-src="src/runtime/parent-delivery.ts#takeInjection">parent-delivery.ts · takeInjection</code>）</td><td>与本会话的待送达结果同一事务取出的 <code>subagent_messages</code>（<code class="src" data-src="src/core/store.ts#listUndeliveredParentSubAgentMessages">store.ts · listUndeliveredParentSubAgentMessages</code>）：父级工作内消息（SubAgent → 主 Agent，或经协作加入后 SubAgent 发给主 Agent 而接收会话是 dev）；取出后同一事务标记 <code>delivered_at</code>，只注入这一个任务，作为 <code>[工作内消息]</code> 参考块（带来源标注、块头声明不是拥有者新指令）</td><td>没有待送达消息即无此块；发给 SubAgent 的经投递任务送达（输入由宿主固定生成），发给 main 的经唤醒任务送达。详见<a href="#subagent">SubAgent 任务的上下文</a></td></tr>
           <tr><td>长期记忆</td><td>组装实例构造时（<code class="src" data-src="src/core/memory.ts#listActiveFor">memory.ts · listActiveFor</code>）</td><td>当时生效记忆的 id 与顺序；内容每次调用重读</td><td>记为错误，此后每次调用都 <code>context_selection_failed</code></td></tr>
           <tr><td>Jev 配置</td><td>组装实例构造时（<code class="src" data-src="src/agent/jev-config.ts#getProjectJevConfig">jev-config.ts · getProjectJevConfig</code>）</td><td>开关、凭据引用与配置版本</td><td>配置损坏按未启用处理，只跑基础规则</td></tr>
         </tbody>
       </table>
     </div>
 
+    <h3 id="images">入站图片：历史保存引用，发送时恢复视觉块</h3>
+    <p><code class="src" data-src="src/agent/inbound-images.ts#taskImageReferences">inbound-images.ts · taskImageReferences</code> 沿当前任务与 <code>resumesTaskId</code> 链收集同会话的已完成图片产物，核对来源事件、原任务、会话和 MIME/hash 归属；同一产物去重。本轮用户消息落盘前附 <code>ruukotoMediaRefs</code>，内容为 artifactId、原 taskId、sessionId、mimeType、byteCount 与 contentHash；JSONL 不写图片 base64。继续任务把原图引用附在当前用户消息上，原交互移出本轮模型上下文后仍可带回图片。</p>
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:4">
+          <div class="who"><span>会话历史</span><span>上下文组装</span><span>任务产物</span><span>主模型</span></div>
+          <div class="m" style="--from:1;--to:2"><span>用户文本 + ruukotoMediaRefs</span></div>
+          <div class="note" style="--from:2;--to:2">imageReferenceView：视觉占位块 + 可找回引用说明；先选上下文、压缩与估算预算</div>
+          <div class="m" style="--from:2;--to:3"><span>发送前 restoreImageInput + readImage</span></div>
+          <div class="m l ok" style="--from:3;--to:2"><span>核对归属、大小、MIME 和 SHA-256，恢复原字节</span></div>
+          <div class="note" style="--from:2;--to:2">选择记录先落盘；prompt 快照的图片为 image_ref，正文仍只在任务产物</div>
+          <div class="m ok" style="--from:2;--to:4"><span>文本与按原顺序的 image 内容块</span></div>
+        </div>
+      </div>
+      <figcaption>图片计入已有图片 token 估算，选择器处理完整用户交互；选中后才读取图片正文。Jev 与压缩摘要只得到文本和引用说明，摘要不包含视觉细节。原图持久化与提升见<a href="inbound-events.html#media">图片入站</a>。</figcaption>
+    </figure>
+    <ul class="legend"><li><i class="ok"></i>核实后恢复或发出</li></ul>
+    <p><code class="src" data-src="src/agent/inbound-images.ts#imageReferenceView">imageReferenceView</code> 在选择前生成带空 data 的 <code>image</code> 视图；<code class="src" data-src="src/agent/inbound-images.ts#restoreImageInput">restoreImageInput</code> 在最终发送前通过 <code class="src" data-src="src/agent/artifacts.ts#readImage">ArtifactStore.readImage</code> 恢复 base64。模型 <code>input</code> 缺 <code>image</code> 时拒绝，不静默省略图片或自动换模型；原图缺失、哈希不符、归属不一致时拒绝发送缺图请求。模型能力和恢复错误的终态见<a href="#send">发送前复核</a>。</p>
+
     <h3>选择规则</h3>
     <ul>
-      <li><b>必留</b>：系统提示、参考块（各注入一次）、当前任务输入、当前任务最新批次、当前任务最近一次成功 <code>todo_write</code> 所在的批次（与最新批次同级）。长期记忆不是必留项，它另有预算。</li>
+      <li><b>必留</b>：系统提示、参考块（各注入一次）、当前任务输入、当前任务最新批次、当前任务最近一次成功 <code>todo_write</code> 所在的批次（与最新批次同级）。长期记忆不是必留项，先按独立预算选入；选入的记忆、摘要块与工具定义再和必留项一起算作固定占用，固定占用超过输入预算即 <code>ok = false</code>。</li>
       <li><b>以完整交互为单位</b>：一轮 user 连同其后的 assistant 与工具消息整体进出；当前任务内以批次为单位（一条 assistant 连同它的全部 toolResult），toolCall 与对应 toolResult 不拆分。</li>
       <li><b>由近及远</b>：先装当前任务的较早批次，再装更早的历史交互，都从最近的开始；某一组装不下就停，更老的组不再尝试，避免挑拣远旧碎片造成因果断裂。</li>
       <li><b>孤儿消息剔除</b>：崩溃恢复留下的缺配对 toolCall/toolResult 只从视图移出，历史原文不动，选择记录以 <code>unpaired_tool_call:&lt;id&gt;</code> 记为排除原因。</li>
-      <li><b>有界替换</b>：单条工具结果的某个文本段超过 <code>toolResultViewChars</code>（<code class="src" data-src="src/agent/context-selector.ts#DEFAULT_BUDGET_CONFIG">context-selector.ts · DEFAULT_BUDGET_CONFIG</code> 的 <code>80_000</code> 字符）时，视图里保留首尾各一半并写明省略字符数，附 <code>history_read</code> / <code>read_artifact</code> 指引；<code>skill</code> 结果不截取（<code class="src" data-src="src/agent/context-selector.ts#capToolResultView">context-selector.ts · capToolResultView</code>）。</li>
+      <li><b>有界替换</b>：单条工具结果的某个文本段超过 <code>toolResultViewChars</code>（<code class="src" data-src="src/agent/context-selector.ts#DEFAULT_BUDGET_CONFIG">context-selector.ts · DEFAULT_BUDGET_CONFIG</code> 的 <code>80_000</code> 字符）时，视图里首尾各保留上限的一半并写明省略字符数，附 <code>history_read</code> / <code>read_artifact</code> 指引；<code>skill</code> 结果不截取（<code class="src" data-src="src/agent/context-selector.ts#capToolResultView">context-selector.ts · capToolResultView</code>）。</li>
     </ul>
     <aside class="callout"><b>估算口径</b><p>估算不追求与 provider 一致：先用 pi 的 estimateTokens（字符数 / 4），CJK 字符补足到每字 1 token，再乘校准系数 <code>calibration</code>（1.5），意在宁高勿低（<code class="src" data-src="src/agent/context-selector.ts#estimateMessageTokens">context-selector.ts · estimateMessageTokens</code>）。<code>/context</code> 里的数字是这个估算，不能用它反推某一类的精确用量。</p></aside>
   </section>
@@ -209,7 +234,7 @@
         </svg>
       </div>
       <figcaption>比较对象是「不做预算移出」的视图估算：超过 <code>H′ = min(200 000, 输入预算)</code> 才规划新压缩点。输入预算低于 200 000 的小窗口模型，H′ 就等于输入预算：完整视图一超出预算就规划压缩，降幅不够时才退回整轮移出。1M 窗口这一例对应 ADR 0016 里约 60.6 万的输入预算。</figcaption>
-      <ul class="legend"><li><i style="background:var(--accent-bg);border-color:var(--accent)"></i>水位线与压缩后</li><li><i class="run"></i>保护尾部</li></ul>
+      <ul class="legend"><li><i class="accent"></i>水位线与压缩后</li><li><i class="run"></i>保护尾部</li></ul>
     </figure>
     <div class="scroll">
       <table class="tbl">
@@ -233,7 +258,7 @@
   </section>
 
   <section id="compaction">
-    <h2>上下文压缩：压缩点、两层与指纹</h2>
+    <h2>上下文压缩：压缩点、两层、指纹与提示缓存</h2>
     <p>压缩点记录覆盖范围 S、C 与摘要正文，并用 <code class="src" data-src="src/agent/compaction.ts#checkpointFingerprint">compaction.ts · checkpointFingerprint</code> 把前 C 条消息的角色、时间戳、工具调用 id 做成 SHA-256 指纹。每个会话至多一个生效的压缩点，新建时旧行在同一事务里改为 <code>superseded</code>；每次调用读取生效压缩点并核对指纹，消息少于 C 条或指纹不符时当场作废（<code>invalidated</code>），按无压缩点处理。资料受限会话不压缩，也不加移出标记。</p>
     <ol class="steps">
       <li><b>规划</b>：保护尾部是由新到旧累计到 <code>0.15 H′</code> 的完整单元（至少含最新批次）；当前任务最近一次成功 <code>todo_write</code> 所在的批次也不进覆盖范围。估算不超过 H′、必留项超预算，或预计降幅不到 <code>0.2 H′</code> 时不建压缩点，也不调用摘要模型。</li>
@@ -272,10 +297,8 @@
       </table>
     </div>
     <aside class="callout"><b>摘要模型</b><p>配置了摘要模型就用它（每次读取当前配置，不按任务钉版；已配置但解析失败按失败处理，不改用会话模型），否则用任务记录的模型选择。摘要请求经模型运行时直接发出，不经发送前复核那层包装：不带思考参数、单次尝试、超时 180 s（<code class="src" data-src="src/agent/compaction.ts#SUMMARY_TIMEOUT_MS">SUMMARY_TIMEOUT_MS</code>）、输出上限 16 384 token（<code class="src" data-src="src/agent/compaction.ts#SUMMARY_MAX_TOKENS">SUMMARY_MAX_TOKENS</code>，模型上限更小时取模型上限），触顶按失败处理；覆盖段估算超过摘要模型的输入预算也按失败处理。<code>phase</code> 为 <code>started</code> 的事件在确定摘要模型后、发出请求前写入。</p></aside>
-  </section>
 
-  <section id="prefix">
-    <h2>前缀稳定：提示缓存只在压缩时失效一次</h2>
+    <h3 id="prefix">前缀稳定：提示缓存只在压缩时失效一次</h3>
     <p>视图顺序的设计目标是让同一会话连续调用的消息序列保持前缀关系（ADR 0016）：记忆按任务钉版、参考块的块头不含版本号（记忆块头带版本，修订时本来就要换内容）、任务级参考块插在当前任务输入之前而不打断其前的历史、同一条消息的清理与有界替换不随后续调用变化。</p>
     <figure class="fig">
       <div class="scroll">
@@ -343,13 +366,13 @@
           <text class="el start" x="912" y="301">命中调用 5 整段</text>
         </svg>
       </div>
-      <figcaption>两次压缩之间，每次调用的输入都是上一次输入加新追加的消息，提示缓存命中上一次的整段；建压缩点的那次（调用 4）从摘要块起重写，只命中前缀块，下一次又恢复整段命中。前提是参考块与记忆没变、没有继续来源与计划说明、没有整轮移出、Jev 关闭：任务级参考块只存在于本任务的视图里，下一任务时它原来的位置换成了历史，前缀在那里断开。任务内的 <code>memory_save</code> 从下一个任务起才注入，所以任务内的前缀不因写入而变。</figcaption>
-      <ul class="legend"><li><i class="run"></i>当前任务</li><li><i style="background:var(--accent-bg);border-color:var(--accent)"></i>压缩产物</li></ul>
+      <figcaption>两次压缩之间，每次调用的输入都是上一次输入加新追加的消息，提示缓存命中上一次的整段；建压缩点的那次（调用 4）从摘要块起重写，只命中前缀块，下一次又恢复整段命中。前提是参考块与记忆没变、没有任务级参考块（继续来源、SubAgent 结果、计划说明）、没有整轮移出、Jev 关闭：任务级参考块只存在于本任务的视图里，下一任务时它原来的位置换成了历史，前缀在那里断开。任务内的 <code>memory_save</code> 从下一个任务起才注入，所以任务内的前缀不因写入而变。</figcaption>
+      <ul class="legend"><li><i class="run"></i>当前任务</li><li><i class="accent"></i>压缩产物</li></ul>
     </figure>
     <div class="seq" style="--n:5">
       <div class="who"><span>driver</span><span>组装实例</span><span>选择器</span><span>摘要模型</span><span>provider</span></div>
       <div class="phase"><span>任务开始（每个任务一次）</span></div>
-      <div class="m" style="--from:1;--to:2"><span>beginContextAssembly（技能库与计划模式由 driver 先钉好传入）</span></div>
+      <div class="m" style="--from:1;--to:2"><span>beginContextAssembly（技能库、计划模式与待送达的 SubAgent 结果由 driver 先备好传入）</span></div>
       <div class="note" style="--from:2;--to:2">钉项目指令、继续来源、记忆 id 与 Jev 配置</div>
       <div class="phase"><span>第 k 次调用</span></div>
       <div class="m" style="--from:1;--to:2"><span>context 钩子：当前分支消息</span></div>
@@ -375,13 +398,15 @@
 
   <section id="send">
     <h2>发送前复核与被拦下之后</h2>
-    <p>pi 会吞掉 context 钩子的异常，只有发送函数拦得住请求，所以 driver 包装了 <code class="src" data-src="src/agent/driver.ts#wrapStreamFunction">driver.ts · wrapStreamFunction</code>：先查任务是否已停止，再做 driver 自己的检查（<code class="src" data-src="src/agent/driver.ts#checkBeforeSend">driver.ts · checkBeforeSend</code>：模型选择与工具白名单），最后是组装实例的 <code>prepareSend</code>。下表按执行顺序排列，任一项不过即不发请求。</p>
+    <p>pi 会吞掉 context 钩子的异常，只有发送函数拦得住请求，所以 driver 包装了 <code class="src" data-src="src/agent/driver.ts#wrapStreamFunction">driver.ts · wrapStreamFunction</code>：先查任务是否已停止，再做 driver 自己的检查（<code class="src" data-src="src/agent/driver.ts#checkBeforeSend">driver.ts · checkBeforeSend</code>：模型选择、SubAgent 资料复核、工具白名单），最后是组装实例的 <code>prepareSend</code>。下表按执行顺序排列，任一项不过即不发请求。</p>
     <div class="scroll">
       <table class="tbl">
         <thead><tr><th>检查</th><th>发现问题时</th><th>触发条件</th><th>之后</th></tr></thead>
         <tbody>
           <tr><td>任务状态</td><td><code>task_canceled</code></td><td>任务已停止、没有组装实例或请求 signal 已中止</td><td>不记为阻断原因，终态由停止路径决定</td></tr>
+          <tr><td>图片输入能力</td><td><code>image_input_unsupported</code></td><td>本轮含图片，但模型 <code>input</code> 缺 <code>image</code>；Driver 开始任务与发送前、组装发送前都复核</td><td>任务 <code>failed</code>，保留原消息与固定原因；不发送缺图请求、不暂停队列。IM 固定文本回执见<a href="outbox.html#media-receipt">通知 outbox</a></td></tr>
           <tr><td>模型与思考强度</td><td><code>model_selection_mismatch</code></td><td>实际 provider、模型或思考强度与任务记录不一致</td><td>中断 + 暂停队列</td></tr>
+          <tr><td>SubAgent 资料复核</td><td><code>task_sources_revoked</code></td><td>只对 SubAgent 子会话、且该子会话全部历史任务的 <code>read_scope.sourceRefs</code> 并集非空（main 用 <code>materials</code> 委派）：来源的资料授权已撤销或来源不可读（<code class="src" data-src="src/agent/scheduler-tools.ts#verify(mainProjectId">scheduler-tools.ts · verify</code>）</td><td>中断 + 暂停子会话队列</td></tr>
           <tr><td>工具白名单</td><td><code>task_tools_forbidden</code></td><td>发送载荷里有本任务不允许的工具（按实际载荷检查）</td><td>中断 + 暂停队列</td></tr>
           <tr><td>预算配置</td><td>普通错误</td><td>模型缺少可靠的窗口或输出上限，或预留合计达到窗口</td><td>任务 <code>failed</code>，队列不暂停</td></tr>
           <tr><td>组装时记下的失败</td><td><code>context_budget_exceeded</code> · <code>context_selection_failed</code></td><td>assemble 记下的原因，此处原样抛出</td><td>中断 + 暂停队列</td></tr>
@@ -390,29 +415,44 @@
           <tr><td>记忆新鲜度</td><td><code>context_source_changed</code></td><td>选入的记忆被撤销、版本变化或来源不再可访问</td><td>中断 + 暂停队列</td></tr>
           <tr><td>工具配对</td><td><code>context_pairing_invalid</code></td><td>实际消息里 toolCall 与 toolResult 不成对（选择器剔除的孤儿豁免）</td><td>中断 + 暂停队列</td></tr>
           <tr><td>预算重估</td><td><code>context_budget_exceeded</code></td><td>系统提示 + 工具定义 + 实际消息重新估算后超过输入预算</td><td>中断 + 暂停队列</td></tr>
+          <tr><td>恢复图片正文</td><td><code>image_reference_invalid</code></td><td>历史引用与产物元数据不一致、图片文件不可读或内容校验失败</td><td>中断 + 暂停队列；原消息与图片引用保留</td></tr>
           <tr><td>落选择记录</td><td>普通错误</td><td>选择记录落库失败</td><td>任务 <code>failed</code>，队列不暂停</td></tr>
         </tbody>
       </table>
     </div>
-    <p>顺序是：先落选择记录（失败即不发），再捕获 prompt 快照（<code class="src" data-src="src/agent/context-assembly.ts#capturePromptSnapshot">context-assembly.ts · capturePromptSnapshot</code>；失败只写 stderr，不阻断发送），最后才委托原发送函数。发送后 <code class="src" data-src="src/agent/context-assembly.ts#afterSend">context-assembly.ts · afterSend</code> 从流的结果回填实际 usage；SDK 在失败响应上也会填全零默认值，全零不当作已确认的零费用，不回填。</p>
-    <aside class="callout limit"><b>两类普通错误</b><p>「中断 + 暂停队列」只对 <code>ContextSendBlocked</code> 成立：driver 把它的原因记下，任务结束时由 <code class="src" data-src="src/agent/driver.ts#consumeBlockedReason">driver.ts · consumeBlockedReason</code> 识别。<code>prepareSend</code> 里预算配置无效与选择记录落库失败抛的是普通错误，不会被记下；pi 把它转成 <code>stopReason = "error"</code> 的消息，兜底匹配的四个 context_* 前缀也对不上，于是任务以 <code>failed</code> 结束，队列不暂停。请求同样没有发出，差别只在终态与队列。</p></aside>
+    <p>顺序是：先恢复已选图片并核对原字节，落选择记录（失败即不发），再捕获 prompt 快照（<code class="src" data-src="src/agent/context-assembly.ts#capturePromptSnapshot">context-assembly.ts · capturePromptSnapshot</code>；失败只写 stderr，不阻断发送），最后才委托原发送函数。发送后 <code class="src" data-src="src/agent/context-assembly.ts#afterSend">context-assembly.ts · afterSend</code> 从流的结果回填实际 usage；SDK 在失败响应上也会填全零默认值，全零不当作已确认的零费用，不回填。</p>
+    <aside class="callout limit"><b>两类普通错误</b><p>「中断 + 暂停队列」只对 <code>checkBeforeSend</code> 与 <code>prepareSend</code> 抛出的 <code>ContextSendBlocked</code> 成立（<code>task_canceled</code> 在这之前抛出，不记下）：driver 把它的原因记下，任务结束时由 <code class="src" data-src="src/agent/driver.ts#consumeBlockedReason">driver.ts · consumeBlockedReason</code> 识别。<code>prepareSend</code> 里预算配置无效与选择记录落库失败抛的是普通错误，不会被记下；pi 把它转成 <code>stopReason = "error"</code> 的消息，兜底匹配的四个 context_* 前缀也对不上，于是任务以 <code>failed</code> 结束，队列不暂停。请求同样没有发出，差别只在终态与队列。</p></aside>
     <details>
       <summary>被拦下之后：任务状态与队列</summary>
       <div class="body">
-        <p><code>consumeBlockedReason</code> 先取发送侧记下的原因，再兜底匹配最后一条 assistant 错误消息里的 <code>context_budget_exceeded</code>、<code>context_selection_failed</code>、<code>context_selection_missing</code>、<code>context_pairing_invalid</code> 前缀。识别到时写入任务结束标记（<code class="src" data-src="src/core/types.ts#TASK_END_MARKER">types.ts · TASK_END_MARKER</code>），<code class="src" data-src="src/agent/driver.ts#pauseQueue">driver.ts · pauseQueue</code> 在同一事务里把会话队列置为 <code>paused</code>（原因即阻断原因）并发出 <code>session.queue_paused</code>，任务以 <code>interrupted</code> 结束。队列恢复与任务状态机见<a href="task-lifecycle.html">任务生命周期</a>。</p>
+        <p><code>consumeBlockedReason</code> 先取发送侧记下的原因，再兜底匹配最后一条 assistant 错误消息里的 <code>context_budget_exceeded</code>、<code>context_selection_failed</code>、<code>context_selection_missing</code>、<code>context_pairing_invalid</code> 前缀。识别到 <code>image_input_unsupported</code> 时直接写 failed 结束标记并失败，不暂停队列；其余已记下的阻断原因写入任务结束标记（<code class="src" data-src="src/core/types.ts#TASK_END_MARKER">types.ts · TASK_END_MARKER</code>），<code class="src" data-src="src/agent/driver.ts#pauseQueue">driver.ts · pauseQueue</code> 在同一事务里把会话队列置为 <code>paused</code>（原因即阻断原因）并发出 <code>session.queue_paused</code>，任务以 <code>interrupted</code> 结束。队列恢复与任务状态机见<a href="task-lifecycle.html">任务生命周期</a>。</p>
         <p>provider 返回上下文超限时同样中断并暂停（<code>context_overflow</code>），只是判定在模型循环结束之后，按最后一条 assistant 消息判断（<code>isContextOverflow</code>）。超限不触发压缩、不重试。</p>
       </div>
     </details>
   </section>
 
   <section id="scope-memory">
-    <h2>资料范围与长期记忆</h2>
-    <p>资料范围由宿主注入的身份决定（<code class="src" data-src="src/core/access.ts#canAccess">access.ts · canAccess</code>），工具参数里的任何 id 都不改变它。<code>granted_paths</code> 与完全访问模式只作用于文件与命令执行，不扩大资料 API 范围。</p>
+    <h2>资料范围、工作区配置与长期记忆</h2>
+    <p>资料范围由宿主注入的身份决定（<code class="src" data-src="src/core/access.ts#canAccess">access.ts · canAccess</code>）：身份里的项目就是会话的 <code>sessions.project_id</code>（<code class="src" data-src="src/agent/driver.ts#private accessor()">driver.ts · accessor</code>），工具参数里的任何 id 都不改变它。<code>granted_paths</code> 与完全访问模式只作用于文件与命令执行，不扩大资料 API 范围。</p>
     <div class="cards">
       <div class="card"><h4>默认</h4><p>本项目的历史 / 产物 / 生效记忆 + 个人共享记忆。记忆的每条来源引用都要当前可访问（<code class="src" data-src="src/core/access.ts#sourceRefAccessible">sourceRefAccessible</code>）：来源不再可访问的记忆下一次调用即不注入，选择记录记 <code>source_scope_revoked</code>。</p></div>
-      <div class="card"><h4>资料授权</h4><p>拥有者在可信入口创建的 <code>data_grants</code>（来源项目、目标项目、类别 <code>history</code> / <code>artifact</code> / <code>memory</code>），可查看、可撤销；撤销自后续查询与上下文注入起生效，不撤回已经发给模型的内容。</p></div>
-      <div class="card"><h4>受限身份</h4><p><code>qq_group</code>（QQ 群聊入口）与 <code>role_restricted</code>（chat 角色）只读本项目、不查授权表，<code>owner_note</code> 来源不自动放行。main 与 coding 的项目一律不能读取原始 QQ 群项目，这条先于资料授权判定。</p></div>
-      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（<code class="src" data-src="src/agent/driver.ts#dataScopeRestricted">dataScopeRestricted</code>）不注入任何参考块与记忆、不跑 Jev、不压缩；QQ 群还会在每次调用前移出已撤回的消息（只改视图，不改写历史）。</p></div>
+      <div class="card"><h4>资料授权</h4><p>拥有者在可信入口（CLI <code>ruukoto grant</code>、配置中心的项目详情）创建的 <code>data_grants</code>：来源项目、目标项目、类别 <code>history</code> / <code>artifact</code> / <code>memory</code>，同项目不需要也不能建（<code class="src" data-src="src/core/access.ts#createGrant">access.ts · createGrant</code>）。可查看、可撤销；撤销自后续查询与上下文注入起生效，不撤回已经发给模型的内容。来源与目标都按原项目 ID 判定，会话的工作区组织归属不改变授权端点。</p></div>
+      <div class="card"><h4>受限身份</h4><p>访问判定里仍有 <code>qq_group</code> 与 <code>role_restricted</code> 两种受限身份（旧架构的群聊入口与 chat 角色）：只读本项目、不查授权表，<code>owner_note</code> 来源不自动放行。群聊与 chat 角色退役后，驱动器只给出 <code>agent</code> 身份（<code class="src" data-src="src/agent/driver.ts#private accessor()">driver.ts · accessor</code>），已没有会话以这两种身份运行。main（与旧 coding）角色的项目一律不能读取原始 QQ 群项目，这条先于资料授权判定，群资料仍是归档。</p></div>
+      <div class="card"><h4>受限会话的上下文</h4><p>资料受限的会话（执行画像的 <code>restricted</code>，<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">executionProfile</code>：只有 <code>subagent</code> 工具类别，即 SubAgent 子会话）不注入任何参考块与记忆、不跑 Jev、不压缩。旧群会话的撤回过滤已随群聊退役删除。SubAgent 的资料身份仍是普通的 <code>agent</code>，限制来自上下文与工具，见<a href="#subagent">下一节</a>。</p></div>
+    </div>
+    <h3 id="workspace-config">工作区配置：按原项目读取</h3>
+    <p>工作区就是带根目录归属的项目（项目是旧架构的组织边界），配置仍挂在项目上。旧会话经迁移映射到工作区后只改 <code>sessions.workspace_project_id</code>，这一列只决定会话显示在哪个工作区下（ADR 0018）；下表每一项都按会话的原项目 <code>sessions.project_id</code> 读取，映射前后不变，迁移也不复制配置。迁移流程与两个归属字段见<a href="storage-layout.html#workspace">存储布局</a>。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>配置</th><th>保存在</th><th>并发版本</th><th>对上下文与任务何时生效</th></tr></thead>
+        <tbody>
+          <tr><td>项目指令</td><td><code>projects.instruction_files</code></td><td rowspan="2"><code>settings_version</code>：任何变化递增并发 <code>project.settings_changed</code>，带预期版本的保存不符即冲突（<code class="src" data-src="src/core/store.ts#updateProjectSettings">store.ts · updateProjectSettings</code>）</td><td>任务开始钉版，改动从下一任务起注入</td></tr>
+          <tr><td>Web Search 开关</td><td><code>projects.web_search</code></td><td>影响工具清单，不进参考块（见<a href="tool-call-path.html#availability">工具调用路径</a>）</td></tr>
+          <tr><td>MCP 服务</td><td><code>mcp_services</code>（按项目与服务名）</td><td>各服务自己的 <code>configVersion</code></td><td>任务开始钉版工具清单（见工具调用路径）</td></tr>
+          <tr><td>Jev 实验</td><td>元数据键 <code class="src" data-src="src/agent/jev-config.ts#jevConfigKey">jevConfigKey</code>（<code>jev.project.&lt;项目&gt;</code>）</td><td><code>configVersion</code></td><td>任务开始钉版；每次调用重读配置与凭据，变了即回退基础规则，选择之后才变则发送前拦下</td></tr>
+          <tr><td>资料授权</td><td><code>data_grants</code></td><td>无版本；撤销写 <code>revoked_at</code></td><td>每次查询与每次调用重新判定，撤销从下一次起生效</td></tr>
+        </tbody>
+      </table>
     </div>
     <h3>长期记忆</h3>
     <p>类别限 <code>preference</code> / <code>convention</code> / <code>decision</code> / <code>experience</code>（<code class="src" data-src="src/core/types.ts#MEMORY_CATEGORIES">types.ts · MEMORY_CATEGORIES</code>），每条必须关联至少一个来源（历史条目 / 产物 / owner_note），正文上限 <code class="src" data-src="src/core/memory.ts#MEMORY_CONTENT_MAX_BYTES">memory.ts · MEMORY_CONTENT_MAX_BYTES</code>（32 KiB），来源引用至多 <code class="src" data-src="src/core/memory.ts#MEMORY_SOURCE_REFS_MAX">MEMORY_SOURCE_REFS_MAX</code>（8 条）。</p>
@@ -425,11 +465,83 @@
     </ul>
   </section>
 
+  <section id="subagent">
+    <h2>SubAgent 任务的上下文</h2>
+    <p>SubAgent 是主 Agent 委派出去的执行身份（只读分析，或 issue 16 按工作隔离的修改），它的身份、工作委托、独立目录、写入目标与读范围见<a href="orchestrator.html#subagent">编排器</a>。会话身份先看 <code>sub_agents</code> 行（<code class="src" data-src="src/core/session-identity.ts#export function classifySession">session-identity.ts · classifySession</code>），命中即 SubAgent 会话；驱动器在任务开始算出的执行画像因此归 <code>subagent</code> 工具类别并资料受限（<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">executionProfile</code>），组装实例构造时 <code>restricted</code> 为真。所以子会话的模型上下文比委派方少得多，结果再以参考块的形式回到普通开发会话。</p>
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 336" role="img" aria-label="SubAgent 上下文的数据流：父会话任务 T1 调用 subagent_delegate，SubAgentManager 在同一事务里登记，写子任务输入；main 委派时另把资料快照（按工作命名）写成子目录里的 materials 文件，子任务用 read 读入；子任务每次调用前按子会话全部任务的来源并集复核资料授权，撤销即以 task_sources_revoked 拦下；子任务终态后编排器写结果摘要；父会话下一个任务 T2 开始时取出未送达的结果并标记送达，作为任务级参考块放进 T2 的每次调用">
+          <text class="zone-t" x="0" y="14">dev 父会话（普通开发会话）</text>
+          <g class="n"><rect x="0" y="24" width="220" height="56" rx="8"/><text x="110" y="44">T1 · 委派</text><text class="sub" x="110" y="64">调用 subagent_delegate</text></g>
+          <g class="n"><rect x="520" y="24" width="220" height="56" rx="8"/><text x="630" y="44">T2 开始</text><text class="sub" x="630" y="64">取出并标记 result_delivered_at</text></g>
+          <g class="n accent"><rect x="800" y="24" width="240" height="56" rx="8"/><text x="920" y="44">T2 每次调用</text><text class="sub" x="920" y="64">[SubAgent 结果] 在 T2 输入前</text></g>
+          <path class="e" d="M740 52 H796" marker-end="url(#ah)"/>
+          <text class="el" x="768" y="44">任务级块</text>
+
+          <text class="zone-t" x="0" y="134">宿主</text>
+          <g class="n"><rect x="0" y="144" width="260" height="56" rx="8"/><text x="130" y="164">SubAgentManager</text><text class="sub" x="130" y="184">同一事务登记工作、身份、子会话、任务</text></g>
+          <g class="n"><rect x="520" y="144" width="260" height="56" rx="8"/><text x="650" y="164">编排器</text><text class="sub" x="650" y="184">终态：写 result_summary</text></g>
+
+          <text class="zone-t" x="0" y="254">SubAgent 子会话（资料受限）</text>
+          <g class="n"><rect x="0" y="264" width="230" height="56" rx="8" stroke-dasharray="5 4"/><text x="115" y="284">资料快照</text><text class="sub" x="115" y="304">仅 main 委派 · 按工作命名</text></g>
+          <g class="n run"><rect x="250" y="264" width="330" height="56" rx="8"/><text x="415" y="284">子任务每次调用</text><text class="sub" x="415" y="304">subagent 提示 · 子会话历史 · 任务输入 · read 结果</text></g>
+          <g class="n bad"><rect x="800" y="264" width="240" height="56" rx="8"/><text x="920" y="284">task_sources_revoked</text><text class="sub" x="920" y="304">资料授权已撤销：请求不发出</text></g>
+
+          <path class="e" d="M110 80 V140" marker-end="url(#ah)"/>
+          <text class="el start" x="116" y="114">登记后立即返回</text>
+          <path class="e dash" d="M180 200 V260" marker-end="url(#ah)"/>
+          <text class="el end" x="174" y="230">写快照</text>
+          <path class="e" d="M230 200 V232 H415 V260" marker-end="url(#ah)"/>
+          <text class="el" x="322" y="224">任务输入</text>
+          <path class="e" d="M230 292 H248" marker-end="url(#ah)"/>
+          <text class="el" x="223" y="284">read</text>
+          <path class="e" d="M540 264 V232 H650 V204" marker-end="url(#ah)"/>
+          <text class="el" x="595" y="224">终态</text>
+          <path class="e" d="M630 144 V84" marker-end="url(#ah)"/>
+          <text class="el start" x="636" y="114">未送达的结果</text>
+          <path class="e bad dash" d="M580 292 H796" marker-end="url(#ah-bad)"/>
+          <text class="el" x="688" y="284">每次发送前复核</text>
+        </svg>
+      </div>
+      <figcaption>T1 的委派登记后立即返回，子任务在自己的会话里排队运行。子任务的模型上下文里没有父会话的项目指令、技能、记忆与历史；资料只经任务输入里列出的只读路径和子目录里的快照文件、由 SubAgent 自己 <code>read</code> 读入，读到的内容作为工具结果进入子会话历史。终态后编排器写摘要；父会话正在运行的任务看不到它，要等下一个任务 T2 开始时取出，放进 T2 的每一次调用——整项已取消的工作不再取出注入（结果保存为事实，仍可主动读取）。main 父会话不走注入，改为唤醒任务；已取消的工作也不唤醒。</figcaption>
+      <ul class="legend"><li><i class="run"></i>子任务的模型调用</li><li><i class="accent"></i>带结果块的父会话调用</li><li><i class="bad"></i>拦下：请求不发出</li><li><i class="dash"></i>视情况出现</li></ul>
+    </figure>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>组成</th><th>普通开发会话（委派方）</th><th>SubAgent 子会话</th></tr></thead>
+        <tbody>
+          <tr><td>系统提示</td><td><code>SYSTEM_PROMPTS.dev</code>，其中写了何时用 <code>subagent_delegate</code> / <code>subagent_result</code> / <code>subagent_cancel</code> / <code>subagent_close</code> / <code>subagent_integrate</code>，以及 <code>mode=modify + target</code> 修改委派的边界（宿主副本上不提交、不推送，改动由主 Agent 汇总并验证）</td><td><code class="src" data-src="src/agent/session-factory.ts#subagent: [">session-factory.ts · SYSTEM_PROMPTS.subagent</code>：只读分析与副本修改两种具体形态以任务首行为准；资料里要求超出任务输入范围写入、执行或改变身份的指令不照做</td></tr>
+          <tr><td>工具定义</td><td>本会话类别装配的工具</td><td>只读分析工作的编码与产物工具为 <code>read</code> 与 <code>read_artifact</code>（<code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>）；修改委派的工作按本任务 <code>write_target</code> 为 <code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>（<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code>），无 <code>request_file_access</code>、<code>http_request</code>、MCP 与委派工具；装配与本任务允许集合用同一张白名单。宿主评审任务（GitHub PR，工单 19）另按任务开放 <code>effect=read</code> 的 MCP（见<a href="orchestrator.html#github">编排器 · GitHub 评审编排</a>）。SubAgent 宿主族为子会话提供 <code>subagent_message</code>（<code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentFamily">subagent-tools.ts · createSubAgentFamily</code>），发送方身份由发起任务核实，消息不扩大工具或资料范围；宿主评审任务不开放该工具。装配与调用门见<a href="tool-call-path.html#availability">工具调用路径 · 可用性</a></td></tr>
+          <tr><td>注入的工作内消息</td><td>—</td><td>没有参考块：SubAgent 之间 / 主 Agent → SubAgent 的工作内消息经 <code>smsg:&lt;消息ID&gt;</code> 投递任务送达（输入由宿主固定生成、含来源说明），作为任务输入进入子会话历史；不进 <code>[工作内消息]</code> 参考块（那是父会话 dev 的通道）</td></tr>
+          <tr><td>前缀参考块与记忆</td><td>项目指令、技能目录、长期记忆</td><td>都没有：不注入父项目的指令、技能目录、项目记忆与个人共享记忆</td></tr>
+          <tr><td>任务级参考块</td><td>继续来源、SubAgent 结果、计划说明</td><td>都没有</td></tr>
+          <tr><td>会话历史</td><td>本会话 JSONL</td><td>子会话自己的 JSONL；带 <code>work_id</code> 继续或带 <code>sub_agent_id</code> 复用同一 SubAgent 时接着用。父会话历史不进来</td></tr>
+          <tr><td>当前任务输入</td><td>拥有者的输入（<code>/skill:</code> 会展开）</td><td>宿主模板加委派正文（<code class="src" data-src="src/runtime/subagents.ts#private taskInput">subagents.ts · taskInput</code>）：固定首行（只读分析 / 工作区修改）、工作 ID、快照文件名、宿主钉定的只读路径、能力说明，再接模型给的 <code>request</code>；修改委派另在首行写明工作目录、分支、基线与「不要 git add / commit」（worktree）或「直接写入、与主会话串行」（非 Git 写入根），带读范围说明，并要求在结论里如实报告该改动相关检查（类型 / 测试 / 构建等可见命令）的命令与结果或尚未验证的部分（改动汇总链路，见<a href="orchestrator.html#subagent-integrate">编排器 · 改动汇总</a>）。<code>/skill:</code> 不展开</td></tr>
+          <tr><td>资料快照</td><td>—</td><td>不注入。main 的 <code>materials</code> 在委派时解析成文本，写进子目录的 <code>materials-&lt;workId&gt;-&lt;key&gt;.txt</code>（<code class="src" data-src="src/runtime/subagents.ts#function materialsFileFor">subagents.ts · materialsFileFor</code>：按工作 + 执行键命名，复用同一 Agent 时不覆写旧工作的快照）；SubAgent <code>read</code> 之后才以工具结果进入上下文</td></tr>
+          <tr><td>压缩与 Jev</td><td>按前文规则</td><td>都不做；预算不够时照样整轮移出，但不加移出标记</td></tr>
+          <tr><td>发送前复核</td><td>见<a href="#send">发送前复核</a></td><td>多一项 <code>task_sources_revoked</code>（下文）</td></tr>
+          <tr><td>选择记录与 prompt 快照</td><td>照常落盘</td><td>照常落盘，记在子会话名下；<code>read_artifact</code> 只放行本任务自产的产物，<code>prompt-snapshot:*</code> 也不放行（<code class="src" data-src="src/agent/driver.ts#SubAgent 只读本次自产">driver.ts · artifactAccess</code>）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>资料授权的复核</h3>
+    <p>main 委派时，<code>materials</code> 按父会话原项目的资料权限解析（<code class="src" data-src="src/agent/scheduler-tools.ts#createSourceResolver">scheduler-tools.ts · createSourceResolver</code>），来源引用存进任务的 <code>read_scope.sourceRefs</code>（<code class="src" data-src="src/core/types.ts#export interface SubAgentReadScope">types.ts · SubAgentReadScope</code>）。复核的对象不是本次委派的那批来源，而是这个 SubAgent 名下全部历史任务的 <code>sourceRefs</code> 与本次的并集（<code class="src" data-src="src/core/store.ts#listTasksBySession">store.ts · listTasksBySession</code>）——复用保留的子会话上下文里仍可能有旧工作的资料，旧资料撤销后同样要拦。登记事务里核实一次，之后子任务每次发送前由 <code>checkBeforeSend</code> 按子会话全部任务再核实（<code class="src" data-src="src/agent/driver.ts#task_sources_revoked">driver.ts · task_sources_revoked</code>）。核实只看 <code>task_result</code> 与 <code>artifact</code> 两类来源能否经资料授权读到；<code>text</code> 与 <code>app_data</code> 没有可撤销的授权，不复核；<code>chat_result</code> 不能作为委派资料。</p>
+    <p>快照正文不重新解析。撤销只拦住之后的请求：子任务以 <code>interrupted</code> 结束、子会话队列暂停，编排器把它归为结果未知；已经读进子会话历史的内容留在 JSONL 里。普通开发会话用 <code>read_paths</code> 委派时没有来源引用，读范围由宿主钉定的路径与目录身份约束，在工具执行一侧检查（见<a href="orchestrator.html#subagent">编排器</a>）。</p>
+    <h3>结果回到父会话</h3>
+    <ul>
+      <li><b>摘要</b>：编排器登记终态时写 <code>result_summary</code>：完成取最终回答，失败、超时与结果未知写宿主的固定说明，超过 <code class="src" data-src="src/runtime/orchestrator.ts#RESULT_SUMMARY_CAP">orchestrator.ts · RESULT_SUMMARY_CAP</code>（1000 字符）截断。</li>
+      <li><b>取出</b>：普通开发会话的任务开始时，driver 经父级送达（<code class="src" data-src="src/runtime/parent-delivery.ts#takeInjection">parent-delivery.ts · takeInjection</code>，会话身份不是普通开发会话即返回空）在一个事务里取出本会话所有已终态、已写摘要、<code>result_delivered_at</code> 为空的执行任务并标记 <code>result_delivered_at</code>。取出就算送达：之后这个任务即使没发出请求（崩溃、被拦下），结果也不再注入，仍可从 <code>subagent_task.*</code> 事件与 <code>subagent_result</code> 查到。</li>
+      <li><b>注入</b>：一个任务级参考块，块头写明它是宿主登记的委派结果摘要、不是拥有者的新要求、不授予委派权限；每条结果列工作、SubAgent、任务、终态与摘要，并提示用 <code>subagent_result</code> 按 <code>work_id</code> 读完整结果。它进入这个任务的每一次调用，和其他参考块一样计入固定占用；下一个任务不再出现。</li>
+      <li><b>main</b>：不注入。父级送达以 <code>wake:&lt;子任务&gt;</code> 向 main 会话提交唤醒任务（见<a href="orchestrator.html#subagent-state">编排器</a>）。</li>
+      <li><b>工作内消息</b>（issue 13）：同项工作的 SubAgent 发给主 Agent 的工作内消息按同一事务取出：<code class="src" data-src="src/core/store.ts#listUndeliveredParentSubAgentMessages">store.ts · listUndeliveredParentSubAgentMessages</code> 选出本会话 <code>to_sub_agent_id IS NULL</code>、<code>delivered_at</code> 与 <code>undelivered_reason</code> 均为空的行，与上一条同一事务取出并标记 <code>delivered_at</code>（<code class="src" data-src="src/runtime/parent-delivery.ts#takeInjection">parent-delivery.ts · takeInjection</code>）——取出就算送达，不重复注入。块头是 <code class="src" data-src="src/agent/context-assembly.ts#[工作内消息]">[工作内消息]</code>（带来源标注：消息 id、发送方 SubAgent 与所属工作；声明不是拥有者新指令、不扩大权限），只出现在普通开发会话、任务级。发给 SubAgent 的消息不走这里：经 <code>smsg:&lt;消息ID&gt;</code> 投递任务送达，输入由 <code class="src" data-src="src/runtime/subagents.ts#private messageTaskInput">subagents.ts · messageTaskInput</code> 固定生成；main 父会话另经宿主唤醒任务送达（见 <a href="orchestrator.html#subagent-message">编排器 · 协作加入与工作内消息</a>）。</li>
+    </ul>
+  </section>
+
   <section id="observe">
     <h2>可观察：三处各看到什么</h2>
     <div class="cards">
       <div class="card"><h4>/context 分解</h4><p>取当前会话最近一次调用的选择记录，由后台按 <code>CONTEXT_CATEGORIES</code> 算出各类估算及占输入预算、总窗口的比例（<code class="src" data-src="src/runtime/runtime.ts#getContextBreakdown">runtime.ts · getContextBreakdown</code>），TUI 画成一条窗口长条，另有「预留」与「尚余输入」两段，并列出本次使用的压缩点（摘要替代条数与截至时间、清理条数、建立它的任务与调用序号、摘要模型或失败原因）与 Jev 实验结果。分母固定为记录创建时的窗口快照；快照与预算不一致按记录损坏报错。</p></div>
-      <div class="card"><h4>/prompt 查看</h4><p>模型请求列表（新到旧分页）与某一次的 prompt 详情：<code>systemPrompt</code> / <code>messages</code> / <code>tools</code> 原样快照，按字节分段加载（<code class="src" data-src="src/runtime/runtime.ts#readPromptSnapshot">runtime.ts · readPromptSnapshot</code>）。快照在委托发送函数之前捕获，缺失时如实报错，不重新拼接。它是发出内容的原文；选择记录只是组成说明。</p></div>
+      <div class="card"><h4>/prompt 查看</h4><p>模型请求列表（新到旧分页）与某一次的 prompt 详情：<code>systemPrompt</code> / <code>messages</code> / <code>tools</code> 的请求快照；入站图片以 <code>image_ref</code> 及稳定媒体元数据保存（<code class="src" data-src="src/agent/inbound-images.ts#imageReferenceSnapshot">imageReferenceSnapshot</code>），不重复写 base64，按字节分段加载（<code class="src" data-src="src/runtime/runtime.ts#readPromptSnapshot">runtime.ts · readPromptSnapshot</code>）。快照在委托发送函数之前捕获，缺失时如实报错，不重新拼接。文本与工具定义保留发出原文，入站图片正文由引用指向的不可变产物恢复；选择记录描述组成。</p></div>
       <div class="card"><h4>选择记录</h4><p><code>ruukoto selection-records --task &lt;id&gt; | --session &lt;id&gt;</code>：任务与会话、调用序号、策略与配置版本、模型、项目指令与技能版本、选入与排除的消息序号及原因、记忆 id 与版本、被有界替换的工具结果（序号与原 / 视图字符数）、各项估算与预算、窗口快照、本次使用的压缩点、Jev 实验记录、发送后回填的 usage。排除原因只记序号与原因码，不含消息正文。</p><p><code class="src" data-src="src/core/store.ts#getSessionUsage">Store.getSessionUsage</code> 在 SQLite 按会话汇总实际用量：输入为 input + cacheRead + cacheWrite，输出为 output，缺少 usage 的调用不计入。保存后持久事件 <code>session.usage_updated</code> 通知 TUI 经 <code>get_session_usage</code> 刷新底栏；切换会话与重连也重新查询。底栏用灰体显示输入、输出数量和模型，支持 K、M、B；宽度不足时隐藏统计。</p></div>
     </div>
     <p>这些记录与压缩点在库里的落点见<a href="storage-layout.html">存储布局</a>；工具可用性与审批见<a href="tool-call-path.html">工具调用路径</a>。</p>

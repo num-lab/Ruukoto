@@ -105,7 +105,7 @@ test("技能库：嵌套包、符号链接、缺描述、YAML 错误、同名冲
 
 // ---------- 集成 ----------
 
-test("集成：main/coding 注入技能目录（无主机路径、无仅显式技能），chat 无目录无工具；/skills 可见诊断", async () => {
+test("集成：main 与开发会话的技能目录与工具装配（todo_write 仅开发会话）；/skills 可见诊断", async () => {
   const t = await startTestRuntime("skills-roles", async (req) => ({ kind: "text", text: `ok:${lastUserText(req).slice(0, 20)}` }));
   try {
     const lib = path.join(t.dirs.agentDir, "skills");
@@ -117,16 +117,13 @@ test("集成：main/coding 注入技能目录（无主机路径、无仅显式�
     assert.deepEqual(listed.skills.map((s: any) => [s.name, s.explicitOnly]), [["alpha", false], ["beta", true]]);
     assert.ok(listed.diagnostics.some((d: string) => d.includes("nodesc")), "诊断经控制面可见");
 
-    const orch = t.runtime.orchestrator!;
-    await orch.registerInboundEvent({ source: "test", externalId: "chat-s", targetRole: "chat", body: "CHAT-SKILL-MARK" });
     const main = t.runtime.store.getAgentRole("main")!;
-    const coding = t.runtime.store.getAgentRole("coding")!;
+    const { sessionId: devSessionId } = await createProjectSession(t.client, t.work[0]!);
     const m = await t.runtime.submit({ sessionId: main.sessionId, requestId: "m-s", input: "MAIN-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
-    const c = await t.runtime.submit({ sessionId: coding.sessionId, requestId: "c-s", input: "CODING-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
-    await waitFor("main/coding 完成", () => ["completed"].includes(t.runtime.store.getTask(m.id)!.status) && t.runtime.store.getTask(c.id)!.status === "completed");
-    await waitFor("chat 完成", () => t.runtime.store.getInboundEvent(t.runtime.store.findInboundEvent("test", "chat-s")!.id)!.status === "done");
+    const c = await t.runtime.submit({ sessionId: devSessionId, requestId: "c-s", input: "DEV-SKILL-MARK", modelSelection: t.runtime.defaultSelection });
+    await waitFor("main/开发会话完成", () => ["completed"].includes(t.runtime.store.getTask(m.id)!.status) && t.runtime.store.getTask(c.id)!.status === "completed");
 
-    for (const mark of ["MAIN-SKILL-MARK", "CODING-SKILL-MARK"]) {
+    for (const mark of ["MAIN-SKILL-MARK", "DEV-SKILL-MARK"]) {
       const call = t.server.calls.find((x) => lastUserText(x).includes(mark))!;
       const text = JSON.stringify(call.messages);
       assert.ok(text.includes("[技能目录]") && text.includes("alpha：ALPHA-DESC"), `${mark} 含技能目录，块头不含版本`);
@@ -135,10 +132,8 @@ test("集成：main/coding 注入技能目录（无主机路径、无仅显式�
       assert.ok(!text.includes("BETA-DESC"), "仅显式调用的技能不进目录");
       assert.ok(!text.includes(t.dirs.agentDir), "目录不含主机路径");
       assert.ok(toolNames(call).includes("skill"), `${mark} 有 skill 工具`);
+      assert.equal(toolNames(call).includes("todo_write"), mark === "DEV-SKILL-MARK", `${mark} 的工作清单工具装配`);
     }
-    const chatCall = t.server.calls.find((x) => lastUserText(x).includes("CHAT-SKILL-MARK"))!;
-    assert.ok(!JSON.stringify(chatCall.messages).includes("技能目录"), "chat 无技能目录");
-    assert.ok(!toolNames(chatCall).includes("skill"), "chat 无 skill 工具");
   } finally {
     await t.shutdown();
   }

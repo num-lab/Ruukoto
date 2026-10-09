@@ -6,7 +6,7 @@
  */
 
 import type { Runtime } from "../runtime/runtime.ts";
-import type { AccessMode, GrantedPath, ModelSelection } from "../core/types.ts";
+import type { SessionDefaultMode, GrantedPath, ModelSelection } from "../core/types.ts";
 
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
@@ -18,7 +18,7 @@ type Submit = {
   request_id: string;
   input: string;
   model_selection: ModelSelection;
-  access_mode?: AccessMode;
+  access_mode?: SessionDefaultMode;
   granted_paths?: GrantedPath[];
 };
 
@@ -38,14 +38,15 @@ export interface TuiOps {
   read_artifact: { params: { task_id: string; artifact_id: string } & Slice; result: R<"queryArtifact"> };
   get_session_usage: { params: { session_id: string }; result: R<"getSessionUsage"> };
   get_session: { params: { session_id: string }; result: R<"getSession"> };
-  list_session_summaries: { params: { project_id: string }; result: R<"listSessionSummaries"> };
+  /** project_id 按原身份查询；workspace_id 按组织归属查询（issue 07）；两参互斥。 */
+  list_session_summaries: { params: { project_id?: string; workspace_id?: string }; result: R<"listSessionSummaries"> };
   list_models: { params: { provider?: string; offset?: number; limit?: number }; result: R<"listModels"> };
   set_session_model: {
     params: { session_id: string; expected_version: number; model_selection: ModelSelection };
     result: R<"setSessionModel">;
   };
   set_session_mode: {
-    params: { session_id: string; mode: AccessMode; expected_version: number };
+    params: { session_id: string; mode: SessionDefaultMode; expected_version: number };
     result: R<"setSessionDefaultMode">;
   };
   create_project: { params: { name: string; request_id?: string }; result: R<"createProject"> };
@@ -53,6 +54,8 @@ export interface TuiOps {
     params: { project_id?: string; project_name?: string; cwd: string; confirm_tools?: string[]; request_id?: string };
     result: R<"createSession">;
   };
+  /** 打开工作区（agent-direction issue 05）：按真实目录身份复用/创建工作区并新建会话。 */
+  open_workspace: { params: { cwd: string; project_id?: string; request_id?: string }; result: R<"openWorkspace"> };
   submit: { params: Submit; result: R<"submit"> };
   continue: { params: Submit & { task_id: string }; result: R<"continueTask"> };
   interrupt: { params: { task_id: string }; result: { accepted: true } };

@@ -100,8 +100,16 @@ export class ToolWorkerHost {
       throw err;
     }
     host.readyListeners = [];
-    // 容器按宿主原路径挂载工作区，各启动器的工作目录都是工作区本身
-    host.sendRequest({ type: "init", cwd: spec.workspace, label: spec.taskId });
+    // 容器按宿主原路径挂载工作区，各启动器的工作目录都是工作区本身；
+    // issue 16：init 回传宿主钉定的工作区身份给 worker（写入目标复核的
+    // 最后一道，工作环境变化即 fatal，不带着旧钉定服务）。
+    host.sendRequest({
+      type: "init",
+      cwd: spec.workspace,
+      label: spec.taskId,
+      ...(spec.readRoots ? { readRoots: spec.readRoots } : {}),
+      ...(spec.workspaceIdentity ? { workspace: { path: spec.workspace, dev: spec.workspaceIdentity.dev, ino: spec.workspaceIdentity.ino } } : {}),
+    });
     return host;
   }
 

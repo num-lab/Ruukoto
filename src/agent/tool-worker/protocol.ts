@@ -17,7 +17,15 @@ export const DATA_CHUNK_BYTES = 512 * 1024;
 
 /** 后台 → 工作进程。 */
 export type WorkerRequest =
-  | { type: "init"; cwd: string; label: string }
+  | {
+      type: "init";
+      cwd: string;
+      label: string;
+      /** 宿主钉定的额外只读根（path 为宿主 realpath，dev/ino 供启动复核）；缺省 = 不启用限定，保持旧语义。dev/ino 缺省 = inode 经 VM 重新编号的挂载（macOS），仅按路径复核。 */
+      readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
+      /** 宿主钉定的工作区目录身份（issue 16 写入目标的钉定复核）；缺省 = 维持旧语义（cwd 即工作区）。 */
+      workspace?: { path: string; dev: number; ino: number };
+    }
   | {
       type: "tool_call";
       /** 宿主操作 id（协议关联键）。 */

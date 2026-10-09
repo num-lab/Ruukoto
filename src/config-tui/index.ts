@@ -17,6 +17,7 @@ import type { Terminal } from "@earendil-works/pi-tui";
 import { ControlClient } from "../control/client.ts";
 import { defaultAgentDir, resolveClientConfig } from "../control/connect.ts";
 import type { ConnectResult } from "../control/protocol.ts";
+import type { ProductType } from "../core/product.ts";
 import type { ModelSelection } from "../core/types.ts";
 import type { AcquiredLock } from "../core/instance-lock.ts";
 import {
@@ -49,6 +50,8 @@ export interface ConfigTuiOptions {
   connect?: { socketPath: string; token: string };
   /** 测试注入：模型配置目录（默认 RUUKOTO_AGENT_DIR ?? ~/.ruukoto/agent）。 */
   agentDir?: string;
+  /** 产品身份（agent-direction issue 06）：ruukoto-code 的项目分区按工作区/旧项目分类；缺省按 RUUKOTO_PRODUCT。 */
+  product?: ProductType;
 }
 
 /** 在线模型配置后端：get_model_config 修订作乐观并发凭证，每次变更后更新。 */
@@ -289,6 +292,7 @@ export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number>
     client: client ?? undefined,
     snapshot: snapshot ?? undefined,
     terminal: opts.terminal,
+    product: opts.product,
     onExit: (code) => {
       cleanup();
       resolveExit?.(code);

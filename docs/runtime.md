@@ -1,11 +1,11 @@
 # 后台任务运行时（issue 02/03/04/05）
 
 任务生命周期独立于交互终端的实现：单个后台进程负责调度、状态与事件，
-每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](../adr/0002-detach-terminal-from-task-runtime.md)）。
-issue 03 接入真实编码工具与两种权限模式（[ADR 0003](../adr/0003-enforce-explicit-access-modes.md)、
-[ADR 0004](../adr/0004-tool-worker-per-task-container-exec-account.md)）。
-issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读取、断开重连与
-输入去重；当前控制协议为 v9，包含事件流恢复接口。
+每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](adr/0002-detach-terminal-from-task-runtime.md)）。
+issue 03 接入真实编码工具与两种权限模式（[ADR 0003](adr/0003-enforce-explicit-access-modes.md)、
+[ADR 0004](adr/0004-tool-worker-per-task-container-exec-account.md)）。
+TUI 是独立客户端，含历史读取、断开重连与输入去重；`ruukoto-code` 打开 TUI 时
+[按需拉起本机后台](visual/control-protocol.html#ensure)。当前控制协议为 v16，包含事件流恢复接口。
 
 ## 架构要点
 
@@ -37,12 +37,95 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   系统发出为界，之前失败（连接被拒、TLS、凭据）是已知错误，之后失败（等响应
   超时、连接重置、任务停止中止）标 `effect_unknown`，不自动重发。任务停止即中止
   在途请求，不等超时。
+- **会话身份与执行画像（架构工单 08）**：「这个会话是什么」由
+  `src/core/session-identity.ts` 一次判定：`Store.getSessionIdentity` 读出会话、
+  角色行与 SubAgent 行，纯函数 `classifySession` 分为普通开发会话、main 会话、
+  SubAgent 会话（SubAgent 行优先，会话类别也是 dev）与已退役归档（QQ 群、chat/coding
+  角色，附退役原因）。Runtime 各入口按身份一行判定（提交：SubAgent 拒绝、计划模式只限
+  普通开发会话、归档按原因拒绝；改默认模式与切换模式：SubAgent 拒绝；队列兜底：归档
+  按原因取消；resume-queue 从身份取 Agent 行），错误码与文案留在各入口；每次调用的
+  宿主身份重核（main 绑定、委派资格、群结果工具、IM 长期授权）用同一解析，但每次
+  新鲜读取。委派登记的父会话必须是普通开发会话或 main 会话，两种 mode 同一口径。
+  给定任务，`tool-availability.ts` 的 `executionProfile` 由身份、任务所属工作是否有
+  写入目标与是否宿主评审算出执行画像：会话类别（工具类别表与系统提示键）、SubAgent
+  工具集（只读 / 写入 / 宿主评审：另开只读 MCP、关 `subagent_message`）、是否规划
+  MCP、资料受限（SubAgent）、计划资格（只普通开发会话）。任务开始算一次、钉到任务
+  结束；装配过滤、任务收窄与 SDK 会话签名同用这一份，工具集变化时重建 SDK 会话，
+  不依赖 Runtime 每任务释放 SubAgent 的 Driver（那只是资源回收）。工作区不进画像，
+  占用键与 LaunchSpec 都取 `core/worktree.ts` 的 `taskWorkspaceFor`。
+- **静态宿主工具族**：Runtime 先初始化应用库、资料解析器和个人产品的调度器，
+  再经 `initHostToolFamilies` 建立一份全局静态族清单及工具操作账本，随后
+  `recover` 核实遗留操作；SubAgentManager 在恢复前创建，恢复事务调用其
+  `recoverQueuedTasks`，编排器在恢复后创建。
+  Runtime 捕获资料、凭据、应用库、调度器等各族依赖，把同一份清单交给 Driver；
+  `src/agent/host-tool-families.ts` 定义族的类别、
+  工具名、构建入口与账本声明。Driver 按执行画像筛选并构建工具，校验声明的
+  名称与构建结果一致、族间名称不重复，用构建出的宿主名称集合分派调用。
+  族在构建工具时获得 Driver 提供的身份复核、审批、产物登记等能力闭包。
+  每次执行按 SDK 调用 id 取得独立 `HostCall`，身份与宿主操作编号来自宿主记录，
+  不从模型参数取得；结束时在 `finally` 释放本次绑定，释放可重复调用，
+  并发执行不共享可变的当前调用上下文。没有绑定器的模块测试可直接提供
+  `taskContext`。调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM
+  入口确定。编码工具、结构化审批与产物读取继续
+  经 ToolRouter，MCP 仍按任务钉版计划装配；可用性与执行边界沿用下文规则。
+- **父级送达（架构工单 09）**：`src/runtime/parent-delivery.ts` 回答「父级会收到这项
+  工作的什么、何时收到」。**送达**指 SubAgent 的结果或发给主 Agent 的工作内消息进入
+  主 Agent 的一次模型调用：main 会话在承载它的唤醒任务开始运行时，普通开发会话在
+  下一次任务开始时的注入；此前只是待送达，建好的唤醒任务与 `delivered_at` 只是投递
+  登记。送达方向按会话身份判定（main 建唤醒，普通开发会话待注入）。五个入口：子任务
+  结果已登记（编排器在结果事务后调用一次，main 经 `submit` 建 `wake:<子任务>`）；发给
+  主 Agent 的消息已登记（SubAgent 管理器在消息事务内调用，main 直接插入
+  `smsg:<消息>`，使用管理器在事务外核实、事务内重检的模型选择）；普通开发会话的
+  任务开始（driver 取待注入的结果与消息，同事务标记）；
+  唤醒任务即将运行（队列循环的放行判定，`wake:` 与 `smsg:` 同一规则——所属工作已取消
+  即按 `work_canceled` 取消、零模型调用）；后台启动（`sweep` 只补建缺失的结果唤醒，
+  消息补建统一由 `SubAgentManager.flushPendingMessages` 完成）。
+  被截住的消息唤醒不改消息行，`subagent_result` 读取时补「（工作已取消，未送达）」。
+  IM 发起工作的最终汇报的到期规则、发送键与正文也归本模块，IM 机制（目标核对、截短、
+  写 `owner_reply`）经 `sendWorkReport` 回调交拥有者 IM 入口表。结果登记本身留在编排器，
+  发给 SubAgent 的投递留在 SubAgent 管理器。
+- **SubAgent 生命周期（架构工单 12）**：`src/runtime/subagents.ts` 的
+  `SubAgentManager` 是在线 SubAgent 状态、当前工作与当前任务指针的唯一写入者，
+  Store 保留 SQL 原语；离线导入沿用自己的收尾。编排器在结果事务内调用
+  `resultRecorded(task)`，只有 `currentTaskId === task.id` 才按子会话占用记
+  `idle` / `unverified` 并清空当前任务，旧任务首次补记不改当前新工作与任务。
+  Runtime 在 `resumeQueue` 释放占用的事务内调用 `executionVerified(sessionId)`：
+  无活动任务且当前终态任务已有结果，才可在占用释放后回到 `idle`；结果缺失
+  报 `invalid_state`，整笔恢复拒绝。返回的父会话 ID 用于提交后
+  `await flushPendingMessages`。管理器 `start` 先冲刷消息，再恢复无遗留占用的
+  `backend_restart` 子会话；角色队列恢复仍归编排器。
+- **任务收尾（架构工单 14，审查第 7 条）**：所有在线终态路径经
+  `Store.endTask` 在一个事务内做条件更新；只有当前状态仍在起点集合时才继续，随后
+  清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件并按任务 ID 释放占用。
+  驱动器在这条事务内先交工具账本补记效果未知；回收失败时显式保留占用
+  并写 `task.tool_process_unreaped`，重启与缺失驱动器的停止路径也保留占用。
+  模式切换未核实时沿用专用
+  `task.mode_switch_failed`，终态更新的竞争不会再产生重复失败事件；离线导入继续使用
+  自己的收尾规则。
+- **拥有者 IM 入口（架构工单 10）**：QQ 私聊与 Telegram 各是一个入口，适配器实现
+  `ImEntry`（`src/runtime/im-entries.ts`）：来源、入站门、当前钉版目标、预期发送者、
+  回复截断、externalId 前缀、是否引用某凭据与事务内推进配置版本（含各自的
+  `*.config_changed` 事件）；`configure` / `setEnabled` 的信任边界校验各留在自己的
+  适配器，不合并。`ImEntries` 持入口表，承担跨平台部分：按来源分派入站门；配置或凭据
+  变化后按来源 reconcile（作废 registered、按丢弃原因取消活动任务、撤销该来源 IM
+  审批，不波及共享 main 会话中另一平台的工作）；owner 回复与工作最终汇报（目标须与
+  当前钉版目标一致，否则记 `<来源>.reply_skipped`、不改发）；凭据变化时先推进、写入
+  后重连并 reconcile 引用它的入口；缺省通知渠道（Telegram，测试可覆盖）与通知工具的
+  目标（QQ 来源任务只在钉版目标仍一致时发 QQ）。两个适配器始终创建；启动配置停用
+  （ruukoto-code、`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`）是适配器的标志：
+  不连接、不轮询、目标为 null，门以 `qq_private_unavailable` / `telegram_unavailable`
+  丢弃（与入口停用同义，ADR 0012 2026-10-06 修订），outbox 视为发送器未加载而等待。
+  GitHub webhook 是事件来源，不进入口表，其门仍由 `inboundGate` 单独分派。
 - **工具可用性（架构工单 03）**：`src/agent/tool-availability.ts` 回答「这个会话、
-  这个任务允许哪些工具」。会话类别（普通开发会话、main、coding、chat；QQ 群按会话
-  类型归入 chat）各有一份工具类别清单，是唯一来源：普通开发会话与 coding 为编码
-  工具（含工作清单）、资料与记忆、Web Search、MCP、技能；main 为资料与记忆、Web
-  Search、应用数据、调度与通知、委派、群结果、技能；chat 为空。新工具族写进哪份
-  清单才出现。任务开始时算一次本任务允许的工具（已装配的工具减去计划模式、GitHub
+  这个任务允许哪些工具」。会话类别（普通开发会话、main、SubAgent 子身份 subagent；已退役的 QQ 群会话与
+  chat/coding 角色会话是只读归档、不归任何类别，算执行画像即拒绝）各有一份工具类别
+  清单，是唯一来源：普通
+  开发会话为编码
+  工具（含工作清单）、资料与记忆、Web Search、MCP、技能、SubAgent 委派；main 为
+  资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、
+  SubAgent 委派；subagent
+  为空（SubAgent 的工具按执行画像的 SubAgent 工具集单独装配，静态白名单）。
+  新工具族写进哪份清单才出现。任务开始时算一次本任务允许的工具（已装配的工具减去计划模式、GitHub
   评审等宿主按任务收窄与项目关闭的 Web Search），激活、发送前检查
   （`task_tools_forbidden`）与调用门共用这一集合。获批后的复核属于审批闸门（下条）；
   Web Search 开关的现场检查与委派只限拥有者发起的任务由各工具执行时自行完成，都不
@@ -61,24 +144,30 @@ issue 04 接入 TUI：只连接已运行后台的独立客户端，含历史读�
   已知结果与效果未知：结果与 `task.tool_result` 事件成对写入（落库与事件同一句，
   重复补记不重复发布），效果未知写操作标记、`task.tool_effect_unknown` 与任务标记
   （幂等）。停止与重启按同一个分类器补记结果缺失的操作：**审批未消费 → 无写入效果
-  → 工具族核实 → 效果未知**。规则表按静态工具名穷尽登记（漏登记即编译错误）：
+  → 工具族核实 → 效果未知**。各宿主族在自己的模块声明工具名、分类规则与
+  必要的提交核实，Runtime 从同一份全局族清单派生账本声明；应用库、调度器或
+  服务管理停用时，对应族提供空的工具名与构建结果，账本声明仍保留完整规则。
+  恢复核实不依赖当前会话是否装配了该族；应用库无法核实时仍定效果未知。
+  编码、结构化审批、产物读取与模拟工具保留固定规则，只有已删除的
+  `coding_delegate` 另保留 delegation / subagent 核实映射，处理升级前在途操作。
   只读工具（`read`、`read_artifact`、`history_*`、`memory_list/read`、`web_search`、
   `skill`、`todo_write`、应用数据/调度/群结果的查询、`http_request` 的 GET/HEAD、
   读取文件）中止记「未完成：只读操作中止，无写入效果」；写操作由工具族按宿主操作
   编号核实（应用库回执、调度账本、子任务、群结果接收账本）；其余（`bash`、`edit`、
-  `write`、记忆写入、MCP、未登记名字）记效果未知，不重放。编排器的重试门也用这张
-  表的「无写入效果」判定。MCP 读工具的副作用类别不在操作记录里，沿用效果未知。
+  `write`、记忆写入、MCP、未登记名字）记效果未知，不重放。分类为
+  `approval` 表示结果缺失时按审批证据判定，不表示工具一定产生审批。
+  ToolRouter 对已发出 HTTP 调用的效果未知判定复用账本的「无写入效果」规则。
+  MCP 读工具的副作用类别不在操作记录里，沿用效果未知。
 - **正文产物**：工具输出在上游截断之前捕获为受保护的产物文件（先落盘再
   生成限长模型视图）；中断/写失败保留已捕获部分并标 partial；按任务归属
   经工具或控制接口按 id/偏移/长度查询，跨重启可读。
 - **拥有者认证**：控制面 socket 位于受控目录（数据目录兄弟目录
   `control/`），任何连接须先以拥有者令牌（`owner.token`，0600）auth，
   认证成功前不返回快照、不执行请求；令牌不进命令行、工具环境或日志。
-- **QQ 群聊入口（issue 07）**：NapCat OneBot v11 正向 WebSocket 窄入口
-  （`src/qq/`），按"登录账号+群"映射独立 qq_group 会话：空工具集合、
-  宿主约束资料范围（排除开发历史/个人共享记忆/项目指令/跨项目授权）、
-  专用空工作目录、收件去重与排队过期、宿主固定回复目标、发送结果
-  区分 sent/failed/unknown（effect_unknown 不重发）。详见下文「QQ 群聊」。
+- **QQ 群聊已退役（agent-direction issue 20）**：核心不再创建或执行群聊
+  任务（群消息直接忽略），旧群历史、收发账本与接收记录保留为只读归档
+  并可核查；QQ 拥有者私聊继续可用（NapCat OneBot v11 窄入口，`src/qq/`）。
+  正式 QQ 群聊外挂（独立可选程序）在后续阶段交付。详见下文「QQ 群聊」。
 
 ## 运行命令
 
@@ -104,7 +193,8 @@ export RUUKOTO_DATA_DIR=~/.ruukoto/data
 npm start -- create-project my-project
 npm start -- create-session my-project /path/to/workdir
 npm start -- submit <sessionId> <requestId> "任务输入" \
-  [--mode confirm|full_access|auto-review] [--grant <path>:<read|read_write>[:用途];...]
+  [--mode confirm|full_access|auto-review|plan] [--grant <path>:<read|read_write>[:用途];...]
+npm start -- set-session-mode <sessionId> confirm|full_access|auto-review|plan
 npm start -- switch-mode <taskId> confirm|full_access|auto-review [--grant ...]
 npm start -- status [taskId]          # 快照或单任务（工具操作、审批、产物引用）
 npm start -- events                   # 订阅持久事件流（seq 单调递增）
@@ -116,17 +206,93 @@ npm start -- confirm <confirmationId> approve|reject
 npm start -- read-artifact <taskId> <artifactId> [--offset N] [--length N]
 npm start -- credentials list | add --name N --host H --header H --purpose P --secret-env VAR | remove <name>
 npm start -- project web-search <项目id> on|off   # 按项目启用/禁用 Web Search（默认启用）
-# QQ 群聊入口（issue 07；token 先经 credentials add --purpose qq_onebot 登记）
+# QQ 入口（token 先经 credentials add --purpose qq_onebot 登记）
 npm start -- qq configure --endpoint ws://127.0.0.1:3001 --self-id <QQ号> [--credential <名称>]
-npm start -- qq group add <群号>          # 允许该群 @ 触发（可多次）
-npm start -- qq enable                    # 启用（qq status / disable / inbox / outbox 可查）
+npm start -- qq enable                    # 启用（qq status / disable / inbox / outbox 可查；inbox/outbox 为旧群归档）
+# 核心群聊已退役（issue 20）：qq group add|remove 已删除，旧命令只打印退役提示
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
+
+两个产品入口（ADR 0017；本文件其余部分描述默认产品 ruukoto）：
+
+```bash
+ruukoto ...                 # 个人 Agent（bin 入口）
+ruukoto-code ...             # Coding Agent（bin 入口）：同一 CLI，产品身份经
+                            # RUUKOTO_PRODUCT=ruukoto-code 固定注入（仓库内等价于
+                            # RUUKOTO_PRODUCT=ruukoto-code npm start -- ...）
+```
+
+ruukoto-code 的行为差别：
+
+- 独立档案根 `~/.ruukoto-code/{data,agent,control,pending}`；路径环境变量
+  只读 `RUUKOTO_CODE_DATA_DIR` / `RUUKOTO_CODE_AGENT_DIR` / `RUUKOTO_CODE_CONTROL_DIR`
+  / `RUUKOTO_CODE_PENDING_DIR`，不读对方产品的 `RUUKOTO_*_DIR`；同机并存时目录、
+  实例锁、配置锁、socket 与 owner token 文件各自独立，升级与互停互不牵连。
+  注意：`RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` 两产品共用（令牌是
+  控制面身份，不是路径归属）；导出了这两个变量的 shell 对两个产品都有认证能力。
+- 不启动 QQ/Telegram 连接与个人调度（调度器不创建；状态视图按 ruukoto-code
+  标注停用原因）；其余命令、控制面与审批机制相同。
+- 不提供旧项目写入路径（agent-direction issue 23）：TUI `/new-project`、在无
+  根目录的旧项目里 `/new` / `/new-session`，以及 CLI `create-project` /
+  `create-session` 只提示改用 `ruukoto-code <目录>` 打开工作区；旧项目保留查看，
+  需要时经 `project migration-preview` 映射到工作区。控制面 op 不变。
+- 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的
+  入口打开已归属的数据目录直接拒绝。
+- 开发机执行权限的边界已在工单 03 验证、工单 04 接入产品：受限模式的执行边界
+  是经本机容器运行时复用的每任务容器（macOS 为 Docker Desktop 的 Linux VM，
+  原生 Linux 直接运行）。2026-10-08 更正：工单 03 的 sandbox-exec 文件探针
+  使用了 `/tmp` 别名，规则没有匹配 `/private/tmp` 中的真实目标，不能据此
+  否决 Seatbelt 文件机制；规范化路径后的文件拒绝已复核生效。工单 26 的
+  原生替换仍处于边界验证阶段：完整后代停止尚未通过，尚未接入产品。
+  **ruukoto-code 的默认执行后端为 container**（工单 04）：受限任务在容器边界内
+  执行；`--execution local` / `RUUKOTO_EXECUTION_BACKEND=local` 仍可显式选择；
+  两产品以 local 生效时都打印同一条无隔离警告。后端缺失或失效（docker 不可
+  用、镜像缺失）在执行前明确拒绝、不静默回退到普通账户。完全访问需要专用执行
+  账户（Linux：ruukoto-exec 经 systemd 包装入口，已有部署与本次 Coding Agent
+  受控配置验证；macOS 未提供经过验证的本机入口，现有 systemd 包装只适用于
+  Linux）——未配置入口时完全访问提交在执
+  行前以 `execution_unavailable` 拒绝，不静默降级。产品级冒烟
+  `.scratch/agent-direction/smoke-04-desktop-execution.mts`（真实容器、镜像、
+  文件、网络与审批路径，模型打桩；0 全过、2 基础设施缺失）在本机与原生 Linux
+  各 6/6：容器内完成代码修改与检查、子进程不再见宿主文件与外网、只读根、越
+  界读取审批单次消费、中断回收执行单元（含工作进程启动窗口）。
+- 打开 TUI 时按需拉起本机后台（issue 02，见下文「按需拉起后台」）：首次打开
+  `ruukoto-code` 不必先 `server`；关闭 TUI 不停止后台或取消任务，显式
+  `ruukoto-code stop` 才结束后台。
+
+按需拉起后台（issue 02，仅 ruukoto-code 的 TUI 入口）：
+
+- 打开任务界面（`ruukoto-code`、`ruukoto-code <路径>`、`--session`）时先探测控制面
+  （socket 可连且令牌认证握手通过）：已在运行直接复用，不启动第二个实例；不在运行
+  才拉起 detached 后台进程（标准输出/错误追加到 `<controlDir>/spawn.log`），就绪后
+  打印一行提示并进入界面。拉起的后台与 TUI 生命周期无关：退出 TUI、终端断开都
+  不停止后台或取消任务，显式 `ruukoto-code stop` 才结束。
+- 两个终端同时打开时并发拉起由后台实例锁（`<dataDir>/runtime.lock`）收敛为单个实例，
+  不另设客户端锁：败于锁竞争的进程退出，TUI 侧不误判为启动失败，继续探测到胜者
+  就绪后按复用进入（不算本进程拉起）。
+- 状态明确（拉起失败均打印错误并非零退出，不进入连接状态机）：socket 可连而令牌
+  认证不通过 → 后台其实在运行，给出令牌核对指引（不再拉起）；服务进程以非实例锁
+  原因提前退出且宽限窗口后探测仍不通过 → 「后台启动失败」并附 spawn.log 尾部
+  （常见原因：未配置可用模型 → 先 `ruukoto-code config`）；到期限仍未就绪 → 等待超时，
+  单独标注且不杀进程。运行中断线仍按既有规则显示重连中，**重连只恢复观察，不会
+  再次拉起后台**；后台不可用要再拉起时重开 TUI 即可。后台明确拒绝（令牌无效、协议
+  版本不符）照旧终止重连并给出修复指引（不兼容版本不属于可拉起解决的问题）。
+- 拉起即是正常后台启动：异常中断后的恢复沿用既有规则（标记 interrupted、暂停队列、
+  效果未知不重放——见文末「崩溃恢复」），拉起与重连都不构成重新执行授权。
+  拉起的后台沿用产品默认执行后端（ruukoto-code = container）；需要 local 时在环境显式设置
+  `RUUKOTO_EXECUTION_BACKEND=local`（生效时打印无隔离警告）。
+- `ruukoto`（个人 Agent）不按需拉起：后台由显式 `server` 或 systemd 管理，TUI 打开
+  时仍只连接已运行的后台。
+- 手动后台照旧：`ruukoto-code server --data-dir … --agent-dir …` 前台运行，与按需
+  拉起共用同一实例锁（谁在运行谁生效，重复启动被拒绝）。
 
 开发调试（issue 21，详见下文「开发实例」）：
 
 ```bash
-npm run dev [-- --tui | --config] [--import-models <目录>]
+npm run dev [-- --config]                        # ruukoto 开发后台 / 配置中心
+npm run code [-- --config]                       # ruukoto-code TUI / 配置中心
+npm run code -- <路径>                           # 创建或复用工作区并进入新会话
+# 两个入口均可加 --import-models <目录>，只复制模型配置
 ```
 
 ## TUI（issue 04）
@@ -134,23 +300,81 @@ npm run dev [-- --tui | --config] [--import-models <目录>]
 `ruukoto` 启动全屏交互终端（旧拼法 `ruukoto tui` 给出迁移指引后沿用原行为；
 `ruukoto --session <id>` / `--demo` 对应原 `tui --session/--demo`）：顶部为项目/会话/工作目录/连接状态/任务权限
 模式/执行后端，中间滚动显示消息与工具记录，输入框上横线右侧显示工作区目录名，底栏显示权限模式、token 用量及模型选择；工作清单经 `/todo` 悬浮层查看。
-TUI 只连接已运行的后台（本机 Unix socket + 拥有者令牌），不创建 SDK 会话、
-不加载模型凭据、不直接读取后台数据库或 JSONL；后台不可达（含启动时后台尚未
-就绪）、认证或同步超时、断线时显示连接状态并按有上限的退避重连，不会悄悄另起
-同一任务；只有后台明确拒绝（令牌无效、协议版本不符）才停止重连并给出修复指引。
+TUI 只连接本机后台（Unix socket + 拥有者令牌），不创建 SDK 会话、
+不加载模型凭据、不直接读取后台数据库或 JSONL；ruukoto-code 在连接前按需拉起
+本机后台（见上文「按需拉起后台」），ruukoto 只连接已运行的后台。后台不可达
+（含启动时后台尚未就绪）、认证或同步超时、断线时显示连接状态并按有上限的
+退避重连，不会悄悄另起同一任务；只有后台明确拒绝（令牌无效、协议版本不符）
+才停止重连并给出修复指引。
 `--demo` 打开合成调试会话：不连后台，只应答展示所需的读操作，其余操作明确
 拒绝（提交恢复草稿），待核实记录写到临时目录。
 
-**工作区入口（issue 21）**：`ruukoto <路径>` 以该目录为工作区创建新会话并
-直接进入（`./config`、`-- <路径>` 处理与命令同名的目录）。相对路径按客户端
-调用时工作目录解析；后台继续校验目录存在性、realpath、dev/ino、保护根与
-权限，只接受已有目录。按规范化目录身份查找已有 dev 会话对应的项目：唯一
-候选直接复用，多个候选先经选择列表确认（取消则不创建任何记录），从未使用
-的目录自动创建项目（目录名命名，重名追加序号，绝不因同名合并项目）。每次
-独立启动创建一个新会话；创建请求带稳定启动请求标识（create_project /
-create_session 幂等键，同键同参返回原记录、同键异参报 request_conflict），
+**工作区入口（issue 21；agent-direction issue 05）**：`ruukoto <路径>` 以该目录
+为工作区创建新会话并直接进入（`./config`、`-- <路径>` 处理与命令同名的目录）。
+相对路径按客户端调用时工作目录解析；后台继续校验目录存在性、realpath、
+dev/ino、保护根与权限，只接受已有目录。工作区实例上是带根目录归属的
+项目（projects 表 root_cwd/root_real/root_dev/root_ino 四列，v19 补列，同一
+真实目录至多一个工作区，部分唯一索引兜底）；根目录可以是普通目录，也可以
+含多个 Git 仓库。归属判定按真实目录身份（realpath，或 dev+ino 覆盖符号链接
+与挂载别名），同名不同目录各自成工作区（项目名仅展示层去重，重名追加序号，
+绝不合并）。打开目录经 `open_workspace` op：已确认归属的工作区直接复用；尚未
+归属的旧项目可作为候选经选择列表确认后认领根目录（多个候选先选择，取消则
+不创建任何记录；`project.root_attached` 事件留痕）；从未使用的目录自动创建
+工作区项目。认领/建项目与建会话同一事务，失败不留空项目。认领限制与后台
+防御一致：角色或群聊会话所在的项目（含混合旧项目），以及会话分布在多个
+真实目录的旧项目，都不可经目录入口认领——多目录旧项目按下文「旧数据组织
+迁移」处理。每次独立启动创建一个
+新会话；创建请求带稳定启动请求标识（open_workspace / create_project /
+create_session 幂等键，同键重发返回原记录、同键异参报 request_conflict），
 断线重连后按标识在新快照中核实，不重复创建；连接仍在的应答丢失（超时等）
 当场核实一次，仍未确认则回到正常启动并提示用 `/project` 查看。
+`create_project` / `create_session` 旧 op 行为不变（不写根目录归属），旧项目、
+旧会话照常可读。
+
+**旧数据组织迁移（agent-direction issue 07，ADR 0018）**：旧项目可包含不同
+目录的会话。`sessions.workspace_project_id`（v21 加列）是会话的工作区
+**组织归属**：只决定组织查询与普通列表的展示归属（显示归属 =
+`workspace_project_id ?? project_id`）；历史、产物、记忆、指令、MCP/Jev、
+授权与凭据继续按原 `project_id`、会话/任务 ID、pi 会话 ID 与文件路径定位，
+组织映射不复制、不合并配置，也不改变运行中任务身份。拥有者经 CLI 显式迁移：
+
+1. `ruukoto project migration-preview <项目id> [--limit N]`：只读预览（零写入），
+   按源项目列出目录分组（登记 realpath/dev/ino 先核实再用 sameDirIdentity 去重；
+   失效/被替换/无权核实分列，不把同路径新目录当旧目录）、逐会话归属（角色/群聊
+   明确排除、指令基准、历史缺失/未落盘/损坏单独报告）、同目录其他旧项目、
+   混合项目、已认领根外会话、嵌套根、worktree 等歧义与异常、安全认领条件与
+   建议计划；会话数可限制，截断如实报告且不可用于认领或生成修订。
+2. 按建议编写计划文件（`action: map_sessions` 的会话 → 目标分配，或
+   `claim_source` 的安全认领），`migration-preview <项目id> --plan <文件>`
+   校验选择并把绑定最终选择的修订（相关元数据的规范化内容哈希，无关任务
+   输出不过期）写回计划文件。映射目标必须是根目录含所选会话真实目录的
+   工作区（existing_workspace）或通过目录与保护根校验的新根
+   （new_workspace，同一真实目录已有工作区时必须复用其 ID）；安全认领仅在
+   来源项目无根、会话集合非空且全为普通 dev、目录全部有效且为同一真实目录、
+   目标即该目录、无占用、无已映射会话时成立（混合/部分/祖先认领拒绝）。
+3. `ruukoto project migration-apply --plan <文件> [--request-id <id>]`：缺省
+   请求键按计划文件内容派生（同一文件重发即原键核实）。应用先查成功回执
+   （meta 中的 `migration_receipt:<request_id>`，同键重放返回原成果、
+   同键异参 request_conflict），再核对修订并单事务提交目标创建/根认领/
+   组织字段更新/事件/回执；任一失败整体回滚。成功后 `action: "revert"` 的
+   计划文件（`revert_request_id` 指原请求）按回执校验当前值后只恢复显式
+   组织字段；已认领根目录、新工作区与迁移后的任务、配置修改、授权撤销
+   事实全部保留。
+
+工作区查阅与新建（步骤 4）：`list_session_summaries` 增加与 `project_id`
+互斥的 `workspace_id` 参数（组织归属查询，活动时间算法不变，映射事件不算
+任务活跃）；ruukoto-code 的选择面板计数与会话列表、恢复旧会话后的当前
+选择状态、`/resume` 默认项都按组织归属（ruukoto 产品与旧 API 恒按原
+身份）。会话标题对 mapped 会话标注「工作区（配置与资料来源：来源项目）」；
+从已映射旧会话 `/new` 或 `/new-session` 创建的新会话落到目标工作区
+（目标 Project ID 与配置），无映射旧会话保持旧行为。配置中心工作区详情
+经已映射会话派生列出「关联旧资料来源」（来源 ID、会话数、MCP/Jev、
+授权出入向、设置版本、指令基准；并列显示不合并，来源设置各按来源项目
+ID 与自身版本访问）。
+**选择面板（agent-direction issue 05）**：ruukoto-code 的 `/project` 与工作区→会话
+选择中，带根目录归属的工作区列在前、旧项目列在后，逻辑角色（main/coding/chat）
+与 QQ 群聊会话所在的项目不进入普通列表，会话列表同样过滤；ruukoto 产品沿用
+旧行为（主会话等原样列出）。内部子任务是任务而非会话，本就不出现在会话列表。
 
 - **输入**：`Enter` 提交，`Alt+Enter`（或 `Shift+Enter` / `Ctrl+J`）换行；
   支持中文与 bracketed paste，大段粘贴在编辑器内折叠显示，草稿与提交保留
@@ -165,16 +389,16 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   输出取 provider 实际输出，用量缺失的调用不计入，不使用估算。数量按千进制
   转换为 K、M、B，最多一位小数；宽度不足以显示统计和完整模型信息时，整段
   统计隐藏。每次实际用量保存后更新，切换会话及重连时从后台恢复累计值。
-- **命令**：`/resume` 切换当前项目中的会话，`/project` 切换项目；`/new-project`、`/new-session <目录>` 创建；
+- **命令**：`/resume` 切换当前项目中的会话，`/project` 切换项目（ruukoto-code 为工作区/旧项目列表，见上文「选择面板」）；`/new-project`、`/new-session <目录>` 创建；
   滚动到顶部自动加载更早历史，保留当前查看位置；加载中不重复请求，已加载的更早历史不会被初始 300 条限制裁掉。
   点击工具返回结果行在事件流中展开，再次点击收起；
   `/artifact <id 前缀>` 按字节分页查看产物正文；`/approvals` 待处理审批
   （详情内 `a` 批准 / `r` 拒绝，Esc/q 关闭不等于拒绝）；`/interrupt`、
   `/cancel <taskId>`、`/continue [taskId]`、`/resume-queue` 为明确的任务
-  操作；`/mode` 通过列表设置会话默认权限模式，作用于后续任务；`/model`
+  操作；`/mode` 通过列表设置会话默认模式，作用于后续任务；`/model`
   选择后续任务的模型和思考档位；`/skill <名称>
-  [参数]` 显式调用技能、`/skills` 查看技能库与诊断（见「技能」）；`/plan <内容>`
-  以计划模式提交任务（见「计划模式」）；`/quit` 或 `Ctrl+C`（空草稿时）退出客户端。
+  [参数]` 显式调用技能、`/skills` 查看技能库与诊断（见「技能」）；`/quit` 或
+  `Ctrl+C`（空草稿时）退出客户端。
   命令以 `src/tui/commands.ts` 的条目表为准（架构工单 06）：补全、`/help`、派发、
   回显、是否作为任务输入与是否保留成功结果都由条目推出。
   会话选择列表每项两行：首行使用最早用户输入作为名称（无输入时显示未命名会话），
@@ -182,10 +406,11 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   会话之间留一行空白。名称过长时截断，选中任意一行都进入对应会话。
   项目选择列表采用相同布局：首行显示 `项目名 · 会话数`，次行显示会话的工作区路径；
   多个工作区去重后在同一行展示，没有会话时显示“尚无工作区”，项目之间空一行。
-  切换会话时沿用切换前选择的权限模式、模型和思考档位，保存为目标会话的默认设置；
+  切换普通开发会话时沿用切换前选择的模式（含 Plan）、模型和思考档位，保存为目标会话的默认设置；
   提交新任务会等待设置保存完成，已有任务继续使用创建时的设置。
-  输入框获得焦点时，`Shift+Tab` 按 Ask for approval → Full access → Auto review
-  循环切换后续任务的默认权限模式，保留草稿；连续按键依次保存，后台确认后
+  输入框获得焦点时，`Shift+Tab` 按 Ask for approval → Full access → Auto review → Plan
+  循环切换普通开发会话后续任务的默认模式，其他适用会话只显示访问模式选项。
+  切换保留草稿；连续按键依次保存，后台确认后
   更新显示。窗口与选择悬浮层打开时不触发此快捷键。
 - **悬浮层**：简单覆盖下层内容，打开时保留主界面可见。`/mode`、`/model`
   的选择内容与斜杠补全以悬浮层展示。`/todo` 在右上角显示带完整
@@ -228,7 +453,7 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   事件时按该阶段计时。没有公开思考时，
   从每轮请求发出到正文或工具调用开始计时，包含网络等待。正文完整流式
   保留，可向上滚动，不受原有 8 KiB 尾部预览限制。
-- **命令结果**：命令在当前客户端回显（`/plan <内容>`、`/skill <名称> [参数]`
+- **命令结果**：命令在当前客户端回显（`/skill <名称> [参数]`
   作为任务输入提交，只显示任务输入一行）；`/mode` 和 `/model` 追加
   `⎿ Switched to ...`，`/context` 在命令下保留 `⎿ Context Usage`、分色上下文长条
   与分类数据。`/prompt`、`/search`、`/memory`、
@@ -315,11 +540,33 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 打开核心数据库，也不成为绕过任务审批的入口（任务执行审批仍在任务界面）。
 在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及
 上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料
-授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与允许群、服务凭据。
+授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置、服务凭据。
+服务凭据的同名修改或删除（`add_credential` / `remove_credential`）在写入前单调
+推进引用它的 QQ/Telegram 配置 `config_version`（详见下文「IM 审批」失效规则）：
+旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次；写入失败不恢复旧版本。
 
 - **并发与修订**：模型配置以 `expected_revision`（models.json + auth.json +
   default-model.json + summary-model.json 的内容指纹）做条件更新；项目/会话/MCP/QQ 沿用各自的
-  expected_version。冲突时要求重新加载，不静默覆盖。
+  expected_version。冲突时要求重新加载，不静默覆盖。项目指令与 Web Search 共用
+  `projects.settings_version`（v20 加列，旧项目初始版本 1，只保护这两项，不与
+  MCP/Jev/会话默认各自的版本列合并）：保存经 `Store.updateProjectSettings` 在同一事务
+  核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件
+  （携带配置字段，不含指令正文或秘密）；不符 = `version_conflict`，不改配置、无事件；
+  省略版本 = 旧入口兼容写入（同样递增并发事件——带版本客户端的随后保存会冲突，旧入口
+  不能绕过冲突检测）；同值保存幂等（不递增、无事件）。`set_project_instructions` /
+  `set_project_web_search` 接受可选 `expected_version`（v1 起正整数；0/负数/非整数
+  = invalid_params）。任务 TUI 与配置中心都投影该事件刷新项目展示；配置中心冲突后先
+  实际重读后台数据（不刷旧缓存）、再刷新当前分区。
+- **项目分区（agent-direction issue 06）**：ruukoto-code 的「项目」分区把工作区列在前
+  （标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品平铺
+  项目名称，列表不展示工作区分类或根目录前缀。ruukoto-code 的项目详情显示分类与根目录，
+  指令、Web Search、Jev、MCP 与资料授权都在已选项目内完成：
+  指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务、新增固定
+  归属跳过项目选择（全局 MCP 分区复用同一页面与表单，新增仍按工作区/旧项目选择项目；
+  进入归属不符的服务详情会提示并返回）。资料授权页标注出向/入向；新建方向固定为本
+  项目 → 目标（目标按工作区/旧项目选择）；撤销按单条授权 ID，同范围（同来源/目标/类别）还有
+  其他有效授权时，确认与结果都明示「不关闭该类访问」；「查看已撤销」为只读记录（含
+  撤销时间）。
 - **模型配置应用时机（§4）**：provider、模型目录与 API key 的修改只在没
   有受影响的 `running` / `awaiting_confirmation` / `queued` 任务时应用；
   检查到应用完成之间，受影响 provider 的新提交与会话模型设置被拒绝
@@ -328,6 +575,9 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不
   自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime /
   模型目录 / 审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。
+  应用结束时在 `finally` 中 `await flushPendingMessages`（成功或回滚）；门闩忙碌
+  等预检失败保留这些消息等待后续投递。需要新建执行任务的消息预检失败则
+  不登记消息、任务或事件；纯 dev 父会话注入不新建执行任务，不经过这道预检。
   应用成功后持久配置与内存一致，重启后仍有效。删除 provider 或模型前核对后台
   默认、摘要模型、会话与 agent_roles 引用（`provider_in_use`）；后台默认模型保存为
   `<agentDir>/default-model.json`，显式启动参数 `--model` 优先于它。
@@ -336,7 +586,7 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   `set_summary_model`（`provider`/`model_id`，同为 null 即清除，带
   `expected_revision`），`get_model_config` 返回 `summaryModel`；保存时核对模型
   在目录中。「模型与提供方」页头显示「摘要模型：未设置（用会话当前模型）」或所选
-  模型，列表项「设置摘要模型」首项为「不设置」。设置后，main、coding 与开发会话较早
+  模型，列表项「设置摘要模型」首项为「不设置」。设置后，main 与开发会话较早
   的对话（含工具结果）会发给该模型的提供方做摘要。每次摘要读取当前配置，不按任务
   钉版；已配置但无法解析时本次摘要按失败处理，不改用会话模型。
   `test_model_connection` 是显式网络探测，本地校验不代表模型服务可用。
@@ -351,50 +601,81 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 
 ## 开发实例（issue 21）
 
-`npm run dev [-- --tui | --config] [--import-models <目录>]` 启动隔离的
-开发后台与可选界面，监听源码变更自动重启：
+`npm run dev` 启动 ruukoto 开发后台，`npm run code` 启动 ruukoto-code 开发后台
+并默认打开 TUI。`npm run dev -- --config` 与 `npm run code -- --config` 分别打开
+对应开发实例的配置中心，两个入口都不再接受 `--tui`，均支持
+`--import-models <目录>`。共享启动器 `src/dev.ts` 管理隔离档案与源码自动重载，
+`src/code.ts` 以 ruukoto-code 产品身份调用它：
 
-- **隔离 profile**：`~/.ruukoto-dev/<仓库名>-<路径哈希>/{data,agent,control,
-  pending,logs}`，稳定复用、保留开发历史，位于代码目录外（QQ 等工作目录
-  不落入保护根）。不继承生产 owner token、执行账户配置或消息平台凭据；
-  QQ 适配器在 dev 下默认停用（`RUUKOTO_DISABLE_QQ=1`，每次启动生效）；
-  真实模型须显式配置（`dev --config` 离线初始化，或 `--import-models` 从
-  指定目录复制 models.json/auth.json，不共享可写的生产 agentDir）。
-- **进程与重载**：dev 管理自己启动的整组进程；退出界面或 Ctrl+C、关闭
+- **工作区入口**：`npm run code -- <路径>` 接受一个已存在的目录，按真实目录身份
+  创建或复用工作区，并进入新会话；不新建目标目录。相对路径按 npm 脚本的当前
+  目录（通常为本仓库）解析，路径含空格时加引号，目录与 CLI 命令同名也可使用。
+  路径不能与 `--config` 同用，`dev` 不接受路径；目录身份与保护根校验沿用
+  日常工作区入口，代码仓库本身不能用作工作区。路径只传给首次 TUI 启动，
+  源码重载后恢复原会话、草稿与继续意图，不再次创建会话。
+- **隔离 profile**：`dev` 继续使用 `~/.ruukoto-dev/<仓库名>-<路径哈希>/`，
+  `code` 使用 `~/.ruukoto-code-dev/<仓库名>-<路径哈希>/`，下有
+  `data/agent/control/pending/logs`，稳定复用、保留各自开发历史，位于代码目录外。
+  新 code 档案不自动迁入现有 dev 历史，两个开发档案与日常产品档案的锁和控制面
+  分开。子进程先清除两产品目录变量、生产 owner token、执行账户配置与外部产品
+  身份，再按 profile 显式注入 `RUUKOTO_PRODUCT` 与本产品的 `*_DIR`；固定注入
+  `RUUKOTO_DISABLE_QQ=1` 与 `RUUKOTO_DISABLE_TELEGRAM=1`，每次启动生效。
+  真实模型须显式配置：对应入口的 `--config` 可离线初始化，或 `--import-models`
+  从指定目录只复制 `models.json` / `auth.json`，不复制服务凭据和默认模型文件。
+- **执行后端**：沿用产品默认值，`dev` 为无隔离的 `local`，`code` 为
+  `container`。code 受限任务需要 Docker 与 worker 镜像，缺少执行环境时明确失败；
+  开发入口不继承生产完全访问执行账户配置。
+- **进程与重载**：两个启动器管理自己启动的整组进程；退出界面或 Ctrl+C、关闭
   终端都统一清理后台/界面/监听。同一开发实例已有后台时报错，不附加或
   停止外部进程。监听仅限 `src/` 源码：后台代码变更优雅重启后台（活动
   任务保留中断事实，不自动重放），任务界面自动重连，配置界面不重连、随
   后台一并重载并恢复所在分区；只改任务/配置界面代码时不重启后台；
   共享模块变更两者都重启。连续变更合并处理，旧进程退出并释放锁后才
-  启动替代进程。
-- **界面状态恢复**：dev 启动的任务界面把当前会话、未提交草稿与继续任务
+  启动替代进程。修改 `src/dev.ts` 或 `src/code.ts` 时提示手动重启当前 npm 命令。
+- **界面状态恢复**：code 启动的任务界面把当前会话、未提交草稿与继续任务
   意图原子保存到 profile 的重载状态文件（0600；秘密表单值不写入，重载后
   重新输入）；重载后按数据实例标识核实恢复，记录无效时给出提示并按正常
-  入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次 dev 启动
-  内使用，新的一次独立 dev 命令遵循正常入口规则。
+  入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次启动内使用，
+  新的一次独立 npm 命令遵循正常入口规则。
 - **日志与终端**：后台日志写 `<profile>/logs/backend.log`，监听诊断写
   `dev.log`（无界面时打印到终端），不与界面输入/绘制串写。
-- `dev --config` 缺少有效模型时先打开离线配置界面；保存有效配置并释放
+- 对应入口的 `--config` 缺少有效模型时先打开离线配置界面；保存有效配置并释放
   配置锁后启动开发后台，再切换为在线配置；放弃或保存失败不启动后台。
+  配置中心退出后结束本次开发启动。
 
 ## 数据布局
 
+档案根按产品分开：ruukoto 默认 `~/.ruukoto`（环境变量 `RUUKOTO_*_DIR`），
+ruukoto-code 默认 `~/.ruukoto-code`（环境变量 `RUUKOTO_CODE_*_DIR`），内容
+结构一致；两个产品的开发实例另用 `~/.ruukoto-dev/<仓库>-<哈希>/` 与
+`~/.ruukoto-code-dev/<仓库>-<哈希>/`。以下为单个
+产品实例的布局（以 ruukoto 默认路径为例）：
+
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v17）
-│                              #   项目（含项目指令文件与 Web Search 开关）、会话
-│                              #   （含 kind：dev/qq_group）、任务
-│                              #   （accessMode/权限版本/授予路径）、确认请求
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v32；
+│                              #   meta 含实例标识、应用数据绑定、产品归属
+│                              #   product.type——跨产品复用被拒绝）
+│                              #   项目（含项目指令文件与 Web Search 开关、
+│                              #   settings_version 并发保护）、会话
+│                              #   （含 kind：dev/qq_group；workspace_project_id
+│                              #   组织归属仅展示，资料身份仍是 project_id）、任务
+│                              #   （accessMode/planMode/权限版本/授予路径）、确认请求
 │                              #   （结构化范围/消费时间）、工具操作（宿主操作
 │                              #   id + SDK 调用 id）、产物元数据、目录占用、
 │                              #   幂等键、持久事件、跨项目资料授权、长期记忆
 │                              #   当前版本与修订、历史条目位置索引、选择记录、
 │                              #   MCP 服务配置、QQ 入口配置/群会话映射/收件登记/
-│                              #   发送记录（qq_config/qq_sessions/qq_inbox/qq_outbox）
+│                              #   发送记录（qq_config/qq_sessions/qq_inbox/qq_outbox）、
+│                              #   跨实例导入回执与条目账本（issue 21，
+│                              #   instance_imports/instance_import_items）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（issue 02，ADR 0009；独立库，
 │                              #   实例 ID 登记在核心库 meta；丢失/身份不符即停止能力）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
+├── inbound-media/             # 0700；入站图片暂存（文件0600），尚未成为任务产物
+├── migration/<导入ID>/        # 跨实例导入记录（issue 21，0700）：
+│                              #   target-before.db = 导入前目标库备份（整库恢复路径）
 └── runtime.lock/              # 实例锁（mkdir 原子创建；owner.json 记录 pid）
 
 <dataDir>/../qq-work/           # QQ 群会话专用空工作目录（每 账号_群 一个，0700）
@@ -403,7 +684,7 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 ├── control.sock               # 控制面 Unix socket（0660）
 └── owner.token                # 拥有者令牌（0600；部署时复制给拥有者 0400）
 
-<dataDir>/artifacts/           # 0700；工具正文产物（<artifactId>.bin）
+<dataDir>/artifacts/           # 0700；工具正文与不可变图片产物（<artifactId>.bin）
 
 <agentDir>/                    # 0700（RUUKOTO_AGENT_DIR，默认 ~/.ruukoto/agent）
 ├── models.json                # 模型配置（显式指定，不读 ~/.pi/agent）
@@ -414,14 +695,30 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 └── config.lock/               # 配置独占锁（issue 21；后台运行期间持有，
                                #   离线配置据以互斥，语义同实例锁）
 
-~/.ruukoto-dev/<仓库>-<哈希>/   # 开发实例 profile（npm run dev，0700）：
+~/.ruukoto-code/          # ruukoto-code 产品档案根（ADR 0017，0700）：
+                               #   data/ agent/ control/ pending/
+
+~/.ruukoto-dev/<仓库>-<哈希>/   # ruukoto 开发 profile（npm run dev，0700）：
                                #   data/ agent/ control/ pending/ logs/
-                               #   与日常实例完全隔离，不继承生产凭据与配置
+                               #   与日常实例完全隔离，不继承生产凭据与配置；
+                               #   保留现有 ruukoto 开发历史
+
+~/.ruukoto-code-dev/<仓库>-<哈希>/ # ruukoto-code 开发 profile（npm run code，0700）：
+                               #   同上结构；不自动迁入 dev 历史
 ```
 
 职责边界：pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；
 产物正文在产物文件，SQLite 只存其元数据。三者没有跨文件事务，不得声称
 原子提交。
+
+schema v31 新增 `inbound_media_messages` 与 `inbound_media`，分别保存图片消息信封、
+拒绝状态及按原顺序的图片下载和最终归属记录；`artifacts` 新增可空 `mime_type` 与
+`content_hash`，旧产物保持空值。暂存与拒绝账本不跨实例导入，已提升图片沿任务产物
+复制并保留 MIME 与哈希。恢复与过期清理见「私聊图片入站」。
+
+schema v32 为 `tasks` 增加 `plan_mode`（默认 0），重建会话默认模式的 CHECK 以接受
+`plan`；原访问模式、会话设置、任务与索引保留。旧输入不回填计划状态，旧 `/plan`
+文本与继续链均不决定执行模式。
 
 任务状态机：`queued → running → awaiting_confirmation → running`；结束进入
 `completed / failed / canceled / interrupted`。中断原因、取消意图与外部
@@ -431,6 +728,147 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 记录核实的操作 → `effect_unknown`，不重放。获批后复核或消费失败的批准标 stale，
 不能再用，操作同样按已知未执行。效果以停止瞬间为准：中止期间才落下的结果不改
 结论。
+
+### 旧实例开发资料迁入（agent-direction issue 21，ADR 0022）
+
+`ruukoto-code legacy-import` 只在 **ruukoto-code** 产品下可用（bin/ruukoto-code.mjs），
+把旧 ruukoto 实例（如 `~/.ruukoto/data` 或服务器实例的副本）中的开发资料迁入
+Coding Agent 档案。目标侧离线执行：preview/apply/revert/list 都要求目标后台
+已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活
+（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制
+到临时目录后在副本上迁移，源目录逐文件 sha256 不变。
+
+```bash
+ruukoto-code legacy-import preview --from <源数据目录> [--plan 计划文件]
+ruukoto-code legacy-import apply --plan 计划文件 [--request-id <id>]
+ruukoto-code legacy-import revert <导入ID>
+ruukoto-code legacy-import list
+```
+
+流程：preview 列出源/目标实例、每个项目的会话归属（普通 dev/角色/群/子会话）、
+根目录在本机的核实结果、历史状态、未终态任务及收尾方式、待处理审批、记忆
+（可导入/待处理）、授权（导入/跨实例）、凭据绑定缺口、重名与 ID 冲突、
+agentDir 差异（只列名称）与修订值；`--plan` 把修订与源实例写回计划文件。
+拥有者在计划文件中修改 `renames`（重名项目改名）与 `personal_memories`
+（显式选中发布的个人记忆），apply 先查回执/核修订（源或目标变化即
+`revision_conflict`），再备份目标库 `<dataDir>/migration/<导入ID>/target-before.db`
+（VACUUM INTO，回执记录 sha256），复制文件后单事务入库并写回执与条目账本；
+中断后用同一计划重跑即可，同键重放返回原回执。
+
+导入范围（allow-list，行 ID 原样保留）：源项目内的普通 dev 会话及其任务、
+工具操作、审批、产物、选择记录、压缩点、事件与 SubAgent 一层（子会话以
+关闭状态登记）；项目配置（指令/Web Search）、范围内记忆、双端都在导入
+范围的资料授权、MCP 与 Jev 配置（缺凭据绑定时以停用导入，由拥有者重新
+绑定）。不导入：角色绑定会话、QQ 群会话与 main 资料、inbound/调度/通知/
+长期授权/平台配置、历史索引（派生，重建）、目录占用、agentDir 全部配置
+与凭据。未终态任务收尾为 canceled/interrupted（migration），结果未登记且
+可能已开始执行的工具操作与任务置 effect_unknown（审批未消费挡住的操作属
+已知未执行）；未消费审批 stale；`full_access` 会话默认降为 confirm；queued
+会话不在目标入队——导入不调用模型、不重放外发。
+
+恢复与回退：`revert` 按账本删除导入的行、事件区间与经 sha256 核对的复制
+文件（导入后目标侧的自有活动——导入的会话/项目/记忆有新任务、新事件、
+新会话、新授权、组织引用或新版本——逐项列出并拒绝回退）。阻挡时返回
+`ok: false`、`status: applied`，回执与已导入资料保持原状；成功回退返回
+`status: reverted`。回执永久保留
+（applied/reverted），`list` 可核实。整库恢复为手工路径：停止 ruukoto-code
+后台，用备份替换数据库后重启：
+
+```bash
+ruukoto-code stop  # 确认后台已停止
+cp <dataDir>/migration/<导入ID>/target-before.db <dataDir>/ruukoto.db
+rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm
+# 复制的 JSONL 与产物正文如需一并移除，按回执 report.files 逐项删除
+```
+
+任何路径都不删除或修改源资料；导入不做增量同步（源侧新增只在报告列出，
+可再次导入）。
+
+### 旧实例个人资料迁入（agent-direction issue 22，ADR 0023）
+
+`ruukoto legacy-import` 只在 **ruukoto** 产品下可用（bin/ruukoto.mjs），把旧
+ruukoto 实例（如 `~/.ruukoto/data` 或 tx 服务器实例的副本）中的个人资料迁入
+**全新** ruukoto 实例——main 会话、应用数据、调度、平台绑定与必要凭据；旧
+coding/chat 档案与发送事实随迁为只读归档。离线语义与开发方向相同：preview/
+apply/revert/list 都要求目标后台已停止（CLI 持目标实例锁），源全程只读
+（`ruukoto.db` 与 `agent-data/main.db` 均逐文件复制到快照后读取）。目标必须
+未初始化：目标后台启动过（有自有角色行与 main 会话）即拒绝；源或目标后台
+存活、同一路径、同一实例 ID 也都拒绝。
+
+```bash
+ruukoto legacy-import preview --from <源数据目录> [--plan 计划文件]
+ruukoto legacy-import apply --plan 计划文件 [--request-id <id>]
+ruukoto legacy-import revert <导入ID>
+ruukoto legacy-import list
+```
+
+preview 列出**交接清单**（平台配置含 config_version 与 telegram 偏移、活动
+调度、生效中的长期授权）、应用数据与绑定核对、会话归属（main/coding/chat/
+群/SubAgent/dev 排除）、各项收尾计数（任务、审批、发送、入站、运行）、
+记忆与授权分类、MCP/Jev 停用项、凭据动作（copy/skip/conflict）、归档计数、
+冲突与修订值；`--plan` 写回绑定字段后由 apply 核验（`revision_conflict` 时
+重新 preview）。
+
+导入范围（allow-list，行 ID 原样保留）：main/coding/chat 角色行及其项目与
+会话（角色工作目录在目标 `<dataDir>/../agent-work/<角色>` 重建并取目标身份，
+角色会话 cwd 随之改写）、QQ 群会话与群归档四表（`qq_sessions`/`qq_inbox`/
+`qq_outbox`/`chat_result_acceptances`）、这些会话的任务/工具操作/审批/产物/
+选择记录/压缩点/事件、main 的一层 SubAgent 与工作委托（以关闭状态登记）、
+内全部 `inbound_events`、`schedules`/`schedule_runs`、`notification_ops`、
+`standing_permissions`、`qq_config`/`telegram_config`（含 `last_update_id`）、
+GitHub 归档三表与 `github-archive-manifest.json`（v9 前遗留表在全新目标按快照
+DDL 重建）、`agent-data/main.db`（+WAL，经 sha256 核对复制）与 meta
+`app_data.main_instance_id`/`github_retirement_done`、可核验来源的 main 项目与
+personal 记忆（同产品延续，不做计划选中；引用 dev 会话的记忆列待处理，正文
+留源实例）、两端都导入的资料授权、导入项目的 MCP 与 Jev 配置（缺凭据以停用
+导入）。**必要凭据**：平台配置引用的绑定与 purpose `github_webhook` 的绑定从
+源 credentials.json 合并进目标（同名同值跳过、异值拒绝，报告只记 sha256）；
+MCP/Jev 凭据不复制。排除：普通 dev 会话及其 SubAgent 与项目（经 issue 21 迁入
+Coding Agent）、历史索引两表（派生重建）、目录占用、导入账本自身、模型目录
+与 API key（配置中心负责）；普通 dev 项目的记忆与授权按来源规则不进目标。
+
+不重放收尾（与运行时恢复同口径）：queued 任务 canceled、running/
+awaiting_confirmation interrupted（结果未登记且可能已开始的操作与任务置
+effect_unknown）、未消费审批 stale；未关闭调度运行置 `closed_at`；发送账本
+pending→canceled（error_kind=migration，已知未发送不当作新请求重发）、
+sending→effect_unknown；入站 registered/queued→failed；SubAgent 关闭登记；
+main 会话访问模式原样保留（同产品延续，不降级）。
+
+**执行归属交接与旧实例停用**：apply 完成后，平台连接与调度的执行归属移到
+目标——目标以导入的 telegram `last_update_id` 继续消费（入站去重表随行，
+不看旧事件）、活动调度在目标按恢复语义各触发一次（旧 pending 发送已取消，
+不产生双发）、长期授权在同机同入口身份下继续有效（不符即在使用侧 fail-
+closed）。**拥有者务必在 apply 后停止并退役旧实例：不得再启动旧后台消费
+平台入站或调度**，否则两端会各自轮询同一 bot、独立触发同一批通知——这是
+一次性切换，导入工具不改源实例一字。GitHub webhook 监听地址为启动参数
+（`--github-webhook-config`），需要在目标启动时重新给出（凭据绑定已随迁）；
+GitHub 侧 webhook URL 指向新地址属拥有者的平台外操作。
+
+恢复与回退：幂等与备份机制与开发方向一致。`revert` 按账本删除导入行、
+事件区间与经 sha256 核对的复制文件（含 `agent-data/main.db`），并按回执摘除
+导入的凭据绑定。回退阻挡项逐项列出：导入的会话/项目/记忆有新任务、新事件、
+新会话、新授权或新版本；目标启动后有新入站事件、新发送操作、新调度/运行、
+新长期授权；导入行被目标运行时改写（已发送、已 advance、已消费偏移、撤回
+标记更新，经回执 manifest 逐行 sha256 核对）；应用数据文件被写；导入凭据被
+轮换。阻挡时返回 `ok: false`、`status: applied`，回执与目标资料保持原状；
+成功回退返回 `status: reverted`。即：切换期间新增的执行及发送事实是目标侧事实，不能抹掉，回退只在一
+切未发生时整体移除。导入写入的产品归属（meta `product.type`）与目标备份
+不随回退移除——回退回到"已登记 ruukoto 的空实例"，与开发方向一致。整库
+恢复为手工路径（替换 `target-before.db`），仅在回退路径不可用且确认无切换
+后事实时使用——恢复出的旧库不重演备份后的任何发送与调度（备份时刻全部
+未定终态已按迁移规则落定）。
+
+```bash
+ruukoto stop  # 确认后台已停止
+cp <dataDir>/migration/<导入ID>/target-before.db <dataDir>/ruukoto.db
+rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/main.db*
+# 复制的 JSONL/产物/归档文件需一并移除时，按回执 report.files 逐项删除；
+# 凭据摘除按回执 report.credentials 逐项核对
+```
+
+演练参见 `.scratch/agent-direction/smoke-22-migrate-personal-instance.mts`
+（真实 bin 双实例 + telegram stub 证实偏移连续与一次触发）；验证记录区分
+模拟模型与真实进程，见工单 22。
 
 ## 上下文、历史检索与长期记忆（issue 05）
 
@@ -463,6 +901,12 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 
 ### 上下文选择（§3/§4）
 
+- 私聊图片的会话历史只保存 `ruukotoMediaRefs`（产物、任务、会话 ID、MIME、
+  字节数及内容哈希）。选择时恢复带空 data 的标准图片占位块，按现有 SDK 图片
+  估算计入预算；发送前按引用读取并验证不可变产物，生成真实 `image` 内容块。
+  prompt 快照只保存 `image_ref`，不重复保存完整 base64。`resumesTaskId` 继续链的
+  源图片绑定本轮用户消息，因此源交互被压缩或移出时仍能重放；摘要不保留视觉细节。
+  所选模型不支持 image 时拒绝请求，文件或引用校验失败时也不发送缺图请求。
 - 策略 `deterministic-v1`（`src/agent/context-selector.ts`）：必须项 = 宿主系统
   指令、参考块（项目指令、技能目录、继续来源任务要求、计划说明）、按记忆预算选入的
   长期记忆、当前任务输入、最新完成的工具批次；历史按完整交互（一轮用户+助手+工具消息）
@@ -478,9 +922,9 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   说明只属于当前任务，插在当前任务输入之前，不打断其前的历史。记忆没有变化、没有
   继续来源与计划说明、历史未移出且 Jev 关闭时，同一会话连续调用中前一次的消息序列
   是后一次的前缀，提示缓存覆盖整段历史。`/context` 分类与估算口径不变。
-- 系统提示（issue 24）：由宿主按会话类别固定为四份之一（`SYSTEM_PROMPTS`，
-  `src/agent/session-factory.ts`）——普通开发会话、main、coding（含 GitHub
-  评审子任务）、chat（chat 角色与 QQ 群会话）；pi 只在末尾追加
+- 系统提示（issue 24）：由宿主按会话类别固定为三份之一（`SYSTEM_PROMPTS`，
+  `src/agent/session-factory.ts`）——普通开发会话、main、SubAgent（含 GitHub
+  评审 SubAgent；coding/chat 提示随角色退役删除，agent-direction issue 23）；pi 只在末尾追加
   `Current working directory: <cwd>`，不输出默认模板的工具段、guidelines 与
   pi 文档路径。装配时显式传入 `systemPrompt` 与空 `appendSystemPrompt`，
   pi 不查找也不读取工作区 `.pi/` 与 agentDir 下的 `SYSTEM.md` /
@@ -491,8 +935,14 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   `[长期记忆 <id> v<N> · <类别> · <范围>]`。MCP、web_search 结果与新闻快照的
   外部资料警示逐条保留。
 - 项目指令：拥有者显式配置的工作区相对路径（`ruukoto project
-  set-instructions <项目id> <文件...>`），任务开始时经受限读取钉版
-  （realpath 后必须仍在工作区内；缺失/不可读/超大分别说明，不取祖先目录
+  set-instructions <项目id> <文件...>`）。基准目录取
+  `project.rootDir?.cwdReal ?? session.cwdReal`（工作区组织归属
+  `workspace_project_id` 只决定展示，不参与基准与配置来源判定）：带根目录
+  归属的工作区读取前按
+  realpath/dev/ino 核实根目录身份（`verifyDirIdentitySync` 同步变体），根目录
+  失效或被替换时拒绝读取替代目录并给出明确说明（不退回会话子目录）；无根目录
+  归属的旧项目行为不变（按会话目录解析）。任务开始时从基准目录经受限读取钉版
+  （realpath 后必须仍在基准目录内；缺失/不可读/超大分别说明，不取祖先目录
   文件）；内容捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定，只写入
   选择记录，下一任务重新读取即为刷新入口。指令作为带标记的参考消息注入一次，
   不能变更控制面身份、审批规则或权限模式（说明在系统提示中）。
@@ -598,11 +1048,10 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
 - 钉版：任务开始时（与项目指令同一时点）读取技能库，目录与全部 `SKILL.md`
   正文钉在内存，本任务内的 `skill` 加载与 `/skill` 展开都用这份；版本 = 钉版
   内容的 sha256，写入选择记录 `skillVersion`。
-- 上下文：main、coding 与普通开发会话注入「技能目录」参考消息（只含名称与
+- 上下文：main 与普通开发会话注入「技能目录」参考消息（只含名称与
   描述，不含主机路径与 `disable-model-invocation` 技能），计入固定预算，超
   预算按 `context_budget_exceeded` 中断，不截断；`/context` 显示「技能」类别。
-  chat 与 QQ 群不注入目录、不装配工具；GitHub 评审任务的收窄工具集不含
-  `skill`，也不注入目录。
+  SubAgent（含 GitHub 评审）不注入目录、不装配 `skill`。
 - `skill` 宿主工具（只读，任何访问模式都不产生审批）：只传 `name` 返回钉版
   正文与版本（仅显式调用的技能被拒绝）；再传 `path` 读取该技能目录内的引用
   文件——相对路径、不含 `..`、realpath 仍在技能目录内、普通 UTF-8 文本，调用
@@ -628,10 +1077,8 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   预览仍保留 32 项、每串 256 字符），TUI 总能拿到完整清单。
 - 用法写在工具描述中（3 步以上的工作才使用、同时只标一项进行中、完成一项
   立即更新），不改系统提示、不做定期提醒；「只有一项进行中」不校验。
-- 适用会话：与编码工具同一条件装配——普通开发会话与 coding 角色（含 main
-  委派的 coding 子任务）；main、chat 与 QQ 群不装配，GitHub 评审任务由收窄
-  工具集排除。无副作用：任何访问模式都不产生审批；可重试（失败的 analyze
-  委派子任务若只含可重试操作，仍自动重试一次）。
+- 适用会话：与编码工具同一条件装配——普通开发会话；main 与 SubAgent 不装配。
+  无副作用：任何访问模式都不产生审批。
 - 清单跟随会话：会话中最近一次成功调用的参数即当前清单，跨任务延续；校验
   失败的调用不改变清单；新会话没有清单。不建表、不另存文件，会话历史与
   工具记录是唯一来源。
@@ -641,35 +1088,42 @@ create_session 幂等键，同键同参返回原记录、同键异参报 request
   需要时自行重写。不做每次调用注入（清单一改就会让其后整段历史的提示缓存
   失效）。
 
-### 计划模式（issue 26）
+### 计划模式（issue 31，ADR 0025）
 
-- 提交：TUI `/plan <内容>` 把整行作为任务输入提交（CLI `ruukoto submit … "/plan …"`
-  同一路径，沿用 `request_id` 去重）；不带内容只显示用法。标记规则：任务输入以
-  `/plan` 加空白开头且其后有内容。不加会话状态，不改控制协议与表结构。
-- 适用会话：只限普通开发会话。角色会话（main、coding、chat）与 QQ 群会话提交
-  带标记的输入返回 `invalid_params`，不创建任务；Telegram/QQ 私聊正文经编排器
-  包装为 `[入站事件]…`，不会被识别。
-- 判定：任务开始时钉版——输入带标记，或经 `continue` 逐级继续的原任务带标记。
-  以计划模式运行的任务中断后，继续时仍按计划模式运行。
-- 上下文：任务输入照原样保存、显示与发给模型；计划说明（只调研、不修改；bash 只
-  运行只读命令；最终回答给出计划）作为宿主固定的参考消息，与继续来源一起插在
-  当前任务输入之前（不是前缀消息），只在计划模式中出现，`/context` 显示「计划
-  模式」类别。回答格式自由，宿主
-  不解析步骤；进度交给工作清单。
+- 选择：普通开发会话通过 `/mode` 或 Shift+Tab 选择 Plan，CLI 可用
+  `set-session-mode <session> plan` 保存默认选择，`submit/continue --mode plan` 只覆盖本次
+  提交。控制面的 `set_session_mode.mode` 与 `submit/continue.access_mode` 同样接受
+  `plan`。会话默认值持久化并带版本更新、事件广播与重连刷新，持续到拥有者手动更换；
+  main、SubAgent、退役归档和 IM 入口不能选择 Plan，后台按会话身份核实。
+- 固定表示：提交时将最终选择保存为任务的 `planMode=true` 与
+  `accessMode=auto-review`，会话默认模式变化不改写排队、运行或等待审批中的任务。
+  计划完成或收到“开始实现”仍保留计划约束，Agent 提示拥有者先手动切换模式。
+- 继续与切换：`continue` 创建新任务，采用提交时的会话默认值，显式一次性模式优先。
+  保持 Plan 后继续仍有计划约束，切到 Full access 后继续开放执行工具；反向同样成立。
+  不读取源任务输入或 `resumesTaskId` 链决定模式，旧批准不继承。任务级 `switch_mode`
+  不能进入或退出 Plan，也不能改其固定 Auto review 策略；拒绝前不改权限版本与审批。
+  非 Plan 任务仍可在原三种访问模式间切换。
+- 上下文：任务输入照原样保存、显示与发给模型；宿主按任务 `planMode` 注入计划说明，
+  要求持续调研和完善计划、不修改文件、长期记忆或外部状态，bash 只运行只读命令，
+  执行前由拥有者手动切换模式。说明与继续来源一起插在当前任务输入之前，属于任务级
+  参考块，`/context` 显示「计划模式」类别。回答格式自由，宿主不解析步骤；进度交给工作清单。
 - 工具白名单（与 GitHub 评审的按任务收窄组合，在激活、发送前与调用时三处检查）：
   `read`、`bash`、`request_file_access`、`http_request`、`read_artifact`、
   `history_search`、`history_read`、`memory_list`、`memory_read`、`web_search`、
   `todo_write`、`skill` 与类别为只读的 MCP 工具。`edit`、`write`、`memory_save`、
   `memory_revoke` 与非只读 MCP 工具不可用；今后新增的工具默认不可用。
-- 不是安全边界：bash 保留，只靠计划说明约束，仍可能写入工作区（需要硬保证时改为
-  容器只读挂载或去掉 bash）。`request_file_access`、`http_request` 的审批与普通任务
-  一致，逐次审批不变。访问模式不变（提交时的会话默认或显式模式），计划模式只
-  收窄工具，不扩大授权。
-- 执行：计划完成后拥有者的下一条普通消息即按计划执行，工具集恢复、没有计划说明。
-  批准计划不等于审批其中的操作：执行任务仍按访问模式逐次审批。
-- TUI：以计划模式运行的任务在底栏访问模式旁显示「计划」（继续的任务按原任务输入
-  判定）。输入或原任务不在本地时不标注：其他客户端（如 CLI）提交的任务在重新同步
-  或 `/status` 前不标注。
+- 权限与边界：固定采用 Auto review 的受限执行环境；符合 ADR 0005 策略的越界读取
+  进入独立无工具审查，写入、带凭据请求和不能确认的操作转人工，审查失败不放宽权限。
+  保留的 `bash` 仍可能写入工作区，`request_file_access` 与 `http_request` 也支持经人工
+  批准的写入参数；白名单与说明不提供全面只读保证。Plan 不扩大授权、不新增访问策略。
+  批准计划不等于审批其中具体操作，执行任务仍按所选访问模式审批。
+- TUI：模式列表与循环按会话资格展示 Plan，Esc 取消不保存；底栏显示当前任务模式，
+  与后续任务默认值不同时另显示会话默认模式；任务标识来自后台 `planMode`。切换普通开发会话时，Plan 按已有
+  设置同步路径保存到目标会话，覆盖目标原默认值；新提交等待保存完成。
+- 删除旧入口：TUI 的 `/plan` 注册、补全和帮助已移除，按未知命令处理。CLI/API
+  的 `/plan …` 仅作为普通输入，历史文本保持原样；新旧任务都不从文本或继续链识别 Plan。
+- 提交去重：摘要保存原请求参数，未显式模式以缺省值表示；第一次接收才固定当时的
+  最终模式。同键同参重试返回原任务，之后更换默认值不会重复建任务或改写原任务模式。
 
 ### Jev 上下文筛选实验（issue 08）
 
@@ -909,40 +1363,58 @@ ruukoto telegram enable | disable | status
   配置后 scope 收紧到 `telegram_bot`）；核心库 `telegram_config` 单行只存绑定名、
   固定 owner `user_id + chat_id`（私聊 chat_id 即 user_id，缺省相同）、启停、
   `config_version` 与轮询偏移。token 在请求 URL 中，错误信息写入日志/账本/状态
-  前先脱敏；不进入模型上下文与事件。
+  前按该请求捕获的 token 脱敏（覆盖轮换/删除后旧请求的迟到错误）；不进入模型
+  上下文与事件。
 - `--api-base` 缺省官方端点，可指向受控反代（必须 https，http 仅限回环）。
   Node `fetch` 不读 `HTTP(S)_PROXY`；国内服务器需要反代或网络层代理。
 - 任何配置变化递增 `config_version` 并即时重连；重新配置把轮询偏移归零（平台
-  重投由外部 id 去重）。旧目标上未发送的操作因版本变化取消，不改发新目标。
-- dev 开发实例固定注入 `RUUKOTO_DISABLE_TELEGRAM=1`，不创建适配器。
+  重投由外部 id 去重）。凭据的同名修改或删除也在写入前单调推进 `config_version`
+  并归零偏移——旧连接、旧消息与旧批准失效，A→B→A 轮换不恢复旧代次。旧目标上
+  未发送的操作因版本变化取消，不改发新目标。
+- dev 开发实例固定注入 `RUUKOTO_DISABLE_TELEGRAM=1`：适配器照常创建但不轮询，
+  Telegram 入站作废、排队任务按 `telegram_unavailable` 取消。
 
 ### 运行行为
 
 - **接收**：long polling `getUpdates`（25s，只收 `message`）。只接纳
-  `chat.type = private` 且 `from.id / chat.id` 与配置一致的文本消息；其余不登记、
+  `chat.type = private` 且 `from.id / chat.id` 与配置一致的文本或 photo 消息；其余不登记、
   不建任务、不调用模型，只记 `telegram.rejected`（update/chat/user id 与原因
-  `not_owner / not_private / non_text / unsupported_update`，不含正文）。
+  `not_owner / not_private / non_text / unsupported_update`，不含正文）。转发
+  （`forward_origin/forward_date`）消息照常登记建任务，但其内容不解释为审批命令
+  （不进入 `commandText` 解析）。photo 取像素面积最大的 PhotoSize，先调用 `getFile`
+  再下载；caption 可为空，回复图片消息的 caption 也可成为有界摘录。图片接收规则见
+  「私聊图片入站」。
 - **先持久化再推进偏移**：接纳的消息经编排器登记为入站事件
   （`source = telegram`，外部 id `<botId>:<chatId>:<messageId>`，目标 main），
-  登记成功后才写 `last_update_id`。崩溃/断线后平台重投命中原外部 id，不重复建
-  任务；已登记未派发的事件由启动恢复与调度器每 30s 补派（所有来源）。停机
-  积压的消息全部处理（正文带原消息时间）。
+  登记成功后才写 `last_update_id`；推进偏移前再次核对仍是同一代次。崩溃/断线后
+  平台重投命中原外部 id，不重复建任务；已登记未派发的事件由启动恢复与调度器
+  每 30s 补派（所有来源）。停机积压的消息全部处理（正文带原消息时间）。
+- **收件钉版与门**：收件时按该次轮询捕获的配置/凭据钉版 `reply_target`
+  （平台/bot/chat/配置版本）并持久化；派发、任务启动（`runQueueLoop`）与终态回复
+  都经 `gatePrivate` 复核来源、actor（配置 owner user_id，不能由 chatId 推断）与
+  钉版目标。版本未变的暂时离线等待恢复；停用、重绑或目标变化明确失效（旧
+  `reply_target = null` 的遗留消息也不补造，其 registered/queued 工作失效，历史
+  与执行事实保留）。
 - **入站正文**：固定模板 `[Telegram 私聊] chat … user … message … 时间 …`，回复
   某条消息时附 `回复关联：message <id>（本 bot / owner 发送）：<摘录 ≤500 字>`。
 - **权限**：入站事件（Telegram、定时唤醒等）建任务一律固定 `confirm` 模式，不继承
-  main 会话默认的 full_access；需要审批的操作仍在 TUI 确认（Telegram 内审批另开工单）。
+  main 会话默认的 full_access；审批可由绑定拥有者在 Telegram 私聊完成，见下文
+  「IM 审批」。
 - **回复**：Telegram 来源任务到达终态时，在编排器结果事务内登记 `owner_reply`
-  发送操作（发送键 = 入站事件 id，目标 = 当前固定 owner 目标，且须与登记该消息的
-  bot + chat 一致）。正文取**本任务**历史条目的最终回答（不取会话最新一条），超
-  4000 字截短注明；失败/超时/未知只发宿主固定提示。重启时结果未落库的任务由编排器
-  巡检补记并补登回复。定时唤醒与普通子任务唤醒不产生 `owner_reply`（需要时 main 用
-  `notification_enqueue` 另行确认）；GitHub 结果通知按 ADR 0013 单独授权。
-  目标不可用时记 `telegram.reply_skipped`。
-- **发送**：`sendMessage` 纯文本，带 `reply_parameters` 关联原消息。结果分类：
-  2xx 回执 → `sent`；429 → 退回 `pending` 按 `retry_after` 再发；其他 4xx 与连接
-  未建立（ECONNREFUSED/ENOTFOUND 等）→ `failed`；5xx、超时、中途断开、回执不可
-  解析 → `effect_unknown`。`failed/effect_unknown` 不自动重发。渠道可用性 = 轮询
-  是否健康；离线时回复保持 `pending`。
+  发送操作（发送键 = 入站事件 id，目标 = 该事件收件时钉版的 `reply_target`，且须
+  与当前固定 owner 目标一致，配置换了 bot/chat 不改发）。正文取**本任务**历史条目
+  的最终回答（不取会话最新一条），超 4000 字截短注明；失败/超时/未知只发宿主固定
+  提示。重启时结果未落库的任务由编排器巡检补记并补登回复。定时唤醒与旧 coding
+  子任务（已退役）的唤醒不产生 `owner_reply`（需要时 main 用 `notification_enqueue`
+  另行确认）；通用 SubAgent 工作的收尾唤醒按「通用 SubAgent 委派」节的最终
+  汇报规则例外发回工作发起入口（agent-direction issue 18）；
+  GitHub 结果通知按 ADR 0013 单独授权。目标不可用时记 `telegram.reply_skipped`。
+- **发送**：`sendMessage` 纯文本，带 `reply_parameters` 关联原消息。outbox 领取后、
+  实际请求前再次核对启停、固定目标与配置版本（不一致即 `target_changed`，可证明
+  未发送）。结果分类：2xx 回执 → `sent`；429 → 退回 `pending` 按 `retry_after`
+  再发；其他 4xx 与连接未建立（ECONNREFUSED/ENOTFOUND 等）→ `failed`；5xx、超时、
+  中途断开、回执不可解析 → `effect_unknown`。`failed/effect_unknown` 不自动重发。
+  渠道可用性 = 轮询是否健康；离线时回复保持 `pending`。
 - **断线**：轮询失败即标离线，指数退避 1s → 30s（429 按 `retry_after`）；重连后
   从持久偏移继续。停止时先中止长轮询并等待循环退出，之后不再写库。
 - **查看**：`ruukoto telegram status`（配置视图、在线状态、最近错误、偏移，不含 token）；
@@ -951,7 +1423,8 @@ ruukoto telegram enable | disable | status
 ## QQ owner 私聊（daily-agent issue 06，ADR 0012）
 
 QQ 好友私聊与 Telegram 共用 main 会话。复用现有 NapCat OneBot v11 正向
-WebSocket 连接；群聊仍使用独立会话与群收发记录。
+WebSocket 连接；核心群聊已退役（issue 20），旧群会话与收发记录保留为
+只读归档（见下文「QQ 群聊」）。
 
 ```bash
 # QQ_ONEBOT_TOKEN 由可信环境提供，凭据只登记一次
@@ -969,19 +1442,23 @@ ruukoto notify list
 schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
 `inbound_events` 增加可空 `reply_target`；旧库的群配置和收发记录保留，默认不开私聊。
 
-- **接收与身份**：仅接收固定 owner 的 `private/friend` 结构化文本消息，可含
-  回复消息 ID；不读取引用原文。临时群私聊、陌生人、自身回声、图片、附件和
+- **接收与身份**：仅接收固定 owner 的 `private/friend` 结构化文本或图片消息，可含
+  回复消息 ID；不读取引用原文。图片可以没有文字，多个图片段按原顺序处理。
+  下载来源限图片段的 `url/file`；file 无 HTTP 来源时调用 OneBot `get_image`，远程
+  OneBot 返回宿主无法读取的本地文件路径时明确拒绝。临时群私聊、陌生人、自身回声、附件和
   CQ 字符串格式不触发任务。登录账号和事件 `self_id` 必须匹配；
   `get_status` 与 `heartbeat.status` 同时检查 QQ 在线状态，WebSocket 存活但
   账号离线时也不接收新任务。token 不进入历史、日志或模型输入。
 - **持久化与恢复**：消息先登记 `source=qq_private`，按
   `<登录账号>:<owner>:<message_id>` 去重，再以原事件键进入 main 队列。
-  接收时固定回复目标和配置版本，派发与任务启动前复核；配置变化取消旧授权，
+  接收时固定回复目标和配置版本，派发与任务启动前复核；连接代次含配置版本
+  （配置/凭据变化即重建连接，旧连接上的事件不再接纳）。配置变化取消旧授权，
   离线保留已登记工作等待。断线期间未登记的消息没有持久投递保证；接收缺口
   经 `qq.receive_gap` 如实记录，不补抓平台历史。main 队列沿用角色的恢复规则，
   中断任务由拥有者决定继续，不套用无工具群会话的自动恢复规则。
-- **权限与资料**：任务固定 `confirm`；消息不能批准开发操作、开启完全访问、
-  修改角色或凭据。拥有者明确提出的编码请求可委派 coding，审批仍在可信 TUI。
+- **权限与资料**：任务固定 `confirm`；消息不能开启完全访问、修改角色或凭据。
+  拥有者可经私聊审批命令批准已有受控操作（见下文「IM 审批」平台身份不等于
+  通用控制面访问权）；拥有者明确提出的编码请求可委派 coding。
   main 和 coding 不能直接查询原始 QQ 群项目的历史、产物及带群来源的记忆，
   也不能通过委派资料或旧通知正文绕过；已有主会话内容仍跨平台共享，不追溯
   清洗已复制或转述的内容。
@@ -989,130 +1466,635 @@ schema v14 → v15 为 `qq_config` 增加可空 `owner_user_id`，并为
   的 `owner_reply`，按原平台和原 owner 发送。QQ 回复按 `max_reply_chars`
   截短后入账（默认 1500，实际平台上限待真实验收），单条纯文本，可引用原消息。
   明确失败为 `failed`，超时、断线、异步接受或缺少有效消息 ID 的回执为
-  `effect_unknown`，均不自动重发。定时和子任务唤醒不自动外发。
+  `effect_unknown`，均不自动重发。定时和旧 coding 链的子任务唤醒不自动外发；
+  通用 SubAgent 工作收尾汇报的例外见「通用 SubAgent 委派」节（issue 18）。
 - **通知**：QQ 入站任务申请的新通知或定时发送绑定收件时的 QQ 目标，经统一
   审批后发送；定时唤醒、子任务唤醒和直接 TUI 任务仍沿用 Telegram 默认目标。
   目标版本变化使旧操作取消，不切换到其他平台。QQ 私聊记录用 `notify list/show`
   查看；`qq inbox/outbox` 继续显示群记录。
-- **开发与验证**：`RUUKOTO_DISABLE_QQ=1` 同时关闭群和私聊连接。测试使用本地
+- **开发与验证**：`RUUKOTO_DISABLE_QQ=1` 同时关闭群和私聊连接；私聊入站作废、
+  排队任务按 `qq_private_unavailable` 取消，不停住 main 队列（ADR 0012 2026-10-06 修订）。测试使用本地
   模拟 OneBot 与模型，不向真实 QQ 账号发送；真实 NapCat 版本、消息格式与收发
   闭环须拥有者另行授权后验收。
 
-## main 委派 coding（daily-agent issue 05）
+## 私聊图片入站（agent-direction issue 25，ADR 0024）
 
-main 在拥有者明确提出编码、仓库、PR、测试或修改请求时，通过宿主工具
-`coding_delegate` 创建 coding 子任务；结果回到 main 会话，通过 `coding_result`
-读取。两个工具属于 `delegation` 类别，仅 main 装配，调用时重新核实任务、
-会话、项目与角色绑定；coding/chat/QQ 群聊与普通开发会话不获得委派能力。
+仅个人 Agent 的 Telegram／QQ 拥有者私聊接收 JPEG、PNG、WebP，每条最多 4 张，
+每张最多 8 MiB。不转码或缩放；声明 MIME 与文件 magic bytes 必须一致，GIF、SVG、
+伪造 MIME、大小或数量超限永久拒绝。Telegram photo 的尺寸列表代表同一张图片；
+媒体组按平台的独立消息处理。QQ 的多个图片段组成同一条用户消息。
 
-### 委派与执行范围
+`src/runtime/inbound-media.ts` 统一负责下载、校验、暂存、提升与恢复，两个适配器
+只提供安全消息信封和临时下载闭包。账本与文件不保存 URL、平台 token 或平台错误
+正文。最多下载 3 次，每次最多 15 秒，暂时网络失败依次等待 250、500 毫秒后重试；
+4xx（429 除外）、格式与上限错误直接拒绝。Telegram 在普通事件登记成功或媒体
+拒绝落账及回执登记前不推进 update offset；QQ 在适配器内完成重试后保存拒绝事实。
 
-- **触发来源**：只有拥有者在 main 会话直接提交的任务，或经 Telegram/QQ owner
-  入口核实身份的入站任务可以委派。定时唤醒、子任务结果唤醒及其他来源任务
-  拒绝委派；消息正文、项目指令和资料中的身份声明不能替代宿主来源记录。
-- **输入与固定参数**：模型只提供 `request / mode（analyze|draft）/ key /
-  materials?`。宿主固定目标为 `coding`、项目与会话为 coding 角色绑定、
-  工作目录为角色 `workDir`（`<dataDir>/../agent-work/coding/`）、权限模式
-  为 `confirm`，不继承 coding 会话默认模式。截止时间固定为父任务开始时刻
-  （尚无开始时刻则取创建时刻）+ 60 分钟，包含排队与审批等待；每个父任务
-  最多 3 个首次委派，同键重复调用与宿主自动重试不占新名额。
-- **幂等键**：`key` 为 1–64 位字母、数字、`_` 或 `-`，请求键为
-  `deleg:<parentTaskId>:<key>`。同父任务、同键同参返回原子任务，同键异参
-  明确冲突；原始参数的规范化摘要随宿主委派模板持久化，资料随后变化时，
-  同参重提仍复用首次快照。应答丢失时核实原请求键，不换键重复委派。
-- **资料快照**：`materials` 可省略，提供时为 1–8 个来源；复用
-  `createSourceResolver` 在委派时按 main 的可读范围解析，支持
-  `{kind:'text',text}`、`{kind:'task_result',task_id}`、
-  `{kind:'artifact',artifact_id,offset?,length?}` 与
-  `{kind:'app_data',table,row_id,field}`。任务来源取已完成且已记录的结果摘要；
-  产物来源取已定稿的 UTF-8 片段（偏移/长度按字节，单片最多 8 KiB）。来源
-  解析后的文本写入子任务正文，不传原始引用 ID；后续源数据变化不改写既有快照。不复制
-  main 完整会话历史，也不授予 coding 读取 main 应用数据或其他原始资料的
-  API 权限。宿主模板、请求和资料合计最多 8192 字符，超限拒绝，不截断。
-- **工作目录与模式**：coding 复用编码工具和既有审批边界，需要仓库时在角色
-  工作目录内自行 `git clone`，不另设仓库白名单。`analyze` 表示读取与分析
-  意图，用于结果标注与重试判定；它不是只读沙箱，`confirm` 本身允许工作区内
-  已授权的写入。`draft` 可生成修改草稿，不提交、不推送；GitHub 评论、PR
-  或其他外部发布仍须拥有者在可信入口确认。委派不开放任意工作目录、网络、
-  凭据或角色权限修改能力。
+接收按 `(source, external_id)` 去重，每张图片按消息与 `media_index` 去重。
+下载校验完成才登记普通 `InboundEvent`。模型不支持 image 时将媒体消息记为
+`rejected`、已登记事件记为 failed，并保留原消息与 `image_input_unsupported` 原因，
+不创建普通模型任务。继续任务或历史图片进入不支持视觉的模型时，Driver 在发出
+请求前使任务明确失败。两种路径都使用固定模型能力回执。
 
-### 结果协议与分页读取
+编排器创建任务后先准备不可变产物文件，再在同一 SQLite 事务内提交入站事件的
+task_id、artifact_refs、产物元数据与媒体归属；任务启动须确认该事件已绑定本任务。
+文件与数据库没有跨文件事务，确定的产物 ID 和哈希核实让提升可以沿原键重试。
+会话历史及 prompt 快照保存稳定引用，视觉输入在发送边界从产物恢复。含图片消息
+的 caption／文字只作为任务输入，不解析 `/approve` 等 IM 审批命令；出站保持文本。
 
-终态摘要保存到 `result_summary`（正文最多 1000 字符，超出注明截断），
-结构化结果使用既有 `result_ref` JSON，保留 `sessionId / taskId`：
+启动时恢复下载完成未登记、登记未建任务及建任务未提升的窗口；未完成下载没有
+可恢复下载闭包时明确拒绝，已完成文件在重新校验后继续登记。平台重新在线时补派
+并唤醒主会话队列。没有绑定任务的暂存超过 24 小时清理并保留可核查状态；后台启动
+及之后每小时检查一次。已经创建任务但尚未完成提升的恢复记录不清理，已绑定图片
+沿任务产物保留。
 
-- `mode`：`analyze / draft`；`outcome`：`completed / failed / timeout / unknown`。
-  截止时间取消记为 `timeout`，中断记为 `unknown`，普通取消保留原因并归入
-  `failed`；是否自动重试还须核实原任务状态，不能只看 `outcome`。
-- `tests`：`passed / failed / not_run / unreported`，来自 coding 自报，
-  不代表宿主独立验证通过；未按格式报告时为 `unreported`。
-- `needsOwner / needsOwnerReason`：宿主依据中断、效果未知、未处理审批等事实
-  判定，并合并 coding 自报的需要拥有者及原因；完整分页识别报告后，原因保留
-  最多 1000 字符，完整正文经 `coding_result` 读取。自报“否”不能覆盖宿主判定。
-- `effect`：`unknown / none_unknown`，依据宿主操作记录；`none_unknown` 只表示
-  未记录效果未知，不表示没有写入或其他副作用，也不足以证明可以重试。
-- `failure`：失败、超时、中断或取消的原因，完成时为空；`artifactIds`：该
-  子任务的产物引用，不含 `prompt-snapshot:*` 宿主诊断快照；`retriedBy`：
-  首次失败被自动重试接替时，记录重试子任务 ID。
+格式或上限拒绝、下载最终失败、视觉模型不支持分别使用三种宿主固定纯文本回执。
+回执经公共 outbox 登记，`sourceKind=inbound_event`、`sourceKey=media:<媒体消息ID>`，
+原消息重投、重启补登共用同一键。发送前核对拒绝账本、原拥有者与钉版目标；配置
+变化不改发，结果未知不重发。拒绝记录独立于普通任务入站，不能被派发成模型任务。
 
-宿主要求 coding 在最终回答末尾按以下两行自报（各取适用值，需拥有者时附原因）：
+模拟验证使用真实 Runtime／SQLite／文件和本地 Telegram Bot API、OneBot、模型
+服务：`test/90-inbound-media.test.ts`、`test/95-media-adapters.test.ts`、
+`test/96-vision-driver.test.ts`、`test/97-media-recovery.test.ts`。真实 Telegram／QQ
+图片收发 smoke 尚未执行，模拟 payload 通过不表示真实平台已通过。
+
+## IM 审批（agent-direction issue 08，ADR 0017/0011/0012）
+
+绑定拥有者在 QQ 私聊或 Telegram 私聊中查看审批详情并批准或拒绝已有受控操作，
+结果继续回到原入口。`src/runtime/im-approvals.ts` 的 `ImApprovals` 统一持有
+审批通知、命令、消费前复核、配置失效和长期授权候选；Runtime 只提供入口查询、
+解除指定审批等待和服务能力检查等依赖。平台身份不等于通用控制面访问权，审批
+身份、操作与范围仍由宿主核实。
 
 ```text
-测试：通过|失败|未运行
-需要拥有者：是（原因）|否
+/approvals [页码]                    # 待决审批分页列表（每页 5 条）
+/approval <完整审批ID> [偏移]         # 详情：工具/版本/范围概览 + 参数有界分段
+/approve <完整审批ID> <权限版本>      # 批准（绑定原请求与原权限版本，不接受部分 ID）
+/reject <完整审批ID> <权限版本>       # 拒绝
+/approve-standing <完整审批ID> <权限版本>   # 长期批准：保存服务 restart 授权并批准本次（仅服务 restart 审批）
+/service-grants [页码]               # 本入口长期授权分页列表（每页 5 条）
+/service-grant <完整授权ID> [偏移]    # 授权详情：完整范围/版本/存续原因/使用记录（每页 5 条）
+/revoke-service-grant <完整授权ID> <授权版本>  # 带版本撤销长期授权
 ```
 
-`coding_result` 只读父任务属于当前 main 会话的 coding 子任务，结果唤醒产生
-的新 main 任务也可读取；这是按父子关系开放的窄入口，不扩大通用跨项目资料
-授权。输入为 `task_id / part? / artifact_id? / offset? / length?`：
+- **命令解析**：只解析适配器提交的原始发送文本（正文模板与引用摘录之前），整条
+  匹配；已识别命令但格式错误时宿主返回用法。自然语言、引用中的命令、转发内容、
+  模型输出与群消息不会被解释为批准。首版为纯文本命令，没有按钮或 callback 协议。
+- **控制消息**：命令以 `inbound_events.event_kind = im_approval` 持久化
+  （`(source, external_id)` 幂等去重，schema v22 新增类别列，旧记录默认 `task`），
+  在同步事务内直接到 `done/failed`、`task_id = null`——不建任务、不调用模型、不进入
+  普通登记/派发，也不排在等待审批的普通任务后面。恢复派发显式排除控制类别；
+  崩溃遗留的 registered 控制事件明确作废，不作为普通提示或新的批准重放。
+- **回执与通知**：每个查询/决定回执一条公共 outbox 操作（`sourceKind =
+  inbound_event`，键 = 控制事件 id，固定命令收件时钉版的目标）。回执准确区分
+  「批准已接受，仍待执行前复核」「已拒绝」「已失效/已处理」，不把决定接受说成
+  操作成功。审批创建时在同一事务登记初始 IM 通知（`sourceKind = confirmation`，
+  键 `im-approval:<confirmationId>`，原委托收件钉版的目标）：工具/操作、范围概览、
+  权限版本、完整 ID 与查询/批准/拒绝命令；通知暂时发送失败不使操作获批。
+- **决定事务**：IM 决定经活动 Driver 的审批闸门，批准/拒绝、审计事件、控制事件
+  终态与回执在同一事务提交，提交后才唤醒等待者；中途写失败全部回滚。重复决定、
+  相反决定或 TUI/自动审查抢先时，只有 pending 的第一次合法条件更新成功。
+- **身份与归属**：列表、详情和决定只作用于原平台、原账号、原 owner、原配置版本
+  ——宿主从审批的任务沿 `parent_task_id` 找到原 IM 委托事件（断链、循环、无来源
+  或来源不是普通 IM 委托一律拒绝，不从会话最近消息推断），并逐项核对 actor 与
+  钉版目标。Telegram 的 `ownerUserId` 与 `chatId` 分别核对。另一平台、TUI 发起
+  且没有 IM 来源的审批不开放；未经核实身份不收到操作详情。
+- **执行前复核**：批准已接受、尚未消费期间的重新绑定、停用或凭据变化在统一的
+  消费事务内再次拦截（IM 固定身份 + 配置版本），消费前的操作既有复核（目录、
+  MCP 配置、凭据、应用数据）不变；消费即执行开始，此后不撤回不重放。
+- **失效与恢复**：配置版本变化（含凭据同名修改/删除在写入前的单调推进）使
+  受影响平台的 registered/queued 工作取消、未消费的待决与已批准请求失效并解除
+  等待——暂时离线只等待；失效只影响原平台，不波及另一平台在共享主会话中的工作。
+  重启恢复沿用既有收尾：未消费的待决/已批准一律失效，旧 waiter 不重建，旧平台
+  批准消息不重新执行（只回执已失效）；遗留 sending 记 `effect_unknown` 不重发。
+- **重投与重复**：同平台消息重投先比对原类别、actor、原目标与规范命令并读取原
+  回执；同键异命令拒绝，不按新的审批状态再执行；已完成的控制事件即使后来绑定
+  变化也不改目标、不换发送键。429 只按原操作延后，超时/断线/丢失回执不换键重发。
+- **长期授权命令（issue 10）**：`/approve-standing` 明确表示「保存持续授权并批准
+  这一次」——创建只接受当前 pending 的 service restart 审批，范围完全来自原不可变
+  审批记录（本机/单元/固定动作/策略与单元修订），宿主同时核实活动 main/任务、原
+  入站归属、完整 ID、当前权限版本、当前 actor 与固定目标，并同步重读部署策略；
+  授权创建、当前决定与授权关联、审计事件、控制事件终态与回执在同一事务提交，
+  任何一步失败全部回滚。原 `/approve` 仍只批准一次，绝不隐式保存长期授权。查看
+  与撤销只核实入口稳定身份（channel/account/chat/actor，可对旧配置代次的记录
+  操作并明确标注入口已失效）；使用放行的代次一致性在执行侧逐次核实。
 
-- `part=result`（默认）：返回任务状态、截止时间、结构化结果、摘要与产物 ID，
-  尚无结果时明确说明。
-- `part=reply`：读取该子任务自己的最终回答，按 UTF-8 字节分页；`offset /
-  length` 均以字节计，`length` 为 256–16384，默认 16384（16 KiB）。共用
-  `Runtime.readTaskReply`，可继续读取超过旧接口 256 KiB 上限的回答内容，
-  不从 coding 会话最新一条回答推断。任务完成前返回暂无最终回答，避免把
-  中间消息和最终回答拼入同一组分页。
-- `part=artifact`：须提供 `artifact_id`，并核实产物属于该子任务且不是宿主上下文
-  快照；按 UTF-8 字节分页，长度为 4–65536，默认 64 KiB，返回产物状态与正文片段。
-  非文本或未对齐的起始偏移明确报错，页尾保留未完成字符给下一页。两种正文读取的
-  `offset` 默认 0，响应注明总字节数与下一页偏移；续读使用响应给出的偏移。
+## 服务器服务管理（agent-direction issue 09，ADR 0019）
 
-编排器记录 `child_task.*` 事件，以固定 `confirm` 模式、限长摘要和结果引用唤醒 main，
-不继承 main 会话默认的完全访问。
-完整回答与产物通过上述工具按需读取。子任务不继承父任务的 Telegram 来源
-事件，子任务及其唤醒任务均不产生 `owner_reply`，结果不自动发回 Telegram
-（ADR 0011）；需要外发时由 main 经 `notification_enqueue` 另行请求确认。
-此处指 `coding_delegate` 的拥有者委派路径；GitHub webhook 由宿主固定委派，
-来源事件和一次摘要通知另按下节的 ADR 0013 处理。
+main 可检查服务器部署白名单内的服务状态，并经拥有者逐次审批执行管理动作
+（首版仅 restart）。宿主工具在 `src/agent/service-tools.ts`；审批、通知与
+批准消费复用 IM 审批通道，不另建控制面。
 
-### 自动重试与恢复
+- **装配边界**：`service_inspect` / `service_manage` 仅 main，且要求产品
+  ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER` /
+  `RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动）；
+  普通 dev、SubAgent 与 ruukoto-code 都不获得该能力，main 不因此
+  获得 bash。模型只提供白名单服务名与固定动作；主机身份、taskId、hostOpId、
+  执行身份与策略由宿主注入。
+- **helper 边界**（`deploy/systemd/ruukoto-service.mjs`，root 0700，仅后台
+  账户经 sudoers 固定路径调用；执行账户无新增 sudo/Polkit 权限）：固定
+  inspect / restart / stop-op 协议，绝对路径结构化 argv，清理环境，应答为
+  stderr 上 `RUUKOTO_SERVICE_REPLY` 前缀单行 JSON。策略 `/etc/ruukoto/
+  services.json`（root 0644）固定本机身份、执行 UID/GID、精确单元与允许
+  动作；拒绝别名、模板实例、通配符、选项注入与额外参数，固定拒绝后台、
+  Docker、执行工作进程与自身操作单元。检查以策略执行账户运行；修订指纹
+  覆盖策略与 unit/drop-in 内容及已加载配置（`NeedDaemonReload=yes` 拒绝）。
+- **审批**：`service_manage` 在任何访问模式（含 full_access）逐次审批——
+  root 分支是后台经 sudoers 的新提权能力，不属于执行账户已有权限。范围
+  `service_operation` 固定本机、规范单元、动作、策略与单元定义修订及任务
+  和宿主操作 ID；批准单次消费，消费事务内复核 main 身份与策略修订，helper
+  在请求 systemd 前再次核实全部修订。修订或 IM 固定身份变化即失效；已消费
+  但 helper 证明未请求 systemd 记为已知未执行，重新操作需要新审批。
+- **执行与回收**：每个宿主操作派生短命命令单元 `ruukoto-service-op-
+  <hostOpId>.service`（`systemd-run --pipe --wait`，KillMode=control-group，
+  RuntimeMaxSec=120），同一 ID 以 root 目录原子 mkdir 持久认领一次执行权
+  （跨进程与瞬态单元回收后的重复保护；标记只证明已认领）。停止协议只停派生
+  命令单元：先阻断后续启动（认领/stop-requested），再核实整个单元退出
+  （LoadState/ActiveState/MainPID/ControlPID 全部确认），查询失败不释放占用；
+  已提交 PID 1 的重启作业不撤回。原始 stdout/stderr 先入 ArtifactStore，
+  模型收有界视图，产物引用接到 `task.tool_result` 事件（中断保持 partial）。
+- **结果与恢复**：正常重启分述「管理命令结果」（退出码）与「随后观察到的
+  服务状态」（InvocationID 对照）；退出码 0 ≠ active ≠ 业务健康；后状态查询
+  失败保留已知命令结果。非零退出可能含部分效果（如已停止未能启动），不描述
+  为零执行。消费后的结果分类只认可信结论（issue 10 统一的边界）：确定的请求
+  前拒绝（`launched:false`）为已知未执行，确定的管理命令结果如实记录（含非零
+  退出）；其余消费后无可信结果的（协议错误/应答 ID 不符/原始输出未保全/派发后
+  失败/超时/中止）一律效果未知，不自动重发。helper 侧同样如实：`systemd-run`
+  spawn 只有可证明未启动（ENOENT 等）才报 `launched:false`，启动后的错误与
+  被信号杀死一律报「可能已派发」（不猜退出码）。账本规则
+  `service_inspect=no_effect`、`service_manage=approval`：未消费中断/重启=已知
+  未执行，已消费在途=效果未知；效果未知另使同目标有效长期授权失效（下节）。
 
-只有首次 `analyze` 子任务以 `failed` 状态结束，且宿主可证明没有执行写入或
-副作用不明的操作、没有效果未知记录、没有已批准或已消费审批时，才自动重试一次。
-`draft`、超时、中断、取消、结果未知与无法证明安全的失败均不自动重试；
-不能仅凭 `analyze` 意图、自报结果或没有 `effect_unknown` 就重放任务。
+## 长期操作授权（agent-direction issue 10，ADR 0017/0019）
 
-宿主按持久化工具记录保守核实：已有操作必须全部属于已知只读集合
-（`read / read_artifact / history_search / history_read / memory_list /
-memory_read / web_search`），结果已记录且效果已知。任何 `bash`、MCP、
-记忆写入、其他写工具或未知工具调用均不自动重试，包括经 `bash` 执行的
-`git clone`。
+拥有者经原 IM 平台的待审批把某次 service restart 审批保存为可查看、可撤销的
+限定长期授权：之后独立任务命中完全相同范围（同一 main、同一入口稳定身份与原
+目标代次、同一本机/单元/固定 restart、同一策略与单元修订）时自动放行，范围外
+仍逐次审批。存储在后台保护的核心库 `standing_permissions` 表（schema v23），
+不进入应用数据、记忆、项目指令、grantedPaths 或部署策略文件。
 
-重试保留原父任务、正文（含资料快照）、coding 角色与 `confirm` 模式，请求键
-固定为原请求键加 `:retry`，截止时间为首次任务结束时刻 + 60 分钟；重试任务
-本身不能再次自动重试。先按固定键提交或核实重试子任务，再为首次任务记录
-`retriedBy` 与结果；首次失败不唤醒 main，待重试终态后只唤醒一次。
-重试创建被拒且确认没有子任务时，保存原始失败与需要拥有者的原因，继续结果
-回传和后台恢复；已创建的重试仍按原键核实。执行后端暂不可用时，唤醒保留到
-后续恢复补发。
+- **范围与版本**：授权范围创建后不修改（修改经撤销后新建）。行级版本：创建为 1，
+  撤销/失效递增并保留记录；撤销与失效用授权 ID + 期望版本条件更新，重复撤销
+  幂等（不再次变更）。数据库部分唯一索引保证同一 main 会话、同一稳定入口身份
+  （channel/account/chat/actor）与同一目标最多一条未撤销授权，来源审批
+  `approval_id` 唯一（旧命令重投不能重新建授权）。配置代次与策略/单元修订
+  不进唯一键，只在使用资格核实中比对。
+- **使用（每次执行重新授权、单次消费）**：`service_manage` 先经 helper 取得本次
+  真实修订，宿主按当前 main、任务来源入口身份、钉版目标代次、本机/单元/动作与
+  两项修订查找候选（候选不是执行依据；观察到失配的旧授权同事务明确失效）。命中
+  时在单个同步事务内重读授权版本与未撤销状态、对执行快照逐项核实完整范围、核实
+  活动任务与取消状态，创建独立的初始已批准记录（不发布等待事件、任务保持
+  running、不启动自动审查）并经公共消费边界单次消费；许可源记为
+  `standing_permission` + 授权 ID/版本（事件、TUI 详情与工具结果如实标注）。候选
+  读取后撤销/取消/版本变化即整笔回滚并回落人工审批。模型、子任务消息、TUI 提交、
+  调度与 GitHub 来源不能指定或继承授权；共享主会话不使另一平台继承。
+- **撤销与失效**：`/revoke-service-grant`、已认证控制面 `service_grant_*` 与
+  `ruukoto service-grant list/show/revoke`（入口停用后仍可管理遗留记录；创建首版
+  只经原 IM 待审批，不增加配置页面或自由范围创建）。失效：`entry_changed`
+  （IM 重绑/停用再启用/拥有者或账号或凭据代次变化，暂时离线与后台正常重启不失效）、
+  `revision_changed`（策略或单元修订不符）、`effect_unknown`（目标效果未知，同一
+  main、本机、单元与动作的所有入口授权一并失效，阻止换 ID 自动重试；重新建立
+  需要拥有者显式决定）。单次批准不因此机制跨任务复用；`/approve-standing` 的
+  当前批准也关联授权 ID/版本并在公共消费处重读，撤销先提交则本次放行失效。
+- **协议**：控制协议 v10——批准新增可空的授权关联与新决定来源，新增
+  `standing_permission.created/revoked` 事件与 `service_grant_list/get/revoke`
+  操作；旧客户端明确拒绝升级提示，持久历史中的旧来源与事件保持可读。
 
-停止或重启时，未落结果的 `coding_delegate` 按原请求键核实子任务是否存在：
-存在即已委派，不存在即已知未委派，不按通用操作标为 `effect_unknown`；
-`coding_result` 是只读查询。恢复沿用原委派键、固定重试键和
-`wake:<childId>` 唤醒键，不生成新键重复创建；补发唤醒排除已有重试接替的
-首次任务，已落结果但未唤醒的最终子任务按原键补发。重启导致的中断仍保留
-结果未知事实，不自动重放其执行。
+## 固定 coding 角色退役（agent-direction issue 23）
+
+固定 `coding` 角色（daily-agent issue 05 的 main → coding 委派）已退役，委派与
+GitHub 评审统一走「通用 SubAgent 委派」节。退役只停新任务，不删数据：
+
+- **不再引导、不再接受新任务**：编排器只引导 main；新实例没有 `agent-coding`
+  项目与 coding 角色行。旧安装保留的 coding 角色行、项目与会话是归档标识，
+  旧任务、历史、产物与 `result_ref` 原样保留；向 coding 角色会话提交（含继续、
+  计划模式）一律 `invalid_state`。`coding_delegate` 已删除，入站登记只接受
+  目标 `main`。
+- **升级收尾，不重放**：启动时（与群聊退役收尾同一事务）coding 角色会话里
+  排队的任务定 `canceled`（原因 `coding_role_retired:…`），运行中的照常由恢复
+  定 `interrupted`；编排器启动巡检为这些旧子任务各补记一次结果
+  （`child_task.*` 事件）并以 `wake:<子任务>` 唤醒 main 一次，结果已落库而
+  唤醒缺失的旧子任务同样按原键补发。旧子任务正文不再交给模型执行。
+- **只读查阅**：main 保留 `coding_result`（`delegation` 类别，只读），读取本
+  会话旧 coding 子任务与本会话委派的 SubAgent 执行任务：`part=result`（默认）
+  展示状态与旧结构化结果（模式、测试自报、需要拥有者、效果、产物），
+  `part=reply` 按 UTF-8 字节分页读最终回答（256–16384 字节），`part=artifact`
+  分页读该子任务的交付产物（4–65536 字节，不含 `prompt-snapshot:*`）。其他
+  任务一律拒绝，不扩大跨项目资料授权。新工作用 `subagent_result`。
+- **恢复兼容**：升级前在途、尚未落结果的 `coding_delegate` 工具操作仍按原
+  请求键核实子任务是否存在（工具账本保留该规则）。
+- **存储不收缩**：`tasks.agent_id`、`agent_roles.id`、`inbound_events.target_role`
+  的 CHECK 仍含 `coding`/`chat`，`sessions.kind` 仍含 `qq_group`——旧行就是这些
+  取值，收缩约束等于改写历史。群项目的资料边界（main/coding 角色项目不能借授权
+  读原始群项目）照旧。
+
+## 通用 SubAgent 委派（agent-direction issue 11–17/19，ADR 0020/0021）
+
+主 Agent（拥有者的普通开发会话或 main）经宿主工具 `subagent_delegate` 登记
+工作委托、创建动态 SubAgent 与独立子会话并派出一次执行任务（只读分析，
+或 issue 16 的修改）；结果经
+`subagent_result` 读取（省略 `work_id` 时列出本会话 SubAgent 总览），不再
+需要的工作用 `subagent_cancel` 整项取消，不再需要后续协作时用
+`subagent_close` 显式关闭；同项工作的参与者之间用 `subagent_message`
+交换有来源的消息（issue 13，见下节）。五个工具属于 `subagent` 类别，
+仅普通开发会话与 main 装配（`subagent_message` 另行对 SubAgent 子会话装配），
+每次调用重新核实宿主任务、会话与身份绑定；
+群、固定 coding/chat、动态 SubAgent、调度与回报唤醒任务不能委派下级
+（`subagent_close`/`subagent_cancel` 例外：回报唤醒轮次也允许，关闭与取消
+只收窄能力；`subagent_message` 同样允许——主 Agent 在回报唤醒轮次可继续
+向工作内协作方补充，作用范围仍是本会话名下工作，不新建身份、不扩大权限）。
+
+### 登记与执行范围
+
+- **触发来源**：只有拥有者在父会话直接提交的任务，或经 Telegram/QQ owner
+  入口核实身份的入站任务可以委派；定时唤醒、子任务回报及其他来源拒绝。
+- **输入与固定参数**：模型只提供 `request / key / work_id? | sub_agent_id?
+  （两者互斥）/ mode? / target?（issue 16，见下节）/ read_paths?（dev）|
+  materials?（main）`。分析委派能力固定
+  为只读（`read` 与 `read_artifact`），权限模式固定 `confirm`，不继承父
+  任务/会话默认模式、单次批准与长期授权；不提供模型自选角色、执行账户、
+  访问模式、父会话、任意 cwd 或自由工具列表。截止时间固定为父任务开始
+  时刻 + 60 分钟；同一父用户会话最多 3 个活动（queued/running/
+  awaiting_confirmation）执行任务。
+- **幂等**：首次委派与复用委派以（父会话, key）唯一查工作（`sub_agent_id`
+  只在提供时纳入参数摘要，保持旧重放摘要不变）；工作内以
+  `sdelegate:<workId>:<key>` 查任务。参数摘要不包含本次调用的直接父任务 id
+  与模型选择——跨对话轮次重放核实同一逻辑委派，返回首次记录；同键异参明确
+  冲突；查重先于限额与资料解析，同键同参的重放即使目标已关闭或忙碌也返回
+  原记录。修改委派把 `mode/target` 纳入摘要（旧分析重放摘要不变）。
+- **登记事务**：先异步准备（模型门闩预检、受限执行入口预检、宿主生成的独立
+  工作目录 `<dataDir>/../agent-work/sub-agents/<agentId>`、路径核实与资料快照），
+  再在一个同步事务内重核后登记工作/Agent/Session/排队任务与审计事件
+  （`work_delegation.created`），提交后才 kick 子会话；工具在子任务入队后
+  立即返回，不等待子模型结束。准备或落库失败只清理本次产物：新建目录整删，
+  沿用目录时只删本次写入的快照文件。
+- **资料与读范围**：main 的 `materials`（1–8 个来源，复用来源解析器）解析为
+  文本快照写入子工作目录 `materials-<workId>-<key>.txt`（按工作 + 执行键命名，
+  复用承接新工作不覆写旧工作的快照），
+  来源引用随任务保存，登记事务与每次向
+  模型发送上下文前按该 Agent 全部历史任务来源引用与本次的并集重新 verify
+  （任一撤销即拒绝登记或阻断发送 `task_sources_revoked`，快照正文不重新解析）；
+  dev 的 `read_paths` 限父工作区内或父任务已授予范围（交集后的只读钉定），
+  保存 realpath 与目录身份，路径经 LaunchSpec/init 传入 worker，模型参数
+  不能替换；绝对系统路径、保护根、符号链接越界与目录身份变化明确拒绝。
+- **上下文**：SubAgent 的模型上下文只含固定任务说明、选定快照与自己的
+  JSONL——不注入父项目指令、个人共享记忆、技能目录、父完整历史或继续
+  来源；产物只读本次自产（不含 `prompt-snapshot:*`）。
+
+### 继续、复用与关闭（issue 12）
+
+- **继续**（`work_id`）：沿原工作增加新的分析执行；**复用**（`sub_agent_id`）：
+  同一父会话内把相关的另一项工作交给同一个空闲 SubAgent，登记一条新
+  `work_delegations` 行指向既有 Agent（同一子会话，保留上下文），任务输入
+  带宿主说明「此前的范围不延续」。两者各自登记独立任务记录（id/工作/
+  readScope/结果互不改写），每次执行重新固定读范围、资料、confirm 与
+  截止时间，前次批准不延续。
+- **可用性**：继续与复用要求目标 Agent 同一父会话、未关闭、`idle` 且无活动
+  任务（忙碌明确拒绝，不排队），工作目录 realpath 与 dev/ino 和子会话记录
+  一致（目录被删除/替换时报「请新建 SubAgent」）；准备前与登记事务内各核
+  一次。复用另复核该 Agent 历史任务来源引用与本次的并集，任一撤销即拒绝。
+  继续、复用、协作加入、消息登记与冲刷共用管理器的私有资格判断：关闭、
+  跨父会话、宿主固定评审、工作取消或已转做其他工作均明确拒绝或记未投递；
+  委派遇忙碌拒绝，消息遇忙碌或名额满保留待投递。
+- **关闭**：`sub_agents.closed_at`/`closed_by` 独立两列（`owner` 或
+  `agent:<任务ID>`），不改 `state` 语义（v25 迁移只补列，旧行两列为空）。
+  主 Agent 用 `subagent_close` 工具关闭本会话名下的 Agent；拥有者经控制面
+  `subagent_close`（CLI `ruukoto work close`）关闭；已关闭幂等返回；有活动
+  任务拒绝并给出任务 id（先 `ruukoto cancel` 再关闭）。关闭不删除工作目录、
+  会话、JSONL、产物与工作记录；关闭后新委派报「已关闭」，同键同参重放仍
+  返回原记录；发 `subagent.closed` 事件（refs 指向父会话）。关闭保持同步：
+  关闭事务内用同一 `pendingMessageContext` 资格判定清理发给该 Agent 的待投递
+  消息，不异步冲刷其他 Agent；关闭前无活动任务，因此不需要释放名额。
+- **竞争**：关闭与新委派在同一个同步事务内定胜负——先关闭则委派报「已关闭」
+  且零新任务，先登记则关闭报「有活动任务」；不存在「已关闭且有活动任务」
+  的中间态。
+- **不自动关闭**：任务终态、TUI 退出（控制面断开）与等待都不关闭；空闲零
+  模型/worker 进程；重启后关闭状态与空闲 Agent 的可复用性原样保持。
+
+### 工作内消息与协作加入（issue 13）
+
+同项工作的参与者——主 Agent 与当前承接本工作的各 SubAgent——经
+`subagent_message` 交换有来源的消息（`subagent_messages` 表；控制协议 v15）。
+
+- **协作加入**：`work_id` 与 `sub_agent_id` 同现的委派把一个既有空闲
+  SubAgent 拉入既有工作登记一次执行任务（任务关联列指向协作方；工作行保持
+  首次承接者，参与者集合经 `tasks.sub_agent_id` 判定）。只读工作才接受协作
+  方——修改工作同一份文件单一写入者；宿主固定评审工作（入站来源）不接受
+  加入；继续/复用/加入的可用性、竞争仲裁与来源并集复核与 issue 12 同口径。
+  协作加入的幂等键按目标 Agent 的会话核实（不同协作方的同键互相独立）。
+- **发送方身份**：完全由发起任务核实，模型参数不提供身份——工作父会话的
+  任务 = 主 Agent（此时必须指定 `to_sub_agent_id`），本工作的 SubAgent
+  任务 = 该 SubAgent（必须从本工作的任务中发送；省略 `to_sub_agent_id`
+  即发给主 Agent）；其他会话、其他工作的任务一律拒绝。宿主评审 SubAgent
+  不参与工作内通信。
+- **接收方资格**：当前承接本工作（`active_work_id` 正是本工作）且未关闭——
+  复用转做其他工作后旧协作者与迟到的旧消息都失去资格，不把关闭当作
+  重新创建 Agent 的理由；已取消的工作不能投递。按（工作, 发送方, 键）查重
+  先于执行预检：同键同参的重放即使此后已取消/关闭也返回原记录，异参冲突。
+  `message` 异步准备后在登记事务内再次查重并核实当前资格。
+- **消息执行预检**：发给子会话或 main 唤醒的消息，在事务外核实模型配置与
+  受限执行入口；事务内执行核实返回的 `check`，并重读当前模型选择与资格。
+  模型选择变动或 `model_config_busy` 等预检失败，整次新消息零新增消息、
+  任务和事件；忙碌或名额满也不能绕过预检。纯 dev 父会话注入不新建执行，
+  无需这道执行预检。`ParentDelivery.messageRecorded(msg, work, selection)`
+  只用管理器已经核实的模型选择插入 main 消息唤醒。
+- **投递渠道**：发给 SubAgent 的投递为它在本工作的一次 `confirm` 执行
+  任务（请求键 `smsg:<消息ID>` 幂等，输入为宿主固定来源首行 + 正文，
+  读范围沿用其在本工作最近任务的钉定——消息不扩大任何一方的工具与
+  资料范围；工具清单仍按工作内容钉版，另加 `subagent_message`）；发给
+  主 Agent 的，dev 父会话经下一次模型调用的宿主参考块 `[工作内消息]`
+  注入（收集与标记送达同事务，取消的工作不注入），main 父会话经唤醒
+  任务（`agentId=main`、confirm、无截止时间）送达。
+- **待投递与冲刷**：接收方忙碌或父会话活动任务名额已满时登记为待投递；
+  宿主机在 SubAgent 任务终态（编排器结果登记后）、启动恢复、整项取消、
+  resume-queue 核实完成与模型配置应用结束后 `await flushPendingMessages`：
+  冲刷先核资格，忙碌 / 名额满保持待投递且不做执行预检；可投递时才预检，
+  任意预检失败均保留已登记消息并输出诊断。可投递则在同步事务内投递；异步准备
+  期间可能登记新委派，投递事务必须重核当前工作与资格，旧消息不能进入新工作。
+  资格已失（`moved_work`/`closed:<时刻>`/`agent_missing`）或工作已取消记明确
+  未投递结果并发 `subagent_message.dropped` 事件；登记与投递事件为
+  `subagent_message.sent`（含投递渠道）。关闭路径只在自身关闭事务内清理该
+  Agent 的待投递消息，不触发其他 Agent 的异步冲刷。
+- **可见性**：主 Agent 用 `subagent_result` 的 `part=messages` 查看本工作
+  消息的来源、投递状态与正文预览；拥有者经控制面 `work_get` 的 `messages`
+  列表（CLI `work show`）查看；发送调用按工具操作账本以（工作, 发送方, 键）
+  核实 committed/not_committed；跨实例导入随所属工作的账本条目折叠。
+
+### 整项取消（issue 14）
+
+- **入口与状态**：拥有者经控制面 `work_cancel`（CLI
+  `ruukoto work cancel <工作ID> [--reason R]`，停止中拒绝）；主 Agent 用
+  `subagent_cancel(work_id, reason?)`（回报唤醒轮次也允许，取消只收窄能力）。
+  SubAgent 自身与其他父会话的旧工作一律拒绝。取消用 `work_delegations` 的
+  独立三列 `canceled_at`/`canceled_by`（`owner` 或 `agent:<任务ID>`）/
+  `cancel_reason`（v26 迁移只补列，旧行三列为空），条件 `canceled_at IS NULL`
+  一次写入，重复取消幂等返回原记录与当前任务状态；工作状态由列与任务状态
+  派生，不新建状态机，不改写已结束任务的结果。取消 SubAgent 名下的其他工作
+  不受影响。
+- **一个事务登记，停止在事务外完成**：事务内写取消字段；该工作的 queued
+  任务直接转为 `canceled`（`errorMessage` 记 `work_canceled`);
+  running/awaiting_confirmation 任务写 `cancel_requested=1`；追加
+  `work_delegation.canceled` 事件（`canceledTaskIds` 与 `stoppingTaskIds`
+  分开记录）。提交后对每个活动任务调用现有 `cancelTask` 停止路径（账本
+  快照、解除审批等待、abort、回收进程组、终态补记），`Promise.allSettled`
+  等待完成；效果未知的已有操作只标记、不重放；无法回收的执行按现有逻辑
+  保留占用，SubAgent 记 `unverified`。
+- **竞争口径**：登记事务与委派登记都是同步事务、天然串行——先登记的任务
+  必然在取消清单内，后登记的字段已写入即被拒。委派在准备前与登记事务内
+  各核一次 `canceled_at`，命中报 `invalid_state: 工作已取消`（零新任务）；
+  同键同参重放的查重仍最先执行，返回原记录不新建任务。新工作与其他工作
+  不受影响；已取消的工作不能再登记新执行。
+- **单任务取消窗口修复（根因）**：`Runtime.cancelTask` 的 running 分支先在
+  事务内写 `cancel_requested=1` 再 `requestStop`；`Driver.runInner` 开头读到
+  该标记直接定态 `canceled`、不调用模型——取消要么被启动检查拦下，要么
+  `requestStop` 已能找到 `currentTask`，「已转 running、未进 Driver」的窗口
+  不再吞取消。已知上限：超时取消若正好落在该窗口，终态记 `canceled`（不知
+  原因）而非 `timeout`（`ponytail:` 注释）。
+- **迟到结果不送达父模型**：终态结果照常经 `setTaskResult` 保存为事实
+  （`subagent_task.*` 事件、`subagent_result` 与 `work show` 可查，头部标明
+  取消时间、发起者与原因），但取消提交后这项工作的结果不再自动送进任何
+  父模型——父级送达在建唤醒前重读工作（已取消不建 wake）；队列循环对
+  `wake:<childId>` 与 `smsg:<消息ID>` 唤醒启动前检查所属工作（已取消则直接取消该 wake，覆盖
+  取消前已排队、检查后插入与巡检补发的所有唤醒，不调用模型）；dev 的注入
+  查询加 `canceled_at IS NULL`；启动巡检的待唤醒清单排除已取消工作。选择
+  「不注入」而不是「以迟到结果名义注入」，用一条规则排除主 Agent 据此重启
+  工作的可能；需要时由主 Agent 主动 `subagent_result` 读取。main 正在运行
+  的唤醒轮次不级联取消（取消所在轮次已有回复）。这些检查都在父级送达模块
+  （见架构要点）；发给 main 的工作内消息唤醒（`smsg:<消息ID>`）在队列循环
+  与 `wake:` 同一规则截住，消息行不改，读取时标「（工作已取消，未送达）」。
+- **身份与成果保持**：取消不关闭 SubAgent（任务结束后按占用核实记 `idle`
+  或 `unverified`，之后仍可按 12 的规则复用于其他工作）；工作目录、会话
+  JSONL、产物、resultRef 与工作记录都不删除。
+- **展示**：`work list/show` 的工作对象自然带上取消三列与当前任务状态；
+  TUI 经 `work_delegation.canceled` 事件更新工作字段并追加说明（不新增
+  TUI 命令）；dev/main 系统提示说明「不再需要的工作用 `subagent_cancel`，
+  已取消的工作不能继续委派」。
+
+### 修改委派（issue 16/17，ADR 0021）
+
+- **模式与入口**：`subagent_delegate` 增加 `mode`（`analyze` 默认 /
+  `modify`）与 `target`（modify 必填，父工作区内的目录）。普通开发会话
+  与 main（issue 17 开放，承接旧固定 coding draft 的修改职责）
+  都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话
+  本就不接受任务）；
+  管理器从父 Task 的固定 `planMode` 判定计划模式，不接收
+  `planMode` 入参；计划模式既拒绝显式 `modify`，也拒绝沿已有 `writeTarget`
+  的工作继续。模型工具清单仍由 `PLAN_TOOL_NAMES` 收窄，未开放
+  `subagent_delegate`，不能据此声称计划模式模型可发起分析委派。
+  modify 不带 `read_paths`/`materials`。修改工作固定 `confirm`、在
+  容器中运行，不继承父任务的完全访问；工具只有 `read / edit / write /
+  bash / read_artifact`（无 `request_file_access`、`http_request`、MCP，
+  不能委派下级），装配、发送前与调用门按本任务所属工作是否有写入目标选
+  同一白名单（执行画像；工具集在 SDK 会话签名里，同一 SubAgent 从只读工作
+  复用到修改工作时重建会话）。
+- **写入目标钉定**：`work_delegations.write_target`（v27 补列，可为空，
+  旧行恒空 = 只读分析工作）在首次修改委派时确定、继续委派沿用；只读
+  工作不能升级为写入，继续委派（`work_id`）不接受 `mode`；复用
+  （`sub_agent_id`）承接新工作时另建副本。直接写入目标记
+  `{kind:"direct", path, dev, ino}`；worktree 目标记
+  `{kind:"worktree", repoRoot, commonGitDir, gitdir, path, dev, ino,
+  branch, baseCommit}`。
+- **Git 目标：每项工作一个宿主生成的 worktree**。位置
+  `<dataDir>/../agent-work/worktrees/<workId>`（保护根与父工作区之外），
+  分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD 指向的提交——父
+  工作区未提交的改动不进副本。仓库根从目标向上纯文件系统查找（不运行
+  git，不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。
+  副本在受限 confirm 容器内创建（复用 `ToolWorkerHost`，宿主固定的
+  bash：`git -c core.fsmonitor=false rev-parse --verify HEAD` +
+  `git -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree add`，
+  基线提交按 40 位十六进制从容器输出提取），宿主永不执行 git——
+  仓库的 hooks/config 可能被父任务的容器写入，宿主以后台账户运行 git
+  会执行其中植入的 fsmonitor/filter（hooks 用 /dev/null 跳过、fsmonitor
+  显式关）。宿主在容器启动前预建空副本目录（0700）：挂载源不存在时
+  Docker 会以 root 自动创建、容器内 uid 写 `.git` 被拒；非空目录 = 失败
+  残留，不自动认领或覆盖。子任务的 LaunchSpec 把工作区指向
+  副本、共享 Git 目录只读挂载（`readRoots`，可 status/diff/log，不能
+  add/commit/写 refs/hooks/config），并注入
+  `GIT_CONFIG_COUNT/KEY_0/VALUE_0=safe.directory=*`（容器 uid 与仓库
+  owner 不一致时绕过 dubious ownership 检查）。worker init 的数值目录
+  身份（readRoots dev/ino、workspaceIdentity）只在 Linux 下发——
+  原生 bind mount 按宿主原样呈现目录身份；macOS Docker Desktop 经 VM
+  重新编号 inode（已实测：容器侧 dev/ino 与宿主恒不一致），darwin 不
+  下发数值身份、worker init 只按路径钉定，目录身份复核由宿主队列回路
+  在任务启动前按 `taskWorkspaceFor` 承担（runtime.ts）。git 会把副本
+  路径字串写进共享 Git 目录的 `worktrees/<name>/gitdir` 并据此回核，
+  macOS TMPDIR 的 `/var → /private/var` 符号链接会让字串与 realpath
+  不一致（实测报 "not a git repository"）：创建命令、挂载与
+  `write_target.path` 一律用 `copyDirReal = fs.realpathSync(copyDir)`。
+- **不提交规则**：任务首行写明工作目录、分支、基线与「不要 git
+  add/commit，改动留在工作树由主 Agent 汇总」；副本、分支与写入根的
+  改动一律保留——创建失败保留现场（错误信息含路径与分支），任务取消/
+  退出不删除，本版不提供任何删除副本的入口。
+- **非 Git 目标：直接写入父工作区内目录并串行**（写预检按实际执行身份
+  核实写位：Linux 容器按执行 uid 的 POSIX 权限位；macOS 上 Docker
+  Desktop 的 VM 以宿主身份执行容器内文件访问，darwin 按后台账户核实）。
+  子任务的执行目录与占用键都是写入根（`taskWorkspaceFor`：有写入目标用
+  钉定的 path/dev/ino，否则用会话目录身份）；队列启动前复核目录身份，
+  被替换或消失即失败、不自动重建。首次钉定写入目标后，该 SubAgent 的
+  子会话 cwd 对齐到写入根。
+- **目录占用升级为祖先/子孙判定**：冲突 = dev/ino 相等（符号链接、挂载
+  别名同命中）、realpath 相等，或按分隔符边界互为前缀；释放统一按
+  `taskId`（`releaseOccupancy(taskId)`），占用键是任务写入目标而非会话
+  cwd。效果：非 Git 子任务与父会话串行——父任务本轮结束才释放占用，
+  父任务没有阻塞等待子任务的接口，不会持锁空等；排队中的非 Git 子任务
+  被本会话占用挡住时，`subagent_result` 提示「等待本会话释放目录，请
+  结束本轮」。**行为变化**：已有的嵌套 cwd 会话从此也串行（`/ws` 与
+  `/ws/sub` 之前互不阻塞）。已知上限：挂载别名的祖先关系识别不出
+  （`ponytail:` 注释）。
+- **副本防旁路**：覆盖 `agent-work/worktrees` 或其下位置的读写授予被拒
+  （`validateGrantedPaths`；只读授予仍允许）；worktree 被删除或 `.git`
+  指向变化后继续委派明确失败（`worktree_gone`），不自动重建。
+- **展示**：`work list/show` 与快照自然带上 `writeTarget`；TUI 工作摘要
+  标「worktree 分支 X」或「直接写入」。只加可选字段，协议版本不变。
+
+### 改动汇总（issue 17，ADR 0021 补充）
+
+- **入口与范围**：主 Agent 工具 `subagent_integrate(work_id)`（dev 与 main
+  均装配，回报唤醒轮次也允许；SubAgent、群与固定角色会话经宿主身份重核
+  拒绝）把本会话登记的 worktree 副本相对基线的完整差异套用到父工作区的
+  待提交区——不代提交、`git apply --check` 预检通过才写入（预检失败零
+  写入）。非 Git 直接写入工作没有副本（改动本就就地落盘），调用只如实
+  告知；只读分析工作明确拒绝。拥有者没有专用控制面操作：待处理内容经
+  工具回报与持久事件可知。
+- **套用前核实**：工作有活动任务拒绝（busy，副本可能仍在被改写）；副本
+  目录 realpath/dev/ino 与 `.git` 指向的 gitdir 逐项复核（被替换/消失
+  明确失败，不自动重建、不凭钉定记录套用）；仓库根仍在父会话工作区内
+  且 `.git` 可读。汇总只按工作 id 取首次钉定的写入目标——Agent 复用
+  承接新工作（另建副本）后，汇总旧工作仍只落旧工作自己的副本。
+- **容器命令与边界**：复用 issue 16 的宿主容器入口（宿主永不执行 git）：
+  副本内 `git add -N --all` 把未跟踪文件纳入索引 → 对基线取完整二进制
+  diff 与 numstat → 父仓库 apply 预检/套用；fsmonitor 显式关、hooks 走
+  /dev/null（仓库 config 可被父任务的容器写入）；共享 Git 目录超出父仓库
+  目录树时（父仓库本身是 worktree）按钉定记录补一枚读写挂载。
+- **冲突与幂等**：三套结论——applied（套用成功并登记事件）/ already
+  （完整差异已在工作区，`apply --check --reverse` 命中：幂等返回，不重
+  复写入、不重复登记）/ conflict（两向预检都失败：零写入，父工作区原
+  改动与副本成果都保留，错误点名冲突文件与待处理说明）。已知上限：汇总
+  后对同一副本又继续委派产生新改动时，再次汇总会命中冲突（已套用的
+  hunks 挡路），按冲突如实报告——不引入增量汇总状态；busy 检查与容器
+  套用之间登记的新执行可能让副本继续变化，副本原样保留、事件钉定基线
+  与文件清单使现场可核对。
+- **记录与关联**：套用成功在一个事务内追加 `work_delegation.integrated`
+  事件（工作/SubAgent/发起汇总的主任务/分支/基线/父 HEAD/文件清单 ≤64 条
+  与 numstat 统计/patch 字节数）；TUI 经该事件在会话展示汇总规模与来源。
+  工具操作账本按事件存在与否核实；套用落字节与登记是两个步骤，登记缺失
+  时如实报无法核实而不是「未生效」。空差异为 empty、不登记。新增
+  `work_delegation.integrated` 事件与工具进 v15 协议。
+- **取消/关闭与汇总**：整项取消与显式关闭本就保留副本与成果，汇总不按
+  取消/关闭状态拦截——取消后、关闭后的成果仍可按工作找回汇总。
+
+### 结果、通知与空闲
+
+- 终态沿用 `setTaskResult` 一次写入与结果提取；结果引用
+  （`resultRef` JSON）明确 `workId / subAgentId / taskId / 原直接父任务 /
+  所属父会话 / outcome / artifactIds`。编排器在同一结果事务内调用管理器
+  `resultRecorded(task)`，只在当前任务仍是本任务时按占用记 `unverified` 或
+  `idle` 并清空当前任务；旧任务首次补记保留结果与事件，不倒写新工作与任务。
+  完成/失败/超时/结果未知如实
+  保存，重复终态只记一份；不自动重试。
+- dev 父会话：持久 `subagent_task.*` 事件指向父会话（TUI 可见归属），不产生
+  唤醒任务；下一次父模型调用注入有界的宿主结果摘要与引用（`[SubAgent 结果]`
+  参考块，注入后标记 `result_delivered_at`，崩溃窗口不丢记录）；main 沿用
+  稳定 `wake:<childId>` 回报键（固定 confirm，不复制原 IM 来源事件）。
+  已取消的工作不再注入、不唤醒（见上节「整项取消」）。
+- **工作最终汇报（issue 18）**：IM（QQ 私聊/Telegram 私聊）来源任务发起的
+  工作，在其 main 唤醒轮次到达终态时由宿主判定收尾并登记一次最终汇报——
+  判定 = 该工作没有 queued/running/awaiting_confirmation 的执行任务，且每条已
+  终态执行任务的 `wake:<id>` 都已存在并记录结果（本轮除外，因此并发或
+  补充委派时由后一个收尾的唤醒汇报；唤醒轮次本身不能委派，见上文入口
+  限制）。唤醒输入附宿主固定说明，告知本轮最终回答会成为汇报。汇报经
+  `owner_reply` 槽登记，发送键 = `<发起事件 id>#work:<workId>:<收尾执行
+  任务 id>`（同键幂等，重复终态与补记只产生一份；补充原工作再次收尾键不同
+  即新的一份），任务引用 = 收尾唤醒任务。目标 = 发起任务来源事件钉版的
+  `reply_target`（与当前固定目标核对；不从会话最新回答或当前入口推断；
+  续派来自另一入口仍发回发起入口；登记时目标不一致按 `work_report:` 前缀
+  记 `*.reply_skipped`，发送前再核对一次，停用或变化即取消不改发）。正文
+  = 首行 `[工作 <workId> 最终汇报]` + 该唤醒任务的最终回答；唤醒失败/超时/
+  被重启中断时发宿主固定提示并注明详情见 TUI；两平台均引用原入站消息
+  （来源键按 `#` 截断取原事件）。发送等待、限流重试、结果未知不重发全部
+  沿用 outbox 语义；正文与来源经 `ruukoto notify show` 可查。已取消的
+  工作不自动汇报（取消所在轮次已有回复）。TUI、定时、群与 GitHub 发起的
+  工作一律不汇报；该路径不新增工具、不扩大 main 的外发授权（唤醒轮次的
+  `notification_enqueue` 仍按原规则核实可信目标）。GitHub 来源工作继续走
+  ADR 0013 的固定通知。
+- 身份在完成、TUI 退出与等待后仍保留，空闲零模型/worker 进程；任务收尾后
+  释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
+- `coding_result` 按同一归属窄口兼容读取本会话委派的 SubAgent 执行结果
+  （见「固定 coding 角色退役」）。GitHub webhook 评审经宿主固定 SubAgent
+  （见「宿主固定评审（issue 19）」）。
+
+### 宿主固定评审（issue 19）
+
+- **入口**：PR 入站事件派发时，编排器先建（或复用）固定的 main 父任务
+  （无工具，只确认接收），再**直接调用** `SubAgentManager.delegate`（
+  `hostReview: {sourceEventId}` 入参只由编排器传入，工具层不会产生该字段；
+  拥有者来源检查保持原样）。每个修订登记一项新工作、创建一个新 SubAgent，
+  不跨修订复用（新修订用全新上下文，避免旧 diff/旧报告混入新 head 的核对）；
+  幂等键 `ghreview-<事件 id>`，参数摘要只含 `{kind, eventId}`——升级前后
+  提示文案变化不会误报冲突。管理器准备失败（缺执行入口、模型门闩未就绪）
+  时事件保持 `registered`，下次派发重试，不降级回旧 coding 路径。
+- **名额与输入**：宿主评审任务带来源事件（`source_event_id`），不计入 main
+  的 3 个活动委派名额（计数 SQL 排除来源事件任务）；任务输入首行固定为
+  `[SubAgent 委派 · GitHub PR 评审]`，正文沿用 `GitHubEvents.request`。
+  带来源事件的任务出队时走既有入站门（修订已过期即取消）、终态在同一结果
+  事务内回写入站终态并登记通知。重提命中首次
+  登记（管理器不再 kick）或崩溃窗口把排队子会话按 `backend_restart` 暂停时，
+  派发按角色会话同口径补 kick / 恢复子会话队列（占用未核实的
+  `occupancy_unverified` 暂停不在此解除）。
+- **只读 MCP 按任务开放，只给评审任务**：subagent 类会话仅在任务被
+  `taskMcp` 依赖识别为评审（`subAgentId` 非空且来源事件为 GitHub）时才规划
+  MCP；收窄为「静态只读白名单（`read`/`read_artifact`）∪ `effect=read` 的
+  MCP」，装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、
+  下级委派在发送前与调用门两处被拒。owner 委派的 SubAgent、main 自身
+  （类别不含 MCP）与开发会话 SubAgent 均拿不到 MCP。会话项目为 main 角色
+  项目，MCP 凭据按项目核对（见「PR webhook 配置」）。
+- **子身份边界**：评审 SubAgent 空闲后保留（遵守规格，不自动关闭），但宿主
+  不会复用它，主 Agent 也不能用 `sub_agent_id` 把它挪去做其他工作或沿其
+  工作续派——继续/复用的可用性检查对「有来源事件的任务」的 SubAgent 一律
+  拒绝（上下文含不可信 PR 资料）；主 Agent 或拥有者可以显式关闭。
+- **结果与唤醒**：终态沿用 `setTaskResult`；`resultData` 识别 SubAgent 评审
+  任务，评审正文完整保存为 `review-draft:<事件 id>` 产物并
+  写入 `result_ref.review`（分页损坏保留 `partial` 与 `captureError`）。
+  main 结果唤醒开放 `subagent_result` 与只读的 `coding_result`（后者查阅 issue 23 退役前在途、经收尾补记的旧 coding 评审）；唤醒输入沿用 `GitHubEvents.notice` 修订说明，
+  `subagent_result` 前置同样的修订说明。评审并行运行、不设并发名额（
+  `ponytail:` 上限与升级方向见 `subagents.ts`）；被新修订取代仍在运行的评审
+  会跑完，结果标为过期、不发通知。评审工作不适用 issue 18 的最终汇报
+  （IM 入口汇报只认 telegram/qq_private 来源），继续走 ADR 0013 的固定通知。
+- 控制面只读查询：`work_list` / `work_get`（CLI `ruukoto work list/show`，
+  agent 对象含 `closedAt`/`closedBy`，work 对象含取消三列）；写操作为
+  `subagent_close`（CLI `ruukoto work close`）与整项取消 `work_cancel`
+  （CLI `ruukoto work cancel <工作ID> [--reason R]`，停止中拒绝）。
+  快照携带工作委托、SubAgent 与其内部会话 ID（普通工作区列表排除）。
+  普通控制面 submit/continue/switch-mode/会话默认模式不能作用于子会话。
+
+### 后台重启恢复（issue 15）
+
+后台异常重启后（通用规则见文末「崩溃恢复」）：
+
+- **排队的委派任务定 interrupted，不自动继续**：重启时仍未启动的 SubAgent
+  执行任务（拥有者或主 Agent 委派，无 `source_event_id`）与运行中任务同定
+  `interrupted`（`backend_restart`；排队的从未启动，`started_at` 为空）——
+  该排队转换由 Runtime 恢复事务调用 `SubAgentManager.recoverQueuedTasks` 完成。
+  不自动继续、不当作成功也不当作新委派。启动巡检按 `setTaskResult` 补记一次
+  结果与 `subagent_task.result_unknown`（重复启动不重复登记），结果引用的
+  工作/Agent/父会话/父任务归属不变；SubAgent 回到可用状态（占用已核实记
+  `idle`），main 父会话按稳定键唤醒、dev 父会话在下一个任务开始时注入，
+  继续与否（沿 `work_id` 继续、`sub_agent_id` 复用，或放弃）由拥有者或
+  父 Agent 决定。
+- **宿主固定评审的排队任务自动恢复**：带 `source_event_id` 的排队任务不在
+  上一条之列；编排器补记结果后，管理器异步 `start` 先冲刷待投递消息，再
+  自动恢复无遗留占用且以 `backend_restart` 暂停的 SubAgent 子会话，此时剩下
+  的评审排队任务继续执行（issue 19 既定口径：不经拥有者核实）。角色队列
+  仍由编排器恢复。
+- **未核实的旧执行保留占用**：遗留占用与 `occupancy_unverified` 暂停不自动
+  解除，Agent 记 `unverified` 并拒绝新委派（恢复任务不与旧执行并发修改同一
+  资源）。拥有者核实旧执行确已退出后经 `resume-queue`（CLI `ruukoto
+  resume-queue <会话 id>`）释放占用、解除暂停——这同时是 `unverified` 回到
+  `idle` 的出口：释放占用的同一事务调用管理器 `executionVerified`，无活动
+  任务且当前终态任务已有结果时才记回 `idle`；当前终态任务结果缺失报
+  `invalid_state` 并回滚恢复，须先补记结果。提交后按返回的父会话 ID 等待
+  冲刷消息，再继续委派、复用或关闭。
+- 已取消工作的迟到结果不因此重新运行、不补发唤醒（issue 14 规则不变）。
 
 ## GitHub：MCP 操作与 PR webhook（ADR 0007/0013）
 
@@ -1158,10 +2140,14 @@ ruukoto server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
 GitHub webhook 使用 JSON 与相同 secret，并订阅 Pull requests 事件。
 
 签名凭据的 purpose 固定为 `github_webhook`、host 为 `github.com`；启用时
-scope 收紧到该用途，通用 HTTP 工具不能借用。GitHub MCP 另行配置到 coding
-角色绑定的项目，使用自己的读取凭据和工具允许列表。Webhook 的仓库允许列表
-只限制事件接纳；MCP 可访问的仓库仍由其服务配置和远端令牌权限决定。未配置
-MCP、读取失败或资料缺失须在评审结果中说明，不经 REST 补抓。
+scope 收紧到该用途，通用 HTTP 工具不能借用。GitHub MCP 另行配置到 **main**
+角色绑定的项目（issue 19 起评审 SubAgent 的会话在 main 项目下，凭据按任务
+所在项目核对），使用自己的读取凭据和工具允许列表。升级步骤：先另建一份
+scope 为 main 项目的只读凭据，再执行 `ruukoto mcp configure --project <main
+项目>`；coding 项目的旧配置不再被新评审使用（23 随旧角色一起清理），系统
+不自动迁移凭据范围——改写凭据用途属于授权变更，须拥有者显式完成。Webhook
+的仓库允许列表只限制事件接纳；MCP 可访问的仓库仍由其服务配置和远端令牌
+权限决定。未配置 MCP、读取失败或资料缺失须在评审结果中说明，不经 REST 补抓。
 
 启用配置同时授权一次固定 owner 摘要，因此应先配置并启用所选 Telegram 或
 QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本；未配置目标时
@@ -1176,15 +2162,18 @@ QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本�
   `ping` 返回 200，其他合法事件或未支持 action 返回 202 并忽略。接纳事件
   先保存归一化 JSON 快照，`(github, delivery ID)` 去重；首次登记返回 202，
   重复返回 200。响应不等待模型或子任务，登记失败返回 503。
-- **宿主固定委派**：入站事件异步创建 main 父任务与 coding 子任务，角色、
-  会话、工作目录和 `confirm` 模式由宿主决定。main 父任务只确认接纳且无
-  工具，coding 仅可使用 `read`、`read_artifact` 和本地 `effect = read`
-  的 MCP 工具；结果唤醒的 main 只获得 `coding_result`。PR 标题、正文和
-  工具结果按资料处理，不能修改权限、角色或发布策略，也不能执行 PR 代码。
-- **结果归属**：事件快照记录 head/base SHA、`updatedAt` 与 PR 状态；coding
-  完整最终回答保存为普通报告 Artifact。`result_ref.review` 保存事件 ID、
-  PR URL、仓库 ID、PR 编号、head/base SHA、`artifactId` 与 `staleReason`，
-  main 经 `coding_result` 读取，拥有者经任务详情或 `read-artifact` 查看。
+- **宿主固定委派**：入站事件异步创建 main 父任务，并由编排器为每个修订
+  直接登记一个评审 SubAgent（issue 19）。main 父任务只确认接纳且无工具；评审 SubAgent 仅可使用
+  `read`、`read_artifact` 和按任务开放的本地 `effect = read` MCP 工具；
+  结果唤醒的 main 获得 `subagent_result` 与只读 `coding_result`。
+  会话、工作目录和 `confirm` 模式由宿主决定。PR 标题、正文和工具结果按
+  资料处理，不能修改权限、角色或发布策略，也不能执行 PR 代码。
+- **结果归属**：事件快照记录 head/base SHA、`updatedAt` 与 PR 状态；评审
+  SubAgent 的完整最终回答保存为普通报告 Artifact。`result_ref.review` 保存
+  事件 ID、PR URL、仓库 ID、PR 编号、head/base SHA、`artifactId` 与
+  `staleReason`，main 经 `subagent_result` 读取（issue 23 前的旧 coding 评审结果仍可经
+  `coding_result` 只读查阅），
+  拥有者经任务详情或 `read-artifact` 查看。
   产物保留原始分析，当前有效性以任务结果为准，不建立旧 GitHub 草稿版本表。
   历史分页缺失或写入失败时保留 `partial`，结果记录 `captureError` 并要求拥有者
   核实；只有完整读取到记录的总字节数才标记 `complete`。
@@ -1193,7 +2182,8 @@ QQ 私聊渠道。事件登记时保存该渠道的 owner 目标及配置版本�
   的通知取消。同时间戳不同 SHA 也保守失效。模型须在 MCP 采集前后核对
   head/base，不能核对、分页不完整或 patch 缺失时明确说明；本地未观察到变化
   不保证远端仍未改变，缺失 webhook 不自动补抓。
-- **一次通知**：只有该事件 coding 结果对应的 main 摘要终态才登记通知；
+- **一次通知**：只有该事件评审 SubAgent 对应的 main 摘要终态才登记通知
+  （issue 23 起旧 coding 评审子任务不再登记）；
   公共 outbox 使用 `sourceKind = inbound_event` 和事件 ID 作为逻辑键，
   独立于 `owner_reply`，模型不能换目标或另建发送槽。发送前复核事件仍有效、
   入口仍启用且固定 owner 目标未变；过期、停用或配置变化时取消未发送操作。
@@ -1209,9 +2199,14 @@ schema v16 扩展公共通知的 `inbound_event` 来源，升级保留原有发�
 正文、幂等键、限流时间与索引。实际 GitHub webhook、GitHub MCP 和 owner 渠道
 部署需另行验收；本地模拟平台测试不代表真实接入已通过。
 
-本轮本地验证：`test/42` 至 `test/46` 覆盖入口、迁移、任务工具限制、MCP 评审到
-通知的闭环、修订失效、崩溃窗口恢复及 partial 归档。`npm run typecheck` 通过；
-全量 `npm test` 共 437 项，436 通过、0 失败、1 项真实模型测试按默认开关跳过。
+本轮本地验证（agent-direction issue 19）：`test/42` 至 `test/46` 覆盖入口、
+凭据、宿主固定 SubAgent 评审到通知的闭环、修订失效与升级接管、崩溃窗口
+恢复及 partial 归档；`test/80` 覆盖评审不占委派名额与复用/续派拒绝。
+`npm run typecheck` 通过；`.scratch/agent-direction/smoke-19-*.mts` 在本机
+（macOS）与 tx（Linux）真实 Docker 受限 worker 下各 8/8 通过（模型、MCP 与
+消息平台为模拟）。全量 `npm test` 共 917 项，915 通过、0 失败、1 项真实
+模型测试按默认开关跳过；test/32-dev 的档案路径断言在本 worktree（目录名非
+`ruukoto`）下预置失败，与本单无关，主检出路径下通过。
 
 ### 历史资料与迁移
 
@@ -1264,6 +2259,9 @@ schema v16 扩展公共通知的 `inbound_event` 来源，升级保留原有发�
 - 每任务最多 5 次调用（按执行意图计数，含被拒绝的调用，重启后可核对）；
   单次 15 秒超时；响应上限 256 KiB，超限截断并把原始片段保存为任务归属产物
   （`web-search-response`）后明确报错；畸形 JSON 同样保存原文后报错。
+  产物创建后按本次调用的宿主操作编号登记引用，正常回收工具结果时写入
+  `task.tool_result.artifactIds`；正文写入不完整时仍保留已登记的产物引用，
+  错误结果注明保存情况，产物创建失败时不登记引用。
 - 认证失败（401）、限流（429，含服务建议等待时间）、配额上限（432/433）、
   服务错误（5xx）、超时与取消均一次终止并返回明确状态，不自动重试；任务
   取消/中断经 AbortSignal 中止在途请求，重启或响应不明不重复发送。
@@ -1302,7 +2300,9 @@ MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
   - `ruukoto mcp list [--project <id>]`（脱敏视图）
   - `ruukoto mcp check <service-id>`（连接检查 + 工具发现，标注每个远端工具
     是否在允许列表；先打印将联系的端点）
-  - `ruukoto mcp disable <service-id>` / `enable` / `remove`
+  - `ruukoto mcp disable <service-id>` / `enable` / `remove <service-id>
+    [--expected-version N]`（remove 可携带期望版本核对：不符 = version_conflict
+    且服务保留；省略 = 旧调用兼容删除）
 - 端点校验：生产固定 https，http 仅限回环模拟服务；拒绝 userinfo；客户端
   钉住端点源，拒绝跨源重定向，不向非配置目标转发认证。变更采用期望版本
   校验；任何变化递增配置版本并发 `mcp.service_changed` 事件。
@@ -1376,113 +2376,102 @@ MCP 是受控的外部工具入口（ADR 0006）：沿用 ADR 0003/0004 的
 - 限流（429）与超时：一次终止并明确报错，不自动重试；由拥有者决定重试
   时机。任务取消/中断后迟到结果被忽略，终态与操作记录保持一致。
 
-## QQ 群聊（issue 07）
+## QQ 群聊（issue 07）——核心群聊已退役（agent-direction issue 20）
 
-NapCat OneBot v11 正向 WebSocket 接入 QQ 群聊：ruukoto 主动连接 NapCat
-（不增加公网入站接口），群成员 @机器人 触发纯文本聊天任务。模块在
-`src/qq/`（`onebot.ts` 薄客户端 / `adapter.ts` 适配器 / `store.ts` 持久化）。
+核心不再创建或执行 QQ 群任务：这是 ADR 0017 对 ADR 0014 的修订（取消内建
+chat 角色，群聊改为后续阶段的独立可选外挂）。chat 角色不再引导，旧安装的
+`agent_roles` chat 行保留为归档标识。issue 23 删除了 chat 工具类别与提示、
+Driver/上下文装配的 qq_group 分支与撤回过滤、QqStore 的群写方法；
+`AgentRoleId`、CHECK 约束与 `qq_group` 会话类别对应旧行实值，保留不收缩。
+QQ 拥有者私聊（issue 06，共享 main 会话）与 Telegram 主会话不受影响。
 
-### 配置与启停（拥有者可信入口）
+### 退役后的入站行为
 
-```bash
-# 1. 登记 OneBot token（值不进入命令行/工单/日志；purpose 固定 qq_onebot）
-ruukoto credentials add --name qq-onebot --host 127.0.0.1:3001 \
-  --header authorization --purpose qq_onebot --secret-env QQ_ONEBOT_TOKEN
-# 2. 配置连接（ws 仅限回环/受控私网，跨主机须 wss；非回环必须配置 token）
-ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <登录QQ号> --credential qq-onebot
-# 3. 允许群并启用
-ruukoto qq group add <群号>
-ruukoto qq enable
-# 查看：qq status / qq inbox / qq outbox；TUI：/qq [status|enable|disable|groups|inbox|outbox]
-```
+- **群消息直接忽略**：适配器收到群消息时不登记收件、不建会话、不建任务、
+  不回复、不保存正文，也不逐条记日志（不在核心继续收集群内容）。
+- **撤回通知继续处理**：`group_recall` 只给已登记的旧收件行打标记（不取消
+  任务、不补发回复）——已接收群结果的撤回复核仍然有效。撤回只能在 NapCat
+  连接仍在、账号仍在群里时观测到；连接中断或退群后发生的撤回无法得知
+  （ADR 0014 的既有边界）。
+- **启动收尾（按状态幂等，重复升级/重启不重放）**：群会话排队任务 →
+  canceled（原因 `core_group_chat_retired`）；运行中任务由通用恢复定
+  `interrupted`（结果未知，不重放，`continue` 被拒绝）；已登记未派发的
+  `qq_group` 入站事件经入站门固定 drop 作废并写 `inbound.skipped`；未终态
+  收件（含完成但未发回复的）记 `skipped`；遗留 pending 发送定 `unknown`
+  （effect_unknown，不重发），对应收件记 `reply_unknown`。
 
-配置存 `qq_config`（单行，含端点、凭据绑定名、预期登录账号、群允许列表、
-`max_reply_chars`），任何变化递增 `config_version` 并发
-`qq.config_changed` 事件；凭据配置后 scope 收紧到 `qq_onebot` 操作，通用
-`http_request` 不得借用。未配置/未启用时适配器保持禁用，不猜测端点与群号。
-`max_reply_chars` 默认 1500（未经真实平台核实，部署时按实测调整）；
-排队过期固定 5 分钟（已确认规则，不设配置项）。
+### 配置与命令（写入口已删除）
 
-### 运行行为
+`qq_config.groups` 原样保留为历史值（`qq status`、`/qq` 照常展示）；
+`qq_group_update` 控制 op、CLI `qq group add|remove`、配置中心允许群界面、
+TUI `/qq groups` 的增删入口已删除——旧命令只打印退役提示。
+`queue_ttl_ms` 已无读取方（issue 23 移出配置类型，列保留不迁移）；
+`max_reply_chars` 仍是私聊回复的字符上限。`qq_configure` / `qq_set_enabled` / `qq status` 只作用于私聊入口。
+正式 QQ 群聊外挂（独立程序，自行管理群会话/历史/发送状态，经有限接口向
+ruukoto 提供结果）在后续阶段交付；本单不依赖尚未确定的外挂接口。
 
-- **触发**：群消息含结构化 `at` 段且目标为登录账号（不按显示名或正文 @
-  字符匹配）；仅文本段（可含引用段）；图片/语音/附件/转发等整条忽略；
-  自身消息与 `message_sent` 回声不触发。无频率限制、冷却或安静时段。
-- **身份核对**：连接后经 `get_login_info` 核实账号，事件 `self_id` 逐条
-  比对；账号离线或身份不匹配时停止接收新任务与发送（排队任务等待，超过
-  5 分钟由启动门过期跳过）。
-- **会话映射**：登录账号+群 → 独立项目/会话/专用空工作目录
-  （`<dataDir>/../qq-work/<账号>_<群>/`）；同群 FIFO（一次一个任务），
-  跨群并行且历史互不可见。
-- **收件纪律**：先登记 `qq_inbox`（`dedup_key = account:group:message_id`）
-  再入队；事件大小（正文 >8192 字符）与有效期（消息时间超过排队过期时长，
-  如离线 backlog 重投）在收件时分别校验，不满足的记录 skipped。登记与入队间
-  的崩溃由启动恢复按原请求键核实重提（幂等，不换新键）；入队失败保持
-  registered 待恢复，不因瞬时故障丢消息。重复事件不产生新任务。WebSocket
-  收事件不等于平台持久投递确认；断线重连成功时发 `qq.receive_gap` 事件
-  标记接收缺口，缺失不补抓。
-- **隔离**：qq_group 会话任务为空工具集合（装配侧不注册编码/宿主数据/
-  Web Search/MCP 工具，发送前最终检查按实际载荷再核对，tool_call 门兜底）；
-  不注入个人共享记忆、项目记忆与项目指令；资料身份 `qq_group` 只读本群
-  项目，不适用 data_grants 与 owner_note 默认放行。QQ 身份不能审批开发
-  任务、修改权限或开启完全访问（任务固定 confirm 模式、无授予路径）。
-- **回复**：任务完成后由宿主固定目标（原群 + 引用原消息段）发送一条最终
-  文本；超过 `max_reply_chars` 缩短（加省略标记），不自动拆分、不转发中间
-  过程/错误栈。任务失败/取消/中断不发送（如实登记 inbox 状态）。
-- **发送纪律**：先落 `qq_outbox`（pending，含固定目标/正文/本地操作 id）
-  再调 `send_group_msg`；平台明确失败（retcode≠0）= `failed`，超时/断线/
-  崩溃 = `unknown`（effect_unknown，不自动换键重发，由拥有者核实）；动作
-  echo 只用于匹配请求与应答，不作幂等键。断线重连不补发失效回复。
-- **撤回**：收到 `group_recall` 后标记原消息（不再进入后续模型上下文——
-  上下文组装在每轮调用前移出该交互的视图，不改写历史原文），取消未完成任务
-  与未发送回复；已发送回复不自动撤回。撤回事件丢失时不宣称已知撤回。
-- **停用/撤群**：一键停用即断连、取消该范围排队与运行中任务（既有取消
-  机制）；在途发送记 unknown 并保留迟到回执，不能宣称已取消远端发送。
-  群移出允许列表同理作用于该群。
-- **恢复**：后台重启后，QQ 会话的队列暂停由适配器自动恢复（QQ 任务无工具
-  执行与外部副作用，发送走 outbox 纪律）；已登记未入队的消息按原请求键
-  重提；遗留 pending 发送一律定 `unknown`（effect_unknown，不自动重发）。
+### 旧群资料（只读归档）
 
-### 群聊与 chat 编排（daily-agent issue 09，ADR 0014）
+- `qq_inbox`（状态、撤回标记与时间、引用关联）、`qq_outbox`（发送账本）、
+  `qq_sessions` 映射、入站事件与 chat 任务行全部保留。`qq inbox` 每条记录
+  附 main 的接收账本行（接收时间、接收任务、理由、摘要快照）与**当前复核
+  结论**（可用，或不可用的原因——归档缺失/不一致、main 不可用、来源已
+  撤回）；`qq outbox` 查账本；拥有者 `read_history` 可读群会话历史。
+- 归档不能变成对话入口：`create_session` 拒绝群项目与角色项目（与
+  `open_workspace` 同一判定），`submit`/`continue` 拒绝 `qq_group` 会话与
+  chat/coding 角色会话；`open_workspace` 认领与工作区迁移对角色/群聊项目的排除
+  不变。
+- **隔离不因退役扩大**：AccessScope 按 `sessions.kind='qq_group'` 判定，
+  不依赖 chat 角色行；main/coding/SubAgent 仍读不到群项目原始历史、产物
+  与带群来源的记忆；`chat_result` 资料仍不能用于 SubAgent 委派；已接收快照
+  只对 main 开放。
 
-群收件经持久 `qq_group` 入站事件派发为 chat 任务，角色绑定从宿主保存的
-“登录账号 + 群”映射取得；各群继续独立使用项目、会话、空目录与 FIFO。
-保持原收件请求键及正文标记，旧任务先核实后补关联。配置版本、撤回与五分钟
-排队有效期在派发和执行前复核。完成回复按任务自身历史读取；启动时补核对
-已完成但尚未登记发送的收件，已有发送记录不会重复发送。
+### 群聊结果（chat_result_*，复核不变）
 
-main 新增 `chat_result_list` 与 `chat_result_accept`。列表只给来源元数据，
-接收保存至多 1000 个 Unicode 字符的摘要及接收任务、操作和理由，不开放原始
-群历史或产物，不自动唤醒 main 或生成 owner 回复。接收后的摘要可以作为
-`notification_enqueue` / `schedule_create` 的 `{kind:'chat_result',task_id}`
-来源，仍需拥有者审批，完全访问模式也不例外；coding 委派不能引用此来源。
-
-schema v17 保留旧会话和发送事实，增加接收账本、引用关联、配置版本与撤回
-时间。查询、接收、批准提交和发送前复核撤回；同群历史撤回可能保守地使已生成
-摘要失效。引用过撤回消息的交互也从后续模型上下文排除；旧版无引用 ID 的
-交互在该群发生撤回后保守排除。已进入 main 历史或已发送的副本不追溯清除。
+`chat_result_list` 与 `chat_result_accept` 保留，作用于归档中已完成且
+已记录结果的旧群 chat 任务：列表只给来源元数据，接收保存至多 1000 个
+Unicode 字符的摘要快照及接收任务、操作和理由，不开放原始群历史或产物。
+已接收摘要仍可被 `notification_enqueue` / `schedule_create` 的
+`{kind:'chat_result',task_id}` 引用（仍需拥有者审批，完全访问模式也不
+例外）；查询、批准提交与发送前复核撤回与宿主来源——归档行缺失/不一致、
+main 不可用或来源已撤回时取消该次发送并记 `source_revoked` 原因，不会只
+凭接收快照正文继续发送。撤回观测的上限同上一节（断连/退群后无法得知）。
 
 ### 验证
 
-`test/26-qq.test.ts`（进程内模拟 OneBot WebSocket 服务 + 真实适配器
-/Runtime/发送控制路径；不向真实群发送消息）：token 错误、登录账号不匹配、
-掉线重连与接收缺口标记、白名单、结构化 @ 判定、非文本忽略、自身回声、重复
-消息去重、同群 FIFO 与跨群并行/隔离、排队过期、一键停用、撤群、发送失败与
-结果未知不重发、响应乱序 echo 关联、撤回（取消未完成/不撤回已发送/后续上下
-文排除）、个人共享记忆与项目指令隔离、空工具集合（发送前快照核对）、拥有者
-  QQ 发言不获控制面能力、qq_group 资料身份、登记-入队与遗留发送的崩溃恢复。
+`test/85-retire-core-group-chat.test.ts`：全新实例不引导 chat、群消息零
+新增（收件/会话/任务/回复/模型调用），同连接 QQ 私聊与 Telegram 照常回复；
+归档查询（inbox 附接收与复核、outbox、read_history）、转 dev 会话与
+submit/continue 全部拒绝；无 chat 角色行的隔离不变；已接收结果通知经批准
+正常发送、撤回/篡改阻断并记 `source_revoked`；排队/在途/待发/未派发事件
+一次性收尾与三次启动幂等。旧数据由 `test/helpers/legacy-group-archive.ts`
+按退役前（核心库 v24）持久形态播种；真实旧代码产生数据的升级路径见
+`.scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）。
 
-真实 NapCat 接入与 Linux 部署未验证（需拥有者指定账号/测试群并明确授权后
-按工单 §5 执行一次真实闭环；模拟测试不代表真实部署已通过）。
+`test/26-qq.test.ts` 保留传输状态、配置校验与 qq_group 资料身份；
+`test/40-qq-private.test.ts` 覆盖连接鉴权、身份核对、掉线重连与接收缺口；
+群消息被忽略由 `test/85-retire-core-group-chat.test.ts` 验收；`test/49-chat-result-flow.test.ts`
+用播种归档数据覆盖接收/审批/撤回复核/不凭快照外发。
+
+真实 QQ 群与 NapCat 没有入口（无真实群闭环可验），记为未实测；
+模拟模型与模拟 OneBot 的验证不代表真实平台行为。
 
 
 
-1. 后台异常退出后重新启动（systemd 自动拉起或手工 `npm start -- start`）。
+1. 后台异常退出后重新启动（systemd 自动拉起、手工 `npm start -- start`，或
+   ruukoto-code 的 TUI 按需拉起——多个终端并发拉起经同一实例锁仲裁收敛为单个
+   实例，败者进程退出后 TUI 侧连到胜者）。
    启动时先取数据目录实例锁：记录的 pid 存活且确为本后台 → 拒绝启动；
    pid 已死或被无关进程复用 → 接管；无法核实 → 保留锁并要求人工处理。
 2. 恢复逻辑自动执行（单事务）：
    - 原 `running / awaiting_confirmation` 任务 → `interrupted`（原因
      `backend_restart`）；其未决确认请求标记 `stale`，失效批准不得再执行。
+   - 排队的 SubAgent 执行任务（拥有者/主 Agent 委派，无 `source_event_id`；
+     agent-direction issue 15）→ 同定 `interrupted`（原因 `backend_restart`，
+     从未启动）：不自动继续也不当作新委派，由编排器巡检补记一次结果后
+     SubAgent 回到可用，继续与否由拥有者/父 Agent 决定；宿主固定评审任务
+     （带 `source_event_id`）不在此列，其排队保持——因此有排队任务的
+     SubAgent 子会话只剩评审会话会按下一条暂停。
    - 结果缺失的工具操作按工具操作账本的分类器补记（架构工单 05）：覆盖已终态
      任务残留的操作；审批未消费 → 记录"已知未执行"结果（批准不跨重启执行）；
      只读工具 → 未完成且无写入效果；其余 → `effect_unknown` 并发
@@ -1507,10 +2496,15 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
    请求键（`evt:<eventId>`）核实重提；重启窗口内到达终态的角色任务补记
    结果并补发 `child_task.*` 事件与有界唤醒（interrupted 一律按结果未知，
    不自动重放外部副作用）；结果已落库而唤醒缺失的子任务按原幂等键
-   （`wake:<childId>`）补发，已有自动重试接替的首次 coding 任务不补唤醒
-   （见「main 委派 coding」），重复恢复不重复投递。角色会话的队列暂停只有
-   `backend_restart` 才自动恢复；`occupancy_unverified`（旧执行未核实）
-   保留暂停与占用，由拥有者核实后 `resume-queue`——角色任务有工具执行，
+   （`wake:<childId>`）补发，重复恢复不重复投递；退役前在途的旧 coding
+   子任务也在这里补记（见「固定 coding 角色退役」）。编排器恢复角色会话，
+   管理器 `start` 冲刷消息后恢复 SubAgent 子会话：只自动恢复无遗留占用的
+   `backend_restart` 队列（SubAgent 侧宿主固定评审排队任务继续，其余排队
+   委派任务已在第 2 步经管理器 `recoverQueuedTasks` 定 interrupted）；
+   `occupancy_unverified`（旧执行未核实）保留暂停与占用，由拥有者核实后
+   `resume-queue`——这同时是 SubAgent `unverified` 回到 `idle` 的出口
+   （释放占用事务内经 `executionVerified` 核实无活动任务且当前终态结果已
+   登记才记回 `idle`，结果缺失拒绝；提交后等待冲刷消息）。角色任务有工具执行，
    不沿用 QQ 无工具会话的无条件恢复前提。
 8. 调度器（issue 03）的恢复准备在第 2 步之前执行（须读到 running 任务的
    原始状态）：关联任务/发送已终态但运行未关闭的先补关闭；到期计划按
@@ -1529,9 +2523,25 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 见 `deploy/systemd/README.md`：三个系统身份（拥有者 / 后台
 `ruukoto-backend` / 执行账户 `ruukoto-exec`）、固定工具镜像
 （`deploy/worker-image/build.sh`）、受保护提权入口（root 拥有的 sudo
-包装脚本，仅后台可调用）、`ruukoto-backend.service` 单元。
+包装脚本，仅后台可调用）、`ruukoto-backend.service` 单元，以及可选的
+服务器服务管理（root 拥有的服务 helper 与白名单策略、可控测试服务，见
+上文「服务器服务管理」节）。
+
+该单元只承载个人 Agent 产品 ruukoto。Coding Agent（ruukoto-code）装在开发
+机器上：同一仓库检出加 `bin/ruukoto-code.mjs` 入口（`npm link` 或直接把 bin
+目录加入 PATH），默认档案根 `~/.ruukoto-code`；首次打开 TUI 即按需拉起
+本机后台（见上文「按需拉起后台」），无需预置服务单元。两端各自的安装与升级
+（替换检出后按产品 `stop`/`server` 重启）互不要求对方同时升级或停止；
+按需拉起的后台在升级替换检出后同样经 `ruukoto-code stop` 停下，下次打开 TUI
+自动以新代码拉起。
 
 ## 验证状态（诚实清单）
+
+双产品迁移首期的发布范围、安装升级与旧实例切换步骤、工单 01–23 证据矩阵见
+[发布与验收说明](release-acceptance.md)。三个首期场景按本地编码、IM 服务器管理、
+长任务持续响应与协作的顺序验收；本次联合演练和检查结果独立记录在
+[agent-direction 工单 24](../.scratch/agent-direction/issues/24-release-acceptance.md)，
+下表保留各次已有记录。真实进程或容器通过不代表真实 IM 平台已通过。
 
 | 检查 | 环境 | 结果 |
 | --- | --- | --- |
@@ -1553,8 +2563,30 @@ schema v17 保留旧会话和发送事实，增加接收账本、引用关联、
 | 全部离线集成验证（125 项，逐文件顺序执行） | tx（Ubuntu 24.04，Node 24.21.0） | 通过（2026-09-21，17/17 文件 0 失败；修复 15-tui-pty 的 npx 孙进程持有管道导致文件级挂起——detached 进程组 + 整组回收，macOS 回归同过） |
 | 真实 GitHub MCP 只读连通（一次已授权仓库的只读调用，记录工具/权限/结果） | 需拥有者配置独立只读 PAT | 未验证（issue 16 遗留；配置具备时按「MCP 服务」节步骤验收，不以模拟测试冒充） |
 | issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
-| issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环） |
+| issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环）。agent-direction issue 20 起核心群聊已退役，群消息被忽略，见下行 |
+| agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留传输状态、配置与资料身份边界，test/40 覆盖私聊连接鉴权与重连，test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
+| agent-direction issue 15 后台重启恢复 SubAgent（test/86 共 3 项：排队委派任务重启定 interrupted 且不自动继续/不当作新委派（零模型请求）、补记一次重复启动不重复登记、结果归属保持、Agent 回 idle 可继续委派且 dev 父会话注入；遗留占用保留与 occupancy_unverified 暂停不被启动恢复解除、unverified 拒绝委派、拥有者 resume-queue 后回 idle 可委派；宿主固定评审排队任务不中断、启动恢复自动解除子会话暂停并继续执行） | macOS 本机（mock 模型 + 临时目录 + 进程内真实 Runtime 重启（stop→Runtime.start，含崩溃形态 SQL 置位）+ realTools local 后端） | 通过（2026-10-05，3/3；模拟环境。真实容器/CLI 证据见下行） |
+| agent-direction issue 15 冒烟（.scratch/agent-direction/smoke-15-recover-subagents.mts：真实 Runtime/控制面/SQLite + 真实受限容器后端与镜像 + 真实 CLI resume-queue——排队委派任务重启中断零容器零模型请求、结果归属、dev 注入、沿 work_id 真实容器继续；遗留占用保留与暂停不被启动恢复解除、unverified 拒绝委派、CLI resume-queue 后回 idle 可继续；带来源事件的评审排队任务自动恢复真实完成；重复重启不重复登记、无残余容器） | macOS 本机 Docker Desktop（真实容器；模型为模拟，消息平台不启用；崩溃形态按库内容置位，判定输入与真实崩溃一致） | 通过（2026-10-05，8/8）；冒烟期间发现并修复：backend_restart 暂停叠加持占用会话不再被启动恢复自动释放（runtime 守卫） |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
+| 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-code 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
+| 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |
+| ruukoto-code TUI 按需拉起后台（agent-direction issue 02；test/72 进程级用例：后台不在时拉起、并发两个终端收敛为单实例（含锁竞败者等慢胜者复用）、已运行不重复拉起、启动失败附 spawn.log 尾部、后台在运行但令牌不符的认证指引、关闭客户端不停止后台/取消任务、重开看到同一任务与幂等键核实） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02，8/8；模拟结果与真实环境分列：模型层为模拟，进程/存储/控制面为真实环境） |
+| TUI 真实入口按需拉起冒烟（.scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
+| 开发机受限执行边界产品级冒烟（agent-direction 工单 03；经真实容器启动器 + ruukoto-worker 镜像 + 宿主 ToolWorkerHost：容器内 bash、非 root 1000、工作区写入宿主可见、无外网出口、工作区外宿主真实文件不可见、只读根、CapEff 清零、nohup 逃逸孙进程实际运行（对照）且停止后心跳冻结、停止核实容器移除、宿主原路径挂载、只读授予路径可读不可写） | macOS 本机 Docker Desktop 4.x/29.8.0（Linux VM aarch64）；/var/folders 与 /Users 两种工作区各一遍 | 通过（2026-10-02，16/16 ×2；`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`——真实 docker/镜像/文件/进程/网络路径，无模拟层） |
+| macOS sandbox-exec 旧探针（.scratch/agent-direction/macos-sbx-probe.sh） | macOS 27.0 (arm64) | 2026-10-02 的“文件规则 0/6 静默未执行”结论于 2026-10-08 更正：旧规则用 `/tmp`，目标实际位于 `/private/tmp`；旧结果不能证明 Seatbelt 文件机制失效。已修正规范化路径与启动/拒绝判定，复跑见工单 26；文件拒绝通过不代表完整产品边界通过 |
+| 原生 Seatbelt 候选及 launchd 后代回收（agent-direction 工单 26 第一阶段） | macOS 27.0 / Darwin 27.0.0 / arm64；仅临时虚拟资料、自建服务和真实进程，无模型 | 未通过：文件规范化更正生效；`posix_spawn` 后代可脱离进程组且停止原组后仍写心跳；`kqueue NOTE_TRACK` 为 `ENOTSUP`；临时 launchd job 移除后逃离后代仍活动。复跑及逐项证据见 [原生探针说明](../verification/foundation/scripts/native-isolation/README.md)，未接入产品 |
+| 原生 bubblewrap 候选（agent-direction 工单 26 第一阶段） | tx：Ubuntu 24.04.4 / Linux 6.8.0-117-generic / x86_64 / UID 1003；临时解包 bubblewrap 0.9.0 | 不可验证：2 个未沙箱对照通过，35 个真实边界项 unavailable；namespace 建立时 `RTM_NEWADDR` / `uid_map` 被拒，探针尚未启动，退出 2。系统策略未修改；[完整报告](../verification/foundation/results/native-linux-report.md)。不能切换默认后端 |
+| SubAgent 修改委派冒烟（.scratch/agent-direction/smoke-16-parallel-worktrees.mts：真实 Runtime/控制面/SQLite + 真实容器后端与镜像 + 真实 git 仓库——容器内建副本、两子任务同一仓库并行 worktree（同时 running、不同分支）、主工作区字节与未提交改动不变、safe.directory 环境容器内 git status/diff 可用、git commit 与写 hooks/config 真实失败（共享 Git 只读挂载）、非 Git 目录与父会话串行、植入 fsmonitor 只在容器内被只读挡住（宿主不执行）、副本创建与任务容器零残余） | macOS 本机 Docker Desktop 29.8.0（真实容器；模型为模拟，消息平台不启用） | 通过（2026-10-04，9/9）；Linux 远端（tx，uid/gid 1003，经 `--remote` 自包含跑完全程）通过（2026-10-04，9/9）；流程教训：worker 代码打进镜像（deploy/worker-image 构建阶段复制 src/agent/tool-worker 与 src/core 后 esbuild 打包），改 tool-worker 必须重建镜像才进容器 |
+| SubAgent 改动汇总冒烟（.scratch/agent-direction/smoke-issue17.mts：真实 Runtime/SQLite + 真实容器后端与镜像 + 真实 git 仓库——宿主容器创建 worktree 副本、子任务容器真实 edit/write、汇总容器 add -N→diff→apply --check→apply 落入父工作区待提交区、父 HEAD 不变、`work_delegation.integrated` 事件登记、already 幂等不重复登记、冲突零写入点名文件双方保留、取消+关闭后汇总不拦、父仓库本身是 worktree 时共享 Git 目录补挂读写、副本创建与汇总照常、`ruukoto-task-*` 容器零残余） | macOS 本机 Docker Desktop（真实容器边界；模型为模拟）；tx（Ubuntu 24.04 原生 Linux，Docker 29.5.2，uid/gid 1003，RUUKOTO_CONTAINER_UID/GID=1003） | 通过（2026-10-05，7/7 ×2）；离线断言在 test/84（local 后端模拟边界，git 语义为真实 git）；流程教训：副本创建与汇总在「父仓库本身是 worktree」时必须把共享 Git 目录补挂读写（issue 17 起生效），否则容器内 git 无法解析 `.git` 指针 |
+| Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |
+| Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
+| 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；.scratch/agent-direction/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx .scratch/agent-direction/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |
+| ruukoto-code 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
+| macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；现有启动器使用 systemd 包装，只适用于 Linux；macOS 未提供经过验证的本机入口；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
+| 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-code 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
+| 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-code.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
+| 服务器服务管理离线验证（agent-direction issue 09；test/78：QQ/Telegram 检查→逐次审批→批准恰好一次→原入口结果、拒绝/重复决定/篡改目标零执行、非 main 与错误产品/无配置/非 Linux 门、auto-review 转人工、策略与单元修订变化失效、同 ID 重复启动拒绝、取消与跨重启的效果未知不自动重发、产物引用与 partial、后状态查询失败保留命令结果） | macOS 本机（模拟 IM 平台 + mock 模型 + 受控 helper 替身，文件系统模拟 systemd，协议逐字节同生产） | 通过（2026-10-03，22/22；真实 systemd/提权证据非本项，见下行） |
+| 服务器服务管理真实 Linux 冒烟（.scratch/agent-direction/smoke-09-linux-service-management.mts：模拟 IM 平台 + 真实 systemd/sudo/提权/测试服务——部署安装、主链路真实重启（InvocationID 变化、starts 恰 +1、批准消费一次、op 单元实录）、执行账户调用/写策略/读控制面令牌全拒绝、同 hostOpId already_claimed、策略篡改消费前失效、改单元不 daemon-reload 修订拒绝、基础设施目标拒绝、op 已派发时 kill -9 恢复效果未知不自动重发、拒绝零执行） | tx（Ubuntu 24.04，systemd 255） | 通过（2026-10-03，14/14 ×3 轮幂等，末轮为最终代码态复跑；发现并修复 fd3 协议在 sudo 下全断（closefrom=3）改为 stderr 前缀应答；IM/模型为桩，真实 QQ/Telegram 平台未实测） |
 
 ### 按会话选择模型
 

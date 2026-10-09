@@ -10,6 +10,17 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+/**
+ * 容器内 git 的 dubious ownership 豁免（agent-direction issue 16）：容器 uid 与
+ * 仓库属主不一致时 git 拒绝在挂载的宿主路径下工作。宿主只在 worktree 副本的创建
+ * 与挂载任务注入这组环境（其余任务容器环境不变）；不落宿主、不被模型读取。
+ */
+export const GIT_SAFE_DIRECTORY_ENV: Record<string, string> = {
+  GIT_CONFIG_COUNT: "1",
+  GIT_CONFIG_KEY_0: "safe.directory",
+  GIT_CONFIG_VALUE_0: "*",
+};
+
 /** 若 cwdReal 是 Git worktree，返回其共享 Git 目录（common dir）的真实路径；否则 null。 */
 export function resolveWorktreeCommonGitDir(cwdReal: string): string | null {
   const gitPath = path.join(cwdReal, ".git");
@@ -43,4 +54,26 @@ export function resolveWorktreeCommonGitDir(cwdReal: string): string | null {
 /** grantedPath 是否覆盖目标目录（目标即授予路径或其子孙）。 */
 export function grantCoversPath(grantedReal: string, targetReal: string): boolean {
   return targetReal === grantedReal || targetReal.startsWith(grantedReal + path.sep);
+}
+
+/**
+ * 任务的工作区目录身份（agent-direction issue 16）：有写入目标的任务用工
+ * 作钉定的 path/dev/ino（worktree 副本或直接写入根）；否则用会话目录身份
+ * （占用键与 LaunchSpec 的 workspace 统一由它取）。
+ */
+export function taskWorkspaceFor(input: {
+  session: { cwdReal: string; cwdDev: number; cwdIno: number };
+  work?: { writeTarget?: { kind: string; path: string; dev: number; ino: number; commonGitDir?: string } | null } | null;
+}): { path: string; dev: number; ino: number; isWriteTarget: boolean; commonGitDir?: string } {
+  const target = input.work?.writeTarget ?? null;
+  if (target !== null && target !== undefined) {
+    return {
+      path: target.path,
+      dev: target.dev,
+      ino: target.ino,
+      isWriteTarget: true,
+      commonGitDir: target.kind === "worktree" ? target.commonGitDir : undefined,
+    };
+  }
+  return { path: input.session.cwdReal, dev: input.session.cwdDev, ino: input.session.cwdIno, isWriteTarget: false };
 }

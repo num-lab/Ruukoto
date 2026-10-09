@@ -21,10 +21,21 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 
 export class InstanceLockError extends Error {
-  constructor(message: string) {
+  /** true = 锁被持有但无法核实持锁进程身份（保留锁、要求人工处理）；false = 已确认的活后台持锁竞争。 */
+  readonly unverifiable: boolean;
+  constructor(message: string, unverifiable = false) {
     super(message);
+    this.unverifiable = unverifiable;
   }
 }
+
+/**
+ * 服务进程因锁冲突退出的专用退出码——仅已确认的活后台竞争收这个码（无法核实持锁
+ * 身份按普通失败处理，保留锁供人工处理）。TUI 按需拉起的失败分类用它按本进程归属
+ * 判定锁竞争——共享 spawn.log 会混入其他终端的输出，不能解析日志文本判断当前子
+ * 进程为何退出。
+ */
+export const INSTANCE_LOCK_EXIT_CODE = 42;
 
 interface LockOwner {
   pid: number;
@@ -67,6 +78,47 @@ export interface AcquiredLock {
   release(): void;
 }
 
+/**
+ * 只读探测锁目录的持锁状态（agent-direction issue 21）：不建锁、不接管、不改写
+ * 任何文件，供跨实例导入核实源/目标后台已经停止。与获取路径共用同一套持锁核实
+ * （owner.json + 进程存活 + 命令行核对），结论分级：确认活后台持锁 / 无法核实
+ * 身份（按持锁处理但不确认是后台）/ 无活跃持锁（无锁、进程已死、PID 被回收或
+ * owner.json 缺失）。
+ */
+export interface LockProbe {
+  /** true = 锁被存活进程持有（含无法核实身份）。 */
+  held: boolean;
+  /** 持锁进程 pid（能读到时）。 */
+  pid: number | null;
+  /** 持锁进程命令行（能核实时）；无法核实身份为 null。 */
+  command: string | null;
+  /** true = 进程存活但无法核实其身份。 */
+  unverifiable: boolean;
+  /** 人类可读的结论说明。 */
+  detail: string;
+}
+
+export function probeLockHolder(lockDir: string): LockProbe {
+  if (!fs.existsSync(lockDir)) {
+    return { held: false, pid: null, command: null, unverifiable: false, detail: "无锁目录" };
+  }
+  const owner = readOwner(lockDir);
+  if (!owner || !Number.isFinite(owner.pid)) {
+    return { held: false, pid: null, command: null, unverifiable: false, detail: "锁目录残留但 owner.json 缺失或损坏（遗留锁）" };
+  }
+  if (!isAlive(owner.pid)) {
+    return { held: false, pid: owner.pid, command: null, unverifiable: false, detail: `记录的进程 pid ${owner.pid} 已退出（遗留锁）` };
+  }
+  const command = processCommand(owner.pid);
+  if (command === null) {
+    return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: `锁被 pid ${owner.pid} 持有，但无法核实进程身份` };
+  }
+  if (looksLikeBackend(command)) {
+    return { held: true, pid: owner.pid, command, unverifiable: false, detail: `后台存活：pid ${owner.pid}：${command}` };
+  }
+  return { held: false, pid: owner.pid, command, unverifiable: false, detail: `记录的 pid ${owner.pid} 已被无关进程复用（遗留锁）` };
+}
+
 function acquireLock(lockDir: string, label: string): AcquiredLock {
   const takeover = () => {
     fs.rmSync(lockDir, { recursive: true, force: true });
@@ -92,6 +144,7 @@ function acquireLock(lockDir: string, label: string): AcquiredLock {
         if (command === null) {
           throw new InstanceLockError(
             `${label}被 pid ${owner.pid} 持有，但无法核实进程身份；请人工确认后删除 ${lockDir}`,
+            true,
           );
         }
         if (looksLikeBackend(command)) {

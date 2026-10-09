@@ -23,11 +23,12 @@ const notes = (view: SessionView) => view.flow.items.filter((entry) => entry.kin
 
 function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
-    projects: [{ id: "proj_1", name: "演示", createRequestId: null, instructionFiles: [], webSearch: "enabled", createdAt: "2026-09-20T00:00:00Z" }],
+    projects: [{ id: "proj_1", name: "演示", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "2026-09-20T00:00:00Z" }],
     sessions: [
       {
         id: "sess_1",
         projectId: "proj_1",
+        workspaceProjectId: null,
         kind: "dev",
         cwd: "/work/a",
         cwdReal: "/work/a",
@@ -67,6 +68,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     submissionDigest: null,
     status: "running",
     accessMode: "confirm",
+    planMode: false,
     permissionVersion: 1,
     grantedPaths: [],
     pendingAccessMode: null,
@@ -82,6 +84,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     deadline: null,
     resultSummary: null,
     resultRef: null,
+    workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null,
     createdAt: "2026-09-20T00:00:00Z",
     startedAt: null,
     endedAt: null,
@@ -311,16 +314,38 @@ test("模型选择只接受非旧版本，replay 不回滚，旧排队补配置�
 
 // ---------- 自动审查（issue 15） ----------
 
-test("accessModeLabel/formatAccessMode：三种模式的显示名", () => {
-  assert.equal(accessModeLabel("auto-review"), "Auto review");
-  assert.equal(accessModeLabel("confirm"), "Ask for approval");
-  assert.equal(accessModeLabel("full_access"), "Full access");
-  assert.equal(formatAccessMode("auto-review", null), "Auto review");
-  assert.equal(formatAccessMode("confirm", "auto-review"), "Ask for approval（待切换：Auto review）");
+test("accessModeLabel/formatAccessMode：四种会话模式的显示名", () => {
+  assert.equal(accessModeLabel("plan"), "☷ Plan");
+  assert.equal(formatAccessMode("plan", null), "☷ Plan");
+  assert.equal(accessModeLabel("auto-review"), "⏵⏵ Auto review");
+  assert.equal(accessModeLabel("confirm"), "⏸ Ask for approval");
+  assert.equal(accessModeLabel("full_access"), "⏵⏵ Full access");
+  assert.equal(formatAccessMode("auto-review", null), "⏵⏵ Auto review");
+  assert.equal(formatAccessMode("confirm", "auto-review"), "⏸ Ask for approval（待切换：⏵⏵ Auto review）");
   // 着色：Auto review 蓝、Full access 橙黄、Ask for approval 不改色
   assert.match(accessModeStyle("auto-review")("X"), /^\x1b\[38;5;75mX\x1b\[0m$/);
   assert.match(accessModeStyle("full_access")("X"), /^\x1b\[38;5;214mX\x1b\[0m$/);
   assert.equal(accessModeStyle("confirm")("X"), "X");
+});
+
+test("Plan 默认值按版本更新，排队事件与重连快照保留任务独立的 Plan 标记", () => {
+  const state = new ViewState();
+  state.applySnapshot({ seq: 10, replay: [], snapshot: snapshot() }, false);
+  state.applyEvent(ev(11, { type: "session.default_mode_changed", sessionId: "sess_1", defaultAccessMode: "plan", defaultAccessModeVersion: 2 }), "live");
+  state.applySessionDefaultMode("sess_1", "full_access", 1);
+  state.applyEvent(ev(9, { type: "session.default_mode_changed", sessionId: "sess_1", defaultAccessMode: "confirm", defaultAccessModeVersion: 3 }), "replay");
+  assert.equal(state.sessions[0]!.defaultAccessMode, "plan");
+  state.applyEvent(ev(12, { type: "task.queued", taskId: "plan", sessionId: "sess_1", requestId: "r-plan", accessMode: "auto-review", planMode: true, modelSelection: snapshot().sessions[0]!.modelSelection! }), "live");
+  const queued = state.getTask("plan")!;
+  assert.equal(queued.input, "", "仅凭事件标记即可识别其他客户端提交的 Plan");
+  assert.equal(queued.planMode, true);
+  state.applySessionDefaultMode("sess_1", "full_access", 3);
+  assert.equal(queued.accessMode, "auto-review");
+  assert.equal(queued.planMode, true, "改会话默认值不改已提交任务");
+  const sessions = snapshot().sessions.map((s) => ({ ...s, defaultAccessMode: "plan" as const, defaultAccessModeVersion: 4 }));
+  state.applySnapshot({ seq: 20, replay: [], snapshot: snapshot({ sessions, tasks: [queued] }) }, false);
+  assert.equal(state.sessions[0]!.defaultAccessMode, "plan");
+  assert.equal(state.getTask("plan")!.planMode, true);
 });
 
 test("自动审查事件：awaiting 携带审查状态，reviewed 转人工更新视图，resolved 标注来源", () => {

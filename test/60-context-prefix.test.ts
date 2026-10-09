@@ -102,7 +102,7 @@ test("组装：无记忆变化与任务级块时，同一会话连续调用的�
     fs.writeFileSync(skillFile, "---\nname: alpha\ndescription: ALPHA-DESC\n---\nBODY-V1");
     fs.writeFileSync(path.join(kit.work[0]!, "TEAM.md"), "项目约定：提交信息用中文");
     const { projectId, session } = kit.project();
-    kit.store.setProjectInstructionFiles(projectId, ["TEAM.md"]);
+    kit.store.withTx(() => kit.store.updateProjectSettings({ projectId, instructionFiles: ["TEAM.md"] }));
     kit.deps.memories.create({ projectId, category: "preference", content: "STABLE-MEM", sourceRefs: OWNER_REF, author: "owner" });
     // 技能目录只在本任务可用 skill 工具时注入；技能库由 driver 在任务开始钉版后交进来
     const tools = [{ name: "skill", description: "读取技能", parameters: {} }];

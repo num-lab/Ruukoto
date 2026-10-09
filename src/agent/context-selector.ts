@@ -156,6 +156,8 @@ const CONTEXT_CATEGORIES = {
   mandatoryTurn: "当前任务",
   currentTaskBatches: "当前任务工具批次",
   historyTurns: "历史轮次",
+  subagentResults: "SubAgent 结果",
+  subagentMessages: "工作内消息",
 } as const;
 
 export type ContextCategory = keyof typeof CONTEXT_CATEGORIES;
@@ -253,7 +255,7 @@ export interface SelectorInput {
   /** 进入选择前已被宿主排除的记忆（如来源范围已撤销）；原样记入排除。 */
   preExcludedMemories?: Array<{ memoryId: string; version: number; reason: string }>;
   budget: SelectorBudgetConfig;
-  /** 上下文压缩（issue 30）：null/缺省 = 本会话不压缩（qq_group 与 chat 维持现状）。 */
+  /** 上下文压缩（issue 30）：null/缺省 = 本会话不压缩（资料受限的 SubAgent 会话）。 */
   compaction?: { sessionId: string; checkpoint: CheckpointInput | null } | null;
 }
 

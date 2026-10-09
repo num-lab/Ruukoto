@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 32;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -23,8 +23,14 @@ CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   create_request_id TEXT,
+  -- 工作区根目录身份（agent-direction issue 05）：四列同空即旧项目
+  root_cwd TEXT,
+  root_real TEXT,
+  root_dev INTEGER,
+  root_ino INTEGER,
   instruction_files TEXT NOT NULL DEFAULT '[]',
   web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled')),
+  settings_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -41,6 +47,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
+  -- 工作区组织归属（agent-direction issue 07）：仅展示归属；资料身份仍是 project_id
+  workspace_project_id TEXT REFERENCES projects(id),
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tasks (
@@ -51,6 +59,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT NOT NULL CHECK (status IN
     ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
   access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access','auto-review')),
+  plan_mode INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0,1)),
   permission_version INTEGER NOT NULL DEFAULT 1,
   granted_paths TEXT NOT NULL DEFAULT '[]',
   pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access','auto-review')),
@@ -117,6 +126,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
   name TEXT NOT NULL,
   byte_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'partial' CHECK (status IN ('partial','complete')),
+  mime_type TEXT CHECK (mime_type IS NULL OR mime_type IN ('image/jpeg','image/png','image/webp')),
+  content_hash TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts (task_id);
@@ -266,7 +277,7 @@ CREATE TABLE IF NOT EXISTS qq_config (
   groups TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 0,
   max_reply_chars INTEGER NOT NULL DEFAULT 1500,
-  queue_ttl_ms INTEGER NOT NULL DEFAULT 300000,
+  queue_ttl_ms INTEGER NOT NULL DEFAULT 300000, -- 群聊退役后无读取方（issue 23），列保留不迁移
   config_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -338,6 +349,8 @@ CREATE TABLE IF NOT EXISTS agent_roles (
 );
 -- 入站事件：先持久化再建任务；(source, external_id) 唯一即幂等键。
 -- status：registered（已登记未建任务）→ queued → done / failed。
+-- event_kind（宿主写定）：task = 普通任务入站；im_approval = IM 审批控制消息
+-- （不派发模型任务，同步事务内直接到终态）。
 CREATE TABLE IF NOT EXISTS inbound_events (
   id TEXT PRIMARY KEY,
   source TEXT NOT NULL,
@@ -348,11 +361,52 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   artifact_refs TEXT NOT NULL DEFAULT '[]',
   reply_target TEXT,
   received_at TEXT NOT NULL,
+  event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval')),
   status TEXT NOT NULL CHECK (status IN ('registered','queued','done','failed')),
   task_id TEXT,
   UNIQUE (source, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_events_status ON inbound_events (status);
+
+-- v31：入站图片下载账本与安全消息信封；暂存尚不属于任务产物。
+CREATE TABLE IF NOT EXISTS inbound_media_messages (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  actor TEXT,
+  body TEXT NOT NULL,
+  reply_target TEXT,
+  received_at TEXT NOT NULL,
+  media_count INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('staging','ready','bound','rejected','expired')),
+  reason TEXT,
+  event_id TEXT REFERENCES inbound_events(id),
+  task_id TEXT REFERENCES tasks(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (source, external_id)
+);
+CREATE TABLE IF NOT EXISTS inbound_media (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES inbound_media_messages(id),
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  media_index INTEGER NOT NULL,
+  declared_mime TEXT,
+  mime_type TEXT CHECK (mime_type IS NULL OR mime_type IN ('image/jpeg','image/png','image/webp')),
+  byte_count INTEGER NOT NULL DEFAULT 0,
+  content_hash TEXT,
+  file_name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','downloading','ready','promoted','rejected','expired')),
+  reason TEXT,
+  event_id TEXT REFERENCES inbound_events(id),
+  task_id TEXT REFERENCES tasks(id),
+  artifact_id TEXT REFERENCES artifacts(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (source, external_id, media_index)
+);
+CREATE INDEX IF NOT EXISTS idx_inbound_media_status ON inbound_media (status, created_at);
 
 -- v17：main 显式接收的固定群聊结果；来源仍需在读取与外发前复核撤回状态。
 CREATE TABLE IF NOT EXISTS chat_result_acceptances (
@@ -457,6 +511,125 @@ CREATE TABLE IF NOT EXISTS telegram_config (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- v23：长期操作授权（agent-direction issue 10）。不可变限定范围 + 版本化撤销/失效；
+-- 同一 main 会话、同一入口(ch/account/chat/actor)与同一目标（机器/单元/动作）最多
+-- 一条未撤销授权（部分唯一索引）；来源审批唯一（approval_id），持久保留删除记录不删行。
+-- pinned_target/channel/account/chat_id/actor 不参与唯一键的修订指纹（policy/unit revision
+-- 与配置代次只在使用资格核实中比对，不进唯一键）。
+CREATE TABLE IF NOT EXISTS standing_permissions (
+  id TEXT PRIMARY KEY,
+  version INTEGER NOT NULL DEFAULT 1,
+  session_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  machine_id TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('restart')),
+  policy_revision TEXT NOT NULL,
+  unit_revision TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  account TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  pinned_target TEXT NOT NULL,
+  approval_id TEXT NOT NULL UNIQUE,
+  created_by_event_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  revoked_reason TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_standing_permissions_active ON standing_permissions
+  (session_id, channel, account, chat_id, actor, machine_id, unit, action) WHERE revoked_at IS NULL;
+
+-- v24（agent-direction issue 11，ADR 0020）：工作委托 / SubAgent / 每次执行三个
+-- 领域对象分开保存，与旧固定角色（agent_roles / tasks.agent_id）兼容共存；
+-- 动态 ID 走新关联列，不改旧角色 CHECK，旧任务关联列恒为 NULL。
+CREATE TABLE IF NOT EXISTS sub_agents (
+  id TEXT PRIMARY KEY,
+  parent_session_id TEXT NOT NULL REFERENCES sessions(id),
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+  work_dir TEXT NOT NULL,
+  active_work_id TEXT,
+  current_task_id TEXT,
+  state TEXT NOT NULL DEFAULT 'idle' CHECK (state IN ('running','idle','unverified')),
+  closed_at TEXT,
+  closed_by TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sub_agents_parent ON sub_agents (parent_session_id);
+CREATE TABLE IF NOT EXISTS work_delegations (
+  id TEXT PRIMARY KEY,
+  parent_session_id TEXT NOT NULL REFERENCES sessions(id),
+  origin_task_id TEXT NOT NULL,
+  sub_agent_id TEXT NOT NULL REFERENCES sub_agents(id),
+  request_key TEXT NOT NULL,
+  params_digest TEXT NOT NULL,
+  -- v26（agent-direction issue 14）：整项工作取消（独立列，一次写入；旧行三列为空）
+  canceled_at TEXT,
+  canceled_by TEXT,
+  cancel_reason TEXT,
+  -- v27（agent-direction issue 16）：写入目标 JSON（WorkWriteTarget；旧行为空 = 只读分析工作）
+  write_target TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (parent_session_id, request_key)
+);
+
+-- v28（agent-direction issue 21）：跨实例导入的回执与条目账本。旧实例开发资料
+-- 经目标侧离线 legacy-import 迁入 Coding Agent（issue 22 增加镜像方向：个人资料
+-- 迁入全新 ruukoto 实例，共用本两表）；回执持久保存（applied/reverted），
+-- 供续跑幂等核实、回退与整库恢复定位；条目账本标识各项资料属于哪次导入，主键
+-- (kind, item_id) 让同一资料至多归属一次导入。
+-- v30（agent-direction issue 22）：条目类别扩五类（agent_role / schedule /
+-- platform_config / standing_permission / credential），v28 / v29 库经重建迁移。
+CREATE TABLE IF NOT EXISTS instance_imports (
+  id TEXT PRIMARY KEY,
+  request_key TEXT NOT NULL UNIQUE,
+  source_instance_id TEXT NOT NULL,
+  source_product TEXT,
+  source_schema_version INTEGER,
+  source_dir TEXT NOT NULL,
+  plan_digest TEXT NOT NULL,
+  target_backup_path TEXT NOT NULL,
+  target_backup_sha256 TEXT NOT NULL,
+  event_seq_from INTEGER,
+  event_seq_to INTEGER,
+  report TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('applied','reverted')),
+  created_at TEXT NOT NULL,
+  reverted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS instance_import_items (
+  kind TEXT NOT NULL CHECK (kind IN
+    ('project','session','sub_agent','work_delegation','memory','grant','mcp','meta','file',
+     'agent_role','schedule','platform_config','standing_permission','credential')),
+  item_id TEXT NOT NULL,
+  import_id TEXT NOT NULL REFERENCES instance_imports(id),
+  PRIMARY KEY (kind, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_instance_import_items_import ON instance_import_items (import_id);
+
+-- v29（agent-direction issue 13）：工作内协作消息。同一项工作的参与者
+--（主 Agent 与当前承接本工作的各 SubAgent）之间有来源的消息；幂等键按
+--（工作, 发送方, 键）核实（from_sub_agent_id 为空 = 主 Agent，单独一段键空间）；
+-- 投递为接收方的一次执行任务或父会话注入/唤醒任务，待投递行由宿主机在
+-- 终态/启动/取消/关闭时冲刷，资格已失记 undelivered_reason。
+CREATE TABLE IF NOT EXISTS subagent_messages (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL REFERENCES work_delegations(id),
+  parent_session_id TEXT NOT NULL REFERENCES sessions(id),
+  from_sub_agent_id TEXT REFERENCES sub_agents(id),
+  from_task_id TEXT NOT NULL,
+  to_sub_agent_id TEXT REFERENCES sub_agents(id),
+  request_key TEXT NOT NULL,
+  params_digest TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  delivered_task_id TEXT,
+  delivered_at TEXT,
+  undelivered_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_smsg_work ON subagent_messages (work_id);
+CREATE INDEX IF NOT EXISTS idx_smsg_pending ON subagent_messages (parent_session_id, delivered_at);
 `;
 
 /**
@@ -509,10 +682,10 @@ export class Db {
       this.db.exec(SCHEMA_SQL);
       this.ensureColumns();
     } else {
-      // 访问模式与新闻动作的 CHECK 需重建被引用的表；FK pragma 在事务内无效，
+      // 会话模式与新闻动作的 CHECK 需重建被引用的表；FK pragma 在事务内无效，
       // 必须在事务外关闭，提交前校验外键，结束后恢复。
       const rebuildModeChecks = row !== undefined && version < 6;
-      const rebuildTables = rebuildModeChecks || (row !== undefined && version >= 13 && version < 18);
+      const rebuildTables = row !== undefined && version < SCHEMA_VERSION;
       if (rebuildTables) this.db.exec("PRAGMA foreign_keys = OFF;");
       // 全新库或旧版本库都在一个事务里完成：建表 + 迁移 + 版本号，要么全成要么全不动
       try {
@@ -525,6 +698,7 @@ export class Db {
         if (rebuildModeChecks) {
           this.rebuildModeCheckedTables();
         }
+        if (rebuildTables) this.rebuildSessionModeCheck();
         if (rebuildTables && this.db.prepare("PRAGMA foreign_key_check").get()) {
           throw new Error("重建表后外键检查失败");
         }
@@ -565,7 +739,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 17) {
+    } else if (version >= 2 && version <= 31) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -580,6 +754,37 @@ export class Db {
       // v14 → v15：qq_config.owner_user_id 与 inbound_events.reply_target（issue 06）。
       // v16 → v17：群结果接收记录与群收件的撤回时间、引用、配置版本。
       // v17 → v18：新闻采集快照补列；计划动作 CHECK 由下方重建处理。
+      // v18 → v19：projects 补工作区根目录身份四列 + 部分唯一索引
+      // （ensureColumns，agent-direction issue 05）。
+      // v19 → v20：projects 补 settings_version 列（ensureColumns，agent-direction
+      // issue 06），只保护指令列表与 Web Search；旧项目按列默认值取初始版本 1。
+      // v20 → v21：sessions 补 workspace_project_id 组织归属列（ensureColumns，
+      // agent-direction issue 07）；旧会话默认 NULL，不扫描目录、不迁移业务记录。
+      // v21 → v22：inbound_events 补 event_kind 宿主类别列（ensureColumns，
+      // agent-direction issue 08）；旧记录默认 task，历史入站与回执关系保留。
+      // v22 → v23：新增 standing_permissions 表 + confirmations 补长期授权关联
+      // 两列（ensureColumns，agent-direction issue 10）；迁移不产生任何授权、
+      // 不改旧批准事实（旧记录关联列恒为 NULL）。
+      // v23 → v24：新增 sub_agents / work_delegations 两表 + tasks 补四个关联
+      // 列（ensureColumns，agent-direction issue 11）；旧角色、会话、任务、审批、
+      // 长期授权、历史及产物原样保留，旧任务关联列为空。
+      // v24 → v25：sub_agents 补 closed_at / closed_by 两列（ensureColumns，
+      // agent-direction issue 12）；旧 Agent 两列为空（未关闭），state 语义不变。
+      // v25 → v26：work_delegations 补 canceled_at / canceled_by / cancel_reason
+      // 三列（ensureColumns，agent-direction issue 14）；旧工作三列为空（未取消）。
+      // v26 → v27：work_delegations 补 write_target 列（ensureColumns，
+      // agent-direction issue 16）；旧工作恒为 NULL（只读分析工作，不扫描、
+      // 不改写旧记录）。
+      // v27 → v28：新增 instance_imports / instance_import_items 两表
+      // （SCHEMA_SQL 幂等建表，agent-direction issue 21 跨实例导入账本）；
+      // 旧库两表为空，不扫描、不回填。
+      // v28 → v29：新增 subagent_messages 表（SCHEMA_SQL 幂等建表，
+      // agent-direction issue 13 工作内协作消息）；旧库表为空，不回填。
+      // v29 → v30：instance_import_items 的类别 CHECK 扩五类（agent-direction
+      // issue 22 个人方向导入）；CHECK 变更由下方重建处理，账本行原样保留。
+      // v30 → v31：新增入站图片暂存两表，artifacts 补 MIME/hash；旧产物两列为空。
+      // v31 → v32：tasks 补 plan_mode（默认 false）；会话默认 CHECK 加入 plan，
+      // 由统一重建步骤处理，不从旧任务输入推导计划状态。
       // 均为 SCHEMA_SQL 幂等建表覆盖 + 补列；v5 → v6 的 CHECK 变更由重建步骤
       // 统一处理；旧撤回记录的时间在 ensureColumns 中保守回填。
       this.ensureColumns();
@@ -590,6 +795,28 @@ export class Db {
     if (version >= 13 && version <= 15) this.rebuildNotificationSourceCheck();
     // v18：新闻计划复用调度运行与通知 outbox，保留旧计划和运行的引用关系。
     if (version >= 13 && version <= 17) this.rebuildScheduleActionCheck();
+    // v30：条目账本类别扩五类；既有回执与账本行逐行复制保留。
+    // v28 起的库既有表带着旧 CHECK（v29 的 subagent_messages 不动本表），都重建。
+    if (version >= 28 && version <= 29) this.rebuildImportItemsKindCheck();
+  }
+
+  /** v30：重建条目账本类别 CHECK；调用前外键已在事务外关闭。 */
+  private rebuildImportItemsKindCheck(): void {
+    this.db.exec(`
+CREATE TABLE instance_import_items_new (
+  kind TEXT NOT NULL CHECK (kind IN
+    ('project','session','sub_agent','work_delegation','memory','grant','mcp','meta','file',
+     'agent_role','schedule','platform_config','standing_permission','credential')),
+  item_id TEXT NOT NULL,
+  import_id TEXT NOT NULL REFERENCES instance_imports(id),
+  PRIMARY KEY (kind, item_id)
+);
+INSERT INTO instance_import_items_new (kind, item_id, import_id)
+SELECT kind, item_id, import_id FROM instance_import_items;
+DROP TABLE instance_import_items;
+ALTER TABLE instance_import_items_new RENAME TO instance_import_items;
+CREATE INDEX idx_instance_import_items_import ON instance_import_items (import_id);
+`);
   }
 
   /** v18：重建计划动作 CHECK；调用前外键已在事务外关闭。 */
@@ -674,7 +901,7 @@ CREATE INDEX idx_notification_ops_task ON notification_ops (task_id);
   }
 
   /**
-   * v6：tasks/sessions 的访问模式 CHECK 加入 'auto-review'。SQLite 不能修改
+   * v6：tasks 的访问模式 CHECK 加入 'auto-review'。SQLite 不能修改
    * CHECK 约束，按官方推荐流程重建表：显式列清单复制（保留原模式与权限版本
    * 等全部取值）→ 换名 → 重建索引。调用前外键已在事务外关闭。
    */
@@ -688,6 +915,7 @@ CREATE TABLE tasks_new (
   status TEXT NOT NULL CHECK (status IN
     ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
   access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access','auto-review')),
+  plan_mode INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0,1)),
   permission_version INTEGER NOT NULL DEFAULT 1,
   granted_paths TEXT NOT NULL DEFAULT '[]',
   pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access','auto-review')),
@@ -708,16 +936,22 @@ CREATE TABLE tasks_new (
   deadline TEXT,
   result_summary TEXT,
   result_ref TEXT,
+  work_id TEXT,
+  sub_agent_id TEXT,
+  read_scope TEXT,
+  result_delivered_at TEXT,
   UNIQUE (session_id, request_id)
 );
-INSERT INTO tasks_new (id, session_id, request_id, input, status, access_mode, permission_version,
+INSERT INTO tasks_new (id, session_id, request_id, input, status, access_mode, plan_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
   history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
-  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref)
-SELECT id, session_id, request_id, input, status, access_mode, permission_version,
+  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
+  work_id, sub_agent_id, read_scope, result_delivered_at)
+SELECT id, session_id, request_id, input, status, access_mode, plan_mode, permission_version,
   granted_paths, pending_access_mode, interrupt_reason, cancel_requested, effect_unknown, error_message,
   history_entry_ids, resumes_task_id, created_at, started_at, ended_at, model_selection, submission_digest,
-  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref
+  agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
+  work_id, sub_agent_id, read_scope, result_delivered_at
 FROM tasks;
 DROP TABLE tasks;
 ALTER TABLE tasks_new RENAME TO tasks;
@@ -725,6 +959,14 @@ CREATE INDEX IF NOT EXISTS idx_tasks_session_created ON tasks (session_id, creat
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline);
+CREATE INDEX IF NOT EXISTS idx_tasks_work ON tasks (work_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_sub_agent ON tasks (sub_agent_id);
+`);
+  }
+
+  /** v32：会话默认 CHECK 加入 plan；全部既有字段与外键关系原样保留。 */
+  private rebuildSessionModeCheck(): void {
+    this.db.exec(`
 CREATE TABLE sessions_new (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id),
@@ -739,18 +981,19 @@ CREATE TABLE sessions_new (
   create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
+  workspace_project_id TEXT REFERENCES projects(id),
   created_at TEXT NOT NULL,
   model_selection TEXT,
   model_selection_version INTEGER NOT NULL DEFAULT 0,
-  default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review')),
+  default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review','plan')),
   default_access_mode_version INTEGER NOT NULL DEFAULT 0
 );
-INSERT INTO sessions_new (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
+INSERT INTO sessions_new (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
   confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-  default_access_mode, default_access_mode_version)
-SELECT id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
+  default_access_mode, default_access_mode_version, workspace_project_id)
+SELECT id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
   confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-  default_access_mode, default_access_mode_version
+  default_access_mode, default_access_mode_version, workspace_project_id
 FROM sessions;
 DROP TABLE sessions;
 ALTER TABLE sessions_new RENAME TO sessions;
@@ -766,12 +1009,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
         this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
       }
     };
+    add("artifacts", "mime_type", "mime_type TEXT CHECK (mime_type IS NULL OR mime_type IN ('image/jpeg','image/png','image/webp'))");
+    add("artifacts", "content_hash", "content_hash TEXT");
     add("sessions", "model_selection", "model_selection TEXT");
     add("sessions", "model_selection_version", "model_selection_version INTEGER NOT NULL DEFAULT 0");
-    add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review'))");
+    add("sessions", "default_access_mode", "default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access','auto-review','plan'))");
     add("sessions", "default_access_mode_version", "default_access_mode_version INTEGER NOT NULL DEFAULT 0");
     add("tasks", "model_selection", "model_selection TEXT");
     add("tasks", "submission_digest", "submission_digest TEXT");
+    add("tasks", "plan_mode", "plan_mode INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0,1))");
     add("projects", "instruction_files", "instruction_files TEXT NOT NULL DEFAULT '[]'");
     // v7（issue 20）：项目级 Web Search 开关，默认启用，拥有者可显式禁用
     add("projects", "web_search", "web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled'))");
@@ -821,6 +1067,47 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     add("sessions", "create_request_id", "create_request_id TEXT");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_create_request ON projects (create_request_id) WHERE create_request_id IS NOT NULL");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (create_request_id) WHERE create_request_id IS NOT NULL");
+    // v19（agent-direction issue 05）：工作区根目录身份；部分唯一索引让同一真实
+    // 目录至多一个工作区（NULL 不参与，旧项目不受影响），索引只在补列后创建
+    add("projects", "root_cwd", "root_cwd TEXT");
+    add("projects", "root_real", "root_real TEXT");
+    add("projects", "root_dev", "root_dev INTEGER");
+    add("projects", "root_ino", "root_ino INTEGER");
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root_real ON projects (root_real) WHERE root_real IS NOT NULL");
+    // v20（agent-direction issue 06）：指令列表与 Web Search 的乐观并发版本；
+    // 列默认值 1 即旧项目初始版本，不复制旧字段
+    add("projects", "settings_version", "settings_version INTEGER NOT NULL DEFAULT 1");
+    // v21（agent-direction issue 07）：会话工作区组织归属（仅展示归属，资料身份
+    // 仍是 project_id）；旧会话默认 NULL
+    add("sessions", "workspace_project_id", "workspace_project_id TEXT REFERENCES projects(id)");
+    // v22（agent-direction issue 08）：入站事件宿主类别（区分普通任务入站与 IM
+    // 审批控制消息）；旧记录默认 task
+    add("inbound_events", "event_kind", "event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval'))");
+    // v23（agent-direction issue 10）：批准的长期授权关联（可空，旧批准恒为空；
+    // 迁移不把历史单次批准转换成长期授权）
+    add("confirmations", "standing_permission_id", "standing_permission_id TEXT");
+    add("confirmations", "standing_permission_version", "standing_permission_version INTEGER");
+    // v24（agent-direction issue 11）：任务关联工作委托与 SubAgent 身份、钉定
+    // 只读范围与结果注入标记；旧任务所有新列恒为 NULL，不把旧 coding 身份或
+    // 历史任务改造成新 Agent。
+    add("tasks", "work_id", "work_id TEXT");
+    add("tasks", "sub_agent_id", "sub_agent_id TEXT");
+    add("tasks", "read_scope", "read_scope TEXT");
+    add("tasks", "result_delivered_at", "result_delivered_at TEXT");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_work ON tasks (work_id)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_sub_agent ON tasks (sub_agent_id)");
+    // v25（agent-direction issue 12）：显式关闭。关闭用独立列，不改 state CHECK；
+    // 旧行两列为空（未关闭），不扫描、不改写旧记录。
+    add("sub_agents", "closed_at", "closed_at TEXT");
+    add("sub_agents", "closed_by", "closed_by TEXT");
+    // v26（agent-direction issue 14）：整项工作取消。独立列、一次写入；
+    // 旧行三列为空（未取消），不扫描、不改写旧记录。
+    add("work_delegations", "canceled_at", "canceled_at TEXT");
+    add("work_delegations", "canceled_by", "canceled_by TEXT");
+    add("work_delegations", "cancel_reason", "cancel_reason TEXT");
+    // v27（agent-direction issue 16）：工作的写入目标（WorkWriteTarget JSON）；
+    // 独立列、首次委派钉定、继续沿用；旧行恒为空（只读分析工作，不升级）。
+    add("work_delegations", "write_target", "write_target TEXT");
   }
 
   /** 在单个事务内执行；fn 抛错则整体回滚并向上抛出。 */

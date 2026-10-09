@@ -95,6 +95,75 @@ sudo setfacl -R -m "u:ruukoto-exec:rwX,d:u:ruukoto-exec:rwX,d:u:$SUDO_USER:rwX" 
 #      export RUUKOTO_OWNER_TOKEN_FILE=~/.ruukoto-owner.token
 ```
 
+## 服务器服务管理（agent-direction issue 09，ADR 0019）
+
+main 的 `service_inspect` / `service_manage` 只经 root 拥有的 helper 触达
+systemd：白名单目标、固定协议、逐次审批（full_access 也不例外）。执行账户
+**没有**新增的 sudo/Polkit 权限，后台的新提权能力不属于执行账户已有权限。
+
+```bash
+# 1. helper 与策略（root 拥有；后台/执行账户不可写）
+sudo install -d -m 0755 /etc/ruukoto
+sudo install -d -m 0700 /var/lib/ruukoto/service-ops
+sudo install -m 0700 /opt/ruukoto/deploy/systemd/ruukoto-service.mjs \
+  /usr/local/libexec/ruukoto/ruukoto-service
+# 策略：固定本机身份、执行 UID/GID、精确单元及允许动作；默认只列测试服务。
+# 由拥有者在可信部署流程修改（模型不能增删目标；修改后旧批准因修订变化失效）。
+sudo install -m 0644 /dev/stdin /etc/ruukoto/services.json <<EOF
+{
+  "machineId": "$(cat /etc/machine-id)",
+  "execUid": $(id -u ruukoto-exec),
+  "execGid": $(id -g ruukoto-exec),
+  "services": {
+    "ruukoto-service-test.service": { "actions": ["restart"] }
+  }
+}
+EOF
+
+# 2. 可控测试服务（root 拥有启动程序；以执行账户运行；无网络、无业务凭据、
+#    Restart=no；每次启动记 InvocationID/计数仅作辅助观察）
+sudo install -m 0755 /opt/ruukoto/deploy/systemd/ruukoto-service-test.sh \
+  /usr/local/libexec/ruukoto/ruukoto-service-test.sh
+sudo install -m 0644 /opt/ruukoto/deploy/systemd/ruukoto-service-test.service \
+  /etc/systemd/system/
+sudo install -d -o ruukoto-exec -g ruukoto-exec -m 0750 /var/lib/ruukoto-service-test
+sudo systemctl daemon-reload && sudo systemctl start ruukoto-service-test
+
+# 3. 后台单元 drop-in 注入部署配置（缺一则后台拒绝启动）
+#    # /etc/systemd/system/ruukoto-backend.service.d/30-service-manager.conf
+#    [Service]
+#    Environment=RUUKOTO_SERVICE_HELPER=/usr/local/libexec/ruukoto/ruukoto-service
+#    Environment=RUUKOTO_SERVICE_POLICY=/etc/ruukoto/services.json
+sudo systemctl daemon-reload && sudo systemctl restart ruukoto-backend
+```
+
+helper 协议（应答 = stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀单行 JSON——不用
+fd3：sudo 默认关闭 fd ≥3（closefrom=3）导致 fd3 在生产必然断开；fd1 与 stderr 其余
+内容为原始 systemctl/命令输出证据，restart 路径 systemd-run --pipe 会把命令单元的
+stderr 混入 stderr，机器调用方按前缀行提取）：
+
+- `inspect <unit>`：白名单内服务状态的固定字段与策略/单元定义修订指纹；
+  systemctl show 显式降到策略执行 UID/GID（应答含实际执行身份 uid/gid）。
+- `restart <hostOpId> <policyRev> <unitRev> <unit>`：原子认领（mkdir，同
+  ID 拒绝再次启动，标记持久保留）→ 核对本机、白名单、策略与已加载单元
+  修订（NeedDaemonReload=yes 拒绝）→ `systemd-run --pipe --wait` 短命命令
+  单元（`ruukoto-service-op-<hostOpId>.service`，KillMode=control-group，
+  RuntimeMaxSec=120）内以 root 执行固定的 `systemctl --system restart`
+  （应答含实际执行身份 root 与退出码；派发后的意外失败按已启动上报，
+  由调用方记效果未知，绝不重写为已知未执行）。
+  
+  `systemd-run` spawn 结果如实区分（agent-direction issue 10 修正，验收覆盖）：
+  只有可证明命令根本未启动（ENOENT/EACCES/ENOTDIR）才报 `launched:false`
+  （可信的未派发证明，调用方记已知未执行并消耗本次批准）；启动后的错误
+  （缓冲超限等）与被信号杀死一律报 `ok:false, launched:true`（「可能已派发」，
+  不猜退出码——调用方记效果未知、不自动重发、同目标长期授权失效）。
+- `stop-op <hostOpId>`：先阻断后续启动（认领/stop-requested 标记），再停
+  派生命令单元；只有查询确认 LoadState/ActiveState/MainPID/ControlPID 全部
+  退出才报告 exited（权限错误、bus 不可达、查询失败都不当作已退出）。
+
+清理演练：停止并 disable 测试服务，删除单元/启动程序/状态目录
+（`/var/lib/ruukoto-service-test`）、策略项与 helper 配置 drop-in。
+
 ## 验证状态
 
 2026-09-21 在 tx（Ubuntu 24.04，Tencent Cloud，Docker 29.5.2，systemd 255）完成

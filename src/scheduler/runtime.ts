@@ -171,8 +171,9 @@ export class Scheduler {
   }
 
   private hasUndispatched(): boolean {
-    // 所有来源（调度、Telegram 等）已登记未派发的事件都按间隔补派
-    return this.store.db.prepare("SELECT 1 FROM inbound_events WHERE status = 'registered' LIMIT 1").get() !== undefined;
+    // 所有来源（调度、Telegram 等）已登记未派发的普通任务事件都按间隔补派；
+    // IM 审批控制消息（event_kind）不派发，不算未派发
+    return this.store.db.prepare("SELECT 1 FROM inbound_events WHERE status = 'registered' AND event_kind = 'task' LIMIT 1").get() !== undefined;
   }
 
   /** 一个计划的到期处理（单事务）；返回是否新登记了需要派发的入站事件。 */

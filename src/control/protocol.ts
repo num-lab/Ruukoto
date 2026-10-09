@@ -21,6 +21,41 @@
  *
  * v9：正文按连续显示段发送 UTF-8 增量，新增持久思考阶段、read_task_events
  * 分页及 get_task 快照水位。旧客户端须升级；持久旧事件的累计尾部格式仍可读。
+ *
+ * v10（agent-direction issue 10）：长期操作授权——批准新增可空的授权 ID/版本
+ * 关联与新决定来源 standing_permission；新增 standing_permission.* 事件与
+ * service_grant_list/get/revoke 操作（不获得创建或扩大授权的能力）。旧客户端
+ * 须升级；持久历史中的旧来源与事件保持可读。
+ *
+ * v11（agent-direction issue 11）：通用 SubAgent 委派——快照新增工作委托、
+ * SubAgent 与其内部会话 ID 列表；新增 work_delegation.created 与
+ * subagent_task.* 事件、work_list/work_get 操作（只读）。旧客户端须升级；
+ * 持久旧事件与记录保持可读。
+ *
+ * v12（agent-direction issue 12）：SubAgent 继续/复用/显式关闭——SubAgent 新增
+ * closedAt/closedBy；新增 subagent.closed 事件与 subagent_close 操作（工作委托
+ * 列表照旧）；委派复用经模型工具的 sub_agent_id 参数。旧客户端须升级；
+ * 持久旧事件与记录保持可读。
+ *
+ * v13（agent-direction issue 14）：整项工作取消——工作委托新增
+ * canceledAt/canceledBy/cancelReason；新增 work_delegation.canceled 事件与
+ * work_cancel 操作；主 Agent 工具增加 subagent_cancel。旧客户端须升级；
+ * 持久旧事件与记录保持可读。
+ *
+ * v14（agent-direction issue 20）：核心群聊退役——qq_group_update 操作删除
+ * （旧 qq_config.groups 保留为历史值）；qq_inbox_list 条目新增 acceptance
+ * （main 接收账本）与 sourceProblem（当前复核结论）字段。旧客户端须升级；
+ * 旧群收件/发送/入站记录保持可读。
+ *
+ * v15（agent-direction issue 13 + 17）：工作内协作消息——新增 subagent_message.sent /
+ * subagent_message.dropped 事件；work_get 详情新增 messages 列表；主 Agent 工具
+ * 增加 subagent_message，委派 work_id 与 sub_agent_id 同现表示协作加入。改动汇总——
+ * 新增 work_delegation.integrated 事件与主 Agent 工具 subagent_integrate；main 会话
+ * 的修改委派开放（通用 SubAgent 产生改动、宿主汇总进父工作区待提交区）。旧客户端
+ * 须升级；持久旧事件与记录保持可读。
+ *
+ * v16（issue 31）：会话默认与提交支持 Plan，任务与 task.queued 新增 planMode，
+ * 固定采用 auto-review；计划行为由模式设置确定，输入文本与继续链不决定模式。
  */
 
 import {
@@ -29,7 +64,9 @@ import {
   type PersistentEvent,
   type Project,
   type Session,
+  type SubAgent,
   type Task,
+  type WorkDelegation,
 } from "../core/types.ts";
 import type { ConfirmationRequestView, OutputPreview } from "../core/views.ts";
 
@@ -55,6 +92,12 @@ export interface ConnectSnapshot {
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
   /** 逻辑角色绑定的会话（工作区入口不以其作为自动归属依据；旧后台缺省）。 */
   roleSessionIds?: string[];
+  /** SubAgent 的内部工作会话（普通工作区列表排除；旧后台缺省）。 */
+  subAgentSessionIds?: string[];
+  /** 工作委托（issue 11；只读视图，状态/历史/任务事件与产物沿用既有接口）。 */
+  workDelegations?: WorkDelegation[];
+  /** 动态 SubAgent 身份（含运行/空闲/待核实状态）。 */
+  subAgents?: SubAgent[];
 }
 
 /** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */

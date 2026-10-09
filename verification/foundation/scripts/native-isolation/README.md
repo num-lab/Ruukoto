@@ -1,6 +1,6 @@
 # 原生执行边界的第一阶段验证
 
-这些脚本验证[工单 26](../../../../.scratch/agent-direction/issues/26-native-sandbox.md)的原生候选。它们创建临时虚拟资料、服务和进程，不读取真实凭据，不调用模型，不接入 WorkerLauncher。两平台完整边界通过后才能实施产品替换；当前第一阶段未通过。
+这些脚本验证[工单 26](../../../../.agents/scratch/agent-direction/issues/26-native-sandbox.md)的原生候选。它们创建临时虚拟资料、服务和进程，不读取真实凭据，不调用模型，不接入 WorkerLauncher。两平台完整边界通过后才能实施产品替换；当前第一阶段未通过。
 
 从仓库根运行：
 
@@ -15,7 +15,7 @@ python3 verification/foundation/scripts/native-isolation/macos-launchd-probe.py
 python3 verification/foundation/scripts/native-isolation/linux-native-probes.py
 ```
 
-旧入口 `bash .scratch/agent-direction/macos-sbx-probe.sh` 复用第一条命令，Linux 的独立 bwrap 路径、自检和部署前置说明见 [linux-README.md](linux-README.md)。报告默认写入 `verification/foundation/results/native-*.{json,md}`。退出码 0 表示脚本列出的被测项通过，1 表示真实边界失败，2 表示启动、能力、对照或判定不可验证；启动失败和缺失项不会计作隔离通过。复跑会覆盖相应报告，应与代码一起保存需要保留的证据。
+旧入口 `bash .agents/scratch/agent-direction/macos-sbx-probe.sh` 复用第一条命令，Linux 的独立 bwrap 路径、自检和部署前置说明见 [linux-README.md](linux-README.md)。报告默认写入 `verification/foundation/results/native-*.{json,md}`。退出码 0 表示脚本列出的被测项通过，1 表示真实边界失败，2 表示启动、能力、对照或判定不可验证；启动失败和缺失项不会计作隔离通过。复跑会覆盖相应报告，应与代码一起保存需要保留的证据。
 
 macOS 文件规则使用规范化路径，并保留未规范化 `/tmp` 规则的反例对照。每次敏感操作先在未沙箱环境验证目标可访问，再检查沙箱程序自己的 started 标记与实际操作 errno。TCP、Unix socket、Mach 服务、共享内存与目标进程均由脚本创建。运行时只读根、被测策略、系统版本与具体结果写入 JSON，不能把某一策略失败扩大为所有 Seatbelt 策略不可能。
 

@@ -8,7 +8,7 @@
 
 ### Issue tracker
 
-任务以本地 Markdown 保存在 `.scratch/<feature>/`。读取、创建或更新任务前，先读 `docs/agents/issue-tracker.md`。
+任务以本地 Markdown 保存在 `.agents/scratch/<feature>/`。读取、创建或更新任务前，先读 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
@@ -20,4 +20,4 @@
 
 ### 可视化文档
 
-`docs/visual/` 是随代码维护的图解页面，与 `docs/` 同等对待。改动 `src/` 或 `deploy/` 下的文件之后、编辑图解页时、`test/67-visual-docs.test.ts` 失败时，按 `.skills/visual-docs/SKILL.md` 操作。
+`docs/visual/` 是随代码维护的图解页面，与 `docs/` 同等对待。改动 `src/` 或 `deploy/` 下的文件之后、编辑图解页时、`test/67-visual-docs.test.ts` 失败时，按 `.agents/skills/visual-docs/SKILL.md` 操作。

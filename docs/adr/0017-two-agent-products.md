@@ -28,7 +28,7 @@ Ruukoto Agent 包括两个工具：`ruukoto-code` 是运行在开发机器上、
 
 ## 与既有决策的关系
 
-- `.scratch/daily-agent/spec.md` 中 main/coding/chat 同后台的目标架构与固定 coding 委派方向由本决策替代；其中已交付功能仍是迁移依据。
+- `.agents/scratch/daily-agent/spec.md` 中 main/coding/chat 同后台的目标架构与固定 coding 委派方向由本决策替代；其中已交付功能仍是迁移依据。
 - ADR 0002 将运行位置固定为 Linux 服务器的前提不再适用于所有产品；任务与交互终端分离的原则保留，并扩展到按需拉起的开发机后台。
 - ADR 0003 的技术权限边界继续保留；ADR 0004 中依赖 Linux 的实现不能直接作为 macOS 受限模式的依据。
 - ADR 0011 将 IM 审批留在 TUI 的阶段性安排由本方向取代；绑定的拥有者私聊应能完成审批，身份校验与批准范围仍须由宿主验证。
@@ -36,7 +36,7 @@ Ruukoto Agent 包括两个工具：`ruukoto-code` 是运行在开发机器上、
 - ADR 0013 对 GitHub 事件的固定 main → coding 路径，以及 ADR 0014 对 QQ 群聊深度接入 chat 的安排，需要随新边界修订；其余外发与身份规则不因角色删除自动放宽。
 - ADR 0012 的 QQ 私聊与 Telegram 共享 main，以及 ADR 0016 区分完整历史和有界模型上下文的机制，是可复用的现有基础。旧文档中的 coding/chat 适用范围须在迁移时重新映射。
 
-完整产品规格、首期验收场景与决策确认记录见 [方向调整规格](../../.scratch/agent-direction/spec.md)。
+完整产品规格、首期验收场景与决策确认记录见 [方向调整规格](../../.agents/scratch/agent-direction/spec.md)。
 
 ## 补充：ruukoto 保留普通开发会话（2026-10-05）
 

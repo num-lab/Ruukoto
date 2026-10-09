@@ -629,16 +629,16 @@
     </figure>
 
     <ul>
-      <li><strong>macOS 受限</strong>：容器跑在 Docker Desktop 的 Linux VM 里，宿主路径按原样挂载；容器 uid 1000 写挂载的工作区不受宿主权限位约束（VM 代管）。前提是装好并运行 Docker Desktop、工作区在它的文件共享范围内、镜像由可信身份用 <code>build.sh</code> 构建。工单 03 的冒烟 16/16（含逃逸孙进程的回收与停止核实），sandbox-exec 的探针见 <code class="src" data-src=".scratch/agent-direction/macos-sbx-probe.sh">macos-sbx-probe.sh</code>。</li>
+      <li><strong>macOS 受限</strong>：容器跑在 Docker Desktop 的 Linux VM 里，宿主路径按原样挂载；容器 uid 1000 写挂载的工作区不受宿主权限位约束（VM 代管）。前提是装好并运行 Docker Desktop、工作区在它的文件共享范围内、镜像由可信身份用 <code>build.sh</code> 构建。工单 03 的冒烟 16/16（含逃逸孙进程的回收与停止核实），sandbox-exec 的探针见 <code class="src" data-src=".agents/scratch/agent-direction/macos-sbx-probe.sh">macos-sbx-probe.sh</code>。</li>
       <li><strong>Linux 开发机受限</strong>：原生 docker，bind mount 不做 uid 映射，要用 <code>RUUKOTO_CONTAINER_UID</code> / <code>GID</code> 把容器 uid 设成能写工作区的值（通常是拥有者）。</li>
       <li><strong>完全访问</strong>：必须是独立的执行账户。同 uid 的进程能读 <code>~/.ruukoto-code/control/owner.token</code>，等于持有控制面拥有者身份。仓库里的包装脚本调用 <code>/usr/bin/systemd-run</code>，只适用于 Linux；macOS 尚未提供经过验证的本机执行账户入口，不能直接使用这套 Linux 包装。没有设置 <code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code> / <code>STOP_SCRIPT</code> 时，提交即 <code>execution_unavailable</code>。</li>
-      <li><strong>Linux 完全访问复验</strong>：本次在 tx 上用 <code>ruukoto-code</code> 的真实 Runtime，经临时 root 固定包装与 sudoers 运行当前 worker：<code>uid:gid=986:986</code>，修前检查失败、修后通过，读取后台 <code>owner.token</code> 与核心库被拒；模型为桩，日常实例不参与（<code class="src" data-src=".scratch/agent-direction/release-24-linux-full-access.mts">release-24-linux-full-access.mts</code>）。该临时入口在演练后清理，新部署仍需配置自己的执行账户与固定入口。</li>
-      <li><strong>产品级验证</strong>：工单 04 的冒烟（代码修改与检查、外网 / 宿主文件 / 只读根约束、越界审批单次消费、完全访问缺入口拒绝、中断回收容器含启动窗口）在 Docker Desktop 与原生 Linux 各 6/6，见 <code class="src" data-src=".scratch/agent-direction/issues/04-desktop-execution.md">04-desktop-execution.md</code>。</li>
+      <li><strong>Linux 完全访问复验</strong>：本次在 tx 上用 <code>ruukoto-code</code> 的真实 Runtime，经临时 root 固定包装与 sudoers 运行当前 worker：<code>uid:gid=986:986</code>，修前检查失败、修后通过，读取后台 <code>owner.token</code> 与核心库被拒；模型为桩，日常实例不参与（<code class="src" data-src=".agents/scratch/agent-direction/release-24-linux-full-access.mts">release-24-linux-full-access.mts</code>）。该临时入口在演练后清理，新部署仍需配置自己的执行账户与固定入口。</li>
+      <li><strong>产品级验证</strong>：工单 04 的冒烟（代码修改与检查、外网 / 宿主文件 / 只读根约束、越界审批单次消费、完全访问缺入口拒绝、中断回收容器含启动窗口）在 Docker Desktop 与原生 Linux 各 6/6，见 <code class="src" data-src=".agents/scratch/agent-direction/issues/04-desktop-execution.md">04-desktop-execution.md</code>。</li>
     </ul>
 
     <aside class="callout limit">
       <b>已知限制</b>
-      <p>当前 <code class="src" data-src="src/agent/tool-worker/host.ts#static async start">ToolWorkerHost.start</code> 在 ready 失败时丢弃停止失败的返回值，starting 占位再把启动失败返回为已回收；<code class="src" data-src="src/agent/tool-worker/host.ts#async stop()">stop</code> 首次返回 false 后会因句柄已置空而在第二次返回 true。worktree 临时执行入口忽略停止失败且未登记受管单元（<code class="src" data-src="src/runtime/runtime.ts#async createWorktreeInContainer">createWorktreeInContainer</code>）。这些分支仍待<a href="../../.scratch/agent-direction/issues/27-preserve-unverified-worker-stop.md">停止核实工单</a>修正。local 的 <code class="src" data-src="src/agent/managed-processes.ts#async function killProcessGroup">killProcessGroup</code> 只检查主 PID，不能证明组内或脱离进程组的后代全部退出。</p>
+      <p>当前 <code class="src" data-src="src/agent/tool-worker/host.ts#static async start">ToolWorkerHost.start</code> 在 ready 失败时丢弃停止失败的返回值，starting 占位再把启动失败返回为已回收；<code class="src" data-src="src/agent/tool-worker/host.ts#async stop()">stop</code> 首次返回 false 后会因句柄已置空而在第二次返回 true。worktree 临时执行入口忽略停止失败且未登记受管单元（<code class="src" data-src="src/runtime/runtime.ts#async createWorktreeInContainer">createWorktreeInContainer</code>）。这些分支仍待<a href="../../.agents/scratch/agent-direction/issues/27-preserve-unverified-worker-stop.md">停止核实工单</a>修正。local 的 <code class="src" data-src="src/agent/managed-processes.ts#async function killProcessGroup">killProcessGroup</code> 只检查主 PID，不能证明组内或脱离进程组的后代全部退出。</p>
       <p>直连 <code>systemd-run</code> 的分支只在程序化配置下可达（CLI 不接受 <code>systemd</code> 后端），此时执行账户 uid/gid 缺省取到 <code>0</code>，与「固定执行账户」的意图不符；生产始终经受保护包装入口。另外 docker CLI 默认是裸命令 <code>docker</code>（<code>RUUKOTO_DOCKER_PATH</code> 可改）：它不在 PATH 上时，容器启动器 <code>spawn</code> 出的子进程会发出 <code>error</code> 事件，而启动器没有监听它，后台进程也没有注册 <code>uncaughtException</code> 兜底。按 Node 的语义（单独用 Node 24 验证过），未监听的 <code>error</code> 会让后台进程以退出码 1 结束，而不是报 <code>execution_unavailable</code>。这一点没有在产品里复现。</p>
     </aside>
   </section>
@@ -746,7 +746,7 @@
 
   <section id="acceptance">
     <h2>首期场景与验证边界</h2>
-    <p>首期验收沿 <a href="../adr/0017-two-agent-products.md">ADR 0017</a> 确定的顺序进行。下图表示验收顺序，各阶段的执行仍发生在各自产品本地；已有证据与本次联合演练分别记录在 <a href="../release-acceptance.md">发布与验收说明</a>和<a href="../../.scratch/agent-direction/issues/24-release-acceptance.md">验收工单</a>。</p>
+    <p>首期验收沿 <a href="../adr/0017-two-agent-products.md">ADR 0017</a> 确定的顺序进行。下图表示验收顺序，各阶段的执行仍发生在各自产品本地；已有证据与本次联合演练分别记录在 <a href="../release-acceptance.md">发布与验收说明</a>和<a href="../../.agents/scratch/agent-direction/issues/24-release-acceptance.md">验收工单</a>。</p>
     <figure class="fig">
       <div class="scroll">
         <svg viewBox="0 0 1040 126" role="img" aria-label="首期验收顺序：先在 Coding Agent 完成本地修改与测试，再在个人 Agent 验证 IM 服务管理，最后验证长任务期间持续响应、同项工作协作、复用与显式关闭。箭头表示下一项验收，不表示两个产品之间的运行依赖。">
@@ -819,8 +819,8 @@
           <tr><td>开发机受限 / 完全访问</td><td>工单 04 冒烟，Docker Desktop 与 tx 原生 Linux；工单 03 的 sandbox-exec 旧探针</td><td>容器冒烟各 6/6；2026-10-08 更正旧探针路径别名错误，规范化后文件拒绝生效；完整原生边界尚未通过；macOS 完全访问身份未验证</td></tr>
           <tr><td>原生候选第一阶段</td><td>macOS 27.0 的<a href="../../verification/foundation/results/native-macos-report.md">Seatbelt 探针</a>与<a href="../../verification/foundation/results/native-macos-launchd.md">临时 launchd job</a>；tx 的<a href="../../verification/foundation/results/native-linux-report.md">bubblewrap 探针</a>；均使用虚拟资料与自建服务</td><td>未通过：macOS 逃离进程组的后代继续写心跳；tx 的 namespace 启动被系统拒绝，未开始的边界项均记为 unavailable。产品仍按当前 <code>createLauncherFor</code> 选择执行边界</td></tr>
           <tr><td>双产品与按需拉起</td><td>进程级测试（真实 bin 进程、socket、SQLite，模型打桩）与 pty 冒烟</td><td>同机并存、<code>product_mismatch</code>、并发拉起收敛、启动失败附日志、关闭 TUI 后台不停均通过（2026-10-02）</td></tr>
-          <tr><td>服务管理与长期授权</td><td>tx 真实 systemd / sudo / helper / 测试服务，IM 与模型为桩（<code class="src" data-src=".scratch/agent-direction/issues/09-linux-service-management.md">09</code>、<code class="src" data-src=".scratch/agent-direction/issues/10-standing-permissions.md">10</code>）</td><td>各 14/14：真实重启 InvocationID 变化且计数恰 +1、执行账户调用 helper / 写策略 / 读令牌全拒、同 ID <code>already_claimed</code>、改策略或不 daemon-reload 即失效、杀掉在途 <code>systemd-run</code> 记效果未知（2026-10-03）</td></tr>
-          <tr><td>SubAgent 改动汇总</td><td>macOS Docker Desktop 与 tx 原生 Linux 的真实 git / 容器，模型为桩（<code class="src" data-src=".scratch/agent-direction/issues/17-integrate-worktree-results.md">17</code>）</td><td>各 7/7：冲突零写入，取消与关闭后成果可找回；父仓库自身为 worktree 时，共享 Git 元数据补挂后创建副本与汇总通过（2026-10-05）</td></tr>
+          <tr><td>服务管理与长期授权</td><td>tx 真实 systemd / sudo / helper / 测试服务，IM 与模型为桩（<code class="src" data-src=".agents/scratch/agent-direction/issues/09-linux-service-management.md">09</code>、<code class="src" data-src=".agents/scratch/agent-direction/issues/10-standing-permissions.md">10</code>）</td><td>各 14/14：真实重启 InvocationID 变化且计数恰 +1、执行账户调用 helper / 写策略 / 读令牌全拒、同 ID <code>already_claimed</code>、改策略或不 daemon-reload 即失效、杀掉在途 <code>systemd-run</code> 记效果未知（2026-10-03）</td></tr>
+          <tr><td>SubAgent 改动汇总</td><td>macOS Docker Desktop 与 tx 原生 Linux 的真实 git / 容器，模型为桩（<code class="src" data-src=".agents/scratch/agent-direction/issues/17-integrate-worktree-results.md">17</code>）</td><td>各 7/7：冲突零写入，取消与关闭后成果可找回；父仓库自身为 worktree 时，共享 Git 元数据补挂后创建副本与汇总通过（2026-10-05）</td></tr>
           <tr><td>未覆盖</td><td colspan="2">macOS 完全访问缺经过验证的本机入口；TUI 断开重连在目标机的人工检查；真实 NapCat、真实 Tavily；服务审批经真实 QQ / Telegram 平台；tx 生产库切换。逐项证据见<a href="../release-acceptance.md">发布与验收说明</a></td></tr>
         </tbody>
       </table>

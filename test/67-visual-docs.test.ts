@@ -6,7 +6,7 @@
  * 3. index.html 链接到每个页面；
  * 4. 页面间的相对链接指向存在的文件，#锚点在目标页存在。
  *
- * 只核对「提到了」，不核对说得对不对；维护流程见 .skills/visual-docs/SKILL.md。
+ * 只核对「提到了」，不核对说得对不对；维护流程见 .agents/skills/visual-docs/SKILL.md。
  */
 
 import { test } from "node:test";

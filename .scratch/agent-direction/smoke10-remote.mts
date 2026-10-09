@@ -1,0 +1,561 @@
+/**
+ * smoke-10（agent-direction issue 10）远端编排器：在 tx 上以 ssh 登录账户运行
+ * （本地驱动 .scratch/agent-direction/smoke-10-standing-permissions.mts 上传仓库后
+ *  以 node_modules/.bin/tsx 执行；全程自包含，不转发开发机命令）。
+ *
+ * 真实：Linux systemd（真实 systemctl/systemd-run/journald）、root helper（仓库
+ *   当前版本，含"systemd-run 已启动但结果不确定"的派发如实性修正）经 sudoers
+ *   固定入口、白名单策略、测试服务 ruukoto-service-test.service 真实 start/
+ *   restart/ExecStop 20s 窗口、隔离后台（ruukoto-backend 身份，真实 Runtime/
+ *   SQLite/审批/长期授权）、真实控制面（Unix socket + owner.token）与
+ *   `ruukoto service-grant` CLI、系统账户边界（ruukoto-exec 无提权）。
+ * 模拟：模型（MockModelServer 脚本化响应）、NapCat/OneBot（MockOneBot QQ 私聊；
+ *   真实 QQ/Telegram 平台未实测，见末尾声明）。
+ *
+ * 阶段：安装演练 → 小步验证 → 热身 → A approve-standing 主链路（保存+本次+第二任务
+ *   自动放行+目录/详情+事件与双消费证据）→ B CLI list/show/revoke + 恢复人工审批 →
+ *   C 真实 systemd-run 被杀：helper 如实报"可能已派发"，效果未知 + 授权失效 →
+ *   D 失效后恢复人工审批 → E 账户边界 → 清理。
+ * 退出码：0 = 全部通过；1 = 有 FAIL 或清理告警。
+ */
+
+import assert from "node:assert/strict";
+import * as childProcess from "node:child_process";
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { MockModelServer, type Responder } from "../../test/helpers/mock-provider.ts";
+import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "../../test/helpers/mock-onebot.ts";
+import { lastUserText, waitFor, writeModelsJson } from "../../test/helpers/testkit.ts";
+
+const SRC = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
+const SMOKE_HOME = "/var/lib/ruukoto-smoke10";
+const DATA = `${SMOKE_HOME}/data`;
+const AGENT = `${SMOKE_HOME}/agent`;
+const CONTROL = `${SMOKE_HOME}/control`;
+const BACKEND_LOG = `${SMOKE_HOME}/backend.log`;
+const BACKEND_USER = "ruukoto-backend";
+const EXEC_USER = "ruukoto-exec";
+const HELPER = "/usr/local/libexec/ruukoto/ruukoto-service";
+const POLICY = "/etc/ruukoto/services.json";
+const OPS_DIR = "/var/lib/ruukoto/service-ops";
+const SUDOERS = "/etc/sudoers.d/ruukoto";
+const UNIT = "ruukoto-service-test.service";
+const UNIT_PATH = `/etc/systemd/system/${UNIT}`;
+const DROPIN_DIR = `/etc/systemd/system/${UNIT}.d`;
+const TEST_SH = "/usr/local/libexec/ruukoto/ruukoto-service-test.sh";
+const TEST_STATE = "/var/lib/ruukoto-service-test";
+const QQ_OWNER = "880001";
+const startedAt = Date.now();
+
+// ---------- 小工具（全部异步：本进程驻有 mock 桩，禁止阻塞事件循环） ----------
+
+const results: Array<{ name: string; ok: boolean; detail: string }> = [];
+async function check(name: string, fn: () => Promise<void> | void): Promise<void> {
+  try {
+    await fn();
+    results.push({ name, ok: true, detail: "" });
+    console.log(`PASS ${name}`);
+  } catch (err) {
+    results.push({ name, ok: false, detail: String((err as Error).message ?? err) });
+    console.log(`FAIL ${name}: ${(err as Error).message}`);
+  }
+}
+
+function evidence(label: string, text: string, maxLines = 12): void {
+  const lines = text.trimEnd().split("\n");
+  const shown = lines.slice(0, maxLines).join("\n");
+  console.log(`--- 证据 ${label} ---\n${shown}${lines.length > maxLines ? `\n…（共 ${lines.length} 行）` : ""}`);
+}
+
+function run0(cmd: string, args: string[], opts: { input?: string } = {}): Promise<{ code: number; out: string; err: string }> {
+  return new Promise((resolve) => {
+    const child = childProcess.execFile(cmd, args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const anyErr = err as (Error & { code?: number | string }) | null;
+      const code = anyErr === null ? 0 : typeof anyErr.code === "number" ? anyErr.code : -1;
+      resolve({ code, out: stdout ?? "", err: stderr ?? "" });
+    });
+    if (opts.input !== undefined && child.stdin) {
+      child.stdin.write(opts.input);
+      child.stdin.end();
+    }
+  });
+}
+const sudo = (args: string[], opts: { input?: string } = {}) => run0("sudo", ["-n", ...args], opts);
+const asUser = (user: string, args: string[], opts: { input?: string } = {}) => sudo(["-u", user, ...args], opts);
+
+async function backendctl<T = any>(action: string, payload: Record<string, unknown>): Promise<T> {
+  const r = await sudo([
+    "-u", BACKEND_USER, process.execPath,
+    `${SRC}/node_modules/.bin/tsx`,
+    `${SRC}/.scratch/agent-direction/smoke09-backendctl.mts`, action, JSON.stringify(payload),
+  ]);
+  if (r.code !== 0) throw new Error(`backendctl ${action} 失败：${r.err.slice(0, 500) || r.out.slice(0, 500)}`);
+  return JSON.parse(r.out.trim().split("\n").pop()!);
+}
+
+const query = (sql: string, params: unknown[] = []): Promise<any[]> =>
+  backendctl<{ rows: any[] }>("query", { db: `${DATA}/ruukoto.db`, sql, params }).then((r) => r.rows);
+
+/** 真实控制面 CLI（ruukoto service-grant）：后台账户身份 + owner.token。 */
+const serviceGrantCli = async (args: string[]): Promise<{ code: number; out: string; err: string }> =>
+  asUser(BACKEND_USER, [
+    "bash", "-lc",
+    `export RUUKOTO_DATA_DIR=${DATA} RUUKOTO_AGENT_DIR=${AGENT} RUUKOTO_CONTROL_DIR=${CONTROL} HOME=${SMOKE_HOME}/home; ` +
+      `cd ${SRC} && ${process.execPath} node_modules/.bin/tsx src/cli.ts service-grant ${args.join(" ")}`,
+  ]);
+
+const startsCount = async (): Promise<number> => Number((await sudo(["bash", "-c", `wc -l < ${TEST_STATE}/starts.log 2>/dev/null || echo 0`])).out.trim() || "0");
+const startsLog = (): Promise<string> => sudo(["cat", `${TEST_STATE}/starts.log`]).then((r) => r.out);
+const invocationId = (): Promise<string> => run0("systemctl", ["show", "-p", "InvocationID", "--value", UNIT]).then((r) => r.out.trim());
+const opUnitsListed = (): Promise<string> =>
+  run0("systemctl", ["list-units", "--all", "--type=service", "--no-legend", "--plain", "ruukoto-service-op-*"]).then((r) => r.out);
+
+const lastServiceOp = async (): Promise<string | undefined> =>
+  (await query("SELECT id FROM tool_ops WHERE tool_name = 'service_manage' ORDER BY intent_recorded_at DESC LIMIT 1"))[0]?.id;
+
+// ---------- 脚本化模型（语义同 test/78/79 responder） ----------
+
+function smokeResponder(): Responder {
+  return async (req) => {
+    const last = req.messages.at(-1) as any;
+    if (last?.role === "tool") {
+      const text = typeof last.content === "string" ? last.content : JSON.stringify(last.content);
+      return { kind: "text", text: `FINAL: ${text.slice(0, 1200)}` };
+    }
+    const text = lastUserText(req);
+    const status = text.match(/SVC-STATUS\s+(\S+)/);
+    if (status) return { kind: "tool_calls", calls: [{ id: "svc-ins-1", name: "service_inspect", arguments: { unit: status[1] } }] };
+    const restart = text.match(/SVC-RESTART\s+(\S+)/);
+    if (restart) return { kind: "tool_calls", calls: [{ id: "svc-rst-1", name: "service_manage", arguments: { unit: restart[1], action: "restart" } }] };
+    return { kind: "text", text: "pong-smoke10" };
+  };
+}
+
+// ---------- 隔离后台进程 ----------
+
+let backendChild: childProcess.ChildProcess | null = null;
+function spawnBackend(): void {
+  backendChild = childProcess.spawn("sudo", [
+    "-n", "-u", BACKEND_USER, "bash", "-c",
+    `export RUUKOTO_CONTROL_DIR=${CONTROL} RUUKOTO_SERVICE_HELPER=${HELPER} RUUKOTO_SERVICE_POLICY=${POLICY} HOME=${SMOKE_HOME}/home; ` +
+      `cd ${SRC} && exec ${process.execPath} node_modules/.bin/tsx src/cli.ts server ` +
+      `--data-dir ${DATA} --agent-dir ${AGENT} --tools mock >> ${BACKEND_LOG} 2>&1`,
+  ], { detached: true, stdio: "ignore" });
+}
+
+const backendPids = async (): Promise<string[]> =>
+  (await run0("pgrep", ["-u", BACKEND_USER, "-f", DATA])).out.trim().split("\n").filter(Boolean);
+const backendAlive = async (): Promise<boolean> => (await backendPids()).length > 0;
+const killBackend = async (signal: "TERM" | "KILL"): Promise<void> => {
+  const pids = await backendPids();
+  if (pids.length) await sudo(["kill", `-${signal === "KILL" ? "9" : "TERM"}`, ...pids]);
+};
+
+async function waitBackendUp(): Promise<void> {
+  await waitFor("隔离后台控制面可握手", async () => {
+    try {
+      await backendctl("handshake", { controlDir: CONTROL });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 90_000);
+}
+
+async function stopBackend(): Promise<void> {
+  await killBackend("TERM");
+  await waitFor("隔离后台已停止", async () => !(await backendAlive()), 30_000).catch(async () => {
+    await killBackend("KILL");
+  });
+}
+
+// ---------- QQ 文本 ----------
+
+const qqTexts = (ob: MockOneBot) =>
+  ob.actions.filter((a) => a.action === "send_private_msg").map((a) => (a.params.message as any[]).filter((s) => s?.type === "text").map((s) => String(s.data?.text ?? "")).join(""));
+const noticeId = (text: string) => text.match(/审批 ID：(\S+)/)![1]!;
+const noticeVersion = (text: string) => Number(text.match(/权限版本：v(\d+)/)![1]);
+
+let ob!: MockOneBot;
+let model!: MockModelServer;
+const pushQq = (messageId: number, text: string) => ob.pushPrivateMessage({ userId: QQ_OWNER, messageId, segments: [{ type: "text", data: { text } }] });
+
+async function waitForConf(): Promise<{ id: string; version: number }> {
+  const before = qqTexts(ob).filter((t) => t.includes("【需要审批】")).length;
+  await waitFor("审批通知送达", () => qqTexts(ob).filter((t) => t.includes("【需要审批】")).length > before, 60_000);
+  const notice = qqTexts(ob).filter((t) => t.includes("【需要审批】")).at(-1)!;
+  return { id: noticeId(notice), version: noticeVersion(notice) };
+}
+
+// ==================================================================
+
+const cleanupErrors: string[] = [];
+let unitInstalled = false;
+let homeCreated = false;
+
+async function installPhase(): Promise<void> {
+  // helper（root 0700；幂等覆盖为仓库当前版本——含派发如实性修正）
+  await sudo(["install", "-D", "-m", "0700", `${SRC}/deploy/systemd/ruukoto-service.mjs`, HELPER]);
+  const [uidR, gidR] = await Promise.all([run0("id", ["-u", EXEC_USER]), run0("id", ["-g", EXEC_USER])]);
+  const policy = JSON.stringify({
+    machineId: fs.readFileSync("/etc/machine-id", "utf8").trim(),
+    execUid: Number(uidR.out.trim()),
+    execGid: Number(gidR.out.trim()),
+    services: { [UNIT]: { actions: ["restart"] } },
+  }, null, 2) + "\n";
+  const tmpPolicy = `/tmp/smoke10-policy-${process.pid}.json`;
+  fs.writeFileSync(tmpPolicy, policy);
+  await sudo(["install", "-d", "-m", "0755", path.dirname(POLICY)]);
+  await sudo(["install", "-m", "0644", tmpPolicy, POLICY]);
+  fs.rmSync(tmpPolicy, { force: true });
+  await sudo(["install", "-d", "-m", "0700", OPS_DIR]);
+  const repoSudoers = fs.readFileSync(`${SRC}/deploy/systemd/sudoers.d.ruukoto`, "utf8");
+  const current = (await sudo(["cat", SUDOERS])).out;
+  if (current.trim() !== repoSudoers.trim()) {
+    const tmp = `/tmp/smoke10-sudoers-${process.pid}`;
+    fs.writeFileSync(tmp, repoSudoers);
+    const v = await sudo(["visudo", "-cf", tmp]);
+    assert.equal(v.code, 0, `visudo 校验仓库 sudoers：${v.err}`);
+    await sudo(["install", "-m", "0440", tmp, SUDOERS]);
+    fs.rmSync(tmp, { force: true });
+  }
+  const v2 = await sudo(["visudo", "-cf", SUDOERS]);
+  assert.equal(v2.code, 0, "visudo 校验现役 sudoers");
+
+  // 测试服务重新安装（09 留下的 helper/策略/ops 目录不代表该服务仍在线）
+  await sudo(["install", "-D", "-m", "0755", `${SRC}/deploy/systemd/ruukoto-service-test.sh`, TEST_SH]);
+  const unitTmp = `/tmp/smoke10-unit-${process.pid}`;
+  fs.writeFileSync(unitTmp, fs.readFileSync(`${SRC}/deploy/systemd/ruukoto-service-test.service`, "utf8"));
+  await sudo(["install", "-m", "0644", unitTmp, UNIT_PATH]);
+  fs.rmSync(unitTmp, { force: true });
+  const dropinTmp = `/tmp/smoke10-dropin-${process.pid}.conf`;
+  fs.writeFileSync(dropinTmp, "[Service]\n# smoke-10 受控改动：拉长 restart 的 stop 阶段（~20s），制造「已派发、客户端尚在 --wait」的窗口\nExecStop=/bin/sleep 20\n");
+  await sudo(["install", "-D", "-m", "0644", dropinTmp, `${DROPIN_DIR}/50-smoke10-execstop.conf`]);
+  fs.rmSync(dropinTmp, { force: true });
+  await sudo(["install", "-d", "-o", EXEC_USER, "-g", EXEC_USER, "-m", "0750", TEST_STATE]);
+  await sudo(["bash", "-c", `rm -f ${TEST_STATE}/starts.log`]);
+  const verify = await run0("systemd-analyze", ["verify", UNIT]);
+  evidence("systemd-analyze verify（安装语法小步验证）", `${verify.out}${verify.err}` || "(无输出 = 通过)", 6);
+  await sudo(["systemctl", "daemon-reload"]);
+  await sudo(["systemctl", "enable", "--now", UNIT]);
+  unitInstalled = true;
+  await waitFor("测试服务 active", async () => (await run0("systemctl", ["is-active", UNIT])).out.trim() === "active", 30_000);
+  await waitFor("starts.log 首行", async () => (await startsCount()) >= 1, 30_000);
+}
+
+async function cleanupPhase(): Promise<void> {
+  const rec = async (what: string, fn: () => Promise<void> | void) => {
+    try {
+      await fn();
+    } catch (err) {
+      cleanupErrors.push(`${what}: ${(err as Error).message}`);
+    }
+  };
+  await rec("停隔离后台", async () => {
+    await killBackend("KILL");
+  });
+  if (unitInstalled) {
+    await rec("停用测试服务", async () => {
+      await sudo(["systemctl", "disable", "--now", UNIT]);
+      await sudo(["rm", "-f", UNIT_PATH, TEST_SH]);
+      await sudo(["rm", "-rf", DROPIN_DIR, TEST_STATE]);
+      await sudo(["systemctl", "daemon-reload"]);
+      await sudo(["systemctl", "reset-failed", UNIT]);
+    });
+  }
+  if (homeCreated) await rec("删隔离目录", () => sudo(["rm", "-rf", SMOKE_HOME]).then(() => {}));
+}
+
+// ==================================================================
+
+console.log(`smoke-10 远端编排器开始（${new Date().toISOString()}）`);
+{
+  const sysv = await run0("systemctl", ["--version"]);
+  evidence("环境基线", [
+    `node ${process.version}  platform ${process.platform}`,
+    (sysv.out.trim().split("\n")[0] ?? ""),
+    `日常后台状态：${(await run0("systemctl", ["is-active", "ruukoto-backend"])).out.trim()}（演练期间不中断、不修改）`,
+    `machineId ${fs.readFileSync("/etc/machine-id", "utf8").trim()}`,
+  ].join("\n"), 8);
+}
+
+let exitCode = 0;
+try {
+  await check("准备：账户/权限/sudo -n 就位", async () => {
+    assert.equal((await run0("id", [BACKEND_USER])).code, 0, "ruukoto-backend 存在");
+    assert.equal((await run0("id", [EXEC_USER])).code, 0, "ruukoto-exec 存在");
+    assert.equal((await sudo(["true"])).code, 0, "sudo -n 可用");
+  });
+
+  await check("安装演练：helper（仓库当前版本）/策略/ops/sudoers/测试服务（幂等重装）", installPhase);
+  const inv0 = await invocationId();
+  const starts0 = await startsCount();
+  evidence("初始状态", `InvocationID=${inv0}\nstarts.log=${starts0}`, 4);
+
+  await check("小步验证：后台账户经 sudoers 固定入口直接 inspect（真实 helper/sudo/systemd）", async () => {
+    const r = await asUser(BACKEND_USER, ["sudo", "-n", HELPER, "inspect", UNIT]);
+    assert.equal(r.code, 0, `inspect 应成功：${r.err} ${r.out}`);
+    assert.ok(r.out.includes("ActiveState=active"), `fd1 原始输出：${r.out}`);
+    evidence("helper inspect", `${r.out}${r.err}`, 14);
+  });
+
+  // ---------- 隔离后台 ----------
+  model = new MockModelServer(smokeResponder());
+  const modelUrl = await model.start();
+  ob = await startMockOneBot({});
+  await sudo(["install", "-d", "-o", BACKEND_USER, "-g", BACKEND_USER, "-m", "0700", DATA]);
+  await sudo(["install", "-d", "-o", BACKEND_USER, "-g", BACKEND_USER, "-m", "0700", `${SMOKE_HOME}/agent-work`]);
+  await sudo(["install", "-d", "-o", BACKEND_USER, "-g", process.env.USER ?? "eitrous", "-m", "0770", AGENT]);
+  await sudo(["install", "-d", "-o", BACKEND_USER, "-g", BACKEND_USER, "-m", "0700", CONTROL, `${SMOKE_HOME}/home`]);
+  homeCreated = true;
+  await writeModelsJson({ agentDir: AGENT } as any, modelUrl);
+  await sudo(["touch", BACKEND_LOG]);
+  await sudo(["chown", `${BACKEND_USER}:${BACKEND_USER}`, BACKEND_LOG]);
+  spawnBackend();
+  await waitBackendUp();
+  const conf = await backendctl<{ online: boolean; status: any }>("configure", {
+    controlDir: CONTROL,
+    url: ob.url,
+    secret: MOCK_QQ_SECRET,
+    selfId: MOCK_QQ_ACCOUNT,
+    owner: QQ_OWNER,
+  });
+  assert.equal(conf.online, true, `QQ（mock）在线`);
+
+  // 链路热身
+  pushQq(100, "SMOKE-WARMUP");
+  try {
+    await waitFor("热身回路走通", () => qqTexts(ob).some((t) => t.includes("pong-smoke10")), 180_000);
+    console.log(`热身回路走通（T+${((Date.now() - startedAt) / 1000).toFixed(0)}s）`);
+  } catch (err) {
+    const diag = {
+      modelCalls: model.calls.length,
+      inbound: await query("SELECT source, status, event_kind, substr(body,1,80) AS body FROM inbound_events ORDER BY received_at DESC LIMIT 5").catch((e) => String(e)),
+      tasks: await query("SELECT status, substr(input,1,40) AS input FROM tasks ORDER BY created_at DESC LIMIT 5").catch((e) => String(e)),
+      outbox: await query("SELECT source_kind, status, substr(text,1,60) AS text FROM notification_ops ORDER BY id DESC LIMIT 5").catch((e) => String(e)),
+    };
+    console.log(`热身诊断：${JSON.stringify(diag, null, 2)}`);
+    throw err;
+  }
+
+  let spId = "";
+  let spApprovalId = "";
+  // ---------- A. approve-standing 主链路 ----------
+  await check("A1 申请通知同时提供单次与长期批准说明；空授权目录", async () => {
+    pushQq(1, `/service-grants`);
+    await waitFor("空授权目录回执", () => qqTexts(ob).some((t) => t.includes("没有保存的长期授权")), 30_000);
+    pushQq(2, `SVC-RESTART ${UNIT}`);
+    const d = await waitForConf();
+    const notice = qqTexts(ob).filter((t) => t.includes("【需要审批】")).at(-1)!;
+    assert.ok(notice.includes(`/approve ${d.id} ${d.version}`), "单次批准命令");
+    assert.ok(notice.includes(`/approve-standing ${d.id} ${d.version}`), "长期批准命令");
+    evidence("A1 审批通知", notice, 14);
+  });
+
+  await check("A2 /approve-standing：授权已保存+本次接受（不代表已成功）；真实执行恰好一次", async () => {
+    const d = await (async () => {
+      const notice = qqTexts(ob).filter((t) => t.includes("【需要审批】")).at(-1)!;
+      return { id: noticeId(notice), version: noticeVersion(notice) };
+    })();
+    const before = await startsCount();
+    pushQq(3, `/approve-standing ${d.id} ${d.version}`);
+    await waitFor("长期批准回执", () => qqTexts(ob).some((t) => t.includes("长期授权已保存：sp_")), 30_000);
+    const receipt = qqTexts(ob).find((t) => t.includes("长期授权已保存：sp_"))!;
+    spId = receipt.match(/长期授权已保存：(sp_\w+)/)![1]!;
+    assert.ok(receipt.includes("不代表操作已经成功"), "回执区分批准接受与执行成功");
+    assert.ok(receipt.includes(`/revoke-service-grant ${spId} 1`), "回执含撤销命令");
+    await waitFor("最终回答含管理命令结果", () => qqTexts(ob).some((t) => t.includes("FINAL:") && t.includes("管理命令结果")), 90_000);
+    assert.equal(await startsCount(), before + 1, "本次恰好执行一次");
+    const spRow = (await query("SELECT version, session_id, project_id, machine_id, unit, action, channel, account, chat_id, actor, approval_id, created_by_event_id, revoked_at FROM standing_permissions WHERE id = ?", [spId]))[0];
+    assert.equal(spRow.version, 1);
+    assert.equal(spRow.unit, UNIT);
+    assert.equal(spRow.action, "restart");
+    assert.equal(spRow.channel, "qq_private");
+    assert.equal(spRow.approval_id, d.id);
+    assert.equal(spRow.revoked_at, null);
+    spApprovalId = d.id;
+    const confRow = (await query("SELECT status, decision_source, standing_permission_id, consumed_at FROM confirmations WHERE id = ?", [d.id]))[0];
+    assert.equal(confRow.decision_source, "standing_permission");
+    assert.equal(confRow.standing_permission_id, spId);
+    assert.ok(confRow.consumed_at, "本次批准单次消费");
+    assert.equal((await query("SELECT COUNT(*) AS n FROM standing_permissions WHERE approval_id = ?", [d.id]))[0].n, 1, "来源审批唯一");
+    const evt = (await query("SELECT json_extract(body,'$.type') AS t FROM events WHERE json_extract(body,'$.type') = 'standing_permission.created' AND json_extract(body,'$.permissionId') = ?", [spId]));
+    assert.equal(evt.length, 1, "授权创建审计事件恰好一条");
+    evidence("A2 回执与授权行", `${receipt}\n---\n${JSON.stringify(spRow)}`, 10);
+    evidence("starts.log", await startsLog(), 4);
+  });
+
+  await check("A3 第二项独立任务命中精确范围：零新审批、自动放行恰好一次；两次独立批准/消费", async () => {
+    const before = await startsCount();
+    const noticesBefore = qqTexts(ob).filter((t) => t.includes("【需要审批】")).length;
+    pushQq(4, `SVC-RESTART ${UNIT}`);
+    await waitFor("第二任务最终回答", () => qqTexts(ob).filter((t) => t.includes("FINAL:") && t.includes("管理命令结果")).length >= 2, 90_000);
+    await new Promise((r) => setTimeout(r, 1_500));
+    assert.equal(qqTexts(ob).filter((t) => t.includes("【需要审批】")).length, noticesBefore, "第二任务零新审批通知");
+    assert.equal(await startsCount(), before + 1, "恰好执行一次");
+    const usages = await query(
+      "SELECT id, task_id, tool_op_id, decision_source, standing_permission_id, standing_permission_version, consumed_at FROM confirmations WHERE standing_permission_id = ? ORDER BY created_at",
+      [spId],
+    );
+    assert.equal(usages.length, 2, "两次独立批准/消费");
+    assert.notEqual(usages[0].task_id, usages[1].task_id, "两次 taskId 不同");
+    assert.notEqual(usages[0].tool_op_id, usages[1].tool_op_id, "两次 hostOpId 不同");
+    assert.notEqual(usages[0].id, usages[1].id, "两次批准记录 ID 不同（含来源审批）");
+    assert.ok(usages.every((u: any) => u.consumed_at), "均单次消费");
+    assert.ok(usages.every((u: any) => u.standing_permission_version === 1), "均钉版授权版本");
+    const consumedEvt = await query("SELECT json_extract(body,'$.standingPermissionId') AS sp FROM events WHERE json_extract(body,'$.type') = 'task.approval_consumed'");
+    assert.ok(consumedEvt.filter((r: any) => r.sp === spId).length >= 1, "消费事件携带授权 ID");
+    const final = [...qqTexts(ob)].reverse().find((t) => t.includes("授权依据：长期授权"))!;
+    assert.ok(final.includes(spId), "最终回答如实标注授权依据");
+    evidence("A3 两次使用记录", JSON.stringify(usages.map((u: any) => ({ conf: u.id, task: u.task_id, op: u.tool_op_id, consumed: u.consumed_at })), null, 2), 10);
+  });
+
+  await check("A4 /service-grant 详情两次独立消费；/service-grants 列表有效", async () => {
+    pushQq(5, `/service-grants`);
+    await waitFor("目录回执", () => qqTexts(ob).some((t) => t.includes("本入口长期授权 1 项") && t.includes(spId) && t.includes("有效")), 30_000);
+    pushQq(6, `/service-grant ${spId}`);
+    await waitFor("详情回执", () => qqTexts(ob).some((t) => t.includes(`长期授权 ${spId}`) && t.includes("使用记录 2 次")), 30_000);
+    const detail = qqTexts(ob).find((t) => t.includes(`长期授权 ${spId}`) && t.includes("使用记录"))!;
+    evidence("A4 详情原文", detail, 16);
+    assert.ok(detail.includes(`审批 ${spApprovalId}`), `详情含来源审批（spApprovalId=${spApprovalId}）：${detail.slice(0, 800)}`);
+    assert.ok(detail.includes(UNIT), "详情含单元");
+    evidence("A4 详情回执", detail, 12);
+  });
+
+  // ---------- B. CLI 管理目录与撤销 ----------
+  await check("B1 真实 CLI：service-grant list/show 有据；错误版本撤销拒绝；未认证不可达由账户边界覆盖", async () => {
+    const list = await serviceGrantCli(["list"]);
+    assert.equal(list.code, 0, `list 退出码：${list.err}`);
+    assert.ok(list.out.includes(spId), `CLI list 含授权：${list.out.slice(0, 300)}`);
+    const show = await serviceGrantCli(["show", spId]);
+    assert.equal(show.code, 0, `show 退出码：${show.err}`);
+    assert.ok(show.out.includes(`"unit": "${UNIT}"`), "CLI show 含完整范围");
+    assert.ok(show.out.includes(`"revokedAt": null`), "CLI show 有效状态");
+    const bad = await serviceGrantCli(["revoke", spId, "--expected-version", "99"]);
+    assert.notEqual(bad.code, 0, "版本冲突必须拒绝");
+    evidence("B1 CLI 输出摘录", `list:\n${list.out.slice(0, 500)}\nshow:\n${show.out.slice(0, 500)}\nbad revoke:\n${(bad.err || bad.out).slice(0, 200)}`, 16);
+  });
+
+  await check("B2 CLI 撤销：v1 → v2 递增；第三任务恢复人工审批，拒绝零执行", async () => {
+    const revoke = await serviceGrantCli(["revoke", spId, "--expected-version", "1"]);
+    assert.equal(revoke.code, 0, `revoke 退出码：${revoke.err}`);
+    assert.ok(revoke.out.includes(`"version": 2`), `撤销后版本递增：${revoke.out.slice(0, 300)}`);
+    assert.equal((await query("SELECT version, revoked_reason FROM standing_permissions WHERE id = ?", [spId]))[0].revoked_reason, "owner_revoked");
+    const before = await startsCount();
+    pushQq(7, `SVC-RESTART ${UNIT}`);
+    const d = await waitForConf();
+    assert.ok(!(await query("SELECT 1 FROM confirmations WHERE task_id = (SELECT task_id FROM confirmations WHERE id = ?) AND standing_permission_id IS NOT NULL", [d.id])).length, "撤销后不再自动放行");
+    pushQq(8, `/reject ${d.id} ${d.version}`);
+    await waitFor("拒绝最终回答", () => qqTexts(ob).some((t) => t.includes("FINAL:") && t.includes("拥有者拒绝执行 service_manage")), 60_000);
+    assert.equal(await startsCount(), before, "拒绝零执行");
+    // 重复撤销幂等（不再次变更）
+    const again = await serviceGrantCli(["revoke", spId, "--expected-version", "2"]);
+    assert.equal(again.code, 0, `重复撤销幂等：${again.err.slice(0, 200)}`);
+    assert.ok(again.out.includes(`"version": 2`), "不再次递增");
+  });
+
+  // ---------- C. 真实派发不确定：systemd-run 被杀 ----------
+  let sp2Id = "";
+  await check("C1 重建授权：/approve-standing（修订未变允许重建）", async () => {
+    pushQq(9, `SVC-RESTART ${UNIT}`);
+    const d = await waitForConf();
+    pushQq(10, `/approve-standing ${d.id} ${d.version}`);
+    await waitFor("长期批准回执 2", () => qqTexts(ob).filter((t) => t.includes("长期授权已保存：sp_")).length >= 2, 30_000);
+    const receipt = [...qqTexts(ob)].reverse().find((t) => t.includes("长期授权已保存：sp_"))!;
+    sp2Id = receipt.match(/长期授权已保存：(sp_\w+)/)![1]!;
+    assert.notEqual(sp2Id, spId, "撤销后重建是新的授权行");
+    await waitFor("本次执行完成", () => qqTexts(ob).filter((t) => t.includes("FINAL:") && t.includes("管理命令结果")).length >= 3, 90_000);
+  });
+
+  await check("C2 真实派发后杀 systemd-run：helper 报「可能已派发」（非零效果/非确定退出码）→ 效果未知 + 授权失效", async () => {
+    const before = await startsCount();
+    pushQq(11, `SVC-RESTART ${UNIT}`);
+    // 自动放行：等待认领与派生命令单元（ExecStop 20s 窗口）
+    let op: string | undefined;
+    await waitFor("operation 入账", async () => {
+      op = await lastServiceOp().catch(() => undefined);
+      return op !== undefined;
+    }, 30_000);
+    await waitFor("派生命令单元在册", async () => (await opUnitsListed()).includes(op!), 30_000);
+    evidence("C2 派发窗口", `${await opUnitsListed()}claim: ${OPS_DIR}/${op}`, 6);
+    // 真实杀掉 systemd-run 客户端（不是 op 单元、不是后台）：restart 作业已在 PID 1 排队
+    const pids = (await run0("pgrep", ["-f", `systemd-run.*${op}\\.service`])).out.trim().split("\n").filter(Boolean);
+    assert.ok(pids.length > 0, "找到 systemd-run 客户端进程");
+    await sudo(["kill", "-TERM", ...pids]);
+    await waitFor("结果未知最终回答", () => qqTexts(ob).some((t) => t.includes("FINAL:") && t.includes("管理命令结果未知")), 90_000);
+    const opRow = (await query("SELECT effect_unknown FROM tool_ops WHERE id = ?", [op!]))[0];
+    assert.equal(opRow.effect_unknown, 1, `op 效果未知：${JSON.stringify(opRow)}`);
+    const spRow = (await query("SELECT version, revoked_reason, revoked_at FROM standing_permissions WHERE id = ?", [sp2Id]))[0];
+    assert.equal(spRow.revoked_reason, "effect_unknown", "目标效果未知：授权失效");
+    assert.equal(spRow.version, 2, "失效递增版本");
+    assert.ok(spRow.revoked_at);
+    // systemd 已按自身语义完成 restart 作业（starts 恰 +1）；helper 不宣称零效果
+    await waitFor("真实 restart 完成后 starts 恰 +1", async () => (await startsCount()) === before + 1, 90_000);
+    const finalText = [...qqTexts(ob)].reverse().find((t) => t.includes("管理命令结果未知"))!;
+    assert.ok(!finalText.includes("未执行"), "不把可能已派发描述成零执行");
+    const revokedEvt = await query("SELECT json_extract(body,'$.reason') AS reason, json_extract(body,'$.opId') AS opId FROM events WHERE json_extract(body,'$.type') = 'standing_permission.revoked' AND json_extract(body,'$.permissionId') = ?", [sp2Id]);
+    assert.equal(revokedEvt[0]?.reason, "effect_unknown");
+    assert.equal(revokedEvt[0]?.opId, op, "失效事件携带触发操作 ID");
+    // 另一授权（B2 已撤销的 sp1）不被重复处理
+    assert.equal((await query("SELECT version FROM standing_permissions WHERE id = ?", [spId]))[0].version, 2);
+    evidence("C2 账本", JSON.stringify({ opRow, spRow, revokedEvt: revokedEvt[0] }), 6);
+    evidence("starts.log", await startsLog(), 8);
+    await waitFor("派生命令单元已退出", async () => !(await opUnitsListed()).includes(op!), 90_000);
+  });
+
+  await check("D 失效后新任务恢复人工审批（换 ID 不自动重试）；核实后拒绝零执行", async () => {
+    const before = await startsCount();
+    pushQq(12, `SVC-RESTART ${UNIT}`);
+    const d = await waitForConf();
+    pushQq(13, `/reject ${d.id} ${d.version}`);
+    await waitFor("拒绝最终回答 2", () => qqTexts(ob).filter((t) => t.includes("FINAL:") && t.includes("拥有者拒绝执行 service_manage")).length >= 1, 60_000);
+    await new Promise((r) => setTimeout(r, 2_000));
+    assert.equal(await startsCount(), before, "失效后不自动重试");
+  });
+
+  // ---------- E. 真实账户边界 ----------
+  await check("E 边界：执行账户无提权（helper EACCES / 策略写拒绝 / 令牌读拒绝）；长期授权不升级其能力", async () => {
+    const [e1, e2, e3] = await Promise.all([
+      asUser(EXEC_USER, [HELPER, "inspect", UNIT]),
+      asUser(EXEC_USER, ["tee", POLICY], { input: "tamper\n" }),
+      asUser(EXEC_USER, ["cat", `${CONTROL}/owner.token`]),
+    ]);
+    assert.notEqual(e1.code, 0, "ruukoto-exec 执行 helper 应拒绝");
+    assert.notEqual(e2.code, 0, "ruukoto-exec 写策略应拒绝");
+    assert.notEqual(e3.code, 0, "ruukoto-exec 读控制面令牌应拒绝（未认证不可查/撤任何授权）");
+    evidence("E 越权拒绝（预期非零）", [
+      `[helper] exit=${e1.code}`,
+      `[写策略] exit=${e2.code}`,
+      `[读令牌] exit=${e3.code}`,
+    ].join("\n"), 6);
+  });
+
+  await check("收尾：日常后台未被波及", async () => {
+    assert.equal((await run0("systemctl", ["is-active", "ruukoto-backend"])).out.trim(), "active", "日常后台全程 active");
+  });
+} catch (err) {
+  results.push({ name: "编排器未捕获异常", ok: false, detail: String((err as Error).stack ?? err) });
+  console.log(`FAIL 编排器未捕获异常：${(err as Error).stack ?? err}`);
+  exitCode = 1;
+} finally {
+  await stopBackend();
+  if (fs.existsSync(BACKEND_LOG)) await sudo(["bash", "-c", `cp ${BACKEND_LOG} /tmp/smoke10-backend.log && chmod 0644 /tmp/smoke10-backend.log`]).catch(() => ({}));
+  await cleanupPhase().catch((err) => cleanupErrors.push(`清理异常：${(err as Error).message}`));
+  if (model) await model.close();
+  if (ob) await ob.close();
+}
+
+console.log(`\n--- 清理状态 ---`);
+console.log(`已还原：测试服务停用并卸载（单元/drop-in/启动程序/状态目录删除）；隔离后台已停止；${SMOKE_HOME} 已删除`);
+console.log(`按真实部署保留：${HELPER}（root 0700，仓库当前版本含派发如实性修正）、${POLICY}（root 0644）、${OPS_DIR}（root 0700，含历次认领标记）、${SUDOERS}（仓库版本）`);
+if (cleanupErrors.length) {
+  console.log(`清理告警：${cleanupErrors.join("；")}`);
+  exitCode = 1;
+}
+const failed = results.filter((r) => !r.ok);
+console.log("\n模拟：模型（MockModelServer）、NapCat/OneBot（MockOneBot QQ 私聊）——打桩平台，不代表真实 QQ/Telegram 已验收");
+console.log("真实：Linux systemd（systemctl/systemd-run/journald）、root helper + sudoers 固定入口、白名单策略、测试服务真实 start/restart、隔离后台 + 真实 Runtime/SQLite/审批/长期授权、真实控制面 CLI（service-grant list/show/revoke）、systemd-run 被真实杀死后 helper 如实报「可能已派发」、系统账户边界");
+console.log(`\n结果：${results.length - failed.length}/${results.length} 通过（耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s）`);
+if (failed.length > 0 || exitCode !== 0) process.exit(1);

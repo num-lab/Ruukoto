@@ -4,7 +4,7 @@
  * 证据分类：本文件全部是离线证据——模拟 IM 平台（回环 OneBot + FakeBotApi）+
  * 受控 helper 替身（test/helpers/fake-service-helper.mjs）+ 真实 Runtime/SQLite。
  * 真实 systemd/提权/sudoers 与真实 QQ/Telegram 证据见
- * .agents/scratch/agent-direction/smoke-10-standing-permissions.mts（另案在真实 Linux 执行）。
+ * .scratch/agent-direction/smoke-10-standing-permissions.mts（另案在真实 Linux 执行）。
  *
  * 覆盖（对应工单验证与验收清单）：
  * - 存储层：创建/版本化/条件撤销幂等/唯一约束（同目标唯一、来源审批唯一）/候选

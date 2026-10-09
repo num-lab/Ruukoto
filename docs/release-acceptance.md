@@ -10,7 +10,7 @@
 
 首期验收顺序固定为：本地仓库修改与测试 → IM 服务器管理 → 长任务期间持续响应、
 协作、复用与显式关闭。下面汇总工单 01–23 已有证据；本次联合演练、检查结果和
-尚未通过的项目单独记录在 [工单 24](../.agents/scratch/agent-direction/issues/24-release-acceptance.md)
+尚未通过的项目单独记录在 [工单 24](../.scratch/agent-direction/issues/24-release-acceptance.md)
 的 Comments。此前通过的模拟测试不能替代真实平台验收。
 真实 QQ/Telegram 和 macOS 完全访问的正向执行路径仍缺证据，完整发布验收尚未通过。
 
@@ -66,7 +66,7 @@ QQ 群消息。跨端共享记忆、邮件、GitHub comment 对话和正式 QQ �
 零失败，两端类型检查和图解检查通过。Linux 首轮的 5 个失败已分别复现并修正：
 目录夹具需保证 inode 确实不同、档案路径不应假定检出名、工作进程测试需等待模型门闩，
 配置界面需按产品显示根目录。命令、基线对照及最终结果保存在工单 24 Comments 与
-[Linux 实机记录](../.agents/scratch/agent-direction/release-24-linux-results.md)；macOS 环境失败不计为全量通过。
+[Linux 实机记录](../.scratch/agent-direction/release-24-linux-results.md)；macOS 环境失败不计为全量通过。
 
 工单 24 转为 `ready-for-human`，保留真实 IM 与 macOS 完全访问验证未完成的验收项。
 
@@ -106,29 +106,29 @@ Linux systemd / sudo 演练的六份相关源码保存在
 
 | 工单与能力 | 已有自动检查 | 已有真实环境证据 | 覆盖边界 |
 | --- | --- | --- | --- |
-| [01 双产品入口](../.agents/scratch/agent-direction/issues/01-independent-products.md) | [test/71](../test/71-product-entry.test.ts) | macOS 两份 bin 后台并存，单端停止与跨产品数据目录拒绝 | 模型为桩；安装和升级的联合演练见工单 24 |
-| [02 按需后台](../.agents/scratch/agent-direction/issues/02-coding-daemon.md) | [test/72](../test/72-on-demand-backend.test.ts) | macOS 真实后台、socket、SQLite 与 PTY 启停/复用 | PTY 冒烟不调用模型；人工 IME 与缩放检查未逐项覆盖 |
-| [03 执行边界](../.agents/scratch/agent-direction/issues/03-execution-boundary-proof.md) | 容器启动器冒烟与 Linux 隔离探针 | macOS Docker Desktop 与 tx 原生 Linux 的真实文件、进程、网络与 UID 边界 | macOS 完全访问执行账户未部署验证 |
-| [04 开发机执行](../.agents/scratch/agent-direction/issues/04-desktop-execution.md) | [test/73](../test/73-desktop-execution.test.ts)、[test/07](../test/07-real-tools.test.ts) | macOS + Linux 容器中修改、检查、越界审批、停止回收 | 完全访问缺入口时拒绝已测；Linux 执行账户正向证据沿用既有部署实测 |
-| [05 工作区与会话](../.agents/scratch/agent-direction/issues/05-workspace-sessions.md) | [test/74](../test/74-workspace-sessions.test.ts) | macOS 真实 bin、目录身份、控制面与历史 | 模型为桩 |
-| [06 工作区配置](../.agents/scratch/agent-direction/issues/06-workspace-settings.md) | [test/75](../test/75-workspace-settings.test.ts) | macOS 两工作区、版本冲突、授权撤销与重启持久化 | 外部模型、MCP/Jev 服务未实测 |
-| [07 旧工作区组织](../.agents/scratch/agent-direction/issues/07-legacy-workspace-data.md) | [test/76](../test/76-legacy-workspace-data.test.ts) | macOS + Linux CLI 预览/应用，历史与产物字节核对、回退与重启 | 组织映射不扩大原来源授权；不是跨实例同步 |
-| [08 IM 审批](../.agents/scratch/agent-direction/issues/08-im-approvals.md) | [test/77](../test/77-im-approvals.test.ts) | macOS + Linux 真实后台、审批/outbox 账本与恢复 | OneBot 与 Bot API 为桩，真实 QQ/Telegram 未实测 |
-| [09 服务管理](../.agents/scratch/agent-direction/issues/09-linux-service-management.md) | [test/78](../test/78-linux-service-management.test.ts) | tx 真实 systemd、sudo、root helper、测试服务重启与身份拒绝 | IM 与模型为桩；操作只涵盖检查与白名单 restart |
-| [10 长期授权](../.agents/scratch/agent-direction/issues/10-standing-permissions.md) | [test/79](../test/79-standing-permissions.test.ts) | tx 真实服务保存/使用/撤销授权，效果未知后失效 | IM 为桩，未验证真实平台限流和重投 |
-| [11 通用委派](../.agents/scratch/agent-direction/issues/11-subagent-delegation.md) | [test/80](../test/80-subagent-delegation.test.ts) | macOS + Linux 独立 JSONL、容器读取、父会话持续响应与结果回传 | 模型为桩，真实 IM 未实测 |
-| [12 复用与关闭](../.agents/scratch/agent-direction/issues/12-subagent-reuse-close.md) | [test/81](../test/81-subagent-reuse-close.test.ts) | macOS + Linux 真实容器复用后拒绝旧范围，CLI 关闭及历史保留 | 单次批准不延续；模型为桩 |
-| [13 工作内消息](../.agents/scratch/agent-direction/issues/13-subagent-messaging.md) | [test/86 messaging](../test/86-subagent-messaging.test.ts) | macOS + Linux 双向消息、来源、幂等、CLI 与重启 | 协作加入限只读工作；消息不扩大权限 |
-| [14 整项取消](../.agents/scratch/agent-direction/issues/14-cancel-work.md) | [test/82](../test/82-subagent-cancel-work.test.ts) | macOS + Linux CLI 取消、真实容器退出、其他工作继续、迟到结果保留 | 取消不关闭 SubAgent；迟到同级消息联合路径见工单 24 |
-| [15 重启恢复](../.agents/scratch/agent-direction/issues/15-recover-subagents.md) | [test/86 recovery](../test/86-subagent-recovery.test.ts) | macOS 真实容器、SQLite、CLI resume-queue | 原交付未执行 Linux 冒烟；崩溃形态按库内容置位 |
-| [16 并行 worktree](../.agents/scratch/agent-direction/issues/16-parallel-worktrees.md) | [test/83](../test/83-subagent-worktrees.test.ts) | macOS + Linux 两副本并行，父工作区保持、Git 元数据只读、非 Git 串行 | 子任务不提交或推送；模型为桩 |
-| [17 改动汇总](../.agents/scratch/agent-direction/issues/17-integrate-worktree-results.md) | [test/84 integrate](../test/84-subagent-integrate.test.ts) | macOS + Linux 真实 git 与容器，幂等、冲突零写入、取消/关闭后找回、父仓库自身为 worktree | 汇总不代提交；共享 Git 目录补挂已实测 |
-| [18 原入口最终汇报](../.agents/scratch/agent-direction/issues/18-im-final-delivery.md) | [test/84 delivery](../test/84-im-final-delivery.test.ts) | macOS + Linux 真实后台、容器、outbox、离线与重绑、SIGKILL 恢复 | 模型和两平台为桩；真实 QQ/Telegram 未实测 |
-| [19 PR 评审](../.agents/scratch/agent-direction/issues/19-github-subagent-review.md) | [test/42](../test/42-github-webhook.test.ts) 至 [test/46](../test/46-github-recovery.test.ts) | macOS + Linux 真实后台、容器、修订与恢复路径 | GitHub 投递、MCP 与通知平台为桩；comment 对话未交付 |
-| [20 核心群聊退役](../.agents/scratch/agent-direction/issues/20-retire-core-group-chat.md) | [test/85 group](../test/85-retire-core-group-chat.test.ts) | macOS + Linux 旧代码真实产生记录后升级、收尾与幂等 | 真实 QQ 群/NapCat 未实测；正式外挂未交付 |
-| [21 开发资料导入](../.agents/scratch/agent-direction/issues/21-migrate-coding-instance.md) | [test/85 import](../test/85-legacy-instance-import.test.ts) | macOS + Linux 进程冒烟；macOS `~/.ruukoto` 代表性真实资料导入/查阅/回退 | tx 生产库未演练；凭据不迁入 Coding Agent |
-| [22 个人资料导入](../.agents/scratch/agent-direction/issues/22-migrate-personal-instance.md) | [test/86 personal](../test/86-personal-instance-import.test.ts) | macOS + Linux 进程冒烟；macOS 真实资料导入/查阅/回退 | 真实资料无平台配置/调度/记忆，平台偏移与交接由桩覆盖；tx 生产库未演练 |
-| [23 固定角色收尾](../.agents/scratch/agent-direction/issues/23-contract-legacy-roles.md) | [test/87](../test/87-retire-coding-role.test.ts) | macOS + Linux 两版本真实 bin 升级、SIGKILL、旧任务收尾 | 旧 CHECK/角色标识保留读取；ruukoto 普通开发会话按拥有者决定保留 |
+| [01 双产品入口](../.scratch/agent-direction/issues/01-independent-products.md) | [test/71](../test/71-product-entry.test.ts) | macOS 两份 bin 后台并存，单端停止与跨产品数据目录拒绝 | 模型为桩；安装和升级的联合演练见工单 24 |
+| [02 按需后台](../.scratch/agent-direction/issues/02-coding-daemon.md) | [test/72](../test/72-on-demand-backend.test.ts) | macOS 真实后台、socket、SQLite 与 PTY 启停/复用 | PTY 冒烟不调用模型；人工 IME 与缩放检查未逐项覆盖 |
+| [03 执行边界](../.scratch/agent-direction/issues/03-execution-boundary-proof.md) | 容器启动器冒烟与 Linux 隔离探针 | macOS Docker Desktop 与 tx 原生 Linux 的真实文件、进程、网络与 UID 边界 | macOS 完全访问执行账户未部署验证 |
+| [04 开发机执行](../.scratch/agent-direction/issues/04-desktop-execution.md) | [test/73](../test/73-desktop-execution.test.ts)、[test/07](../test/07-real-tools.test.ts) | macOS + Linux 容器中修改、检查、越界审批、停止回收 | 完全访问缺入口时拒绝已测；Linux 执行账户正向证据沿用既有部署实测 |
+| [05 工作区与会话](../.scratch/agent-direction/issues/05-workspace-sessions.md) | [test/74](../test/74-workspace-sessions.test.ts) | macOS 真实 bin、目录身份、控制面与历史 | 模型为桩 |
+| [06 工作区配置](../.scratch/agent-direction/issues/06-workspace-settings.md) | [test/75](../test/75-workspace-settings.test.ts) | macOS 两工作区、版本冲突、授权撤销与重启持久化 | 外部模型、MCP/Jev 服务未实测 |
+| [07 旧工作区组织](../.scratch/agent-direction/issues/07-legacy-workspace-data.md) | [test/76](../test/76-legacy-workspace-data.test.ts) | macOS + Linux CLI 预览/应用，历史与产物字节核对、回退与重启 | 组织映射不扩大原来源授权；不是跨实例同步 |
+| [08 IM 审批](../.scratch/agent-direction/issues/08-im-approvals.md) | [test/77](../test/77-im-approvals.test.ts) | macOS + Linux 真实后台、审批/outbox 账本与恢复 | OneBot 与 Bot API 为桩，真实 QQ/Telegram 未实测 |
+| [09 服务管理](../.scratch/agent-direction/issues/09-linux-service-management.md) | [test/78](../test/78-linux-service-management.test.ts) | tx 真实 systemd、sudo、root helper、测试服务重启与身份拒绝 | IM 与模型为桩；操作只涵盖检查与白名单 restart |
+| [10 长期授权](../.scratch/agent-direction/issues/10-standing-permissions.md) | [test/79](../test/79-standing-permissions.test.ts) | tx 真实服务保存/使用/撤销授权，效果未知后失效 | IM 为桩，未验证真实平台限流和重投 |
+| [11 通用委派](../.scratch/agent-direction/issues/11-subagent-delegation.md) | [test/80](../test/80-subagent-delegation.test.ts) | macOS + Linux 独立 JSONL、容器读取、父会话持续响应与结果回传 | 模型为桩，真实 IM 未实测 |
+| [12 复用与关闭](../.scratch/agent-direction/issues/12-subagent-reuse-close.md) | [test/81](../test/81-subagent-reuse-close.test.ts) | macOS + Linux 真实容器复用后拒绝旧范围，CLI 关闭及历史保留 | 单次批准不延续；模型为桩 |
+| [13 工作内消息](../.scratch/agent-direction/issues/13-subagent-messaging.md) | [test/86 messaging](../test/86-subagent-messaging.test.ts) | macOS + Linux 双向消息、来源、幂等、CLI 与重启 | 协作加入限只读工作；消息不扩大权限 |
+| [14 整项取消](../.scratch/agent-direction/issues/14-cancel-work.md) | [test/82](../test/82-subagent-cancel-work.test.ts) | macOS + Linux CLI 取消、真实容器退出、其他工作继续、迟到结果保留 | 取消不关闭 SubAgent；迟到同级消息联合路径见工单 24 |
+| [15 重启恢复](../.scratch/agent-direction/issues/15-recover-subagents.md) | [test/86 recovery](../test/86-subagent-recovery.test.ts) | macOS 真实容器、SQLite、CLI resume-queue | 原交付未执行 Linux 冒烟；崩溃形态按库内容置位 |
+| [16 并行 worktree](../.scratch/agent-direction/issues/16-parallel-worktrees.md) | [test/83](../test/83-subagent-worktrees.test.ts) | macOS + Linux 两副本并行，父工作区保持、Git 元数据只读、非 Git 串行 | 子任务不提交或推送；模型为桩 |
+| [17 改动汇总](../.scratch/agent-direction/issues/17-integrate-worktree-results.md) | [test/84 integrate](../test/84-subagent-integrate.test.ts) | macOS + Linux 真实 git 与容器，幂等、冲突零写入、取消/关闭后找回、父仓库自身为 worktree | 汇总不代提交；共享 Git 目录补挂已实测 |
+| [18 原入口最终汇报](../.scratch/agent-direction/issues/18-im-final-delivery.md) | [test/84 delivery](../test/84-im-final-delivery.test.ts) | macOS + Linux 真实后台、容器、outbox、离线与重绑、SIGKILL 恢复 | 模型和两平台为桩；真实 QQ/Telegram 未实测 |
+| [19 PR 评审](../.scratch/agent-direction/issues/19-github-subagent-review.md) | [test/42](../test/42-github-webhook.test.ts) 至 [test/46](../test/46-github-recovery.test.ts) | macOS + Linux 真实后台、容器、修订与恢复路径 | GitHub 投递、MCP 与通知平台为桩；comment 对话未交付 |
+| [20 核心群聊退役](../.scratch/agent-direction/issues/20-retire-core-group-chat.md) | [test/85 group](../test/85-retire-core-group-chat.test.ts) | macOS + Linux 旧代码真实产生记录后升级、收尾与幂等 | 真实 QQ 群/NapCat 未实测；正式外挂未交付 |
+| [21 开发资料导入](../.scratch/agent-direction/issues/21-migrate-coding-instance.md) | [test/85 import](../test/85-legacy-instance-import.test.ts) | macOS + Linux 进程冒烟；macOS `~/.ruukoto` 代表性真实资料导入/查阅/回退 | tx 生产库未演练；凭据不迁入 Coding Agent |
+| [22 个人资料导入](../.scratch/agent-direction/issues/22-migrate-personal-instance.md) | [test/86 personal](../test/86-personal-instance-import.test.ts) | macOS + Linux 进程冒烟；macOS 真实资料导入/查阅/回退 | 真实资料无平台配置/调度/记忆，平台偏移与交接由桩覆盖；tx 生产库未演练 |
+| [23 固定角色收尾](../.scratch/agent-direction/issues/23-contract-legacy-roles.md) | [test/87](../test/87-retire-coding-role.test.ts) | macOS + Linux 两版本真实 bin 升级、SIGKILL、旧任务收尾 | 旧 CHECK/角色标识保留读取；ruukoto 普通开发会话按拥有者决定保留 |
 
 ## 安装、升级与切换
 

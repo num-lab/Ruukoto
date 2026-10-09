@@ -869,7 +869,7 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 # 凭据摘除按回执 report.credentials 逐项核对
 ```
 
-演练参见 `.agents/scratch/agent-direction/smoke-22-migrate-personal-instance.mts`
+演练参见 `.scratch/agent-direction/smoke-22-migrate-personal-instance.mts`
 （真实 bin 双实例 + telegram stub 证实偏移连续与一次触发）；验证记录区分
 模拟模型与真实进程，见工单 22。
 
@@ -1148,7 +1148,7 @@ ruukoto credentials add --name jev-myproject --host api.typesafe.ai \
 无法撤回。启用后，当前任务及有界的候选历史文本会发送给 TypeSafe。普通账号
 没有已确认的零保留保证；拥有者应先核实账户访问资格、credits 与自身的数据处理
 要求。公开 API 与条款的核实记录见
-[Jev 接入前核实](../.agents/scratch/personal-agent/jev-research.md)。
+[Jev 接入前核实](../.scratch/personal-agent/jev-research.md)。
 
 首版固定使用 `jev-1.13.0`，筛选只影响当次模型上下文。宿主仍保留当前任务、
 项目指令、继续来源和最新工具批次，按完整交互及预算组装输入；不修改或删除
@@ -1161,7 +1161,7 @@ ruukoto credentials add --name jev-myproject --host api.typesafe.ai \
 超过限额的候选沿用基础规则。这些是保守请求界限，不是官方 tokenizer 的精确计数。
 
 离线回放与真实效果测量分别记录在
-[Jev 固定历史对比](../.agents/scratch/personal-agent/jev-comparison.md)。预设响应只验证
+[Jev 固定历史对比](../.scratch/personal-agent/jev-comparison.md)。预设响应只验证
 接入行为；真实质量、延迟、费用及主模型缓存影响须在拥有者实际启用后测量，
 本实验不会自动切换为所有项目的默认策略。
 
@@ -2205,7 +2205,7 @@ schema v16 扩展公共通知的 `inbound_event` 来源，升级保留原有发�
 本轮本地验证（agent-direction issue 19）：`test/42` 至 `test/46` 覆盖入口、
 凭据、宿主固定 SubAgent 评审到通知的闭环、修订失效与升级接管、崩溃窗口
 恢复及 partial 归档；`test/80` 覆盖评审不占委派名额与复用/续派拒绝。
-`npm run typecheck` 通过；`.agents/scratch/agent-direction/smoke-19-*.mts` 在本机
+`npm run typecheck` 通过；`.scratch/agent-direction/smoke-19-*.mts` 在本机
 （macOS）与 tx（Linux）真实 Docker 受限 worker 下各 8/8 通过（模型、MCP 与
 消息平台为模拟）。全量 `npm test` 共 917 项，915 通过、0 失败、1 项真实
 模型测试按默认开关跳过；test/32-dev 的档案路径断言在本 worktree（目录名非
@@ -2449,7 +2449,7 @@ submit/continue 全部拒绝；无 chat 角色行的隔离不变；已接收结�
 正常发送、撤回/篡改阻断并记 `source_revoked`；排队/在途/待发/未派发事件
 一次性收尾与三次启动幂等。旧数据由 `test/helpers/legacy-group-archive.ts`
 按退役前（核心库 v24）持久形态播种；真实旧代码产生数据的升级路径见
-`.agents/scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）。
+`.scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）。
 
 `test/26-qq.test.ts` 保留传输状态、配置校验与 qq_group 资料身份；
 `test/40-qq-private.test.ts` 覆盖连接鉴权、身份核对、掉线重连与接收缺口；
@@ -2545,7 +2545,7 @@ submit/continue 全部拒绝；无 chat 角色行的隔离不变；已接收结�
 双产品迁移首期的发布范围、安装升级与旧实例切换步骤、工单 01–23 证据矩阵见
 [发布与验收说明](release-acceptance.md)。三个首期场景按本地编码、IM 服务器管理、
 长任务持续响应与协作的顺序验收；本次联合演练和检查结果独立记录在
-[agent-direction 工单 24](../.agents/scratch/agent-direction/issues/24-release-acceptance.md)，
+[agent-direction 工单 24](../.scratch/agent-direction/issues/24-release-acceptance.md)，
 下表保留各次已有记录。真实进程或容器通过不代表真实 IM 平台已通过。
 
 | 检查 | 环境 | 结果 |
@@ -2569,27 +2569,27 @@ submit/continue 全部拒绝；无 chat 角色行的隔离不变；已接收结�
 | 真实 GitHub MCP 只读连通（一次已授权仓库的只读调用，记录工具/权限/结果） | 需拥有者配置独立只读 PAT | 未验证（issue 16 遗留；配置具备时按「MCP 服务」节步骤验收，不以模拟测试冒充） |
 | issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
 | issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环）。agent-direction issue 20 起核心群聊已退役，群消息被忽略，见下行 |
-| agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留传输状态、配置与资料身份边界，test/40 覆盖私聊连接鉴权与重连，test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 .agents/scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
+| agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留传输状态、配置与资料身份边界，test/40 覆盖私聊连接鉴权与重连，test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
 | agent-direction issue 15 后台重启恢复 SubAgent（test/86 共 3 项：排队委派任务重启定 interrupted 且不自动继续/不当作新委派（零模型请求）、补记一次重复启动不重复登记、结果归属保持、Agent 回 idle 可继续委派且 dev 父会话注入；遗留占用保留与 occupancy_unverified 暂停不被启动恢复解除、unverified 拒绝委派、拥有者 resume-queue 后回 idle 可委派；宿主固定评审排队任务不中断、启动恢复自动解除子会话暂停并继续执行） | macOS 本机（mock 模型 + 临时目录 + 进程内真实 Runtime 重启（stop→Runtime.start，含崩溃形态 SQL 置位）+ realTools local 后端） | 通过（2026-10-05，3/3；模拟环境。真实容器/CLI 证据见下行） |
 | agent-direction issue 15 冒烟（verification/smoke/smoke-15-recover-subagents.mts：真实 Runtime/控制面/SQLite + 真实受限容器后端与镜像 + 真实 CLI resume-queue——排队委派任务重启中断零容器零模型请求、结果归属、dev 注入、沿 work_id 真实容器继续；遗留占用保留与暂停不被启动恢复解除、unverified 拒绝委派、CLI resume-queue 后回 idle 可继续；带来源事件的评审排队任务自动恢复真实完成；重复重启不重复登记、无残余容器） | macOS 本机 Docker Desktop（真实容器；模型为模拟，消息平台不启用；崩溃形态按库内容置位，判定输入与真实崩溃一致） | 通过（2026-10-05，8/8）；冒烟期间发现并修复：backend_restart 暂停叠加持占用会话不再被启动恢复自动释放（runtime 守卫） |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
 | 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-code 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
 | 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |
 | ruukoto-code TUI 按需拉起后台（agent-direction issue 02；test/72 进程级用例：后台不在时拉起、并发两个终端收敛为单实例（含锁竞败者等慢胜者复用）、已运行不重复拉起、启动失败附 spawn.log 尾部、后台在运行但令牌不符的认证指引、关闭客户端不停止后台/取消任务、重开看到同一任务与幂等键核实） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02，8/8；模拟结果与真实环境分列：模型层为模拟，进程/存储/控制面为真实环境） |
-| TUI 真实入口按需拉起冒烟（.agents/scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
+| TUI 真实入口按需拉起冒烟（.scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
 | 开发机受限执行边界产品级冒烟（agent-direction 工单 03；经真实容器启动器 + ruukoto-worker 镜像 + 宿主 ToolWorkerHost：容器内 bash、非 root 1000、工作区写入宿主可见、无外网出口、工作区外宿主真实文件不可见、只读根、CapEff 清零、nohup 逃逸孙进程实际运行（对照）且停止后心跳冻结、停止核实容器移除、宿主原路径挂载、只读授予路径可读不可写） | macOS 本机 Docker Desktop 4.x/29.8.0（Linux VM aarch64）；/var/folders 与 /Users 两种工作区各一遍 | 通过（2026-10-02，16/16 ×2；`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`——真实 docker/镜像/文件/进程/网络路径，无模拟层） |
-| macOS sandbox-exec 旧探针（.agents/scratch/agent-direction/macos-sbx-probe.sh） | macOS 27.0 (arm64) | 2026-10-02 的“文件规则 0/6 静默未执行”结论于 2026-10-08 更正：旧规则用 `/tmp`，目标实际位于 `/private/tmp`；旧结果不能证明 Seatbelt 文件机制失效。已修正规范化路径与启动/拒绝判定，复跑见工单 26；文件拒绝通过不代表完整产品边界通过 |
+| macOS sandbox-exec 旧探针（.scratch/agent-direction/macos-sbx-probe.sh） | macOS 27.0 (arm64) | 2026-10-02 的“文件规则 0/6 静默未执行”结论于 2026-10-08 更正：旧规则用 `/tmp`，目标实际位于 `/private/tmp`；旧结果不能证明 Seatbelt 文件机制失效。已修正规范化路径与启动/拒绝判定，复跑见工单 26；文件拒绝通过不代表完整产品边界通过 |
 | 原生 Seatbelt 候选及 launchd 后代回收（agent-direction 工单 26 第一阶段） | macOS 27.0 / Darwin 27.0.0 / arm64；仅临时虚拟资料、自建服务和真实进程，无模型 | 未通过：文件规范化更正生效；`posix_spawn` 后代可脱离进程组且停止原组后仍写心跳；`kqueue NOTE_TRACK` 为 `ENOTSUP`；临时 launchd job 移除后逃离后代仍活动。复跑及逐项证据见 [原生探针说明](../verification/foundation/scripts/native-isolation/README.md)，未接入产品 |
 | 原生 bubblewrap 候选（agent-direction 工单 26 第一阶段） | tx：Ubuntu 24.04.4 / Linux 6.8.0-117-generic / x86_64 / UID 1003；临时解包 bubblewrap 0.9.0 | 不可验证：2 个未沙箱对照通过，35 个真实边界项 unavailable；namespace 建立时 `RTM_NEWADDR` / `uid_map` 被拒，探针尚未启动，退出 2。系统策略未修改；[完整报告](../verification/foundation/results/native-linux-report.md)。不能切换默认后端 |
-| SubAgent 修改委派冒烟（.agents/scratch/agent-direction/smoke-16-parallel-worktrees.mts：真实 Runtime/控制面/SQLite + 真实容器后端与镜像 + 真实 git 仓库——容器内建副本、两子任务同一仓库并行 worktree（同时 running、不同分支）、主工作区字节与未提交改动不变、safe.directory 环境容器内 git status/diff 可用、git commit 与写 hooks/config 真实失败（共享 Git 只读挂载）、非 Git 目录与父会话串行、植入 fsmonitor 只在容器内被只读挡住（宿主不执行）、副本创建与任务容器零残余） | macOS 本机 Docker Desktop 29.8.0（真实容器；模型为模拟，消息平台不启用） | 通过（2026-10-04，9/9）；Linux 远端（tx，uid/gid 1003，经 `--remote` 自包含跑完全程）通过（2026-10-04，9/9）；流程教训：worker 代码打进镜像（deploy/worker-image 构建阶段复制 src/agent/tool-worker 与 src/core 后 esbuild 打包），改 tool-worker 必须重建镜像才进容器 |
-| SubAgent 改动汇总冒烟（.agents/scratch/agent-direction/smoke-issue17.mts：真实 Runtime/SQLite + 真实容器后端与镜像 + 真实 git 仓库——宿主容器创建 worktree 副本、子任务容器真实 edit/write、汇总容器 add -N→diff→apply --check→apply 落入父工作区待提交区、父 HEAD 不变、`work_delegation.integrated` 事件登记、already 幂等不重复登记、冲突零写入点名文件双方保留、取消+关闭后汇总不拦、父仓库本身是 worktree 时共享 Git 目录补挂读写、副本创建与汇总照常、`ruukoto-task-*` 容器零残余） | macOS 本机 Docker Desktop（真实容器边界；模型为模拟）；tx（Ubuntu 24.04 原生 Linux，Docker 29.5.2，uid/gid 1003，RUUKOTO_CONTAINER_UID/GID=1003） | 通过（2026-10-05，7/7 ×2）；离线断言在 test/84（local 后端模拟边界，git 语义为真实 git）；流程教训：副本创建与汇总在「父仓库本身是 worktree」时必须把共享 Git 目录补挂读写（issue 17 起生效），否则容器内 git 无法解析 `.git` 指针 |
+| SubAgent 修改委派冒烟（.scratch/agent-direction/smoke-16-parallel-worktrees.mts：真实 Runtime/控制面/SQLite + 真实容器后端与镜像 + 真实 git 仓库——容器内建副本、两子任务同一仓库并行 worktree（同时 running、不同分支）、主工作区字节与未提交改动不变、safe.directory 环境容器内 git status/diff 可用、git commit 与写 hooks/config 真实失败（共享 Git 只读挂载）、非 Git 目录与父会话串行、植入 fsmonitor 只在容器内被只读挡住（宿主不执行）、副本创建与任务容器零残余） | macOS 本机 Docker Desktop 29.8.0（真实容器；模型为模拟，消息平台不启用） | 通过（2026-10-04，9/9）；Linux 远端（tx，uid/gid 1003，经 `--remote` 自包含跑完全程）通过（2026-10-04，9/9）；流程教训：worker 代码打进镜像（deploy/worker-image 构建阶段复制 src/agent/tool-worker 与 src/core 后 esbuild 打包），改 tool-worker 必须重建镜像才进容器 |
+| SubAgent 改动汇总冒烟（.scratch/agent-direction/smoke-issue17.mts：真实 Runtime/SQLite + 真实容器后端与镜像 + 真实 git 仓库——宿主容器创建 worktree 副本、子任务容器真实 edit/write、汇总容器 add -N→diff→apply --check→apply 落入父工作区待提交区、父 HEAD 不变、`work_delegation.integrated` 事件登记、already 幂等不重复登记、冲突零写入点名文件双方保留、取消+关闭后汇总不拦、父仓库本身是 worktree 时共享 Git 目录补挂读写、副本创建与汇总照常、`ruukoto-task-*` 容器零残余） | macOS 本机 Docker Desktop（真实容器边界；模型为模拟）；tx（Ubuntu 24.04 原生 Linux，Docker 29.5.2，uid/gid 1003，RUUKOTO_CONTAINER_UID/GID=1003） | 通过（2026-10-05，7/7 ×2）；离线断言在 test/84（local 后端模拟边界，git 语义为真实 git）；流程教训：副本创建与汇总在「父仓库本身是 worktree」时必须把共享 Git 目录补挂读写（issue 17 起生效），否则容器内 git 无法解析 `.git` 指针 |
 | Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |
 | Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
 | 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；verification/smoke/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx verification/smoke/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |
 | ruukoto-code 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
 | macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；现有启动器使用 systemd 包装，只适用于 Linux；macOS 未提供经过验证的本机入口；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
 | 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-code 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
-| 工作区产品级冒烟（.agents/scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-code.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .agents/scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
+| 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-code.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
 | 服务器服务管理离线验证（agent-direction issue 09；test/78：QQ/Telegram 检查→逐次审批→批准恰好一次→原入口结果、拒绝/重复决定/篡改目标零执行、非 main 与错误产品/无配置/非 Linux 门、auto-review 转人工、策略与单元修订变化失效、同 ID 重复启动拒绝、取消与跨重启的效果未知不自动重发、产物引用与 partial、后状态查询失败保留命令结果） | macOS 本机（模拟 IM 平台 + mock 模型 + 受控 helper 替身，文件系统模拟 systemd，协议逐字节同生产） | 通过（2026-10-03，22/22；真实 systemd/提权证据非本项，见下行） |
 | 服务器服务管理真实 Linux 冒烟（verification/archive/smoke-09-linux-service-management.mts.txt：模拟 IM 平台 + 真实 systemd/sudo/提权/测试服务——部署安装、主链路真实重启（InvocationID 变化、starts 恰 +1、批准消费一次、op 单元实录）、执行账户调用/写策略/读控制面令牌全拒绝、同 hostOpId already_claimed、策略篡改消费前失效、改单元不 daemon-reload 修订拒绝、基础设施目标拒绝、op 已派发时 kill -9 恢复效果未知不自动重发、拒绝零执行） | tx（Ubuntu 24.04，systemd 255） | 通过（2026-10-03，14/14 ×3 轮幂等，末轮为最终代码态复跑；发现并修复 fd3 协议在 sudo 下全断（closefrom=3）改为 stderr 前缀应答；IM/模型为桩，真实 QQ/Telegram 平台未实测） |
 

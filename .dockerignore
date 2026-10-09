@@ -1,7 +1,7 @@
 .git
 .gitignore
 node_modules
-.agents/scratch
+.scratch
 docs
 test
 verification

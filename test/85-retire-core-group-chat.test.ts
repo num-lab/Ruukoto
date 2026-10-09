@@ -10,7 +10,7 @@
  *
  * 验收 6（发布说明）由人工核对 runtime.md 与 README 后登记；旧数据形态由
  * 播种助手按退役前（核心库 v24）持久形态直接写入，真实旧代码产生的数据
- * 升级路径见 .agents/scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）。
+ * 升级路径见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）。
  */
 
 import assert from "node:assert/strict";

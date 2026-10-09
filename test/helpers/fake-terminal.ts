@@ -1,5 +1,5 @@
 /**
- * 假终端：TuiApp 测试直接驱动（14、30、32、66 号共用）。
+ * 假终端：TUI 测试直接驱动（14、30、32、33、66 号共用）。
  */
 
 import type { Terminal } from "@earendil-works/pi-tui";
@@ -28,6 +28,10 @@ export class FakeTerminal implements Terminal {
   clearScreen(): void {}
   setTitle(): void {}
   setProgress(): void {}
+  /** 与 ProcessTerminal 一致：括号粘贴整段作为一次输入送达。 */
+  paste(text: string): void {
+    this.onInput?.(`\x1b[200~${text}\x1b[201~`);
+  }
   /**
    * 模拟 StdinBuffer 的分帧：控制键（\r \n \x03 \x1b 开头序列）与文本分别
    * 到达——真实终端不会把 "/cmd\r" 合成一个输入事件。

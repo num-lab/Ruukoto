@@ -19,7 +19,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import type { Terminal } from "@earendil-works/pi-tui";
 import { readOwnerToken } from "../src/control/owner-token.ts";
 import { acquireConfigLock } from "../src/core/instance-lock.ts";
 import { runConfigTui } from "../src/config-tui/index.ts";
@@ -36,67 +35,7 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 
-// ---------- 假终端（与 test/14 同一形态：send 模拟 StdinBuffer 分帧） ----------
-
-class FakeTerminal implements Terminal {
-  columns = 100;
-  rows = 30;
-  readonly kittyProtocolActive = false;
-  private written: string[] = [];
-  private onInput: ((data: string) => void) | null = null;
-  start(onInput: (data: string) => void): void {
-    this.onInput = onInput;
-  }
-  stop(): void {}
-  async drainInput(): Promise<void> {}
-  write(data: string): void {
-    this.written.push(data);
-  }
-  moveBy(): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
-  clearLine(): void {}
-  clearFromCursor(): void {}
-  clearScreen(): void {}
-  setTitle(): void {}
-  setProgress(): void {}
-  /** 与 ProcessTerminal 一致：括号粘贴整段作为一次输入送达。 */
-  paste(text: string): void {
-    this.onInput?.(`\x1b[200~${text}\x1b[201~`);
-  }
-  send(data: string): void {
-    let textBuf = "";
-    const flush = () => {
-      if (textBuf) {
-        this.onInput?.(textBuf);
-        textBuf = "";
-      }
-    };
-    for (let i = 0; i < data.length; i++) {
-      const ch = data[i]!;
-      if (ch === "\x1b") {
-        flush();
-        const rest = data.slice(i);
-        const m = /^\x1b\[[A-Za-z]~?/.exec(rest) ?? /^\x1b./.exec(rest);
-        const seq = m ? m[0] : "\x1b";
-        this.onInput?.(seq);
-        i += seq.length - 1;
-      } else if (ch === "\r" || ch === "\n" || ch === "\x03" || ch === "\t") {
-        flush();
-        this.onInput?.(ch);
-      } else {
-        textBuf += ch;
-      }
-    }
-    flush();
-  }
-  output(): string {
-    return this.written.join("");
-  }
-  clearOutput(): void {
-    this.written = [];
-  }
-}
+import { FakeTerminal } from "./helpers/fake-terminal.ts";
 
 const DOWN = "\x1b[B";
 const ENTER = "\r";

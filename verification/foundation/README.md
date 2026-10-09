@@ -5,6 +5,8 @@
 边界。本目录是**验证脚手架**，不是应用框架；结论沉淀在
 `.scratch/personal-agent/foundation-findings.md`。
 
+模型服务复用仓库内的 `test/helpers/mock-provider.ts`，从本仓库运行这些验证。
+
 ## 运行
 
 ```bash

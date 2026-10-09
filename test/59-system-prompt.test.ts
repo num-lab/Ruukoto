@@ -3,7 +3,7 @@
  *
  * - 工作区 `.pi/SYSTEM.md`、`.pi/APPEND_SYSTEM.md` 与 agentDir 下同名文件都存在时，
  *   发送前快照的系统提示仍等于宿主提示加 cwd 行；
- * - 普通开发会话、main、coding、chat、QQ 群会话各用对应的一份；
+ * - 普通开发会话与 main 使用各自的宿主提示；
  * - 参考块块头不再重复说明，外部资料警示保留。
  */
 
@@ -15,11 +15,8 @@ import * as path from "node:path";
 import { SYSTEM_PROMPTS } from "../src/agent/session-factory.ts";
 import { expandSkillCommand, loadSkillLibrary, readSkill } from "../src/agent/skills.ts";
 import { formatMcpResult } from "../src/agent/mcp/tools.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { cleanupDirs, createProjectSession, lastUserText, makeTestDirs, startAssemblyKit, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
-import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot } from "./helpers/mock-onebot.ts";
+import type { Runtime } from "../src/runtime/runtime.ts";
+import { createProjectSession, lastUserText, startAssemblyKit, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 const withCwd = (prompt: string, cwd: string) => `${prompt}\nCurrent working directory: ${cwd}\n`;
 
@@ -76,41 +73,6 @@ test("系统提示：开发会话、main 各用宿主提示，SYSTEM.md / APPEND
     assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 3);
   } finally {
     await t.shutdown();
-  }
-});
-
-test("系统提示：核心群聊已退役，群消息零任务", async () => {
-  const { dirs } = await makeTestDirs("sysprompt-qq", 0);
-  const onebot = await startMockOneBot({});
-  const model = new MockModelServer(async () => ({ kind: "text", text: "收到" }));
-  await writeModelsJson(dirs, await model.start());
-  plantDiscovery(dirs.agentDir, false);
-  const rt = await Runtime.start({
-    dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
-    thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: createMockTools,
-    telegramDisabled: true,
-    qq: { actionTimeoutMs: 1_000, probeIntervalMs: 100, reconnectMinMs: 30, reconnectMaxMs: 100, sweepIntervalMs: 50 },
-    scheduler: { tickMs: 30 },
-  });
-  try {
-    await rt.addCredentialBinding({ name: "qq-test", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
-    await rt.qqConfigure({ endpoint: onebot.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq-test" });
-    await rt.qqSetEnabled(true);
-    await waitFor("QQ 登录账号在线", () => rt.qqStatus().online === true);
-    onebot.pushGroupMessage({
-      groupId: "100001", userId: "880001", messageId: 1,
-      segments: [{ type: "at", data: { qq: MOCK_QQ_ACCOUNT } }, { type: "text", data: { text: "MARK-QQ 你好" } }],
-    });
-    await new Promise((r) => setTimeout(r, 400));
-    assert.equal(rt.store.listSessions().filter((s) => s.kind === "qq_group").length, 0, "不建群会话");
-    assert.equal(rt.qqStore.listInbox().length, 0, "不登记收件");
-    assert.ok(!onebot.actions.some((a) => a.action === "send_group_msg"), "不回复");
-    assert.ok(!model.calls.some((c) => lastUserText(c).includes("MARK-QQ")), "零模型调用");
-  } finally {
-    await rt.stop("test_end");
-    await onebot.close();
-    await model.close();
-    await cleanupDirs(dirs);
   }
 });
 

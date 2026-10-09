@@ -2427,8 +2427,9 @@ submit/continue 全部拒绝；无 chat 角色行的隔离不变；已接收结�
 按退役前（核心库 v24）持久形态播种；真实旧代码产生数据的升级路径见
 `.scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）。
 
-`test/26-qq.test.ts` 保留连接鉴权/身份核对/掉线重连与接收缺口、配置校验、
-qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.test.ts`
+`test/26-qq.test.ts` 保留传输状态、配置校验与 qq_group 资料身份；
+`test/40-qq-private.test.ts` 覆盖连接鉴权、身份核对、掉线重连与接收缺口；
+群消息被忽略由 `test/85-retire-core-group-chat.test.ts` 验收；`test/49-chat-result-flow.test.ts`
 用播种归档数据覆盖接收/审批/撤回复核/不凭快照外发。
 
 真实 QQ 群与 NapCat 没有入口（无真实群闭环可验），记为未实测；
@@ -2542,7 +2543,7 @@ qq_group 资料身份与「群消息被忽略」；`test/49-chat-result-flow.tes
 | 真实 GitHub MCP 只读连通（一次已授权仓库的只读调用，记录工具/权限/结果） | 需拥有者配置独立只读 PAT | 未验证（issue 16 遗留；配置具备时按「MCP 服务」节步骤验收，不以模拟测试冒充） |
 | issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
 | issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环）。agent-direction issue 20 起核心群聊已退役，群消息被忽略，见下行 |
-| agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留连接与身份用例、test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
+| agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留传输状态、配置与资料身份边界，test/40 覆盖私聊连接鉴权与重连，test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
 | agent-direction issue 15 后台重启恢复 SubAgent（test/86 共 3 项：排队委派任务重启定 interrupted 且不自动继续/不当作新委派（零模型请求）、补记一次重复启动不重复登记、结果归属保持、Agent 回 idle 可继续委派且 dev 父会话注入；遗留占用保留与 occupancy_unverified 暂停不被启动恢复解除、unverified 拒绝委派、拥有者 resume-queue 后回 idle 可委派；宿主固定评审排队任务不中断、启动恢复自动解除子会话暂停并继续执行） | macOS 本机（mock 模型 + 临时目录 + 进程内真实 Runtime 重启（stop→Runtime.start，含崩溃形态 SQL 置位）+ realTools local 后端） | 通过（2026-10-05，3/3；模拟环境。真实容器/CLI 证据见下行） |
 | agent-direction issue 15 冒烟（.scratch/agent-direction/smoke-15-recover-subagents.mts：真实 Runtime/控制面/SQLite + 真实受限容器后端与镜像 + 真实 CLI resume-queue——排队委派任务重启中断零容器零模型请求、结果归属、dev 注入、沿 work_id 真实容器继续；遗留占用保留与暂停不被启动恢复解除、unverified 拒绝委派、CLI resume-queue 后回 idle 可继续；带来源事件的评审排队任务自动恢复真实完成；重复重启不重复登记、无残余容器） | macOS 本机 Docker Desktop（真实容器；模型为模拟，消息平台不启用；崩溃形态按库内容置位，判定输入与真实崩溃一致） | 通过（2026-10-05，8/8）；冒烟期间发现并修复：backend_restart 暂停叠加持占用会话不再被启动恢复自动释放（runtime 守卫） |
 | 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |

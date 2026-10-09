@@ -1,12 +1,9 @@
 /**
- * QQ 入口集成测试（NapCat OneBot v11 正向 WebSocket）。
+ * QQ 入口测试（NapCat OneBot v11 正向 WebSocket）。
  *
- * 全部经进程内模拟 OneBot 服务（回环 WebSocket）+ 真实适配器/Runtime；不向
- * 真实 QQ 发送任何消息。覆盖：连接鉴权/身份核对/掉线重连、配置校验、
- * qq_group 资料身份隔离。
- *
- * 核心群聊已退役（agent-direction issue 20）：群消息@、撤群、排队、回复与
- * 补发的旧用例已删除；保留「群消息被忽略」，旧群资料的收尾与归档核查见
+ * 经回环模拟 OneBot 验证传输状态与配置校验；归档群资料仍保持独立身份边界。
+ * 私聊鉴权、登录账号核对、重连与接收边界见 test/40-qq-private.test.ts。
+ * 核心群聊退役后的消息零新增、收尾与归档核查见
  * test/85-retire-core-group-chat.test.ts。
  */
 
@@ -21,12 +18,10 @@ import {
   waitFor,
   makeTestDirs,
   cleanupDirs,
-  type TestRuntime,
 } from "./helpers/testkit.ts";
 import { type Responder } from "./helpers/mock-provider.ts";
-import { startMockOneBot, MOCK_QQ_SECRET, MOCK_QQ_ACCOUNT, type MockOneBot } from "./helpers/mock-onebot.ts";
+import { startMockOneBot, MOCK_QQ_SECRET, MOCK_QQ_ACCOUNT } from "./helpers/mock-onebot.ts";
 
-const GROUP_A = "100001";
 const USER_1 = "880001";
 const USER_2 = "880002";
 
@@ -87,74 +82,6 @@ const QQ_TIMEOUTS = {
 
 const replyText: Responder = async () => ({ kind: "text", text: "私聊回复：收到" });
 
-interface QqFixture {
-  t: TestRuntime;
-  onebot: MockOneBot;
-}
-
-/** 启动后台 + 模拟 OneBot，完成凭据/连接配置并启用。 */
-async function startQq(
-  prefix: string,
-  responder: Responder,
-  opts: {
-    selfId?: string;
-    /** 凭据中的秘密值（默认与模拟服务一致；传错误值测试鉴权失败）。 */
-    credentialSecret?: string;
-    mockAccount?: string;
-    enable?: boolean;
-  } = {},
-): Promise<QqFixture> {
-  const onebot = await startMockOneBot({ account: opts.mockAccount });
-  const t = await startTestRuntime(prefix, responder, {
-    config: { qq: { ...QQ_TIMEOUTS } },
-  });
-  try {
-    t.runtime.credentials.upsert({
-      name: "qq-test",
-      host: onebot.host,
-      header: "authorization",
-      purpose: "qq_onebot",
-      secret: opts.credentialSecret ?? MOCK_QQ_SECRET,
-    });
-    await t.client.request("qq_configure", {
-      endpoint: onebot.url,
-      credential: "qq-test",
-      self_id: opts.selfId ?? MOCK_QQ_ACCOUNT,
-    });
-    if (opts.enable !== false) await t.client.request("qq_set_enabled", { enabled: true });
-    return { t, onebot };
-  } catch (err) {
-    await t.shutdown();
-    await onebot.close();
-    throw err;
-  }
-}
-
-async function shutdownQq(f: QqFixture): Promise<void> {
-  await f.t.shutdown();
-  await f.onebot.close();
-}
-
-async function waitOnline(t: TestRuntime): Promise<void> {
-  await waitFor("QQ 上线", async () => (await t.client.request<any>("qq_status", {})).online === true);
-}
-
-async function waitOffline(t: TestRuntime): Promise<void> {
-  await waitFor("QQ 离线", async () => (await t.client.request<any>("qq_status", {})).online === false);
-}
-
-/** @机器人 + 文本的结构化消息段。 */
-function atSegments(text: string, atTarget = MOCK_QQ_ACCOUNT): unknown[] {
-  return [
-    { type: "at", data: { qq: atTarget } },
-    { type: "text", data: { text } },
-  ];
-}
-
-function groupSends(onebot: MockOneBot): Array<{ params: Record<string, any> }> {
-  return onebot.actions.filter((a) => a.action === "send_group_msg");
-}
-
 // ---------- 配置面 ----------
 
 test("qq：配置校验（端点协议/私网/凭据/账号/版本冲突）", async () => {
@@ -212,86 +139,7 @@ test("qq：配置校验（端点协议/私网/凭据/账号/版本冲突）", as
   }
 });
 
-// ---------- 连接与身份 ----------
-
-test("qq：token 错误时不接纳事件（保持离线，不产生任务）", async () => {
-  const f = await startQq("qq-bad-token", replyText, { credentialSecret: "wrong-secret" });
-  try {
-    await new Promise((r) => setTimeout(r, 600));
-    const status = await f.t.client.request<any>("qq_status", {});
-    assert.equal(status.online, false);
-    f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_1, messageId: 1, segments: atSegments("你好") });
-    await new Promise((r) => setTimeout(r, 300));
-    const inbox = await f.t.client.request<any>("qq_inbox_list", {});
-    assert.equal(inbox.entries.length, 0, "鉴权失败时不得接纳任何消息");
-    assert.equal(groupSends(f.onebot).length, 0);
-  } finally {
-    await shutdownQq(f);
-  }
-});
-
-test("qq：登录账号与预期不一致时不接纳事件", async () => {
-  const f = await startQq("qq-wrong-account", replyText, { mockAccount: "990002" });
-  try {
-    await waitOnline(f.t); // 连接本身在线，但账号不是预期的 990001
-    const status = await f.t.client.request<any>("qq_status", {});
-    assert.equal(status.actualSelfId, "990002");
-    f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_1, messageId: 1, segments: atSegments("你好") });
-    await new Promise((r) => setTimeout(r, 300));
-    const inbox = await f.t.client.request<any>("qq_inbox_list", {});
-    assert.equal(inbox.entries.length, 0, "身份不匹配时不得接纳消息");
-  } finally {
-    await shutdownQq(f);
-  }
-});
-
-test("qq：掉线停止接收，重连后恢复（不补发）", async () => {
-  const f = await startQq("qq-reconnect", replyText);
-  try {
-    await waitOnline(f.t);
-    f.onebot.dropConnections();
-    await waitOffline(f.t);
-    await waitOnline(f.t); // 自动重连
-    // 断线窗口如实标记（不假定平台重投缺失消息）
-    await waitFor("接收缺口事件", () =>
-      f.t.runtime.store.getEventsAfter(0).some((e) => (e.body as any).type === "qq.receive_gap"),
-    );
-    // 重连后群消息仍被忽略（核心群聊已退役），私聊恢复见 test/40
-    f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_1, messageId: 1, segments: atSegments("重连后") });
-    await new Promise((r) => setTimeout(r, 400));
-    assert.equal((await f.t.client.request<any>("qq_inbox_list", {})).entries.length, 0);
-    assert.equal(groupSends(f.onebot).length, 0);
-  } finally {
-    await shutdownQq(f);
-  }
-});
-
-// ---------- 核心群聊退役（agent-direction issue 20） ----------
-
-test("qq：群消息直接忽略——不登记、不建会话、不建任务、不回复、不记日志", async () => {
-  const f = await startQq("qq-group-ignored", replyText);
-  try {
-    await waitOnline(f.t);
-    f.onebot.pushGroupMessage({ groupId: GROUP_A, userId: USER_1, messageId: 1, segments: atSegments("周末聚餐谁去？") });
-    f.onebot.pushGroupMessage({ groupId: "100099", userId: USER_2, messageId: 2, segments: atSegments("另一条群消息") });
-    await new Promise((r) => setTimeout(r, 500));
-    const rt = f.t.runtime;
-    assert.equal((await f.t.client.request<any>("qq_inbox_list", { limit: 50 })).entries.length, 0, "不登记收件");
-    assert.equal((await f.t.client.request<any>("qq_outbox_list", { limit: 50 })).entries.length, 0, "不登记发送");
-    assert.equal(rt.qqStore.listGroupSessions().length, 0, "不建群会话映射");
-    assert.equal(groupSends(f.onebot).length, 0, "不发送群回复");
-    assert.equal(f.t.server.calls.length, 0, "不调用模型");
-    assert.equal(rt.store.listTasksByStatus(["queued", "running"]).length, 0, "不建任务");
-    const status = await f.t.client.request<any>("qq_status", {});
-    assert.equal(status.sessions.length, 0, "状态视图无群会话");
-    // 未登记的撤回事件：不报错、不产生任何记录
-    f.onebot.pushRecall({ groupId: GROUP_A, messageId: 1, userId: USER_1 });
-    await new Promise((r) => setTimeout(r, 300));
-    assert.equal(rt.qqStore.listInbox().length, 0);
-  } finally {
-    await shutdownQq(f);
-  }
-});
+// ---------- 归档资料身份 ----------
 
 test("qq：qq_group 资料身份——授权不放大、owner_note 不放行、仅本项目", async () => {
   const root = await makeTestDirs("qq-access", 0);

@@ -13,7 +13,6 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
@@ -21,6 +20,7 @@ import { readOwnerToken } from "../src/control/owner-token.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import type { PersistentEvent } from "../src/core/types.ts";
 import {
+  toolNamesOf,
   cleanupDirs,
   createProjectSession,
   lastUserText,
@@ -34,10 +34,6 @@ import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 function eventsOf(runtime: Runtime, type: string): PersistentEvent[] {
   return runtime.store.getEventsAfter(0).filter((e) => e.body.type === type);
-}
-
-function toolNamesOf(call: { tools: Array<Record<string, unknown>> | undefined }): string[] {
-  return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n) => typeof n === "string");
 }
 
 test("角色引导：只引导 main（chat/coding 已退役，issue 20/23）", async () => {
@@ -378,43 +374,6 @@ test("P1：main 正常注入个人共享记忆与项目指令（chat 已退役�
     const mainCall = t.server.calls.find((c) => lastUserText(c).includes("MAIN-CTX-MARK"))!;
     assert.ok(payloadOf(mainCall).includes("PERSONAL-MARK-4451"), "main 正常注入个人共享记忆");
     assert.ok(payloadOf(mainCall).includes("INSTR-MARK-7713"), "main 正常注入项目指令");
-  } finally {
-    await t.shutdown();
-  }
-});
-
-test("P2：旧提交摘要兼容——升级前已接收请求同参重试返回原任务，异参仍冲突", async () => {
-  const t = await startTestRuntime("orch-legacy", async () => ({ kind: "text", text: "ok" }));
-  try {
-    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const first = await t.runtime.submit({
-      sessionId,
-      requestId: "legacy-1",
-      input: "原始输入",
-      modelSelection: t.runtime.defaultSelection,
-    });
-    // 把任务摘要改写为 v11 前的旧格式（无编排字段），模拟升级前已接收的任务
-    const legacyDigest = createHash("sha256").update(JSON.stringify({
-      input: "原始输入",
-      accessMode: "confirm",
-      grantedPaths: [],
-      resumesTaskId: null,
-      modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-    })).digest("hex");
-    t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?").run(legacyDigest, first.id);
-    // 同参重试：返回原任务，不误判 request_conflict
-    const retry = await t.runtime.submit({
-      sessionId,
-      requestId: "legacy-1",
-      input: "原始输入",
-      modelSelection: t.runtime.defaultSelection,
-    });
-    assert.equal(retry.id, first.id);
-    // 异参仍冲突（同键异参校验不放宽）
-    await assert.rejects(
-      () => t.runtime.submit({ sessionId, requestId: "legacy-1", input: "改动后的输入", modelSelection: t.runtime.defaultSelection }),
-      /提交参数不同/,
-    );
   } finally {
     await t.shutdown();
   }

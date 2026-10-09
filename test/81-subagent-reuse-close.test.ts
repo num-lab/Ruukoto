@@ -27,8 +27,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { type Responder, type RecordedRequest } from "./helpers/mock-provider.ts";
+import { type Responder } from "./helpers/mock-provider.ts";
 import {
+  afterTool,
+  lastToolText,
+  inputText,
   cleanupDirs,
   connectAuthedClient,
   lastUserText,
@@ -45,28 +48,6 @@ import { ControlServer } from "../src/control/server.ts";
 import { createSubAgentTools } from "../src/agent/subagent-tools.ts";
 import { SubAgentManager, subagentOpCheck } from "../src/runtime/subagents.ts";
 import { WorkCopyManager } from "../src/runtime/work-copy.ts";
-
-/** 本轮请求的最后一条是工具结果（模型拿到工具返回后的下一次调用）。 */
-function afterTool(req: RecordedRequest): boolean {
-  return req.messages[req.messages.length - 1]?.role === "tool";
-}
-
-function lastToolText(req: RecordedRequest): string {
-  const m = req.messages[req.messages.length - 1];
-  return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "");
-}
-
-/** 请求中所有消息的文本串联（content 支持 string 与 parts 数组）。 */
-function inputText(req: RecordedRequest): string {
-  return req.messages
-    .map((m: any) => {
-      const content = m?.content;
-      if (typeof content === "string") return content;
-      if (Array.isArray(content)) return content.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("");
-      return "";
-    })
-    .join("\n");
-}
 
 /** 结果登记与 Agent 空闲在同一事务；等 resultSummary 即等 idle 可用。 */
 async function waitIdle(rt: Runtime, agentId: string): Promise<void> {

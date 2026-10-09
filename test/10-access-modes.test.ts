@@ -190,6 +190,7 @@ test("新旧请求摘要：历史模式变化后仍可重试，显式 Plan 与�
     t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?")
       .run(hash({ ...oldBase, accessMode: "auto-review" }), oldFiveTask.id);
     assert.equal((await t.client.request<any>("submit", oldFiveParams)).id, oldFiveTask.id);
+    await assert.rejects(t.client.request("submit", { ...oldFiveParams, input: "改变原始请求" }), { code: "request_conflict" });
     await assert.rejects(t.client.request("submit", { ...oldFiveParams, access_mode: "plan" }), { code: "request_conflict" });
 
     const modernParams = { ...params, request_id: "new-request" };

@@ -1,7 +1,7 @@
 /**
  * 集成测试公共设施（沿用 issue 01 的 mock 模型 + 临时目录方式）。
  *
- * - MockModelServer：本地 OpenAI 兼容服务（从 verification/foundation 复制）；
+ * - MockModelServer：与 verification/foundation 共用的本地 OpenAI 兼容服务；
  * - 每个测试独立临时目录：dataDir（后台数据）、agentDir（models.json）、
  *   若干工作目录；结束后整体删除；
  * - startTestRuntime：进程内启动 Runtime + ControlServer，返回已连接客户端；
@@ -160,6 +160,31 @@ export function realTools(): Pick<RuntimeConfig, "toolFactory"> {
 export interface RecordedRequestLike {
   messages: Array<Record<string, unknown>>;
   tools: Array<Record<string, unknown>> | undefined;
+}
+
+export function toolNamesOf(call: Pick<RecordedRequestLike, "tools">): string[] {
+  return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n): n is string => typeof n === "string");
+}
+
+export function afterTool(req: RecordedRequestLike): boolean {
+  return req.messages.at(-1)?.role === "tool";
+}
+
+export function lastToolText(req: RecordedRequestLike): string {
+  const m = req.messages.at(-1);
+  return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "");
+}
+
+/** 请求中所有消息的文本串联（content 支持 string 与 parts 数组）。 */
+export function inputText(req: RecordedRequestLike): string {
+  return req.messages
+    .map((m: any) => {
+      const content = m?.content;
+      if (typeof content === "string") return content;
+      if (Array.isArray(content)) return content.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("");
+      return "";
+    })
+    .join("\n");
 }
 
 /** 取请求里最后一条 user 消息的文本（pi 会带 system，extract 已滤掉）。 */

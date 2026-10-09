@@ -23,8 +23,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as childProcess from "node:child_process";
 import { test } from "node:test";
-import { type Responder, type RecordedRequest } from "./helpers/mock-provider.ts";
+import { type Responder } from "./helpers/mock-provider.ts";
 import {
+  afterTool,
   lastUserText,
   realTools,
   startTestRuntime,
@@ -34,11 +35,6 @@ import { initGitRepo } from "./helpers/git-fixture.ts";
 import { completeCodingChild, seedCodingChild, seedCodingRole } from "./helpers/legacy-coding.ts";
 import { ViewState } from "../src/tui/state.ts";
 import { subagentOpCheck } from "../src/runtime/subagents.ts";
-
-/** 本轮请求的最后一条是工具结果（模型拿到工具返回后的下一次调用）。 */
-function afterTool(req: RecordedRequest): boolean {
-  return req.messages[req.messages.length - 1]?.role === "tool";
-}
 
 const gitOut = (cwd: string, args: string): string =>
   childProcess.execFileSync("git", args.split(" "), { cwd, encoding: "utf8" }).trim();

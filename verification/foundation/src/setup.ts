@@ -16,7 +16,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { MockModelServer, type Responder } from "./mock-provider.ts";
+import { MockModelServer, type Responder } from "../../../test/helpers/mock-provider.ts";
 import { makeTestDirs, cleanupDirs, writeModelsJson, type TestDirs } from "./helpers.ts";
 
 export interface Setup {

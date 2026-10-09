@@ -28,6 +28,10 @@
 
 使用五种默认 triage 标签。分类任务或更新其状态前，先读 `docs/agents/triage-labels.md`。
 
+### 决策记录
+
+决策记在 `.agents/notes/`。做非平凡改动（行为、架构、跨文件契约、流程与工具链、测试策略、落盘/协议/配置格式）、在方案间取舍或取代旧决定时，按 `.agents/skills/maintain-notes/SKILL.md` 操作；它优先于全局的 write-notes-like-deepseek。
+
 ### Domain docs
 
 采用 single-context：根目录 `CONTEXT.md` 与 `docs/adr/`。探索代码库前，先读 `docs/agents/domain.md`。

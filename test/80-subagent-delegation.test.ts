@@ -16,38 +16,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { MockModelServer, type Responder, type RecordedRequest } from "./helpers/mock-provider.ts";
-import { cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
+import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { toolNamesOf, afterTool, lastToolText, inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { subAgentTaskRequestId } from "../src/runtime/subagents.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import { CredentialStore } from "../src/agent/execution/credentials.ts";
 import { Runtime } from "../src/runtime/runtime.ts";
-
-function toolNamesOf(call: { tools: Array<Record<string, unknown>> | undefined }): string[] {
-  return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n) => typeof n === "string");
-}
-
-/** 本轮请求的最后一条是工具结果（模型拿到工具返回后的下一次调用）。 */
-function afterTool(req: RecordedRequest): boolean {
-  return req.messages[req.messages.length - 1]?.role === "tool";
-}
-
-function lastToolText(req: RecordedRequest): string {
-  const m = req.messages[req.messages.length - 1];
-  return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "");
-}
-
-/** 请求中所有消息的文本串联（宿主模板输入识别；content 支持 string 与 parts 数组）。 */
-function inputText(req: RecordedRequest): string {
-  return req.messages
-    .map((m: any) => {
-      const content = m?.content;
-      if (typeof content === "string") return content;
-      if (Array.isArray(content)) return content.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("");
-      return "";
-    })
-    .join("\n");
-}
 
 test("dev 会话：登记→非阻塞→真实受控读取→结果回传→父下一轮注入→子空闲", async () => {
   const secret = `SECRET-${Math.random().toString(36).slice(2, 8)}`;

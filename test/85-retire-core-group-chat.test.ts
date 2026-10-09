@@ -84,13 +84,23 @@ test("验收1：全新实例只有 main（chat/coding 已退役，issue 20/23）
       groupId: GROUP, userId: "880009", messageId: 1,
       segments: [{ type: "at", data: { qq: MOCK_QQ_ACCOUNT } }, { type: "text", data: { text: "GROUP-MARK 谁去看展？" } }],
     });
+    onebot.pushGroupMessage({
+      groupId: "100099", userId: "880002", messageId: 2,
+      segments: [{ type: "at", data: { qq: MOCK_QQ_ACCOUNT } }, { type: "text", data: { text: "另一条群消息" } }],
+    });
     await pause();
     assert.equal(rt.qqStore.listInbox().length, 0, "收件零新增");
+    assert.equal(rt.qqStore.listOutbox().length, 0, "不登记发送");
     assert.equal(rt.qqStore.listGroupSessions().length, 0, "群会话零新增");
+    assert.equal((await t.client.request<any>("qq_status", {})).sessions.length, 0, "状态视图无群会话");
     assert.equal(rt.store.listTasksByStatus(["queued", "running"]).length, 0, "任务零新增");
     assert.equal(onebot.actions.filter((a) => a.action === "send_group_msg").length, 0, "send_group_msg 零调用");
     assert.equal(t.server.calls.length, 0, "模型零调用");
     assert.equal(rt.store.listProjects().filter((p) => p.name.startsWith("qq-")).length, 0, "群项目零新增");
+
+    onebot.pushRecall({ groupId: GROUP, messageId: 1, userId: "880009" });
+    await pause();
+    assert.equal(rt.qqStore.listInbox().length, 0, "未登记的撤回不产生记录");
 
     // 同一连接上 QQ 拥有者私聊照常回复（固定目标 + 引用原消息）
     onebot.pushPrivateMessage({ userId: OWNER, messageId: 7, segments: [{ type: "text", data: { text: "PRIVATE-MARK 周五提醒我带伞" } }] });

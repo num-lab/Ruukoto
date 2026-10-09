@@ -23,6 +23,7 @@ import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { createMockTools } from "../src/agent/mock-tools.ts";
 import type { PersistentEvent } from "../src/core/types.ts";
 import {
+  toolNamesOf,
   cleanupDirs,
   createProjectSession,
   lastUserText,
@@ -579,12 +580,6 @@ test("只读子进程：真实查询经子进程执行；超时真实终止进�
     await cleanup();
   }
 });
-
-// ---------- 集成：装配、门控、审批、恢复 ----------
-
-function toolNamesOf(call: { tools: Array<Record<string, unknown>> | undefined }): string[] {
-  return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n) => typeof n === "string");
-}
 
 function appDataStoreOf(runtime: Runtime): AppDataStore {
   return (runtime as unknown as { appDataStore: AppDataStore }).appDataStore;

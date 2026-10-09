@@ -21,10 +21,6 @@ const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 type Todo = { content: string; status: string };
 const todos = (...items: Array<[string, string]>): Todo[] => items.map(([content, status]) => ({ content, status }));
 
-function toolNames(req: { tools?: Array<Record<string, unknown>> }): string[] {
-  return (req.tools ?? []).map((t: any) => t?.function?.name ?? t?.name);
-}
-
 /** 当前任务（最后一条 user 之后）已有的工具结果数。 */
 function toolResultsSinceUser(req: { messages: Array<Record<string, unknown>> }): number {
   const last = req.messages.map((m) => m.role).lastIndexOf("user");
@@ -179,23 +175,6 @@ test("事件流：todo_write 每次更新一行完成数/总数，不展开清�
 });
 
 // ---------- 集成 ----------
-
-test("集成：开发会话装配 todo_write，main 不装配（chat/coding 已退役，issue 20/23）", async () => {
-  const t = await startTestRuntime("todo-roles", async () => ({ kind: "text", text: "ok" }));
-  try {
-    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const dev = await submit(t, sessionId, "d1", "DEV-TODO-MARK");
-    const main = t.runtime.store.getAgentRole("main")!;
-    const m = await t.runtime.submit({ sessionId: main.sessionId, requestId: "m-t", input: "MAIN-TODO-MARK", modelSelection: t.runtime.defaultSelection });
-    await waitDone(t, dev.id);
-    await waitFor("main 完成", () => t.runtime.store.getTask(m.id)!.status === "completed");
-    const tools = (mark: string) => toolNames(t.server.calls.find((x) => lastUserText(x).includes(mark))!);
-    assert.ok(tools("DEV-TODO-MARK").includes("todo_write"), "开发会话");
-    assert.ok(!tools("MAIN-TODO-MARK").includes("todo_write"), "main 不装配");
-  } finally {
-    await t.shutdown();
-  }
-});
 
 test("集成：整表替换与校验、三种访问模式无审批、跨任务延续、新会话没有工作清单", async () => {
   const listA = todos(["读代码", "pending"], ["改代码", "pending"], ["跑测试", "pending"]);

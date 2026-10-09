@@ -319,6 +319,7 @@ test("token 错误和登录账号不符不接任务；连接掉线、账号离�
     await configure(rt, h.onebot);
     await waitOnline(rt);
     for (const [index, disconnect] of [false, true].entries()) {
+      const beforeDisconnect = rt.store.getEventsAfter(0).at(-1)?.seq ?? 0;
       h.onebot.setOnline(false);
       if (disconnect) h.onebot.dropConnections();
       else h.onebot.pushHeartbeat({ online: false });
@@ -328,6 +329,7 @@ test("token 错误和登录账号不符不接任务；连接掉线、账号离�
       assert.equal(mainTasks(rt).length, index);
       h.onebot.setOnline(true);
       await waitOnline(rt);
+      if (disconnect) await waitFor("接收缺口事件", () => rt.store.getEventsAfter(beforeDisconnect).some((e) => e.body.type === "qq.receive_gap"));
       push(h.onebot, index + 20, `MARK-RECOVER-${index}`);
       await waitFor("恢复后接收一条", () => replyOps(rt).filter((op) => op.status === "sent").length === index + 1);
     }

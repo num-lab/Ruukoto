@@ -16,7 +16,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { Db } from "../src/core/db.ts";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson, type TestDirs } from "./helpers/testkit.ts";
+import { toolNamesOf, afterTool, inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson, type TestDirs } from "./helpers/testkit.ts";
 import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
@@ -104,22 +104,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => (resolve = r));
   return { promise, resolve };
-}
-
-function toolNamesOf(call: RecordedRequest): string[] {
-  return (call.tools ?? []).map((t: any) => t?.function?.name ?? t?.name).filter((n: unknown): n is string => typeof n === "string");
-}
-const afterTool = (req: RecordedRequest): boolean => req.messages[req.messages.length - 1]?.role === "tool";
-/** 请求中所有消息的文本串联（宿主模板输入识别）。 */
-function inputText(req: RecordedRequest): string {
-  return req.messages
-    .map((m: any) => {
-      const content = m?.content;
-      if (typeof content === "string") return content;
-      if (Array.isArray(content)) return content.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("");
-      return "";
-    })
-    .join("\n");
 }
 
 /** 标准委派流程响应器：子任务可挂起一次，唤醒回答固定，受理回复固定。 */

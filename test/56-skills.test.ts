@@ -105,7 +105,7 @@ test("技能库：嵌套包、符号链接、缺描述、YAML 错误、同名冲
 
 // ---------- 集成 ----------
 
-test("集成：main 与开发会话注入技能目录（无主机路径、无仅显式技能；chat/coding 已退役，issue 20/23）；/skills 可见诊断", async () => {
+test("集成：main 与开发会话的技能目录与工具装配（todo_write 仅开发会话）；/skills 可见诊断", async () => {
   const t = await startTestRuntime("skills-roles", async (req) => ({ kind: "text", text: `ok:${lastUserText(req).slice(0, 20)}` }));
   try {
     const lib = path.join(t.dirs.agentDir, "skills");
@@ -132,6 +132,7 @@ test("集成：main 与开发会话注入技能目录（无主机路径、无仅
       assert.ok(!text.includes("BETA-DESC"), "仅显式调用的技能不进目录");
       assert.ok(!text.includes(t.dirs.agentDir), "目录不含主机路径");
       assert.ok(toolNames(call).includes("skill"), `${mark} 有 skill 工具`);
+      assert.equal(toolNames(call).includes("todo_write"), mark === "DEV-SKILL-MARK", `${mark} 的工作清单工具装配`);
     }
   } finally {
     await t.shutdown();

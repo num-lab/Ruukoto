@@ -25,25 +25,13 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { MockModelServer, type Responder, type RecordedRequest } from "./helpers/mock-provider.ts";
-import { cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
+import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { Db } from "../src/core/db.ts";
 import { Store } from "../src/core/store.ts";
 import { randomId, type SubAgentMessage } from "../src/core/types.ts";
 import { subAgentTaskRequestId } from "../src/runtime/subagents.ts";
-
-/** 请求中所有消息的文本串联（content 支持 string 与 parts 数组）。 */
-function inputText(req: RecordedRequest): string {
-  return req.messages
-    .map((m: any) => {
-      const content = m?.content;
-      if (typeof content === "string") return content;
-      if (Array.isArray(content)) return content.map((c: any) => (typeof c?.text === "string" ? c.text : "")).join("");
-      return "";
-    })
-    .join("\n");
-}
 
 /** 事件表里的某类事件。 */
 function eventsOf(rt: Runtime, type: string): any[] {

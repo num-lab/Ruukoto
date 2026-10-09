@@ -12,7 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { rm } from "node:fs/promises";
-import { MockModelServer } from "../src/mock-provider.ts";
+import { MockModelServer } from "../../../test/helpers/mock-provider.ts";
 import { makeTestDirs, writeModelsJson } from "../src/helpers.ts";
 
 const CLI = new URL("../node_modules/.bin/pi", import.meta.url).pathname;

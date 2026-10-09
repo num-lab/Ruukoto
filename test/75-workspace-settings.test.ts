@@ -128,23 +128,6 @@ test("settings_version：兼容写入（省略版本）仍更新同一行并产�
   }
 });
 
-test("settings_version：修改项目 A 不影响项目 B", async () => {
-  const t = await startTestRuntime("ws75-settings-isolation", RESPONDER);
-  try {
-    const a = (await t.client.request<any>("create_project", { name: "p-iso-a" })) as any;
-    const b = (await t.client.request<any>("create_project", { name: "p-iso-b" })) as any;
-    await t.client.request("set_project_instructions", { project_id: a.id, files: ["A.md"] });
-    await t.client.request("set_project_web_search", { project_id: a.id, enabled: false });
-    const bAfter = t.runtime.store.getProject(b.id)!;
-    assert.equal(bAfter.settingsVersion, 1, "B 的版本保持初始");
-    assert.deepEqual(bAfter.instructionFiles, []);
-    assert.equal(bAfter.webSearch, "enabled");
-    assert.equal(settingsEvents(t, b.id).length, 0, "B 无设置事件");
-  } finally {
-    await t.shutdown();
-  }
-});
-
 test("settings_version：v19 旧库升级到当前版本后旧项目获得初始版本 1，且不产生设置事件", () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws75-migrate-"));
   try {

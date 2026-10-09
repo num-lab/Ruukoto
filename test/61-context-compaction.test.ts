@@ -33,6 +33,7 @@ import { contextBarLines } from "../src/tui/app.ts";
 import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
 import { MockModelServer, type MockResponse, type RecordedRequest } from "./helpers/mock-provider.ts";
 import {
+  afterTool,
   cleanupDirs,
   connectAuthedClient,
   createProjectSession,
@@ -140,7 +141,7 @@ test("选择器：越过 H' 后第一层清理旧的大工具结果，skill/todo
   assert.ok(textOf(view.find((m: any) => m.toolCallId === "c6")).startsWith("输出6"));
 });
 
-test("选择器：清理后仍高于低水位时推进 S，摘要块位于参考块之后、历史之前", () => {
+test("选择器：推进 S 后摘要块位置正确，同一压缩点的视图稳定且追加消息保持前缀", () => {
   // 纯文本交互无可清理结果：只能靠摘要
   const messages: any[] = [];
   for (let n = 0; n < 12; n++) messages.push(user(big(1_800, `问题${n}`)), reply(big(1_800, `回答${n}`)));
@@ -153,11 +154,15 @@ test("选择器：清理后仍高于低水位时推进 S，摘要块位于参考
   const plan = planCompaction(withRefs(null), before);
   assert.ok(plan && plan.summarizedCount > 0 && plan.summarizedCount <= plan.clearedCount);
   assert.equal(messages[plan.summarizedCount].role, "user", "S 落在完整交互开头");
-  const view = selectContext(withRefs(checkpointFrom(plan, "SUMMARY-TEXT"))).messages;
+  const cp = checkpointFrom(plan, "SUMMARY-TEXT");
+  const view = selectContext(withRefs(cp)).messages;
+  assert.deepEqual(selectContext(withRefs(cp)).messages, view);
   assert.ok(textOf(view[0]).startsWith("[项目指令]"));
   assert.equal(textOf(view[1]), `[压缩摘要 · 较早的 ${plan.summarizedCount} 条消息 · 至 2026-09-26T00:00:00.000Z]\nSUMMARY-TEXT\n[/压缩摘要]`);
   assert.equal(textOf(view[2]), textOf(messages[plan.summarizedCount]), "摘要块之后接 [S, n) 的历史");
   assert.equal(textOf(view.at(-1)), "当前任务");
+  messages.push(call("next"), result("next", "小结果"));
+  assert.deepEqual(selectContext(withRefs(cp)).messages.slice(0, view.length), view);
 });
 
 test("选择器：S 伸进当前任务时，任务输入原样排在摘要块之后，继续来源仍在它之前", () => {
@@ -172,18 +177,6 @@ test("选择器：S 伸进当前任务时，任务输入原样排在摘要块之
   assert.equal(textOf(view[2]), "长任务", "任务输入原文紧接在摘要块（与任务级块）之后");
   assert.deepEqual(view[3], messages[7]);
   assert.equal(checkToolPairing(view), null);
-});
-
-test("选择器：同一压缩点加同一组消息得到同一视图；追加消息时前一次视图是后一次的前缀", () => {
-  const messages = [...turn(1), ...turn(2), ...turn(3), ...turn(4), ...turn(5), ...turn(6), user("当前")];
-  const before = selectContext(input(messages));
-  const plan = planCompaction(input(messages), before)!;
-  const cp = checkpointFrom(plan, plan.summarizedCount > 0 ? "S" : null);
-  const a = selectContext(input(messages, cp)).messages;
-  assert.deepEqual(selectContext(input(messages, cp)).messages, a);
-  const grown = [...messages, call("n1"), result("n1", "小结果")];
-  const b = selectContext(input(grown, cp)).messages;
-  assert.deepEqual(b.slice(0, a.length), a);
 });
 
 test("选择器：连续 100 次调用、每次新增约 0.05 H'，压缩不超过 10 次，两次压缩之间逐次为前缀", () => {
@@ -201,7 +194,9 @@ test("选择器：连续 100 次调用、每次新增约 0.05 H'，压缩不超�
       cp = { id: `cp_${compactions}`, summarizedCount: plan.summarizedCount, clearedCount: plan.clearedCount, summary, summaryUntil: "t", clearedRefs: {} };
     }
     const view: any[] = selectContext(input(messages, cp)).messages;
-    assert.ok(selectContext(input(messages, cp)).unboundedTotal <= H, `第 ${callNo} 次调用压缩后不超过 H'`);
+    const replay = selectContext(input(messages, cp));
+    assert.deepEqual(replay.messages, view, `第 ${callNo} 次调用的相同输入得到相同视图`);
+    assert.ok(replay.unboundedTotal <= H, `第 ${callNo} 次调用压缩后不超过 H'`);
     if (prev && !compacted) assert.deepEqual(view.slice(0, prev.length), prev, `第 ${callNo} 次调用保持前缀`);
     prev = view;
     // 每次调用新增一个批次，约 0.05 H'
@@ -524,7 +519,6 @@ const bigTool = defineTool({
 
 const isSummaryReq = (req: RecordedRequestLike & { system?: string | null }): boolean =>
   typeof req.system === "string" && req.system.includes("context summarization assistant");
-const afterTool = (req: RecordedRequestLike): boolean => req.messages.at(-1)?.role === "tool";
 
 type Routes = Parameters<typeof routeResponder>[0];
 function responder(onSummary: (req: RecordedRequest) => MockResponse | Promise<MockResponse>, routes: Routes) {

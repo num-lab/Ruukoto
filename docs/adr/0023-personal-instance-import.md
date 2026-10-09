@@ -24,4 +24,4 @@
 - ADR 0022：同一原则——源只读、目标离线、保留原 ID 与来源身份、fail-closed 的跨实例来源——在两个方向保持一致；0022 的"明确不做"中"为个人侧迁移预先抽象"由本记录收尾：复用其导出辅助，各自保留方向模块，不建通用引擎。
 - ADR 0003 的技术权限边界：凭据复制限平台交接必需的最小集合（平台绑定 + webhook），其余服务凭据不复制、缺绑定即停用；长期授权不在导入侧放宽，全部交给使用侧既有核实。
 
-实施与验证记录见工单 `.scratch/agent-direction/issues/22-migrate-personal-instance.md`；运行步骤见 [运行文档](../runtime.md)「数据布局 / 旧实例个人资料迁入」。
+实施与验证记录见工单 `.agents/scratch/agent-direction/issues/22-migrate-personal-instance.md`；运行步骤见 [运行文档](../runtime.md)「数据布局 / 旧实例个人资料迁入」。

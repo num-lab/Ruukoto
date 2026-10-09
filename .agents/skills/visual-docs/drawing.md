@@ -86,4 +86,4 @@
 
 ## 改完
 
-运行 `.skills/visual-docs/shoot.sh docs/visual/<页面>.html`，逐张看切片。坐标是估算出来的，以渲染结果为准。
+运行 `.agents/skills/visual-docs/shoot.sh docs/visual/<页面>.html`，逐张看切片。坐标是估算出来的，以渲染结果为准。

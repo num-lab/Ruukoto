@@ -22,7 +22,7 @@
  *    改动保存递增并发事件。
  *
  * 本文件只做离线进程级断言（模型打桩，进程/文件/socket/SQLite 真实）；真实环境
- * 验证记录见 .scratch/agent-direction/smoke-06-workspace-settings.mts 与工单 Comments。
+ * 验证记录见 .agents/scratch/agent-direction/smoke-06-workspace-settings.mts 与工单 Comments。
  */
 
 import { test } from "node:test";

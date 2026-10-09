@@ -24,7 +24,7 @@ ADR 0017 确认并行编码使用独立 Git worktree、非 Git 目录写任务�
 
 ## 与既有决策的关系
 
-2026-10-08 的[工单 26](../../.scratch/agent-direction/issues/26-native-sandbox.md) 要求将 Coding Agent 的所有受限调用统一替换为原生边界，包括本决策的 worktree 创建、子任务只读共享 Git 目录与改动汇总。两平台第一阶段尚未通过，当前实现仍使用上述容器路径；“宿主永不执行不可信仓库中的 Git 命令”、目录身份复核、成果保留与无法核实停止时保留占用的要求继续有效。原生接入时必须重新核实宿主 UID 与 dev/ino，不能延用 Docker Desktop 的 VM 权限和 inode 例外。
+2026-10-08 的[工单 26](../../.agents/scratch/agent-direction/issues/26-native-sandbox.md) 要求将 Coding Agent 的所有受限调用统一替换为原生边界，包括本决策的 worktree 创建、子任务只读共享 Git 目录与改动汇总。两平台第一阶段尚未通过，当前实现仍使用上述容器路径；“宿主永不执行不可信仓库中的 Git 命令”、目录身份复核、成果保留与无法核实停止时保留占用的要求继续有效。原生接入时必须重新核实宿主 UID 与 dev/ino，不能延用 Docker Desktop 的 VM 权限和 inode 例外。
 
 - ADR 0017：落实「并行编码用独立 worktree、非 Git 串行、占用按此调整」；改动汇总、提交与冲突处理由 issue 17 实施（同样需在容器内执行 git）。
 - ADR 0020：第 5 条「首版只读」由本决定扩展为 analyze/modify 两种模式；登记事务、幂等与查看口径不变，只加可选字段（协议版本不变）。
@@ -33,7 +33,7 @@ ADR 0017 确认并行编码使用独立 Git worktree、非 Git 目录写任务�
 
 ## 冒烟记录（issue 17 改动汇总，2026-10-05；模型为模拟、真实容器边界）
 
-`.scratch/agent-direction/smoke-issue17.mts`：macOS 本机 Docker Desktop
+`.agents/scratch/agent-direction/smoke-issue17.mts`：macOS 本机 Docker Desktop
 7/7；Linux 远端（tx，Ubuntu 24.04 原生 docker，uid/gid 1003，
 `RUUKOTO_CONTAINER_UID/GID=1003`）同日 7/7——宿主容器创建 worktree 副本、
 子任务容器真实 edit/write（父工作区字节不变）、汇总容器

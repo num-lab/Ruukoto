@@ -49,7 +49,7 @@ description: 同步 docs/visual/ 图解页。改动 src/ 或 deploy/ 之后、�
 ### 5. 检查
 
 - 跑 `npx tsx --test test/67-visual-docs.test.ts`，必须全绿。它核对四件事：源码锚点存在；覆盖清单里的取值出现在页面的 `<code>` 里；站内链接与锚点有效；index.html 链到每一页。失败行以「页面：问题」开头，逐行修页面；测试本身保持原样。
-- 改过图、表格或时序图时，运行 `.skills/visual-docs/shoot.sh docs/visual/<页面>.html`，再用读图工具把输出的切片逐张看一遍（脚本会自动展开 `<details>`）。要找的问题：文字重叠或超出框、箭头指错或穿过节点、表格被截断、图太挤或太空。改完再渲染一次确认。
+- 改过图、表格或时序图时，运行 `.agents/skills/visual-docs/shoot.sh docs/visual/<页面>.html`，再用读图工具把输出的切片逐张看一遍（脚本会自动展开 `<details>`）。要找的问题：文字重叠或超出框、箭头指错或穿过节点、表格被截断、图太挤或太空。改完再渲染一次确认。
 - 环境里没有 Chrome、Pillow 或读图工具时，跳过渲染，在汇报里写明。
 
 完成标准：测试全绿；每张改过的图都看过切片，没有上述问题。

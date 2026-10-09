@@ -25,7 +25,7 @@ sudo -u ruukoto-exec -H git config --global --add safe.directory '*'
 
 # 2. 代码与依赖（/opt/ruukoto，属主 root，后台与执行账户只读）
 sudo rsync -a --delete \
-  --exclude node_modules --exclude .git --exclude .scratch --exclude .DS_Store \
+  --exclude node_modules --exclude .git --exclude .agents/scratch --exclude .DS_Store \
   ./ /opt/ruukoto/
 sudo -u root sh -c 'cd /opt/ruukoto && npm ci --omit=dev'
 # 宿主工作进程打包产物（完全访问包装脚本的固定入口 /opt/ruukoto/worker/worker.mjs；
@@ -172,7 +172,7 @@ env_keep 传递）、容器边界冒烟 9/9（容器 uid 经 RUUKOTO_CONTAINER_U
 拥有者 uid 1003）、linux:probes 32/32、真实模型 confirm 任务端到端通过
 （deepseek，容器内写文件产物落宿主工作区）。发现并修复：exec-stop 包装脚本
 退出码与启动器约定相反（`exec systemctl is-active` → 反转为
-`! is-active --quiet`）；目标机记录见 `.scratch/personal-agent/issues/09-tx-deploy.md`
+`! is-active --quiet`）；目标机记录见 `.agents/scratch/personal-agent/issues/09-tx-deploy.md`
 与 `docs/runtime.md` 验证状态表。
 
 2026-09-26（issue 23）：修复容器后端下完全访问总是 `execution_unavailable`，

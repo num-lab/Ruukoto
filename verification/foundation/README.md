@@ -1,9 +1,9 @@
 # 阶段 0 基础验证（issue 01）
 
 验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API 是否满足
-`.scratch/personal-agent/spec.md` 已确认的行为要求，以及 Linux 受限执行方案的
+`.agents/scratch/personal-agent/spec.md` 已确认的行为要求，以及 Linux 受限执行方案的
 边界。本目录是**验证脚手架**，不是应用框架；结论沉淀在
-`.scratch/personal-agent/foundation-findings.md`。
+`.agents/scratch/personal-agent/foundation-findings.md`。
 
 模型服务复用仓库内的 `test/helpers/mock-provider.ts`，从本仓库运行这些验证。
 

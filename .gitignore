@@ -4,3 +4,4 @@ node_modules/
 # 本地运行时数据目录（默认 ~/.ruukoto，测试使用系统临时目录）
 .ruukoto-data/
 undefined/
+.agents/scratch

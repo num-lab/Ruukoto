@@ -6,7 +6,7 @@
 `npm run code` 启动隔离的 `ruukoto-code` 后台并打开 TUI；两者分别使用
 `~/.ruukoto-dev/` 与 `~/.ruukoto-code-dev/` 下的仓库档案，与日常实例分开。
 开发实例退出界面后停止后台；下文的 TUI 退出后继续执行指日常产品入口。
-产品定位与保留普通开发会话的决定见 [ADR 0017](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
+产品定位与保留普通开发会话的决定见[两个 Agent 产品](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 首期验收顺序固定为：本地仓库修改与测试 → IM 服务器管理 → 长任务期间持续响应、
 协作、复用与显式关闭。下面汇总工单 01–23 已有证据；本次联合演练、检查结果和

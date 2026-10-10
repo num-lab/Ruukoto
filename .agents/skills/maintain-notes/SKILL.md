@@ -81,7 +81,7 @@ Status: <状态>
 
 备选方案必填：只写真实考虑过的方案，先写它最强的理由再否定。
 
-从 `docs/adr/` 迁移来的笔记有两处例外：头块后写一行「原编号：ADR 00xx」；文件名日期早于 2026-10-10 且找不到当时的备选方案时，用 grandfather 注释代替 `## 备选方案`。写法见 [note-format](references/note-format.md)。模板在 `templates/`。
+从迁移前的 ADR 转来的笔记有两处例外：头块后写一行「原编号：ADR NNNN」；文件名日期早于 2026-10-10 且找不到当时的备选方案时，用 grandfather 注释代替 `## 备选方案`。写法见 [note-format](references/note-format.md)。模板在 `templates/`。
 
 ## 4. 动手前检索
 
@@ -89,7 +89,7 @@ Status: <状态>
 
 1. **代码锚点**：入口注释里的 `Note: 见 .agents/notes/...`，顺着读。
 2. **分类树切片**：架构看 `implemented/architecture/`，避坑看 `rejected/`。
-3. **全局检索**：`rg --hidden --glob '!.agents/notes/archived/**' "<机制名或关键词>" .agents/notes/`；旧 ADR 编号用 `rg "ADR 0017" .agents/notes`。
+3. **全局检索**：`rg --hidden --glob '!.agents/notes/archived/**' "<机制名或关键词>" .agents/notes/`；迁移前的旧编号用 `rg "原编号：ADR" .agents/notes/`。
 4. **模块文档下钻**：`docs/modules/*.md` 的「设计依据」链接到对应笔记。
 
 这四法能答的事实自己查；只有取舍和拍板才问用户。

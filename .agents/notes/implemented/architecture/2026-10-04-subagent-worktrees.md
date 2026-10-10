@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[ADR 0017](2026-10-02-two-agent-products.md) 确认并行编码使用独立 Git worktree、非 Git 目录写任务串行，且目录占用机制需按此调整。实施前 SubAgent 只有只读分析（[ADR 0020](2026-10-03-work-delegation-subagent-task.md)）：没有修改模式与写工具，宿主不能创建 worktree，执行目录与占用键固定为会话 cwd，目录占用只比对同一目录（`/ws` 与 `/ws/sub` 互不阻塞）。
+[两个产品](2026-10-02-two-agent-products.md) 确认并行编码使用独立 Git worktree、非 Git 目录写任务串行，且目录占用机制需按此调整。实施前 SubAgent 只有只读分析（[工作委托与 SubAgent](2026-10-03-work-delegation-subagent-task.md)）：没有修改模式与写工具，宿主不能创建 worktree，执行目录与占用键固定为会话 cwd，目录占用只比对同一目录（`/ws` 与 `/ws/sub` 互不阻塞）。
 
 ## 决定
 
@@ -19,10 +19,10 @@ Status: implemented
 
 2026-10-08 的[工单 26](../../../../.scratch/agent-direction/issues/26-native-sandbox.md) 要求将 Coding Agent 的所有受限调用统一替换为原生边界，包括本决策的 worktree 创建、子任务只读共享 Git 目录与改动汇总。两平台第一阶段尚未通过，当前实现仍使用上述容器路径；“宿主永不执行不可信仓库中的 Git 命令”、目录身份复核、成果保留与无法核实停止时保留占用的要求继续有效。原生接入时必须重新核实宿主 UID 与 dev/ino，不能延用 Docker Desktop 的 VM 权限和 inode 例外。
 
-- [ADR 0017](2026-10-02-two-agent-products.md)：落实「并行编码用独立 worktree、非 Git 串行、占用按此调整」；[改动汇总与冲突处理](../feature/2026-10-05-integrate-worktree-results.md)同样在容器内执行 git，提交仍由主 Agent 自行决定。
-- [ADR 0020](2026-10-03-work-delegation-subagent-task.md)：首版只读限制由本决定扩展为 analyze/modify 两种模式；登记事务、幂等与查看口径不变，只加可选字段（协议版本不变）。
-- [ADR 0003](../feature/2026-09-19-explicit-access-modes.md)：SubAgent 任务仍一律 confirm，写入目标是容器边界内的收窄而非授权扩大；不继承长期授权。
-- [ADR 0004](2026-09-20-tool-worker-per-task-container.md)：容器边界是唯一的写入约束；宿主新增能力（容器内创建 worktree）不引入执行账户的新权限。
+- [两个产品](2026-10-02-two-agent-products.md)：落实「并行编码用独立 worktree、非 Git 串行、占用按此调整」；[改动汇总与冲突处理](../feature/2026-10-05-integrate-worktree-results.md)同样在容器内执行 git，提交仍由主 Agent 自行决定。
+- [工作委托与 SubAgent](2026-10-03-work-delegation-subagent-task.md)：首版只读限制由本决定扩展为 analyze/modify 两种模式；登记事务、幂等与查看口径不变，只加可选字段（协议版本不变）。
+- [显式访问模式](../feature/2026-09-19-explicit-access-modes.md)：SubAgent 任务仍一律 confirm，写入目标是容器边界内的收窄而非授权扩大；不继承长期授权。
+- [工具工作进程](2026-09-20-tool-worker-per-task-container.md)：容器边界是唯一的写入约束；宿主新增能力（容器内创建 worktree）不引入执行账户的新权限。
 
 ## 备选方案
 

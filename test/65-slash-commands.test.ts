@@ -80,9 +80,9 @@ test("命令表：名字唯一；补全与帮助只列可见条目；已删除�
   assert.match(f.log.notes[0]!, /未知命令：\/github/);
 });
 
-test("README 命令表：第一列列出的 /名字 与可见条目正好一致", () => {
-  const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  const table = readme.slice(readme.indexOf("**命令**"), readme.indexOf("**断开与重连**"));
+test("操作手册命令表：第一列列出的 /名字 与可见条目正好一致", () => {
+  const usage = fs.readFileSync(new URL("../docs/usage.md", import.meta.url), "utf8");
+  const table = usage.slice(usage.indexOf("### 7.2 命令"), usage.indexOf("### 7.3 断开与重连"));
   const names = table
     .split("\n")
     .filter((l) => l.startsWith("| `/"))

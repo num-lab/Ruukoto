@@ -18,6 +18,9 @@ function fixture() {
   fs.mkdirSync(path.join(root, ".githooks"));
   fs.copyFileSync(new URL("../.githooks/pre-commit", import.meta.url), path.join(root, ".githooks", "pre-commit"));
   fs.chmodSync(path.join(root, ".githooks", "pre-commit"), 0o755);
+  // 钩子调用的脚本随钩子一起复制；真实检出里两者同属一个提交。
+  fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+  fs.copyFileSync(new URL("../scripts/check-staged-eol.mjs", import.meta.url), path.join(root, "scripts", "check-staged-eol.mjs"));
   for (const file of ["package.json", "package-lock.json", "verification/foundation/package.json", "verification/foundation/package-lock.json"]) {
     fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     fs.writeFileSync(path.join(root, file), file === "package.json" ? '{"scripts":{"check:static":"fixture"}}\n' : "{}\n");
@@ -59,7 +62,10 @@ test("pre-commit 安装幂等，保留其它钩子；从子目录执行仍在仓
     fs.mkdirSync(bin);
     fs.writeFileSync(path.join(bin, "npm"), '#!/bin/sh\nprintf "%s\\n" "$PWD" "$@"\n', { mode: 0o755 });
     const result = execFileSync(hook, [], { cwd: path.join(f.root, "verification"), env: { ...f.env, PATH: `${bin}${path.delimiter}${f.env.PATH}` }, encoding: "utf8" });
-    assert.deepEqual(result.trim().split("\n"), [f.root, "run", "check:static"]);
+    // 钩子先跑行尾检查，再调用 check:static；两者都从仓库根执行。
+    const lines = result.trim().split("\n");
+    assert.deepEqual(lines.slice(-3), [f.root, "run", "check:static"]);
+    assert.match(result, /check-staged-eol/, "钩子在 check:static 之前跑暂存行尾检查");
   } finally {
     f.cleanup();
   }
@@ -117,7 +123,7 @@ test("公共钩子可由 linked worktree 安装；主检出切换旧提交和删
     f.git(["switch", "--detach", older]);
     assert.equal(fs.existsSync(source), false, "真实分支切换已删除主检出的源码钩子");
     const current = execFileSync(hook, [], { cwd: linked, env, encoding: "utf8" });
-    assert.deepEqual(current.trim().split("\n"), [linked, "run", "check:static"], "linked 运行自己的钩子，不依赖主检出源码");
+    assert.deepEqual(current.trim().split("\n").slice(-3), [linked, "run", "check:static"], "linked 运行自己的钩子，不依赖主检出源码");
     const old = spawnSync(hook, [], { cwd: f.root, env, encoding: "utf8" });
     assert.equal(old.status, 0, old.stderr);
     assert.match(old.stderr, /尚无提交钩子，跳过提交检查/);
@@ -141,7 +147,7 @@ test("公共钩子可由 linked worktree 安装；主检出切换旧提交和删
     f.git(["worktree", "remove", "--force", linked]);
     f.git(["switch", "--detach", newer]);
     const result = execFileSync(hook, [], { cwd: f.root, env, encoding: "utf8" });
-    assert.deepEqual(result.trim().split("\n"), [f.root, "run", "check:static"], "删除 linked 后主检出仍正常检查");
+    assert.deepEqual(result.trim().split("\n").slice(-3), [f.root, "run", "check:static"], "删除 linked 后主检出仍正常检查");
   } finally {
     fs.rmSync(linked, { recursive: true, force: true });
     f.cleanup();

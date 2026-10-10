@@ -44,9 +44,11 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 
 遇到失败时保留用例名、断言和环境信息，区分实现回归与环境前提。独立复现失败用例，然后修复原因；默认检查和 CI 不自动重试失败。现有历史耗时与结果见[发布验收](release-acceptance.md)的历史验证清单，不作为当前代码通过的证据。
 
+代码里的待办标记按紧急度分三种，便于检索时排序：`FIXME` 是发布阻断项，`TODO` 是应尽快处理项，`XXX` 是将来再说的项。三者都写明要做什么，不只留一个标记。
+
 ## 提交与 CI
 
-pre-commit 仅运行 `npm run check:static`；完整离线检查由 `check` 与 CI 执行。安装时检查已有 `core.hooksPath` 和 pre-commit 配置，遇到冲突会在安装依赖前停止，保留原钩子。若沿用自定义钩子，先将 `npm run check:static` 接入原配置，再运行`npm run setup -- --skip-hooks` 安装依赖；若使用仓库钩子，先备份并移走原配置，再运行默认 `setup`。已有钩子的来源可用 `git config --show-origin --get core.hooksPath` 核对。已有 `core.hooksPath` 指向当前仓库的 `.githooks/` 时，`setup` 检查入口可执行后直接复用。
+pre-commit 依次执行暂存内容的行尾检查与 `npm run check:static`：`git diff --cached --check` 拦行尾空白与文件末尾空行，`scripts/check-staged-eol.mjs` 拦末尾缺换行或多出空行。完整离线检查由 `check` 与 CI 执行。安装时检查已有 `core.hooksPath` 和 pre-commit 配置，遇到冲突会在安装依赖前停止，保留原钩子。若沿用自定义钩子，先将 `npm run check:static` 接入原配置，再运行`npm run setup -- --skip-hooks` 安装依赖；若使用仓库钩子，先备份并移走原配置，再运行默认 `setup`。已有钩子的来源可用 `git config --show-origin --get core.hooksPath` 核对。已有 `core.hooksPath` 指向当前仓库的 `.githooks/` 时，`setup` 检查入口可执行后直接复用。
 
 未配置 `core.hooksPath` 时，Git worktree 共用钩子目录，`setup` 在其中安装固定转发脚本，每次提交执行当前检出的`.githooks/pre-commit`。主检出与 linked worktree 均可安装并复用转发脚本，切换分支或删除其他 worktree 不改变本检出的检查入口。旧检出没有仓库钩子或 `check:static` 时明确提示跳过；这种兼容不代表旧分支已验证，需要按该版本的开发说明单独检查。
 

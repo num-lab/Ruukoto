@@ -91,6 +91,7 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 - [docs/modules/](docs/modules/)：各模块的设计文档
 - [docs/development.md](docs/development.md)：可复现环境、开发检查、开发实例与测试导航
 - [docs/release-acceptance.md](docs/release-acceptance.md)：首期发布与验收证据
+- [docs/postmortem/](docs/postmortem/)：事故复盘——失败机制与据此加的护栏
 - [CONTEXT.md](CONTEXT.md)：领域术语
 - [.agents/notes/](.agents/notes/)：架构决策记录
 - [docs/visual/index.html](docs/visual/index.html)：状态机、调用路径、协议、存储与部署图解（2026-10-09 快照，已停止维护）

@@ -10,10 +10,13 @@
 
 ## 目录导航
 
-- `src/runtime/` 编排任务与产品行为，`src/core/` 管理存储、身份与权限。
+- `src/runtime/` 编排任务与产品行为。
+- `src/core/` 管理存储、身份与权限。
 - `src/agent/` 管理模型、上下文与工具，`src/agent/tool-worker/` 是执行边界内的工作进程。
-- `src/control/` 提供控制面；`src/tui/`、`src/config-tui/` 和平台适配目录提供用户入口。
-- `test/` 是应用测试，`verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
+- `src/control/` 提供控制面。
+- `src/tui/`、`src/config-tui/` 和平台适配目录提供用户入口。
+- `test/` 是应用测试。
+- `verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
 - `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
 - `docs/` 为**面向人类**的文档，包括各模块的设计文档
 - `.agents/notes/` 为**面向 Agent** 的文档，记录项目开发过程中的决策
@@ -31,6 +34,10 @@
 ### 决策记录
 
 决策记在 `.agents/notes/`。做非平凡改动（行为、架构、跨文件契约、流程与工具链、测试策略、落盘/协议/配置格式）、在方案间取舍或取代旧决定时，按 `.agents/skills/maintain-notes/SKILL.md` 操作；它优先于全局的 write-notes-like-deepseek。
+
+### 人类文档
+
+`docs/` 面向人类，只写现在怎么运作。改了某模块的可观察行为，同步 `docs/modules/` 里对应的那篇；新增模块时，更新 `docs/architecture.md` 的模块地图。写法按 `.agents/skills/writing-docs-for-human/SKILL.md`。
 
 ### Domain docs
 

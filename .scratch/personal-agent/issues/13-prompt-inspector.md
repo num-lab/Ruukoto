@@ -13,7 +13,7 @@ Depends on: 04, 05
 
 - [TUI](../../../src/tui/app.ts) 已有 `/context`，只查询最近一次上下文选择记录并展示预算、选入消息数量和排除原因；已有选择列表、悬浮层与长正文查看能力可复用。
 - [SelectionRecord](../../../src/core/types.ts) 保存任务、会话、调用序号、模型、消息索引和预算等元数据，没有完整的 system prompt、消息正文与工具定义，无法仅凭现有记录准确还原某次请求的完整输入。
-- [Driver](../../../src/agent/driver.ts) 在委托 SDK 发送函数前校验 `systemPrompt/messages/tools` 并保存选择记录，可以在这一调用边界关联请求输入快照。会话历史与模型上下文分别管理，沿用 [ADR 0001](../../../docs/adr/0001-preserve-session-history.md)。
+- [Driver](../../../src/agent/driver.ts) 在委托 SDK 发送函数前校验 `systemPrompt/messages/tools` 并保存选择记录，可以在这一调用边界关联请求输入快照。会话历史与模型上下文分别管理，沿用 [ADR 0001](../../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)。
 
 ## 实施范围
 

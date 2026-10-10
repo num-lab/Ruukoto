@@ -9,7 +9,7 @@ Depends on: 05
 
 ## 已确认决策
 
-遵循 [ADR 0007](../../../docs/adr/0007-retire-github-module.md)：GitHub 资料经通用 MCP 读取，报告使用普通 Artifact 与 Task result；不恢复专用 REST 采集、草稿版本或发布状态机。宿主直接创建父子任务，不通过仅供 owner 来源任务调用的 `coding_delegate`。事件适配及自动通知边界见 [ADR 0013](../../../docs/adr/0013-github-event-review.md)。
+遵循 [ADR 0007](../../../.agents/notes/implemented/simplification/2026-09-23-retire-github-module.md)：GitHub 资料经通用 MCP 读取，报告使用普通 Artifact 与 Task result；不恢复专用 REST 采集、草稿版本或发布状态机。宿主直接创建父子任务，不通过仅供 owner 来源任务调用的 `coding_delegate`。事件适配及自动通知边界见 [ADR 0013](../../../.agents/notes/implemented/feature/2026-09-24-github-event-review.md)。
 
 2026-09-24 拥有者确认上述两项决策，并授权正式实施。本轮包含 webhook；原“后续再实现 webhook”顺序不再适用。
 

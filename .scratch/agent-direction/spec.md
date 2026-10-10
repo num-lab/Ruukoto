@@ -2,7 +2,7 @@
 
 状态：产品方向访谈完成，Q1—Q19 均已由拥有者确认。本文是后续实施的产品依据；代码迁移、平台隔离选型与部署验收尚待实施。
 
-决策日期：2026-10-02。架构取舍见 [ADR 0017](../../docs/adr/0017-two-agent-products.md)，术语见 [CONTEXT.md](../../CONTEXT.md)。
+决策日期：2026-10-02。架构取舍见 [ADR 0017](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)，术语见 [CONTEXT.md](../../CONTEXT.md)。
 
 ## 两个产品及运行边界
 

@@ -9,7 +9,7 @@ Depends on: 03, 12
 
 ## 背景
 
-[12：session 模式选择](12-session-mode-command.md) 已记录将 `auto-review` 延后实现，现有模式为 `confirm` 与 `full_access`。[ADR 0003](../../../docs/adr/0003-enforce-explicit-access-modes.md) 将自动审批列为后续能力，本工单跟踪该能力的定义与实现。
+[12：session 模式选择](12-session-mode-command.md) 已记录将 `auto-review` 延后实现，现有模式为 `confirm` 与 `full_access`。[ADR 0003](../../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md) 将自动审批列为后续能力，本工单跟踪该能力的定义与实现。
 
 ## 已确认的审批语义
 

@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** [01 — 两个产品独立安装和启动](01-independent-products.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 

@@ -70,7 +70,7 @@ Depends on: 04, 10, 11
 - 同一终端只有当前前端读取 stdin 和控制 raw mode/屏幕。后台日志另写开发日志文件，监听器诊断不覆盖界面。已安装的 `tsx watch` 会读取 stdin、清屏并在超时后强杀，不能未经协调直接包在交互 TUI 外层。
 - 任务 TUI 重载至少恢复数据实例、当前 Session、未提交草稿和对应的“继续任务”意图；历史与任务状态从后台读取。重载不自动提交草稿或重复创建 Session。只在当前 dev 启动中使用恢复记录，新的一次独立命令遵循正常入口规则。
 - 复用 `PendingRequestStore` 的原子落盘与实例核对方式，但界面状态单独保存，不能伪装成待提交任务。普通草稿写受保护文件；API key 等秘密表单值不落入重载文件，重载后重新输入。恢复记录无效时给出提示，不把继续任务草稿静默改为新任务提交。
-- 退出、重载失败和可处理异常都恢复终端，清理本次拥有的子进程；不能只停止外层 watcher 而留下占锁后台。普通 TUI 的退出语义仍符合 [ADR 0002](../../../docs/adr/0002-detach-terminal-from-task-runtime.md)。
+- 退出、重载失败和可处理异常都恢复终端，清理本次拥有的子进程；不能只停止外层 watcher 而留下占锁后台。普通 TUI 的退出语义仍符合 [ADR 0002](../../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)。
 
 ## 实施顺序
 

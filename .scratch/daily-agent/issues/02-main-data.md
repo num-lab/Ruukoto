@@ -38,7 +38,7 @@ Depends on: 01
 - 应用库只包含宿主维护的元数据、schema 目录、追加审计记录及 main 声明的业务表。区分存储格式版本、main 管理的 `schema_version` 和每次变更递增的 `revision`。存储格式过新或迁移失败时明确停止应用数据能力，不重建或清空旧库。
 - 在 `ToolCategory` 中新增 `app_data`，仅 main 的角色定义包含它。`Orchestrator.ensureRoles()` 当前会跳过已有角色行，需补充幂等升级：只为既有 main 更新工具清单，保留其 Project、Session、工作目录和模型绑定。
 - `Driver` 在装配、发送前检查和调用门中纳入六个应用数据工具。普通开发会话即使 `roleAllows()` 默认放行也不得获得这些工具；执行入口每次重新核实宿主任务、会话、项目与 main 角色绑定。模型参数不接受 agent、project、权限模式或文件路径。
-- coding/chat/QQ 会话默认无法调用这些工具；现有资料授权、`grantedPaths` 和完全访问模式不扩大应用数据 API 范围。文件系统隔离仍以 [ADR 0004](../../../docs/adr/0004-tool-worker-per-task-container-exec-account.md) 的容器或独立执行账户为准，local 后端不能作为跨账户隔离的验证依据。
+- coding/chat/QQ 会话默认无法调用这些工具；现有资料授权、`grantedPaths` 和完全访问模式不扩大应用数据 API 范围。文件系统隔离仍以 [ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md) 的容器或独立执行账户为准，local 后端不能作为跨账户隔离的验证依据。
 
 ### 2. 固定六个工具的结构化契约
 
@@ -80,7 +80,7 @@ schema 校验放在存储边界，工具 JSON schema 只承担输入提示，不
 - 创建表、增加可空字段、增加索引、受限插入和带版本的单行更新/删除自动执行。删除表、删除字段、删除唯一索引、多行更新/删除及批量重写必须等待拥有者确认；混合迁移只要包含一项此类操作，整次确认后执行。
 - 新增 `ApprovalScope.kind: app_data_change`，固定应用数据库身份、任务与操作 ID、表和操作类别、schema/revision、规范化参数摘要及受影响数量。行操作固定准确的 ID 和行版本；schema 操作固定旧定义、新定义或明确差异。TUI 展示范围、数量、版本和理由，完整参数继续通过现有分页详情读取。
 - 获批后重新检查 main 身份、任务状态、权限版本和应用数据版本；任何变化都使原请求失效，不能把批准扩大到新出现的行。批准仅消费一次，执行参数取自批准记录的不可变快照。
-- `auto-review` 对此范围直接转拥有者，不调用审查模型。`full_access` 也需要本工单规定的破坏性数据确认。这是相对 [ADR 0003](../../../docs/adr/0003-enforce-explicit-access-modes.md) 通用“无需逐次确认”语义的特定例外，依据是本工单和 [daily-agent 规格第 9 项](../spec.md) 的明确要求；实施时新增 ADR 记录例外并同步说明，不能照搬 MCP 的 full_access 放行分支。
+- `auto-review` 对此范围直接转拥有者，不调用审查模型。`full_access` 也需要本工单规定的破坏性数据确认。这是相对 [ADR 0003](../../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md) 通用“无需逐次确认”语义的特定例外，依据是本工单和 [daily-agent 规格第 9 项](../spec.md) 的明确要求；实施时新增 ADR 记录例外并同步说明，不能照搬 MCP 的 full_access 放行分支。
 - 拒绝、取消、模式切换、批准过期和后台重启均不执行旧请求。确认期间不持有应用库事务或写锁。
 
 ### 5. 让变更、审计与恢复相互对应

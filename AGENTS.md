@@ -14,11 +14,11 @@
 - `src/agent/` 管理模型、上下文与工具，`src/agent/tool-worker/` 是执行边界内的工作进程。
 - `src/control/` 提供控制面；`src/tui/`、`src/config-tui/` 和平台适配目录提供用户入口。
 - `test/` 是应用测试，`verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
-- `deploy/` 是部署材料，`docs/adr/` 说明架构决策；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
+- `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
+- `docs/` 为**面向人类**的文档，包括各模块的设计文档
+- `.agents/notes/` 为**面向 Agent** 的文档，记录项目开发过程中的决策
 
 ## Agent skills
-
-编写计划和执行时都需要使用 `ponytail` skill。
 
 ### Issue tracker
 
@@ -34,4 +34,4 @@
 
 ### Domain docs
 
-采用 single-context：根目录 `CONTEXT.md` 与 `docs/adr/`。探索代码库前，先读 `docs/agents/domain.md`。
+采用 single-context：根目录 `CONTEXT.md` 与 `.agents/notes/`。探索代码库前，先读 `docs/agents/domain.md`。

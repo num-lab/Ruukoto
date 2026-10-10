@@ -5,7 +5,7 @@ Depends on: 02, 03
 
 ## 目标
 
-实现[完整历史与独立上下文](../../../docs/adr/0001-preserve-session-history.md)，使拥有者可以修改选择规则和记忆策略。
+实现[完整历史与独立上下文](../../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)，使拥有者可以修改选择规则和记忆策略。
 
 ## 实施范围
 
@@ -17,7 +17,7 @@ Depends on: 02, 03
 
 ## 实施计划
 
-计划日期：2026-09-20。沿用 [ADR 0001](../../../docs/adr/0001-preserve-session-history.md)、[01 的固定版本验证](../foundation-findings.md)和 [04 已实现的历史读取](04-tui.md)。当前 `src/core/history.ts` 已提供 JSONL 分页/分段读取，03 已保存工具正文产物；应用尚未接入逐轮上下文选择、Agent 历史搜索或长期记忆。下面方案基于本地 pi `0.85.1` 代码，不把基础扩展点验证当作预算与权限行为已经完成。
+计划日期：2026-09-20。沿用 [ADR 0001](../../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)、[01 的固定版本验证](../foundation-findings.md)和 [04 已实现的历史读取](04-tui.md)。当前 `src/core/history.ts` 已提供 JSONL 分页/分段读取，03 已保存工具正文产物；应用尚未接入逐轮上下文选择、Agent 历史搜索或长期记忆。下面方案基于本地 pi `0.85.1` 代码，不把基础扩展点验证当作预算与权限行为已经完成。
 
 ### 1. 统一历史、产物与记忆的数据访问范围
 

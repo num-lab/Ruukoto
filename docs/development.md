@@ -157,7 +157,7 @@ Linux 首次新安装因本轮旧检出的重复依赖占满空间而出现 `ENO
 
 全库格式统一、旧特权脚本的隔离改造、有证据支持的结构重构分别另做批次。每批以
 当前反馈入口验证，保持产品命令、配置、持久化资料和权限行为兼容。架构原因以
-[CONTEXT.md](../CONTEXT.md) 与 [ADR](adr/) 为准，本地任务继续按
+[CONTEXT.md](../CONTEXT.md) 与 [ADR](../.agents/notes/) 为准，本地任务继续按
 [issue tracker](agents/issue-tracker.md) 管理。
 
 改造前的 `npm audit` 记录有 4 项既有依赖问题（1 项 moderate、3 项 high），本轮保留

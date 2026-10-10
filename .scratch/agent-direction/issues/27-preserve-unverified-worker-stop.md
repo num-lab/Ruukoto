@@ -6,7 +6,7 @@ Status: needs-triage
 
 **Blocked by:** 无。工单 26 第一阶段代码核查发现；下面是当前代码的确定分支，尚未用真实停止失败的 OS 单元复现，不把静态核查作为原生边界证据。
 
-依据：[工单 26](26-native-sandbox.md)、[ADR 0004](../../../docs/adr/0004-tool-worker-per-task-container-exec-account.md)、[ADR 0021](../../../docs/adr/0021-subagent-worktrees.md)。
+依据：[工单 26](26-native-sandbox.md)、[ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[ADR 0021](../../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)。
 
 ## 已核实代码路径
 

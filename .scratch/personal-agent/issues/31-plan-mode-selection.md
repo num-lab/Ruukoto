@@ -27,7 +27,7 @@ Status: resolved
 - `/continue` 创建新任务，使用提交时的会话默认权限，但现有计划限制会沿原任务链继承。任务级 `switch_mode` 可以调整权限，却不会重算任务开始时钉定的计划工具集。
 - [TUI](../../../src/tui/app.ts) 切换会话时，会将源会话的模式及模型同步到目标会话并保存。本工单将 Plan 纳入这条既有同步路径。
 - 现有计划白名单移除 `edit`、`write`、长期记忆写入、非只读 MCP 及其他未列工具，但保留 `bash`、`request_file_access`、`http_request`、`todo_write` 和技能。`bash` 仍可能写工作区；后两种外部访问工具也接受写文件或 POST 等参数，人工批准后可以执行。因此工具白名单和计划说明不等于技术上的全面只读约束。
-- Plan 中的 Auto review 必须遵循 [ADR 0005](../../../docs/adr/0005-auto-review-mode.md)：符合策略的越界读取可交独立审查，写入、带凭据请求及不能确认的操作仍按策略转人工；审查失败不放宽权限。保持 [ADR 0003](../../../docs/adr/0003-enforce-explicit-access-modes.md) 的权限与拥有者身份边界。
+- Plan 中的 Auto review 必须遵循 [ADR 0005](../../../.agents/notes/implemented/feature/2026-09-22-auto-review-mode.md)：符合策略的越界读取可交独立审查，写入、带凭据请求及不能确认的操作仍按策略转人工；审查失败不放宽权限。保持 [ADR 0003](../../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md) 的权限与拥有者身份边界。
 - [CONTEXT.md](../../../CONTEXT.md) 当前将计划模式定义为一次性 `/plan`，并明确避免将其当作访问模式或安全边界。实现时应更新为常驻模式选择、固定 Auto review 与工具收窄的组合，说明与上述 ADR 的关系。
 
 ## 实施范围

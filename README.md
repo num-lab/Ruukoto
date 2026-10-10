@@ -1,6 +1,6 @@
 # Ruukoto
 
-拥有者自用的 Agent，同一仓库交付两个独立产品（[ADR 0017](docs/adr/0017-two-agent-products.md)）：
+拥有者自用的 Agent，同一仓库交付两个独立产品（[ADR 0017](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
 
 | | `ruukoto-code`（Coding Agent） | `ruukoto`（个人 Agent） |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ ruukoto legacy-import preview | apply | revert | list   # 从旧实例离线导�
 ## 文档
 
 - [CONTEXT.md](CONTEXT.md)：领域术语
-- [docs/adr/](docs/adr/)：架构决策记录
+- [docs/adr/](.agents/notes/)：架构决策记录
 - [docs/runtime.md](docs/runtime.md)：实现细节、完整命令与验证状态
 - [docs/development.md](docs/development.md)：可复现环境、开发检查与测试导航
 - [docs/visual/index.html](docs/visual/index.html)：状态机、调用路径、协议、存储与部署图解（2026-10-09 快照，已停止维护）

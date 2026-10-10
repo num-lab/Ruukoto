@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** [01 — 两个产品独立安装和启动](01-independent-products.md)；[19 — 把现有 GitHub 评审迁移到通用 SubAgent](19-github-subagent-review.md)；[20 — 退出核心群聊并保全旧群资料](20-retire-core-group-chat.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -77,7 +77,7 @@ Status: resolved
 
 ### 2026-10-05：实施完成（schema v29，ADR 0023）
 
-按 2026-10-05 计划实施并交付。当前核心库 v28 → v29（`instance_import_items` 类别 CHECK 扩五类，经重建表迁移）；决策记录新增 [ADR 0023](../../../docs/adr/0023-personal-instance-import.md)，ADR 0017 实施记录已加行，ADR 0022 文末补镜像指向。
+按 2026-10-05 计划实施并交付。当前核心库 v28 → v29（`instance_import_items` 类别 CHECK 扩五类，经重建表迁移）；决策记录新增 [ADR 0023](../../../.agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md)，ADR 0017 实施记录已加行，ADR 0022 文末补镜像指向。
 
 **交付物**：`src/core/db.ts`（v29 与 rebuildImportItemsKindCheck）、`src/core/types.ts`（账本类别扩注）、`src/runtime/legacy-import.ts`（方向无关辅助改导出 + 表登记核对容忍目标缺遗留表；21 行为不变，test/85 全绿）、`src/runtime/personal-import.ts`（个人方向预览/应用/回退全部判断）、`src/cli.ts` + `src/cli-entry.ts`（`legacy-import` 按产品分流，ruukoto 侧启用个人方向）、`test/86-personal-instance-import.test.ts`（5 项子测试）、`.scratch/agent-direction/smoke-22-migrate-personal-instance.mts`（6 场景）、`docs/runtime.md`（旧实例个人资料迁入节）、`CONTEXT.md`（实例导入词条扩两方向）、`docs/visual/`（storage-layout 个人方向小节 + v29 行 + 账本 14 类、deployment 分流、orchestrator 状态句、index 卡片）。另修正工单 19 漏标的表头状态（其正文与 ADR 0017 实施记录均已完成，仅 `Status:` 未随动）。
 

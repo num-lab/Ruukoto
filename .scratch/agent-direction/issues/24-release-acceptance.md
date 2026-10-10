@@ -6,7 +6,7 @@ Status: ready-for-human
 
 **Blocked by:** [02 — 打开 TUI 时启动后台，退出后继续任务](02-coding-daemon.md)；[04 — 在开发机完成受限和完全访问任务](04-desktop-execution.md)；[10 — 保存、使用和撤销限定的长期授权](10-standing-permissions.md)；[13 — 让同项工作的 SubAgent 相互通信](13-subagent-messaging.md)；[15 — 后台重启后恢复 SubAgent 与工作记录](15-recover-subagents.md)；[18 — 把异步工作最终结果送回原 IM 入口](18-im-final-delivery.md)；[23 — 清理固定角色和迁移期兼容写入口](23-contract-legacy-roles.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 

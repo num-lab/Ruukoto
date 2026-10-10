@@ -1,6 +1,6 @@
 # Ruukoto Agent
 
-本项目包括开发工具 ruukoto-code 与通用个人助手 ruukoto，分别服务于开发机器上的编码工作和专用 Linux 服务器上的个人事务。产品、SubAgent、工作区与长期操作授权的核心路径已按 [ADR 0017](docs/adr/0017-two-agent-products.md) 实施；跨端共享记忆仍属于后续方向。标注为旧架构的内容用于迁移参考，实际实现状态与验证边界见 [运行文档](docs/runtime.md)。
+本项目包括开发工具 ruukoto-code 与通用个人助手 ruukoto，分别服务于开发机器上的编码工作和专用 Linux 服务器上的个人事务。产品、SubAgent、工作区与长期操作授权的核心路径已按 [ADR 0017](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md) 实施；跨端共享记忆仍属于后续方向。标注为旧架构的内容用于迁移参考，实际实现状态与验证边界见 [运行文档](docs/runtime.md)。
 
 ## 领域术语
 

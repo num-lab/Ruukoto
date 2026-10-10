@@ -536,7 +536,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     bindCall: deps.bindCall,
   });
 
-  
+
   const subagentIntegrate = defineTool({
     name: "subagent_integrate",
     label: "subagent_integrate",

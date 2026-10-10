@@ -7,4 +7,11 @@ if [ "$has_static" = "no" ]; then
   printf '%s\n' '当前检出尚无 check:static，跳过提交检查；采用开发基线后自动启用。' >&2
   exit 0
 fi
+
+# 暂存内容里的行尾空白与文件末尾空行。
+git diff --cached --check
+
+# 暂存文件必须以且仅以一个换行结尾；git diff --check 不检测这一项。
+node scripts/check-staged-eol.mjs
+
 exec npm run check:static

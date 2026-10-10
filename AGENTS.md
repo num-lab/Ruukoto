@@ -14,7 +14,7 @@
 - `test/` 是应用测试。
 - `verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
 - `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
-- `docs/` 为**面向人类**的文档：总览 `architecture.md`、模块设计 `modules/`、操作手册 `usage.md`、开发与验证 `development.md`、发布验收 `release-acceptance.md`；`docs/agents/` 是 agent 配置的例外。
+- `docs/` 为**面向人类**的文档：总览、模块设计、操作手册、开发与验证、发布验收、事故复盘；`docs/agents/` 是 agent 配置的例外，入口见 [README](README.md)。
 - `.agents/notes/` 为**面向 Agent** 的文档，记录项目开发过程中的决策。
 - `.scratch/` 是入库的工单与验证证据。
 
@@ -32,6 +32,7 @@
 - 跨层错误转成带 `code` 的类型；调用方用 `instanceof` 与 `.code ===` 判别，不解析 `message`。
 - 不写空 `catch`。确需吞掉时，写明吞的是哪个错误与原因。
 - 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 `src/cli.ts`、`src/tui/index.ts`、`src/config-tui/index.ts` 三个入口。
+- 设计或评审失败路径时按 [error-handling](.agents/skills/error-handling/SKILL.md)。
 
 **类型**
 
@@ -77,3 +78,7 @@
 ### Domain docs
 
 采用 single-context：根目录 `CONTEXT.md` 与 `.agents/notes/`。探索代码库前，先读 `docs/agents/domain.md`。
+
+### 写作与复盘
+
+写注释、JSDoc、`docs/`、notes、skill、提示词或诊断文本前，按 `.agents/skills/prose-standard/SKILL.md`。事故满足「机制非显然、系统性、重新发现代价高」三条时，按 `docs/postmortem/README.md` 写一篇复盘。

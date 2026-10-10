@@ -34,7 +34,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | SubAgent、worktree、旧实例导入 | `test/80`–`test/95` 里对应的那篇，加 `npx tsx --test test/91-release-acceptance.test.ts` |
 | `test/` 的夹具或助手 | 用该助手的用例。**只断言落盘布局的用例（直读 SQLite／裸 SQL）是本仓库的刻意做法**，不要以「只测行为」为由改写 |
 | `.agents/notes/` 的笔记 | `npm run verify-notes`；改了笔记的被引路径再加 `npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts` |
-| `docs/` 的文档 | 按 [写作 skill](../../../.agents/skills/writing-docs-for-human/SKILL.md) 的触发条件逐篇核对落点；本次改动若触及被链接的目标，手工确认链接仍成立 |
+| `docs/` 的文档 | `npm run check:docs`；内容与代码是否一致门禁查不出，按 [写作 skill](../../../.agents/skills/writing-docs-for-human/SKILL.md) 的触发条件逐篇核对 |
 | `AGENTS.md`、skills、`docs/agents/` | 落点检查：被链接的目标存在，被引用的命令与 `package.json` 一致 |
 | `scripts/` 的门禁或生成器 | 该脚本自身，加一个故意失败的负例证明它会红 |
 | `verification/foundation/` | `npm run test:foundation` |

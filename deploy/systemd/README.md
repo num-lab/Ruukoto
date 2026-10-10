@@ -6,11 +6,8 @@
 <!-- Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md -->
 
 - **拥有者**：日常登录账户，使用可信 CLI/TUI；持有拥有者令牌（0400）的副本。
-- **后台**（`ruukoto-backend`）：运行控制面，持有数据目录、模型凭据与
-  `credentials.json`；可调用容器（docker 组成员）与受保护的提权启动入口。
-- **执行账户**（`ruukoto-exec`，建议 uid/gid 1002）：完全访问任务的工作进程
-  以该身份运行。不属于拥有者/后台的组，无权读取两者的认证材料，不能修改
-  服务代码、配置或容器管理接口。
+- **后台**（`ruukoto-backend`）：运行控制面，持有数据目录、模型凭据与`credentials.json`；可调用容器（docker 组成员）与受保护的提权启动入口。
+- **执行账户**（`ruukoto-exec`，建议 uid/gid 1002）：完全访问任务的工作进程以该身份运行。不属于拥有者/后台的组，无权读取两者的认证材料，不能修改服务代码、配置或容器管理接口。
 
 ## 安装步骤
 
@@ -102,9 +99,7 @@ sudo setfacl -R -m "u:ruukoto-exec:rwX,d:u:ruukoto-exec:rwX,d:u:$SUDO_USER:rwX" 
 
 <!-- Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md -->
 
-main 的 `service_inspect` / `service_manage` 只经 root 拥有的 helper 触达
-systemd：白名单目标、固定协议、逐次审批（full_access 也不例外）。执行账户
-**没有**新增的 sudo/Polkit 权限，后台的新提权能力不属于执行账户已有权限。
+main 的 `service_inspect` / `service_manage` 只经 root 拥有的 helper 触达systemd：白名单目标、固定协议、逐次审批（full_access 也不例外）。执行账户**没有**新增的 sudo/Polkit 权限，后台的新提权能力不属于执行账户已有权限。
 
 ```bash
 # 1. helper 与策略（root 拥有；后台/执行账户不可写）
@@ -142,46 +137,18 @@ sudo systemctl daemon-reload && sudo systemctl start ruukoto-service-test
 sudo systemctl daemon-reload && sudo systemctl restart ruukoto-backend
 ```
 
-helper 协议（应答 = stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀单行 JSON——不用
-fd3：sudo 默认关闭 fd ≥3（closefrom=3）导致 fd3 在生产必然断开；fd1 与 stderr 其余
-内容为原始 systemctl/命令输出证据，restart 路径 systemd-run --pipe 会把命令单元的
-stderr 混入 stderr，机器调用方按前缀行提取）：
+helper 协议（应答 = stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀单行 JSON——不用fd3：sudo 默认关闭 fd ≥3（closefrom=3）导致 fd3 在生产必然断开；fd1 与 stderr 其余内容为原始 systemctl/命令输出证据，restart 路径 systemd-run --pipe 会把命令单元的stderr 混入 stderr，机器调用方按前缀行提取）：
 
-- `inspect <unit>`：白名单内服务状态的固定字段与策略/单元定义修订指纹；
-  systemctl show 显式降到策略执行 UID/GID（应答含实际执行身份 uid/gid）。
-- `restart <hostOpId> <policyRev> <unitRev> <unit>`：原子认领（mkdir，同
-  ID 拒绝再次启动，标记持久保留）→ 核对本机、白名单、策略与已加载单元
-  修订（NeedDaemonReload=yes 拒绝）→ `systemd-run --pipe --wait` 短命命令
-  单元（`ruukoto-service-op-<hostOpId>.service`，KillMode=control-group，
-  RuntimeMaxSec=120）内以 root 执行固定的 `systemctl --system restart`
-  （应答含实际执行身份 root 与退出码；派发后的意外失败按已启动上报，
-  由调用方记效果未知，绝不重写为已知未执行）。
+- `inspect <unit>`：白名单内服务状态的固定字段与策略/单元定义修订指纹；systemctl show 显式降到策略执行 UID/GID（应答含实际执行身份 uid/gid）。
+- `restart <hostOpId> <policyRev> <unitRev> <unit>`：原子认领（mkdir，同ID 拒绝再次启动，标记持久保留）→ 核对本机、白名单、策略与已加载单元修订（NeedDaemonReload=yes 拒绝）→ `systemd-run --pipe --wait` 短命命令单元（`ruukoto-service-op-<hostOpId>.service`，KillMode=control-group，RuntimeMaxSec=120）内以 root 执行固定的 `systemctl --system restart`（应答含实际执行身份 root 与退出码；派发后的意外失败按已启动上报，由调用方记效果未知，绝不重写为已知未执行）。
   
-  `systemd-run` spawn 结果如实区分（agent-direction issue 10 修正，验收覆盖）：
-  只有可证明命令根本未启动（ENOENT/EACCES/ENOTDIR）才报 `launched:false`
-  （可信的未派发证明，调用方记已知未执行并消耗本次批准）；启动后的错误
-  （缓冲超限等）与被信号杀死一律报 `ok:false, launched:true`（「可能已派发」，
-  不猜退出码——调用方记效果未知、不自动重发、同目标长期授权失效）。
-- `stop-op <hostOpId>`：先阻断后续启动（认领/stop-requested 标记），再停
-  派生命令单元；只有查询确认 LoadState/ActiveState/MainPID/ControlPID 全部
-  退出才报告 exited（权限错误、bus 不可达、查询失败都不当作已退出）。
+  `systemd-run` spawn 结果如实区分（agent-direction issue 10 修正，验收覆盖）：只有可证明命令根本未启动（ENOENT/EACCES/ENOTDIR）才报 `launched:false`（可信的未派发证明，调用方记已知未执行并消耗本次批准）；启动后的错误（缓冲超限等）与被信号杀死一律报 `ok:false, launched:true`（「可能已派发」，不猜退出码——调用方记效果未知、不自动重发、同目标长期授权失效）。
+- `stop-op <hostOpId>`：先阻断后续启动（认领/stop-requested 标记），再停派生命令单元；只有查询确认 LoadState/ActiveState/MainPID/ControlPID 全部退出才报告 exited（权限错误、bus 不可达、查询失败都不当作已退出）。
 
-清理演练：停止并 disable 测试服务，删除单元/启动程序/状态目录
-（`/var/lib/ruukoto-service-test`）、策略项与 helper 配置 drop-in。
+清理演练：停止并 disable 测试服务，删除单元/启动程序/状态目录（`/var/lib/ruukoto-service-test`）、策略项与 helper 配置 drop-in。
 
 ## 验证状态
 
-2026-09-21 在 tx（Ubuntu 24.04，Tencent Cloud，Docker 29.5.2，systemd 255）完成
-首次部署与目标机验证：systemd 单元、sudoers 提权入口（含执行账户 uid 986 经
-env_keep 传递）、容器边界冒烟 9/9（容器 uid 经 RUUKOTO_CONTAINER_UID 固定为
-拥有者 uid 1003）、linux:probes 32/32、真实模型 confirm 任务端到端通过
-（deepseek，容器内写文件产物落宿主工作区）。发现并修复：exec-stop 包装脚本
-退出码与启动器约定相反（`exec systemctl is-active` → 反转为
-`! is-active --quiet`）；目标机记录见 `.scratch/personal-agent/issues/09-tx-deploy.md`
-与 [docs/release-acceptance.md](../../docs/release-acceptance.md#历史验证清单) 的历史验证清单。
+2026-09-21 在 tx（Ubuntu 24.04，Tencent Cloud，Docker 29.5.2，systemd 255）完成首次部署与目标机验证：systemd 单元、sudoers 提权入口（含执行账户 uid 986 经env_keep 传递）、容器边界冒烟 9/9（容器 uid 经 RUUKOTO_CONTAINER_UID 固定为拥有者 uid 1003）、linux:probes 32/32、真实模型 confirm 任务端到端通过（deepseek，容器内写文件产物落宿主工作区）。发现并修复：exec-stop 包装脚本退出码与启动器约定相反（`exec systemctl is-active` → 反转为`! is-active --quiet`）；目标机记录见 `.scratch/personal-agent/issues/09-tx-deploy.md`与 [docs/release-acceptance.md](../../docs/release-acceptance.md#历史验证清单) 的历史验证清单。
 
-2026-09-26（issue 23）：修复容器后端下完全访问总是 `execution_unavailable`，
-重新部署当前代码后在 tx 实测一次完全访问任务：以 `ruukoto-exec` 运行、按 ACL
-写工作区且拥有者可改、git 接受拥有者仓库、HOME 可写、读拥有者令牌被拒、结束后
-执行单元回收。部署中发现并补上 `agent-work` 目录（角色工作目录，缺失时后台
-启动失败）。
+2026-09-26（issue 23）：修复容器后端下完全访问总是 `execution_unavailable`，重新部署当前代码后在 tx 实测一次完全访问任务：以 `ruukoto-exec` 运行、按 ACL写工作区且拥有者可改、git 接受拥有者仓库、HOME 可写、读拥有者令牌被拒、结束后执行单元回收。部署中发现并补上 `agent-work` 目录（角色工作目录，缺失时后台启动失败）。

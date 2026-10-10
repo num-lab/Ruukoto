@@ -55,3 +55,12 @@ Status: ready-for-agent
 - [ ] `npm run check:static` 通过。
 
 ## Comments
+
+2026-10-10：skill 部分完成（拆分 runtime.md 的其余产出未开始，工单保持 ready-for-agent）。
+
+- `.agents/skills/writing-docs-for-human/SKILL.md`：触发条件表（模块可观察行为 → `docs/modules/<模块>.md`；新增/拆分/合并/删除模块 → `docs/architecture.md` 模块地图；运行/配置/启用入口/导入命令/故障排查 → `docs/usage.md`；决定翻转 → notes）、源目录到模块文档的 10 条对应表、模块文档固定六节、architecture 与 usage 的形态、落笔红线、写完自检。
+- `.agents/skills/writing-docs-for-human/templates/module.md`：六节骨架，含 Mermaid 状态机与时序占位、对外接口表、「设计依据」链接写法。
+- `.agents/skills/writing-docs-for-human/references/prose.md`：docs 行文与去泄露清单（现在时、删会话与提交痕迹、一个事实只讲一次、术语按 CONTEXT.md、图的用法、返工清单）。
+- 不加覆盖测试，与决策 note 一致（test/67 式门禁正是可视化文档维护变重的原因）。
+- AGENTS.md「Agent skills」下新增「人类文档」一节，一行指针指向上面的 SKILL.md。
+- 验证：用 `loadSkillLibrary` 加载 `.agents/skills/`，两个技能均无诊断、`writing-docs-for-human` 的 description 与正文正常；SKILL.md 内的 `templates/module.md`、`references/prose.md` 链接均存在。`npm run check:static` 通过；`npx tsx --test test/56-skills.test.ts` 6/6 通过。

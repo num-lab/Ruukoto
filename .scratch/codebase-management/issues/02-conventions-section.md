@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 02 — 根 AGENTS.md 增设「约定」章节
 
@@ -8,11 +8,11 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] 新增「约定」小节，每条 1-2 行，说明该做什么并链接承载细节的文档（`docs/modules/*.md`、`docs/architecture.md`、`docs/development.md`、`CONTEXT.md`、notes）。
-- [ ] 只收录取证成立的规则：零反例，或反例边界明确且可写清。
-- [ ] 取证结论里「NOT actually followed」的 9 条零出现。
-- [ ] `AGENTS.md` 仍保持指示层定位：不写演进史、不复制被链接文档的内容。
-- [ ] 决策 note 与工单同批落盘。
+- [x] 新增「约定」小节，每条 1-2 行，说明该做什么并链接承载细节的文档（`docs/modules/*.md`、`docs/architecture.md`、`docs/development.md`、`CONTEXT.md`、notes）。
+- [x] 只收录取证成立的规则：零反例，或反例边界明确且可写清。
+- [x] 取证结论里「NOT actually followed」的 9 条零出现。
+- [x] `AGENTS.md` 仍保持指示层定位：不写演进史、不复制被链接文档的内容。
+- [x] 决策 note 与工单同批落盘。
 
 ## 候选规则（取证见下）
 

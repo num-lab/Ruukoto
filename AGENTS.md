@@ -24,6 +24,44 @@
 - `.agents/notes/` 为**面向 Agent** 的文档，记录项目开发过程中的决策。
 - `.scratch/` 是入库的工单与验证证据。
 
+## 约定
+
+每条都是本仓库已经稳定遵守的规则，改动前先对照；括号里是承载细节的文档。
+
+**模块边界**
+
+- `src/core/` 不得 import 其他 `src/` 区；它是全部模块的底座（[架构总览](docs/architecture.md)）。
+- 跨区反向引用只允许 `import type` 或注入回调，不得直接调用对方的运行时实现。
+
+**错误处理**
+
+- 跨层错误转成带 `code` 的类型；调用方用 `instanceof` 与 `.code ===` 判别，不解析 `message`。
+- 不写空 `catch`。确需吞掉时，写明吞的是哪个错误与原因。
+- 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 `src/cli.ts`、`src/tui/index.ts`、`src/config-tui/index.ts` 三个入口。
+
+**类型**
+
+- 类型逃逸（`any` / `as unknown`）只允许在三类边界出现：SQLite 行映射、JSON／wire 解析、第三方 SDK。内部同进程接口用真实类型，不重复校验。
+- `noUncheckedIndexedAccess` 关闭；越界访问需要自己判断。
+
+**持久化**
+
+- 状态与其事件在同一事务内写入，提交成功后才应答与广播（[core](docs/modules/core.md)）。
+- 会话 JSONL 是消息历史的唯一权威副本；`src/core/` 只读不写，不得声称 SQLite 与 JSONL 之间原子。
+- `SCHEMA_VERSION` 单调递增；比当前代码更新的库直接拒绝启动。
+
+**测试**
+
+- 默认离线：真实模型用例要 `RUN_MODEL_CHECK=1` 才跑，`test:app` 固定关闭。
+- 直读 SQLite、写裸 SQL 断言落盘布局是刻意做法，不得以「测试只应测行为」为由改写。
+- 用例编号可重号也可跳号；按功能词找文件，映射见[开发说明](docs/development.md)。
+
+**语言与形态**
+
+- ESM-only；相对 import 一律带 `.ts` 扩展名；文件名用 kebab-case。
+- 注释与文档用中文，标识符用英文；术语按 [CONTEXT.md](CONTEXT.md)。
+- 承载决定的代码入口留锚点 `Note: 见 .agents/notes/<路径>`，一个注释块引用多篇时每篇各占一行。
+
 ## Agent skills
 
 ### Issue tracker

@@ -4,11 +4,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
-import type { Task } from "../src/core/types.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import type { Task } from "@ruukoto/core/types.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 function fixture() {

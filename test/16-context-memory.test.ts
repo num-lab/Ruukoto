@@ -19,19 +19,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { AccessScope, AccessDeniedError } from "../src/core/access.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { AccessScope, AccessDeniedError } from "@ruukoto/core/access.ts";
 import {
   HistoryIndex,
   searchHistory,
   entrySearchText,
-} from "../src/core/history-index.ts";
+} from "@ruukoto/core/history-index.ts";
 import {
   MemoryConflictError,
   MemoryStore,
   MemoryValidationError,
-} from "../src/core/memory.ts";
+} from "@ruukoto/core/memory.ts";
 import {
   DEFAULT_BUDGET_CONFIG,
   estimateMessageTokens,
@@ -41,8 +41,8 @@ import {
   type ReferenceBlock,
   type SelectorBudgetConfig,
   type SelectorInput,
-} from "../src/agent/context-selector.ts";
-import { checkToolPairing, ContextSendBlocked } from "../src/agent/context-assembly.ts";
+} from "@ruukoto/agent/context-selector.ts";
+import { checkToolPairing, ContextSendBlocked } from "@ruukoto/agent/context-assembly.ts";
 import {
   cleanupDirs,
   createProjectSession,

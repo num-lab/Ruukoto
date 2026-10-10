@@ -1,11 +1,17 @@
 import eslint from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import workspaces from "./scripts/workspace-boundaries.mjs";
 
 export default [
-  { ignores: ["**/node_modules/**", ".agents/**", ".scratch/**", "worker/**", "verification/archive/**"] },
+  { ignores: ["**/node_modules/**", ".agents/**", ".scratch/**", "worker/**", "dist/**", "verification/archive/**"] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ["packages/*/src/**/*.{ts,mts,tsx,js,mjs}", "apps/*/src/**/*.{ts,mts,tsx,js,mjs}"],
+    plugins: { workspaces },
+    rules: { "workspaces/imports": "error" },
+  },
   {
     languageOptions: { globals: globals.node },
     rules: {

@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * SubAgent 继续委派、跨工作复用与显式关闭（agent-direction issue 12）。
  * Note: 见 .agents/notes/implemented/feature/2026-10-04-subagent-reuse-close.md
@@ -42,13 +43,14 @@ import {
   waitFor,
   writeModelsJson,
 } from "./helpers/testkit.ts";
-import { AccessScope } from "../src/core/access.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { type RuntimeConfig, Runtime } from "../src/runtime/runtime.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { createSubAgentTools } from "../src/agent/subagent-tools.ts";
-import { SubAgentManager, subagentOpCheck } from "../src/runtime/subagents.ts";
-import { WorkCopyManager } from "../src/runtime/work-copy.ts";
+import { AccessScope } from "@ruukoto/core/access.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { type RuntimeConfig, Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
+import { SubAgentManager } from "@ruukoto/runtime/subagents.ts";
+import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
+import { WorkCopyManager } from "@ruukoto/runtime/work-copy.ts";
 
 /** 结果登记与 Agent 空闲在同一事务；等 resultSummary 即等 idle 可用。 */
 async function waitIdle(rt: Runtime, agentId: string): Promise<void> {
@@ -632,6 +634,7 @@ test("不自动关闭：TUI 退出与空闲不动；重启后空闲 Agent 仍可
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -698,8 +701,8 @@ test("不自动关闭：TUI 退出与空闲不动；重启后空闲 Agent 仍可
 test("v24 → v25 迁移：旧 sub_agents / 工作 / 任务保留，closed 两列为空；账本核实", async () => {
   const { dirs } = await makeTestDirs("reuse-migrate", 0);
   try {
-    const { Db, SCHEMA_VERSION } = await import("../src/core/db.ts");
-    const { Store } = await import("../src/core/store.ts");
+    const { Db, SCHEMA_VERSION } = await import("@ruukoto/core/db.ts");
+    const { Store } = await import("@ruukoto/core/store.ts");
     let db = new Db(dirs.dataDir);
     db.exec(`
       ALTER TABLE sub_agents DROP COLUMN closed_at;

@@ -7,6 +7,7 @@ node_modules/
 !.scratch/**/*.log
 # 构建产物和本机凭据
 /worker/
+/dist/
 .env
 .env.*
 !.env.example

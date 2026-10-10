@@ -1,7 +1,8 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * issue 17 集成测试：GitHub 专用模块退役与历史资料归档。
  *
- * 旧模块（src/agent/github/，REST 采集/草稿/发布）已删除，GitHub 经通用 MCP
+ * 旧模块（packages/agent/src/github/，REST 采集/草稿/发布）已删除，GitHub 经通用 MCP
  * 接入（issue 16，test/24-mcp.test.ts）。本文件覆盖退役迁移本身：
  * - 全新数据库不再创建 github_* 表；旧库（v8，含 github 数据）升级不失败、
  *   旧表保留为只读归档（不 DROP）；
@@ -27,12 +28,12 @@ import {
   type TestDirs,
 } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { ControlClient } from "../src/control/client.ts";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { GITHUB_ARCHIVE_MANIFEST_FILE } from "../src/runtime/github-retirement.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { GITHUB_ARCHIVE_MANIFEST_FILE } from "@ruukoto/channels/github-retirement.ts";
 
 // ---------- 旧库样本（v8：github_* 三张表的建表 SQL 冻结于此，退役后唯一保留处） ----------
 
@@ -305,6 +306,7 @@ async function startLegacyRuntime(prefix: string, afterLegacyDb?: (dirs: TestDir
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const runtime = await Runtime.start({
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -439,6 +441,7 @@ test("github 退役：草稿各版本导出为原任务产物，清单无秘密�
     f.client.close();
     await f.runtime.stop("restart");
     const runtime2 = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: f.dirs.dataDir,
       agentDir: f.dirs.agentDir,
       socketPath: path.join(f.dirs.root, "c.sock"),

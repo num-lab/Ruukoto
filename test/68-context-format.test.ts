@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { contextDisplayRow, formatContextTokens } from "../src/tui/context-format.ts";
+import { contextDisplayRow, formatContextTokens } from "@ruukoto/tui/tui/context-format.ts";
 
 const color = (index: number, text: string) => `\x1b[38;5;${index}m${text}\x1b[0m`;
 

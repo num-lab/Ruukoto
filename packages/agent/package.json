@@ -1,0 +1,27 @@
+{
+  "name": "@ruukoto/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@ruukoto/core": "*",
+    "typebox": "1.0.12"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@ruukoto/channels": "*",
+    "@ruukoto/runtime": "*"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@ruukoto/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@ruukoto/agent": "*",
+    "@ruukoto/channels": "*",
+    "@ruukoto/core": "*"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

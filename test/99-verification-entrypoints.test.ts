@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { cleanupRuntime } from "../verification/smoke/gate.ts";
-import { probeModelConfig } from "../src/agent/model-config.ts";
+import { probeModelConfig } from "@ruukoto/agent/model-config.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const entry = (name: string, args: string[], env: NodeJS.ProcessEnv = process.env) => {

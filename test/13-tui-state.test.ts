@@ -11,12 +11,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { CommandHistoryStore } from "../src/tui/command-history.ts";
-import { ViewState, MAX_LOADED_ENTRIES, accessModeLabel, accessModeStyle, formatAccessMode, type SessionView } from "../src/tui/state.ts";
-import { sanitizeForDisplay } from "../src/tui/sanitize.ts";
-import type { ConnectResult } from "../src/control/protocol.ts";
-import type { PersistentEvent, Task } from "../src/core/types.ts";
-import type { HistoryEntryView, HistoryPage } from "../src/core/history.ts";
+import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
+import { ViewState, MAX_LOADED_ENTRIES, accessModeLabel, accessModeStyle, formatAccessMode, type SessionView } from "@ruukoto/tui/tui/state.ts";
+import { sanitizeForDisplay } from "@ruukoto/tui/tui/sanitize.ts";
+import type { ConnectResult } from "@ruukoto/control/protocol.ts";
+import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
+import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
 
 const messages = (view: SessionView) => view.flow.items.filter((entry) => entry.kind === "message");
 const notes = (view: SessionView) => view.flow.items.filter((entry) => entry.kind === "note");

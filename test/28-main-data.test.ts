@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * main 应用数据空间集成测试（issue 02）。
  *
@@ -17,11 +18,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { AppDataStore, AppDataConflictError, AppDataError, LIMITS } from "../src/agent/app-data/store.ts";
-import { AppDataQueryRunner, runQuery, validateQueryRequest, QUERY_LIMITS } from "../src/agent/app-data/query.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import type { PersistentEvent } from "../src/core/types.ts";
+import { AppDataStore, AppDataConflictError, AppDataError, LIMITS } from "@ruukoto/agent/app-data/store.ts";
+import { AppDataQueryRunner, runQuery, validateQueryRequest, QUERY_LIMITS } from "@ruukoto/agent/app-data/query.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import {
   toolNamesOf,
   cleanupDirs,
@@ -673,6 +674,7 @@ test("main 经工具建表/插入/查询；跨重启读写；实例绑定稳定"
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -1087,7 +1089,7 @@ test("停止路径：应用数据写操作按回执核实，不误标 effect_unk
     appStore.insert({ table: "todos", records: [{ title: "已提交" }], reason: "r", opId: "op_inflight", ctx: CTX });
     await t.runtime.stop("test_restart");
     // stop 后重开核心库读结果
-    const db = new (await import("../src/core/db.ts")).Db(t.dirs.dataDir);
+    const db = new (await import("@ruukoto/core/db.ts")).Db(t.dirs.dataDir);
     try {
       const op = db.prepare("SELECT result_summary, is_error, effect_unknown FROM tool_ops WHERE id = 'op_inflight'").get() as any;
       assert.ok(op.result_summary.includes("已提交"), "回执补记已提交");
@@ -1109,6 +1111,7 @@ test("恢复：回执补记已提交 / 无回执记未提交 / 应用库丢失�
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   const configFor = (dirs: { dataDir: string; agentDir: string; root: string }): RuntimeConfig => ({
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -1125,7 +1128,7 @@ test("恢复：回执补记已提交 / 无回执记未提交 / 应用库丢失�
     const rt = await Runtime.start(config);
     const main = rt.store.getAgentRole("main")!;
     await rt.stop("prep");
-    const { Db } = await import("../src/core/db.ts");
+    const { Db } = await import("@ruukoto/core/db.ts");
     const db = new Db(dirs.dataDir);
     try {
       db.prepare(
@@ -1250,6 +1253,7 @@ test("应用库实例身份不符：能力停止并保留未知效果（不覆�
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -1290,6 +1294,7 @@ test("既有 main 角色重启：角色记录里的工具清单副本不影响�
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -1570,6 +1575,7 @@ test("P1：终态任务缺结果的应用数据操作在重启时按回执补记
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -1583,7 +1589,7 @@ test("P1：终态任务缺结果的应用数据操作在重启时按回执补记
     const main = rt.store.getAgentRole("main")!;
     await rt.stop("prep");
     // 构造"任务已完成、核心结果缺失、应用库已提交"的现场（连续落盘失败的终态）
-    const { Db } = await import("../src/core/db.ts");
+    const { Db } = await import("@ruukoto/core/db.ts");
     const db = new Db(dirs.dataDir);
     try {
       db.prepare(
@@ -1671,7 +1677,7 @@ test("P2：停止在途只读查询不标 effect_unknown", async () => {
       t.runtime.store.listToolOpsByTask(task.id).some((o) => o.toolName === "app_data_query"),
     );
     await t.runtime.stop("test_restart");
-    const db = new (await import("../src/core/db.ts")).Db(t.dirs.dataDir);
+    const db = new (await import("@ruukoto/core/db.ts")).Db(t.dirs.dataDir);
     try {
       const op = db.prepare("SELECT result_summary, effect_unknown FROM tool_ops WHERE task_id = ? AND tool_name = 'app_data_query'").get(task.id) as any;
       assert.ok(op, "查询操作已记录");

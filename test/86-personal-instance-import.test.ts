@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
@@ -30,21 +31,18 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { randomId, type ModelSelection } from "../src/core/types.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { AppDataStore } from "../src/agent/app-data/store.ts";
-import {
-  LegacyImportError,
-  listLegacyImports,
-} from "../src/runtime/legacy-import.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { randomId, type ModelSelection } from "@ruukoto/core/types.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { AppDataStore } from "@ruukoto/agent/app-data/store.ts";
+import { LegacyImportError, listLegacyImports } from "@ruukoto/core/import-support.ts";
 import {
   applyPersonalImport,
   previewPersonalImport,
   revertPersonalImport,
-} from "../src/runtime/personal-import.ts";
+} from "@ruukoto/channels/personal-import.ts";
 import {
   connectAuthedClient,
   createProjectSession,
@@ -57,7 +55,7 @@ import {
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
 import { seedCodingRole } from "./helpers/legacy-coding.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MOCK_SEL: ModelSelection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
@@ -500,7 +498,7 @@ async function bootTarget(root: string, dataDir: string, agentDir: string) {
     modelProvider: "mock",
     modelId: "mock-model",
     toolFactory: (ctx) => createMockTools(ctx),
-    productType: "ruukoto",
+    product: personalProduct.runtime,
   });
   await ControlServer.start(runtime);
   const client = await connectAuthedClient(runtime);
@@ -1081,7 +1079,7 @@ test("CLI：ruukoto legacy-import preview/apply/list/revert 全流程", async ()
     RUUKOTO_AGENT_DIR: dirs.agentDir,
   };
   const run = (args: string[]) =>
-    spawnSync(process.execPath, [path.join(repoRoot, "bin", "ruukoto.mjs"), ...args], {
+    spawnSync(process.execPath, [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), ...args], {
       env,
       cwd: repoRoot,
       timeout: 180_000,

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import type { HistoryEntryView } from "../src/core/history.ts";
-import type { PersistentEvent, Task } from "../src/core/types.ts";
-import type { ToolOpView } from "../src/core/views.ts";
-import { EventFlow } from "../src/tui/event-flow.ts";
-import { EventFlowView } from "../src/tui/event-flow-view.ts";
-import { MAX_LOADED_ENTRIES, ViewState } from "../src/tui/state.ts";
+import type { HistoryEntryView } from "@ruukoto/core/history.ts";
+import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
+import type { ToolOpView } from "@ruukoto/core/views.ts";
+import { EventFlow } from "@ruukoto/tui/tui/event-flow.ts";
+import { EventFlowView } from "@ruukoto/tui/tui/event-flow-view.ts";
+import { MAX_LOADED_ENTRIES, ViewState } from "@ruukoto/tui/tui/state.ts";
 
 const at = (seconds: number) => new Date(Date.UTC(2026, 8, 22, 13, 16, seconds)).toISOString();
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });

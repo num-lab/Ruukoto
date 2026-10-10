@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * issue 13：/prompt 命令的数据层 —— 模型请求列表与 prompt 快照。
  *
@@ -21,8 +22,8 @@ import {
   taskStatus,
   routeResponder,
 } from "./helpers/testkit.ts";
-import { ControlClient } from "../src/control/client.ts";
-import { CONTROL_PROTOCOL_VERSION } from "../src/control/protocol.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
 
 /** 读取完整快照 JSON（分段拼接）。 */
 async function readSnapshot(client: ControlClient, sessionId: string, recordId: string): Promise<any> {
@@ -220,15 +221,16 @@ test("prompt 快照：跨后台重启可读", async () => {
   // 手工搭目录：shutdown 不删目录，重启后仍可读
   const { makeTestDirs, writeModelsJson, cleanupDirs, connectAuthedClient } = await import("./helpers/testkit.ts");
   const { MockModelServer } = await import("./helpers/mock-provider.ts");
-  const { Runtime } = await import("../src/runtime/runtime.ts");
-  const { ControlServer } = await import("../src/control/server.ts");
-  const { createMockTools } = await import("../src/agent/mock-tools.ts");
+  const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
+  const { ControlServer } = await import("@ruukoto/control/server.ts");
+  const { createMockTools } = await import("@ruukoto/agent/mock-tools.ts");
   const { dirs, work } = await makeTestDirs("prompt-restart", 1);
   const server = new MockModelServer(routeResponder([]));
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const startRuntime = async (sock: string) => {
     const runtime = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       socketPath: `${dirs.root}/${sock}`,

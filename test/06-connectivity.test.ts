@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 真实模型连通性检查（默认跳过，凭 RUN_MODEL_CHECK=1 开启）。
  *
@@ -11,9 +12,9 @@ import assert from "node:assert/strict";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { ControlClient } from "../src/control/client.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 import { waitFor, taskStatus, authenticateClient } from "./helpers/testkit.ts";
 
 interface ProviderAttempt {
@@ -49,6 +50,7 @@ test("真实模型连通性（RUN_MODEL_CHECK=1 开启）", { skip: process.env.
     let runtime: Runtime | null = null;
     try {
       runtime = await Runtime.start({
+    product: personalProduct.runtime,
         dataDir: path.join(root, "data"),
         agentDir: userAgentDir,
         thinkingLevel: "off",

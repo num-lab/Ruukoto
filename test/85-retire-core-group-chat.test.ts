@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 核心群聊退役与旧群资料保全（agent-direction issue 20）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
@@ -19,17 +20,17 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { AccessScope } from "../src/core/access.ts";
-import { QqStore, qqDedupKey } from "../src/qq/store.ts";
-import { CORE_GROUP_CHAT_RETIRED } from "../src/core/session-identity.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { resolveAcceptedChatResult } from "../src/agent/chat-result-tools.ts";
-import { sha256, type SourceRef } from "../src/scheduler/store.ts";
-import { firstDue, parseRule } from "../src/scheduler/time.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import type { NotifyTarget } from "../src/core/types.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { AccessScope } from "@ruukoto/core/access.ts";
+import { QqStore, qqDedupKey } from "@ruukoto/channels/qq/store.ts";
+import { CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { resolveAcceptedChatResult } from "@ruukoto/channels/chat-results.ts";
+import { sha256, type SourceRef } from "@ruukoto/channels/scheduler/store.ts";
+import { firstDue, parseRule } from "@ruukoto/channels/scheduler/time.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import type { NotifyTarget } from "@ruukoto/core/types.ts";
 import {
   lastUserText,
   makeTestDirs,
@@ -451,6 +452,7 @@ test("验收5：排队/在途/待发/未派发事件一次性收尾只定终态�
 
     const startOnce = async () => {
       const rt = await Runtime.start({
+    product: personalProduct.runtime,
         dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
         thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model",
         toolFactory: (ctx) => createMockTools(ctx),

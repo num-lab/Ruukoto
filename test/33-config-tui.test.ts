@@ -19,12 +19,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { acquireConfigLock } from "../src/core/instance-lock.ts";
-import { runConfigTui } from "../src/config-tui/index.ts";
-import { ConfigTuiApp } from "../src/config-tui/app.ts";
-import { OfflineModelBackend } from "../src/config-tui/index.ts";
-import type { Session } from "../src/core/types.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { acquireConfigLock } from "@ruukoto/core/instance-lock.ts";
+import { runConfigTui } from "@ruukoto/tui/config-tui/index.ts";
+import { ConfigTuiApp } from "@ruukoto/tui/config-tui/app.ts";
+import { OfflineModelBackend } from "@ruukoto/tui/config-tui/index.ts";
+import type { Session } from "@ruukoto/core/types.ts";
 import {
   startTestRuntime,
   createProjectSession,

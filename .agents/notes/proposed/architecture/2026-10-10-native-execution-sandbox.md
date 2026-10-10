@@ -63,7 +63,7 @@ macOS，本机实跑（macOS 27.0、Darwin 27.0.0、arm64），各条脱离路�
 
 ## 备选方案
 
-- **Linux 用 Landlock 取代 bubblewrap** — 非特权可用，不需要 namespace，因此完全绕开 AppArmor 的 userns 限制，零管理员前置；实测 ABI 4 可用，工作区读写放行、`$HOME` 列目录 EACCES、回环 TCP connect EACCES，且 `setsid` 脱离后代仍受同一约束、无法卸除。不选，是因为缺口过不了工单的网络与 IPC 要求：UDP 外发放行、abstract Unix socket 可达、宿主 PID 可见、SysV IPC 不受限，而「默认无网络」要覆盖任意 Shell 及后代。控制面用文件路径 socket（`src/control/connect.ts` 的 `control.sock`），Landlock 能按路径拒绝，但这只补上一处，补不齐 UDP。保留为装不了 profile 时的降级候选，启用须明记缺口。
+- **Linux 用 Landlock 取代 bubblewrap** — 非特权可用，不需要 namespace，因此完全绕开 AppArmor 的 userns 限制，零管理员前置；实测 ABI 4 可用，工作区读写放行、`$HOME` 列目录 EACCES、回环 TCP connect EACCES，且 `setsid` 脱离后代仍受同一约束、无法卸除。不选，是因为缺口过不了工单的网络与 IPC 要求：UDP 外发放行、abstract Unix socket 可达、宿主 PID 可见、SysV IPC 不受限，而「默认无网络」要覆盖任意 Shell 及后代。控制面用文件路径 socket（`packages/control/src/connect.ts` 的 `control.sock`），Landlock 能按路径拒绝，但这只补上一处，补不齐 UDP。保留为装不了 profile 时的降级候选，启用须明记缺口。
 - **macOS 用专用 UID 加特权助手回收** — UID 是 macOS 上唯一不可逃逸的成员集合，非特权进程换不了 UID，`pkill -U` 能确定地停掉整个执行单元，包括 `posix_spawn` 逃逸的后代，回收不再有残留和竞态。不选，是因为它要引入 root 守护进程或 setuid 助手来换 UID，并连带改造工作副本的文件归属，等于为一条窄残留在受限路径上新增一个特权入口；拥有者 2026-10-10 选择接受残留。前提变化时这是首选的加固方向。
 - **把 `kernel.apparmor_restrict_unprivileged_userns` 设为 0** — 一条 sysctl 就能让 bwrap 在任何路径下工作，不必维护 profile，开发机上最省事。不选，是因为它对整机解除非特权 userns 的加固，影响范围远超 ruukoto；按可执行文件授予 profile 是 Ubuntu 自己的做法（`/etc/apparmor.d/` 已有百余篇同类 profile），范围只限 `/usr/bin/bwrap`。
 - **把 `/usr/bin/bwrap` 设为 setuid root** — bubblewrap 的 `README.Debian` 给出的另一条路，在不允许非特权 userns 的内核上也能用。不选，是因为包文档同时说明该配置下 bubblewrap 与 Flatpak 的部分安全特性会失效，等于用更大的特权面换取兼容性。

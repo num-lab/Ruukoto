@@ -1,10 +1,11 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /** 图片入站三个持久化窗口：模拟平台与模型，真实 Runtime / SQLite / 文件。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 import { startMockOneBot, MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET } from "./helpers/mock-onebot.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
@@ -28,6 +29,7 @@ for (const source of ["telegram", "qq_private"] as const) {
     const apiBase = await bot.start();
     const onebot = await startMockOneBot({});
     const config: RuntimeConfig = {
+    product: personalProduct.runtime,
       dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
       modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", toolFactory: createMockTools,
       telegram: { pollTimeoutSec: 1, backoffMs: 30 },

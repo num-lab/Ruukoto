@@ -3,7 +3,7 @@
  *
  * 模拟（打桩，不代表真实 QQ/Telegram 已验收）：MockModelServer（模型）、
  * MockOneBot（NapCat/OneBot 协议）、FakeBotApi（Telegram Bot API）。
- * 真实：bin/ruukoto.mjs 后台进程（正常停止 + SIGKILL 后各一次重启）、控制面
+ * 真实：apps/ruukoto/bin/ruukoto.mjs 后台进程（正常停止 + SIGKILL 后各一次重启）、控制面
  * socket 与令牌、SQLite 库与 notification_ops 账本、Docker 受限 worker
  * （子任务真实容器执行）、QQ/Telegram 配置与凭据写入。
  *
@@ -25,7 +25,7 @@ import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { ControlClient } from "../../src/control/client.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 import { MockModelServer, type Responder, type RecordedRequest } from "../../test/helpers/mock-provider.ts";
 import { authenticateClient, makeTestDirs, cleanupDirs, lastUserText, waitFor, writeModelsJson } from "../../test/helpers/testkit.ts";
 import { killProcessTree } from "../../test/helpers/backend.ts";
@@ -111,7 +111,7 @@ let stderr = "";
 function spawnBackend(): void {
   child = childProcess.spawn(
     process.execPath,
-    [path.join(repoRoot, "bin", "ruukoto.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--execution", "container"],
+    [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--execution", "container"],
     { cwd: repoRoot, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CONTROL_DIR: controlDir, RUUKOTO_WORKER_IMAGE: IMAGE, RUUKOTO_CONTAINER_UID: String(UID), RUUKOTO_CONTAINER_GID: String(GID) }, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
   stderr = "";
@@ -322,6 +322,6 @@ try {
 
 const failed = results.filter((r) => !r.ok);
 console.log("\n模拟：模型服务（MockModelServer）、NapCat OneBot（MockOneBot）、Telegram Bot API（FakeBotApi）——打桩平台，不代表真实 QQ/Telegram 已验收");
-console.log("真实：bin/ruukoto.mjs 后台进程（正常停止 + SIGKILL 各一次重启）、控制面 socket 与令牌、SQLite 库与 notification_ops 账本、Docker 受限 worker、QQ/Telegram 配置与凭据写入");
+console.log("真实：apps/ruukoto/bin/ruukoto.mjs 后台进程（正常停止 + SIGKILL 各一次重启）、控制面 socket 与令牌、SQLite 库与 notification_ops 账本、Docker 受限 worker、QQ/Telegram 配置与凭据写入");
 console.log(`\n结果：${results.length - failed.length}/${results.length} 通过（环境：${process.platform} ${process.arch}，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s）`);
 if (failed.length > 0) process.exit(1);

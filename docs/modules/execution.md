@@ -18,13 +18,13 @@
 | 后台 | `ToolWorkerHost.abort(opId)`、`ToolWorkerHost.stop()` | 中止单次调用；停止时发 `shutdown` 并停掉整个执行单元 |
 | Runtime 的 worktree 创建与改动汇总 | `Runtime.createWorktreeInContainer({ workspace, copyDir, branch, command, extraGrants })` | 用临时的请求确认工作进程执行宿主固定的 bash，创建时 `bash` 超时 120 秒、宿主调用超时 150 秒 |
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
-| 已批准越界操作 | `src/agent/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
-| 受管执行单元登记表 | `src/agent/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
+| 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
+| 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
 | 部署入口 | `deploy/systemd/ruukoto-exec-launch.sh`、`deploy/systemd/ruukoto-exec-stop.sh` | root 拥有、只放行固定参数的 sudo 包装入口；`RUUKOTO_EXEC_LAUNCH_SCRIPT` 与 `RUUKOTO_EXEC_STOP_SCRIPT` 两个都设置才算配置了该入口 |
 
 相关的配置键：`RUUKOTO_EXECUTION_BACKEND`、`RUUKOTO_WORKER_IMAGE`、`RUUKOTO_CONTAINER_UID` / `RUUKOTO_CONTAINER_GID`、`RUUKOTO_DOCKER_PATH`、`RUUKOTO_EXEC_UID` / `RUUKOTO_EXEC_GID`、`RUUKOTO_WORKER_PATH`、`RUUKOTO_EXEC_SUDO`、`RUUKOTO_EXEC_LAUNCH_SCRIPT`、`RUUKOTO_EXEC_STOP_SCRIPT`。运行入口、部署步骤与镜像构建见 [usage](../usage.md)。
 
-进程间是一条有界消息协议（`src/agent/tool-worker/protocol.ts`）：stdio 上换行分帧的 JSON。
+进程间是一条有界消息协议（`packages/agent/src/tool-worker/protocol.ts`）：stdio 上换行分帧的 JSON。
 
 | 方向 | 消息 | 载荷 |
 |---|---|---|
@@ -175,7 +175,7 @@ sequenceDiagram
 - 缺少执行后端或身份配置时明确失败，错误码 `execution_unavailable`，不回退到后台账户执行，也不改用其他执行方式。完全访问的执行入口在提交与切换模式时检查，缺失即拒绝、任务不创建；macOS 上的完全访问需要本机独立账户加 sudo 固定参数包装，属于拥有者的部署前置，没有入口时同样以 `execution_unavailable` 拒绝。容器运行时是否可用要到启动工作进程时才知道：docker 不可用时任务仍可入队，首个工具调用以 `execution_unavailable` 拒绝，命令不执行。
 - 启动器与模式必须匹配：容器启动器只用于 `confirm` 与 `auto-review`，systemd 启动器只用于 `full_access`，不匹配抛 `invalid_state`。
 - 停止以整个执行单元为单位并核实退出：只杀 Docker CLI，或等 Shell 主 PID 消失，都不足以证明子进程已退出。核实不了时保留目录占用并报告 `task.tool_process_unreaped`；后台崩溃后不假定容器随父进程销毁，重启恢复保留中断任务的占用。
-- 镜像在构建时打包工作进程代码，改动 `src/agent/tool-worker/` 后必须重建镜像。
+- 镜像在构建时打包工作进程代码，改动 `packages/agent/src/tool-worker/` 后必须重建镜像。
 - 已知上限：挂载别名造成的祖先关系识别不出；`local` 后端没有隔离。
 
 ### Git 与副本

@@ -1,3 +1,4 @@
+import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）的本机冒烟。
  *
@@ -7,7 +8,7 @@
  * running 并种下遗留占用——恢复的判定输入与真实崩溃后的库内容一致）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （Docker 容器后端，04/11/12/14 已验证的 macOS 受限执行边界）+ 真实 CLI
- * （bin/ruukoto-code.mjs resume-queue，经 socket 与拥有者令牌）。
+ * （apps/ruukoto-code/bin/ruukoto-code.mjs resume-queue，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应）：
  *  B1. 重启时排队的委派任务定 interrupted（backend_restart）：不自动继续
@@ -37,11 +38,11 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { waitFor, lastUserText, realTools, writeModelsJson } from "../../test/helpers/testkit.ts";
 import { MockModelServer, type Responder, type RecordedRequest } from "../../test/helpers/mock-provider.ts";
-import { Runtime, type RuntimeConfig } from "../../src/runtime/runtime.ts";
-import { ControlServer } from "../../src/control/server.ts";
-import { Db } from "../../src/core/db.ts";
-import { Store } from "../../src/core/store.ts";
-import { subAgentTaskRequestId } from "../../src/runtime/subagents.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 
 import { cleanupRuntime, requireDocker, requireNoArgs } from "./gate.ts";
 
@@ -133,7 +134,7 @@ const config: RuntimeConfig = {
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  productType: "ruukoto-code",
+  product: codingProduct.runtime,
   ...realTools(),
   execution: { backend: "container", container: { uid: UID, gid: GID } },
 };
@@ -272,7 +273,7 @@ try {
     assert.equal(server.calls.filter((c) => inputText(c).includes("SMOKE15-R1")).length, 0, "旧执行不并发重跑");
   });
   await check("B2 真实 CLI resume-queue：释放占用、解除暂停、Agent 回 idle", async () => {
-    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "bin", "ruukoto-code.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
+    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
     assert.match(out, /"queueState": "active"/, out);
     assert.equal(rt.store.listAllOccupancy().filter((o) => o.sessionId === agent.sessionId).length, 0, "占用释放");
     assert.equal(rt.store.getSession(agent.sessionId)!.queueState, "active");

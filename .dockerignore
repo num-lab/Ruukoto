@@ -1,6 +1,7 @@
 .git
 .gitignore
 node_modules
+dist
 .scratch
 docs
 test

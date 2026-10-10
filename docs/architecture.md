@@ -6,6 +6,7 @@ Ruukoto 是一个单仓库交付两个产品（`ruukoto` 个人 Agent、`ruukoto
 
 | 模块 | 一句职责 | 主要依赖方向 |
 | --- | --- | --- |
+| [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口、能力声明与专属装配 | 注入共享 runtime，调用共享 CLI；产品包互不依赖 |
 | [runtime](modules/runtime.md) | 拥有任务生命周期、会话身份、队列与 SubAgent 委派的编排 | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [agent-context](modules/agent-context.md) | 组装每次模型调用的上下文：资料范围、历史、参考块、压缩与记忆 | 依赖 core 的存储与会话文件；被 runtime 的驱动循环调用 |
@@ -17,7 +18,9 @@ Ruukoto 是一个单仓库交付两个产品（`ruukoto` 个人 Agent、`ruukoto
 | [scheduler](modules/scheduler.md) | 持久调度计划与通知 outbox 的发送账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
 | [deploy](modules/deploy.md) | 部署的系统身份、单元、提权入口与服务管理 | 不参与运行时调用；定义后台与执行账户的运行环境 |
 
-依赖方向的总体形态：`core` 在最底层，`runtime` 是编排中心，`control`／`tui` 与 `channels`／`scheduler` 是两条驱动路径，`execution` 是唯一把执行移出后台进程的边界。
+六个共享包在 `packages/{core,agent,channels,runtime,control,tui}`。agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；各 app 的 `product.ts` 声明差异。共享 CLI、开发启动器、工作区组织迁移与旧群结果查询供两产品使用。
+
+运行时值依赖为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`tui → control/runtime/agent/core`；control 通过注入的 Runtime 实例提供服务。反向类型引用在 devDependencies 声明。ESLint 拒绝未声明依赖、越层值引用与跨包相对路径。worker、schema 与控制面协议单点持有。
 
 ## 主流程一：任务生命周期
 
@@ -162,6 +165,7 @@ sequenceDiagram
 
 - [任务由后台进程持有，终端只负责交互](../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：后台与客户端分离、事件流恢复与请求幂等的基础决定。
 - [两个 Agent 产品独立运行，固定 coding 与 chat 角色退役](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品共用一个仓库与一套控制面，各自独立档案与实例锁。
+- [同仓 workspaces 分包](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)：产品装配、共享包与 import 检查的归属。
 - [工具执行放进边界内的工作进程，受限任务按任务建容器，完全访问用专用执行账户](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行边界的形态与失败策略。
 - [完整保留会话历史，单独组装模型上下文](../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：历史与上下文的分工，决定了 core 与 agent-context 的边界。
 - [工作委托、SubAgent 与执行任务分开保存](../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：委派三层数据模型与一层派生的来源。

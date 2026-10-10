@@ -5,10 +5,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { ArtifactReadError, ArtifactStore } from "../src/agent/artifacts.ts";
-import { InboundMediaStore, MAX_INBOUND_IMAGE_BYTES, INBOUND_MEDIA_ORPHAN_TTL_MS, type InboundMediaDownload } from "../src/runtime/inbound-media.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { ArtifactReadError, ArtifactStore } from "@ruukoto/agent/artifacts.ts";
+import { InboundMediaStore, MAX_INBOUND_IMAGE_BYTES, INBOUND_MEDIA_ORPHAN_TTL_MS, type InboundMediaDownload } from "@ruukoto/channels/inbound-media.ts";
 
 const IMAGES = [
   { mime: "image/jpeg", bytes: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2]) },

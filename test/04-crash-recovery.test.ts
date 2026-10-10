@@ -24,7 +24,7 @@ import {
   readMarkerCount,
 } from "./helpers/testkit.ts";
 import { killBackend, spawnBackend, spawnBackendRaw, type Backend } from "./helpers/backend.ts";
-import { parseSessionFile } from "../src/core/history.ts";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
 
 test("工具已产生标记但未记录结果时崩溃：中断保留事实，不重放，排队不自动启动", async () => {
   const server = new MockModelServer(
@@ -70,7 +70,7 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     const { projectId, sessionId } = await createProjectSession(backend.client, workA);
 
     // 第二个实例必须被拒绝（进程级）
-    const second = spawnBackendRaw(["src/cli.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir]);
+    const second = spawnBackendRaw(["apps/ruukoto/src/main.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir]);
     const secondCode: number | null = await new Promise((resolve) => {
       second.once("exit", (code) => resolve(code));
       setTimeout(() => resolve(-999), 30_000);

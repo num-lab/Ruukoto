@@ -12,7 +12,7 @@ import { test } from "node:test";
 import * as childProcess from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
-import { resolveEntry } from "../src/cli-entry.ts";
+import { resolveEntry } from "@ruukoto/tui/cli-entry.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
@@ -108,7 +108,7 @@ test("错误情形 → help + error", () => {
 
 function runCli(args: string[], opts: { bin?: boolean } = {}): { status: number | null; stdout: string; stderr: string } {
   const cmd = opts.bin ? process.execPath : tsxBin;
-  const argv = opts.bin ? [path.join(repoRoot, "bin", "ruukoto.mjs"), ...args] : ["src/cli.ts", ...args];
+  const argv = opts.bin ? [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), ...args] : ["scripts/start.ts", ...args];
   const r = childProcess.spawnSync(cmd, argv, { cwd: repoRoot, encoding: "utf8", timeout: 120_000 });
   if (r.error) throw r.error;
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };

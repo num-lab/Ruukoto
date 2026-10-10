@@ -9,9 +9,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { AgentRole, AgentRoleId, SubAgent, ToolCategory } from "../src/core/types.ts";
-import { classifySession, CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED, type SessionIdentity } from "../src/core/session-identity.ts";
-import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type SessionToolClass } from "../src/agent/tool-availability.ts";
+import type { AgentRole, AgentRoleId, SubAgent, ToolCategory } from "@ruukoto/core/types.ts";
+import { classifySession, CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED, type SessionIdentity } from "@ruukoto/core/session-identity.ts";
+import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type SessionToolClass } from "@ruukoto/agent/tool-availability.ts";
 
 const role = (id: AgentRoleId): AgentRole => ({ id, projectId: "p", sessionId: "s", workDir: "/w", modelSelection: null, tools: [], createdAt: "" });
 const agent: SubAgent = { id: "a", parentSessionId: "ps", sessionId: "s", workDir: "/w", activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };

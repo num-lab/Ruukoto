@@ -11,7 +11,7 @@ import { join, relative, resolve, sep } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 
 /** 扫描范围：源码与入口脚本可能引用文档。 */
-const DIRECTORIES = ["src", "bin", "scripts"];
+const DIRECTORIES = ["packages", "apps", "scripts"];
 
 /** 根相对、带扩展名的文档路径令牌。 */
 const DOC_REF = /(?:\.agents\/notes|docs)\/[A-Za-z0-9._/-]+\.md/g;

@@ -1,12 +1,12 @@
 /**
- * 真实子进程后台（崩溃恢复测试共用）：tsx 启动 src/cli.ts start，
+ * 真实子进程后台（崩溃恢复测试共用）：tsx 启动 packages/tui/src/cli.ts start，
  * 按进程组 SIGKILL；连接控制面并以拥有者令牌认证。
  */
 
 import * as childProcess from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
-import { ControlClient } from "../../src/control/client.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 import { authenticateClient } from "./testkit.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -35,7 +35,7 @@ export function killProcessTree(child: childProcess.ChildProcess): void {
 export async function spawnBackend(dataDir: string, agentDir: string): Promise<Backend> {
   const child = childProcess.spawn(
     tsxBin,
-    ["src/cli.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
+    ["apps/ruukoto/src/main.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
     { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
   let stderr = "";

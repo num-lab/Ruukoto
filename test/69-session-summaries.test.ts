@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
 import { routeResponder, startTestRuntime } from "./helpers/testkit.ts";
 
 test("会话摘要：首条用户输入与最后任务活动持久化，设置事件不改变活跃时间", () => {

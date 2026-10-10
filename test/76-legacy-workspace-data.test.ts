@@ -42,16 +42,16 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store, StoreConflictError } from "../src/core/store.ts";
-import { findWorkspaceProjects, sessionDisplayAttribution } from "../src/control/workspace.ts";
-import type { DirIdentity } from "../src/core/dir-identity.ts";
-import type { MigrationPreview } from "../src/runtime/workspace-migration.ts";
-import { ViewState } from "../src/tui/state.ts";
-import type { PersistentEvent, Project, Session } from "../src/core/types.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store, StoreConflictError } from "@ruukoto/core/store.ts";
+import { findWorkspaceProjects, sessionDisplayAttribution } from "@ruukoto/control/workspace.ts";
+import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
+import type { MigrationPreview } from "@ruukoto/runtime/workspace-migration.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
+import type { PersistentEvent, Project, Session } from "@ruukoto/core/types.ts";
 import { startTestRuntime, createProjectSession, waitFor, realTools, lastUserText, type TestRuntime } from "./helpers/testkit.ts";
 import { seedCodingRole } from "./helpers/legacy-coding.ts";
-import { previewWorkspaceMigration, applyWorkspaceMigration } from "../src/runtime/workspace-migration.ts";
+import { previewWorkspaceMigration, applyWorkspaceMigration } from "@ruukoto/runtime/workspace-migration.ts";
 
 // ---------- v20 → v21 迁移 ----------
 

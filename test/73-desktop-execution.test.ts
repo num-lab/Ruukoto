@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import * as childProcess from "node:child_process";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { ControlClient } from "../src/control/client.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import {
   authenticateClient,
@@ -58,7 +58,7 @@ async function spawnBackend(opts: {
   const binFile = opts.product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-code.mjs";
   const child = childProcess.spawn(
     process.execPath,
-    [nodePath.join(repoRoot, "bin", binFile), "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir, "--tools", "mock", ...(opts.extraArgv ?? [])],
+    [nodePath.join(repoRoot, "apps", binFile.replace(/\.mjs$/, ""), "bin", binFile), "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir, "--tools", "mock", ...(opts.extraArgv ?? [])],
     { cwd: repoRoot, env, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
   let stderr = "";
@@ -234,7 +234,7 @@ test("非法 --execution 取值仍在入口拒绝", async () => {
       process.execPath,
       [
         nodePath.join(repoRoot, "node_modules", ".bin", "tsx"),
-        "src/cli.ts",
+        "apps/ruukoto/src/main.ts",
         "server",
         "--data-dir",
         dirs.dataDir,

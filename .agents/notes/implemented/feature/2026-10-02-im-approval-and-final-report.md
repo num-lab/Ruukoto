@@ -32,7 +32,7 @@ Status: implemented
 
 原“子任务唤醒不产生 owner 回复”的例外只限 IM 发起通用工作的收尾轮次，旧 coding draft 链仍不外发。唤醒任务没有可信通知目标时，`notification_enqueue` 直接拒绝、没有审批或发送；IM 来源任务自行申请的新通知仍走独立审批。唤醒轮次不能调用拥有者来源的委派工具，后续续派发生在拥有者/IM 消息轮次，其活动执行自然推迟收尾；不把实施前“在本轮继续委派”的假设当现状。
 
-当前实现由 [ImApprovals](../../../../src/runtime/im-approvals.ts)维护审批控制链，[父级送达](../../../../src/runtime/parent-delivery.ts)判定结果唤醒与工作收尾，[IM 入口表](../../../../src/runtime/im-entries.ts)登记固定目标回复。两条路径不新增模型汇报工具或独立发送表。
+当前实现由 [ImApprovals](../../../../packages/channels/src/im-approvals.ts)维护审批控制链，[父级送达](../../../../packages/runtime/src/parent-delivery.ts)判定结果唤醒与工作收尾，[IM 入口表](../../../../packages/channels/src/im-entries.ts)登记固定目标回复。两条路径不新增模型汇报工具或独立发送表。
 
 ## 备选方案
 

@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * issue 30：上下文压缩（压缩点、第一层清理、滚动摘要、兜底移出标记）。
  *
@@ -14,7 +15,7 @@ import * as path from "node:path";
 import { Type } from "typebox";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { checkToolPairing, type ContextAssembly } from "../src/agent/context-assembly.ts";
+import { checkToolPairing, type ContextAssembly } from "@ruukoto/agent/context-assembly.ts";
 import {
   DEFAULT_BUDGET_CONFIG,
   planCompaction,
@@ -22,15 +23,15 @@ import {
   selectionBreakdown,
   type CheckpointInput,
   type SelectorInput,
-} from "../src/agent/context-selector.ts";
-import { configRevision, saveSummaryModel } from "../src/agent/model-config.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { OfflineModelBackend } from "../src/config-tui/index.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { parseSessionFile } from "../src/core/history.ts";
-import { compactionText, EventFlow } from "../src/tui/event-flow.ts";
-import { contextBarLines } from "../src/tui/app.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
+} from "@ruukoto/agent/context-selector.ts";
+import { configRevision, saveSummaryModel } from "@ruukoto/agent/model-config.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { OfflineModelBackend } from "@ruukoto/tui/config-tui/index.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
+import { compactionText, EventFlow } from "@ruukoto/tui/tui/event-flow.ts";
+import { contextBarLines } from "@ruukoto/tui/tui/app.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { MockModelServer, type MockResponse, type RecordedRequest } from "./helpers/mock-provider.ts";
 import {
   afterTool,
@@ -541,17 +542,20 @@ interface Host {
   events(): any[];
 }
 
-async function startHost(prefix: string, respond: ReturnType<typeof responder>, config: Partial<RuntimeConfig> = {}, contextWindow = 200_000): Promise<Host> {
+async function startHost(prefix: string, respond: ReturnType<typeof responder>, config: Partial<RuntimeConfig> = {
+    product: personalProduct.runtime,}, contextWindow = 200_000): Promise<Host> {
   const { dirs, work } = await makeTestDirs(prefix, 1);
   const server = new MockModelServer(respond);
   await writeModelsJson(dirs, await server.start(), contextWindow);
   const full: Partial<RuntimeConfig> = {
+    product: personalProduct.runtime,
     toolFactory: (ctx) => [...createMockTools(ctx), bigTool],
     ...config,
     budgetOverrides: { compactionHighWater: HOST_H, ...config.budgetOverrides },
   };
   const boot = async () => {
     const runtime = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
       thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", ...full,
     });

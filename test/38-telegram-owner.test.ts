@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * Telegram owner 入口集成测试（daily-agent issue 04）：本地模拟 Bot API + mock 模型。
  *
@@ -13,8 +14,8 @@
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
@@ -45,6 +46,7 @@ async function harness(prefix: string): Promise<Harness> {
   const api = new FakeBotApi({ token: TOKEN, ownerId: OWNER });
   const apiBase = await api.start();
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -186,7 +188,7 @@ test("断线重连不丢消息；重启后重投不重复；重启补登回复�
     const taskA = mainTasks(rt).find((t) => t.input.includes("MARK-A"))!;
     const opA = replyOps(rt).find((o) => o.taskId === taskA.id)!;
     await rt.stop("test_restart");
-    const { Db } = await import("../src/core/db.ts");
+    const { Db } = await import("@ruukoto/core/db.ts");
     const db = new Db(h.config.dataDir);
     db.prepare("DELETE FROM notification_ops WHERE id = ?").run(opA.id);
     db.prepare("UPDATE tasks SET result_summary = NULL WHERE id = ?").run(taskA.id);
@@ -247,7 +249,7 @@ test("配置校验：凭据用途/host/格式、api_base 协议；停用后未�
 });
 
 test("schema v13 → v14：升级保留发送账本并新建 telegram_config 与 not_before 列", async () => {
-  const { Db, SCHEMA_VERSION } = await import("../src/core/db.ts");
+  const { Db, SCHEMA_VERSION } = await import("@ruukoto/core/db.ts");
   const { dirs } = await makeTestDirs("tg-migrate", 0);
   try {
     let db = new Db(dirs.dataDir);

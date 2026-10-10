@@ -1,16 +1,17 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /** 新闻计划：真实宿主链路 + 本地 Tavily，固定时钟与模拟 outbox 渠道。 */
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import * as path from "node:path";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import type { ControlClient } from "../src/control/client.ts";
-import { ControlServer } from "../src/control/server.ts";
-import type { NotifyTarget } from "../src/core/types.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { parseNewsSpec, newsPolicyText } from "../src/scheduler/news.ts";
-import { firstDue, parseRule } from "../src/scheduler/time.ts";
+import type { ControlClient } from "@ruukoto/control/client.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import type { NotifyTarget } from "@ruukoto/core/types.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { parseNewsSpec, newsPolicyText } from "@ruukoto/channels/scheduler/news.ts";
+import { firstDue, parseRule } from "@ruukoto/channels/scheduler/time.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, connectAuthedClient, lastUserText, makeTestDirs, pendingConfirmation, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 
@@ -65,6 +66,7 @@ async function harness(prefix: string, respond: (query: string, index: number) =
     },
   };
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off",
     toolFactory: (ctx) => createMockTools(ctx),

@@ -1,6 +1,6 @@
 # 开发与验证
 
-从完整仓库的根目录运行以下命令。应用复用 `verification/foundation/` 的 SDK 验证，基础验证也引用根目录的测试助手；两套依赖均由锁文件固定。
+从完整仓库的根目录运行以下命令。npm workspaces 包含 `packages/*` 与 `apps/*`，共用根锁文件；`verification/foundation/` 保持独立包和锁文件。应用复用基础验证，基础验证也引用根目录的测试助手；测试与助手集中保留在根 `test/`。
 
 ```bash
 npm run setup
@@ -13,9 +13,9 @@ npm run check
 
 | 根目录命令 | 检查范围与产物 |
 | --- | --- |
-| `npm run build` | 打包 `worker/worker.mjs`，无需 Docker；应用入口仍通过 tsx 运行源码 |
+| `npm run build` | 单次打包 `worker/worker.mjs`，再生成 `dist/ruukoto-0.1.0.tgz` 与 `dist/ruukoto-code-0.1.0.tgz`；无需 Docker，应用通过 tsx 运行源码 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
-| `npm run typecheck` | 应用与基础验证的静态类型检查 |
+| `npm run typecheck` | 根测试与脚本、每个 workspace 包、基础验证各自执行静态类型检查 |
 | `npm test` | 应用与基础验证的全部离线测试；真实模型用例按默认开关跳过 |
 | `npm run check:static` | 依次执行 lint 与类型检查 |
 | `npm run check` | 依次执行 build、lint、类型检查与全部离线测试，任一步失败即停止 |
@@ -34,13 +34,13 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 
 | 修改位置 | 常用测试起点 |
 | --- | --- |
-| `src/cli-entry.ts`、`src/core/product.ts`、`src/dev.ts`、`src/code.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
-| `src/runtime/` 与 `src/control/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
-| `src/agent/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
-| `src/agent/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
+| `packages/tui/src/cli-entry.ts`、`packages/core/src/product.ts`、`packages/tui/src/dev.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
+| `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
+| `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
+| `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、worktree 与导入 | `test/80-subagent-delegation.test.ts` 至 `test/87-retire-coding-role.test.ts`、`test/91-release-acceptance.test.ts`、`test/95-work-copy.test.ts` |
-| `src/tui/`、`src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
-| `src/qq/`、`src/telegram/`、`src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
+| `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
+| `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 
 遇到失败时保留用例名、断言和环境信息，区分实现回归与环境前提。独立复现失败用例，然后修复原因；默认检查和 CI 不自动重试失败。现有历史耗时与结果见[发布验收](release-acceptance.md)的历史验证清单，不作为当前代码通过的证据。
 
@@ -94,7 +94,7 @@ npm run code -- --import-models ~/.ruukoto-code/agent   # 显式复制模型配�
 - **工作区入口**：`npm run code -- <路径>` 路径参数只接受一个已存在的目录，按真实目录身份创建或复用工作区并进入新会话；不新建目标目录。相对路径按 npm 脚本的当前目录（通常为本仓库）解析，路径含空格时加引号，目录与 CLI 命令同名也可使用。路径不能与 `--config` 同用，`dev` 不接受路径；目录身份与保护根校验沿用日常工作区入口，代码仓库本身不能用作工作区。路径只传给首次 TUI 启动，源码重载后恢复原会话、草稿与继续意图，不再次创建会话。
 - **环境清洗**：子进程先清除两产品目录变量、生产 owner token、执行账户配置与外部产品身份，再按 profile 显式注入 `RUUKOTO_PRODUCT` 与本产品的 `*_DIR`；固定注入 `RUUKOTO_DISABLE_QQ=1` 与 `RUUKOTO_DISABLE_TELEGRAM=1`，每次启动生效。
 - **执行后端**：沿用产品默认值，`dev` 为无隔离的 `local`，`code` 为 `container`。code 受限任务需要 Docker 与 worker 镜像，缺少执行环境时明确失败；开发入口不继承生产完全访问执行账户配置。
-- **进程与重载**：两个启动器管理自己启动的整组进程；退出界面或 Ctrl+C、关闭终端都统一清理后台／界面／监听。同一开发实例已有后台时报错，不附加或停止外部进程。监听仅限 `src/` 源码：后台代码变更优雅重启后台（活动任务保留中断事实，不自动重放），任务界面自动重连，配置界面不重连、随后台一并重载并恢复所在分区；只改任务／配置界面代码时不重启后台；共享模块变更两者都重启。连续变更合并处理，旧进程退出并释放锁后才启动替代进程。修改 `src/dev.ts` 或 `src/code.ts` 时提示手动重启当前 npm 命令。
+- **进程与重载**：两个启动器管理自己启动的整组进程；退出界面或 Ctrl+C、关闭终端都统一清理后台／界面／监听。同一开发实例已有后台时报错，不附加或停止外部进程。监听仅限 `packages/*/src/` 与 `apps/*/src/` 源码：后台代码变更优雅重启后台（活动任务保留中断事实，不自动重放），任务界面自动重连，配置界面不重连、随后台一并重载并恢复所在分区；只改任务／配置界面代码时不重启后台；共享模块变更两者都重启。连续变更合并处理，旧进程退出并释放锁后才启动替代进程。修改共享开发启动器或 app 的 `src/dev.ts` 时提示手动重启当前 npm 命令。
 - **界面状态恢复**：code 启动的任务界面把当前会话、未提交草稿与继续任务意图原子保存到 profile 的重载状态文件（0600；秘密表单值不写入，重载后重新输入）；重载后按数据实例标识核实恢复，记录无效时给出提示并按正常入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次启动内使用。
 - **日志与终端**：后台日志写 `<profile>/logs/backend.log`，监听诊断写 `dev.log`（无界面时打印到终端），不与界面输入／绘制串写。
 - **配置引导**：对应入口的 `--config` 缺少有效模型时先打开离线配置界面；保存有效配置并释放配置锁后启动开发后台，再切换为在线配置；放弃或保存失败不启动后台。配置中心退出后结束本次开发启动。旧 `dev -- --tui` 已删除。

@@ -7,9 +7,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
-import { ContextSendBlocked } from "../src/agent/context-assembly.ts";
-import { JEV_MODEL } from "../src/agent/jev.ts";
-import { jevConfigKey, JEV_CREDENTIAL_PURPOSE } from "../src/agent/jev-config.ts";
+import { ContextSendBlocked } from "@ruukoto/agent/context-assembly.ts";
+import { JEV_MODEL } from "@ruukoto/agent/jev.ts";
+import { jevConfigKey, JEV_CREDENTIAL_PURPOSE } from "@ruukoto/agent/jev-config.ts";
 import { startAssemblyKit, waitFor } from "./helpers/testkit.ts";
 
 const SECRET = "jev-test-private-key";

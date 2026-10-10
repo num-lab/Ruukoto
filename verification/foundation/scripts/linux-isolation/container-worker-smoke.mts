@@ -12,8 +12,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { createContainerLauncher, DEFAULT_CONTAINER_CONFIG } from "../../../../src/agent/execution/launchers.ts";
-import { ToolWorkerHost } from "../../../../src/agent/tool-worker/host.ts";
+import { createContainerLauncher, DEFAULT_CONTAINER_CONFIG } from "../../../../packages/agent/src/execution/launchers.ts";
+import { ToolWorkerHost } from "../../../../packages/agent/src/tool-worker/host.ts";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail: string): void {

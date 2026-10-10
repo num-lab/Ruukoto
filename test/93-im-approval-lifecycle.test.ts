@@ -4,13 +4,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { ApprovalGate } from "../src/agent/approval-gate.ts";
-import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { ApprovalScope, NotifyTarget, Task } from "../src/core/types.ts";
-import { ImApprovals, type ImApprovalsDeps } from "../src/runtime/im-approvals.ts";
-import { SchedulerStore } from "../src/scheduler/store.ts";
+import { ApprovalGate } from "@ruukoto/agent/approval-gate.ts";
+import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { ApprovalScope, NotifyTarget, Task } from "@ruukoto/core/types.ts";
+import { ImApprovals, type ImApprovalsDeps } from "@ruukoto/channels/im-approvals.ts";
+import { SchedulerStore } from "@ruukoto/channels/scheduler/store.ts";
 
 const SCOPE: Extract<ApprovalScope, { kind: "service_operation" }> = {
   kind: "service_operation", machineId: "machine", unit: "demo.service", action: "restart",

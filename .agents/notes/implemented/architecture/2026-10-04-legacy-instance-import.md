@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-实现集中在 `src/runtime/legacy-import.ts` 与 `ruukoto-code legacy-import` CLI；回执和条目账本由 schema v28 引入。
+实现集中在 `apps/ruukoto-code/src/legacy-import.ts` 与 `ruukoto-code legacy-import` CLI；回执和条目账本由 schema v28 引入。
 
 1. **目标侧离线执行。** `ruukoto-code legacy-import preview --from <源数据目录> [--plan 文件]`、`apply --plan 文件`、`revert <导入ID>`、`list` 只在 ruukoto-code 产品下可用，不走控制面；预览与应用都要求目标后台已停止，CLI 持目标实例锁运行。在线导入要处理事件广播与缓存，离线导入后由拥有者启动后台、客户端重连取新快照（补发超限时重取），语义更简单也更可核实。
 2. **源全程只读。** 源后台存活（或持锁进程身份无法核实）时拒绝，提示先停止或改用副本。快照 = 把 `ruukoto.db` 及其 WAL 侧车文件逐文件复制到临时目录（0700，命令结束删除），在副本上迁到当前 schema；不用 SQLite 连接直读源目录——读 WAL 库会在源目录生成 `-shm/-wal` 写入侧车。整个流程源目录逐文件 sha256 不变，任何错误路径都不修改源资料。

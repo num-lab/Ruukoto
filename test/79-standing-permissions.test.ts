@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * agent-direction issue 10：保存、使用和撤销限定的长期操作授权（standing permissions）。
  *
@@ -28,9 +29,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store, StoreConflictError } from "../src/core/store.ts";
-import type { NotifyTarget, StandingPermission } from "../src/core/types.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store, StoreConflictError } from "@ruukoto/core/store.ts";
+import type { NotifyTarget, StandingPermission } from "@ruukoto/core/types.ts";
 
 // ---------- 存储层夹具：真实 SQLite（同 test/63/64 风格） ----------
 
@@ -355,13 +356,13 @@ INSERT INTO notification_ops (id, source_kind, source_key, target, text, text_sh
 // ==================================================================
 
 import { createHash } from "node:crypto";
-import { createServiceTools, type ServiceToolsDeps } from "../src/agent/service-tools.ts";
-import type { HostToolContext } from "../src/agent/host-tools.ts";
-import { ApprovalGate } from "../src/agent/approval-gate.ts";
-import type { ApprovalRequest } from "../src/agent/approval-gate.ts";
-import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
-import { ArtifactStore } from "../src/agent/artifacts.ts";
-import { createManagedProcessRegistry } from "../src/agent/managed-processes.ts";
+import { createServiceTools, type ServiceToolsDeps } from "../apps/ruukoto/src/service-tools.ts";
+import type { HostToolContext } from "@ruukoto/agent/host-tools.ts";
+import { ApprovalGate } from "@ruukoto/agent/approval-gate.ts";
+import type { ApprovalRequest } from "@ruukoto/agent/approval-gate.ts";
+import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
+import { createManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
 const UNIT = "ruukoto-service-test.service";
@@ -780,8 +781,8 @@ test("模块级：可信的请求前拒绝（launched:false）为已知未执行
 // 端到端：IM 双平台 + 真实 Runtime（沿用 test/78 模式）
 // ==================================================================
 
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
@@ -828,6 +829,7 @@ async function imHarness(prefix: string, responder: Responder): Promise<ImHarnes
   const apiBase = await api.start();
   const svc = setupFakeService(dirs.root);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -899,8 +901,8 @@ const svcResponder = (): Responder => onelineSends("GO");
 const finalCame = (texts: () => string[], match: string) => texts().some((t) => t.includes("FINAL:") && t.includes(match));
 
 /** 找到排除已知任务外的最新 SVC-RESTART 主力（created_at 可能同一毫秒，不能用次序取最后一条）。 */
-async function nextSvcTask(rt: Runtime, exclude: ReadonlySet<string>): Promise<import("../src/core/types.ts").Task> {
-  let found: import("../src/core/types.ts").Task | null = null;
+async function nextSvcTask(rt: Runtime, exclude: ReadonlySet<string>): Promise<import("@ruukoto/core/types.ts").Task> {
+  let found: import("@ruukoto/core/types.ts").Task | null = null;
   await waitFor("新 SVC-RESTART 任务登记", () => {
     found = rt.store.listTasksBySession(rt.store.getAgentRole("main")!.sessionId).find((t) => t.input.includes("SVC-RESTART") && !exclude.has(t.id)) ?? null;
     return found !== null;

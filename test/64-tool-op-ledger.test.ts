@@ -1,3 +1,5 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 /**
  * 架构工单 05：工具操作账本（直接构造 Store 与假族核实，重启回归起真实 Runtime）。
  *
@@ -13,17 +15,17 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { ApprovalScope } from "../src/core/types.ts";
-import { ToolOpLedger, hasNoWriteEffect, type FamilyCheck } from "../src/agent/tool-op-ledger.ts";
-import { APP_DATA_LEDGER } from "../src/agent/app-data/tools.ts";
-import { SCHEDULER_LEDGER } from "../src/agent/scheduler-tools.ts";
-import { CHAT_RESULT_LEDGER } from "../src/agent/chat-result-tools.ts";
-import { WEB_SEARCH_LEDGER } from "../src/agent/web-search.ts";
-import { HOST_DATA_LEDGER } from "../src/agent/host-tools.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { ApprovalScope } from "@ruukoto/core/types.ts";
+import { ToolOpLedger, hasNoWriteEffect, type FamilyCheck } from "@ruukoto/agent/tool-op-ledger.ts";
+import { APP_DATA_LEDGER } from "@ruukoto/agent/app-data/tools.ts";
+import { SCHEDULER_LEDGER } from "@ruukoto/channels/scheduler/ledger.ts";
+import { CHAT_RESULT_LEDGER } from "@ruukoto/channels/chat-result-tools.ts";
+import { WEB_SEARCH_LEDGER } from "@ruukoto/agent/web-search.ts";
+import { HOST_DATA_LEDGER } from "@ruukoto/agent/host-tools.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, makeTestDirs, writeModelsJson } from "./helpers/testkit.ts";
 
@@ -208,13 +210,15 @@ test("无写入效果按工具名或持久化参数判定", () => {
   assert.equal(hasNoWriteEffect({ toolName: "hasOwnProperty", params: {} }), false, "原型链上的键不当作规则");
 });
 
-test("重启回归：活动任务未结束的 read 不标效果未知；终态任务残留的 bash 补标效果未知；中断事件按任务标记", async () => {
+for (const product of [personalProduct, codingProduct]) {
+test(`重启回归（${product.runtime.type}）：只读与旧个人账本可核实，bash 与已标记操作保持效果未知`, async () => {
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   const { dirs } = await makeTestDirs("ledger-restart", 0);
   try {
     await writeModelsJson(dirs, baseUrl);
     const config: RuntimeConfig = {
+      product: product.runtime,
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       socketPath: path.join(dirs.root, "c.sock"),
@@ -239,6 +243,9 @@ test("重启回归：活动任务未结束的 read 不标效果未知；终态�
       }
       db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES ('op_read', 'task_live', 'read', '{}', ?, 0)`).run(now);
       db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES ('op_bash', 'task_done', 'bash', '{}', ?, 0)`).run(now);
+      for (const name of ["schedule_create", "schedule_query", "service_inspect", "chat_result_list"]) {
+        db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES (?, 'task_live', ?, '{}', ?, 0)`).run(`op_${name}`, name, now);
+      }
     } finally {
       db.close();
     }
@@ -248,6 +255,12 @@ test("重启回归：活动任务未结束的 read 不标效果未知；终态�
       assert.equal(live.status, "interrupted");
       assert.equal(live.effectUnknown, false, "只读操作中止不算效果未知");
       assert.equal(rt2.store.getToolOp("op_read")!.resultSummary, "未完成：只读操作在后台重启前中止，无写入效果");
+      assert.match(rt2.store.getToolOp("op_schedule_create")!.resultSummary!, /已知未提交/);
+      for (const name of ["schedule_query", "service_inspect", "chat_result_list"]) {
+        const op = rt2.store.getToolOp(`op_${name}`)!;
+        assert.equal(op.effectUnknown, false);
+        assert.match(op.resultSummary!, /无写入效果/);
+      }
       const interrupted = (taskId: string) =>
         (rt2.store.getEventsAfter(0).find((e) => e.body.type === "task.interrupted" && (e.body as any).taskId === taskId)!.body as any).effectUnknown;
       assert.equal(interrupted("task_live"), false);
@@ -262,3 +275,4 @@ test("重启回归：活动任务未结束的 read 不标效果未知；终态�
     await cleanupDirs(dirs);
   }
 });
+}

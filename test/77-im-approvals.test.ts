@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * agent-direction issue 08：绑定拥有者在 QQ 私聊 / Telegram 私聊完成审批。
  *
@@ -19,11 +20,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import type { AppDataStore } from "../src/agent/app-data/store.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import type { NotificationOp } from "../src/scheduler/store.ts";
-import type { InboundEvent } from "../src/core/types.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import type { AppDataStore } from "@ruukoto/agent/app-data/store.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import type { NotificationOp } from "@ruukoto/channels/scheduler/store.ts";
+import type { InboundEvent } from "@ruukoto/core/types.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
@@ -83,6 +84,7 @@ async function imHarness(prefix: string, responder: Responder): Promise<ImHarnes
   const api = new FakeBotApi({ token: TG_TOKEN, ownerId: TG_OWNER });
   const apiBase = await api.start();
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),

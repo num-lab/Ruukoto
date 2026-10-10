@@ -1,6 +1,6 @@
 ---
 name: pre-push-checks
-description: 在 ruukoto 提交或推送前，按改动面选出能证明本次改动的最小检查集；明确要求、诊断 CI 或确实跨全仓时才跑全量 npm run check。改动 src/、test/、docs/、.agents/notes/、verification/、deploy/ 或 package.json 后使用。
+description: 在 ruukoto 提交或推送前，按改动面选出能证明本次改动的最小检查集；明确要求、诊断 CI 或确实跨全仓时才跑全量 npm run check。改动 packages/、apps/、test/、docs/、.agents/notes/、verification/、deploy/ 或 package.json 后使用。
 ---
 
 # 按改动面选检查
@@ -24,13 +24,13 @@ npm run change-scope -- --base <已核实的基点引用>
 
 | 改动面 | 跑到哪一级 |
 |---|---|
-| `src/` 某区的行为 | 该区的定向用例，文件名从 [开发说明的映射表](../../../docs/development.md#日常反馈) 查；跨模块契约变化时加调用方的用例 |
-| `src/core/` 的 schema、存储、会话身份 | `npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts`，另加直接断言该表或该状态机的用例 |
-| `src/agent/` 的工具、审批、权限 | `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts` |
-| `src/agent/` 的上下文、模型、压缩 | `npx tsx --test test/18-model-selection.test.ts test/60-context-prefix.test.ts test/61-context-compaction.test.ts` |
-| `src/runtime/`、`src/control/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
-| `src/tui/`、`src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
-| `src/qq/`、`src/telegram/`、`src/scheduler/` | `npx tsx --test test/26-qq.test.ts test/37-scheduler-outbox.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts` |
+| `packages/` 或 `apps/` 某模块的行为 | 该区的定向用例，文件名从 [开发说明的映射表](../../../docs/development.md#日常反馈) 查；跨模块契约变化时加调用方的用例 |
+| `packages/core/src/` 的 schema、存储、会话身份 | `npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts`，另加直接断言该表或该状态机的用例 |
+| `packages/agent/src/` 的工具、审批、权限 | `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts` |
+| `packages/agent/src/` 的上下文、模型、压缩 | `npx tsx --test test/18-model-selection.test.ts test/60-context-prefix.test.ts test/61-context-compaction.test.ts` |
+| `packages/runtime/src/`、`packages/control/src/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
+| `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
+| `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `npx tsx --test test/26-qq.test.ts test/37-scheduler-outbox.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts` |
 | SubAgent、worktree、旧实例导入 | `test/80`–`test/95` 里对应的那篇，加 `npx tsx --test test/91-release-acceptance.test.ts` |
 | `test/` 的夹具或助手 | 用该助手的用例。**只断言落盘布局的用例（直读 SQLite／裸 SQL）是本仓库的刻意做法**，不要以「只测行为」为由改写 |
 | `.agents/notes/` 的笔记 | `npm run verify-notes`；改了笔记的被引路径再加 `npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts` |

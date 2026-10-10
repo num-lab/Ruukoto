@@ -1,16 +1,17 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /** daily-agent issue 06：真实 Runtime + mock 模型 + 回环 OneBot，不接触真实 QQ。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { ControlClient } from "../src/control/client.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { NotifyTarget } from "../src/core/types.ts";
-import { QqStore } from "../src/qq/store.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { NotifyTarget } from "@ruukoto/core/types.ts";
+import { QqStore } from "@ruukoto/channels/qq/store.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { cleanupDirs, connectAuthedClient, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
@@ -36,6 +37,7 @@ async function harness(prefix: string, responder = reply, scheduler: RuntimeConf
   const model = new MockModelServer(responder);
   await writeModelsJson(dirs, await model.start());
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: createMockTools,
     telegramDisabled: true, qq: QQ_TIMEOUTS, scheduler: { tickMs: 30, sendTimeoutMs: 1_000, ...scheduler },

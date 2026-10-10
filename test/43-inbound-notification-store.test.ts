@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { NotifyTarget } from "../src/core/types.ts";
-import { SchedulerStore } from "../src/scheduler/store.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { NotifyTarget } from "@ruukoto/core/types.ts";
+import { SchedulerStore } from "@ruukoto/channels/scheduler/store.ts";
 
 const target: NotifyTarget = { channel: "mock", account: "bot", chatId: "owner", configVersion: 1 };
 

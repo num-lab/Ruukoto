@@ -8,10 +8,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Store } from "../../src/core/store.ts";
-import { QQ_GROUP_SOURCE, qqDedupKey, type QqInboxRow, type QqOutboxRow, type QqStore } from "../../src/qq/store.ts";
-import type { AcceptedChatResult, InboundEvent, ModelSelection, Task } from "../../src/core/types.ts";
-import { randomId, type Session } from "../../src/core/types.ts";
+import type { Store } from "@ruukoto/core/store.ts";
+import { QQ_GROUP_SOURCE, qqDedupKey, type QqInboxRow, type QqOutboxRow, type QqStore } from "@ruukoto/channels/qq/store.ts";
+import type { AcceptedChatResult, InboundEvent, ModelSelection, Task } from "@ruukoto/core/types.ts";
+import { randomId, type Session } from "@ruukoto/core/types.ts";
 
 // ---------- 旧群写入（QqStore 群写方法已随 issue 23 删除；只供播种旧归档） ----------
 

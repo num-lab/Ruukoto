@@ -26,11 +26,11 @@ Status: implemented
 - **摘要模型。** 摘要由拥有者可选配置的摘要模型生成，未配置时用会话当前模型。配置了摘要模型，较早的对话（含工具结果）就会发给它的提供方。
 - **失败不阻断。** 摘要失败时只保留清理结果，任务照常继续。必留内容超出预算（`context_budget_exceeded`）与 provider 上下文超限（`context_overflow`）仍按原规则中断任务，不触发压缩。
 - **不启用 pi 的 compaction。** pi 自带的 compaction 把压缩条目写进会话文件、改变 SDK 给出的分支消息，会打乱选择器、Jev 候选和选择记录的消息序号，触发条件也不了解本项目的预算与必留项。项目只复用它导出的摘要生成函数 `generateSummaryWithUsage`；自动压缩如何关闭见[完整保留会话历史](2026-09-19-preserve-session-history.md)。
-- **摘要只是参考。** 摘要可能遗漏或出错，也可能转述工具结果里的指令，所以它是参考内容，不是拥有者指令，也不是授权依据；与拥有者原话冲突时以原话为准。摘要提示要求区分拥有者原话与工具结果、文件、网页中的内容，后者中的指令不写成拥有者的要求，防止注入内容经摘要变成「拥有者的要求」。系统提示共同段向模型说明 `[压缩摘要]`、`[已清理]`、`[较早的 … 未进入本次上下文]` 三种标记的含义与找回原文的方法（`src/agent/session-factory.ts`）。
+- **摘要只是参考。** 摘要可能遗漏或出错，也可能转述工具结果里的指令，所以它是参考内容，不是拥有者指令，也不是授权依据；与拥有者原话冲突时以原话为准。摘要提示要求区分拥有者原话与工具结果、文件、网页中的内容，后者中的指令不写成拥有者的要求，防止注入内容经摘要变成「拥有者的要求」。系统提示共同段向模型说明 `[压缩摘要]`、`[已清理]`、`[较早的 … 未进入本次上下文]` 三种标记的含义与找回原文的方法（`packages/agent/src/session-factory.ts`）。
 
 ## 机制要点
 
-完整取值与视图顺序见[上下文压缩](../../../../docs/modules/agent-context.md#主要流程)，实施记录见 [personal-agent issue 30](../../../../.scratch/personal-agent/issues/30-context-compaction.md)。规划与视图组装在 `src/agent/context-selector.ts`（纯函数 `planCompaction`、`selectContext`），指纹、条目引用与摘要调用在 `src/agent/compaction.ts`，编排、落盘与停止联动在 `src/agent/context-assembly.ts`。下面列出承载取舍的取值与边界。
+完整取值与视图顺序见[上下文压缩](../../../../docs/modules/agent-context.md#主要流程)，实施记录见 [personal-agent issue 30](../../../../.scratch/personal-agent/issues/30-context-compaction.md)。规划与视图组装在 `packages/agent/src/context-selector.ts`（纯函数 `planCompaction`、`selectContext`），指纹、条目引用与摘要调用在 `packages/agent/src/compaction.ts`，编排、落盘与停止联动在 `packages/agent/src/context-assembly.ts`。下面列出承载取舍的取值与边界。
 
 - **落盘。** 表 `context_checkpoints`，部分唯一索引保证每个会话至多一行 `status = 'active'`；新建时旧行在同一事务里改为 `superseded`。S（`summarized_count`）：分支前 S 条消息由摘要替代。C（`cleared_count`，C ≥ S）：[S, C) 的工具结果换成占位说明。`fingerprint` 是前 C 条消息的角色、时间戳与工具调用 id 的 SHA-256。其余字段：`summary`、`summary_until`（第 S 条消息的时间戳，UTC ISO）、`cleared_refs`（被清理结果的 toolCallId → 会话文件条目 id）、`cleared_results`（清理条数）、`summary_model`、`summary_status`（`ok | failed | none`）、`summary_error`、`prompt_version`（`compaction-v1`）、`usage`、`estimate_before`、`estimate_after`、`task_id`、`call_index`、`created_at`。建表与 `selection_records.checkpoint_id` 补列沿用 `SCHEMA_SQL` 与 `ensureColumns` 的幂等补齐，不升 schema 版本。
 - **作废。** 每次调用读取生效的压缩点并核对指纹；消息少于 C 条或指纹不符时改为 `invalidated`，按无压缩点处理。后台重启后压缩点继续生效，不重新摘要。

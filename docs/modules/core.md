@@ -1,0 +1,333 @@
+# 存储与身份
+
+## 职责与边界
+
+`src/core/` 是全部模块的最底层，定义数据的落盘形态与「这个会话是什么」的判定。它持有档案根与目录布局、SQLite 核心库（`ruukoto.db`）与 `agent-data/main.db` 的 schema 与版本迁移、pi JSONL 会话文件、产物正文文件与入站图片暂存的读写边界、任务状态机及其字段、会话身份解析与执行画像的取数、目录与实例锁、以及产品归属登记。它不依赖其他模块，被全部模块依赖。
+
+它负责：
+
+- 决定数据目录里有什么：`dataDir`、`agentDir`、`control` 三个目录的默认位置、权限位与内容，以及两个产品与两个开发 profile 的档案根。
+- 建库与升 schema：全新库建全部表，旧库在同一事务里迁移到当前版本并在失败时整体回滚。
+- 写任务状态：状态集合、`interrupt_reason`／`cancel_requested`／`effect_unknown` 三列，以及终态的条件更新原语。
+- 判定会话身份：`Store.getSessionIdentity` 读出三行，纯函数 `classifySession` 给出四种身份之一；`executionProfile` 的输入由这里的身份、工作与任务行提供。
+- 划清三种存储的职责：pi JSONL 是消息历史的唯一权威副本、SQLite 只存元数据与事件、产物正文在产物文件而 SQLite 只存其元数据。
+- 实例锁与配置锁：以 `mkdir` 原子创建，用 `owner.json` 核实持锁进程身份。
+
+它不负责：
+
+- 旧实例导入的命令与操作步骤见 [usage](../usage.md)；导入的设计（源只读、离线执行、allow-list、回执与回退边界、执行归属交接）见 [runtime](runtime.md)；本篇只写数据布局与 `<dataDir>/migration/<导入ID>/target-before.db` 这个目录的存在与用途。
+- 身份判定之后「谁允许做什么」的结论归 [runtime](runtime.md)：提交、改默认模式、切换模式、队列兜底各自怎么按身份拒绝或取消。本篇只写由哪些行、哪个函数判定。
+- 工具可用性清单、审批闸门、工具操作账本与 MCP 见 [agent-tools](agent-tools.md)；执行边界内的目录身份核对见 [execution](execution.md)。
+- 控制面 socket 的协议与拥有者认证见 [control](control.md)；调度与发送账本见 [scheduler](scheduler.md)；IM 平台连接见 [channels](channels.md)。
+
+## 对外接口
+
+| 调用方 | 入口 | 说明 |
+|---|---|---|
+| 全部模块 | `Db(dataDir)`（`src/core/db.ts`） | 打开或创建 `ruukoto.db`；`SCHEMA_VERSION` 是当前 schema 版本；`getInstanceId()` 返回持久的数据实例标识 |
+| 全部模块 | `Store`（`src/core/store.ts`） | 表级 SQL 原语：任务、占用、确认请求、工具操作、产物、事件、授权、记忆与版本、历史索引、选择记录、压缩点、MCP、平台与调度表、SubAgent 与工作、导入回执与账本 |
+| Runtime、Driver | `Store.getSessionIdentity(sessionId)` | 一次读出会话、角色行与 SubAgent 行后调用 `classifySession`；会话不存在返回 `null` |
+| Runtime、Driver | `Store.getSubAgentBySession(sessionId)` | 按独立子会话反查 `sub_agents` 绑定，是宿主识别动态身份的唯一依据 |
+| Driver | `executionProfile({ identity, writeTarget, review, planMode })`（`src/agent/tool-availability.ts`） | 由身份、任务所属工作是否有写入目标、是否宿主评审与任务钉定的 `planMode` 算出执行画像 |
+| Driver、context-assembly | `ArtifactStore`（`src/agent/artifacts.ts`） | `begin` / `append` / `complete` / `importImage` / `read` / `readImage` / `byteLength` |
+| Runtime、channels | `InboundMediaStore`（`src/runtime/inbound-media.ts`） | `stage` / `promote` / 恢复与过期清理 |
+| control、Runtime | `Db.tx` / `Store.withTx` | 单事务写入；`Db.tx` 不能嵌套 |
+| Runtime | `acquireInstanceLock(dataDir)`、`acquireConfigLock(agentDir)`（`src/core/instance-lock.ts`） | 获取 `<dataDir>/runtime.lock/` 与 `<agentDir>/config.lock/` |
+| control | `src/core/history.ts` 的 `readHistoryPage` / `readHistoryEntryText` / `readToolResult` | pi JSONL 的分页与分段只读读取；`history_index` 由 `src/core/history-index.ts` 维护与检索 |
+| control、Runtime、execution | `src/core/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份：`realpath` 规范化加 `dev`／`ino` |
+| Runtime、control | `PRODUCT_META_KEY` 与 `src/core/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
+
+路径与配置键：
+
+| 键 | 含义 |
+|---|---|
+| `RUUKOTO_PRODUCT` | 产品身份；缺省 `ruukoto`，另一个取值是 `ruukoto-code`；非法取值直接报错，不静默落到错误产品 |
+| `RUUKOTO_DATA_DIR` / `RUUKOTO_AGENT_DIR` / `RUUKOTO_CONTROL_DIR` / `RUUKOTO_PENDING_DIR` | ruukoto 的四类路径覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 同名变量，同机并存不串用 |
+| `product.type` | 核心库 `meta` 表里登记的产品归属；跨产品复用同一数据目录被拒绝 |
+| `schema_version` / `instance_id` | `meta` 表里的 schema 版本与数据实例标识 |
+
+控制接口按 id、偏移与长度读取产物正文：`queryArtifact({ taskId, artifactId, offset?, length? })` 校验产物属于该任务，`offset` 下限 0，`length` 默认 256 KiB、上限 720 KiB（按线上帧约束：base64 膨胀 4/3 加 JSON 开销必须留在 `MAX_FRAME_BYTES` 即 4 MiB 内），返回 `base64` 编码的片段。模型侧读产物的工具是 `read_artifact`，参数 `artifact_id` / `offset` / `length`，单次上限 64 KiB，默认按 `utf8`、可显式选 `base64`。
+
+## 数据与状态
+
+### 档案根与目录布局
+
+档案根按产品分开：ruukoto 默认 `~/.ruukoto`，`ruukoto-code` 默认 `~/.ruukoto-code`，两者的内容结构一致。两个产品的开发实例另用 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常实例完全隔离，不继承生产凭据与配置；ruukoto 的开发 profile 保留现有开发历史，ruukoto-code 的开发 profile 不自动迁入 dev 历史。以下为单个产品实例的布局（以 ruukoto 默认路径为例）：
+
+```
+<dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v32）
+├── ruukoto.db-wal / -shm
+├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
+├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
+├── inbound-media/             # 0700；入站图片暂存（文件 0600），尚未成为任务产物
+├── migration/<导入ID>/        # 跨实例导入记录（0700）
+│                              #   target-before.db = 导入前目标库备份（整库恢复路径）
+└── runtime.lock/              # 实例锁（mkdir 原子创建；owner.json 记录 pid 与进程启动身份）
+
+<dataDir>/../qq-work/           # QQ 群会话专用空工作目录（每 账号_群 一个，0700）
+
+<dataDir>/../control/          # 0770（RUUKOTO_CONTROL_DIR 可覆盖）
+├── control.sock               # 控制面 Unix socket（0660）
+└── owner.token                # 拥有者令牌（0600；部署时复制给拥有者 0400）
+
+<dataDir>/artifacts/           # 0700；工具正文与不可变图片产物（<artifactId>.bin）
+
+<agentDir>/                    # 0700（RUUKOTO_AGENT_DIR，默认 ~/.ruukoto/agent）
+├── models.json                # 模型配置（显式指定，不读 ~/.pi/agent）
+├── auth.json                  # 模型凭据（同上；配置中心在线/离线维护，0600）
+├── default-model.json         # 后台默认模型（0600；--model 启动参数优先）
+├── credentials.json           # 服务凭据绑定（0600；审批注入用，值不展示）
+├── skills/                    # 全局技能库（拥有者维护）
+└── config.lock/               # 配置独占锁（后台运行期间持有，语义同实例锁）
+
+~/.ruukoto-code/                  # ruukoto-code 产品档案根（0700）：data/ agent/ control/ pending/
+
+~/.ruukoto-dev/<仓库>-<哈希>/      # ruukoto 开发 profile（npm run dev，0700）：
+                                  #   data/ agent/ control/ pending/ logs/
+~/.ruukoto-code-dev/<仓库>-<哈希>/ # ruukoto-code 开发 profile（npm run code，0700）：
+                                  #   同上结构
+```
+
+`RUUKOTO_CONTROL_DIR` 覆盖时控制面目录可落在档案之外；默认下它是数据目录的兄弟目录。`control.sock` 的 `chmod` 在个别平台不支持，此时目录权限仍然生效。
+
+### 三种存储的职责边界
+
+| 存储 | 权威内容 | 写入者 | 备注 |
+|---|---|---|---|
+| pi JSONL（`sessions/`） | 消息历史，唯一权威副本，只追加 | 每会话一个 pi SDK 实例 | `SQLite` 的 `history_index` 只是可重建的派生索引；文件登记在 `sessions.session_file` |
+| SQLite（`ruukoto.db`） | 元数据与事件 | `Store` 的 SQL 原语 | 不存消息历史正文，也不存产物正文 |
+| 产物文件（`artifacts/<artifactId>.bin`） | 工具正文与不可变图片产物 | `ArtifactStore` | SQLite 的 `artifacts` 只存归属、字节数、`status`、`mime_type` 与 `content_hash` |
+
+三者没有跨文件事务，不得声称原子提交。会话文件与库记录的对应关系在启动恢复时修复：登记的 `session_file` 缺失而同 `pi_session_id` 的文件存在时改用最新一份并发 `session.history_unreadable`，孤立记录也发同一事件；损坏的 JSONL 不覆盖、不静默跳过。
+
+### schema 版本与迁移
+
+`SCHEMA_VERSION` 是 `32`，写在 `meta` 表的 `schema_version` 键。
+
+- 文件版本高于程序版本：直接抛错「schema 版本过新」，要求升级程序，不做任何写入。
+- 文件版本等于程序版本：只幂等补齐缺失对象与缺失列。
+- 文件版本低于程序版本：关掉外键 pragma，在 `BEGIN IMMEDIATE` 事务里建表、`migrateFrom(version)`、补列、按需重建带 `CHECK` 的表，提交前跑 `PRAGMA foreign_key_check`，成功后写回版本号；任一步失败整体回滚并抛「schema 迁移失败」。
+- 不支持从更早的版本迁移时明确报错。
+- 缺 `meta` 表（全新库）按「无版本记录」处理，进入建表事务。
+- 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
+
+当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
+
+关键表的要点：
+
+| 表 | 关键列 |
+|---|---|
+| `meta` | `key` / `value`；`schema_version`、`instance_id`、`product.type`、`app_data.main_instance_id`、`github_retirement_done`、`jev.project.<项目>` |
+| `projects` | `id`、`name`、`create_request_id`、工作区根目录身份四列 `root_cwd` / `root_real` / `root_dev` / `root_ino`（四列同空即旧项目）、`instruction_files`、`web_search`、`settings_version`（并发保护） |
+| `sessions` | `id`、`project_id`、`kind`（`dev` / `qq_group`）、`cwd` / `cwd_real` / `cwd_dev` / `cwd_ino`、`pi_session_id`、`session_file`、`confirm_tools`、`create_request_id`、`queue_state`（`active` / `paused`）与 `queue_pause_reason`、`workspace_project_id`（组织归属仅展示，资料身份仍是 `project_id`）、`model_selection` 与版本、`default_access_mode` 与版本（`confirm` / `full_access` / `auto-review` / `plan`） |
+| `tasks` | `id`、`session_id`、`request_id`、`input`、`status`、`access_mode`、`plan_mode`、`permission_version`、`granted_paths`、`pending_access_mode`、`interrupt_reason`、`cancel_requested`、`effect_unknown`、`error_message`、`history_entry_ids`、`resumes_task_id`、`agent_id`、`parent_task_id`、`source_event_id`、`deadline`、`result_summary`、`result_ref`、`created_at` / `started_at` / `ended_at`；唯一键 `(session_id, request_id)` |
+| `occupancy` | `cwd_real` 主键、`cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`；释放按 `task_id` |
+| `confirmations` | `id`、`task_id`、`tool_op_id`、`tool_name`、`params`、结构化 `scope`、`cwd_dev` / `cwd_ino`、`permission_version`、`status`（`pending` / `approved` / `rejected` / `stale`）、`created_at` / `responded_at` / `consumed_at` |
+| `tool_ops` | `id`、`task_id`、`tool_name`、`sdk_call_id`、`params`、`intent_recorded_at`、`result_summary`、`is_error`、`effect_unknown`、`recorded_result_at` |
+| `artifacts` | `id`、`task_id`、`session_id`、`name`、`byte_count`、`status`（`partial` / `complete`）、`mime_type`（可空，`image/jpeg` / `image/png` / `image/webp`）、`content_hash`（可空）、`created_at` |
+| `events` | 自增 `seq`、`task_id`、`session_id`、`body`、`created_at` |
+| `inbound_events` | `source`、`external_id`（唯一即幂等键）、`body`、`artifact_refs`、`reply_target`、`event_kind`（`task` / `im_approval`）、`status`（`registered` / `queued` / `done` / `failed`） |
+| `inbound_media_messages` | `source` + `external_id` 唯一、`media_count`、`status`（`staging` / `ready` / `bound` / `rejected` / `expired`）、`reason`、`event_id`、`task_id` |
+| `inbound_media` | `message_id`、`media_index`、`declared_mime`、`mime_type`、`byte_count`、`content_hash`、`file_name`、`status`（`pending` / `downloading` / `ready` / `promoted` / `rejected` / `expired`）、`reason`、`event_id`、`task_id`、`artifact_id`；唯一键 `(source, external_id, media_index)` |
+| `instance_imports` | `request_key` 唯一、来源实例与产品、来源 schema 版本、来源目录、计划摘要、目标备份路径与 sha256、事件区间、报告、`status`（`applied` / `reverted`）、回退时间 |
+| `instance_import_items` | 主键 `(kind, item_id)`、`import_id`；`kind` 取值 `project` / `session` / `sub_agent` / `work_delegation` / `memory` / `grant` / `mcp` / `meta` / `file` / `agent_role` / `schedule` / `platform_config` / `standing_permission` / `credential` |
+| `agent_roles` | `id`（`main` / `coding` / `chat`）、`project_id`、`session_id` 唯一、`work_dir`、`model_selection`、`tools` |
+| `sub_agents` | `parent_session_id`、`session_id` 唯一、`work_dir`、`active_work_id`、`current_task_id`、`state`（`running` / `idle` / `unverified`）、`closed_at` / `closed_by` |
+| `work_delegations` | `parent_session_id`、`origin_task_id`、`sub_agent_id`、`request_key` + `params_digest`（唯一键 `(parent_session_id, request_key)`）、取消三列 `canceled_at` / `canceled_by` / `cancel_reason`、`write_target` |
+
+产物表的演进要点：`artifacts` 新增可空的 `mime_type` 与 `content_hash`，旧产物保持空值；`inbound_media_messages` 与 `inbound_media` 分别保存图片消息信封、拒绝状态及按原顺序的图片下载和最终归属记录。暂存与拒绝账本不跨实例导入，已提升图片沿任务产物复制并保留 MIME 与哈希。`tasks` 的 `plan_mode` 默认 0；会话默认模式的 `CHECK` 接受 `plan`。原访问模式、会话设置、任务与索引保留；旧输入不回填计划状态，旧 `/plan` 文本与继续链均不决定执行模式。
+
+### 任务状态机
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued
+  queued --> running: 队列取出
+  running --> awaiting_confirmation: 审批请求
+  awaiting_confirmation --> running: 批准并单次消费
+  running --> completed
+  running --> failed
+  running --> canceled
+  running --> interrupted
+  awaiting_confirmation --> canceled
+  awaiting_confirmation --> interrupted
+  completed --> [*]
+  failed --> [*]
+  canceled --> [*]
+  interrupted --> [*]
+```
+
+在线终态只有 `completed` / `failed` / `canceled` / `interrupted`。终态只经 `Store.endTask` 的条件更新写入：只有当前状态仍在起点集合里才继续，重复调用只记一份事实。
+
+中断原因、取消意图与外部效果是否确定分别记录在三列：`interrupt_reason` 存原因文本，`cancel_requested` 存取消意图，`effect_unknown` 存「效果无法核实」的任务级标记。已出现的原因标识包括 `backend_restart`、`backend_stop`、`cancel_requested`、`aborted`、`context_overflow`、`deadline_exceeded`、`mode_switch_unverified`、`mode_switch_failed:<原因>`、`history_unverified:<原因>`、`migration`，以及发送前最终检查的阻断原因（`context_budget_exceeded` 等前缀）。
+
+### 中断与效果分类
+
+停止、崩溃或重启时，结果缺失的工具操作按工具操作账本（`src/agent/tool-op-ledger.ts`）的分类器分三类：
+
+| 分类 | 判据 | 记录的结论 |
+|---|---|---|
+| 已知未执行 | 该操作有审批且全部未消费（`pending` / `stale` / `rejected`，或 `approved` 未消费） | 审批未消费即证明没执行；记明确结果，不再执行 |
+| 无写入效果 | 操作按族清单归类为 `no_effect`（只读工具、`GET` / `HEAD`、`request_file_access` 的读取等） | 「未完成：只读操作……中止，无写入效果」 |
+| 效果未知 | 其余已开始、效果无法从已提交记录核实的操作 | `effect_unknown`，发 `task.tool_effect_unknown` 并置任务级标记，不重放 |
+
+工具族能按宿主操作 ID 核实账本时以核实结果为准（`committed` / `not_committed`），无法核实时落入 `effect_unknown`。获批后复核或消费失败的批准标 `stale`，不能再用，操作同样按已知未执行记录。效果以停止瞬间为准：中止期间才落下的结果不改结论。
+
+### 会话身份判定
+
+身份只由宿主绑定确定，`src/core/session-identity.ts` 一次判定，任务、工具参数与模型结果不能改变它。读取与分类分开：`Store.getSessionIdentity(sessionId)` 读出会话行、`getAgentRoleBySession` 的角色行与 `getSubAgentBySession` 的 SubAgent 行三行，交给纯函数 `classifySession(session, role, agent)`；分类器不依赖 store。
+
+| 判定顺序 | 条件 | 身份 | 附带信息 |
+|---|---|---|---|
+| 1 | `sub_agents` 行存在 | SubAgent 会话 | 携带 `agent` 行；会话类别也是 `dev` |
+| 2 | `sessions.kind === "qq_group"` 或 `agent_roles.id === "chat"` | 已退役归档 | 原因 `core_group_chat_retired:核心群聊已退役（正式外挂后续交付）` |
+| 3 | `agent_roles.id === "coding"` | 已退役归档 | 原因 `coding_role_retired:固定 coding 角色已退役（委派改用通用 SubAgent）` |
+| 4 | `agent_roles.id === "main"` | main 会话 | 携带 `role` 行 |
+| 5 | 其余 | 普通开发会话 | — |
+
+SubAgent 行优先于角色与类别，所以子会话不会被误判成 main 或归档。退役原因的前缀即持久化原因标识：入站门卫弃、遗留排队任务取消、启动收尾与提交拒绝共用同一文本。
+
+**存储不收缩。** `tasks.agent_id`、`agent_roles.id`、`inbound_events.target_role` 的 `CHECK` 仍含 `coding` / `chat`，`sessions.kind` 仍含 `qq_group`——旧行就是这些取值，收缩约束等于改写历史。`AgentRoleId` 与各 `CHECK` 的旧取值保留，新增的身份与委派任务只以 main 或 SubAgent 登记。群项目的资料边界（main／coding 角色项目不能借授权读原始群项目）照旧。
+
+`executionProfile` 的取数来源：
+
+| 输入 | 来源 |
+|---|---|
+| `identity` | `Store.getSessionIdentity(sessionId)` |
+| `writeTarget` | `task.workId` 非空且 `Store.getWorkDelegation(task.workId).writeTarget` 非空 |
+| `review` | 身份是 SubAgent 且该任务带宿主评审的 MCP 计划 |
+| `planMode` | `tasks.plan_mode`（提交时钉定） |
+
+画像由此产出会话类别（`toolClass`，决定工具类别表与系统提示键）、SubAgent 工具集（只读 / 写入 / 宿主评审）、是否规划 MCP、是否资料受限与计划资格，以及 `toolSignature`。已退役归档会话求画像时明确报错「已退役的只读归档不运行任务」。
+
+### 目录身份
+
+`dev` 加 `ino` 与 `realpath` 一起构成目录身份，覆盖符号链接与挂载别名：`sameDirIdentity` 在 `cwdReal` 相同或 `dev` / `ino` 相同时判为同一目录。`verifyDirIdentity` 与同步变体在任务启动前与占用检查时核对登记值，不一致抛 `DirIdentityError`。
+
+### 入站图片暂存
+
+`<dataDir>/inbound-media/` 以 0700 创建、不接受符号链接，文件名固定为 `med_<hex>.bin`、权限 0600，写临时文件后 `rename` 落位。上限与时限：每条消息最多 4 张、每张最多 8 MiB、最多下载 3 次、每次最多 15 秒、暂存未绑定任务的记录 24 小时后清理（后台启动及之后每小时检查一次）。拒绝原因取固定错误码集合（`too_many_images`、`image_too_large`、`mime_unsupported`、`mime_mismatch`、`download_unavailable`、`download_failed`、`download_interrupted`、`media_corrupt`、`orphan_expired`、`image_input_unsupported`），平台错误正文不会成为拒绝说明。暂存文件在提升为任务产物后沿 `artifacts` 保留。
+
+### 实例锁与配置锁
+
+两种锁共用同一套 `mkdir` 锁语义（锁目录存在即视为持有中），锁目录里放 `owner.json`，记录 `pid`、`command`、`startedAt` 与 `processIdentity`：
+
+| 锁 | 路径 | 范围 |
+|---|---|---|
+| 实例锁 | `<dataDir>/runtime.lock/` | 同一数据目录只允许一个后台 |
+| 配置锁 | `<agentDir>/config.lock/` | 同一配置目录只允许一个在线后台或离线配置写入方；覆盖不同 `dataDir` 指向同一 `agentDir` 的情况 |
+
+遇到已有锁时不删除：读 `owner.json` 核实记录的进程启动身份——进程存活且是本后台则拒绝启动（已确认的活后台竞争使用专用退出码 `INSTANCE_LOCK_EXIT_CODE` 即 42），进程已死或 PID 被无关进程回收则视为遗留锁可接管，`owner.json` 缺失或损坏则无活跃实例证据可接管，无法核实进程身份则保留锁并要求人工处理。
+
+## 主要流程
+
+### 启动：目录、锁、产品归属与 schema
+
+```mermaid
+sequenceDiagram
+  participant R as Runtime
+  participant FS as 文件系统
+  participant L as 实例锁 / 配置锁
+  participant D as Db(ruukoto.db)
+  R->>FS: mkdir dataDir / agentDir / sessions（0700）
+  R->>L: acquireInstanceLock(dataDir)
+  R->>L: acquireConfigLock(agentDir)
+  R->>D: 打开库并建表 / 迁移 schema
+  D-->>R: instance_id
+  R->>D: 读 meta 的 product.type
+  alt 已登记且与当前产品不同
+    R-->>R: 抛 product_mismatch 并释放两把锁
+  else 未登记
+    R->>D: 写入 product.type
+  end
+```
+
+全新库在同一事务里建表并写版本号；旧库走迁移分支。产品归属核对在库打开之后、模型配置装配之前，不匹配即关库并释放两把锁，不做任何数据改动。`instance_id` 在库打开时补写，客户端待确认请求绑定该标识，换库后不会向空后台重发。
+
+### 任务终态与停止路径
+
+```mermaid
+sequenceDiagram
+  participant Rt as Runtime / Driver
+  participant L as ToolOpLedger
+  participant S as Store
+  Rt->>L: beginStop(taskId) 取结果缺失且可能已开始的操作快照
+  L-->>Rt: 需要分类的操作 id
+  Rt->>L: settleTask(task, snapshot) 按分类器补记
+  L->>S: recordResult（已知未执行 / 无写入效果 / 工具族核实结论）
+  L-->>Rt: 仍无法核实的操作 id
+  Rt->>S: 终态事务：endTask + markEffectUnknown + 使未消费审批 stale
+```
+
+`endTask` 在单个事务内做条件更新，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件并按任务 ID 释放占用。识别不了效果的操作在同一个终态事务里标 `effect_unknown`，并发出 `task.tool_effect_unknown`。已消费的服务审批范围在标记效果未知时使同目标的长期授权失效。
+
+### 后台崩溃恢复
+
+恢复是一个逻辑事务，任务中断、确认失效、占用事实、队列暂停与恢复事件要么全部提交、要么整体回滚：
+
+1. `ToolOpLedger.settleAll()` 覆盖全部任务（含终态）里结果缺失的操作：无写入效果与审批未消费记已知结论；工具族先按宿主操作 ID 核实；其余标 `effect_unknown`。
+2. 原 `running` / `awaiting_confirmation` 任务 → `interrupted`（原因 `backend_restart`），保留占用。
+3. 遗留占用逐条发 `occupancy.stale`，对应会话置 `paused`（原因 `occupancy_unverified`）。
+4. 有排队任务的会话置 `paused`（原因 `backend_restart`），由拥有者 `resume-queue` 显式恢复。
+5. 修复会话与 JSONL 的对应关系：登记的 `session_file` 缺失而同 `pi_session_id` 的文件存在时采用最新一份并发 `session.history_unreadable`；找不到时同样发事件说明。
+6. 最后发 `backend.recovered`，带上被中断的任务与会话清单。
+
+恢复不重放任何模型调用或工具操作；效果未知的操作只标记，由拥有者核实。
+
+### 正文产物的捕获与读取
+
+1. 工具在工作进程里产出数据块，`ArtifactStore.begin` 先在 `artifacts` 登记 `partial` 行，正文文件随首个数据块创建。
+2. `append` 先落盘再累加字节数；上游据此生成限长模型视图。先落盘再生成视图，避免先在工具里丢弃内容再声称全量留存。
+3. 结果回收后 `complete` 定稿；中断或写失败保持 `partial` 并保留已捕获部分与失败原因，不继续丢弃输出后报告完整成功。
+4. 读取按 `offset` / `length` 打开文件后定位读取，不把整个大文件加载进内存再切片；跨后台重启可按 id 查询。
+5. 图片产物走 `importImage`：先用实际文件签名核对 MIME，再核对字节数与 sha256，临时文件加 `linkSync` 落位（已存在同内容文件则复用，内容不同则报冲突），随后在同一事务里登记元数据；读取时每次核实归属、MIME、大小与哈希。图片产物大小上限 8 MiB，且不可修改。
+
+### 旧实例导入留下的数据痕迹
+
+应用导入时先对目标库 `VACUUM INTO` 备份到 `<dataDir>/migration/<导入ID>/target-before.db`（回执记录其 sha256），这是导入前目标库的核对备份；整库恢复保留为手工路径。回执写 `instance_imports`，逐项归属写 `instance_import_items`，外来的会话 JSONL 落在 `sessions/`、产物正文落在 `artifacts/<id>.bin`、应用数据覆盖 `agent-data/main.db`。导入写入的产品归属与目标备份不随回退移除，回退回到「已登记该产品的空实例」。命令、操作步骤与回退边界见 [usage](../usage.md) 与 [runtime](runtime.md)。
+
+## 不变量与失败处理
+
+**存储职责与原子性。**
+
+- pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；产物正文在产物文件、SQLite 只存其元数据。三者之间没有跨文件事务，不声称原子提交。
+- `history_index` 是可重建的派生数据；它处理到文件的哪个字节记在 `history_index_state`。文件尾部未换行的行视为正在写入的部分记录，不伪装成完整消息；完整行损坏即报 `history_corrupt`，不静默跳过。超大单条消息按字节分段读取，偏移对齐 UTF-8 字符边界。
+- 数据实例标识（`instance_id`）跨重启保留，换库即换标识；`app_data.main_instance_id` 与 `main.db` 的实例标识不符时能力停止、保留未知效果、不覆盖既有绑定；`main.db` 已登记但文件丢失时同样停止能力，不自动创建空库。
+
+**schema 与迁移。**
+
+- 版本过新明确拒绝，不尝试降级或截断数据。
+- 迁移与建表在一个事务里完成，任一步失败整体回滚；重建 `CHECK` 的表提交前跑外键检查，失败即回滚。
+- 不支持更早版本时明确报错，不静默跳过迁移。
+
+**状态与终态。**
+
+- 终态只经 `endTask` 的条件更新写入，只有起点集合包含当前状态才继续；重复终态不产生第二份事实。
+- 占用只在任务运行期持有；终态按任务 ID 释放。停止路径无法核实旧执行单元已退出时保留占用，并显式记 `task.tool_process_unreaped`，由拥有者核实后恢复。
+- 中断原因、取消意图与效果确定性是三个独立事实，任何一个都不能替代另一个。
+- 效果未知的操作不自动重发；效果以停止瞬间为准，中止期间才落下的结果不改结论。审批未消费与只读操作中止都不算效果未知。
+- 审批的 `consumed_at` 即执行开始；获批后的复核失败或消费失败使该批准标 `stale`，不能再用，操作按已知未执行记录。
+
+**目录与锁。**
+
+- 目录身份是 `realpath` 加 `dev` / `ino`；不一致抛 `DirIdentityError`，不按同名或别名合并目录。
+- 锁用 `mkdir` 原子创建；无法核实持锁进程身份时保留锁并要求人工处理，不做静默删除。实例锁与配置锁的持有者身份判据相同。
+- 同一数据目录已归属另一产品时以 `product_mismatch` 明确拒绝，并释放已取得的锁；不跨产品串用配置、数据与控制面。
+- 数据目录、`agentDir`、`sessions/`、`artifacts/`、`inbound-media/`、`migration/<导入ID>/` 均按 0700 创建，锁与凭据按更严的权限落盘；`inbound-media/` 拒绝符号链接。
+
+**产物与暂存。**
+
+- 产物正文不可读时抛 `artifact_unavailable`，不伪装成空内容。
+- 磁盘写入失败抛 `ArtifactWriteError` 并保留已捕获部分；调用方据此停止执行。
+- 产物访问按任务归属核实：默认只允许同任务，跨任务需要有效范围或拥有者授权；图片产物读取每次重新核实归属、MIME、大小与哈希。
+- 入站图片的声明 MIME 不作为内容证据，以实际文件签名判定；声明与签名不一致、GIF / SVG、大小或数量超限都永久拒绝。暂存账本只落固定错误码。
+- 本地存储故障保留 `staging` 状态，不伪装成平台拒绝。
+
+## 设计依据
+
+- [任务由后台进程持有，终端只负责交互](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：任务独立于交互入口、实例锁的核实判据、后台重启恢复与不重放原则的来源。
+- [完整保留会话历史，单独组装模型上下文](../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：解释为什么 pi JSONL 是唯一权威副本、历史索引只是派生数据，以及历史完整性与模型上下文的边界。
+- [旧工作区迁移只改变组织归属，保留资料与配置身份](../../.agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md)：解释 `sessions.workspace_project_id` 为什么只是展示归属而资料身份仍是 `project_id`，以及保留原 ID 与字节可核对的理由。
+- [目标侧离线导入旧实例开发资料](../../.agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md)：解释目标库 `VACUUM INTO` 备份到 `migration/<导入ID>/target-before.db` 的用途、回执与条目账本的形状，以及整库恢复为什么留作手工路径。
+- [向全新个人实例导入资料并交接平台与调度归属](../../.agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md)：解释应用数据文件的文件级迁移、绑定 meta 随迁与凭据合并的边界，以及导入写入的产品归属为什么不随回退移除。

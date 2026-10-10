@@ -18,7 +18,7 @@ Status: implemented
 4. **不完整的历史与失效身份如实保留，不伪造。** 会话文件改写为目标 `sessions/` 下同名文件，导入前逐项记录 sha256；源文件缺失或损坏照常导入记录并在报告列出，不生成空历史、不补空文件。项目根四列只在「本机严格核实身份一致（realpath + dev + ino）且目标无同根工作区」时保留，其余清空成为旧来源项目并在回执记录原值与占用方；组织映射按 07 规则保留、改指同根目标工作区或置空待 `project migration-preview` 重新组织。会话 cwd 失效照常导入、标记仅可查阅，继续执行由既有目录身份核查拒绝。
 5. **不重放。** queued 任务改 canceled（migration 标注）；running / awaiting_confirmation 改 interrupted（原因 migration），结果未登记且可能已开始执行的工具操作与该任务置 effect_unknown（被未消费审批挡住的操作属「已知未执行」，与运行时恢复的口径一致）；未消费审批（pending 或 approved 未消费）一律 stale；`full_access` 会话默认降为 confirm；导入的 SubAgent 按独立 `closed_at`/`closed_by` 以关闭状态登记，原工作目录不迁移。目标启动后没有可运行的旧任务、没有待消费批准。
 6. **跨实例来源与凭据边界 fail-closed。** 项目记忆只在全部版本来源落在导入范围或为 owner_note 时导入；personal 记忆只导入计划中显式选中的条目（拥有者确认的发布）；其余不复制正文，列入待处理（正文留在源实例）。资料授权两端项目都导入时原样导入（含撤销状态）；一端留在源实例时只在回执记录（标注跨实例、不生效），不进 `data_grants`。MCP 与 Jev 配置导入，但目标 `credentials.json` 缺少同名绑定时以停用状态导入并列出，由拥有者重新绑定；agentDir 全部文件（models/auth/default-model/credentials/skills）与 qq/telegram 表一律不复制，预览只列名称与差异，不读取凭据值。
-7. **幂等、续跑与恢复路径。** 回执（`instance_imports`）与条目账本（`instance_import_items`，主键 (kind, item_id)）随导入同事务入库（v28）。修订值 = 导入集合（每行整行规范化哈希、文件 sha256）+ 目标冲突状态的规范化哈希：源或目标在预览后变化，应用即报 `revision_conflict`。同请求键同参返回原回执，异参 `request_conflict`。应用先对目标库 `VACUUM INTO` 备份到 `<dataDir>/migration/<导入ID>/target-before.db`（这就是核对备份），再复制文件（临时名 + rename；目标已有同 sha 文件跳过，sha 不同拒绝），最后一个事务插入全部行、账本与回执；中断在事务前用同一计划重跑即可，事务失败整体回滚。回退按账本删除导入的行、事件区间与经 sha256 核对的复制文件，回执保留并标 reverted；导入的会话/项目/记忆在导入后有新的任务、事件、会话、授权、组织引用或新版本时拒绝回退并逐项列出——那是目标侧的事实，不能抹掉。整库恢复保留为手工路径：停止后台后用备份库恢复（见 docs/runtime.md）。
+7. **幂等、续跑与恢复路径。** 回执（`instance_imports`）与条目账本（`instance_import_items`，主键 (kind, item_id)）随导入同事务入库（v28）。修订值 = 导入集合（每行整行规范化哈希、文件 sha256）+ 目标冲突状态的规范化哈希：源或目标在预览后变化，应用即报 `revision_conflict`。同请求键同参返回原回执，异参 `request_conflict`。应用先对目标库 `VACUUM INTO` 备份到 `<dataDir>/migration/<导入ID>/target-before.db`（这就是核对备份），再复制文件（临时名 + rename；目标已有同 sha 文件跳过，sha 不同拒绝），最后一个事务插入全部行、账本与回执；中断在事务前用同一计划重跑即可，事务失败整体回滚。回退按账本删除导入的行、事件区间与经 sha256 核对的复制文件，回执保留并标 reverted；导入的会话/项目/记忆在导入后有新的任务、事件、会话、授权、组织引用或新版本时拒绝回退并逐项列出——那是目标侧的事实，不能抹掉。整库恢复保留为手工路径：停止后台后用备份库恢复（见 docs/usage.md）。
 8. **目标写入用单事务逐行 INSERT。** 快照经独立连接读取，目标单事务逐行插入；原子性与逐字节忠实与 ATTACH 方案一致，而转换（收尾、降级、路径改写、停用）在类型化代码中完成，比每表 CASE SQL 更难出错。
 
 ## 范围边界
@@ -47,4 +47,4 @@ SQLite 连接直接只读源库可少一次目录快照；但 WAL 库读取可�
 
 历史实施证据见[工单 21](../../../../.scratch/agent-direction/issues/21-migrate-coding-instance.md)：test/85 7/7、定向回归 123/123、typecheck 通过；全量 npm test 918/919，唯一失败为 test/32 的既有 worktree 目录名环境前提，隔离基线同样失败。smoke-21-migrate-coding-instance.mts 在 macOS 与 ssh tx Linux 各 7/7，真实进程、CLI、SQLite、文件及实例锁，模型模拟。
 
-本机旧实例代表性真实数据完成 preview→apply→目标启动查阅→revert：49 个复制文件与源逐字节一致，备份及回执可核实，源保持只读。真实源没有个人记忆/授权，相关来源规则以逻辑测试覆盖；test/81 曾与另一套件并行时偶发失败，隔离 9/9。运行步骤和手工整库恢复见[运行文档](../../../../docs/runtime.md)「数据布局 / 旧实例开发资料迁入」。
+本机旧实例代表性真实数据完成 preview→apply→目标启动查阅→revert：49 个复制文件与源逐字节一致，备份及回执可核实，源保持只读。真实源没有个人记忆/授权，相关来源规则以逻辑测试覆盖；test/81 曾与另一套件并行时偶发失败，隔离 9/9。运行步骤和手工整库恢复见[操作手册](../../../../docs/usage.md#6-导入旧实例)「旧实例开发资料迁入」。

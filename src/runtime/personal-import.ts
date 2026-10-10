@@ -1664,7 +1664,7 @@ export function applyPersonalImport(
     // 凭据合并（幂等：重跑同名同值跳过）
     mergeCredentials(deps, analysis.set.credentials);
 
-    // “核对备份”：导入前对目标库的完整备份；整库恢复的手工路径（见 docs/runtime.md）
+    // “核对备份”：导入前对目标库的完整备份；整库恢复的手工路径（见 docs/usage.md）
     tdb.exec(`VACUUM INTO '${escapeSqlPath(backupPath)}'`);
     const backupSha = sha256File(backupPath);
 

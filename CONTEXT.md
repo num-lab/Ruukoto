@@ -1,6 +1,6 @@
 # Ruukoto Agent
 
-本项目包括开发工具 ruukoto-code 与通用个人助手 ruukoto，分别服务于开发机器上的编码工作和专用 Linux 服务器上的个人事务。产品、SubAgent、工作区与长期操作授权的核心路径已按 [ADR 0017](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md) 实施；跨端共享记忆仍属于后续方向。标注为旧架构的内容用于迁移参考，实际实现状态与验证边界见 [运行文档](docs/runtime.md)。
+本项目包括开发工具 ruukoto-code 与通用个人助手 ruukoto，分别服务于开发机器上的编码工作和专用 Linux 服务器上的个人事务。产品、SubAgent、工作区与长期操作授权的核心路径已按 [ADR 0017](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md) 实施；跨端共享记忆仍属于后续方向。模块划分与主流程见[架构总览](docs/architecture.md)，操作见[操作手册](docs/usage.md)。
 
 ## 领域术语
 
@@ -155,7 +155,7 @@ _Avoid_：把应用数据空间当作通用 SQL 引擎，或让核心任务/审�
 **配置中心**：`ruukoto config` 打开的独立配置界面（issue 21），经拥有者认证控制面管理 provider/模型目录/API key/后台默认模型/摘要模型（上下文压缩用，未设置时用会话当前模型）、项目指令/Web Search/资料授权、会话默认、MCP、QQ 与服务凭据；并发保存按配置修订或版本校验。provider、模型目录与 API key 只在没有受影响的运行及排队任务时应用。后台不可达时有有限离线模式（仅模型目录、默认模型、摘要模型、API key），按 agentDir 配置锁互斥。
 _Avoid_：把配置中心当作任务审批的替代入口，或在离线模式修改项目/会话/MCP/QQ 记录。
 
-**开发实例**：用于开发本项目的隔离环境。`npm run dev` 启动个人 Agent，`npm run code` 启动 Coding Agent 并默认打开 TUI；两者分别保存开发资料，与日常实例分开。开发启动器管理后台与界面的生命周期，退出界面时结束本次开发运行。配置、源码重载与隔离范围见[运行文档](docs/runtime.md#开发实例issue-21)。
+**开发实例**：用于开发本项目的隔离环境。`npm run dev` 启动个人 Agent，`npm run code` 启动 Coding Agent 并默认打开 TUI；两者分别保存开发资料，与日常实例分开。开发启动器管理后台与界面的生命周期，退出界面时结束本次开发运行。配置、源码重载与隔离范围见[开发说明](docs/development.md#开发实例)。
 _Avoid_：把开发实例当作生产后台的替代品，或为开发放宽保护根检查。
 
 **工作区入口（旧架构）**：迁移前通过 `ruukoto <路径>` 为指定目录创建开发会话的入口，会话归属根据既有项目关系确定。
@@ -176,7 +176,7 @@ _Avoid_：把 sending 回退为 pending（唯一例外：平台明确限流拒�
 **QQ 私聊入口**：经拥有者配置绑定的固定 QQ 好友与 main 对话的入口，与 Telegram 共享主会话；新方向允许经核实的绑定拥有者通过私聊回应审批。
 _Avoid_：把 QQ 平台身份本身等同于通用控制面身份，把好友私聊等同于群临时会话，或把共享主会话理解为可以直接读取独立群资料。
 
-**owner 回复**：对拥有者通过绑定入口提交的委托，由 main 汇总并发回原入口、原拥有者的应答，包括已接受委托的异步最终汇报。当前实现（agent-direction issue 18）：IM 来源任务发起的通用工作收尾时，宿主在收尾的 main 唤醒结果事务内经 `owner_reply` 槽登记一份最终汇报（发送键 `<发起事件 id>#work:<workId>:<收尾执行任务 id>`，正文为唤醒轮次最终回答加固定首行，目标为发起事件钉版目标）；判定、取消不汇报、重复/补记幂等与不改发/不重发语义见 [运行文档](docs/runtime.md)「通用 SubAgent 委派」节。
+**owner 回复**：对拥有者通过绑定入口提交的委托，由 main 汇总并发回原入口、原拥有者的应答，包括已接受委托的异步最终汇报。当前实现（agent-direction issue 18）：IM 来源任务发起的通用工作收尾时，宿主在收尾的 main 唤醒结果事务内经 `owner_reply` 槽登记一份最终汇报（发送键 `<发起事件 id>#work:<workId>:<收尾执行任务 id>`，正文为唤醒轮次最终回答加固定首行，目标为发起事件钉版目标）；判定、取消不汇报、重复/补记幂等与不改发/不重发语义见[任务运行时](docs/modules/runtime.md)「通用 SubAgent 委派」节。
 _Avoid_：把任意定时或子任务唤醒当作主动外发授权；从“会话最新回复”推断某项委托的最终回答。
 
 **GitHub 评审入口**：拥有者启用的 PR 事件入口，对指定仓库的变更进行只读评审并由 main 向固定拥有者汇报，结果归属于明确的 PR 修订。当前实现（agent-direction issue 19）：评审经宿主固定的通用 SubAgent 完成（ADR 0013 修订段），固定通知授权不变；issue 23 删除旧 coding 评审的升级接管分支。

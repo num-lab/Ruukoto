@@ -152,7 +152,7 @@ systemd 单元。分别安装在各自机器或检出中的产品不要求同时
 `ok: false`、`status: applied`，回执和目标资料保持原状；成功回退才返回
 `status: reverted`。干净回退保留回执和目标备份，复制文件及凭据按回执逐项核对。历史、产物、旧标识和来源授权范围都要核对，
 已消费但结局未知的操作先查账和核实外部效果，不能通过回退或重新绑定自动重放。
-详细步骤见 [运行文档](runtime.md)“旧实例开发资料迁入”和“旧实例个人资料迁入”。
+详细步骤见[操作手册](usage.md#6-导入旧实例)“旧实例开发资料迁入”和“旧实例个人资料迁入”。
 
 ## 发布验收边界
 
@@ -166,5 +166,54 @@ systemd 单元。分别安装在各自机器或检出中的产品不要求同时
 真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达，以及 tx 生产库的切换
 仍需独立的真实部署演练。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动
 PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。
-运行图解见 [部署与验证](visual/deployment.html#acceptance)，完整旧记录仍保存在
-[运行文档的验证清单](runtime.md)。
+运行图解见 [部署与验证](visual/deployment.html#acceptance)。完整的历史验证清单见下节。
+
+## 历史验证清单
+
+下表保留各次已有记录，按当时的代码版本与覆盖范围填写；命令与环境的现状说明见[开发说明](development.md)。真实进程或容器通过不代表真实 IM 平台已通过，历史命令的覆盖范围也不能当作当前代码通过的证据。
+
+| 检查 | 环境 | 结果 |
+| --- | --- | --- |
+| 全部离线集成验证（43 项：issue 02 的 16 项 + 真实工具路由×3、审批×11（含崩溃恢复区分、DNS 前置、v1→v2 迁移）、产物×5、模式与认证×8） | macOS 本机（Node 24.15.0，local 执行后端） | 通过 |
+| issue 04 离线验证（37 项：历史读取×11、连接恢复与待确认×13、TUI 状态与终端安全×7、TUI 应用集成×5、PTY 端到端×1） | macOS 本机（mock 模型 + 假终端 + pty） | 通过（81 项总计含 issue 02/03 回归） |
+| TUI 真实终端人工检查（80×24 布局、中文输入法、缩放、滚动） | macOS 终端 | 部分：PTY 自动化覆盖输入/流式/退出/终端恢复；人工交互细节（IME 候选窗、缩放重排）未逐项人工核对 |
+| Linux 真实工具后端的"提交—查看—退出—重连—检查"全流程 | 目标 Linux 服务器 | 部分通过（tx 2026-09-21：CLI 提交—容器执行—产物落盘—status 查看 经真实模型完成；TUI 断开重连交互未在目标机人工跑） |
+| 真实模型连通性（经完整运行时路径，一次短往返） | macOS 本机 | 未在本次运行（凭据缺失时跳过） |
+| node:sqlite v1→v2 事务迁移 + 崩溃后重开 | macOS 本机 | 通过（08 的迁移用例：旧任务默认请求确认、旧未决审批失效、历史与事件保留） |
+| Linux 容器边界探针（32 项：文件/子进程/网络/凭据/控制面/身份） | Docker Desktop Linux VM | 32/32 通过（`npm run linux:probes`，含就绪与完整性判定） |
+| 任务容器端到端：镜像构建 + 经真实容器启动器的 bash 路由、网络拒绝、宿主路径不可见、非 root、只读根、cap 清零、容器回收；按宿主原路径挂载（pwd、宿主绝对路径 read、只读授予路径可读不可写） | Docker Desktop Linux VM；tx | 9/9 通过（Docker Desktop，`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`；镜像 `ruukoto-worker:0.85.1`）；13/13 通过（tx 2026-09-26，issue 28 新增同路径挂载 4 项，RUUKOTO_CONTAINER_UID/GID=1003） |
+| 同一容器镜像内的真实模型短编码任务（容器后端跑 07 场景） | tx（Ubuntu 24.04，容器后端 + deepseek-flash） | 通过（2026-09-21：confirm 任务经容器写文件，产物归属拥有者 uid 1003；RUUKOTO_CONTAINER_UID/GID=1003） |
+| systemd 执行账户入口（提权包装、固定身份、cgroup 回收） | tx（Ubuntu 24.04，systemd 255） | 通过（2026-09-21：sudo 链路与 uid 986 env_keep 传递、worker 以 ruukoto-exec 运行、参数注入/非授权调用拒绝、stop 幂等；修复 exec-stop 包装退出码与启动器约定相反的问题。2026-09-26 issue 23：经部署控制面的真实模型完全访问任务端到端通过——`id -un` 为 ruukoto-exec、按 ACL 写工作区且拥有者可改、git 接受拥有者仓库、HOME 可写、读拥有者令牌被拒、结束后单元 inactive） |
+| Git worktree 外部元数据显式授予路径挂载 | 部分（tx） | 授予路径校验/幂等已覆盖；容器内按宿主原路径挂载的只读授予路径已经冒烟实测（tx 2026-09-26）；worktree 共享 Git 元数据场景未专门实测 |
+| 目标服务器宿主前提（发行版、内核、rootless、docker/systemd） | tx（Ubuntu 24.04，内核 6.8，Docker 29.5.2） | 通过（2026-09-21：`npm run linux:probes` 32/32 + 容器冒烟 9/9；原生 Linux bind mount 无 uid 映射，容器 uid 与工作区写权限按部署说明第 5 步处理） |
+| 真实模型短编码任务（真实凭据） | tx（经部署控制面，deepseek-flash） | 通过（2026-09-21，confirm 模式容器执行；`RUN_MODEL_CHECK=1 npm run test:model` 形式未单独跑） |
+| issue 06 GitHub 集成（19 项） | — | 已随 issue 17 退役删除（专用模块移除，通用保障迁移至 08/17/24） |
+| issue 17 GitHub 模块退役（4 项：全新库不建旧表、v8 样本库升级的审批失效与发布操作终态、草稿归档产物与无秘密清单、重跑幂等、旧控制入口不可达、旧凭据不变、历史事件重放） | macOS 本机（v8 样本库 + 真实运行时/控制面路径） | 通过 |
+| 全部离线集成验证（125 项，逐文件顺序执行） | tx（Ubuntu 24.04，Node 24.21.0） | 通过（2026-09-21，17/17 文件 0 失败；修复 15-tui-pty 的 npx 孙进程持有管道导致文件级挂起——detached 进程组 + 整组回收，macOS 回归同过） |
+| 真实 GitHub MCP 只读连通（一次已授权仓库的只读调用，记录工具/权限/结果） | 需拥有者配置独立只读 PAT | 未验证（issue 16 遗留；配置具备时按操作手册的 MCP 步骤验收，不以模拟测试冒充） |
+| issue 20 Web Search（9 项：默认启用与来源/查询时间保留、参数校验与限额、每任务 5 次上限可核对、项目禁用/任务清单冻结/任务内禁用立即生效、401/429/500/畸形/超大响应与产物归属、超时与取消不重发、提示注入有界处理、凭据脱敏与 host/用途限制、schema v6→v7 迁移） | macOS 本机（本地模拟 Tavily API，经真实宿主工具与运行时路径） | 通过（184 项总计含既有回归，0 失败，1 项真实模型门控跳过） |
+| issue 07 QQ 群聊入口（20 项：连接鉴权/身份核对/掉线重连与接收缺口、白名单与结构化 @ 触发、收件去重、登记-入队与遗留发送的崩溃恢复、同群 FIFO 与跨群隔离、排队过期、停用/撤群、发送失败与结果未知不重发、响应乱序、撤回处理、记忆/指令/工具隔离、拥有者 QQ 发言不获控制面能力、qq_group 资料身份） | macOS 本机（进程内模拟 OneBot WebSocket + mock 模型，经真实适配器/Runtime/发送控制路径） | 通过；真实 NapCat 接入与 Linux 部署未验证（需拥有者授权的真实群闭环）。核心群聊已退役，群消息被忽略，见下行 |
+| agent-direction issue 20 核心群聊退役与旧群资料保全（test/85 共 6 项验收：新核心不引导 chat、群消息零新增且私聊/Telegram 照常、归档可查与只读边界、无 chat 角色行时隔离不扩大、通知/调度复核撤回与篡改（source_revoked）、排队/在途/待发/未派发一次性收尾与三次启动幂等；test/26 保留传输状态、配置与资料身份边界，test/40 覆盖私聊连接鉴权与重连，test/49 播种归档覆盖接收/审批/撤回复核） | macOS 本机（进程内模拟 OneBot WebSocket + 模拟模型 + 播种助手按 v24 形态写归档；真实 Runtime/SQLite/socket） | 通过；旧代码真实产生数据的升级路径与真实 Linux 后台见 `.scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）记录；真实 QQ 群/NapCat 无入口，未实测 |
+| agent-direction issue 15 后台重启恢复 SubAgent（test/86 共 3 项：排队委派任务重启定 interrupted 且不自动继续/不当作新委派（零模型请求）、补记一次重复启动不重复登记、结果归属保持、Agent 回 idle 可继续委派且 dev 父会话注入；遗留占用保留与 occupancy_unverified 暂停不被启动恢复解除、unverified 拒绝委派、拥有者 resume-queue 后回 idle 可委派；宿主固定评审排队任务不中断、启动恢复自动解除子会话暂停并继续执行） | macOS 本机（mock 模型 + 临时目录 + 进程内真实 Runtime 重启（stop→Runtime.start，含崩溃形态 SQL 置位）+ realTools local 后端） | 通过（2026-10-05，3/3；模拟环境。真实容器/CLI 证据见下行） |
+| agent-direction issue 15 冒烟（verification/smoke/smoke-15-recover-subagents.mts：真实 Runtime/控制面/SQLite + 真实受限容器后端与镜像 + 真实 CLI resume-queue——排队委派任务重启中断零容器零模型请求、结果归属、dev 注入、沿 work_id 真实容器继续；遗留占用保留与暂停不被启动恢复解除、unverified 拒绝委派、CLI resume-queue 后回 idle 可继续；带来源事件的评审排队任务自动恢复真实完成；重复重启不重复登记、无残余容器） | macOS 本机 Docker Desktop（真实容器；模型为模拟，消息平台不启用；崩溃形态按库内容置位，判定输入与真实崩溃一致） | 通过（2026-10-05，8/8）；冒烟期间发现并修复：backend_restart 暂停叠加持占用会话不再被启动恢复自动释放（runtime 守卫） |
+| 真实 Tavily 连通性（一次受控查询，记录端点/调用次数/限制与来源） | 需拥有者配置 tavily_search 凭据 | 未验证（未配置凭据；不以模拟结果宣称真实接入完成） |
+| 双产品入口与同机并存（agent-direction issue 01；test/71 进程级用例：两 bin 分别启动真实后台、握手与查询、ruukoto-code 无 QQ/Telegram 适配器、停一端另一端照常应答、跨产品打开数据目录被 product_mismatch 拒绝） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02；可复现于 test/71 进程级用例；同路径手动冒烟（10 项）亦通过，记录在工单评论；模型层为模拟，进程/存储/控制面为真实环境） |
+| 双产品离线集成（test/71：产品身份与按产品的目录解析、环境变量隔离、开发实例环境清洗、Runtime gating 与归属登记、旧计划记录可读、bin 进程冒烟） | macOS 本机（mock 模型 + 临时目录） | 通过（2026-10-02，14/14；全量 npm test 含既有回归见上各行统计） |
+| ruukoto-code TUI 按需拉起后台（agent-direction issue 02；test/72 进程级用例：后台不在时拉起、并发两个终端收敛为单实例（含锁竞败者等慢胜者复用）、已运行不重复拉起、启动失败附 spawn.log 尾部、后台在运行但令牌不符的认证指引、关闭客户端不停止后台/取消任务、重开看到同一任务与幂等键核实） | macOS 本机（真实 bin 进程/真实文件/真实 socket 与 SQLite，模型打桩） | 通过（2026-10-02，8/8；模拟结果与真实环境分列：模型层为模拟，进程/存储/控制面为真实环境） |
+| TUI 真实入口按需拉起冒烟（.scratch/agent-direction/smoke-02.sh：pty 下真实 runTui 生产默认路径——首次拉起、关闭 TUI 后台不停、再开复用、stop 后重开再度拉起、无模型配置时非零退出并附启动失败状态） | macOS 本机（真实 pty/bin/文件/socket/SQLite；models.json 结构合法但指向死端口，冒烟不提交任务、不发生模型调用） | 通过（2026-10-02，5/5） |
+| 开发机受限执行边界产品级冒烟（agent-direction 工单 03；经真实容器启动器 + ruukoto-worker 镜像 + 宿主 ToolWorkerHost：容器内 bash、非 root 1000、工作区写入宿主可见、无外网出口、工作区外宿主真实文件不可见、只读根、CapEff 清零、nohup 逃逸孙进程实际运行（对照）且停止后心跳冻结、停止核实容器移除、宿主原路径挂载、只读授予路径可读不可写） | macOS 本机 Docker Desktop 4.x/29.8.0（Linux VM aarch64）；/var/folders 与 /Users 两种工作区各一遍 | 通过（2026-10-02，16/16 ×2；`npx tsx verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`——真实 docker/镜像/文件/进程/网络路径，无模拟层） |
+| macOS sandbox-exec 旧探针（.scratch/agent-direction/macos-sbx-probe.sh） | macOS 27.0 (arm64) | 2026-10-02 的"文件规则 0/6 静默未执行"结论于 2026-10-08 更正：旧规则用 `/tmp`，目标实际位于 `/private/tmp`；旧结果不能证明 Seatbelt 文件机制失效。已修正规范化路径与启动/拒绝判定，复跑见工单 26；文件拒绝通过不代表完整产品边界通过 |
+| 原生 Seatbelt 候选及 launchd 后代回收（agent-direction 工单 26 第一阶段） | macOS 27.0 / Darwin 27.0.0 / arm64；仅临时虚拟资料、自建服务和真实进程，无模型 | 未通过：文件规范化更正生效；`posix_spawn` 后代可脱离进程组且停止原组后仍写心跳；`kqueue NOTE_TRACK` 为 `ENOTSUP`；临时 launchd job 移除后逃离后代仍活动。复跑及逐项证据见 [原生探针说明](../verification/foundation/scripts/native-isolation/README.md)，未接入产品 |
+| 原生 bubblewrap 候选（agent-direction 工单 26 第一阶段） | tx：Ubuntu 24.04.4 / Linux 6.8.0-117-generic / x86_64 / UID 1003；临时解包 bubblewrap 0.9.0 | 不可验证：2 个未沙箱对照通过，35 个真实边界项 unavailable；namespace 建立时 `RTM_NEWADDR` / `uid_map` 被拒，探针尚未启动，退出 2。系统策略未修改；[完整报告](../verification/foundation/results/native-linux-report.md)。不能切换默认后端 |
+| SubAgent 修改委派冒烟（.scratch/agent-direction/smoke-16-parallel-worktrees.mts：真实 Runtime/控制面/SQLite + 真实容器后端与镜像 + 真实 git 仓库——容器内建副本、两子任务同一仓库并行 worktree（同时 running、不同分支）、主工作区字节与未提交改动不变、safe.directory 环境容器内 git status/diff 可用、git commit 与写 hooks/config 真实失败（共享 Git 只读挂载）、非 Git 目录与父会话串行、植入 fsmonitor 只在容器内被只读挡住（宿主不执行）、副本创建与任务容器零残余） | macOS 本机 Docker Desktop 29.8.0（真实容器；模型为模拟，消息平台不启用） | 通过（2026-10-04，9/9）；Linux 远端（tx，uid/gid 1003，经 `--remote` 自包含跑完全程）通过（2026-10-04，9/9）；流程教训：worker 代码打进镜像（deploy/worker-image 构建阶段复制 src/agent/tool-worker 与 src/core 后 esbuild 打包），改 tool-worker 必须重建镜像才进容器 |
+| SubAgent 改动汇总冒烟（.scratch/agent-direction/smoke-issue17.mts：真实 Runtime/SQLite + 真实容器后端与镜像 + 真实 git 仓库——宿主容器创建 worktree 副本、子任务容器真实 edit/write、汇总容器 add -N→diff→apply --check→apply 落入父工作区待提交区、父 HEAD 不变、`work_delegation.integrated` 事件登记、already 幂等不重复登记、冲突零写入点名文件双方保留、取消+关闭后汇总不拦、父仓库本身是 worktree 时共享 Git 目录补挂读写、副本创建与汇总照常、`ruukoto-task-*` 容器零残余） | macOS 本机 Docker Desktop（真实容器边界；模型为模拟）；tx（Ubuntu 24.04 原生 Linux，Docker 29.5.2，uid/gid 1003，RUUKOTO_CONTAINER_UID/GID=1003） | 通过（2026-10-05，7/7 ×2）；离线断言在 test/84（local 后端模拟边界，git 语义为真实 git）；流程教训：副本创建与汇总在「父仓库本身是 worktree」时必须把共享 Git 目录补挂读写（issue 17 起生效），否则容器内 git 无法解析 `.git` 指针 |
+| Linux 容器边界探针复核（linux:probes，当前脚本） | macOS Docker Desktop 29.8.0（Linux VM aarch64） | 通过（2026-10-02，全部预期探针，0 不一致 0 缺失） |
+| Linux 原生复核与现有部署盘点（linux:probes 原生 Linux；launchers/部署/探针机制文件哈希对照 2026-09-26 验证快照；systemd 生效配置、受保护提权入口、令牌权限位盘点） | tx（Ubuntu 24.04，内核 6.8.0-117，Docker 29.5.2，systemd 255） | 通过（2026-10-02）：探针 32/32；机制文件（launchers.ts、deploy/**、宿主/探针脚本）与验证快照逐字节一致（worker.ts 仅差异一次 write 展示统计，不改边界语义）；ruukoto-backend active、RUUKOTO_EXEC_UID/GID=986 与 ruukoto-exec 账户一致、RUUKOTO_CONTAINER_UID/GID=1003、owner.token 0600 ruukoto-backend 持有、提权包装在位 |
+| 开发机受限/完全访问产品级冒烟（agent-direction 工单 04；verification/smoke/smoke-04-desktop-execution.mts：容器内代码修改与检查、外网出口/未挂载宿主文件/只读根约束、越界读取审批单次消费、完全访问缺执行账户入口执行前拒绝、中断回收容器含启动窗口） | macOS 本机 Docker Desktop 29.8.0（Linux VM aarch64）；tx 原生 Linux（Ubuntu 24.04，Docker 29.5.2，uid/gid 1003） | 通过（2026-10-02，6/6 ×2）：真实容器/镜像/文件/网络与审批路径，模型打桩；`npx tsx verification/smoke/smoke-04-desktop-execution.mts`（TMPDIR 可换工作区位置） |
+| ruukoto-code 默认执行后端接入（agent-direction 工单 04；test/73 进程级用例：dev 默认 container、显式 local 打印无隔离警告、环境变量覆盖、完全访问缺入口提交即 execution_unavailable 且不回退、confirm 照常；工作进程启动窗口中断回收执行单元回归 test/07） | macOS 本机（真实 bin 进程/文件/socket/SQLite；模型打桩，无容器依赖） | 通过（2026-10-02）：test/73 4/4、test/07 5/5；全量 npm test 见本轮提交记录 |
+| macOS 完全访问执行身份 | macOS 本机 | 未验证（2026-10-02 记录前置与依据）：不能以拥有者 uid 运行——同 uid 进程对 `~/.ruukoto/control/owner.token`（0600 owner，65 字节）test -r 退出 0，即完全访问任务会持有控制面拥有者身份；现有启动器使用 systemd 包装，只适用于 Linux；macOS 未提供经过验证的本机入口；未配置入口时完全访问在执行前拒绝（smoke-04/test/73 覆盖），Linux 完全访问身份仍沿用 2026-09-26 tx 实测结论 |
+| 工作区与会话组织（agent-direction 工单 05；test/74：open_workspace 创建/根目录身份落库/快照可读、符号链接与路径变体复用、同名目录不合并、多仓库根目录、请求标识幂等、旧项目认领与改归属拒绝、保护根拒绝、旧 op 与 v18→v19 迁移、创建→执行→历史、TUI 选择面板 ruukoto-code 排除角色与群聊/ruukoto 不变、角色与群聊项目拒绝认领） | macOS 本机（进程内真实 Runtime/socket/SQLite/伪终端；模型打桩） | 通过（2026-10-02，15/15；全量 npm test 见工单评论） |
+| 工作区产品级冒烟（.scratch/agent-direction/smoke-05-workspace-sessions.mts：真实 bin/ruukoto-code.mjs 后台——多仓库根目录打开、别名与变体复用、同名目录去重、请求标识幂等、旧项目认领、提交执行与历史查看） | macOS 本机（真实 bin 进程/文件/socket/SQLite，模型打桩） | 通过（2026-10-02，6/6；`npx tsx .scratch/agent-direction/smoke-05-workspace-sessions.mts`） |
+| 服务器服务管理离线验证（agent-direction issue 09；test/78：QQ/Telegram 检查→逐次审批→批准恰好一次→原入口结果、拒绝/重复决定/篡改目标零执行、非 main 与错误产品/无配置/非 Linux 门、auto-review 转人工、策略与单元修订变化失效、同 ID 重复启动拒绝、取消与跨重启的效果未知不自动重发、产物引用与 partial、后状态查询失败保留命令结果） | macOS 本机（模拟 IM 平台 + mock 模型 + 受控 helper 替身，文件系统模拟 systemd，协议逐字节同生产） | 通过（2026-10-03，22/22；真实 systemd/提权证据非本项，见下行） |
+| 服务器服务管理真实 Linux 冒烟（verification/archive/smoke-09-linux-service-management.mts.txt：模拟 IM 平台 + 真实 systemd/sudo/提权/测试服务——部署安装、主链路真实重启（InvocationID 变化、starts 恰 +1、批准消费一次、op 单元实录）、执行账户调用/写策略/读控制面令牌全拒绝、同 hostOpId already_claimed、策略篡改消费前失效、改单元不 daemon-reload 修订拒绝、基础设施目标拒绝、op 已派发时 kill -9 恢复效果未知不自动重发、拒绝零执行） | tx（Ubuntu 24.04，systemd 255） | 通过（2026-10-03，14/14 ×3 轮幂等，末轮为最终代码态复跑；发现并修复 fd3 协议在 sudo 下全断（closefrom=3）改为 stderr 前缀应答；IM/模型为桩，真实 QQ/Telegram 平台未实测） |
+

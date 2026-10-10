@@ -518,7 +518,7 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
     case "github": {
       // issue 17：专用 GitHub 模块已退役。旧命令不再执行业务操作，只保留静态迁移提示。
       console.error(
-        "GitHub 专用模块已退役（issue 17）：PR/issue/CI 等操作请改用通用 MCP 服务（ruukoto mcp configure …，见 docs/runtime.md「MCP 服务」）。\n" +
+        "GitHub 专用模块已退役（issue 17）：PR/issue/CI 等操作请改用通用 MCP 服务（ruukoto mcp configure …，见 docs/usage.md「MCP 服务」）。\n" +
           "历史草稿与发布记录已归档为原任务产物（清单：<数据目录>/github-archive-manifest.json）；旧待审批/待发布操作已失效，不会发送。",
       );
       return 1;

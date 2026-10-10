@@ -12,7 +12,7 @@ personal-agent issue 06 交付了一个专用 GitHub 模块：经 REST 采集 PR
 
 ## 决定
 
-- **GitHub 经通用 MCP 客户端接入，不保留专用模块。** personal-agent issue 06 交付的专用 GitHub 模块（REST 采集、草稿与发布状态机、专用控制接口与 CLI/TUI 入口）由 personal-agent issue 17 退役：`src/agent/github/`（client、collect、store、tools、publish）及其在 Runtime、Driver、控制协议、CLI、TUI 中的专用接线已删除。GitHub 经通用 MCP 客户端接入（[MCP 客户端](../architecture/2026-09-23-mcp-client.md)），与其他 MCP 服务共用同一套配置、发现、调用、审批、结果保存与展示流程。运行时不保留 GitHub 专属业务分支，也不存在 REST 与 MCP 两套实现并行承担同一功能；GitHub 专属内容只出现在服务配置示例与使用文档（[docs/runtime.md](../../../../docs/runtime.md)「MCP 服务」节）中。
+- **GitHub 经通用 MCP 客户端接入，不保留专用模块。** personal-agent issue 06 交付的专用 GitHub 模块（REST 采集、草稿与发布状态机、专用控制接口与 CLI/TUI 入口）由 personal-agent issue 17 退役：`src/agent/github/`（client、collect、store、tools、publish）及其在 Runtime、Driver、控制协议、CLI、TUI 中的专用接线已删除。GitHub 经通用 MCP 客户端接入（[MCP 客户端](../architecture/2026-09-23-mcp-client.md)），与其他 MCP 服务共用同一套配置、发现、调用、审批、结果保存与展示流程。运行时不保留 GitHub 专属业务分支，也不存在 REST 与 MCP 两套实现并行承担同一功能；GitHub 专属内容只出现在服务配置示例与使用文档（[docs/usage.md](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节）中。
 - **退役以只读接入为前提，不等待写入能力。** 首版 GitHub MCP 只读：写工具不注册、不执行。通用 MCP 写工具（具体操作范围、审批桥单次消费与未知结果恢复）由 personal-agent issue 18 单独验收，见[MCP 写工具统一审批](../feature/2026-09-23-mcp-write-tools-approval.md)；写入能力不恢复旧模块的草稿或发布意图入口。
 - **旧模块的专用工作流保证不逐项复刻。** 固定 PR/CI 修订复核、草稿状态机、发布意图只能由拥有者建立，这些保证随模块一起退役。需要这些步骤时，由 Agent 在普通任务中组合工具完成；不能宣称普通 MCP 调用自动提供同等保证。MCP 覆盖不了的缺口如实记录，不以 REST 回退隐藏。
 - **历史资料只读保留，不删除。** 旧库的三张表 `github_repo_bindings`、`github_drafts`、`github_publish_ops` 不 DROP，原样保留为只读归档；全新数据库不再创建这三张表。升级后首次启动执行一次性、可重复执行的退役迁移（步骤见下文「退役迁移」）：
@@ -65,4 +65,4 @@ personal-agent issue 06 交付了一个专用 GitHub 模块：经 REST 采集 PR
 - `test/17-github-retirement.test.ts` 用冻结在测试里的 v8 旧库样本（多版本草稿、`pending`/`approved`/已消费审批、各类发布结果、历史事件、带 scope 的旧凭据）走真实 Runtime 启动，覆盖：全新数据库不建旧表；升级后审批失效、发布操作按证据定终态、旧表保留；草稿各版本导出为可经 `read_artifact` 读取的原任务产物，清单无秘密，重跑不重复；旧控制接口返回 `unknown_op`，旧凭据不被改变，历史事件可重放；上次导出中断留下 partial 产物时重跑补齐且不改写中断记录。
 - `test/08-approvals.test.ts`「带 scope 的凭据不得被通用 http_request 借用；同名轮换保留 scope」承接旧模块测试里仍适用的凭据边界。
 - `test/13-tui-state.test.ts` 断言 `github.*` 历史事件按归档记录展示，且不再提示 `/github`。
-- `test/24-mcp.test.ts` 经进程内模拟 Streamable HTTP 服务覆盖通用 MCP 路径，不依赖旧 GitHub 模块。真实 GitHub MCP 只读连通需要拥有者配置独立只读凭据，配置与核实步骤见 [docs/runtime.md](../../../../docs/runtime.md)「MCP 服务」节。
+- `test/24-mcp.test.ts` 经进程内模拟 Streamable HTTP 服务覆盖通用 MCP 路径，不依赖旧 GitHub 模块。真实 GitHub MCP 只读连通需要拥有者配置独立只读凭据，配置与核实步骤见 [docs/usage.md](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节。

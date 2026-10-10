@@ -30,7 +30,7 @@ Status: implemented
 
 ## 机制要点
 
-完整取值与视图顺序见[运行时设计](../../../../docs/runtime.md)「上下文压缩」，实施记录见 [personal-agent issue 30](../../../../.scratch/personal-agent/issues/30-context-compaction.md)。规划与视图组装在 `src/agent/context-selector.ts`（纯函数 `planCompaction`、`selectContext`），指纹、条目引用与摘要调用在 `src/agent/compaction.ts`，编排、落盘与停止联动在 `src/agent/context-assembly.ts`。下面列出承载取舍的取值与边界。
+完整取值与视图顺序见[上下文压缩](../../../../docs/modules/agent-context.md#上下文压缩)，实施记录见 [personal-agent issue 30](../../../../.scratch/personal-agent/issues/30-context-compaction.md)。规划与视图组装在 `src/agent/context-selector.ts`（纯函数 `planCompaction`、`selectContext`），指纹、条目引用与摘要调用在 `src/agent/compaction.ts`，编排、落盘与停止联动在 `src/agent/context-assembly.ts`。下面列出承载取舍的取值与边界。
 
 - **落盘。** 表 `context_checkpoints`，部分唯一索引保证每个会话至多一行 `status = 'active'`；新建时旧行在同一事务里改为 `superseded`。S（`summarized_count`）：分支前 S 条消息由摘要替代。C（`cleared_count`，C ≥ S）：[S, C) 的工具结果换成占位说明。`fingerprint` 是前 C 条消息的角色、时间戳与工具调用 id 的 SHA-256。其余字段：`summary`、`summary_until`（第 S 条消息的时间戳，UTC ISO）、`cleared_refs`（被清理结果的 toolCallId → 会话文件条目 id）、`cleared_results`（清理条数）、`summary_model`、`summary_status`（`ok | failed | none`）、`summary_error`、`prompt_version`（`compaction-v1`）、`usage`、`estimate_before`、`estimate_after`、`task_id`、`call_index`、`created_at`。建表与 `selection_records.checkpoint_id` 补列沿用 `SCHEMA_SQL` 与 `ensureColumns` 的幂等补齐，不升 schema 版本。
 - **作废。** 每次调用读取生效的压缩点并核对指纹；消息少于 C 条或指纹不符时改为 `invalidated`，按无压缩点处理。后台重启后压缩点继续生效，不重新摘要。

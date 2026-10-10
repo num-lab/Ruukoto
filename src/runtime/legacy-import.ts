@@ -1414,7 +1414,7 @@ export function applyLegacyImport(
     const backupDir = path.join(deps.targetDataDir, "migration", importId);
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
     const backupPath = path.join(backupDir, "target-before.db");
-    // “核对备份”：导入前对目标库的完整备份；整库恢复的手工路径（见 docs/runtime.md）
+    // “核对备份”：导入前对目标库的完整备份；整库恢复的手工路径（见 docs/usage.md）
     tdb.exec(`VACUUM INTO '${escapeSqlPath(backupPath)}'`);
     const backupSha = sha256File(backupPath);
 

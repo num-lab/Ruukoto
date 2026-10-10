@@ -178,7 +178,7 @@ env_keep 传递）、容器边界冒烟 9/9（容器 uid 经 RUUKOTO_CONTAINER_U
 （deepseek，容器内写文件产物落宿主工作区）。发现并修复：exec-stop 包装脚本
 退出码与启动器约定相反（`exec systemctl is-active` → 反转为
 `! is-active --quiet`）；目标机记录见 `.scratch/personal-agent/issues/09-tx-deploy.md`
-与 `docs/runtime.md` 验证状态表。
+与 [docs/release-acceptance.md](../../docs/release-acceptance.md#历史验证清单) 的历史验证清单。
 
 2026-09-26（issue 23）：修复容器后端下完全访问总是 `execution_unavailable`，
 重新部署当前代码后在 tx 实测一次完全访问任务：以 `ruukoto-exec` 运行、按 ACL

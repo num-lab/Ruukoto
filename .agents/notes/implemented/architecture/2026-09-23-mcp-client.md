@@ -25,7 +25,7 @@ Status: implemented
 
 ## 实现落点
 
-运维步骤与排查见 [docs/runtime.md](../../../../docs/runtime.md)「MCP 服务」节。承载上述决定的契约如下：
+运维步骤与排查见[操作手册](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节。承载上述决定的契约如下：
 
 - **配置表。** 后台 SQLite 的 `mcp_services` 表（schema v8 引入，`UNIQUE (project_id, name)`），列为服务 ID、项目、名称（项目内唯一的小写 slug，也是工具名命名空间）、端点、凭据绑定名（值不入表）、`tool_allowlist`、`enabled`、`config_version`。任何字段变化都递增 `config_version`；变更带期望版本校验，不符以 `version_conflict` 拒绝；配置变更与 `mcp.service_changed` 事件同事务写入。代码在 `src/agent/mcp/store.ts`。
 - **管理入口。** 控制面操作 `mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`，CLI `ruukoto mcp …` 与配置中心复用它们；模型工具不能调用。`mcp_list` 与 `mcp_check` 返回脱敏视图，`mcp_check` 先展示将联系的端点。
@@ -51,7 +51,7 @@ Status: implemented
 - **收益**：MCP 工具与内置工具走同一条任务生命周期、操作记录、结果展示与产物存储路径，GitHub 与任何其他 MCP 服务共用同一套发现、调用、授权、产物与展示路径，新增服务不需要专用代码。拥有者撤销或禁用服务后，在途任务的下一次调用就被阻止且不发请求；凭据秘密值不会出现在模型可见的任何位置。
 - **代价**：MCP 服务能做什么取决于远端凭据本身的权限。客户端没有参数级限制，项目级启用不等于令牌内的单仓库隔离，客户端不宣称额外的仓库隔离。服务端行为只能靠显式信任，白名单管不住服务端实现。
 - **代价**：stdio 服务与需要 OAuth 登录的服务暂时接不进来；工具新增或 schema 变化要等下一任务，签名变化还会触发一次 SDK 会话重建。
-- **已知上限**：真实 GitHub MCP 只读连通尚未验证，需要拥有者配置独立只读 PAT 后按 docs/runtime.md「MCP 服务」节验收，不以模拟测试冒充。启用 stdio 前必须先补齐执行账户、文件/网络权限与子进程回收设计。
+- **已知上限**：真实 GitHub MCP 只读连通尚未验证，需要拥有者配置独立只读 PAT 后按 docs/usage.md「MCP 服务」节验收，不以模拟测试冒充。启用 stdio 前必须先补齐执行账户、文件/网络权限与子进程回收设计。
 
 ## 验证
 

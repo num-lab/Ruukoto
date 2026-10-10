@@ -24,6 +24,7 @@
     "test:app": "RUN_MODEL_CHECK=0 tsx --test test/*.test.ts",
     "test:foundation": "RUN_MODEL_CHECK=0 npm --prefix verification/foundation test",
     "check:static": "npm run lint && npm run typecheck && npm run verify-notes",
+    "change-scope": "tsx scripts/change-scope.ts",
     "verify-notes": "tsx .agents/skills/maintain-notes/scripts/verify-agent-note-tree.ts && tsx .agents/skills/maintain-notes/scripts/verify-agent-note-format.ts && tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts",
     "check": "node scripts/check-environment.mjs && npm run build && npm run check:static && npm test",
     "test:docker": "tsx verification/smoke/smoke-04-desktop-execution.mts && tsx verification/smoke/smoke-13-subagent-messaging.mts && tsx verification/smoke/smoke-15-recover-subagents.mts && tsx verification/smoke/smoke-18-im-final-delivery.mts",

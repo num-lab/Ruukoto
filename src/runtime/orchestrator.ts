@@ -182,7 +182,7 @@ export class Orchestrator {
     await this.deps.subagents?.start();
     // 角色会话的队列暂停由编排器自动恢复，但仅限
     // backend_restart（排队任务在重启后继续）；occupancy_unverified 等涉及
-    // 未核实旧执行的暂停必须保留给拥有者核实（docs/runtime.md 恢复约定——
+    // 未核实旧执行的暂停必须保留给拥有者核实（docs/modules/runtime.md 恢复约定——
     // 角色任务有工具执行，不同于无工具的 QQ 会话，不能沿用其无条件恢复前提）。
     for (const role of this.store.listAgentRoles()) {
       await this.resumeRestartPausedQueue(role.sessionId, `角色 ${role.id}`);

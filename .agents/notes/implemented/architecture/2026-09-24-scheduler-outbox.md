@@ -38,4 +38,4 @@ Status: implemented
 
 [daily-agent issue 03 交付记录](../../../../.scratch/daily-agent/issues/03-scheduler-outbox.md)记录 macOS、Node 24.15、模拟模型与通知渠道下 `npm run typecheck` 通过，`npm test` 388 项中 387 通过、1 项真实模型检查按默认跳过。实际新增套件为 `npx tsx --test test/37-scheduler-outbox.test.ts`（16 项），覆盖纽约 gap/fold、Lord_Howe 半小时变化、Kathmandu 偏移与多年停机，重复/并发 tick、审批、固定快照、领取与恢复、迟到回执、取消竞争、慢发送不阻塞、v12→v13 迁移及 SQLite 完整性。
 
-真实后台子进程 SIGKILL 验证平台已接收但本地未落结果时重启记 `effect_unknown`，模拟平台仅收到一次。该轮未执行真实 Telegram/QQ 发送或 Linux 回归；后续平台入口的验证各自记录，运行说明见[docs/runtime.md](../../../../docs/runtime.md)。这些是历史验收证据。
+真实后台子进程 SIGKILL 验证平台已接收但本地未落结果时重启记 `effect_unknown`，模拟平台仅收到一次。该轮未执行真实 Telegram/QQ 发送或 Linux 回归；后续平台入口的验证各自记录，运行说明见[操作手册](../../../../docs/usage.md)。这些是历史验收证据。

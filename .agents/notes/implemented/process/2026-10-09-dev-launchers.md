@@ -20,7 +20,7 @@ Status: implemented
 
 ## 验证
 
-原实现提交 `c819db3adad75b8c0cf604b3fef3816334fa993f` 同步 `src/dev.ts`、`src/code.ts`、package 入口和 test/32、test/71。test/32 覆盖入口参数、双档案、重载与受管退出；test/71 覆盖双产品环境清洗与日常目录/令牌/执行配置不继承。原 ADR 补充段和 `.scratch/` 没有独立登记该提交的运行命令结果，因此此处只记录可复查覆盖，不把它表述成历史测试已通过。开发启动方式与模型导入操作见[运行文档](../../../../docs/runtime.md#开发实例issue-21)。
+原实现提交 `c819db3adad75b8c0cf604b3fef3816334fa993f` 同步 `src/dev.ts`、`src/code.ts`、package 入口和 test/32、test/71。test/32 覆盖入口参数、双档案、重载与受管退出；test/71 覆盖双产品环境清洗与日常目录/令牌/执行配置不继承。原 ADR 补充段和 `.scratch/` 没有独立登记该提交的运行命令结果，因此此处只记录可复查覆盖，不把它表述成历史测试已通过。开发启动方式与模型导入操作见[开发说明](../../../../docs/development.md#开发实例)。
 
 ## 备选方案
 

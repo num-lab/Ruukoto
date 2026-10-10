@@ -33,7 +33,7 @@ Status: implemented
 
 拥有者可以持续使用同一个 main 会话，回复与原任务、原消息和原固定目标可追溯。主会话默认 `full_access` 不能越过外部入站的 `confirm`；即时私聊审批的窄权限不变成通用控制面身份。限流会延迟回复，结果未知则需要拥有者核实，不能保证远端 exactly-once 或未知窗口必达。
 
-共享历史的 QQ 与 Telegram 不是互相隔离的资料空间，边界见[QQ 私聊共享 main](2026-09-24-qq-private-shared-main.md)。国内服务器部署需要可达的 API 反代或网络层代理，历史验收时全局 `fetch` 未使用 `HTTP_PROXY`；真实部署连通性与消息平台兼容性不能由模拟结果推出。运行配置见[docs/runtime.md](../../../../docs/runtime.md)。
+共享历史的 QQ 与 Telegram 不是互相隔离的资料空间，边界见[QQ 私聊共享 main](2026-09-24-qq-private-shared-main.md)。国内服务器部署需要可达的 API 反代或网络层代理，历史验收时全局 `fetch` 未使用 `HTTP_PROXY`；真实部署连通性与消息平台兼容性不能由模拟结果推出。运行配置见[操作手册](../../../../docs/usage.md)。
 
 ## 验证
 

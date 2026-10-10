@@ -42,4 +42,4 @@ Status: implemented
 
 [agent-direction issue 19](../../../../.scratch/agent-direction/issues/19-github-subagent-review.md)记录 `npx tsx --test test/45-github-events.test.ts test/46-github-recovery.test.ts` 及相关回归、typecheck 通过：新工作/SubAgent 完整链路、不占名额且拒绝复用、只读 MCP 仅对评审开放、新旧结果过期、恢复不重复、通知授权不变。`.scratch/agent-direction/smoke-19-github-subagent-review.mts` 在 macOS arm64 与 tx Linux x64 各 8/8，真实部分为后台、控制面、SQLite/JSONL、Docker 受限 worker 和回环签名 webhook；模型、MCP 与通知平台模拟。该轮全量有 worktree 路径下 test/32 的既有预置断言失败，主检出路径通过，详见原工单。
 
-[issue 23](../../../../.scratch/agent-direction/issues/23-contract-legacy-roles.md)另验证旧角色收尾、不重放、读取兼容与旧评审不再通知，smoke-23 在 macOS/Linux 各 5/5。真实 GitHub webhook 投递、真实 GitHub MCP 与真实 Telegram/QQ 均未实测；不能把回环入口和模拟平台冒烟表述为真实平台闭环。部署配置见[docs/runtime.md](../../../../docs/runtime.md)。
+[issue 23](../../../../.scratch/agent-direction/issues/23-contract-legacy-roles.md)另验证旧角色收尾、不重放、读取兼容与旧评审不再通知，smoke-23 在 macOS/Linux 各 5/5。真实 GitHub webhook 投递、真实 GitHub MCP 与真实 Telegram/QQ 均未实测；不能把回环入口和模拟平台冒烟表述为真实平台闭环。部署配置见[操作手册](../../../../docs/usage.md)。

@@ -21,7 +21,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 ## 验证项与结论索引
 
 下面保留阶段 0 的历史结论，当前检出是否通过以复跑结果为准。后续产品与原生 Linux
-证据见 [运行文档](../../docs/runtime.md)和[发布验收](../../docs/release-acceptance.md)。
+证据见 [发布验收的历史验证清单](../../docs/release-acceptance.md#历史验证清单)。
 
 | 测试 | 验证内容 | 结论 |
 | --- | --- | --- |

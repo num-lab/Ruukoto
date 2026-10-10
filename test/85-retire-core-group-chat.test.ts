@@ -10,7 +10,7 @@
  * 4. 通知与调度中的群结果引用仍复核（撤回/篡改阻断外发并记 source_revoked）；
  * 5. 排队/在途/待发一次性收尾，只定终态不重放，重复重启幂等。
  *
- * 验收 6（发布说明）由人工核对 runtime.md 与 README 后登记；旧数据形态由
+ * 验收 6（发布说明）由人工核对 docs/usage.md 与 README 后登记；旧数据形态由
  * 播种助手按退役前（核心库 v24）持久形态直接写入，真实旧代码产生的数据
  * 升级路径见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）。
  */

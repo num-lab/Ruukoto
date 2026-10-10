@@ -10,7 +10,7 @@
  * - 正常退出、SIGTERM、SIGHUP 与可处理的异常都关闭 socket、停止 TUI 并
  *   恢复终端（raw mode、光标、屏幕），不发送 stop 或取消任务；
  * - 进程被强杀（SIGKILL）时无法执行清理回调：终端可能停留在 alt screen
- *   或 raw mode，可用 `reset` 或 `stty sane` 恢复（见 docs/runtime.md）。
+ *   或 raw mode，可用 `reset` 或 `stty sane` 恢复（见 docs/usage.md）。
  */
 
 import * as fs from "node:fs";

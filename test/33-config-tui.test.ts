@@ -606,7 +606,7 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
   try {
     const pa = (await t.client.request<any>("create_project", { name: "alpha-g" })) as any;
     const pb = (await t.client.request<any>("create_project", { name: "beta-g" })) as any;
-    await t.client.request("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "history", purpose: "第一条历史授权" });
+    const firstHistory = (await t.client.request<any>("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "history", purpose: "第一条历史授权" })) as any;
     await t.client.request("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "history", purpose: "第二条历史授权" });
     await t.client.request("create_data_grant", { from_project_id: pb.id, to_project_id: pa.id, category: "memory" });
     const preRevoked = (await t.client.request<any>("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "artifact" })) as any;
@@ -626,8 +626,12 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
       assert.ok(listing.includes("第一条历史授权") && listing.includes("第二条历史授权"), "同范围两条授权逐条显示");
 
       // 撤销同范围两条中的一条：确认与完成提示都明确该类访问仍开放
-      // （确认前有一次 list_data_grants 重读；全量并行负载下放宽等待预算）
-      h.terminal.send(ENTER); // 第一条（index 0）
+      // 同毫秒创建的授权按随机 ID 排序，按实际列表定位目标。
+      const historyIndex = t.runtime.listDataGrants()
+        .filter((g) => g.fromProjectId === pa.id || g.toProjectId === pa.id)
+        .findIndex((g) => g.id === firstHistory.id);
+      assert.ok(historyIndex >= 0, "第一条历史授权出现在当前项目的有效授权列表");
+      h.terminal.send(DOWN.repeat(historyIndex) + ENTER);
       await waitForText(h.terminal, "同范围还有 1 条有效授权，撤销本条后该类访问仍开放", "撤销确认提示", 60_000);
       h.terminal.send(ENTER); // 确认
       await waitForText(h.terminal, "授权已撤销；同范围还有 1 条有效授权，该类访问仍开放", "撤销完成提示", 60_000);

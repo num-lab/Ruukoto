@@ -1,5 +1,7 @@
 /**
- * 核心群聊退役与旧群资料保全（agent-direction issue 20，ADR 0017 修订 ADR 0014）。
+ * 核心群聊退役与旧群资料保全（agent-direction issue 20）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+ * Note: 见 .agents/notes/implemented/simplification/2026-10-02-retire-core-group-chat.md
  *
  * 逐条对应工单验收：
  * 1. 新核心不引导 chat、不接收群任务；QQ 拥有者私聊与 Telegram 主会话照常回复；
@@ -8,7 +10,7 @@
  * 4. 通知与调度中的群结果引用仍复核（撤回/篡改阻断外发并记 source_revoked）；
  * 5. 排队/在途/待发一次性收尾，只定终态不重放，重复重启幂等。
  *
- * 验收 6（发布说明）由人工核对 runtime.md 与 README 后登记；旧数据形态由
+ * 验收 6（发布说明）由人工核对 docs/usage.md 与 README 后登记；旧数据形态由
  * 播种助手按退役前（核心库 v24）持久形态直接写入，真实旧代码产生的数据
  * 升级路径见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）。
  */

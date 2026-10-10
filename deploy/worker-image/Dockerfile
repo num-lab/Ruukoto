@@ -1,4 +1,5 @@
-# ruukoto 工具工作进程镜像（请求确认模式的任务容器，issue 03 / ADR 0004）。
+# ruukoto 工具工作进程镜像（请求确认模式的任务容器，issue 03）。
+# Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
 #
 # - 固定 pi 0.85.1 依赖（package-lock.json 安装），工作进程由 esbuild 打成
 #   单文件 worker.mjs（pi 依赖保持 external，经 node_modules 解析）；
@@ -17,10 +18,7 @@ RUN npm ci --ignore-scripts
 COPY src/agent/tool-worker ./src/agent/tool-worker
 # worker.ts 的宿主侧依赖（../../core/*，issue 11 起引入）也必须进构建阶段
 COPY src/core ./src/core
-RUN npx esbuild src/agent/tool-worker/worker.ts \
-      --bundle --format=esm --platform=node --target=node24 \
-      --external:@earendil-works/* \
-      --outfile=worker.mjs
+RUN npm run build
 
 FROM node:24-slim
 RUN apt-get update \
@@ -30,7 +28,7 @@ RUN apt-get update \
 WORKDIR /opt/ruukoto/worker
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY --from=build /build/worker.mjs ./worker.mjs
+COPY --from=build /build/worker/worker.mjs ./worker.mjs
 RUN chown -R 1000:1000 /opt/ruukoto/worker
 
 LABEL org.opencontainers.image.title="ruukoto-worker" \

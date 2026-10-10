@@ -4,7 +4,7 @@ Status: resolved
 
 **What to build:** 为 Personal Agent 增加 Telegram 与 QQ owner 私聊的图片入站能力。图片在入站时完成下载、校验和持久化，作为模型的视觉输入参与首次任务与后续续聊；回复仍保持纯文本。
 
-本工单依据 [agent-direction 已确认规格](../spec.md)、[CONTEXT.md](../../../CONTEXT.md)、[ADR 0017](../../../docs/adr/0017-two-agent-products.md) 和现有 Telegram/QQ owner 私聊边界制定。
+本工单依据 [agent-direction 已确认规格](../spec.md)、[CONTEXT.md](../../../CONTEXT.md)、[ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md) 和现有 Telegram/QQ owner 私聊边界制定。
 
 ## 现状与关键缺口
 
@@ -66,7 +66,7 @@ Status: resolved
 
 ### 2026-10-07：实现与验收
 
-已完成 Telegram/QQ 拥有者私聊图片入站。共享 `InboundMediaStore` 负责下载、MIME/magic/数量/大小校验、暂存与拒绝账本、恢复和过期清理；schema v31 增加两个入站媒体表与产物 MIME/hash。任务创建后，事件绑定、不可变图片产物元数据和稳定引用在同一 SQLite 事务提交；文件提前准备，确定的产物 ID 与哈希支持崩溃后幂等重试。新增 [ADR 0024](../../../docs/adr/0024-inbound-image-staging.md)，两种实例导入均排除暂存账本，已提升图片随任务产物保留媒体字段。
+已完成 Telegram/QQ 拥有者私聊图片入站。共享 `InboundMediaStore` 负责下载、MIME/magic/数量/大小校验、暂存与拒绝账本、恢复和过期清理；schema v31 增加两个入站媒体表与产物 MIME/hash。任务创建后，事件绑定、不可变图片产物元数据和稳定引用在同一 SQLite 事务提交；文件提前准备，确定的产物 ID 与哈希支持崩溃后幂等重试。新增 [ADR 0024](../../../.agents/notes/implemented/architecture/2026-10-07-inbound-image-staging.md)，两种实例导入均排除暂存账本，已提升图片随任务产物保留媒体字段。
 
 Driver 以 `ruukotoMediaRefs` 保存图片归属，JSONL 和 prompt 快照不重复写入 base64；选择使用标准图片占位块计预算，发送前按归属/MIME/大小/hash 恢复图片。首次任务、两级继续、已有压缩点覆盖原交互、重开会话均验证实际模拟模型 HTTP payload。模型能力在派发、提交与发送前核对；没有视觉能力时不静默降级。含图片消息关闭 IM 命令解析，回复和三类固定失败回执沿公共 outbox 去重。
 

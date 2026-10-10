@@ -3,10 +3,13 @@
  * ImEntry），共用主会话。本模块持入口表，承担跨平台的部分：
  *
  * - 入站门按来源分派；配置/凭据变化后按来源 reconcile——只作废/取消该来源的
- *   入站与任务，不波及共享 main 会话中另一平台的工作（ADR 0011/0012）；
+ *   入站与任务，不波及共享 main 会话中另一平台的工作；
  * - owner 回复与工作最终汇报：目标须与当前钉版目标一致，否则跳过、不改发；
  * - 凭据变化：事务内推进引用该凭据的入口代次，写入凭据后重连并 reconcile；
- * - 缺省通知渠道（Telegram，ADR 0010；测试经 config.scheduler.channel 覆盖）。
+ * - 缺省通知渠道（Telegram；测试经 config.scheduler.channel 覆盖）。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-24-telegram-owner-entry.md
+ * Note: 见 .agents/notes/implemented/feature/2026-09-24-qq-private-shared-main.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-24-scheduler-outbox.md
  *
  * GitHub webhook 等事件来源不是拥有者 IM 入口，不进本表。
  */
@@ -28,7 +31,10 @@ export interface ImEntry extends NotifyChannel {
   readonly source: string;
   /** owner 回复/工作汇报跳过时追加的持久事件名。 */
   readonly replySkippedEvent: "qq_private.reply_skipped" | "telegram.reply_skipped";
-  /** 启动配置停用：不连接、target() 为 null、gate 作废（与入口停用同义，ADR 0012 修订段）。 */
+  /**
+   * 启动配置停用：不连接、target() 为 null、gate 作废（与入口停用同义）。
+   * Note: 见 .agents/notes/implemented/feature/2026-09-24-qq-private-shared-main.md
+   */
   readonly startupDisabled: boolean;
   /** 入站派发/任务启动门：来源、actor 与钉版目标逐项核对；暂时离线 wait。 */
   gatePrivate(event: InboundEvent): "run" | "wait" | { drop: string };
@@ -89,8 +95,9 @@ export class ImEntries {
   }
 
   /**
-   * 通知工具的目标（ADR 0010）：QQ 来源任务只在钉版目标仍一致时发 QQ，否则 null；
+   * 通知工具的目标：QQ 来源任务只在钉版目标仍一致时发 QQ，否则 null；
    * 其余走缺省渠道当前目标。
+   * Note: 见 .agents/notes/implemented/architecture/2026-09-24-scheduler-outbox.md
    */
   notificationTarget(sourceEvent: InboundEvent | null): NotifyTarget | null {
     if (sourceEvent?.source === QQ_PRIVATE_SOURCE) {

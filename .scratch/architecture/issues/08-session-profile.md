@@ -62,7 +62,7 @@ Status: resolved
 0. 工单、CONTEXT.md「会话身份」、ADR 0017 补充段、agent-direction issue 23 关闭（本次访谈已写好，提交即可）。
 1. 会话身份：`src/core/session-identity.ts` 与 store 方法；删 `sessionToolClass`、`retiredSessionReason`；Runtime 各入口、队列兜底、resume-queue、5 处每次调用重核（`driver.ts` verifyMainBinding / verifyDelegationHost、`subagent-tools.ts:259`、`chat-result-tools.ts:82`、`im-approvals.ts:351`）与决定 9 的父会话判定改用身份；62 的分类用例。
 2. 执行画像：`tool-availability.ts` 的画像；driver 的装配过滤、任务收窄、MCP 规划、资料受限、计划资格、系统提示与 SDK 签名改用画像；router 改用 `taskWorkspaceFor`；62 的画像表、83 新例与变异核对。
-3. 文档：`docs/runtime.md`「架构要点」加会话身份与执行画像；按 `.skills/visual-docs/SKILL.md` 同步图解页；本单追加交付记录并标 resolved。
+3. 文档：`docs/runtime.md`「架构要点」加会话身份与执行画像；按 `.agents/skills/visual-docs/SKILL.md` 同步图解页；本单追加交付记录并标 resolved。
 
 每步 `npm run typecheck` 与全量 `npm test`（nohup + 退出码文件）通过后在分支本地提交，不 push；不在 tx 上跑真实模型验收（纯重构）；何时合入 develop 由拥有者决定。
 

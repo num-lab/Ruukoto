@@ -1,0 +1,15 @@
+✔ 可视化文档：源码锚点指向存在的文件与文本 (111.481833ms)
+✔ 可视化文档：页面覆盖源码里的状态、表、op 与事件 (12.307834ms)
+✔ 可视化文档：index.html 链接每个页面 (0.37925ms)
+✔ 可视化文档：相对链接与锚点有效 (56.6475ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 事件 evt_ff4d74bafa41a04d9e3225e7 建任务失败：所选模型不支持图片输入
+✔ 图片检查、提交和重启间模型配置变化：沿用钉定选择或在建任务前拒绝 (481.647625ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1671.042208

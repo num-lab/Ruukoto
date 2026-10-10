@@ -8,6 +8,7 @@
 </head>
 <body>
 <main class="page">
+  <aside class="callout limit"><b>快照</b>2026-10-09 快照，已停止维护，以 docs/ 模块文档为准。</aside>
   <header class="doc-head">
     <nav class="crumbs"><span>docs/visual/index.html</span></nav>
     <p class="eyebrow">总览</p>
@@ -103,12 +104,12 @@
 
   <section id="maintain">
     <h2>怎样维护</h2>
-    <p>改了 <code>src/</code> 或 <code>deploy/</code> 下的文件后，按 <code>.skills/visual-docs/SKILL.md</code> 同步页面：找出描述改动的页面与 section，读整节，修改，逐条对照代码核实，再跑检查并渲染查看。</p>
+    <p>改了 <code>src/</code> 或 <code>deploy/</code> 下的文件后，按 <code>.agents/skills/visual-docs/SKILL.md</code> 同步页面：找出描述改动的页面与 section，读整节，修改，逐条对照代码核实，再跑检查并渲染查看。</p>
     <p><code>test/67-visual-docs.test.ts</code>（也在 <code>npm test</code> 里）核对源码锚点仍然存在、页面覆盖了代码里的状态、表、op 与事件、站内链接与锚点有效，并要求新页面被本页链接。</p>
     <p>检查只能发现「代码结构变了而页面没跟上」，发现不了「页面说错了」。语义上的变化要靠改代码的人顺手更新。直接用浏览器打开本文件即可阅读，不需要服务器。</p>
   </section>
 
-  <footer class="doc-foot"><p>维护流程写在 <code>.skills/visual-docs/SKILL.md</code>。</p></footer>
+  <footer class="doc-foot"><p>维护流程写在 <code>.agents/skills/visual-docs/SKILL.md</code>。</p></footer>
 </main>
 </body>
 </html>

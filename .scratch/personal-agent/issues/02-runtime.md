@@ -5,7 +5,7 @@ Depends on: 01
 
 ## 目标
 
-任务生命周期独立于 TUI，支持不同会话并行和同一会话排队，基础行为见 [ADR 0002](../../../docs/adr/0002-detach-terminal-from-task-runtime.md)。
+任务生命周期独立于 TUI，支持不同会话并行和同一会话排队，基础行为见 [ADR 0002](../../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)。
 
 ## 实施范围
 

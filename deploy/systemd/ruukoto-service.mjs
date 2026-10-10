@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * ruukoto 服务器服务管理 helper（agent-direction issue 09，ADR 0019）。
+ * ruukoto 服务器服务管理 helper（agent-direction issue 09）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
  *
  * 唯一可信的 systemd 服务管理入口：root 拥有 0700，仅后台账户经 sudoers 以
  * 固定 argv 调用；Node 标准库实现，无第三方依赖，不接受环境变量配置。

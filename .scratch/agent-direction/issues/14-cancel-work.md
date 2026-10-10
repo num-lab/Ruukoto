@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** [11 — 主 Agent 委派通用 SubAgent 并收到结果](11-subagent-delegation.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -187,7 +187,7 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 
 **真实环境（模型/平台仍为模拟，模型为 MockModelServer）：** `smoke-14-cancel-work.mts` 在真实 Runtime + 控制面 + SQLite + 独立 JSONL + Docker 受限 worker 上 7/7 PASS，macOS 本机（darwin arm64）与 `ssh tx` Linux 各一轮：两项工作并行经真实 CLI `ruukoto-code work cancel <工作ID> --reason …` 取消一项（`alreadyCanceled:false`、`canceledBy:"owner"`）、排队任务零模型请求、运行中容器实际退出（`docker ps -a` 为空）、另一项工作照常完成、迟到结果事件 / `work_get` 可查且不唤醒、下一轮只注入未取消工作的结果、空闲无残余容器、重启后取消与未关闭保持、旧 queued 任务保持 canceled 且不变式成立。（首跑 `ssh tx` 因远端磁盘 100% 失败于 `npm ci`；清理旧 smoke 同步目录释放 2.6G 后复跑通过，与代码无关。）
 
-**同步**：`CONTEXT.md` 工作委托与 SubAgent 条目；`docs/runtime.md` SubAgent 章节（新增「整项取消（issue 14）」，登记/竞争/迟到结果/窗口修复/控制面 op）；ADR 0020 补充段「整项取消（agent-direction issue 14）」六条决定；ADR 0017 实施记录一行；`src/control/protocol.ts` 注v13。`docs/visual/` 按 .skills/visual-docs 同步八页：control-protocol（op `work_cancel`、事件 `work_delegation.canceled`、版本 v13）、orchestrator（lede、三层记录 v26 与取消列、委派时序图唤醒门、拒绝表「工作已取消」行、新节「整项取消」含登记事务时序图）、task-lifecycle（启动/取消转换行、runInner 判定首条、wake 门、SubAgent 取消行）、storage-layout（v26、迁移表）、tool-call-path（`subagent_cancel` 四处）、context-pipeline（注入排除与提示）、once-only（账本核实）、index（编排器卡片）；`shoot.sh` 全页 18 张切片逐张核对无重叠/截断/错向。同步中发现并修复：`docs/visual/orchestrator.html` 的 SubAgent 取消行原说「首版没有取消整项工作的入口」（过时，已改）；其他页无既述与新行为冲突的事实。核实时另发现 test/75 的版本固定断言随升级需同步（已修，属测试维护项而非代码缺陷）。
+**同步**：`CONTEXT.md` 工作委托与 SubAgent 条目；`docs/runtime.md` SubAgent 章节（新增「整项取消（issue 14）」，登记/竞争/迟到结果/窗口修复/控制面 op）；ADR 0020 补充段「整项取消（agent-direction issue 14）」六条决定；ADR 0017 实施记录一行；`src/control/protocol.ts` 注v13。`docs/visual/` 按 .agents/skills/visual-docs 同步八页：control-protocol（op `work_cancel`、事件 `work_delegation.canceled`、版本 v13）、orchestrator（lede、三层记录 v26 与取消列、委派时序图唤醒门、拒绝表「工作已取消」行、新节「整项取消」含登记事务时序图）、task-lifecycle（启动/取消转换行、runInner 判定首条、wake 门、SubAgent 取消行）、storage-layout（v26、迁移表）、tool-call-path（`subagent_cancel` 四处）、context-pipeline（注入排除与提示）、once-only（账本核实）、index（编排器卡片）；`shoot.sh` 全页 18 张切片逐张核对无重叠/截断/错向。同步中发现并修复：`docs/visual/orchestrator.html` 的 SubAgent 取消行原说「首版没有取消整项工作的入口」（过时，已改）；其他页无既述与新行为冲突的事实。核实时另发现 test/75 的版本固定断言随升级需同步（已修，属测试维护项而非代码缺陷）。
 
 **code-review（两轴）**：Standards 无硬性违规（`ponytail:` 注释、既有事务机制复用、图解页锚点均合规；7 处判断调用逐一核定，均与现有惯例自洽，如 `WorkCanceledBy`/`SubAgentClosedBy` 同形分名、deps lambda 与本文件 `kickSession` 风格一致，不采纳改动）。Spec 指出的「TUI 摘要缺取消原因」已采纳（`worksSummaryForSession` 补上 `cancelReason`）；「awaiting_confirmation 且无 Driver 的任务」组合与既有单任务 `cancelTask` 口径完全一致（awaiting 任务必有持有它的 Driver，重启恢复另有补记），非本单引入，维持现口径；迁移用例对 `work_get` 三列的覆盖由 smoke A5 承担；回归与双平台冒烟的实际执行记录即本条。
 

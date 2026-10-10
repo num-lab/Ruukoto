@@ -3,4 +3,10 @@ node_modules/
 *.log
 # 本地运行时数据目录（默认 ~/.ruukoto，测试使用系统临时目录）
 .ruukoto-data/
-undefined/
+# 工单与验证证据入库，日志作为证据一并入库
+!.scratch/**/*.log
+# 构建产物和本机凭据
+/worker/
+.env
+.env.*
+!.env.example

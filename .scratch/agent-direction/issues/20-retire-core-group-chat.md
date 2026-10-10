@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** 无，可立即开始
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -197,7 +197,7 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 - 真实：两份 bin/ruukoto.mjs 后台进程（e542261 与当前代码）、SIGKILL/正常停止/再启动、控制面 socket 与令牌（旧段经旧 CLI，v13/v14 各自匹配）、SQLite 账本、Docker 受限 worker。
 - 未实测：真实 QQ 群与 NapCat（没有入口）；tx 生产库副本升级演练未做（需 `ruukoto-backend` 权限，未经拥有者授权）。
 
-#### 图解同步（.skills/visual-docs）
+#### 图解同步（.agents/skills/visual-docs）
 
 inbound-events（群入口全节退役化：忽略/门恒 drop/归档状态表/恢复步骤）、orchestrator（两角色引导、chat 行归档、群聊结果节）、outbox（qq_outbox 只读归档、退役收尾）、once-only（群回复行退役）、control-protocol（删 qq_group_update、v14）、task-lifecycle（退役兜底取消、恢复节）、storage-layout（四张 qq 表归档语义、引导两角色）、context-pipeline（撤回过滤不再注入，遗留至 23）、deployment、index 卡片。test/67 全绿，改动图经 shoot.sh 渲染逐张检查。不一致记录：outbox 页沿用了「ADR 0010 明确 qq_outbox 暂不迁移」的页面原说法（未逐字核对 ADR）；QqStore 群写方法与 Driver qq_group 参数保留为预期（播种测试与 issue 23），已在 23 工单登记具体清单。
 

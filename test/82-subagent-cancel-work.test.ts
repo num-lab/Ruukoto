@@ -1,5 +1,6 @@
 /**
- * 整项工作取消（agent-direction issue 14，ADR 0020 补充）。
+ * 整项工作取消（agent-direction issue 14）。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-04-cancel-work.md
  *
  * seam：Runtime 公共接口 + mock 模型 + 真实只读工具（realTools，local 后端）；
  * 准备阶段竞争用门闩化 resolveSelection 的管理器实例（共享同一 store）取得

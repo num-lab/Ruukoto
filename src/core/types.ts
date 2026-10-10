@@ -22,7 +22,9 @@ export interface ModelSelection {
 }
 
 /**
- * 任务访问模式（ADR 0003；auto-review 见 ADR 0005）。
+ * 任务访问模式。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
+ * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
  * - confirm：请求确认模式。在已授权范围内自主执行（Linux 容器边界内），
  *   越界文件操作与外部网络以结构化审批请求逐次授权。
  * - full_access：完全访问模式。拥有者显式选择后，任务在容器外使用专用执行
@@ -130,9 +132,10 @@ export type AgentRoleId = "main" | "coding" | "chat";
 export const AGENT_ROLE_IDS: readonly AgentRoleId[] = ["main", "coding", "chat"];
 
 /**
- * SubAgent（agent-direction issue 11，ADR 0017 的一层 SubAgent 模型）：主 Agent
+ * SubAgent（agent-direction issue 11，一层 SubAgent 模型）：主 Agent
  * （普通开发会话或 main）为一项工作委托创建的动态从属身份。与旧固定角色
  * （AgentRoleId）分开保存；不创建下级、不直接与拥有者交互。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  * 状态：running = 有活动执行任务；idle = 任务终态且执行单元已核实退出；
  * unverified = 任务终态但旧执行单元退出未核实（占用保留）。
  * 关闭（issue 12）用独立列表示：state 继续只表示执行状态，关闭后拒绝新委派，
@@ -654,7 +657,10 @@ export type ApprovalScope =
        * 批准单次消费；full_access 与 auto-review 也须拥有者确认。
        */
       kind: "notification";
-      /** news 批准固定采集范围和模板，动态正文在每次采集后固定（ADR 0015）。 */
+      /**
+       * news 批准固定采集范围和模板，动态正文在每次采集后固定。
+       * Note: 见 .agents/notes/implemented/feature/2026-09-25-scheduled-news.md
+       */
       mode: "schedule" | "once" | "news";
       taskId: string;
       toolOpId: string;
@@ -669,11 +675,12 @@ export type ApprovalScope =
     }
   | {
       /**
-       * 服务器服务管理（agent-direction issue 09，ADR 0019）：固定本机身份、
+       * 服务器服务管理（agent-direction issue 09）：固定本机身份、
        * 白名单内的规范单元名、固定动作、策略与单元定义修订，以及发起任务和
        * 宿主操作 ID。批准单次消费；full_access 也须逐次确认（root 分支是后台
        * 经 sudo helper 的提权能力，不属于执行账户已有权限）。活动状态、PID、
        * InvocationID 属于观察结果，不进入修订指纹。
+       * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
        */
       kind: "service_operation";
       /** 本机身份（policy.machineId，helper 每次调用与 /etc/machine-id 核对）。 */
@@ -761,7 +768,8 @@ export interface ConfirmationRequest {
 }
 
 /**
- * 长期操作授权（agent-direction issue 10，ADR 0017 与 ADR 0019 阶段的例外）：
+ * 长期操作授权（agent-direction issue 10）：
+ * Note: 见 .agents/notes/implemented/feature/2026-10-03-standing-permissions.md
  * 拥有者经原 IM 平台的待审批明确保存的限定授权——允许本机对指定白名单服务执行
  * 固定动作（首版仅 restart）。授权存放于后台保护的核心库，模型、子任务消息与
  * 普通平台文本都不能创建或扩大；范围创建后不修改，修改经撤销后新建完成。
@@ -1178,7 +1186,10 @@ export interface SelectionRecord {
   createdAt: string;
 }
 
-/** 上下文压缩点（issue 30，ADR 0016）：每个会话至多一个 active。 */
+/**
+ * 上下文压缩点（issue 30）：每个会话至多一个 active。
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md
+ */
 export interface ContextCheckpoint {
   id: string;
   sessionId: string;

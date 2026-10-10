@@ -8,7 +8,7 @@ Status: resolved
 
 **Blocked by:** [11 — 主 Agent 委派通用 SubAgent 并收到结果](11-subagent-delegation.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -198,6 +198,6 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 | 3 不重复 | test/84：并发两唤醒只后终态汇报一份、重复终态事件一份、重启补记幂等（两次巡检仍一份）、补充再收尾键不同 | smoke-18 场景5：唤醒运行中 SIGKILL 再重启，恰好一份「中断」汇报 |
 | 4 不改发/等待/不重发 | test/84：登记时目标失效记 `work_report:` skip；configVersion 推进后 pending 取消 target_changed 且新目标零发送；离线等待原因+恢复一次；effect_unknown 含重启不重发；429 同一记录按 not_before 再发 | smoke-18 场景3（离线 wait_reason→恢复一次）与场景4（重绑取消、OTHER 零发送） |
 | 5 授权不扩大 | test/84：未收尾唤醒回答不外发、唤醒轮次外发请求被拒零外发零审批、无新工具；test/40/77 draft 旧链与 `im-approval` 槽回归不变 | smoke-18 各场景平台收到的消息无越界外发 |
-| 6 验证与文档 | test/67-visual-docs 4/4；图解页按 .skills/visual-docs 流程同步并经渲染切片核查 | 冒烟记录模拟（MockModelServer/MockOneBot/FakeBotApi）与真实（后台/控制面/SQLite/outbox 账本/容器 worker）分离 |
+| 6 验证与文档 | test/67-visual-docs 4/4；图解页按 .agents/skills/visual-docs 流程同步并经渲染切片核查 | 冒烟记录模拟（MockModelServer/MockOneBot/FakeBotApi）与真实（后台/控制面/SQLite/outbox 账本/容器 worker）分离 |
 
 **真实 QQ/Telegram**：无演练入口，未实测，不继承 08/10 的模拟平台结论。文档同步：runtime.md（Telegram/QQ 回复段与「通用 SubAgent 委派·结果、通知与空闲」节）、CONTEXT.md「owner 回复」、ADR 0011/0012 文首实施修订、ADR 0017 实施记录、docs/visual（inbound-events/orchestrator/outbox/once-only/index）。

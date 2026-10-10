@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** [06 — 在工作区管理配置与资料授权](06-workspace-settings.md)；[17 — 汇总并验证并行改动，保留冲突成果](17-integrate-worktree-results.md)；[21 — 把旧开发资料迁入 Coding Agent](21-migrate-coding-instance.md)；[22 — 把旧主会话和服务状态迁入 Personal Agent](22-migrate-personal-instance.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 

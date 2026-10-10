@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** [12 — 继续委派、跨工作复用并显式关闭 SubAgent](12-subagent-reuse-close.md)；[14 — 取消整项工作而不影响其他委托](14-cancel-work.md)；[16 — SubAgent 在独立 worktree 中并行修改](16-parallel-worktrees.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -32,7 +32,7 @@ fsmonitor 关、hooks 走 /dev/null，宿主永不执行 git）套用到父工�
 main 的修改委派开放（旧 `coding_delegate mode=draft` 仅迁移期兼容，描述引导通用链路）；
 协议 v15。「运行相关检查」的口径：宿主预检（apply --check）+ SubAgent 任务输入要求在副本内完成
 相关检查并如实报告 + 主 Agent 汇总后用自己的工具验证（dev/main 系统提示已写明），不给
-main 增加任意命令通道——详见 [ADR 0021](../../../docs/adr/0021-subagent-worktrees.md) 补充段。
+main 增加任意命令通道——详见 [ADR 0021](../../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md) 补充段。
 
 附带修复（同单一事务内的根因修复，均经测试核实）：
 - 副本创建在「父仓库本身是 worktree」时补挂共享 Git 目录（prepareWriteTarget 创建容器原本
@@ -54,7 +54,7 @@ main 增加任意命令通道——详见 [ADR 0021](../../../docs/adr/0021-suba
   worktree 父仓库补挂、容器零残余。记录于 [运行文档](../../../docs/runtime.md) 验证状态表
   与 ADR 0021 冒烟节。
 
-图解同步（.skills/visual-docs）：改 orchestrator.html（新增 #subagent-integrate 节、
+图解同步（.agents/skills/visual-docs）：改 orchestrator.html（新增 #subagent-integrate 节、
 lede/委派入口/失败表/旧委派节文案、staleness 修正——「首版限制」盘点改为「已知限制」）、
 control-protocol.html（事件表与版本表各一行）、tool-call-path.html（工具集合、装配条件、
 审批规则、账本核实行）、context-pipeline.html（系统提示与任务输入两行数值如实更新）。

@@ -27,7 +27,7 @@ Status: resolved
 - `/continue` 创建新任务，使用提交时的会话默认权限，但现有计划限制会沿原任务链继承。任务级 `switch_mode` 可以调整权限，却不会重算任务开始时钉定的计划工具集。
 - [TUI](../../../src/tui/app.ts) 切换会话时，会将源会话的模式及模型同步到目标会话并保存。本工单将 Plan 纳入这条既有同步路径。
 - 现有计划白名单移除 `edit`、`write`、长期记忆写入、非只读 MCP 及其他未列工具，但保留 `bash`、`request_file_access`、`http_request`、`todo_write` 和技能。`bash` 仍可能写工作区；后两种外部访问工具也接受写文件或 POST 等参数，人工批准后可以执行。因此工具白名单和计划说明不等于技术上的全面只读约束。
-- Plan 中的 Auto review 必须遵循 [ADR 0005](../../../docs/adr/0005-auto-review-mode.md)：符合策略的越界读取可交独立审查，写入、带凭据请求及不能确认的操作仍按策略转人工；审查失败不放宽权限。保持 [ADR 0003](../../../docs/adr/0003-enforce-explicit-access-modes.md) 的权限与拥有者身份边界。
+- Plan 中的 Auto review 必须遵循 [ADR 0005](../../../.agents/notes/implemented/feature/2026-09-22-auto-review-mode.md)：符合策略的越界读取可交独立审查，写入、带凭据请求及不能确认的操作仍按策略转人工；审查失败不放宽权限。保持 [ADR 0003](../../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md) 的权限与拥有者身份边界。
 - [CONTEXT.md](../../../CONTEXT.md) 当前将计划模式定义为一次性 `/plan`，并明确避免将其当作访问模式或安全边界。实现时应更新为常驻模式选择、固定 Auto review 与工具收窄的组合，说明与上述 ADR 的关系。
 
 ## 实施范围
@@ -115,6 +115,6 @@ CLI/API `/plan …` 普通文本与 TUI 未知命令的用户操作细节在 REA
 
 验证：最终 `npx tsx --test test/67-visual-docs.test.ts` 为 4/4 通过，源码锚点、取值覆盖、首页和站内链接均有效；`git diff --check` 通过。枚举覆盖由主代理更新为 AccessMode 与 SessionDefaultMode 两项，分别核对原三值和新增 plan。
 
-渲染：对 task-lifecycle、tool-call-path、context-pipeline、orchestrator、storage-layout、control-protocol、once-only 均运行 `.skills/visual-docs/shoot.sh`。七页分别 8 / 15 / 12 / 21 / 16 / 18 / 5 张，共 95 张；通过汇总图检查全部切片布局，再放大核对 17 张涉及改动的切片。最终状态表小改后重渲染 task-lifecycle，并核对第 2 张切片；没有文字重叠、越框、表格横向截断或箭头指向问题，页面均低于脚本 32000px 上限。
+渲染：对 task-lifecycle、tool-call-path、context-pipeline、orchestrator、storage-layout、control-protocol、once-only 均运行 `.agents/skills/visual-docs/shoot.sh`。七页分别 8 / 15 / 12 / 21 / 16 / 18 / 5 张，共 95 张；通过汇总图检查全部切片布局，再放大核对 17 张涉及改动的切片。最终状态表小改后重渲染 task-lifecycle，并核对第 2 张切片；没有文字重叠、越框、表格横向截断或箭头指向问题，页面均低于脚本 32000px 上限。
 
 截图留在 `/tmp/vis-<页面>-<序号>.png`，汇总图为 `/tmp/qa-<页面>-slices.png`；不进入仓库。没有因同步文档发现需新增工单的代码问题，无未核实的本次模式文档项。Linux 执行边界与真实模型行为由主代理报告测试结果，本次文档 QA 未额外运行线上验证。

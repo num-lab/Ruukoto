@@ -3,8 +3,8 @@
  *
  * 用 `mkdir`（原子操作）作为锁语义：锁目录存在即视为持有中。
  * 遇到已有锁时不能只凭 PID 文件缺失或 socket 不存在就删除锁——必须读取
- * owner.json 并核实记录的进程仍然存活且确为本后台实例（进程身份用
- * ps 的完整命令行核对，避免 PID 回收误判）：
+ * owner.json 并核实记录的进程启动标识，避免 PID 回收误判；旧记录用
+ * ps 的完整命令行兼容核实：
  * - 进程存活且是本后台 → 拒绝启动；
  * - 进程已死（ESRCH）或 PID 已被无关进程回收 → 遗留锁，可接管；
  * - owner.json 缺失/损坏 → 无活跃实例证据，可接管；
@@ -41,6 +41,7 @@ interface LockOwner {
   pid: number;
   command: string;
   startedAt: string;
+  processIdentity?: string;
 }
 
 function readOwner(lockDir: string): LockOwner | null {
@@ -63,7 +64,42 @@ function isAlive(pid: number): boolean {
 
 function processCommand(pid: number): string | null {
   try {
-    return execFileSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" }).trim();
+    return execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], { encoding: "utf8", timeout: 3_000 }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function validProcessIdentity(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (/^linux:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:\d+$/.test(value)) return true;
+  if (!value.startsWith("darwin:")) return false;
+  const date = new Date(`${value.slice(7)} UTC`);
+  if (!Number.isFinite(date.getTime())) return false;
+  const [weekday, day, month, year, time] = date.toUTCString().split(" ");
+  return value === `darwin:${weekday!.slice(0, -1)} ${month} ${String(Number(day)).padStart(2, " ")} ${time} ${year}`;
+}
+
+function processIdentity(pid: number): string | null {
+  try {
+    if (process.platform === "linux") {
+      const bootId = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+      const end = stat.lastIndexOf(")");
+      if (end < 0) return null;
+      const ticks = stat.slice(end + 1).trim().split(/\s+/)[19];
+      const identity = `linux:${bootId}:${ticks}`;
+      return validProcessIdentity(identity) ? identity : null;
+    }
+    if (process.platform === "darwin") {
+      // shortcut: ps 仅秒级，同秒 PID 复用可能保守误拒；出现误拒时升级启动标识精度。
+      const startedAt = execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
+        encoding: "utf8", timeout: 3_000, env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+      }).trim();
+      const identity = `darwin:${startedAt}`;
+      return validProcessIdentity(identity) ? identity : null;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -81,7 +117,7 @@ export interface AcquiredLock {
 /**
  * 只读探测锁目录的持锁状态（agent-direction issue 21）：不建锁、不接管、不改写
  * 任何文件，供跨实例导入核实源/目标后台已经停止。与获取路径共用同一套持锁核实
- * （owner.json + 进程存活 + 命令行核对），结论分级：确认活后台持锁 / 无法核实
+ * （owner.json + 进程存活 + 启动标识；旧记录兼容命令行核对），结论分级：确认活后台持锁 / 无法核实
  * 身份（按持锁处理但不确认是后台）/ 无活跃持锁（无锁、进程已死、PID 被回收或
  * owner.json 缺失）。
  */
@@ -103,23 +139,37 @@ export function probeLockHolder(lockDir: string): LockProbe {
     return { held: false, pid: null, command: null, unverifiable: false, detail: "无锁目录" };
   }
   const owner = readOwner(lockDir);
-  if (!owner || !Number.isFinite(owner.pid)) {
+  if (!owner || !Number.isInteger(owner.pid) || owner.pid <= 0) {
     return { held: false, pid: null, command: null, unverifiable: false, detail: "锁目录残留但 owner.json 缺失或损坏（遗留锁）" };
   }
   if (!isAlive(owner.pid)) {
     return { held: false, pid: owner.pid, command: null, unverifiable: false, detail: `记录的进程 pid ${owner.pid} 已退出（遗留锁）` };
   }
+  const hasIdentity = Object.hasOwn(owner, "processIdentity");
+  if (hasIdentity) {
+    const identity = processIdentity(owner.pid);
+    if (!validProcessIdentity(owner.processIdentity) || identity === null) {
+      return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: `锁被 pid ${owner.pid} 持有，但无法核实进程启动标识` };
+    }
+    if (identity !== owner.processIdentity) {
+      return { held: false, pid: owner.pid, command: processCommand(owner.pid), unverifiable: false, detail: `记录的 pid ${owner.pid} 启动标识不同，已被其他进程复用（遗留锁）` };
+    }
+  }
   const command = processCommand(owner.pid);
   if (command === null) {
     return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: `锁被 pid ${owner.pid} 持有，但无法核实进程身份` };
   }
-  if (looksLikeBackend(command)) {
+  if (hasIdentity || looksLikeBackend(command)) {
     return { held: true, pid: owner.pid, command, unverifiable: false, detail: `后台存活：pid ${owner.pid}：${command}` };
   }
   return { held: false, pid: owner.pid, command, unverifiable: false, detail: `记录的 pid ${owner.pid} 已被无关进程复用（遗留锁）` };
 }
 
 function acquireLock(lockDir: string, label: string): AcquiredLock {
+  const identity = processIdentity(process.pid);
+  if (identity === null) {
+    throw new InstanceLockError(`${label}无法核实进程身份（pid ${process.pid}）；请人工确认后重试 ${lockDir}`, true);
+  }
   const takeover = () => {
     fs.rmSync(lockDir, { recursive: true, force: true });
     fs.mkdirSync(lockDir);
@@ -134,35 +184,21 @@ function acquireLock(lockDir: string, label: string): AcquiredLock {
   }
 
   if (!created) {
-    const owner = readOwner(lockDir);
-    if (owner && Number.isFinite(owner.pid)) {
-      if (!isAlive(owner.pid)) {
-        // 遗留锁：记录的进程已退出，可安全接管
-        takeover();
-      } else {
-        const command = processCommand(owner.pid);
-        if (command === null) {
-          throw new InstanceLockError(
-            `${label}被 pid ${owner.pid} 持有，但无法核实进程身份；请人工确认后删除 ${lockDir}`,
-            true,
-          );
-        }
-        if (looksLikeBackend(command)) {
-          throw new InstanceLockError(`${label}冲突：另一个进程正在运行（pid ${owner.pid}）：${command}`);
-        }
-        // PID 被无关进程复用：遗留锁，可接管
-        takeover();
+    const probe = probeLockHolder(lockDir);
+    if (probe.held) {
+      if (probe.unverifiable) {
+        throw new InstanceLockError(`${label}被 pid ${probe.pid} 持有，但无法核实进程身份；请人工确认后删除 ${lockDir}`, true);
       }
-    } else {
-      // owner.json 缺失或损坏：锁目录存在但无活跃实例证据，接管
-      takeover();
+      throw new InstanceLockError(`${label}冲突：另一个进程正在运行（pid ${probe.pid}）：${probe.command}`);
     }
+    takeover();
   }
 
   const owner: LockOwner = {
     pid: process.pid,
     command: `ruukoto-backend ${process.argv.join(" ")}`,
     startedAt: new Date().toISOString(),
+    processIdentity: identity,
   };
   fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify(owner, null, 2));
   return {

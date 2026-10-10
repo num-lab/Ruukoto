@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** [08 — 在绑定拥有者的 IM 私聊完成审批](08-im-approvals.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -113,7 +113,7 @@ Linux 另外复跑真实服务冒烟与执行边界检查，报告成功、拒�
 
 按计划四步实施，HEAD 起全部工作在 develop 工作区完成（随本评论一并提交）。
 
-**实现**：`src/agent/service-tools.ts`（service_inspect/service_manage 宿主工具 + helper 客户端）；`deploy/systemd/ruukoto-service.mjs`（root 拥有的固定协议 helper）、`ruukoto-service-test.{sh,service}`（可控测试服务）、sudoers 增加第三固定入口；`service_operation` 审批范围、main 的 `service` 工具类别（装配另要求产品 ruukoto + Linux + 显式部署配置 RUUKOTO_SERVICE_HELPER/POLICY）、账本规则（inspect=no_effect / manage=approval）、Driver 装配与宿主产物引用接 `task.tool_result`、IM 通知为服务范围展示结构化说明（目标/提权身份/影响/请求时状态）。任何访问模式（含 full_access）restart 逐次审批；新增 [ADR 0019](../../../docs/adr/0019-service-management-controlled-helper.md)。
+**实现**：`src/agent/service-tools.ts`（service_inspect/service_manage 宿主工具 + helper 客户端）；`deploy/systemd/ruukoto-service.mjs`（root 拥有的固定协议 helper）、`ruukoto-service-test.{sh,service}`（可控测试服务）、sudoers 增加第三固定入口；`service_operation` 审批范围、main 的 `service` 工具类别（装配另要求产品 ruukoto + Linux + 显式部署配置 RUUKOTO_SERVICE_HELPER/POLICY）、账本规则（inspect=no_effect / manage=approval）、Driver 装配与宿主产物引用接 `task.tool_result`、IM 通知为服务范围展示结构化说明（目标/提权身份/影响/请求时状态）。任何访问模式（含 full_access）restart 逐次审批；新增 [ADR 0019](../../../.agents/notes/implemented/architecture/2026-10-03-service-management-helper.md)。
 
 **验证记录（三类证据分列）**：
 

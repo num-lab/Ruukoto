@@ -1,5 +1,6 @@
 /**
- * ruukoto-code TUI 启动按需拉起本机后台（agent-direction issue 02，ADR 0017）。
+ * ruukoto-code TUI 启动按需拉起本机后台（agent-direction issue 02）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（预先约定）：
  * - src/control/ensure-backend.ts：ensureBackend 的可观察行为——探测、拉起、并发收敛、

@@ -1,5 +1,6 @@
 /**
- * 按工作区创建和切换开发会话（agent-direction issue 05，ADR 0017）。
+ * 按工作区创建和切换开发会话（agent-direction issue 05）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（预先约定）：
  * 1. open_workspace op：新建工作区并记录根目录身份；别名（符号链接/路径变体）复用

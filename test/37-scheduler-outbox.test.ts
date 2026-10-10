@@ -320,11 +320,12 @@ test("目标：离线保持 pending 并显示原因；配置版本变化/停用�
 
 test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown 不重发；sent 不重发；未落结果的调度工具操作按账本核实", async () => {
   const h = await harness("sched-restart", "2026-09-24T00:00:00Z");
-  let rt = await Runtime.start(h.config);
+  let rt!: Runtime;
   let mainSession = "";
   let sentId = "";
   let hostOpId = "";
   try {
+    rt = await Runtime.start(h.config);
     mainSession = rt.store.getAgentRole("main")!.sessionId;
     addSchedule(rt, h, { key: "r-sent", action: "notify", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "SENT" });
     await tickAt(rt, h, "2026-09-24T01:00:00Z");
@@ -349,12 +350,9 @@ test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown �
         approvalId: null, nextDueAt: "2026-09-24T23:00:00.000Z", tzData: "t", reason: "r",
       }, "test");
     });
-  } finally {
     await rt.stop("restart");
-  }
-  h.channel.online = true;
-  rt = await Runtime.start(h.config);
-  try {
+    h.channel.online = true;
+    rt = await Runtime.start(h.config);
     await rt.scheduler!.idle();
     await rt.scheduler!.tick();
     await rt.scheduler!.idle();
@@ -367,8 +365,11 @@ test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown �
     assert.match(rt.store.getToolOp("op_not_committed")!.resultSummary ?? "", /已知未提交/);
     assert.equal(rt.store.getToolOp(hostOpId)!.effectUnknown, false);
   } finally {
-    await rt.stop("test_end");
-    await h.close();
+    try {
+      await rt?.stop("test_end");
+    } finally {
+      await h.close();
+    }
   }
 });
 

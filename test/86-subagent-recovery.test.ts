@@ -1,5 +1,6 @@
 /**
- * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15，ADR 0020 补充）。
+ * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-05-subagent-restart-recovery.md
  *
  * seam：Runtime 进程内重启（与 46 同法：stop("test_restart") 后重新 Runtime.start；
  * recover 与编排器启动恢复随之真实执行），mock 模型 + 真实只读工具（realTools，

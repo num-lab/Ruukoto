@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** [01 — 两个产品独立安装和启动](01-independent-products.md)；[07 — 把旧开发会话和资料映射到工作区](07-legacy-workspace-data.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -200,7 +200,7 @@ npm test   # nohup + 退出码文件，跑时不改 src/test
 
 ### 2026-10-04：实施完成（schema v28，ADR 0022）
 
-按 2026-10-03 计划实施并交付。当前核心库 v27 → v28（新增 `instance_imports` / `instance_import_items`）；决策记录新增 [ADR 0022](../../../docs/adr/0022-legacy-instance-import.md)，ADR 0017 实施记录已加行。
+按 2026-10-03 计划实施并交付。当前核心库 v27 → v28（新增 `instance_imports` / `instance_import_items`）；决策记录新增 [ADR 0022](../../../.agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md)，ADR 0017 实施记录已加行。
 
 **交付物**：`src/core/db.ts`（v28 两表）、`src/core/instance-lock.ts`（`probeLockHolder` 只读探测）、`src/core/types.ts`（回执类型）、`src/runtime/legacy-import.ts`（预览/应用/回退/列表全部逻辑与 TABLE_POLICY）、`src/cli.ts` + `src/cli-entry.ts`（`legacy-import` 子命令，仅 ruukoto-code）、`test/85-legacy-instance-import.test.ts`（7 项子测试）、`.scratch/agent-direction/smoke-21-migrate-coding-instance.mts`、`docs/runtime.md`（数据布局 + 迁入节）、`CONTEXT.md`（实例导入词条）、`docs/visual/`（storage-layout 新增实例导入小节与账本两表、deployment 锁探测与命令、index 卡片）。
 

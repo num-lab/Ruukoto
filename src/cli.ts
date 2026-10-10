@@ -29,13 +29,14 @@
  *   ruukoto telegram configure --credential N --user-id U [--chat-id C] [--api-base URL] | status | enable | disable
  *   ruukoto stop
  *
- * 两条 bin 入口：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent，ADR 0017，
+ * 两条 bin 入口：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent，
  * issue 01），产品身份经 RUUKOTO_PRODUCT 固定注入。数据目录默认 ~/.ruukoto
  * （ruukoto-code 为 ~/.ruukoto-code）；控制面目录为其兄弟目录 control/
  * （socket 与拥有者令牌）。路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，
  * ruukoto-code 读 RUUKOTO_CODE_*_DIR。管理命令都需要拥有者令牌：取
  * RUUKOTO_OWNER_TOKEN 或受控目录的 owner.token（0600，部署时以 0400 复制给
  * 拥有者）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  */
 
 import * as path from "node:path";
@@ -190,10 +191,11 @@ async function runServer(rest: string[], product: ProductType): Promise<number> 
   if (modelFlag && (split <= 0 || split === modelFlag.length - 1)) throw new Error("--model 格式为 provider/model");
   const modelProvider = split < 0 ? undefined : modelFlag.slice(0, split);
   const modelId = split < 0 ? undefined : modelFlag.slice(split + 1);
-  // 默认执行后端按产品区分（ADR 0017，agent-direction issue 04）：Coding Agent
+  // 默认执行后端按产品区分（agent-direction issue 04）：Coding Agent
   // 的受限执行以已验证的容器边界为默认，不在生产入口静默降级；个人 Agent 的
   // CLI 默认仍为 local，生产部署经 --execution container 或环境变量显式启用。
   // 这里覆盖的是 CLI 生产入口；库层默认（local）供测试与开发实例按各自入口使用。
+  // Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
   const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? (product === "ruukoto-code" ? "container" : "local");
   if (execFlag !== "local" && execFlag !== "container") {
     console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
@@ -267,9 +269,11 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
   const { flags, positional } = parseArgs(rest);
   switch (cmd) {
     case "legacy-import": {
-      // 跨实例导入（agent-direction issue 21/22，ADR 0022/0023）：两条入口按产品
+      // 跨实例导入（agent-direction issue 21/22）：两条入口按产品
       // 分流——ruukoto-code 迁入开发资料，ruukoto 迁入个人资料（镜像方向）；
       // 离线执行（不走控制面），持目标实例锁运行，源实例全程只读
+      // Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
+      // Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
       return runLegacyImport(positional, flags, product);
     }
     case "create-project":
@@ -514,7 +518,7 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
     case "github": {
       // issue 17：专用 GitHub 模块已退役。旧命令不再执行业务操作，只保留静态迁移提示。
       console.error(
-        "GitHub 专用模块已退役（issue 17）：PR/issue/CI 等操作请改用通用 MCP 服务（ruukoto mcp configure …，见 docs/runtime.md「MCP 服务」）。\n" +
+        "GitHub 专用模块已退役（issue 17）：PR/issue/CI 等操作请改用通用 MCP 服务（ruukoto mcp configure …，见 docs/usage.md「MCP 服务」）。\n" +
           "历史草稿与发布记录已归档为原任务产物（清单：<数据目录>/github-archive-manifest.json）；旧待审批/待发布操作已失效，不会发送。",
       );
       return 1;
@@ -943,11 +947,13 @@ async function runLegacy(cmd: string, rest: string[], product: ProductType): Pro
 }
 
 /**
- * 跨实例导入（agent-direction issue 21/22，ADR 0022/0023）。按产品分流：
+ * 跨实例导入（agent-direction issue 21/22）。按产品分流：
  * ruukoto-code 把旧实例开发资料迁入 Coding Agent；ruukoto 把旧实例个人资料
  * （main 会话、应用数据、调度、平台绑定与必要凭据）迁入全新实例。目标侧离线
  * 执行（不走控制面）：预览/应用都要求目标后台已停止，持目标实例锁运行；源实例
  * 全程只读，源后台存活时拒绝。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
  *   legacy-import preview --from <源数据目录> [--plan <文件>]
  *   legacy-import apply --plan <文件> [--request-id <id>]
  *   legacy-import revert <导入ID>
@@ -1106,9 +1112,13 @@ async function runLegacyImport(positional: string[], flags: Record<string, strin
   }
 }
 
+/**
+ * 双产品入口的 CLI 帮助。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+ */
 function defaultHelp(): string {
   return (
-    "产品：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent）两条入口共用本 CLI（ADR 0017）。\n" +
+    "产品：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent）两条入口共用本 CLI。\n" +
     "      ruukoto-code 使用独立档案目录（默认 ~/.ruukoto-code，环境变量 RUUKOTO_CODE_*_DIR），\n" +
     "      不启动 QQ/Telegram 连接与个人调度；路径环境变量按产品隔离（RUUKOTO_*_DIR / RUUKOTO_CODE_*_DIR）。\n" +
     "用法：ruukoto [路径] [--session <id> | --demo]      任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）\n" +

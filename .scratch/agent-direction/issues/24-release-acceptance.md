@@ -6,7 +6,7 @@ Status: ready-for-human
 
 **Blocked by:** [02 — 打开 TUI 时启动后台，退出后继续任务](02-coding-daemon.md)；[04 — 在开发机完成受限和完全访问任务](04-desktop-execution.md)；[10 — 保存、使用和撤销限定的长期授权](10-standing-permissions.md)；[13 — 让同项工作的 SubAgent 相互通信](13-subagent-messaging.md)；[15 — 后台重启后恢复 SubAgent 与工作记录](15-recover-subagents.md)；[18 — 把异步工作最终结果送回原 IM 入口](18-im-final-delivery.md)；[23 — 清理固定角色和迁移期兼容写入口](23-contract-legacy-roles.md)
 
-依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../docs/adr/0017-two-agent-products.md)。
+依据：[已确认规格](../spec.md) 与 [ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 ## 验收标准
 
@@ -59,7 +59,7 @@ macOS 类型检查通过，`test/85` + `test/86 personal` + `test/91` 13/13；�
 
 新增 [发布与验收说明](../../../docs/release-acceptance.md)，汇总 01–23 已有证据并区分本次结果；同步 `CONTEXT.md` 文首已实施状态、`runtime.md` 的发布入口、协议 v15、TUI 按需后台和两方向回退状态。更正 worker README 中“未安装 git”的旧说明，与 Dockerfile 现状一致。
 
-按 [visual-docs skill](../../../.skills/visual-docs/SKILL.md) 同步 `deployment.html#acceptance`（三场景顺序和真实覆盖）、`deployment.html#execution/#dev-deploy`（Linux 完全访问实测、共享 Git 元数据已有证据及 git 工具链）、`storage-layout.html#legacy-import/#personal-import`（回退被挡保持 applied），以及 index 卡片。相关节事实逐项核对源码，图解测试通过，改图/表格已渲染并查看切片。原先把共享 Git 元数据挂载列为未覆盖的说法已按工单 17 双端实测更正。本次没有把临时部署或模拟平台写成生产切换完成。
+按 visual-docs skill（已于 2026-10-09 移除，最后版本见提交 9c6ee2b）同步 `deployment.html#acceptance`（三场景顺序和真实覆盖）、`deployment.html#execution/#dev-deploy`（Linux 完全访问实测、共享 Git 元数据已有证据及 git 工具链）、`storage-layout.html#legacy-import/#personal-import`（回退被挡保持 applied），以及 index 卡片。相关节事实逐项核对源码，图解测试通过，改图/表格已渲染并查看切片。原先把共享 Git 元数据挂载列为未覆盖的说法已按工单 17 双端实测更正。本次没有把临时部署或模拟平台写成生产切换完成。
 
 ### 2026-10-06：Linux 全量首轮失败的根因与修正
 

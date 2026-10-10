@@ -172,7 +172,8 @@ function classifyMcpError(err: unknown, timeoutMs: number, signal?: AbortSignal)
   if (signal?.aborted || (err as Error).name === "AbortError") {
     return new McpError("canceled", "任务已停止，MCP 调用已中止（本地停止等待，不承诺远端操作已停止）");
   }
-  // 远端的 JSON-RPC 错误应答：远端已应答，是已知结果（ADR 0008）
+  // 远端的 JSON-RPC 错误应答：远端已应答，是已知结果
+  // Note: 见 .agents/notes/implemented/feature/2026-09-23-mcp-write-tools-approval.md
   if (err instanceof ProtocolError) {
     return new McpError("remote_error", `MCP 服务返回错误（${err.code}）：${err.message}`);
   }

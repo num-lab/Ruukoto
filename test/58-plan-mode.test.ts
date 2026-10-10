@@ -283,7 +283,10 @@ test("集成：Plan 写入转人工、审查失败转人工，拒绝任务切换
     await t.client.request("set_session_mode", { session_id: sessionId, mode: "plan", expected_version: 0 });
     for (const input of ["写外部配置", "读取外部配置"]) {
       const task = await submit(t, sessionId, input, input);
-      await waitFor("待人工审批", async () => (await taskStatus(t.client, task.id)).task.status === "awaiting_confirmation");
+      await waitFor("审查完成并待人工审批", async () => {
+        const detail = await taskStatus(t.client, task.id);
+        return detail.task.status === "awaiting_confirmation" && detail.confirmations[0]?.reviewStatus === "asked_owner";
+      });
       const before = await taskStatus(t.client, task.id);
       assert.equal(before.task.planMode, true);
       assert.equal(before.task.accessMode, "auto-review");

@@ -51,7 +51,7 @@ Runtime 持一张按来源索引的拥有者 IM 入口表；每个入口回答 g
 0. 工单、CONTEXT.md「拥有者 IM 入口」、ADR 0012 修订段与 ADR 0011 引用、工单 13 的先后记录（本次访谈已写好，提交即可）。
 1. `ImEntry` 接口与两个 adapter 实现（含启动停用标志与决定 1 的 drop、`configure` 校验迁入）；两个 adapter 始终创建；Runtime 去掉判空与兜底。
 2. `src/runtime/im-entries.ts`：reconcile、owner 回复与工作汇报、凭据代次、缺省渠道与 `notificationTarget` 迁入；`ImApprovals` 三依赖换成按来源取入口；`GitHubEvents.capReply` 走入口截断；单元测试。
-3. 文档：`docs/runtime.md`「架构要点」加拥有者 IM 入口；按 `.skills/visual-docs/SKILL.md` 同步图解页（`inbound-events.html` 的门描述随决定 1 改）；本单追加交付记录并标 resolved。
+3. 文档：`docs/runtime.md`「架构要点」加拥有者 IM 入口；按 `.agents/skills/visual-docs/SKILL.md` 同步图解页（`inbound-events.html` 的门描述随决定 1 改）；本单追加交付记录并标 resolved。
 
 每步 `npm run typecheck` 与全量 `npm test`（nohup + 退出码文件）通过后在分支本地提交，不 push；不在 tx 上跑真实模型验收；何时合入 develop 由拥有者决定。
 

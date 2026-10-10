@@ -1,11 +1,14 @@
 /**
- * 旧实例开发资料迁入 Coding Agent（agent-direction issue 21，ADR 0022）。
+ * 旧实例开发资料迁入 Coding Agent（agent-direction issue 21）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
  *
  * 本方向的唯一实现处：预览（preview）、应用（apply）、回退（revert）与列表的
  * 全部判断都集中在本模块；CLI（ruukoto-code legacy-import）只做离线接线，不走
  * 控制面。镜像方向（个人资料迁入全新 ruukoto 实例，issue 22）在
  * ./personal-import.ts，复用本模块导出的快照/账本/行工具等方向无关辅助。
- * 边界（与 ADR 0017/0018 一致）：
+ * 边界：
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md
  * - 源实例全程只读：不建锁、不改写、不修复源目录任何文件；快照 = 把 ruukoto.db
  *   （及 WAL 侧车文件）复制到临时目录后在副本上迁移到当前 schema，源目录逐文件
  *   sha 不变。源后台存活（或身份无法核实）时拒绝。
@@ -1411,7 +1414,7 @@ export function applyLegacyImport(
     const backupDir = path.join(deps.targetDataDir, "migration", importId);
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
     const backupPath = path.join(backupDir, "target-before.db");
-    // “核对备份”：导入前对目标库的完整备份；整库恢复的手工路径（见 docs/runtime.md）
+    // “核对备份”：导入前对目标库的完整备份；整库恢复的手工路径（见 docs/usage.md）
     tdb.exec(`VACUUM INTO '${escapeSqlPath(backupPath)}'`);
     const backupSha = sha256File(backupPath);
 

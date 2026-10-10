@@ -1,5 +1,7 @@
 # Linux 原生边界验证
 
+> **2026-10-10 更正**：本报告「35 项全部 unavailable」的根因是 bwrap 被解包到 `/tmp` 运行，而 Ubuntu 的非特权 userns 限制按可执行文件路径匹配 AppArmor profile，`/tmp` 下的副本拿不到 `userns` 权限。**不能据本报告认为 Ubuntu 24.04 不支持 bubblewrap。** 同机复核显示：装到 `/usr/bin/bwrap` 并加载授予 `userns` 的 profile 后，文件、网络（含 UDP）、abstract Unix socket、SysV IPC、PID 可见性与脱离进程组的后代回收全部通过。下方原始记录保留不改，更正依据见 [工单 26](../../../.scratch/agent-direction/issues/26-native-sandbox.md) 的 2026-10-10 评论与[原生执行沙箱笔记](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)。
+
 环境：Linux-6.8.0-117-generic-x86_64-with-glibc2.39，UID=1003，GID=1003
 时间：2026-10-08T12:58:15.415824+00:00
 判定退出码：2（0=通过，1=失败，2=不可验证）

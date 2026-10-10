@@ -5,7 +5,7 @@ Depends on: 01, 02
 
 ## 目标
 
-接入文件读取、修改和命令执行等编码能力，落实[权限 ADR](../../../docs/adr/0003-enforce-explicit-access-modes.md)中的请求确认和完全访问。自动审批不在本工单范围。
+接入文件读取、修改和命令执行等编码能力，落实[权限 ADR](../../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md)中的请求确认和完全访问。自动审批不在本工单范围。
 
 ## 实施范围
 
@@ -102,7 +102,7 @@ Depends on: 01, 02
 
 ### 2026-09-20：实现完成（接续前一轮未完成的实现）
 
-接续上一轮中断的实现（typecheck 断裂、控制面未接线、无新测试），本轮补齐并验证。运行说明、数据布局、恢复步骤与部署清单见 [docs/runtime.md](../../../docs/runtime.md)；身份与容器生命周期决策记为 [ADR 0004](../../../docs/adr/0004-tool-worker-per-task-container-exec-account.md)。
+接续上一轮中断的实现（typecheck 断裂、控制面未接线、无新测试），本轮补齐并验证。运行说明、数据布局、恢复步骤与部署清单见 [docs/runtime.md](../../../docs/runtime.md)；身份与容器生命周期决策记为 [ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)。
 
 代码落点（按实施计划）：
 

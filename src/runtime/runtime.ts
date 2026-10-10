@@ -229,9 +229,10 @@ export interface RuntimeConfig {
    */
   telegramDisabled?: boolean;
   /**
-   * 产品身份（agent-direction issue 01，ADR 0017）：缺省 ruukoto（个人 Agent）。
+   * 产品身份（agent-direction issue 01）：缺省 ruukoto（个人 Agent）。
    * ruukoto-code（Coding Agent）启动时强制停用 QQ/Telegram 适配器、不创建调度器，
    * 并把产品归属登记到数据目录 meta（跨产品复用同一数据目录直接拒绝）。
+   * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
    */
   productType?: ProductType;
   /** Telegram 入口（issue 04）：长轮询秒数/断线退避覆盖（仅测试注入；生产取默认）。 */
@@ -241,10 +242,11 @@ export interface RuntimeConfig {
   /** 应用数据（issue 02）：查询子进程挂点（仅测试注入；生产缺省）。 */
   appData?: { queryStallMs?: number };
   /**
-   * 服务器服务管理（agent-direction issue 09，ADR 0019）：显式部署配置（受保护
+   * 服务器服务管理（agent-direction issue 09）：显式部署配置（受保护
    * helper 与策略路径，生产经环境变量注入，见 deploy/systemd/README.md）。装配
    * 另要求产品 ruukoto + Linux；缺任一条件即无此能力（工具不装配，不是静默放行）。
    * allowNonLinuxPlatform 与 timeouts 仅测试注入（受控 helper 替身的离线协议测试）。
+   * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
    */
   service?: {
     helperPath: string;
@@ -1147,9 +1149,10 @@ export class Runtime {
 
       // 1. 结果缺失的工具操作按工具操作账本的分类器补记（架构工单 05）：覆盖全部
       //    任务（含终态：核心结果写入失败窗口、驱动器缺失的中断路径）。无写入效果
-      //    与审批未消费记已知结论；工具族先按宿主操作 ID 核实（ADR 0009 §7）；其余
+      //    与审批未消费记已知结论；工具族先按宿主操作 ID 核实；其余
       //    结果缺失且可能已产生外部效果 → effect_unknown，不重放。
       //    未完成执行 → interrupted。
+      // Note: 见 .agents/notes/implemented/architecture/2026-09-23-main-app-data-space.md
       this.ledger.settleAll();
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
         const changed = store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {

@@ -1,0 +1,17 @@
+环境：linux x64；镜像 ruukoto-worker:latest；容器 uid:gid 1003:1003
+PASS B1 排队委派任务定 interrupted、不自动继续、Agent 回 idle、结果归属保持
+PASS B1 dev 父会话下一轮模型调用注入中断结果
+PASS B1 空闲 Agent 沿 work_id 继续委派（真实容器完成）
+PASS B2 遗留占用保留、暂停不解除、Agent 记 unverified、拒绝新委派
+PASS B2 真实 CLI resume-queue：释放占用、解除暂停、Agent 回 idle
+PASS B2 回 idle 后可继续委派（真实容器完成）
+PASS B3 带来源事件的评审排队任务不中断，自动恢复并继续执行
+PASS B4 重复重启不重复登记、不自动运行、无残余容器
+
+===== 证据 =====
+workA work_ceff1101cc37b9d139178a33，SubAgent sagent_138f6ef30630ccb35605c5ed（子会话 sess_676029d78e636b439119a6dc），首次执行任务 task_01609bd660674578965867e7（真实容器 read）
+B1：Q1 task_760d86cfe77db6ef0d3ab399 interrupted(backend_restart)，结果引用归属 work/subAgent/父会话/父任务，零模型请求零容器
+B2：Q2 task_7b145e4ccd43d334a42ff863 遗留占用经 CLI resume-queue 释放，Agent unverified → idle
+B3：评审任务 task_6a5d254acc9b153f0fc4d28b（source_event_id 钉版）自动恢复并真实完成
+
+8/8 PASS

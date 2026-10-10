@@ -87,7 +87,7 @@ Status: resolved
 
 ## 关联与后续
 
-- [ADR 0004](../../../docs/adr/0004-tool-worker-per-task-container-exec-account.md)：执行账户与拥有者、后台分离。本工单不改变这项决策，只补齐部署前提。完全访问提供的仍是执行账户自己的权限，没配 ACL 的工作区不可用。
+- [ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行账户与拥有者、后台分离。本工单不改变这项决策，只补齐部署前提。完全访问提供的仍是执行账户自己的权限，没配 ACL 的工作区不可用。
 - [28](28-container-same-path-mount.md)：执行账户本来就使用宿主路径，28 改完后两种执行方式的路径一致，本工单不需要为此额外改动。
 
 ## Comments

@@ -1,7 +1,8 @@
 /**
- * 产品身份（agent-direction issue 01，ADR 0017）：ruukoto（个人 Agent，Linux 服务器、
+ * 产品身份（agent-direction issue 01）：ruukoto（个人 Agent，Linux 服务器、
  * IM 入口与个人调度）与 ruukoto-code（Coding Agent，开发机器、TUI 入口）共用一份代码，
  * 以兼容扩展方式区分：
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  * - 产品身份只经 RUUKOTO_PRODUCT 注入（对应 bin 入口固定赋值），缺省 ruukoto，
  *   旧部署与旧记录零改动；
  * - 数据目录归属经 meta 键 product.type 首次启动登记（Runtime 启动时核对，跨产品复用

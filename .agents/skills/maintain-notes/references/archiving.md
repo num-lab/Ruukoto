@@ -93,8 +93,7 @@ CLI 依次完成：
 
 除头部 `Archived:` 一行外，**禁止修改归档正文的任何其他字符**。
 
-> 历史包袱补齐：若 `archived/` 已有笔记但还没有 manifest（例如从 DSH 导入的语料），运行
-> `npx tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts --write` 一次性补封印——它会先校验既有封印未被改动，再追加缺失条目，绝不重写历史。
+> 历史包袱补齐：若 `archived/` 已有笔记但还没有 manifest（例如从 DSH 导入的语料），运行 `npx tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts --write` 一次性补封印——它会先校验既有封印未被改动，再追加缺失条目，绝不重写历史。
 
 ---
 

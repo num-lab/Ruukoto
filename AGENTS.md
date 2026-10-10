@@ -2,13 +2,7 @@
 
 ## 开发与验证
 
-首次检出在仓库根目录运行 `npm run setup`。
-独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。
-修改过程中运行 `npm run check:static` 和相关测试，例如
-`npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，
-不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。
-环境前提、测试导航、耗时和外部验收入口见
-[开发说明](docs/development.md)。当测试需要 Linux 环境时，可通过 `ssh tx` 访问服务器。
+首次检出在仓库根目录运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。修改过程中运行 `npm run check:static` 和相关测试，例如`npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。环境前提、测试导航、耗时和外部验收入口见[开发说明](docs/development.md)。当测试需要 Linux 环境时，可通过 `ssh tx` 访问服务器。
 
 ## 目录导航
 

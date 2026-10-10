@@ -1,0 +1,10 @@
+{
+  "AGENTS.md": 2700,
+  "README.md": 3300,
+  "CONTEXT.md": 10000,
+  "docs/architecture.md": 6400,
+  "docs/development.md": 9200,
+  "docs/agents/domain.md": 550,
+  "docs/agents/issue-tracker.md": 900,
+  "docs/agents/triage-labels.md": 350
+}

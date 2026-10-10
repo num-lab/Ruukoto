@@ -1,12 +1,8 @@
 # 阶段 0 基础验证（issue 01）
 
-验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API：并发会话、完整磁盘历史、
-可控模型上下文、工具与扩展、RPC，以及 Linux 受限执行边界。本目录是验证脚手架；
-关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于
-`.scratch/personal-agent/foundation-findings.md`。
+验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API：并发会话、完整磁盘历史、可控模型上下文、工具与扩展、RPC，以及 Linux 受限执行边界。本目录是验证脚手架；关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于`.scratch/personal-agent/foundation-findings.md`。
 
-模型服务复用仓库内的 `test/helpers/mock-provider.ts`。使用完整仓库，以下命令均在
-仓库根目录运行；环境、提交钩子与全部检查入口见 [开发说明](../../docs/development.md)。
+模型服务复用仓库内的 `test/helpers/mock-provider.ts`。使用完整仓库，以下命令均在仓库根目录运行；环境、提交钩子与全部检查入口见 [开发说明](../../docs/development.md)。
 
 ## 运行
 
@@ -20,8 +16,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 
 ## 验证项与结论索引
 
-下面保留阶段 0 的历史结论，当前检出是否通过以复跑结果为准。后续产品与原生 Linux
-证据见 [发布验收的历史验证清单](../../docs/release-acceptance.md#历史验证清单)。
+下面保留阶段 0 的历史结论，当前检出是否通过以复跑结果为准。后续产品与原生 Linux证据见 [发布验收的历史验证清单](../../docs/release-acceptance.md#历史验证清单)。
 
 | 测试 | 验证内容 | 结论 |
 | --- | --- | --- |
@@ -36,15 +31,10 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 
 ## 已知的 SDK 行为要点（验证中发现）
 
-- `createAgentSession()` **不接受** `extensionFactories` 选项（静默忽略）；
-  inline 扩展必须经 `DefaultResourceLoader({ extensionFactories })` 传入。
-- SDK 路径下 `session_start` / `session_shutdown` 不会派发给 inline 扩展
-  （CLI 交互模式才有）；每轮 `before_agent_start` / `agent_start` /
-  `agent_end` / `agent_settled` 可靠。
-- `SessionManager.create()` 惰性创建 JSONL 文件：首次写入前
-  `session.sessionFile` 为 `undefined`。
-- `ModelRuntime.create()` 必须显式传 `authPath`/`modelsPath`/`modelsStore`
-  才能做到封闭（否则读取用户 `~/.pi/agent`）。
+- `createAgentSession()` **不接受** `extensionFactories` 选项（静默忽略）；inline 扩展必须经 `DefaultResourceLoader({ extensionFactories })` 传入。
+- SDK 路径下 `session_start` / `session_shutdown` 不会派发给 inline 扩展（CLI 交互模式才有）；每轮 `before_agent_start` / `agent_start` / `agent_end` / `agent_settled` 可靠。
+- `SessionManager.create()` 惰性创建 JSONL 文件：首次写入前`session.sessionFile` 为 `undefined`。
+- `ModelRuntime.create()` 必须显式传 `authPath`/`modelsPath`/`modelsStore`才能做到封闭（否则读取用户 `~/.pi/agent`）。
 
 ## Linux 探针说明
 
@@ -57,11 +47,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 - 控制面：宿主回环监听端口从容器不可达（回环与网关两种路径）
 - 系统身份：root 持有的 0600 控制面状态，任务 uid 读写均被内核拒绝
 
-结果写入 `results/linux-isolation-report.{json,md}`。
-注意：阶段 0 的运行环境是 Docker Desktop（macOS 上的 Linux VM，
-linuxkit 6.12.76 / Debian 13），验证的是**容器边界本身**；
-该阶段尚未验证目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时），
-后续实机记录见上述运行文档。
+结果写入 `results/linux-isolation-report.{json,md}`。注意：阶段 0 的运行环境是 Docker Desktop（macOS 上的 Linux VM，linuxkit 6.12.76 / Debian 13），验证的是**容器边界本身**；该阶段尚未验证目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时），后续实机记录见上述运行文档。
 
 ## Coding Agent 原生边界验证（工单 26）
 

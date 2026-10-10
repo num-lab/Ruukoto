@@ -16,20 +16,16 @@
 
 ## 当前状态
 
-双产品首期已交付：两个产品入口、工作区与会话、受限/完全访问执行、通用 SubAgent
-（委派、复用、通信、取消、汇总、重启恢复）、IM 审批、白名单服务管理与长期授权、
-旧实例导入。尚未完成：
+双产品首期已交付：两个产品入口、工作区与会话、受限/完全访问执行、通用 SubAgent（委派、复用、通信、取消、汇总、重启恢复）、IM 审批、白名单服务管理与长期授权、旧实例导入。尚未完成：
 
 - 真实 QQ / Telegram 平台与 macOS 完全访问的正向路径缺少实测证据（目前均为模拟平台）；
-- 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，
-  旧群资料保留为只读归档）。
+- 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
 
 逐项证据见 [发布与验收说明](docs/release-acceptance.md)。
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或
-Linux 的普通用户账户。受限模式另需 Docker（macOS 用 Docker Desktop）。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或Linux 的普通用户账户。受限模式另需 Docker（macOS 用 Docker Desktop）。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
@@ -47,15 +43,11 @@ ruukoto-code                      # 回到既有会话（不隐式新建）
 ruukoto-code stop                 # 停止后台
 ```
 
-工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；
-一个工作区可以包含多个仓库。默认执行后端是容器；macOS 尚无经验证的完全访问执行
-账户，选择完全访问会在执行前被拒绝。
+工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。默认执行后端是容器；macOS 尚无经验证的完全访问执行账户，选择完全访问会在执行前被拒绝。
 
 ### ruukoto（Linux 服务器）
 
-三个系统身份（拥有者 / 后台 `ruukoto-backend` / 执行账户 `ruukoto-exec`）、工具镜像、
-受保护的提权入口、systemd 单元以及可选的服务管理 helper，安装步骤见
-[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
+三个系统身份（拥有者 / 后台 `ruukoto-backend` / 执行账户 `ruukoto-exec`）、工具镜像、受保护的提权入口、systemd 单元以及可选的服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
 
 ```bash
 export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
@@ -78,14 +70,11 @@ ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <登录 QQ 号> \
 ruukoto qq enable
 ```
 
-绑定的拥有者可在原私聊里查看、批准或拒绝审批。main 委派长任务后继续回应新消息，
-最终结果沿发起时的入口汇报。
+绑定的拥有者可在原私聊里查看、批准或拒绝审批。main 委派长任务后继续回应新消息，最终结果沿发起时的入口汇报。
 
 ### 开发本项目
 
-修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集
-（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI
-与显式复跑执行。
+修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI与显式复跑执行。
 
 ```bash
 npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启

@@ -52,7 +52,7 @@ Seatbelt / bubblewrap 原生候选只建立真实探针，尚未接入产品、�
 
 任务完成立即关闭 SubAgent 可以让任务与身份同步结束，是第二轮访谈原建议；拥有者明确要求继续委托原 Agent，故默认空闲、保留身份上下文，只显式关闭。三轮访谈同时确认新工作复用后重算协作资格。该备选的详细决定另见[复用与关闭](../feature/2026-10-04-subagent-reuse-close.md)。
 
-每个产品拆成独立 package 可以各自产出制品；[产品入口工单](../../../../.scratch/agent-direction/issues/01-independent-products.md)选择单代码包、两条 bin 以满足当前独立运行与重启需求，只有确需独立打包和发货时才重访拆包。
+每个产品拆成独立 package 可以各自产出制品；[产品入口工单](../../../../.scratch/agent-direction/issues/01-independent-products.md)选择单代码包、两条 bin 以满足当前独立运行与重启需求，只有确需独立打包和发货时才重访拆包。该条件未成立，但产品差异缺少显式落点与模块边界漂移另有驱动，重访的具体方案见[同仓 workspaces 分包](../../proposed/architecture/2026-10-11-in-repo-workspace-packages.md)。
 
 ## 后果
 

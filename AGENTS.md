@@ -35,7 +35,3 @@
 ### Domain docs
 
 采用 single-context：根目录 `CONTEXT.md` 与 `docs/adr/`。探索代码库前，先读 `docs/agents/domain.md`。
-
-### 可视化文档
-
-`docs/visual/` 是随代码维护的图解页面，与 `docs/` 同等对待。改动 `src/` 或 `deploy/` 下的文件之后、编辑图解页时、`test/67-visual-docs.test.ts` 失败时，按 `.agents/skills/visual-docs/SKILL.md` 操作。

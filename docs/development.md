@@ -47,7 +47,6 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | SubAgent、worktree 与导入 | `test/80-subagent-delegation.test.ts` 至 `test/87-retire-coding-role.test.ts`、`test/91-release-acceptance.test.ts`、`test/95-work-copy.test.ts` |
 | `src/tui/`、`src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
 | `src/qq/`、`src/telegram/`、`src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
-| `docs/visual/`、`src/` 或 `deploy/` 的图解关联 | `test/67-visual-docs.test.ts`，操作步骤见 [visual-docs skill](../.agents/skills/visual-docs/SKILL.md) |
 
 遇到失败时保留用例名、断言和环境信息，区分实现回归与环境前提。独立复现失败用例，
 然后修复原因；默认检查和 CI 不自动重试失败。现有历史耗时与结果见

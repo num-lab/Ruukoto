@@ -228,6 +228,6 @@ ruukoto legacy-import preview | apply | revert | list   # 从旧实例离线导�
 - [docs/adr/](docs/adr/)：架构决策记录
 - [docs/runtime.md](docs/runtime.md)：实现细节、完整命令与验证状态
 - [docs/development.md](docs/development.md)：可复现环境、开发检查与测试导航
-- [docs/visual/index.html](docs/visual/index.html)：状态机、调用路径、协议、存储与部署图解
+- [docs/visual/index.html](docs/visual/index.html)：状态机、调用路径、协议、存储与部署图解（2026-10-09 快照，已停止维护）
 - [docs/release-acceptance.md](docs/release-acceptance.md)：首期发布与验收证据
 - [AGENTS.md](AGENTS.md)：面向编码代理的仓库约定

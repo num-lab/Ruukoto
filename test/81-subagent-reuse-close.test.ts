@@ -1,5 +1,6 @@
 /**
- * SubAgent 继续委派、跨工作复用与显式关闭（agent-direction issue 12，ADR 0020 补充）。
+ * SubAgent 继续委派、跨工作复用与显式关闭（agent-direction issue 12）。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-04-subagent-reuse-close.md
  *
  * seam：Runtime 公共接口 + mock 模型 + 真实只读工具（realTools，local 后端）；
  * 竞争用例另用门闩化 resolveSelection 的管理器实例（共享同一 store）取得确定性。

@@ -7,9 +7,10 @@
  * - 漏过多个周期每计划只补一次：无未完成运行时取截点前最近一次，已有未完成
  *   运行时并入原运行（原键、原正文），不建第二个；
  * - 发送一次只有一个在途操作；网络调用在领取事务提交后执行一次，明确成功 sent、
- *   可证明未发送 failed、限流退回 pending 延迟再领取（ADR 0011）、其余（超时/断线/
+ *   可证明未发送 failed、限流退回 pending 延迟再领取、其余（超时/断线/
  *   中止/模糊错误）effect_unknown，不自动重发；
  * - 不进入 coding 会话的任务队列，也不占用其工作目录。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-24-telegram-owner-entry.md
  */
 
 import type { Store } from "../core/store.ts";

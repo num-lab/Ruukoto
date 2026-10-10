@@ -1,5 +1,6 @@
 /**
- * 工作区管理配置与资料授权（agent-direction issue 06，ADR 0017）。
+ * 工作区管理配置与资料授权（agent-direction issue 06）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（预先约定）：
  * 1. 项目设置并发保护：projects.settings_version 只保护指令列表与 Web Search；

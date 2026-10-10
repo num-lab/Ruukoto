@@ -1,5 +1,6 @@
 /**
- * 旧开发资料迁入 Coding Agent（agent-direction issue 21，ADR 0022）。
+ * 旧开发资料迁入 Coding Agent（agent-direction issue 21）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
  *
  * 测试接缝：
  * 1. 预览完整且两侧零写入：源目录逐文件 sha256 不变；目标零写入（连副本读取都

@@ -1,8 +1,9 @@
 /**
- * 通用 SubAgent 委派（agent-direction issue 11，ADR 0020；issue 12 继续/复用/
+ * 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/
  * 关闭；issue 14 整项取消；issue 16 修改委派——worktree 隔离与非 Git 串行；
  * issue 17 改动汇总并开放 main 的修改委派；issue 19 宿主固定评审）：
  * 集中登记工作委托、动态 SubAgent 身份与每次执行任务。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md
  *
  * 边界：
  * - 首版分析能力固定为只读（read / read_artifact）；模型只给正文、幂等键、

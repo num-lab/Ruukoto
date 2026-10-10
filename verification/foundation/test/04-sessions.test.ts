@@ -1,7 +1,8 @@
 /**
  * 验证 4：从后台（同进程宿主）并行驱动多个会话并读取事件。
  *
- * 对应 ADR 0002（后台运行任务，TUI 负责交互）与阶段 1 的多会话要求。
+ * 对应后台运行任务（TUI 负责交互）与阶段 1 的多会话要求。
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md
  * 断言：
  * 1. 两个会话可同时执行任务（A 阻塞在模型响应时 B 可完整走完一轮）
  * 2. 各会话事件独立可订阅，互不串用

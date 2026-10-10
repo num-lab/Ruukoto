@@ -1,5 +1,8 @@
 /**
- * 开发机受限/完全访问接入（agent-direction issue 04，ADR 0003/0004/0017）。
+ * 开发机受限/完全访问接入（agent-direction issue 04）。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（预先约定）：
  * - ruukoto/ruukoto-code 的 `server` 进程入口：执行后端按产品解析默认值

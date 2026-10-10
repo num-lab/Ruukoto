@@ -1,8 +1,9 @@
 /**
- * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22，ADR 0023）：
+ * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22）：
  * issue 21 跨实例导入的镜像方向。拥有者把旧 main 会话、应用数据、调度、平台
  * 绑定与必要凭据迁入独立的 Personal Agent，旧 coding/chat 档案与发送事实保留
  * 为可核查的只读归档。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
  *
  * 本模块只做方向判断与转换；快照、目标副本、表登记核对、账本、逐行插入等
  * 方向无关机制复用 ./legacy-import.ts 的导出。CLI（ruukoto legacy-import）只

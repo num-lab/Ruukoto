@@ -84,7 +84,10 @@ export function createAppDataFamily(config: Omit<AppDataToolsDeps, "store" | "ta
   };
 }
 
-/** 工具操作账本的族核实（issue 02，ADR 0009 §7）：写操作按应用库回执核实；应用库丢失/损坏即无法核实。 */
+/**
+ * 工具操作账本的族核实（issue 02）：写操作按应用库回执核实；应用库丢失/损坏即无法核实。
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-23-main-app-data-space.md
+ */
 export function appDataOpCheck(writeVerdict: (hostOpId: string) => "committed" | "not_committed" | "unverifiable"): FamilyCheck {
   return {
     verify: (op) => writeVerdict(op.id),

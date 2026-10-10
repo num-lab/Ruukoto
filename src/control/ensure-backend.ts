@@ -1,5 +1,6 @@
 /**
- * TUI 启动时按需拉起本机后台（agent-direction issue 02，ADR 0017）。
+ * TUI 启动时按需拉起本机后台（agent-direction issue 02）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * - 只属 ruukoto-code：Coding Agent 打开 TUI 即进入任务界面，后台按需拉起；
  *   ruukoto（个人 Agent）沿用显式 server/systemd 启动，TUI 不越权拉起；

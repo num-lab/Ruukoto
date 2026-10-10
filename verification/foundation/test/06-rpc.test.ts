@@ -1,8 +1,9 @@
 /**
  * 验证 6：以子进程方式驱动 pi（RPC 模式，JSONL over stdio）。
  *
- * 这是"后台进程驱动任务、另一端读取事件"的跨进程形态（ADR 0002 的
- * 本机通信选型候选）。断言：
+ * 这是"后台进程驱动任务、另一端读取事件"的跨进程形态（本机通信选型候选）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md
+ * 断言：
  * 1. `pi --mode rpc --no-session` 可用本地 mock 模型启动（PI_CODING_AGENT_DIR 隔离）
  * 2. prompt 命令收到 success 响应，事件流可读（agent_end）
  * 3. 助手回复内容可从事件流还原

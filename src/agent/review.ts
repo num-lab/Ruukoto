@@ -1,6 +1,7 @@
 /**
- * 自动审查（issue 15，ADR 0005）：auto-review 模式下，越界读取类审批请求
+ * 自动审查（issue 15）：auto-review 模式下，越界读取类审批请求
  * 先经确定性策略分类，可审查的再交给一次独立的无工具模型调用裁决。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
  *
  * 安全边界（不得简化）：
  * - 审查输入只含后台保存的拥有者请求、不可变操作参数与审批范围；参数与

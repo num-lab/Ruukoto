@@ -1,5 +1,8 @@
 /**
- * 开发机受限/完全访问接入的产品级冒烟（agent-direction issue 04，ADR 0003/0004/0017）。
+ * 开发机受限/完全访问接入的产品级冒烟（agent-direction issue 04）。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 模型层打桩（MockModelServer，确定性脚本），其余全真：Runtime + 控制面 +
  * 工具工作进程 + 真实容器执行边界 + 真实文件/网络/审批。

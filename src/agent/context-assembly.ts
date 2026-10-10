@@ -1,7 +1,9 @@
 /**
- * 模型上下文组装（issue 05 §3/§4、13、29、30；ADR 0001、0016）：为一次模型调用
+ * 模型上下文组装（issue 05 §3/§4、13、29、30）：为一次模型调用
  * 组装模型上下文。每个任务一个实例，任务开始时建（钉版项目指令、继续来源、
  * 记忆 id 与 Jev 配置），任务结束即丢：
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md
  * - assemble：context 钩子，收集输入 → 选择 → 需要时建压缩点 → Jev 步骤；
  * - prepareSend：发送前按预算收紧 maxTokens，复核本轮选择，落选择记录与 prompt 快照；
  * - afterSend：补记实际用量；abort：中止 Jev 与摘要请求（停止任务与任务结束时）。

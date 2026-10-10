@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /** 工单 25：真实 Runtime + 模拟模型、Bot API 与 OneBot；不连接真实消息平台。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -5,10 +6,10 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { test } from "node:test";
 import { WebSocketServer } from "ws";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { OneBotClient, OneBotError } from "../src/qq/onebot.ts";
-import type { NotifyTarget } from "../src/core/types.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { OneBotClient, OneBotError } from "@ruukoto/channels/qq/onebot.ts";
+import type { NotifyTarget } from "@ruukoto/core/types.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type RecordedRequest } from "./helpers/mock-provider.ts";
 
@@ -98,6 +99,7 @@ async function harness(prefix: string, imageInput = true) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as any).port}`;
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: createMockTools,
     telegram: { pollTimeoutSec: 1, backoffMs: 25 },

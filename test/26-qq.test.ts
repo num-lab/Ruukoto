@@ -9,10 +9,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AccessScope } from "../src/core/access.ts";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { OneBotClient, OneBotError } from "../src/qq/onebot.ts";
+import { AccessScope } from "@ruukoto/core/access.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { OneBotClient, OneBotError } from "@ruukoto/channels/qq/onebot.ts";
 import {
   startTestRuntime,
   waitFor,

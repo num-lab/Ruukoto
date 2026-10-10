@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成：连接恢复与输入提交去重（issue 04 §3）。
  *
@@ -11,12 +12,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ControlConnection, type ConnectionState } from "../src/control/connection.ts";
-import { ControlClientError, type ControlTransport } from "../src/control/client.ts";
-import { PendingRequestStore, type PendingRequest } from "../src/control/pending-requests.ts";
-import { SubmissionGuard, type SubmitOutcome } from "../src/control/submission.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { ControlConnection, type ConnectionState } from "@ruukoto/control/connection.ts";
+import { ControlClientError, type ControlTransport } from "@ruukoto/control/client.ts";
+import { PendingRequestStore, type PendingRequest } from "@ruukoto/control/pending-requests.ts";
+import { SubmissionGuard, type SubmitOutcome } from "@ruukoto/control/submission.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import {
   startTestRuntime,
   routeResponder,
@@ -27,7 +28,7 @@ import {
   lastUserText,
 } from "./helpers/testkit.ts";
 import { FakeTransport, fakeControl, fakeSnapshot } from "./helpers/fake-control.ts";
-import type { PersistentEvent } from "../src/core/types.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 
 // ---------- 假客户端（脚本化握手与事件推送，test/helpers/fake-control.ts） ----------
 
@@ -506,9 +507,10 @@ test("后台重启：重连后看到中断任务与真实状态，不自动恢�
     // 停止后台（优雅停止即中断任务）；随后在同一数据目录重启（实例标识保留）
     const instanceBefore = t.runtime.store.db.getInstanceId();
     await t.runtime.stop("test_restart");
-    const { Runtime } = await import("../src/runtime/runtime.ts");
-    const { ControlServer } = await import("../src/control/server.ts");
+    const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
+    const { ControlServer } = await import("@ruukoto/control/server.ts");
     const runtime2 = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: t.dirs.dataDir,
       agentDir: t.dirs.agentDir,
       socketPath: t.runtime.socketPath(),

@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
 import {
   startTestRuntime,
   createProjectSession,
@@ -25,7 +25,7 @@ import {
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { startMockMcp, MOCK_MCP_SECRET, type MockMcp } from "./helpers/mock-mcp.ts";
 import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
-import { validateRemoteTool } from "../src/agent/mcp/tools.ts";
+import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
 
 const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });

@@ -10,18 +10,18 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ControlClient, ControlClientError, requestOutcome } from "../src/control/client.ts";
-import { ControlConnection } from "../src/control/connection.ts";
-import type { OpParams, TuiOp } from "../src/control/ops.ts";
-import { PendingRequestStore } from "../src/control/pending-requests.ts";
-import { MAX_FRAME_BYTES } from "../src/control/protocol.ts";
-import { errorReply } from "../src/control/server.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
-import { ensureWorkspaceSession } from "../src/control/workspace.ts";
-import type { ConfirmationRequest, Project, Session, Task } from "../src/core/types.ts";
-import { confirmationToView } from "../src/core/views.ts";
-import { TuiApp } from "../src/tui/app.ts";
-import { ViewState } from "../src/tui/state.ts";
+import { ControlClient, ControlClientError, requestOutcome } from "@ruukoto/control/client.ts";
+import { ControlConnection } from "@ruukoto/control/connection.ts";
+import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
+import { errorReply } from "@ruukoto/control/server.ts";
+import { SubmissionGuard } from "@ruukoto/control/submission.ts";
+import { ensureWorkspaceSession } from "@ruukoto/control/workspace.ts";
+import type { ConfirmationRequest, Project, Session, Task } from "@ruukoto/core/types.ts";
+import { confirmationToView } from "@ruukoto/core/views.ts";
+import { TuiApp } from "@ruukoto/tui/tui/app.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { fakeControl, fakeSnapshot, type FakeHandlers, type FakeScript } from "./helpers/fake-control.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import { createProjectSession, routeResponder, startTestRuntime, waitFor } from "./helpers/testkit.ts";
@@ -483,7 +483,7 @@ test("CLI submit：后台明确拒绝时打印「提交被拒绝」，不再提�
     const repoRoot = path.resolve(import.meta.dirname, "..");
     const child = childProcess.spawn(
       path.join(repoRoot, "node_modules", ".bin", "tsx"),
-      ["src/cli.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
+      ["apps/ruukoto/src/main.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
       { cwd: repoRoot, env: { ...process.env, RUUKOTO_CONTROL_DIR: controlDir } },
     );
     let stderr = "";

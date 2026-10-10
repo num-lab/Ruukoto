@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Terminal } from "@earendil-works/pi-tui";
-import { ControlClient } from "../src/control/client.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { executeApprovedHttpRequest } from "../src/agent/execution/approved-ops.ts";
-import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_HOST, type JevConfig } from "../src/agent/jev-config.ts";
-import { runConfigTui } from "../src/config-tui/index.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { executeApprovedHttpRequest } from "@ruukoto/agent/execution/approved-ops.ts";
+import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_HOST, type JevConfig } from "@ruukoto/agent/jev-config.ts";
+import { runConfigTui } from "@ruukoto/tui/config-tui/index.ts";
 import { createProjectSession, startTestRuntime, waitFor, type TestRuntime } from "./helpers/testkit.ts";
 import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
 

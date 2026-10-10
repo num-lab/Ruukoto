@@ -11,7 +11,7 @@ Status: implemented
 ## 决定
 
 - **权限是技术约束。** 约束覆盖文件、命令、网络和凭据访问，不能只依赖模型遵守提示词，也不能只依赖专用发布工具的审批。
-- **首期两种模式：请求确认（`confirm`）与完全访问（`full_access`）；自动审批后续加入。** 自动审批已由[自动审查模式](2026-09-22-auto-review-mode.md)加入为第三种 `auto-review`，它与请求确认共用同一受限执行环境，不扩大授权范围，也不升级为完全访问。访问模式类型为 `src/core/types.ts` 的 `AccessMode = "confirm" | "full_access" | "auto-review"`。会话默认模式另有 `plan`，它不是第四种访问策略，任务固定采用 `auto-review`，见 [Plan 会话模式](2026-10-08-plan-session-mode.md)。
+- **首期两种模式：请求确认（`confirm`）与完全访问（`full_access`）；自动审批后续加入。** 自动审批已由[自动审查模式](2026-09-22-auto-review-mode.md)加入为第三种 `auto-review`，它与请求确认共用同一受限执行环境，不扩大授权范围，也不升级为完全访问。访问模式类型为 `packages/core/src/types.ts` 的 `AccessMode = "confirm" | "full_access" | "auto-review"`。会话默认模式另有 `plan`，它不是第四种访问策略，任务固定采用 `auto-review`，见 [Plan 会话模式](2026-10-08-plan-session-mode.md)。
 - **请求确认模式**：工作区内已授权的修改和验证自主执行；超出范围的操作（越界文件访问、未授权网络、凭据访问、外部写操作）形成具体的审批请求，等待确认后才执行。
 - **完全访问模式**：拥有者明确选择的执行授权。任务可使用运行账户已有的权限，无需逐次确认；它不额外赋予系统权限。运行账户是专用执行账户，不是拥有者账户，见[工具工作进程与按任务容器](../architecture/2026-09-20-tool-worker-per-task-container.md)。
 - **工程默认采用请求确认模式。** 新会话的默认模式是 `confirm`（`sessions.default_access_mode` 列缺省 `'confirm'`）。
@@ -32,7 +32,7 @@ Status: implemented
 - socket `control.sock` 放在控制面目录（默认是数据目录的兄弟目录 `control/`），对拥有者开放连接；后台数据目录仍只对后台开放。
 - 多用户 Linux 部署使用三个系统身份：拥有者使用可信 CLI/TUI，持有一份 0400、属主为拥有者的令牌副本；后台 `ruukoto-backend` 运行控制面，持有数据目录、模型凭据与令牌原件；执行账户 `ruukoto-exec` 运行完全访问任务，不属于拥有者或后台的组，读不到两者的认证材料。拥有者与后台共用同一 UID 的部署不满足控制面分离（`deploy/systemd/ruukoto-backend.service` 注释）：同 UID 下 socket 的文件权限区分不了拥有者终端和完全访问命令。
 - 控制面目录、数据目录、agent 目录与服务代码目录是保护根。授权工作区和授予路径不能是保护根、不能落在保护根内，也不能是保护根的祖先（双向排除，`assertGrantNotProtected`）。
-- 工具工作进程的环境不带 `RUUKOTO_*` 控制面变量；开发启动入口不继承日常实例的 `RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE`（`src/dev.ts`）。
+- 工具工作进程的环境不带 `RUUKOTO_*` 控制面变量；开发启动入口不继承日常实例的 `RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE`（`packages/tui/src/dev.ts`）。
 - IM 平台身份不能代替令牌：QQ 号、Telegram 账号经平台入口提交的消息走入站事件，不能用来认证控制面。
 
 ## 模式切换

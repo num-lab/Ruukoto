@@ -42,11 +42,11 @@ import {
   waitFor,
 } from "./helpers/testkit.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { createSubAgentTools } from "../src/agent/subagent-tools.ts";
-import { ViewState } from "../src/tui/state.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
 
 test("并行 worktree：两项修改工作同时 running，各自改动隔离，主工作区字节不变，worktree 分支与 TUI 汇总可定位", async () => {
   let releaseA: (() => void) | null = null;
@@ -152,7 +152,7 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
     return { kind: "text", text: "父回复" };
   };
   const t = await startTestRuntime("worktree-spec", responder, { config: realTools(), workDirs: 1 });
-  let wt!: Extract<import("../src/core/types.ts").WorkWriteTarget, { kind: "worktree" }>;
+  let wt!: Extract<import("@ruukoto/core/types.ts").WorkWriteTarget, { kind: "worktree" }>;
   try {
     const rt = t.runtime;
     fs.mkdirSync(path.join(t.work[0]!, "src"), { recursive: true });
@@ -556,7 +556,7 @@ test("继续委派沿用首次钉定目标；复用承接新工作另建副本�
     });
     await waitFor("首次完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     await waitFor("Agent 空闲", () => rt.store.getSubAgent(a.agent.id)!.state === "idle");
-    const firstTarget = rt.store.getWorkDelegation(a.work.id)!.writeTarget! as Extract<import("../src/core/types.ts").WorkWriteTarget, { kind: "worktree" }>;
+    const firstTarget = rt.store.getWorkDelegation(a.work.id)!.writeTarget! as Extract<import("@ruukoto/core/types.ts").WorkWriteTarget, { kind: "worktree" }>;
 
     // 继续委派：沿用首次钉定副本（不重建不分业）——task_input 含分支与基线一致
     const cont = await rt.subagents!.delegate({

@@ -28,8 +28,8 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { type Responder } from "./helpers/mock-provider.ts";
 import { afterTool, lastToolText, inputText, toolNamesOf, cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
-import { createSubAgentMessageTool, createSubAgentTools } from "../src/agent/subagent-tools.ts";
-import { subagentOpCheck } from "../src/runtime/subagents.ts";
+import { createSubAgentMessageTool, createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
+import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
 
 /** 结果登记与 Agent 空闲在同一事务；等 resultSummary 即等 idle 可用。 */
 async function waitIdle(rt: any, agentId: string): Promise<void> {
@@ -678,8 +678,8 @@ test("dev 注入通道：SubAgent→主 Agent 随下一次模型调用送达并�
 test("v28 → v29 迁移：补 subagent_messages 表，旧记录保留、表为空；账本核实", async () => {
   const { dirs } = await makeTestDirs("smsg-migrate", 0);
   try {
-    const { Db, SCHEMA_VERSION } = await import("../src/core/db.ts");
-    const { Store } = await import("../src/core/store.ts");
+    const { Db, SCHEMA_VERSION } = await import("@ruukoto/core/db.ts");
+    const { Store } = await import("@ruukoto/core/store.ts");
     let db = new Db(dirs.dataDir);
     db.exec(`
       DROP TABLE subagent_messages;

@@ -1,0 +1,37 @@
+{
+  "name": "ruukoto",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "node bin/ruukoto.mjs",
+    "dev": "tsx src/dev.ts",
+    "build": "mkdir -p ../../dist && npm pack --pack-destination ../../dist"
+  },
+  "bin": {
+    "ruukoto": "bin/ruukoto.mjs"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@ruukoto/agent": "*",
+    "@ruukoto/channels": "*",
+    "@ruukoto/tui": "*",
+    "tsx": "4.23.13",
+    "typebox": "1.0.12"
+  },
+  "devDependencies": {
+    "@ruukoto/core": "*",
+    "@ruukoto/runtime": "*"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

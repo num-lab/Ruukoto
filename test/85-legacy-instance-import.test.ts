@@ -1,3 +1,4 @@
+import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 /**
  * 旧开发资料迁入 Coding Agent（agent-direction issue 21）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
@@ -31,19 +32,14 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { randomId, type ModelSelection } from "../src/core/types.ts";
-import type { DirIdentity } from "../src/core/dir-identity.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
-import {
-  LegacyImportError,
-  applyLegacyImport,
-  listLegacyImports,
-  previewLegacyImport,
-  revertLegacyImport,
-} from "../src/runtime/legacy-import.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { randomId, type ModelSelection } from "@ruukoto/core/types.ts";
+import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { LegacyImportError, listLegacyImports } from "@ruukoto/core/import-support.ts";
+import { applyLegacyImport, previewLegacyImport, revertLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
 import {
   connectAuthedClient,
   createProjectSession,
@@ -56,7 +52,7 @@ import {
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
 import { seedCodingRole } from "./helpers/legacy-coding.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MOCK_SEL: ModelSelection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
@@ -368,7 +364,7 @@ async function bootTarget(root: string, dataDir: string, agentDir: string) {
     modelProvider: "mock",
     modelId: "mock-model",
     toolFactory: (ctx) => createMockTools(ctx),
-    productType: "ruukoto-code",
+    product: codingProduct.runtime,
   });
   await ControlServer.start(runtime);
   const client = await connectAuthedClient(runtime);
@@ -923,7 +919,7 @@ test("CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流", async () 
     RUUKOTO_AGENT_DIR: personal.dirs.agentDir,
   };
   const run = (bin: string, args: string[]) =>
-    spawnSync(process.execPath, [path.join(repoRoot, "bin", bin), ...args], {
+    spawnSync(process.execPath, [path.join(repoRoot, "apps", bin.replace(/\.mjs$/, ""), "bin", bin), ...args], {
       env,
       cwd: repoRoot,
       timeout: 180_000,

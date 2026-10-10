@@ -20,10 +20,10 @@ import {
   taskStatus,
   routeResponder,
 } from "./helpers/testkit.ts";
-import { ControlClient } from "../src/control/client.ts";
-import { CONTROL_PROTOCOL_VERSION } from "../src/control/protocol.ts";
-import { selectionBreakdown } from "../src/agent/context-selector.ts";
-import type { SelectionRecord } from "../src/core/types.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
+import { selectionBreakdown } from "@ruukoto/agent/context-selector.ts";
+import type { SelectionRecord } from "@ruukoto/core/types.ts";
 
 function makeRecord(overrides: Partial<SelectionRecord>): SelectionRecord {
   return {

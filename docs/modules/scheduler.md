@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-本模块是单进程 SQLite 调度器与通知 outbox，代码在 `src/scheduler/`（`runtime.ts`、`time.ts`、`news.ts`、`store.ts`）。它负责四件事：按一次性、每日、每周的时间规则算出到期时刻；把每次到期登记为一次调度运行；把已批准的固定正文或已批准范围的新闻采集结果登记为发送操作并投递到渠道；把规则、运行与发送事实持久化到核心库，使提醒跨重启不丢失、发送应答丢失不被当成未发送。
+本模块是单进程 SQLite 调度器与通知 outbox，代码在 `packages/channels/src/scheduler/`（`runtime.ts`、`time.ts`、`news.ts`、`store.ts`）。它负责四件事：按一次性、每日、每周的时间规则算出到期时刻；把每次到期登记为一次调度运行；把已批准的固定正文或已批准范围的新闻采集结果登记为发送操作并投递到渠道；把规则、运行与发送事实持久化到核心库，使提醒跨重启不丢失、发送应答丢失不被当成未发送。
 
 它不负责模型调用与任务执行：`wake_main` 只登记一条入站事件，由编排器建 main 任务；`notify` 不为每次提醒启动模型。它不负责渠道协议细节：Telegram 与 QQ 的收发、配置与凭据归渠道模块，本模块只定义 outbox 与渠道之间的单人调用接口。它不负责命令与配置入口：`ruukoto schedule list|show|cancel`、`ruukoto notify list|show|cancel` 的用法归操作手册。它也不是 main 的业务表：`schedules`、`schedule_runs`、`notification_ops` 是运行时基础设施表，位于核心 `ruukoto.db`，应用数据工具不可达；main 的待办、提醒、习惯等业务数据仍在应用数据空间。
 
@@ -104,7 +104,7 @@ schema v18 保留旧计划、运行和发送记录，仅增加新闻动作与运
 ```mermaid
 sequenceDiagram
   participant T as 内存定时器
-  participant S as 调度器（src/scheduler/runtime.ts）
+  participant S as 调度器（packages/channels/src/scheduler/runtime.ts）
   participant DB as 核心库
   participant O as Orchestrator
   participant C as 渠道发送器
@@ -131,7 +131,7 @@ sequenceDiagram
 
 **漏过周期。** 每个计划只补一次。没有未完成运行时，取扫描截点前最近一次，保存合并区间并标延迟；已有未完成运行（`registered` / `queued` / `running` 任务，或 `pending` / `sending` 通知）时，并入原运行，保留原键与原正文，不建第二个运行。时钟回拨不回退已持久化的下次时间。恢复准备在通用 `Runtime.recover()` 改写 running 任务之前读取真实状态：已终态但未关闭的运行先补关闭，真实待处理运行再合并，最后把遗留 `sending` 定为 `effect_unknown`。
 
-**时区与 DST。** 规则为一次性（必须带 `Z` 或显式偏移）、每日 `HH:mm`、每周 ISO 星期 1–7，配 IANA 时区。周期触发按当地日期加原定钟点重新构造，不做 24 小时或 7 天相加。DST 固定 `compatible`：不存在的当地时间顺延（纽约 `02:30` → `03:30`，次日回到 `02:30`），重复时间只取较早一次。算法由锁定的 `@js-temporal/polyfill` 在 `src/scheduler/time.ts` 提供，只在那一处使用。计划记录计算时的 Node、ICU 与 tz 版本；已登记运行的时刻与键不改写。
+**时区与 DST。** 规则为一次性（必须带 `Z` 或显式偏移）、每日 `HH:mm`、每周 ISO 星期 1–7，配 IANA 时区。周期触发按当地日期加原定钟点重新构造，不做 24 小时或 7 天相加。DST 固定 `compatible`：不存在的当地时间顺延（纽约 `02:30` → `03:30`，次日回到 `02:30`），重复时间只取较早一次。算法由锁定的 `@js-temporal/polyfill` 在 `packages/channels/src/scheduler/time.ts` 提供，只在那一处使用。计划记录计算时的 Node、ICU 与 tz 版本；已登记运行的时刻与键不改写。
 
 **发送领取与收尾。** 一次只有一个在途操作。`pending` 经条件更新转 `sending`，事务提交后才调用渠道一次，时限 15 秒。明确成功记 `sent` 并保存平台消息 ID；可证明未发送记 `failed`；超时、断线、中止与模糊错误记 `effect_unknown`。平台明确限流（`RetryLaterError`，如 Telegram 429）可证明未发送，退回 `pending` 并写 `not_before`，到时同一操作以原目标、原正文再领取一次。发送前重核目标（配置版本变化或停用则 `canceled`，不改发新目标）、计划状态与来源授权。本地结果写入失败时保留 `sending`，不回退 `pending`——重启后按事实转为 `effect_unknown`。
 

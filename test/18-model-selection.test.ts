@@ -1,10 +1,11 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { createModelCatalog, modelResponseBudget } from "../src/agent/model-selection.ts";
+import { createModelCatalog, modelResponseBudget } from "@ruukoto/agent/model-selection.ts";
 import { makeTestDirs, cleanupDirs, writeModelsJson } from "./helpers/testkit.ts";
 
 test("模型目录仅列出显式配置，校验认证与思考档位且不泄露请求配置", async () => {
@@ -40,11 +41,11 @@ test("模型目录仅列出显式配置，校验认证与思考档位且不泄�
   } finally { await cleanupDirs(dirs); }
 });
 
-import { Runtime } from "../src/runtime/runtime.ts";
-import { ControlServer } from "../src/control/server.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { connectAuthedClient, createProjectSession, taskStatus, waitFor } from "./helpers/testkit.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 
 test("控制接口切换提供方和思考强度，排队任务固定配置且 SDK 保留跨提供方工具历史", async () => {
   const { dirs, work } = await makeTestDirs("model-switch");
@@ -63,7 +64,8 @@ test("控制接口切换提供方和思考强度，排队任务固定配置且 S
     const config = JSON.parse(fs.readFileSync(file, "utf8"));
     config.providers.second = { ...config.providers.mock, models: [{ ...config.providers.mock.models[0], id: "reasoner", reasoning: true, maxTokens: 4096 }] };
     fs.writeFileSync(file, JSON.stringify(config));
-    runtime = await Runtime.start({ dataDir: dirs.dataDir, agentDir: dirs.agentDir,
+    runtime = await Runtime.start({
+    product: personalProduct.runtime, dataDir: dirs.dataDir, agentDir: dirs.agentDir,
       socketPath: path.join(dirs.root, "c.sock"), modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off",
       toolFactory: (ctx) => createMockTools(ctx) });
     await ControlServer.start(runtime);

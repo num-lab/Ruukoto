@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatPromptSnapshot } from "../src/tui/prompt-format.ts";
+import { formatPromptSnapshot } from "@ruukoto/tui/tui/prompt-format.ts";
 
 test("Prompt 快照解析正文、工具参数与定义，并保留消息顺序", () => {
   const text = formatPromptSnapshot(JSON.stringify({

@@ -11,14 +11,14 @@ Status: implemented
 ## 决定
 
 1. **数据库保存事实，内存只负责唤醒扫描。** `schedules / schedule_runs / notification_ops` 位于核心 `ruukoto.db`，由 schema v13 首次引入；应用数据工具不可访问。main 的待办、提醒、习惯等业务字段仍由[应用数据空间](2026-09-23-main-app-data-space.md)管理。计划、运行、发送状态与对应事件在核心事务内提交，网络、模型与应用库查询在事务外执行。
-2. **时间规则固定为一次性、每日、每周与 IANA 时区。** 使用 ISO 日历，周期触发按当地日期和原定钟点重新构造；DST 固定 `compatible`，缺口向后顺延、重复钟点取较早的一次。IANA 偏移和 DST 计算集中在 `src/scheduler/time.ts`，使用锁定的 `@js-temporal/polyfill`，不自写算法、不提高 Node 版本要求。一次性时间必须带 `Z` 或明确偏移，不使用服务器时区补全；时钟回拨不回退已处理范围，时区数据更新只影响未登记的未来时刻。
+2. **时间规则固定为一次性、每日、每周与 IANA 时区。** 使用 ISO 日历，周期触发按当地日期和原定钟点重新构造；DST 固定 `compatible`，缺口向后顺延、重复钟点取较早的一次。IANA 偏移和 DST 计算集中在 `packages/channels/src/scheduler/time.ts`，使用锁定的 `@js-temporal/polyfill`，不自写算法、不提高 Node 版本要求。一次性时间必须带 `Z` 或明确偏移，不使用服务器时区补全；时钟回拨不回退已处理范围，时区数据更新只影响未登记的未来时刻。
 3. **漏过周期只补一次。** 每个计划最多一个未完成运行，以 `(schedule_id, schedule_version, scheduled_for)` 唯一。没有未完成运行时取扫描截点前最近一次并标延迟与合并范围；已有未完成运行时保留原运行键与原正文，合并后续漏过区间，不新建第二个运行。恢复准备 MUST 在通用 `Runtime.recover()` 改写 running 任务之前读取真实状态：已终态但未关闭的运行先补关闭，真实待处理运行再合并，之后把遗留 `sending` 定为 `effect_unknown`。后续正常周期是新运行，不能称为重发旧失败操作。
 4. **发送状态按事实转换。** `pending` 表示未领取，`sending` 表示已领取且可能发出；只有条件更新成功的领取者调用发送函数一次。明确成功为 `sent`，可证明未发送为 `failed`，其余为 `effect_unknown`；`sent / failed / effect_unknown / canceled` NEVER 自动重发，迟到回执只记录。平台明确限流拒绝、可证明未发送时，按[Telegram 入口的限流例外](../feature/2026-09-24-telegram-owner-entry.md)退回同一操作的 `pending`，写 `not_before` 后延迟领取；目标、正文和键都不变，领取期间已有取消意图的转 `canceled`。超时、5xx 与发送中断不适用这个例外。 **逻辑发送键由宿主决定。** 定时通知用运行 ID，一次确认用任务通知槽，owner 回复用入站事件与固定回复槽；`(source_kind, source_key)` 唯一，同键同参返回原记录，同键异参拒绝。模型不能生成新键绕过未知结果。普通 owner 回复见[Telegram 入口](../feature/2026-09-24-telegram-owner-entry.md)与[QQ 私聊入口](../feature/2026-09-24-qq-private-shared-main.md)，异步工作收尾回复见[IM 审批与最终汇报](../feature/2026-10-02-im-approval-and-final-report.md)；[GitHub 事件通知](../feature/2026-09-24-github-event-review.md)有独立的固定事件槽。
 5. **发送授权固定目标、正文与持续范围。** 目标来自可信宿主渠道配置。`notify` 计划和一次 `notification_enqueue` 都经统一审批，`ApprovalScope.kind = notification` 固定完整正文、目标/账号/配置版本、时间规则、IANA 时区、DST 和持续范围。获批后在同一核心事务内重核并单次消费；目标配置变化或停用使旧授权失效，不能改发新目标。`wake_main` 只登记触发说明，不能继承外发授权；[新闻计划](../feature/2026-09-25-scheduled-news.md)单独规定固定采集范围的授权。
 
 ## 与执行权限及取消的关系
 
-[显式访问模式](../feature/2026-09-19-explicit-access-modes.md)的一般 `full_access` 语义在通知外发上有明确例外：建立持续发送计划和未预授权的一次外发仍须拥有者确认：外发面向平台上的真实接收者，其授权独立于任务执行权限（daily-agent 规格第 6 项）。`auto-review` 的确定性策略 `classifyForReview`（`src/agent/review.ts`）不覆盖 `notification`，默认直接转拥有者，不调用审查模型。已批准计划与可信 owner 回复属于宿主定义的自动发送范围，不复用 MCP 的完全访问放行分支。
+[显式访问模式](../feature/2026-09-19-explicit-access-modes.md)的一般 `full_access` 语义在通知外发上有明确例外：建立持续发送计划和未预授权的一次外发仍须拥有者确认：外发面向平台上的真实接收者，其授权独立于任务执行权限（daily-agent 规格第 6 项）。`auto-review` 的确定性策略 `classifyForReview`（`packages/agent/src/review.ts`）不覆盖 `notification`，默认直接转拥有者，不调用审查模型。已批准计划与可信 owner 回复属于宿主定义的自动发送范围，不复用 MCP 的完全访问放行分支。
 
 计划只提供创建、查询、取消；修改时间、正文或动作须取消后重建，通知计划重新确认。取消停止未来触发，取消尚未发送的 `pending` 与排队任务；已运行任务和在途发送保留真实效果，取消只记意图，不能承诺撤回。永久失效取消，暂时离线或发送器未加载保持 `pending` 并显示等待原因。正文引用在审批前解析为有界固定快照，业务行以后变化不改变批准正文，发送前仍重核可撤销的资料授权。
 

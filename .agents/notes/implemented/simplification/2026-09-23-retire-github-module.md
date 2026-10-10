@@ -12,7 +12,7 @@ personal-agent issue 06 交付了一个专用 GitHub 模块：经 REST 采集 PR
 
 ## 决定
 
-- **GitHub 经通用 MCP 客户端接入，不保留专用模块。** personal-agent issue 06 交付的专用 GitHub 模块（REST 采集、草稿与发布状态机、专用控制接口与 CLI/TUI 入口）由 personal-agent issue 17 退役：`src/agent/github/`（client、collect、store、tools、publish）及其在 Runtime、Driver、控制协议、CLI、TUI 中的专用接线已删除。GitHub 经通用 MCP 客户端接入（[MCP 客户端](../architecture/2026-09-23-mcp-client.md)），与其他 MCP 服务共用同一套配置、发现、调用、审批、结果保存与展示流程。运行时不保留 GitHub 专属业务分支，也不存在 REST 与 MCP 两套实现并行承担同一功能；GitHub 专属内容只出现在服务配置示例与使用文档（[docs/usage.md](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节）中。
+- **GitHub 经通用 MCP 客户端接入，不保留专用模块。** personal-agent issue 06 交付的专用 GitHub 模块（REST 采集、草稿与发布状态机、专用控制接口与 CLI/TUI 入口）由 personal-agent issue 17 退役：`packages/agent/src/github/`（client、collect、store、tools、publish）及其在 Runtime、Driver、控制协议、CLI、TUI 中的专用接线已删除。GitHub 经通用 MCP 客户端接入（[MCP 客户端](../architecture/2026-09-23-mcp-client.md)），与其他 MCP 服务共用同一套配置、发现、调用、审批、结果保存与展示流程。运行时不保留 GitHub 专属业务分支，也不存在 REST 与 MCP 两套实现并行承担同一功能；GitHub 专属内容只出现在服务配置示例与使用文档（[docs/usage.md](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节）中。
 - **退役以只读接入为前提，不等待写入能力。** 首版 GitHub MCP 只读：写工具不注册、不执行。通用 MCP 写工具（具体操作范围、审批桥单次消费与未知结果恢复）由 personal-agent issue 18 单独验收，见[MCP 写工具统一审批](../feature/2026-09-23-mcp-write-tools-approval.md)；写入能力不恢复旧模块的草稿或发布意图入口。
 - **旧模块的专用工作流保证不逐项复刻。** 固定 PR/CI 修订复核、草稿状态机、发布意图只能由拥有者建立，这些保证随模块一起退役。需要这些步骤时，由 Agent 在普通任务中组合工具完成；不能宣称普通 MCP 调用自动提供同等保证。MCP 覆盖不了的缺口如实记录，不以 REST 回退隐藏。
 - **历史资料只读保留，不删除。** 旧库的三张表 `github_repo_bindings`、`github_drafts`、`github_publish_ops` 不 DROP，原样保留为只读归档；全新数据库不再创建这三张表。升级后首次启动执行一次性、可重复执行的退役迁移（步骤见下文「退役迁移」）：
@@ -24,11 +24,11 @@ personal-agent issue 06 交付了一个专用 GitHub 模块：经 REST 采集 PR
 - **旧授权不延续到新路径。** 旧凭据的 host、scope 与秘密值不被迁移改变；`CredentialStore.getForUse()` 对遗留 scope（操作类别 `github_read`、`github_publish`）继续拒绝不匹配的用途，同名轮换保留 scope。旧仓库绑定不自动转为 MCP 授权；旧批准不得转换为新授权，也不转换为 MCP 调用。新的访问范围以通用服务配置、工具允许列表和远端凭据权限为准。
 - **旧入口封闭，历史只读展示。** 旧控制接口 `github_*` 移除，控制协议版本递增（退役时由 v7 升到 v8），旧客户端因版本不匹配被拒绝；新版本客户端调用已移除的接口得到 `unknown_op`。旧命令只保留静态迁移提示：CLI `ruukoto github` 不发网络请求、不映射为任何发布，只打印改用 `ruukoto mcp configure` 与归档清单位置的提示并以 1 退出，不列入帮助。TUI 不再提供 `/github`，输入按未知命令处理。历史 `github.*` 事件（`github.binding_changed`、`github.draft_saved`、`github.draft_stale`、`github.publish_requested`、`github.publish_settled`）与 `github_publish` 审批范围在类型中保留，只用于归档展示；除退役迁移为终结旧发布操作写下的 `github.publish_settled` 外，不产生新实例。
 - **公共边界不变。** 通用控制面身份、访问模式与单次授权仍遵守[显式访问模式](../feature/2026-09-19-explicit-access-modes.md)与[工具工作进程与按任务容器](../architecture/2026-09-20-tool-worker-per-task-container.md)。自动审查的确定性策略不变（[自动审查模式](../feature/2026-09-22-auto-review-mode.md)）：`github_publish` 范围随模块退役不再产生，历史记录仍按转人工展示。
-- **GitHub 入站事件另有边界。** 运行时允许校验、登记与编排 GitHub PR webhook 事件（`src/github/`），规则见[GitHub 事件审查](../feature/2026-09-24-github-event-review.md)；它不恢复 REST 采集、专用草稿或发布状态机，也不提供 REST 回退，GitHub 资料仍经普通 MCP 读取。
+- **GitHub 入站事件另有边界。** 运行时允许校验、登记与编排 GitHub PR webhook 事件（`packages/channels/src/github/`），规则见[GitHub 事件审查](../feature/2026-09-24-github-event-review.md)；它不恢复 REST 采集、专用草稿或发布状态机，也不提供 REST 回退，GitHub 资料仍经普通 MCP 读取。
 
 ## 退役迁移
 
-迁移由 [src/runtime/github-retirement.ts](../../../../src/runtime/github-retirement.ts) 的 `retireGitHubModule` 在 Runtime 启动时执行。
+迁移由 [packages/channels/src/github-retirement.ts](../../../../packages/channels/src/github-retirement.ts) 的 `retireGitHubModule` 在 Runtime 启动时执行。
 
 - **触发。** 库里没有 `github_%` 表（全新数据库），或 `meta` 已有 `github_retirement_done`，直接返回。schema 由 v8 升到 v9 时不改表结构，只移除三张表的建表 SQL，旧库的表原样保留；迁移按表存在性判断，不依赖建表 SQL。
 - **审批失效与发布操作定终态（单事务）。** `confirmations` 中 `scope.kind = 'github_publish'`、状态为 `pending` 或 `approved` 且 `consumed_at` 为空的记录改为 `stale`。批准已消费的记录原样保留，它是「可能已发送」的证据。`github_publish_ops` 中状态为 `pending` 的操作按关联审批定终态：

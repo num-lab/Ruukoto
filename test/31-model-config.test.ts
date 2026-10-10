@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成与单元：模型配置管理（issue 21 §3/§4）。
  *
@@ -20,11 +21,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { acquireConfigLock, InstanceLockError } from "../src/core/instance-lock.ts";
-import { configRevision, probeModelConfig } from "../src/agent/model-config.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { acquireConfigLock, InstanceLockError } from "@ruukoto/core/instance-lock.ts";
+import { configRevision, probeModelConfig } from "@ruukoto/agent/model-config.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import {
   makeTestDirs,
@@ -37,7 +38,7 @@ import {
   pendingConfirmation,
   type TestDirs,
 } from "./helpers/testkit.ts";
-import type { ControlClient } from "../src/control/client.ts";
+import type { ControlClient } from "@ruukoto/control/client.ts";
 
 const MOCK_SELECTION = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 
@@ -51,8 +52,10 @@ interface ManualRuntime {
 }
 
 /** 进程内启动后台（不固定启动 provider，让默认模型走 models.json/持久默认解析）。 */
-async function startRt(dirs: TestDirs, extra: Partial<RuntimeConfig> = {}): Promise<{ runtime: Runtime; client: ControlClient }> {
+async function startRt(dirs: TestDirs, extra: Partial<RuntimeConfig> = {
+    product: personalProduct.runtime,}): Promise<{ runtime: Runtime; client: ControlClient }> {
   const runtime = await Runtime.start({
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -530,6 +533,7 @@ test("配置锁：同 agentDir 互斥、在线时离线写入被拒、停止后�
     // 第二个后台：不同 dataDir、同一 agentDir → 配置锁拒绝
     await assert.rejects(
       Runtime.start({
+    product: personalProduct.runtime,
         dataDir: other.dirs.dataDir,
         agentDir: t.dirs.agentDir,
         socketPath: path.join(other.dirs.root, "c.sock"),

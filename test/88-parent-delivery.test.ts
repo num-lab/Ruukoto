@@ -9,11 +9,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { SubAgentMessage, Task, TaskStatus } from "../src/core/types.ts";
-import { ParentDelivery, messageStateText, type ParentDeliveryDeps, type WorkReport } from "../src/runtime/parent-delivery.ts";
-import type { ChildOutcome } from "../src/runtime/orchestrator.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { SubAgentMessage, Task, TaskStatus } from "@ruukoto/core/types.ts";
+import { ParentDelivery, type ParentDeliveryDeps, type WorkReport } from "@ruukoto/runtime/parent-delivery.ts";
+import { messageStateText } from "@ruukoto/agent/subagent-message.ts";
+import type { ChildOutcome } from "@ruukoto/runtime/orchestrator.ts";
 
 const SELECTION = { provider: "mock", modelId: "mock", thinkingLevel: "off" as const };
 

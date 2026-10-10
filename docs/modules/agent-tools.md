@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-本模块回答两个问题：**这个会话、这个任务允许哪些工具**，以及**一次工具调用怎么被执行边界接受、怎么取得授权、结果怎么记账**。它持有会话身份到工具类别的静态表与执行画像（`src/agent/tool-availability.ts`），把宿主工具族装配成一次任务的工具集（`src/agent/host-tool-families.ts`），并负责审批闸门（`src/agent/approval-gate.ts`）、自动审查策略（`src/agent/review.ts`）、工具操作账本（`src/agent/tool-op-ledger.ts`）、工具正文产物（`src/agent/artifacts.ts`），以及工作清单、计划模式工具白名单、main 应用数据空间、长期操作授权、Web Search 与 MCP 服务这些具体的工具面。
+本模块回答两个问题：**这个会话、这个任务允许哪些工具**，以及**一次工具调用怎么被执行边界接受、怎么取得授权、结果怎么记账**。它持有会话身份到工具类别的静态表与执行画像（`packages/agent/src/tool-availability.ts`），把宿主工具族装配成一次任务的工具集（`packages/agent/src/host-tool-families.ts`），并负责审批闸门（`packages/agent/src/approval-gate.ts`）、自动审查策略（`packages/agent/src/review.ts`）、工具操作账本（`packages/agent/src/tool-op-ledger.ts`）、工具正文产物（`packages/agent/src/artifacts.ts`），以及工作清单、计划模式工具白名单、main 应用数据空间、长期操作授权、Web Search 与 MCP 服务这些具体的工具面。
 
 它不负责执行边界本身：容器或专用执行账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
 
@@ -24,7 +24,7 @@
 | 调度通知 | 目标解析 | 调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM 入口确定 |
 | ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
 
-`src/agent/host-tool-families.ts` 定义族的类别、工具名、构建入口与账本声明。没有绑定器的模块测试可直接提供 `taskContext`；释放可重复调用，并发执行不共享可变的当前调用上下文。各宿主族在自己的模块声明工具名、分类规则与必要的提交核实，Runtime 从同一份全局族清单派生账本声明；应用库、调度器或服务管理停用时，对应族提供空的工具名与构建结果，账本声明仍保留完整规则。
+`packages/agent/src/host-tool-families.ts` 定义族的类别、工具名、构建入口与账本声明。没有绑定器的模块测试可直接提供 `taskContext`；释放可重复调用，并发执行不共享可变的当前调用上下文。个人调度与服务工具由 ruukoto app 提供，旧群结果查询由 channels 提供；Runtime 合并共享族与产品族后派生账本声明。调度与服务的旧操作规则始终由共享账本提供，Coding Agent 停用这些能力仍可核实旧操作；应用库或个人产品的调度器、服务管理停用时，对应族提供空工具集。
 
 会话身份到工具类别的静态表是唯一来源，新工具族写进哪份清单才出现：
 

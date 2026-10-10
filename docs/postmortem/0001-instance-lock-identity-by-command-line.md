@@ -38,7 +38,7 @@ Status: resolved
 
 ## 护栏
 
-- **身份改用内核启动标识。** `processIdentity` 读 Linux 的 boot id 与启动 tick、macOS 的 `ps -o lstart=`；核实不到身份时保守拒绝启动，而不是放行。见 `src/core/instance-lock.ts`。
+- **身份改用内核启动标识。** `processIdentity` 读 Linux 的 boot id 与启动 tick、macOS 的 `ps -o lstart=`；核实不到身份时保守拒绝启动，而不是放行。见 `packages/core/src/instance-lock.ts`。
 - **获取与只读探测共用同一套核实。** `probeLockHolder` 是唯一判定入口，获取路径改为调用它，消除了两处判断漂移的可能。
 - **新增不依赖检出名的不变量测试。** `test/101-instance-lock.test.ts` 用改名后的真实子进程持锁，断言仍能核实身份、退出后允许接管；另有用例覆盖「启动标识不同则判为遗留锁」与「无法核实则保守拒绝」。
 - **规则写入常驻约定。** 根 [AGENTS.md](../../AGENTS.md) 的「持久化」一节记录状态与事件同事务的处理方式；本事故的具体教训留在本文件。

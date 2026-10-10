@@ -16,14 +16,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { ControlConnection } from "../src/control/connection.ts";
-import type { OpParams, TuiOp } from "../src/control/ops.ts";
-import { PendingRequestStore } from "../src/control/pending-requests.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { ViewState } from "../src/tui/state.ts";
-import { CommandHistoryStore } from "../src/tui/command-history.ts";
-import { TuiApp } from "../src/tui/app.ts";
+import { ControlConnection } from "@ruukoto/control/connection.ts";
+import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { SubmissionGuard } from "@ruukoto/control/submission.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
+import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
+import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import {
   startTestRuntime,
   waitFor,
@@ -34,9 +34,9 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
-import type { Session, Task } from "../src/core/types.ts";
-import type { HistoryPage } from "../src/core/history.ts";
-import type { FlowEntry } from "../src/tui/event-flow.ts";
+import type { Session, Task } from "@ruukoto/core/types.ts";
+import type { HistoryPage } from "@ruukoto/core/history.ts";
+import type { FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 

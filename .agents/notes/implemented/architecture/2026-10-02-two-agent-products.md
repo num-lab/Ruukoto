@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-Ruukoto Agent 由同一仓库中的两个产品组成。`ruukoto-code` 在开发机器运行，以 TUI 为主要入口，重心是 Agentic coding，首期支持 macOS 与 Linux；`ruukoto` 在专用 Linux 服务器运行，以绑定拥有者的 QQ 私聊、Telegram 等 IM 为主要入口，面向多样化个人事务。两个产品可以独立安装、运行和升级，一端停止或两端失联不阻止另一端执行本地任务。现状以一个代码包提供两条 bin 入口，各实例按自己的节奏重启；独立打包制品不是当前交付范围。
+Ruukoto Agent 由同一仓库中的两个产品组成。`ruukoto-code` 在开发机器运行，以 TUI 为主要入口，重心是 Agentic coding，首期支持 macOS 与 Linux；`ruukoto` 在专用 Linux 服务器运行，以绑定拥有者的 QQ 私聊、Telegram 等 IM 为主要入口，面向多样化个人事务。两个产品可以独立安装、运行和升级，一端停止或两端失联不阻止另一端执行本地任务。两个产品由独立 app 包持有入口与能力声明，共用同仓的六个底座包；各实例按自己的节奏重启，具体包归属见[同仓 workspaces 分包](2026-10-11-in-repo-workspace-packages.md)。
 
 产品入口固定身份，数据目录在核心库 `meta` 中登记 `product.type`，跨产品打开同一目录以 `product_mismatch` 拒绝。日常档案分别是 `~/.ruukoto` 与 `~/.ruukoto-code`，路径变量分别使用 `RUUKOTO_*_DIR` 与 `RUUKOTO_CODE_*_DIR`，锁、socket、pending 随档案隔离；`RUUKOTO_OWNER_TOKEN` 与 `RUUKOTO_OWNER_TOKEN_FILE` 是共用名称的控制面身份变量。Coding Agent 不启动 QQ/Telegram 连接或个人调度，但旧调度记录仍可读。Coding Agent 的原入口名 `ruukoto-dev` 已改为 `ruukoto-code`，bin、产品身份、档案根与环境变量前缀一起使用现名；开发本项目的实例另见[开发启动入口](../process/2026-10-09-dev-launchers.md)。
 
@@ -52,7 +52,7 @@ Seatbelt / bubblewrap 原生候选只建立真实探针，尚未接入产品、�
 
 任务完成立即关闭 SubAgent 可以让任务与身份同步结束，是第二轮访谈原建议；拥有者明确要求继续委托原 Agent，故默认空闲、保留身份上下文，只显式关闭。三轮访谈同时确认新工作复用后重算协作资格。该备选的详细决定另见[复用与关闭](../feature/2026-10-04-subagent-reuse-close.md)。
 
-每个产品拆成独立 package 可以各自产出制品；[产品入口工单](../../../../.scratch/agent-direction/issues/01-independent-products.md)选择单代码包、两条 bin 以满足当前独立运行与重启需求，只有确需独立打包和发货时才重访拆包。该条件未成立，但产品差异缺少显式落点与模块边界漂移另有驱动，重访的具体方案见[同仓 workspaces 分包](../../proposed/architecture/2026-10-11-in-repo-workspace-packages.md)。
+每个产品拆成独立 package 可以各自产出制品；[产品入口工单](../../../../.scratch/agent-direction/issues/01-independent-products.md)选择单代码包、两条 bin 以满足当前独立运行与重启需求，只有确需独立打包和发货时才重访拆包。本次因产品差异缺少显式落点与模块边界漂移重访并落地同仓分包；独立发货隔离仍非驱动，见[同仓 workspaces 分包](2026-10-11-in-repo-workspace-packages.md)。
 
 ## 后果
 

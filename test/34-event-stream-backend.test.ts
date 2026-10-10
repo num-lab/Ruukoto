@@ -1,14 +1,15 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { editStatsFromResult } from "../src/core/history.ts";
-import { FRAGMENT_TEXT_CAP } from "../src/core/views.ts";
-import type { PersistentEvent, Task } from "../src/core/types.ts";
-import type { TaskEventsPage } from "../src/control/protocol.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { editStatsFromResult } from "@ruukoto/core/history.ts";
+import { FRAGMENT_TEXT_CAP } from "@ruukoto/core/views.ts";
+import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
+import type { TaskEventsPage } from "@ruukoto/control/protocol.ts";
 import { makeTestDirs, writeModelsJson, cleanupDirs, connectAuthedClient, createProjectSession, waitFor, realTools } from "./helpers/testkit.ts";
 
 const selection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
@@ -70,6 +71,7 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
   const address = provider.address() as import("node:net").AddressInfo;
   await writeModelsJson(dirs, `http://127.0.0.1:${address.port}/v1`);
   const runtime = await Runtime.start({
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools(),
   });

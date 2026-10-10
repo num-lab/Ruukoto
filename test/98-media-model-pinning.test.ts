@@ -1,11 +1,12 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /** 图片能力检查、建任务和跨重启提升沿用同一模型选择。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import type { ModelSelection } from "../src/core/types.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import type { ModelSelection } from "@ruukoto/core/types.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 import { cleanupDirs, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
@@ -28,7 +29,8 @@ test("图片检查、提交和重启间模型配置变化：沿用钉定选择�
   const bot = new FakeBotApi({ token: TOKEN });
   const apiBase = await bot.start();
   // 使用持久默认，允许 setDefaultModel 在运行期间实际改变 defaultSelection。
-  const config: RuntimeConfig = { dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
+  const config: RuntimeConfig = {
+    product: personalProduct.runtime, dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     thinkingLevel: "off", toolFactory: createMockTools, telegram: { pollTimeoutSec: 1, backoffMs: 30 },
     scheduler: { tickMs: 0, sendTimeoutMs: 1000 } };
   let rt = await Runtime.start(config);

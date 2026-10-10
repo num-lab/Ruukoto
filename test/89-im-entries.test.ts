@@ -10,17 +10,17 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { CredentialStore } from "../src/agent/execution/credentials.ts";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { InboundEvent, NotifyTarget, Task } from "../src/core/types.ts";
-import { QqAdapter } from "../src/qq/adapter.ts";
-import { QqStore } from "../src/qq/store.ts";
-import { SchedulerStore } from "../src/scheduler/store.ts";
-import { TelegramAdapter, TelegramStore } from "../src/telegram/adapter.ts";
-import { ImEntries, type ImEntry } from "../src/runtime/im-entries.ts";
-import { InboundMediaStore } from "../src/runtime/inbound-media.ts";
-import { ArtifactStore } from "../src/agent/artifacts.ts";
+import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { InboundEvent, NotifyTarget, Task } from "@ruukoto/core/types.ts";
+import { QqAdapter } from "@ruukoto/channels/qq/adapter.ts";
+import { QqStore } from "@ruukoto/channels/qq/store.ts";
+import { SchedulerStore } from "@ruukoto/channels/scheduler/store.ts";
+import { TelegramAdapter, TelegramStore } from "@ruukoto/channels/telegram/adapter.ts";
+import { ImEntries, type ImEntry } from "@ruukoto/channels/im-entries.ts";
+import { InboundMediaStore } from "@ruukoto/channels/inbound-media.ts";
+import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 
 const SELECTION = { provider: "mock", modelId: "mock", thinkingLevel: "off" as const };
 

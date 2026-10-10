@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import type { Task } from "../src/core/types.ts";
-import type { FlowEntry } from "../src/tui/event-flow.ts";
-import { EventFlowView } from "../src/tui/event-flow-view.ts";
+import type { Task } from "@ruukoto/core/types.ts";
+import type { FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
+import { EventFlowView } from "@ruukoto/tui/tui/event-flow-view.ts";
 
 initTheme("dark");
 const at = new Date(2026, 8, 22, 21, 16).toISOString();

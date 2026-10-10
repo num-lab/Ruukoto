@@ -18,7 +18,7 @@
 
 **固定工具镜像**由可信身份在部署时构建（`deploy/worker-image/build.sh`，`npm run build:worker-image`），产物是 `ruukoto-worker:<pi 版本>` 与 `ruukoto-worker:latest`。镜像版本随 pi 发布版固定，工具链是 node 24 + bash + coreutils + git，工作进程由 `npm run build` 打成单文件 `worker/worker.mjs`。后台只运行镜像，不构建它。
 
-**服务器服务管理**让 main 检查部署白名单内的服务状态，并经拥有者逐次审批执行管理动作（首版仅 `restart`）。宿主工具在 `src/agent/service-tools.ts`；审批、通知与批准消费复用 IM 审批通道，不另建控制面。装配边界：`service_inspect` / `service_manage` 仅 main 获得，且要求产品 `ruukoto` + Linux + 显式部署配置齐备；普通开发会话、SubAgent 与 `ruukoto-code` 都不获得该能力，main 不因此获得 `bash`。模型只提供白名单服务名与固定动作，主机身份、`taskId`、`hostOpId`、执行身份与策略由宿主注入。
+**服务器服务管理**让 main 检查部署白名单内的服务状态，并经拥有者逐次审批执行管理动作（首版仅 `restart`）。宿主工具在 `apps/ruukoto/src/service-tools.ts`；审批、通知与批准消费复用 IM 审批通道，不另建控制面。装配边界：`service_inspect` / `service_manage` 仅 main 获得，且要求产品 `ruukoto` + Linux + 显式部署配置齐备；普通开发会话、SubAgent 与 `ruukoto-code` 都不获得该能力，main 不因此获得 `bash`。模型只提供白名单服务名与固定动作，主机身份、`taskId`、`hostOpId`、执行身份与策略由宿主注入。
 
 不负责的部分点名归属：安装、配置与故障排查的操作步骤归 [deploy/systemd/README.md](../../deploy/systemd/README.md) 与 [usage](../usage.md)，本篇只写设计并链过去；工具工作进程、容器参数、受管执行单元与回收核实归 [execution](execution.md)；长期授权（`standing_permissions`）的创建、范围、行级版本与失效语义归 [agent-tools](agent-tools.md)，本篇只写消费它的 helper、策略与执行侧；IM 命令的文本解析与回执归 [channels](channels.md)。
 
@@ -176,7 +176,7 @@ sequenceDiagram
 
 效果未知另使同一目标的有效长期授权失效（授权语义见 [agent-tools](agent-tools.md)）。账本规则：`service_inspect` 记 `no_effect`、`service_manage` 记 `approval`。
 
-**两个产品的安装与升级**。`ruukoto-backend.service` 只承载个人 Agent `ruukoto`。Coding Agent `ruukoto-code` 装在开发机器上：同一仓库检出加 `bin/ruukoto-code.mjs` 入口（`npm link` 或直接把 bin 目录加入 PATH），默认档案根 `~/.ruukoto-code`；首次打开 TUI 即按需拉起本机后台，无需预置服务单元。两端各自的安装与升级（替换检出后按产品 `stop` / `server` 重启）互不要求对方同时升级或停止；按需拉起的后台在升级替换检出后同样经 `ruukoto-code stop` 停下，下次打开 TUI 自动以新代码拉起。
+**两个产品的安装与升级**。`ruukoto-backend.service` 只承载个人 Agent `ruukoto`。Coding Agent `ruukoto-code` 装在开发机器上：同一仓库检出加 `apps/ruukoto-code/bin/ruukoto-code.mjs` 入口（`npm link` 或直接把 bin 目录加入 PATH），默认档案根 `~/.ruukoto-code`；首次打开 TUI 即按需拉起本机后台，无需预置服务单元。两端各自的安装与升级（替换检出后按产品 `stop` / `server` 重启）互不要求对方同时升级或停止；按需拉起的后台在升级替换检出后同样经 `ruukoto-code stop` 停下，下次打开 TUI 自动以新代码拉起。
 
 ## 不变量与失败处理
 

@@ -6,13 +6,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { parseTodos } from "../src/agent/todo.ts";
+import { parseTodos } from "@ruukoto/agent/todo.ts";
 import {
   DEFAULT_BUDGET_CONFIG, estimateMessageTokens, getContextCandidates, selectContext, type SelectorInput,
-} from "../src/agent/context-selector.ts";
-import { EventFlow, type FlowEntry } from "../src/tui/event-flow.ts";
-import { EventFlowView } from "../src/tui/event-flow-view.ts";
-import { latestTodos, TodoPanel } from "../src/tui/todo-panel.ts";
+} from "@ruukoto/agent/context-selector.ts";
+import { EventFlow, type FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
+import { EventFlowView } from "@ruukoto/tui/tui/event-flow-view.ts";
+import { latestTodos, TodoPanel } from "@ruukoto/tui/tui/todo-panel.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { createProjectSession, lastUserText, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
 

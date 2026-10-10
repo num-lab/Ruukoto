@@ -3,7 +3,7 @@
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（预先约定）：
- * - src/control/ensure-backend.ts：ensureBackend 的可观察行为——探测、拉起、并发收敛、
+ * - packages/control/src/ensure-backend.ts：ensureBackend 的可观察行为——探测、拉起、并发收敛、
  *   失败分类（启动失败附日志尾部）；拉起对象是真实 bin 后台进程（真实文件/socket/SQLite，
  *   模型打桩），与 issue 01 的真实/模拟边界一致；探测令牌与客户端同一来源
  *   （RUUKOTO_OWNER_TOKEN / RUUKOTO_OWNER_TOKEN_FILE / 控制目录 owner.token，评审 R3）；
@@ -27,15 +27,15 @@ import * as net from "node:net";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ensureBackend, tuiSpawnsBackendOnDemand } from "../src/control/ensure-backend.ts";
-import { ControlClient } from "../src/control/client.ts";
-import { INSTANCE_LOCK_EXIT_CODE } from "../src/core/instance-lock.ts";
+import { ensureBackend, tuiSpawnsBackendOnDemand } from "@ruukoto/control/ensure-backend.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { INSTANCE_LOCK_EXIT_CODE } from "@ruukoto/core/instance-lock.ts";
 import { authenticateClient, cleanupDirs, makeTestDirs, routeResponder, waitFor, writeModelsJson, createProjectSession, taskStatus } from "./helpers/testkit.ts";
 import { killProcessTree } from "./helpers/backend.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 
 const repoRoot = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
-const RUUKOTO_CODE_BIN = nodePath.join(repoRoot, "bin", "ruukoto-code.mjs");
+const RUUKOTO_CODE_BIN = nodePath.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs");
 
 // ---- 单元：门控 ----
 
@@ -373,7 +373,7 @@ test("默认拉起入口两种形态都能按需拉起：真实 bin 与 npm star
   delete process.env.RUUKOTO_OWNER_TOKEN;
   delete process.env.RUUKOTO_OWNER_TOKEN_FILE;
   // 默认派生参数按 argv[1] 形态区分：JS 入口（真实 bin）原样复用；npm start 下 tsx 执行
-  // src/cli.ts，argv[1] 指向 TypeScript 文件，必须换用能加载 TypeScript 的固定 bin 服务入口
+  // packages/tui/src/cli.ts，argv[1] 指向 TypeScript 文件，必须换用能加载 TypeScript 的固定 bin 服务入口
   const entries: Array<[string, string]> = [
     ["od-bin", RUUKOTO_CODE_BIN],
     ["od-npm", nodePath.join(repoRoot, "src", "cli.ts")],
@@ -640,7 +640,7 @@ test("无法核实持锁身份不按锁竞争等待：普通启动失败展示�
     // 预置锁：记录的 PID 指向存活进程；子进程 PATH="" 使 ps 无法运行，身份无法核实
     const lockDir = nodePath.join(dirs.dataDir, "runtime.lock");
     fs.mkdirSync(lockDir, { recursive: true });
-    const ownerJson = JSON.stringify({ pid: process.pid, command: "ruukoto-backend node bin/ruukoto-code.mjs server", startedAt: new Date().toISOString() });
+    const ownerJson = JSON.stringify({ pid: process.pid, command: "ruukoto-backend node apps/ruukoto-code/bin/ruukoto-code.mjs server", startedAt: new Date().toISOString() });
     fs.writeFileSync(nodePath.join(lockDir, "owner.json"), ownerJson);
     const r = await ensureBackend({
       dataDir: dirs.dataDir,
@@ -683,7 +683,7 @@ test("遗留锁（PID 已死）不影响按需拉起：按既有安全规则接�
     fs.mkdirSync(lockDir, { recursive: true });
     fs.writeFileSync(
       nodePath.join(lockDir, "owner.json"),
-      JSON.stringify({ pid: dead.pid, command: "ruukoto-backend node bin/ruukoto-code.mjs server", startedAt: new Date().toISOString() }),
+      JSON.stringify({ pid: dead.pid, command: "ruukoto-backend node apps/ruukoto-code/bin/ruukoto-code.mjs server", startedAt: new Date().toISOString() }),
     );
     const r = await ensureBackend(devOpts(dirs));
     assert.equal(r.ok, true, r.ok ? "" : r.error);

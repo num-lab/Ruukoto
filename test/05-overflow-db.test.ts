@@ -14,7 +14,7 @@ import {
   createProjectSession,
   taskStatus,
 } from "./helpers/testkit.ts";
-import { parseSessionFile } from "../src/core/history.ts";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
 
 test("上下文超限：任务中断并暂停会话队列，不摘要不重试", async () => {
   // contextWindow=50（远小于系统提示+工具定义）：issue 05 的选择器在请求

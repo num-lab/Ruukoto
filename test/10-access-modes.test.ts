@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成：访问模式绑定任务与拥有者入口（issue 03 §2/§5/§6.3/§6.4）。
  *
@@ -31,13 +32,13 @@ import {
   connectAuthedClient,
   realTools,
 } from "./helpers/testkit.ts";
-import { ControlClient } from "../src/control/client.ts";
-import { ControlServer } from "../src/control/server.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { readOwnerToken, TOKEN_FILE_NAME } from "../src/control/owner-token.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { createLauncherFor } from "../src/agent/execution/launchers.ts";
-import { assertGrantNotProtected } from "../src/agent/execution/approved-ops.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { readOwnerToken, TOKEN_FILE_NAME } from "@ruukoto/control/owner-token.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { createLauncherFor } from "@ruukoto/agent/execution/launchers.ts";
+import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 
 function modeRoutes() {
@@ -217,7 +218,8 @@ test("Plan 默认值与任务固定模式跨后台重启保留，控制面握手
     const seq = t.runtime.store.getMaxSeq();
     const instanceId = t.runtime.store.db.getInstanceId();
     await t.runtime.stop("test_restart");
-    const runtime = await Runtime.start({ dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir, socketPath: t.runtime.socketPath(),
+    const runtime = await Runtime.start({
+    product: personalProduct.runtime, dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir, socketPath: t.runtime.socketPath(),
       thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: (ctx) => createMockTools(ctx) });
     let client: ControlClient | null = null;
     try {
@@ -248,7 +250,7 @@ test("CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使�
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     fs.symlinkSync(t.runtime.socketPath(), path.join(t.runtime.controlDir(), "control.sock"));
     const cli = async (...args: string[]) => {
-      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../bin/ruukoto.mjs", import.meta.url)), ...args], {
+      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../apps/ruukoto/bin/ruukoto.mjs", import.meta.url)), ...args], {
         timeout: 20_000,
         env: { ...process.env, RUUKOTO_DATA_DIR: t.dirs.dataDir, RUUKOTO_AGENT_DIR: t.dirs.agentDir,
           RUUKOTO_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
@@ -369,8 +371,9 @@ test("会话默认模式支持 auto-review：CAS 接受、任务固定、显式�
 
     // 跨重启保留会话默认值
     await t.runtime.stop("test_restart");
-    const { Runtime } = await import("../src/runtime/runtime.ts");
+    const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
     const runtime2 = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: t.dirs.dataDir,
       agentDir: t.dirs.agentDir,
       socketPath: t.runtime.socketPath(),

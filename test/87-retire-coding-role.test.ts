@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 固定 coding 角色退役（agent-direction issue 23）。
  *
@@ -12,11 +13,11 @@
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { ModelSelection } from "../src/core/types.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { ModelSelection } from "@ruukoto/core/types.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { MockModelServer, type RecordedRequest } from "./helpers/mock-provider.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { completeCodingChild, seedCodingChild, seedCodingRole } from "./helpers/legacy-coding.ts";
@@ -28,6 +29,7 @@ test("升级收尾：在途旧 coding 子任务各补记一次结果与唤醒，
   const server = new MockModelServer(async (req) => ({ kind: "text", text: `ok:${lastUserText(req).slice(0, 20)}` }));
   await writeModelsJson(dirs, await server.start());
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: (ctx) => createMockTools(ctx),
   };

@@ -16,7 +16,7 @@
 
 ## 对外接口
 
-### 拥有者 IM 入口（`ImEntry`，`src/runtime/im-entries.ts`）
+### 拥有者 IM 入口（`ImEntry`，`packages/channels/src/im-entries.ts`）
 
 | 成员 | 含义 |
 |---|---|
@@ -35,11 +35,11 @@
 
 ### 适配器
 
-- `TelegramAdapter`（`src/telegram/adapter.ts`）：`start` / `stop` / `onConfigChanged` / `status` / `target` / `available` / `send`，以及 `gatePrivate`、`expectedActor`、`replyCapChars`、`capReply`、`externalIdPrefix`、`usesCredential`、`bumpGeneration`。
-- `QqAdapter`（`src/qq/adapter.ts`）：同一组方法，另有 `configure`（端点、凭据、登录账号、拥有者 QQ 号、`max_reply_chars` 的校验与写入）、`setEnabled`，以及 OneBot 客户端连接管理。
+- `TelegramAdapter`（`packages/channels/src/telegram/adapter.ts`）：`start` / `stop` / `onConfigChanged` / `status` / `target` / `available` / `send`，以及 `gatePrivate`、`expectedActor`、`replyCapChars`、`capReply`、`externalIdPrefix`、`usesCredential`、`bumpGeneration`。
+- `QqAdapter`（`packages/channels/src/qq/adapter.ts`）：同一组方法，另有 `configure`（端点、凭据、登录账号、拥有者 QQ 号、`max_reply_chars` 的校验与写入）、`setEnabled`，以及 OneBot 客户端连接管理。
 - 入站登记入口由 Runtime 提供给两个适配器：Telegram 的 `register` 与 QQ 的`registerPrivate`（可带 `commandText`、`media` 标记），统一落到 `inbound_events`。
 
-### IM 审批与长期授权（`src/runtime/im-approvals.ts`）
+### IM 审批与长期授权（`packages/channels/src/im-approvals.ts`）
 
 `ImApprovals` 统一持有审批通知、命令解析、消费前复核、配置失效与长期授权候选；Runtime 只提供入口查询、解除指定审批等待和服务能力检查。对外出口是 `notifyCreated(confirmation, task)`（登记审批创建时的初始 IM 通知）、`consumeRecheck(confirmation, task)`（消费事务内的固定身份复核）、`standingCandidate(task, scope)`（长期授权候选判定）与 `handle(input)`（控制消息入口）。导出的纯函数 `parseImApprovalCommand(text)` 做整条命令解析。
 
@@ -56,11 +56,11 @@
 | `/service-grant <完整授权ID> [偏移]` | 授权详情：范围／版本／存续原因／使用记录 |
 | `/revoke-service-grant <完整授权ID> <授权版本>` | 带版本撤销长期授权 |
 
-### 私聊图片入站（`src/runtime/inbound-media.ts`）
+### 私聊图片入站（`packages/channels/src/inbound-media.ts`）
 
 `InboundMediaStore` 统一负责下载、校验、暂存、提升与恢复；两个适配器只提供安全消息信封（`source`、`externalId`、`actor`、`body`、`replyTarget`）和临时下载闭包（`sizeBytes`、`declaredMime`、`download(signal)`）。编排器在任务落库后调用提升，Runtime 在启动与每小时检查时调用恢复与清理。回执经公共 outbox 登记，`sourceKind = inbound_event`、`sourceKey = media:<媒体消息ID>`。
 
-### GitHub 事件来源（`src/github/webhook.ts`、`src/github/events.ts`）
+### GitHub 事件来源（`packages/channels/src/github/webhook.ts`、`packages/channels/src/github/events.ts`）
 
 - 传输层：HTTP 服务监听固定路径 `POST /github/webhook`，按原始字节校验签名，只做有界登记，不持有任务或发布能力。
 - `GitHubEvents`：`register(snapshot)` 登记归一化快照并失效旧修订、`gate(event)` 决定入站门、`request(event)` 生成评审任务正文、`allowTool(task, name)` 收窄工具、`isReviewTask(task)`判定宿主评审任务、`resultData(task, outcome)` 写结果归属、`terminal(event, task, outcome)`登记一次通知、`verifyNotification(op)` 供 outbox 发送前复核来源。
@@ -343,7 +343,7 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 - 通知只登记一次，模型不能换目标或另建发送槽；过期、停用或配置变化时取消未发送操作，已在途的操作按实际回执收尾。
 - 历史 GitHub 表（`github_repo_bindings` / `github_drafts` / `github_publish_ops`）与`github.*` 事件、`github_publish` 审批记录保留为只读归档，可查看，不能响应执行；旧 CLI `ruukoto github …` 与 TUI `/github …` 只返回静态退役提示，不进补全与帮助。
 
-**退役迁移（`src/runtime/github-retirement.ts`）** 在升级后首次启动自动执行，一次性且可重复：中断后下次启动继续，未完成不标记成功。它做四件事：
+**退役迁移（`packages/channels/src/github-retirement.ts`）** 在升级后首次启动自动执行，一次性且可重复：中断后下次启动继续，未完成不标记成功。它做四件事：
 
 1. 旧 `github_publish` 审批（`pending`／`approved` 未消费）一律失效（`stale`）。
 2. 未决发布操作按证据定终态：批准已消费或无审批记录（完全访问路径可能无审批）→ `effect_unknown`（是否已发送无法确认，绝不重发）；审批未消费 → `canceled`（可证明未发送）。每个被终结的操作落 `github.publish_settled` 事件并记录核对依据；终态操作不改写。

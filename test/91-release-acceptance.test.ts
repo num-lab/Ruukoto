@@ -1,3 +1,4 @@
+import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 /**
  * 发布联合路径（agent-direction issue 24）：复用各票已验证的接缝，检查迁移、
  * 重启、协作取消、成果冲突与回退相互作用。Runtime / SQLite / JSONL / Git
@@ -7,9 +8,10 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { applyLegacyImport, listLegacyImports, previewLegacyImport, revertLegacyImport } from "../src/runtime/legacy-import.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { applyLegacyImport, previewLegacyImport, revertLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
+import { listLegacyImports } from "@ruukoto/core/import-support.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
@@ -47,7 +49,7 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     const preview = previewLegacyImport(deps, { from: source.dirs.dataDir });
     const imported = applyLegacyImport(deps, { plan: { from: source.dirs.dataDir }, source_instance_id: preview.source.instance_id, revision: preview.revision!, request_id: "release-import" });
     await writeModelsJson(dirs, await server.start());
-    const config: RuntimeConfig = { dataDir: dirs.dataDir, agentDir: dirs.agentDir, productType: "ruukoto-code", modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools() };
+    const config: RuntimeConfig = { dataDir: dirs.dataDir, agentDir: dirs.agentDir, product: codingProduct.runtime, modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools() };
     rt = await Runtime.start(config);
     await rt.stop("test_restart");
     rt = await Runtime.start(config);

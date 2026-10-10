@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-05-subagent-restart-recovery.md
@@ -28,11 +29,11 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { randomId, type SubAgentMessage } from "../src/core/types.ts";
-import { subAgentTaskRequestId } from "../src/runtime/subagents.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { randomId, type SubAgentMessage } from "@ruukoto/core/types.ts";
+import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 
 /** 事件表里的某类事件。 */
 function eventsOf(rt: Runtime, type: string): any[] {
@@ -55,6 +56,7 @@ async function startKit(prefix: string) {
   const server = new MockModelServer(responder);
   await writeModelsJson(dirs, await server.start());
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     thinkingLevel: "off",

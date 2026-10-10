@@ -21,8 +21,8 @@ import {
   lastUserText,
 } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { ControlClient } from "../src/control/client.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 
 function hasPython3(): boolean {
   try {
@@ -135,7 +135,7 @@ async function runTuiInPty(opts: {
   const args = ["tui"];
   if (opts.sessionId) args.push("--session", opts.sessionId);
   const payload = JSON.stringify({
-    cmd: ["npx", "tsx", "src/cli.ts", ...args],
+    cmd: ["npx", "tsx", "apps/ruukoto/src/main.ts", ...args],
     env: opts.env,
     inputs: opts.inputs,
     expect: opts.expect,
@@ -167,7 +167,7 @@ async function startBackendProcess(dirs: { root: string; dataDir: string; agentD
     RUUKOTO_AGENT_DIR: dirs.agentDir,
     RUUKOTO_PENDING_DIR: path.join(dirs.root, "pending"),
   };
-  const child = spawn("npx", ["tsx", "src/cli.ts", "start", "--execution", "local", "--tools", "mock", "--model", "mock/mock-model"], {
+  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "start", "--execution", "local", "--tools", "mock", "--model", "mock/mock-model"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿

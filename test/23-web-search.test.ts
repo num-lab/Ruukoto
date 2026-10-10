@@ -24,10 +24,10 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { CredentialStore } from "../src/agent/execution/credentials.ts";
-import { searchTavily, WebSearchError } from "../src/agent/web-search.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import { searchTavily, WebSearchError } from "@ruukoto/agent/web-search.ts";
 
 const SECRET = "tvly-test-secret";
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;

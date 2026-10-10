@@ -5,10 +5,10 @@ import { createHash } from "node:crypto";
 import {
   DEFAULT_BUDGET_CONFIG, estimateMessageTokens, getContextCandidates, selectContext,
   type ContextCandidate, type SelectorInput,
-} from "../src/agent/context-selector.ts";
+} from "@ruukoto/agent/context-selector.ts";
 import {
   evaluateJev, JevError, JEV_MODEL, JEV_CREDENTIAL_PURPOSE, JEV_INPUT_USD_PER_MILLION,
-} from "../src/agent/jev.ts";
+} from "@ruukoto/agent/jev.ts";
 
 const user = (text: string) => ({ role: "user", content: text, timestamp: 0 });
 const assistant = (text: string) => ({ role: "assistant", content: [{ type: "text", text }], timestamp: 0 });

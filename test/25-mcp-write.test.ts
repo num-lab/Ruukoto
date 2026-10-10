@@ -26,7 +26,7 @@ import {
 import { startMockMcp, MOCK_MCP_SECRET, type MockMcp, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
-import { canonicalParamsDigest } from "../src/agent/mcp/tools.ts";
+import { canonicalParamsDigest } from "@ruukoto/agent/mcp/tools.ts";
 
 const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });

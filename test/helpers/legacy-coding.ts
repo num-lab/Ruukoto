@@ -5,8 +5,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Store } from "../../src/core/store.ts";
-import { randomId, type ModelSelection, type Task } from "../../src/core/types.ts";
+import type { Store } from "@ruukoto/core/store.ts";
+import { randomId, type ModelSelection, type Task } from "@ruukoto/core/types.ts";
 
 const SELECTION: ModelSelection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 

@@ -13,7 +13,7 @@ npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则�
 npm run build:worker-image   # 使用 Docker 构建受限模式的工具镜像 ruukoto-worker
 ```
 
-`npm start -- …` 与 `ruukoto …`、`ruukoto-code …` 等价。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
+根 `npm start -- …` 默认使用 ruukoto app，保留 `RUUKOTO_PRODUCT=ruukoto-code` 的入口选择；也可用 `npm start --workspace=ruukoto-code -- …`。各 app 的 bin 固定产品身份；构建出的 app tarball 引用同仓共享包，部署保留完整 workspace。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
 
 ## 2. 运行
 
@@ -422,7 +422,7 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 | `PageUp` / `PageDown` / 滚轮 | 翻页；滚动后新输出不会把视口拉回底部 |
 | `End` | 回到最新位置，恢复跟随 |
 
-选择与查看的悬浮层与窗口均可用 `q` 或 `Esc` 关闭；窗口与选择悬浮层打开时不触发 `Shift+Tab`。命令以 `src/tui/commands.ts` 的条目表为准：补全、`/help`、派发、回显、是否作为任务输入与是否保留成功结果都由条目推出。
+选择与查看的悬浮层与窗口均可用 `q` 或 `Esc` 关闭；窗口与选择悬浮层打开时不触发 `Shift+Tab`。命令以 `packages/tui/src/tui/commands.ts` 的条目表为准：补全、`/help`、派发、回显、是否作为任务输入与是否保留成功结果都由条目推出。
 
 ### 7.2 命令
 

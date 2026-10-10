@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 01 — 按改动面选检查，取代「收尾跑全量」
 
@@ -8,11 +8,11 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] `npm run change-scope -- --base <ref>` 输出带版本号的 JSON，含已提交／暂存／未暂存／未跟踪四类路径与解析后的 base／head／merge base 提交号。
-- [ ] `.agents/skills/pre-push-checks/SKILL.md` 给出改动面到命令的映射表，覆盖 `src/` 各区、`test/`、`docs/`、`.agents/notes/`、`verification/`、`deploy/`、`package.json`。
-- [ ] `AGENTS.md`、`docs/development.md`、`README.md` 三处不再写「收尾运行 `npm run check`」，改为「按改动面选检查」并链接 skill；全量只在明确要求、诊断 CI 或确实跨全仓时跑。
-- [ ] `docs/development.md` 保留全量 `check` 的命令说明，供 CI 与显式复跑使用。
-- [ ] 决策 note 与工单同批落盘。
+- [x] `npm run change-scope -- --base <ref>` 输出带版本号的 JSON，含已提交／暂存／未暂存／未跟踪四类路径与解析后的 base／head／merge base 提交号。
+- [x] `.agents/skills/pre-push-checks/SKILL.md` 给出改动面到命令的映射表，覆盖 `src/` 各区、`test/`、`docs/`、`.agents/notes/`、`verification/`、`deploy/`、`package.json`。
+- [x] `AGENTS.md`、`docs/development.md`、`README.md` 三处不再写「收尾运行 `npm run check`」，改为「按改动面选检查」并链接 skill；全量只在明确要求、诊断 CI 或确实跨全仓时跑。
+- [x] `docs/development.md` 保留全量 `check` 的命令说明，供 CI 与显式复跑使用。
+- [x] 决策 note 与工单同批落盘。
 
 ## 依据
 

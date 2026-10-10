@@ -26,8 +26,11 @@ pre-commit 钩子。首次安装依赖需要网络；`check` 使用本地 mock �
 | `npm run check` | 依次执行 build、lint、类型检查与全部离线测试，任一步失败即停止 |
 | `npm run test:app` | 仅应用离线测试 |
 | `npm run test:foundation` | 仅基础验证离线测试 |
+| `npm run change-scope -- --base <ref>` | 报告本次改动相对 merge base 的已提交、暂存、未暂存与未跟踪路径 |
 
-修改过程中运行 `npm run check:static` 与相关测试，收尾运行 `npm run check`。定向测试
+修改过程中运行 `npm run check:static` 与相关测试。**不要默认跑全量 `npm run check`**：
+按改动面选最小检查集，见 [提交前检查](../.agents/skills/pre-push-checks/SKILL.md)；
+全量只在拥有者明确要求、诊断 CI 失败或改动确实横跨全仓时跑。定向测试
 使用明确文件名，例如：
 
 ```bash

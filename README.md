@@ -83,7 +83,9 @@ ruukoto qq enable
 
 ### 开发本项目
 
-修改时先运行 `npm run check:static` 与相关测试，收尾运行 `npm run check`。
+修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集
+（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI
+与显式复跑执行。
 
 ```bash
 npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启

@@ -1,0 +1,53 @@
+---
+name: pre-push-checks
+description: 在 ruukoto 提交或推送前，按改动面选出能证明本次改动的最小检查集；明确要求、诊断 CI 或确实跨全仓时才跑全量 npm run check。改动 src/、test/、docs/、.agents/notes/、verification/、deploy/ 或 package.json 后使用。
+---
+
+# 按改动面选检查
+
+本仓库没有默认的本地全量基线。**每处行为改动都要有最窄的、会因该回归而失败的检查**；只有改动真正触及的面才扩大范围。CI 拥有穷尽覆盖与平台矩阵。
+
+全量 `npm run check` 约 200 秒（应用测试 macOS 167 秒、Linux 495 秒），只在三种情况跑：拥有者明确要求、正在诊断 CI 失败、或改动确实横跨全仓以致没有更窄的可信集合。
+
+已通过的检查不因为「接下来要提交」而重跑。
+
+## 1. 先看改动面
+
+```sh
+git status --short --branch
+npm run change-scope -- --base <已核实的基点引用>
+```
+
+基点要自己核实后用参数传入；`change-scope` 不猜测也不抓取基点。输出是带版本号的 JSON，`paths.committed` 是相对 merge base 的已提交路径，`staged`／`unstaged`／`untracked` 描述当前工作区。合并了变动的基点之后重跑一次，重新判断合并后的范围能影响什么。
+
+## 2. 按面选证据
+
+| 改动面 | 跑到哪一级 |
+|---|---|
+| `src/` 某区的行为 | 该区的定向用例，文件名从 [开发说明的映射表](../../../docs/development.md#日常反馈) 查；跨模块契约变化时加调用方的用例 |
+| `src/core/` 的 schema、存储、会话身份 | `npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts`，另加直接断言该表或该状态机的用例 |
+| `src/agent/` 的工具、审批、权限 | `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts` |
+| `src/agent/` 的上下文、模型、压缩 | `npx tsx --test test/18-model-selection.test.ts test/60-context-prefix.test.ts test/61-context-compaction.test.ts` |
+| `src/runtime/`、`src/control/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
+| `src/tui/`、`src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
+| `src/qq/`、`src/telegram/`、`src/scheduler/` | `npx tsx --test test/26-qq.test.ts test/37-scheduler-outbox.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts` |
+| SubAgent、worktree、旧实例导入 | `test/80`–`test/95` 里对应的那篇，加 `npx tsx --test test/91-release-acceptance.test.ts` |
+| `test/` 的夹具或助手 | 用该助手的用例。**只断言落盘布局的用例（直读 SQLite／裸 SQL）是本仓库的刻意做法**，不要以「只测行为」为由改写 |
+| `.agents/notes/` 的笔记 | `npm run verify-notes`；改了笔记的被引路径再加 `npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts` |
+| `docs/` 的文档 | 按 [写作 skill](../../../.agents/skills/writing-docs-for-human/SKILL.md) 的触发条件逐篇核对落点；本次改动若触及被链接的目标，手工确认链接仍成立 |
+| `AGENTS.md`、skills、`docs/agents/` | 落点检查：被链接的目标存在，被引用的命令与 `package.json` 一致 |
+| `scripts/` 的门禁或生成器 | 该脚本自身，加一个故意失败的负例证明它会红 |
+| `verification/foundation/` | `npm run test:foundation` |
+| `verification/smoke/` | 该 smoke 入口；需要 Docker、凭据或真实平台时先确认前提，缺前提报告「不可用」，不记为通过 |
+| `deploy/` | 相关 README 的步骤能否仍被执行；改 systemd 单元或镜像另加 `npm run build:worker-image`（需 Docker） |
+| `package.json` 的 scripts、依赖、构建入口 | `npm run build`，加 `npm run lint` 与 `npm run typecheck` |
+
+`.scratch/` 的工单与证据不改行为，不需要跑检查；其中的验证记录要区分模拟结果与真实环境结果。
+
+## 3. 静态门禁的位置
+
+`npm run check:static`（lint + typecheck + verify-notes，约 8 秒）已由 pre-commit 钩子执行。提交前不必手工再跑一遍。
+
+## 4. 报告
+
+只报实际跑过的命令与结果。不要用「看起来没问题」代替证据；缺前提时明确写缺什么。

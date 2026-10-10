@@ -217,8 +217,11 @@ CREATE TABLE IF NOT EXISTS selection_records (
 );
 CREATE INDEX IF NOT EXISTS idx_selection_records_task ON selection_records (task_id, call_index);
 
--- issue 30：上下文压缩点（ADR 0016）。每个会话至多一个 active（部分唯一索引），
--- 新建时旧行改为 superseded；指纹不符时改为 invalidated。会话历史不受影响。
+/*
+ * issue 30：上下文压缩点。每个会话至多一个 active（部分唯一索引），
+ * 新建时旧行改为 superseded；指纹不符时改为 invalidated。会话历史不受影响。
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md
+ */
 CREATE TABLE IF NOT EXISTS context_checkpoints (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
@@ -541,9 +544,12 @@ CREATE TABLE IF NOT EXISTS standing_permissions (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_standing_permissions_active ON standing_permissions
   (session_id, channel, account, chat_id, actor, machine_id, unit, action) WHERE revoked_at IS NULL;
 
--- v24（agent-direction issue 11，ADR 0020）：工作委托 / SubAgent / 每次执行三个
--- 领域对象分开保存，与旧固定角色（agent_roles / tasks.agent_id）兼容共存；
--- 动态 ID 走新关联列，不改旧角色 CHECK，旧任务关联列恒为 NULL。
+/*
+ * v24（agent-direction issue 11）：工作委托 / SubAgent / 每次执行三个
+ * 领域对象分开保存，与旧固定角色（agent_roles / tasks.agent_id）兼容共存；
+ * 动态 ID 走新关联列，不改旧角色 CHECK，旧任务关联列恒为 NULL。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md
+ */
 CREATE TABLE IF NOT EXISTS sub_agents (
   id TEXT PRIMARY KEY,
   parent_session_id TEXT NOT NULL REFERENCES sessions(id),

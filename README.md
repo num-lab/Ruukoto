@@ -1,6 +1,8 @@
 # Ruukoto
 
-拥有者自用的 Agent，同一仓库交付两个独立产品（[ADR 0017](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
+拥有者自用的 Agent，同一仓库交付两个独立产品（见[两个 Agent 产品独立运行](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
+
+<!-- Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md -->
 
 | | `ruukoto-code`（Coding Agent） | `ruukoto`（个人 Agent） |
 | --- | --- | --- |

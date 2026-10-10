@@ -1,5 +1,6 @@
 /**
- * 把旧开发会话和资料映射到工作区（agent-direction issue 07，ADR 0017）。
+ * 把旧开发会话和资料映射到工作区（agent-direction issue 07）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（步骤 1：增加会话组织归属，保留所有来源标识）：
  * 1. schema v20 → v21 纯加列迁移：旧库升级只补 sessions.workspace_project_id，

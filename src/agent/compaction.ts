@@ -1,10 +1,11 @@
 /**
- * 上下文压缩（issue 30，ADR 0016）：压缩点指纹、被清理结果的条目引用与滚动摘要调用。
+ * 上下文压缩（issue 30）：压缩点指纹、被清理结果的条目引用与滚动摘要调用。
  * 规划与视图组装在 context-selector（纯函数）；编排、落盘与停止联动在 context-assembly。
  *
  * 摘要复用 pi 导出的 generateSummaryWithUsage（结构化格式、基于上一版摘要增量更新、
  * 工具结果截到 2,000 字符）；不启用 pi 的 compaction（它写会话文件）。摘要是参考
  * 内容，不是拥有者指令：提示要求区分拥有者原话与资料中的指令。
+ * Note: 见 .agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md
  */
 
 import { createHash } from "node:crypto";

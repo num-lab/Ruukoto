@@ -1,7 +1,8 @@
 /**
- * 服务器服务管理宿主工具（agent-direction issue 09，ADR 0019）：service_inspect /
+ * 服务器服务管理宿主工具（agent-direction issue 09）：service_inspect /
  * service_manage。仅 main 装配（装配另要求产品 ruukoto + Linux + 显式部署配置，
  * 见 Runtime/Driver；main 不因此获得 bash）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
  *
  * - 模型只提供白名单服务名与固定动作；主机身份、taskId、hostOpId、执行身份与
  *   策略由宿主注入；只有 root 拥有、经 sudoers 固定入口的 helper 能触达 systemd；

@@ -1,11 +1,13 @@
 /**
  * QQ 适配器：owner 私聊入口（NapCat OneBot v11），发送走公共 outbox。
  *
- * 核心群聊已退役（agent-direction issue 20，ADR 0017 修订 ADR 0014）：群消息
+ * 核心群聊已退役（agent-direction issue 20）：群消息
  * 直接忽略——不登记收件、不建任务、不回复、不保存正文，也不逐条记日志；撤回
  * 通知继续处理，但只给已登记的旧收件打标记（已接收群结果的撤回复核仍然有效），
  * 不再取消任务或补发回复。旧群资料保留为只读归档（qq_inbox/qq_outbox/
  * qq_sessions/inbound_events）。正式 QQ 群聊外挂在后续阶段交付。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+ * Note: 见 .agents/notes/implemented/simplification/2026-10-02-retire-core-group-chat.md
  *
  * 边界与纪律：
  * - 窄入口：只经 QqRuntimeBridge 调用 Runtime 的少量方法；不持有拥有者
@@ -220,7 +222,8 @@ export class QqAdapter implements ImEntry {
 
   /** 私聊来源钉住接收时的 owner 与配置版本；离线待恢复，配置变化不改发。 */
   gatePrivate(event: InboundEvent): "run" | "wait" | { drop: string } {
-    // 启动配置停用与入口停用同义（ADR 0012 2026-10-06 修订）：作废而不是等待
+    // 启动配置停用与入口停用同义：作废而不是等待
+    // Note: 见 .agents/notes/implemented/feature/2026-09-24-qq-private-shared-main.md
     if (this.startupDisabled) return { drop: "qq_private_unavailable:QQ 私聊入口未启动（启动配置停用）" };
     const target = this.target();
     if (!target || !sameTarget(target, event.replyTarget) || event.source !== QQ_PRIVATE_SOURCE || event.actor !== `${QQ_PRIVATE_SOURCE}:${target.chatId}`) {

@@ -1,5 +1,6 @@
 /**
- * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22，ADR 0023）。
+ * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
  *
  * 测试接缝：
  * 1. 预览齐全且两侧零写入：交接清单（平台/调度/长期授权）、应用数据绑定、

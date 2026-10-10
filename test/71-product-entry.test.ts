@@ -1,5 +1,6 @@
 /**
- * 双产品独立入口与隔离测试（agent-direction issue 01，ADR 0017）。
+ * 双产品独立入口与隔离测试（agent-direction issue 01）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（预先约定）：
  * - src/core/product.ts：productFromEnv / productRootDir / dirEnvFor 纯函数（产品身份与

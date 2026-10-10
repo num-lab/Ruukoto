@@ -6,9 +6,10 @@ import { parseModelSelection } from "../runtime/runtime.ts";
  * 保证快照序号 N 与实时推送之间无缺口；慢客户端断开后凭游标补发，
  * 服务端不为单个客户端在内存里积压事件。
  *
- * 拥有者认证（ADR 0003）：socket 位于受控目录，任何连接在 auth 操作成功
+ * 拥有者认证：socket 位于受控目录，任何连接在 auth 操作成功
  * 前不返回快照、不执行请求。令牌仅存于控制面目录的 owner.token（0600，
  * 后台身份持有），多用户部署由配置步骤把令牌以 0400 放入拥有者可读位置。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
  */
 
 import * as net from "node:net";

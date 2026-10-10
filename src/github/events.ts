@@ -1,4 +1,7 @@
-/** GitHub 入站适配：只编排 MCP review，结果仍是普通任务/产物（ADR 0007）。 */
+/**
+ * GitHub 入站适配：只编排 MCP review，结果仍是普通任务/产物。
+ * Note: 见 .agents/notes/implemented/simplification/2026-09-23-retire-github-module.md
+ */
 import { isDeepStrictEqual } from "node:util";
 import type { Store } from "../core/store.ts";
 import type { InboundEvent, NotifyTarget, Task } from "../core/types.ts";

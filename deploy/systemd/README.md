@@ -1,6 +1,9 @@
 # ruukoto 目标服务器部署（Linux）
 
-三个系统身份（ADR 0003 / ADR 0004）：
+三个系统身份（设计依据：[显式访问模式](../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md)、[工具工作进程与按任务容器](../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)）：
+
+<!-- Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md -->
+<!-- Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md -->
 
 - **拥有者**：日常登录账户，使用可信 CLI/TUI；持有拥有者令牌（0400）的副本。
 - **后台**（`ruukoto-backend`）：运行控制面，持有数据目录、模型凭据与
@@ -93,7 +96,11 @@ sudo setfacl -R -m "u:ruukoto-exec:rwX,d:u:ruukoto-exec:rwX,d:u:$SUDO_USER:rwX" 
 #      export RUUKOTO_OWNER_TOKEN_FILE=~/.ruukoto-owner.token
 ```
 
-## 服务器服务管理（agent-direction issue 09，ADR 0019）
+## 服务器服务管理（agent-direction issue 09）
+
+设计依据：[服务管理 helper](../../.agents/notes/implemented/architecture/2026-10-03-service-management-helper.md)。
+
+<!-- Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md -->
 
 main 的 `service_inspect` / `service_manage` 只经 root 拥有的 helper 触达
 systemd：白名单目标、固定协议、逐次审批（full_access 也不例外）。执行账户

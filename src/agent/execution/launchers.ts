@@ -7,12 +7,13 @@
  *   no-new-privileges、只读基础文件系统、独立可写 /tmp、默认无网络、
  *   只挂授权工作区与拥有者显式授予的路径，均按宿主原路径挂载，使模型
  *   看到的路径在容器内外一致）；confirm 与 auto-review 共用
- *   该受限边界（ADR 0005）；
+ *   该受限边界；
  * - systemd：完全访问任务的执行账户启动入口（systemd-run --pipe，固定
  *   UID，KillMode=control-group）。
  *
  * 停止语义：stop() 必须停掉整个执行单元（容器/systemd 单元/进程组）并
  * 核实已退出，调用方据此决定是否释放目录占用。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
  */
 
 import { spawn, execFile, type ChildProcess } from "node:child_process";

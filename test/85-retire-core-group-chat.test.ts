@@ -1,5 +1,7 @@
 /**
- * 核心群聊退役与旧群资料保全（agent-direction issue 20，ADR 0017 修订 ADR 0014）。
+ * 核心群聊退役与旧群资料保全（agent-direction issue 20）。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+ * Note: 见 .agents/notes/implemented/simplification/2026-10-02-retire-core-group-chat.md
  *
  * 逐条对应工单验收：
  * 1. 新核心不引导 chat、不接收群任务；QQ 拥有者私聊与 Telegram 主会话照常回复；

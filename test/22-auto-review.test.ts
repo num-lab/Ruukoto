@@ -1,5 +1,6 @@
 /**
- * 集成与单元：auto-review 自动审查模式（issue 15，ADR 0005）。
+ * 集成与单元：auto-review 自动审查模式（issue 15）。
+ * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
  *
  * 覆盖：
  * - 自动批准/拒绝/转人工/非法输出/超时的端到端行为（断言真实工具执行次数，

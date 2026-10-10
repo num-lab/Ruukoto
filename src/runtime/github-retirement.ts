@@ -1,5 +1,6 @@
 /**
- * GitHub 专用模块退役迁移（issue 17，ADR 0007）。
+ * GitHub 专用模块退役迁移（issue 17）。
+ * Note: 见 .agents/notes/implemented/simplification/2026-09-23-retire-github-module.md
  *
  * 旧模块（REST 采集/草稿/发布）已删除，GitHub 经通用 MCP 接入。本模块只在
  * 升级后首次启动时运行一次（meta 标记 + 表存在性双重判定），处理历史数据：

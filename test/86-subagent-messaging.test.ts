@@ -1,5 +1,6 @@
 /**
- * 同项工作内 SubAgent 相互通信（agent-direction issue 13，ADR 0020 补充）。
+ * 同项工作内 SubAgent 相互通信（agent-direction issue 13）。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-05-subagent-messaging.md
  *
  * seam：Runtime 公共接口 + mock 模型 + 真实只读工具（realTools，local 后端）；
  * 消息登记的确定性路径直接用管理器（发送方关联核验不要求任务存活；

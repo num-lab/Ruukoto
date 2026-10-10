@@ -5,7 +5,8 @@ After=network-online.target
 [Service]
 Type=simple
 # 独立系统身份运行控制面并持有数据目录（0700）；拥有者经本机 socket + 拥有者
-# 令牌访问。同一 UID 部署不满足 ADR 0003 的控制面分离要求。
+# 令牌访问。同一 UID 部署不满足控制面分离要求。
+# Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
 User=ruukoto-backend
 Group=ruukoto-backend
 Environment=RUUKOTO_DATA_DIR=/var/lib/ruukoto/data

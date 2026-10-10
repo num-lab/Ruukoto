@@ -1,4 +1,5 @@
-# ruukoto 工具工作进程镜像（请求确认模式的任务容器，issue 03 / ADR 0004）。
+# ruukoto 工具工作进程镜像（请求确认模式的任务容器，issue 03）。
+# Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
 #
 # - 固定 pi 0.85.1 依赖（package-lock.json 安装），工作进程由 esbuild 打成
 #   单文件 worker.mjs（pi 依赖保持 external，经 node_modules 解析）；

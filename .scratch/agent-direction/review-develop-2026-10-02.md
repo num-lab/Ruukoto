@@ -21,7 +21,7 @@ git log ff289e2..606e15f --oneline
 4. `e7b4d11`：开发机受限与完全访问接入开发任务（工单 04）。
 5. `606e15f`：按工作区创建和切换开发会话（工单 05）。
 
-依据：[方向规格](spec.md)、[ADR 0017](../../docs/adr/0017-two-agent-products.md)、[运行说明](../../docs/runtime.md)，以及工单 [01](issues/01-independent-products.md)、[02](issues/02-coding-daemon.md)、[03](issues/03-execution-boundary-proof.md)、[04](issues/04-desktop-execution.md)、[05](issues/05-workspace-sessions.md)。
+依据：[方向规格](spec.md)、[ADR 0017](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)、[运行说明](../../docs/runtime.md)，以及工单 [01](issues/01-independent-products.md)、[02](issues/02-coding-daemon.md)、[03](issues/03-execution-boundary-proof.md)、[04](issues/04-desktop-execution.md)、[05](issues/05-workspace-sessions.md)。
 
 ## Standards
 

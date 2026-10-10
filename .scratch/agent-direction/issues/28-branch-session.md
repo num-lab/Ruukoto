@@ -6,7 +6,7 @@ Status: ready-for-agent
 
 **Blocked by:** 无。2026-10-09 通过两轮 grilling 确认 Q1—Q13，拥有者两次答复“全部按照推荐”，授权登记工单。本单记录待实现行为，不表示功能已经存在。
 
-依据：[领域术语](../../../CONTEXT.md)、[ADR 0001：完整历史](../../../docs/adr/0001-preserve-session-history.md)、[ADR 0016：上下文压缩](../../../docs/adr/0016-lossy-context-compaction.md)、[ADR 0017：两个产品与工作区](../../../docs/adr/0017-two-agent-products.md)、[ADR 0018：资料身份与组织归属](../../../docs/adr/0018-legacy-workspace-org-attribution.md)。
+依据：[领域术语](../../../CONTEXT.md)、[ADR 0001：完整历史](../../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)、[ADR 0016：上下文压缩](../../../.agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md)、[ADR 0017：两个产品与工作区](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)、[ADR 0018：资料身份与组织归属](../../../.agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md)。
 
 ## 目标与范围
 

@@ -6,7 +6,7 @@ Status: ready-for-agent
 
 **Blocked by:** 无。两平台的完整原生边界验证是本工单的第一阶段；验证未通过，不切换默认后端、不降低验收要求。
 
-依据：[产品规格](../spec.md)、[CONTEXT.md](../../../CONTEXT.md)、[ADR 0004](../../../docs/adr/0004-tool-worker-per-task-container-exec-account.md)、[ADR 0017](../../../docs/adr/0017-two-agent-products.md) 与 [ADR 0021](../../../docs/adr/0021-subagent-worktrees.md)。
+依据：[产品规格](../spec.md)、[CONTEXT.md](../../../CONTEXT.md)、[ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md) 与 [ADR 0021](../../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)。
 
 ## 背景与已核实事实
 

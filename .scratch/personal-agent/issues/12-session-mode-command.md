@@ -13,7 +13,7 @@ Depends on: 03, 04
 
 - [TUI](../../../src/tui/app.ts) 当前要求 `/mode <confirm|full_access> [taskId]`，无参数时提示用法；没有列表选择入口。
 - [Runtime](../../../src/runtime/runtime.ts) 的 `switchTaskMode` 和 [控制协议](../../../src/control/server.ts) 的 `switch_mode` 都按 `task_id` 操作，支持 `confirm` 与 `full_access`，并处理运行中任务的待生效模式。
-- [任务类型](../../../src/core/types.ts) 的 `accessMode`、`pendingAccessMode` 和权限版本属于任务级安全状态。请求确认模式与完全访问模式的边界由 [ADR 0003](../../../docs/adr/0003-enforce-explicit-access-modes.md) 规定，自动审批尚未纳入首期范围。
+- [任务类型](../../../src/core/types.ts) 的 `accessMode`、`pendingAccessMode` 和权限版本属于任务级安全状态。请求确认模式与完全访问模式的边界由 [ADR 0003](../../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md) 规定，自动审批尚未纳入首期范围。
 
 ## 实施范围
 

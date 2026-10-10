@@ -2,7 +2,7 @@
 
 状态：拥有者已确认“按草案发布”，24 张正式工单已发布。本文保留获批拆分，实施状态以各独立工单为准。
 
-依据：[已确认规格](spec.md) 与 [ADR 0017](../../docs/adr/0017-two-agent-products.md)。24 张首期工单已按依赖顺序逐票发布，初始状态均为 ready-for-agent；有阻塞边的工单须等全部前置达到 resolved 后领取。下文保留批准时的交付与验收内容，原规格和既有父任务状态不变。
+依据：[已确认规格](spec.md) 与 [ADR 0017](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。24 张首期工单已按依赖顺序逐票发布，初始状态均为 ready-for-agent；有阻塞边的工单须等全部前置达到 resolved 后领取。下文保留批准时的交付与验收内容，原规格和既有父任务状态不变。
 
 ## 拆分原则与执行顺序
 

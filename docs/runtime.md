@@ -1,9 +1,9 @@
 # 后台任务运行时（issue 02/03/04/05）
 
 任务生命周期独立于交互终端的实现：单个后台进程负责调度、状态与事件，
-每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](adr/0002-detach-terminal-from-task-runtime.md)）。
-issue 03 接入真实编码工具与两种权限模式（[ADR 0003](adr/0003-enforce-explicit-access-modes.md)、
-[ADR 0004](adr/0004-tool-worker-per-task-container-exec-account.md)）。
+每个会话使用独立 pi SDK 实例驱动；TUI 断开不影响任务执行（[ADR 0002](../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)）。
+issue 03 接入真实编码工具与两种权限模式（[ADR 0003](../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md)、
+[ADR 0004](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)）。
 TUI 是独立客户端，含历史读取、断开重连与输入去重；`ruukoto-code` 打开 TUI 时
 [按需拉起本机后台](visual/control-protocol.html#ensure)。当前控制协议为 v16，包含事件流恢复接口。
 

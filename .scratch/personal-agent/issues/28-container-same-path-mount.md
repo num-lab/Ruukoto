@@ -42,7 +42,7 @@ Depends on: 03, 21
 
 ## 关联与后续
 
-- [03](03-tools-and-access.md) 与 [ADR 0004](../../../docs/adr/0004-tool-worker-per-task-container-exec-account.md) 规定的容器执行边界（ADR 未规定挂载路径，本工单与之不冲突）；[24](24-system-prompt-discovery.md) 的系统提示 cwd 行。[23](23-container-full-access.md) 修好后，完全访问在执行账户下同样使用宿主路径，两种执行方式一致。
+- [03](03-tools-and-access.md) 与 [ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md) 规定的容器执行边界（ADR 未规定挂载路径，本工单与之不冲突）；[24](24-system-prompt-discovery.md) 的系统提示 cwd 行。[23](23-container-full-access.md) 修好后，完全访问在执行账户下同样使用宿主路径，两种执行方式一致。
 
 ## Comments
 

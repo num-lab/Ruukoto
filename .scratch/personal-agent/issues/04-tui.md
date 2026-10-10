@@ -16,7 +16,7 @@ Depends on: 02, 03
 
 ## 实施计划
 
-计划日期：2026-09-20。基于 [01 的选型结论](../foundation-findings.md)、[02/03 已实现的运行时](../../../docs/runtime.md)与 [ADR 0002](../../../docs/adr/0002-detach-terminal-from-task-runtime.md)。03 的容器与 systemd 部署仍有未验证项，详见 [03 工单](03-tools-and-access.md)；TUI 接通协议不代表这些执行边界已经通过部署验证。
+计划日期：2026-09-20。基于 [01 的选型结论](../foundation-findings.md)、[02/03 已实现的运行时](../../../docs/runtime.md)与 [ADR 0002](../../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)。03 的容器与 systemd 部署仍有未验证项，详见 [03 工单](03-tools-and-access.md)；TUI 接通协议不代表这些执行边界已经通过部署验证。
 
 ### 1. 建立最小 TUI 入口与布局
 

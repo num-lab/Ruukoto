@@ -84,7 +84,7 @@ SQLite 只执行有索引且有批量上限的短事务。发送、应用数据�
 - `wake_main` 计划可以直接登记。首次创建 `notify` 计划时，复用 `Driver.awaitApproval()` 和现有 TUI，新增 `notification` 审批范围，固定完整正文、目标及配置版本、规则、IANA 时区、DST 策略和持续范围；周期计划明确展示“持续至取消”，不能只批准首次时间。
 - 获批后在同一个核心事务中重新核实宿主 main 身份、任务/权限版本与目标配置，调用 `Store.consumeApproval()` 并写入计划、批准引用及事件。后续触发依据该有效计划，不重复消费原批准，也不要求最初任务仍在执行。目标配置版本变化或停用使旧授权不再可用，不能自动改发到新目标。
 - 一次性 `notification_enqueue` 同样批准固定目标与正文，批准消费、账本插入及事件在同一事务内完成，工具只返回“已排队”和操作 ID。定时器另用内部 `enqueueScheduled(runId)` 读取已批准计划；issue 04 另用内部 `enqueueOwnerReply(eventId, taskId, text)` 验证可信 owner 入站、固定回复路由与任务关联。模型不能调用这两个内部入口，也不能把一次 owner 回复扩展成未来发送授权。
-- `auto-review` 对通知审批直接转拥有者。本计划对建立持续发送计划及未预授权的一次发送均要求显式确认，包括 `full_access`；这是 [daily-agent 规格第 6 项](../spec.md) 对未预授权外发的约束，实施时须记录其与 [ADR 0003](../../../docs/adr/0003-enforce-explicit-access-modes.md) 通用模式语义的关系。已批准计划与可信 owner 回复属于明确的自动发送范围，不复用 MCP 的无条件 full_access 放行分支。
+- `auto-review` 对通知审批直接转拥有者。本计划对建立持续发送计划及未预授权的一次发送均要求显式确认，包括 `full_access`；这是 [daily-agent 规格第 6 项](../spec.md) 对未预授权外发的约束，实施时须记录其与 [ADR 0003](../../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md) 通用模式语义的关系。已批准计划与可信 owner 回复属于明确的自动发送范围，不复用 MCP 的无条件 full_access 放行分支。
 - 宿主决定逻辑发送键：定时通知为运行 ID，owner 回复为入站事件 ID 和固定回复槽，一次确认发送为当前任务的通知槽。首版模型每任务只有一个一次通知槽，重复调用只能查询/返回该操作，同键变更正文报冲突；不能通过模型生成新键绕过 `effect_unknown`。内部恢复也不得换键或改正文。
 
 发送状态按事实转换：
@@ -94,7 +94,7 @@ SQLite 只执行有索引且有批量上限的短事务。发送、应用数据�
 3. 重启时 `pending` 可继续领取，遗留 `sending` 一律转 `effect_unknown`，包括“已提交 sending，但网络调用前崩溃”的窗口。`sent/failed/effect_unknown/canceled` 均不自动重发。平台已接收但本地结果写入失败时，保留 sending/未知事实，不能回退 pending。
 4. 只有确定未发送的 pending 可以直接取消。在途取消或停机发送中止只记录取消意图，并按成功、明确失败或未知事实收尾。迟到回执按原操作 ID 保存，不能触发重发，也不能把已不确定的发送伪装成取消成功。发送函数必须在中止后释放本地资源；关闭屏障隔离未能及时结束的回调。
 
-“同一幂等键最多产生一次可见发送”的可实现保证，是本地只保留一个操作且不重复发起可能已经产生副作用的发送。平台没有幂等支持时，本地事务无法保证远端 exactly-once，也不能同时保证未知窗口必达。验收应同时核对模拟平台接收次数和本地状态；“重启不丢提醒”指计划、触发与发送事实可恢复，未知结果仍需拥有者核实。这与 [ADR 0002](../../../docs/adr/0002-detach-terminal-from-task-runtime.md) 和 [ADR 0008](../../../docs/adr/0008-mcp-write-tools-unified-approval.md) 的不重放原则一致。
+“同一幂等键最多产生一次可见发送”的可实现保证，是本地只保留一个操作且不重复发起可能已经产生副作用的发送。平台没有幂等支持时，本地事务无法保证远端 exactly-once，也不能同时保证未知窗口必达。验收应同时核对模拟平台接收次数和本地状态；“重启不丢提醒”指计划、触发与发送事实可恢复，未知结果仍需拥有者核实。这与 [ADR 0002](../../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md) 和 [ADR 0008](../../../.agents/notes/implemented/feature/2026-09-23-mcp-write-tools-approval.md) 的不重放原则一致。
 
 ### 6. 连接 main 工具、来源快照与查看入口
 

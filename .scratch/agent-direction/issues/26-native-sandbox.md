@@ -4,7 +4,7 @@ Status: ready-for-agent
 
 **What to build:** 在 macOS 与 Linux 上，以原生沙箱替换 ruukoto-code 的 Docker 受限执行后端，使用宿主工具链，并保留现有文件、网络、凭据、控制面与任务生命周期边界。
 
-**Blocked by:** 无。两平台的完整原生边界验证是本工单的第一阶段；验证未通过，不切换默认后端、不降低验收要求。
+**Blocked by:** [27 — 保留工具执行单元停止失败的核实结果](27-preserve-unverified-worker-stop.md)（原生接入前须完成；第一阶段边界探针可独立继续）。两平台的原生边界验证是本工单的第一阶段；按已确认口径验证未通过，不切换默认后端、不降低验收要求。
 
 依据：[产品规格](../spec.md)、[CONTEXT.md](../../../CONTEXT.md)、[ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md) 与 [ADR 0021](../../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)。
 
@@ -41,7 +41,7 @@ ruukoto-code 当前默认使用 container。工具 worker 承载 read/edit/write
 - [ ] macOS 与 Linux 各有真实环境、可复跑的原生边界验证，覆盖文件、网络、凭据与控制面、子进程继承和整个执行单元的停止；记录已测系统、限制及缺失能力的拒绝行为。
 - [ ] 在没有可用 Docker 的条件下，ruukoto-code 能按需启动后台，在授权目录内完成真实 read/edit/write/bash、代码修改与检查；主任务、SubAgent、worktree 创建和改动汇总全部使用原生边界。
 - [ ] 未授权宿主文件和控制面材料无法读取或修改，只读授予及共享 Git 目录无法写入，任意 Shell 与后代默认无法联网；越界操作沿用原审批及单次消费规则。
-- [ ] 任务取消、启动中断、模式或授予范围变化时完成回收与必要重建；脱离进程组的后代实际停止。异常后无法核实退出时保留占用，恢复不自动重放未知效果。
+- [ ] 任务取消、启动中断、模式或授予范围变化时完成回收与必要重建。整单元停止按平台判定：Linux 脱离进程组的后代实际停止；macOS 进程组内后代与轮询累积集合内的存活后代实际停止，集合外残留不得静默忽略，不要求 `posix_spawn` 属性位逃逸的后代被停止（2026-10-10 拥有者裁定，依据见下方评论与[原生执行沙箱](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)）。异常后无法核实退出时保留占用，恢复不自动重放未知效果。
 - [ ] ruukoto-code 默认 native，显式 container/local 从正式入口被拒绝并给出迁移指引；测试库层 local 注入、完全访问的既有身份契约和 ruukoto 部署行为通过相关回归验证。
 - [ ] 修正旧探针，并在旧工单与运行文档中追加更正依据，保留历史记录；明确修订 ADR 0004 的 ruukoto-code 后端选择，更新 ADR 0017/0021 的相关实现说明及 docs/visual 图解。
 - [ ] 完成与变更相匹配的自动化测试、类型检查和仓库规定检查；真实边界证据与模型打桩或 local 测试分别记录。两平台通过前不得宣称原生替换已完成。
@@ -98,3 +98,93 @@ ruukoto-code 当前默认使用 container。工具 worker 承载 read/edit/write
 图解渲染检查已完成：运行 `.agents/skills/visual-docs/shoot.sh docs/visual/deployment.html` 并逐张检查全部 16 张切片，本次修改的图、表与文字无溢出、遮挡或箭头问题；发现既有 `#service` sudoers 卡片中的长路径略超卡片右边界，未改本次范围外的布局。新探针经独立只读审查，修正了子程序未启动被误判拒绝、遗漏回执、清理失败未影响判定等问题；Linux 自检通过，macOS 同轮包含策略解析失败与程序启动失败分类的真实自检。
 
 旧 macOS 入口最终由主代理独立复跑：56 项、53 通过、3 失败、0 unavailable、缺失集合为空，实际退出 1；核实虚拟资料已清理。两次结果都符合真实失败的退出约定。
+
+### 2026-10-10：探索性复核——Linux 前置条件是缺 AppArmor profile，不是平台不支持
+
+本轮只做探索与取舍核实，没有改 `src/`、`deploy/` 或默认后端，没有勾选验收项。所有结论都来自本轮实跑；对 tx 的系统改动在同一脚本内回滚并核实（见末尾）。
+
+**推翻上一轮的 Linux 结论**
+
+上一轮「35 项全部 unavailable」的根因不是 Ubuntu 24.04 不支持 bubblewrap，而是 bwrap 被解包到 `/tmp` 运行：Ubuntu 的 userns 限制按**可执行文件路径**匹配 AppArmor profile，`/tmp` 下的副本拿不到 `userns` 权限。这与工单 03 的 `/tmp` 与 `/private/tmp` 属同一类错误——环境搭建缺项被记成了平台能力缺失。
+
+已核实：`bubblewrap` 0.9.0-1ubuntu0.3 包内**不含** AppArmor profile，只有 `/usr/lib/sysctl.d/50-bubblewrap.conf`，而该文件只设 `kernel.unprivileged_userns_clone=1`，不触及 `kernel.apparmor_restrict_unprivileged_userns`。所以单纯 `apt install` 不够，必须另加 profile：
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+profile ruukoto-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
+```
+
+对照实跑（Ubuntu 24.04.4、Linux 6.8.0-117-generic、x86_64、UID 1003、`apparmor_restrict_unprivileged_userns=1` 全程未改）：
+
+| 条件 | 结果 |
+| --- | --- |
+| 装到 `/usr/bin/bwrap`，无 profile | `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`（与上一轮同一错误） |
+| 同上，加载上述 profile | namespace 建立成功，错误变为 `execvp true: No such file or directory`（仅因未 bind `/bin`） |
+
+**加载 profile 后的真实边界（`--unshare-all --die-with-parent` + 只读 bind 宿主工具链）**
+
+| 探针 | 结果 |
+| --- | --- |
+| workspace.write / devnull.write | ALLOWED |
+| host.secret-read / host.home-listdir | DENIED:ENOENT（未 bind 即不存在） |
+| control.loopback-tcp | DENIED:ECONNREFUSED |
+| network.udp-external | DENIED:ENETUNREACH |
+| control.unix-abstract | DENIED:ECONNREFUSED |
+| control.sysv-ipc | DENIED:ENOENT |
+| pid-namespace.visible-pids | 2（宿主同时 156） |
+| toolchain.node / git / python3 | 全部 ALLOWED（仅靠只读 bind，未开放宿主主目录） |
+| stop.detached-descendant | **STOPPED** |
+
+停止一项用有效对照单独复跑：双重 fork + `setsid` + 忽略 TERM/HUP 的后代，心跳在 bwrap 存活期间确实增长（18→23），`kill -9` bwrap 后心跳冻结在 23、存活计数 0。宿主视角确认该后代与 bwrap 同 PGID 组外；是 PID namespace 拆除而非进程组信号完成回收。这正是 macOS 侧失败的那一类。
+
+**Linux 的无管理员备选：Landlock（有记录在案的缺口）**
+
+`/sys/kernel/security/lsm` 含 landlock，ABI = 4，非特权可用、不需要 namespace，因此完全绕开 AppArmor userns 限制。实跑：工作区读写放行，`$HOME` 列目录 `EACCES`，回环 TCP connect `EACCES`，且 **`setsid` 脱离后代仍受同一 Landlock 约束**（`tcp: DENIED:13`，无法卸除）。但缺口是真实的：`network.udp-send` ALLOWED、`control.unix-abstract` ALLOWED、宿主 PID 可见、SysV IPC 不受限。另：`/dev/null` 必须单独给读写，否则 `git` 直接报 `could not open '/dev/null'`。
+
+控制面已核实用文件路径 socket（`src/control/connect.ts:38` 的 `control.sock`），Landlock 可按路径拒绝；但「默认无网络」在 Landlock 下只覆盖 TCP，UDP 外发仍可达。因此 Landlock 只能作为无法安装 profile 时的降级方案，且须明记缺口。
+
+补充两项实测：`systemd-run --user --scope` 的 `cgroup.kill` 能停掉已 `setsid` 换组的后代（心跳冻结、无存活），可作为 bwrap 之外的第二道回收；但 `systemd-run --user -p IPAddressDeny=any` 在非特权用户单元下**未生效**（仍连通 1.1.1.1），不能当网络边界。
+
+**macOS：残留逃逸面比上一轮记录的更窄，但确实无法在非特权下补齐**
+
+沿用仓库现有 profile 的 `(deny syscall-unix (syscall-number SYS_setsid SYS_setpgid))`，在 macOS 27.0 实跑各条脱离路径：
+
+| 脱离方式 | 结果 |
+| --- | --- |
+| 直接 `setsid()` | DENIED errno=1 |
+| Python `Popen(start_new_session=True)` | PermissionError errno=1（惯用写法被拒） |
+| `bash -c 'nohup … & disown'` | contained，PGID 与根一致 → 进程组信号可回收 |
+| 显式 `posix_spawn` + `POSIX_SPAWN_SETSID` | **ESCAPED**，`killpg` 后存活 |
+
+即残留仅限**刻意**使用 posix_spawn 属性位的代码；直接 setsid、Python 惯用脱离、Shell 后台/disown 全部被拒或留在原进程组。且该逃逸后代在上一轮已记录仍受完整约束（文件与网络 errno 均为 1）——这是资源泄漏与「无法核实已停止」，不是隔离被突破。
+
+检测手段两项被否决：`ps -Ewwo` 读不到同 UID 进程的环境变量（SIP），唯一标记法不可用；`lsof +D <workspace>` 对该存活后代返回 0 行，占用检测不可靠。可行的是任务存活期间轮询进程树累积后代集合（有竞态窗口），或引入专用 UID + 特权助手做 `pkill -U`（非特权无法换 UID，故需 root 守护进程，并牵动工作副本文件归属）。
+
+**取舍结论（待拥有者裁定）**
+
+继续原生、不换方案。Linux 的阻塞项是一次性管理员前置条件而非平台限制；macOS 的隔离本身成立，只有整单元停止存在窄残留。改用 Podman / Apple `container` / lima 在 macOS 仍落到虚拟机，恰好是要摆脱 Docker Desktop 的那部分成本，解决不了 macOS 的回收问题。
+
+需要拥有者定夺的一处验收口径：第 4 条「脱离进程组的后代实际停止」在 Linux 可达（PID namespace 已实测），在 macOS 非特权下不可达。三选一：(a) 接受窄残留 + 轮询累积 + 无法核实即保留占用并报告（零管理员，推荐）；(b) 专用 UID + 特权助手，回收确定但需 root 安装与归属改造；(c) 虚拟机，与本工单目标冲突。
+
+**风险与未验证项**
+
+`sandbox-exec` 官方已弃用，长期可用性是战略风险，须在 note 中登记。本轮未测：node `detached:true`（测试脚本自身 cwd 问题导致未启动，非安全结论）、产品接入、审批单次消费、SubAgent/worktree/汇总、启动窗口与授权变化重建。bwrap 结果来自单台 Ubuntu 24.04；其他发行版与更严格策略环境需复跑。
+
+**tx 系统改动与回滚**
+
+`bubblewrap` 由脚本安装后 `apt-get purge`（原本未安装），临时 profile `apparmor_parser -R` 后删除；退出时核实 `which bwrap` 为空、profile 已移除、`kernel.apparmor_restrict_unprivileged_userns` 仍为 1、探针后代存活计数 0。未改 sysctl、未改在线个人 Agent、未动数据库。
+
+### 2026-10-10：拥有者裁定与决策笔记
+
+拥有者选择方案 (a)：接受 macOS 的窄回收残留，用任务存活期轮询累积后代集合做核实，无法核实即保留工作区目录占用并报告，不引入专用 UID 与特权助手。据此修订上方验收第 4 条，按平台分别判定整单元停止；原措辞「脱离进程组的后代实际停止」在 macOS 非特权条件下不可达，保留在本评论中以存历史。
+
+决策与被否方案记在[原生执行沙箱](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)（Status: proposed），同时在 [ADR 0004 笔记](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)的「何时重访」加了指针。笔记记录的部署前置是 `/usr/bin/bwrap` 加授予 `userns` 的 AppArmor profile，缺任一项以 `execution_unavailable` 失败、不降级；预检须能区分「缺 bwrap」「缺 profile」「真实拒绝」，否则会重犯把环境缺项记成平台限制的错误。
+
+第一阶段剩余前置：Linux 已在允许完整 namespace 的条件下跑完真实边界（见上一条评论）；macOS 的回收口径由本次裁定确定，不再等待完整回收机制。接入仍未开始，`src/` 与 `deploy/` 未改，默认后端未切换，验收项未勾选。
+
+### 2026-10-11：停止核实修复作为原生接入前置
+
+拥有者要求先将[工单 27](27-preserve-unverified-worker-stop.md)升为 ready-for-agent。方案 (a) 的占用保留与报告依赖共享生命周期保留停止未核实结果，故上方阻塞关系登记 27；先完成该修复再接入原生后端，第一阶段边界探针可独立继续。

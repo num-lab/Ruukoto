@@ -165,4 +165,4 @@ sequenceDiagram
 - [工具执行放进边界内的工作进程，受限任务按任务建容器，完全访问用专用执行账户](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行边界的形态与失败策略。
 - [完整保留会话历史，单独组装模型上下文](../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：历史与上下文的分工，决定了 core 与 agent-context 的边界。
 - [工作委托、SubAgent 与执行任务分开保存](../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：委派三层数据模型与一层派生的来源。
-- [决策记录移入 .agents/notes，docs/ 只放面向人类的设计文档](../.agents/notes/proposed/process/2026-10-09-split-agent-and-human-docs.md)：本页与模块文档的读者分层与固定节约定。
+- [决策记录移入 .agents/notes，docs/ 只放面向人类的设计文档](../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)：本页与模块文档的读者分层与固定节约定。

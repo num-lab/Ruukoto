@@ -3,7 +3,7 @@
 本仓库采用 single-context 布局：
 
 - 根目录 `CONTEXT.md`：领域术语表。
-- `.agents/notes/`：决策记录，按 `.agents/skills/maintain-notes/SKILL.md` 维护；不创建 `docs/adr/`。
+- `.agents/notes/`：决策记录，按 `.agents/skills/maintain-notes/SKILL.md` 维护；决策只记在这里。
 
 ## 探索前读取
 

@@ -1,6 +1,6 @@
 # 按读者拆分文档：决策记录给 agent，设计文档给人
 
-2026-10-09：拥有者在两轮 grilling 中确认 16 项决定。除 Q2（写项目版 maintain-notes skill）和 Q7（notes 可以链接 scratch，scratch 移到 `.scratch/` 并入库）外，其余均按推荐定案。决定的理由与被否方案见 [决策 note](../../.agents/notes/proposed/process/2026-10-09-split-agent-and-human-docs.md)，本规格只写范围、顺序与约束。
+2026-10-09：拥有者在两轮 grilling 中确认 16 项决定。除 Q2（写项目版 maintain-notes skill）和 Q7（notes 可以链接 scratch，scratch 移到 `.scratch/` 并入库）外，其余均按推荐定案。决定的理由与被否方案见 [决策 note](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)，本规格只写范围、顺序与约束。
 
 ## 范围
 

@@ -18,8 +18,9 @@
 - `test/` 是应用测试。
 - `verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
 - `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
-- `docs/` 为**面向人类**的文档，包括各模块的设计文档
-- `.agents/notes/` 为**面向 Agent** 的文档，记录项目开发过程中的决策
+- `docs/` 为**面向人类**的文档：总览 `architecture.md`、模块设计 `modules/`、操作手册 `usage.md`、开发与验证 `development.md`、发布验收 `release-acceptance.md`；`docs/agents/` 是 agent 配置的例外。
+- `.agents/notes/` 为**面向 Agent** 的文档，记录项目开发过程中的决策。
+- `.scratch/` 是入库的工单与验证证据。
 
 ## Agent skills
 

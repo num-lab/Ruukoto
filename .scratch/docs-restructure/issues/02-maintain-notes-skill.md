@@ -16,7 +16,7 @@ Status: resolved
 2. vendor 脚本到 `.agents/skills/maintain-notes/scripts/`：`agent-note-tree.ts`、`verify-agent-note-tree.ts`、`verify-agent-note-format.ts`、`verify-archived-agent-notes.ts`、`archive-agent-note.ts`、`check-note-anchors.ts`。不要 board/bundle、assets 和 CI 模板。references 只保留 SKILL.md 实际引用到的，按中文约定改写；templates 改用中文节名。
 3. `package.json`：新增 `verify-notes`，依次用 tsx 跑三个 verify 脚本；`check:static` 改为 `npm run lint && npm run typecheck && npm run verify-notes`。
 4. AGENTS.md 的「Agent skills」下加一节「决策记录」，一行指针：做非平凡改动、选型、取代旧决定时，按 `.agents/skills/maintain-notes/SKILL.md` 操作。
-5. 用现有的 [决策 note](../../../.agents/notes/proposed/process/2026-10-09-split-agent-and-human-docs.md) 验证脚本。
+5. 用现有的 [决策 note](../../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md) 验证脚本。
 
 ## 验收
 

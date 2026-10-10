@@ -39,7 +39,7 @@ const BANNED_IMPLEMENTED = new Set([
 ]);
 
 const ALTERNATIVES_RE = /^## (?:Alternatives considered|.{0,8}?(?:替代方案|备选(?:方案)?))$/;
-const FORMAT_ADOPTED = "2026-10-10"; // 本仓库迁移 docs/adr/ 的落地日；早于它的迁移笔记可用 grandfather 注释
+const FORMAT_ADOPTED = "2026-10-10"; // 本仓库迁移前的 ADR 转笔记的落地日；早于它的迁移笔记可用 grandfather 注释
 const GRANDFATHER = "<!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->";
 
 /** Strip trailing parenthetical: `## Decision（说明）` → `## Decision`. */

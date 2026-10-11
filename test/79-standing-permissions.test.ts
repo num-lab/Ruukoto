@@ -10,7 +10,7 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * 覆盖（对应工单验证与验收清单）：
  * - 存储层：创建/版本化/条件撤销幂等/唯一约束（同目标唯一、来源审批唯一）/候选
  *   与分页/使用记录/effect-unknown 定向失效扩散到所有入口；
- * - 迁移 v22 → v23：不产生任何授权、旧批准关联列为空、旧审批/产物/入站/outbox 可读；
+ * - 旧 schema 拒绝启动，不把旧批准或外发记录回填成新任务授权；
  * - 闸门+服务工具模块级：命中授权零等待零通知、running 直接执行、独立批准记录与
  *   事件（新 taskId/hostOpId）、撤销/版本变化/修订不符回落人工；消费后无可信结果
  *   （协议错误/应答不符/产物失败）标效果未知并使授权失效；
@@ -29,7 +29,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db } from "@ruukoto/core/db.ts";
 import { Store, StoreConflictError } from "@ruukoto/core/store.ts";
 import type { NotifyTarget, StandingPermission } from "@ruukoto/core/types.ts";
 
@@ -241,7 +241,7 @@ test("存储层：分页有界、游标校验；按入口过滤；授权使用�
   }
 });
 
-test("迁移 v22 → v23：不产生任何授权、旧批准关联列为空、旧审批/产物/入站/outbox 仍可读取", () => {
+test("旧服务授权 schema 明确拒绝启动，旧批准与外发事实保留原样", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-sp-migrate-"));
   const old = new DatabaseSync(path.join(root, "ruukoto.db"));
   // 独立定义 v22 必需对象（沿用 test/43 风格，防当前 schema 放宽使迁移虚假通过）
@@ -323,28 +323,12 @@ INSERT INTO notification_ops (id, source_kind, source_key, target, text, text_sh
 `);
   old.close();
   try {
-    const db = new Db(root);
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
-    assert.equal(db.getInstanceId(), "sp-keep-instance");
-    const store = new Store(db);
-    // 迁移不产生任何授权
-    assert.equal(store.listStandingPermissionsPaged().items.length, 0);
-    // 旧批准可读、事实不变、关联列为空（不转成长期授权）
-    const conf = store.getConfirmation("conf-old")!;
-    assert.equal(conf.status, "approved");
-    assert.equal(conf.decisionSource, "owner");
-    assert.equal(conf.standingPermissionId, null);
-    assert.equal(conf.standingPermissionVersion, null);
-    assert.ok(conf.consumedAt);
-    // 旧产物/工具操作/入站/outbox 仍可读取
-    assert.equal(store.getArtifact("art-old")!.status, "complete");
-    assert.equal(store.getToolOp("op-old")!.toolName, "service_manage");
-    assert.equal(store.findInboundEvent("telegram", "tg:42:1")!.status, "done");
-    assert.equal((db.prepare("SELECT status FROM notification_ops WHERE id = 'nop-old'").get() as any).status, "sent");
-    // 旧事件与外键完整
+    assert.throws(() => new Db(root), { code: "schema_version_unsupported" });
+    const db = new DatabaseSync(path.join(root, "ruukoto.db"), { readOnly: true });
+    assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()!.value, "22");
+    assert.equal(db.prepare("SELECT status FROM confirmations WHERE id = 'conf-old'").get()!.status, "approved");
+    assert.equal(db.prepare("SELECT status FROM notification_ops WHERE id = 'nop-old'").get()!.status, "sent");
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
-    // 不存在的授权操作是明确拒绝（而不是空成功）
-    assert.throws(() => store.withTx(() => store.revokeStandingPermission("sp_none", 1)), StoreConflictError);
     db.close();
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -383,7 +367,7 @@ function setupFakeService(root: string): FakeSvc {
   fs.mkdirSync(path.join(dir, "units"));
   fs.mkdirSync(path.join(dir, "ops"));
   const policyPath = path.join(dir, "services.json");
-  fs.writeFileSync(policyPath, JSON.stringify({ machineId: MACHINE, execUid: 1, execGid: 1, services: { [UNIT]: { actions: ["restart"] } } }));
+  fs.writeFileSync(policyPath, JSON.stringify({ machineId: MACHINE, inspectUid: 1, inspectGid: 1, services: { [UNIT]: { actions: ["restart"] } } }));
   fs.writeFileSync(path.join(dir, "units", UNIT), "[Service]\nExecStart=/usr/bin/true\n");
   const stateOf = () => JSON.parse(fs.readFileSync(path.join(dir, "state.json"), "utf8")) as Record<string, any>;
   fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify({
@@ -538,6 +522,49 @@ function moduleKit(prefix: string): ModuleKit {
 }
 
 const taskEvents = (k: ModuleKit, type: string): any[] => k.store.getTaskEventsAfter(k.taskId, 0, 1000).filter((e) => e.body.type === type).map((e) => e.body);
+
+test("完全访问：不读取长期授权候选、不生成批准，使用本任务授权直接执行", async () => {
+  const k = moduleKit("full-access");
+  try {
+    const sp = k.createStanding();
+    k.store.withTx(() => k.store.applyModeSwitch(k.taskId, "full_access"));
+    k.setCandidateImpl(() => { throw new Error("完全访问不得查询长期授权候选"); });
+    const result = await k.call("service_manage", { unit: UNIT, action: "restart" });
+    assert.match(textOf(result), /本任务的完全访问授权/);
+    assert.equal(k.svc.restarts().length, 1);
+    assert.equal(k.store.listConfirmationsByTask(k.taskId).length, 0);
+    assert.equal(k.store.listToolOpsByTask(k.taskId)[0].authorization?.source, "full_access");
+    assert.equal(k.store.getStandingPermission(sp.id)!.version, 1);
+    assert.equal(taskEvents(k, "task.awaiting_confirmation").length, 0);
+  } finally {
+    k.close();
+  }
+});
+
+test("完全访问服务派发后结果未知：按真实授权失效同目标长期授权，受限任务恢复人工审批", async () => {
+  const k = moduleKit("full-access-unknown");
+  try {
+    const sp = k.createStanding();
+    k.store.withTx(() => k.store.applyModeSwitch(k.taskId, "full_access"));
+    k.setApprovalImpl(async (input) => {
+      const grant = await k.gate.request(input);
+      if (grant.approved) k.svc.touch("garbage-protocol");
+      return grant;
+    });
+    await assert.rejects(k.call("service_manage", { unit: UNIT, action: "restart" }), /管理命令结果未知/);
+    assert.equal(k.svc.restarts().length, 1);
+    assert.equal(k.store.listConfirmationsByTask(k.taskId).length, 0);
+    assert.equal(k.store.getStandingPermission(sp.id)!.revokedReason, "effect_unknown");
+    fs.rmSync(path.join(k.svc.dir, "garbage-protocol"), { force: true });
+    k.store.withTx(() => k.store.applyModeSwitch(k.taskId, "confirm"));
+    k.setApprovalImpl((input) => k.gate.request(input));
+    const next = k.call("service_manage", { unit: UNIT, action: "restart" });
+    const confirmation = await k.pendingConf();
+    k.gate.resolve(confirmation.id, "rejected");
+    await assert.rejects(next, /拥有者拒绝执行/);
+    assert.equal(k.svc.restarts().length, 1);
+  } finally { k.close(); }
+});
 
 test("模块级：命中有效授权——零等待零通知、running 直接执行一次、独立已批准记录与事件；授权本身不被消费", async () => {
   const k = moduleKit("hit");

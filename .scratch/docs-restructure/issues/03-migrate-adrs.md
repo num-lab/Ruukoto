@@ -76,7 +76,7 @@ Status: resolved
 | 0012 | [QQ 私聊](../../../.agents/notes/implemented/feature/2026-09-24-qq-private-shared-main.md)保留共享 main、登录及在线核实、原平台钉版回复、群资料隔离与副本上限；审批/汇报互链拆出篇，架构工单 10 的启动停用并入现状。两篇 IM 母篇均纳入 0024 已交付的图片扩展。 |
 | 0013 | [GitHub 事件评审](../../../.agents/notes/implemented/feature/2026-09-24-github-event-review.md)合成 issue 19/23：宿主登记全新 SubAgent、只读 MCP、main 项目凭据、固定独立通知、修订失效与旧评审收尾；旧接管仅保留为历史原因。 |
 | 0014 | [核心群聊退役](../../../.agents/notes/implemented/simplification/2026-10-02-retire-core-group-chat.md)吸收原设计独有的映射、固定摘要接收、撤回时间窗、来源复核、独立发送账本与群资料隔离。原内建角色决定已被 issue 20 完全取代，防坑理由在替代篇中保留，因此删除原篇，不另建母篇。 |
-| 0015 | [定时新闻](../../../.agents/notes/implemented/feature/2026-09-25-scheduled-news.md)保留固定采集范围审批、宿主搜索、私人资料隔离、URL/发布时间过滤、快照与 outbox、失败不编造及重启不重搜的边界。 |
+| 0015 | [定时新闻](../../../.agents/notes/archived/feature/2026-09-25-scheduled-news.md)保留固定采集范围审批、宿主搜索、私人资料隔离、URL/发布时间过滤、快照与 outbox、失败不编造及重启不重搜的边界。 |
 | 0016 | [有损上下文压缩](../../../.agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md)保留完整历史、压缩点、分层压缩、水位、前缀稳定、摘要模型数据去向与失败行为；旧角色范围合成现状，chat 窗口明确未实施。 |
 | 0017 | [两个产品](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)合成入口改名、固定角色退役、双产品及一层 SubAgent 现状；共享/更多渠道/外挂与原生隔离缺口明确。独立补充拆成 [保留开发会话](../../../.agents/notes/implemented/feature/2026-10-05-ruukoto-keeps-dev-sessions.md)和[开发启动入口](../../../.agents/notes/implemented/process/2026-10-09-dev-launchers.md)，各与母篇互链；实施流水按机制归并并链接对应决定。 |
 | 0018 | [旧工作区归属](../../../.agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md)保留原 projectId 资料/配置身份、仅展示组织字段、严格认领、只读预览、修订与单事务应用、回退及异常目录/角色排除边界。 |

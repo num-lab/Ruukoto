@@ -1,0 +1,6 @@
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+packages/core/src/store.ts(720,9): error TS2353: Object literal may only specify known properties, and 'parentTaskId' does not exist in type '{ type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; planMode: boolean; modelSelection: ModelSelection; }'.
+verification/smoke/smoke-04-desktop-execution.mts(250,20): error TS18047: 't' is possibly 'null'.

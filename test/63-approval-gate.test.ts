@@ -55,7 +55,7 @@ function kit(opts: {
     store.recordToolIntent({ id: hostOpId, taskId: task.id, sessionId: session.id, toolName: TOOL, params });
     const result = gate.request<T>({ task: store.getTask(task.id)!, hostOpId, toolName: TOOL, params, scope: FILE_READ, ...extra });
     const confirmation = store.listConfirmationsByTask(task.id).find((c) => c.toolOpId === hostOpId)!;
-    return { hostOpId, result, id: confirmation.id };
+    return { hostOpId, result, id: confirmation?.id ?? "" };
   };
   const status = () => store.getTask(task.id)!.status;
   const approval = (id: string) => store.getConfirmation(id)!;
@@ -67,6 +67,61 @@ function kit(opts: {
   };
   return { store, task, gate, ask, status, approval, summary, events, cleanup };
 }
+
+test("完全访问：真实授权与本地效果同事务，零等待、通知和自动审查，重开数据库可核实", async () => {
+  let notifications = 0;
+  let reviews = 0;
+  const k = kit({ accessMode: "full_access", notifyConfirmation: () => { notifications++; },
+    reviewer: { review: async () => { reviews++; return { decision: "approve", reason: "不应调用", model: "mock" }; } } });
+  try {
+    const { result, hostOpId } = k.ask<string>({ commit: (id, source) => {
+      assert.equal(id, null);
+      assert.equal(source.source, "full_access");
+      k.store.setMetaValue("full-access-local-effect", source.taskId);
+      return "committed";
+    } });
+    const grant = await result;
+    assert.ok(grant.approved);
+    assert.equal(grant.approvalId, null);
+    assert.equal(grant.value, "committed");
+    assert.equal(k.status(), "running");
+    assert.equal(k.store.listConfirmationsByTask(k.task.id).length, 0);
+    assert.equal(notifications, 0);
+    assert.equal(reviews, 0);
+    assert.equal(k.events("task.tool_authorized").length, 1);
+    assert.equal(k.events("task.awaiting_confirmation").length, 0);
+    const reopened = new Db(path.dirname(k.store.db.file));
+    try { assert.deepEqual(new Store(reopened).getToolOp(hostOpId)!.authorization, grant.authorization); }
+    finally { reopened.close(); }
+    const again = await k.gate.request({ task: k.store.getTask(k.task.id)!, hostOpId,
+      toolName: TOOL, params: {}, scope: FILE_READ });
+    assert.equal(again.approved, false);
+    assert.equal(k.events("task.tool_authorized").length, 1);
+  } finally { k.cleanup(); }
+});
+
+test("完全访问：取消、旧权限版本与目标复核失败均未执行；本地事务失败不留授权或事件", async () => {
+  for (const rejection of ["aborted", "version", "target", "commit"] as const) {
+    const k = kit({ accessMode: "full_access" });
+    try {
+      const signal = AbortSignal.abort();
+      const stale = k.store.getTask(k.task.id)!;
+      if (rejection === "version") k.store.applyModeSwitch(k.task.id, "confirm");
+      const call = k.ask({ task: stale,
+        ...(rejection === "aborted" ? { signal } : {}),
+        ...(rejection === "target" ? { recheck: () => "目标已变化，未执行" } : {}),
+        ...(rejection === "commit" ? { commit: () => { k.store.setMetaValue("rolled-back-effect", "x"); throw new Error("commit-failed"); } } : {}),
+      });
+      if (rejection === "commit") {
+        await assert.rejects(call.result, /commit-failed/);
+        assert.equal(k.store.getMetaValue("rolled-back-effect"), null);
+      } else { assert.equal((await call.result).approved, false); }
+      assert.equal(k.store.getToolOp(call.hostOpId)!.authorization, null);
+      assert.equal(k.events("task.tool_authorized").length, 0);
+      assert.equal(k.store.listConfirmationsByTask(k.task.id).length, 0);
+    } finally { k.cleanup(); }
+  }
+});
 
 test("批准：只消费一次，交回审批记录的参数快照并写 task.approval_consumed；任务回到 running", async () => {
   const k = kit();

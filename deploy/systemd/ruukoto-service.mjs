@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * ruukoto 服务器服务管理 helper（agent-direction issue 09）。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
  *
- * 唯一可信的 systemd 服务管理入口：root 拥有 0700，仅后台账户经 sudoers 以
+ * 唯一可信的 systemd 服务管理入口：root 拥有 0700，仅启动账户经 sudoers 以
  * 固定 argv 调用；Node 标准库实现，无第三方依赖，不接受环境变量配置。
  *
  * 协议（应答 = stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀单行 JSON；
@@ -12,7 +13,7 @@
  * 其余行一律视为噪声证据。不用 fd3：sudo 默认关闭 fd ≥3（closefrom=3），fd3
  * 在生产必然断开）：
  *   inspect <unit>                              白名单内服务状态与修订（systemctl
- *                                               show 显式降到策略中的执行 UID/GID）
+ *                                               show 显式降到策略中的检查 UID/GID）
  *   restart <hostOpId> <policyRev> <unitRev> <unit>
  *                                               原子认领（mkdir，同 ID 拒绝再次启动）
  *                                               → 核对修订与已加载配置 → systemd-run
@@ -146,14 +147,14 @@ function loadPolicy() {
   if (typeof policy.machineId !== "string" || policy.machineId !== machineId) {
     throw new Refuse("wrong_machine", `策略本机身份不符（策略 ${String(policy.machineId).slice(0, 12)}… ≠ 本机 ${machineId.slice(0, 12)}…）`);
   }
-  if (!Number.isInteger(policy.execUid) || policy.execUid <= 0 || !Number.isInteger(policy.execGid) || policy.execGid <= 0) {
-    throw new Refuse("policy_invalid", "策略的执行 UID/GID 非法");
+  if (!Number.isInteger(policy.inspectUid) || policy.inspectUid <= 0 || !Number.isInteger(policy.inspectGid) || policy.inspectGid <= 0) {
+    throw new Refuse("policy_invalid", "策略的检查 UID/GID 非法");
   }
   if (typeof policy.services !== "object" || policy.services === null || Array.isArray(policy.services)) {
     throw new Refuse("policy_invalid", "策略缺少 services 清单");
   }
   for (const unit of Object.keys(policy.services)) assertWellFormedUnit(unit);
-  return { policy, policyRevision: sha256Hex(raw), execUid: policy.execUid, execGid: policy.execGid };
+  return { policy, policyRevision: sha256Hex(raw), inspectUid: policy.inspectUid, inspectGid: policy.inspectGid };
 }
 
 function policyEntry(policy, unit) {
@@ -171,11 +172,11 @@ const SHOW_PROPS = [
   "ActiveEnterTimestamp", "FragmentPath", "DropInPaths", "NeedDaemonReload",
 ];
 
-/** systemctl show（显式降到策略执行 UID/GID，结构化 argv，清空环境）；原始输出透传到 fd1/fd2。 */
-function systemctlShow(unit, execUid, execGid) {
+/** systemctl show（显式降到策略检查 UID/GID，结构化 argv，清空环境）；原始输出透传到 fd1/fd2。 */
+function systemctlShow(unit, inspectUid, inspectGid) {
   const out = spawnSync(SYSTEMCTL, ["--system", "show", unit, ...SHOW_PROPS.flatMap((p) => ["--property", p])], {
-    uid: execUid,
-    gid: execGid,
+    uid: inspectUid,
+    gid: inspectGid,
     env: {},
     encoding: "buffer",
     maxBuffer: 4 * 1024 * 1024,
@@ -227,9 +228,9 @@ function inspectState(props) {
 }
 
 function cmdInspect(unit) {
-  const { policy, policyRevision, execUid, execGid } = loadPolicy();
+  const { policy, policyRevision, inspectUid, inspectGid } = loadPolicy();
   policyEntry(policy, unit);
-  const props = systemctlShow(unit, execUid, execGid);
+  const props = systemctlShow(unit, inspectUid, inspectGid);
   if (props.Id !== unit) {
     throw new Refuse("alias_refused", `目标是别名（实际单元 ${props.Id}），白名单只认精确名：${unit}`);
   }
@@ -241,7 +242,7 @@ function cmdInspect(unit) {
     unitRevision: computeUnitRevision(props),
     unit,
     state: inspectState(props),
-    execIdentity: { uid: execUid, gid: execGid },
+    execIdentity: { uid: inspectUid, gid: inspectGid },
     observedAt: new Date().toISOString(),
   });
 }
@@ -251,7 +252,7 @@ function opUnitFor(hostOpId) {
 }
 
 function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
-  const { policy, policyRevision, execUid, execGid } = loadPolicy();
+  const { policy, policyRevision, inspectUid, inspectGid } = loadPolicy();
   if (!HOST_OP_ID.test(hostOpId)) throw new Refuse("op_invalid", "操作 ID 形态非法（须为 op_ + 24 位小写十六进制）");
   if (!HEX64.test(expectedPolicyRev) || !HEX64.test(expectedUnitRev)) throw new Refuse("revision_invalid", "修订指纹形态非法");
   const entry = policyEntry(policy, unit);
@@ -276,7 +277,7 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
   if (policyRevision !== expectedPolicyRev) {
     throw new Refuse("revision_mismatch", "策略修订与批准快照不符，拒绝请求 systemd");
   }
-  const props = systemctlShow(unit, execUid, execGid);
+  const props = systemctlShow(unit, inspectUid, inspectGid);
   if (props.Id !== unit) throw new Refuse("alias_refused", `目标是别名（实际单元 ${props.Id}）`);
   if (computeUnitRevision(props) !== expectedUnitRev) {
     throw new Refuse("revision_mismatch", "单元定义修订与批准快照不符，拒绝请求 systemd");
@@ -375,7 +376,7 @@ function main() {
   const args = process.argv.slice(2);
   const verb = args[0];
   if (process.getuid?.() !== 0) {
-    throw new Refuse("not_root", "服务管理 helper 必须以 root 运行（仅后台账户经 sudoers 调用）");
+    throw new Refuse("not_root", "服务管理 helper 必须以 root 运行（仅启动账户经 sudoers 调用）");
   }
   switch (verb) {
     case "inspect":

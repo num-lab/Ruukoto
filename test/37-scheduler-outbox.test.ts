@@ -74,12 +74,13 @@ import * as childProcess from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db } from "@ruukoto/core/db.ts";
 import { NotSentError, type NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
 import type { NotifyTarget } from "@ruukoto/core/types.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, pendingConfirmation, waitFor, writeModelsJson, connectAuthedClient } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
+import { DatabaseSync } from "node:sqlite";
 
 const TARGET: NotifyTarget = { channel: "mock", account: "bot1", chatId: "owner-chat", configVersion: 1 };
 
@@ -147,21 +148,27 @@ async function harness(prefix: string, startIso: string, responder?: Responder, 
   };
 }
 
-/** 宿主直接登记计划（绕过工具与审批，只验证调度/发送语义）。 */
-function addSchedule(rt: Runtime, h: Harness, input: { key: string; action: "wake_main" | "notify"; rule: Record<string, unknown>; text: string }) {
+/** 宿主播种只验证调度机制；工具创建的来源复核由工具用例承担。 */
+function addPlan(rt: Runtime, h: Harness, input: { key: string; rule: Record<string, unknown>; text: string; accessMode?: "confirm" | "full_access"; target?: NotifyTarget | null }) {
   const rule = parseRule(input.rule);
-  return rt.store.withTx(() =>
-    rt.sched.insertSchedule({
-      createKey: input.key, paramsDigest: "test", createTaskId: null, createOpId: null, action: input.action, rule,
-      payload: { text: input.text, sourceRefs: [] }, target: input.action === "notify" ? { ...TARGET } : null,
-      approvalId: null, nextDueAt: firstDue(rule, h.clock.t), tzData: "test", reason: "test",
-    }, "test"),
-  );
+  return rt.store.withTx(() => rt.sched.insertSchedule({
+    createKey: input.key, paramsDigest: "test", createTaskId: null, createOpId: null,
+    projectId: rt.store.getAgentRole("main")!.projectId, createPermissionVersion: 1, accessMode: input.accessMode ?? "confirm",
+    rule, instruction: input.text, sourceRefs: [], target: input.target === undefined ? { ...TARGET } : input.target,
+    nextDueAt: firstDue(rule, h.clock.t), tzData: "test", reason: "test",
+  }, "test"));
+}
+
+/** 已授权宿主通知替身，不使用退役的定时固定通知动作。 */
+function enqueue(rt: Runtime, key: string, text: string) {
+  return rt.store.withTx(() => rt.sched.insertOp({ sourceKind: "confirmation", sourceKey: key, taskId: null, hostOpId: null, target: { ...TARGET }, text, sourceRefs: [] }).op);
 }
 
 async function tickAt(rt: Runtime, h: Harness, iso: string): Promise<void> {
   h.clock.t = ms(iso);
   await rt.scheduler!.tick();
+  await rt.scheduler!.idle();
+  rt.scheduler!.kickSender();
   await rt.scheduler!.idle();
 }
 
@@ -169,62 +176,49 @@ const opsOf = (rt: Runtime) => rt.sched.listOps({ limit: 50 }).items;
 const schedulerEvents = (rt: Runtime) =>
   rt.store.db.prepare("SELECT * FROM inbound_events WHERE source = 'scheduler'").all() as any[];
 
-test("wake_main：到期唤醒 main 一次（confirm 模式）；重复/并发 tick 不重复建任务；普通状态事件不调用模型", async () => {
-  const h = await harness("sched-wake", "2026-09-24T00:00:00Z");
+test("通用计划：独立会话使用创建模式，重复扫描只运行一次并固定最终回报", async () => {
+  const h = await harness("sched-run", "2026-09-24T00:00:00Z");
   const rt = await Runtime.start(h.config);
   try {
-    const s = addSchedule(rt, h, { key: "k1", action: "wake_main", rule: { kind: "daily", time: "09:00", time_zone: "Asia/Shanghai" }, text: "WAKE-MARK 看看待办" });
-    assert.equal(s.nextDueAt, "2026-09-24T01:00:00.000Z");
+    const main = rt.store.getAgentRole("main")!;
+    const schedule = addPlan(rt, h, { key: "run", accessMode: "full_access", rule: { kind: "daily", time: "09:00", time_zone: "Asia/Shanghai" }, text: "RUN-MARK 看看待办" });
     await tickAt(rt, h, "2026-09-24T00:59:59Z");
-    assert.equal(schedulerEvents(rt).length, 0, "未到期不登记");
+    assert.equal(schedulerEvents(rt).length, 0);
     h.clock.t = ms("2026-09-24T01:00:05Z");
     await Promise.all([rt.scheduler!.tick(), rt.scheduler!.tick(), rt.scheduler!.tick()]);
-    await rt.scheduler!.tick();
-    const events = schedulerEvents(rt);
-    assert.equal(events.length, 1, "同一周期只登记一次");
-    const main = rt.store.getAgentRole("main")!;
-    await waitFor("唤醒任务完成", () => rt.store.listTasksBySession(main.sessionId).some((t) => t.status === "completed"));
-    const tasks = rt.store.listTasksBySession(main.sessionId);
-    assert.equal(tasks.length, 1);
-    assert.equal(tasks[0]!.accessMode, "confirm", "定时任务采用宿主固定的 confirm 模式");
-    assert.ok(tasks[0]!.input.includes("WAKE-MARK") && tasks[0]!.input.includes("原定时间"));
-    await tickAt(rt, h, "2026-09-24T02:00:00Z");
-    const s2 = rt.sched.getSchedule(s.id)!;
-    assert.equal(s2.nextDueAt, "2026-09-25T01:00:00.000Z");
-    assert.equal(s2.currentRunId, null, "任务完成后运行关闭");
-    assert.equal(h.requests.filter((r) => r.includes("WAKE-MARK")).length, 1, "只有一次模型请求");
-    // 调度/发送状态只落事件表，不产生额外模型调用
-    const before = h.requests.length;
-    rt.store.withTx(() => rt.store.appendEvent({ type: "schedule.changed", scheduleId: s.id, action: "created", version: 1, source: "test" }));
-    await tickAt(rt, h, "2026-09-24T03:00:00Z");
-    assert.equal(h.requests.length, before);
+    await waitFor("独立运行完成", () => {
+      rt.scheduler!.closeFinished();
+      return Boolean(rt.sched.listRuns(schedule.id, 10)[0]?.closedAt);
+    });
+    rt.scheduler!.kickSender();
+    await rt.scheduler!.idle();
+    const [run] = rt.sched.listRuns(schedule.id, 10);
+    assert.ok(run.sessionId && run.rootTaskId);
+    assert.notEqual(run.sessionId, main.sessionId);
+    assert.equal(rt.store.getTask(run.rootTaskId)!.accessMode, "full_access");
+    assert.equal(rt.store.listTasksBySession(main.sessionId).length, 0, "计划不进入日常主聊天");
+    assert.equal(run.resultStatus, "completed");
+    assert.equal(rt.sched.getOp(run.notificationOpId!)!.status, "sent");
+    assert.equal(h.channel.sends.length, 1);
+    assert.equal(schedulerEvents(rt).length, 1);
+    assert.equal(rt.sched.getSchedule(schedule.id)!.nextDueAt, "2026-09-25T01:00:00.000Z");
   } finally {
     await rt.stop("test_end");
     await h.close();
   }
 });
 
-test("notify：到期发送一次；同来源键同参返回原操作、异参冲突；下一周期是独立新操作", async () => {
-  const h = await harness("sched-notify", "2026-09-24T00:00:00Z");
+test("outbox：同来源键同参返回原操作、异参冲突；同一操作只发送一次", async () => {
+  const h = await harness("outbox-idempotent", "2026-09-24T00:00:00Z");
   const rt = await Runtime.start(h.config);
   try {
-    const s = addSchedule(rt, h, { key: "n1", action: "notify", rule: { kind: "daily", time: "08:00", time_zone: "UTC" }, text: "喝水提醒" });
+    const op = enqueue(rt, "message-1", "喝水提醒");
+    assert.equal(enqueue(rt, "message-1", "喝水提醒").id, op.id);
+    assert.throws(() => enqueue(rt, "message-1", "不同正文"), /已绑定不同/);
     await tickAt(rt, h, "2026-09-24T08:00:01Z");
     await tickAt(rt, h, "2026-09-24T08:00:02Z");
-    assert.equal(h.channel.sends.length, 1, "只发送一次");
-    const [op] = opsOf(rt);
-    assert.equal(op!.status, "sent");
-    assert.equal(op!.platformMessageId, "msg-1");
-    // 同来源键：同参返回原操作；异参冲突
-    const again = rt.store.withTx(() => rt.sched.insertOp({ sourceKind: "schedule_run", sourceKey: op!.sourceKey, taskId: null, hostOpId: null, target: TARGET, text: "喝水提醒", sourceRefs: [] }));
-    assert.equal(again.created, false);
-    assert.equal(again.op.id, op!.id);
-    assert.throws(() => rt.store.withTx(() => rt.sched.insertOp({ sourceKind: "schedule_run", sourceKey: op!.sourceKey, taskId: null, hostOpId: null, target: TARGET, text: "别的", sourceRefs: [] })), /已绑定不同/);
-    await tickAt(rt, h, "2026-09-25T08:00:00Z");
-    assert.equal(h.channel.sends.length, 2);
-    assert.equal(rt.sched.listRuns(s.id, 10).length, 2);
-    // 核心库完整性
-    assert.equal((rt.store.db.prepare("PRAGMA integrity_check").get() as any).integrity_check, "ok");
+    assert.equal(h.channel.sends.length, 1);
+    assert.equal(rt.sched.getOp(op.id)!.status, "sent");
     assert.equal(rt.store.db.prepare("PRAGMA foreign_key_check").all().length, 0);
   } finally {
     await rt.stop("test_end");
@@ -236,7 +230,7 @@ test("发送失败/超时/结果未知/迟到回执：状态可查询，均不�
   const h = await harness("sched-fail", "2026-09-24T00:00:00Z", undefined, { sendTimeoutMs: 150 });
   const rt = await Runtime.start(h.config);
   try {
-    const once = (key: string, text: string) => addSchedule(rt, h, { key, action: "notify", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text });
+    const once = (key: string, text: string) => enqueue(rt, key, text);
     const opFor = (text: string) => opsOf(rt).find((o) => o.text === text)!;
     h.channel.behavior = async () => { throw new NotSentError("rejected", "平台拒绝：chat not found"); };
     once("f1", "A-failed");
@@ -276,8 +270,6 @@ test("发送失败/超时/结果未知/迟到回执：状态可查询，均不�
     assert.equal(listed.operations.length, 2);
     assert.equal("text" in listed.operations[0]!, false, "列表不带正文");
     assert.equal(rt.notificationGet(opFor("B-timeout").id).operation.text, "B-timeout");
-    // 一次性计划随运行关闭而完成
-    assert.ok(rt.scheduleList({ status: "completed" }).schedules.length === 4);
   } finally {
     await rt.stop("test_end");
     await h.close();
@@ -288,7 +280,7 @@ test("目标：离线保持 pending 并显示原因；配置版本变化/停用�
   const h = await harness("sched-target", "2026-09-24T00:00:00Z");
   const rt = await Runtime.start(h.config);
   try {
-    addSchedule(rt, h, { key: "t1", action: "notify", rule: { kind: "daily", time: "01:00", time_zone: "UTC" }, text: "T1" });
+    enqueue(rt, "t1", "T1");
     h.channel.online = false;
     await tickAt(rt, h, "2026-09-24T01:00:00Z");
     let [op] = opsOf(rt);
@@ -309,7 +301,7 @@ test("目标：离线保持 pending 并显示原因；配置版本变化/停用�
   const h2 = await harness("sched-nosender", "2026-09-24T00:00:00Z", undefined, { noChannel: true });
   const rt2 = await Runtime.start(h2.config);
   try {
-    addSchedule(rt2, h2, { key: "t2", action: "notify", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "T2" });
+    enqueue(rt2, "t2", "T2");
     await tickAt(rt2, h2, "2026-09-24T01:00:00Z");
     const [op] = opsOf(rt2);
     assert.equal(op!.status, "pending");
@@ -329,12 +321,12 @@ test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown �
   try {
     rt = await Runtime.start(h.config);
     mainSession = rt.store.getAgentRole("main")!.sessionId;
-    addSchedule(rt, h, { key: "r-sent", action: "notify", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "SENT" });
+    enqueue(rt, "r-sent", "SENT");
     await tickAt(rt, h, "2026-09-24T01:00:00Z");
     sentId = opsOf(rt)[0]!.id;
     h.channel.online = false;
-    addSchedule(rt, h, { key: "r-pending", action: "notify", rule: { kind: "once", at: "2026-09-24T02:00:00Z", time_zone: "UTC" }, text: "PENDING" });
-    addSchedule(rt, h, { key: "r-sending", action: "notify", rule: { kind: "once", at: "2026-09-24T02:00:00Z", time_zone: "UTC" }, text: "SENDING" });
+    enqueue(rt, "r-pending", "PENDING");
+    enqueue(rt, "r-sending", "SENDING");
     await tickAt(rt, h, "2026-09-24T02:00:00Z");
     // "已提交 sending、网络调用前崩溃"窗口：直接领取不发送
     const sending = opsOf(rt).find((o) => o.text === "SENDING")!;
@@ -347,9 +339,9 @@ test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown �
       rt.store.recordToolIntent({ id: hostOpId, taskId: task.id, sessionId: mainSession, toolName: "schedule_create", sdkCallId: "x", params: {} });
       rt.store.recordToolIntent({ id: "op_not_committed", taskId: task.id, sessionId: mainSession, toolName: "notification_enqueue", sdkCallId: "y", params: {} });
       rt.sched.insertSchedule({
-        createKey: "main:tool", paramsDigest: "d", createTaskId: task.id, createOpId: hostOpId, action: "wake_main",
-        rule: parseRule({ kind: "daily", time: "23:00", time_zone: "UTC" }), payload: { text: "x", sourceRefs: [] }, target: null,
-        approvalId: null, nextDueAt: "2026-09-24T23:00:00.000Z", tzData: "t", reason: "r",
+        createKey: "main:tool", paramsDigest: "d", createTaskId: task.id, createOpId: hostOpId,
+        projectId: rt.store.getAgentRole("main")!.projectId, createPermissionVersion: 1, accessMode: "confirm",
+        rule: parseRule({ kind: "daily", time: "23:00", time_zone: "UTC" }), instruction: "x", sourceRefs: [], target: null, nextDueAt: "2026-09-24T23:00:00.000Z", tzData: "t", reason: "r",
       }, "test");
     });
     await rt.stop("restart");
@@ -375,115 +367,6 @@ test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown �
   }
 });
 
-test("恢复合并：周一 pending 到周四仍只一个操作、下次周五；已 sent 未关闭则补关闭后另补一次", async () => {
-  // 2026-09-21 是周一
-  const h = await harness("sched-merge", "2026-09-21T00:00:00Z");
-  let rt = await Runtime.start(h.config);
-  let pendingSchedule = "";
-  let sentSchedule = "";
-  try {
-    pendingSchedule = addSchedule(rt, h, { key: "m1", action: "notify", rule: { kind: "daily", time: "09:00", time_zone: "UTC" }, text: "M-PENDING" }).id;
-    sentSchedule = addSchedule(rt, h, { key: "m2", action: "notify", rule: { kind: "daily", time: "09:00", time_zone: "UTC" }, text: "M-SENT" }).id;
-    h.channel.online = false;
-    await tickAt(rt, h, "2026-09-21T09:00:00Z");
-    // m2：模拟"已发送但关闭标记未回填"——直接改为 sent，运行仍未关闭
-    const m2op = opsOf(rt).find((o) => o.text === "M-SENT")!;
-    rt.store.db.prepare("UPDATE notification_ops SET status = 'sent' WHERE id = ?").run(m2op.id);
-  } finally {
-    await rt.stop("down");
-  }
-  h.clock.t = ms("2026-09-24T12:00:00Z"); // 周四
-  h.channel.online = true;
-  rt = await Runtime.start(h.config);
-  try {
-    await rt.scheduler!.idle();
-    const p = rt.sched.getSchedule(pendingSchedule)!;
-    const pRuns = rt.sched.listRuns(pendingSchedule, 10);
-    assert.equal(pRuns.length, 1, "pending 运行吸收漏过周期，不建第二个");
-    assert.equal(pRuns[0]!.scheduledFor, "2026-09-21T09:00:00.000Z", "保留原运行与原键");
-    assert.equal(pRuns[0]!.coalescedTo, "2026-09-24T09:00:00.000Z");
-    assert.equal(p.nextDueAt, "2026-09-25T09:00:00.000Z", "下一次是周五");
-    const sRuns = rt.sched.listRuns(sentSchedule, 10);
-    assert.equal(sRuns.length, 2, "已 sent 的运行补关闭后另生成一次补发");
-    const catchUp = sRuns.find((r) => r.scheduledFor === "2026-09-24T09:00:00.000Z")!;
-    assert.equal(catchUp.coalescedFrom, "2026-09-22T09:00:00.000Z", "补发覆盖周二至周四");
-    assert.ok(catchUp.delayMs >= 3 * 3600_000, "标记延迟");
-    assert.deepEqual(h.channel.sends.map((s) => s.text).sort(), ["M-PENDING", "M-SENT"]);
-    assert.equal(opsOf(rt).filter((o) => o.text === "M-PENDING").length, 1);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("恢复合并：wake_main 的排队任务占用位置——重启合并不新增补发，任务继续执行一次", async () => {
-  const h = await harness("sched-merge-wake", "2026-09-21T00:00:00Z");
-  let rt = await Runtime.start(h.config);
-  let sid = "";
-  try {
-    const main = rt.store.getAgentRole("main")!;
-    rt.store.withTx(() => rt.store.setSessionQueueState(main.sessionId, "paused", "owner"));
-    sid = addSchedule(rt, h, { key: "w1", action: "wake_main", rule: { kind: "daily", time: "09:00", time_zone: "UTC" }, text: "MERGE-WAKE" }).id;
-    await tickAt(rt, h, "2026-09-21T09:00:00Z");
-    assert.equal(rt.store.listTasksBySession(main.sessionId)[0]!.status, "queued");
-  } finally {
-    await rt.stop("down");
-  }
-  h.clock.t = ms("2026-09-24T12:00:00Z");
-  rt = await Runtime.start(h.config);
-  try {
-    const runs = rt.sched.listRuns(sid, 10);
-    assert.equal(runs.length, 1);
-    assert.equal(runs[0]!.coalescedTo, "2026-09-24T09:00:00.000Z");
-    assert.equal(schedulerEvents(rt).length, 1);
-    const main = rt.store.getAgentRole("main")!;
-    await rt.resumeQueue(main.sessionId).catch(() => {});
-    await waitFor("排队的唤醒任务完成", () => rt.store.listTasksBySession(main.sessionId).every((t) => t.status === "completed"));
-    await rt.scheduler!.tick();
-    assert.equal(rt.store.listTasksBySession(main.sessionId).length, 1, "没有新增补发任务");
-    assert.equal(rt.sched.listRuns(sid, 10)[0]!.closedAt !== null, true);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("取消：未派发运行不再派发（含重启）；pending 操作取消；取消幂等、不复活；版本不符冲突", async () => {
-  const h = await harness("sched-cancel", "2026-09-24T00:00:00Z");
-  let rt = await Runtime.start(h.config);
-  let wakeId = "";
-  try {
-    wakeId = addSchedule(rt, h, { key: "c1", action: "wake_main", rule: { kind: "daily", time: "01:00", time_zone: "UTC" }, text: "CANCEL-WAKE" }).id;
-    const notify = addSchedule(rt, h, { key: "c2", action: "notify", rule: { kind: "daily", time: "01:00", time_zone: "UTC" }, text: "CANCEL-NOTIFY" });
-    h.channel.online = false;
-    // 登记但不派发（与恢复准备同一路径）：模拟提交后、派发前
-    h.clock.t = ms("2026-09-24T01:00:00Z");
-    rt.scheduler!.prepareRecovery();
-    assert.equal(schedulerEvents(rt)[0].status, "registered");
-    await assert.rejects(rt.scheduleCancel({ scheduleId: wakeId, expectedVersion: 9, reason: "x" }), /版本不符/);
-    await rt.scheduleCancel({ scheduleId: wakeId, expectedVersion: 1, reason: "不要了" });
-    const again = await rt.scheduleCancel({ scheduleId: wakeId, expectedVersion: 1, reason: "不要了" });
-    assert.equal(again.status, "canceled", "取消幂等");
-    await rt.scheduleCancel({ scheduleId: notify.id, expectedVersion: 1, reason: "不要了" });
-    assert.equal(opsOf(rt)[0]!.status, "canceled");
-    await rt.orchestrator!.dispatchRegisteredEvents();
-    await tickAt(rt, h, "2026-09-26T01:00:00Z");
-  } finally {
-    await rt.stop("restart");
-  }
-  rt = await Runtime.start(h.config);
-  try {
-    await tickAt(rt, h, "2026-09-27T01:00:00Z");
-    const main = rt.store.getAgentRole("main")!;
-    assert.equal(rt.store.listTasksBySession(main.sessionId).length, 0, "取消后恢复与派发都不建任务");
-    assert.equal(rt.sched.getSchedule(wakeId)!.status, "canceled", "取消后不复活");
-    assert.equal(h.channel.sends.length, 0);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
 /** main 工具脚本：按任务输入标记依次发出工具调用。 */
 function toolScript(scripts: Record<string, Array<{ name: string; arguments: Record<string, unknown> }>>): Responder {
   const step = new Map<string, number>();
@@ -502,14 +385,130 @@ function toolScript(scripts: Record<string, Array<{ name: string; arguments: Rec
   };
 }
 
-test("工具：通知计划与一次通知须拥有者确认（full_access 也不例外）；批准前零发送；同键/同槽幂等；非 main 无工具", async () => {
-  const content = [{ kind: "text", text: "每天九点吃药" }];
-  const h = await harness("sched-tools", "2026-09-24T00:00:00Z", toolScript({
-    "PLAN-NOTIFY": [
-      { name: "schedule_create", arguments: { create_key: "pill", action: "notify", rule: { kind: "daily", time: "09:00", time_zone: "Asia/Shanghai" }, content, reason: "提醒吃药" } },
-      { name: "schedule_create", arguments: { create_key: "pill", action: "notify", rule: { kind: "daily", time: "09:00", time_zone: "Asia/Shanghai" }, content, reason: "提醒吃药" } },
-      { name: "schedule_create", arguments: { create_key: "pill", action: "notify", rule: { kind: "daily", time: "10:00", time_zone: "Asia/Shanghai" }, content, reason: "改时间" } },
+test("工具：通用计划固定创建模式、目标与资料；重复键幂等、旧动作及模型指定模式拒绝", async () => {
+  const rule = { kind: "once", at: "2099-01-01T00:00:00Z", time_zone: "UTC" };
+  const plan = { create_key: "plan", rule, instruction: "检查明确资料", content: [{ kind: "text", text: "MATERIAL-MARK" }], reason: "定时检查" };
+  const h = await harness("schedule-tool-mode", "2026-09-24T00:00:00Z", toolScript({
+    "CREATE": [
+      { name: "schedule_create", arguments: plan },
+      { name: "schedule_create", arguments: plan },
+      { name: "schedule_create", arguments: { ...plan, instruction: "不同说明" } },
+      { name: "schedule_create", arguments: { ...plan, create_key: "old", action: "news" } },
+      { name: "schedule_create", arguments: { ...plan, create_key: "mode", access_mode: "full_access" } },
     ],
+    "NO-TARGET": [{ name: "schedule_create", arguments: { create_key: "no-target", rule, instruction: "不要求消息推送", reason: "仅留记录" } }],
+  }));
+  let rt = await Runtime.start(h.config);
+  try {
+    const main = rt.store.getAgentRole("main")!;
+    const task = await rt.submit({ sessionId: main.sessionId, requestId: "create", input: "CREATE", accessMode: "full_access", modelSelection: rt.defaultSelection });
+    await waitFor("通用计划创建完成", () => rt.store.getTask(task.id)!.status === "completed");
+    const [schedule] = rt.sched.listSchedules({}).items;
+    assert.equal(rt.sched.countActive(), 1);
+    assert.equal(schedule.accessMode, "full_access");
+    assert.equal(schedule.projectId, main.projectId);
+    assert.equal(schedule.createTaskId, task.id);
+    assert.equal(schedule.createPermissionVersion, task.permissionVersion);
+    assert.deepEqual(schedule.target, TARGET);
+    assert.match(schedule.instruction, /MATERIAL-MARK/);
+    const calls = rt.store.listToolOpsByTask(task.id);
+    assert.match(calls[1].resultSummary ?? "", /重复登记返回原计划/);
+    assert.equal(calls.slice(2).every((call) => call.isError), true);
+    assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
+    const session = rt.store.getSession(main.sessionId)!;
+    await rt.setSessionDefaultMode({ sessionId: main.sessionId, mode: "confirm", expectedVersion: session.defaultAccessModeVersion });
+    h.channel.cfg = null;
+    const noTarget = await rt.submit({ sessionId: main.sessionId, requestId: "no-target", input: "NO-TARGET", accessMode: "confirm", modelSelection: rt.defaultSelection });
+    await waitFor("无目标计划创建完成", () => rt.store.getTask(noTarget.id)!.status === "completed");
+    assert.equal(rt.sched.findScheduleByCreateKey("main:no-target")!.target, null);
+    await rt.stop("test_restart");
+    rt = await Runtime.start(h.config);
+    assert.equal(rt.sched.getSchedule(schedule.id)!.accessMode, "full_access", "会话改模式与重启不重算已登记计划");
+    assert.deepEqual(rt.sched.getSchedule(schedule.id)!.target, TARGET, "原目标不改发");
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
+test("通用计划：无IM目标仍独立运行并保留结果，终态与回报失败同事务回滚", async () => {
+  const h = await harness("schedule-no-target", "2026-09-24T00:00:00Z");
+  const rt = await Runtime.start(h.config);
+  try {
+    const schedule = addPlan(rt, h, { key: "record", target: null, rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "只保存结果" });
+    await tickAt(rt, h, "2026-09-24T01:00:00Z");
+    await waitFor("无目标运行任务完成", () => {
+      const run = rt.sched.listRuns(schedule.id, 10)[0];
+      return run?.rootTaskId !== null && rt.store.getTask(run.rootTaskId!)?.status === "completed";
+    });
+    await tickAt(rt, h, "2026-09-24T01:00:01Z");
+    const [run] = rt.sched.listRuns(schedule.id, 10);
+    assert.equal(run.resultStatus, "completed");
+    assert.ok(run.resultText);
+    assert.equal(run.notificationOpId, null);
+    assert.equal(rt.sched.getSchedule(schedule.id)!.status, "completed");
+    assert.equal(h.channel.sends.length, 0);
+
+    const reportPlan = addPlan(rt, h, { key: "rollback", rule: { kind: "once", at: "2026-09-24T02:00:00Z", time_zone: "UTC" }, text: "最终结果" });
+    await tickAt(rt, h, "2026-09-24T02:00:00Z");
+    await waitFor("回报运行任务完成", () => {
+      const current = rt.sched.listRuns(reportPlan.id, 10)[0];
+      return current?.rootTaskId !== null && rt.store.getTask(current.rootTaskId!)?.resultSummary !== null;
+    });
+    const [before] = rt.sched.listRuns(reportPlan.id, 10);
+    rt.store.db.exec("CREATE TRIGGER fail_run_report BEFORE INSERT ON notification_ops BEGIN SELECT RAISE(ABORT, 'report failed'); END");
+    assert.throws(() => rt.scheduler!.closeFinished(), /report failed/);
+    assert.equal(rt.sched.getRun(before.id)!.closedAt, null);
+    assert.equal(rt.sched.getRun(before.id)!.resultStatus, null);
+    assert.equal(rt.sched.findOpBySource("schedule_run", before.id), null);
+    rt.store.db.exec("DROP TRIGGER fail_run_report");
+    await tickAt(rt, h, "2026-09-24T02:00:01Z");
+    assert.equal(rt.sched.getRun(before.id)!.resultStatus, "completed");
+    assert.equal(h.channel.sends.length, 1);
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
+test("独立定时执行：应用数据免审批并审计真实scheduled身份", async () => {
+  const h = await harness("scheduled-app-data-audit", "2026-09-24T00:00:00Z", toolScript({
+    "SCHEDULED-APPDATA": [
+      { name: "app_data_define_table", arguments: { table: "items", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "任务建表" } },
+      { name: "app_data_insert", arguments: { table: "items", records: [{ title: "一" }, { title: "二" }], reason: "任务写入" } },
+      { name: "app_data_delete", arguments: { table: "items", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "任务清理" } },
+    ],
+  }));
+  const rt = await Runtime.start(h.config);
+  try {
+    const schedule = addPlan(rt, h, { key: "data", target: null, accessMode: "full_access", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "SCHEDULED-APPDATA" });
+    await tickAt(rt, h, "2026-09-24T01:00:00Z");
+    await waitFor("定时业务工具完成", () => {
+      const run = rt.sched.listRuns(schedule.id, 1)[0];
+      return Boolean(run?.rootTaskId && rt.store.getTask(run.rootTaskId)?.status === "completed");
+    });
+    const [run] = rt.sched.listRuns(schedule.id, 1);
+    assert.equal(rt.store.listConfirmationsByTask(run.rootTaskId!).length, 0);
+    const calls = rt.store.listToolOpsByTask(run.rootTaskId!);
+    assert.equal(calls.length, 3);
+    assert.equal(calls.every((call) => call.isError === false), true);
+    assert.equal(calls[2].authorization?.source, "full_access");
+    const app = new DatabaseSync(path.join(h.dirs.dataDir, "agent-data", "main.db"), { readOnly: true });
+    try {
+      const receipts = app.prepare("SELECT task_id, session_id, agent_id FROM app_audit ORDER BY seq").all();
+      assert.equal(receipts.length, 3);
+      assert.equal(receipts.every((receipt) => receipt.task_id === run.rootTaskId && receipt.session_id === run.sessionId && receipt.agent_id === "scheduled"), true);
+    } finally {
+      app.close();
+    }
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
+test("工具：受限一次通知须拥有者确认；批准前零发送；同槽幂等；非 main 无工具", async () => {
+  const h = await harness("sched-tools", "2026-09-24T00:00:00Z", toolScript({
     "ONCE-NOTIFY": [
       { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "构建完成" }], reason: "告知" } },
       { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "构建完成" }], reason: "告知" } },
@@ -524,33 +523,9 @@ test("工具：通知计划与一次通知须拥有者确认（full_access 也�
   await client.handshake();
   try {
     const main = rt.store.getAgentRole("main")!;
-    const plan = await rt.submit({ sessionId: main.sessionId, requestId: "p1", input: "PLAN-NOTIFY", accessMode: "full_access", modelSelection: rt.defaultSelection });
-    const conf = await pendingConfirmation(client, plan.id);
-    assert.equal(conf.scope.kind, "notification");
-    assert.equal(conf.scope.duration, "until_canceled");
-    assert.deepEqual(conf.scope.target, TARGET);
-    assert.equal(conf.params.text, "每天九点吃药", "审批固定完整正文");
-    assert.equal(rt.sched.countActive(), 0, "批准前未登记");
-    // 拥有者在当日 09:00（上海）之后才批准：首次到期按批准时重算，不当作漏过立即补发
-    h.clock.t = ms("2026-09-24T01:30:00Z");
-    await client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
-    await waitFor("计划任务完成", () => rt.store.getTask(plan.id)!.status === "completed");
-    const ops = rt.store.listToolOpsByTask(plan.id);
-    assert.match(ops[0]!.resultSummary!, /已登记/);
-    assert.match(ops[1]!.resultSummary!, /重复登记返回原计划/);
-    assert.match(ops[2]!.resultSummary!, /同键异参冲突/);
-    const [s] = rt.sched.listSchedules({}).items;
-    assert.equal(s!.approvalId, conf.id);
-    assert.equal(h.channel.sends.length, 0, "登记本身不发送");
-    assert.equal(s!.nextDueAt, "2026-09-25T01:00:00.000Z");
-    await tickAt(rt, h, "2026-09-24T01:40:00Z");
-    assert.equal(h.channel.sends.length, 0, "批准前的时刻不补发");
-    await tickAt(rt, h, "2026-09-25T01:00:00Z");
-    assert.deepEqual(h.channel.sends.map((x) => x.text), ["每天九点吃药"]);
-
     const once = await rt.submit({ sessionId: main.sessionId, requestId: "o1", input: "ONCE-NOTIFY", modelSelection: rt.defaultSelection });
     const c2 = await pendingConfirmation(client, once.id);
-    assert.equal(c2.scope.duration, "single");
+    assert.equal(c2.scope.mode, "once");
     await client.request("respond_confirmation", { confirmation_id: c2.id, decision: "approve" });
     await waitFor("一次通知任务完成", () => rt.store.getTask(once.id)!.status === "completed");
     await rt.scheduler!.idle();
@@ -566,16 +541,8 @@ test("工具：通知计划与一次通知须拥有者确认（full_access 也�
     await waitFor("拒绝任务完成", () => rt.store.getTask(rej.id)!.status === "completed");
     assert.equal(opsOf(rt).some((o) => o.text === "不该发"), false);
 
-    // 拥有者控制面：分页列表（无正文）、详情、取消（带版本）
-    const listed = await client.request<any>("schedule_list", { status: "active" });
-    assert.equal(listed.schedules.length, 1);
-    assert.equal("payload" in listed.schedules[0], false);
-    const detail = await client.request<any>("schedule_get", { schedule_id: s!.id });
-    assert.equal(detail.runs.length, 1);
     const sentOp = opsOf(rt).find((o) => o.text === "构建完成")!;
     assert.equal((await client.request<any>("notification_get", { op_id: sentOp.id })).operation.status, "sent");
-    const canceled = await client.request<any>("schedule_cancel", { schedule_id: s!.id, expected_version: 1, reason: "owner 停用" });
-    assert.equal(canceled.status, "canceled");
 
     // 非 main 会话看不到 scheduler 工具（按实际请求载荷）
     const project = rt.createProject("plain");
@@ -585,10 +552,143 @@ test("工具：通知计划与一次通知须拥有者确认（full_access 也�
     const devReq = h.reqs.find((r: any) => lastUserText(r).includes("DEV-PLAIN"))!;
     const names = (devReq.tools ?? []).map((t: any) => t.function?.name ?? t.name);
     assert.equal(names.some((n: string) => n.startsWith("schedule_") || n.startsWith("notification_")), false);
-    const mainReq = h.reqs.find((r: any) => lastUserText(r).includes("PLAN-NOTIFY"))!;
+    const mainReq = h.reqs.find((r: any) => lastUserText(r).includes("ONCE-NOTIFY"))!;
     assert.ok((mainReq.tools ?? []).some((t: any) => (t.function?.name ?? t.name) === "schedule_create"));
   } finally {
     client.close();
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
+test("完全访问一次通知：零审批、单次认领与正文固定，完成后跨重启发送", async () => {
+  const h = await harness("notify-full-access", "2026-09-24T00:00:00Z", toolScript({
+    "ONCE": [
+      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "已完成" }], reason: "汇报" } },
+      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "已完成" }], reason: "汇报" } },
+      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "更换正文" }], reason: "汇报" } },
+    ],
+  }));
+  h.channel.online = false;
+  let rt = await Runtime.start(h.config);
+  try {
+    const main = rt.store.getAgentRole("main")!;
+    const task = await rt.submit({ sessionId: main.sessionId, requestId: "full", input: "ONCE", accessMode: "full_access", modelSelection: rt.defaultSelection });
+    await waitFor("通知登记任务完成", () => rt.store.getTask(task.id)!.status === "completed");
+    await rt.scheduler!.idle();
+    assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
+    const calls = rt.store.listToolOpsByTask(task.id);
+    assert.equal(calls[0].authorization?.source, "full_access");
+    assert.match(calls[1].resultSummary ?? "", /重复调用返回原操作/);
+    assert.match(calls[2].resultSummary ?? "", /不能换键重发/);
+    const [op] = opsOf(rt);
+    assert.equal(op.sourceKind, "tool");
+    assert.equal(op.hostOpId, calls[0].id);
+    assert.equal(op.status, "pending");
+    assert.equal(h.channel.sends.length, 0);
+    await rt.stop("test_restart");
+    h.channel.online = true;
+    rt = await Runtime.start(h.config);
+    await rt.scheduler!.idle();
+    assert.equal(rt.sched.getOp(op.id)!.status, "sent");
+    assert.deepEqual(h.channel.sends.map((item) => item.text), ["已完成"]);
+    await tickAt(rt, h, "2026-09-24T00:00:01Z");
+    assert.equal(h.channel.sends.length, 1);
+    assert.equal(rt.store.getToolOp(op.hostOpId!)!.authorization?.source, "full_access");
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
+test("完全访问一次通知：权限变更、取消、目标或正文失配拒绝发送；登记失败回滚授权", async () => {
+  const actions = ["permission", "cancel", "target", "text", "commit-failure"];
+  const h = await harness("notify-full-access-recheck", "2026-09-24T00:00:00Z", toolScript(Object.fromEntries(actions.map((action) => [action, [
+    { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: action }], reason: "验证" } },
+  ]]))));
+  h.channel.online = false;
+  const rt = await Runtime.start(h.config);
+  try {
+    const main = rt.store.getAgentRole("main")!;
+    for (const action of actions) {
+      if (action === "commit-failure") rt.store.db.exec("CREATE TRIGGER fail_notification_insert BEFORE INSERT ON notification_ops BEGIN SELECT RAISE(ABORT, 'notification insert failed'); END");
+      const task = await rt.submit({ sessionId: main.sessionId, requestId: action, input: action, accessMode: "full_access", modelSelection: rt.defaultSelection });
+      await waitFor("通知登记结束", () => rt.store.getTask(task.id)!.status === "completed");
+      await rt.scheduler!.idle();
+      assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
+      const hostOp = rt.store.listToolOpsByTask(task.id)[0];
+      if (action === "commit-failure") {
+        assert.equal(hostOp.authorization, null, "授权与 outbox 同事务回滚");
+        assert.equal(rt.sched.findOpBySource("tool", `task:${task.id}`), null);
+        rt.store.db.exec("DROP TRIGGER fail_notification_insert");
+        continue;
+      }
+      const op = rt.sched.findOpBySource("tool", `task:${task.id}`)!;
+      rt.store.withTx(() => {
+        if (action === "permission") rt.store.applyModeSwitch(task.id, "confirm");
+        else if (action === "cancel") rt.store.db.prepare("UPDATE tasks SET cancel_requested = 1 WHERE id = ?").run(task.id);
+        else if (action === "target") rt.store.db.prepare("UPDATE notification_ops SET target = ? WHERE id = ?").run(JSON.stringify({ ...TARGET, chatId: "other" }), op.id);
+        else rt.store.db.prepare("UPDATE notification_ops SET text_sha256 = ? WHERE id = ?").run("different", op.id);
+      });
+      h.channel.online = true;
+      rt.scheduler!.kickSender();
+      await rt.scheduler!.idle();
+      assert.equal(rt.sched.getOp(op.id)!.status, "canceled");
+      h.channel.online = false;
+    }
+    assert.equal(h.channel.sends.length, 0);
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
+test("完全访问一次通知：发送结果未知保持原键，不重发", async () => {
+  const h = await harness("notify-full-access-unknown", "2026-09-24T00:00:00Z", toolScript({
+    "UNKNOWN": [{ name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "未知" }], reason: "汇报" } }],
+  }));
+  h.channel.behavior = async () => { throw new Error("模拟发送后断线"); };
+  const rt = await Runtime.start(h.config);
+  try {
+    const task = await rt.submit({ sessionId: rt.store.getAgentRole("main")!.sessionId, requestId: "u", input: "UNKNOWN", accessMode: "full_access", modelSelection: rt.defaultSelection });
+    await waitFor("发送任务完成", () => rt.store.getTask(task.id)!.status === "completed");
+    await rt.scheduler!.idle();
+    const op = rt.sched.findOpBySource("tool", `task:${task.id}`)!;
+    assert.equal(op.status, "effect_unknown");
+    await tickAt(rt, h, "2026-09-24T00:00:01Z");
+    assert.equal(h.channel.sends.length, 1);
+    assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
+  } finally {
+    await rt.stop("test_end");
+    await h.close();
+  }
+});
+
+test("取消通用计划：来源任务已完成的pending一次通知与最终回报均不再发送", async () => {
+  const h = await harness("schedule-cancel-pending", "2026-09-24T00:00:00Z", toolScript({
+    "ROOT-NOTICE": [{ name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "普通通知" }], reason: "汇报" } }],
+  }));
+  h.channel.online = false;
+  const rt = await Runtime.start(h.config);
+  try {
+    const schedule = addPlan(rt, h, { key: "cancel-notice", accessMode: "full_access", rule: { kind: "daily", time: "01:00", time_zone: "UTC" }, text: "ROOT-NOTICE" });
+    await tickAt(rt, h, "2026-09-24T01:00:00Z");
+    await waitFor("运行整项收尾", () => {
+      rt.scheduler!.closeFinished();
+      return Boolean(rt.sched.listRuns(schedule.id, 10)[0]?.closedAt);
+    });
+    const [run] = rt.sched.listRuns(schedule.id, 10);
+    const notice = rt.sched.findOpBySource("tool", `task:${run.rootTaskId}`)!;
+    assert.equal(rt.store.getTask(run.rootTaskId!)!.status, "completed");
+    assert.equal(notice.status, "pending");
+    await rt.scheduleCancel({ scheduleId: schedule.id, expectedVersion: 1, reason: "停止计划与待发消息" });
+    h.channel.online = true;
+    await tickAt(rt, h, "2026-09-24T01:00:01Z");
+    assert.equal(rt.sched.getOp(notice.id)!.status, "canceled");
+    assert.equal(rt.sched.getOp(run.notificationOpId!)!.status, "canceled");
+    assert.equal(h.channel.sends.length, 0);
+    assert.equal(rt.sched.getRun(run.id)!.resultStatus, "completed", "取消保留已完成的执行事实");
+  } finally {
     await rt.stop("test_end");
     await h.close();
   }
@@ -632,9 +732,10 @@ test("工具：同一批并行的宿主工具先结束，不影响获批通知�
 
 test("工具：未配置可信目标拒绝外发；应用数据快照登记后行修改不改变正文", async () => {
   const h = await harness("sched-snapshot", "2026-09-24T00:00:00Z", toolScript({
-    "SNAP-NOTIFY": [{ name: "schedule_create", arguments: { create_key: "snap", action: "notify", rule: { kind: "once", at: "2026-09-24T02:00:00Z", time_zone: "UTC" }, content: [{ kind: "app_data", table: "notes", row_id: 1, field: "body" }], reason: "快照" } }],
+    "SNAP-NOTIFY": [{ name: "notification_enqueue", arguments: { content: [{ kind: "app_data", table: "notes", row_id: 1, field: "body" }], reason: "快照" } }],
     "NO-TARGET": [{ name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "x" }], reason: "x" } }],
   }));
+  h.channel.online = false;
   const rt = await Runtime.start(h.config);
   await ControlServer.start(rt);
   const client = await connectAuthedClient(rt);
@@ -651,6 +752,7 @@ test("工具：未配置可信目标拒绝外发；应用数据快照登记后�
     await client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
     await waitFor("快照任务完成", () => rt.store.getTask(t.id)!.status === "completed");
     app.updateRows({ table: "notes", rows: [{ id: 1, expected_version: 1, set: { body: "改过了" } }], reason: "r", opId: "a3", ctx });
+    h.channel.online = true;
     await tickAt(rt, h, "2026-09-24T02:00:00Z");
     assert.deepEqual(h.channel.sends.map((x) => x.text), ["原始正文"], "已批准正文不随业务数据变化");
 
@@ -673,7 +775,9 @@ test("发送函数挂起时控制面与普通任务继续推进；stop 中止在
   const rt = await Runtime.start(h.config);
   let opId = "";
   try {
-    addSchedule(rt, h, { key: "h1", action: "notify", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "HANG" });
+    await rt.scheduler!.idle();
+    enqueue(rt, "h1", "HANG");
+    rt.scheduler!.kickSender();
     h.clock.t = ms("2026-09-24T01:00:00Z");
     await rt.scheduler!.tick();
     await waitFor("发送进行中", () => opsOf(rt)[0]?.status === "sending");
@@ -697,20 +801,13 @@ test("发送函数挂起时控制面与普通任务继续推进；stop 中止在
   await h.close();
 });
 
-test("schema v12 → v13：升级保留既有记录并新建调度三表", async () => {
-  const { dirs } = await makeTestDirs("sched-migrate", 0);
+test("旧调度 schema 拒绝启动，不转换或回填执行授权", async () => {
+  const { dirs } = await makeTestDirs("sched-old-schema", 0);
   try {
-    let db = new Db(dirs.dataDir);
-    db.exec("INSERT INTO projects (id, name, created_at) VALUES ('p1', 'keep', '2026-01-01T00:00:00Z')");
-    db.exec("DROP TABLE notification_ops; DROP TABLE schedule_runs; DROP TABLE schedules; UPDATE meta SET value = '12' WHERE key = 'schema_version'");
+    const db = new Db(dirs.dataDir);
+    db.exec("UPDATE meta SET value = '12' WHERE key = 'schema_version'");
     db.close();
-    db = new Db(dirs.dataDir);
-    const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any;
-    assert.equal(version.value, String(SCHEMA_VERSION));
-    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as any[]).map((r) => r.name);
-    for (const t of ["schedules", "schedule_runs", "notification_ops"]) assert.ok(tables.includes(t), t);
-    assert.equal((db.prepare("SELECT name FROM projects WHERE id = 'p1'").get() as any).name, "keep");
-    db.close();
+    assert.throws(() => new Db(dirs.dataDir), { code: "schema_version_unsupported" });
   } finally {
     await cleanupDirs(dirs);
   }
@@ -726,7 +823,7 @@ test("子进程 SIGKILL：平台已接收但本地未落结果 → 重启标 eff
   // 先在本进程登记一个已到期的 pending 通知（渠道离线）
   h.channel.online = false;
   let rt = await Runtime.start(h.config);
-  addSchedule(rt, h, { key: "k", action: "notify", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "KILL-WINDOW" });
+  enqueue(rt, "k", "KILL-WINDOW");
   await tickAt(rt, h, "2026-09-24T01:00:00Z");
   await rt.stop("handoff");
   const child = childProcess.spawn(

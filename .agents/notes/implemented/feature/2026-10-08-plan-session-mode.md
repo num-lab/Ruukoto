@@ -39,3 +39,7 @@ Plan 可持续保存和跨任务恢复，同时复用既有自动审查边界；
 ## 验证
 
 历史实施证据见[工单 31](../../../../.scratch/personal-agent/issues/31-plan-mode-selection.md)：npm run typecheck 与 git diff --check 通过；全量 npm test 1008 项中 1007 通过、0 失败、1 个未启用真实模型连通性检查跳过。相关测试覆盖持续两轮 Plan、默认与显式选择、继续、任务级切换拒绝、schema 回滚与恢复、请求幂等、TUI/CLI/配置中心和工具过滤；test/67-visual-docs 4/4。七页图解 95 张切片已渲染检查，无布局问题。原实施未另行运行真实模型或独立 Linux 容器部署验证，访问后端与审批策略复用原覆盖路径。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

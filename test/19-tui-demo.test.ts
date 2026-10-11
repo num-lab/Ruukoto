@@ -31,7 +31,7 @@ function declaredEventTypes(): string[] {
   const start = src.indexOf("export type PersistentEventBody");
   const end = src.indexOf("export interface PersistentEvent");
   assert.ok(start >= 0 && end > start, "未能定位 PersistentEventBody 定义");
-  return [...src.slice(start, end).matchAll(/\{ type: "([a-z_.]+)"/g)].map((m) => m[1]!);
+  return [...src.slice(start, end).matchAll(/\{\s*type:\s*"([a-z_.]+)"/g)].map((m) => m[1]!);
 }
 
 /** 收集 demo 客户端推送的全部事件（等事件流自然结束）。 */
@@ -118,6 +118,8 @@ test("合成会话支持新 TUI 的任务与事件分页恢复，并提供完整
     assert.ok(tasks.every((task) => task.planMode === false), "合成任务明确携带计划工作方式");
     const completed = tasks.find((task) => task.status === "completed")!;
     const detail = await client.request("get_task", { task_id: completed.id });
+    const authorized = detail.toolOps.find(op => op.id === "toolop_demo000001")!;
+    assert.deepEqual(authorized.authorization, { source: "full_access", taskId: completed.id, permissionVersion: completed.permissionVersion, scope: { kind: "tool", workspaceOnly: false } });
     assert.ok(Number.isSafeInteger(detail.seq) && detail.seq > 0);
     const flow = new EventFlow();
     flow.task(detail.task);

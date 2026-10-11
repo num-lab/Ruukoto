@@ -795,166 +795,17 @@ test("reviewer 前置校验：关键正文缺失、输入超限、模型不可�
   assert.equal(noModel.model, "mock/mock-model");
 });
 
-// ---------- 迁移 ----------
-
-/** 手工搭建 v5 形状的库（旧 CHECK、无审查列），含既有任务/审批/会话默认值。 */
-function buildV5Database(root: string): void {
-  const raw = new DatabaseSync(path.join(root, "ruukoto.db"));
-  raw.exec(`
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, instruction_files TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL);
-CREATE TABLE sessions (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id),
-  cwd TEXT NOT NULL,
-  cwd_real TEXT NOT NULL,
-  cwd_dev INTEGER NOT NULL,
-  cwd_ino INTEGER NOT NULL,
-  pi_session_id TEXT NOT NULL,
-  session_file TEXT,
-  confirm_tools TEXT NOT NULL DEFAULT '[]',
-  queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
-  queue_pause_reason TEXT,
-  created_at TEXT NOT NULL,
-  model_selection TEXT,
-  model_selection_version INTEGER NOT NULL DEFAULT 0,
-  default_access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (default_access_mode IN ('confirm','full_access')),
-  default_access_mode_version INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE tasks (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES sessions(id),
-  request_id TEXT NOT NULL,
-  input TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
-  access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access')),
-  permission_version INTEGER NOT NULL DEFAULT 1,
-  granted_paths TEXT NOT NULL DEFAULT '[]',
-  pending_access_mode TEXT CHECK (pending_access_mode IS NULL OR pending_access_mode IN ('confirm','full_access')),
-  interrupt_reason TEXT,
-  cancel_requested INTEGER NOT NULL DEFAULT 0,
-  effect_unknown INTEGER NOT NULL DEFAULT 0,
-  error_message TEXT,
-  history_entry_ids TEXT NOT NULL DEFAULT '[]',
-  resumes_task_id TEXT,
-  created_at TEXT NOT NULL,
-  started_at TEXT,
-  ended_at TEXT,
-  model_selection TEXT,
-  submission_digest TEXT,
-  UNIQUE (session_id, request_id)
-);
-CREATE INDEX idx_tasks_session_created ON tasks (session_id, created_at, id);
-CREATE INDEX idx_tasks_status ON tasks (status);
-CREATE TABLE confirmations (
-  id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL REFERENCES tasks(id),
-  session_id TEXT NOT NULL,
-  tool_op_id TEXT NOT NULL,
-  tool_name TEXT NOT NULL,
-  params TEXT NOT NULL,
-  scope TEXT NOT NULL DEFAULT '{"kind":"tool","workspaceOnly":true}',
-  cwd_dev INTEGER NOT NULL DEFAULT 0,
-  cwd_ino INTEGER NOT NULL DEFAULT 0,
-  permission_version INTEGER NOT NULL DEFAULT 1,
-  status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected','stale')),
-  created_at TEXT NOT NULL,
-  responded_at TEXT,
-  consumed_at TEXT
-);
-INSERT INTO meta (key, value) VALUES ('schema_version', '5');
-INSERT INTO projects (id, name, created_at) VALUES ('proj_old', '旧项目', '2026-09-01T00:00:00Z');
-INSERT INTO sessions (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, created_at, default_access_mode, default_access_mode_version)
-  VALUES ('sess_old', 'proj_old', '/work', '/work', 1, 1, 'pi_old', '2026-09-01T00:00:00Z', 'full_access', 2);
-INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version, created_at)
-  VALUES ('task_old', 'sess_old', 'r-old', '旧任务', 'completed', 'full_access', 3, '2026-09-01T00:00:00Z');
-INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, permission_version, status, created_at, responded_at, consumed_at)
-  VALUES ('conf_old', 'task_old', 'sess_old', 'op_old', 'http_request', '{}', 3, 'approved', '2026-09-01T00:00:00Z', '2026-09-01T00:01:00Z', '2026-09-01T00:01:30Z');
-`);
-  raw.close();
-}
-
-test("schema v5 → 当前版本迁移：重建 CHECK、保留数据/索引/外键；新库直写 auto-review", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-v5-"));
-  const freshRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-fresh-"));
+test("新库直接保存 auto-review，未知模式被 CHECK 拒绝", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-fresh-mode-"));
+  const db = new Db(root);
   try {
-    buildV5Database(root);
-    const db = new Db(root);
-    try {
-      const store = new Store(db);
-      const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
-      assert.equal(version.value, String(SCHEMA_VERSION), "迁移到当前版本");
-
-      // 数据保留：原模式、权限版本、审批状态与消费时间
-      const task = store.getTask("task_old")!;
-      assert.equal(task.accessMode, "full_access");
-      assert.equal(task.permissionVersion, 3);
-      const conf = store.getConfirmation("conf_old")!;
-      assert.equal(conf.status, "approved");
-      assert.ok(conf.consumedAt !== null);
-      assert.equal(conf.reviewStatus, null, "旧记录无审查信息，按历史人工审批展示");
-      assert.equal(conf.decisionSource, null);
-      assert.equal(store.getSession("sess_old")!.defaultAccessMode, "full_access");
-
-      // 索引保留
-      const indexes = (db.prepare("PRAGMA index_list('tasks')").all() as any[]).map((r) => r.name);
-      assert.ok(indexes.includes("idx_tasks_session_created") && indexes.includes("idx_tasks_status"), "任务索引重建");
-
-      // 外键仍生效
-      assert.throws(
-        () =>
-          db
-            .prepare("INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, created_at) VALUES ('conf_orphan', 'task_nope', 'sess_old', 'op_x', 't', '{}', '2026-09-02T00:00:00Z')")
-            .run(),
-        "孤儿审批必须被外键拒绝",
-      );
-
-      // 新模式可写入；未知值仍被 CHECK 拒绝
-      store.setSessionDefaultMode("sess_old", "auto-review", 2);
-      assert.equal(store.getSession("sess_old")!.defaultAccessMode, "auto-review");
-      const { task: autoTask } = store.insertQueuedTask({
-        sessionId: "sess_old",
-        requestId: "r-new",
-        input: "新任务",
-        accessMode: "auto-review",
-        modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-        submissionDigest: "d-new",
-      });
-      assert.equal(autoTask.accessMode, "auto-review");
-      assert.throws(
-        () =>
-          db
-            .prepare("INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, created_at) VALUES ('task_bad', 'sess_old', 'r-bad', 'x', 'queued', 'autoreview', '2026-09-02T00:00:00Z')")
-            .run(),
-        "未知模式仍被 CHECK 拒绝",
-      );
-    } finally {
-      db.close();
-    }
-
-    // 新库直接可写 auto-review
-    const fresh = new Db(freshRoot);
-    try {
-      const store = new Store(fresh);
-      const project = store.createProject("p");
-      const session = store.createSession({ projectId: project.id, cwd: freshRoot, cwdReal: freshRoot, cwdDev: 1, cwdIno: 1, piSessionId: "pi-1", confirmTools: [] });
-      store.setSessionDefaultMode(session.id, "auto-review", 0);
-      const { task } = store.insertQueuedTask({
-        sessionId: session.id,
-        requestId: "r1",
-        input: "i",
-        accessMode: "auto-review",
-        modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-        submissionDigest: "d1",
-      });
-      assert.equal(task.accessMode, "auto-review", "新库直接保存新模式");
-    } finally {
-      fresh.close();
-    }
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(freshRoot, { recursive: true, force: true });
-  }
+    const store = new Store(db), project = store.createProject("p");
+    const session = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: 1, cwdIno: 1, piSessionId: "pi", confirmTools: [] });
+    store.setSessionDefaultMode(session.id, "auto-review", 0);
+    const { task } = store.insertQueuedTask({ sessionId: session.id, requestId: "r", input: "i", accessMode: "auto-review", modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, submissionDigest: "d" });
+    assert.equal(task.accessMode, "auto-review");
+    assert.throws(() => db.prepare("UPDATE tasks SET access_mode = 'autoreview' WHERE id = ?").run(task.id));
+  } finally { db.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 // ---------- 启动器路由 ----------
@@ -963,11 +814,7 @@ test("启动器：auto-review 路由到受限容器；缺 docker 明确失败；
   // 构造期路由（不需要 docker）
   const container = createLauncherFor({ backend: "container" }, "auto-review");
   assert.equal(container.kind, "container", "auto-review 与 confirm 共用受限容器边界");
-  assert.throws(
-    () => createLauncherFor({ backend: "systemd" }, "auto-review"),
-    (err: any) => err.code === "invalid_state",
-    "auto-review 不得进入完全访问的 systemd 入口",
-  );
+  assert.equal(createLauncherFor({ backend: "native" }, "auto-review").kind, "native", "auto-review 不进入完全访问当前账户路径");
 
   // 启动期校验：缺 docker 明确失败（execution_unavailable），不落到其他入口
   const launcher = createContainerLauncher({ image: "img", uid: 1000, gid: 1000, dockerPath: "/nonexistent/docker" });

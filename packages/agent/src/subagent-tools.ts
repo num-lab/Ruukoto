@@ -10,10 +10,10 @@
  * 登记的成果）。
  *
  * - 模型只给正文、幂等键、可选既有 workId / subAgentId 与选定资料
- *   （dev: read_paths / main: materials）；目标身份、独立目录、confirm 模式、
+ *   （dev: read_paths / main: materials）；目标身份、独立目录、发起任务的访问模式、
  *   只读工具与截止时间由宿主固定（见 packages/runtime/src/subagents.ts）；
  * - 只有拥有者发起的任务可委派（直接提交，或已核实身份的 Telegram/QQ 私聊
- *   入站）；定时唤醒、子任务回报与 SubAgent 任务不能委派下级；
+ *   入站）、独立调度运行及宿主保存来源授权的工作唤醒；SubAgent 不能委派下级；
  * - 工具在子任务入队后立即返回，不等待子模型结束；结果经持久事件与
  *   subagent_result 查询，dev 会话再经下一次模型调用的宿主资料注入送达；
  * - subagent_result 省略 work_id 时列出本会话的 SubAgent 总览（供挑选复用
@@ -189,15 +189,16 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
 
   /**
    * 拥有者发起的任务：直接提交（agentId 为空、无来源事件、无 SubAgent 关联），
-   * 或已核实身份的 owner 私聊入站。调度唤醒、子任务回报与其他来源不能委派。
+   * 或已核实身份的 owner 私聊入站，以及宿主保存来源授权的工作唤醒。外部评审仍拒绝。
    */
   const ownerOriginated = (task: Task): boolean => {
     if (task.subAgentId) return false;
+    if (store.getSessionIdentity(task.sessionId)?.kind === "scheduled") return true;
     if (task.sourceEventId) {
       const source = store.getInboundEvent(task.sourceEventId)?.source;
       return source === TELEGRAM_SOURCE || source === QQ_PRIVATE_SOURCE;
     }
-    return task.agentId === null;
+    return task.agentId === null || (task.agentId === "main" && task.parentTaskId !== null && task.sourcePermissionVersion !== null);
   };
 
   const subagentDelegate = defineTool({
@@ -205,8 +206,8 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     label: "subagent_delegate",
     description:
       "为一项分析/读取或修改工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录或隔离副本，" +
-      "分析只读（read / read_artifact），修改经宿主后台生成的本地副本隔离（不提交、不推送），权限固定请求确认，不能委派下级。" +
-      "开发会话用 read_paths 指定父工作区内或父任务已授予的只读路径；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
+      "分析只读（read / read_artifact），修改经宿主后台生成的本地副本隔离（不提交、不推送），访问模式沿用本次发起任务，不能委派下级。" +
+      "开发会话用 read_paths 指定资料路径（受限模式要求父工作区内或父任务已授予）；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
       "要修改文件时用 mode=modify + target（父工作区内）：Git 仓库目标建宿主生成的本地 worktree 副本，非 Git 目录直接写入并与父会话串行；" +
       "副本改动由你用 subagent_integrate 按工作 id 汇回当前工作区（冲突时不覆盖、双方保留）。" +
       "首次省略两参数建立工作；补充原工作用 work_id（修改继续沿用首次钉定的写入目标）；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
@@ -235,7 +236,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     execute: bindExecute(async (ctx, params: any) => {
       const task = store.getTask(ctx.taskId);
       if (!task || !ownerOriginated(task)) {
-        throw new Error("只有拥有者直接提出的请求可以委派 SubAgent（调度唤醒、子任务回报与其他来源的任务不能委派）");
+        throw new Error("只有拥有者任务、独立调度运行或宿主保存来源授权的工作唤醒可以委派 SubAgent");
       }
       if (typeof params.key !== "string" || !KEY_RE.test(params.key)) throw new Error("key 必须是 1–64 位字母、数字、_ 或 -");
       if (typeof params.request !== "string" || !params.request.trim()) throw new Error("request 不能为空");
@@ -251,7 +252,8 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       }
       const target = params.target === undefined ? null : params.target;
       if (target !== null && typeof target !== "string") throw new Error("target 必须是路径字符串");
-      const isMain = store.getSessionIdentity(ctx.sessionId)?.kind === "main";
+      const kind = store.getSessionIdentity(ctx.sessionId)?.kind;
+      const isMain = kind === "main" || kind === "scheduled";
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
       const materials = params.materials === undefined ? null : params.materials;
       if (mode === "modify") {

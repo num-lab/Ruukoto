@@ -17,7 +17,7 @@ import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
  * - 边界：dev 会话/QQ 群被任务工具白名单阻止且 helper 零调用；main 不获得 bash；
  *   错误产品/无配置/非 Linux 未显式放行一律不装配；篡改目标（通配符/模板/路径/
  *   选项/固定拒绝清单/命令单元/白名单外/别名）全部拒绝；auto-review 绝不自动批准，
- *   full_access 同样逐次审批；
+ *   full_access 免审批但保留执行核实；
  * - 取消与恢复：等待审批中中断=已知未执行；批准后在途中断=任务中断、op 效果未知、
  *   starts 不增、helper stop-op 有调用、产物 partial 且引用已接事件；停止查询失败
  *   占用保留；待决/已批准未消费跨重启一律失效零执行；已消费在途跨重启标效果未知、
@@ -90,8 +90,8 @@ function setupFakeService(root: string): FakeSvc {
     policyPath,
     JSON.stringify({
       machineId: "fake-machine-0001",
-      execUid: 1,
-      execGid: 1,
+      inspectUid: 1,
+      inspectGid: 1,
       services: { [UNIT]: { actions: ["restart"] }, [ALIAS_UNIT]: { actions: ["restart"] } },
     }),
   );
@@ -582,14 +582,12 @@ test("目标篡改全部拒绝：通配符/模板/路径/选项/固定拒绝清�
   }
 });
 
-test("逐次审批：auto-review 绝不自动批准；full_access 同样先审批（覆盖点 8）", async () => {
+test("逐次审批：auto-review 转拥有者；full_access 免审批且使用真实任务授权（覆盖点 8）", async () => {
   const h = await imHarness("svc-every-approval", svcResponder());
   const rt = await startWithPlatforms(h);
   try {
     const main = rt.store.getAgentRole("main")!;
-    // 注：IM 任务固定为 confirm 模式（编排器写定），这里经同会话直接提交制造
-    // auto-review/full_access 任务；拥有者决定走控制面应答，与 IM /approve 进入同一
-    // ApproveGate.resolve 决定路径（IM 通道全流程见前三个测试）。
+    // 直接指定任务模式，核实受限审批与完全访问授权各自的执行行为。
     const t1 = await rt.submit({ sessionId: main.sessionId, requestId: "svc-ar-1", input: `SVC-RESTART ${UNIT}`, accessMode: "auto-review", modelSelection: rt.defaultSelection });
     await waitPending(rt);
     const c1 = solePending(rt);
@@ -603,13 +601,13 @@ test("逐次审批：auto-review 绝不自动批准；full_access 同样先审�
     assert.equal(h.svc.starts(), 2, "人工批准后才执行");
 
     const t2 = await rt.submit({ sessionId: main.sessionId, requestId: "svc-fa-1", input: `SVC-RESTART ${UNIT}`, accessMode: "full_access", modelSelection: rt.defaultSelection });
-    await waitPending(rt);
-    const c2 = solePending(rt);
-    assert.equal(rt.store.getTask(t2.id)!.accessMode, "full_access");
-    assert.equal(h.svc.starts(), 2, "完全访问也必须先审批");
-    rt.respondConfirmation(c2.id, "approved");
     await waitFor("full_access 任务完成", () => rt.store.getTask(t2.id)!.status === "completed");
-    assert.equal(h.svc.starts(), 3, "两次逐次审批，各恰好执行一次");
+    assert.equal(rt.store.getTask(t2.id)!.accessMode, "full_access");
+    assert.equal(rt.store.listConfirmationsByTask(t2.id).length, 0);
+    const op = rt.store.listToolOpsByTask(t2.id).find((item) => item.toolName === "service_manage")!;
+    assert.equal(op.authorization?.source, "full_access");
+    assert.match(op.resultSummary ?? "", /本任务的完全访问授权/);
+    assert.equal(h.svc.starts(), 3, "两种授权各恰好执行一次");
     assert.equal(h.svc.restarts().length, 2);
   } finally {
     await h.rt?.stop("test_end");
@@ -631,7 +629,7 @@ interface ModuleKit {
   gate: ApprovalGate;
   taskId: string;
   effectUnknownOps: string[];
-  call(name: string, params: Record<string, unknown>): Promise<any>;
+  call(name: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<any>;
   pendingConf(): Promise<any>;
   setApprovalImpl(fn: (input: any) => Promise<any>): void;
   close(): void;
@@ -686,10 +684,10 @@ function moduleKit(prefix: string, overrides: { helperPath?: string } = {}): Mod
     gate,
     taskId: task.id,
     effectUnknownOps,
-    async call(name, params) {
+    async call(name, params, signal) {
       ctx = { taskId: task.id, sessionId: session.id, projectId: project.id, hostOpId: `op_${randomBytes(12).toString("hex")}` };
       store.recordToolIntent({ id: ctx.hostOpId, taskId: task.id, sessionId: session.id, toolName: name, params });
-      return await tools.find((t) => t.name === name)!.execute(ctx.hostOpId, params, undefined, undefined, {} as any);
+      return await tools.find((t) => t.name === name)!.execute(ctx.hostOpId, params, signal, undefined, {} as any);
     },
     async pendingConf() {
       let found: any = null;
@@ -714,7 +712,7 @@ test("审批通过后策略变化：消费事务 recheck 失败、批准失效�
     // 批准到达前改写策略（任何字节变化 → sha256 变化）
     fs.writeFileSync(k.svc.policyPath, fs.readFileSync(k.svc.policyPath, "utf8") + "\n");
     k.gate.resolve(conf.id, "approved");
-    await assert.rejects(exec, /服务管理策略在确认期间已变化/);
+    await assert.rejects(exec, /服务管理策略在执行前已变化/);
     assert.equal(k.store.getConfirmation(conf.id)!.status, "stale", "批准失效");
     assert.equal(k.store.getConfirmation(conf.id)!.consumedAt, null, "未消费");
     assert.equal(k.svc.restarts().length, 0, "helper restart 零调用");
@@ -739,12 +737,26 @@ test("批准快照后单元定义变化：helper 修订复核拒绝（已知未�
     await assert.rejects(exec, (err: Error) => {
       assert.match(err.message, /管理操作未执行/, err.message);
       assert.match(err.message, /revision_mismatch/, err.message);
-      assert.match(err.message, /新的审批/, err.message);
+      assert.match(err.message, /本次授权已认领/, err.message);
+      assert.match(err.message, /新的操作编号/, err.message);
       return true;
     });
     assert.notEqual(k.store.getConfirmation(conf.id)!.consumedAt, null, "批准已消费");
     assert.equal(k.svc.restarts().length, 1, "helper 被调用但在请求 systemd 前拒绝");
     assert.equal(k.svc.starts(), 1, "starts 不变");
+
+    k.setApprovalImpl((input) => k.gate.request(input));
+    const retry = k.call("service_manage", { unit: UNIT, action: "restart" });
+    const retryConf = await k.pendingConf();
+    assert.notEqual(retryConf.id, conf.id, "新操作重新生成审批");
+    assert.notEqual(retryConf.toolOpId, conf.toolOpId, "使用新的操作编号");
+    assert.equal(retryConf.status, "pending", "新操作仍等待批准");
+    assert.equal(k.svc.restarts().length, 1, "待审批时不调用 helper restart");
+    assert.equal(k.svc.starts(), 1, "待审批时不启动服务");
+    k.gate.resolve(retryConf.id, "rejected");
+    await assert.rejects(retry, /拥有者拒绝/);
+    assert.equal(k.svc.restarts().length, 1, "拒绝后不调用 helper restart");
+    assert.equal(k.svc.starts(), 1, "拒绝后不启动服务");
   } finally {
     k.close();
   }
@@ -892,6 +904,69 @@ test("helper 派发后失败：效果未知、不描述为未执行、不自动�
     assert.equal(k.svc.starts(), 2, "restart 已生效（不能描述为零执行）");
     assert.equal(k.effectUnknownOps.length, 1, "标效果未知");
     assert.equal(k.svc.restarts().length, 1, "不自动重发");
+  } finally {
+    k.close();
+  }
+});
+
+test("完全访问：执行前权限或策略变化拒绝，缺 helper 不转审批", async () => {
+  for (const changed of ["permission", "policy", "canceled"]) {
+    const k = moduleKit(`full-access-${changed}`);
+    try {
+      k.store.withTx(() => k.store.applyModeSwitch(k.taskId, "full_access"));
+      k.setApprovalImpl(async (input) => {
+        if (changed === "permission") k.store.withTx(() => k.store.applyModeSwitch(k.taskId, "confirm"));
+        else if (changed === "policy") fs.appendFileSync(k.svc.policyPath, "\n");
+        else k.store.withTx(() => k.store.transitionTask(k.taskId, ["running"], "running", { cancelRequested: true }));
+        return k.gate.request(input);
+      });
+      await assert.rejects(k.call("service_manage", { unit: UNIT, action: "restart" }), /未执行/);
+      assert.equal(k.svc.restarts().length, 0);
+      assert.equal(k.store.listConfirmationsByTask(k.taskId).length, 0);
+      assert.equal(k.store.listToolOpsByTask(k.taskId)[0].authorization, null);
+    } finally {
+      k.close();
+    }
+  }
+  const missing = moduleKit("full-access-missing", { helperPath: "/no-such-ruukoto-service-helper.mjs" });
+  try {
+    missing.store.withTx(() => missing.store.applyModeSwitch(missing.taskId, "full_access"));
+    await assert.rejects(missing.call("service_manage", { unit: UNIT, action: "restart" }), /启动失败|未返回结构化结果/);
+    assert.equal(missing.store.listConfirmationsByTask(missing.taskId).length, 0);
+  } finally {
+    missing.close();
+  }
+});
+
+test("完全访问：helper 派发后结果未知仍记录真实授权且不自动重发", async () => {
+  const k = moduleKit("full-access-unknown");
+  try {
+    k.store.withTx(() => k.store.applyModeSwitch(k.taskId, "full_access"));
+    k.svc.touch("fail-after-launch");
+    await assert.rejects(k.call("service_manage", { unit: UNIT, action: "restart" }), /管理命令结果未知/);
+    assert.equal(k.svc.restarts().length, 1);
+    assert.equal(k.effectUnknownOps.length, 1);
+    assert.equal(k.store.listToolOpsByTask(k.taskId)[0].authorization?.source, "full_access");
+    assert.equal(k.store.listConfirmationsByTask(k.taskId).length, 0);
+  } finally {
+    k.close();
+  }
+});
+
+test("完全访问：授权返回时已取消，helper restart 不启动且为已知未执行", async () => {
+  const k = moduleKit("full-access-abort-before-helper");
+  const aborter = new AbortController();
+  try {
+    k.store.withTx(() => k.store.applyModeSwitch(k.taskId, "full_access"));
+    k.setApprovalImpl(async (input) => {
+      const authorization = await k.gate.request(input);
+      aborter.abort();
+      return authorization;
+    });
+    await assert.rejects(k.call("service_manage", { unit: UNIT, action: "restart" }, aborter.signal), /服务管理操作未执行/);
+    assert.equal(k.svc.restarts().length, 0);
+    assert.equal(k.effectUnknownOps.length, 0);
+    assert.equal(k.store.listConfirmationsByTask(k.taskId).length, 0);
   } finally {
     k.close();
   }

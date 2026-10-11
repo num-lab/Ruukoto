@@ -2744,7 +2744,7 @@ export class TuiApp {
         return `应用数据${label[c.scope.change] ?? c.scope.change}：表 ${c.scope.table ?? "（多表）"} · schema v${c.scope.schemaVersion}/rev ${c.scope.revision} · 影响 ${c.scope.affected}`;
       }
       case "notification":
-        return `${c.scope.mode === "news" ? "动态新闻推送" : "通知外发"}（${c.scope.duration === "until_canceled" ? "持续至取消" : "单次"}）：${c.scope.target.channel}/${c.scope.target.chatId}（配置 v${c.scope.target.configVersion}）${c.scope.rule ? ` · ${c.scope.rule}` : ""} · ${c.scope.mode === "news" ? "采集与发送约定" : "正文"} ${c.scope.textChars} 字符`;
+        return `通知外发（单次）：${c.scope.target.channel}/${c.scope.target.chatId}（配置 v${c.scope.target.configVersion}） · 正文 ${c.scope.textChars} 字符`;
       case "service_operation":
         return `服务器服务管理（root 提权）：${c.scope.action} ${c.scope.unit}（策略 ${c.scope.policyRevision.slice(0, 12)}… · 单元定义 ${c.scope.unitRevision.slice(0, 12)}…）`;
       // issue 17：github_publish 范围已退役，仅为历史审批记录的只读展示保留
@@ -2788,13 +2788,12 @@ export class TuiApp {
       }
       if (c.scope.kind === "service_operation") {
         // issue 09：准确目标、提权身份、动作影响与修订指纹；请求时状态见下方参数
-        lines.push("提权身份：root（经后台固定 helper 与 sudoers；full_access 也逐次审批）");
+        lines.push("提权身份：root（经后台固定 helper 与 sudoers；OS 权限仍须配置）");
         lines.push("影响：restart 会启动原本不活动的服务，并中断该服务正在处理的工作；执行中断或超时后效果可能无法确认，效果未知不自动重发。");
         lines.push(`本机：${c.scope.machineId.slice(0, 12)}… · 操作 ${c.scope.toolOpId}`);
       }
       if (c.scope.kind === "notification") {
-        if (c.scope.mode === "news") lines.push("批准后按固定关键词、来源与时间自动采集并发送动态摘要；完整采集范围见下方参数 news。");
-        // issue 03：目标、规则/时区/DST、持续范围与完整正文（正文见下方参数 text）
+        // 一次通知的固定目标与正文来源；正文见下方参数 text
         lines.push(`目标：${sanitizeForDisplay(`${c.scope.target.channel} 账号 ${c.scope.target.account} 会话 ${c.scope.target.chatId}`)} · 正文 sha256 ${c.scope.textSha256.slice(0, 16)}…`);
         if (c.scope.sourceRefs.length > 0) lines.push(`来源：${sanitizeForDisplay(c.scope.sourceRefs.join(", "))}`);
       }

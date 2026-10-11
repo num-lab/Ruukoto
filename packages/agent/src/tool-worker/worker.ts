@@ -1,9 +1,9 @@
 /**
- * 工具工作进程入口：在执行边界内（任务容器或执行账户）运行上游编码工具。
+ * 工具工作进程入口：在执行边界内（受限沙箱或启动账户）运行上游编码工具。
  *
  * 职责边界（issue 03 实施计划 §1）：
  * - 只执行 read/edit/write/bash 四种编码工具；没有模型、SDK 会话、持久化，
- *   也拿不到审批、模式切换或控制面凭据；
+ *   不接收审批、模式切换或控制面协议；完全访问能访问同账户资料；
  * - 通过 BashOperations.onData 与文件 Operations 包装器，把未经截断的原始
  *   输出/正文流回后台（后台存产物后另生成限长模型视图）；
  * - Shell 子进程以独立进程组启动并登记；中止与关停时先整组回收再退出。
@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
+import { killProcessGroup } from "../managed-processes.ts";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -78,52 +79,31 @@ function streamData(opId: string, stream: DataStream, data: Buffer): void {
 // ---------- Shell 子进程登记表 ----------
 
 interface TrackedChild {
-  pid: number;
-  killed: boolean;
+  stop?: Promise<boolean>;
 }
 
 const trackedChildren = new Map<number, TrackedChild>();
+let childrenReaped = true;
 
-function signalGroup(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal); // 负 pid = 子进程整组（shell 子进程以 detached 启动，pgid == pid）
-  } catch {
-    // 组已不存在
-  }
-}
-
-async function killTrackedChild(pid: number, termGraceMs = 3000, killGraceMs = 3000): Promise<boolean> {
+async function killTrackedChild(pid: number): Promise<boolean> {
   const entry = trackedChildren.get(pid);
-  if (!entry || entry.killed) return true;
-  entry.killed = true;
-  signalGroup(pid, "SIGTERM");
-  let deadline = Date.now() + termGraceMs;
-  while (groupAlive(pid) && Date.now() < deadline) await sleep(50);
-  if (!groupAlive(pid)) return true;
-  signalGroup(pid, "SIGKILL");
-  deadline = Date.now() + killGraceMs;
-  while (groupAlive(pid) && Date.now() < deadline) await sleep(50);
-  return !groupAlive(pid);
-}
-
-function groupAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err: any) {
-    if (err?.code === "ESRCH") return false;
-    return true;
-  }
+  if (!entry) return true;
+  entry.stop ??= killProcessGroup(pid);
+  const reaped = await entry.stop;
+  if (reaped) trackedChildren.delete(pid);
+  else childrenReaped = false;
+  return reaped;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function killAllTrackedChildren(): Promise<void> {
-  const pids = Array.from(trackedChildren.keys());
-  await Promise.all(pids.map((pid) => killTrackedChild(pid)));
-  trackedChildren.clear();
+async function shutdown(): Promise<void> {
+  const results = await Promise.all(Array.from(trackedChildren.keys(), pid => killTrackedChild(pid)));
+  sendMessage({ type: "stopped", reaped: childrenReaped && results.every(Boolean) });
+  await stdoutDrained;
+  process.exit(0);
 }
 
 // ---------- 上游工具与自定义 Operations ----------
@@ -143,7 +123,7 @@ function bashOperations(): BashOperations {
           stdio: ["ignore", "pipe", "pipe"],
         });
         const pid = child.pid!;
-        trackedChildren.set(pid, { pid, killed: false });
+        if (pid !== undefined) trackedChildren.set(pid, {});
         const opId = currentOpId("bash");
         child.stdout!.on("data", (d: Buffer) => {
           options.onData(d);
@@ -159,8 +139,8 @@ function bashOperations(): BashOperations {
         options.signal?.addEventListener("abort", onAbort, { once: true });
         const finish = (exitCode: number | null) => {
           options.signal?.removeEventListener("abort", onAbort);
-          trackedChildren.delete(pid);
-          resolve({ exitCode });
+          // 主 Shell 退出后仍核实原组，后台子进程不能丢失停止归属。
+          void killTrackedChild(pid).then(() => resolve({ exitCode }));
         };
         child.on("error", () => finish(127));
         child.on("close", (code) => finish(code));
@@ -441,8 +421,7 @@ async function handleMessage(raw: string): Promise<void> {
       break;
     }
     case "shutdown":
-      await killAllTrackedChildren();
-      process.exit(0);
+      await shutdown();
       break;
     default:
       break;
@@ -458,7 +437,7 @@ process.on("unhandledRejection", (err) => {
   fail(`工作进程未处理的异步错误：${(err as Error).message}`);
 });
 process.on("SIGTERM", () => {
-  void killAllTrackedChildren().then(() => process.exit(0));
+  void shutdown();
 });
 
 sendMessage({ type: "ready", pid: process.pid });
@@ -482,6 +461,6 @@ process.stdin.on("data", (chunk: string) => {
 });
 process.stdin.on("end", () => {
   // 后台通道关闭：视为关停指令
-  void killAllTrackedChildren().then(() => process.exit(0));
+  void shutdown();
 });
 process.stdin.on("error", () => {});

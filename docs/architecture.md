@@ -11,12 +11,12 @@ Ruukoto 后台任务运行时以单仓库交付 `ruukoto` 个人 Agent 和 `ruuk
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [agent-context](modules/agent-context.md) | 组装每次模型调用的上下文：资料范围、历史、参考块、压缩与记忆 | 依赖 core 的存储与会话文件；被 runtime 的驱动循环调用 |
 | [agent-tools](modules/agent-tools.md) | 决定会话有哪些工具，并经统一审批与操作账本执行 | 依赖 core、execution；被 runtime 装配 |
-| [execution](modules/execution.md) | 在原生沙箱、受限容器或专用执行账户的边界内执行工具 | 依赖 core 的路径与身份；被 agent-tools 调用 |
+| [execution](modules/execution.md) | 在原生沙箱、受限容器或当前启动账户下执行工具 | 依赖 core 的路径与身份；被 agent-tools 调用 |
 | [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui 消费 |
 | [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
 | [scheduler](modules/scheduler.md) | 持久调度计划与通知 outbox 的发送账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
-| [deploy](modules/deploy.md) | 部署的系统身份、单元、提权入口与服务管理 | 不参与运行时调用；定义后台与执行账户的运行环境 |
+| [deploy](modules/deploy.md) | 部署的系统身份、单元、提权入口与服务管理 | 不参与运行时调用；定义当前账户的后台与可选服务 OS 授权 |
 
 六个共享包在 `packages/{core,agent,channels,runtime,control,tui}`。agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；各 app 的 `product.ts` 声明差异。
 
@@ -76,7 +76,7 @@ sequenceDiagram
   Ad->>St: 登记入站事件（含钉版 reply_target）
   Ad->>P: 推进平台偏移（仅登记成功后）
   O->>St: 取已登记未派发事件，按 evt:<id> 建任务
-  O->>M: main 任务（固定 confirm）
+  O->>M: main 任务（可信来源模式）
   M-->>O: 终态与最终回答
   O->>Ob: 登记 owner_reply（目标 = 钉版 reply_target）
   Ob->>P2: 核对启停、目标与配置版本后发送
@@ -84,7 +84,7 @@ sequenceDiagram
 
 要点：
 
-- 入站一律固定 `confirm` 模式，不继承 main 会话默认的完全访问；平台身份不等于通用控制面访问权。
+- 绑定拥有者的私聊取创建时 main 默认模式；其他外部事件按入口约束固定模式，正文不能指定权限来源。平台身份不等于通用控制面访问权。
 - 先持久化再推进平台偏移：崩溃或断线后平台重投命中原外部 id，不重复建任务。
 - 回复目标在收件时钉版（平台、账号、chat 与配置版本）；派发、任务启动与终态回复都复核，配置变化不改发。
 - 结果分类统一：可证明未发送记 `failed`、超时与断线记 `effect_unknown`，都不自动重发；平台限流退回 `pending` 按建议时间重试。
@@ -100,7 +100,7 @@ sequenceDiagram
   participant Av as agent-tools（可用性）
   participant G as 审批闸门
   participant R as agent-tools 审查/核实
-  participant W as execution（原生沙箱、容器或执行账户）
+  participant W as execution（原生沙箱、容器或启动账户）
   participant L as 工具操作账本
 
   D->>Av: 调用工具（宿主注入身份与操作编号）
@@ -120,7 +120,7 @@ sequenceDiagram
 
 - 工具可用性是唯一来源：会话类别清单减去宿主按任务的收窄（计划模式、GitHub 评审、项目关闭的 Web Search），激活、发送前检查与调用门共用同一集合。
 - 审批是结构化且不可变的：绑定目标、内容指纹、方法与完整 URL、凭据名称与用途；批准经条件更新单次消费，其他 URL／方法／正文／任务不能复用。
-- 完全访问模式仍不免除 MCP 写工具之外的特定例外（如应用数据破坏性变更与服务管理），这些例外逐次审批。
+- 完全访问的所有已开放工具免操作审批，仍核实活动任务、权限版本、目标、修订与凭据，记录真实任务授权及操作结果。
 - 效果分类是硬边界：审批未消费一律已知未执行；只读工具中止记无写入效果；其余效果无法核实的记 `effect_unknown`，不重放。
 - 工具输出在上游截断前捕获为产物文件，中断或写失败保留已捕获部分并标 `partial`；按任务归属可跨重启按 id 读取。
 
@@ -151,7 +151,7 @@ sequenceDiagram
 
 - 只有拥有者直接提交或经拥有者 IM 入口核实身份的任务可以委派；定时唤醒、子任务回报与其他来源拒绝。
 - 一层委派：SubAgent 不能再派生下一层，也不能与拥有者直接交互。
-- 委派能力固定为只读分析（`read`、`read_artifact`）或修改（`read`／`edit`／`write`／`bash`／`read_artifact`），模式固定 `confirm`，不继承父任务的模式、单次批准或长期授权。
+- 委派能力固定为只读分析（`read`、`read_artifact`）或修改（`read`／`edit`／`write`／`bash`／`read_artifact`），模式沿本次发起任务的有效授权，单次批准与长期授权不继承。
 - 修改委派在 Git 目标上为每项工作创建独立 worktree 副本，子任务不提交不推送，由主 Agent 用 `subagent_integrate` 汇总到父工作区待提交区；非 Git 目标直接写入并与父会话按目录占用串行。
 - 送达与登记分开：结果与消息的登记只是投递登记，进入父模型调用才算送达；已取消的工作不建唤醒、不注入，队列循环在唤醒启动前再检查一次。
 - 任务终态、TUI 退出与空闲都不关闭 SubAgent；关闭是独立列，关闭后拒绝新委派但保留历史与产物。
@@ -166,7 +166,7 @@ sequenceDiagram
 - [后台任务与终端](../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：后台与客户端分离、事件流恢复与请求幂等的基础决定。
 - [两个 Agent 产品](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品共用一个仓库与一套控制面，各自独立档案与实例锁。
 - [同仓 workspaces 分包](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)：产品装配、共享包与 import 检查的归属。
-- [工具工作进程、容器与执行账户](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行边界的形态与失败策略。
+- [工具工作进程与受限容器](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行边界的形态与失败策略。
 - [Coding Agent 的原生受限执行](../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：原生工具链、停止核实与占用保留。
 - [会话历史与模型上下文](../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：历史与上下文的分工，决定了 core 与 agent-context 的边界。
 - [工作委托、SubAgent 与任务](../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：委派三层数据模型与一层派生的来源。

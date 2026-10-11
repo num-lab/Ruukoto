@@ -1,0 +1,22 @@
+证据性质：本会话已完成工具输出摘录；不是原始重定向日志，未重跑测试。
+执行会话：1130
+Command: npx tsx --test test/37-scheduler-outbox.test.ts test/41-qq-private-scope.test.ts test/71-product-entry.test.ts test/85-retire-core-group-chat.test.ts test/86-personal-instance-import.test.ts test/78-linux-service-management.test.ts
+Exit code: 0
+
+✔ 逐次审批：auto-review 转拥有者；full_access 免审批且使用真实任务授权（覆盖点 8） (794.568208ms)
+✔ 完全访问：执行前权限或策略变化拒绝，缺 helper 不转审批 (141.306875ms)
+✔ 完全访问：helper 派发后结果未知仍记录真实授权且不自动重发 (63.714875ms)
+✔ 完全访问：授权返回时已取消，helper restart 不启动且为已知未执行 (32.746667ms)
+✔ 验收4a：已接收群结果的通知经批准后在退役后正常发送 (214.645583ms)
+[ruukoto:orchestrator] 事件 evt_3f5b420e58deff023384497f 建任务失败：调度资料授权已失效，未开始执行
+✔ 验收4b/4c/4d：撤回与归档篡改阻断待发通知与调度运行（source_revoked 及原因），不只凭快照正文继续 (172.562041ms)
+✔ 应用后目标启动：main 与应用数据可用，档案可查，交接恰一次且不重放 (285.498666ms)
+✔ v20 旧库（个人方向）：拒绝旧格式且源 sha 不变 (8.01325ms)
+ℹ tests 73
+ℹ suites 0
+ℹ pass 73
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8738.05475

@@ -11,7 +11,7 @@ import { verifyImportedBranchSources } from "@ruukoto/core/import-support.ts";
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md
  * - 源实例全程只读：不建锁、不改写、不修复源目录任何文件；快照 = 把 ruukoto.db
- *   （及 WAL 侧车文件）复制到临时目录后在副本上迁移到当前 schema，源目录逐文件
+ *   （及 WAL 侧车文件）复制到临时目录后校验当前 schema，源目录逐文件
  *   sha 不变。源后台存活（或身份无法核实）时拒绝。
  * - 目标侧离线：要求目标后台已停止，CLI 持目标实例锁执行；预览对目标零写入
  *   （目标库也经副本只读读取），应用先备份目标库再文件复制、最后一个事务入库。
@@ -98,7 +98,7 @@ function checkTargetProduct(product: string | null, schemaVersion: number | null
   if (exists && schemaVersion !== SCHEMA_VERSION) {
     fail(
       "target_schema",
-      `目标库 schema 版本为 ${schemaVersion}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto-code 后台完成迁移，再执行导入`,
+      `目标库 schema 版本为 ${schemaVersion}（当前程序 ${SCHEMA_VERSION}）；源与目标须使用当前存储格式，不转换旧授权`,
     );
   }
 }
@@ -992,7 +992,7 @@ export function applyLegacyImport(
       raw.close();
     }
     if (version !== SCHEMA_VERSION) {
-      fail("target_schema", `目标库 schema 版本为 ${version}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto-code 后台完成迁移，再执行导入`);
+      fail("target_schema", `目标库 schema 版本为 ${version}（当前程序 ${SCHEMA_VERSION}）；源与目标须使用当前存储格式，不转换旧授权`);
     }
   }
   const tdb = new Db(deps.targetDataDir);

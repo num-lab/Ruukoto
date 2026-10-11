@@ -38,19 +38,15 @@ function record(id: string, detail: ContextExperimentRecord | null = null): Sele
   };
 }
 
-test("Jev 记录：真实旧表补列默认 null；实验、取消事件和主模型缓存费用跨重启保留", () => {
+test("Jev 记录：无实验记录、实验、取消事件和主模型缓存费用跨重启保留", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-jev-records-"));
   let db: Db | undefined;
   try {
     db = new Db(root);
     let store = new Store(db);
-    const legacy = record("sel_legacy");
-    store.withTx(() => store.insertSelectionRecord(legacy));
-    db.exec("ALTER TABLE selection_records DROP COLUMN experiment");
-    db.close();
-    db = new Db(root);
-    store = new Store(db);
-    assert.deepEqual(store.getSelectionRecord(legacy.id), legacy, "补列不修改旧选择事实");
+    const baseline = record("sel_plain");
+    store.withTx(() => store.insertSelectionRecord(baseline));
+    assert.deepEqual(store.getSelectionRecord(baseline.id), baseline);
 
     const current = record("sel_jev", experiment);
     const usage: SelectionUsage = {
@@ -69,7 +65,7 @@ test("Jev 记录：真实旧表补列默认 null；实验、取消事件和主�
     db = new Db(root);
     store = new Store(db);
     assert.deepEqual(store.getSelectionRecord(current.id), { ...current, usage });
-    assert.equal(store.getSelectionRecord(legacy.id)!.experiment, null);
+    assert.equal(store.getSelectionRecord(baseline.id)!.experiment, null);
     const event = store.getEventsAfter(0).find(e => e.body.type === "task.context_experiment")!;
     assert.equal(event.taskId, "task_canceled");
     assert.equal(event.sessionId, "session_fixture");
@@ -85,7 +81,7 @@ test("Jev 记录：真实旧表补列默认 null；实验、取消事件和主�
   }
 });
 
-test("/context 显示实验策略与回退；未知费用和零请求分别表述，旧记录仍可渲染", () => {
+test("/context 显示实验策略与回退；未知费用和零请求分别表述，无实验记录仍可渲染", () => {
   const render = (detail: ContextExperimentRecord | null) => {
     const value = record("sel_view", detail);
     const lines = contextBarLines(value, selectionBreakdown(value), 180);

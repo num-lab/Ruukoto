@@ -4,7 +4,7 @@
  * 送达 = 进入主 Agent 的一次模型调用（CONTEXT.md「送达」）：main 在承载它的唤醒
  * 任务开始运行时，普通开发会话在下一次任务开始时的注入。此前只是待送达——所属
  * 工作被取消即截住，内容仍作为事实保存可查（issue 14）。送达方向
- * 按会话身份（工单 08）判定：main 建唤醒任务，普通开发会话待注入。
+ * 按会话身份（工单 08）判定：main 与独立调度会话建唤醒任务，普通开发会话待注入。
  * Note: 见 .agents/notes/implemented/feature/2026-10-04-cancel-work.md
  *
  * 五个入口各对应一个调用点：子任务结果已登记（编排器）、发给主 Agent 的消息已
@@ -74,14 +74,17 @@ export class ParentDelivery {
 
   /**
    * 编排器在结果事务提交后调用一次（重复调用由 wake:<子任务> 请求键幂等）。
-   * main → 建结果唤醒；普通开发会话 → 不动（结果行即待注入）；工作已取消 → 不建。
+   * main／独立调度会话 → 建结果唤醒；普通开发会话 → 不动（结果行即待注入）；工作已取消 → 不建。
    * 唤醒输入为固定模板 + 截断摘要与结果引用，不复制子任务完整历史。
    */
   async resultRecorded(child: Task, outcome: ChildOutcome, summary: string): Promise<void> {
     const parent = child.parentTaskId ? this.store.getTask(child.parentTaskId) : null;
     if (!parent) return;
-    const identity = this.store.getSessionIdentity(parent.sessionId);
-    if (identity?.kind !== "main" || this.workCanceled(child.workId)) return;
+    const parentSessionId = child.workId ? this.store.getWorkDelegation(child.workId)?.parentSessionId ?? parent.sessionId : parent.sessionId;
+    const identity = this.store.getSessionIdentity(parentSessionId);
+    if ((identity?.kind !== "main" && identity?.kind !== "scheduled") || this.workCanceled(child.workId)) return;
+    const run = this.store.getScheduledRunForTask(child.id);
+    if (run && (run.closedAt || run.scheduleStatus === "canceled")) return;
     const source = child.sourceEventId ? this.store.getInboundEvent(child.sourceEventId) : null;
     const reviewSource = source && this.deps.isReviewEvent(source) ? source : null;
     const notices = [this.deps.resultNotice(child), this.workReportNotice(child)].filter((n): n is string => n !== null);
@@ -97,16 +100,18 @@ export class ParentDelivery {
         `完整结果：用 coding_result 读取（task_id ${child.id}；part=reply 分页读最终回答，part=artifact 读产物）`;
     try {
       await this.deps.submit({
-        sessionId: parent.sessionId,
+        sessionId: parentSessionId,
         requestId: `wake:${child.id}`,
         input: [input, ...notices].join("\n"),
-        modelSelection: identity.role.modelSelection ?? this.deps.defaultModelSelection(),
-        agentId: identity.role.id,
+        modelSelection: (identity.kind === "main" ? identity.role.modelSelection : identity.modelSelection) ?? this.deps.defaultModelSelection(),
+        agentId: identity.kind === "main" ? identity.role.id : null,
         // 入站 review 的摘要保留宿主来源；普通 owner 委派仍无自动外发授权。
         sourceEventId: reviewSource?.id ?? null,
         deadline: reviewSource ? new Date(Date.parse(child.endedAt!) + REVIEW_DEADLINE_MS).toISOString() : null,
-        // 子任务结果属于外部内容，不能继承 main 会话默认的完全访问。
-        accessMode: "confirm",
+        // 结果来自终态子任务：其模式不再变化，重启补建仍沿原任务授权。
+        accessMode: child.accessMode,
+        parentTaskId: child.id,
+        sourcePermissionVersion: child.permissionVersion,
       });
     } catch (err) {
       this.log(`建结果唤醒失败（child=${child.id}）：${(err as Error).message}`);
@@ -116,13 +121,13 @@ export class ParentDelivery {
   // ---------- 入口 2：发给主 Agent 的消息已登记 ----------
 
   /**
-   * SubAgent 管理器预检并重核后在消息事务内调用（发送与冲刷共用）。main → 同事务插入
+   * SubAgent 管理器预检并重核后在消息事务内调用（发送与冲刷共用）。main／独立调度会话 → 同事务插入
    * 消息唤醒并写投递登记（键 smsg:<消息> 幂等），返回 "wake"，调用方提交后 kick；
    * 普通开发会话 → 待注入，返回 "inject"。
    */
   messageRecorded(msg: SubAgentMessage, work: WorkDelegation, selection: ModelSelection | null): "wake" | "inject" {
     const identity = this.store.getSessionIdentity(work.parentSessionId);
-    if (identity?.kind !== "main") return "inject";
+    if (identity?.kind !== "main" && identity?.kind !== "scheduled") return "inject";
     if (!selection) throw new Error("消息唤醒缺少已核实的模型选择");
     const input = [
       `[工作内消息 · 工作 ${work.id}]`,
@@ -134,10 +139,11 @@ export class ParentDelivery {
       sessionId: work.parentSessionId,
       requestId: `smsg:${msg.id}`,
       input,
-      accessMode: "confirm",
+      accessMode: msg.accessMode,
+      sourcePermissionVersion: msg.sourcePermissionVersion,
       modelSelection: selection,
       submissionDigest: createHash("sha256").update(JSON.stringify({ kind: "smsg-wake", messageId: msg.id })).digest("hex"),
-      agentId: identity.role.id,
+      agentId: identity.kind === "main" ? identity.role.id : null,
       parentTaskId: msg.fromTaskId,
       deadline: null,
     });
@@ -179,7 +185,10 @@ export class ParentDelivery {
    * 取消在登记事务内直接取消它们）。
    */
   wakeAdmitted(task: Task): boolean {
-    return task.agentId !== "main" || !this.workCanceled(this.wakeWorkId(task));
+    const scheduled = this.store.getScheduledRunForTask(task.id);
+    if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) return false;
+    const kind = this.store.getSessionIdentity(task.sessionId)?.kind;
+    return (kind !== "main" && kind !== "scheduled") || !this.workCanceled(this.wakeWorkId(task));
   }
 
   // ---------- 入口 5：后台启动 ----------

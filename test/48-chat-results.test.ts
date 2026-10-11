@@ -149,53 +149,6 @@ test("群结果：拒绝错误身份、未完成任务和伪造来源；停止�
   } finally { f.close(); }
 });
 
-test("schema v16 → v17 保留群任务、收件与发送事实，旧撤回时间保守回填且迁移幂等", () => {
-  const f = fixture();
-  const root = path.dirname(f.db.file);
-  let db: Db | undefined = f.db;
-  try {
-    const source = f.source("a", "old", "OLD-RESULT", 1);
-    f.qq.markRecalled("1000", "2000", "old");
-    seedPendingOutbox(f.store, f.qq, { taskId: source.task.id, account: "1000", groupId: "2000", replyToMessageId: "old", text: "原发送正文" });
-    const task = f.store.getTask(source.task.id);
-    const groups = f.qq.listGroupSessions();
-    const sends = f.qq.listOutbox();
-    const instance = db.getInstanceId();
-    db.exec(`DROP TABLE chat_result_acceptances;
-      ALTER TABLE qq_inbox DROP COLUMN recalled_at;
-      ALTER TABLE qq_inbox DROP COLUMN reply_to_message_id;
-      ALTER TABLE qq_inbox DROP COLUMN config_version;
-      UPDATE meta SET value = '16' WHERE key = 'schema_version'`);
-    db.close();
-    db = undefined;
-    let recalledAt: string | null = null;
-    for (let round = 0; round < 2; round++) {
-      db = new Db(root);
-      const qq = new QqStore(db);
-      assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
-      assert.equal(db.getInstanceId(), instance);
-      assert.deepEqual(new Store(db).getTask(source.task.id), task);
-      assert.deepEqual(qq.listGroupSessions(), groups);
-      assert.deepEqual(qq.listOutbox(), sends);
-      const row = qq.getInbox(source.row.dedupKey)!;
-      assert.ok(row.recalledAt);
-      if (recalledAt) assert.equal(row.recalledAt, recalledAt);
-      recalledAt = row.recalledAt;
-      assert.equal(row.configVersion, null);
-      assert.equal(row.replyToMessageId, null);
-      assert.equal(row.requestId, source.row.requestId);
-      assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
-      assert.equal((db.prepare("PRAGMA integrity_check").get() as any).integrity_check, "ok");
-      assert.equal((db.prepare("SELECT COUNT(*) AS n FROM chat_result_acceptances").get() as any).n, 0);
-      db.close();
-      db = undefined;
-    }
-  } finally {
-    db?.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("群结果：来源及先前交互撤回使旧摘要失效，其他群及撤回后新任务仍可接收", async () => {
   const f = fixture();
   try {

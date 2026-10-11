@@ -146,6 +146,10 @@ test("报告归档：历史在第二页读取失败不得标为完整产物，�
     const body = { repository: { id: 42, fullName: "owner/repo" }, number: 7, url: "https://github.com/owner/repo/pull/7",
       headSha: "a".repeat(40), baseSha: "b".repeat(40), state: "open", draft: false, updatedAt: "2026-09-24T00:00:00Z" };
     const { event } = rt.store.withTx(() => rt.store.registerInboundEvent({ source: "github", externalId: randomUUID(), actor: null, targetRole: "main", body: JSON.stringify(body) }));
+    rt.store.withTx(() => {
+      rt.store.db.prepare("UPDATE tasks SET source_event_id = ? WHERE id = ?").run(event.id, parent.id);
+      rt.store.markInboundQueued(event.id, parent.id);
+    });
     // 造一个 SubAgent 评审任务（独立子会话，带工作/身份与来源事件）
     const deleg = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "partial", request: "评审", paramsDigest: "p", readPaths: null, materials: null, hostReview: { sourceEventId: event.id } });
     const adapter = new GitHubEvents({ store: rt.store, artifacts: rt.artifacts, sched: rt.sched, target: () => null, dispatch: async () => {}, capReply: (_, text) => text,

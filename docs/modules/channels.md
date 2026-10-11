@@ -150,15 +150,15 @@ sequenceDiagram
     A->>S: 登记（source=telegram，externalId=<botId>:<chatId>:<messageId>，钉版 reply_target）
     A->>S: 登记成功后写 last_update_id（推进前复核同一代次）
     O->>S: 补派 / 派发，入站门 gatePrivate 复核
-    O->>O: 以 confirm 模式建任务（目标 main）
+    O->>O: 按主会话默认模式建任务（目标 main）
     O->>B: 结果事务内登记 owner_reply（键=事件 id，正文取本任务最终回答，超 4000 字截短）
     B->>A: 领取后、请求前复核启停、固定目标与配置版本
     A->>TG: sendMessage 纯文本 + reply_parameters
 ```
 
-接收只接纳 `chat.type = private` 且 `from.id` / `chat.id` 与配置一致的文本或 photo，其余不登记、不建任务、不调用模型，只记 `telegram.rejected`（update/chat/user id 与原因`not_owner` / `not_private` / `non_text` / `unsupported_update`，不含正文）。转发（`forward_origin` / `forward_date`）消息照常登记建任务，但其内容不解释为审批命令（不进入`commandText`）。photo 取像素面积最大的 PhotoSize，先 `getFile` 再下载，caption 可为空，回复图片消息的 caption 也可成为有界摘录。入站正文模板固定为`[Telegram 私聊] chat … user … message … 时间 …`，回复某条消息时附`回复关联：message <id>（本 bot / owner 发送）：<摘录 ≤500 字>`。入库事件建任务一律固定`confirm` 模式，不继承 main 会话默认的完全访问。
+接收只接纳 `chat.type = private` 且 `from.id` / `chat.id` 与配置一致的文本或 photo，其余不登记、不建任务、不调用模型，只记 `telegram.rejected`（update/chat/user id 与原因`not_owner` / `not_private` / `non_text` / `unsupported_update`，不含正文）。转发（`forward_origin` / `forward_date`）消息照常登记建任务，但其内容不解释为审批命令（不进入`commandText`）。photo 取像素面积最大的 PhotoSize，先 `getFile` 再下载，caption 可为空，回复图片消息的 caption 也可成为有界摘录。入站正文模板固定为`[Telegram 私聊] chat … user … message … 时间 …`，回复某条消息时附`回复关联：message <id>（本 bot / owner 发送）：<摘录 ≤500 字>`。已核实拥有者的私聊按创建任务时的主会话默认模式执行；消息正文不能设置模式。
 
-派发、任务启动（`runQueueLoop`）与终态回复都经 `gatePrivate` 复核来源、actor（配置owner user_id，不能由 chatId 推断）与钉版目标：版本未变的暂时离线等待恢复；停用、重绑或目标变化明确失效，`reply_target = null` 的遗留消息不补造，其 registered/queued 工作失效，历史与执行事实保留。Telegram 来源任务到达终态时，正文取本任务历史条目的最终回答（不取会话最新一条）；失败、超时或未知只发宿主固定提示；目标不可用记 `telegram.reply_skipped`。定时唤醒与旧 coding 子任务的唤醒不产生 `owner_reply`（main 需要时用 `notification_enqueue`另行确认），通用 SubAgent 工作的收尾唤醒按最终汇报规则发回工作发起入口。
+派发、任务启动（`runQueueLoop`）与终态回复都经 `gatePrivate` 复核来源、actor（配置owner user_id，不能由 chatId 推断）与钉版目标：版本未变的暂时离线等待恢复；停用、重绑或目标变化明确失效，`reply_target = null` 的遗留消息不补造，其 registered/queued 工作失效，历史与执行事实保留。Telegram 来源任务到达终态时，正文取本任务历史条目的最终回答（不取会话最新一条）；失败、超时或未知只发宿主固定提示；目标不可用记 `telegram.reply_skipped`。通用调度与旧 coding 子任务的唤醒不产生 `owner_reply`（调度整项运行使用唯一最终回报，主动外发按任务模式使用 `notification_enqueue`），通用 SubAgent 工作的收尾唤醒按最终汇报规则发回工作发起入口。
 
 ### 发送与断线
 
@@ -179,7 +179,7 @@ QQ 好友私聊与 Telegram 共用 main 会话，复用 NapCat OneBot v11 正向
 
 消息先登记 `source = qq_private`，按 `<登录账号>:<owner>:<message_id>` 去重，再以原事件键进入 main 队列；接收时固定回复目标和配置版本，派发与任务启动前复核，连接代次含配置版本（配置或凭据变化即重建连接，旧连接上的事件不被接纳）。配置变化取消旧授权，离线保留已登记工作等待；断线期间未登记的消息没有持久投递保证，接收缺口经 `qq.receive_gap` 如实记录，不补抓平台历史。main 队列沿用角色的恢复规则：中断任务由拥有者决定继续，不套用无工具群会话的自动恢复规则。
 
-任务固定 `confirm` 模式；消息不能开启完全访问、修改角色或凭据。拥有者可经私聊审批命令批准已有受控操作，其明确提出的编码请求可委派 coding。main 和 coding 不能直接查询原始 QQ 群项目的历史、产物及带群来源的记忆，也不能通过委派资料或旧通知正文绕过；已有主会话内容仍跨平台共享，不追溯清洗已复制或转述的内容。回复只读取本任务的最终回答，在结果事务内登记公共`notification_ops` 的 `owner_reply`，按原平台和原 owner 发送，按 `max_reply_chars` 截短后入账（默认 1500），单条纯文本并可引用原消息。明确失败为 `failed`；超时、断线、异步接受或缺少有效消息 ID 的回执为 `effect_unknown`，均不自动重发。QQ 入站任务申请的新通知或定时发送绑定收件时的 QQ 目标，经统一审批后发送；定时唤醒、子任务唤醒和直接 TUI 任务仍沿用 Telegram默认目标。目标版本变化使旧操作取消，不切换到其他平台。
+已核实拥有者的私聊按创建任务时的主会话默认模式执行；消息不能设置模式、修改角色或凭据。拥有者可经私聊审批命令批准已有受控操作，其明确提出的工作可委派 SubAgent。个人助手和 SubAgent 不能直接查询原始 QQ 群项目的历史、产物及带群来源的记忆，也不能通过委派资料或旧通知正文绕过；已有主会话内容仍跨平台共享，不追溯清洗已复制或转述的内容。回复只读取本任务的最终回答，在结果事务内登记公共`notification_ops` 的 `owner_reply`，按原平台和原 owner 发送，按 `max_reply_chars` 截短后入账（默认 1500），单条纯文本并可引用原消息。明确失败为 `failed`；超时、断线、异步接受或缺少有效消息 ID 的回执为 `effect_unknown`，均不自动重发。QQ 入站任务申请的一次通知绑定收件时的 QQ 目标，按任务模式执行；完全访问免操作审批，受限模式逐次确认。通用定时运行使用计划创建时固定的目标；其他非 IM 任务的一次通知取宿主默认目标。目标版本变化使旧操作取消，不切换到其他平台。
 
 ### 私聊图片入站与提升
 
@@ -203,6 +203,8 @@ sequenceDiagram
 接收按 `(source, external_id)` 去重，每张图片按消息与 `media_index` 去重。模型不支持 image时将媒体消息记为 `rejected`、已登记事件记为 failed，并保留原消息与 `image_input_unsupported`原因，不创建普通模型任务；继续任务或历史图片进入不支持视觉的模型时，Driver 在发出请求前使任务明确失败；两种路径都使用固定模型能力回执。任务启动须确认该事件已绑定本任务。文件与数据库没有跨文件事务，确定的产物 ID 和哈希核实让提升可以沿原键重试。会话历史及 prompt快照保存稳定引用，视觉输入在发送边界从产物恢复。含图片消息的 caption／文字只作为任务输入，不解析 `/approve` 等 IM 审批命令；出站保持文本。
 
 启动时恢复下载完成未登记、登记未建任务及建任务未提升的窗口；未完成下载没有可恢复下载闭包时明确拒绝，已完成文件在重新校验后继续登记。平台重新在线时补派并唤醒主会话队列。没有绑定任务的暂存超过 24 小时清理并保留可核查状态，后台启动及之后每小时检查一次；已经创建任务但尚未完成提升的恢复记录不清理，已绑定图片沿任务产物保留。格式或上限拒绝、下载最终失败、视觉模型不支持分别使用三种宿主固定纯文本回执；原消息重投、重启补登共用同一发送键；发送前核对拒绝账本、原拥有者与钉版目标，配置变化不改发，结果未知不重发。拒绝记录独立于普通任务入站，不能被派发成模型任务。
+
+已接收任务的模式与模型选择是恢复的权威记录。补齐关联时核对原会话、`evt:<事件ID>` 请求键、来源事件与 Agent，沿用原任务，不按后来默认值重新提交；终态任务只补登记原结果与幂等回执，不再激活。目标换代使旧任务明确取消，启动前先复核来源再等待媒体关联，避免无效图片任务阻塞后续主聊天。
 
 **模拟验证**使用真实 Runtime／SQLite／文件和本地 Telegram Bot API、OneBot、模型服务：`test/90-inbound-media.test.ts`、`test/95-media-adapters.test.ts`、`test/96-vision-driver.test.ts`、`test/97-media-recovery.test.ts`。真实 Telegram／QQ 图片收发 smoke 尚未执行，模拟 payload通过不表示真实平台已通过。
 
@@ -282,7 +284,7 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 
 旧群资料为只读归档：`qq_inbox`（状态、撤回标记与时间、引用关联）、`qq_outbox`（发送账本）、`qq_sessions` 映射、入站事件与 chat 任务行全部保留。`qq inbox` 每条记录附 main 的接收账本行（接收时间、接收任务、理由、摘要快照）与当前复核结论（可用，或不可用的原因——归档缺失／不一致、main 不可用、来源已撤回）；`qq outbox` 查账本；拥有者 `read_history` 可读群会话历史。归档不能变成对话入口：`create_session` 拒绝群项目与角色项目（与 `open_workspace` 同一判定），`submit` / `continue` 拒绝 `qq_group` 会话与 chat／coding 角色会话；`open_workspace`认领与工作区迁移对角色／群聊项目的排除不变。隔离不因归档而扩大：AccessScope 按`sessions.kind = 'qq_group'` 判定，不依赖 chat 角色行；main／coding／SubAgent 仍读不到群项目原始历史、产物与带群来源的记忆；`chat_result` 资料仍不能用于 SubAgent 委派；已接收快照只对main 开放。
 
-群聊结果复核不变：`chat_result_list` 与 `chat_result_accept` 作用于归档中已完成且已记录结果的旧群 chat 任务。列表只给来源元数据；接收保存至多 1000 个 Unicode 字符的摘要快照及接收任务、操作和理由，不开放原始群历史或产物；接收前核对任务、会话、收件、入站事件与群映射相互匹配（chained 校验失败即明确拒绝），并按同群时间窗保守排除可能含已撤回消息的结果。已接收摘要仍可被 `notification_enqueue` / `schedule_create` 的 `{kind:'chat_result',task_id}` 引用（仍需拥有者审批，完全访问模式也不例外）；查询、批准提交与发送前复核撤回与宿主来源——归档行缺失或不一致、main 不可用或来源已撤回时取消该次发送并记 `source_revoked` 原因，不会只凭接收快照正文继续发送。
+群聊结果复核不变：`chat_result_list` 与 `chat_result_accept` 作用于归档中已完成且已记录结果的旧群 chat 任务。列表只给来源元数据；接收保存至多 1000 个 Unicode 字符的摘要快照及接收任务、操作和理由，不开放原始群历史或产物；接收前核对任务、会话、收件、入站事件与群映射相互匹配（chained 校验失败即明确拒绝），并按同群时间窗保守排除可能含已撤回消息的结果。已接收摘要仍可被 `notification_enqueue` / `schedule_create` 的 `{kind:'chat_result',task_id}` 引用（一次外发按任务模式授权，完全访问免审批；计划创建保存创建模式与固定目标）；查询、批准提交与发送前复核撤回与宿主来源——归档行缺失或不一致、main 不可用或来源已撤回时取消该次发送并记 `source_revoked` 原因，不会只凭接收快照正文继续发送。
 
 **测试落点。** `test/85-retire-core-group-chat.test.ts` 覆盖：全新实例不引导 chat、群消息零新增（收件／会话／任务／回复／模型调用），同连接 QQ 私聊与 Telegram 照常回复；归档查询（`qq inbox`附接收与复核、`qq outbox`、`read_history`）、转 dev 会话与 `submit`／`continue` 全部拒绝；无chat 角色行的隔离不变；已接收结果通知经批准正常发送、撤回／篡改阻断并记 `source_revoked`；排队／在途／待发／未派发事件一次性收尾与三次启动幂等。旧数据由`test/helpers/legacy-group-archive.ts` 按退役前（核心库 v24）持久形态播种；真实旧代码产生数据的升级路径见 `.scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）。`test/26-qq.test.ts` 保留传输状态、配置校验与 `qq_group` 资料身份；`test/40-qq-private.test.ts`覆盖连接鉴权、身份核对、掉线重连与接收缺口；`test/49-chat-result-flow.test.ts` 用播种归档数据覆盖接收／审批／撤回复核／不凭快照外发。
 
@@ -329,7 +331,7 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 | 来源失效（事件过期、入口停用、配置变化、归档缺失或来源撤回） | 取消未发送操作，必要时记 `source_revoked` |
 | 结果未知或不一致 | 由拥有者核实，绝不重放 |
 
-- 入站事件一律以宿主固定的 `confirm` 模式建任务；消息正文不能设置权限模式、修改角色或凭据。
+- 已绑定拥有者的 QQ／Telegram 私聊取主会话默认模式，GitHub 等其他外部事件保持宿主固定的 `confirm`；消息正文不能设置权限模式、修改角色或凭据。
 - 回复只取本任务历史条目的最终回答，不取会话最新一条；目标必须与该事件收件时钉版的目标及当前固定目标一致，否则记 `<来源>.reply_skipped` 且不改发。
 - 定时唤醒与旧 coding 子任务的唤醒不自动外发；只有通用 SubAgent 工作的收尾汇报按最终汇报规则发回工作发起入口。
 
@@ -359,6 +361,8 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 - 已接收摘要的外发必须逐次复核宿主来源与撤回状态，不凭快照正文继续发送。
 
 ## 设计依据
+
+- [完全访问的执行账户与授权传播](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：已绑定拥有者私聊的任务模式。
 
 - [入站图片先暂存，按任务提升并在发送前恢复](../../.agents/notes/implemented/architecture/2026-10-07-inbound-image-staging.md)：解释媒体为何先暂存后提升、拒绝账本与恢复键的设计。
 - [GitHub PR 事件的宿主只读评审与固定通知](../../.agents/notes/implemented/feature/2026-09-24-github-event-review.md)：解释 webhook 入口、宿主固定评审与一次通知的取舍。

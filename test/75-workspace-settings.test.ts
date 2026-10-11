@@ -129,43 +129,6 @@ test("settings_version：兼容写入（省略版本）仍更新同一行并产�
   }
 });
 
-test("settings_version：v19 旧库升级到当前版本后旧项目获得初始版本 1，且不产生设置事件", () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws75-migrate-"));
-  try {
-    // 先用当前版本建库，再以原始 SQL 写入旧设置值（模拟 v19 时代的库内容）
-    const db = new Db(dataDir);
-    const store = new Store(db);
-    const project = store.withTx(() => store.createProject("旧项目"));
-    db.exec(`UPDATE projects SET instruction_files = '["LEGACY.md"]', web_search = 'disabled' WHERE id = '${project.id}'`);
-    // 模拟 v19 文件：去掉 settings_version 列并回退版本号
-    db.exec("ALTER TABLE projects DROP COLUMN settings_version");
-    db.exec("UPDATE meta SET value = '19' WHERE key = 'schema_version'");
-    db.close();
-
-    const upgraded = new Db(dataDir);
-    try {
-      const current = new Store(upgraded);
-      const cols = (upgraded.prepare("PRAGMA table_info(projects)").all() as any[]).map((c) => c.name);
-      assert.ok(cols.includes("settings_version"), "补列 settings_version");
-      const p = current.getProject(project.id)!;
-      assert.equal((upgraded.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value,
-        String(SCHEMA_VERSION), "旧库升级到当前 schema");
-      assert.equal(p.settingsVersion, 1, "旧项目升级为初始版本 1");
-      assert.deepEqual(p.instructionFiles, ["LEGACY.md"], "旧指令列表保留");
-      assert.equal(p.webSearch, "disabled", "旧开关保留");
-      assert.equal(
-        current.getEventsAfter(0).filter((e) => e.body.type === "project.settings_changed").length,
-        0,
-        "升级不产生设置事件",
-      );
-    } finally {
-      upgraded.close();
-    }
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
 // ---------- 步骤 4：工作区并存、钉版时机、资料授权与旧入口兼容串联 ----------
 
 /** 最后一个 tool 结果消息在最后一个 user 消息之后 = 本轮工具已返回（跨任务复用历史时仍正确）。 */

@@ -65,11 +65,15 @@ for (const source of ["telegram", "qq_private"] as const) {
         if (window >= 1) {
           const { event } = rt.store.withTx(() => rt.store.registerInboundEvent({ ...envelope, targetRole: "main" }));
           rt.inboundMedia.attachEvent(source, externalId, event.id);
-          if (window === 2) await rt.submit({
+          if (window === 2) {
+            await rt.submit({
             sessionId: main.sessionId, requestId: `evt:${event.id}`,
             input: `[入站事件] 来源：${source} 外部 id：${externalId} actor：${envelope.actor}\n${envelope.body}`,
             accessMode: "confirm", agentId: "main", sourceEventId: event.id, modelSelection: rt.defaultSelection,
-          });
+            });
+            const current = rt.store.getSession(main.sessionId)!;
+            await rt.setSessionDefaultMode({ sessionId: current.id, mode: "full_access", expectedVersion: current.defaultAccessModeVersion });
+          }
         }
         const before = model.calls.length;
         await rt.stop("simulated_window");
@@ -79,6 +83,7 @@ for (const source of ["telegram", "qq_private"] as const) {
         assert.equal(event.artifactRefs.length, 1);
         const artifact = rt.store.getArtifact(event.artifactRefs[0]!)!;
         assert.equal(artifact.taskId, event.taskId);
+        if (window === 2) assert.equal(rt.store.getTask(event.taskId!)!.accessMode, "confirm", "已接受任务恢复不重算后来默认模式");
         assert.equal(artifact.status, "complete");
         assert.deepEqual(rt.artifacts.read(artifact.id), PNG);
         assert.ok(JSON.stringify(model.calls.slice(before)).includes(`data:image/png;base64,${PNG.toString("base64")}`));
@@ -88,6 +93,30 @@ for (const source of ["telegram", "qq_private"] as const) {
         assert.equal(rt.store.listTasksBySession(main.sessionId).length, window + 1);
         assert.equal(downloads, window + 1);
         await waitFor("原入口回复发送一次", () => rt.sched.findOpBySource("owner_reply", event.id)?.status === "sent");
+      }
+      // 已接受后先取消、关联尚未完成：恢复只补资料与终态回执，不能再次执行。
+      {
+        const externalId = `${account}:${owner}:898`;
+        const envelope = { source, externalId, actor: `${source}:${owner}`, body: "关联前已取消", replyTarget: target };
+        rt.store.setSessionQueueState(main.sessionId, "paused", "backend_restart");
+        await rt.inboundMedia.stage({ ...envelope, media: [{ download: async () => new Response(PNG, { headers: { "content-type": "image/png" } }) }] });
+        const { event } = rt.store.withTx(() => rt.store.registerInboundEvent({ ...envelope, targetRole: "main" }));
+        rt.inboundMedia.attachEvent(source, externalId, event.id);
+        const accepted = await rt.submit({ sessionId: main.sessionId, requestId: `evt:${event.id}`,
+          input: `[入站事件] 来源：${source} 外部 id：${externalId} actor：${envelope.actor}\n${envelope.body}`,
+          accessMode: "confirm", agentId: "main", sourceEventId: event.id, modelSelection: rt.defaultSelection });
+        await rt.cancelTask(accepted.id);
+        const calls = model.calls.length;
+        await rt.stop("before_terminal_source_link");
+        rt = await Runtime.start(config);
+        await waitFor("取消任务补关联与终态回执", () => rt.sched.findOpBySource("owner_reply", event.id)?.status === "sent");
+        assert.equal(rt.store.getInboundEvent(event.id)!.taskId, accepted.id);
+        assert.equal(rt.store.getInboundEvent(event.id)!.status, "failed");
+        assert.equal(rt.store.getTask(accepted.id)!.status, "canceled");
+        assert.equal(rt.store.getTask(accepted.id)!.accessMode, "confirm");
+        assert.equal(model.calls.length, calls, "终态任务不能重新激活或重放");
+        await rt.orchestrator!.dispatchRegisteredEvents();
+        assert.equal(rt.sched.listOps({ limit: 100 }).items.filter((op) => op.sourceKind === "owner_reply" && op.sourceKey === event.id).length, 1);
       }
       // 提升未完成时图片损坏：明确收尾已有排队任务，不能阻塞主会话后续消息。
       rt.store.db.prepare("UPDATE sessions SET queue_state = 'paused', queue_pause_reason = 'backend_restart' WHERE id = ?").run(main.sessionId);
@@ -114,7 +143,33 @@ for (const source of ["telegram", "qq_private"] as const) {
       await waitFor("后续文本回复", () => rt.sched.findOpBySource("owner_reply", followup.id)?.status === "sent");
       const sessionFile = rt.store.getSession(main.sessionId)!.sessionFile!;
       assert.ok(!fs.readFileSync(sessionFile, "utf8").includes(PNG.toString("base64")), "JSONL 只保留稳定引用");
-      assert.equal(rt.sched.listOps({ limit: 100 }).items.filter(op => op.sourceKind === "owner_reply").length, 4);
+      assert.equal(rt.sched.listOps({ limit: 100 }).items.filter(op => op.sourceKind === "owner_reply").length, 5);
+      // 旧代次已接受但尚未关联：换拥有者后旧任务取消，不能阻塞新目标的后续消息。
+      {
+        const oldExternalId = `${account}:${owner}:903`;
+        const oldEnvelope = { source, externalId: oldExternalId, actor: `${source}:${owner}`, body: "旧目标待关联", replyTarget: target };
+        rt.store.setSessionQueueState(main.sessionId, "paused", "backend_restart");
+        await rt.inboundMedia.stage({ ...oldEnvelope, media: [{ download: async () => new Response(PNG, { headers: { "content-type": "image/png" } }) }] });
+        const { event: oldEvent } = rt.store.withTx(() => rt.store.registerInboundEvent({ ...oldEnvelope, targetRole: "main" }));
+        rt.inboundMedia.attachEvent(source, oldExternalId, oldEvent.id);
+        const oldTask = await rt.submit({ sessionId: main.sessionId, requestId: `evt:${oldEvent.id}`,
+          input: `[入站事件] 来源：${source} 外部 id：${oldExternalId} actor：${oldEnvelope.actor}\n${oldEnvelope.body}`,
+          accessMode: "confirm", agentId: "main", sourceEventId: oldEvent.id, modelSelection: rt.defaultSelection });
+        const newOwner = String(Number(owner) + 1);
+        if (source === "telegram") await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: newOwner });
+        else await rt.qqConfigure({ endpoint: onebot.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq", ownerUserId: newOwner });
+        await rt.stop("before_changed_target_link");
+        rt = await Runtime.start(config);
+        const nextConfig = source === "telegram" ? rt.telegramStore.getConfig()! : rt.qqStore.getConfig()!;
+        const { event: nextEvent } = await rt.orchestrator!.registerInboundEvent({ source, externalId: `${account}:${newOwner}:904`,
+          actor: `${source}:${newOwner}`, body: "新目标正常后续", targetRole: "main",
+          replyTarget: { channel: source, account, chatId: newOwner, configVersion: nextConfig.configVersion } });
+        await waitFor("旧排队任务被取消且新目标任务完成", () => rt.store.getTask(oldTask.id)!.status === "canceled" && rt.store.getInboundEvent(nextEvent.id)!.status === "done");
+        assert.equal(rt.store.getInboundEvent(oldEvent.id)!.status, "failed");
+        assert.equal(rt.sched.findOpBySource("owner_reply", oldEvent.id), null, "旧代次不产生或改发回复");
+        await waitFor("新目标的后续回复发送", () => rt.sched.findOpBySource("owner_reply", nextEvent.id)?.status === "sent");
+        assert.equal(rt.sched.findOpBySource("owner_reply", nextEvent.id)!.target.chatId, newOwner);
+      }
     } finally {
       await rt.stop("test_end");
       await Promise.all([bot.close(), onebot.close(), model.close()]);

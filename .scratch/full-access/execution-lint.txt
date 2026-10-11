@@ -1,0 +1,9 @@
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/scheduler-tools.ts
+  29:1  error  @ruukoto/core 未在本包声明为运行时依赖。  workspaces/imports
+
+✖ 1 problem (1 error, 0 warnings)

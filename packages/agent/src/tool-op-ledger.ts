@@ -136,13 +136,17 @@ export class ToolOpLedger {
     // 长期授权失效扩散（agent-direction issue 10）：已消费的服务审批范围 → 同一
     // main、本机、单元与动作的所有有效长期授权失效（覆盖所有入口；记录触发操作 ID）。
     // 效果未知阻止换 ID 自动重试；重新建立授权需要拥有者显式决定。
-    for (const c of this.store.listConfirmationsByTask(task.id)) {
-      if (c.toolOpId !== opId || c.consumedAt === null || c.scope.kind !== "service_operation") continue;
+    const scopes = [op.authorization?.scope, ...this.store.listConfirmationsByTask(task.id)
+      .filter((c) => c.toolOpId === opId && c.consumedAt !== null).map((c) => c.scope)];
+    const identity = this.store.getSessionIdentity(task.sessionId);
+    const sessionId = identity?.kind === "scheduled" ? this.store.getAgentRole("main")?.sessionId : task.sessionId;
+    for (const scope of scopes) {
+      if (scope?.kind !== "service_operation" || !sessionId) continue;
       this.store.invalidateStandingForTarget({
-        sessionId: c.sessionId,
-        machineId: c.scope.machineId,
-        unit: c.scope.unit,
-        action: c.scope.action,
+        sessionId,
+        machineId: scope.machineId,
+        unit: scope.unit,
+        action: scope.action,
         opId,
       });
     }

@@ -297,7 +297,7 @@ async function notifyHarness(prefix: string, responder: Responder) {
     const done = g.seedTask({ userId: OWNER, messageId, state: "completed", summary });
     return seedAcceptedResult(rt.store, { mainProjectId: main.projectId, acceptedByTaskId: done.task!.id, taskId: done.task!.id, summary });
   };
-  const submit = (input: string) => rt.submit({ sessionId: main.sessionId, requestId: input, input, accessMode: "full_access", modelSelection: rt.defaultSelection });
+  const submit = (input: string) => rt.submit({ sessionId: main.sessionId, requestId: input, input, accessMode: "confirm", modelSelection: rt.defaultSelection });
   const complete = (taskId: string) => waitFor("main 任务完成", () => rt.store.getTask(taskId)?.status === "completed");
   return {
     ...t, rt, onebot, channel, main, archive, group, acceptResult, submit, complete,
@@ -357,24 +357,26 @@ test("验收4b/4c/4d：撤回与归档篡改阻断待发通知与调度运行（
     await rt.scheduler!.idle();
     assert.equal(rt.sched.getOp(op1.id)!.status, "canceled");
     assert.match(rt.sched.getOp(op1.id)!.errorMessage!, /source_revoked：.*撤回/);
-    assert.deepEqual(h.channel.sends, [], "撤回不凭接收快照正文继续发送");
+    assert.equal(h.channel.sends.length, 0, "撤回不凭接收快照正文继续发送");
 
     // 4d：调度运行的发送前复核同样阻断（撤回；先于映射删除执行，避免相互污染）
     const r3 = accepted("13", "结果三");
     const rule = parseRule({ kind: "once", at: "2026-09-24T09:00:00Z", time_zone: "UTC" });
     rt.store.withTx(() => rt.sched.insertSchedule({
       createKey: "notify-sched", paramsDigest: "test", createTaskId: null, createOpId: null,
-      action: "notify", rule, payload: { text: r3.a.summary, sourceRefs: [r3.ref] },
-      target: { ...TARGET }, approvalId: null, nextDueAt: firstDue(rule, Date.now()), tzData: "test", reason: "test",
+      projectId: rt.store.getAgentRole("main")!.projectId, createPermissionVersion: 1, accessMode: "confirm", rule,
+      instruction: r3.a.summary, sourceRefs: [r3.ref], target: { ...TARGET }, nextDueAt: firstDue(rule, Date.now()), tzData: "test", reason: "test",
     }, "test"));
     h.onebot.pushRecall({ groupId: GROUP, messageId: 13, userId: OWNER });
     await waitFor("撤回已落库", () => rt.qqStore.getInbox(qqDedupKey(MOCK_QQ_ACCOUNT, GROUP, "13"))!.recalled);
     await rt.scheduler!.tick();
     await rt.scheduler!.idle();
+    await rt.scheduler!.tick();
+    await rt.scheduler!.idle();
     const runOps = h.ops().filter((op) => op.sourceKind === "schedule_run");
     assert.equal(runOps.length, 1, "调度运行登记一条发送");
-    assert.equal(runOps[0]!.status, "canceled");
-    assert.match(runOps[0]!.errorMessage!, /source_revoked：.*撤回/);
+    assert.equal(runOps[0]!.status, "sent", "资料已撤回使任务未启动，固定目标仅收到通用失败诊断");
+    assert.doesNotMatch(runOps[0]!.text, /结果三/);
 
     // 4c：删除归档会话映射 → 复核失败并说明原因
     const groupB = h.archive.seedGroup({ account: MOCK_QQ_ACCOUNT, groupId: GROUP_B });
@@ -385,7 +387,8 @@ test("验收4b/4c/4d：撤回与归档篡改阻断待发通知与调度运行（
     await rt.scheduler!.idle();
     assert.equal(rt.sched.getOp(op2.id)!.status, "canceled");
     assert.match(rt.sched.getOp(op2.id)!.errorMessage!, /source_revoked：.*映射不匹配/);
-    assert.deepEqual(h.channel.sends, [], "三种失效都不调用发送器");
+    assert.equal(h.channel.sends.length, 1, "只发送未启动运行的通用失败诊断");
+    assert.doesNotMatch(h.channel.sends[0].text, /结果一|结果二|结果三/, "已撤销资料不进入诊断");
   } finally { await h.close(); }
 });
 

@@ -94,3 +94,7 @@ QQ 群聊以内建 `chat` 角色接入核心：每个「登录账号 + 群」映
 - `test/85-retire-core-group-chat.test.ts` 逐条覆盖六项验收：新核心不引导 chat，群消息不新增收件、会话、任务、回复或模型调用，私聊与 Telegram 照常回复；归档可查，转为 dev 会话、`submit`、`continue` 与 `open_workspace` 认领都被拒；没有 chat 角色行时隔离不扩大；通知与调度遇到撤回、篡改或映射缺失时阻断并记 `source_revoked`；排队、运行中、待发与未派发的旧状态一次收尾，三次启动结果不变，期间没有发送也没有模型调用。旧数据由 `test/helpers/legacy-group-archive.ts` 按退役前（核心库 v24）的持久形态播种，因为退役后的代码不能再产生这些行。
 - `test/26-qq.test.ts` 保留传输状态、配置校验与 `qq_group` 资料身份；群消息被忽略由 `test/85` 验收。`test/48-chat-results.test.ts` 覆盖元数据列表、有界快照、伪造来源拒绝、撤回时间窗失效与 schema v16 → v17 迁移；`test/49-chat-result-flow.test.ts` 用播种的归档覆盖接收、审批、撤回复核，以及「不凭快照外发」。
 - [smoke-20](../../../../.scratch/agent-direction/smoke-20-retire-group-chat.mts) 让旧数据由真实旧代码（`e542261` 的工作副本、旧 CLI 与模拟 OneBot）产生，之后 SIGKILL 后台，换新代码在同一数据目录启动，再重启一次核对幂等。它在 macOS 本机与 tx（`--remote`，Linux、Docker 受限 worker）上运行。模型与 OneBot 为模拟；真实 QQ 群与 NapCat 没有入口，记为未实测；tx 生产库副本的升级演练需要 `ruukoto-backend` 权限，未经拥有者授权，没有做。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

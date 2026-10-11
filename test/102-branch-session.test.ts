@@ -1,3 +1,4 @@
+import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 /** 分支使用真实 JSONL、SQLite、控制面与模拟模型，验证快照边界和最终发送内容。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -348,7 +349,7 @@ test("跨项目来源每次读取核实授权；撤销不借连续分支恢复",
   } finally { await t.shutdown(); }
 });
 
-test("旧 schema 迁移默认字段；开发导入保留分支、个人导入明确排除、回退及缺来源拒绝", async () => {
+test("开发导入保留分支、个人导入明确排除、回退及缺来源拒绝", async () => {
   const { t, session, h } = await fixture("branch-import");
   try {
     h.task(); h.user("旧实例原文");
@@ -385,15 +386,7 @@ test("旧 schema 迁移默认字段；开发导入保留分支、个人导入明
     source.close();
     const deps = { targetDataDir: path.join(t.dirs.root, "broken-data"), targetAgentDir: path.join(t.dirs.root, "broken-agent") };
     assert.throws(() => previewLegacyImport(deps, { from: t.dirs.dataDir }), (e: any) => e.code === "source_scope_unavailable");
-    const old = new Db(t.dirs.dataDir);
-    old.prepare("UPDATE sessions SET name = NULL, branch_source = NULL").run();
-    old.exec("DROP TABLE branch_requests"); old.exec("ALTER TABLE sessions DROP COLUMN name"); old.exec("ALTER TABLE sessions DROP COLUMN branch_source");
-    old.prepare("UPDATE meta SET value = '32' WHERE key = 'schema_version'").run(); old.close();
-    const migrated = new Db(t.dirs.dataDir);
-    assert.equal(new Store(migrated).getSession(session.id)!.name, null);
-    assert.equal(new Store(migrated).getSession(session.id)!.branchSource, null);
-    assert.equal(new Store(migrated).getSession(session.id)!.piSessionId, session.piSessionId);
-    migrated.close();
+
   } finally { await t.shutdown(); }
 });
 
@@ -467,7 +460,7 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     const rt = t.runtime;
     const source = (await rt.openWorkspace({ cwd: t.work[0]! })).session;
     const h = history(t, source); const parent = h.task(); h.user("原工作"); h.assistant([{ type: "text", text: "准备委派" }]);
-    const first = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "original", request: "原执行", readPaths: ["."], materials: null, paramsDigest: "first" });
+    const first = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "original", request: "原执行", readPaths: ["."], materials: null, paramsDigest: "first" });
     workId = first.work.id;
     await waitFor("原子任务完成且空闲", () => rt.store.getTask(first.task.id)!.status === "completed" && rt.store.getSubAgent(first.agent.id)!.state === "idle");
     await assert.rejects(() => rt.branchSession({ sessionId: first.agent.sessionId, requestId: "subagent-source" }), /普通开发/);
@@ -477,7 +470,7 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     const c = await rt.branchSession({ sessionId: b.id, requestId: "result-c" });
     assert.deepEqual(c.branchSource!.results, [{ workId, taskIds: [first.task.id] }]);
     assert.ok(c.branchSource!.artifacts.some(a => a.id === artifact.id));
-    const later = await rt.subagents!.delegate({ parentTaskId: parent.id, workId, key: "later", request: "后续执行", readPaths: ["."], materials: null, paramsDigest: "later" });
+    const later = await delegateFromActiveTask(rt, { parentTaskId: parent.id, workId, key: "later", request: "后续执行", readPaths: ["."], materials: null, paramsDigest: "later" });
     await waitFor("后续源任务完成", () => rt.store.getTask(later.task.id)!.status === "completed" && rt.store.getSubAgent(first.agent.id)!.state === "idle");
     const before = t.server.calls.length;
     const own = await rt.submit({ sessionId: c.id, requestId: "read-results", input: "读取已有结果", modelSelection: rt.defaultSelection });
@@ -485,13 +478,13 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     const payload = inputText(t.server.calls[before + 1]!);
     assert.ok(payload.includes("原快照结果") && !payload.includes("后续新增结果") && !payload.includes(later.task.id));
     const params = { parentTaskId: own.id, key: "forbidden", request: "不能管理原工作", readPaths: ["."], materials: null, paramsDigest: "forbidden" };
-    await assert.rejects(() => rt.subagents!.delegate({ ...params, workId }));
-    await assert.rejects(() => rt.subagents!.delegate({ ...params, subAgentId: first.agent.id }));
+    await assert.rejects(() => delegateFromActiveTask(rt, { ...params, workId }));
+    await assert.rejects(() => delegateFromActiveTask(rt, { ...params, subAgentId: first.agent.id }));
     assert.throws(() => rt.subagents!.close({ subAgentId: first.agent.id, parentSessionId: c.id, by: `agent:${own.id}` }));
     await assert.rejects(() => rt.subagents!.cancelWork({ workId, parentSessionId: c.id, by: `agent:${own.id}` }));
-    await assert.rejects(() => rt.subagents!.message({ senderTaskId: own.id, workId, key: "forbidden", text: "消息", paramsDigest: "message" }));
+    await assert.rejects(() => messageFromActiveTask(rt, { senderTaskId: own.id, workId, key: "forbidden", text: "消息", paramsDigest: "message" }));
     await assert.rejects(() => rt.subagents!.integrate({ workId, parentTaskId: own.id, parentSessionId: c.id }));
-    const ownWork = await rt.subagents!.delegate(params);
+    const ownWork = await delegateFromActiveTask(rt, params);
     assert.equal(ownWork.work.parentSessionId, c.id);
     await waitFor("分支自己的新委派完成", () => rt.store.getTask(ownWork.task.id)!.status === "completed");
   } finally { await t.shutdown(); }

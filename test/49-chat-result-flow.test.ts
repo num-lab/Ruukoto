@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { NotifyTarget } from "@ruukoto/core/types.ts";
+import type { AccessMode, NotifyTarget } from "@ruukoto/core/types.ts";
 import type { NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
 import { lastUserText, pendingConfirmation, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
@@ -66,8 +66,8 @@ async function harness(prefix: string, responder: Responder) {
       const seeded = group.seedTask({ userId: USER, messageId, state: "completed", summary: SUMMARY });
       return seeded.task!;
     },
-    submit(input: string) {
-      return rt.submit({ sessionId: main.sessionId, requestId: input, input, accessMode: "full_access", modelSelection: rt.defaultSelection });
+    submit(input: string, accessMode: AccessMode = "full_access") {
+      return rt.submit({ sessionId: main.sessionId, requestId: input, input, accessMode, modelSelection: rt.defaultSelection });
     },
     complete(taskId: string) {
       return waitFor("main 任务完成", () => rt.store.getTask(taskId)?.status === "completed");
@@ -112,7 +112,7 @@ test("群结果工具仅 main 可见；归档群结果不唤醒 main，未接收
   } finally { await h.close(); }
 });
 
-test("main 接收不外发；群摘要通知在 full_access 下仍需审批，批准与发送沿用固定快照", async () => {
+test("main 接收不外发；请求确认模式的群摘要通知经批准，发送沿用固定快照", async () => {
   let taskId = "";
   const h = await harness("chat-flow-approved", scripted((input) => {
     if (input === "MAIN-ACCEPT") return [
@@ -131,9 +131,9 @@ test("main 接收不外发；群摘要通知在 full_access 下仍需审批，�
     assert.deepEqual(h.ops(), [], "仅接收不建立通知");
     assert.equal(rt.store.listConfirmationsByTask(accept.id).length, 0);
     assert.deepEqual(h.channel.sends, []);
-    const notify = await h.submit("MAIN-NOTIFY");
+    const notify = await h.submit("MAIN-NOTIFY", "confirm");
     const confirmation = await pendingConfirmation(h.client, notify.id);
-    assert.equal(rt.store.getTask(notify.id)!.accessMode, "full_access");
+    assert.equal(rt.store.getTask(notify.id)!.accessMode, "confirm");
     assert.equal(confirmation.scope.kind, "notification");
     assert.equal(rt.store.getConfirmation(confirmation.id)!.params.text, SUMMARY);
     assert.deepEqual(confirmation.scope.target, TARGET);
@@ -168,7 +168,7 @@ test("归档群消息在审批期间或批准后发送前撤回，都不能继�
     const rt = h.runtime;
     try {
       taskId = h.groupResult("1").id;
-      const task = await h.submit("MAIN-ACCEPT-NOTIFY");
+      const task = await h.submit("MAIN-ACCEPT-NOTIFY", "confirm");
       const confirmation = await pendingConfirmation(h.client, task.id);
       if (phase === "pending") {
         await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
@@ -197,5 +197,51 @@ test("归档群消息在审批期间或批准后发送前撤回，都不能继�
       assert.deepEqual(h.channel.sends, [], `${phase} 撤回后不调用通知发送器`);
       assert.ok(h.ops().every((op) => op.sourceKind !== "owner_reply"));
     } finally { await h.close(); }
+  }
+});
+
+test("完全访问群摘要：免审批使用固定接收快照，撤回的来源仍拒绝外发", async () => {
+  for (const phase of ["fixed", "revoked"] as const) {
+    let taskId = "";
+    const h = await harness(`chat-flow-full-${phase}`, scripted((input) => {
+      if (input === "MAIN-ACCEPT") return [{ name: "chat_result_accept", arguments: { task_id: taskId, reason: "整理讨论结果" } }];
+      return input === "MAIN-NOTIFY" ? [{ name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "汇报结果" } }] : [];
+    }));
+    try {
+      const rt = h.runtime;
+      taskId = h.groupResult("1").id;
+      await h.complete((await h.submit("MAIN-ACCEPT")).id);
+      const accepted = rt.store.getAcceptedChatResult(h.main.projectId, taskId)!;
+      assert.deepEqual(h.ops(), [], "接收资料不授权外发");
+      if (phase === "revoked") {
+        h.onebot.pushRecall({ groupId: GROUP, messageId: 1, userId: USER });
+        await waitFor("完全访问来源撤回已落库", () => rt.qqStore.getInboxByTask(taskId)?.recalled === true);
+      }
+      const notify = await h.submit("MAIN-NOTIFY");
+      await h.complete(notify.id);
+      await rt.scheduler!.idle();
+      assert.equal(rt.store.listConfirmationsByTask(notify.id).length, 0);
+      const call = rt.store.listToolOpsByTask(notify.id).find((op) => op.toolName === "notification_enqueue")!;
+      if (phase === "revoked") {
+        assert.equal(call.isError, true);
+        assert.match(call.resultSummary ?? "", /撤回/);
+        assert.equal(call.authorization, null, "来源失效不登记执行授权");
+        assert.deepEqual(h.ops(), []);
+      } else {
+        assert.equal(call.authorization?.source, "full_access");
+        const [op] = h.ops();
+        assert.equal(op.status, "pending");
+        assert.equal(op.text, SUMMARY);
+        assert.deepEqual(op.target, TARGET);
+        assert.equal(op.sourceRefs[0].version, accepted.acceptedAt);
+        rt.store.db.prepare("UPDATE tasks SET result_summary = ? WHERE id = ?").run("修改原任务结果", taskId);
+      }
+      h.channel.online = true;
+      await rt.scheduler!.tick();
+      await rt.scheduler!.idle();
+      assert.deepEqual(h.channel.sends, phase === "revoked" ? [] : [{ opId: h.ops()[0].id, text: SUMMARY, target: TARGET }]);
+    } finally {
+      await h.close();
+    }
   }
 });

@@ -1,0 +1,41 @@
+✔ 角色引导：只引导 main（chat/coding 已退役，issue 20/23） (50.719959ms)
+✔ 重复事件只创建一个子任务 (152.135417ms)
+✔ 子任务超时：编排器取消 SubAgent 任务并发出 subagent_task.timeout (148.652708ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ 重启恢复：已登记未建任务可继续，不重复创建 (66.538333ms)
+✔ 角色工具白名单：main 无编码工具，只读查阅旧 coding 结果（coding_delegate 已删除，issue 23） (70.042375ms)
+✔ 资料隔离：owner token 审批入口硬拒绝（保护根）；普通开发会话搜不到 main 的未授权历史 (144.158792ms)
+✔ P1：occupancy_unverified 的角色会话不自动恢复（保留占用，拥有者核实后才放行） (412.214083ms)
+✔ P1：main 正常注入个人共享记忆与项目指令（chat 已退役不引导，issue 20） (58.217625ms)
+✔ QQ：先受理、可续聊、收尾后唯一最终汇报引用原消息；重复终态与工具清单回归 (286.327458ms)
+✔ Telegram：受理在前汇报在后，汇报引用原入站消息 (226.66475ms)
+✔ 目标固定发起入口：QQ 工作在 Telegram 轮次续派，两份汇报都发回 QQ，Telegram 零汇报 (308.986375ms)
+✔ 非 IM 来源零记录：TUI 直提与 dev 会话发起的工作不产生汇报 (183.158625ms)
+✔ 并发与补充收尾：唤醒 1 时仍有未收尾唤醒则不汇报，后终态唤醒只汇报一份；补充再收尾键不同 (354.054333ms)
+✔ 离线等待与恢复：pending 写等待原因，恢复后受理与汇报各发一次；重启补记幂等，再巡检仍一份 (251.682584ms)
+✔ 目标变化不改发：登记时目标已失效记 work_report skip；发送前重新配置则取消且新目标零发送 (409.886667ms)
+✔ 发送结果不明记 effect_unknown 不自动重发（含重启）；Telegram 429 同一记录按 not_before 再发 (2126.194167ms)
+✔ 授权不扩大：唤醒轮次的外发请求被拒（无可信目标），不自动外发；工作汇报不受其影响 (155.027083ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ telegram 暂存/登记/建任务窗口重启恢复且重投幂等 (811.217834ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ qq_private 暂存/登记/建任务窗口重启恢复且重投幂等 (431.076708ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+[ruukoto:orchestrator] 事件 evt_3b1c0cd081b79de8050c673e 建任务失败：所选模型不支持图片输入
+✔ 图片检查、提交和重启间模型配置变化：沿用钉定选择或在建任务前拒绝 (472.645792ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5278.623125

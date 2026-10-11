@@ -1,0 +1,9 @@
+✔ main 经通用修改委派跑通（mode=modify + integrate）；旧 coding 角色会话的任务不能发起 modify (1502.900792ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2253.527292

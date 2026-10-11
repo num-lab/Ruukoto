@@ -37,6 +37,13 @@ const CHAIN_WALK_LIMIT = 16;
 /** 分页参数上限（游标/偏移；超界按格式错误处理）。 */
 const PAGE_ARG_MAX = 1_000_000;
 
+type ImApprovalSource = {
+  source: string;
+  actor: string | null;
+  replyTarget: NotifyTarget;
+  inboundEvent: InboundEvent | null;
+};
+
 export type ImApprovalCommand =
   | { kind: "list"; page: number }
   | { kind: "detail"; confirmationId: string; offset: number }
@@ -175,7 +182,7 @@ export class ImApprovals {
    * 操作获批，审批的有效性继续由原请求与宿主核实。
    */
   notifyCreated(confirmation: ConfirmationRequest, task: Task): void {
-    const event = this.imSourceEvent(task.id);
+    const event = this.imSource(task.id);
     if (!event) return;
     const capChars = (text: string, cap: number): string => {
       const chars = [...text];
@@ -209,7 +216,7 @@ export class ImApprovals {
       `参数摘要（数据展示，完整见详情）：${capChars(JSON.stringify(confirmation.params), 300)}`,
       `批准（仅本次）：/approve ${confirmation.id} ${confirmation.permissionVersion}`,
       `拒绝：/reject ${confirmation.id} ${confirmation.permissionVersion}`,
-      ...(confirmation.scope.kind === "service_operation"
+      ...(confirmation.scope.kind === "service_operation" && event.inboundEvent !== null
         ? [
             `长期批准（保存本机对该服务的 restart 授权并批准本次；以 root 经后台固定 helper 提权执行；之后独立任务命中相同范围与修订自动放行，持续至撤销或修订/绑定变化；批准后可用 /service-grants 查看、/revoke-service-grant <授权ID> <版本> 撤销）：/approve-standing ${confirmation.id} ${confirmation.permissionVersion}`,
           ]
@@ -235,7 +242,7 @@ export class ImApprovals {
    * 重新绑定/停用/凭据变化在此拦截；非 IM 来源无此约束；已消费不受影响。
    */
   consumeRecheck(confirmation: ConfirmationRequest, task: Task): string | null {
-    const event = this.imSourceEvent(task.id);
+    const event = this.imSource(task.id);
     if (!event) return null;
     const current = this.deps.entry(event.source)?.target() ?? null;
     if (!current || !sameTarget(current, event.replyTarget)) {
@@ -257,9 +264,12 @@ export class ImApprovals {
       for (const status of ["pending", "approved"] as const) {
         for (const c of this.deps.store.listConfirmationsByStatus(status)) {
           if (c.consumedAt !== null) continue;
-          const event = this.imSourceEvent(c.taskId);
+          const event = this.imSource(c.taskId);
           if (!event || event.source !== source) continue;
-          const gate = this.deps.entry(event.source)?.gatePrivate(event) ?? "run";
+          const entry = this.deps.entry(event.source);
+          const current = entry?.target();
+          const gate = event.inboundEvent ? entry?.gatePrivate(event.inboundEvent) ?? "run"
+            : current && sameTarget(current, event.replyTarget) ? "run" : { drop: "定时绑定已失效" };
           if (gate === "run" || gate === "wait") continue;
           this.deps.store.invalidateConfirmation(c.id);
           const ids = released.get(c.sessionId) ?? new Set<string>();
@@ -291,8 +301,8 @@ export class ImApprovals {
    */
   standingCandidate(task: Task, scope: Extract<ApprovalScope, { kind: "service_operation" }>): { id: string; version: number } | null {
     if (!this.deps.serviceAvailable()) return null;
-    const event = this.imSourceEvent(task.id);
-    if (!event?.actor || !event.replyTarget) return null;
+    const event = this.imSource(task.id);
+    if (!event?.inboundEvent || !event.actor) return null;
     return this.deps.store.withTx(() => {
       const sp = this.deps.store.findStandingCandidate({
         sessionId: task.sessionId,
@@ -737,7 +747,7 @@ export class ImApprovals {
    * 断链、循环、无来源或来源不是普通任务入站一律返回 null；不从会话最近
    * 消息推断归属。命令归属核实、审批创建通知与消费前复核共用。
    */
-  private imSourceEvent(taskId: string): InboundEvent | null {
+  private imSource(taskId: string): ImApprovalSource | null {
     let task: Task | null = this.deps.store.getTask(taskId);
     if (!task) return null;
     const seen = new Set<string>([task.id]);
@@ -751,15 +761,24 @@ export class ImApprovals {
     if (!task.sourceEventId) return null;
     const event = this.deps.store.getInboundEvent(task.sourceEventId);
     if (!event || event.eventKind !== "task") return null;
+    if (event.source === "scheduler") {
+      const identity = this.deps.store.getSessionIdentity(task.sessionId);
+      if (identity?.kind !== "scheduled" || identity.rootTaskId !== task.id) return null;
+      const run = this.deps.sched.getRun(identity.runId);
+      const schedule = this.deps.sched.getSchedule(identity.scheduleId);
+      if (!run || run.rootTaskId !== task.id || run.inboundEventId !== event.id || !schedule?.target) return null;
+      return { source: schedule.target.channel, actor: this.deps.entry(schedule.target.channel)?.expectedActor() ?? null,
+        replyTarget: schedule.target, inboundEvent: null };
+    }
     if (event.source !== "telegram" && event.source !== "qq_private") return null;
     if (!event.actor || !event.replyTarget) return null;
-    return event;
+    return { source: event.source, actor: event.actor, replyTarget: event.replyTarget, inboundEvent: event };
   }
 
   /** 审批是否属于本命令的固定身份：同平台、同 actor、同钉版目标（含配置版本）。 */
   private eligible(confirmation: ConfirmationRequest, input: ImControlInput): boolean {
     if (!input.replyTarget) return false;
-    const event = this.imSourceEvent(confirmation.taskId);
+    const event = this.imSource(confirmation.taskId);
     if (!event || event.source !== input.source || event.actor !== input.actor) return false;
     return sameTarget(event.replyTarget!, input.replyTarget);
   }

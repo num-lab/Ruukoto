@@ -2,14 +2,14 @@
 
 ## 职责与边界
 
-`packages/core/src/` 是全部模块的最底层，定义数据的落盘形态与「这个会话是什么」的判定。它持有档案根与目录布局、SQLite 核心库（`ruukoto.db`）与 `agent-data/main.db` 的 schema 与版本迁移、pi JSONL 会话文件、产物正文文件与入站图片暂存的读写边界、任务状态机及其字段、会话身份解析与执行画像的取数、目录与实例锁、以及产品归属登记。它不依赖其他模块，被全部模块依赖。
+`packages/core/src/` 是全部模块的最底层，定义数据的落盘形态与「这个会话是什么」的判定。它持有档案根与目录布局、SQLite 核心库（`ruukoto.db`）与 `agent-data/main.db` 的 schema 与版本校验、pi JSONL 会话文件、产物正文文件与入站图片暂存的读写边界、任务状态机及其字段、会话身份解析与执行画像的取数、目录与实例锁、以及产品归属登记。它不依赖其他模块，被全部模块依赖。
 
 它负责：
 
 - 决定数据目录里有什么：`dataDir`、`agentDir`、`control` 三个目录的默认位置、权限位与内容，以及两个产品与两个开发 profile 的档案根。
-- 建库与升 schema：全新库建全部表，旧库在同一事务里迁移到当前版本并在失败时整体回滚。
+- 建库与核实 schema：全新库在同一事务内建全部表与版本号；格式不等于当前版本的数据库在写入前拒绝，不回填任务或计划授权。
 - 写任务状态：状态集合、`interrupt_reason`／`cancel_requested`／`effect_unknown` 三列，以及终态的条件更新原语。
-- 判定会话身份：`Store.getSessionIdentity` 读出三行，纯函数 `classifySession` 给出四种身份之一；`executionProfile` 的输入由这里的身份、工作与任务行提供。
+- 判定会话身份：`Store.getSessionIdentity` 读取会话、角色、SubAgent 与调度运行绑定，纯函数 `classifySession` 给出对应身份；`executionProfile` 的输入由这里的身份、工作与任务行提供。
 - 划清三种存储的职责：pi JSONL 是消息历史的唯一权威副本、SQLite 只存元数据与事件、产物正文在产物文件而 SQLite 只存其元数据。
 - 实例锁与配置锁：以 `mkdir` 原子创建，用 `owner.json` 核实持锁进程身份。
 
@@ -26,7 +26,7 @@
 |---|---|---|
 | 全部模块 | `Db(dataDir)`（`packages/core/src/db.ts`） | 打开或创建 `ruukoto.db`；`SCHEMA_VERSION` 是当前 schema 版本；`getInstanceId()` 返回持久的数据实例标识 |
 | 全部模块 | `Store`（`packages/core/src/store.ts`） | 表级 SQL 原语：任务、占用、确认请求、工具操作、产物、事件、授权、记忆与版本、历史索引、选择记录、压缩点、MCP、平台与调度表、SubAgent 与工作、导入回执与账本 |
-| Runtime、Driver | `Store.getSessionIdentity(sessionId)` | 一次读出会话、角色行与 SubAgent 行后调用 `classifySession`；会话不存在返回 `null` |
+| Runtime、Driver | `Store.getSessionIdentity(sessionId)` | 读取会话、角色、SubAgent 与独立调度运行绑定后调用 `classifySession`；会话不存在返回 `null` |
 | Runtime、Driver | `Store.getSubAgentBySession(sessionId)` | 按独立子会话反查 `sub_agents` 绑定，是宿主识别动态身份的唯一依据 |
 | Driver | `executionProfile({ identity, writeTarget, review, planMode })`（`packages/agent/src/tool-availability.ts`） | 由身份、任务所属工作是否有写入目标、是否宿主评审与任务钉定的 `planMode` 算出执行画像 |
 | Driver、context-assembly | `ArtifactStore`（`packages/agent/src/artifacts.ts`） | `begin` / `append` / `complete` / `importImage` / `read` / `readImage` / `byteLength` |
@@ -50,6 +50,10 @@
 
 ## 数据与状态
 
+`Task.parentTaskId` 与 `sourcePermissionVersion` 保存宿主确定的触发任务及其权限版本，派生任务的 `accessMode` 在登记时固定。协作消息另存登记时模式和来源版本，延迟投递沿用这些字段。`tool_ops.authorization` 保存完全访问或单次批准的真实执行依据，授权和 `task.tool_authorized` 在执行事务内单次登记；完全访问不产生审批行。
+
+独立调度会话由 `schedule_runs.session_id`、`root_task_id` 与计划的资料项目联合绑定，身份为 `scheduled`，不复制 main 角色行。根任务与全部派生任务通过父任务链归属于同一运行。
+
 会话持久字段 `name` 与 `branch_source` 对旧会话均为 NULL。分支来源保存直接父会话、自动编号、实际末条 ID、消息数、尾部排除说明及宿主核实的历史任务、产物字节/状态和结果任务集合。来源字段只用于追溯和读取，不参与执行权限判定。
 
 `branch_requests` 保存请求键、参数摘要、来源编号、固定目标会话、源文件身份/前缀摘要、目标准备文件摘要和压缩点内容；不保存消息正文。状态为 `prepared`、`published` 或 `failed`，未发布回执不进入会话列表。编号在事务内按直接来源分配，同键异参拒绝；自动编号也计入已导入分支的来源编号。
@@ -60,7 +64,7 @@
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v34）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v35）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
@@ -105,15 +109,13 @@
 
 三者没有跨文件事务，不得声称原子提交。会话文件与库记录的对应关系在启动恢复时修复：登记的 `session_file` 缺失而同 `pi_session_id` 的文件存在时改用最新一份并发 `session.history_unreadable`，孤立记录也发同一事件；损坏的 JSONL 不覆盖、不静默跳过。
 
-### schema 版本与迁移
+### schema 版本与创建
 
-`SCHEMA_VERSION` 是 `34`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `35`，写在 `meta` 表的 `schema_version` 键。
 
-- 文件版本高于程序版本：直接抛错「schema 版本过新」，要求升级程序，不做任何写入。
-- 文件版本等于程序版本：只幂等补齐缺失对象与缺失列。
-- 文件版本低于程序版本：关掉外键 pragma，在 `BEGIN IMMEDIATE` 事务里建表、`migrateFrom(version)`、补列、按需重建带 `CHECK` 的表，提交前跑 `PRAGMA foreign_key_check`，成功后写回版本号；任一步失败整体回滚并抛「schema 迁移失败」。
-- 不支持从更早的版本迁移时明确报错。
-- 缺 `meta` 表（全新库）按「无版本记录」处理，进入建表事务。
+- 文件版本高于或低于程序版本：以 `schema_version_unsupported` 明确拒绝，不转换旧格式、不回填权限字段。保留原档案，由匹配代码查阅；当前代码使用独立新档案。
+- 文件版本等于程序版本：沿用当前表定义，不自动补列或重建表。
+- 全新库在 `BEGIN IMMEDIATE` 事务中创建当前表、字段与索引，并写入版本号；失败整体回滚。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
 
 当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
@@ -130,7 +132,7 @@
 | `tasks` | `id`、`session_id`、`request_id`、`input`、`status`、`access_mode`、`plan_mode`、`permission_version`、`granted_paths`、`pending_access_mode`、`interrupt_reason`、`cancel_requested`、`effect_unknown`、`error_message`、`history_entry_ids`、`resumes_task_id`、`agent_id`、`parent_task_id`、`source_event_id`、`deadline`、`result_summary`、`result_ref`、SubAgent 关联四列 `work_id` / `sub_agent_id` / `read_scope` / `result_delivered_at`、`created_at` / `started_at` / `ended_at`；唯一键 `(session_id, request_id)` |
 | `occupancy` | `cwd_real` 主键、`cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`；一个任务可持有父目录及临时副本的多条占用，整任务释放按 `task_id`，已核实的临时副本可单独释放 |
 | `confirmations` | `id`、`task_id`、`tool_op_id`、`tool_name`、`params`、结构化 `scope`、`cwd_dev` / `cwd_ino`、`permission_version`、`status`（`pending` / `approved` / `rejected` / `stale`）、`created_at` / `responded_at` / `consumed_at` |
-| `tool_ops` | `id`、`task_id`、`tool_name`、`sdk_call_id`、`params`、`intent_recorded_at`、`result_summary`、`is_error`、`effect_unknown`、`recorded_result_at` |
+| `tool_ops` | `id`、`task_id`、`tool_name`、`sdk_call_id`、`params`、`intent_recorded_at`、`authorization`、`result_summary`、`is_error`、`effect_unknown`、`recorded_result_at` |
 | `artifacts` | `id`、`task_id`、`session_id`、`name`、`byte_count`、`status`（`partial` / `complete`）、`mime_type`（可空，`image/jpeg` / `image/png` / `image/webp`）、`content_hash`（可空）、`created_at` |
 | `events` | 自增 `seq`、`task_id`、`session_id`、`body`、`created_at` |
 | `inbound_events` | `source`、`external_id`（唯一即幂等键）、`body`、`artifact_refs`、`reply_target`、`event_kind`（`task` / `im_approval`）、`status`（`registered` / `queued` / `done` / `failed`） |
@@ -241,7 +243,7 @@ sequenceDiagram
   R->>FS: mkdir dataDir / agentDir / sessions（0700）
   R->>L: acquireInstanceLock(dataDir)
   R->>L: acquireConfigLock(agentDir)
-  R->>D: 打开库并建表 / 迁移 schema
+  R->>D: 校验版本，当前格式打开 / 新库建表
   D-->>R: instance_id
   R->>D: 读 meta 的 product.type
   alt 已登记且与当前产品不同
@@ -251,7 +253,7 @@ sequenceDiagram
   end
 ```
 
-全新库在同一事务里建表并写版本号；旧库走迁移分支。产品归属核对在库打开之后、模型配置装配之前，不匹配即关库并释放两把锁，不做任何数据改动。`instance_id` 在库打开时补写，客户端待确认请求绑定该标识，换库后不会向空后台重发。
+全新库在同一事务里建表并写版本号；旧版本和较新版本均以 `schema_version_unsupported` 拒绝启动，不做字段转换或授权回填。产品归属核对在库打开之后、模型配置装配之前，不匹配即关库并释放两把锁，不做任何数据改动。`instance_id` 在库打开时补写，客户端待确认请求绑定该标识，换库后不会向空后台重发。
 
 ### 任务终态与停止路径
 
@@ -306,11 +308,10 @@ sequenceDiagram
 - `history_index` 是可重建的派生数据；它处理到文件的哪个字节记在 `history_index_state`。文件尾部未换行的行视为正在写入的部分记录，不伪装成完整消息；完整行损坏即报 `history_corrupt`，不静默跳过。超大单条消息按字节分段读取，偏移对齐 UTF-8 字符边界。
 - 数据实例标识（`instance_id`）跨重启保留，换库即换标识；`app_data.main_instance_id` 与 `main.db` 的实例标识不符时能力停止、保留未知效果、不覆盖既有绑定；`main.db` 已登记但文件丢失时同样停止能力，不自动创建空库。
 
-**schema 与迁移。**
+**schema 与版本。**
 
-- 版本过新明确拒绝，不尝试降级或截断数据。
-- 迁移与建表在一个事务里完成，任一步失败整体回滚；重建 `CHECK` 的表提交前跑外键检查，失败即回滚。
-- 不支持更早版本时明确报错，不静默跳过迁移。
+- `SCHEMA_VERSION` 单调递增；版本不等于当前版本即明确拒绝，不降级、不转换旧任务或计划、不截断数据。
+- 新库建表与版本号在一个事务内完成，任一步失败整体回滚。独立实例导入继续开放，但源与目标均须使用当前存储格式。
 
 **状态与终态。**
 
@@ -336,6 +337,9 @@ sequenceDiagram
 - 本地存储故障保留 `staging` 状态，不伪装成平台拒绝。
 
 ## 设计依据
+
+- [完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)
+- [调度计划只触发独立的通用任务](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)
 
 - [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 

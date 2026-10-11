@@ -1,10 +1,10 @@
 # Agent Note: 完全访问使用启动账户且不请求审批
 
-Status: proposed
+Status: implemented
 
-方案已确认，尚未实施。本篇记录两个产品统一的完全访问语义及其授权传播；当前行为仍以代码和 implemented 笔记为准。
+本篇持有两个产品的完全访问语义、真实授权来源及其传播。落地与验证证据见[实施工单](../../../../.scratch/full-access/issues/01-full-access-current-account.md)。
 
-调度业务由[通用定时任务提案](2026-10-12-generic-scheduled-tasks.md)统一为独立任务执行，删除新闻与定时固定通知路径。本篇定义创建时模式及共享免审批行为，不再为退役动作适配审批或兼容记录。
+调度业务由[通用定时任务决定](2026-10-12-generic-scheduled-tasks.md)统一为独立任务执行，删除新闻与定时固定通知路径。本篇定义创建时模式及共享免审批行为，不再为退役动作适配审批或兼容记录。
 
 ## 问题
 
@@ -12,7 +12,7 @@ Status: proposed
 
 原三账户设计保护后台数据库、模型凭据和拥有者令牌，确实提供隔离。这里选择取消完全访问对这项隔离的承诺，以启动账户的已有权限作为完全访问范围，减少使用和配置成本。
 
-## 方案
+## 决定
 
 ### 执行账户与权限
 
@@ -46,6 +46,8 @@ Status: proposed
 
 宿主负责保存并传递模式来源，消息正文、模型参数与 SubAgent 身份不能自行提升权限。延迟消息与结果恢复投递仍沿用原触发来源的授权，不因接收方正好空闲、切换模式或复用 Agent 而取得另一项工作的权限。
 
+IM 任务已接受但事件或媒体关联未提交时，以原会话与 `evt:<事件ID>` 请求键找到的、来源事件及 Agent 一致的任务为权威，只补齐关联，保留原模式和模型。终态不重新激活；目标换代取消未结束原任务，来源核实先于媒体关联等待。重新提交会按后来默认值重算授权并产生摘要冲突，因此不使用重提或旧摘要适配修复该窗口。
+
 同一项工作可以在不同用户轮次继续。新一轮按本次发起任务确定新委派的模式，SubAgent 不永久绑定第一次获得的完全访问；既有任务继续携带各自的模式，不能用工作首次模式或工作最近模式反向改写它们。单次批准和限定的长期操作授权不随模式传播。
 
 工作副本创建、改动汇总等为任务服务的临时执行也使用实际发起任务的有效模式，避免主任务完全访问时仍因固定 confirm 入口要求沙箱。工作副本、只读或修改工具分工、来源核实和成果保留仍由原有工作规则负责；完全访问下不再宣称工作副本构成 OS 文件隔离。
@@ -63,9 +65,9 @@ Status: proposed
 
 服务管理仍需要的 helper、策略与 OS 授权按当前账户改造，不因清理执行账户脚本而删掉服务管理能力。此次记录不授权对实际机器执行账户删除、数据清空或文件归属变更。存储若有变化，仍遵循 SCHEMA_VERSION 单调递增与拒绝更新版本数据库的仓库约定。
 
-## 实施范围
+## 落地位置
 
-| 位置 | 要处理的内容 |
+| 位置 | 实现职责 |
 | --- | --- |
 | `packages/agent/src/execution/`、工具工作进程与进程管理 | 完全访问启动、用户环境、工作目录、停止与未核实状态；受限模式回归 |
 | `packages/agent/src/approval-gate.ts`、`tool-router.ts`、应用数据与产品工具族 | 所有工具的完全访问免审批，保留执行前校验、操作账本及本地效果事务 |
@@ -73,28 +75,30 @@ Status: proposed
 | 拥有者 IM 编排、`packages/channels/src/scheduler/` 与 `apps/ruukoto/src/scheduler-tools.ts` | 私聊取会话默认模式；与通用定时任务单共同核实计划保存创建授权及独立运行免审批，新闻与定时固定通知路径由该单删除 |
 | 服务工具与 `deploy/systemd/` | 清理三账户部署要求，保留固定服务 helper 的 OS 授权与目标校验 |
 | 系统提示、委派正文、工具描述、TUI 与配置界面 | 按任务模式描述实际权限，清除“完全访问仍审批”“子任务固定 confirm”“容器外执行账户”等旧说明 |
-| `CONTEXT.md`、模块文档、使用与部署说明、图解、相关测试和夹具 | 实现时同步语义与断言；本篇落盘时不把提案提前写成现有行为 |
+| `CONTEXT.md`、模块文档、使用与部署说明、相关测试和夹具 | 同步当前模式、授权来源、执行边界及定向验收 |
+
+核心 schema 为 `35`，控制面协议为 `19`。新库一次性创建当前定义；版本不一致明确拒绝，包括跨实例导入预览，不保留补列、旧摘要匹配或授权回填机制。这样旧任务不会被推断为拥有新授权；原档案保留供匹配版本查阅。
 
 ## 既有笔记审计
 
 检索覆盖 implemented、proposed 及存在的 rejected 分类，关键词为完全访问、full_access、执行账户与后台身份，并沿代码锚点和模块文档追到委派、消息、工作副本和停止决定。proposed 目录没有同主题方案，rejected 目录不存在；没有需要删除、归档或驳回的重复提案。
 
-以下均为部分重叠，拟替代关系集中列在本篇。旧笔记继续记录当前实现，不追加提案提示；本方案交付时仅取代列出的规则，其他独立决定保留。
+以下除已退役新闻记录外均为部分重叠。本篇取代列出的完全访问规则，旧篇独立的受限执行、能力范围、成果归属及停止核实决定保留，并互链明确适用范围。
 
-| 笔记 | 拟取代或衔接的规则 |
+| 笔记 | 取代或衔接的规则 |
 | --- | --- |
 | [显式访问模式](../../implemented/feature/2026-09-19-explicit-access-modes.md) | 三账户隔离、完全访问审批例外、宿主任务固定 confirm |
 | [工具工作进程](../../implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[原生执行沙箱](../../implemented/architecture/2026-10-10-native-execution-sandbox.md) | 完全访问专用执行入口、环境与停止承诺；受限执行规则保留 |
 | [两个 Agent 产品](../../implemented/architecture/2026-10-02-two-agent-products.md)、[开发启动器](../../implemented/process/2026-10-09-dev-launchers.md) | 专用身份与完全访问额外启动配置要求 |
 | [应用数据空间](../../implemented/architecture/2026-09-23-main-app-data-space.md) | 破坏性应用数据在完全访问下仍审批 |
-| [调度与通知](../../implemented/architecture/2026-09-24-scheduler-outbox.md)、[定时新闻](../../implemented/feature/2026-09-25-scheduled-news.md)、[退役核心群聊](../../implemented/simplification/2026-10-02-retire-core-group-chat.md) | 通用任务外发按完全访问免审批，归档和来源核实保留；新闻与定时固定通知的退役归通用定时任务提案，不再适配其审批例外 |
+| [调度与通知](../../implemented/architecture/2026-09-24-scheduler-outbox.md)、[定时新闻](../../archived/feature/2026-09-25-scheduled-news.md)、[退役核心群聊](../../implemented/simplification/2026-10-02-retire-core-group-chat.md) | 通用任务外发按完全访问免审批，归档和来源核实保留；新闻与定时固定通知的退役归通用定时任务决定，不再适配其审批例外 |
 | [服务 helper](../../implemented/architecture/2026-10-03-service-management-helper.md)、[长期服务授权](../../implemented/feature/2026-10-03-standing-permissions.md) | 完全访问服务操作免审批、专用调用及检查账户要求；长期授权与 full_access 分开，不互相转换 |
 | [工作委派](../../implemented/architecture/2026-10-03-work-delegation-subagent-task.md)、[SubAgent worktree](../../implemented/architecture/2026-10-04-subagent-worktrees.md)、[改动汇总](../../implemented/feature/2026-10-05-integrate-worktree-results.md)、[工作内消息](../../implemented/feature/2026-10-05-subagent-messaging.md) | 固定 confirm／受限临时执行改为沿发起任务传播，工作与成果归属保留 |
 | [Telegram 入口](../../implemented/feature/2026-09-24-telegram-owner-entry.md)、[QQ 私聊](../../implemented/feature/2026-09-24-qq-private-shared-main.md) | 拥有者私聊固定 confirm 改为取主会话默认模式 |
 | [自动审查](../../implemented/feature/2026-09-22-auto-review-mode.md) | 接线说明中的完全访问专用入口需随实现同步；自动审查策略与受限边界保留 |
 | [停止未核实保留](../../implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md) | 沿用核实失败、占用及现场保留，明确完全访问不承诺收回逃离管理的进程 |
 
-其余命中与本次改变的决定无关：[MCP 接入](../../implemented/architecture/2026-09-23-mcp-client.md)的远程传输与本地 stdio 未开放、[MCP 写工具](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md)现有免审批及效果未知处理、[Plan](../../implemented/feature/2026-10-08-plan-session-mode.md)的工具与计划约束、[终端与后台分离](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)的生命周期、[实例导入](../../implemented/architecture/2026-10-04-legacy-instance-import.md)的独立导入规则及[退役 GitHub 模块](../../implemented/simplification/2026-09-23-retire-github-module.md)的历史发布恢复均保留。本次“不做兼容”不扩展成删除已有的独立实例导入产品能力。
+其余命中与本次改变的决定无关：[MCP 接入](../../implemented/architecture/2026-09-23-mcp-client.md)的远程传输与本地 stdio 未开放、[MCP 写工具](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md)现有免审批及效果未知处理、[Plan](../../implemented/feature/2026-10-08-plan-session-mode.md)的工具与计划约束、[终端与后台分离](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)的生命周期、[实例导入](../../implemented/architecture/2026-10-04-legacy-instance-import.md)的离线导入、回执与回退规则及[退役 GitHub 模块](../../implemented/simplification/2026-09-23-retire-github-module.md)的历史发布恢复均保留。独立实例导入继续支持当前格式；旧 schema 在预览阶段拒绝，源只读且目标不变，不在快照上回填新授权字段。
 
 ## 备选方案
 
@@ -104,17 +108,17 @@ Status: proposed
 - 复用 local 启动器而不处理环境与停止：代码改动最少；代理、SSH agent 和工具凭据被过滤，原进程组退出也不能证明脱离后代退出，不能直接作为完整方案。
 - 为旧账户部署、配置和定时计划提供兼容过渡：既有实例升级成本低；快速迭代期明确接受直接替换，不维护兼容入口、数据回填和双路径。
 
-## 验收标准
+## 执行记录与停止
 
-1. macOS 与 Linux 的全新配置均可在未设置执行账户启停脚本、未创建专用账户的情况下运行完全访问。实际进程 UID、用户环境、工作区外读写及联网均符合启动账户权限；用临时虚拟凭据和数据证明可见性，不以模拟 launcher 代替真实执行。
-2. 覆盖文件、HTTP、MCP、应用数据、普通通知及服务工具的免审批路径：零审批等待、零自动审查，授权来源准确可查。配置变更、任务停止、重复调用、结果未知与事务失败仍产生正确结果；通用定时任务使用同一免审批机制，不保留新闻授权的特殊路径。
-3. 覆盖委派、继续旧工作、复用 Agent、协作消息延迟投递、结果汇总及工作副本临时执行；模式来源正确，既有任务不被会话切换改写，单次批准与长期授权不继承。
-4. 已绑定拥有者私聊取主会话模式，身份不匹配仍拒绝。定时计划跨会话模式切换和后台重启仍使用创建模式；GitHub 等外部事件不被会话完全访问提升。
-5. 两平台实际验证正常停止、后代进程与无法核实停止：观察不到退出证据时保留占用；单列主动脱离进程与外部服务的限制，不把任务取消写成外部效果撤销。
-6. 请求确认、自动审查和 Plan 的受限执行、审批及工具约束通过定向回归。旧完全访问入口要求和误导性提示在代码、部署、界面、文档及测试中清理完成，无兼容回填路径。
-7. 实现时按改动面运行静态检查及相关现有用例，包括访问模式、审批闸门、工具账本、MCP、应用数据、通用调度、IM、服务管理、SubAgent／worktree／消息、停止和原生执行；真实 Linux 验收使用 `ssh tx`。测试记录区分模拟与真实平台证据，不预填通过结论。
+完全访问复用当前账户 launcher，worker 分别登记 Shell 命令组；关停先核实各命令组退出再应答，宿主同时要求该应答及 worker 原组退出。缺应答、查询失败或残留保持未核实结论，不以主 PID 退出代替后代回收。服务操作效果未知按 `tool_ops.authorization.scope` 的真实目标使个人主会话的同目标长期授权失效，独立定时会话也使用同一业务归属，不依赖伪造审批行。
 
-## 风险
+## 验证
+
+macOS 与 Linux 使用独立临时资料和虚拟凭据运行两个产品的真实后台、SDK 与 worker，核实启动 UID、用户环境、工作区外读写、网络与普通后代停止；强杀 worker 后停止保持未核实。受限原生文件与网络对照继续拒绝越界。原始结果与命令见[执行证据](../../../../.scratch/full-access/execution-summary.md)。模型、IM 与服务工具回归使用替身，其范围和全部定向检查记录由[实施工单](../../../../.scratch/full-access/issues/01-full-access-current-account.md)持有，不冒充真实平台外发或真实服务部署验收。
+
+## 后果
+
+统一完全访问降低账户和部署配置要求，同一工作经过委派、延迟投递和定时运行仍使用明确保存的授权。`tool_ops.authorization` 区分完全访问与批准，通知与本地授权同事务提交；新存储与协议直接替换，不为旧任务补权限。
 
 完全访问操作的误删、凭据读取、外发及后台状态修改都落在启动账户的权限范围内，工具 API 校验不能阻止自由命令绕过；这是已接受的信任范围。用户环境也可能携带代理和工具凭据，不能再宣称 worker 环境不含凭据。
 
@@ -122,4 +126,4 @@ Status: proposed
 
 会话降权不会撤销既有任务和定时计划。界面与文档必须区分会话默认、任务实际模式和计划保存的模式，避免把选择新默认误解为整项工作已收紧。
 
-直接替换不保证旧部署和旧存储可继续使用；本篇没有授权自动清空现有数据或删除实际系统账户。无沙箱运行、环境继承与回收能力均待实现后验证，本次文档检查不能作为运行行为已交付的证据。
+直接替换不保证旧部署和旧存储可继续使用；本篇没有授权自动清空现有数据或删除实际系统账户。真实 QQ／Telegram 推送、真实模型与现有部署切换仍需独立验收，定向替身测试不提供这些证据。

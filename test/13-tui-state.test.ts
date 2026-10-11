@@ -72,7 +72,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     accessMode: "confirm",
     planMode: false,
     permissionVersion: 1,
-    grantedPaths: [],
+    sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null,
     interruptReason: null,
     cancelRequested: false,

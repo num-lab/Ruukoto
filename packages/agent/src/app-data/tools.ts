@@ -2,12 +2,12 @@
  * main 应用数据宿主工具（issue 02）：define_table / migrate / query / insert /
  * update / delete。模型侧统一 `app_data_` 前缀，避免与其他工具重名。
  *
- * - 身份由宿主注入（当前任务 → 会话 → main 角色绑定）；执行入口每次重新核实
- *   宿主任务、会话、项目与 main 角色绑定，工具参数不接受 agent/project/路径；
+ * - 身份由宿主注入（当前任务 → 会话 → 个人助手宿主绑定）；执行入口每次重新核实
+ *   宿主任务、会话、项目与 main 或独立定时会话身份，工具参数不接受 agent/project/路径；
  * - 所有写入必须带非空 reason（≤1 KiB）；schema 校验在存储边界执行；
  * - 非破坏性变更自动执行；删除表/字段/唯一索引、多行写与批量重写进入
- *   审批闸门（ApprovalGate），获批后在消费事务内复核身份与版本、批准单次消费，
- *   执行参数取自审批记录保存的快照；
+ *   审批闸门（ApprovalGate），完全访问免审批，受限模式单次消费批准；
+ *   授权事务内复核身份与版本，执行参数取自不可变授权快照；
  * - 应用数据保存待办/提醒/习惯等结构化记录；偏好、约定、决策、经验仍进入
  *   长期记忆（MemoryStore），应用记录不自动提升为长期记忆或控制指令；
  * - 身份不符、校验失败、预算超限和超时留下可识别的 app_data.rejected 事件。
@@ -47,7 +47,7 @@ export interface AppDataToolsDeps {
   taskContext(): AppToolContext | null;
   /** 绑定一次工具调用的独立句柄；execute 在 finally 中释放。 */
   bindCall?: HostCallBinder;
-  /** 执行入口每次重新核实宿主任务/会话/项目与 main 角色绑定；null=通过。 */
+  /** 执行入口每次重新核实宿主任务/会话/项目与个人助手宿主绑定；null=通过。 */
   verifyMain(ctx: AppToolContext): string | null;
   /** 审批闸门（窄回调；不向模型暴露控制面）。 */
   requestApproval: ApprovalGate["request"];
@@ -162,7 +162,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
   const opCtx = (ctx: AppToolContext): OpContext => ({
     taskId: ctx.taskId,
     sessionId: ctx.sessionId,
-    agentId: "main",
+    agentId: deps.coreStore.getSessionIdentity(ctx.sessionId)!.kind === "scheduled" ? "scheduled" : "main",
   });
 
   const taskOf = (ctx: AppToolContext): Task => {
@@ -171,7 +171,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
     return task!;
   };
 
-  /** 破坏性变更的统一执行路径：预检 → 审批闸门（获批后复核、单次消费）→ 按审批快照执行。 */
+  /** 破坏性变更统一预检、核实授权与版本，再按固定快照执行；完全访问免审批。 */
   const runDestructive = async (input: {
     ctx: AppToolContext;
     toolName: string;
@@ -195,13 +195,13 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       params,
       scope,
       signal: input.signal,
-      // 获批后重新核实 main 身份与应用数据版本（应用库不在核心事务内，写入时再按期望版本核对）
+      // 授权前重新核实宿主绑定与应用数据版本（应用库不在核心事务内，写入时再按期望版本核对）
       recheck: () => {
         identityProblem = deps.verifyMain(ctx);
         if (identityProblem) return identityProblem;
         const fresh = deps.store.getVersions();
         return fresh.schemaVersion !== scope.schemaVersion || fresh.revision !== scope.revision
-          ? "应用数据版本在确认期间已变化，原批准失效（未执行）；请重新查询版本后再申请"
+          ? "应用数据版本在执行前已变化，本次授权失效（未执行）；请重新查询版本后执行"
           : null;
       },
     });
@@ -259,7 +259,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
     label: "app_data_migrate",
     description:
       "执行有界结构化迁移（单事务）：add_field（可空）/add_index/drop_index/drop_field/drop_table/rewrite_rows（按明确行 ID 重写）。" +
-      "删除表、删除字段、删除唯一索引与批量重写需要拥有者确认；整次调用包含任一此类操作即整次确认后执行。",
+      "删除表、删除字段、删除唯一索引与批量重写在受限模式下需要拥有者确认；完全访问免审批，仍校验身份与版本。",
     parameters: Type.Object({
       expected_schema_version: Type.Number({ description: "预期当前 schema 版本" }),
       steps: Type.Array(Type.Record(Type.String(), Type.Unknown()), { description: `迁移步骤（≤${LIMITS.maxMigrateSteps} 步）` }),
@@ -364,7 +364,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
       label: `app_data_${kind}`,
       description:
         (kind === "update" ? "按明确行 ID 与预期行版本更新字段。" : "按明确行 ID 与预期行版本删除行。") +
-        "不接受无条件全表写入；单行直接执行，多行进入拥有者确认。",
+        "不接受无条件全表写入；单行直接执行，多行在受限模式下进入拥有者确认，完全访问免审批。",
       parameters: Type.Object({
         table: Type.String({ description: "目标表名" }),
         rows: Type.Array(

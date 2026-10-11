@@ -45,3 +45,7 @@ Status: implemented
 历史实施证据见[工单 22](../../../../.scratch/agent-direction/issues/22-migrate-personal-instance.md)：test/86-personal-instance-import 5/5、相关回归、typecheck 和图解检查通过；当时全量 894 项中 890 通过，3 个既有环境项（DNS、目录名、test/83 并行负载，隔离 13/13），其余门控跳过。smoke-22-migrate-personal-instance.mts 在 macOS 与 ssh tx Linux 各 6/6，进程、socket、SQLite、JSONL、文件锁与 0600 凭据为真实环境，模型和 Telegram HTTP 为 stub。验证 offset=101 接续、逾期运行恰一次、旧 pending 零外发、同源重跑和回退阻挡。
 
 本机真实旧实例完成预览、应用、启动查阅和干净回退，源 52 个文件哈希树不变；该实例无平台配置/调度/记忆，交接以逻辑测试和冒烟覆盖。tx 真实数据原实施未实测。运行步骤、旧实例停用要求与手工恢复见[操作手册](../../../../docs/usage.md#6-导入旧实例)「旧实例个人资料迁入」。
+
+## 适用范围
+
+通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](../feature/2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。

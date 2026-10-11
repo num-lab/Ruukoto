@@ -66,3 +66,7 @@ personal-agent issue 06 交付了一个专用 GitHub 模块：经 REST 采集 PR
 - `test/08-approvals.test.ts`「带 scope 的凭据不得被通用 http_request 借用；同名轮换保留 scope」承接旧模块测试里仍适用的凭据边界。
 - `test/13-tui-state.test.ts` 断言 `github.*` 历史事件按归档记录展示，且不再提示 `/github`。
 - `test/24-mcp.test.ts` 经进程内模拟 Streamable HTTP 服务覆盖通用 MCP 路径，不依赖旧 GitHub 模块。真实 GitHub MCP 只读连通需要拥有者配置独立只读凭据，配置与核实步骤见 [docs/usage.md](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

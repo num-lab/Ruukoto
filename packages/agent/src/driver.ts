@@ -285,11 +285,15 @@ export class Driver {
     if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
     if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
     const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
-    if (identity?.kind !== "main") return "会话未绑定 main 角色";
-    if (identity.role.projectId !== this.session.projectId) return "main 角色项目绑定不匹配";
+    if (identity?.kind !== "main" && identity?.kind !== "scheduled") return "会话未绑定个人助手执行身份";
+    if ((identity.kind === "main" ? identity.role.projectId : identity.projectId) !== this.session.projectId) return "个人助手资料项目绑定不匹配";
     if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
     const task = this.deps.store.getTask(ctx.taskId);
     if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
+    if (identity.kind === "scheduled") {
+      const run = this.deps.store.getScheduledRunForTask(task.id);
+      if (!run || run.closedAt || run.scheduleStatus === "canceled" || task.cancelRequested) return "本次定时运行已取消或关闭";
+    }
     return null;
   }
 
@@ -309,7 +313,7 @@ export class Driver {
     if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
     const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
     if (identity?.kind === "subagent") return "SubAgent 不能委派下级";
-    if (identity?.kind !== "dev" && identity?.kind !== "main") return "只有普通开发会话或 main 可以委派 SubAgent";
+    if (identity?.kind !== "dev" && identity?.kind !== "main" && identity?.kind !== "scheduled") return "该会话没有宿主委派资格";
     const task = this.deps.store.getTask(ctx.taskId);
     if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
     return null;
@@ -395,7 +399,9 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      systemPrompt: SYSTEM_PROMPTS[this.profile.toolClass],
+      systemPrompt: this.profile.toolSignature === "scheduled"
+        ? `${SYSTEM_PROMPTS.main}\n- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。无需为这份默认回报调用 notification_enqueue；任务明确要求另行发送时才用该工具。`
+        : SYSTEM_PROMPTS[this.profile.toolClass],
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -490,7 +496,7 @@ export class Driver {
     // 上下文含旧工作资料，旧资料撤销后同样阻止发送（快照正文不重新解析）。
     // issue 16：有写入目标的工作不发资料快照（readScope.paths 恒空），无
     // sourceRefs 可核，复核在此为空集通过。
-    if (this.profile.restricted && this.deps.verifyTaskSources) {
+    if ((this.profile.restricted || this.profile.toolSignature === "scheduled") && this.deps.verifyTaskSources) {
       const refs = this.deps.store
         .listTasksBySession(this.session.id)
         .flatMap((t) => t.readScope?.sourceRefs ?? []);

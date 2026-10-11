@@ -18,7 +18,7 @@
 
 双产品首期已交付：两个产品入口、工作区与会话、受限/完全访问执行、通用 SubAgent（委派、复用、通信、取消、汇总、重启恢复）、IM 审批、白名单服务管理与长期授权、旧实例导入。尚未完成：
 
-- 真实 QQ / Telegram 平台与 macOS 完全访问的正向路径缺少实测证据（目前均为模拟平台）；
+- 真实 QQ / Telegram 平台缺少实测证据（消息平台目前使用模拟验证）；
 - 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
 
 逐项证据见 [发布与验收说明](docs/release-acceptance.md)。
@@ -42,7 +42,7 @@ ruukoto-code                      # 回到既有会话（不隐式新建）
 ruukoto-code stop                 # 停止后台
 ```
 
-工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。默认 native，正式入口拒绝旧 local/container 覆盖；迁移见[操作手册](docs/usage.md#21-启动后台)。macOS 尚无经验证的完全访问执行账户，选择完全访问会在执行前被拒绝。
+工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。默认 native，正式入口拒绝旧 local/container 覆盖；迁移见[操作手册](docs/usage.md#21-启动后台)。完全访问在 macOS 与 Linux 直接使用启动账户，不施加任务沙箱；环境继承、工作区外访问及停止已有两平台真实 worker 验证。
 
 | TUI 命令 | 用途 |
 | --- | --- |
@@ -54,11 +54,10 @@ ruukoto-code stop                 # 停止后台
 
 ### ruukoto（Linux 服务器）
 
-三个系统身份（拥有者 / 后台 `ruukoto-backend` / 执行账户 `ruukoto-exec`）、工具镜像、受保护的提权入口、systemd 单元以及可选的服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
+当前登录账户、受限任务工具镜像、systemd 单元以及可选的固定服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
 
 ```bash
 export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
-export RUUKOTO_OWNER_TOKEN_FILE=~/.ruukoto-owner.token   # 0400，部署时复制
 ruukoto status
 ```
 

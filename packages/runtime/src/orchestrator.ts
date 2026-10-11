@@ -15,6 +15,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import { QQ_GROUP_SOURCE, type QqStore } from "@ruukoto/channels/qq/store.ts";
@@ -30,6 +31,7 @@ import {
   type Task,
 } from "@ruukoto/core/types.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
+import { QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE } from "@ruukoto/core/notify-target.ts";
 import { canonicalParamsDigest } from "@ruukoto/agent/mcp/tools.ts";
 import type { SubAgentDelegateInput, SubAgentDelegation, SubAgentManager } from "@ruukoto/runtime/subagents.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
@@ -44,6 +46,7 @@ export interface OrchestratorBridge {
     modelSelection: ModelSelection;
     agentId?: AgentRoleId | null;
     parentTaskId?: string | null;
+    sourcePermissionVersion?: number | null;
     sourceEventId?: string | null;
     deadline?: string | null;
   }): Promise<Task>;
@@ -64,6 +67,8 @@ export interface OrchestratorDeps {
   /** 后台数据目录（角色工作目录在其兄弟目录 agent-work/ 下，避开保护根）。 */
   dataDir: string;
   bridge: OrchestratorBridge;
+  /** 在独立上下文创建并绑定通用调度运行；会话、任务与来源同事务登记。 */
+  dispatchScheduled?(event: InboundEvent, selection: ModelSelection): Promise<Task>;
   /** 超时巡检间隔（默认 1s；测试可压短）。 */
   deadlineCheckMs?: number;
   /**
@@ -186,6 +191,12 @@ export class Orchestrator {
     // 角色任务有工具执行，不同于无工具的 QQ 会话，不能沿用其无条件恢复前提）。
     for (const role of this.store.listAgentRoles()) {
       await this.resumeRestartPausedQueue(role.sessionId, `角色 ${role.id}`);
+    }
+    for (const session of this.store.listSessions()) {
+      const identity = this.store.getSessionIdentity(session.id);
+      if (identity?.kind === "scheduled" && this.store.scheduledRunCanResume(identity.runId)) {
+        await this.resumeRestartPausedQueue(session.id, `调度运行 ${identity.runId}`);
+      }
     }
     const ms = this.deps.deadlineCheckMs ?? 1_000;
     this.deadlineTimer = setInterval(() => void this.checkDeadlines(), ms);
@@ -335,8 +346,11 @@ export class Orchestrator {
         this.store.appendEvent({ type: "inbound.skipped", eventId: event.id, source: event.source, reason: gate.drop });
         if (group) this.deps.qqStore.setInboxStatus(group.dedupKey, "skipped");
       });
-      const previous = group?.sessionId ? this.store.findTaskByRequest(group.sessionId, group.requestId) : null;
-      if (previous && !isTerminalTaskStatus(previous.status)) await this.deps.bridge.cancelTask(previous.id, gate.drop);
+      const role = this.store.getAgentRole(event.targetRole);
+      const previous = group?.sessionId ? this.store.findTaskByRequest(group.sessionId, group.requestId)
+        : role ? this.store.findTaskByRequest(role.sessionId, `evt:${event.id}`) : null;
+      const matching = previous && (group || (previous.sourceEventId === event.id && previous.agentId === role?.id)) ? previous : null;
+      if (matching && !isTerminalTaskStatus(matching.status)) await this.deps.bridge.cancelTask(matching.id, gate.drop);
       return;
     }
     const role = this.store.getAgentRole(event.targetRole);
@@ -375,6 +389,15 @@ export class Orchestrator {
           hostReview: { sourceEventId: event.id },
         });
         task = delegation.task;
+      } else if (event.source === "scheduler") {
+        if (!this.deps.dispatchScheduled) throw new Error("通用调度执行未接线");
+        task = await this.deps.dispatchScheduled(event, selection);
+      } else if (prior) {
+        // 已接受任务是授权与模型选择的权威记录；恢复只补关联，不重算提交参数。
+        if (prior.sourceEventId !== event.id || prior.agentId !== role.id) {
+          throw new RuntimeApiError("request_conflict", "入站请求键已绑定另一任务来源");
+        }
+        task = prior;
       } else task = await this.deps.bridge.submit({
         sessionId: role.sessionId,
         requestId: `evt:${event.id}`,
@@ -382,9 +405,8 @@ export class Orchestrator {
         modelSelection: selection,
         agentId: role.id,
         sourceEventId: event.id,
-        // 入站事件（定时唤醒、Telegram 等）一律采用宿主固定的 confirm 模式：
-        // 正文不能设置权限，也不继承会话默认的完全访问
-        accessMode: "confirm",
+        // 拥有者私聊已由入站门核实身份；其余外部入口保持固定模式。
+        accessMode: event.source === TELEGRAM_SOURCE || event.source === QQ_PRIVATE_SOURCE ? undefined : "confirm",
       });
     } catch (err) {
       this.log(`事件 ${event.id} 建任务失败：${(err as Error).message}`);
@@ -396,7 +418,10 @@ export class Orchestrator {
         this.deps.promoteMedia?.(event, task);
         // 任务已落库/已结束、事件回填前崩溃的窗口也沿用原任务。
         const recorded = this.store.getTask(task.id)!;
-        if (recorded.resultSummary !== null) this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
+        if (recorded.resultSummary !== null) {
+          this.store.setInboundTerminal(event.id, recorded.status === "completed" ? "done" : "failed");
+          this.deps.onInboundTerminal?.(this.store.getInboundEvent(event.id)!, recorded, childOutcome(recorded));
+        }
       });
     } catch {
       this.log(`事件 ${event.id} 产物归属未完成，等待恢复`);
@@ -436,7 +461,7 @@ export class Orchestrator {
         continue;
       }
       const task = this.store.getTask(body.taskId);
-      if (!task || (!task.agentId && !task.subAgentId)) continue; // 只处理角色任务与 SubAgent 执行任务
+      if (!task || (!task.agentId && !task.subAgentId && this.store.getSessionIdentity(task.sessionId)?.kind !== "scheduled")) continue; // 角色、独立调度和 SubAgent 共用结果登记
       const outcome: ChildOutcome =
         body.type === "task.completed"
           ? "completed"
@@ -478,6 +503,7 @@ export class Orchestrator {
       await this.handleSubAgentTerminal(task, outcome);
       return;
     }
+    const scheduled = this.store.getSessionIdentity(task.sessionId)?.kind === "scheduled";
     const agentId = task.agentId!;
     const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
     const reply = replyPage?.text.trim() || null;
@@ -490,7 +516,7 @@ export class Orchestrator {
       this.recordInboundTerminal(task, outcome);
       this.deps.parentDelivery.wakeTerminal(task, outcome);
       const refs = { taskId: task.id, sessionId: task.sessionId };
-      switch (outcome) {
+      if (!scheduled) switch (outcome) {
         case "completed":
           this.store.appendEvent(
             { type: "child_task.completed", taskId: task.id, parentTaskId: task.parentTaskId, agentId, summary, resultRef },

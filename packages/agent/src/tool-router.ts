@@ -4,16 +4,17 @@
  * - 每次调用都读取当前任务的 accessMode / 权限版本 / 授予路径，不缓存
  *   首次创建 SDK 会话时的模式；
  * - 编码工具（read/edit/write/bash）经工具工作进程执行：工作进程只在
- *   当前任务的执行边界内（受限任务 → 原生沙箱或容器；完全访问 → 执行账户）；
+ *   当前任务的执行边界内（受限任务 → 原生沙箱或容器；完全访问 → 启动账户）；
  *   模式/环境变化时先停止并核实旧执行单元退出，再建立新环境；
- * - 结构化操作（request_file_access / http_request）始终形成具体审批
- *   请求；经审批闸门单次消费后才执行，执行参数取自审批前构造、与审批记录
+ * - 结构化操作（request_file_access / http_request）形成固定操作范围；完全访问登记任务授权，
+ *   受限模式经审批闸门单次消费后才执行，执行参数取自审批前构造、与审批记录
  *   同源的请求；
  * - 原始输出先落产物文件，再生成限长模型视图并附产物引用。
  */
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AccessMode, ApprovalScope, GrantedPath, Session, Task } from "@ruukoto/core/types.ts";
@@ -62,7 +63,7 @@ export interface ToolRouterDeps {
   registry: ManagedProcessRegistry;
   /** 返回当前模式对应的工作进程启动器；未配置时抛 ExecutionError（不回退）。 */
   launcherFor: (mode: AccessMode) => WorkerLauncher;
-  /** 始终排除的保护根目录（后台数据、服务凭据、控制面）。 */
+  /** 受限模式排除的保护根目录（后台数据、服务凭据、控制面）。 */
   protectedRoots: string[];
   /**
    * 产物读取的范围判定（issue 05 §1）：同项目旧任务的产物在授权范围内可读，
@@ -320,6 +321,13 @@ export class ToolRouter {
     } catch (err) {
       return textResult(`执行环境不可用：${(err as Error).message}（不回退到其他执行方式）`, true);
     }
+    if (task.accessMode === "full_access") {
+      const grant = await this.deps.approvals.request({
+        task, hostOpId: input.hostOpId, toolName: input.name, params: input.params,
+        scope: { kind: "tool", workspaceOnly: false }, signal: input.signal,
+      });
+      if (!grant.approved) return textResult(grant.text, true);
+    }
     const artifactsByStream = new Map<DataStream, { id: string; name: string }>();
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort(new Error("aborted by host"));
@@ -397,7 +405,7 @@ export class ToolRouter {
 
   private async executeApprovalOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
     const scopeResult =
-      input.name === "request_file_access" ? this.fileOpScope(input.params) : await this.httpOpScope(input.params);
+      input.name === "request_file_access" ? this.fileOpScope(task, input.params) : await this.httpOpScope(input.params);
     if ("error" in scopeResult) {
       return textResult(scopeResult.error, true);
     }
@@ -415,6 +423,7 @@ export class ToolRouter {
     // 执行参数取自审批前构造、与审批记录同源的请求（固定解析地址与目标文件身份只在内存）
     if (scopeResult.kind === "file") {
       const outcome = executeApprovedFileOp(scopeResult.fileRequest);
+      if (outcome.effectUnknown) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
       const text = outcome.ok && outcome.content !== undefined ? `${outcome.message}\n${outcome.content}` : outcome.message;
       return textResult(text, !outcome.ok);
     }
@@ -434,6 +443,7 @@ export class ToolRouter {
   }
 
   private fileOpScope(
+    task: Task,
     params: Record<string, unknown>,
   ): { kind: "file"; scope: ApprovalScope; fileRequest: FileOpRequest } | { error: string } {
     const target = String(params["path"] ?? "");
@@ -448,8 +458,14 @@ export class ToolRouter {
     let targetIno: number | null = null;
     let originalSha256: string | null = null;
     try {
-      resolved = restrictedResolve(target, { allowMissingLast: true });
-      if (isProtectedPath(resolved, this.deps.protectedRoots)) {
+      if (task.accessMode === "full_access") {
+        const absolute = path.resolve(target);
+        resolved = fs.existsSync(absolute) ? fs.realpathSync(absolute)
+          : path.join(fs.realpathSync(path.dirname(absolute)), path.basename(absolute));
+      } else {
+        resolved = restrictedResolve(target, { allowMissingLast: true });
+      }
+      if (task.accessMode !== "full_access" && isProtectedPath(resolved, this.deps.protectedRoots)) {
         return { error: "目标位于控制面/服务数据目录内，始终排除，不可申请" };
       }
       let st: fs.Stats | null = null;
@@ -495,7 +511,7 @@ export class ToolRouter {
         targetDev,
         targetIno,
         originalSha256,
-        protectedRoots: this.deps.protectedRoots,
+        protectedRoots: task.accessMode === "full_access" ? [] : this.deps.protectedRoots,
       },
     };
   }
@@ -579,7 +595,7 @@ export class ToolRouter {
     const blocked = this.mcpConfigBlock(mcp.store, meta);
     if (blocked) return textResult(blocked, true);
 
-    if (meta.effect === "read" || task.accessMode === "full_access") {
+    if (meta.effect === "read" && task.accessMode !== "full_access") {
       return this.mcpSend(mcp, task, meta, input.params, input);
     }
 
@@ -777,7 +793,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
     name: "request_file_access",
     label: "request_file_access",
     description:
-      "申请对授权工作区之外单个文件的一次性读取或写入（需拥有者批准后执行）。审批会列出目标文件与写入内容；批准只对该次操作有效。",
+      "读取或写入单个文件；完全访问免审批，受限模式逐次批准。固定目标身份与待写内容，批准只对本次操作有效。",
     parameters: Type.Object({
       path: Type.String({ description: "目标文件的绝对路径" }),
       operation: Type.Union([Type.Literal("read"), Type.Literal("write")], { description: "读或写" }),
@@ -789,7 +805,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
     name: "http_request",
     label: "http_request",
     description:
-      "发起一次外部 HTTP(S) 请求（需拥有者批准后执行）。审批会列出方法、完整目标、头部与正文；凭据按预配置绑定注入，值不展示。默认不跟随重定向、不重试。",
+      "发起一次 HTTP(S) 请求；完全访问免审批，受限模式逐次批准。固定方法、目标和正文；凭据按主机绑定注入，值不展示。不跟随重定向、不重试。",
     parameters: Type.Object({
       method: Type.String({ description: "HTTP 方法，如 GET/POST" }),
       url: Type.String({ description: "完整目标 URL" }),

@@ -1,0 +1,88 @@
+✔ 提交幂等比较包含访问模式与授权范围 (187.724416ms)
+✔ continue 新任务默认请求确认，拥有者可显式选择完全访问 (3099.517833ms)
+✖ 新旧请求摘要：历史模式变化后仍可重试，显式 Plan 与新请求显隐式模式不得混淆 (25.420833ms)
+✔ Plan 默认值与任务固定模式跨后台重启保留，控制面握手恢复真实选择 (44.616792ms)
+✔ CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使用同一可信选择 (7429.500583ms)
+✔ 会话默认模式：CAS 更新、新任务固定提交瞬间的默认值、既有任务不改写 (3089.663333ms)
+✔ 会话默认模式支持 auto-review：CAS 接受、任务固定、显式覆盖、任务级切换、跨重启保留 (3138.233958ms)
+✔ switch-mode 在无执行中工具的边界生效；任务结束后拒绝切换 (3054.858833ms)
+✔ 完全访问任务不逐次确认；缺少执行入口时不静默降级 (627.626333ms)
+✔ 完全访问直接选择当前账户启动器，受限容器仍不降级 (0.128125ms)
+✔ 控制面拥有者认证：认证前不返回快照、不执行请求 (16.14875ms)
+✔ 模型不能提升任务模式：不存在这种工具 (64.739125ms)
+✔ 保护根双向排除：授予保护根的祖先或服务代码目录被拒绝；工作区同样受限 (18.614875ms)
+✔ assertGrantNotProtected：根目录视为所有保护根的祖先 (0.417125ms)
+✔ Git worktree：授予共享 Git 元数据时用途标注其影响；不授予则不自动包含 (83.967667ms)
+✔ 档案路径：稳定、按仓库区分、在仓库外、随 HOME 参数变化 (1.34425ms)
+✔ code 档案：同仓库稳定复用，与 dev 及日常产品档案分别隔离 (0.30925ms)
+✔ 环境清洗：生产令牌/执行账户变量被剥除，档案目录与 QQ 停用注入 (0.187958ms)
+✔ 监听分类：tui / config-tui / backend / both / self (0.201875ms)
+✔ 重启计划：后台变更只重启后台；配置中心不重连，随后台一并重载 (0.07475ms)
+✔ 参数解析：dev 仅后台、code 默认 TUI；--config 取代 TUI，严格拒绝旧 --tui (0.519709ms)
+✔ code 路径参数：单目录可与模型导入同用，拒绝多个目录及配置模式 (0.249292ms)
+✔ importModelConfigs：只复制 models.json/auth.json（0600），忽略 credentials.json (0.976167ms)
+✔ ruukoto 开发入口：--tui 在建目录前失败（无副作用） (666.719834ms)
+✔ ruukoto 开发入口：--nope 在建目录前失败（无副作用） (617.419916ms)
+✔ ruukoto 开发入口：无模型提示本入口的配置命令且不启动后台 (604.43225ms)
+✔ ruukoto-code 开发入口：--tui 在建目录前失败（无副作用） (770.791208ms)
+✔ ruukoto-code 开发入口：--nope 在建目录前失败（无副作用） (802.749792ms)
+✔ ruukoto-code 开发入口：无模型提示本入口的配置命令且不启动后台 (683.319791ms)
+✔ dev --import-models：复制后进入门禁；无效配置退出且 credentials.json 未导入 (680.184ms)
+✔ dev：后台就绪（QQ 停用、环境可认证），SIGINT 后无锁无孤儿进程 (1666.538208ms)
+✔ dev：开发实例已在运行 → 报错退出且不碰外来后台 (2715.700875ms)
+✔ code：有效模型但非 TTY 时非零退出并清理后台 (3749.538125ms)
+✔ code --config：控制面启动探测挂起时 SIGTERM 退出，不继续启动离线配置 (2133.057084ms)
+✔ 工作区入口重载：无参恢复原会话与草稿，不再次创建会话 (156.433375ms)
+✔ 重载状态：草稿/会话/继续意图持久化，重开后恢复并生成带 resumes 的继续任务 (1002.800125ms)
+✔ 重载状态：instanceId 不符 → 失效提示并按正常入口启动 (286.166125ms)
+✔ 重载状态：继续目标任务已结束 → 意图丢弃并提示，草稿保留，提交仍是新任务 (367.998792ms)
+✔ PTY：npm run code 默认 TUI，/quit 后退出、终端恢复、日志不交错、无残留进程 (2261.60625ms)
+✔ PTY：code 相对路径含空格时创建工作区，重新启动复用工作区并新建会话 (4394.752166ms)
+✔ PTY：npm run code -- --config 打开在线配置中心，退出时停开发后台 (2282.487167ms)
+✔ PTY：code 首次 --config 进入离线配置，放弃后不启动后台且释放配置锁 (1255.181875ms)
+✔ productFromEnv：未设置/空串默认 ruukoto，ruukoto-code 显式可选 (0.426542ms)
+✔ productFromEnv：非法取值直接报错（不静默落到错误产品） (0.149542ms)
+✔ 产品枚举恰好两个且不重叠 (0.297625ms)
+✔ productRootDir：两产品独立根，均不等于开发实例根 ~/.ruukoto-dev (0.070792ms)
+✔ dirEnvFor：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读 RUUKOTO_CODE_*_DIR (0.051ms)
+✔ ruukoto（默认产品）：沿用 ~/.ruukoto 布局与 RUUKOTO_*_DIR 覆盖 (0.174833ms)
+✔ ruukoto-code：独立档案根与 RUUKOTO_CODE_*_DIR 覆盖，不读对方产品的路径变量 (0.113458ms)
+✔ buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目录并钉定各自档案 (0.646458ms)
+✔ ruukoto-code：停用 QQ/Telegram 连接与轮询、个人调度不可用、旧记录仍可读 (46.7375ms)
+✔ ruukoto（默认产品）：调度器照常启动 (26.460167ms)
+✔ 数据目录归属：跨产品复用被拒绝，同产品重启正常（meta 兼容扩展） (46.867667ms)
+✔ 进程：apps/ruukoto-code/bin/ruukoto-code.mjs 入口引导 TS，未知名字按工作区处理（非 TTY 退出 1） (643.327834ms)
+✔ 进程：非法 RUUKOTO_PRODUCT 快速失败并说明取值 (624.038208ms)
+✔ 进程级：两产品同机并存、独立停止；跨产品打开目录被拒绝 (3299.833959ms)
+✔ 进程级：bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时启动/查询/停止只作用于本产品（评审 R6） (4004.008458ms)
+✔ ruukoto-code 默认执行后端 = native；完全访问无需额外执行入口 (1392.855416ms)
+✔ ruukoto 显式 local/container（flag 或环境变量）：保留个人产品后端契约 (4325.495125ms)
+✔ ruukoto-code 显式 native（flag 或环境变量）：握手展示原生执行后端 (2268.582541ms)
+✔ ruukoto（个人 Agent）默认执行后端不变 = local，同样打印无隔离警告 (2258.128541ms)
+✔ ruukoto-code 的旧 local/container flag 与环境覆盖拒绝，并给出迁移指引 (4494.365041ms)
+✔ ruukoto 个人入口拒绝 native，不扩展已有 local/container 选择 (1393.789792ms)
+✔ 非法执行后端在 server、TUI、工作区与旧 tui 入口提前拒绝 (848.958959ms)
+ℹ tests 64
+ℹ suites 0
+ℹ pass 63
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 28422.318459
+
+✖ failing tests:
+
+test at test/10-access-modes.test.ts:168:1
+✖ 新旧请求摘要：历史模式变化后仍可重试，显式 Plan 与新请求显隐式模式不得混淆 (25.420833ms)
+  Error: request_id 已存在且提交参数不同：task=task_d317f5a5e3acee8f7af53be9
+      at ControlClient.handleFrame (/Users/eitrous/Developer/ruukoto/packages/control/src/client.ts:171:21)
+      at Socket.<anonymous> (/Users/eitrous/Developer/ruukoto/packages/control/src/client.ts:103:14)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23) {
+    code: 'request_conflict',
+    outcome: 'rejected'
+  }

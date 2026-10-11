@@ -298,24 +298,23 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   const evtApproval = randomId("evt");
   db.prepare("INSERT INTO inbound_events (id, source, external_id, actor, target_role, body, received_at, event_kind, status) VALUES (?, 'telegram', '777:c1:99', 'u1', 'main', '{\"cmd\":\"/approve-standing x 1\"}', ?, 'im_approval', 'done')").run(evtApproval, PAST);
 
-  // 调度三态 + 发送账本：逾期 wake_main；daily notify（打开运行 + pending 发送）；
-  // 已取消计划（关闭运行）；sending / sent / effect_unknown 各一
+  // 通用计划三态与独立运行、发送事实一起导入；未结束的运行在导入时收尾。
   const notifyTarget = JSON.stringify({ channel: "telegram", account: "u1", chatId: "c1", configVersion: 5 });
   const schWake = randomId("sch");
   db.prepare(
-    `INSERT INTO schedules (id, create_key, params_digest, action, rule, payload, status, next_due_at, version, tz_data, reason, created_at, updated_at)
-     VALUES (?, 'k-wake', 'd-wake', 'wake_main', ?, ?, 'active', ?, 1, 'Asia/Shanghai', '每日站会', ?, ?)`,
-  ).run(schWake, JSON.stringify({ kind: "once", at: PAST, timeZone: "UTC", disambiguation: "compatible" }), JSON.stringify({ text: "演练唤醒", sourceRefs: [] }), PAST, NOW, NOW);
+    `INSERT INTO schedules (id, create_key, params_digest, project_id, create_permission_version, access_mode, rule, instruction, source_refs, status, next_due_at, version, tz_data, reason, created_at, updated_at)
+     VALUES (?, 'k-once', 'd-once', ?, 1, 'confirm', ?, '演练独立运行', '[]', 'active', ?, 1, 'Asia/Shanghai', '每日站会', ?, ?)`,
+  ).run(schWake, mainProj, JSON.stringify({ kind: "once", at: PAST, timeZone: "UTC", disambiguation: "compatible" }), PAST, NOW, NOW);
   const schNotify = randomId("sch");
   db.prepare(
-    `INSERT INTO schedules (id, create_key, params_digest, action, rule, payload, target, approval_id, status, next_due_at, version, tz_data, reason, created_at, updated_at)
-     VALUES (?, 'k-notify', 'd-notify', 'notify', ?, ?, ?, 'appr-notify', 'active', ?, 1, 'Asia/Shanghai', '每日一句', ?, ?)`,
-  ).run(schNotify, JSON.stringify({ kind: "daily", time: "08:00", timeZone: "UTC", disambiguation: "compatible" }), JSON.stringify({ text: "早安", sourceRefs: [] }), notifyTarget, PAST, NOW, NOW);
+    `INSERT INTO schedules (id, create_key, params_digest, project_id, create_permission_version, access_mode, rule, instruction, source_refs, target, status, next_due_at, version, tz_data, reason, created_at, updated_at)
+     VALUES (?, 'k-daily', 'd-daily', ?, 1, 'confirm', ?, '每日问候', '[]', ?, 'active', ?, 1, 'Asia/Shanghai', '每日一句', ?, ?)`,
+  ).run(schNotify, mainProj, JSON.stringify({ kind: "daily", time: "08:00", timeZone: "UTC", disambiguation: "compatible" }), notifyTarget, PAST, NOW, NOW);
   const schCanceled = randomId("sch");
   db.prepare(
-    `INSERT INTO schedules (id, create_key, params_digest, action, rule, payload, status, next_due_at, version, tz_data, reason, cancel_reason, created_at, updated_at)
-     VALUES (?, 'k-canceled', 'd-canceled', 'notify', ?, '{}', 'canceled', NULL, 2, 'Asia/Shanghai', '旧计划', '拥有者取消', ?, ?)`,
-  ).run(schCanceled, JSON.stringify({ kind: "daily", time: "09:00", timeZone: "UTC", disambiguation: "compatible" }), NOW, NOW);
+    `INSERT INTO schedules (id, create_key, params_digest, project_id, create_permission_version, access_mode, rule, instruction, source_refs, status, next_due_at, version, tz_data, reason, cancel_reason, created_at, updated_at)
+     VALUES (?, 'k-canceled', 'd-canceled', ?, 1, 'confirm', ?, '旧计划说明', '[]', 'canceled', NULL, 2, 'Asia/Shanghai', '旧计划', '拥有者取消', ?, ?)`,
+  ).run(schCanceled, mainProj, JSON.stringify({ kind: "daily", time: "09:00", timeZone: "UTC", disambiguation: "compatible" }), NOW, NOW);
   const opPending = randomId("nop");
   const runOpen = randomId("srun");
   const opSending = randomId("nop");
@@ -764,24 +763,23 @@ test("应用后目标启动：main 与应用数据可用，档案可查，交接
       assert.equal(subRow.state, "idle");
       assert.ok(store.db.prepare("SELECT 1 FROM work_delegations WHERE id = ?").get(src.ids.workId), "工作委托在库");
 
-      // 调度一次交接：逾期 wake_main 恰派发一次（新事件 + main 新任务完成）
-      await waitFor("逾期 wake_main 派发完成", () => {
-        const ev = store.db
-          .prepare("SELECT id, status FROM inbound_events WHERE source = 'scheduler' ORDER BY received_at DESC LIMIT 1")
-          .get() as { status: string } | undefined;
-        return ev !== undefined && ev.status === "done";
+      // 两项逾期通用计划在独立会话执行；未完成的旧运行不重放。
+      await waitFor("逾期独立运行派发完成", () => {
+        const events = store.db.prepare("SELECT status FROM inbound_events WHERE source = 'scheduler'").all();
+        return events.length === 2 && events.every((event) => event.status === "done");
       });
-      const schedulerEvents = store.db.prepare("SELECT count(*) c FROM inbound_events WHERE source = 'scheduler'").get() as { c: number };
-      assert.equal(schedulerEvents.c, 1, "wake_main 在目标恰触发一次");
-      const wakeRuns = store.db.prepare("SELECT count(*) c FROM schedule_runs WHERE schedule_id = ?").get(src.ids.schWake) as { c: number };
-      assert.equal(wakeRuns.c, 1, "wake_main 的新运行恰一次");
-      // 逾期 notify：新建一个运行与一个发送操作（平台停用 → 等待），旧 pending 保持 canceled 不重发
-      const notifyOps = store.db.prepare("SELECT id, status, source_key FROM notification_ops WHERE source_kind = 'schedule_run'").all() as Array<{ id: string; status: string; source_key: string }>;
-      const importedOp = notifyOps.find((o) => o.id === src.ids.opPending)!;
-      assert.equal(importedOp.status, "canceled", "旧 pending 发送保持取消，不当作新请求重发");
-      const newOps = notifyOps.filter((o) => o.id !== src.ids.opPending && o.source_key !== src.ids.runOpen);
-      assert.equal(newOps.length, 1, "逾期 notify 在目标恰产生一个新发送操作");
-      assert.equal(notifyOps.filter((o) => o.status === "sent").length, 0, "停用平台不外发");
+      t.scheduler!.closeFinished();
+      t.scheduler!.kickSender();
+      await t.scheduler!.idle();
+      const onceRuns = store.db.prepare("SELECT session_id FROM schedule_runs WHERE schedule_id = ?").all(src.ids.schWake);
+      assert.equal(onceRuns.length, 1);
+      assert.notEqual(onceRuns[0].session_id, src.ids.sessMain, "调度不复用日常主聊天");
+      const reportOps = store.db.prepare("SELECT id, status, source_key FROM notification_ops WHERE source_kind = 'schedule_run'").all() as Array<{ id: string; status: string; source_key: string }>;
+      const importedOp = reportOps.find((op) => op.id === src.ids.opPending)!;
+      assert.equal(importedOp.status, "canceled", "旧 pending 不当作新请求重发");
+      const newOps = reportOps.filter((op) => op.id !== src.ids.opPending && op.source_key !== src.ids.runOpen);
+      assert.equal(newOps.length, 1, "有固定目标的通用计划只登记一次最终回报");
+      assert.equal(reportOps.filter((op) => op.status === "sent").length, 0, "停用平台不外发");
 
       // 不重放：旧 queued/rm/awaiting 已收尾，模型只为新派发工作
       const taskOf = (id: string) => store.getTask(id)!;
@@ -1012,7 +1010,7 @@ test("故障注入续跑无重复；同键重放/异参冲突；修订冲突；�
 
 // ---------- 4. v20 旧库：快照迁移只在副本上 ----------
 
-test("v20 旧库（个人方向）：快照迁移只在副本上执行，源 sha 不变", async () => {
+test("v20 旧库（个人方向）：拒绝旧格式且源 sha 不变", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-pi-v20-"));
   const dataDir = path.join(root, "data");
   fs.mkdirSync(dataDir, { recursive: true });
@@ -1046,26 +1044,9 @@ test("v20 旧库（个人方向）：快照迁移只在副本上执行，源 sha
     const before = hashTree(root);
 
     const deps = depsOf(dirs);
-    const preview = previewPersonalImport(deps, { from: dataDir });
-    assert.equal(preview.source.schema_version_original, 20, "记录原始版本");
-    assert.equal(preview.source.schema_version_current, SCHEMA_VERSION);
-    assert.equal(preview.roles.length, 1);
-    assert.equal(preview.roles[0]!.id, "main");
-    const applied = applyPersonalImport(deps, {
-      plan: { from: dataDir },
-      source_instance_id: preview.source.instance_id,
-      revision: preview.revision!,
-      request_id: "imp-pi-v20",
-    });
-    assert.equal(applied.counts.agent_roles, 1);
-    assert.equal(applied.counts.sessions, 1);
-    assert.equal(hashTree(root), before, "旧库只在快照上迁移，源逐文件不变");
-    const tdb = new Db(dirs.dataDir);
-    const role = tdb.prepare("SELECT work_dir FROM agent_roles WHERE id = 'main'").get() as { work_dir: string };
-    assert.ok(role.work_dir.includes("agent-work"), "角色工作目录改写为目标 agent-work");
-    const sess = new Store(tdb).getSession(session.id)!;
-    assert.deepEqual(fs.readFileSync(sess.sessionFile!), fs.readFileSync(path.join(dataDir, "sessions", "s_pi-v20m.jsonl")), "历史字节一致");
-    tdb.close();
+    assert.throws(() => previewPersonalImport(deps, { from: dataDir }), { code: "source_schema" });
+    assert.equal(hashTree(root), before, "拒绝旧格式不修改源资料");
+    assert.equal(fs.existsSync(dirs.dataDir), false, "预览失败不创建目标状态");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(tRoot, { recursive: true, force: true });

@@ -89,7 +89,7 @@ function resolveExecutionBackend(product: CliProduct, override: string | undefin
   if ((backend !== "local" && backend !== "container" && backend !== "native") || !allowed.includes(backend)) {
     const hint = allowed.length === 1 && allowed[0] === "native"
       ? "受限执行仅支持 native；改为 --execution native 或移除 --execution / RUUKOTO_EXECUTION_BACKEND 覆盖"
-      : `${allowed.join(" | ")}；完全访问仍须配置专用执行账户`;
+      : `${allowed.join(" | ")}；完全访问使用启动账户，不施加任务沙箱`;
     process.stderr.write(`[ruukoto:cli] --execution 取值无效：${backend}（${hint}）\n`);
     return null;
   }
@@ -243,7 +243,7 @@ async function runServer(rest: string[], product: CliProduct): Promise<number> {
   const execFlag = resolveExecutionBackend(product, flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND);
   if (execFlag === null) return 1;
   if (execFlag === "local") {
-    console.error("警告：local 执行后端无隔离，仅用于开发/验证；生产部署请使用 --execution container 并完成 systemd 执行账户配置");
+    console.error("警告：local 执行后端无隔离，仅用于开发/验证；受限任务生产部署请使用 --execution container");
   }
   // 工具集：默认真实编码工具；mock 仅供模拟测试（crash 恢复集成验证使用）
   const toolsFlag = flags["tools"] ?? "coding";

@@ -75,3 +75,9 @@ Status: resolved
 旧入口 `bash .scratch/agent-direction/macos-sbx-probe.sh` 现在复用新的真实 macOS 探针。探针先验证未沙箱对照，再用 started 标记与实际操作的 errno 区分策略解析或程序启动失败、真实拒绝和未被拒绝；退出码 0 表示被测项通过，1 表示边界失败，2 表示基础设施或判定缺失。所有材料、监听服务和目标进程均由探针临时创建，不读取真实凭据。
 
 这项更正只确认 Seatbelt 文件机制可用。工单 26 的完整原生替换仍未通过第一阶段：`posix_spawn` 可以绕过 `SYS_setsid/SYS_setpgid` 拒绝规则，让后代脱离原进程组；可信宿主杀原组后，后代心跳继续增长。`kqueue NOTE_TRACK` 实测为 `ENOTSUP`。临时 launchd job 的 `bootout` 成功与 job 消失同样不能证明后代停止。可复跑脚本与完整证据见[工单 26](26-native-sandbox.md)。容器的已有实测结果继续作为容器边界证据，不能据此替原生边界验收。
+
+### 2026-10-11：原生接入与回收口径补充
+
+[工单 26](26-native-sandbox.md) 将原生后端接入真实 worker、主任务、SubAgent、worktree 与汇总。两平台修复后的 worker 各 10 项、副本流程各 8 项通过，模型打桩与真实 OS 拒绝分别登记；预存硬链接可绕只读路径的反例独立保留，原生授权与每次调用因此核实文件所有链接均在同权限授权内。
+
+macOS 的 `posix_spawn` 属性残留仍成立。拥有者已接受任务存活期累计后代，无法核实时保留占用；实现未将组外未知后代、观察中断或同 UID 外部孤儿误判为完整退出。容器历史决定继续适用于个人 Agent；Coding Agent 的原生选择与代价见[原生执行沙箱](../../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)。

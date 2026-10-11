@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-10-11T16:10:22+0900",
+  "platform": "darwin",
+  "status": "failed",
+  "scope": "直接调用产品assertNativeFileLinks，真实临时虚拟文件；只证明重复目录别名的计数入口。",
+  "fixture": "/private/tmp/ruukoto-alias-guard-zt0xfct4",
+  "same_dir_identity": true,
+  "same_file_identity": true,
+  "source_nlink": 2,
+  "mounts": [
+    "workspace read_write",
+    "/System/Volumes/Data + workspace read_write"
+  ],
+  "guard": "GUARD_ALLOWED",
+  "tsx_exit_code": 0,
+  "fixture_cleaned": true,
+  "limitations": [
+    "该记录保存修复前实际回执，不经过完整worker。",
+    "守护检查按路径计数同一目录条目两次，掩盖未授权private目录中的原条目。",
+    "同inode的只读与读写权限仍须判冲突；按目录对象去重不能丢掉权限事实。"
+  ]
+}

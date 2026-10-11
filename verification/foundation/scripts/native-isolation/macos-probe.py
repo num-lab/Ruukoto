@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import runpy
 import select
 import shutil
 import signal
@@ -72,6 +73,33 @@ def attempt(operation, value):
             if fd < 0:
                 raise OSError(ctypes.get_errno(), "shm_open")
             os.close(fd)
+        elif operation == "sysv-shm":
+            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+            lib.shmat.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+            lib.shmat.restype = ctypes.c_void_p
+            lib.shmdt.argtypes = [ctypes.c_void_p]
+            address = lib.shmat(value, None, 0)
+            if address == ctypes.c_void_p(-1).value:
+                raise OSError(ctypes.get_errno(), "shmat")
+            try:
+                if ctypes.string_at(address, 13) != b"virtual-sysv\n":
+                    raise RuntimeError("SysV 虚拟共享内存内容不匹配")
+            finally:
+                if lib.shmdt(address) < 0:
+                    raise OSError(ctypes.get_errno(), "shmdt")
+        elif operation == "sysv-sem":
+            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+            lib.semctl.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            if lib.semctl(value, 0, 5) < 0:
+                raise OSError(ctypes.get_errno(), "semctl(GETVAL)")
+        elif operation == "sysv-msg":
+            class Message(ctypes.Structure):
+                _fields_ = [("kind", ctypes.c_long), ("payload", ctypes.c_char * 16)]
+            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+            lib.msgsnd.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+            message = Message(1, b"virtual-sysv")
+            if lib.msgsnd(value, ctypes.byref(message), 12, 0o4000) < 0:
+                raise OSError(ctypes.get_errno(), "msgsnd")
         elif operation == "env":
             emit({"ok": os.environ.get("RUUKOTO_VIRTUAL_OWNER_TOKEN") == value,
                   "detail": "只检查测试注入的虚拟环境变量"})
@@ -84,6 +112,8 @@ def attempt(operation, value):
             os.setpgid(0, 0)
         elif operation == "setsid":
             os.setsid()
+        elif operation == "setuid-other":
+            os.setuid(value)
         elif operation == "command":
             result = subprocess.run(value, capture_output=True, text=True, timeout=10)
             if result.returncode:
@@ -98,135 +128,19 @@ def attempt(operation, value):
         emit({"ok": False, "error": str(error)})
 
 
-def heartbeat(path, forbidden_path, port):
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    record = {"pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
-    try:
-        Path(forbidden_path).read_bytes()
-        record["file_denial_errno"] = None
-    except OSError as error:
-        record["file_denial_errno"] = error.errno
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=2):
-            record["network_denial_errno"] = None
-    except OSError as error:
-        record["network_denial_errno"] = error.errno
-    end = time.monotonic() + 15
-    with open(path, "a", buffering=1) as output:
-        while time.monotonic() < end:
-            output.write(json.dumps(record) + "\n")
-            time.sleep(0.05)
-
-
-def lifecycle_worker(workspace, executable, forbidden_path, port):
-    children = []
-    for name, attrs in (("normal", {}), ("setpgroup", {"setpgroup": 0}), ("setsid", {"setsid": True})):
-        path = str(Path(workspace) / f"heartbeat-{name}")
-        actions = [(os.POSIX_SPAWN_OPEN, fd, "/dev/null", os.O_WRONLY, 0) for fd in (1, 2)]
-        pid = os.posix_spawn(executable, [executable, "-I", SELF, "--heartbeat", path, forbidden_path, str(port)],
-                             os.environ, file_actions=actions, **attrs)
-        child = {"name": name, "pid": pid, "path": path}
-        children.append(child)
-        emit({"spawned": child})
-    emit({"started": True, "pid": os.getpid(), "pgid": os.getpgrp(),
-          "sid": os.getsid(0), "children": children})
-    time.sleep(15)
-
-
-def lifecycle_probe(policy, workspace, environment, forbidden_path, port, record):
-    def pid_exited(pid):
-        state = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "stat="],
-                               capture_output=True, text=True, timeout=3)
-        return state.returncode != 0 or state.stdout.strip().startswith("Z")
-
-    process = subprocess.Popen([SBX, "-p", policy, PYTHON, "-I", SELF, "--lifecycle", str(workspace),
-                                PYTHON, forbidden_path, str(port)],
-                               start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, cwd=workspace, env=environment)
-    children = []
-    receipts_complete = False
-    try:
-        ready, _, _ = select.select([process.stdout], [], [], 10)
-        if not ready:
-            raise RuntimeError("生命周期 worker 未报告启动")
-        while True:
-            line = process.stdout.readline()
-            if not line:
-                raise RuntimeError("生命周期 worker 在启动回执前退出")
-            header = json.loads(line)
-            if "spawned" in header:
-                children.append(header["spawned"])
-            elif header.get("started") is True:
-                if header.get("children") != children or len(children) != 3:
-                    raise RuntimeError("完整启动回执与逐个 spawn 回执不一致")
-                receipts_complete = True
-                break
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and not all(Path(c["path"]).exists() for c in children):
-            time.sleep(0.05)
-        details = []
-        for child in children:
-            initial = json.loads(Path(child["path"]).read_text().splitlines()[0])
-            if initial["pid"] != child["pid"]:
-                raise RuntimeError("心跳 PID 与可信 spawn 回执不一致")
-            details.append({"name": child["name"], **initial})
-            for kind in ("file", "network"):
-                code = initial[f"{kind}_denial_errno"]
-                record(f"lifecycle.{child['name']}-{kind}-inheritance", code in (errno.EPERM, errno.EACCES),
-                       {"pid": child["pid"], "errno": code, "control": "主探针已证明同一虚拟目标可访问"})
-        before = [Path(c["path"]).stat().st_size for c in children]
-        time.sleep(0.2)
-        if not all(Path(c["path"]).stat().st_size > size for c, size in zip(children, before)):
-            raise RuntimeError("停止前后代心跳对照未持续增长")
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=5)
-        time.sleep(0.15)
-        sizes = [Path(c["path"]).stat().st_size for c in children]
-        time.sleep(0.5)
-        for child, detail, size in zip(children, details, sizes):
-            detail["heartbeat_grows_after_group_kill"] = Path(child["path"]).stat().st_size > size
-            detail["pid_exited"] = pid_exited(child["pid"])
-            detail.update(worker_pgid=header["pgid"], worker_sid=header["sid"])
-            record(f"lifecycle.stop-{child['name']}-descendant",
-                   not detail["heartbeat_grows_after_group_kill"] and detail["pid_exited"], detail)
-    except Exception as error:
-        stderr = process.stderr.read(240) if process.poll() is not None else ""
-        record("lifecycle.actual-descendant-stop", False, f"{error}; {stderr}", unavailable=True)
-    finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=5)
-        for child in children:
-            try:
-                identity = subprocess.run(["/bin/ps", "-p", str(child["pid"]), "-o", "command="],
-                                          capture_output=True, text=True, timeout=3)
-                if SELF in identity.stdout and child["path"] in identity.stdout:
-                    os.kill(child["pid"], signal.SIGKILL)
-                elif identity.returncode == 0 and identity.stdout.strip():
-                    record("lifecycle.cleanup-identity", False, f"PID {child['pid']} 身份已改变，拒绝向它发信号", unavailable=True)
-            except ProcessLookupError:
-                pass
-        paths = [Path(child["path"]) for child in children if Path(child["path"]).exists()]
-        sizes = [path.stat().st_size for path in paths]
-        time.sleep(0.2)
-        frozen = all(path.stat().st_size == size for path, size in zip(paths, sizes))
-        exited = all(pid_exited(child["pid"]) for child in children)
-        cleaned = frozen and exited and receipts_complete
-        record("lifecycle.probe-cleanup", cleaned,
-               {"heartbeat_frozen": frozen, "captured_pids_exited": exited,
-                "all_spawn_receipts_verified": receipts_complete}, unavailable=not cleaned)
-
-
 def main():
     output = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parents[2] / "results"
     output.mkdir(parents=True, exist_ok=True)
     report = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "platform": platform.platform(),
               "kernel": platform.release(), "machine": platform.machine(), "python": PYTHON,
-              "policy_scope": "候选 deny-default 文件/网络/IPC 策略；生命周期候选为 syscall 拒绝 + PGID 回收。",
+              "policy_scope": "deny-default 文件/网络/IPC 策略；生命周期为原 PGID 与任务存活期进程树累积，逐 PID 核实微秒出生时间。",
               "limitations": ["仅当前 macOS 版本；未验证产品 WorkerLauncher、审批、恢复及 SubAgent 集成。",
                               "宿主工具链仅测试 --version 启动，不等价于真实 Git 操作或编译验收。",
-                              "未实测 SysV IPC、生命周期启动窗口、父进程异常及模式或授予范围变化时的回收。",
+                              "STOPPED 只证明本次夹具的原 PGID 与累积集合；漏记或观察中断返回 UNVERIFIED 并保留占用。",
+                              "posix_spawn 属性位的集合外残留按拥有者接受范围单列；夹具清理不改写停止结论。",
+                              "PID 复用使用真实 PID 的确定性出生时间不匹配；未强迫内核回卷 PID。",
                               "missing_probes=0 仅代表本脚本列举的探针无缺失，不代表覆盖工单全部要求。",
+                              "创建硬链接拒绝不覆盖预存别名；预存只读文件硬链接的真实绕过另见 native-macos-preexisting-hardlink-report。",
                               "失败只否决被测策略，不据此宣称所有 Seatbelt 策略都不可能。"], "probes": []}
     infrastructure = False
     temporary = None
@@ -235,9 +149,9 @@ def main():
         nonlocal infrastructure
         infrastructure |= unavailable
         report["probes"].append({"probe": name, "pass": passed, "unavailable": unavailable, "detail": detail})
-        if temporary is not None and Path(temporary).exists() and (
-                name.startswith("lifecycle.cleanup") or name == "lifecycle.actual-descendant-stop" or
-                name == "lifecycle.probe-cleanup" and not passed):
+        retained = (isinstance(detail, dict) and detail.get("restricted", {}).get("occupancy_retained")
+                    or unavailable and name.startswith("lifecycle."))
+        if temporary is not None and Path(temporary).exists() and retained:
             report["retained_probe_materials"] = str(Path(temporary).resolve())
         print(f"{'PASS' if passed else 'UNAVAILABLE' if unavailable else 'FAIL'} {name}: {detail}")
 
@@ -260,11 +174,11 @@ def main():
         except json.JSONDecodeError:
             lines = []
         if not lines or lines[0].get("started") is not True:
-            stage = "profile-parse" if "syntax" in result.stderr or "unbound variable" in result.stderr else "launch"
+            stage = "profile-parse" if result.returncode == 65 else "launch"
             return {"stage": stage, "rc": result.returncode, "detail": result.stderr.strip()[:240]}
         if result.returncode != 0 or len(lines) != 2 or "ok" not in lines[1]:
             return {"stage": "probe-incomplete", "rc": result.returncode, "detail": result.stderr.strip()[:240]}
-        return {"stage": "operation", **lines[1]}
+        return {"stage": "operation", "started": True, **lines[1]}
 
     def pair(name, operation, value, expected, policy, grandchild=False, denial=(errno.EPERM, errno.EACCES)):
         control = launch(operation, value)
@@ -301,11 +215,15 @@ def main():
             clean_env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(private_tmp),
                          "TMPDIR": str(private_tmp), "GIT_CONFIG_NOSYSTEM": "1"}
             aliases = str(root).replace("/private/tmp/", "/tmp/")
+            data_alias = Path("/System/Volumes/Data") / str(root).lstrip("/")
+            if not os.path.samefile(data_alias / "owner/material", secret / "material"):
+                raise RuntimeError("Data 卷别名未指向同一虚拟资料，不能判定该拒绝")
             report["path_normalization"] = {"requested": temporary, "canonical": str(root), "alias": aliases,
+                                            "data_volume_alias": str(data_alias), "data_volume_same_identity": True,
                                             "temporary_materials_cleaned_after_run": False}
             q = lambda path: json.dumps(str(path))
-            runtime_roots = {"/System", "/usr/lib", "/usr/share", "/usr/bin", "/bin",
-                             str(Path(sys.prefix).resolve()), str(Path(SELF).parent), "/Library/Developer",
+            runtime_roots = {"/System/Library", "/usr/lib", "/usr/share", "/usr/bin", "/bin",
+                             str(Path(sys.prefix).resolve()), str(Path(SELF).parent), "/Library/Developer/CommandLineTools",
                              "/private/var/select"}
             tools = {name: str(Path(shutil.which(name)).resolve()) if shutil.which(name) else None
                      for name in ("node", "git", "clang")}
@@ -364,6 +282,7 @@ def main():
             mach_name = "org.ruukoto.native.probe." + uuid.uuid4().hex
             shm_name = "/ruukoto-probe-" + uuid.uuid4().hex[:12]
             shm_fd = -1
+            sysv_objects = []
             try:
                 if victim.stdout.readline().strip() != "ready":
                     raise RuntimeError("虚拟进程未就绪")
@@ -395,11 +314,14 @@ def main():
                     pair(f"files.{name}.write", "write", str(path / "material"), writable, candidate)
                 for name, path in (("outside", secret / "material"), ("symlink", workspace / "escape"),
                                    ("tmp-alias", Path(aliases) / "owner" / "material"),
+                                   ("system-data-alias", data_alias / "owner/material"),
                                    ("parent-traversal", workspace / ".." / "owner" / "material")):
                     pair(f"files.{name}.read-denied", "read", str(path), False, candidate)
                     pair(f"files.{name}.write-denied", "write", str(path), False, candidate)
                 pair("files.readonly-symlink-write-denied", "write", str(workspace / "readonly-alias"), False, candidate)
                 pair("files.hardlink-source-denied", "link", [str(secret / "material"), str(workspace / "hardlink")], False, candidate)
+                pair("files.readonly-hardlink-source-denied", "link", [str(ro / "material"), str(workspace / "readonly-hardlink")], False, candidate)
+                pair("files.shared-git-hardlink-source-denied", "link", [str(git / "material"), str(workspace / "shared-git-hardlink")], False, candidate)
                 pair("subagent.assigned-read", "read", str(workspace / "assigned" / "material"), True, readonly)
                 pair("subagent.sibling-read-denied", "read", str(workspace / "material"), False, readonly)
                 pair("subagent.assigned-write-denied", "write", str(workspace / "assigned" / "material"), False, readonly)
@@ -425,6 +347,25 @@ def main():
                 else:
                     os.ftruncate(shm_fd, 16)
                     pair("ipc.shared-memory-denied", "shm", shm_name, False, candidate)
+                lib.shmat.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+                lib.shmat.restype = ctypes.c_void_p
+                lib.shmdt.argtypes = [ctypes.c_void_p]
+                lib.semctl.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+                for kind, create_args in (("shm", (0, 128, 0o600)), ("sem", (0, 1, 0o600)), ("msg", (0, 0o600))):
+                    identifier = getattr(lib, kind + "get")(*create_args)
+                    if identifier < 0:
+                        record(f"ipc.sysv-{kind}-denied", False, {"creation_errno": ctypes.get_errno()}, unavailable=True)
+                        continue
+                    sysv_objects.append((kind, identifier))
+                    if kind == "shm":
+                        address = lib.shmat(identifier, None, 0)
+                        if address == ctypes.c_void_p(-1).value:
+                            record("ipc.sysv-shm-denied", False, {"control_attach_errno": ctypes.get_errno()}, unavailable=True)
+                            continue
+                        ctypes.memmove(address, b"virtual-sysv\n", 13)
+                        if lib.shmdt(address) < 0:
+                            raise OSError(ctypes.get_errno(), "对照 shmdt")
+                    pair(f"ipc.sysv-{kind}-denied", "sysv-" + kind, identifier, False, candidate)
                 for name, executable in tools.items():
                     if executable:
                         pair(f"toolchain.{name}", "command", [executable, "--version"], True, candidate)
@@ -432,6 +373,14 @@ def main():
                         record(f"toolchain.{name}", False, "宿主未安装工具", unavailable=True)
                 pair("lifecycle.setpgid-syscall-denied", "setpgid", None, False, candidate)
                 pair("lifecycle.setsid-syscall-denied", "setsid", None, False, candidate)
+                different_uid = 65534 if os.getuid() != 65534 else 65533
+                identity_control = launch("setuid-other", different_uid)
+                identity_restricted = launch("setuid-other", different_uid, candidate)
+                record("lifecycle.owner-uid-change-os-denied",
+                       all(result.get("started") is True and result.get("errno") == errno.EPERM
+                           for result in (identity_control, identity_restricted)),
+                       {"control": identity_control, "restricted": identity_restricted,
+                        "scope": "宿主非特权身份本身不能换 UID；此项不计作 Seatbelt 特有拒绝"})
                 queue = select.kqueue()
                 try:
                     try:
@@ -440,11 +389,19 @@ def main():
                         record("lifecycle.kqueue-descendant-tracking", False,
                                "NOTE_TRACK 可注册，但尚未证明后代事件完整性", unavailable=True)
                     except OSError as error:
-                        record("lifecycle.kqueue-descendant-tracking", False,
-                               f"NOTE_TRACK 未支持 errno={error.errno}，无法用它补齐后代跟踪")
+                        record("lifecycle.kqueue-descendant-tracking", error.errno == errno.ENOTSUP,
+                               {"result": "KNOWN_UNSUPPORTED", "errno": error.errno,
+                                "used_for_stop_verification": False})
                 finally:
                     queue.close()
-                lifecycle_probe(candidate, workspace, clean_env, str(secret / "material"), tcp.getsockname()[1], record)
+                lifecycle = runpy.run_path(str(Path(SELF).with_name("macos-lifecycle-probe.py")))
+                outcomes = lifecycle["probe"](candidate, workspace, clean_env, str(secret / "material"), tcp.getsockname()[1], tools["node"], record)
+                if outcomes["mode-change"]:
+                    pair("lifecycle.mode-change-rebuild-readonly", "write", str(workspace / "material"), False, readonly)
+                if outcomes["grants-change"]:
+                    reduced = profile((workspace, ro, git, private_tmp), (workspace, private_tmp))
+                    pair("lifecycle.grants-change-rebuild-reduced", "write", str(rw / "material"), False, reduced)
+                    pair("lifecycle.grants-change-rebuild-expanded", "write", str(rw / "material"), True, candidate)
             except Exception as error:
                 record("probe.controller", False, str(error), unavailable=True)
             finally:
@@ -459,6 +416,9 @@ def main():
                 if shm_fd >= 0:
                     os.close(shm_fd)
                     lib.shm_unlink(shm_name.encode())
+                for kind, identifier in sysv_objects:
+                    result = lib.semctl(identifier, 0, 0) if kind == "sem" else getattr(lib, kind + "ctl")(identifier, 0, None)
+                    record(f"ipc.sysv-{kind}-cleanup", result == 0, {"rc": result, "errno": ctypes.get_errno() if result else None}, unavailable=result != 0)
         finally:
             if "retained_probe_materials" not in report:
                 shutil.rmtree(temporary)
@@ -468,23 +428,26 @@ def main():
         "legacy.canonical-write", "legacy.grandchild-file-denial", "legacy.noncanonical-rule-demonstration",
         "legacy.canonical-file-star",
         "files.readonly-symlink-write-denied", "files.hardlink-source-denied",
+        "files.readonly-hardlink-source-denied", "files.shared-git-hardlink-source-denied",
         "subagent.assigned-read", "subagent.sibling-read-denied", "subagent.assigned-write-denied",
         "network.loopback-denied", "network.unix-in-workspace-denied", "network.grandchild-loopback-denied",
         "credentials.environment-scrubbed", "credentials.descriptor-closed",
         "control-plane.signal-denied", "control-plane.pidpath-denied", "control-plane.process-environment-denied",
-        "ipc.mach-lookup-denied", "ipc.shared-memory-denied",
+        "ipc.mach-lookup-denied", "ipc.shared-memory-denied", "ipc.sysv-shm-denied", "ipc.sysv-sem-denied", "ipc.sysv-msg-denied",
         "lifecycle.setpgid-syscall-denied", "lifecycle.setsid-syscall-denied",
-        "lifecycle.kqueue-descendant-tracking", "lifecycle.probe-cleanup",
+        "lifecycle.kqueue-descendant-tracking", "lifecycle.pid-reuse-identity-guard", "lifecycle.kernel-pidversion-guard", "lifecycle.owner-uid-change-os-denied",
+        "lifecycle.mode-change-rebuild-readonly", "lifecycle.grants-change-rebuild-reduced", "lifecycle.grants-change-rebuild-expanded",
     }
     required.update(f"legacy.canonical-read-{style}" for style in ("literal", "subpath", "regex"))
     required.update(f"files.{name}.{operation}" for name in ("workspace", "grant-ro", "grant-rw", "shared-git")
                     for operation in ("read", "write"))
-    required.update(f"files.{name}.{operation}-denied" for name in ("outside", "symlink", "tmp-alias", "parent-traversal")
+    required.update(f"files.{name}.{operation}-denied" for name in ("outside", "symlink", "tmp-alias", "system-data-alias", "parent-traversal")
                     for operation in ("read", "write"))
     required.update(f"toolchain.{name}" for name in ("node", "git", "clang"))
-    required.update(f"lifecycle.stop-{name}-descendant" for name in ("normal", "setpgroup", "setsid"))
-    required.update(f"lifecycle.{name}-{kind}-inheritance" for name in ("normal", "setpgroup", "setsid")
-                    for kind in ("file", "network"))
+    required.update(f"lifecycle.{name}{suffix}" for name in (
+        "normal", "ignore-term", "spawn-setpgroup", "spawn-setsid", "node-detached", "node-detached-short-parent", "direct-setsid", "short-intermediate",
+        "missed-intermediate", "observation-interrupted", "startup-window", "parent-crash", "mode-change", "grants-change")
+        for suffix in ("", "-fixture-cleanup"))
     report["missing_probes"] = sorted(required - {probe["probe"] for probe in report["probes"]})
     for missing in report["missing_probes"]:
         record(missing, False, "必测项未运行", unavailable=True)
@@ -492,7 +455,7 @@ def main():
     report["summary"] = {"total": len(report["probes"]), "passed": sum(p["pass"] for p in report["probes"]),
                          "failed": sum(not p["pass"] and not p["unavailable"] for p in report["probes"]),
                          "unavailable": sum(p["unavailable"] for p in report["probes"])}
-    json_path, md_path = output / "native-macos-report.json", output / "native-macos-report.md"
+    json_path, md_path = output / "native-macos-stage1-report.json", output / "native-macos-stage1-report.md"
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     lines = ["# macOS 原生沙箱真实探针", "", f"时间：{report['timestamp']}",
              f"环境：{report['platform']} / {report['kernel']} / {report['machine']}",
@@ -502,7 +465,14 @@ def main():
              *report["limitations"], "", "| 探针 | 结果 | 证据 |", "| --- | --- | --- |"]
     for probe in report["probes"]:
         detail = json.dumps(probe["detail"], ensure_ascii=False).replace("|", "\\|")
-        lines.append(f"| {probe['probe']} | {'PASS' if probe['pass'] else 'UNAVAILABLE' if probe['unavailable'] else 'FAIL'} | {detail} |")
+        outcome = "PASS" if probe["pass"] else "UNAVAILABLE" if probe["unavailable"] else "FAIL"
+        if isinstance(probe["detail"], dict):
+            stopped = probe["detail"].get("restricted", {}).get("result")
+            if stopped is not None:
+                outcome += " · " + stopped
+                if stopped == "UNVERIFIED":
+                    outcome += " · 占用保留"
+        lines.append(f"| {probe['probe']} | {outcome} | {detail} |")
     md_path.write_text("\n".join(lines) + "\n")
     print(f"判定：{report['status']}；报告 {json_path} / {md_path}")
     return 2 if infrastructure else 0 if report["status"] == "passed" else 1
@@ -511,9 +481,5 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--attempt":
         attempt(sys.argv[2], json.loads(sys.argv[3]))
-    elif len(sys.argv) > 1 and sys.argv[1] == "--heartbeat":
-        heartbeat(sys.argv[2], sys.argv[3], int(sys.argv[4]))
-    elif len(sys.argv) > 1 and sys.argv[1] == "--lifecycle":
-        lifecycle_worker(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))
     else:
         sys.exit(main())

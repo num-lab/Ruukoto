@@ -5,8 +5,8 @@
  *   ruukoto [路径] [--session <id> | --demo]   任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）
  *   ruukoto -- <路径>                          显式工作区入口（目录与命令同名时使用，如 ruukoto -- config）
  *   ruukoto config [--offline]                 独立配置中心
- *   ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container]
- *                  （默认：ruukoto = local，ruukoto-code = container）
+ *   ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container|native]
+ *                  （默认：ruukoto = local，ruukoto-code = native）
  *   ruukoto start                              server 的兼容别名（同一代码路径；文档推荐 server）
  *   ruukoto tui                                旧拼法：打印迁移指引后仍启动任务界面
  *   ruukoto create-project <name>
@@ -73,10 +73,27 @@ export interface ImportFns {
 
 export interface CliProduct {
   runtime: import("@ruukoto/runtime/runtime.ts").RuntimeProduct;
-  defaultExecution: "local" | "container";
+  defaultExecution: "local" | "container" | "native";
+  allowedExecution?: readonly CliProduct["defaultExecution"][];
   legacyProjectWrites: boolean;
   importPersonalMemories: boolean;
   imports(): Promise<ImportFns>;
+}
+
+/** 正式入口的后端配置无效时返回 null，保留现有后台与档案。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+ */
+function resolveExecutionBackend(product: CliProduct, override: string | undefined): CliProduct["defaultExecution"] | null {
+  const backend = override ?? product.defaultExecution;
+  const allowed = product.allowedExecution ?? ["local", "container"];
+  if ((backend !== "local" && backend !== "container" && backend !== "native") || !allowed.includes(backend)) {
+    const hint = allowed.length === 1 && allowed[0] === "native"
+      ? "受限执行仅支持 native；改为 --execution native 或移除 --execution / RUUKOTO_EXECUTION_BACKEND 覆盖"
+      : `${allowed.join(" | ")}；完全访问仍须配置专用执行账户`;
+    process.stderr.write(`[ruukoto:cli] --execution 取值无效：${backend}（${hint}）\n`);
+    return null;
+  }
+  return backend;
 }
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
@@ -170,9 +187,9 @@ export async function runCli(argv: string[], product: CliProduct): Promise<numbe
       console.error(defaultHelp());
       return entry.error === undefined ? 0 : 1;
     case "tui":
-      return runTaskTui({ sessionId: entry.sessionId, demo: entry.demo });
+      return runTaskTui({ sessionId: entry.sessionId, demo: entry.demo }, product);
     case "workspace":
-      return runTaskTui({ workspace: { path: entry.path } });
+      return runTaskTui({ workspace: { path: entry.path } }, product);
     case "config": {
       const { runConfigTui } = await import("./config-tui/index.ts");
       return await runConfigTui({ offline: entry.offline });
@@ -197,7 +214,8 @@ export async function runCli(argv: string[], product: CliProduct): Promise<numbe
 /** 任务 TUI 调用参数：workspace 由 TUI 侧实现后并入其 Options（issue 21 接口契约）。 */
 type TaskTuiOpts = Parameters<typeof import("./tui/index.ts")["runTui"]>[0] & { workspace?: { path: string } };
 
-async function runTaskTui(opts: TaskTuiOpts): Promise<number> {
+async function runTaskTui(opts: TaskTuiOpts, product: CliProduct): Promise<number> {
+  if (!opts.demo && resolveExecutionBackend(product, process.env.RUUKOTO_EXECUTION_BACKEND) === null) return 1;
   // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据。
   // demo：合成调试会话，不连后台、不需要令牌、不产生真实副作用。
   const { runTui } = await import("./tui/index.ts");
@@ -220,16 +238,10 @@ async function runServer(rest: string[], product: CliProduct): Promise<number> {
   if (modelFlag && (split <= 0 || split === modelFlag.length - 1)) throw new Error("--model 格式为 provider/model");
   const modelProvider = split < 0 ? undefined : modelFlag.slice(0, split);
   const modelId = split < 0 ? undefined : modelFlag.slice(split + 1);
-  // 默认执行后端按产品区分（agent-direction issue 04）：Coding Agent
-  // 的受限执行以已验证的容器边界为默认，不在生产入口静默降级；个人 Agent 的
-  // CLI 默认仍为 local，生产部署经 --execution container 或环境变量显式启用。
-  // 这里覆盖的是 CLI 生产入口；库层默认（local）供测试与开发实例按各自入口使用。
+  // 正式入口按产品声明限定执行后端；库层 local 注入不受 CLI 限制。
   // Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
-  const execFlag = flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND ?? (product.defaultExecution);
-  if (execFlag !== "local" && execFlag !== "container") {
-    console.error(`--execution 取值无效：${execFlag}（local | container；容器外完全访问经 systemd 由后端配置启用）`);
-    return 1;
-  }
+  const execFlag = resolveExecutionBackend(product, flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND);
+  if (execFlag === null) return 1;
   if (execFlag === "local") {
     console.error("警告：local 执行后端无隔离，仅用于开发/验证；生产部署请使用 --execution container 并完成 systemd 执行账户配置");
   }
@@ -967,7 +979,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       console.error(
         "ruukoto tui 为旧拼法，请改用：无参 ruukoto（默认会话）、ruukoto --session <id>、ruukoto --demo；本次仍按旧拼法启动",
       );
-      return await runTaskTui({ sessionId: flags["session"], demo: flags["demo"] !== undefined });
+      return await runTaskTui({ sessionId: flags["session"], demo: flags["demo"] !== undefined }, product);
     }
     default:
       console.error(defaultHelp());

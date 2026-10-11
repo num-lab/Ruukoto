@@ -2,11 +2,80 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { test } from "node:test";
 import type { Session, WorkDelegation, WorkWriteTarget } from "@ruukoto/core/types.ts";
 import { assertWorktreeGrantAllowed, WorkCopyError, WorkCopyManager } from "@ruukoto/runtime/work-copy.ts";
+import { initGitRepo } from "./helpers/git-fixture.ts";
 
 const HASH = "0123456789abcdef0123456789abcdef01234567";
+
+test("并行汇总使用各自临时资料，另一项工作的 patch 不会被读取或套用", async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-integrate-parallel-")));
+  const temp = path.join(root, "tmp");
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(temp);
+  fs.mkdirSync(bin);
+  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  // 两份 patch 都已写出后才允许汇总继续，稳定复现共享固定路径的污染。
+  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = --numstat ]; then
+    touch "$BARRIER_MARKER"
+    tries=0
+    until [ -f "$BARRIER_PEER" ]; do
+      tries=$((tries + 1))
+      [ "$tries" -lt 500 ] || exit 1
+      sleep 0.01
+    done
+  fi
+done
+exec "$REAL_GIT" "$@"
+`, { mode: 0o755 });
+  const execute = promisify(execFile);
+  const manager = new WorkCopyManager({
+    worktreeRoot: path.join(root, "copies"),
+    protectedRoots: () => [],
+    execute: async (input) => {
+      const name = path.basename(input.workspace);
+      const { stdout } = await execute("bash", ["-c", input.command], {
+        cwd: input.workspace,
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: temp, REAL_GIT: realGit,
+          BARRIER_MARKER: path.join(root, name + ".ready"),
+          BARRIER_PEER: path.join(root, (name === "left" ? "right" : "left") + ".ready") },
+        timeout: 10_000,
+      });
+      return { isError: false, content: stdout };
+    },
+  });
+  try {
+    const inputs: Array<Parameters<WorkCopyManager["integrate"]>[0]> = [];
+    for (const name of ["left", "right"]) {
+      const repo = path.join(root, name);
+      fs.mkdirSync(repo);
+      fs.writeFileSync(path.join(repo, "value.txt"), "base\n");
+      initGitRepo(repo);
+      const stat = fs.statSync(repo);
+      const session = { id: name, cwdReal: repo, cwdDev: stat.dev, cwdIno: stat.ino } as Session;
+      const target = await manager.prepareWriteTarget(".", session, name, "parent-" + name);
+      assert.ok(target.kind === "worktree");
+      fs.writeFileSync(path.join(target.path, "value.txt"), name + "\n");
+      inputs.push({ work: { id: name } as WorkDelegation, target, parentSession: session, parentTaskId: "parent-" + name });
+    }
+    const results = await Promise.all(inputs.map((input) => manager.integrate(input)));
+    assert.deepEqual(results.map((result) => result.state), ["applied", "applied"]);
+    for (const name of ["left", "right"]) {
+      assert.equal(fs.readFileSync(path.join(root, name, "value.txt"), "utf8"), name + "\n");
+    }
+    const directories = fs.readdirSync(temp);
+    assert.equal(directories.length, 2);
+    assert.notEqual(directories[0], directories[1]);
+    for (const directory of directories) assert.equal(fs.statSync(path.join(temp, directory)).mode & 0o777, 0o700);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function fixture() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-work-copy-")));

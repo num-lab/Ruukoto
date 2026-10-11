@@ -180,7 +180,8 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
     assert.ok(wtRaw.kind === "worktree");
     wt = wtRaw;
     // 静态辅助（同一决定点）：副本 LaunchSpec 由「当前任务 + 本工作写入目标」单一决定
-    const driverSpec = (rt as any).drivers.get(a.agent.sessionId)?.router.launchSpecFor?.(task, sessionSub);
+    const router = (rt as any).drivers.get(a.agent.sessionId)?.router;
+    const driverSpec = router?.launchSpecFor(task, sessionSub);
     assert.ok(driverSpec, "Driver 活跃时可读出 LaunchSpec");
     assert.equal(driverSpec.workspace, wt.path, "workspace 是本副本");
     assert.deepEqual(driverSpec.grantedPaths, [], "不继承任何 grantedPaths");
@@ -188,16 +189,21 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
     const commonStat = fs.statSync(wt.commonGitDir);
     assert.deepEqual(
       driverSpec.readRoots[0],
-      process.platform === "darwin" ? { path: wt.commonGitDir } : { path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino },
-      "共享 Git 目录按只读纳入（macOS 不下发 inode 数值身份）",
+      { path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino },
+      "local 的共享 Git 目录按宿主身份只读纳入",
     );
     assert.deepEqual(driverSpec.env, { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "*" }, "只带 Git safe.directory=* 的宿主注入环境");
-    // macOS 容器经 VM 重新编号 dev/ino，不下发 worker 侧复核（见 tool-router.launchSpecFor）
     assert.deepEqual(
       driverSpec.workspaceIdentity,
-      process.platform === "darwin" ? undefined : { dev: wt.dev, ino: wt.ino },
-      "写入目标作为 workspace 身份钉定（macOS 由宿主队列复核承担）",
+      { dev: wt.dev, ino: wt.ino },
+      "local 的写入目标按宿主身份钉定",
     );
+    const nativeSpec = router.launchSpecFor(task, sessionSub, "native");
+    assert.deepEqual(nativeSpec.workspaceIdentity, { dev: wt.dev, ino: wt.ino });
+    assert.deepEqual(nativeSpec.readRoots, [{ path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino }]);
+    const containerSpec = router.launchSpecFor(task, sessionSub, "container");
+    assert.deepEqual(containerSpec.workspaceIdentity, process.platform === "darwin" ? undefined : { dev: wt.dev, ino: wt.ino });
+    assert.deepEqual(containerSpec.readRoots, [process.platform === "darwin" ? { path: wt.commonGitDir } : { path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino }]);
     release!();
     await waitFor("子完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
   } finally {

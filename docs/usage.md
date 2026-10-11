@@ -4,13 +4,13 @@
 
 ## 1. 前提与安装
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。受限模式另需 Docker（macOS 用 Docker Desktop）。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Coding Agent 使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 的 container 后端另需 Docker。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建 worker、lint、类型检查、应用与基础验证的全部离线测试
+npm run build       # 构建工具 worker、macOS 原生监督器与 app 包
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
-npm run build:worker-image   # 使用 Docker 构建受限模式的工具镜像 ruukoto-worker
+npm run build:worker-image   # 仅个人 Agent container 部署：用 Docker 构建工具镜像
 ```
 
 根 `npm start -- …` 默认使用 ruukoto app，保留 `RUUKOTO_PRODUCT=ruukoto-code` 的入口选择；也可用 `npm start --workspace=ruukoto-code -- …`。各 app 的 bin 固定产品身份；构建出的 app tarball 引用同仓共享包，部署保留完整 workspace。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
@@ -25,10 +25,11 @@ npm run build:worker-image   # 使用 Docker 构建受限模式的工具镜像 r
 npm start -- server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
   --execution container --model provider/model
 
+ruukoto-code server                    # 默认原生受限执行
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
 
-`--execution local` 没有任何隔离，只用于本机开发与测试；两产品以 local 生效时都打印同一条无隔离警告。后端缺失或失效（docker 不可用、镜像缺失）在执行前明确拒绝、不静默回退到普通账户。完全访问需要专用执行账户；未配置入口时完全访问提交在执行前以 `execution_unavailable` 拒绝，不静默降级。macOS 尚无经验证的完全访问执行账户，选择完全访问会在执行前被拒绝。
+Coding Agent 默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。个人 Agent 保留 local/container；local 无隔离，仅供开发与测试，并打印警告。完全访问仍需专用执行账户，未配置入口时在执行前拒绝；macOS 尚无经验证的完全访问账户。
 
 ### 2.2 交互入口
 
@@ -59,7 +60,7 @@ ruukoto-code stop                 # 停止后台
 - 两个终端同时打开时并发拉起由后台实例锁（`<dataDir>/runtime.lock`）收敛为单个实例：败于锁竞争的进程退出，TUI 侧不误判为启动失败，继续探测到胜者就绪后按复用进入（不算本进程拉起）。
 - 状态明确，拉起失败均打印错误并非零退出：socket 可连而令牌认证不通过 → 后台其实在运行，给出令牌核对指引；服务进程以非实例锁原因提前退出且宽限窗口后探测仍不通过 → 「后台启动失败」并附 spawn.log 尾部（常见原因：未配置可用模型 → 先 `ruukoto-code config`）；到期限仍未就绪 → 等待超时，单独标注且不杀进程。
 - 运行中断线仍按既有规则显示重连中，**重连只恢复观察，不会再次拉起后台**；后台不可用要再拉起时重开 TUI 即可。后台明确拒绝（令牌无效、协议版本不符）照旧终止重连并给出修复指引。
-- 拉起的后台沿用产品默认执行后端（ruukoto-code = container）；需要 local 时在环境显式设置 `RUUKOTO_EXECUTION_BACKEND=local`。
+- 拉起的后台沿用产品默认 native；显式旧后端覆盖在探测或连接已有后台前拒绝，不自动改写设置。
 - `ruukoto`（个人 Agent）不按需拉起：后台由显式 `server` 或 systemd 管理，TUI 打开时仍只连接已运行的后台。
 - 手动后台照旧：`ruukoto-code server --data-dir … --agent-dir …` 前台运行，与按需拉起共用同一实例锁（谁在运行谁生效，重复启动被拒绝）。
 

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: resolved
 
 # 26 — 将 ruukoto-code 的受限执行替换为原生沙箱
 
@@ -38,17 +38,17 @@ ruukoto-code 当前默认使用 container。工具 worker 承载 read/edit/write
 
 ## 验收标准
 
-- [ ] macOS 与 Linux 各有真实环境、可复跑的原生边界验证，覆盖文件、网络、凭据与控制面、子进程继承和整个执行单元的停止；记录已测系统、限制及缺失能力的拒绝行为。
-- [ ] 在没有可用 Docker 的条件下，ruukoto-code 能按需启动后台，在授权目录内完成真实 read/edit/write/bash、代码修改与检查；主任务、SubAgent、worktree 创建和改动汇总全部使用原生边界。
-- [ ] 未授权宿主文件和控制面材料无法读取或修改，只读授予及共享 Git 目录无法写入，任意 Shell 与后代默认无法联网；越界操作沿用原审批及单次消费规则。
-- [ ] 任务取消、启动中断、模式或授予范围变化时完成回收与必要重建。整单元停止按平台判定：Linux 脱离进程组的后代实际停止；macOS 进程组内后代与轮询累积集合内的存活后代实际停止，集合外残留不得静默忽略，不要求 `posix_spawn` 属性位逃逸的后代被停止（2026-10-10 拥有者裁定，依据见下方评论与[原生执行沙箱](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)）。异常后无法核实退出时保留占用，恢复不自动重放未知效果。
-- [ ] ruukoto-code 默认 native，显式 container/local 从正式入口被拒绝并给出迁移指引；测试库层 local 注入、完全访问的既有身份契约和 ruukoto 部署行为通过相关回归验证。
-- [ ] 修正旧探针，并在旧工单与运行文档中追加更正依据，保留历史记录；明确修订 ADR 0004 的 ruukoto-code 后端选择，更新 ADR 0017/0021 的相关实现说明及 docs/visual 图解。
-- [ ] 完成与变更相匹配的自动化测试、类型检查和仓库规定检查；真实边界证据与模型打桩或 local 测试分别记录。两平台通过前不得宣称原生替换已完成。
+- [x] macOS 与 Linux 各有真实环境、可复跑的原生边界验证，覆盖文件、网络、凭据与控制面、子进程继承和整个执行单元的停止；记录已测系统、限制及缺失能力的拒绝行为。
+- [x] 在没有可用 Docker 的条件下，ruukoto-code 能按需启动后台，在授权目录内完成真实 read/edit/write/bash、代码修改与检查；主任务、SubAgent、worktree 创建和改动汇总全部使用原生边界。
+- [x] 未授权宿主文件和控制面材料无法读取或修改，只读授予及共享 Git 目录无法写入，任意 Shell 与后代默认无法联网；越界操作沿用原审批及单次消费规则。
+- [x] 任务取消、启动中断、模式或授予范围变化时完成回收与必要重建。整单元停止按平台判定：Linux 脱离进程组的后代实际停止；macOS 进程组内后代与轮询累积集合内的存活后代实际停止，集合外残留不得静默忽略，不要求 `posix_spawn` 属性位逃逸的后代被停止（2026-10-10 拥有者裁定，依据见下方评论与[原生执行沙箱](../../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)）。异常后无法核实退出时保留占用，恢复不自动重放未知效果。
+- [x] ruukoto-code 默认 native，显式 container/local 从正式入口被拒绝并给出迁移指引；测试库层 local 注入、完全访问的既有身份契约和 ruukoto 部署行为通过相关回归验证。
+- [x] 修正旧探针，并在旧工单与运行文档中追加更正依据，保留历史记录；明确修订 ADR 0004 的 ruukoto-code 后端选择，更新 ADR 0017/0021 的相关实现说明及 docs/visual 图解。
+- [x] 完成与变更相匹配的自动化测试、类型检查和仓库规定检查；真实边界证据与模型打桩或 local 测试分别记录。两平台通过前不得宣称原生替换已完成。
 
 ## 实施计划（2026-10-11）
 
-顺序为“补齐可复跑证据 → 原生启动器 → 全部调用点 → 产品默认与交付”。第一批可先做；第二批开始接入前，[27](27-preserve-unverified-worker-stop.md)必须完成。28 的会话分支不构成依赖。实现依据沿用[原生执行沙箱提案](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)，不重开已确认的后端与 macOS 回收取舍。
+顺序为“补齐可复跑证据 → 原生启动器 → 全部调用点 → 产品默认与交付”。第一批可先做；第二批开始接入前，[27](27-preserve-unverified-worker-stop.md)必须完成。28 的会话分支不构成依赖。实现依据沿用[原生执行沙箱提案](../../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)，不重开已确认的后端与 macOS 回收取舍。
 
 ### 1. 将探索结论变成接入前的可复跑检查
 
@@ -97,7 +97,7 @@ ruukoto-code 当前默认使用 container。工具 worker 承载 read/edit/write
 | 产品入口 | `npx tsx --test test/32-dev.test.ts test/71-product-entry.test.ts test/72-on-demand-backend.test.ts` |
 | 交付 | `npm run build`、`npm run check:static`、`npm run test:foundation`，加两平台原生脚本及无 Docker 的真实产品 smoke |
 
-已有真实容器 smoke 用于确认 ruukoto 未回归，不替代 native 证据；没有完全访问部署前提时如实登记不可用。本轮不运行平台探针、不改变系统配置和默认后端，验收项保持未勾选。
+已有真实容器 smoke 用于确认 ruukoto 未回归，不替代 native 证据；没有完全访问部署前提时如实登记不可用。制定计划当次未运行平台探针、未改变系统配置或默认后端；实施结果见下方完成记录。
 
 ## Comments
 
@@ -234,7 +234,7 @@ profile ruukoto-bwrap /usr/bin/bwrap flags=(unconfined) {
 
 拥有者选择方案 (a)：接受 macOS 的窄回收残留，用任务存活期轮询累积后代集合做核实，无法核实即保留工作区目录占用并报告，不引入专用 UID 与特权助手。据此修订上方验收第 4 条，按平台分别判定整单元停止；原措辞「脱离进程组的后代实际停止」在 macOS 非特权条件下不可达，保留在本评论中以存历史。
 
-决策与被否方案记在[原生执行沙箱](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)（Status: proposed），同时在 [ADR 0004 笔记](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)的「何时重访」加了指针。笔记记录的部署前置是 `/usr/bin/bwrap` 加授予 `userns` 的 AppArmor profile，缺任一项以 `execution_unavailable` 失败、不降级；预检须能区分「缺 bwrap」「缺 profile」「真实拒绝」，否则会重犯把环境缺项记成平台限制的错误。
+决策与被否方案记在[原生执行沙箱](../../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)（Status: proposed），同时在 [ADR 0004 笔记](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)的「何时重访」加了指针。笔记记录的部署前置是 `/usr/bin/bwrap` 加授予 `userns` 的 AppArmor profile，缺任一项以 `execution_unavailable` 失败、不降级；预检须能区分「缺 bwrap」「缺 profile」「真实拒绝」，否则会重犯把环境缺项记成平台限制的错误。
 
 第一阶段剩余前置：Linux 已在允许完整 namespace 的条件下跑完真实边界（见上一条评论）；macOS 的回收口径由本次裁定确定，不再等待完整回收机制。接入仍未开始，`src/` 与 `deploy/` 未改，默认后端未切换，验收项未勾选。
 
@@ -250,3 +250,20 @@ profile ruukoto-bwrap /usr/bin/bwrap flags=(unconfined) {
 ### 2026-10-11：共享停止生命周期前置完成
 
 [工单 27](27-preserve-unverified-worker-stop.md) 已完成：启动失败、重复停止、任务收尾及 worktree 临时执行保留未核实结果与父目录/副本占用；拥有者核实恢复后可重建执行。解除产品接入的共享生命周期阻塞。本轮模拟失败回归、真实原进程组和 Docker 停止证据不替代本单要求的两平台 native 验收，不切换默认后端。
+
+
+### 2026-10-11：原生替换完成
+
+两平台边界先行验证后，原生启动器接入现有 worker、审批与任务生命周期。Coding Agent 正式入口默认且仅允许 native；server、按需后台、工作区/TUI 与开发入口对显式 container/local 参数或环境覆盖报迁移指引，库层测试保留 local。个人 Agent 的 container/systemd 配置与专用完全访问身份契约保留。
+
+macOS 使用 Seatbelt 与宿主 C 监督器；Linux 使用 bubblewrap 的完整 namespace、BPF 网络过滤和 user scope/cgroup。规范化与物理保护范围、独立 HOME/TMPDIR、最小宿主工具依赖、工作区/授予/只读根身份核实均已接线。原生输入和每次调用核实硬链接的全部实际目录条目及一致权限，Data/大小写别名不能重复计数；活跃目录或授予对象被替换时先停止并拒绝发送调用。
+
+所有 Git 创建、SubAgent 修改副本及汇总由原生 worker 执行，临时资料使用单元 TMPDIR，不在宿主直接运行不可信仓库 Git。停止未核实时保留单元结论、目录占用与现场，效果未知操作不重放；Linux 未观察到可信 cgroup 不算空。macOS 的 PID 1 跨 UID 身份读取改用 flavor 17，依据内核身份排除 launchd 创建的外部进程，保留真实未知孤儿、观察中断和已观察到版本回卷的未核实结果。
+
+最终真实产品结果：两平台 worker 各 10/10、SubAgent/worktree/汇总各 8/8，均退出 0；正式按需入口没有后端参数或环境覆盖，Docker 路径不可用，四工具任务实际完成。后台 PID、socket、实例锁与 SQLite 占用退出均核实，副本与父成果保留。逐项 JSON、真实边界与原始反例见[产品验收报告](../../../verification/foundation/results/native-product-report.md)。macOS 88 项原日志与恢复报告、两次独立 90 项保守失败、硬链接候选策略失败和两次 worker 误拒日志均保留，未改写为通过。
+
+Linux 已按拥有者授权在 tx 安装 bubblewrap 并加载 deploy/native/ruukoto-bwrap；整机 AppArmor userns 加固仍为 1，未修改在线个人 Agent。安装、核实与移除步骤已交付。原生笔记移到 implemented，ADR 0004 的原决定保留并互链，ADR 0017/0021、运行/模块/部署文档、架构地图及图解同步。
+
+验证：产品入口 71/72/73 共 40/40，开发入口 32 共 27/27；最终 08/10/100/101/101-scope 共 64/64；真实 macOS helper 5/5、Linux scope 3/3；工具/审批/Plan 与副本/汇总/恢复定向回归通过。真实容器 smoke-04 6/6，协议相同的 5e84daa 升级 smoke-24 4/4，旧协议基点明确退出 2。build、check:static、foundation 与笔记锚点检查通过。模型均打桩；未运行真实模型、真实 IM、其他平台版本或完整完全访问部署验收，不把身份路由回归写成部署通过。
+
+macOS 仍按拥有者确认的累计范围判停止：集合外残留可能消耗资源或改写已授权工作区，无法核实时保留占用，等待拥有者核实；未提供完整内核成员集合或特权回收保证。所有验收项已按该口径完成，状态改为 resolved。

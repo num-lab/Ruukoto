@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-10-11T15:17:38+0900",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "kernel": "27.0.0",
+  "machine": "arm64",
+  "virtual_fixture": {
+    "canonical": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material",
+    "alias": "/System/Volumes/Data/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material",
+    "same_dev_ino": true
+  },
+  "cleaned": true,
+  "wide_policy_source": "native-macos-stage1-initial-report.json",
+  "wide_system_root": "/System",
+  "narrow_system_root": "/System/Library",
+  "result": "passed",
+  "observed_read_bypass": false,
+  "probes": [
+    {
+      "operation": "read",
+      "policy": "control",
+      "started": true,
+      "pass": true,
+      "ok": true,
+      "detail": "操作完成"
+    },
+    {
+      "operation": "read",
+      "policy": "wide-canonical",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    },
+    {
+      "operation": "read",
+      "policy": "wide-alias",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/System/Volumes/Data/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    },
+    {
+      "operation": "read",
+      "policy": "narrow-canonical",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    },
+    {
+      "operation": "read",
+      "policy": "narrow-alias",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/System/Volumes/Data/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    },
+    {
+      "operation": "write",
+      "policy": "control",
+      "started": true,
+      "pass": true,
+      "ok": true,
+      "detail": "操作完成"
+    },
+    {
+      "operation": "write",
+      "policy": "wide-canonical",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    },
+    {
+      "operation": "write",
+      "policy": "wide-alias",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/System/Volumes/Data/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    },
+    {
+      "operation": "write",
+      "policy": "narrow-canonical",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    },
+    {
+      "operation": "write",
+      "policy": "narrow-alias",
+      "started": true,
+      "pass": true,
+      "ok": false,
+      "errno": 1,
+      "detail": "[Errno 1] Operation not permitted: '/System/Volumes/Data/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-system-data-alias-vou38h6j/virtual-owner-material'"
+    }
+  ]
+}

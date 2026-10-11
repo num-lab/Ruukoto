@@ -1,6 +1,6 @@
 # 架构总览
 
-Ruukoto 是一个单仓库交付两个产品（`ruukoto` 个人 Agent、`ruukoto-code` Coding Agent）的后台任务运行时。本页给出模块地图与四条跨模块主流程；每个模块的细节见 [docs/modules/](modules/)。
+Ruukoto 后台任务运行时以单仓库交付 `ruukoto` 个人 Agent 和 `ruukoto-code` Coding Agent。本页列出模块与四条跨模块主流程；细节见[模块文档](modules/)。
 
 ## 模块地图
 
@@ -11,7 +11,7 @@ Ruukoto 是一个单仓库交付两个产品（`ruukoto` 个人 Agent、`ruukoto
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [agent-context](modules/agent-context.md) | 组装每次模型调用的上下文：资料范围、历史、参考块、压缩与记忆 | 依赖 core 的存储与会话文件；被 runtime 的驱动循环调用 |
 | [agent-tools](modules/agent-tools.md) | 决定会话有哪些工具，并经统一审批与操作账本执行 | 依赖 core、execution；被 runtime 装配 |
-| [execution](modules/execution.md) | 在受限容器或专用执行账户的边界内执行工具 | 依赖 core 的路径与身份；被 agent-tools 调用 |
+| [execution](modules/execution.md) | 在原生沙箱、受限容器或专用执行账户的边界内执行工具 | 依赖 core 的路径与身份；被 agent-tools 调用 |
 | [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui 消费 |
 | [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
@@ -100,7 +100,7 @@ sequenceDiagram
   participant Av as agent-tools（可用性）
   participant G as 审批闸门
   participant R as agent-tools 审查/核实
-  participant W as execution（容器或执行账户）
+  participant W as execution（原生沙箱、容器或执行账户）
   participant L as 工具操作账本
 
   D->>Av: 调用工具（宿主注入身份与操作编号）
@@ -159,14 +159,15 @@ sequenceDiagram
 
 ## 一条消息穿过全部模块
 
-上面四条流程合起来就是一次真实请求的路径：`channels` 把平台消息变成入站事件，`runtime` 建任务并在队列里取出，`agent-context` 组装上下文，`agent-tools` 判定可用性并取审批，`execution` 在边界内执行，`core` 存下每一步的事实，`control` 把事件流推给 `tui`，`scheduler` 的 outbox 把结果送回原平台。
+一次请求的路径：`channels` 把平台消息变成入站事件，`runtime` 建任务并在队列里取出，`agent-context` 组装上下文，`agent-tools` 判定可用性并取审批，`execution` 在边界内执行，`core` 存下每一步的事实，`control` 把事件流推给 `tui`，`scheduler` 的 outbox 把结果送回原平台。
 
 ## 设计依据
 
-- [任务由后台进程持有，终端只负责交互](../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：后台与客户端分离、事件流恢复与请求幂等的基础决定。
-- [两个 Agent 产品独立运行，固定 coding 与 chat 角色退役](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品共用一个仓库与一套控制面，各自独立档案与实例锁。
+- [后台任务与终端](../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：后台与客户端分离、事件流恢复与请求幂等的基础决定。
+- [两个 Agent 产品](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品共用一个仓库与一套控制面，各自独立档案与实例锁。
 - [同仓 workspaces 分包](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)：产品装配、共享包与 import 检查的归属。
-- [工具执行放进边界内的工作进程，受限任务按任务建容器，完全访问用专用执行账户](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行边界的形态与失败策略。
-- [完整保留会话历史，单独组装模型上下文](../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：历史与上下文的分工，决定了 core 与 agent-context 的边界。
-- [工作委托、SubAgent 与执行任务分开保存](../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：委派三层数据模型与一层派生的来源。
-- [决策记录移入 .agents/notes，docs/ 只放面向人类的设计文档](../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)：本页与模块文档的读者分层与固定节约定。
+- [工具工作进程、容器与执行账户](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行边界的形态与失败策略。
+- [Coding Agent 的原生受限执行](../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：原生工具链、停止核实与占用保留。
+- [会话历史与模型上下文](../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：历史与上下文的分工，决定了 core 与 agent-context 的边界。
+- [工作委托、SubAgent 与任务](../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：委派三层数据模型与一层派生的来源。
+- [人类文档与决策记录](../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)：本页与模块文档的读者分层与固定节约定。

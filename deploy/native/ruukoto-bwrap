@@ -1,0 +1,7 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# 仅授予正式 bwrap 路径 userns；文件与网络限制由其 namespace 和 bind 构造。
+profile ruukoto-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}

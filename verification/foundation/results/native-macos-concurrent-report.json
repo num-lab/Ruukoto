@@ -1,0 +1,2807 @@
+{
+  "timestamp": "2026-10-11T14:54:04+0900",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "kernel": "27.0.0",
+  "machine": "arm64",
+  "python": "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/python3.14",
+  "policy_scope": "deny-default 文件/网络/IPC 策略；生命周期为原 PGID 与任务存活期进程树累积，逐 PID 核实微秒出生时间。",
+  "limitations": [
+    "仅当前 macOS 版本；未验证产品 WorkerLauncher、审批、恢复及 SubAgent 集成。",
+    "宿主工具链仅测试 --version 启动，不等价于真实 Git 操作或编译验收。",
+    "STOPPED 只证明本次夹具的原 PGID 与累积集合；漏记或观察中断返回 UNVERIFIED 并保留占用。",
+    "posix_spawn 属性位的集合外残留按拥有者接受范围单列；夹具清理不改写停止结论。",
+    "PID 复用使用真实 PID 的确定性出生时间不匹配；未强迫内核回卷 PID。",
+    "missing_probes=0 仅代表本脚本列举的探针无缺失，不代表覆盖工单全部要求。",
+    "失败只否决被测策略，不据此宣称所有 Seatbelt 策略都不可能。"
+  ],
+  "probes": [
+    {
+      "probe": "probe.profile-parse-classification",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "stage": "profile-parse",
+        "rc": 65,
+        "detail": "sandbox-exec: unbound variable: undefined-probe-rule at <input string>, line 1, column 13\n\nBacktrace: \n<input string>:1:13:\n\tundefined-probe-rule"
+      }
+    },
+    {
+      "probe": "probe.launch-failure-classification",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "stage": "launch",
+        "rc": 71,
+        "detail": "sandbox-exec: execvp() of '/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/python3.14' failed: Operation not permitted"
+      }
+    },
+    {
+      "probe": "legacy.canonical-read-literal",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-read-subpath",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-read-regex",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.canonical-file-star",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.grandchild-file-denial",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "legacy.noncanonical-rule-demonstration",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.workspace.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.workspace.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-ro.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-ro.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/grant-ro/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-rw.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.grant-rw.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.shared-git.read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "files.shared-git.write",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/shared-git/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.outside.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.outside.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.symlink.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/escape'"
+        }
+      }
+    },
+    {
+      "probe": "files.symlink.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/escape'"
+        }
+      }
+    },
+    {
+      "probe": "files.tmp-alias.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.tmp-alias.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/tmp/ruukoto-native-macos-87wf6ma5/owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.parent-traversal.read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/../owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.parent-traversal.write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/../owner/material'"
+        }
+      }
+    },
+    {
+      "probe": "files.readonly-symlink-write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/readonly-alias'"
+        }
+      }
+    },
+    {
+      "probe": "files.hardlink-source-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/owner/material' -> '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/hardlink'"
+        }
+      }
+    },
+    {
+      "probe": "subagent.assigned-read",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        }
+      }
+    },
+    {
+      "probe": "subagent.sibling-read-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/material'"
+        }
+      }
+    },
+    {
+      "probe": "subagent.assigned-write-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/assigned/material'"
+        }
+      }
+    },
+    {
+      "probe": "network.loopback-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "network.unix-in-workspace-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "network.grandchild-loopback-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "credentials.environment-scrubbed",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "只检查测试注入的虚拟环境变量"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "detail": "只检查测试注入的虚拟环境变量"
+        }
+      }
+    },
+    {
+      "probe": "credentials.descriptor-closed",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "只检查测试注入的虚拟描述符"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 9,
+          "detail": "[Errno 9] Bad file descriptor"
+        }
+      }
+    },
+    {
+      "probe": "control-plane.signal-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "control-plane.pidpath-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] proc_pidpath"
+        }
+      }
+    },
+    {
+      "probe": "control-plane.process-environment-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] sysctl(KERN_PROCARGS2)"
+        }
+      }
+    },
+    {
+      "probe": "ipc.mach-lookup-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "mach_code": 0,
+          "detail": "bootstrap_look_up"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "mach_code": 1100,
+          "detail": "bootstrap_look_up"
+        }
+      }
+    },
+    {
+      "probe": "ipc.shared-memory-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] shm_open"
+        }
+      }
+    },
+    {
+      "probe": "ipc.sysv-shm-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] shmat"
+        }
+      }
+    },
+    {
+      "probe": "ipc.sysv-sem-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] semctl(GETVAL)"
+        }
+      }
+    },
+    {
+      "probe": "ipc.sysv-msg-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] msgsnd"
+        }
+      }
+    },
+    {
+      "probe": "toolchain.node",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "v24.15.0"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "v24.15.0"
+        }
+      }
+    },
+    {
+      "probe": "toolchain.git",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "git version 2.54.0"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "git version 2.54.0"
+        }
+      }
+    },
+    {
+      "probe": "toolchain.clang",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Too"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Too"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.setpgid-syscall-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.setsid-syscall-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.owner-uid-change-os-denied",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted"
+        },
+        "scope": "宿主非特权身份本身不能换 UID；此项不计作 Seatbelt 特有拒绝"
+      }
+    },
+    {
+      "probe": "lifecycle.kqueue-descendant-tracking",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "result": "KNOWN_UNSUPPORTED",
+        "errno": 45,
+        "used_for_stop_verification": false
+      }
+    },
+    {
+      "probe": "lifecycle.normal",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 80481,
+              "pgid": 80479,
+              "sid": 80479,
+              "identity": {
+                "pid": 80481,
+                "ppid": 80479,
+                "pgid": 80479,
+                "start": [
+                  1791698047,
+                  704956
+                ],
+                "zombie": false,
+                "uniqueid": 2762018,
+                "pidversion": 3201965
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "80479": "exited",
+              "80481": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 33,
+            "maximum_gap_seconds": 0.0273,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 80560,
+              "pgid": 80557,
+              "sid": 80557,
+              "identity": {
+                "pid": 80560,
+                "ppid": 80557,
+                "pgid": 80557,
+                "start": [
+                  1791698048,
+                  728859
+                ],
+                "zombie": false,
+                "uniqueid": 2762097,
+                "pidversion": 3202088
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "80557": "exited",
+              "80560": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 33,
+            "maximum_gap_seconds": 0.0269,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.normal-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.ignore-term",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 80645,
+              "pgid": 80643,
+              "sid": 80643,
+              "identity": {
+                "pid": 80645,
+                "ppid": 80643,
+                "pgid": 80643,
+                "start": [
+                  1791698049,
+                  903049
+                ],
+                "zombie": false,
+                "uniqueid": 2762182,
+                "pidversion": 3202218
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "80643": "exited",
+              "80645": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 31,
+            "maximum_gap_seconds": 0.0294,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 80681,
+              "pgid": 80678,
+              "sid": 80678,
+              "identity": {
+                "pid": 80681,
+                "ppid": 80678,
+                "pgid": 80678,
+                "start": [
+                  1791698050,
+                  896604
+                ],
+                "zombie": false,
+                "uniqueid": 2762218,
+                "pidversion": 3202291
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "80678": "exited",
+              "80681": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 31,
+            "maximum_gap_seconds": 0.0282,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.ignore-term-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.spawn-setpgroup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 80749,
+              "pgid": 80749,
+              "sid": 80747,
+              "identity": {
+                "pid": 80749,
+                "ppid": 80747,
+                "pgid": 80749,
+                "start": [
+                  1791698052,
+                  16311
+                ],
+                "zombie": false,
+                "uniqueid": 2762286,
+                "pidversion": 3202402
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "80747": "exited",
+              "80749": "signalled"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 31,
+            "maximum_gap_seconds": 0.032,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 80790,
+              "pgid": 80790,
+              "sid": 80787,
+              "identity": {
+                "pid": 80790,
+                "ppid": 80787,
+                "pgid": 80790,
+                "start": [
+                  1791698053,
+                  16055
+                ],
+                "zombie": false,
+                "uniqueid": 2762327,
+                "pidversion": 3202493
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "80787": "exited",
+              "80790": "signalled"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 34,
+            "maximum_gap_seconds": 0.0275,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.spawn-setpgroup-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.spawn-setsid",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 80858,
+              "pgid": 80858,
+              "sid": 80858,
+              "identity": {
+                "pid": 80858,
+                "ppid": 80838,
+                "pgid": 80858,
+                "start": [
+                  1791698054,
+                  201179
+                ],
+                "zombie": false,
+                "uniqueid": 2762395,
+                "pidversion": 3202604
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "80838": "exited",
+              "80858": "signalled"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 34,
+            "maximum_gap_seconds": 0.026,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81312,
+              "pgid": 81312,
+              "sid": 81312,
+              "identity": {
+                "pid": 81312,
+                "ppid": 81309,
+                "pgid": 81312,
+                "start": [
+                  1791698055,
+                  244083
+                ],
+                "zombie": false,
+                "uniqueid": 2762849,
+                "pidversion": 3203145
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81309": "exited",
+              "81312": "signalled"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 31,
+            "maximum_gap_seconds": 0.0281,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.spawn-setsid-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.node-detached",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81364,
+              "pgid": 81364,
+              "sid": 81364,
+              "identity": {
+                "pid": 81364,
+                "ppid": 81362,
+                "pgid": 81364,
+                "start": [
+                  1791698056,
+                  389623
+                ],
+                "zombie": false,
+                "uniqueid": 2762901,
+                "pidversion": 3203242
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81360": "exited",
+              "81362": "exited",
+              "81364": "signalled"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 35,
+            "maximum_gap_seconds": 0.0255,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81428,
+              "pgid": 81428,
+              "sid": 81428,
+              "identity": {
+                "pid": 81428,
+                "ppid": 81423,
+                "pgid": 81428,
+                "start": [
+                  1791698057,
+                  534047
+                ],
+                "zombie": false,
+                "uniqueid": 2762965,
+                "pidversion": 3203357
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81418": "exited",
+              "81423": "exited",
+              "81428": "signalled"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 33,
+            "maximum_gap_seconds": 0.0264,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.node-detached-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.node-detached-short-parent",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81477,
+              "pgid": 81477,
+              "sid": 81477,
+              "identity": {
+                "pid": 81477,
+                "ppid": 1,
+                "pgid": 81477,
+                "start": [
+                  1791698058,
+                  625315
+                ],
+                "zombie": false,
+                "uniqueid": 2763014,
+                "pidversion": 3203445
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": false,
+              "alive_after_stop": true,
+              "heartbeat_grows_after_stop": true
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81472": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 81477,
+                "ppid": 1,
+                "pgid": 81477,
+                "start": [
+                  1791698058,
+                  625315
+                ],
+                "zombie": false,
+                "uniqueid": 2763014,
+                "pidversion": 3203445
+              }
+            ],
+            "samples": 32,
+            "maximum_gap_seconds": 0.0288,
+            "observation_errors": []
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/node-detached-short-parent/control/occupancy-held"
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81521,
+              "pgid": 81521,
+              "sid": 81521,
+              "identity": {
+                "pid": 81521,
+                "ppid": 1,
+                "pgid": 81521,
+                "start": [
+                  1791698059,
+                  733091
+                ],
+                "zombie": false,
+                "uniqueid": 2763055,
+                "pidversion": 3203533
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": false,
+              "alive_after_stop": true,
+              "heartbeat_grows_after_stop": true
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81513": "exited",
+              "81516": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 81521,
+                "ppid": 1,
+                "pgid": 81521,
+                "start": [
+                  1791698059,
+                  733091
+                ],
+                "zombie": false,
+                "uniqueid": 2763055,
+                "pidversion": 3203533
+              }
+            ],
+            "samples": 33,
+            "maximum_gap_seconds": 0.0281,
+            "observation_errors": []
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/node-detached-short-parent/restricted/occupancy-held"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.node-detached-short-parent-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [
+          "signalled",
+          "signalled"
+        ],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.direct-setsid",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81615,
+              "pgid": 81615,
+              "sid": 81615,
+              "identity": {
+                "pid": 81615,
+                "ppid": 81613,
+                "pgid": 81615,
+                "start": [
+                  1791698060,
+                  806807
+                ],
+                "zombie": false,
+                "uniqueid": 2763142,
+                "pidversion": 3203660
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81613": "exited",
+              "81615": "signalled"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 34,
+            "maximum_gap_seconds": 0.0296,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "result": "DENIED",
+          "denied": [
+            {
+              "denied": "direct-setsid",
+              "errno": 1
+            }
+          ],
+          "valid_denial": true,
+          "stop": {
+            "signals": {
+              "81655": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 27,
+            "maximum_gap_seconds": 0.0302,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.direct-setsid-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.short-intermediate",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81705,
+              "pgid": 81701,
+              "sid": 81701,
+              "identity": {
+                "pid": 81705,
+                "ppid": 1,
+                "pgid": 81701,
+                "start": [
+                  1791698062,
+                  700537
+                ],
+                "zombie": false,
+                "uniqueid": 2763230,
+                "pidversion": 3203828
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81701": "exited",
+              "81705": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 32,
+            "maximum_gap_seconds": 0.0281,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81761,
+              "pgid": 81757,
+              "sid": 81757,
+              "identity": {
+                "pid": 81761,
+                "ppid": 1,
+                "pgid": 81757,
+                "start": [
+                  1791698063,
+                  713021
+                ],
+                "zombie": false,
+                "uniqueid": 2763285,
+                "pidversion": 3203923
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81757": "exited",
+              "81761": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 31,
+            "maximum_gap_seconds": 0.0277,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.short-intermediate-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.missed-intermediate",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81816,
+              "pgid": 81816,
+              "sid": 81816,
+              "identity": {
+                "pid": 81816,
+                "ppid": 1,
+                "pgid": 81816,
+                "start": [
+                  1791698065,
+                  27477
+                ],
+                "zombie": false,
+                "uniqueid": 2763340,
+                "pidversion": 3204022
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": false,
+              "alive_after_stop": true,
+              "heartbeat_grows_after_stop": true
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81806": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 81816,
+                "ppid": 1,
+                "pgid": 81816,
+                "start": [
+                  1791698065,
+                  27477
+                ],
+                "zombie": false,
+                "uniqueid": 2763340,
+                "pidversion": 3204022
+              }
+            ],
+            "samples": 30,
+            "maximum_gap_seconds": 0.2781,
+            "observation_errors": []
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/missed-intermediate/control/occupancy-held"
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81900,
+              "pgid": 81900,
+              "sid": 81900,
+              "identity": {
+                "pid": 81900,
+                "ppid": 1,
+                "pgid": 81900,
+                "start": [
+                  1791698066,
+                  243912
+                ],
+                "zombie": false,
+                "uniqueid": 2763424,
+                "pidversion": 3204148
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": false,
+              "alive_after_stop": true,
+              "heartbeat_grows_after_stop": true
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81856": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 81900,
+                "ppid": 1,
+                "pgid": 81900,
+                "start": [
+                  1791698066,
+                  243912
+                ],
+                "zombie": false,
+                "uniqueid": 2763424,
+                "pidversion": 3204148
+              }
+            ],
+            "samples": 35,
+            "maximum_gap_seconds": 0.278,
+            "observation_errors": []
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/missed-intermediate/restricted/occupancy-held"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.missed-intermediate-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [
+          "signalled",
+          "signalled"
+        ],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.observation-interrupted",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 81967,
+              "pgid": 81967,
+              "sid": 81967,
+              "identity": {
+                "pid": 81967,
+                "ppid": 1,
+                "pgid": 81967,
+                "start": [
+                  1791698067,
+                  695251
+                ],
+                "zombie": false,
+                "uniqueid": 2763491,
+                "pidversion": 3204263
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": false,
+              "alive_after_stop": true,
+              "heartbeat_grows_after_stop": true
+            }
+          ],
+          "stop": {
+            "signals": {
+              "81957": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 81967,
+                "ppid": 1,
+                "pgid": 81967,
+                "start": [
+                  1791698067,
+                  695251
+                ],
+                "zombie": false,
+                "uniqueid": 2763491,
+                "pidversion": 3204263
+              }
+            ],
+            "samples": 30,
+            "maximum_gap_seconds": 0.2804,
+            "observation_errors": [
+              "测试注入观察中断，无法排除集合外后代"
+            ]
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/observation-interrupted/control/occupancy-held"
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82017,
+              "pgid": 82017,
+              "sid": 82017,
+              "identity": {
+                "pid": 82017,
+                "ppid": 1,
+                "pgid": 82017,
+                "start": [
+                  1791698068,
+                  962038
+                ],
+                "zombie": false,
+                "uniqueid": 2763540,
+                "pidversion": 3204352
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": false,
+              "alive_after_stop": true,
+              "heartbeat_grows_after_stop": true
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82007": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 82017,
+                "ppid": 1,
+                "pgid": 82017,
+                "start": [
+                  1791698068,
+                  962038
+                ],
+                "zombie": false,
+                "uniqueid": 2763540,
+                "pidversion": 3204352
+              }
+            ],
+            "samples": 31,
+            "maximum_gap_seconds": 0.2778,
+            "observation_errors": [
+              "测试注入观察中断，无法排除集合外后代"
+            ]
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/observation-interrupted/restricted/occupancy-held"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.observation-interrupted-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [
+          "signalled",
+          "signalled"
+        ],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.startup-window",
+      "pass": false,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": false,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82089,
+              "pgid": 82087,
+              "sid": 82087,
+              "identity": {
+                "pid": 82089,
+                "ppid": 82087,
+                "pgid": 82087,
+                "start": [
+                  1791698070,
+                  207517
+                ],
+                "zombie": false,
+                "uniqueid": 2763603,
+                "pidversion": 3204453
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82087": "exited",
+              "82089": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 30,
+            "maximum_gap_seconds": 0.0285,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": false,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82126,
+              "pgid": 82123,
+              "sid": 82123,
+              "identity": {
+                "pid": 82126,
+                "ppid": 82123,
+                "pgid": 82123,
+                "start": [
+                  1791698071,
+                  194862
+                ],
+                "zombie": false,
+                "uniqueid": 2763639,
+                "pidversion": 3204527
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82123": "exited",
+              "82126": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 82128,
+                "ppid": 1,
+                "pgid": 82128,
+                "start": [
+                  1791698071,
+                  232373
+                ],
+                "zombie": false,
+                "uniqueid": 2763641,
+                "pidversion": 3204532
+              },
+              {
+                "pid": 82132,
+                "ppid": 1,
+                "pgid": 82132,
+                "start": [
+                  1791698071,
+                  311329
+                ],
+                "zombie": false,
+                "uniqueid": 2763645,
+                "pidversion": 3204541
+              },
+              {
+                "pid": 82136,
+                "ppid": 1,
+                "pgid": 82136,
+                "start": [
+                  1791698071,
+                  391731
+                ],
+                "zombie": false,
+                "uniqueid": 2763649,
+                "pidversion": 3204550
+              },
+              {
+                "pid": 82139,
+                "ppid": 1,
+                "pgid": 82139,
+                "start": [
+                  1791698071,
+                  449906
+                ],
+                "zombie": false,
+                "uniqueid": 2763652,
+                "pidversion": 3204557
+              },
+              {
+                "pid": 82142,
+                "ppid": 1,
+                "pgid": 82142,
+                "start": [
+                  1791698071,
+                  504022
+                ],
+                "zombie": false,
+                "uniqueid": 2763655,
+                "pidversion": 3204566
+              }
+            ],
+            "samples": 32,
+            "maximum_gap_seconds": 0.0308,
+            "observation_errors": []
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/startup-window/restricted/occupancy-held"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.startup-window-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.parent-crash",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": false,
+          "parent_exit_before_stop": 23,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82222,
+              "pgid": 82220,
+              "sid": 82220,
+              "identity": {
+                "pid": 82222,
+                "ppid": 82220,
+                "pgid": 82220,
+                "start": [
+                  1791698072,
+                  330828
+                ],
+                "zombie": false,
+                "uniqueid": 2763732,
+                "pidversion": 3204673
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82220": "exited",
+              "82222": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 32,
+            "maximum_gap_seconds": 0.0264,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": false,
+          "parent_exit_before_stop": 23,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82260,
+              "pgid": 82257,
+              "sid": 82257,
+              "identity": {
+                "pid": 82260,
+                "ppid": 82257,
+                "pgid": 82257,
+                "start": [
+                  1791698073,
+                  348744
+                ],
+                "zombie": false,
+                "uniqueid": 2763770,
+                "pidversion": 3204750
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82257": "exited",
+              "82260": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 31,
+            "maximum_gap_seconds": 0.029,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.parent-crash-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.mode-change",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82316,
+              "pgid": 82314,
+              "sid": 82314,
+              "identity": {
+                "pid": 82316,
+                "ppid": 82314,
+                "pgid": 82314,
+                "start": [
+                  1791698074,
+                  506070
+                ],
+                "zombie": false,
+                "uniqueid": 2763826,
+                "pidversion": 3204855
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82314": "exited",
+              "82316": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 30,
+            "maximum_gap_seconds": 0.03,
+            "observation_errors": []
+          }
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "STOPPED",
+          "occupancy_retained": false,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82375,
+              "pgid": 82372,
+              "sid": 82372,
+              "identity": {
+                "pid": 82375,
+                "ppid": 82372,
+                "pgid": 82372,
+                "start": [
+                  1791698075,
+                  478502
+                ],
+                "zombie": false,
+                "uniqueid": 2763884,
+                "pidversion": 3204961
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82372": "exited",
+              "82375": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [],
+            "samples": 30,
+            "maximum_gap_seconds": 0.0283,
+            "observation_errors": []
+          }
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.mode-change-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.grants-change",
+      "pass": false,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "label": "control",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82422,
+              "pgid": 82420,
+              "sid": 82420,
+              "identity": {
+                "pid": 82422,
+                "ppid": 82420,
+                "pgid": 82420,
+                "start": [
+                  1791698076,
+                  611866
+                ],
+                "zombie": false,
+                "uniqueid": 2763931,
+                "pidversion": 3205047
+              },
+              "file_errno": null,
+              "network_errno": null,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82420": "exited",
+              "82422": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 82445,
+                "ppid": 1,
+                "pgid": 82445,
+                "start": [
+                  1791698077,
+                  147869
+                ],
+                "zombie": false,
+                "uniqueid": 2763954,
+                "pidversion": 3205092
+              }
+            ],
+            "samples": 34,
+            "maximum_gap_seconds": 0.0276,
+            "observation_errors": []
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/grants-change/control/occupancy-held"
+        },
+        "restricted": {
+          "label": "restricted",
+          "started": true,
+          "running_heartbeat_control": true,
+          "result": "UNVERIFIED",
+          "occupancy_retained": true,
+          "worker_ready_before_stop": true,
+          "parent_exit_before_stop": null,
+          "children": [
+            {
+              "started": true,
+              "name": "heartbeat",
+              "pid": 82465,
+              "pgid": 82461,
+              "sid": 82461,
+              "identity": {
+                "pid": 82465,
+                "ppid": 82461,
+                "pgid": 82461,
+                "start": [
+                  1791698077,
+                  653234
+                ],
+                "zombie": false,
+                "uniqueid": 2763973,
+                "pidversion": 3205133
+              },
+              "file_errno": 1,
+              "network_errno": 1,
+              "tree_accumulated": true,
+              "alive_after_stop": false,
+              "heartbeat_grows_after_stop": false
+            }
+          ],
+          "stop": {
+            "signals": {
+              "82461": "exited",
+              "82465": "exited"
+            },
+            "alive": [],
+            "unknown_new_orphans": [
+              {
+                "pid": 82469,
+                "ppid": 1,
+                "pgid": 82469,
+                "start": [
+                  1791698077,
+                  747922
+                ],
+                "zombie": false,
+                "uniqueid": 2763977,
+                "pidversion": 3205144
+              }
+            ],
+            "samples": 31,
+            "maximum_gap_seconds": 0.0269,
+            "observation_errors": []
+          },
+          "occupancy_marker": "/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/grants-change/restricted/occupancy-held"
+        }
+      }
+    },
+    {
+      "probe": "lifecycle.grants-change-fixture-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "signals": [],
+        "fixture_cleanup_only": true,
+        "receipts_complete": true
+      }
+    },
+    {
+      "probe": "lifecycle.pid-reuse-identity-guard",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "actual": {
+          "pid": 82554,
+          "ppid": 80285,
+          "pgid": 80285,
+          "start": [
+            1791698078,
+            733077
+          ],
+          "zombie": false,
+          "uniqueid": 2764062,
+          "pidversion": 3205269
+        },
+        "stale_identity": {
+          "pid": 82554,
+          "ppid": 80285,
+          "pgid": 80285,
+          "start": [
+            1791698078,
+            733078
+          ],
+          "zombie": false,
+          "uniqueid": 2764062,
+          "pidversion": 3205269
+        },
+        "signal_result": "identity-changed",
+        "unrelated_process_alive": true,
+        "scope": "真实 PID 的确定性出生时间不匹配；未强迫内核回卷 PID"
+      }
+    },
+    {
+      "probe": "lifecycle.kernel-pidversion-guard",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "errno": 3,
+        "unrelated_process_alive": true,
+        "scope": "内核审计令牌拒绝错误 pidversion，防止查询与发信号间的 PID 复用"
+      }
+    },
+    {
+      "probe": "lifecycle.mode-change-rebuild-readonly",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": false,
+          "errno": 1,
+          "detail": "[Errno 1] Operation not permitted: '/private/tmp/ruukoto-native-macos-87wf6ma5/workspace/material'"
+        }
+      }
+    },
+    {
+      "probe": "ipc.sysv-shm-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "rc": 0,
+        "errno": null
+      }
+    },
+    {
+      "probe": "ipc.sysv-sem-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "rc": 0,
+        "errno": null
+      }
+    },
+    {
+      "probe": "ipc.sysv-msg-cleanup",
+      "pass": true,
+      "unavailable": false,
+      "detail": {
+        "rc": 0,
+        "errno": null
+      }
+    },
+    {
+      "probe": "lifecycle.grants-change-rebuild-expanded",
+      "pass": false,
+      "unavailable": true,
+      "detail": "必测项未运行"
+    },
+    {
+      "probe": "lifecycle.grants-change-rebuild-reduced",
+      "pass": false,
+      "unavailable": true,
+      "detail": "必测项未运行"
+    }
+  ],
+  "path_normalization": {
+    "requested": "/tmp/ruukoto-native-macos-87wf6ma5",
+    "canonical": "/private/tmp/ruukoto-native-macos-87wf6ma5",
+    "alias": "/tmp/ruukoto-native-macos-87wf6ma5",
+    "temporary_materials_cleaned_after_run": false
+  },
+  "runtime_readonly_roots": [
+    "/Applications/Xcode.app",
+    "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr",
+    "/Library/Developer",
+    "/System",
+    "/Users/eitrous/.local/share/mise/installs/node/24.15.0",
+    "/Users/eitrous/Developer/ruukoto/verification/foundation/scripts/native-isolation",
+    "/bin",
+    "/opt/homebrew/Cellar/gettext/1.0/lib",
+    "/opt/homebrew/Cellar/git/2.54.0",
+    "/opt/homebrew/Cellar/pcre2/10.47_1/lib",
+    "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14",
+    "/opt/homebrew/opt/gettext/lib",
+    "/opt/homebrew/opt/pcre2/lib",
+    "/private/var/select",
+    "/usr/bin",
+    "/usr/lib",
+    "/usr/share"
+  ],
+  "candidate_profile": "(version 1)\n(deny default)\n(allow process-exec process-fork sysctl-read)\n(deny sysctl-read (sysctl-name-regex #\"^kern\\.proc.*\"))\n(allow signal (target self) (target same-sandbox))\n(deny process-info*)\n(allow process-info* (target self))\n(allow file-read* (literal \"/\"))\n(allow file-read* file-write* (literal \"/dev/null\"))\n(deny syscall-unix (syscall-number SYS_setsid SYS_setpgid))\n(allow file-read-metadata (literal \"/\"))\n(allow file-read-metadata (literal \"/Applications\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer/Toolchains\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain\"))\n(allow file-read-metadata (literal \"/Library\"))\n(allow file-read-metadata (literal \"/Users\"))\n(allow file-read-metadata (literal \"/Users/eitrous\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise/installs\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise/installs/node\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification/foundation\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification/foundation/scripts\"))\n(allow file-read-metadata (literal \"/dev\"))\n(allow file-read-metadata (literal \"/opt\"))\n(allow file-read-metadata (literal \"/opt/homebrew\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/gettext\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/gettext/1.0\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/git\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/pcre2\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/pcre2/10.47_1\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt/gettext\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt/pcre2\"))\n(allow file-read-metadata (literal \"/private\"))\n(allow file-read-metadata (literal \"/private/tmp\"))\n(allow file-read-metadata (literal \"/private/tmp/ruukoto-native-macos-87wf6ma5\"))\n(allow file-read-metadata (literal \"/private/var\"))\n(allow file-read-metadata (literal \"/usr\"))\n(allow file-read* (subpath \"/Applications/Xcode.app\"))\n(allow file-read* (subpath \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr\"))\n(allow file-read* (subpath \"/Library/Developer\"))\n(allow file-read* (subpath \"/System\"))\n(allow file-read* (subpath \"/Users/eitrous/.local/share/mise/installs/node/24.15.0\"))\n(allow file-read* (subpath \"/Users/eitrous/Developer/ruukoto/verification/foundation/scripts/native-isolation\"))\n(allow file-read* (subpath \"/bin\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/gettext/1.0/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/git/2.54.0\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/pcre2/10.47_1/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14\"))\n(allow file-read* (subpath \"/opt/homebrew/opt/gettext/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/opt/pcre2/lib\"))\n(allow file-read* (subpath \"/private/var/select\"))\n(allow file-read* (subpath \"/usr/bin\"))\n(allow file-read* (subpath \"/usr/lib\"))\n(allow file-read* (subpath \"/usr/share\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/workspace\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/grant-ro\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/grant-rw\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/shared-git\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/tmp\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/workspace\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/grant-rw\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-macos-87wf6ma5/tmp\"))\n",
+  "retained_probe_materials": "/private/tmp/ruukoto-native-macos-87wf6ma5",
+  "missing_probes": [
+    "lifecycle.grants-change-rebuild-expanded",
+    "lifecycle.grants-change-rebuild-reduced"
+  ],
+  "status": "unavailable",
+  "summary": {
+    "total": 86,
+    "passed": 82,
+    "failed": 2,
+    "unavailable": 2
+  }
+}

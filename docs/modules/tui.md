@@ -25,6 +25,8 @@
 
 ## 对外接口
 
+后台入口按 app 的 `CliProduct.defaultExecution` 与 `allowedExecution` 校验执行后端：Coding Agent 默认且仅允许 native，个人 Agent 保留 local/container。任务 TUI 在连接已有后台前也校验环境覆盖。开发启动器与按需后台复用所属 app 的 bin，使用同一声明；库层 local 注入不经 CLI 限制。
+
 交互终端是控制面的客户端。它调用的操作：
 
 | 操作 | 用途 |
@@ -50,7 +52,7 @@
 - `task.tool_result` 可携带真实 `editStats`。
 - 消息完成后仍以 `task.output_entry` 关联的 JSONL 正文为准，事件投影不替代会话历史。
 - `get_task` 返回快照对应的事件序号 `seq`，客户端据此协调实时事件与详情恢复。
-- 握手返回数据实例标识与执行后端说明；协议版本不同的客户端与后台在握手时明确拒绝，持久事件中的旧格式兼容不代表线上协议向后兼容。
+- 握手返回数据实例标识与执行后端说明，native 在同一字段展示原生沙箱；协议版本不同的客户端与后台在握手时明确拒绝，持久事件中的旧格式兼容不代表线上协议向后兼容。
 - 快照有界（活动任务加每会话近期结束任务）；工具大参数、快照输出预览与事件分页均有载荷上限。
 - 拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定，用于拥有者与后台不同 UID 的部署。
 - `respond_confirmation` 携带的 `permission_version` 不匹配时返回 `permission_version_mismatch`。

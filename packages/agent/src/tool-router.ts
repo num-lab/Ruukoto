@@ -100,6 +100,7 @@ export interface RoutedCallOutput {
 export class ToolRouter {
   private worker: ToolWorkerHost | null = null;
   private workerKey: string | null = null;
+  private workerStopped = false;
   /** 本次运行中 sdkCallId → 路由调用上下文（Driver 在 tool_call 门处登记）。 */
   private routedCalls = new Map<string, { hostOpId: string; task: Task }>();
   /** 本次运行中 sdkCallId → 工具名（与 routedCalls 同生命周期）。 */
@@ -196,13 +197,17 @@ export class ToolRouter {
     return base;
   }
 
-  /** 停止当前工作进程并核实执行单元已退出；false = 无法确认。 */
+  /** 停止当前工作进程；未核实的记录继续阻止替代执行环境。 */
   async stopWorker(): Promise<boolean> {
     const worker = this.worker;
     if (!worker) return true;
-    this.worker = null;
-    this.workerKey = null;
-    return worker.stop();
+    this.workerStopped = true;
+    const reaped = await worker.stop();
+    if (reaped && this.worker === worker) {
+      this.worker = null;
+      this.workerKey = null;
+    }
+    return reaped;
   }
 
   /**
@@ -242,7 +247,7 @@ export class ToolRouter {
   /** 确保工作进程匹配当前任务（模式与授予路径）；不匹配则回收重建。 */
   private async ensureWorker(task: Task): Promise<ToolWorkerHost> {
     const key = this.workerKeyFor(task);
-    if (this.worker && this.workerKey === key) return this.worker;
+    if (this.worker && this.workerKey === key && !this.workerStopped) return this.worker.start();
     if (this.worker) {
       const identity = this.workerIdentity();
       const reaped = await this.stopWorker();
@@ -256,52 +261,38 @@ export class ToolRouter {
     // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
     // 共享 Git 目录作为只读 readRoot + Git safe.directory 环境集。
     const spec = this.launchSpecFor(task, session);
-    const startPromise = ToolWorkerHost.start(launcher, {
-      taskId: spec.taskId,
-      mode: spec.mode,
-      workspace: spec.workspace,
-      grantedPaths: spec.grantedPaths,
-      readRoots: spec.readRoots,
-      workspaceIdentity: spec.workspaceIdentity,
-      env: spec.env,
-    });
-    // 启动窗口登记占位（agent-direction issue 04）：工具意图落库早于 ready，此
-    // 窗口内的停止路径必须能找到并回收执行单元——否则 killManagedProcesses 看到
-    // 空 registry，abort() 会等待一个无人停止的工具调用。start 的失败路径自行
-    // 回收单元，占位 stop 只处理「仍在启动或已就绪」。
-    this.deps.registry.register({
-      kind: "starting",
-      id: `starting:${task.id}`,
-      label: `tool-worker starting task=${task.id}`,
-      stop: async () => {
-        const host = await startPromise.catch(() => null);
-        if (host && this.worker === host) {
-          this.worker = null;
-          this.workerKey = null;
-        }
-        return host ? host.stop() : true;
-      },
-    });
-    const host = await startPromise;
+    const host = ToolWorkerHost.create(launcher, spec);
     this.worker = host;
     this.workerKey = key;
-    // 登记可回收身份（容器/systemd 单元/进程组），停止路径统一经此回收；
-    // 上面的 starting 占位仍留在登记表（停止入口幂等：对已停止单元 stop() 直接返回）
-    const identity = host.identity();
+    this.workerStopped = false;
+    // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+    // 每次启动独立登记，starting 与实际单元消费同一份停止结论。
+    const stop = async () => {
+      if (this.worker === host) this.workerStopped = true;
+      const reaped = await host.stop();
+      if (reaped && this.worker === host) {
+        this.worker = null;
+        this.workerKey = null;
+      }
+      return reaped;
+    };
     this.deps.registry.register({
-      kind: identity.kind,
-      id: identity.id,
-      label: identity.label,
-      stop: async () => {
-        const reaped = await host.stop();
-        if (this.worker === host) {
-          this.worker = null;
-          this.workerKey = null;
-        }
-        return reaped;
-      },
+      kind: "starting",
+      id: crypto.randomUUID(),
+      label: `tool-worker starting task=${task.id}`,
+      stop,
     });
-    return host;
+    try {
+      await host.start();
+      if (this.worker !== host || this.workerStopped) throw new ExecutionError("worker_stopped", "工具工作进程启动已取消");
+      return host;
+    } catch (error) {
+      await stop();
+      throw error;
+    } finally {
+      const identity = host.identity();
+      if (identity) this.deps.registry.register({ ...identity, stop });
+    }
   }
 
   // ---------- 调用入口 ----------
@@ -335,6 +326,7 @@ export class ToolRouter {
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort(new Error("aborted by host"));
     input.signal?.addEventListener("abort", onExternalAbort, { once: true });
+    if (input.signal?.aborted) onExternalAbort();
 
     let captureFailed: string | null = null;
     const onData = (stream: DataStream, chunk: Buffer) => {

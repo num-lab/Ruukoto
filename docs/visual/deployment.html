@@ -584,9 +584,9 @@
           <tr><td>挂载</td><td>工作区 + 授予路径 + SubAgent 只读根，都按宿主原路径挂载，只读授予与只读根加 <code>:ro</code>；<code>-w</code> 为工作区</td><td>无挂载（直接用宿主文件系统）</td><td>无挂载</td></tr>
           <tr><td>网络</td><td><code>--network none</code></td><td>继承宿主网络</td><td>继承宿主网络</td></tr>
           <tr><td>环境变量</td><td>启动器只传 <code>PATH</code>（另有镜像自带的变量）；仅 worktree 修改任务与 worktree 副本的创建容器另注入 <code>GIT_CONFIG_COUNT/KEY_0/VALUE_0=safe.directory=*</code>（宿主钉定，容器 uid 与仓库属主不同时 git 仍可运行，见<a href="tool-call-path.html#boundary">工具调用路径 · LaunchSpec</a>）</td><td>sudo 重置环境，<code>env_keep</code> 额外保留执行账户 uid/gid 供包装脚本取用；单元环境由 systemd 设定，包装不带入调用方环境</td><td>只留 <code>PATH</code> / <code>HOME</code> / <code>LANG</code> / <code>LC_ALL</code> / <code>TMPDIR</code></td></tr>
-          <tr><td>停止与核实</td><td><code>docker kill</code> → <code>docker rm -f</code> → <code>docker inspect</code> 失败即确认</td><td>包装脚本 <code>systemctl stop</code> 后按 <code>is-active</code> 反转得出退出码</td><td>进程组 SIGTERM → SIGKILL，各 3000 ms 上限</td></tr>
+          <tr><td>停止与核实</td><td><code>docker kill</code> → <code>docker rm -f</code> → 成功查询全部容器，目标名称已不存在才确认</td><td>包装脚本或直连路径 <code>systemctl stop</code> 后查询状态，状态与退出码必须一致地表明 inactive / failed / unknown</td><td>原进程组 SIGTERM → SIGKILL，各 3000 ms 上限；查询整组，不只看主 PID，无法证明脱离组的后代退出</td></tr>
           <tr><td>缺少配置时</td><td>docker CLI 路径含 <code>/</code> 且不存在 → <code>execution_unavailable</code></td><td>没有 <code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code> / <code>STOP_SCRIPT</code>，或脚本文件不存在 → <code>execution_unavailable</code></td><td>工作进程入口不存在 → <code>execution_unavailable</code></td></tr>
-          <tr><td>任务结束回收</td><td colspan="3">驱动器在 prompt 返回后统一回收登记的执行单元（<code class="src" data-src="packages/agent/src/driver.ts#private async killManagedProcesses">driver.ts · killManagedProcesses</code>）；停止路径按核实结果决定是否保留目录占用</td></tr>
+          <tr><td>任务结束回收</td><td colspan="3">驱动器在自然完成、失败、取消与模式切换时回收全部登记单元，终态先等待退出核实（<code class="src" data-src="packages/agent/src/driver.ts#private async killManagedProcesses">driver.ts · killManagedProcesses</code>）；false 或异常保留目录占用与可见原因；并发、重复停止复用同一结论</td></tr>
         </tbody>
       </table>
     </div>
@@ -596,7 +596,7 @@
     <h3>「明确失败」发生在哪一步</h3>
     <ul>
       <li><strong>完全访问</strong>：提交与切换模式时都先试建启动器（<code class="src" data-src="packages/runtime/src/runtime.ts#模式的执行入口不可用">runtime.ts · 执行入口不可用</code>）。没设 <code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code> / <code>STOP_SCRIPT</code> 就直接拒绝，任务不创建；设了但脚本文件不存在，要到启动工作进程时才报 <code>execution_unavailable</code>。</li>
-      <li><strong>请求确认 / 自动审查</strong>：容器启动器的构造不会失败，任务照常入队并开始；边界缺失在第一个编码工具启动工作进程时暴露：docker CLI 路径含 <code>/</code> 且不存在报 <code>execution_unavailable</code>（裸命令 <code>docker</code> 找不到的情况见下方限制）；CLI 在但容器起不来（dockerd 不可用、镜像缺失），进程退出不会让等待提前结束，等不到 <code>ready</code> 帧，30 s 后 <code>worker_timeout</code>（<code class="src" data-src="packages/agent/src/tool-worker/host.ts#工具工作进程启动超时">host.ts · start</code>）。工具返回「执行环境不可用 …（不回退到其他执行方式）」，命令不执行。</li>
+      <li><strong>请求确认 / 自动审查</strong>：容器启动器的构造不会失败，任务照常入队并开始；边界缺失在第一个编码工具启动工作进程时暴露：docker CLI 路径含 <code>/</code> 且不存在报 <code>execution_unavailable</code>；CLI 在但容器起不来（dockerd 不可用、镜像缺失），工作进程退出会拒绝启动；进程仍在但等不到 <code>ready</code> 帧时，30 s 后 <code>worker_timeout</code>（<code class="src" data-src="packages/agent/src/tool-worker/host.ts#工具工作进程启动超时">host.ts · start</code>）。工具返回「执行环境不可用 …（不回退到其他执行方式）」，命令不执行。</li>
       <li><strong>重建工作进程</strong>：模式或授予集变化时旧单元核实不了退出，报 <code>mode_switch_unverified</code>，拒绝建立新环境。</li>
     </ul>
     <p>三种情况都不回退到后台账户执行。</p>
@@ -651,8 +651,8 @@
 
     <aside class="callout limit">
       <b>已知限制</b>
-      <p>当前 <code class="src" data-src="packages/agent/src/tool-worker/host.ts#static async start">ToolWorkerHost.start</code> 在 ready 失败时丢弃停止失败的返回值，starting 占位再把启动失败返回为已回收；<code class="src" data-src="packages/agent/src/tool-worker/host.ts#async stop()">stop</code> 首次返回 false 后会因句柄已置空而在第二次返回 true。worktree 临时执行入口忽略停止失败且未登记受管单元（<code class="src" data-src="packages/runtime/src/runtime.ts#async createWorktreeInContainer">createWorktreeInContainer</code>）。这些分支仍待停止核实工单 27 修正。local 的 <code class="src" data-src="packages/agent/src/managed-processes.ts#async function killProcessGroup">killProcessGroup</code> 只检查主 PID，不能证明组内或脱离进程组的后代全部退出。</p>
-      <p>直连 <code>systemd-run</code> 的分支只在程序化配置下可达（CLI 不接受 <code>systemd</code> 后端），此时执行账户 uid/gid 缺省取到 <code>0</code>，与「固定执行账户」的意图不符；生产始终经受保护包装入口。另外 docker CLI 默认是裸命令 <code>docker</code>（<code>RUUKOTO_DOCKER_PATH</code> 可改）：它不在 PATH 上时，容器启动器 <code>spawn</code> 出的子进程会发出 <code>error</code> 事件，而启动器没有监听它，后台进程也没有注册 <code>uncaughtException</code> 兜底。按 Node 的语义（单独用 Node 24 验证过），未监听的 <code>error</code> 会让后台进程以退出码 1 结束，而不是报 <code>execution_unavailable</code>。这一点没有在产品里复现。</p>
+      <p><code class="src" data-src="packages/agent/src/tool-worker/host.ts#class ToolWorkerHost">ToolWorkerHost</code> 从启动到停止保留同一执行记录；ready 失败、starting 登记、并发与重复停止共享核实结论，false 或异常不会因句柄关闭变成成功。worktree 创建与汇总在启动前登记到实际父任务（<code class="src" data-src="packages/runtime/src/runtime.ts#async createWorktreeInContainer">createWorktreeInContainer</code>），参与取消、后台停止与模式变化；Git 结果已收到但停止未核实时仍保留父目录与副本占用、成果及已知结果，子任务和其他会话不能在副本开跑。local 的 <code class="src" data-src="packages/agent/src/managed-processes.ts#async function killProcessGroup">killProcessGroup</code> 查询原进程组成员，主 PID 消失不能提前结束回收；脱离进程组的后代仍不在其核实范围内。</p>
+      <p>直连 <code>systemd-run</code> 的分支只在程序化配置下可达（CLI 不接受 <code>systemd</code> 后端），此时执行账户 uid/gid 缺省取到 <code>0</code>，与「固定执行账户」的意图不符；生产始终经受保护包装入口。docker CLI 默认是裸命令 <code>docker</code>（<code>RUUKOTO_DOCKER_PATH</code> 可改）；spawn 的 <code>error</code> 经启动记录上报为 <code>execution_unavailable</code>，启动异常仍等待停止核实。</p>
     </aside>
   </section>
 

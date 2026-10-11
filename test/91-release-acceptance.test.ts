@@ -21,8 +21,10 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
   const { dirs } = await makeTestDirs("release-dst", 0);
   const { dirs: cleanDirs } = await makeTestDirs("release-clean", 0);
   let release: (() => void) | undefined;
+  let releaseParent: (() => void) | undefined;
   const server = new MockModelServer(async (req) => {
     const input = lastUserText(req);
+    if (input.startsWith("HOLD-PARENT")) await new Promise<void>((resolve) => { releaseParent = resolve; });
     if (input.includes("HOLD-PEER")) await new Promise<void>((resolve) => { release = resolve; });
     if (input.includes("PATCH-RELEASE") && req.messages.at(-1)?.role !== "tool") {
       return { kind: "tool_calls", calls: [{ id: "patch", name: "edit", arguments: { path: "value.ts", edits: [{ oldText: "export const value = 1", newText: "export const value = 2" }] } }] };
@@ -58,8 +60,10 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     assert.deepEqual(fs.readFileSync(path.join(dirs.dataDir, "artifacts", `${artifact.id}.bin`)), artifactBytes);
     assert.equal(rt.readTaskReplyText(parent.id), "迁移前的历史回答");
 
+    const currentParent = await rt.submit({ sessionId: session.id, requestId: "live-parent", input: "HOLD-PARENT 创建工作", modelSelection: rt.defaultSelection });
+    await waitFor("父任务持有目录", () => releaseParent !== undefined);
     const manager = rt.subagents!;
-    const patch = await manager.delegate({ parentTaskId: parent.id, key: "patch", request: "PATCH-RELEASE", mode: "modify", target: ".", paramsDigest: "patch" });
+    const patch = await manager.delegate({ parentTaskId: currentParent.id, key: "patch", request: "PATCH-RELEASE", mode: "modify", target: ".", paramsDigest: "patch" });
     await waitFor("副本修改完成", () => rt!.store.getSubAgent(patch.agent.id)!.state === "idle");
     const copy = patch.work.writeTarget!;
     assert.equal(copy.kind, "worktree");
@@ -87,6 +91,9 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     await rt.cancelWork(patch.work.id);
     manager.close({ subAgentId: patch.agent.id, by: "owner" });
     const tasksBefore = rt.store.listTasksByWork(a.work.id).map((t) => t.id);
+    releaseParent!();
+    releaseParent = undefined;
+    await waitFor("父任务完成", () => rt!.store.getTask(currentParent.id)!.status === "completed");
     const callsBefore = server.calls.length;
 
     await rt.stop("test_restart");
@@ -106,11 +113,16 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     const dropped = rt.store.db.prepare("SELECT count(*) AS n FROM events WHERE json_extract(body, '$.type') = 'subagent_message.dropped' AND json_extract(body, '$.messageId') = ?").get(sent.message.id) as { n: number };
     assert.equal(dropped.n, 1, "取消与重启不重复登记未投递事件");
 
+    const integrateParent = await rt.submit({ sessionId: session.id, requestId: "integrate-parent", input: "HOLD-PARENT 汇总工作", modelSelection: rt.defaultSelection });
+    await waitFor("汇总父任务持有目录", () => releaseParent !== undefined);
     fs.writeFileSync(file, "export const value = 10 // 拥有者改动\n");
-    await assert.rejects(rt.subagents!.integrate({ workId: patch.work.id, parentTaskId: parent.id, parentSessionId: session.id }), (err: any) => err.code === "integrate_conflict" && err.message.includes("value.ts"));
+    await assert.rejects(rt.subagents!.integrate({ workId: patch.work.id, parentTaskId: integrateParent.id, parentSessionId: session.id }), (err: any) => err.code === "integrate_conflict" && err.message.includes("value.ts"));
     assert.equal(fs.readFileSync(file, "utf8"), "export const value = 10 // 拥有者改动\n");
     assert.equal(fs.readFileSync(path.join(copy.path, "value.ts"), "utf8"), "export const value = 2\n", "取消、关闭、重启及冲突后副本成果仍可找回");
     assert.equal(rt.store.hasIntegratedEvent(patch.work.id), false);
+    releaseParent!();
+    releaseParent = undefined;
+    await waitFor("汇总父任务完成", () => rt!.store.getTask(integrateParent.id)!.status === "completed");
     await rt.stop("test_revert");
     rt = undefined;
     const blocked = revertLegacyImport(deps, imported.import_id);
@@ -149,6 +161,7 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     assert.deepEqual(fs.readFileSync(path.join(source.dirs.dataDir, "artifacts", `${artifact.id}.bin`)), artifactBytes);
   } finally {
     release?.();
+    releaseParent?.();
     await rt?.stop("test_end");
     await server.close();
     await source.shutdown();

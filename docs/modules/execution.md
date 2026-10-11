@@ -13,10 +13,10 @@
 | 调用方 | 入口 | 说明 |
 |---|---|---|
 | Runtime | `createLauncherFor(config, mode)`、`Runtime.launcherFor(mode)` | 按后端配置与访问模式选启动器：`container` 后端下 `full_access` 走 systemd 启动器，`confirm` 与 `auto-review` 走容器启动器；`local` 走后端自身 |
-| 后台（Driver、ToolRouter、委派流程） | `ToolWorkerHost.start(launcher, spec)` | 启动工作进程并等 `ready`；30 秒未就绪抛 `worker_timeout`，失败时先回收执行单元再抛错 |
+| 后台（Driver、ToolRouter、委派流程） | `ToolWorkerHost.create(launcher, spec)`、`host.start()` | 先创建并登记宿主记录，再启动并等 `ready`；30 秒未就绪抛 `worker_timeout`，启动失败保留原原因与停止结论 |
 | 后台 | `ToolWorkerHost.call({ opId, sdkCallId, name, params, timeoutMs })` | 发出一次工具调用；`opId` 是宿主分配的操作 ID、协议关联键，`sdkCallId` 只供上游工具内部使用、不作身份；超时抛 `tool_timeout` 并发出 `abort` |
 | 后台 | `ToolWorkerHost.abort(opId)`、`ToolWorkerHost.stop()` | 中止单次调用；停止时发 `shutdown` 并停掉整个执行单元 |
-| Runtime 的 worktree 创建与改动汇总 | `Runtime.createWorktreeInContainer({ workspace, copyDir, branch, command, extraGrants })` | 用临时的请求确认工作进程执行宿主固定的 bash，创建时 `bash` 超时 120 秒、宿主调用超时 150 秒 |
+| Runtime 的 worktree 创建与改动汇总 | `Runtime.createWorktreeInContainer({ parentTaskId, workspace, copyDir, branch, command, extraGrants })` | 归属正在执行的父任务，用临时请求确认工作进程执行宿主固定的 bash；`bash` 超时 120 秒、宿主调用超时 150 秒 |
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
@@ -45,7 +45,7 @@
 
 | 字段 | 含义 |
 |---|---|
-| `taskId` | 任务 ID，也是容器名与 systemd 单元名的来源 |
+| `taskId` | 启动身份，作为容器名与 systemd 单元名的来源；普通 worker 用任务 ID，worktree 临时 worker 加独立后缀，生命周期仍归属实际父任务 |
 | `mode` | 任务的访问模式；容器启动器只接受 `confirm` 与 `auto-review`，systemd 启动器只接受 `full_access` |
 | `workspace` | 授权工作区（realpath）；同时是容器工作目录 |
 | `grantedPaths` | 拥有者为该任务显式授予的工作区外路径，每项带 `path` / `access` / `purpose`，只读授予加 `:ro` |
@@ -59,6 +59,7 @@
 stateDiagram-v2
   [*] --> starting: 登记占位（工作进程就绪之前）
   starting --> active: ready
+  starting --> stopping: 启动失败或取消
   active --> stopping: 任务停止、模式或授予范围变化
   stopping --> reaped: 核实整个执行单元已退出
   stopping --> unreaped: 核实不了退出
@@ -86,10 +87,11 @@ sequenceDiagram
   participant H as ToolWorkerHost
   participant L as WorkerLauncher
   participant W as 工具工作进程（边界内）
-  RT->>L: launch(LaunchSpec)
-  L-->>H: LaunchedUnit（登记受管执行单元）
-  H->>W: init（cwd、readRoots、workspace）
+  RT->>H: create 并登记 starting
+  H->>L: launch(LaunchSpec)
+  L-->>H: LaunchedUnit（保留可停止身份）
   W-->>H: ready
+  H->>W: init（cwd、readRoots、workspace）
   RT->>H: call(opId、name、params、timeoutMs)
   H->>W: tool_call
   W-->>H: data（stdout / stderr / file_read 分块）
@@ -123,11 +125,14 @@ sequenceDiagram
   participant RT as Runtime.createWorktreeInContainer
   participant W as 临时请求确认工作进程
   WM->>FS: 预建空副本目录 0700，取 realpath
-  WM->>RT: workspace=仓库根、copyDir、branch、宿主固定 bash
-  RT->>W: ToolWorkerHost.start(confirm 启动器)
+  WM->>RT: parentTaskId、workspace=仓库根、copyDir、branch、宿主固定 bash
+  RT->>RT: 启动前登记到父任务受管生命周期
+  RT->>W: host.start(confirm 启动器)
   W->>W: git -c core.fsmonitor=false rev-parse --verify HEAD
   W->>W: git -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree add -q -b <branch>
   W-->>RT: 40 位十六进制基线提交
+  RT->>W: stop（核实整个执行单元）
+  W-->>RT: 已核实退出
   RT-->>WM: 容器输出
   WM->>FS: 复核副本目录身份，钉定 write_target
 ```
@@ -143,9 +148,9 @@ sequenceDiagram
 
 ### 受管执行单元的停止与回收
 
-1. 停止入口停掉整个执行单元：容器是 `docker kill` 加 `docker rm -f`，再以 `docker inspect` 失败（容器已不存在）作为核实；systemd 单元由包装脚本自己完成 stop 与 `is-active` 判定（退出码 0 = 已不在活动），直连路径以 `systemctl is-active` 不是 `active` 为核实；本地进程组先 `SIGTERM`、等待、再 `SIGKILL`。
-2. 只有核实到整个单元（含子进程与 cgroup）已退出，才释放目录占用。
-3. 核实不了退出时保留目录占用并报告 `task.tool_process_unreaped`；模式切换的同一情形记为 `mode_switch_unverified`。
+1. 停止入口停掉整个执行单元：容器是 `docker kill` 加 `docker rm -f`，随后成功查询全部容器并确认目标名称已不存在；systemd 单元由包装脚本或直连路径停止后查询，只接受与退出码一致的 `inactive`、`failed` 或 `unknown`。查询失败不能证明退出。本地进程组先 `SIGTERM`、等待、再 `SIGKILL`，查询原组所有可执行成员，主 PID 消失不足以结束核实。
+2. 同一执行记录的并发、重复停止共享一次停止结果。未创建单元的启动失败无需回收；已创建后返回 false 或抛错均保留未核实结论与身份，不因通信句柄关闭、启动 Promise 拒绝或登记清理改成成功。
+3. 任务的自然完成、失败、取消与模式切换均等待受管单元的停止核实；单个停止失败不跳过其他单元。只有核实退出才释放目录占用，核实不了时保留占用并报告 `task.tool_process_unreaped`；模式切换记为 `mode_switch_unverified`。
 4. 队列启动前复核写入目标的目录身份，被替换或消失即失败、不自动重建；占用键与串行规则见 [runtime](runtime.md)。
 
 ### 已批准越界操作的执行
@@ -162,7 +167,7 @@ sequenceDiagram
 - 宿主工具一律声明 `executionMode: "sequential"`：工作进程按「工具名 → 当前调用」关联原始输出流，同一轮并发的同名调用会串流。
 - 正文捕获在工作进程侧完成：经 `BashOperations.onData` 与文件 Operations 包装器，在上游工具截断之前把原始输出与文件正文流回后台；后台先存为任务产物，再生成限长的模型视图，并在工具结果里附产物引用。中断或写失败保留已捕获部分并标 partial。
 - 协议有界：单帧上限 `MAX_FRAME_BYTES` 为 4 MiB，正文数据按 `DATA_CHUNK_BYTES` 为 512 KiB 分块并以 base64 传输，写入侧有背压。
-- 工作进程启动超时 30 秒（`worker_timeout`）；`ready` 失败时先回收执行单元再抛错，不留孤儿容器或进程组；单次调用超时（`tool_timeout`）由工作进程中止执行。
+- 工作进程启动超时 30 秒（`worker_timeout`）；`ready` 或初始化发送失败时先停止再抛原错误，停止未核实保留到任务收尾。启动中取消阻止迟到的工作进程服务；单次调用超时（`tool_timeout`）由工作进程中止执行。
 
 ### 执行边界
 
@@ -176,10 +181,11 @@ sequenceDiagram
 - 启动器与模式必须匹配：容器启动器只用于 `confirm` 与 `auto-review`，systemd 启动器只用于 `full_access`，不匹配抛 `invalid_state`。
 - 停止以整个执行单元为单位并核实退出：只杀 Docker CLI，或等 Shell 主 PID 消失，都不足以证明子进程已退出。核实不了时保留目录占用并报告 `task.tool_process_unreaped`；后台崩溃后不假定容器随父进程销毁，重启恢复保留中断任务的占用。
 - 镜像在构建时打包工作进程代码，改动 `packages/agent/src/tool-worker/` 后必须重建镜像。
-- 已知上限：挂载别名造成的祖先关系识别不出；`local` 后端没有隔离。
+- 已知上限：挂载别名造成的祖先关系识别不出；`local` 后端没有隔离，停止只核实原进程组，无法证明脱离进程组的后代退出。
 
 ### Git 与副本
 
+- 创建与汇总的临时工作进程启动前登记到实际父任务，并由父任务临时占用副本目录，参与取消、后台停止和模式变化。核实停止成功后只释放该副本占用，允许子任务执行；停止未核实时抛 `worker_stop_unverified`，保留父目录与副本占用、成果和已知 Git 结果，阻止其他会话或子任务并发写入，不能自动重放 Git。副本创建尚未登记工作行时，仍可按父任务的执行记录定位现场。
 - 宿主永不执行 git。仓库的 hooks 与 config 可能被父任务的容器写入，宿主以后台账户运行 git 就会执行其中植入的 fsmonitor 或 filter，以后台账户身份越过执行边界。
 - 创建命令显式关掉这些执行入口：hooks 用 `core.hooksPath=/dev/null` 跳过，`core.fsmonitor` 显式关闭。
 - 基线为委派时仓库 HEAD 指向的提交，父工作区未提交的改动不进副本；子任务不 `git add`、不 `git commit`、不推送，改动留在工作树由主 Agent 汇总。任务首行写明工作目录、分支、基线与「不要 git add/commit，改动留在工作树由主 Agent 汇总」。
@@ -199,6 +205,8 @@ sequenceDiagram
 - 任务停止即中止在途请求，不等超时。
 
 ## 设计依据
+
+- [执行单元的停止未核实结果保留到任务收尾](../../.agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)
 
 - [工具执行放进边界内的工作进程，受限任务按任务建容器，完全访问用专用执行账户](../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：解释工作进程与有界消息协议、容器参数、`local` 后端无隔离、受管单元停止核实的取舍，以及完全访问为什么使用专用执行账户。
 - [SubAgent 修改委派每项工作使用独立 worktree](../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)：解释副本位置与分支、宿主永不执行 git、预建空副本目录、共享 Git 目录只读、`safe.directory` 注入与目录身份只按路径钉定的理由。

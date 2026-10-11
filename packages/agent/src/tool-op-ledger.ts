@@ -41,6 +41,7 @@ type StaticToolName =
   | (typeof APPROVAL_TOOL_NAMES)[number]
   | typeof ARTIFACT_TOOL_NAME
   | (typeof MOCK_TOOL_NAMES)[number]
+  | "worktree_start"
   // 已删除的旧工具（agent-direction issue 23）：升级前在途操作的恢复核实仍按原规则
   | "coding_delegate";
 
@@ -54,6 +55,9 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   request_file_access: (p) => (p.operation === "write" ? "approval" : "no_effect"),
   http_request: (p) => (["GET", "HEAD"].includes(String(p.method ?? "").toUpperCase()) ? "no_effect" : "approval"),
   read_artifact: "no_effect",
+  // 临时 worker 的启动定位先落盘；Git 写入另记执行意图，不把 ready 前取消标成未知写入。
+  // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+  worktree_start: "no_effect",
   // 旧工具已删除（issue 23），只读兼容：analyze 按 SubAgent 登记核实，draft 按旧 coding 子任务核实
   coding_delegate: (p) => ({ family: p.mode === "analyze" ? "subagent" : "delegation" }),
   // 模拟工具代表可能有副作用的通用工具（mock_mark 写外部标记）

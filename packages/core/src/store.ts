@@ -2595,10 +2595,17 @@ export class Store {
     return true;
   }
 
-  /** 释放一个任务的占用（issue 16：按 taskId 唯一定位；cwd 是记录不是键）。 */
+  /** 释放任务持有的全部目录占用；重复释放返回 false。 */
   releaseOccupancy(taskId: string): boolean {
     const info = this.db.prepare("DELETE FROM occupancy WHERE task_id = ?").run(taskId);
-    return Number(info.changes) === 1;
+    return Number(info.changes) > 0;
+  }
+
+  /** 临时执行已核实退出后只释放副本；父目录及其他未核实副本仍由任务持有。 */
+  // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+  releaseOccupancyForDir(taskId: string, cwdReal: string): boolean {
+    const info = this.db.prepare("DELETE FROM occupancy WHERE task_id = ? AND cwd_real = ?").run(taskId, cwdReal);
+    return Number(info.changes) > 0;
   }
 
   /** 单条占用（写入目标键/父写入根的持有者查询；subagent_result 提示由它判定）。 */

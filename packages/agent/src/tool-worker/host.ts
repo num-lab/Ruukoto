@@ -2,9 +2,9 @@
  * 工具工作进程宿主侧：启动、调用、中止、停止与数据流的对接。
  *
  * - 每次工具调用一个 opId；data 帧转发给调用方的产物回调；
- * - 单帧上限与调用超时；写入侧背压（drain 后再发下一帧）；
- * - stop() 停止整个执行单元（进程组/容器）并核实退出——这是"停止并核实
- *   旧执行单元及其后代进程已退出"的实现点。
+ * - 单帧上限与调用超时；写入完成后再发下一帧；
+ * - stop() 消费后端的整单元退出核实；local 只覆盖原进程组。
+ * Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
  */
 
 import {
@@ -39,78 +39,112 @@ export interface WorkerCallResult {
   errorMessage?: string;
 }
 
+/** 兼容静态启动入口：失败仍交出持有停止结论的宿主记录。 */
+export class WorkerStartError extends ExecutionError {
+  constructor(readonly host: ToolWorkerHost, readonly cause: unknown) {
+    super(cause instanceof ExecutionError ? cause.code : "worker_start_failed", cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
 export class ToolWorkerHost {
   private unit: LaunchedUnit | null = null;
+  private launchPromise: Promise<LaunchedUnit> | null = null;
+  private startPromise: Promise<ToolWorkerHost> | null = null;
+  private stopPromise: Promise<boolean> | null = null;
   private buffer = "";
   private pending = new Map<
     string,
     { resolve: (r: WorkerCallResult) => void; reject: (e: Error) => void; onData?: WorkerCallOptions["onData"] }
   >();
-  private readyPromise: Promise<void>;
   private readyListeners: Array<(msg: WorkerMessage) => void> = [];
+  private rejectReady: ((error: ExecutionError) => void) | null = null;
   private stopped = false;
   private writeChain: Promise<void> = Promise.resolve();
+  stopFailure: ExecutionError | null = null;
   readonly mode: LaunchSpec["mode"];
 
-  private constructor(
-    readonly launcher: WorkerLauncher,
-    readonly spec: LaunchSpec,
-    private readonly unitResolved: LaunchedUnit,
-    private readonly exitInfo: LaunchedUnit["exit"],
-  ) {
-    this.unit = unitResolved;
+  private constructor(readonly launcher: WorkerLauncher, readonly spec: LaunchSpec) {
     this.mode = spec.mode;
-    unitResolved.stdout.setEncoding("utf8");
-    unitResolved.stdout.on("data", (chunk: string) => this.handleStdout(chunk));
-    unitResolved.stderr.setEncoding("utf8");
-    unitResolved.stderr.on("data", (chunk: string) => {
-      // 工作进程诊断输出：仅记录到后台进程 stderr，不进入任务数据
-      process.stderr.write(`[tool-worker ${spec.taskId}] ${chunk}`);
-    });
-    unitResolved.exit.then(() => {
-      // 通道关闭：所有在途调用按失败收尾（结果缺失由调用方按效果未知处理）
-      this.failAllPending(new ExecutionError("worker_exited", "工具工作进程已退出"));
-    });
-    this.readyPromise = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new ExecutionError("worker_timeout", "工具工作进程启动超时")), 30_000);
-      const onFrame = (msg: WorkerMessage) => {
-        if (msg.type === "ready") {
-          clearTimeout(timer);
-          resolve();
-        } else if (msg.type === "fatal") {
-          clearTimeout(timer);
-          reject(new ExecutionError("worker_fatal", `工作进程启动失败：${msg.message}`));
-        }
-      };
-      this.readyListeners.push(onFrame);
-    });
   }
 
-  /** 启动并等待 ready。 */
+  /** 同步建立可停止记录；调用方须先登记，再调用 start。 */
+  static create(launcher: WorkerLauncher, spec: LaunchSpec): ToolWorkerHost {
+    return new ToolWorkerHost(launcher, spec);
+  }
+
+  /** 启动并等待 ready 与 init 发送；失败时 WorkerStartError 保留宿主记录。 */
   static async start(launcher: WorkerLauncher, spec: LaunchSpec): Promise<ToolWorkerHost> {
-    const unit = await launcher.launch(spec);
-    const host = new ToolWorkerHost(launcher, spec, unit, unit.exit);
+    const host = ToolWorkerHost.create(launcher, spec);
     try {
-      await host.readyPromise;
-    } catch (err) {
-      // ready 失败（超时/fatal）：回收执行单元后再抛错，不留孤儿容器/进程组
-      host.stopped = true;
-      host.unit = null;
-      await unit.entry.stop().catch(() => false);
-      throw err;
+      return await host.start();
+    } catch (error) {
+      throw new WorkerStartError(host, error);
     }
-    host.readyListeners = [];
-    // 容器按宿主原路径挂载工作区，各启动器的工作目录都是工作区本身；
-    // issue 16：init 回传宿主钉定的工作区身份给 worker（写入目标复核的
-    // 最后一道，工作环境变化即 fatal，不带着旧钉定服务）。
-    host.sendRequest({
-      type: "init",
-      cwd: spec.workspace,
-      label: spec.taskId,
-      ...(spec.readRoots ? { readRoots: spec.readRoots } : {}),
-      ...(spec.workspaceIdentity ? { workspace: { path: spec.workspace, dev: spec.workspaceIdentity.dev, ino: spec.workspaceIdentity.ino } } : {}),
-    });
-    return host;
+  }
+
+  /** 同一记录只启动一次；启动失败不丢弃单元身份或停止结论。 */
+  start(): Promise<ToolWorkerHost> {
+    this.startPromise ??= Promise.resolve().then(() => this.startUnit());
+    return this.startPromise;
+  }
+
+  private async startUnit(): Promise<ToolWorkerHost> {
+    if (this.stopped) throw new ExecutionError("worker_stopped", "工具工作进程已停止");
+    try {
+      try {
+        this.launchPromise = this.launcher.launch(this.spec);
+        this.unit = await this.launchPromise;
+      } catch (error) {
+        if (error instanceof ExecutionError && error.unit) this.unit = error.unit;
+        throw error;
+      }
+      if (this.stopped) throw new ExecutionError("worker_stopped", "工具工作进程启动已取消");
+      const unit = this.unit;
+      const ready = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => finish(new ExecutionError("worker_timeout", "工具工作进程启动超时")), 30_000);
+        const finish = (error?: ExecutionError) => {
+          clearTimeout(timer);
+          this.readyListeners = [];
+          this.rejectReady = null;
+          if (error) reject(error);
+          else resolve();
+        };
+        this.rejectReady = finish;
+        this.readyListeners.push(msg => {
+          if (msg.type === "ready") finish();
+          else if (msg.type === "fatal") finish(new ExecutionError("worker_fatal", `工作进程启动失败：${msg.message}`));
+        });
+      });
+      unit.stdout.setEncoding("utf8");
+      unit.stdout.on("data", (chunk: string) => this.handleStdout(chunk));
+      unit.stderr.setEncoding("utf8");
+      unit.stderr.on("data", (chunk: string) => process.stderr.write(`[ruukoto:tool-worker ${this.spec.taskId}] ${chunk}`));
+      unit.stdin.on("error", error => this.channelFailed(error));
+      unit.exit.then(
+        () => this.channelFailed(new ExecutionError("worker_exited", "工具工作进程已退出")),
+        error => this.channelFailed(error),
+      );
+      await ready;
+      await this.sendRequest({
+        type: "init",
+        cwd: this.spec.workspace,
+        label: this.spec.taskId,
+        ...(this.spec.readRoots ? { readRoots: this.spec.readRoots } : {}),
+        ...(this.spec.workspaceIdentity ? { workspace: { path: this.spec.workspace, dev: this.spec.workspaceIdentity.dev, ino: this.spec.workspaceIdentity.ino } } : {}),
+      });
+      if (this.stopped) throw new ExecutionError("worker_stopped", "工具工作进程启动已取消");
+      return this;
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
+  }
+
+  private channelFailed(error: unknown): void {
+    const failure = error instanceof ExecutionError ? error : new ExecutionError("worker_channel_failed", error instanceof Error ? error.message : String(error));
+    this.rejectReady?.(failure);
+    this.failAllPending(failure);
+    void this.stop();
   }
 
   private handleStdout(chunk: string): void {
@@ -177,25 +211,26 @@ export class ToolWorkerHost {
     this.pending.clear();
   }
 
-  /** 发送请求帧；stdout 背压时排队等待 drain。 */
-  private sendRequest(req: WorkerRequest): void {
-    if (this.stopped || !this.unit) throw new ExecutionError("worker_stopped", "工具工作进程已停止");
-    // 绑定时捕获 unit：排队期间 stop() 可能已置空，回调必须写原句柄并跳过已销毁的通道
+  /** 发送请求帧；等待写入完成后才允许发送下一帧。 */
+  private sendRequest(req: WorkerRequest): Promise<void> {
+    if (!this.unit || (this.stopped && req.type !== "shutdown")) throw new ExecutionError("worker_stopped", "工具工作进程已停止");
     const unit = this.unit;
     const line = JSON.stringify(req);
-    this.writeChain = this.writeChain.then(async () => {
-      if (unit.stdin.destroyed) return;
-      const ok = unit.stdin.write(`${line}\n`);
-      if (!ok) {
-        await new Promise<void>((resolve) => unit.stdin.once("drain", resolve));
-      }
+    this.writeChain = this.writeChain.then(() => {
+      if (unit.stdin.destroyed || (this.stopped && req.type !== "shutdown")) throw new ExecutionError("worker_stopped", "工具工作进程已停止");
+      return new Promise<void>((resolve, reject) => {
+        unit.stdin.write(`${line}\n`, error => error ? reject(error) : resolve());
+      });
     });
+    void this.writeChain.catch(error => this.channelFailed(error));
+    return this.writeChain;
   }
 
   /** 执行一次工具调用；data 帧实时回调。 */
   async call(opts: WorkerCallOptions): Promise<WorkerCallResult> {
-    await this.readyPromise;
+    await this.start();
     if (this.stopped) throw new ExecutionError("worker_stopped", "工具工作进程已停止");
+    if (opts.signal?.aborted) throw new ExecutionError("tool_aborted", "工具调用已中止");
     return new Promise<WorkerCallResult>((resolve, reject) => {
       const timer = opts.timeoutMs
         ? setTimeout(() => {
@@ -238,39 +273,60 @@ export class ToolWorkerHost {
   /** 中止一个在途调用（工具执行停止，但工作进程保留）。 */
   async abort(opId: string): Promise<void> {
     if (this.stopped || !this.unit) return;
-    this.sendRequest({ type: "abort", opId });
-  }
-
-  /** 标识（容器名、systemd 单元或进程组 id），用于登记与诊断。 */
-  identity(): { kind: import("../managed-processes.ts").ManagedUnitKind; id: string; label: string } {
-    return { kind: this.unit!.entry.kind, id: this.unit!.entry.id, label: this.unit!.entry.label };
-  }
-
-  /** 停止整个执行单元并核实退出；返回 false 表示无法确认（调用方必须保留占用）。 */
-  async stop(): Promise<boolean> {
-    if (!this.unit) return true;
-    const unit = this.unit;
-    this.stopped = true;
     try {
-      this.sendRequest({ type: "shutdown" });
-    } catch {
-      // 通道可能已断
+      await this.sendRequest({ type: "abort", opId });
+    } catch (error) {
+      this.channelFailed(error);
     }
-    this.unit = null;
-    this.failAllPending(new ExecutionError("worker_stopped", "工具工作进程正在停止"));
-    // 给工作进程一个优雅退出窗口，然后强制停止执行单元
-    const graceful = await Promise.race([
-      this.exitInfo.then(() => true as const),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 3000)),
-    ]);
-    if (!graceful) {
+  }
+
+  /** 已产生单元的身份；尚未创建时为 null，停止后仍保留。 */
+  identity(): { kind: import("../managed-processes.ts").ManagedUnitKind; id: string; label: string } | null {
+    return this.unit ? { kind: this.unit.entry.kind, id: this.unit.entry.id, label: this.unit.entry.label } : null;
+  }
+
+  /** 并发与重复停止共享结论；false 或异常均保留未核实结果，调用方必须保留占用。 */
+  stop(): Promise<boolean> {
+    if (this.stopPromise) return this.stopPromise;
+    this.stopped = true;
+    const stopped = new ExecutionError("worker_stopped", "工具工作进程正在停止");
+    this.rejectReady?.(stopped);
+    this.failAllPending(stopped);
+    this.stopPromise = this.stopUnit().catch(error => {
+      this.stopFailure = error instanceof ExecutionError ? error : new ExecutionError("worker_stop_failed", error instanceof Error ? error.message : String(error));
+      process.stderr.write(`[ruukoto:tool-worker] task=${this.spec.taskId} stop=${this.stopFailure.code}；退出未核实，保留占用\n`);
+      return false;
+    });
+    return this.stopPromise;
+  }
+
+  private async stopUnit(): Promise<boolean> {
+    if (!this.unit && this.launchPromise) {
       try {
-        unit.stdin.destroy();
-      } catch {
-        // 已关闭
+        this.unit = await this.launchPromise;
+      } catch (error) {
+        if (error instanceof ExecutionError && error.unit) this.unit = error.unit;
+        else return true;
       }
     }
+    const unit = this.unit;
+    if (!unit) return true;
+    // 启动取消或 launcher 拒绝后的单元可能尚未安装通道监听。
+    unit.stdin.on("error", error => this.channelFailed(error));
+    try {
+      void this.sendRequest({ type: "shutdown" });
+    } catch {
+      // shutdown 通道可能已经关闭；仍须用单元身份核实停止。
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const graceful = await Promise.race([
+      unit.exit.then(() => true, () => false),
+      new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), 3000); }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (!graceful) unit.stdin.destroy();
     const reaped = await unit.entry.stop();
+    if (!reaped) this.stopFailure = new ExecutionError("worker_stop_unverified", "无法核实工具执行单元已退出");
     return reaped;
   }
 }

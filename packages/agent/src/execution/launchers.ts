@@ -26,7 +26,7 @@ import { killProcessGroup, type ManagedEntry } from "../managed-processes.ts";
 
 export class ExecutionError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, readonly unit?: LaunchedUnit) {
     super(message);
     this.code = code;
   }
@@ -67,6 +67,7 @@ export interface LaunchSpec {
 
 export interface WorkerLauncher {
   readonly kind: "local" | "container" | "systemd";
+  /** 拒绝时尚未产生单元；已产生单元后的拒绝须由 ExecutionError.unit 交出停止身份。 */
   launch(spec: LaunchSpec): Promise<LaunchedUnit>;
 }
 
@@ -91,9 +92,13 @@ function filteredEnv(): NodeJS.ProcessEnv {
 }
 
 function toExitPromise(child: ChildProcess): Promise<{ code: number | null; signal: string | null }> {
-  return new Promise((resolve) => {
+  const exit = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
     child.on("exit", (code, signal) => resolve({ code, signal: signal ?? null }));
+    child.on("error", error => reject(new ExecutionError("execution_unavailable", `工具执行入口启动失败：${error.message}`)));
   });
+  // 启动中的取消可能尚未安装 host 监听；原 Promise 仍由启动记录消费。
+  void exit.catch(() => undefined);
+  return exit;
 }
 
 // ---------- local（开发/验证专用） ----------
@@ -119,7 +124,12 @@ export function createLocalLauncher(opts: LocalLauncherOptions = {}): WorkerLaun
         detached: true, // 独立进程组，pgid == pid：整组回收的依据
         stdio: ["pipe", "pipe", "pipe"],
       });
-      const pid = child.pid!;
+      const exit = toExitPromise(child);
+      const pid = child.pid;
+      if (pid === undefined) {
+        await exit;
+        throw new ExecutionError("execution_unavailable", "工具工作进程未创建");
+      }
       const unit: ManagedEntry = {
         kind: "process_group",
         id: String(pid),
@@ -131,7 +141,7 @@ export function createLocalLauncher(opts: LocalLauncherOptions = {}): WorkerLaun
         stdin: child.stdin!,
         stdout: child.stdout!,
         stderr: child.stderr!,
-        exit: toExitPromise(child),
+        exit,
       };
     },
   };
@@ -220,16 +230,21 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
         stdio: ["pipe", "pipe", "pipe"],
         env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
       });
+      const exit = toExitPromise(child);
+      if (child.pid === undefined) {
+        await exit;
+        throw new ExecutionError("execution_unavailable", "容器启动入口未创建");
+      }
       const unit: ManagedEntry = {
         kind: "container",
         id: name,
         label: `tool-worker container=${name} task=${spec.taskId}`,
         stop: async () => {
-          // 停止整个容器（cgroup 兜底 setsid/忽略信号的子进程），并核实已移除
-          await execDocker(["kill", name]).catch(() => ({ code: 0, stdout: "", stderr: "" }));
-          await execDocker(["rm", "-f", name]).catch(() => ({ code: 0, stdout: "", stderr: "" }));
-          const inspect = await execDocker(["inspect", name]).catch(() => ({ code: 1, stdout: "", stderr: "" }));
-          return inspect.code !== 0; // inspect 失败 = 容器已不存在 = 确认退出
+          // kill/rm 失败仍继续查单元；只有成功查询后不存在才证明退出。
+          await execDocker(["kill", name]).catch(() => null);
+          await execDocker(["rm", "-f", name]).catch(() => null);
+          const remaining = await execDocker(["ps", "--all", "--filter", `name=^/${name}$`, "--format", "{{.Names}}"]);
+          return remaining.code === 0 && !remaining.stdout.trim().split("\n").includes(name);
         },
       };
       return {
@@ -237,7 +252,7 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
         stdin: child.stdin!,
         stdout: child.stdout!,
         stderr: child.stderr!,
-        exit: toExitPromise(child),
+        exit,
       };
     },
   };
@@ -304,6 +319,11 @@ export function createSystemdLauncher(config: SystemdLauncherConfig): WorkerLaun
             ],
             { stdio: ["pipe", "pipe", "pipe"] },
           );
+      const exit = toExitPromise(child);
+      if (child.pid === undefined) {
+        await exit;
+        throw new ExecutionError("execution_unavailable", "执行账户启动入口未创建");
+      }
       const unitEntry: ManagedEntry = {
         kind: "systemd_unit",
         id: unit,
@@ -321,12 +341,12 @@ export function createSystemdLauncher(config: SystemdLauncherConfig): WorkerLaun
           await new Promise((resolve) => {
             execFile(config.systemctlPath, ["stop", unit], { timeout: 15_000 }, () => resolve(null));
           });
-          const check = await new Promise<string>((resolve) => {
-            execFile(config.systemctlPath, ["is-active", unit], { timeout: 5_000 }, (err, stdout) =>
-              resolve(err ? String(stdout ?? "") : String(stdout ?? "").trim()),
+          const check = await new Promise<{ code: number | null; state: string }>(resolve => {
+            execFile(config.systemctlPath, ["is-active", unit], { timeout: 5_000 }, (error, stdout) =>
+              resolve({ code: error ? (typeof error.code === "number" ? error.code : null) : 0, state: String(stdout ?? "").trim() }),
             );
           });
-          return check.trim() !== "active";
+          return (check.code === 3 && ["inactive", "failed"].includes(check.state)) || (check.code === 4 && check.state === "unknown");
         },
       };
       return {
@@ -334,7 +354,7 @@ export function createSystemdLauncher(config: SystemdLauncherConfig): WorkerLaun
         stdin: child.stdin!,
         stdout: child.stdout!,
         stderr: child.stderr!,
-        exit: toExitPromise(child),
+        exit,
       };
     },
   };

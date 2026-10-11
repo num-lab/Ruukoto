@@ -13,9 +13,11 @@
 - 后台异常重启后的恢复顺序与人工核实的出口。
 - 旧实例导入的设计（源只读、离线、快照、allow-list、回执与回退边界、执行归属交接）。
 
-它不负责：工具的实际执行与执行边界（容器、挂载、目录身份、worker init）见 [execution](execution.md)；工具可用性清单、审批闸门、工具操作账本、产物与 MCP 见 [agent-tools](agent-tools.md)；模型上下文的组装、压缩、历史与记忆见 [agent-context](agent-context.md)；控制面 socket 与拥有者认证见 [control](control.md)；IM 平台连接、入站登记与 GitHub 事件来源见 [channels](channels.md)；调度计划与通知 outbox 的发送账本见 [scheduler](scheduler.md)；数据布局、schema 与会话身份的存储原语见 [core](core.md)；命令与配置的操作步骤见 [docs/usage.md](../usage.md)。
+它不负责：工具的实际执行与执行边界（原生沙箱、容器、挂载、目录身份与 worker init）见 [execution](execution.md)；工具可用性清单、审批闸门、工具操作账本、产物与 MCP 见 [agent-tools](agent-tools.md)；模型上下文的组装、压缩、历史与记忆见 [agent-context](agent-context.md)；控制面 socket 与拥有者认证见 [control](control.md)；IM 平台连接、入站登记与 GitHub 事件来源见 [channels](channels.md)；调度计划与通知 outbox 的发送账本见 [scheduler](scheduler.md)；数据布局、schema 与会话身份的存储原语见 [core](core.md)；命令与配置的操作步骤见 [docs/usage.md](../usage.md)。
 
 ## 对外接口
+
+`branchSession` 由产品的 `branchSessions` 能力开放，核实普通开发身份、工作区映射及目录身份后固定来源历史和设置；`findBranchSession` 按持久请求键核实发布结果。创建不提交任务或调用模型。
 
 `Runtime.start(config)` 要求 app 注入 `config.product`（`RuntimeProduct`）：身份用于数据目录登记，IM 与调度能力决定启停，产品工具族由 app 的工厂提供。共享运行时不按产品名装配。具体产品归属见[产品装配](products.md)。
 
@@ -103,6 +105,10 @@ stateDiagram-v2
 
 ## 主要流程
 
+会话分支经 `packages/runtime/src/branch-session.ts` 编排：固定快照与限定来源 → 事务保存准备回执 → agent 独占写入并刷盘、安装独立 JSONL → 同一数据库事务发布会话、独立压缩点、完成回执和创建事件 → 提交后应答及广播。文件与 SQLite 没有跨文件事务；启动恢复只使用原回执和已核实文件，无法核实则记录失败，不发布半成品。原任务、占用、审批、工作和通知继续归来源会话，新任务仍受共享目录占用约束。
+
+连续分支只继承已有且仍可核实的来源集合。来源产物固定字节上限与状态，图片及跨项目资料每次读取重新校验；SubAgent 结果只允许固定的已完成任务和产物，不能扩展到后来执行或复用的结果。来源关系不进入委派、消息、关闭、取消和汇总的归属核实。
+
 ### 提交、排队与执行
 
 1. 入口按会话身份放行或拒绝（SubAgent 拒绝、计划模式只限普通开发会话、归档按原因拒绝）。
@@ -115,7 +121,7 @@ stateDiagram-v2
 
 ### 任务收尾
 
-所有在线终态路径经 `Store.endTask` 在一个事务内做条件更新：只有当前状态仍在起点集合时才继续，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件并按任务 ID 释放占用。驱动器在这条事务内先交工具账本补记效果未知；回收失败时显式保留占用并写 `task.tool_process_unreaped`，重启与缺失驱动器的停止路径也保留占用。终态更新的竞争不会再产生重复的 `task.mode_switch_failed`。
+所有在线终态路径先停止并核实受管执行单元，再经 `Store.endTask` 在一个事务内做条件更新：只有当前状态仍在起点集合时才继续，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件并按任务 ID 决定占用。驱动器在这条事务内先交工具账本补记效果未知；停止返回 false 或抛错时显式保留占用并写 `task.tool_process_unreaped`。自然完成的已知结果与退出未核实分别记录，失败、取消和重复收尾同样不能丢掉未核实事实。重启与缺失驱动器的停止路径也保留占用，终态更新的竞争不会产生重复事件。
 
 ### 委派登记与执行范围
 
@@ -180,9 +186,10 @@ sequenceDiagram
 
 ### 修改委派与写入目标
 
-- **模式与入口**：`subagent_delegate` 增加 `mode`（`analyze` 默认 / `modify`）与 `target`（modify 必填，父工作区内的目录）。普通开发会话与 main 都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话本就不接受任务）。管理器从父 Task 的固定 `planMode` 判定计划模式，不接收 `planMode` 入参；计划模式既拒绝显式 `modify`，也拒绝沿已有 `writeTarget` 的工作继续。模型工具清单仍由 `PLAN_TOOL_NAMES` 收窄，未开放 `subagent_delegate`。modify 不带 `read_paths` / `materials`。修改工作固定 `confirm`、在容器中运行，不继承父任务的完全访问。
+- **模式与入口**：`subagent_delegate` 增加 `mode`（`analyze` 默认 / `modify`）与 `target`（modify 必填，父工作区内的目录）。普通开发会话与 main 都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话本就不接受任务）。管理器从父 Task 的固定 `planMode` 判定计划模式，不接收 `planMode` 入参；计划模式既拒绝显式 `modify`，也拒绝沿已有 `writeTarget` 的工作继续。模型工具清单仍由 `PLAN_TOOL_NAMES` 收窄，未开放 `subagent_delegate`。modify 不带 `read_paths` / `materials`。修改工作固定 `confirm`、经产品配置的受限执行边界运行，不继承父任务的完全访问。
 - **写入目标钉定**：`work_delegations.write_target` 在首次修改委派时确定、继续委派沿用；只读工作不能升级为写入，继续委派（`work_id`）不接受 `mode`；复用（`sub_agent_id`）承接新工作时另建副本。
-- **Git 目标：每项工作一个宿主生成的 worktree**。位置 `<dataDir>/../agent-work/worktrees/<workId>`（保护根与父工作区之外），分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD 指向的提交——父工作区未提交的改动不进副本。仓库根从目标向上纯文件系统查找（不运行 git，不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。宿主在受限 confirm 容器内创建副本、永不执行 git；挂载、容器内命令、目录身份下发与 worker init 见 [execution](execution.md)。宿主在容器启动前预建空副本目录（0700）；非空目录 = 失败残留，不自动认领或覆盖。
+- **Git 目标：每项工作一个宿主生成的 worktree**。位置 `<dataDir>/../agent-work/worktrees/<workId>`（保护根与父工作区之外），分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD 指向的提交——父工作区未提交的改动不进副本。仓库根从目标向上纯文件系统查找（不运行 git，不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。宿主经 `executeWorkCopy` 在受限 confirm worker 内创建副本、永不执行 git；挂载、命令、目录身份下发与 worker init 见 [execution](execution.md)。宿主在 worker 启动前预建空副本目录（0700）；非空目录 = 失败残留，不自动认领或覆盖。
+- **临时执行归属**：worktree 创建与改动汇总传递实际发起的父任务 ID，父任务必须正在执行并持有占用；执行单元启动前登记到该任务，并临时取得副本目录占用，参与取消、后台停止与模式变化。核实成功只释放该副本；停止未核实以 `worker_stop_unverified` 上报，保留父目录与副本占用、成果及已收到的 Git 结果，阻止子任务或其他会话在副本开跑，不继续委派或重放 Git；即使尚未登记工作行，也保留副本创建现场。原生 worker 显式收到后台数据、服务凭据、控制面和服务代码的保护根；工作区、SubAgent 读取范围与共享 Git 目录按宿主 dev/ino 下发复核，只有 macOS Docker Desktop 保留 VM 的 inode 例外。
 - **不提交规则**：任务首行写明工作目录、分支、基线与「不要 git add/commit，改动留在工作树由主 Agent 汇总」；副本、分支与写入根的改动一律保留——创建失败保留现场（错误信息含路径与分支），任务取消/退出不删除，不提供任何删除副本的入口。
 - **非 Git 目标：直接写入父工作区内目录并串行**（写预检按实际执行身份核实写位，执行身份判定见 [execution](execution.md)）。子任务的执行目录与占用键都是写入根；队列启动前复核目录身份，被替换或消失即失败、不自动重建。首次钉定写入目标后，该 SubAgent 的子会话 cwd 对齐到写入根。
 - **目录占用升级为祖先/子孙判定**：冲突 = dev/ino 相等（符号链接、挂载别名同命中）、realpath 相等，或按分隔符边界互为前缀；释放统一按 `taskId`，占用键是任务写入目标而非会话 cwd。效果：非 Git 子任务与父会话串行——父任务本轮结束才释放占用，父任务没有阻塞等待子任务的接口，不会持锁空等；排队中的非 Git 子任务被本会话占用挡住时，`subagent_result` 提示「等待本会话释放目录，请结束本轮」。嵌套 cwd 会话同样互相阻塞（`/ws` 与 `/ws/sub` 之间串行）。已知上限：挂载别名的祖先关系识别不出。
@@ -193,8 +200,8 @@ sequenceDiagram
 
 - **入口与范围**：主 Agent 工具 `subagent_integrate(work_id)`（dev 与 main 均装配，回报唤醒轮次也允许；SubAgent、群与固定角色会话经宿主身份重核拒绝）把本会话登记的 worktree 副本相对基线的完整差异套用到父工作区的待提交区——不代提交、`git apply --check` 预检通过才写入（预检失败零写入）。非 Git 直接写入工作没有副本（改动本就就地落盘），调用只如实告知；只读分析工作明确拒绝。拥有者没有专用控制面操作：待处理内容经工具回报与持久事件可知。
 - **套用前核实**：工作有活动任务拒绝（busy，副本可能仍在被改写）；副本目录 realpath/dev/ino 与 `.git` 指向的 gitdir 逐项复核（被替换/消失明确失败，不自动重建、不凭钉定记录套用）；仓库根仍在父会话工作区内且 `.git` 可读。汇总只按工作 id 取首次钉定的写入目标——Agent 复用承接新工作（另建副本）后，汇总旧工作仍只落旧工作自己的副本。
-- **容器与边界**：复用修改委派的宿主容器入口（宿主永不执行 git）：副本内 `git add -N --all` 把未跟踪文件纳入索引 → 对基线取完整二进制 diff 与 numstat → 父仓库 apply 预检/套用；fsmonitor 显式关、hooks 走 /dev/null；共享 Git 目录超出父仓库目录树时（父仓库本身是 worktree）按钉定记录补一枚读写挂载。命令、挂载与目录身份的细节见 [execution](execution.md)。
-- **冲突与幂等**：四套结论——`applied`（套用成功并登记事件）/ `already`（完整差异已在工作区，`apply --check --reverse` 命中：幂等返回，不重复写入、不重复登记）/ `conflict`（两向预检都失败：零写入，父工作区原改动与副本成果都保留，错误点名冲突文件与待处理说明）/ `empty`（空差异，不登记）。已知上限：汇总后对同一副本又继续委派产生新改动时，再次汇总会命中冲突（已套用的 hunks 挡路），按冲突如实报告——不引入增量汇总状态；busy 检查与容器套用之间登记的新执行可能让副本继续变化，副本原样保留、事件钉定基线与文件清单使现场可核对。
+- **执行与边界**：复用修改委派的受限 worker 入口（宿主永不执行 git）：副本内 `git add -N --all` 把未跟踪文件纳入索引 → 对基线取完整二进制 diff 与 numstat → 父仓库 apply 预检/套用；fsmonitor 显式关、hooks 走 /dev/null；共享 Git 目录超出父仓库目录树时（父仓库本身是 worktree）按钉定记录补一枚读写挂载。patch、numstat 与错误资料写到执行单元专用 `TMPDIR` 下的随机 0700 目录；各次汇总互不覆盖，停止未核实时保留临时现场。命令、挂载与目录身份的细节见 [execution](execution.md)。
+- **冲突与幂等**：四套结论——`applied`（套用成功并登记事件）/ `already`（完整差异已在工作区，`apply --check --reverse` 命中：幂等返回，不重复写入、不重复登记）/ `conflict`（两向预检都失败：零写入，父工作区原改动与副本成果都保留，错误点名冲突文件与待处理说明）/ `empty`（空差异，不登记）。已知上限：汇总后对同一副本又继续委派产生新改动时，再次汇总会命中冲突（已套用的 hunks 挡路），按冲突如实报告——不引入增量汇总状态；busy 检查与实际套用之间登记的新执行可能让副本继续变化，副本原样保留、事件钉定基线与文件清单使现场可核对。
 - **记录与关联**：套用成功在一个事务内追加 `work_delegation.integrated` 事件（工作/SubAgent/发起汇总的主任务/分支/基线/父 HEAD/文件清单 ≤64 条与 numstat 统计/patch 字节数）；TUI 经该事件在会话展示汇总规模与来源。工具操作账本按事件存在与否核实；套用落字节与登记是两个步骤，登记缺失时如实报无法核实而不是「未生效」。
 - **取消/关闭与汇总**：整项取消与显式关闭本就保留副本与成果，汇总不按取消/关闭状态拦截——取消后、关闭后的成果仍可按工作找回汇总。
 
@@ -241,7 +248,7 @@ sequenceDiagram
    - 排队的 SubAgent 执行任务（拥有者/主 Agent 委派，无 `source_event_id`）→ 同定 `interrupted`（原因 `backend_restart`，从未启动）：不自动继续也不当作新委派，由编排器巡检补记一次结果后 SubAgent 回到可用，继续与否由拥有者/父 Agent 决定；宿主固定评审任务（带 `source_event_id`）不在此列，其排队保持——因此有排队任务的 SubAgent 子会话只剩评审会话会按下一步暂停。
    - 结果缺失的工具操作按工具操作账本的分类器补记（见 [agent-tools](agent-tools.md)）：覆盖已终态任务残留的操作；审批未消费 → 记录「已知未执行」结果（批准不跨重启执行）；只读工具 → 未完成且无写入效果；其余 → `effect_unknown` 并发 `task.tool_effect_unknown` 事件（终态任务同时置任务级标记，不重放任何模型调用或工具操作）。
    - 有排队任务的会话暂停自动调度（`backend_restart`），拥有者用 `resume-queue` 显式恢复。
-3. **遗留目录占用。** 崩溃时旧后台的子进程/容器状态无法确认 → 保留占用并暂停会话（`occupancy_unverified`），发 `occupancy.stale` 与 `session.queue_paused` 事件。拥有者核实旧执行（容器/cgroup）确已停止后 `resume-queue` 释放占用。systemd `KillMode=control-group` + 按任务容器回收的部署下此窗口通常不出现；容器残留由启动器按任务名 `rm -f` 清理同名遗留后再核实。
+3. **遗留目录占用。** 崩溃时旧后台的原生进程/容器状态无法确认 → 保留占用并暂停会话（`occupancy_unverified`），发 `occupancy.stale` 与 `session.queue_paused` 事件。拥有者核实旧执行单元确已停止后 `resume-queue` 释放占用。systemd `KillMode=control-group` + 按任务容器回收的部署下此窗口通常不出现；容器残留由启动器按任务名 `rm -f` 清理同名遗留后再核实。
 4. **会话历史对应关系。** 会话登记的 JSONL 缺失而同 pi session id 的文件存在 → 自动改用最新一份（发 `session.history_unreadable` 事件说明）；损坏的 JSONL 不覆盖、不静默跳过，要求人工处理。
 5. **人工继续。** `continue` 创建带 `resumes_task_id` 的新任务，默认请求确认（旧批准不继承；拥有者可显式重新选择完全访问），不补造工具结果、不原样重放旧输入。
 6. **产物与审批记录跨重启保留。** 产物按 id 可读；批准的 `consumed_at` 决定恢复时按「已知未执行」还是「效果未知」处理。
@@ -294,10 +301,15 @@ sequenceDiagram
 
 ## 设计依据
 
+- [执行单元的停止未核实结果保留到任务收尾](../../.agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)
+
+- [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
+
 - [任务由后台进程持有，终端只负责交互](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：任务生命周期独立于交互入口、每会话串行与 FIFO 队列、实例锁、恢复与不重放原则的来源。
 - [两个 Agent 产品独立运行，固定 coding 与 chat 角色退役](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品共用一层 SubAgent 模型与任务运行时，固定角色退役后旧身份只读归档。
 - [工作委托、SubAgent 与执行任务分开保存](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：工作/身份/执行三张记录、两级幂等键、登记与调度分离、能力按工作钉定、管理器为唯一写入者。
 - [SubAgent 修改委派每项工作使用独立 worktree](../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)：写入目标首次钉定、宿主生成 worktree、不提交规则与祖先/子孙占用判定。
+- [原生执行沙箱](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：按实际后端核实目录身份、保护根与临时单元停止。
 - [汇总 worktree 完整差异并保留冲突成果](../../.agents/notes/implemented/feature/2026-10-05-integrate-worktree-results.md)：改动汇总的预检、三套结论、事件登记与取消/关闭不拦汇总。
 - [继续、复用与显式关闭 SubAgent](../../.agents/notes/implemented/feature/2026-10-04-subagent-reuse-close.md)：继续与复用的可用性、来源并集复核、关闭的独立列与同步仲裁、不自动关闭。
 - [同项工作内的 SubAgent 消息与协作加入](../../.agents/notes/implemented/feature/2026-10-05-subagent-messaging.md)：协作加入边界、发送方身份、消息幂等与执行预检、待投递与冲刷。

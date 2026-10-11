@@ -1,15 +1,16 @@
 /**
- * 开发机受限/完全访问接入（agent-direction issue 04）。
+ * 产品执行后端选择、握手与完全访问入口。
  * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
  * Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  *
  * 测试接缝（预先约定）：
  * - ruukoto/ruukoto-code 的 `server` 进程入口：执行后端按产品解析默认值
- *   （ruukoto-code = container，ruukoto = local），`--execution` 与
- *   RUUKOTO_EXECUTION_BACKEND 显式覆盖；local 生效时打印无隔离警告；
+ *   （ruukoto-code = native，ruukoto = local），显式后端受产品能力限制；
+ *   个人入口 local 生效时打印无隔离警告；
  * - 握手快照 `snapshot.execution`（TUI 展示的来源）后台声明的实际后端；
- * - `submit`：容器后端下完全访问缺少执行账户入口时，以 execution_unavailable
+ * - `submit`：完全访问缺少执行账户入口时，以 execution_unavailable
  *   在执行前拒绝且不回退；confirm 提交照常完成。
  *
  * 边界本身的文件/子进程/网络约束与停止回收属工单 03 与
@@ -118,7 +119,7 @@ async function stopBackend(backend: SpawnedBackend): Promise<void> {
 
 type TestDirs = { dataDir: string; agentDir: string; root: string };
 
-test("ruukoto-code 默认执行后端 = 容器（已验证边界）；完全访问缺执行账户入口时在执行前拒绝、不回退", async () => {
+test("ruukoto-code 默认执行后端 = native；完全访问缺执行账户入口时在执行前拒绝、不回退", async () => {
   const { dirs, work } = await makeTestDirs("x73dev", 1);
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
@@ -129,8 +130,8 @@ test("ruukoto-code 默认执行后端 = 容器（已验证边界）；完全访�
     const client = await connectAuthed(backend.controlDir);
     try {
       const { snapshot } = await client.handshake();
-      assert.equal(snapshot.execution.backend, "container", "ruukoto-code 未显式指定时须以容器后端启动");
-      assert.match(snapshot.execution.note, /容器/, "执行后端说明不得暗示无隔离");
+      assert.equal(snapshot.execution.backend, "native", "ruukoto-code 未显式指定时须以原生后端启动");
+      assert.match(snapshot.execution.note, /原生/, "执行后端说明不得暗示无隔离");
       assert.doesNotMatch(backend.stderr(), /尚在验证/, "验证已完成，不得再打印受限模式待验证提示");
 
       // 完全访问：干净环境没有执行账户入口 → 提交即拒绝（执行前），不回退到普通账户
@@ -151,7 +152,7 @@ test("ruukoto-code 默认执行后端 = 容器（已验证边界）；完全访�
         "被拒绝的提交不得创建任务",
       );
 
-      // confirm 提交照常（请求确认模式使用容器边界）
+      // confirm 提交照常；本例的工具为 mock，OS 边界另经真实 smoke 验证。
       const task = await client.request<any>("submit", {
         session_id: sessionId,
         request_id: "confirm-1",
@@ -172,26 +173,57 @@ test("ruukoto-code 默认执行后端 = 容器（已验证边界）；完全访�
   }
 });
 
-test("ruukoto-code 显式 local（flag 或环境变量）：local 生效并打印无隔离警告", async () => {
+test("ruukoto 显式 local/container（flag 或环境变量）：保留个人产品后端契约", async () => {
+  for (const execution of ["local", "container"] as const) {
+    for (const override of [
+      { name: "flag", extraArgv: ["--execution", execution] },
+      { name: "env", extraEnv: { RUUKOTO_EXECUTION_BACKEND: execution } },
+    ]) {
+      const { dirs } = await makeTestDirs(`x73${execution}${override.name === "flag" ? "f" : "e"}`, 0);
+      const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+      const baseUrl = await server.start();
+      await writeModelsJson(dirs, baseUrl);
+      let backend: SpawnedBackend | null = null;
+      try {
+        backend = await spawnBackend({ product: "ruukoto", ...(dirs as TestDirs), ...override });
+        const client = await connectAuthed(backend.controlDir);
+        try {
+          const { snapshot } = await client.handshake();
+          assert.equal(snapshot.execution.backend, execution, `${override.name} 覆盖后按指定后端运行`);
+        } finally {
+          client.close();
+        }
+        if (execution === "local") assert.match(backend.stderr(), /无隔离，仅用于开发\/验证/, "local 生效必须显式标注无隔离");
+        await stopBackend(backend);
+        backend = null;
+      } finally {
+        if (backend) killProcessTree(backend.child);
+        await server.close();
+        await cleanupDirs(dirs);
+      }
+    }
+  }
+});
+
+test("ruukoto-code 显式 native（flag 或环境变量）：握手展示原生执行后端", async () => {
   for (const override of [
-    { name: "flag", extraArgv: ["--execution", "local"] },
-    { name: "env", extraEnv: { RUUKOTO_EXECUTION_BACKEND: "local" } },
+    { name: "flag", extraArgv: ["--execution", "native"] },
+    { name: "env", extraEnv: { RUUKOTO_EXECUTION_BACKEND: "native" } },
   ]) {
-    const { dirs } = await makeTestDirs(`x73loc${override.name === "flag" ? "f" : "e"}`, 0);
+    const { dirs } = await makeTestDirs(`x73nat${override.name === "flag" ? "f" : "e"}`, 0);
     const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
-    const baseUrl = await server.start();
-    await writeModelsJson(dirs, baseUrl);
+    await writeModelsJson(dirs, await server.start());
     let backend: SpawnedBackend | null = null;
     try {
       backend = await spawnBackend({ product: "ruukoto-code", ...(dirs as TestDirs), ...override });
       const client = await connectAuthed(backend.controlDir);
       try {
         const { snapshot } = await client.handshake();
-        assert.equal(snapshot.execution.backend, "local", `${override.name} 覆盖后按指定后端运行`);
+        assert.equal(snapshot.execution.backend, "native");
+        assert.match(snapshot.execution.note, /原生/);
       } finally {
         client.close();
       }
-      assert.match(backend.stderr(), /无隔离，仅用于开发\/验证/, "local 生效必须显式标注无隔离");
       await stopBackend(backend);
       backend = null;
     } finally {
@@ -227,26 +259,63 @@ test("ruukoto（个人 Agent）默认执行后端不变 = local，同样打印�
   }
 });
 
-test("非法 --execution 取值仍在入口拒绝", async () => {
+test("ruukoto-code 的旧 local/container flag 与环境覆盖拒绝，并给出迁移指引", async () => {
+  const { dirs } = await makeTestDirs("x73legacy", 0);
+  try {
+    for (const execution of ["local", "container"]) {
+      for (const argv of [["server", "--execution", execution], ["server"], [], [dirs.dataDir], ["tui"]]) {
+        const result = childProcess.spawnSync(process.execPath,
+          [nodePath.join(repoRoot, "apps/ruukoto-code/bin/ruukoto-code.mjs"), ...argv],
+          { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
+            PATH: process.env.PATH, HOME: process.env.HOME,
+            RUUKOTO_CODE_DATA_DIR: dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
+            RUUKOTO_CODE_CONTROL_DIR: nodePath.join(dirs.root, "control"), RUUKOTO_EXECUTION_BACKEND: execution,
+          } });
+        assert.equal(result.status, 1, `${execution}: ${argv.join(" ")}`);
+        assert.match(result.stderr, /--execution 取值无效/);
+        assert.match(result.stderr, /--execution native/);
+        assert.match(result.stderr, /移除 --execution \/ RUUKOTO_EXECUTION_BACKEND/);
+      }
+    }
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("ruukoto 个人入口拒绝 native，不扩展已有 local/container 选择", async () => {
+  const { dirs } = await makeTestDirs("x73personalnative", 0);
+  try {
+    for (const argv of [["server", "--execution", "native"], ["server"]]) {
+      const result = childProcess.spawnSync(process.execPath,
+        [nodePath.join(repoRoot, "apps/ruukoto/bin/ruukoto.mjs"), ...argv],
+        { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
+          PATH: process.env.PATH, HOME: process.env.HOME,
+          RUUKOTO_DATA_DIR: dirs.dataDir, RUUKOTO_AGENT_DIR: dirs.agentDir,
+          RUUKOTO_CONTROL_DIR: nodePath.join(dirs.root, "control"), RUUKOTO_EXECUTION_BACKEND: "native",
+        } });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /--execution 取值无效/);
+      assert.match(result.stderr, /local \| container/);
+    }
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("非法执行后端在 server、TUI、工作区与旧 tui 入口提前拒绝", async () => {
   const { dirs } = await makeTestDirs("x73bogus", 0);
   try {
-    const r = childProcess.spawnSync(
-      process.execPath,
-      [
-        nodePath.join(repoRoot, "node_modules", ".bin", "tsx"),
-        "apps/ruukoto/src/main.ts",
-        "server",
-        "--data-dir",
-        dirs.dataDir,
-        "--agent-dir",
-        dirs.agentDir,
-        "--execution",
-        "bogus",
-      ],
-      { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_PRODUCT: "ruukoto-code" } },
-    );
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /--execution 取值无效/);
+    for (const argv of [["server", "--execution", "bogus"], [], [dirs.dataDir], ["tui"]]) {
+      const result = childProcess.spawnSync(process.execPath,
+        [nodePath.join(repoRoot, "apps/ruukoto-code/bin/ruukoto-code.mjs"), ...argv],
+        { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
+          PATH: process.env.PATH, HOME: process.env.HOME,
+          RUUKOTO_CODE_DATA_DIR: dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
+          RUUKOTO_CODE_CONTROL_DIR: nodePath.join(dirs.root, "control"), RUUKOTO_EXECUTION_BACKEND: "bogus",
+        } });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /--execution 取值无效/);
+    }
   } finally {
     await cleanupDirs(dirs);
   }

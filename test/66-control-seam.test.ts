@@ -30,6 +30,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 
 /** 与 TuiOps 的键一一对应（多写、少写都过不了类型检查）。 */
 const TUI_OPS: Record<TuiOp, true> = {
+  get_session_todos: true, branch_session: true, find_branch_session: true,
   get_task: true, find_task: true, list_tasks: true, read_task_events: true, read_history: true, read_tool_result: true, read_history_entry: true,
   get_tool_op_params: true, get_confirmation_params: true, read_artifact: true, get_session_usage: true, get_session: true, list_session_summaries: true, list_models: true,
   set_session_model: true, set_session_mode: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
@@ -155,7 +156,9 @@ const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null,
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
-    id: "sess_fake", projectId: PROJECT.id, workspaceProjectId: null, kind: "dev", cwd: os.tmpdir(), cwdReal: os.tmpdir(), cwdDev: 0, cwdIno: 0,
+    id: "sess_fake", projectId: PROJECT.id, workspaceProjectId: null,
+    name: null,
+    branchSource: null, kind: "dev", cwd: os.tmpdir(), cwdReal: os.tmpdir(), cwdDev: 0, cwdIno: 0,
     piSessionId: "pi_fake", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...MODEL },
     modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active",
     queuePauseReason: null, createdAt: T0, ...overrides,

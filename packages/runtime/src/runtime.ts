@@ -59,7 +59,7 @@ import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
 import { createSkillFamily,loadSkillLibrary,skillsDirFor } from "@ruukoto/agent/skills.ts";
 import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
 import { createSubAgentFamily } from "@ruukoto/agent/subagent-tools.ts";
-import { createTodoFamily } from "@ruukoto/agent/todo.ts";
+import { createTodoFamily, parseTodos } from "@ruukoto/agent/todo.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { createWebSearchFamily,searchTavily,WebSearchError } from "@ruukoto/agent/web-search.ts";
@@ -82,10 +82,13 @@ import { TELEGRAM_SOURCE,TelegramAdapter,TelegramStore,type TelegramConfig } fro
 import { AccessDeniedError,AccessScope } from "@ruukoto/core/access.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { Db } from "@ruukoto/core/db.ts";
+import { getBranchRequest, sourceArtifact } from "@ruukoto/core/branch.ts";
 import { DirIdentityError,legacyProjectClaimableFromDir,resolveDirIdentity,sameDirIdentity,verifyDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { HistoryIndex,searchHistory } from "@ruukoto/core/history-index.ts";
 import {
   HistoryReadError,
+  historyTodoParams,
+  parseSessionFile,
   readHistoryEntryText,
   readHistoryPage,
   readToolResult,
@@ -107,6 +110,7 @@ import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
 import { Store,StoreConflictError } from "@ruukoto/core/store.ts";
+import { branchSession, recoverBranchSessions, type BranchSessionDeps } from "./branch-session.ts";
 import type { DataCategory,DataGrant,Memory,MemorySourceRef,MemoryVersion,SelectionRecord } from "@ruukoto/core/types.ts";
 import {
   ACTIVE_TASK_STATUSES,
@@ -160,7 +164,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { Orchestrator } from "./orchestrator.ts";
-import { assertWorktreeGrantAllowed,WorkCopyManager,type WorkCopyExecutor } from "./work-copy.ts";
+import { assertWorktreeGrantAllowed,WorkCopyError,WorkCopyManager,type WorkCopyExecutor } from "./work-copy.ts";
 
 /** 快照中每个会话保留的近期已结束任务数（更早的经 list_tasks 分页查询）。 */
 const SNAPSHOT_ENDED_TASKS_PER_SESSION = 20;
@@ -181,6 +185,7 @@ export interface QqInboxArchiveRow extends QqInboxRow {
  */
 export interface RuntimeProduct {
   type: ProductType;
+  branchSessions?: boolean;
   im: boolean;
   scheduler: boolean;
   serviceEnabled(config: RuntimeConfig): boolean;
@@ -357,6 +362,7 @@ export class Runtime {
   private loopPromises = new Map<string, Promise<void>>();
   private wakePending = new Set<string>();
   stopping = false;
+  private readonly modeSwitchStopping = new Set<string>();
   private stopPromise: Promise<void> | null = null;
   /** 控制面注入：事件广播与停止回调。 */
   onEventBroadcast: ((events: PersistentEvent[]) => void) | null = null;
@@ -513,64 +519,135 @@ export class Runtime {
   }
 
   launcherFor(mode: AccessMode) {
-    return createLauncherFor(this.config.execution ?? { backend: "local" }, mode);
+    const config = this.config.execution ?? { backend: "local" as const };
+    return createLauncherFor(config.backend === "native" ? {
+      ...config,
+      native: { ...config.native, protectedRoots: [...this.protectedRoots(), ...(config.native?.protectedRoots ?? [])] },
+    } : config, mode);
   }
 
   /**
-   * 修改委派 worktree 的容器内创建与改动汇总（issue 16/17 取舍的受控入口）：
-   * 用受限确认容器在仓库 cwd 里执行宿主固定的 bash（创建：rev-parse → worktree
-   * add；汇总：add -N → diff → apply --check → apply），副本目录作读写挂载，
-   * extraGrants 挂载 workspace 装不下的共享 Git 目录。Grant 的挂载由 worker
-   * 前端容器自己决定（env 注入情况与跨容器边界下 physical mount 可见性由边界
-   * 自己承载，宿主不替它承诺）。
+   * 在受限 worker 内创建与汇总 worktree，执行宿主固定 Git 命令。
+   * 副本与必要共享 Git 目录按操作授予；停止未核实时保留结果与目录占用。
+   * Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+   * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
    */
-  async createWorktreeInContainer(input: {
-    workspace: string;
-    copyDir: string;
-    branch: string;
-    command: string;
-    extraGrants?: { path: string; access: "read" | "read_write"; purpose: string }[] | null;
-  }): Promise<{ isError: boolean; errorMessage?: string; content: string }> {
-    const launcher = createLauncherFor(this.config.execution ?? { backend: "local" }, "confirm");
+  async executeWorkCopy(input: Parameters<WorkCopyExecutor>[0]): ReturnType<WorkCopyExecutor> {
     const { ToolWorkerHost } = await import("@ruukoto/agent/tool-worker/host.ts");
+    const parent = this.store.getTask(input.parentTaskId);
+    const driver = parent ? this.drivers.get(parent.sessionId) : null;
+    if (!parent || !driver) throw new WorkCopyError("task_ending", "父任务执行已结束：工作副本保留，不再执行 Git");
+    const assertParent = (): void => {
+      const current = this.store.getTask(input.parentTaskId);
+      if (this.stopping || this.modeSwitchStopping.has(parent.id) || !current ||
+          !["running", "awaiting_confirmation"].includes(current.status) || current.cancelRequested ||
+          current.permissionVersion !== parent.permissionVersion ||
+          !this.store.listAllOccupancy().some((held) => held.taskId === parent.id)) {
+        throw new WorkCopyError("task_ending", "父任务执行已结束或权限已变化：保留工作副本与已有结果，不再执行 Git");
+      }
+    };
+    assertParent();
+    const launcher = this.launcherFor("confirm");
+    const workspaceStat = fs.statSync(input.workspace);
     const spec = {
-      taskId: `worktree-init-${randomId("wt")}`,
+      taskId: `${input.parentTaskId}-${randomId("wt")}`,
       mode: "confirm" as AccessMode,
       workspace: input.workspace,
+      workspaceIdentity: process.platform === "darwin" && launcher.kind === "container"
+        ? undefined : { dev: workspaceStat.dev, ino: workspaceStat.ino },
       grantedPaths: [
-        { path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本初始化（issue 16，host 环绕容器创建）" },
+        { path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本创建或汇总" },
         ...(input.extraGrants ?? []),
       ],
       env: GIT_SAFE_DIRECTORY_ENV,
     };
-    let host: Awaited<ReturnType<typeof ToolWorkerHost.start>> | null = null;
+    const copyReal = fs.realpathSync(input.copyDir);
+    const copyStat = fs.statSync(copyReal);
+    const acquired = this.store.withTx(() => this.store.tryAcquireOccupancy({
+      cwdReal: copyReal, cwdDev: copyStat.dev, cwdIno: copyStat.ino, sessionId: parent.sessionId, taskId: parent.id,
+    }));
+    if (!acquired) throw new WorkCopyError("busy", "工作副本仍被执行占用或待核实：保留现场，等待执行结束或拥有者核实后恢复队列");
+    const host = ToolWorkerHost.create(launcher, spec);
+    const entry = {
+      kind: "starting" as import("@ruukoto/agent/managed-processes.ts").ManagedUnitKind,
+      id: randomId("wt"),
+      label: `worktree_${input.operation}:${input.workId}`,
+      stop: () => host.stop(),
+    };
+    const startOpId = randomId("op");
+    let opId: string | null = null;
     try {
-      host = await ToolWorkerHost.start(launcher, spec);
-      const result = await host.call({
-        opId: randomId("op"),
+      driver.registerManagedProcess(parent.id, entry);
+      this.store.withTx(() => {
+        this.store.recordToolIntent({
+          id: startOpId, taskId: parent.id, sessionId: parent.sessionId,
+          toolName: "worktree_start",
+          params: { workId: input.workId, operation: input.operation, workspace: input.workspace, copyDir: copyReal, branch: input.branch },
+        });
+      });
+    } catch (err) {
+      this.store.withTx(() => this.store.releaseOccupancyForDir(parent.id, copyReal));
+      throw err;
+    }
+    let result: Awaited<ReturnType<WorkCopyExecutor>> | null = null;
+    let reaped = false;
+    try {
+      await host.start();
+      this.store.withTx(() => this.ledger.recordResult(parent, startOpId, "工作副本执行单元已启动，Git 命令尚未调用", false));
+      const identity = host.identity();
+      if (identity) Object.assign(entry, identity);
+      assertParent();
+      const gitOpId = opId = randomId("op");
+      this.store.withTx(() => this.store.recordToolIntent({
+        id: gitOpId, taskId: parent.id, sessionId: parent.sessionId,
+        toolName: `worktree_${input.operation}`,
+        params: { workId: input.workId, workspace: input.workspace, copyDir: input.copyDir, branch: input.branch, command: input.command },
+      }));
+      const reply = await host.call({
+        opId: gitOpId,
         sdkCallId: randomId("call"),
         name: "bash",
         params: { command: input.command, timeout: 120 },
         timeoutMs: 150_000,
       });
-      const text = (result.content ?? [])
-        .map((c: any) => (typeof c?.text === "string" ? c.text : ""))
-        .join("\n")
-        .trim();
-      if (result.isError) {
-        // content 一并带回：错误正文（容器输出）能比 generic errorMessage 更准确定位现场
-        return { isError: true, errorMessage: result.errorMessage ?? "worktree 容器执行失败", content: text };
-      }
-      return { isError: false, content: text };
+      const content = reply.content.map((block) => {
+        if (typeof block !== "object" || block === null || !("text" in block)) return "";
+        return typeof block.text === "string" ? block.text : "";
+      }).join("\n").trim();
+      result = { isError: reply.isError, ...(reply.errorMessage ? { errorMessage: reply.errorMessage } : {}), content };
+      this.store.withTx(() => {
+        this.ledger.recordResult(parent, gitOpId, content || reply.errorMessage || "Git 命令已返回空结果", reply.isError);
+      });
     } catch (err) {
-      return { isError: true, errorMessage: (err as Error).message, content: "" };
+      const message = err instanceof Error ? err.message : String(err);
+      this.store.withTx(() => {
+        if (opId && !result) this.ledger.markEffectUnknown(parent, opId);
+        else if (!result) this.ledger.recordResult(parent, startOpId, `已知未执行：Git 命令尚未调用，${message}`, true);
+      });
+      result ??= { isError: true, errorMessage: message, content: "" };
     } finally {
-      try {
-        if (host) await host.stop();
-      } catch {
-        // 回收失败不影响已收到的容器结果；残余由主管进程登记兜底
+      reaped = await host.stop();
+      if (reaped) {
+        const released = this.store.withTx(() => this.store.releaseOccupancyForDir(parent.id, copyReal));
+        if (released) this.kickAll();
       }
     }
+    if (!reaped) {
+      // requestStop 的 SDK abort 等当前工具返回，不能在该工具内等待完整收尾。
+      if (!driver.stoppingManagedProcesses && !this.modeSwitchStopping.has(parent.id)) {
+        void driver.requestStop(parent, { terminal: "interrupted", reason: "tool_process_unreaped", cancelIntent: false }).catch((err: unknown) => {
+          this.store.withTx(() => {
+            this.store.endTask(parent.id, ["running", "awaiting_confirmation"], "interrupted", {
+              interruptReason: "tool_process_unreaped", keepOccupancy: true, occupancyIssueReason: "tool_process_unreaped",
+            });
+          });
+          process.stderr.write(`[ruukoto:runtime] worktree 停止收尾失败：${err instanceof Error ? err.message : String(err)}\n`);
+        });
+      }
+      throw new WorkCopyError("worker_stop_unverified", "工作副本执行单元退出未核实：父目录占用、工作副本及已收到的 Git 结果均保留，请拥有者核实后恢复队列");
+    }
+    assertParent();
+    return result!;
   }
 
   static async start(config: RuntimeConfig): Promise<Runtime> {
@@ -685,7 +762,7 @@ export class Runtime {
           gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
         };
       },
-      execute: fullConfig.workCopyExecutor ?? ((input) => runtime.createWorktreeInContainer(input)),
+      execute: fullConfig.workCopyExecutor ?? ((input) => runtime.executeWorkCopy(input)),
     });
     runtime.subagents = new SubAgentManager({
       store: runtime.store,
@@ -704,6 +781,7 @@ export class Runtime {
     });
     runtime.initHostToolFamilies();
     runtime.recover();
+    await recoverBranchSessions(runtime.branchDeps());
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
     // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
@@ -1331,6 +1409,45 @@ export class Runtime {
     }
   }
 
+  private branchDeps(): BranchSessionDeps {
+    return { store: this.store, access: this.access, sessionsDir: sessionsDirFor(this.config.dataDir), enabled: this.config.product.branchSessions === true,
+      validate: async (session) => {
+        if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("invalid_params", "只有普通开发会话可以建立分支");
+        const workspace = this.store.getProject(session.workspaceProjectId ?? session.projectId);
+        if (!workspace?.rootDir) throw new RuntimeApiError("invalid_params", "旧会话尚未映射到工作区，请先完成工作区映射");
+        try {
+          await verifyDirIdentity({ cwd: session.cwd, cwdReal: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno });
+          await verifyDirIdentity(workspace.rootDir);
+        } catch (error) {
+          if (error instanceof DirIdentityError) throw new RuntimeApiError("cwd_changed", "来源会话或工作区目录已失效或被替换，请核实目录后再分支");
+          throw error;
+        }
+        const current = await this.resolveUsableDir(session.cwd);
+        if (!sameDirIdentity({ cwd: session.cwd, cwdReal: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno }, current)) {
+          throw new RuntimeApiError("cwd_changed", "来源目录入口已指向其他目录，请核实后再分支");
+        }
+        const relative = path.relative(workspace.rootDir.cwdReal, session.cwdReal);
+        if ((relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) && !sameDirIdentity(workspace.rootDir, current)) throw new RuntimeApiError("invalid_params", "会话目录已不在所属工作区范围");
+      } };
+  }
+
+  async branchSession(input: { sessionId: string; name?: string; requestId: string }): Promise<Session> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝会话分支");
+    return branchSession(this.branchDeps(), input);
+  }
+
+  findBranchSession(requestId: string) {
+    const request = getBranchRequest(this.store, requestId);
+    return { status: request?.status ?? "not_found", session: request?.status === "published" ? this.store.getSession(request.session.id) : null, error: request?.error ?? null };
+  }
+
+  getSessionTodos(sessionId: string) {
+    return this.withSessionHistory(sessionId, file => {
+      const params = file ? historyTodoParams(parseSessionFile(file)) : null;
+      return { todos: params === null ? null : parseTodos(params) };
+    });
+  }
+
   /**
    * 打开工作区（agent-direction issue 05）：按真实目录身份（realpath/dev+ino）
    * 复用或创建工作区并新建会话。工作区实例上是带根目录归属的项目；旧项目可经
@@ -1346,6 +1463,7 @@ export class Runtime {
     createRequestId?: string;
   }): Promise<{ session: Session; projectName: string; createdProject: boolean }> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    if (input.createRequestId && getBranchRequest(this.store, input.createRequestId)) throw new RuntimeApiError("request_conflict", "请求键已用于会话分支");
     const identity = await this.resolveUsableDir(input.cwd);
     try {
       return this.store.withTx(() => {
@@ -2165,39 +2283,40 @@ export class Runtime {
     if (task.status === "queued" || task.status === "awaiting_confirmation") {
       // 无执行中工具的边界：立即应用
       const driver = this.drivers.get(task.sessionId);
-      const reaped = driver ? await driver.router.stopWorker() : true;
-      if (!reaped) {
-        // 无法核实旧执行单元退出：任务中断、占用保留（不可安全继续）
-        this.store.withTx(() => {
-          this.store.endTask(task.id, ["queued", "running", "awaiting_confirmation"], "interrupted", {
-            interruptReason: "mode_switch_unverified",
-            endedAt: new Date().toISOString(),
-            keepOccupancy: true,
-            modeSwitchFailure: {
-              to: input.mode,
-              reason: "无法核实旧执行单元已退出",
-            },
+      this.modeSwitchStopping.add(task.id);
+      try {
+        const reaped = driver ? await driver.stopManagedProcesses(task.id) : true;
+        if (!reaped) {
+          await driver!.requestStop(task, {
+            terminal: "interrupted", reason: "mode_switch_unverified", cancelIntent: false,
+            modeSwitchFailure: { to: input.mode, reason: "无法核实旧执行单元已退出" },
           });
-        });
-        throw new RuntimeApiError("mode_switch_unverified", "无法核实旧执行单元已退出，任务已中断（占用保留待核实）");
-      }
-      this.store.withTx(() => {
-        let version = task.permissionVersion;
-        if (input.grantedPaths) {
-          const session = this.store.getSession(task.sessionId)!;
-          const annotated = this.annotateSharedGitMetadata(session.cwdReal, this.validateGrantedPaths(input.grantedPaths));
-          version = this.store.updateGrantedPaths(task.id, annotated);
+          throw new RuntimeApiError("mode_switch_unverified", "无法核实旧执行单元已退出，任务已中断（占用保留待核实）");
         }
-        version = this.store.applyModeSwitch(task.id, input.mode);
-        this.store.appendEvent(
-          { type: "task.mode_switched", taskId: task.id, sessionId: task.sessionId, from: task.accessMode, to: input.mode, permissionVersion: version },
-          { taskId: task.id, sessionId: task.sessionId },
-        );
-      });
-      if (driver && task.status === "awaiting_confirmation") {
-        driver.supersedeWaiters();
+        this.store.withTx(() => {
+          const current = this.store.getTask(task.id);
+          if (!current || isTerminalTaskStatus(current.status) || current.cancelRequested || current.permissionVersion !== task.permissionVersion) {
+            throw new RuntimeApiError("invalid_state", "任务已结束、正在停止或权限已变化：拒绝提交迟到的模式切换");
+          }
+          let version = current.permissionVersion;
+          if (input.grantedPaths) {
+            const session = this.store.getSession(task.sessionId)!;
+            const annotated = this.annotateSharedGitMetadata(session.cwdReal, this.validateGrantedPaths(input.grantedPaths));
+            version = this.store.updateGrantedPaths(task.id, annotated);
+          }
+          version = this.store.applyModeSwitch(task.id, input.mode);
+          this.store.appendEvent(
+            { type: "task.mode_switched", taskId: task.id, sessionId: task.sessionId, from: task.accessMode, to: input.mode, permissionVersion: version },
+            { taskId: task.id, sessionId: task.sessionId },
+          );
+        });
+        if (driver && task.status === "awaiting_confirmation") {
+          driver.supersedeWaiters();
+        }
+        return this.store.getTask(task.id)!;
+      } finally {
+        this.modeSwitchStopping.delete(task.id);
       }
-      return this.store.getTask(task.id)!;
     }
     // running：登记待生效，工具边界处应用
     this.store.withTx(() => {
@@ -2217,17 +2336,21 @@ export class Runtime {
    * 拥有者查询任务产物正文（按 id、偏移、长度）。宿主依据任务归属查找，
    * 不接受任意宿主路径，不跨任务返回正文。
    */
-  queryArtifact(input: { taskId: string; artifactId: string; offset?: number; length?: number }): { artifact: Artifact; encoding: "base64"; data: string } {
+  queryArtifact(input: { taskId: string; artifactId: string; sessionId?: string; offset?: number; length?: number }): { artifact: Artifact; encoding: "base64"; data: string } {
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
-    const artifact = this.store.getArtifact(input.artifactId);
+    let artifact = this.store.getArtifact(input.artifactId);
     if (!artifact || artifact.taskId !== input.taskId) {
       throw new RuntimeApiError("not_found", `产物不存在或不属于该任务：${input.artifactId}`);
+    }
+    if (input.sessionId && input.sessionId !== artifact.sessionId) {
+      artifact = sourceArtifact(this.store, this.access, input.sessionId, artifact.id);
+      if (!artifact) throw new RuntimeApiError("access_denied", "产物不在分支已核实的来源集合");
     }
     const offset = Math.max(0, input.offset ?? 0);
     // 上限按线上帧约束：base64 膨胀 4/3 + JSON 开销必须留在 MAX_FRAME_BYTES 内
     const length = Math.min(Math.max(1, input.length ?? 256 * 1024), 720 * 1024);
-    const buf = this.artifacts.read(artifact.id, offset, length);
+    const buf = this.artifacts.read(artifact.id, offset, Math.max(0, Math.min(length, artifact.byteCount - offset)));
     return { artifact, encoding: "base64", data: buf.toString("base64") };
   }
 
@@ -2821,6 +2944,7 @@ export class Runtime {
     // 模型配置应用门闩（issue 21 §4）：显式确认的 provider 受影响时拒绝
     const check = selection ? await this.resolveSelection(parseModelSelection(selection)) : null;
     let parentSessionId: string | null = null;
+    let releasedOccupancy = false;
     this.store.withTx(() => {
       check?.();
       if (this.store.countLegacyQueuedTasks(sessionId) > 0) {
@@ -2837,7 +2961,7 @@ export class Runtime {
             `任务 ${occ.taskId} 仍在 ${occTask.status}，占用不能释放`,
           );
         }
-        this.store.releaseOccupancy(occ.taskId);
+        releasedOccupancy = this.store.releaseOccupancy(occ.taskId) || releasedOccupancy;
       }
       try { parentSessionId = this.subagents?.executionVerified(sessionId) ?? null; }
       catch (err) {
@@ -2847,8 +2971,14 @@ export class Runtime {
       this.store.setSessionQueueState(sessionId, "active", null);
       this.store.appendEvent({ type: "session.queue_resumed", sessionId }, { sessionId });
     });
+    if (releasedOccupancy) {
+      const driver = this.drivers.get(sessionId);
+      this.drivers.delete(sessionId);
+      await driver?.dispose();
+    }
     if (parentSessionId) await this.subagents!.flushPendingMessages(parentSessionId);
-    this.kick(sessionId);
+    if (releasedOccupancy) this.kickAll();
+    else this.kick(sessionId);
     return this.store.getSession(sessionId)!;
   }
 
@@ -2880,7 +3010,9 @@ export class Runtime {
         ? "local 执行后端：无隔离，仅用于开发/验证；不得据此声明请求确认模式的执行边界"
         : backend === "container"
           ? "container 执行后端：请求确认任务在 Linux 容器边界内执行"
-          : "systemd 执行账户入口：完全访问任务以固定执行 UID 运行";
+          : backend === "native"
+            ? "native 执行后端：受限任务在操作系统原生沙箱内执行，完全访问仍需专用执行账户入口"
+            : "systemd 执行账户入口：完全访问任务以固定执行 UID 运行";
     return { backend, note };
   }
 

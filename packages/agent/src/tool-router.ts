@@ -4,7 +4,7 @@
  * - 每次调用都读取当前任务的 accessMode / 权限版本 / 授予路径，不缓存
  *   首次创建 SDK 会话时的模式；
  * - 编码工具（read/edit/write/bash）经工具工作进程执行：工作进程只在
- *   当前任务的执行边界内（请求确认 → 任务容器；完全访问 → 执行账户）；
+ *   当前任务的执行边界内（受限任务 → 原生沙箱或容器；完全访问 → 执行账户）；
  *   模式/环境变化时先停止并核实旧执行单元退出，再建立新环境；
  * - 结构化操作（request_file_access / http_request）始终形成具体审批
  *   请求；经审批闸门单次消费后才执行，执行参数取自审批前构造、与审批记录
@@ -22,6 +22,8 @@ import type { Store } from "@ruukoto/core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
 import type { ArtifactStore } from "./artifacts.ts";
+import { sourceArtifact } from "@ruukoto/core/branch.ts";
+import { AccessScope } from "@ruukoto/core/access.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
 import { ExecutionError, type WorkerLauncher } from "./execution/launchers.ts";
@@ -98,6 +100,7 @@ export interface RoutedCallOutput {
 export class ToolRouter {
   private worker: ToolWorkerHost | null = null;
   private workerKey: string | null = null;
+  private workerStopped = false;
   /** 本次运行中 sdkCallId → 路由调用上下文（Driver 在 tool_call 门处登记）。 */
   private routedCalls = new Map<string, { hostOpId: string; task: Task }>();
   /** 本次运行中 sdkCallId → 工具名（与 routedCalls 同生命周期）。 */
@@ -156,7 +159,7 @@ export class ToolRouter {
    * 目标决定执行工作区与挂载单。修改工作执行在钉定副本/写入根；多一个子任务
    * 改仓库即多一个独立副本任务进 LaunchSpec（共享 Git 只读）。
    */
-  launchSpecFor(task: Task, session: Session): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
+  launchSpecFor(task: Task, session: Session, launcherKind = this.deps.launcherFor(task.accessMode).kind): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
     const ws = taskWorkspaceFor({ session, work: task.workId ? this.deps.store.getWorkDelegation(task.workId) : null });
     const scope = task.readScope;
     const base = {
@@ -173,11 +176,9 @@ export class ToolRouter {
       readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
       env?: Record<string, string>;
     };
-    // worker init 的 dev/ino 复核只在挂载按宿主原样呈现时成立（Linux 原生 bind mount）；
-    // macOS Docker Desktop 经 VM 代理重新编号，容器侧与宿主 dev/ino 恒不一致。
-    // ponytail: macOS 不下发数值身份（readRoots 同理），目录身份由宿主队列回路的
-    // taskWorkspaceFor 复核承担
-    const inodeOpaque = process.platform === "darwin";
+    // macOS 只有 Docker Desktop 经 VM 重新编号；原生沙箱须复核宿主 dev/ino。
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+    const inodeOpaque = process.platform === "darwin" && launcherKind === "container";
     if (!inodeOpaque) {
       base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
     }
@@ -185,7 +186,7 @@ export class ToolRouter {
     if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => (inodeOpaque ? { path } : { path, dev, ino })));
     if (ws.commonGitDir) {
       // worktree 副本：共享 Git 目录作为只读 readRoot（子任务可 status/diff/log），
-      // 不入白名单编辑；`.git` 指向由工作副本钉定，钩子在容器边界外不可达。
+      // 不入白名单编辑；`.git` 指向由工作副本钉定，钩子在执行边界外不可达。
       const st = fs.statSync(ws.commonGitDir);
       readRoots.push(inodeOpaque ? { path: ws.commonGitDir } : { path: ws.commonGitDir, dev: st.dev, ino: st.ino });
       base.env = GIT_SAFE_DIRECTORY_ENV;
@@ -194,13 +195,17 @@ export class ToolRouter {
     return base;
   }
 
-  /** 停止当前工作进程并核实执行单元已退出；false = 无法确认。 */
+  /** 停止当前工作进程；未核实的记录继续阻止替代执行环境。 */
   async stopWorker(): Promise<boolean> {
     const worker = this.worker;
     if (!worker) return true;
-    this.worker = null;
-    this.workerKey = null;
-    return worker.stop();
+    this.workerStopped = true;
+    const reaped = await worker.stop();
+    if (reaped && this.worker === worker) {
+      this.worker = null;
+      this.workerKey = null;
+    }
+    return reaped;
   }
 
   /**
@@ -240,7 +245,7 @@ export class ToolRouter {
   /** 确保工作进程匹配当前任务（模式与授予路径）；不匹配则回收重建。 */
   private async ensureWorker(task: Task): Promise<ToolWorkerHost> {
     const key = this.workerKeyFor(task);
-    if (this.worker && this.workerKey === key) return this.worker;
+    if (this.worker && this.workerKey === key && !this.workerStopped) return this.worker.start();
     if (this.worker) {
       const identity = this.workerIdentity();
       const reaped = await this.stopWorker();
@@ -253,53 +258,39 @@ export class ToolRouter {
     if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
     // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
     // 共享 Git 目录作为只读 readRoot + Git safe.directory 环境集。
-    const spec = this.launchSpecFor(task, session);
-    const startPromise = ToolWorkerHost.start(launcher, {
-      taskId: spec.taskId,
-      mode: spec.mode,
-      workspace: spec.workspace,
-      grantedPaths: spec.grantedPaths,
-      readRoots: spec.readRoots,
-      workspaceIdentity: spec.workspaceIdentity,
-      env: spec.env,
-    });
-    // 启动窗口登记占位（agent-direction issue 04）：工具意图落库早于 ready，此
-    // 窗口内的停止路径必须能找到并回收执行单元——否则 killManagedProcesses 看到
-    // 空 registry，abort() 会等待一个无人停止的工具调用。start 的失败路径自行
-    // 回收单元，占位 stop 只处理「仍在启动或已就绪」。
-    this.deps.registry.register({
-      kind: "starting",
-      id: `starting:${task.id}`,
-      label: `tool-worker starting task=${task.id}`,
-      stop: async () => {
-        const host = await startPromise.catch(() => null);
-        if (host && this.worker === host) {
-          this.worker = null;
-          this.workerKey = null;
-        }
-        return host ? host.stop() : true;
-      },
-    });
-    const host = await startPromise;
+    const spec = this.launchSpecFor(task, session, launcher.kind);
+    const host = ToolWorkerHost.create(launcher, spec);
     this.worker = host;
     this.workerKey = key;
-    // 登记可回收身份（容器/systemd 单元/进程组），停止路径统一经此回收；
-    // 上面的 starting 占位仍留在登记表（停止入口幂等：对已停止单元 stop() 直接返回）
-    const identity = host.identity();
+    this.workerStopped = false;
+    // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+    // 每次启动独立登记，starting 与实际单元消费同一份停止结论。
+    const stop = async () => {
+      if (this.worker === host) this.workerStopped = true;
+      const reaped = await host.stop();
+      if (reaped && this.worker === host) {
+        this.worker = null;
+        this.workerKey = null;
+      }
+      return reaped;
+    };
     this.deps.registry.register({
-      kind: identity.kind,
-      id: identity.id,
-      label: identity.label,
-      stop: async () => {
-        const reaped = await host.stop();
-        if (this.worker === host) {
-          this.worker = null;
-          this.workerKey = null;
-        }
-        return reaped;
-      },
+      kind: "starting",
+      id: crypto.randomUUID(),
+      label: `tool-worker starting task=${task.id}`,
+      stop,
     });
-    return host;
+    try {
+      await host.start();
+      if (this.worker !== host || this.workerStopped) throw new ExecutionError("worker_stopped", "工具工作进程启动已取消");
+      return host;
+    } catch (error) {
+      await stop();
+      throw error;
+    } finally {
+      const identity = host.identity();
+      if (identity) this.deps.registry.register({ ...identity, stop });
+    }
   }
 
   // ---------- 调用入口 ----------
@@ -333,6 +324,7 @@ export class ToolRouter {
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort(new Error("aborted by host"));
     input.signal?.addEventListener("abort", onExternalAbort, { once: true });
+    if (input.signal?.aborted) onExternalAbort();
 
     let captureFailed: string | null = null;
     const onData = (stream: DataStream, chunk: Buffer) => {
@@ -692,7 +684,7 @@ export class ToolRouter {
     const artifactId = String(input.params["artifact_id"] ?? "");
     const offset = Number(input.params["offset"] ?? 0);
     const length = Math.min(Number(input.params["length"] ?? 64 * 1024), 64 * 1024);
-    const artifact = this.deps.store.getArtifact(artifactId);
+    let artifact = this.deps.store.getArtifact(artifactId);
     if (!artifact) {
       return textResult(`产物不存在：${artifactId}`, true);
     }
@@ -702,7 +694,10 @@ export class ToolRouter {
     if (!allowed) {
       return textResult(`产物不属于可读取范围：${artifactId}（同项目旧任务需有效范围，跨项目需拥有者授权）`, true);
     }
-    const buf = this.deps.artifacts.read(artifactId, Math.max(0, offset), Math.max(1, length));
+    const frozen = sourceArtifact(this.deps.store, new AccessScope(this.deps.store.db), task.sessionId, artifactId);
+    if (frozen) artifact = frozen;
+    const start = Math.max(0, offset);
+    const buf = this.deps.artifacts.read(artifactId, start, Math.max(0, Math.min(Math.max(1, length), artifact.byteCount - start)));
     const encoding = input.params["encoding"] === "base64" ? "base64" : "utf8";
     const body = encoding === "base64" ? buf.toString("base64") : buf.toString("utf8");
     return textResult(

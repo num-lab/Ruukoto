@@ -8,7 +8,7 @@
 
 **lifecycle** 是这篇笔记所处的阶段，随状态变化在目录间移动：
 
-- [`proposed/`](proposed/)：方案已定但尚未落地。
+- `proposed/`：方案已定但尚未落地。
 - [`implemented/`](implemented/)：决定已交付。正文描述**当前**的事实，随代码同批更新；见 [implemented/AGENTS.md](implemented/AGENTS.md)。
 - `rejected/`：方案经审议被否，仅在仍能防止重蹈覆辙时保留，结论写在 `Status:` 行。
 - `archived/`：已完成、未来参考价值低的 implemented 笔记，封印后冻结不可改。

@@ -160,7 +160,7 @@ async function main(): Promise<number> {
       r8.text.match(/.*Read-only file system.*/)?.[0] ?? r8.text.trim().slice(0, 120),
     );
   } finally {
-    const identity = host.identity();
+    const identity = host.identity()!;
     const reaped = await host.stop();
     check("停止并核实执行单元已退出", reaped, `unit=${identity.id}`);
     let inspectFails = false;

@@ -4,7 +4,7 @@
 
 本模块回答两个问题：**这个会话、这个任务允许哪些工具**，以及**一次工具调用怎么被执行边界接受、怎么取得授权、结果怎么记账**。它持有会话身份到工具类别的静态表与执行画像（`packages/agent/src/tool-availability.ts`），把宿主工具族装配成一次任务的工具集（`packages/agent/src/host-tool-families.ts`），并负责审批闸门（`packages/agent/src/approval-gate.ts`）、自动审查策略（`packages/agent/src/review.ts`）、工具操作账本（`packages/agent/src/tool-op-ledger.ts`）、工具正文产物（`packages/agent/src/artifacts.ts`），以及工作清单、计划模式工具白名单、main 应用数据空间、长期操作授权、Web Search 与 MCP 服务这些具体的工具面。
 
-它不负责执行边界本身：容器或专用执行账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
+它不负责执行边界本身：原生沙箱、容器或专用执行账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
 
 两件事明确不属于可用性判定：获批之后的复核属于审批闸门；Web Search 开关的现场检查与「委派只由拥有者发起的任务触发」这一限定，由各工具在执行时自行完成。
 
@@ -190,9 +190,13 @@ sequenceDiagram
 
 ## 不变量与失败处理
 
+分支来源读取与工作管理分别核实：`subagent_result` 可以读取限定清单中的已完成结果，原工作的消息、委派、复用、关闭、取消与汇总仍按原父会话归属判断。来源产物读到固定字节上限，并保留分支时的 partial 状态；当前资料授权和图片完整性校验仍生效。
+
 **可用性**。会话身份到工具类别的清单是唯一来源，任务不允许的工具在激活、发送前与调用时都被拒绝，发送被打断时以 `task_tools_forbidden` 阻断。`service_inspect` / `service_manage` 除仅限 main 外，还要求产品 ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER` / `RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动），普通开发会话、SubAgent 与 ruukoto-code 都不获得该能力，main 也不因此获得 `bash`。执行画像在任务开始算一次、钉到任务结束；工具集变化时重建 SDK 会话。身份与宿主操作编号一律来自宿主记录，不从模型参数取得；并发执行不共享可变的当前调用上下文，绑定在 `finally` 释放且可重复释放。工作区不进画像。
 
 **审批**。审批是不可变的：完整 URL、方法、正文指纹、凭据名称与用途、任务与权限版本固定后不能复用给其他 URL、方法、正文或任务。批准经 SQLite 条件更新单次消费；`permission_version` 不匹配返回 `permission_version_mismatch`。HTTP 请求不自动跟随重定向，连接固定到批准时解析的地址；凭据按预配置的目标绑定注入，值不进入审批与事件。完全访问模式跳过逐次审批的只有 MCP 写工具；应用数据破坏性变更与服务管理在任何模式（含完全访问）都逐次审批，auto-review 对这两类范围与 MCP 工具一律转拥有者，不扩大自动批准范围。
+
+**保护路径**。后台数据、agent、控制面与代码根不因文件批准或目录授予开放。`approved-ops.ts` 除文本路径外，按保护对象与目标祖先的 dev/ino 识别物理别名；目录授予还反向排除保护根祖先。原生授权、运行依赖、工作区和已批准文件操作共用该判定，`/System/Volumes/Data` 等不同路径不能绕过同一保护目录。此检查不扫描真实凭据或保护资料树。文件操作仍逐段拒绝符号链接，以 `O_NOFOLLOW` 打开后核实批准时 dev/ino，写入前复核原文字节指纹；批准一个文件操作不扩大后续 Shell 授权。
 
 **自动审查**。与请求确认模式共用同一受限执行环境；单次审查时限 30s、输入上限 8KB、策略版本 `auto-review-v1`；审查结论、理由、模型与策略版本随审批记录落盘。审查失败或无法确认一律转拥有者，失败不放宽权限，不因失败重复审查。人工接管或任务停止时中止审查，迟到结果忽略，外部中止按取消处理、不落审查结论、不改写审批记录。
 
@@ -224,6 +228,10 @@ sequenceDiagram
 **GitHub 接入**。GitHub 操作一律经 MCP 服务接入，核心不提供专用 GitHub 模块或 REST 回退路径；PR webhook 评审的任务由宿主按任务收窄为静态只读白名单（`read` / `read_artifact`）∪ 类别为只读的 MCP 工具。端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`，host `api.githubcopilot.com`），必须另建并收紧到 main 项目，不复用其他用途的凭据，凭据范围不自动迁移。允许列表按 `mcp check` 实际发现的工具名精确填写，服务端工具集随版本变化，以发现结果为准；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。真实只读连通验证（SDK 版本、协商协议、工具清单与结果）在配置具备时进行；缺少凭据或网络条件时如实列为未验证，不以模拟测试冒充。故障排查按现象分派：认证失败（401/403）核对 `credentials list` 中 host、用途、scope 与 PAT 权限；服务不可用事件按事件中的 reason 区分连接失败、超时、协议不兼容（SDK 结果校验失败说明服务端违反 MCP 规范）与工具数/分页超限；工具缺失用 `mcp check` 对比远端实际工具与允许列表，远端改名须更新配置并在下一任务生效；限流（429）与超时一次终止并明确报错、不自动重试，重试时机由拥有者决定，任务取消或中断后迟到结果被忽略，终态与操作记录保持一致。
 
 ## 设计依据
+
+- [原生执行沙箱与物理保护范围](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：共享 dev/ino 保护对象判定、每调用目录身份与原生停止未核实保留占用。
+
+- [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
 
 - [main 应用数据空间：独立库、受控工具与破坏性确认例外](../../.agents/notes/implemented/architecture/2026-09-23-main-app-data-space.md)：解释应用数据为何单独建库、校验为何放在存储边界，以及完全访问模式为什么仍有破坏性确认例外。
 - [MCP 客户端是受控的外部工具入口](../../.agents/notes/implemented/architecture/2026-09-23-mcp-client.md)：解释为什么接入 MCP 服务不等于授予任意网络与凭据访问权，以及工具发现与允许列表的边界。

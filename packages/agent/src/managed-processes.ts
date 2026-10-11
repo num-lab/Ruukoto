@@ -46,51 +46,57 @@ export function createManagedProcessRegistry(): ManagedProcessRegistry {
   };
 }
 
-function pidAlive(pid: number): boolean {
+/** 原进程组只剩僵尸时已无可执行成员；查询或权限失败不能证明退出。 */
+async function processGroupAlive(pgid: number, timeoutMs: number): Promise<boolean | null> {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err: any) {
-    if (err?.code === "ESRCH") return false;
-    return true;
+    process.kill(-pgid, 0);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : null;
   }
+  return new Promise(resolve => {
+    childProcess.execFile("ps", ["-eo", "pgid=,stat="], { encoding: "utf8", timeout: timeoutMs }, (error, stdout) => {
+      if (error) { resolve(null); return; }
+      for (const line of stdout.trim().split("\n")) {
+        const match = /^\s*(\d+)\s+(\S+)\s*$/.exec(line);
+        if (!match) { resolve(null); return; }
+        if (Number(match[1]) === pgid && !match[2].startsWith("Z")) { resolve(true); return; }
+      }
+      resolve(false);
+    });
+  });
 }
 
 /**
- * 终止一个进程组：SIGTERM → 等待退出 → SIGKILL → 等待退出。
- * 返回是否确认已退出（false = 无法确认，调用方必须保留目录占用）。
+ * 停止并核实原进程组；false 表示无法确认，调用方须保留占用。
+ * 不覆盖脱离原进程组的后代。
+ * Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
  */
 export async function killProcessGroup(
-  pid: number,
+  pgid: number,
   opts: { termGraceMs?: number; killGraceMs?: number } = {},
 ): Promise<boolean> {
-  const termGraceMs = opts.termGraceMs ?? 3000;
-  const killGraceMs = opts.killGraceMs ?? 3000;
-  const signalGroup = (signal: NodeJS.Signals) => {
+  if (!Number.isInteger(pgid) || pgid <= 0) return false;
+  const signalGroup = (signal: NodeJS.Signals): boolean => {
     try {
-      process.kill(-pid, signal); // 负 pid = 整个进程组
-    } catch (err: any) {
-      if (err?.code !== "ESRCH") {
-        try {
-          process.kill(pid, signal); // 兜底：只杀主进程
-        } catch {
-          // 已退出
-        }
-      }
+      process.kill(-pgid, signal);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ESRCH";
     }
   };
-
-  signalGroup("SIGTERM");
-  const deadlineTerm = Date.now() + termGraceMs;
-  while (pidAlive(pid) && Date.now() < deadlineTerm) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  if (!pidAlive(pid)) return true;
-
-  signalGroup("SIGKILL");
-  const deadlineKill = Date.now() + killGraceMs;
-  while (pidAlive(pid) && Date.now() < deadlineKill) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  return !pidAlive(pid);
+  const waitForExit = async (graceMs: number): Promise<boolean> => {
+    const deadline = Date.now() + graceMs;
+    do {
+      const alive = await processGroupAlive(pgid, Math.max(1, Math.min(2000, deadline - Date.now())));
+      if (alive === false) return true;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false;
+      await new Promise(resolve => setTimeout(resolve, Math.min(50, remaining)));
+    } while (Date.now() < deadline);
+    return false;
+  };
+  const termSignaled = signalGroup("SIGTERM");
+  if (termSignaled && await waitForExit(opts.termGraceMs ?? 3000)) return true;
+  const killSignaled = signalGroup("SIGKILL");
+  return killSignaled && await waitForExit(opts.killGraceMs ?? 3000);
 }

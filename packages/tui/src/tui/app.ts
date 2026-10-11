@@ -36,14 +36,14 @@ import {
 } from "@earendil-works/pi-tui";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import { requestOutcome } from "@ruukoto/control/client.ts";
 import type { ControlConnection } from "@ruukoto/control/connection.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { SubmissionGuard } from "@ruukoto/control/submission.ts";
-import type { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { loadReloadState, saveReloadState } from "./reload-state.ts";
 import {
   ensureWorkspaceSession,
@@ -78,7 +78,7 @@ import { activityAgo, TwoLineSelectList } from "./session-list.ts";
 import { formatPromptSnapshot } from "./prompt-format.ts";
 import { formatContextTokens } from "./context-format.ts";
 import type { FlowEntry } from "./event-flow.ts";
-import { latestTodos, TodoPanel } from "./todo-panel.ts";
+import { latestTodos, TodoPanel, type Todo } from "./todo-panel.ts";
 import {
   commandHelpLines,
   dispatchInput,
@@ -765,6 +765,7 @@ export class TuiApp {
   private readonly connection: ControlConnection;
   private readonly guard: SubmissionGuard;
   private readonly pendingStore: PendingRequestStore;
+  private readonly branchPendingStore: PendingRequestStore;
   private readonly state: ViewState;
   private readonly terminal: Terminal;
   private readonly tui: TuiAltScreen;
@@ -783,6 +784,9 @@ export class TuiApp {
   private readonly expandedTools = new Map<string, object>();
   private readonly todoPanel = new TodoPanel();
   private todoOverlay: OverlayHandle | null = null;
+  private readonly sessionTodos = new Map<string, Todo[] | null>();
+  private pendingBranch: { sessionId: string; name?: string; requestId: string; instanceId: string; autoSwitch: boolean; result: CommandResult } | null = null;
+  private branchInFlight = false;
   private readonly flowCursors = new Map<string, number>();
   private readonly flowRequests = new Map<string, Promise<void>>();
   private header: Text;
@@ -826,6 +830,7 @@ export class TuiApp {
     this.connection = opts.connection;
     this.guard = opts.guard;
     this.pendingStore = opts.pendingStore;
+    this.branchPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "branches"));
     this.state = opts.state;
     this.initialSessionId = opts.initialSessionId;
     this.onExit = opts.onExit;
@@ -1000,6 +1005,17 @@ export class TuiApp {
     this.flowCursors.clear();
     this.flowRequests.clear();
     this.state.applySnapshot(result, ctx.instanceChanged);
+    if (ctx.instanceChanged) this.sessionTodos.clear();
+    if (!this.pendingBranch && this.generation === 1) {
+      const saved = this.branchPendingStore.list();
+      for (const name of saved.corrupt) this.notify(`分支待核实记录损坏：${name}，请核实原后台结果`);
+      const record = saved.records[0];
+      if (record?.op === "branch_session") {
+        const sessionId = String(record.params.session_id);
+        this.pendingBranch = { sessionId, name: record.params.name as string | undefined, requestId: record.requestId, instanceId: record.instanceId, autoSwitch: false,
+          result: text => { this.state.note(sessionId, text); this.refreshAll(); } };
+      }
+    }
     if (this.workspacePhase !== "done") {
       // 工作区入口（issue 21）：首次握手与应答丢失后的重连核实都经这里；
       // 完成、取消或明确失败后回落到正常启动流程
@@ -1013,6 +1029,7 @@ export class TuiApp {
       return;
     }
     this.normalStartupFlow(ctx);
+    if (this.pendingBranch) void this.reconcileBranch();
   }
 
   // ---------- dev 重载状态（issue 21 §5） ----------
@@ -1264,6 +1281,7 @@ export class TuiApp {
     }
     if (body.type === "task.output_entry") {
       void this.loadEntry(body.sessionId, body.entryId);
+      if (body.role === "toolResult") void this.refreshSessionTodos(body.sessionId);
     }
     this.refreshAll();
   }
@@ -1357,11 +1375,12 @@ export class TuiApp {
     return this.state.currentSessionId ? (this.state.sessionViews.get(this.state.currentSessionId) ?? null) : null;
   }
 
-  private switchSession(sessionId: string): void {
+  private switchSession(sessionId: string, preserveSettings = false): void {
     this.clearToolExpansions();
     const prev = this.currentView();
     const source = this.state.sessions.find((session) => session.id === prev?.sessionId);
-    const settings = this.carriedSettings ?? (source ? { mode: source.defaultAccessMode, model: source.modelSelection ? { ...source.modelSelection } : null } : null);
+    const settings = preserveSettings ? null : this.carriedSettings ?? (source ? { mode: source.defaultAccessMode, model: source.modelSelection ? { ...source.modelSelection } : null } : null);
+    if (preserveSettings) this.carriedSettings = null;
     if (prev) {
       // 草稿与滚动位置随会话保留（草稿用展开后的原文）
       prev.draft = this.editor.getExpandedText();
@@ -1401,6 +1420,7 @@ export class TuiApp {
     // issue 07 步骤 4：恢复已映射旧会话后选择状态继续指向目标工作区（ruukoto 产品用原身份）
     this.selectedProjectId = this.displayProjectIdOf(this.state.sessions.find((s) => s.id === sessionId)) ?? view.projectId;
     void this.refreshSessionUsage(sessionId);
+    void this.refreshSessionTodos(sessionId);
     this.continueForTaskId = null;
     this.editor.setText(view.draft);
     if (!view.historyLoaded) {
@@ -1456,6 +1476,7 @@ export class TuiApp {
       // 异步结果按 会话+连接批次 匹配：过期结果不得覆盖新页面
       if (generation !== this.generation) return;
       this.state.installHistoryPage(sessionId, page, mode);
+      void this.refreshSessionTodos(sessionId);
       this.seedInputHistory(sessionId);
       this.refreshTranscript();
       await this.restoreEventFlow(sessionId, generation);
@@ -1711,6 +1732,7 @@ export class TuiApp {
     openProjects: () => this.openProjectPicker(),
     newSession: (cwd) => this.cmdNewSession(cwd),
     newSessionHere: () => this.cmdNew(),
+    branchSession: (name, result) => this.cmdBranch(name, result),
     reloadHistory: async () => {
       const view = this.currentView();
       if (view) await this.loadHistory(view.sessionId, "replace");
@@ -1756,6 +1778,97 @@ export class TuiApp {
       return;
     }
     await this.createAndSwitch(projectId, view.cwd);
+  }
+
+  /** 保存原请求键，安装完整设置后仅切换发起客户端。
+   * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+   */
+  private async cmdBranch(name: string, result: CommandResult): Promise<void> {
+    const sessionId = this.state.currentSessionId;
+    if (!sessionId) { result("尚未选择普通开发会话", true); return; }
+    if (this.pendingBranch) {
+      result("此前分支请求仍待核实，正在按原请求键查询", true);
+      await this.reconcileBranch();
+      return;
+    }
+    try { await this.sessionSettingsSync; }
+    catch { result("会话设置尚未核实，请刷新设置后再分支", true); return; }
+    if (this.pendingBranch) { result("此前分支请求仍待核实，请先核实原请求", true); return; }
+    this.pendingBranch = { sessionId, ...(name ? { name } : {}), requestId: randomUUID(), instanceId: this.state.instanceId!, autoSwitch: true, result };
+    try {
+      const pending = this.pendingBranch;
+      this.branchPendingStore.save({ requestId: pending.requestId, op: "branch_session", instanceId: pending.instanceId,
+        params: { session_id: sessionId, name: pending.name }, createdAt: new Date().toISOString() });
+    } catch {
+      this.pendingBranch = null;
+      result("无法保存分支请求键，未发送创建请求；请核实客户端存储", true);
+      return;
+    }
+    await this.sendBranch();
+  }
+
+  private finishBranch(session: Session): void {
+    const pending = this.pendingBranch;
+    if (!pending) return;
+    this.branchPendingStore.clear(pending.requestId);
+    this.pendingBranch = null;
+    const index = this.state.sessions.findIndex(s => s.id === session.id);
+    if (index < 0) this.state.sessions.push(session);
+    else this.state.sessions[index] = session;
+    const source = session.branchSource!;
+    const text = `已建立 ${session.name}；来源 ${source.sessionId}，分支点 ${source.entryId}，${source.messageCount} 条消息` +
+      (source.excluded.length ? `；未纳入：${source.excluded.join("、")}` : "");
+    pending.result(text);
+    if (pending.autoSwitch && this.state.currentSessionId === pending.sessionId) this.switchSession(session.id, true);
+    this.refreshAll();
+  }
+
+  private async sendBranch(): Promise<void> {
+    const pending = this.pendingBranch;
+    if (!pending || this.branchInFlight) return;
+    this.branchInFlight = true;
+    try {
+      const session = await this.connection.request("branch_session", { session_id: pending.sessionId, name: pending.name, request_id: pending.requestId });
+      if (this.pendingBranch === pending) this.finishBranch(session);
+    } catch (error) {
+      pending.result(writeFailure("建立会话分支", error, `/branch（请求 ${pending.requestId}，按原键核实）`), true);
+      if (requestOutcome(error) === "rejected") {
+        try {
+          const found = await this.connection.request("find_branch_session", { request_id: pending.requestId });
+          if (found.session) this.finishBranch(found.session);
+          else if (found.status === "not_found") { this.branchPendingStore.clear(pending.requestId); this.pendingBranch = null; }
+        } catch { /* 查询失败保留原请求键，重连后核实。 */ }
+      }
+    } finally { this.branchInFlight = false; this.refreshAll(); }
+    if (this.pendingBranch && this.connection.state === "online") await this.reconcileBranch(false);
+  }
+
+  private async reconcileBranch(retry = true): Promise<void> {
+    const pending = this.pendingBranch;
+    if (!pending || this.branchInFlight || this.connection.state !== "online") return;
+    if (pending.instanceId !== this.state.instanceId) {
+      pending.result(`后台数据实例已改变，原分支请求 ${pending.requestId} 需在原实例核实`, true);
+      this.pendingBranch = null;
+      return;
+    }
+    try {
+      const found = await this.connection.request("find_branch_session", { request_id: pending.requestId });
+      if (this.pendingBranch !== pending) return;
+      if (found.session) this.finishBranch(found.session);
+      else if (retry) await this.sendBranch();
+      else pending.result(`分支请求 ${pending.requestId} 尚未发布${found.error ? `：${found.error}` : ""}；重连或再次 /branch 按原键核实`, true);
+    } catch { /* 断线查询不能证明未创建，继续保留原请求键。 */ }
+  }
+
+  private async refreshSessionTodos(sessionId: string): Promise<void> {
+    if (!this.state.sessions.find(session => session.id === sessionId)?.branchSource) return;
+    const generation = this.generation;
+    try {
+      const result = await this.connection.request("get_session_todos", { session_id: sessionId });
+      if (generation !== this.generation) return;
+      this.sessionTodos.set(sessionId, result.todos);
+      this.refreshAll();
+    } catch { /* 历史尚不可读时保留已加载清单，重连或下一次历史更新再核实。 */ }
   }
 
   private async createAndSwitch(projectId: string, cwd: string): Promise<void> {
@@ -2246,7 +2359,9 @@ export class TuiApp {
       this.notify("用法：/artifact <产物 id 前缀>");
       return;
     }
-    const matches = [...this.state.artifacts.values()].filter((a) => a.id.startsWith(arg));
+    const session = this.state.sessions.find(s => s.id === this.state.currentSessionId);
+    const candidates = new Map([...this.state.artifacts.values(), ...(session?.branchSource?.artifacts ?? [])].map(a => [a.id, a]));
+    const matches = [...candidates.values()].filter((a) => a.id.startsWith(arg));
     if (matches.length !== 1) {
       this.notify(matches.length === 0 ? `找不到产物：${arg}` : `产物 id 前缀不唯一：${arg}（${matches.length} 个匹配）`);
       return;
@@ -2260,7 +2375,7 @@ export class TuiApp {
       header,
       pageBytes: ARTIFACT_PAGE_BYTES,
       fetch: async (offset, length) => {
-        const result = await this.connection.request("read_artifact", { task_id: artifact.taskId, artifact_id: artifact.id, offset, length });
+        const result = await this.connection.request("read_artifact", { task_id: artifact.taskId, artifact_id: artifact.id, session_id: session?.branchSource?.artifacts.some(a => a.id === artifact.id) ? session.id : undefined, offset, length });
         const buf = Buffer.from(result.data, "base64");
         // 二进制检测：含 NUL 或高比例控制字节 → 显示类型与字节数，不作为终端文本输出
         let binary = buf.includes(0);
@@ -3059,7 +3174,7 @@ export class TuiApp {
       entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : "ruukoto TUI\n使用 /project 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
     }
     this.eventFlowView.setEntries(entries, view?.cwd);
-    this.todoPanel.set(view ? latestTodos(view.flow.tools) : null);
+    this.todoPanel.set(view ? (this.sessionTodos.has(view.sessionId) ? this.sessionTodos.get(view.sessionId)! : latestTodos(view.flow.tools)) : null);
     this.tui.requestRender();
   }
 }

@@ -80,6 +80,27 @@ function kit(families: ConstructorParameters<typeof ToolOpLedger>[1] = {}) {
   return { store, ledger, task, newTask, op, get, events, cleanup };
 }
 
+test("worktree 启动与 Git 写入分开：ready 前停止或重启不标未知写入，已派发 Git 缺结果仍未知", () => {
+  for (const occasion of ["stop", "restart"] as const) {
+    const k = kit();
+    try {
+      const startup = k.op("worktree_start", { workId: "work", copyDir: "/copy" });
+      const git = k.op("worktree_create", { workId: "work", copyDir: "/copy" });
+      k.store.withTx(() => {
+        if (occasion === "restart") k.ledger.settleAll();
+        else {
+          const snapshot = k.ledger.beginStop(k.task.id);
+          assert.deepEqual(snapshot, [git]);
+          for (const id of k.ledger.settleTask(k.task, snapshot)) k.ledger.markEffectUnknown(k.task, id);
+        }
+      });
+      assert.equal(k.get(startup).effectUnknown, false);
+      assert.match(k.get(startup).resultSummary!, /无写入效果/);
+      assert.equal(k.get(git).effectUnknown, true);
+    } finally { k.cleanup(); }
+  }
+});
+
 test("配对：结果与事件同一句、重复补记不重发；标效果未知幂等并写任务标记", () => {
   const k = kit();
   try {

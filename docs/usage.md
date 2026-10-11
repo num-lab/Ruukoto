@@ -4,13 +4,13 @@
 
 ## 1. 前提与安装
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。受限模式另需 Docker（macOS 用 Docker Desktop）。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Coding Agent 使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 的 container 后端另需 Docker。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建 worker、lint、类型检查、应用与基础验证的全部离线测试
+npm run build       # 构建工具 worker、macOS 原生监督器与 app 包
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
-npm run build:worker-image   # 使用 Docker 构建受限模式的工具镜像 ruukoto-worker
+npm run build:worker-image   # 仅个人 Agent container 部署：用 Docker 构建工具镜像
 ```
 
 根 `npm start -- …` 默认使用 ruukoto app，保留 `RUUKOTO_PRODUCT=ruukoto-code` 的入口选择；也可用 `npm start --workspace=ruukoto-code -- …`。各 app 的 bin 固定产品身份；构建出的 app tarball 引用同仓共享包，部署保留完整 workspace。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
@@ -25,10 +25,11 @@ npm run build:worker-image   # 使用 Docker 构建受限模式的工具镜像 r
 npm start -- server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
   --execution container --model provider/model
 
+ruukoto-code server                    # 默认原生受限执行
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
 
-`--execution local` 没有任何隔离，只用于本机开发与测试；两产品以 local 生效时都打印同一条无隔离警告。后端缺失或失效（docker 不可用、镜像缺失）在执行前明确拒绝、不静默回退到普通账户。完全访问需要专用执行账户；未配置入口时完全访问提交在执行前以 `execution_unavailable` 拒绝，不静默降级。macOS 尚无经验证的完全访问执行账户，选择完全访问会在执行前被拒绝。
+Coding Agent 默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。个人 Agent 保留 local/container；local 无隔离，仅供开发与测试，并打印警告。完全访问仍需专用执行账户，未配置入口时在执行前拒绝；macOS 尚无经验证的完全访问账户。
 
 ### 2.2 交互入口
 
@@ -59,7 +60,7 @@ ruukoto-code stop                 # 停止后台
 - 两个终端同时打开时并发拉起由后台实例锁（`<dataDir>/runtime.lock`）收敛为单个实例：败于锁竞争的进程退出，TUI 侧不误判为启动失败，继续探测到胜者就绪后按复用进入（不算本进程拉起）。
 - 状态明确，拉起失败均打印错误并非零退出：socket 可连而令牌认证不通过 → 后台其实在运行，给出令牌核对指引；服务进程以非实例锁原因提前退出且宽限窗口后探测仍不通过 → 「后台启动失败」并附 spawn.log 尾部（常见原因：未配置可用模型 → 先 `ruukoto-code config`）；到期限仍未就绪 → 等待超时，单独标注且不杀进程。
 - 运行中断线仍按既有规则显示重连中，**重连只恢复观察，不会再次拉起后台**；后台不可用要再拉起时重开 TUI 即可。后台明确拒绝（令牌无效、协议版本不符）照旧终止重连并给出修复指引。
-- 拉起的后台沿用产品默认执行后端（ruukoto-code = container）；需要 local 时在环境显式设置 `RUUKOTO_EXECUTION_BACKEND=local`。
+- 拉起的后台沿用产品默认 native；显式旧后端覆盖在探测或连接已有后台前拒绝，不自动改写设置。
 - `ruukoto`（个人 Agent）不按需拉起：后台由显式 `server` 或 systemd 管理，TUI 打开时仍只连接已运行的后台。
 - 手动后台照旧：`ruukoto-code server --data-dir … --agent-dir …` 前台运行，与按需拉起共用同一实例锁（谁在运行谁生效，重复启动被拒绝）。
 
@@ -433,6 +434,7 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 | `/resume` | 切换当前项目中的会话 |
 | `/project` | 切换项目（ruukoto-code 为工作区／旧项目列表） |
 | `/new-project <名称>`、`/new-session <目录>`、`/new` | 创建项目／在当前项目创建会话／在当前工作区创建会话 |
+| `/branch [名称]` | Coding Agent 从当前普通开发会话的已落盘历史建立独立会话并切换 |
 | `/history` | 重新加载当前会话历史；滚动到顶部自动加载更早历史 |
 | `/artifact <id 前缀>` | 查看工具产物正文（按字节分页） |
 | `/approvals` | 待处理审批；详情内 `a` 批准、`r` 拒绝，`Esc`／`q` 关闭不等于拒绝 |
@@ -452,7 +454,11 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 
 Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处理；CLI/API 的 `/plan …` 仅作为普通输入。
 
-会话选择列表每项两行：首行使用最早用户输入作为名称（无输入时显示未命名会话），次行显示距最后任务活跃时间的间隔；项目选择列表首行显示「项目名 · 会话数」，次行显示会话的工作区路径。切换普通开发会话时沿用切换前选择的模式（含 Plan）、模型和思考档位，保存为目标会话的默认设置；提交新任务会等待设置保存完成。
+会话选择列表每项两行：首行优先使用持久名称，其余使用最早用户输入（无输入时显示未命名会话），次行显示距最后任务活跃时间的间隔；项目选择列表首行显示「项目名 · 会话数」，次行显示会话的工作区路径。切换普通开发会话时沿用切换前选择的模式（含 Plan）、模型和思考档位，保存为目标会话的默认设置；提交新任务会等待设置保存完成。分支创建后的自动切换保留后台继承的设置。
+
+`/branch 中文 名称` 保留名称内空格，同名会话以 ID 区分；省略名称时生成「父标题 · 分支 N」。它要求普通工作区会话或已映射旧会话，未映射来源先走工作区映射。后台固定已落盘历史，排除部分尾记录及活动任务未完成的工具批次，并显示实际分支点与排除说明；无可复制消息时等待落盘或使用 `/new`。成功后编辑器为空，失败保留父选择与草稿；命令与结果留在发起会话的命令历史。
+
+父子共享工作目录，文件改动共同可见，同目录任务继续串行；分支不创建 Git 分支或工作副本，也不回滚文件。它不发模型请求、不复制任务、队列、审批、临时授权或用量。默认模型、思考档位、运行模式与确认工具独立继承；项目配置继续共享原来源。有效压缩点与工作清单各自延续，原图片、产物和已完成 SubAgent 结果按限定来源只读查询，原工作后续结果不进入该集合；管理原工作仍要回到其父会话。
 
 ### 7.3 断开与重连
 
@@ -461,6 +467,8 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 提交前生成 `request_id` 并把完整请求原子保存到拥有者私有目录（默认 `~/.ruukoto/pending/`，`RUUKOTO_PENDING_DIR` 可覆盖，0600）；应答丢失时显示「接收结果待核实」，按 `session_id + request_id` 核实（断线的等重连后，连接仍在的当场核实这一条）：已接收则关联原任务，明确未接收才以原键原参数重试；记录绑定数据实例标识，换新数据库后不会向空后台重发。未发送或后台明确拒绝时清除记录并恢复输入。
 
 `/mode`、`/model`、审批应答丢失时：连接仍在立即查询后台状态，已断线则提示结果未知、以重连快照为准，都不自动重发。
+
+分支请求在待确认目录的 `branches/` 保存原键及参数；应答丢失或退出重进后按原键查询，必要时重用原快照恢复发布。后台更换数据实例时保留记录供核实。已发布分支的历史缺失会明确拒绝，恢复历史后再继续，不能用空会话冒充原分支。
 
 ### 7.4 终端安全与恢复
 
@@ -506,6 +514,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | --- | --- |
 | 完全访问以 `execution_unavailable` 拒绝 | 未配置专用执行账户入口；Linux 按 [deploy/systemd/README.md](../deploy/systemd/README.md) 配置，macOS 尚无经验证入口 |
 | 受限任务立即失败 | 检查 Docker 可用性与 `ruukoto-worker` 镜像（`npm run build:worker-image`）；后端缺失时明确拒绝、不静默回退 |
+| 任务已结束但目录仍被占用，或报 `tool_process_unreaped` / `mode_switch_unverified` / `worker_stop_unverified` | 从任务事件与占用查询核对未退出的执行单元；确认旧单元及其后代已退出后，再用上方 `resume-queue` 恢复，它释放该会话遗留任务的父目录与副本占用，并重建已结束的驱动器。worktree 创建与汇总保留副本现场和已收到的结果，不能把已完成工具或效果未知操作自动重放 |
 | 容器内写工作区被拒 | 原生 Linux 的 bind mount 不做 uid 映射，容器 uid/gid 须与工作区写权限匹配（部署文档第 5 步）；Docker Desktop 会掩盖这个问题 |
 | 执行相关变量生效但无隔离 | `--execution local`／`RUUKOTO_EXECUTION_BACKEND=local` 没有任何隔离，只用于本机开发与测试 |
 

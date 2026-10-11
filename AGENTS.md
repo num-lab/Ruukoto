@@ -16,8 +16,8 @@
 - `test/` 是应用测试。
 - `verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
 - `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
-- `docs/` 为**面向人类**的文档：总览、模块设计、操作手册、开发与验证、发布验收、事故复盘；`docs/agents/` 是 agent 配置的例外，入口见 [README](README.md)。
-- `.agents/notes/` 为**面向 Agent** 的文档，记录项目开发过程中的决策。
+- `docs/` 为**面向人类**的文档，入口见 [README](README.md)；`docs/agents/` 是 agent 配置的例外。
+- `.agents/notes/` 是**面向 Agent** 的决策记录，`.agents/skills/` 是操作规范，docs 也链接它。
 - `.scratch/` 是入库的工单与验证证据。
 
 ## 约定
@@ -67,7 +67,7 @@
 
 ### Triage labels
 
-使用五种默认 triage 标签。分类任务或更新其状态前，先读 `docs/agents/triage-labels.md`。
+使用默认 triage 标签。分类任务或更新其状态前，先读 `docs/agents/triage-labels.md`。
 
 ### 决策记录
 
@@ -83,4 +83,4 @@
 
 ### 写作与复盘
 
-写注释、JSDoc、`docs/`、notes、skill、提示词或诊断文本前，按 `.agents/skills/prose-standard/SKILL.md`。事故满足「机制非显然、系统性、重新发现代价高」三条时，按 `docs/postmortem/README.md` 写一篇复盘。
+写注释、JSDoc、`docs/`、notes、skill、提示词或诊断文本前，按 `.agents/skills/prose-standard/SKILL.md`。事故满足「机制非显然、系统性、重新发现代价高」三条时，按 `docs/postmortem/README.md`（agent 读的写法规范）写一篇复盘。

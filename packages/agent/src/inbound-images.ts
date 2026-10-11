@@ -50,14 +50,14 @@ export function taskImageReferences(task: Task, store: Store): ImageReference[] 
 }
 
 /** 创建带图片估算成本的视图；不读正文，压缩和 Jev 也不会接触 base64。 */
-export function imageReferenceView(messages: any[], sessionId: string): any[] {
+export function imageReferenceView(messages: any[], sessionId: string, sourceAllowed?: (ref: ImageReference) => boolean): any[] {
   return messages.map((message) => {
     const refs = message?.ruukotoMediaRefs;
     if (refs === undefined) return message;
     if (message.role !== "user" || !Array.isArray(refs)) throw new Error("image_reference_invalid:会话图片引用格式无效");
     const content = typeof message.content === "string" ? [{ type: "text", text: message.content }] : [...message.content];
     for (const ref of refs as ImageReference[]) {
-      if (!ref || ref.sessionId !== sessionId || typeof ref.artifactId !== "string" || typeof ref.taskId !== "string" ||
+      if (!ref || (ref.sessionId !== sessionId && !sourceAllowed?.(ref)) || typeof ref.artifactId !== "string" || typeof ref.taskId !== "string" ||
           typeof ref.contentHash !== "string" || !["image/jpeg", "image/png", "image/webp"].includes(ref.mimeType) ||
           !Number.isSafeInteger(ref.byteCount) || ref.byteCount <= 0) throw new Error("image_reference_invalid:会话图片引用格式或归属无效");
       // 摘要器只读取文本，因此同时保留可找回的产物引用与视觉内容缺失说明。
@@ -73,14 +73,14 @@ export function hasImageInput(messages: any[]): boolean {
 }
 
 /** 最终发送视图恢复原字节，并复核历史元数据与当前不可变产物一致。 */
-export function restoreImageInput(messages: any[], artifacts: ArtifactStore, store: Store): any[] {
+export function restoreImageInput(messages: any[], artifacts: ArtifactStore, store: Store, sourceAllowed?: (ref: ImageReference) => boolean): any[] {
   return messages.map((message) => {
     if (!Array.isArray(message?.content)) return message;
     return { ...message, content: message.content.map((part: any) => {
       const ref: ImageReference | undefined = part?.ruukotoMediaRef;
       if (part?.type !== "image" || !ref) return part;
       const artifact = store.getArtifact(ref.artifactId);
-      if (!artifact || artifact.mimeType !== ref.mimeType || artifact.contentHash !== ref.contentHash || artifact.byteCount !== ref.byteCount) {
+      if (!artifact || artifact.sessionId !== ref.sessionId || artifact.taskId !== ref.taskId || artifact.mimeType !== ref.mimeType || artifact.contentHash !== ref.contentHash || artifact.byteCount !== ref.byteCount || (sourceAllowed && !sourceAllowed(ref))) {
         throw new Error("image_reference_invalid:历史图片元数据与产物不一致");
       }
       return { ...artifacts.readImage(ref.artifactId, { taskId: ref.taskId, sessionId: ref.sessionId }), ruukotoMediaRef: ref };

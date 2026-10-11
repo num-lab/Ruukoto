@@ -124,7 +124,7 @@ function assertCodeBackendStopped(profile: ReturnType<typeof devProfileFor>): vo
     assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'product.type'").get()!.value, "ruukoto-code");
     const started = db.prepare("SELECT body FROM events").all().map((row) => JSON.parse(String(row.body))).find((event) => event.type === "backend.started");
     assert.equal(started?.product, "ruukoto-code");
-    assert.equal(started?.executionBackend, "container", "code 沿用产品默认执行后端");
+    assert.equal(started?.executionBackend, "native", "code 沿用产品默认执行后端");
   } finally {
     db.close();
   }

@@ -47,9 +47,9 @@ import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, ty
 import { FRAGMENT_TEXT_CAP } from "@ruukoto/core/views.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
-import type { ExecutionError } from "./execution/launchers.ts";
+import { ExecutionError } from "./execution/launchers.ts";
 import type { WorkerLauncher } from "./execution/launchers.ts";
-import { createManagedProcessRegistry, type ManagedProcessRegistry } from "./managed-processes.ts";
+import { createManagedProcessRegistry, type ManagedEntry, type ManagedProcessRegistry } from "./managed-processes.ts";
 import { createSdkSession, SYSTEM_PROMPTS } from "./session-factory.ts";
 import { ToolRouter, ROUTED_TOOL_NAMES } from "./tool-router.ts";
 import { ApprovalGate } from "./approval-gate.ts";
@@ -155,6 +155,11 @@ export class Driver {
   private readonly deps: DriverDeps;
   private sdk: AgentSession | null = null;
   private registry: ManagedProcessRegistry;
+  private managedTaskId: string | null = null;
+  // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+  private processStops = new Map<ManagedEntry, Promise<boolean>>();
+  private stoppingProcesses = 0;
+  private ending = false;
   readonly router: ToolRouter;
   private currentTask: Task | null = null;
   private stopRequested = false;
@@ -180,6 +185,7 @@ export class Driver {
   /** 当前任务的最新输出预览（全量在内存；事件发送有界增量）。 */
   private currentPreview: { messageId: string; text: string } | null = null;
   private runPromise: Promise<void> | null = null;
+  private stopPromise: Promise<boolean> | null = null;
   /** SDK 扩展桥注入的 appendEntry（宿主标记条目，custom，不进模型上下文）。 */
   private markerApi: ((customType: string, data: unknown) => void) | null = null;
   /** 本任务内 sdkCallId → 宿主数据工具上下文（并发调用各自独立）。 */
@@ -541,6 +547,9 @@ export class Driver {
     if (this.runPromise) {
       throw new Error(`会话 ${this.session.id} 已有任务在运行`);
     }
+    if (this.registry.list().length && this.deps.store.listAllOccupancy().some((occupancy) => occupancy.taskId === this.managedTaskId)) {
+      throw new ExecutionError("tool_process_unreaped", "旧任务的执行单元尚未核实退出，拒绝运行新任务");
+    }
     // 执行画像（架构工单 08）：任务开始算一次、钉到任务结束。已退役归档会话不运行
     // 任务（提交入口与队列兜底先行拒绝），走到这里即抛。
     const identity = this.deps.store.getSessionIdentity(this.session.id);
@@ -553,6 +562,7 @@ export class Driver {
     });
     this.currentTask = task;
     this.stopRequested = false;
+    this.stopPromise = null;
     this.flushedEntryIds = new Set();
     this.callMap = new Map();
     this.currentMsgId = null;
@@ -565,6 +575,9 @@ export class Driver {
     this.thinking = null;
     this.thinkingIndex = null;
     this.registry.clear();
+    this.managedTaskId = task.id;
+    this.processStops = new Map();
+    this.ending = false;
     this.hostToolCalls = new Map();
     this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;
@@ -592,6 +605,7 @@ export class Driver {
     try {
       await this.runPromise;
     } finally {
+      await this.stopPromise;
       this.assembly?.abort();
       this.assembly = null;
       this.flushOutput();
@@ -649,7 +663,7 @@ export class Driver {
     // timeout）；原因在 requestStop 路径才有载体，窗口内没有。窗口写原因需给
     // 任务再加一列，暂不值得。
     if (this.deps.store.getTask(task.id)?.cancelRequested) {
-      this.finalize(task, "canceled", { interruptReason: "cancel_requested" });
+      await this.finalize(task, "canceled", { interruptReason: "cancel_requested" });
       return;
     }
     let sdk: AgentSession;
@@ -704,7 +718,7 @@ export class Driver {
       }
     } catch (err) {
       await this.closeMcpConns();
-      this.finalize(task, "failed", { errorMessage: `SDK 会话创建失败：${(err as Error).message}` });
+      await this.finalize(task, "failed", { errorMessage: `SDK 会话创建失败：${(err as Error).message}` });
       return;
     }
 
@@ -743,7 +757,7 @@ export class Driver {
     if (this.stopRequested) {
       // 停止意图先于 prompt 到达：直接进入中断终态（条件更新仲裁竞争）
       await this.killManagedProcesses();
-      this.finalize(task, "interrupted", { interruptReason: "aborted" });
+      await this.finalize(task, "interrupted", { interruptReason: "aborted" });
       return;
     }
 
@@ -753,7 +767,7 @@ export class Driver {
     try {
       promptText = this.profile.restricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
     } catch (err) {
-      this.finalize(task, "failed", { errorMessage: (err as Error).message });
+      await this.finalize(task, "failed", { errorMessage: (err as Error).message });
       return;
     }
 
@@ -761,10 +775,10 @@ export class Driver {
     try {
       await sdk.prompt(promptText);
     } catch (err) {
-      if (!this.stopRequested) {
-        this.finalize(task, "failed", { errorMessage: (err as Error).message });
-      }
       await this.killManagedProcesses();
+      if (!this.stopRequested) {
+        await this.finalize(task, "failed", { errorMessage: (err as Error).message });
+      }
       return;
     }
 
@@ -783,18 +797,18 @@ export class Driver {
     if (blockedReason !== null) {
       if (blockedReason.startsWith(`${IMAGE_INPUT_UNSUPPORTED}:`)) {
         this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "failed", reason: blockedReason });
-        this.finalize(task, "failed", { errorMessage: blockedReason });
+        await this.finalize(task, "failed", { errorMessage: blockedReason });
         return;
       }
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: blockedReason });
       this.pauseQueue(blockedReason);
-      this.finalize(task, "interrupted", { interruptReason: blockedReason });
+      await this.finalize(task, "interrupted", { interruptReason: blockedReason });
       return;
     }
 
     if (stopReason === "aborted") {
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: "aborted" });
-      this.finalize(task, "interrupted", { interruptReason: "aborted" });
+      await this.finalize(task, "interrupted", { interruptReason: "aborted" });
       return;
     }
 
@@ -802,14 +816,14 @@ export class Driver {
     if (lastAssistant && isContextOverflow(lastAssistant, contextWindow)) {
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted", reason: "context_overflow" });
       this.pauseQueue("context_overflow");
-      this.finalize(task, "interrupted", { interruptReason: "context_overflow" });
+      await this.finalize(task, "interrupted", { interruptReason: "context_overflow" });
       return;
     }
 
     if (stopReason === "error") {
       const message = lastAssistant?.errorMessage ?? "模型返回错误";
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "failed" });
-      this.finalize(task, "failed", { errorMessage: message });
+      await this.finalize(task, "failed", { errorMessage: message });
       return;
     }
 
@@ -818,9 +832,9 @@ export class Driver {
     this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "completed" });
     const verification = this.verifyAndLinkHistory(task);
     if (verification.ok) {
-      this.finalize(task, "completed", {});
+      await this.finalize(task, "completed", {});
     } else {
-      this.finalize(task, "interrupted", { interruptReason: verification.reason! });
+      await this.finalize(task, "interrupted", { interruptReason: verification.reason! });
     }
   }
 
@@ -833,9 +847,17 @@ export class Driver {
    */
   async requestStop(
     task: Task,
-    opts: { terminal: "canceled" | "interrupted"; reason: string; cancelIntent: boolean },
+    opts: { terminal: "canceled" | "interrupted"; reason: string; cancelIntent: boolean; modeSwitchFailure?: { to: AccessMode; reason: string } },
   ): Promise<boolean> {
     if (this.currentTask?.id !== task.id) return false;
+    this.stopPromise ??= this.requestStopInner(task, opts);
+    return this.stopPromise;
+  }
+
+  private async requestStopInner(
+    task: Task,
+    opts: { terminal: "canceled" | "interrupted"; reason: string; cancelIntent: boolean; modeSwitchFailure?: { to: AccessMode; reason: string } },
+  ): Promise<boolean> {
     this.stopRequested = true;
     this.assembly?.abort();
 
@@ -854,7 +876,9 @@ export class Driver {
     // 3. 中止模型调用与确认等待；受管工具进程组的终止与 abort 并行进行：
     //    abort() 会等待在执行的工具返回，若工具在等待子进程退出，必须同时
     //    回收进程组（TERM → 超时 KILL）才能解除等待，否则互相死锁。
-    const abortPromise = this.sdk?.isStreaming ? this.sdk.abort().catch(() => {}) : null;
+    const abortPromise = this.sdk?.isStreaming ? this.sdk.abort().catch(() => {
+      // SDK 中止失败仍由执行单元回收与任务终态保护占用。
+    }) : null;
     const reaped = await this.killManagedProcesses();
     if (abortPromise) await abortPromise;
     // MCP 连接随任务停止回收：在途调用已被 abort 中断，迟到结果由 SDK 丢弃
@@ -866,33 +890,66 @@ export class Driver {
     const effectUnknownOpIds = this.deps.store.withTx(() => this.deps.ledger.settleTask(task, uncertainAtStop));
 
     // 4. 终态与占用释放（仅当尚未被自然完成抢先）
-    this.finalize(task, opts.terminal, {
+    await this.finalize(task, opts.terminal, {
       interruptReason: opts.reason,
       effectUnknownOpIds,
       keepOccupancy: !reaped,
-      occupancyIssueReason: reaped ? null : "tool_process_unreaped",
+      occupancyIssueReason: reaped ? null : opts.modeSwitchFailure ? "mode_switch_unverified" : "tool_process_unreaped",
+      modeSwitchFailure: opts.modeSwitchFailure,
     });
     return reaped;
   }
 
   private async killManagedProcesses(): Promise<boolean> {
-    // 执行意图落库（hook 处）与工作进程登记（工具 execute 处）之间隔着
-    // promise 边界；让出一个宏任务，使已记录意图的派发先完成登记，再读登记表
-    await new Promise((r) => setImmediate(r));
-    const processes = this.registry.list();
-    if (processes.length === 0) return true;
-    let allReaped = true;
-    for (const proc of processes) {
-      const ok = await proc.stop();
-      if (!ok) allReaped = false;
+    this.ending = true;
+    return this.stopManagedProcesses(this.managedTaskId!);
+  }
+
+  /** 临时执行单元归入当前任务；收尾开始后拒绝登记，调用方不得再启动单元。 */
+  registerManagedProcess(taskId: string, entry: ManagedEntry): void {
+    if (this.currentTask?.id !== taskId) throw new ExecutionError("task_mismatch", "执行单元不属于当前任务");
+    if (this.ending || this.stopRequested || this.stoppingProcesses) throw new ExecutionError("task_ending", "任务正在停止执行单元，拒绝启动新的执行单元");
+    this.registry.register(entry);
+  }
+
+  /** 已有聚合会消费临时单元的停止结果，临时调用无需另发停止请求。 */
+  get stoppingManagedProcesses(): boolean {
+    return this.stoppingProcesses > 0;
+  }
+
+  /** 回收任务的全部受管单元；重复与并发停止复用每个单元的核实结论。 */
+  async stopManagedProcesses(taskId: string): Promise<boolean> {
+    if (this.managedTaskId !== taskId) return true;
+    this.stoppingProcesses++;
+    try {
+      // 执行意图落库（hook 处）与工作进程登记（工具 execute 处）之间隔着
+      // promise 边界；让出一个宏任务，使已记录意图的派发先完成登记，再读登记表
+      await new Promise((r) => setImmediate(r));
+      const processes = this.registry.list();
+      if (processes.length === 0) return true;
+      let allReaped = true;
+      for (const proc of processes) {
+        let stop = this.processStops.get(proc);
+        if (!stop) {
+          stop = Promise.resolve().then(() => proc.stop()).catch((err: unknown) => {
+            const code = err instanceof ExecutionError ? err.code : "stop_failed";
+            process.stderr.write(`[ruukoto:driver] 执行单元 ${proc.id} 停止未核实（${code}），保留目录占用待拥有者核实\n`);
+            return false;
+          });
+          this.processStops.set(proc, stop);
+        }
+        const ok = await stop;
+        if (!ok) allReaped = false;
+      }
+      return allReaped;
+    } finally {
+      this.stoppingProcesses--;
     }
-    this.registry.clear();
-    return allReaped;
   }
 
   // ---------- 终态与占用 ----------
 
-  private finalize(
+  private async finalize(
     task: Task,
     to: "completed" | "failed" | "canceled" | "interrupted",
     extra: {
@@ -902,25 +959,29 @@ export class Driver {
       effectUnknownOpIds?: string[];
       keepOccupancy?: boolean;
       occupancyIssueReason?: string | null;
+      modeSwitchFailure?: { to: AccessMode; reason: string };
     },
-  ): void {
+  ): Promise<void> {
+    const reaped = await this.killManagedProcesses();
+    const keepOccupancy = extra.keepOccupancy || !reaped;
     this.flushOutput();
     this.endThinking();
-    this.deps.store.withTx(() => {
+    const changed = this.deps.store.withTx(() => {
       const store = this.deps.store;
-      store.endTask(task.id, ["running", "awaiting_confirmation"], to, {
+      return store.endTask(task.id, ["running", "awaiting_confirmation"], to, {
         interruptReason: extra.interruptReason ?? null,
         errorMessage: extra.errorMessage ?? null,
         endedAt: new Date().toISOString(),
-        keepOccupancy: extra.keepOccupancy,
-        occupancyIssueReason: extra.occupancyIssueReason,
+        keepOccupancy,
+        occupancyIssueReason: extra.occupancyIssueReason ?? (reaped ? null : "tool_process_unreaped"),
+        modeSwitchFailure: extra.modeSwitchFailure,
         onChanged: () => {
           for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
         },
       });
     });
     // 占用释放后唤醒其他会话的排队任务
-    this.deps.onOccupancyReleased();
+    if (changed && !keepOccupancy) this.deps.onOccupancyReleased();
   }
 
   private pauseQueue(reason: string): void {
@@ -942,16 +1003,19 @@ export class Driver {
   private async boundaryTask(task: Task): Promise<Task> {
     if (!task.pendingAccessMode || task.pendingAccessMode === task.accessMode) return task;
     try {
+      if (!await this.stopManagedProcesses(task.id)) {
+        throw new ExecutionError("mode_switch_unverified", "无法核实旧执行单元已退出，模式切换失败");
+      }
       return await this.router.prepareToolBoundary(task);
     } catch (err) {
       // 切换失败（无法核实旧执行单元退出）：任务无法安全继续
-      await this.killManagedProcesses();
-      const reaped = await this.router.stopWorker();
-      this.finalize(task, "interrupted", {
-        interruptReason: `mode_switch_failed:${(err as Error).message}`,
+      this.stopRequested = true;
+      const reason = err instanceof ExecutionError ? err.code : "mode_switch_failed";
+      await this.finalize(task, "interrupted", {
+        interruptReason: reason,
         effectUnknownOpIds: [],
-        keepOccupancy: !reaped,
-        occupancyIssueReason: reaped ? null : "mode_switch_unverified",
+        occupancyIssueReason: "mode_switch_unverified",
+        modeSwitchFailure: { to: task.pendingAccessMode, reason },
       });
       throw err;
     }

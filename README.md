@@ -25,13 +25,12 @@
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或Linux 的普通用户账户。受限模式另需 Docker（macOS 用 Docker Desktop）。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Coding Agent 使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
 npm run check       # 构建 worker、lint、类型检查、应用与基础验证的全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
-npm run build:worker-image   # 使用 Docker 构建受限模式的工具镜像 ruukoto-worker
 ```
 
 ### ruukoto-code（开发机）
@@ -43,7 +42,15 @@ ruukoto-code                      # 回到既有会话（不隐式新建）
 ruukoto-code stop                 # 停止后台
 ```
 
-工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。默认执行后端是容器；macOS 尚无经验证的完全访问执行账户，选择完全访问会在执行前被拒绝。
+工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。默认 native，正式入口拒绝旧 local/container 覆盖；迁移见[操作手册](docs/usage.md#21-启动后台)。macOS 尚无经验证的完全访问执行账户，选择完全访问会在执行前被拒绝。
+
+| TUI 命令 | 用途 |
+| --- | --- |
+| `/new` | 在当前工作区建立空会话 |
+| `/branch [名称]` | 从已落盘历史建立独立会话并切换，父子共享工作目录 |
+| `/resume` | 切回父会话或其他会话 |
+
+分支不调用模型、不启动原任务；名称支持中文和空格。来源范围与失败核实见[操作手册](docs/usage.md#72-命令)。
 
 ### ruukoto（Linux 服务器）
 

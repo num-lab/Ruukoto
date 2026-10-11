@@ -28,6 +28,9 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { Session } from "@ruukoto/core/types.ts";
+import { HistoryReadError, readHistoryPrefix } from "@ruukoto/core/history.ts";
+import { createHash } from "node:crypto";
+import type { BranchRequest } from "@ruukoto/core/branch.ts";
 
 const COMMON = [
   "- 默认用中文回答；拥有者用其他语言时跟随。",
@@ -163,10 +166,54 @@ export async function createSdkSession(opts: CreateSdkSessionOptions): Promise<A
 
 export function openPiSessionManager(session: Session, sessionsDir: string): SessionManager {
   fs.mkdirSync(sessionsDir, { recursive: true });
+  if (session.branchSource && (!session.sessionFile || !fs.existsSync(session.sessionFile))) {
+    throw new HistoryReadError("history_corrupt", "分支历史文件缺失，请核实或恢复历史后再提交");
+  }
   if (session.sessionFile && fs.existsSync(session.sessionFile)) {
     return SessionManager.open(session.sessionFile, sessionsDir);
   }
   return SessionManager.create(session.cwdReal, sessionsDir, { id: session.piSessionId });
+}
+
+/** 独立 header 与原始条目行；不触碰源 Driver 或 SDK manager。 */
+export function branchHistoryBytes(session: Session, prefix: Buffer): Buffer {
+  const newline = prefix.indexOf(10);
+  if (newline < 0) throw new HistoryReadError("history_corrupt", "来源历史 header 不完整");
+  const header = { type: "session", version: 3, id: session.piSessionId, timestamp: session.createdAt, cwd: session.cwdReal };
+  return Buffer.concat([Buffer.from(`${JSON.stringify(header)}\n`), prefix.subarray(newline + 1)]);
+}
+
+/** 文件先独占安装并刷盘，随后宿主才发布 sessions 行；遗留准备文件可按原回执重建。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+ */
+export function prepareBranchHistory(request: BranchRequest): void {
+  const target = request.session.sessionFile!;
+  const validate = () => {
+    const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size !== request.fileBytes || createHash("sha256").update(fs.readFileSync(fd)).digest("hex") !== request.fileHash) {
+        throw new HistoryReadError("history_corrupt", "分支准备文件与原请求不一致");
+      }
+    } finally { fs.closeSync(fd); }
+  };
+  if (!fs.existsSync(target)) {
+    const bytes = branchHistoryBytes(request.session, readHistoryPrefix(request.prefix.file, request.prefix));
+    if (bytes.length !== request.fileBytes || createHash("sha256").update(bytes).digest("hex") !== request.fileHash) {
+      throw new HistoryReadError("history_corrupt", "分支原快照校验失败");
+    }
+    const temporary = `${target}.preparing`;
+    fs.rmSync(temporary, { force: true });
+    const fd = fs.openSync(temporary, "wx", 0o600);
+    try { fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); }
+    finally { fs.closeSync(fd); }
+    try { fs.linkSync(temporary, target); }
+    finally { fs.rmSync(temporary, { force: true }); }
+  }
+  validate();
+  const directory = fs.openSync(path.dirname(target), "r");
+  try { fs.fsyncSync(directory); }
+  finally { fs.closeSync(directory); }
 }
 
 export function sessionsDirFor(dataDir: string): string {

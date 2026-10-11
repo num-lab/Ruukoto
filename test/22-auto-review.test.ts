@@ -2,6 +2,7 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成与单元：auto-review 自动审查模式（issue 15）。
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
+ * Note: 见 .agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
  *
  * 覆盖：
  * - 自动批准/拒绝/转人工/非法输出/超时的端到端行为（断言真实工具执行次数，
@@ -363,11 +364,15 @@ test("人工抢先：审查进行中人工拒绝，迟到的审查结果被忽�
   try {
     let releaseGate!: () => void;
     const gate = new Promise<void>((r) => (releaseGate = r));
+    let reviewStarted = false;
+    let reviewFinished = false;
     const responder = routeResponder([
       {
         match: REVIEW_MARKER,
         respond: async () => {
+          reviewStarted = true;
           await gate;
+          reviewFinished = true;
           return { kind: "text", text: '{"decision":"approve","reason":"迟到的批准"}' };
         },
       },
@@ -390,12 +395,14 @@ test("人工抢先：审查进行中人工拒绝，迟到的审查结果被忽�
       const sessionId = await setupAutoReviewSession(t, t.work[0]!);
       const task = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "ar-7", input: "读取外部配置并总结" });
       const conf = await waitReviewStatus(t.client, task.id, "in_progress");
+      await waitFor("审查请求已到达模型服务", () => reviewStarted);
 
       // 人工抢先拒绝
       await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "reject" });
       await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed", 60_000);
       // 放行审查（approve）：结果必须被忽略
       releaseGate();
+      await waitFor("迟到审查响应已生成", () => reviewFinished);
       await waitFor("审查标记被取代", async () => (await taskConfirmation(t.client, task.id)).reviewStatus === "superseded", 60_000);
 
       const done = await taskConfirmation(t.client, task.id);
@@ -406,6 +413,7 @@ test("人工抢先：审查进行中人工拒绝，迟到的审查结果被忽�
       assert.match(op.resultSummary, /拥有者拒绝/);
       assert.doesNotMatch(op.resultSummary, /external-value/, "工具未执行");
     } finally {
+      releaseGate();
       await t.shutdown();
     }
   } finally {
@@ -418,11 +426,15 @@ test("取消审查中的任务：审查中止，迟到结果不落盘，工具�
   try {
     let releaseGate!: () => void;
     const gate = new Promise<void>((r) => (releaseGate = r));
+    let reviewStarted = false;
+    let reviewFinished = false;
     const responder = routeResponder([
       {
         match: REVIEW_MARKER,
         respond: async () => {
+          reviewStarted = true;
           await gate;
+          reviewFinished = true;
           return { kind: "text", text: '{"decision":"approve","reason":"迟到的批准"}' };
         },
       },
@@ -445,6 +457,7 @@ test("取消审查中的任务：审查中止，迟到结果不落盘，工具�
       const sessionId = await setupAutoReviewSession(t, t.work[0]!);
       const task = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "ar-11", input: "读取外部配置并总结" });
       await waitReviewStatus(t.client, task.id, "in_progress");
+      await waitFor("审查请求已到达模型服务", () => reviewStarted);
       assert.equal(reviewCalls(t).length, 1, "审查调用已发出");
 
       // 取消任务：解除审批等待并中止审查
@@ -453,8 +466,8 @@ test("取消审查中的任务：审查中止，迟到结果不落盘，工具�
 
       // 放行审查（approve）：迟到结果不得落盘
       releaseGate();
-      await new Promise((r) => setTimeout(r, 300));
-      const conf = await taskConfirmation(t.client, task.id);
+      await waitFor("迟到审查响应已生成", () => reviewFinished);
+      const conf = await waitReviewStatus(t.client, task.id, "superseded");
       assert.equal(conf.status, "stale", "取消使未决审批失效，迟到批准不得生效");
       assert.equal(conf.decisionSource, null);
       assert.equal(conf.reviewStatus, "superseded", "审查随取消被取代");
@@ -463,6 +476,7 @@ test("取消审查中的任务：审查中止，迟到结果不落盘，工具�
       assert.equal(op.isError, true);
       assert.doesNotMatch(op.resultSummary, /external-value/, "工具未执行");
     } finally {
+      releaseGate();
       await t.shutdown();
     }
   } finally {
@@ -518,11 +532,15 @@ test("权限版本变化：审查中切换模式使审批失效，迟到结果�
   try {
     let releaseGate!: () => void;
     const gate = new Promise<void>((r) => (releaseGate = r));
+    let reviewStarted = false;
+    let reviewFinished = false;
     const responder = routeResponder([
       {
         match: REVIEW_MARKER,
         respond: async () => {
+          reviewStarted = true;
           await gate;
+          reviewFinished = true;
           return { kind: "text", text: '{"decision":"approve","reason":"迟到的批准"}' };
         },
       },
@@ -545,6 +563,7 @@ test("权限版本变化：审查中切换模式使审批失效，迟到结果�
       const sessionId = await setupAutoReviewSession(t, t.work[0]!);
       const task = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "ar-8", input: "读取外部配置并总结" });
       const conf = await waitReviewStatus(t.client, task.id, "in_progress");
+      await waitFor("审查请求已到达模型服务", () => reviewStarted);
 
       // awaiting_confirmation 上的模式切换立即生效：权限版本递增、审批失效
       const switched = await t.client.request<any>("switch_mode", { task_id: task.id, mode: "confirm" });
@@ -552,6 +571,7 @@ test("权限版本变化：审查中切换模式使审批失效，迟到结果�
       assert.equal(switched.permissionVersion, 2);
       await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed", 60_000);
       releaseGate();
+      await waitFor("迟到审查响应已生成", () => reviewFinished);
       await waitFor("审查标记被取代", async () => (await taskConfirmation(t.client, task.id)).reviewStatus === "superseded", 60_000);
 
       const done = await taskConfirmation(t.client, task.id);
@@ -562,6 +582,7 @@ test("权限版本变化：审查中切换模式使审批失效，迟到结果�
       assert.match(op.resultSummary, /审批已失效/);
       assert.doesNotMatch(op.resultSummary, /external-value/, "工具未执行");
     } finally {
+      releaseGate();
       await t.shutdown();
     }
   } finally {
@@ -572,11 +593,17 @@ test("权限版本变化：审查中切换模式使审批失效，迟到结果�
 test("后台重启：审查中的审批失效，不重放、不消费旧批准", async () => {
   const { root, outside, cleanup } = makeOutsideFile();
   try {
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((r) => (releaseGate = r));
+    let reviewStarted = false;
+    let reviewFinished = false;
     const responder = routeResponder([
       {
         match: REVIEW_MARKER,
         respond: async () => {
-          await new Promise((r) => setTimeout(r, 1500));
+          reviewStarted = true;
+          await gate;
+          reviewFinished = true;
           return { kind: "text", text: '{"decision":"approve","reason":"重启前的批准"}' };
         },
       },
@@ -599,6 +626,7 @@ test("后台重启：审查中的审批失效，不重放、不消费旧批准",
       const sessionId = await setupAutoReviewSession(t, t.work[0]!);
       const task = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "ar-9", input: "读取外部配置并总结" });
       await waitReviewStatus(t.client, task.id, "in_progress");
+      await waitFor("审查请求已到达模型服务", () => reviewStarted);
 
       // 优雅停止即中断任务并失效未决审批；随后在同一数据目录重启
       await t.runtime.stop("test_restart");
@@ -612,6 +640,8 @@ test("后台重启：审查中的审批失效，不重放、不消费旧批准",
         modelId: "mock-model",
       });
       try {
+        releaseGate();
+        await waitFor("迟到审查响应已生成", () => reviewFinished);
         const detail = runtime2.store.getTask(task.id)!;
         assert.equal(detail.status, "interrupted", "重启后任务保持中断");
         const confs = runtime2.store.listConfirmationsByTask(task.id);
@@ -625,6 +655,7 @@ test("后台重启：审查中的审批失效，不重放、不消费旧批准",
         await runtime2.stop("test_end");
       }
     } finally {
+      releaseGate();
       await t.shutdown();
     }
   } finally {

@@ -230,6 +230,8 @@ function fakeSession(over: Partial<Session> & { id: string; projectId: string })
     confirmTools: [],
     createRequestId: null,
     workspaceProjectId: null,
+    name: null,
+    branchSource: null,
     modelSelection: null,
     modelSelectionVersion: 0,
     defaultAccessMode: "confirm",

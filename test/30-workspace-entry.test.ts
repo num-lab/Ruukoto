@@ -134,6 +134,8 @@ function fakeSession(over: Partial<Session> & { id: string; projectId: string })
   return {
     kind: "dev",
     workspaceProjectId: null,
+    name: null,
+    branchSource: null,
     cwd: "/w",
     cwdReal: "/w",
     cwdDev: 1,

@@ -44,7 +44,7 @@ ruukoto 保留普通开发会话，Coding Agent 仍是编码主要入口；旧�
 
 [固定角色退役工单](../../../../.scratch/agent-direction/issues/23-contract-legacy-roles.md)记录 `npm run typecheck` 通过、test/67 4/4，以及旧/新真实后台、控制面与 SQLite、模型打桩的 macOS/tx 冒烟各 5/5；全量 889 项中 886 通过、1 跳过、2 失败，分别是干净基线复现的 DNS 超时与单跑通过的协作消息负载抖动。未涉及真实 QQ/Telegram/GitHub。
 
-Seatbelt / bubblewrap 原生候选只建立真实探针，尚未接入产品、未切换 container 默认值。旧 macOS `/tmp` 路径别名造成的否决依据已更正；macOS 脱离进程组的后代回收、tx namespace 能力仍未满足前置验收，具体证据与切换门槛见[执行边界](2026-09-20-tool-worker-per-task-container.md)。本记录迁移不把这些缺口改写为已完成。
+Coding Agent 正式入口默认且只接受 native，显式 container/local 参数或环境覆盖拒绝并提示迁移；库层测试仍可注入 local。Seatbelt/bubblewrap 的文件与进程身份、预存硬链接 guard、宿主工具依赖、每单元 TMPDIR 与真实验证范围由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)持有；两平台 SDK worker 各 10/10、SubAgent/worktree 各 8/8，审批共享回归另计。macOS 未知后代保守拒绝并保留占用，不能称为完整回收；88 项日志恢复、90 项保守失败与预存硬链接反例均保留，不混合为全通过。个人 Agent 继续 container/systemd 部署。
 
 ## 备选方案
 
@@ -58,4 +58,4 @@ Seatbelt / bubblewrap 原生候选只建立真实探针，尚未接入产品、�
 
 两个产品的任务不依赖跨端连接，已复用的存储、审批、历史、模型上下文与执行机制继续承担共同契约。代价是旧角色职责、资料来源和入口必须逐条迁移，不能靠全局改名或改写历史完成；读兼容标识持续存在，仍需分产品核实执行边界和部署。
 
-共享、更多渠道与外挂协议仍有明确实施缺口。原生隔离候选未完成验证前，受限执行依赖当前已验证后端；跨端共享不可用只影响信息新鲜度。[架构总览](../../../../docs/architecture.md)描述当前产品能力与模块划分。
+共享、更多渠道与外挂协议仍有明确实施缺口。Coding Agent 受限执行依赖 native 平台前置，缺能力明确失败；个人 Agent 保留容器，跨端共享不可用只影响信息新鲜度。[架构总览](../../../../docs/architecture.md)描述当前产品能力与模块划分。

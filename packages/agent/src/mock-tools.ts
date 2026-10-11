@@ -59,11 +59,13 @@ export function createMockTools(ctx: MockToolContext): ToolDefinition[] {
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      ctx.registry.register({
+      const pgid = child.pid;
+      let stopPromise: Promise<boolean> | undefined;
+      if (pgid !== undefined) ctx.registry.register({
         kind: "process_group",
-        id: String(child.pid!),
+        id: String(pgid),
         label: `${params.file} ${params.args.join(" ")}`.trim(),
-        stop: () => killProcessGroup(child.pid!),
+        stop: () => stopPromise ??= killProcessGroup(pgid),
       });
       const stdout = await new Promise<{ code: number | null; out: string }>((resolve) => {
         let out = "";

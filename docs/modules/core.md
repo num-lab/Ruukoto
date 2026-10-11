@@ -50,13 +50,17 @@
 
 ## 数据与状态
 
+会话持久字段 `name` 与 `branch_source` 对旧会话均为 NULL。分支来源保存直接父会话、自动编号、实际末条 ID、消息数、尾部排除说明及宿主核实的历史任务、产物字节/状态和结果任务集合。来源字段只用于追溯和读取，不参与执行权限判定。
+
+`branch_requests` 保存请求键、参数摘要、来源编号、固定目标会话、源文件身份/前缀摘要、目标准备文件摘要和压缩点内容；不保存消息正文。状态为 `prepared`、`published` 或 `failed`，未发布回执不进入会话列表。编号在事务内按直接来源分配，同键异参拒绝；自动编号也计入已导入分支的来源编号。
+
 ### 档案根与目录布局
 
 档案根按产品分开：ruukoto 默认 `~/.ruukoto`，`ruukoto-code` 默认 `~/.ruukoto-code`，两者的内容结构一致。两个产品的开发实例另用 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常实例完全隔离，不继承生产凭据与配置；ruukoto 的开发 profile 保留现有开发历史，ruukoto-code 的开发 profile 不自动迁入 dev 历史。以下为单个产品实例的布局（以 ruukoto 默认路径为例）：
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v32）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v33）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
@@ -103,7 +107,7 @@
 
 ### schema 版本与迁移
 
-`SCHEMA_VERSION` 是 `32`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `33`，写在 `meta` 表的 `schema_version` 键。
 
 - 文件版本高于程序版本：直接抛错「schema 版本过新」，要求升级程序，不做任何写入。
 - 文件版本等于程序版本：只幂等补齐缺失对象与缺失列。
@@ -112,7 +116,7 @@
 - 缺 `meta` 表（全新库）按「无版本记录」处理，进入建表事务。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
 
-当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
+当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
 
 关键表的要点：
 
@@ -122,7 +126,7 @@
 | `projects` | `id`、`name`、`create_request_id`、工作区根目录身份四列 `root_cwd` / `root_real` / `root_dev` / `root_ino`（四列同空即旧项目）、`instruction_files`、`web_search`、`settings_version`（并发保护） |
 | `sessions` | `id`、`project_id`、`kind`（`dev` / `qq_group`）、`cwd` / `cwd_real` / `cwd_dev` / `cwd_ino`、`pi_session_id`、`session_file`、`confirm_tools`、`create_request_id`、`queue_state`（`active` / `paused`）与 `queue_pause_reason`、`workspace_project_id`（组织归属仅展示，资料身份仍是 `project_id`）、`model_selection` 与版本、`default_access_mode` 与版本（`confirm` / `full_access` / `auto-review` / `plan`） |
 | `tasks` | `id`、`session_id`、`request_id`、`input`、`status`、`access_mode`、`plan_mode`、`permission_version`、`granted_paths`、`pending_access_mode`、`interrupt_reason`、`cancel_requested`、`effect_unknown`、`error_message`、`history_entry_ids`、`resumes_task_id`、`agent_id`、`parent_task_id`、`source_event_id`、`deadline`、`result_summary`、`result_ref`、SubAgent 关联四列 `work_id` / `sub_agent_id` / `read_scope` / `result_delivered_at`、`created_at` / `started_at` / `ended_at`；唯一键 `(session_id, request_id)` |
-| `occupancy` | `cwd_real` 主键、`cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`；释放按 `task_id` |
+| `occupancy` | `cwd_real` 主键、`cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`；一个任务可持有父目录及临时副本的多条占用，整任务释放按 `task_id`，已核实的临时副本可单独释放 |
 | `confirmations` | `id`、`task_id`、`tool_op_id`、`tool_name`、`params`、结构化 `scope`、`cwd_dev` / `cwd_ino`、`permission_version`、`status`（`pending` / `approved` / `rejected` / `stale`）、`created_at` / `responded_at` / `consumed_at` |
 | `tool_ops` | `id`、`task_id`、`tool_name`、`sdk_call_id`、`params`、`intent_recorded_at`、`result_summary`、`is_error`、`effect_unknown`、`recorded_result_at` |
 | `artifacts` | `id`、`task_id`、`session_id`、`name`、`byte_count`、`status`（`partial` / `complete`）、`mime_type`（可空，`image/jpeg` / `image/png` / `image/webp`）、`content_hash`（可空）、`created_at` |
@@ -222,6 +226,8 @@ SubAgent 行优先于角色与类别，所以子会话不会被误判成 main �
 
 ## 主要流程
 
+历史快照打开源文件并固定长度，严格解析完整 UTF-8 JSONL 行及条目链；部分尾行排除。工具调用按宿主任务与 assistant 批次配对，活动未闭合批次回退，终态任务的旧孤儿保留。读取期间正常追加不改变快照；源文件身份、前缀或工具边界无法核实时拒绝。core 只读历史，独立文件准备由 agent 承担。
+
 ### 启动：目录、锁、产品归属与 schema
 
 ```mermaid
@@ -254,13 +260,14 @@ sequenceDiagram
   participant S as Store
   Rt->>L: beginStop(taskId) 取结果缺失且可能已开始的操作快照
   L-->>Rt: 需要分类的操作 id
+  Rt->>Rt: 中止调用，停止所有受管执行单元并聚合退出核实结果
   Rt->>L: settleTask(task, snapshot) 按分类器补记
   L->>S: recordResult（已知未执行 / 无写入效果 / 工具族核实结论）
   L-->>Rt: 仍无法核实的操作 id
   Rt->>S: 终态事务：endTask + markEffectUnknown + 使未消费审批 stale
 ```
 
-`endTask` 在单个事务内做条件更新，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件并按任务 ID 释放占用。识别不了效果的操作在同一个终态事务里标 `effect_unknown`，并发出 `task.tool_effect_unknown`。已消费的服务审批范围在标记效果未知时使同目标的长期授权失效。
+`endTask` 在单个事务内做条件更新，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件。调用方核实全部执行单元退出后才按任务 ID 释放占用；未核实时传入 `keepOccupancy` 与 `occupancyIssueReason`，同一事务保留占用并写 `task.tool_process_unreaped`。原因是 `tool_process_unreaped` 或模式切换的 `mode_switch_unverified`，已知任务结果可以与未核实占用同时存在。识别不了效果的操作在同一个终态事务里标 `effect_unknown`，并发出 `task.tool_effect_unknown`；已知结果不会因退出未核实改成效果未知。已消费的服务审批范围在标记效果未知时使同目标的长期授权失效。
 
 ### 后台崩溃恢复
 
@@ -304,7 +311,7 @@ sequenceDiagram
 **状态与终态。**
 
 - 终态只经 `endTask` 的条件更新写入，只有起点集合包含当前状态才继续；重复终态不产生第二份事实。
-- 占用只在任务运行期持有；终态按任务 ID 释放。停止路径无法核实旧执行单元已退出时保留占用，并显式记 `task.tool_process_unreaped`，由拥有者核实后恢复。
+- 占用通常在任务运行期持有；所有终态路径只有核实执行单元退出才按任务 ID 释放。停止未核实时终态仍保留占用，并显式记 `task.tool_process_unreaped`，由拥有者核实后恢复。
 - 中断原因、取消意图与效果确定性是三个独立事实，任何一个都不能替代另一个。
 - 效果未知的操作不自动重发；效果以停止瞬间为准，中止期间才落下的结果不改结论。审批未消费与只读操作中止都不算效果未知。
 - 审批的 `consumed_at` 即执行开始；获批后的复核失败或消费失败使该批准标 `stale`，不能再用，操作按已知未执行记录。
@@ -325,6 +332,10 @@ sequenceDiagram
 - 本地存储故障保留 `staging` 状态，不伪装成平台拒绝。
 
 ## 设计依据
+
+- [执行单元的停止未核实结果保留到任务收尾](../../.agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)
+
+- [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
 
 - [任务由后台进程持有，终端只负责交互](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：任务独立于交互入口、实例锁的核实判据、后台重启恢复与不重放原则的来源。
 - [完整保留会话历史，单独组装模型上下文](../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：解释为什么 pi JSONL 是唯一权威副本、历史索引只是派生数据，以及历史完整性与模型上下文的边界。

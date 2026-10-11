@@ -107,8 +107,9 @@ test("按需拉起：后台不存在时拉起单个实例并可认证握手", as
     assert.equal(r.spawned, true);
 
     const client = await connectAuthed(controlDir);
-    const hs = (await client.handshake()) as { snapshot?: { instanceId?: string } };
+    const hs = await client.handshake();
     assert.ok(hs.snapshot?.instanceId, "握手应给出数据实例标识");
+    assert.equal(hs.snapshot.execution.backend, "native", "按需后台默认使用原生后端");
     client.close();
 
     // 单实例仲裁仍是后台实例锁：<dataDir>/runtime.lock/owner.json 指向活进程
@@ -148,6 +149,28 @@ test("并发拉起收敛为单个实例：两个终端同时按需拉起，握�
     await stopAndWait(controlDir);
   } finally {
     await stopBestEffort(controlDir, dirs.dataDir);
+    await server.close();
+    await cleanupDirs(dirs);
+  }
+});
+
+test("按需拉起承接显式 native 配置，握手如实展示后端", async () => {
+  const { dirs } = await makeTestDirs("od-native", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  await writeModelsJson(dirs, await server.start());
+  const opts = devOpts(dirs);
+  try {
+    const result = await ensureBackend({ ...opts, env: { ...opts.env, RUUKOTO_EXECUTION_BACKEND: "native" } });
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+    const client = await connectAuthed(opts.controlDir);
+    try {
+      assert.equal((await client.handshake()).snapshot.execution.backend, "native");
+    } finally {
+      client.close();
+    }
+    await stopAndWait(opts.controlDir);
+  } finally {
+    await stopBestEffort(opts.controlDir, dirs.dataDir);
     await server.close();
     await cleanupDirs(dirs);
   }

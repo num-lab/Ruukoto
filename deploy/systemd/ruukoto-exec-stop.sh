@@ -9,8 +9,12 @@ if [ "$#" -ne 1 ] || ! [[ "$1" =~ ^ruukoto-exec-[a-z0-9_-]+$ ]]; then
 fi
 
 /usr/bin/systemctl stop "$1" || true
-# 与调用方约定：退出码 0 = 单元已不在活动（is-active 在活动时为 0，反转换取）
-if /usr/bin/systemctl is-active --quiet "$1"; then
-  exit 1
+# 查询失败不证明退出；状态与 systemctl 的退出码必须同时成立。
+# Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+status=0
+state=$(/usr/bin/systemctl is-active "$1") || status=$?
+if { [ "$status" -eq 3 ] && [[ "$state" == inactive || "$state" == failed ]]; } || { [ "$status" -eq 4 ] && [ "$state" == unknown ]; }; then
+  exit 0
 fi
-exit 0
+echo "[ruukoto:execution] 无法核实 $1 已退出；保留占用，核实后恢复" >&2
+exit 1

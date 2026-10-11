@@ -13,7 +13,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 
 export interface ModelSelection {
   provider: string;
@@ -472,8 +472,22 @@ export interface InboundMedia {
   updatedAt: string;
 }
 
+export interface SessionBranchSource {
+  sessionId: string;
+  number: number;
+  entryId: string;
+  messageCount: number;
+  excluded: string[];
+  /** 宿主核实的历史任务与已有产物；不参与任务执行或工作管理授权。 */
+  taskIds: string[];
+  artifacts: Artifact[];
+  results: Array<{ workId: string; taskIds: string[] }>;
+}
+
 export interface Session {
   id: string;
+  name: string | null;
+  branchSource: SessionBranchSource | null;
   projectId: string;
   /**
    * 工作区组织归属（agent-direction issue 07）：非 null 即会话在组织查询与普通
@@ -864,7 +878,7 @@ export type PersistentEventBody =
    * 版本与可供视图更新的配置字段；不含指令正文或秘密。冲突的保存不产生本事件。
    */
   | { type: "project.settings_changed"; projectId: string; settingsVersion: number; instructionFiles: string[]; webSearch: "enabled" | "disabled" }
-  | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null }
+  | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null; session?: Session }
   /**
    * 会话工作区组织归属已设置（agent-direction issue 07）：仅组织展示归属，资料
    * 身份与配置来源仍是 projectId；目标必须带根目录归属。null = 恢复未映射。

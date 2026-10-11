@@ -16,6 +16,7 @@
  *   （防 DNS 重绑定）；凭据只在目标主机与绑定一致时注入；
  * - 保留目标（控制面）即使被请求也不开放：控制面只有 unix socket，
  *   HTTP 到不了；保留地址清单留作未来 TCP 控制端点的强制点。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  */
 
 import * as fs from "node:fs";
@@ -58,10 +59,26 @@ function lstatNoFollow(p: string): fs.Stats {
   return fs.lstatSync(p);
 }
 
+/** 挂载别名与硬链接可有不同文本路径，保护范围仍按同一文件系统对象判定。 */
+function identityCovers(parent: string, target: string): boolean {
+  if (!fs.existsSync(parent)) return false;
+  const pinned = fs.statSync(parent, { bigint: true });
+  let current = path.resolve(target);
+  for (;;) {
+    if (fs.existsSync(current)) {
+      const stat = fs.statSync(current, { bigint: true });
+      if (stat.dev === pinned.dev && stat.ino === pinned.ino) return true;
+    }
+    const ancestor = path.dirname(current);
+    if (ancestor === current) return false;
+    current = ancestor;
+  }
+}
+
 export function isProtectedPath(resolved: string, protectedRoots: string[]): boolean {
   for (const root of protectedRoots) {
     const realRoot = path.resolve(root);
-    if (resolved === realRoot || resolved.startsWith(realRoot + path.sep)) {
+    if (resolved === realRoot || resolved.startsWith(realRoot + path.sep) || identityCovers(realRoot, resolved)) {
       return true;
     }
   }
@@ -83,7 +100,7 @@ export function assertGrantNotProtected(resolved: string, protectedRoots: string
   const prefix = resolved.endsWith(path.sep) ? resolved : resolved + path.sep;
   for (const root of protectedRoots) {
     const realRoot = path.resolve(root);
-    if (realRoot === resolved || realRoot.startsWith(prefix)) {
+    if (realRoot === resolved || realRoot.startsWith(prefix) || identityCovers(resolved, realRoot)) {
       throw new ApprovedOpError(`路径是控制面/服务数据目录的父级，始终排除：${resolved}`);
     }
   }

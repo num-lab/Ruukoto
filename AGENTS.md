@@ -2,14 +2,14 @@
 
 ## 开发与验证
 
-首次检出在仓库根目录运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。修改过程中运行 `npm run check:static` 和相关测试，例如`npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。环境前提、测试导航、耗时和外部验收入口见[开发说明](docs/development.md)。当测试需要 Linux 环境时，可通过 `ssh tx` 访问服务器。
+首次检出在仓库根目录运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。修改过程中运行 `npm run check:static` 和相关测试，例如 `npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。环境前提、测试导航、耗时和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
 
 ## 目录导航
 
 - `apps/ruukoto/` 与 `apps/ruukoto-code/` 持有各产品的 bin、能力声明与专属装配。
 - `packages/runtime/` 编排任务、会话与 SubAgent，接收 app 注入的产品能力。
 - `packages/core/` 管理存储、身份与权限。
-- `packages/agent/` 管理模型、上下文与工具，`src/tool-worker/` 是执行边界内的工作进程。
+- `packages/agent/` 管理模型、上下文与工具，`packages/agent/src/tool-worker/` 是执行边界内的工作进程。
 - `packages/control/` 提供控制面。
 - `packages/channels/` 持有 IM、GitHub、调度与旧个人资料导入。
 - `packages/tui/` 提供共享 CLI、任务界面、配置中心与开发启动器。
@@ -33,7 +33,7 @@
 
 - 跨层错误转成带 `code` 的类型；调用方用 `instanceof` 与 `.code ===` 判别，不解析 `message`。
 - 不写空 `catch`。确需吞掉时，写明吞的是哪个错误与原因。
-- 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 tui 包的 `src/cli.ts`、`src/tui/index.ts`、`src/config-tui/index.ts` 三个入口。
+- 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 `packages/tui/src/` 的 `cli.ts`、`tui/index.ts`、`config-tui/index.ts` 三个入口。
 - 设计或评审失败路径时按 [error-handling](.agents/skills/error-handling/SKILL.md)。
 
 **类型**

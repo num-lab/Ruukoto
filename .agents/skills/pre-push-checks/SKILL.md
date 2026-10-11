@@ -46,7 +46,7 @@ npm run change-scope -- --base <已核实的基点引用>
 
 ## 3. 静态门禁的位置
 
-`npm run check:static`（lint + typecheck + verify-notes，约 8 秒）已由 pre-commit 钩子执行。提交前不必手工再跑一遍。
+`npm run check:static`（lint + typecheck + verify-notes + check:docs，约 8 秒）已由 pre-commit 钩子执行。提交前不必手工再跑一遍。
 
 ## 4. 报告
 

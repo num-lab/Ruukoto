@@ -408,7 +408,7 @@ export class SubAgentManager {
         }
       } else {
         try {
-          writeTarget = await this.workCopies.prepareWriteTarget(input.target, parentSession, workId);
+          writeTarget = await this.workCopies.prepareWriteTarget(input.target, parentSession, workId, parent.id);
         } catch (err) {
           if (err instanceof WorkCopyError) throw new SubAgentDelegationError(err.code, err.message);
           throw err;
@@ -1033,7 +1033,7 @@ export class SubAgentManager {
     }
     let parsed: Awaited<ReturnType<WorkCopyManager["integrate"]>>;
     try {
-      parsed = await this.workCopies.integrate({ work, target, parentSession });
+      parsed = await this.workCopies.integrate({ work, target, parentSession, parentTaskId: parentTask.id });
     } catch (err) {
       if (err instanceof WorkCopyError) throw new SubAgentDelegationError(err.code, err.message);
       throw err;

@@ -513,6 +513,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | --- | --- |
 | 完全访问以 `execution_unavailable` 拒绝 | 未配置专用执行账户入口；Linux 按 [deploy/systemd/README.md](../deploy/systemd/README.md) 配置，macOS 尚无经验证入口 |
 | 受限任务立即失败 | 检查 Docker 可用性与 `ruukoto-worker` 镜像（`npm run build:worker-image`）；后端缺失时明确拒绝、不静默回退 |
+| 任务已结束但目录仍被占用，或报 `tool_process_unreaped` / `mode_switch_unverified` / `worker_stop_unverified` | 从任务事件与占用查询核对未退出的执行单元；确认旧单元及其后代已退出后，再用上方 `resume-queue` 恢复，它释放该会话遗留任务的父目录与副本占用，并重建已结束的驱动器。worktree 创建与汇总保留副本现场和已收到的结果，不能把已完成工具或效果未知操作自动重放 |
 | 容器内写工作区被拒 | 原生 Linux 的 bind mount 不做 uid 映射，容器 uid/gid 须与工作区写权限匹配（部署文档第 5 步）；Docker Desktop 会掩盖这个问题 |
 | 执行相关变量生效但无隔离 | `--execution local`／`RUUKOTO_EXECUTION_BACKEND=local` 没有任何隔离，只用于本机开发与测试 |
 

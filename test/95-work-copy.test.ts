@@ -16,12 +16,12 @@ function fixture() {
   const stat = fs.statSync(root);
   const session = { id: "parent", cwdReal: root, cwdDev: stat.dev, cwdIno: stat.ino } as Session;
   let output = "";
-  const calls: string[] = [];
+  const calls: { parentTaskId: string; command: string }[] = [];
   const manager = new WorkCopyManager({
     worktreeRoot,
     protectedRoots: () => [`${root}-protected`],
     execute: async (input) => {
-      calls.push(input.command);
+      calls.push({ parentTaskId: input.parentTaskId, command: input.command });
       const workId = path.basename(input.copyDir);
       const gitdir = path.join(gitDir, "worktrees", workId);
       fs.mkdirSync(gitdir, { recursive: true });
@@ -54,18 +54,19 @@ test("工作副本创建失败保留现场、成功钉定基线与副本身份",
   const f = fixture();
   try {
     f.setOutput(HASH);
-    const target = await f.manager.prepareWriteTarget(".", f.session, "w1");
+    const target = await f.manager.prepareWriteTarget(".", f.session, "w1", "parent-task");
     assert.equal(target.kind, "worktree");
     assert.equal(target.baseCommit, HASH);
     assert.equal(fs.existsSync(target.path), true);
     assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].parentTaskId, "parent-task");
 
     const failed = new WorkCopyManager({
       worktreeRoot: path.join(path.dirname(f.root), `${path.basename(f.root)}-failed-worktrees`),
       protectedRoots: () => [],
       execute: async () => ({ isError: true, errorMessage: "container failed", content: "" }),
     });
-    await assert.rejects(() => failed.prepareWriteTarget(".", f.session, "failed"), (err: WorkCopyError) => {
+    await assert.rejects(() => failed.prepareWriteTarget(".", f.session, "failed", "parent-task"), (err: WorkCopyError) => {
       assert.equal(err.code, "worktree_failed");
       assert.match(err.message, /路径 .*failed/);
       return true;
@@ -81,7 +82,7 @@ test("副本身份被替换时拒绝继续使用", async () => {
   const f = fixture();
   try {
     f.setOutput(HASH);
-    const target = await f.manager.prepareWriteTarget(".", f.session, "w1") as Extract<WorkWriteTarget, { kind: "worktree" }>;
+    const target = await f.manager.prepareWriteTarget(".", f.session, "w1", "parent-task") as Extract<WorkWriteTarget, { kind: "worktree" }>;
     fs.rmSync(target.path, { recursive: true, force: true });
     fs.mkdirSync(target.path);
     assert.throws(() => f.manager.assertCopy({ id: "work-1" } as WorkDelegation, target, "请新建委派"), (err: WorkCopyError) => err.code === "worktree_gone");
@@ -101,13 +102,15 @@ test("汇总解析 applied、already、empty、conflict 与损坏输出", async 
     const f = fixture();
     try {
       f.setOutput(`${HASH}\nRUUKOTO_STATE=${state}\n${extra}`);
-      const target = await f.manager.prepareWriteTarget(".", f.session, "w1") as Extract<WorkWriteTarget, { kind: "worktree" }>;
+      const target = await f.manager.prepareWriteTarget(".", f.session, "w1", "parent-task") as Extract<WorkWriteTarget, { kind: "worktree" }>;
       const result = await f.manager.integrate({
         work: { id: "work-1" } as WorkDelegation,
         target,
         parentSession: f.session,
+        parentTaskId: "integrating-parent-task",
       });
       assert.equal(result.state, state);
+      assert.equal(f.calls[1].parentTaskId, "integrating-parent-task");
       if (state === "applied") assert.deepEqual([result.filesChanged, result.insertions, result.deletions], [1, 2, 1]);
     } finally {
       f.cleanup();

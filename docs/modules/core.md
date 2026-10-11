@@ -126,7 +126,7 @@
 | `projects` | `id`、`name`、`create_request_id`、工作区根目录身份四列 `root_cwd` / `root_real` / `root_dev` / `root_ino`（四列同空即旧项目）、`instruction_files`、`web_search`、`settings_version`（并发保护） |
 | `sessions` | `id`、`project_id`、`kind`（`dev` / `qq_group`）、`cwd` / `cwd_real` / `cwd_dev` / `cwd_ino`、`pi_session_id`、`session_file`、`confirm_tools`、`create_request_id`、`queue_state`（`active` / `paused`）与 `queue_pause_reason`、`workspace_project_id`（组织归属仅展示，资料身份仍是 `project_id`）、`model_selection` 与版本、`default_access_mode` 与版本（`confirm` / `full_access` / `auto-review` / `plan`） |
 | `tasks` | `id`、`session_id`、`request_id`、`input`、`status`、`access_mode`、`plan_mode`、`permission_version`、`granted_paths`、`pending_access_mode`、`interrupt_reason`、`cancel_requested`、`effect_unknown`、`error_message`、`history_entry_ids`、`resumes_task_id`、`agent_id`、`parent_task_id`、`source_event_id`、`deadline`、`result_summary`、`result_ref`、SubAgent 关联四列 `work_id` / `sub_agent_id` / `read_scope` / `result_delivered_at`、`created_at` / `started_at` / `ended_at`；唯一键 `(session_id, request_id)` |
-| `occupancy` | `cwd_real` 主键、`cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`；释放按 `task_id` |
+| `occupancy` | `cwd_real` 主键、`cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`；一个任务可持有父目录及临时副本的多条占用，整任务释放按 `task_id`，已核实的临时副本可单独释放 |
 | `confirmations` | `id`、`task_id`、`tool_op_id`、`tool_name`、`params`、结构化 `scope`、`cwd_dev` / `cwd_ino`、`permission_version`、`status`（`pending` / `approved` / `rejected` / `stale`）、`created_at` / `responded_at` / `consumed_at` |
 | `tool_ops` | `id`、`task_id`、`tool_name`、`sdk_call_id`、`params`、`intent_recorded_at`、`result_summary`、`is_error`、`effect_unknown`、`recorded_result_at` |
 | `artifacts` | `id`、`task_id`、`session_id`、`name`、`byte_count`、`status`（`partial` / `complete`）、`mime_type`（可空，`image/jpeg` / `image/png` / `image/webp`）、`content_hash`（可空）、`created_at` |
@@ -260,13 +260,14 @@ sequenceDiagram
   participant S as Store
   Rt->>L: beginStop(taskId) 取结果缺失且可能已开始的操作快照
   L-->>Rt: 需要分类的操作 id
+  Rt->>Rt: 中止调用，停止所有受管执行单元并聚合退出核实结果
   Rt->>L: settleTask(task, snapshot) 按分类器补记
   L->>S: recordResult（已知未执行 / 无写入效果 / 工具族核实结论）
   L-->>Rt: 仍无法核实的操作 id
   Rt->>S: 终态事务：endTask + markEffectUnknown + 使未消费审批 stale
 ```
 
-`endTask` 在单个事务内做条件更新，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件并按任务 ID 释放占用。识别不了效果的操作在同一个终态事务里标 `effect_unknown`，并发出 `task.tool_effect_unknown`。已消费的服务审批范围在标记效果未知时使同目标的长期授权失效。
+`endTask` 在单个事务内做条件更新，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件。调用方核实全部执行单元退出后才按任务 ID 释放占用；未核实时传入 `keepOccupancy` 与 `occupancyIssueReason`，同一事务保留占用并写 `task.tool_process_unreaped`。原因是 `tool_process_unreaped` 或模式切换的 `mode_switch_unverified`，已知任务结果可以与未核实占用同时存在。识别不了效果的操作在同一个终态事务里标 `effect_unknown`，并发出 `task.tool_effect_unknown`；已知结果不会因退出未核实改成效果未知。已消费的服务审批范围在标记效果未知时使同目标的长期授权失效。
 
 ### 后台崩溃恢复
 
@@ -310,7 +311,7 @@ sequenceDiagram
 **状态与终态。**
 
 - 终态只经 `endTask` 的条件更新写入，只有起点集合包含当前状态才继续；重复终态不产生第二份事实。
-- 占用只在任务运行期持有；终态按任务 ID 释放。停止路径无法核实旧执行单元已退出时保留占用，并显式记 `task.tool_process_unreaped`，由拥有者核实后恢复。
+- 占用通常在任务运行期持有；所有终态路径只有核实执行单元退出才按任务 ID 释放。停止未核实时终态仍保留占用，并显式记 `task.tool_process_unreaped`，由拥有者核实后恢复。
 - 中断原因、取消意图与效果确定性是三个独立事实，任何一个都不能替代另一个。
 - 效果未知的操作不自动重发；效果以停止瞬间为准，中止期间才落下的结果不改结论。审批未消费与只读操作中止都不算效果未知。
 - 审批的 `consumed_at` 即执行开始；获批后的复核失败或消费失败使该批准标 `stale`，不能再用，操作按已知未执行记录。
@@ -331,6 +332,8 @@ sequenceDiagram
 - 本地存储故障保留 `staging` 状态，不伪装成平台拒绝。
 
 ## 设计依据
+
+- [执行单元的停止未核实结果保留到任务收尾](../../.agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)
 
 - [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
 

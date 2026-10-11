@@ -4,7 +4,7 @@ Status: ready-for-agent
 
 **What to build:** 在 macOS 与 Linux 上，以原生沙箱替换 ruukoto-code 的 Docker 受限执行后端，使用宿主工具链，并保留现有文件、网络、凭据、控制面与任务生命周期边界。
 
-**Blocked by:** [27 — 保留工具执行单元停止失败的核实结果](27-preserve-unverified-worker-stop.md)（原生接入前须完成；第一阶段边界探针可独立继续）。两平台的原生边界验证是本工单的第一阶段；按已确认口径验证未通过，不切换默认后端、不降低验收要求。
+**Blocked by:** 无。[27 — 保留工具执行单元停止失败的核实结果](27-preserve-unverified-worker-stop.md) 已完成，共享生命周期可承接原生停止核实结果。两平台的原生边界验证是本工单的第一阶段；按已确认口径验证未通过，不切换默认后端、不降低验收要求。
 
 依据：[产品规格](../spec.md)、[CONTEXT.md](../../../CONTEXT.md)、[ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[ADR 0017](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md) 与 [ADR 0021](../../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)。
 
@@ -245,3 +245,8 @@ profile ruukoto-bwrap /usr/bin/bwrap flags=(unconfined) {
 ### 2026-10-11：制定实施计划
 
 补充四批落地顺序、当前 packages/apps 调用点、产品切换门槛和测试矩阵；将旧探针报告与后续探索评论的证据差异、原生目录身份和固定临时路径纳入实施检查。沿用 2026-10-10 裁定，状态保持 ready-for-agent，本次没有实施原生接入。
+
+
+### 2026-10-11：共享停止生命周期前置完成
+
+[工单 27](27-preserve-unverified-worker-stop.md) 已完成：启动失败、重复停止、任务收尾及 worktree 临时执行保留未核实结果与父目录/副本占用；拥有者核实恢复后可重建执行。解除产品接入的共享生命周期阻塞。本轮模拟失败回归、真实原进程组和 Docker 停止证据不替代本单要求的两平台 native 验收，不切换默认后端。

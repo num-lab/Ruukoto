@@ -206,6 +206,26 @@ test("符号链接组件与控制面/数据目录目标：提出审批前即拒�
   }
 });
 
+test("文件系统别名不能旁路保护范围：虚拟资料的宿主对照成功，执行器拒绝同一对象", () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "protected-alias-")));
+  const protectedDir = path.join(root, "private"); fs.mkdirSync(protectedDir);
+  const source = path.join(protectedDir, "token"); fs.writeFileSync(source, "virtual-token");
+  const linked = path.join(root, "linked-token"); fs.linkSync(source, linked);
+  const stat = fs.statSync(source);
+  const request: FileOpRequest = { path: linked, access: "read", targetDev: stat.dev, targetIno: stat.ino,
+    originalSha256: null, protectedRoots: [source] };
+  try {
+    assert.equal(fs.readFileSync(linked, "utf8"), "virtual-token");
+    assert.equal(executeApprovedFileOp(request).ok, false);
+    const alias = `/System/Volumes/Data${source}`;
+    if (process.platform === "darwin" && fs.existsSync(alias)) {
+      assert.equal(fs.statSync(alias).ino, stat.ino);
+      assert.equal(fs.readFileSync(alias, "utf8"), "virtual-token");
+      assert.equal(executeApprovedFileOp({ ...request, path: alias, protectedRoots: [protectedDir] }).ok, false);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test("执行器级：等待期间目标被替换、内容变化、符号链接与保护目录都失败", async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-fileop-")));
   const protectedDir = path.join(root, "data");

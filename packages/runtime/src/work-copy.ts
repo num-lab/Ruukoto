@@ -1,7 +1,7 @@
 /**
  * SubAgent 修改工作的写入目标：创建、身份复核和副本差异汇总。
  *
- * 该模块只知道工作副本的文件系统与容器执行边界；工作归属、任务状态和
+ * 该模块只知道工作副本的文件系统与受限执行边界；工作归属、任务状态和
  * integrated 事件仍由 SubAgentManager 管理。
  */
 
@@ -114,7 +114,7 @@ export class WorkCopyManager {
     const repoRoot = this.findRepoRoot(real, parentSession.cwdReal);
     if (!repoRoot) {
       if (!this.canWrite(real, stat)) {
-        throw new WorkCopyError("forbidden", `实际执行身份不可写：${raw}（权限位不满足容器/执行账户身份）`);
+        throw new WorkCopyError("forbidden", `实际执行身份不可写：${raw}`);
       }
       return { kind: "direct", path: real, dev: stat.dev, ino: stat.ino };
     }
@@ -125,10 +125,10 @@ export class WorkCopyManager {
       throw new WorkCopyError("forbidden", `共享 Git 目录不在父工作区内：${commonGitDir}（只允许父工作区持有其元数据）`);
     }
     if (!this.canRead(real, stat)) {
-      throw new WorkCopyError("forbidden", `实际执行身份不可读仓库目录：${raw}（权限位不满足容器/执行账户身份）`);
+      throw new WorkCopyError("forbidden", `实际执行身份不可读仓库目录：${raw}`);
     }
     if (!this.canWrite(commonGitDir, fs.statSync(commonGitDir))) {
-      throw new WorkCopyError("forbidden", `实际执行身份不可写共享 Git 目录：${commonGitDir}（权限位不满足容器/执行账户身份）`);
+      throw new WorkCopyError("forbidden", `实际执行身份不可写共享 Git 目录：${commonGitDir}`);
     }
 
     const branch = `ruukoto/work-${workId}`;
@@ -143,7 +143,7 @@ export class WorkCopyManager {
       fs.mkdirSync(copyDir, { mode: 0o700 });
     }
     if (!this.deps.execute) {
-      throw new WorkCopyError("execution_unavailable", "宿主缺少 worktree 容器创建入口（执行边界不可用，不回退）");
+      throw new WorkCopyError("execution_unavailable", "宿主缺少 worktree 受限创建入口（执行边界不可用，不回退）");
     }
     const copyDirReal = fs.realpathSync(copyDir);
     const command =
@@ -160,7 +160,7 @@ export class WorkCopyManager {
     }
     const baseCommit = /[0-9a-f]{40}/.exec(result.content)?.[0];
     if (!baseCommit) {
-      throw new WorkCopyError("worktree_failed", `副本创建失败（路径 ${copyDir}，分支 ${branch}）：无法从容器输出核实基线提交（${result.content.trim() || "(empty)"}）`);
+      throw new WorkCopyError("worktree_failed", `副本创建失败（路径 ${copyDir}，分支 ${branch}）：无法从工作进程输出核实基线提交（${result.content.trim() || "(empty)"}）`);
     }
     let copyStat: fs.Stats;
     try {
@@ -218,28 +218,31 @@ export class WorkCopyManager {
     if (repoRootReal !== target.repoRoot || !grantCoversPath(parentSession.cwdReal, repoRootReal)) {
       throw new WorkCopyError("forbidden", `原工作区仓库根已不在父会话工作区内，无法汇总（路径 ${target.repoRoot}）`);
     }
-    if (!this.deps.execute) throw new WorkCopyError("execution_unavailable", "宿主缺少 worktree 容器入口（执行边界不可用，不回退）");
+    if (!this.deps.execute) throw new WorkCopyError("execution_unavailable", "宿主缺少 worktree 受限入口（执行边界不可用，不回退）");
     const copyDirReal = fs.realpathSync(target.path);
     const repo = repoRootReal;
+    // 临时资料由执行单元回收；退出未核实时随专用 TMPDIR 保留，不能用 EXIT trap 删除。
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
     const command =
       "set -eu\n" +
+      'temp=$(mktemp -d "${TMPDIR:-/tmp}/ruukoto-integrate.XXXXXX")\n' +
       `git -C ${shq(copyDirReal)} -c core.fsmonitor=false -c core.hooksPath=/dev/null add -N --all\n` +
-      `git -C ${shq(copyDirReal)} -c core.fsmonitor=false diff --binary --no-ext-diff -M ${shq(target.baseCommit)} > /tmp/ruukoto-integrate.patch\n` +
-      `git -C ${shq(copyDirReal)} -c core.fsmonitor=false diff --numstat --no-ext-diff -M ${shq(target.baseCommit)} > /tmp/ruukoto-integrate.numstat\n` +
-      `if [ ! -s /tmp/ruukoto-integrate.patch ]; then echo RUUKOTO_STATE=empty; exit 0; fi\n` +
+      `git -C ${shq(copyDirReal)} -c core.fsmonitor=false diff --binary --no-ext-diff -M ${shq(target.baseCommit)} > "$temp/patch"\n` +
+      `git -C ${shq(copyDirReal)} -c core.fsmonitor=false diff --numstat --no-ext-diff -M ${shq(target.baseCommit)} > "$temp/numstat"\n` +
+      `if [ ! -s "$temp/patch" ]; then echo RUUKOTO_STATE=empty; exit 0; fi\n` +
       `head=$(git -C ${shq(repo)} rev-parse HEAD 2>/dev/null | head -n1 || true)\n` +
-      `if git -C ${shq(repo)} apply --check /tmp/ruukoto-integrate.patch 2>/tmp/ruukoto-integrate.err; then\n` +
-      `  git -C ${shq(repo)} apply /tmp/ruukoto-integrate.patch\n` +
+      `if git -C ${shq(repo)} apply --check "$temp/patch" 2>"$temp/err"; then\n` +
+      `  git -C ${shq(repo)} apply "$temp/patch"\n` +
       `  echo RUUKOTO_STATE=applied\n` +
-      `elif git -C ${shq(repo)} apply --check --reverse /tmp/ruukoto-integrate.patch 2>/dev/null; then\n` +
+      `elif git -C ${shq(repo)} apply --check --reverse "$temp/patch" 2>/dev/null; then\n` +
       `  echo RUUKOTO_STATE=already\n` +
       `else\n` +
       `  echo RUUKOTO_STATE=conflict\n` +
-      `  cat /tmp/ruukoto-integrate.err\n` +
+      `  cat "$temp/err"\n` +
       `fi\n` +
       `echo "RUUKOTO_HEAD=$head"\n` +
-      `echo "RUUKOTO_PATCH_BYTES=$(wc -c < /tmp/ruukoto-integrate.patch | tr -d ' ')"\n` +
-      `cat /tmp/ruukoto-integrate.numstat\n`;
+      `echo "RUUKOTO_PATCH_BYTES=$(wc -c < "$temp/patch" | tr -d ' ')"\n` +
+      `cat "$temp/numstat"\n`;
     const extraGrants = worktreeExtraGrants(repo, target.commonGitDir, "worktree 副本汇总的共享 Git 目录（issue 17）");
     const result = await this.deps.execute({ parentTaskId: input.parentTaskId, workId: work.id, operation: "integrate", workspace: repo, copyDir: copyDirReal, branch: target.branch, command, extraGrants });
     if (result.isError) {

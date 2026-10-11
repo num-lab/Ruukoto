@@ -4,7 +4,7 @@ Status: implemented
 
 ## 问题
 
-[工单 27](../../../../.scratch/agent-direction/issues/27-preserve-unverified-worker-stop.md)核实：ready 失败丢弃 stop 结果，重复 stop 因句柄清空返回成功，Driver 清空登记且部分终态先于回收，worktree 临时 worker 没有登记。这些路径把“退出未核实”转换为可释放目录占用，与[工具工作进程](../architecture/2026-09-20-tool-worker-per-task-container.md)既有约定冲突，也使[原生沙箱](../../proposed/architecture/2026-10-10-native-execution-sandbox.md)的 macOS 残留报告失去依据。
+[工单 27](../../../../.scratch/agent-direction/issues/27-preserve-unverified-worker-stop.md)核实：ready 失败丢弃 stop 结果，重复 stop 因句柄清空返回成功，Driver 清空登记且部分终态先于回收，worktree 临时 worker 没有登记。这些路径把“退出未核实”转换为可释放目录占用，与[工具工作进程](../architecture/2026-09-20-tool-worker-per-task-container.md)既有约定冲突，也使[原生沙箱](../../implemented/architecture/2026-10-10-native-execution-sandbox.md)的 macOS 残留报告失去依据。
 
 ## 决定
 
@@ -16,12 +16,12 @@ Driver 聚合全部受管单元的结果，单个失败不阻断其余清理。�
 
 worktree 创建和汇总要求实际发起的父任务仍在执行并持有占用，由它持有临时执行记录；Runtime 将临时记录交给 Driver 现有登记表，`WorkCopyManager` 只传递归属和结果，不承担第二套任务调度。Git 返回成功也必须核实停止后才允许继续依赖该执行的工作；启动前父任务还取得副本占用；核实成功只释放这一副本，失败保留父目录与副本占用及现场，使子任务与其他会话都不能并发改写。occupancy 表原本允许同任务多行，无需迁移；整任务释放以删除至少一行为成功，临时执行只按任务及目录删除自己的占用。临时执行在现有工具操作账本以 `worktree_start` 记录 workId、副本路径与分支，创建尚未登记工作行也能定位；ready 后另记 Git 执行意图与返回结果，启动窗口取消是 Git 未执行，调用已发但缺结果才按效果未知处理。拥有者沿现有核实恢复入口释放遗留占用；同进程恢复时丢弃已结束的旧 Driver，重建宿主记录，只有这次显式核实允许越过缓存的未核实结论。
 
-内置容器与 systemd 停止只接受成功查询得到的明确退出状态，不能把查询错误当作单元已不存在。`killProcessGroup` 核实原进程组，不能只看主 PID。它不证明脱离组的后代退出；平台级后代回收仍归原生沙箱提案，本修复不把 local 提升为隔离后端。
+内置容器与 systemd 停止只接受成功查询得到的明确退出状态，不能把查询错误当作单元已不存在。`killProcessGroup` 核实原进程组，不能只看主 PID。它不证明脱离组的后代退出；平台级后代回收归[原生执行沙箱](../architecture/2026-10-10-native-execution-sandbox.md)，本修复不把 local 提升为隔离后端。
 
 ## 既有笔记审计
 
 - 工具工作进程笔记：部分重叠，保留其后端与占用规则，本篇补停止事实的传递和时序，互链。
-- 原生沙箱提案：部分重叠，本篇提供其所依赖的未核实传播；平台策略、macOS 裁定与真实边界验收仍归原篇，互链。
+- 原生执行沙箱：部分重叠，本篇提供其所依赖的未核实传播；平台策略、macOS 裁定与真实边界验收仍归原篇，互链。
 - 检索命中的 worktree、改动汇总、SubAgent 重启恢复、取消工作、显式访问模式及长期授权笔记：与本篇的停止记录选择无关；既有归属、成果保留、恢复和批准语义作为约束沿用，不取代原决定。
 
 ## 备选方案

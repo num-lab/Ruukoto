@@ -1,0 +1,89 @@
+{
+  "timestamp": "2026-10-11T15:43:10+0900",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "scope": "只测试本轮虚拟只读授权与共享 Git 文件，预先创建同 inode 的 workspace 硬链接。",
+  "candidate_profile": "(version 1)\n(deny default)\n(allow process-exec process-fork sysctl-read)\n(deny sysctl-read (sysctl-name-regex #\"^kern\\.proc.*\"))\n(allow signal (target self) (target same-sandbox))\n(deny process-info*)\n(allow process-info* (target self))\n(allow file-read* (literal \"/\"))\n(allow file-read* file-write* (literal \"/dev/null\"))\n(deny syscall-unix (syscall-number SYS_setsid SYS_setpgid))\n(allow file-read-metadata (literal \"/\"))\n(allow file-read-metadata (literal \"/Applications\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer/Toolchains\"))\n(allow file-read-metadata (literal \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain\"))\n(allow file-read-metadata (literal \"/Library\"))\n(allow file-read-metadata (literal \"/Library/Developer\"))\n(allow file-read-metadata (literal \"/System\"))\n(allow file-read-metadata (literal \"/Users\"))\n(allow file-read-metadata (literal \"/Users/eitrous\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise/installs\"))\n(allow file-read-metadata (literal \"/Users/eitrous/.local/share/mise/installs/node\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification/foundation\"))\n(allow file-read-metadata (literal \"/Users/eitrous/Developer/ruukoto/verification/foundation/scripts\"))\n(allow file-read-metadata (literal \"/dev\"))\n(allow file-read-metadata (literal \"/opt\"))\n(allow file-read-metadata (literal \"/opt/homebrew\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/gettext\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/gettext/1.0\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/git\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/pcre2\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/pcre2/10.47_1\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework\"))\n(allow file-read-metadata (literal \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt/gettext\"))\n(allow file-read-metadata (literal \"/opt/homebrew/opt/pcre2\"))\n(allow file-read-metadata (literal \"/private\"))\n(allow file-read-metadata (literal \"/private/tmp\"))\n(allow file-read-metadata (literal \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w\"))\n(allow file-read-metadata (literal \"/private/var\"))\n(allow file-read-metadata (literal \"/usr\"))\n(allow file-read* (subpath \"/Applications/Xcode.app\"))\n(allow file-read* (subpath \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr\"))\n(allow file-read* (subpath \"/Library/Developer/CommandLineTools\"))\n(allow file-read* (subpath \"/System/Library\"))\n(allow file-read* (subpath \"/Users/eitrous/.local/share/mise/installs/node/24.15.0\"))\n(allow file-read* (subpath \"/Users/eitrous/Developer/ruukoto/verification/foundation/scripts/native-isolation\"))\n(allow file-read* (subpath \"/bin\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/gettext/1.0/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/git/2.54.0\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/pcre2/10.47_1/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14\"))\n(allow file-read* (subpath \"/opt/homebrew/opt/gettext/lib\"))\n(allow file-read* (subpath \"/opt/homebrew/opt/pcre2/lib\"))\n(allow file-read* (subpath \"/private/var/select\"))\n(allow file-read* (subpath \"/usr/bin\"))\n(allow file-read* (subpath \"/usr/lib\"))\n(allow file-read* (subpath \"/usr/share\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/workspace\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/grant-ro\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/grant-rw\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/shared-git\"))\n(allow file-read* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/tmp\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/workspace\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/grant-rw\"))\n(allow file-write* (subpath \"/private/tmp/ruukoto-native-hardlink-_j8zpj_w/tmp\"))\n",
+  "probes": [
+    {
+      "probe": "files.readonly-preexisting-hardlink-write-denied",
+      "pass": false,
+      "unavailable": false,
+      "detail": {
+        "same_identity": true,
+        "identity": {
+          "dev": 16777232,
+          "ino": 65284913,
+          "nlink": 2
+        },
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "control_changed_original": true,
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted_changed_original": true,
+        "explicit_readonly_deny": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "explicit_deny_changed_original": true
+      }
+    },
+    {
+      "probe": "files.shared-git-preexisting-hardlink-write-denied",
+      "pass": false,
+      "unavailable": false,
+      "detail": {
+        "same_identity": true,
+        "identity": {
+          "dev": 16777232,
+          "ino": 65284918,
+          "nlink": 2
+        },
+        "control": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "control_changed_original": true,
+        "restricted": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "restricted_changed_original": true,
+        "explicit_readonly_deny": {
+          "stage": "operation",
+          "started": true,
+          "ok": true,
+          "detail": "操作完成"
+        },
+        "explicit_deny_changed_original": true
+      }
+    }
+  ],
+  "fixture_cleaned": true,
+  "limitations": [
+    "失败只否决按路径开放 workspace 写入的被测 Seatbelt 策略。",
+    "该探针不经过产品授权装配；产品可在启动前拒绝有多重硬链接的可写材料。",
+    "原生主探针的创建硬链接拒绝不能代替本项预存别名写入口。"
+  ],
+  "summary": {
+    "total": 2,
+    "passed": 0,
+    "failed": 2,
+    "unavailable": 0
+  },
+  "status": "failed"
+}

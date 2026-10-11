@@ -3,6 +3,8 @@
  *
  * - local：直接以当前账户 spawn（开发/验证专用，无隔离；生产禁止用于
  *   请求确认/自动审查模式的边界声明）；
+ * - native：macOS Seatbelt + 宿主监督器，Linux bubblewrap + user scope；
+ *   同一 LaunchSpec 提供工作区、授权与只读根，使用宿主工具链与目录身份；
  * - container：按任务建立 Linux 容器（固定镜像、非 root、cap-drop ALL、
  *   no-new-privileges、只读基础文件系统、独立可写 /tmp、默认无网络、
  *   只挂授权工作区与拥有者显式授予的路径，均按宿主原路径挂载，使模型
@@ -11,9 +13,10 @@
  * - systemd：完全访问任务的执行账户启动入口（systemd-run --pipe，固定
  *   UID，KillMode=control-group）。
  *
- * 停止语义：stop() 必须停掉整个执行单元（容器/systemd 单元/进程组）并
- * 核实已退出，调用方据此决定是否释放目录占用。
+ * stop() 只有平台停止入口核实退出才返回 true；macOS 原生轮询无法核实
+ * 后代时返回 false，调用方保留目录占用与单元临时资料。
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  */
 
 import { spawn, execFile, type ChildProcess } from "node:child_process";
@@ -23,10 +26,12 @@ import { fileURLToPath } from "node:url";
 import type { Writable } from "node:stream";
 import type { AccessMode, GrantedPath } from "@ruukoto/core/types.ts";
 import { killProcessGroup, type ManagedEntry } from "../managed-processes.ts";
+import { createNativeLauncher, type NativeLauncherConfig } from "./native.ts";
 
 export class ExecutionError extends Error {
   readonly code: string;
-  constructor(code: string, message: string, readonly unit?: LaunchedUnit) {
+  constructor(code: string, message: string, readonly unit?: LaunchedUnit,
+    readonly reason?: "binary_missing" | "policy_missing" | "sandbox_rejected" | "worker_failed") {
     super(message);
     this.code = code;
   }
@@ -48,25 +53,25 @@ export interface LaunchSpec {
   workspace: string;
   /** 拥有者为该任务显式授予的工作区外路径。 */
   grantedPaths: GrantedPath[];
-  /** 宿主钉定的额外只读根（SubAgent 限定资料范围）：容器按只读挂载；local/systemd 忽略。
+  /** 宿主钉定的额外只读根（SubAgent 限定资料范围）：原生按只读策略，容器按只读挂载；local/systemd 忽略。
    *  dev/ino 是宿主侧目录身份供 worker init 复核；macOS Docker Desktop 经 VM 重新编号
    *  inode，容器侧恒不一致，不下发身份（缺省 dev/ino = 仅按路径复核）。 */
   readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
   /**
-   * 宿主钉定的工作区目录身份（agent-direction issue 16，写入目标的副本）：
-   * worker init 复核 cwd 的 dev/ino；缺省 = 维持旧语义（cwd 即工作区，不另复核）。
+   * 宿主钉定的工作区目录身份；原生启动必须提供，并在 init 与每调用前复核。
+   * 仅 macOS 容器经 VM 重新编号而省略；库层其他启动器缺省时不另复核。
    */
   workspaceIdentity?: { dev: number; ino: number };
   /**
-   * 容器环境聚合包（agent-direction issue 16）：只在 worktree 副本创建与子
-   * 任务挂载副本时由宿主注入（Git safe.directory 等）；其余任务恒为 undefined，
+   * 受限执行的环境聚合包：只在 worktree 副本创建与子任务使用副本时
+   * 由宿主注入（Git safe.directory 等）；其余任务恒为 undefined，
    * env 键不进入 workerKey。
    */
   env?: Record<string, string>;
 }
 
 export interface WorkerLauncher {
-  readonly kind: "local" | "container" | "systemd";
+  readonly kind: "local" | "container" | "systemd" | "native";
   /** 拒绝时尚未产生单元；已产生单元后的拒绝须由 ExecutionError.unit 交出停止身份。 */
   launch(spec: LaunchSpec): Promise<LaunchedUnit>;
 }
@@ -361,9 +366,10 @@ export function createSystemdLauncher(config: SystemdLauncherConfig): WorkerLaun
 }
 
 export interface ExecutionBackendConfig {
-  backend: "local" | "container" | "systemd";
+  backend: "local" | "container" | "systemd" | "native";
   container?: Partial<ContainerLauncherConfig>;
   systemd?: Partial<SystemdLauncherConfig>;
+  native?: NativeLauncherConfig;
 }
 
 export const DEFAULT_CONTAINER_CONFIG: ContainerLauncherConfig = {
@@ -380,6 +386,7 @@ export function createLauncherFor(
   switch (config.backend) {
     case "local":
       return createLocalLauncher();
+    case "native":
     case "container":
       if (mode === "full_access") {
         // 容器后端下完全访问需要执行账户入口：显式配置，或部署环境配置的
@@ -394,7 +401,9 @@ export function createLauncherFor(
         }
         return createSystemdLauncher(systemdConfig);
       }
-      return createContainerLauncher({ ...DEFAULT_CONTAINER_CONFIG, ...config.container });
+      return config.backend === "native"
+        ? createNativeLauncher(config.native ?? {})
+        : createContainerLauncher({ ...DEFAULT_CONTAINER_CONFIG, ...config.container });
     case "systemd":
       if (mode !== "full_access") {
         throw new ExecutionError("invalid_state", "systemd 启动器只用于完全访问模式");

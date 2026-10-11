@@ -4,6 +4,8 @@ Status: implemented
 
 原编号：ADR 0004
 
+部分取代：Coding Agent 选择 native 时的受限后端由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)接管；本篇原决定保留，个人 Agent 容器、共享 worker/协议与完全访问仍由本篇解释。
+
 ## 问题
 
 [显式访问模式](../feature/2026-09-19-explicit-access-modes.md)要求对文件、命令、网络和凭据访问施加技术约束，并要求任何模式下的项目命令都不能冒充拥有者。编码工具 read/edit/write/bash 由模型驱动，能运行自由 Shell 及其子进程。如果工具在后台进程里执行，它就拿着后台的身份：模型凭据、数据库和控制面全都够得着。如果宿主只把上游工具的底层读写换成受限实现，路径解析仍发生在边界外：pi `0.85.1` 包内的 `read` 在调用自定义 `ReadOperations` 之前，会先经 `resolveReadPathAsync()` 调用宿主的 `fs.access`。
@@ -38,22 +40,15 @@ Status: implemented
 
 - **macOS 的受限执行复用同一容器启动器，跑在 Docker Desktop 的 Linux VM 里。** agent-direction issue 03 用产品真实路径（`createContainerLauncher`、`ruukoto-worker:0.85.1` 镜像、宿主 `ToolWorkerHost`）单独验证过这条路径；agent-direction issue 04 起 ruukoto-code 在两个平台上默认使用容器后端。Docker Desktop 有两处语义差异：挂载权限由 VM 代管，容器 uid 1000 写挂载工作区不受宿主权限位约束；inode 经 VM 重新编号，所以 macOS 上 LaunchSpec 不下发工作区与只读根的 dev/ino，工作进程启动时只按路径复核，目录身份由宿主侧的 `taskWorkspaceFor` 复核承担。工作区须位于容器运行时的文件共享范围内（Docker Desktop 默认含 `/Users`、`/private`、`/tmp`）。
 - **macOS 的完全访问没有已部署的执行账户入口。** 它需要本机独立账户加 sudo 固定参数包装，属于拥有者的部署前置，尚未验证；没有入口时完全访问在提交时以 `execution_unavailable` 拒绝。
-- **SubAgent 与 worktree 走同一边界。** 受限 SubAgent 的任务、worktree 副本创建与改动汇总都在受限容器内执行：`Runtime.createWorktreeInContainer` 用一个临时的 confirm 工作进程运行宿主固定的 bash，副本目录读写挂载，共享 Git 目录经额外授予挂载，并注入 Git `safe.directory` 环境。宿主新增的这些能力不给执行账户带来新权限。详见 [SubAgent worktree](2026-10-04-subagent-worktrees.md) 与[汇总 worktree 改动](../feature/2026-10-05-integrate-worktree-results.md)。
+- **SubAgent 与 worktree 共用受限 worker。** `Runtime.executeWorkCopy` 用临时 confirm 工作进程运行宿主固定 bash；container 配置仍在受限容器内，native 配置走[原生后端](2026-10-10-native-execution-sandbox.md)。副本读写、必要共享 Git 范围与 `safe.directory` 环境仍由宿主固定，新增能力不给执行账户带来新权限。详见[SubAgent worktree](2026-10-04-subagent-worktrees.md)与[汇总 worktree 改动](../feature/2026-10-05-integrate-worktree-results.md)。
 
-## 与原生沙箱替换（agent-direction issue 26）的关系
+## 与原生受限后端的关系
 
-ruukoto-code 的受限执行有一个替换目标：macOS 用 Seatbelt / `sandbox-exec`，Linux 用 bubblewrap，直接接入现有 `WorkerLauncher`，复用 `LaunchSpec`、工具工作进程、worker 协议、审批与审计，不另引入跨平台 sandbox runtime。宿主工具链（Node、Git、Python、编译器等）按必要依赖只读开放，不因此默认开放整个拥有者主目录、凭据、后台数据或控制面。替换范围覆盖请求确认、自动审查与 Plan 所用的受限执行，包括主任务、只读与修改 SubAgent、worktree 创建、共享 Git 目录只读访问与改动汇总；宿主不会因为更换后端而直接执行不可信仓库中的 Git 命令。按 issue 26 已确认的规格，原生将是 ruukoto-code 唯一的受限后端：正式入口默认 native，显式的 `container`、`local`（CLI 参数与 `RUUKOTO_EXECUTION_BACKEND`）报错并给出迁移指引，测试仍在库层注入 local。完全访问继续使用专用执行账户。ruukoto 的共享容器、执行账户实现与部署契约不变。
+[原生执行沙箱](2026-10-10-native-execution-sandbox.md)部分取代本篇对 Coding Agent 选择 native 时的后端决定。Seatbelt/bubblewrap 直接接入 WorkerLauncher，复用 LaunchSpec、SDK worker、审批、操作账本和共享停止生命周期；其宿主工具链、真实 dev/ino、物理保护范围、每单元 TMPDIR 和 macOS 未核实后代保留占用由新篇持有。完全访问专用账户与个人 Agent 的 container/systemd 部署保持本篇规则。
 
-**当前实现与目标的差距。** 原生后端没有接入，`src/` 里没有 Seatbelt 或 bubblewrap 启动器，执行后端的合法取值仍是 `local | container`，ruukoto-code 默认仍是 `container`。两平台的完整边界实测通过是接入的前置条件；没通过之前保留当前容器实现，不把原生候选当作已交付，也不回退到 local。issue 26 第一阶段（2026-10-08）只交付了可复跑的探针与证据：
+Coding Agent 正式入口默认且只允许 native，显式 container/local 参数与环境覆盖拒绝并提示迁移；库层测试仍可注入 local。原生两平台真实 SDK worker 与 SubAgent/worktree 的报告、预存硬链接反例和 guard、恢复及共享审批证据分别记在[原生决定](2026-10-10-native-execution-sandbox.md)与[工单 26](../../../../.scratch/agent-direction/issues/26-native-sandbox.md)，不能用平台探针数量替代产品验证。共享停止失败的缓存、传播、终态与恢复归[停止未核实结果保留](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md)，它不把 local 提升为隔离后端。
 
-- **macOS（27.0 / Darwin 27.0.0 / arm64）**：文件规则可用。agent-direction issue 03 曾以「文件规则 0/6 静默未执行」否决 sandbox-exec，依据有误：旧探针用 `/tmp` 字串生成 literal/subpath/regex 规则，真实目录在 `/private/tmp`，规则没匹配到目标。路径规范化后，读写拒绝与两层 Shell 的继承都生效。新探针 56 项：53 通过、3 失败、0 unavailable。失败的是整个执行单元的停止：`(deny syscall-unix (syscall-number SYS_setsid SYS_setpgid))` 能拒绝直接调用，但 `posix_spawn(setpgroup=0)` 与 `posix_spawn(setsid=True)` 仍能建立新的 PGID/SID，原组被 SIGKILL 后逃出的后代仍在写心跳；`kqueue NOTE_TRACK` 实测返回 errno 45（ENOTSUP）。另测的临时 launchd job：`bootout` 返回 0、job 查询返回 113、父 PID 退出，后代心跳仍在增长，所以 job 消失不能证明整个单元已退出。SysV IPC、生命周期启动窗口、父进程异常、模式或授权变化尚未实测，产品接入的验收也没有开始。
-- **Linux（tx，Ubuntu 24.04.4 / 6.8.0-117-generic / x86_64）**：namespace 建立被系统拒绝。系统没有安装 bwrap，探针临时解包 bubblewrap 0.9.0-1ubuntu0.3 运行：完整 bwrap 在探针启动前退出 1（`loopback: Failed RTM_NEWADDR: Operation not permitted`），拆分 user/pid/ipc 在 uid_map 阶段 Permission denied，`unshare -Ur true` 同样被拒；AppArmor 开启，`apparmor_restrict_unprivileged_userns=1`。结果是 2 项对照通过、35 项真实边界全部 unavailable，不能算通过。需要在满足管理员系统策略的环境里（例如正式路径的 bwrap 加专用 AppArmor 许可）重跑；全局关闭 AppArmor 得到的结果不能冒充原有系统保护下的通过。
-- **探针判定**：退出 0 为被测项通过，1 为真实边界失败，2 为不可验证。命令未启动、无效对照与清理失败都不算通过。每个拒绝结论都要有未沙箱的成功对照，并用实际操作的 errno 区分策略解析失败、程序启动失败与真实拒绝。
-- **共享生命周期的停止结论**：工作进程 ready 失败、`starting` 占位、重复停止与 worktree 临时执行均保留退出未核实结果，所有任务收尾据此保留占用；`killProcessGroup` 核实原进程组，不覆盖脱离组后代。停止记录与任务收尾的决定见[停止未核实结果保留](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md)，该修复不改变本篇的后端选择，模拟回归与同组进程验证不能作为原生边界的证据。
-
-接入前必须先满足：macOS 提供并实测完整的后代回收机制；Linux 在允许完整 namespace 的环境跑完真实边界。之后才能做无 Docker 的 read/edit/write/bash、SubAgent/worktree/汇总、审批单次消费、启动取消、授权变化重建与后台恢复验收。停止的验收要用实际运行对照和持续心跳证明后代已停止，不能只看 worker 主 PID 消失、父进程退出或某个 kill 调用成功；无法核实时保留目录占用，不自动重放效果未知的操作。原生进程的宿主身份与文件系统语义要重新核实，不能套用 Docker Desktop 的 VM 权限与 inode 假设。两平台通过后，ruukoto-code 的后端选择另写新笔记接管，本篇的容器部分只对 ruukoto 继续成立。
-
-公开 Agent 项目的原生沙箱对照（Codex、Claude Code `sandbox-runtime`、Gemini CLI）见 [native-agent-comparison](../../../../.scratch/agent-direction/native-agent-comparison.md)：没有找到可以直接照搬、并已证明能停止脱离进程组后代的 macOS 方案；Linux 的 PID namespace 在 init 退出时由内核杀死其余进程，是更强的候选，但前提是全部后代都留在该 namespace 内，且停止路径确实让 init 退出。完整结果、缺项与复跑步骤见 [agent-direction issue 26](../../../../.scratch/agent-direction/issues/26-native-sandbox.md)；探针与报告在 [native-isolation](../../../../verification/foundation/scripts/native-isolation/README.md)、[native-macos-report](../../../../verification/foundation/results/native-macos-report.md)、[native-macos-launchd](../../../../verification/foundation/results/native-macos-launchd.md)、[native-linux-report](../../../../verification/foundation/results/native-linux-report.md)。
+原生选择保留两类防误判依据：Seatbelt 的规则按真实路径生成，/tmp 字串不能代替 /private/tmp；Ubuntu userns 的 profile 按正式 bwrap 路径匹配，临时解包的二进制缺许可不能算平台不支持。原失败记录与更正在[macOS 文件/生命周期报告](../../../../verification/foundation/results/native-macos-report.md)、[launchd 报告](../../../../verification/foundation/results/native-macos-launchd.md)、[Linux 启动报告](../../../../verification/foundation/results/native-linux-report.md)；公开实现比较在[原生 Agent 对照](../../../../.scratch/agent-direction/native-agent-comparison.md)。这些历史证据不覆盖后端接入后的产品验收。
 
 ## 备选方案
 
@@ -66,20 +61,20 @@ ruukoto-code 的受限执行有一个替换目标：macOS 用 Seatbelt / `sandbo
 - **单次 HTTP 授权时给 Shell 临时联网或注入通用凭据** — 批准后现有脚本和命令行工具（curl 等）无需改写就能直接用。不选，是因为批准一个请求就会给脚本开放整台主机的网络，只限目标域名或端口也保证不了同一服务上没有发生其他写操作；改为由受信执行器发出固定方法、目标、头部和正文的单次请求，暂时表达不了的需求明确返回限制，由拥有者选择合适的工具或显式完全访问。（见 personal-agent issue 03 实施计划 §4）
 - **被边界拦下后在更高权限下自动重试整个脚本** — 模型不用再拆出一个具体的审批操作，任务少一次中断。不选，是因为脚本失败前可能已经改了工作区或产生了其他副作用，整段重放会重复这些效果；被阻止的访问向模型返回明确错误，由模型提出新的、具体的审批操作。（见 personal-agent issue 03 实施计划 §4）
 - **容器把工作区挂到 `/workspace`，在系统提示或路由层翻译路径** — 容器内的布局固定，不依赖宿主路径。不选：系统提示改报 `/workspace` 会让提示随访问模式变化、缓存失效，历史里的路径前后不一致，授予路径仍然看不见；在路由层翻译又翻译不了 bash 命令里的路径。改为按宿主原路径挂载。（见 [personal-agent issue 28](../../../../.scratch/personal-agent/issues/28-container-same-path-mount.md)「已确认范围」）
-- **用 Landlock、bubblewrap、systemd 沙箱、Gondolin micro-VM、OpenShell 或 Docker Sandboxes 等机制代替容器** — 不依赖容器运行时，更贴近宿主。2026-09-19 不选，是因为这些机制都没验证过，容器方案已经满足已知要求；当时定下的规则是先不做多后端抽象，目标服务器不支持容器时再评估。ruukoto-code 后来选定 Seatbelt 与 bubblewrap 作为替换目标，但尚未通过验证门槛，见上节。（见阶段 0 基础验证结论「未验证项」第 3 条与「选定方案」）
-- **macOS 受限执行改用内置 `sandbox-exec`，不依赖 Docker Desktop** — 系统自带，不需要容器运行时，能直接使用宿主工具链。2026-10-02 不选，依据是文件规则看似静默失效；这条依据已更正为路径别名导致的探针错误。目前仍不接入，是因为脱离进程组的后代无法回收，整个执行单元的停止没有证明，见上节。（见 agent-direction issue 03 判定结论第 2 条及 2026-10-08 更正，agent-direction issue 26）
+- **用 Landlock、bubblewrap、systemd 沙箱、Gondolin micro-VM、OpenShell 或 Docker Sandboxes 等机制代替容器** — 不依赖容器运行时，更贴近宿主。2026-09-19 不选，是因为这些机制都没验证过，容器方案已经满足已知要求；当时定下的规则是先不做多后端抽象，目标服务器不支持容器时再评估。Coding Agent 的 Seatbelt/bubblewrap 接入与保留的验证范围由[原生决定](2026-10-10-native-execution-sandbox.md)接管，个人 Agent 的容器选择仍成立。（见阶段 0 基础验证结论「未验证项」第 3 条与「选定方案」）
+- **macOS 受限执行改用内置 `sandbox-exec`，不依赖 Docker Desktop** — 系统自带，不需要容器运行时，能直接使用宿主工具链。2026-10-02 不选，依据是文件规则看似静默失效；这条依据已更正为路径别名导致的探针错误。该否决依据不再用于原生选择；非特权后代核实的窄残留与占用保留由[原生决定](2026-10-10-native-execution-sandbox.md)接管。（见 agent-direction issue 03 判定结论第 2 条及 2026-10-08 更正，agent-direction issue 26）
 
 ## 后果
 
 - **收益**：路径解析与自由 Shell 全部落在执行边界内，受限任务够不着后台的模型凭据、数据库和控制面。容器按任务建立，后续任务不会继承前一个任务的挂载、环境、残留进程或一次性批准。完全访问任务拿不到控制面身份，不能冒充拥有者。批准只能消费一次，执行参数在批准后不能更换。执行环境缺失时明确失败，拥有者不会误以为任务受限。
-- **代价**：要维护一条有界的进程间消息协议，正文捕获也要放在工作进程侧完成。宿主工具只能顺序执行，同一轮的工具调用不能并行。每个受限任务都要启动并回收一个容器；开发机和服务器都依赖容器运行时与可信构建的 `ruukoto-worker` 镜像，macOS 上还依赖 Docker Desktop 的 VM。部署要维护三个系统身份、受保护的提权入口和按工作区配置的 ACL。完全访问不提供执行账户内部的文件隔离，该账户可读的文件都可能被任务读取。
-- **已知上限**：macOS 完全访问的执行账户入口尚未部署和验证。停止结论的缓存与传播不替代后端的真实回收核实，原生后代回收仍须按平台验收。`local` 后端没有隔离。Docker Desktop 的挂载权限与 inode 语义和原生 Linux 不同，macOS 上的目录身份复核只按路径进行。
-- **何时重访**：issue 26 在两个平台都通过完整边界实测后，ruukoto-code 的受限后端改为原生，由[原生执行沙箱](../../proposed/architecture/2026-10-10-native-execution-sandbox.md)接管这部分决定。目标服务器不支持容器时，重新评估 Linux 的隔离机制。
+- **代价**：要维护一条有界的进程间消息协议，正文捕获也要放在工作进程侧完成。宿主工具只能顺序执行，同一轮的工具调用不能并行。选择 container 的受限任务要启动并回收容器，依赖容器运行时与可信构建的 `ruukoto-worker` 镜像，macOS container 还依赖 Docker Desktop VM。部署要维护三个系统身份、受保护的提权入口和按工作区配置的 ACL。完全访问不提供执行账户内部的文件隔离，该账户可读的文件都可能被任务读取。
+- **已知上限**：macOS 完全访问的执行账户入口尚未部署和验证。停止结论的缓存与传播不替代后端的真实回收核实；native 的已知残留和验证范围归原生决定。`local` 后端没有隔离。Docker Desktop 的挂载权限与 inode 语义和原生 Linux 不同，macOS 上的目录身份复核只按路径进行。
+- **何时重访**：Coding Agent 的 native 后端已由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)部分接管，其正式入口默认 native 并拒绝旧覆盖；目标个人服务器不支持容器时，重新评估其 Linux 隔离机制。
 
 ## 验证
 
 - `test/07-real-tools.test.ts`：真实工具完成「读取—修改—检查失败—修复—检查通过」，正文捕获为产物；断开客户端后任务继续；工作进程启动窗口内的中断同样回收执行单元；执行入口不可用时明确失败，不回退到后台账户执行。
 - `test/08-approvals.test.ts`：越界文件读写与单次 HTTP 请求批准后只执行一次；符号链接、等待期间目标被替换、内容变化与保护目录都失败；重定向不自动跟随，凭据不转发到其他地址；重复消费、权限版本变化、任务结束后的消费都被拒绝；DNS 在批准时固定。
-- `test/10-access-modes.test.ts`：容器后端下完全访问只有两个包装脚本变量都设置时才得到 `systemd` 启动器，只设一个时以 `execution_unavailable` 失败。`test/73-desktop-execution.test.ts`：ruukoto-code 默认容器后端，完全访问缺执行账户入口时在执行前拒绝。
+- `test/10-access-modes.test.ts`：容器后端下完全访问只有两个包装脚本变量都设置时才得到 `systemd` 启动器，只设一个时以 `execution_unavailable` 失败。`test/73-desktop-execution.test.ts`：Coding Agent 默认 native 并拒绝旧配置，完全访问缺执行账户入口时在执行前拒绝；容器/systemd 的共享启动与停止仍按库层配置核实。
 - 真实容器边界：`verification/foundation` 的 `npm run linux:probes`（报告 `results/linux-isolation-report.md` 与 `-tx.md`）和 `verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`，覆盖网络拒绝、宿主路径不可见、非 root、只读根、capabilities 清零、按宿主原路径挂载，以及逃逸孙进程在停止后心跳冻结、容器被移除。这些只能在真实容器引擎上证明，模型打桩或 local 测试替代不了。
 - 完全访问身份：tx 实测见 personal-agent issue 23 的 Comments，任务以 `ruukoto-exec` 运行，读取拥有者令牌返回 `Permission denied`。

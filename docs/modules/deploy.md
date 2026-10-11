@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-本篇负责 `ruukoto` 在目标 Linux 服务器上的部署形态：三个系统身份的分工、`ruukoto-backend.service` 单元、受保护的提权入口、固定工具工作进程镜像的构建，以及服务器服务管理的 helper、策略文件与执行侧行为。它同时说明两个产品各自的安装与升级方式。
+本篇负责两个产品的部署：`ruukoto-code` 的原生沙箱、宿主工具链与按需后台前置；`ruukoto` 的三个系统身份、后台单元、受保护提权入口、固定工具镜像和服务管理 helper。两端独立安装、停止与升级。
 
 **三个系统身份**把「谁持有什么」固定下来，控制面身份与执行权限由此分离：
 
@@ -22,12 +22,16 @@
 
 不负责的部分点名归属：安装、配置与故障排查的操作步骤归 [deploy/systemd/README.md](../../deploy/systemd/README.md) 与 [usage](../usage.md)，本篇只写设计并链过去；工具工作进程、容器参数、受管执行单元与回收核实归 [execution](execution.md)；长期授权（`standing_permissions`）的创建、范围、行级版本与失效语义归 [agent-tools](agent-tools.md)，本篇只写消费它的 helper、策略与执行侧；IM 命令的文本解析与回执归 [channels](channels.md)。
 
+**Coding Agent 原生前置**。正式入口默认且只接受 `native`，显式 container/local 参数或环境覆盖被拒并提示迁移；原生执行使用宿主 Node、Git、Python 与编译器，`npm run build` 构建 worker，并在 macOS 用系统 clang 构建 `worker/native-macos-supervisor`。只读提供 SDK 和必要运行依赖，每单元独立 HOME/TMPDIR，不需要工具镜像。macOS 需要可用的 `sandbox-exec` 与 libproc 身份/原子信号能力；Linux 需要正式 `/usr/bin/bwrap`、允许 userns 的系统策略、cgroup v2 和可委派的 user scope。安装与检查步骤见 [deploy/native/README.md](../../deploy/native/README.md)，启动器不安装依赖、不调整系统策略。
+
 ## 对外接口
 
 部署材料：
 
 | 材料 | 作用 |
 |---|---|
+| `deploy/native/README.md`、`ruukoto-bwrap` | Linux 原生 namespace、AppArmor 与 user scope 前置的安装、核实和移除 |
+| `scripts/build-native.mjs`、`worker/native-macos-supervisor` | macOS 宿主监督器的条件构建与运行产物；其他平台不编译该辅助程序 |
 | `deploy/systemd/README.md` | 安装步骤与目标机验证记录（操作步骤的唯一落点） |
 | `deploy/systemd/ruukoto-backend.service` | 后台单元；环境与重启策略在此 |
 | `deploy/systemd/ruukoto-exec-launch.sh`、`ruukoto-exec-stop.sh` | 完全访问执行入口的受保护包装（root 0700，固定参数） |
@@ -176,7 +180,7 @@ sequenceDiagram
 
 效果未知另使同一目标的有效长期授权失效（授权语义见 [agent-tools](agent-tools.md)）。账本规则：`service_inspect` 记 `no_effect`、`service_manage` 记 `approval`。
 
-**两个产品的安装与升级**。`ruukoto-backend.service` 只承载个人 Agent `ruukoto`。Coding Agent `ruukoto-code` 装在开发机器上：同一仓库检出加 `apps/ruukoto-code/bin/ruukoto-code.mjs` 入口（`npm link` 或直接把 bin 目录加入 PATH），默认档案根 `~/.ruukoto-code`；首次打开 TUI 即按需拉起本机后台，无需预置服务单元。两端各自的安装与升级（替换检出后按产品 `stop` / `server` 重启）互不要求对方同时升级或停止；按需拉起的后台在升级替换检出后同样经 `ruukoto-code stop` 停下，下次打开 TUI 自动以新代码拉起。
+**两个产品的安装与升级**。`ruukoto-backend.service` 只承载个人 Agent。Coding Agent 在开发机检出仓库、安装依赖并构建，使用 `apps/ruukoto-code/bin/ruukoto-code.mjs`（`npm link` 或把 bin 加入 PATH），档案为 `~/.ruukoto-code`；首次打开 TUI 按需拉起后台，无需预置服务单元。原生的主任务、SubAgent、worktree 创建与汇总共用已核实的边界，宿主不直接运行仓库 Git。升级先停旧后台及执行单元，再替换检出、重建并移除旧 container/local 参数与环境覆盖，重开入口；保留会话、工作副本、产物、审批与异常占用，不在线替换活动任务环境。两个产品不要求同时升级或停止，个人产品保留其 container/systemd 配置。
 
 ## 不变量与失败处理
 
@@ -202,6 +206,8 @@ sequenceDiagram
 
 | 失败 | 处理 |
 |---|---|
+| 原生二进制、AppArmor/user scope、libproc 能力或策略不可用 | `execution_unavailable` 携带缺二进制、缺策略、策略拒绝或 worker 失败原因，不回退到容器、local 或后台自由执行 |
+| 原生停止无法核实 | 保留执行身份、目录占用和每单元临时资料；已有结果保留，效果未知不重放，拥有者核实后恢复 |
 | 缺 Linux、systemd、helper 或 sudo 权限 | 明确失败，不降级到后台自由执行 |
 | helper 拒绝（策略不可读或非法、本机不符、单元非法或被固定拒绝、目标不在白名单、动作不允许、操作 ID 非法、修订形态非法、已认领、认领失败、启动前收到停止标记、修订不符、别名、`NeedDaemonReload=yes`、systemd 不可用或查询失败、单元定义来源不可读） | 应答 `ok:false` 且 `launched:false`，宿主记已知未执行（批准已消费，重新操作需要新审批） |
 | `systemd-run` spawn 只有可证明命令根本未启动（`ENOENT`、`EACCES`、`ENOTDIR`） | 报未派发，宿主记已知未执行 |
@@ -216,6 +222,8 @@ sequenceDiagram
 后台单元以 `KillMode=control-group` 终止子进程树，`TimeoutStopSec=30` 给受管停止有界时间；崩溃重启不重放效果未知的操作，异常中断保留中断任务的占用。
 
 ## 设计依据
+
+- [Coding Agent 的原生执行沙箱](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：宿主工具链、平台前置、默认选择与 macOS 残留的取舍。
 
 - [工具执行放进边界内的工作进程，受限任务按任务建容器，完全访问用专用执行账户](../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：解释三个系统身份为什么分开、完全访问为什么用专用执行账户、固定镜像为何由可信身份构建、缺失配置为何明确失败而不降级。
 - [服务管理经过 root 拥有的固定 helper](../../.agents/notes/implemented/architecture/2026-10-03-service-management-helper.md)：解释白名单、固定协议、修订绑定、单次认领与效果未知不重放的取舍，以及这个 root 分支为什么在完全访问下仍逐次审批。

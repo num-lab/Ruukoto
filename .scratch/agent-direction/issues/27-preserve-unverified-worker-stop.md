@@ -6,7 +6,7 @@ Status: resolved
 
 **Blocked by:** 无。本单完成共享生命周期修复，已解除工单 26 原生接入的前置阻塞。下面保留修复前核实的分支；真实停止失败的 OS 单元尚未复现，不把静态核查或模拟失败作为原生边界证据。
 
-依据：[工单 26](26-native-sandbox.md)、[ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[ADR 0021](../../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)、[原生执行沙箱的已确认方案](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)。
+依据：[工单 26](26-native-sandbox.md)、[ADR 0004](../../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[ADR 0021](../../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)、[原生执行沙箱的已确认方案](../../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)。
 
 ## 修复前已核实代码路径
 

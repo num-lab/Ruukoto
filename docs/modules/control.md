@@ -50,7 +50,7 @@
 
 **握手。** `connect` 的 `since` 可选，是非负整数游标；返回 `{seq, replay, snapshot}`。快照读取与订阅注册在同一个同步段内完成，保证快照序号 `seq` 与实时推送之间无缺口；`replay` 是 `(since, seq]` 的补发事件，fresh connect（不带 `since`）为空。补发不推给监听者，由调用方先安装快照再按序应用。
 
-`seq` 是快照截止的事件序号，`snapshot.instanceId` 是数据实例的稳定标识（新数据库分配新标识），`snapshot.execution` 是执行后端与说明（`local` 无隔离必须显式展示），`snapshot.defaultModel` 是后台启动默认模型。快照有界：全部活动任务加上每个会话最近结束的 20 条任务（更早的经 `list_tasks` 分页）、`pending` 状态的审批请求（参数为有界预览）、活动任务的产物、活动与中断任务的最新输出预览（缺失片段如实为空）。快照另带 `roleSessionIds`、`subAgentSessionIds`、`workDelegations` 与 `subAgents`。
+`seq` 是快照截止的事件序号，`snapshot.instanceId` 是数据实例的稳定标识（新数据库分配新标识），`snapshot.execution` 是后台实际配置的执行后端与说明（Coding Agent 默认 native，`local` 无隔离必须显式展示），`snapshot.defaultModel` 是后台启动默认模型。快照有界：全部活动任务加上每个会话最近结束的 20 条任务（更早的经 `list_tasks` 分页）、`pending` 状态的审批请求（参数为有界预览）、活动任务的产物、活动与中断任务的最新输出预览（缺失片段如实为空）。快照另带 `roleSessionIds`、`subAgentSessionIds`、`workDelegations` 与 `subAgents`。
 
 **事件流。** 持久事件与状态变化在同一事务写入事件表，提交成功后才广播，回滚的事务不产生事件。事件体带单调递增的 `seq`，客户端按 `seq` 去重。慢客户端或断开很久的客户端不由服务端在内存里积压事件，重连时凭游标补发，补发不了就重取快照。事件携带消息 ID、正文段序号、UTF-8 字节偏移与段开始时间，接收端按偏移拼接完整正文；消息完成后仍以会话历史为准，事件投影不替代历史。
 

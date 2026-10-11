@@ -519,19 +519,20 @@ export class Runtime {
   }
 
   launcherFor(mode: AccessMode) {
-    return createLauncherFor(this.config.execution ?? { backend: "local" }, mode);
+    const config = this.config.execution ?? { backend: "local" as const };
+    return createLauncherFor(config.backend === "native" ? {
+      ...config,
+      native: { ...config.native, protectedRoots: [...this.protectedRoots(), ...(config.native?.protectedRoots ?? [])] },
+    } : config, mode);
   }
 
   /**
-   * 修改委派 worktree 的容器内创建与改动汇总（issue 16/17 取舍的受控入口）：
-   * 用受限确认容器在仓库 cwd 里执行宿主固定的 bash（创建：rev-parse → worktree
-   * add；汇总：add -N → diff → apply --check → apply），副本目录作读写挂载，
-   * extraGrants 挂载 workspace 装不下的共享 Git 目录。Grant 的挂载由 worker
-   * 前端容器自己决定（env 注入情况与跨容器边界下 physical mount 可见性由边界
-   * 自己承载，宿主不替它承诺）。
+   * 在受限 worker 内创建与汇总 worktree，执行宿主固定 Git 命令。
+   * 副本与必要共享 Git 目录按操作授予；停止未核实时保留结果与目录占用。
    * Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
+   * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
    */
-  async createWorktreeInContainer(input: Parameters<WorkCopyExecutor>[0]): ReturnType<WorkCopyExecutor> {
+  async executeWorkCopy(input: Parameters<WorkCopyExecutor>[0]): ReturnType<WorkCopyExecutor> {
     const { ToolWorkerHost } = await import("@ruukoto/agent/tool-worker/host.ts");
     const parent = this.store.getTask(input.parentTaskId);
     const driver = parent ? this.drivers.get(parent.sessionId) : null;
@@ -546,17 +547,20 @@ export class Runtime {
       }
     };
     assertParent();
+    const launcher = this.launcherFor("confirm");
+    const workspaceStat = fs.statSync(input.workspace);
     const spec = {
       taskId: `${input.parentTaskId}-${randomId("wt")}`,
       mode: "confirm" as AccessMode,
       workspace: input.workspace,
+      workspaceIdentity: process.platform === "darwin" && launcher.kind === "container"
+        ? undefined : { dev: workspaceStat.dev, ino: workspaceStat.ino },
       grantedPaths: [
         { path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本创建或汇总" },
         ...(input.extraGrants ?? []),
       ],
       env: GIT_SAFE_DIRECTORY_ENV,
     };
-    const launcher = this.launcherFor("confirm");
     const copyReal = fs.realpathSync(input.copyDir);
     const copyStat = fs.statSync(copyReal);
     const acquired = this.store.withTx(() => this.store.tryAcquireOccupancy({
@@ -758,7 +762,7 @@ export class Runtime {
           gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
         };
       },
-      execute: fullConfig.workCopyExecutor ?? ((input) => runtime.createWorktreeInContainer(input)),
+      execute: fullConfig.workCopyExecutor ?? ((input) => runtime.executeWorkCopy(input)),
     });
     runtime.subagents = new SubAgentManager({
       store: runtime.store,
@@ -3006,7 +3010,9 @@ export class Runtime {
         ? "local 执行后端：无隔离，仅用于开发/验证；不得据此声明请求确认模式的执行边界"
         : backend === "container"
           ? "container 执行后端：请求确认任务在 Linux 容器边界内执行"
-          : "systemd 执行账户入口：完全访问任务以固定执行 UID 运行";
+          : backend === "native"
+            ? "native 执行后端：受限任务在操作系统原生沙箱内执行，完全访问仍需专用执行账户入口"
+            : "systemd 执行账户入口：完全访问任务以固定执行 UID 运行";
     return { backend, note };
   }
 

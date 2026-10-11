@@ -1,6 +1,6 @@
 /**
- * 两个独立门禁：显式模型配置的容器编码/TUI 退出后继续，或 mock 模型的双产品升级。
- * --upgrade-only 使用 SMOKE24_BASE（默认 60fa19e）；无 Git 历史时显式提供 SMOKE24_BASE_TAR。
+ * 两个独立门禁：显式模型配置的原生编码/TUI 退出后继续，或 mock 模型的双产品升级。
+ * --upgrade-only 使用 SMOKE24_BASE（默认 5e84daa）；无 Git 历史时显式提供 SMOKE24_BASE_TAR。
  * 模型配置只复制指定 provider/model；不连接真实 IM，不读取日常实例数据库。
  * 升级部分使用模拟模型，后台进程、独立安装、控制面和持久历史均为真实。
  */
@@ -13,10 +13,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { probeLockHolder } from "@ruukoto/core/instance-lock.ts";
+import { PROTOCOL_VERSION } from "@ruukoto/core/types.ts";
 import { saveDefaultModel } from "@ruukoto/agent/model-config.ts";
 import { authenticateClient, taskStatus, waitFor, writeModelsJson } from "../../test/helpers/testkit.ts";
 import { MockModelServer } from "../../test/helpers/mock-provider.ts";
-import { prerequisite, requireDocker } from "./gate.ts";
+import { prerequisite } from "./gate.ts";
 
 const repo = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const usage = "用法：--upgrade-only | --models <models.json> --model <provider/model>；--help 查看前提";
@@ -29,13 +30,12 @@ try {
   prerequisite(`参数无效：${(err as Error).message}\n${usage}`);
 }
 if (options.help) {
-  console.log(`${usage}\n升级：需要 npm、tar，以及包含 ruukoto/ruukoto-code 的 Git 基点或显式 archive；默认基点 60fa19e。\n模型：需要 Docker/worker 镜像、Python 3 pty，以及显式配置的 provider/model；会调用真实模型，可能产生费用。\n两个入口各自使用临时档案，不读取日常数据库或自动发现凭据。退出码：0 通过，1 失败，2 前提缺失。`);
+  console.log(`${usage}\n升级：需要 npm、tar，以及包含 ruukoto/ruukoto-code 且控制面协议相同的 Git 基点或显式 archive；默认基点 5e84daa。\n模型：需要构建后的原生执行入口、Python 3 pty，以及显式配置的 provider/model；会调用真实模型，可能产生费用。\n两个入口各自使用临时档案，不读取日常数据库或自动发现凭据。退出码：0 通过，1 失败，2 前提缺失。`);
   process.exit(0);
 }
 if (options["upgrade-only"] && (options.models || options.model)) prerequisite(`--upgrade-only 不能与模型参数同用\n${usage}`);
-const base = process.env.SMOKE24_BASE ?? "60fa19e";
+const base = process.env.SMOKE24_BASE ?? "5e84daa";
 const baseTar = process.env.SMOKE24_BASE_TAR;
-const image = process.env.RUUKOTO_WORKER_IMAGE ?? "ruukoto-worker:latest";
 let providerId = "", modelId = "", provider: any;
 if (options["upgrade-only"]) {
   try {
@@ -66,7 +66,6 @@ if (options["upgrade-only"]) {
   if (!provider || !Array.isArray(provider.models) || !provider.models.some((m: any) => m?.id === modelId)) {
     prerequisite(`指定配置中没有模型 ${options.model}`);
   }
-  requireDocker(image);
   try { execFileSync("python3", ["-c", "import pty"], { stdio: "ignore", timeout: 15_000 }); }
   catch { prerequisite("真实模型 TUI 验收需要 Python 3 与 pty 模块"); }
 }
@@ -86,9 +85,7 @@ function profile(name: string, product: "ruukoto" | "ruukoto-code") {
   controls.set(controlDir, path.join(dataDir, "runtime.lock"));
   const prefix = product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_CODE";
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, TERM: "xterm-256color",
-    RUUKOTO_WORKER_IMAGE: image,
-    RUUKOTO_CONTAINER_UID: process.env.RUUKOTO_CONTAINER_UID ?? String(process.platform === "darwin" ? 1000 : process.getuid!()),
-    RUUKOTO_CONTAINER_GID: process.env.RUUKOTO_CONTAINER_GID ?? String(process.platform === "darwin" ? 1000 : process.getgid!()),
+    XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS,
     RUUKOTO_DISABLE_QQ: "1", RUUKOTO_DISABLE_TELEGRAM: "1",
     [`${prefix}_DATA_DIR`]: dataDir, [`${prefix}_AGENT_DIR`]: agentDir,
     [`${prefix}_CONTROL_DIR`]: controlDir, [`${prefix}_PENDING_DIR`]: path.join(dir, "pending") };
@@ -112,9 +109,10 @@ async function connect(p: Profile): Promise<ControlClient> {
   clients.push(client!);
   return client!;
 }
-function launch(tree: string, p: Profile): ChildProcess {
+function launch(tree: string, p: Profile, legacy = false): ChildProcess {
   const entry = JSON.parse(fs.readFileSync(path.join(tree, "package.json"), "utf8")).bin[p.product];
-  const child = spawn(process.execPath, [path.join(tree, entry), "server", "--execution", "local", "--thinking", "off"],
+  const execution = p.product === "ruukoto-code" && !legacy ? "native" : "local";
+  const child = spawn(process.execPath, [path.join(tree, entry), "server", "--execution", execution, "--thinking", "off"],
     { cwd: tree, env: p.env, stdio: ["ignore", "ignore", "pipe"], detached: true });
   children.push(child);
   child.stderr!.on("data", () => {});
@@ -190,7 +188,7 @@ try {
     const reconnected = await connect(p);
     assert.equal((await taskStatus(reconnected, task.id)).task.status, "completed");
     await stop(reconnected, p);
-    pass(`真实 ${providerId}/${modelId} 在容器内修复并通过检查，TUI 退出后继续、重连查到 ${detail.artifacts.length} 项产物`);
+    pass(`真实 ${providerId}/${modelId} 在原生沙箱内修复并通过检查，TUI 退出后继续、重连查到 ${detail.artifacts.length} 项产物`);
   } else {
   const endpoint = await model.start();
   const personal = profile("p", "ruukoto"), coding = profile("d", "ruukoto-code");
@@ -201,12 +199,17 @@ try {
     if (baseTar) fs.copyFileSync(baseTar, archive);
     else run("git", ["archive", base, "-o", archive]);
     run("tar", ["-xf", archive, "-C", tree]);
+    const typesFile = ["packages/core/src/types.ts", "src/core/types.ts"].map(file => path.join(tree, file)).find(file => fs.existsSync(file));
+    if (!typesFile || Number(fs.readFileSync(typesFile, "utf8").match(/export const PROTOCOL_VERSION = (\d+)/)?.[1]) !== PROTOCOL_VERSION) {
+      failureCode = 2;
+      throw new Error(`升级基点的控制面协议与当前客户端不兼容；请指定协议 ${PROTOCOL_VERSION} 的 SMOKE24_BASE 或 archive`);
+    }
     run("npm", ["ci", "--no-audit", "--no-fund", "--prefer-offline"], tree);
   }
   await writeModelsJson(personal, endpoint);
   await writeModelsJson(coding, endpoint);
-  const oldPersonal = launch(trees[0]!, personal);
-  launch(trees[1]!, coding);
+  const oldPersonal = launch(trees[0]!, personal, true);
+  launch(trees[1]!, coding, true);
   let pClient = await connect(personal), dClient = await connect(coding);
   const pSnapshot = (await pClient.handshake()).snapshot, dSnapshot = (await dClient.handshake()).snapshot;
   assert.notEqual(pSnapshot.instanceId, dSnapshot.instanceId);
@@ -233,6 +236,7 @@ try {
     for (const name of ["packages", "apps", "scripts"]) fs.cpSync(path.join(repo, name), path.join(tree, name), { recursive: true, filter: (source) => path.basename(source) !== "node_modules" });
     for (const name of ["package.json", "package-lock.json", "tsconfig.json", "tsconfig.base.json"]) fs.copyFileSync(path.join(repo, name), path.join(tree, name));
     run("npm", ["ci", "--no-audit", "--no-fund", "--prefer-offline"], tree);
+    run("npm", ["run", "build"], tree);
     const updated = launch(tree, p);
     const next = await connect(p);
     if (index === 0) dClient = next; else pClient = next;

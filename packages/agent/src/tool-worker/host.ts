@@ -7,6 +7,7 @@
  * Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
  */
 
+import * as fs from "node:fs";
 import {
   MAX_FRAME_BYTES,
   type DataStream,
@@ -19,6 +20,7 @@ import {
   type LaunchedUnit,
   type WorkerLauncher,
 } from "../execution/launchers.ts";
+import { assertNativeFileLinks } from "../execution/native.ts";
 
 export interface WorkerCallOptions {
   opId: string;
@@ -42,7 +44,8 @@ export interface WorkerCallResult {
 /** 兼容静态启动入口：失败仍交出持有停止结论的宿主记录。 */
 export class WorkerStartError extends ExecutionError {
   constructor(readonly host: ToolWorkerHost, readonly cause: unknown) {
-    super(cause instanceof ExecutionError ? cause.code : "worker_start_failed", cause instanceof Error ? cause.message : String(cause));
+    super(cause instanceof ExecutionError ? cause.code : "worker_start_failed", cause instanceof Error ? cause.message : String(cause),
+      undefined, cause instanceof ExecutionError ? cause.reason : undefined);
   }
 }
 
@@ -59,6 +62,7 @@ export class ToolWorkerHost {
   private readyListeners: Array<(msg: WorkerMessage) => void> = [];
   private rejectReady: ((error: ExecutionError) => void) | null = null;
   private stopped = false;
+  private nativeGrantIdentities: Array<{ path: string; dev: number; ino: number }> = [];
   private writeChain: Promise<void> = Promise.resolve();
   stopFailure: ExecutionError | null = null;
   readonly mode: LaunchSpec["mode"];
@@ -91,6 +95,16 @@ export class ToolWorkerHost {
   private async startUnit(): Promise<ToolWorkerHost> {
     if (this.stopped) throw new ExecutionError("worker_stopped", "工具工作进程已停止");
     try {
+      if (this.launcher.kind === "native") {
+        try {
+          this.nativeGrantIdentities = this.spec.grantedPaths.map(grant => {
+            const stat = fs.statSync(fs.realpathSync(grant.path));
+            return { path: grant.path, dev: stat.dev, ino: stat.ino };
+          });
+        } catch {
+          throw new ExecutionError("execution_unavailable", "原生执行的授权路径身份不可核实；检查目录后重新提交", undefined, "sandbox_rejected");
+        }
+      }
       try {
         this.launchPromise = this.launcher.launch(this.spec);
         this.unit = await this.launchPromise;
@@ -136,6 +150,10 @@ export class ToolWorkerHost {
       return this;
     } catch (error) {
       await this.stop();
+      if (this.launcher.kind === "native" && error instanceof ExecutionError &&
+          ["worker_timeout", "worker_fatal", "worker_exited", "worker_channel_failed"].includes(error.code)) {
+        throw new ExecutionError("execution_unavailable", "原生边界已启动，但工具工作进程初始化失败；检查运行依赖与构建产物", this.unit ?? undefined, "worker_failed");
+      }
       throw error;
     }
   }
@@ -231,6 +249,24 @@ export class ToolWorkerHost {
     await this.start();
     if (this.stopped) throw new ExecutionError("worker_stopped", "工具工作进程已停止");
     if (opts.signal?.aborted) throw new ExecutionError("tool_aborted", "工具调用已中止");
+    if (this.launcher.kind === "native") {
+      try {
+        const roots = [{ path: this.spec.workspace, ...this.spec.workspaceIdentity }, ...(this.spec.readRoots ?? []), ...this.nativeGrantIdentities];
+        for (const root of roots) {
+          if (root.dev === undefined || root.ino === undefined) continue;
+          const stat = fs.statSync(fs.realpathSync(root.path));
+          if (stat.dev !== root.dev || stat.ino !== root.ino) throw new Error("目录身份变化");
+        }
+        assertNativeFileLinks([
+          { path: this.spec.workspace, access: "read_write" },
+          ...this.spec.grantedPaths,
+          ...(this.spec.readRoots ?? []).map(root => ({ path: root.path, access: "read" as const })),
+        ]);
+      } catch {
+        await this.stop();
+        throw new ExecutionError("execution_unavailable", "原生执行的授权目录身份或文件别名已变化，旧单元已请求停止；核实目录后重新提交", undefined, "sandbox_rejected");
+      }
+    }
     return new Promise<WorkerCallResult>((resolve, reject) => {
       const timer = opts.timeoutMs
         ? setTimeout(() => {

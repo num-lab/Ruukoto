@@ -28,7 +28,7 @@
         <code class="src" data-src="packages/runtime/src/orchestrator.ts#export class Orchestrator">runtime/orchestrator.ts</code>
         <code class="src" data-src="packages/runtime/src/runtime.ts#runtime.orchestrator = new Orchestrator">runtime/runtime.ts</code>
         <code class="src" data-src="packages/agent/src/delegation-tools.ts#createDelegationTools">agent/delegation-tools.ts</code>
-        <code class="src" data-src="apps/ruukoto/src/chat-result-tools.ts#createChatResultTools">agent/chat-result-tools.ts</code>
+        <code class="src" data-src="packages/channels/src/chat-result-tools.ts#createChatResultTools">channels/chat-result-tools.ts</code>
         <code class="src" data-src="packages/channels/src/github/events.ts#export class GitHubEvents">github/events.ts</code>
         <code class="src" data-src="packages/agent/src/tool-availability.ts#SESSION_TOOL_CATEGORIES">agent/tool-availability.ts</code>
         <code class="src" data-src="packages/core/src/access.ts#canAccess(accessor">core/access.ts</code>
@@ -799,11 +799,11 @@
     </div>
 
     <ul>
-      <li><b>能接收什么</b>：<code class="src" data-src="apps/ruukoto/src/chat-result-tools.ts#function sourceOf">chat-result-tools.ts · sourceOf</code> 只放行归档中已完成且已记录结果的 chat 任务，并核对会话类别为 qq_group、收件记录、群绑定、入站事件（done、目标 chat、actor 与收件一致）彼此对应。两个工具都只在宿主绑定的 main 任务里可用。</li>
-      <li><b>快照</b>：接收保存 result_summary 的前 <code class="src" data-src="apps/ruukoto/src/chat-result-tools.ts#SUMMARY_CHARS">SUMMARY_CHARS</code> = 1000 个 Unicode 字符、来源任务、接收任务、宿主操作 ID 与理由（1–1024 字节）。（main 项目，任务）为主键，首次快照固定，重复接收不改写，只有首次写入发 <code>chat_result.accepted</code>（<code class="src" data-src="packages/core/src/store.ts#acceptChatResult">store.ts · acceptChatResult</code>）。列表每页 1–50 条，默认 20（<code class="src" data-src="apps/ruukoto/src/chat-result-tools.ts#params.limit ?? 20">chat_result_list</code>）。</li>
+      <li><b>能接收什么</b>：<code class="src" data-src="packages/channels/src/chat-result-tools.ts#function sourceOf">chat-result-tools.ts · sourceOf</code> 只放行归档中已完成且已记录结果的 chat 任务，并核对会话类别为 qq_group、收件记录、群绑定、入站事件（done、目标 chat、actor 与收件一致）彼此对应。两个工具都只在宿主绑定的 main 任务里可用。</li>
+      <li><b>快照</b>：接收保存 result_summary 的前 <code class="src" data-src="packages/channels/src/chat-result-tools.ts#SUMMARY_CHARS">SUMMARY_CHARS</code> = 1000 个 Unicode 字符、来源任务、接收任务、宿主操作 ID 与理由（1–1024 字节）。（main 项目，任务）为主键，首次快照固定，重复接收不改写，只有首次写入发 <code>chat_result.accepted</code>（<code class="src" data-src="packages/core/src/store.ts#acceptChatResult">store.ts · acceptChatResult</code>）。列表每页 1–50 条，默认 20（<code class="src" data-src="packages/channels/src/chat-result-tools.ts#params.limit ?? 20">chat_result_list</code>）。</li>
       <li><b>撤回使摘要失效</b>：该群任何一条在任务结束前收到、并在任务开始后（或时间未记）被撤回的消息，都会让这次结果不可接收，已接收的快照也不能再被解析或外发。这是按时间窗的保守判定，可能拒掉其实没引用被撤回消息的摘要。退役后撤回仍打标记（见<a href="inbound-events.html#sources">入站事件</a>），这项复核继续生效；撤回事件只在 NapCat 连接期间观察到，缺口如实记录（见<a href="inbound-events.html#sources">qq.receive_gap</a>）。已经进入 main 历史或已发送的副本不追溯清除。</li>
-      <li><b>接收不是外发授权</b>：通知与通知计划引用快照时经 <code class="src" data-src="apps/ruukoto/src/chat-result-tools.ts#resolveAcceptedChatResult">resolveAcceptedChatResult</code> 核对 main 项目与撤回，登记仍要拥有者审批（<a href="outbox.html">通知 outbox</a>）。快照也不开放原始群历史、产物或带群来源的记忆，<code>subagent_delegate</code> 不能把它当委派资料。</li>
-      <li><b>停止或重启时</b>：未落结果的 <code>chat_result_accept</code> 按接收账本核实（<code class="src" data-src="apps/ruukoto/src/chat-result-tools.ts#chatResultOpCheck">chatResultOpCheck</code>），不记效果未知。</li>
+      <li><b>接收不是外发授权</b>：通知与通知计划引用快照时经 <code class="src" data-src="packages/channels/src/chat-result-tools.ts#resolveAcceptedChatResult">resolveAcceptedChatResult</code> 核对 main 项目与撤回，登记仍要拥有者审批（<a href="outbox.html">通知 outbox</a>）。快照也不开放原始群历史、产物或带群来源的记忆，<code>subagent_delegate</code> 不能把它当委派资料。</li>
+      <li><b>停止或重启时</b>：未落结果的 <code>chat_result_accept</code> 按接收账本核实（<code class="src" data-src="packages/channels/src/chat-result-tools.ts#chatResultOpCheck">chatResultOpCheck</code>），不记效果未知。</li>
     </ul>
   </section>
 

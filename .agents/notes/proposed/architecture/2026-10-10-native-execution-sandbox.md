@@ -15,6 +15,8 @@ ruukoto-code 的受限执行当前是按任务建立的 Docker 容器（见[工�
 
 ## 方案
 
+产品接入以[停止未核实结果保留](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md)落地为前置：原生启动器提供平台核实结果，共享生命周期负责让启动失败、临时 worker 和任务收尾保留该结果。平台边界探针可先独立进行。
+
 **Linux 用 bubblewrap，把 AppArmor profile 列为部署前置。** 受限工作进程经 `bwrap --unshare-all --die-with-parent` 启动，宿主工具链以只读 bind 提供，不开放拥有者主目录。`--unshare-all` 同时给出文件、网络、PID 与 IPC 边界，`--die-with-parent` 加 PID namespace 拆除承担整个执行单元的回收。`systemd-run --user --scope` 的 `cgroup.kill` 作为第二道回收，覆盖 bwrap 自身异常退出后的残留。
 
 部署前置两项，缺一即 `execution_unavailable`，不降级：`/usr/bin/bwrap` 存在，且加载了授予 `userns` 的 profile。包内不含该 profile，需单独安装：

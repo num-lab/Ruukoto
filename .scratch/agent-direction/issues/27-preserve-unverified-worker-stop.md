@@ -30,6 +30,45 @@ Status: ready-for-agent
 - [ ] 用可控启动器覆盖未创建单元的启动失败、ready 失败后停止成功/返回 false/抛错、并发与重复停止、临时 worker 的启动取消和后台停止；断言最终占用与可见状态，区分模拟回归与真实容器/systemd/native 停止证据，未知效果不自动重放。
 - [ ] 同步运行说明与图解中关于停止核实的表述；原生停止仍须通过工单 26 按已确认口径开展的两平台实测。
 
+## 实施计划（2026-10-11）
+
+本单先于 26 的产品接入交付，28 不依赖本单。按以下三批实施；每批先补能暴露原问题的定向用例，再修改对应路径。停止结果的归属与被否方案见[停止未核实结果保留](../../../.agents/notes/proposed/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)。
+
+### 1. 一个执行单元保留一份启动与停止结果
+
+- 在 `packages/agent/src/tool-worker/host.ts` 中让启动记录覆盖 launch、ready、init 与 stop；保留单元身份，合并并发 stop，重复调用返回同一核实结果。ready/init 失败也走同一清理入口。未创建单元可证明无需回收；创建后 stop 返回 false 或抛错必须保留未核实事实与原启动原因。
+- 在 `packages/agent/src/tool-router.ts` 的 `ensureWorker`、`stopWorker`、`prepareToolBoundary` 中使用该记录。starting 登记不能以 Promise rejected 推断成功，也不能在启动中的取消之后安装迟到的 ready worker。每次启动使用独立登记身份，避免同任务重建覆盖尚未核实的记录。
+- 核查 `packages/agent/src/execution/launchers.ts` 的每个 `launch`：拒绝返回前若已产生进程，必须交出可停止身份或保留清理失败；不能把 spawn 后失败伪装为“没有单元”。继续使用 `ExecutionError` 的 code，消息仅用于解释。
+- 修正 `packages/agent/src/managed-processes.ts` 的 `killProcessGroup`：查整个原进程组，主 PID 先退出仍须对剩余成员完成 TERM/KILL 与核实；权限或查询失败按未核实。真实同组后代测试验证心跳停止。脱离进程组的回收仍由 26 的平台机制承担，不扩大 local 的隔离承诺。同步其两个调用方：local launcher 与 `mock-tools.ts`。
+
+交付条件：可控 launcher 覆盖未创建单元失败、ready/init 失败、停止成功/false/异常、并发与重复 stop、启动中取消，证明失败不会因句柄清空变成 true；真实进程测试证明主进程消失不提前结束组回收。
+
+### 2. 所有任务收尾消费同一核实结果
+
+- 修改 `packages/agent/src/driver.ts` 的 `killManagedProcesses`：一个 stop 抛错不能跳过其他单元；聚合 false/异常，保留未核实记录，不能无条件 `registry.clear()`。同任务的并发收尾复用结果，不因下一次列表为空返回成功。
+- 逐一接入自然完成、`sdk.prompt` 抛错、prompt 前已取消、`requestStop` 和模式切换失败。当前自然完成忽略回收返回值，prompt 异常还会先 `finalize` 再回收，须调整为核实后再决定占用。执行结果、工具效果与退出核实分别保留，不把已知成功工具改成未知，也不把已开始但缺结果的写操作重放。
+- `Store.endTask` 已提供 `keepOccupancy`、`occupancyIssueReason` 与 `task.tool_process_unreaped`，优先复用；终态与事件同事务。收尾未核实不得释放目录或唤醒同目录执行；模式/授予变化不得提交新执行环境。同步 `Runtime.switchTaskMode` 的直接停止路径，避免 Driver 与 Runtime 各自覆盖结果。
+- 验证重连快照、占用查询和后台重启后仍能看到未核实原因；恢复沿用拥有者核实后的 `resume-queue`，不新增自动重试或自动释放入口。
+
+交付条件：任务自然完成、失败、取消及模式切换竞争中，false/异常均留下持久事件和占用；同目录第二会话不能开跑，成功回收才按原规则释放，终态事件不重复。
+
+### 3. worktree 临时执行纳入父任务生命周期
+
+- 沿 `packages/runtime/src/subagents.ts` → `work-copy.ts` → Runtime 执行回调传递实际发起的父任务身份，创建和汇总均如此；`WorkCopyExecutor` 与相关测试注入同步调整。不能只靠 `worktree-init-*` 合成 ID 关联取消。
+- 在 `Runtime.createWorktreeInContainer` 启动之前登记可取消记录，实际单元产生后更新身份，复用第 1 批的启动/停止规则。受管登记经 Runtime 注入现有 Driver registry，保持 runtime → agent 的依赖方向，不让 agent 反向 import Runtime。
+- 将已收到的 Git 结果与 finally 的停止结论分开处理。停止未核实时保留父目录占用、工作副本与已知结果，以带 code 的错误上报；不能返回创建/汇总成功后继续委派、建立替代环境或重放 Git。创建尚未登记工作行时也要能按父任务及执行记录定位现场。
+- 覆盖创建与汇总的 ready 前取消、调用中取消、后台停止、结果已返回但 stop 失败，以及模式变化；核实受影响目录受现有占用与工作状态保护，不能只断言 registry 调用了 stop。
+
+交付条件：临时 worker 的失败与普通 worker 走到相同的可见终态和占用恢复规则；工作副本及成果保留。完成后解除 26 的接入阻塞。
+
+### 验证与文档交付
+
+新增 `test/100-worker-stop.test.ts` 集中覆盖可控 launcher 与真实同组进程回收；在 `test/94-task-ending.test.ts` 补收尾竞争与占用，在 `test/83-subagent-worktrees.test.ts`、`test/84-subagent-integrate.test.ts`、`test/95-work-copy.test.ts` 补临时执行归属。测试编号仅用于落点，不与 26、28 共用新文件。
+
+最小回归分两组执行：`npx tsx --test test/100-worker-stop.test.ts test/01-concurrency.test.ts test/04-crash-recovery.test.ts test/10-access-modes.test.ts test/94-task-ending.test.ts`；`npx tsx --test test/83-subagent-worktrees.test.ts test/84-subagent-integrate.test.ts test/86-subagent-recovery.test.ts test/95-work-copy.test.ts test/91-release-acceptance.test.ts`。收尾跑 `npm run check:static`；真实容器/systemd 回归按实际可用环境另记证据，不把注入 stop(false) 写成 OS 回收失败复现。
+
+实现时同步 `docs/modules/execution.md`、`docs/modules/runtime.md`、`docs/modules/core.md` 中实际变化的停止与占用事实，以及 `docs/usage.md` 的核实恢复步骤；核对 `docs/visual/deployment.html` 的既有表述。将提案转为 implemented，在承载决定的入口添加笔记锚点。本轮只落计划，不改运行文档，不勾选验收。
+
 ## Comments
 
 ### 2026-10-08：登记静态核查发现
@@ -39,3 +78,7 @@ Status: ready-for-agent
 ### 2026-10-11：分拣为 ready-for-agent
 
 拥有者要求先将本单升为 ready-for-agent。复核上方四条代码路径仍成立；按既有停止与占用契约补清实施范围、失败上报归属和模拟回归要求，无需等待原生接入。方案 (a) 依赖停止未核实的结果完整传递，因此同步将本单登记为工单 26 原生接入前置；原生探针可独立继续。本次只更新工单，未实施修复，验收项保持未勾选。
+
+### 2026-10-11：制定实施计划
+
+按当前 workspace 包结构补充三批计划、调用方与测试落点。复核发现 Driver 的自然完成、prompt 异常和登记清理也会丢失停止结论，纳入同一修复；没有增加新的执行后端或恢复权限。状态保持 ready-for-agent。

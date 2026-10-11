@@ -46,6 +46,59 @@ ruukoto-code 当前默认使用 container。工具 worker 承载 read/edit/write
 - [ ] 修正旧探针，并在旧工单与运行文档中追加更正依据，保留历史记录；明确修订 ADR 0004 的 ruukoto-code 后端选择，更新 ADR 0017/0021 的相关实现说明及 docs/visual 图解。
 - [ ] 完成与变更相匹配的自动化测试、类型检查和仓库规定检查；真实边界证据与模型打桩或 local 测试分别记录。两平台通过前不得宣称原生替换已完成。
 
+## 实施计划（2026-10-11）
+
+顺序为“补齐可复跑证据 → 原生启动器 → 全部调用点 → 产品默认与交付”。第一批可先做；第二批开始接入前，[27](27-preserve-unverified-worker-stop.md)必须完成。28 的会话分支不构成依赖。实现依据沿用[原生执行沙箱提案](../../../.agents/notes/proposed/architecture/2026-10-10-native-execution-sandbox.md)，不重开已确认的后端与 macOS 回收取舍。
+
+### 1. 将探索结论变成接入前的可复跑检查
+
+- 复用 `verification/foundation/scripts/native-isolation/`，把 2026-10-10 的 Linux 正式路径/profile 对照及 macOS 回收裁定纳入脚本和报告。旧报告保留其当次结果；不能把评论中的探索通过直接改写成既有全套脚本通过。
+- Linux 在 `ssh tx` 的隔离验证目录检查 `/usr/bin/bwrap`、AppArmor profile、完整 namespace 和 user systemd/cgroup 回收条件；缺项记录为不可用并列安全部署步骤，不关闭整机 userns 限制。管理员配置属于显式部署步骤，不由任务启动器自动修改。按原生提案验证 PID namespace 主回收与 user scope/cgroup 第二道回收。
+- macOS 补任务存活期的进程树累积与身份核实，覆盖普通后台进程、忽略信号、`node detached`、直接 setsid、`posix_spawn` 两类属性、短命中间进程与 PID 复用。记录每种结果是“已停止”还是“未核实且占用保留”；集合空不等于证明没有漏记，观察中断或无法排除的漏记不能记为成功。
+- 补现有报告缺少的 SysV IPC、启动窗口、后台异常、模式/授予变化；对每个拒绝保留未沙箱成功对照和沙箱 started 标记。把已接受的 macOS 窄残留作为有明确报告的独立结果，不把它伪装为 STOPPED，也不继续要求拥有者已豁免的完整回收。
+
+交付条件：两平台有当前脚本、环境说明及逐项结果；Linux 证明脱离组后代停止，macOS 证明可核实范围的回收及不可核实时的保留/报告路径。文件、网络或控制面隔离失败仍阻断接入。
+
+### 2. 在现有 WorkerLauncher 下实现两种原生启动器
+
+- 扩展 `packages/agent/src/execution/launchers.ts` 的 backend 与 launcher 类型，平台实现放在同目录的专用文件；复用 `LaunchSpec`、`LaunchedUnit`、worker 协议与 27 的受管生命周期。只为 native 增加必要字段，不引入跨平台 sandbox runtime 或第二套审批。
+- Seatbelt 从规范化后的 workspace、grants、readRoots 和必要宿主运行依赖生成策略；bubblewrap 按同一输入生成只读/读写 bind、网络/PID/IPC namespace。保护根、嵌套授予、符号链接和不存在的写目标父目录都在实际执行前校验，不能靠路径文本相等代替身份核实。
+- 复用 `npm run build:worker` 的产物，核实其实际外部依赖，只读开放 worker 与必要运行库；PATH 中工具的真实位置逐项纳入可用性检查。不得为启动 Node、tsx 或宿主工具链开放整个仓库、HOME 或控制数据根。任务使用独立 HOME/TMPDIR，环境白名单和继承 FD 明确限定，禁止继承控制令牌、代理、SSH agent 或凭据变量。
+- 启动失败统一 `ExecutionError`：对外 `execution_unavailable`，原因区分二进制缺失、策略配置缺失、策略/namespace 启动拒绝与 worker 失败；依据能力探测和退出阶段，不依赖任意 stderr 文案判断。未启动或停止未核实不回退。
+- 原生停止使用第一批验证过的机制并返回真实核实结果；27 负责向上保留。native 的 full_access 分支继续走既有专用执行账户；缺执行入口拒绝，不以拥有者身份补位。
+
+交付条件：通过库层显式 native 注入运行真实 worker，read/edit/write/bash 与拒绝路径可验证；正式产品默认尚不切换。
+
+### 3. 接齐普通任务、SubAgent 与临时 Git 执行
+
+- `packages/agent/src/tool-router.ts` 的目录身份下发按实际后端决定；`inodeOpaque` 只保留给 macOS Docker Desktop，不再对所有 darwin 进程跳过 dev/ino。runtime 的目录预检、`executionInfo` 和 `WorkCopyManager` 执行身份同步识别 native。
+- 沿 `packages/runtime/src/runtime.ts`、`subagents.ts`、`work-copy.ts` 的普通任务、只读/修改 SubAgent、创建和汇总路径接入；将仅指执行角色的 `createWorktreeInContainer` 名称改为与后端无关的名称，调用方一起更新。继续在 worker 内执行 Git，子任务共享 Git 目录只读，创建/汇总仅授予宿主固定操作必需的写范围。
+- 当前汇总脚本使用固定 `/tmp/ruukoto-integrate.*`，在容器内有独立文件系统，在 native 下会碰撞或读到其他任务材料。改为执行单元专用临时目录并验证并行任务互不可见，停止未核实时保留相关现场；不能直接照搬共享 `/tmp`。
+- 运行现有请求确认、自动审查、Plan 与批准单次消费链；覆盖启动取消、授权增加/收窄、模式切换、后台停止/异常恢复。旧单元未核实时禁止新建替代环境，已消费但效果未知的操作不重放。
+
+交付条件：在 Docker 不可用的环境完成主任务修改和检查、只读委派、两个独立修改副本、创建及汇总；被拒读写/网络操作确实未生效，目录身份变化和回收失败均保留预期状态。
+
+### 4. 切换产品入口、交付部署与回归
+
+- 由 `apps/ruukoto-code/src/product.ts` 声明默认 native 和正式入口合法选择，经 `packages/tui/src/cli.ts`、`dev.ts` 与 `packages/control/src/ensure-backend.ts` 传递。共享包按产品能力接线，不新增按产品名分支。参数和 `RUUKOTO_EXECUTION_BACKEND` 显式 container/local 报迁移指引，隐式默认、`npm run code`、按需后台与握手展示保持一致。
+- 保留 ruukoto 的 container/systemd、`npm run dev` 和库层 local 测试注入。核对导出的配置类型、产品声明、测试 fixtures、演示数据与构建路径；已有后端字段可承载 native 时不为展示单独新增协议。
+- 在 `deploy/` 提供 bwrap/profile 的最小安装、检查及移除说明；不修改在线个人 Agent。升级要求先停旧后台，恢复既有任务/占用，不在线替换活动执行环境。两平台的第 2、3 批证据通过后才把默认切换作为交付内容。
+- 更新 `README.md`、`docs/development.md`、`docs/usage.md`、`docs/modules/execution.md`、`docs/modules/runtime.md` 和受影响的 `docs/visual/deployment.html`。原生笔记转 implemented，原容器笔记保留 ruukoto 的决定并互链，产品与 worktree 笔记只同步实际变化的事实。
+
+### 验证清单
+
+新增 `test/101-native-execution.test.ts`，覆盖策略输入、配置分流、缺能力拒绝、环境/FD 和生命周期接线；OS 边界由上述原生脚本与真实 worker smoke 证明，二者分开计数。按依赖选择回归：
+
+| 批次 | 最小检查 |
+| --- | --- |
+| 启动器及身份 | `npx tsx --test test/101-native-execution.test.ts test/100-worker-stop.test.ts test/10-access-modes.test.ts test/73-desktop-execution.test.ts` |
+| 工具、审批和 Plan | `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/22-auto-review.test.ts test/58-plan-mode.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts` |
+| 副本、汇总和恢复 | `npx tsx --test test/83-subagent-worktrees.test.ts test/84-subagent-integrate.test.ts test/86-subagent-recovery.test.ts test/95-work-copy.test.ts test/91-release-acceptance.test.ts` |
+| 产品入口 | `npx tsx --test test/32-dev.test.ts test/71-product-entry.test.ts test/72-on-demand-backend.test.ts` |
+| 交付 | `npm run build`、`npm run check:static`、`npm run test:foundation`，加两平台原生脚本及无 Docker 的真实产品 smoke |
+
+已有真实容器 smoke 用于确认 ruukoto 未回归，不替代 native 证据；没有完全访问部署前提时如实登记不可用。本轮不运行平台探针、不改变系统配置和默认后端，验收项保持未勾选。
+
 ## Comments
 
 ### 2026-10-08：规格访谈
@@ -188,3 +241,7 @@ profile ruukoto-bwrap /usr/bin/bwrap flags=(unconfined) {
 ### 2026-10-11：停止核实修复作为原生接入前置
 
 拥有者要求先将[工单 27](27-preserve-unverified-worker-stop.md)升为 ready-for-agent。方案 (a) 的占用保留与报告依赖共享生命周期保留停止未核实结果，故上方阻塞关系登记 27；先完成该修复再接入原生后端，第一阶段边界探针可独立继续。
+
+### 2026-10-11：制定实施计划
+
+补充四批落地顺序、当前 packages/apps 调用点、产品切换门槛和测试矩阵；将旧探针报告与后续探索评论的证据差异、原生目录身份和固定临时路径纳入实施检查。沿用 2026-10-10 裁定，状态保持 ready-for-agent，本次没有实施原生接入。

@@ -175,6 +175,7 @@ export async function branchSession(deps: BranchSessionDeps, input: { sessionId:
         const messages = snapshot.entries.filter(e => e.type === "message").map(e => e.message);
         const cp = deps.store.getActiveCheckpoint(snapshotSource.id);
         const ids = new Set(snapshot.entries.map(entry => entry.id));
+        // 手动来源标识随点复制；操作回执与取消资格只属于原实例、原会话。
         const checkpoint = cp && Number.isSafeInteger(cp.summarizedCount) && Number.isSafeInteger(cp.clearedCount) && cp.summarizedCount >= 0 && cp.summarizedCount <= cp.clearedCount && cp.clearedCount <= messages.length &&
           Object.values(cp.clearedRefs).every(id => id === null || ids.has(id)) && cp.fingerprint === checkpointFingerprint(messages, cp.clearedCount)
           ? { ...cp, id: randomId("ckpt"), sessionId: session.id } : null;

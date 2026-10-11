@@ -39,6 +39,9 @@ export interface TuiOps {
   get_session_todos: { params: { session_id: string }; result: R<"getSessionTodos"> };
   branch_session: { params: { session_id: string; name?: string; request_id: string }; result: R<"branchSession"> };
   find_branch_session: { params: { request_id: string }; result: R<"findBranchSession"> };
+  compact_session: { params: { session_id: string; request_id: string; prompt?: string }; result: R<"compactSession"> };
+  get_session_compaction: { params: { session_id: string; request_id?: string }; result: R<"getSessionCompaction"> };
+  interrupt_session_compaction: { params: { session_id: string; request_id: string }; result: R<"interruptSessionCompaction"> };
   get_session_usage: { params: { session_id: string }; result: R<"getSessionUsage"> };
   get_session: { params: { session_id: string }; result: R<"getSession"> };
   /** project_id 按原身份查询；workspace_id 按组织归属查询（issue 07）；两参互斥。 */

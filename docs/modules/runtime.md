@@ -111,6 +111,10 @@ stateDiagram-v2
 
 ### 提交、排队与执行
 
+手动压缩由 `compactSession` 接收、`getSessionCompaction` 查询、`interruptSessionCompaction` 取消，只开放产品声明了 `manualCompaction` 的普通开发会话。接收在首次异步等待前持久登记并占住会话，拒绝已有排队、运行、等待确认或正在启动的任务；提交与继续在最终入队事务内重检，队列启动同样参与占用判断。摘要不取得工作目录执行锁，不创建普通任务、Driver、工作委托或工具 worker。
+
+每次接收固定会话模型与摘要配置，严格只读历史并保存文件身份、字节范围、指纹和预期旧点。后台独立执行摘要，成功在同一事务核实来源及旧点、替换压缩点、保存回执和完成事件；取消先提交则不发布新点，成功先提交则取消返回原成功。摘要 provider 纳入配置应用的使用中检查。模型等待结束后释放会话占用；停止先中止并等待摘要再关库，启动恢复把遗留在途记录定为中断，不重发。
+
 1. 入口按会话身份放行或拒绝（SubAgent 拒绝、计划模式只限普通开发会话、归档按原因拒绝）。
 2. 提交先按 `(session, request_id)` 幂等查重：同键同参重放返回原任务，同键异参报 `request_conflict`；重试先核实原请求，不换键重复提交。模式与范围参与幂等比较。
 3. 登记 `queued` 任务并写 `task.queued` 事件；新消息持久化为任务后按会话 FIFO 调度，不使用易失的 SDK follow-up 队列。
@@ -300,6 +304,8 @@ sequenceDiagram
 **恢复需要人工介入。** 后台重启后任务不自动完成：中断的任务由拥有者 `continue`，暂停的队列由 `resume-queue` 恢复，结果不明的操作由拥有者核实；拉起与重连都不构成重新执行授权。宿主固定评审的排队任务是唯一自动恢复的委派队列。
 
 ## 设计依据
+
+- [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 
 - [执行单元的停止未核实结果保留到任务收尾](../../.agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)
 

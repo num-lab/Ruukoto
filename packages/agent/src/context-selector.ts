@@ -30,6 +30,7 @@
  */
 
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { MemoryWithContent } from "@ruukoto/core/memory.ts";
 import type { SelectionRecord, WindowSnapshot } from "@ruukoto/core/types.ts";
 
@@ -578,7 +579,7 @@ function evictionMarker(count: number, first: unknown, last: unknown): any {
  */
 function createViewer(
   messages: any[],
-  config: SelectorBudgetConfig,
+  config: HistoryViewBudget,
   clear: { from: number; to: number; sessionId: string; refs: Record<string, string | null> } | null,
 ) {
   const cache = new Map<number, any>();
@@ -803,6 +804,55 @@ export interface CompactionPlan {
   estimateBefore: number;
   /** 只做第一层（S 不动）时的估算。 */
   layerOneEstimate: number;
+}
+
+export interface ManualCompactionPlan {
+  summarizedCount: number;
+  clearedCount: number;
+  estimateBefore: number;
+  messages: AgentMessage[];
+}
+
+export type HistoryViewBudget = Pick<SelectorBudgetConfig, "calibration" | "toolResultViewChars">;
+
+/** 已完成历史的估算，不包含下一任务的输入、工具定义或参考块。 */
+export function estimateCompletedHistory(
+  messages: AgentMessage[], config: HistoryViewBudget, sessionId: string, checkpoint: CheckpointInput | null,
+): number {
+  const from = checkpoint?.summarizedCount ?? 0;
+  const dropped = new Set(unpairedToolRecords(messages).map(record => record.index));
+  const viewer = createViewer(messages, config, checkpoint ? { from, to: checkpoint.clearedCount, sessionId, refs: checkpoint.clearedRefs } : null);
+  const summary = checkpoint ? summaryBlock(checkpoint) : null;
+  let estimate = summary ? estimateMessageTokens(summary, config.calibration) : 0;
+  for (let index = from; index < messages.length; index++) if (!dropped.has(index)) estimate += viewer.tokensOf(index);
+  return estimate;
+}
+
+/** 手动压缩保留最后完整 assistant 批次及其后尾部，不把最后 user 轮次当作当前任务。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md
+ */
+export function planManualCompaction(opts: {
+  messages: AgentMessage[];
+  checkpoint: CheckpointInput | null;
+  sessionId: string;
+  budget: HistoryViewBudget;
+  prompt?: string;
+}): ManualCompactionPlan | null {
+  const { messages, checkpoint, sessionId, budget } = opts;
+  const dropped = new Set(unpairedToolRecords(messages).map(record => record.index));
+  const tail = messages.findLastIndex((message, index) => message?.role === "assistant" && !dropped.has(index) &&
+    !["aborted", "error", "pending", "deferred"].includes(message.stopReason));
+  if (tail < 0) return null;
+  const from = checkpoint?.summarizedCount ?? 0;
+  const summarizedCount = Math.max(from, tail);
+  const summaryMessages = messages.slice(from, summarizedCount).filter((_message, index) => !dropped.has(from + index));
+  if (!summaryMessages.length && !(checkpoint?.summary && opts.prompt?.trim())) return null;
+  return {
+    summarizedCount,
+    clearedCount: Math.max(checkpoint?.clearedCount ?? 0, summarizedCount),
+    estimateBefore: estimateCompletedHistory(messages, budget, sessionId, checkpoint),
+    messages: summaryMessages,
+  };
 }
 
 /**

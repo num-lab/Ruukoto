@@ -56,7 +56,7 @@ import {
 import { productFromEnv } from "@ruukoto/core/product.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import type { ConfirmationRequestView } from "@ruukoto/core/views.ts";
-import type { SessionDefaultMode, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session, Task } from "@ruukoto/core/types.ts";
+import type { SessionDefaultMode, SessionCompactionRequest, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session, Task } from "@ruukoto/core/types.ts";
 import type { ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { SESSION_DEFAULT_MODES } from "@ruukoto/core/types.ts";
 import type { ContextBreakdown } from "@ruukoto/agent/context-selector.ts";
@@ -92,7 +92,31 @@ import {
 } from "./commands.ts";
 
 /** /context 展示的压缩点字段（issue 30；后台不回传摘要正文与条目引用）。 */
-type ContextCheckpointView = Pick<ContextCheckpoint, "summarizedCount" | "summaryUntil" | "clearedResults" | "taskId" | "callIndex" | "summaryModel" | "summaryStatus" | "summaryError">;
+type ContextCheckpointView = Pick<ContextCheckpoint, "summarizedCount" | "summaryUntil" | "clearedResults" | "taskId" | "callIndex" | "manualRequestId" | "summaryModel" | "summaryStatus" | "summaryError">;
+
+interface PendingCompaction {
+  sessionId: string;
+  requestId: string;
+  instanceId: string;
+  prompt?: string;
+  commandKey: string | null;
+  line: string;
+  result: CommandResult;
+  inFlight: boolean;
+}
+
+function manualCompactionText(request: SessionCompactionRequest): string {
+  const id = `请求 ${request.requestId}`;
+  switch (request.status) {
+    case "running": return `已接收，正在压缩上下文（${id}）；/interrupt 可取消`;
+    case "succeeded":
+      return `上下文已压缩：摘要覆盖 ${request.summarizedCount} 条消息，历史上下文估算 ${request.estimateBefore ?? "未知"} → ${request.estimateAfter ?? "未知"} token；摘要模型 ${request.summaryModel.provider}/${request.summaryModel.modelId}（${id}）。/context 仍显示最近一次主模型调用，下一次调用才反映本次压缩`;
+    case "noop": return `无需压缩：没有新的可压缩内容（${id}）；有旧摘要时可用 /compact <prompt> 重新聚焦`;
+    case "failed": return `压缩失败（${request.errorCode ?? "unknown_error"}）：${request.errorMessage ?? "请核实后台状态"}（${id}）；请修正原因后再执行 /compact`;
+    case "cancelled": return `手动压缩已取消，未替换压缩点（${id}）；可继续输入或重新执行 /compact`;
+    case "interrupted": return `手动压缩已中断，未自动重调摘要模型（${id}）；核实后台后可继续输入或重新执行 /compact`;
+  }
+}
 
 const HISTORY_PAGE_SIZE = 50;
 const ARTIFACT_PAGE_BYTES = 32 * 1024;
@@ -601,12 +625,15 @@ export function contextBarLines(record: SelectionRecord, b: ContextBreakdown, wi
     footer.push(`Jev 用量：${usage}；${cost ? `费用估算 US$${cost.usd.toFixed(9)}（${cost.priceDate} 单价）` : "费用未估算"}`);
     if (experiment.fallbackReason) footer.push(`原因：${sanitizeForDisplay(experiment.fallbackReason)}`);
   }
-  // 压缩点（issue 30 §9）：摘要替代的条数与截至时间、清理条数、建立它的任务与调用序号、摘要模型或失败原因
+  // 只展示这次实际调用关联的压缩点及其真实来源。
   if (checkpoint) {
     const summarized = checkpoint.summarizedCount > 0
       ? `摘要替代 ${checkpoint.summarizedCount} 条（至 ${sanitizeForDisplay(checkpoint.summaryUntil ?? "未知时间")}）`
       : "无摘要";
-    footer.push(`压缩点：${summarized} · 清理 ${checkpoint.clearedResults} 条 · 建于任务 ${checkpoint.taskId.slice(0, 13)} 第 ${checkpoint.callIndex} 次调用`);
+    const source = checkpoint.taskId
+      ? `建于任务 ${checkpoint.taskId.slice(0, 13)} 第 ${checkpoint.callIndex} 次调用`
+      : `建于手动请求 ${sanitizeForDisplay(checkpoint.manualRequestId ?? "未知请求")}`;
+    footer.push(`压缩点：${summarized} · 清理 ${checkpoint.clearedResults} 条 · ${source}`);
     if (checkpoint.summaryStatus === "failed") footer.push(`摘要失败，只做了清理：${sanitizeForDisplay(checkpoint.summaryError ?? "未知原因")}`);
     else if (checkpoint.summaryModel) footer.push(`摘要模型：${sanitizeForDisplay(checkpoint.summaryModel)}`);
     else if (checkpoint.summarizedCount > 0) footer.push("摘要沿用上一压缩点");
@@ -766,6 +793,11 @@ export class TuiApp {
   private readonly guard: SubmissionGuard;
   private readonly pendingStore: PendingRequestStore;
   private readonly branchPendingStore: PendingRequestStore;
+  private readonly compactionPendingStore: PendingRequestStore;
+  private readonly pendingCompactions = new Map<string, PendingCompaction>();
+  private readonly compactionResults = new Map<string, SessionCompactionRequest>();
+  private readonly compactionQueries = new Set<string>();
+  private compactionTimer: NodeJS.Timeout | null = null;
   private readonly state: ViewState;
   private readonly terminal: Terminal;
   private readonly tui: TuiAltScreen;
@@ -831,6 +863,7 @@ export class TuiApp {
     this.guard = opts.guard;
     this.pendingStore = opts.pendingStore;
     this.branchPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "branches"));
+    this.compactionPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "compactions"));
     this.state = opts.state;
     this.initialSessionId = opts.initialSessionId;
     this.onExit = opts.onExit;
@@ -992,6 +1025,8 @@ export class TuiApp {
     this.state.connection = { state, detail: detail ?? null, lastSyncAt: this.connection.lastSyncAt };
     if (state === "online") {
       void this.reconcilePendingInputs();
+      for (const pending of this.pendingCompactions.values()) void this.reconcileCompaction(pending.sessionId, true);
+      if (this.state.currentSessionId) void this.reconcileCompaction(this.state.currentSessionId);
       if (this.state.currentSessionId) void this.refreshSessionUsage(this.state.currentSessionId);
     }
     this.refreshChrome();
@@ -1015,6 +1050,20 @@ export class TuiApp {
         this.pendingBranch = { sessionId, name: record.params.name as string | undefined, requestId: record.requestId, instanceId: record.instanceId, autoSwitch: false,
           result: text => { this.state.note(sessionId, text); this.refreshAll(); } };
       }
+    }
+    if (this.generation === 1) {
+      const saved = this.compactionPendingStore.list();
+      for (const name of saved.corrupt) this.notify(`压缩待核实记录损坏：${name}，请核实原后台结果`);
+      for (const record of saved.records) {
+        if (record.op !== "compact_session" || typeof record.params.session_id !== "string") continue;
+        const sessionId = record.params.session_id;
+        const commandKey = typeof record.params.command_key === "string" ? record.params.command_key : null;
+        this.pendingCompactions.set(sessionId, { sessionId, requestId: record.requestId, instanceId: record.instanceId,
+          prompt: typeof record.params.prompt === "string" ? record.params.prompt : undefined, commandKey,
+          line: typeof record.params.line === "string" ? record.params.line : "/compact", inFlight: false,
+          result: (text, isError) => this.state.setCommandResult(sessionId, commandKey, text, isError) });
+      }
+      this.tickCompactions();
     }
     if (this.workspacePhase !== "done") {
       // 工作区入口（issue 21）：首次握手与应答丢失后的重连核实都经这里；
@@ -1279,6 +1328,7 @@ export class TuiApp {
     if (body.type === "session.usage_updated" && body.sessionId === this.state.currentSessionId) {
       void this.refreshSessionUsage(body.sessionId);
     }
+    if (body.type === "session.context_compaction") void this.reconcileCompaction(body.sessionId);
     if (body.type === "task.output_entry") {
       void this.loadEntry(body.sessionId, body.entryId);
       if (body.role === "toolResult") void this.refreshSessionTodos(body.sessionId);
@@ -1349,6 +1399,8 @@ export class TuiApp {
     if (this.exiting) return;
     this.exiting = true;
     this.stopTimingTick();
+    if (this.compactionTimer) clearInterval(this.compactionTimer);
+    this.compactionTimer = null;
     // dev 重载（issue 21 §5）：退出前把最终界面状态同步落盘（防抖可能还在等）
     this.persistReloadState();
     // 退出前保留尚未确认接收的请求（pendingStore 已在磁盘）；不发送 stop/取消
@@ -1421,6 +1473,7 @@ export class TuiApp {
     this.selectedProjectId = this.displayProjectIdOf(this.state.sessions.find((s) => s.id === sessionId)) ?? view.projectId;
     void this.refreshSessionUsage(sessionId);
     void this.refreshSessionTodos(sessionId);
+    void this.reconcileCompaction(sessionId);
     this.continueForTaskId = null;
     this.editor.setText(view.draft);
     if (!view.historyLoaded) {
@@ -1733,6 +1786,7 @@ export class TuiApp {
     newSession: (cwd) => this.cmdNewSession(cwd),
     newSessionHere: () => this.cmdNew(),
     branchSession: (name, result) => this.cmdBranch(name, result),
+    compactSession: (prompt, result, key, line) => this.cmdCompact(prompt, result, key, line),
     reloadHistory: async () => {
       const view = this.currentView();
       if (view) await this.loadHistory(view.sessionId, "replace");
@@ -1860,6 +1914,155 @@ export class TuiApp {
     } catch { /* 断线查询不能证明未创建，继续保留原请求键。 */ }
   }
 
+  /** 原键与命令关联保留到终态；切换会话和退出不取消后台摘要。
+   * Note: 见 .agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md
+   */
+  private async cmdCompact(prompt: string, result: CommandResult, commandKey: string | null, line: string): Promise<void> {
+    const sessionId = this.state.currentSessionId;
+    if (!sessionId) { result("尚未选择普通开发会话", true); this.editor.setText(line); return; }
+    if (this.pendingCompactions.has(sessionId)) {
+      result("此前压缩请求仍在进行或待核实，正在按原请求键查询", true);
+      this.restoreCompactionDraft(sessionId, line);
+      await this.reconcileCompaction(sessionId, true);
+      return;
+    }
+    if (this.connection.state !== "online" || !this.state.instanceId) {
+      result("当前离线：压缩命令已保留，恢复在线后请重新提交", true);
+      this.restoreCompactionDraft(sessionId, line);
+      return;
+    }
+    const instanceId = this.state.instanceId;
+    try { await this.sessionSettingsSync; }
+    catch {
+      result("会话设置尚未核实，请刷新设置后再压缩", true);
+      this.restoreCompactionDraft(sessionId, line);
+      return;
+    }
+    if (this.pendingCompactions.has(sessionId)) {
+      result("此前压缩请求仍在进行或待核实，请先等待原请求", true);
+      this.restoreCompactionDraft(sessionId, line);
+      return;
+    }
+    if (instanceId !== this.state.instanceId || this.connection.state !== "online") {
+      result("后台连接或数据实例已改变，压缩命令已保留；核实后台后请重新提交", true);
+      this.restoreCompactionDraft(sessionId, line);
+      return;
+    }
+    const pending: PendingCompaction = { sessionId, requestId: randomUUID(), instanceId,
+      ...(prompt ? { prompt } : {}), commandKey, line, result, inFlight: false };
+    try {
+      this.compactionPendingStore.save({ requestId: pending.requestId, op: "compact_session", instanceId: pending.instanceId,
+        params: { session_id: sessionId, prompt: pending.prompt, command_key: pending.commandKey, line: pending.line }, createdAt: new Date().toISOString() });
+    } catch {
+      result("无法保存压缩请求键，未发送请求；请核实客户端存储", true);
+      this.restoreCompactionDraft(sessionId, pending.line);
+      return;
+    }
+    this.pendingCompactions.set(sessionId, pending);
+    this.tickCompactions();
+    await this.sendCompaction(pending);
+  }
+
+  private restoreCompactionDraft(sessionId: string, line: string): void {
+    const view = this.state.openSession(sessionId);
+    const draft = this.state.currentSessionId === sessionId ? this.editor.getExpandedText() : view.draft;
+    view.draft = draft && draft !== line ? `${draft}\n${line}` : line;
+    if (this.state.currentSessionId === sessionId) this.editor.setText(view.draft);
+  }
+
+  private tickCompactions(): void {
+    if (this.pendingCompactions.size && !this.compactionTimer) {
+      this.compactionTimer = setInterval(() => {
+        for (const pending of this.pendingCompactions.values()) {
+          if (pending.instanceId === this.state.instanceId) void this.reconcileCompaction(pending.sessionId);
+        }
+      }, 2000);
+      this.compactionTimer.unref();
+    } else if (!this.pendingCompactions.size && this.compactionTimer) {
+      clearInterval(this.compactionTimer);
+      this.compactionTimer = null;
+    }
+  }
+
+  private showCompaction(request: SessionCompactionRequest): void {
+    const prior = this.compactionResults.get(request.requestId);
+    if (prior && prior.status !== "running" && request.status === "running") return;
+    this.compactionResults.set(request.requestId, request);
+    const pending = this.pendingCompactions.get(request.sessionId);
+    const text = manualCompactionText(request);
+    const isError = request.status === "failed" || request.status === "interrupted";
+    const saved = pending?.commandKey ? null : this.compactionPendingStore.list().records.find(record =>
+      record.op === "compact_session" && record.requestId === request.requestId && record.instanceId === this.state.instanceId && record.params.session_id === request.sessionId);
+    const commandKey = typeof saved?.params.command_key === "string" ? saved.params.command_key : null;
+    if (pending?.requestId === request.requestId) {
+      if (commandKey) this.state.setCommandResult(request.sessionId, commandKey, text, isError);
+      else pending.result(text, isError);
+      if (request.status !== "running") {
+        this.compactionPendingStore.clear(request.requestId);
+        this.pendingCompactions.delete(request.sessionId);
+      }
+    } else {
+      const view = this.state.openSession(request.sessionId);
+      if (commandKey) this.state.setCommandResult(request.sessionId, commandKey, text, isError);
+      else view.flow.note(`compaction:${request.requestId}`, text, request.createdAt);
+      if (saved && request.status !== "running") this.compactionPendingStore.clear(request.requestId);
+      if (request.status === "running" && !pending) {
+        this.pendingCompactions.set(request.sessionId, { sessionId: request.sessionId, requestId: request.requestId,
+          instanceId: this.state.instanceId!, prompt: request.prompt ?? undefined, commandKey, line: "/compact", inFlight: false,
+          result: (value, error) => commandKey ? this.state.setCommandResult(request.sessionId, commandKey, value, error) :
+            this.state.openSession(request.sessionId).flow.note(`compaction:${request.requestId}`, value, request.createdAt) });
+      }
+    }
+    this.tickCompactions();
+    this.refreshAll();
+  }
+
+  private async sendCompaction(pending: PendingCompaction, verify = true): Promise<void> {
+    if (pending.inFlight || this.pendingCompactions.get(pending.sessionId) !== pending) return;
+    if (pending.instanceId !== this.state.instanceId) {
+      pending.result(`后台数据实例已改变，原压缩请求 ${pending.requestId} 需在原实例核实；保留原键，未重发`, true);
+      return;
+    }
+    pending.inFlight = true;
+    let unknown = false;
+    try {
+      const request = await this.connection.request("compact_session", { session_id: pending.sessionId, request_id: pending.requestId, prompt: pending.prompt });
+      if (this.pendingCompactions.get(pending.sessionId) === pending) this.showCompaction(request);
+    } catch (error) {
+      if (this.pendingCompactions.get(pending.sessionId) !== pending) return;
+      pending.result(writeFailure("手动压缩", error, `/compact（请求 ${pending.requestId}，按原键核实）`), true);
+      const outcome = requestOutcome(error);
+      if (outcome === "rejected" || outcome === "not_sent") {
+        this.compactionPendingStore.clear(pending.requestId);
+        this.pendingCompactions.delete(pending.sessionId);
+        this.restoreCompactionDraft(pending.sessionId, pending.line);
+      } else unknown = true;
+    } finally {
+      pending.inFlight = false;
+      this.tickCompactions();
+      this.refreshAll();
+    }
+    if (unknown && verify) await this.reconcileCompaction(pending.sessionId, true);
+  }
+
+  private async reconcileCompaction(sessionId: string, retry = false): Promise<void> {
+    if (this.connection.state !== "online" || this.compactionQueries.has(sessionId)) return;
+    const pending = this.pendingCompactions.get(sessionId);
+    if (pending?.instanceId !== undefined && pending.instanceId !== this.state.instanceId) {
+      pending.result(`后台数据实例已改变，原压缩请求 ${pending.requestId} 需在原实例核实；保留原键，未重发`, true);
+      return;
+    }
+    this.compactionQueries.add(sessionId);
+    try {
+      const request = await this.connection.request("get_session_compaction", { session_id: sessionId, request_id: pending?.requestId });
+      if (pending && this.pendingCompactions.get(sessionId) !== pending) return;
+      if (request) this.showCompaction(request);
+      else if (pending && retry && !pending.inFlight) await this.sendCompaction(pending, false);
+    } catch {
+      // 查询失败不能证明未接收，原键继续保留；重连或轮询再核实。
+    } finally { this.compactionQueries.delete(sessionId); }
+  }
+
   private async refreshSessionTodos(sessionId: string): Promise<void> {
     if (!this.state.sessions.find(session => session.id === sessionId)?.branchSource) return;
     const generation = this.generation;
@@ -1888,6 +2091,23 @@ export class TuiApp {
   private async cmdInterrupt(arg: string): Promise<void> {
     const view = this.currentView();
     const task = arg ? this.state.getTask(this.resolveTaskId(arg) ?? "") : view ? this.state.activeTaskFor(view.sessionId) : null;
+    if (!arg && view && (!task || this.pendingCompactions.has(view.sessionId))) {
+      try {
+        const request = await this.connection.request("get_session_compaction", { session_id: view.sessionId });
+        if (request?.status === "running") {
+          const result = await this.connection.request("interrupt_session_compaction", { session_id: view.sessionId, request_id: request.requestId });
+          this.showCompaction(result);
+          return;
+        }
+      } catch (error) {
+        if (this.pendingCompactions.has(view.sessionId)) {
+          this.state.note(view.sessionId, writeFailure("中断手动压缩", error, "/compact"));
+          this.refreshAll();
+          return;
+        }
+        // 无已知压缩时继续按既有任务入口处理；查询失败不构成取消成功。
+      }
+    }
     if (!task) {
       this.notify("没有运行中的任务（/interrupt [taskId]）");
       return;

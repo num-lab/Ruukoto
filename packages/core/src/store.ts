@@ -2923,14 +2923,14 @@ export class Store {
         `INSERT INTO context_checkpoints
          (id, session_id, status, summarized_count, cleared_count, fingerprint, summary, summary_until, cleared_refs,
           cleared_results, summary_model, summary_status, summary_error, prompt_version, usage, estimate_before,
-          estimate_after, task_id, call_index, created_at)
-         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          estimate_after, task_id, call_index, manual_request_id, created_at)
+         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         cp.id, cp.sessionId, cp.summarizedCount, cp.clearedCount, cp.fingerprint, cp.summary, cp.summaryUntil,
         JSON.stringify(cp.clearedRefs), cp.clearedResults, cp.summaryModel, cp.summaryStatus, cp.summaryError,
         cp.promptVersion, cp.usage ? JSON.stringify(cp.usage) : null, cp.estimateBefore, cp.estimateAfter,
-        cp.taskId, cp.callIndex, cp.createdAt,
+        cp.taskId, cp.callIndex, cp.manualRequestId ?? null, cp.createdAt,
       );
   }
 
@@ -2993,8 +2993,9 @@ function rowToCheckpoint(row: any): ContextCheckpoint {
     usage: row.usage ? (JSON.parse(row.usage) as Record<string, unknown>) : null,
     estimateBefore: Number(row.estimate_before),
     estimateAfter: Number(row.estimate_after),
-    taskId: row.task_id,
-    callIndex: Number(row.call_index),
+    taskId: row.task_id ?? null,
+    callIndex: row.call_index === null ? null : Number(row.call_index),
+    manualRequestId: row.manual_request_id ?? null,
     createdAt: row.created_at,
   };
 }

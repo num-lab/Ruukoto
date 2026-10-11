@@ -1,10 +1,10 @@
-Status: ready-for-agent
+Status: resolved
 
 # 01 — 为 ruukoto-code 添加 `/compact [prompt]`
 
-实现 TUI 手动上下文压缩，主动生成摘要并接受仅本次生效的可选指引。行为以[规格](../spec.md)为准，技术取舍见[提案笔记](../../../.agents/notes/proposed/feature/2026-10-11-manual-context-compaction.md)。拥有者已于 2026-10-11 确认范围与计划；本单未开始实现，无待决产品问题。
+实现 TUI 手动上下文压缩，主动生成摘要并接受仅本次生效的可选指引。行为以[规格](../spec.md)为准，技术取舍见[决策笔记](../../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)。拥有者已于 2026-10-11 确认范围与计划；实现与定向验收已完成，证据见 Comments。
 
-## 已核实基础
+## 实施前基础
 
 | 位置 | 已有能力与本单要处理的限制 |
 | --- | --- |
@@ -63,17 +63,17 @@ Status: ready-for-agent
 
 ## 验收标准
 
-- [ ] `/compact`、中文/含空格/多行 prompt、全空白参数的派发、帮助与补全正确；不适用产品/身份后台拒绝。
-- [ ] 低于自动阈值仍摘要；单个已完成长任务的中间过程被覆盖，最后完整批次及尾部原样保留；下一任务使用新点且工具配对合法。
-- [ ] 无 prompt 使用固定规则；有 prompt 仅进入本次摘要调用，后续自动压缩没有残留指引；预算包含指令，配置模型与会话模型分支正确。
-- [ ] 覆盖不推进时，有 prompt 改写旧摘要，无 prompt 无模型调用；空会话/无可压缩内容无模型调用，结果不误报成功。
-- [ ] 摘要报错、超时、空输出、输出触顶、预算不足、模型不可用、坏历史和提交失败均有明确终态，旧有效点不变，无只清理降级。
-- [ ] 忙会话和排队/启动窗口拒绝；压缩与新提交、继续、队列启动、重复命令、配置修改竞争有确定结果；其他会话不被会话占用阻塞。
-- [ ] 同键并发只有一次调用，同键异参冲突；应答丢失、事件缺口、重连和退出重进核实原操作；后台重启不重调摘要模型。
-- [ ] `/interrupt` 与成功事务竞争只产生一个终态；停机在关库前收尾；取消后原点不变，已提交成功不误报取消。
-- [ ] 切走后结果仍归原会话；命令回显和结果可核实；`/context` 继续显示原选择记录，不伪造主模型调用，后续调用能展示手动点来源。
-- [ ] 操作前后 JSONL 逐字节相同，历史可找回；无新增普通任务、工作委托或工具执行。手动点重启后可用；分支独立继承，导入兼容。
-- [ ] 自动压缩原有阈值、保护尾部、清理豁免、失败冷却、停止联动与前缀稳定用例继续通过。
+- [x] `/compact`、中文/含空格/多行 prompt、全空白参数的派发、帮助与补全正确；不适用产品/身份后台拒绝。
+- [x] 低于自动阈值仍摘要；单个已完成长任务的中间过程被覆盖，最后完整批次及尾部原样保留；下一任务使用新点且工具配对合法。
+- [x] 无 prompt 使用固定规则；有 prompt 仅进入本次摘要调用，后续自动压缩没有残留指引；预算包含指令，配置模型与会话模型分支正确。
+- [x] 覆盖不推进时，有 prompt 改写旧摘要，无 prompt 无模型调用；空会话/无可压缩内容无模型调用，结果不误报成功。
+- [x] 摘要报错、超时、空输出、输出触顶、预算不足、模型不可用、坏历史和提交失败均有明确终态，旧有效点不变，无只清理降级。
+- [x] 忙会话和排队/启动窗口拒绝；压缩与新提交、继续、队列启动、重复命令、配置修改竞争有确定结果；其他会话不被会话占用阻塞。
+- [x] 同键并发只有一次调用，同键异参冲突；应答丢失、事件缺口、重连和退出重进核实原操作；后台重启不重调摘要模型。
+- [x] `/interrupt` 与成功事务竞争只产生一个终态；停机在关库前收尾；取消后原点不变，已提交成功不误报取消。
+- [x] 切走后结果仍归原会话；命令回显和结果可核实；`/context` 继续显示原选择记录，不伪造主模型调用，后续调用能展示手动点来源。
+- [x] 操作前后 JSONL 逐字节相同，历史可找回；无新增普通任务、工作委托或工具执行。手动点重启后可用；分支独立继承，导入兼容。
+- [x] 自动压缩原有阈值、保护尾部、清理豁免、失败冷却、停止联动与前缀稳定用例继续通过。
 
 ## 验证计划
 
@@ -102,3 +102,33 @@ Q1—Q8 采用推荐：忙时拒绝；prompt 单次补充；主动摘要并跳�
 ### 2026-10-11：登记检查
 
 `npm run verify-notes`、`npm run check:docs`、`git diff --check` 通过。另核对三份新增文档的 10 个相对链接及计划中的 21 个测试路径均存在，新文件无行尾空白。语义自检确认范围与 Q1—Q10 一致，备选方案和已知代价齐全；功能验收仍待实施，不将文档检查记作功能通过。
+
+### 2026-10-11：实现与验收完成
+
+`/compact [prompt]` 接通了手动完成历史规划、一次性指引、独立持久请求、会话占用、摘要 provider 配置保护、查询与取消、后台停止及重启恢复、TUI 命令历史与重连核实。最后完整 assistant 批次整批保留；失败、取消和中断不替换原有效点，无效点明确作废。命令不创建普通任务、工作委托或工具 worker，JSONL 只读；下一任务才使用新点并产生选择记录，`/context` 保留最近一次调用语义。
+
+schema 升至 34、协议升至 18，旧压缩点迁移保留原来源；分支和双方向导入保留手动来源且排除操作回执。决策笔记移入 implemented，人类文档同步命令、数据去向、统计口径、失败与取消语义。实现复核补了接收及取消的提交后广播异常、同步事件取消、空历史身份、历史任务归属、底层摘要等待、延迟应答与共享待确认目录双客户端等回归。
+
+环境：macOS、Node 24.15.0、真实 SQLite/JSONL/Unix socket/产品入口；摘要 provider 为本地 HTTP 模拟服务。PTY 用 Python 标准库驱动真实 ruukoto-code TUI；强杀用真实 Coding Agent CLI 后台进程组 SIGKILL，重启后断言原请求中断、旧点及历史字节不变、同键核实且请求次数不增加。这些不是实际商用模型的摘要质量或费用验证。
+
+| 实际检查命令 | 结果 |
+| --- | --- |
+| `npx tsx --test test/18-model-selection.test.ts test/60-context-prefix.test.ts` | 6/6 通过 |
+| `npx tsx --test test/61-context-compaction.test.ts test/61-manual-context-compaction.test.ts` | 27/27 通过，自动规则及手动预算、指引、配对、失败回归 |
+| `npx tsx --test test/103-manual-compaction-store.test.ts` | 3/3 通过，真实旧表迁移、终态与事务回滚 |
+| `npx tsx --test test/104-manual-compaction.test.ts` | 最新 14/14 通过，包含真实后台 SIGKILL、模型钉版/fallback、错误正文脱敏 |
+| `npx tsx --test test/01-concurrency.test.ts test/02-idempotency-reconnect.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts test/94-task-ending.test.ts` | 42/42 通过 |
+| `npx tsx --test test/12-reconnect-pending.test.ts test/13-tui-state.test.ts test/14-tui-app.test.ts test/37-command-history.test.ts` | 64/64 通过；共享命令结果改动后 13/37 再验 18/18 通过 |
+| `npx tsx --test test/65-slash-commands.test.ts test/66-control-seam.test.ts test/71-product-entry.test.ts` | 最新 50/50 通过，含 7 组手动压缩 TUI/控制场景 |
+| `npx tsx --test test/15-tui-pty.test.ts` | 2/2 通过，无跳过；真实中文 /compact、进度、结果与退出持久查询 |
+| `npx tsx --test test/102-branch-session.test.ts test/85-legacy-instance-import.test.ts test/86-personal-instance-import.test.ts` | 26/26 通过；历史允许空快照改动后 102 再验 14/14 通过 |
+| `npx tsx --test test/91-release-acceptance.test.ts test/103-manual-compaction-store.test.ts` | 4/4 通过 |
+| `npm run check:static` | lint、根及全部 workspace/foundation 类型、笔记与文档检查通过 |
+| `npx eslint packages/runtime/src/runtime.ts --max-warnings=0`、`git diff --check` | 最终小改动后通过 |
+| `npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts` | 无悬空锚点；新增笔记有源码锚点，既有 14 篇未锚定笔记属原状态 |
+
+最终 provider 占用只统计实际摘要 provider 后，`npx tsx --test --test-name-pattern='摘要占用|摘要底层|配置摘要|接收先占' test/104-manual-compaction.test.ts` 4/4 定向通过。
+
+初轮静态检查捕获 SIGKILL 测试中的 TypeScript 控制流类型问题，修复后全套静态检查通过；不将失败轮次记为通过。变更范围以已核实 HEAD `dd48b78ebbbaf60d4b0b371b5e1337904adde1bb` 为基点检查，未提交或推送。
+
+未跑全量 `npm run check` 或真实模型、真实外部平台；本改动没有 Linux 专属执行逻辑，未使用 `ssh tx`。滚动摘要仍有损、超输入预算不分块、估算不承诺下降；后台与 TUI 需同步升级至协议 18。笔记语义自检确认原决定、六个真实备选及代价/升级触发条件齐全，无待决范围问题。

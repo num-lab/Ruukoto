@@ -176,6 +176,24 @@ test("派发：参数按空白切分，arg 合并空白；面板类命令转交 
   assert.ok(f.log.notes.some((note) => /未知命令：\/expand/.test(note)));
 });
 
+test("/compact：中文与多行参数保留内部空白，空白参数等价省略；命令只回显，不提交任务", async () => {
+  const f = fake();
+  await f.run(" /compact  保留  数据库\n迁移\t细节  ");
+  assert.deepEqual(f.log.host[0]!.slice(0, 2), ["compactSession", "保留  数据库\n迁移\t细节"]);
+  await f.run("/compact \n \t");
+  await f.run("/compact");
+  assert.deepEqual(f.log.host.slice(1).map(call => call.slice(0, 2)), [["compactSession", ""], ["compactSession", ""]]);
+  assert.ok(f.log.host.every(call => call[0] !== "submit"));
+  assert.equal(f.log.requests.length, 0);
+  assert.equal(f.log.echoes[0], "/compact  保留  数据库\n迁移\t细节");
+  const result = f.log.host[0]![2] as CommandResult;
+  result("已接收，正在压缩");
+  assert.deepEqual(f.log.results, [["command:1", "已接收，正在压缩", false]]);
+  assert.ok(commandHelpLines().includes("  /compact [prompt] — 主动压缩当前会话上下文"));
+  const complete = new SlashCommandAutocomplete(VISIBLE_COMMANDS);
+  assert.ok((await complete.getSuggestions(["/comp"], 0, 5))!.items.some(item => item.value === "/compact"));
+});
+
 test("/resume 和 /project 派发到对应窗口，/sessions 不再存在", async () => {
   const f = fake();
   await f.run("/resume");

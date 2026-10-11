@@ -356,7 +356,7 @@ test("组装：第二层——摘要发往会话模型（不带思考参数）�
     const cp = kit.store.getActiveCheckpoint(session.id)!;
     assert.ok(cp && cp.summaryStatus === "ok" && cp.summary === "SUMMARY-1" && cp.summarizedCount > 0, JSON.stringify(cp));
     assert.equal(cp.summaryModel, "mock/mock-model");
-    assert.equal(cp.promptVersion, "compaction-v1");
+    assert.equal(cp.promptVersion, "compaction-v2");
     const [s1] = kit.server.calls;
     assert.equal(s1!.raw.model, "mock-model");
     assert.ok(!("reasoning_effort" in s1!.raw) && !("reasoning" in s1!.raw), "摘要请求不带思考参数");

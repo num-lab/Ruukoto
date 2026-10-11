@@ -122,9 +122,10 @@ export function readHistoryPrefix(file: string, expected?: Pick<HistorySnapshot,
 }
 
 /** 按任务及 assistant 批次选择安全分支点，保留终态任务的孤儿记录。只读源文件。
+ * allowEmpty 时仍严格核实 header、条目链和文件身份，允许返回只有 header 的快照。
  * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
  */
-export function snapshotSessionHistory(file: string, taskStatus: (taskId: string) => TaskStatus | null): HistorySnapshot {
+export function snapshotSessionHistory(file: string, taskStatus: (taskId: string) => TaskStatus | null, options: { allowEmpty?: boolean } = {}): HistorySnapshot {
   const stat = fs.statSync(file);
   const bytes = readHistoryPrefix(file);
   const completeBytes = bytes.lastIndexOf(10) + 1;
@@ -193,7 +194,7 @@ export function snapshotSessionHistory(file: string, taskStatus: (taskId: string
   closeBatch();
   const selected = entries.slice(0, cut);
   const messages = selected.filter(entry => entry.type === "message");
-  if (!messages.length) throw new HistoryReadError("entry_not_found", "尚无可复制的已落盘消息，请等待落盘或使用 /new");
+  if (!messages.length && !options.allowEmpty) throw new HistoryReadError("entry_not_found", "尚无可复制的已落盘消息，请等待落盘或使用 /new");
   // 保留原始行，指纹覆盖实际分支前缀；部分尾行与回退批次不进入边界。
   const lines = bytes.toString("utf8").split("\n");
   let count = 0;

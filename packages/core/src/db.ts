@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 34;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS branch_requests (
   error TEXT,
   UNIQUE(source_session_id, branch_number)
 );
+CREATE TABLE IF NOT EXISTS compaction_requests (
+  request_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  params_digest TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running','succeeded','noop','failed','cancelled','interrupted'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_compaction_requests_running ON compaction_requests (session_id) WHERE status = 'running';
+CREATE INDEX IF NOT EXISTS idx_compaction_requests_session ON compaction_requests (session_id, request_id);
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -252,8 +261,9 @@ CREATE TABLE IF NOT EXISTS context_checkpoints (
   usage TEXT,
   estimate_before INTEGER NOT NULL,
   estimate_after INTEGER NOT NULL,
-  task_id TEXT NOT NULL,
-  call_index INTEGER NOT NULL,
+  task_id TEXT,
+  call_index INTEGER,
+  manual_request_id TEXT,
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_context_checkpoints_active ON context_checkpoints (session_id) WHERE status = 'active';
@@ -757,7 +767,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 32) {
+    } else if (version >= 2 && version <= 33) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -816,6 +826,45 @@ export class Db {
     // v30：条目账本类别扩五类；既有回执与账本行逐行复制保留。
     // v28 起的库既有表带着旧 CHECK（v29 的 subagent_messages 不动本表），都重建。
     if (version >= 28 && version <= 29) this.rebuildImportItemsKindCheck();
+    if (version <= 33) this.rebuildCheckpointSources();
+  }
+
+  /** v34：保留旧压缩点和来源；手动来源不引用本实例的操作回执。 */
+  private rebuildCheckpointSources(): void {
+    this.db.exec(`
+CREATE TABLE context_checkpoints_new (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active','superseded','invalidated')),
+  summarized_count INTEGER NOT NULL,
+  cleared_count INTEGER NOT NULL,
+  fingerprint TEXT NOT NULL,
+  summary TEXT,
+  summary_until TEXT,
+  cleared_refs TEXT NOT NULL DEFAULT '{}',
+  cleared_results INTEGER NOT NULL DEFAULT 0,
+  summary_model TEXT,
+  summary_status TEXT NOT NULL CHECK (summary_status IN ('ok','failed','none')),
+  summary_error TEXT,
+  prompt_version TEXT NOT NULL,
+  usage TEXT,
+  estimate_before INTEGER NOT NULL,
+  estimate_after INTEGER NOT NULL,
+  task_id TEXT,
+  call_index INTEGER,
+  manual_request_id TEXT,
+  created_at TEXT NOT NULL
+);
+INSERT INTO context_checkpoints_new (id, session_id, status, summarized_count, cleared_count, fingerprint,
+  summary, summary_until, cleared_refs, cleared_results, summary_model, summary_status, summary_error,
+  prompt_version, usage, estimate_before, estimate_after, task_id, call_index, created_at)
+SELECT id, session_id, status, summarized_count, cleared_count, fingerprint,
+  summary, summary_until, cleared_refs, cleared_results, summary_model, summary_status, summary_error,
+  prompt_version, usage, estimate_before, estimate_after, task_id, call_index, created_at FROM context_checkpoints;
+DROP TABLE context_checkpoints;
+ALTER TABLE context_checkpoints_new RENAME TO context_checkpoints;
+CREATE UNIQUE INDEX idx_context_checkpoints_active ON context_checkpoints (session_id) WHERE status = 'active';
+`);
   }
 
   /** v30：重建条目账本类别 CHECK；调用前外键已在事务外关闭。 */

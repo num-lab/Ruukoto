@@ -4,10 +4,10 @@
  * 纪律（issue 04 §3）：
  * - 发送前先生成 request_id 并把操作类型与完整请求参数原子落盘
  *   （临时文件 + rename，0600）；写入失败时不得发送请求；
- * - 后台确认接收（应答返回任务 ID）后清除记录；
+ * - 输入确认接收后清除；手动压缩关联原命令，保留到核实唯一终态；
  * - 记录绑定数据实例标识：后台重启保留标识可继续核实；新数据库分配新
  *   标识，此时保留待核实输入并要求拥有者处理，不向空后台重发；
- * - 记录只代表"尚未确认接收"的请求，不作为会话历史副本；令牌等凭据
+ * - 记录用于核实原请求，不作为会话历史副本；令牌等凭据
  *   永远不写入这里。
  */
 
@@ -17,7 +17,7 @@ import { dirEnvFor, productFromEnv, productRootDir } from "@ruukoto/core/product
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue" | "branch_session";
+  op: "submit" | "continue" | "branch_session" | "compact_session";
   /** 完整请求参数（session_id/task_id、input、access_mode、granted_paths）。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
@@ -59,7 +59,7 @@ export class PendingRequestStore {
     fs.renameSync(tmp, file);
   }
 
-  /** 后台已确认接收：清除记录（幂等）。 */
+  /** 所属入口已完成核实：清除记录（幂等）。 */
   clear(requestId: string): void {
     try {
       fs.rmSync(this.fileFor(requestId), { force: true });
@@ -83,7 +83,7 @@ export class PendingRequestStore {
         const raw = JSON.parse(fs.readFileSync(path.join(this.dir, file), "utf8")) as PendingRequest;
         if (
           typeof raw?.requestId !== "string" ||
-          (raw.op !== "submit" && raw.op !== "continue" && raw.op !== "branch_session") ||
+          (raw.op !== "submit" && raw.op !== "continue" && raw.op !== "branch_session" && raw.op !== "compact_session") ||
           typeof raw.params !== "object" ||
           raw.params === null ||
           typeof raw.instanceId !== "string"

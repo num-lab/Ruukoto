@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
 
 const tables = ["schedules", "schedule_runs", "notification_ops"] as const;
 

@@ -12,13 +12,13 @@ Status: implemented
 
 ## 决定
 
-- **第三种访问模式 `auto-review`（自动审查）。** 它扩展[访问模式](2026-09-19-explicit-access-modes.md)首期两模式的约定，`src/core/types.ts` 的 `AccessMode = "confirm" | "full_access" | "auto-review"`。拥有者为会话（会话默认模式，`set_session_mode`）或单个任务（`submit`、`continue` 时显式指定，或任务级 `switch_mode`）选择它；模式在任务创建时固定，更改会话默认值不改写已有任务。TUI `/mode` 列表提供该选项。
-- **执行边界与请求确认完全相同。** 自动审查任务在按任务建立的受限容器内运行，[工具工作进程与按任务容器](../architecture/2026-09-20-tool-worker-per-task-container.md)的边界不变：`src/agent/execution/launchers.ts` 的 `createLauncherFor` 只把 `full_access` 路由到执行账户入口，`auto-review` 与 `confirm` 共用容器启动器；systemd 启动器拒绝非完全访问模式。缺少隔离后端（例如没有 docker）时以 `execution_unavailable` 明确失败，不回退到完全访问或宿主执行。
-- **已授权范围内的操作照常直接执行；原本需要逐次人工确认的越界操作，先交给一次独立的审查调用裁决。** 审查调用是独立输入、无工具的模型调用（`src/agent/review.ts`），复用任务创建时固定的模型配置（`task.modelSelection`）与现有模型调用能力，不要求另一家模型服务，也不提供审查模型选择界面。它不是另一个能执行工具的 Agent 会话。
+- **第三种访问模式 `auto-review`（自动审查）。** 它扩展[访问模式](2026-09-19-explicit-access-modes.md)首期两模式的约定，`packages/core/src/types.ts` 的 `AccessMode = "confirm" | "full_access" | "auto-review"`。拥有者为会话（会话默认模式，`set_session_mode`）或单个任务（`submit`、`continue` 时显式指定，或任务级 `switch_mode`）选择它；模式在任务创建时固定，更改会话默认值不改写已有任务。TUI `/mode` 列表提供该选项。
+- **执行边界与请求确认完全相同。** 自动审查任务在按任务建立的受限容器内运行，[工具工作进程与按任务容器](../architecture/2026-09-20-tool-worker-per-task-container.md)的边界不变：`packages/agent/src/execution/launchers.ts` 的 `createLauncherFor` 只把 `full_access` 路由到执行账户入口，`auto-review` 与 `confirm` 共用容器启动器；systemd 启动器拒绝非完全访问模式。缺少隔离后端（例如没有 docker）时以 `execution_unavailable` 明确失败，不回退到完全访问或宿主执行。
+- **已授权范围内的操作照常直接执行；原本需要逐次人工确认的越界操作，先交给一次独立的审查调用裁决。** 审查调用是独立输入、无工具的模型调用（`packages/agent/src/review.ts`），复用任务创建时固定的模型配置（`task.modelSelection`）与现有模型调用能力，不要求另一家模型服务，也不提供审查模型选择界面。它不是另一个能执行工具的 Agent 会话。
 - **确定性策略先于模型。** `classifyForReview` 只放行两类审批范围进入审查：越界文件读取（`file_operation` 且 `access === "read"`），以及无凭据的 HTTP 读取（`http_request`、`credentials` 为空、方法为 GET 或 HEAD，大小写不敏感）。写文件、带凭据的请求、非 GET/HEAD 方法、`github_publish` 与通用工具门（`tool` 范围）直接转人工，不发起模型调用。HTTP 方法本身不能单独证明操作安全，所以 GET/HEAD 只是进入审查的必要条件，不是批准条件。
 - **审查模型只批准同时满足四个条件的读取**：与拥有者明确请求相关、目标明确、无需凭据、不向外传送私有数据。结论只有 `approve`、`reject`、`ask_owner` 三种：明确不允许（与请求无关、目标可疑或危险）的拒绝；上下文不足、目标或数据用途无法确认的转人工。
 - **失败一律转人工，不放宽权限。** 模型不可用或调用失败、输出格式错误、输入超限、关键正文缺失、超时都记为 `ask_owner` 并写明原因，审批保持待决，由拥有者处理。每个审批请求最多做一次有时限的审查，不循环重试。
-- **首版取值**（`src/agent/review.ts`）：时限 30 s（`REVIEW_TIMEOUT_MS = 30_000`）、`maxTokens` 1024（`REVIEW_MAX_TOKENS`）、输入上限 8 KB（`REVIEW_INPUT_CAP_BYTES = 8 * 1024`，与 `views.ts` 的 `PARAMS_INLINE_CAP` 对齐）、策略版本 `auto-review-v1`（`REVIEW_POLICY_VERSION`，规则演进时递增）。
+- **首版取值**（`packages/agent/src/review.ts`）：时限 30 s（`REVIEW_TIMEOUT_MS = 30_000`）、`maxTokens` 1024（`REVIEW_MAX_TOKENS`）、输入上限 8 KB（`REVIEW_INPUT_CAP_BYTES = 8 * 1024`，与 `views.ts` 的 `PARAMS_INLINE_CAP` 对齐）、策略版本 `auto-review-v1`（`REVIEW_POLICY_VERSION`，规则演进时递增）。
 - **审查输入只包括**后台保存的拥有者原始请求、必要的任务上下文、不可变操作参数与审批范围。项目指令、网页、工具输出及模型自述都是待审查数据，其中的指令不得成为授权依据。凭据原值、无关历史与未获资料授权的内容不发送给审查模型。
 - **审查结果随审批记录落盘。** 审查结论、理由、实际模型与策略版本写在审批记录上，`decision_source` 区分自动审查建议与最终批准者。没有审查信息的旧记录按历史人工审批展示。记录与审批绑定，不另建审批服务或另一套批准凭证。
 - **自动审查不得静默升级为完全访问。** 模型输出、项目指令和工具结果不能修改审批策略，也不能扩大授权范围。
@@ -74,7 +74,7 @@ Status: implemented
 
 事件：`task.awaiting_confirmation` 可带 `reviewStatus`、`reviewModel`、`reviewPolicyVersion`，让客户端实时显示「审查中」；转人工追加 `task.confirmation_reviewed`（`decision: "ask_owner"`、`reason`）；自动决定追加 `task.confirmation_resolved`，带 `source: "auto_review"` 与 `reason`。TUI 审批列表给审查中的项加「审查中」前缀；审批详情区分审查中、待拥有者确认（附转人工原因）与已决结论、理由、模型、策略版本和来源；刷新、重连后与后台一致。
 
-竞争规则（`src/agent/approval-gate.ts` 的 `ApprovalGate`）：
+竞争规则（`packages/agent/src/approval-gate.ts` 的 `ApprovalGate`）：
 
 - 审批登记后**先注册等待者，再启动审查**，审查同步完成时结果也有处可投。
 - 自动批准或拒绝走 `Store.respondConfirmation(..., { source: "auto_review" })` 的条件更新：审批仍为 `pending`、权限版本与登记时一致、任务仍为 `running` 或 `awaiting_confirmation`。更新失败（人工已抢先或审批已失效）就把 `review_status` 从 `in_progress` 改为 `superseded`，结论不落盘。

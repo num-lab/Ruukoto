@@ -12,7 +12,7 @@ Status: implemented
 
 `npm run dev` 启动 ruukoto 开发后台，`npm run dev -- --config` 打开其配置入口；`npm run code` 启动 ruukoto-code 开发后台并默认打开 TUI，`npm run code -- --config` 打开其配置中心。开发启动器不再接受 `--tui`。
 
-两入口复用源码监听、重载和进程管理，档案分别保存为 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常[产品档案](../architecture/2026-10-02-two-agent-products.md)分开。保留已有 ruukoto 开发历史，不自动迁移；模型配置仅经已有 `--import-models` 显式复制。各档案拥有自己的数据、配置、凭据、锁与控制面，可以同时运行。ruukoto 开发实例保留普通开发会话的理由见[保留开发会话](../feature/2026-10-05-ruukoto-keeps-dev-sessions.md)。
+两入口通过各 app 的 `src/dev.ts` 复用 `packages/tui/src/dev.ts` 的源码监听、重载和进程管理；监听范围为 `packages/*/src` 与 `apps/*/src`，子进程使用所属 app 的 bin，档案分别保存为 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常[产品档案](../architecture/2026-10-02-two-agent-products.md)分开。保留已有 ruukoto 开发历史，不自动迁移；模型配置仅经已有 `--import-models` 显式复制。各档案拥有自己的数据、配置、凭据、锁与控制面，可以同时运行。ruukoto 开发实例保留普通开发会话的理由见[保留开发会话](../feature/2026-10-05-ruukoto-keeps-dev-sessions.md)。
 
 开发入口固定产品身份，清除继承的日常路径、拥有者令牌及受保护执行账户配置，并停用真实 QQ/Telegram。执行后端沿用 CLI 产品默认值：ruukoto 使用 local，ruukoto-code 使用 container；container 不可用时任务明确失败，不回退 local。完全访问所需的执行账户配置不在此次扩展范围，local 本身没有操作系统级隔离。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ## 验证
 
-原实现提交 `c819db3adad75b8c0cf604b3fef3816334fa993f` 同步 `src/dev.ts`、`src/code.ts`、package 入口和 test/32、test/71。test/32 覆盖入口参数、双档案、重载与受管退出；test/71 覆盖双产品环境清洗与日常目录/令牌/执行配置不继承。原 ADR 补充段和 `.scratch/` 没有独立登记该提交的运行命令结果，因此此处只记录可复查覆盖，不把它表述成历史测试已通过。开发启动方式与模型导入操作见[开发说明](../../../../docs/development.md#开发实例)。
+原实现提交 `c819db3adad75b8c0cf604b3fef3816334fa993f` 同步开发启动器、两个产品的开发入口和 package 入口和 test/32、test/71。test/32 覆盖入口参数、双档案、重载与受管退出；test/71 覆盖双产品环境清洗与日常目录/令牌/执行配置不继承。原 ADR 补充段和 `.scratch/` 没有独立登记该提交的运行命令结果，因此此处只记录可复查覆盖，不把它表述成历史测试已通过。开发启动方式与模型导入操作见[开发说明](../../../../docs/development.md#开发实例)。
 
 ## 备选方案
 

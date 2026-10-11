@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { ContextExperimentRecord, SelectionRecord, SelectionUsage } from "../src/core/types.ts";
-import { selectionBreakdown } from "../src/agent/context-selector.ts";
-import { contextBarLines } from "../src/tui/app.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { ContextExperimentRecord, SelectionRecord, SelectionUsage } from "@ruukoto/core/types.ts";
+import { selectionBreakdown } from "@ruukoto/agent/context-selector.ts";
+import { contextBarLines } from "@ruukoto/tui/tui/app.ts";
 
 const experiment: ContextExperimentRecord = {
   status: "applied",

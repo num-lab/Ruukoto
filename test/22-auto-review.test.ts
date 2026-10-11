@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成与单元：auto-review 自动审查模式（issue 15）。
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
@@ -33,17 +34,17 @@ import {
   lastUserText,
 } from "./helpers/testkit.ts";
 import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import {
   classifyForReview,
   parseReviewOutput,
   createApprovalReviewer,
   REVIEW_POLICY_VERSION,
-} from "../src/agent/review.ts";
-import { createLauncherFor, createContainerLauncher } from "../src/agent/execution/launchers.ts";
-import type { ApprovalScope } from "../src/core/types.ts";
+} from "@ruukoto/agent/review.ts";
+import { createLauncherFor, createContainerLauncher } from "@ruukoto/agent/execution/launchers.ts";
+import type { ApprovalScope } from "@ruukoto/core/types.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
 
@@ -602,6 +603,7 @@ test("后台重启：审查中的审批失效，不重放、不消费旧批准",
       // 优雅停止即中断任务并失效未决审批；随后在同一数据目录重启
       await t.runtime.stop("test_restart");
       const runtime2 = await Runtime.start({
+    product: personalProduct.runtime,
         dataDir: t.dirs.dataDir,
         agentDir: t.dirs.agentDir,
         socketPath: t.runtime.socketPath(),

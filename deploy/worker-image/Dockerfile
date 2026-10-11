@@ -8,17 +8,16 @@
 #   （保持下方 RUN 不被注释）。若目标机仍无法访问 deb.debian.org，先在
 #   构建环境把 deb 源替换为可用镜像站再构建。
 #
-# - 容器由后台以 --user 1000:1000 启动（见 src/agent/execution/launchers.ts），
+# - 容器由后台以 --user 1000:1000 启动（见 packages/agent/src/execution/launchers.ts），
 #   镜像不内置特权入口。
 
 FROM node:24-slim AS build
 WORKDIR /build
 COPY package.json package-lock.json ./
+COPY packages ./packages
+COPY apps ./apps
 RUN npm ci --ignore-scripts
-COPY src/agent/tool-worker ./src/agent/tool-worker
-# worker.ts 的宿主侧依赖（../../core/*，issue 11 起引入）也必须进构建阶段
-COPY src/core ./src/core
-RUN npm run build
+RUN npm run build:worker && npm prune --omit=dev --ignore-scripts
 
 FROM node:24-slim
 RUN apt-get update \
@@ -26,8 +25,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 # uid/gid 1000 已由基础镜像的 node 用户占用：容器以 --user 1000:1000 启动即映射到它
 WORKDIR /opt/ruukoto/worker
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY --from=build /build/node_modules ./node_modules
 COPY --from=build /build/worker/worker.mjs ./worker.mjs
 RUN chown -R 1000:1000 /opt/ruukoto/worker
 

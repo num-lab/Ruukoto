@@ -11,8 +11,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ContextSendBlocked } from "../src/agent/context-assembly.ts";
-import { loadSkillLibrary } from "../src/agent/skills.ts";
+import { ContextSendBlocked } from "@ruukoto/agent/context-assembly.ts";
+import { loadSkillLibrary } from "@ruukoto/agent/skills.ts";
 import { startAssemblyKit } from "./helpers/testkit.ts";
 
 const OWNER_REF = [{ kind: "owner_note" as const, note: "测试录入" }];

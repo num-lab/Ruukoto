@@ -1,12 +1,13 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { test } from "node:test";
-import { CredentialStore } from "../src/agent/execution/credentials.ts";
-import type { NotifyTarget, Task } from "../src/core/types.ts";
-import { GITHUB_WEBHOOK_PATH } from "../src/github/webhook.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import type { NotifyChannel } from "../src/scheduler/runtime.ts";
+import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import type { NotifyTarget, Task } from "@ruukoto/core/types.ts";
+import { GITHUB_WEBHOOK_PATH } from "@ruukoto/channels/github/webhook.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import type { NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
 import { startMockMcp, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
 import { MockModelServer, type RecordedRequest } from "./helpers/mock-provider.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
@@ -117,6 +118,7 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
   });
   await writeModelsJson(dirs, await server.start());
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", qqDisabled: true, telegramDisabled: true,
     githubWebhook: { port: 0, credential: "hook", repositoryIds: [42] },

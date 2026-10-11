@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import type { DriverDeps } from "../src/agent/driver.ts";
+import type { DriverDeps } from "@ruukoto/agent/driver.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 import { createProjectSession, lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 

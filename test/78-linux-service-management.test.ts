@@ -1,3 +1,5 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 /**
  * agent-direction issue 09：通过 IM 管理 Linux 服务（service_inspect / service_manage）。
  *
@@ -40,16 +42,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { createServiceTools, type ServiceToolsDeps } from "../src/agent/service-tools.ts";
-import type { HostToolContext } from "../src/agent/host-tools.ts";
-import { ApprovalGate } from "../src/agent/approval-gate.ts";
-import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
-import { ArtifactStore } from "../src/agent/artifacts.ts";
-import { createManagedProcessRegistry } from "../src/agent/managed-processes.ts";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { createServiceTools, type ServiceToolsDeps } from "../apps/ruukoto/src/service-tools.ts";
+import type { HostToolContext } from "@ruukoto/agent/host-tools.ts";
+import { ApprovalGate } from "@ruukoto/agent/approval-gate.ts";
+import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
+import { createManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
@@ -212,6 +214,7 @@ async function imHarness(prefix: string, responder: Responder): Promise<ImHarnes
   const apiBase = await api.start();
   const svc = setupFakeService(dirs.root);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -277,7 +280,16 @@ const solePending = (rt: Runtime) => {
 const taskEvents = (rt: Runtime, taskId: string, type: string): any[] =>
   rt.store.getTaskEventsAfter(taskId, 0, 1000).filter((e) => e.body.type === type).map((e) => e.body);
 const toolResults = (rt: Runtime, taskId: string): any[] => taskEvents(rt, taskId, "task.tool_result");
-const serviceManagerOf = (rt: Runtime) => (rt as unknown as { serviceManager: unknown }).serviceManager;
+const assertServiceUnavailable = async (rt: Runtime, model: MockModelServer) => {
+  const main = rt.store.getAgentRole("main")!;
+  const task = await rt.submit({ sessionId: main.sessionId, requestId: "service-unavailable", input: "TRY-SVC-INSPECT", modelSelection: rt.defaultSelection });
+  await waitFor("服务能力拒绝后任务完成", () => rt.store.getTask(task.id)!.status === "completed");
+  assert.ok(modelSawBlocked(model, "service_inspect"), "未装配的服务工具调用被拒绝");
+  for (const call of model.calls) {
+    const names = (call.tools ?? []).map((tool) => (tool.function as { name: string }).name);
+    assert.ok(!names.includes("service_inspect") && !names.includes("service_manage"), "模型实际收到的工具清单不含服务能力");
+  }
+};
 
 // ==================================================================
 // 端到端：双平台全流程（覆盖点 1/2/3/4）
@@ -473,11 +485,12 @@ test("错误产品：ruukoto-code 配置齐备也不装配（覆盖点 5）", as
       modelProvider: "mock",
       modelId: "mock-model",
       toolFactory: (ctx) => createMockTools(ctx),
-      productType: "ruukoto-code",
+      product: codingProduct.runtime,
       service: svc.service(),
     });
     try {
-      assert.equal(serviceManagerOf(rt), null, "错误产品不装配服务管理能力（工具不装配，不是静默放行）");
+      await assertServiceUnavailable(rt, model);
+      assert.equal(svc.calls().length, 0);
     } finally {
       await rt.stop("test_end");
     }
@@ -493,6 +506,7 @@ test("平台/配置门：无 service 配置不装配（各平台）；非 Linux 
     const model = new MockModelServer(svcResponder());
     await writeModelsJson(dirs, await model.start());
     const rt = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       socketPath: path.join(dirs.root, "c.sock"),
@@ -505,6 +519,7 @@ test("平台/配置门：无 service 配置不装配（各平台）；非 Linux 
     return {
       rt,
       dirs,
+      model,
       async close() {
         await rt.stop("test_end");
         await model.close();
@@ -515,7 +530,7 @@ test("平台/配置门：无 service 配置不装配（各平台）；非 Linux 
   // 无 service 配置：任何平台都不装配
   const noCfg = await boot("svc-nocfg");
   try {
-    assert.equal(serviceManagerOf(noCfg.rt), null, "无 service 配置：不装配");
+    await assertServiceUnavailable(noCfg.rt, noCfg.model);
   } finally {
     await noCfg.close();
   }
@@ -528,7 +543,8 @@ test("平台/配置门：无 service 配置不装配（各平台）；非 Linux 
   const svc = setupFakeService(dirs2.root);
   const gated = await boot("svc-platform-gate", { ...svc.service(), allowNonLinuxPlatform: undefined });
   try {
-    assert.equal(serviceManagerOf(gated.rt), null, "非 Linux 且未显式放行：不装配");
+    await assertServiceUnavailable(gated.rt, gated.model);
+    assert.equal(svc.calls().length, 0);
   } finally {
     await gated.close();
     await cleanupDirs(dirs2);

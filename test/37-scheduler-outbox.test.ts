@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 调度器与通知 outbox 集成测试（daily-agent issue 03）。
  *
@@ -11,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { firstDue, latestAtOrBefore, nextAfter, parseRule, RuleError } from "../src/scheduler/time.ts";
+import { firstDue, latestAtOrBefore, nextAfter, parseRule, RuleError } from "@ruukoto/channels/scheduler/time.ts";
 
 // ---------- 时间规则 ----------
 
@@ -71,14 +72,14 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as childProcess from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { NotSentError, type NotifyChannel } from "../src/scheduler/runtime.ts";
-import type { NotifyTarget } from "../src/core/types.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { NotSentError, type NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
+import type { NotifyTarget } from "@ruukoto/core/types.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, pendingConfirmation, waitFor, writeModelsJson, connectAuthedClient } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
-import { ControlServer } from "../src/control/server.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
 
 const TARGET: NotifyTarget = { channel: "mock", account: "bot1", chatId: "owner-chat", configVersion: 1 };
 
@@ -125,6 +126,7 @@ async function harness(prefix: string, startIso: string, responder?: Responder, 
   const clock = { t: ms(startIso) };
   const channel = mockChannel();
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),

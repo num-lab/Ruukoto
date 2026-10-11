@@ -1,0 +1,19 @@
+{
+  "name": "@ruukoto/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

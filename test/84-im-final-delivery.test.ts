@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 异步工作最终结果送回原 IM 入口（agent-direction issue 18）。
  *
@@ -14,8 +15,8 @@
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { toolNamesOf, afterTool, inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson, type TestDirs } from "./helpers/testkit.ts";
 import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
@@ -46,6 +47,7 @@ async function harness(prefix: string, responder: Responder, opts: { telegram?: 
   const api = opts.telegram ? new FakeBotApi({ token: TG_TOKEN, ownerId: TG_OWNER }) : null;
   const apiBase = api ? await api.start() : null;
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model",
     ...realTools(),

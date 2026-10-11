@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { expandSkillCommand, loadSkillLibrary, readSkill } from "../src/agent/skills.ts";
+import { expandSkillCommand, loadSkillLibrary, readSkill } from "@ruukoto/agent/skills.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { createProjectSession, lastUserText, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
 

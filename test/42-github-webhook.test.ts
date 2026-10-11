@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
 import * as http from "node:http";
 import { test } from "node:test";
-import { GitHubWebhook, GITHUB_WEBHOOK_MAX_BYTES, verifyGitHubSignature, type GitHubPullRequestEvent } from "../src/github/webhook.ts";
+import { GitHubWebhook, GITHUB_WEBHOOK_MAX_BYTES, verifyGitHubSignature, type GitHubPullRequestEvent } from "@ruukoto/channels/github/webhook.ts";
 
 const SECRET = "webhook-test-secret";
 

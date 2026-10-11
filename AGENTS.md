@@ -2,15 +2,17 @@
 
 ## 开发与验证
 
-首次检出在仓库根目录运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。修改过程中运行 `npm run check:static` 和相关测试，例如`npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。环境前提、测试导航、耗时和外部验收入口见[开发说明](docs/development.md)。当测试需要 Linux 环境时，可通过 `ssh tx` 访问服务器。
+首次检出在仓库根目录运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。修改过程中运行 `npm run check:static` 和相关测试，例如 `npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。环境前提、测试导航、耗时和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
 
 ## 目录导航
 
-- `src/runtime/` 编排任务与产品行为。
-- `src/core/` 管理存储、身份与权限。
-- `src/agent/` 管理模型、上下文与工具，`src/agent/tool-worker/` 是执行边界内的工作进程。
-- `src/control/` 提供控制面。
-- `src/tui/`、`src/config-tui/` 和平台适配目录提供用户入口。
+- `apps/ruukoto/` 与 `apps/ruukoto-code/` 持有各产品的 bin、能力声明与专属装配。
+- `packages/runtime/` 编排任务、会话与 SubAgent，接收 app 注入的产品能力。
+- `packages/core/` 管理存储、身份与权限。
+- `packages/agent/` 管理模型、上下文与工具，`packages/agent/src/tool-worker/` 是执行边界内的工作进程。
+- `packages/control/` 提供控制面。
+- `packages/channels/` 持有 IM、GitHub、调度与旧个人资料导入。
+- `packages/tui/` 提供共享 CLI、任务界面、配置中心与开发启动器。
 - `test/` 是应用测试。
 - `verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
 - `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
@@ -20,18 +22,18 @@
 
 ## 约定
 
-每条都是本仓库已经稳定遵守的规则，改动前先对照；括号里是承载细节的文档。
+改动前先对照以下约定，细节见所链接的文档。
 
 **模块边界**
 
-- `src/core/` 不得 import 其他 `src/` 区；它是全部模块的底座（[架构总览](docs/architecture.md)）。
-- 跨区反向引用只允许 `import type` 或注入回调，不得直接调用对方的运行时实现。
+- `core` 不得 import 其他 workspace 包；它是全部模块的底座（[架构总览](docs/architecture.md)）。
+- 跨包引用使用包名与 exports，按本包 dependencies 声明；反向类型引用列入 devDependencies，运行时反向调用改用注入回调。依赖方向由 ESLint 执行。
 
 **错误处理**
 
 - 跨层错误转成带 `code` 的类型；调用方用 `instanceof` 与 `.code ===` 判别，不解析 `message`。
 - 不写空 `catch`。确需吞掉时，写明吞的是哪个错误与原因。
-- 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 `src/cli.ts`、`src/tui/index.ts`、`src/config-tui/index.ts` 三个入口。
+- 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 `packages/tui/src/` 的 `cli.ts`、`tui/index.ts`、`config-tui/index.ts` 三个入口。
 - 设计或评审失败路径时按 [error-handling](.agents/skills/error-handling/SKILL.md)。
 
 **类型**
@@ -42,7 +44,7 @@
 **持久化**
 
 - 状态与其事件在同一事务内写入，提交成功后才应答与广播（[core](docs/modules/core.md)）。
-- 会话 JSONL 是消息历史的唯一权威副本；`src/core/` 只读不写，不得声称 SQLite 与 JSONL 之间原子。
+- 会话 JSONL 是消息历史的唯一权威副本；core 只读不写，不得声称 SQLite 与 JSONL 之间原子。
 - `SCHEMA_VERSION` 单调递增；比当前代码更新的库直接拒绝启动。
 
 **测试**

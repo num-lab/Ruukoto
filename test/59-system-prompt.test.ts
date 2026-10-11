@@ -12,10 +12,10 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { SYSTEM_PROMPTS } from "../src/agent/session-factory.ts";
-import { expandSkillCommand, loadSkillLibrary, readSkill } from "../src/agent/skills.ts";
-import { formatMcpResult } from "../src/agent/mcp/tools.ts";
-import type { Runtime } from "../src/runtime/runtime.ts";
+import { SYSTEM_PROMPTS } from "@ruukoto/agent/session-factory.ts";
+import { expandSkillCommand, loadSkillLibrary, readSkill } from "@ruukoto/agent/skills.ts";
+import { formatMcpResult } from "@ruukoto/agent/mcp/tools.ts";
+import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { createProjectSession, lastUserText, startAssemblyKit, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 const withCwd = (prompt: string, cwd: string) => `${prompt}\nCurrent working directory: ${cwd}\n`;

@@ -11,9 +11,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { ControlClient } from "../../src/control/client.ts";
-import { probeLockHolder } from "../../src/core/instance-lock.ts";
-import { saveDefaultModel } from "../../src/agent/model-config.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { probeLockHolder } from "@ruukoto/core/instance-lock.ts";
+import { saveDefaultModel } from "@ruukoto/agent/model-config.ts";
 import { authenticateClient, taskStatus, waitFor, writeModelsJson } from "../../test/helpers/testkit.ts";
 import { MockModelServer } from "../../test/helpers/mock-provider.ts";
 import { prerequisite, requireDocker } from "./gate.ts";
@@ -43,7 +43,9 @@ if (options["upgrade-only"]) {
     execFileSync("tar", ["--version"], { stdio: "ignore", timeout: 15_000 });
     if (baseTar) {
       const entries = execFileSync("tar", ["-tf", baseTar], { encoding: "utf8", timeout: 15_000 }).split("\n");
-      if (!entries.includes("bin/ruukoto-code.mjs") || !entries.includes("bin/ruukoto.mjs")) throw new Error("archive 缺少当前双产品入口");
+      for (const product of ["ruukoto", "ruukoto-code"]) {
+        if (!entries.includes(`bin/${product}.mjs`) && !entries.includes(`apps/${product}/bin/${product}.mjs`)) throw new Error("archive 缺少当前双产品入口");
+      }
     } else {
       const oldPackage = JSON.parse(execFileSync("git", ["show", `${base}:package.json`], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 }));
       if (!oldPackage.bin?.["ruukoto-code"] || !oldPackage.bin?.ruukoto) throw new Error("基点缺少当前双产品身份");
@@ -111,7 +113,8 @@ async function connect(p: Profile): Promise<ControlClient> {
   return client!;
 }
 function launch(tree: string, p: Profile): ChildProcess {
-  const child = spawn(process.execPath, [path.join(tree, "bin", `${p.product}.mjs`), "server", "--execution", "local", "--thinking", "off"],
+  const entry = JSON.parse(fs.readFileSync(path.join(tree, "package.json"), "utf8")).bin[p.product];
+  const child = spawn(process.execPath, [path.join(tree, entry), "server", "--execution", "local", "--thinking", "off"],
     { cwd: tree, env: p.env, stdio: ["ignore", "ignore", "pipe"], detached: true });
   children.push(child);
   child.stderr!.on("data", () => {});
@@ -145,7 +148,7 @@ try {
     fs.writeFileSync(path.join(p.agentDir, "models.json"), JSON.stringify({ providers: { [providerId]: { ...provider, models: provider.models.filter((m: any) => m.id === modelId) } } }), { mode: 0o600 });
     saveDefaultModel(p.agentDir, { provider: providerId, modelId, thinkingLevel: "off" });
     const probe = spawnSync(process.execPath, ["--import", "tsx", "--input-type", "module", "--eval",
-      'import { probeModelConfig } from "./src/agent/model-config.ts"; const result = await probeModelConfig(process.argv[1]); process.exitCode = result.ok ? 0 : 2;',
+      'import { probeModelConfig } from "@ruukoto/agent/model-config.ts"; const result = await probeModelConfig(process.argv[1]); process.exitCode = result.ok ? 0 : 2;',
       p.agentDir], { cwd: repo, env: p.env, encoding: "utf8", timeout: 30_000 });
     if (probe.status !== 0) {
       failureCode = 2;
@@ -156,7 +159,7 @@ try {
     fs.writeFileSync(path.join(workspace, "sum.mjs"), "export function sum(xs) { let total = 1; for (const x of xs) total += x; return total; }\n");
     const checkSource = 'import assert from "node:assert/strict"; import { sum } from "./sum.mjs"; assert.equal(sum([]), 0); assert.equal(sum([1,2,3]), 6); console.log("CHECK_PASS");\n';
     fs.writeFileSync(path.join(workspace, "check.mjs"), checkSource);
-    const tui = spawn("python3", [path.join(repo, "verification/smoke/pty-run.py"), path.join(repo, "bin/ruukoto-code.mjs"), workspace],
+    const tui = spawn("python3", [path.join(repo, "verification/smoke/pty-run.py"), path.join(repo, "apps/ruukoto-code/bin/ruukoto-code.mjs"), workspace],
       { cwd: repo, env: { ...p.env, GRACE: "10" }, stdio: ["ignore", "pipe", "pipe"] });
     children.push(tui);
     let tuiOutput = "";
@@ -226,8 +229,9 @@ try {
     assert.equal((await survivorClient.handshake()).snapshot.instanceId, index === 0 ? pSnapshot.instanceId : dSnapshot.instanceId);
     await finished(survivorClient, (await complete(survivorClient, survivorSession, `other-stopped-${index}`)).id);
     const tree = index === 0 ? trees[1]! : trees[0]!;
-    for (const name of ["src", "bin"]) { fs.rmSync(path.join(tree, name), { recursive: true }); fs.cpSync(path.join(repo, name), path.join(tree, name), { recursive: true }); }
-    for (const name of ["package.json", "package-lock.json"]) fs.copyFileSync(path.join(repo, name), path.join(tree, name));
+    for (const name of ["src", "bin", "packages", "apps", "scripts"]) fs.rmSync(path.join(tree, name), { recursive: true, force: true });
+    for (const name of ["packages", "apps", "scripts"]) fs.cpSync(path.join(repo, name), path.join(tree, name), { recursive: true, filter: (source) => path.basename(source) !== "node_modules" });
+    for (const name of ["package.json", "package-lock.json", "tsconfig.json", "tsconfig.base.json"]) fs.copyFileSync(path.join(repo, name), path.join(tree, name));
     run("npm", ["ci", "--no-audit", "--no-fund", "--prefer-offline"], tree);
     const updated = launch(tree, p);
     const next = await connect(p);

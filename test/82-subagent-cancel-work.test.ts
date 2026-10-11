@@ -28,10 +28,11 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { type MockResponse, type Responder } from "./helpers/mock-provider.ts";
 import { afterTool, lastToolText, inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
-import { createSubAgentTools } from "../src/agent/subagent-tools.ts";
-import { type Runtime } from "../src/runtime/runtime.ts";
-import { subagentOpCheck, subAgentTaskRequestId, SubAgentManager } from "../src/runtime/subagents.ts";
-import { WorkCopyManager } from "../src/runtime/work-copy.ts";
+import { createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
+import { type Runtime } from "@ruukoto/runtime/runtime.ts";
+import { subagentOpCheck, subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
+import { SubAgentManager } from "@ruukoto/runtime/subagents.ts";
+import { WorkCopyManager } from "@ruukoto/runtime/work-copy.ts";
 
 /** 结果登记与 Agent 空闲在同一事务；等 resultSummary 即等空闲可用。 */
 async function waitIdle(rt: Runtime, agentId: string): Promise<void> {
@@ -599,7 +600,7 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
     // —— 重启：取消状态保持，巡检不为已取消工作补发 wake ——
     const callsAtStop = t.server.calls.length;
     await rt.stop("test_restart");
-    const { Runtime } = await import("../src/runtime/runtime.ts");
+    const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
     const rt2 = await Runtime.start(rt.config);
     try {
       const rWork = rt2.store.getWorkDelegation(a.work.id)!;
@@ -622,8 +623,8 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
 test("v25 → v26 迁移：旧工作委托保留、取消三列为空；账本核实与条件写入正确", async () => {
   const { dirs } = await makeTestDirs("cancel-migrate", 0);
   try {
-    const { Db, SCHEMA_VERSION } = await import("../src/core/db.ts");
-    const { Store } = await import("../src/core/store.ts");
+    const { Db, SCHEMA_VERSION } = await import("@ruukoto/core/db.ts");
+    const { Store } = await import("@ruukoto/core/store.ts");
     let db = new Db(dirs.dataDir);
     db.exec(`
       ALTER TABLE work_delegations DROP COLUMN canceled_at;

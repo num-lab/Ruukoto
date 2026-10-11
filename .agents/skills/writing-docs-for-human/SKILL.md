@@ -29,15 +29,16 @@ description: 写或改 docs/ 下面向人类的文档（architecture、modules�
 
 | 源码 | 模块文档 |
 |---|---|
-| `src/runtime/` | `docs/modules/runtime.md` |
-| `src/core/` | `docs/modules/core.md` |
-| `src/agent/` 的上下文、模型、记忆、技能与计划 | `docs/modules/agent-context.md` |
-| `src/agent/` 的工具、MCP、Web Search、应用数据与授权 | `docs/modules/agent-tools.md` |
-| `src/agent/execution/`、`src/agent/tool-worker/` | `docs/modules/execution.md` |
-| `src/control/` | `docs/modules/control.md` |
-| `src/tui/`、`src/config-tui/` | `docs/modules/tui.md` |
-| `src/qq/`、`src/telegram/`、`src/github/` | `docs/modules/channels.md` |
-| `src/scheduler/` | `docs/modules/scheduler.md` |
+| `apps/ruukoto/`、`apps/ruukoto-code/` | `docs/modules/products.md` |
+| `packages/runtime/src/` | `docs/modules/runtime.md` |
+| `packages/core/src/` | `docs/modules/core.md` |
+| `packages/agent/src/` 的上下文、模型、记忆、技能与计划 | `docs/modules/agent-context.md` |
+| `packages/agent/src/` 的工具、MCP、Web Search、应用数据与授权；app 的调度与服务工具 | `docs/modules/agent-tools.md` |
+| `packages/agent/src/execution/`、`packages/agent/src/tool-worker/` | `docs/modules/execution.md` |
+| `packages/control/src/` | `docs/modules/control.md` |
+| `packages/tui/src/`（共享 CLI、入口分发、开发启动器与两个界面） | `docs/modules/tui.md` |
+| `packages/channels/src/`（`scheduler/` 除外） | `docs/modules/channels.md`；旧实例导入的流程在 `docs/modules/runtime.md` |
+| `packages/channels/src/scheduler/` | `docs/modules/scheduler.md` |
 | `deploy/` | `docs/modules/deploy.md` |
 
 一次改动牵动多篇时逐篇核对，不只改最显眼的那篇。`npm run check:docs` 机械检查链接、源码引用、篇幅与段落形态，但**检查不了内容与代码是否一致**；内容同步仍靠本 skill 的触发条件。

@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成：并发与目录互斥。
  *
@@ -16,8 +17,8 @@ import {
   createProjectSession,
   taskStatus,
 } from "./helpers/testkit.ts";
-import { InstanceLockError } from "../src/core/instance-lock.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
+import { InstanceLockError } from "@ruukoto/core/instance-lock.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
 
 const slowRoutes = routeResponder([
   {
@@ -161,7 +162,8 @@ test("重复后台启动被实例锁拒绝", async () => {
   const t = await startTestRuntime("lock", slowRoutes);
   try {
     await assert.rejects(
-      () => Runtime.start({ dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir }),
+      () => Runtime.start({
+    product: personalProduct.runtime, dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir }),
       (err: unknown) => err instanceof InstanceLockError,
       "第二个后台实例必须被拒绝",
     );

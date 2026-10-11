@@ -13,12 +13,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import type { AccessMode, ApprovalScope, ConfirmationRequest, Task } from "../src/core/types.ts";
-import { ApprovalGate, type ApprovalRequest } from "../src/agent/approval-gate.ts";
-import { ToolOpLedger } from "../src/agent/tool-op-ledger.ts";
-import type { ApprovalReviewer } from "../src/agent/review.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import type { AccessMode, ApprovalScope, ConfirmationRequest, Task } from "@ruukoto/core/types.ts";
+import { ApprovalGate, type ApprovalRequest } from "@ruukoto/agent/approval-gate.ts";
+import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import type { ApprovalReviewer } from "@ruukoto/agent/review.ts";
 
 const FILE_READ: ApprovalScope = { kind: "file_operation", path: "/outside/a.txt", access: "read", originalSha256: null, contentSha256: null, contentBytes: null };
 const TOOL = "request_file_access";

@@ -28,21 +28,21 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ControlConnection } from "../src/control/connection.ts";
-import { PendingRequestStore } from "../src/control/pending-requests.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store, StoreConflictError } from "../src/core/store.ts";
+import { ControlConnection } from "@ruukoto/control/connection.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { SubmissionGuard } from "@ruukoto/control/submission.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store, StoreConflictError } from "@ruukoto/core/store.ts";
 import {
   findWorkspaceByRoot,
   findWorkspaceProjects,
   workspacePickerProjects,
-} from "../src/control/workspace.ts";
-import type { DirIdentity } from "../src/core/dir-identity.ts";
-import type { Project, Session } from "../src/core/types.ts";
-import { ViewState, sessionTitleAttribution } from "../src/tui/state.ts";
-import { TuiApp } from "../src/tui/app.ts";
+} from "@ruukoto/control/workspace.ts";
+import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
+import type { Project, Session } from "@ruukoto/core/types.ts";
+import { ViewState, sessionTitleAttribution } from "@ruukoto/tui/tui/state.ts";
+import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import {
   startTestRuntime,
   waitFor,
@@ -51,7 +51,7 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
-import { LEGACY_PROJECT_WRITE_HINT } from "../src/tui/commands.ts";
+import { LEGACY_PROJECT_WRITE_HINT } from "@ruukoto/tui/tui/commands.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 

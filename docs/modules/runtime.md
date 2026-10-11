@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-任务运行时（`src/runtime/`）是后台的编排中心：它拥有任务生命周期与队列、会话身份与执行画像、任务收尾、父级送达、SubAgent 生命周期与全部委派行为、后台崩溃恢复，以及旧实例导入的设计。单个后台进程持有调度、任务状态与事件，每个会话用独立的 pi SDK 实例驱动；交互终端（TUI、CLI、IM 入口、GitHub 事件来源）只提交与观察，断开或关闭不取消任务。
+任务运行时（`packages/runtime/src/`）是后台的编排中心：它拥有任务生命周期与队列、会话身份与执行画像、任务收尾、父级送达、SubAgent 生命周期与全部委派行为、后台崩溃恢复，以及旧实例导入的设计。单个后台进程持有调度、任务状态与事件，每个会话用独立的 pi SDK 实例驱动；交互终端（TUI、CLI、IM 入口、GitHub 事件来源）只提交与观察，断开或关闭不取消任务。
 
 它负责：
 
@@ -17,6 +17,8 @@
 
 ## 对外接口
 
+`Runtime.start(config)` 要求 app 注入 `config.product`（`RuntimeProduct`）：身份用于数据目录登记，IM 与调度能力决定启停，产品工具族由 app 的工厂提供。共享运行时不按产品名装配。具体产品归属见[产品装配](products.md)。
+
 **驱动本模块的入口。** 控制面（[control](control.md) 与 CLI/TUI）提供 `submit`、`continue`、`interrupt`、`cancel`、`resume_queue`、`switch_mode`、`set_session_mode`、`confirm`，以及工作维度的只读查询 `work_list` / `work_get` 与写操作 `work_cancel`、`subagent_close`（CLI 分别对应 `ruukoto work list` / `ruukoto work show` / `ruukoto work cancel` / `ruukoto work close`）。普通控制面的 `submit` / `continue` / `switch-mode` / 会话默认模式不能作用于子会话。channels 与 scheduler 经入站事件与唤醒任务驱动建任务；每个任务带 `source_event_id` 时出队走既有入站门。
 
 **本模块提供给模型的宿主工具。** `subagent_delegate`（登记一次委派，分析或修改）、`subagent_result`（读取结果，省略 `work_id` 时列出本会话 SubAgent 总览，`part=messages` 查看工作内消息）、`subagent_cancel`（整项取消）、`subagent_close`（显式关闭）、`subagent_message`（工作内消息）、`subagent_integrate`（改动汇总）。这些工具属 `subagent` 类别，由 [agent-tools](agent-tools.md) 按执行画像装配；每次调用重新核实宿主任务、会话与身份绑定。
@@ -25,7 +27,7 @@
 
 **本模块发布与消费的事件。** `task.queued`、`task.started`、`task.completed`、`task.failed`、`task.canceled`、`task.interrupted`、`task.tool_process_unreaped`、`task.mode_switched`、`task.mode_switch_requested`、`task.mode_switch_failed`、`task.awaiting_confirmation`、`task.approval_consumed`、`session.queue_paused`、`occupancy.stale`、`work_delegation.created`、`work_delegation.canceled`、`work_delegation.integrated`、`subagent.closed`、`subagent_message.sent`、`subagent_message.dropped`、`subagent_task.*`、`child_task.*`、`session.history_unreadable`、`*.reply_skipped`。
 
-**会话身份与入口资格。** 身份由 `src/core/session-identity.ts` 一次判定：`Store.getSessionIdentity` 读出会话、角色行与 SubAgent 行，纯函数 `classifySession` 分四种身份。Runtime 各入口按身份一行判定，错误码与文案留在各入口；每次调用的宿主身份重核（main 绑定、委派资格、群结果工具、IM 长期授权）用同一解析，但每次新鲜读取。
+**会话身份与入口资格。** 身份由 `packages/core/src/session-identity.ts` 一次判定：`Store.getSessionIdentity` 读出会话、角色行与 SubAgent 行，纯函数 `classifySession` 分四种身份。Runtime 各入口按身份一行判定，错误码与文案留在各入口；每次调用的宿主身份重核（main 绑定、委派资格、群结果工具、IM 长期授权）用同一解析，但每次新鲜读取。
 
 | 会话身份 | 判定依据 | 提交与模式入口 | 本模块的相关行为 |
 | --- | --- | --- | --- |
@@ -215,7 +217,7 @@ sequenceDiagram
 
 ### 父级送达
 
-送达指 SubAgent 的结果或发给主 Agent 的工作内消息进入主 Agent 的一次模型调用：main 会话在承载它的唤醒任务开始运行时，普通开发会话在下一次任务开始时的注入；此前只是待送达，建好的唤醒任务与 `delivered_at` 只是投递登记。送达方向按会话身份判定（main 建唤醒，普通开发会话待注入）。`src/runtime/parent-delivery.ts` 的五个入口：
+送达指 SubAgent 的结果或发给主 Agent 的工作内消息进入主 Agent 的一次模型调用：main 会话在承载它的唤醒任务开始运行时，普通开发会话在下一次任务开始时的注入；此前只是待送达，建好的唤醒任务与 `delivered_at` 只是投递登记。送达方向按会话身份判定（main 建唤醒，普通开发会话待注入）。`packages/runtime/src/parent-delivery.ts` 的五个入口：
 
 1. 子任务结果已登记：编排器在结果事务后调用一次，main 经 `submit` 建 `wake:<子任务>`。
 2. 发给主 Agent 的消息已登记：SubAgent 管理器在消息事务内调用，main 直接插入 `smsg:<消息>`，使用管理器在事务外核实、事务内重检的模型选择。
@@ -227,7 +229,7 @@ sequenceDiagram
 
 ### SubAgent 生命周期写入者
 
-`src/runtime/subagents.ts` 的 `SubAgentManager` 是在线 SubAgent 状态、当前工作与当前任务指针的唯一写入者，Store 保留 SQL 原语；离线导入沿用自己的收尾。编排器在结果事务内调用 `resultRecorded(task)`，只有 `currentTaskId === task.id` 才按子会话占用记 `idle` / `unverified` 并清空当前任务，旧任务首次补记不改当前新工作与任务。Runtime 在 `resumeQueue` 释放占用的事务内调用 `executionVerified(sessionId)`：无活动任务且当前终态任务已有结果，才可在占用释放后回到 `idle`；结果缺失报 `invalid_state`，整笔恢复拒绝。返回的父会话 ID 用于提交后 `await flushPendingMessages`。管理器 `start` 先冲刷消息，再恢复无遗留占用的 `backend_restart` 子会话；角色队列恢复仍归编排器。
+`packages/runtime/src/subagents.ts` 的 `SubAgentManager` 是在线 SubAgent 状态、当前工作与当前任务指针的唯一写入者，Store 保留 SQL 原语；离线导入沿用自己的收尾。编排器在结果事务内调用 `resultRecorded(task)`，只有 `currentTaskId === task.id` 才按子会话占用记 `idle` / `unverified` 并清空当前任务，旧任务首次补记不改当前新工作与任务。Runtime 在 `resumeQueue` 释放占用的事务内调用 `executionVerified(sessionId)`：无活动任务且当前终态任务已有结果，才可在占用释放后回到 `idle`；结果缺失报 `invalid_state`，整笔恢复拒绝。返回的父会话 ID 用于提交后 `await flushPendingMessages`。管理器 `start` 先冲刷消息，再恢复无遗留占用的 `backend_restart` 子会话；角色队列恢复仍归编排器。
 
 ### 后台崩溃恢复
 

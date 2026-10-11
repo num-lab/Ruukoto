@@ -75,10 +75,10 @@ Status: ready-for-agent
 
 实现优先复用仓内严格历史解析、目录与身份校验、资料授权、压缩指纹、命令表和会话切换能力；不新增依赖，不建设通用分支图界面或第二套配置系统。预计涉及以下路径，具体落点由实现时阅读调用方确定：
 
-- `src/tui/commands.ts`、`app.ts`、`state.ts`、会话摘要/列表及清单展示：注册、补全、帮助、请求、完整元数据安装、切换、名称、来源和历史读取。`/artifact` 也要能定位已有来源引用，不能仅查新会话任务列表。
-- `src/control/ops.ts`、`server.ts`、`protocol.ts` 与 `src/runtime/runtime.ts`：增加薄的已认证分支操作，后台确定身份、快照、设置及创建结果，统一处理重启和失败。
-- `src/core/types.ts`、`db.ts`、`store.ts`、`history.ts` 与会话文件打开路径：持久名称、来源会话/分支点/资料边界、独立历史、清单参数恢复和创建幂等；按实际数据形状补迁移及相关 fixtures。
-- `src/agent/context-assembly.ts`、`inbound-images.ts`、`subagent-tools.ts` 及资料读取接线：压缩点继承、来源图片校验、固定结果范围和只读来源核实；原工作管理入口继续使用原会话归属校验。
+- `packages/tui/src/tui/` 的 `commands.ts`、`app.ts`、`state.ts`、会话摘要/列表及清单展示：注册、补全、帮助、请求、完整元数据安装、切换、名称、来源和历史读取。`/artifact` 也要能定位已有来源引用，不能仅查新会话任务列表。
+- `packages/control/src/` 的 `ops.ts`、`server.ts`、`protocol.ts` 与 `packages/runtime/src/runtime.ts`：增加薄的已认证分支操作，后台确定身份、快照、设置及创建结果，统一处理重启和失败。
+- `packages/core/src/` 的 `types.ts`、`db.ts`、`store.ts`、`history.ts`、`history-index.ts` 与 `packages/agent/src/session-factory.ts`：持久名称、来源会话/分支点/资料边界、独立历史、清单参数恢复和创建幂等；按实际数据形状补迁移及相关 fixtures。
+- `packages/agent/src/` 的 `context-assembly.ts`、`compaction.ts`、`inbound-images.ts`、`subagent-tools.ts`，以及 `packages/runtime/src/subagents.ts`、资料读取接线：压缩点继承、来源图片校验、固定结果范围和只读来源核实；原工作管理入口继续使用原会话归属校验。
 - 会话创建应答、实时事件、重连快照与相关配置界面/演示数据：新字段及默认设置一致投影。旧会话迁移后名称与来源为空，继续使用原展示和读取规则；检查既有实例导入的字段清单与回退账本，避免丢失新增来源事实或绕过来源校验，不新增跨实例分支入口。
 
 安装的 pi 0.85.1 提供 `forkFrom` 和 `createBranchedSession`，但不能直接认定满足仓库语义：前者可能静默跳过损坏行并给源文件补换行，后者会修改所持 manager 的会话 ID 和文件。源 Driver 及源历史保护、严格解析和宿主元数据边界须先核实，再选择最小可用实现。
@@ -107,7 +107,69 @@ JSONL 与 SQLite 没有跨文件事务，不能宣称两者原子提交。实现
 
 复用现有测试设施，优先覆盖 `test/11` 严格历史、`test/14` TUI、`test/30` 创建幂等/断线、`test/57` 清单、`test/61` 压缩、`test/65` 命令表、`test/66` 控制连接、`test/74` 工作区、SubAgent 结果读取和图片引用相关用例；复杂边界可集中到一个分支集成测试文件，不为每个字段写照搬实现的测试。模型可打桩，消息存储、Runtime/SQLite 和来源校验使用真实路径；测试须核对实际模型请求，不能仅断言内存消息数组。
 
-实现完成后运行 `npm run typecheck` 和与改动匹配的测试，并完成仓库规定检查。更新 `README.md`、`docs/runtime.md` 中的命令及共享文件行为；新概念和持久来源决策按 `docs/agents/domain.md` 更新。改动 `src/` 后依 `.agents/skills/visual-docs/SKILL.md` 同步命中的控制协议、存储、上下文及工作委托图解，并运行 `test/67-visual-docs.test.ts`；若需要 Linux 环境按约定使用 `ssh tx`，区分模拟模型测试与真实平台验证。
+实现完成后运行 `npm run check:static` 和与改动匹配的测试。按当前 `.agents/skills/writing-docs-for-human/SKILL.md` 同步 `README.md`、`docs/usage.md` 以及 core/runtime/control/tui/agent-context 的模块文档；新概念和持久来源决策按 `docs/agents/domain.md` 更新。核对受影响的 `docs/visual/` 既有图解与实际实现一致；原 `visual-docs` skill、`test/67-visual-docs.test.ts` 已不在当前树中，不作为执行前提。需要 Linux 环境时使用 `ssh tx`，区分模拟模型测试与真实平台验证。
+
+## 实施计划（2026-10-11）
+
+本单独立于 26、27。若同时施工，`runtime.ts` 与共享测试 fixtures 的改动依次集成。按以下五批推进，最后一批才开放 `/branch`；不把只能复制纯文本的中间状态作为交付。快照创建与来源范围的技术方案见[独立历史快照分支](../../../.agents/notes/proposed/feature/2026-10-11-branch-session-snapshot.md)。
+
+### 1. 固定 JSONL 的安全分支点
+
+- 在 `packages/core/src/history.ts` 复用严格解析，增加只读快照选取：打开源文件并固定本次长度，只读该字节前缀；保留完整行，识别 header、条目链、宿主任务标记和工具批次。源文件身份或前缀不再可核实时拒绝，不补换行、不修文件。core 仍不写消息历史。
+- 用 `TASK_START_MARKER`、`TASK_END_MARKER` 与当次任务状态区分历史终态和活动尾部；按任务及 assistant 调用轮次配对，不能全文件按 toolCallId 去重。活动尾部批次整体回退，早先终态缺配对保留；末条完整用户消息有效，排队输入和未落盘流式片段不纳入。元数据不足以证明尾部安全时明确失败。
+- 产出固定的源身份、字节上限/指纹、末条 ID、消息数量和尾部排除说明。保留消息内容、条目 ID、顺序及来源标记；新 header 与 pi ID 由 agent 的历史文件准备函数生成，不能对源 Driver 持有的 SessionManager 调用分支 API。
+- 用真实格式夹具测试空历史、完整用户尾、部分尾行、损坏完整行、活动未闭合批次、跨任务重复调用 ID、旧中断后正常对话及读取期间追加。除允许的来源正常追加外，逐字节确认源文件未被分支修改。
+
+交付条件：只读快照结果可重复核对，安全点的回退理由明确；尚不创建可选会话。
+
+### 2. 幂等创建、schema 与崩溃恢复
+
+- `packages/runtime/src/branch-session.ts` 作为本功能编排入口，经 Runtime 调用；只接收来源会话 ID、可选名称、请求幂等键。由产品能力声明允许范围，后台核实普通开发身份、工作区映射、目录 dev/ino 和保护根。客户端不得提交目标文件路径、来源清单或继承授权。
+- `packages/core/src/db.ts`、`types.ts`、`store.ts` 增加持久展示名、来源边界及分支请求记录。请求记录保存参数指纹、目标宿主/pi ID、自动编号、固定设置/压缩点/来源清单和文件准备状态；未发布的请求不进入 sessions 列表。自动编号在事务内按直接来源分配，同键读取原记录，同键异参报 `request_conflict`。
+- 顺序固定为：验证并取得快照 → 事务保存不可变准备记录 → 在目标历史目录写独占准备文件并刷盘、安装最终文件 → 事务创建会话、来源记录、有效压缩点、完成回执与事件 → 提交后应答/广播。JSONL 与 SQLite 无跨文件原子性；每个崩溃点用准备记录恢复，绝不重新选取较新的源历史充当同一请求。
+- 恢复时只处理属于该请求的目标文件；已有文件须核对 header、ID 和内容摘要。原前缀无法再读或不符则保留明确失败回执，不删除源资料、不发布缺历史会话。后台对分支文件缺失要拒绝打开，不能落入 `openPiSessionManager` 当前的“文件不存在则新建”兜底。
+- 继承 `projectId` 与 `workspaceProjectId`，为模型选择、思考档位、默认模式和 `confirmTools` 初始化新会话自己的版本；不复制源任务、队列、占用、批准、选择记录和用量。新增 schema 与控制协议按实施时版本单调升级（本轮基线分别为 32、16），同步受影响 fixtures 与迁移测试。
+
+交付条件：并发同键只发布一个会话，自动名称不撞号；文件写入/rename/数据库提交失败和真实后台退出窗口均无可选半成品；同键重试保留原快照，创建不调用模型。
+
+### 3. 固定来源资料与结果的只读范围
+
+- 在创建快照时从宿主任务、工具账本、入站媒体记录和已送达结果中核实引用，保存限定来源清单；正文里的任意 ID 不产生资格。保留原任务/会话/产物 ID，partial 文本产物固定当次字节上限和状态，已完成图片固定 MIME、大小与哈希。
+- 将同一来源核实用于历史/产物读取、TUI `/artifact`、`inbound-images.ts` 的引用视图及模型请求前恢复；每次读取继续核实当前资料权限和文件内容。缺失、损坏、撤销或伪造引用明确报错，模型请求数为零，不能静默去掉图片。
+- `SubAgentManager` 的结果读取允许命中固定的已完成任务/产物集合；work ID 本身不能开放后续结果。管理操作仍沿原父会话身份校验，分支不得继续、复用、发消息、取消、关闭或汇总源工作，自己的新工作照常创建。
+- 连续分支继承已核实祖先条目及其原上限，与本次复制范围取交集；不能只保存直接父 ID，也不能查询祖先当前全部资料来补齐。来源任务仅是查询对象，不进入新会话活动任务、队列、用量或操作按钮。
+
+交付条件：A → B → C 的图片/产物/已完成结果引用可用，源后续追加及复用结果不进入继承集合；无关会话和管理操作被拒绝。验证实际模拟模型 payload 与拒绝时的零请求。
+
+### 4. 压缩点、清单与导入兼容
+
+- 用 `compaction.ts` 的 `checkpointFingerprint` 核对复制消息，复制匹配的 active 压缩点内容并分配新 ID，保留生成来源；范围越界、失效或指纹不符时不继承。后续父子各自压缩，不复制选择/prompt 记录。
+- 从复制范围内最后一次成功 `todo_write` 的配对调用参数恢复清单；通过后台派生视图供 `/todo` 使用，后续本会话成功写入覆盖该视图。模型上下文与 TUI 采用同一历史事实，不伪造源 `tool_ops`，也不依赖 TUI 已加载页是否包含原参数。无清单沿用空状态。
+- 核对 `apps/ruukoto-code/src/legacy-import.ts`、`packages/channels/src/personal-import.ts` 和 `packages/core/src/import-support.ts` 的字段/表策略与回退账本：保留适用的名称和来源事实；缺少来源对象或新格式不能核实时明确拒绝/标明不可用，不丢弃来源字段后扩大权限。旧会话的名称和来源为空，原行为不变，不增加跨实例分支入口。
+
+交付条件：分支后的第一次模型请求、`/todo`、重连以及再分支一致；原压缩点/清单继续变化不影响已有分支，导入与迁移保留原资料标识。
+
+### 5. 控制面、TUI 与完整验收
+
+- 在 control 的 `ops.ts`、协议分派和 Runtime 接线增加已认证 `branch_session`，扩展按请求键核实创建结果的能力；应答丢失后保留原请求键并核实，不恢复成“未创建”或生成新键重建。明确再次执行命令才分配新键。
+- 创建应答、`session.created`、会话查询与重连快照下发一致完整元数据。当前 TUI 的创建事件会填默认 confirm/空字段，须修复投影；分支切换先安装后台结果，走保留目标设置的切换路径，避免 `switchSession` 的跨会话设置传播发出错误 CAS。只发起客户端自动切换，其他客户端仅更新列表。
+- 在 `commands.ts` 注册 `/branch [名称]`、补全和帮助；复用命令历史绑定发起会话，失败保留父选择与草稿，成功让新编辑器为空并显示实际来源/分支点。会话列表优先使用持久名称，首个任务不得覆盖，普通未命名会话继续沿原摘要规则。
+- 更新 README 命令表、usage 的共享工作目录说明、受影响模块文档与图解；在 CONTEXT 中补“会话分支”的已实现定义，明确与 Git 分支、worktree 和 SubAgent 的区别。提案随代码转 implemented，入口加笔记锚点。
+
+交付条件：两客户端、断线重连和退出重进都看到同一名称/设置/来源；运行中、等待审批和有队列的源会话均可在安全点分支，新会话首次提交按现有目录占用等待，不重放源任务。
+
+### 验证清单
+
+新增 `test/102-branch-session.test.ts` 承载跨模块分支集成与故障注入，使用真实 JSONL、SQLite、Runtime、控制连接和模拟模型；复用现有设施，不为每个字段另建测试文件。按批次运行：
+
+| 改动面 | 定向回归 |
+| --- | --- |
+| 历史、创建、schema、恢复 | `test/11-history-read.test.ts`、`test/30-workspace-entry.test.ts`、`test/01-concurrency.test.ts`、`test/03-lifecycle.test.ts`、`test/04-crash-recovery.test.ts`、`test/05-overflow-db.test.ts` |
+| 上下文、清单、图片 | `test/18-model-selection.test.ts`、`test/57-todo-list.test.ts`、`test/58-plan-mode.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/96-vision-driver.test.ts` |
+| TUI、控制与工作区 | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/37-command-history.test.ts`、`test/65-slash-commands.test.ts`、`test/66-control-seam.test.ts`、`test/69-session-summaries.test.ts`、`test/74-workspace-sessions.test.ts`、`test/76-legacy-workspace-data.test.ts`；终端输入有改动再加 `test/15-tui-pty.test.ts` |
+| 来源结果、导入 | `test/80-subagent-delegation.test.ts`、`test/85-legacy-instance-import.test.ts`、`test/86-personal-instance-import.test.ts`、`test/91-release-acceptance.test.ts` |
+
+各组使用 `npx tsx --test <对应文件>`，并在相关批次跑新的分支测试；最终运行 `npm run check:static`。人工 TUI 验收一次中文名称、活动源分支、失败保留草稿和父子切换；记录真实文件/控制面与模拟模型的区别。本轮只制定计划，不执行这些功能测试，不勾选验收项。
 
 ## Comments
 
@@ -122,3 +184,7 @@ JSONL 与 SQLite 没有跨文件事务，不能宣称两者原子提交。实现
 只读核实补充工程边界：旧中断的未配对记录由既有模型视图清理，不能截掉其后的正常历史；源文件不得经 SDK 分支 API 被补换行；图片原引用的会话校验、`subagent_result` 的原父会话校验、`/todo` 的工具参数恢复和 `session.created` 的不完整投影均需处理。来源结果固定到分支时已有任务，避免原工作后续继续或 Agent 复用使结果集合变化。
 
 本次仅登记 `ready-for-agent` 工单，没有实现 `/branch`、修改运行文档或执行功能测试。来源工作区文件继续共享；本单不承诺代码改动隔离。
+
+### 2026-10-11：制定实施计划
+
+按当前 packages/apps 布局更新落点，补充五批实施顺序、持久幂等准备/发布方案、固定来源清单与定向回归。修正已失效的 docs/runtime 和 visual-docs 检查入口。状态保持 ready-for-agent；尚未实现会话分支。

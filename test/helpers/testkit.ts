@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../../apps/ruukoto/src/product.ts";
 /**
  * 集成测试公共设施（沿用 issue 01 的 mock 模型 + 临时目录方式）。
  *
@@ -14,21 +15,21 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { ControlClient } from "../../src/control/client.ts";
-import { ControlServer } from "../../src/control/server.ts";
-import { readOwnerToken } from "../../src/control/owner-token.ts";
-import { Runtime, type RuntimeConfig } from "../../src/runtime/runtime.ts";
-import { AccessScope } from "../../src/core/access.ts";
-import { Db } from "../../src/core/db.ts";
-import { MemoryStore } from "../../src/core/memory.ts";
-import { Store } from "../../src/core/store.ts";
-import { randomId, type SelectionRecord, type Session, type Task } from "../../src/core/types.ts";
-import { ArtifactStore } from "../../src/agent/artifacts.ts";
-import { beginContextAssembly, type ContextAssembly, type ContextAssemblyDeps, type ContextAssemblyInput } from "../../src/agent/context-assembly.ts";
-import { CredentialStore } from "../../src/agent/execution/credentials.ts";
-import { createModelCatalog } from "../../src/agent/model-selection.ts";
-import { createMockTools } from "../../src/agent/mock-tools.ts";
-import { createCodingTools } from "../../src/agent/tool-router.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { AccessScope } from "@ruukoto/core/access.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { MemoryStore } from "@ruukoto/core/memory.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { randomId, type SelectionRecord, type Session, type Task } from "@ruukoto/core/types.ts";
+import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
+import { beginContextAssembly, type ContextAssembly, type ContextAssemblyDeps, type ContextAssemblyInput } from "@ruukoto/agent/context-assembly.ts";
+import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import { createModelCatalog } from "@ruukoto/agent/model-selection.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { MockModelServer, type Responder } from "./mock-provider.ts";
 
 export interface TestDirs {
@@ -106,6 +107,7 @@ export async function startTestRuntime(
   await writeModelsJson(dirs, baseUrl, opts.contextWindow ?? 200_000);
 
   const runtime = await Runtime.start({
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     // macOS 的 Unix socket 路径长度有限：测试用短路径

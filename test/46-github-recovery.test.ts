@@ -1,14 +1,15 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { Db } from "../src/core/db.ts";
-import { CredentialStore } from "../src/agent/execution/credentials.ts";
-import { GitHubEvents, parseGitHubEventsConfig, webhookSecret } from "../src/github/events.ts";
-import type { GitHubPullRequestEvent } from "../src/github/webhook.ts";
-import type { NotifyTarget } from "../src/core/types.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import { GitHubEvents, parseGitHubEventsConfig, webhookSecret } from "@ruukoto/channels/github/events.ts";
+import type { GitHubPullRequestEvent } from "@ruukoto/channels/github/webhook.ts";
+import type { NotifyTarget } from "@ruukoto/core/types.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 
@@ -34,7 +35,8 @@ test("review 恢复：父任务/子任务提交窗口、模型变化、产物与
     await writeModelsJson(dirs, await server.start());
     const credentials = new CredentialStore(dirs.agentDir);
     credentials.upsert({ name: "hook", host: "github.com", header: "x-hub-signature-256", purpose: "github_webhook", secret: "test-secret" });
-    const config: RuntimeConfig = { dataDir: dirs.dataDir, agentDir: dirs.agentDir,
+    const config: RuntimeConfig = {
+    product: personalProduct.runtime, dataDir: dirs.dataDir, agentDir: dirs.agentDir,
       modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", qqDisabled: true, telegramDisabled: true,
       githubWebhook: { port: 0, credential: "hook", repositoryIds: [42] },
       scheduler: { tickMs: 0, channel: { target: () => target, available: () => false, send: async () => { throw new Error("不应发送"); } } },

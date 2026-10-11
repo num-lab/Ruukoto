@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 通用 SubAgent 委派（agent-direction issue 11）。
  *
@@ -18,10 +19,10 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { toolNamesOf, afterTool, lastToolText, inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
-import { subAgentTaskRequestId } from "../src/runtime/subagents.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import { CredentialStore } from "../src/agent/execution/credentials.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
+import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
 
 test("dev 会话：登记→非阻塞→真实受控读取→结果回传→父下一轮注入→子空闲", async () => {
   const secret = `SECRET-${Math.random().toString(36).slice(2, 8)}`;
@@ -310,7 +311,7 @@ test("模块级：subagent_result 按所属父会话开窄口，其他会话/工
     const parent = rt.store.listTasksBySession(sA.sessionId)[0]!;
     const deleg = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "g1", request: "读一下", readPaths: ["."], materials: null, paramsDigest: "g" });
 
-    const { createSubAgentTools } = await import("../src/agent/subagent-tools.ts");
+    const { createSubAgentTools } = await import("@ruukoto/agent/subagent-tools.ts");
     const binding = { secret: "sk" };
     const tools = createSubAgentTools({
       coreStore: rt.store,
@@ -424,6 +425,7 @@ test("宿主评审（issue 19）：不占 main 委派名额，评审 SubAgent �
   await writeModelsJson(dirs, await server.start());
   new CredentialStore(dirs.agentDir).upsert({ name: "hook", host: "github.com", header: "x-hub-signature-256", purpose: "github_webhook", secret: "s" });
   const rt = await Runtime.start({
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
     modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", qqDisabled: true, telegramDisabled: true,
     toolFactory: (ctx) => createMockTools(ctx),
@@ -465,8 +467,8 @@ test("宿主评审（issue 19）：不占 main 委派名额，评审 SubAgent �
 test("v23 → v24 迁移：旧角色/会话/任务/审批保留，新关联列为空，新对象按库补齐", async () => {
   const { dirs } = await makeTestDirs("sagent-migrate", 0);
   try {
-    const { Db } = await import("../src/core/db.ts");
-    const { Store } = await import("../src/core/store.ts");
+    const { Db } = await import("@ruukoto/core/db.ts");
+    const { Store } = await import("@ruukoto/core/store.ts");
     let db = new Db(dirs.dataDir);
     db.exec(`
       DROP TABLE sub_agents; DROP TABLE work_delegations;
@@ -486,7 +488,7 @@ test("v23 → v24 迁移：旧角色/会话/任务/审批保留，新关联列�
 
     db = new Db(dirs.dataDir);
     const store = new Store(db);
-    const { SCHEMA_VERSION } = await import("../src/core/db.ts");
+    const { SCHEMA_VERSION } = await import("@ruukoto/core/db.ts");
     assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
     const cols = (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
     for (const c of ["work_id", "sub_agent_id", "read_scope", "result_delivered_at"]) assert.ok(cols.includes(c), `迁移后补列 ${c}`);

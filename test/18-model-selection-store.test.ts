@@ -4,9 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { Db, SCHEMA_VERSION } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { isAccessMode, isSessionDefaultMode, SESSION_DEFAULT_MODES, type ModelSelection } from "../src/core/types.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { isAccessMode, isSessionDefaultMode, SESSION_DEFAULT_MODES, type ModelSelection } from "@ruukoto/core/types.ts";
 
 const a: ModelSelection = { provider: "one", modelId: "a", thinkingLevel: "off" };
 const b: ModelSelection = { provider: "two", modelId: "b", thinkingLevel: "max" };

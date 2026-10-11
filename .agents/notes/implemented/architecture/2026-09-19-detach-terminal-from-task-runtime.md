@@ -25,7 +25,7 @@ Status: implemented
 
 ## ruukoto-code 按需拉起后台
 
-只有日常 ruukoto-code 的 TUI 入口按需拉起（`src/control/ensure-backend.ts` 的 `tuiSpawnsBackendOnDemand`，且没有开发重载状态标记）。`ruukoto-code`、`ruukoto-code <路径>` 与 `--session` 都经过这一步；`--demo` 不连后台，也不拉起。ruukoto 不在此列：服务器上的后台由 systemd 与专用后台账户管理，TUI 不越权启动它。
+只有日常 ruukoto-code 的 TUI 入口按需拉起（`packages/control/src/ensure-backend.ts` 的 `tuiSpawnsBackendOnDemand`，且没有开发重载状态标记）。`ruukoto-code`、`ruukoto-code <路径>` 与 `--session` 都经过这一步；`--demo` 不连后台，也不拉起。ruukoto 不在此列：服务器上的后台由 systemd 与专用后台账户管理，TUI 不越权启动它。
 
 - **探测与复用。** socket 可连且令牌认证握手通过才算后台在运行，此时直接复用，不启动第二个实例。探测与客户端使用同一令牌来源：`RUUKOTO_OWNER_TOKEN` → `RUUKOTO_OWNER_TOKEN_FILE` → 控制目录 `owner.token`；都取不到时视为没有可试的凭据，不抛错。
 - **后台明确拒绝时不拉起。** 令牌认证不通过说明后台其实在运行，给出令牌核对指引；协议版本不兼容显示版本与升级指引，不核对令牌，也不拉起（不兼容版本不是拉起能解决的问题）。传输中断、超时或无凭据不算后台在运行的证据：重判一次 socket，仍可连就给令牌核对指引，不可连才拉起。曾经连上过不代表后台仍在。

@@ -4,12 +4,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { randomId, type ModelSelection, type SubAgentMessage, type Task, type WorkDelegation } from "../src/core/types.ts";
-import { ParentDelivery } from "../src/runtime/parent-delivery.ts";
-import { SubAgentDelegationError, SubAgentManager, type SubAgentManagerDeps } from "../src/runtime/subagents.ts";
-import { WorkCopyManager } from "../src/runtime/work-copy.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { randomId, type ModelSelection, type SubAgentMessage, type Task, type WorkDelegation } from "@ruukoto/core/types.ts";
+import { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
+import { SubAgentDelegationError, SubAgentManager, type SubAgentManagerDeps } from "@ruukoto/runtime/subagents.ts";
+import { WorkCopyManager } from "@ruukoto/runtime/work-copy.ts";
 
 const DEFAULT: ModelSelection = { provider: "mock", modelId: "default", thinkingLevel: "off" };
 const MAIN: ModelSelection = { ...DEFAULT, modelId: "main-override" };

@@ -16,7 +16,7 @@ Status: implemented
 
 1. **副作用类别是拥有者的本地声明。** 类别写在工具允许列表条目上，取值 `read` / `write` / `unknown`。字符串条目表示拥有者声明的只读工具（与 personal-agent issue 16 的只读接入兼容），对象条目 `{ name, effect }` 显式给出类别；同一工具声明两种类别时配置被拒绝。CLI 写作 `ruukoto mcp configure … --tools a,b:write,c:unknown`，`mcp check` 为每个工具标注类别，工具描述里也写明类别。远端 `readOnly` 等注解是不可信输入，从不作为权限依据。
 2. **按类别与访问模式执行。** 未进入允许列表的工具直接拒绝（不注册，也不执行）。`read` 工具在各模式下直接执行。`write` 与 `unknown`（副作用不明，默认与写工具同等需要审批）工具在 `confirm` 与 `auto-review` 模式下逐次审批；`full_access` 跳过逐次审批，但仍须通过服务启用、允许列表与凭据范围校验。
-3. **统一审批桥。** 写与副作用不明工具的审批走与文件、HTTP 同一套 `ConfirmationRequest`、`tool_ops`、权限版本与单次消费路径。审批入口是审批闸门 `ApprovalGate.request`（`src/agent/approval-gate.ts`；工单里的 `Driver.awaitApproval` 指同一入口）。审批范围 `mcp_tool` 绑定服务 ID、服务配置版本、远端工具名、任务钉版的工具定义版本、规范化参数摘要、凭据引用名与操作类别；凭据值不进入审批视图或事件。
+3. **统一审批桥。** 写与副作用不明工具的审批走与文件、HTTP 同一套 `ConfirmationRequest`、`tool_ops`、权限版本与单次消费路径。审批入口是审批闸门 `ApprovalGate.request`（`packages/agent/src/approval-gate.ts`；工单里的 `Driver.awaitApproval` 指同一入口）。审批范围 `mcp_tool` 绑定服务 ID、服务配置版本、远端工具名、任务钉版的工具定义版本、规范化参数摘要、凭据引用名与操作类别；凭据值不进入审批视图或事件。
 4. **批准后、真正发送前原子消费。** `Store.consumeApproval()` 在同一 SQLite 事务内完成消费，事务里先重读服务配置：服务被移除或禁用、配置版本变化、工具移出允许列表或类别变化、凭据被撤销（凭据存储不在 SQLite 事务内，见「审批范围与复核」）、权限版本变化、任务已结束，都使旧批准失效，操作按已知未执行记录，不发送网络请求。
 5. **执行参数取自审批保存的不可变快照。** 模型改了参数就必须重新申请；同一工具换一组参数的再次调用需要新的审批，批准不复用。
 6. **auto-review 对 MCP 工具一律转拥有者。** [自动审查](2026-09-22-auto-review-mode.md)的确定性策略不覆盖 `mcp_tool` 范围，MCP 不扩大自动批准范围。
@@ -25,7 +25,7 @@ Status: implemented
 
 ## 审批范围与复核
 
-- **`mcp_tool` 字段**（`src/core/types.ts`）：`serviceId`、`serviceName`（展示用）、`endpoint`（审批时核对目标，不含 userinfo）、`configVersion`、`remoteName`、`toolSignature`、`paramsSha256`、`credential`（`CredentialStore` 绑定名，无认证为 `null`）、`operationCategory`（`write` 或 `unknown`）。暴露给模型的工具名在 `ConfirmationRequest.toolName`。
+- **`mcp_tool` 字段**（`packages/core/src/types.ts`）：`serviceId`、`serviceName`（展示用）、`endpoint`（审批时核对目标，不含 userinfo）、`configVersion`、`remoteName`、`toolSignature`、`paramsSha256`、`credential`（`CredentialStore` 绑定名，无认证为 `null`）、`operationCategory`（`write` 或 `unknown`）。暴露给模型的工具名在 `ConfirmationRequest.toolName`。
 - **工具定义版本** `toolSignature` 是远端工具名、描述、`inputSchema` 与副作用类别的 sha256 摘要（取前 16 个十六进制字符），任务开始时钉版。工具定义只在任务开始发现；定义变化产生新签名并重建会话，在下一任务生效。「工具定义变化使旧批准失效」按任务粒度成立：旧批准随所属任务进入终态而不可消费，不跨任务复用。
 - **参数摘要** `paramsSha256` 是规范化 JSON（键序稳定）的 sha256。它供审批展示与审计；执行直接用审批记录保存的参数快照。
 - **持久化**：`mcp_tool` 范围由审批记录的既有 JSON 列承载，没有 SQLite 迁移；不为单个 MCP 服务新增表或分支。
@@ -37,9 +37,9 @@ Status: implemented
 
 ## 结果定性
 
-- **调用结果**（`src/agent/tool-router.ts` 的 `mcpSend`）：对 `write` 与 `unknown` 工具，错误码 `timeout`、`connect_failed`、`canceled` 表示请求可能已发出而结果无法确认，经工具操作账本标 effect_unknown。`remote_error`（JSON-RPC 错误应答）、`auth_failed`、`rate_limited`、`service_error`、`unexpected_status` 与 `isError` 结果都是已知错误；发送前失败（凭据、校验）也是已知结果。`read` 工具的超时只是普通失败。`full_access` 下不经审批的写调用走同一套定性。
+- **调用结果**（`packages/agent/src/tool-router.ts` 的 `mcpSend`）：对 `write` 与 `unknown` 工具，错误码 `timeout`、`connect_failed`、`canceled` 表示请求可能已发出而结果无法确认，经工具操作账本标 effect_unknown。`remote_error`（JSON-RPC 错误应答）、`auth_failed`、`rate_limited`、`service_error`、`unexpected_status` 与 `isError` 结果都是已知错误；发送前失败（凭据、校验）也是已知结果。`read` 工具的超时只是普通失败。`full_access` 下不经审批的写调用走同一套定性。
 - **结构化结果**：调用向 SDK 传钉版定义（只有名称与 `inputSchema`，不带 `outputSchema`），SDK 因此不做本地输出校验，也不在 header 不符时刷新清单后自动重发。路由器按任务开始钉版的 `outputSchema` 校验 `structuredContent`；远端成功应答但不符声明时记已知错误「远端已执行，但结构化结果与声明的 outputSchema 不符」，不标 effect_unknown，也不重发。
-- **停止与重启**：工具操作账本（`src/agent/tool-op-ledger.ts`）按审批判定 MCP 动态工具。有审批且全部未消费，记已知未执行；其余结果缺失的操作标效果未知，不重放，由拥有者核实。
+- **停止与重启**：工具操作账本（`packages/agent/src/tool-op-ledger.ts`）按审批判定 MCP 动态工具。有审批且全部未消费，记已知未执行；其余结果缺失的操作标效果未知，不重放，由拥有者核实。
 
 ## 备选方案
 

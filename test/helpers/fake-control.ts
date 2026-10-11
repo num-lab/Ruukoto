@@ -6,10 +6,10 @@
  * 断线时在途请求一并失败，并通知断线监听者（与真实客户端一致）。
  */
 
-import { ControlClientError, type ClientCloseInfo, type ControlTransport } from "../../src/control/client.ts";
-import type { OpParams, OpResult, TuiOp } from "../../src/control/ops.ts";
-import type { ConnectResult } from "../../src/control/protocol.ts";
-import type { PersistentEvent } from "../../src/core/types.ts";
+import { ControlClientError, type ClientCloseInfo, type ControlTransport } from "@ruukoto/control/client.ts";
+import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
+import type { ConnectResult } from "@ruukoto/control/protocol.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 
 /** 应答函数；第二个参数是收到请求的实例（可在应答前 drop 模拟断线）。 */
 export type FakeHandlers = { [K in TuiOp]?: (params: OpParams<K>, transport: FakeTransport) => OpResult<K> | Promise<OpResult<K>> };

@@ -1,6 +1,6 @@
 ---
 name: error-handling
-description: 设计或评审失败路径时使用：定义失败的类型与判别方式、处理与上报的归属、失败后仍然安全的保证，以及用户可见的报告。改动 src/ 的抛错、捕获、重试、后台任务或诊断输出时适用。
+description: 设计或评审失败路径时使用：定义失败的类型与判别方式、处理与上报的归属、失败后仍然安全的保证，以及用户可见的报告。改动 packages/ 或 apps/ 的抛错、捕获、重试、后台任务或诊断输出时适用。
 ---
 
 # 错误处理
@@ -10,8 +10,8 @@ description: 设计或评审失败路径时使用：定义失败的类型与判�
 ## 类型化的失败
 
 - **跨层传递的错误用带 `code` 的类型。** 本仓库有 40 多个 `Error` 子类，多数带只读 `code`；`code` 是机器判别的身份，`message` 是给人看的文本。
-- **用 `instanceof` 与 `.code ===` 判别，不解析 `message`。** 全仓只有 3 处例外，都是 `node:sqlite` 唯一索引冲突的兜底（`src/core/store.ts`），且各有注释说明这是兜底路径。新增解析 `message` 的代码等于把文本当接口。
-- **`code` 的取值分两类，按用途选**：调用方要枚举处理的用字面量联合（如 `src/core/history.ts` 的 `"history_corrupt" | "entry_not_found"`），只做透传或上报的用宽 `string`（如 `RuntimeApiError`）。
+- **用 `instanceof` 与 `.code ===` 判别，不解析 `message`。** 全仓只有 3 处例外，都是 `node:sqlite` 唯一索引冲突的兜底（`packages/core/src/store.ts`），且各有注释说明这是兜底路径。新增解析 `message` 的代码等于把文本当接口。
+- **`code` 的取值分两类，按用途选**：调用方要枚举处理的用字面量联合（如 `packages/core/src/history.ts` 的 `"history_corrupt" | "entry_not_found"`），只做透传或上报的用宽 `string`（如 `RuntimeApiError`）。
 - **控制面与拥有者看到的是 `code`，不是堆栈。** 把内部细节留在 `message` 之外；凭据、路径与请求正文不进入用户可见文本。
 
 ## 捕获、恢复或停止
@@ -25,7 +25,7 @@ description: 设计或评审失败路径时使用：定义失败的类型与判�
 - **每份最终报告含可读摘要、受影响的操作、安全的下一步。** 不声称成功、回滚或可安全重试，除非确实有保证。
 - **状态未知或不可信时必须可见。** 报告影响范围、不确定之处、系统已做的处置与安全下一步；持久化的无效状态需要持久的可见性，不能只写日志。
 - **验证结果状态与可见结果，而不是「异常被捕获了」。**
-- **诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀**；`console.log` 只出现在三个入口（`src/cli.ts`、`src/tui/index.ts`、`src/config-tui/index.ts`）。
+- **诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀**；`console.log` 只出现在三个入口（`packages/tui/src/cli.ts`、`packages/tui/src/tui/index.ts`、`packages/tui/src/config-tui/index.ts`）。
 
 ## 失败分类的硬边界
 

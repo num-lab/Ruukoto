@@ -1,0 +1,819 @@
+/**
+ * 工具路由器：任务模式绑定的执行与结构化审批。
+ *
+ * - 每次调用都读取当前任务的 accessMode / 权限版本 / 授予路径，不缓存
+ *   首次创建 SDK 会话时的模式；
+ * - 编码工具（read/edit/write/bash）经工具工作进程执行：工作进程只在
+ *   当前任务的执行边界内（请求确认 → 任务容器；完全访问 → 执行账户）；
+ *   模式/环境变化时先停止并核实旧执行单元退出，再建立新环境；
+ * - 结构化操作（request_file_access / http_request）始终形成具体审批
+ *   请求；经审批闸门单次消费后才执行，执行参数取自审批前构造、与审批记录
+ *   同源的请求；
+ * - 原始输出先落产物文件，再生成限长模型视图并附产物引用。
+ */
+
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import { Type } from "typebox";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AccessMode, ApprovalScope, GrantedPath, Session, Task } from "@ruukoto/core/types.ts";
+import { GIT_SAFE_DIRECTORY_ENV, taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
+import type { Store } from "@ruukoto/core/store.ts";
+import type { ApprovalGate } from "./approval-gate.ts";
+import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
+import type { ArtifactStore } from "./artifacts.ts";
+import type { CredentialStore } from "./execution/credentials.ts";
+import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
+import { ExecutionError, type WorkerLauncher } from "./execution/launchers.ts";
+import {
+  assertGrantNotProtected,
+  executeApprovedFileOp,
+  executeApprovedHttpRequest,
+  isProtectedPath,
+  restrictedResolve,
+  sha256Hex,
+  type FileOpRequest,
+} from "./execution/approved-ops.ts";
+import * as dns from "node:dns";
+import { ToolWorkerHost } from "./tool-worker/host.ts";
+import type { DataStream } from "./tool-worker/protocol.ts";
+import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
+import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";
+import { McpError } from "./mcp/client.ts";
+
+/** 编码工具（工作进程执行）。 */
+export const CODING_TOOL_NAMES = ["read", "edit", "write", "bash"] as const;
+/** 结构化审批操作。 */
+export const APPROVAL_TOOL_NAMES = ["request_file_access", "http_request"] as const;
+/** 产物查询工具。 */
+export const ARTIFACT_TOOL_NAME = "read_artifact";
+/** 全部由路由器处理的名字（其余走 mock 测试路径）。 */
+export const ROUTED_TOOL_NAMES = new Set<string>([...CODING_TOOL_NAMES, ...APPROVAL_TOOL_NAMES, ARTIFACT_TOOL_NAME]);
+
+const WORKER_CALL_TIMEOUT_MS = 10 * 60_000;
+
+export interface ToolRouterDeps {
+  store: Store;
+  ledger: ToolOpLedger;
+  artifacts: ArtifactStore;
+  credentials: CredentialStore;
+  registry: ManagedProcessRegistry;
+  /** 返回当前模式对应的工作进程启动器；未配置时抛 ExecutionError（不回退）。 */
+  launcherFor: (mode: AccessMode) => WorkerLauncher;
+  /** 始终排除的保护根目录（后台数据、服务凭据、控制面）。 */
+  protectedRoots: string[];
+  /**
+   * 产物读取的范围判定（issue 05 §1）：同项目旧任务的产物在授权范围内可读，
+   * 跨项目需有效授权；未提供时退回"仅当前任务"（兼容旧装配）。
+   */
+  artifactAccess?: (task: Task, artifact: { taskId: string; sessionId: string; name: string }) => boolean;
+  /** 审批闸门（架构工单 04）：审批全程与等待解除。 */
+  approvals: Pick<ApprovalGate, "request" | "supersedeAll">;
+  /**
+   * MCP 动态工具（issue 16/18）：服务配置存储与当前任务钉版的工具计划。
+   * 未配置时 MCP 工具名按未知工具拒绝（不落入其他路径）。
+   */
+  mcp?: {
+    store: McpStore;
+    /** 当前任务钉版的 MCP 计划（Driver 在任务边界设置；null = 本任务无 MCP 工具）。 */
+    plan(): McpTaskPlan | null;
+  };
+}
+
+export interface RoutedCallInput {
+  task: Task;
+  hostOpId: string;
+  sdkCallId: string;
+  name: string;
+  params: Record<string, unknown>;
+  signal?: AbortSignal;
+}
+
+export interface RoutedCallOutput {
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+  details?: unknown;
+  isError: boolean;
+}
+
+export class ToolRouter {
+  private worker: ToolWorkerHost | null = null;
+  private workerKey: string | null = null;
+  /** 本次运行中 sdkCallId → 路由调用上下文（Driver 在 tool_call 门处登记）。 */
+  private routedCalls = new Map<string, { hostOpId: string; task: Task }>();
+  /** 本次运行中 sdkCallId → 工具名（与 routedCalls 同生命周期）。 */
+  private toolNames = new Map<string, string>();
+  /** hostOpId → 已捕获产物 id（供 tool_result 事件记录引用）。 */
+  private artifactRefs = new Map<string, string[]>();
+
+  constructor(private readonly deps: ToolRouterDeps) {}
+
+  /**
+   * tool_call 门处登记：hostOpId 已分配、执行意图已记录、当前任务已确定
+   * （含模式边界应用后的最新任务）。
+   */
+  registerRoutedCall(sdkCallId: string, hostOpId: string, task: Task, toolName: string): void {
+    this.routedCalls.set(sdkCallId, { hostOpId, task });
+    this.toolNames.set(sdkCallId, toolName);
+  }
+
+  /** SDK 工具执行入口（宿主工具定义的 execute 转发到这里）。 */
+  async executeRouted(sdkCallId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<RoutedCallOutput> {
+    const call = this.routedCalls.get(sdkCallId);
+    if (!call) return textResult("工具调用缺少宿主登记（非本任务上下文）", true);
+    const toolName = this.toolNames.get(sdkCallId) ?? "unknown";
+    try {
+      return await this.executeTool({
+        task: call.task,
+        hostOpId: call.hostOpId,
+        sdkCallId,
+        name: toolName,
+        params,
+        signal,
+      });
+    } finally {
+      this.routedCalls.delete(sdkCallId);
+      this.toolNames.delete(sdkCallId);
+    }
+  }
+
+  /** 当前工作进程身份（诊断用）。 */
+  workerIdentity(): { kind: ManagedUnitKind; id: string; label: string } | null {
+    return this.worker?.identity() ?? null;
+  }
+
+  artifactIdsFor(hostOpId: string): string[] {
+    return this.artifactRefs.get(hostOpId) ?? [];
+  }
+
+  // ---------- 工作进程生命周期 ----------
+
+  private workerKeyFor(task: Task): string {
+    return `${task.id}:${task.accessMode}:${JSON.stringify(task.grantedPaths)}`;
+  }
+
+  /**
+   * 静态 LaunchSpec 辅助（agent-direction issue 16）：按任务所属工作的写入
+   * 目标决定执行工作区与挂载单。修改工作执行在钉定副本/写入根；多一个子任务
+   * 改仓库即多一个独立副本任务进 LaunchSpec（共享 Git 只读）。
+   */
+  launchSpecFor(task: Task, session: Session): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
+    const ws = taskWorkspaceFor({ session, work: task.workId ? this.deps.store.getWorkDelegation(task.workId) : null });
+    const scope = task.readScope;
+    const base = {
+      taskId: task.id,
+      mode: task.accessMode,
+      workspace: ws.path,
+      grantedPaths: task.grantedPaths,
+    } as {
+      taskId: string;
+      mode: AccessMode;
+      workspace: string;
+      grantedPaths: typeof task.grantedPaths;
+      workspaceIdentity?: { dev: number; ino: number };
+      readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
+      env?: Record<string, string>;
+    };
+    // worker init 的 dev/ino 复核只在挂载按宿主原样呈现时成立（Linux 原生 bind mount）；
+    // macOS Docker Desktop 经 VM 代理重新编号，容器侧与宿主 dev/ino 恒不一致。
+    // ponytail: macOS 不下发数值身份（readRoots 同理），目录身份由宿主队列回路的
+    // taskWorkspaceFor 复核承担
+    const inodeOpaque = process.platform === "darwin";
+    if (!inodeOpaque) {
+      base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
+    }
+    const readRoots: Array<{ path: string; dev?: number; ino?: number }> = [];
+    if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => (inodeOpaque ? { path } : { path, dev, ino })));
+    if (ws.commonGitDir) {
+      // worktree 副本：共享 Git 目录作为只读 readRoot（子任务可 status/diff/log），
+      // 不入白名单编辑；`.git` 指向由工作副本钉定，钩子在容器边界外不可达。
+      const st = fs.statSync(ws.commonGitDir);
+      readRoots.push(inodeOpaque ? { path: ws.commonGitDir } : { path: ws.commonGitDir, dev: st.dev, ino: st.ino });
+      base.env = GIT_SAFE_DIRECTORY_ENV;
+    }
+    if (readRoots.length > 0) base.readRoots = readRoots;
+    return base;
+  }
+
+  /** 停止当前工作进程并核实执行单元已退出；false = 无法确认。 */
+  async stopWorker(): Promise<boolean> {
+    const worker = this.worker;
+    if (!worker) return true;
+    this.worker = null;
+    this.workerKey = null;
+    return worker.stop();
+  }
+
+  /**
+   * 工具边界：应用待生效的模式切换。先解除等待中的审批（后续执行重新
+   * 判定，不自动执行旧待批准操作），再停止并核实旧执行单元退出，最后
+   * 落库新模式与权限版本。无法核实旧单元退出时抛错（任务失败、占用保留）。
+   */
+  async prepareToolBoundary(task: Task): Promise<Task> {
+    if (!task.pendingAccessMode || task.pendingAccessMode === task.accessMode) return task;
+    const to = task.pendingAccessMode;
+    this.deps.approvals.supersedeAll();
+    const identity = this.workerIdentity();
+    const reaped = await this.stopWorker();
+    if (!reaped) {
+      throw new ExecutionError(
+        "mode_switch_unverified",
+        `无法核实旧执行单元（${identity?.id ?? "?"}）已退出，模式切换失败`,
+      );
+    }
+    return this.deps.store.withTx(() => {
+      const version = this.deps.store.applyModeSwitch(task.id, to);
+      this.deps.store.appendEvent(
+        {
+          type: "task.mode_switched",
+          taskId: task.id,
+          sessionId: task.sessionId,
+          from: task.accessMode,
+          to,
+          permissionVersion: version,
+        },
+        { taskId: task.id, sessionId: task.sessionId },
+      );
+      return this.deps.store.getTask(task.id)!;
+    });
+  }
+
+  /** 确保工作进程匹配当前任务（模式与授予路径）；不匹配则回收重建。 */
+  private async ensureWorker(task: Task): Promise<ToolWorkerHost> {
+    const key = this.workerKeyFor(task);
+    if (this.worker && this.workerKey === key) return this.worker;
+    if (this.worker) {
+      const identity = this.workerIdentity();
+      const reaped = await this.stopWorker();
+      if (!reaped) {
+        throw new ExecutionError("mode_switch_unverified", `无法核实旧执行单元（${identity?.id ?? "?"}）已退出，拒绝建立新的执行环境`);
+      }
+    }
+    const launcher = this.deps.launcherFor(task.accessMode); // 未配置 → 明确失败，不回退
+    const session = this.deps.store.getSession(task.sessionId);
+    if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
+    // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
+    // 共享 Git 目录作为只读 readRoot + Git safe.directory 环境集。
+    const spec = this.launchSpecFor(task, session);
+    const startPromise = ToolWorkerHost.start(launcher, {
+      taskId: spec.taskId,
+      mode: spec.mode,
+      workspace: spec.workspace,
+      grantedPaths: spec.grantedPaths,
+      readRoots: spec.readRoots,
+      workspaceIdentity: spec.workspaceIdentity,
+      env: spec.env,
+    });
+    // 启动窗口登记占位（agent-direction issue 04）：工具意图落库早于 ready，此
+    // 窗口内的停止路径必须能找到并回收执行单元——否则 killManagedProcesses 看到
+    // 空 registry，abort() 会等待一个无人停止的工具调用。start 的失败路径自行
+    // 回收单元，占位 stop 只处理「仍在启动或已就绪」。
+    this.deps.registry.register({
+      kind: "starting",
+      id: `starting:${task.id}`,
+      label: `tool-worker starting task=${task.id}`,
+      stop: async () => {
+        const host = await startPromise.catch(() => null);
+        if (host && this.worker === host) {
+          this.worker = null;
+          this.workerKey = null;
+        }
+        return host ? host.stop() : true;
+      },
+    });
+    const host = await startPromise;
+    this.worker = host;
+    this.workerKey = key;
+    // 登记可回收身份（容器/systemd 单元/进程组），停止路径统一经此回收；
+    // 上面的 starting 占位仍留在登记表（停止入口幂等：对已停止单元 stop() 直接返回）
+    const identity = host.identity();
+    this.deps.registry.register({
+      kind: identity.kind,
+      id: identity.id,
+      label: identity.label,
+      stop: async () => {
+        const reaped = await host.stop();
+        if (this.worker === host) {
+          this.worker = null;
+          this.workerKey = null;
+        }
+        return reaped;
+      },
+    });
+    return host;
+  }
+
+  // ---------- 调用入口 ----------
+
+  async executeTool(input: RoutedCallInput): Promise<RoutedCallOutput> {
+    switch (input.name) {
+      case "read":
+      case "edit":
+      case "write":
+      case "bash":
+        return this.executeCodingTool(input.task, input);
+      case "request_file_access":
+      case "http_request":
+        return this.executeApprovalOp(input.task, input);
+      case ARTIFACT_TOOL_NAME:
+        return this.readArtifact(input.task, input);
+      default:
+        // MCP 动态工具（issue 16/18）：按任务钉版计划解析；未登记的名字按未知工具拒绝
+        return this.executeMcpOp(input.task, input);
+    }
+  }
+
+  private async executeCodingTool(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
+    let host: ToolWorkerHost;
+    try {
+      host = await this.ensureWorker(task);
+    } catch (err) {
+      return textResult(`执行环境不可用：${(err as Error).message}（不回退到其他执行方式）`, true);
+    }
+    const artifactsByStream = new Map<DataStream, { id: string; name: string }>();
+    const controller = new AbortController();
+    const onExternalAbort = () => controller.abort(new Error("aborted by host"));
+    input.signal?.addEventListener("abort", onExternalAbort, { once: true });
+
+    let captureFailed: string | null = null;
+    const onData = (stream: DataStream, chunk: Buffer) => {
+      if (captureFailed) return;
+      let entry = artifactsByStream.get(stream);
+      if (!entry) {
+        const name =
+          stream === "stdout"
+            ? `${input.name} stdout`
+            : stream === "stderr"
+              ? `${input.name} stderr`
+              : `${input.name} 文件正文`;
+        const artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name });
+        entry = { id: artifact.id, name };
+        artifactsByStream.set(stream, entry);
+      }
+      try {
+        this.deps.artifacts.append(entry.id, chunk);
+      } catch (err) {
+        // 磁盘写入失败：停止执行，保留已捕获部分与失败原因
+        captureFailed = (err as Error).message;
+        controller.abort(new Error("artifact_write_failed"));
+      }
+    };
+
+    try {
+      const result = await host.call({
+        opId: input.hostOpId,
+        sdkCallId: input.sdkCallId,
+        name: input.name,
+        params: input.params,
+        timeoutMs: WORKER_CALL_TIMEOUT_MS,
+        onData,
+        signal: controller.signal,
+      });
+      const artifactIds = Array.from(artifactsByStream.values()).map((a) => a.id);
+      this.artifactRefs.set(input.hostOpId, artifactIds);
+      if (captureFailed) {
+        const content = Array.isArray(result.content) ? [...(result.content as any[])] : [];
+        content.push({ type: "text", text: `输出捕获失败，执行已停止：${captureFailed}` });
+        return { content, details: result.details, isError: true };
+      }
+      // 结果帧已回收（无论工具成功或失败）= 本次捕获完整，产物定稿
+      for (const entry of artifactsByStream.values()) {
+        this.deps.artifacts.complete(entry.id);
+      }
+      const content = Array.isArray(result.content) ? [...(result.content as any[])] : [];
+      for (const entry of artifactsByStream.values()) {
+        const bytes = this.deps.artifacts.byteLength(entry.id);
+        content.push({
+          type: "text",
+          text: `[完整正文已捕获：artifact ${entry.id}（${bytes} 字节，${entry.name}）——需要更多内容时用 read_artifact 工具按偏移查询]`,
+        });
+      }
+      return { content, details: result.details, isError: Boolean(result.isError) };
+    } catch (err) {
+      const artifactIds = Array.from(artifactsByStream.values()).map((a) => a.id);
+      this.artifactRefs.set(input.hostOpId, artifactIds);
+      if (captureFailed) {
+        // 中止由捕获失败触发：报告真实原因（已保留部分与失败原因），不报告完整成功
+        return textResult(`输出捕获失败，执行已停止：${captureFailed}`, true);
+      }
+      return textResult(`工具执行失败：${(err as Error).message}`, true);
+    } finally {
+      input.signal?.removeEventListener("abort", onExternalAbort);
+    }
+  }
+
+  // ---------- 结构化审批操作 ----------
+
+  private async executeApprovalOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
+    const scopeResult =
+      input.name === "request_file_access" ? this.fileOpScope(input.params) : await this.httpOpScope(input.params);
+    if ("error" in scopeResult) {
+      return textResult(scopeResult.error, true);
+    }
+    // 审批闸门：等待决定，获批后单次消费（= 执行开始）
+    const approval = await this.deps.approvals.request({
+      task,
+      hostOpId: input.hostOpId,
+      toolName: input.name,
+      params: input.params,
+      scope: scopeResult.scope,
+      signal: input.signal,
+    });
+    if (!approval.approved) return textResult(approval.text, true);
+
+    // 执行参数取自审批前构造、与审批记录同源的请求（固定解析地址与目标文件身份只在内存）
+    if (scopeResult.kind === "file") {
+      const outcome = executeApprovedFileOp(scopeResult.fileRequest);
+      const text = outcome.ok && outcome.content !== undefined ? `${outcome.message}\n${outcome.content}` : outcome.message;
+      return textResult(text, !outcome.ok);
+    }
+    const outcome = await executeApprovedHttpRequest(scopeResult.httpRequest, this.deps.credentials, input.signal);
+    if (outcome.status === null) {
+      // 写请求已发出后的传输失败（超时/重置/中止）：远端可能已收到 → effect_unknown（不重发）；
+      // 发送前失败与 GET/HEAD（无写入效果）是已知结果
+      const unknown = outcome.sent && !hasNoWriteEffect({ toolName: input.name, params: input.params });
+      if (unknown) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
+      return textResult(`HTTP 无响应：${outcome.message}${unknown ? "\n请求可能已送达、结果无法确认，未自动重发" : ""}`, true);
+    }
+    const head = Object.entries(outcome.responseHeaders)
+      .slice(0, 20)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
+    return textResult(`HTTP ${outcome.status}\n${head}\n\n${outcome.body}`, !outcome.ok);
+  }
+
+  private fileOpScope(
+    params: Record<string, unknown>,
+  ): { kind: "file"; scope: ApprovalScope; fileRequest: FileOpRequest } | { error: string } {
+    const target = String(params["path"] ?? "");
+    const operation = params["operation"] === "write" ? "read_write" : "read";
+    const content = params["content"];
+    if (!target) return { error: "缺少目标路径" };
+    if (operation === "read_write" && typeof content !== "string") {
+      return { error: "写操作必须提供完整待写内容 content" };
+    }
+    let resolved: string;
+    let targetDev: number | null = null;
+    let targetIno: number | null = null;
+    let originalSha256: string | null = null;
+    try {
+      resolved = restrictedResolve(target, { allowMissingLast: true });
+      if (isProtectedPath(resolved, this.deps.protectedRoots)) {
+        return { error: "目标位于控制面/服务数据目录内，始终排除，不可申请" };
+      }
+      let st: fs.Stats | null = null;
+      try {
+        st = fs.lstatSync(resolved);
+      } catch {
+        st = null;
+      }
+      if (st?.isDirectory()) return { error: "目标是目录，只能对文件申请文件操作" };
+      if (st) {
+        targetDev = st.dev;
+        targetIno = st.ino;
+        if (operation === "read_write") {
+          originalSha256 = sha256Hex(fs.readFileSync(resolved));
+        }
+      } else if (operation === "read_write") {
+        const parent = restrictedResolve(resolved.replace(/\/[^/]+$/, ""), { allowMissingLast: false });
+        const parentSt = fs.lstatSync(parent);
+        targetDev = parentSt.dev;
+        targetIno = parentSt.ino;
+      } else {
+        return { error: `目标文件不存在：${resolved}` };
+      }
+    } catch (err) {
+      return { error: `目标路径校验失败：${(err as Error).message}` };
+    }
+    const contentBuf = operation === "read_write" ? Buffer.from(content as string, "utf8") : null;
+    const scope: ApprovalScope = {
+      kind: "file_operation",
+      path: resolved,
+      access: operation,
+      originalSha256,
+      contentSha256: contentBuf ? sha256Hex(contentBuf) : null,
+      contentBytes: contentBuf ? contentBuf.length : null,
+    };
+    return {
+      kind: "file",
+      scope,
+      fileRequest: {
+        path: resolved,
+        access: operation,
+        content: contentBuf ? (content as string) : undefined,
+        targetDev,
+        targetIno,
+        originalSha256,
+        protectedRoots: this.deps.protectedRoots,
+      },
+    };
+  }
+
+  private async httpOpScope(
+    params: Record<string, unknown>,
+  ): Promise<
+    | { kind: "http"; scope: ApprovalScope; httpRequest: { method: string; url: string; headers: Record<string, string>; body?: string; credentialName?: string; pinnedAddress: string; pinnedFamily: number } }
+    | { error: string }
+  > {
+    const method = String(params["method"] ?? "");
+    const url = String(params["url"] ?? "");
+    if (!method) return { error: "缺少 HTTP 方法" };
+    if (!url) return { error: "缺少目标 URL" };
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { error: "无法解析目标 URL" };
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { error: `不支持的目标协议：${parsed.protocol}（仅 http/https）` };
+    }
+    const headers: Record<string, string> = {};
+    if (params["headers"] && typeof params["headers"] === "object") {
+      for (const [k, v] of Object.entries(params["headers"] as Record<string, unknown>)) {
+        headers[k] = String(v);
+      }
+    }
+    const body = typeof params["body"] === "string" ? (params["body"] as string) : undefined;
+    const credentialName = typeof params["credential"] === "string" ? (params["credential"] as string) : undefined;
+    const credentialRefs: Array<{ name: string; purpose: string }> = [];
+    if (credentialName) {
+      const binding = this.deps.credentials.get(credentialName);
+      if (!binding) return { error: `凭据绑定不存在：${credentialName}` };
+      // 带使用范围的凭据不得被通用 http_request 借用：审批前就拒绝（执行器另有同一检查）
+      if (binding.scope) return { error: `凭据 ${binding.name} 限定了使用范围（${binding.purpose}），通用 HTTP 请求不得使用` };
+      credentialRefs.push({ name: binding.name, purpose: binding.purpose });
+      if (parsed.host.toLowerCase() !== binding.host.toLowerCase()) {
+        return { error: `凭据 ${binding.name} 绑定到 ${binding.host}，与目标 ${parsed.host} 不一致（凭据不得转发到其他地址）` };
+      }
+    }
+    // 解析在批准时完成并固定（防 DNS 重绑定）：执行的连接范围即此处的解析结果
+    let pinnedAddress: string;
+    let pinnedFamily: number;
+    try {
+      const resolved = await dns.promises.lookup(parsed.hostname, { all: true });
+      if (resolved.length === 0) throw new Error("无解析结果");
+      pinnedAddress = resolved[0]!.address;
+      pinnedFamily = resolved[0]!.family;
+    } catch (err) {
+      return { error: `目标主机解析失败：${(err as Error).message}` };
+    }
+    const scope: ApprovalScope = {
+      kind: "http_request",
+      method: method.toUpperCase(),
+      url: parsed.toString(),
+      credentials: credentialRefs,
+    };
+    return {
+      kind: "http",
+      scope,
+      httpRequest: { method: scope.method, url: scope.url, headers, body, credentialName, pinnedAddress, pinnedFamily },
+    };
+  }
+
+  // ---------- MCP 工具（issue 18：统一审批 + 单次消费） ----------
+
+  /**
+   * MCP 调用统一入口：先由 Driver 在 tool_call 门记录宿主操作意图，这里按
+   * 模式执行——只读工具（拥有者声明）直接执行；full_access 跳过逐次审批但仍
+   * 过服务/工具/凭据范围校验；confirm/auto-review 的写与副作用不明工具进入
+   * 审批闸门，批准后在真正发送前原子消费（消费事务内重读配置与凭据绑定）。
+   */
+  private async executeMcpOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
+    const mcp = this.deps.mcp;
+    const meta = mcp?.plan()?.tools.get(input.name);
+    if (!mcp || !meta) return textResult(`未知工具：${input.name}`, true);
+
+    // 调用前重读当前配置与凭据绑定：禁用/撤销/版本变化/移出允许列表立即阻止
+    const blocked = this.mcpConfigBlock(mcp.store, meta);
+    if (blocked) return textResult(blocked, true);
+
+    if (meta.effect === "read" || task.accessMode === "full_access") {
+      return this.mcpSend(mcp, task, meta, input.params, input);
+    }
+
+    const scope: ApprovalScope = {
+      kind: "mcp_tool",
+      serviceId: meta.service.id,
+      serviceName: meta.service.name,
+      endpoint: meta.service.endpoint,
+      configVersion: meta.service.configVersion,
+      remoteName: meta.remoteName,
+      toolSignature: meta.toolSignature,
+      paramsSha256: canonicalParamsDigest(input.params),
+      credential: meta.service.credential,
+      operationCategory: meta.effect,
+    };
+    // 获批后复核：批准等待期间的配置/凭据变化使旧批准失效（不消费、不发送，
+    // 操作按已知未执行记录）。服务配置与批准消费在同一 SQLite 事务内核对；
+    // 凭据绑定在消费前核对、发送时由 getForUse 再核对一次（撤销即时生效）。
+    const approval = await this.deps.approvals.request({
+      task,
+      hostOpId: input.hostOpId,
+      toolName: input.name,
+      params: input.params,
+      scope,
+      signal: input.signal,
+      recheck: () => this.mcpConfigBlock(mcp.store, meta),
+    });
+    if (!approval.approved) return textResult(approval.text, true);
+
+    // 执行参数取自审批记录保存的快照
+    return this.mcpSend(mcp, task, meta, approval.params, input);
+  }
+
+  /** 调用前/批准消费前的配置与凭据核对：任何变化即阻止（返回原因；null = 通过）。 */
+  private mcpConfigBlock(mcpStore: McpStore, meta: PlannedTool): string | null {
+    const { service, remoteName } = meta;
+    const fresh = mcpStore.getService(service.id);
+    if (!fresh || fresh.projectId !== service.projectId) {
+      return `MCP 服务 ${service.name} 已被移除，本次调用未发送网络请求`;
+    }
+    if (!fresh.enabled) {
+      return `MCP 服务 ${service.name} 已被拥有者禁用，本次调用未发送网络请求（重新启用从下一任务生效）`;
+    }
+    if (fresh.configVersion !== service.configVersion) {
+      return `MCP 服务 ${service.name} 配置已变化（v${service.configVersion} → v${fresh.configVersion}），本任务钉版工具清单已失效；未发送网络请求，新配置从下一任务生效`;
+    }
+    if (allowlistEffectFor(fresh.toolAllowlist, remoteName) !== meta.effect) {
+      return `工具 ${remoteName} 已不在服务 ${service.name} 的允许列表（或副作用类别已变化），本次调用未发送网络请求`;
+    }
+    if (service.credential) {
+      const binding = this.deps.credentials.get(service.credential);
+      if (!binding) return `凭据 ${service.credential} 已被撤销，本次调用未发送网络请求`;
+      if (binding.host !== new URL(fresh.endpoint).host) {
+        return `凭据 ${service.credential} 的 host 与服务端点不一致，本次调用未发送网络请求`;
+      }
+    }
+    return null;
+  }
+
+  /** 真正发送：连接按任务钉版；结果沿用既有有界捕获、归属与事件记录。 */
+  private async mcpSend(
+    mcp: NonNullable<ToolRouterDeps["mcp"]>,
+    task: Task,
+    meta: PlannedTool,
+    params: Record<string, unknown>,
+    input: RoutedCallInput,
+  ): Promise<RoutedCallOutput> {
+    const conn = mcp.plan()?.connections.get(meta.service.id);
+    if (!conn) return textResult(`MCP 服务 ${meta.service.name} 连接不可用（初始化失败或已关闭）`, true);
+    try {
+      const result = await conn.callTool({ name: meta.remoteName, inputSchema: meta.inputSchema }, params, input.signal);
+      if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
+        // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
+        return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
+      }
+      const formatted = formatMcpResult(
+        { taskId: task.id, sessionId: task.sessionId },
+        this.deps.artifacts,
+        meta.service.name,
+        meta.remoteName,
+        result,
+      );
+      return { content: formatted.content, isError: false };
+    } catch (err) {
+      // 写/副作用不明工具的传输类失败（超时/断线/取消）：请求可能已发出而结果
+      // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态/
+      // JSON-RPC 错误应答 remote_error）与发送前失败（凭据/校验）是已知结果，不标。
+      if (
+        meta.effect !== "read" &&
+        err instanceof McpError &&
+        (err.code === "timeout" || err.code === "connect_failed" || err.code === "canceled")
+      ) {
+        this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
+      }
+      return textResult((err as Error).message, true);
+    }
+  }
+
+  // ---------- 产物查询 ----------
+
+  private readArtifact(task: Task, input: RoutedCallInput): RoutedCallOutput {
+    const artifactId = String(input.params["artifact_id"] ?? "");
+    const offset = Number(input.params["offset"] ?? 0);
+    const length = Math.min(Number(input.params["length"] ?? 64 * 1024), 64 * 1024);
+    const artifact = this.deps.store.getArtifact(artifactId);
+    if (!artifact) {
+      return textResult(`产物不存在：${artifactId}`, true);
+    }
+    const allowed = this.deps.artifactAccess
+      ? this.deps.artifactAccess(task, artifact)
+      : artifact.taskId === task.id;
+    if (!allowed) {
+      return textResult(`产物不属于可读取范围：${artifactId}（同项目旧任务需有效范围，跨项目需拥有者授权）`, true);
+    }
+    const buf = this.deps.artifacts.read(artifactId, Math.max(0, offset), Math.max(1, length));
+    const encoding = input.params["encoding"] === "base64" ? "base64" : "utf8";
+    const body = encoding === "base64" ? buf.toString("base64") : buf.toString("utf8");
+    return textResult(
+      `artifact ${artifactId}（${artifact.name}，共 ${artifact.byteCount} 字节，${artifact.status}）偏移 ${offset} 起的 ${buf.length} 字节：\n${body}`,
+      false,
+    );
+  }
+}
+
+function textResult(text: string, isError: boolean): RoutedCallOutput {
+  return { content: [{ type: "text", text }], isError };
+}
+
+// ---------- 宿主侧工具定义 ----------
+
+/**
+ * 注册到 SDK 会话的宿主工具定义：read/edit/write/bash 与审批操作、产物
+ * 查询。execute 全部转发给路由器（模式与权限在调用时读取，不缓存）；
+ * 不加载项目自动发现的扩展。
+ */
+export function createCodingTools(router: ToolRouter): ToolDefinition[] {
+  const routedTool = (def: { name: string; label: string; description: string; parameters: any }) =>
+    defineTool({
+      ...def,
+      // 同一任务的工作进程按"工具名 → 当前调用"关联原始输出流：并发同名调用
+      // 会串流，因此宿主工具一律顺序执行（SDK 支持按工具声明顺序执行）
+      executionMode: "sequential",
+      execute: async (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => {
+        const out = await router.executeRouted(toolCallId, params, signal);
+        if (out.isError) {
+          // 与上游工具一致：失败以异常表示（含产物引用与原因的完整说明）
+          const text = out.content.map((c) => c.text ?? "").join("\n");
+          throw new Error(text || "工具执行失败");
+        }
+        return { content: out.content, details: out.details } as any;
+      },
+    } as any) as ToolDefinition;
+
+  const readTool = routedTool({
+    name: "read",
+    label: "read",
+    description: "读取文件内容（在任务执行边界内；输出超限时完整正文保存为产物，可用 read_artifact 继续）。",
+    parameters: Type.Object({
+      path: Type.String({ description: "文件路径（相对或绝对）" }),
+      offset: Type.Optional(Type.Number({ description: "起始行（1 起）" })),
+      limit: Type.Optional(Type.Number({ description: "读取行数" })),
+    }),
+  });
+  const editTool = routedTool({
+    name: "edit",
+    label: "edit",
+    description: "对文件做精确文本替换（edits[].oldText 必须精确匹配）。",
+    parameters: Type.Object({
+      path: Type.String({ description: "文件路径" }),
+      edits: Type.Array(Type.Object({ oldText: Type.String(), newText: Type.String() })),
+    }),
+  });
+  const writeTool = routedTool({
+    name: "write",
+    label: "write",
+    description: "创建或整体重写文件。",
+    parameters: Type.Object({
+      path: Type.String({ description: "文件路径" }),
+      content: Type.String({ description: "完整内容" }),
+    }),
+  });
+  const bashTool = routedTool({
+    name: "bash",
+    label: "bash",
+    description: "在工作区执行 bash 命令（在任务执行边界内；输出完整捕获为产物）。",
+    parameters: Type.Object({
+      command: Type.String({ description: "要执行的命令" }),
+      timeout: Type.Optional(Type.Number({ description: "超时秒数" })),
+    }),
+  });
+  const requestFileAccess = routedTool({
+    name: "request_file_access",
+    label: "request_file_access",
+    description:
+      "申请对授权工作区之外单个文件的一次性读取或写入（需拥有者批准后执行）。审批会列出目标文件与写入内容；批准只对该次操作有效。",
+    parameters: Type.Object({
+      path: Type.String({ description: "目标文件的绝对路径" }),
+      operation: Type.Union([Type.Literal("read"), Type.Literal("write")], { description: "读或写" }),
+      content: Type.Optional(Type.String({ description: "operation=write 时的完整待写内容" })),
+      reason: Type.String({ description: "申请原因（随审批展示）" }),
+    }),
+  });
+  const httpRequest = routedTool({
+    name: "http_request",
+    label: "http_request",
+    description:
+      "发起一次外部 HTTP(S) 请求（需拥有者批准后执行）。审批会列出方法、完整目标、头部与正文；凭据按预配置绑定注入，值不展示。默认不跟随重定向、不重试。",
+    parameters: Type.Object({
+      method: Type.String({ description: "HTTP 方法，如 GET/POST" }),
+      url: Type.String({ description: "完整目标 URL" }),
+      headers: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "请求头" })),
+      body: Type.Optional(Type.String({ description: "请求正文" })),
+      credential: Type.Optional(Type.String({ description: "凭据绑定名称（由拥有者预配置）" })),
+      reason: Type.String({ description: "申请原因（随审批展示）" }),
+    }),
+  });
+  const readArtifact = routedTool({
+    name: ARTIFACT_TOOL_NAME,
+    label: ARTIFACT_TOOL_NAME,
+    description: "按产物 id、偏移和长度读取本任务已捕获的工具完整正文。",
+    parameters: Type.Object({
+      artifact_id: Type.String({ description: "产物 id（见工具结果中的 artifact 引用）" }),
+      offset: Type.Optional(Type.Number({ description: "起始字节，默认 0" })),
+      length: Type.Optional(Type.Number({ description: "读取字节数，默认与上限均为 64KB" })),
+      encoding: Type.Optional(Type.Union([Type.Literal("utf8"), Type.Literal("base64")])),
+    }),
+  });
+  return [readTool, editTool, writeTool, bashTool, requestFileAccess, httpRequest, readArtifact];
+}

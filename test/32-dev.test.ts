@@ -23,7 +23,7 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import type { ProductType } from "../src/core/product.ts";
+import type { ProductType } from "@ruukoto/core/product.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import {
   buildChildEnv,
@@ -33,14 +33,14 @@ import {
   importModelConfigs,
   parseDevArgs,
   probeControlPlane,
-} from "../src/dev.ts";
-import { ControlClient } from "../src/control/client.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { ControlConnection } from "../src/control/connection.ts";
-import { PendingRequestStore } from "../src/control/pending-requests.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
-import { ViewState } from "../src/tui/state.ts";
-import { TuiApp } from "../src/tui/app.ts";
+} from "@ruukoto/tui/dev.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { ControlConnection } from "@ruukoto/control/connection.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { SubmissionGuard } from "@ruukoto/control/submission.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
+import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { killBackend, spawnBackend } from "./helpers/backend.ts";
 import {
@@ -77,7 +77,7 @@ interface DevRun {
 }
 
 function runDev(home: string, args: string[] = [], extraEnv: NodeJS.ProcessEnv = {}, product: ProductType = "ruukoto"): DevRun {
-  const entry = product === "ruukoto" ? "src/dev.ts" : "src/code.ts";
+  const entry = product === "ruukoto" ? "apps/ruukoto/src/dev.ts" : "apps/ruukoto-code/src/dev.ts";
   const child = spawn(process.execPath, ["--import", "tsx", entry, ...args], {
     cwd: repoRoot,
     env: { ...process.env, HOME: home, ...extraEnv },
@@ -215,21 +215,24 @@ test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 
 });
 
 test("监听分类：tui / config-tui / backend / both / self", () => {
-  assert.equal(classifyWatchPath("src/dev.ts"), "self");
-  assert.equal(classifyWatchPath("src/code.ts"), "self");
-  assert.equal(classifyWatchPath("src/tui/app.ts"), "tui");
-  assert.equal(classifyWatchPath("src/tui/state.ts"), "tui");
-  assert.equal(classifyWatchPath("src/config-tui/index.ts"), "config-tui");
-  assert.equal(classifyWatchPath("src/config-tui/panels/models.ts"), "config-tui");
-  assert.equal(classifyWatchPath("src/cli.ts"), "backend");
-  assert.equal(classifyWatchPath("src/runtime/runtime.ts"), "backend");
-  assert.equal(classifyWatchPath("src/agent/model-config.ts"), "backend");
-  assert.equal(classifyWatchPath("src/qq/adapter.ts"), "backend");
-  assert.equal(classifyWatchPath("src/control/server.ts"), "both");
-  assert.equal(classifyWatchPath("src/core/types.ts"), "both");
-  assert.equal(classifyWatchPath("src/cli-entry.ts"), "both");
-  assert.equal(classifyWatchPath("src/index.ts"), "both");
-  assert.equal(classifyWatchPath("src/tui/app.js"), null, "只盯 .ts");
+  assert.equal(classifyWatchPath("packages/tui/src/dev.ts"), "self");
+  assert.equal(classifyWatchPath("apps/ruukoto/src/dev.ts"), "self");
+  assert.equal(classifyWatchPath("apps/ruukoto-code/src/dev.ts"), "self");
+  assert.equal(classifyWatchPath("packages/tui/src/tui/app.ts"), "tui");
+  assert.equal(classifyWatchPath("packages/tui/src/tui/state.ts"), "tui");
+  assert.equal(classifyWatchPath("packages/tui/src/config-tui/index.ts"), "config-tui");
+  assert.equal(classifyWatchPath("packages/tui/src/config-tui/panels/models.ts"), "config-tui");
+  assert.equal(classifyWatchPath("apps/ruukoto/src/main.ts"), "backend");
+  assert.equal(classifyWatchPath("packages/tui/src/cli.ts"), "backend");
+  assert.equal(classifyWatchPath("apps/ruukoto-code/src/product.ts"), "backend");
+  assert.equal(classifyWatchPath("packages/runtime/src/runtime.ts"), "backend");
+  assert.equal(classifyWatchPath("packages/agent/src/model-config.ts"), "backend");
+  assert.equal(classifyWatchPath("packages/channels/src/qq/adapter.ts"), "backend");
+  assert.equal(classifyWatchPath("packages/control/src/server.ts"), "both");
+  assert.equal(classifyWatchPath("packages/core/src/types.ts"), "both");
+  assert.equal(classifyWatchPath("packages/tui/src/cli-entry.ts"), "both");
+  assert.equal(classifyWatchPath("packages/tui/src/index.ts"), "both");
+  assert.equal(classifyWatchPath("packages/tui/src/tui/app.js"), null, "只盯 .ts");
   assert.equal(classifyWatchPath("test/32-dev.test.ts"), null, "监听范围外");
   assert.equal(classifyWatchPath("README.md"), null);
 });

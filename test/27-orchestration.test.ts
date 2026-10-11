@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 编排器集成测试（issue 01 日常助手：角色、事件与子任务编排）。
  *
@@ -15,10 +16,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Runtime, type RuntimeConfig } from "../src/runtime/runtime.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
-import { createMockTools } from "../src/agent/mock-tools.ts";
-import type { PersistentEvent } from "../src/core/types.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import {
   toolNamesOf,
   cleanupDirs,
@@ -135,6 +136,7 @@ test("重启恢复：已登记未建任务可继续，不重复创建", async ()
   const baseUrl = await server.start();
   await writeModelsJson(dirs, baseUrl);
   const config: RuntimeConfig = {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),
@@ -289,6 +291,7 @@ test("资料隔离：owner token 审批入口硬拒绝（保护根）；普通�
 
 function runtimeConfigFor(dirs: { dataDir: string; agentDir: string; root: string }): RuntimeConfig {
   return {
+    product: personalProduct.runtime,
     dataDir: dirs.dataDir,
     agentDir: dirs.agentDir,
     socketPath: path.join(dirs.root, "c.sock"),

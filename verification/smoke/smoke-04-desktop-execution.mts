@@ -1,3 +1,4 @@
+import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
 /**
  * 开发机受限/完全访问接入的产品级冒烟（agent-direction issue 04）。
  * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
@@ -152,7 +153,7 @@ try {
   t = await startTestRuntime("smoke04", flowRouter(), {
     workDirs: 0,
     config: {
-      productType: "ruukoto-code",
+      product: codingProduct.runtime,
       ...realTools(),
       execution: { backend: "container", container: { uid: UID, gid: GID } },
     },

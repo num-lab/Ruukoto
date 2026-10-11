@@ -25,40 +25,40 @@
     <p class="lede">Runtime 提供静态宿主工具族，驱动器按执行画像构建工具集合，每次宿主调用持有独立上下文。模型发出的 tool_call 先过本任务的工具集合，再记意图、按名字分派；越界操作经审批闸门单次消费，执行边界由访问模式决定。各族声明账本分类，结果、产物引用与效果未知由工具操作账本记录，结果不明不自动重做。</p>
     <dl class="meta">
       <div><dt>源码</dt><dd>
-        <code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">agent/tool-availability.ts</code>
-        <code class="src" data-src="src/agent/driver.ts#private async handleToolCall">agent/driver.ts</code>
-        <code class="src" data-src="src/agent/tool-router.ts#ROUTED_TOOL_NAMES">agent/tool-router.ts</code>
-        <code class="src" data-src="src/agent/approval-gate.ts#export class ApprovalGate">agent/approval-gate.ts</code>
-        <code class="src" data-src="src/agent/review.ts#export type ReviewDecision">agent/review.ts</code>
-        <code class="src" data-src="src/agent/tool-op-ledger.ts#export class ToolOpLedger">agent/tool-op-ledger.ts</code>
-        <code class="src" data-src="src/agent/host-tool-families.ts">agent/host-tool-families.ts</code>
-        <code class="src" data-src="src/agent/service-tools.ts#SERVICE_TOOL_NAMES">agent/service-tools.ts</code>
-        <code class="src" data-src="src/agent/subagent-tools.ts#SUBAGENT_TOOL_NAMES">agent/subagent-tools.ts</code>
-        <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
-        <code class="src" data-src="src/agent/host-tools.ts#HOST_DATA_TOOL_NAMES">agent/host-tools.ts</code>
-        <code class="src" data-src="src/agent/web-search.ts#createWebSearchTools">agent/web-search.ts</code>
-        <code class="src" data-src="src/agent/delegation-tools.ts#createDelegationTools">agent/delegation-tools.ts</code>
-        <code class="src" data-src="src/agent/chat-result-tools.ts#createChatResultTools">agent/chat-result-tools.ts</code>
-        <code class="src" data-src="src/agent/skills.ts#createSkillTools">agent/skills.ts</code>
-        <code class="src" data-src="src/agent/todo.ts#createTodoTools">agent/todo.ts</code>
-        <code class="src" data-src="src/agent/plan-mode.ts#PLAN_TOOL_NAMES">agent/plan-mode.ts</code>
-        <code class="src" data-src="src/agent/mcp/tools.ts#planMcpTaskTools">agent/mcp/tools.ts</code>
-        <code class="src" data-src="src/agent/app-data/tools.ts#runDestructive">agent/app-data/tools.ts</code>
-        <code class="src" data-src="src/agent/scheduler-tools.ts#approveThenCommit">agent/scheduler-tools.ts</code>
-        <code class="src" data-src="src/agent/execution/approved-ops.ts#executeApprovedFileOp">agent/execution/approved-ops.ts</code>
-        <code class="src" data-src="src/agent/execution/launchers.ts#createLauncherFor">agent/execution/launchers.ts</code>
-        <code class="src" data-src="src/agent/execution/credentials.ts#CredentialBinding">agent/execution/credentials.ts</code>
-        <code class="src" data-src="src/agent/tool-worker/host.ts#class ToolWorkerHost">agent/tool-worker/host.ts</code>
-        <code class="src" data-src="src/agent/tool-worker/worker.ts">agent/tool-worker/worker.ts</code>
-        <code class="src" data-src="src/agent/tool-worker/protocol.ts#MAX_FRAME_BYTES">agent/tool-worker/protocol.ts</code>
-        <code class="src" data-src="src/agent/artifacts.ts#class ArtifactStore">agent/artifacts.ts</code>
-        <code class="src" data-src="src/agent/managed-processes.ts#ManagedUnitKind">agent/managed-processes.ts</code>
-        <code class="src" data-src="src/runtime/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
-        <code class="src" data-src="src/runtime/runtime.ts#private async getDriver">runtime/runtime.ts</code>
-        <code class="src" data-src="src/runtime/subagents.ts#accessMode: &quot;confirm&quot;">runtime/subagents.ts</code>
-        <code class="src" data-src="src/core/store.ts#consumeApproval">core/store.ts</code>
-        <code class="src" data-src="src/core/types.ts#export type ApprovalScope">core/types.ts</code>
-        <code class="src" data-src="src/cli.ts#RUUKOTO_EXECUTION_BACKEND">cli.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-availability.ts#SESSION_TOOL_CATEGORIES">agent/tool-availability.ts</code>
+        <code class="src" data-src="packages/agent/src/driver.ts#private async handleToolCall">agent/driver.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-router.ts#ROUTED_TOOL_NAMES">agent/tool-router.ts</code>
+        <code class="src" data-src="packages/agent/src/approval-gate.ts#export class ApprovalGate">agent/approval-gate.ts</code>
+        <code class="src" data-src="packages/agent/src/review.ts#export type ReviewDecision">agent/review.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-op-ledger.ts#export class ToolOpLedger">agent/tool-op-ledger.ts</code>
+        <code class="src" data-src="packages/agent/src/host-tool-families.ts">agent/host-tool-families.ts</code>
+        <code class="src" data-src="apps/ruukoto/src/service-tools.ts#SERVICE_TOOL_NAMES">agent/service-tools.ts</code>
+        <code class="src" data-src="packages/agent/src/subagent-tools.ts#SUBAGENT_TOOL_NAMES">agent/subagent-tools.ts</code>
+        <code class="src" data-src="packages/core/src/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
+        <code class="src" data-src="packages/agent/src/host-tools.ts#HOST_DATA_TOOL_NAMES">agent/host-tools.ts</code>
+        <code class="src" data-src="packages/agent/src/web-search.ts#createWebSearchTools">agent/web-search.ts</code>
+        <code class="src" data-src="packages/agent/src/delegation-tools.ts#createDelegationTools">agent/delegation-tools.ts</code>
+        <code class="src" data-src="packages/channels/src/chat-result-tools.ts#createChatResultTools">channels/chat-result-tools.ts</code>
+        <code class="src" data-src="packages/agent/src/skills.ts#createSkillTools">agent/skills.ts</code>
+        <code class="src" data-src="packages/agent/src/todo.ts#createTodoTools">agent/todo.ts</code>
+        <code class="src" data-src="packages/agent/src/plan-mode.ts#PLAN_TOOL_NAMES">agent/plan-mode.ts</code>
+        <code class="src" data-src="packages/agent/src/mcp/tools.ts#planMcpTaskTools">agent/mcp/tools.ts</code>
+        <code class="src" data-src="packages/agent/src/app-data/tools.ts#runDestructive">agent/app-data/tools.ts</code>
+        <code class="src" data-src="apps/ruukoto/src/scheduler-tools.ts#approveThenCommit">agent/scheduler-tools.ts</code>
+        <code class="src" data-src="packages/agent/src/execution/approved-ops.ts#executeApprovedFileOp">agent/execution/approved-ops.ts</code>
+        <code class="src" data-src="packages/agent/src/execution/launchers.ts#createLauncherFor">agent/execution/launchers.ts</code>
+        <code class="src" data-src="packages/agent/src/execution/credentials.ts#CredentialBinding">agent/execution/credentials.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-worker/host.ts#class ToolWorkerHost">agent/tool-worker/host.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-worker/worker.ts">agent/tool-worker/worker.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-worker/protocol.ts#MAX_FRAME_BYTES">agent/tool-worker/protocol.ts</code>
+        <code class="src" data-src="packages/agent/src/artifacts.ts#class ArtifactStore">agent/artifacts.ts</code>
+        <code class="src" data-src="packages/agent/src/managed-processes.ts#ManagedUnitKind">agent/managed-processes.ts</code>
+        <code class="src" data-src="packages/channels/src/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
+        <code class="src" data-src="packages/runtime/src/runtime.ts#private async getDriver">runtime/runtime.ts</code>
+        <code class="src" data-src="packages/runtime/src/subagents.ts#accessMode: &quot;confirm&quot;">runtime/subagents.ts</code>
+        <code class="src" data-src="packages/core/src/store.ts#consumeApproval">core/store.ts</code>
+        <code class="src" data-src="packages/core/src/types.ts#export type ApprovalScope">core/types.ts</code>
+        <code class="src" data-src="packages/tui/src/cli.ts#RUUKOTO_EXECUTION_BACKEND">cli.ts</code>
         <code class="src" data-src="deploy/systemd/ruukoto-service.mjs#launched: false">deploy/systemd/ruukoto-service.mjs</code>
       </dd></div>
       <div><dt>决策</dt><dd>
@@ -90,7 +90,7 @@
 
   <section id="path">
     <h2>分派：一次调用先记意图，再按名字分路</h2>
-    <p>SDK 每发出一次 tool_call，都先进 <code class="src" data-src="src/agent/driver.ts#private async handleToolCall">driver.ts · handleToolCall</code>。它按顺序做四件事：查本任务的允许集合；读取当前任务（模式、权限版本、授予路径都不用缓存），在工具边界应用待生效的模式切换；确认没有停止请求；分配宿主操作 id 并在一个事务里写入执行意图。之后才按工具名分到四条路。</p>
+    <p>SDK 每发出一次 tool_call，都先进 <code class="src" data-src="packages/agent/src/driver.ts#private async handleToolCall">driver.ts · handleToolCall</code>。它按顺序做四件事：查本任务的允许集合；读取当前任务（模式、权限版本、授予路径都不用缓存），在工具边界应用待生效的模式切换；确认没有停止请求；分配宿主操作 id 并在一个事务里写入执行意图。之后才按工具名分到四条路。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -171,33 +171,33 @@
             <td>可用性门</td>
             <td>名字不在本任务允许集合内</td>
             <td>任意</td>
-            <td>不执行：返回 <code>block</code>，原因取自 <code class="src" data-src="src/agent/tool-availability.ts#reasonFor">taskToolSet · reasonFor</code></td>
+            <td>不执行：返回 <code>block</code>，原因取自 <code class="src" data-src="packages/agent/src/tool-availability.ts#reasonFor">taskToolSet · reasonFor</code></td>
             <td>—</td>
           </tr>
           <tr data-k="d-boundary" tabindex="0">
             <td>工具边界</td>
             <td>有待生效的访问模式；或已请求停止</td>
             <td>任意</td>
-            <td>先经 <code class="src" data-src="src/agent/tool-router.ts#prepareToolBoundary">tool-router.ts · prepareToolBoundary</code> 解除旧等待、核实旧执行单元退出、递增权限版本；核实失败任务中断（见<a href="task-lifecycle.html#mode">任务生命周期</a>）</td>
+            <td>先经 <code class="src" data-src="packages/agent/src/tool-router.ts#prepareToolBoundary">tool-router.ts · prepareToolBoundary</code> 解除旧等待、核实旧执行单元退出、递增权限版本；核实失败任务中断（见<a href="task-lifecycle.html#mode">任务生命周期</a>）</td>
             <td>切换会让等待中的审批失效</td>
           </tr>
           <tr data-k="d-intent" tabindex="0">
             <td>记录意图</td>
             <td>通过前两道门</td>
             <td>任意</td>
-            <td><code>hostOpId = randomId("op")</code> 与模型生成的 SDK 调用 id 分开存，<code>callMap</code> 记两者对应；同一事务写 <code>tool_ops</code> 行与 <code>task.tool_intent</code>（<code class="src" data-src="src/core/store.ts#recordToolIntent">store.ts · recordToolIntent</code>）。不同任务复用同一个 SDK 调用 id，也不会串用批准。</td>
+            <td><code>hostOpId = randomId("op")</code> 与模型生成的 SDK 调用 id 分开存，<code>callMap</code> 记两者对应；同一事务写 <code>tool_ops</code> 行与 <code>task.tool_intent</code>（<code class="src" data-src="packages/core/src/store.ts#recordToolIntent">store.ts · recordToolIntent</code>）。不同任务复用同一个 SDK 调用 id，也不会串用批准。</td>
             <td>—</td>
           </tr>
           <tr data-k="d-routed" tabindex="0">
             <td>① 路由器</td>
-            <td><code class="src" data-src="src/agent/tool-router.ts#ROUTED_TOOL_NAMES">ROUTED_TOOL_NAMES</code></td>
+            <td><code class="src" data-src="packages/agent/src/tool-router.ts#ROUTED_TOOL_NAMES">ROUTED_TOOL_NAMES</code></td>
             <td><code>read</code> <code>edit</code> <code>write</code> <code>bash</code>；<code>request_file_access</code> <code>http_request</code>；<code>read_artifact</code></td>
-            <td>编码工具在工具工作进程；结构化审批由后台受信执行器执行；产物在后台读取（<code class="src" data-src="src/agent/tool-router.ts#async executeTool">tool-router.ts · executeTool</code>）</td>
+            <td>编码工具在工具工作进程；结构化审批由后台受信执行器执行；产物在后台读取（<code class="src" data-src="packages/agent/src/tool-router.ts#async executeTool">tool-router.ts · executeTool</code>）</td>
             <td>编码工具与 <code>read_artifact</code> 不审批；两个结构化工具在任何模式都审批</td>
           </tr>
           <tr data-k="d-host" tabindex="0">
             <td>② 宿主工具</td>
-            <td>名字在静态工具族构建出的宿主名称集合内（<code class="src" data-src="src/agent/host-tool-families.ts#export function buildHostToolSet">buildHostToolSet</code>）</td>
+            <td>名字在静态工具族构建出的宿主名称集合内（<code class="src" data-src="packages/agent/src/host-tool-families.ts#export function buildHostToolSet">buildHostToolSet</code>）</td>
             <td>见<a href="#availability">可用性</a>矩阵</td>
             <td>后台进程内。驱动器登记 <code>{taskId, sessionId, projectId, hostOpId}</code>，执行入口按 SDK 调用 id 取得独立 <code>HostCall</code>，在 <code>finally</code> 释放本次绑定；模型参数不能提供这些身份</td>
             <td>应用数据破坏性变更、通知外发、服务操作经闸门；其余不审批</td>
@@ -206,7 +206,7 @@
             <td>③ MCP 动态工具</td>
             <td>名字在本任务钉版的 MCP 工具集合内（必须在 ④ 之前判定，未登记的名字不得落入放行）</td>
             <td><code>mcp_&lt;服务&gt;_&lt;工具&gt;</code></td>
-            <td>经路由器 <code class="src" data-src="src/agent/tool-router.ts#private async executeMcpOp">tool-router.ts · executeMcpOp</code>，由后台的任务钉版连接发送</td>
+            <td>经路由器 <code class="src" data-src="packages/agent/src/tool-router.ts#private async executeMcpOp">tool-router.ts · executeMcpOp</code>，由后台的任务钉版连接发送</td>
             <td>只读工具不审批；写与副作用不明在 <code>confirm</code> / <code>auto-review</code> 审批，<code>full_access</code> 跳过审批但仍过配置与凭据核对</td>
           </tr>
           <tr data-k="d-mock" tabindex="0">
@@ -228,7 +228,7 @@
     </div>
 
     <h3>静态宿主族与独立调用上下文</h3>
-    <p>Runtime 先初始化应用库、资料解析器和个人产品的调度器，创建 SubAgentManager，再建立全局静态族清单及工具操作账本，随后恢复遗留操作；管理器在恢复前创建，编排器在恢复后创建（<code class="src" data-src="src/runtime/runtime.ts#static async start">runtime.ts · start</code>、<code class="src" data-src="src/runtime/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。同一份清单捕获各族的资料、凭据与存储依赖，并交给驱动器。驱动器按执行画像筛选族，构建工具时向族提供身份复核、审批、产物登记、效果未知登记与读取任务钉版技能的闭包；每次执行再按 SDK 调用 id 取得独立 <code>HostCall</code>（<code class="src" data-src="src/agent/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）。<code class="src" data-src="src/agent/host-tool-families.ts#export function buildHostToolSet">buildHostToolSet</code> 核对族声明的名称集合与构建结果一致，并拒绝族间重名；返回的名称集合用于宿主分派。编码、结构化审批、产物读取与 MCP 继续走上图各自的执行路径。</p>
+    <p>Runtime 先初始化应用库、资料解析器和个人产品的调度器，创建 SubAgentManager，再建立全局静态族清单及工具操作账本，随后恢复遗留操作；管理器在恢复前创建，编排器在恢复后创建（<code class="src" data-src="packages/runtime/src/runtime.ts#static async start">runtime.ts · start</code>、<code class="src" data-src="packages/runtime/src/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。同一份清单捕获各族的资料、凭据与存储依赖，并交给驱动器。驱动器按执行画像筛选族，构建工具时向族提供身份复核、审批、产物登记、效果未知登记与读取任务钉版技能的闭包；每次执行再按 SDK 调用 id 取得独立 <code>HostCall</code>（<code class="src" data-src="packages/agent/src/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）。<code class="src" data-src="packages/agent/src/host-tool-families.ts#export function buildHostToolSet">buildHostToolSet</code> 核对族声明的名称集合与构建结果一致，并拒绝族间重名；返回的名称集合用于宿主分派。编码、结构化审批、产物读取与 MCP 继续走上图各自的执行路径。</p>
     <figure class="fig">
       <div class="seq" style="--n:3">
         <div class="who"><span>Runtime</span><span>Driver</span><span>宿主工具族</span></div>
@@ -242,17 +242,17 @@
       </div>
       <figcaption>每个调用持有自己的身份与宿主操作编号。调用交错执行时，释放一个绑定不会清空另一个调用的上下文。</figcaption>
     </figure>
-    <p><code class="src" data-src="src/agent/host-tool-families.ts#export interface HostCall">HostCall</code> 的上下文由宿主记录取得，<code class="src" data-src="src/agent/driver.ts#private readonly bindHostCall">driver.ts · bindHostCall</code> 只释放对应 SDK 调用 id 的记录，工具包装在 <code>finally</code> 释放句柄（<code class="src" data-src="src/agent/host-tool-families.ts#export function hostCallFor">hostCallFor</code>）。没有绑定器的模块测试可直接提供 <code>taskContext</code>。调度通知目标也使用本次调用的 <code>taskId</code> 读取来源事件，再由拥有者 IM 入口确定（<code class="src" data-src="src/runtime/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。</p>
-    <p>执行期间按宿主操作编号登记产物引用；例如 <code>web_search</code> 保存超限或畸形响应时，先创建 <code>web-search-response</code> 产物并登记引用，再写正文（<code class="src" data-src="src/agent/web-search.ts#const saveRawResponse">web-search.ts · saveRawResponse</code>）。正常回收 <code>tool_execution_end</code> 时，驱动器把这些引用并入 <code>task.tool_result</code> 的 <code>artifactIds</code>；正文写入不完整时，已登记的引用仍可随错误结果返回，创建失败时没有引用。</p>
+    <p><code class="src" data-src="packages/agent/src/host-tool-families.ts#export interface HostCall">HostCall</code> 的上下文由宿主记录取得，<code class="src" data-src="packages/agent/src/driver.ts#private readonly bindHostCall">driver.ts · bindHostCall</code> 只释放对应 SDK 调用 id 的记录，工具包装在 <code>finally</code> 释放句柄（<code class="src" data-src="packages/agent/src/host-tool-families.ts#export function hostCallFor">hostCallFor</code>）。没有绑定器的模块测试可直接提供 <code>taskContext</code>。调度通知目标也使用本次调用的 <code>taskId</code> 读取来源事件，再由拥有者 IM 入口确定（<code class="src" data-src="packages/runtime/src/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。</p>
+    <p>执行期间按宿主操作编号登记产物引用；例如 <code>web_search</code> 保存超限或畸形响应时，先创建 <code>web-search-response</code> 产物并登记引用，再写正文（<code class="src" data-src="packages/agent/src/web-search.ts#const saveRawResponse">web-search.ts · saveRawResponse</code>）。正常回收 <code>tool_execution_end</code> 时，驱动器把这些引用并入 <code>task.tool_result</code> 的 <code>artifactIds</code>；正文写入不完整时，已登记的引用仍可随错误结果返回，创建失败时没有引用。</p>
   </section>
 
   <section id="availability">
     <h2>可用性：会话类别定清单，任务再收窄</h2>
-    <p>「这个会话、这个任务能用哪些工具」只有一个答案来源：<code class="src" data-src="src/agent/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>，一张会话类别 → 工具类别的静态表。会话类别（<code class="src" data-src="src/agent/tool-availability.ts#export type SessionToolClass">SessionToolClass</code>）取自会话身份（<code class="src" data-src="src/core/store.ts#getSessionIdentity">store.ts · getSessionIdentity</code>），由驱动器在任务开始算出的执行画像钉定（<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>）：绑定了 SubAgent 的子会话是 <code>subagent</code>；main 角色会话是 <code>main</code>（旧架构的逻辑角色）；其余是普通开发会话 <code>dev</code>。QQ 群会话与 chat、coding 角色会话已退役，是只读归档，不归任何类别（会话身份为已退役归档，<code class="src" data-src="src/core/session-identity.ts#export function classifySession">session-identity.ts · classifySession</code>）：提交入口与队列兜底先行拒绝，驱动器被要求运行这类会话时直接报错。新工具族默认对所有会话不可见，写进哪份清单才出现。</p>
+    <p>「这个会话、这个任务能用哪些工具」只有一个答案来源：<code class="src" data-src="packages/agent/src/tool-availability.ts#SESSION_TOOL_CATEGORIES">tool-availability.ts · SESSION_TOOL_CATEGORIES</code>，一张会话类别 → 工具类别的静态表。会话类别（<code class="src" data-src="packages/agent/src/tool-availability.ts#export type SessionToolClass">SessionToolClass</code>）取自会话身份（<code class="src" data-src="packages/core/src/store.ts#getSessionIdentity">store.ts · getSessionIdentity</code>），由驱动器在任务开始算出的执行画像钉定（<code class="src" data-src="packages/agent/src/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>）：绑定了 SubAgent 的子会话是 <code>subagent</code>；main 角色会话是 <code>main</code>（旧架构的逻辑角色）；其余是普通开发会话 <code>dev</code>。QQ 群会话与 chat、coding 角色会话已退役，是只读归档，不归任何类别（会话身份为已退役归档，<code class="src" data-src="packages/core/src/session-identity.ts#export function classifySession">session-identity.ts · classifySession</code>）：提交入口与队列兜底先行拒绝，驱动器被要求运行这类会话时直接报错。新工具族默认对所有会话不可见，写进哪份清单才出现。</p>
 
     <div class="scroll">
       <table class="tbl wrap">
-        <thead><tr><th>工具类别（<code class="src" data-src="src/core/types.ts#export type ToolCategory">ToolCategory</code>）</th><th>工具</th><th>dev</th><th>main</th><th>subagent</th></tr></thead>
+        <thead><tr><th>工具类别（<code class="src" data-src="packages/core/src/types.ts#export type ToolCategory">ToolCategory</code>）</th><th>工具</th><th>dev</th><th>main</th><th>subagent</th></tr></thead>
         <tbody>
           <tr><td><code>coding</code></td><td><code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>request_file_access</code> <code>http_request</code> <code>read_artifact</code>，以及工作清单 <code>todo_write</code></td><td>✓</td><td>—</td><td>—</td></tr>
           <tr><td><code>host_data</code></td><td><code>history_search</code> <code>history_read</code> <code>memory_list</code> <code>memory_read</code> <code>memory_save</code> <code>memory_revoke</code></td><td>✓</td><td>✓</td><td>—</td></tr>
@@ -265,33 +265,33 @@
           <tr><td><code>service</code></td><td><code>service_inspect</code> <code>service_manage</code></td><td>—</td><td>✓ ruukoto + Linux + 部署配置</td><td>—</td></tr>
           <tr><td><code>skills</code></td><td><code>skill</code></td><td>✓</td><td>✓</td><td>—</td></tr>
           <tr><td><code>subagent</code></td><td><code>subagent_delegate</code> <code>subagent_result</code> <code>subagent_close</code> <code>subagent_cancel</code> <code>subagent_message</code> <code>subagent_integrate</code></td><td>✓</td><td>✓</td><td>—</td></tr>
-          <tr><td>静态白名单</td><td><code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code>；修改工作按 <code class="src" data-src="src/agent/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>：<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
+          <tr><td>静态白名单</td><td><code class="src" data-src="packages/agent/src/tool-availability.ts#SUBAGENT_READONLY_TOOL_NAMES">SUBAGENT_READONLY_TOOL_NAMES</code>：<code>read</code> <code>read_artifact</code>；修改工作按 <code class="src" data-src="packages/agent/src/tool-availability.ts#SUBAGENT_WRITE_TOOL_NAMES">SUBAGENT_WRITE_TOOL_NAMES</code>：<code>read</code> <code>edit</code> <code>write</code> <code>bash</code> <code>read_artifact</code></td><td>—</td><td>—</td><td>✓ 单独装配</td></tr>
           <tr><td>子会话协作消息</td><td><code>subagent_message</code>：SubAgent 子类别清单为 <code>[]</code>，由对应宿主族单独装配</td><td>—</td><td>—</td><td>✓ 单独装配；宿主评审不激活</td></tr>
         </tbody>
       </table>
     </div>
-    <p>清单含某类别只是装配的前提。全局清单包含各宿主族，应用库、调度器或服务管理不可用时，对应族提供空的名称与构建结果，恢复规则仍保留（<a href="#ledger">账本分类</a>）；驱动器按类别构建工具。SubAgent 的编码工具按执行画像单独筛选，协作消息由对应宿主族提供，之后仍过任务收窄（<a href="#path">装配与调用上下文</a>，<code class="src" data-src="src/agent/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）：</p>
+    <p>清单含某类别只是装配的前提。全局清单包含各宿主族，应用库、调度器或服务管理不可用时，对应族提供空的名称与构建结果，恢复规则仍保留（<a href="#ledger">账本分类</a>）；驱动器按类别构建工具。SubAgent 的编码工具按执行画像单独筛选，协作消息由对应宿主族提供，之后仍过任务收窄（<a href="#path">装配与调用上下文</a>，<code class="src" data-src="packages/agent/src/driver.ts#private async ensureSdk">driver.ts · ensureSdk</code>）：</p>
     <ul>
       <li><code>scheduler</code>：调度器只在个人 Agent（ruukoto）启动；ruukoto-code 不创建调度器，main 的调度与通知工具不装配。</li>
-      <li><code>service</code>：后台构造时要求产品为 ruukoto、平台为 Linux、显式部署配置（helper 与策略路径）齐备，缺一项 <code class="src" data-src="src/runtime/runtime.ts#serviceManager">runtime.ts · serviceManager</code> 就是 null，工具不装配，不会静默放行。普通开发会话、SubAgent 与 ruukoto-code 都没有这两个工具；main 也不因此拿到 <code>bash</code>。</li>
-      <li><code>subagent</code>：委派、结果、关闭、取消与汇总工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="src/agent/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="src/agent/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>），调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝；<code>subagent_close</code> / <code>subagent_cancel</code> / <code>subagent_integrate</code> 没有这道来源门（关闭与取消只收窄能力；汇总只作用于本会话登记的成果），回报唤醒轮次也允许。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
-      <li>SubAgent 子会话的清单为空：驱动器只从编码工具里按执行画像的 SubAgent 工具集挑出静态白名单装配——只读分析工作 <code>read</code>、<code>read_artifact</code>；修改委派的工作额外给 <code>edit</code>、<code>write</code>、<code>bash</code>（装配、发送前与调用门三处经 <code class="src" data-src="src/agent/tool-availability.ts#export function subAgentAllows">subAgentAllows</code> 取同一结论，工具集按本任务 <code>work_delegations.write_target</code> 与是否宿主评审在任务开始钉定）。工具集进 SDK 会话签名，与 MCP 清单签名拼在一起（<code class="src" data-src="src/agent/driver.ts#const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}`">driver.ts · runInner</code>）：同一 SubAgent 从只读工作复用到修改工作时签名变化，SDK 会话重建，装配拿到写入工具；这不依赖 Runtime 每任务释放 SubAgent 的驱动器（那只是回收 SDK 缓存与 MCP 连接）。写任务仍固定 <code>confirm</code>，不给 <code>request_file_access</code>、<code>http_request</code>、MCP 或委派工具，也没有网络；任务的访问模式由宿主固定为 <code>confirm</code>，不能切换。唯一的例外是宿主评审任务（GitHub PR，工单 19）：<code class="src" data-src="src/agent/driver.ts#taskMcp">driver.ts · taskMcp</code> 依赖为真时画像的 <code>planMcp</code> 为真，按本会话项目规划 MCP，收窄为静态白名单 ∪ <code>effect=read</code> 的 MCP（GitHub MCP 配在 main 项目；owner 委派的 SubAgent 拿不到）。</li>
-      <li>同一 SubAgent 宿主族为 dev / main 构建委派工具与 <code>subagent_message</code>，为 SubAgent 子会话只构建协作消息工具（<code class="src" data-src="src/agent/subagent-tools.ts#createSubAgentFamily">subagent-tools.ts · createSubAgentFamily</code>；发送方身份由发起任务核实、不接受参数）。<code class="src" data-src="src/agent/tool-availability.ts#if (name === &quot;subagent_message&quot;)">tool-availability.ts · subAgentAllows</code> 对 <code>subagent_message</code> 放行：SubAgent 任务里允许向主 Agent 或当前承接本工作的其他 SubAgent 发送；宿主评审任务（GitHub PR，<code>taskMcp</code>）除外——同一收窄不放行（管理器侧同样拒绝评审 SubAgent 收发）。工作内消息的登记、投递与冲刷见<a href="orchestrator.html#subagent-message">编排器 · 协作加入与工作内消息</a>。</li>
+      <li><code>service</code>：后台构造时要求产品为 ruukoto、平台为 Linux、显式部署配置（helper 与策略路径）齐备，缺一项 <code class="src" data-src="packages/runtime/src/runtime.ts#serviceManager">runtime.ts · serviceManager</code> 就是 null，工具不装配，不会静默放行。普通开发会话、SubAgent 与 ruukoto-code 都没有这两个工具；main 也不因此拿到 <code>bash</code>。</li>
+      <li><code>subagent</code>：委派、结果、关闭、取消与汇总工具每次调用都核实会话是普通开发会话或 main（<code class="src" data-src="packages/agent/src/driver.ts#private verifyDelegationHost">driver.ts · verifyDelegationHost</code>）；<code>subagent_delegate</code> 另要求任务由拥有者发起（直接提交，或已核实身份的 Telegram / QQ 私聊入站；<code class="src" data-src="packages/agent/src/subagent-tools.ts#const ownerOriginated">subagent-tools.ts · ownerOriginated</code>），调度唤醒、子任务回报与 SubAgent 自己的任务都被拒绝；<code>subagent_close</code> / <code>subagent_cancel</code> / <code>subagent_integrate</code> 没有这道来源门（关闭与取消只收窄能力；汇总只作用于本会话登记的成果），回报唤醒轮次也允许。SubAgent 本身怎样登记与执行见<a href="orchestrator.html">编排器</a>。</li>
+      <li>SubAgent 子会话的清单为空：驱动器只从编码工具里按执行画像的 SubAgent 工具集挑出静态白名单装配——只读分析工作 <code>read</code>、<code>read_artifact</code>；修改委派的工作额外给 <code>edit</code>、<code>write</code>、<code>bash</code>（装配、发送前与调用门三处经 <code class="src" data-src="packages/agent/src/tool-availability.ts#export function subAgentAllows">subAgentAllows</code> 取同一结论，工具集按本任务 <code>work_delegations.write_target</code> 与是否宿主评审在任务开始钉定）。工具集进 SDK 会话签名，与 MCP 清单签名拼在一起（<code class="src" data-src="packages/agent/src/driver.ts#const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}`">driver.ts · runInner</code>）：同一 SubAgent 从只读工作复用到修改工作时签名变化，SDK 会话重建，装配拿到写入工具；这不依赖 Runtime 每任务释放 SubAgent 的驱动器（那只是回收 SDK 缓存与 MCP 连接）。写任务仍固定 <code>confirm</code>，不给 <code>request_file_access</code>、<code>http_request</code>、MCP 或委派工具，也没有网络；任务的访问模式由宿主固定为 <code>confirm</code>，不能切换。唯一的例外是宿主评审任务（GitHub PR，工单 19）：<code class="src" data-src="packages/agent/src/driver.ts#taskMcp">driver.ts · taskMcp</code> 依赖为真时画像的 <code>planMcp</code> 为真，按本会话项目规划 MCP，收窄为静态白名单 ∪ <code>effect=read</code> 的 MCP（GitHub MCP 配在 main 项目；owner 委派的 SubAgent 拿不到）。</li>
+      <li>同一 SubAgent 宿主族为 dev / main 构建委派工具与 <code>subagent_message</code>，为 SubAgent 子会话只构建协作消息工具（<code class="src" data-src="packages/agent/src/subagent-tools.ts#createSubAgentFamily">subagent-tools.ts · createSubAgentFamily</code>；发送方身份由发起任务核实、不接受参数）。<code class="src" data-src="packages/agent/src/tool-availability.ts#if (name === &quot;subagent_message&quot;)">tool-availability.ts · subAgentAllows</code> 对 <code>subagent_message</code> 放行：SubAgent 任务里允许向主 Agent 或当前承接本工作的其他 SubAgent 发送；宿主评审任务（GitHub PR，<code>taskMcp</code>）除外——同一收窄不放行（管理器侧同样拒绝评审 SubAgent 收发）。工作内消息的登记、投递与冲刷见<a href="orchestrator.html#subagent-message">编排器 · 协作加入与工作内消息</a>。</li>
     </ul>
 
     <h3>同一个集合，三处使用</h3>
-    <p>任务开始时 <code class="src" data-src="src/agent/tool-availability.ts#export function taskToolSet">taskToolSet</code> 算一次本任务允许的工具：已装配的工具（含本任务的 MCP 工具），减去三类收窄。每个任务都从完整注册表重算，宿主对上一个任务的收窄不带进下一个任务。收窄只减不增。</p>
+    <p>任务开始时 <code class="src" data-src="packages/agent/src/tool-availability.ts#export function taskToolSet">taskToolSet</code> 算一次本任务允许的工具：已装配的工具（含本任务的 MCP 工具），减去三类收窄。每个任务都从完整注册表重算，宿主对上一个任务的收窄不带进下一个任务。收窄只减不增。</p>
     <ul>
-      <li>计划模式：执行画像从任务固定的 <code>planMode</code> 确定（<code class="src" data-src="src/agent/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>），只留 <code class="src" data-src="src/agent/plan-mode.ts#PLAN_TOOL_NAMES">plan-mode.ts · PLAN_TOOL_NAMES</code> 与只读 MCP 工具，今后新增的工具默认不可用。固定采用 <code>auto-review</code>；名单含 <code>bash</code>、<code>request_file_access</code>、<code>http_request</code>，符合策略的越界读取进入独立审查，写入等非合格操作转人工。保留工具仍可能写入，计划说明与白名单不提供全面只读保证。未开放 <code>subagent_delegate</code>，管理器的计划资格校验不增加模型工具，不能据此发起分析委派。选择与继续见<a href="task-lifecycle.html#mode">任务生命周期</a>。</li>
-      <li>宿主按任务收窄：SubAgent 任务按执行画像的工具集收窄（<code class="src" data-src="src/agent/tool-availability.ts#export function subAgentAllows">subAgentAllows</code>，与装配同一结论）——写入目标白名单兜底一次，GitHub 评审 SubAgent 收窄为静态白名单 ∪ 本任务 <code>effect=read</code> 的 MCP；其他任务经 <code class="src" data-src="src/github/events.ts#allowTool">github/events.ts · allowTool</code>：评审对应的 main 唤醒任务只留 <code>subagent_result</code> 与只读的 <code>coding_result</code>，带 GitHub 来源事件的其他任务（评审父任务）一律不放行任何工具。</li>
+      <li>计划模式：执行画像从任务固定的 <code>planMode</code> 确定（<code class="src" data-src="packages/agent/src/tool-availability.ts#export function executionProfile">tool-availability.ts · executionProfile</code>），只留 <code class="src" data-src="packages/agent/src/plan-mode.ts#PLAN_TOOL_NAMES">plan-mode.ts · PLAN_TOOL_NAMES</code> 与只读 MCP 工具，今后新增的工具默认不可用。固定采用 <code>auto-review</code>；名单含 <code>bash</code>、<code>request_file_access</code>、<code>http_request</code>，符合策略的越界读取进入独立审查，写入等非合格操作转人工。保留工具仍可能写入，计划说明与白名单不提供全面只读保证。未开放 <code>subagent_delegate</code>，管理器的计划资格校验不增加模型工具，不能据此发起分析委派。选择与继续见<a href="task-lifecycle.html#mode">任务生命周期</a>。</li>
+      <li>宿主按任务收窄：SubAgent 任务按执行画像的工具集收窄（<code class="src" data-src="packages/agent/src/tool-availability.ts#export function subAgentAllows">subAgentAllows</code>，与装配同一结论）——写入目标白名单兜底一次，GitHub 评审 SubAgent 收窄为静态白名单 ∪ 本任务 <code>effect=read</code> 的 MCP；其他任务经 <code class="src" data-src="packages/channels/src/github/events.ts#allowTool">github/events.ts · allowTool</code>：评审对应的 main 唤醒任务只留 <code>subagent_result</code> 与只读的 <code>coding_result</code>，带 GitHub 来源事件的其他任务（评审父任务）一律不放行任何工具。</li>
       <li>项目关闭 Web Search：<code>web_search</code> 不进集合，模型看不到。任务进行中才关闭时，由工具在调用时自行检查并拒绝，这不属于可用性。</li>
     </ul>
-    <p>算出的集合在三处共用，结论一致：激活（<code>setActiveToolsByName</code>，决定模型看到哪些工具）；每次模型调用发送前，载荷里的每个工具都必须在集合内，否则以 <code>task_tools_forbidden</code> 阻断发送、中断任务并暂停会话队列（<code class="src" data-src="src/agent/driver.ts#private checkBeforeSend">driver.ts · checkBeforeSend</code>，发送前复核的其余检查见<a href="context-pipeline.html#send">上下文组装</a>）；以及上图的可用性门。</p>
+    <p>算出的集合在三处共用，结论一致：激活（<code>setActiveToolsByName</code>，决定模型看到哪些工具）；每次模型调用发送前，载荷里的每个工具都必须在集合内，否则以 <code>task_tools_forbidden</code> 阻断发送、中断任务并暂停会话队列（<code class="src" data-src="packages/agent/src/driver.ts#private checkBeforeSend">driver.ts · checkBeforeSend</code>，发送前复核的其余检查见<a href="context-pipeline.html#send">上下文组装</a>）；以及上图的可用性门。</p>
   </section>
 
   <section id="modes">
     <h2>访问模式矩阵：哪些操作要谁点头</h2>
-    <p>任务带一个访问模式（<code class="src" data-src="src/core/types.ts#export type AccessMode">types.ts · AccessMode</code>）：<code>confirm</code> 请求确认、<code>full_access</code> 完全访问、<code>auto-review</code> 自动审查。Plan 任务固定组合计划工作方式与 <code>auto-review</code>，复用下表自动审查策略。拥有者选择只影响对应任务；入站事件、子任务回报唤醒、委派出的子任务与 SubAgent 任务都由宿主固定为 <code>confirm</code>，不继承会话默认模式。「是否要审批」写在各工具族里，下表逐格对照代码；自动审查只在闸门内部生效。</p>
+    <p>任务带一个访问模式（<code class="src" data-src="packages/core/src/types.ts#export type AccessMode">types.ts · AccessMode</code>）：<code>confirm</code> 请求确认、<code>full_access</code> 完全访问、<code>auto-review</code> 自动审查。Plan 任务固定组合计划工作方式与 <code>auto-review</code>，复用下表自动审查策略。拥有者选择只影响对应任务；入站事件、子任务回报唤醒、委派出的子任务与 SubAgent 任务都由宿主固定为 <code>confirm</code>，不继承会话默认模式。「是否要审批」写在各工具族里，下表逐格对照代码；自动审查只在闸门内部生效。</p>
 
     <div class="scroll">
       <table class="tbl wrap">
@@ -343,7 +343,7 @@
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
             <td><code class="st ok">自动执行</code></td>
-            <td rowspan="2">服务已移除、已禁用、配置版本变化、工具移出允许列表或类别变化、凭据被撤销或主机不符（<code class="src" data-src="src/agent/tool-router.ts#private mcpConfigBlock">tool-router.ts · mcpConfigBlock</code>：每次调用前查一次，需审批的另在消费事务内再查）</td>
+            <td rowspan="2">服务已移除、已禁用、配置版本变化、工具移出允许列表或类别变化、凭据被撤销或主机不符（<code class="src" data-src="packages/agent/src/tool-router.ts#private mcpConfigBlock">tool-router.ts · mcpConfigBlock</code>：每次调用前查一次，需审批的另在消费事务内再查）</td>
           </tr>
           <tr>
             <td>MCP 写 / 副作用不明</td>
@@ -399,11 +399,11 @@
     <div class="cards">
       <div class="card">
         <h4>「完全访问也须确认」的四个例外</h4>
-        <p>ADR 0003 说完全访问无需逐次确认，指的是执行账户已有的系统权限。下面四类授权独立于任务执行权限，<code>full_access</code> 也照样审批：应用数据破坏性变更（ADR 0009）、建立外发计划与一次外发（ADR 0010）、新闻推送计划（ADR 0015）、服务操作（ADR 0019，root 分支是后台经 sudoers 的提权能力，不属于执行账户权限）。另外，<code>request_file_access</code> 与 <code>http_request</code> 在 <code class="src" data-src="src/agent/tool-router.ts#private async executeApprovalOp">tool-router.ts · executeApprovalOp</code> 里不看模式、始终审批；完全访问下的编码工具本来就按执行账户权限读写，不必经过它们。代码里唯一按 <code>full_access</code> 跳过审批的是 MCP 写工具。</p>
+        <p>ADR 0003 说完全访问无需逐次确认，指的是执行账户已有的系统权限。下面四类授权独立于任务执行权限，<code>full_access</code> 也照样审批：应用数据破坏性变更（ADR 0009）、建立外发计划与一次外发（ADR 0010）、新闻推送计划（ADR 0015）、服务操作（ADR 0019，root 分支是后台经 sudoers 的提权能力，不属于执行账户权限）。另外，<code>request_file_access</code> 与 <code>http_request</code> 在 <code class="src" data-src="packages/agent/src/tool-router.ts#private async executeApprovalOp">tool-router.ts · executeApprovalOp</code> 里不看模式、始终审批；完全访问下的编码工具本来就按执行账户权限读写，不必经过它们。代码里唯一按 <code>full_access</code> 跳过审批的是 MCP 写工具。</p>
       </div>
       <div class="card">
         <h4>自动审查不覆盖的范围</h4>
-        <p><code class="src" data-src="src/agent/review.ts#export function classifyForReview">review.ts · classifyForReview</code> 是确定性策略：只有越界文件读、无凭据的 GET / HEAD 能交给审查调用（ADR 0005）。其余范围——写文件、带凭据或其他方法的请求、<code>mcp_tool</code>（ADR 0008）、<code>app_data_change</code>、<code>notification</code>、<code>service_operation</code>、通用 <code>tool</code> 门、历史 <code>github_publish</code>——都不发起模型调用，直接转拥有者。</p>
+        <p><code class="src" data-src="packages/agent/src/review.ts#export function classifyForReview">review.ts · classifyForReview</code> 是确定性策略：只有越界文件读、无凭据的 GET / HEAD 能交给审查调用（ADR 0005）。其余范围——写文件、带凭据或其他方法的请求、<code>mcp_tool</code>（ADR 0008）、<code>app_data_change</code>、<code>notification</code>、<code>service_operation</code>、通用 <code>tool</code> 门、历史 <code>github_publish</code>——都不发起模型调用，直接转拥有者。</p>
       </div>
     </div>
     <p>长期授权放行只在 <code>service_manage</code> 的请求路径上尝试，不看访问模式；候选要求任务沿父任务链追溯到绑定拥有者的 IM 私聊入站（见<a href="#standing">长期操作授权</a>）。这类任务提交时由宿主固定为 <code>confirm</code>，拥有者事后切换模式不影响候选判定。</p>
@@ -411,7 +411,7 @@
 
   <section id="approval">
     <h2>审批闸门：登记、决定、单次消费</h2>
-    <p>审批请求的全程只在 <code class="src" data-src="src/agent/approval-gate.ts#export class ApprovalGate">approval-gate.ts · ApprovalGate</code> 里（每个驱动器一个实例）：登记请求并把任务转入等待、<code>auto-review</code> 任务先经一次自动审查、等决定、未批准时记已知未执行、获批后在同一事务里复核并消费一次。工具族只交给它三样东西：审批范围、获批后的同步复核 <code>recheck</code>、需要与消费同事务提交的本地效果 <code>commit</code>。<code>service_manage</code> 在走这条路之前，先试一次长期授权的窄路径。</p>
+    <p>审批请求的全程只在 <code class="src" data-src="packages/agent/src/approval-gate.ts#export class ApprovalGate">approval-gate.ts · ApprovalGate</code> 里（每个驱动器一个实例）：登记请求并把任务转入等待、<code>auto-review</code> 任务先经一次自动审查、等决定、未批准时记已知未执行、获批后在同一事务里复核并消费一次。工具族只交给它三样东西：审批范围、获批后的同步复核 <code>recheck</code>、需要与消费同事务提交的本地效果 <code>commit</code>。<code>service_manage</code> 在走这条路之前，先试一次长期授权的窄路径。</p>
 
     <figure class="fig">
       <div class="scroll">
@@ -450,7 +450,7 @@
           <div class="note" style="--from:1;--to:3">按族取执行参数后执行，结果进账本</div>
         </div>
       </div>
-      <figcaption>人工路径（②—⑤）与长期授权窄路径（①）在消费处汇合：同一个 <code class="src" data-src="src/core/store.ts#consumeApproval">store.ts · consumeApproval</code> 条件更新，要求批准未消费、批准记录的权限版本等于期望版本、任务仍活动且任务当前权限版本也等于期望版本。消费即执行开始，之后的结果不明一律按效果未知处理。等待阶段的 <code class="src" data-src="src/agent/approval-gate.ts#private async wait">wait</code> 与消费阶段的 <code class="src" data-src="src/agent/approval-gate.ts#private consume&lt;T&gt;">consume</code> 是两个事务：中间这段任务可能被停止或切换模式，消费条件会把这种批准拦下。</figcaption>
+      <figcaption>人工路径（②—⑤）与长期授权窄路径（①）在消费处汇合：同一个 <code class="src" data-src="packages/core/src/store.ts#consumeApproval">store.ts · consumeApproval</code> 条件更新，要求批准未消费、批准记录的权限版本等于期望版本、任务仍活动且任务当前权限版本也等于期望版本。消费即执行开始，之后的结果不明一律按效果未知处理。等待阶段的 <code class="src" data-src="packages/agent/src/approval-gate.ts#private async wait">wait</code> 与消费阶段的 <code class="src" data-src="packages/agent/src/approval-gate.ts#private consume&lt;T&gt;">consume</code> 是两个事务：中间这段任务可能被停止或切换模式，消费条件会把这种批准拦下。</figcaption>
     </figure>
 
     <details>
@@ -486,7 +486,7 @@
     </details>
 
     <h3>审批请求的状态</h3>
-    <p>状态取值见 <code class="src" data-src="src/core/types.ts#export type ConfirmationStatus">types.ts · ConfirmationStatus</code>：<code class="st wait">pending</code> 待决定；<code class="st ok">approved</code> 已批准，<code>consumed_at</code> 为空即尚未执行；<code class="st bad">rejected</code> 已拒绝；<code class="st idle">stale</code> 已失效，再也不能消费。消费不改状态，只写 <code>consumed_at</code>；已消费的批准不会再被标 stale。</p>
+    <p>状态取值见 <code class="src" data-src="packages/core/src/types.ts#export type ConfirmationStatus">types.ts · ConfirmationStatus</code>：<code class="st wait">pending</code> 待决定；<code class="st ok">approved</code> 已批准，<code>consumed_at</code> 为空即尚未执行；<code class="st bad">rejected</code> 已拒绝；<code class="st idle">stale</code> 已失效，再也不能消费。消费不改状态，只写 <code>consumed_at</code>；已消费的批准不会再被标 stale。</p>
     <figure class="fig">
       <div class="scroll">
         <svg viewBox="0 0 1040 330" role="img" aria-label="审批状态机：闸门登记为 pending，长期授权窄路径直接新建 approved 并在同一事务消费；pending 经拥有者、IM 或自动审查批准成为 approved，拒绝成为 rejected；pending 在模式切换或授予路径变化、任务到达终态、重启或 IM 入口失效时成为 stale；approved 在复核或消费失败、或在消费前遇到同样情形时成为 stale；approved 消费一次只写 consumed_at。">
@@ -512,7 +512,7 @@
           <text class="el start" data-k="c-consume" x="648" y="36">消费一次</text>
         </svg>
       </div>
-      <figcaption>未消费的 pending 与 approved 随权限版本递增、任务到达任意终态、重启或绑定入口失效一起失效（<code class="src" data-src="src/core/store.ts#stalePendingConfirmations">store.ts · stalePendingConfirmations</code>、<code class="src" data-src="src/core/store.ts#invalidateConfirmation">invalidateConfirmation</code>）。任务的统一收尾见<a href="task-lifecycle.html#states">任务生命周期</a>。悬停下表的行会高亮对应的边。</figcaption>
+      <figcaption>未消费的 pending 与 approved 随权限版本递增、任务到达任意终态、重启或绑定入口失效一起失效（<code class="src" data-src="packages/core/src/store.ts#stalePendingConfirmations">store.ts · stalePendingConfirmations</code>、<code class="src" data-src="packages/core/src/store.ts#invalidateConfirmation">invalidateConfirmation</code>）。任务的统一收尾见<a href="task-lifecycle.html#states">任务生命周期</a>。悬停下表的行会高亮对应的边。</figcaption>
       <ul class="legend"><li><i class="wait"></i>等待中</li><li><i class="ok"></i>已批准</li><li><i class="bad"></i>已拒绝</li><li><i class="idle"></i>已失效</li></ul>
     </figure>
     <div class="scroll">
@@ -522,19 +522,19 @@
           <tr data-k="c-create" tabindex="0">
             <td>新审批 → <code class="st wait">pending</code></td>
             <td>审批闸门</td>
-            <td>与任务 running → awaiting_confirmation、IM 初始通知同一事务；<code>auto-review</code> 任务且有审查器时 <code>review_status</code> 记 <code>in_progress</code>。<br><code class="src" data-src="src/core/store.ts#createConfirmation">store.ts · createConfirmation</code></td>
+            <td>与任务 running → awaiting_confirmation、IM 初始通知同一事务；<code>auto-review</code> 任务且有审查器时 <code>review_status</code> 记 <code>in_progress</code>。<br><code class="src" data-src="packages/core/src/store.ts#createConfirmation">store.ts · createConfirmation</code></td>
             <td><code>task.awaiting_confirmation</code></td>
           </tr>
           <tr data-k="c-standing" tabindex="0">
             <td>新审批 → <code class="st ok">approved</code></td>
             <td>长期授权窄路径</td>
-            <td>命中有效授权：独立的初始已批准记录，<code>decision_source = standing_permission</code> 并关联授权 ID 与版本；不发等待事件、不启动审查，同一事务内消费。<br><code class="src" data-src="src/core/store.ts#insertApprovedConfirmation">store.ts · insertApprovedConfirmation</code></td>
+            <td>命中有效授权：独立的初始已批准记录，<code>decision_source = standing_permission</code> 并关联授权 ID 与版本；不发等待事件、不启动审查，同一事务内消费。<br><code class="src" data-src="packages/core/src/store.ts#insertApprovedConfirmation">store.ts · insertApprovedConfirmation</code></td>
             <td><code>task.confirmation_resolved</code>（source <code>standing_permission</code>）+ <code>task.approval_consumed</code></td>
           </tr>
           <tr data-k="c-approve" tabindex="0">
             <td><code class="st wait">pending</code> → <code class="st ok">approved</code></td>
             <td>拥有者（TUI / IM）；自动审查</td>
-            <td>条件更新仍为 pending。自动审查另要求权限版本未变、任务仍活动；人工决定把进行中的审查标 superseded。<code>/approve-standing</code> 的这次批准记来源 <code>standing_permission</code> 并关联新建的授权。<br><code class="src" data-src="src/core/store.ts#respondConfirmation(">store.ts · respondConfirmation</code></td>
+            <td>条件更新仍为 pending。自动审查另要求权限版本未变、任务仍活动；人工决定把进行中的审查标 superseded。<code>/approve-standing</code> 的这次批准记来源 <code>standing_permission</code> 并关联新建的授权。<br><code class="src" data-src="packages/core/src/store.ts#respondConfirmation(">store.ts · respondConfirmation</code></td>
             <td><code>task.confirmation_resolved</code>（source <code>owner</code> / <code>auto_review</code> / <code>standing_permission</code>）</td>
           </tr>
           <tr data-k="c-reject" tabindex="0">
@@ -546,7 +546,7 @@
           <tr data-k="c-stale-p" tabindex="0">
             <td><code class="st wait">pending</code> → <code class="st idle">stale</code></td>
             <td>Runtime、驱动器、审批闸门</td>
-            <td>模式切换或授予路径变化（递增权限版本）；任务到达任意终态（<code>completed</code> / <code>failed</code> / <code>canceled</code> / <code>interrupted</code>，在 <code class="src" data-src="src/core/store.ts#endTask">Store.endTask</code> 事务内）；重启恢复；IM 入口停用、重绑或凭据代次变化（只影响原平台来源的审批）；等待前任务已收到中止信号。</td>
+            <td>模式切换或授予路径变化（递增权限版本）；任务到达任意终态（<code>completed</code> / <code>failed</code> / <code>canceled</code> / <code>interrupted</code>，在 <code class="src" data-src="packages/core/src/store.ts#endTask">Store.endTask</code> 事务内）；重启恢复；IM 入口停用、重绑或凭据代次变化（只影响原平台来源的审批）；等待前任务已收到中止信号。</td>
             <td>无独立事件，随 <code>task.mode_switched</code> 或任务终态事件等</td>
           </tr>
           <tr data-k="c-stale-a" tabindex="0">
@@ -566,7 +566,7 @@
     </div>
 
     <h3>审批范围按操作类别冻结</h3>
-    <p>登记时把范围结构化冻结（<code class="src" data-src="src/core/types.ts#export type ApprovalScope">types.ts · ApprovalScope</code>），展示、审查与复核都用同一份。凭据只出现绑定名与用途，不含值。</p>
+    <p>登记时把范围结构化冻结（<code class="src" data-src="packages/core/src/types.ts#export type ApprovalScope">types.ts · ApprovalScope</code>），展示、审查与复核都用同一份。凭据只出现绑定名与用途，不含值。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>kind</th><th>谁产生</th><th>冻结内容</th></tr></thead>
@@ -600,29 +600,29 @@
     </div>
 
     <h3>决定的两个入口</h3>
-    <p>拥有者从 TUI / CLI 经控制面 <code>respond_confirmation</code> 回应（可带 <code>permission_version</code>，版本不符返回 <code>permission_version_mismatch</code>）；也可以在 Telegram 或 QQ 私聊发整条审批命令。IM 命令怎样识别、怎样作为 <code>im_approval</code> 控制事件持久化，见<a href="inbound-events.html#im-approval">入站事件</a>。两个入口汇到同一个 <code class="src" data-src="src/agent/approval-gate.ts#resolve(confirmationId">approval-gate.ts · resolve</code>：只有仍为 pending 的第一次条件更新生效，后到的应答（另一入口、自动审查、另一条命令）返回 false，不再执行。</p>
-    <p>IM 命令在进闸门之前逐项核实：第 1 步由 <code class="src" data-src="src/runtime/im-approvals.ts#async handleCommand">im-approvals.ts · handleCommand</code> 对所有命令先做，其余由 <code class="src" data-src="src/runtime/im-approvals.ts#private handleDecide">handleDecide</code> 做。任一不符都只回执、不决定（没有钉版目标时连回执渠道都没有，只留控制记录）：</p>
+    <p>拥有者从 TUI / CLI 经控制面 <code>respond_confirmation</code> 回应（可带 <code>permission_version</code>，版本不符返回 <code>permission_version_mismatch</code>）；也可以在 Telegram 或 QQ 私聊发整条审批命令。IM 命令怎样识别、怎样作为 <code>im_approval</code> 控制事件持久化，见<a href="inbound-events.html#im-approval">入站事件</a>。两个入口汇到同一个 <code class="src" data-src="packages/agent/src/approval-gate.ts#resolve(confirmationId">approval-gate.ts · resolve</code>：只有仍为 pending 的第一次条件更新生效，后到的应答（另一入口、自动审查、另一条命令）返回 false，不再执行。</p>
+    <p>IM 命令在进闸门之前逐项核实：第 1 步由 <code class="src" data-src="packages/channels/src/im-approvals.ts#async handleCommand">im-approvals.ts · handleCommand</code> 对所有命令先做，其余由 <code class="src" data-src="packages/channels/src/im-approvals.ts#private handleDecide">handleDecide</code> 做。任一不符都只回执、不决定（没有钉版目标时连回执渠道都没有，只留控制记录）：</p>
     <ol class="steps">
       <li>入口身份：当前绑定目标与命令收件时钉版的目标逐项相同（渠道、账号、chat、配置版本），发送者 actor 是当前绑定的拥有者。</li>
-      <li>归属：从审批所属任务沿 <code>parent_task_id</code> 找到根任务的入站事件（<code class="src" data-src="src/runtime/im-approvals.ts#imSourceEvent(taskId">imSourceEvent</code>，最多追溯 <code class="src" data-src="src/runtime/im-approvals.ts#CHAIN_WALK_LIMIT">CHAIN_WALK_LIMIT</code> 层，断链或循环即拒绝），它必须是同一平台、同一 actor、同一钉版目标的普通 IM 委托。TUI 发起、没有 IM 来源的审批不对 IM 开放。</li>
+      <li>归属：从审批所属任务沿 <code>parent_task_id</code> 找到根任务的入站事件（<code class="src" data-src="packages/channels/src/im-approvals.ts#imSourceEvent(taskId">imSourceEvent</code>，最多追溯 <code class="src" data-src="packages/channels/src/im-approvals.ts#CHAIN_WALK_LIMIT">CHAIN_WALK_LIMIT</code> 层，断链或循环即拒绝），它必须是同一平台、同一 actor、同一钉版目标的普通 IM 委托。TUI 发起、没有 IM 来源的审批不对 IM 开放。</li>
       <li>审批仍是 pending，命令中的权限版本等于审批记录的版本（否则回执 <code>version_mismatch</code>），任务仍在 awaiting_confirmation。</li>
       <li>交给活动驱动器的闸门：决定、<code>task.confirmation_resolved</code>、控制事件终态与回执作为 <code>txExtra</code> 在同一事务提交。任一写失败整笔回滚，决定不记录，另记一条失败回执请拥有者重发。</li>
     </ol>
-    <p>批准接受不等于操作成功。消费前，闸门经宿主挂钩再做一次 IM 固定身份复核（<code class="src" data-src="src/runtime/im-approvals.ts#consumeRecheck">im-approvals.ts · consumeRecheck</code>）：批准接受之后、消费之前若入口重绑、停用或配置代次变化，批准失效、操作不执行。IM 入口失效时，ImApprovals 另把该平台来源的未消费审批全部失效并定向放开等待，另一平台在共享主会话里的审批不受影响。</p>
+    <p>批准接受不等于操作成功。消费前，闸门经宿主挂钩再做一次 IM 固定身份复核（<code class="src" data-src="packages/channels/src/im-approvals.ts#consumeRecheck">im-approvals.ts · consumeRecheck</code>）：批准接受之后、消费之前若入口重绑、停用或配置代次变化，批准失效、操作不执行。IM 入口失效时，ImApprovals 另把该平台来源的未消费审批全部失效并定向放开等待，另一平台在共享主会话里的审批不受影响。</p>
   </section>
 
   <section id="auto-review">
     <h2>自动审查：一次有时限的无工具调用</h2>
-    <p><code>auto-review</code> 任务的审批照常登记、照常进入 awaiting_confirmation，闸门在注册好等待者之后才启动审查（<code class="src" data-src="src/agent/approval-gate.ts#private async runAutoReview">approval-gate.ts · runAutoReview</code>），所以拥有者随时可以抢先决定。审查复用任务创建时固定的模型配置；任务没有审查器或模型配置时退化为纯人工。</p>
+    <p><code>auto-review</code> 任务的审批照常登记、照常进入 awaiting_confirmation，闸门在注册好等待者之后才启动审查（<code class="src" data-src="packages/agent/src/approval-gate.ts#private async runAutoReview">approval-gate.ts · runAutoReview</code>），所以拥有者随时可以抢先决定。审查复用任务创建时固定的模型配置；任务没有审查器或模型配置时退化为纯人工。</p>
     <div class="flow">
       <div class="stage"><b>确定性策略</b><p><code>classifyForReview</code>：只有越界文件读、无凭据 GET / HEAD 返回 <code>reviewable</code>；其余直接 <code>ask_owner</code>，不发模型调用。</p></div>
-      <div class="stage"><b>输入检查</b><p>拥有者原始请求为空，或请求、参数任一超过 <code class="src" data-src="src/agent/review.ts#REVIEW_INPUT_CAP_BYTES">REVIEW_INPUT_CAP_BYTES</code>（8 KiB）：转人工，不凭截断后的摘要批准。</p></div>
-      <div class="stage"><b>审查调用</b><p>无工具、独立输入，时限 <code class="src" data-src="src/agent/review.ts#REVIEW_TIMEOUT_MS">REVIEW_TIMEOUT_MS</code>（30 s），输出上限 <code class="src" data-src="src/agent/review.ts#REVIEW_MAX_TOKENS">REVIEW_MAX_TOKENS</code>（1024），策略版本 <code class="src" data-src="src/agent/review.ts#REVIEW_POLICY_VERSION">REVIEW_POLICY_VERSION</code>（<code>auto-review-v1</code>）随审批记录落盘。每个审批最多一次，不重试。</p></div>
+      <div class="stage"><b>输入检查</b><p>拥有者原始请求为空，或请求、参数任一超过 <code class="src" data-src="packages/agent/src/review.ts#REVIEW_INPUT_CAP_BYTES">REVIEW_INPUT_CAP_BYTES</code>（8 KiB）：转人工，不凭截断后的摘要批准。</p></div>
+      <div class="stage"><b>审查调用</b><p>无工具、独立输入，时限 <code class="src" data-src="packages/agent/src/review.ts#REVIEW_TIMEOUT_MS">REVIEW_TIMEOUT_MS</code>（30 s），输出上限 <code class="src" data-src="packages/agent/src/review.ts#REVIEW_MAX_TOKENS">REVIEW_MAX_TOKENS</code>（1024），策略版本 <code class="src" data-src="packages/agent/src/review.ts#REVIEW_POLICY_VERSION">REVIEW_POLICY_VERSION</code>（<code>auto-review-v1</code>）随审批记录落盘。每个审批最多一次，不重试。</p></div>
       <div class="stage"><b>结论</b><p>严格解析 JSON（只容忍外层代码围栏）：<code>decision</code> 必须是下表三者之一且理由非空，否则转人工。</p></div>
     </div>
     <div class="scroll">
       <table class="tbl wrap">
-        <thead><tr><th>结论（<code class="src" data-src="src/agent/review.ts#export type ReviewDecision">ReviewDecision</code>）</th><th>审批记录</th><th>事件</th><th>任务</th></tr></thead>
+        <thead><tr><th>结论（<code class="src" data-src="packages/agent/src/review.ts#export type ReviewDecision">ReviewDecision</code>）</th><th>审批记录</th><th>事件</th><th>任务</th></tr></thead>
         <tbody>
           <tr><td><code>approve</code></td><td>条件更新 pending → approved，要求权限版本未变、任务仍活动；<code>decision_source = auto_review</code>，<code>review_status = done</code>，理由落盘</td><td><code>task.confirmation_resolved</code>（source <code>auto_review</code>，带 reason）</td><td>唤醒等待者，进入消费</td></tr>
           <tr><td><code>reject</code></td><td>同上，状态 rejected</td><td>同上</td><td>账本记「自动审查拒绝执行 X：理由」</td></tr>
@@ -639,16 +639,16 @@
 
   <section id="standing">
     <h2>长期操作授权：逐次重建核实后自动放行</h2>
-    <p>ADR 0019 的逐次审批有一个例外：拥有者可以在原 IM 平台把某次服务 restart 审批保存为限定的长期授权（首版只覆盖本机白名单服务的 <code>restart</code>）。之后独立任务命中完全相同的范围时，宿主每次都重新核实，再为这一次单独建一条已批准记录并消费；授权本身不被消费，也不会被扩大。授权行存在核心库 <code>standing_permissions</code>（<code class="src" data-src="src/core/types.ts#export interface StandingPermission">types.ts · StandingPermission</code>，存储细节见<a href="storage-layout.html">存储布局</a>）。</p>
+    <p>ADR 0019 的逐次审批有一个例外：拥有者可以在原 IM 平台把某次服务 restart 审批保存为限定的长期授权（首版只覆盖本机白名单服务的 <code>restart</code>）。之后独立任务命中完全相同的范围时，宿主每次都重新核实，再为这一次单独建一条已批准记录并消费；授权本身不被消费，也不会被扩大。授权行存在核心库 <code>standing_permissions</code>（<code class="src" data-src="packages/core/src/types.ts#export interface StandingPermission">types.ts · StandingPermission</code>，存储细节见<a href="storage-layout.html">存储布局</a>）。</p>
 
     <div class="cards">
       <div class="card">
         <h4>创建：<code>/approve-standing &lt;审批ID&gt; &lt;权限版本&gt;</code></h4>
-        <p>只能经原 IM 平台、针对一条 pending 的 <code>service_manage</code> restart 审批（<code class="src" data-src="src/runtime/im-approvals.ts#private handleApproveStanding">im-approvals.ts · handleApproveStanding</code>）。在 IM 决定的全部核实之外，再要求会话绑定 main、同步重读部署策略且修订与审批范围相同。范围完全取自原审批记录：本机、单元、动作、两项修订；入口取自命令：渠道、账号、chat、actor 与钉版目标。授权创建（版本 1）、这次批准与授权关联、审计事件、控制事件终态与回执同一事务提交。原 <code>/approve</code> 只批准一次，从不隐式保存授权。模型、子任务消息、TUI 提交与其他平台都不能创建授权。</p>
+        <p>只能经原 IM 平台、针对一条 pending 的 <code>service_manage</code> restart 审批（<code class="src" data-src="packages/channels/src/im-approvals.ts#private handleApproveStanding">im-approvals.ts · handleApproveStanding</code>）。在 IM 决定的全部核实之外，再要求会话绑定 main、同步重读部署策略且修订与审批范围相同。范围完全取自原审批记录：本机、单元、动作、两项修订；入口取自命令：渠道、账号、chat、actor 与钉版目标。授权创建（版本 1）、这次批准与授权关联、审计事件、控制事件终态与回执同一事务提交。原 <code>/approve</code> 只批准一次，从不隐式保存授权。模型、子任务消息、TUI 提交与其他平台都不能创建授权。</p>
       </div>
       <div class="card">
         <h4>使用：先找候选，再在消费事务里核实</h4>
-        <p><code>service_manage</code> 先经 helper 拿到本次真实修订，再调 <code class="src" data-src="src/agent/approval-gate.ts#requestStanding&lt;T&gt;">approval-gate.ts · requestStanding</code>。ImApprovals 按当前 main、任务来源入口的稳定身份、本机、单元与动作找候选（<code class="src" data-src="src/runtime/im-approvals.ts#standingCandidate">im-approvals.ts · standingCandidate</code>）：钉版目标或 actor 与当前不符记 <code>entry_changed</code> 失效，修订不符记 <code>revision_changed</code> 失效。候选不是执行依据，消费事务内还要按授权行逐项重核（上方时序图 ①）。没有 IM 来源的任务（TUI 提交、调度、GitHub、子任务消息）恒无候选。</p>
+        <p><code>service_manage</code> 先经 helper 拿到本次真实修订，再调 <code class="src" data-src="packages/agent/src/approval-gate.ts#requestStanding&lt;T&gt;">approval-gate.ts · requestStanding</code>。ImApprovals 按当前 main、任务来源入口的稳定身份、本机、单元与动作找候选（<code class="src" data-src="packages/channels/src/im-approvals.ts#standingCandidate">im-approvals.ts · standingCandidate</code>）：钉版目标或 actor 与当前不符记 <code>entry_changed</code> 失效，修订不符记 <code>revision_changed</code> 失效。候选不是执行依据，消费事务内还要按授权行逐项重核（上方时序图 ①）。没有 IM 来源的任务（TUI 提交、调度、GitHub、子任务消息）恒无候选。</p>
       </div>
       <div class="card">
         <h4>记录：审批与账本怎样写</h4>
@@ -660,10 +660,10 @@
       <table class="tbl wrap">
         <thead><tr><th>失效原因（<code>revoked_reason</code>）</th><th>触发</th><th>位置</th></tr></thead>
         <tbody>
-          <tr><td><code>owner_revoked</code></td><td><code>/revoke-service-grant &lt;授权ID&gt; &lt;版本&gt;</code>、控制面 <code>service_grant_revoke</code>、<code>ruukoto service-grant revoke</code>，都带期望版本；重复撤销幂等</td><td><code class="src" data-src="src/core/store.ts#revokeStandingPermission">store.ts · revokeStandingPermission</code></td></tr>
-          <tr><td><code>entry_changed</code></td><td>IM 入口重绑、停用、拥有者或凭据代次变化（暂时离线与后台正常重启不算）；候选检索时钉版目标或 actor 与当前不符</td><td><code class="src" data-src="src/runtime/im-approvals.ts#invalidate">im-approvals.ts · invalidate</code>、<code>standingCandidate</code></td></tr>
+          <tr><td><code>owner_revoked</code></td><td><code>/revoke-service-grant &lt;授权ID&gt; &lt;版本&gt;</code>、控制面 <code>service_grant_revoke</code>、<code>ruukoto service-grant revoke</code>，都带期望版本；重复撤销幂等</td><td><code class="src" data-src="packages/core/src/store.ts#revokeStandingPermission">store.ts · revokeStandingPermission</code></td></tr>
+          <tr><td><code>entry_changed</code></td><td>IM 入口重绑、停用、拥有者或凭据代次变化（暂时离线与后台正常重启不算）；候选检索时钉版目标或 actor 与当前不符</td><td><code class="src" data-src="packages/channels/src/im-approvals.ts#invalidate">im-approvals.ts · invalidate</code>、<code>standingCandidate</code></td></tr>
           <tr><td><code>revision_changed</code></td><td>候选检索时策略修订或单元定义修订与授权不符</td><td><code>standingCandidate</code></td></tr>
-          <tr><td><code>effect_unknown</code></td><td>同一 main、本机、单元与动作的某次已消费服务操作被标效果未知：所有入口的有效授权一起失效，阻止换操作 ID 自动重试</td><td><code class="src" data-src="src/core/store.ts#invalidateStandingForTarget">store.ts · invalidateStandingForTarget</code>，由账本在同一事务调用</td></tr>
+          <tr><td><code>effect_unknown</code></td><td>同一 main、本机、单元与动作的某次已消费服务操作被标效果未知：所有入口的有效授权一起失效，阻止换操作 ID 自动重试</td><td><code class="src" data-src="packages/core/src/store.ts#invalidateStandingForTarget">store.ts · invalidateStandingForTarget</code>，由账本在同一事务调用</td></tr>
         </tbody>
       </table>
     </div>
@@ -708,7 +708,7 @@
           <text class="el start" x="946" y="176">固定 argv</text>
         </svg>
       </div>
-      <figcaption>工作进程只执行 <code class="src" data-src="src/agent/tool-worker/protocol.ts#WORKER_TOOL_NAMES">WORKER_TOOL_NAMES</code> 里的四个编码工具，协议里没有审批、模式切换或控制面操作；审批之后的越界文件与 HTTP 在后台执行，不经工作进程。容器与执行账户读不到后台目录里的控制面令牌与服务凭据；local 后端没有隔离，工作进程以后台账户运行，能直接读到它们，生产不用于请求确认的边界声明，启动时打印警告（见<a href="deployment.html#identities">部署与信任边界 · 系统身份</a>）。</figcaption>
+      <figcaption>工作进程只执行 <code class="src" data-src="packages/agent/src/tool-worker/protocol.ts#WORKER_TOOL_NAMES">WORKER_TOOL_NAMES</code> 里的四个编码工具，协议里没有审批、模式切换或控制面操作；审批之后的越界文件与 HTTP 在后台执行，不经工作进程。容器与执行账户读不到后台目录里的控制面令牌与服务凭据；local 后端没有隔离，工作进程以后台账户运行，能直接读到它们，生产不用于请求确认的边界声明，启动时打印警告（见<a href="deployment.html#identities">部署与信任边界 · 系统身份</a>）。</figcaption>
       <ul class="legend"><li><i class="run"></i>工具工作进程的执行边界</li><li><i class="wait"></i>只在批准之后动作</li><li><i class="idle"></i>无隔离（开发 / 验证）</li></ul>
     </figure>
 
@@ -716,8 +716,8 @@
       <table class="tbl wrap">
         <thead><tr><th>操作</th><th>执行者与身份</th><th>要点</th></tr></thead>
         <tbody>
-          <tr><td>编码工具</td><td>工具工作进程。启动器由 <code class="src" data-src="src/agent/execution/launchers.ts#export function createLauncherFor">launchers.ts · createLauncherFor</code> 按后端与模式选：<code>container</code> 后端下 <code>confirm</code> / <code>auto-review</code> → 按任务容器，<code>full_access</code> → systemd 执行账户（缺执行账户入口即 <code>execution_unavailable</code>）；<code>local</code> 后端任何模式都以后台账户运行</td><td>工作进程按「任务 + 模式 + 授予路径」复用，任一变化先停旧单元并核实退出，核实不了就拒绝建新环境。单次调用上限 <code class="src" data-src="src/agent/tool-router.ts#WORKER_CALL_TIMEOUT_MS">WORKER_CALL_TIMEOUT_MS</code>（10 分钟）。<code>ROUTED_TOOL_NAMES</code> 的工具定义声明顺序执行（<code>executionMode: "sequential"</code>），避免同名调用的输出串流；MCP 动态工具不在此列</td></tr>
-          <tr><td>越界文件、单次 HTTP</td><td>后台受信执行器，后台账户（<code class="src" data-src="src/agent/execution/approved-ops.ts#executeApprovedHttpRequest">approved-ops.ts · executeApprovedHttpRequest</code>）</td><td>文件：逐段 lstat 拒绝符号链接、打开后核对 dev/ino、写前核对原文指纹，保护根目录始终排除，写入上限 <code class="src" data-src="src/agent/execution/approved-ops.ts#MAX_FILE_CONTENT_BYTES">MAX_FILE_CONTENT_BYTES</code>（8 MiB）。HTTP：不跟随重定向、不重试，连接到登记审批前解析出的地址，响应超过 <code class="src" data-src="src/agent/execution/approved-ops.ts#MAX_HTTP_RESPONSE_BYTES">MAX_HTTP_RESPONSE_BYTES</code>（1 MiB）的部分截断。凭据只按名称引用，主机与绑定一致才注入，限定了使用范围的凭据不能被 <code>http_request</code> 借用（<code class="src" data-src="src/agent/execution/credentials.ts#scope?:">credentials.ts · scope</code>）</td></tr>
+          <tr><td>编码工具</td><td>工具工作进程。启动器由 <code class="src" data-src="packages/agent/src/execution/launchers.ts#export function createLauncherFor">launchers.ts · createLauncherFor</code> 按后端与模式选：<code>container</code> 后端下 <code>confirm</code> / <code>auto-review</code> → 按任务容器，<code>full_access</code> → systemd 执行账户（缺执行账户入口即 <code>execution_unavailable</code>）；<code>local</code> 后端任何模式都以后台账户运行</td><td>工作进程按「任务 + 模式 + 授予路径」复用，任一变化先停旧单元并核实退出，核实不了就拒绝建新环境。单次调用上限 <code class="src" data-src="packages/agent/src/tool-router.ts#WORKER_CALL_TIMEOUT_MS">WORKER_CALL_TIMEOUT_MS</code>（10 分钟）。<code>ROUTED_TOOL_NAMES</code> 的工具定义声明顺序执行（<code>executionMode: "sequential"</code>），避免同名调用的输出串流；MCP 动态工具不在此列</td></tr>
+          <tr><td>越界文件、单次 HTTP</td><td>后台受信执行器，后台账户（<code class="src" data-src="packages/agent/src/execution/approved-ops.ts#executeApprovedHttpRequest">approved-ops.ts · executeApprovedHttpRequest</code>）</td><td>文件：逐段 lstat 拒绝符号链接、打开后核对 dev/ino、写前核对原文指纹，保护根目录始终排除，写入上限 <code class="src" data-src="packages/agent/src/execution/approved-ops.ts#MAX_FILE_CONTENT_BYTES">MAX_FILE_CONTENT_BYTES</code>（8 MiB）。HTTP：不跟随重定向、不重试，连接到登记审批前解析出的地址，响应超过 <code class="src" data-src="packages/agent/src/execution/approved-ops.ts#MAX_HTTP_RESPONSE_BYTES">MAX_HTTP_RESPONSE_BYTES</code>（1 MiB）的部分截断。凭据只按名称引用，主机与绑定一致才注入，限定了使用范围的凭据不能被 <code>http_request</code> 借用（<code class="src" data-src="packages/agent/src/execution/credentials.ts#scope?:">credentials.ts · scope</code>）</td></tr>
           <tr><td>MCP</td><td>后台进程，任务开始建立的钉版连接</td><td>每次调用前重读服务配置与凭据绑定（<code>mcpConfigBlock</code>）；凭据值不进审批视图或事件</td></tr>
           <tr><td>宿主工具</td><td>后台进程</td><td>身份由宿主注入；应用数据在独立的 <code>main.db</code>，调度与通知写核心库的计划与 outbox</td></tr>
           <tr><td>服务操作</td><td>后台经 <code>sudo -n</code> 调 root 拥有的 helper（<code>deploy/systemd/ruukoto-service.mjs</code>），环境只留 PATH、绝对路径、固定 argv</td><td>检查以策略里的执行账户运行；restart 由每个宿主操作派生的命令单元执行，派生单元先登记到受管单元表，停止时只停它，已提交给 PID 1 的重启作业不撤回</td></tr>
@@ -726,26 +726,26 @@
     </div>
 
     <h3>LaunchSpec：宿主钉定工作区、只读根与环境</h3>
-    <p>每次启动工作进程的挂载与环境单由宿主算好（<code class="src" data-src="src/agent/tool-router.ts#launchSpecFor">tool-router.ts · launchSpecFor</code>），模型参数进不了这张图。工作区由 <code class="src" data-src="src/core/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code> 钉定：普通任务是会话工作目录；SubAgent 修改任务（工作带 <code>write_target</code>）是该工作的副本或写入目录。数值目录身份（<code>workspaceIdentity</code> 与 <code>readRoots</code> 条目的 dev/ino）只在 Linux 下发——原生 bind mount 按宿主原样呈现目录身份；macOS Docker Desktop 经 VM 重新编号 inode（已实测：容器侧 dev/ino 与宿主恒不一致），darwin 不下发数值身份，worker init 只按路径钉定（<code class="src" data-src="src/agent/tool-worker/worker.ts#宿主钉定的工作区身份">worker.ts</code>），目录身份复核由宿主队列回路在任务启动前按 <code>taskWorkspaceFor</code> 承担（runtime.ts）。worktree 修改任务再加两样：仓库的共享 Git 目录作为只读 <code>readRoots</code> 挂载（可 status/diff/log，写不了 refs/hooks/config），以及环境包 <code>GIT_CONFIG_COUNT</code>=1、<code>GIT_CONFIG_KEY_0</code>=<code>safe.directory</code>、<code>GIT_CONFIG_VALUE_0</code>=<code>*</code>（容器 uid 与仓库属主不同时 git 仍能运行）；这些键只在需要时注入，不进 worker 复用键。git 会把副本路径字串写进共享 Git 目录的 <code>worktrees/&lt;name&gt;/gitdir</code> 并据此回核，所以修改委派的创建命令、挂载与 <code>write_target.path</code> 一律用 <code>copyDirReal = fs.realpathSync(copyDir)</code>（macOS TMPDIR 的符号链接会让字串与 realpath 不一致）。</p>
+    <p>每次启动工作进程的挂载与环境单由宿主算好（<code class="src" data-src="packages/agent/src/tool-router.ts#launchSpecFor">tool-router.ts · launchSpecFor</code>），模型参数进不了这张图。工作区由 <code class="src" data-src="packages/core/src/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code> 钉定：普通任务是会话工作目录；SubAgent 修改任务（工作带 <code>write_target</code>）是该工作的副本或写入目录。数值目录身份（<code>workspaceIdentity</code> 与 <code>readRoots</code> 条目的 dev/ino）只在 Linux 下发——原生 bind mount 按宿主原样呈现目录身份；macOS Docker Desktop 经 VM 重新编号 inode（已实测：容器侧 dev/ino 与宿主恒不一致），darwin 不下发数值身份，worker init 只按路径钉定（<code class="src" data-src="packages/agent/src/tool-worker/worker.ts#宿主钉定的工作区身份">worker.ts</code>），目录身份复核由宿主队列回路在任务启动前按 <code>taskWorkspaceFor</code> 承担（runtime.ts）。worktree 修改任务再加两样：仓库的共享 Git 目录作为只读 <code>readRoots</code> 挂载（可 status/diff/log，写不了 refs/hooks/config），以及环境包 <code>GIT_CONFIG_COUNT</code>=1、<code>GIT_CONFIG_KEY_0</code>=<code>safe.directory</code>、<code>GIT_CONFIG_VALUE_0</code>=<code>*</code>（容器 uid 与仓库属主不同时 git 仍能运行）；这些键只在需要时注入，不进 worker 复用键。git 会把副本路径字串写进共享 Git 目录的 <code>worktrees/&lt;name&gt;/gitdir</code> 并据此回核，所以修改委派的创建命令、挂载与 <code>write_target.path</code> 一律用 <code>copyDirReal = fs.realpathSync(copyDir)</code>（macOS TMPDIR 的符号链接会让字串与 realpath 不一致）。</p>
 
     <h3>工作进程协议与产物</h3>
-    <p>后台与工作进程之间是 stdio 上的换行分帧 JSON（<code class="src" data-src="src/agent/tool-worker/protocol.ts#export type WorkerRequest">protocol.ts · WorkerRequest</code>）：后台发 <code>init</code>、<code>tool_call</code>（以宿主操作 id 关联）、<code>abort</code>、<code>shutdown</code>；工作进程回 <code>ready</code>、<code>data</code>、<code>result</code>、<code>fatal</code>。单帧上限 <code class="src" data-src="src/agent/tool-worker/protocol.ts#MAX_FRAME_BYTES">MAX_FRAME_BYTES</code>（4 MiB），正文按 <code class="src" data-src="src/agent/tool-worker/protocol.ts#DATA_CHUNK_BYTES">DATA_CHUNK_BYTES</code>（512 KiB）分块、base64 传输，写入侧有背压。等 <code>ready</code> 超过 30 秒即启动失败并回收执行单元（<code class="src" data-src="src/agent/tool-worker/host.ts#工具工作进程启动超时">host.ts · 启动超时</code>）；停止时先发 <code>shutdown</code>，给 3 秒优雅退出，再停整个执行单元并核实退出。</p>
-    <p>工作进程把未截断的 stdout、stderr 与文件正文以 <code>data</code> 帧流回，路由器先写进产物文件，再在模型视图里附「完整正文已捕获：artifact …」引用（<code class="src" data-src="src/agent/tool-router.ts#private async executeCodingTool">tool-router.ts · executeCodingTool</code>）。结果帧回来即产物定稿为 complete；写盘失败立即中止执行，保留已捕获部分与原因，不报告完整成功。模型用 <code>read_artifact</code> 按偏移续读，单次最多 64 KiB，同项目旧任务的产物按资料范围判定，SubAgent 只能读本任务自产的产物。</p>
+    <p>后台与工作进程之间是 stdio 上的换行分帧 JSON（<code class="src" data-src="packages/agent/src/tool-worker/protocol.ts#export type WorkerRequest">protocol.ts · WorkerRequest</code>）：后台发 <code>init</code>、<code>tool_call</code>（以宿主操作 id 关联）、<code>abort</code>、<code>shutdown</code>；工作进程回 <code>ready</code>、<code>data</code>、<code>result</code>、<code>fatal</code>。单帧上限 <code class="src" data-src="packages/agent/src/tool-worker/protocol.ts#MAX_FRAME_BYTES">MAX_FRAME_BYTES</code>（4 MiB），正文按 <code class="src" data-src="packages/agent/src/tool-worker/protocol.ts#DATA_CHUNK_BYTES">DATA_CHUNK_BYTES</code>（512 KiB）分块、base64 传输，写入侧有背压。等 <code>ready</code> 超过 30 秒即启动失败并回收执行单元（<code class="src" data-src="packages/agent/src/tool-worker/host.ts#工具工作进程启动超时">host.ts · 启动超时</code>）；停止时先发 <code>shutdown</code>，给 3 秒优雅退出，再停整个执行单元并核实退出。</p>
+    <p>工作进程把未截断的 stdout、stderr 与文件正文以 <code>data</code> 帧流回，路由器先写进产物文件，再在模型视图里附「完整正文已捕获：artifact …」引用（<code class="src" data-src="packages/agent/src/tool-router.ts#private async executeCodingTool">tool-router.ts · executeCodingTool</code>）。结果帧回来即产物定稿为 complete；写盘失败立即中止执行，保留已捕获部分与原因，不报告完整成功。模型用 <code>read_artifact</code> 按偏移续读，单次最多 64 KiB，同项目旧任务的产物按资料范围判定，SubAgent 只能读本任务自产的产物。</p>
 
     <h3>ruukoto-code 开发机的受限与完全访问</h3>
     <ul>
-      <li>默认执行后端按产品区分（<code class="src" data-src="src/cli.ts#product === &quot;ruukoto-code&quot; ? &quot;container&quot; : &quot;local&quot;">cli.ts · 执行后端默认值</code>）：ruukoto-code 为 <code>container</code>，受限任务进本机容器运行时里的每任务容器；ruukoto 的 CLI 默认仍是 <code>local</code>，生产部署显式启用 <code>container</code>。<code>--execution local</code> 或 <code>RUUKOTO_EXECUTION_BACKEND=local</code> 可显式选 local，两个产品都打印同一条无隔离警告。</li>
+      <li>默认执行后端按产品区分（<code class="src" data-src="packages/tui/src/cli.ts#product === &quot;ruukoto-code&quot; ? &quot;container&quot; : &quot;local&quot;">cli.ts · 执行后端默认值</code>）：ruukoto-code 为 <code>container</code>，受限任务进本机容器运行时里的每任务容器；ruukoto 的 CLI 默认仍是 <code>local</code>，生产部署显式启用 <code>container</code>。<code>--execution local</code> 或 <code>RUUKOTO_EXECUTION_BACKEND=local</code> 可显式选 local，两个产品都打印同一条无隔离警告。</li>
       <li>完全访问需要专用执行账户入口（<code>RUUKOTO_EXEC_LAUNCH_SCRIPT</code> 与 <code>RUUKOTO_EXEC_STOP_SCRIPT</code>）。没配置时，提交和切换模式就以 <code>execution_unavailable</code> 拒绝（Runtime 受理前先构造一次启动器），不静默降级。受限任务提交时不检查容器边界，照常入队，到第一个编码工具启动工作进程时才失败：带路径的 <code>RUUKOTO_DOCKER_PATH</code> 不存在报 <code>execution_unavailable</code>；CLI 在而 dockerd 或镜像不可用，等不到 <code>ready</code>，30 秒后报 <code>worker_timeout</code>。都不换执行方式，各情形见<a href="deployment.html#execution">部署与信任边界 · 执行边界</a>。</li>
-      <li>启动窗口：执行意图落库早于工作进程 ready。路由器在启动前先登记一个 <code>starting</code> 占位单元（<code class="src" data-src="src/agent/managed-processes.ts#&quot;starting&quot;">managed-processes.ts · starting</code>），停止路径也能回收仍在启动的容器；驱动器读受管单元表前先让出一个宏任务，使已记意图的派发先完成登记（<code class="src" data-src="src/agent/driver.ts#private async killManagedProcesses">driver.ts · killManagedProcesses</code>）。停止路径本身见<a href="task-lifecycle.html#stop">任务生命周期</a>。</li>
+      <li>启动窗口：执行意图落库早于工作进程 ready。路由器在启动前先登记一个 <code>starting</code> 占位单元（<code class="src" data-src="packages/agent/src/managed-processes.ts#&quot;starting&quot;">managed-processes.ts · starting</code>），停止路径也能回收仍在启动的容器；驱动器读受管单元表前先让出一个宏任务，使已记意图的派发先完成登记（<code class="src" data-src="packages/agent/src/driver.ts#private async killManagedProcesses">driver.ts · killManagedProcesses</code>）。停止路径本身见<a href="task-lifecycle.html#stop">任务生命周期</a>。</li>
     </ul>
   </section>
 
   <section id="ledger">
     <h2>工具操作账本：结果、效果未知与停止时的分类</h2>
-    <p>工具操作的已知结果与「效果未知」只在 <code class="src" data-src="src/agent/tool-op-ledger.ts#export class ToolOpLedger">tool-op-ledger.ts · ToolOpLedger</code> 里写。<code class="src" data-src="src/agent/tool-op-ledger.ts#recordResult(">recordResult</code> 把 <code>tool_ops</code> 的结果列与 <code>task.tool_result</code> 事件成对写入，条件是结果仍为空，所以先写者为准，重复补记不重复发事件。<code class="src" data-src="src/agent/tool-op-ledger.ts#markEffectUnknown(">markEffectUnknown</code> 一次写三处：操作标记、<code>task.tool_effect_unknown</code> 事件、任务的效果未知标记，已标过就跳过；被标的若是已消费的 <code>service_operation</code>，同一事务里让同目标的长期授权全部失效。事务由调用方开，账本自己不开。</p>
+    <p>工具操作的已知结果与「效果未知」只在 <code class="src" data-src="packages/agent/src/tool-op-ledger.ts#export class ToolOpLedger">tool-op-ledger.ts · ToolOpLedger</code> 里写。<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#recordResult(">recordResult</code> 把 <code>tool_ops</code> 的结果列与 <code>task.tool_result</code> 事件成对写入，条件是结果仍为空，所以先写者为准，重复补记不重复发事件。<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#markEffectUnknown(">markEffectUnknown</code> 一次写三处：操作标记、<code>task.tool_effect_unknown</code> 事件、任务的效果未知标记，已标过就跳过；被标的若是已消费的 <code>service_operation</code>，同一事务里让同目标的长期授权全部失效。事务由调用方开，账本自己不开。</p>
 
     <h3>停止与重启的分类器</h3>
-    <p>停止（<code class="src" data-src="src/agent/tool-op-ledger.ts#settleTask">settleTask</code>）与重启（<code class="src" data-src="src/agent/tool-op-ledger.ts#settleAll">settleAll</code>）对结果缺失、尚未标未知的操作用同一棵决策树；前一级的证据强于后一级。停止多一步：中止之前先快照「按审批判定、且审批并非全部未消费」的操作，这些一律效果未知，中止期间才落下的结果（如 bash 的「已中止」）不改变结论。</p>
+    <p>停止（<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#settleTask">settleTask</code>）与重启（<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#settleAll">settleAll</code>）对结果缺失、尚未标未知的操作用同一棵决策树；前一级的证据强于后一级。停止多一步：中止之前先快照「按审批判定、且审批并非全部未消费」的操作，这些一律效果未知，中止期间才落下的结果（如 bash 的「已中止」）不改变结论。</p>
     <figure class="fig">
       <div class="scroll">
         <svg viewBox="0 0 1040 310" role="img" aria-label="账本分类决策树：结果缺失的操作先问是否有审批且全部未消费，是则已知未执行；否则问规则是否无写入效果，是则记只读操作中止；否则问工具族能否按宿主操作 id 核实，已提交记已提交，未提交记已知未提交，无法核实或没有工具族则效果未知。停止时另在中止前快照按审批判定且审批已消费或没有审批的操作，直接记效果未知。">
@@ -797,8 +797,8 @@
     </div>
 
     <h3>各族声明与账本分类</h3>
-    <p>宿主工具的名称与分类规则由各族模块声明，能核实提交结果的族另提供核实入口（<code class="src" data-src="src/agent/host-tool-families.ts#export interface HostToolLedger">HostToolLedger</code>）。Runtime 从同一份全局族清单派生账本声明（<code class="src" data-src="src/runtime/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。应用库、调度器或服务管理停用时，对应族的工具名与构建结果为空，账本声明仍保留完整规则，恢复不依赖当前会话是否装配该族；应用库无法核实时仍定效果未知。编码、结构化审批、产物读取与模拟工具保留固定规则，只有已删除的 <code>coding_delegate</code> 另保留 <code>delegation</code> / <code>subagent</code> 核实映射，处理升级前在途调用。</p>
-    <p>MCP 动态工具与未登记名字按 <code>approval</code> 判定。该分类表示结果缺失时按审批证据判断，并不表示工具一定产生审批：记忆写入就是没有审批的例子。工具路由器判定已发出的 HTTP 调用是否效果未知时，也复用「无写入效果」规则（<code class="src" data-src="src/agent/tool-op-ledger.ts#export function hasNoWriteEffect">hasNoWriteEffect</code>，<code class="src" data-src="src/agent/tool-router.ts#hasNoWriteEffect({ toolName">tool-router.ts</code>）。</p>
+    <p>宿主工具的名称与分类规则由各族模块声明，能核实提交结果的族另提供核实入口（<code class="src" data-src="packages/agent/src/host-tool-families.ts#export interface HostToolLedger">HostToolLedger</code>）。Runtime 从同一份全局族清单派生账本声明（<code class="src" data-src="packages/runtime/src/runtime.ts#private initHostToolFamilies">initHostToolFamilies</code>）。应用库、调度器或服务管理停用时，对应族的工具名与构建结果为空，账本声明仍保留完整规则，恢复不依赖当前会话是否装配该族；应用库无法核实时仍定效果未知。编码、结构化审批、产物读取与模拟工具保留固定规则，只有已删除的 <code>coding_delegate</code> 另保留 <code>delegation</code> / <code>subagent</code> 核实映射，处理升级前在途调用。</p>
+    <p>MCP 动态工具与未登记名字按 <code>approval</code> 判定。该分类表示结果缺失时按审批证据判断，并不表示工具一定产生审批：记忆写入就是没有审批的例子。工具路由器判定已发出的 HTTP 调用是否效果未知时，也复用「无写入效果」规则（<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#export function hasNoWriteEffect">hasNoWriteEffect</code>，<code class="src" data-src="packages/agent/src/tool-router.ts#hasNoWriteEffect({ toolName">tool-router.ts</code>）。</p>
     <p>下表汇总执行与恢复时使用的分类；宿主族声明分别位于资料与记忆、Web Search、应用数据、调度、旧 coding 结果、群结果、服务、SubAgent、技能与工作清单的模块，见页头源码。提交核实仍按宿主操作编号查询原有回执或关联记录。</p>
     <div class="scroll">
       <table class="tbl wrap">
@@ -814,7 +814,7 @@
           <tr><td>委派</td><td><code>coding_result</code></td><td>—</td><td><code>coding_delegate</code>（已删除，只读兼容）→ 旧 coding 子任务；<code>mode=analyze</code> 按 SubAgent 登记核实</td></tr>
           <tr><td>群结果</td><td><code>chat_result_list</code></td><td>—</td><td><code>chat_result_accept</code> → 接收账本</td></tr>
           <tr><td>服务管理</td><td><code>service_inspect</code></td><td><code>service_manage</code></td><td>—</td></tr>
-          <tr><td>SubAgent</td><td><code>subagent_result</code></td><td>—</td><td><code>subagent_delegate</code> → 工作、SubAgent、会话与任务关联；<code>subagent_close</code> → <code>sub_agents.closed_at</code>（幂等关闭也以该列为已提交）；<code>subagent_cancel</code> → <code>work_delegations.canceled_at</code>（幂等取消也以该列为已提交）；<code>subagent_message</code> → <code>subagent_messages</code> 行（按（工作, 发送方, 键）核实；发送方由发起任务的 SubAgent 关联推出）；<code>subagent_integrate</code> → <code class="src" data-src="src/core/store.ts#hasIntegratedEvent">work_delegation.integrated</code> 事件（缺事件如实报无法核实，不报「未生效」）</td></tr>
+          <tr><td>SubAgent</td><td><code>subagent_result</code></td><td>—</td><td><code>subagent_delegate</code> → 工作、SubAgent、会话与任务关联；<code>subagent_close</code> → <code>sub_agents.closed_at</code>（幂等关闭也以该列为已提交）；<code>subagent_cancel</code> → <code>work_delegations.canceled_at</code>（幂等取消也以该列为已提交）；<code>subagent_message</code> → <code>subagent_messages</code> 行（按（工作, 发送方, 键）核实；发送方由发起任务的 SubAgent 关联推出）；<code>subagent_integrate</code> → <code class="src" data-src="packages/core/src/store.ts#hasIntegratedEvent">work_delegation.integrated</code> 事件（缺事件如实报无法核实，不报「未生效」）</td></tr>
           <tr><td>模拟工具</td><td>—</td><td><code>mock_delay</code> <code>mock_gate</code> <code>mock_spawn</code> <code>mock_mark</code></td><td>—</td></tr>
           <tr><td>MCP 与未登记名字</td><td>—</td><td>全部（只读 MCP 的类别不在 <code>tool_ops</code> 里，重启拿不到）</td><td>—</td></tr>
         </tbody>

@@ -6,7 +6,7 @@ import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { acquireInstanceLock, InstanceLockError, probeLockHolder } from "../src/core/instance-lock.ts";
+import { acquireInstanceLock, InstanceLockError, probeLockHolder } from "@ruukoto/core/instance-lock.ts";
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-"));
@@ -48,7 +48,7 @@ test("真实子进程改名后仍持锁，退出后允许接管", { timeout: 10_
     child.once("exit", (code) => reject(new Error(`子进程未完成持锁：${code} ${stderr}`)));
   });
   child.stdin.end(`
-    const { acquireInstanceLock } = await import(${JSON.stringify(new URL("../src/core/instance-lock.ts", import.meta.url).href)});
+    const { acquireInstanceLock } = await import(${JSON.stringify(new URL("../packages/core/src/instance-lock.ts", import.meta.url).href)});
     process.title = "hold(er) name";
     acquireInstanceLock(${JSON.stringify(f.root)});
     process.title = "changed (name)";

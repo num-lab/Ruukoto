@@ -19,7 +19,7 @@ QQ 群聊以内建 `chat` 角色接入核心：每个「登录账号 + 群」映
 
 核心群聊由 agent-direction issue 20 退役；旧类型、工具类别与角色行的收缩由 agent-direction issue 23 完成。
 
-- **核心不承载 QQ 群聊。** 编排器只引导 main 角色（`src/runtime/orchestrator.ts` 的 `ROLE_DEFINITIONS`），新实例没有 chat 角色。旧安装的 `agent_roles` chat 行保留，作为归档标识。QQ 拥有者私聊与 Telegram 主会话不受影响。chat 工具类别与提示、Driver 与上下文装配中的 `qq_group` 分支及撤回过滤、QqStore 的群写方法已经删除。`AgentRoleId` 中的 `chat`、tasks / agent_roles / inbound_events 的存储 CHECK 约束、`qq_group` 会话类别都对应旧行的实际取值，保留不收缩。
+- **核心不承载 QQ 群聊。** 编排器只引导 main 角色（`packages/runtime/src/orchestrator.ts` 的 `ROLE_DEFINITIONS`），新实例没有 chat 角色。旧安装的 `agent_roles` chat 行保留，作为归档标识。QQ 拥有者私聊与 Telegram 主会话不受影响。chat 工具类别与提示、Driver 与上下文装配中的 `qq_group` 分支及撤回过滤、QqStore 的群写方法已经删除。`AgentRoleId` 中的 `chat`、tasks / agent_roles / inbound_events 的存储 CHECK 约束、`qq_group` 会话类别都对应旧行的实际取值，保留不收缩。
 - **正式外挂在后续阶段交付，接口尚未设计。** 正式 QQ 群聊外挂是独立可选程序，代码可以留在同一仓库，不属于 SubAgent 层级。它排在首期三个使用场景之后，具体协议与功能细节在那个阶段确认。外挂接口目前没有设计，也没有任何代码迁入外挂；核心的退役与旧资料保全不依赖外挂接口。
 - **群消息直接忽略。** QQ 适配器只处理拥有者私聊消息和 `group_recall` 通知。收到群消息时，适配器不登记收件、不建会话、不建任务、不回复、不保存正文，也不逐条记日志，核心不收集群内容。`message_sent`（自身回声）、请求与元事件同样不产生任务。
 - **撤回继续观测，只打标记。** `group_recall` 只给已登记的旧群收件行打撤回标记（`qq_inbox.recalled = 1` 并写 `recalled_at`），不取消任务、不补发回复、不派发。未登记的消息不宣称已知撤回；重复的撤回事件幂等。这样已接收群结果的撤回复核仍然有效。撤回只能在 NapCat 连接仍在、登录账号仍在群里时得知；连接断开或退群后发生的撤回无法观测，核心也不做补偿。
@@ -27,7 +27,7 @@ QQ 群聊以内建 `chat` 角色接入核心：每个「登录账号 + 群」映
 - **旧群资料原地保留为只读归档。** `qq_sessions` 映射、`qq_group` 会话及其历史、`qq_inbox`（状态、撤回标记与时间、引用关联、配置版本）、`qq_outbox`（发送账本）、`qq_group` 入站事件、chat 任务行与接收账本 `chat_result_acceptances` 全部保留，不删除、不改写正文。拥有者经以下入口查阅，不新增控制面操作：
   - `qq inbox`（控制面 `qq_inbox_list`，v14 新增两个字段）：每条记录附 `acceptance`，即 main 的接收账本行（接收时间、接收任务、理由、摘要快照）；再附 `sourceProblem`，即当前复核结论，`null` 表示可用，否则是不可用的原因（归档行缺失或不一致、main 不可用、来源已撤回）。未经 main 接收的记录两个字段都为空。main 角色缺失时，视图按任务取任一接收记录，并把 `sourceProblem` 设为「main 角色不可用，无法复核接收来源」，不会把被阻断的来源显示成「未接收」或「可用」。
   - `qq outbox`（`qq_outbox_list`）查发送账本；拥有者的 `read_history` 读群会话历史。
-- **归档不能变成对话入口。** 会话身份在 `src/core/session-identity.ts` 统一判定：`sessions.kind = 'qq_group'` 的会话与 chat 角色会话都是 `retired`，原因 `core_group_chat_retired`。
+- **归档不能变成对话入口。** 会话身份在 `packages/core/src/session-identity.ts` 统一判定：`sessions.kind = 'qq_group'` 的会话与 chat 角色会话都是 `retired`，原因 `core_group_chat_retired`。
   - `submit` 拒绝 retired 会话（`invalid_state`，提示历史可经 `qq inbox` / `read_history` 查阅）；`continue` 经 `submit` 提交，一并被拒，所以升级时被中断的群任务不能续跑。
   - `createSession` 没有 `kind` 参数，只建普通 dev 会话。带 `projectId` 时，角色项目和含非 dev 会话的项目都被拒绝（「角色或群聊项目不能创建普通会话」）。这和 `open_workspace`「角色或群聊项目不能作为工作区认领」是同一判定，覆盖全部角色项目，而不只是 chat 与群项目。否则拥有者可以在群项目里建一个普通 dev 会话，取得 dev 工具，并以本项目身份读取群原始历史。
   - `open_workspace` 认领和工作区迁移照旧排除角色与群聊项目。
@@ -77,7 +77,7 @@ QQ 群聊以内建 `chat` 角色接入核心：每个「登录账号 + 群」映
 - **升级收尾用一次性升级标记** — 与 GitHub 模块退役的 `github_retirement_done` 做法一致，收尾只跑一次。不选：收尾只改未终态的行，按状态天然幂等，每次启动执行也不会改动已终态的行；不需要额外维护一个标记。（见 agent-direction issue 20 Comments「默认取舍」；[退役专用 GitHub 模块](2026-09-23-retire-github-module.md)）
 - **为接收账本新增独立的拥有者查询操作** — 可以直接列出全部接收记录。不选：每条接收记录都对应一条群收件，附在 `qq inbox` 的记录上，就能同时给出当前复核结论，无需增加控制面操作。（见 agent-direction issue 20 Comments「默认取舍」）
 - **退役时撤销拥有者已建的群项目到开发项目的资料授权** — 可以彻底封住群资料流向其他项目的所有路径。不选，是因为群资料隔离规则明确把拥有者控制面与普通开发项目的既有资料授权留给拥有者决定，角色退役不应替拥有者收回授权。（见 agent-direction issue 20 Comments「默认取舍」末尾的「不做」；[QQ 私聊共享 main](../feature/2026-09-24-qq-private-shared-main.md)）
-- **按模型实际读取的消息建立逐条来源图，精确判定撤回影响** — 只让真正引用了被撤回消息的摘要失效，不会误拒。不选：首版不为每次模型上下文增加逐条来源图，改按同群时间窗保守失效，接受误拒。误拒如果影响使用，升级路径是保存模型实际读取的消息 ID。（见原决定「接收、通知批准提交、查询与发送前均复核来源及撤回」一段；[src/agent/chat-result-tools.ts](../../../../src/agent/chat-result-tools.ts) 中的 `ponytail:` 注释）
+- **按模型实际读取的消息建立逐条来源图，精确判定撤回影响** — 只让真正引用了被撤回消息的摘要失效，不会误拒。不选：首版不为每次模型上下文增加逐条来源图，改按同群时间窗保守失效，接受误拒。误拒如果影响使用，升级路径是保存模型实际读取的消息 ID。（见原决定「接收、通知批准提交、查询与发送前均复核来源及撤回」一段；[packages/channels/src/chat-result-tools.ts](../../../../packages/channels/src/chat-result-tools.ts) 中的 `ponytail:` 注释）
 
 ## 后果
 

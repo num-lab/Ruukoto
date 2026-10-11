@@ -15,18 +15,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ControlClient, ControlClientError } from "../src/control/client.ts";
-import { ControlConnection } from "../src/control/connection.ts";
-import { PendingRequestStore } from "../src/control/pending-requests.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
-import { readOwnerToken } from "../src/control/owner-token.ts";
+import { ControlClient, ControlClientError } from "@ruukoto/control/client.ts";
+import { ControlConnection } from "@ruukoto/control/connection.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { SubmissionGuard } from "@ruukoto/control/submission.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import {
   findWorkspaceProjects,
   resolveWorkspaceDir,
-} from "../src/control/workspace.ts";
-import type { Project, Session } from "../src/core/types.ts";
-import { ViewState } from "../src/tui/state.ts";
-import { TuiApp } from "../src/tui/app.ts";
+} from "@ruukoto/control/workspace.ts";
+import type { Project, Session } from "@ruukoto/core/types.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
+import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import {
   startTestRuntime,
   waitFor,

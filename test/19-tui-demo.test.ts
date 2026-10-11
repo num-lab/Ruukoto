@@ -9,25 +9,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import { ControlClientError, type ControlTransport } from "../src/control/client.ts";
-import type { PersistentEvent, Task } from "../src/core/types.ts";
-import type { HistoryEntryView, HistoryPage } from "../src/core/history.ts";
-import type { ToolOpView } from "../src/core/views.ts";
+import { ControlClientError, type ControlTransport } from "@ruukoto/control/client.ts";
+import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
+import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
+import type { ToolOpView } from "@ruukoto/core/views.ts";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ControlConnection } from "../src/control/connection.ts";
-import { PendingRequestStore } from "../src/control/pending-requests.ts";
-import { SubmissionGuard } from "../src/control/submission.ts";
-import { TuiApp } from "../src/tui/app.ts";
-import { ViewState } from "../src/tui/state.ts";
-import { createDemoClient } from "../src/tui/demo-session.ts";
-import { EventFlow } from "../src/tui/event-flow.ts";
+import { ControlConnection } from "@ruukoto/control/connection.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { SubmissionGuard } from "@ruukoto/control/submission.ts";
+import { TuiApp } from "@ruukoto/tui/tui/app.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
+import { createDemoClient } from "@ruukoto/tui/tui/demo-session.ts";
+import { EventFlow } from "@ruukoto/tui/tui/event-flow.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
 /** 从类型定义抽出全部事件 type 字面量（新增事件类型时必须同步 demo 数据）。 */
 function declaredEventTypes(): string[] {
-  const src = fs.readFileSync(new URL("../src/core/types.ts", import.meta.url), "utf8");
+  const src = fs.readFileSync(new URL("../packages/core/src/types.ts", import.meta.url), "utf8");
   const start = src.indexOf("export type PersistentEventBody");
   const end = src.indexOf("export interface PersistentEvent");
   assert.ok(start >= 0 && end > start, "未能定位 PersistentEventBody 定义");

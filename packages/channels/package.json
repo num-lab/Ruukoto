@@ -1,0 +1,25 @@
+{
+  "name": "@ruukoto/channels",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@js-temporal/polyfill": "0.5.1",
+    "@ruukoto/agent": "*",
+    "@ruukoto/core": "*",
+    "typebox": "1.0.12"
+  },
+  "devDependencies": {
+    "@ruukoto/runtime": "*"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

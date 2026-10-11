@@ -16,9 +16,9 @@ import {
   type CommandEnv,
   type CommandHost,
   type CommandResult,
-} from "../src/tui/commands.ts";
-import { ControlClientError } from "../src/control/client.ts";
-import type { OpParams, OpResult, TuiOp } from "../src/control/ops.ts";
+} from "@ruukoto/tui/tui/commands.ts";
+import { ControlClientError } from "@ruukoto/control/client.ts";
+import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 
 type Reply = unknown | Error | ((params: Record<string, unknown> | undefined) => unknown);
 

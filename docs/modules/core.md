@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-`src/core/` 是全部模块的最底层，定义数据的落盘形态与「这个会话是什么」的判定。它持有档案根与目录布局、SQLite 核心库（`ruukoto.db`）与 `agent-data/main.db` 的 schema 与版本迁移、pi JSONL 会话文件、产物正文文件与入站图片暂存的读写边界、任务状态机及其字段、会话身份解析与执行画像的取数、目录与实例锁、以及产品归属登记。它不依赖其他模块，被全部模块依赖。
+`packages/core/src/` 是全部模块的最底层，定义数据的落盘形态与「这个会话是什么」的判定。它持有档案根与目录布局、SQLite 核心库（`ruukoto.db`）与 `agent-data/main.db` 的 schema 与版本迁移、pi JSONL 会话文件、产物正文文件与入站图片暂存的读写边界、任务状态机及其字段、会话身份解析与执行画像的取数、目录与实例锁、以及产品归属登记。它不依赖其他模块，被全部模块依赖。
 
 它负责：
 
@@ -24,18 +24,18 @@
 
 | 调用方 | 入口 | 说明 |
 |---|---|---|
-| 全部模块 | `Db(dataDir)`（`src/core/db.ts`） | 打开或创建 `ruukoto.db`；`SCHEMA_VERSION` 是当前 schema 版本；`getInstanceId()` 返回持久的数据实例标识 |
-| 全部模块 | `Store`（`src/core/store.ts`） | 表级 SQL 原语：任务、占用、确认请求、工具操作、产物、事件、授权、记忆与版本、历史索引、选择记录、压缩点、MCP、平台与调度表、SubAgent 与工作、导入回执与账本 |
+| 全部模块 | `Db(dataDir)`（`packages/core/src/db.ts`） | 打开或创建 `ruukoto.db`；`SCHEMA_VERSION` 是当前 schema 版本；`getInstanceId()` 返回持久的数据实例标识 |
+| 全部模块 | `Store`（`packages/core/src/store.ts`） | 表级 SQL 原语：任务、占用、确认请求、工具操作、产物、事件、授权、记忆与版本、历史索引、选择记录、压缩点、MCP、平台与调度表、SubAgent 与工作、导入回执与账本 |
 | Runtime、Driver | `Store.getSessionIdentity(sessionId)` | 一次读出会话、角色行与 SubAgent 行后调用 `classifySession`；会话不存在返回 `null` |
 | Runtime、Driver | `Store.getSubAgentBySession(sessionId)` | 按独立子会话反查 `sub_agents` 绑定，是宿主识别动态身份的唯一依据 |
-| Driver | `executionProfile({ identity, writeTarget, review, planMode })`（`src/agent/tool-availability.ts`） | 由身份、任务所属工作是否有写入目标、是否宿主评审与任务钉定的 `planMode` 算出执行画像 |
-| Driver、context-assembly | `ArtifactStore`（`src/agent/artifacts.ts`） | `begin` / `append` / `complete` / `importImage` / `read` / `readImage` / `byteLength` |
-| Runtime、channels | `InboundMediaStore`（`src/runtime/inbound-media.ts`） | `stage` / `promote` / 恢复与过期清理 |
+| Driver | `executionProfile({ identity, writeTarget, review, planMode })`（`packages/agent/src/tool-availability.ts`） | 由身份、任务所属工作是否有写入目标、是否宿主评审与任务钉定的 `planMode` 算出执行画像 |
+| Driver、context-assembly | `ArtifactStore`（`packages/agent/src/artifacts.ts`） | `begin` / `append` / `complete` / `importImage` / `read` / `readImage` / `byteLength` |
+| Runtime、channels | `InboundMediaStore`（`packages/channels/src/inbound-media.ts`） | `stage` / `promote` / 恢复与过期清理 |
 | control、Runtime | `Db.tx` / `Store.withTx` | 单事务写入；`Db.tx` 不能嵌套 |
-| Runtime | `acquireInstanceLock(dataDir)`、`acquireConfigLock(agentDir)`（`src/core/instance-lock.ts`） | 获取 `<dataDir>/runtime.lock/` 与 `<agentDir>/config.lock/` |
-| control | `src/core/history.ts` 的 `readHistoryPage` / `readHistoryEntryText` / `readToolResult` | pi JSONL 的分页与分段只读读取；`history_index` 由 `src/core/history-index.ts` 维护与检索 |
-| control、Runtime、execution | `src/core/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份：`realpath` 规范化加 `dev`／`ino` |
-| Runtime、control | `PRODUCT_META_KEY` 与 `src/core/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
+| Runtime | `acquireInstanceLock(dataDir)`、`acquireConfigLock(agentDir)`（`packages/core/src/instance-lock.ts`） | 获取 `<dataDir>/runtime.lock/` 与 `<agentDir>/config.lock/` |
+| control | `packages/core/src/history.ts` 的 `readHistoryPage` / `readHistoryEntryText` / `readToolResult` | pi JSONL 的分页与分段只读读取；`history_index` 由 `packages/core/src/history-index.ts` 维护与检索 |
+| control、Runtime、execution | `packages/core/src/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份：`realpath` 规范化加 `dev`／`ino` |
+| Runtime、control | `PRODUCT_META_KEY` 与 `packages/core/src/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
 
 路径与配置键：
 
@@ -164,7 +164,7 @@ stateDiagram-v2
 
 ### 中断与效果分类
 
-停止、崩溃或重启时，结果缺失的工具操作按工具操作账本（`src/agent/tool-op-ledger.ts`）的分类器分三类：
+停止、崩溃或重启时，结果缺失的工具操作按工具操作账本（`packages/agent/src/tool-op-ledger.ts`）的分类器分三类：
 
 | 分类 | 判据 | 记录的结论 |
 |---|---|---|
@@ -176,7 +176,7 @@ stateDiagram-v2
 
 ### 会话身份判定
 
-身份只由宿主绑定确定，`src/core/session-identity.ts` 一次判定，任务、工具参数与模型结果不能改变它。读取与分类分开：`Store.getSessionIdentity(sessionId)` 读出会话行、`getAgentRoleBySession` 的角色行与 `getSubAgentBySession` 的 SubAgent 行三行，交给纯函数 `classifySession(session, role, agent)`；分类器不依赖 store。
+身份只由宿主绑定确定，`packages/core/src/session-identity.ts` 一次判定，任务、工具参数与模型结果不能改变它。读取与分类分开：`Store.getSessionIdentity(sessionId)` 读出会话行、`getAgentRoleBySession` 的角色行与 `getSubAgentBySession` 的 SubAgent 行三行，交给纯函数 `classifySession(session, role, agent)`；分类器不依赖 store。
 
 | 判定顺序 | 条件 | 身份 | 附带信息 |
 |---|---|---|---|

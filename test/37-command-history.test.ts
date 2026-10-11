@@ -5,8 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import { CommandHistoryStore } from "../src/tui/command-history.ts";
-import type { CommandEntry } from "../src/tui/event-flow.ts";
+import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
+import type { CommandEntry } from "@ruukoto/tui/tui/event-flow.ts";
 
 const at = "2026-09-25T10:00:00.000Z";
 const command = (key: string, extra: Partial<CommandEntry> = {}): CommandEntry => ({
@@ -55,7 +55,7 @@ test("两个 TUI 进程并发保存命令与结果，不覆盖其他进程的记
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-command-concurrent-"));
   const file = path.join(root, "tui", "commands.sqlite");
   const source = `
-    import { CommandHistoryStore } from ${JSON.stringify(new URL("../src/tui/command-history.ts", import.meta.url).href)};
+    import { CommandHistoryStore } from ${JSON.stringify(new URL("../packages/tui/src/tui/command-history.ts", import.meta.url).href)};
     const store = new CommandHistoryStore(process.argv[1]);
     for (let i = 0; i < 32; i++) {
       const entry = { key: process.argv[2] + ':' + i, kind: 'command', line: '/mode', result: null,

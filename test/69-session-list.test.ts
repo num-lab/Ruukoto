@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { activityAgo, TwoLineSelectList } from "../src/tui/session-list.ts";
+import { activityAgo, TwoLineSelectList } from "@ruukoto/tui/tui/session-list.ts";
 
 const theme = { selectedPrefix: (s: string) => s, selectedText: (s: string) => s, description: (s: string) => s, scrollInfo: (s: string) => s, noMatch: (s: string) => s };
 

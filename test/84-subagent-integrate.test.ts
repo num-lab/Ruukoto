@@ -33,8 +33,8 @@ import {
 } from "./helpers/testkit.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { completeCodingChild, seedCodingChild, seedCodingRole } from "./helpers/legacy-coding.ts";
-import { ViewState } from "../src/tui/state.ts";
-import { subagentOpCheck } from "../src/runtime/subagents.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
+import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
 
 const gitOut = (cwd: string, args: string): string =>
   childProcess.execFileSync("git", args.split(" "), { cwd, encoding: "utf8" }).trim();

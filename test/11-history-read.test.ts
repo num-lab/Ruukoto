@@ -16,7 +16,7 @@ import {
   readHistoryEntryText,
   readHistoryPage,
   sliceTextByBytes,
-} from "../src/core/history.ts";
+} from "@ruukoto/core/history.ts";
 
 function tmpFile(lines: string[], opts: { trailingNewline?: boolean } = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-hist-"));

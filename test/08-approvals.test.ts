@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成与单元：结构化审批与单次消费（issue 03 §4/§6.2/§6.3）。
  *
@@ -33,9 +34,9 @@ import {
   writeModelsJson,
 } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
-import { Db } from "../src/core/db.ts";
-import { Store } from "../src/core/store.ts";
-import { executeApprovedFileOp, executeApprovedHttpRequest, sha256Hex, type FileOpRequest } from "../src/agent/execution/approved-ops.ts";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
+import { executeApprovedFileOp, executeApprovedHttpRequest, sha256Hex, type FileOpRequest } from "@ruukoto/agent/execution/approved-ops.ts";
 
 // ---------- 本地模拟外部服务 ----------
 
@@ -659,8 +660,9 @@ test("崩溃恢复区分审批消费状态：已消费标 effect_unknown，未�
     db.close();
 
     // 重启：恢复必须在一次逻辑事务内区分两种事实
-    const { Runtime } = await import("../src/runtime/runtime.ts");
+    const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
     const runtime = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       socketPath: path.join(root, "c.sock"),

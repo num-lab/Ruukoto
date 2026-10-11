@@ -1,17 +1,19 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 /**
  * 双产品独立入口与隔离测试（agent-direction issue 01）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  *
  * 测试接缝（预先约定）：
- * - src/core/product.ts：productFromEnv / productRootDir / dirEnvFor 纯函数（产品身份与
+ * - packages/core/src/product.ts：productFromEnv / productRootDir / dirEnvFor 纯函数（产品身份与
  *   档案根、路径环境变量隔离）；
- * - src/control/connect.ts 与 pending-requests.ts：默认目录解析按产品取本产品的环境
+ * - packages/control/src/connect.ts 与 pending-requests.ts：默认目录解析按产品取本产品的环境
  *   变量与档案根，不读对方产品的路径变量；
- * - src/dev.ts buildChildEnv：开发实例洗落继承的产品身份与双方产品目录变量，
+ * - packages/tui/src/dev.ts buildChildEnv：开发实例洗落继承的产品身份与双方产品目录变量，
  *   按开发入口钉定身份与自身档案（不误用日常产品与开发实例）；
  * - Runtime.start 的产品 gating 可观察行为：ruukoto-code 停用 QQ/Telegram 连接与轮询、个人
  *   调度不可用、数据目录跨产品复用被拒绝（meta 登记，兼容扩展）；
- * - 进程冒烟：bin/ruukoto-code.mjs 入口与非法 RUUKOTO_PRODUCT 的快速失败（不需要后台）。
+ * - 进程冒烟：apps/ruukoto-code/bin/ruukoto-code.mjs 入口与非法 RUUKOTO_PRODUCT 的快速失败（不需要后台）。
  * - 进程级：两条 bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时查询与停止只作用于
  *   本产品（评审 R6，真实 bin 后台进程）。
  */
@@ -19,7 +21,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { PRODUCT_TYPES, dirEnvFor, productFromEnv, productRootDir } from "../src/core/product.ts";
+import { PRODUCT_TYPES, dirEnvFor, productFromEnv, productRootDir } from "@ruukoto/core/product.ts";
 
 // ---- 单元：产品身份 ----
 
@@ -64,8 +66,8 @@ test("dirEnvFor：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读 RUUKOTO_CODE_*
 
 // ---- 默认目录解析按产品隔离 ----
 
-import { controlDirFor, defaultAgentDir, defaultDataDir } from "../src/control/connect.ts";
-import { defaultPendingDir } from "../src/control/pending-requests.ts";
+import { controlDirFor, defaultAgentDir, defaultDataDir } from "@ruukoto/control/connect.ts";
+import { defaultPendingDir } from "@ruukoto/control/pending-requests.ts";
 import * as nodePath from "node:path";
 
 const DIR_ENV_VARS = [
@@ -142,7 +144,7 @@ test("ruukoto-code：独立档案根与 RUUKOTO_CODE_*_DIR 覆盖，不读对方
 
 // ---- 开发实例不继承日常产品身份与目录 ----
 
-import { buildChildEnv, devProfileFor } from "../src/dev.ts";
+import { buildChildEnv, devProfileFor } from "@ruukoto/tui/dev.ts";
 
 test("buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目录并钉定各自档案", () => {
   for (const product of PRODUCT_TYPES) {
@@ -186,13 +188,13 @@ test("buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目�
 
 // ---- Runtime 产品 gating（集成，MockModelServer，模拟模型、真实存储与锁） ----
 
-import { Runtime } from "../src/runtime/runtime.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, makeTestDirs, startTestRuntime, writeModelsJson } from "./helpers/testkit.ts";
 
 test("ruukoto-code：停用 QQ/Telegram 连接与轮询、个人调度不可用、旧记录仍可读", async () => {
   const t = await startTestRuntime("product-dev", async () => ({ kind: "text", text: "ok" }), {
-    config: { productType: "ruukoto-code" },
+    config: { product: codingProduct.runtime },
   });
   try {
     // 消息平台连接与轮询停用：状态明确标注为产品 gating，而不是"未启动/连接异常"
@@ -255,7 +257,7 @@ test("数据目录归属：跨产品复用被拒绝，同产品重启正常（me
       agentDir: dirs.agentDir,
       socketPath: nodePath.join(dirs.root, "c.sock"),
       thinkingLevel: "off",
-      productType,
+      product: productType === "ruukoto-code" ? codingProduct.runtime : personalProduct.runtime,
     });
   try {
     const first = await startRuntime("ruukoto-code");
@@ -289,15 +291,15 @@ function runNode(argv: string[], env: NodeJS.ProcessEnv = {}): { status: number 
   return { status: r.status, stderr: r.stderr };
 }
 
-test("进程：bin/ruukoto-code.mjs 入口引导 TS，未知名字按工作区处理（非 TTY 退出 1）", () => {
-  const r = runNode([nodePath.join(repoRoot, "bin", "ruukoto-code.mjs"), "bogus"]);
+test("进程：apps/ruukoto-code/bin/ruukoto-code.mjs 入口引导 TS，未知名字按工作区处理（非 TTY 退出 1）", () => {
+  const r = runNode([nodePath.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "bogus"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /TTY/);
 });
 
 test("进程：非法 RUUKOTO_PRODUCT 快速失败并说明取值", () => {
   const r = runNode(
-    [nodePath.join(repoRoot, "node_modules", ".bin", "tsx"), "src/cli.ts", "server"],
+    [nodePath.join(repoRoot, "node_modules", ".bin", "tsx"), "scripts/start.ts", "server"],
     { RUUKOTO_PRODUCT: "bogus" },
   );
   assert.equal(r.status, 1);
@@ -307,7 +309,7 @@ test("进程：非法 RUUKOTO_PRODUCT 快速失败并说明取值", () => {
 // ---- 进程级同机并存（真实 bin 后台进程；模型打桩：模拟模型，真实进程/文件/socket/SQLite） ----
 
 import { authenticateClient } from "./helpers/testkit.ts";
-import { ControlClient } from "../src/control/client.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 import { killProcessTree } from "./helpers/backend.ts";
 
 interface SpawnedBackend {
@@ -327,7 +329,7 @@ async function spawnProductBackend(
   const binFile = product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-code.mjs";
   const child = childProcess.spawn(
     process.execPath,
-    [nodePath.join(repoRoot, "bin", binFile), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"],
+    [nodePath.join(repoRoot, "apps", binFile.replace(/\.mjs$/, ""), "bin", binFile), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"],
     { cwd: repoRoot, env, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
   let stderr = "";
@@ -409,7 +411,7 @@ test("进程级：两产品同机并存、独立停止；跨产品打开目录�
       process.execPath,
       [
         nodePath.join(repoRoot, "node_modules", ".bin", "tsx"),
-        "src/cli.ts",
+        "scripts/start.ts",
         "server",
         "--data-dir",
         prodDirs.dataDir,
@@ -452,18 +454,18 @@ test("进程级：bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT
       RUUKOTO_CONTROL_DIR: prod.controlDir,
       RUUKOTO_CODE_CONTROL_DIR: dev.controlDir,
     };
-    const prodStatus = runNode([nodePath.join(repoRoot, "bin", "ruukoto.mjs"), "status"], env);
+    const prodStatus = runNode([nodePath.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "status"], env);
     assert.equal(prodStatus.status, 0, `个人 bin 查询应指向个人后台：${prodStatus.stderr}`);
-    assert.equal(runNode([nodePath.join(repoRoot, "bin", "ruukoto.mjs"), "stop"], env).status, 0);
+    assert.equal(runNode([nodePath.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "stop"], env).status, 0);
     assert.equal(await prod.exit(), 0, "个人后台被自己的 bin 停止");
     prod = null;
     const devClient = await connectAuthed(dev.controlDir); // 开发后台不受影响：仍可握手
     devClient.close();
 
     // 对称：ruukoto-code bin 在 RUUKOTO_PRODUCT=ruukoto 下只作用于开发产品
-    const devStatus = runNode([nodePath.join(repoRoot, "bin", "ruukoto-code.mjs"), "status"], { ...env, RUUKOTO_PRODUCT: "ruukoto" });
+    const devStatus = runNode([nodePath.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "status"], { ...env, RUUKOTO_PRODUCT: "ruukoto" });
     assert.equal(devStatus.status, 0, `开发 bin 查询应指向开发后台：${devStatus.stderr}`);
-    assert.equal(runNode([nodePath.join(repoRoot, "bin", "ruukoto-code.mjs"), "stop"], { ...env, RUUKOTO_PRODUCT: "ruukoto" }).status, 0);
+    assert.equal(runNode([nodePath.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "stop"], { ...env, RUUKOTO_PRODUCT: "ruukoto" }).status, 0);
     assert.equal(await dev.exit(), 0, "开发后台被自己的 bin 停止");
     dev = null;
   } finally {

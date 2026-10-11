@@ -1,3 +1,4 @@
+import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 集成：工具正文产物（issue 03 §5/§6.6）。
  *
@@ -25,8 +26,8 @@ import {
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
-import { Runtime } from "../src/runtime/runtime.ts";
-import { ControlServer } from "../src/control/server.ts";
+import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
 
 const BIG_TEXT = "中文-abc-0123\n"; // 多字节字符，强制跨分块
 
@@ -202,6 +203,7 @@ test("产物跨后台重启可读", async () => {
   await writeModelsJson(dirs, baseUrl);
   try {
     const r1 = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       socketPath: `${dirs.root}/c.sock`,
@@ -232,6 +234,7 @@ test("产物跨后台重启可读", async () => {
 
     // 重启：同一数据目录
     const r2 = await Runtime.start({
+    product: personalProduct.runtime,
       dataDir: dirs.dataDir,
       agentDir: dirs.agentDir,
       socketPath: `${dirs.root}/c.sock`,

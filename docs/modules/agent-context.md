@@ -43,7 +43,7 @@
 
 **会话历史。** pi JSONL 是消息历史的唯一权威副本，只追加。SQLite 的 `history_index` 是可重建的位置索引：会话、条目 id、角色、时间戳、字节偏移，**不含消息正文**。任务边界由 `ruukoto_task_start` / `ruukoto_task_end` custom 条目标记；任务没有结束标记（崩溃、中断）时其字节范围延伸到文件尾。
 
-**压缩点（`context_checkpoints`）。** 字段：`summarized_count`（S，分支前 S 条消息由摘要替代）、`cleared_count`（C，≥ S，[S, C) 的工具结果换成占位说明）、`summary`、`summary_until`（第 S 条消息的 UTC 时间）、`cleared_refs`（toolCallId → 条目 id）、`summary_model`、`summary_status`（`ok | failed | none`）、失败原因、提示版本 `compaction-v1`、`usage`、估算前后、建立它的任务与调用序号。部分唯一索引保证每个会话至多一行 `active`；新建时旧行在同一事务里改为 `superseded`。S 与 C 只落在单元边界：完整交互的开头，或当前任务已完成批次的开头。
+**压缩点（`context_checkpoints`）。** 字段：`summarized_count`（S，分支前 S 条消息由摘要替代）、`cleared_count`（C，≥ S，[S, C) 的工具结果换成占位说明）、`summary`、`summary_until`（第 S 条消息的 UTC 时间）、`cleared_refs`（toolCallId → 条目 id）、`summary_model`、`summary_status`（`ok | failed | none`）、失败原因、提示版本 `compaction-v2`、`usage`、估算前后、建立它的任务与调用序号或手动请求来源。部分唯一索引保证每个会话至多一行 `active`；新建时旧行在同一事务里改为 `superseded`。S 与 C 只落在单元边界：完整交互的开头，或当前任务已完成批次的开头。
 
 ```mermaid
 stateDiagram-v2
@@ -70,6 +70,10 @@ stateDiagram-v2
 **模型选择。** 会话默认模型与思考档位持久化在会话上，新会话继承启动默认值。后台启动可传 `--model provider/model --thinking off`，模型 ID 中后续斜杠会保留；未指定 `--model` 时取 `default-model.json` 持久默认（含思考档位），再回退到目录首个模型；未指定 `--thinking` 时沿用持久默认档位，没有则为 `off`。合法档位由该模型能力校验。
 
 ## 主要流程
+
+手动压缩由 `packages/agent/src/manual-compaction.ts` 的 `inspectManualCompaction` 与 `generateManualCompaction` 校验旧点、规划完成历史并生成候选，落盘与会话占用由 Runtime 承担。规划保留最后完整 assistant 批次及其后尾部，不把最近已完成任务当作当前任务，不额外保留旧请求或清单；跳过自动水位、收益和冷却，只在摘要完整成功时生成新点。旧终态孤儿沿共享配对规则剔除模型视图，历史仍原样保留。
+
+范围推进时摘要旧摘要与新增覆盖原文；不推进且有指引时仅改写旧摘要，无指引则无需调用。固定中文规则要求保留要求、决定、未完成工作、阻塞与下一步，本次指引补充在其后。完整 SDK 摘要请求（系统提示、固定指令、旧摘要、新覆盖及指引）计入输入预算，失败不采用自动路径的只清理降级。统计按同一配置计算完成历史视图与摘要，不包含下一任务的参考块、工具定义和输入；无效旧点明确失败并作废。
 
 分支历史使用新的 pi ID、header 与文件，原条目内容、顺序和 ID 保留，准备时不调用源 SessionManager 的分支 API。有效压缩点核对覆盖范围与 `checkpointFingerprint` 后独立复制，生成任务与调用来源保留；后续父子压缩互不修改。工作清单从复制历史中最近成功 `todo_write` 的配对参数恢复，分支模型视图以 `[工作清单]` 任务参考块保底，后续成功调用覆盖它；工具账本不复制。
 
@@ -124,7 +128,7 @@ sequenceDiagram
 
 **压缩后的视图顺序。** 前缀参考块 → 摘要块 → 移出标记（如有）→ [S, n) 的历史（[S, C) 按第一层清理）→ 继续来源 / 计划说明 → 当前任务输入 → 当前任务批次。S 伸进当前任务时，任务输入原样排在摘要块之后。Jev 只对 [S, n) 内的单元做取舍。压缩后仍超输入预算时沿用由近及远纳入，装不下的更早单元移出，视图加一条 `[较早的 <N> 轮交互未进入本次上下文 · <起> 至 <止>]`。
 
-**压缩的事件与展示。** `task.context_compaction` 在开始调用摘要模型时发一条（phase `started`），压缩点落盘时发一条（phase `finished`，与压缩点同一事务；摘要失败且清理收益不足时 `checkpointId` 为 null）。TUI 事件流显示「正在压缩上下文…」与「上下文已压缩：清理 N 条结果、摘要 M 条消息，估算 A → B」，摘要失败时写明只做了清理及原因。`/context` 分解出「压缩摘要」一类，并显示压缩点（摘要替代条数与截至时间、清理条数、建立它的任务与调用序号、摘要模型或失败原因）。系统提示的共同段说明 `[压缩摘要]`、`[已清理]`、`[较早的 … 未进入本次上下文]` 三种标记的含义与找回原文的方法。
+**压缩的事件与展示。** `task.context_compaction` 在开始调用摘要模型时发一条（phase `started`），压缩点落盘时发一条（phase `finished`，与压缩点同一事务；摘要失败且清理收益不足时 `checkpointId` 为 null）。TUI 事件流显示「正在压缩上下文…」与「上下文已压缩：清理 N 条结果、摘要 M 条消息，估算 A → B」，摘要失败时写明只做了清理及原因。`/context` 分解出「压缩摘要」一类，并显示压缩点（摘要替代条数与截至时间、清理条数、建立它的任务与调用序号或手动请求来源、摘要模型或失败原因）。系统提示的共同段说明 `[压缩摘要]`、`[已清理]`、`[较早的 … 未进入本次上下文]` 三种标记的含义与找回原文的方法。
 
 **技能。** 服务器维护用 `sudo cp -r <技能目录> /var/lib/ruukoto/agent/skills/` 并保持后台账户可读；修改从下一任务生效，无需重启。main 与普通开发会话注入「技能目录」参考消息（只含名称与描述，不含主机路径与 `disable-model-invocation` 技能），计入固定预算，超预算按 `context_budget_exceeded` 中断，不截断；SubAgent（含 GitHub 评审）不注入目录、不装配 `skill`。`skill` 宿主工具只读，任何访问模式都不产生审批：只传 `name` 返回钉版正文与版本（仅显式调用的技能被拒绝）；再传 `path` 读取该技能目录内的引用文件——相对路径、不含 `..`、realpath 仍在技能目录内、普通 UTF-8 文本，调用时读取（不钉版）并附文件 sha256。`skill` 结果不做视图上限截取。显式调用时 TUI `/skill <名称> [参数]` 提交输入为 `/skill:<名称> [参数]` 的任务，不回显命令行；CLI `ruukoto submit … "/skill:<名称> …"` 走同一路径并沿用 `request_id` 去重。任务开始时展开为带技能名与版本的正文块加参数，作为用户消息进入历史。不受 `disable-model-invocation` 限制；未知技能名使任务失败并列出可用技能。Telegram 与 QQ 私聊不识别 `/skill:`。
 
@@ -165,6 +169,8 @@ sequenceDiagram
 **部署后核对。** 按天统计压缩次数与估算降幅；若模型频繁用 `history_read` 读回被清理的结果，说明清理过狠，应调高清理阈值或保护尾部。
 
 ## 设计依据
+
+- [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 
 - [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
 

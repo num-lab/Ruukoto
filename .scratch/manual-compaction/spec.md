@@ -1,6 +1,6 @@
 # ruukoto-code 手动上下文压缩
 
-拥有者需要在继续对话前主动整理模型上下文，并用可选指引调整摘要重点。入口为 TUI 的 `/compact [prompt]`。2026-10-11 经三轮 grilling 与最终复述确认；实施与验收见[工单 01](issues/01-compact-command.md)，技术取舍见[提案笔记](../../.agents/notes/proposed/feature/2026-10-11-manual-context-compaction.md)。
+拥有者需要在继续对话前主动整理模型上下文，并用可选指引调整摘要重点。入口为 TUI 的 `/compact [prompt]`。2026-10-11 经三轮 grilling 与最终复述确认；实施与验收见[工单 01](issues/01-compact-command.md)，技术取舍见[决策笔记](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)。
 
 ## 入口与参数
 

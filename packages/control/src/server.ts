@@ -273,6 +273,16 @@ export class ControlServer {
       }
       case "find_branch_session":
         return runtime.findBranchSession(requireString("request_id"));
+      case "compact_session": {
+        if (params["prompt"] !== undefined && typeof params["prompt"] !== "string") throw new RuntimeApiError("invalid_params", "prompt 必须是字符串");
+        const requestId = optionalRequestId();
+        if (!requestId) throw new RuntimeApiError("invalid_params", "手动压缩必须提供 request_id");
+        return runtime.compactSession({ sessionId: requireString("session_id"), requestId, prompt: params["prompt"] as string | undefined });
+      }
+      case "get_session_compaction":
+        return runtime.getSessionCompaction({ sessionId: requireString("session_id"), requestId: optionalRequestId() });
+      case "interrupt_session_compaction":
+        return runtime.interruptSessionCompaction({ sessionId: requireString("session_id"), requestId: requireString("request_id") });
       case "get_session_todos":
         return runtime.getSessionTodos(requireString("session_id"));
       case "create_session":

@@ -394,15 +394,16 @@
 
   <section id="schema">
     <h2>schema 版本与迁移</h2>
-    <p>当前版本 <code>v32</code>（<code class="src" data-src="packages/core/src/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
+    <p>当前版本 <code>v34</code>（<code class="src" data-src="packages/core/src/db.ts#SCHEMA_VERSION">db.ts · SCHEMA_VERSION</code>），写在核心库 <code>meta</code> 的 <code>schema_version</code> 键里。<code>Db</code> 构造时读这个键，按下表处理；迁移只在后台启动打开库时发生。</p>
+    <p>手动上下文压缩使用 <code>compaction_requests</code> 保存独立请求、固定模型、历史来源与唯一终态；<code>context_checkpoints</code> 的手动点以 <code>manual_request_id</code> 记录来源，任务与调用字段为空。迁移重建旧压缩点表并保留行及 active 唯一索引；分支与导入保留来源，不复制操作回执。</p>
     <div class="scroll">
       <table class="tbl wrap">
         <thead><tr><th>文件里的版本</th><th>行为</th></tr></thead>
         <tbody>
           <tr><td>无版本记录（全新库）</td><td>一个 <code>BEGIN IMMEDIATE</code> 事务内建全部表、补列、写版本。</td></tr>
-          <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 32（需升级程序）」，后台启动失败，文件不动。</td></tr>
+          <tr><td>高于程序</td><td>抛「schema 版本过新：文件 N，程序 34（需升级程序）」，后台启动失败，文件不动。</td></tr>
           <tr><td>等于程序</td><td>幂等执行建表语句与补列，只补齐缺失对象。</td></tr>
-          <tr><td>1 到 31</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="packages/core/src/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="packages/core/src/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v32）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
+          <tr><td>1 到 33</td><td>一个事务内：建表（<code>IF NOT EXISTS</code>）→ <code class="src" data-src="packages/core/src/db.ts#private migrateFrom">db.ts · migrateFrom</code> → <code class="src" data-src="packages/core/src/db.ts#private ensureColumns">ensureColumns</code> 补列 → 必要的重建 → 写版本。任何一步抛错整笔 <code>ROLLBACK</code>，报「schema 迁移失败（vN → v34）」，旧库保持原样。从 v1 迁移另把旧的 pending 审批全部置 stale。</td></tr>
           <tr><td>其他（如 0）</td><td>「不支持从 schema vN 迁移」，同样回滚。</td></tr>
         </tbody>
       </table>

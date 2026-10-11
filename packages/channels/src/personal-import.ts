@@ -47,6 +47,7 @@ export { listLegacyImports };
 
 const TABLE_POLICY: TablePolicy = {
   branch_requests: { policy: "exclude", reason: "分支准备回执只属于原实例；已发布来源随会话保留" },
+  compaction_requests: { policy: "exclude", reason: "手动压缩回执只属于原实例；压缩点的来源标识随资料保留" },
   projects: { policy: "import" },
   sessions: { policy: "import" },
   tasks: { policy: "import" },

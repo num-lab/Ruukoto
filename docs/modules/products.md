@@ -15,6 +15,7 @@
 | 拥有者 IM 与个人调度 | 启用；开发入口可停用真实 IM | 停用 |
 | 服务管理 | Linux 与显式部署配置齐备才装配 | 不装配 |
 | 会话分支 | 不开放创建 | `branchSessions` 开放普通开发会话分支 |
+| 手动上下文压缩 | 不开放 | `manualCompaction` 开放普通开发会话摘要 |
 | 旧项目写入口 | 保留 | 引导改用工作区 |
 | 旧实例导入 | 个人资料；channels 持有方向实现 | 开发资料；app 持有方向实现 |
 
@@ -60,4 +61,5 @@
 ## 设计依据
 
 - [两个 Agent 产品独立运行](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
+- [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 - [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)

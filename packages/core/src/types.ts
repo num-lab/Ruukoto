@@ -7,13 +7,14 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { HistorySnapshot } from "./history.ts";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 export interface ModelSelection {
   provider: string;
@@ -886,6 +887,7 @@ export type PersistentEventBody =
   | { type: "session.workspace_mapped"; sessionId: string; projectId: string; workspaceProjectId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
+  | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; planMode: boolean; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }
@@ -1229,9 +1231,34 @@ export interface ContextCheckpoint {
   usage: Record<string, unknown> | null;
   estimateBefore: number;
   estimateAfter: number;
-  taskId: string;
-  callIndex: number;
+  taskId: string | null;
+  callIndex: number | null;
+  /** 手动来源可跨分支与实例保留；它不授予原请求的操作资格。 */
+  manualRequestId?: string | null;
   createdAt: string;
+}
+
+/** 手动压缩的持久请求；历史与旧点固定后只允许一个终态。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md
+ */
+export interface SessionCompactionRequest {
+  requestId: string;
+  sessionId: string;
+  prompt: string | null;
+  paramsDigest: string;
+  modelSelection: ModelSelection;
+  summaryModel: { provider: string; modelId: string };
+  source: Omit<HistorySnapshot, "entries"> | null;
+  expectedCheckpointId: string | null;
+  status: "running" | "succeeded" | "noop" | "failed" | "cancelled" | "interrupted";
+  checkpointId: string | null;
+  summarizedCount: number;
+  estimateBefore: number | null;
+  estimateAfter: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  endedAt: string | null;
 }
 
 export function randomId(prefix: string): string {

@@ -18,9 +18,10 @@ import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
 import { errorReply } from "@ruukoto/control/server.ts";
 import { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { ensureWorkspaceSession } from "@ruukoto/control/workspace.ts";
-import type { ConfirmationRequest, Project, Session, Task } from "@ruukoto/core/types.ts";
+import type { ConfirmationRequest, Project, Session, SessionCompactionRequest, Task } from "@ruukoto/core/types.ts";
 import { confirmationToView } from "@ruukoto/core/views.ts";
 import { TuiApp } from "@ruukoto/tui/tui/app.ts";
+import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { fakeControl, fakeSnapshot, type FakeHandlers, type FakeScript } from "./helpers/fake-control.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
@@ -31,6 +32,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 /** 与 TuiOps 的键一一对应（多写、少写都过不了类型检查）。 */
 const TUI_OPS: Record<TuiOp, true> = {
   get_session_todos: true, branch_session: true, find_branch_session: true,
+  compact_session: true, get_session_compaction: true, interrupt_session_compaction: true,
   get_task: true, find_task: true, list_tasks: true, read_task_events: true, read_history: true, read_tool_result: true, read_history_entry: true,
   get_tool_op_params: true, get_confirmation_params: true, read_artifact: true, get_session_usage: true, get_session: true, list_session_summaries: true, list_models: true,
   set_session_model: true, set_session_mode: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
@@ -209,11 +211,12 @@ async function openApproval(h: Awaited<ReturnType<typeof startFakeApp>>): Promis
 const QUIET: FakeHandlers = {
   read_history: () => ({ fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null }),
   list_tasks: () => ({ tasks: [], hasMore: false }),
+  get_session_compaction: () => null,
 };
 
 async function startFakeApp(
   script: FakeScript & { snapshot?: Parameters<typeof fakeSnapshot>[0] },
-  opts: { workspace?: { path: string }; seed?: (store: PendingRequestStore) => void } = {},
+  opts: { workspace?: { path: string }; seed?: (store: PendingRequestStore) => void; commandHistory?: true } = {},
 ) {
   const ctl = fakeControl({
     handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ projects: [PROJECT], sessions: [session()], ...script.snapshot }) }),
@@ -232,7 +235,7 @@ async function startFakeApp(
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tui-fake-"));
   const pendingStore = new PendingRequestStore(dir);
   opts.seed?.(pendingStore);
-  const state = new ViewState();
+  const state = new ViewState(opts.commandHistory ? new CommandHistoryStore(path.join(dir, "commands.sqlite")) : undefined);
   const terminal = new FakeTerminal();
   app = new TuiApp({
     connection, guard: new SubmissionGuard(pendingStore, connection), pendingStore, state, terminal,
@@ -272,6 +275,209 @@ async function pickFullAccess(h: Awaited<ReturnType<typeof startFakeApp>>): Prom
   await new Promise((r) => setTimeout(r, 40));
   h.terminal.send("\r");
 }
+
+function compaction(overrides: Partial<SessionCompactionRequest> = {}): SessionCompactionRequest {
+  return {
+    requestId: "compact_fake", sessionId: "sess_fake", prompt: null, paramsDigest: "digest", modelSelection: { ...MODEL },
+    summaryModel: { provider: "mock", modelId: "summary" }, source: null, expectedCheckpointId: null, status: "running",
+    checkpointId: null, summarizedCount: 0, estimateBefore: null, estimateAfter: null, errorCode: null, errorMessage: null,
+    createdAt: T0, endedAt: null, ...overrides,
+  };
+}
+
+test("/compact：快速接收保存关联，切走后完成事件只更新发起会话，统计与 /context 说明保留", async () => {
+  let current: SessionCompactionRequest | null = null;
+  const h = await startFakeApp({ snapshot: { sessions: [session(), session({ id: "sess_other" })] }, handlers: {
+    compact_session: params => current = compaction({ requestId: params.request_id, prompt: params.prompt ?? null }),
+    get_session_compaction: params => params.session_id === "sess_fake" ? current : null,
+  } });
+  try {
+    h.terminal.send("/compact 保留  迁移细节\r");
+    await waitFor("压缩接收结果", () => h.commandResult().includes("正在压缩"));
+    const request = current!;
+    assert.equal(request.prompt, "保留  迁移细节");
+    const pending = new PendingRequestStore(path.join(h.pendingStore.dir, "compactions"));
+    assert.equal(pending.list().records[0]!.requestId, request.requestId);
+    (h.app as any).switchSession("sess_other", true);
+    current = { ...request, status: "succeeded", checkpointId: "cp_fake", summarizedCount: 12, estimateBefore: 1200, estimateAfter: 800, endedAt: T0 };
+    h.ctl.transports[0]!.emit({ seq: 1, createdAt: T0, taskId: null, sessionId: request.sessionId,
+      body: { type: "session.context_compaction", sessionId: request.sessionId, requestId: request.requestId, status: "succeeded" } });
+    await waitFor("原会话结果更新", () => h.commandResult().includes("摘要覆盖 12 条"));
+    assert.match(h.commandResult(), /历史上下文估算 1200 → 800 token；摘要模型 mock\/summary/);
+    assert.match(h.commandResult(), /\/context 仍显示最近一次主模型调用/);
+    assert.equal(h.state.currentSessionId, "sess_other");
+    assert.ok(!h.state.openSession("sess_other").flow.items.some(row => row.kind === "note" && row.text.includes("压缩")));
+    assert.equal(pending.list().records.length, 0);
+    assert.equal(h.requested("submit"), 0);
+    assert.equal(h.requested("compact_session"), 1);
+  } finally { h.quit(); }
+});
+
+test("/compact：接收应答丢失先核实原请求，已提交不重发；未接收只按原键重试", async () => {
+  for (const accepted of [true, false]) {
+    let current: SessionCompactionRequest | null = null;
+    const keys: string[] = [];
+    const h = await startFakeApp({ handlers: {
+      compact_session: params => {
+        keys.push(params.request_id);
+        if (keys.length === 1) {
+          if (accepted) current = compaction({ requestId: params.request_id, status: "succeeded", summarizedCount: 5, estimateBefore: 900, estimateAfter: 300, endedAt: T0 });
+          throw new ControlClientError("request_timeout", "模拟应答丢失", "unknown");
+        }
+        return current = compaction({ requestId: params.request_id, status: "noop", endedAt: T0 });
+      },
+      get_session_compaction: () => current,
+    } });
+    try {
+      h.terminal.send("/compact\r");
+      await waitFor("原请求终态核实", () => h.commandResult().includes(accepted ? "上下文已压缩" : "无需压缩"));
+      assert.equal(keys.length, accepted ? 1 : 2);
+      assert.equal(new Set(keys).size, 1);
+      assert.equal(new PendingRequestStore(path.join(h.pendingStore.dir, "compactions")).list().records.length, 0);
+      assert.equal((h.app as any).editor.getExpandedText(), "", "不把未知结果恢复成普通草稿");
+    } finally { h.quit(); }
+  }
+});
+
+test("/compact：重连和退出重进按实例、会话与原键核实，不自动换键；另一客户端查询最新状态", async () => {
+  const current = compaction({ status: "interrupted", errorCode: "backend_restart", endedAt: T0 });
+  const requested: Array<{ sessionId: string; requestId: string | undefined }> = [];
+  const h = await startFakeApp({ handlers: {
+    get_session_compaction: params => { requested.push({ sessionId: params.session_id, requestId: params.request_id }); return current; },
+  } }, { commandHistory: true, seed: store => {
+    new CommandHistoryStore(path.join(store.dir, "commands.sqlite")).save("inst-1", current.sessionId,
+      { key: "command:before-exit", kind: "command", line: "/compact 保留迁移", result: "正在压缩", isError: false, at: T0, seq: 1 });
+    new PendingRequestStore(path.join(store.dir, "compactions")).save({ requestId: current.requestId, op: "compact_session", instanceId: "inst-1",
+      params: { session_id: current.sessionId, prompt: "保留迁移", line: "/compact 保留迁移", command_key: "command:before-exit" }, createdAt: T0 });
+  } });
+  try {
+    await waitFor("重进核实终态", () => h.commandResult().includes("手动压缩已中断"));
+    assert.equal(h.state.openSession(current.sessionId).flow.items.filter(row => row.kind === "command").length, 1);
+    assert.match(new CommandHistoryStore(path.join(h.pendingStore.dir, "commands.sqlite")).load("inst-1", current.sessionId)[0]!.result!, /已中断/);
+    assert.ok(requested.some(row => row.sessionId === current.sessionId && row.requestId === current.requestId));
+    assert.equal(h.requested("compact_session"), 0);
+    assert.equal(new PendingRequestStore(path.join(h.pendingStore.dir, "compactions")).list().records.length, 0);
+    h.ctl.transports[0]!.drop();
+    await waitFor("客户端重连", () => h.ctl.transports.length > 1 && h.state.connection.state === "online");
+    assert.ok(requested.some(row => row.requestId === undefined), "无本地关联时查询会话最新请求");
+    assert.equal(h.requested("compact_session"), 0);
+  } finally { h.quit(); }
+
+  const foreign = await startFakeApp({ handlers: { get_session_compaction: () => null } }, { seed: store => {
+    new PendingRequestStore(path.join(store.dir, "compactions")).save({ requestId: "foreign_compact", op: "compact_session", instanceId: "other-instance",
+      params: { session_id: "sess_fake", line: "/compact" }, createdAt: T0 });
+  } });
+  try {
+    await waitFor("原实例核实提示", () => foreign.notes("需在原实例核实") > 0);
+    assert.equal(foreign.requested("compact_session"), 0);
+    assert.equal(new PendingRequestStore(path.join(foreign.pendingStore.dir, "compactions")).list().records.length, 1);
+  } finally { foreign.quit(); }
+});
+
+test("/compact：完成事件缺失时查询补齐终态，不永久显示正在压缩", async () => {
+  let current: SessionCompactionRequest | null = null;
+  const h = await startFakeApp({ handlers: {
+    compact_session: params => current = compaction({ requestId: params.request_id }),
+    get_session_compaction: () => current,
+  } });
+  try {
+    h.terminal.send("/compact\r");
+    await waitFor("压缩在途", () => h.commandResult().includes("正在压缩"));
+    current = { ...current!, status: "noop", endedAt: T0 };
+    await waitFor("查询补齐终态", () => h.commandResult().includes("无需压缩"));
+    assert.equal(h.requested("compact_session"), 1);
+    assert.equal(new PendingRequestStore(path.join(h.pendingStore.dir, "compactions")).list().records.length, 0);
+  } finally { h.quit(); }
+});
+
+test("/compact：另一已在线客户端核实终态，补读原命令并持久保存结果后清除共享关联", async () => {
+  let current: SessionCompactionRequest | null = null;
+  const h = await startFakeApp({ handlers: { get_session_compaction: () => current } }, { commandHistory: true });
+  try {
+    const commands = new CommandHistoryStore(path.join(h.pendingStore.dir, "commands.sqlite"));
+    const pending = new PendingRequestStore(path.join(h.pendingStore.dir, "compactions"));
+    commands.save("inst-1", "sess_fake", { key: "command:other-client", kind: "command", line: "/compact", result: "正在压缩（请求 compact_shared）", isError: false, at: T0, seq: 1 });
+    pending.save({ requestId: "compact_shared", op: "compact_session", instanceId: "inst-1",
+      params: { session_id: "sess_fake", command_key: "command:other-client", line: "/compact" }, createdAt: T0 });
+    current = compaction({ requestId: "compact_shared", status: "succeeded", endedAt: T0 });
+    h.ctl.transports[0]!.emit({ seq: 1, createdAt: T0, taskId: null, sessionId: "sess_fake",
+      body: { type: "session.context_compaction", sessionId: "sess_fake", requestId: "compact_shared", status: "succeeded" } });
+    await waitFor("另一客户端补齐原命令结果", () => h.commandResult().includes("上下文已压缩"));
+    assert.equal(pending.list().records.length, 0);
+    assert.match(commands.load("inst-1", "sess_fake")[0]!.result!, /上下文已压缩/);
+    assert.equal(h.requested("compact_session"), 0);
+  } finally { h.quit(); }
+});
+
+test("/compact：前次终态后到达的旧 running 接收应答不复活原请求或覆盖新命令", async () => {
+  let release!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  const requests = new Map<string, SessionCompactionRequest>();
+  let first: SessionCompactionRequest | null = null;
+  let oldDelivered = false;
+  const h = await startFakeApp({ handlers: {
+    compact_session: async params => {
+      const running = compaction({ requestId: params.request_id });
+      requests.set(running.requestId, running);
+      if (!first) { first = running; await delayed; oldDelivered = true; return running; }
+      const done = { ...running, status: "noop" as const, endedAt: T0 };
+      requests.set(done.requestId, done);
+      return done;
+    },
+    get_session_compaction: params => params.request_id ? requests.get(params.request_id) ?? null : null,
+  } });
+  try {
+    h.terminal.send("/compact 第一份\r");
+    await waitFor("首请求已接收", () => first !== null);
+    const completed = { ...first!, status: "succeeded" as const, endedAt: T0 };
+    requests.set(completed.requestId, completed);
+    h.ctl.transports[0]!.emit({ seq: 1, createdAt: T0, taskId: null, sessionId: "sess_fake",
+      body: { type: "session.context_compaction", sessionId: "sess_fake", requestId: completed.requestId, status: "succeeded" } });
+    await waitFor("首请求终态", () => h.commandResult().includes("上下文已压缩"));
+    h.terminal.send("/compact 第二份\r");
+    await waitFor("第二份完成", () => h.commandResult().includes("无需压缩"));
+    release();
+    await waitFor("旧应答已到达", () => oldDelivered);
+    h.terminal.send("/compact 第三份\r");
+    await waitFor("第三份独立提交", () => h.requested("compact_session") === 3);
+    assert.ok(!h.state.openSession("sess_fake").flow.items.some(row => row.kind === "note" && row.text.includes("正在压缩")));
+  } finally { release(); h.quit(); }
+});
+
+test("/compact 与普通输入明确拒绝保留草稿；/interrupt 取消压缩并核实成功竞争", async () => {
+  const rejected = await startFakeApp({ handlers: {
+    compact_session: () => { throw new ControlClientError("session_busy", "会话有活动任务，请先停止任务", "rejected"); },
+    submit: () => { throw new ControlClientError("session_compacting", "会话正在压缩，请先等待或停止", "rejected"); },
+  } });
+  try {
+    rejected.terminal.send("/compact 保留  细节\r");
+    await waitFor("拒绝命令草稿", () => (rejected.app as any).editor.getExpandedText() === "/compact 保留  细节");
+    assert.match(rejected.commandResult(), /失败：会话有活动任务/);
+    assert.equal(new PendingRequestStore(path.join(rejected.pendingStore.dir, "compactions")).list().records.length, 0);
+    (rejected.app as any).editor.setText("");
+    rejected.terminal.send("稍后再执行\r");
+    await waitFor("普通输入草稿", () => (rejected.app as any).editor.getExpandedText() === "稍后再执行");
+    assert.equal(rejected.pendingStore.list().records.length, 0);
+  } finally { rejected.quit(); }
+
+  for (const status of ["cancelled", "succeeded"] as const) {
+    let current: SessionCompactionRequest | null = null;
+    const h = await startFakeApp({ handlers: {
+      compact_session: params => current = compaction({ requestId: params.request_id }),
+      get_session_compaction: () => current,
+      interrupt_session_compaction: params => current = compaction({ requestId: params.request_id, status, endedAt: T0 }),
+    } });
+    try {
+      h.terminal.send("/compact\r");
+      await waitFor("压缩在途", () => h.commandResult().includes("正在压缩"));
+      h.terminal.send("/interrupt\r");
+      await waitFor("压缩中断结果", () => h.requested("interrupt_session_compaction") === 1);
+      await waitFor("唯一终态", () => h.state.openSession("sess_fake").flow.items.some(row => row.kind === "command" && row.line === "/compact" && row.result?.includes(status === "cancelled" ? "已取消" : "上下文已压缩")));
+      assert.equal(h.requested("interrupt"), 0);
+      assert.equal(new PendingRequestStore(path.join(h.pendingStore.dir, "compactions")).list().records.length, 0);
+    } finally { h.quit(); }
+  }
+});
 
 test("/mode 断线：结果行提示结果未知，不发必然失败的查询；重连快照带回后台实际值", async () => {
   let dropped = false;

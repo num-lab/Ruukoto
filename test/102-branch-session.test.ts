@@ -203,6 +203,28 @@ test("幂等独立历史、名称及设置；首个新任务只统计自己的�
   } finally { await t.shutdown(); }
 });
 
+test("分支独立复制手动压缩来源，原操作回执与取消资格不转移", async () => {
+  const { t, session, h } = await fixture("branch-manual-compaction");
+  try {
+    h.task(); h.user("已确认要求"); h.assistant([{ type: "text", text: "最后完整回复" }]);
+    const messages = parseSessionFile(h.file).filter(entry => entry.type === "message").map(entry => entry.message);
+    const point = { id: randomId("ckpt"), sessionId: session.id, summarizedCount: 1, clearedCount: 1, fingerprint: checkpointFingerprint(messages, 1), summary: "已确认要求", summaryUntil: null,
+      clearedRefs: {}, clearedResults: 0, summaryModel: "mock/mock-model", summaryStatus: "ok" as const, summaryError: null, promptVersion: COMPACTION_PROMPT_VERSION,
+      usage: null, estimateBefore: 100, estimateAfter: 50, taskId: null, callIndex: null, manualRequestId: "source-manual-compaction", createdAt: new Date().toISOString() };
+    t.runtime.store.withTx(() => {
+      t.runtime.store.insertCheckpoint(point);
+      t.runtime.store.db.prepare("INSERT INTO compaction_requests (request_id, session_id, params_digest, payload, status) VALUES ('source-manual-compaction', ?, 'digest', '{}', 'succeeded')").run(session.id);
+    });
+    const child = await t.runtime.branchSession({ sessionId: session.id, requestId: "branch-manual-source" });
+    const inherited = t.runtime.store.getActiveCheckpoint(child.id)!;
+    assert.notEqual(inherited.id, point.id);
+    assert.deepEqual([inherited.taskId, inherited.callIndex, inherited.manualRequestId], [null, null, point.manualRequestId]);
+    assert.equal(t.runtime.store.db.prepare("SELECT COUNT(*) AS n FROM compaction_requests WHERE session_id = ?").get(child.id)!.n, 0);
+    t.runtime.store.withTx(() => t.runtime.store.invalidateCheckpoint(point.id));
+    assert.equal(t.runtime.store.getActiveCheckpoint(child.id)!.id, inherited.id);
+  } finally { await t.shutdown(); }
+});
+
 test("连续分支恢复原图片的实际模型 payload，伪造、缺失和损坏图片均拒绝且零请求", async () => {
   const { t, session, h } = await fixture("branch-images");
   try {

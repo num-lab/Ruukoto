@@ -244,9 +244,10 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   db.prepare(
     `INSERT INTO context_checkpoints (id, session_id, status, summarized_count, cleared_count, fingerprint, summary, summary_until,
       cleared_refs, cleared_results, summary_model, summary_status, summary_error, prompt_version, usage, estimate_before, estimate_after,
-      task_id, call_index, created_at)
-     VALUES (?, ?, 'superseded', 3, 1, 'fp', '摘要', NULL, '{}', 0, 'mock-model', 'ok', NULL, 'p1', NULL, 10, 5, ?, 0, ?)`,
-  ).run(randomId("ckpt"), a.sessionId, tDone.id, NOW);
+      task_id, call_index, manual_request_id, created_at)
+     VALUES (?, ?, 'superseded', 3, 1, 'fp', '摘要', NULL, '{}', 0, 'mock-model', 'ok', NULL, 'p1', NULL, 10, 5, NULL, NULL, 'source-manual-compaction', ?)`,
+  ).run(randomId("ckpt"), a.sessionId, NOW);
+  db.prepare("INSERT INTO compaction_requests (request_id, session_id, params_digest, payload, status) VALUES ('source-manual-compaction', ?, 'digest', '{}', 'succeeded')").run(a.sessionId);
 
   // 记忆：来源在范围 / 引用 main / personal 未选中与选中
   const m1 = await t.client.request<any>("save_memory", { project_id: a.projectId, category: "convention", content: "项目约定甲", source_refs: [{ kind: "owner_note", note: "建单录入" }] });
@@ -565,6 +566,8 @@ test("应用后目标启动：历史与产物字节一致、组织映射保留�
       const srcSelIds = new Store(srcSelDb).listSelectionRecordsByTask(src.ids.taskDone).map((r) => r.id).sort();
       srcSelDb.close();
       assert.deepEqual(sels.records.map((r: any) => r.id).sort(), srcSelIds, "选择记录逐项一致");
+      const manualPoint = store.db.prepare("SELECT task_id, call_index, manual_request_id FROM context_checkpoints WHERE session_id = ? AND manual_request_id = 'source-manual-compaction'").get(src.ids.sa1);
+      assert.deepEqual({ ...manualPoint }, { task_id: null, call_index: null, manual_request_id: "source-manual-compaction" }, "真实手动来源随点保留");
 
       // 组织映射保留；SubAgent 以关闭状态登记
       assert.equal(store.getSession(src.ids.sb2)!.workspaceProjectId, src.ids.wsProj);
@@ -579,7 +582,7 @@ test("应用后目标启动：历史与产物字节一致、组织映射保留�
 
       // 排除类：目标侧没有入站、调度、通知与平台配置记录
       const tdb = target.runtime.store.db;
-      for (const table of ["inbound_events", "schedules", "schedule_runs", "notification_ops", "qq_config", "telegram_config", "standing_permissions"]) {
+      for (const table of ["compaction_requests", "inbound_events", "schedules", "schedule_runs", "notification_ops", "qq_config", "telegram_config", "standing_permissions"]) {
         assert.equal((tdb.prepare(`SELECT count(*) c FROM ${table}`).get() as any).c, 0, `${table} 为空`);
       }
 

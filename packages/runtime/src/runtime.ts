@@ -16,7 +16,8 @@ import { AppDataError,AppDataStore } from "@ruukoto/agent/app-data/store.ts";
 import { createAppDataFamily } from "@ruukoto/agent/app-data/tools.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import type { SelectorBudgetConfig } from "@ruukoto/agent/context-selector.ts";
-import { selectionBreakdown,SelectionRecordCorrupt,type ContextBreakdown } from "@ruukoto/agent/context-selector.ts";
+import { DEFAULT_BUDGET_CONFIG, selectionBreakdown,SelectionRecordCorrupt,type ContextBreakdown } from "@ruukoto/agent/context-selector.ts";
+import { generateManualCompaction, inspectManualCompaction, ManualCompactionError } from "@ruukoto/agent/manual-compaction.ts";
 import { createDelegationFamily,delegationOpCheck } from "@ruukoto/agent/delegation-tools.ts";
 import { Driver } from "@ruukoto/agent/driver.ts";
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
@@ -53,7 +54,7 @@ import {
   validateModelCatalog,
   type SummaryModel,
 } from "@ruukoto/agent/model-config.ts";
-import { createModelCatalog,type ModelCatalog,type ModelOption } from "@ruukoto/agent/model-selection.ts";
+import { createModelCatalog,ModelSelectionError,type ModelCatalog,type ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { createApprovalReviewer,type ApprovalReviewer } from "@ruukoto/agent/review.ts";
 import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
 import { createSkillFamily,loadSkillLibrary,skillsDirFor } from "@ruukoto/agent/skills.ts";
@@ -83,6 +84,7 @@ import { AccessDeniedError,AccessScope } from "@ruukoto/core/access.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { getBranchRequest, sourceArtifact } from "@ruukoto/core/branch.ts";
+import { finishCompactionRequest, getCompactionRequest, getLatestSessionCompaction, recoverCompactionRequests, reserveCompactionRequest, updateCompactionSource } from "@ruukoto/core/compaction.ts";
 import { DirIdentityError,legacyProjectClaimableFromDir,resolveDirIdentity,sameDirIdentity,verifyDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { HistoryIndex,searchHistory } from "@ruukoto/core/history-index.ts";
 import {
@@ -92,10 +94,13 @@ import {
   readHistoryEntryText,
   readHistoryPage,
   readToolResult,
+  readHistoryPrefix,
+  snapshotSessionHistory,
   sliceTextByBytes,
   tailTextByBytes,
   type HistoryEntryView,
   type HistoryPage,
+  type HistorySnapshot,
 } from "@ruukoto/core/history.ts";
 import { acquireConfigLock,acquireInstanceLock,type AcquiredLock } from "@ruukoto/core/instance-lock.ts";
 import {
@@ -133,6 +138,7 @@ import {
   type PersistentEvent,
   type Project,
   type Session,
+  type SessionCompactionRequest,
   type SessionDefaultMode,
   type StandingPermission,
   type SubAgent,
@@ -186,6 +192,7 @@ export interface QqInboxArchiveRow extends QqInboxRow {
 export interface RuntimeProduct {
   type: ProductType;
   branchSessions?: boolean;
+  manualCompaction?: boolean;
   im: boolean;
   scheduler: boolean;
   serviceEnabled(config: RuntimeConfig): boolean;
@@ -360,6 +367,7 @@ export class Runtime {
   private drivers = new Map<string, Driver>();
   private loopActive = new Set<string>();
   private loopPromises = new Map<string, Promise<void>>();
+  private compactions = new Map<string, { request: SessionCompactionRequest; controller: AbortController; promise: Promise<void> }>();
   private wakePending = new Set<string>();
   stopping = false;
   private readonly modeSwitchStopping = new Set<string>();
@@ -1206,6 +1214,7 @@ export class Runtime {
     // 事件要么全部提交，要么整体回滚，不留半恢复状态
     this.store.withTx(() => {
       const store = this.store;
+      recoverCompactionRequests(store);
       const interruptedTaskIds: string[] = [];
       const pausedSessionIds: string[] = [];
 
@@ -1441,6 +1450,159 @@ export class Runtime {
     return { status: request?.status ?? "not_found", session: request?.status === "published" ? this.store.getSession(request.session.id) : null, error: request?.error ?? null };
   }
 
+  private assertNoSessionCompaction(sessionId: string): void {
+    if (this.compactions.has(sessionId) || getLatestSessionCompaction(this.store, sessionId)?.status === "running") {
+      throw new RuntimeApiError("session_compaction_busy", "此会话正在压缩上下文，请等待完成或用 /interrupt 停止；输入已保留");
+    }
+  }
+
+  /** 先持久接收并占住会话，再异步摘要；相同请求键只核实原操作。
+   * Note: 见 .agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md
+   */
+  async compactSession(input: { sessionId: string; requestId: string; prompt?: string }): Promise<SessionCompactionRequest> {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.requestId) || (input.prompt !== undefined && typeof input.prompt !== "string")) {
+      throw new RuntimeApiError("invalid_params", "压缩请求键或指引无效");
+    }
+    const prompt = input.prompt?.trim() || null;
+    const paramsDigest = createHash("sha256").update(JSON.stringify([input.sessionId, prompt])).digest("hex");
+    const existing = getCompactionRequest(this.store, input.requestId);
+    if (existing) {
+      if (existing.paramsDigest !== paramsDigest) throw new RuntimeApiError("request_conflict", "压缩请求键已用于不同参数");
+      return existing;
+    }
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝上下文压缩");
+    if (!this.config.product.manualCompaction) throw new RuntimeApiError("unavailable", "当前产品不提供手动上下文压缩");
+    const session = this.getSession(input.sessionId);
+    if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("invalid_state", "只有普通开发会话可以手动压缩上下文");
+    this.assertNoSessionCompaction(session.id);
+    if (this.loopActive.has(session.id) || this.store.listTasksBySession(session.id).some(task => ACTIVE_TASK_STATUSES.includes(task.status))) {
+      throw new RuntimeApiError("session_busy", "此会话有排队、启动中或活动任务，请等待完成或先停止任务");
+    }
+    const modelSelection = { ...(session.modelSelection ?? this.defaultSelection) };
+    let summaryModel: SummaryModel;
+    try { summaryModel = loadSummaryModel(this.config.agentDir) ?? { provider: modelSelection.provider, modelId: modelSelection.modelId }; }
+    catch { throw new RuntimeApiError("summary_model_invalid", "摘要模型配置损坏，请修复摘要模型配置后重试"); }
+    this.assertModelConfigIdle(summaryModel.provider);
+    const request: SessionCompactionRequest = { requestId: input.requestId, sessionId: session.id, prompt, paramsDigest, modelSelection, summaryModel,
+      source: null, expectedCheckpointId: null, status: "running", checkpointId: null, summarizedCount: 0, estimateBefore: null, estimateAfter: null,
+      errorCode: null, errorMessage: null, createdAt: new Date().toISOString(), endedAt: null };
+    const operation = { request, controller: new AbortController(), promise: Promise.resolve() };
+    this.compactions.set(session.id, operation);
+    try { this.store.withTx(() => reserveCompactionRequest(this.store, request)); }
+    catch (error) {
+      const committed = getCompactionRequest(this.store, request.requestId);
+      if (!committed || committed.paramsDigest !== paramsDigest) {
+        this.compactions.delete(session.id);
+        if (error instanceof StoreConflictError) throw new RuntimeApiError(error.code, error.message);
+        throw error;
+      }
+      // 提交后广播失败不能留下没有执行者的在途请求。
+    }
+    const accepted = getCompactionRequest(this.store, request.requestId)!;
+    if (accepted.status !== "running") {
+      this.compactions.delete(session.id);
+      return accepted;
+    }
+    const catalog = this.modelCatalog;
+    const modelRuntime = this.modelRuntime;
+    operation.promise = Promise.resolve().then(() => this.runSessionCompaction(session, operation, catalog, modelRuntime)).finally(() => {
+      this.compactions.delete(session.id);
+    });
+    return request;
+  }
+
+  getSessionCompaction(input: { sessionId: string; requestId?: string }): SessionCompactionRequest | null {
+    this.getSession(input.sessionId);
+    const request = input.requestId ? getCompactionRequest(this.store, input.requestId) : getLatestSessionCompaction(this.store, input.sessionId);
+    if (request && request.sessionId !== input.sessionId) throw new RuntimeApiError("request_conflict", "压缩请求不属于此会话");
+    return request;
+  }
+
+  interruptSessionCompaction(input: { sessionId: string; requestId: string }): SessionCompactionRequest {
+    const request = this.getSessionCompaction(input);
+    if (!request) throw new RuntimeApiError("not_found", "压缩请求不存在，请核实原请求");
+    let result: SessionCompactionRequest;
+    try {
+      result = this.store.withTx(() => finishCompactionRequest(this.store, request.requestId, { status: "cancelled", errorCode: "summary_canceled", errorMessage: "压缩已取消，未替换压缩点" }));
+    } catch (error) {
+      const committed = getCompactionRequest(this.store, request.requestId);
+      if (!committed || committed.status === "running") throw error;
+      result = committed;
+    }
+    const operation = this.compactions.get(input.sessionId);
+    if (operation?.request.requestId === request.requestId && result.status === "cancelled") operation.controller.abort();
+    return result;
+  }
+
+  private async runSessionCompaction(session: Session, operation: { request: SessionCompactionRequest; controller: AbortController }, catalog: ModelCatalog, modelRuntime: ModelRuntime): Promise<void> {
+    const { request, controller } = operation;
+    let checkpoint: ContextCheckpoint | null = null;
+    try {
+      if (controller.signal.aborted) return;
+      checkpoint = this.store.getActiveCheckpoint(session.id);
+      if (!session.sessionFile) {
+        if (checkpoint) throw new ManualCompactionError("checkpoint_invalid", "压缩点对应的历史缺失，请恢复历史后重试");
+        if (session.branchSource || this.store.listTasksBySession(session.id).some(task => task.status === "completed")) throw new RuntimeApiError("history_corrupt", "会话历史缺失，请恢复历史后重试");
+        this.store.withTx(() => finishCompactionRequest(this.store, request.requestId, { status: "noop", estimateBefore: 0, estimateAfter: 0 }));
+        return;
+      }
+      let snapshot: HistorySnapshot;
+      try { snapshot = snapshotSessionHistory(session.sessionFile, id => {
+        const task = this.store.getTask(id);
+        return task && (task.sessionId === session.id || session.branchSource?.taskIds.includes(id)) ? task.status : null;
+      }, { allowEmpty: true }); }
+      catch (error) {
+        if (error instanceof HistoryReadError) throw error;
+        throw new RuntimeApiError("history_corrupt", "会话历史不可读，请恢复历史后重试");
+      }
+      if (snapshot.entries[0]!.id !== session.piSessionId || snapshot.excluded.length || snapshot.byteLimit !== fs.statSync(session.sessionFile).size) {
+        throw new RuntimeApiError("history_corrupt", "历史身份或尾部无法核实，请恢复完整历史后重试");
+      }
+      const { entries, ...source } = snapshot;
+      this.store.withTx(() => updateCompactionSource(this.store, request.requestId, source, checkpoint?.id ?? null));
+      const budget = { ...DEFAULT_BUDGET_CONFIG, ...this.config.budgetOverrides };
+      const inspected = inspectManualCompaction({ entries, sessionId: session.id, checkpoint, prompt: request.prompt ?? undefined, budget });
+      const result = inspected.plan ? await generateManualCompaction({ entries, sessionId: session.id, checkpoint, checkpointId: randomId("ckpt"),
+        modelRuntime, model: await catalog.resolve({ ...request.summaryModel, thinkingLevel: "off" }), signal: controller.signal,
+        prompt: request.prompt ?? undefined, budget, timeoutMs: this.config.compaction?.summaryTimeoutMs }) : { kind: "noop" as const, estimateBefore: inspected.estimateBefore };
+      if (controller.signal.aborted) return;
+      this.store.withTx(() => {
+        const current = this.getSession(session.id);
+        if (current.sessionFile !== source.file || current.piSessionId !== session.piSessionId || this.store.getSessionIdentity(session.id)?.kind !== "dev" || fs.statSync(source.file).size !== source.byteLimit) {
+          throw new RuntimeApiError("source_changed", "来源历史或会话身份已改变，请核实后重试");
+        }
+        readHistoryPrefix(source.file, source);
+        if (result.kind === "noop") {
+          finishCompactionRequest(this.store, request.requestId, { status: "noop", estimateBefore: result.estimateBefore, estimateAfter: result.estimateBefore });
+        } else {
+          const cp: Omit<ContextCheckpoint, "status"> = { ...result.checkpoint, sessionId: session.id, taskId: null, callIndex: null, manualRequestId: request.requestId, createdAt: new Date().toISOString() };
+          finishCompactionRequest(this.store, request.requestId, { status: "succeeded", summarizedCount: cp.summarizedCount, estimateBefore: cp.estimateBefore, estimateAfter: cp.estimateAfter }, cp);
+        }
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const code = error instanceof ManualCompactionError || error instanceof ModelSelectionError || error instanceof RuntimeApiError || error instanceof HistoryReadError || error instanceof StoreConflictError ? error.code : "compaction_failed";
+      const reason = code === "checkpoint_invalid" ? "原压缩点已失效，不能继续使用；请核实历史后重试" :
+        code === "summary_timeout" ? "摘要超时，请稍后重试" :
+        code === "summary_empty" ? "摘要模型返回空内容，请检查模型后重试" :
+        code === "summary_output_limit" ? "摘要输出达到上限，请调整摘要模型后重试" :
+        code === "summary_input_budget_exceeded" ? "摘要输入超过模型预算，请选择更大窗口的摘要模型或缩短指引后重试" :
+        code.startsWith("model_") || code === "thinking_not_supported" ? "所选模型不可用，请检查模型与凭据配置后重试" :
+        code === "history_corrupt" || code === "source_changed" ? "来源历史无法核实，请恢复完整历史后重试" : "上下文压缩失败，请核实原请求和模型配置后重试";
+      try {
+        this.store.withTx(() => {
+          if (code === "checkpoint_invalid") {
+            const old = checkpoint?.id;
+            if (old) this.store.invalidateCheckpoint(old);
+          }
+          finishCompactionRequest(this.store, request.requestId, { status: "failed", errorCode: code, errorMessage: reason });
+        });
+      } catch (failure) {
+        process.stderr.write(`[ruukoto:compaction] 请求 ${request.requestId} 无法保存失败终态：${this.scrubSecrets((failure as Error).message)}\n`);
+      }
+    }
+  }
+
   getSessionTodos(sessionId: string) {
     return this.withSessionHistory(sessionId, file => {
       const params = file ? historyTodoParams(parseSessionFile(file)) : null;
@@ -1662,12 +1824,13 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
     this.modelConfigGate = new Set(affected);
-    const blocked = this.store.countActiveTasksByProviders(affected);
+    const blocked = this.store.countActiveTasksByProviders(affected) + [...this.compactions.values()].filter(({ request }) =>
+      affected.includes(request.summaryModel.provider)).length;
     if (blocked > 0) {
       this.modelConfigGate = null;
       throw new RuntimeApiError(
         "model_config_blocked",
-        `有 ${blocked} 个任务正在使用受影响的提供方（运行中/等待确认/排队），请先完成或取消这些任务`,
+        `有 ${blocked} 个任务或压缩操作正在使用受影响的提供方，请先完成或取消这些操作`,
       );
     }
     let settle!: () => void;
@@ -2127,6 +2290,7 @@ export class Runtime {
     ]);
     const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
     if (existing) return existing;
+    this.assertNoSessionCompaction(input.sessionId);
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
     // this.submit 走同一检查
@@ -2154,6 +2318,7 @@ export class Runtime {
         // 之间"没有受影响任务钻过边界；重复提交先仲裁返回，不受门闩影响
         const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
         if (raced) return { task: raced, duplicate: true };
+        this.assertNoSessionCompaction(input.sessionId);
         check();
         return this.store.insertQueuedTask({
           sessionId: input.sessionId,
@@ -2602,7 +2767,7 @@ export class Runtime {
   // ---------- 调度 ----------
 
   private kick(sessionId: string): void {
-    if (this.stopping) return;
+    if (this.stopping || this.compactions.has(sessionId)) return;
     if (this.loopActive.has(sessionId)) {
       this.wakePending.add(sessionId);
       return;
@@ -2626,7 +2791,7 @@ export class Runtime {
 
   private async runQueueLoop(sessionId: string): Promise<void> {
     for (;;) {
-      if (this.stopping) return;
+      if (this.stopping || this.compactions.has(sessionId)) return;
       const session = this.store.getSession(sessionId);
       if (!session || session.queueState !== "active") return;
       const task = this.store.listQueuedTasksFifo(sessionId)[0];
@@ -2693,6 +2858,7 @@ export class Runtime {
       try {
         this.store.withTx(() => {
           if (this.stopping) throw new TaskGoneError(); // 停止开始后不再让排队任务转入运行
+          this.assertNoSessionCompaction(sessionId);
           if (!this.store.tryAcquireOccupancy({
             cwdReal: workspaceLaunch.path,
             cwdDev: workspaceLaunch.dev,
@@ -3895,7 +4061,12 @@ export class Runtime {
   private async doStop(reason: string): Promise<void> {
     this.store.withTx(() => {
       this.store.appendEvent({ type: "backend.stopping", reason });
+      for (const { request, controller } of this.compactions.values()) {
+        finishCompactionRequest(this.store, request.requestId, { status: "interrupted", errorCode: "backend_interrupted", errorMessage: "后台停止中断了压缩，未替换压缩点；可重新执行 /compact" });
+        controller.abort();
+      }
     });
+    await Promise.allSettled([...this.compactions.values()].map(operation => operation.promise));
 
     await this.githubWebhook?.stop();
     this.githubWebhook = null;

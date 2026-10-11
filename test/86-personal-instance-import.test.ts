@@ -208,9 +208,10 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   db.prepare(
     `INSERT INTO context_checkpoints (id, session_id, status, summarized_count, cleared_count, fingerprint, summary, summary_until,
       cleared_refs, cleared_results, summary_model, summary_status, summary_error, prompt_version, usage, estimate_before, estimate_after,
-      task_id, call_index, created_at)
-     VALUES (?, ?, 'superseded', 3, 1, 'fp', '摘要', NULL, '{}', 0, 'mock-model', 'ok', NULL, 'p1', NULL, 10, 5, ?, 0, ?)`,
-  ).run(randomId("ckpt"), sessMain, tDone.id, NOW);
+      task_id, call_index, manual_request_id, created_at)
+     VALUES (?, ?, 'superseded', 3, 1, 'fp', '摘要', NULL, '{}', 0, 'mock-model', 'ok', NULL, 'p1', NULL, 10, 5, NULL, NULL, 'source-manual-compaction', ?)`,
+  ).run(randomId("ckpt"), sessMain, NOW);
+  db.prepare("INSERT INTO compaction_requests (request_id, session_id, params_digest, payload, status) VALUES ('source-manual-compaction', ?, 'digest', '{}', 'succeeded')").run(sessMain);
   fs.mkdirSync(path.join(dataDir, "artifacts"), { recursive: true });
   const artGood = store.withTx(() => store.createArtifact({ id: randomId("art"), taskId: tDone.id, sessionId: sessMain, name: "prompt-snapshot:main" }));
   const artBody = Buffer.from("main 提示词正文 0123456789", "utf8");
@@ -718,6 +719,9 @@ test("应用后目标启动：main 与应用数据可用，档案可查，交接
     try {
       const t = host.runtime;
       const store = t.store;
+      const manualPoint = store.db.prepare("SELECT task_id, call_index, manual_request_id FROM context_checkpoints WHERE session_id = ? AND manual_request_id = 'source-manual-compaction'").get(src.ids.sessMain);
+      assert.deepEqual({ ...manualPoint }, { task_id: null, call_index: null, manual_request_id: "source-manual-compaction" }, "手动来源随资料保留");
+      assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM compaction_requests").get()!.n, 0, "操作回执不跨实例导入");
       // 角色行沿用（ensureRoles 幂等跳过导入行）
       assert.equal(store.getAgentRole("main")!.sessionId, src.ids.sessMain);
       assert.equal(store.getAgentRole("coding")!.sessionId, src.ids.sessCoding);
@@ -940,6 +944,7 @@ test("故障注入续跑无重复；同键重放/异参冲突；修订冲突；�
       const tdb = new Db(dirs.dataDir);
       const count = (sql: string, ...params: unknown[]) => (tdb.prepare(sql).get(...(params as never[])) as { c: number }).c;
       assert.equal(count("SELECT count(*) c FROM sessions"), 0, "会话行移除");
+      assert.equal(count("SELECT count(*) c FROM context_checkpoints"), 0, "手动压缩点随会话回退");
       assert.equal(count("SELECT count(*) c FROM projects"), 0, "项目行移除");
       assert.equal(count("SELECT count(*) c FROM agent_roles"), 0, "角色行移除");
       assert.equal(count("SELECT count(*) c FROM schedules"), 0, "调度移除");

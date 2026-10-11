@@ -60,7 +60,7 @@
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v33）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v34）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
@@ -107,7 +107,7 @@
 
 ### schema 版本与迁移
 
-`SCHEMA_VERSION` 是 `33`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `34`，写在 `meta` 表的 `schema_version` 键。
 
 - 文件版本高于程序版本：直接抛错「schema 版本过新」，要求升级程序，不做任何写入。
 - 文件版本等于程序版本：只幂等补齐缺失对象与缺失列。
@@ -116,9 +116,11 @@
 - 缺 `meta` 表（全新库）按「无版本记录」处理，进入建表事务。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
 
-当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
+当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
 
 关键表的要点：
+
+`compaction_requests` 保存手动压缩请求键、会话、参数指纹与固定参数、模型、历史来源、预期旧点、统计、错误码及终态。状态为 `running`、`succeeded`、`noop`、`failed`、`cancelled`、`interrupted`，每会话至多一条在途请求。`context_checkpoints` 的自动来源是任务与调用序号，手动来源是 `manual_request_id`，此时任务和调用为空；来源可随分支或导入保留，操作回执只属于原实例，不要求导入目标存在原回执。
 
 | 表 | 关键列 |
 |---|---|
@@ -296,6 +298,8 @@ sequenceDiagram
 
 ## 不变量与失败处理
 
+手动压缩成功通过条件更新核实请求仍在途及原点未变，切换点、保存唯一终态与事件同事务完成；取消或其他终态先成立则返回原结果。失败和中断不替换原有效点，已无效旧点明确作废。历史读取始终只读；部分尾记录或无法核实的来源明确失败，不声称 JSONL 与 SQLite 存在事务。
+
 **存储职责与原子性。**
 
 - pi JSONL 是消息历史的唯一权威副本；SQLite 只存元数据与事件；产物正文在产物文件、SQLite 只存其元数据。三者之间没有跨文件事务，不声称原子提交。
@@ -332,6 +336,8 @@ sequenceDiagram
 - 本地存储故障保留 `staging` 状态，不伪装成平台拒绝。
 
 ## 设计依据
+
+- [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 
 - [执行单元的停止未核实结果保留到任务收尾](../../.agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)
 

@@ -131,21 +131,29 @@ test("macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计�
   }
 });
 
+// Note: 见 .agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
 test("macOS 轮询漏记短命父亲后的新孤儿保留为未核实，且不向未知归属发信号", { skip: !available }, async () => {
   const dir = fs.realpathSync(fs.mkdtempSync("/tmp/rk-native-orphan-"));
   const beats = path.join(dir, "heartbeat");
   const pidFile = path.join(dir, "pid");
   const gate = path.join(dir, "go");
+  const release = path.join(dir, "release");
+  const finished = path.join(dir, "finished");
   const python = [
     "import os,time",
     "pid=os.fork()",
     "if pid == 0:",
     " os.setsid()",
+    " end=time.monotonic()+20",
+    " while os.getppid()!=1 and time.monotonic()<end: time.sleep(0.01)",
+    " if os.getppid()!=1: os._exit(1)",
     ` open(${JSON.stringify(pidFile)},'w').write(str(os.getpid()))`,
     ` output=open(${JSON.stringify(beats)},'a',buffering=1)`,
-    " end=time.monotonic()+3",
-    " while time.monotonic()<end:",
-    "  output.write('beat\\n');time.sleep(0.02)",
+    ` while not os.path.exists(${JSON.stringify(release)}) and time.monotonic()<end:`,
+    // 慢心跳检出固定短窗把调度延迟误判为退出的回归。
+    "  output.write('beat\\n');time.sleep(0.5)",
+    " output.close()",
+    ` open(${JSON.stringify(finished)},'w').write('finished')`,
     " os._exit(0)",
     "os._exit(0)",
   ].join("\n");
@@ -166,13 +174,14 @@ test("macOS 轮询漏记短命父亲后的新孤儿保留为未核实，且不�
     assert.equal(result?.reaped, false, JSON.stringify(run.messages));
     assert.match(result?.reason ?? "", /unknown_new_orphan|observation_interrupted/);
     const before = fs.statSync(beats).size;
-    await new Promise(resolve => setTimeout(resolve, 80));
+    await waitFor(() => fs.statSync(beats).size > before);
     assert.ok(fs.statSync(beats).size > before, "未知归属孤儿在返回后仍写心跳，没有被监督器误杀");
   } finally {
+    fs.writeFileSync(release, "release");
     if (suspended) process.kill(run.child.pid!, "SIGCONT");
     await finish(run.child, run.closed);
-    // 虚拟孤儿自行限时退出；不以裸 PID 信号清理可能被复用的身份。
-    await new Promise(resolve => setTimeout(resolve, 3200));
+    // 就绪身份已脱离父亲；只通过夹具文件释放并确认停止写入，不向裸 PID 发信号。
+    if (fs.existsSync(pidFile)) await waitFor(() => fs.existsSync(finished));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

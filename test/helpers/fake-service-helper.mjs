@@ -129,7 +129,7 @@ function loadPolicy() {
   }
   // 机器身份校验放宽：文件存在即可，machineId 原样回显（替身差异，非生产安全边界）
   const machineId = typeof policy.machineId === "string" && policy.machineId ? policy.machineId : "fake-machine-relaxed";
-  if (!Number.isInteger(policy.execUid) || policy.execUid <= 0 || !Number.isInteger(policy.execGid) || policy.execGid <= 0) {
+  if (!Number.isInteger(policy.inspectUid) || policy.inspectUid <= 0 || !Number.isInteger(policy.inspectGid) || policy.inspectGid <= 0) {
     throw new Refuse("policy_invalid", "策略的执行 UID/GID 非法");
   }
   if (typeof policy.services !== "object" || policy.services === null || Array.isArray(policy.services)) {
@@ -215,7 +215,7 @@ function cmdInspect(unit) {
       result: state.result,
       activeEnterTimestamp: state.activeEnterTimestamp,
     },
-    execIdentity: { uid: policy.execUid, gid: policy.execGid },
+    execIdentity: { uid: policy.inspectUid, gid: policy.inspectGid },
     observedAt: new Date().toISOString(),
   });
 }

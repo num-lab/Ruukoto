@@ -3,8 +3,8 @@ Description=ruukoto 服务管理演练的可控测试服务（agent-direction is
 
 [Service]
 Type=simple
-User=ruukoto-exec
-Group=ruukoto-exec
+User=@RUN_USER@
+Group=@RUN_GROUP@
 ExecStart=/usr/local/libexec/ruukoto/ruukoto-service-test.sh
 Restart=no
 # 无网络、无业务凭据、最小攻击面

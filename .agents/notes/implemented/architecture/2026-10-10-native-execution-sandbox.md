@@ -107,3 +107,7 @@ macOS 未知残留可能继续写工作区和消耗 CPU/内存，保留占用会
 - `verification/smoke/smoke-26-native-worker.mts`：两平台各 10/10，报告为 [macOS worker](../../../../verification/foundation/results/native-macos-worker-report.json)与[Linux worker](../../../../verification/foundation/results/native-linux-worker-report.json)；真实 read/edit/write/bash、宿主工具、虚拟凭据/控制面/网络拒绝、授权重建、启动取消、工作区及读写授予目录替换、预存硬链接和物理别名 guard。正式按需入口在没有 execution 参数/环境覆盖且 Docker 入口不可用时使用默认 native。模型模拟，文件与 OS 边界真实；这份 smoke 不验证审批单次消费。
 - `verification/smoke/smoke-26-native-worktrees.mts`：两平台各 8/8，报告为 [macOS worktrees](../../../../verification/foundation/results/native-macos-worktrees-report.json)与[Linux worktrees](../../../../verification/foundation/results/native-linux-worktrees-report.json)；真实副本创建、共享 Git 只读、改动汇总、幂等、冲突、取消、恢复与并行临时资料，停止和清理核实完成。
 - 审批消费的共享回归用 `test/08-approvals.test.ts`、`test/22-auto-review.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts`；真实个人容器路径另有 `smoke-04-desktop-execution.mts` 6/6。升级基点为同协议的 `5e84daa`，`smoke-24-release-acceptance.mts --upgrade-only` 4/4；历史不兼容基点的失败记录保留，不能把它称为升级通过。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

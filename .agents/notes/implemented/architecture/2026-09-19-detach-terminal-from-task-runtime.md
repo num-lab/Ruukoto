@@ -59,3 +59,7 @@ Status: implemented
 - `test/02-idempotency-reconnect.test.ts` 与 `test/12-reconnect-pending.test.ts` 覆盖应答丢失后同一输入只对应一个任务、重连补发无缺口、认证失败与协议不兼容时停止重连。
 - `test/72-on-demand-backend.test.ts` 拉起真实 bin 后台进程（真实文件、socket 与 SQLite，只有模型打桩），覆盖门控、并发拉起收敛为单实例、已运行不重复拉起、启动失败附日志尾部、令牌不符与协议不兼容不拉起，以及关闭客户端不停止后台、重开看到同一任务且不重复提交。
 - [smoke-02.sh](../../../../.scratch/agent-direction/smoke-02.sh) 在 pty 下走真实 `runTui` 生产默认路径：首次拉起、关闭 TUI 后台不停、再开复用、`ruukoto-code stop` 后重开再度拉起、无模型配置时非零退出。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

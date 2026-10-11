@@ -10,8 +10,9 @@
  * （agent-direction issue 08）。每个 Driver 一个实例。
  */
 
-import type { ApprovalScope, ConfirmationRequest, Task } from "@ruukoto/core/types.ts";
+import type { ApprovalScope, ConfirmationRequest, Task, ToolAuthorization } from "@ruukoto/core/types.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import type { ToolOpLedger } from "./tool-op-ledger.ts";
 import { classifyForReview, ReviewAbortedError, REVIEW_POLICY_VERSION, type ApprovalReviewer } from "./review.ts";
 
@@ -33,12 +34,12 @@ export interface ApprovalRequest<T> {
   /** 获批后复核：同步，在消费事务内、条件更新之前执行；返回原因即放弃消费。不得再开核心库事务。 */
   recheck?: () => string | null;
   /** 与消费同一事务提交的本地效果（通知登记）；抛错则整笔回滚。不得再开核心库事务。 */
-  commit?: (approvalId: string) => T;
+  commit?: (approvalId: string | null, authorization: ToolAuthorization) => T;
 }
 
 /** 批准：审批 id、审批记录保存的参数快照与 commit 的返回值；否则为已知未执行的文案。 */
 export type ApprovalResult<T> =
-  | { approved: true; approvalId: string; params: Record<string, unknown>; value: T }
+  | { approved: true; approvalId: string | null; authorization: ToolAuthorization; params: Record<string, unknown>; value: T }
   | { approved: false; text: string };
 
 /** 未批准的已知未执行文案（落库与返回给模型的是同一句；自动拒绝不得显示成"拥有者拒绝"）。 */
@@ -100,9 +101,35 @@ export class ApprovalGate {
    * 「已知未执行」文案（未批准的由闸门记入工具结果，其余由调用方原样返回）。
    */
   async request<T = void>(input: ApprovalRequest<T>): Promise<ApprovalResult<T>> {
+    if (input.task.accessMode === "full_access") return this.authorizeFullAccess(input);
     const waited = await this.wait(input);
     if (!waited.approved) return waited;
     return this.consume(input, waited.confirmationId);
+  }
+
+  // Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
+  private authorizeFullAccess<T>(input: ApprovalRequest<T>): ApprovalResult<T> {
+    const store = this.deps.store;
+    const params = structuredClone(input.params);
+    return store.withTx(() => {
+      const task = store.getTask(input.task.id);
+      const reason = !task || task.status !== "running" || task.cancelRequested || input.signal?.aborted ||
+        task.accessMode !== "full_access" || task.permissionVersion !== input.task.permissionVersion
+        ? `任务已停止或权限已变化，${input.toolName} 未执行`
+        : input.recheck?.() ?? null;
+      if (reason) {
+        this.recordNotExecuted(input, reason);
+        return { approved: false, text: reason };
+      }
+      const authorization: ToolAuthorization = {
+        source: "full_access", taskId: input.task.id, permissionVersion: input.task.permissionVersion, scope: structuredClone(input.scope),
+      };
+      if (!store.authorizeToolOp(input.hostOpId, input.task.sessionId, authorization)) {
+        return { approved: false, text: `操作已被认领或没有本任务的执行意图，${input.toolName} 未执行` };
+      }
+      const value = input.commit ? input.commit(null, authorization) : (undefined as T);
+      return { approved: true, approvalId: null, authorization, params, value };
+    });
   }
 
   /**
@@ -115,6 +142,7 @@ export class ApprovalGate {
    * 长期授权本身不被消费，原单次批准也不被重复使用。
    */
   requestStanding<T>(input: ApprovalRequest<T>): ApprovalResult<T> | null {
+    if (input.task.accessMode === "full_access") return this.authorizeFullAccess(input);
     if (input.scope.kind !== "service_operation" || !this.deps.standingCandidate) return null;
     const store = this.deps.store;
     const scope: Extract<ApprovalScope, { kind: "service_operation" }> = input.scope;
@@ -186,8 +214,13 @@ export class ApprovalGate {
           },
           { taskId: task.id, sessionId: task.sessionId },
         );
-        const value = input.commit ? input.commit(confirmation.id) : (undefined as T);
-        return { approved: true, approvalId: confirmation.id, params: confirmation.params, value };
+        const authorization: ToolAuthorization = {
+          source: "approval", taskId: task.id, permissionVersion: task.permissionVersion,
+          confirmationId: confirmation.id, scope: confirmation.scope,
+        };
+        if (!store.authorizeToolOp(input.hostOpId, task.sessionId, authorization)) throw new StandingFallback();
+        const value = input.commit ? input.commit(confirmation.id, authorization) : (undefined as T);
+        return { approved: true, approvalId: confirmation.id, authorization, params: confirmation.params, value };
       });
     } catch (err) {
       // 核实不再成立：整笔回滚（不留下任何批准/使用记录），交回调用方走人工路径
@@ -325,8 +358,15 @@ export class ApprovalGate {
           },
           { taskId: input.task.id, sessionId: input.task.sessionId },
         );
-        const value = input.commit ? input.commit(confirmationId) : (undefined as T);
-        return { approved: true, approvalId: confirmationId, params: confirmation.params, value };
+        const authorization: ToolAuthorization = {
+          source: "approval", taskId: input.task.id, permissionVersion: confirmation.permissionVersion,
+          confirmationId, scope: confirmation.scope,
+        };
+        if (!store.authorizeToolOp(input.hostOpId, input.task.sessionId, authorization)) {
+          throw new RuntimeApiError("tool_authorization_conflict", "批准消费时工具操作未能单次认领");
+        }
+        const value = input.commit ? input.commit(confirmationId, authorization) : (undefined as T);
+        return { approved: true, approvalId: confirmationId, authorization, params: confirmation.params, value };
       });
     } catch (err) {
       // 整笔回滚（未消费、未提交）：批准失效，错误原样交回调用方

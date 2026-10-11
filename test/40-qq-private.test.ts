@@ -70,7 +70,7 @@ const push = (onebot: MockOneBot, messageId: number, text: string, userId = OWNE
   onebot.pushPrivateMessage({ userId, messageId, segments: [{ type: "text", data: { text } }] });
 const pause = (ms = 220) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-test("QQ owner 私聊复用 main、固定 confirm、先登记且去重；群与陌生人消息不串入；凭据不外泄", async () => {
+test("QQ owner 私聊复用 main、采用会话默认模式、先登记且去重；群与陌生人消息不串入；凭据不外泄", async () => {
   const h = await harness("qq-private-main");
   const rt = await Runtime.start(h.config);
   try {
@@ -97,7 +97,7 @@ test("QQ owner 私聊复用 main、固定 confirm、先登记且去重；群与�
 
     const tasks = mainTasks(rt);
     assert.equal(tasks.length, 2, "重复、非 owner、自身回声、临时会话、非文本与错账号事件不建 main 任务");
-    assert.ok(tasks.every((task) => task.sessionId === main.id && task.accessMode === "confirm"));
+    assert.ok(tasks.every((task) => task.sessionId === main.id && task.accessMode === "full_access"));
     assert.ok(tasks.every((task) => task.grantedPaths.length === 0 && task.permissionVersion === 1));
     for (const task of tasks) {
       const event = rt.store.getInboundEvent(task.sourceEventId!)!;
@@ -213,8 +213,8 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
       if (index === 0) {
         await owner.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
         await waitFor("通知任务已收尾", () => rt.store.getTask(task.id)?.status === "completed");
-        await waitFor("获批通知与原任务回复已发送", () => rt.sched.findOpBySource("confirmation", `task:${task.id}`)?.status === "sent" && replyOps(rt).some((op) => op.taskId === task.id && op.status === "sent"));
-        const op = rt.sched.findOpBySource("confirmation", `task:${task.id}`)!;
+        await waitFor("获批通知与原任务回复已发送", () => rt.sched.findOpBySource("tool", `task:${task.id}`)?.status === "sent" && replyOps(rt).some((op) => op.taskId === task.id && op.status === "sent"));
+        const op = rt.sched.findOpBySource("tool", `task:${task.id}`)!;
         assert.deepEqual(op.target, conf.scope.target);
         // 审批另有一条宿主 IM 通知（参数摘要会引用正文），获批发送按正文段精确匹配只计一次
         const sent = sends(h.onebot).filter((item) =>
@@ -225,7 +225,7 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
         await assert.rejects(owner.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" }), (err: any) => err.code === "stale_confirmation");
         assert.equal(rt.store.getTask(task.id)!.status, "canceled");
         assert.equal(rt.store.getConfirmation(conf.id)!.status, "stale");
-        assert.equal(rt.sched.findOpBySource("confirmation", `task:${task.id}`), null, "配置已变化的批准不能登记发送");
+        assert.equal(rt.sched.findOpBySource("tool", `task:${task.id}`), null, "配置已变化的批准不能登记发送");
         assert.equal(rt.store.getConfirmation(conf.id)!.consumedAt, null);
         await rt.scheduler!.tick();
         assert.equal(sends(h.onebot).length, sendsBefore, "旧批准与原任务回复均不改发新 owner");
@@ -239,11 +239,21 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
   }
 });
 
-test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler 唤醒不自动外发", async () => {
+test("QQ 与 Telegram 共享 main；通用计划独立执行并固定回报，其他外部事件不自动外发", async () => {
   const TG_TOKEN = "123456:SECRET-TOKEN-XYZ";
   const api = new FakeBotApi({ token: TG_TOKEN, ownerId: 42 });
   const apiBase = await api.start();
-  const h = await harness("qq-private-platforms", reply);
+  let scheduledStarted = false;
+  let releaseScheduled!: () => void;
+  const scheduledGate = new Promise<void>((resolve) => { releaseScheduled = resolve; });
+  const h = await harness("qq-private-platforms", async (req, index) => {
+    if (lastUserText(req).includes("MARK-SCHEDULE")) {
+      scheduledStarted = true;
+      await scheduledGate;
+      return { kind: "text", text: "SCHEDULE-FINAL" };
+    }
+    return reply(req, index);
+  });
   h.config.telegramDisabled = false;
   h.config.telegram = { pollTimeoutSec: 1, backoffMs: 50 };
   const rt = await Runtime.start(h.config);
@@ -264,11 +274,48 @@ test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler
     assert.ok(JSON.stringify(sends(h.onebot)[0]!.params).includes("REPLY MARK-QQ"));
     assert.equal(mainTasks(rt).length, 2);
     assert.deepEqual(replyOps(rt).map((op) => [op.target.channel, op.text]).sort(), [["qq_private", "REPLY MARK-QQ"], ["telegram", "REPLY MARK-TG"]]);
-    const { event } = await rt.orchestrator!.registerInboundEvent({ source: "scheduler", externalId: "wake-test", targetRole: "main", body: "MARK-WAKE" });
-    await waitFor("定时唤醒完成", () => rt.store.getInboundEvent(event.id)?.status === "done");
+    const { event } = await rt.orchestrator!.registerInboundEvent({ source: "internal", externalId: "external-test", targetRole: "main", body: "MARK-WAKE" });
+    await waitFor("其他外部事件完成", () => rt.store.getInboundEvent(event.id)?.status === "done");
     await rt.scheduler!.tick();
     assert.equal(replyOps(rt).length, 2);
     assert.equal(sends(h.onebot).length + api.sends.length, 2);
+
+    const main = rt.store.getAgentRole("main")!;
+    const due = new Date(Date.now() - 1000).toISOString();
+    const schedule = rt.store.withTx(() => rt.sched.insertSchedule({
+      createKey: "independent-platform-run", paramsDigest: "independent-platform-run", createTaskId: null, createOpId: null,
+      projectId: main.projectId, createPermissionVersion: 1, accessMode: "full_access",
+      rule: { kind: "once", at: due, timeZone: "UTC", disambiguation: "compatible" },
+      instruction: "MARK-SCHEDULE", sourceRefs: [], target, nextDueAt: due, tzData: "test", reason: "验证独立运行与固定回报",
+    }, "test"));
+    await rt.scheduler!.tick();
+    await waitFor("独立定时任务执行中", () => scheduledStarted);
+    const run = rt.sched.listRuns(schedule.id, 1)[0];
+    assert.ok(run.rootTaskId && run.sessionId);
+    assert.notEqual(run.sessionId, main.sessionId);
+    assert.equal(rt.store.getSessionIdentity(run.sessionId)!.kind, "scheduled");
+    assert.equal(rt.store.getTask(run.rootTaskId)!.accessMode, "full_access");
+    const scheduledRequest = h.model.calls.find((request) => lastUserText(request).includes("MARK-SCHEDULE"))!;
+    assert.doesNotMatch(JSON.stringify(scheduledRequest), /MARK-QQ|MARK-TG/, "独立上下文不带主私聊历史");
+    assert.equal(rt.sched.findOpBySource("schedule_run", run.id), null, "执行期间无中间外发");
+    push(h.onebot, 2, "MARK-QQ-DURING");
+    api.push({ text: "MARK-TG-DURING", from: 42 });
+    await waitFor("计划执行中主私聊继续回复", () => replyOps(rt).filter((op) => op.status === "sent").length === 4);
+    assert.equal(mainTasks(rt).length, 5, "原平台私聊与其他外部事件仍在唯一main会话");
+    assert.ok(mainTasks(rt).every((task) => task.sessionId === main.sessionId));
+    assert.equal(rt.sched.findOpBySource("schedule_run", run.id), null);
+    releaseScheduled();
+    await waitFor("独立任务已收尾", () => rt.store.getTask(run.rootTaskId!)?.resultSummary !== null);
+    await rt.scheduler!.tick();
+    await waitFor("固定目标最终回报发送", () => rt.sched.findOpBySource("schedule_run", run.id)?.status === "sent");
+    const report = rt.sched.findOpBySource("schedule_run", run.id)!;
+    assert.deepEqual(report.target, target);
+    assert.match(report.text, /SCHEDULE-FINAL/);
+    assert.equal(replyOps(rt).length, 4, "计划回报采用独立来源键");
+    assert.equal(api.sends.length, 3);
+    assert.equal(sends(h.onebot).length, 2, "计划不向另一平台广播");
+    await rt.scheduler!.tick();
+    assert.equal(api.sends.filter((send) => String(send.text).includes("SCHEDULE-FINAL")).length, 1);
 
     api.offline = true;
     await waitFor("Telegram 轮询离线", () => rt.telegramStatus().online === false);
@@ -285,14 +332,15 @@ test("QQ 与 Telegram 共享 main，公共 outbox 按原平台回复，scheduler
     await rt.scheduler!.tick();
     await waitFor("离线 Telegram 积压不饿死 QQ", () => rt.sched.getOp(qqOp.id)?.status === "sent");
     assert.ok(backlog.every((op) => rt.sched.getOp(op.id)!.status === "pending"));
-    assert.equal(api.sends.length, 1);
+    assert.equal(api.sends.length, 3);
     api.offline = false;
     await waitFor("Telegram 轮询恢复在线", () => rt.telegramStatus().online === true);
     await rt.scheduler!.tick();
     await waitFor("Telegram 恢复后补发积压", () => backlog.every((op) => rt.sched.getOp(op.id)!.status === "sent"));
-    assert.equal(api.sends.length, 52);
-    assert.equal(sends(h.onebot).length, 2, "恢复 Telegram 不重发 QQ");
+    assert.equal(api.sends.length, 54);
+    assert.equal(sends(h.onebot).length, 3, "恢复 Telegram 不重发 QQ");
   } finally {
+    releaseScheduled();
     await rt.stop("test_end");
     await api.close();
     await h.close();
@@ -503,35 +551,5 @@ test("重启恢复已登记未建任务；补登只取原任务回答；sending 
   } finally {
     await rt.stop("test_end");
     await h.close();
-  }
-});
-
-test("schema v14 → v15 保留群配置与收发记录，owner 和已有入站目标默认 null", async () => {
-  const { dirs } = await makeTestDirs("qq-private-migrate", 0);
-  try {
-    let db = new Db(dirs.dataDir);
-    let qq = new QqStore(db);
-    qq.upsertConfig({ endpoint: "ws://127.0.0.1:3001/", selfId: MOCK_QQ_ACCOUNT });
-    // 历史群允许列表按旧形态直接写入（写入口已随核心群聊退役删除，issue 20）
-    db.prepare("UPDATE qq_config SET groups = ? WHERE id = 1").run(JSON.stringify([GROUP]));
-    qq.setEnabled(true);
-    const store = new Store(db);
-    seedInboxRow(store, qq, { account: MOCK_QQ_ACCOUNT, groupId: GROUP, userId: OWNER, senderName: "owner", messageId: "1", text: "群历史", taskInput: "群历史", messageTime: null });
-    seedPendingOutbox(store, qq, { taskId: "old-group-task", account: MOCK_QQ_ACCOUNT, groupId: GROUP, replyToMessageId: "1", text: "原群回复" });
-    const { event } = store.registerInboundEvent({ source: "scheduler", externalId: "old-event", actor: null, targetRole: "main", body: "原入站" });
-    db.exec("ALTER TABLE qq_config DROP COLUMN owner_user_id; ALTER TABLE inbound_events DROP COLUMN reply_target; UPDATE meta SET value = '14' WHERE key = 'schema_version'");
-    db.close();
-    db = new Db(dirs.dataDir);
-    qq = new QqStore(db);
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
-    assert.equal(qq.getConfig()!.ownerUserId, null);
-    assert.deepEqual(qq.getConfig()!.groups, [GROUP]);
-    assert.equal(qq.getConfig()!.enabled, true);
-    assert.equal(qq.listInbox({})[0]!.text, "群历史");
-    assert.equal(qq.listOutbox({})[0]!.text, "原群回复");
-    assert.equal(new Store(db).getInboundEvent(event.id)!.replyTarget, null);
-    db.close();
-  } finally {
-    await cleanupDirs(dirs);
   }
 });

@@ -76,7 +76,7 @@ import { QQ_PRIVATE_SOURCE,QqAdapter,type QqAdapterTimeouts } from "@ruukoto/cha
 import { QQ_GROUP_SOURCE,QqStore,type QqConfig,type QqInboxRow,type QqOutboxRow } from "@ruukoto/channels/qq/store.ts";
 import { SCHEDULER_LEDGER,schedulerOpCheck } from "@ruukoto/channels/scheduler/ledger.ts";
 import { Scheduler,type NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
-import { SchedulerConflictError,SchedulerStore,type NotificationStatus,type ScheduleStatus } from "@ruukoto/channels/scheduler/store.ts";
+import { SchedulerConflictError,SchedulerStore,type NotificationStatus,type ScheduleRun,type ScheduleStatus } from "@ruukoto/channels/scheduler/store.ts";
 import { SERVICE_LEDGER } from "@ruukoto/channels/service-ledger.ts";
 import { createSourceResolver,type SourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import { TELEGRAM_SOURCE,TelegramAdapter,TelegramStore,type TelegramConfig } from "@ruukoto/channels/telegram/adapter.ts";
@@ -223,7 +223,7 @@ export interface RuntimeConfig {
   modelId?: string;
   /**
    * 工具执行后端：local（开发/验证，无隔离，禁止用于声明请求确认模式的
-   * 边界）| container（Linux 容器边界）| systemd（执行账户入口）。
+   * 边界）| container（Linux 容器边界）；完全访问直接使用启动账户。
    * 省略时取 local：只适用于开发与模拟验证，生产部署必须显式配置。
    */
   execution?: ExecutionBackendConfig;
@@ -535,7 +535,7 @@ export class Runtime {
   }
 
   /**
-   * 在受限 worker 内创建与汇总 worktree，执行宿主固定 Git 命令。
+   * 按发起任务模式创建与汇总 worktree，执行宿主固定 Git 命令。
    * 副本与必要共享 Git 目录按操作授予；停止未核实时保留结果与目录占用。
    * Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
    * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
@@ -555,11 +555,11 @@ export class Runtime {
       }
     };
     assertParent();
-    const launcher = this.launcherFor("confirm");
+    const launcher = this.launcherFor(parent.accessMode);
     const workspaceStat = fs.statSync(input.workspace);
     const spec = {
       taskId: `${input.parentTaskId}-${randomId("wt")}`,
-      mode: "confirm" as AccessMode,
+      mode: parent.accessMode,
       workspace: input.workspace,
       workspaceIdentity: process.platform === "darwin" && launcher.kind === "container"
         ? undefined : { dev: workspaceStat.dev, ino: workspaceStat.ino },
@@ -813,7 +813,9 @@ export class Runtime {
         kickSession: (sessionId) => runtime.kick(sessionId),
         defaultModelSelection: () => runtime.defaultSelection,
       },
+      dispatchScheduled: (event, selection) => runtime.dispatchScheduled(event, selection),
       onInboundTerminal: (event, task, outcome) => {
+        if (event.source === "scheduler") return;
         // 未完成归属的图片拒绝只使用媒体账本回执，取消排队任务不再另发 owner 回复。
         if (runtime.inboundMedia.hasMedia(event) && event.taskId !== task.id) return;
         if (event.source === GITHUB_SOURCE) runtime.githubEvents.terminal(event, task, outcome);
@@ -885,6 +887,102 @@ export class Runtime {
     });
   }
 
+  /** 每次调度使用独立会话；任务、来源事件与运行绑定同事务提交。 */
+  private async dispatchScheduled(event: InboundEvent, selection: ModelSelection): Promise<Task> {
+    const run = this.sched.getRun(event.externalId);
+    const schedule = run ? this.sched.getSchedule(run.scheduleId) : null;
+    if (!run || !schedule || run.inboundEventId !== event.id) throw new RuntimeApiError("not_found", "调度运行来源不可核实");
+    if (run.rootTaskId) return this.store.getTask(run.rootTaskId)!;
+    try {
+      if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+      const check = await this.resolveSelection(selection);
+      this.launcherFor(schedule.accessMode);
+      const sourceProblem = this.sources.verify(schedule.projectId, schedule.sourceRefs);
+      if (sourceProblem) throw new RuntimeApiError("task_sources_revoked", "调度资料授权已失效，未开始执行");
+      const workDir = path.join(path.dirname(path.resolve(this.config.dataDir)), "agent-work", "scheduled", run.id);
+      fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
+      const real = fs.realpathSync(workDir);
+      const stat = fs.statSync(real);
+      return this.store.withTx(() => {
+        const currentRun = this.sched.getRun(run.id);
+        const currentSchedule = this.sched.getSchedule(schedule.id);
+        if (currentRun?.rootTaskId) return this.store.getTask(currentRun.rootTaskId)!;
+        if (this.stopping || !currentRun || currentRun.closedAt || !currentSchedule || currentSchedule.status === "canceled" ||
+            this.store.getInboundEvent(event.id)?.status !== "registered") {
+          throw new RuntimeApiError("task_ending", "调度计划已取消或运行已结束，未开始执行");
+        }
+        check();
+        if (this.sources.verify(schedule.projectId, schedule.sourceRefs)) throw new RuntimeApiError("task_sources_revoked", "调度资料授权已失效，未开始执行");
+        const session = this.store.createSession({ projectId: schedule.projectId, kind: "dev", cwd: real, cwdReal: real,
+          cwdDev: stat.dev, cwdIno: stat.ino, piSessionId: randomId("pi"), confirmTools: [], modelSelection: selection });
+        const { task } = this.store.insertQueuedTask({ sessionId: session.id, requestId: `evt:${event.id}`, input: event.body,
+          accessMode: schedule.accessMode, modelSelection: selection,
+          submissionDigest: createHash("sha256").update(JSON.stringify({ runId: run.id, eventId: event.id, mode: schedule.accessMode })).digest("hex"),
+          sourceEventId: event.id, readScope: { paths: [], sourceRefs: schedule.sourceRefs } });
+        if (!this.sched.bindRunExecution(run.id, session.id, task.id)) throw new RuntimeApiError("task_ending", "调度运行绑定已失效");
+        this.store.markInboundQueued(event.id, task.id);
+        return task;
+      });
+    } catch (err) {
+      // 配置应用门闩与后台停止留待恢复；确定无法启动的本次运行登记失败，不补跑。
+      if (err instanceof RuntimeApiError && (err.code === "model_config_busy" || err.code === "stopping")) throw err;
+      this.store.withTx(() => {
+        if (this.store.failRegisteredInbound(event.id)) this.store.appendEvent({ type: "inbound.skipped", eventId: event.id,
+          source: event.source, reason: "schedule_start_failed:本次定时执行无法启动，请检查模型、执行入口或资料授权" });
+      });
+      throw err;
+    }
+  }
+
+  /** 首次任务、全部派生执行和结果汇总到终态后才关闭运行。 */
+  private scheduledRunOutcome(run: ScheduleRun): { status: "completed" | "failed" | "canceled" | "interrupted"; text: string } | null {
+    const schedule = this.sched.getSchedule(run.scheduleId);
+    if (!run.rootTaskId) {
+      if (schedule?.status === "canceled") return { status: "canceled", text: "计划已取消，本次运行未开始" };
+      const event = run.inboundEventId ? this.store.getInboundEvent(run.inboundEventId) : null;
+      return event?.status === "failed" ? { status: "failed", text: "本次定时执行无法启动，请检查模型、执行入口或资料授权" } : null;
+    }
+    const tasks = this.store.listScheduledRunTasks(run.id);
+    const taskIds = new Set(tasks.map((task) => task.id));
+    if (this.store.listAllOccupancy().some((held) => taskIds.has(held.taskId))) return null;
+    if (tasks.some((task) => !isTerminalTaskStatus(task.status) || task.resultSummary === null)) return null;
+    if (schedule?.status === "canceled") return { status: "canceled", text: "计划已取消，运行记录、成果及未核实占用保留" };
+    if (this.store.listPendingSubAgentMessages(run.sessionId!).length > 0) return null;
+    for (const task of tasks) {
+      if (!task.subAgentId || !task.workId || this.store.getWorkDelegation(task.workId)?.canceledAt) continue;
+      if (!this.store.findTaskByRequest(run.sessionId!, `wake:${task.id}`)) return null;
+    }
+    const final = tasks.filter((task) => task.sessionId === run.sessionId).sort((a, b) => (a.endedAt ?? "").localeCompare(b.endedAt ?? "") || a.id.localeCompare(b.id)).at(-1)!;
+    const problem = tasks.find((task) => task.status === "interrupted") ?? tasks.find((task) => task.status !== "completed");
+    const status = problem?.status === "interrupted" ? "interrupted" : problem ? "failed" : "completed";
+    const reply = this.readTaskReplyText(final.id)?.trim();
+    return { status, text: [reply, problem ? `${problem.id}：${problem.resultSummary ?? problem.errorMessage ?? "执行未成功"}` : null].filter(Boolean).join("\n") || "（无文本结果）" };
+  }
+
+  /** 取消事实已提交；停止整项运行，已有成果与停止未核实状态沿原收尾路径保留。 */
+  private async cancelScheduledRun(run: ScheduleRun, initiatingTaskId: string | null): Promise<void> {
+    if (!run.rootTaskId) return;
+    const tasks = this.store.listScheduledRunTasks(run.id);
+    this.store.withTx(() => {
+      for (const task of tasks) {
+        if (task.status === "queued") this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_canceled" });
+        else if (!isTerminalTaskStatus(task.status)) this.store.setCancelRequested(task.id, true);
+      }
+    });
+    const works = [...new Set(tasks.flatMap((task) => task.workId ? [task.workId] : []))];
+    for (const workId of works) await this.subagents!.cancelWork({ workId, by: "owner", reason: "调度计划已取消", parentSessionId: run.sessionId! });
+    for (const task of this.store.listScheduledRunTasks(run.id)) {
+      if (isTerminalTaskStatus(task.status)) continue;
+      if (task.id === initiatingTaskId) {
+        // 本工具返回前 SDK abort 会等当前调用；取消意图已落库，仅发起者异步收尾。
+        void this.cancelTask(task.id, { reason: "schedule_canceled" }).catch((err: unknown) => {
+          process.stderr.write(`[ruukoto:scheduler] 发起任务 ${task.id} 取消收尾失败，运行保持未完成，请核实任务与占用：${err instanceof Error ? err.message : String(err)}\n`);
+        });
+      } else await this.cancelTask(task.id, { reason: "schedule_canceled" });
+    }
+    await this.subagents!.flushPendingMessages(run.sessionId!);
+  }
+
   private initScheduler(): void {
     const now = this.config.scheduler?.now ?? (() => Date.now());
     this.scheduler = new Scheduler({
@@ -895,8 +993,11 @@ export class Runtime {
       // 编排器在 start 末尾创建；调度扫描只在其后开放，恢复准备不派发
       dispatchRegistered: () => this.orchestrator?.dispatchRegisteredEvents() ?? Promise.resolve(),
       serial: (fn) => (this.orchestrator ? this.orchestrator.serial(fn) : fn()),
-      cancelTask: (taskId) => this.cancelTask(taskId),
+      runOutcome: (run) => this.scheduledRunOutcome(run),
+      cancelRun: (run, initiatingTaskId) => this.cancelScheduledRun(run, initiatingTaskId),
       verifySources: (op) => {
+        const authorizationProblem = this.sched.verifyToolAuthorization(op);
+        if (authorizationProblem) return authorizationProblem;
         // IM 审批控制消息回执（issue 08）：宿主已在处理时核实身份；发送前核对
         // 原控制事件与钉版目标，不经仅适用于 GitHub 的入站核实
         if (op.sourceKind === "inbound_event") {
@@ -924,16 +1025,10 @@ export class Runtime {
         const problem = this.githubEvents.verifyNotification(op);
         if (problem) return problem;
         const main = this.store.getAgentRole("main");
-        if (op.sourceKind === "schedule_run") {
-          const run = this.sched.getRun(op.sourceKey);
-          if (run?.newsResult && (!main || this.store.getProject(main.projectId)?.webSearch !== "enabled")) return "新闻搜索已禁用或 main 不可用";
-        }
-        return main ? this.sources.verify(main.projectId, op.sourceRefs) : "main 角色未引导";
-      },
-      searchNews: (params, signal) => {
-        const main = this.store.getAgentRole("main");
-        if (!main || this.store.getProject(main.projectId)?.webSearch !== "enabled") throw new WebSearchError("disabled", "main Web Search 不可用");
-        return searchTavily({ credentials: this.credentials, projectId: main.projectId, ...this.config.webSearch }, params, signal);
+        const run = op.sourceKind === "schedule_run" ? this.sched.getRun(op.sourceKey) : null;
+        const projectId = run ? this.sched.getSchedule(run.scheduleId)?.projectId
+          : op.taskId ? this.store.getSession(this.store.getTask(op.taskId)?.sessionId ?? "")?.projectId : main?.projectId;
+        return projectId ? this.sources.verify(projectId, op.sourceRefs) : "通知来源项目不可核实";
       },
       log: (message) => process.stderr.write(`[ruukoto:scheduler] ${message}\n`),
       tickMs: this.config.scheduler?.tickMs,
@@ -944,6 +1039,11 @@ export class Runtime {
   private inboundGate(event: InboundEvent): "run" | "wait" | { drop: string } {
     // 核心群聊已退役（agent-direction issue 20）：旧群入站事件一律作废
     if (event.source === QQ_GROUP_SOURCE) return { drop: CORE_GROUP_CHAT_RETIRED };
+    if (event.source === "scheduler") {
+      const run = this.sched.getRun(event.externalId);
+      const schedule = run ? this.sched.getSchedule(run.scheduleId) : null;
+      return !run || run.closedAt || !schedule || schedule.status === "canceled" ? { drop: "schedule_canceled" } : "run";
+    }
     return event.source === GITHUB_SOURCE ? this.githubEvents.gate(event) : this.imEntries.gate(event);
   }
 
@@ -1044,13 +1144,18 @@ export class Runtime {
     }
     const { items, nextCursor } = this.sched.listSchedules({ status: input.status as ScheduleStatus | undefined, cursor: input.cursor, limit: input.limit });
     // 列表不带完整正文（详情单条读取），保持分页有界
-    return { schedules: items.map(({ payload, ...rest }) => ({ ...rest, payloadChars: [...payload.text].length })), nextCursor };
+    return { schedules: items.map(({ instruction, ...rest }) => ({ ...rest, instructionChars: [...instruction].length })), nextCursor };
   }
 
   scheduleGet(scheduleId: string) {
     const schedule = this.sched.getSchedule(scheduleId);
     if (!schedule) throw new RuntimeApiError("not_found", `计划不存在：${scheduleId}`);
-    return { schedule, runs: this.sched.listRuns(scheduleId, 20) };
+    const heldTaskIds = new Set(this.store.listAllOccupancy().map((held) => held.taskId));
+    return { schedule, runs: this.sched.listRuns(scheduleId, 20).map((run) => ({
+      ...run,
+      stopUnverifiedTaskIds: this.store.listScheduledRunTasks(run.id)
+        .filter((task) => isTerminalTaskStatus(task.status) && heldTaskIds.has(task.id)).map((task) => task.id),
+    })) };
   }
 
   // ---------- 长期操作授权（拥有者控制面；agent-direction issue 10） ----------
@@ -2221,9 +2326,10 @@ export class Runtime {
      */
     agentId?: AgentRoleId | null;
     parentTaskId?: string | null;
+    sourcePermissionVersion?: number | null;
     sourceEventId?: string | null;
     deadline?: string | null;
-  }): Promise<Task> {
+  }, internal = false): Promise<Task> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
@@ -2232,10 +2338,11 @@ export class Runtime {
     const identity = this.store.getSessionIdentity(session.id)!;
     // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
     // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
-    if (identity.kind === "subagent") {
+    if (identity.kind === "subagent" || (identity.kind === "scheduled" && !internal)) {
       throw new RuntimeApiError(
         "invalid_state",
-        "该会话是 SubAgent 的独立工作会话，不能用作用户对话提交（委派经 subagent_delegate，结果经 subagent_result 查询）",
+        identity.kind === "subagent" ? "该会话是 SubAgent 的独立工作会话，不能提交用户对话或另行继续"
+          : "该独立调度会话由宿主管理，不能提交用户对话或另行继续",
       );
     }
     // 固定角色已退役（agent-direction issue 20/23）：qq_group 会话与 chat/coding
@@ -2274,21 +2381,12 @@ export class Runtime {
     };
     const submission = {
       ...digestBase,
-      agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null,
+      agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null, sourcePermissionVersion: input.sourcePermissionVersion ?? null,
       sourceEventId: input.sourceEventId ?? null, deadline,
     };
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
     const submissionDigest = `request-v2:${digest(submission)}`;
-    // 通用摘要升级：旧格式只保存最终访问模式，隐式请求需按原三种模式核实，
-    // 不借用现在的会话默认值或可能已切换的任务模式。Plan 不匹配任何旧摘要。
-    const legacyModes = input.accessMode === undefined ? SESSION_DEFAULT_MODES.filter(isAccessMode)
-      : isAccessMode(input.accessMode) ? [input.accessMode] : [];
-    const legacyDigests = legacyModes.flatMap((accessMode) => [
-      digest({ ...submission, accessMode }),
-      ...(submission.agentId === null && submission.parentTaskId === null && submission.sourceEventId === null && deadline === null
-        ? [digest({ ...digestBase, accessMode })] : []),
-    ]);
-    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
+    const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
     if (existing) return existing;
     this.assertNoSessionCompaction(input.sessionId);
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
@@ -2316,11 +2414,23 @@ export class Runtime {
         // 门闩重检必须在入队事务内（issue 21 §4）：应用方的门闩设置与活动
         // 任务核查是同一同步段，这里在插入前重检才能保证"检查到应用完成
         // 之间"没有受影响任务钻过边界；重复提交先仲裁返回，不受门闩影响
-        const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest, legacyDigests });
+        const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
         if (raced) return { task: raced, duplicate: true };
         this.assertNoSessionCompaction(input.sessionId);
         check();
-        return this.store.insertQueuedTask({
+        if (identity.kind === "scheduled") {
+          const source = input.parentTaskId ? this.store.getTask(input.parentTaskId) : null;
+          const run = source ? this.store.getScheduledRunForTask(source.id) : null;
+          if (!source || run?.id !== identity.runId || run.closedAt || run.scheduleStatus === "canceled" ||
+              source.permissionVersion !== input.sourcePermissionVersion || source.accessMode !== accessMode) {
+            throw new RuntimeApiError("task_ending", "调度派生任务的来源授权已失效，拒绝登记");
+          }
+        }
+        const ordinaryInbound = input.sourceEventId && input.requestId === `evt:${input.sourceEventId}` && (!sourceEvent || !this.inboundMedia.hasMedia(sourceEvent)) ? this.store.getInboundEvent(input.sourceEventId) : null;
+        if (ordinaryInbound && (ordinaryInbound.status !== "registered" || this.inboundGate(ordinaryInbound) !== "run")) {
+          throw new RuntimeApiError("task_ending", "入站来源已失效或暂不可用，拒绝登记新任务");
+        }
+        const queued = this.store.insertQueuedTask({
           sessionId: input.sessionId,
           requestId: input.requestId,
           input: input.input,
@@ -2330,12 +2440,14 @@ export class Runtime {
           resumesTaskId: input.resumesTaskId,
           modelSelection: selection,
           submissionDigest,
-          legacyDigests,
           agentId: input.agentId ?? null,
           parentTaskId: input.parentTaskId ?? null,
+          sourcePermissionVersion: input.sourcePermissionVersion ?? null,
           sourceEventId: input.sourceEventId ?? null,
           deadline,
         });
+        if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
+        return queued;
       }));
     } catch (err) {
       if (err instanceof StoreConflictError) {
@@ -2354,7 +2466,7 @@ export class Runtime {
   private async submitInternal(input: Parameters<Runtime["submit"]>[0]): Promise<Task> {
     for (;;) {
       try {
-        return await this.submit(input);
+        return await this.submit(input, true);
       } catch (err) {
         if (!(err instanceof RuntimeApiError) || err.code !== "model_config_busy") throw err;
         await this.modelConfigSettled;
@@ -2391,8 +2503,8 @@ export class Runtime {
   async setSessionDefaultMode(input: { sessionId: string; mode: SessionDefaultMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
-    if (this.store.getSessionIdentity(input.sessionId)?.kind === "subagent") {
-      throw new RuntimeApiError("invalid_state", "SubAgent 的独立工作会话不允许修改默认模式");
+    if (["subagent", "scheduled"].includes(this.store.getSessionIdentity(input.sessionId)?.kind ?? "")) {
+      throw new RuntimeApiError("invalid_state", "宿主独立执行会话不允许修改默认模式");
     }
     if (!isSessionDefaultMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `会话默认模式无效：${input.mode}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
@@ -2420,8 +2532,8 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
-    if (task.subAgentId || this.store.getSessionIdentity(task.sessionId)?.kind === "subagent") {
-      throw new RuntimeApiError("invalid_state", "SubAgent 执行任务的权限模式由宿主固定为请求确认，不允许切换");
+    if (task.subAgentId || ["subagent", "scheduled"].includes(this.store.getSessionIdentity(task.sessionId)?.kind ?? "")) {
+      throw new RuntimeApiError("invalid_state", "独立执行任务的权限模式由宿主保存的来源授权决定，不允许切换");
     }
     if (!isAccessMode(input.mode)) {
       throw new RuntimeApiError("invalid_params", `访问模式无效：${input.mode}`);
@@ -2805,14 +2917,14 @@ export class Runtime {
           await this.cancelTask(task.id, { reason: "inbound_media_rejected" });
           continue;
         }
-        // 群任务须先原子关联收件、入站与任务，避免提交后的立即 kick 抢先执行。
-        if ((sourceEvent.source === QQ_GROUP_SOURCE || this.inboundMedia.hasMedia(sourceEvent)) && sourceEvent.taskId !== task.id) return;
         const decision = this.inboundGate(sourceEvent);
         if (decision === "wait") return;
         if (decision !== "run") {
           await this.cancelTask(task.id, { reason: decision.drop });
           continue;
         }
+        // 先核实来源代次；仍有效的群/图片任务才等待收件、入站与媒体归属事务。
+        if ((sourceEvent.source === QQ_GROUP_SOURCE || this.inboundMedia.hasMedia(sourceEvent)) && sourceEvent.taskId !== task.id) return;
       }
 
       // 父级送达的放行判定（工单 09 入口 4）：已取消工作的结果唤醒与消息唤醒在此
@@ -2859,6 +2971,11 @@ export class Runtime {
         this.store.withTx(() => {
           if (this.stopping) throw new TaskGoneError(); // 停止开始后不再让排队任务转入运行
           this.assertNoSessionCompaction(sessionId);
+          const scheduled = this.store.getScheduledRunForTask(task.id);
+          if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) {
+            this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_canceled" });
+            return;
+          }
           if (!this.store.tryAcquireOccupancy({
             cwdReal: workspaceLaunch.path,
             cwdDev: workspaceLaunch.dev,
@@ -2883,6 +3000,7 @@ export class Runtime {
       }
 
       const fresh = this.store.getTask(task.id)!;
+      if (fresh.status !== "running") continue;
       try {
         const driver = await this.getDriver(session);
         await driver.run(fresh);
@@ -2967,6 +3085,11 @@ export class Runtime {
         sources: this.sources,
         notificationTarget: (ctx) => {
           const task = this.store.getTask(ctx.taskId);
+          const scheduled = this.store.getScheduledRunForTask(ctx.taskId);
+          if (scheduled) {
+            const run = this.sched.getRun(scheduled.id);
+            return run ? this.sched.getSchedule(run.scheduleId)?.target ?? null : null;
+          }
           return this.imEntries.notificationTarget(task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null);
         },
       }),
@@ -3173,12 +3296,10 @@ export class Runtime {
     const backend = this.config.execution?.backend ?? "local";
     const note =
       backend === "local"
-        ? "local 执行后端：无隔离，仅用于开发/验证；不得据此声明请求确认模式的执行边界"
+        ? "local 执行后端：开发受限任务无隔离；完全访问使用启动账户权限且免操作审批"
         : backend === "container"
-          ? "container 执行后端：请求确认任务在 Linux 容器边界内执行"
-          : backend === "native"
-            ? "native 执行后端：受限任务在操作系统原生沙箱内执行，完全访问仍需专用执行账户入口"
-            : "systemd 执行账户入口：完全访问任务以固定执行 UID 运行";
+          ? "container 执行后端：受限任务在 Linux 容器内执行；完全访问使用启动账户直接执行"
+          : "native 执行后端：受限任务在操作系统原生沙箱内执行；完全访问使用启动账户直接执行";
     return { backend, note };
   }
 

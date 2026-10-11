@@ -14,7 +14,7 @@ import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts
  *     不可见、只读根文件系统拒绝写入（不止工具参数检查）；
  *  3. 越界读取走结构化审批：request_file_access 待批 → 拥有者批准单次消费后
  *     按批准参数执行；
- *  4. 完全访问缺少执行账户入口时，提交即 execution_unavailable 拒绝、不回退；
+ *  4. 完全访问无需独立执行入口，以启动账户完成任务；
  *  5. 中断回收实际执行单元：容器随中断移除，操作沿用未知效果规则补记。
  *
  * 结果约定（沿用 macos-sbx-probe.sh）：0 = 全部通过；1 = 有 FAIL；
@@ -64,11 +64,6 @@ function docker(args: string[]): string {
 
 requireDocker(IMAGE);
 console.log(`环境：${process.platform} ${process.arch}；镜像 ${IMAGE}（${docker(["image", "inspect", "--format", "{{.Id}}", IMAGE])}）；容器 uid:gid ${UID}:${GID}`);
-
-// 完全访问入口判定只认我们的部署环境：脚本清掉 RUUKOTO_EXEC_*，断言固定到「未配置」路径
-for (const key of Object.keys(process.env)) {
-  if (key.startsWith("RUUKOTO_EXEC_")) delete process.env[key];
-}
 
 // /var → /private/var 符号链接：文件操作守卫要求受限解析后的真实路径
 const root = fs.realpathSync(mkdtempSync(path.join(tmpdir(), "ruukoto-smoke04-")));
@@ -247,19 +242,12 @@ try {
     });
   }
 
-  // ---- 4. 完全访问缺执行账户入口：执行前拒绝 ----
+  // ---- 4. 完全访问无需独立执行入口 ----
   {
-    let code = "";
-    let message = "";
-    try {
-      await submit("full-access-1", "FLOW-full-access：不应可提交", "full_access");
-    } catch (err: any) {
-      code = err.code;
-      message = String(err.message);
-    }
-    check("完全访问缺执行账户入口：执行前拒绝且不回退", () => {
-      assert.equal(code, "execution_unavailable");
-      assert.match(message, /不回退/);
+    const task = await submit("full-access-1", "FLOW-full-access：直接执行", "full_access");
+    await waitFor("完全访问任务完成", async () => (await taskStatus(client, task.id)).task.status === "completed", 60_000);
+    check("完全访问无需独立执行入口", () => {
+      assert.equal(t!.runtime.store.getTask(task.id)?.accessMode, "full_access");
     });
   }
 

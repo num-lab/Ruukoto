@@ -26,3 +26,9 @@ Status: implemented
 ## 验证
 
 [工单 13](../../../../.scratch/agent-direction/issues/13-subagent-messaging.md)记录 test/86-subagent-messaging 8/8、typecheck 与图解检查 4/4 通过。全量 897 项中 893 通过、1 跳过、3 失败，已逐项核实为 DNS、worktree 目录名和全量负载下 PTY 时序环境项。smoke-13-subagent-messaging.mts 在 macOS 与 ssh tx Linux 各 6/6，真实 Runtime、CLI、SQLite、JSONL、Docker worker，模型/平台模拟。moved_work 与 closed 待投递组合由最终状态播种覆盖守卫，不能作为正常时序自然可达的证明；宿主评审消息禁用由管理器断言覆盖，未构造完整评审场景。真实 QQ/Telegram 未实测。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。

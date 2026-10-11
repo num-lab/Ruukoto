@@ -78,3 +78,7 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 - `test/10-access-modes.test.ts`：容器后端下完全访问只有两个包装脚本变量都设置时才得到 `systemd` 启动器，只设一个时以 `execution_unavailable` 失败。`test/73-desktop-execution.test.ts`：Coding Agent 默认 native 并拒绝旧配置，完全访问缺执行账户入口时在执行前拒绝；容器/systemd 的共享启动与停止仍按库层配置核实。
 - 真实容器边界：`verification/foundation` 的 `npm run linux:probes`（报告 `results/linux-isolation-report.md` 与 `-tx.md`）和 `verification/foundation/scripts/linux-isolation/container-worker-smoke.mts`，覆盖网络拒绝、宿主路径不可见、非 root、只读根、capabilities 清零、按宿主原路径挂载，以及逃逸孙进程在停止后心跳冻结、容器被移除。这些只能在真实容器引擎上证明，模型打桩或 local 测试替代不了。
 - 完全访问身份：tx 实测见 personal-agent issue 23 的 Comments，任务以 `ruukoto-exec` 运行，读取拥有者令牌返回 `Permission denied`。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

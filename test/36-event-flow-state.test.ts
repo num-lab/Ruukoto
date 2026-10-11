@@ -14,7 +14,8 @@ const messages = (flow: EventFlow) => flow.items.filter((entry) => entry.kind ==
 function task(id = "task", extra: Partial<Task> = {}): Task {
   return {
     id, sessionId: "session", requestId: `request:${id}`, input: "same input", modelSelection: null,
-    submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1, grantedPaths: [],
+    submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1,
+    sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
     resultSummary: null, resultRef: null,
@@ -37,7 +38,7 @@ const result = event(4, { type: "task.tool_result", taskId: "task", toolOpId: "o
 const toolHistory = history("tool-entry", "toolResult", "updated", { timestamp: at(4), toolCallId: "call", toolName: "edit", isError: false, editStats: { added: 3, removed: 1 } });
 const operation: ToolOpView = {
   id: "operation", taskId: "task", toolName: "edit", sdkCallId: "call", params: { path: "script.py" },
-  paramsBytes: 20, paramsTruncated: false, intentRecordedAt: at(2), recordedResultAt: null,
+  paramsBytes: 20, paramsTruncated: false, authorization: null, intentRecordedAt: at(2), recordedResultAt: null,
   resultSummary: null, isError: null, effectUnknown: false,
 };
 

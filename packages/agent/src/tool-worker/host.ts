@@ -62,6 +62,7 @@ export class ToolWorkerHost {
   private readyListeners: Array<(msg: WorkerMessage) => void> = [];
   private rejectReady: ((error: ExecutionError) => void) | null = null;
   private stopped = false;
+  private childrenReaped: boolean | null = null;
   private nativeGrantIdentities: Array<{ path: string; dev: number; ino: number }> = [];
   private writeChain: Promise<void> = Promise.resolve();
   stopFailure: ExecutionError | null = null;
@@ -215,6 +216,9 @@ export class ToolWorkerHost {
         });
         break;
       }
+      case "stopped":
+        this.childrenReaped = msg.reaped === true;
+        break;
       case "fatal":
         this.failAllPending(new ExecutionError("worker_fatal", msg.message));
         void this.stop();
@@ -361,7 +365,8 @@ export class ToolWorkerHost {
     ]);
     if (timer) clearTimeout(timer);
     if (!graceful) unit.stdin.destroy();
-    const reaped = await unit.entry.stop();
+    const unitReaped = await unit.entry.stop();
+    const reaped = unitReaped && (this.mode !== "full_access" || this.launcher.kind !== "local" || this.childrenReaped === true);
     if (!reaped) this.stopFailure = new ExecutionError("worker_stop_unverified", "无法核实工具执行单元已退出");
     return reaped;
   }

@@ -1,3 +1,4 @@
+import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 /**
  * 发布联合路径（agent-direction issue 24）：复用各票已验证的接缝，检查迁移、
@@ -63,23 +64,23 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     const currentParent = await rt.submit({ sessionId: session.id, requestId: "live-parent", input: "HOLD-PARENT 创建工作", modelSelection: rt.defaultSelection });
     await waitFor("父任务持有目录", () => releaseParent !== undefined);
     const manager = rt.subagents!;
-    const patch = await manager.delegate({ parentTaskId: currentParent.id, key: "patch", request: "PATCH-RELEASE", mode: "modify", target: ".", paramsDigest: "patch" });
+    const patch = await delegateFromActiveTask({ store: rt.store, subagents: manager }, { parentTaskId: currentParent.id, key: "patch", request: "PATCH-RELEASE", mode: "modify", target: ".", paramsDigest: "patch" });
     await waitFor("副本修改完成", () => rt!.store.getSubAgent(patch.agent.id)!.state === "idle");
     const copy = patch.work.writeTarget!;
     assert.equal(copy.kind, "worktree");
     assert.equal(fs.readFileSync(path.join(copy.path, "value.ts"), "utf8"), "export const value = 2\n");
     assert.equal(fs.readFileSync(file, "utf8"), "export const value = 1\n");
 
-    const a = await manager.delegate({ parentTaskId: parent.id, key: "a", request: "分析", readPaths: ["value.ts"], paramsDigest: "a" });
+    const a = await delegateFromActiveTask({ store: rt.store, subagents: manager }, { parentTaskId: parent.id, key: "a", request: "分析", readPaths: ["value.ts"], paramsDigest: "a" });
     await waitFor("A 空闲", () => rt!.store.getSubAgent(a.agent.id)!.state === "idle");
-    const b = await manager.delegate({ parentTaskId: parent.id, key: "b", request: "独立分析", readPaths: ["value.ts"], paramsDigest: "b" });
+    const b = await delegateFromActiveTask({ store: rt.store, subagents: manager }, { parentTaskId: parent.id, key: "b", request: "独立分析", readPaths: ["value.ts"], paramsDigest: "b" });
     await waitFor("B 空闲", () => rt!.store.getSubAgent(b.agent.id)!.state === "idle");
-    const join = await manager.delegate({ parentTaskId: parent.id, key: "join", request: "加入协作", workId: a.work.id, subAgentId: b.agent.id, readPaths: ["value.ts"], paramsDigest: "join" });
+    const join = await delegateFromActiveTask({ store: rt.store, subagents: manager }, { parentTaskId: parent.id, key: "join", request: "加入协作", workId: a.work.id, subAgentId: b.agent.id, readPaths: ["value.ts"], paramsDigest: "join" });
     await waitFor("加入完成", () => rt!.store.getSubAgent(b.agent.id)!.state === "idle");
-    const busy = await manager.delegate({ parentTaskId: parent.id, key: "busy", request: "HOLD-PEER", workId: a.work.id, subAgentId: b.agent.id, readPaths: ["value.ts"], paramsDigest: "busy" });
+    const busy = await delegateFromActiveTask({ store: rt.store, subagents: manager }, { parentTaskId: parent.id, key: "busy", request: "HOLD-PEER", workId: a.work.id, subAgentId: b.agent.id, readPaths: ["value.ts"], paramsDigest: "busy" });
     await waitFor("B 运行中", () => release !== undefined);
     const messageInput = { senderTaskId: a.task.id, workId: a.work.id, key: "late-peer", text: "LATE-PEER-MESSAGE", toSubAgentId: b.agent.id, paramsDigest: "late-peer" };
-    const sent = await manager.message(messageInput);
+    const sent = await messageFromActiveTask({ store: rt.store, subagents: manager }, messageInput);
     assert.equal(sent.delivery, "pending", "忙碌协作方的同级消息已登记待投递");
 
     await rt.cancelWork(a.work.id, { reason: "发布联合验收取消" });
@@ -98,11 +99,11 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
 
     await rt.stop("test_restart");
     rt = await Runtime.start(config);
-    const replay = await rt.subagents!.message(messageInput);
+    const replay = await messageFromActiveTask(rt, messageInput);
     assert.equal(replay.created, false, "同键迟到消息仅对账原记录");
     assert.equal(replay.delivery, null);
     assert.equal(replay.message.undeliveredReason, "work_canceled");
-    await assert.rejects(() => rt!.subagents!.message({ ...messageInput, key: "new-late-peer" }), /工作已取消/);
+    await assert.rejects(() => messageFromActiveTask(rt!, { ...messageInput, key: "new-late-peer" }), /工作已取消/);
     await rt.subagents!.flushPendingMessages();
     assert.deepEqual(rt.store.listTasksByWork(a.work.id).map((t) => t.id), tasksBefore, "取消、重启与重放不登记新执行");
     assert.equal(server.calls.length, callsBefore, "已取消工作不会重新调用模型");

@@ -44,7 +44,7 @@ Status: implemented
 「无需逐次确认」指执行账户已有的系统权限。以下授权独立于任务执行权限，完全访问照样逐次审批：
 
 - 应用数据的破坏性变更，见 [main 应用数据空间](../architecture/2026-09-23-main-app-data-space.md)；
-- 建立通知外发计划与一次外发，见[调度器与通知 outbox](../architecture/2026-09-24-scheduler-outbox.md)；新闻推送计划，见[定时新闻](2026-09-25-scheduled-news.md)；
+- 建立通知外发计划与一次外发，见[调度器与通知 outbox](../architecture/2026-09-24-scheduler-outbox.md)；新闻推送计划，见[定时新闻](../../archived/feature/2026-09-25-scheduled-news.md)；
 - 服务操作：root 分支是后台经 sudoers 的提权能力，不属于执行账户权限，见[服务管理 helper](../architecture/2026-10-03-service-management-helper.md)；
 - 结构化越界操作 `request_file_access` 与 `http_request` 不看模式、始终审批（完全访问下的编码工具本来就按执行账户权限读写，不必经过它们）。
 
@@ -71,3 +71,7 @@ Status: implemented
 - `test/40-qq-private.test.ts`：QQ 号不能代替控制面令牌，未认证连接不能响应审批。
 - `verification/foundation/results/linux-isolation-report.md` 与 `linux-isolation-report-tx.md`：探针 `identity.task-uid-reads-backend-state`、`identity.task-uid-writes-backend-state` 证明任务 UID 读写后台持有的 0600 控制面状态被内核拒绝（EACCES）。
 - tx 实测（[personal-agent issue 23](../../../../.scratch/personal-agent/issues/23-container-full-access.md) Comments）：完全访问任务以 `ruukoto-exec` 运行，读取拥有者令牌返回 `Permission denied`。这一条只能在真实的多身份 Linux 部署上证明，离线测试替代不了。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

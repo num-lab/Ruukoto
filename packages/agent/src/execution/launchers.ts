@@ -10,11 +10,11 @@
  *   只挂授权工作区与拥有者显式授予的路径，均按宿主原路径挂载，使模型
  *   看到的路径在容器内外一致）；confirm 与 auto-review 共用
  *   该受限边界；
- * - systemd：完全访问任务的执行账户启动入口（systemd-run --pipe，固定
- *   UID，KillMode=control-group）。
+ * - full_access：直接以启动账户执行，继承用户环境，不施加任务沙箱。
  *
  * stop() 只有平台停止入口核实退出才返回 true；macOS 原生轮询无法核实
  * 后代时返回 false，调用方保留目录占用与单元临时资料。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  */
@@ -53,7 +53,7 @@ export interface LaunchSpec {
   workspace: string;
   /** 拥有者为该任务显式授予的工作区外路径。 */
   grantedPaths: GrantedPath[];
-  /** 宿主钉定的额外只读根（SubAgent 限定资料范围）：原生按只读策略，容器按只读挂载；local/systemd 忽略。
+  /** 宿主钉定的额外只读根（SubAgent 限定资料范围）：原生按只读策略，容器按只读挂载；local 忽略。
    *  dev/ino 是宿主侧目录身份供 worker init 复核；macOS Docker Desktop 经 VM 重新编号
    *  inode，容器侧恒不一致，不下发身份（缺省 dev/ino = 仅按路径复核）。 */
   readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
@@ -63,7 +63,7 @@ export interface LaunchSpec {
    */
   workspaceIdentity?: { dev: number; ino: number };
   /**
-   * 受限执行的环境聚合包：只在 worktree 副本创建与子任务使用副本时
+   * 工作副本的固定环境聚合包：只在 worktree 副本创建与子任务使用副本时
    * 由宿主注入（Git safe.directory 等）；其余任务恒为 undefined，
    * env 键不进入 workerKey。
    */
@@ -71,7 +71,7 @@ export interface LaunchSpec {
 }
 
 export interface WorkerLauncher {
-  readonly kind: "local" | "container" | "systemd" | "native";
+  readonly kind: "local" | "container" | "native";
   /** 拒绝时尚未产生单元；已产生单元后的拒绝须由 ExecutionError.unit 交出停止身份。 */
   launch(spec: LaunchSpec): Promise<LaunchedUnit>;
 }
@@ -86,12 +86,16 @@ export function workerEntryPath(): string {
 /** 容器内工作进程入口（固定路径，镜像打包）。 */
 export const CONTAINER_WORKER_PATH = "/opt/ruukoto/worker/worker.mjs";
 
-function filteredEnv(): NodeJS.ProcessEnv {
-  // 开发环境最小环境：不传凭据、SSH agent、代理配置与 RUUKOTO_* 控制面变量
-  const keep = ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR"];
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of keep) {
-    if (process.env[key] !== undefined) env[key] = process.env[key];
+function workerEnv(spec: LaunchSpec): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = spec.mode === "full_access" ? { ...process.env } : {};
+  if (spec.mode !== "full_access") {
+    for (const key of ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR"]) {
+      if (process.env[key] !== undefined) env[key] = process.env[key];
+    }
+  }
+  Object.assign(env, spec.env);
+  for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_CONTROL_DIR", "RUUKOTO_CODE_CONTROL_DIR"]) {
+    delete env[key];
   }
   return env;
 }
@@ -106,7 +110,7 @@ function toExitPromise(child: ChildProcess): Promise<{ code: number | null; sign
   return exit;
 }
 
-// ---------- local（开发/验证专用） ----------
+// ---------- local（当前账户；受限模式仅供开发/验证） ----------
 
 export interface LocalLauncherOptions {
   /** spawn 使用的 tsx 加载器；默认 node --import tsx。 */
@@ -125,7 +129,7 @@ export function createLocalLauncher(opts: LocalLauncherOptions = {}): WorkerLaun
       // 与工具执行目录无关：工具 cwd 由 init 消息按任务工作区设定
       const child = spawn(process.execPath, opts.execArgv ?? ["--import", "tsx", entry], {
         cwd: path.dirname(entry),
-        env: filteredEnv(),
+        env: workerEnv(spec),
         detached: true, // 独立进程组，pgid == pid：整组回收的依据
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -181,7 +185,7 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
     kind: "container",
     async launch(spec: LaunchSpec): Promise<LaunchedUnit> {
       if (spec.mode === "full_access") {
-        // 完全访问不进容器：由 systemd/执行账户路径负责
+        // 完全访问直接由当前账户启动。
         throw new ExecutionError("invalid_state", "容器启动器只用于受限执行模式（confirm/auto-review）");
       }
       // 缺少容器后端时明确失败（不回退到其他执行方式）
@@ -263,112 +267,9 @@ export function createContainerLauncher(config: ContainerLauncherConfig): Worker
   };
 }
 
-// ---------- systemd（完全访问的执行账户入口） ----------
-
-export interface SystemdLauncherConfig {
-  /** 专用执行账户（与后台、拥有者不同的系统身份）。 */
-  uid: number;
-  gid: number;
-  /** 宿主上工作进程打包产物路径。 */
-  workerPath: string;
-  /** 直连 systemd-run（后台自身有权限时；开发/单机用）。 */
-  systemdRunPath: string;
-  systemctlPath: string;
-  /**
-   * 受保护提权入口（生产）：经 sudo 调用 root 拥有、仅允许固定参数的包装
-   * 脚本（deploy/systemd/ruukoto-exec-*.sh）；执行账户不能调用它。
-   */
-  protectedEntry?: { sudoPath: string; launchScript: string; stopScript: string };
-}
-
-export function createSystemdLauncher(config: SystemdLauncherConfig): WorkerLauncher {
-  return {
-    kind: "systemd",
-    async launch(spec: LaunchSpec): Promise<LaunchedUnit> {
-      if (spec.mode !== "full_access") {
-        throw new ExecutionError("invalid_state", "systemd 启动器只用于完全访问模式");
-      }
-      const entry = config.protectedEntry;
-      // 缺少执行账户启动入口时明确失败（不回退到后台账户执行）
-      if (!entry && !fs.existsSync(config.systemdRunPath)) {
-        throw new ExecutionError(
-          "execution_unavailable",
-          `systemd-run 不可用：${config.systemdRunPath}（未配置执行账户入口，不回退）`,
-        );
-      }
-      if (entry && (!fs.existsSync(entry.launchScript) || !fs.existsSync(entry.stopScript))) {
-        throw new ExecutionError(
-          "execution_unavailable",
-          `受保护提权入口不存在：${entry.launchScript} / ${entry.stopScript}（不回退）`,
-        );
-      }
-      const unit = `ruukoto-exec-${spec.taskId}`;
-      // 参数经结构化 argv 传递，不拼 Shell；受保护入口内部固定 uid/gid/单元名
-      const child = entry
-        ? spawn(entry.sudoPath, [entry.launchScript, spec.taskId], { stdio: ["pipe", "pipe", "pipe"] })
-        : spawn(
-            config.systemdRunPath,
-            [
-              "--pipe",
-              "--wait",
-              "--quiet",
-              "--uid",
-              String(config.uid),
-              "--gid",
-              String(config.gid),
-              "--unit",
-              unit,
-              "--property",
-              "KillMode=control-group",
-              config.workerPath,
-            ],
-            { stdio: ["pipe", "pipe", "pipe"] },
-          );
-      const exit = toExitPromise(child);
-      if (child.pid === undefined) {
-        await exit;
-        throw new ExecutionError("execution_unavailable", "执行账户启动入口未创建");
-      }
-      const unitEntry: ManagedEntry = {
-        kind: "systemd_unit",
-        id: unit,
-        label: `tool-worker systemd-unit=${unit} task=${spec.taskId}`,
-        stop: async () => {
-          if (entry) {
-            // 包装脚本自己完成 stop 与 is-active 判定（退出码 0 = 已不在活动）
-            const code = await new Promise<number>((resolve) => {
-              execFile(entry.sudoPath, [entry.stopScript, unit], { timeout: 20_000 }, (err) =>
-                resolve(err ? ((err as any).code ?? 1) : 0),
-              );
-            });
-            return code === 0;
-          }
-          await new Promise((resolve) => {
-            execFile(config.systemctlPath, ["stop", unit], { timeout: 15_000 }, () => resolve(null));
-          });
-          const check = await new Promise<{ code: number | null; state: string }>(resolve => {
-            execFile(config.systemctlPath, ["is-active", unit], { timeout: 5_000 }, (error, stdout) =>
-              resolve({ code: error ? (typeof error.code === "number" ? error.code : null) : 0, state: String(stdout ?? "").trim() }),
-            );
-          });
-          return (check.code === 3 && ["inactive", "failed"].includes(check.state)) || (check.code === 4 && check.state === "unknown");
-        },
-      };
-      return {
-        entry: unitEntry,
-        stdin: child.stdin!,
-        stdout: child.stdout!,
-        stderr: child.stderr!,
-        exit,
-      };
-    },
-  };
-}
-
 export interface ExecutionBackendConfig {
-  backend: "local" | "container" | "systemd" | "native";
+  backend: "local" | "container" | "native";
   container?: Partial<ContainerLauncherConfig>;
-  systemd?: Partial<SystemdLauncherConfig>;
   native?: NativeLauncherConfig;
 }
 
@@ -383,52 +284,8 @@ export function createLauncherFor(
   config: ExecutionBackendConfig,
   mode: AccessMode,
 ): WorkerLauncher {
-  switch (config.backend) {
-    case "local":
-      return createLocalLauncher();
-    case "native":
-    case "container":
-      if (mode === "full_access") {
-        // 容器后端下完全访问需要执行账户入口：显式配置，或部署环境配置的
-        // 受保护提权入口；都没有时明确失败，不回退（直连 systemd-run 不经
-        // 环境启用）。auto-review 与 confirm 共用受限容器边界
-        const systemdConfig = { ...defaultSystemdConfig(), ...config.systemd };
-        if (!config.systemd && !systemdConfig.protectedEntry) {
-          throw new ExecutionError(
-            "execution_unavailable",
-            "完全访问模式需要执行账户启动入口：设置 RUUKOTO_EXEC_LAUNCH_SCRIPT 与 RUUKOTO_EXEC_STOP_SCRIPT（见 deploy/systemd），当前未配置；不回退到其他执行方式",
-          );
-        }
-        return createSystemdLauncher(systemdConfig);
-      }
-      return config.backend === "native"
-        ? createNativeLauncher(config.native ?? {})
-        : createContainerLauncher({ ...DEFAULT_CONTAINER_CONFIG, ...config.container });
-    case "systemd":
-      if (mode !== "full_access") {
-        throw new ExecutionError("invalid_state", "systemd 启动器只用于完全访问模式");
-      }
-      return createSystemdLauncher({ ...defaultSystemdConfig(), ...config.systemd });
-  }
-}
-
-function defaultSystemdConfig(): SystemdLauncherConfig {
-  const launchScript = process.env.RUUKOTO_EXEC_LAUNCH_SCRIPT;
-  const stopScript = process.env.RUUKOTO_EXEC_STOP_SCRIPT;
-  return {
-    uid: Number(process.env.RUUKOTO_EXEC_UID ?? 0),
-    gid: Number(process.env.RUUKOTO_EXEC_GID ?? 0),
-    workerPath: process.env.RUUKOTO_WORKER_PATH ?? CONTAINER_WORKER_PATH,
-    systemdRunPath: "/usr/bin/systemd-run",
-    systemctlPath: "/usr/bin/systemctl",
-    // 生产部署经环境启用受保护提权入口（root 拥有的包装脚本，仅后台可 sudo）
-    protectedEntry:
-      launchScript && stopScript
-        ? {
-            sudoPath: process.env.RUUKOTO_EXEC_SUDO ?? "/usr/bin/sudo",
-            launchScript,
-            stopScript,
-          }
-        : undefined,
-  };
+  if (mode === "full_access" || config.backend === "local") return createLocalLauncher();
+  return config.backend === "native"
+    ? createNativeLauncher(config.native ?? {})
+    : createContainerLauncher({ ...DEFAULT_CONTAINER_CONFIG, ...config.container });
 }

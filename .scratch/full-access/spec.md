@@ -1,10 +1,12 @@
 # 完全访问方案实施规格
 
-决策依据：[完全访问使用启动账户且不请求审批](../../.agents/notes/proposed/feature/2026-10-12-full-access-current-account.md)。方案已确认，尚未实施；理由、备选方案及已接受的风险统一保存在该笔记。
+决策依据：[完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)。实现与验证由关联工单记录；理由、备选方案及已接受的风险统一保存在该笔记。
 
 实施工单：[01 — 完全访问使用启动账户并统一免审批](issues/01-full-access-current-account.md)。
 
 调度范围与[通用定时任务规格](../generic-scheduler/spec.md)共同实施：后者删除 news／定时 notify，负责独立运行、计划字段、审批来源和最终回报；本规格负责其使用的任务模式与共享免审批行为，不再适配新闻审批。
+
+实施状态：已完成并与关联工单联合验收，详见[验收报告](validation.md)；旧配置、旧 schema 与退役计划不做转换或授权回填。
 
 ## 目标
 

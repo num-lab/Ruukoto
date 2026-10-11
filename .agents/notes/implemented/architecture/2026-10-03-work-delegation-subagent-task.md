@@ -41,3 +41,9 @@ Status: implemented
 ## 验证
 
 首次实施的历史证据见[工单 11](../../../../.scratch/agent-direction/issues/11-subagent-delegation.md)：test/80 11/11，npm run typecheck 通过；全量 npm test 873 项中 872 通过、0 失败、1 跳过。smoke-11-subagent-delegation.mts 在 macOS Docker Desktop 与 ssh tx Linux 原生 Docker 各 9/9，Runtime、SQLite、JSONL、文件与容器为真实环境，模型和消息平台为模拟。未实测真实 QQ/Telegram 与非默认 uid 的 ACL 行为；权限位预检和 worker 实际拒绝分别覆盖。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](../feature/2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。

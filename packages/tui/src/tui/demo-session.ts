@@ -49,6 +49,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
     accessMode: "confirm",
     planMode: false,
     permissionVersion: 1,
+    sourcePermissionVersion: null,
     grantedPaths: [],
     pendingAccessMode: null,
     interruptReason: null,
@@ -228,7 +229,7 @@ function historyEntries(): HistoryEntryView[] {
     entry({
       entryId: "entry_0007",
       role: "assistant",
-      text: "请求确认模式的任务在按任务建立的容器内执行；完全访问在容器外以固定执行账户运行。",
+      text: "请求确认模式的任务在受限执行环境中运行；完全访问使用启动账户的权限与用户环境，工具免审批。",
       hasNonTextContent: true,
       timestamp: ts(19),
     }),
@@ -307,13 +308,16 @@ function demoEvents(): PersistentEvent[] {
     { type: "session.usage_updated", sessionId: SESSION_ID },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
+    { type: "session.context_compaction", sessionId: SESSION_ID, requestId: "cmp_demo00000001", status: "succeeded" },
     { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", planMode: false, modelSelection: MODEL },
     { type: "task.started", taskId: "task_completed000", sessionId: SESSION_ID },
+    { type: "task.context_compaction", taskId: "task_completed000", sessionId: SESSION_ID, compactionId: "compact_demo0001", phase: "finished", checkpointId: null, summaryModel: null, estimateBefore: 8000, estimateAfter: 6000, clearedResults: 1, summarizedCount: 0 },
     { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: first, totalBytes: Buffer.byteLength(first), truncated: false, partial: true, contentIndex: 0, offset: 0, startedAt: ts(39.5) },
     { type: "task.thinking", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", thinkingId: "thought_demo1", startedAt: ts(39.4), endedAt: null, text: "I'll inspect the layout and keep each event in its original position." },
     { type: "task.thinking", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", thinkingId: "thought_demo1", startedAt: ts(39.4), endedAt: new Date(Date.parse(ts(39.4)) + 22_000).toISOString(), text: "I'll inspect the layout and keep each event in its original position." },
     { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: second, totalBytes: Buffer.byteLength(second), truncated: false, partial: true, contentIndex: 1, offset: 0, startedAt: ts(39) },
     { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000001", sdkCallId: "call_1", toolName: "read", params: { path: "packages/tui/src/tui/app.ts" } },
+    { type: "task.tool_authorized", taskId: "task_completed000", toolOpId: "toolop_demo000001", authorization: { source: "full_access", taskId: "task_completed000", permissionVersion: 1, scope: { kind: "tool", workspaceOnly: false } } },
     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000001", summary: "读取 1660 行", isError: false, artifactIds: [] },
     { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000002", sdkCallId: "call_live_2", toolName: "bash", params: { command: "npm run typecheck" } },
     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000002", summary: "命令失败：退出码 1", isError: true, artifactIds: ["art_demo0000000001"] },
@@ -356,7 +360,7 @@ function demoEvents(): PersistentEvent[] {
     },
     { type: "task.confirmation_reviewed", taskId: "task_awaiting0000", confirmationId: CONFIRMATION.id, decision: "ask_owner", reason: "带凭据的写入不属于自动批准范围" },
     { type: "task.confirmation_resolved", taskId: "task_awaiting0000", confirmationId: "conf_old000000000", decision: "rejected" },
-    { type: "task.approval_consumed", taskId: "task_completed000", confirmationId: "conf_old000000001", toolOpId: "toolop_demo000001", toolName: "read" },
+    { type: "task.approval_consumed", taskId: "task_awaiting0000", confirmationId: "conf_old000000001", toolOpId: "toolop_demo_approved", toolName: "http_request" },
     { type: "standing_permission.created", permissionId: "sp_demo00000000001", approvalId: "conf_old000000002", eventId: "evt_demo00000000001", sessionId: SESSION_ID, channel: "qq_private", account: "880001", chatId: "880001", actor: "qq_private:880001", machineId: "demo-machine-0001", unit: "ruukoto-service-test.service", action: "restart" },
     { type: "standing_permission.revoked", permissionId: "sp_demo00000000001", version: 2, reason: "effect_unknown", opId: "op_svc_demo0000001" },
     { type: "task.mode_switch_requested", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access" },
@@ -431,7 +435,6 @@ function demoEvents(): PersistentEvent[] {
     { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },
     { type: "schedule.changed", scheduleId: "sch_demo00000001", action: "created", version: 1, source: "main_tool", reason: "每日提醒" },
     { type: "schedule.run", scheduleId: "sch_demo00000001", runId: "run_demo00000001", action: "registered", scheduledFor: "2026-09-24T01:00:00.000Z", delayMs: 0, coalescedFrom: null, coalescedTo: null },
-    { type: "schedule.news", scheduleId: "sch_demo00000001", runId: "run_demo00000001", status: "completed", itemCount: 3 },
     { type: "notification.changed", opId: "nop_demo00000001", status: "effect_unknown", sourceKind: "schedule_run", reason: "timeout_or_abort" },
     // issue 04：Telegram owner 入口
     { type: "telegram.config_changed", configVersion: 2, action: "enabled" },
@@ -467,7 +470,10 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
   for (const event of events) {
     const body = event.body;
     if (body.type === "task.tool_intent") {
-      toolOps.set(body.toolOpId, { id: body.toolOpId, taskId: body.taskId, toolName: body.toolName, sdkCallId: body.sdkCallId, params: body.params, intentRecordedAt: event.createdAt, resultSummary: null, isError: null, effectUnknown: false, recordedResultAt: null });
+      toolOps.set(body.toolOpId, { id: body.toolOpId, taskId: body.taskId, toolName: body.toolName, sdkCallId: body.sdkCallId, params: body.params, intentRecordedAt: event.createdAt, authorization: null, resultSummary: null, isError: null, effectUnknown: false, recordedResultAt: null });
+    } else if (body.type === "task.tool_authorized") {
+      const op = toolOps.get(body.toolOpId);
+      if (op) op.authorization = body.authorization;
     } else if (body.type === "task.tool_result") {
       const op = toolOps.get(body.toolOpId);
       if (op) Object.assign(op, { resultSummary: body.summary, isError: body.isError, recordedResultAt: event.createdAt });

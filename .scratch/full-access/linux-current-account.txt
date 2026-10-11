@@ -1,0 +1,7 @@
+{"name":"platform","passed":true,"platform":"linux","arch":"x64","uid":1003,"gid":1003,"node":"v24.21.0"}
+{"name":"product-current-account","passed":true,"product":"ruukoto-code","backend":"native","fileOutsideWorkspace":true,"localNetwork":true,"inheritedEnvironment":true,"virtualCredential":true,"approvals":0,"model":"mock"}
+{"name":"product-current-account","passed":true,"product":"ruukoto","backend":"container","fileOutsideWorkspace":true,"localNetwork":true,"inheritedEnvironment":true,"virtualCredential":true,"approvals":0,"model":"mock"}
+{"name":"known-descendant-stop","passed":true,"reaped":true,"heartbeatStopped":true}
+{"name":"worker-crash-stop","passed":true,"reaped":false,"cachedUnknown":true,"cleanup":"explicit-test-shell-group-only"}
+{"name":"restricted-native-contrast","passed":true,"outsideFileDenied":true,"networkDenied":true}
+{"name":"limitations","passed":true,"detachedProcesses":"not-guaranteed","externalServices":"not-revoked","realModel":false,"realCredentials":false,"productionChanged":false}

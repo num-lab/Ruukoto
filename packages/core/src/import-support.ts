@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Db } from "./db.ts";
+import { Db, SCHEMA_VERSION } from "./db.ts";
 import { probeLockHolder } from "./instance-lock.ts";
 import { PRODUCT_META_KEY } from "./product.ts";
 import type { SessionBranchSource } from "./types.ts";
@@ -157,7 +157,7 @@ export function readMetaValue(db: Db, key: string): string | null {
 }
 
 /**
- * 源快照：实例目录逐文件复制到 mkdtemp（0700），在副本上迁到当前 schema。
+ * 源快照：实例目录逐文件复制到 mkdtemp（0700），在副本上核实当前 schema，不转换旧格式。
  * 不用 sqlite 读连接/VACUUM 直读源目录——读 WAL 库会在源目录生成 -shm/-wal
  * 侧车文件；复制是唯一逐字节零接触的方式（源后台必须已停止，先经探测拒绝）。
  */
@@ -188,7 +188,7 @@ export function openSourceSnapshot(from: string): SourceSnapshot {
       const file = dbFile + suffix;
       if (fs.existsSync(file)) fs.copyFileSync(file, path.join(tmp, "ruukoto.db" + suffix));
     }
-    // 原始 schema 版本（在副本上、迁移前读取）
+    // 原始 schema 版本只在副本读取，不转换旧格式
     let originalSchemaVersion: number | null = null;
     {
       const raw = new DatabaseSync(path.join(tmp, "ruukoto.db"));
@@ -201,7 +201,10 @@ export function openSourceSnapshot(from: string): SourceSnapshot {
         raw.close();
       }
     }
-    const db = new Db(tmp); // 在快照上完成 schema 迁移
+    if (originalSchemaVersion !== SCHEMA_VERSION) {
+      fail("source_schema", `源库 schema 为 ${originalSchemaVersion ?? "缺失"}，当前程序为 ${SCHEMA_VERSION}；不转换旧任务或计划授权`);
+    }
+    const db = new Db(tmp);
     const integrity = db.prepare("PRAGMA integrity_check").get() as { integrity_check: string } | undefined;
     if (!integrity || integrity.integrity_check !== "ok") {
       fail("source_corrupt", `源库快照完整性检查失败：${integrity?.integrity_check ?? "无结果"}`);

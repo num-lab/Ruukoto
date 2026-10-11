@@ -43,3 +43,7 @@ QQ 适配器缺失或启动配置停用时曾返回 wait，Telegram 则直接 dr
 [架构工单 10](../../../../.scratch/architecture/issues/10-im-owner-entries.md)交付 `test/89-im-entries.test.ts`，用假入口核对 reconcile、回复/汇报截断与目标失效、凭据引用、Telegram 缺省渠道与 QQ 特判，并用真实适配器与回环探针证明启动停用不连接不轮询。test/40 新增“重启为 qqDisabled 后 QQ 排队任务取消，后面的 TUI 任务完成”，在旧 wait 门上核对会超时。该轮全量 906 项中 904 通过，仅既有 test/08 DNS 用例失败，图解页 test/67 通过。
 
 初次 QQ 交付未执行真实 NapCat/QQ 收发或 Linux 部署；后续 IM 审批与最终汇报的 macOS/Linux 后台冒烟见[独立笔记](2026-10-02-im-approval-and-final-report.md)，真实平台仍未实测。运行配置见[操作手册](../../../../docs/usage.md)。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

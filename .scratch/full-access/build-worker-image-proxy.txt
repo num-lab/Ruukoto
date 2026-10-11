@@ -1,0 +1,125 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.74kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:24-slim
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 131B done
+#3 DONE 0.0s
+
+#4 [build 1/7] FROM docker.io/library/node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#4 resolve docker.io/library/node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 94.90kB done
+#5 DONE 0.0s
+
+#6 [build 2/7] WORKDIR /build
+#6 CACHED
+
+#7 [build 3/7] COPY package.json package-lock.json ./
+#7 CACHED
+
+#8 [build 4/7] COPY packages ./packages
+#8 DONE 0.0s
+
+#9 [build 5/7] COPY apps ./apps
+#9 DONE 0.0s
+
+#10 [build 6/7] RUN npm ci --ignore-scripts
+#10 3.953 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+#10 6.981 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+#10 27.36
+#10 27.36 added 442 packages, and audited 451 packages in 27s
+#10 27.36
+#10 27.36 95 packages are looking for funding
+#10 27.36   run `npm fund` for details
+#10 27.36
+#10 27.36 4 vulnerabilities (1 moderate, 3 high)
+#10 27.36
+#10 27.36 To address issues that do not require attention, run:
+#10 27.36   npm audit fix
+#10 27.36
+#10 27.36 To address all issues (including breaking changes), run:
+#10 27.36   npm audit fix --force
+#10 27.36
+#10 27.36 Run `npm audit` for details.
+#10 27.36 npm notice
+#10 27.36 npm notice New major version of npm available! 11.19.0 -> 12.2.0
+#10 27.36 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+#10 27.36 npm notice To update run: npm install -g npm@12.2.0
+#10 27.36 npm notice
+#10 DONE 27.8s
+
+#11 [build 7/7] RUN npm run build:worker && npm prune --omit=dev --ignore-scripts
+#11 0.239
+#11 0.239 > ruukoto-workspace@0.1.0 build:worker
+#11 0.239 > esbuild packages/agent/src/tool-worker/worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outfile=worker/worker.mjs
+#11 0.239
+#11 0.258 ▲ [WARNING] Cannot find base config file "../../tsconfig.base.json" [tsconfig.json]
+#11 0.258
+#11 0.258     packages/agent/tsconfig.json:2:13:
+#11 0.258       2 │   "extends": "../../tsconfig.base.json",
+#11 0.258         ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~
+#11 0.258
+#11 0.259 ▲ [WARNING] Cannot find base config file "../../tsconfig.base.json" [tsconfig.json]
+#11 0.259
+#11 0.259     packages/core/tsconfig.json:2:13:
+#11 0.259       2 │   "extends": "../../tsconfig.base.json",
+#11 0.259         ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~
+#11 0.259
+#11 0.269 2 warnings
+#11 0.269
+#11 0.269   worker/worker.mjs  14.9kb
+#11 0.269
+#11 0.269 ⚡ Done in 11ms
+#11 4.706
+#11 4.706 removed 146 packages, and audited 305 packages in 4s
+#11 4.706
+#11 4.706 12 packages are looking for funding
+#11 4.706   run `npm fund` for details
+#11 4.713
+#11 4.713 4 vulnerabilities (1 moderate, 3 high)
+#11 4.713
+#11 4.713 To address issues that do not require attention, run:
+#11 4.713   npm audit fix
+#11 4.713
+#11 4.713 To address all issues (including breaking changes), run:
+#11 4.713   npm audit fix --force
+#11 4.713
+#11 4.713 Run `npm audit` for details.
+#11 DONE 4.7s
+
+#12 [stage-1 3/6] WORKDIR /opt/ruukoto/worker
+#12 CACHED
+
+#13 [stage-1 2/6] RUN apt-get update  && apt-get install -y --no-install-recommends git ca-certificates  && rm -rf /var/lib/apt/lists/*
+#13 CACHED
+
+#14 [stage-1 4/6] COPY --from=build /build/node_modules ./node_modules
+#14 CACHED
+
+#15 [stage-1 5/6] COPY --from=build /build/worker/worker.mjs ./worker.mjs
+#15 DONE 0.0s
+
+#16 [stage-1 6/6] RUN chown -R 1000:1000 /opt/ruukoto/worker
+#16 DONE 25.1s
+
+#17 exporting to image
+#17 exporting layers
+#17 exporting layers 10.4s done
+#17 exporting manifest sha256:c7475cbd92999b32987df3aa1734a6095f45eb9b121f730411fbeb317c38c9da 0.0s done
+#17 exporting config sha256:27bc96cfcee2df3571751c74cac8d3b4a24b646925a06dc18e661f62aec97d1c done
+#17 exporting attestation manifest sha256:7f8ac2f5033b33f628e56fcab6d66da1092b28ee274e13982dadf7de3cfbc21e done
+#17 exporting manifest list sha256:e795f149305455a56cf69012e4fa24a4a0b6a9d0c1c80064d3467a38876dd2c6 0.0s done
+#17 naming to docker.io/library/ruukoto-worker:0.85.1 0.0s done
+#17 unpacking to docker.io/library/ruukoto-worker:0.85.1
+#17 unpacking to docker.io/library/ruukoto-worker:0.85.1 7.7s done
+#17 naming to docker.io/library/ruukoto-worker:latest done
+#17 unpacking to docker.io/library/ruukoto-worker:latest 0.0s done
+#17 DONE 18.3s

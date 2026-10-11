@@ -851,7 +851,7 @@ test("中断、续跑与回退：故障续跑无重复、同键重放、修订�
 
 // ---------- 7. v20 旧库：快照迁移只在副本上 ----------
 
-test("v20 旧库：快照迁移只在副本上执行，源 sha 不变，导入成功", () => {
+test("v20 旧库：拒绝旧格式且源 sha 不变", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-li-v20-"));
   const dataDir = path.join(root, "data");
   fs.mkdirSync(dataDir, { recursive: true });
@@ -882,25 +882,9 @@ test("v20 旧库：快照迁移只在副本上执行，源 sha 不变，导入�
     const before = hashTree(root);
 
     const deps = { targetDataDir: dirs.dataDir, targetAgentDir: dirs.agentDir };
-    const preview = previewLegacyImport(deps, { from: dataDir });
-    assert.equal(preview.source.schema_version_original, 20, "记录原始版本");
-    assert.equal(preview.source.schema_version_current, SCHEMA_VERSION);
-    assert.equal(preview.sessions.length, 1);
-    assert.equal(preview.sessions[0]!.history, "ok");
-    const applied = applyLegacyImport(deps, {
-      plan: { from: dataDir },
-      source_instance_id: preview.source.instance_id,
-      revision: preview.revision!,
-      request_id: "imp-test-v20",
-    });
-    assert.equal(applied.counts.sessions, 1);
-    assert.equal(hashTree(root), before, "旧库只在快照上迁移，源逐文件不变");
-    const tdb = new Db(dirs.dataDir);
-    const tstore = new Store(tdb);
-    const imported = tstore.getSession(session.id)!;
-    assert.equal(imported.workspaceProjectId, null, "v20 行迁来后组织归属为 NULL");
-    assert.deepEqual(fs.readFileSync(imported.sessionFile!), fs.readFileSync(path.join(dataDir, "sessions", "s_pi-v20.jsonl")), "历史字节一致");
-    tdb.close();
+    assert.throws(() => previewLegacyImport(deps, { from: dataDir }), { code: "source_schema" });
+    assert.equal(hashTree(root), before, "拒绝旧格式不修改源资料");
+    assert.equal(fs.existsSync(dirs.dataDir), false, "预览失败不创建目标状态");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(dirs.root, { recursive: true, force: true });

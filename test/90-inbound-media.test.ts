@@ -154,7 +154,7 @@ test("下载完成未登记、事件已登记未建任务、rename完成未写�
   } finally { k.close(); }
 });
 
-test("24小时无任务暂存清理并保留expired账本；已拒绝原因及已绑定产物保持稳定；schema30可迁移", async () => {
+test("24小时无任务暂存清理并保留expired账本；已拒绝原因及已绑定产物保持稳定；重启保留状态", async () => {
   const k = kit();
   try {
     const a = await k.media.stage(input("orphan"));
@@ -170,7 +170,6 @@ test("24小时无任务暂存清理并保留expired账本；已拒绝原因及�
     assert.equal(fs.existsSync(path.join(k.dataDir, "inbound-media", k.store.listInboundMedia(a.id)[0]!.fileName)), false);
     assert.equal(k.media.getMessage("telegram", b.externalId)!.reason, "mime_unsupported");
     assert.equal(k.artifacts.readImage(refs[0]!).data, IMAGES[0]!.bytes.toString("base64"));
-    k.store.db.prepare("UPDATE meta SET value = '30' WHERE key = 'schema_version'").run();
     k.restart();
     assert.equal((k.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
   } finally { k.close(); }

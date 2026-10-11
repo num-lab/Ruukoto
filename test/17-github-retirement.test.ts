@@ -3,8 +3,8 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * issue 17 集成测试：GitHub 专用模块退役与历史资料归档。
  *
  * 旧模块（packages/agent/src/github/，REST 采集/草稿/发布）已删除，GitHub 经通用 MCP
- * 接入（issue 16，test/24-mcp.test.ts）。本文件覆盖退役迁移本身：
- * - 全新数据库不再创建 github_* 表；旧库（v8，含 github 数据）升级不失败、
+ * 接入（issue 16，test/24-mcp.test.ts）。本文件覆盖当前格式库中遗留资料的退役归档：
+ * - 全新数据库不再创建 github_* 表；当前格式库中的遗留 github 数据
  *   旧表保留为只读归档（不 DROP）；
  * - 旧 github_publish 审批（pending / approved 未消费）一律失效；未决发布操作
  *   按证据定终态：批准已消费或无审批记录（完全访问路径）→ effect_unknown
@@ -254,8 +254,6 @@ function buildLegacyDb(dirs: TestDirs): void {
       JSON.stringify({ type: "github.publish_settled", publishOpId: "op5", draftId: "d3", status: "sent", remoteUrl: "https://github.com/o/r/pull/7#review-1", errorMessage: null }),
       T1,
     );
-    // 回写为 v8：触发升级路径
-    run("UPDATE meta SET value = '8' WHERE key = 'schema_version'");
   } finally {
     raw.close();
   }
@@ -358,53 +356,6 @@ test("github 退役：全新数据库不创建旧表，启动不产生归档", a
     db.close();
   } finally {
     await cleanupDirs(dirs);
-  }
-});
-
-test("github 退役：v8 旧库升级 —— 审批失效、发布操作按证据定终态、旧表保留", async () => {
-  const f = await startLegacyRuntime("gh-retire");
-  try {
-    // schema 升级到当前版本；旧表保留为只读归档（不 DROP）
-    const version = queryAll(f.dbFile, "SELECT value FROM meta WHERE key = 'schema_version'")[0]!.value;
-    assert.equal(Number(version), SCHEMA_VERSION);
-    const tables = queryAll(f.dbFile, "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'github_%'").map((r: any) => r.name);
-    assert.deepEqual(tables.sort(), ["github_drafts", "github_publish_ops", "github_repo_bindings"]);
-
-    // 审批：pending 与 approved 未消费 → stale；已消费原样；非 GitHub 审批不受影响
-    const confs = queryAll(f.dbFile, "SELECT id, status, consumed_at FROM confirmations ORDER BY id");
-    const byId = Object.fromEntries(confs.map((c: any) => [c.id, c]));
-    assert.equal(byId["c1"].status, "approved", "已消费批准保持原状");
-    assert.ok(byId["c1"].consumed_at, "已消费时间保留");
-    assert.equal(byId["c2"].status, "stale", "approved 未消费 → 失效");
-    assert.equal(byId["c3"].status, "stale", "pending → 失效");
-    assert.equal(byId["c4"].status, "pending", "非 GitHub 审批不受退役影响");
-
-    // 发布操作：按证据定终态，终态操作原样保留
-    const ops = queryAll(f.dbFile, "SELECT id, status, error_message, remote_url FROM github_publish_ops ORDER BY id");
-    const opById = Object.fromEntries(ops.map((o: any) => [o.id, o]));
-    assert.equal(opById["op1"].status, "effect_unknown", "批准已消费 → 结果不明（绝不重发）");
-    assert.match(opById["op1"].error_message, /退役/);
-    assert.equal(opById["op2"].status, "canceled", "审批未消费 → 可证明未发送");
-    assert.match(opById["op2"].error_message, /退役/);
-    assert.equal(opById["op3"].status, "canceled");
-    assert.equal(opById["op4"].status, "effect_unknown", "无审批记录（完全访问路径）→ 结果不明");
-    assert.match(opById["op4"].error_message, /退役/);
-    assert.equal(opById["op5"].status, "sent");
-    assert.equal(opById["op5"].remote_url, "https://github.com/o/r/pull/7#review-1");
-    assert.equal(opById["op6"].status, "failed");
-    assert.equal(opById["op7"].status, "effect_unknown");
-    assert.equal(opById["op7"].error_message, "发送后超时", "既有 effect_unknown 的原说明不被改写");
-    assert.equal(opById["op8"].status, "canceled");
-
-    // 退役事件落盘（每个被终结的 pending 操作一条 publish_settled）
-    const events = queryAll(f.dbFile, "SELECT body FROM events WHERE body LIKE '%github.publish_settled%' ORDER BY seq");
-    const bodies = events.map((e: any) => JSON.parse(e.body));
-    const retired = bodies.filter((b) => ["op1", "op2", "op3", "op4"].includes(b.publishOpId) && typeof b.errorMessage === "string" && b.errorMessage.includes("退役"));
-    assert.equal(retired.length, 4, "每个被终结的未决操作都有退役事件");
-    // 历史事件原样保留
-    assert.ok(bodies.some((b) => b.publishOpId === "op5" && b.status === "sent"), "历史 sent 事件保留");
-  } finally {
-    await f.shutdown();
   }
 });
 

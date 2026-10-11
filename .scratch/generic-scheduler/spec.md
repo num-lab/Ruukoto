@@ -1,6 +1,8 @@
 # 通用定时任务规格
 
-方案已确认，尚未实施。决策依据：[调度计划只触发独立的通用任务](../../.agents/notes/proposed/feature/2026-10-12-generic-scheduled-tasks.md)。实施与验收见[工单 01](issues/01-generic-scheduled-tasks.md)。
+实现与验证由关联工单记录。决策依据：[调度计划只触发独立的通用任务](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)。实施与验收见[工单 01](issues/01-generic-scheduled-tasks.md)。
+
+实施状态：已完成并与关联工单联合验收，详见[验收报告](validation.md)；旧配置、旧 schema 与退役计划不做转换或授权回填。
 
 ## 目标
 

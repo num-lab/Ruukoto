@@ -8,8 +8,8 @@
  * - 受限解析：逐段 lstat，拒绝符号链接组件；最终打开带 O_NOFOLLOW；
  * - 打开后 fstat 的 dev/ino 必须与批准时的对象身份一致（覆盖等待期间
  *   目标被替换）；写入前校验原文版本指纹，变化即失败并要求重新申请；
- * - 后台数据目录、服务凭据目录与控制面目录始终排除（控制面认证材料
- *   不因任何批准而开放）。
+ * - 受限模式排除后台数据、服务凭据与控制面目录；完全访问传空保护列表，
+ *   沿启动账户已有权限执行，仍核实目标身份与内容。
  *
  * HTTP 请求（单次、固定方法/目标/正文）：
  * - 默认不自动跟随重定向、不重试；连接固定到批准时解析出的地址
@@ -53,6 +53,8 @@ export interface FileOpOutcome {
   message: string;
   /** 读操作返回的内容文本。 */
   content?: string;
+  /** 写入已经开始而结果无法核实；调用方落盘效果未知且不重放。 */
+  effectUnknown?: boolean;
 }
 
 function lstatNoFollow(p: string): fs.Stats {
@@ -138,8 +140,9 @@ export function sha256Hex(data: Buffer | string): string {
 }
 
 export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
+  let writing = false;
   try {
-    const resolved = restrictedResolve(req.path);
+    const resolved = restrictedResolve(req.path, { allowMissingLast: true });
     assertNotProtected(resolved, req.protectedRoots);
     let st: fs.Stats | null = null;
     try {
@@ -186,6 +189,7 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
           }
         }
         fs.ftruncateSync(fd, 0);
+        writing = true;
         // 上面的原文校验把 fd 偏移推到末尾：写回必须显式定位到 0
         fs.writeSync(fd, contentBuf, 0, contentBuf.length, 0);
         fs.fsyncSync(fd);
@@ -205,6 +209,7 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
       fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
       0o644,
     );
+    writing = true;
     try {
       fs.writeSync(fd, contentBuf, 0, contentBuf.length, 0);
       fs.fsyncSync(fd);
@@ -213,6 +218,7 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
       fs.closeSync(fd);
     }
   } catch (err) {
+    if (writing) return { ok: false, message: "文件写入已开始但结果无法核实，未自动重写；请先核实目标内容", effectUnknown: true };
     if (err instanceof ApprovedOpError) return { ok: false, message: err.message };
     const code = (err as any)?.code;
     if (code === "EEXIST") return { ok: false, message: "目标文件已存在（等待期间被创建），批准失效，请重新申请" };

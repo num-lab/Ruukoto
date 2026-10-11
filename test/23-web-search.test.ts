@@ -556,30 +556,3 @@ test("未配置凭据、凭据 host 或用途不匹配时拒绝调用，不发�
     await tavily.close();
   }
 });
-
-test("schema v6 → 当前版本迁移：projects 补 web_search 列，旧项目默认 enabled", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-mig-v6-"));
-  try {
-    const raw = new DatabaseSync(path.join(root, "ruukoto.db"));
-    raw.exec(`
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, instruction_files TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL);
-INSERT INTO meta (key, value) VALUES ('schema_version', '6');
-INSERT INTO projects (id, name, created_at) VALUES ('proj_old', '旧项目', '2026-09-01T00:00:00Z');
-`);
-    raw.close();
-    const db = new Db(root);
-    try {
-      const store = new Store(db);
-      const version = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string };
-      assert.equal(version.value, String(SCHEMA_VERSION), "迁移到当前 schema 版本");
-      assert.equal(store.getProject("proj_old")!.webSearch, "enabled", "旧项目默认启用 Web Search");
-      store.withTx(() => store.updateProjectSettings({ projectId: "proj_old", webSearch: "disabled" }));
-      assert.equal(store.getProject("proj_old")!.webSearch, "disabled", "新库可读写开关");
-    } finally {
-      db.close();
-    }
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});

@@ -25,7 +25,7 @@ function request(requestId: string, expectedCheckpointId: string | null = "origi
     summarizedCount: 0, estimateBefore: null, estimateAfter: null, errorCode: null, errorMessage: null, createdAt: now, endedAt: null };
 }
 
-test("schema 33 的真实 NOT NULL 旧点完整迁移，手动来源可空且索引继续约束唯一有效点", () => {
+test("手动来源可空且索引约束唯一有效点", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "manual-compaction-schema-"));
   let db: Db | null = null;
   try {
@@ -33,28 +33,7 @@ test("schema 33 的真实 NOT NULL 旧点完整迁移，手动来源可空且索
     const original = checkpoint("original");
     const initial = new Store(db);
     initial.withTx(() => initial.insertCheckpoint(original));
-    db.close(); db = null;
-    const raw = new DatabaseSync(path.join(root, "ruukoto.db"));
-    const sql = (raw.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'context_checkpoints'").get() as { sql: string }).sql
-      .replace("task_id TEXT,", "task_id TEXT NOT NULL,").replace("call_index INTEGER,", "call_index INTEGER NOT NULL,").replace("  manual_request_id TEXT,\n", "");
-    const columns = (raw.prepare("PRAGMA table_info(context_checkpoints)").all() as Array<{ name: string }>).map(row => row.name).filter(name => name !== "manual_request_id").join(", ");
-    raw.exec("ALTER TABLE context_checkpoints RENAME TO old_checkpoints");
-    raw.exec("DROP INDEX idx_context_checkpoints_active");
-    raw.exec(sql);
-    raw.exec(`INSERT INTO context_checkpoints (${columns}) SELECT ${columns} FROM old_checkpoints`);
-    raw.exec("DROP TABLE old_checkpoints");
-    raw.exec("CREATE UNIQUE INDEX idx_context_checkpoints_active ON context_checkpoints (session_id) WHERE status = 'active'");
-    raw.exec("DROP TABLE compaction_requests");
-    raw.prepare("UPDATE meta SET value = '33' WHERE key = 'schema_version'").run();
-    assert.equal((raw.prepare("PRAGMA table_info(context_checkpoints)").all() as Array<{ name: string; notnull: number }>).find(row => row.name === "task_id")!.notnull, 1);
-    raw.close();
-    db = new Db(root);
-    const store = new Store(db);
-    assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()!.value, String(SCHEMA_VERSION));
-    assert.deepEqual(store.getActiveCheckpoint("session"), { ...original, status: "active" });
-    const columnsAfter = db.prepare("PRAGMA table_info(context_checkpoints)").all() as Array<{ name: string; notnull: number }>;
-    assert.equal(columnsAfter.find(row => row.name === "task_id")!.notnull, 0);
-    assert.equal(columnsAfter.find(row => row.name === "call_index")!.notnull, 0);
+    const store = initial;
     store.withTx(() => store.insertCheckpoint(checkpoint("manual", "external-request")));
     assert.equal(store.getActiveCheckpoint("session")!.manualRequestId, "external-request");
     assert.equal(store.getActiveCheckpoint("session")!.taskId, null);

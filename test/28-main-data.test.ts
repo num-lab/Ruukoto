@@ -5,7 +5,7 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * 覆盖工单验证项：
  * - main 能创建不同结构的表并跨重启读写；
  * - 迁移版本冲突不会静默覆盖；
- * - 破坏性操作进入确认（三种权限模式、拒绝、重复批准、陈旧版本、取消）；
+ * - 破坏性操作在受限模式进入确认，完全访问免审批（拒绝、重复批准、陈旧版本、取消）；
  * - 核心任务、审批、事件和凭据表无法被应用数据工具访问；
  * - 普通开发会话默认无法查询 main 数据（固定 coding/chat 已退役）；
  * - 大查询、恶意表名、超大字段和超时被拒绝并留下事件；
@@ -845,24 +845,13 @@ test("破坏性操作进入确认：范围/行 ID/版本固定，批准后执行
   }
 });
 
-test("full_access 与 auto-review 的破坏性数据操作仍需拥有者确认", async () => {
+test("full_access 破坏性数据免审批，auto-review 仍转拥有者确认", async () => {
   const t = await startTestRuntime("appdata-modes", seedAndDeleteResponder());
   try {
     const main = t.runtime.store.getAgentRole("main")!;
     const appStore = appDataStoreOf(t.runtime);
     const seed = await t.runtime.submit({ sessionId: main.sessionId, requestId: "seed", input: "SEED3", modelSelection: t.runtime.defaultSelection });
     await waitFor("造数完成", () => t.runtime.store.getTask(seed.id)!.status === "completed");
-
-    // full_access：多行删除仍进入确认
-    const del = await t.runtime.submit({
-      sessionId: main.sessionId, requestId: "del-fa", input: "DEL2-FA",
-      accessMode: "full_access", modelSelection: t.runtime.defaultSelection,
-    });
-    const conf = await pendingConfirmation(t.client, del.id);
-    assert.equal(conf.scope.kind, "app_data_change");
-    await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "reject" });
-    await waitFor("full_access 删除任务完成", () => t.runtime.store.getTask(del.id)!.status === "completed");
-    assert.equal(appStore.countRows("todos"), 3, "full_access 拒绝后不执行");
 
     // auto-review：转拥有者（不自动批准）
     const del2 = await t.runtime.submit({
@@ -878,6 +867,19 @@ test("full_access 与 auto-review 的破坏性数据操作仍需拥有者确认"
     await t.client.request("respond_confirmation", { confirmation_id: conf2.id, decision: "reject" });
     await waitFor("auto-review 删除任务完成", () => t.runtime.store.getTask(del2.id)!.status === "completed");
     assert.equal(appStore.countRows("todos"), 3);
+
+    const del = await t.runtime.submit({
+      sessionId: main.sessionId, requestId: "del-fa", input: "DEL2-FA",
+      accessMode: "full_access", modelSelection: t.runtime.defaultSelection,
+    });
+    await waitFor("full_access 删除任务完成", () => t.runtime.store.getTask(del.id)!.status === "completed");
+    assert.equal(appStore.countRows("todos"), 1, "完全访问直接删除固定的两行");
+    assert.equal(t.runtime.store.listConfirmationsByTask(del.id).length, 0);
+    const op = t.runtime.store.listToolOpsByTask(del.id).find((o) => o.toolName === "app_data_delete")!;
+    assert.equal(op.isError, false);
+    assert.equal(op.authorization?.source, "full_access");
+    assert.equal(op.authorization?.scope.kind, "app_data_change");
+    assert.equal(t.runtime.store.getTaskEventsAfter(del.id, 0, 100).some((e) => e.body.type === "task.awaiting_confirmation"), false);
   } finally {
     await t.shutdown();
   }
@@ -899,7 +901,7 @@ test("确认期间版本变化使批准失效，不执行新出现的行", async
     await waitFor("删除任务完成", () => t.runtime.store.getTask(del.id)!.status === "completed");
     const delOp = t.runtime.store.listToolOpsByTask(del.id).find((o) => o.toolName === "app_data_delete")!;
     assert.equal(delOp.isError, true);
-    assert.ok(delOp.resultSummary!.includes("版本在确认期间已变化"), "陈旧批准不执行");
+    assert.ok(delOp.resultSummary!.includes("版本在执行前已变化"), "陈旧批准不执行");
     assert.equal(appStore.countRows("todos"), 4, "行未被删除");
   } finally {
     await t.shutdown();

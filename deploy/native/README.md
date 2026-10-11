@@ -32,9 +32,9 @@ python3 verification/foundation/scripts/native-isolation/linux-native-probes.py 
 
 ## 从容器配置迁移
 
-先用原入口停止旧 Coding Agent 后台与活动执行单元，核实退出后再替换检出并运行 `npm run setup`、`npm run build`。保留原 `~/.ruukoto-code`、工作副本、会话历史、审批、产物和待核实占用；不用导入或重建档案，也不在线替换运行任务的环境。
+先用原入口停止 Coding Agent 后台与活动执行单元，核实退出后再替换检出并运行 `npm run setup`、`npm run build`。保留原 `~/.ruukoto-code`、工作副本、会话历史、审批、产物和待核实占用，不在线替换运行任务的环境。此处只调整执行后端配置；后台只接受当前 schema 的档案，不提供旧库升级或回填，启动前须按[操作手册](../../docs/usage.md)核实格式。
 
-`--execution container` / `local` 与 `RUUKOTO_EXECUTION_BACKEND=container` / `local` 在正式 Coding Agent 入口明确拒绝；移除覆盖或显式改为 native。完全访问仍需独立执行账户与受保护启动/停止入口，个人产品的 container/systemd 配置继续使用。入口与故障排查见[操作手册](../../docs/usage.md)。
+`--execution container` / `local` 与 `RUUKOTO_EXECUTION_BACKEND=container` / `local` 在正式 Coding Agent 入口明确拒绝；移除覆盖或显式改为 native。两个产品的完全访问均直接使用启动后台账户，不要求原生沙箱、容器或专用执行入口；个人产品的受限任务使用其配置的后端。入口与故障排查见[操作手册](../../docs/usage.md)。
 
 ## 移除
 

@@ -56,3 +56,7 @@ Status: implemented
 [issue 18 交付记录](../../../../.scratch/agent-direction/issues/18-im-final-delivery.md)记录 `test/84-im-final-delivery.test.ts` 当时 9 项及相关回归、typecheck 全通过，`npm test` 912 通过、0 失败、1 跳过。覆盖 QQ/TG 受理→续聊→汇报顺序，跨入口续派仍回原目标、按收尾任务取正文、并发/重复/巡检补记一次、补充再收尾新键、目标失效/离线/429/unknown、无任意外发授权。`.scratch/agent-direction/smoke-18-im-final-delivery.mts` 在 macOS 与 tx Linux 各 7/7，真实后台、控制面、SQLite/outbox、Docker 受限 worker 与 SIGKILL 重启，模型及两平台模拟。
 
 以上历史证据没有实测真实 QQ/NapCat 或真实 Telegram Bot API，两个平台仍各需独立真实闭环。运行命令与说明见[操作手册](../../../../docs/usage.md)。
+
+## 适用范围
+
+通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。

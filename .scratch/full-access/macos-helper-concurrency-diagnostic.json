@@ -1,0 +1,8 @@
+{
+  "scenario": "virtual /bin/sh FD probe under unrelated same-UID /usr/bin/true fork/exec churn",
+  "runs": 90,
+  "churn": 9715,
+  "failed": 0,
+  "reasons": [],
+  "firstFailures": []
+}

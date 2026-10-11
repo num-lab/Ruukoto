@@ -163,7 +163,7 @@ test("buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目�
         RUUKOTO_OWNER_TOKEN: "daily-token",
         RUUKOTO_OWNER_TOKEN_FILE: "/daily-owner.token",
         RUUKOTO_EXECUTION_BACKEND: "local",
-        RUUKOTO_EXEC_UID: "900",
+        RUUKOTO_SERVICE_SUDO: "900",
         RUUKOTO_CONTAINER_IMAGE: "daily-image",
         RUUKOTO_WORKER_IMAGE: "daily-worker",
         PATH: "/usr/bin",
@@ -177,7 +177,7 @@ test("buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目�
       assert.equal(env[`${prefix}_${kind}_DIR`], dir);
       assert.equal(env[`${otherPrefix}_${kind}_DIR`], undefined, "不保留另一个产品的日常目录");
     }
-    for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_EXECUTION_BACKEND", "RUUKOTO_EXEC_UID", "RUUKOTO_CONTAINER_IMAGE", "RUUKOTO_WORKER_IMAGE"]) {
+    for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_EXECUTION_BACKEND", "RUUKOTO_SERVICE_SUDO", "RUUKOTO_CONTAINER_IMAGE", "RUUKOTO_WORKER_IMAGE"]) {
       assert.equal(env[key], undefined, `${product} 不继承 ${key}`);
     }
     assert.equal(env.PATH, "/usr/bin");
@@ -217,11 +217,13 @@ test("ruukoto-code：停用 QQ/Telegram 连接与轮询、个人调度不可用�
         paramsDigest: "d",
         createTaskId: null,
         createOpId: null,
-        action: "notify",
+        projectId: t.runtime.store.getAgentRole("main")!.projectId,
+        createPermissionVersion: 1,
+        accessMode: "confirm",
         rule: { kind: "once", at: "2099-01-01T00:00:00.000Z", timeZone: "Asia/Shanghai", disambiguation: "compatible" },
-        payload: { text: "旧计划正文", sourceRefs: [] },
+        instruction: "通用计划说明",
+        sourceRefs: [],
         target: null,
-        approvalId: null,
         nextDueAt: null,
         tzData: "Asia/Shanghai",
         reason: "测试种子",
@@ -231,7 +233,7 @@ test("ruukoto-code：停用 QQ/Telegram 连接与轮询、个人调度不可用�
     const list = t.runtime.scheduleList({});
     assert.equal(list.schedules.length, 1);
     assert.equal(list.schedules[0]!.id, seeded.id);
-    assert.equal(t.runtime.scheduleGet(seeded.id).schedule.payload.text, "旧计划正文");
+    assert.equal(t.runtime.scheduleGet(seeded.id).schedule.instruction, "通用计划说明");
   } finally {
     await t.shutdown();
   }

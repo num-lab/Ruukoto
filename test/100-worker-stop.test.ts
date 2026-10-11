@@ -5,7 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough, Writable } from "node:stream";
-import { spawn, spawnSync } from "node:child_process";
+import childProcess, { spawn, spawnSync } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -154,6 +155,115 @@ test("真实原进程组：主进程先退出仍停止同组后代心跳", { ski
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("真实原进程组：短暂查询失败在停止预算内继续核实", { skip: process.platform === "win32" }, async context => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-stop-query-"));
+  const ready = path.join(root, "ready");
+  const child = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(process.argv[1],'ready'); setInterval(()=>{},20);", ready], { detached: true, stdio: "ignore" });
+  const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
+  let queries = 0;
+  const execFile = childProcess.execFile;
+  context.mock.method(childProcess, "execFile", (_file: string, args: string[], options: childProcess.ExecFileOptionsWithStringEncoding,
+    callback: (error: childProcess.ExecFileException | null, stdout: string, stderr: string) => void) => {
+    queries++;
+    if (queries <= 2) {
+      callback(new Error("模拟两次短暂 ps 查询失败"), "", "");
+      return new childProcess.ChildProcess();
+    }
+    return execFile("/bin/ps", args, options, callback);
+  });
+  syncBuiltinESMExports();
+  try {
+    await waitFor("进程组忽略 TERM 后就绪", () => fs.existsSync(ready));
+    assert.equal(await killProcessGroup(child.pid!, { termGraceMs: 200, killGraceMs: 500 }), true);
+    assert.ok(queries >= 3, "两次短暂失败后仍实际调用宿主 ps 核实");
+    await exited;
+  } finally {
+    context.mock.restoreAll();
+    syncBuiltinESMExports();
+    await killProcessGroup(child.pid!, { termGraceMs: 0, killGraceMs: 500 });
+    await exited;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const query of ["失败", "输出不完整"] as const) {
+  test(`原进程组持续存在且查询${query}：预算耗尽仍保留未核实`, { skip: process.platform === "win32" }, async context => {
+    let queries = 0;
+    context.mock.method(process, "kill", () => true);
+    context.mock.method(childProcess, "execFile", (_file: string, _args: string[], _options: childProcess.ExecFileOptionsWithStringEncoding,
+      callback: (error: childProcess.ExecFileException | null, stdout: string, stderr: string) => void) => {
+      queries++;
+      callback(query === "失败" ? new Error("模拟 ps 查询失败") : null, query === "输出不完整" ? "incomplete\n" : "", "");
+      return new childProcess.ChildProcess();
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.equal(await killProcessGroup(123456, { termGraceMs: 20, killGraceMs: 20 }), false);
+      assert.ok(queries >= 2, "两个停止阶段都收到指定的失败回执");
+    } finally {
+      context.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  });
+}
+
+test("停止预算：查询超时与休眠受剩余预算限制，耗尽后不再发 ps", async context => {
+  let now = 0;
+  const queries: Array<{ at: number; timeout: number | undefined }> = [];
+  const sleeps: number[] = [];
+  const schedule = globalThis.setTimeout;
+  context.mock.method(process, "kill", () => true);
+  context.mock.method(Date, "now", () => now);
+  context.mock.method(globalThis, "setTimeout", (callback: () => void, delay: number) => {
+    sleeps.push(delay);
+    now += delay;
+    return schedule(callback, 0);
+  });
+  context.mock.method(childProcess, "execFile", (_file: string, _args: string[], options: childProcess.ExecFileOptionsWithStringEncoding,
+    callback: (error: childProcess.ExecFileException | null, stdout: string, stderr: string) => void) => {
+    queries.push({ at: now, timeout: options.timeout });
+    if (queries.length === 1) now += 5;
+    callback(null, "incomplete\n", "");
+    return new childProcess.ChildProcess();
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.equal(await killProcessGroup(123456, { termGraceMs: 20, killGraceMs: 0 }), false);
+    assert.deepEqual(queries, [{ at: 0, timeout: 20 }, { at: 20, timeout: 1 }], "TERM 预算耗尽后只保留 KILL 的首次核实");
+    assert.deepEqual(sleeps, [15], "休眠只使用剩余预算");
+  } finally {
+    context.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+for (const result of ["ESRCH", "僵尸", "查询失败"] as const) {
+  test(`零停止预算仍核实首次结果：${result}`, async context => {
+    let now = 0;
+    const timeouts: Array<number | undefined> = [];
+    context.mock.method(Date, "now", () => now);
+    context.mock.method(process, "kill", (_pid: number, signal: string | number) => {
+      if (signal === 0 && result === "ESRCH") throw Object.assign(new Error("模拟原组已消失"), { code: "ESRCH" });
+      return true;
+    });
+    context.mock.method(childProcess, "execFile", (_file: string, _args: string[], options: childProcess.ExecFileOptionsWithStringEncoding,
+      callback: (error: childProcess.ExecFileException | null, stdout: string, stderr: string) => void) => {
+      timeouts.push(options.timeout);
+      now += 5;
+      callback(result === "查询失败" ? new Error("模拟查询失败") : null, "123456 Z\n", "");
+      return new childProcess.ChildProcess();
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.equal(await killProcessGroup(123456, { termGraceMs: 0, killGraceMs: 0 }), result !== "查询失败");
+      assert.deepEqual(timeouts, result === "ESRCH" ? [] : result === "僵尸" ? [1] : [1, 1]);
+    } finally {
+      context.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  });
+}
 
 
 test("静态 start 失败交出可核实的宿主记录与原错误", async () => {

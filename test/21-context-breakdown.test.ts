@@ -66,9 +66,11 @@ test("breakdown 纯函数：分类占比工作示例", () => {
   assert.equal(b.windowUnavailableReason, null);
 
   const byKey = new Map(b.categories.map((c) => [c.key, c]));
-  assert.equal(byKey.size, 13, "十三个已知分类（issue 13 增加工作内消息）");
+  assert.equal(byKey.size, 14, "十四个已知分类，包含工作内消息与工作清单");
   assert.equal(byKey.get("skills")!.label, "技能");
   assert.equal(byKey.get("compactionSummary")!.label, "压缩摘要");
+  assert.equal(byKey.get("workList")!.label, "工作清单");
+  assert.equal(byKey.get("workList")!.tokens, 0, "没有工作清单的旧记录仍显示零用量");
   const sys = byKey.get("systemPrompt")!;
   assert.equal(sys.label, "系统提示");
   assert.equal(sys.tokens, 500);

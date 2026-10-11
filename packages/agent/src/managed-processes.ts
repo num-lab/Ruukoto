@@ -47,14 +47,14 @@ export function createManagedProcessRegistry(): ManagedProcessRegistry {
 }
 
 /** 原进程组只剩僵尸时已无可执行成员；查询或权限失败不能证明退出。 */
-async function processGroupAlive(pgid: number): Promise<boolean | null> {
+async function processGroupAlive(pgid: number, timeoutMs: number): Promise<boolean | null> {
   try {
     process.kill(-pgid, 0);
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : null;
   }
   return new Promise(resolve => {
-    childProcess.execFile("ps", ["-eo", "pgid=,stat="], { encoding: "utf8", timeout: 2000 }, (error, stdout) => {
+    childProcess.execFile("ps", ["-eo", "pgid=,stat="], { encoding: "utf8", timeout: timeoutMs }, (error, stdout) => {
       if (error) { resolve(null); return; }
       for (const line of stdout.trim().split("\n")) {
         const match = /^\s*(\d+)\s+(\S+)\s*$/.exec(line);
@@ -86,12 +86,14 @@ export async function killProcessGroup(
   };
   const waitForExit = async (graceMs: number): Promise<boolean> => {
     const deadline = Date.now() + graceMs;
-    for (;;) {
-      const alive = await processGroupAlive(pgid);
+    do {
+      const alive = await processGroupAlive(pgid, Math.max(1, Math.min(2000, deadline - Date.now())));
       if (alive === false) return true;
-      if (alive === null || Date.now() >= deadline) return false;
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false;
+      await new Promise(resolve => setTimeout(resolve, Math.min(50, remaining)));
+    } while (Date.now() < deadline);
+    return false;
   };
   const termSignaled = signalGroup("SIGTERM");
   if (termSignaled && await waitForExit(opts.termGraceMs ?? 3000)) return true;

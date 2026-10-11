@@ -1,6 +1,7 @@
 /**
  * 同项工作内 SubAgent 相互通信（agent-direction issue 13）。
  * Note: 见 .agents/notes/implemented/feature/2026-10-05-subagent-messaging.md
+ * Note: 见 .agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
  *
  * seam：Runtime 公共接口 + mock 模型 + 真实只读工具（realTools，local 后端）；
  * 消息登记的确定性路径直接用管理器（发送方关联核验不要求任务存活；
@@ -53,10 +54,15 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
   let aId = "";
   let bId = "";
   let wId = "";
+  let releaseSender!: () => void;
+  const senderGate = new Promise<void>((resolve) => { releaseSender = resolve; });
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
     if (text.includes("[SubAgent 委派")) {
-      if (afterTool(req)) return { kind: "text", text: "A-已通知B" };
+      if (afterTool(req)) {
+        if (text.includes("联络B")) await senderGate;
+        return { kind: "text", text: "A-已通知B" };
+      }
       if (text.includes("联络B")) {
         return {
           kind: "tool_calls",
@@ -128,8 +134,7 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
 
     // A→B：A 的继续任务经工具发送；B 空闲即投递为本工作的执行任务
     const cont = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "c1", request: "联络B", workId: wId, readPaths: ["a.txt"], materials: null, paramsDigest: "dc1" });
-    await waitFor("A 的联络任务完成", () => rt.store.getTask(cont.task.id)!.resultSummary !== null);
-    await waitIdle(rt, aId);
+    await waitFor("B 收到 A 的消息", () => deliveryTasksOf(rt, rt.store.getSubAgent(bId)!.sessionId).length === 1);
     const bDelivery = deliveryTasksOf(rt, bId === "" ? "" : rt.store.getSubAgent(bId)!.sessionId);
     assert.equal(bDelivery.length, 1, "A→B 投递为 B 的一次执行任务");
     assert.match(bDelivery[0]!.input, /\[工作内消息 · 工作 .*\]/);
@@ -144,6 +149,23 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     // B→A：投递任务内经工具回复；A 忙完当前任务后由冲刷投递
     await waitFor("B 的投递任务完成", () => rt.store.getTask(bDelivery[0]!.id)!.resultSummary !== null);
     await waitIdle(rt, bId);
+    assert.equal(rt.store.findActiveSubAgentTask(aId)!.id, cont.task.id, "发送后响应暂停，A 仍被联络任务占用");
+    assert.equal(deliveryTasksOf(rt, rt.store.getSubAgent(aId)!.sessionId).length, 0, "忙碌的 A 尚无回复投递任务");
+    const pendingReply = rt.store.listSubAgentMessagesByWork(wId).find((message) => message.fromTaskId === bDelivery[0]!.id)!;
+    assert.ok(pendingReply, "B 的工具回复已登记");
+    assert.deepEqual(
+      [pendingReply.fromSubAgentId, pendingReply.toSubAgentId, pendingReply.deliveredTaskId, pendingReply.deliveredAt, pendingReply.undeliveredReason],
+      [bId, aId, null, null, null],
+    );
+    const sentBeforeFlush = eventsOf(rt, "subagent_message.sent", session.id);
+    assert.equal(sentBeforeFlush.length, 2);
+    assert.deepEqual(
+      sentBeforeFlush.map((event) => [event.fromTaskId, event.fromSubAgentId, event.toSubAgentId, event.delivery, event.taskId]),
+      [[cont.task.id, aId, bId, "task", bDelivery[0]!.id], [bDelivery[0]!.id, bId, aId, "pending", null]],
+      "sent 保存发送时的判定，B 回复时 A 忙碌而待投递",
+    );
+    releaseSender();
+    await waitFor("A 的联络任务完成", () => rt.store.getTask(cont.task.id)!.resultSummary !== null);
     await waitFor("A 收到 B 的回复", () => deliveryTasksOf(rt, rt.store.getSubAgent(aId)!.sessionId).length === 1);
     const aDelivery = deliveryTasksOf(rt, rt.store.getSubAgent(aId)!.sessionId);
     assert.match(aDelivery[0]!.input, new RegExp(`来自：SubAgent ${bId}`));
@@ -155,19 +177,19 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     // 消息与来源可追溯：行、事件、发送方任务关联
     const msgs = rt.store.listSubAgentMessagesByWork(wId);
     assert.equal(msgs.length, 2);
+    const forward = msgs.find((message) => message.fromTaskId === cont.task.id)!;
+    const reply = msgs.find((message) => message.id === pendingReply.id)!;
+    assert.ok(forward && reply);
     assert.deepEqual(
-      msgs.map((m: any) => [m.fromSubAgentId, m.toSubAgentId]),
-      [
-        [aId, bId],
-        [bId, aId],
-      ],
+      [forward, reply].map((message) => [message.fromSubAgentId, message.toSubAgentId, message.fromTaskId, message.deliveredTaskId]),
+      [[aId, bId, cont.task.id, bDelivery[0]!.id], [bId, aId, bDelivery[0]!.id, aDelivery[0]!.id]],
     );
-    assert.equal(msgs[0]!.fromTaskId, cont.task.id);
-    assert.equal(msgs[1]!.fromTaskId, bDelivery[0]!.id);
-    assert.ok(msgs.every((m: any) => m.deliveredTaskId !== null && m.deliveredAt !== null && m.undeliveredReason === null));
-    const sent = eventsOf(rt, "subagent_message.sent", session.id);
-    assert.equal(sent.length, 2);
-    assert.ok(sent.every((e) => e.delivery === "task" && typeof e.taskId === "string"));
+    assert.ok(msgs.every((message) => message.deliveredAt !== null && message.undeliveredReason === null));
+    assert.deepEqual(
+      [bDelivery[0]!, aDelivery[0]!].map((task) => [task.requestId, task.parentTaskId, task.workId, task.subAgentId]),
+      [[`smsg:${forward.id}`, cont.task.id, wId, bId], [`smsg:${reply.id}`, bDelivery[0]!.id, wId, aId]],
+    );
+    assert.deepEqual(eventsOf(rt, "subagent_message.sent", session.id), sentBeforeFlush, "冲刷只更新消息行与投递任务，不改写或重复发送事件");
 
     // 主 Agent 补充（上级向协作中的 SubAgent 发送）：投递为 A 的本工作任务
     const sup = await rt.subagents!.message({ senderTaskId: parent.id, workId: wId, key: "s1", text: "补充CAP-SUP1", toSubAgentId: aId, paramsDigest: "ds1" });
@@ -202,6 +224,7 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     assert.match(shown, /已投递（任务/);
     assert.match(shown, /CAP-SUP1/);
   } finally {
+    releaseSender();
     await t.shutdown();
   }
 });

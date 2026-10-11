@@ -36,8 +36,8 @@ description: 写或改 docs/ 下面向人类的文档（architecture、modules�
 | `packages/agent/src/` 的工具、MCP、Web Search、应用数据与授权；app 的调度与服务工具 | `docs/modules/agent-tools.md` |
 | `packages/agent/src/execution/`、`packages/agent/src/tool-worker/` | `docs/modules/execution.md` |
 | `packages/control/src/` | `docs/modules/control.md` |
-| `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `docs/modules/tui.md` |
-| `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/github/` | `docs/modules/channels.md` |
+| `packages/tui/src/`（共享 CLI、入口分发、开发启动器与两个界面） | `docs/modules/tui.md` |
+| `packages/channels/src/`（`scheduler/` 除外） | `docs/modules/channels.md`；旧实例导入的流程在 `docs/modules/runtime.md` |
 | `packages/channels/src/scheduler/` | `docs/modules/scheduler.md` |
 | `deploy/` | `docs/modules/deploy.md` |
 

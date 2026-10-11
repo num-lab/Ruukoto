@@ -13,12 +13,12 @@ Ruukoto 是一个单仓库交付两个产品（`ruukoto` 个人 Agent、`ruukoto
 | [agent-tools](modules/agent-tools.md) | 决定会话有哪些工具，并经统一审批与操作账本执行 | 依赖 core、execution；被 runtime 装配 |
 | [execution](modules/execution.md) | 在受限容器或专用执行账户的边界内执行工具 | 依赖 core 的路径与身份；被 agent-tools 调用 |
 | [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui 消费 |
-| [tui](modules/tui.md) | 交互终端与配置中心两个客户端 | 只经 control 协议连接本机后台 |
+| [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
 | [scheduler](modules/scheduler.md) | 持久调度计划与通知 outbox 的发送账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
 | [deploy](modules/deploy.md) | 部署的系统身份、单元、提权入口与服务管理 | 不参与运行时调用；定义后台与执行账户的运行环境 |
 
-六个共享包在 `packages/{core,agent,channels,runtime,control,tui}`。agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；各 app 的 `product.ts` 声明差异。共享 CLI、开发启动器、工作区组织迁移与旧群结果查询供两产品使用。
+六个共享包在 `packages/{core,agent,channels,runtime,control,tui}`。agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；各 app 的 `product.ts` 声明差异。
 
 运行时值依赖为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`tui → control/runtime/agent/core`；control 通过注入的 Runtime 实例提供服务。反向类型引用在 devDependencies 声明。ESLint 拒绝未声明依赖、越层值引用与跨包相对路径。worker、schema 与控制面协议单点持有。
 

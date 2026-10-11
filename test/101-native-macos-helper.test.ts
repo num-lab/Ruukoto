@@ -108,24 +108,34 @@ test("macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启
   }
 });
 
+// Note: 见 .agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
 test("macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代", { skip: !available }, async () => {
   const dir = fs.realpathSync(fs.mkdtempSync("/tmp/rk-native-stop-"));
   const beats = path.join(dir, "heartbeat");
-  const shell = `trap "" TERM; i=0; while [ "$i" -lt 150 ]; do printf beat >> '${beats}'; sleep 0.02; i=$((i+1)); done`;
-  const script = `require('child_process').spawn('/bin/sh',['-c',${JSON.stringify(shell)}],{detached:true,stdio:'ignore'});setTimeout(()=>{},20000);`;
+  const ready = path.join(dir, "ready");
+  const termReceived = path.join(dir, "term-received");
+  const release = path.join(dir, "release");
+  const descendant = `const fs=require('node:fs');let termHandled=false;process.on('SIGTERM',()=>{if(!termHandled){fs.writeFileSync(${JSON.stringify(termReceived)},'TERM');termHandled=true;}});fs.writeFileSync(${JSON.stringify(ready)},JSON.stringify({ppid:process.ppid}));setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0);fs.appendFileSync(${JSON.stringify(beats)},'beat');},500);setTimeout(()=>process.exit(0),20000);`;
+  // 后代从不关闭 stdout；共享管道 EOF 独立证明它退出，避免用短观察窗推断心跳冻结。
+  const script = `require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','inherit','ignore']});setTimeout(()=>{},20000);`;
   const run = supervise([process.execPath, "-e", script]);
+  let closed = false;
+  void run.closed.then(() => { closed = true; });
   try {
-    await waitFor(() => fs.existsSync(beats) && fs.statSync(beats).size > 8);
+    await waitFor(() => fs.existsSync(ready) && fs.existsSync(beats) && fs.statSync(beats).size > 0);
+    assert.equal(JSON.parse(fs.readFileSync(ready, "utf8")).ppid, run.messages.find(message => message.type === "started")?.pid);
     const before = fs.statSync(beats).size;
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await waitFor(() => fs.statSync(beats).size > before);
     assert.ok(fs.statSync(beats).size > before, "停止前心跳确实增长");
     run.stop();
-    await run.closed;
+    await waitFor(() => run.messages.some(message => message.type === "stopped"));
     assert.equal(run.messages.at(-1)?.reaped, true, `${JSON.stringify(run.messages)} ${run.errors()}`);
+    assert.equal(fs.readFileSync(termReceived, "utf8"), "TERM", "后代实际收到并忽略 TERM");
     const after = fs.statSync(beats).size;
-    await new Promise(resolve => setTimeout(resolve, 80));
+    await waitFor(() => closed);
     assert.equal(fs.statSync(beats).size, after, "停止后心跳冻结");
   } finally {
+    fs.writeFileSync(release, "release");
     await finish(run.child, run.closed);
     fs.rmSync(dir, { recursive: true, force: true });
   }

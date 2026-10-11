@@ -1,4 +1,5 @@
 import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
+import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 /**
  * 控制面服务：Unix socket 上的换行分帧 JSON。
  *
@@ -264,6 +265,16 @@ export class ControlServer {
       }
       case "create_project":
         return runtime.createProject(requireString("name"), optionalRequestId());
+      case "branch_session": {
+        if (params["name"] !== undefined && typeof params["name"] !== "string") throw new RuntimeApiError("invalid_params", "name 必须是字符串");
+        const requestId = optionalRequestId();
+        if (!requestId) throw new RuntimeApiError("invalid_params", "会话分支必须提供 request_id");
+        return runtime.branchSession({ sessionId: requireString("session_id"), requestId, name: params["name"] as string | undefined });
+      }
+      case "find_branch_session":
+        return runtime.findBranchSession(requireString("request_id"));
+      case "get_session_todos":
+        return runtime.getSessionTodos(requireString("session_id"));
       case "create_session":
         return runtime.createSession({
           projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
@@ -511,6 +522,7 @@ export class ControlServer {
         return runtime.queryArtifact({
           taskId: requireString("task_id"),
           artifactId: requireString("artifact_id"),
+          sessionId: typeof params["session_id"] === "string" ? params["session_id"] : undefined,
           offset,
           length,
         });

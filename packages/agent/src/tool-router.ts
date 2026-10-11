@@ -22,6 +22,8 @@ import type { Store } from "@ruukoto/core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
 import type { ArtifactStore } from "./artifacts.ts";
+import { sourceArtifact } from "@ruukoto/core/branch.ts";
+import { AccessScope } from "@ruukoto/core/access.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
 import { ExecutionError, type WorkerLauncher } from "./execution/launchers.ts";
@@ -692,7 +694,7 @@ export class ToolRouter {
     const artifactId = String(input.params["artifact_id"] ?? "");
     const offset = Number(input.params["offset"] ?? 0);
     const length = Math.min(Number(input.params["length"] ?? 64 * 1024), 64 * 1024);
-    const artifact = this.deps.store.getArtifact(artifactId);
+    let artifact = this.deps.store.getArtifact(artifactId);
     if (!artifact) {
       return textResult(`产物不存在：${artifactId}`, true);
     }
@@ -702,7 +704,10 @@ export class ToolRouter {
     if (!allowed) {
       return textResult(`产物不属于可读取范围：${artifactId}（同项目旧任务需有效范围，跨项目需拥有者授权）`, true);
     }
-    const buf = this.deps.artifacts.read(artifactId, Math.max(0, offset), Math.max(1, length));
+    const frozen = sourceArtifact(this.deps.store, new AccessScope(this.deps.store.db), task.sessionId, artifactId);
+    if (frozen) artifact = frozen;
+    const start = Math.max(0, offset);
+    const buf = this.deps.artifacts.read(artifactId, start, Math.max(0, Math.min(Math.max(1, length), artifact.byteCount - start)));
     const encoding = input.params["encoding"] === "base64" ? "base64" : "utf8";
     const body = encoding === "base64" ? buf.toString("base64") : buf.toString("utf8");
     return textResult(

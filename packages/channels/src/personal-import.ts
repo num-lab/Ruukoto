@@ -1,3 +1,4 @@
+import { verifyImportedBranchSources } from "@ruukoto/core/import-support.ts";
 /**
  * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22）：
  * issue 21 跨实例导入的镜像方向。拥有者把旧 main 会话、应用数据、调度、平台
@@ -45,6 +46,7 @@ export { listLegacyImports };
 // ---------- 表级策略：个人方向的登记（allow-list，未登记即拒绝） ----------
 
 const TABLE_POLICY: TablePolicy = {
+  branch_requests: { policy: "exclude", reason: "分支准备回执只属于原实例；已发布来源随会话保留" },
   projects: { policy: "import" },
   sessions: { policy: "import" },
   tasks: { policy: "import" },
@@ -569,6 +571,7 @@ function buildImportSet(snap: PersonalSnapshot, deps: LegacyImportDeps): Persona
   }
 
   const worksIncluded = allRows(db, "SELECT * FROM work_delegations").filter((r) => sessionIds.has(String(r.parent_session_id)));
+  verifyImportedBranchSources(includedSessions, tasks, artifacts, worksIncluded);
   return {
     roles,
     projects: includedProjects,

@@ -18,7 +18,7 @@
 
 ## 对外接口
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `16`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `17`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -33,6 +33,7 @@
 | 连接与后台 | `ping`、`connect`、`stop` | `ping` 返回 `pong` 与 `stopping`；`connect` 是握手（见下）；`stop` 请求后台停止，立即回 `accepted` |
 | 项目、会话与工作区 | `create_project`、`create_session`、`open_workspace`、`get_session`、`list_session_summaries`、`get_session_usage` | `create_project` / `create_session` / `open_workspace` 带可选幂等键 `request_id`；`list_session_summaries` 的 `project_id`（原身份）与 `workspace_id`（组织归属）互斥且必须给一个 |
 | 旧数据迁移 | `preview_workspace_migration`、`apply_workspace_migration` | 预览只读；应用必须带 `instance_id`，另用 `request_id` 回执与 `expected_revision`（回退除外）防重 |
+| 会话分支 | `branch_session`、`find_branch_session`、`get_session_todos` | 创建只接收来源 `session_id`、可选名称与必填请求键；按原键查询准备、发布或失败状态；清单从完整历史恢复 |
 | 模型配置 | `list_models`、`get_model_config`、`set_session_model`、`save_model_catalog`、`set_model_api_key`、`remove_model_api_key`、`remove_model_provider`、`set_default_model`、`set_summary_model`、`test_model_connection` | 写操作按 `expected_version` 或 `expected_revision` 条件更新 |
 | 任务 | `submit`、`continue`、`switch_mode`、`set_session_mode`、`interrupt`、`cancel`、`resume_queue` | `submit` 与 `continue` 带 `request_id`；`submit` / `continue` / `switch_mode` / `set_session_mode` 不能作用于子会话；`switch_mode` 不能进入或退出计划模式 |
 | 任务查询 | `get_task`、`find_task`、`list_tasks`、`read_task_events` | `get_task` 返回快照水位 `seq`；`find_task` 按 `session_id` + `request_id` 核实请求是否已接收；`read_task_events` 按 `after_seq` / `limit` 分页 |
@@ -67,6 +68,8 @@
 **超时。** 客户端建连 5000 ms、认证 10000 ms、握手 15000 ms、普通请求 60000 ms。普通请求超时按 `unknown`，后台照常执行，迟到应答按 `id` 丢弃。
 
 ## 数据与状态
+
+分支创建应答、`session.created.session` 与握手中的会话提供完整名称、来源、归属、模型、模式及各自版本。`read_artifact` 可携带分支的 `session_id`，后台将来源产物读取限定在固定字节与状态；拥有者按原任务 ID 查询的权限保持原规则。
 
 **控制目录。** 目录 `<controlDir>`（默认是数据目录的兄弟目录 `control/`，可用 `RUUKOTO_CONTROL_DIR` / `RUUKOTO_CODE_CONTROL_DIR` 覆盖）：
 
@@ -213,6 +216,8 @@ sequenceDiagram
 **已知上限。** 两端的帧大小口径不同：服务端按字符串长度（UTF-16 码元数）比较请求行，客户端只核对收到的帧（按 UTF-8 字节数），发送前不核对请求大小。超过服务端上限的请求会让连接被直接销毁，客户端把在途请求当成应答丢失；如果那是提交，待确认记录每次上线都会被核实，`find_task` 查不到就按原参数重发，连接又被销毁，按退避初值 500 ms 重连，如此循环。这是按代码推演的结论，未实际运行验证。
 
 ## 设计依据
+
+- [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
 
 - [任务由后台进程持有，终端只负责交互](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：解释任务为什么独立于交互入口、为什么需要独立认证与实例锁，以及持久事件带单调序号、按游标补发、提交携带 `request_id` 去重这套恢复机制。
 - [限定的长期服务授权替代重复人工决定](../../.agents/notes/implemented/feature/2026-10-03-standing-permissions.md)：解释批准上的授权关联与新决定来源、`standing_permission.*` 事件，以及控制面只查询与撤销、不能创建或扩大授权的能力边界。

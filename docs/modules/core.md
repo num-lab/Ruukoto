@@ -50,13 +50,17 @@
 
 ## 数据与状态
 
+会话持久字段 `name` 与 `branch_source` 对旧会话均为 NULL。分支来源保存直接父会话、自动编号、实际末条 ID、消息数、尾部排除说明及宿主核实的历史任务、产物字节/状态和结果任务集合。来源字段只用于追溯和读取，不参与执行权限判定。
+
+`branch_requests` 保存请求键、参数摘要、来源编号、固定目标会话、源文件身份/前缀摘要、目标准备文件摘要和压缩点内容；不保存消息正文。状态为 `prepared`、`published` 或 `failed`，未发布回执不进入会话列表。编号在事务内按直接来源分配，同键异参拒绝；自动编号也计入已导入分支的来源编号。
+
 ### 档案根与目录布局
 
 档案根按产品分开：ruukoto 默认 `~/.ruukoto`，`ruukoto-code` 默认 `~/.ruukoto-code`，两者的内容结构一致。两个产品的开发实例另用 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常实例完全隔离，不继承生产凭据与配置；ruukoto 的开发 profile 保留现有开发历史，ruukoto-code 的开发 profile 不自动迁入 dev 历史。以下为单个产品实例的布局（以 ruukoto 默认路径为例）：
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v32）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v33）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
@@ -103,7 +107,7 @@
 
 ### schema 版本与迁移
 
-`SCHEMA_VERSION` 是 `32`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `33`，写在 `meta` 表的 `schema_version` 键。
 
 - 文件版本高于程序版本：直接抛错「schema 版本过新」，要求升级程序，不做任何写入。
 - 文件版本等于程序版本：只幂等补齐缺失对象与缺失列。
@@ -112,7 +116,7 @@
 - 缺 `meta` 表（全新库）按「无版本记录」处理，进入建表事务。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
 
-当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
+当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`。
 
 关键表的要点：
 
@@ -222,6 +226,8 @@ SubAgent 行优先于角色与类别，所以子会话不会被误判成 main �
 
 ## 主要流程
 
+历史快照打开源文件并固定长度，严格解析完整 UTF-8 JSONL 行及条目链；部分尾行排除。工具调用按宿主任务与 assistant 批次配对，活动未闭合批次回退，终态任务的旧孤儿保留。读取期间正常追加不改变快照；源文件身份、前缀或工具边界无法核实时拒绝。core 只读历史，独立文件准备由 agent 承担。
+
 ### 启动：目录、锁、产品归属与 schema
 
 ```mermaid
@@ -325,6 +331,8 @@ sequenceDiagram
 - 本地存储故障保留 `staging` 状态，不伪装成平台拒绝。
 
 ## 设计依据
+
+- [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
 
 - [任务由后台进程持有，终端只负责交互](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：任务独立于交互入口、实例锁的核实判据、后台重启恢复与不重放原则的来源。
 - [完整保留会话历史，单独组装模型上下文](../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)：解释为什么 pi JSONL 是唯一权威副本、历史索引只是派生数据，以及历史完整性与模型上下文的边界。

@@ -44,6 +44,8 @@ import type { SourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import { QQ_PRIVATE_SOURCE,TELEGRAM_SOURCE } from "@ruukoto/core/notify-target.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { AccessScope } from "@ruukoto/core/access.ts";
+import { sourceArtifact, sourceResultTasks } from "@ruukoto/core/branch.ts";
 import type { SubAgent,Task } from "@ruukoto/core/types.ts";
 import type { SubAgentDelegateInput,SubAgentDelegation,SubAgentMessageInput,SubAgentMessageResult,WorkCancellation,WorkIntegration } from "@ruukoto/runtime/subagents.ts";
 import { Type } from "typebox";
@@ -375,12 +377,13 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         return okText(`本会话的 SubAgent：\n${lines.join("\n")}`);
       }
       const work = store.getWorkDelegation(params.work_id);
-      if (!work || work.parentSessionId !== ctx.sessionId) {
+      const inherited = work && work.parentSessionId !== ctx.sessionId ? sourceResultTasks(store, new AccessScope(store.db), ctx.sessionId, work.id) : null;
+      if (!work || (work.parentSessionId !== ctx.sessionId && !inherited)) {
         throw new Error("只能读取本会话登记的工作委托");
       }
       const agent = store.getSubAgent(work.subAgentId);
       if (!agent) throw new Error(`工作 ${work.id} 缺少 SubAgent 记录`);
-      const tasks = store.listTasksByWork(work.id);
+      const tasks = store.listTasksByWork(work.id).filter(task => !inherited || inherited.includes(task.id));
       // 评审任务前置修订说明（issue 19，与 coding_result 一致）：按所读任务给出
       const noticed = (t: Task | null | undefined) => (t ? (deps.resultNotice?.(t) ?? null) : null);
       const withText = (t: Task | null | undefined, text: string) => {
@@ -391,7 +394,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         const cancelText = work.canceledAt
           ? ` · 已取消（${work.canceledAt}，${work.canceledBy}${work.cancelReason ? `，${work.cancelReason}` : ""}）`
           : "";
-        const lines = [`工作 ${work.id} · SubAgent ${agent.id}（${agentStateText(agent)}）· 发起任务 ${work.originTaskId}${cancelText}`];
+        const lines = [`工作 ${work.id} · SubAgent ${agent.id}${inherited ? "（分支来源，只读快照）" : `（${agentStateText(agent)}）`} · 发起任务 ${work.originTaskId}${inherited ? "" : cancelText}`];
         for (const t of tasks) {
           lines.push(
             `- 任务 ${t.id} · ${t.status} · 直接父任务 ${t.parentTaskId ?? "?"} · 截止 ${t.deadline ?? "无"}` +
@@ -417,6 +420,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         return withText(tasks.at(-1), lines.join("\n"));
       }
       if (part === "messages") {
+        if (inherited) throw new Error("分支来源只提供快照内的已完成结果，不开放原工作消息");
         // 工作内协作消息（issue 13）：来源、投递状态与正文预览，按创建序
         const msgs = store.listSubAgentMessagesByWork(work.id);
         if (msgs.length === 0) return okText(`工作 ${work.id} 尚无协作消息`);
@@ -444,13 +448,13 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         const end = page.offset + Buffer.byteLength(page.text);
         return withText(target, `[最终回答 第 ${page.offset}–${end} 字节，共 ${page.totalBytes}${end < page.totalBytes ? `；继续用 offset=${end}` : ""}]\n${page.text}`);
       }
-      const artifact = typeof params.artifact_id === "string" ? store.getArtifact(params.artifact_id) : null;
+      const artifact = typeof params.artifact_id === "string" ? (inherited ? sourceArtifact(store, new AccessScope(store.db), ctx.sessionId, params.artifact_id) : store.getArtifact(params.artifact_id)) : null;
       if (!artifact || artifact.taskId !== target.id) throw new Error("产物不存在或不属于该任务的执行");
       if (artifact.name.startsWith("prompt-snapshot:")) throw new Error("模型上下文快照不属于交付产物");
       const offset = intParam(params.offset, 0, artifact.byteCount, "offset");
       const length = intParam(params.length, READ_LIMITS.artifactBytes, READ_LIMITS.artifactBytes, "length");
       if (length < 4) throw new Error("artifact length 必须至少为 4 字节");
-      const buf = deps.artifacts.read(artifact.id, offset, length);
+      const buf = deps.artifacts.read(artifact.id, offset, Math.min(length, artifact.byteCount - offset));
       let text: string;
       try {
         // 非末页保留尾部未完成的 UTF-8 字符给下一页，不替换成损坏字符。

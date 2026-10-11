@@ -332,11 +332,17 @@ export class Store {
     modelSelection?: ModelSelection | null;
     /** 创建幂等键（issue 21；null/缺省 = 不去重，每次插入新会话）。 */
     createRequestId?: string | null;
+    /** 分支发布只接受宿主预先固定的完整元数据。 */
+    branchSession?: Session;
   }): Session {
+    if (input.createRequestId && !input.branchSession && this.db.prepare("SELECT 1 FROM branch_requests WHERE request_id = ?").get(input.createRequestId)) {
+      throw new StoreConflictError("请求键已用于会话分支", "request_conflict");
+    }
     if (input.createRequestId) {
       const existing = this.findSessionByCreateRequestId(input.createRequestId);
       if (existing) {
         if (
+          (input.branchSession && existing.id !== input.branchSession.id) ||
           existing.projectId !== input.projectId ||
           existing.cwdReal !== input.cwdReal ||
           JSON.stringify(existing.confirmTools) !== JSON.stringify(input.confirmTools)
@@ -346,8 +352,10 @@ export class Store {
         return existing;
       }
     }
-    const session: Session = {
+    const session: Session = input.branchSession ?? {
       id: randomId("sess"),
+      name: null,
+      branchSource: null,
       projectId: input.projectId,
       // 新会话无组织归属（workspace_project_id 列默认 NULL，插入不写该列）
       workspaceProjectId: null,
@@ -373,8 +381,8 @@ export class Store {
         .prepare(
           `INSERT INTO sessions (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
            session_file, confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-           default_access_mode, default_access_mode_version)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'confirm', 0)`,
+           default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           session.id,
@@ -391,6 +399,11 @@ export class Store {
           session.createdAt,
           session.modelSelection ? JSON.stringify(session.modelSelection) : null,
           session.modelSelectionVersion,
+          session.defaultAccessMode,
+          session.defaultAccessModeVersion,
+          session.workspaceProjectId,
+          session.name,
+          session.branchSource ? JSON.stringify(session.branchSource) : null,
         );
     } catch (err) {
       if (input.createRequestId && isCreateRequestIdClash(err, "sessions")) {
@@ -409,7 +422,7 @@ export class Store {
       throw err;
     }
     this.appendEvent(
-      { type: "session.created", sessionId: session.id, projectId: session.projectId, kind: session.kind, cwd: session.cwd, modelSelection: session.modelSelection, modelSelectionVersion: session.modelSelectionVersion, createRequestId: session.createRequestId },
+      { type: "session.created", sessionId: session.id, projectId: session.projectId, kind: session.kind, cwd: session.cwd, modelSelection: session.modelSelection, modelSelectionVersion: session.modelSelectionVersion, createRequestId: session.createRequestId, session },
       { sessionId: session.id },
     );
     return session;
@@ -457,9 +470,9 @@ export class Store {
         WHERE ${affiliation} GROUP BY t.session_id
       )
       SELECT s.id AS sessionId,
-        (SELECT substr(t.input, 1, 512) FROM tasks t
+        COALESCE(s.name, (SELECT substr(t.input, 1, 512) FROM tasks t
          WHERE t.session_id = s.id AND t.parent_task_id IS NULL
-         ORDER BY t.created_at, t.rowid LIMIT 1) AS name,
+         ORDER BY t.created_at, t.rowid LIMIT 1)) AS name,
         MAX(s.created_at, COALESCE(e.last_at, s.created_at),
           COALESCE((SELECT MAX(MAX(t.created_at, COALESCE(t.started_at, t.created_at),
             COALESCE(t.ended_at, t.created_at))) FROM tasks t WHERE t.session_id = s.id), s.created_at)) AS lastActiveAt
@@ -569,6 +582,8 @@ export class Store {
   private rowToSession(row: any): Session {
     return {
       id: row.id,
+      name: row.name ?? null,
+      branchSource: row.branch_source ? JSON.parse(row.branch_source) as Session["branchSource"] : null,
       projectId: row.project_id,
       workspaceProjectId: row.workspace_project_id ?? null,
       kind: row.kind === "qq_group" ? "qq_group" : "dev",

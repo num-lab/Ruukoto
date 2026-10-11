@@ -59,7 +59,7 @@ import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
 import { createSkillFamily,loadSkillLibrary,skillsDirFor } from "@ruukoto/agent/skills.ts";
 import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
 import { createSubAgentFamily } from "@ruukoto/agent/subagent-tools.ts";
-import { createTodoFamily } from "@ruukoto/agent/todo.ts";
+import { createTodoFamily, parseTodos } from "@ruukoto/agent/todo.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { createWebSearchFamily,searchTavily,WebSearchError } from "@ruukoto/agent/web-search.ts";
@@ -82,10 +82,13 @@ import { TELEGRAM_SOURCE,TelegramAdapter,TelegramStore,type TelegramConfig } fro
 import { AccessDeniedError,AccessScope } from "@ruukoto/core/access.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { Db } from "@ruukoto/core/db.ts";
+import { getBranchRequest, sourceArtifact } from "@ruukoto/core/branch.ts";
 import { DirIdentityError,legacyProjectClaimableFromDir,resolveDirIdentity,sameDirIdentity,verifyDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { HistoryIndex,searchHistory } from "@ruukoto/core/history-index.ts";
 import {
   HistoryReadError,
+  historyTodoParams,
+  parseSessionFile,
   readHistoryEntryText,
   readHistoryPage,
   readToolResult,
@@ -107,6 +110,7 @@ import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
 import { Store,StoreConflictError } from "@ruukoto/core/store.ts";
+import { branchSession, recoverBranchSessions, type BranchSessionDeps } from "./branch-session.ts";
 import type { DataCategory,DataGrant,Memory,MemorySourceRef,MemoryVersion,SelectionRecord } from "@ruukoto/core/types.ts";
 import {
   ACTIVE_TASK_STATUSES,
@@ -181,6 +185,7 @@ export interface QqInboxArchiveRow extends QqInboxRow {
  */
 export interface RuntimeProduct {
   type: ProductType;
+  branchSessions?: boolean;
   im: boolean;
   scheduler: boolean;
   serviceEnabled(config: RuntimeConfig): boolean;
@@ -704,6 +709,7 @@ export class Runtime {
     });
     runtime.initHostToolFamilies();
     runtime.recover();
+    await recoverBranchSessions(runtime.branchDeps());
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
     // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
@@ -1331,6 +1337,45 @@ export class Runtime {
     }
   }
 
+  private branchDeps(): BranchSessionDeps {
+    return { store: this.store, access: this.access, sessionsDir: sessionsDirFor(this.config.dataDir), enabled: this.config.product.branchSessions === true,
+      validate: async (session) => {
+        if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("invalid_params", "只有普通开发会话可以建立分支");
+        const workspace = this.store.getProject(session.workspaceProjectId ?? session.projectId);
+        if (!workspace?.rootDir) throw new RuntimeApiError("invalid_params", "旧会话尚未映射到工作区，请先完成工作区映射");
+        try {
+          await verifyDirIdentity({ cwd: session.cwd, cwdReal: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno });
+          await verifyDirIdentity(workspace.rootDir);
+        } catch (error) {
+          if (error instanceof DirIdentityError) throw new RuntimeApiError("cwd_changed", "来源会话或工作区目录已失效或被替换，请核实目录后再分支");
+          throw error;
+        }
+        const current = await this.resolveUsableDir(session.cwd);
+        if (!sameDirIdentity({ cwd: session.cwd, cwdReal: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno }, current)) {
+          throw new RuntimeApiError("cwd_changed", "来源目录入口已指向其他目录，请核实后再分支");
+        }
+        const relative = path.relative(workspace.rootDir.cwdReal, session.cwdReal);
+        if ((relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) && !sameDirIdentity(workspace.rootDir, current)) throw new RuntimeApiError("invalid_params", "会话目录已不在所属工作区范围");
+      } };
+  }
+
+  async branchSession(input: { sessionId: string; name?: string; requestId: string }): Promise<Session> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝会话分支");
+    return branchSession(this.branchDeps(), input);
+  }
+
+  findBranchSession(requestId: string) {
+    const request = getBranchRequest(this.store, requestId);
+    return { status: request?.status ?? "not_found", session: request?.status === "published" ? this.store.getSession(request.session.id) : null, error: request?.error ?? null };
+  }
+
+  getSessionTodos(sessionId: string) {
+    return this.withSessionHistory(sessionId, file => {
+      const params = file ? historyTodoParams(parseSessionFile(file)) : null;
+      return { todos: params === null ? null : parseTodos(params) };
+    });
+  }
+
   /**
    * 打开工作区（agent-direction issue 05）：按真实目录身份（realpath/dev+ino）
    * 复用或创建工作区并新建会话。工作区实例上是带根目录归属的项目；旧项目可经
@@ -1346,6 +1391,7 @@ export class Runtime {
     createRequestId?: string;
   }): Promise<{ session: Session; projectName: string; createdProject: boolean }> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    if (input.createRequestId && getBranchRequest(this.store, input.createRequestId)) throw new RuntimeApiError("request_conflict", "请求键已用于会话分支");
     const identity = await this.resolveUsableDir(input.cwd);
     try {
       return this.store.withTx(() => {
@@ -2217,17 +2263,21 @@ export class Runtime {
    * 拥有者查询任务产物正文（按 id、偏移、长度）。宿主依据任务归属查找，
    * 不接受任意宿主路径，不跨任务返回正文。
    */
-  queryArtifact(input: { taskId: string; artifactId: string; offset?: number; length?: number }): { artifact: Artifact; encoding: "base64"; data: string } {
+  queryArtifact(input: { taskId: string; artifactId: string; sessionId?: string; offset?: number; length?: number }): { artifact: Artifact; encoding: "base64"; data: string } {
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
-    const artifact = this.store.getArtifact(input.artifactId);
+    let artifact = this.store.getArtifact(input.artifactId);
     if (!artifact || artifact.taskId !== input.taskId) {
       throw new RuntimeApiError("not_found", `产物不存在或不属于该任务：${input.artifactId}`);
+    }
+    if (input.sessionId && input.sessionId !== artifact.sessionId) {
+      artifact = sourceArtifact(this.store, this.access, input.sessionId, artifact.id);
+      if (!artifact) throw new RuntimeApiError("access_denied", "产物不在分支已核实的来源集合");
     }
     const offset = Math.max(0, input.offset ?? 0);
     // 上限按线上帧约束：base64 膨胀 4/3 + JSON 开销必须留在 MAX_FRAME_BYTES 内
     const length = Math.min(Math.max(1, input.length ?? 256 * 1024), 720 * 1024);
-    const buf = this.artifacts.read(artifact.id, offset, length);
+    const buf = this.artifacts.read(artifact.id, offset, Math.max(0, Math.min(length, artifact.byteCount - offset)));
     return { artifact, encoding: "base64", data: buf.toString("base64") };
   }
 

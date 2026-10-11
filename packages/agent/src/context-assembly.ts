@@ -48,7 +48,11 @@ import { loadSummaryModel } from "./model-config.ts";
 import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
 import { PLAN_NOTICE } from "./plan-mode.ts";
 import { skillCatalogBlock, type SkillLibrary } from "./skills.ts";
-import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, imageReferenceSnapshot, imageReferenceView, restoreImageInput } from "./inbound-images.ts";
+import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, imageReferenceSnapshot, imageReferenceView, restoreImageInput, type ImageReference } from "./inbound-images.ts";
+import { sourceArtifact } from "@ruukoto/core/branch.ts";
+import { historyTodoParams, parseSessionFile } from "@ruukoto/core/history.ts";
+import { parseTodos } from "./todo.ts";
+import { unpairedToolRecords } from "./context-selector.ts";
 
 /** 请求前最终检查失败（预算/选择失败/选择缺失/配对/资料变化）：阻断发送。 */
 export class ContextSendBlocked extends Error {
@@ -64,25 +68,8 @@ export class ContextSendBlocked extends Error {
  * 每个 toolResult 必须能回溯到同视图内的 toolCall（不可拆分组）。
  */
 export function checkToolPairing(messages: any[], exemptCallIds?: Set<string>): string | null {
-  const exempt = exemptCallIds ?? new Set<string>();
-  const callIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
-    for (const part of m.content) {
-      if (part?.type === "toolCall" && typeof part.id === "string" && !exempt.has(part.id)) callIds.add(part.id);
-    }
-  }
-  const resultIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role === "toolResult" && typeof m.toolCallId === "string" && !exempt.has(m.toolCallId)) {
-      if (!callIds.has(m.toolCallId)) return `toolResult 缺少对应 toolCall：${m.toolCallId}`;
-      resultIds.add(m.toolCallId);
-    }
-  }
-  for (const id of callIds) {
-    if (!resultIds.has(id)) return `toolCall 缺少对应 toolResult：${id}`;
-  }
-  return null;
+  const record = unpairedToolRecords(messages, exemptCallIds)[0];
+  return record ? `${messages[record.index]?.role === "toolResult" ? "toolResult 缺少对应 toolCall" : "toolCall 缺少对应 toolResult"}：${record.toolCallId}` : null;
 }
 
 /** driver 原样传入自己的 deps 对象（结构上满足）；模型栈在调用时读取。 */
@@ -228,7 +215,7 @@ export class ContextAssembly {
     this.pendingExperiment = null;
     this.pendingJevCredentialSnapshot = null;
     try {
-      messages = imageReferenceView(messages, this.session.id);
+      messages = imageReferenceView(messages, this.session.id, ref => this.imageAllowed(ref));
       let input = this.contextInput(messages, sdk);
       let selection = selectContext(input);
       // 上下文压缩（issue 30）：按生效压缩点选择后估算仍超过 H' 才规划新压缩点；
@@ -276,17 +263,26 @@ export class ContextAssembly {
         preExcludedMemories.push({ memoryId: memory.id, version: memory.currentVersion, reason: "source_scope_revoked" });
       }
     }
+    const todos = this.deps.store.getSession(this.session.id)?.branchSource && sdk.sessionFile ? historyTodoParams(parseSessionFile(sdk.sessionFile)) : null;
     return {
       messages,
       systemPrompt: sdk.systemPrompt,
       tools: sdk.tools,
-      references: this.references(sdk.tools),
+      references: [...this.references(sdk.tools), ...(todos === null ? [] : [{ category: "workList" as const, placement: "task" as const,
+        text: `[工作清单]（宿主从本会话最近一次成功 todo_write 恢复的步骤状态，不启动来源任务）：\n${JSON.stringify(parseTodos(todos))}` }])],
       memories,
       preExcludedMemories,
       budget: this.budgetConfig(sdk.model),
       // 资料受限会话（SubAgent）不压缩
       compaction: this.restricted ? null : { sessionId: this.session.id, checkpoint: this.validatedCheckpoint(messages) },
     };
+  }
+
+  private imageAllowed(ref: ImageReference): boolean {
+    if (ref.sessionId === this.session.id) return true;
+    const frozen = sourceArtifact(this.deps.store, this.deps.access, this.session.id, ref.artifactId);
+    return !!frozen && frozen.sessionId === ref.sessionId && frozen.taskId === ref.taskId && frozen.mimeType === ref.mimeType &&
+      frozen.byteCount === ref.byteCount && frozen.contentHash === ref.contentHash;
   }
 
   /** 读取生效的压缩点并核对指纹；消息少于 C 条或指纹不符时当场作废（写库），按无压缩点处理。 */
@@ -730,7 +726,7 @@ export class ContextAssembly {
       );
     }
     try {
-      context.messages = restoreImageInput(context?.messages ?? [], this.deps.artifacts, this.deps.store);
+      context.messages = restoreImageInput(context?.messages ?? [], this.deps.artifacts, this.deps.store, ref => this.imageAllowed(ref));
     } catch {
       throw new ContextSendBlocked("image_reference_invalid:入站图片产物无法恢复，拒绝发送缺图请求");
     }

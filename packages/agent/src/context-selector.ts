@@ -159,6 +159,7 @@ const CONTEXT_CATEGORIES = {
   historyTurns: "历史轮次",
   subagentResults: "SubAgent 结果",
   subagentMessages: "工作内消息",
+  workList: "工作清单",
 } as const;
 
 export type ContextCategory = keyof typeof CONTEXT_CATEGORIES;
@@ -441,35 +442,9 @@ function prepareContextGroups(messages: any[], from = 0): {
   mandatory: Set<number>;
   droppedUnpaired: SelectionDroppedUnpaired[];
 } {
-  const callIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
-    for (const part of m.content) {
-      if (part?.type === "toolCall" && typeof part.id === "string") callIds.add(part.id);
-    }
-  }
-  const resultIds = new Set<string>();
-  for (const m of messages) {
-    if (m?.role === "toolResult" && typeof m.toolCallId === "string") resultIds.add(m.toolCallId);
-  }
   // 崩溃残留的孤儿只从模型视图移出，不删历史，也不连带删掉当前任务要求。
-  const droppedUnpaired: SelectionDroppedUnpaired[] = [];
-  const droppedSet = new Set<number>();
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (m?.role === "assistant" && Array.isArray(m.content)) {
-      const missing = m.content.find(
-        (part: any) => part?.type === "toolCall" && typeof part.id === "string" && !resultIds.has(part.id),
-      ) as any;
-      if (missing) {
-        droppedSet.add(i);
-        droppedUnpaired.push({ index: i, toolCallId: missing.id });
-      }
-    } else if (m?.role === "toolResult" && typeof m.toolCallId === "string" && !callIds.has(m.toolCallId)) {
-      droppedSet.add(i);
-      droppedUnpaired.push({ index: i, toolCallId: m.toolCallId });
-    }
-  }
+  const droppedUnpaired = unpairedToolRecords(messages);
+  const droppedSet = new Set(droppedUnpaired.map(record => record.index));
   const turns = groupIntoTurns(messages)
     .map((group) => group.filter((index) => !droppedSet.has(index)))
     .filter((group) => group.length > 0);
@@ -485,6 +460,35 @@ function prepareContextGroups(messages: any[], from = 0): {
   if (todoUnit) for (const index of todoUnit) mandatory.add(index);
   const batches = units.slice(1, -1).filter((unit) => unit !== todoUnit);
   return { groups, units, batches, todoUnit, mandatory, droppedUnpaired };
+}
+
+/** 调用 ID 只在本 assistant 批次内配对，不能由其他任务或轮次的结果补齐。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+ */
+export function unpairedToolRecords(messages: any[], exempt = new Set<string>()): SelectionDroppedUnpaired[] {
+  const dropped: SelectionDroppedUnpaired[] = [];
+  let batch: { index: number; pending: Set<string>; results: SelectionDroppedUnpaired[] } | null = null;
+  const close = () => {
+    if (batch?.pending.size) dropped.push({ index: batch.index, toolCallId: [...batch.pending][0]! }, ...batch.results);
+    batch = null;
+  };
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+    if (message?.role === "toolResult") {
+      const id = message.toolCallId;
+      if (typeof id !== "string" || exempt.has(id)) continue;
+      if (batch?.pending.delete(id)) batch.results.push({ index, toolCallId: id });
+      else dropped.push({ index, toolCallId: id });
+    } else {
+      close();
+      if (message?.role === "assistant" && Array.isArray(message.content)) {
+        const calls = message.content.filter((p: any) => p?.type === "toolCall" && typeof p.id === "string" && !exempt.has(p.id));
+        if (calls.length) batch = { index, pending: new Set(calls.map((p: any) => p.id)), results: [] };
+      }
+    }
+  }
+  close();
+  return dropped;
 }
 
 function isTodoWriteSuccess(message: any): boolean {

@@ -1,3 +1,4 @@
+import { verifyImportedBranchSources } from "@ruukoto/core/import-support.ts";
 /**
  * 旧实例开发资料迁入 Coding Agent（agent-direction issue 21）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
@@ -45,6 +46,7 @@ export interface LegacyImportPlan {
 }
 
 const TABLE_POLICY: TablePolicy = {
+  branch_requests: { policy: "exclude", reason: "分支准备回执只属于原实例；已发布来源随会话保留" },
   projects: { policy: "import" },
   sessions: { policy: "import" },
   tasks: { policy: "import" },
@@ -343,6 +345,7 @@ function buildImportSet(
   }
 
   const includedWorks = allRows(db, "SELECT * FROM work_delegations").filter((r) => sessionIds.has(String(r.parent_session_id)));
+  verifyImportedBranchSources(includedSessions, tasks, artifacts, includedWorks);
   return {
     projects: includedProjects,
     sessions: includedSessions,

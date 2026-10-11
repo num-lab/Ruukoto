@@ -179,8 +179,10 @@ export class ViewState {
       }
       case "session.created":
         if (!this.sessions.some((s) => s.id === body.sessionId)) {
-          this.sessions.push({
+          this.sessions.push(body.session ?? {
             id: body.sessionId,
+            name: null,
+            branchSource: null,
             projectId: body.projectId,
             workspaceProjectId: null,
             kind: body.kind ?? "dev",
@@ -522,6 +524,11 @@ export class ViewState {
       hasPartialTail: false, draft: "", scrollTop: null,
     };
     this.sessionViews.set(sessionId, view);
+    if (session?.branchSource) {
+      const source = session.branchSource;
+      view.flow.note(`branch-source:${sessionId}`, `来源会话 ${source.sessionId} · 分支点 ${source.entryId} · ${source.messageCount} 条消息` +
+        (source.excluded.length ? `；未纳入：${source.excluded.join("、")}` : ""), session.createdAt);
+    }
     this.restoreCommands(view);
     for (const task of this.tasksFor(sessionId)) if (isActiveStatus(task.status)) view.flow.task(task);
     for (const [taskId, preview] of this.snapshotPreviews) {

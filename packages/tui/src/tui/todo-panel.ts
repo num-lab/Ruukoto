@@ -2,7 +2,7 @@ import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { sanitizeForDisplay } from "./sanitize.ts";
 
 /** 工具记录里的原始参数项（已由 todo_write 校验，这里不收窄状态类型）。 */
-interface Todo {
+export interface Todo {
   content: string;
   status: string;
 }

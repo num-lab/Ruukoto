@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 32;
+export const SCHEMA_VERSION = 33;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
+  name TEXT,
+  branch_source TEXT,
   project_id TEXT NOT NULL REFERENCES projects(id),
   kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group')),
   cwd TEXT NOT NULL,
@@ -50,6 +52,16 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- 工作区组织归属（agent-direction issue 07）：仅展示归属；资料身份仍是 project_id
   workspace_project_id TEXT REFERENCES projects(id),
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS branch_requests (
+  request_id TEXT PRIMARY KEY,
+  source_session_id TEXT NOT NULL,
+  branch_number INTEGER NOT NULL,
+  params_digest TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('prepared','published','failed')),
+  error TEXT,
+  UNIQUE(source_session_id, branch_number)
 );
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
@@ -745,7 +757,7 @@ export class Db {
       this.db
         .prepare("UPDATE confirmations SET status = 'stale', responded_at = ? WHERE status = 'pending'")
         .run(new Date().toISOString());
-    } else if (version >= 2 && version <= 31) {
+    } else if (version >= 2 && version <= 32) {
       // v2 → v3：新增授权/记忆/历史索引/选择记录表；v3 → v4：新增 GitHub 表；
       // v4 → v5：模型选择补列；v6 → v7：projects.web_search 补列；
       // v7 → v8：新增 MCP 服务配置表；v8 → v9：无表结构变更（github_* 建表 SQL
@@ -975,6 +987,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_sub_agent ON tasks (sub_agent_id);
     this.db.exec(`
 CREATE TABLE sessions_new (
   id TEXT PRIMARY KEY,
+  name TEXT,
+  branch_source TEXT,
   project_id TEXT NOT NULL REFERENCES projects(id),
   kind TEXT NOT NULL DEFAULT 'dev' CHECK (kind IN ('dev','qq_group')),
   cwd TEXT NOT NULL,
@@ -996,10 +1010,10 @@ CREATE TABLE sessions_new (
 );
 INSERT INTO sessions_new (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
   confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-  default_access_mode, default_access_mode_version, workspace_project_id)
+  default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source)
 SELECT id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, session_file,
   confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-  default_access_mode, default_access_mode_version, workspace_project_id
+  default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source
 FROM sessions;
 DROP TABLE sessions;
 ALTER TABLE sessions_new RENAME TO sessions;
@@ -1086,6 +1100,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_create_request ON sessions (creat
     // v21（agent-direction issue 07）：会话工作区组织归属（仅展示归属，资料身份
     // 仍是 project_id）；旧会话默认 NULL
     add("sessions", "workspace_project_id", "workspace_project_id TEXT REFERENCES projects(id)");
+    add("sessions", "name", "name TEXT");
+    add("sessions", "branch_source", "branch_source TEXT");
     // v22（agent-direction issue 08）：入站事件宿主类别（区分普通任务入站与 IM
     // 审批控制消息）；旧记录默认 task
     add("inbound_events", "event_kind", "event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval'))");

@@ -29,6 +29,7 @@ export interface CommandHost {
   openProjects(): void;
   newSession(cwd: string): Promise<void>;
   newSessionHere(): Promise<void>;
+  branchSession(name: string, result: CommandResult): Promise<void>;
   reloadHistory(): Promise<void>;
   artifact(prefix: string): Promise<void>;
   openApprovals(): void;
@@ -303,6 +304,8 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "new-project", description: "创建项目", argumentHint: "<名称>", run: (ctx, { arg }) => newProject(ctx, arg) },
   { name: "new-session", description: "在当前项目创建会话", argumentHint: "<工作目录>", run: (ctx, { arg }) => ctx.host.newSession(arg) },
   { name: "new", description: "在当前工作区创建会话", run: (ctx) => ctx.host.newSessionHere() },
+  { name: "branch", description: "从当前会话的已落盘历史建立独立会话", argumentHint: "[名称]", keepsResult: true,
+    run: (ctx, { line }) => ctx.host.branchSession(line.replace(/^\/branch\s*/, ""), ctx.result) },
   { name: "history", description: "重新加载当前会话历史", run: (ctx) => ctx.host.reloadHistory() },
   { name: "artifact", description: "查看工具产物正文", argumentHint: "<产物 id 前缀>", run: (ctx, { arg }) => ctx.host.artifact(arg) },
   { name: "approvals", description: "待处理审批列表", run: (ctx) => ctx.host.openApprovals() },

@@ -35,7 +35,10 @@ export interface TuiOps {
   read_history_entry: { params: { session_id: string; entry_id: string } & Slice; result: R<"readHistoryEntry"> };
   get_tool_op_params: { params: { tool_op_id: string } & Slice; result: R<"getToolOpParams"> };
   get_confirmation_params: { params: { confirmation_id: string } & Slice; result: R<"getConfirmationParams"> };
-  read_artifact: { params: { task_id: string; artifact_id: string } & Slice; result: R<"queryArtifact"> };
+  read_artifact: { params: { task_id: string; artifact_id: string; session_id?: string } & Slice; result: R<"queryArtifact"> };
+  get_session_todos: { params: { session_id: string }; result: R<"getSessionTodos"> };
+  branch_session: { params: { session_id: string; name?: string; request_id: string }; result: R<"branchSession"> };
+  find_branch_session: { params: { request_id: string }; result: R<"findBranchSession"> };
   get_session_usage: { params: { session_id: string }; result: R<"getSessionUsage"> };
   get_session: { params: { session_id: string }; result: R<"getSession"> };
   /** project_id 按原身份查询；workspace_id 按组织归属查询（issue 07）；两参互斥。 */

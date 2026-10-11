@@ -97,6 +97,8 @@ const SESSION: Session = {
   id: SESSION_ID,
   projectId: PROJECT_ID,
   workspaceProjectId: null,
+    name: null,
+    branchSource: null,
   kind: "dev",
   cwd: "/srv/demo/work",
   cwdReal: "/srv/demo/work",

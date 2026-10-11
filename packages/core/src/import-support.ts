@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Db } from "./db.ts";
 import { probeLockHolder } from "./instance-lock.ts";
 import { PRODUCT_META_KEY } from "./product.ts";
+import type { SessionBranchSource } from "./types.ts";
 
 export class LegacyImportError extends Error {
   readonly code: string;
@@ -57,6 +58,23 @@ export type LedgerKind =
   | "credential";
 
 export type Row = Record<string, unknown>;
+
+/** 名称与来源随会话行保留；限定来源缺对象时拒绝导入，不能删字段后扩大范围。 */
+export function verifyImportedBranchSources(sessions: Row[], tasks: Row[], artifacts: Row[], works: Row[]): void {
+  for (const session of sessions) {
+    if (!session.branch_source) continue;
+    let source: SessionBranchSource;
+    try { source = JSON.parse(String(session.branch_source)) as SessionBranchSource; }
+    catch { fail("source_corrupt", "分支来源记录不是合法 JSON"); }
+    if (!source || typeof source.sessionId !== "string" || typeof source.entryId !== "string" || !Number.isSafeInteger(source.number) || source.number < 1 || !Number.isSafeInteger(source.messageCount) || source.messageCount < 1 || !Array.isArray(source.excluded) || source.excluded.some(value => typeof value !== "string") ||
+        !Array.isArray(source.taskIds) || !Array.isArray(source.artifacts) || !Array.isArray(source.results) ||
+        !sessions.some(s => s.id === source.sessionId) || source.taskIds.some(id => !tasks.some(t => t.id === id)) ||
+        source.artifacts.some(a => !a || !Number.isSafeInteger(a.byteCount) || a.byteCount < 0 || (a.status !== "complete" && a.status !== "partial") || !artifacts.some(r => r.id === a.id && r.task_id === a.taskId && r.session_id === a.sessionId && Number(r.byte_count) >= a.byteCount && r.mime_type === a.mimeType && r.content_hash === a.contentHash)) ||
+        source.results.some(r => !r || !Array.isArray(r.taskIds) || !works.some(w => w.id === r.workId) || r.taskIds.some(id => !tasks.some(t => t.id === id && t.work_id === r.workId && t.status === "completed")))) {
+      fail("source_scope_unavailable", "分支的限定来源对象缺失或不在本次导入范围，请先核实完整来源");
+    }
+  }
+}
 
 export function allRows(db: Db, sql: string, params: unknown[] = []): Row[] {
   return db.prepare(sql).all(...(params as any[])) as unknown as Row[];

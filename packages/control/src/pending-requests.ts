@@ -17,7 +17,7 @@ import { dirEnvFor, productFromEnv, productRootDir } from "@ruukoto/core/product
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue";
+  op: "submit" | "continue" | "branch_session";
   /** 完整请求参数（session_id/task_id、input、access_mode、granted_paths）。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
@@ -83,7 +83,7 @@ export class PendingRequestStore {
         const raw = JSON.parse(fs.readFileSync(path.join(this.dir, file), "utf8")) as PendingRequest;
         if (
           typeof raw?.requestId !== "string" ||
-          (raw.op !== "submit" && raw.op !== "continue") ||
+          (raw.op !== "submit" && raw.op !== "continue" && raw.op !== "branch_session") ||
           typeof raw.params !== "object" ||
           raw.params === null ||
           typeof raw.instanceId !== "string"

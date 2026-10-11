@@ -12,8 +12,9 @@
  */
 
 import * as fs from "node:fs";
+import { createHash } from "node:crypto";
 import type { BoundedText } from "./views.ts";
-import type { EditStats } from "./types.ts";
+import { TASK_END_MARKER, TASK_START_MARKER, type EditStats, type TaskStatus } from "./types.ts";
 
 /** Buffer 内 index 处的 UTF-8 起始对齐：续字节向后落到字符边界。 */
 export function snapUtf8Start(buf: Buffer, index: number): number {
@@ -81,6 +82,149 @@ export function parseSessionFileStrict(text: string): ParsedSessionFile {
 /** 从磁盘读取并严格解析会话文件。 */
 export function parseSessionFile(file: string): ParsedSessionEntry[] {
   return parseSessionFileStrict(fs.readFileSync(file, "utf8")).entries;
+}
+
+export interface HistorySnapshot {
+  file: string;
+  dev: number;
+  ino: number;
+  byteLimit: number;
+  fingerprint: string;
+  entries: ParsedSessionEntry[];
+  entryId: string;
+  messageCount: number;
+  excluded: string[];
+}
+
+/** 固定只读前缀；重试核实同一 inode 与摘要，正常追加不改变原快照。 */
+export function readHistoryPrefix(file: string, expected?: Pick<HistorySnapshot, "dev" | "ino" | "byteLimit" | "fingerprint">): Buffer {
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = fs.fstatSync(fd);
+    const size = expected?.byteLimit ?? stat.size;
+    if (!stat.isFile() || (expected && (stat.dev !== expected.dev || stat.ino !== expected.ino || stat.size < size))) {
+      throw new HistoryReadError("history_corrupt", "来源历史文件身份或长度已改变，无法核实原分支点");
+    }
+    const bytes = Buffer.alloc(size);
+    let offset = 0;
+    while (offset < size) {
+      const count = fs.readSync(fd, bytes, offset, size - offset, offset);
+      if (!count) throw new HistoryReadError("history_corrupt", "来源历史前缀读取不完整");
+      offset += count;
+    }
+    const current = fs.statSync(file);
+    if (current.dev !== stat.dev || current.ino !== stat.ino || current.size < size ||
+        (expected && createHash("sha256").update(bytes).digest("hex") !== expected.fingerprint)) {
+      throw new HistoryReadError("history_corrupt", "来源历史前缀已改变，无法核实原分支点");
+    }
+    return bytes;
+  } finally { fs.closeSync(fd); }
+}
+
+/** 按任务及 assistant 批次选择安全分支点，保留终态任务的孤儿记录。只读源文件。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+ */
+export function snapshotSessionHistory(file: string, taskStatus: (taskId: string) => TaskStatus | null): HistorySnapshot {
+  const stat = fs.statSync(file);
+  const bytes = readHistoryPrefix(file);
+  const completeBytes = bytes.lastIndexOf(10) + 1;
+  let text: string;
+  try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, completeBytes)); }
+  catch { throw new HistoryReadError("history_corrupt", "来源历史完整行不是合法 UTF-8"); }
+  const parsed = parseSessionFileStrict(text);
+  const entries = parsed.entries;
+  const header = entries[0];
+  if (header?.type !== "session" || header.version !== 3) throw new HistoryReadError("history_corrupt", "无法核实来源历史 header");
+  const ids = new Set<string>();
+  let parent: string | null = null;
+  let taskId: string | null = null;
+  let batch: { index: number; ids: Map<string, string>; taskId: string } | null = null;
+  let cut = entries.length;
+  const excluded = completeBytes < bytes.length ? ["未换行的尾记录"] : [];
+  const closeBatch = () => {
+    if (batch?.ids.size) {
+      const status = taskStatus(batch.taskId);
+      if (!status) throw new HistoryReadError("history_corrupt", "工具批次缺少可核实的宿主任务");
+      if (status === "running" || status === "awaiting_confirmation" || status === "queued") {
+        cut = Math.min(cut, batch.index);
+        if (!excluded.includes("活动任务未完成的工具批次")) excluded.push("活动任务未完成的工具批次");
+      }
+    }
+    batch = null;
+  };
+  for (let i = 1; i < entries.length; i++) {
+    const entry = entries[i]!;
+    if (ids.has(entry.id) || entry.parentId !== parent) throw new HistoryReadError("history_corrupt", "历史条目 ID 或父链无法核实");
+    ids.add(entry.id);
+    parent = entry.id;
+    if (entry.type === "custom" && entry.customType === TASK_START_MARKER) {
+      closeBatch();
+      const data = entry.data as { taskId?: unknown } | undefined;
+      if (typeof data?.taskId !== "string" || !taskStatus(data.taskId)) throw new HistoryReadError("history_corrupt", "历史任务标记无法核实");
+      taskId = data.taskId;
+    } else if (entry.type === "custom" && entry.customType === TASK_END_MARKER) {
+      if ((entry.data as { taskId?: unknown } | undefined)?.taskId !== taskId) throw new HistoryReadError("history_corrupt", "历史任务结束标记不匹配");
+      closeBatch();
+      taskId = null;
+    } else if (entry.type === "message") {
+      const message = entry.message as Record<string, unknown> | undefined;
+      if (!message || typeof message.role !== "string") throw new HistoryReadError("history_corrupt", "历史消息格式无效");
+      if (message.role === "assistant") {
+        closeBatch();
+        const calls = Array.isArray(message.content) ? message.content.filter(part => part?.type === "toolCall") : [];
+        if (calls.length) {
+          if (!taskId || calls.some(call => typeof call.id !== "string" || typeof call.name !== "string") || new Set(calls.map(call => call.id)).size !== calls.length) {
+            throw new HistoryReadError("history_corrupt", "工具批次缺少任务或调用 ID 无效");
+          }
+          batch = { index: i, ids: new Map(calls.map(call => [call.id as string, call.name as string])), taskId };
+        }
+      } else if (message.role === "toolResult") {
+        const currentBatch = batch;
+        const matched = currentBatch !== null && typeof message.toolCallId === "string" && typeof message.toolName === "string" && currentBatch.ids.get(message.toolCallId) === message.toolName && currentBatch.ids.delete(message.toolCallId);
+        const status = taskId ? taskStatus(taskId) : null;
+        if (!matched && (!status || status === "running" || status === "awaiting_confirmation" || status === "queued")) {
+          throw new HistoryReadError("history_corrupt", "活动尾部工具结果缺少可核实的调用批次");
+        }
+      } else {
+        closeBatch();
+      }
+    }
+  }
+  closeBatch();
+  const selected = entries.slice(0, cut);
+  const messages = selected.filter(entry => entry.type === "message");
+  if (!messages.length) throw new HistoryReadError("entry_not_found", "尚无可复制的已落盘消息，请等待落盘或使用 /new");
+  // 保留原始行，指纹覆盖实际分支前缀；部分尾行与回退批次不进入边界。
+  const lines = bytes.toString("utf8").split("\n");
+  let count = 0;
+  let byteLimit = 0;
+  for (const line of lines) {
+    if (count === cut) break;
+    byteLimit += Buffer.byteLength(line) + 1;
+    if (line.trim()) count++;
+  }
+  const prefix = bytes.subarray(0, byteLimit);
+  const fingerprint = createHash("sha256").update(prefix).digest("hex");
+  readHistoryPrefix(file, { dev: stat.dev, ino: stat.ino, byteLimit, fingerprint });
+  return { file, dev: stat.dev, ino: stat.ino, byteLimit, fingerprint, entries: selected,
+    entryId: selected.at(-1)!.id, messageCount: messages.length, excluded };
+}
+
+/** 最近成功的清单来自配对参数，按批次匹配，不依赖工具账本或加载页。 */
+export function historyTodoParams(entries: ParsedSessionEntry[]): unknown | null {
+  let calls = new Map<string, unknown>();
+  let todos: unknown | null = null;
+  for (const entry of entries) {
+    if (entry.type === "custom" && (entry.customType === TASK_START_MARKER || entry.customType === TASK_END_MARKER)) calls.clear();
+    const message = entry.type === "message" ? entry.message as Record<string, unknown> : null;
+    if (message?.role === "assistant") {
+      calls = new Map(Array.isArray(message.content) ? message.content.filter(p => p?.type === "toolCall" && p.name === "todo_write").map(p => [p.id, p.arguments?.todos]) : []);
+    }
+    if (message?.role === "toolResult" && message.toolName === "todo_write" && message.isError === false && typeof message.toolCallId === "string" && calls.has(message.toolCallId)) {
+      todos = calls.get(message.toolCallId);
+    }
+  }
+  return todos;
 }
 
 // ---------- 历史条目视图 ----------

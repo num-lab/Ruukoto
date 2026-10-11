@@ -1,10 +1,10 @@
-Status: ready-for-agent
+Status: resolved
 
 # 28 — 为 ruukoto-code 增加 `/branch`，从当前会话建立新会话
 
 **What to build:** 在 Coding Agent 的 TUI 中提供 `/branch [名称]`，从当前普通开发会话的已落盘历史建立一个独立会话，继承适用的上下文状态和会话默认设置，成功后自动切换，等待拥有者输入。
 
-**Blocked by:** 无。2026-10-09 通过两轮 grilling 确认 Q1—Q13，拥有者两次答复“全部按照推荐”，授权登记工单。本单记录待实现行为，不表示功能已经存在。
+**Blocked by:** 无。2026-10-09 通过两轮 grilling 确认 Q1—Q13，拥有者两次答复“全部按照推荐”，授权登记工单。本单的实现与验证结果见末尾。
 
 依据：[领域术语](../../../CONTEXT.md)、[ADR 0001：完整历史](../../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)、[ADR 0016：上下文压缩](../../../.agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md)、[ADR 0017：两个产品与工作区](../../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)、[ADR 0018：资料身份与组织归属](../../../.agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md)。
 
@@ -71,7 +71,7 @@ Status: ready-for-agent
 
 ## 已核实实现基础与涉及范围
 
-现有 `/new` 通过创建空会话再切换实现，没有复制历史、来源关系或独立展示名称。消息权威副本是 pi JSONL，压缩点保存在 SQLite；清单在历史里，但当前 TUI 主要经工具操作记录恢复参数。
+实施前 `/new` 通过创建空会话再切换，没有复制历史、来源关系或独立展示名称。消息权威副本是 pi JSONL，压缩点保存在 SQLite；清单在历史里，但当前 TUI 主要经工具操作记录恢复参数。
 
 实现优先复用仓内严格历史解析、目录与身份校验、资料授权、压缩指纹、命令表和会话切换能力；不新增依赖，不建设通用分支图界面或第二套配置系统。预计涉及以下路径，具体落点由实现时阅读调用方确定：
 
@@ -93,17 +93,17 @@ JSONL 与 SQLite 没有跨文件事务，不能宣称两者原子提交。实现
 
 ## 验收标准
 
-- [ ] `/branch` 和 `/branch 中文 名称` 能补全、出现在帮助与 README 命令表；普通工作区及映射旧会话创建并自动切换成功，明确同名不覆盖，自动命名并发不重复，首个新任务不改变名称。未选择会话、不适用身份、未映射旧会话和目录失效均拒绝且零创建。
-- [ ] 分支拥有独立的宿主/pi ID、header 和 JSONL，消息内容、顺序、条目 ID、实际分支点可核对；后续父子各自追加。空历史拒绝；复制操作不发模型请求、不提交任务，新会话用量为零。
-- [ ] 完整落盘用户消息可作末条；流式未落盘内容、排队输入、部分尾行和尾部未完成工具批次不复制；回退有明确提示。跨任务复用工具 ID 不误判配对；旧中断残留保留，后来的正常对话仍可分支；完整行损坏明确失败且不修改源文件。
-- [ ] 来源 running、awaiting_confirmation 和 queued 状态均可在安全点分支；原执行继续归源会话，审批、锁、任务/工作状态和通知不被复制或转移。新会话提交使用现有目录占用，文件不会被回滚或形成额外隔离副本。
-- [ ] 模型、思考档位、confirm/auto-review/full_access/plan 默认模式及 `confirmTools` 正确继承；项目身份与展示归属正确，共享项目配置后续修改按原规则生效，临时授权与批准不继承，撤销后不借来源恢复权限。
-- [ ] 有效压缩点独立继承；不匹配或覆盖越界的压缩点按无继承处理；父子后续压缩互不修改对方记录。工作清单在模型上下文及 `/todo` 中恢复一致，父子各自更新，来源在分支点之后的清单不被引入。
-- [ ] 原历史、工具结果及产物引用可按现有范围定位；原任务不误显示为新活动任务。来源图片在后续真实格式的模拟模型 payload 中可恢复，损坏、缺失、撤销及伪造引用明确拒绝；来源为祖先会话的连续分支同样有效。
-- [ ] 分支点已有的已完成 SubAgent 结果只读可查，原工作后续新执行、复用和结果不进入快照结果集合；分支 Agent 操作原工作的继续、消息、取消、关闭和汇总均被拒绝，自己的新委派正常可用。无关会话不能借来源关系取得结果。
-- [ ] 创建应答、两个已连接客户端、实时事件及重连快照一致恢复名称、来源、模型、模式、归属和版本；自动切换不触发错误的 CAS 更新，其他客户端不强制切换。
-- [ ] 同键重试返回同一会话与分支点，同键异参冲突，明确再次执行创建另一个分支；应答丢失可按原键核实。注入历史写入失败、元数据登记失败及后台崩溃窗口，恢复后无可选半成品、无源数据删除或工具重放。
-- [ ] 旧会话迁移及受影响的实例导入保留原资料与标识，新增字段有兼容默认值；受影响的类型检查、相关回归和文档检查通过。
+- [x] `/branch` 和 `/branch 中文 名称` 能补全、出现在帮助与 README 命令表；普通工作区及映射旧会话创建并自动切换成功，明确同名不覆盖，自动命名并发不重复，首个新任务不改变名称。未选择会话、不适用身份、未映射旧会话和目录失效均拒绝且零创建。
+- [x] 分支拥有独立的宿主/pi ID、header 和 JSONL，消息内容、顺序、条目 ID、实际分支点可核对；后续父子各自追加。空历史拒绝；复制操作不发模型请求、不提交任务，新会话用量为零。
+- [x] 完整落盘用户消息可作末条；流式未落盘内容、排队输入、部分尾行和尾部未完成工具批次不复制；回退有明确提示。跨任务复用工具 ID 不误判配对；旧中断残留保留，后来的正常对话仍可分支；完整行损坏明确失败且不修改源文件。
+- [x] 来源 running、awaiting_confirmation 和 queued 状态均可在安全点分支；原执行继续归源会话，审批、锁、任务/工作状态和通知不被复制或转移。新会话提交使用现有目录占用，文件不会被回滚或形成额外隔离副本。
+- [x] 模型、思考档位、confirm/auto-review/full_access/plan 默认模式及 `confirmTools` 正确继承；项目身份与展示归属正确，共享项目配置后续修改按原规则生效，临时授权与批准不继承，撤销后不借来源恢复权限。
+- [x] 有效压缩点独立继承；不匹配或覆盖越界的压缩点按无继承处理；父子后续压缩互不修改对方记录。工作清单在模型上下文及 `/todo` 中恢复一致，父子各自更新，来源在分支点之后的清单不被引入。
+- [x] 原历史、工具结果及产物引用可按现有范围定位；原任务不误显示为新活动任务。来源图片在后续真实格式的模拟模型 payload 中可恢复，损坏、缺失、撤销及伪造引用明确拒绝；来源为祖先会话的连续分支同样有效。
+- [x] 分支点已有的已完成 SubAgent 结果只读可查，原工作后续新执行、复用和结果不进入快照结果集合；分支 Agent 操作原工作的继续、消息、取消、关闭和汇总均被拒绝，自己的新委派正常可用。无关会话不能借来源关系取得结果。
+- [x] 创建应答、两个已连接客户端、实时事件及重连快照一致恢复名称、来源、模型、模式、归属和版本；自动切换不触发错误的 CAS 更新，其他客户端不强制切换。
+- [x] 同键重试返回同一会话与分支点，同键异参冲突，明确再次执行创建另一个分支；应答丢失可按原键核实。注入历史写入失败、元数据登记失败及后台崩溃窗口，恢复后无可选半成品、无源数据删除或工具重放。
+- [x] 旧会话迁移及受影响的实例导入保留原资料与标识，新增字段有兼容默认值；受影响的类型检查、相关回归和文档检查通过。
 
 复用现有测试设施，优先覆盖 `test/11` 严格历史、`test/14` TUI、`test/30` 创建幂等/断线、`test/57` 清单、`test/61` 压缩、`test/65` 命令表、`test/66` 控制连接、`test/74` 工作区、SubAgent 结果读取和图片引用相关用例；复杂边界可集中到一个分支集成测试文件，不为每个字段写照搬实现的测试。模型可打桩，消息存储、Runtime/SQLite 和来源校验使用真实路径；测试须核对实际模型请求，不能仅断言内存消息数组。
 
@@ -111,7 +111,7 @@ JSONL 与 SQLite 没有跨文件事务，不能宣称两者原子提交。实现
 
 ## 实施计划（2026-10-11）
 
-本单独立于 26、27。若同时施工，`runtime.ts` 与共享测试 fixtures 的改动依次集成。按以下五批推进，最后一批才开放 `/branch`；不把只能复制纯文本的中间状态作为交付。快照创建与来源范围的技术方案见[独立历史快照分支](../../../.agents/notes/proposed/feature/2026-10-11-branch-session-snapshot.md)。
+本单独立于 26、27。若同时施工，`runtime.ts` 与共享测试 fixtures 的改动依次集成。按以下五批推进，最后一批才开放 `/branch`；不把只能复制纯文本的中间状态作为交付。快照创建与来源范围的技术方案见[独立历史快照分支](../../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)。
 
 ### 1. 固定 JSONL 的安全分支点
 
@@ -169,7 +169,7 @@ JSONL 与 SQLite 没有跨文件事务，不能宣称两者原子提交。实现
 | TUI、控制与工作区 | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/37-command-history.test.ts`、`test/65-slash-commands.test.ts`、`test/66-control-seam.test.ts`、`test/69-session-summaries.test.ts`、`test/74-workspace-sessions.test.ts`、`test/76-legacy-workspace-data.test.ts`；终端输入有改动再加 `test/15-tui-pty.test.ts` |
 | 来源结果、导入 | `test/80-subagent-delegation.test.ts`、`test/85-legacy-instance-import.test.ts`、`test/86-personal-instance-import.test.ts`、`test/91-release-acceptance.test.ts` |
 
-各组使用 `npx tsx --test <对应文件>`，并在相关批次跑新的分支测试；最终运行 `npm run check:static`。人工 TUI 验收一次中文名称、活动源分支、失败保留草稿和父子切换；记录真实文件/控制面与模拟模型的区别。本轮只制定计划，不执行这些功能测试，不勾选验收项。
+各组使用 `npx tsx --test <对应文件>`，并在相关批次跑新的分支测试；最终运行 `npm run check:static`。人工 TUI 验收一次中文名称、活动源分支、失败保留草稿和父子切换；记录真实文件/控制面与模拟模型的区别。实施结果与实际检查见末尾。
 
 ## Comments
 
@@ -188,3 +188,23 @@ JSONL 与 SQLite 没有跨文件事务，不能宣称两者原子提交。实现
 ### 2026-10-11：制定实施计划
 
 按当前 packages/apps 布局更新落点，补充五批实施顺序、持久幂等准备/发布方案、固定来源清单与定向回归。修正已失效的 docs/runtime 和 visual-docs 检查入口。状态保持 ready-for-agent；尚未实现会话分支。
+
+### 2026-10-11：实现与验收完成
+
+完成 `/branch [名称]`、安全历史快照、持久幂等准备/发布/恢复、完整会话投影与设置继承。名称和来源持久化；任务、队列、审批、临时授权与用量不复制。有效压缩点独立继承，清单从历史恢复；连续分支保留图片、固定字节的 partial 产物及限定的完成结果，原工作管理仍拒绝。schema 升至 33，控制协议升至 17；后台与 TUI 需同步重启。提案已转为 implemented，README、领域术语、模块文档、操作手册与既有图解的现状说明已同步。
+
+新增 `test/102-branch-session.test.ts` 的 13 个集成用例覆盖完整用户尾、旧孤儿和重复调用 ID、活动审批/排队、同键并发及跨创建入口冲突、名称/设置/清单/压缩点、祖先图片 payload、撤销与伪造、partial 上限、固定结果及管理拒绝、双客户端、应答丢失、提交后应答窗口、文件/元数据失败和真实 SIGKILL 恢复。开发导入保留名称与来源并可回退；个人导入沿现行策略明确排除普通开发分支；旧 schema 迁移及缺失来源拒绝均通过。
+
+定向回归共 342 个不同用例通过，覆盖下列文件；同批重复执行的用例不重复计数：
+
+- 历史/创建/恢复：`01-concurrency`、`03-lifecycle`、`04-crash-recovery`、`05-overflow-db`、`11-history-read`、`30-workspace-entry`、`102-branch-session`。
+- 上下文/模型/清单/图片：`16-context-memory`、`18-model-selection`、`57-todo-list`、`58-plan-mode`、`60-context-prefix`、`61-context-compaction`、`96-vision-driver`。
+- TUI/控制/工作区：`13-tui-state`、`14-tui-app`、`15-tui-pty`、`37-command-history`、`65-slash-commands`、`66-control-seam`、`69-session-summaries`、`74-workspace-sessions`、`76-legacy-workspace-data`。
+- 工具/权限/终态：`07-real-tools`、`08-approvals`、`10-access-modes`、`63-approval-gate`、`64-tool-op-ledger`、`94-task-ending`。
+- SubAgent/导入/验收：`80-subagent-delegation`、`85-legacy-instance-import`、`86-personal-instance-import`、`91-release-acceptance`。
+
+各组使用 `npx tsx --test test/<文件>.test.ts` 运行；修改后的相关文件又按需重跑。`npm run check:static`、`git diff --check` 通过，新增笔记锚点可解析。
+
+实际终端验收：用 Python 标准库 PTY 启动真实 `ruukoto-code` TUI，经拥有者控制连接执行中文 `/branch`，看到来源/分支点，在 `/resume` 列表看到名称并切回父会话，再 `/quit` 正常退出。逐字节核对源历史不变，分支期间模型请求数不增加；活动源分支与失败保留草稿另由真实控制连接和 FakeTerminal 用例核对。
+
+以上在 macOS 使用真实 SQLite、JSONL、进程/PTY、控制连接和模拟模型完成；没有运行真实模型、真实 IM、Linux 专属外部验收或全量 `npm run check`。会话分支共享工作目录，文件不隔离也不回滚。本次不推送。

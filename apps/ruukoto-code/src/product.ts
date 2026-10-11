@@ -3,7 +3,7 @@ import { LegacyImportError, listLegacyImports } from "@ruukoto/core/import-suppo
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md
 export const product: CliProduct = {
-  runtime: { type: "ruukoto-code", im: false, scheduler: false, serviceEnabled: () => false, toolFamilies: () => [] },
+  runtime: { type: "ruukoto-code", branchSessions: true, im: false, scheduler: false, serviceEnabled: () => false, toolFamilies: () => [] },
   defaultExecution: "container",
   legacyProjectWrites: false,
   importPersonalMemories: true,

@@ -72,7 +72,7 @@ description: 写或改 docs/ 下面向人类的文档（architecture、modules�
 - 现在时，只写 HEAD 怎么运作；不写演进史与修订流水。
 - 标题与正文都不出现 issue、ADR、工单编号；溯源靠「设计依据」链接。
 - 术语一律用 `CONTEXT.md` 的词，不用笔记里的内部代号替代。
-- 链接只有 docs → notes、docs → 源码与脚本、docs 内部互链三个方向；notes 不指向 docs。
+- 链接只有 docs → notes、docs → 源码与脚本、docs 内部互链三个方向；笔记反向链接 docs 只用于指操作步骤，不复制 docs 的内容。
 - 图用 Mermaid，只画状态机与时序；其余示意用表格或文字。
 
 ## 6. 写完自检

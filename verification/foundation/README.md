@@ -18,7 +18,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 
 下面保留阶段 0 的历史结论，当前检出是否通过以复跑结果为准。后续产品与原生 Linux证据见 [发布验收的历史验证清单](../../docs/release-acceptance.md#历史验证清单)。
 
-| 测试 | 验证内容 | 结论 |
+| 测试（路径相对 `verification/foundation/`） | 验证内容 | 结论 |
 | --- | --- | --- |
 | `test/01-compaction.test.ts` | 自动压缩可关闭；扩展可拦截压缩；磁盘历史完整 | ✅ |
 | `test/02-context.test.ts` | `context` 事件逐轮选取模型输入，磁盘原文不动 | ✅ |
@@ -38,7 +38,7 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 
 ## Linux 探针说明
 
-`scripts/linux-isolation/run-probes.sh` 在容器内运行 `probe.py`，覆盖：
+`verification/foundation/scripts/linux-isolation/run-probes.sh` 在容器内运行 `probe.py`，覆盖：
 
 - 文件：工作区可写、宿主路径不可见、工作区外写入拒绝
 - 子进程：可正常 spawn；restricted 变体断言 CapEff=0；mount 被拒绝
@@ -47,8 +47,8 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 - 控制面：宿主回环监听端口从容器不可达（回环与网关两种路径）
 - 系统身份：root 持有的 0600 控制面状态，任务 uid 读写均被内核拒绝
 
-结果写入 `results/linux-isolation-report.{json,md}`。注意：阶段 0 的运行环境是 Docker Desktop（macOS 上的 Linux VM，linuxkit 6.12.76 / Debian 13），验证的是**容器边界本身**；该阶段尚未验证目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时），后续实机记录见上述运行文档。
+结果写入 `verification/foundation/results/linux-isolation-report.{json,md}`。注意：阶段 0 的运行环境是 Docker Desktop（macOS 上的 Linux VM，linuxkit 6.12.76 / Debian 13），验证的是**容器边界本身**；该阶段尚未验证目标 Linux 服务器的宿主前提（发行版、内核、rootless 运行时），后续实机记录见上述运行文档。
 
 ## Coding Agent 原生边界验证（工单 26）
 
-`scripts/native-isolation/` 保存 Seatbelt / bubblewrap 的可复跑真实探针，步骤与退出码见[运行说明](scripts/native-isolation/README.md)。2026-10-08 第一阶段未通过：macOS 的原生候选尚未实现脱离进程组后代的完整回收，tx 的 bubblewrap 在 namespace 建立时被系统拒绝；报告保存在 `results/native-*`。这些是候选边界证据，尚未接入产品，不代表无 Docker 的产品验收通过。
+`verification/foundation/scripts/native-isolation/` 保存 Seatbelt / bubblewrap 的可复跑真实探针，步骤与退出码见[运行说明](scripts/native-isolation/README.md)。2026-10-08 第一阶段未通过：macOS 的原生候选尚未实现脱离进程组后代的完整回收，tx 的 bubblewrap 在 namespace 建立时被系统拒绝；报告保存在 `verification/foundation/results/native-*`。这些是候选边界证据，尚未接入产品，不代表无 Docker 的产品验收通过。

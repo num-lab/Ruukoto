@@ -24,6 +24,8 @@
 | 调度通知 | 目标解析 | 调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM 入口确定 |
 | ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
 
+`read` 可读取文本与 JPEG、PNG、WebP 图片，按实际文件内容识别，图片结果连同正文进入会话历史与 prompt 快照。所选模型不支持 image 时，发送前以 `image_input_unsupported` 明确失败；图片处理与传输上限见 [execution](execution.md)。
+
 `packages/agent/src/host-tool-families.ts` 定义族的类别、工具名、构建入口与账本声明。没有绑定器的模块测试可直接提供 `taskContext`；释放可重复调用，并发执行不共享可变的当前调用上下文。个人调度与服务工具由 ruukoto app 提供，旧群结果查询由 channels 提供；Runtime 合并共享族与产品族后派生账本声明。调度与服务的旧操作规则始终由共享账本提供，Coding Agent 停用这些能力仍可核实旧操作；应用库或个人产品的调度器、服务管理停用时，对应族提供空工具集。
 
 会话身份到工具类别的静态表是唯一来源，新工具族写进哪份清单才出现：
@@ -229,6 +231,7 @@ sequenceDiagram
 
 ## 设计依据
 
+- [内置 read 从同一受限读取恢复图片结果](../../.agents/notes/implemented/bug-fix/2026-10-12-read-images.md)
 - [完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)
 - [调度计划只触发独立的通用任务](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)
 

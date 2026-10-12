@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟将个人产品的汇总执行接到 native，成果语义沿用本篇；提案尚未落地。
+
 原出处：ADR 0021「补充：改动汇总与 main 修改委派」
 
 ## 问题

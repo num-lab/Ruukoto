@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟将个人开发入口默认改为 native，尚未落地。
+
 原出处：ADR 0017「补充：两个产品的开发启动入口」
 
 ## 问题

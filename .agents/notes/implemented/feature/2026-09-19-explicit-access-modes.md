@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟统一正式受限入口的后端选择，尚未落地。
+
 原编号：ADR 0003
 
 ## 问题

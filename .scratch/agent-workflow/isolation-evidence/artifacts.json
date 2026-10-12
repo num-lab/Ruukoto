@@ -1,0 +1,22 @@
+{
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "assets": [
+    {
+      "path": "worker/workflow-script.mjs",
+      "bytes": 100567,
+      "sha256": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930"
+    },
+    {
+      "path": "worker/workflow-script.wasm",
+      "bytes": 503134,
+      "sha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
+    },
+    {
+      "path": ".scratch/agent-workflow/isolation-evidence/experiment.mjs",
+      "bytes": 30259,
+      "sha256": "3cd1197785de8775c1c81a2d5192b919af25fbba90e3b83d85f8edffd249583d"
+    }
+  ]
+}

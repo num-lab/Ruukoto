@@ -8,6 +8,8 @@
 
 `local` 后端以当前账户 spawn 一个独立进程组，没有隔离，供完全访问与库层离线测试使用；正式受限入口拒绝 local，不得据此宣称受限边界已经生效。
 
+受限 JavaScript 的固定编排入口使用独立 Node 进程内的 QuickJS/WASM，只提供四类宿主回调。该库层入口不导入 runtime，不持久化运行，也不开放产品启动工具；脚本的隔离与来源步骤采用何种工具访问模式分别确定。
+
 ## 对外接口
 
 | 调用方 | 入口 | 说明 |
@@ -20,6 +22,7 @@
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
+| 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
 
 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
 
@@ -42,6 +45,8 @@
 错误码：`execution_unavailable`（缺少受限后端、策略或宿主运行依赖）、`invalid_state`（启动器与模式不匹配）、`worker_timeout`（工作进程未就绪）、`tool_timeout`（调用超时）、`worktree_failed`（副本创建失败）、`worktree_gone`（副本目录被替换、删除或 `.git` 指向变化）。原生不可用另带 `binary_missing`、`policy_missing`、`sandbox_rejected` 或 `worker_failed` 原因；按进入受限 Node 的启动标记区分策略拒绝与 worker 失败，不解析 stderr 文案。
 
 ## 数据与状态
+
+脚本入口只持有当前执行的内存状态。脚本与 JSON 参数经专用 stdio 协议发送，脚本原语为 `agent(key, params)`、`ask(key, params)`、`integrate(key, params)`、`progress(key, params)`，均返回解释器内 Promise。宿主回调收到递增请求 ID、类别、稳定键和 JSON 参数，并负责业务校验、持久化及名下实际步骤；本入口不把脚本返回视为整项工作的成功。宿主步骤结果应返回具名 JSON；只有 `ScriptCallError` 表示可交脚本处理的拒绝，授权、协议与其他宿主错误终止执行。
 
 启动工作进程的 `LaunchSpec`：
 
@@ -82,6 +87,10 @@ stateDiagram-v2
 副本落盘位置与生命周期：每项工作一个宿主生成的 worktree，位于 `<dataDir>/../agent-work/worktrees/<workId>`（在保护根与父工作区之外），分支 `ruukoto/work-<workId>`，`gitdir` 为 `<commonGitDir>/worktrees/<workId>`，副本根与副本目录以 0700 创建；副本、分支与失败现场一律保留，不提供任何删除副本的入口。共享 Git 目录必须位于父工作区内，否则拒绝修改委派。
 
 ## 主要流程
+
+### 固定脚本执行
+
+入口只启动构建后的 `worker/workflow-script.mjs`，WASM 从同目录读取；启动 argv 不含脚本文本，环境只有固定 LANG。解释器不暴露 Node、文件、网络、凭据、时钟、随机数、模块或定时器；宿主输入与结果按 JSON 值交付，转换同样受执行时限约束。每批 64 个微任务让出事件循环，宿主等待不耗脚本执行预算；完成帧、通道排空、正常退出和原进程组停止核实都成立才返回成功。取消先阻止回调和迟到消息，并通知回调的 AbortSignal，再回收进程；调用方仍须停止已登记的实际步骤。
 
 ### 一次工具调用
 
@@ -170,6 +179,12 @@ sequenceDiagram
 
 ## 不变量与失败处理
 
+### 受限脚本
+
+`SCRIPT_LIMITS` 固定脚本 128 KiB、每帧 1 MiB、排队输出 4 MiB、未决请求 32 个、进度 256 次及 256 KiB、QuickJS 堆 32 MiB、栈 256 KiB；WASM 线性内存最多 64 MiB，Node V8 old space 64 MiB。这些分别约束解释器和载荷，不能合称进程 RSS 上限。父进程计入每次发送至相应 idle 的累计墙钟时间，默认 10 秒，宿主只能收窄；WASM 初始化另限 10 秒。无宿主请求的悬空 Promise、漏 await 的调用、越限和损坏帧均失败，不能静默等待或返回成功。
+
+父进程计时独立于解释器，中断回调不是长内建操作的及时中止保证。异常中断后由进程退出回收整个 WASM，正常路径释放 Promise、上下文与运行时；停止核实 false 或抛错保留身份、结果、失败原因，调用方不得释放相关占用或重放步骤。该固定 worker 没有派生外部进程的接口；如需增加这种能力，必须重新核实整个执行单元的回收范围。
+
 ### 工具工作进程
 
 - 工作进程只执行 `read`、`edit`、`write`、`bash`，白名单之外的名字一律拒绝；不加载任何项目自动发现的可执行扩展或可执行文件。
@@ -213,6 +228,8 @@ sequenceDiagram
 - 任务停止即中止在途请求，不等超时。
 
 ## 设计依据
+
+- [QuickJS/WASM 脚本隔离](../../.agents/notes/implemented/architecture/2026-10-13-workflow-script-isolation.md)：固定入口、资源保证、回收及四格实验依据。
 
 - [内置 read 从同一受限读取恢复图片结果](../../.agents/notes/implemented/bug-fix/2026-10-12-read-images.md)：图片类型探测、原始捕获与超限失败的接法。
 - [个人 Agent 复用原生受限执行并退役 Docker worker](../../.agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md)：统一正式入口、常驻服务器前置、宿主身份及无临时空间配额的取舍。

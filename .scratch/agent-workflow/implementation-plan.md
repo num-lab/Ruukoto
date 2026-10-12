@@ -1,6 +1,6 @@
 # Agent 工作流实施计划
 
-要求以[规格 A1–A12](spec.md)为准，理由与备选见[决定草案](../../.agents/notes/proposed/feature/2026-10-12-agent-workflows.md)。本计划已通过独立方案审查，拥有者于 2026-10-13 确认完整计划及 Git 范围；产品代码尚未实施。代码基点为 `d1b1b543c3ad6063331bbe1bf6328396392f38e4`。
+要求以[规格 A1–A12](spec.md)为准，理由与备选见[决定草案](../../.agents/notes/proposed/feature/2026-10-12-agent-workflows.md)。本计划已通过独立方案审查，拥有者于 2026-10-13 确认完整计划及 Git 范围；脚本边界已按 02 交付，持久运行与产品入口尚未实施。方案代码基点为 `d1b1b543c3ad6063331bbe1bf6328396392f38e4`。
 
 ## 一、执行归属与数据
 
@@ -99,7 +99,7 @@ Agent 步骤显式声明 `dependsOn`，宿主要求依赖已登记，并在失�
 
 各单运行 `npm run check:static` 与直接相关测试；具体文件见工单。增加解释器依赖和 worker 打包时跑 `npm run build`、lint/typecheck，并同步 README、docs/development.md 与 pre-push-checks 的相关入口。总体实现跨 core、agent、runtime、control、channels 和 tui，07 属于确实跨全仓的改动面，应执行一次完整 `npm run check`，先前失败或相关修改才复跑。
 
-当前计划资料只运行 notes 与文档检查；不因写计划运行应用测试。四格脚本实验、真实 worker、真实模型与 IM 尚未执行。任何环境前提缺失都保留未验收及恢复条件，不标为通过。
+计划资料本身只运行 notes 与文档检查；不因写计划运行应用测试。[02](issues/02-script-isolation.md)已完成四格脚本实验和固定库层入口，证据见该工单；实际步骤 worker、真实模型与 IM 的联合工作流验收尚未执行。任何环境前提缺失都保留未验收及恢复条件，不标为通过。
 
 ## 十、文档落点与审查
 

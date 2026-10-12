@@ -108,7 +108,7 @@ Status: <状态>
 
 1. 先分事实和决定，事实自己查完。
 2. 一轮全抛：待拍板的问题编号列出，每题带推荐答案 `➡️ <推荐>`。
-3. 落笔或动手前复述全部决定，用户确认后再执行。
+3. 未确认的目标、非目标、关键契约或验收要求，复述后由拥有者决定。已有确认继续有效；范围内的技术选择、事实同步和记录不重复请示，按[开发流程](../development-workflow/SKILL.md)评审与返工。
 4. 开放决策超过五个，说明改动太大：拆成多篇，或先交 proposed 草稿评审。
 
 细则见 [when-to-write](references/when-to-write.md)，归档与删除见 [archiving](references/archiving.md)。

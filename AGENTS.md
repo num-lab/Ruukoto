@@ -2,17 +2,14 @@
 
 ## 开发与验证
 
+开始改动、接手工单或承担审查时，先按[开发流程](.agents/skills/development-workflow/SKILL.md)确定当前角色、有效要求和验收依据；简单修改走轻量路径。
+
 首次检出在仓库根目录运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。修改过程中运行 `npm run check:static` 和相关测试，例如 `npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。环境前提、测试导航、耗时和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
 
 ## 目录导航
 
 - `apps/ruukoto/` 与 `apps/ruukoto-code/` 持有各产品的 bin、能力声明与专属装配。
-- `packages/runtime/` 编排任务、会话与 SubAgent，接收 app 注入的产品能力。
-- `packages/core/` 管理存储、身份与权限。
-- `packages/agent/` 管理模型、上下文与工具，`packages/agent/src/tool-worker/` 是执行边界内的工作进程。
-- `packages/control/` 提供控制面。
-- `packages/channels/` 持有 IM、GitHub、调度与旧个人资料导入。
-- `packages/tui/` 提供共享 CLI、任务界面、配置中心与开发启动器。
+- `packages/` 是共享模块，职责与依赖见[模块地图](docs/architecture.md#模块地图)；`packages/agent/src/tool-worker/` 是执行边界内的工作进程。
 - `test/` 是应用测试。
 - `verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
 - `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。

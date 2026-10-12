@@ -11,6 +11,10 @@ npm run check
 
 macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、真实证据与复跑命令见[原生边界验证](../verification/foundation/scripts/native-isolation/README.md)；离线 local 测试不证明 OS 边界。
 
+## 跨模型协作
+
+给新会话一个工单路径和角色，例如「以审查者身份接手这张工单」。[开发流程](../.agents/skills/development-workflow/SKILL.md)定义交接和验收；角色与模型可分别选择，工程验收与产品验收分别记录。
+
 ## 日常反馈
 
 | 根目录命令 | 检查范围与产物 |

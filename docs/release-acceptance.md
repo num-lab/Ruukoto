@@ -92,7 +92,7 @@ Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](..
 
 完全访问在 macOS 与 tx Linux 的两个产品取得真实 Runtime、SDK 与 worker 证据：启动账户 UID/GID、用户环境与虚拟凭据继承、工作区外读写、本机 HTTP 联网、正常与已归属后代停止，以及强杀 worker 后保留未知停止结论。模型为桩、凭据为临时虚拟数据，未修改真实部署。受限原生的外部文件与网络拒绝同时验证。执行范围与原始证据见[完全访问决定](../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)，历史专用账户证据仅证明当时实现。
 
-真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达，以及 tx 生产库的切换仍需独立的真实部署演练。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。运行图解见 [部署与验证](visual/deployment.html#acceptance)。完整的历史验证清单见下节。
+真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达，以及 tx 生产库的切换仍需独立的真实部署演练。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。部署机制见[部署模块](modules/deploy.md)，复跑步骤见[smoke 运行说明](../verification/smoke/README.md)。完整的历史验证清单见下节。
 
 ## 历史验证清单
 

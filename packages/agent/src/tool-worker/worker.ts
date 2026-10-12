@@ -7,8 +7,8 @@
  * - 通过 BashOperations.onData 与文件 Operations 包装器，把未经截断的原始
  *   输出/正文流回后台（后台存产物后另生成限长模型视图）；
  * - Shell 子进程以独立进程组启动并登记；中止与关停时先整组回收再退出。
- *   逃逸组（setsid 等）只有容器/systemd cgroup 能兜底——这是执行边界的职责，
- *   不是本进程的承诺。
+ *   脱离原组的后代由平台停止协议核实；local 不保证回收此类后代，
+ *   无法核实时由宿主保留占用。
  *
  * 通信：stdin/stdout 上的换行分帧 JSON；stderr 只用于诊断日志。
  */
@@ -180,8 +180,6 @@ function pinReadRoots(cwd: string, roots: Array<{ path: string; dev?: number; in
   for (const root of roots) {
     const real = fs.realpathSync(root.path);
     const st = fs.statSync(real);
-    // dev/ino 缺省 = 挂载经 VM 重新编号（macOS Docker Desktop），宿主与容器侧
-    // inode 恒不可比，数值复核只在 Linux 原生 bind mount 下发
     if (root.dev !== undefined && root.ino !== undefined && (st.dev !== root.dev || st.ino !== root.ino)) {
       throw new Error(`只读根已变化（宿主钉定不符）：${root.path}`);
     }

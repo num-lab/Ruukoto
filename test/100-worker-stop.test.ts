@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ToolWorkerHost, WorkerStartError } from "@ruukoto/agent/tool-worker/host.ts";
-import { createContainerLauncher, createLocalLauncher, ExecutionError, type LaunchedUnit, type LaunchSpec, type WorkerLauncher } from "@ruukoto/agent/execution/launchers.ts";
+import { createLocalLauncher, ExecutionError, type LaunchedUnit, type LaunchSpec, type WorkerLauncher } from "@ruukoto/agent/execution/launchers.ts";
 import { createManagedProcessRegistry, killProcessGroup } from "@ruukoto/agent/managed-processes.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
@@ -74,6 +74,26 @@ for (const outcome of [true, false, "throws"] as const) {
     if (outcome === "throws") assert.equal(host.stopFailure?.code, "fake_stop_failed");
   });
 }
+
+test("原生 ready 失败保留类型化原因、停止结论与单元身份", async () => {
+  let stops = 0;
+  const controlled = controlledUnit(async () => { stops++; return false; }, { fatal: true });
+  const host = ToolWorkerHost.create({ ...controlled.launcher, kind: "native" }, spec);
+  await assert.rejects(host.start(), error => {
+    assert.ok(error instanceof ExecutionError);
+    assert.equal(error.code, "execution_unavailable");
+    assert.equal(error.reason, "worker_failed");
+    assert.equal(error.unit, controlled.unit);
+    assert.ok(error.cause instanceof ExecutionError);
+    assert.equal(error.cause.code, "worker_fatal");
+    return true;
+  });
+  assert.equal(await host.stop(), false);
+  assert.equal(await host.stop(), false);
+  assert.equal(stops, 1);
+  assert.equal(host.identity()?.id, controlled.unit.entry.id);
+  assert.equal(host.stopFailure?.code, "worker_stop_unverified");
+});
 
 test("尚未创建单元的拒绝无需回收，停止先于 start 时不启动", async () => {
   let launches = 0;
@@ -323,24 +343,6 @@ test("router 在 launch 前登记；启动期间取消不会安装迟到 worker"
   } finally { kit.close(); }
 });
 
-for (const queried of [true, false]) {
-  test(`容器停止只接受成功查询的缺失证据：查询成功=${queried}`, async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-stop-docker-"));
-    const cli = path.join(root, "docker");
-    fs.writeFileSync(cli, `#!/usr/bin/env node
-if(process.argv[2]==='run') {
-  process.stdout.write(JSON.stringify({type:'ready',pid:process.pid})+'\\n');
-  process.stdin.on('data',data=>{if(String(data).includes('shutdown'))process.exit(0)});
-} else if(process.argv[2]==='ps')process.exit(${queried ? 0 : 1});
-`, { mode: 0o755 });
-    try {
-      const host = await ToolWorkerHost.start(createContainerLauncher({ dockerPath: cli, image: "mock", uid: 1000, gid: 1000 }), spec);
-      assert.equal(await host.stop(), queried);
-      assert.equal(await host.stop(), queried);
-    } finally { fs.rmSync(root, { recursive: true, force: true }); }
-  });
-}
-
 for (const reaped of [true, false, null]) {
   test(`完全访问同时核实命令组与 worker 组：命令组结论=${reaped}`, async () => {
     const controlled = controlledUnit(async () => true);
@@ -352,11 +354,22 @@ for (const reaped of [true, false, null]) {
   });
 }
 
-test("内置启动器 spawn 拒绝保留原 code，未创建单元无需停止", async () => {
-  const host = ToolWorkerHost.create(createContainerLauncher({ dockerPath: "ruukoto-missing-docker-stop-test", image: "mock", uid: 1000, gid: 1000 }), spec);
-  await assert.rejects(host.start(), { code: "execution_unavailable" });
-  assert.equal(host.identity(), null);
-  assert.equal(await host.stop(), true);
+test("内置启动器 spawn 拒绝保留原 code，未创建单元无需停止", async context => {
+  context.mock.method(childProcess, "spawn", () => {
+    const child = new childProcess.ChildProcess();
+    setImmediate(() => child.emit("error", Object.assign(new Error("模拟 worker spawn 失败"), { code: "ENOENT" })));
+    return child;
+  });
+  syncBuiltinESMExports();
+  try {
+    const host = ToolWorkerHost.create(createLocalLauncher(), spec);
+    await assert.rejects(host.start(), { code: "execution_unavailable" });
+    assert.equal(host.identity(), null);
+    assert.equal(await host.stop(), true);
+  } finally {
+    context.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });
 
 test("start 与已取消调用不重复启动或发送工具帧", async () => {

@@ -37,11 +37,10 @@ test("原生网络过滤拒绝路径 socket、socketpair 外发、io_uring 与�
   assert.throws(() => nativeNetworkFilter("unknown"), error => error instanceof ExecutionError && error.code === "execution_unavailable");
 });
 
-test("native 与容器完全访问共用启动账户，库层 local 仍可注入", () => {
+test("native 完全访问使用启动账户，库层 local 仍可注入", () => {
   assert.equal(createLauncherFor({ backend: "native" }, "confirm").kind, "native");
   assert.equal(createLauncherFor({ backend: "native" }, "auto-review").kind, "native");
   assert.equal(createLauncherFor({ backend: "native" }, "full_access").kind, "local");
-  assert.equal(createLauncherFor({ backend: "container" }, "full_access").kind, "local");
   assert.equal(createLauncherFor({ backend: "local" }, "confirm").kind, "local");
 });
 

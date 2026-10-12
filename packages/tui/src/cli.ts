@@ -5,8 +5,8 @@
  *   ruukoto [路径] [--session <id> | --demo]   任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）
  *   ruukoto -- <路径>                          显式工作区入口（目录与命令同名时使用，如 ruukoto -- config）
  *   ruukoto config [--offline]                 独立配置中心
- *   ruukoto server [--data-dir D] [--agent-dir A] [--execution local|container|native]
- *                  （默认：ruukoto = local，ruukoto-code = native）
+ *   ruukoto server [--data-dir D] [--agent-dir A] [--execution native]
+ *                  （两个产品默认且只接受 native）
  *   ruukoto start                              server 的兼容别名（同一代码路径；文档推荐 server）
  *   ruukoto tui                                旧拼法：打印迁移指引后仍启动任务界面
  *   ruukoto create-project <name>
@@ -73,7 +73,7 @@ export interface ImportFns {
 
 export interface CliProduct {
   runtime: import("@ruukoto/runtime/runtime.ts").RuntimeProduct;
-  defaultExecution: "local" | "container" | "native";
+  defaultExecution: "local" | "native";
   allowedExecution?: readonly CliProduct["defaultExecution"][];
   legacyProjectWrites: boolean;
   importPersonalMemories: boolean;
@@ -85,8 +85,8 @@ export interface CliProduct {
  */
 function resolveExecutionBackend(product: CliProduct, override: string | undefined): CliProduct["defaultExecution"] | null {
   const backend = override ?? product.defaultExecution;
-  const allowed = product.allowedExecution ?? ["local", "container"];
-  if ((backend !== "local" && backend !== "container" && backend !== "native") || !allowed.includes(backend)) {
+  const allowed = product.allowedExecution ?? [product.defaultExecution];
+  if ((backend !== "local" && backend !== "native") || !allowed.includes(backend)) {
     const hint = allowed.length === 1 && allowed[0] === "native"
       ? "受限执行仅支持 native；改为 --execution native 或移除 --execution / RUUKOTO_EXECUTION_BACKEND 覆盖"
       : `${allowed.join(" | ")}；完全访问使用启动账户，不施加任务沙箱`;
@@ -243,7 +243,7 @@ async function runServer(rest: string[], product: CliProduct): Promise<number> {
   const execFlag = resolveExecutionBackend(product, flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND);
   if (execFlag === null) return 1;
   if (execFlag === "local") {
-    console.error("警告：local 执行后端无隔离，仅用于开发/验证；受限任务生产部署请使用 --execution container");
+    console.error("警告：local 执行后端无隔离，仅用于开发/验证；受限任务生产部署请使用 --execution native");
   }
   // 工具集：默认真实编码工具；mock 仅供模拟测试（crash 恢复集成验证使用）
   const toolsFlag = flags["tools"] ?? "coding";

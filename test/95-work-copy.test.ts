@@ -133,7 +133,7 @@ test("工作副本创建失败保留现场、成功钉定基线与副本身份",
     const failed = new WorkCopyManager({
       worktreeRoot: path.join(path.dirname(f.root), `${path.basename(f.root)}-failed-worktrees`),
       protectedRoots: () => [],
-      execute: async () => ({ isError: true, errorMessage: "container failed", content: "" }),
+      execute: async () => ({ isError: true, errorMessage: "worker failed", content: "" }),
     });
     await assert.rejects(() => failed.prepareWriteTarget(".", f.session, "failed", "parent-task"), (err: WorkCopyError) => {
       assert.equal(err.code, "worktree_failed");

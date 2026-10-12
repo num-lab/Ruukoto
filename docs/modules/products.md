@@ -10,8 +10,8 @@
 
 | 声明 | ruukoto | ruukoto-code |
 | --- | --- | --- |
-| 默认执行后端 | local；服务器部署显式配置 container | native |
-| 正式入口可选执行后端 | local / container | native |
+| 默认执行后端 | native | native |
+| 正式入口可选执行后端 | native | native |
 | 拥有者 IM 与个人调度 | 启用；开发入口可停用真实 IM | 停用 |
 | 服务管理 | Linux 与显式部署配置齐备才装配 | 不装配 |
 | 会话分支 | 不开放创建 | `branchSessions` 开放普通开发会话分支 |
@@ -37,7 +37,7 @@
 **构建。**
 
 - 根构建单次生成 `worker/worker.mjs`，再为两个 app 分别生成含 bin、源码和依赖声明的 npm 包。
-- app 包使用同仓共享依赖与 worker 产物；部署需要完整 workspace 安装，container 后端另需 worker 镜像，native 后端使用宿主工具链。
+- app 包使用同仓共享依赖与 worker 产物；部署需要完整 workspace 安装与宿主工具链。
 
 ## 不变量与失败处理
 
@@ -51,7 +51,7 @@
 
 - 应用实例不会因退出 TUI 而停止；开发启动器则拥有其子进程生命周期。
 - 缺少执行环境明确失败，默认后端不静默降级。
-- Coding Agent 正式入口拒绝 local/container 参数与环境覆盖，并给出迁移指引；库层显式 local 注入与个人产品选择保留。完全访问使用后台启动账户，继承用户环境，不施加任务沙箱。
+- 两个产品的正式入口均拒绝 local/container 参数与环境覆盖，并给出迁移指引；库层显式 local 注入供离线测试。完全访问使用后台启动账户，继承用户环境，不施加任务沙箱。
 
 **依赖方向。**
 

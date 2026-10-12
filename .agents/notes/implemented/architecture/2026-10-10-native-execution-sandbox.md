@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟复用本篇原生边界并扩大产品范围，尚未落地。
+扩展与部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)将本篇原生边界用于个人产品，接管其常驻前提、正式入口和 Docker worker 交付清理；平台机制、保护范围与 macOS 未核实后代的取舍仍由本篇持有。
 
 ## 问题
 
@@ -111,5 +111,7 @@ macOS 未知残留可能继续写工作区和消耗 CPU/内存，保留占用会
 - 审批消费的共享回归用 `test/08-approvals.test.ts`、`test/22-auto-review.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts`；真实个人容器路径另有 `smoke-04-desktop-execution.mts` 6/6。升级基点为同协议的 `5e84daa`，`smoke-24-release-acceptance.mts --upgrade-only` 4/4；历史不兼容基点的失败记录保留，不能把它称为升级通过。
 
 ## 适用范围
+
+两个产品的正式入口均默认且只接受 native；个人后台的系统 service、user manager、bus 与 cgroup 常驻前提由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)持有。`ToolRouter.launchSpecFor` 和临时 `Runtime.executeWorkCopy` 统一下发宿主 dev/ino；`WorkCopyManager` 权限预检统一使用实际账户的 `accessSync`，包括补充组与 ACL，不保留容器 UID/GID 或 Docker Desktop VM 例外。本篇原个人容器部署与专用完全访问账户条目按新决定的适用范围解释，平台机制及原始真实验证保留。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

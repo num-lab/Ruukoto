@@ -25,7 +25,7 @@
 
 ## 对外接口
 
-后台入口按 app 的 `CliProduct.defaultExecution` 与 `allowedExecution` 校验执行后端：Coding Agent 默认且仅允许 native，个人 Agent 保留 local/container。任务 TUI 在连接已有后台前也校验环境覆盖。开发启动器与按需后台复用所属 app 的 bin，使用同一声明；库层 local 注入不经 CLI 限制。
+后台入口按 app 的 `CliProduct.defaultExecution` 与 `allowedExecution` 校验执行后端：两个产品均默认且仅允许 native。任务 TUI 在连接已有后台前也校验环境覆盖。开发启动器与按需后台复用所属 app 的 bin，使用同一声明；库层 local 注入不经 CLI 限制。
 
 交互终端是控制面的客户端。它调用的操作：
 

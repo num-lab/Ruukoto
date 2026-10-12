@@ -1,6 +1,6 @@
 # Linux 原生沙箱前置
 
-此目录提供 Ubuntu 24.04 的 bubblewrap 安装与 AppArmor 配置。`ruukoto-code` 正式入口默认且只接受 native，任务启动器不安装依赖或调整系统策略；原生启动失败报告不可用，不回退。
+此目录提供 Ubuntu 24.04 的 bubblewrap 安装与 AppArmor 配置。两个产品的正式受限执行均默认且只接受 native，任务启动器不安装依赖或调整系统策略；原生启动失败报告不可用，不回退。个人后台的系统服务、user manager 常驻与运行环境按[服务器部署](../systemd/README.md)配置。
 
 ## 安装
 
@@ -17,7 +17,7 @@ profile 按 `/usr/bin/bwrap` 匹配；临时目录中解包的副本不具备该
 
 ## 检查
 
-以下命令分别确认二进制、profile、完整 namespace，以及 user systemd。profile 清单需要管理员权限；探针以实际开发用户运行。
+以下命令分别确认二进制、profile、完整 namespace，以及 user systemd。profile 清单需要管理员权限；探针以实际开发用户或后台服务账户运行。系统服务的账户、runtime dir 与 user bus 必须与部署配置一致，不能只验证登录 shell。
 
 ```bash
 /usr/bin/bwrap --version
@@ -32,9 +32,9 @@ python3 verification/foundation/scripts/native-isolation/linux-native-probes.py 
 
 ## 从容器配置迁移
 
-先用原入口停止 Coding Agent 后台与活动执行单元，核实退出后再替换检出并运行 `npm run setup`、`npm run build`。保留原 `~/.ruukoto-code`、工作副本、会话历史、审批、产物和待核实占用，不在线替换运行任务的环境。此处只调整执行后端配置；后台只接受当前 schema 的档案，不提供旧库升级或回填，启动前须按[操作手册](../../docs/usage.md)核实格式。
+两个产品的迁移均先用旧版本停止后台，并按实例核实旧执行单元退出；未核实则保留占用和现场，停止切换。核实后备份原配置与档案，再替换检出并安装依赖、运行 `npm run build`。保留工作副本、会话 JSONL、审批、产物和异常占用，不在线替换活动任务的环境；个人后台的完整升级与回退步骤见[服务器部署](../systemd/README.md#升级与回退)。后台只接受当前 schema 的档案，不提供旧库升级或回填，启动前按[操作手册](../../docs/usage.md)核实格式。
 
-`--execution container` / `local` 与 `RUUKOTO_EXECUTION_BACKEND=container` / `local` 在正式 Coding Agent 入口明确拒绝；移除覆盖或显式改为 native。两个产品的完全访问均直接使用启动后台账户，不要求原生沙箱、容器或专用执行入口；个人产品的受限任务使用其配置的后端。入口与故障排查见[操作手册](../../docs/usage.md)。
+`--execution container` / `local` 与 `RUUKOTO_EXECUTION_BACKEND=container` / `local` 在两个产品的正式入口明确拒绝；移除覆盖或显式改为 native，并移除旧 worker 镜像、容器 UID/GID 配置。完全访问直接使用启动后台账户，不要求原生沙箱、容器或专用执行入口。原生单元的独立临时 HOME/TMPDIR 使用宿主磁盘，不保留容器 `/tmp` 的 64 MiB 上限；停止核实后清理，未核实则保留。入口与故障排查见[操作手册](../../docs/usage.md)。
 
 ## 移除
 

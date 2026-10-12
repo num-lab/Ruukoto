@@ -11,7 +11,7 @@ Ruukoto 后台任务运行时以单仓库交付 `ruukoto` 个人 Agent 和 `ruuk
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [agent-context](modules/agent-context.md) | 组装每次模型调用的上下文：资料范围、历史、参考块、压缩与记忆 | 依赖 core 的存储与会话文件；被 runtime 的驱动循环调用 |
 | [agent-tools](modules/agent-tools.md) | 决定会话有哪些工具，并经统一审批与操作账本执行 | 依赖 core、execution；被 runtime 装配 |
-| [execution](modules/execution.md) | 在原生沙箱、受限容器或当前启动账户下执行工具 | 依赖 core 的路径与身份；被 agent-tools 调用 |
+| [execution](modules/execution.md) | 在原生沙箱或当前启动账户下执行工具 | 依赖 core 的路径与身份；被 agent-tools 调用 |
 | [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui 消费 |
 | [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
@@ -100,7 +100,7 @@ sequenceDiagram
   participant Av as agent-tools（可用性）
   participant G as 审批闸门
   participant R as agent-tools 审查/核实
-  participant W as execution（原生沙箱、容器或启动账户）
+  participant W as execution（原生沙箱或启动账户）
   participant L as 工具操作账本
 
   D->>Av: 调用工具（宿主注入身份与操作编号）

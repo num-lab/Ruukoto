@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟将个人产品的汇总执行接到 native，成果语义沿用本篇；提案尚未落地。
+部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)将个人产品受限汇总接到原生 worker；完整差异、幂等、冲突与成果保留语义仍由本篇持有。
 
 原出处：ADR 0021「补充：改动汇总与 main 修改委派」
 
@@ -36,5 +36,7 @@ Status: implemented
 [工单 17](../../../../.scratch/agent-direction/issues/17-integrate-worktree-results.md)与 smoke-issue17.mts 的历史记录：macOS Docker Desktop 与 ssh tx Linux（Ubuntu 24.04 原生 Docker、uid/gid 1003、RUUKOTO_CONTAINER_UID/GID=1003）各 7/7。模型模拟、容器边界真实；验证副本真实 edit/write、父字节未动、add -N→diff→apply --check→apply、父 HEAD 不变、integrated 事件、already 幂等、冲突零写入且点名文件、取消关闭后汇总与容器零残余。父仓库本身为 worktree 时创建与汇总均需补挂共享 Git 目录读写；夹具和真实路径统一 realpath，避免 macOS /var→/private/var 别名。
 
 ## 适用范围
+
+两个产品的受限汇总均经 native 复用 `Runtime.executeWorkCopy`，完全访问按实际发起任务使用启动账户。执行单元的 HOME/TMPDIR 使用宿主临时磁盘，无单任务容量限制；停止未核实时保留临时现场与占用，已核实停止才清理。上述后端与临时资源选择归[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)；本篇完整差异、幂等、冲突、事件归属及成果保留继续适用，原真实容器报告不改写为 native 结果。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

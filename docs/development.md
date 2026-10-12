@@ -62,16 +62,15 @@ GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm r
 
 | 根目录命令 | 所需环境与覆盖 |
 | --- | --- |
-| `npm run build:worker-image` | Docker；构建 `ruukoto-worker`，worker 或其依赖源码变化后重建 |
-| `npm run linux:probes` | Docker；基础验证中的 Linux 容器边界探针 |
-| `npm run test:docker` | Docker 与当前 worker 镜像；smoke-04、13、15、18，模型与消息平台为桩 |
+| `npm run linux:probes` | Linux 原生前置；bubblewrap、namespace、seccomp 与 user scope 边界探针 |
+| `npm run test:native` | Linux、已构建 worker 与原生前置；个人工具、协作、恢复、原 IM 汇报与定时委派，模型与消息平台为桩 |
 | `npm run test:upgrade` | Git、依赖安装网络与基线版本；smoke-24 的 `--upgrade-only` 路径，使用 mock 模型 |
 | `npm run test:model` | `~/.pi/agent/` 的模型配置与凭据；按 provider 尝试短往返，首次成功后停止 |
 | `npm run test:release-model` | 已构建的原生执行入口、Python PTY 与显式模型配置；smoke-24 的真实模型编码、TUI 退出后继续与重连 |
 
-原生边界按[平台脚本](../verification/foundation/scripts/native-isolation/README.md)单独验收；缺能力或对照时返回不可验证，容器 smoke 不替代 native 证据。
+原生边界按[平台脚本](../verification/foundation/scripts/native-isolation/README.md)单独验收；缺能力或对照时返回不可验证；离线用例不替代真实 OS 证据。
 
-具体脚本、参数、退出码和清理行为见 [smoke 运行说明](../verification/smoke/README.md)。真实模型编码验收使用 `npm run test:release-model -- --models /path/to/models.json --model provider/model`；模型配置可以包含凭据，应使用工作树外的受保护文件。升级默认基点与旧产品名称的边界见[发布验收的复跑说明](release-acceptance.md#当前复跑入口)。真实模型编码入口在启动 TUI 前，按实际子进程的环境检查所选模型的配置、认证、思考档位与预算；此检查不调用模型。配置需能独立提供认证，不继承模型 API key 环境变量，也不读取个人或相邻的 `auth.json`；仅有请求头不能证明认证可用。前提不满足时退出 2。`test:model` 缺少配置时提示跳过，这种结果不计为真实模型验证通过。真实模型编码与安装升级是独立检查，需要分别执行。外部验收与离线检查分别执行：Docker Desktop 的容器证据不替代原生 Linux 的权限验证，模拟平台也不代表真实 QQ / Telegram 已验收。旧 systemd / sudo 脚本保存在[特权脚本归档](../verification/archive/README.md)，其系统写入需要隔离改造后再提供运行入口。当前发布证据与仍需人工完成的项目见 [发布验收](release-acceptance.md)。
+具体脚本、参数、退出码和清理行为见 [smoke 运行说明](../verification/smoke/README.md)。真实模型编码验收使用 `npm run test:release-model -- --models /path/to/models.json --model provider/model`；模型配置可以包含凭据，应使用工作树外的受保护文件。升级默认基点与旧产品名称的边界见[发布验收的复跑说明](release-acceptance.md#当前复跑入口)。真实模型编码入口在启动 TUI 前，按实际子进程的环境检查所选模型的配置、认证、思考档位与预算；此检查不调用模型。配置需能独立提供认证，不继承模型 API key 环境变量，也不读取个人或相邻的 `auth.json`；仅有请求头不能证明认证可用。前提不满足时退出 2。`test:model` 缺少配置时提示跳过，这种结果不计为真实模型验证通过。真实模型编码与安装升级是独立检查，需要分别执行。外部验收与离线检查分别执行：历史 Docker 结果不替代原生 Linux 的权限验证，模拟平台也不代表真实 QQ / Telegram 已验收。旧 systemd / sudo 脚本保存在[特权脚本归档](../verification/archive/README.md)，其系统写入需要隔离改造后再提供运行入口。当前发布证据与仍需人工完成的项目见 [发布验收](release-acceptance.md)。
 
 ## 开发实例
 
@@ -90,7 +89,7 @@ npm run code -- --import-models ~/.ruukoto-code/agent  # 只复制模型配置
 
 - **工作区入口**：`npm run code -- <路径>` 路径参数只接受一个已存在的目录，按真实目录身份创建或复用工作区并进入新会话；不新建目标目录。相对路径按 npm 脚本的当前目录（通常为本仓库）解析，路径含空格时加引号，目录与 CLI 命令同名也可使用。路径不能与 `--config` 同用，`dev` 不接受路径；目录身份与保护根校验沿用日常工作区入口，代码仓库本身不能用作工作区。路径只传给首次 TUI 启动，源码重载后恢复原会话、草稿与继续意图，不再次创建会话。
 - **环境清洗**：子进程先清除两产品目录变量、生产 owner token、服务配置与外部产品身份，再按 profile 显式注入 `RUUKOTO_PRODUCT` 与本产品的 `*_DIR`；固定注入 `RUUKOTO_DISABLE_QQ=1` 与 `RUUKOTO_DISABLE_TELEGRAM=1`，每次启动生效。
-- **执行后端**：沿用产品默认值，`dev` 为无隔离的 `local`，`code` 为 `native`。code 受限任务无需 Docker；原生能力缺失时明确失败，开发入口不继承生产执行覆盖与完全访问账户配置。
+- **执行后端**：沿用产品默认值，`dev` 与 `code` 均为 `native`，受限任务无需 Docker；原生能力缺失时明确失败，开发入口不继承生产执行覆盖与完全访问账户配置。
 - **进程与重载**：两个启动器管理自己启动的整组进程；退出界面或 Ctrl+C、关闭终端都统一清理后台／界面／监听。同一开发实例已有后台时报错，不附加或停止外部进程。监听仅限 `packages/*/src/` 与 `apps/*/src/` 源码：后台代码变更优雅重启后台（活动任务保留中断事实，不自动重放），任务界面自动重连，配置界面不重连、随后台一并重载并恢复所在分区；只改任务／配置界面代码时不重启后台；共享模块变更两者都重启。连续变更合并处理，旧进程退出并释放锁后才启动替代进程。修改共享启动器 `packages/tui/src/dev.ts` 或 `apps/*/src/dev.ts` 时提示手动重启当前 npm 命令。
 - **界面状态恢复**：code 启动的任务界面把当前会话、未提交草稿与继续任务意图原子保存到 profile 的重载状态文件（0600；秘密表单值不写入，重载后重新输入）；重载后按数据实例标识核实恢复，记录无效时给出提示并按正常入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次启动内使用。
 - **日志与终端**：后台日志写 `<profile>/logs/backend.log`，监听诊断写 `dev.log`（无界面时打印到终端），不与界面输入／绘制串写。

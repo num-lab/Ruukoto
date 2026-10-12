@@ -1,6 +1,6 @@
 # 个人 Agent 原生受限执行：已确认规格
 
-决策日期：2026-10-12。拥有者通过 grill-me / grilling 确认 Q1—Q5；实现尚未开始。取舍归[决策提案](../../.agents/notes/proposed/architecture/2026-10-12-personal-native-sandbox.md)，实施顺序与验证归[工单 01](issues/01-personal-native-sandbox.md)。
+决策日期：2026-10-12。拥有者通过 grill-me / grilling 确认 Q1—Q5；实现与隔离验收完成。取舍归[决策记录](../../.agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md)，实施顺序与验证归[工单 01](issues/01-personal-native-sandbox.md)。
 
 ## 目标与范围
 
@@ -34,7 +34,7 @@ main 与独立定时会话的业务工具仍由宿主执行，只有其委派出
 
 真实 OS/worker 证据与模型、IM、服务工具替身分别记录。缺少平台、凭据或隔离演练条件时记为不可用，不能用已有交互式原生报告或模拟结果替代本次常驻验收。当前已有的 Linux 原生实测基线是 Ubuntu 24.04 x64；其他平台按实际结果说明范围。
 
-本次规划交付不执行代码迁移、系统配置变更或在线部署。工单的实施包含隔离部署验证与迁移说明；生产实例的实际切换另行安排。
+工单交付包含代码迁移、独立账户与可销毁 VM 的隔离部署验证和迁移说明；生产实例的实际切换另行安排。
 
 ## Comments
 

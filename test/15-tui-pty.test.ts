@@ -193,7 +193,7 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持�
   } finally { await t.shutdown(); }
 });
 
-/** 以独立进程启动真实后台（mock 模型，mock 工具，local 执行后端）。 */
+/** 以独立进程启动真实后台（mock 模型，mock 工具；正式入口默认 native，本例不运行 worker）。 */
 async function startBackendProcess(dirs: { root: string; dataDir: string; agentDir: string }, baseUrl: string) {
   await writeModelsJson(dirs, baseUrl);
   const env = {
@@ -202,7 +202,7 @@ async function startBackendProcess(dirs: { root: string; dataDir: string; agentD
     RUUKOTO_AGENT_DIR: dirs.agentDir,
     RUUKOTO_PENDING_DIR: path.join(dirs.root, "pending"),
   };
-  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "start", "--execution", "local", "--tools", "mock", "--model", "mock/mock-model"], {
+  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "start", "--tools", "mock", "--model", "mock/mock-model"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿

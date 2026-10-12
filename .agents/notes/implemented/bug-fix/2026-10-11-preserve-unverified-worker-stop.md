@@ -45,4 +45,6 @@ worktree 创建和汇总要求实际发起的父任务仍在执行并持有占�
 
 ## 适用范围
 
+[固定脚本入口](../architecture/2026-10-13-workflow-script-isolation.md)复用本篇的 starting、单元身份和未核实结果保留；脚本能力与 WASM 回收由该决定持有，不改变工具工作进程的任务收尾。
+
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

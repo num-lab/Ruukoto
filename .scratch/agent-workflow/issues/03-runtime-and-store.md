@@ -1,6 +1,6 @@
 # 持久工作流运行与协调器
 
-Status: planning
+Status: ready-for-agent
 
 ## 目标与边界
 
@@ -20,7 +20,7 @@ Status: planning
 
 ## 验收与交接
 
-依赖 [02](02-script-isolation.md) 实验通过。新增最窄的状态机、重放和并发测试；配合 `test/01-concurrency.test.ts`、`test/03-lifecycle.test.ts`、`test/04-crash-recovery.test.ts`、`test/05-overflow-db.test.ts`、`test/86-subagent-recovery.test.ts`、`test/94-task-ending.test.ts` 与 `npm run check:static`。
+[02](02-script-isolation.md) 已于 2026-10-13 完成四格实验、固定入口与独立工程审查，前置解除；入口与回收契约见[隔离决定](../../../.agents/notes/implemented/architecture/2026-10-13-workflow-script-isolation.md)，原始证据由 02 持有。本单尚未开始。新增最窄的状态机、重放和并发测试；配合 `test/01-concurrency.test.ts`、`test/03-lifecycle.test.ts`、`test/04-crash-recovery.test.ts`、`test/05-overflow-db.test.ts`、`test/86-subagent-recovery.test.ts`、`test/94-task-ending.test.ts` 与 `npm run check:static`。
 
 直接读取 SQLite 与事件断言持久事实，构造已生效写操作和记录缺口，验证没有第二次外部效果；只检查状态字段不算恢复验收。core/runtime 文档及决定锚点同步。本单验收待执行，交付后由 04 接入真实步骤工具。
 

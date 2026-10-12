@@ -1,13 +1,13 @@
 # 开发与验证
 
-从完整仓库的根目录运行以下命令。npm workspaces 包含 `packages/*` 与 `apps/*`，共用根锁文件；`verification/foundation/` 保持独立包和锁文件。应用复用基础验证，基础验证也引用根目录的测试助手；测试与助手集中保留在根 `test/`。
+在完整仓库根目录运行：npm workspaces 包含 `packages/*` 与 `apps/*`，共用根锁文件；`verification/foundation/` 保持独立包和锁文件。应用复用基础验证，基础验证也引用根目录的测试助手；测试与助手集中保留在根 `test/`。
 
 ```bash
 npm run setup
 npm run check
 ```
 
-`setup` 检查 macOS / Linux、普通用户账户、Node ≥ 22.19、Git、Bash、Python 3 与 PTY 能力，然后对根目录和 `verification/foundation/` 执行 `npm ci`，安装受 Git 管理的 pre-commit 钩子。首次安装依赖需要网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或系统服务。Python 3 的 PTY 检查保证终端用例实际执行。依赖有变更时更新对应的 `package.json` 与 `package-lock.json`，重新运行 `setup`。
+`setup` 检查 macOS / Linux、普通用户账户、Node ≥ 22.19、Git、Bash、Python 3 与 PTY 能力，然后对根目录和 `verification/foundation/` 执行 `npm ci`，安装受 Git 管理的 pre-commit 钩子。首次安装需网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或系统服务。Python 3 的 PTY 检查保证终端用例实际执行。依赖有变更时更新对应的 `package.json` 与 `package-lock.json`，重新运行 `setup`。
 
 macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、真实证据与复跑命令见[原生边界验证](../verification/foundation/scripts/native-isolation/README.md)；离线 local 测试不证明 OS 边界。
 
@@ -19,7 +19,8 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 
 | 根目录命令 | 检查范围与产物 |
 | --- | --- |
-| `npm run build` | 构建本平台原生监督器、单次打包 `worker/worker.mjs`，再生成 `dist/ruukoto-0.1.0.tgz` 与 `dist/ruukoto-code-0.1.0.tgz`；无需 Docker，应用通过 tsx 运行源码 |
+| `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
+| `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
 | `npm run typecheck` | 根测试与脚本、每个 workspace 包、基础验证各自执行静态类型检查 |
 | `npm test` | 应用与基础验证的全部离线测试；真实模型用例按默认开关跳过 |
@@ -36,19 +37,20 @@ npx tsx --test test/71-product-entry.test.ts test/32-dev.test.ts
 npx tsx --test verification/foundation/test/03-tools.test.ts
 ```
 
-测试保留现有集中目录与编号。按功能词找文件，再查看用例覆盖的分支；跨模块修改应同时检查调用者的测试。下面是起点，完整文件列表可用 `rg --files test` 查找。
+测试集中保留目录与编号；按功能词找覆盖分支，跨模块再查调用者。下表列起点，完整列表用 `rg --files test`。
 
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/cli-entry.ts`、`packages/core/src/product.ts`、`packages/tui/src/dev.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
+| `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、worktree 与导入 | `test/80-subagent-delegation.test.ts` 至 `test/87-retire-coding-role.test.ts`、`test/91-release-acceptance.test.ts`、`test/95-work-copy.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 
-遇到失败时保留用例名、断言和环境信息，区分实现回归与环境前提。独立复现失败用例，然后修复原因；默认检查和 CI 不自动重试失败。现有历史耗时与结果见[发布验收](release-acceptance.md)的历史验证清单，不作为当前代码通过的证据。
+失败保留用例名、断言和环境，区分回归与前提；独立复现后修复，默认检查和 CI 不自动重试。[发布验收](release-acceptance.md)的历史结果不证明当前代码通过。
 
 代码里的待办标记按紧急度分三种，便于检索时排序：`FIXME` 是发布阻断项，`TODO` 是应尽快处理项，`XXX` 是将来再说的项。三者都写明要做什么，不只留一个标记。
 
@@ -60,7 +62,7 @@ pre-commit 依次执行暂存内容的行尾检查与 `npm run check:static`：`
 
 GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm run setup -- --skip-hooks` 与 `npm run check`；CI 直接执行检查，不安装提交钩子。最低版本覆盖支持边界，Node 24.15 覆盖本次约定的开发版本；环境缺少 Python 或 PTY 能力时失败，不通过跳过终端用例取得绿色结果。提交钩子和 CI 使用相同的根目录命令。
 
-构建产物和运行资料保持分开：`worker/worker.mjs` 由构建生成，`node_modules/` 由锁文件安装；产品数据库、令牌和模型凭据存放在产品档案目录，不放入工作树。测试使用临时档案，开发实例的产品隔离与默认执行后端见 [README](../README.md#开发本项目)。
+`worker/` 由构建生成，QuickJS core 与 release-sync WASM 由 agent 包锁版；`node_modules/` 由锁文件安装。数据库、令牌和凭据留在产品档案，不入工作树；测试用临时档案。开发实例的隔离与执行后端见 [README](../README.md#开发本项目)。
 
 ## 外部验收
 

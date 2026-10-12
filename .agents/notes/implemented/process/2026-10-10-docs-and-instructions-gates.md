@@ -57,6 +57,8 @@ DSH 的 `verify-doc-budgets` 用 `wc -w`。本仓库文档是中文，实测 `do
 
 ## 后果
 
+需求符合性与文档语义的独立复核见[开发流程](2026-10-12-agentic-development-workflow.md)；本篇的机械门禁不作为任务完成的证明。
+
 `check:static` 从约 8 秒增至约 9.3 秒，换来：断链与失效锚点在提交前被拦（已实测两类负例都会红）、常驻文档有篇幅护栏、`.agents/notes/` 对直接走进来的读者可读。重排后全仓 Markdown 段落形态统一，diff 只影响空白。
 
 代价与遗留：

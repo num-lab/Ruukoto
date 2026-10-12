@@ -33,6 +33,7 @@ import {
 import { statsFromPatch } from "@ruukoto/core/history.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
 import type { EditStats } from "@ruukoto/core/types.ts";
+import { imageMime } from "../artifacts.ts";
 import {
   DATA_CHUNK_BYTES,
   MAX_FRAME_BYTES,
@@ -49,8 +50,9 @@ let stdoutDrained: Promise<void> = Promise.resolve();
 function sendMessage(msg: WorkerMessage): void {
   const line = JSON.stringify(msg);
   if (Buffer.byteLength(line, "utf8") > MAX_FRAME_BYTES) {
-    // 单帧超限只可能来自异常超大块；协议层保证 DATA_CHUNK_BYTES 分块，此处防御
-    fail(`工作进程消息超限：op=${(msg as any).opId ?? "?"}`);
+    // 图片结果无法按正文流分块；只失败当前操作，保留 worker 与已捕获的原文。
+    const opId = "opId" in msg ? msg.opId : undefined;
+    fail(`工作进程消息超限：op=${opId ?? "?"}`, opId);
     return;
   }
   stdoutDrained = stdoutDrained.then(async () => {
@@ -246,6 +248,21 @@ function scopedReadOperations(): ReadOperations {
   };
 }
 
+// 探测与图像结果复用同一次受限读取；按调用创建，取消后不复用旧内容。
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-12-read-images.md
+function createWorkerReadTool(cwd: string): ReturnType<typeof createReadToolDefinition> {
+  const operations = readScopeRoots ? scopedReadOperations() : readOperations();
+  let bytes: Buffer | undefined;
+  return createReadToolDefinition(cwd, { operations: {
+    ...operations,
+    detectImageMimeType: async absolutePath => {
+      bytes = await operations.readFile(absolutePath);
+      return imageMime(bytes);
+    },
+    readFile: async absolutePath => bytes ?? operations.readFile(absolutePath),
+  } });
+}
+
 function editOperations(): EditOperations {
   return {
     readFile: async (absolutePath) => fs.promises.readFile(absolutePath),
@@ -289,7 +306,6 @@ interface LoadedTools {
 
 function loadTools(cwd: string): LoadedTools {
   const tools = new Map<string, ToolDefinition<any, any, any>>([
-    ["read", createReadToolDefinition(cwd, { operations: readScopeRoots ? scopedReadOperations() : readOperations() })],
     ["edit", createEditToolDefinition(cwd, { operations: editOperations() })],
     ["bash", createBashToolDefinition(cwd, { operations: bashOperations(), exposeSessionEnvironment: false })],
   ]);
@@ -329,9 +345,11 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
     return;
   }
   let writeStats: EditStats | undefined;
-  const def = req.name === "write"
-    ? createWriteToolDefinition(loaded.cwd, { operations: writeOperations((stats) => { writeStats = stats; }) })
-    : loaded.tools.get(req.name)!;
+  const def = req.name === "read"
+    ? createWorkerReadTool(loaded.cwd)
+    : req.name === "write"
+      ? createWriteToolDefinition(loaded.cwd, { operations: writeOperations((stats) => { writeStats = stats; }) })
+      : loaded.tools.get(req.name)!;
   const controller = new AbortController();
   const timer = req.timeoutMs ? setTimeout(() => controller.abort(new Error("timeout")), req.timeoutMs) : undefined;
   inFlight.set(req.opId, { controller, timer });

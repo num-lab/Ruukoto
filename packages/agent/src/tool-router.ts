@@ -754,7 +754,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
   const readTool = routedTool({
     name: "read",
     label: "read",
-    description: "读取文件内容（在任务执行边界内；输出超限时完整正文保存为产物，可用 read_artifact 继续）。",
+    description: "读取文本或 JPEG、PNG、WebP 图片（在任务执行边界内；图片作为视觉输入，需支持图片的模型；完整原文保存为产物，可用 read_artifact 继续读取）。",
     parameters: Type.Object({
       path: Type.String({ description: "文件路径（相对或绝对）" }),
       offset: Type.Optional(Type.Number({ description: "起始行（1 起）" })),

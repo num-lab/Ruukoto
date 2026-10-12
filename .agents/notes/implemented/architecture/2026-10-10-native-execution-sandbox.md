@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟复用本篇原生边界并扩大产品范围，尚未落地。
+
 ## 问题
 
 Coding Agent 的受限任务需要直接使用开发机工具链，并让路径、ACL 与目录身份保持宿主语义。[按任务容器](2026-09-20-tool-worker-per-task-container.md)在 macOS 依赖 Docker Desktop 的 Linux VM，另有挂载权限与 inode 重新编号的差异；更换容器运行时仍保留这些代价。原生执行必须继续隔离后台数据、模型凭据、控制面、其他任务和未授予资料，并覆盖主任务、SubAgent 与 worktree 创建、共享 Git 只读访问及汇总。

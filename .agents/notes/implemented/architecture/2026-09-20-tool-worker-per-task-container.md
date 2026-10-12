@@ -4,6 +4,8 @@ Status: implemented
 
 原编号：ADR 0004
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟取代个人产品的容器后端选择，尚未落地。
+
 部分取代：Coding Agent 选择 native 时的受限后端由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)接管；本篇原决定保留，个人 Agent 容器、共享 worker/协议与完全访问仍由本篇解释。
 
 ## 问题

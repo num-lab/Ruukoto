@@ -4,6 +4,8 @@ Status: implemented
 
 原编号：ADR 0017
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟改变个人产品的受限执行后端，尚未落地。
+
 ## 问题
 
 旧 main/coding/chat 同后台架构把本机编码、个人服务器事务和群聊处理绑定在一起。固定 coding 与开发工具的能力重复，核心 chat 又把通用个人助手限定为群聊用途；开发机与个人服务器需要各自运行、停止和升级，并保留旧历史、来源关系与权限边界。

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟迁移个人产品执行接线并删除容器身份例外，尚未落地。
+
 原编号：ADR 0021
 
 ## 问题

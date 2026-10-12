@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟同步受限执行的后端接线，审查规则沿用本篇；提案尚未落地。
+
 原编号：ADR 0005
 
 ## 问题

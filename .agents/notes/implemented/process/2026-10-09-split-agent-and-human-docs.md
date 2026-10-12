@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[删除停止维护的可视化文档](../simplification/2026-10-12-remove-visual-docs.md)接管原地保留快照的选择；本篇的文档分层与原决定理由继续保留。
+
 ## 问题
 
 仓库文档同时服务人类与 agent，但没有按读者分开，四类材料混在 `docs/` 下：

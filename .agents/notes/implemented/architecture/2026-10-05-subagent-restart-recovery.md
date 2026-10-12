@@ -23,3 +23,7 @@ Status: implemented
 ## 验证
 
 [工单 15](../../../../.scratch/agent-direction/issues/15-recover-subagents.md)记录 test/86-subagent-recovery 3/3，mock 模型、realTools local worker 与进程内 Runtime 重启；相关回归 75/75，typecheck 和图解 4/4 通过。全量 npm test 889/892，失败项按原记录归于 DNS 和 worktree 目录名环境问题。smoke-15-recover-subagents.mts 在 macOS Docker 8/8，真实容器、控制面 socket、CLI 和数据库；模型/平台模拟，崩溃状态由数据库置位而非真实杀进程。Linux --remote 本次原实施未执行。
+
+## 适用范围
+
+通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](../feature/2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。

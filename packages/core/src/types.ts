@@ -7,13 +7,14 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { HistorySnapshot } from "./history.ts";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 19;
 
 export interface ModelSelection {
   provider: string;
@@ -25,10 +26,11 @@ export interface ModelSelection {
  * 任务访问模式。
  * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
- * - confirm：请求确认模式。在已授权范围内自主执行（Linux 容器边界内），
+ * Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
+ * - confirm：请求确认模式。在已授权范围内自主执行（受限执行环境内），
  *   越界文件操作与外部网络以结构化审批请求逐次授权。
- * - full_access：完全访问模式。拥有者显式选择后，任务在容器外使用专用执行
- *   账户已有权限，不逐次确认。不额外赋权，也不提供执行账户内部的文件隔离。
+ * - full_access：完全访问模式。使用启动后台账户已有权限及用户环境，
+ *   不施加任务沙箱、不请求操作审批，也不额外赋予 OS 权限。
  * - auto-review：自动审查模式。与 confirm 同一受限执行环境；越界的外部文件
  *   读取与无凭据 HTTP 读取先经独立审查调用自动审批（approve/reject/ask_owner），
  *   无法确认或审查失败一律转拥有者；不扩大授权范围，不升级为完全访问。
@@ -265,6 +267,9 @@ export interface SubAgentMessage {
   fromSubAgentId: string | null;
   /** 发送方发起任务（来源可追溯）。 */
   fromTaskId: string;
+  /** 登记消息时的发起任务模式与权限版本；延迟投递不重新取会话默认值。 */
+  accessMode: AccessMode;
+  sourcePermissionVersion: number;
   /** 接收的 SubAgent；null = 主 Agent。 */
   toSubAgentId: string | null;
   /** 发送方提供的幂等键。 */
@@ -538,7 +543,7 @@ export interface Task {
   accessMode: AccessMode;
   /** 提交时固定的计划工作方式；为 true 时访问策略恒为 auto-review。 */
   planMode: boolean;
-  /** 提交时会话权限版本快照；切换/授权变化递增，旧审批消费时核对。 */
+  /** 本任务的权限版本；模式或路径授权变化时递增，旧审批消费时核对。 */
   permissionVersion: number;
   /** 拥有者为本任务显式授予的工作区外路径（如 worktree 的 Git 元数据）。 */
   grantedPaths: GrantedPath[];
@@ -560,6 +565,8 @@ export interface Task {
   agentId: AgentRoleId | null;
   /** 父任务 id（编排器委派的子任务；null = 无父任务）。 */
   parentTaskId: string | null;
+  /** 宿主派生任务登记时的发起任务权限版本；来源任务由 parentTaskId 关联。 */
+  sourcePermissionVersion: number | null;
   /** 来源入站事件 id（null = 非事件触发）。 */
   sourceEventId: string | null;
   /** 截止时间（ISO；超时由编排器取消；null = 无期限）。 */
@@ -628,7 +635,7 @@ export type ApprovalScope =
       /** 凭据引用名（CredentialStore 绑定名；null = 无认证）。 */
       credential: string | null;
       /** 本地副作用类别（拥有者声明；远端注解不作依据）。 */
-      operationCategory: "write" | "unknown";
+      operationCategory: "read" | "write" | "unknown";
     }
   | {
       /**
@@ -664,26 +671,14 @@ export type ApprovalScope =
       definitionAfter: Record<string, unknown> | null;
     }
   | {
-      /**
-       * 通知外发（issue 03）：固定完整正文（params.text）、目标及配置版本、
-       * 时间规则、IANA 时区、DST 策略与持续范围。周期计划批准的是"持续至取消"，
-       * 不只是首次时间。news 模式固定采集与发送约定，允许按该约定生成动态正文。
-       * 批准单次消费；full_access 与 auto-review 也须拥有者确认。
-       */
+      /** 固定一次通知的正文、目标、来源任务与操作；完全访问使用任务授权，其余模式单次批准。 */
       kind: "notification";
-      /**
-       * news 批准固定采集范围和模板，动态正文在每次采集后固定。
-       * Note: 见 .agents/notes/implemented/feature/2026-09-25-scheduled-news.md
-       */
-      mode: "schedule" | "once" | "news";
+      mode: "once";
       taskId: string;
       toolOpId: string;
       target: NotifyTarget;
       textSha256: string;
       textChars: number;
-      /** 规则描述（once 模式为 null）与持续范围。 */
-      rule: string | null;
-      duration: "until_canceled" | "single";
       /** 来源引用摘要（正文已在登记前解析为最终文本）。 */
       sourceRefs: string[];
     }
@@ -691,8 +686,8 @@ export type ApprovalScope =
       /**
        * 服务器服务管理（agent-direction issue 09）：固定本机身份、
        * 白名单内的规范单元名、固定动作、策略与单元定义修订，以及发起任务和
-       * 宿主操作 ID。批准单次消费；full_access 也须逐次确认（root 分支是后台
-       * 经 sudo helper 的提权能力，不属于执行账户已有权限）。活动状态、PID、
+       * 宿主操作 ID。完全访问使用任务授权，受限模式单次消费批准；OS 权限
+       * 仍由固定 helper 核实。活动状态、PID、
        * InvocationID 属于观察结果，不进入修订指纹。
        * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
        */
@@ -825,6 +820,11 @@ export interface StandingPermission {
   revokedReason: string | null;
 }
 
+/** 工具执行依据；完全访问与单次批准分别留存，不伪造拥有者决定。 */
+export type ToolAuthorization =
+  | { source: "full_access"; taskId: string; permissionVersion: number; scope: ApprovalScope }
+  | { source: "approval"; taskId: string; permissionVersion: number; confirmationId: string; scope: ApprovalScope };
+
 export interface ToolOp {
   /** 宿主分配的操作 id（与模型生成的 SDK 调用 id 分开存储）。 */
   id: string;
@@ -835,6 +835,7 @@ export interface ToolOp {
   params: Record<string, unknown>;
   /** 执行意图已记录（创建即 true）。 */
   intentRecordedAt: string;
+  authorization: ToolAuthorization | null;
   /** 已知结果摘要；null 表示结果缺失。 */
   resultSummary: string | null;
   isError: boolean | null;
@@ -886,8 +887,9 @@ export type PersistentEventBody =
   | { type: "session.workspace_mapped"; sessionId: string; projectId: string; workspaceProjectId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
+  | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; planMode: boolean; modelSelection: ModelSelection }
+  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }
@@ -906,6 +908,7 @@ export type PersistentEventBody =
   /** 自动审查转人工（issue 15）：审批仍 pending，等待拥有者决定。 */
   | { type: "task.confirmation_reviewed"; taskId: string; confirmationId: string; decision: "ask_owner"; reason: string }
   | { type: "task.approval_consumed"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; standingPermissionId?: string; standingPermissionVersion?: number }
+  | { type: "task.tool_authorized"; taskId: string; toolOpId: string; authorization: ToolAuthorization }
   /** 长期操作授权已保存（agent-direction issue 10）：范围不可变，来源审批唯一。 */
   | { type: "standing_permission.created"; permissionId: string; approvalId: string; eventId: string; sessionId: string; channel: string; account: string; chatId: string; actor: string; machineId: string; unit: string; action: string }
   /** 长期操作授权已撤销/失效（版本递增，保留记录；重复撤销不产生本事件）。 */
@@ -1044,7 +1047,6 @@ export type PersistentEventBody =
   | { type: "schedule.changed"; scheduleId: string; action: "created" | "canceled" | "completed"; version: number; source: string; reason?: string }
   /** 调度运行：登记（含延迟/合并区间）、合并漏过周期、关闭。 */
   | { type: "schedule.run"; scheduleId: string; runId: string; action: "registered" | "coalesced" | "closed"; scheduledFor: string; delayMs?: number; coalescedFrom?: string | null; coalescedTo?: string | null }
-  | { type: "schedule.news"; scheduleId: string; runId: string; status: string; itemCount: number; errorCode?: string | null }
   /** 发送操作状态（不含正文与凭据）。 */
   | { type: "notification.changed"; opId: string; status: "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled"; sourceKind: string; reason?: string };
 
@@ -1229,9 +1231,34 @@ export interface ContextCheckpoint {
   usage: Record<string, unknown> | null;
   estimateBefore: number;
   estimateAfter: number;
-  taskId: string;
-  callIndex: number;
+  taskId: string | null;
+  callIndex: number | null;
+  /** 手动来源可跨分支与实例保留；它不授予原请求的操作资格。 */
+  manualRequestId?: string | null;
   createdAt: string;
+}
+
+/** 手动压缩的持久请求；历史与旧点固定后只允许一个终态。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md
+ */
+export interface SessionCompactionRequest {
+  requestId: string;
+  sessionId: string;
+  prompt: string | null;
+  paramsDigest: string;
+  modelSelection: ModelSelection;
+  summaryModel: { provider: string; modelId: string };
+  source: Omit<HistorySnapshot, "entries"> | null;
+  expectedCheckpointId: string | null;
+  status: "running" | "succeeded" | "noop" | "failed" | "cancelled" | "interrupted";
+  checkpointId: string | null;
+  summarizedCount: number;
+  estimateBefore: number | null;
+  estimateAfter: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  endedAt: string | null;
 }
 
 export function randomId(prefix: string): string {

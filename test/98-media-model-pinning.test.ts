@@ -91,6 +91,8 @@ test("图片检查、提交和重启间模型配置变化：沿用钉定选择�
       await setDefault(TEXT);
       return { second, queued };
     });
+    const current = rt.store.getSession(main.sessionId)!;
+    await rt.setSessionDefaultMode({ sessionId: current.id, mode: "full_access", expectedVersion: current.defaultAccessModeVersion });
     await rt.stop("before_media_promotion");
     rt = await Runtime.start(config);
     assert.deepEqual(rt.defaultSelection, TEXT, "重启确实使用后来保存的仅文本默认模型");
@@ -98,6 +100,7 @@ test("图片检查、提交和重启间模型配置变化：沿用钉定选择�
     const recovered = rt.store.getInboundEvent(second.id)!;
     assert.equal(recovered.taskId, queued.id);
     assert.deepEqual(rt.store.getTask(queued.id)!.modelSelection, VISION);
+    assert.equal(rt.store.getTask(queued.id)!.accessMode, "confirm", "恢复补关联不改变已接收任务模式");
     assert.equal(rt.store.listTasksBySession(main.sessionId).length, 2, "原请求键恢复不能重复建任务");
     assert.equal(recovered.artifactRefs.length, 1);
     assert.equal(model.calls.length, 2, "未绑定任务恢复只发一次模型请求");

@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import type { SubAgentMessage, Task, TaskStatus } from "@ruukoto/core/types.ts";
+import type { AccessMode, SubAgentMessage, Task, TaskStatus } from "@ruukoto/core/types.ts";
 import { ParentDelivery, type ParentDeliveryDeps, type WorkReport } from "@ruukoto/runtime/parent-delivery.ts";
 import { messageStateText } from "@ruukoto/agent/subagent-message.ts";
 import type { ChildOutcome } from "@ruukoto/runtime/orchestrator.ts";
@@ -41,12 +41,13 @@ function kit() {
   const devSession = session();
   const task = (
     sessionId: string,
-    opts: { requestId?: string; status?: TaskStatus; workId?: string; subAgentId?: string; parentTaskId?: string; sourceEventId?: string | null; errorMessage?: string } = {},
+    opts: { requestId?: string; accessMode?: AccessMode; status?: TaskStatus; workId?: string; subAgentId?: string; parentTaskId?: string; sourceEventId?: string | null; errorMessage?: string } = {},
   ): Task => {
     const { task } = store.insertQueuedTask({
       sessionId,
       requestId: opts.requestId ?? `r${++n}`,
       input: "x",
+      accessMode: opts.accessMode,
       modelSelection: SELECTION,
       submissionDigest: `d${++n}`,
       workId: opts.workId ?? null,
@@ -80,6 +81,8 @@ function kit() {
       parentSessionId: store.getWorkDelegation(w.workId)!.parentSessionId,
       fromSubAgentId: w.agentId,
       fromTaskId,
+      accessMode: store.getTask(fromTaskId)!.accessMode,
+      sourcePermissionVersion: store.getTask(fromTaskId)!.permissionVersion,
       toSubAgentId: null,
       requestKey: `m${n}`,
       paramsDigest: "d",
@@ -358,4 +361,26 @@ test("最终汇报到期：仍有活动执行任务或其他执行任务的结�
   } finally {
     k.cleanup();
   }
+});
+
+test("迟到结果唤醒与消息唤醒沿触发任务快照，不读取主会话后来默认值", async () => {
+  const k = kit();
+  try {
+    const w = k.work(k.mainSession.id);
+    const child = k.task(w.sub.id, { status: "completed", accessMode: "full_access", parentTaskId: w.parent.id, workId: w.workId, subAgentId: w.agentId });
+    k.store.setTaskResult(child.id, "完成", "{}");
+    const msg = k.message(w, child.id);
+    const session = k.store.getSession(k.mainSession.id)!;
+    k.store.setSessionDefaultMode(session.id, "confirm", session.defaultAccessModeVersion);
+    await k.delivery.resultRecorded(k.store.getTask(child.id)!, "completed", "完成");
+    const resultWake = k.store.findTaskByRequest(k.mainSession.id, `wake:${child.id}`)!;
+    assert.equal(resultWake.accessMode, "full_access");
+    assert.equal(resultWake.parentTaskId, child.id);
+    assert.equal(resultWake.sourcePermissionVersion, child.permissionVersion);
+    k.store.withTx(() => k.delivery.messageRecorded(msg, k.store.getWorkDelegation(w.workId)!, SELECTION));
+    const messageWake = k.store.getTask(k.store.getSubAgentMessage(msg.id)!.deliveredTaskId!)!;
+    assert.equal(messageWake.accessMode, "full_access");
+    assert.equal(messageWake.sourcePermissionVersion, msg.sourcePermissionVersion);
+    assert.deepEqual(k.store.listConfirmationsByTask(resultWake.id), []);
+  } finally { k.cleanup(); }
 });

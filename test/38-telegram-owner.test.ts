@@ -8,7 +8,7 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * - 非 owner / 群聊 / 非文本消息不触发 main（零模型调用）；
  * - 断线重连与重启不丢已登记消息；重启补登回复按任务读取；
  * - 发送失败和结果未知不自动重发；429 限流退回 pending 按 retry_after 再发；
- * - bot token 不进入模型请求、事件表与 stderr；会话默认 full_access 时 Telegram 任务仍为 confirm。
+ * - bot token 不进入模型请求、事件表与 stderr；会话默认 full_access 时 Telegram 任务采用 full_access。
  */
 
 import assert from "node:assert/strict";
@@ -77,7 +77,7 @@ const mainTasks = (rt: Runtime) => rt.store.listTasksBySession(rt.store.getAgent
 const replyOps = (rt: Runtime) => rt.sched.listOps({ limit: 50 }).items.filter((o) => o.sourceKind === "owner_reply");
 const modelSaw = (h: Harness, marker: string) => h.reqs.filter((r) => lastUserText(r).includes(marker)).length;
 
-test("owner 私聊进入同一 main 会话并回复原消息；重复 update 与非 owner 消息不建任务；full_access 默认下仍 confirm；token 不外泄", async () => {
+test("owner 私聊进入同一 main 会话并回复原消息；重复 update 与非 owner 消息不建任务；跟随主会话默认模式；token 不外泄", async () => {
   const h = await harness("tg-owner");
   const stderr: string[] = [];
   const origWrite = process.stderr.write.bind(process.stderr);
@@ -99,7 +99,7 @@ test("owner 私聊进入同一 main 会话并回复原消息；重复 update 与
 
     const tasks = mainTasks(rt);
     assert.equal(tasks.length, 2, "重复 update 与被拒消息不建任务");
-    assert.ok(tasks.every((t) => t.accessMode === "confirm"), "Telegram 任务不继承会话默认 full_access");
+    assert.ok(tasks.every((t) => t.accessMode === "full_access"), "拥有者私聊采用主会话默认 full_access");
     assert.ok(tasks[1]!.input.includes("回复关联：message 1000（本 bot 发送）") && tasks[1]!.input.includes("[Telegram 私聊] chat 42 user 42"));
     assert.equal(modelSaw(h, "MARK-ONE 帮我记一下"), 1);
     assert.equal(modelSaw(h, "MARK-STRANGER") + modelSaw(h, "MARK-GROUP"), 0, "非 owner / 群聊零模型调用");
@@ -245,24 +245,5 @@ test("配置校验：凭据用途/host/格式、api_base 协议；停用后未�
   } finally {
     await rt.stop("test_end");
     await h.close();
-  }
-});
-
-test("schema v13 → v14：升级保留发送账本并新建 telegram_config 与 not_before 列", async () => {
-  const { Db, SCHEMA_VERSION } = await import("@ruukoto/core/db.ts");
-  const { dirs } = await makeTestDirs("tg-migrate", 0);
-  try {
-    let db = new Db(dirs.dataDir);
-    db.exec(`INSERT INTO notification_ops (id, source_kind, source_key, target, text, text_sha256, status, created_at, updated_at)
-      VALUES ('nop_keep', 'confirmation', 'k', '{}', 't', 'h', 'pending', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`);
-    db.exec("DROP TABLE telegram_config; ALTER TABLE notification_ops DROP COLUMN not_before; UPDATE meta SET value = '13' WHERE key = 'schema_version'");
-    db.close();
-    db = new Db(dirs.dataDir);
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
-    assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name = 'telegram_config'").get());
-    assert.equal((db.prepare("SELECT not_before FROM notification_ops WHERE id = 'nop_keep'").get() as any).not_before, null);
-    db.close();
-  } finally {
-    await cleanupDirs(dirs);
   }
 });

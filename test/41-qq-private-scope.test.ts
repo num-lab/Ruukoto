@@ -142,8 +142,8 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
     const oldOp = sched.insertOp({ sourceKind: "confirmation", sourceKey: "old-group", taskId: null, hostOpId: null, target, text: oldSnapshot.text, sourceRefs: oldSnapshot.refs }).op;
     const oldSchedule = sched.insertSchedule({
       createKey: "old-group", paramsDigest: "old-group", createTaskId: null, createOpId: null,
-      action: "notify", rule: { kind: "once", at: "2026-10-01T00:00:00.000Z", timeZone: "UTC", disambiguation: "compatible" },
-      payload: { text: oldSnapshot.text, sourceRefs: oldSnapshot.refs }, target, approvalId: null,
+      projectId: sessions.main.projectId, createPermissionVersion: 1, accessMode: "confirm", rule: { kind: "once", at: "2026-10-01T00:00:00.000Z", timeZone: "UTC", disambiguation: "compatible" },
+      instruction: oldSnapshot.text, sourceRefs: oldSnapshot.refs, target,
       nextDueAt: "2026-10-01T00:00:00.000Z", tzData: "test", reason: "旧计划",
     }, "test");
     const safeOp = sched.insertOp({ sourceKind: "confirmation", sourceKey: "safe", taskId: null, hostOpId: null, target, text: "SAFE-NOTIFICATION", sourceRefs: [] }).op;
@@ -158,7 +158,7 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
     assert.doesNotMatch(await call(schedulerTools, "notification_query", {}), /QQ-GROUP-SECRET/);
     assert.doesNotMatch(await call(schedulerTools, "schedule_query", {}), /QQ-GROUP-SECRET/);
     assert.equal(sched.getOp(oldOp.id)!.text, texts.group, "owner 控制面仍能取得旧账本正文");
-    assert.equal(sched.getSchedule(oldSchedule.id)!.payload.text, texts.group);
+    assert.equal(sched.getSchedule(oldSchedule.id)!.instruction, texts.group);
   } finally {
     db.close();
     await cleanupDirs(dirs);

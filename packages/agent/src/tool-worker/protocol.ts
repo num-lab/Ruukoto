@@ -4,7 +4,7 @@
  * 工作进程只接受工具调用并返回数据：不获得审批、模式切换或控制面凭据；
  * 参数经结构化消息传递，绝不拼入启动器 Shell 命令。上游工具定义（read/
  * edit/write/bash）的完整执行——含路径解析与 Shell 子进程——都发生在工作
- * 进程所在的执行边界内（请求确认模式为任务容器，完全访问为执行账户）。
+ * 进程所在的执行边界内（请求确认模式为任务容器，完全访问为启动账户）。
  *
  * 帧界限：单帧 MAX_FRAME_BYTES；正文数据分块 DATA_CHUNK_BYTES 并以 base64
  * 传输（任意分块安全，跨块 UTF-8 由按字节累积的产物存储处理）。
@@ -45,6 +45,7 @@ export type DataStream = "stdout" | "stderr" | "file_read";
 /** 工作进程 → 后台。 */
 export type WorkerMessage =
   | { type: "ready"; pid: number }
+  | { type: "stopped"; reaped: boolean }
   | { type: "data"; opId: string; stream: DataStream; chunk: string }
   | {
       type: "result";

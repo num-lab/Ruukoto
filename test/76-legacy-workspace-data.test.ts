@@ -53,64 +53,6 @@ import { startTestRuntime, createProjectSession, waitFor, realTools, lastUserTex
 import { seedCodingRole } from "./helpers/legacy-coding.ts";
 import { previewWorkspaceMigration, applyWorkspaceMigration } from "@ruukoto/runtime/workspace-migration.ts";
 
-// ---------- v20 → v21 迁移 ----------
-
-test("v20 库升级 v21：只补组织归属列，旧会话来源标识原样可读，重复打开不再迁移", () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws76-migrate-"));
-  try {
-    const db = new Db(dataDir);
-    const store = new Store(db);
-    const project = store.withTx(() => store.createProject("旧项目"));
-    const session = store.withTx(() =>
-      store.createSession({
-        projectId: project.id,
-        cwd: dataDir,
-        cwdReal: dataDir,
-        cwdDev: 1,
-        cwdIno: 1,
-        piSessionId: "pi-legacy",
-        sessionFile: path.join(dataDir, "sessions", "pi-legacy.jsonl"),
-        confirmTools: [],
-      }),
-    );
-    // 模拟 v20 文件：去掉组织归属列并回退版本号
-    db.exec("ALTER TABLE sessions DROP COLUMN workspace_project_id");
-    db.exec("UPDATE meta SET value = '20' WHERE key = 'schema_version'");
-    db.close();
-
-    const upgraded = new Db(dataDir);
-    try {
-      const current = new Store(upgraded);
-      const cols = (upgraded.prepare("PRAGMA table_info(sessions)").all() as any[]).map((c) => c.name);
-      assert.ok(cols.includes("workspace_project_id"), "升级只补组织归属列");
-      const restored = current.getSession(session.id)!;
-      assert.equal(restored.workspaceProjectId, null, "旧会话组织归属默认 NULL，不迁移业务记录");
-      assert.equal(restored.projectId, project.id, "来源项目标识保留（资料与配置来源不变）");
-      assert.equal(restored.piSessionId, "pi-legacy", "pi 会话 ID 保留");
-      assert.equal(restored.sessionFile, session.sessionFile, "历史文件路径保留");
-      assert.equal(current.getProject(project.id)!.rootDir, null, "旧项目无根目录归属，不扫描目录");
-      assert.equal(
-        (upgraded.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value,
-        String(SCHEMA_VERSION),
-      );
-    } finally {
-      upgraded.close();
-    }
-
-    // 重复打开：版本已是最新，仅幂等补齐，不重建、不改数据
-    const reopened = new Db(dataDir);
-    try {
-      const current = new Store(reopened);
-      assert.equal(current.getSession(session.id)!.workspaceProjectId, null);
-      assert.equal(current.getSession(session.id)!.projectId, project.id);
-    } finally {
-      reopened.close();
-    }
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
 // ---------- 新会话默认 NULL；快照携带组织归属 ----------
 
 test("新会话组织归属默认 NULL；open_workspace 结果与重连快照携带 workspaceProjectId", async () => {

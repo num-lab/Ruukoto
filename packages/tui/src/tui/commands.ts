@@ -30,6 +30,7 @@ export interface CommandHost {
   newSession(cwd: string): Promise<void>;
   newSessionHere(): Promise<void>;
   branchSession(name: string, result: CommandResult): Promise<void>;
+  compactSession(prompt: string, result: CommandResult, key: string | null, line: string): Promise<void>;
   reloadHistory(): Promise<void>;
   artifact(prefix: string): Promise<void>;
   openApprovals(): void;
@@ -79,7 +80,7 @@ export interface SlashCommand {
   keepsResult?: true;
   /** 整行作为任务输入时返回要提交的文本；null = 按命令执行。 */
   taskInput?: (line: string) => string | null;
-  run: (ctx: CommandContext, args: { rest: string[]; arg: string; line: string }) => Promise<void> | void;
+  run: (ctx: CommandContext, args: { rest: string[]; arg: string; line: string; key: string | null }) => Promise<void> | void;
 }
 
 /**
@@ -306,10 +307,12 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "new", description: "在当前工作区创建会话", run: (ctx) => ctx.host.newSessionHere() },
   { name: "branch", description: "从当前会话的已落盘历史建立独立会话", argumentHint: "[名称]", keepsResult: true,
     run: (ctx, { line }) => ctx.host.branchSession(line.replace(/^\/branch\s*/, ""), ctx.result) },
+  { name: "compact", description: "主动压缩当前会话上下文", argumentHint: "[prompt]", keepsResult: true,
+    run: (ctx, { line, key }) => ctx.host.compactSession(line.replace(/^\/compact\s*/, ""), ctx.result, key, line) },
   { name: "history", description: "重新加载当前会话历史", run: (ctx) => ctx.host.reloadHistory() },
   { name: "artifact", description: "查看工具产物正文", argumentHint: "<产物 id 前缀>", run: (ctx, { arg }) => ctx.host.artifact(arg) },
   { name: "approvals", description: "待处理审批列表", run: (ctx) => ctx.host.openApprovals() },
-  { name: "interrupt", description: "中断当前任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.interrupt(arg) },
+  { name: "interrupt", description: "中断当前任务或手动压缩", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.interrupt(arg) },
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>", run: (ctx, { arg }) => ctx.host.cancel(arg) },
   { name: "model", description: "切换模型", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.continueTask(arg) },
@@ -378,7 +381,7 @@ export async function dispatchInput(text: string, env: CommandEnv): Promise<void
   };
   await command.run(
     { view: env.view, request: env.request, notify: env.notify, showText: env.showText, result, host: env.host },
-    { rest, arg: rest.join(" ").trim(), line },
+    { rest, arg: rest.join(" ").trim(), line, key },
   );
 }
 

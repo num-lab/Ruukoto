@@ -1,3 +1,4 @@
+import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 通用 SubAgent 委派（agent-direction issue 11）。
@@ -8,7 +9,7 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * - 派非阻塞：子模型挂起时父当前轮次能结束、第二条消息能得到回复；
  * - 幂等与限额：同键同参（含跨轮次）返回同一组记录，异参冲突，限额拒绝；
  * - 边界：SubAgent 只有 read/read_artifact（发送与调用两处拒绝伪造写调用）、
- *   读范围外拒绝、父 full_access 不扩大子权限、控制面不能把子会话当用户会话、
+ *   受限模式读范围外拒绝、子任务沿发起任务模式、控制面不能把子会话当用户会话、
  *   下级委派拒绝；coding_result 兼容读取 SubAgent 结果（固定 coding 已退役，issue 23）。
  */
 
@@ -50,7 +51,7 @@ test("dev 会话：登记→非阻塞→真实受控读取→结果回传→父�
     fs.writeFileSync(absFile, `要点文件 ${secret}\n`, "utf8");
     const session = await rt.createSession({ projectName: "sdev", cwd: t.work[0]! });
 
-    // 父任务先以 full_access 运行：子任务权限仍由宿主固定
+    // 父任务先以 full_access 运行：子任务沿发起任务模式，工具分工仍只读
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "分析文件", modelSelection: rt.defaultSelection, accessMode: "full_access" });
     await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
 
@@ -60,7 +61,8 @@ test("dev 会话：登记→非阻塞→真实受控读取→结果回传→父�
     const agent = rt.store.getSubAgent(work.subAgentId)!;
     assert.ok(agent.state === "running" || agent.state === "idle" || agent.state === "unverified");
     const task = rt.store.listTasksByWork(work.id)[0]!;
-    assert.equal(task.accessMode, "confirm", "子任务不继承父 full_access");
+    assert.equal(task.accessMode, "full_access", "子任务沿发起任务模式");
+    assert.equal(task.sourcePermissionVersion, parent.permissionVersion);
     assert.equal(task.agentId, null);
     assert.equal(task.subAgentId, agent.id);
     assert.equal(task.workId, work.id);
@@ -110,8 +112,8 @@ test("幂等与区分：同键同参跨轮次返回原记录，异参冲突，�
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
 
     const input = { parentTaskId: parent.id, key: "k1", request: "分析 A", readPaths: ["."], materials: null, paramsDigest: "d1" };
-    const first = await rt.subagents!.delegate({ ...input });
-    const second = await rt.subagents!.delegate({ ...input });
+    const first = await delegateFromActiveTask(rt, { ...input });
+    const second = await delegateFromActiveTask(rt, { ...input });
     assert.equal(second.created, false);
     assert.equal(first.work.id, second.work.id);
     assert.equal(first.agent.id, second.agent.id);
@@ -123,19 +125,19 @@ test("幂等与区分：同键同参跨轮次返回原记录，异参冲突，�
     const parent2 = await rt.submit({ sessionId: session.id, requestId: "p2", input: "继续", modelSelection: rt.defaultSelection });
     await waitFor("父2完成", () => rt.store.getTask(parent2.id)!.status === "completed");
     const digest = first.work.paramsDigest;
-    const replay = await rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k1", request: "分析 A", readPaths: ["."], materials: null, paramsDigest: digest });
+    const replay = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "k1", request: "分析 A", readPaths: ["."], materials: null, paramsDigest: digest });
     assert.equal(replay.created, false);
     assert.equal(replay.task.id, first.task.id, "跨轮次同键同参不重复创建执行");
     assert.equal(replay.work.id, first.work.id);
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k1", request: "分析 A 但参数不同", readPaths: ["."], materials: null, paramsDigest: "other" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "k1", request: "分析 A 但参数不同", readPaths: ["."], materials: null, paramsDigest: "other" }),
       /幂等键冲突/,
     );
 
     // 同工作新键 → 同一 Agent 的新一次执行；工作/Agent/任务三只 ID 分别核实。
     // 继续委派要求 Agent 空闲（issue 12）：忙时明确拒绝不排队，先等结果登记为 idle
     await waitFor("Agent 空闲", () => rt.store.getSubAgent(first.agent.id)!.state === "idle");
-    const again = await rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k2", request: "分析 B", workId: first.work.id, readPaths: ["."], materials: null, paramsDigest: "d2" });
+    const again = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "k2", request: "分析 B", workId: first.work.id, readPaths: ["."], materials: null, paramsDigest: "d2" });
     assert.equal(again.created, true);
     assert.equal(again.newWork, false);
     assert.equal(again.agent.id, first.agent.id, "同一项工作复用同一 SubAgent");
@@ -146,11 +148,11 @@ test("幂等与区分：同键同参跨轮次返回原记录，异参冲突，�
     await waitFor("二次执行完成", () => rt.store.getTask(again.task.id)!.status === "completed");
 
     // 限额：同一会话最多三个活动执行任务（查重先于限额）
-    const k3 = await rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k3", request: "x", readPaths: ["."], materials: null, paramsDigest: "d3" });
-    const k4 = await rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k4", request: "x", readPaths: ["."], materials: null, paramsDigest: "d4" });
-    const k5 = await rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k5", request: "x", readPaths: ["."], materials: null, paramsDigest: "d5" });
+    const k3 = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "k3", request: "x", readPaths: ["."], materials: null, paramsDigest: "d3" });
+    const k4 = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "k4", request: "x", readPaths: ["."], materials: null, paramsDigest: "d4" });
+    const k5 = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "k5", request: "x", readPaths: ["."], materials: null, paramsDigest: "d5" });
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent2.id, key: "k6", request: "x", readPaths: ["."], materials: null, paramsDigest: "d6" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "k6", request: "x", readPaths: ["."], materials: null, paramsDigest: "d6" }),
       /已达上限/,
     );
     for (const k of [k3, k4, k5]) await waitFor("排队任务完成", () => rt.store.getTask(k.task.id)!.status === "completed");
@@ -178,21 +180,21 @@ test("边界：读范围拒绝、伪造写调用被两处拒绝、下级委派�
 
     // 范围外/保护根/符号链接越界：登记即拒绝
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "bad1", request: "x", readPaths: ["/etc"], materials: null, paramsDigest: "b1" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "bad1", request: "x", readPaths: ["/etc"], materials: null, paramsDigest: "b1" }),
       /超出父工作区/,
     );
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "bad2", request: "x", readPaths: [rt.config.dataDir], materials: null, paramsDigest: "b2" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "bad2", request: "x", readPaths: [rt.config.dataDir], materials: null, paramsDigest: "b2" }),
       /超出父工作区|保护|始终排除/,
     );
     fs.symlinkSync("/etc", path.join(t.work[0]!, "escape"));
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "bad3", request: "x", readPaths: [path.join(t.work[0]!, "escape")], materials: null, paramsDigest: "b3" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "bad3", request: "x", readPaths: [path.join(t.work[0]!, "escape")], materials: null, paramsDigest: "b3" }),
       /超出父工作区/,
     );
 
     // 伪造写调用：发送白名单里没有 edit（装配即收窄），调用门兜底也拦
-    const deleg = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "bad4", request: "伪造写", readPaths: ["."], materials: null, paramsDigest: "b4" });
+    const deleg = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "bad4", request: "伪造写", readPaths: ["."], materials: null, paramsDigest: "b4" });
     await waitFor("子任务完成", () => rt.store.getTask(deleg.task.id)!.status === "completed");
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"))!;
     const subTools = toolNamesOf(subCall);
@@ -202,7 +204,7 @@ test("边界：读范围拒绝、伪造写调用被两处拒绝、下级委派�
     assert.ok(toolResults.some((c) => /not found|白名单不含 edit/.test(lastToolText(c))), "伪造写调用在发送/调用两处被拒，未执行");
 
     // 伪造 read 参数指向范围外绝对路径：worker init 钉定的读范围在调用处拒绝
-    const deleg5 = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "bad5", request: "伪造读", readPaths: ["."], materials: null, paramsDigest: "b5" });
+    const deleg5 = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "bad5", request: "伪造读", readPaths: ["."], materials: null, paramsDigest: "b5" });
     await waitFor("子任务完成", () => rt.store.getTask(deleg5.task.id)!.status === "completed");
     const reads = t.server.calls.filter((c) => afterTool(c) && inputText(c).includes("伪造读")).map(lastToolText).join("\n");
     assert.match(reads, /只读范围|No such|ENOENT/i, "伪造 read 参数不能打开 worker init 范围之外的文件");
@@ -309,7 +311,7 @@ test("模块级：subagent_result 按所属父会话开窄口，其他会话/工
     await rt.submit({ sessionId: sA.sessionId, requestId: "pa", input: "x", modelSelection: rt.defaultSelection });
     await waitFor("任务完成", () => rt.store.listTasksBySession(sA.sessionId).some((x) => x.resultSummary !== null) || rt.store.listTasksBySession(sA.sessionId).length > 0);
     const parent = rt.store.listTasksBySession(sA.sessionId)[0]!;
-    const deleg = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "g1", request: "读一下", readPaths: ["."], materials: null, paramsDigest: "g" });
+    const deleg = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "g1", request: "读一下", readPaths: ["."], materials: null, paramsDigest: "g" });
 
     const { createSubAgentTools } = await import("@ruukoto/agent/subagent-tools.ts");
     const binding = { secret: "sk" };
@@ -362,7 +364,7 @@ test("故障注入：登记事务中途失败不留半成品，目录已清理�
 
     rt.store.db.faultNextWrite = new Error("注入登记失败");
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "f1", request: "y", readPaths: ["."], materials: null, paramsDigest: "f" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "f1", request: "y", readPaths: ["."], materials: null, paramsDigest: "f" }),
       /注入登记失败/,
     );
     assert.equal(rt.store.listWorkDelegations().length, 0, "事务失败不留工作记录");
@@ -372,7 +374,7 @@ test("故障注入：登记事务中途失败不留半成品，目录已清理�
       : [];
     assert.deepEqual(leftovers, [], "本次新建目录已清理");
 
-    const ok = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "f1", request: "y", readPaths: ["."], materials: null, paramsDigest: "f" });
+    const ok = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "f1", request: "y", readPaths: ["."], materials: null, paramsDigest: "f" });
     assert.equal(ok.created, true, "同键随后可正常登记");
     await waitFor("恢复后任务完成", () => rt.store.getTask(ok.task.id)!.status === "completed");
   } finally {
@@ -387,7 +389,7 @@ test("终态未核实退出：占用保留时 SubAgent 记 unverified，不虚�
     const session = await rt.createSession({ projectName: "sunv", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p", input: "x", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const deleg = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "u1", request: "y", readPaths: ["."], materials: null, paramsDigest: "u" });
+    const deleg = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "u1", request: "y", readPaths: ["."], materials: null, paramsDigest: "u" });
     // 冻结子队列，任务停于 queued，随后模拟：占用仍在 + 任务被中断
     rt.store.setSessionQueueState(deleg.agent.sessionId, "paused", "test_fixture");
     const subSession = rt.store.getSession(deleg.agent.sessionId)!;
@@ -438,70 +440,29 @@ test("宿主评审（issue 19）：不占 main 委派名额，评审 SubAgent �
     const body = JSON.stringify({ repository: { id: 42, fullName: "o/r" }, number: 7, url: "https://github.com/o/r/pull/7",
       headSha: "a".repeat(40), baseSha: "b".repeat(40), state: "open", draft: false, updatedAt: "2026-09-24T00:00:00Z" });
     const { event } = rt.store.withTx(() => rt.store.registerInboundEvent({ source: "github", externalId: randomUUID(), actor: "a", targetRole: "main", body }));
-    const review = await rt.subagents!.delegate({ parentTaskId: parent.id, key: `ghreview-${event.id}`, request: "评审 PR", paramsDigest: "r1", hostReview: { sourceEventId: event.id } });
+    rt.store.db.prepare("UPDATE tasks SET source_event_id = ? WHERE id = ?").run(event.id, parent.id);
+    const review = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: `ghreview-${event.id}`, request: "评审 PR", paramsDigest: "r1", hostReview: { sourceEventId: event.id } });
     await waitFor("评审任务活动", () => rt.store.getTask(review.task.id)!.status === "running");
     assert.equal(review.task.sourceEventId, event.id);
     // 评审活动期间，main 的拥有者委派名额不受影响
     assert.equal(rt.store.countActiveSubAgentTasks(main.sessionId), 0, "宿主评审任务不计入委派名额");
     for (let i = 0; i < 3; i++) {
-      await rt.subagents!.delegate({ parentTaskId: parent.id, key: `n${i}`, request: "分析", readPaths: ["."], materials: null, paramsDigest: `n${i}` });
+      await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: `n${i}`, request: "分析", readPaths: ["."], materials: null, paramsDigest: `n${i}` });
     }
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "n3", request: "分析", readPaths: ["."], materials: null, paramsDigest: "n3" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "n3", request: "分析", readPaths: ["."], materials: null, paramsDigest: "n3" }),
       /已达上限/,
     );
     release();
     await waitFor("评审完成空闲", () => rt.store.getSubAgent(review.agent.id)!.state === "idle");
     // 评审 SubAgent 上下文含不可信 PR 资料：宿主不复用，主 Agent 也不能续派或挪作他用
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "re1", request: "挪作他用", subAgentId: review.agent.id, readPaths: ["."], materials: null, paramsDigest: "re1" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "re1", request: "挪作他用", subAgentId: review.agent.id, readPaths: ["."], materials: null, paramsDigest: "re1" }),
       /源自入站事件/,
     );
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "re2", request: "续派", workId: review.work.id, readPaths: ["."], materials: null, paramsDigest: "re2" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "re2", request: "续派", workId: review.work.id, readPaths: ["."], materials: null, paramsDigest: "re2" }),
       /源自入站事件/,
     );
   } finally { release(); await rt.stop("test_end"); await server.close(); await cleanupDirs(dirs); }
-});
-
-test("v23 → v24 迁移：旧角色/会话/任务/审批保留，新关联列为空，新对象按库补齐", async () => {
-  const { dirs } = await makeTestDirs("sagent-migrate", 0);
-  try {
-    const { Db } = await import("@ruukoto/core/db.ts");
-    const { Store } = await import("@ruukoto/core/store.ts");
-    let db = new Db(dirs.dataDir);
-    db.exec(`
-      DROP TABLE sub_agents; DROP TABLE work_delegations;
-      DROP INDEX IF EXISTS idx_tasks_work;
-      DROP INDEX IF EXISTS idx_tasks_sub_agent;
-      ALTER TABLE tasks DROP COLUMN work_id;
-      ALTER TABLE tasks DROP COLUMN sub_agent_id;
-      ALTER TABLE tasks DROP COLUMN read_scope;
-      ALTER TABLE tasks DROP COLUMN result_delivered_at;
-      UPDATE meta SET value = '23' WHERE key = 'schema_version';
-      INSERT INTO projects (id, name, created_at) VALUES ('old-proj', 'old', '2026-01-01T00:00:00Z');
-      INSERT INTO sessions (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, created_at) VALUES ('old-sess', 'old-proj', '/tmp/old', '/tmp/old', 1, 1, 'pi-old', '2026-01-01T00:00:00Z');
-    `);
-    db.exec(`INSERT INTO tasks (id, session_id, request_id, input, status, created_at, agent_id, parent_task_id, result_summary, result_ref)
-      VALUES ('old-task', 'old-sess', 'r-old', '旧任务', 'completed', '2026-01-01T00:00:00Z', 'coding', NULL, '旧结果', '{"legacy":1}')`);
-    db.close();
-
-    db = new Db(dirs.dataDir);
-    const store = new Store(db);
-    const { SCHEMA_VERSION } = await import("@ruukoto/core/db.ts");
-    assert.equal((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value, String(SCHEMA_VERSION));
-    const cols = (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name);
-    for (const c of ["work_id", "sub_agent_id", "read_scope", "result_delivered_at"]) assert.ok(cols.includes(c), `迁移后补列 ${c}`);
-    const task = store.getTask("old-task")!;
-    assert.equal(task.resultSummary, "旧结果");
-    assert.equal(task.agentId, "coding");
-    assert.equal(task.workId, null);
-    assert.equal(task.subAgentId, null);
-    assert.equal(task.readScope, null);
-    assert.equal(task.resultDeliveredAt, null);
-    assert.equal(store.listWorkDelegations().length, 0);
-    db.close();
-  } finally {
-    await cleanupDirs(dirs);
-  }
 });

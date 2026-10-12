@@ -2,7 +2,7 @@
  * 工具可用性（架构工单 03）：这个会话、这个任务允许哪些工具，被拒的原因是什么。
  *
  * - 会话类别 → 工具类别：一张静态表，唯一来源。新工具族默认对所有会话不可见，
- *   写进哪份清单才出现；「仅 main」即只有 main 的清单含这些类别；
+ *   写进哪份清单才出现；独立定时会话复用 main 的个人业务类别；
  * - 本任务允许的工具 = 已装配的工具减去任务收窄（计划模式、宿主按任务收窄）与
  *   关闭的 Web Search。装配、激活、发送前与调用门都用同一结论；
  * - 执行画像（架构工单 08）：按会话身份与任务算出的工具集、MCP 规划、资料范围、
@@ -17,9 +17,9 @@ import { PLAN_TOOL_NAMES } from "./plan-mode.ts";
 import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 
 /**
- * 会话类别即会话身份（core/session-identity）：已退役归档不运行任务、不归任何类别。
+ * 工具类别按会话身份选择；独立定时会话复用 main，已退役归档不运行任务。
  */
-export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired">;
+export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired" | "scheduled">;
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
   dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent"],
@@ -94,10 +94,11 @@ export function executionProfile(input: {
   const { identity } = input;
   if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
   const sub = identity.kind === "subagent" ? { write: input.writeTarget, review: input.review } : null;
+  const toolClass = identity.kind === "scheduled" ? "main" : identity.kind;
   return {
-    toolClass: identity.kind,
+    toolClass,
     subAgentTools: sub,
-    planMcp: allowsCategory(identity.kind, "mcp") || Boolean(sub?.review),
+    planMcp: allowsCategory(toolClass, "mcp") || Boolean(sub?.review),
     restricted: sub !== null,
     plan: identity.kind === "dev" && input.planMode,
     toolSignature: sub ? `subagent:${sub.write ? "write" : "read"}${sub.review ? "+review" : ""}` : identity.kind,

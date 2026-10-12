@@ -6,7 +6,16 @@
  * （本文件的纯函数）分开：分类器不依赖 store。
  */
 
-import type { AgentRole, Session, SubAgent } from "./types.ts";
+import type { AgentRole, ModelSelection, Session, SubAgent } from "./types.ts";
+
+/** 宿主在调度运行中绑定的独立执行身份，不占用 main 角色行。 */
+export interface ScheduledSessionBinding {
+  runId: string;
+  scheduleId: string;
+  rootTaskId: string;
+  projectId: string;
+  modelSelection: ModelSelection | null;
+}
 
 /**
  * 退役原因（agent-direction issue 20 核心群聊、issue 23 固定 coding）：入站门卫弃、
@@ -23,10 +32,12 @@ export const CODING_ROLE_RETIRED = "coding_role_retired:固定 coding 角色已�
 export type SessionIdentity =
   | { kind: "dev" }
   | { kind: "main"; role: AgentRole }
+  | ({ kind: "scheduled" } & ScheduledSessionBinding)
   | { kind: "subagent"; agent: SubAgent }
   | { kind: "retired"; reason: string };
 
-export function classifySession(session: Pick<Session, "kind">, role: AgentRole | null, agent: SubAgent | null): SessionIdentity {
+export function classifySession(session: Pick<Session, "kind">, role: AgentRole | null, agent: SubAgent | null, scheduled: ScheduledSessionBinding | null = null): SessionIdentity {
+  if (scheduled) return { kind: "scheduled", ...scheduled };
   if (agent) return { kind: "subagent", agent };
   if (session.kind === "qq_group" || role?.id === "chat") return { kind: "retired", reason: CORE_GROUP_CHAT_RETIRED };
   if (role?.id === "coding") return { kind: "retired", reason: CODING_ROLE_RETIRED };

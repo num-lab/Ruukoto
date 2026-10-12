@@ -23,12 +23,12 @@
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@ruukoto/agent": "*",
     "@ruukoto/channels": "*",
+    "@ruukoto/core": "*",
     "@ruukoto/tui": "*",
     "tsx": "4.23.13",
     "typebox": "1.0.12"
   },
   "devDependencies": {
-    "@ruukoto/core": "*",
     "@ruukoto/runtime": "*"
   },
   "engines": {

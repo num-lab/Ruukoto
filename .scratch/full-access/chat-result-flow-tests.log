@@ -1,0 +1,15 @@
+Command: npx tsx --test test/49-chat-result-flow.test.ts
+Exit code: 0
+
+✔ 群结果工具仅 main 可见；归档群结果不唤醒 main，未接收摘要不能申请通知 (272.813625ms)
+✔ main 接收不外发；请求确认模式的群摘要通知经批准，发送沿用固定快照 (204.317375ms)
+✔ 归档群消息在审批期间或批准后发送前撤回，都不能继续外发摘要 (393.020875ms)
+✔ 完全访问群摘要：免审批使用固定接收快照，撤回的来源仍拒绝外发 (343.833ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2152.0505

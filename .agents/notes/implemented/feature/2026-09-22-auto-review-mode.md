@@ -39,7 +39,7 @@ Status: implemented
 | `github_publish` | GitHub 专用模块已退役，不再产生新实例；类型只为历史审批记录的只读展示保留，历史记录仍按转人工展示 | [退役 GitHub 模块](../simplification/2026-09-23-retire-github-module.md) |
 | `mcp_tool` | 直接转人工，不扩大自动批准范围 | [MCP 写工具审批](2026-09-23-mcp-write-tools-approval.md) |
 | `app_data_change` | 直接转人工 | [main 应用数据空间](../architecture/2026-09-23-main-app-data-space.md) |
-| `notification`（含新闻推送计划） | 直接转人工 | [调度器与通知 outbox](../architecture/2026-09-24-scheduler-outbox.md)、[定时新闻](2026-09-25-scheduled-news.md) |
+| `notification`（含新闻推送计划） | 直接转人工 | [调度器与通知 outbox](../architecture/2026-09-24-scheduler-outbox.md)、[定时新闻](../../archived/feature/2026-09-25-scheduled-news.md) |
 | `service_operation` | 直接转人工；命中有效长期授权时任务保持 running，不启动自动审查 | [服务管理 helper](../architecture/2026-10-03-service-management-helper.md)、[长期授权](2026-10-03-standing-permissions.md) |
 
 会话默认模式 `plan` 下的任务固定采用 `auto-review`，复用同一审查策略，不是第四种访问策略，见 [Plan 会话模式](2026-10-08-plan-session-mode.md)。
@@ -104,3 +104,7 @@ Status: implemented
 - `test/22-auto-review.test.ts`：端到端覆盖自动批准后真实执行一次并单次消费、自动拒绝不执行且文案不显示为拥有者拒绝、转人工后拥有者批准、写操作不发起审查调用、非法输出、超时后迟到批准不生效、人工抢先、取消、权限版本变化、后台重启、重连后快照携带审查状态，以及参数中伪造的审批指令不能改变策略；单元覆盖 `classifyForReview` 全分支、`parseReviewOutput`、前置校验（正文缺失、输入超限、模型不可用）、带旧 CHECK 约束的库迁移，以及启动器把 `auto-review` 路由到受限容器、缺 docker 明确失败、不进完全访问入口。工具执行次数按实际执行断言，不只看审查文本。运行：`npx tsx --test test/22-auto-review.test.ts`。
 - `test/10-access-modes.test.ts`：三种模式的会话默认值持久化、任务固定、显式覆盖、版本冲突与任务级切换；未知模式值仍以 `invalid_params` 拒绝。
 - 真实容器边界只在具备 Linux/Docker 的环境可证；离线启动器测试只断言路由与报错，替代不了。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

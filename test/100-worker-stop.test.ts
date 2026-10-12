@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ToolWorkerHost, WorkerStartError } from "@ruukoto/agent/tool-worker/host.ts";
-import { createContainerLauncher, createSystemdLauncher, ExecutionError, type LaunchedUnit, type LaunchSpec, type WorkerLauncher } from "@ruukoto/agent/execution/launchers.ts";
+import { createContainerLauncher, createLocalLauncher, ExecutionError, type LaunchedUnit, type LaunchSpec, type WorkerLauncher } from "@ruukoto/agent/execution/launchers.ts";
 import { createManagedProcessRegistry, killProcessGroup } from "@ruukoto/agent/managed-processes.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
@@ -341,30 +341,16 @@ if(process.argv[2]==='run') {
   });
 }
 
-for (const [state, code, reaped] of [["inactive", 3, true], ["failed", 3, true], ["unknown", 4, true], ["", 1, false], ["inactive", 1, false], ["activating", 0, false]] as const) {
-  test(`systemd 停止保留核实状态：${state || "查询失败"}/${code}`, async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-stop-systemd-"));
-    const run = path.join(root, "run");
-    const ctl = path.join(root, "ctl");
-    fs.writeFileSync(run, `#!/usr/bin/env node
-process.stdout.write(JSON.stringify({type:'ready',pid:process.pid})+'\\n');
-process.stdin.on('data',data=>{if(String(data).includes('shutdown'))process.exit(0)});
-`, { mode: 0o755 });
-    fs.writeFileSync(ctl, `#!/usr/bin/env node
-if(process.argv[2]==='is-active'){process.stdout.write(${JSON.stringify(state)});process.exit(${code})}
-`, { mode: 0o755 });
-    try {
-      const host = await ToolWorkerHost.start(createSystemdLauncher({ systemdRunPath: run, systemctlPath: ctl, uid: 1000, gid: 1000, workerPath: run }), { ...spec, mode: "full_access" });
-      assert.equal(await host.stop(), reaped);
-      assert.equal(await host.stop(), reaped);
-      const wrapper = path.join(root, "stop.sh");
-      const source = fs.readFileSync(new URL("../deploy/systemd/ruukoto-exec-stop.sh", import.meta.url), "utf8");
-      fs.writeFileSync(wrapper, source.replaceAll("/usr/bin/systemctl", JSON.stringify(ctl)));
-      assert.equal(spawnSync("bash", [wrapper, "ruukoto-exec-test"]).status, reaped ? 0 : 1, "受保护包装入口使用相同核实口径");
-    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+for (const reaped of [true, false, null]) {
+  test(`完全访问同时核实命令组与 worker 组：命令组结论=${reaped}`, async () => {
+    const controlled = controlledUnit(async () => true);
+    const host = await ToolWorkerHost.start(controlled.launcher, { ...spec, mode: "full_access" });
+    if (reaped !== null) controlled.unit.stdout.emit("data", JSON.stringify({ type: "stopped", reaped }) + "\n");
+    assert.equal(await host.stop(), reaped === true);
+    assert.equal(await host.stop(), reaped === true);
+    if (reaped !== true) assert.equal(host.stopFailure?.code, "worker_stop_unverified");
   });
 }
-
 
 test("内置启动器 spawn 拒绝保留原 code，未创建单元无需停止", async () => {
   const host = ToolWorkerHost.create(createContainerLauncher({ dockerPath: "ruukoto-missing-docker-stop-test", image: "mock", uid: 1000, gid: 1000 }), spec);
@@ -512,5 +498,26 @@ test("拥有者同进程核实恢复后使用新 worker，旧停止失败与命�
   } finally {
     t.runtime.launcherFor = originalLauncher;
     await t.shutdown();
+  }
+});
+
+test("真实完全访问 worker 停止独立 Shell 组及忽略 TERM 的同组后代", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-full-stop-"));
+  const heartbeat = path.join(root, "heartbeat");
+  const host = await ToolWorkerHost.start(createLocalLauncher(), { ...spec, workspace: root, mode: "full_access" });
+  try {
+    const child = "const fs=require('node:fs');process.on('SIGTERM',()=>{});setInterval(()=>fs.appendFileSync(process.argv[1],'x'),20)";
+    const command = `"${process.execPath}" -e '${child.replaceAll("'", "'\\''")}' '${heartbeat}' & wait`;
+    const call = host.call({ opId: "descendant", sdkCallId: "descendant", name: "bash", params: { command } });
+    void call.catch(() => undefined);
+    await waitFor("后代心跳开始", () => fs.existsSync(heartbeat) && fs.statSync(heartbeat).size >= 3);
+    assert.equal(await host.stop(), true);
+    await assert.rejects(call, { code: "worker_stopped" });
+    const size = fs.statSync(heartbeat).size;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(fs.statSync(heartbeat).size, size);
+  } finally {
+    await host.stop();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

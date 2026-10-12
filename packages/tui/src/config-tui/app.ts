@@ -120,7 +120,7 @@ class SwapBox implements Component {
 
 const ACCESS_MODE_LABELS: Record<string, string> = {
   confirm: "请求确认（越界操作逐次审批）",
-  full_access: "完全访问（容器外执行账户，不逐次确认）",
+  full_access: "完全访问（启动账户权限，工具免审批）",
   "auto-review": "自动审查（独立审查调用自动审批，失败转人工）",
   plan: "Plan（持续调研和完善计划，固定自动审查；执行前手动切换）",
 };

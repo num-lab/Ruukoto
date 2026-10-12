@@ -1,3 +1,4 @@
+import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 异步工作最终结果送回原 IM 入口（agent-direction issue 18）。
@@ -9,7 +10,7 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * - 并发/重启/重复终态只产生一份汇报（同键幂等）；补充原工作再收尾产生新的一份；
  * - 离线等待、目标变化不改发、结果不明不重发、限流按 not_before 再发同一记录；
  * - 授权不扩大：未收尾唤醒不外发、唤醒轮次 notification_enqueue 仍需审批、
- *   调度/dev 来源零记录、工具清单无新增。
+ *   其他外部/dev 来源零记录、工具清单无新增。
  */
 
 import assert from "node:assert/strict";
@@ -317,20 +318,19 @@ test("非 IM 来源零记录：TUI 直提与 dev 会话发起的工作不产生�
       return execs.every((t) => t.status === "completed") && wake?.status === "completed";
     }, 30_000);
 
-    // 定时来源：宿主以定时任务为父直接登记工作（模型层本就拒绝调度来源委派），
-    // 来源事件不是 IM，收尾同样零记录
-    const { event: schedEvent } = await rt.orchestrator!.registerInboundEvent({ source: "scheduler", externalId: "fin-sched-1", targetRole: "main", body: "定时触发" });
-    await waitFor("定时任务完成", () => rt.store.getInboundEvent(schedEvent.id)?.status === "done", 30_000);
+    // 其他外部来源：宿主直接登记工作；不是拥有者 IM，单项工作收尾不外发。
+    const { event: schedEvent } = await rt.orchestrator!.registerInboundEvent({ source: "internal", externalId: "fin-external-1", targetRole: "main", body: "定时触发" });
+    await waitFor("外部任务完成", () => rt.store.getInboundEvent(schedEvent.id)?.status === "done", 30_000);
     const schedTask = rt.store.getTask(rt.store.getInboundEvent(schedEvent.id)!.taskId!)!;
-    const schedDeleg = await rt.subagents!.delegate({ parentTaskId: schedTask.id, key: "s1", request: "定时调研", readPaths: null, materials: [{ kind: "text", text: "材料 S" }], paramsDigest: "s1" });
-    await waitFor("定时来源工作的唤醒完成", () => {
+    const schedDeleg = await delegateFromActiveTask(rt, { parentTaskId: schedTask.id, key: "s1", request: "定时调研", readPaths: null, materials: [{ kind: "text", text: "材料 S" }], paramsDigest: "s1" });
+    await waitFor("外部来源工作的唤醒完成", () => {
       const wake = rt.store.findTaskByRequest(mainSession(rt), `wake:${schedDeleg.task.id}`);
       return rt.store.getTask(schedDeleg.task.id)!.status === "completed" && wake?.status === "completed";
     }, 30_000);
     const wakeInput = rt.store.findTaskByRequest(mainSession(rt), `wake:${schedDeleg.task.id}`)!.input;
     assert.ok(!wakeInput.includes("[最终汇报]"), "非 IM 工作的唤醒输入不附汇报说明");
 
-    assert.equal(reportOps(rt).length, 0, "TUI/dev/定时来源不产生任何汇报记录");
+    assert.equal(reportOps(rt).length, 0, "TUI/dev/其他外部来源不产生单项工作汇报记录");
     assert.equal(allOps(rt).length, 0, "也没有任何 owner_reply 发送");
     assert.equal(sends(h.onebot).length, 0);
   } finally {
@@ -375,7 +375,7 @@ test("并发与补充收尾：唤醒 1 时仍有未收尾唤醒则不汇报，�
     subGate.resolve();
     await waitFor("执行 1 终态且唤醒 1 已排队", () => rt.store.getTask(child1.id)!.status === "completed" && rt.store.findTaskByRequest(main, `wake:${child1.id}`) !== null, 30_000);
     await waitFor("SubAgent 空闲可续派", () => rt.store.getSubAgent(agent.id)!.state === "idle", 30_000);
-    const again = await rt.subagents!.delegate({ parentTaskId: taskA.id, key: "r2", request: "第二轮", workId: work.id, readPaths: null, materials: [{ kind: "text", text: "材料 B" }], paramsDigest: "d2" });
+    const again = await delegateFromActiveTask(rt, { parentTaskId: taskA.id, key: "r2", request: "第二轮", workId: work.id, readPaths: null, materials: [{ kind: "text", text: "材料 B" }], paramsDigest: "d2" });
     const child2 = again.task;
     await waitFor("执行 2 终态且唤醒 2 已排队", () => rt.store.getTask(child2.id)!.status === "completed" && rt.store.findTaskByRequest(main, `wake:${child2.id}`) !== null, 30_000);
 
@@ -397,7 +397,7 @@ test("并发与补充收尾：唤醒 1 时仍有未收尾唤醒则不汇报，�
 
     // 补充原工作（第三次执行）再次收尾：产生新的一份，键各不相同
     await waitFor("SubAgent 再次空闲", () => rt.store.getSubAgent(agent.id)!.state === "idle", 30_000);
-    const third = await rt.subagents!.delegate({ parentTaskId: taskA.id, key: "r3", request: "第三轮", workId: work.id, readPaths: null, materials: [{ kind: "text", text: "材料 C" }], paramsDigest: "d3" });
+    const third = await delegateFromActiveTask(rt, { parentTaskId: taskA.id, key: "r3", request: "第三轮", workId: work.id, readPaths: null, materials: [{ kind: "text", text: "材料 C" }], paramsDigest: "d3" });
     await waitFor("第三次收尾汇报已送达", () => reportOps(rt).length === 2 && reportOps(rt).every((op) => op.status === "sent"), 30_000);
     const keys = reportOps(rt).map((op) => op.sourceKey).sort();
     assert.equal(new Set(keys).size, 2, "每次收尾的汇报键各不相同");

@@ -1,6 +1,7 @@
 # Agent Note: 固定范围的新闻计划由宿主采集，动态正文复用通知 outbox
 
 Status: implemented
+Archived: 2026-10-12
 
 原编号：ADR 0015
 

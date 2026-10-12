@@ -47,6 +47,7 @@ export { listLegacyImports };
 
 const TABLE_POLICY: TablePolicy = {
   branch_requests: { policy: "exclude", reason: "分支准备回执只属于原实例；已发布来源随会话保留" },
+  compaction_requests: { policy: "exclude", reason: "手动压缩回执只属于原实例；压缩点的来源标识随资料保留" },
   projects: { policy: "import" },
   sessions: { policy: "import" },
   tasks: { policy: "import" },
@@ -211,7 +212,7 @@ function checkTargetProduct(product: string | null, schemaVersion: number | null
   if (exists && schemaVersion !== SCHEMA_VERSION) {
     fail(
       "target_schema",
-      `目标库 schema 版本为 ${schemaVersion}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto 后台完成迁移，再执行导入`,
+      `目标库 schema 版本为 ${schemaVersion}（当前程序 ${SCHEMA_VERSION}）；源与目标须使用当前存储格式，不转换旧授权`,
     );
   }
 }
@@ -323,9 +324,20 @@ function buildImportSet(snap: PersonalSnapshot, deps: LegacyImportDeps): Persona
   const qqSessionIds = new Set(qqBindRows.map((r) => String(r.session_id)));
   const subAgents = allRows(db, "SELECT * FROM sub_agents");
   const subAgentBySession = new Map(subAgents.map((r) => [String(r.session_id), r]));
+  const schedules = allRows(db, "SELECT * FROM schedules");
+  for (const schedule of schedules) {
+    if (schedule.action !== undefined || schedule.payload !== undefined || schedule.approval_id !== undefined ||
+        typeof schedule.instruction !== "string" || !["confirm", "full_access", "auto-review"].includes(String(schedule.access_mode)) ||
+        typeof schedule.project_id !== "string" || !Number.isInteger(Number(schedule.create_permission_version))) {
+      fail("source_schema", "源计划不是通用定时任务格式，不转换旧动作或回填授权");
+    }
+  }
+  const scheduleRuns = allRows(db, "SELECT * FROM schedule_runs");
+  const scheduledSessionIds = new Set(scheduleRuns.filter((run) => run.session_id !== null).map((run) => String(run.session_id)));
+
 
   // 导入单位：角色绑定会话（main/coding/chat）+ QQ 群会话 + 父会话导入的 SubAgent 子会话
-  const baseSessions = sessions.filter((s) => roleBySession.has(String(s.id)) || qqSessionIds.has(String(s.id)));
+  const baseSessions = sessions.filter((s) => roleBySession.has(String(s.id)) || qqSessionIds.has(String(s.id)) || scheduledSessionIds.has(String(s.id)));
   const baseIds = new Set(baseSessions.map((s) => String(s.id)));
   const includedSessions = sessions.filter((s) => {
     if (baseIds.has(String(s.id))) return true;
@@ -397,8 +409,6 @@ function buildImportSet(snap: PersonalSnapshot, deps: LegacyImportDeps): Persona
   }
   const fullAccessKept = includedSessions.filter((s) => s.default_access_mode === "full_access").map((s) => String(s.id));
 
-  const schedules = allRows(db, "SELECT * FROM schedules");
-  const scheduleRuns = allRows(db, "SELECT * FROM schedule_runs");
   const runClosings = scheduleRuns.filter((r) => r.closed_at === null).map((r) => String(r.id));
   const notificationOps = allRows(db, "SELECT * FROM notification_ops");
   const opSettles: OpSettle[] = [];
@@ -1178,7 +1188,7 @@ export interface PersonalImportPreview {
     binding: { meta_present: boolean; matches: boolean; note: string };
     wal_present: boolean;
   };
-  schedules: Array<{ id: string; action: string; status: string; next_due_at: string | null }>;
+  schedules: Array<{ id: string; access_mode: string; instruction: string; status: string; next_due_at: string | null }>;
   schedule_settles: { open_runs_closed: number };
   outbox: { total: number; canceled_pending: number; effect_unknown_sending: number; terminal_kept: number };
   inbound: { total: number; settled_failed: number; terminal_kept: number };
@@ -1381,7 +1391,8 @@ export function previewPersonalImport(deps: LegacyImportDeps, input: { from: str
       },
       schedules: analysis.set.schedules.map((s) => ({
         id: String(s.id),
-        action: String(s.action),
+        access_mode: String(s.access_mode),
+        instruction: String(s.instruction),
         status: String(s.status),
         next_due_at: s.next_due_at === null ? null : String(s.next_due_at),
       })),
@@ -1549,7 +1560,7 @@ export function applyPersonalImport(
       raw.close();
     }
     if (version !== SCHEMA_VERSION) {
-      fail("target_schema", `目标库 schema 版本为 ${version}（当前程序 ${SCHEMA_VERSION}）；请先启动一次 ruukoto 后台完成迁移，再执行导入`);
+      fail("target_schema", `目标库 schema 版本为 ${version}（当前程序 ${SCHEMA_VERSION}）；源与目标须使用当前存储格式，不转换旧授权`);
     }
   }
   const tdb = new Db(deps.targetDataDir);
@@ -1776,7 +1787,7 @@ export function applyPersonalImport(
     const schedulesToInsert = set.schedules.filter((s) => analysis.ids.schedules.includes(String(s.id)));
     const runsToInsert = set.scheduleRuns
       .filter((r) => analysis.manifestInsert.schedule_runs.includes(String(r.id)))
-      .map((r) => (runClosingIds.has(String(r.id)) ? { ...r, closed_at: nowIso } : r));
+      .map((r) => (runClosingIds.has(String(r.id)) ? { ...r, result_status: "interrupted", result_text: "导入收尾，不自动重放该运行", closed_at: nowIso } : r));
     const eventsToInsert = set.inboundEvents
       .filter((e) => analysis.manifestInsert.inbound_events.includes(String(e.id)))
       .map((e) => (eventSettleIds.has(String(e.id)) ? { ...e, status: "failed" } : e));

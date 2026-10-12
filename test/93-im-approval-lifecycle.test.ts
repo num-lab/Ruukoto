@@ -86,11 +86,84 @@ function kit() {
     const own = source === "qq_private" ? qq : tg;
     return approvals.handleCommand({ source, externalId, actor: own.state.actor, replyTarget: own.state.target, commandText: text });
   };
+  const scheduledTask = (target: NotifyTarget | null = tg.state.target, accessMode: "confirm" | "full_access" = "confirm") => {
+    const creator = task();
+    return store.withTx(() => {
+      const schedule = sched.insertSchedule({ createKey: `s${++n}`, paramsDigest: `s${n}`,
+        createTaskId: creator.id, createOpId: null, createPermissionVersion: creator.permissionVersion,
+        projectId: project.id, accessMode, instruction: "独立工作", sourceRefs: [], target,
+        rule: { kind: "once", at: "2026-10-12T01:00:00Z", timeZone: "UTC", disambiguation: "compatible" },
+        nextDueAt: "2026-10-12T01:00:00Z", tzData: "test", reason: "测试" }, "test");
+      const event = store.registerInboundEvent({ source: "scheduler", externalId: `run${n}`,
+        actor: null, targetRole: "main", body: "计划到期" }).event;
+      const session = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: 1, cwdIno: 1,
+        piSessionId: `pi-run-${n}`, confirmTools: [] });
+      const rootTask = store.insertQueuedTask({ sessionId: session.id, requestId: `root${n}`, submissionDigest: `root${n}`,
+        input: "独立工作", accessMode, sourceEventId: event.id, modelSelection: SELECTION }).task;
+      store.transitionTask(rootTask.id, ["queued"], "running", {});
+      sched.insertRun({ id: `run${n}`, scheduleId: schedule.id, scheduleVersion: 1, scheduledFor: "2026-10-12T01:00:00Z",
+        localTime: "2026-10-12T01:00:00", registeredAt: "2026-10-12T01:00:00Z", delayMs: 0,
+        coalescedFrom: null, coalescedTo: null, inboundEventId: event.id, notificationOpId: null,
+        sessionId: session.id, rootTaskId: rootTask.id, resultStatus: null, resultText: null });
+      return store.getTask(rootTask.id)!;
+    });
+  };
   return { db, store, sched, approvals, gate, tg: tg.state, qq: qq.state, released, task, ask, grant, command,
     service: (available: boolean) => { serviceAvailable = available; }, kicks: () => kicks,
-    close: () => { gate.cancelAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); },
+    scheduledTask, close: () => { gate.cancelAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); },
   };
 }
+
+test("定时来源：独立宿主绑定按固定入口审批，拒跨平台与长期授权继承，不伪造私聊事件", async () => {
+  const k = kit();
+  try {
+    const task = k.scheduledTask(k.qq.target);
+    assert.equal(k.store.getSessionIdentity(task.sessionId)?.kind, "scheduled");
+    assert.equal(k.store.getInboundEvent(task.sourceEventId!)!.source, "scheduler");
+    const child = k.task(null, task.id);
+    const { result, confirmation: c } = k.ask(child);
+    const notice = k.sched.findOpBySource("confirmation", `im-approval:${c.id}`)!;
+    assert.deepEqual(notice.target, k.qq.target);
+    assert.ok(!notice.text.includes("/approve-standing"));
+    k.grant("qq_private");
+    assert.equal(k.approvals.standingCandidate(task, SCOPE), null);
+    assert.equal((await k.command(`/approve ${c.id} 1`, "telegram"))?.outcome, "not_found");
+    assert.equal((await k.command(`/approve ${c.id} 1`, "qq_private"))?.outcome, "approved");
+    assert.equal((await result).approved, true);
+    assert.equal(k.store.getConfirmation(c.id)!.decisionSource, "owner");
+  } finally { k.close(); }
+});
+
+test("定时审批消费前复核固定代次；无IM目标只留TUI审批，禁止改用最近私聊", async () => {
+  const k = kit();
+  try {
+    const scheduled = k.scheduledTask();
+    const first = k.ask(scheduled);
+    assert.equal(k.gate.resolve(first.confirmation.id, "approved"), true);
+    k.tg.target = { ...k.tg.target!, configVersion: 2 };
+    assert.equal((await first.result).approved, false);
+    assert.equal(k.store.getConfirmation(first.confirmation.id)!.consumedAt, null);
+    const noTarget = k.scheduledTask(null);
+    const second = k.ask(noTarget);
+    assert.equal(k.sched.findOpBySource("confirmation", `im-approval:${second.confirmation.id}`), null);
+    assert.equal((await k.command(`/approve ${second.confirmation.id} 1`))?.outcome, "not_found");
+    k.gate.resolve(second.confirmation.id, "approved");
+    assert.equal((await second.result).approved, true);
+  } finally { k.close(); }
+});
+
+test("独立定时完全访问服务效果未知：真实授权使个人主会话的同目标长期授权失效", async () => {
+  const k = kit();
+  try {
+    const grant = k.grant();
+    const task = k.scheduledTask(k.tg.target, "full_access");
+    assert.equal((await k.ask(task).result).approved, true);
+    const op = k.store.listToolOpsByTask(task.id)[0];
+    assert.equal(op.authorization?.source, "full_access");
+    k.store.withTx(() => new ToolOpLedger(k.store).markEffectUnknown(task, op.id));
+    assert.equal(k.store.getStandingPermission(grant.id)!.revokedReason, "effect_unknown");
+  } finally { k.close(); }
+});
 
 test("通知→命令→消费共用来源：子任务沿父链通知原入口，批准、回执和消费恰好一次", async () => {
   const k = kit();

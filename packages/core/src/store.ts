@@ -48,6 +48,7 @@ import {
   type TaskStatus,
   type ToolCategory,
   type ToolOp,
+  type ToolAuthorization,
   type WorkCanceledBy,
   type WorkDelegation,
   randomId,
@@ -623,11 +624,10 @@ export class Store {
     resumesTaskId?: string | null;
     modelSelection: ModelSelection;
     submissionDigest: string;
-    /** 旧格式摘要（升级兼容；见 findMatchingSubmission）。 */
-    legacyDigests?: readonly string[];
     /** 编排字段（issue 01）：仅编排器提交时携带；控制面提交恒为 null。 */
     agentId?: AgentRoleId | null;
     parentTaskId?: string | null;
+    sourcePermissionVersion?: number | null;
     sourceEventId?: string | null;
     deadline?: string | null;
     /** SubAgent 执行关联（agent-direction issue 11）：仅集中委派登记时携带。 */
@@ -664,6 +664,7 @@ export class Store {
       resumesTaskId: input.resumesTaskId ?? null,
       agentId: input.agentId ?? null,
       parentTaskId: input.parentTaskId ?? null,
+      sourcePermissionVersion: input.sourcePermissionVersion ?? null,
       sourceEventId: input.sourceEventId ?? null,
       deadline: input.deadline ?? null,
       resultSummary: null,
@@ -682,9 +683,9 @@ export class Store {
          granted_paths, pending_access_mode, interrupt_reason,
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
          created_at, started_at, ended_at, model_selection, submission_digest,
-         agent_id, parent_task_id, source_event_id, deadline, result_summary, result_ref,
+         agent_id, parent_task_id, source_permission_version, source_event_id, deadline, result_summary, result_ref,
          work_id, sub_agent_id, read_scope, result_delivered_at)
-         VALUES (?, ?, ?, ?, 'queued', ?, ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
+         VALUES (?, ?, ?, ?, 'queued', ?, ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
       )
       .run(
         task.id,
@@ -700,6 +701,7 @@ export class Store {
         task.submissionDigest,
         task.agentId,
         task.parentTaskId,
+        task.sourcePermissionVersion,
         task.sourceEventId,
         task.deadline,
         task.workId,
@@ -713,6 +715,8 @@ export class Store {
         sessionId: task.sessionId,
         requestId: task.requestId,
         accessMode: task.accessMode,
+        parentTaskId: task.parentTaskId,
+        sourcePermissionVersion: task.sourcePermissionVersion,
         planMode: task.planMode,
         modelSelection: input.modelSelection,
       },
@@ -732,14 +736,10 @@ export class Store {
     sessionId: string;
     requestId: string;
     submissionDigest: string;
-    /** 通用旧摘要候选；包含 schema v11 前无编排字段的格式。 */
-    legacyDigests?: readonly string[];
   }): Task | null {
     const task = this.findTaskByRequest(input.sessionId, input.requestId);
     if (!task) return null;
-    const matched =
-      task.submissionDigest === input.submissionDigest ||
-      (task.submissionDigest !== null && Boolean(input.legacyDigests?.includes(task.submissionDigest)));
+    const matched = task.submissionDigest === input.submissionDigest;
     if (!task.submissionDigest || !matched) {
       throw new StoreConflictError(
         task.submissionDigest ? `request_id 已存在且提交参数不同：task=${task.id}` : `旧任务未记录原始提交参数，请通过 find_task 核实：task=${task.id}`,
@@ -959,6 +959,7 @@ export class Store {
       resumesTaskId: row.resumes_task_id,
       agentId: (row.agent_id ?? null) as AgentRoleId | null,
       parentTaskId: row.parent_task_id ?? null,
+      sourcePermissionVersion: row.source_permission_version === null ? null : Number(row.source_permission_version),
       sourceEventId: row.source_event_id ?? null,
       deadline: row.deadline ?? null,
       resultSummary: row.result_summary ?? null,
@@ -984,6 +985,34 @@ export class Store {
     return Number(info.changes) === 1;
   }
 
+  /** 调度运行的全部派生任务；委派、消息与汇总均沿实际发起任务关联。 */
+  listScheduledRunTasks(runId: string): Task[] {
+    const rows = this.db.prepare(`WITH RECURSIVE run_tasks(id) AS (
+      SELECT root_task_id FROM schedule_runs WHERE id = ? AND root_task_id IS NOT NULL
+      UNION SELECT t.id FROM tasks t JOIN run_tasks p ON t.parent_task_id = p.id
+    ) SELECT t.* FROM tasks t JOIN run_tasks r ON r.id = t.id ORDER BY t.created_at, t.id`).all(runId) as any[];
+    return rows.map((row) => this.rowToTask(row));
+  }
+
+  /** 尚未执行的定时队列只在整项运行没有未知效果或未核实占用时自动恢复。 */
+  scheduledRunCanResume(runId: string): boolean {
+    const run = this.db.prepare("SELECT r.closed_at, s.status FROM schedule_runs r JOIN schedules s ON s.id = r.schedule_id WHERE r.id = ?").get(runId) as any;
+    if (!run || run.closed_at || run.status === "canceled") return false;
+    const tasks = this.listScheduledRunTasks(runId);
+    const ids = new Set(tasks.map((task) => task.id));
+    return !tasks.some((task) => task.effectUnknown) && !this.listAllOccupancy().some((held) => ids.has(held.taskId));
+  }
+
+  /** 只读授权核实：按来源任务亲缘查其调度运行，不取接收会话后来状态。 */
+  getScheduledRunForTask(taskId: string): { id: string; closedAt: string | null; scheduleStatus: string } | null {
+    const row = this.db.prepare(`WITH RECURSIVE ancestors(id, parent_task_id) AS (
+      SELECT id, parent_task_id FROM tasks WHERE id = ?
+      UNION SELECT t.id, t.parent_task_id FROM tasks t JOIN ancestors a ON t.id = a.parent_task_id
+    ) SELECT r.id, r.closed_at, s.status FROM ancestors a JOIN schedule_runs r ON r.root_task_id = a.id
+      JOIN schedules s ON s.id = r.schedule_id LIMIT 1`).get(taskId) as any;
+    return row ? { id: row.id, closedAt: row.closed_at, scheduleStatus: row.status } : null;
+  }
+
   /** 截止时间在 now 之前的活动任务（编排器超时巡检）。 */
   listOverdueTasks(nowIso: string): Task[] {
     const rows = this.db
@@ -998,7 +1027,7 @@ export class Store {
   listRoleTasksPendingResult(): Task[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL)
+        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = tasks.session_id))
            AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted')
          ORDER BY created_at, id`,
       )
@@ -1019,11 +1048,13 @@ export class Store {
     const rows = this.db
       .prepare(
         `SELECT t.* FROM tasks t JOIN tasks p ON p.id = t.parent_task_id
+         LEFT JOIN work_delegations d ON d.id = t.work_id
          WHERE (t.agent_id IS NOT NULL OR t.sub_agent_id IS NOT NULL) AND t.parent_task_id IS NOT NULL
            AND t.result_summary IS NOT NULL
            AND t.status IN ('completed','failed','canceled','interrupted')
-           AND EXISTS (SELECT 1 FROM agent_roles r WHERE r.session_id = p.session_id)
-           AND NOT EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = p.session_id AND w.request_id = 'wake:' || t.id)
+           AND (EXISTS (SELECT 1 FROM agent_roles r WHERE r.session_id = COALESCE(d.parent_session_id, p.session_id))
+             OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = COALESCE(d.parent_session_id, p.session_id)))
+           AND NOT EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = COALESCE(d.parent_session_id, p.session_id) AND w.request_id = 'wake:' || t.id)
            AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.parent_task_id = t.parent_task_id AND r.request_id = t.request_id || ':retry')
            AND NOT EXISTS (SELECT 1 FROM work_delegations w2 WHERE w2.id = t.work_id AND w2.canceled_at IS NOT NULL)
          ORDER BY t.created_at, t.id`,
@@ -1067,7 +1098,17 @@ export class Store {
   /** 会话身份（架构工单 08）：一次读出会话、角色行与 SubAgent 行并分类；会话不存在为 null。 */
   getSessionIdentity(sessionId: string): SessionIdentity | null {
     const session = this.getSession(sessionId);
-    return session ? classifySession(session, this.getAgentRoleBySession(sessionId), this.getSubAgentBySession(sessionId)) : null;
+    if (!session) return null;
+    const run = this.db.prepare(
+      "SELECT r.id, r.schedule_id, r.root_task_id, s.project_id FROM schedule_runs r JOIN schedules s ON s.id = r.schedule_id WHERE r.session_id = ?",
+    ).get(sessionId) as { id: string; schedule_id: string; root_task_id: string | null; project_id: string } | undefined;
+    if (run && (!run.root_task_id || run.project_id !== session.projectId)) {
+      throw new StoreConflictError("定时执行的资料项目或根任务绑定不一致", "scheduled_binding_invalid");
+    }
+    return classifySession(session, this.getAgentRoleBySession(sessionId), this.getSubAgentBySession(sessionId), run ? {
+      runId: run.id, scheduleId: run.schedule_id, rootTaskId: run.root_task_id!, projectId: run.project_id,
+      modelSelection: this.getAgentRole("main")?.modelSelection ?? null,
+    } : null);
   }
 
   /** 按独立子会话反查 SubAgent 绑定（宿主识别动态身份的唯一依据）。 */
@@ -1299,8 +1340,8 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO subagent_messages (id, work_id, parent_session_id, from_sub_agent_id, from_task_id,
-         to_sub_agent_id, request_key, params_digest, body, created_at, delivered_task_id, delivered_at, undelivered_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         access_mode, source_permission_version, to_sub_agent_id, request_key, params_digest, body, created_at, delivered_task_id, delivered_at, undelivered_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         msg.id,
@@ -1308,6 +1349,8 @@ export class Store {
         msg.parentSessionId,
         msg.fromSubAgentId,
         msg.fromTaskId,
+        msg.accessMode,
+        msg.sourcePermissionVersion,
         msg.toSubAgentId,
         msg.requestKey,
         msg.paramsDigest,
@@ -1396,6 +1439,8 @@ export class Store {
       parentSessionId: row.parent_session_id,
       fromSubAgentId: row.from_sub_agent_id ?? null,
       fromTaskId: row.from_task_id,
+      accessMode: row.access_mode as AccessMode,
+      sourcePermissionVersion: Number(row.source_permission_version),
       toSubAgentId: row.to_sub_agent_id ?? null,
       requestKey: row.request_key,
       paramsDigest: row.params_digest,
@@ -2442,6 +2487,17 @@ export class Store {
     return Number(info.changes) === 1;
   }
 
+  /** 在执行事务内单次登记授权，与授权事件一起提交；失败不得开始操作。 */
+  authorizeToolOp(toolOpId: string, sessionId: string, authorization: ToolAuthorization): boolean {
+    const info = this.db.prepare(
+      "UPDATE tool_ops SET authorization = ? WHERE id = ? AND task_id = ? AND authorization IS NULL AND result_summary IS NULL AND effect_unknown = 0",
+    ).run(JSON.stringify(authorization), toolOpId, authorization.taskId);
+    if (Number(info.changes) !== 1) return false;
+    this.appendEvent({ type: "task.tool_authorized", taskId: authorization.taskId, toolOpId, authorization },
+      { taskId: authorization.taskId, sessionId });
+    return true;
+  }
+
   getToolOp(id: string): ToolOp | null {
     const row = this.db.prepare("SELECT * FROM tool_ops WHERE id = ?").get(id) as any;
     return row ? Store.rowToToolOp(row) : null;
@@ -2455,6 +2511,7 @@ export class Store {
       sdkCallId: row.sdk_call_id ?? row.id,
       params: JSON.parse(row.params) as Record<string, unknown>,
       intentRecordedAt: row.intent_recorded_at,
+      authorization: row.authorization === null ? null : JSON.parse(row.authorization) as ToolAuthorization,
       resultSummary: row.result_summary,
       isError: row.is_error === null ? null : Number(row.is_error) === 1,
       effectUnknown: Number(row.effect_unknown) === 1,
@@ -2923,14 +2980,14 @@ export class Store {
         `INSERT INTO context_checkpoints
          (id, session_id, status, summarized_count, cleared_count, fingerprint, summary, summary_until, cleared_refs,
           cleared_results, summary_model, summary_status, summary_error, prompt_version, usage, estimate_before,
-          estimate_after, task_id, call_index, created_at)
-         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          estimate_after, task_id, call_index, manual_request_id, created_at)
+         VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         cp.id, cp.sessionId, cp.summarizedCount, cp.clearedCount, cp.fingerprint, cp.summary, cp.summaryUntil,
         JSON.stringify(cp.clearedRefs), cp.clearedResults, cp.summaryModel, cp.summaryStatus, cp.summaryError,
         cp.promptVersion, cp.usage ? JSON.stringify(cp.usage) : null, cp.estimateBefore, cp.estimateAfter,
-        cp.taskId, cp.callIndex, cp.createdAt,
+        cp.taskId, cp.callIndex, cp.manualRequestId ?? null, cp.createdAt,
       );
   }
 
@@ -2993,8 +3050,9 @@ function rowToCheckpoint(row: any): ContextCheckpoint {
     usage: row.usage ? (JSON.parse(row.usage) as Record<string, unknown>) : null,
     estimateBefore: Number(row.estimate_before),
     estimateAfter: Number(row.estimate_after),
-    taskId: row.task_id,
-    callIndex: Number(row.call_index),
+    taskId: row.task_id ?? null,
+    callIndex: row.call_index === null ? null : Number(row.call_index),
+    manualRequestId: row.manual_request_id ?? null,
     createdAt: row.created_at,
   };
 }

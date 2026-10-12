@@ -80,6 +80,7 @@ export class SubmissionGuard {
    */
   async reconcile(record: PendingRequest): Promise<ReconcileOutcome> {
     if (record.op === "branch_session") return { kind: "kept", requestId: record.requestId, reason: "分支请求由会话分支入口核实" };
+    if (record.op === "compact_session") return { kind: "kept", requestId: record.requestId, reason: "压缩请求由会话压缩入口核实" };
     if (record.instanceId !== this.connection.instanceId) {
       return { kind: "foreign_instance", requestId: record.requestId };
     }

@@ -28,3 +28,7 @@ Status: implemented
 ## 验证
 
 [工单 14](../../../../.scratch/agent-direction/issues/14-cancel-work.md)记录 test/82 8/8、npm run typecheck 通过，全量 npm test 891 项中 890 通过、0 失败、1 跳过；smoke-14-cancel-work.mts 在 macOS 与 ssh tx Linux 各 7/7，真实 Runtime、CLI、SQLite、JSONL、Docker worker 验证整项取消、排队零模型请求、活动容器停止、迟到结果可查且不注入、重启取消保持。模型与消息平台模拟。
+
+## 适用范围
+
+通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。

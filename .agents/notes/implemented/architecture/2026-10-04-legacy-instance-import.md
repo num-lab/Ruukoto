@@ -48,3 +48,7 @@ SQLite 连接直接只读源库可少一次目录快照；但 WAL 库读取可�
 历史实施证据见[工单 21](../../../../.scratch/agent-direction/issues/21-migrate-coding-instance.md)：test/85 7/7、定向回归 123/123、typecheck 通过；全量 npm test 918/919，唯一失败为 test/32 的既有 worktree 目录名环境前提，隔离基线同样失败。smoke-21-migrate-coding-instance.mts 在 macOS 与 ssh tx Linux 各 7/7，真实进程、CLI、SQLite、文件及实例锁，模型模拟。
 
 本机旧实例代表性真实数据完成 preview→apply→目标启动查阅→revert：49 个复制文件与源逐字节一致，备份及回执可核实，源保持只读。真实源没有个人记忆/授权，相关来源规则以逻辑测试覆盖；test/81 曾与另一套件并行时偶发失败，隔离 9/9。运行步骤和手工整库恢复见[操作手册](../../../../docs/usage.md#6-导入旧实例)「旧实例开发资料迁入」。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

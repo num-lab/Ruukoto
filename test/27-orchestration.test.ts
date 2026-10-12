@@ -1,3 +1,4 @@
+import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 编排器集成测试（issue 01 日常助手：角色、事件与子任务编排）。
@@ -113,7 +114,7 @@ test("子任务超时：编排器取消 SubAgent 任务并发出 subagent_task.t
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const parent = await rt.submit({ sessionId, requestId: "p-timeout", input: "父任务", modelSelection: rt.defaultSelection });
     await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const { task: child } = await rt.subagents!.delegate({
+    const { task: child } = await delegateFromActiveTask(rt, {
       parentTaskId: parent.id, key: "k3", request: "超时子任务", readPaths: ["."], materials: null, paramsDigest: "d-timeout",
     });
     await waitFor("子任务运行中", () => rt.store.getTask(child.id)!.status === "running");

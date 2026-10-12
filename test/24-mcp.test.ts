@@ -200,29 +200,6 @@ test("mcp：禁用/启用与删除（事件 + 凭据 scope 收紧）", async () 
   }
 });
 
-test("mcp：schema v7 → 当前版本迁移（建表 + 版本号）", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "ruukoto-it-mcp-mig-"));
-  try {
-    const dataDir = path.join(root, "data");
-    await mkdir(dataDir, { recursive: true });
-    const db = new Db(dataDir);
-    // 模拟 v7 数据库：无 mcp_services 表、版本号 7
-    db.exec("DROP TABLE IF EXISTS mcp_services");
-    db.prepare("UPDATE meta SET value = '7' WHERE key = 'schema_version'").run();
-    db.close();
-
-    const migrated = new Db(dataDir);
-    const version = migrated.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any;
-    assert.equal(version.value, String(SCHEMA_VERSION));
-    migrated.prepare("INSERT INTO mcp_services (id, project_id, name, endpoint, tool_allowlist, enabled, config_version, created_at, updated_at) VALUES ('s1', 'p1', 'docs', 'https://mcp.example.com/mcp/', '[]', 1, 1, 'now', 'now')").run();
-    const row = migrated.prepare("SELECT * FROM mcp_services WHERE id = 's1'").get() as any;
-    assert.equal(row.name, "docs");
-    migrated.close();
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 // ---------- 模拟 Streamable HTTP MCP 服务（helpers/mock-mcp.ts） ----------
 
 // ---------- 任务路径集成 ----------

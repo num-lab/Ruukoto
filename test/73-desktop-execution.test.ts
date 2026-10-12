@@ -10,8 +10,7 @@
  *   （ruukoto-code = native，ruukoto = local），显式后端受产品能力限制；
  *   个人入口 local 生效时打印无隔离警告；
  * - 握手快照 `snapshot.execution`（TUI 展示的来源）后台声明的实际后端；
- * - `submit`：完全访问缺少执行账户入口时，以 execution_unavailable
- *   在执行前拒绝且不回退；confirm 提交照常完成。
+ * - `submit`：完全访问直接使用启动账户；confirm 仍保留受限后端。
  *
  * 边界本身的文件/子进程/网络约束与停止回收属工单 03 与
  * .scratch/agent-direction/smoke-04-desktop-execution.mts 的真实环境验证，
@@ -119,7 +118,7 @@ async function stopBackend(backend: SpawnedBackend): Promise<void> {
 
 type TestDirs = { dataDir: string; agentDir: string; root: string };
 
-test("ruukoto-code 默认执行后端 = native；完全访问缺执行账户入口时在执行前拒绝、不回退", async () => {
+test("ruukoto-code 默认执行后端 = native；完全访问无需额外执行入口", async () => {
   const { dirs, work } = await makeTestDirs("x73dev", 1);
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
@@ -134,23 +133,13 @@ test("ruukoto-code 默认执行后端 = native；完全访问缺执行账户入�
       assert.match(snapshot.execution.note, /原生/, "执行后端说明不得暗示无隔离");
       assert.doesNotMatch(backend.stderr(), /尚在验证/, "验证已完成，不得再打印受限模式待验证提示");
 
-      // 完全访问：干净环境没有执行账户入口 → 提交即拒绝（执行前），不回退到普通账户
       const { sessionId } = await createProjectSession(client, work[0]!);
-      await assert.rejects(
-        client.request("submit", {
-          session_id: sessionId,
-          request_id: "full-access-1",
-          input: "读取系统状态",
-          access_mode: "full_access",
-          model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-        }),
-        (err: any) => err.code === "execution_unavailable" && /不回退/.test(String(err.message)),
-      );
-      assert.equal(
-        (await client.request<any>("list_tasks", { session_id: sessionId })).tasks.length,
-        0,
-        "被拒绝的提交不得创建任务",
-      );
+      const full = await client.request<any>("submit", {
+        session_id: sessionId, request_id: "full-access-1", input: "读取系统状态",
+        access_mode: "full_access", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+      });
+      await waitFor("完全访问任务完成", async () => (await taskStatus(client, full.id)).task.status === "completed", 60_000);
+      assert.equal(full.accessMode, "full_access");
 
       // confirm 提交照常；本例的工具为 mock，OS 边界另经真实 smoke 验证。
       const task = await client.request<any>("submit", {

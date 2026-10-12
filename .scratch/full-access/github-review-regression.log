@@ -1,0 +1,19 @@
+[ruukoto:orchestrator] 事件 evt_4fd0cb41f68e5b791ee93d98 建任务失败：提交窗口断开
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+▶ review 恢复：父任务/子任务提交窗口、模型变化、产物与摘要通知补记保持幂等（通用 SubAgent）
+  ✔ parent_only (207.496375ms)
+[ruukoto:orchestrator] 事件 evt_a7d4d7f03ad754d706832b90 建任务失败：提交窗口断开
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+  ✔ child_committed (88.501667ms)
+✔ review 恢复：父任务/子任务提交窗口、模型变化、产物与摘要通知补记保持幂等（通用 SubAgent） (296.41825ms)
+✔ webhook 可信配置与凭据范围：秘密不与 HTTP/MCP 凭据共用，轮换不能绕过用途 (1.259083ms)
+[ruukoto:parent-delivery] 建结果唤醒失败（child=task_0d1278329cdd37baa8d66377）：后台正在停止，拒绝新任务
+✔ 报告归档：历史在第二页读取失败不得标为完整产物，需拥有者核实（SubAgent 评审同走路径） (66.750958ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2155.662542

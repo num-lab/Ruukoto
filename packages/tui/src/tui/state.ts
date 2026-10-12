@@ -216,6 +216,7 @@ export class ViewState {
           accessMode: body.accessMode,
           planMode: body.planMode,
           permissionVersion: 1,
+          sourcePermissionVersion: body.sourcePermissionVersion ?? null,
           grantedPaths: [],
           pendingAccessMode: null,
           interruptReason: null,
@@ -225,7 +226,7 @@ export class ViewState {
           historyEntryIds: [],
           resumesTaskId: null,
           agentId: null,
-          parentTaskId: null,
+          parentTaskId: body.parentTaskId ?? null,
           sourceEventId: null,
           deadline: null,
           resultSummary: null,
@@ -616,7 +617,13 @@ export class ViewState {
   }
 
   setCommandResult(sessionId: string, key: string | null, text: string, isError = false): void {
-    const command = key ? this.openSession(sessionId).flow.commandResult(key, text, isError) : null;
+    const view = this.openSession(sessionId);
+    let command = key ? view.flow.commandResult(key, text, isError) : null;
+    if (key && !command) {
+      // 另一客户端可先提交命令；持久关联到达后补读该命令，再写原结果。
+      this.restoreCommands(view);
+      command = view.flow.commandResult(key, text, isError);
+    }
     if (command) this.saveCommand(sessionId, command);
     else this.note(sessionId, text);
   }

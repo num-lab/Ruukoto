@@ -1,3 +1,4 @@
+import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 /** 公共 manager 接口 + 真实 Db/Store；模型与执行入口用桩控制事务和等待窗口。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -86,7 +87,7 @@ function kit(parentKind: "main" | "dev" = "main") {
     },
     launcherFor: (mode) => {
       assert.equal(inTx, false, "执行入口预检不能持有数据库事务");
-      assert.equal(mode, "confirm", "父任务 full_access 不能传给消息执行");
+      assert.ok(["confirm", "full_access", "auto-review"].includes(mode));
       return { kind: "local", launch: async () => { throw new Error("本测试不启动执行单元"); } };
     },
     defaultModelSelection: () => DEFAULT,
@@ -107,6 +108,7 @@ function kit(parentKind: "main" | "dev" = "main") {
     const msg: SubAgentMessage = {
       id: randomId("smsg"), workId: work.id, parentSessionId: parentSession.id,
       fromSubAgentId: to === "sub" ? null : agent.id, fromTaskId: request.senderTaskId,
+      accessMode: store.getTask(request.senderTaskId)!.accessMode, sourcePermissionVersion: store.getTask(request.senderTaskId)!.permissionVersion,
       toSubAgentId: request.toSubAgentId, requestKey: key, paramsDigest: request.paramsDigest, body: request.text,
       createdAt: new Date().toISOString(), deliveredTaskId: null, deliveredAt: null, undeliveredReason: null,
     };
@@ -134,7 +136,7 @@ for (const to of ["sub", "parent"] as const) {
         };
         const before = k.counts();
         const agentBefore = k.store.getSubAgent(k.agent.id);
-        await assert.rejects(() => k.manager.message(k.input(to)), { code: failure === "execution" ? "execution_unavailable" : "model_config_busy" });
+        await assert.rejects(() => messageFromActiveTask({ store: k.store, subagents: k.manager }, k.input(to)), { code: failure === "execution" ? "execution_unavailable" : "model_config_busy" });
         assert.deepEqual(k.counts(), before, "拒绝不能留下消息行、排队任务或 sent 事件");
         assert.deepEqual(k.store.getSubAgent(k.agent.id), agentBefore);
         assert.deepEqual(k.kicks, []);
@@ -143,15 +145,16 @@ for (const to of ["sub", "parent"] as const) {
     });
   }
 
-  test(`新消息 ${to}：已核实模型与受限权限落到实际承载任务`, async () => {
+  test(`新消息 ${to}：已核实模型与发起任务授权落到实际承载任务`, async () => {
     const k = kit();
     try {
-      const sent = await k.manager.message(k.input(to));
+      const sent = await messageFromActiveTask({ store: k.store, subagents: k.manager }, k.input(to));
       const carrier = k.store.getTask(sent.message.deliveredTaskId!)!;
       const expected = to === "parent" ? MAIN : DEFAULT;
       assert.deepEqual(k.resolved, [expected]);
       assert.deepEqual(carrier.modelSelection, expected);
-      assert.equal(carrier.accessMode, "confirm");
+      assert.equal(carrier.accessMode, to === "sub" ? "full_access" : "confirm");
+      assert.equal(carrier.sourcePermissionVersion, sent.message.sourcePermissionVersion);
       assert.deepEqual(carrier.grantedPaths, []);
       assert.equal(carrier.parentTaskId, sent.message.fromTaskId);
       assert.deepEqual(k.kicks, [carrier.sessionId]);
@@ -169,18 +172,18 @@ for (const to of ["sub", "parent"] as const) {
   test(`幂等 ${to}：配置忙和执行入口失效仍返回原行，不再预检`, async () => {
     const k = kit();
     try {
-      const first = await k.manager.message(k.input(to));
+      const first = await messageFromActiveTask({ store: k.store, subagents: k.manager }, k.input(to));
       k.store.cancelWorkDelegation(k.work.id, new Date().toISOString(), "owner", null);
       k.store.closeSubAgent(k.agent.id, new Date().toISOString(), "owner");
       let preflights = 0;
       k.deps.resolveSelection = async () => { preflights++; throw configBusy(); };
       k.deps.launcherFor = () => { preflights++; throw new Error("执行入口失效"); };
       const before = k.counts();
-      const replay = await k.manager.message(k.input(to));
+      const replay = await messageFromActiveTask({ store: k.store, subagents: k.manager }, k.input(to));
       assert.equal(replay.created, false);
       assert.equal(replay.delivery, null);
       assert.deepEqual(replay.message, first.message);
-      await assert.rejects(() => k.manager.message({ ...k.input(to), paramsDigest: "different" }), { code: "request_conflict" });
+      await assert.rejects(() => messageFromActiveTask({ store: k.store, subagents: k.manager }, { ...k.input(to), paramsDigest: "different" }), { code: "request_conflict" });
       assert.equal(preflights, 0);
       assert.deepEqual(k.counts(), before);
       assert.equal(k.deliveries().length, 1);
@@ -224,7 +227,7 @@ for (const change of ["closed", "canceled", "moved_work"] as const) {
       const entered = gate<void>();
       const released = gate<() => void>();
       k.deps.resolveSelection = () => { assert.equal(k.inTx(), false); entered.resolve(); return released.promise; };
-      const pending = k.manager.message(k.input("sub"));
+      const pending = messageFromActiveTask({ store: k.store, subagents: k.manager }, k.input("sub"));
       await entered.promise;
       if (change === "closed") k.manager.close({ subAgentId: k.agent.id, by: "owner" });
       if (change === "canceled") await k.manager.cancelWork({ workId: k.work.id, by: "owner" });
@@ -291,7 +294,7 @@ test("结果登记→unverified→核实占用释放→idle：pending 消息只�
     const current = k.task(k.sub.id, { workId: k.work.id, subAgentId: k.agent.id, parentTaskId: k.parent.id, readScope: k.child.readScope });
     k.store.setSubAgentState(k.agent.id, "running", { activeWorkId: k.work.id, currentTaskId: current.id });
     k.occupy(current);
-    const sent = await k.manager.message(k.input("sub"));
+    const sent = await messageFromActiveTask({ store: k.store, subagents: k.manager }, k.input("sub"));
     assert.equal(sent.delivery, "pending");
     k.store.withTx(() => { k.manager.resultRecorded(k.complete(current)); });
     assert.equal(k.store.getSubAgent(k.agent.id)!.state, "unverified");
@@ -344,16 +347,16 @@ test("计划模式由父任务固定模式判定，继续链不决定资格：�
     for (const parent of [plan, continued]) {
       for (const extra of [{ mode: "modify" as const, target: "." }, { workId: writeWork.id }]) {
         const before = k.counts();
-        await assert.rejects(() => k.manager.delegate({ parentTaskId: parent.id, key: randomId("plan"), request: "修改", paramsDigest: "plan", ...extra }), /计划模式/);
+        await assert.rejects(() => delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: parent.id, key: randomId("plan"), request: "修改", paramsDigest: "plan", ...extra }), /计划模式/);
         assert.deepEqual(k.counts(), before, "计划模式拒绝发生在建立目录、工作和任务之前");
       }
     }
     assert.deepEqual(k.resolved, [], "拒绝不启动模型或执行准备");
-    await assert.rejects(() => k.manager.delegate({ parentTaskId: continued.id, key: "explicit-analyze", request: "继续只读", workId: k.work.id, mode: "analyze", paramsDigest: "explicit" }), { code: "invalid_params" });
-    const delegated = await k.manager.delegate({ parentTaskId: continued.id, key: "read-plan", request: "只读调研", readPaths: ["."], paramsDigest: "read-plan" });
+    await assert.rejects(() => delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: continued.id, key: "explicit-analyze", request: "继续只读", workId: k.work.id, mode: "analyze", paramsDigest: "explicit" }), { code: "invalid_params" });
+    const delegated = await delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: continued.id, key: "read-plan", request: "只读调研", readPaths: ["."], paramsDigest: "read-plan" });
     assert.equal(delegated.created, true);
     assert.equal(delegated.work.writeTarget, null);
-    assert.equal(delegated.task.accessMode, "confirm");
+    assert.equal(delegated.task.accessMode, "auto-review");
     assert.deepEqual(delegated.task.grantedPaths, []);
     assert.equal(delegated.task.readScope!.paths[0]!.path, k.parentSession.cwdReal);
   } finally { k.cleanup(); }
@@ -425,5 +428,53 @@ test("重启分类：仅无入站来源的 queued SubAgent 执行被中断，评
     assert.deepEqual(k.store.withTx(() => k.manager.recoverQueuedTasks()), []);
     assert.deepEqual(k.counts(), before, "重复恢复不登记第二次中断");
     assert.deepEqual(k.kicks, []);
+  } finally { k.cleanup(); }
+});
+
+for (const action of ["delegate", "message"] as const) {
+  for (const change of ["ended", "version"] as const) {
+    test(`${action} 异步准备后来源 ${change}：拒绝登记且没有半条任务、消息或事件`, async () => {
+      const k = kit("dev");
+      try {
+        k.store.transitionTask(k.parent.id, ["completed"], "running");
+        const waiting = gate<void>();
+        const entered = gate<void>();
+        k.deps.resolveSelection = async () => { entered.resolve(); await waiting.promise; return () => {}; };
+        const before = k.counts();
+        const operation = action === "delegate"
+          ? k.manager.delegate({ parentTaskId: k.parent.id, key: "race", request: "调研", readPaths: ["."], paramsDigest: "race" })
+          : k.manager.message(k.input("sub"));
+        const rejected = assert.rejects(operation, { code: "task_ending" });
+        await entered.promise;
+        if (change === "ended") k.complete(k.parent);
+        else k.store.updateGrantedPaths(k.parent.id, []);
+        waiting.resolve();
+        await rejected;
+        assert.deepEqual(k.counts(), before);
+        assert.deepEqual(k.kicks, []);
+      } finally { k.cleanup(); }
+    });
+  }
+}
+
+test("继续旧工作与复用身份取本次发起任务授权，既有任务与批准保持原记录", async () => {
+  const k = kit("dev");
+  try {
+    const first = await delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: k.parent.id, key: "first", request: "分析", readPaths: ["."], paramsDigest: "first" });
+    assert.equal(first.task.accessMode, "full_access");
+    assert.equal(first.task.sourcePermissionVersion, k.parent.permissionVersion);
+    k.manager.resultRecorded(k.complete(first.task));
+    const next = k.task(k.parentSession.id, { accessMode: "confirm" });
+    k.store.updateGrantedPaths(next.id, []);
+    const continued = await k.manager.delegate({ parentTaskId: next.id, key: "continue", request: "继续分析", workId: first.work.id, readPaths: ["."], paramsDigest: "continue" });
+    assert.equal(continued.task.accessMode, "confirm");
+    assert.equal(continued.task.sourcePermissionVersion, 2);
+    assert.equal(k.store.getTask(first.task.id)!.accessMode, "full_access");
+    k.manager.resultRecorded(k.complete(continued.task));
+    const reused = await delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: k.parent.id, key: "reuse", request: "新分析", subAgentId: first.agent.id, readPaths: ["."], paramsDigest: "reuse" });
+    assert.equal(reused.task.accessMode, "full_access");
+    assert.equal(reused.task.parentTaskId, k.parent.id);
+    assert.equal(k.store.listConfirmationsByTask(reused.task.id).length, 0);
+    assert.deepEqual(reused.task.grantedPaths, []);
   } finally { k.cleanup(); }
 });

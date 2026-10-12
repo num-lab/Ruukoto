@@ -1,0 +1,24 @@
+证据性质：本会话已完成工具输出摘录；不是原始重定向日志，未重跑测试。
+执行会话：62275
+Command: npx tsx --test --test-name-pattern='版本变化|策略变化|完全访问|full_access' test/28-main-data.test.ts test/78-linux-service-management.test.ts test/37-scheduler-outbox.test.ts
+Exit code: 0
+
+✔ full_access 破坏性数据免审批，auto-review 仍转拥有者确认 (266.873667ms)
+✔ 确认期间版本变化使批准失效，不执行新出现的行 (148.790667ms)
+✔ 目标：离线保持 pending 并显示原因；配置版本变化/停用取消；未加载发送器保持 pending (53.543166ms)
+✔ 完全访问一次通知：零审批、单次认领与正文固定，完成后跨重启发送 (139.718791ms)
+✔ 完全访问一次通知：权限变更、取消、目标或正文失配拒绝发送；登记失败回滚授权 (229.028667ms)
+✔ 完全访问一次通知：发送结果未知保持原键，不重发 (60.420084ms)
+✔ 逐次审批：auto-review 转拥有者；full_access 免审批且使用真实任务授权（覆盖点 8） (837.902791ms)
+✔ 审批通过后策略变化：消费事务 recheck 失败、批准失效、helper restart 零调用（覆盖点 9） (87.648042ms)
+✔ 完全访问：执行前权限或策略变化拒绝，缺 helper 不转审批 (122.39525ms)
+✔ 完全访问：helper 派发后结果未知仍记录真实授权且不自动重发 (58.206666ms)
+✔ 完全访问：授权返回时已取消，helper restart 不启动且为已知未执行 (30.717625ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2034.744792

@@ -40,3 +40,7 @@ Status: implemented
 [daily-agent issue 04](../../../../.scratch/daily-agent/issues/04-telegram-owner.md)记录 macOS、模拟模型与本地 Bot API 下 `npm run typecheck` 通过，`npm test` 393 项中 392 通过、1 项真实模型检查按默认跳过。`npx tsx --test test/38-telegram-owner.test.ts` 当时 5 项覆盖同主会话与原消息回复、重投去重、非 owner/群聊/贴纸零模型调用、full_access 默认不继承、token 脱敏、400/502 不重发、429 原操作重试、断线恢复、按任务补登、配置校验与停用失效、重叠启停只有一个轮询及 v13→v14 迁移。
 
 首次交付未执行真实 Telegram bot 闭环，按拥有者确认没有在国内 tx 执行 Linux 验收。后续双平台身份/审批与异步回复的 Linux 后台冒烟由[IM 审批与最终汇报](2026-10-02-im-approval-and-final-report.md)分别记录，仍不代表真实 Bot API 已实测。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

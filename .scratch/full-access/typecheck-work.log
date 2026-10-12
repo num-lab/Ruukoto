@@ -1,0 +1,12 @@
+apps/ruukoto/src/scheduler-tools.ts(180,5): error TS2322: Type '(sdkCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<{ content: Array<{ type: "text"; text: string; }>; }>' is not assignable to type '(toolCallId: string, params: { content?: Record<string, unknown>[] | undefined; reason: string; rule: { at?: string | undefined; time?: string | undefined; weekdays?: number[] | undefined; kind: "once" | ... 1 more ... | "weekly"; time_zone: string; }; instruction: string; create_key: string; }, signal: AbortSignal ...'.
+  Type 'Promise<{ content: { type: "text"; text: string; }[]; }>' is not assignable to type 'Promise<AgentToolResult<unknown>>'.
+    Property 'details' is missing in type '{ content: { type: "text"; text: string; }[]; }' but required in type 'AgentToolResult<unknown>'.
+test/41-qq-private-scope.test.ts(145,7): error TS2353: Object literal may only specify known properties, and 'action' does not exist in type 'Omit<Schedule, "id" | "createdAt" | "status" | "version" | "cancelReason" | "currentRunId" | "updatedAt">'.
+test/41-qq-private-scope.test.ts(161,53): error TS2339: Property 'payload' does not exist on type 'Schedule'.
+test/51-generic-scheduler.test.ts(31,132): error TS2339: Property 'waitForSender' does not exist on type 'Scheduler'.
+test/51-generic-scheduler.test.ts(79,29): error TS2339: Property 'includes' does not exist on type 'never'.
+test/51-generic-scheduler.test.ts(79,69): error TS2339: Property 'includes' does not exist on type 'never'.
+test/71-product-entry.test.ts(220,9): error TS2353: Object literal may only specify known properties, and 'action' does not exist in type 'Omit<Schedule, "id" | "createdAt" | "status" | "version" | "cancelReason" | "currentRunId" | "updatedAt">'.
+test/71-product-entry.test.ts(234,60): error TS2339: Property 'payload' does not exist on type 'Schedule'.
+test/85-retire-core-group-chat.test.ts(367,7): error TS2353: Object literal may only specify known properties, and 'action' does not exist in type 'Omit<Schedule, "id" | "createdAt" | "status" | "version" | "cancelReason" | "currentRunId" | "updatedAt">'.
+test/93-im-approval-lifecycle.test.ts(95,59): error TS2561: Object literal may only specify known properties, but 'time_zone' does not exist in type '{ kind: "once"; at: string; timeZone: string; disambiguation: "compatible"; }'. Did you mean to write 'timeZone'?

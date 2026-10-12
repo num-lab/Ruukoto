@@ -1,3 +1,4 @@
+import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）。
@@ -32,7 +33,7 @@ import { inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor,
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { randomId, type SubAgentMessage } from "@ruukoto/core/types.ts";
+import { randomId, type AccessMode, type SubAgentMessage } from "@ruukoto/core/types.ts";
 import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 
 /** 事件表里的某类事件。 */
@@ -84,11 +85,11 @@ async function startKit(prefix: string) {
 }
 
 /** 建父会话与完成的父任务，并完成首次委派（SubAgent 回到 idle）。 */
-async function baseWork(kit: Awaited<ReturnType<typeof startKit>>, rt: Runtime, key: string) {
+async function baseWork(kit: Awaited<ReturnType<typeof startKit>>, rt: Runtime, key: string, accessMode: AccessMode = "confirm") {
   const session = await rt.createSession({ projectName: "prec", cwd: kit.work[0]! });
-  const parent = await rt.submit({ sessionId: session.id, requestId: `${key}-p1`, input: "开始", modelSelection: rt.defaultSelection });
+  const parent = await rt.submit({ sessionId: session.id, requestId: `${key}-p1`, input: "开始", accessMode, modelSelection: rt.defaultSelection });
   await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-  const d = await rt.subagents!.delegate({
+  const d = await delegateFromActiveTask(rt, {
     parentTaskId: parent.id,
     key,
     request: `首任务${key}`,
@@ -123,7 +124,7 @@ function seedQueued(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], p
 function seedPending(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], parentTaskId: string, marker: string): SubAgentMessage {
   const msg: SubAgentMessage = {
     id: randomId("smsg"), workId: d.work.id, parentSessionId: d.work.parentSessionId,
-    fromSubAgentId: null, fromTaskId: parentTaskId, toSubAgentId: d.agent.id,
+    fromSubAgentId: null, fromTaskId: parentTaskId, accessMode: rt.store.getTask(parentTaskId)!.accessMode, sourcePermissionVersion: rt.store.getTask(parentTaskId)!.permissionVersion, toSubAgentId: d.agent.id,
     requestKey: marker, paramsDigest: `digest-${marker}`, body: marker, createdAt: new Date().toISOString(),
     deliveredTaskId: null, deliveredAt: null, undeliveredReason: null,
   };
@@ -175,7 +176,7 @@ test("排队中的拥有者委派：重启定 interrupted、补记一次、Agent
     assert.ok(marks.some((m) => m.includes("[SubAgent 结果]") && m.includes(d.work.id)), "中断结果注入 dev 父模型");
 
     // —— 空闲 Agent 沿同一工作继续委派 ——
-    const d2 = await rt.subagents!.delegate({
+    const d2 = await delegateFromActiveTask(rt, {
       parentTaskId: parent2.id,
       key: "q1-r2",
       request: "继续MARK-CONT",
@@ -196,9 +197,11 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
   const kit = await startKit("recover-occupancy");
   let rt = kit.rt;
   try {
-    const { parent, d } = await baseWork(kit, rt, "q2");
+    const { parent, d } = await baseWork(kit, rt, "q2", "full_access");
     const seeded = seedQueued(rt, d, parent.id, "b-running", "运行中任务MARK-R1");
     const pending = seedPending(rt, d, parent.id, "RECOVER-PENDING-MARK");
+    const originSession = rt.store.getSession(parent.sessionId)!;
+    rt.store.setSessionDefaultMode(originSession.id, "confirm", originSession.defaultAccessModeVersion);
     await rt.stop("test_restart");
     // 崩溃前的持久形态：任务已 running 且持有对其工作目录的占用（优雅 stop 会
     // 把 running 定 backend_stop 并回收占用，故在两个实例之间用新连接置位）
@@ -239,7 +242,7 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
     // —— 未核实前拒绝新委派 ——
     await assert.rejects(
       () =>
-        rt.subagents!.delegate({
+        delegateFromActiveTask(rt, {
           parentTaskId: parent.id,
           key: "q2-x",
           request: "拒绝",
@@ -256,6 +259,8 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
     assert.equal(rt.store.listAllOccupancy().filter((o) => o.taskId === seeded.id).length, 0, "旧执行占用已释放");
     assert.equal(rt.store.getSession(d.agent.sessionId)!.queueState, "active");
     const delivered = rt.store.getSubAgentMessage(pending.id)!;
+    assert.equal(rt.store.getTask(delivered.deliveredTaskId!)!.accessMode, pending.accessMode, "恢复投递沿消息登记时模式");
+    assert.equal(rt.store.getTask(delivered.deliveredTaskId!)!.sourcePermissionVersion, pending.sourcePermissionVersion);
     assert.ok(delivered.deliveredTaskId, "实际 resumeQueue 提交后自动补投");
     assert.equal(rt.store.getTask(delivered.deliveredTaskId!)!.requestId, `smsg:${pending.id}`);
     await waitFor("恢复消息执行完成", () => rt.store.getTask(delivered.deliveredTaskId!)!.resultSummary !== null);
@@ -265,7 +270,7 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
     assert.equal(kit.server.calls.filter((c) => lastUserText(c).includes("RECOVER-PENDING-MARK")).length, 1, "恢复消息实际调用模型一次");
 
     // —— 回 idle 后可沿同一工作继续委派 ——
-    const d2 = await rt.subagents!.delegate({
+    const d2 = await delegateFromActiveTask(rt, {
       parentTaskId: parent.id,
       key: "q2-r2",
       request: "继续MARK-CONT",
@@ -328,7 +333,7 @@ for (const rollback of [false, true]) {
       }) as Promise<void>;
       const settled = applying.then(() => null, (err: Error) => err);
       await waitFor("配置门闩窗口", () => entered && release !== undefined);
-      await assert.rejects(() => rt.subagents!.message({
+      await assert.rejects(() => messageFromActiveTask(rt, {
         senderTaskId: parent.id, workId: d.work.id, key: "during-config", text: "门闩内的新消息",
         toSubAgentId: d.agent.id, paramsDigest: "during-config",
       }), { code: "model_config_busy" });

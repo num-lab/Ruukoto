@@ -32,3 +32,7 @@ Status: implemented
 ## 验证
 
 [工单 17](../../../../.scratch/agent-direction/issues/17-integrate-worktree-results.md)与 smoke-issue17.mts 的历史记录：macOS Docker Desktop 与 ssh tx Linux（Ubuntu 24.04 原生 Docker、uid/gid 1003、RUUKOTO_CONTAINER_UID/GID=1003）各 7/7。模型模拟、容器边界真实；验证副本真实 edit/write、父字节未动、add -N→diff→apply --check→apply、父 HEAD 不变、integrated 事件、already 幂等、冲突零写入且点名文件、取消关闭后汇总与容器零残余。父仓库本身为 worktree 时创建与汇总均需补挂共享 Git 目录读写；夹具和真实路径统一 realpath，避免 macOS /var→/private/var 别名。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

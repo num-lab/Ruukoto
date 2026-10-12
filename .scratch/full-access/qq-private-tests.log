@@ -1,0 +1,20 @@
+Command: npx tsx --test test/40-qq-private.test.ts
+Exit code: 0
+
+✔ QQ owner 私聊复用 main、采用会话默认模式、先登记且去重；群与陌生人消息不串入；凭据不外泄 (261.239375ms)
+✔ QQ owner 身份与控制面授权独立：伪造模型工具不能改权限或批准开发会话操作 (380.069833ms)
+✔ QQ 与 Telegram 共享 main；通用计划独立执行并固定回报，其他外部事件不自动外发 (659.654125ms)
+✔ token 错误和登录账号不符不接任务；连接掉线、账号离线与坏心跳停止接收并可恢复 (2057.313834ms)
+✔ 发送明确失败、超时、缺少消息 ID 与异步回执按事实收尾，重复入站不重发 (1136.019375ms)
+✔ 私聊配置必须有 token 和固定 owner；停用、换 owner、清除 owner 使旧发送与排队任务失效 (777.812084ms)
+✔ 启动配置停用的 QQ 入口按停用处理：排队任务按 qq_private_unavailable 取消，main 队列后面的任务照常运行 (175.564959ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ 重启恢复已登记未建任务；补登只取原任务回答；sending 记未知且重投不重复 (554.242666ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6957.411583

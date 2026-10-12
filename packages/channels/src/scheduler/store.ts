@@ -9,14 +9,12 @@
 
 import { createHash } from "node:crypto";
 import type { Store } from "@ruukoto/core/store.ts";
-import { randomId, type NotifyTarget } from "@ruukoto/core/types.ts";
+import { randomId, type AccessMode, type NotifyTarget } from "@ruukoto/core/types.ts";
 import type { ScheduleRule } from "./time.ts";
-import type { NewsResult, NewsSpec } from "./news.ts";
 
-export type ScheduleAction = "wake_main" | "notify" | "news";
 export type ScheduleStatus = "active" | "completed" | "canceled";
 export type NotificationStatus = "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled";
-export type NotificationSourceKind = "schedule_run" | "confirmation" | "owner_reply" | "inbound_event";
+export type NotificationSourceKind = "schedule_run" | "tool" | "confirmation" | "owner_reply" | "inbound_event";
 
 /** 来源快照引用（登记时解析为最终文本；发送前按引用复核可撤销的授权）。 */
 export interface SourceRef {
@@ -28,25 +26,19 @@ export interface SourceRef {
   sha256: string;
 }
 
-export interface SchedulePayload {
-  /** wake_main：有界触发说明；notify：已批准的固定正文。 */
-  text: string;
-  sourceRefs: SourceRef[];
-  /** news：已批准的固定采集范围；text 保存审批时的策略说明。 */
-  news?: NewsSpec;
-}
-
 export interface Schedule {
   id: string;
   createKey: string;
   paramsDigest: string;
   createTaskId: string | null;
   createOpId: string | null;
-  action: ScheduleAction;
+  projectId: string;
+  createPermissionVersion: number;
+  accessMode: AccessMode;
   rule: ScheduleRule;
-  payload: SchedulePayload;
+  instruction: string;
+  sourceRefs: SourceRef[];
   target: NotifyTarget | null;
-  approvalId: string | null;
   status: ScheduleStatus;
   nextDueAt: string | null;
   currentRunId: string | null;
@@ -57,6 +49,8 @@ export interface Schedule {
   createdAt: string;
   updatedAt: string;
 }
+
+export type ScheduleRunResultStatus = "completed" | "failed" | "canceled" | "interrupted";
 
 export interface ScheduleRun {
   id: string;
@@ -70,7 +64,10 @@ export interface ScheduleRun {
   coalescedTo: string | null;
   inboundEventId: string | null;
   notificationOpId: string | null;
-  newsResult?: NewsResult | null;
+  sessionId: string | null;
+  rootTaskId: string | null;
+  resultStatus: ScheduleRunResultStatus | null;
+  resultText: string | null;
   closedAt: string | null;
 }
 
@@ -150,14 +147,14 @@ export class SchedulerStore {
     const schedule: Schedule = { ...input, id: randomId("sch"), status: "active", currentRunId: null, version: 1, cancelReason: null, createdAt: now, updatedAt: now };
     this.db
       .prepare(
-        `INSERT INTO schedules (id, create_key, params_digest, create_task_id, create_op_id, action, rule, payload, target, approval_id,
+        `INSERT INTO schedules (id, create_key, params_digest, create_task_id, create_op_id, project_id, create_permission_version, access_mode, rule, instruction, source_refs, target,
            status, next_due_at, current_run_id, version, tz_data, reason, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, 1, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, 1, ?, ?, ?, ?)`,
       )
       .run(
-        schedule.id, schedule.createKey, schedule.paramsDigest, schedule.createTaskId, schedule.createOpId, schedule.action,
-        JSON.stringify(schedule.rule), JSON.stringify(schedule.payload), schedule.target ? JSON.stringify(schedule.target) : null,
-        schedule.approvalId, schedule.nextDueAt, schedule.tzData, schedule.reason, now, now,
+        schedule.id, schedule.createKey, schedule.paramsDigest, schedule.createTaskId, schedule.createOpId, schedule.projectId, schedule.createPermissionVersion, schedule.accessMode,
+        JSON.stringify(schedule.rule), schedule.instruction, JSON.stringify(schedule.sourceRefs), schedule.target ? JSON.stringify(schedule.target) : null,
+        schedule.nextDueAt, schedule.tzData, schedule.reason, now, now,
       );
     this.store.appendEvent({ type: "schedule.changed", scheduleId: schedule.id, action: "created", version: 1, source, reason: schedule.reason });
     return schedule;
@@ -227,10 +224,10 @@ export class SchedulerStore {
   insertRun(run: Omit<ScheduleRun, "closedAt">): void {
     this.db
       .prepare(
-        `INSERT INTO schedule_runs (id, schedule_id, schedule_version, scheduled_for, local_time, registered_at, delay_ms, coalesced_from, coalesced_to, inbound_event_id, notification_op_id, news_result, closed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        `INSERT INTO schedule_runs (id, schedule_id, schedule_version, scheduled_for, local_time, registered_at, delay_ms, coalesced_from, coalesced_to, inbound_event_id, notification_op_id, session_id, root_task_id, result_status, result_text, closed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       )
-      .run(run.id, run.scheduleId, run.scheduleVersion, run.scheduledFor, run.localTime, run.registeredAt, run.delayMs, run.coalescedFrom, run.coalescedTo, run.inboundEventId, run.notificationOpId, run.newsResult ? JSON.stringify(run.newsResult) : null);
+      .run(run.id, run.scheduleId, run.scheduleVersion, run.scheduledFor, run.localTime, run.registeredAt, run.delayMs, run.coalescedFrom, run.coalescedTo, run.inboundEventId, run.notificationOpId, run.sessionId, run.rootTaskId, run.resultStatus, run.resultText);
     this.store.appendEvent({
       type: "schedule.run", scheduleId: run.scheduleId, runId: run.id, action: "registered", scheduledFor: run.scheduledFor,
       delayMs: run.delayMs, coalescedFrom: run.coalescedFrom, coalescedTo: run.coalescedTo,
@@ -254,24 +251,26 @@ export class SchedulerStore {
     return rows.map(rowToRun);
   }
 
-  listPendingNews(limit: number): ScheduleRun[] {
-    return (this.db.prepare("SELECT * FROM schedule_runs WHERE closed_at IS NULL AND json_extract(news_result, '$.status') = 'pending' ORDER BY registered_at, id LIMIT ?").all(limit) as any[]).map(rowToRun);
+  getRunForSession(sessionId: string): ScheduleRun | null {
+    const row = this.db.prepare("SELECT * FROM schedule_runs WHERE session_id = ?").get(sessionId) as any;
+    return row ? rowToRun(row) : null;
   }
 
-  claimNews(run: ScheduleRun): boolean {
-    const info = this.db.prepare("UPDATE schedule_runs SET news_result = json_set(news_result, '$.status', 'searching') WHERE id = ? AND closed_at IS NULL AND json_extract(news_result, '$.status') = 'pending'").run(run.id);
-    if (Number(info.changes) !== 1) return false;
-    this.store.appendEvent({ type: "schedule.news", scheduleId: run.scheduleId, runId: run.id, status: "searching", itemCount: 0 });
-    return true;
+  /** 派发事务同时绑定独立会话与首次任务；已绑定或取消的运行不能另建执行。 */
+  bindRunExecution(runId: string, sessionId: string, rootTaskId: string): boolean {
+    const info = this.db.prepare(`UPDATE schedule_runs SET session_id = ?, root_task_id = ?
+      WHERE id = ? AND session_id IS NULL AND root_task_id IS NULL AND closed_at IS NULL
+      AND EXISTS (SELECT 1 FROM schedules s WHERE s.id = schedule_runs.schedule_id AND s.status <> 'canceled')`)
+      .run(sessionId, rootTaskId, runId);
+    return Number(info.changes) === 1;
   }
 
-  finishNews(run: ScheduleRun, result: NewsResult, opId: string | null): void {
-    this.db.prepare("UPDATE schedule_runs SET news_result = ?, notification_op_id = ? WHERE id = ? AND closed_at IS NULL").run(JSON.stringify(result), opId, run.id);
-    this.store.appendEvent({ type: "schedule.news", scheduleId: run.scheduleId, runId: run.id, status: result.status, itemCount: result.items.length, errorCode: result.errorCode });
-  }
-
-  closeRun(run: ScheduleRun): boolean {
-    const info = this.db.prepare("UPDATE schedule_runs SET closed_at = ? WHERE id = ? AND closed_at IS NULL").run(new Date().toISOString(), run.id);
+  /** 整项终态、回报操作与关闭事件由调用方同事务提交；重复收尾保持首次结果。 */
+  finishRun(runId: string, status: ScheduleRunResultStatus, text: string, notificationOpId: string | null): boolean {
+    const run = this.getRun(runId);
+    if (!run || run.closedAt) return false;
+    const info = this.db.prepare(`UPDATE schedule_runs SET result_status = ?, result_text = ?, notification_op_id = ?, closed_at = ?
+      WHERE id = ? AND closed_at IS NULL`).run(status, text, notificationOpId, new Date().toISOString(), runId);
     if (Number(info.changes) !== 1) return false;
     this.db.prepare("UPDATE schedules SET current_run_id = NULL WHERE id = ? AND current_run_id = ?").run(run.scheduleId, run.id);
     this.store.appendEvent({ type: "schedule.run", scheduleId: run.scheduleId, runId: run.id, action: "closed", scheduledFor: run.scheduledFor });
@@ -299,7 +298,7 @@ export class SchedulerStore {
     target: NotifyTarget;
     text: string;
     sourceRefs: SourceRef[];
-    /** 采集明确未产生可发送正文：直接登记失败，不伪装成已调用平台。 */
+    /** 宿主已知未发送时直接登记失败，不伪装为平台调用。 */
     failure?: { kind: string; message: string };
   }): { op: NotificationOp; created: boolean } {
     const existing = this.findOpBySource(input.sourceKind, input.sourceKey);
@@ -320,6 +319,32 @@ export class SchedulerStore {
       .run(id, input.sourceKind, input.sourceKey, input.taskId, input.hostOpId, JSON.stringify(input.target), input.text, textSha256, JSON.stringify(input.sourceRefs), input.failure ? "failed" : "pending", input.failure?.kind ?? null, input.failure?.message.slice(0, 500) ?? null, input.failure ? now : null, now, now);
     this.store.appendEvent({ type: "notification.changed", opId: id, status: input.failure ? "failed" : "pending", sourceKind: input.sourceKind, ...(input.failure ? { reason: input.failure.kind } : {}) });
     return { op: this.getOp(id)!, created: true };
+  }
+
+  /** 一次通知沿宿主操作的真实授权核实；源任务完成后仍可发送，取消或模式变化使未发送授权失效。 */
+  verifyToolAuthorization(op: NotificationOp): string | null {
+    if (op.sourceKind !== "tool") return null;
+    const hostOp = op.hostOpId ? this.store.getToolOp(op.hostOpId) : null;
+    const auth = hostOp?.authorization;
+    const task = op.taskId ? this.store.getTask(op.taskId) : null;
+    if (!hostOp || hostOp.toolName !== "notification_enqueue" || !auth || !task ||
+        hostOp.taskId !== task.id || auth.taskId !== task.id || op.sourceKey !== `task:${task.id}`) {
+      return "一次通知的来源操作与授权不可核实";
+    }
+    if (task.cancelRequested || task.status === "canceled" || task.permissionVersion !== auth.permissionVersion) {
+      return "一次通知的来源任务已取消或权限版本变化";
+    }
+    if (this.store.getScheduledRunForTask(task.id)?.scheduleStatus === "canceled") return "一次通知的来源定时计划已取消";
+    const scope = auth.scope;
+    if (scope.kind !== "notification" || scope.mode !== "once" || scope.taskId !== task.id || scope.toolOpId !== hostOp.id ||
+        scope.textSha256 !== op.textSha256 || sha256(op.text) !== op.textSha256 || JSON.stringify(scope.target) !== JSON.stringify(op.target)) {
+      return "一次通知的目标或正文与授权不符";
+    }
+    if (auth.source === "full_access") return task.accessMode === "full_access" ? null : "一次通知的完全访问授权已失效";
+    const approval = this.store.getConfirmation(auth.confirmationId);
+    return approval && approval.taskId === task.id && approval.toolOpId === hostOp.id &&
+      approval.permissionVersion === auth.permissionVersion && approval.status === "approved" && approval.consumedAt !== null
+      ? null : "一次通知的批准未消费或已失效";
   }
 
   listOps(opts: { status?: NotificationStatus; cursor?: string; limit?: number }): { items: NotificationOp[]; nextCursor: string | null } {
@@ -443,11 +468,13 @@ function rowToSchedule(row: any): Schedule {
     paramsDigest: row.params_digest,
     createTaskId: row.create_task_id ?? null,
     createOpId: row.create_op_id ?? null,
-    action: row.action,
+    projectId: row.project_id,
+    createPermissionVersion: Number(row.create_permission_version),
+    accessMode: row.access_mode,
     rule: JSON.parse(row.rule),
-    payload: JSON.parse(row.payload),
+    instruction: row.instruction,
+    sourceRefs: JSON.parse(row.source_refs),
     target: row.target ? JSON.parse(row.target) : null,
-    approvalId: row.approval_id ?? null,
     status: row.status,
     nextDueAt: row.next_due_at ?? null,
     currentRunId: row.current_run_id ?? null,
@@ -473,7 +500,10 @@ function rowToRun(row: any): ScheduleRun {
     coalescedTo: row.coalesced_to ?? null,
     inboundEventId: row.inbound_event_id ?? null,
     notificationOpId: row.notification_op_id ?? null,
-    newsResult: row.news_result ? JSON.parse(row.news_result) : null,
+    sessionId: row.session_id ?? null,
+    rootTaskId: row.root_task_id ?? null,
+    resultStatus: row.result_status ?? null,
+    resultText: row.result_text ?? null,
     closedAt: row.closed_at ?? null,
   };
 }

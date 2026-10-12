@@ -32,7 +32,7 @@ Status: implemented
 
 完整取值与视图顺序见[上下文压缩](../../../../docs/modules/agent-context.md#主要流程)，实施记录见 [personal-agent issue 30](../../../../.scratch/personal-agent/issues/30-context-compaction.md)。规划与视图组装在 `packages/agent/src/context-selector.ts`（纯函数 `planCompaction`、`selectContext`），指纹、条目引用与摘要调用在 `packages/agent/src/compaction.ts`，编排、落盘与停止联动在 `packages/agent/src/context-assembly.ts`。下面列出承载取舍的取值与边界。
 
-- **落盘。** 表 `context_checkpoints`，部分唯一索引保证每个会话至多一行 `status = 'active'`；新建时旧行在同一事务里改为 `superseded`。S（`summarized_count`）：分支前 S 条消息由摘要替代。C（`cleared_count`，C ≥ S）：[S, C) 的工具结果换成占位说明。`fingerprint` 是前 C 条消息的角色、时间戳与工具调用 id 的 SHA-256。其余字段：`summary`、`summary_until`（第 S 条消息的时间戳，UTC ISO）、`cleared_refs`（被清理结果的 toolCallId → 会话文件条目 id）、`cleared_results`（清理条数）、`summary_model`、`summary_status`（`ok | failed | none`）、`summary_error`、`prompt_version`（`compaction-v1`）、`usage`、`estimate_before`、`estimate_after`、`task_id`、`call_index`、`created_at`。建表与 `selection_records.checkpoint_id` 补列沿用 `SCHEMA_SQL` 与 `ensureColumns` 的幂等补齐，不升 schema 版本。
+- **落盘。** 表 `context_checkpoints`，部分唯一索引保证每个会话至多一行 `status = 'active'`；新建时旧行在同一事务里改为 `superseded`。S（`summarized_count`）：分支前 S 条消息由摘要替代。C（`cleared_count`，C ≥ S）：[S, C) 的工具结果换成占位说明。`fingerprint` 是前 C 条消息的角色、时间戳与工具调用 id 的 SHA-256。其余字段：`summary`、`summary_until`（第 S 条消息的时间戳，UTC ISO）、`cleared_refs`（被清理结果的 toolCallId → 会话文件条目 id）、`cleared_results`（清理条数）、`summary_model`、`summary_status`（`ok | failed | none`）、`summary_error`、`prompt_version`（`compaction-v2`）、`usage`、`estimate_before`、`estimate_after`、`task_id`、`call_index`、`manual_request_id`、`created_at`；自动点保留任务与调用，手动点任务及调用为空，独立请求来源见[手动上下文压缩](../feature/2026-10-11-manual-context-compaction.md)。建表与 `selection_records.checkpoint_id` 补列沿用 `SCHEMA_SQL` 与 `ensureColumns` 的幂等补齐；手动来源兼容由 schema 34 重建旧压缩点表，保留行和 active 索引。
 - **作废。** 每次调用读取生效的压缩点并核对指纹；消息少于 C 条或指纹不符时改为 `invalidated`，按无压缩点处理。后台重启后压缩点继续生效，不重新摘要。
 - **边界与水位。** S、C 只落在单元边界：完整交互的开头，或当前任务中已完成批次的开头。记 H' = min(高水位, 输入预算)。高水位是 `SelectorBudgetConfig.compactionHighWater`（默认 200,000，计入配置版本）；低水位 0.5 H'、保护尾部 0.15 H'、最小收益 0.2 H'，都用选择器现有的估算口径。先按生效压缩点选择，再看不做预算移出时的视图估算：超过 H' 才规划新压缩点。
 - **覆盖范围。** 保护尾部是由新到旧累计到 0.15 H' 的完整单元，至少含最新批次。必留单元与保护尾部不进覆盖范围；S 与 C 都不越过当前任务最近一次成功 `todo_write` 所在的批次。若 C 越过它，旧清单批次在之后的调用里不再必留、会被清理，两次压缩之间视图就会变。第一层把 C 推到保护尾部开头；估算仍高于低水位时第二层推进 S，取能压到低水位的最小单元边界，S ≤ C。估算降幅（摘要块按长度上限计）不到 0.2 H' 时不建压缩点，也不调用摘要模型。
@@ -73,7 +73,7 @@ Status: implemented
 - **已知上限**：
   - 覆盖段超过摘要模型输入预算时直接按失败处理，还没有分块滚动，接入小窗口摘要模型时要补。
   - 只有高水位可配置，其余阈值是 H' 的固定比例，不按模型分别调整；估算口径未按 provider 用量校准。
-  - 另行立项、尚未实现：`/compact` 手动触发、复用对话前缀发摘要请求以命中缓存、压缩前自动写长期记忆、清理 toolCall 参数、异步预先计算摘要、按模型分别调阈值、估算校准、兜底移出改为单调移出边界（一次移到约 75% 预算，避免每移一轮整段历史缓存未命中一次；personal-agent issue 29 Q7）。
+  - 手动触发已按[手动上下文压缩](../feature/2026-10-11-manual-context-compaction.md)提供独立规划与请求；自动触发与失败降级维持本篇规则。尚未实现：复用对话前缀发摘要请求以命中缓存、压缩前自动写长期记忆、清理 toolCall 参数、异步预先计算摘要、按模型分别调阈值、估算校准、兜底移出改为单调移出边界（一次移到约 75% 预算，避免每移一轮整段历史缓存未命中一次；personal-agent issue 29 Q7）。
   - **何时重访**：部署后若模型频繁用 `history_read` 读回被清理的结果，说明清理过狠，应调高清理阈值或保护尾部。按天统计压缩次数与估算降幅的查询见 personal-agent issue 30「验收标准」。
 
 ## 验证

@@ -29,7 +29,9 @@ ruukoto-code server                    # 默认原生受限执行
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
 
-Coding Agent 默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。个人 Agent 保留 local/container；local 无隔离，仅供开发与测试，并打印警告。完全访问仍需专用执行账户，未配置入口时在执行前拒绝；macOS 尚无经验证的完全访问账户。
+Coding Agent 默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。个人 Agent 保留 local/container；local 无隔离，仅供开发与测试，并打印警告。完全访问在两平台直接使用启动后台账户，继承后台实际的 PATH、HOME、代理、SSH agent 与工具凭据；清除内部 Ruukoto 控制变量，不要求执行账户入口。
+
+新档案一次性创建当前 schema；既有档案的版本必须与代码完全一致，旧库与较新库均明确拒绝启动，不自动升级或回填。保留原档案，用匹配版本的代码查阅；需要当前版本时使用独立新档案。跨实例导入也只接受当前格式，不能用它转换旧 schema。
 
 ### 2.2 交互入口
 
@@ -193,7 +195,7 @@ ruukoto work cancel <工作ID> [--reason R]        # 停止中拒绝
 `ruukoto config` 打开独立配置界面：复用控制面拥有者认证与 TUI 组件，不直接打开核心数据库，也不成为绕过任务审批的入口（任务执行审批仍在任务界面）。在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文／输出参数）、模型 API key、后台默认模型、摘要模型、项目指令／Web Search／资料授权、会话默认模型／思考档位／权限模式、MCP 服务、QQ 配置、服务凭据。
 
 - **并发与修订**：模型配置以 `expected_revision`（`models.json` + `auth.json` + `default-model.json` + `summary-model.json` 的内容指纹）做条件更新；项目／会话／MCP／QQ 沿用各自的 `expected_version`。冲突时要求重新加载，不静默覆盖。
-- **模型配置应用时机**：provider、模型目录与 API key 的修改只在没有受影响的 `running`／`awaiting_confirmation`／`queued` 任务时应用；检查到应用完成之间，受影响 provider 的新提交与会话模型设置被拒绝（`model_config_busy`，可重试）。占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime／模型目录／审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。删除 provider 或模型前核对后台默认、摘要模型、会话与 `agent_roles` 引用（`provider_in_use`）。
+- **模型配置应用时机**：provider、模型目录与 API key 的修改只在没有受影响的 `running`／`awaiting_confirmation`／`queued` 任务或手动压缩操作时应用；检查到应用完成之间，受影响 provider 的新提交、手动压缩与会话模型设置被拒绝（`model_config_busy`，可重试）。占用时返回 `model_config_blocked` 与任务及操作数，不先改文件、不部分应用、不自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime／模型目录／审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。删除 provider 或模型前核对后台默认、摘要模型、会话与 `agent_roles` 引用（`provider_in_use`）。
 - **摘要模型**：上下文压缩的滚动摘要所用模型，保存为 `<agentDir>/summary-model.json`（`{provider, modelId}`，不存思考档位）。设置后，main 与开发会话较早的对话（含工具结果）会发给该模型的提供方做摘要。
 - **秘密**：API key 输入遮蔽；响应只展示是否配置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（`auth.json`）与服务凭据（`credentials.json`）分开管理。
 - **项目分区**：ruukoto-code 的「项目」分区把工作区列在前（标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品平铺项目名称。指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务。
@@ -207,10 +209,10 @@ ruukoto work cancel <工作ID> [--reason R]        # 停止中拒绝
 | --- | --- |
 | 请求确认 `confirm`（默认） | 工作区内读写与检查自主执行；越出工作区、未授权网络或凭据、对外写操作逐次请拥有者确认。批准绑定目标、内容指纹、方法与完整 URL，单次消费 |
 | 自动审查 `auto-review` | 执行环境同上；越界的文件读取与无凭据 GET/HEAD 先经一次独立的无工具审查调用裁决，失败或拿不准一律转拥有者 |
-| 完全访问 `full_access` | 只能由拥有者显式选择；在容器外以固定执行账户运行，不额外赋予系统权限。模型、工具、记忆或 IM 消息都不能开启 |
+| 完全访问 `full_access` | 由拥有者在可信入口选择；以启动账户无任务沙箱运行，所有已开放工具免操作审批，不额外赋予 OS 权限；模型输入不能提供权限升级来源 |
 | 计划 `plan` | 仅普通开发会话；沿用自动审查的环境与审批，要求只调研不修改，持续到手动切换。保留的 `bash` 仍可能写入，不是全面只读保证 |
 
-受限模式的容器：非 root、cap-drop ALL、no-new-privileges、只读根文件系统、默认无网络，只挂载工作区与任务级授予路径，任务结束即回收。完全访问任何模式的例外（应用数据破坏性变更、服务管理、通知外发）仍逐次审批。
+受限模式的容器：非 root、cap-drop ALL、no-new-privileges、只读根文件系统、默认无网络，只挂载工作区与任务级授予路径，任务结束即回收。完全访问的文件、HTTP、MCP、应用数据、通知与服务工具均免操作审批，仍核实活动任务、权限版本、目标与修订，并保存真实授权来源；同账户的后台数据、凭据与令牌可被完全访问命令直接访问。
 
 ### 4.3 项目设置
 
@@ -252,21 +254,22 @@ ruukoto notify list
 
 无需单独启用：仅个人 Agent 的 Telegram／QQ 拥有者私聊接收 JPEG、PNG、WebP，每条最多 4 张，每张最多 8 MiB。不转码或缩放；GIF、SVG、伪造 MIME、大小或数量超限永久拒绝。所选模型不支持 image 时媒体消息记为 `rejected` 并回执 `image_input_unsupported`。
 
-### 5.4 新闻推送
+### 5.4 通用定时任务
 
-main 使用 `schedule_create` 创建 `action=news` 计划：
+main 使用 `schedule_create` 登记时间规则与自足任务说明。例如定时新闻查询由该次任务调用普通搜索工具完成：
 
 ```json
 {
   "create_key": "daily-tech-news",
-  "action": "news",
   "rule": { "kind": "daily", "time_zone": "Asia/Shanghai", "time": "09:00" },
-  "news": { "keywords": ["人工智能", "开源软件"], "domains": ["example.com"], "time_range": "day" },
-  "reason": "每天汇总已确认来源的科技新闻"
+  "instruction": "检索人工智能与开源软件的近期新闻，核对原始来源并汇总带链接的摘要。",
+  "reason": "每天独立执行一次已约定的新闻查询"
 }
 ```
 
-`domains` 应换成 owner 认可的真实来源。TUI 显示「动态新闻推送」，确认关键词、来源（含子域）、时间规则、窗口、固定 owner 目标及持续范围；`full_access` 同样需要确认。增加来源、修改关键词或时间都先取消后重建。主项目的 Web Search 必须启用，已有 `purpose=tavily_search` 的凭据还须允许 main 项目使用。
+计划保存创建任务当时的访问模式与可信拥有者回报目标；模型不能指定模式或接收者。每次到期建立新的独立上下文，只输入说明与创建时明确提供的资料，保留个人业务工具与委派资格；不自动复制主聊天或上次运行历史。主会话改模式不改写已有计划。完全访问运行免操作审批，受限运行沿原策略等待决定，不阻塞主聊天；无 IM 时可在 TUI／控制面回应。
+
+整项运行及其派生任务结束后，默认向保存目标回报一次最终结果或失败；没有目标仍可创建，结果留在运行记录。目标失效不改发新目标。同计划最多一项未完成运行，忙碌时合并漏过周期，离线且无在途时最多补最近一次；发送晚到不阻塞下次运行。修改时间或说明需取消后重建，取消同时停止未来触发与该计划的整项在途工作，保留成果及未核实占用。定时任务使用原有工具前置，新闻任务需要可用的 Web Search 凭据。
 
 ### 5.5 调度与通知查看
 
@@ -275,7 +278,7 @@ ruukoto schedule list|show|cancel
 ruukoto notify list|show|cancel
 ```
 
-每页 ≤50，列表不带正文；审批在 TUI。控制面不获得发送或改目标能力。
+每页 ≤50，列表不带正文。计划详情显示创建模式、固定回报目标与最近独立运行结果；控制面不获得发送或改目标能力。
 
 ### 5.6 Web Search
 
@@ -347,7 +350,7 @@ ruukoto credentials add --name jev-myproject --host api.typesafe.ai \
 
 ### 5.10 服务器服务管理
 
-main 可检查服务器部署白名单内的服务状态，并经拥有者逐次审批执行管理动作（首版仅 restart）。要求产品 ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER`／`RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动）。安装步骤见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
+main 与独立定时会话可检查服务器部署白名单内的服务状态，完全访问免操作审批，其他模式逐次批准执行管理动作（首版仅 restart），main 可命中经核实的长期授权，定时会话不继承长期授权。要求产品 ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER`／`RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动）。安装步骤见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
 
 ```bash
 ruukoto service-grant list|show|revoke
@@ -357,7 +360,7 @@ ruukoto service-grant list|show|revoke
 
 ## 6. 导入旧实例
 
-两个方向都必须离线执行：preview／apply／revert／list 都要求目标后台已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制到临时目录后在副本上迁移，源目录逐文件 sha256 不变。
+两个方向都必须离线执行：preview／apply／revert／list 都要求目标后台已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制到临时目录后在副本上核实当前格式，源目录逐文件 sha256 不变。
 
 ### 6.1 开发资料迁入（ruukoto-code）
 
@@ -435,6 +438,7 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 | `/project` | 切换项目（ruukoto-code 为工作区／旧项目列表） |
 | `/new-project <名称>`、`/new-session <目录>`、`/new` | 创建项目／在当前项目创建会话／在当前工作区创建会话 |
 | `/branch [名称]` | Coding Agent 从当前普通开发会话的已落盘历史建立独立会话并切换 |
+| `/compact [prompt]` | Coding Agent 主动摘要当前空闲普通开发会话，可补充本次摘要重点 |
 | `/history` | 重新加载当前会话历史；滚动到顶部自动加载更早历史 |
 | `/artifact <id 前缀>` | 查看工具产物正文（按字节分页） |
 | `/approvals` | 待处理审批；详情内 `a` 批准、`r` 拒绝，`Esc`／`q` 关闭不等于拒绝 |
@@ -460,6 +464,12 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 父子共享工作目录，文件改动共同可见，同目录任务继续串行；分支不创建 Git 分支或工作副本，也不回滚文件。它不发模型请求、不复制任务、队列、审批、临时授权或用量。默认模型、思考档位、运行模式与确认工具独立继承；项目配置继续共享原来源。有效压缩点与工作清单各自延续，原图片、产物和已完成 SubAgent 结果按限定来源只读查询，原工作后续结果不进入该集合；管理原工作仍要回到其父会话。
 
+`/compact` 主动生成滚动摘要，保留最后一个完整 assistant 回复批次及其后的原文尾部，工具调用与结果整批保留。`/compact 保留数据库迁移细节` 将指引补在固定摘要规则之后；首尾空白去掉，内部空格和换行保留，仅本次生效。空会话、没有可摘要内容或没有新增覆盖且未提供指引时无需压缩；已有摘要且提供指引时可重新聚焦旧摘要，无法恢复旧摘要遗漏的细节。完整历史仍可通过 `/search` 与历史工具查回，JSONL 不改写，命令与结果只保存到 TUI 命令历史。
+
+手动压缩使用配置的摘要模型；未配置时使用接收时的会话模型，较早消息、旧摘要和本次指引会发给其提供方。一次尝试、最长 180 秒，输入预算不足、模型不可用、空输出、触顶或失败时不替换原有效点。会话有排队、正在启动或活动任务时拒绝压缩；压缩期间同会话新提交与继续被拒绝且输入保留，其他会话照常使用，也可查看或切换会话。`/interrupt` 取消当前在途压缩，已提交成功则报告成功；断开客户端不取消操作，后台停止或异常重启将未完成操作记为中断，不自动重调摘要模型。
+
+成功结果显示摘要覆盖条数、实际摘要模型与历史上下文前后估算；估算包含完成历史视图与摘要，不含下一任务的项目指令、技能、记忆、工具定义及新输入，也不保证一定下降。`/context` 仍查询最近一次主模型调用，下一次实际调用才反映新点；手动压缩不会新增主模型调用或改写既有选择记录。
+
 ### 7.3 断开与重连
 
 退出只关闭客户端，后台任务继续执行。重连后从后台重建快照、历史及任务事件，恢复思考、工具、完整正文和完成状态的顺序，按事件和消息身份去重；不自动新建任务、不恢复暂停队列。事件序号缺口或游标过旧时自动重新同步。
@@ -469,6 +479,8 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 `/mode`、`/model`、审批应答丢失时：连接仍在立即查询后台状态，已断线则提示结果未知、以重连快照为准，都不自动重发。
 
 分支请求在待确认目录的 `branches/` 保存原键及参数；应答丢失或退出重进后按原键查询，必要时重用原快照恢复发布。后台更换数据实例时保留记录供核实。已发布分支的历史缺失会明确拒绝，恢复历史后再继续，不能用空会话冒充原分支。
+
+手动压缩请求在待确认目录的 `compactions/` 保存发起会话、原键、参数和数据实例身份直到终态。应答丢失、重连和退出重进先查询原请求，只有后台明确未接收才按原键重发；数据实例变化时保留原键供核实。另一客户端可查询当前会话最近一次压缩结果；结果归发起会话，切走后不会强制切回。
 
 ### 7.4 终端安全与恢复
 
@@ -491,7 +503,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 ~/.ruukoto/pending/   0700  待核实的提交记录
 ```
 
-目录可用 `RUUKOTO_{DATA,AGENT,CONTROL,PENDING}_DIR` 覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 这一组，跨产品打开数据目录会被拒绝。执行相关变量（`RUUKOTO_EXECUTION_BACKEND`、`RUUKOTO_EXEC_UID/GID`、`RUUKOTO_CONTAINER_UID/GID`、`RUUKOTO_WORKER_IMAGE`）见部署文档。拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（拥有者与后台不同 UID 的部署）。
+目录可用 `RUUKOTO_{DATA,AGENT,CONTROL,PENDING}_DIR` 覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 这一组，跨产品打开数据目录会被拒绝。执行相关变量（`RUUKOTO_EXECUTION_BACKEND`、`RUUKOTO_CONTAINER_UID/GID`、`RUUKOTO_WORKER_IMAGE`）见部署文档。拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（显式使用其他令牌文件时）。
 
 完整布局、schema 版本与职责边界见[存储与身份](modules/core.md)。
 
@@ -505,6 +517,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | socket 可连但令牌认证不通过 | 后台其实在运行；核对 `RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE` 与控制面目录的 `owner.token` |
 | 等待超时 | 到期限仍未就绪，单独标注且不杀进程；确认 `--execution` 后端与 Docker／镜像可用 |
 | 重复启动被拒绝 | 同一实例锁已在运行（`<dataDir>/runtime.lock`）；`ruukoto-code stop` 或确认已在运行的后台 |
+| `schema_version_unsupported` | 档案版本与代码不一致；保留原档案并用匹配代码查阅，当前代码使用独立新档案，不修改版本号或补字段 |
 | 实例锁无法核实 | 按 `owner.json` 的 `processIdentity` 核实进程启动身份；无法核实时保留锁并要求人工处理 |
 | 队列不自动恢复 | 后台重启后有排队任务的会话暂停自动调度，用 `resume-queue` 显式恢复；`occupancy_unverified` 需先核实旧执行已退出 |
 
@@ -512,7 +525,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 | 现象 | 处理 |
 | --- | --- |
-| 完全访问以 `execution_unavailable` 拒绝 | 未配置专用执行账户入口；Linux 按 [deploy/systemd/README.md](../deploy/systemd/README.md) 配置，macOS 尚无经验证入口 |
+| 完全访问工具启动失败 | 检查 worker、Node 与安装依赖；完全访问无需执行账户或沙箱配置，服务 helper 的缺失只影响服务工具 |
 | 受限任务立即失败 | 检查 Docker 可用性与 `ruukoto-worker` 镜像（`npm run build:worker-image`）；后端缺失时明确拒绝、不静默回退 |
 | 任务已结束但目录仍被占用，或报 `tool_process_unreaped` / `mode_switch_unverified` / `worker_stop_unverified` | 从任务事件与占用查询核对未退出的执行单元；确认旧单元及其后代已退出后，再用上方 `resume-queue` 恢复，它释放该会话遗留任务的父目录与副本占用，并重建已结束的驱动器。worktree 创建与汇总保留副本现场和已收到的结果，不能把已完成工具或效果未知操作自动重放 |
 | 容器内写工作区被拒 | 原生 Linux 的 bind mount 不做 uid 映射，容器 uid/gid 须与工作区写权限匹配（部署文档第 5 步）；Docker Desktop 会掩盖这个问题 |

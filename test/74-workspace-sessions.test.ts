@@ -371,43 +371,6 @@ test("旧 op 不变：create_project/create_session 不写根目录归属，快�
   }
 });
 
-test("v18 库升级 v19：补列后旧项目与会话仍可读，版本号更新", () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws74-migrate-"));
-  try {
-    const db = new Db(dataDir);
-    const store = new Store(db);
-    const project = store.withTx(() => store.createProject("旧项目"));
-    const session = store.withTx(() =>
-      store.createSession({ projectId: project.id, cwd: dataDir, cwdReal: dataDir, cwdDev: 1, cwdIno: 1, piSessionId: "pi", confirmTools: [] }),
-    );
-    // 模拟 v18 文件：去掉归属索引与归属列并回退版本号
-    db.exec("DROP INDEX idx_projects_root_real; ALTER TABLE projects DROP COLUMN root_cwd; ALTER TABLE projects DROP COLUMN root_real; ALTER TABLE projects DROP COLUMN root_dev; ALTER TABLE projects DROP COLUMN root_ino;");
-    db.exec("UPDATE meta SET value = '18' WHERE key = 'schema_version'");
-    db.close();
-
-    const upgraded = new Db(dataDir);
-    try {
-      const current = new Store(upgraded);
-      const cols = (upgraded.prepare("PRAGMA table_info(projects)").all() as any[]).map((c) => c.name);
-      for (const col of ["root_cwd", "root_real", "root_dev", "root_ino"]) assert.ok(cols.includes(col), `补列 ${col}`);
-      assert.equal(current.getProject(project.id)!.name, "旧项目", "旧项目仍可读");
-      assert.equal(current.getProject(project.id)!.rootDir, null, "旧项目无归属");
-      assert.equal(current.getSession(session.id)!.projectId, project.id, "旧会话仍可读");
-      assert.equal(
-        (upgraded.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as any).value,
-        String(SCHEMA_VERSION),
-      );
-      // 迁移后新工作区照常工作
-      const ws = store2Workspace(current, dataDir);
-      assert.deepEqual(current.getProject(ws.id)!.rootDir?.cwdReal, dataDir);
-    } finally {
-      upgraded.close();
-    }
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
 /** 迁移测试内直接经存储层建带归属的项目（runtime 路径在别处覆盖）。 */
 function store2Workspace(store: Store, root: string): Project {
   return store.withTx(() => store.createProject("带归属", null, { cwd: root, cwdReal: root, dev: 1, ino: 1 }));

@@ -6,7 +6,7 @@
 
 ## 已交付行为
 
-`ruukoto-code` 以工作区和会话组织编码工作，首次打开 TUI 时按需拉起后台，退出 TUI 后任务继续。受限任务默认使用原生沙箱，缺少执行能力时明确失败；完全访问需要独立执行账户。Git 修改委派按工作生成 worktree，主 Agent 汇总到父工作区待提交区后验证；冲突时保留双方成果，非 Git 写入按目录占用串行。
+`ruukoto-code` 以工作区和会话组织编码工作，首次打开 TUI 时按需拉起后台，退出 TUI 后任务继续。受限任务默认使用原生沙箱，缺少执行能力时明确失败；完全访问直接使用启动后台的当前账户。Git 修改委派按工作生成 worktree，主 Agent 汇总到父工作区待提交区后验证；冲突时保留双方成果，非 Git 写入按目录占用串行。
 
 `ruukoto` 的 QQ 私聊和 Telegram 共用 main。绑定拥有者可在原平台查看、批准或拒绝审批；服务器管理目前限定为白名单服务的检查与重启。长期授权绑定入口、主机、单元、动作和修订，每次使用重新核实；范围不符、撤销或效果未知后恢复人工审批。委派长任务后 main 可继续回应消息，最终结果沿发起工作时钉定的原入口汇报；离线等待，绑定变化不改发，效果未知不自动重发。
 
@@ -56,8 +56,8 @@ Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](..
 | --- | --- | --- | --- |
 | [01 双产品入口](../.scratch/agent-direction/issues/01-independent-products.md) | [test/71](../test/71-product-entry.test.ts) | macOS 两份 bin 后台并存，单端停止与跨产品数据目录拒绝 | 模型为桩；安装和升级的联合演练见工单 24 |
 | [02 按需后台](../.scratch/agent-direction/issues/02-coding-daemon.md) | [test/72](../test/72-on-demand-backend.test.ts) | macOS 真实后台、socket、SQLite 与 PTY 启停/复用 | PTY 冒烟不调用模型；人工 IME 与缩放检查未逐项覆盖 |
-| [03 执行边界](../.scratch/agent-direction/issues/03-execution-boundary-proof.md) | 容器启动器冒烟与 Linux 隔离探针 | macOS Docker Desktop 与 tx 原生 Linux 的真实文件、进程、网络与 UID 边界 | macOS 完全访问执行账户未部署验证 |
-| [04 开发机执行](../.scratch/agent-direction/issues/04-desktop-execution.md) | [test/73](../test/73-desktop-execution.test.ts)、[test/07](../test/07-real-tools.test.ts) | macOS + Linux 容器中修改、检查、越界审批、停止回收 | 完全访问缺入口时拒绝已测；Linux 执行账户正向证据沿用既有部署实测 |
+| [03 执行边界](../.scratch/agent-direction/issues/03-execution-boundary-proof.md) | 容器启动器冒烟与 Linux 隔离探针 | macOS Docker Desktop 与 tx 原生 Linux 的真实文件、进程、网络与 UID 边界 | 历史专用账户部署证据；当前账户验收见发布验收边界 |
+| [04 开发机执行](../.scratch/agent-direction/issues/04-desktop-execution.md) | [test/73](../test/73-desktop-execution.test.ts)、[test/07](../test/07-real-tools.test.ts) | macOS + Linux 容器中修改、检查、越界审批、停止回收 | 历史容器/专用账户验收；当前两平台启动账户路径已有独立实测 |
 | [05 工作区与会话](../.scratch/agent-direction/issues/05-workspace-sessions.md) | [test/74](../test/74-workspace-sessions.test.ts) | macOS 真实 bin、目录身份、控制面与历史 | 模型为桩 |
 | [06 工作区配置](../.scratch/agent-direction/issues/06-workspace-settings.md) | [test/75](../test/75-workspace-settings.test.ts) | macOS 两工作区、版本冲突、授权撤销与重启持久化 | 外部模型、MCP/Jev 服务未实测 |
 | [07 旧工作区组织](../.scratch/agent-direction/issues/07-legacy-workspace-data.md) | [test/76](../test/76-legacy-workspace-data.test.ts) | macOS + Linux CLI 预览/应用，历史与产物字节核对、回退与重启 | 组织映射不扩大原来源授权；不是跨实例同步 |
@@ -80,7 +80,7 @@ Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](..
 
 ## 安装、升级与切换
 
-开发端在开发机检出代码、安装依赖、构建可信 `ruukoto-worker` 镜像，通过`ruukoto-code config` 配置本端模型后打开目录。个人端按[systemd 部署说明](../deploy/systemd/README.md) 配置独立后台账户、执行账户、容器和可选服务 helper。不要将两个产品指向同一个数据目录；产品归属不符时会拒绝启动。
+开发端在开发机检出代码、安装依赖、构建 worker 与原生监督器，通过`ruukoto-code config` 配置本端模型后打开目录。个人端按[systemd 部署说明](../deploy/systemd/README.md) 配置当前启动账户、受限容器和可选服务 helper。不要将两个产品指向同一个数据目录；产品归属不符时会拒绝启动。
 
 升级前停止需要升级的产品，保留其档案并替换该端检出。修改 worker 或其使用的核心代码后重建镜像；`ruukoto-code stop` 后重开 TUI 可拉起新代码，个人端按部署说明重启systemd 单元。分别安装在各自机器或检出中的产品不要求同时升级，另一端不提供本地任务执行所需的控制面或存储。协议与 schema 版本以本端代码为准。
 
@@ -90,7 +90,7 @@ Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](..
 
 ## 发布验收边界
 
-真实受限执行边界已在 macOS Docker Desktop 与 tx 原生 Linux 取得证据；Linux 个人端执行账户及服务提权入口已有真实部署验证。本次另在 tx 的 `ruukoto-code` 使用临时固定入口核实完全访问 `uid:gid=986:986`、代码修改与检查、后台令牌和核心库拒读；模型为桩，临时入口演练后清理。macOS 完全访问未提供经过验证的本机入口，现有`createSystemdLauncher` 与 `deploy/systemd` 包装只适用于 Linux；目前缺配置时明确拒绝，不能把 Linux 脚本直接当作 macOS 部署方案。
+完全访问在 macOS 与 tx Linux 的两个产品取得真实 Runtime、SDK 与 worker 证据：启动账户 UID/GID、用户环境与虚拟凭据继承、工作区外读写、本机 HTTP 联网、正常与已归属后代停止，以及强杀 worker 后保留未知停止结论。模型为桩、凭据为临时虚拟数据，未修改真实部署。受限原生的外部文件与网络拒绝同时验证。执行范围与原始证据见[完全访问决定](../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)，历史专用账户证据仅证明当时实现。
 
 真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达，以及 tx 生产库的切换仍需独立的真实部署演练。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。运行图解见 [部署与验证](visual/deployment.html#acceptance)。完整的历史验证清单见下节。
 

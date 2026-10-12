@@ -16,6 +16,19 @@ import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type Exe
 const role = (id: AgentRoleId): AgentRole => ({ id, projectId: "p", sessionId: "s", workDir: "/w", modelSelection: null, tools: [], createdAt: "" });
 const agent: SubAgent = { id: "a", parentSessionId: "ps", sessionId: "s", workDir: "/w", activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
 
+test("独立定时身份使用个人业务能力与独立签名，不复制 main 角色、不取得编码或 Plan", () => {
+  const binding = { runId: "run", scheduleId: "schedule", rootTaskId: "task", projectId: "p", modelSelection: null };
+  const identity = classifySession({ kind: "dev" }, null, null, binding);
+  assert.deepEqual(identity, { kind: "scheduled", ...binding });
+  const profile = executionProfile({ identity, writeTarget: false, review: false, planMode: true });
+  assert.equal(profile.toolClass, "main");
+  assert.equal(profile.toolSignature, "scheduled");
+  assert.equal(profile.plan, false);
+  assert.equal(allowsCategory(profile.toolClass, "app_data"), true);
+  assert.equal(allowsCategory(profile.toolClass, "subagent"), true);
+  assert.equal(allowsCategory(profile.toolClass, "coding"), false);
+});
+
 test("会话身份：SubAgent 行优先，main 按绑定，其余为普通开发会话；QQ 群与 chat/coding 角色是已退役归档并带原因", () => {
   assert.deepEqual(classifySession({ kind: "dev" }, null, agent), { kind: "subagent", agent }, "会话类别 dev 的 SubAgent 会话仍是 SubAgent 会话");
   assert.deepEqual(classifySession({ kind: "qq_group" }, null, null), { kind: "retired", reason: CORE_GROUP_CHAT_RETIRED }, "qq_sessions 联表查不到角色也不按普通开发会话放行");

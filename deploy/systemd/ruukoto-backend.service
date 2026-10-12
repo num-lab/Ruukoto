@@ -4,20 +4,13 @@ After=network-online.target
 
 [Service]
 Type=simple
-# 独立系统身份运行控制面并持有数据目录（0700）；拥有者经本机 socket + 拥有者
-# 令牌访问。同一 UID 部署不满足控制面分离要求。
-# Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
-User=ruukoto-backend
-Group=ruukoto-backend
+# 安装时替换为实际启动账户；完全访问沿用该账户已有的权限。
+# Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
+User=@RUN_USER@
+Group=@RUN_GROUP@
 Environment=RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
 Environment=RUUKOTO_AGENT_DIR=/var/lib/ruukoto/agent
 Environment=RUUKOTO_EXECUTION_BACKEND=container
-# 完全访问执行入口指向受保护包装（生产配置）；不设置则完全访问不可用（提交返回 execution_unavailable）
-Environment=RUUKOTO_EXEC_LAUNCH_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-launch
-Environment=RUUKOTO_EXEC_STOP_SCRIPT=/usr/local/libexec/ruukoto/ruukoto-exec-stop
-# 执行账户 uid/gid（默认 1002；目标机 1002 被占用时用 drop-in 覆盖，见 README 第 5 步）
-Environment=RUUKOTO_EXEC_UID=1002
-Environment=RUUKOTO_EXEC_GID=1002
 # 容器内进程 uid/gid（默认 1000）。原生 Linux 的 bind mount 不做 uid 映射：容器
 # uid 必须能写任务工作区。单拥有者服务器建议用 drop-in 设为拥有者 uid/gid。
 # Environment=RUUKOTO_CONTAINER_UID=1003

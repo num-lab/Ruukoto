@@ -265,7 +265,7 @@
     <ol class="steps">
       <li><b>规划</b>：保护尾部是由新到旧累计到 <code>0.15 H′</code> 的完整单元（至少含最新批次）；当前任务最近一次成功 <code>todo_write</code> 所在的批次也不进覆盖范围。估算不超过 H′、必留项超预算，或预计降幅不到 <code>0.2 H′</code> 时不建压缩点，也不调用摘要模型。</li>
       <li><b>第一层（清理）</b>：C 推到保护尾部开头（清单保底批次更早时停在它前面），<code>[S, C)</code> 中正文超过 <code class="src" data-src="packages/agent/src/context-selector.ts#CLEAR_MIN_CHARS">CLEAR_MIN_CHARS</code>（<code>2_000</code> 字符）或含图片的工具结果整条换成占位说明；<code>skill</code>、<code>todo_write</code> 结果、toolCall 参数与 assistant 文本不清理。toolCallId 与 isError 不变，配对不受影响。</li>
-      <li><b>第二层（滚动摘要）</b>：只做清理的估算仍高于低水位 <code>0.5 H′</code> 时推进 S，取能压到低水位的最小单元边界（摘要块按 <code class="src" data-src="packages/agent/src/context-selector.ts#SUMMARY_MAX_CHARS">SUMMARY_MAX_CHARS</code> 约 4 000 字的上限估算）。摘要输入是上一版摘要加 <code>[旧 S, 新 S)</code> 的原消息，提示版本 <code>compaction-v1</code>（<code class="src" data-src="packages/agent/src/compaction.ts#COMPACTION_PROMPT_VERSION">compaction.ts · COMPACTION_PROMPT_VERSION</code>）。</li>
+      <li><b>第二层（滚动摘要）</b>：只做清理的估算仍高于低水位 <code>0.5 H′</code> 时推进 S，取能压到低水位的最小单元边界（摘要块按 <code class="src" data-src="packages/agent/src/context-selector.ts#SUMMARY_MAX_CHARS">SUMMARY_MAX_CHARS</code> 约 4 000 字的上限估算）。摘要输入是上一版摘要加 <code>[旧 S, 新 S)</code> 的原消息，提示版本 <code>compaction-v2</code>（<code class="src" data-src="packages/agent/src/compaction.ts#COMPACTION_PROMPT_VERSION">compaction.ts · COMPACTION_PROMPT_VERSION</code>）。</li>
       <li><b>落盘后重选</b>：压缩点与 <code>task.context_compaction</code> 的 <code>finished</code> 事件同一事务写入（<code class="src" data-src="packages/agent/src/context-assembly.ts#compactContext">context-assembly.ts · compactContext</code>），然后重读输入再选一次。此时仍超输入预算，选择器照常由近及远纳入，装不下的更早单元移出，视图在摘要块之后加一条移出标记，写明移出的单元数与时间范围。</li>
     </ol>
     <figure class="fig">

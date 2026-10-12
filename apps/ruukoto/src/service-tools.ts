@@ -1,14 +1,14 @@
 /**
  * 服务器服务管理宿主工具（agent-direction issue 09）：service_inspect /
- * service_manage。仅 main 装配（装配另要求产品 ruukoto + Linux + 显式部署配置，
- * 见 Runtime/Driver；main 不因此获得 bash）。
+ * service_manage。main 与独立定时会话装配（另要求产品 ruukoto + Linux + 显式
+ * 部署配置，见 Runtime/Driver；不因此获得 bash）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
  *
  * - 模型只提供白名单服务名与固定动作；主机身份、taskId、hostOpId、执行身份与
  *   策略由宿主注入；只有 root 拥有、经 sudoers 固定入口的 helper 能触达 systemd；
  * - service_inspect 无写入效果，直接执行；service_manage 首版固定 restart，
- *   任何访问模式（含 full_access）都逐次审批——root 分支是后台的提权能力，
- *   不属于执行账户已有权限；执行参数取自审批记录保存的不可变快照；
+ *   full_access 使用任务授权免审批，其他模式逐次审批；OS 授权仍由 helper 核实；
+ *   执行参数取自授权时保存的不可变快照；
  *   例外（issue 10）：拥有者保存的限定长期授权逐项核实成立时按授权范围自动放行
  *   （独立的已批准记录 + 单次消费；授权本身不被消费），撤销/失效/范围不符回落
  *   人工逐次审批；
@@ -16,7 +16,7 @@
  *   执行，确定的管理命令结果如实记录（含非零退出），其余消费后无可信结果的
  *   （协议错误/应答不符/产物保存失败/派发后失败/超时/中止）一律效果未知，不
  *   自动重发，并使同目标有效长期授权失效；
- * - 审批消费事务内同步复核 main 身份与策略修订；helper 在发送任何 restart
+ * - 授权事务内同步复核个人助手宿主绑定与策略修订；helper 在发送任何 restart
  *   请求前再次核实本机、白名单、策略与已加载单元修订；sqlite 消费与 systemd
  *   效果之间不存在跨系统事务；
  * - helper 的 stdout/stderr 原始字节先入 ArtifactStore，模型只见有界视图；
@@ -120,6 +120,7 @@ async function callHelper(
   args: string[],
   opts: { timeoutMs: number; signal?: AbortSignal },
 ): Promise<{ stdout: Buffer; stderr: Buffer; reply: HelperReply }> {
+  if (opts.signal?.aborted) throw new ServiceHelperError("任务已停止，helper 尚未启动", "aborted");
   // 生产：sudo 固定入口（env 由 sudo 清理）；受控替身：以当前 node 直接执行脚本
   const argv = cfg.useSudo ? [cfg.sudoPath, "-n", cfg.helperPath, ...args] : [process.execPath, cfg.helperPath, ...args];
   return await new Promise((resolve, reject) => {
@@ -226,7 +227,7 @@ export interface ServiceToolsDeps {
   /** 当前调用上下文（宿主注入；绑定一次工具调用）。 */
   taskContext(): HostToolContext | null;
   bindCall?: HostCallBinder;
-  /** 执行入口每次重新核实宿主任务/会话/项目与 main 角色绑定；null=通过。 */
+  /** 执行入口每次重新核实宿主任务/会话/项目与个人助手宿主绑定；null=通过。 */
   verifyMain(ctx: HostToolContext): string | null;
   /** 审批闸门（窄回调；不向模型暴露控制面）。 */
   requestApproval: ApprovalGate["request"];
@@ -360,7 +361,7 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
         const result = await inspect(ctx, unit, { signal });
         return okText(
           [
-            `服务 ${result.unit} 状态（${result.observedAt} 观察；本机 ${result.machineId.slice(0, 12)}…${result.execIdentity ? `；检查以执行账户 uid/gid ${result.execIdentity.uid}/${result.execIdentity.gid} 运行` : ""}）：`,
+            `服务 ${result.unit} 状态（${result.observedAt} 观察；本机 ${result.machineId.slice(0, 12)}…${result.execIdentity ? `；检查账户 uid/gid ${result.execIdentity.uid}/${result.execIdentity.gid}` : ""}）：`,
             formatState(result.state),
             `策略修订 ${result.policyRevision.slice(0, 12)}… 单元定义修订 ${result.unitRevision.slice(0, 12)}…`,
           ].join("\n"),
@@ -375,10 +376,10 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
     name: "service_manage",
     label: "service_manage",
     description:
-      "对服务器部署白名单内的服务执行管理动作（首版仅 restart）。任何访问模式都必须经拥有者逐次审批；" +
-      "批准只对该次操作与目标有效。restart 以 root 提权执行，会启动原本不活动的服务，可能中断该服务" +
+      "对服务器部署白名单内的服务执行管理动作（首版仅 restart）。完全访问免操作审批；其他模式经拥有者逐次审批或核实限定长期授权。" +
+      "OS 权限不足直接失败。restart 以 root 提权执行，会启动原本不活动的服务，可能中断该服务" +
       "正在处理的工作。目标只能是白名单内的精确 .service 名。执行中断或结果未知时不自动重试——先核实" +
-      "再重新申请。原始命令输出保存在任务产物中。",
+      "再决定是否执行。原始命令输出保存在任务产物中。",
     parameters: Type.Object({
       unit: Type.String({ description: "白名单内的精确 .service 单元名" }),
       action: Type.Union([Type.Literal("restart")], { description: "固定动作（首版仅 restart）" }),
@@ -441,24 +442,27 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
             try {
               fresh = sha256Hex(fs.readFileSync(cfg.policyPath));
             } catch (err) {
-              return `策略不可核对（${(err as Error).message}），批准失效，服务管理操作未执行`;
+              return `策略不可核对（${(err as Error).message}），本次授权失效，服务管理操作未执行`;
             }
-            return fresh !== policyRevision ? "服务管理策略在确认期间已变化，原批准失效（未执行）；请重新检查后申请" : null;
+            return fresh !== policyRevision ? "服务管理策略在执行前已变化，本次授权失效（未执行）；请重新检查后执行" : null;
           },
         };
         // 长期授权（issue 10）：宿主逐项核实候选并重建完整范围核验后自动放行
         // （独立的已批准记录 + 单次消费）；无候选或核实不再成立回落人工逐次审批
-        const standing = deps.requestStanding?.(approvalInput) ?? null;
+        const standing = approvalInput.task.accessMode === "full_access" ? null : deps.requestStanding?.(approvalInput) ?? null;
         const approval = standing ?? (await deps.requestApproval(approvalInput));
         if (!approval.approved) failText(approval.text);
-        // 执行参数取自审批保存的不可变快照
+        if (signal?.aborted) failText("任务已停止，服务管理操作未执行；本次授权已认领，不重放");
+        // 执行参数取自授权时保存的不可变快照
         const p = approval.params as typeof snapshot;
         const approvedUnit = String(p.unit);
         const hostOpId = ctx.hostOpId;
         // 授权依据如实标注（issue 10）：本次使用长期授权 vs 拥有者单次批准
-        const grantLink = deps.coreStore.getConfirmation(approval.approvalId);
+        const grantLink = approval.approvalId === null ? null : deps.coreStore.getConfirmation(approval.approvalId);
         const basisLine =
-          grantLink?.decisionSource === "standing_permission" && grantLink.standingPermissionId
+          approval.approvalId === null
+            ? "授权依据：本任务的完全访问授权（执行前已核实任务、权限版本与目标修订）"
+            : grantLink?.decisionSource === "standing_permission" && grantLink.standingPermissionId
             ? `授权依据：长期授权 ${grantLink.standingPermissionId} v${grantLink.standingPermissionVersion}（本次执行前已重新核实授权版本与完整范围）`
             : null;
         registerOp();
@@ -474,11 +478,11 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
           if (!reply.ok) {
             if (reply.launched === false) {
               // helper 明确证明尚未请求 systemd：已知未执行（修订复核/单次执行保护/停止标记拦截）
-              failText(`管理操作未执行：helper 在请求 systemd 前拒绝（${reply.reasonCode ?? "unknown"}：${reply.error ?? "未给出原因"}）。本次批准已消费，再次操作需要新的审批。`);
+              failText(`管理操作未执行：helper 在请求 systemd 前拒绝（${reply.reasonCode ?? "unknown"}：${reply.error ?? "未给出原因"}）。本次授权已认领，重新操作使用新的操作编号。`);
             }
             // 派发后失败或应答缺可信未派发证明：restart 可能已生效，效果未知（不自动重发）
             deps.markEffectUnknown(hostOpId);
-            failText(`管理命令结果未知：helper 应答为派发后失败或未含可信的未派发证明（${reply.reasonCode ?? "unknown"}：${reply.error ?? "未给出原因"}）。restart 可能已生效，不自动重发；请核实后重新申请`);
+            failText(`管理命令结果未知：helper 应答为派发后失败或未含可信的未派发证明（${reply.reasonCode ?? "unknown"}：${reply.error ?? "未给出原因"}）。restart 可能已生效，不自动重发；请核实后再决定是否执行`);
           }
           if (reply.verb !== "restart" || reply.hostOpId !== hostOpId || reply.opUnit !== opUnitFor(hostOpId)) {
             throw new ServiceHelperError("helper 应答的操作 ID 与请求不符", "protocol_error");
@@ -488,12 +492,12 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
           if (err instanceof ServiceHelperError && (err.reasonCode === "timeout" || err.reasonCode === "aborted")) {
             // restart 已消费、命令客户端中断：效果未知，不自动重发
             deps.markEffectUnknown(hostOpId);
-            failText(`管理命令结果未知（helper 调用${err.reasonCode === "timeout" ? "超时" : "被中止"}）：restart 请求可能已提交，不自动重发；请核实后重新申请`);
+            failText(`管理命令结果未知（helper 调用${err.reasonCode === "timeout" ? "超时" : "被中止"}）：restart 请求可能已提交，不自动重发；请核实后再决定是否执行`);
           }
           // 消费后应答协议错误/原始输出未保全：无可信结果，一律效果未知（issue 10）
           if (err instanceof ServiceHelperError && (err.reasonCode === "protocol_error" || err.reasonCode === "capture_failed")) {
             deps.markEffectUnknown(hostOpId);
-            failText(`管理命令结果未知（${err.reasonCode === "protocol_error" ? "helper 应答不可信" : "helper 原始输出未保全"}）：restart 可能已生效，不自动重发；请核实后重新申请`);
+            failText(`管理命令结果未知（${err.reasonCode === "protocol_error" ? "helper 应答不可信" : "helper 原始输出未保全"}）：restart 可能已生效，不自动重发；请核实后再决定是否执行`);
           }
           throw err;
         }

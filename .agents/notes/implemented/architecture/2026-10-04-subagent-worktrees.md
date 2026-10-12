@@ -35,3 +35,7 @@ Git 修改工作可并行保留独立成果，父工作区未提交内容不进�
 ## 验证
 
 [工单 16](../../../../.scratch/agent-direction/issues/16-parallel-worktrees.md)与 smoke-16-parallel-worktrees.mts 记录：test/83 13/13，npm test 904 项中 903 通过、0 失败、1 跳过，typecheck 通过；macOS Docker Desktop 和 ssh tx Linux 原生 Docker（uid/gid 1003）各 9/9。模型模拟，Runtime、文件和受限容器真实；覆盖并行 worktree、非 Git 串行、safe.directory、git commit 与 hooks/config 写入拒绝、宿主不执行植入及零残余容器。
+
+## 适用范围
+
+完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

@@ -59,6 +59,9 @@
  * 固定采用 auto-review；计划行为由模式设置确定，输入文本与继续链不决定模式。
  *
  * v17：会话分支持久名称与来源，完整创建事件、幂等分支查询及历史清单读取。
+ *
+ * v18：手动上下文压缩快速接收、持久结果查询与取消；压缩点区分任务与手动来源。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md
  */
 
 import {

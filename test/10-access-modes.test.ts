@@ -20,7 +20,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -165,43 +164,32 @@ test("continue 新任务默认请求确认，拥有者可显式选择完全访�
   }
 });
 
-test("新旧请求摘要：历史模式变化后仍可重试，显式 Plan 与新请求显隐式模式不得混淆", async () => {
-  const t = await startTestRuntime("mode-digest-upgrade", modeRoutes(), { workDirs: 1 });
+test("提交摘要只接受当前格式：模式变化后重试固定任务，显隐式选择仍有区别", async () => {
+  const t = await startTestRuntime("mode-digest-current", modeRoutes(), { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     t.runtime.store.withTx(() => t.runtime.store.setSessionQueueState(sessionId, "paused", "test"));
     const model = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
-    const params = { session_id: sessionId, request_id: "old-nine", input: "原始请求", model_selection: model };
-    const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-    const oldBase = { input: params.input, accessMode: "confirm", grantedPaths: [], resumesTaskId: null, modelSelection: model };
-    const oldTask = await t.client.request<any>("submit", params);
-    // 真实旧九键格式只保存提交时的最终访问模式，不记录原请求是否显式选择。
-    t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?")
-      .run(hash({ ...oldBase, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null }), oldTask.id);
-    await t.client.request("switch_mode", { task_id: oldTask.id, mode: "full_access" });
+    const params = { session_id: sessionId, request_id: "current-request", input: "原始请求", model_selection: model };
+    const task = await t.client.request<any>("submit", params);
+    assert.match(task.submissionDigest, /^request-v2:/);
+    await t.client.request("switch_mode", { task_id: task.id, mode: "full_access" });
     await t.client.request("set_session_mode", { session_id: sessionId, mode: "plan", expected_version: 0 });
     const retried = await t.client.request<any>("submit", params);
-    assert.equal(retried.id, oldTask.id);
+    assert.equal(retried.id, task.id);
     assert.equal(retried.accessMode, "full_access");
-    assert.equal(retried.planMode, false, "历史重试保留已接收任务，当前 Plan 默认值不参与重建");
+    assert.equal(retried.planMode, false);
     await assert.rejects(t.client.request("submit", { ...params, input: "改变原始请求" }), { code: "request_conflict" });
-
-    const oldFiveParams = { ...params, request_id: "old-five", access_mode: "auto-review" };
-    const oldFiveTask = await t.client.request<any>("submit", oldFiveParams);
-    t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?")
-      .run(hash({ ...oldBase, accessMode: "auto-review" }), oldFiveTask.id);
-    assert.equal((await t.client.request<any>("submit", oldFiveParams)).id, oldFiveTask.id);
-    await assert.rejects(t.client.request("submit", { ...oldFiveParams, input: "改变原始请求" }), { code: "request_conflict" });
-    await assert.rejects(t.client.request("submit", { ...oldFiveParams, access_mode: "plan" }), { code: "request_conflict" });
-
-    const modernParams = { ...params, request_id: "new-request" };
-    const modern = await t.client.request<any>("submit", modernParams);
-    assert.equal(modern.planMode, true);
-    assert.match(modern.submissionDigest, /^request-v2:/);
-    await assert.rejects(t.client.request("submit", { ...modernParams, access_mode: "plan" }), { code: "request_conflict" });
+    const planParams = { ...params, request_id: "plan-request" };
+    const plan = await t.client.request<any>("submit", planParams);
+    assert.equal(plan.planMode, true);
+    await assert.rejects(t.client.request("submit", { ...planParams, access_mode: "plan" }), { code: "request_conflict" });
     await t.client.request("set_session_mode", { session_id: sessionId, mode: "full_access", expected_version: 1 });
-    assert.equal((await t.client.request<any>("submit", modernParams)).id, modern.id);
-    assert.equal(t.runtime.store.listTasksBySession(sessionId).length, 3, "重试与冲突均不新增任务");
+    assert.equal((await t.client.request<any>("submit", planParams)).id, plan.id);
+    // 旧摘要不能按当前默认值补算权限或变成新的合法提交。
+    t.runtime.store.db.prepare("UPDATE tasks SET submission_digest = ? WHERE id = ?").run("legacy-digest", task.id);
+    await assert.rejects(t.client.request("submit", params), { code: "request_conflict" });
+    assert.equal(t.runtime.store.listTasksBySession(sessionId).length, 2);
   } finally { await t.shutdown(); }
 });
 
@@ -481,51 +469,27 @@ test("完全访问任务不逐次确认；缺少执行入口时不静默降级",
     await t.shutdown();
   }
 
-  // 缺少执行账户入口：完全访问提交明确失败，不回退到 local/后台账户
+  // 受限容器不可用不妨碍完全访问使用启动账户。
   const strict = await startTestRuntime("mode-full-nobackend", () => ({ kind: "text", text: "noop" }), {
-    workDirs: 1,
-    config: { execution: { backend: "container" } },
+    workDirs: 1, config: { execution: { backend: "container", container: { dockerPath: "/missing/docker" } } },
   });
   try {
     const { sessionId } = await createProjectSession(strict.client, strict.work[0]!);
-    await assert.rejects(
-      () =>
-        strict.client.request("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-          session_id: sessionId,
-          request_id: "fa-3",
-          input: "以完全访问执行",
-          access_mode: "full_access",
-        }),
-      (err: any) => err.code === "execution_unavailable",
-      "缺少执行入口必须明确失败",
-    );
+    const task = await strict.client.request<any>("submit", {
+      model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
+      session_id: sessionId, request_id: "fa-3", input: "以完全访问执行", access_mode: "full_access",
+    });
+    assert.equal(task.accessMode, "full_access");
+    await waitFor("任务完成", async () => (await taskStatus(strict.client, task.id)).task.status === "completed", 60_000);
   } finally {
     await strict.shutdown();
   }
 });
 
-test("容器后端：部署环境配置受保护提权入口即启用完全访问；缺一个变量明确失败（issue 23）", () => {
-  const keys = ["RUUKOTO_EXEC_LAUNCH_SCRIPT", "RUUKOTO_EXEC_STOP_SCRIPT"] as const;
-  const saved = keys.map((k) => process.env[k]);
-  try {
-    process.env.RUUKOTO_EXEC_LAUNCH_SCRIPT = "/usr/local/libexec/ruukoto/ruukoto-exec-launch";
-    process.env.RUUKOTO_EXEC_STOP_SCRIPT = "/usr/local/libexec/ruukoto/ruukoto-exec-stop";
-    assert.equal(createLauncherFor({ backend: "container" }, "full_access").kind, "systemd");
-
-    delete process.env.RUUKOTO_EXEC_STOP_SCRIPT;
-    assert.throws(
-      () => createLauncherFor({ backend: "container" }, "full_access"),
-      (err: any) =>
-        err.code === "execution_unavailable" &&
-        err.message.includes("RUUKOTO_EXEC_LAUNCH_SCRIPT") &&
-        err.message.includes("RUUKOTO_EXEC_STOP_SCRIPT"),
-    );
-  } finally {
-    keys.forEach((k, i) => {
-      if (saved[i] === undefined) delete process.env[k];
-      else process.env[k] = saved[i];
-    });
-  }
+test("完全访问直接选择当前账户启动器，受限容器仍不降级", () => {
+  assert.equal(createLauncherFor({ backend: "container" }, "full_access").kind, "local");
+  assert.equal(createLauncherFor({ backend: "native" }, "full_access").kind, "local");
+  assert.equal(createLauncherFor({ backend: "container" }, "confirm").kind, "container");
 });
 
 test("控制面拥有者认证：认证前不返回快照、不执行请求", async () => {

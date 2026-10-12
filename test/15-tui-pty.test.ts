@@ -19,7 +19,10 @@ import {
   writeModelsJson,
   waitFor,
   lastUserText,
+  startTestRuntime,
 } from "./helpers/testkit.ts";
+import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+import type { SessionCompactionRequest } from "@ruukoto/core/types.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
@@ -131,11 +134,12 @@ async function runTuiInPty(opts: {
   inputs: Array<[number, string]>;
   expect: string[];
   timeout?: number;
+  product?: "ruukoto" | "ruukoto-code";
 }): Promise<PtyResult> {
   const args = ["tui"];
   if (opts.sessionId) args.push("--session", opts.sessionId);
   const payload = JSON.stringify({
-    cmd: ["npx", "tsx", "apps/ruukoto/src/main.ts", ...args],
+    cmd: ["npx", "tsx", `apps/${opts.product ?? "ruukoto"}/src/main.ts`, ...args],
     env: opts.env,
     inputs: opts.inputs,
     expect: opts.expect,
@@ -157,6 +161,37 @@ async function runTuiInPty(opts: {
     child.on("error", reject);
   });
 }
+
+test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持久结果", { timeout: 60_000 }, async context => {
+  if (!hasPython3()) { context.skip("python3 不可用"); return; }
+  const t = await startTestRuntime("pty-compact", async request => {
+    if (!request.tools?.length) await new Promise(resolve => setTimeout(resolve, 400));
+    return { kind: "text", text: request.tools?.length ? "已有对话回复" : "迁移摘要，保留未完成验证" };
+  }, { config: { product: codeProduct.runtime, socketPath: undefined } });
+  try {
+    const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
+    for (let index = 0; index < 2; index++) {
+      const task = await t.runtime.submit({ sessionId: session.id, requestId: `seed-${index}`, input: `迁移任务 ${index}`, modelSelection: t.runtime.defaultSelection });
+      await waitFor("种子对话完成", () => t.runtime.store.getTask(task.id)!.status === "completed");
+    }
+    const file = t.runtime.store.getSession(session.id)!.sessionFile!;
+    const bytes = fs.readFileSync(file);
+    const calls = t.server.calls.length;
+    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id,
+      env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+      inputs: [[4, "/compact 保留  迁移细节\r"], [10, "/quit\r"]],
+      expect: ["已接收", "上下文已压缩", "已退出 TUI"], timeout: 30 });
+    assert.equal(result.exitCode, 0, result.tail);
+    assert.equal(result.expectSeen, result.expectTotal, result.tail);
+    const request = await t.client.request<SessionCompactionRequest>("get_session_compaction", { session_id: session.id });
+    assert.equal(request.status, "succeeded");
+    assert.equal(request.prompt, "保留  迁移细节");
+    assert.equal(t.server.calls.length, calls + 1);
+    assert.deepEqual(fs.readFileSync(file), bytes);
+    assert.equal(t.runtime.store.listTasksBySession(session.id).length, 2);
+    assert.ok(result.all.includes("\x1b[?1049l"));
+  } finally { await t.shutdown(); }
+});
 
 /** 以独立进程启动真实后台（mock 模型，mock 工具，local 执行后端）。 */
 async function startBackendProcess(dirs: { root: string; dataDir: string; agentDir: string }, baseUrl: string) {

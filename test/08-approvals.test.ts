@@ -15,9 +15,11 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * - 批准的消费资格（store 级）：重复消费、权限版本变化、任务结束均拒绝。
  */
 
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import fsMutable from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as http from "node:http";
@@ -34,7 +36,7 @@ import {
   writeModelsJson,
 } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
-import { Db } from "@ruukoto/core/db.ts";
+import { Db, SCHEMA_VERSION, SchemaVersionError } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { executeApprovedFileOp, executeApprovedHttpRequest, sha256Hex, type FileOpRequest } from "@ruukoto/agent/execution/approved-ops.ts";
 
@@ -82,6 +84,79 @@ function oneToolResponder(name: string, args: Record<string, unknown>): Responde
 }
 
 // ---------- 越界文件操作 ----------
+
+test("文件写入开始后 fsync 失败保留真实改动并报告效果未知；版本拒绝仍已知未执行", () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-file-unknown-")));
+  const file = path.join(root, "file.txt");
+  fs.writeFileSync(file, "old");
+  const st = fs.statSync(file);
+  const request: FileOpRequest = { path: file, access: "read_write", content: "changed", targetDev: st.dev,
+    targetIno: st.ino, originalSha256: sha256Hex("old"), protectedRoots: [] };
+  const fail = mock.method(fsMutable, "fsyncSync", () => { throw new Error("injected-fsync-failure"); });
+  syncBuiltinESMExports();
+  try {
+    const rejected = executeApprovedFileOp({ ...request, targetIno: st.ino + 1 });
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.effectUnknown, undefined);
+    assert.equal(fs.readFileSync(file, "utf8"), "old");
+    const outcome = executeApprovedFileOp(request);
+    assert.equal(outcome.ok, false);
+    assert.equal(outcome.effectUnknown, true);
+    assert.match(outcome.message, /未自动重写/);
+    assert.equal(fs.readFileSync(file, "utf8"), "changed");
+  } finally { fail.mock.restore(); syncBuiltinESMExports(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("schema 直接替换：旧版本与较新版本均拒绝启动，不建表、不回填授权或改写数据", () => {
+  for (const version of [1, 20, SCHEMA_VERSION - 1, SCHEMA_VERSION + 1]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-schema-reject-"));
+    try {
+      const raw = new DatabaseSync(path.join(root, "ruukoto.db"));
+      raw.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      raw.prepare("INSERT INTO meta VALUES ('schema_version', ?)").run(String(version));
+      const before = raw.prepare("SELECT sql FROM sqlite_master ORDER BY name").all();
+      assert.throws(() => new Db(root), (error) => error instanceof SchemaVersionError && error.code === "schema_version_unsupported");
+      assert.deepEqual(raw.prepare("SELECT sql FROM sqlite_master ORDER BY name").all(), before);
+      assert.equal(raw.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()!.value, String(version));
+      raw.close();
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test("完全访问：结构化文件读写和 HTTP 无审批，保护根与符号链接按启动账户可访问", async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-full-ops-")));
+  const service = await startMockService();
+  const target = path.join(root, "external.txt");
+  fs.writeFileSync(target, "outside-value");
+  const calls = [
+    { name: "request_file_access", arguments: { path: path.join(root, "alias", "external.txt"), operation: "read", reason: "读取" } },
+    { name: "request_file_access", arguments: { path: target, operation: "write", content: "full-access-value", reason: "更新" } },
+    { name: "request_file_access", arguments: { path: path.join(root, "new.txt"), operation: "write", content: "new-value", reason: "新建" } },
+    { name: "http_request", arguments: { method: "POST", url: `${service.url}/full`, body: "body", reason: "发送" } },
+  ];
+  const t = await startTestRuntime("full-structured", (req) => {
+    const call = calls[req.messages.filter((m) => m?.role === "tool").length];
+    return call ? { kind: "tool_calls", calls: [{ id: `call_${call.name}_${req.messages.length}`, ...call }] }
+      : { kind: "text", text: "完成" };
+  }, { workDirs: 1, config: realTools() });
+  try {
+    fs.writeFileSync(path.join(t.dirs.dataDir, "external.txt"), "protected-value");
+    fs.symlinkSync(t.dirs.dataDir, path.join(root, "alias"));
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await t.client.request<any>("submit", { session_id: sessionId, request_id: "full",
+      access_mode: "full_access", input: "读取并写入外部文件和发送HTTP",
+      model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
+    await waitFor("完全访问结构化操作完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+    const detail = await taskStatus(t.client, task.id);
+    assert.equal(detail.confirmations.length, 0);
+    assert.equal(detail.toolOps.length, 4);
+    assert.ok(detail.toolOps.every((op: any) => op.isError === false && op.authorization.source === "full_access"));
+    assert.equal(fs.readFileSync(target, "utf8"), "full-access-value");
+    assert.equal(fs.readFileSync(path.join(root, "new.txt"), "utf8"), "new-value");
+    assert.equal(service.hits.get("POST /full"), 1);
+    assert.ok(!t.runtime.store.getTaskEventsAfter(task.id, 0, 1000).some((event) => event.body.type === "task.awaiting_confirmation"));
+  } finally { await t.shutdown(); await service.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test("越界文件读取/写入：形成具体审批，批准后按批准的对象与内容执行一次", async () => {
   // restrictedResolve 拒绝符号链接组件：临时目录统一取 realpath（macOS 的 /var 是符号链接）
@@ -756,101 +831,6 @@ test("DNS 在批准时固定：不可解析目标在提出审批前失败（防�
     assert.match(detail.toolOps[0].resultSummary, /解析失败/);
   } finally {
     await t.shutdown();
-  }
-});
-
-test("SQLite v1→v2 事务迁移：旧任务默认请求确认，旧未决审批失效，历史与事件保留", () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-migrate-")));
-  try {
-    // 手工构造 v1 库（issue 02 模式：任务无访问模式列、审批无范围/版本/消费时间）
-    const raw = new DatabaseSync(path.join(root, "ruukoto.db"));
-    raw.exec(`
-      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      INSERT INTO meta VALUES ('schema_version', '1');
-      CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
-      CREATE TABLE sessions (
-        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
-        cwd TEXT NOT NULL, cwd_real TEXT NOT NULL, cwd_dev INTEGER NOT NULL, cwd_ino INTEGER NOT NULL,
-        pi_session_id TEXT NOT NULL, session_file TEXT,
-        confirm_tools TEXT NOT NULL DEFAULT '[]',
-        queue_state TEXT NOT NULL DEFAULT 'active', queue_pause_reason TEXT, created_at TEXT NOT NULL
-      );
-      CREATE TABLE tasks (
-        id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
-        request_id TEXT NOT NULL, input TEXT NOT NULL,
-        status TEXT NOT NULL, interrupt_reason TEXT,
-        cancel_requested INTEGER NOT NULL DEFAULT 0, effect_unknown INTEGER NOT NULL DEFAULT 0,
-        error_message TEXT, history_entry_ids TEXT NOT NULL DEFAULT '[]', resumes_task_id TEXT,
-        created_at TEXT NOT NULL, started_at TEXT, ended_at TEXT,
-        UNIQUE (session_id, request_id)
-      );
-      CREATE TABLE occupancy (
-        cwd_real TEXT PRIMARY KEY, cwd_dev INTEGER NOT NULL, cwd_ino INTEGER NOT NULL,
-        session_id TEXT NOT NULL, task_id TEXT NOT NULL, acquired_at TEXT NOT NULL
-      );
-      CREATE TABLE confirmations (
-        id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), session_id TEXT NOT NULL,
-        tool_op_id TEXT NOT NULL, tool_name TEXT NOT NULL, params TEXT NOT NULL,
-        status TEXT NOT NULL, created_at TEXT NOT NULL, responded_at TEXT
-      );
-      CREATE TABLE tool_ops (
-        id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
-        tool_name TEXT NOT NULL, params TEXT NOT NULL, intent_recorded_at TEXT NOT NULL,
-        result_summary TEXT, is_error INTEGER, effect_unknown INTEGER NOT NULL DEFAULT 0,
-        recorded_result_at TEXT
-      );
-      CREATE TABLE events (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, session_id TEXT,
-        body TEXT NOT NULL, created_at TEXT NOT NULL
-      );
-      INSERT INTO projects VALUES ('p1', 'legacy', '2026-01-01T00:00:00Z');
-      INSERT INTO sessions (id, project_id, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id, created_at)
-        VALUES ('s1', 'p1', '/w', '/w', 1, 1, 'pi-1', '2026-01-01T00:00:00Z');
-      INSERT INTO tasks (id, session_id, request_id, input, status, created_at)
-        VALUES ('t1', 's1', 'r1', '旧任务输入', 'completed', '2026-01-01T00:00:00Z');
-      INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at)
-        VALUES ('old-op-1', 't1', 'bash', '{}', '2026-01-01T00:00:01Z');
-      INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, status, created_at)
-        VALUES ('c1', 't1', 's1', 'old-op-1', 'mock_gate', '{"note":"x"}', 'pending', '2026-01-01T00:00:02Z');
-      INSERT INTO events (task_id, session_id, body, created_at)
-        VALUES ('t1', 's1', '{"type":"task.completed","taskId":"t1","sessionId":"s1"}', '2026-01-01T00:00:03Z');
-    `);
-    raw.close();
-
-    // 打开即迁移
-    const db = new Db(root);
-    const store = new Store(db);
-    try {
-      const task = store.getTask("t1")!;
-      assert.equal(task.accessMode, "confirm", "旧任务默认请求确认");
-      assert.equal(task.permissionVersion, 1);
-      assert.deepEqual(task.grantedPaths, []);
-      assert.equal(task.modelSelection, null);
-      assert.equal(task.submissionDigest, null);
-      assert.equal(store.getSession("s1")!.modelSelection, null);
-      assert.equal(store.getSession("s1")!.modelSelectionVersion, 0);
-      assert.equal(task.input, "旧任务输入", "历史任务内容保留");
-
-      const op = store.getToolOp("old-op-1")!;
-      assert.equal(op.sdkCallId, "old-op-1", "旧操作以原 id 回填 SDK 调用 id（不丢失关联）");
-
-      const confirmation = store.getConfirmation("c1")!;
-      assert.equal(confirmation.status, "stale", "旧未决审批一律失效");
-      assert.notEqual(confirmation.respondedAt, null);
-
-      const events = store.getEventsAfter(0);
-      assert.ok(events.some((e) => e.body.type === "task.completed"), "历史事件保留");
-
-      // 重复打开（幂等）：已迁移库不再迁移
-      db.close();
-      const db2 = new Db(root);
-      db2.close();
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  } catch (err) {
-    fs.rmSync(root, { recursive: true, force: true });
-    throw err;
   }
 });
 

@@ -7,7 +7,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Session, WorkDelegation, WorkWriteTarget } from "@ruukoto/core/types.ts";
+import type { AccessMode, Session, WorkDelegation, WorkWriteTarget } from "@ruukoto/core/types.ts";
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { grantCoversPath, resolveWorktreeCommonGitDir } from "@ruukoto/core/worktree.ts";
 
@@ -81,6 +81,7 @@ export class WorkCopyManager {
     parentSession: Session,
     workId: string,
     parentTaskId: string,
+    accessMode: AccessMode = "confirm",
   ): Promise<WorkWriteTarget> {
     if (typeof raw !== "string" || !raw.trim()) {
       throw new WorkCopyError("invalid_params", "mode=modify 需要非空 target");
@@ -113,7 +114,7 @@ export class WorkCopyManager {
 
     const repoRoot = this.findRepoRoot(real, parentSession.cwdReal);
     if (!repoRoot) {
-      if (!this.canWrite(real, stat)) {
+      if (!this.canWrite(real, stat, accessMode)) {
         throw new WorkCopyError("forbidden", `实际执行身份不可写：${raw}`);
       }
       return { kind: "direct", path: real, dev: stat.dev, ino: stat.ino };
@@ -124,10 +125,10 @@ export class WorkCopyManager {
     if (!grantCoversPath(parentSession.cwdReal, commonGitDir)) {
       throw new WorkCopyError("forbidden", `共享 Git 目录不在父工作区内：${commonGitDir}（只允许父工作区持有其元数据）`);
     }
-    if (!this.canRead(real, stat)) {
+    if (!this.canRead(real, stat, accessMode)) {
       throw new WorkCopyError("forbidden", `实际执行身份不可读仓库目录：${raw}`);
     }
-    if (!this.canWrite(commonGitDir, fs.statSync(commonGitDir))) {
+    if (!this.canWrite(commonGitDir, fs.statSync(commonGitDir), accessMode)) {
       throw new WorkCopyError("forbidden", `实际执行身份不可写共享 Git 目录：${commonGitDir}`);
     }
 
@@ -252,8 +253,8 @@ export class WorkCopyManager {
     return this.parseIntegrationOutput(result.content);
   }
 
-  canRead(real: string, stat: fs.Stats): boolean {
-    const id = this.deps.executionReaderIdentity?.() ?? null;
+  canRead(real: string, stat: fs.Stats, accessMode: AccessMode = "confirm"): boolean {
+    const id = accessMode === "full_access" ? null : this.deps.executionReaderIdentity?.() ?? null;
     if (!id || process.platform === "darwin") {
       try {
         fs.accessSync(real, fs.constants.R_OK | (stat.isDirectory() ? fs.constants.X_OK : 0));
@@ -267,8 +268,8 @@ export class WorkCopyManager {
     return (bits & need) === need;
   }
 
-  canWrite(real: string, stat: fs.Stats): boolean {
-    const id = this.deps.executionReaderIdentity?.() ?? null;
+  canWrite(real: string, stat: fs.Stats, accessMode: AccessMode = "confirm"): boolean {
+    const id = accessMode === "full_access" ? null : this.deps.executionReaderIdentity?.() ?? null;
     if (!id || process.platform === "darwin") {
       try {
         fs.accessSync(real, fs.constants.W_OK | (stat.isDirectory() ? fs.constants.X_OK : 0));

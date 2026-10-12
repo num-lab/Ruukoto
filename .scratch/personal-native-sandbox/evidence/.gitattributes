@@ -1,0 +1,2 @@
+# 原始终端输出保留 CR 和空白，不作文本换行转换。
+*.log -text -whitespace

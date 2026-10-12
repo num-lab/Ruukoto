@@ -3,11 +3,12 @@
  *
  * 该模块只知道工作副本的文件系统与受限执行边界；工作归属、任务状态和
  * integrated 事件仍由 SubAgentManager 管理。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AccessMode, Session, WorkDelegation, WorkWriteTarget } from "@ruukoto/core/types.ts";
+import type { Session, WorkDelegation, WorkWriteTarget } from "@ruukoto/core/types.ts";
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { grantCoversPath, resolveWorktreeCommonGitDir } from "@ruukoto/core/worktree.ts";
 
@@ -27,7 +28,6 @@ export interface WorkCopyExecutor {
 export interface WorkCopyDeps {
   worktreeRoot: string;
   protectedRoots: () => string[];
-  executionReaderIdentity?: () => { uid: number; gid: number } | null;
   execute?: WorkCopyExecutor;
 }
 
@@ -81,7 +81,6 @@ export class WorkCopyManager {
     parentSession: Session,
     workId: string,
     parentTaskId: string,
-    accessMode: AccessMode = "confirm",
   ): Promise<WorkWriteTarget> {
     if (typeof raw !== "string" || !raw.trim()) {
       throw new WorkCopyError("invalid_params", "mode=modify 需要非空 target");
@@ -114,7 +113,7 @@ export class WorkCopyManager {
 
     const repoRoot = this.findRepoRoot(real, parentSession.cwdReal);
     if (!repoRoot) {
-      if (!this.canWrite(real, stat, accessMode)) {
+      if (!this.canWrite(real, stat)) {
         throw new WorkCopyError("forbidden", `实际执行身份不可写：${raw}`);
       }
       return { kind: "direct", path: real, dev: stat.dev, ino: stat.ino };
@@ -125,10 +124,10 @@ export class WorkCopyManager {
     if (!grantCoversPath(parentSession.cwdReal, commonGitDir)) {
       throw new WorkCopyError("forbidden", `共享 Git 目录不在父工作区内：${commonGitDir}（只允许父工作区持有其元数据）`);
     }
-    if (!this.canRead(real, stat, accessMode)) {
+    if (!this.canRead(real, stat)) {
       throw new WorkCopyError("forbidden", `实际执行身份不可读仓库目录：${raw}`);
     }
-    if (!this.canWrite(commonGitDir, fs.statSync(commonGitDir), accessMode)) {
+    if (!this.canWrite(commonGitDir, fs.statSync(commonGitDir))) {
       throw new WorkCopyError("forbidden", `实际执行身份不可写共享 Git 目录：${commonGitDir}`);
     }
 
@@ -253,34 +252,22 @@ export class WorkCopyManager {
     return this.parseIntegrationOutput(result.content);
   }
 
-  canRead(real: string, stat: fs.Stats, accessMode: AccessMode = "confirm"): boolean {
-    const id = accessMode === "full_access" ? null : this.deps.executionReaderIdentity?.() ?? null;
-    if (!id || process.platform === "darwin") {
-      try {
-        fs.accessSync(real, fs.constants.R_OK | (stat.isDirectory() ? fs.constants.X_OK : 0));
-        return true;
-      } catch {
-        return false;
-      }
+  canRead(real: string, stat: fs.Stats): boolean {
+    try {
+      fs.accessSync(real, fs.constants.R_OK | (stat.isDirectory() ? fs.constants.X_OK : 0));
+      return true;
+    } catch {
+      return false;
     }
-    const need = stat.isDirectory() ? 0o5 : 0o4;
-    const bits = stat.uid === id.uid ? (stat.mode >> 6) & 0o7 : stat.gid === id.gid ? (stat.mode >> 3) & 0o7 : stat.mode & 0o7;
-    return (bits & need) === need;
   }
 
-  canWrite(real: string, stat: fs.Stats, accessMode: AccessMode = "confirm"): boolean {
-    const id = accessMode === "full_access" ? null : this.deps.executionReaderIdentity?.() ?? null;
-    if (!id || process.platform === "darwin") {
-      try {
-        fs.accessSync(real, fs.constants.W_OK | (stat.isDirectory() ? fs.constants.X_OK : 0));
-        return true;
-      } catch {
-        return false;
-      }
+  canWrite(real: string, stat: fs.Stats): boolean {
+    try {
+      fs.accessSync(real, fs.constants.W_OK | (stat.isDirectory() ? fs.constants.X_OK : 0));
+      return true;
+    } catch {
+      return false;
     }
-    const need = stat.isDirectory() ? 0o3 : 0o2;
-    const bits = stat.uid === id.uid ? (stat.mode >> 6) & 0o7 : stat.gid === id.gid ? (stat.mode >> 3) & 0o7 : stat.mode & 0o7;
-    return (bits & need) === need;
   }
 
   private parseIntegrationOutput(content: string): WorkCopyIntegration {

@@ -1,0 +1,191 @@
+
+> ruukoto-workspace@0.1.0 test:upgrade
+> tsx verification/smoke/smoke-24-release-acceptance.mts --upgrade-only
+
+[ruukoto:smoke24] 环境：darwin arm64，Node v24.15.0；升级基点 8bccb8f
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs  14.9kb
+
+⚡ Done in 4ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 742B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 1.7kB src/product.ts
+npm notice 22.2kB src/scheduler-tools.ts
+npm notice 27.4kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 17.0 kB
+npm notice unpacked size: 52.9 kB
+npm notice shasum: f09e5d2cda831a20fd8d7ed08da4de02d5840d7a
+npm notice integrity: sha512-r7F1CIGXZ+t8f[...]Drp3PJ/ivcI6A==
+npm notice total files: 7
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 73.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 21.4 kB
+npm notice unpacked size: 75.6 kB
+npm notice shasum: d780c52556329160b888cb6824d9a983e586ddbd
+npm notice integrity: sha512-qwruE5lTfP9M4[...]YttgTrg/vDqSA==
+npm notice total files: 6
+npm notice
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs  14.9kb
+
+⚡ Done in 4ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 742B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 1.7kB src/product.ts
+npm notice 22.2kB src/scheduler-tools.ts
+npm notice 27.4kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 17.0 kB
+npm notice unpacked size: 52.9 kB
+npm notice shasum: f09e5d2cda831a20fd8d7ed08da4de02d5840d7a
+npm notice integrity: sha512-r7F1CIGXZ+t8f[...]Drp3PJ/ivcI6A==
+npm notice total files: 7
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 73.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 21.4 kB
+npm notice unpacked size: 75.6 kB
+npm notice shasum: d780c52556329160b888cb6824d9a983e586ddbd
+npm notice integrity: sha512-qwruE5lTfP9M4[...]YttgTrg/vDqSA==
+npm notice total files: 6
+npm notice
+[ruukoto:smoke24] PASS 两份独立安装以各自配置、数据、控制面并存且实例标识不同
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs  14.9kb
+
+⚡ Done in 4ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 742B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.2kB src/scheduler-tools.ts
+npm notice 27.4kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 17.0 kB
+npm notice unpacked size: 53.0 kB
+npm notice shasum: 96c7dc43d703846591f18f047d68593d75dc26d5
+npm notice integrity: sha512-pY0aEBCNKyiPN[...]NpBienQ62qBGQ==
+npm notice total files: 7
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 73.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 21.4 kB
+npm notice unpacked size: 75.6 kB
+npm notice shasum: d780c52556329160b888cb6824d9a983e586ddbd
+npm notice integrity: sha512-qwruE5lTfP9M4[...]YttgTrg/vDqSA==
+npm notice total files: 6
+npm notice
+[ruukoto:smoke24] PASS ruukoto-code 从 8bccb8f 独立升级到当前源码，另一端未重启且停端期间仍完成任务
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs  14.9kb
+
+⚡ Done in 5ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 742B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.2kB src/scheduler-tools.ts
+npm notice 27.4kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 17.0 kB
+npm notice unpacked size: 53.0 kB
+npm notice shasum: 96c7dc43d703846591f18f047d68593d75dc26d5
+npm notice integrity: sha512-pY0aEBCNKyiPN[...]NpBienQ62qBGQ==
+npm notice total files: 7
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 73.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 21.4 kB
+npm notice unpacked size: 75.6 kB
+npm notice shasum: d780c52556329160b888cb6824d9a983e586ddbd
+npm notice integrity: sha512-qwruE5lTfP9M4[...]YttgTrg/vDqSA==
+npm notice total files: 6
+npm notice
+[ruukoto:smoke24] PASS ruukoto 从 8bccb8f 独立升级到当前源码，另一端未重启且停端期间仍完成任务
+[ruukoto:smoke24] PASS 升级前历史可查，分别停止，个人端离线后编码端完成本地任务
+[ruukoto:smoke24] 结果：4/4 通过；真实 IM 未涉及；模式：模拟模型升级
+[ruukoto:smoke24] 预期保留异常占用档案 /private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk24-4M7X6K；任务 task_83dd0c5fddaf5e47a785d3f8, task_a0f9ae21c86db73ce91ebdf6

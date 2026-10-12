@@ -22,7 +22,6 @@
     "setup": "node scripts/setup.mjs",
     "build": "npm run build:native && npm run build:worker && npm run build --workspaces --if-present",
     "build:native": "node scripts/build-native.mjs",
-    "build:worker-image": "bash deploy/worker-image/build.sh",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck",
     "test": "node scripts/check-environment.mjs && npm run test:app && npm run test:foundation",
@@ -37,12 +36,12 @@
     "verify-md-wrap": "tsx scripts/verify-md-wrap.ts",
     "verify-notes": "tsx .agents/skills/maintain-notes/scripts/verify-agent-note-tree.ts && tsx .agents/skills/maintain-notes/scripts/verify-agent-note-format.ts && tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts",
     "check": "node scripts/check-environment.mjs && npm run build && npm run check:static && npm test",
-    "test:docker": "tsx verification/smoke/smoke-04-desktop-execution.mts && tsx verification/smoke/smoke-13-subagent-messaging.mts && tsx verification/smoke/smoke-15-recover-subagents.mts && tsx verification/smoke/smoke-18-im-final-delivery.mts",
     "test:upgrade": "tsx verification/smoke/smoke-24-release-acceptance.mts --upgrade-only",
     "test:release-model": "tsx verification/smoke/smoke-24-release-acceptance.mts",
     "linux:probes": "npm --prefix verification/foundation run linux:probes",
     "test:model": "RUN_MODEL_CHECK=1 tsx --test test/06-connectivity.test.ts",
-    "build:worker": "esbuild packages/agent/src/tool-worker/worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outfile=worker/worker.mjs"
+    "build:worker": "esbuild packages/agent/src/tool-worker/worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outfile=worker/worker.mjs",
+    "test:native": "tsx verification/smoke/smoke-04-desktop-execution.mts && tsx verification/smoke/smoke-13-subagent-messaging.mts && tsx verification/smoke/smoke-15-recover-subagents.mts && tsx verification/smoke/smoke-18-im-final-delivery.mts && tsx verification/smoke/smoke-28-personal-native.mts"
   },
   "dependencies": {
     "@ruukoto/core": "*",

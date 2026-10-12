@@ -539,7 +539,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     name: "subagent_integrate",
     label: "subagent_integrate",
     description:
-      "把本会话登记的一项 worktree 修改工作的副本改动汇回当前工作区：宿主在受限容器里取副本相对基线的完整差异，" +
+      "把本会话登记的一项 worktree 修改工作的副本改动汇回当前工作区：宿主经工具工作进程取副本相对基线的完整差异，" +
       "能干净套用才写入你的待提交改动区（不代提交、不强制覆盖）；同文件已有本地改动或此前已部分汇总时拒绝并点名冲突文件，" +
       "双方成果都保留供处理；完整差异已在工作区时按幂等返回不重复写入；取消过的工作与已关闭的 SubAgent 也可以汇总（成果可找回）。" +
       "非 Git 直接写入的工作没有副本，调用只会如实告知。" +

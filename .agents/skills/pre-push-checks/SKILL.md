@@ -39,7 +39,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `scripts/` 的门禁或生成器 | 该脚本自身，加一个故意失败的负例证明它会红 |
 | `verification/foundation/` | `npm run test:foundation` |
 | `verification/smoke/` | 该 smoke 入口；需要 Docker、凭据或真实平台时先确认前提，缺前提报告「不可用」，不记为通过 |
-| `deploy/` | 相关 README 的步骤能否仍被执行；改 systemd 单元或镜像另加 `npm run build:worker-image`（需 Docker） |
+| `deploy/` | 相关 README 的步骤能否仍被执行；改 systemd 单元时加 `npm run build`、替换实际账户与 Node 路径后的模板核实，并按实际账户演练原生前置与 scope 停止 |
 | `package.json` 的 scripts、依赖、构建入口 | `npm run build`，加 `npm run lint` 与 `npm run typecheck` |
 
 `.scratch/` 的工单与证据不改行为，不需要跑检查；其中的验证记录要区分模拟结果与真实环境结果。

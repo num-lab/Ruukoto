@@ -1,0 +1,61 @@
+Oct 12 03:13:39 ruukoto-native-isolated node[1482]: }
+Oct 12 03:13:39 ruukoto-native-isolated node[1482]: Node.js v24.21.0
+Oct 12 03:13:40 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Main process exited, code=exited, status=1/FAILURE
+Oct 12 03:13:41 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Failed with result 'exit-code'.
+Oct 12 03:13:41 ruukoto-native-isolated systemd[1]: Failed to start ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification.
+Oct 12 03:13:41 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Consumed 19.107s CPU time, 45.9M memory peak, 0B memory swap peak.
+Oct 12 03:14:44 ruukoto-native-isolated systemd[1]: Starting ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification...
+Oct 12 03:15:23 ruukoto-native-isolated node[1687]: {"pass":true,"bootId":"740c7f3a-1a40-4df5-8bd3-7462fb3faf04","uid":999,"cgroup":"/user.slice/user-999.slice/user@999.service/app.slice/ruukoto-native-622155a0-f021-4509-b0d3-2c7b1e572073.scope","time":"2026-10-12T03:15:23.211Z","userState":"State=lingering\nSessions=\nLinger=yes"}
+Oct 12 03:15:23 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Deactivated successfully.
+Oct 12 03:15:23 ruukoto-native-isolated systemd[1]: Finished ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification.
+Oct 12 03:15:23 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Consumed 9.114s CPU time.
+Oct 12 03:16:49 ruukoto-native-isolated systemd[1]: Starting ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification...
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]: /opt/ruukoto/packages/agent/src/execution/native-linux.ts:79
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     throw new ExecutionError("execution_unavailable", "Linux 原生执行缺少 bwrap 的 AppArmor userns 配置；按 deploy/native 安装后重试", undefined, "policy_missing");
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:           ^
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]: ExecutionError: Linux 原生执行缺少 bwrap 的 AppArmor userns 配置；按 deploy/native 安装后重试
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     at prerequisites (/opt/ruukoto/packages/agent/src/execution/native-linux.ts:79:11)
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     at launchLinuxNative (/opt/ruukoto/packages/agent/src/execution/native-linux.ts:88:9)
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     at Object.launch (/opt/ruukoto/packages/agent/src/execution/native.ts:282:17)
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     at async ToolWorkerHost.startUnit (/opt/ruukoto/packages/agent/src/tool-worker/host.ts:111:21)
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     at async <anonymous> (/opt/ruukoto/reboot-worker.mts:18:3) {
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:   unit: undefined,
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:   reason: 'policy_missing',
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:   code: 'execution_unavailable'
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]: }
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]: Node.js v24.21.0
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Main process exited, code=exited, status=1/FAILURE
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Failed with result 'exit-code'.
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: Failed to start ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification.
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Consumed 3.563s CPU time.
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     at async ToolWorkerHost.startUnit (/opt/ruukoto/packages/agent/src/tool-worker/host.ts:111:21)
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:     at async <anonymous> (/opt/ruukoto/reboot-worker.mts:18:3) {
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:   unit: undefined,
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:   reason: 'policy_missing',
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]:   code: 'execution_unavailable'
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]: }
+Oct 12 03:16:53 ruukoto-native-isolated node[1737]: Node.js v24.21.0
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Main process exited, code=exited, status=1/FAILURE
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Failed with result 'exit-code'.
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: Failed to start ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification.
+Oct 12 03:16:53 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Consumed 3.563s CPU time.
+Oct 12 03:16:54 ruukoto-native-isolated systemd[1]: Starting ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification...
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]: /opt/ruukoto/packages/agent/src/execution/native-linux.ts:75
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:     catch { throw new ExecutionError("execution_unavailable", "Linux 原生执行缺少 bubblewrap 或 user systemd；见 deploy/native", undefined, "binary_missing"); }
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:                   ^
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]: ExecutionError: Linux 原生执行缺少 bubblewrap 或 user systemd；见 deploy/native
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:     at prerequisites (/opt/ruukoto/packages/agent/src/execution/native-linux.ts:75:19)
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:     at launchLinuxNative (/opt/ruukoto/packages/agent/src/execution/native-linux.ts:88:9)
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:     at Object.launch (/opt/ruukoto/packages/agent/src/execution/native.ts:282:17)
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:     at async ToolWorkerHost.startUnit (/opt/ruukoto/packages/agent/src/tool-worker/host.ts:111:21)
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:     at async <anonymous> (/opt/ruukoto/reboot-worker.mts:18:3) {
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:   unit: undefined,
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:   reason: 'binary_missing',
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]:   code: 'execution_unavailable'
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]: }
+Oct 12 03:16:57 ruukoto-native-isolated node[1753]: Node.js v24.21.0
+Oct 12 03:16:57 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Main process exited, code=exited, status=1/FAILURE
+Oct 12 03:16:57 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Failed with result 'exit-code'.
+Oct 12 03:16:57 ruukoto-native-isolated systemd[1]: Failed to start ruukoto-native-reboot-worker.service - Isolated ruukoto native service verification.
+Oct 12 03:16:57 ruukoto-native-isolated systemd[1]: ruukoto-native-reboot-worker.service: Consumed 3.607s CPU time.
+PREREQUISITE_REFUSALS_COMPLETED

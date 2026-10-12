@@ -1,0 +1,37 @@
+#cloud-config
+hostname: ruukoto-native-isolated
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHUMAjKl1evk7X1tSaHU4ciID7uK5N3OeQo2AqujV5Qb eitrous@BJ-Tencent
+  - name: ruukoto-native-check
+    system: true
+    shell: /usr/sbin/nologin
+    homedir: /var/lib/ruukoto-native-check
+packages:
+  - bubblewrap
+  - git
+  - dbus-user-session
+write_files:
+  - path: /etc/apparmor.d/ruukoto-bwrap
+    permissions: '0644'
+    content: |
+      abi <abi/4.0>,
+      include <tunables/global>
+      profile ruukoto-bwrap /usr/bin/bwrap flags=(unconfined) {
+        userns,
+      }
+runcmd:
+  - [mkdir, -p, /mnt/host]
+  - [mount, -t, 9p, -o, "trans=virtio,version=9p2000.L,ro", ruukoto-share, /mnt/host]
+  - [mkdir, -p, /opt/ruukoto]
+  - "tar -C /mnt/host/repo --exclude=node_modules -cf - . | tar -C /opt/ruukoto -xf -"
+  - [mkdir, -p, /opt/ruukoto/node_modules]
+  - [mount, --bind, /mnt/host/repo/node_modules, /opt/ruukoto/node_modules]
+  - [cp, /mnt/host/node, /usr/local/bin/node]
+  - [chmod, '0755', /usr/local/bin/node]
+  - [apparmor_parser, -r, /etc/apparmor.d/ruukoto-bwrap]
+  - [loginctl, enable-linger, ruukoto-native-check]
+  - "printf 'CLOUD_READY boot_id='; cat /proc/sys/kernel/random/boot_id"

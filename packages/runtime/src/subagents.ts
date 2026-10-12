@@ -421,7 +421,7 @@ export class SubAgentManager {
     const check = await this.deps.resolveSelection(selection);
     const deadline = new Date(Date.parse(parent.startedAt ?? parent.createdAt) + SUBAGENT_LIMITS.deadlineMs).toISOString();
 
-    // —— 修改委派（issue 16）：写入目标在事务外准备（worktree 容器创建或
+    // —— 修改委派（issue 16）：写入目标在事务外准备（worker 创建 worktree 或
     // 非 Git 写预检），事务内钉定；继续委派沿用工作原有 writeTarget ——
     let writeTarget: WorkWriteTarget | null = reusedWork?.writeTarget ?? null;
     if (mode === "modify") {
@@ -433,7 +433,7 @@ export class SubAgentManager {
         }
       } else {
         try {
-          writeTarget = await this.workCopies.prepareWriteTarget(input.target, parentSession, workId, parent.id, parent.accessMode);
+          writeTarget = await this.workCopies.prepareWriteTarget(input.target, parentSession, workId, parent.id);
         } catch (err) {
           if (err instanceof WorkCopyError) throw new SubAgentDelegationError(err.code, err.message);
           throw err;
@@ -1026,7 +1026,7 @@ export class SubAgentManager {
    * - 套用前核实：工作有活动任务拒绝（busy）；副本 realpath/dev/ino 与 `.git`
    *   指向逐项复核（worktree_gone，不自动重建、不凭旧记录套用）；原工作区的
    *   仓库根仍在父会话工作区内且可读；
-   * - 容器命令（宿主固定，宿主永不执行 git）：副本内 `add -N`（含未跟踪）
+   * - worker 命令（宿主固定，宿主永不执行 git）：副本内 `add -N`（含未跟踪）
    *   → 对基线取完整二进制 diff + numstat → 父仓库 `apply --check` 预检，
    *   能干净套用才写入（git apply 预检失败不落任何字节）——父工作区同文件的
    *   本地改动不被覆盖；完整差异已在工作区时按幂等返回 already，不重复登记；
@@ -1039,7 +1039,7 @@ export class SubAgentManager {
    * ponytail: 套用的是「副本此刻对基线的全差异」——汇总后又继续委派产生新
    * 改动时，再次汇总会命中冲突（已套用的 hunks 挡路），此时按冲突如实报告
    * 双方保留，由主 Agent 用自己的工具核对差异处理；不引入增量汇总状态。
-   * 登记 busy 检查与容器套用之间登记的新执行可能让副本在套用后继续变化：
+   * 登记 busy 检查与 worker 套用之间登记的新执行可能让副本在套用后继续变化：
    * 副本原样保留、事件钉定基线与文件清单，事后可核对，不加锁。
    */
   async integrate(input: { workId: string; parentTaskId: string; parentSessionId: string }): Promise<WorkIntegration> {
@@ -1236,8 +1236,8 @@ export class SubAgentManager {
       if (seen.has(real)) continue;
       seen.add(real);
       const stat = fs.statSync(real);
-      if (!this.workCopies.canRead(real, stat, parent.accessMode)) {
-        throw new SubAgentDelegationError("forbidden", `实际执行身份不可读：${raw}（权限位不满足当前执行身份）`);
+      if (!this.workCopies.canRead(real, stat)) {
+        throw new SubAgentDelegationError("forbidden", `实际执行身份不可读：${raw}（请核实当前账户的目录权限与 ACL）`);
       }
       out.push({ path: real, dev: stat.dev, ino: stat.ino, purpose: "委派时选定的只读资料" });
     }

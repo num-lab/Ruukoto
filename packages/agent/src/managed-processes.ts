@@ -1,22 +1,23 @@
 /**
  * 受管执行单元登记表（每会话一份）。
  *
- * 工具执行环境在此登记可回收身份：POSIX 进程组（本地工作进程）、容器
- * （任务容器）或 systemd 单元（原生 user scope、服务命令）；starting
+ * 工具执行环境在此登记可回收身份：本地进程组、macOS 原生监督器或
+ * systemd 单元（原生 user scope、服务命令）；starting
  * 是启动中的占位——ready 之前的执行单元也在停止路径覆盖内，不存在
  * 「已落库的工具意图却找不到可回收身份」的窗口。停止路径对执行单元先
  * TERM 后 KILL（或等价的整单元停止），只有确认整个单元（含其子进程/
  * cgroup）已退出才允许释放目录占用。无法确认退出时保留占用并报错
  * ——仅杀主进程或等待主 PID 消失不足以证明后代已退出。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
  */
 
 import * as childProcess from "node:child_process";
 
-export type ManagedUnitKind = "process_group" | "container" | "systemd_unit" | "starting";
+export type ManagedUnitKind = "process_group" | "systemd_unit" | "starting";
 
 export interface ManagedEntry {
   kind: ManagedUnitKind;
-  /** 进程组 id（=主 pid）或容器名/容器 id。 */
+  /** 本地进程组或原生监督器 PID、systemd 单元名，或 starting 的独立身份。 */
   id: string;
   label: string;
   /** 停止并核实整个执行单元已退出；false = 无法确认。 */
@@ -24,7 +25,7 @@ export interface ManagedEntry {
 }
 
 export interface ManagedProcessRegistry {
-  /** 登记一个可回收的执行单元（工具进程组或任务容器）。 */
+  /** 登记一个可回收的执行单元或启动占位。 */
   register(entry: ManagedEntry): void;
   /** 任务结束清扫：登记表内容（正常结束的执行单元应已自行退出）。 */
   list(): ManagedEntry[];

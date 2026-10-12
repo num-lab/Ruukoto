@@ -2,17 +2,17 @@
 
 ## 职责与边界
 
-本篇负责把编码工具 `read` / `edit` / `write` / `bash` 的完整执行放进独立工具工作进程，再按后端与访问模式提供执行边界。受限任务可经 `native` 使用 macOS Seatbelt 或 Linux bubblewrap，个人 Agent 的 `container` 仍使用每任务 Linux 容器；完全访问使用启动后台的当前账户，不施加任务沙箱。它同时负责进程间协议、沿发起任务模式执行的 worktree 创建与汇总、目录身份复核、防旁路与整个执行单元的停止核实。
+本篇负责把编码工具 `read` / `edit` / `write` / `bash` 的完整执行放进独立工具工作进程，再按后端与访问模式提供执行边界。两个产品的受限任务均经 `native` 使用 macOS Seatbelt 或 Linux bubblewrap；完全访问使用启动后台的当前账户，不施加任务沙箱。它同时负责进程间协议、沿发起任务模式执行的 worktree 创建与汇总、目录身份复核、防旁路与整个执行单元的停止核实。
 
 不负责的部分点名归属：工具的类别清单、可用性判定与执行画像归 [agent-tools](agent-tools.md)；审批闸门、是否需要审批与 auto-review 策略同样归 [agent-tools](agent-tools.md)，本篇只写越界操作在**执行侧**怎样落地——越界的外部文件读写与单次 HTTP 请求由后台的受信执行器完成，不进工作进程，参数不可替换、批准单次消费，闸门与策略见 [agent-tools](agent-tools.md)。委派语义（`mode`、`target`、写入目标钉定、目录占用键与串行规则）归 [runtime](runtime.md)；任务的访问模式、权限版本与提交幂等也归 [runtime](runtime.md)，本篇只承担它们在执行侧的后果：同一任务内按任务 ID、访问模式与授予路径复用工作进程，模式或授予范围变化时先停旧执行单元、核实已退出，再建立新环境。
 
-`local` 后端以当前账户 spawn 一个独立进程组，没有隔离，只用于开发与验证；它生效时启动打印无隔离警告，不得据此宣称受限边界已经生效。
+`local` 后端以当前账户 spawn 一个独立进程组，没有隔离，供完全访问与库层离线测试使用；正式受限入口拒绝 local，不得据此宣称受限边界已经生效。
 
 ## 对外接口
 
 | 调用方 | 入口 | 说明 |
 |---|---|---|
-| Runtime | `createLauncherFor(config, mode)`、`Runtime.launcherFor(mode)` | `native` 与 `container` 的受限任务进入各自边界，`full_access` 共用当前账户启动器；`local` 只供库层开发与验证 |
+| Runtime | `createLauncherFor(config, mode)`、`Runtime.launcherFor(mode)` | `native` 的受限任务进入原生边界，`full_access` 共用当前账户启动器；`local` 只供库层开发与验证 |
 | 后台（Driver、ToolRouter、委派流程） | `ToolWorkerHost.create(launcher, spec)`、`host.start()` | 先创建并登记宿主记录，再启动并等 `ready`；30 秒未就绪抛 `worker_timeout`，启动失败保留原原因与停止结论 |
 | 后台 | `ToolWorkerHost.call({ opId, sdkCallId, name, params, timeoutMs })` | 发出一次工具调用；`opId` 是宿主分配的操作 ID、协议关联键，`sdkCallId` 只供上游工具内部使用、不作身份；超时抛 `tool_timeout` 并发出 `abort` |
 | 后台 | `ToolWorkerHost.abort(opId)`、`ToolWorkerHost.stop()` | 中止单次调用；停止时发 `shutdown` 并停掉整个执行单元 |
@@ -21,7 +21,7 @@
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
 
-相关的配置键：`RUUKOTO_EXECUTION_BACKEND`、`RUUKOTO_WORKER_IMAGE`、`RUUKOTO_CONTAINER_UID` / `RUUKOTO_CONTAINER_GID`、`RUUKOTO_DOCKER_PATH`。运行入口、部署步骤与镜像构建见 [usage](../usage.md)。
+正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
 
 进程间是一条有界消息协议（`packages/agent/src/tool-worker/protocol.ts`）：stdio 上换行分帧的 JSON。
 
@@ -37,7 +37,7 @@
 | | `result` | `opId`、`ok`、`content`、可选 `details`、`isError`、`errorMessage` |
 | | `fatal` | `message` |
 
-错误码：`execution_unavailable`（缺少受限后端、策略或镜像）、`invalid_state`（启动器与模式不匹配）、`worker_timeout`（工作进程未就绪）、`tool_timeout`（调用超时）、`worktree_failed`（副本创建失败）、`worktree_gone`（副本目录被替换、删除或 `.git` 指向变化）。原生不可用另带 `binary_missing`、`policy_missing`、`sandbox_rejected` 或 `worker_failed` 原因；按进入受限 Node 的启动标记区分策略拒绝与 worker 失败，不解析 stderr 文案。
+错误码：`execution_unavailable`（缺少受限后端、策略或宿主运行依赖）、`invalid_state`（启动器与模式不匹配）、`worker_timeout`（工作进程未就绪）、`tool_timeout`（调用超时）、`worktree_failed`（副本创建失败）、`worktree_gone`（副本目录被替换、删除或 `.git` 指向变化）。原生不可用另带 `binary_missing`、`policy_missing`、`sandbox_rejected` 或 `worker_failed` 原因；按进入受限 Node 的启动标记区分策略拒绝与 worker 失败，不解析 stderr 文案。
 
 ## 数据与状态
 
@@ -45,15 +45,15 @@
 
 | 字段 | 含义 |
 |---|---|
-| `taskId` | 启动身份，作为容器名与 systemd 单元名的来源；普通 worker 用任务 ID，worktree 临时 worker 加独立后缀，生命周期仍归属实际父任务 |
-| `mode` | 原生与容器启动器接受受限访问策略 `confirm` / `auto-review`；计划模式使用后一策略；当前账户启动器接受 `full_access` |
+| `taskId` | 启动身份，用于关联任务及执行单元标签；普通 worker 用任务 ID，worktree 临时 worker 加独立后缀，生命周期仍归属实际父任务 |
+| `mode` | 原生启动器接受受限访问策略 `confirm` / `auto-review`；计划模式使用后一策略；当前账户启动器接受 `full_access` |
 | `workspace` | 授权工作区（realpath），也是工具执行目录 |
 | `grantedPaths` | 拥有者为任务显式授予的工作区外路径，每项带 `path` / `access` / `purpose`，只读范围由平台策略或只读挂载实施；native 宿主在 launch 前保存每项 dev/ino，供每调用前复核 |
-| `readRoots` | 宿主钉定的额外只读根（SubAgent 限定的资料范围、worktree 的共享 Git 目录），可带 dev/ino 供 `init` 复核 |
+| `readRoots` | 宿主钉定的额外只读根（SubAgent 限定的资料范围、worktree 的共享 Git 目录），可带 dev/ino 供 `init` 复核；只读材料分析即使没有额外路径也显式下发空列表，由 worker 钉定其工作目录 |
 | `workspaceIdentity` | 宿主钉定的工作区目录身份（dev/ino），供 `init` 复核 cwd |
 | `env` | 宿主注入的环境聚合包，只在 worktree 副本创建与挂载副本的任务里出现（`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0=safe.directory=*`）；其余任务恒为空，且不进工作进程复用键 |
 
-受管执行单元登记表记录四种身份：`process_group`（local 进程组或 macOS 原生监督器，原生停止由监督器核实全部已归属后代）、`container`（按容器名停止）、`systemd_unit`（Linux 原生 user scope 或服务 helper 命令单元）、`starting`（ready 前的占位，同样参与停止）。原生执行每单元持有独立 HOME 与 TMPDIR，临时资料仅在停止已核实时删除；未核实时与目录占用一起保留。
+受管执行单元登记表记录三种身份：`process_group`（local 进程组或 macOS 原生监督器，原生停止由监督器核实全部已归属后代）、`systemd_unit`（Linux 原生 user scope 或服务 helper 命令单元）、`starting`（ready 前的占位，同样参与停止）。原生执行每单元持有独立 HOME 与 TMPDIR，临时资料仅在停止已核实时删除；未核实时与目录占用一起保留。
 
 local 的原进程组停止在 TERM/KILL 阶段预算内持续核实，短暂查询失败不会提前结束等待；查询超时与轮询休眠按剩余预算收紧，每阶段至少核实一次，预算耗尽后不再重查。成功查询确认无可执行成员或原组不存在才算已退出；仍无法核实时保留占用，不把查询错误当作退出证据。
 
@@ -104,7 +104,7 @@ sequenceDiagram
 
 ### 原生受限执行
 
-`ruukoto-code` 正式入口默认 `native`，`--execution` 与 `RUUKOTO_EXECUTION_BACKEND` 只接受 native；显式 container/local 被拒并提示迁移，库层仍可注入 local。原生 worker 使用实际宿主 UID/GID、补充组与 ACL，通过宿主 Node 和构建出的 `worker/worker.mjs` 运行；只读提供 SDK 依赖、选定工具安装版本与实际动态库，不开放整个 HOME、工具资料父目录、源码根、后台数据或控制面。原生工作区必须有钉定 dev/ino，授予与只读根使用真实路径，重叠只读祖先与读写子授权被拒。保护范围和已批准操作共用物理 dev/ino 祖先判定，不因 `/System/Volumes/Data` 等别名放开同一保护目录。
+两个产品的正式入口默认 `native`，`--execution` 与 `RUUKOTO_EXECUTION_BACKEND` 只接受 native；显式 container/local 被拒并提示迁移，库层仍可注入 local。原生 worker 使用实际宿主 UID/GID、补充组与 ACL，通过宿主 Node 和构建出的 `worker/worker.mjs` 运行；只读提供 SDK 依赖、选定工具安装版本与实际动态库，不开放整个 HOME、工具资料父目录、源码根、后台数据或控制面。原生工作区必须有钉定 dev/ino，授予与只读根使用真实路径，重叠只读祖先与读写子授权被拒。保护范围和已批准操作共用物理 dev/ino 祖先判定，不因 `/System/Volumes/Data` 等别名放开同一保护目录。
 
 原生启动和 worker init 复核工作区与带身份的只读根；宿主在 launch 前另为全部 grantedPaths 保存 dev/ino，每次 `ToolWorkerHost.call` 合并这三类身份重新核实。调用前发现工作区、只读根或任一读写/只读授予被替换或无法读取，先请求停止旧单元，再拒绝发送命令，未核实停止仍保留占用。白名单环境使用每单元 HOME/TMPDIR，不继承凭据、代理、SSH agent、控制面或 systemd bus 变量；只额外接受宿主固定 Git 配置。汇总补丁写在独立临时目录内，资料仅在已核实停止后删除。
 
@@ -117,21 +117,11 @@ sequenceDiagram
 
 macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Node 在独立临时目录写启动标记，再加载 SDK。观察中断、身份不可用或信号失败保持未核实；停止后留 100ms 收敛窗口，以连续完整采样核实最终残留。当前父 uniqueid 会随收养改变；仅当前父为 PID 1 不足以判外部进程，原父 pidversion 也须匹配启动前 PID 1 身份。PID 1 用可跨 UID 的 libproc flavor 17 核实，失败或 root 初始版本不大于 PID 1 版本时禁用排除。未知新寿命按单调分配的 uniqueid 判出生顺序；看到新寿命或已知成员的无符号 pidversion 低于 root 初始版本，标回卷并保留占用，其他未知同 UID 孤儿也不发送信号且返回 false。pidversion 为可回卷的 32 位序列，轮询也不是不可逃逸的内核成员集合，未核实后代仍可能继续写工作区，因此保留占用并等待拥有者核实。Linux 的安装与核实入口见 [原生部署前置](../../deploy/native/README.md)。
 
-### 个人 Agent 的容器受限执行
+### Linux 常驻前提与临时资料
 
-容器按任务建立，参数固定：
+个人后台由系统级 service 以实际账户运行。安装时为该账户启用 linger，确保 user manager 在开机后与退出登录后持续运行；系统服务固定正确的 `XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，并在 user manager 就绪后启动。user bus 只供可信 launcher 管理 scope，不传入受限 worker。bubblewrap/AppArmor、cgroup v2、scope 委派与 `cgroup.kill` 都必须可用；安装与核实步骤见 [systemd 部署](../../deploy/systemd/README.md)。后台单元的 `KillMode` 不证明独立 user scope 已退出。
 
-| 参数 | 值 |
-|---|---|
-| 镜像 | 固定 `ruukoto-worker`（`RUUKOTO_WORKER_IMAGE`，缺省 `ruukoto-worker:latest`），由可信身份按 `deploy/worker-image/` 构建，不内置特权入口 |
-| 用户 | `--user <uid>:<gid>`，缺省 1000:1000，非 root |
-| 能力 | `--cap-drop ALL`、`--security-opt no-new-privileges` |
-| 根文件系统 | `--read-only`，另有单独可写的 `--tmpfs /tmp:rw,nosuid,size=64m` |
-| 网络 | `--network none`，默认无网络 |
-| 挂载 | 工作区 `-v <p>:<p>` 并作为工作目录；任务级授予路径 `-v <p>:<p>`，只读授予加 `:ro`；宿主钉定的只读根 `-v <p>:<p>:ro` |
-| 环境 | `PATH=/usr/local/bin:/usr/bin:/bin`；worktree 创建与挂载副本时另注入 `safe.directory` 聚合包 |
-| 容器名 | `ruukoto-task-<taskId>-<后台 pid 的 36 进制>`，启动前先清理同名遗留 |
-| 进程入口 | 镜像内固定路径 `/opt/ruukoto/worker/worker.mjs` |
+每个原生单元的 HOME/TMPDIR 使用宿主临时磁盘，没有单任务容量上限，也不设置 CPU、内存、PID 或工作区容量配额。核实整个执行单元停止后才删除临时资料；无法核实时保留现场与目录占用。
 
 完全访问任务不进受限沙箱，由后台直接以当前账户启动。用户环境与宿主固定 Git 环境合并后剔除内部 Ruukoto 变量，不增加代理、SSH agent 或执行入口配置。ready 前中断同样由 `starting` 占位覆盖。
 
@@ -159,7 +149,7 @@ sequenceDiagram
 创建命令由宿主写定，逐项：
 
 1. 仓库根从修改目标向上做纯文件系统查找（不运行 git、不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。
-2. 宿主在 worker 启动前预建空副本目录（0700），目录非空即视为失败残留，不自动认领或覆盖。容器后端也由此避免 Docker 自动创建 root 属主的挂载源。
+2. 宿主在 worker 启动前预建空副本目录（0700），目录非空即视为失败残留，不自动认领或覆盖。
 3. 创建命令、挂载与 `write_target.path` 一律用 `copyDirReal = fs.realpathSync(copyDir)`，以抹平 macOS TMPDIR 的 `/var → /private/var` 符号链接。
 4. 工作进程按父任务模式执行宿主固定的 bash：`git -c core.fsmonitor=false rev-parse --verify HEAD` 取基线，`git -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree add -q -b <branch> <copyDirReal> "$base"` 建副本；基线按 40 位十六进制从输出提取，提不到即 `worktree_failed`。父任务已有父工作区占用，临时执行另取副本占用；并发 Git 元数据操作由 git 自身的锁处理。
 5. 受限工作进程的挂载：workspace 为仓库根，副本目录读写挂载；父仓库本身是 worktree 时，共享 Git 目录另作一次读写授予，否则 `extraGrants` 为空。
@@ -167,7 +157,7 @@ sequenceDiagram
 
 ### 受管执行单元的停止与回收
 
-1. 停止入口核实已归属的执行单元：容器是 `docker kill` 加 `docker rm -f`，随后成功查询全部容器并确认目标名称已不存在；原生 user scope 按其平台协议核实。当前账户的 worker 在 Shell 主进程结束和 shutdown 时停止各已登记的命令进程组，再发送 `stopped` 应答；宿主同时核实 worker 原进程组。完全访问必须两项结论都为 true；无应答、查询失败或残留均保留占用，主 PID 消失不足以结束核实。
+1. 停止入口核实已归属的执行单元：原生单元按平台协议核实；Linux user scope 必须确认 cgroup 无可执行成员。当前账户的 worker 在 Shell 主进程结束和 shutdown 时停止各已登记的命令进程组，再发送 `stopped` 应答；宿主同时核实 worker 原进程组。完全访问必须两项结论都为 true；无应答、查询失败或残留均保留占用，主 PID 消失不足以结束核实。
 2. 同一执行记录的并发、重复停止共享一次停止结果。未创建单元的启动失败无需回收；已创建后返回 false 或抛错均保留未核实结论与身份，不因通信句柄关闭、启动 Promise 拒绝或登记清理改成成功。
 3. 任务的自然完成、失败、取消与模式切换均等待受管单元的停止核实；单个停止失败不跳过其他单元。只有核实退出才释放目录占用，核实不了时保留占用并报告 `task.tool_process_unreaped`；模式切换记为 `mode_switch_unverified`。
 4. 队列启动前复核写入目标的目录身份，被替换或消失即失败、不自动重建；占用键与串行规则见 [runtime](runtime.md)。
@@ -182,7 +172,7 @@ sequenceDiagram
 
 - 工作进程只执行 `read`、`edit`、`write`、`bash`，白名单之外的名字一律拒绝；不加载任何项目自动发现的可执行扩展或可执行文件。
 - 工作进程协议不提供审批与模式切换；参数经结构化消息传递，从不拼进启动器的 shell 命令。完全访问能访问同账户的后台数据、凭据与令牌，控制面认证不构成对该进程的文件隔离。
-- 完全访问继承后台的用户环境，包括 PATH、HOME、代理、SSH agent 与工具凭据，并合并宿主固定 Git 环境；内部 `RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` / `RUUKOTO_CONTROL_DIR` / `RUUKOTO_CODE_CONTROL_DIR` 被清除，其余用户工具环境保留，环境值不进入诊断。受限原生与容器仍使用各自白名单环境；库层 local 的受限模拟只保留五项基本环境。
+- 完全访问继承后台的用户环境，包括 PATH、HOME、代理、SSH agent 与工具凭据，并合并宿主固定 Git 环境；内部 `RUUKOTO_OWNER_TOKEN` / `RUUKOTO_OWNER_TOKEN_FILE` / `RUUKOTO_CONTROL_DIR` / `RUUKOTO_CODE_CONTROL_DIR` 被清除，其余用户工具环境保留，环境值不进入诊断。受限原生使用白名单环境；库层 local 的受限模拟只保留五项基本环境。
 - 宿主工具一律声明 `executionMode: "sequential"`：工作进程按「工具名 → 当前调用」关联原始输出流，同一轮并发的同名调用会串流。
 - 正文捕获在工作进程侧完成：经 `BashOperations.onData` 与文件 Operations 包装器，在上游工具截断之前把原始输出与文件正文流回后台；后台先存为任务产物，再生成限长的模型视图，并在工具结果里附产物引用。中断或写失败保留已捕获部分并标 partial。
 - 协议有界：单帧上限 `MAX_FRAME_BYTES` 为 4 MiB，正文数据按 `DATA_CHUNK_BYTES` 为 512 KiB 分块并以 base64 传输，写入侧有背压。
@@ -192,9 +182,9 @@ sequenceDiagram
 
 - 受限执行单元按任务建立，不复用给后续任务；任务内按 ID、模式与授予范围复用，变化时先核实旧单元已停止再重建。
 - 单次批准不改变沙箱权限：批准的结构化操作不变成后续 Shell 可复用的文件或网络授权。
-- 挂载一律按宿主原路径；系统提示里的 cwd、拥有者给出的绝对路径与 `request_file_access` 的宿主路径在容器内外一致；挂载点以外的父目录在容器内为空。
-- 容器不传宿主凭据、SSH agent、代理配置、控制 socket 或容器管理 socket；项目内自带的秘密属于已挂载内容，容器不会识别或隐藏它们。工作区须位于容器运行时的文件共享范围内。
-- 原生受限任务不获得宿主 root 权限；容器管理权限只留给可信后台。缺少受限后端、策略或镜像时以 `execution_unavailable` 明确失败，不静默改用当前账户无沙箱执行。
+- 工作区与授予一律使用宿主真实路径；模型看到的 cwd、拥有者给出的绝对路径与 `request_file_access` 的宿主路径保持一致。
+- 原生 worker 不继承宿主凭据、SSH agent、代理或控制面；项目内自带的秘密属于已授权内容，沙箱不会识别或隐藏它们。
+- 原生受限任务不获得宿主 root 权限。缺少受限后端、策略或运行依赖时以 `execution_unavailable` 明确失败，不静默改用当前账户无沙箱执行。
 - 完全访问免操作审批，使用后台启动账户已有的文件、网络与工具权限，不额外授予 root 或其他账户身份，也不需要执行启停配置或工作区 ACL。
 - 完全访问停止覆盖原 worker 组及 worker 已登记的命令组；强制崩溃未取得命令组停止应答即记未核实。主动脱离已登记组、另行提权的进程与外部服务不承诺随任务停止；取消与模式切换不撤销已发生的外部效果。
 - macOS 原生累计身份有轮询窗口，最终未知后代须保留占用；`local` 后端没有任务沙箱，不据此宣称受限隔离已生效。
@@ -208,8 +198,8 @@ sequenceDiagram
 - 共享 Git 目录对子任务只读：可 `status` / `diff` / `log`，不能 `add` / `commit`、不能写 refs、hooks 或 config。共享目录可写时子任务能改 hooks 或 `core.fsmonitor`，之后会在拥有者自己的 git 中执行。完全访问不施加这项 OS 只读隔离，宿主仍传递共享 Git 范围与目录身份。
 - 工作副本相关 worker 合并宿主固定的 `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0=safe.directory=*`；其余任务不传这组环境。
 - 修改子任务沿本次发起任务模式，完全访问共用当前账户、受限模式使用产品后端；工具仅有 `read` / `edit` / `write` / `bash` / `read_artifact`，不能通过工具参数增加授权或委派下级；受限模式默认无网络。复用从只读切换到修改时重建 SDK 会话。
-- `init` 下发并核实 `readRoots` 与工作区 dev/ino；仅 macOS 的 `container` 经 Docker Desktop VM 重新编号而省略数值身份，由宿主队列复核。macOS `native` 和 `local` 保留真实数值身份。
-- 写预检按实际身份：原生以宿主账户 `accessSync` 核实；Linux 容器按配置 UID/GID 权限位；macOS Docker Desktop 容器按宿主文件访问语义核实。
+- `init` 下发并核实 `readRoots` 与工作区 dev/ino；macOS 与 Linux 均保留真实数值身份。
+- 写预检以实际宿主账户的 `accessSync` 核实，包括补充组与 ACL。
 - 副本防旁路：覆盖 `agent-work/worktrees` 或其下位置的读写授予被拒（`validateGrantedPaths`；只读授予仍允许）。副本只能经委派范围访问。
 - worktree 被删除、目录被替换或 `.git` 指向变化后继续委派明确失败（`worktree_gone`），不自动重建、不凭旧记录套用。
 - 创建失败保留现场，错误信息含副本路径与分支；任务取消或退出不删除副本、分支与写入根的改动。
@@ -222,13 +212,15 @@ sequenceDiagram
 
 ## 设计依据
 
+- [个人 Agent 复用原生受限执行并退役 Docker worker](../../.agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md)：统一正式入口、常驻服务器前置、宿主身份及无临时空间配额的取舍。
+
 - [完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：用户环境、无沙箱执行与停止核实的范围。
 
 - [Coding Agent 使用原生执行沙箱](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：两平台边界、部署前置与 macOS 未核实残留的保留规则。
 
 - [执行单元的停止未核实结果保留到任务收尾](../../.agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)
 
-- [工具工作进程与受限任务容器](../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：解释工作进程与有界消息协议、容器参数、`local` 后端无隔离、受管单元停止核实的取舍，以及受限执行配置。
+- [工具工作进程与受限任务容器](../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：解释共享工作进程、有界消息协议与停止核实的原始决定；受限后端选择由原生决定接管。
 - [SubAgent 修改委派每项工作使用独立 worktree](../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)：解释副本位置与分支、宿主永不执行 git、预建空副本目录、共享 Git 目录只读、`safe.directory` 注入与目录身份只按路径钉定的理由。
 - [访问模式由技术边界实施，完全访问须拥有者显式选择](../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md)：解释权限为什么是技术约束、缺少隔离机制时明确失败而不降级，以及控制面身份校验。
 - [退役专用 GitHub 模块，GitHub 作为普通 MCP 工具](../../.agents/notes/implemented/simplification/2026-09-23-retire-github-module.md)：解释为什么没有 GitHub 专用的执行路径——它与其他 MCP 服务共用本篇的边界、审批与结果保存流程。

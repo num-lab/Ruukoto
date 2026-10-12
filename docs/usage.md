@@ -4,13 +4,12 @@
 
 ## 1. 前提与安装
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Coding Agent 使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 的 container 后端另需 Docker。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 面向 Linux 常驻服务，另需运行账户的 user manager 与 linger 配置。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
 npm run build       # 构建工具 worker、macOS 原生监督器与 app 包
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
-npm run build:worker-image   # 仅个人 Agent container 部署：用 Docker 构建工具镜像
 ```
 
 根 `npm start -- …` 默认使用 ruukoto app，保留 `RUUKOTO_PRODUCT=ruukoto-code` 的入口选择；也可用 `npm start --workspace=ruukoto-code -- …`。各 app 的 bin 固定产品身份；构建出的 app tarball 引用同仓共享包，部署保留完整 workspace。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
@@ -20,16 +19,16 @@ npm run build:worker-image   # 仅个人 Agent container 部署：用 Docker 构
 ### 2.1 启动后台
 
 ```bash
-# 生产：容器执行后端，先完成 deploy/systemd 配置
+# 生产：原生执行后端，先完成 deploy/systemd 配置
 # server 为推荐命令，start 是同一实现的兼容别名
 npm start -- server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
-  --execution container --model provider/model
+  --execution native --model provider/model
 
 ruukoto-code server                    # 默认原生受限执行
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
 
-Coding Agent 默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。个人 Agent 保留 local/container；local 无隔离，仅供开发与测试，并打印警告。完全访问在两平台直接使用启动后台账户，继承后台实际的 PATH、HOME、代理、SSH agent 与工具凭据；清除内部 Ruukoto 控制变量，不要求执行账户入口。
+两个产品均默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。库层 local 无隔离，只供完全访问与离线测试，不是正式受限入口。完全访问在两平台直接使用启动后台账户，继承后台实际的 PATH、HOME、代理、SSH agent 与工具凭据；清除内部 Ruukoto 控制变量，不要求执行账户入口。
 
 新档案一次性创建当前 schema；既有档案的版本必须与代码完全一致，旧库与较新库均明确拒绝启动，不自动升级或回填。保留原档案，用匹配版本的代码查阅；需要当前版本时使用独立新档案。跨实例导入也只接受当前格式，不能用它转换旧 schema。
 
@@ -212,7 +211,7 @@ ruukoto work cancel <工作ID> [--reason R]        # 停止中拒绝
 | 完全访问 `full_access` | 由拥有者在可信入口选择；以启动账户无任务沙箱运行，所有已开放工具免操作审批，不额外赋予 OS 权限；模型输入不能提供权限升级来源 |
 | 计划 `plan` | 仅普通开发会话；沿用自动审查的环境与审批，要求只调研不修改，持续到手动切换。保留的 `bash` 仍可能写入，不是全面只读保证 |
 
-受限模式的容器：非 root、cap-drop ALL、no-new-privileges、只读根文件系统、默认无网络，只挂载工作区与任务级授予路径，任务结束即回收。完全访问的文件、HTTP、MCP、应用数据、通知与服务工具均免操作审批，仍核实活动任务、权限版本、目标与修订，并保存真实授权来源；同账户的后台数据、凭据与令牌可被完全访问命令直接访问。
+受限模式使用原生沙箱，默认无网络，只开放工作区、任务级授予与宿主钉定的只读范围；核实执行单元停止后才释放占用和临时资料。完全访问的文件、HTTP、MCP、应用数据、通知与服务工具均免操作审批，仍核实活动任务、权限版本、目标与修订，并保存真实授权来源；同账户的后台数据、凭据与令牌可被完全访问命令直接访问。
 
 ### 4.3 项目设置
 
@@ -330,7 +329,7 @@ ruukoto credentials add --name github-events --host github.com \
 
 ```bash
 ruukoto server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
-  --execution container --github-webhook-config /path/to/github-webhook.json
+  --execution native --github-webhook-config /path/to/github-webhook.json
 ```
 
 `port`、`credential` 和非空 `repositoryIds` 必填；仓库范围使用正整数 ID。`host` 默认 `127.0.0.1`，`notifyChannel` 可选 `telegram` 或 `qq_private`，默认 Telegram。未传文件即不开监听，开发实例不自动继承这项配置。监听路径固定为 `POST /github/webhook`；对外提供 HTTPS 时由部署侧反向代理到该入口。GitHub webhook 使用 JSON 与相同 secret，并订阅 Pull requests 事件。
@@ -503,7 +502,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 ~/.ruukoto/pending/   0700  待核实的提交记录
 ```
 
-目录可用 `RUUKOTO_{DATA,AGENT,CONTROL,PENDING}_DIR` 覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 这一组，跨产品打开数据目录会被拒绝。执行相关变量（`RUUKOTO_EXECUTION_BACKEND`、`RUUKOTO_CONTAINER_UID/GID`、`RUUKOTO_WORKER_IMAGE`）见部署文档。拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（显式使用其他令牌文件时）。
+目录可用 `RUUKOTO_{DATA,AGENT,CONTROL,PENDING}_DIR` 覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 这一组，跨产品打开数据目录会被拒绝。执行配置（`RUUKOTO_EXECUTION_BACKEND`）及常驻 user manager 环境见部署文档。拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（显式使用其他令牌文件时）。
 
 完整布局、schema 版本与职责边界见[存储与身份](modules/core.md)。
 
@@ -515,7 +514,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | --- | --- |
 | 「后台启动失败」并附 spawn.log 尾部 | 常见原因是未配置可用模型，先跑 `ruukoto-code config`；spawn.log 在 `<controlDir>/spawn.log` |
 | socket 可连但令牌认证不通过 | 后台其实在运行；核对 `RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE` 与控制面目录的 `owner.token` |
-| 等待超时 | 到期限仍未就绪，单独标注且不杀进程；确认 `--execution` 后端与 Docker／镜像可用 |
+| 等待超时 | 到期限仍未就绪，单独标注且不杀进程；确认 native 平台前置、宿主工具与 worker 构建产物可用 |
 | 重复启动被拒绝 | 同一实例锁已在运行（`<dataDir>/runtime.lock`）；`ruukoto-code stop` 或确认已在运行的后台 |
 | `schema_version_unsupported` | 档案版本与代码不一致；保留原档案并用匹配代码查阅，当前代码使用独立新档案，不修改版本号或补字段 |
 | 实例锁无法核实 | 按 `owner.json` 的 `processIdentity` 核实进程启动身份；无法核实时保留锁并要求人工处理 |
@@ -526,10 +525,9 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | 现象 | 处理 |
 | --- | --- |
 | 完全访问工具启动失败 | 检查 worker、Node 与安装依赖；完全访问无需执行账户或沙箱配置，服务 helper 的缺失只影响服务工具 |
-| 受限任务立即失败 | 检查 Docker 可用性与 `ruukoto-worker` 镜像（`npm run build:worker-image`）；后端缺失时明确拒绝、不静默回退 |
+| 受限任务立即失败 | 按[原生部署前置](../deploy/native/README.md)核实 bubblewrap/profile、user manager/bus、cgroup 委派与宿主工具；能力缺失明确拒绝、不静默回退 |
 | 任务已结束但目录仍被占用，或报 `tool_process_unreaped` / `mode_switch_unverified` / `worker_stop_unverified` | 从任务事件与占用查询核对未退出的执行单元；确认旧单元及其后代已退出后，再用上方 `resume-queue` 恢复，它释放该会话遗留任务的父目录与副本占用，并重建已结束的驱动器。worktree 创建与汇总保留副本现场和已收到的结果，不能把已完成工具或效果未知操作自动重放 |
-| 容器内写工作区被拒 | 原生 Linux 的 bind mount 不做 uid 映射，容器 uid/gid 须与工作区写权限匹配（部署文档第 5 步）；Docker Desktop 会掩盖这个问题 |
-| 执行相关变量生效但无隔离 | `--execution local`／`RUUKOTO_EXECUTION_BACKEND=local` 没有任何隔离，只用于本机开发与测试 |
+| 旧 local/container 覆盖被拒 | 移除 `--execution` / `RUUKOTO_EXECUTION_BACKEND` 覆盖或明确改为 native；保留原档案，先完成平台前置 |
 
 ### 10.3 MCP
 
@@ -565,6 +563,6 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 - 同一工作目录同时只允许一个写任务；并行修改靠 SubAgent 的 worktree，非 Git 目录串行。
 - 上下文超出预算或 provider 返回 `context_overflow` 时任务中断、队列暂停，需人工继续。
-- 原生 Linux 的 bind mount 不做 uid 映射，容器 uid/gid 须与工作区写权限匹配（部署文档第 5 步）；Docker Desktop 会掩盖这个问题。
+- 原生任务使用实际后台账户的目录权限与宿主工具；HOME/TMPDIR 使用宿主临时磁盘，无单任务配额，停止未核实保留现场与占用。
 - 服务器服务管理只覆盖白名单服务的检查与重启。
 - 真实 QQ／Telegram 平台与 macOS 完全访问的正向路径缺少实测证据（目前均为模拟平台）；跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂尚未交付。逐项证据见[发布与验收说明](release-acceptance.md)。

@@ -212,8 +212,8 @@ test("资料隔离：owner token 审批入口硬拒绝（保护根）；普通�
       if (readAttempts === 1) {
         // 结构化审批入口：保护根必须硬拒绝（不产生审批单）。
         // 注：local 执行后端无文件系统隔离（仅开发/验证），直接
-        // read/bash 的边界由容器后端提供，不在本测试断言范围。
-        // Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
+        // read/bash 的边界由原生后端提供，不在本测试断言范围。
+        // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
         return {
           kind: "tool_calls",
           calls: [{ id: "sec1", name: "request_file_access", arguments: { path: tokenPathHolder.path, operation: "read", reason: "测试越界读取" } }],

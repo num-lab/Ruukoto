@@ -25,7 +25,7 @@
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Coding Agent 使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
@@ -54,7 +54,7 @@ ruukoto-code stop                 # 停止后台
 
 ### ruukoto（Linux 服务器）
 
-当前登录账户、受限任务工具镜像、systemd 单元以及可选的固定服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
+当前账户、原生沙箱与宿主工具、常驻 user manager、systemd 单元以及可选的固定服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
 
 ```bash
 export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data

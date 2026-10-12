@@ -4,9 +4,9 @@ Status: implemented
 
 原编号：ADR 0004
 
-相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟取代个人产品的容器后端选择，尚未落地。
+部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)接管个人产品的受限后端、目录身份、临时空间与交付入口；本篇保留完整 worker、有界协议、审批和停止原则的理由。下文容器参数与专用执行账户是原决定的历史方案，不表示当前仍有这些启动器。
 
-部分取代：Coding Agent 选择 native 时的受限后端由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)接管；本篇原决定保留，个人 Agent 容器、共享 worker/协议与完全访问仍由本篇解释。
+Coding Agent 的受限后端由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)接管；完全访问由[当前账户决定](../feature/2026-10-12-full-access-current-account.md)持有。本篇原决定、备选理由和真实历史验证保留。
 
 ## 问题
 
@@ -82,5 +82,7 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 - 完全访问身份：tx 实测见 personal-agent issue 23 的 Comments，任务以 `ruukoto-exec` 运行，读取拥有者令牌返回 `Permission denied`。
 
 ## 适用范围
+
+当前执行接线由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)与[原生执行沙箱](2026-10-10-native-execution-sandbox.md)持有：两个产品正式受限入口默认且只接受 native；Docker worker、镜像配置与 container 类型已退役。完全访问采用[当前账户决定](../feature/2026-10-12-full-access-current-account.md)。本篇原容器参数、VM 例外、容器生命周期与专用账户叙述保留为被部分取代的原决定；完整 worker、协议、批准消费与停止核实原则仍适用。当前接口回归由 `test/10-access-modes.test.ts`、`test/73-desktop-execution.test.ts`、`test/100-worker-stop.test.ts` 与 `test/101-native-linux-scope.test.ts` 覆盖；本篇验证节保存原时点的记录，旧容器命令不作为当前活跃入口。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

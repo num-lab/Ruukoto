@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关提案：[个人 Agent 原生执行与 Docker worker 退役](../../proposed/architecture/2026-10-12-personal-native-sandbox.md)拟迁移个人产品执行接线并删除容器身份例外，尚未落地。
+部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)统一两个产品的执行接线、宿主目录身份与权限预检；写入目标、宿主不执行 Git 和成果保留仍由本篇持有。
 
 原编号：ADR 0021
 
@@ -39,5 +39,7 @@ Git 修改工作可并行保留独立成果，父工作区未提交内容不进�
 [工单 16](../../../../.scratch/agent-direction/issues/16-parallel-worktrees.md)与 smoke-16-parallel-worktrees.mts 记录：test/83 13/13，npm test 904 项中 903 通过、0 失败、1 跳过，typecheck 通过；macOS Docker Desktop 和 ssh tx Linux 原生 Docker（uid/gid 1003）各 9/9。模型模拟，Runtime、文件和受限容器真实；覆盖并行 worktree、非 Git 串行、safe.directory、git commit 与 hooks/config 写入拒绝、宿主不执行植入及零残余容器。
 
 ## 适用范围
+
+当前创建与汇总复用 `Runtime.executeWorkCopy`：先登记 `ToolWorkerHost.create`，再由 `host.start()` 按实际发起任务模式执行固定 Git 命令；受限模式走 native，完全访问沿下方当前账户决定。workspace/readRoots 的 dev/ino 统一为宿主身份，权限预检统一用实际账户 `accessSync` 核实补充组与 ACL，Docker Desktop VM 例外与容器 UID/GID 预检已退役。worker 的固定 Git 环境仍只用于副本创建、使用与汇总；写入目标、禁止宿主执行仓库 Git、副本与冲突成果保留仍适用。后端及交付清理归[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)；原决定与历史容器验证保留。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

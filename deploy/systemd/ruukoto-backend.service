@@ -1,6 +1,7 @@
 [Unit]
 Description=ruukoto personal agent backend
-After=network-online.target
+Requires=user@@RUN_UID@.service
+After=network-online.target user@@RUN_UID@.service
 
 [Service]
 Type=simple
@@ -10,18 +11,12 @@ User=@RUN_USER@
 Group=@RUN_GROUP@
 Environment=RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
 Environment=RUUKOTO_AGENT_DIR=/var/lib/ruukoto/agent
-Environment=RUUKOTO_EXECUTION_BACKEND=container
-# 容器内进程 uid/gid（默认 1000）。原生 Linux 的 bind mount 不做 uid 映射：容器
-# uid 必须能写任务工作区。单拥有者服务器建议用 drop-in 设为拥有者 uid/gid。
-# Environment=RUUKOTO_CONTAINER_UID=1003
-# Environment=RUUKOTO_CONTAINER_GID=1003
-# 容器镜像与 docker CLI 固定（可选覆盖）
-# Environment=RUUKOTO_WORKER_IMAGE=ruukoto-worker:0.85.1
-ExecStart=/usr/bin/node /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs server
+Environment=XDG_RUNTIME_DIR=/run/user/@RUN_UID@
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@RUN_UID@/bus
+ExecStart="@NODE_BIN@" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs server
 Restart=on-failure
 RestartSec=3
-# 子进程随服务终止：崩溃后不会有残留执行进程继续写工作目录（容器按任务
-# 另行登记回收；本设置覆盖后台进程树的直接子进程）
+# 本设置覆盖后台单元内的进程；原生 user scope 另行核实，重启保留待核实占用。
 KillMode=control-group
 TimeoutStopSec=30
 

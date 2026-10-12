@@ -4,7 +4,7 @@
  * 工作进程只接受工具调用并返回数据：不获得审批、模式切换或控制面凭据；
  * 参数经结构化消息传递，绝不拼入启动器 Shell 命令。上游工具定义（read/
  * edit/write/bash）的完整执行——含路径解析与 Shell 子进程——都发生在工作
- * 进程所在的执行边界内（请求确认模式为任务容器，完全访问为启动账户）。
+ * 进程所在的执行边界内（正式受限任务为原生沙箱，完全访问为启动账户）。
  *
  * 帧界限：单帧 MAX_FRAME_BYTES；正文数据分块 DATA_CHUNK_BYTES 并以 base64
  * 传输（任意分块安全，跨块 UTF-8 由按字节累积的产物存储处理）。
@@ -21,7 +21,7 @@ export type WorkerRequest =
       type: "init";
       cwd: string;
       label: string;
-      /** 宿主钉定的额外只读根（path 为宿主 realpath，dev/ino 供启动复核）；缺省 = 不启用限定，保持旧语义。dev/ino 缺省 = inode 经 VM 重新编号的挂载（macOS），仅按路径复核。 */
+      /** 宿主钉定的额外只读根（path 为宿主 realpath，dev/ino 供启动复核）；缺省 = 不启用限定。库层 dev/ino 缺省时仅按路径复核。 */
       readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
       /** 宿主钉定的工作区目录身份（issue 16 写入目标的钉定复核）；缺省 = 维持旧语义（cwd 即工作区）。 */
       workspace?: { path: string; dev: number; ino: number };

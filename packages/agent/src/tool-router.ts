@@ -4,7 +4,7 @@
  * - 每次调用都读取当前任务的 accessMode / 权限版本 / 授予路径，不缓存
  *   首次创建 SDK 会话时的模式；
  * - 编码工具（read/edit/write/bash）经工具工作进程执行：工作进程只在
- *   当前任务的执行边界内（受限任务 → 原生沙箱或容器；完全访问 → 启动账户）；
+ *   当前任务的执行边界内（受限任务 → 原生沙箱；完全访问 → 启动账户）；
  *   模式/环境变化时先停止并核实旧执行单元退出，再建立新环境；
  * - 结构化操作（request_file_access / http_request）形成固定操作范围；完全访问登记任务授权，
  *   受限模式经审批闸门单次消费后才执行，执行参数取自审批前构造、与审批记录
@@ -160,8 +160,9 @@ export class ToolRouter {
    * 目标决定执行工作区与挂载单。修改工作执行在钉定副本/写入根；多一个子任务
    * 改仓库即多一个独立副本任务进 LaunchSpec（共享 Git 只读）。
    */
-  launchSpecFor(task: Task, session: Session, launcherKind = this.deps.launcherFor(task.accessMode).kind): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
-    const ws = taskWorkspaceFor({ session, work: task.workId ? this.deps.store.getWorkDelegation(task.workId) : null });
+  launchSpecFor(task: Task, session: Session): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
+    const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
+    const ws = taskWorkspaceFor({ session, work });
     const scope = task.readScope;
     const base = {
       taskId: task.id,
@@ -177,22 +178,20 @@ export class ToolRouter {
       readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
       env?: Record<string, string>;
     };
-    // macOS 只有 Docker Desktop 经 VM 重新编号；原生沙箱须复核宿主 dev/ino。
     // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
-    const inodeOpaque = process.platform === "darwin" && launcherKind === "container";
-    if (!inodeOpaque) {
-      base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
-    }
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
+    base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
     const readRoots: Array<{ path: string; dev?: number; ino?: number }> = [];
-    if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => (inodeOpaque ? { path } : { path, dev, ino })));
+    if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => ({ path, dev, ino })));
     if (ws.commonGitDir) {
       // worktree 副本：共享 Git 目录作为只读 readRoot（子任务可 status/diff/log），
       // 不入白名单编辑；`.git` 指向由工作副本钉定，钩子在执行边界外不可达。
       const st = fs.statSync(ws.commonGitDir);
-      readRoots.push(inodeOpaque ? { path: ws.commonGitDir } : { path: ws.commonGitDir, dev: st.dev, ino: st.ino });
+      readRoots.push({ path: ws.commonGitDir, dev: st.dev, ino: st.ino });
       base.env = GIT_SAFE_DIRECTORY_ENV;
     }
-    if (readRoots.length > 0) base.readRoots = readRoots;
+    // 材料分析没有额外路径时仍钉定只读工具的 cwd；完全访问的修改任务保留原范围。
+    if (readRoots.length > 0 || (scope && !work?.writeTarget)) base.readRoots = readRoots;
     return base;
   }
 
@@ -259,7 +258,7 @@ export class ToolRouter {
     if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
     // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
     // 共享 Git 目录作为只读 readRoot + Git safe.directory 环境集。
-    const spec = this.launchSpecFor(task, session, launcher.kind);
+    const spec = this.launchSpecFor(task, session);
     const host = ToolWorkerHost.create(launcher, spec);
     this.worker = host;
     this.workerKey = key;

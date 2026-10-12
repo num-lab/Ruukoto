@@ -42,7 +42,7 @@ export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read"
 /**
  * SubAgent 任务的写入工具白名单（agent-direction issue 16，工作有写入目标
  * 时的完整集合）：read/edit/write/bash/read_artifact。无 request_file_access、
- * http_request、MCP 或委派工件——工作区写入由容器边界约束，不逐次审批。
+ * http_request、MCP 或委派工件——受限模式的工作区写入由原生边界约束，不逐次审批。
  */
 export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "edit", "write", "bash", "read_artifact"]);
 

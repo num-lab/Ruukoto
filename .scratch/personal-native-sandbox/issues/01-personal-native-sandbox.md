@@ -1,14 +1,14 @@
-Status: ready-for-agent
+Status: resolved
 
 # 01 — 将 ruukoto 的受限执行迁到原生沙盒并移除 Docker worker
 
-交付目标见[已确认规格](../spec.md)，理由与被否方案见[决策提案](../../../.agents/notes/proposed/architecture/2026-10-12-personal-native-sandbox.md)。本单实施尚未开始；状态表示规格可执行，不表示平台或产品验收已经通过。
+交付目标见[已确认规格](../spec.md)，理由与被否方案见[决策记录](../../../.agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md)。四阶段按顺序完成，验收与未测范围见[最终报告](../evidence/stage4-report.md)；下列实施计划保留交付约束。生产实例未切换。
 
 Blocked by: 无未完成工单。[原生沙盒 26](../../agent-direction/issues/26-native-sandbox.md)、[停止未核实保留 27](../../agent-direction/issues/27-preserve-unverified-worker-stop.md)、[当前账户完全访问](../../full-access/issues/01-full-access-current-account.md)与[通用调度](../../generic-scheduler/issues/01-generic-scheduled-tasks.md)均已完成，是可复用基础。第一阶段的服务器常驻验证是切换产品默认值的前置。
 
-## 已核实事实
+## 实施前已核实事实
 
-| 位置 | 当前行为与需要覆盖的变化 |
+| 位置 | 基点行为与需要覆盖的变化 |
 | --- | --- |
 | `apps/ruukoto/src/product.ts`、`packages/tui/src/cli.ts` | 个人产品默认 local，未声明 allowedExecution 时正式入口只接受 local/container；不能仅把生产环境变量改成 native |
 | `apps/ruukoto-code/src/product.ts`、`packages/tui/src/dev.ts` | Coding Agent 已默认且只接受 native；开发入口清理继承的执行配置并跟随产品声明，可直接复用能力接线 |
@@ -82,14 +82,14 @@ Blocked by: 无未完成工单。[原生沙盒 26](../../agent-direction/issues/
 
 ## 验收清单
 
-- [ ] 个人 CLI/server/dev 默认且仅接受 native；参数、环境、展示一致；container/local 显式覆盖拒绝并给出迁移指引。
-- [ ] Docker 不可用时，个人产品普通开发及 main/独立定时委派完成真实 read/edit/write/bash、只读委派、并行 worktree 和成果汇总。
-- [ ] 实际服务账户在无人登录、退出登录和可重启隔离环境的开机后仍能启动原生单元；缺 bwrap/profile/user manager/cgroup 能力时明确拒绝。
-- [ ] 文件、网络、控制面、环境、FD、只读共享 Git 与授权身份边界通过真实探针；越界批准和模式传播保持原契约。
-- [ ] 启动取消、授权变化、普通停止、后台强杀/重启和脱离组后代均有实际结果；停止未核实保留占用/现场，效果未知不重放。
-- [ ] Docker worker、专用类型/配置、镜像构建与失效活跃入口已移除；有价值的场景已迁移，历史证据和服务 helper 防护保留。
-- [ ] 已验证当前账户完全访问及 ruukoto-code 共享路径回归；原生临时空间无配额的部署说明准确。
-- [ ] 升级演练保留历史、审批、产物、工作副本与异常占用；文档、notes、构建和对应检查完成，真实与模拟证据分列。
+- [x] 个人 CLI/server/dev 默认且仅接受 native；参数、环境、展示一致；container/local 显式覆盖拒绝并给出迁移指引。
+- [x] Docker 不可用时，个人产品普通开发及 main/独立定时委派完成真实 read/edit/write/bash、只读委派、并行 worktree 和成果汇总。
+- [x] 实际服务账户在无人登录、退出登录和可重启隔离环境的开机后仍能启动原生单元；缺 bwrap/profile/user manager/cgroup 能力时明确拒绝。
+- [x] 文件、网络、控制面、环境、FD、只读共享 Git 与授权身份边界通过真实探针；越界批准和模式传播保持原契约。
+- [x] 启动取消、授权变化、普通停止、后台强杀/重启和脱离组后代均有实际结果；停止未核实保留占用/现场，效果未知不重放。
+- [x] Docker worker、专用类型/配置、镜像构建与失效活跃入口已移除；有价值的场景已迁移，历史证据和服务 helper 防护保留。
+- [x] 已验证当前账户完全访问及 ruukoto-code 共享路径回归；原生临时空间无配额的部署说明准确。
+- [x] 升级演练保留历史、审批、产物、工作副本与异常占用；文档、notes、构建和对应检查完成，真实与模拟证据分列。
 
 ## Comments
 
@@ -98,3 +98,19 @@ Blocked by: 无未完成工单。[原生沙盒 26](../../agent-direction/issues/
 拥有者在规格 Q1—Q5 确认范围和计划。调查只读取仓库，未连接服务器、运行平台探针、修改产品代码或部署配置。工单 26/27 的既有通过记录只证明其原范围，不能填入本单验收框。
 
 规划文件校验：首次运行因未安装 tsx 无法启动检查，按仓库要求完成 npm run setup 后，npm run verify-notes、npm run check:docs 与 git diff --check 均通过；未运行应用测试或真实平台验收。
+
+### 2026-10-12：开始实施
+
+先执行 Linux 常驻前置验证，产品默认与 Docker 路径在第一阶段通过前保持现状。`ssh tx` 已核实 Ubuntu 24.04 x64、systemd 255、正式 `/usr/bin/bwrap` 和非交互 sudo；验证使用独立账户、服务、检出与档案，不操作在线个人实例。可重启隔离环境与真实停止证据仍在准备。并行只读审计生产调用者、离线用例和外部 smoke，核对删除范围与需保留的场景。
+
+### 2026-10-12：完成四阶段交付
+
+第一阶段通过后切换产品默认，第二阶段个人 04/13/15/18/28 的真实 Linux 出口通过后删除 Docker worker。正式个人 CLI/server/dev 默认且仅接受 native，旧参数及环境覆盖拒绝；完全访问沿用启动账户。共享工作副本的宿主身份、补充组/ACL、审批和停止保留契约完成回归，新增材料分析范围及原始错误 cause 的两个缺口已修复。
+
+[常驻报告](../evidence/stage1-server-report.md)包含无登录、退出登录、真实 Ubuntu VM 冷启动/guest reboot、缺前置拒绝、启动取消、setsid 后代和后台 SIGKILL 恢复。[个人链路](../evidence/stage2-report.md)为 04 6/6、13 6/6、15 8/8、18 7/7、28 全部通过；模型、IM 和通知为桩，OS/worker/SQLite/JSONL 真实。18 的精确 main 异常占用和原始失败现场保留，没有清记录推进。
+
+[第三阶段](../evidence/stage3-production-report.md)生产定向 102/102、汇总 13/13 通过；Coding Agent 真实原生 worker 10 项与 worktrees 8 项在 Linux 通过，macOS 的对应原生和入口/权限/调度验证亦通过。最终补充入口、恢复和联合发布 48/48，[Linux 最终测试](../evidence/stage4-linux-report.md) 38/38，无跳过；foundation 9 passed / 1 个真实模型按规则 skipped，验证入口 99 为 6/6。构建、静态门禁、notes 与文档检查通过，锚点无悬空，八篇旧笔记的决定与验证段保持字节一致。
+
+[双产品升级](../evidence/stage4-macos-upgrade-final-verified.log)从协议兼容基点 8bccb8f 独立安装与构建，4/4 通过：另一端持续运行，旧审批/产物/JSONL/真实工作副本保全，默认 native 实际写入，旧覆盖拒绝。裸 SQL 播种的效果未知、unverified、暂停和精确占用保留，对应子上下文零新模型请求；此保全场景不冒充真实 OS 强杀。最后保留 `/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk24-ApCCn6` 的两项异常占用，任务 ID 在日志中。
+
+[清理记录](../evidence/stage4-cleanup.log.gz)确认 165 个本次依赖挂载及新验证账户/linger/user manager 已清理、UID 996 无进程；在线服务前后保持 PID 3963064 / active。VM 已停机并释放镜像，安装的 QEMU 工具包留存，已识别异常现场和证据保留。没有生产切换、真实模型或 QQ/Telegram 外发，没有跑全量 npm run check。Linux 真实范围为 Ubuntu 24.04 x64，精确的缺 ControlGroup/cgroup.kill EACCES 分支使用定向替身；原生临时资料没有单任务配额。完整命令、失败记录和范围见[最终报告](../evidence/stage4-report.md)。

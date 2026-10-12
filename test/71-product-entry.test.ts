@@ -164,8 +164,6 @@ test("buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目�
         RUUKOTO_OWNER_TOKEN_FILE: "/daily-owner.token",
         RUUKOTO_EXECUTION_BACKEND: "local",
         RUUKOTO_SERVICE_SUDO: "900",
-        RUUKOTO_CONTAINER_IMAGE: "daily-image",
-        RUUKOTO_WORKER_IMAGE: "daily-worker",
         PATH: "/usr/bin",
       },
       profile,
@@ -177,7 +175,7 @@ test("buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目�
       assert.equal(env[`${prefix}_${kind}_DIR`], dir);
       assert.equal(env[`${otherPrefix}_${kind}_DIR`], undefined, "不保留另一个产品的日常目录");
     }
-    for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_EXECUTION_BACKEND", "RUUKOTO_SERVICE_SUDO", "RUUKOTO_CONTAINER_IMAGE", "RUUKOTO_WORKER_IMAGE"]) {
+    for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_EXECUTION_BACKEND", "RUUKOTO_SERVICE_SUDO"]) {
       assert.equal(env[key], undefined, `${product} 不继承 ${key}`);
     }
     assert.equal(env.PATH, "/usr/bin");

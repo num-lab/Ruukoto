@@ -1,0 +1,6 @@
+
+> ruukoto-workspace@0.1.0 test:upgrade
+> tsx verification/smoke/smoke-24-release-acceptance.mts --upgrade-only
+
+[ruukoto:smoke24] 环境：darwin arm64，Node v24.15.0；升级基点 5e84daa
+[ruukoto:smoke24] 前提缺失：升级基点的控制面协议与当前客户端不兼容；请指定协议 19 的 SMOKE24_BASE 或 archive

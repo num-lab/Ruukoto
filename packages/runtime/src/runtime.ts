@@ -222,12 +222,12 @@ export interface RuntimeConfig {
   modelProvider?: string;
   modelId?: string;
   /**
-   * 工具执行后端：local（开发/验证，无隔离，禁止用于声明请求确认模式的
-   * 边界）| container（Linux 容器边界）；完全访问直接使用启动账户。
+   * 工具执行后端：native（操作系统原生沙箱）| local（仅供库层开发/验证，无隔离）；
+   * 完全访问直接使用启动账户。
    * 省略时取 local：只适用于开发与模拟验证，生产部署必须显式配置。
    */
   execution?: ExecutionBackendConfig;
-  /** 工作副本容器入口的测试替身；生产由 Runtime 自己装配。 */
+  /** 工作副本执行入口的测试替身；生产由 Runtime 自己装配。 */
   workCopyExecutor?: WorkCopyExecutor;
   /** 默认注册真实编码工具（路由器 + 工具工作进程）；模拟测试可覆盖。 */
   toolFactory?: (ctx: { registry: import("@ruukoto/agent/managed-processes.ts").ManagedProcessRegistry; router: import("@ruukoto/agent/tool-router.ts").ToolRouter }) => ToolDefinition[];
@@ -539,6 +539,7 @@ export class Runtime {
    * 副本与必要共享 Git 目录按操作授予；停止未核实时保留结果与目录占用。
    * Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
    * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+   * Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
    */
   async executeWorkCopy(input: Parameters<WorkCopyExecutor>[0]): ReturnType<WorkCopyExecutor> {
     const { ToolWorkerHost } = await import("@ruukoto/agent/tool-worker/host.ts");
@@ -561,8 +562,7 @@ export class Runtime {
       taskId: `${input.parentTaskId}-${randomId("wt")}`,
       mode: parent.accessMode,
       workspace: input.workspace,
-      workspaceIdentity: process.platform === "darwin" && launcher.kind === "container"
-        ? undefined : { dev: workspaceStat.dev, ino: workspaceStat.ino },
+      workspaceIdentity: { dev: workspaceStat.dev, ino: workspaceStat.ino },
       grantedPaths: [
         { path: input.copyDir, access: "read_write" as const, purpose: "worktree 副本创建或汇总" },
         ...(input.extraGrants ?? []),
@@ -763,13 +763,6 @@ export class Runtime {
     const workCopies = new WorkCopyManager({
       worktreeRoot,
       protectedRoots: () => runtime.protectedRoots(),
-      executionReaderIdentity: () => {
-        if ((fullConfig.execution?.backend ?? "local") !== "container") return null;
-        return {
-          uid: fullConfig.execution?.container?.uid ?? Number(process.env.RUUKOTO_CONTAINER_UID ?? 1000),
-          gid: fullConfig.execution?.container?.gid ?? Number(process.env.RUUKOTO_CONTAINER_GID ?? 1000),
-        };
-      },
       execute: fullConfig.workCopyExecutor ?? ((input) => runtime.executeWorkCopy(input)),
     });
     runtime.subagents = new SubAgentManager({
@@ -1341,9 +1334,10 @@ export class Runtime {
 
       interruptedTaskIds.push(...this.subagents!.recoverQueuedTasks());
 
-      // 2. 遗留占用：旧后台已死但其子进程状态无法确认 → 保留占用，暂停会话，
-      //    由拥有者核实后 resume_queue 释放（systemd KillMode=control-group 下
-      //    子进程随服务终止，正常部署不会出现）。
+      // 2. 遗留占用：旧执行单元状态无法确认时保留占用并暂停会话，
+      //    由拥有者核实后 resume_queue 释放；user scope 独立于后台服务，
+      //    backend 的 KillMode 不能证明该 scope 与后代已退出。
+      // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
       for (const occ of store.listAllOccupancy()) {
         store.appendEvent(
           { type: "occupancy.stale", sessionId: occ.sessionId, taskId: occ.taskId, cwdReal: occ.cwdReal },
@@ -3297,9 +3291,7 @@ export class Runtime {
     const note =
       backend === "local"
         ? "local 执行后端：开发受限任务无隔离；完全访问使用启动账户权限且免操作审批"
-        : backend === "container"
-          ? "container 执行后端：受限任务在 Linux 容器内执行；完全访问使用启动账户直接执行"
-          : "native 执行后端：受限任务在操作系统原生沙箱内执行；完全访问使用启动账户直接执行";
+        : "native 执行后端：受限任务在操作系统原生沙箱内执行；完全访问使用启动账户直接执行";
     return { backend, note };
   }
 

@@ -1,4 +1,4 @@
-import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
+import { product as personalProduct } from "../../apps/ruukoto/src/product.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）的本机冒烟。
  *
@@ -7,26 +7,26 @@ import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts
  * 占用，所以在 stop 与重新 Runtime.start 之间用新连接把种子任务置为
  * running 并种下遗留占用——恢复的判定输入与真实崩溃后的库内容一致）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
- * （Docker 容器后端，04/11/12/14 已验证的 macOS 受限执行边界）+ 真实 CLI
- * （apps/ruukoto-code/bin/ruukoto-code.mjs resume-queue，经 socket 与拥有者令牌）。
+ * （native 原生后端）+ 真实 CLI
+ * （apps/ruukoto/bin/ruukoto.mjs resume-queue，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应）：
  *  B1. 重启时排队的委派任务定 interrupted（backend_restart）：不自动继续
- *      （零模型请求、零容器）、结果归属保持、Agent 回 idle；dev 父会话下一轮
- *      注入该结果；沿 work_id 继续委派真实容器完成；
+ *      （零模型请求、零 worker）、结果归属保持、Agent 回 idle；dev 父会话下一轮
+ *      注入该结果；沿 work_id 继续委派真实原生 worker完成；
  *  B2. 遗留占用（无法确认旧执行已退出）：保留占用与 occupancy_unverified
  *      暂停、Agent 记 unverified 且拒绝新委派；真实 CLI resume-queue 释放
  *      占用、解除暂停、Agent 回 idle，可继续委派；
  *  B3. 宿主固定评审的排队任务（带来源事件）不中断：子会话的
  *      backend_restart 暂停由编排器启动恢复自动解除并继续执行；
- *  B4. 重复重启不重复登记：结果与事件不增、不自动运行；空闲期间无残余容器。
+ *  B4. 重复重启不重复登记：结果与事件不增、不自动运行；空闲期间无残余执行单元。
  *
- * 结果约定：0 = 全部通过；1 = 有 FAIL；2 = docker/镜像不可用。
- * TMPDIR 可换位置。容器 uid/gid 约定同 smoke-14。
+ * 结果约定：0 = 全部通过；1 = 有 FAIL；2 = 原生能力不可用。
+ * TMPDIR 可换位置。原生前置见 deploy/native/README.md。
  *
  */
 
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -44,12 +44,9 @@ import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 
-import { cleanupRuntime, requireDocker, requireNoArgs } from "./gate.ts";
+import { assertUnitsStopped, cleanupRuntime, recordRuntimeUnits, requireNative, requireNoArgs } from "./gate.ts";
 
 requireNoArgs();
-const IMAGE = process.env.RUUKOTO_WORKER_IMAGE ?? "ruukoto-worker:latest";
-const UID = Number(process.env.RUUKOTO_CONTAINER_UID ?? (process.platform === "darwin" ? 1000 : (process.getuid?.() ?? 1000)));
-const GID = Number(process.env.RUUKOTO_CONTAINER_GID ?? (process.platform === "darwin" ? 1000 : (process.getgid?.() ?? 1000)));
 
 const results: Array<{ name: string; ok: boolean; detail: string }> = [];
 function check(name: string, fn: () => void | Promise<void>): Promise<void> {
@@ -57,19 +54,16 @@ function check(name: string, fn: () => void | Promise<void>): Promise<void> {
     .then(fn)
     .then(() => {
       results.push({ name, ok: true, detail: "" });
-      console.log(`PASS ${name}`);
+      process.stderr.write("[ruukoto:smoke15] " + `PASS ${name}` + "\n");
     })
     .catch((err) => {
       results.push({ name, ok: false, detail: String((err as Error).message ?? err) });
-      console.log(`FAIL ${name}: ${(err as Error).message}`);
+      process.stderr.write("[ruukoto:smoke15] " + `FAIL ${name}: ${(err as Error).message}` + "\n");
     });
 }
-function docker(args: string[]): string {
-  return execFileSync("docker", args, { encoding: "utf8", timeout: 30_000 }).trim();
-}
 
-requireDocker(IMAGE);
-console.log(`环境：${process.platform} ${process.arch}；镜像 ${IMAGE}；容器 uid:gid ${UID}:${GID}`);
+await requireNative();
+process.stderr.write("[ruukoto:smoke15] " + `环境：${process.platform} ${process.arch}；执行 native` + "\n");
 
 const repoRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
 const root = fs.realpathSync(mkdtempSync(path.join(tmpdir(), "ruukoto-smoke15-")));
@@ -100,12 +94,15 @@ function eventsOf(rt: Runtime, type: string): any[] {
 const evidence: string[] = [];
 let workA = "";
 let nextRoundText = "";
+let releaseB2!: () => void;
+const b2Gate = new Promise<void>(resolve => { releaseB2 = resolve; });
 
 const responder: Responder = async (req) => {
   const text = lastUserText(req);
+  if (text === "B2-HOLD") { await b2Gate; return { kind: "text", text: "B2父轮完成" }; }
   if (text.includes("[SubAgent 委派")) {
     if (text.includes("评审任务SMOKE15-R")) return { kind: "text", text: "SMOKE15-R-评审结论" };
-    if (text.includes("继续分析 A")) return { kind: "text", text: "SMOKE15-CONT-继续结论" };
+    if (text.includes("继续分析 A") && afterTool(req)) return { kind: "text", text: "SMOKE15-CONT-继续结论" };
     if (afterTool(req)) return { kind: "text", text: `SMOKE15-A-结论 ${secretA}` };
     return { kind: "tool_calls", calls: [{ id: "r1", name: "read", arguments: { path: fileA } }] };
   }
@@ -119,7 +116,7 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto-code：真实容器 worker + 真实 CLI ============
+// ============ ruukoto：真实原生 worker worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
 const dataDir = path.join(root, "data");
@@ -134,15 +131,17 @@ const config: RuntimeConfig = {
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  product: codingProduct.runtime,
+  product: personalProduct.runtime,
   ...realTools(),
-  execution: { backend: "container", container: { uid: UID, gid: GID } },
+  execution: { backend: "native" },
 };
 
 let rt = await Runtime.start(config);
+const units = recordRuntimeUnits(rt);
 await ControlServer.start(rt);
-const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CODE_DATA_DIR: dataDir,
-  RUUKOTO_CODE_AGENT_DIR: agentDir, RUUKOTO_CODE_CONTROL_DIR: rt.controlDir() };
+const env = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+    DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_DATA_DIR: dataDir,
+  RUUKOTO_AGENT_DIR: agentDir, RUUKOTO_CONTROL_DIR: rt.controlDir() };
 
 /** 播种子会话的排队任务；先按 backend_restart 暂停会话（崩溃遗留形态），避免循环提前取走。 */
 function seedQueued(sessionId: string, workId: string, subAgentId: string, parentTaskId: string, key: string, input: string, sourceEventId: string | null = null) {
@@ -166,6 +165,7 @@ function seedQueued(sessionId: string, workId: string, subAgentId: string, paren
 async function restart() {
   await rt.stop("smoke_restart");
   rt = await Runtime.start(config);
+  recordRuntimeUnits(rt, units);
   await ControlServer.start(rt);
 }
 
@@ -178,7 +178,10 @@ try {
   const taskA1 = rt.store.listTasksByWork(workA)[0]!.id;
   await waitFor("A 首次执行完成", () => rt.store.getTask(taskA1)!.status === "completed", 60_000);
   await waitFor("Agent 空闲", () => rt.store.getSubAgent(agent.id)!.state === "idle");
-  evidence.push(`workA ${workA}，SubAgent ${agent.id}（子会话 ${agent.sessionId}），首次执行任务 ${taskA1}（真实容器 read）`);
+  const firstRead = rt.store.listToolOpsByTask(taskA1).find(op => op.sdkCallId === "r1");
+  assert.equal(firstRead?.isError, false);
+  assert.match(firstRead?.resultSummary ?? "", new RegExp(secretA));
+  evidence.push(`workA ${workA}，SubAgent ${agent.id}（子会话 ${agent.sessionId}），首次执行任务 ${taskA1}（真实原生 worker read）`);
 
   // ---------- B1：排队委派任务的重启恢复 ----------
   const q1 = seedQueued(agent.sessionId, workA, agent.id, parent.id, "b1-queued", "排队任务SMOKE15-Q1");
@@ -197,11 +200,11 @@ try {
     assert.equal(ref.outcome, "unknown");
     assert.equal(server.calls.filter((c) => inputText(c).includes("SMOKE15-Q1")).length, 0, "零模型请求，不自动继续");
     assert.equal(eventsOf(rt, "subagent_task.result_unknown").filter((e) => e.taskId === q1.id).length, 1);
-    assert.equal(docker(["ps", "-a", "--filter", `name=ruukoto-task-${q1.id}`, "--format", "{{.Names}}"]), "", "排队任务零容器");
+    assert.equal(units.filter(unit => unit.taskId === q1.id).length, 0, "排队任务没有 worker");
     const a = rt.store.getSubAgent(agent.id)!;
     assert.equal(a.state, "idle", "Agent 回到可用");
     assert.equal(rt.store.getSession(agent.sessionId)!.queueState, "active");
-    evidence.push(`B1：Q1 ${q1.id} interrupted(backend_restart)，结果引用归属 work/subAgent/父会话/父任务，零模型请求零容器`);
+    evidence.push(`B1：Q1 ${q1.id} interrupted(backend_restart)，结果引用归属 work/subAgent/父会话/父任务，零模型请求零 worker`);
   });
 
   await check("B1 dev 父会话下一轮模型调用注入中断结果", async () => {
@@ -211,12 +214,15 @@ try {
     assert.ok(nextRoundText.includes("结果未知") || nextRoundText.includes("中断"), "注入内容标明中断");
   });
 
-  await check("B1 空闲 Agent 沿 work_id 继续委派（真实容器完成）", async () => {
+  await check("B1 空闲 Agent 沿 work_id 继续委派（真实原生 worker完成）", async () => {
     const parent2 = await rt.submit({ sessionId: session.id, requestId: "p3", input: "继续 A", modelSelection: rt.defaultSelection });
     await waitFor("继续轮父任务完成", () => rt.store.getTask(parent2.id)!.status === "completed", 60_000);
     const cont = rt.store.listTasksByWork(workA).find((t) => t.requestId.endsWith(":cont1"))!;
     await waitFor("继续任务完成", () => rt.store.getTask(cont.id)!.status === "completed", 60_000);
     assert.ok(rt.store.getTask(cont.id)!.resultSummary!.includes("SMOKE15-CONT"), "继续委派真实完成");
+    const continuedRead = rt.store.listToolOpsByTask(cont.id).find(op => op.sdkCallId === "r1");
+    assert.equal(continuedRead?.isError, false);
+    assert.match(continuedRead?.resultSummary ?? "", new RegExp(secretA));
     await waitFor("Agent 再空闲", () => rt.store.getSubAgent(agent.id)!.state === "idle");
   });
 
@@ -254,8 +260,11 @@ try {
     }
   })();
   rt = await Runtime.start(config);
+  recordRuntimeUnits(rt, units);
   await ControlServer.start(rt);
   const q2 = { id: q2id };
+  const b2Parent = await rt.submit({ sessionId: session.id, requestId: "b2-owner", input: "B2-HOLD", modelSelection: rt.defaultSelection });
+  await waitFor("B2管理父轮实际运行", () => rt.store.getTask(b2Parent.id)?.status === "running");
   await check("B2 遗留占用保留、暂停不解除、Agent 记 unverified、拒绝新委派", async () => {
     const after = rt.store.getTask(q2.id)!;
     assert.equal(after.status, "interrupted");
@@ -266,25 +275,31 @@ try {
     assert.equal(childSession.queuePauseReason, "occupancy_unverified", "启动恢复不解除未核实的暂停");
     assert.equal(rt.store.getSubAgent(agent.id)!.state, "unverified");
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: parent.id, key: "b2-x", request: "拒绝", workId: workA, readPaths: [fileA], materials: null, paramsDigest: "smoke15-b2-x" }),
+      () => rt.subagents!.delegate({ parentTaskId: b2Parent.id, key: "b2-x", request: "拒绝", workId: workA, readPaths: [fileA], materials: null, paramsDigest: "smoke15-b2-x" }),
       /待核实|正忙/,
       "未核实前拒绝新委派",
     );
     assert.equal(server.calls.filter((c) => inputText(c).includes("SMOKE15-R1")).length, 0, "旧执行不并发重跑");
   });
   await check("B2 真实 CLI resume-queue：释放占用、解除暂停、Agent 回 idle", async () => {
-    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
+    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
     assert.match(out, /"queueState": "active"/, out);
     assert.equal(rt.store.listAllOccupancy().filter((o) => o.sessionId === agent.sessionId).length, 0, "占用释放");
     assert.equal(rt.store.getSession(agent.sessionId)!.queueState, "active");
     assert.equal(rt.store.getSubAgent(agent.id)!.state, "idle", "unverified 的唯一出口");
     evidence.push(`B2：Q2 ${q2.id} 遗留占用经 CLI resume-queue 释放，Agent unverified → idle`);
   });
-  await check("B2 回 idle 后可继续委派（真实容器完成）", async () => {
-    const d3 = await rt.subagents!.delegate({ parentTaskId: parent.id, key: "b2-cont", request: "继续分析 A", workId: workA, readPaths: [fileA], materials: null, paramsDigest: "smoke15-b2-cont" });
+  await check("B2 回 idle 后可继续委派（真实原生 worker完成）", async () => {
+    const d3 = await rt.subagents!.delegate({ parentTaskId: b2Parent.id, key: "b2-cont", request: "继续分析 A", workId: workA, readPaths: [fileA], materials: null, paramsDigest: "smoke15-b2-cont" });
     assert.equal(d3.created, true);
     await waitFor("B2 继续任务完成", () => rt.store.getTask(d3.task.id)!.status === "completed", 60_000);
+    const recoveredRead = rt.store.listToolOpsByTask(d3.task.id).find(op => op.sdkCallId === "r1");
+    assert.equal(recoveredRead?.isError, false);
+    assert.match(recoveredRead?.resultSummary ?? "", new RegExp(secretA));
   });
+
+  releaseB2();
+  await waitFor("B2父轮收尾", () => rt.store.getTask(b2Parent.id)?.status === "completed");
 
   // ---------- B3：宿主固定评审排队任务自动恢复 ----------
   const review = seedQueued(agent.sessionId, workA, agent.id, parent.id, "b3-review", "评审任务SMOKE15-R", "evt_smoke15_review");
@@ -301,7 +316,7 @@ try {
   const unknownBefore = eventsOf(rt, "subagent_task.result_unknown").length;
   const resultsBefore = new Map(rt.store.listTasksByWork(workA).map((t) => [t.id, rt.store.getTask(t.id)!.resultSummary]));
   await restart();
-  await check("B4 重复重启不重复登记、不自动运行、无残余容器", async () => {
+  await check("B4 重复重启不重复登记、不自动运行、无残余执行单元", async () => {
     assert.equal(eventsOf(rt, "subagent_task.result_unknown").length, unknownBefore, "result_unknown 事件不增");
     for (const [id, summary] of resultsBefore) {
       assert.equal(rt.store.getTask(id)!.resultSummary, summary, `任务 ${id} 结果不被改写`);
@@ -311,21 +326,22 @@ try {
     await new Promise((r) => setTimeout(r, 500));
     assert.equal(server.calls.length, callsBefore, "重启后旧任务不产生新模型调用");
     for (const taskId of [q1.id, q2.id, review.id]) {
-      assert.equal(docker(["ps", "-a", "--filter", `name=ruukoto-task-${taskId}`, "--format", "{{.Names}}"]), "", `任务 ${taskId} 无残余容器`);
+      await assertUnitsStopped(units, taskId, false);
     }
   });
 } finally {
-  const failure = await cleanupRuntime(rt, server, root);
+  releaseB2();
+  const failure = await cleanupRuntime(rt, server, root, units);
   if (failure) {
     const detail = `${failure.message}；保留现场 ${root}；${String(failure.cause)}`;
     results.push({ name: "清理本次资源", ok: false, detail });
-    console.error(`FAIL 清理本次资源：${detail}`);
+    process.stderr.write("[ruukoto:smoke15] " + `FAIL 清理本次资源：${detail}` + "\n");
   }
 }
 
 // ---------- 汇总 ----------
-console.log("\n===== 证据 =====");
-for (const line of evidence) console.log(line);
+process.stderr.write("[ruukoto:smoke15] " + "\n===== 证据 =====" + "\n");
+for (const line of evidence) process.stderr.write("[ruukoto:smoke15] " + line + "\n");
 const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} PASS${failed.length ? `，${failed.length} FAIL` : ""}`);
+process.stderr.write("[ruukoto:smoke15] " + `\n${results.length - failed.length}/${results.length} PASS${failed.length ? `，${failed.length} FAIL` : ""}` + "\n");
 process.exit(failed.length ? 1 : 0);

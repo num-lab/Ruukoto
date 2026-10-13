@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/tmp/ruukoto-script-isolation.v2XPXY/node24/node_modules/node/bin/node",
+    "--import",
+    "tsx",
+    "--test",
+    "test/121-workflow-personal-acceptance.test.ts"
+  ],
+  "exit": 0,
+  "seconds": 6.042
+}

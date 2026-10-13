@@ -1,0 +1,10 @@
+{
+  "root": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-workflow-model-gNg6HJ",
+  "sessionFile": "2026-10-13T08-55-18-381Z_a7a4fe33-80d4-4a00-b030-538d142c6e63.jsonl",
+  "timestamp": "2026-10-13T08:55:29.469Z",
+  "provider": "magpie",
+  "model": "mirasim/deepseek-flash",
+  "stopReason": "error",
+  "errorMessage": "503: {\"code\":null,\"message\":\"Mirasim: auth_unavailable: no auth available (providers=mirasim, model=deepseek-flash; last upstream error: execute host http request: Post \\\"https://relay.mirasim.ai/v1/messages\\\": pluginhost TLS handshake: EOF)\",\"param\":null,\"type\":\"api_error\"}",
+  "workflowStarted": false
+}

@@ -129,8 +129,8 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
 
     // 通知与 coding materials 共用这个解析器；群资料不能经任务结果、产物或父子关系传入。
     const sources = createSourceResolver({ store, access, artifacts, appData: () => null });
-    assert.throws(() => sources.resolve(sessions.main.projectId, [{ kind: "task_result", task_id: groupTask.id }]), /不在 main 可读范围/);
-    assert.throws(() => sources.resolve(sessions.main.projectId, [{ kind: "artifact", artifact_id: groupArtifact.id }]), /不在 main 可读范围/);
+    assert.throws(() => sources.resolve(sessions.main.projectId, [{ kind: "task_result", task_id: groupTask.id }]), /不在当前步骤可读范围/);
+    assert.throws(() => sources.resolve(sessions.main.projectId, [{ kind: "artifact", artifact_id: groupArtifact.id }]), /不在当前步骤可读范围/);
     assert.equal(sources.resolve(sessions.main.projectId, [{ kind: "task_result", task_id: codingTask.id }]).text, texts.coding, "正常 coding 子任务结果仍可读");
     const oldSnapshot = sources.resolve(sessions.dev.projectId, [{ kind: "artifact", artifact_id: groupArtifact.id }]);
     assert.match(sources.verify(sessions.main.projectId, oldSnapshot.refs)!, /授权已撤销|不可读/);

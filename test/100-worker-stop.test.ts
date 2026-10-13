@@ -207,6 +207,18 @@ test("真实原进程组：短暂查询失败在停止预算内继续核实", { 
   }
 });
 
+for (const exited of [true, false]) test(`信号 EPERM 仍核实原进程组：${exited ? "已退出" : "持续未知"}`, async context => {
+  let queries = 0;
+  context.mock.method(process, "kill", (_pid: number, signal: string | number) => {
+    if (signal === 0) queries++;
+    throw Object.assign(new Error("信号或核实失败"), { code: signal === 0 && exited ? "ESRCH" : "EPERM" });
+  });
+  try {
+    assert.equal(await killProcessGroup(123456, { termGraceMs: 0, killGraceMs: 0 }), exited);
+    assert.equal(queries, exited ? 1 : 2);
+  } finally { context.mock.restoreAll(); }
+});
+
 for (const query of ["失败", "输出不完整"] as const) {
   test(`原进程组持续存在且查询${query}：预算耗尽仍保留未核实`, { skip: process.platform === "win32" }, async context => {
     let queries = 0;
@@ -316,7 +328,9 @@ test("router 的 starting 与实际登记保留 ready 失败，不重建未知�
   const kit = routerKit({ kind: "local", async launch(spec) { launches++; return controlled.launcher.launch(spec); } });
   try {
     assert.equal((await kit.run()).isError, true);
-    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [false, false]);
+    assert.equal(kit.registry.list().length, 1);
+    assert.equal(kit.registry.list()[0].kind, "process_group");
+    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [false]);
     assert.equal(await kit.router.stopWorker(), false);
     assert.equal((await kit.run()).isError, true);
     assert.equal(launches, 1);
@@ -389,13 +403,19 @@ test("start 与已取消调用不重复启动或发送工具帧", async () => {
 
 test("router 每次启动使用独立 starting 身份", async () => {
   const kit = routerKit({ kind: "local", launch: spec => controlledUnit(async () => true, { fatal: true }).launcher.launch(spec) });
+  const starting: string[] = [], register = kit.registry.register.bind(kit.registry);
+  kit.registry.register = entry => {
+    if (entry.kind === "starting") starting.push(entry.id);
+    return register(entry);
+  };
   try {
     assert.equal((await kit.run()).isError, true);
     assert.equal((await kit.run()).isError, true);
-    const starting = kit.registry.list().filter(entry => entry.kind === "starting");
     assert.equal(starting.length, 2);
-    assert.notEqual(starting[0].id, starting[1].id);
-    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [true, true, true]);
+    assert.notEqual(starting[0], starting[1]);
+    assert.equal(kit.registry.list().length, 2);
+    assert.ok(kit.registry.list().every(entry => entry.kind === "process_group"));
+    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [true, true]);
   } finally { kit.close(); }
 });
 

@@ -17,6 +17,9 @@ export interface ScheduledSessionBinding {
   modelSelection: ModelSelection | null;
 }
 
+/** 工作流步骤仍是 SubAgent 上下文，运行授权与来源由宿主绑定提供。 */
+export interface WorkflowSessionBinding { runId: string; stepKey: string; sourceSessionId: string }
+
 /**
  * 退役原因（agent-direction issue 20 核心群聊、issue 23 固定 coding）：入站门卫弃、
  * 遗留排队任务取消、启动收尾与提交拒绝共用同一文本（前缀即持久化原因标识）。
@@ -33,12 +36,12 @@ export type SessionIdentity =
   | { kind: "dev" }
   | { kind: "main"; role: AgentRole }
   | ({ kind: "scheduled" } & ScheduledSessionBinding)
-  | { kind: "subagent"; agent: SubAgent }
+  | { kind: "subagent"; agent: SubAgent; workflow?: WorkflowSessionBinding }
   | { kind: "retired"; reason: string };
 
-export function classifySession(session: Pick<Session, "kind">, role: AgentRole | null, agent: SubAgent | null, scheduled: ScheduledSessionBinding | null = null): SessionIdentity {
+export function classifySession(session: Pick<Session, "kind">, role: AgentRole | null, agent: SubAgent | null, scheduled: ScheduledSessionBinding | null = null, workflow: WorkflowSessionBinding | null = null): SessionIdentity {
   if (scheduled) return { kind: "scheduled", ...scheduled };
-  if (agent) return { kind: "subagent", agent };
+  if (agent) return { kind: "subagent", agent, ...(workflow ? { workflow } : {}) };
   if (session.kind === "qq_group" || role?.id === "chat") return { kind: "retired", reason: CORE_GROUP_CHAT_RETIRED };
   if (role?.id === "coding") return { kind: "retired", reason: CODING_ROLE_RETIRED };
   if (role?.id === "main") return { kind: "main", role };

@@ -2,11 +2,13 @@
 
 ## 职责与边界
 
-本篇负责把编码工具 `read` / `edit` / `write` / `bash` 的完整执行放进独立工具工作进程，再按后端与访问模式提供执行边界。两个产品的受限任务均经 `native` 使用 macOS Seatbelt 或 Linux bubblewrap；完全访问使用启动后台的当前账户，不施加任务沙箱。它同时负责进程间协议、沿发起任务模式执行的 worktree 创建与汇总、目录身份复核、防旁路与整个执行单元的停止核实。
+本篇负责把编码工具 `read` / `edit` / `write` / `bash` 的完整执行放进独立工具工作进程，再按后端与访问模式提供执行边界。两个产品的受限任务均经 `native` 使用 macOS Seatbelt 或 Linux bubblewrap；普通完全访问使用启动后台的当前账户，不施加任务沙箱；工作流编码验证始终收窄到原生沙箱的独立副本。它同时负责进程间协议、沿发起任务模式执行的 worktree 创建与汇总、目录身份复核、防旁路与整个执行单元的停止核实。
 
 不负责的部分点名归属：工具的类别清单、可用性判定与执行画像归 [agent-tools](agent-tools.md)；审批闸门、是否需要审批与 auto-review 策略同样归 [agent-tools](agent-tools.md)，本篇只写越界操作在**执行侧**怎样落地——越界的外部文件读写与单次 HTTP 请求由后台的受信执行器完成，不进工作进程，参数不可替换、批准单次消费，闸门与策略见 [agent-tools](agent-tools.md)。委派语义（`mode`、`target`、写入目标钉定、目录占用键与串行规则）归 [runtime](runtime.md)；任务的访问模式、权限版本与提交幂等也归 [runtime](runtime.md)，本篇只承担它们在执行侧的后果：同一任务内按任务 ID、访问模式与授予路径复用工作进程，模式或授予范围变化时先停旧执行单元、核实已退出，再建立新环境。
 
 `local` 后端以当前账户 spawn 一个独立进程组，没有隔离，供完全访问与库层离线测试使用；正式受限入口拒绝 local，不得据此宣称受限边界已经生效。
+
+受限 JavaScript 的固定编排入口使用独立 Node 进程内的 QuickJS/WASM，只提供四类宿主回调。该库层入口不导入 runtime，不持久化运行；`script-worker/validate.ts` 使用同一 async 函数包装和 QuickJS compileOnly 做有界语法校验，不执行步骤。产品启动归 Runtime 与共享宿主工具；脚本的隔离与来源步骤采用何种工具访问模式分别确定。
 
 ## 对外接口
 
@@ -16,10 +18,11 @@
 | 后台（Driver、ToolRouter、委派流程） | `ToolWorkerHost.create(launcher, spec)`、`host.start()` | 先创建并登记宿主记录，再启动并等 `ready`；30 秒未就绪抛 `worker_timeout`，启动失败保留原原因与停止结论 |
 | 后台 | `ToolWorkerHost.call({ opId, sdkCallId, name, params, timeoutMs })` | 发出一次工具调用；`opId` 是宿主分配的操作 ID、协议关联键，`sdkCallId` 只供上游工具内部使用、不作身份；超时抛 `tool_timeout` 并发出 `abort` |
 | 后台 | `ToolWorkerHost.abort(opId)`、`ToolWorkerHost.stop()` | 中止单次调用；停止时发 `shutdown` 并停掉整个执行单元 |
-| Runtime 的 worktree 创建与改动汇总 | `Runtime.executeWorkCopy({ parentTaskId, workspace, copyDir, branch, command, extraGrants })` | 归属正在执行的父任务，用临时工作进程按父任务模式执行宿主固定的 bash；`bash` 超时 120 秒、宿主调用超时 150 秒 |
+| Runtime 的 worktree 创建与改动汇总 | `Runtime.executeWorkCopy({ parentTaskId, workspace, copyDir, branch, command, extraGrants })` | 归属活动 Driver 任务或运行派生的宿主操作任务，用临时工作进程按其固定模式执行宿主 bash；`bash` 超时 120 秒、宿主调用超时 150 秒 |
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
+| 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`onIdentity` 在启动完成后交给宿主持久化实际身份；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
 
 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
 
@@ -42,6 +45,8 @@
 错误码：`execution_unavailable`（缺少受限后端、策略或宿主运行依赖）、`invalid_state`（启动器与模式不匹配）、`worker_timeout`（工作进程未就绪）、`tool_timeout`（调用超时）、`worktree_failed`（副本创建失败）、`worktree_gone`（副本目录被替换、删除或 `.git` 指向变化）。原生不可用另带 `binary_missing`、`policy_missing`、`sandbox_rejected` 或 `worker_failed` 原因；按进入受限 Node 的启动标记区分策略拒绝与 worker 失败，不解析 stderr 文案。
 
 ## 数据与状态
+
+脚本入口只持有当前执行的内存状态。脚本与 JSON 参数经专用 stdio 协议发送，脚本原语为 `agent(key, params)`、`ask(key, params)`、`integrate(key, params)`、`progress(key, params)`，均返回解释器内 Promise。宿主回调收到递增请求 ID、类别、稳定键和 JSON 参数，并负责业务校验、持久化及名下实际步骤；本入口不把脚本返回视为整项工作的成功。`onActivity` 在发送 start/reply 前同步通知活动，只有最新序号的 idle 才通知空闲，供运行协调器核实人工停计。宿主步骤结果应返回具名 JSON；只有 `ScriptCallError` 表示可交脚本处理的拒绝，授权、协议与其他宿主错误终止执行。
 
 启动工作进程的 `LaunchSpec`：
 
@@ -83,6 +88,10 @@ stateDiagram-v2
 
 ## 主要流程
 
+### 固定脚本执行
+
+入口只启动构建后的 `worker/workflow-script.mjs`，WASM 从同目录读取；启动 argv 不含脚本文本，环境只有固定 LANG。解释器不暴露 Node、文件、网络、凭据、时钟、随机数、模块或定时器；宿主输入与结果按 JSON 值交付，转换同样受执行时限约束。每批 64 个微任务让出事件循环，宿主等待不耗脚本执行预算；完成帧、通道排空、正常退出和原进程组停止核实都成立才返回成功。取消先阻止回调和迟到消息，并通知回调的 AbortSignal，再回收进程；调用方仍须停止已登记的实际步骤。
+
 ### 一次工具调用
 
 ```mermaid
@@ -117,7 +126,7 @@ sequenceDiagram
 | macOS | `sandbox-exec` 的 deny-default Seatbelt 策略；仅授权根可写、必要运行依赖只读，文件规则使用真实路径，网络与外部 IPC 默认拒绝；`npm run build:native` 用系统 clang 构建宿主监督器 | 启动前保存同 UID 身份基线，任务存活期累计后代；libproc 同次读取出生时间、uniqueid 与 pidversion，信号由 audit token 在内核原子核实身份后发送 |
 | Linux | `/usr/bin/bwrap`、AppArmor userns 配置、cgroup v2 与可委派的 user systemd scope；完整 namespace、只读基础根和受限挂载；seccomp 拒绝 socket/connect/发送与 io_uring，包含 abstract Unix socket | PID namespace 拆除回收后代，user scope 的 `cgroup.kill` 提供第二道回收；成功查询单元退出与 cgroup 无成员才返回 true |
 
-macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Node 在独立临时目录写启动标记，再加载 SDK。观察中断、身份不可用或信号失败保持未核实；停止后留 100ms 收敛窗口，以连续完整采样核实最终残留。当前父 uniqueid 会随收养改变；仅当前父为 PID 1 不足以判外部进程，原父 pidversion 也须匹配启动前 PID 1 身份。PID 1 用可跨 UID 的 libproc flavor 17 核实，失败或 root 初始版本不大于 PID 1 版本时禁用排除。未知新寿命按单调分配的 uniqueid 判出生顺序；看到新寿命或已知成员的无符号 pidversion 低于 root 初始版本，标回卷并保留占用，其他未知同 UID 孤儿也不发送信号且返回 false。pidversion 为可回卷的 32 位序列，轮询也不是不可逃逸的内核成员集合，未核实后代仍可能继续写工作区，因此保留占用并等待拥有者核实。Linux 的安装与核实入口见 [原生部署前置](../../deploy/native/README.md)。
+macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Node 在独立临时目录写启动标记，再加载 SDK。身份查询无结果最多同 PID 重核三次，只有明确退出或完整合法身份可以接受；持续失败与损坏字段保留未知。观察中断、身份不可用或信号失败保持未核实；停止后留 100ms 收敛窗口，以连续完整采样核实最终残留。当前父 uniqueid 会随收养改变；仅当前父为 PID 1 不足以判外部进程，原父 pidversion 也须匹配启动前 PID 1 身份。PID 1 用可跨 UID 的 libproc flavor 17 核实，失败或 root 初始版本不大于 PID 1 版本时禁用排除。未知新寿命按单调分配的 uniqueid 判出生顺序；看到新寿命或已知成员的无符号 pidversion 低于 root 初始版本，标回卷并保留占用，其他未知同 UID 孤儿也不发送信号且返回 false。pidversion 为可回卷的 32 位序列，轮询也不是不可逃逸的内核成员集合，未核实后代仍可能继续写工作区，因此保留占用并等待拥有者核实。Linux 的安装与核实入口见 [原生部署前置](../../deploy/native/README.md)。
 
 ### Linux 常驻前提与临时资料
 
@@ -170,6 +179,12 @@ sequenceDiagram
 
 ## 不变量与失败处理
 
+### 受限脚本
+
+`SCRIPT_LIMITS` 固定脚本 128 KiB、每帧 1 MiB、排队输出 4 MiB、未决请求 32 个、进度 256 次及 256 KiB、QuickJS 堆 32 MiB、栈 256 KiB；WASM 线性内存最多 64 MiB，Node V8 old space 64 MiB。这些分别约束解释器和载荷，不能合称进程 RSS 上限。父进程计入每次发送至相应 idle 的累计墙钟时间，默认 10 秒，宿主只能收窄；WASM 初始化另限 10 秒。无宿主请求的悬空 Promise、漏 await 的调用、越限和损坏帧均失败，不能静默等待或返回成功。
+
+父进程计时独立于解释器，中断回调不是长内建操作的及时中止保证。异常中断后由进程退出回收整个 WASM，正常路径释放 Promise、上下文与运行时；停止核实 false 或抛错保留身份、结果、失败原因，调用方不得释放相关占用或重放步骤。该固定 worker 没有派生外部进程的接口；如需增加这种能力，必须重新核实整个执行单元的回收范围。
+
 ### 工具工作进程
 
 - 工作进程只执行 `read`、`edit`、`write`、`bash`，白名单之外的名字一律拒绝；不加载任何项目自动发现的可执行扩展或可执行文件。
@@ -182,7 +197,7 @@ sequenceDiagram
 
 ### 执行边界
 
-- 受限执行单元按任务建立，不复用给后续任务；任务内按 ID、模式与授予范围复用，变化时先核实旧单元已停止再重建。
+- 受限执行单元按任务建立，不复用给后续任务；任务内按 ID、模式与授予范围复用，变化时先核实旧单元已停止再重建。进程组 TERM/KILL 失败仍在原预算内核实退出，持续权限或查询失败保留占用。
 - 单次批准不改变沙箱权限：批准的结构化操作不变成后续 Shell 可复用的文件或网络授权。
 - 工作区与授予一律使用宿主真实路径；模型看到的 cwd、拥有者给出的绝对路径与 `request_file_access` 的宿主路径保持一致。
 - 原生 worker 不继承宿主凭据、SSH agent、代理或控制面；项目内自带的秘密属于已授权内容，沙箱不会识别或隐藏它们。
@@ -212,7 +227,15 @@ sequenceDiagram
 - 消费后的失败定性：GET / HEAD 失败一律是已知错误；其他方法以请求交给操作系统发出为界，之前失败（连接被拒、TLS、凭据）是已知错误，之后失败（等响应超时、连接重置、任务停止中止）标 `effect_unknown`，不自动重发。
 - 任务停止即中止在途请求，不等超时。
 
+[工作流编码验证](workflows.md)始终用原生沙箱，只写按冻结基线/补丁建立的独立验证副本；来源完全访问也在验证阶段收窄，附加路径转只读，宿主文件写入口关闭。原生环境不可用明确失败，不回退到 local。工作流宿主操作的副本占用保持到全部套用与组合检查收尾，实际身份更新原 starting 句柄，取消后的身份仍保存。
+
 ## 设计依据
+
+- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
+
+- [具名宿主执行](../../.agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md)：短期任务持有 worker、账本与目录占用，停止未核实保留。
+
+- [QuickJS/WASM 脚本隔离](../../.agents/notes/implemented/architecture/2026-10-13-workflow-script-isolation.md)：固定入口、资源保证、回收及四格实验依据。
 
 - [内置 read 从同一受限读取恢复图片结果](../../.agents/notes/implemented/bug-fix/2026-10-12-read-images.md)：图片类型探测、原始捕获与超限失败的接法。
 - [个人 Agent 复用原生受限执行并退役 Docker worker](../../.agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md)：统一正式入口、常驻服务器前置、宿主身份及无临时空间配额的取舍。

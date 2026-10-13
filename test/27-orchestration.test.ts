@@ -52,7 +52,7 @@ test("角色引导：只引导 main（chat/coding 已退役，issue 20/23）", a
     assert.equal(session.cwdReal, fs.realpathSync(main.workDir));
     // 白名单：main 无编码工具（issue 02 起含应用数据空间；agent-direction issue 09 起含
     // service 类别——装配另要求产品/Linux/显式部署配置，见 tool-availability）
-    assert.deepEqual(main.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"]);
+    assert.deepEqual(main.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"]);
   } finally {
     await t.shutdown();
   }

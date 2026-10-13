@@ -36,7 +36,7 @@ Status: proposed
 
 人工决定是可持久的业务步骤，回答与具体运行、步骤和可信入口绑定，等待期间主会话及其他工作继续。业务回答不等于操作审批，工具仍沿原权限执行；取消或入口失效后的回答不能重新启动执行。把一次工作拆成多段独立运行可以减少等待状态，但会丢掉统一步骤归属与恢复体验，因此选择保存等待。
 
-受限脚本入口已按[QuickJS/WASM 隔离决定](../../implemented/architecture/2026-10-13-workflow-script-isolation.md)落地并通过四格假 Agent 实验；持久协调器已按[运行执行基础](../../implemented/architecture/2026-10-13-workflow-runtime-and-store.md)落地并以假 Agent 验证；真实步骤接线与产品入口仍待实施，不能将脚本库层通过视为工作流整体通过。
+受限脚本入口已按[QuickJS/WASM 隔离决定](../../implemented/architecture/2026-10-13-workflow-script-isolation.md)落地并通过四格假 Agent 实验；持久协调器已按[运行执行基础](../../implemented/architecture/2026-10-13-workflow-runtime-and-store.md)落地并以假 Agent 验证；真实步骤、回答送达与定义入口均已接线，不能将分单离线验证视为工作流联合验收或真实产品通过。
 
 ### 验证与成果汇总
 
@@ -56,7 +56,7 @@ Status: proposed
 
 其余命中中，MCP、IM、服务、沙箱、消息、工作副本与上下文记录是步骤能力及执行记录的约束来源，保留各自决定；实现方案须按实际接线复核，不由“来源授权内可用”推定任何宿主身份或凭据可被复制。界面与文档流程、会话分支、实例导入、群聊和 GitHub 退役与当前已确认取舍无关，保留原决定。
 
-真实步骤权限与冻结成果的实施理由由[步骤接线](../../implemented/architecture/2026-10-13-workflow-step-capabilities.md)持有；其余入口与交付要求继续由本提案持有。
+真实步骤权限与冻结成果的实施理由由[步骤接线](../../implemented/architecture/2026-10-13-workflow-step-capabilities.md)持有；回答与最终回报由[送达](../../implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)持有，定义与交互入口由[定义入口](../../implemented/feature/2026-10-13-workflow-library-and-controls.md)持有；联合验收继续由本提案与 07 持有。
 
 ## 备选方案
 

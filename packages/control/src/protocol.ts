@@ -65,6 +65,9 @@
  *
  * v21：工作流问题/事实查询与可信业务回答；回答有独立请求键及问题运行代次，不消费工具审批。
  * Note: 见 .agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md
+ *
+ * v22：命名定义/不可变版本、可信显式启动、阶段读取及拥有者运行控制；授权不从 wire 回填。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-13-workflow-library-and-controls.md
  */
 
 import {

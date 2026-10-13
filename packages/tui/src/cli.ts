@@ -48,6 +48,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveEntry } from "./cli-entry.ts";
+import { parseWorkflowControl, type WorkflowControl } from "@ruukoto/core/workflow.ts";
 import { LEGACY_PROJECT_WRITE_HINT } from "./tui/commands.ts";
 
 export interface ImportFns {
@@ -309,6 +310,8 @@ function legacyProjectWriteRefused(): number {
 async function runLegacy(cmd: string, rest: string[], product: CliProduct): Promise<number> {
   const { flags, positional } = parseArgs(rest);
   switch (cmd) {
+    case "workflow":
+      return runWorkflowCli(positional, flags, product.runtime.type);
     case "legacy-import": {
       // 跨实例导入（agent-direction issue 21/22）：两条入口按产品
       // 分流——ruukoto-code 迁入开发资料，ruukoto 迁入个人资料（镜像方向）；
@@ -987,6 +990,100 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
   }
 }
 
+async function runWorkflowCli(positional: string[], flags: Record<string, string>, bin: string): Promise<number> {
+  const sub = positional[0] ?? "list", id = positional[1];
+  const required = (key: string): string => {
+    if (!flags[key]) throw new Error("缺少 --" + key + "；" + bin + " workflow help 查看用法");
+    return flags[key];
+  };
+  const requestId = (): string => {
+    const key = required("request-id");
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(key)) throw new Error("请求键须为 1–128 位字母、数字或 ._:-，原请求核实前不要换键");
+    return key;
+  };
+  const slice = { offset: Number(flags["offset"] ?? 0), length: Number(flags["length"] ?? 16384) };
+  const inputJson = (key: string, fallback?: unknown): unknown => {
+    if (flags[key + "-file"] && flags[key + "-json"]) throw new Error("JSON 文件和正文二选一");
+    if (flags[key + "-file"]) return readJsonFile(flags[key + "-file"]);
+    if (!flags[key + "-json"]) {
+      if (fallback !== undefined) return fallback;
+      throw new Error("缺少 --" + key + "-json 或 --" + key + "-file");
+    }
+    try { return JSON.parse(flags[key + "-json"]); }
+    catch { throw new Error("JSON 格式不正确，请核实参数原文"); }
+  };
+  let write = false, check = bin + " workflow list";
+  try {
+    if (sub === "definitions") { print(await withClient(c => c.request("workflow_definitions", { offset: slice.offset, limit: Number(flags["limit"] ?? 50) }))); return 0; }
+    if ((sub === "definition" || sub === "version") && id) {
+      print(await withClient(c => c.request("workflow_definition", { ...(sub === "definition" ? { name: id } : { definition_id: id }), ...slice, version_offset: Number(flags["version-offset"] ?? 0) }))); return 0;
+    }
+    if (sub === "list") { print(await withClient(c => c.request("workflow_list", { session_id: flags["session"], offset: slice.offset, limit: Number(flags["limit"] ?? 50) }))); return 0; }
+    if (sub === "show" && id) { print(await withClient(c => c.request("workflow_get", { run_id: id, step_offset: Number(flags["step-offset"] ?? 0) }))); return 0; }
+    if (sub === "logs" && id) { print(await withClient(c => c.request("workflow_logs", { run_id: id, ...slice }))); return 0; }
+    if ((sub === "step" || sub === "question") && id && positional[2]) {
+      print(await withClient(c => c.request(sub === "step" ? "workflow_step" : "workflow_question", { run_id: id, step_key: positional[2], ...slice }))); return 0;
+    }
+    if (sub === "saved") { print(await withClient(c => c.request("workflow_saved", { request_id: requestId() }))); return 0; }
+    if (sub === "find") { print(await withClient(c => c.request("workflow_find", { session_id: required("session"), request_id: requestId() }))); return 0; }
+    if (sub === "save" && id) {
+      const file = required("script-file");
+      const script = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(fs.readFileSync(file));
+      const key = requestId(), expected = flags["expected-digest"] ?? null;
+      check = bin + " workflow saved --request-id " + key; write = true;
+      print(await withClient(c => c.request("workflow_save", { name: id, script, expected_digest: expected, request_id: key }))); return 0;
+    }
+    if (sub === "run" && (id || flags["script-file"])) {
+      const key = requestId(), session = required("session"), input = inputJson("input", {});
+      const script = flags["script-file"] ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(fs.readFileSync(flags["script-file"])) : undefined;
+      if (id && script !== undefined) throw new Error("名称和 --script-file 二选一");
+      check = bin + " workflow find --session " + session + " --request-id " + key; write = true;
+      print(await withClient(c => c.request("workflow_start", { session_id: session, request_id: key, name: id, script, input,
+        max_attempts: flags["max-attempts"] === undefined ? undefined : Number(flags["max-attempts"]),
+        duration_ms: flags["duration-ms"] === undefined ? undefined : Number(flags["duration-ms"]) }))); return 0;
+    }
+    if (sub === "answer" && id && positional[2]) {
+      const key = requestId(), answer = inputJson("answer"), version = Number(required("question-version")), runVersion = Number(required("run-version"));
+      check = bin + " workflow question " + id + " " + positional[2]; write = true;
+      print(await withClient(c => c.request("workflow_answer", { run_id: id, step_key: positional[2], question_version: version, run_version: runVersion, request_id: key, answer }))); return 0;
+    }
+    if (["pause", "resume", "cancel", "budget"].includes(sub) && id) {
+      const key = requestId(), version = Number(required("expected-version"));
+      let control: WorkflowControl;
+      if (sub === "budget") control = { action: "budget", maxAttempts: Number(required("max-attempts")), durationMs: Number(required("duration-ms")) };
+      else if (sub === "resume") {
+        const bool = (key: string): boolean | undefined => {
+          if (flags[key] === undefined) return undefined;
+          if (!["true", "false"].includes(flags[key])) throw new Error("--" + key + " 必须是 true 或 false");
+          return flags[key] === "true";
+        };
+        control = { action: "resume", clockConfirmed: bool("clock-confirmed"), stopsConfirmed: bool("stops-confirmed") };
+      } else control = { action: sub === "pause" ? "pause" : "cancel" };
+      control = parseWorkflowControl(control);
+      check = bin + " workflow show " + id; write = true;
+      print(await withClient(c => c.request("workflow_control", { run_id: id, expected_version: version, request_id: key, control }))); return 0;
+    }
+    console.log([
+      bin + " workflow definitions | definition <名称> [--version-offset N] | version <版本ID> [--offset N --length N]",
+      bin + " workflow save <名称> --script-file F --request-id K [--expected-digest 当前摘要]",
+      bin + " workflow run <名称> --session S --request-id K [--input-json JSON | --input-file F]",
+      bin + " workflow run --script-file F --session S --request-id K [--input-json JSON]",
+      bin + " workflow saved --request-id K | find --session S --request-id K",
+      bin + " workflow list [--session S --offset N --limit N] | show <运行ID> [--step-offset N]",
+      bin + " workflow logs <运行ID> | step <运行ID> <步骤键> | question <运行ID> <步骤键> [--offset N --length N]",
+      bin + " workflow answer <运行ID> <步骤键> --run-version N --question-version N --request-id K --answer-json JSON",
+      bin + " workflow pause|resume|cancel|budget <运行ID> --expected-version N --request-id K",
+      "resume 可加 --clock-confirmed true --stops-confirmed true；budget 须加 --max-attempts N --duration-ms N",
+      "写入应答丢失后用原键 find/saved 或 show 核实，不自动换键重发；业务回答不批准工具。",
+    ].join("\n"));
+    return sub === "help" ? 0 : 1;
+  } catch (error) {
+    const message = String((error as Error).message);
+    process.stderr.write("[ruukoto:cli] " + (write && !["not_sent", "rejected"].includes(requestOutcome(error)) ? "工作流操作结果未知：" + message + "；先用 " + check + " 核实（未自动重发）" : message) + "\n");
+    return 1;
+  }
+}
+
 /**
  * 跨实例导入（agent-direction issue 21/22）。按产品分流：
  * ruukoto-code 把旧实例开发资料迁入 Coding Agent；ruukoto 把旧实例个人资料
@@ -1140,7 +1237,7 @@ function defaultHelp(): string {
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review|plan> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
-    "      grant | service-grant list/show/revoke | work list/show/close | history-search | memory | selection-records |\n" +
+    "      grant | service-grant list/show/revoke | work list/show/close | workflow（详情见 workflow help） | history-search | memory | selection-records |\n" +
     "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
     "      legacy-import（两产品分流）：ruukoto-code 迁入旧实例开发资料；ruukoto 迁入旧实例个人资料\n" +
     "      （main/应用数据/调度/平台绑定与必要凭据，目标为全新实例）。离线执行，要求源与目标后台均已停止；\n" +

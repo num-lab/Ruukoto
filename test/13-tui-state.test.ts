@@ -98,6 +98,26 @@ function ev(seq: number, body: PersistentEvent["body"], sessionId: string | null
   return { seq, taskId: (body as any).taskId ?? null, sessionId, body, createdAt: "2026-09-20T00:00:00Z" };
 }
 
+test("工作流运行/合法 state 步骤/执行各有事件键，旧事件和重连不回退提示或混入子任务", () => {
+  const state = new ViewState();
+  state.applySnapshot({ snapshot: snapshot(), seq: 0, replay: [] }, false);
+  const view = state.openSession("sess_1");
+  state.applyEvent(ev(10, { type: "workflow.changed", runId: "run", status: "waiting", version: 3, reason: "owner_input" }, "sess_1"), "live");
+  state.applyEvent(ev(11, { type: "workflow.step", runId: "run", key: "state", status: "completed", delivery: 1 }, "sess_1"), "live");
+  const child = task("child", { sessionId: "child_session" });
+  state.tasks.set(child.id, child);
+  state.applyEvent(ev(12, { type: "workflow.execution", runId: "run", taskId: child.id, kind: "agent", status: "running", stopVerified: false }, "sess_1"), "live");
+  assert.equal(notes(view).length, 3);
+  assert.ok(!view.flow.items.some(entry => entry.kind === "task" && entry.task.id === child.id));
+  assert.match(notes(view).map(note => note.text).join("\n"), /停止未核实/);
+  state.applySnapshot({ snapshot: snapshot(), seq: 12, replay: [] }, false);
+  state.applyEvent(ev(8, { type: "workflow.changed", runId: "run", status: "running", version: 2, reason: null }, "sess_1"), "replay");
+  assert.match(notes(view).find(note => note.key.endsWith(":state"))!.text, /waiting.*v3/);
+  assert.equal(notes(view).length, 3, "空补发重连保留已见事件，持久详情仍经命令查询");
+  state.applySnapshot({ snapshot: snapshot({ instanceId: "other" }), seq: 0, replay: [] }, true);
+  assert.equal(state.sessionViews.size, 0, "不同实例不保留旧运行提示");
+});
+
 function histEntry(entryId: string, role: string, text: string, extra: Partial<HistoryEntryView> = {}): HistoryEntryView {
   return {
     entryId,

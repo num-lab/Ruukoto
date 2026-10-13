@@ -14,7 +14,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 export interface ModelSelection {
   provider: string;
@@ -362,7 +362,7 @@ export interface SubAgentReadScope {
  * delegation、chat_results、service 只在 main 的清单中（service 另要求产品与
  * 部署配置具备，见 tool-availability 与 Driver 装配）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -868,6 +868,7 @@ export interface EditStats {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
+  | { type: "workflow.definition"; name: string; definitionId: string; digest: string }
   | { type: "workflow.changed"; runId: string; version: number; status: import("./workflow.ts").WorkflowRun["status"]; reason: string | null }
   | { type: "workflow.step"; runId: string; key: string; status: import("./workflow.ts").WorkflowStep["status"]; delivery: number | null }
   | { type: "workflow.execution"; runId: string; taskId: string; kind: "agent" | "host"; status: "queued" | "running" | "finished"; stopVerified: boolean | null }

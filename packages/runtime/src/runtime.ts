@@ -60,6 +60,7 @@ import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
 import { createSkillFamily,loadSkillLibrary,skillsDirFor } from "@ruukoto/agent/skills.ts";
 import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
 import { createSubAgentFamily } from "@ruukoto/agent/subagent-tools.ts";
+import { createWorkflowFamily } from "@ruukoto/agent/workflow-tools.ts";
 import { createTodoFamily, parseTodos } from "@ruukoto/agent/todo.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
@@ -117,9 +118,12 @@ import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
 import { Store,StoreConflictError } from "@ruukoto/core/store.ts";
-import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, getWorkflowDeliveryRun, getWorkflowExecution, getWorkflowQuestion, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDeliveryKey, workflowDigest, workflowJson, workflowQuestionKey, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
+import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, findWorkflowRun, getWorkflowDeliveryRun, getWorkflowExecution, getWorkflowQuestion, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDeliveryKey, workflowDigest, workflowJson, workflowQuestionKey, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowControl, type WorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { WorkflowCoordinator, type WorkflowAgentExecutor } from "./workflows.ts";
 import { WorkflowSteps } from "./workflow-steps.ts";
+import { WorkflowLibrary } from "./workflow-library.ts";
+import { workflowLaunchDigest, type WorkflowLaunch } from "@ruukoto/core/workflow.ts";
+import { validateWorkflowScript } from "@ruukoto/agent/script-worker/validate.ts";
 import { branchSession, recoverBranchSessions, type BranchSessionDeps } from "./branch-session.ts";
 import type { DataCategory,DataGrant,Memory,MemorySourceRef,MemoryVersion,SelectionRecord } from "@ruukoto/core/types.ts";
 import {
@@ -334,6 +338,7 @@ export class Runtime {
    */
   subagents: SubAgentManager | null = null;
   workflows: WorkflowCoordinator | null = null;
+  readonly workflowLibrary: WorkflowLibrary;
   private readonly imWorkflows: ImWorkflows;
   private workflowSteps!: WorkflowSteps;
   hostExecutions!: HostExecutionManager;
@@ -395,6 +400,7 @@ export class Runtime {
     this.productType = config.product.type;
     this.db = db;
     this.store = store;
+    this.workflowLibrary = new WorkflowLibrary(store, config.agentDir);
     this.lock = lock;
     this.configLock = configLock;
     this.artifacts = new ArtifactStore(config.dataDir, store);
@@ -500,7 +506,12 @@ export class Runtime {
       sendWorkflowReport: report => this.imEntries.sendWorkReport(report),
     });
     this.imWorkflows = new ImWorkflows({ store, sched: this.sched, entry: source => this.imEntries.entry(source),
-      answer: input => this.answerWorkflowQuestion(input), kickSender: () => this.scheduler?.kickSender() });
+      answer: input => this.answerWorkflowQuestion(input),
+      start: (input, origin) => this.startWorkflowOwner({ ...input, sessionId: this.store.getAgentRole("main")!.sessionId }, origin),
+      control: input => this.controlWorkflow(input), detail: (...args) => this.getWorkflowDetail(...args),
+      logs: (...args) => this.getWorkflowLogs(...args), step: (...args) => this.getWorkflowStep(...args),
+      definitions: (...args) => this.workflowLibrary.list(...args), definition: input => this.getWorkflowDefinition(input),
+      kickSender: () => this.scheduler?.kickSender() });
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
       for (const listener of this.eventListeners) {
@@ -946,7 +957,7 @@ export class Runtime {
     return this.config.socketPath ?? path.join(this.controlDir(), "control.sock");
   }
 
-  private workflowSource(taskId: string): WorkflowSource {
+  private workflowSource(taskId: string, ownerControl = false): WorkflowSource {
     const task = this.store.getTask(taskId);
     const session = task ? this.store.getSession(task.sessionId) : null;
     const identity = session ? this.store.getSessionIdentity(session.id) : null;
@@ -954,7 +965,8 @@ export class Runtime {
     if (this.stopping || !task || !session || !identity || !["dev", "main", "scheduled"].includes(identity.kind) || task.planMode ||
         task.subAgentId || getWorkflowExecution(this.store, task.id) || getWorkflowDeliveryRun(this.store, task.id) || task.cancelRequested || !["running", "awaiting_confirmation"].includes(task.status) || !task.modelSelection ||
         (identity.kind === "dev" && (task.parentTaskId || task.sourceEventId)) ||
-        (identity.kind === "main" && (!event || ![QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(event.source) || this.inboundGate(event) !== "run"))) throw new WorkflowError("source_forbidden");
+        (identity.kind === "main" && (event ? ![QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(event.source) || this.inboundGate(event) !== "run" :
+          !ownerControl && (task.agentId !== null || task.parentTaskId !== null || task.sourcePermissionVersion !== null)))) throw new WorkflowError("source_forbidden");
     const scheduled = this.store.getScheduledRunForTask(task.id);
     if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) throw new WorkflowError("source_invalid");
     for (const ref of task.readScope?.sourceRefs ?? []) {
@@ -1021,13 +1033,141 @@ export class Runtime {
   }
 
   /** 拥有者查询持久事实；大问题/回答以 UTF-8 字节分页，授权快照不从 wire 回填。 */
-  getWorkflowDetail(runId: string) {
-    const run = requireWorkflowRun(this.store, runId);
-    return { run: { id: run.id, status: run.status, version: run.version, reason: run.reason, attempts: run.attempts, maxAttempts: run.maxAttempts,
+  getWorkflowDetail(runId: string, stepOffset = 0) {
+    const run = chargeWorkflow(requireWorkflowRun(this.store, runId), Date.now());
+    const steps = listWorkflowSteps(this.store, runId);
+    return { run: { id: run.id, sessionId: run.source.sessionId, definitionId: run.definitionId, scriptDigest: run.scriptDigest, inputDigest: run.inputDigest,
+      status: run.status, version: run.version, reason: run.reason, attempts: run.attempts, maxAttempts: run.maxAttempts,
       usedMs: run.usedMs, durationMs: run.durationMs, clockVerified: run.clockVerified, scriptStopVerified: run.scriptStopVerified, terminalVersion: run.terminalVersion,
-      delivery: run.delivery },
-    steps: listWorkflowSteps(this.store, runId).map(step => ({ key: step.key, kind: step.kind, status: step.status, resultRecorded: step.resultRecorded, attempts: step.attempts })),
-    executions: listWorkflowExecutions(this.store, runId) };
+      delivery: run.delivery ? { version: run.delivery.version, taskId: run.delivery.taskId, status: run.delivery.status, reason: run.delivery.reason } : undefined },
+    steps: steps.slice(stepOffset, stepOffset + 100).map(step => ({ key: step.key, kind: step.kind, status: step.status, resultRecorded: step.resultRecorded, attempts: step.attempts,
+      question: getWorkflowQuestion(this.store, runId, step.key)?.status ?? null, outputArtifact: step.outputArtifact })),
+    stepOffset, totalSteps: steps.length, nextStepOffset: stepOffset + 100 < steps.length ? stepOffset + 100 : null,
+    executions: listWorkflowExecutions(this.store, runId).slice(-100) };
+  }
+
+  listWorkflows(sessionId?: string, offset = 0, limit = 50) {
+    const runs = listWorkflowRuns(this.store, sessionId).reverse();
+    return { runs: runs.slice(offset, offset + limit).map(run => this.getWorkflowDetail(run.id).run), total: runs.length,
+      offset, nextOffset: offset + limit < runs.length ? offset + limit : null };
+  }
+  findWorkflow(sessionId: string, requestKey: string) {
+    const run = findWorkflowRun(this.store, sessionId, requestKey);
+    return run ? this.getWorkflowDetail(run.id) : null;
+  }
+  async saveWorkflowDefinition(input: { name: string; script: string; expectedDigest: string | null; requestKey: string }) {
+    const { script: _script, requestDigest: _requestDigest, ...result } = await this.workflowLibrary.save(input, () => { if (this.stopping) throw new WorkflowError("runtime_unavailable"); });
+    return result;
+  }
+  findWorkflowSave(requestKey: string) {
+    const saved = this.workflowLibrary.saved(requestKey);
+    if (!saved) return null;
+    const { script: _script, requestDigest: _requestDigest, ...result } = saved;
+    return result;
+  }
+  getWorkflowDefinition(input: { name?: string; definitionId?: string; offset?: number; length?: number; versionOffset?: number }) {
+    if ((input.name === undefined) === (input.definitionId === undefined)) throw new WorkflowError("invalid_params");
+    const definition = input.definitionId ? Promise.resolve(this.workflowLibrary.version(input.definitionId)) : this.workflowLibrary.load(input.name!);
+    return definition.then(({ script, ...version }) => {
+      const versionOffset = input.versionOffset ?? 0, versions = input.name ? this.workflowLibrary.versions(input.name, versionOffset, 101) : [];
+      return { ...version, name: input.name ?? null,
+        ...sliceTextByBytes(script, input.offset ?? 0, Math.min(input.length ?? 16 * 1024, 64 * 1024)),
+        versions: versions.slice(0, 100), versionOffset, nextVersionOffset: versions.length > 100 ? versionOffset + 100 : null };
+    });
+  }
+  getWorkflowStep(runId: string, stepKey: string, offset = 0, length = 16 * 1024) {
+    const run = requireWorkflowRun(this.store, runId);
+    const step = getWorkflowStep(this.store, runId, stepKey);
+    if (!step) throw new WorkflowError("step_missing");
+    return { runId, stepKey, status: step.status, ...sliceTextByBytes(JSON.stringify({ params: step.params, result: step.result, rawOutput: step.rawOutput,
+      outputArtifact: step.outputArtifact, frozen: step.frozen, verification: step.verification, input: run.input }), offset, Math.min(length, 64 * 1024)) };
+  }
+  getWorkflowLogs(runId: string, offset = 0, length = 16 * 1024) {
+    const run = requireWorkflowRun(this.store, runId);
+    const text = [`工作流 ${run.id}：${run.status}；${run.reason ?? "无等待原因"}`,
+      ...listWorkflowSteps(this.store, runId).map(step => {
+        const params = step.params;
+        const progress = typeof params === "object" && params !== null && "text" in params && typeof params.text === "string" ? params.text : JSON.stringify(params);
+        return `${step.key} [${step.kind}] ${step.status}${step.kind === "progress" ? `\n${progress}` : ""}`;
+      }), ...(run.delivery ? ["最终事实\n" + run.delivery.facts, "最终回报\n" + run.delivery.text] : [])].join("\n");
+    return { runId, ...sliceTextByBytes(text, offset, Math.min(length, 64 * 1024)) };
+  }
+  private async workflowScript(input: WorkflowLaunch): Promise<string> {
+    const script = input.name ? (await this.workflowLibrary.load(input.name)).script : input.script!;
+    if (!input.name) await validateWorkflowScript(script);
+    return script;
+  }
+  private workflowReplay(sessionId: string, key: string, digest: string): WorkflowRun | null {
+    if (!key || key.length > 128) throw new WorkflowError("invalid_params");
+    const old = findWorkflowRun(this.store, sessionId, key);
+    if (old && old.paramsDigest !== digest) throw new WorkflowError("request_conflict");
+    return old;
+  }
+
+  async startWorkflowTask(input: WorkflowLaunch & { taskId: string; requestKey: string }) {
+    const task = this.store.getTask(input.taskId);
+    if (!task) throw new WorkflowError("source_missing");
+    const digest = workflowLaunchDigest(input), old = this.workflowReplay(task.sessionId, input.requestKey, digest);
+    if (old) return this.getWorkflowDetail(old.id);
+    if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
+    this.workflowSource(task.id);
+    const script = await this.workflowScript(input);
+    return this.getWorkflowDetail(this.workflows.start({ ...input, sourceTaskId: task.id, script, requestDigest: digest }).id);
+  }
+
+  /** 可信拥有者入口：短期发起任务和运行同事务登记，不调用模型或借用活动聊天。 */
+  async startWorkflowOwner(input: WorkflowLaunch & { sessionId: string; requestKey: string }, origin?: {
+    sourceEvent(): string;
+    txExtra(run: WorkflowRun): void;
+  }) {
+    const digest = workflowLaunchDigest(input), old = this.workflowReplay(input.sessionId, input.requestKey, digest);
+    if (old) {
+      if (origin) this.store.withTx(() => { origin.sourceEvent(); origin.txExtra(old); });
+      return this.getWorkflowDetail(old.id);
+    }
+    if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
+    const session = this.store.getSession(input.sessionId), identity = this.store.getSessionIdentity(input.sessionId);
+    if (!session || !identity || !["dev", "main"].includes(identity.kind) || session.defaultAccessMode === "plan") throw new WorkflowError("source_forbidden");
+    const selection = identity.kind === "main" ? identity.role.modelSelection ?? session.modelSelection ?? this.defaultSelection : session.modelSelection ?? this.defaultSelection;
+    const script = await this.workflowScript(input);
+    let check: Awaited<ReturnType<Runtime["resolveSelection"]>>;
+    try { check = await this.resolveSelection(selection); }
+    catch (cause) { if (!(cause instanceof ModelSelectionError)) throw cause; throw new WorkflowError(cause.code, { cause }); }
+    const mode = session.defaultAccessMode;
+    try { this.launcherFor(mode); }
+    catch (cause) { if (!(cause instanceof ExecutionError)) throw cause; throw new WorkflowError(cause.code, { cause }); }
+    const run = this.store.withTx(() => {
+      const raced = this.workflowReplay(session.id, input.requestKey, digest);
+      if (raced) { if (origin) { origin.sourceEvent(); origin.txExtra(raced); } return raced; }
+      if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
+      this.assertNoSessionCompaction(session.id);
+      try { check(); }
+      catch (cause) { if (!(cause instanceof ModelSelectionError)) throw cause; throw new WorkflowError(cause.code, { cause }); }
+      const current = this.store.getSession(session.id)!;
+      if (current.modelSelectionVersion !== session.modelSelectionVersion || current.defaultAccessModeVersion !== session.defaultAccessModeVersion ||
+          (identity.kind === "main" && !isDeepStrictEqual(this.store.getAgentRole("main")?.modelSelection ?? current.modelSelection ?? this.defaultSelection, selection))) throw new WorkflowError("source_changed");
+      let stat: fs.Stats;
+      try { stat = fs.statSync(current.cwdReal); }
+      catch (cause) { throw new WorkflowError("source_invalid", { cause }); }
+      if (stat.dev !== current.cwdDev || stat.ino !== current.cwdIno || fs.realpathSync(current.cwdReal) !== current.cwdReal) throw new WorkflowError("source_invalid");
+      const sourceEventId = origin?.sourceEvent() ?? null;
+      const queued = this.store.insertQueuedTask({ sessionId: session.id, requestId: `workflow-start:${input.requestKey}`, input: workflowJson({ ...input, script: undefined, scriptDigest: workflowDigest(script) }),
+        modelSelection: selection, accessMode: mode, submissionDigest: digest, agentId: identity.kind === "main" ? "main" : null, sourceEventId });
+      if (queued.duplicate) throw new WorkflowError("request_conflict");
+      this.store.transitionTask(queued.task.id, ["queued"], "running", { startedAt: new Date().toISOString() });
+      const accepted = this.workflows.register({ ...input, sourceTaskId: queued.task.id, script, requestDigest: digest }, taskId => this.workflowSource(taskId, true));
+      this.store.setTaskResult(queued.task.id, `已启动工作流 ${accepted.id}`, JSON.stringify({ workflowRunId: accepted.id, hostStart: true }));
+      this.store.endTask(queued.task.id, ["running"], "completed");
+      origin?.txExtra(accepted);
+      return accepted;
+    });
+    this.workflows.kick();
+    return this.getWorkflowDetail(run.id);
+  }
+  async controlWorkflow(input: { runId: string; requestKey: string; version: number; control: WorkflowControl; txExtra?: () => void }) {
+    if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
+    await this.workflows.control(input.runId, input.requestKey, input.version, input.control, null, input.txExtra);
+    return this.getWorkflowDetail(input.runId);
   }
   getWorkflowQuestion(runId: string, stepKey: string, offset = 0, length = 16 * 1024) {
     const question = getWorkflowQuestion(this.store, runId, stepKey);
@@ -1354,7 +1494,7 @@ export class Runtime {
       registration.replyTarget = message.replyTarget;
     }
     if (!media && commandText !== undefined) {
-      const workflowOutcome = this.imWorkflows.handleCommand({ source, externalId: input.externalId, actor: input.actor,
+      const workflowOutcome = await this.imWorkflows.handleCommand({ source, externalId: input.externalId, actor: input.actor,
         replyTarget: input.replyTarget, commandText });
       if (workflowOutcome) return workflowOutcome;
       const outcome = await this.imApprovals.handleCommand({
@@ -3382,6 +3522,11 @@ export class Runtime {
         resultNotice: (task) => this.githubEvents.notice(task),
         artifacts: this.artifacts,
       }),
+      createWorkflowFamily({ store: this.store, workflowLibrary: this.workflowLibrary,
+        startWorkflowTask: input => this.startWorkflowTask(input), getWorkflowDefinition: input => this.getWorkflowDefinition(input),
+        getWorkflowDetail: (...args) => this.getWorkflowDetail(...args), getWorkflowStep: (...args) => this.getWorkflowStep(...args),
+        getWorkflowLogs: (...args) => this.getWorkflowLogs(...args), getWorkflowQuestion: (...args) => this.getWorkflowQuestion(...args),
+        listWorkflows: (...args) => this.listWorkflows(...args), controlWorkflow: input => this.controlWorkflow(input) }),
       createChatResultFamily({ coreStore: this.store, qqStore: this.qqStore }),
       ...this.config.product.toolFamilies({
         config: this.config,

@@ -316,7 +316,9 @@ test("router 的 starting 与实际登记保留 ready 失败，不重建未知�
   const kit = routerKit({ kind: "local", async launch(spec) { launches++; return controlled.launcher.launch(spec); } });
   try {
     assert.equal((await kit.run()).isError, true);
-    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [false, false]);
+    assert.equal(kit.registry.list().length, 1);
+    assert.equal(kit.registry.list()[0].kind, "process_group");
+    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [false]);
     assert.equal(await kit.router.stopWorker(), false);
     assert.equal((await kit.run()).isError, true);
     assert.equal(launches, 1);
@@ -389,13 +391,19 @@ test("start 与已取消调用不重复启动或发送工具帧", async () => {
 
 test("router 每次启动使用独立 starting 身份", async () => {
   const kit = routerKit({ kind: "local", launch: spec => controlledUnit(async () => true, { fatal: true }).launcher.launch(spec) });
+  const starting: string[] = [], register = kit.registry.register.bind(kit.registry);
+  kit.registry.register = entry => {
+    if (entry.kind === "starting") starting.push(entry.id);
+    return register(entry);
+  };
   try {
     assert.equal((await kit.run()).isError, true);
     assert.equal((await kit.run()).isError, true);
-    const starting = kit.registry.list().filter(entry => entry.kind === "starting");
     assert.equal(starting.length, 2);
-    assert.notEqual(starting[0].id, starting[1].id);
-    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [true, true, true]);
+    assert.notEqual(starting[0], starting[1]);
+    assert.equal(kit.registry.list().length, 2);
+    assert.ok(kit.registry.list().every(entry => entry.kind === "process_group"));
+    assert.deepEqual(await Promise.all(kit.registry.list().map(entry => entry.stop())), [true, true]);
   } finally { kit.close(); }
 });
 

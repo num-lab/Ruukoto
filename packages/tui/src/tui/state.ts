@@ -148,7 +148,7 @@ export class ViewState {
       const view = this.openSession(sessionId);
       if ("taskId" in body && typeof body.taskId === "string") {
         const task = this.tasks.get(body.taskId);
-        if (task) view.flow.task(task);
+        if (task?.sessionId === sessionId) view.flow.task(task);
       }
       view.flow.apply(event);
     }

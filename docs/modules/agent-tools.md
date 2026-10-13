@@ -32,8 +32,8 @@
 
 | 会话身份 | 工具类别清单 |
 |---|---|
-| 普通开发会话 | 编码工具（含工作清单 `todo_write`）、资料与记忆、Web Search、MCP、技能、SubAgent 委派 |
-| main 会话 | 资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、服务器服务管理、SubAgent 委派 |
+| 普通开发会话 | 编码工具（含工作清单 `todo_write`）、资料与记忆、Web Search、MCP、技能、SubAgent 委派与工作流 |
+| main 会话 | 资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、服务器服务管理、SubAgent 委派与工作流 |
 | SubAgent 会话 | 空；工具按执行画像的 SubAgent 工具集单独装配 |
 | 已退役归档会话 | 不归任何类别；QQ 群会话与 chat/coding 旧角色会话是只读归档、不运行任务，算执行画像即拒绝 |
 
@@ -228,6 +228,8 @@ sequenceDiagram
 **MCP**。只有 Streamable HTTP 传输、手动配置凭据、工具发现与调用；stdio、OAuth 登录、resources/prompts 与客户端代执行能力（sampling/elicitation）不启用。端点在固定环境中须为 https，http 仅限回环模拟服务；拒绝 userinfo，客户端钉住端点源，拒绝跨源重定向，不向非配置目标转发认证。凭据用途固定为 `mcp`，host 须与服务端点一致，经 authorization 头以 Bearer 注入；配置服务时 scope 自动收紧到该项目 + mcp 操作，已有冲突 scope 拒绝配置。变更采用期望版本校验：`remove` 携带期望版本不符即 `version_conflict` 且服务保留，省略即兼容删除；任何变化递增配置版本并发 `mcp.service_changed` 事件。只注册允许列表内的工具：远端 JSON Schema 须为普通对象、根类型 `object`、≤16 KiB 并经 TypeBox 预检；远端 `readOnly` 等注解不可信，副作用类别以允许列表条目的本地声明为准（`name` = 只读，`name:write` / `name:unknown` = 有副作用／副作用不明）。新增工具与扩大范围只在下一任务生效；任务内禁用、撤销或版本变化立即阻止后续调用，不发送网络请求。初始化、发现、调用各有有界超时（默认 15s、15s、60s）；连接失效由下一任务重新初始化，不自动重放已发出的调用；任务取消只表示本地停止等待，不承诺远端操作已停止。显式启用但初始化失败的服务发 `mcp.service_unavailable` 事件并列为不可用，任务不带其工具继续；无 MCP 配置的项目保持可启动。结果区分传输错误与工具执行错误，工具的 `isError` 应答保留为错误结果；文本与结构化结果原样保留，图片、音频、资源链接等内容类型明确说明且不自动打开或下载；超过 32 KiB 的结果正文入 ArtifactStore（硬上限 1 MiB，超限明确标记截断），模型只收预览与产物引用。写与副作用不明工具在 `confirm` / `auto-review` 模式逐次进入审批闸门（与文件、HTTP 审批同一 `ConfirmationRequest`、`tool_ops` 与单次消费路径），`full_access` 跳过逐次审批但仍须通过服务启用、允许列表与凭据范围校验。批准后、真正发送前原子消费，同事务重读服务配置与凭据绑定；配置版本变化、禁用、凭据撤销、权限版本变化或任务结束都使旧批准失效（不消费、不发送，按已知未执行记录）；执行参数取自审批保存的不可变快照，修改参数必须重新申请。写调用的超时、取消、断线与后台重启沿用 `effect_unknown`：未消费批准的操作记录已知未执行，已消费或结果无法确认的操作标 `effect_unknown`，重连与重启不自动重发。远端已应答的错误是已知结果：JSON-RPC 错误应答记 `remote_error`，HTTP 状态错误按类别记录，都不标 `effect_unknown`。结构化结果按任务开始时钉版的 `outputSchema` 校验，与 `inputSchema` 同一套预检，schema 不受支持即禁用该工具；远端成功应答但不符声明即记已知错误并写明「远端已执行」，不标 `effect_unknown`，也不自动重发。真实写工具尚未启用：通用框架以模拟服务验证；启用真实写工具时凭据必须按服务、项目与操作类别独立绑定（不复用 Web Search 凭据、旧 GitHub 凭据或无 scope 的通用凭据），由拥有者明确指定目标与范围后单独验收。工具定义与结果计入既有上下文预算。
 
 **GitHub 接入**。GitHub 操作一律经 MCP 服务接入，核心不提供专用 GitHub 模块或 REST 回退路径；PR webhook 评审的任务由宿主按任务收窄为静态只读白名单（`read` / `read_artifact`）∪ 类别为只读的 MCP 工具。端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`，host `api.githubcopilot.com`），必须另建并收紧到 main 项目，不复用其他用途的凭据，凭据范围不自动迁移。允许列表按 `mcp check` 实际发现的工具名精确填写，服务端工具集随版本变化，以发现结果为准；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。真实只读连通验证（SDK 版本、协商协议、工具清单与结果）在配置具备时进行；缺少凭据或网络条件时如实列为未验证，不以模拟测试冒充。故障排查按现象分派：认证失败（401/403）核对 `credentials list` 中 host、用途、scope 与 PAT 权限；服务不可用事件按事件中的 reason 区分连接失败、超时、协议不兼容（SDK 结果校验失败说明服务端违反 MCP 规范）与工具数/分页超限；工具缺失用 `mcp check` 对比远端实际工具与允许列表，远端改名须更新配置并在下一任务生效；限流（429）与超时一次终止并明确报错、不自动重试，重试时机由拥有者决定，任务取消或中断后迟到结果被忽略，终态与操作记录保持一致。
+
+共享 `workflow` 族提供 `workflow_instructions`、`workflow_save`、`workflow_start`、`workflow_query` 和 `workflow_cancel`。编写说明通过工具结果进入历史；保存/发起使用稳定键，查询/取消限来源会话，身份来自独立 HostToolContext。模型只可收窄默认预算，不取得恢复、核实或提高预算的入口；计划模式和步骤不开放这些工具。保存落盘前重核活动身份；账本按完整请求摘要核实发起、保存和取消，文件已落盘但无保存回执仍记无法核实。
 
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；独立编码验证只开放五个编码工具，其命令使用原生沙箱。
 

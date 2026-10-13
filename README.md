@@ -80,7 +80,7 @@ ruukoto qq enable
 
 ### 开发本项目
 
-工作流已接入[后台编排、真实步骤、可信回答与最终回报](docs/modules/workflows.md)；定义库和完整 CLI/TUI 发起入口仍待接线。定向验证入口见[开发说明](docs/development.md#日常反馈)。
+两产品支持[后台工作流](docs/modules/workflows.md)：用 `workflow` 管理定义和带参运行，TUI 用 `/workflow`，个人 IM 用明确控制命令；[操作说明](docs/usage.md#511-工作流问题与回报)与[定向测试](docs/development.md#日常反馈)分别说明使用和验证。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI与显式复跑执行。
 

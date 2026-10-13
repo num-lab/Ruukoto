@@ -61,7 +61,7 @@ export class WorkflowSteps {
     if (!run.source.authority) throw new WorkflowError("authority_missing");
     const source = this.store.getSessionIdentity(run.source.sessionId);
     if (!source || !["dev", "main", "scheduled"].includes(source.kind)) throw new WorkflowError("source_invalid");
-    const categories = run.source.authority.categories.filter(category => !["subagent", "delegation"].includes(category));
+    const categories = run.source.authority.categories.filter(category => !["subagent", "delegation", "workflow"].includes(category));
     // main 的编码能力来自已保存的受控修改委派，分析步骤只取得文件读取工具。
     if (work.writeTarget && !categories.includes("coding") && run.source.authority.categories.includes("subagent")) categories.push("coding");
     const params = step.params as Record<string, unknown>;

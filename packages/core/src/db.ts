@@ -12,13 +12,19 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 38;
+export const SCHEMA_VERSION = 39;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workflow_definitions (
   id TEXT PRIMARY KEY,
   digest TEXT NOT NULL UNIQUE,
   payload TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workflow_definition_refs (
+  ref_key TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  definition_id TEXT NOT NULL REFERENCES workflow_definitions(id),
+  request_digest TEXT
 );
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id TEXT PRIMARY KEY,

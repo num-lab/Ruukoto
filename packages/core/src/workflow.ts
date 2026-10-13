@@ -24,6 +24,24 @@ export interface WorkflowSource {
   authority?: { categories: ToolCategory[]; grantIds: string[]; configuration: string; workspace: { path: string; dev: number; ino: number } };
 }
 export interface WorkflowDefinition { id: string; digest: string; script: string; createdAt: string }
+export interface WorkflowLaunch {
+  name?: string;
+  script?: string;
+  input: unknown;
+  maxAttempts?: number;
+  durationMs?: number;
+}
+export function workflowName(name: string): string {
+  if (typeof name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(name)) throw new WorkflowError("invalid_definition_name");
+  return name;
+}
+export function workflowLaunchDigest(input: WorkflowLaunch): string {
+  if ((input.name === undefined) === (input.script === undefined)) throw new WorkflowError("invalid_params");
+  if (input.name !== undefined) workflowName(input.name);
+  if (input.script !== undefined && typeof input.script !== "string") throw new WorkflowError("invalid_script");
+  return workflowDigest({ name: input.name ?? null, script: input.script ?? null, input: input.input,
+    maxAttempts: input.maxAttempts ?? WORKFLOW_LIMITS.attempts, durationMs: input.durationMs ?? WORKFLOW_LIMITS.durationMs });
+}
 export interface WorkflowRun {
   id: string;
   requestKey: string;
@@ -120,6 +138,24 @@ export function saveWorkflowDefinition(store: Store, script: string): WorkflowDe
   const definition = { id: randomId("wfdef"), digest, script, createdAt: new Date().toISOString() };
   store.db.prepare("INSERT INTO workflow_definitions (id, digest, payload) VALUES (?, ?, ?)").run(definition.id, digest, JSON.stringify(definition));
   return definition;
+}
+export function getWorkflowDefinitionRef(store: Store, key: string): { name: string; definitionId: string; requestDigest: string | null } | null {
+  const row = store.db.prepare("SELECT name, definition_id, request_digest FROM workflow_definition_refs WHERE ref_key = ?").get(key) as
+    { name: string; definition_id: string; request_digest: string | null } | undefined;
+  return row ? { name: row.name, definitionId: row.definition_id, requestDigest: row.request_digest } : null;
+}
+/** 名称引用和保存回执不修改版本正文；调用方先核实文件字节。 */
+export function rememberWorkflowDefinition(store: Store, name: string, definition: WorkflowDefinition, receipt?: { key: string; digest: string }): void {
+  store.db.prepare("INSERT OR IGNORE INTO workflow_definition_refs (ref_key, name, definition_id) VALUES (?, ?, ?)")
+    .run(`version:${name}:${definition.digest}`, name, definition.id);
+  if (receipt) store.db.prepare("INSERT INTO workflow_definition_refs (ref_key, name, definition_id, request_digest) VALUES (?, ?, ?, ?)")
+    .run(`save:${receipt.key}`, name, definition.id, receipt.digest);
+  store.appendEvent({ type: "workflow.definition", name, definitionId: definition.id, digest: definition.digest });
+}
+export function listWorkflowDefinitionVersions(store: Store, name: string, offset = 0, limit = 100): Omit<WorkflowDefinition, "script">[] {
+  const rows = store.db.prepare("SELECT DISTINCT d.payload FROM workflow_definition_refs r JOIN workflow_definitions d ON d.id = r.definition_id WHERE r.name = ? ORDER BY d.rowid DESC LIMIT ? OFFSET ?")
+    .all(name, limit, offset) as { payload: string }[];
+  return rows.map(row => { const { script: _script, ...version } = JSON.parse(row.payload) as WorkflowDefinition; return version; });
 }
 export function getWorkflowRun(store: Store, id: string): WorkflowRun | null {
   const row = store.db.prepare("SELECT payload FROM workflow_runs WHERE id = ?").get(id) as { payload: string } | undefined;
@@ -290,8 +326,29 @@ export function saveWorkflowQuestion(store: Store, question: WorkflowQuestion): 
   store.appendEvent({ type: "workflow.step", runId: question.runId, key: question.stepKey, status: question.status === "pending" ? "waiting" : question.status === "answered" ? "completed" : "canceled", delivery: null }, { sessionId: question.source.sessionId });
 }
 export type WorkflowControl = { action: "pause" | "cancel" } | { action: "resume"; clockConfirmed?: boolean; stopsConfirmed?: boolean } | { action: "budget"; maxAttempts: number; durationMs: number };
+/** 控制面和 IM 的 JSON 边界；内部调用使用 WorkflowControl，不重复解析。 */
+export function parseWorkflowControl(value: unknown): WorkflowControl {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new WorkflowError("invalid_params");
+  const input = value as Record<string, unknown>;
+  const keys = input.action === "budget" ? ["action", "maxAttempts", "durationMs"] : input.action === "resume" ? ["action", "clockConfirmed", "stopsConfirmed"] : ["action"];
+  if (Object.keys(input).some(key => !keys.includes(key))) throw new WorkflowError("invalid_params");
+  if (input.action === "pause" || input.action === "cancel") return { action: input.action };
+  if (input.action === "resume") {
+    if ([input.clockConfirmed, input.stopsConfirmed].some(item => item !== undefined && typeof item !== "boolean")) throw new WorkflowError("invalid_params");
+    return { action: "resume", ...(input.clockConfirmed !== undefined ? { clockConfirmed: input.clockConfirmed as boolean } : {}),
+      ...(input.stopsConfirmed !== undefined ? { stopsConfirmed: input.stopsConfirmed as boolean } : {}) };
+  }
+  if (input.action === "budget" && Number.isSafeInteger(input.maxAttempts) && Number(input.maxAttempts) > 0 && Number.isSafeInteger(input.durationMs) && Number(input.durationMs) > 0) {
+    return { action: "budget", maxAttempts: input.maxAttempts as number, durationMs: input.durationMs as number };
+  }
+  throw new WorkflowError("invalid_params");
+}
 export function hasWorkflowControl(store: Store, runId: string, key: string): boolean {
   return store.db.prepare("SELECT 1 FROM workflow_controls WHERE run_id = ? AND request_key = ?").get(runId, key) !== undefined;
+}
+export function getWorkflowControlDigest(store: Store, runId: string, key: string): string | null {
+  const row = store.db.prepare("SELECT digest FROM workflow_controls WHERE run_id = ? AND request_key = ?").get(runId, key) as { digest: string } | undefined;
+  return row?.digest ?? null;
 }
 /** 可信宿主入口提供版本和稳定键；脚本不取得此函数。重放先于版本及状态检查。 */
 export function controlWorkflow(store: Store, id: string, key: string, version: number, control: WorkflowControl, now = Date.now()): WorkflowRun {

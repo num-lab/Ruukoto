@@ -47,6 +47,7 @@ export { listLegacyImports };
 
 const TABLE_POLICY: TablePolicy = {
   workflow_definitions: { policy: "exclude", reason: "工作流定义保留在来源实例，不随普通资料导入" },
+  workflow_definition_refs: { policy: "exclude", reason: "命名版本与保存回执保留在来源实例" },
   workflow_runs: { policy: "exclude", reason: "运行授权与执行绑定不能跨实例，非空源库明确拒绝" },
   workflow_steps: { policy: "exclude", reason: "步骤与其运行归属保留在来源实例" },
   workflow_executions: { policy: "exclude", reason: "真实任务执行绑定不能丢弃或跨实例恢复" },

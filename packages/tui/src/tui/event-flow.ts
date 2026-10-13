@@ -82,6 +82,7 @@ export class EventFlow {
       if (entry.kind !== "command" && entry.kind !== "note") this.entries.delete(key);
     }
     this.versions.clear();
+    for (const [key, entry] of this.entries) if (key.startsWith("workflow:")) this.versions.set(key, entry.seq);
     this.refs.clear();
     this.history.clear();
     this.tasks.clear();
@@ -142,6 +143,20 @@ export class EventFlow {
   apply(event: PersistentEvent): void {
     const body = event.body;
     switch (body.type) {
+      case "workflow.changed":
+      case "workflow.step":
+      case "workflow.execution": {
+        const key = "workflow:" + body.runId + ":" + (body.type === "workflow.changed" ? "state" : body.type === "workflow.step" ? "step:" + body.key : "execution:" + body.taskId);
+        if (event.seq <= (this.versions.get(key) ?? -1)) return;
+        this.versions.set(key, event.seq);
+        const text = body.type === "workflow.changed"
+          ? "工作流 " + body.runId + " · " + body.status + " · v" + body.version + (body.reason ? " · " + body.reason : "") + "；/workflow show " + body.runId + " 核实详情"
+          : body.type === "workflow.step"
+            ? "工作流 " + body.runId + " / " + body.key + " · " + body.status + "；/workflow logs " + body.runId + " 查看阶段"
+            : "工作流 " + body.runId + " / 执行 " + body.taskId + " · " + body.status + (body.stopVerified === false ? " · 停止未核实，保留占用与成果" : "");
+        this.note(key, text, this.entries.get(key)?.at ?? event.createdAt, event.seq);
+        return;
+      }
       case "task.thinking": {
         const key = `thinking:${body.thinkingId}`;
         if (event.seq <= (this.versions.get(key) ?? -1)) return;
@@ -336,8 +351,8 @@ export class EventFlow {
     }
   }
 
-  note(key: string, text: string, at: string): void {
-    this.entries.set(key, { key, kind: "note", text, at, seq: Number.MAX_SAFE_INTEGER - 1 });
+  note(key: string, text: string, at: string, seq = Number.MAX_SAFE_INTEGER - 1): void {
+    this.entries.set(key, { key, kind: "note", text, at, seq });
     const notes = [...this.entries.values()].filter((entry) => entry.kind === "note");
     for (const entry of notes.slice(0, -100)) this.entries.delete(entry.key);
   }

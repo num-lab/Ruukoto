@@ -66,6 +66,16 @@ interface AgentJob {
   promise: Promise<void>;
   stop?: Promise<boolean>;
 }
+export interface WorkflowStart {
+  sourceTaskId: string;
+  requestKey: string;
+  script: string;
+  input: unknown;
+  maxAttempts?: number;
+  durationMs?: number;
+  /** 宿主入口的原始请求摘要；命名文件后来更新不改变原键语义。 */
+  requestDigest?: string;
+}
 
 export class WorkflowCoordinator {
   private readonly scripts = new Map<string, ScriptRun>();
@@ -86,12 +96,19 @@ export class WorkflowCoordinator {
   private get store(): Store { return this.deps.store; }
 
   /** 已认证任务仅提供入口身份；固定快照不随发起任务结束或会话默认模式变化。 */
-  start(input: { sourceTaskId: string; requestKey: string; script: string; input: unknown; maxAttempts?: number; durationMs?: number }): WorkflowRun {
+  start(input: WorkflowStart): WorkflowRun {
+    const run = this.store.withTx(() => this.register(input));
+    this.kick();
+    return run;
+  }
+
+  /** 仅可信宿主在 Store.withTx 内调用；来源任务、运行与入口回执可同事务登记。 */
+  register(input: WorkflowStart, sourceForTask = this.deps.source): WorkflowRun {
     const task = this.store.getTask(input.sourceTaskId);
     if (!task) throw new WorkflowError("source_missing");
     const maxAttempts = input.maxAttempts ?? WORKFLOW_LIMITS.attempts;
     const durationMs = input.durationMs ?? WORKFLOW_LIMITS.durationMs;
-    const paramsDigest = workflowDigest({ script: input.script, input: input.input, maxAttempts, durationMs });
+    const paramsDigest = input.requestDigest ?? workflowDigest({ script: input.script, input: input.input, maxAttempts, durationMs });
     const old = findWorkflowRun(this.store, task.sessionId, input.requestKey);
     if (old) {
       if (old.paramsDigest !== paramsDigest) throw new WorkflowError("request_conflict");
@@ -99,19 +116,15 @@ export class WorkflowCoordinator {
     }
     if (this.stopped || !input.requestKey || !Number.isInteger(maxAttempts) || maxAttempts <= 0 || maxAttempts > WORKFLOW_LIMITS.attempts ||
         !Number.isInteger(durationMs) || durationMs <= 0 || durationMs > WORKFLOW_LIMITS.durationMs) throw new WorkflowError("invalid_budget");
-    const source = this.deps.source(task.id);
+    const source = sourceForTask(task.id);
     const modelSelection = this.deps.selection(task.id);
-    const run = this.store.withTx(() => {
-      const currentSource = this.deps.source(task.id);
-      if (workflowDigest(currentSource) !== workflowDigest(source)) throw new WorkflowError("source_invalid");
-      const definition = saveWorkflowDefinition(this.store, input.script);
-      return createWorkflowRun(this.store, { id: randomId("wfrun"), requestKey: input.requestKey, paramsDigest, definitionId: definition.id,
+    const currentSource = sourceForTask(task.id);
+    if (workflowDigest(currentSource) !== workflowDigest(source)) throw new WorkflowError("source_invalid");
+    const definition = saveWorkflowDefinition(this.store, input.script);
+    return createWorkflowRun(this.store, { id: randomId("wfrun"), requestKey: input.requestKey, paramsDigest, definitionId: definition.id,
         scriptDigest: definition.digest, input: JSON.parse(workflowJson(input.input)), inputDigest: workflowDigest(input.input), source,
         modelSelection, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts, durationMs, usedMs: 0, clockStartedAt: null, clockVerified: true,
         scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt: new Date(this.now()).toISOString(), endedAt: null });
-    });
-    this.kick();
-    return run;
   }
 
   /** Runtime 已按既有账本收尾任务后调用；恢复从未执行的排队登记。 */
@@ -593,7 +606,7 @@ export class WorkflowCoordinator {
       else await this.stopJob(execution.taskId, true);
     }));
   }
-  async control(id: string, key: string, version: number, control: WorkflowControl, initiatingTaskId?: string | null): Promise<WorkflowRun> {
+  async control(id: string, key: string, version: number, control: WorkflowControl, initiatingTaskId?: string | null, txExtra?: () => void): Promise<WorkflowRun> {
     const { result, duplicate } = this.store.withTx(() => {
       const duplicate = hasWorkflowControl(this.store, id, key);
       if (!duplicate && control.action === "resume" && listWorkflowExecutions(this.store, id).some(execution => this.jobs.has(execution.taskId))) throw new WorkflowError("verification_required");
@@ -617,6 +630,7 @@ export class WorkflowCoordinator {
           }
         }
       }
+      txExtra?.();
       return { result, duplicate };
     });
     if (!duplicate && ["paused", "canceled"].includes(result.status)) {

@@ -77,7 +77,7 @@ test("旧拼法 tui 与全部管理命令保持 legacy 分发", () => {
     "submit", "continue", "switch-mode", "set-session-mode", "status", "events",
     "interrupt", "cancel", "resume-queue", "confirm", "read-artifact",
     "credentials", "github", "mcp", "stop", "qq", "grant", "history-search",
-    "memory", "selection-records", "legacy-import", "tui",
+    "memory", "selection-records", "legacy-import", "tui", "workflow",
   ];
   for (const cmd of legacy) {
     assert.deepStrictEqual(resolveEntry([cmd, "--x", "1"]), { kind: "legacy", command: cmd, argv: ["--x", "1"] }, cmd);

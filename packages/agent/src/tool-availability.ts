@@ -23,10 +23,10 @@ import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired" | "scheduled">;
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
-  dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent"],
+  dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent", "workflow"],
   // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
   // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
-  main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"],
+  main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
   // subagent（agent-direction issue 11）：工具按执行画像的 SubAgent 工具集单独装配
   // （不走注册来源类别），子身份不能再委派下级；宿主评审任务（issue 19）的只读
   // MCP 由画像按任务另开，不在本静态清单
@@ -114,7 +114,7 @@ export function executionProfile(input: {
   if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
   if (input.workflow) {
     if (identity.kind !== "subagent" || !identity.workflow) throw new WorkflowError("workflow_binding_invalid");
-    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => category !== "subagent" && category !== "delegation") };
+    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow"].includes(category)) };
     return { toolClass: workflow.toolClass, subAgentTools: null, planMcp: workflow.categories.includes("mcp"), restricted: true,
       plan: false, toolSignature: `workflow:${JSON.stringify(workflow)}`, workflow };
   }

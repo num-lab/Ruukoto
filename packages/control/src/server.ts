@@ -19,6 +19,7 @@ import { capEventForWire,frameBytes } from "@ruukoto/core/views.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import * as fs from "node:fs";
 import * as net from "node:net";
+import { parseWorkflowControl } from "@ruukoto/core/workflow.ts";
 import { ensureOwnerToken,tokenMatches } from "./owner-token.ts";
 import {
   CONTROL_PROTOCOL_VERSION,
@@ -200,6 +201,14 @@ export class ControlServer {
         throw Object.assign(new Error(`参数 ${key} 必须是非空字符串`), { code: "invalid_params" });
       }
       return value;
+    };
+    const workflowParams = (...allowed: string[]): void => {
+      if (Object.keys(params).some(key => !allowed.includes(key))) throw new RuntimeApiError("invalid_params", "工作流参数含未开放字段；请按接口提交，身份和授权由宿主核实");
+    };
+    const workflowInt = (key: string, fallback: number, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): number => {
+      const value = params[key] ?? fallback;
+      if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new RuntimeApiError("invalid_params", `${key} 超出允许整数范围`);
+      return value as number;
     };
     /** 可选期望版本（乐观并发）：非负整数，缺省 undefined。 */
     const optionalExpectedVersion = (): number | undefined => {
@@ -450,9 +459,50 @@ export class ControlServer {
           version as number | undefined,
         );
       }
+      case "workflow_definitions":
+        workflowParams("offset", "limit");
+        return runtime.workflowLibrary.list(workflowInt("offset", 0), workflowInt("limit", 50, 1, 100));
+      case "workflow_definition":
+        workflowParams("name", "definition_id", "offset", "length", "version_offset");
+        return runtime.getWorkflowDefinition({ name: params.name === undefined ? undefined : requireString("name"),
+          definitionId: params.definition_id === undefined ? undefined : requireString("definition_id"), offset: workflowInt("offset", 0), length: workflowInt("length", 16384, 1, 65536), versionOffset: workflowInt("version_offset", 0) });
+      case "workflow_save": {
+        workflowParams("name", "script", "expected_digest", "request_id");
+        const expected = params.expected_digest;
+        if (expected !== null && typeof expected !== "string") throw new RuntimeApiError("invalid_params", "保存必须提供 expected_digest；新建为 null，更新使用当前摘要");
+        return runtime.saveWorkflowDefinition({ name: requireString("name"), script: requireString("script"), expectedDigest: expected, requestKey: `owner:${requireString("request_id")}` });
+      }
+      case "workflow_saved":
+        workflowParams("request_id");
+        return runtime.findWorkflowSave(`owner:${requireString("request_id")}`);
+      case "workflow_start":
+        workflowParams("session_id", "request_id", "name", "script", "input", "max_attempts", "duration_ms");
+        if (!("input" in params)) throw new RuntimeApiError("invalid_params", "启动必须提供 JSON input");
+        return runtime.startWorkflowOwner({ sessionId: requireString("session_id"), requestKey: requireString("request_id"),
+          name: params.name === undefined ? undefined : requireString("name"), script: params.script === undefined ? undefined : requireString("script"), input: params.input,
+          maxAttempts: params.max_attempts === undefined ? undefined : workflowInt("max_attempts", 100, 1, 100),
+          durationMs: params.duration_ms === undefined ? undefined : workflowInt("duration_ms", 3600000, 1, 3600000) });
+      case "workflow_find":
+        workflowParams("session_id", "request_id");
+        return runtime.findWorkflow(requireString("session_id"), requireString("request_id"));
+      case "workflow_list":
+        workflowParams("session_id", "offset", "limit");
+        return runtime.listWorkflows(params.session_id === undefined ? undefined : requireString("session_id"), workflowInt("offset", 0), workflowInt("limit", 50, 1, 100));
       case "workflow_get":
-        return runtime.getWorkflowDetail(requireString("run_id"));
+        workflowParams("run_id", "step_offset");
+        return runtime.getWorkflowDetail(requireString("run_id"), workflowInt("step_offset", 0));
+      case "workflow_step":
+        workflowParams("run_id", "step_key", "offset", "length");
+        return runtime.getWorkflowStep(requireString("run_id"), requireString("step_key"), workflowInt("offset", 0), workflowInt("length", 16384, 1, 65536));
+      case "workflow_logs":
+        workflowParams("run_id", "offset", "length");
+        return runtime.getWorkflowLogs(requireString("run_id"), workflowInt("offset", 0), workflowInt("length", 16384, 1, 65536));
+      case "workflow_control":
+        workflowParams("run_id", "request_id", "expected_version", "control");
+        return runtime.controlWorkflow({ runId: requireString("run_id"), requestKey: `owner:${requireString("request_id")}`,
+          version: workflowInt("expected_version", 0, 1), control: parseWorkflowControl(params.control) });
       case "workflow_question": {
+        workflowParams("run_id", "step_key", "offset", "length");
         const offset = params["offset"] ?? 0, length = params["length"] ?? 16 * 1024;
         if (!Number.isSafeInteger(offset) || (offset as number) < 0 || !Number.isSafeInteger(length) || (length as number) <= 0) {
           throw new RuntimeApiError("invalid_params", "offset/length 必须是非负/正整数字节数");
@@ -460,6 +510,7 @@ export class ControlServer {
         return runtime.getWorkflowQuestion(requireString("run_id"), requireString("step_key"), offset as number, length as number);
       }
       case "workflow_answer": {
+        workflowParams("run_id", "step_key", "question_version", "run_version", "request_id", "answer");
         const version = params["question_version"], runVersion = params["run_version"];
         if (!Number.isSafeInteger(version) || (version as number) < 1 || !Number.isSafeInteger(runVersion) || (runVersion as number) < 1 || !("answer" in params)) {
           throw new RuntimeApiError("invalid_params", "回答必须含正整数问题版本、问题运行代次与 JSON answer");

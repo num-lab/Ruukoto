@@ -50,7 +50,7 @@
 
 ## 数据与状态
 
-工作流的定义版本、运行、步骤、执行绑定、问题与控制回执由 `packages/core/src/workflow.ts` 持有，使用同一核心库和事件事务。有界控制正文完整保存，步骤绑定既有 Task/Work/SubAgent，身份解析为 SubAgent 增加来源运行绑定；具体状态、预算、重放和停止核实见[工作流](workflows.md)。
+工作流的不可变定义、名称历史/保存回执、运行、步骤、执行绑定、问题与控制回执由 `packages/core/src/workflow.ts` 持有，使用同一核心库和事件事务。有界控制正文完整保存，步骤绑定既有 Task/Work/SubAgent，身份解析为 SubAgent 增加来源运行绑定；具体状态、预算、重放和停止核实见[工作流](workflows.md)。
 
 `Task.parentTaskId` 与 `sourcePermissionVersion` 保存宿主确定的触发任务及其权限版本，派生任务的 `accessMode` 在登记时固定。协作消息另存登记时模式和来源版本，延迟投递沿用这些字段。`tool_ops.authorization` 保存完全访问或单次批准的真实执行依据，授权和 `task.tool_authorized` 在执行事务内单次登记；完全访问不产生审批行。
 
@@ -66,7 +66,7 @@
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v38）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v39）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
@@ -120,7 +120,7 @@
 - 全新库在 `BEGIN IMMEDIATE` 事务中创建当前表、字段与索引，并写入版本号；失败整体回滚。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
 
-当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`、`workflow_definitions`、`workflow_runs`、`workflow_steps`、`workflow_executions`、`workflow_questions`、`workflow_controls`。
+当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`、`workflow_definitions`、`workflow_definition_refs`、`workflow_runs`、`workflow_steps`、`workflow_executions`、`workflow_questions`、`workflow_controls`。
 
 关键表的要点：
 

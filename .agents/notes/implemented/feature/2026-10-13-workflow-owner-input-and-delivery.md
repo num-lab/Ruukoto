@@ -18,7 +18,7 @@ Status: implemented
 
 首次运行终态固定 `terminalVersion`，停止收尾后保存一次完整覆盖清单和有界结果预览，再按 `workflow-final:<运行>:<终态代次>` 登记唯一汇总任务。汇总和运行的绑定在入队事务内写入，不能凭用户可填的 request_id 前缀认可信身份。dev/main/scheduled 共用原会话 FIFO，汇总没有工具、不再发起工作流；每次模型请求重核运行和全部步骤的资料。dev 终态进入编排器结果登记与冷启动补记；仅剩汇总任务的 backend_restart 队列可自动恢复，人工暂停及混有普通排队输入的队列仍保留。
 
-main 汇总不带普通 sourceEventId；结果事务沿原 IM 事件和 `<原事件>#workflow-final:<运行>:<终态代次>` 登记一份 owner_reply。宿主终态、覆盖、停止未核实及失败项位于外发文本最前，模型长摘要不能挤掉这些事实。`delivery.status=reported` 表示汇总结果及适用的 outbox 登记已完成，不声称平台发送成功；真实发送状态仍由 notification_ops 持有。入口或资料失效保存 undelivered 原因，不改发；已有 failed/effect_unknown 操作不换键重发。取消报告只用宿主取消及停止事实，外部效果不回滚。
+main 汇总不带普通 sourceEventId；结果事务沿原 IM 事件和 `<原事件>#workflow-final:<运行>:<终态代次>` 登记一份 owner_reply。宿主终态、覆盖、脚本停止三态、已启动执行的停止核实数量、未启动数量及失败项位于外发文本最前，模型长摘要不能挤掉这些事实。本轮终态事实取代源会话中的启动/中途旧状态；停止已核实不等于写入效果已知，原效果未知警告继续保留。`delivery.status=reported` 表示汇总结果及适用的 outbox 登记已完成，不声称平台发送成功；真实发送状态仍由 notification_ops 持有。入口或资料失效保存 undelivered 原因，不改发；已有 failed/effect_unknown 操作不换键重发。取消报告只用宿主取消及停止事实，外部效果不回滚。
 
 定时来源先等名下全部工作流、实际执行与整项汇总，再由原 schedule_run 路径回报。整体状态取工作流最终状态及非工作流任务，已被安全重试恢复的旧尝试不污染整项结论；步骤不再要求普通 wake。计划取消级联运行，即使执行器未装配也保存取消意图；逐项读取最新运行版本，避免前一运行停止收尾让后一快照过期。步骤取消自身所属计划先提交意图、异步停止，使当前工具能返回；源失效拦住下一模型请求抢先写 interrupted 时，保留已经提交的任务终态，同时记录运行取消、cancelRequested 和真实停止结论。
 
@@ -26,7 +26,7 @@ schema 为 38，协议为 21。沿既有严格版本策略拒绝旧库，不迁�
 
 ## 既有笔记审计
 
-[工作流提案](../../proposed/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有人工等待与最终回报，定义库和联合验收仍由提案持有。[执行基础](../architecture/2026-10-13-workflow-runtime-and-store.md)与[真实步骤](../architecture/2026-10-13-workflow-step-capabilities.md)部分重叠，只同步版本、入口现状与本篇链接。[普通 IM 回报](2026-10-02-im-approval-and-final-report.md)、[通用调度](2026-10-12-generic-scheduled-tasks.md)与[公共 outbox](../architecture/2026-09-24-scheduler-outbox.md)部分扩展，保留普通行为和未知发送规则。没有整篇吸收、删除或决定翻转。
+[工作流提案](../../implemented/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有人工等待与最终回报，定义库和联合验收仍由提案持有。[执行基础](../architecture/2026-10-13-workflow-runtime-and-store.md)与[真实步骤](../architecture/2026-10-13-workflow-step-capabilities.md)部分重叠，只同步版本、入口现状与本篇链接。[普通 IM 回报](2026-10-02-im-approval-and-final-report.md)、[通用调度](2026-10-12-generic-scheduled-tasks.md)与[公共 outbox](../architecture/2026-09-24-scheduler-outbox.md)部分扩展，保留普通行为和未知发送规则。没有整篇吸收、删除或决定翻转。
 
 ## 备选方案
 

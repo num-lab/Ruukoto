@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { test } from "node:test";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
 import type { Session } from "@ruukoto/core/types.ts";
-import { getWorkflowDeliveryRun, getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, requireWorkflowRun, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
+import { bindWorkflowExecution, createWorkflowRun, getWorkflowDeliveryRun, getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { parseRule, firstDue } from "@ruukoto/channels/scheduler/time.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
@@ -27,7 +33,12 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
   const child = latch(), chat = latch();
   const t = await startTestRuntime("workflow-final-dev", async req => {
     if (lastUserText(req) === "日常聊天") { await chat.promise; return { kind: "text", text: "聊天完成" }; }
-    if (lastUserText(req).startsWith("[工作流最终回报]")) { assert.deepEqual(toolNamesOf(req), []); return { kind: "text", text: "最终汇总" }; }
+    if (lastUserText(req).startsWith("[工作流最终回报]")) {
+      assert.deepEqual(toolNamesOf(req), []);
+      assert.match(lastUserText(req), /停止：脚本已核实；已启动执行 1\/1 项已核实，未启动 0 项/);
+      assert.match(lastUserText(req), /本轮终态事实取代启动和中途历史中的旧状态/);
+      return { kind: "text", text: "最终汇总" };
+    }
     return { kind: "text", text: "普通任务" };
   }, { config: { product: codeProduct.runtime, workflowAgent: async () => { await child.promise; return { output: "步骤资料" }; } } });
   try {
@@ -40,6 +51,7 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
     child.release();
     await waitFor("最终汇总已排队", () => requireWorkflowRun(rt.store, run.id).delivery?.taskId != null);
     const finished = requireWorkflowRun(rt.store, run.id), wake = rt.store.getTask(finished.delivery!.taskId!)!;
+    assert.match(finished.delivery!.facts, /停止：脚本已核实；已启动执行 1\/1 项已核实，未启动 0 项/);
     assert.equal(wake.status, "queued"); assert.equal(wake.agentId, null); assert.equal(wake.sourceEventId, null);
     assert.equal(getWorkflowDeliveryRun(rt.store, wake.id)!.id, run.id);
     const key = workflowDeliveryKey(finished);
@@ -57,6 +69,58 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
     assert.equal(getWorkflowDeliveryRun(rt.store, fake.id), null);
     assert.ok(toolNamesOf(t.server.calls[2]).includes("mock_delay"));
   } finally { child.release(); chat.release(); await t.shutdown(); }
+});
+
+test("终态停止事实区分已核实、未知和未启动；登记脚本仍未收尾时不汇总", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "workflow-report-stop-")), db = new Db(root), store = new Store(db);
+  try {
+    const selection = { provider: "mock", modelId: "mock", thinkingLevel: "off" } as const;
+    const project = store.createProject("workflow"), stat = fs.statSync(root);
+    const session = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: stat.dev, cwdIno: stat.ino, piSessionId: "report", confirmTools: [] });
+    const parent = store.insertQueuedTask({ sessionId: session.id, requestId: "source", input: "source", modelSelection: selection, submissionDigest: "source" }).task;
+    store.transitionTask(parent.id, ["queued"], "completed");
+    const definition = saveWorkflowDefinition(store, "return 1;");
+    const inputs: string[] = [];
+    const delivery = new ParentDelivery({ store, defaultModelSelection: () => selection, readReply: () => null, isReviewEvent: () => false,
+      resultNotice: () => null, sendWorkReport: () => {}, verifyWorkflowReport: () => true,
+      submit: async input => { inputs.push(input.input); return parent; } });
+    const cases = [
+      { script: true, registered: true, execution: true, expected: "脚本已核实；已启动执行 1/1 项已核实，未启动 1 项" },
+      { script: false, registered: true, execution: false, expected: "脚本未核实；已启动执行 0/1 项已核实，未启动 1 项" },
+      { script: true, registered: true, execution: null, expected: "脚本已核实；已启动执行 0/1 项已核实，未启动 1 项" },
+      { script: null, registered: false, execution: null, expected: "脚本未启动实际单元；已启动执行 0/0 项已核实，未启动 1 项" },
+      { script: null, registered: true, execution: null, expected: null },
+    ];
+    for (const [index, value] of cases.entries()) {
+      const id = `report-${index}`;
+      const run = createWorkflowRun(store, { id, requestKey: id, paramsDigest: id, definitionId: definition.id, scriptDigest: definition.digest,
+        input: null, inputDigest: id, source: { product: "ruukoto-code", projectId: project.id, sessionId: session.id, taskId: parent.id,
+          permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null },
+        modelSelection: selection, status: "running", version: 1, reason: "test", attempts: 1, maxAttempts: 100,
+        durationMs: 3_600_000, usedMs: 1, clockStartedAt: null, clockVerified: true,
+        scriptUnits: value.registered ? [{ kind: "process_group", id: "123", label: "fixture" }] : [], scriptStopVerified: value.script,
+        result: null, resultRecorded: true, createdAt: new Date().toISOString(), endedAt: new Date().toISOString() });
+      for (const [ordinal, status] of (value.registered ? ["finished", "queued"] as const : ["queued"] as const).entries()) {
+        registerWorkflowStep(store, { runId: id, key: status, ordinal: ordinal + 1, kind: "agent", params: {}, dependsOn: [] });
+        const worker = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: stat.dev, cwdIno: stat.ino, piSessionId: `${id}-${status}`, confirmTools: [] });
+        const task = store.insertQueuedTask({ sessionId: worker.id, requestId: `${id}-${status}`, input: status, modelSelection: selection, submissionDigest: id }).task;
+        if (status === "finished") store.transitionTask(task.id, ["queued"], "completed");
+        if (index === 0 && status === "finished") store.db.prepare("UPDATE tasks SET effect_unknown = 1 WHERE id = ?").run(task.id);
+        bindWorkflowExecution(store, { id: `${id}-${status}`, runId: id, stepKey: status, kind: "agent", taskId: task.id, number: 1,
+          status, units: [], stopVerified: status === "finished" ? value.execution : null });
+      }
+      updateWorkflowRun(store, { ...requireWorkflowRun(store, id), status: "failed", terminalVersion: 1 });
+      await delivery.sweepWorkflows();
+      const facts = requireWorkflowRun(store, run.id).delivery?.facts;
+      if (value.expected === null) assert.equal(facts, undefined);
+      else {
+        assert.ok(facts!.includes(value.expected));
+        assert.ok(inputs.at(-1)!.includes(value.expected));
+        if (index === 0) assert.match(facts!, /操作效果未知/);
+        if (value.registered && value.execution !== true) assert.match(facts!, /执行 .*停止未核实/);
+      }
+    }
+  } finally { db.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 for (const window of ["queued", "result-missing"] as const) test(`dev 冷恢复 ${window}：复用原汇总任务和键，结果事务补记一次`, async () => {

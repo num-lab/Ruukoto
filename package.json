@@ -26,7 +26,7 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck",
     "test": "node scripts/check-environment.mjs && npm run test:app && npm run test:foundation",
-    "test:app": "RUN_MODEL_CHECK=0 tsx --test test/*.test.ts",
+    "test:app": "node scripts/test-app.mjs",
     "test:foundation": "RUN_MODEL_CHECK=0 npm --prefix verification/foundation test",
     "check:static": "npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs",
     "change-scope": "tsx scripts/change-scope.ts",

@@ -422,7 +422,7 @@ try {
       process.stderr.write(`[ruukoto:smoke24] 停止未核实，保留档案 ${root}；${String(error)}\n`);
     }
   }
-  if (!cleanupFailed && !process.exitCode && retainedTasks.size === 0) fs.rmSync(root, { recursive: true, force: true });
+  if (!cleanupFailed && (!process.exitCode || (process.exitCode === 2 && children.length === 0)) && retainedTasks.size === 0) fs.rmSync(root, { recursive: true, force: true });
   else if (process.exitCode) process.stderr.write(`[ruukoto:smoke24] 失败档案保留 ${root}\n`);
   else if (!cleanupFailed) process.stderr.write(`[ruukoto:smoke24] 预期保留异常占用档案 ${root}；任务 ${[...retainedTasks.values()].join(", ")}\n`);
 }

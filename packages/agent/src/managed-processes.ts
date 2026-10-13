@@ -96,8 +96,9 @@ export async function killProcessGroup(
     } while (Date.now() < deadline);
     return false;
   };
-  const termSignaled = signalGroup("SIGTERM");
-  if (termSignaled && await waitForExit(opts.termGraceMs ?? 3000)) return true;
-  const killSignaled = signalGroup("SIGKILL");
-  return killSignaled && await waitForExit(opts.killGraceMs ?? 3000);
+  // macOS 僵尸回收窗口的信号可返回 EPERM；仍须在原预算内核实整组退出。
+  signalGroup("SIGTERM");
+  if (await waitForExit(opts.termGraceMs ?? 3000)) return true;
+  signalGroup("SIGKILL");
+  return await waitForExit(opts.killGraceMs ?? 3000);
 }

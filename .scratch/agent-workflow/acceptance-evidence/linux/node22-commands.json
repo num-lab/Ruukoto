@@ -1,0 +1,28 @@
+[
+  {
+    "command": [
+      "npm",
+      "run",
+      "build"
+    ],
+    "log": "build-node22-accepted.log",
+    "exit": 0,
+    "seconds": 1.619
+  },
+  {
+    "command": [
+      "/tmp/ruukoto-script-isolation.v2XPXY/node22/node_modules/node/bin/node",
+      "--import",
+      "tsx",
+      "--test",
+      "test/104-workflow-script.test.ts",
+      "test/112-workflow-real-steps.test.ts",
+      "test/113-workflow-source-capabilities.test.ts",
+      "test/121-workflow-personal-acceptance.test.ts",
+      "test/122-workflow-code-acceptance.test.ts"
+    ],
+    "log": "matrix-node22-first.log",
+    "exit": 1,
+    "seconds": 123.431
+  }
+]

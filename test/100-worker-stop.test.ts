@@ -207,6 +207,18 @@ test("真实原进程组：短暂查询失败在停止预算内继续核实", { 
   }
 });
 
+for (const exited of [true, false]) test(`信号 EPERM 仍核实原进程组：${exited ? "已退出" : "持续未知"}`, async context => {
+  let queries = 0;
+  context.mock.method(process, "kill", (_pid: number, signal: string | number) => {
+    if (signal === 0) queries++;
+    throw Object.assign(new Error("信号或核实失败"), { code: signal === 0 && exited ? "ESRCH" : "EPERM" });
+  });
+  try {
+    assert.equal(await killProcessGroup(123456, { termGraceMs: 0, killGraceMs: 0 }), exited);
+    assert.equal(queries, exited ? 1 : 2);
+  } finally { context.mock.restoreAll(); }
+});
+
 for (const query of ["失败", "输出不完整"] as const) {
   test(`原进程组持续存在且查询${query}：预算耗尽仍保留未核实`, { skip: process.platform === "win32" }, async context => {
     let queries = 0;

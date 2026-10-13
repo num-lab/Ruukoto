@@ -116,7 +116,7 @@ test("memory_list 的预览来源落盘，祖先记忆撤销阻止间接缓存�
     assert.deepEqual(getWorkflowStep(rt.store, run.id, "a")!.readMemories, [memory.id]);
     const calls = t.server.calls.length;
     rt.ownerRevokeMemory({ memoryId: memory.id, expectedVersion: memory.currentVersion });
-    rt.workflows!.answer(run.id, "hold", 1, "继续", run.source);
+    rt.workflows!.answer(run.id, "hold", 1, "继续", run.source, { requestKey: "answer-hold", runVersion: rt.getWorkflowQuestion(run.id, "hold").runVersion });
     assert.equal((await finished(rt, run)).status, "paused");
     assert.equal(t.server.calls.length, calls);
   } finally { await t.shutdown(); }

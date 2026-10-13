@@ -42,6 +42,7 @@ test("Runtime 的运行授权独立于原任务，主会话可继续，步骤结
     assert.equal(requireWorkflowRun(rt.store, run.id).status, "running");
     release();
     await waitFor("工作流完成", () => requireWorkflowRun(rt.store, run.id).status === "succeeded");
+    await waitFor("整项最终汇总完成", () => requireWorkflowRun(rt.store, run.id).delivery?.status === "reported");
     const execution = listWorkflowExecutions(rt.store, run.id)[0]!;
     assert.equal(getWorkflowExecution(rt.store, execution.taskId)!.kind, "agent");
     const task = rt.store.getTask(execution.taskId)!;
@@ -53,7 +54,8 @@ test("Runtime 的运行授权独立于原任务，主会话可继续，步骤结
     assert.equal(rt.store.listUndeliveredSubAgentResults(session.id).length, 0);
     assert.equal(rt.store.listRoleTasksPendingWake().some(item => item.id === task.id), false);
     assert.equal(rt.store.listTasksBySession(session.id).some(item => item.requestId === `wake:${task.id}`), false);
-    assert.equal(t.server.calls.length, 1);
+    assert.equal(t.server.calls.length, 2);
+    assert.equal(rt.store.listTasksBySession(session.id).filter(item => item.requestId.startsWith("workflow-final:")).length, 1);
     await assert.rejects(rt.continueTask({ taskId: task.id, requestId: "ordinary", input: "继续", modelSelection: rt.defaultSelection }), { code: "invalid_state" });
     await assert.rejects(rt.switchTaskMode({ taskId: task.id, mode: "full_access" }), { code: "invalid_state" });
   } finally { release(); await t.shutdown(); }

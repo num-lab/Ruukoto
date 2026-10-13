@@ -37,4 +37,4 @@
 
 ## 验收状态
 
-工程验收项目已映射到实施计划与各实施工单；[02 的脚本隔离](issues/02-script-isolation.md)已完成四格假 Agent 与固定库层入口验证，[03 的持久协调器](issues/03-runtime-and-store.md)与[04 的真实步骤能力](issues/04-step-capabilities.md)已实施并通过独立工程审查，04 已验证双产品真实 Driver、macOS/Linux 原生 worker 与冻结成果汇总。产品验收为双产品批量工作、等待期间聊天、查看进度及最终报告体验，待 05/06 产品接线后验收；真实模型与 IM 尚未验证。
+工程验收项目已映射到实施计划与各实施工单；[02 的脚本隔离](issues/02-script-isolation.md)已完成四格假 Agent 与固定库层入口验证，[03 的持久协调器](issues/03-runtime-and-store.md)与[04 的真实步骤能力](issues/04-step-capabilities.md)已实施并通过独立工程审查，04 已验证双产品真实 Driver、macOS/Linux 原生 worker 与冻结成果汇总；[05 的可信回答与整项回报](issues/05-owner-input-and-delivery.md)已实施并通过独立工程审查，验证双平台替身、控制面、恢复和调度归属。产品验收为双产品批量工作、等待期间聊天、查看进度及最终报告体验，待 06 完整入口接线后在 07 验收；真实模型与 IM 尚未验证。

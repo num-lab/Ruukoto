@@ -15,6 +15,8 @@ import {
   type WorkflowRun, type WorkflowSource,
 } from "@ruukoto/core/workflow.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { ApprovalGate } from "@ruukoto/agent/approval-gate.ts";
+import type { ReviewOutcome } from "@ruukoto/agent/review.ts";
 import { compileWorkflowOutput } from "@ruukoto/agent/workflow-output.ts";
 import { HOST_DATA_LEDGER } from "@ruukoto/agent/host-tools.ts";
 import { WorkflowScriptHost } from "@ruukoto/agent/script-worker/host.ts";
@@ -143,7 +145,7 @@ test("四个工作流分支与普通委派共享三个名额，满额只排队",
   f.cleanup(() => { for (const gate of releases.values()) gate.resolve({ output: "cleanup" }); });
   const ordinary = ordinaryTask(f);
   const run = f.start(`return await Promise.all([0,1,2,3].map(i=>agent("p"+i,{request:"work"})));`);
-  await until("两个工作流分支运行", () => releases.size === 2);
+  await until("两个工作流分支运行且全部登记", () => releases.size === 2 && listWorkflowSteps(f.store, run.id).length === 4);
   assert.equal(workflowSlotsUsed(f.store, f.session.id), 3);
   assert.equal(listWorkflowSteps(f.store, run.id).length, 4);
   f.store.withTx(() => f.store.endTask(ordinary.id, ["running"], "completed"));
@@ -226,7 +228,7 @@ test("人工等待及其依赖中的 Agent 与汇总均不可执行，整项停�
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.run(run.id).status, "waiting");
   assert.equal(chargeWorkflow(f.run(run.id), 100_000).usedMs, 0);
-  f.coordinator.answer(run.id, "question", 1, "yes", f.source);
+  f.coordinator.answer(run.id, "question", 1, "yes", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion });
   await f.terminal(run.id);
   assert.equal(f.run(run.id).status, "succeeded");
   assert.equal(f.run(run.id).usedMs, 0);
@@ -268,7 +270,7 @@ test("Promise.race 按持久交付顺序恢复，完成步骤缓存不计尝试"
   await f.restart();
   await f.coordinator.control(run.id, "resume", f.run(run.id).version, { action: "resume" });
   await until("恢复人工问题", () => f.run(run.id).status === "waiting");
-  f.coordinator.answer(run.id, "winner", 1, "accepted", f.source);
+  f.coordinator.answer(run.id, "winner", 1, "accepted", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "winner")!.runVersion });
   await until("恢复完成或暂停", () => ["succeeded", "paused"].includes(f.run(run.id).status));
   assert.deepEqual({status:f.run(run.id).status,reason:f.run(run.id).reason}, {status:"succeeded",reason:null});
   assert.equal(calls, 2);
@@ -334,7 +336,7 @@ test("已完成写步骤在等待人工时重启，复用结果并保留一次�
   await f.restart();
   await f.coordinator.control(run.id, "resume", f.run(run.id).version, { action: "resume" });
   await until("重放完成后的人工等待", () => f.run(run.id).status === "waiting");
-  f.coordinator.answer(run.id, "question", 1, "yes", f.source);
+  f.coordinator.answer(run.id, "question", 1, "yes", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion });
   await f.terminal(run.id);
   assert.equal(f.run(run.id).status, "succeeded");
   assert.equal(effects, 1);
@@ -422,7 +424,7 @@ test("暂停后恢复再重发旧暂停请求，只去重且不停止新脚本�
   await until("首次暂停已停止脚本", () => f.run(run.id).scriptStopVerified === true);
   await f.coordinator.control(run.id, "resume-R", f.run(run.id).version, { action: "resume" });
   await until("恢复人工等待", () => f.run(run.id).status === "waiting");
-  f.coordinator.answer(run.id, "question", 1, "yes", f.source);
+  f.coordinator.answer(run.id, "question", 1, "yes", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion });
   await until("恢复后新的 Agent 正在执行", () => signal !== undefined);
   const taskId = listWorkflowExecutions(f.store, run.id)[0].taskId;
   await f.coordinator.control(run.id, "pause-P", pauseVersion, { action: "pause" });
@@ -475,12 +477,12 @@ test("人工等待整项停计，另有分支运行时继续按墙钟计费", as
   assert.equal(f.run(run.id).usedMs, 5_000);
   f.setNow(106_000);
   assert.equal(chargeWorkflow(f.run(run.id), 106_000).usedMs, 5_000);
-  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "wrong-source", { ...f.source, sessionId: "other" }), { code: "stale_answer" });
-  assert.throws(() => f.coordinator.answer(run.id, "question", 2, "wrong-version", f.source), { code: "stale_answer" });
-  f.coordinator.answer(run.id, "question", 1, "yes", f.source);
+  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "wrong-source", { ...f.source, sessionId: "other" }, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion }), { code: "stale_answer" });
+  assert.throws(() => f.coordinator.answer(run.id, "question", 2, "wrong-version", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion }), { code: "stale_answer" });
+  f.coordinator.answer(run.id, "question", 1, "yes", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion });
   await f.terminal(run.id);
   assert.equal(f.run(run.id).usedMs, 5_000);
-  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "late", f.source), { code: "stale_answer" });
+  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "late", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion }), { code: "stale_answer" });
 });
 
 test("时限暂停停止只读在途尝试，预算调整后恢复且已计时间不归零", async t => {
@@ -521,7 +523,7 @@ test("崩溃时未核实时钟先暂停，可信确认后保留已有消耗", as
   await assert.rejects(f.coordinator.control(run.id, "unconfirmed", f.run(run.id).version, { action: "resume" }), { code: "verification_required" });
   await f.coordinator.control(run.id, "confirmed", f.run(run.id).version, { action: "resume", clockConfirmed: true });
   await until("恢复人工等待", () => f.run(run.id).status === "waiting");
-  f.coordinator.answer(run.id, "question", 1, "yes", f.source);
+  f.coordinator.answer(run.id, "question", 1, "yes", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion });
   await f.terminal(run.id);
   assert.equal(f.run(run.id).usedMs, 5_000);
 });
@@ -543,11 +545,11 @@ test("人工等待重启保留脚本进程身份，停止未核实先暂停并�
   assert.equal(f.run(run.id).status, "paused");
   assert.equal(f.run(run.id).reason, "stop_unverified");
   assert.deepEqual(f.run(run.id).scriptUnits, units);
-  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "early", f.source), { code: "stale_answer" });
+  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "early", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion }), { code: "stale_answer" });
   await assert.rejects(f.coordinator.control(run.id, "unconfirmed", f.run(run.id).version, { action: "resume" }), { code: "verification_required" });
   await f.coordinator.control(run.id, "confirmed", f.run(run.id).version, { action: "resume", stopsConfirmed: true });
   await until("核实停止后恢复人工等待", () => f.run(run.id).status === "waiting");
-  f.coordinator.answer(run.id, "question", 1, "yes", f.source);
+  f.coordinator.answer(run.id, "question", 1, "yes", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion });
   await f.terminal(run.id);
   assert.equal(f.run(run.id).status, "succeeded");
 });
@@ -563,7 +565,7 @@ test("取消先登记意图，迟到结果、回答与未核实停止不能释�
   await until("有活动执行", () => listWorkflowExecutions(f.store, run.id).some(item => item.status === "running" && item.units.length === 1));
   await f.coordinator.control(run.id, "cancel", f.run(run.id).version, { action: "cancel" });
   assert.equal(f.run(run.id).status, "canceled");
-  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "late", f.source), { code: "stale_answer" });
+  assert.throws(() => f.coordinator.answer(run.id, "question", 1, "late", f.source, { requestKey: randomId("answer"), runVersion: getWorkflowQuestion(f.store, run.id, "question")!.runVersion }), { code: "stale_answer" });
   gate.resolve({ output: "late-success" });
   await until("迟到执行收尾", () => listWorkflowExecutions(f.store, run.id)[0].status === "finished");
   assert.equal(f.run(run.id).status, "canceled");
@@ -784,4 +786,34 @@ test("依赖结果汇入步骤输入超限时持久暂停，不反复创建空�
   f.coordinator.kick();
   await new Promise(resolve => setTimeout(resolve, 30));
   assert.equal(fs.readdirSync(path.join(f.root, "steps")).length, 2);
+});
+
+test("自动审批审查与并行未决工具仍计费，只有纯人工审批等待才停计", async t => {
+  const review = deferred<ReviewOutcome>();
+  let executionTask: Task | null = null;
+  const f = fixture(t, async context => {
+    executionTask = context.task;
+    const gate = new ApprovalGate({ store: f.store, ledger: new ToolOpLedger(f.store), reviewer: () => ({ review: () => review.promise }) });
+    f.store.withTx(() => f.store.recordToolIntent({ id: "approval-op", taskId: context.task.id, sessionId: context.task.sessionId,
+      toolName: "request_file_access", params: { path: "/outside/input" } }));
+    await gate.request({ task: context.task, hostOpId: "approval-op", toolName: "request_file_access", params: { path: "/outside/input" },
+      scope: { kind: "file_operation", path: "/outside/input", access: "read", originalSha256: null, contentSha256: null, contentBytes: null }, signal: context.signal });
+    return { output: "审批已结束" };
+  });
+  f.source.accessMode = "auto-review";
+  const run = f.start('return await agent("read",{request:"读取"});');
+  await until("自动审查正在执行", () => executionTask !== null && f.store.listConfirmationsByTask(executionTask.id).some(c => c.reviewStatus === "in_progress"));
+  f.setNow(2_000); f.coordinator.kick(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.run(run.id).status, "running");
+  assert.equal(chargeWorkflow(f.run(run.id), 2_000).usedMs, 1_000);
+  review.resolve({ decision: "ask_owner", reason: "请拥有者核实", model: "fake" });
+  await until("审查转为人工", () => f.store.listConfirmationsByTask(executionTask!.id).some(c => c.reviewStatus === "asked_owner"));
+  await until("纯人工等待停计", () => f.run(run.id).status === "waiting");
+  const used = f.run(run.id).usedMs;
+  f.setNow(5_000); assert.equal(chargeWorkflow(f.run(run.id), 5_000).usedMs, used);
+  f.store.withTx(() => f.store.recordToolIntent({ id: "parallel-op", taskId: executionTask!.id, sessionId: executionTask!.sessionId,
+    toolName: "read", params: { path: "input" } }));
+  f.coordinator.kick(); await until("同任务另有工具执行时恢复计费", () => f.run(run.id).status === "running");
+  f.setNow(6_000); assert.equal(chargeWorkflow(f.run(run.id), 6_000).usedMs, used + 1_000);
+  await f.coordinator.control(run.id, "cancel", f.run(run.id).version, { action: "cancel" });
 });

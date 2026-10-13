@@ -88,8 +88,8 @@ export class WorkflowSteps {
     if (!this.verifyResultSources(run, step)) return "task_sources_revoked";
     return null;
   }
-  verifyResultSources(run: WorkflowRun, step: WorkflowStep): boolean {
-    if (!this.deps.verifySource(run.source)) return false;
+  verifyResultSources(run: WorkflowRun, step: WorkflowStep, verifySource = this.deps.verifySource): boolean {
+    if (!verifySource(run.source)) return false;
     const keys = new Set<string>();
     const pending = [step.key];
     while (pending.length) {

@@ -19,7 +19,7 @@ import {
   getWorkflowStep, hasWorkflowControl, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, registerWorkflowStep,
   requireWorkflowRun, saveWorkflowDefinition, saveWorkflowQuestion, setWorkflowState, startWorkflowExecution,
   updateWorkflowExecution, updateWorkflowRun, updateWorkflowStep, workflowDigest, workflowJson, workflowTerminal,
-  type WorkflowControl, type WorkflowExecution, type WorkflowRun, type WorkflowSource, type WorkflowStep,
+  type WorkflowControl, type WorkflowExecution, type WorkflowQuestion, type WorkflowRun, type WorkflowSource, type WorkflowStep,
 } from "@ruukoto/core/workflow.ts";
 
 export interface WorkflowAgentContext {
@@ -149,7 +149,7 @@ export class WorkflowCoordinator {
   }
 
   onEvents(events: PersistentEvent[]): void {
-    if (events.some(event => event.body.type.startsWith("task.") || event.body.type.startsWith("workflow.") || event.body.type === "session.queue_resumed")) this.kick();
+    if (events.some(event => event.body.type.startsWith("task.") || event.body.type.startsWith("workflow.") || event.body.type.startsWith("confirmation.") || event.body.type === "session.queue_resumed")) this.kick();
   }
   kick(): void {
     if (this.queued || this.stopped) return;
@@ -304,6 +304,12 @@ export class WorkflowCoordinator {
     if (!Array.isArray(dependsOn) || dependsOn.some(key => typeof key !== "string") || new Set(dependsOn).size !== dependsOn.length) throw new WorkflowError("invalid_step");
     if (call.method === "agent" && (typeof call.params.request !== "string" || !call.params.request.trim())) throw new WorkflowError("invalid_step");
     if (call.method === "agent" && call.params.output !== undefined) this.outputCheck(call.params.output);
+    if (call.method === "ask") {
+      const options = call.params.options;
+      if (options !== undefined && (!Array.isArray(options) || options.length === 0 || options.length > 20 ||
+          options.some(option => typeof option !== "string" || !option.trim()) || new Set(options).size !== options.length)) throw new WorkflowError("invalid_question");
+      if (call.params.schema !== undefined) compileWorkflowOutput(call.params.schema);
+    }
     if (call.method === "agent") {
       const params = call.params;
       const { mode = "analyze", tools, target, verify } = call.params;
@@ -330,7 +336,7 @@ export class WorkflowCoordinator {
     if (step.kind === "progress") {
       this.store.withTx(() => finishWorkflowStep(this.store, run.id, step.key, "completed", { status: "completed" }));
     } else if (step.kind === "ask") this.store.withTx(() => {
-      if (!getWorkflowQuestion(this.store, run.id, step.key)) saveWorkflowQuestion(this.store, { runId: run.id, stepKey: step.key, version: 1,
+      if (!getWorkflowQuestion(this.store, run.id, step.key)) saveWorkflowQuestion(this.store, { runId: run.id, stepKey: step.key, version: 1, runVersion: run.version,
         prompt: step.params, source: run.source, status: "pending", answer: null });
       updateWorkflowStep(this.store, { ...step, status: "waiting" });
     });
@@ -558,12 +564,21 @@ export class WorkflowCoordinator {
     if (!this.admitted(run)) return;
     const steps = listWorkflowSteps(this.store, id);
     const pending = steps.filter(step => !step.resultRecorded);
+    const executions = listWorkflowExecutions(this.store, id);
+    const awaitingTask = (taskId: string): boolean => {
+      if (this.store.getTask(taskId)?.status !== "awaiting_confirmation") return false;
+      const confirmations = this.store.listConfirmationsByTask(taskId).filter(confirmation => confirmation.status === "pending");
+      return confirmations.length > 0 && confirmations.every(confirmation => confirmation.reviewStatus !== "in_progress") &&
+        this.store.listToolOpsByTask(taskId).filter(op => op.resultSummary === null).every(op => confirmations.some(confirmation => confirmation.toolOpId === op.id));
+    };
+    const awaitingApproval = (step: WorkflowStep): boolean => step.kind === "agent" && executions.some(execution =>
+      execution.stepKey === step.key && execution.status === "running" && awaitingTask(execution.taskId));
+    const humanWait = (step: WorkflowStep): boolean => (step.kind === "ask" && step.status === "waiting") || awaitingApproval(step);
     const script = this.scripts.get(id);
     const waiting = script?.idle && !steps.some(step => step.resultRecorded && script.replies.has(step.key) && !script.delivered.has(step.key)) &&
-      pending.some(step => step.kind === "ask" && step.status === "waiting") && pending.every(step =>
-      (step.kind === "ask" && step.status === "waiting") || (step.status === "queued" && step.dependsOn.some(key => !getWorkflowStep(this.store, id, key)?.resultRecorded))) &&
-      !listWorkflowExecutions(this.store, id).some(execution => execution.status === "running");
-    if (waiting && run.status !== "waiting") this.store.withTx(() => setWorkflowState(this.store, id, "waiting", "owner_input", this.now()));
+      pending.some(humanWait) && pending.every(step => humanWait(step) || (step.status === "queued" && step.dependsOn.some(key => !getWorkflowStep(this.store, id, key)?.resultRecorded))) &&
+      !executions.some(execution => execution.status === "running" && !awaitingTask(execution.taskId));
+    if (waiting && run.status !== "waiting") this.store.withTx(() => setWorkflowState(this.store, id, "waiting", pending.some(step => step.kind === "ask" && step.status === "waiting") ? "owner_input" : "tool_approval", this.now()));
     else if (!waiting && run.status === "waiting") this.store.withTx(() => setWorkflowState(this.store, id, "running", null, this.now()));
   }
   private pause(id: string, reason: string): void {
@@ -578,7 +593,7 @@ export class WorkflowCoordinator {
       else await this.stopJob(execution.taskId, true);
     }));
   }
-  async control(id: string, key: string, version: number, control: WorkflowControl): Promise<WorkflowRun> {
+  async control(id: string, key: string, version: number, control: WorkflowControl, initiatingTaskId?: string | null): Promise<WorkflowRun> {
     const { result, duplicate } = this.store.withTx(() => {
       const duplicate = hasWorkflowControl(this.store, id, key);
       if (!duplicate && control.action === "resume" && listWorkflowExecutions(this.store, id).some(execution => this.jobs.has(execution.taskId))) throw new WorkflowError("verification_required");
@@ -604,23 +619,50 @@ export class WorkflowCoordinator {
       }
       return { result, duplicate };
     });
-    if (!duplicate && ["paused", "canceled"].includes(result.status)) await this.stopRun(id, result.reason ?? "stopped");
+    if (!duplicate && ["paused", "canceled"].includes(result.status)) {
+      const stopping = this.stopRun(id, result.reason ?? "stopped");
+      // 步骤取消所属计划时，SDK abort 要等当前工具返回；取消意图已提交，停止异步收尾。
+      if (initiatingTaskId && getWorkflowExecution(this.store, initiatingTaskId)?.runId === id) {
+        void stopping.catch(() => {
+          process.stderr.write(`[ruukoto:workflow] ${id} 自身取消收尾失败；保留执行与占用供核实\n`);
+        });
+      } else await stopping;
+    }
     this.kick();
     return requireWorkflowRun(this.store, id);
   }
-  /** 库层可信回答；来源身份核实由调用方提供，产品入口另行接线。 */
-  answer(id: string, stepKey: string, version: number, answer: unknown, source: WorkflowSource): void {
-    this.store.withTx(() => {
+  /** 可信回答与可选入口回执同事务提交；旧请求先查重，不重新推进运行或消费审批。 */
+  answer(id: string, stepKey: string, version: number, answer: unknown, source: WorkflowSource,
+    input: { requestKey: string; runVersion: number; txExtra?: () => void }): WorkflowQuestion {
+    const digest = workflowDigest({ action: "answer", stepKey, version, answer, source, runVersion: input.runVersion });
+    const result = this.store.withTx(() => {
+      if (!input.requestKey) throw new WorkflowError("invalid_request");
+      const old = this.store.db.prepare("SELECT digest, payload FROM workflow_controls WHERE run_id = ? AND request_key = ?").get(id, input.requestKey) as { digest: string; payload: string } | undefined;
+      if (old) {
+        if (old.digest !== digest) throw new WorkflowError("request_conflict");
+        return JSON.parse(old.payload) as WorkflowQuestion;
+      }
       const run = requireWorkflowRun(this.store, id);
       const question = getWorkflowQuestion(this.store, id, stepKey);
-      if (!this.admitted(run) || !question || question.status !== "pending" || question.version !== version || workflowDigest(question.source) !== workflowDigest(source) || !this.deps.verifySource(source)) throw new WorkflowError("stale_answer");
+      if (!this.admitted(run) || !question || question.status !== "pending" || question.version !== version || question.runVersion !== input.runVersion ||
+          workflowDigest(question.source) !== workflowDigest(source) || !this.deps.verifySource(source)) throw new WorkflowError("stale_answer");
+      const step = getWorkflowStep(this.store, id, stepKey);
+      if (!step || (this.deps.verifyResultSources && !this.deps.verifyResultSources(run, step))) throw new WorkflowError("stale_answer");
       workflowJson(answer);
-      saveWorkflowQuestion(this.store, { ...question, status: "answered", answer, version: version + 1 });
+      const params = question.prompt;
+      if (!isRecord(params) || (Array.isArray(params.options) && !params.options.includes(answer)) ||
+          (params.schema !== undefined && !compileWorkflowOutput(params.schema)(answer))) throw new WorkflowError("invalid_answer");
+      const answered: WorkflowQuestion = { ...question, status: "answered", answer, version: version + 1 };
+      saveWorkflowQuestion(this.store, answered);
       finishWorkflowStep(this.store, id, stepKey, "completed", { status: "completed", value: answer });
       setWorkflowState(this.store, id, "running", null, this.now());
+      this.store.db.prepare("INSERT INTO workflow_controls (run_id, request_key, digest, payload) VALUES (?, ?, ?, ?)").run(id, input.requestKey, digest, JSON.stringify(answered));
+      input.txExtra?.();
+      return answered;
     });
     this.flush(id);
     this.kick();
+    return result;
   }
   async stop(reason: string): Promise<void> {
     if (this.stopped) return;

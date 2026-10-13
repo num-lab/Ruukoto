@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 37;
+export const SCHEMA_VERSION = 38;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workflow_definitions (
@@ -452,7 +452,7 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   artifact_refs TEXT NOT NULL DEFAULT '[]',
   reply_target TEXT,
   received_at TEXT NOT NULL,
-  event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval')),
+  event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval','im_workflow')),
   status TEXT NOT NULL CHECK (status IN ('registered','queued','done','failed')),
   task_id TEXT,
   UNIQUE (source, external_id)
@@ -567,7 +567,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_open ON schedule_runs (sched
 CREATE TABLE IF NOT EXISTS notification_ops (
   not_before TEXT,
   id TEXT PRIMARY KEY,
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','tool','confirmation','owner_reply','inbound_event')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','tool','confirmation','owner_reply','inbound_event','workflow_question')),
   source_key TEXT NOT NULL,
   task_id TEXT,
   host_op_id TEXT,

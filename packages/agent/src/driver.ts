@@ -151,6 +151,8 @@ export interface DriverDeps {
    * 已保存快照正文不重新解析）。
    */
   verifyTaskSources?: (projectId: string, refs: unknown[]) => string | null;
+  /** 宿主派生任务在每次模型请求与实际调用前重核来源。 */
+  verifyTask?: (task: Task) => string | null;
 
   workflow?: {
     resolve(task: Task): WorkflowExecutionProfile | null;
@@ -300,6 +302,8 @@ export class Driver {
   setWorkflowManagedUnits(callback: (entries: ManagedEntry[]) => void): void { this.workflowManagedUnits = callback; }
 
   verifyWorkflowTask(task: Task): string | null {
+    const problem = this.deps.verifyTask?.(task);
+    if (problem) return problem;
     if (!this.profile.workflow) return null;
     return this.deps.workflow ? this.deps.workflow.verify(task) : "工作流步骤的宿主权限核实不可用";
   }

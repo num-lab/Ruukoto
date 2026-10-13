@@ -153,7 +153,8 @@ test("宿主结果已提交但步骤未收尾时真实崩溃，核实后脚本�
     assert.equal(recovered.store.getTask(snapshot.taskId)!.modelSelection, null);
     assert.deepEqual(recovered.store.getTask(snapshot.taskId)!.historyEntryIds, []);
     assert.equal(recovered.store.listSessions().length, sessions);
-    assert.equal(t.server.calls.length, modelCalls);
+    await waitFor("整项最终汇总完成", () => getWorkflowRun(recovered!.store, run.id)!.delivery?.status === "reported");
+    assert.equal(t.server.calls.length, modelCalls + 1);
     assert.equal(getWorkflowRun(recovered.store, run.id)!.attempts, 0);
     assert.equal(getWorkflowStep(recovered.store, run.id, "merge")!.status, "completed");
     assert.equal(getWorkflowStep(recovered.store, run.id, "merge")!.delivery, 1);
@@ -242,7 +243,8 @@ test("只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次�
     assert.equal(recovered.store.getTask(old.id)!.status, "interrupted");
     assert.equal(recovered.store.getTask(parent.id)!.status, "completed");
     for (const execution of executions) assert.equal(recovered.store.getSession(recovered.store.getTask(execution.taskId)!.sessionId)!.sessionFile, null);
-    assert.equal(t.server.calls.length, modelCalls);
+    await waitFor("整项最终汇总完成", () => getWorkflowRun(recovered!.store, run.id)!.delivery?.status === "reported");
+    assert.equal(t.server.calls.length, modelCalls + 1);
   } finally {
     await killBackend(cold);
     await verifyUnitsStopped(identities);
@@ -335,7 +337,8 @@ test("协调器登记宿主排队操作后真实崩溃，释放旧占用并核�
     assert.equal(recovered.store.getTask(parent.id)!.status, "completed");
     assert.equal(recovered.store.getTaskEventsAfter(snapshot.taskId, 0, 100).filter(event => event.body.type === "task.started").length, 1);
     assert.equal(recovered.store.listSessions().length, sessions);
-    assert.equal(t.server.calls.length, modelCalls);
+    await waitFor("整项最终汇总完成", () => getWorkflowRun(recovered!.store, run.id)!.delivery?.status === "reported");
+    assert.equal(t.server.calls.length, modelCalls + 1);
     assert.equal(getWorkflowRun(recovered.store, run.id)!.attempts, 0);
     assert.equal(recovered.store.listAllOccupancy().length, 0);
   } finally {

@@ -450,6 +450,24 @@ export class ControlServer {
           version as number | undefined,
         );
       }
+      case "workflow_get":
+        return runtime.getWorkflowDetail(requireString("run_id"));
+      case "workflow_question": {
+        const offset = params["offset"] ?? 0, length = params["length"] ?? 16 * 1024;
+        if (!Number.isSafeInteger(offset) || (offset as number) < 0 || !Number.isSafeInteger(length) || (length as number) <= 0) {
+          throw new RuntimeApiError("invalid_params", "offset/length 必须是非负/正整数字节数");
+        }
+        return runtime.getWorkflowQuestion(requireString("run_id"), requireString("step_key"), offset as number, length as number);
+      }
+      case "workflow_answer": {
+        const version = params["question_version"], runVersion = params["run_version"];
+        if (!Number.isSafeInteger(version) || (version as number) < 1 || !Number.isSafeInteger(runVersion) || (runVersion as number) < 1 || !("answer" in params)) {
+          throw new RuntimeApiError("invalid_params", "回答必须含正整数问题版本、问题运行代次与 JSON answer");
+        }
+        const question = runtime.answerWorkflowQuestion({ runId: requireString("run_id"), stepKey: requireString("step_key"),
+          requestKey: requireString("request_id"), version: version as number, runVersion: runVersion as number, answer: params["answer"] });
+        return { runId: question.runId, stepKey: question.stepKey, status: question.status, version: question.version, runVersion: question.runVersion };
+      }
       case "get_task": {
         const detail = runtime.getTaskDetail(requireString("task_id"));
         if (!detail) throw Object.assign(new Error("任务不存在"), { code: "not_found" });

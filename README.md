@@ -80,7 +80,7 @@ ruukoto qq enable
 
 ### 开发本项目
 
-工作流当前交付[库层执行基础](docs/modules/workflows.md)，通过假 Agent 验证持久编排；产品入口与真实步骤能力尚未开放。
+工作流已接入[后台编排、真实步骤、可信回答与最终回报](docs/modules/workflows.md)；定义库和完整 CLI/TUI 发起入口仍待接线。定向验证入口见[开发说明](docs/development.md#日常反馈)。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI与显式复跑执行。
 

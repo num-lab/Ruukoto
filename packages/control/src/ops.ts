@@ -23,6 +23,10 @@ type Submit = {
 };
 
 export interface TuiOps {
+  workflow_get: { params: { run_id: string }; result: R<"getWorkflowDetail"> };
+  workflow_question: { params: { run_id: string; step_key: string } & Slice; result: R<"getWorkflowQuestion"> };
+  workflow_answer: { params: { run_id: string; step_key: string; question_version: number; run_version: number; request_id: string; answer: unknown };
+    result: { runId: string; stepKey: string; status: string; version: number; runVersion: number } };
   get_task: { params: { task_id: string }; result: NonNullable<R<"getTaskDetail">> };
   find_task: { params: { session_id: string; request_id: string }; result: R<"findTaskByRequest"> };
   list_tasks: { params: { session_id: string; before?: string; limit?: number }; result: R<"listTasks"> };

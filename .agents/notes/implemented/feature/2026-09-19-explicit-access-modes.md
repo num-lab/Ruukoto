@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)统一正式受限入口的后端与部署前置；模式选择、确认范围、单次批准与控制面认证仍由本篇持有。
+
 原编号：ADR 0003
 
 ## 问题
@@ -73,5 +75,7 @@ Status: implemented
 - tx 实测（[personal-agent issue 23](../../../../.scratch/personal-agent/issues/23-container-full-access.md) Comments）：完全访问任务以 `ruukoto-exec` 运行，读取拥有者令牌返回 `Permission denied`。这一条只能在真实的多身份 Linux 部署上证明，离线测试替代不了。
 
 ## 适用范围
+
+正式受限入口在两个产品均默认且仅接受 native，旧 local/container 参数或环境覆盖拒绝并提示改为 native 或移除覆盖；库层 local 仅供当前账户完全访问与离线测试。后端选择与前置由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)持有，本篇旧默认值、容器身份与专用账户条目按该决定和下方完全访问决定解释。`test/10-access-modes.test.ts` 当前核实受限原生产物不可用时完全访问仍使用启动账户；验证节中的多身份 Linux 结果保留原始时点。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

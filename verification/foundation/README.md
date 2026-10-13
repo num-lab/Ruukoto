@@ -11,7 +11,7 @@ npm run setup            # 按根目录与本目录的锁文件安装依赖
 npm run test:foundation  # 本目录全部离线验证（mock 模型，不联网、不需要凭据）
 npm run typecheck        # 应用与本目录一起检查
 npm --prefix verification/foundation run test:model   # 真实模型短往返，走本机 pi 凭据
-npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
+npm run linux:probes     # Linux bubblewrap 原生边界探针（需要已安装的原生前置）
 ```
 
 ## 验证项与结论索引
@@ -38,7 +38,9 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 
 ## Linux 探针说明
 
-`verification/foundation/scripts/linux-isolation/run-probes.sh` 在容器内运行 `probe.py`，覆盖：
+当前 `npm run linux:probes` 运行 [Linux 原生探针](scripts/native-isolation/linux-README.md)，使用正式 `/usr/bin/bwrap` 与独立 user scope，不依赖 Docker。产品验收使用 [原生 smoke](../smoke/README.md)。
+
+[旧容器对照](scripts/linux-isolation/README.md)保存退役策略；它在容器内运行 `probe.py`，历史范围包含：
 
 - 文件：工作区可写、宿主路径不可见、工作区外写入拒绝
 - 子进程：可正常 spawn；restricted 变体断言 CapEff=0；mount 被拒绝
@@ -51,4 +53,4 @@ npm run linux:probes     # Linux 容器受限执行探针（需要 Docker）
 
 ## Coding Agent 原生边界验证（工单 26）
 
-`verification/foundation/scripts/native-isolation/` 保存 Seatbelt / bubblewrap 的可复跑真实探针，步骤与退出码见[运行说明](scripts/native-isolation/README.md)。2026-10-08 第一阶段未通过：macOS 的原生候选尚未实现脱离进程组后代的完整回收，tx 的 bubblewrap 在 namespace 建立时被系统拒绝；报告保存在 `verification/foundation/results/native-*`。这些是候选边界证据，尚未接入产品，不代表无 Docker 的产品验收通过。
+`verification/foundation/scripts/native-isolation/` 保存 Seatbelt / bubblewrap 的可复跑真实探针，步骤与退出码见[运行说明](scripts/native-isolation/README.md)。2026-10-08 第一阶段未通过：macOS 的原生候选尚未实现脱离进程组后代的完整回收，tx 的 bubblewrap 在 namespace 建立时被系统拒绝；报告保存在 `verification/foundation/results/native-*`。这些旧结果不代表当前产品验收；两产品受限 worker 共用原生入口，实际产品结果由 smoke 独立记录。

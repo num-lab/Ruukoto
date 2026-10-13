@@ -1,30 +1,8 @@
-import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
-/**
- * 开发机受限/完全访问接入的产品级冒烟（agent-direction issue 04）。
+import { product as personalProduct } from "../../apps/ruukoto/src/product.ts";
+/** 个人产品真实原生四工具、边界、审批、当前账户完全访问与中断回收；模型使用本地桩。
  * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
- * Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
- * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
- *
- * 模型层打桩（MockModelServer，确定性脚本），其余全真：Runtime + 控制面 +
- * 工具工作进程 + 真实容器执行边界 + 真实文件/网络/审批。
- *
- * 覆盖（与工单 04 验收标准对应）：
- *  1. confirm 任务在容器边界内完成一次代码修改与检查，改动宿主可见；
- *  2. 子进程与真实文件/网络同受约束：容器内外联失败、未挂载的宿主真实文件
- *     不可见、只读根文件系统拒绝写入（不止工具参数检查）；
- *  3. 越界读取走结构化审批：request_file_access 待批 → 拥有者批准单次消费后
- *     按批准参数执行；
- *  4. 完全访问无需独立执行入口，以启动账户完成任务；
- *  5. 中断回收实际执行单元：容器随中断移除，操作沿用未知效果规则补记。
- *
- * 结果约定（沿用 macos-sbx-probe.sh）：0 = 全部通过；1 = 有 FAIL；
- * 2 = 基础设施缺失（docker/镜像不可用）。TMPDIR 可换工作区位置。
- * 容器 uid/gid：macOS Docker Desktop 由 VM 代管（默认 1000 即可）；原生
- * Linux bind mount 无 uid 映射，默认取本进程 uid/gid，可用
- * RUUKOTO_CONTAINER_UID/GID 覆盖（部署固定值见 deploy/systemd）。
  */
 
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import assert from "node:assert/strict";
@@ -40,30 +18,24 @@ import {
 } from "../../test/helpers/testkit.ts";
 import type { Responder } from "../../test/helpers/mock-provider.ts";
 
-import { requireDocker, requireNoArgs } from "./gate.ts";
+import { assertUnitsStopped, cleanupRuntime, recordRuntimeUnits, requireNative, requireNoArgs } from "./gate.ts";
 
 requireNoArgs();
-const IMAGE = process.env.RUUKOTO_WORKER_IMAGE ?? "ruukoto-worker:latest";
-const UID = Number(process.env.RUUKOTO_CONTAINER_UID ?? (process.platform === "darwin" ? 1000 : (process.getuid?.() ?? 1000)));
-const GID = Number(process.env.RUUKOTO_CONTAINER_GID ?? (process.platform === "darwin" ? 1000 : (process.getgid?.() ?? 1000)));
 
 const results: Array<{ name: string; ok: boolean; detail: string }> = [];
 function check(name: string, fn: () => void): void {
   try {
     fn();
     results.push({ name, ok: true, detail: "" });
-    console.log(`PASS ${name}`);
+    process.stderr.write("[ruukoto:smoke04] " + `PASS ${name}` + "\n");
   } catch (err) {
     results.push({ name, ok: false, detail: String((err as Error).message ?? err) });
-    console.log(`FAIL ${name}: ${(err as Error).message}`);
+    process.stderr.write("[ruukoto:smoke04] " + `FAIL ${name}: ${(err as Error).message}` + "\n");
   }
 }
-function docker(args: string[]): string {
-  return execFileSync("docker", args, { encoding: "utf8", timeout: 30_000 }).trim();
-}
 
-requireDocker(IMAGE);
-console.log(`环境：${process.platform} ${process.arch}；镜像 ${IMAGE}（${docker(["image", "inspect", "--format", "{{.Id}}", IMAGE])}）；容器 uid:gid ${UID}:${GID}`);
+await requireNative();
+process.stderr.write("[ruukoto:smoke04] " + `环境：${process.platform} ${process.arch}；执行 native` + "\n");
 
 // /var → /private/var 符号链接：文件操作守卫要求受限解析后的真实路径
 const root = fs.realpathSync(mkdtempSync(path.join(tmpdir(), "ruukoto-smoke04-")));
@@ -79,11 +51,13 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   path.join(workDir, "check.mjs"),
-  'import { sum } from "./sum.mjs";\nconst got = sum([1, 2, 3]);\nif (got !== 6) {\n  console.error(`sum 应为 6，实际 ${got}`);\n  process.exit(1);\n}\nconsole.log("check PASS");\n',
+  'import { sum } from "./sum.mjs";\nconst got = sum([1, 2, 3]);\nif (got !== 6) {\n  process.stderr.write(`[ruukoto:fixture] sum 应为 6，实际 ${got}`);\n  process.exit(1);\n}\nprocess.stdout.write("check PASS");\n',
   "utf8",
 );
 
-const containerWrite = "container-write-check.txt";
+const nativeWrite = "native-write-check.txt";
+const heartbeat = path.join(workDir, "stop-heartbeat.txt");
+process.env.RUUKOTO_SMOKE_USER_ENV = "full-access-fixture";
 
 /** 按工具结果计数推进各流；路由按任务输入文本。 */
 function flowRouter(): Responder {
@@ -108,7 +82,8 @@ function flowRouter(): Responder {
           kind: "tool_calls",
           calls: [{ id: "e_edit", name: "edit", arguments: { path: "sum.mjs", edits: [{ oldText: "let total = 1;", newText: "let total = 0;" }] } }],
         };
-      if (done === 3) return { kind: "tool_calls", calls: [{ id: "e_check2", name: "bash", arguments: { command: "node check.mjs" } }] };
+      if (done === 3) return { kind: "tool_calls", calls: [{ id: "e_write", name: "write", arguments: { path: "report.txt", content: "native-fixed\n" } }] };
+      if (done === 4) return { kind: "tool_calls", calls: [{ id: "e_check2", name: "bash", arguments: { command: "node check.mjs" } }] };
       return { kind: "text", text: "修改与检查完成" };
     }
 
@@ -117,7 +92,7 @@ function flowRouter(): Responder {
         { id: "b_net", name: "bash", arguments: { command: "curl -sS --max-time 8 https://example.com/" } },
         { id: "b_hostfs", name: "bash", arguments: { command: `cat ${outsideFile}` } },
         { id: "b_rofs", name: "bash", arguments: { command: "echo x > /etc/ruukoto-boundary-test" } },
-        { id: "b_write", name: "bash", arguments: { command: `echo ok > ${containerWrite}` } },
+        { id: "b_write", name: "bash", arguments: { command: `echo ok > ${nativeWrite}` } },
       ];
       if (done < calls.length) return { kind: "tool_calls", calls: [calls[done]!] };
       return { kind: "text", text: "边界检查结束" };
@@ -133,8 +108,15 @@ function flowRouter(): Responder {
       return { kind: "text", text: "批准内容已读取" };
     }
 
+    if (text.includes("FLOW-full-access")) {
+      if (done === 0) return { kind: "tool_calls", calls: [{ id: "full-bash", name: "bash", arguments: {
+        command: `cat '${outsideFile}' && node -e 'if(process.getuid()!==${process.getuid?.()}||process.env.RUUKOTO_SMOKE_USER_ENV!=="full-access-fixture")process.exit(1);process.stdout.write("full-access-account-ok")'`,
+      } }] };
+      return { kind: "text", text: "当前账户完全访问完成" };
+    }
+
     if (text.includes("FLOW-stop")) {
-      if (done === 0) return { kind: "tool_calls", calls: [{ id: "s_sleep", name: "bash", arguments: { command: "sleep 300" } }] };
+      if (done === 0) return { kind: "tool_calls", calls: [{ id: "s_sleep", name: "bash", arguments: { command: `nohup sh -c 'while true; do echo beat >> "${heartbeat}"; sleep 0.1; done' >/dev/null 2>&1 & sleep 300` } }] };
       return { kind: "text", text: "不应到达：任务已被中断" };
     }
 
@@ -143,21 +125,22 @@ function flowRouter(): Responder {
 }
 
 let t: TestRuntime | null = null;
-const taskIds: string[] = [];
+let units: ReturnType<typeof recordRuntimeUnits> = [];
 try {
   t = await startTestRuntime("smoke04", flowRouter(), {
     workDirs: 0,
     config: {
-      product: codingProduct.runtime,
+      product: personalProduct.runtime,
       ...realTools(),
-      execution: { backend: "container", container: { uid: UID, gid: GID } },
+      execution: { backend: "native" },
     },
   });
+  units = recordRuntimeUnits(t.runtime);
   const client = t.client;
-  check("后台声明容器执行边界", () => {
+  check("后台声明原生执行边界", () => {
     const info = t!.runtime.executionInfo();
-    assert.equal(info.backend, "container");
-    assert.match(info.note, /容器/);
+    assert.equal(info.backend, "native");
+    assert.match(info.note, /原生/);
   });
 
   // 每流一个独立会话：mock 路由按「本会话工具消息数」推进，会话共享会跨任务串计数
@@ -170,18 +153,17 @@ try {
       ...(mode ? { access_mode: mode } : {}),
       model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
     });
-    taskIds.push(task.id);
     return task;
   };
 
-  // ---- 1. 代码修改与检查（confirm，容器内） ----
+  // ---- 1. 代码修改与检查（confirm，原生沙箱内） ----
   {
     const task = await submit("edit-1", "FLOW-edit：修复 sum.mjs 使 check.mjs 通过");
     await waitFor("edit 任务完成", async () => (await taskStatus(client, task.id)).task.status === "completed", 120_000);
     const detail = await taskStatus(client, task.id);
-    check("容器内完成代码修改与检查", () => {
+    check("原生沙箱内完成代码修改与检查", () => {
       const content = fs.readFileSync(path.join(workDir, "sum.mjs"), "utf8");
-      assert.match(content, /let total = 0;/, "容器内修改须宿主可见");
+      assert.match(content, /let total = 0;/, "原生沙箱内修改须宿主可见");
       const check1 = detail.toolOps.find((op: any) => op.sdkCallId === "e_check1");
       const check2 = detail.toolOps.find((op: any) => op.sdkCallId === "e_check2");
       assert.equal(check1.isError, true, "修复前检查应失败");
@@ -196,11 +178,11 @@ try {
     const detail = await taskStatus(client, task.id);
     const byCall = (id: string) => detail.toolOps.find((op: any) => op.sdkCallId === id);
     check("边界约束（非仅工具参数检查）", () => {
-      assert.equal(byCall("b_net").isError, true, "容器内不得有外网出口");
-      assert.equal(byCall("b_hostfs").isError, true, "未挂载的宿主真实文件在容器内不可见");
-      assert.equal(byCall("b_rofs").isError, true, "只读根文件系统拒绝写入");
+      assert.equal(byCall("b_net").isError, true, "原生沙箱内不得有外网出口");
+      assert.equal(byCall("b_hostfs").isError, true, "未授权宿主真实文件不可见");
+      assert.equal(byCall("b_rofs").isError, true, "只读系统根拒绝写入");
       assert.equal(byCall("b_write").isError, false, "工作区内写入正常");
-      assert.equal(fs.readFileSync(path.join(workDir, containerWrite), "utf8"), "ok\n", "容器内写入宿主可见");
+      assert.equal(fs.readFileSync(path.join(workDir, nativeWrite), "utf8"), "ok\n", "原生沙箱内写入宿主可见");
     });
   }
 
@@ -246,44 +228,45 @@ try {
   {
     const task = await submit("full-access-1", "FLOW-full-access：直接执行", "full_access");
     await waitFor("完全访问任务完成", async () => (await taskStatus(client, task.id)).task.status === "completed", 60_000);
-    check("完全访问无需独立执行入口", () => {
+    check("完全访问以当前账户与用户环境读取宿主文件", () => {
       assert.equal(t!.runtime.store.getTask(task.id)?.accessMode, "full_access");
+      const op = t!.runtime.store.listToolOpsByTask(task.id).find(item => item.sdkCallId === "full-bash");
+      assert.equal(op?.isError, false);
+      assert.match(op?.resultSummary ?? "", /full-access-account-ok/);
     });
   }
 
   // ---- 5. 中断回收实际执行单元（未知效果规则的穷尽断言由 test/64 离线覆盖） ----
   {
     const task = await submit("stop-1", "FLOW-stop：长命令供中断");
-    await waitFor("停止任务已开工具", async () => (await taskStatus(client, task.id)).toolOps.length >= 1, 60_000);
-    // 中断须核实容器真实退出（docker kill + inspect）；宽限超过控制面默认超时
+    await waitFor("本次后代真实持续写心跳", () => fs.existsSync(heartbeat) && fs.readFileSync(heartbeat, "utf8").split("\n").length >= 3, 60_000);
+    // 实际心跳和已观察的 scope/cgroup 分别核实后代与整单元停止。
     await client.request("interrupt", { task_id: task.id }, 120_000);
     await waitFor("停止任务已中断", async () => (await taskStatus(client, task.id)).task.status === "interrupted", 60_000);
     const detail = await taskStatus(client, task.id);
-    const leftover = docker(["ps", "-aq", "--filter", `name=ruukoto-task-${task.id}`]);
+    await assertUnitsStopped(units, task.id);
+    const frozen = fs.readFileSync(heartbeat, "utf8");
+    await new Promise(resolve => setTimeout(resolve, 400));
     check("中断即回收实际执行单元（不只终止界面）", () => {
       assert.equal(detail.task.status, "interrupted");
       assert.ok(detail.toolOps.find((o: any) => o.sdkCallId === "s_sleep"), "工具操作已记录");
-      assert.equal(leftover, "", "停止须回收按任务建立的容器");
+      assert.equal(fs.readFileSync(heartbeat, "utf8"), frozen, "载体保留且后代心跳冻结");
     });
   }
 
   await client.close();
 } finally {
-  if (t) await t.shutdown();
-  for (const taskId of taskIds) docker(["ps", "-aq", "--filter", `name=ruukoto-task-${taskId}`])
-    .split("\n")
-    .filter(Boolean)
-    .forEach((id) => {
-      try {
-        docker(["rm", "-f", id]);
-      } catch (err) {
-        results.push({ name: `清理本次容器 ${id}`, ok: false, detail: (err as Error).message });
-      }
-    });
-  rmSync(root, { recursive: true, force: true });
+  if (t) {
+    t.client.close();
+    const failure = await cleanupRuntime(t.runtime, t.server, t.dirs.root, units);
+    if (failure) {
+      results.push({ name: "清理本次资源", ok: false, detail: `${failure.message}；保留现场 ${root}；${String(failure.cause)}` });
+    } else rmSync(root, { recursive: true, force: true });
+  }
+  delete process.env.RUUKOTO_SMOKE_USER_ENV;
 }
 
 const failed = results.filter((r) => !r.ok);
-console.log(`\n结果：${results.length - failed.length}/${results.length} 通过`);
-for (const r of failed) console.log(`  FAIL ${r.name}: ${r.detail}`);
+process.stderr.write("[ruukoto:smoke04] " + `\n结果：${results.length - failed.length}/${results.length} 通过` + "\n");
+for (const r of failed) process.stderr.write("[ruukoto:smoke04] " + `  FAIL ${r.name}: ${r.detail}` + "\n");
 process.exit(failed.length > 0 ? 1 : 0);

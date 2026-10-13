@@ -13,9 +13,11 @@
 - 后台异常重启后的恢复顺序与人工核实的出口。
 - 旧实例导入的设计（源只读、离线、快照、allow-list、回执与回退边界、执行归属交接）。
 
-它不负责：工具的实际执行与执行边界（原生沙箱、容器、挂载、目录身份与 worker init）见 [execution](execution.md)；工具可用性清单、审批闸门、工具操作账本、产物与 MCP 见 [agent-tools](agent-tools.md)；模型上下文的组装、压缩、历史与记忆见 [agent-context](agent-context.md)；控制面 socket 与拥有者认证见 [control](control.md)；IM 平台连接、入站登记与 GitHub 事件来源见 [channels](channels.md)；调度计划与通知 outbox 的发送账本见 [scheduler](scheduler.md)；数据布局、schema 与会话身份的存储原语见 [core](core.md)；命令与配置的操作步骤见 [docs/usage.md](../usage.md)。
+它不负责：工具的实际执行与执行边界（原生沙箱、挂载、目录身份与 worker init）见 [execution](execution.md)；工具可用性清单、审批闸门、工具操作账本、产物与 MCP 见 [agent-tools](agent-tools.md)；模型上下文的组装、压缩、历史与记忆见 [agent-context](agent-context.md)；控制面 socket 与拥有者认证见 [control](control.md)；IM 平台连接、入站登记与 GitHub 事件来源见 [channels](channels.md)；调度计划与通知 outbox 的发送账本见 [scheduler](scheduler.md)；数据布局、schema 与会话身份的存储原语见 [core](core.md)；命令与配置的操作步骤见 [docs/usage.md](../usage.md)。
 
 ## 对外接口
+
+工作流定义库、模型发起与 CLI/TUI/IM 可信控制见[工作流](workflows.md)。显式启动固定会话当前模型和模式，在单一事务创建/结束短期发起任务并登记运行和适用 IM 回执；模型启动沿活动任务。编译/模型预检后的事务重新核实来源、配置门闩与目录身份，已接受原键先返回固定运行。父级送达在终态提交后按固定代次登记唯一无工具汇总任务；dev 也进入实时结果登记和冷启动补记，main 沿原 IM 事件回复，定时来源只由调度整项回报。暂停及混有普通输入的队列遵循既有恢复规则。
 
 `branchSession` 由产品的 `branchSessions` 能力开放，核实普通开发身份、工作区映射及目录身份后固定来源历史和设置；`findBranchSession` 按持久请求键核实发布结果。创建不提交任务或调用模型。
 
@@ -25,7 +27,7 @@
 
 **本模块提供给模型的宿主工具。** `subagent_delegate`（登记一次委派，分析或修改）、`subagent_result`（读取结果，省略 `work_id` 时列出本会话 SubAgent 总览，`part=messages` 查看工作内消息）、`subagent_cancel`（整项取消）、`subagent_close`（显式关闭）、`subagent_message`（工作内消息）、`subagent_integrate`（改动汇总）。这些工具属 `subagent` 类别，由 [agent-tools](agent-tools.md) 按执行画像装配；每次调用重新核实宿主任务、会话与身份绑定。
 
-**本模块调用的部件。** Store 的 SQL 原语（任务、占用、工作、Agent、消息、导入回执与账本、事件）；Driver 与 agent-context 组装并流式调用模型；SubAgentManager 是在线 SubAgent 状态、当前工作与当前任务指针的唯一写入者；ParentDelivery 决定结果与消息的送达；编排器负责入站派发、结果回传与角色队列恢复；调度器、IM 入口表（工作最终汇报经 `sendWorkReport` 回调交给拥有者 IM 入口）与执行后端的宿主入口。
+**本模块调用的部件。** Store 的 SQL 原语（任务、占用、工作、Agent、消息、导入回执与账本、事件）；Driver 与 agent-context 组装并流式调用模型；SubAgentManager 持有普通 SubAgent 状态与指针，WorkflowCoordinator 持有运行绑定步骤的状态与指针；ParentDelivery 决定结果与消息的送达；编排器负责入站派发、结果回传与角色队列恢复；调度器、IM 入口表（工作最终汇报经 `sendWorkReport` 回调交给拥有者 IM 入口）与执行后端的宿主入口。
 
 **本模块发布与消费的事件。** `task.queued`、`task.started`、`task.completed`、`task.failed`、`task.canceled`、`task.interrupted`、`task.tool_process_unreaped`、`task.mode_switched`、`task.mode_switch_requested`、`task.mode_switch_failed`、`task.awaiting_confirmation`、`task.approval_consumed`、`session.queue_paused`、`occupancy.stale`、`work_delegation.created`、`work_delegation.canceled`、`work_delegation.integrated`、`subagent.closed`、`subagent_message.sent`、`subagent_message.dropped`、`subagent_task.*`、`child_task.*`、`session.history_unreadable`、`*.reply_skipped`。
 
@@ -44,6 +46,8 @@
 **执行画像。** 给定任务，`tool-availability.ts` 的 `executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出：会话类别（决定工具类别表与系统提示键）、SubAgent 工具集（只读 / 写入 / 宿主评审，宿主评审另开只读 MCP 并关 `subagent_message`）、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）。画像在任务开始算一次、钉到任务结束；装配过滤、任务收窄与 SDK 会话签名同用这一份，工具集变化时重建 SDK 会话。工作区不进画像：占用键与 LaunchSpec 都取 `core/worktree.ts` 的 `taskWorkspaceFor`。SubAgent 的工具集固定为：分析 `read` + `read_artifact`；修改 `read` / `edit` / `write` / `bash` / `read_artifact`（无 `request_file_access`、`http_request`、MCP，不能委派下级）；宿主评审 `read` / `read_artifact` ∪ `effect=read` 的 MCP。工具类别清单与调用门本身见 [agent-tools](agent-tools.md)。
 
 ## 数据与状态
+
+[工作流](workflows.md)使用独立运行授权与队列，默认接真实步骤，测试可注入执行器；来源任务结束后仍可调度，步骤结果由协调器消费。普通出队与工作流启动共用来源名额，释放占用后唤醒两种队列。运行派生的宿主操作任务经 HostExecutionManager 执行，不建立模型会话；普通工作副本操作保留 Driver 路径。
 
 **任务（`tasks`）。** 状态集合 `queued` / `running` / `awaiting_confirmation` / `completed` / `failed` / `canceled` / `interrupted`；在线终态只有后四种。字段：`access_mode`（`confirm` 默认 / `full_access` / `auto-review`）、`plan_mode`、`permission_version`、`granted_paths`、`pending_access_mode`、`interrupt_reason`、`cancel_requested`、`effect_unknown`、`error_message`、`history_entry_ids`、`resumes_task_id`、`agent_id`、`parent_task_id`、`source_permission_version`、`source_event_id`、`deadline`、`result_summary`、`result_ref`、`created_at` / `started_at` / `ended_at`；唯一键 `(session_id, request_id)`。
 
@@ -205,7 +209,7 @@ sequenceDiagram
 - **模式与入口**：`subagent_delegate` 增加 `mode`（`analyze` 默认 / `modify`）与 `target`（modify 必填，父工作区内的目录）。普通开发会话与 main 都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话本就不接受任务）。管理器从父 Task 的固定 `planMode` 判定计划模式，不接收 `planMode` 入参；计划模式既拒绝显式 `modify`，也拒绝沿已有 `writeTarget` 的工作继续。模型工具清单仍由 `PLAN_TOOL_NAMES` 收窄，未开放 `subagent_delegate`。modify 不带 `read_paths` / `materials`。修改任务、工作副本创建与汇总均采用实际发起任务的有效模式；完全访问使用启动账户权限，受限模式采用产品配置的隔离。
 - **写入目标钉定**：`work_delegations.write_target` 在首次修改委派时确定、继续委派沿用；只读工作不能升级为写入，继续委派（`work_id`）不接受 `mode`；复用（`sub_agent_id`）承接新工作时另建副本。
 - **Git 目标：每项工作一个宿主生成的 worktree**。位置 `<dataDir>/../agent-work/worktrees/<workId>`（保护根与父工作区之外），分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD 指向的提交——父工作区未提交的改动不进副本。仓库根从目标向上纯文件系统查找（不运行 git，不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。宿主经 `executeWorkCopy` 按发起任务模式在 worker 内创建副本、永不执行 git；挂载、命令、目录身份下发与 worker init 见 [execution](execution.md)。宿主在 worker 启动前预建空副本目录（0700）；非空目录 = 失败残留，不自动认领或覆盖。
-- **临时执行归属**：worktree 创建与改动汇总传递实际发起的父任务 ID，父任务必须正在执行并持有占用；执行单元启动前登记到该任务，并临时取得副本目录占用，参与取消、后台停止与模式变化。核实成功只释放该副本；停止未核实以 `worker_stop_unverified` 上报，保留父目录与副本占用、成果及已收到的 Git 结果，阻止子任务或其他会话在副本开跑，不继续委派或重放 Git；即使尚未登记工作行，也保留副本创建现场。受限原生 worker 显式收到后台数据、服务凭据、控制面和服务代码的保护根；工作区、SubAgent 读取范围与共享 Git 目录按宿主 dev/ino 下发复核，只有 macOS Docker Desktop 保留 VM 的 inode 例外。
+- **临时执行归属**：worktree 创建与改动汇总传递实际发起的父任务 ID，父任务必须正在执行并持有占用；执行单元启动前登记到该任务，并临时取得副本目录占用，参与取消、后台停止与模式变化。核实成功只释放该副本；停止未核实以 `worker_stop_unverified` 上报，保留父目录与副本占用、成果及已收到的 Git 结果，阻止子任务或其他会话在副本开跑，不继续委派或重放 Git；即使尚未登记工作行，也保留副本创建现场。受限原生 worker 显式收到后台数据、服务凭据、控制面和服务代码的保护根；工作区、SubAgent 读取范围与共享 Git 目录按宿主 dev/ino 下发复核，两平台均下发真实目录身份。
 - **不提交规则**：任务首行写明工作目录、分支、基线与「不要 git add/commit，改动留在工作树由主 Agent 汇总」；副本、分支与写入根的改动一律保留——创建失败保留现场（错误信息含路径与分支），任务取消/退出不删除，不提供任何删除副本的入口。
 - **非 Git 目标：直接写入父工作区内目录并串行**（写预检按实际执行身份核实写位，执行身份判定见 [execution](execution.md)）。子任务的执行目录与占用键都是写入根；队列启动前复核目录身份，被替换或消失即失败、不自动重建。首次钉定写入目标后，该 SubAgent 的子会话 cwd 对齐到写入根。
 - **目录占用升级为祖先/子孙判定**：冲突 = dev/ino 相等（符号链接、挂载别名同命中）、realpath 相等，或按分隔符边界互为前缀；释放统一按 `taskId`，占用键是任务写入目标而非会话 cwd。效果：非 Git 子任务与父会话串行——父任务本轮结束才释放占用，父任务没有阻塞等待子任务的接口，不会持锁空等；排队中的非 Git 子任务被本会话占用挡住时，`subagent_result` 提示「等待本会话释放目录，请结束本轮」。嵌套 cwd 会话同样互相阻塞（`/ws` 与 `/ws/sub` 之间串行）。已知上限：挂载别名的祖先关系识别不出。
@@ -264,7 +268,7 @@ sequenceDiagram
    - 排队的 SubAgent 执行任务（拥有者/主 Agent 委派，无 `source_event_id`）→ 同定 `interrupted`（原因 `backend_restart`，从未启动）：不自动继续也不当作新委派，由编排器巡检补记一次结果后 SubAgent 回到可用，继续与否由拥有者/父 Agent 决定；宿主固定评审任务（带 `source_event_id`）不在此列，其排队保持——因此有排队任务的 SubAgent 子会话只剩评审会话会按下一步暂停。
    - 结果缺失的工具操作按工具操作账本的分类器补记（见 [agent-tools](agent-tools.md)）：覆盖已终态任务残留的操作；审批未消费 → 记录「已知未执行」结果（批准不跨重启执行）；只读工具 → 未完成且无写入效果；其余 → `effect_unknown` 并发 `task.tool_effect_unknown` 事件（终态任务同时置任务级标记，不重放任何模型调用或工具操作）。
    - 有排队任务的会话暂停自动调度（`backend_restart`），拥有者用 `resume-queue` 显式恢复。
-3. **遗留目录占用。** 崩溃时旧后台的原生进程/容器状态无法确认 → 保留占用并暂停会话（`occupancy_unverified`），发 `occupancy.stale` 与 `session.queue_paused` 事件。拥有者核实旧执行单元确已停止后 `resume-queue` 释放占用。systemd `KillMode=control-group` + 按任务容器回收的部署下此窗口通常不出现；容器残留由启动器按任务名 `rm -f` 清理同名遗留后再核实。
+3. **遗留目录占用。** 崩溃时旧后台的执行单元状态无法确认 → 保留占用并暂停会话（`occupancy_unverified`），发 `occupancy.stale` 与 `session.queue_paused` 事件。拥有者核实旧执行单元确已停止后 `resume-queue` 释放占用。Linux 原生 user scope 独立于 backend 系统服务，后者的 `KillMode` 或主 PID 退出不证明 scope 后代已退出；重启不会自动清除旧占用或重放效果未知操作。
 4. **会话历史对应关系。** 会话登记的 JSONL 缺失而同 pi session id 的文件存在 → 自动改用最新一份（发 `session.history_unreadable` 事件说明）；损坏的 JSONL 不覆盖、不静默跳过，要求人工处理。
 5. **人工继续。** `continue` 创建带 `resumes_task_id` 的新任务，默认请求确认（旧批准不继承；拥有者可显式重新选择完全访问），不补造工具结果、不原样重放旧输入。
 6. **产物与审批记录跨重启保留。** 产物按 id 可读；批准的 `consumed_at` 决定恢复时按「已知未执行」还是「效果未知」处理。
@@ -286,6 +290,8 @@ sequenceDiagram
 - **不做增量同步。** 源侧新增只在报告列出，可再次导入；两个方向都复用各自的模块与辅助，不抽象通用迁移框架。
 
 ## 不变量与失败处理
+
+工作流步骤的普通任务/工作控制及复用明确拒绝，暂停、恢复和取消由运行控制持有。跨实例导入显式登记工作流表，含执行记录的源报 `workflow_import_unavailable`，不丢掉绑定后继续；操作见[导入说明](../usage.md#6-导入旧实例)。
 
 **幂等与竞争仲裁。**
 
@@ -315,7 +321,15 @@ sequenceDiagram
 
 **恢复需要人工介入。** 后台重启后任务不自动完成：中断的任务由拥有者 `continue`，暂停的队列由 `resume-queue` 恢复，结果不明的操作由拥有者核实；拉起与重连都不构成重新执行授权。宿主固定评审与可信未完成调度运行的已登记未执行任务可以恢复原队列；调度恢复仍核实整项运行没有未知效果或未核实占用。
 
+[工作流步骤](workflows.md)默认由真实 Driver 执行，发起任务结束后沿运行授权继续。修改与验证使用独立副本，冻结补丁与独立验证记录共同决定汇入资格；普通继续、复用和 `subagent_integrate` 不能接管这些步骤。准备、冻结、汇总及组合检查使用运行派生的宿主任务，整段持有目录占用，任何所属任务停止未核实或效果未知均阻止重试。
+
 ## 设计依据
+
+- [工作流业务回答与整项最终送达](../../.agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)
+
+- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
+
+- [运行授权与真实执行](../../.agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md)：共享并发、步骤结果消费与短期宿主任务。
 
 - [通用调度的独立上下文与整项生命周期](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)：运行归属、恢复和最终回报。
 - [完全访问的执行账户与授权传播](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：任务、消息与延迟唤醒的模式来源。

@@ -38,7 +38,7 @@ export class AccessDeniedError extends Error {
  */
 export type Accessor =
   | { kind: "owner" }
-  | { kind: "agent"; projectId: string }
+  | { kind: "agent"; projectId: string; grantIds?: readonly string[] }
   | { kind: "qq_group"; projectId: string }
   | { kind: "role_restricted"; projectId: string };
 
@@ -127,13 +127,13 @@ export class AccessScope {
     ) return false;
     if (accessor.projectId === projectId) return true;
     if (accessor.kind !== "agent") return false;
-    const row = this.db
+    const rows = this.db
       .prepare(
-        `SELECT 1 FROM data_grants
-         WHERE from_project_id = ? AND to_project_id = ? AND category = ? AND revoked_at IS NULL LIMIT 1`,
+        `SELECT id FROM data_grants
+         WHERE from_project_id = ? AND to_project_id = ? AND category = ? AND revoked_at IS NULL`,
       )
-      .get(projectId, accessor.projectId, category);
-    return row !== undefined;
+      .all(projectId, accessor.projectId, category) as { id: string }[];
+    return rows.some(row => accessor.grantIds === undefined || accessor.grantIds.includes(row.id));
   }
 
   /** 判定失败即抛 AccessDeniedError（工具与查询入口的统一拒绝点）。 */

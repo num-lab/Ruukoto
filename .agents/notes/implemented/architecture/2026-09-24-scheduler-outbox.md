@@ -30,6 +30,8 @@ Status: implemented
 
 ## 后果
 
+工作流业务问题增加 `workflow_question` 独立通知来源；原入口最终结果继续复用 owner_reply，定时工作流只由 schedule_run 最终回报。具体身份、状态与资料复核见[整项送达](../feature/2026-10-13-workflow-owner-input-and-delivery.md)。
+
 计划、触发、授权与发送事实可恢复，并能在控制面和 `ruukoto schedule|notify list|show|cancel` 查阅。调度与发送不进入编码会话队列、不占工作目录；短事务扫描与独立单在途发送循环让慢发送不阻塞到期登记、控制面或编码任务。
 
 本地保证一个逻辑键至多一个操作，且不重复发起可能已有副作用的发送；平台无幂等支持时不能保证远端 exactly-once，也不能同时保证未知窗口必达，`effect_unknown` 需要拥有者核实。首版不提供 cron、通用工作流、平台插件系统或通用自动重试框架；新时间规则、计划编辑或多机运行需要重新决定授权与恢复边界。

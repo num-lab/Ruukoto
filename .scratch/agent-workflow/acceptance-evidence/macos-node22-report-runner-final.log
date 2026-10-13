@@ -1,0 +1,126 @@
+TAP version 13
+# (node:68890) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: dev 最终汇总排在当前聊天之后，冻结终态代次、零工具且只唤醒一次；普通请求键不能伪造绑定
+ok 1 - dev 最终汇总排在当前聊天之后，冻结终态代次、零工具且只唤醒一次；普通请求键不能伪造绑定
+  ---
+  duration_ms: 291.350625
+  type: 'test'
+  ...
+# Subtest: 终态停止事实区分已核实、未知和未启动；登记脚本仍未收尾时不汇总
+ok 2 - 终态停止事实区分已核实、未知和未启动；登记脚本仍未收尾时不汇总
+  ---
+  duration_ms: 14.353166
+  type: 'test'
+  ...
+# Subtest: dev 冷恢复 queued：复用原汇总任务和键，结果事务补记一次
+ok 3 - dev 冷恢复 queued：复用原汇总任务和键，结果事务补记一次
+  ---
+  duration_ms: 114.701334
+  type: 'test'
+  ...
+# Subtest: dev 冷恢复 result-missing：复用原汇总任务和键，结果事务补记一次
+ok 4 - dev 冷恢复 result-missing：复用原汇总任务和键，结果事务补记一次
+  ---
+  duration_ms: 152.048459
+  type: 'test'
+  ...
+# Subtest: telegram 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报
+ok 5 - telegram 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报
+  ---
+  duration_ms: 311.5985
+  type: 'test'
+  ...
+# Subtest: qq_private 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报
+ok 6 - qq_private 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报
+  ---
+  duration_ms: 312.653709
+  type: 'test'
+  ...
+# Subtest: 定时工作流 success：根任务结束不提前关闭，最终仅调度路径
+ok 7 - 定时工作流 success：根任务结束不提前关闭，最终仅调度路径
+  ---
+  duration_ms: 194.332125
+  type: 'test'
+  ...
+# Subtest: 定时工作流 retry：根任务结束不提前关闭，最终仅调度路径
+ok 8 - 定时工作流 retry：根任务结束不提前关闭，最终仅调度路径
+  ---
+  duration_ms: 186.144042
+  type: 'test'
+  ...
+# Subtest: 定时工作流 cancel：根任务结束不提前关闭，最终仅调度路径
+ok 9 - 定时工作流 cancel：根任务结束不提前关闭，最终仅调度路径
+  ---
+  duration_ms: 119.801084
+  type: 'test'
+  ...
+# Subtest: 真实工作流步骤取消自身计划：工具返回后核实停止，不等待自己的 SDK abort
+ok 10 - 真实工作流步骤取消自身计划：工具返回后核实停止，不等待自己的 SDK abort
+  ---
+  duration_ms: 99.002042
+  type: 'test'
+  ...
+# Subtest: macOS 独占与其余批次完整分配每个文件一次，Linux 保留全并行；固定独占文件缺失拒绝
+ok 11 - macOS 独占与其余批次完整分配每个文件一次，Linux 保留全并行；固定独占文件缺失拒绝
+  ---
+  duration_ms: 0.68025
+  type: 'test'
+  ...
+# Subtest: 实际 CLI 等独占文件进程退出后执行其余批次，每份测试一次且固定关闭真实模型
+ok 12 - 实际 CLI 等独占文件进程退出后执行其余批次，每份测试一次且固定关闭真实模型
+  ---
+  duration_ms: 210.169625
+  type: 'test'
+  ...
+# Subtest: 实际 CLI first-failure 不吞失败或跳批报成功
+ok 13 - 实际 CLI first-failure 不吞失败或跳批报成功
+  ---
+  duration_ms: 152.178625
+  type: 'test'
+  ...
+# Subtest: 实际 CLI remaining-failure 不吞失败或跳批报成功
+ok 14 - 实际 CLI remaining-failure 不吞失败或跳批报成功
+  ---
+  duration_ms: 205.992166
+  type: 'test'
+  ...
+# Subtest: 实际 CLI missing 不吞失败或跳批报成功
+ok 15 - 实际 CLI missing 不吞失败或跳批报成功
+  ---
+  duration_ms: 23.437375
+  type: 'test'
+  ...
+# Subtest: 实际 CLI spawn-error 不吞失败或跳批报成功
+ok 16 - 实际 CLI spawn-error 不吞失败或跳批报成功
+  ---
+  duration_ms: 23.240625
+  type: 'test'
+  ...
+# Subtest: 实际 CLI null-status 不吞失败或跳批报成功
+ok 17 - 实际 CLI null-status 不吞失败或跳批报成功
+  ---
+  duration_ms: 22.30325
+  type: 'test'
+  ...
+# Subtest: 实际 CLI signal 不吞失败或跳批报成功
+ok 18 - 实际 CLI signal 不吞失败或跳批报成功
+  ---
+  duration_ms: 1278.997334
+  type: 'test'
+  ...
+# Subtest: 实际 CLI exit-code 不吞失败或跳批报成功
+ok 19 - 实际 CLI exit-code 不吞失败或跳批报成功
+  ---
+  duration_ms: 281.899292
+  type: 'test'
+  ...
+1..19
+# tests 19
+# suites 0
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2993.444667

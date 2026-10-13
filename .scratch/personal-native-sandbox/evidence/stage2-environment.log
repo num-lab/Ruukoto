@@ -1,0 +1,8 @@
+Running as unit: ruukoto-native-stage2-environment.service; invocation ID: 41f8fa029dd54c0a9c2f5a524912a251
+{"uid":996,"gid":985,"groups":[985],"node":"v24.21.0","kernel":"6.8.0-117-generic","dockerSocketAccessible":false,"userBus":"unix:path=/run/user/996/bus","runtimeDir":"/run/user/996"}
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 41ms
+CPU time consumed: 41ms
+Memory peak: 1.0M
+Memory swap peak: 0B

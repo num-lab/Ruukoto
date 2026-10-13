@@ -1,0 +1,8 @@
+{
+  "exit": 0,
+  "bothVersionsRan": true,
+  "sourceHashesStable": true,
+  "scope": "115+124 only; terminal host facts/prompt and test runner incremental evidence; previous 59 execution/permission/stop matrix remains historical proof for unchanged paths",
+  "realModel": false,
+  "realIM": false
+}

@@ -1,0 +1,24 @@
+Running as unit: ruukoto-native-stage2-smoke15.service; invocation ID: a6a78988a0f040909d10e098ef3b1752
+[ruukoto:smoke15] 环境：linux x64；执行 native
+[ruukoto:smoke15] PASS B1 排队委派任务定 interrupted、不自动继续、Agent 回 idle、结果归属保持
+[ruukoto:smoke15] PASS B1 dev 父会话下一轮模型调用注入中断结果
+[ruukoto:smoke15] PASS B1 空闲 Agent 沿 work_id 继续委派（真实原生 worker完成）
+[ruukoto:smoke15] PASS B2 遗留占用保留、暂停不解除、Agent 记 unverified、拒绝新委派
+[ruukoto:smoke15] PASS B2 真实 CLI resume-queue：释放占用、解除暂停、Agent 回 idle
+[ruukoto:smoke15] PASS B2 回 idle 后可继续委派（真实原生 worker完成）
+[ruukoto:smoke15] PASS B3 带来源事件的评审排队任务不中断，自动恢复并继续执行
+[ruukoto:smoke15] PASS B4 重复重启不重复登记、不自动运行、无残余执行单元
+[ruukoto:smoke15] 
+===== 证据 =====
+[ruukoto:smoke15] workA work_a0600b96901d02547c76e994，SubAgent sagent_f620c3f4bf28607abdf8df29（子会话 sess_c94676cabe3485cc5dd4820d），首次执行任务 task_de3a0f64526c5d1a4cc3640c（真实原生 worker read）
+[ruukoto:smoke15] B1：Q1 task_7c2336e285a9d42ded1410b3 interrupted(backend_restart)，结果引用归属 work/subAgent/父会话/父任务，零模型请求零 worker
+[ruukoto:smoke15] B2：Q2 task_7ae1c28649a4651c19ba7404 遗留占用经 CLI resume-queue 释放，Agent unverified → idle
+[ruukoto:smoke15] B3：评审任务 task_4fbafffdc3d256c6f4e4435c（source_event_id 钉版）自动恢复并真实完成
+[ruukoto:smoke15] 
+8/8 PASS
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 14.125s
+CPU time consumed: 8.276s
+Memory peak: 2.8M
+Memory swap peak: 0B

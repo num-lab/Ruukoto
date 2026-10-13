@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 历史 Docker 策略对照；当前产品入口为 npm run linux:probes，见本目录 README。
 # Linux 受限执行探针编排。
 #
 # 在 Linux 容器内运行 probe.py 的多个变体，验证受限执行方案的边界：

@@ -12,6 +12,7 @@
 
 import type { ToolCategory } from "@ruukoto/core/types.ts";
 import type { SessionIdentity } from "@ruukoto/core/session-identity.ts";
+import { WorkflowError } from "@ruukoto/core/workflow.ts";
 import type { McpToolEffect } from "./mcp/store.ts";
 import { PLAN_TOOL_NAMES } from "./plan-mode.ts";
 import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
@@ -22,10 +23,10 @@ import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired" | "scheduled">;
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
-  dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent"],
+  dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent", "workflow"],
   // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
   // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
-  main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"],
+  main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
   // subagent（agent-direction issue 11）：工具按执行画像的 SubAgent 工具集单独装配
   // （不走注册来源类别），子身份不能再委派下级；宿主评审任务（issue 19）的只读
   // MCP 由画像按任务另开，不在本静态清单
@@ -42,7 +43,7 @@ export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read"
 /**
  * SubAgent 任务的写入工具白名单（agent-direction issue 16，工作有写入目标
  * 时的完整集合）：read/edit/write/bash/read_artifact。无 request_file_access、
- * http_request、MCP 或委派工件——工作区写入由容器边界约束，不逐次审批。
+ * http_request、MCP 或委派工件——受限模式的工作区写入由原生边界约束，不逐次审批。
  */
 export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "edit", "write", "bash", "read_artifact"]);
 
@@ -80,6 +81,23 @@ export interface ExecutionProfile {
   plan: boolean;
   /** 工具集签名：并入 SDK 会话签名，变化即重建会话（装配过滤只能收窄、不能补回）。 */
   toolSignature: string;
+  workflow?: WorkflowExecutionProfile;
+}
+
+/** 宿主解析的步骤能力；来源身份不改变步骤的独立上下文。 */
+export interface WorkflowExecutionProfile {
+  toolClass: "dev" | "main";
+  sourceProjectId: string;
+  categories: ToolCategory[];
+  grantIds?: string[];
+  tools?: string[];
+  verifyTarget?: boolean;
+}
+
+export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
+  return !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" &&
+    (profile.verifyTarget === true || !["edit", "write", "bash", "request_file_access"].includes(name)) &&
+    (!profile.tools || profile.tools.includes(name));
 }
 
 export function executionProfile(input: {
@@ -90,9 +108,16 @@ export function executionProfile(input: {
   review: boolean;
   /** 提交时固定到任务的 Plan 选择。 */
   planMode: boolean;
+  workflow?: WorkflowExecutionProfile | null;
 }): ExecutionProfile {
   const { identity } = input;
   if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
+  if (input.workflow) {
+    if (identity.kind !== "subagent" || !identity.workflow) throw new WorkflowError("workflow_binding_invalid");
+    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow"].includes(category)) };
+    return { toolClass: workflow.toolClass, subAgentTools: null, planMcp: workflow.categories.includes("mcp"), restricted: true,
+      plan: false, toolSignature: `workflow:${JSON.stringify(workflow)}`, workflow };
+  }
   const sub = identity.kind === "subagent" ? { write: input.writeTarget, review: input.review } : null;
   const toolClass = identity.kind === "scheduled" ? "main" : identity.kind;
   return {

@@ -1,0 +1,10 @@
+{
+  "command": [
+    "/tmp/ruukoto-script-isolation.v2XPXY/node22/node_modules/node/bin/node",
+    "--import",
+    "tsx",
+    "verification/smoke/smoke-26-native-worker.mts"
+  ],
+  "exit": 0,
+  "seconds": 21.833
+}

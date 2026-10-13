@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)统一两个产品的执行接线、宿主目录身份与权限预检；写入目标、宿主不执行 Git 和成果保留仍由本篇持有。
+
 原编号：ADR 0021
 
 ## 问题
@@ -38,4 +40,10 @@ Git 修改工作可并行保留独立成果，父工作区未提交内容不进�
 
 ## 适用范围
 
+当前创建与汇总复用 `Runtime.executeWorkCopy`：先登记 `ToolWorkerHost.create`，再由 `host.start()` 按实际发起任务模式执行固定 Git 命令；受限模式走 native，完全访问沿下方当前账户决定。workspace/readRoots 的 dev/ino 统一为宿主身份，权限预检统一用实际账户 `accessSync` 核实补充组与 ACL，Docker Desktop VM 例外与容器 UID/GID 预检已退役。worker 的固定 Git 环境仍只用于副本创建、使用与汇总；写入目标、禁止宿主执行仓库 Git、副本与冲突成果保留仍适用。后端及交付清理归[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)；原决定与历史容器验证保留。
+
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+工作流冻结、独立验证和受控汇入采用[真实步骤接线](2026-10-13-workflow-step-capabilities.md)，普通汇总入口拒绝工作流成果。
+
+工作流绑定步骤与短期宿主操作采用[运行执行基础](2026-10-13-workflow-runtime-and-store.md)，由协调器持有独立授权、指针、结果与恢复；本篇普通路径继续适用。

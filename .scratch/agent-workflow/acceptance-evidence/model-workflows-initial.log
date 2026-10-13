@@ -1,0 +1,34 @@
+✖ ruukoto 真实模型：自主使用命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (70.584583ms)
+✖ ruukoto-code 真实模型：自主使用命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (69.895208ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1315.966667
+
+✖ failing tests:
+
+test at test/123-workflow-model-acceptance.test.ts:1:696
+✖ ruukoto 真实模型：自主使用命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (70.584583ms)
+  Error: 该模型不支持所选思考强度，请重新选择
+      at Object.resolve (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/agent/src/model-selection.ts:56:15)
+      at Runtime.start (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/runtime/src/runtime.ts:780:34)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/123-workflow-model-acceptance.test.ts:27:10)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    code: 'thinking_not_supported'
+  }
+
+test at test/123-workflow-model-acceptance.test.ts:1:696
+✖ ruukoto-code 真实模型：自主使用命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (69.895208ms)
+  Error: 该模型不支持所选思考强度，请重新选择
+      at Object.resolve (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/agent/src/model-selection.ts:56:15)
+      at Runtime.start (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/runtime/src/runtime.ts:780:34)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/123-workflow-model-acceptance.test.ts:27:10)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    code: 'thinking_not_supported'
+  }

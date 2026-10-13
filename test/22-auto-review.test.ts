@@ -11,9 +11,9 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * - 注入防护：审查输入的数据区隔与系统提示约束；
  * - review.ts 单元：classifyForReview 全分支、输出解析、输入上限与模型不可用；
  * - schema v5 → v6 迁移（重建 CHECK、保留数据/索引/外键）与新库直写；
- * - 启动器路由：auto-review 进容器边界，缺 docker 明确失败，不到完全访问入口。
+ * - 启动器路由：auto-review 进原生边界，缺运行产物明确失败，不到完全访问入口。
  *
- * 真实容器边界（Linux/Docker）不在本机验证，见工单记录。
+ * 真实 OS 边界由原生探针与 smoke 验证，见工单记录。
  */
 
 import { test } from "node:test";
@@ -44,7 +44,8 @@ import {
   createApprovalReviewer,
   REVIEW_POLICY_VERSION,
 } from "@ruukoto/agent/review.ts";
-import { createLauncherFor, createContainerLauncher } from "@ruukoto/agent/execution/launchers.ts";
+import { createLauncherFor, ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
+import { createNativeLauncher } from "@ruukoto/agent/execution/native.ts";
 import type { ApprovalScope } from "@ruukoto/core/types.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
@@ -810,21 +811,18 @@ test("新库直接保存 auto-review，未知模式被 CHECK 拒绝", () => {
 
 // ---------- 启动器路由 ----------
 
-test("启动器：auto-review 路由到受限容器；缺 docker 明确失败；不进完全访问入口", async () => {
-  // 构造期路由（不需要 docker）
-  const container = createLauncherFor({ backend: "container" }, "auto-review");
-  assert.equal(container.kind, "container", "auto-review 与 confirm 共用受限容器边界");
-  assert.equal(createLauncherFor({ backend: "native" }, "auto-review").kind, "native", "auto-review 不进入完全访问当前账户路径");
-
-  // 启动期校验：缺 docker 明确失败（execution_unavailable），不落到其他入口
-  const launcher = createContainerLauncher({ image: "img", uid: 1000, gid: 1000, dockerPath: "/nonexistent/docker" });
-  await assert.rejects(
-    launcher.launch({ taskId: "task_x", mode: "auto-review", workspace: "/tmp", grantedPaths: [] }),
-    (err: any) => err.code === "execution_unavailable",
-  );
-  // 完全访问仍不得进容器
-  await assert.rejects(
-    launcher.launch({ taskId: "task_x", mode: "full_access", workspace: "/tmp", grantedPaths: [] }),
-    (err: any) => err.code === "invalid_state",
-  );
+test("启动器：auto-review 路由到受限原生入口；缺产物明确失败；不进完全访问入口", async () => {
+  assert.equal(createLauncherFor({ backend: "native" }, "auto-review").kind, "native", "auto-review 与 confirm 共用受限原生边界");
+  const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "auto-review-native-")));
+  const stat = fs.statSync(workspace);
+  const launcher = createNativeLauncher({ workerPath: path.join(workspace, "missing-worker.mjs") });
+  const spec = { taskId: "task_x", mode: "auto-review" as const, workspace,
+    workspaceIdentity: { dev: stat.dev, ino: stat.ino }, grantedPaths: [] };
+  try {
+    await assert.rejects(launcher.launch(spec), error => error instanceof ExecutionError &&
+      error.code === "execution_unavailable" && error.reason === "binary_missing");
+    await assert.rejects(launcher.launch({ ...spec, mode: "full_access" }), error => error instanceof ExecutionError && error.code === "invalid_state");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });

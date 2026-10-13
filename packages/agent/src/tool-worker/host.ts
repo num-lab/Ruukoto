@@ -153,7 +153,8 @@ export class ToolWorkerHost {
       await this.stop();
       if (this.launcher.kind === "native" && error instanceof ExecutionError &&
           ["worker_timeout", "worker_fatal", "worker_exited", "worker_channel_failed"].includes(error.code)) {
-        throw new ExecutionError("execution_unavailable", "原生边界已启动，但工具工作进程初始化失败；检查运行依赖与构建产物", this.unit ?? undefined, "worker_failed");
+        // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
+        throw new ExecutionError("execution_unavailable", "原生边界已启动，但工具工作进程初始化失败；检查运行依赖与构建产物", this.unit ?? undefined, "worker_failed", { cause: error });
       }
       throw error;
     }

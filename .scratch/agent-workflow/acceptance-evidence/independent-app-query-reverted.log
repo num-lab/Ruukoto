@@ -1,0 +1,27 @@
+✖ 查询进程先 exit 后关闭 stdout：收完结果 (1.495584ms)
+✔ 查询进程先 exit 后关闭 stdout：无结果拒绝 (0.361292ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 839.437125
+
+✖ failing tests:
+
+test at ../../../../../../private/tmp/ruukoto-07-app-query-review/query-regression-esm.test.mts:561:39
+✖ 查询进程先 exit 后关闭 stdout：收完结果 (1.495584ms)
+  Error: 查询子进程在响应前退出（code=0 signal=null）
+      at <anonymous> (/private/tmp/ruukoto-07-app-query-review/query-prior.mts:496:29)
+      at finish (/private/tmp/ruukoto-07-app-query-review/query-prior.mts:455:9)
+      at ChildProcess.<anonymous> (/private/tmp/ruukoto-07-app-query-review/query-prior.mts:496:9)
+      at ChildProcess.emit (node:events:521:24)
+      at TestContext.<anonymous> (/private/tmp/ruukoto-07-app-query-review/query-regression-esm.test.mts:569:11)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    code: 'child_exited'
+  }

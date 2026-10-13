@@ -1,0 +1,12 @@
+Running as unit: ruukoto-native-stage2-smoke28.service
+[ruukoto:smoke28] PASS main 双 worktree、四工具、共享 Git 拒写及汇总
+[ruukoto:smoke28] PASS 独立定时 confirm 委派、工作内消息、模式及一次汇总
+[ruukoto:smoke28] PASS 独立定时 auto-review 委派、工作内消息、模式及一次汇总
+[ruukoto:smoke28] PASS 独立定时 full_access 委派、工作内消息、模式及一次汇总
+[ruukoto:smoke28] 全部通过；模型与通知使用桩，Linux worker 与 Git 操作真实
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 21.241s
+CPU time consumed: 9.307s
+Memory peak: 3.6M
+Memory swap peak: 0B

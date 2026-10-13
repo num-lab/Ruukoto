@@ -28,7 +28,7 @@ import { verifyImportedBranchSources } from "@ruukoto/core/import-support.ts";
 
 import { Db,SCHEMA_VERSION } from "@ruukoto/core/db.ts";
 import { canonicalJson,historyStatusOf,sha256 } from "@ruukoto/core/import-files.ts";
-import { LegacyImportError,allRows,checkTablePolicy,escapeSqlPath,fail,insertRows,memoryRefsInScope,openSourceSnapshot,openTargetReadonlyCopy,readLedger,readMetaValue,rowsIn,sha256File,strictDirOk,type FilePlanItem,type LedgerKind,type LegacyImportApplyResult,type LegacyImportDeps,type LegacyImportRevertResult,type Row,type SourceSnapshot,type TablePolicy,type TargetView,type TaskClosing } from "@ruukoto/core/import-support.ts";
+import { LegacyImportError,allRows,checkTablePolicy,rejectWorkflowImport,escapeSqlPath,fail,insertRows,memoryRefsInScope,openSourceSnapshot,openTargetReadonlyCopy,readLedger,readMetaValue,rowsIn,sha256File,strictDirOk,type FilePlanItem,type LedgerKind,type LegacyImportApplyResult,type LegacyImportDeps,type LegacyImportRevertResult,type Row,type SourceSnapshot,type TablePolicy,type TargetView,type TaskClosing } from "@ruukoto/core/import-support.ts";
 import { PRODUCT_META_KEY } from "@ruukoto/core/product.ts";
 import { randomId,type Session } from "@ruukoto/core/types.ts";
 import * as fs from "node:fs";
@@ -46,6 +46,13 @@ export interface LegacyImportPlan {
 }
 
 const TABLE_POLICY: TablePolicy = {
+  workflow_definitions: { policy: "exclude", reason: "工作流定义保留在来源实例，不随普通资料导入" },
+  workflow_definition_refs: { policy: "exclude", reason: "命名版本与保存回执保留在来源实例" },
+  workflow_runs: { policy: "exclude", reason: "运行授权与执行绑定不能跨实例，非空源库明确拒绝" },
+  workflow_steps: { policy: "exclude", reason: "步骤与其运行归属保留在来源实例" },
+  workflow_executions: { policy: "exclude", reason: "真实任务执行绑定不能丢弃或跨实例恢复" },
+  workflow_questions: { policy: "exclude", reason: "问题与回答绑定原运行和入口" },
+  workflow_controls: { policy: "exclude", reason: "控制请求只属于原实例" },
   branch_requests: { policy: "exclude", reason: "分支准备回执只属于原实例；已发布来源随会话保留" },
   compaction_requests: { policy: "exclude", reason: "手动压缩回执只属于原实例；压缩点的来源标识随资料保留" },
   projects: { policy: "import" },
@@ -444,6 +451,7 @@ function analyze(
 ): ImportAnalysis {
   const tdb = target.db;
   checkTablePolicy(snap.db, tdb, TABLE_POLICY);
+  rejectWorkflowImport(snap.db);
   const set = buildImportSet(snap, plan, deps);
   const planErrors: string[] = [];
 

@@ -18,7 +18,7 @@
 
 ## 对外接口
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `18`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `22`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -39,6 +39,8 @@
 | 任务 | `submit`、`continue`、`switch_mode`、`set_session_mode`、`interrupt`、`cancel`、`resume_queue` | `submit` 与 `continue` 带 `request_id`；`submit` / `continue` / `switch_mode` / `set_session_mode` 不能作用于子会话；`switch_mode` 不能进入或退出计划模式 |
 | 任务查询 | `get_task`、`find_task`、`list_tasks`、`read_task_events` | `get_task` 返回快照水位 `seq`；`find_task` 按 `session_id` + `request_id` 核实请求是否已接收；`read_task_events` 按 `after_seq` / `limit` 分页 |
 | 审批 | `respond_confirmation`、`get_confirmation_params`、`get_tool_op_params` | `respond_confirmation` 的 `decision` 是 `approve` / `reject`，可带 `permission_version`；后两者按 ID 分段读取完整参数 |
+| 工作流定义/启动 | `workflow_definitions`、`workflow_definition`、`workflow_save`、`workflow_saved`、`workflow_start`、`workflow_find` | 命名文件/版本及原键查询，期望摘要保存，宿主固定授权启动 |
+| 工作流运行 | `workflow_list`、`workflow_get`、`workflow_step`、`workflow_logs`、`workflow_control`、`workflow_question`、`workflow_answer` | 有界事实与正文读取，版本化拥有者控制和业务回答；不消费工具批准 |
 | 历史与产物 | `read_history`、`read_history_entry`、`read_tool_result`、`search_history`、`read_artifact` | `read_history` 是唯一权威历史的投影，分页与分段读；`read_artifact` 按任务与产物 ID 读正文 |
 | 上下文与技能 | `list_selection_records`、`get_selection_record`、`get_context_breakdown`、`list_prompt_requests`、`read_prompt_snapshot`、`list_skills` | 选择记录与 prompt 快照分段读；`list_skills` 返回技能库目录与诊断 |
 | 项目配置、资料授权与记忆 | `set_project_instructions`、`set_project_web_search`、`get_project_jev`、`set_project_jev`、`create_data_grant`、`revoke_data_grant`、`list_data_grants`、`list_memories`、`get_memory`、`save_memory`、`revoke_memory`、`restore_memory` | 写操作按 `expected_version` 条件更新；资料授权只能由拥有者此处创建与撤销 |
@@ -51,7 +53,7 @@
 
 **握手。** `connect` 的 `since` 可选，是非负整数游标；返回 `{seq, replay, snapshot}`。快照读取与订阅注册在同一个同步段内完成，保证快照序号 `seq` 与实时推送之间无缺口；`replay` 是 `(since, seq]` 的补发事件，fresh connect（不带 `since`）为空。补发不推给监听者，由调用方先安装快照再按序应用。
 
-`seq` 是快照截止的事件序号，`snapshot.instanceId` 是数据实例的稳定标识（新数据库分配新标识），`snapshot.execution` 是后台实际配置的执行后端与说明（Coding Agent 默认 native，`local` 无隔离必须显式展示），`snapshot.defaultModel` 是后台启动默认模型。快照有界：全部活动任务加上每个会话最近结束的 20 条任务（更早的经 `list_tasks` 分页）、`pending` 状态的审批请求（参数为有界预览）、活动任务的产物、活动与中断任务的最新输出预览（缺失片段如实为空）。快照另带 `roleSessionIds`、`subAgentSessionIds`、`workDelegations` 与 `subAgents`。
+`seq` 是快照截止的事件序号，`snapshot.instanceId` 是数据实例的稳定标识（新数据库分配新标识），`snapshot.execution` 是后台实际配置的执行后端与说明（两产品正式入口默认 native；库层 `local` 无隔离必须显式展示），`snapshot.defaultModel` 是后台启动默认模型。快照有界：全部活动任务加上每个会话最近结束的 20 条任务（更早的经 `list_tasks` 分页）、`pending` 状态的审批请求（参数为有界预览）、活动任务的产物、活动与中断任务的最新输出预览（缺失片段如实为空）。快照另带 `roleSessionIds`、`subAgentSessionIds`、`workDelegations` 与 `subAgents`。
 
 **事件流。** 持久事件与状态变化在同一事务写入事件表，提交成功后才广播，回滚的事务不产生事件。事件体带单调递增的 `seq`，客户端按 `seq` 去重。慢客户端或断开很久的客户端不由服务端在内存里积压事件，重连时凭游标补发，补发不了就重取快照。事件携带消息 ID、正文段序号、UTF-8 字节偏移与段开始时间，接收端按偏移拼接完整正文；消息完成后仍以会话历史为准，事件投影不替代历史。
 
@@ -170,6 +172,8 @@ sequenceDiagram
 
 `respond_confirmation` 接受 `approve` / `reject`，可带 `permission_version` 绑定审批时的权限版本。权限版本不匹配回 `permission_version_mismatch`，该批准不可用。批准只适用于该次操作及明确列出的范围，在执行前单次消费。
 
+`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 仅接受会话、名称或临时脚本、参数、稳定键及更小预算，不接受授权字段；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 22，旧客户端明确拒绝。
+
 ### 断开、重连与数据实例变化
 
 客户端断开只移除订阅，不取消任务、不触发恢复，也不发送 `resume_queue`、批准或继续。重连带 `since = appliedSeq` 重新握手（游标为 0 时不带），先安装快照、再应用补发事件（只补齐显示记录，不回滚状态）、再按序应用缓冲的实时事件；`instanceId` 变化时同样通知调用方。
@@ -219,6 +223,8 @@ sequenceDiagram
 **已知上限。** 两端的帧大小口径不同：服务端按字符串长度（UTF-16 码元数）比较请求行，客户端只核对收到的帧（按 UTF-8 字节数），发送前不核对请求大小。超过服务端上限的请求会让连接被直接销毁，客户端把在途请求当成应答丢失；如果那是提交，待确认记录每次上线都会被核实，`find_task` 查不到就按原参数重发，连接又被销毁，按退避初值 500 ms 重连，如此循环。这是按代码推演的结论，未实际运行验证。
 
 ## 设计依据
+
+- [工作流业务回答与整项最终送达](../../.agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)
 
 - [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 

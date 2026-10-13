@@ -141,7 +141,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
         const problem = deps.verifyMain(input.ctx);
         if (problem) return `身份校验失败：${problem}`;
         if (JSON.stringify(deps.target(input.ctx)) !== JSON.stringify(input.scope.target)) return "通知目标配置在执行前已变化或停用，本次授权失效（未登记）";
-        const sourceProblem = deps.sources.verify(input.ctx.projectId, (input.params.source_refs ?? []) as SourceRef[]);
+        const sourceProblem = deps.sources.verify(input.ctx.projectId, (input.params.source_refs ?? []) as SourceRef[], input.ctx.taskId);
         return sourceProblem ? `通知资料已失效：${sourceProblem}` : null;
       },
       commit: input.commit,
@@ -190,7 +190,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       }
       const task = store.getTask(ctx.taskId);
       if (!task) throw new RuntimeApiError("task_ending", "宿主任务不存在，未登记计划");
-      const { text, refs } = params.content === undefined ? { text: "", refs: [] } : deps.sources.resolve(ctx.projectId, params.content);
+      const { text, refs } = params.content === undefined ? { text: "", refs: [] } : deps.sources.resolve(ctx.projectId, params.content, ctx.taskId);
       const instruction = params.instruction + (text ? `\n[明确资料]\n${text}` : "");
       if (bytes(instruction) > NOTIFY_LIMITS.paramsBytes) throw new RuntimeApiError("invalid_params", "任务说明与明确资料超过大小上限");
       const target = deps.target(ctx);
@@ -204,7 +204,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
           throw new RuntimeApiError("task_ending", "任务已停止、身份或权限已变化，未登记计划");
         }
         if (JSON.stringify(deps.target(ctx)) !== JSON.stringify(target)) throw new RuntimeApiError("entry_changed", "回报目标已变化，未登记计划");
-        const sourceProblem = deps.sources.verify(ctx.projectId, refs);
+        const sourceProblem = deps.sources.verify(ctx.projectId, refs, ctx.taskId);
         if (sourceProblem) throw new RuntimeApiError("source_revoked", `计划资料已失效：${sourceProblem}`);
         const existing = deps.sched.findScheduleByCreateKey(createKey);
         if (existing) {
@@ -241,7 +241,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       }
       const schedule = deps.sched.getSchedule(params.schedule_id);
       if (!schedule) throw new RuntimeApiError("not_found", "调度计划不存在");
-      const sourceProblem = deps.sources.verify(ctx.projectId, schedule.sourceRefs);
+      const sourceProblem = deps.sources.verify(ctx.projectId, schedule.sourceRefs, ctx.taskId);
       if (sourceProblem) throw new RuntimeApiError("source_revoked", `计划资料不可读：${sourceProblem}`);
       const selected = typeof params.run_id === "string" ? deps.sched.getRun(params.run_id) : null;
       if (params.run_id && (!selected || selected.scheduleId !== schedule.id)) throw new RuntimeApiError("not_found", "调度运行不属于该计划");
@@ -301,7 +301,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       const reason = validateReason(params.reason);
       const target = deps.target(ctx);
       if (!target) throw new Error("未配置可信 owner 通知目标，不能外发（不猜测接收者）");
-      const { text, refs } = deps.sources.resolve(ctx.projectId, params.content);
+      const { text, refs } = deps.sources.resolve(ctx.projectId, params.content, ctx.taskId);
       checkText(text, "通知正文");
       const sourceKey = `task:${ctx.taskId}`;
       const existing = deps.sched.findOpBySource("tool", sourceKey);
@@ -345,7 +345,7 @@ export function createSchedulerTools(deps: SchedulerToolsDeps): ToolDefinition[]
       if (typeof params.op_id === "string") {
         const op = deps.sched.getOp(params.op_id);
         if (!op) throw new Error(`发送操作不存在：${params.op_id}`);
-        const problem = deps.sources.verify(ctx.projectId, op.sourceRefs);
+        const problem = deps.sources.verify(ctx.projectId, op.sourceRefs, ctx.taskId);
         if (problem) throw new Error(`发送资料不可读：${problem}`);
         return okText([
           opLine(op),

@@ -4,7 +4,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
-import { cleanupRuntime } from "../verification/smoke/gate.ts";
+import { cleanupRuntime, probeNativeExecution } from "../verification/smoke/gate.ts";
+import { PassThrough } from "node:stream";
+import { ExecutionError, type LaunchedUnit } from "@ruukoto/agent/execution/launchers.ts";
 import { probeModelConfig } from "@ruukoto/agent/model-config.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -17,17 +19,34 @@ const entry = (name: string, args: string[], env: NodeJS.ProcessEnv = process.en
 };
 
 test("冒烟拒绝旧远端参数，退出 2 且不创建后台或尝试 SSH", () => {
-  for (const name of ["smoke-04-desktop-execution.mts", "smoke-13-subagent-messaging.mts", "smoke-15-recover-subagents.mts", "smoke-18-im-final-delivery.mts"]) {
+  for (const name of ["smoke-04-desktop-execution.mts", "smoke-13-subagent-messaging.mts", "smoke-15-recover-subagents.mts", "smoke-18-im-final-delivery.mts", "smoke-28-personal-native.mts"]) {
     const result = entry(name, ["--remote"], { ...process.env, PATH: "" });
     assert.equal(result.status, 2, `${name}：${result.stderr}`);
     assert.match(result.stderr, /前提缺失：此入口不接受参数：--remote/, name);
   }
 });
 
-test("Docker 不可用时单独报告前提缺失，不记为通过或断言失败", () => {
-  const result = entry("smoke-04-desktop-execution.mts", [], { ...process.env, PATH: "" });
-  assert.equal(result.status, 2, result.stderr);
-  assert.match(result.stderr, /需要可用的 Docker 与镜像/);
+test("原生前提失败核实停止后报告不可用，停止未知保留现场", async () => {
+  for (const stopped of [true, false]) {
+    const directory = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "ruukoto-native-gate-test-")));
+    const evidence = path.join(directory, "evidence.txt");
+    fs.writeFileSync(evidence, "本次虚拟现场");
+    let stopCalls = 0;
+    const unit: LaunchedUnit = {
+      entry: { kind: "systemd_unit", id: "test-native.scope", label: "fake unit",
+        stop: async () => { stopCalls++; return stopped; } },
+      stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exit: Promise.resolve({ code: 1, signal: null }),
+    };
+    try {
+      await assert.rejects(() => probeNativeExecution({ kind: "native", launch: async () => {
+        throw new ExecutionError("execution_unavailable", "测试夹具没有 namespace", unit, "sandbox_rejected");
+      } }, directory), error => stopped
+        ? error instanceof ExecutionError && error.code === "execution_unavailable"
+        : error instanceof Error && !(error instanceof ExecutionError) && error.message.includes("停止未核实"));
+      assert.equal(stopCalls, 1, "创建单元后的能力失败也必须执行真实 stop 接口");
+      assert.equal(fs.existsSync(evidence), !stopped, "停止未知保留现场；已核实停止才清理");
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  }
 });
 
 test("发布模型入口要求显式配置，help 与升级入口各自可核实", () => {
@@ -86,7 +105,6 @@ test("自包含模型缺凭据时离线速退 2，不继承 API key 或个人 au
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 1024 }],
   } } };
   fs.writeFileSync(path.join(home, ".pi", "agent", "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "personal-key-must-not-be-read" } }));
-  fs.writeFileSync(path.join(bin, "docker"), '#!/bin/sh\nprintf "docker %s\\n" "$*" >> "$SMOKE_TEST_CALLS"\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(bin, "python3"), '#!/bin/sh\nprintf "python3 %s\\n" "$*" >> "$SMOKE_TEST_CALLS"\n[ "$1" = "-c" ] && exit 0\nexit 77\n', { mode: 0o755 });
   try {
     fs.writeFileSync(models, JSON.stringify({ providers: { openai: { ...config.providers.openai, apiKey: "fixture-key" } } }));
@@ -99,7 +117,7 @@ test("自包含模型缺凭据时离线速退 2，不继承 API key 或个人 au
     });
     assert.equal(result.status, 2, result.stderr);
     assert.match(result.stderr, /前提缺失：模型 openai\/verification-no-credential 未通过离线配置与认证检查/);
-    assert.doesNotMatch(fs.readFileSync(calls, "utf8"), /pty-run|docker run/, "只允许基础设施探测，不能启动 TUI 或工具容器");
+    assert.doesNotMatch(fs.readFileSync(calls, "utf8"), /pty-run/, "认证检查失败后不能启动 TUI");
     assert.deepEqual(fs.readdirSync(temporary).filter((name) => name.startsWith("rk24-")), [], "认证门禁拒绝后清除临时模型档案");
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

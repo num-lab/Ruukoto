@@ -1,0 +1,10 @@
+
+> ruukoto-workspace@0.1.0 test:upgrade
+> tsx verification/smoke/smoke-24-release-acceptance.mts --upgrade-only
+
+[ruukoto:smoke24] 环境：darwin arm64，Node v24.15.0；升级基点 8bccb8f
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+[ruukoto:smoke24] FAIL 发布验收：等待超时: 旧版本真实越界确认

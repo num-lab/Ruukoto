@@ -1,0 +1,23 @@
+740c7f3a-1a40-4df5-8bd3-7462fb3faf04
+[Unit]
+Description=Isolated ruukoto native service verification
+Requires=user@999.service
+After=user@999.service
+RequiresMountsFor=/opt/ruukoto/node_modules
+[Service]
+Type=oneshot
+User=ruukoto-native-check
+Group=ruukoto-native-check
+WorkingDirectory=/opt/ruukoto
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/999
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/999/bus
+ExecStart=/usr/local/bin/node --import tsx reboot-worker.mts
+KillMode=control-group
+TimeoutStopSec=30
+[Install]
+WantedBy=multi-user.target
+State=lingering
+Sessions=
+Linger=yes
+{"pass":true,"bootId":"740c7f3a-1a40-4df5-8bd3-7462fb3faf04","uid":999,"cgroup":"/user.slice/user-999.slice/user@999.service/app.slice/ruukoto-native-622155a0-f021-4509-b0d3-2c7b1e572073.scope","time":"2026-10-12T03:15:23.211Z","userState":"State=lingering\nSessions=\nLinger=yes"}

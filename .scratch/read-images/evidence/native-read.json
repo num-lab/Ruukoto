@@ -1,0 +1,8 @@
+{
+  "platform": "darwin",
+  "node": "24.15.0",
+  "backend": "native",
+  "scopedRead": true,
+  "imageMime": "image/png",
+  "imageMatchesSource": true
+}

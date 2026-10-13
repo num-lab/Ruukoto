@@ -7,8 +7,8 @@
  * - 通过 BashOperations.onData 与文件 Operations 包装器，把未经截断的原始
  *   输出/正文流回后台（后台存产物后另生成限长模型视图）；
  * - Shell 子进程以独立进程组启动并登记；中止与关停时先整组回收再退出。
- *   逃逸组（setsid 等）只有容器/systemd cgroup 能兜底——这是执行边界的职责，
- *   不是本进程的承诺。
+ *   脱离原组的后代由平台停止协议核实；local 不保证回收此类后代，
+ *   无法核实时由宿主保留占用。
  *
  * 通信：stdin/stdout 上的换行分帧 JSON；stderr 只用于诊断日志。
  */
@@ -33,6 +33,7 @@ import {
 import { statsFromPatch } from "@ruukoto/core/history.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
 import type { EditStats } from "@ruukoto/core/types.ts";
+import { imageMime } from "../artifacts.ts";
 import {
   DATA_CHUNK_BYTES,
   MAX_FRAME_BYTES,
@@ -49,8 +50,9 @@ let stdoutDrained: Promise<void> = Promise.resolve();
 function sendMessage(msg: WorkerMessage): void {
   const line = JSON.stringify(msg);
   if (Buffer.byteLength(line, "utf8") > MAX_FRAME_BYTES) {
-    // 单帧超限只可能来自异常超大块；协议层保证 DATA_CHUNK_BYTES 分块，此处防御
-    fail(`工作进程消息超限：op=${(msg as any).opId ?? "?"}`);
+    // 图片结果无法按正文流分块；只失败当前操作，保留 worker 与已捕获的原文。
+    const opId = "opId" in msg ? msg.opId : undefined;
+    fail(`工作进程消息超限：op=${opId ?? "?"}`, opId);
     return;
   }
   stdoutDrained = stdoutDrained.then(async () => {
@@ -180,8 +182,6 @@ function pinReadRoots(cwd: string, roots: Array<{ path: string; dev?: number; in
   for (const root of roots) {
     const real = fs.realpathSync(root.path);
     const st = fs.statSync(real);
-    // dev/ino 缺省 = 挂载经 VM 重新编号（macOS Docker Desktop），宿主与容器侧
-    // inode 恒不可比，数值复核只在 Linux 原生 bind mount 下发
     if (root.dev !== undefined && root.ino !== undefined && (st.dev !== root.dev || st.ino !== root.ino)) {
       throw new Error(`只读根已变化（宿主钉定不符）：${root.path}`);
     }
@@ -248,6 +248,21 @@ function scopedReadOperations(): ReadOperations {
   };
 }
 
+// 探测与图像结果复用同一次受限读取；按调用创建，取消后不复用旧内容。
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-12-read-images.md
+function createWorkerReadTool(cwd: string): ReturnType<typeof createReadToolDefinition> {
+  const operations = readScopeRoots ? scopedReadOperations() : readOperations();
+  let bytes: Buffer | undefined;
+  return createReadToolDefinition(cwd, { operations: {
+    ...operations,
+    detectImageMimeType: async absolutePath => {
+      bytes = await operations.readFile(absolutePath);
+      return imageMime(bytes);
+    },
+    readFile: async absolutePath => bytes ?? operations.readFile(absolutePath),
+  } });
+}
+
 function editOperations(): EditOperations {
   return {
     readFile: async (absolutePath) => fs.promises.readFile(absolutePath),
@@ -291,7 +306,6 @@ interface LoadedTools {
 
 function loadTools(cwd: string): LoadedTools {
   const tools = new Map<string, ToolDefinition<any, any, any>>([
-    ["read", createReadToolDefinition(cwd, { operations: readScopeRoots ? scopedReadOperations() : readOperations() })],
     ["edit", createEditToolDefinition(cwd, { operations: editOperations() })],
     ["bash", createBashToolDefinition(cwd, { operations: bashOperations(), exposeSessionEnvironment: false })],
   ]);
@@ -331,9 +345,11 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
     return;
   }
   let writeStats: EditStats | undefined;
-  const def = req.name === "write"
-    ? createWriteToolDefinition(loaded.cwd, { operations: writeOperations((stats) => { writeStats = stats; }) })
-    : loaded.tools.get(req.name)!;
+  const def = req.name === "read"
+    ? createWorkerReadTool(loaded.cwd)
+    : req.name === "write"
+      ? createWriteToolDefinition(loaded.cwd, { operations: writeOperations((stats) => { writeStats = stats; }) })
+      : loaded.tools.get(req.name)!;
   const controller = new AbortController();
   const timer = req.timeoutMs ? setTimeout(() => controller.abort(new Error("timeout")), req.timeoutMs) : undefined;
   inFlight.set(req.opId, { controller, timer });

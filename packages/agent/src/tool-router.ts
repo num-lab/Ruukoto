@@ -4,7 +4,7 @@
  * - 每次调用都读取当前任务的 accessMode / 权限版本 / 授予路径，不缓存
  *   首次创建 SDK 会话时的模式；
  * - 编码工具（read/edit/write/bash）经工具工作进程执行：工作进程只在
- *   当前任务的执行边界内（受限任务 → 原生沙箱或容器；完全访问 → 启动账户）；
+ *   当前任务的执行边界内（受限任务 → 原生沙箱；完全访问 → 启动账户）；
  *   模式/环境变化时先停止并核实旧执行单元退出，再建立新环境；
  * - 结构化操作（request_file_access / http_request）形成固定操作范围；完全访问登记任务授权，
  *   受限模式经审批闸门单次消费后才执行，执行参数取自审批前构造、与审批记录
@@ -17,16 +17,17 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AccessMode, ApprovalScope, GrantedPath, Session, Task } from "@ruukoto/core/types.ts";
+import type { AccessMode, ApprovalScope, GrantedPath, Session, Task, Artifact } from "@ruukoto/core/types.ts";
 import { GIT_SAFE_DIRECTORY_ENV, taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { sourceArtifact } from "@ruukoto/core/branch.ts";
+import { getWorkflowExecution, getWorkflowStep } from "@ruukoto/core/workflow.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
-import type { ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
+import type { ManagedEntry, ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
 import { ExecutionError, type WorkerLauncher } from "./execution/launchers.ts";
 import {
   assertGrantNotProtected,
@@ -61,15 +62,18 @@ export interface ToolRouterDeps {
   artifacts: ArtifactStore;
   credentials: CredentialStore;
   registry: ManagedProcessRegistry;
+  verifyTask?: (task: Task) => string | null;
+  onManagedIdentity?: () => void;
   /** 返回当前模式对应的工作进程启动器；未配置时抛 ExecutionError（不回退）。 */
   launcherFor: (mode: AccessMode) => WorkerLauncher;
+  verificationLauncher?: () => WorkerLauncher;
   /** 受限模式排除的保护根目录（后台数据、服务凭据、控制面）。 */
   protectedRoots: string[];
   /**
    * 产物读取的范围判定（issue 05 §1）：同项目旧任务的产物在授权范围内可读，
    * 跨项目需有效授权；未提供时退回"仅当前任务"（兼容旧装配）。
    */
-  artifactAccess?: (task: Task, artifact: { taskId: string; sessionId: string; name: string }) => boolean;
+  artifactAccess?: (task: Task, artifact: Artifact) => boolean;
   /** 审批闸门（架构工单 04）：审批全程与等待解除。 */
   approvals: Pick<ApprovalGate, "request" | "supersedeAll">;
   /**
@@ -155,13 +159,20 @@ export class ToolRouter {
     return `${task.id}:${task.accessMode}:${JSON.stringify(task.grantedPaths)}`;
   }
 
+  private verification(task: Task): boolean {
+    const execution = getWorkflowExecution(this.deps.store, task.id);
+    const step = execution ? getWorkflowStep(this.deps.store, execution.runId, execution.stepKey) : null;
+    return step?.kind === "agent" && (step.params as Record<string, unknown>).mode === "verify";
+  }
+
   /**
    * 静态 LaunchSpec 辅助（agent-direction issue 16）：按任务所属工作的写入
    * 目标决定执行工作区与挂载单。修改工作执行在钉定副本/写入根；多一个子任务
    * 改仓库即多一个独立副本任务进 LaunchSpec（共享 Git 只读）。
    */
-  launchSpecFor(task: Task, session: Session, launcherKind = this.deps.launcherFor(task.accessMode).kind): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
-    const ws = taskWorkspaceFor({ session, work: task.workId ? this.deps.store.getWorkDelegation(task.workId) : null });
+  launchSpecFor(task: Task, session: Session): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
+    const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
+    const ws = taskWorkspaceFor({ session, work });
     const scope = task.readScope;
     const base = {
       taskId: task.id,
@@ -177,22 +188,24 @@ export class ToolRouter {
       readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
       env?: Record<string, string>;
     };
-    // macOS 只有 Docker Desktop 经 VM 重新编号；原生沙箱须复核宿主 dev/ino。
-    // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
-    const inodeOpaque = process.platform === "darwin" && launcherKind === "container";
-    if (!inodeOpaque) {
-      base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
+    if (this.verification(task)) {
+      base.mode = "confirm";
+      base.grantedPaths = task.grantedPaths.map(grant => ({ ...grant, access: "read" }));
     }
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
+    base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
     const readRoots: Array<{ path: string; dev?: number; ino?: number }> = [];
-    if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => (inodeOpaque ? { path } : { path, dev, ino })));
+    if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => ({ path, dev, ino })));
     if (ws.commonGitDir) {
       // worktree 副本：共享 Git 目录作为只读 readRoot（子任务可 status/diff/log），
       // 不入白名单编辑；`.git` 指向由工作副本钉定，钩子在执行边界外不可达。
       const st = fs.statSync(ws.commonGitDir);
-      readRoots.push(inodeOpaque ? { path: ws.commonGitDir } : { path: ws.commonGitDir, dev: st.dev, ino: st.ino });
+      readRoots.push({ path: ws.commonGitDir, dev: st.dev, ino: st.ino });
       base.env = GIT_SAFE_DIRECTORY_ENV;
     }
-    if (readRoots.length > 0) base.readRoots = readRoots;
+    // 材料分析没有额外路径时仍钉定只读工具的 cwd；完全访问的修改任务保留原范围。
+    if (readRoots.length > 0 || (scope && !work?.writeTarget)) base.readRoots = readRoots;
     return base;
   }
 
@@ -254,12 +267,13 @@ export class ToolRouter {
         throw new ExecutionError("mode_switch_unverified", `无法核实旧执行单元（${identity?.id ?? "?"}）已退出，拒绝建立新的执行环境`);
       }
     }
-    const launcher = this.deps.launcherFor(task.accessMode); // 未配置 → 明确失败，不回退
+    const launcher = this.verification(task) ? this.deps.verificationLauncher?.() : this.deps.launcherFor(task.accessMode);
+    if (!launcher || (this.verification(task) && launcher.kind !== "native")) throw new ExecutionError("verification_unavailable", "验证命令需要原生沙箱，只写独立验证副本；请恢复执行环境后验证");
     const session = this.deps.store.getSession(task.sessionId);
     if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
     // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
     // 共享 Git 目录作为只读 readRoot + Git safe.directory 环境集。
-    const spec = this.launchSpecFor(task, session, launcher.kind);
+    const spec = this.launchSpecFor(task, session);
     const host = ToolWorkerHost.create(launcher, spec);
     this.worker = host;
     this.workerKey = key;
@@ -275,12 +289,13 @@ export class ToolRouter {
       }
       return reaped;
     };
-    this.deps.registry.register({
+    const entry: ManagedEntry = {
       kind: "starting",
       id: crypto.randomUUID(),
       label: `tool-worker starting task=${task.id}`,
       stop,
-    });
+    };
+    this.deps.registry.register(entry);
     try {
       await host.start();
       if (this.worker !== host || this.workerStopped) throw new ExecutionError("worker_stopped", "工具工作进程启动已取消");
@@ -290,13 +305,15 @@ export class ToolRouter {
       throw error;
     } finally {
       const identity = host.identity();
-      if (identity) this.deps.registry.register({ ...identity, stop });
+      if (identity) { Object.assign(entry, identity); this.deps.onManagedIdentity?.(); }
     }
   }
 
   // ---------- 调用入口 ----------
 
   async executeTool(input: RoutedCallInput): Promise<RoutedCallOutput> {
+    const problem = this.deps.verifyTask?.(input.task);
+    if (problem) return textResult(problem, true);
     switch (input.name) {
       case "read":
       case "edit":
@@ -328,6 +345,8 @@ export class ToolRouter {
       });
       if (!grant.approved) return textResult(grant.text, true);
     }
+    const problem = this.deps.verifyTask?.(task);
+    if (problem) return textResult(problem, true);
     const artifactsByStream = new Map<DataStream, { id: string; name: string }>();
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort(new Error("aborted by host"));
@@ -419,6 +438,8 @@ export class ToolRouter {
       signal: input.signal,
     });
     if (!approval.approved) return textResult(approval.text, true);
+    const problem = this.deps.verifyTask?.(task);
+    if (problem) return textResult(problem, true);
 
     // 执行参数取自审批前构造、与审批记录同源的请求（固定解析地址与目标文件身份只在内存）
     if (scopeResult.kind === "file") {
@@ -624,6 +645,8 @@ export class ToolRouter {
       recheck: () => this.mcpConfigBlock(mcp.store, meta),
     });
     if (!approval.approved) return textResult(approval.text, true);
+    const workflowProblem = this.deps.verifyTask?.(task);
+    if (workflowProblem) return textResult(workflowProblem, true);
 
     // 执行参数取自审批记录保存的快照
     return this.mcpSend(mcp, task, meta, approval.params, input);
@@ -755,7 +778,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
   const readTool = routedTool({
     name: "read",
     label: "read",
-    description: "读取文件内容（在任务执行边界内；输出超限时完整正文保存为产物，可用 read_artifact 继续）。",
+    description: "读取文本或 JPEG、PNG、WebP 图片（在任务执行边界内；图片作为视觉输入，需支持图片的模型；完整原文保存为产物，可用 read_artifact 继续读取）。",
     parameters: Type.Object({
       path: Type.String({ description: "文件路径（相对或绝对）" }),
       offset: Type.Optional(Type.Number({ description: "起始行（1 起）" })),

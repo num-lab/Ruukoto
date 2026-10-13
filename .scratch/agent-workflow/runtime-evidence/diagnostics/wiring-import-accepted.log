@@ -1,0 +1,66 @@
+✔ Runtime 的运行授权独立于原任务，主会话可继续，步骤结果不逐个唤醒或注入 (212.674833ms)
+✔ 普通 SubAgent 在真实 Runtime 出队时与三个工作流步骤抢同一来源名额 (224.6155ms)
+✔ 脚本汇总等目录占用时暂停，恢复重放原宿主操作，实际写入一次 (288.043208ms)
+✖ 重启移除步骤执行器时，已持久运行明确暂停 (158.546709ms)
+✔ 重启移除步骤执行器时，保留已有暂停原因 (281.681417ms)
+✖ coding preview 与 apply 均拒绝丢弃工作流执行绑定，源字节不变且不导入资料 (10.149917ms)
+✖ personal preview 与 apply 均拒绝丢弃工作流执行绑定，源字节不变且不导入资料 (8.34825ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 4
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1934.413458
+
+✖ failing tests:
+
+test at test/107-workflow-runtime-wiring.test.ts:143:37
+✖ 重启移除步骤执行器时，已持久运行明确暂停 (158.546709ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'backend_stop'
+  - 'agent_unavailable'
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/107-workflow-runtime-wiring.test.ts:159:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'backend_stop',
+    expected: 'agent_unavailable',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/108-workflow-import.test.ts:14:3
+✖ coding preview 与 apply 均拒绝丢弃工作流执行绑定，源字节不变且不导入资料 (10.149917ms)
+  Error: unable to open database file
+      at new Db (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/core/src/db.ts:757:15)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/108-workflow-import.test.ts:42:24)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    code: 'ERR_SQLITE_ERROR',
+    errcode: 14,
+    errstr: 'unable to open database file'
+  }
+
+test at test/108-workflow-import.test.ts:14:3
+✖ personal preview 与 apply 均拒绝丢弃工作流执行绑定，源字节不变且不导入资料 (8.34825ms)
+  Error: unable to open database file
+      at new Db (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/core/src/db.ts:757:15)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/108-workflow-import.test.ts:42:24)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    code: 'ERR_SQLITE_ERROR',
+    errcode: 14,
+    errstr: 'unable to open database file'
+  }

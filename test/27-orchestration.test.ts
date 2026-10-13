@@ -52,7 +52,7 @@ test("角色引导：只引导 main（chat/coding 已退役，issue 20/23）", a
     assert.equal(session.cwdReal, fs.realpathSync(main.workDir));
     // 白名单：main 无编码工具（issue 02 起含应用数据空间；agent-direction issue 09 起含
     // service 类别——装配另要求产品/Linux/显式部署配置，见 tool-availability）
-    assert.deepEqual(main.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"]);
+    assert.deepEqual(main.tools, ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"]);
   } finally {
     await t.shutdown();
   }
@@ -212,8 +212,8 @@ test("资料隔离：owner token 审批入口硬拒绝（保护根）；普通�
       if (readAttempts === 1) {
         // 结构化审批入口：保护根必须硬拒绝（不产生审批单）。
         // 注：local 执行后端无文件系统隔离（仅开发/验证），直接
-        // read/bash 的边界由容器后端提供，不在本测试断言范围。
-        // Note: 见 .agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md
+        // read/bash 的边界由原生后端提供，不在本测试断言范围。
+        // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
         return {
           kind: "tool_calls",
           calls: [{ id: "sec1", name: "request_file_access", arguments: { path: tokenPathHolder.path, operation: "read", reason: "测试越界读取" } }],

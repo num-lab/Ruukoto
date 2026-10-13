@@ -22,6 +22,7 @@ import {
   startTestRuntime,
 } from "./helpers/testkit.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+import { getWorkflowQuestion, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import type { SessionCompactionRequest } from "@ruukoto/core/types.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
@@ -193,7 +194,28 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持�
   } finally { await t.shutdown(); }
 });
 
-/** 以独立进程启动真实后台（mock 模型，mock 工具，local 执行后端）。 */
+test("PTY：工作流阶段窗口可滚动关闭，等待中聊天与退出不取消运行", { timeout: 60_000 }, async context => {
+  if (!hasPython3()) { context.skip("python3 不可用"); return; }
+  const t = await startTestRuntime("pty-workflow", async () => ({ kind: "text", text: "CHAT-OK" }), { config: { product: codeProduct.runtime, socketPath: undefined } });
+  try {
+    const session = (await t.runtime.openWorkspace({ cwd: t.work[0] })).session;
+    const text = Array.from({ length: 40 }, (_, index) => "STAGE-LOG " + index + " 中文阶段").join("\n");
+    await t.runtime.saveWorkflowDefinition({ name: "batch", script: 'await progress("state",{text:' + JSON.stringify(text) + '}); return await ask("q",{prompt:"继续?"});', expectedDigest: null, requestKey: "owner:save" });
+    const accepted = await t.runtime.startWorkflowOwner({ sessionId: session.id, name: "batch", requestKey: "run", input: {} });
+    await waitFor("人工等待", () => requireWorkflowRun(t.runtime.store, accepted.run.id).status === "waiting");
+    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id,
+      env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+      inputs: [[4, "/workflow logs " + accepted.run.id + "\r"], [7, "\x1b[6~"], [8, "q"], [10, "日常聊天\r"], [15, "/quit\r"]],
+      expect: ["STAGE-LOG", "CHAT-OK", "已退出 TUI"], timeout: 25 });
+    assert.equal(result.exitCode, 0, result.tail); assert.equal(result.expectSeen, result.expectTotal, result.tail);
+    assert.ok(result.all.includes("\x1b[?1049l"));
+    assert.equal(requireWorkflowRun(t.runtime.store, accepted.run.id).status, "waiting");
+    assert.equal(getWorkflowQuestion(t.runtime.store, accepted.run.id, "q")!.status, "pending");
+    assert.equal(t.server.calls.length, 1, "只有日常聊天调用模型");
+  } finally { await t.shutdown(); }
+});
+
+/** 以独立进程启动真实后台（mock 模型，mock 工具；正式入口默认 native，本例不运行 worker）。 */
 async function startBackendProcess(dirs: { root: string; dataDir: string; agentDir: string }, baseUrl: string) {
   await writeModelsJson(dirs, baseUrl);
   const env = {
@@ -202,7 +224,7 @@ async function startBackendProcess(dirs: { root: string; dataDir: string; agentD
     RUUKOTO_AGENT_DIR: dirs.agentDir,
     RUUKOTO_PENDING_DIR: path.join(dirs.root, "pending"),
   };
-  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "start", "--execution", "local", "--tools", "mock", "--model", "mock/mock-model"], {
+  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "start", "--tools", "mock", "--model", "mock/mock-model"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿

@@ -4,7 +4,7 @@
 
 本模块回答两个问题：**这个会话、这个任务允许哪些工具**，以及**一次工具调用怎么被执行边界接受、怎么取得授权、结果怎么记账**。它持有会话身份到工具类别的静态表与执行画像（`packages/agent/src/tool-availability.ts`），把宿主工具族装配成一次任务的工具集（`packages/agent/src/host-tool-families.ts`），并负责审批闸门（`packages/agent/src/approval-gate.ts`）、自动审查策略（`packages/agent/src/review.ts`）、工具操作账本（`packages/agent/src/tool-op-ledger.ts`）、工具正文产物（`packages/agent/src/artifacts.ts`），以及工作清单、计划模式工具白名单、main 应用数据空间、长期操作授权、Web Search 与 MCP 服务这些具体的工具面。
 
-它不负责执行边界本身：原生沙箱、容器或启动账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
+它不负责执行边界本身：原生沙箱或启动账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
 
 两件事明确不属于可用性判定：获批之后的复核属于审批闸门；Web Search 开关的现场检查与「委派沿拥有者请求、定时计划或已保存的工作授权触发」这一限定，由各工具在执行时自行完成。
 
@@ -24,14 +24,16 @@
 | 调度通知 | 目标解析 | 调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM 入口确定 |
 | ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
 
+`read` 可读取文本与 JPEG、PNG、WebP 图片，按实际文件内容识别，图片结果连同正文进入会话历史与 prompt 快照。所选模型不支持 image 时，发送前以 `image_input_unsupported` 明确失败；图片处理与传输上限见 [execution](execution.md)。
+
 `packages/agent/src/host-tool-families.ts` 定义族的类别、工具名、构建入口与账本声明。没有绑定器的模块测试可直接提供 `taskContext`；释放可重复调用，并发执行不共享可变的当前调用上下文。个人调度与服务工具由 ruukoto app 提供，旧群结果查询由 channels 提供；Runtime 合并共享族与产品族后派生账本声明。调度与服务的旧操作规则始终由共享账本提供，Coding Agent 停用这些能力仍可核实旧操作；应用库或个人产品的调度器、服务管理停用时，对应族提供空工具集。
 
 会话身份到工具类别的静态表是唯一来源，新工具族写进哪份清单才出现：
 
 | 会话身份 | 工具类别清单 |
 |---|---|
-| 普通开发会话 | 编码工具（含工作清单 `todo_write`）、资料与记忆、Web Search、MCP、技能、SubAgent 委派 |
-| main 会话 | 资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、服务器服务管理、SubAgent 委派 |
+| 普通开发会话 | 编码工具（含工作清单 `todo_write`）、资料与记忆、Web Search、MCP、技能、SubAgent 委派与工作流 |
+| main 会话 | 资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、服务器服务管理、SubAgent 委派与工作流 |
 | SubAgent 会话 | 空；工具按执行画像的 SubAgent 工具集单独装配 |
 | 已退役归档会话 | 不归任何类别；QQ 群会话与 chat/coding 旧角色会话是只读归档、不运行任务，算执行画像即拒绝 |
 
@@ -227,8 +229,15 @@ sequenceDiagram
 
 **GitHub 接入**。GitHub 操作一律经 MCP 服务接入，核心不提供专用 GitHub 模块或 REST 回退路径；PR webhook 评审的任务由宿主按任务收窄为静态只读白名单（`read` / `read_artifact`）∪ 类别为只读的 MCP 工具。端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`，host `api.githubcopilot.com`），必须另建并收紧到 main 项目，不复用其他用途的凭据，凭据范围不自动迁移。允许列表按 `mcp check` 实际发现的工具名精确填写，服务端工具集随版本变化，以发现结果为准；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。真实只读连通验证（SDK 版本、协商协议、工具清单与结果）在配置具备时进行；缺少凭据或网络条件时如实列为未验证，不以模拟测试冒充。故障排查按现象分派：认证失败（401/403）核对 `credentials list` 中 host、用途、scope 与 PAT 权限；服务不可用事件按事件中的 reason 区分连接失败、超时、协议不兼容（SDK 结果校验失败说明服务端违反 MCP 规范）与工具数/分页超限；工具缺失用 `mcp check` 对比远端实际工具与允许列表，远端改名须更新配置并在下一任务生效；限流（429）与超时一次终止并明确报错、不自动重试，重试时机由拥有者决定，任务取消或中断后迟到结果被忽略，终态与操作记录保持一致。
 
+共享 `workflow` 族提供 `workflow_instructions`、`workflow_save`、`workflow_start`、`workflow_query` 和 `workflow_cancel`。编写说明通过工具结果进入历史；保存/发起使用稳定键，查询/取消限来源会话，身份来自独立 HostToolContext。模型只可收窄默认预算，不取得恢复、核实或提高预算的入口；计划模式和步骤不开放这些工具。保存落盘前重核活动身份；账本按完整请求摘要核实发起、保存和取消，文件已落盘但无保存回执仍记无法核实。
+
+宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；独立编码验证只开放五个编码工具，其命令使用原生沙箱。
+
 ## 设计依据
 
+- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
+
+- [内置 read 从同一受限读取恢复图片结果](../../.agents/notes/implemented/bug-fix/2026-10-12-read-images.md)
 - [完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)
 - [调度计划只触发独立的通用任务](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)
 

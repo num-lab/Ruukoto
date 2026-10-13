@@ -1,0 +1,69 @@
+
+> ruukoto-workspace@0.1.0 build
+> npm run build:native && npm run build:worker && npm run build:script && npm run build --workspaces --if-present
+
+
+> ruukoto-workspace@0.1.0 build:native
+> node scripts/build-native.mjs
+
+
+> ruukoto-workspace@0.1.0 build:worker
+> esbuild packages/agent/src/tool-worker/worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outfile=worker/worker.mjs
+
+
+  worker/worker.mjs  15.7kb
+
+⚡ Done in 8ms
+
+> ruukoto-workspace@0.1.0 build:script
+> node scripts/build-workflow-script.mjs
+
+
+> ruukoto@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 742B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.2kB src/scheduler-tools.ts
+npm notice 27.4kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 17.0 kB
+npm notice unpacked size: 53.0 kB
+npm notice shasum: e08a6d7f2b88f1d49b4b4bfcc5e961ccb141104d
+npm notice integrity: sha512-kZq/fSMTY0ZpD[...]TFUpgypyRzh+Q==
+npm notice total files: 7
+npm notice
+ruukoto-0.1.0.tgz
+
+> ruukoto-code@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 73.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 21.4 kB
+npm notice unpacked size: 75.6 kB
+npm notice shasum: d780c52556329160b888cb6824d9a983e586ddbd
+npm notice integrity: sha512-qwruE5lTfP9M4[...]YttgTrg/vDqSA==
+npm notice total files: 6
+npm notice
+ruukoto-code-0.1.0.tgz

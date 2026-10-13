@@ -1,0 +1,13 @@
+{
+  "apps/ruukoto/src/product.ts": "3c0530d199e9906d3ef95f8fd374bf0c765d093a2f5483cbf4d3248911887274",
+  "packages/agent/src/tool-router.ts": "452585a9464d4d6359dd98c07d1f2ee40407f9af50ab087821d8b43f8546a4e2",
+  "packages/agent/src/tool-worker/host.ts": "df8f07c85d7167fdd8be006a08ed94897ea802f64075f747d4a436c90af72eb8",
+  "packages/agent/src/execution/launchers.ts": "fdc82ea87df73b6842ba79af22d5784643fa24ec415fad9f6e8cd8de14848f1c",
+  "worker/worker.mjs": "7d86af987dc32fbb5b541bdc0365f06353a06ed4fe92ff90ee98eb4e15b597dc",
+  "verification/smoke/gate.ts": "bbebce2cc6cc58b7331de80382a9f73b24fdd347d1bbf211ea17664058aec4bb",
+  "verification/smoke/smoke-04-desktop-execution.mts": "d9a4ae32a19beb50beb1a0c04fe24ebf80ea4b6776c4ebaf3e8aa1fe7331682a",
+  "verification/smoke/smoke-13-subagent-messaging.mts": "a504a6e50d6442be3801e0d88d062b5405c26db27cef20bd51d0ebb26c635461",
+  "verification/smoke/smoke-15-recover-subagents.mts": "e63f3840bac8832a7360be18328da2c12497b52cacd956ea95ed714cdeae8b46",
+  "verification/smoke/smoke-18-im-final-delivery.mts": "5af96b443c52d93bfa93e626c1b9e3a921bebc1adb08883590e8c98f7ead65c5",
+  "verification/smoke/smoke-28-personal-native.mts": "16e01e793d8902cc3f8efb7ba8715e35e01530dbcc6c93ff3bdc76120f49699d"
+}

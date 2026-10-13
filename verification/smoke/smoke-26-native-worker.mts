@@ -213,8 +213,7 @@ try {
   const ensured = await ensureBackend({ ...dirs, controlDir,
     spawnArgv: [path.join(repo, "apps/ruukoto-code/bin/ruukoto-code.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir],
     env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-      DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_CODE_CONTROL_DIR: controlDir,
-      RUUKOTO_DOCKER_PATH: "/no-docker-for-native-proof" } });
+      DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_CODE_CONTROL_DIR: controlDir } });
   assert.equal(ensured.ok, true, ensured.ok ? "" : ensured.error);
   assert.equal(ensured.spawned, true);
   client = await ControlClient.connect(path.join(controlDir, "control.sock"), 3000);
@@ -229,7 +228,7 @@ try {
   assert.equal(detail.toolOps.length, 4); assert.ok(detail.toolOps.every((op: { isError: boolean }) => !op.isError));
   assert.equal(fs.readFileSync(path.join(workspace, "answer.txt"), "utf8"), "42\n");
   await stopBackend();
-  record("Docker 入口不可用时正式产品默认 native，按需后台完成四工具修改与检查");
+  record("Coding Agent 正式产品默认 native，按需后台完成四工具修改与检查");
   process.stdout.write(JSON.stringify({ platform: os.platform(), release: os.release(), arch: os.arch(), checks, pass: true, models: "mock", execution: "native" }, null, 2) + "\n");
 } catch (error) {
   process.stderr.write(`[ruukoto:native-smoke] FAIL ${error instanceof Error ? error.stack : String(error)}\n`);

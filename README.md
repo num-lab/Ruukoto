@@ -25,11 +25,11 @@
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Coding Agent 使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建 worker、lint、类型检查、应用与基础验证的全部离线测试
+npm run check       # 构建 worker 与 WASM、静态检查及全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 
@@ -54,7 +54,7 @@ ruukoto-code stop                 # 停止后台
 
 ### ruukoto（Linux 服务器）
 
-当前登录账户、受限任务工具镜像、systemd 单元以及可选的固定服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
+当前账户、原生沙箱与宿主工具、常驻 user manager、systemd 单元以及可选的固定服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
 
 ```bash
 export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
@@ -80,7 +80,9 @@ ruukoto qq enable
 
 ### 开发本项目
 
-修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI与显式复跑执行。
+两产品支持[后台工作流](docs/modules/workflows.md)：用 `workflow` 管理定义和带参运行，TUI 用 `/workflow`，个人 IM 用明确控制命令；[操作说明](docs/usage.md#511-工作流问题与回报)与[定向测试](docs/development.md#日常反馈)说明使用、六输入组合及显式真实模型验证。
+
+修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
 
 ```bash
 npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启
@@ -100,5 +102,4 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 - [docs/postmortem/](docs/postmortem/)：事故复盘——失败机制与据此加的护栏
 - [CONTEXT.md](CONTEXT.md)：领域术语
 - [.agents/notes/](.agents/notes/)：架构决策记录
-- [docs/visual/index.html](docs/visual/index.html)：状态机、调用路径、协议、存储与部署图解（2026-10-09 快照，已停止维护）
 - [AGENTS.md](AGENTS.md)：面向编码代理的仓库约定

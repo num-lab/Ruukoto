@@ -59,4 +59,6 @@ Status: implemented
 
 ## 适用范围
 
+工作流的独立业务问题、无工具整项汇总与定时归属见[整项送达](2026-10-13-workflow-owner-input-and-delivery.md)；普通委派的收尾规则继续由本篇持有。
+
 通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。

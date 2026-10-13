@@ -1,33 +1,43 @@
 # ruukoto 目标服务器部署（Linux）
 
-后台、CLI/TUI 与完全访问 worker 使用实际登录账户。完全访问继承后台启动时的用户环境，具有该账户已有的文件、网络和凭据权限；内部 Ruukoto 控制变量不传给 worker。控制面仍验证拥有者令牌。受限任务使用容器，服务管理另需可选的固定 helper 与 OS 授权。
+后台、CLI/TUI 与完全访问 worker 使用实际运行账户。完全访问继承后台启动时的用户环境，具有该账户已有的文件、网络和凭据权限；内部 Ruukoto 控制变量不传给 worker。控制面仍验证拥有者令牌。受限任务使用原生沙箱，服务管理另需可选的固定 helper 与 OS 授权。
 
 <!-- Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md -->
 
 ## 安装步骤
 
-以下示例把代码装在 `/opt/ruukoto`，数据装在 `/var/lib/ruukoto`。模板中的 `@RUN_USER@` / `@RUN_GROUP@` 在安装时替换为执行这些命令的登录账户。Node 24 与 Docker 须已安装；完全访问本身无需 Docker，容器仅用于受限任务。
+以下示例把代码装在 `/opt/ruukoto`，数据装在 `/var/lib/ruukoto`，以当前既有账户运行后台。先安装 Node（最低 22.19，建议 24）、Git、Bash、coreutils、Python 3 与 dbus-user-session，并按[原生前置](../native/README.md)安装正式 bwrap/profile。后台使用宿主工具，不依赖 Docker。模板的账户、数值 UID 与 Node 绝对路径均须按实际安装值替换，不能假定 `/usr/bin/node` 是所需版本。逐步执行，任一步失败时先处理，不继续启动后台。
 
 ```bash
 # 1. 数据目录与代码（不创建系统账户）
 run_user=$(id -un)
 run_group=$(id -gn)
+run_uid=$(id -u)
+node_bin=$(node -p 'process.execPath')
+"$node_bin" -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major<22||(major===22&&minor<19))process.exit(1)'
 sudo install -d -o "$run_user" -g "$run_group" -m 0700 /var/lib/ruukoto/{data,agent,agent-work,control}
 sudo rsync -a --delete --exclude node_modules --exclude .git --exclude .scratch --exclude .DS_Store ./ /opt/ruukoto/
-sudo sh -c 'cd /opt/ruukoto && npm ci --omit=dev && npm run build'
+sudo env PATH="$(dirname "$node_bin"):/usr/local/bin:/usr/bin:/bin" sh -c 'cd /opt/ruukoto && npm ci --omit=dev && npm run build'
 
 # 2. 模型配置与凭据（替换为实际文件路径；缺可用模型时拒绝启动）
 sudo install -o "$run_user" -g "$run_group" -m 0600 <models.json> /var/lib/ruukoto/agent/models.json
 sudo install -o "$run_user" -g "$run_group" -m 0600 <auth.json> /var/lib/ruukoto/agent/auth.json
 
-# 3. 受限任务的固定镜像与容器管理权限
-sudo sh -c 'cd /opt/ruukoto && npm run build:worker-image'
-sudo usermod -aG docker "$run_user"
-# 重新登录后生效。原生 Linux bind mount 不做 UID 映射，容器 UID/GID
-# 须能读写工作区；在单元 drop-in 设置 RUUKOTO_CONTAINER_UID/GID 为登录账户值。
+# 3. user manager 开机启动并在退出登录后继续运行
+sudo loginctl enable-linger "$run_user"
+sudo systemctl start "user@$run_uid.service"
+sudo -u "$run_user" env XDG_RUNTIME_DIR="/run/user/$run_uid" \
+  DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$run_uid/bus" systemctl --user is-system-running
 
 # 4. 后台单元：安装前替换账户占位值
-sed -e "s/@RUN_USER@/$run_user/g" -e "s/@RUN_GROUP@/$run_group/g" deploy/systemd/ruukoto-backend.service | sudo tee /etc/systemd/system/ruukoto-backend.service >/dev/null
+python3 - "$run_user" "$run_group" "$run_uid" "$node_bin" <<'PY' | sudo tee /etc/systemd/system/ruukoto-backend.service >/dev/null
+from pathlib import Path
+import sys
+text = Path("deploy/systemd/ruukoto-backend.service").read_text()
+for name, value in zip(("RUN_USER", "RUN_GROUP", "RUN_UID", "NODE_BIN"), sys.argv[1:]):
+    text = text.replace("@" + name + "@", value)
+print(text, end="")
+PY
 sudo systemctl daemon-reload
 sudo systemctl enable --now ruukoto-backend
 # 单元由 systemd 设置账户 HOME；代理、SSH_AUTH_SOCK 等按需在 drop-in
@@ -38,7 +48,17 @@ export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
 ruukoto
 ```
 
-完全访问无需专用执行账户、启停包装、工作区 ACL 或额外 sudo 配置。账号原有的文件权限仍有效。Coding Agent 的受限原生前置见 [deploy/native](../native/README.md)，日常入口与升级见 [usage](../../docs/usage.md)。
+`linger` 使该账户的 user manager 在开机后和无登录会话时继续运行；停止后台不会停止它管理的其他用户服务。受限 worker 不继承 user bus。`running` 或 `degraded` 的 manager 才能供 launcher 使用，仍需核实每个 `Delegate=yes` scope 与可写 `cgroup.kill`。正常停止和启动拒绝的检查应以服务实际账户及同样环境执行，不能用登录 shell 代替系统服务。
+
+完全访问无需专用执行账户、启停包装、工作区 ACL 或额外 sudo 配置。账号原有的文件权限仍有效。原生临时 HOME/TMPDIR 使用宿主磁盘，没有单任务容量上限；停止核实后清理，未核实则保留现场与占用。日常入口见 [usage](../../docs/usage.md)。
+
+## 升级与回退
+
+先用旧版本入口停止后台并按该实例的执行单元身份核实所有旧 worker 已退出。系统服务的 `KillMode=control-group` 只覆盖该单元内进程，不能证明另一 user scope 或旧容器已退出；查询失败或停止未核实时保留占用和现场，停止版本切换。不要用全局容器清理处理旧 worker。
+
+核实停止后备份配置、数据库、JSONL 历史、审批、产物及工作副本，保留异常占用记录。安装宿主工具与原生前置，移除启动参数、单元 drop-in 和 EnvironmentFile 中的旧 `container` / `local` 执行覆盖以及 worker 镜像、容器 UID/GID 配置，再替换检出、构建和单元。用同一原档案启动，核实档案 schema 与代码匹配，并验收受限工具、委派、调度与中断状态；档案格式规则见[操作手册](../../docs/usage.md)。
+
+回退旧版本前也必须先停止并核实新原生单元，保留资料和待核实状态；不承诺在线无损切换或已执行操作回滚。Docker 卸载和既有 docker 组权限清理是独立运维决定，不自动执行。
 
 ## 服务器服务管理
 

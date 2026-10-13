@@ -418,7 +418,6 @@ export interface RunnerOptions {
  * 每次查询启动一个固定入口的 Node 子进程，只打开 main.db 的只读连接。
  * 超时/取消后 SIGKILL 并等待退出再返回；关闭 Runtime 时回收在途查询。
  * 不传 owner token、模型凭据或核心数据库句柄（环境只留 PATH 与库路径）。
- * Note: 见 .agents/notes/implemented/architecture/2026-09-23-main-app-data-space.md
  */
 export class AppDataQueryRunner {
   private readonly active = new Set<ChildProcess>();
@@ -492,13 +491,13 @@ export class AppDataQueryRunner {
       child.on("error", (err) =>
         finish(() => reject(new AppDataError("spawn_failed", `查询子进程启动失败：${err.message}`))),
       );
-      child.on("close", (code, signal) => {
+      child.on("exit", (code, signal) => {
         if (timedOut) return; // 超时路径统一返回 query_timeout（不占结算位）
         finish(() => reject(new AppDataError("child_exited", `查询子进程在响应前退出（code=${code} signal=${signal}）`)));
       });
       const payload = opts.stallMs ? { ...request, __stallMs: opts.stallMs } : request;
       child.stdin!.on("error", () => {
-        // 子进程早退时写入可能 EPIPE；结果由 stdio 关闭或超时路径统一给出
+        // 子进程早退时写入可能 EPIPE；结果由 exit/超时路径统一给出
       });
       child.stdin!.write(JSON.stringify(payload) + "\n");
       child.stdin!.end();

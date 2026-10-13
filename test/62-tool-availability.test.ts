@@ -39,11 +39,11 @@ test("会话身份：SubAgent 行优先，main 按绑定，其余为普通开发
 });
 
 test("会话类别 × 工具类别：每个会话类别只开放清单内的类别", () => {
-  const categories: ToolCategory[] = ["coding", "host_data", "web_search", "mcp", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"];
+  const categories: ToolCategory[] = ["coding", "host_data", "web_search", "mcp", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"];
   const expected: Record<SessionToolClass, ToolCategory[]> = {
-    dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent", "workflow"],
+    dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent"],
     // service（agent-direction issue 09）：仅 main；装配另要求产品/Linux/显式部署配置
-    main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
+    main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent"],
     subagent: [],
   };
   for (const [cls, open] of Object.entries(expected) as Array<[SessionToolClass, ToolCategory[]]>) {

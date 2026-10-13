@@ -5,7 +5,8 @@
  *   data/ agent/ control/ pending/ logs/；不落在受保护根 CODE_ROOT 内
  *   （dirname(dataDir)/qq-work 也因此留在档案里）；
  * - 子进程环境清洗：绝不继承生产拥有者令牌与产品配置
- *   （RUUKOTO_OWNER_TOKEN*、RUUKOTO_EXECUTION_BACKEND 与服务配置），固定注入 RUUKOTO_DISABLE_QQ=1 与 RUUKOTO_DISABLE_TELEGRAM=1
+ *   （RUUKOTO_OWNER_TOKEN*、RUUKOTO_EXECUTION_BACKEND、
+ *   RUUKOTO_CONTAINER_*、RUUKOTO_WORKER_IMAGE），固定注入 RUUKOTO_DISABLE_QQ=1 与 RUUKOTO_DISABLE_TELEGRAM=1
  *   （复用档案数据库也不会连接真实 QQ / Telegram 通道）；
  * - 模型门禁：probeModelConfig 不可用 → 普通启动直接报错并提示 --config；
  *   --config 先开离线配置中心，退出后复探，通过才启动后台并开在线配置中心；
@@ -73,6 +74,7 @@ const SCRUB_EXACT = new Set([
   "RUUKOTO_OWNER_TOKEN",
   "RUUKOTO_OWNER_TOKEN_FILE",
   "RUUKOTO_EXECUTION_BACKEND",
+  "RUUKOTO_WORKER_IMAGE",
   // 产品身份与路径由开发入口固定，不继承日常实例。
   "RUUKOTO_PRODUCT",
   "RUUKOTO_DATA_DIR",
@@ -81,7 +83,7 @@ const SCRUB_EXACT = new Set([
   "RUUKOTO_PENDING_DIR",
   RELOAD_STATE_ENV,
 ]);
-const SCRUB_PREFIXES = ["RUUKOTO_SERVICE_", "RUUKOTO_CODE_"];
+const SCRUB_PREFIXES = ["RUUKOTO_CONTAINER_", "RUUKOTO_SERVICE_", "RUUKOTO_CODE_"];
 
 /** 子进程环境：洗掉生产令牌/服务配置，注入档案目录与 QQ 停用标记。 */
 export function buildChildEnv(base: NodeJS.ProcessEnv, profile: DevProfile): NodeJS.ProcessEnv {

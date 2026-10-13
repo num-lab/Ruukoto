@@ -527,7 +527,7 @@ test("撤销时机：任务运行中撤销授权后，该任务的后续宿主�
     assert.notEqual(q1.isError, true, "撤销前后台查询成功");
     assert.ok(String(q1.resultSummary).includes("青铜灯塔"), "授权期间读到来源内容");
     assert.equal(q2.isError, true, "撤销后同一任务的后续查询即被拒绝");
-    assert.match(q2.resultSummary ?? "", /资料范围/);
+    assert.match(q2.resultSummary ?? "", /无权读取/);
   } finally {
     await t.shutdown();
   }

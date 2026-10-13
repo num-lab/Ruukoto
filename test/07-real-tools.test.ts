@@ -10,7 +10,7 @@
  * - Write 新建与覆盖文件的增删行统计保留在工具结果事件和会话历史中；
  * - 执行入口不可用时明确失败，不回退到后台账户执行。
  *
- * 原生文件与身份边界由真实 OS 探针和 smoke 验证，离线用例不替代该证据。
+ * 容器内的路径解析与身份隔离（Linux）不在本机验证，见 issue 记录。
  */
 
 import { test } from "node:test";
@@ -280,7 +280,7 @@ test("执行入口不可用：明确失败，不回退到后台账户执行", as
       workDirs: 1,
       config: {
         ...realTools(),
-        execution: { backend: "native", native: { workerPath: "/nonexistent/ruukoto-worker.mjs" } },
+        execution: { backend: "container", container: { dockerPath: "/nonexistent/docker" } },
       },
     },
   );

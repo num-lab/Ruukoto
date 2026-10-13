@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>只执行一次</title>
+<link rel="stylesheet" href="style.css">
+<script src="visual.js" defer></script>
+</head>
+<body>
+<svg class="defs" aria-hidden="true" focusable="false"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ok" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah wait" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-unk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah unk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah bad" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah accent" d="M0 0L10 5L0 10z"/></marker>
+</defs></svg>
+<main class="page">
+  <aside class="callout limit"><b>快照</b>2026-10-09 快照，已停止维护，以 docs/ 模块文档为准。</aside>
+  <header class="doc-head">
+    <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>once-only.html</span></nav>
+    <p class="eyebrow">跨模块模式</p>
+    <h1>只执行一次</h1>
+    <p class="lede">工具操作、审批与 IM 审批命令、长期操作授权、服务操作、通知、群回复、入站事件、控制面提交、应用数据、调度与委派各自实现了同一个模式：先落盘意图，再条件领取或消费，然后只执行一次，结果不明不重发。这一页把各处的键、条件与后果并排放，便于横向对照；每处的细节在对应页面。</p>
+    <dl class="meta">
+      <div><dt>源码</dt><dd>
+        <code class="src" data-src="packages/core/src/store.ts#consumeApproval">core/store.ts</code>
+        <code class="src" data-src="packages/core/src/db.ts#idx_standing_permissions_active">core/db.ts</code>
+        <code class="src" data-src="packages/agent/src/approval-gate.ts#class ApprovalGate">agent/approval-gate.ts</code>
+        <code class="src" data-src="packages/channels/src/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
+        <code class="src" data-src="apps/ruukoto/src/service-tools.ts#export function createServiceTools">agent/service-tools.ts</code>
+        <code class="src" data-src="deploy/systemd/ruukoto-service.mjs#function cmdRestart">deploy/systemd/ruukoto-service.mjs</code>
+        <code class="src" data-src="packages/agent/src/tool-op-ledger.ts#settleAll">agent/tool-op-ledger.ts</code>
+        <code class="src" data-src="packages/agent/src/driver.ts#handleToolCall">agent/driver.ts</code>
+        <code class="src" data-src="packages/channels/src/im-approvals.ts#standingCandidate">runtime/im-approvals.ts</code>
+        <code class="src" data-src="packages/runtime/src/subagents.ts#export class SubAgentManager">runtime/subagents.ts</code>
+        <code class="src" data-src="packages/channels/src/scheduler/store.ts#claim(id: string)">scheduler/store.ts</code>
+        <code class="src" data-src="packages/channels/src/scheduler/runtime.ts#private async sendOne">scheduler/runtime.ts</code>
+        <code class="src" data-src="packages/channels/src/qq/store.ts#settleOutbox">qq/store.ts</code>
+        <code class="src" data-src="packages/runtime/src/runtime.ts#private retireLegacyRoles">runtime/runtime.ts</code>
+        <code class="src" data-src="packages/runtime/src/orchestrator.ts#registerInboundEvent">runtime/orchestrator.ts</code>
+        <code class="src" data-src="packages/control/src/submission.ts#class SubmissionGuard">control/submission.ts</code>
+        <code class="src" data-src="packages/agent/src/app-data/store.ts#replayIfDuplicate">app-data/store.ts</code>
+      </dd></div>
+      <div><dt>决策</dt><dd>
+        <a href="../adr/0004-tool-worker-per-task-container-exec-account.md">ADR 0004 单次授权</a>
+        <a href="../adr/0009-main-app-data-space.md">ADR 0009 应用数据回执</a>
+        <a href="../adr/0010-scheduler-outbox.md">ADR 0010 outbox</a>
+        <a href="../adr/0011-telegram-owner-entry.md">ADR 0011 限流退回</a>
+        <a href="../adr/0019-service-management-controlled-helper.md">ADR 0019 helper 单次认领</a>
+        <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 两级幂等</a>
+      </dd></div>
+      <div><dt>相关页面</dt><dd>
+        <a href="task-lifecycle.html">任务生命周期</a>
+        <a href="tool-call-path.html">工具调用路径</a>
+        <a href="control-protocol.html">控制面协议</a>
+        <a href="outbox.html">通知 outbox</a>
+        <a href="inbound-events.html">入站事件</a>
+        <a href="orchestrator.html">编排器</a>
+      </dd></div>
+    </dl>
+  </header>
+
+  <section id="pattern">
+    <h2>同一个模式的四步</h2>
+    <div class="flow">
+      <div class="stage"><h4>① 先落盘意图</h4>执行之前把「要做什么」持久化：工具操作、审批请求、发送操作、收件登记、入站事件写进数据库，控制面客户端的待确认提交写进本地文件。崩溃在这一步之前，什么都还没执行。</div>
+      <div class="stage"><h4>② 条件领取或消费</h4>执行前用一次条件更新或唯一键取得资格：状态仍是指定值、版本一致、尚未被消费，或同一个键还没有记录；服务 helper 用一次原子 <code>mkdir</code>。条件更新影响 0 行说明别人抢先了或已失效，放弃执行。</div>
+      <div class="stage"><h4>③ 执行一次</h4>拿到资格的一方执行一次。执行内容在落盘或审批时就已固定（审批记录的参数、发送操作的目标与正文、待确认提交的原参数），执行时不按当前状态重新构造。</div>
+      <div class="stage"><h4>④ 结果分类</h4>成功、失败照实记；结果无法确认时记「效果未知」或「应答丢失」，不自动换键重发：效果未知由拥有者核实，应答丢失先按原键核实。</div>
+    </div>
+    <aside class="callout inv">
+      <b>不变量</b>
+      <p>本地能保证的只有一件事：<strong>一个逻辑键最多产生一次可能带副作用的执行</strong>。远端平台没有幂等支持时，本地无法保证端到端只发生一次——所以未知结果一律交回拥有者，而不是赌一次重发。</p>
+    </aside>
+  </section>
+
+  <section id="table">
+    <h2>各处实现对照</h2>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>机制</th><th>意图与逻辑键</th><th>领取或消费</th><th>结果不明时</th></tr></thead>
+        <tbody>
+          <tr data-k="tool" tabindex="0">
+            <td><strong>工具操作</strong><br><code class="src" data-src="packages/agent/src/tool-op-ledger.ts#recordResult">tool-op-ledger.ts · recordResult</code></td>
+            <td><code>tool_ops</code> 行，工具调用门在执行前写入执行意图（<code class="src" data-src="packages/agent/src/driver.ts#handleToolCall">driver.ts · handleToolCall</code>）；主键是宿主操作 id，与模型的调用 id 分开</td>
+            <td>按任务当前访问模式放行；需要审批的操作先经审批闸门消费批准，消费成功才执行</td>
+            <td>停止或重启时，结果缺失的操作按同一个分类器补记：审批全部未消费 → 已知未执行；无写入效果的工具 → 无写入效果；工具族能按宿主操作 id 核实 → 已提交或已知未提交；其余记效果未知（<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#markEffectUnknown(task: TaskRef">markEffectUnknown</code>）</td>
+          </tr>
+          <tr data-k="approval" tabindex="0">
+            <td><strong>批准消费</strong><br><code class="src" data-src="packages/core/src/store.ts#consumeApproval">store.ts · consumeApproval</code></td>
+            <td><code>confirmations</code> 行，登记审批请求时写入，与任务转 awaiting_confirmation 同一事务；主键是审批 id，行上记宿主操作 id、权限版本与参数快照，执行参数只取这份快照</td>
+            <td>决定是一次条件更新 pending → approved / rejected（<code class="src" data-src="packages/core/src/store.ts#respondConfirmation(">store.ts · respondConfirmation</code>）：TUI、IM 命令与自动审查谁先提交谁生效。获批后在同一事务内先复核：工具族复核；IM 来源再核固定身份，当前平台目标与收件时钉版目标逐项相同，含配置版本（<code class="src" data-src="packages/channels/src/im-approvals.ts#consumeRecheck">consumeRecheck</code>）；关联长期授权的批准重读授权版本与未撤销状态。然后条件更新写 <code>consumed_at</code>：状态为 approved、<code>consumed_at</code> 为空、审批与任务的权限版本都等于预期、任务仍是 running 或 awaiting_confirmation</td>
+            <td>复核或消费失败 → 批准失效（stale），按已知未执行记。消费即执行开始：停止或重启时已消费、结果缺失的操作，除非工具族能按宿主操作 id 核实，都记效果未知；HTTP 以 Node <code>ClientRequest</code> 的 <code>finish</code> 事件为界（<code class="src" data-src="packages/agent/src/execution/approved-ops.ts">approved-ops.ts</code>），之前的失败（凭据不符、主机解析失败、连接被拒）是已知错误，之后拿不到状态码的超时、连接重置、中止记效果未知（TLS 握手错误可能落在 <code>finish</code> 之后，同样记效果未知），GET/HEAD 除外（无写入效果）；MCP 写与副作用不明工具的超时、连接失败、取消也记效果未知</td>
+          </tr>
+          <tr data-k="im" tabindex="0">
+            <td><strong>IM 审批命令</strong><br><code class="src" data-src="packages/channels/src/im-approvals.ts#async handleCommand">im-approvals.ts · handleCommand</code></td>
+            <td>控制消息落 <code>inbound_events</code>（<code>event_kind = im_approval</code>），沿用 <code>(source, external_id)</code> 唯一；在处理它的同步事务里直接写终态 done / failed，task_id 为 null，不建任务、不派发。回执是 <code>(inbound_event, 控制事件 id)</code> 的发送操作；收件时没有钉版目标的只记一条 failed 控制事件，没有回执（<code class="src" data-src="packages/channels/src/im-approvals.ts#private persistNoReceipt">persistNoReceipt</code>）</td>
+            <td>先按幂等键查原记录，有就按重投处理。新键依次核实：入口身份（平台、actor、钉版目标含配置版本）；审批归属同一入口；审批仍 pending、命令里的权限版本等于审批记录、任务仍 awaiting_confirmation。都通过才交审批闸门 <code class="src" data-src="packages/agent/src/approval-gate.ts#resolve(confirmationId">resolve</code>：决定、审计事件、控制事件终态与回执作为 txExtra 同一事务提交；决定的条件更新落空、或已没有活动的等待者，就回执 race_lost。批准只选中原请求与原权限版本</td>
+            <td>本地一个事务完成，没有决定已写、记录未写的中间态：写失败整笔回滚，另记一条 failed 回执请拥有者重发命令。平台按同键重投只读原记录与原回执，不再执行（<code class="src" data-src="packages/channels/src/im-approvals.ts#private handleRedelivery">handleRedelivery</code>）；同键异命令或身份不一致记 <code>im_approval.redelivery_rejected</code>。回执本身按通知发送的规则送达</td>
+          </tr>
+          <tr data-k="standing" tabindex="0">
+            <td><strong>长期操作授权</strong><br><code class="src" data-src="packages/agent/src/approval-gate.ts#requestStanding">approval-gate.ts · requestStanding</code></td>
+            <td><code>standing_permissions</code> 行：授权 ID + 行级版本，范围创建后不改。部分唯一索引保证同一 main、同一入口（渠道、账号、chat、actor）、同一目标（本机、单元、动作）至多一条未撤销授权；<code>approval_id</code> 唯一，一条来源审批只能建一次授权（<code class="src" data-src="packages/core/src/store.ts#createStandingPermission">store.ts · createStandingPermission</code>）。创建与这次批准、授权关联、控制事件终态和回执同一事务提交，撞上唯一约束整笔回滚，决定也不记录</td>
+            <td>授权本身从不被消费。每次使用在一个同步事务里重读授权版本与未撤销状态，逐项比对本次的本机、单元、动作与两项修订，核实任务仍 running、未请求取消、权限版本未变，过一遍与人工路径相同的复核，再为本次宿主操作 id 新建一条已批准记录并照常 <code>consumeApproval</code>；任一不符整笔回滚，回落人工审批。撤销与失效都是条件更新（期望版本 + 未撤销），版本加一、保留记录</td>
+            <td>撤销先提交，放行事务重读即不符，回落人工。已消费的服务操作一旦记效果未知，同一 main、本机、单元与动作的所有入口有效授权在同一事务里失效（<code class="src" data-src="packages/core/src/store.ts#invalidateStandingForTarget">invalidateStandingForTarget</code>，原因 <code>effect_unknown</code>，事件带触发操作 ID），阻止换操作 ID 自动重试；重新建立要拥有者再次 <code>/approve-standing</code></td>
+          </tr>
+          <tr data-k="service" tabindex="0">
+            <td><strong>服务 restart</strong><br><code class="src" data-src="apps/ruukoto/src/service-tools.ts#export function createServiceTools">service-tools.ts · service_manage</code></td>
+            <td>宿主侧：<code>tool_ops</code> 意图 + 一条审批记录（人工决定或长期授权新建），执行参数取自审批快照。helper 侧：以宿主操作 id 命名的认领目录（<code class="src" data-src="deploy/systemd/ruukoto-service.mjs#OPS_DIR">ruukoto-service.mjs · OPS_DIR</code>），持久保留，只证明已认领、不证明已重启</td>
+            <td>先在核心库消费批准（消费事务内复核 main 身份与策略修订），再调 helper。helper 先 <code>mkdir</code> 认领执行权，目录已存在即拒绝（<code>already_claimed</code>）；再核对策略与已加载单元修订，才经 systemd-run 派发 <code>systemctl restart</code>（<code class="src" data-src="deploy/systemd/ruukoto-service.mjs#function cmdRestart">cmdRestart</code>）。两道关卡分别在 sqlite 与文件系统，之间没有跨系统事务</td>
+            <td>helper 证明还没请求 systemd（<code>launched: false</code>，含已认领、修订不符）→ 已知未执行，但批准已消费，再做要新审批；有退出码就照实记，非零可能已有部分效果。超时、中止、应答不可信或操作 id 不符、原始输出未保全、派发后失败 → 效果未知，不重发，并使同目标长期授权失效</td>
+          </tr>
+          <tr data-k="notify" tabindex="0">
+            <td><strong>通知发送</strong><br><code class="src" data-src="packages/channels/src/scheduler/runtime.ts#private async sendOne">scheduler/runtime.ts · sendOne</code></td>
+            <td><code>notification_ops</code> 行（pending），与来源记录同一事务写入：审批消费、IM 审批登记与控制命令、任务结果、到期登记；<code>(source_kind, source_key)</code> 唯一，同键同正文同目标返回原操作，异参冲突</td>
+            <td>领取前复核目标、计划与来源授权，不通过就 canceled；条件更新 pending → sending（<code class="src" data-src="packages/channels/src/scheduler/store.ts#claim(id: string)">scheduler/store.ts · claim</code>），只有领取成功者调用渠道；发送循环一次只有一个在途操作</td>
+            <td>明确成功 sent；渠道抛 <code>NotSentError</code>（可证明未发送）记 failed；超时、中止与其他错误记 effect_unknown；重启时遗留 sending 一律 effect_unknown（<code class="src" data-src="packages/channels/src/scheduler/store.ts#markSendingUnknown">store.ts · markSendingUnknown</code>）；迟到回执只补记、不改状态。唯一退回 pending 的是限流（见下文）</td>
+          </tr>
+          <tr data-k="qq" tabindex="0">
+            <td><strong>群聊回复</strong>（已退役 · 只读归档）<br><code class="src" data-src="packages/channels/src/qq/store.ts#listPendingOutbox">qq/store.ts · listPendingOutbox</code></td>
+            <td>退役前（旧架构）：收件先记 <code>qq_inbox</code>（主键 <code>dedup_key</code> = 账号:群:消息 id，请求键 <code>qq:&lt;dedup_key&gt;</code>）；回复先记 <code>qq_outbox</code>（pending，主键 <code>op_id</code>）再调用平台。核心群聊退役后两表不再有新增，QqStore 也已删去写入它们的方法</td>
+            <td>退役前：任务完成后按任务查重（<code>task_id</code> 上没有唯一约束，靠这次查询），核对通过才调用 <code>send_group_msg</code> 一次。退役后不再有登记与发送路径</td>
+            <td>退役时遗留的 pending 由启动收尾一律定 unknown（<code class="src" data-src="packages/runtime/src/runtime.ts#private retireLegacyRoles">runtime.ts · retireLegacyRoles</code>，<code class="src" data-src="packages/channels/src/qq/store.ts#settleOutbox">qq/store.ts · settleOutbox</code>），对应收件记 <code class="st unk">reply_unknown</code>，不重发；账本保留为只读归档。退役前：平台明确失败 failed，超时、断线、回执缺 message_id 记 unknown；已发送的不自动撤回</td>
+          </tr>
+          <tr data-k="inbound" tabindex="0">
+            <td><strong>入站事件</strong><br><code class="src" data-src="packages/runtime/src/orchestrator.ts#registerInboundEvent">orchestrator.ts · registerInboundEvent</code></td>
+            <td><code>inbound_events</code> 行，先登记再建任务；<code>(source, external_id)</code> 唯一，重复登记返回原事件、不建任务</td>
+            <td>在编排器串行链上只派发仍为 registered 的普通任务事件（类别不是 task 的控制事件不派发、明确作废），以固定请求键提交：<code>evt:&lt;事件 id&gt;</code>；退役前的群消息用收件的 <code>qq:&lt;dedup_key&gt;</code>（退役遗留的 <code>qq_group</code> 事件被入站门固定丢弃（<code>core_group_chat_retired</code>），不建任务）；评审事件用 <code>evt:&lt;事件 id&gt;:main</code> 与 <code>sdelegate:&lt;工作&gt;:ghreview-&lt;事件&gt;</code>。建好任务后条件更新 registered → queued</td>
+            <td>建任务失败的事件保持 registered：调度器按 <code class="src" data-src="packages/channels/src/scheduler/runtime.ts#SCHEDULER_LIMITS">SCHEDULER_LIMITS</code>.redispatchMs 间隔补派，重启时同样按原请求键重提，命中已有任务就沿用；关联任务被中断时事件记 failed，不重放</td>
+          </tr>
+          <tr data-k="submit" tabindex="0">
+            <td><strong>控制面提交</strong><br><code class="src" data-src="packages/control/src/submission.ts#async reconcile">submission.ts · reconcile</code></td>
+            <td>客户端先把待确认提交原子写入本地文件（临时文件 + rename）再发送；后台 <code>tasks</code> 上 <code>(session_id, request_id)</code> 唯一，行上存提交摘要 <code>submission_digest</code></td>
+            <td>摘要绑定原请求参数，隐式模式记 <code>null</code>；后续默认值变化不影响重试。同键同摘要返回原任务，同键异摘要返回 <code>request_conflict</code>（<code class="src" data-src="packages/core/src/store.ts#findMatchingSubmission">store.ts · findMatchingSubmission</code>）</td>
+            <td>应答丢失时按原键核实：查到就关联原任务，查不到才以原键原参数重发，查询失败保留待核实</td>
+          </tr>
+          <tr data-k="appdata" tabindex="0">
+            <td><strong>应用数据写入</strong><br><code class="src" data-src="packages/agent/src/app-data/store.ts#replayIfDuplicate">app-data/store.ts · replayIfDuplicate</code></td>
+            <td>业务变更、版本递增与 <code>app_audit</code> 回执在应用库同一事务提交；<code>app_audit.op_id</code>（宿主操作 id）唯一</td>
+            <td>写入事务先查回执：同参返回原结果，异参冲突；破坏性变更另经审批闸门消费批准</td>
+            <td>结果缺失时按宿主操作 id 查回执：有回执记已提交，无回执记已知未提交；应用库未打开或读取出错才记效果未知（<code class="src" data-src="packages/runtime/src/runtime.ts#appDataWriteVerdict">runtime.ts · appDataWriteVerdict</code>）</td>
+          </tr>
+          <tr data-k="schedule" tabindex="0">
+            <td><strong>调度运行</strong><br><code class="src" data-src="packages/channels/src/scheduler/store.ts#coalesceRun">scheduler/store.ts · coalesceRun</code></td>
+            <td><code>schedule_runs</code> 行，<code>(schedule_id, schedule_version, scheduled_for)</code> 唯一，部分唯一索引保证每个计划至多一个未关闭运行；<code>schedules.create_key</code> 唯一，同键同参返回原计划</td>
+            <td>扫描不重入；到期在一个短事务内重读计划（仍 active、<code>next_due_at</code> 已到），登记运行（连同入站事件、发送操作或待采集的新闻），并推进 <code>next_due_at</code></td>
+            <td>漏过周期只补一次：已有未关闭运行就并入它（原键、原正文），否则登记一次延迟补发。重启时 <code class="src" data-src="packages/channels/src/scheduler/runtime.ts#prepareRecovery">runtime.ts · prepareRecovery</code> 先补关闭关联记录已终态的运行，再处理到期计划，最后把遗留 sending 记 effect_unknown</td>
+          </tr>
+          <tr data-k="child" tabindex="0">
+            <td><strong>旧 coding 子任务</strong>（旧架构 · 已退役）<br><code class="src" data-src="packages/runtime/src/orchestrator.ts#private async handleTerminal">orchestrator.ts · handleTerminal</code></td>
+            <td>升级前已登记的 <code>tasks</code> 行，请求键 <code>deleg:&lt;父任务&gt;:&lt;幂等键&gt;</code>；固定 coding 退役后不再新建。唤醒父任务用 <code>wake:&lt;子任务&gt;</code></td>
+            <td>升级后首次启动收尾：排队的转 canceled，执行中的由恢复转 interrupted；编排器巡检以条件更新写一次结果（<code>result_summary</code> 为空才写），写成的一方才唤醒 main</td>
+            <td>结果未知（<code>child_task.result_unknown</code>）不重放；结果已写而唤醒缺失时，启动巡检按原键补发，不会建第二个唤醒任务。重复启动不再改动已终态的行（见<a href="orchestrator.html#legacy-coding">编排器 · 旧 coding 子任务</a>）</td>
+          </tr>
+          <tr data-k="subagent" tabindex="0">
+            <td><strong>SubAgent 委派</strong><br><code class="src" data-src="packages/runtime/src/subagents.ts#async delegate(input: SubAgentDelegateInput)">subagents.ts · delegate</code></td>
+            <td>两级键：<code>work_delegations</code> 上 <code>(parent_session_id, request_key)</code> 唯一，新工作（首次委派，以及带 <code>sub_agent_id</code> 复用承接的新工作）以（父会话, key）定位；每次执行是子会话里的 <code>tasks</code> 行，请求键 <code>sdelegate:&lt;工作&gt;:&lt;key&gt;</code>（<code class="src" data-src="packages/runtime/src/subagents.ts#export function subAgentTaskRequestId">subAgentTaskRequestId</code>），靠 <code>(session_id, request_id)</code> 唯一，行上的提交摘要只含参数摘要、工作与身份（<code class="src" data-src="packages/runtime/src/subagents.ts#export function taskSubmissionDigest">taskSubmissionDigest</code>）</td>
+            <td>查重先于资料解析与限额：同键同参返回首次记录，跨对话轮次也一样；异参 <code>request_conflict</code>。新请求准备完后，在一个同步事务里再查一次竞争，再一次性建工作、身份、子会话与排队任务；并发的同键首派由唯一约束兜底，后到者整笔回滚。终态结果同样以 <code>result_summary</code> 为空的条件更新写一次</td>
+            <td>后台重启中断的执行记结果未知（<code>subagent_task.result_unknown</code>），不重放、不自动重试。main 父会话按 <code>wake:&lt;子任务&gt;</code> 唤醒一次；dev 父会话在下一个任务开始时取出未送达结果，同一事务以 <code>result_delivered_at</code> 为空的条件更新标记（<code class="src" data-src="packages/core/src/store.ts#markSubAgentResultsDelivered">markSubAgentResultsDelivered</code>），再注入上下文。先标记后注入：崩溃只丢这一次注入，结果仍可经 <code>subagent_result</code> 查到。IM 发起工作的收尾唤醒另在结果事务里登记一次 <code>owner_reply</code> 工作最终汇报（键含收尾执行 id，幂等同 <a href="inbound-events.html#after">入站事件</a>）。委派、关闭与取消调用本身中断时按登记记录核实（<code class="src" data-src="packages/runtime/src/subagents.ts#export function subagentOpCheck">subagentOpCheck</code>：委派看工作 / SubAgent / 会话 / 任务关联；<code>subagent_close</code> 按 <code>sub_agents.closed_at</code> 核实，幂等关闭也以该列为已提交；<code>subagent_cancel</code> 按 <code>work_delegations.canceled_at</code> 核实，幂等取消也以该列为已提交），不记效果未知</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="service-chain">
+    <h2>串起来：一次服务 restart 过几道单次关卡</h2>
+    <p>上表里 IM 审批命令、批准消费、长期操作授权与服务 restart 四行，在一次 <code>service_manage</code> 调用里首尾相接：IM 命令给出决定，或长期授权代为建一条批准；批准被消费一次；helper 再按宿主操作 id 认领一次。每道关卡各自只放行一次，但它们分在两个系统里：决定、长期授权与消费在核心库的 sqlite 事务内，认领在 root helper 的文件系统上。中间没有跨系统事务，所以派发之后的结论只认 helper 的可信应答，拿不到就记效果未知。审批与长期授权的完整流程见<a href="tool-call-path.html#standing">工具调用路径</a>，IM 命令的识别与持久化见<a href="inbound-events.html#im-approval">入站事件</a>。</p>
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 486" role="img" aria-label="一次服务 restart 的单次关卡：核心库里先记执行意图，再登记待决审批，拥有者的决定以先到先得的条件更新把它变成已批准；IM 来源的任务先试长期授权，重读版本、逐项核实后新建一条已批准记录。已批准记录经条件更新消费。随后调用 helper，跨出核心库，没有跨系统事务；helper 以宿主操作 id 原子 mkdir 认领执行权，核对修订后派发 systemctl restart。认领被拒或修订不符时 launched 为 false，记已知未执行但批准已消费；有退出码时照实记；超时、中止或应答不可信时记效果未知，同一事务里使同目标的长期授权失效，之后回落人工审批。">
+          <rect class="zone-r" x="10" y="14" width="1020" height="226" rx="10"/>
+          <text class="zone-t" x="26" y="36">核心库 ruukoto.db · 每道关卡一个 sqlite 事务</text>
+          <rect class="zone-r" x="530" y="254" width="500" height="112" rx="10"/>
+          <text class="zone-t" x="546" y="276">helper · root · 文件系统</text>
+
+          <g class="n wait" data-k="tool"><rect x="30" y="52" width="190" height="56" rx="8"/><text x="125" y="72">执行意图</text><text class="sub" x="125" y="92">tool_ops · 宿主操作 id</text></g>
+          <g class="n wait" data-k="approval"><rect x="290" y="52" width="190" height="56" rx="8"/><text x="385" y="72">待决审批</text><text class="sub" x="385" y="92">pending</text></g>
+          <g class="n wait" data-k="approval"><rect x="550" y="52" width="190" height="56" rx="8"/><text x="645" y="72">已批准</text><text class="sub" x="645" y="92">approved · 参数快照</text></g>
+          <g class="n run" data-k="approval"><rect x="810" y="52" width="190" height="56" rx="8"/><text x="905" y="72">已消费</text><text class="sub" x="905" y="92">consumed_at</text></g>
+          <g class="n" data-k="standing"><rect x="290" y="156" width="190" height="56" rx="8"/><text x="385" y="176">长期授权</text><text class="sub" x="385" y="196">重读版本 · 逐项核实</text></g>
+
+          <path class="e" d="M220 80H288" marker-end="url(#ah)"/>
+          <text class="el" x="254" y="72">登记</text>
+          <path class="e" data-k="im" d="M480 80H548" marker-end="url(#ah)"/>
+          <text class="el" data-k="im" x="514" y="72">先到先得</text>
+          <path class="e" d="M740 80H808" marker-end="url(#ah)"/>
+          <text class="el" x="774" y="72">条件更新</text>
+          <path class="e" d="M125 108C125 184 200 184 288 184" marker-end="url(#ah)"/>
+          <text class="el" x="196" y="204">IM 来源先试</text>
+          <path class="e" d="M480 184C600 184 645 160 645 110" marker-end="url(#ah)"/>
+          <text class="el start" x="520" y="204">新建一条已批准</text>
+
+          <g class="n run" data-k="service"><rect x="810" y="290" width="190" height="56" rx="8"/><text x="905" y="310">认领执行权</text><text class="sub" x="905" y="330">mkdir &lt;宿主操作 id&gt;</text></g>
+          <g class="n run" data-k="service"><rect x="550" y="290" width="190" height="56" rx="8"/><text x="645" y="310">systemctl restart</text><text class="sub" x="645" y="330">systemd-run 派发</text></g>
+          <path class="e" d="M905 108V288" marker-end="url(#ah)"/>
+          <text class="el start" x="914" y="176">调 helper</text>
+          <text class="el start" x="914" y="196">无跨系统事务</text>
+          <path class="e" d="M810 318H742" marker-end="url(#ah)"/>
+          <text class="el" x="776" y="308">核对修订</text>
+
+          <g class="n idle" data-k="standing"><rect x="30" y="412" width="190" height="56" rx="8"/><text x="125" y="432">长期授权失效</text><text class="sub" x="125" y="452">reason effect_unknown</text></g>
+          <g class="n unk"><rect x="290" y="412" width="190" height="56" rx="8"/><text x="385" y="432">效果未知</text><text class="sub" x="385" y="452">不重发 · 拥有者核实</text></g>
+          <g class="n ok"><rect x="550" y="412" width="190" height="56" rx="8"/><text x="645" y="432">照实记结果</text><text class="sub" x="645" y="452">退出码 0 或非零</text></g>
+          <g class="n idle"><rect x="810" y="412" width="190" height="56" rx="8"/><text x="905" y="432">已知未执行</text><text class="sub" x="905" y="452">批准已消费</text></g>
+
+          <path class="e" d="M905 346V410" marker-end="url(#ah)"/>
+          <text class="el start" x="914" y="384">launched: false</text>
+          <path class="e ok" d="M645 346V410" marker-end="url(#ah-ok)"/>
+          <text class="el start" x="654" y="384">有退出码</text>
+          <path class="e unk" d="M550 330C450 330 385 360 385 410" marker-end="url(#ah-unk)"/>
+          <text class="el" x="446" y="316">超时 · 中止 · 应答不可信</text>
+          <path class="e" d="M290 440H222" marker-end="url(#ah)"/>
+          <text class="el" x="256" y="432">同一事务</text>
+          <path class="e dash" d="M125 410C125 320 385 330 385 214" marker-end="url(#ah)"/>
+          <text class="el" x="196" y="304">版本加一 · 回落人工</text>
+        </svg>
+      </div>
+      <figcaption>一次调用经过三道单次关卡。批准有两个来源，二选一：拥有者从 TUI 或 IM 命令给出的决定是 pending → approved 的条件更新，只有先提交的生效（服务范围不属于自动审查可批准的类别，审查只会转人工）；长期授权本身不被消费，每次重读版本、逐项核实后新建一条已批准记录。任何来源的批准都只能被 <code>consumed_at</code> 条件更新消费一次；helper 用以宿主操作 id 命名的 <code>mkdir</code> 认领执行权，同一个 id 第二次到达直接被拒。消费之前的失败使批准失效，按已知未执行收尾；消费之后，helper 证明没请求 systemd 的是已知未执行，有退出码的照实记，其余一律效果未知，并在同一事务里让同一 main、本机、单元与动作的长期授权失效。</figcaption>
+      <ul class="legend"><li><i class="wait"></i>已落盘、未消费</li><li><i class="run"></i>执行已开始</li><li><i class="ok"></i>有结论</li><li><i class="unk"></i>待核实</li><li><i class="idle"></i>未执行 / 已失效</li></ul>
+    </figure>
+    <p>这条链上的每道关卡都对应源码里一处条件：决定 <code class="src" data-src="packages/core/src/store.ts#respondConfirmation(">respondConfirmation</code>，长期授权 <code class="src" data-src="packages/agent/src/approval-gate.ts#requestStanding">requestStanding</code>，消费 <code class="src" data-src="packages/core/src/store.ts#consumeApproval">consumeApproval</code>，认领 <code class="src" data-src="deploy/systemd/ruukoto-service.mjs#function cmdRestart">cmdRestart</code>，效果未知与授权失效 <code class="src" data-src="packages/agent/src/tool-op-ledger.ts#markEffectUnknown(task: TaskRef">markEffectUnknown</code>。只有 IM 来源的任务有授权候选（<code class="src" data-src="packages/channels/src/im-approvals.ts#standingCandidate">standingCandidate</code>）；TUI 提交、调度、GitHub 与子任务消息恒无候选，走人工审批。</p>
+  </section>
+
+  <section id="outcomes">
+    <h2>三种「没有结果」要分开</h2>
+    <p>这套模式里最容易写错的是把这几件事混成一件。<code>CONTEXT.md</code> 把它们定成不同术语，代码里也是不同的记录与文案。失败落在哪一段，决定了记哪一种。</p>
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 290" role="img" aria-label="一次操作沿时间分四段：已落盘、已领取、已交出、有应答。已落盘阶段中断时操作没有执行；已领取阶段能证明请求没交出的失败也是没执行，崩溃则结果不明；已交出后没有应答即结果不明；有应答照实记结果。">
+          <g class="n wait"><rect x="20" y="40" width="190" height="56" rx="8"/><text x="115" y="60">已落盘</text><text class="sub" x="115" y="80">未领取 · 未消费</text></g>
+          <g class="n run"><rect x="290" y="40" width="190" height="56" rx="8"/><text x="385" y="60">已领取</text><text class="sub" x="385" y="80">请求未交出</text></g>
+          <g class="n run"><rect x="560" y="40" width="190" height="56" rx="8"/><text x="655" y="60">已交出</text><text class="sub" x="655" y="80">等应答</text></g>
+          <g class="n ok"><rect x="830" y="40" width="190" height="56" rx="8"/><text x="925" y="60">有应答</text><text class="sub" x="925" y="80">照实记结果</text></g>
+
+          <path class="e" d="M210 68H288" marker-end="url(#ah)"/>
+          <text class="el" x="250" y="58">条件更新</text>
+          <path class="e" d="M480 68H558" marker-end="url(#ah)"/>
+          <text class="el" x="520" y="58">交给系统</text>
+          <path class="e ok" d="M750 68H828" marker-end="url(#ah-ok)"/>
+          <text class="el" x="790" y="58">应答</text>
+
+          <g class="n idle"><rect x="120" y="200" width="250" height="56" rx="8"/><text x="245" y="220">未执行</text><text class="sub" x="245" y="240">等再领取 / 已知未执行</text></g>
+          <g class="n unk"><rect x="450" y="200" width="270" height="56" rx="8"/><text x="585" y="220">结果不明</text><text class="sub" x="585" y="240">效果未知 / 应答丢失</text></g>
+
+          <path class="e" d="M115 96L190 198" marker-end="url(#ah)"/>
+          <text class="el end" x="142" y="152">中断</text>
+          <path class="e" d="M345 96L300 198" marker-end="url(#ah)"/>
+          <text class="el end" x="310" y="152">证明未交出</text>
+          <path class="e unk" d="M425 96L500 198" marker-end="url(#ah-unk)"/>
+          <text class="el start" x="470" y="152">崩溃</text>
+          <path class="e unk" d="M655 96L640 198" marker-end="url(#ah-unk)"/>
+          <text class="el start" x="656" y="152">无应答</text>
+        </svg>
+      </div>
+      <figcaption>领取或消费之前中断，操作没有执行：发送操作、入站事件留在原状态等下次领取，未消费的审批按已知未执行收尾（批准不跨重启）。领取之后、请求交出之前，只有能证明没交出的失败（HTTP 未发出、渠道抛 NotSentError、服务 helper 应答 <code>launched: false</code>）才算已知未执行；崩溃后除非能从已提交记录核实（如应用数据回执），一律按结果不明处理。交出之后拿不到应答也是结果不明：工具操作与发送操作记效果未知，控制面请求记应答丢失。</figcaption>
+      <ul class="legend"><li><i class="wait"></i>已落盘未领取</li><li><i class="run"></i>执行中</li><li><i class="ok"></i>有结论</li><li><i class="idle"></i>未执行</li><li><i class="unk"></i>待核实</li></ul>
+    </figure>
+    <div class="cards">
+      <div class="card">
+        <h4>已知未执行</h4>
+        <p>能证明没有执行：审批被拒绝、取消或失效；获批后复核或消费失败；请求没交出（HTTP 未发出、渠道抛 NotSentError、控制面请求未送出、服务 helper 在请求 systemd 前拒绝）；发送操作在领取前被取消。服务 helper 那一种批准已经消费，再做要新审批。发送操作里可证明未发送的记 failed。只读操作中止另记「无写入效果」，也不算效果未知。要再做一次，由模型或拥有者重新发起；系统自己再试的只有下一节两处。</p>
+        <p><code class="src" data-src="packages/agent/src/approval-gate.ts#notExecutedText">approval-gate.ts · notExecutedText</code> <code class="src" data-src="packages/channels/src/scheduler/runtime.ts#class NotSentError">runtime.ts · NotSentError</code></p>
+      </div>
+      <div class="card">
+        <h4>效果未知</h4>
+        <p>工具操作已经开始，却无法确认是否产生了效果：停止或重启时已消费批准、结果缺失的操作；写请求交出后的超时、断线、中止；服务 restart 派发后拿不到可信应答。发送操作的 effect_unknown 语义相同、分开记录（旧架构 QQ 群回复记 unknown；核心群聊退役后只剩退役收尾给遗留 pending 定 unknown）。不自动重发，由拥有者核实；能从已提交记录证明时（应用数据回执，调度、委派、群聊结果接收与 SubAgent 登记），以核实结果为准。服务操作记效果未知时，同目标的长期授权随之失效。</p>
+        <p><code class="src" data-src="packages/core/src/types.ts#task.tool_effect_unknown">types.ts · task.tool_effect_unknown</code></p>
+      </div>
+      <div class="card">
+        <h4>应答丢失</h4>
+        <p>拥有者经控制面发出的请求已经送出，却拿不到能说明结果的应答：超时、断线，或 internal_error、response_too_large 这类不能说明未执行的错误应答。不换新键重发：提交与工作区入口按原键核实，确认未接收才以原键重发；其余查询后台状态后由拥有者决定。它针对控制面请求，不与工具操作的效果未知混称。</p>
+        <p><code class="src" data-src="packages/control/src/client.ts#UNKNOWN_REPLY_CODES">client.ts · UNKNOWN_REPLY_CODES</code></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="exceptions">
+    <h2>只重试「证明没产生效果」的那一次</h2>
+    <p>未知结果不重发是默认规则。系统自己再做一次的只有下面两处，共同点是能证明上一次没有产生写入效果：</p>
+    <div class="scroll">
+      <table class="tbl wrap">
+        <thead><tr><th>例外</th><th>条件</th><th>怎样再试</th></tr></thead>
+        <tbody>
+          <tr><td>平台限流退回（ADR 0011）</td><td>渠道抛 <code class="src" data-src="packages/channels/src/scheduler/runtime.ts#class RetryLaterError">scheduler/runtime.ts · RetryLaterError</code>：平台明确限流拒绝、可证明未发送。目前只有 Telegram 渠道在 HTTP 429 时抛出，等待时间取平台的 retry_after</td><td>发送操作从 sending 退回 pending 并写 not_before（<code class="src" data-src="packages/channels/src/scheduler/store.ts#release(id: string">store.ts · release</code>），到时用原目标、原正文、原键再领取；领取期间已请求取消的直接 canceled。其他明确拒绝仍是 failed，超时、5xx 与断线仍是 effect_unknown，都不重发。</td></tr>
+          <tr><td>控制面同键重发</td><td>应答丢失后按原键核实，后台没有这条请求（提交：find_task 查不到；工作区入口：客户端状态里没有同一 create_request_id 的会话）</td><td>以原键和落盘的原参数重发；撞上 <code>request_conflict</code> 先再核实一次，查到就关联。不换新键绕过。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>按原键重提不在此列：入站事件补派、子任务唤醒补发、SubAgent 同键重放都用原请求键提交，已有任务就返回它（异参冲突），不会产生第二次执行。IM 审批命令的平台重投也只读原记录，不再执行。</p>
+    <aside class="callout limit">
+      <b>已知限制</b>
+      <p>平台没有幂等支持时，远端可能已经执行而本地无法确认，这种情况只能由拥有者核实。系统不因为「大概没成功」而重发，也不把结果未知显示成取消成功。</p>
+    </aside>
+  </section>
+
+  <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>
+</main>
+</body>
+</html>

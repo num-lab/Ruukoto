@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务生命周期</title>
+<link rel="stylesheet" href="style.css">
+<script src="visual.js" defer></script>
+</head>
+<body>
+<svg class="defs" aria-hidden="true" focusable="false"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah ok" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah wait" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-unk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah unk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah bad" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah accent" d="M0 0L10 5L0 10z"/></marker>
+</defs></svg>
+<main class="page">
+  <aside class="callout limit"><b>快照</b>2026-10-09 快照，已停止维护，以 docs/ 模块文档为准。</aside>
+  <header class="doc-head">
+    <nav class="crumbs"><a href="index.html">Ruukoto 可视化文档</a><span>/</span><span>task-lifecycle.html</span></nav>
+    <p class="eyebrow">状态机</p>
+    <h1>任务生命周期</h1>
+    <p class="lede">任务从提交、排队、执行到终态的每一次状态变化，会话默认模式如何固定到新任务，以及停止、重启和任务模式切换时后台怎样保证只有一个终态、不重放任何执行。</p>
+    <dl class="meta">
+      <div><dt>源码</dt><dd>
+        <code class="src" data-src="packages/runtime/src/runtime.ts#runQueueLoop">runtime/runtime.ts</code>
+        <code class="src" data-src="packages/agent/src/driver.ts#requestStop">agent/driver.ts</code>
+        <code class="src" data-src="packages/agent/src/approval-gate.ts#class ApprovalGate">agent/approval-gate.ts</code>
+        <code class="src" data-src="packages/core/src/store.ts#transitionTask">core/store.ts</code>
+        <code class="src" data-src="packages/core/src/store.ts#endTask">core/store.ts · endTask</code>
+        <code class="src" data-src="packages/control/src/ensure-backend.ts#export async function ensureBackend">control/ensure-backend.ts</code>
+        <code class="src" data-src="packages/core/src/dir-identity.ts#verifyDirIdentity">core/dir-identity.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-router.ts#prepareToolBoundary">agent/tool-router.ts</code>
+        <code class="src" data-src="packages/agent/src/tool-op-ledger.ts#settleTask">agent/tool-op-ledger.ts</code>
+        <code class="src" data-src="packages/core/src/types.ts#ACTIVE_TASK_STATUSES">core/types.ts</code>
+        <code class="src" data-src="packages/tui/src/tui/app.ts">tui/app.ts</code>
+        <code class="src" data-src="packages/tui/src/tui/index.ts#export async function runTui">tui/index.ts</code>
+        <code class="src" data-src="packages/runtime/src/subagents.ts#SUBAGENT_LIMITS">runtime/subagents.ts</code>
+        <code class="src" data-src="packages/channels/src/im-approvals.ts#export class ImApprovals">runtime/im-approvals.ts</code>
+        <code class="src" data-src="packages/core/src/worktree.ts#taskWorkspaceFor">core/worktree.ts</code>
+        <code class="src" data-src="packages/runtime/src/orchestrator.ts#private async checkDeadlines">runtime/orchestrator.ts</code>
+      </dd></div>
+      <div><dt>决策</dt><dd>
+        <a href="../adr/0002-detach-terminal-from-task-runtime.md">ADR 0002 后台运行任务</a>
+        <a href="../adr/0003-enforce-explicit-access-modes.md">ADR 0003 访问模式</a>
+        <a href="../adr/0004-tool-worker-per-task-container-exec-account.md">ADR 0004 执行边界</a>
+        <a href="../adr/0017-two-agent-products.md">ADR 0017 两个产品</a>
+        <a href="../adr/0020-work-delegation-subagent-task.md">ADR 0020 工作委托与 SubAgent</a>
+        <a href="../adr/0021-subagent-worktrees.md">ADR 0021 SubAgent worktree</a>
+        <a href="../adr/0025-plan-session-mode.md">ADR 0025 Plan 模式选择</a>
+      </dd></div>
+      <div><dt>相关页面</dt><dd>
+        <a href="tool-call-path.html">工具调用路径</a>
+        <a href="orchestrator.html">编排器</a>
+        <a href="context-pipeline.html">上下文组装</a>
+        <a href="control-protocol.html">控制面协议</a>
+        <a href="once-only.html">只执行一次</a>
+      </dd></div>
+    </dl>
+  </header>
+
+  <section id="states">
+    <h2>状态与转换</h2>
+    <p><code class="st wait">queued</code>、<code class="st run">running</code>、<code class="st wait">awaiting_confirmation</code> 是活动状态（<code class="src" data-src="packages/core/src/types.ts#ACTIVE_TASK_STATUSES">types.ts · ACTIVE_TASK_STATUSES</code>）；<code class="st ok">completed</code>、<code class="st bad">failed</code>、<code class="st idle">canceled</code>、<code class="st unk">interrupted</code> 是终态（<code class="src" data-src="packages/core/src/types.ts#TERMINAL_TASK_STATUSES">TERMINAL_TASK_STATUSES</code>），进入后不再转换。同一会话一次只执行一个任务，不同会话在工作目录不同时可以并行。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 470" role="img" aria-label="任务状态机：submit、continue 或 SubAgent 委派使任务进入 queued；取得目录占用后进入 running；running 与 awaiting_confirmation 之间因审批往返，命中长期授权时留在 running；执行中的两个状态都可以进入 completed、failed、interrupted、canceled；queued 也可以在开始前直接进入 canceled、failed 或 interrupted。">
+          <g class="n" data-k="e-submit"><rect x="16" y="171" width="100" height="46" rx="23"/><text x="66" y="186">submit</text><text class="sub" x="66" y="204">continue · 委派</text></g>
+          <path class="e" data-k="e-submit" d="M116 194H148" marker-end="url(#ah)"/>
+
+          <g class="n wait"><rect x="150" y="168" width="140" height="52" rx="8"/><text x="220" y="186">queued</text><text class="sub" x="220" y="205">排队</text></g>
+
+          <rect class="zone-r" x="372" y="24" width="328" height="330" rx="12"/>
+          <text class="zone-t" x="388" y="46">执行中 · Driver 持有</text>
+          <g class="n run"><rect x="440" y="74" width="190" height="52" rx="8"/><text x="535" y="92">running</text><text class="sub" x="535" y="111">模型与工具循环</text></g>
+          <g class="n wait"><rect x="420" y="262" width="230" height="52" rx="8"/><text x="535" y="280">awaiting_confirmation</text><text class="sub" x="535" y="299">等拥有者决定</text></g>
+          <path class="e" data-k="e-await" d="M505 126V260" marker-end="url(#ah)"/>
+          <text class="el end" data-k="e-await" x="497" y="197">登记审批</text>
+          <path class="e" data-k="e-resume" d="M565 262V128" marker-end="url(#ah)"/>
+          <text class="el start" data-k="e-resume" x="573" y="197">等待全部结束</text>
+          <path class="e ok dash" data-k="e-standing" d="M630 88C678 88 678 116 633 116" marker-end="url(#ah-ok)"/>
+          <text class="el" data-k="e-standing" x="642" y="146">长期授权放行</text>
+
+          <path class="e accent" data-k="e-start" d="M290 180C350 180 372 100 438 100" marker-end="url(#ah-accent)"/>
+          <text class="el" data-k="e-start" x="326" y="140">取得占用</text>
+
+          <g class="n ok"><rect x="800" y="40" width="180" height="46" rx="8"/><text x="890" y="55">completed</text><text class="sub" x="890" y="73">历史已核对</text></g>
+          <g class="n bad"><rect x="800" y="128" width="180" height="46" rx="8"/><text x="890" y="143">failed</text><text class="sub" x="890" y="161">出错</text></g>
+          <g class="n unk"><rect x="800" y="216" width="180" height="46" rx="8"/><text x="890" y="231">interrupted</text><text class="sub" x="890" y="249">拥有者决定是否继续</text></g>
+          <g class="n idle"><rect x="800" y="304" width="180" height="46" rx="8"/><text x="890" y="319">canceled</text><text class="sub" x="890" y="337">已取消</text></g>
+
+          <path class="e ok" data-k="e-done" d="M700 63H798" marker-end="url(#ah-ok)"/>
+          <text class="el" data-k="e-done" x="749" y="55">自然完成</text>
+          <path class="e bad" data-k="e-fail" d="M700 151H798" marker-end="url(#ah-bad)"/>
+          <text class="el" data-k="e-fail" x="749" y="143">出错</text>
+          <path class="e unk" data-k="e-int" d="M700 239H798" marker-end="url(#ah-unk)"/>
+          <text class="el" data-k="e-int" x="749" y="231">停止或拦截</text>
+          <path class="e" data-k="e-cancel" d="M700 327H798" marker-end="url(#ah)"/>
+          <text class="el" data-k="e-cancel" x="749" y="319">取消</text>
+
+          <path class="e" data-k="e-q-cancel" d="M262 220V400H890V352" marker-end="url(#ah)"/>
+          <text class="el" data-k="e-q-cancel" x="470" y="394">开始前取消 · 门控丢弃</text>
+          <path class="e unk dash" data-k="e-q-int" d="M236 220V424H1004V239H982" marker-end="url(#ah-unk)"/>
+          <text class="el" data-k="e-q-int" x="640" y="418">模式切换未核实</text>
+          <path class="e bad" data-k="e-q-fail" d="M210 220V448H1024V151H982" marker-end="url(#ah-bad)"/>
+          <text class="el" data-k="e-q-fail" x="820" y="442">目录身份核对失败</text>
+        </svg>
+      </div>
+      <figcaption>虚线框内的两个状态由会话驱动器持有；从框边出发的四条边，条件更新的起点集合都是 running 与 awaiting_confirmation。自然完成实际只从 running 出发：审批等待全部结束、任务回到 running 之后 prompt 才会返回。running 右侧的回环是长期授权放行：任务不进入 awaiting_confirmation。悬停下表的行会高亮对应的边。</figcaption>
+      <ul class="legend">
+        <li><i class="wait"></i>等待中</li>
+        <li><i class="run"></i>执行中</li>
+        <li><i class="ok"></i>已完成 / 已放行</li>
+        <li><i class="unk"></i>待拥有者核实</li>
+        <li><i class="bad"></i>失败</li>
+        <li><i class="idle"></i>已取消</li>
+      </ul>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>转换</th><th>触发者</th><th>条件与位置</th><th>事件</th></tr></thead>
+        <tbody>
+          <tr data-k="e-submit" tabindex="0">
+            <td>新任务 → <code class="st wait">queued</code></td>
+            <td>拥有者 submit / continue；编排器、入站事件与 QQ 的内部提交；SubAgent 委派登记</td>
+            <td>同会话 + request_id + 提交摘要幂等：同键同参返回原任务，同键异参 <code>request_conflict</code>。后台停止中、所选访问模式的执行入口不可用时拒绝。continue 只接受 interrupted 任务，新任务带 resumesTaskId。SubAgent 执行任务不经 submit：由 SubAgentManager 在委派登记事务里直接插入；对 SubAgent 子会话的 submit 与 continue 一律拒绝（<code>invalid_state</code>）。<br><code class="src" data-src="packages/core/src/store.ts#findMatchingSubmission">store.ts · findMatchingSubmission</code> <code class="src" data-src="packages/core/src/store.ts#insertQueuedTask">store.ts · insertQueuedTask</code> <code class="src" data-src="packages/runtime/src/runtime.ts#continueTask">runtime.ts · continueTask</code> <code class="src" data-src="packages/runtime/src/subagents.ts#async delegate">subagents.ts · delegate</code></td>
+            <td><code>task.queued</code>；continue 另发 <code>task.continued</code></td>
+          </tr>
+          <tr data-k="e-start" tabindex="0">
+            <td><code class="st wait">queued</code> → <code class="st run">running</code></td>
+            <td>调度循环</td>
+            <td>会话队列为 active、任务是 FIFO 队首、入站门、wake 门与退役兜底放行、目录身份核对通过；同一事务内取得目录占用并条件更新，后台停止开始后不再转入。目录被占用时本轮不启动，等占用释放后的唤醒。wake 门：属于已取消工作的 SubAgent 回报唤醒（<code>wake:&lt;子任务&gt;</code>）在启动前被直接取消（work_canceled），不进入本行。退役兜底：已退役的归档会话（QQ 群会话、chat 与 coding 角色会话）的排队任务在此一律取消（原因取自会话身份，按会话为 <code>core_group_chat_retired</code> 或 <code>coding_role_retired</code>，<code class="src" data-src="packages/core/src/session-identity.ts#export function classifySession">session-identity.ts · classifySession</code>），不进入本行。<br><code class="src" data-src="packages/runtime/src/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code> <code class="src" data-src="packages/core/src/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td>
+            <td><code>task.started</code></td>
+          </tr>
+          <tr data-k="e-q-cancel" tabindex="0">
+            <td><code class="st wait">queued</code> → <code class="st idle">canceled</code></td>
+            <td>拥有者 cancel；编排器截止巡检；调度计划取消；整项工作取消；入站门判定丢弃；IM 入口（QQ 私聊、Telegram）配置变化；固定角色退役收尾与兜底取消归档会话的遗留任务</td>
+            <td>条件更新只从 queued 出发，已开始的任务改走停止路径。取消原因（有的话）写入 error_message，截止巡检写 <code>deadline_exceeded</code>，整项取消与 wake 门写 <code>work_canceled</code>，群退役写 <code>core_group_chat_retired</code>，coding 退役写 <code>coding_role_retired:…</code>。<br><code class="src" data-src="packages/runtime/src/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="packages/runtime/src/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td>
+            <td><code>task.canceled</code></td>
+          </tr>
+          <tr data-k="e-q-fail" tabindex="0">
+            <td><code class="st wait">queued</code> → <code class="st bad">failed</code></td>
+            <td>调度循环</td>
+            <td>排队期间工作目录被替换或失效（realpath、dev 或 ino 与登记不符，或目录已不可用），拒绝执行；同会话其余任务共用该目录，会依次同样失败。<br><code class="src" data-src="packages/core/src/dir-identity.ts#verifyDirIdentity">dir-identity.ts · verifyDirIdentity</code></td>
+            <td><code>task.failed</code></td>
+          </tr>
+          <tr data-k="e-q-int" tabindex="0">
+            <td><code class="st wait">queued</code> → <code class="st unk">interrupted</code></td>
+            <td>拥有者切换访问模式</td>
+            <td>停止本会话驱动器当前的执行单元后无法核实它已退出（<code>mode_switch_unverified</code>），任务不能安全继续，不释放任何占用。awaiting_confirmation 的任务走同一分支。SubAgent 执行任务与 Plan 任务不能切换模式，见下文。<br><code class="src" data-src="packages/runtime/src/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code></td>
+            <td><code>task.mode_switch_failed</code></td>
+          </tr>
+          <tr data-k="e-await" tabindex="0">
+            <td><code class="st run">running</code> → <code class="st wait">awaiting_confirmation</code></td>
+            <td>审批闸门</td>
+            <td>登记审批请求与状态转换在同一事务。任务源自 IM 私聊消息（沿父任务链追溯）时，同一事务还登记初始 IM 通知（<code class="src" data-src="packages/agent/src/approval-gate.ts#notifyConfirmation">notifyConfirmation</code> 挂钩）；任一步失败整笔回滚，不留「审批已存在但绑定入口未获通知」的状态。service_manage 先试长期授权，命中就不走这一行（见下一行）。审批请求本身的范围与消费见<a href="tool-call-path.html">工具调用路径</a>。<br><code class="src" data-src="packages/agent/src/approval-gate.ts#private async wait">approval-gate.ts · wait</code> <code class="src" data-src="packages/core/src/store.ts#createConfirmation">store.ts · createConfirmation</code></td>
+            <td><code>task.awaiting_confirmation</code></td>
+          </tr>
+          <tr data-k="e-standing" tabindex="0">
+            <td><code class="st run">running</code> 保持</td>
+            <td>审批闸门（长期授权窄路径）</td>
+            <td>只对 service_manage：宿主找到长期授权候选后，在一个事务里重读授权版本、逐项核实范围、确认任务仍 running 且未请求取消、权限版本未变，再新建一条已批准记录并单次消费。任一步不成立整笔回滚，回到上一行的人工审批。没有 IM 来源的任务（TUI 提交、调度、GitHub、子任务消息）恒无候选。<br><code class="src" data-src="packages/agent/src/approval-gate.ts#requestStanding">approval-gate.ts · requestStanding</code> <code class="src" data-src="packages/channels/src/im-approvals.ts#standingCandidate">im-approvals.ts · standingCandidate</code></td>
+            <td>不发 <code>task.awaiting_confirmation</code>；发 <code>task.confirmation_resolved</code>（source = standing_permission）与 <code>task.approval_consumed</code></td>
+          </tr>
+          <tr data-k="e-resume" tabindex="0">
+            <td><code class="st wait">awaiting_confirmation</code> → <code class="st run">running</code></td>
+            <td>审批闸门，在等待计数归零时；决定来自拥有者（TUI，或绑定 IM 私聊的 /approve、/reject、/approve-standing）或自动审查</td>
+            <td>本任务所有等待中的审批都已结束（批准、拒绝、停止解除、模式切换失效或 IM 绑定失效的定向解除），等待计数归零；转换单独一个事务。决定与审计事件在同一事务提交（来自 IM 命令的决定把控制事件终态与回执并入同一事务，任何失败整笔回滚），等待者在提交成功后才被唤醒。<br><code class="src" data-src="packages/agent/src/approval-gate.ts#pendingCount">approval-gate.ts · pendingCount</code> <code class="src" data-src="packages/agent/src/approval-gate.ts#supersedeConfirmations(ids">approval-gate.ts · supersedeConfirmations</code></td>
+            <td>无独立事件；决定另发 <code>task.confirmation_resolved</code>，source 为 owner、auto_review 或 standing_permission（/approve-standing 的那一次批准）</td>
+          </tr>
+          <tr data-k="e-done" tabindex="0">
+            <td>执行中 → <code class="st ok">completed</code></td>
+            <td>驱动器</td>
+            <td>prompt 正常结束 → 写任务结束标记 → 核对 JSONL 历史确已落盘，才宣布完成。<br><code class="src" data-src="packages/agent/src/driver.ts#verifyAndLinkHistory">driver.ts · verifyAndLinkHistory</code> <code class="src" data-src="packages/agent/src/driver.ts#private finalize">driver.ts · finalize</code></td>
+            <td><code>task.completed</code></td>
+          </tr>
+          <tr data-k="e-fail" tabindex="0">
+            <td>执行中 → <code class="st bad">failed</code></td>
+            <td>驱动器；调度循环兜底</td>
+            <td>任务缺模型配置或 SDK 会话创建失败、技能展开失败、prompt 抛错、模型返回错误；驱动器自身抛出的异常由调度循环捕获后经同一终态入口收尾，条件更新失败时不重复写失败事件，也不删除原任务保留待核实的占用。<br><code class="src" data-src="packages/agent/src/driver.ts#runInner">driver.ts · runInner</code> <code class="src" data-src="packages/runtime/src/runtime.ts#runQueueLoop">runtime.ts · runQueueLoop</code> <code class="src" data-src="packages/core/src/store.ts#endTask">store.ts · endTask</code></td>
+            <td><code>task.failed</code></td>
+          </tr>
+          <tr data-k="e-int" tabindex="0">
+            <td>执行中 → <code class="st unk">interrupted</code></td>
+            <td>拥有者 interrupt；后台停止；重启恢复；模式切换；驱动器</td>
+            <td>原因写入 interrupt_reason：<code>owner_interrupt</code>、<code>backend_stop</code>、<code>backend_restart</code>、<code>aborted</code>、<code>context_overflow</code>、发送前复核的拦截码（见<a href="context-pipeline.html">上下文组装</a>）、<code>history_unverified:…</code>、<code>history_corrupted:…</code>、<code>mode_switch_failed:…</code>、<code>mode_switch_unverified</code>。<br><code class="src" data-src="packages/runtime/src/runtime.ts#async interruptTask">runtime.ts · interruptTask</code> <code class="src" data-src="packages/runtime/src/runtime.ts#private recover">runtime.ts · recover</code></td>
+            <td><code>task.interrupted</code>，带 cancelRequested 与 effectUnknown 标记；<code>mode_switch_unverified</code> 发的是 <code>task.mode_switch_failed</code></td>
+          </tr>
+          <tr data-k="e-cancel" tabindex="0">
+            <td>执行中 → <code class="st idle">canceled</code></td>
+            <td>拥有者 cancel；编排器截止巡检；整项工作取消；QQ 撤回或停用；IM 入口（QQ 私聊、Telegram）配置变化</td>
+            <td>走与中断相同的停止路径，只是 cancel_requested 记为真、终态为 canceled；取消原因写入 interrupt_reason（默认 <code>owner_cancel</code>，截止巡检为 <code>deadline_exceeded</code>，整项取消为 <code>work_canceled</code>）。Runtime.cancelTask 在 requestStop 之前先在事务内写 cancel_requested=1：落在「已转 running、Driver 未登记 currentTask」窗口的取消不再被吞——请求停止照常找不到当前任务时，runInner 开头读到该标记直接进入本行、不调用模型。<br><code class="src" data-src="packages/agent/src/driver.ts#async requestStop">driver.ts · requestStop</code> <code class="src" data-src="packages/runtime/src/runtime.ts#async cancelTask">runtime.ts · cancelTask</code></td>
+            <td><code>task.canceled</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <aside class="callout inv">
+      <b>不变量</b>
+      <p>终态由 <code class="src" data-src="packages/core/src/store.ts#endTask">store.ts · endTask</code> 收尾：内部使用 <code class="src" data-src="packages/core/src/store.ts#transitionTask">store.ts · transitionTask</code> 的条件更新（<code>WHERE id = ? AND status IN (起点集合)</code>），再在同一事务内清除待生效模式、使未消费审批失效、写对应事件并按任务 id 释放占用。取消与自然完成、人工中断与后台停止同时发生时，只有先提交的那一次生效；后到路径看到更新 0 行就退出。状态、占用与对应事件在同一事务里提交，提交成功后才广播给客户端。</p>
+    </aside>
+  </section>
+
+  <section id="outcome">
+    <h2>一次运行的结局怎样判定</h2>
+    <p><code class="src" data-src="packages/agent/src/driver.ts#private async runInner">driver.ts · runInner</code> 按下列顺序判定，前面的条件优先。发送前复核拦截与上下文超限都会暂停该会话的队列，排队中的下一个任务不会自动开始。</p>
+    <ol class="steps">
+      <li>任务已带取消意图（cancel_requested=1，来自落在「已转 running、Driver 尚未接管」窗口的取消）：<code class="st idle">canceled</code>（interrupt_reason=<code>cancel_requested</code>），不建 SDK 会话、不调用模型。该窗口不保留原始取消原因（超时取消落在此窗口记 canceled 而非 timeout，见 runInner 内的 ponytail: 注释）。</li>
+      <li>任务没有记录模型配置、模型解析失败或 SDK 会话创建失败：<code class="st bad">failed</code>。</li>
+      <li>prompt 之前已请求停止：<code class="st unk">interrupted</code>（<code>aborted</code>）。它与停止路径各自尝试条件更新，先提交的生效，所以开始前到达的取消也可能以 aborted 中断收场。</li>
+      <li>技能展开失败：<code class="st bad">failed</code>。prompt 抛错：未请求停止时 <code class="st bad">failed</code>。</li>
+      <li>prompt 返回后已请求停止：终态由停止路径决定，这里只做清理。</li>
+      <li>发送前复核拦下了某次模型调用：<code class="st unk">interrupted</code>，原因即拦截码，暂停队列。</li>
+      <li>模型调用以 aborted 结束：<code class="st unk">interrupted</code>（<code>aborted</code>）。</li>
+      <li>provider 报告上下文超限：<code class="st unk">interrupted</code>（<code>context_overflow</code>），暂停队列。不自动摘要、不缩短输入重试。</li>
+      <li>模型返回错误：<code class="st bad">failed</code>。</li>
+      <li>其余情况：写任务结束标记，再核对最终历史确已落盘。核对通过为 <code class="st ok">completed</code>，否则 <code class="st unk">interrupted</code>（<code>history_unverified:…</code> 或 <code>history_corrupted:…</code>）。</li>
+    </ol>
+  </section>
+
+  <section id="stop">
+    <h2>停止路径</h2>
+    <p>拥有者中断、拥有者取消、编排器截止巡检、整项工作取消、QQ 与 IM 配置变化等后台内部取消，以及后台停止，共用 <code class="src" data-src="packages/agent/src/driver.ts#async requestStop">driver.ts · requestStop</code>。它先把「要停」写下来，再解除所有等待，最后才定终态和释放占用。驱动器当前执行的不是该任务时，它直接返回；对取消而言这一支不再吞掉请求——<code class="src" data-src="packages/runtime/src/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> 在 requestStop 之前已把 cancel_requested=1 落库（独立事务，所有取消调用方共享，含整项取消的事务内写入），runInner 开头读到该标记直接定态 canceled、不调用模型。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <div class="seq" style="--n:7">
+          <div class="who"><span>拥有者</span><span>Runtime</span><span>Driver</span><span>审批闸门</span><span>SDK · 执行单元</span><span>工具操作账本</span><span>Store</span></div>
+          <div class="m" style="--from:1;--to:2"><span>interrupt / cancel</span></div>
+          <div class="m" style="--from:2;--to:3"><span>requestStop(终态, 原因)</span></div>
+          <div class="note" style="--from:3;--to:3">置停止标记，中止 Jev 与摘要请求</div>
+          <div class="m" style="--from:3;--to:7"><span>setCancelRequested（独立事务，先落停止意图）</span></div>
+          <div class="m" style="--from:3;--to:6"><span>beginStop：快照可能已开始、结果缺失的操作</span></div>
+          <div class="m" style="--from:3;--to:4"><span>cancelAll：解除等待，操作按未执行结束</span></div>
+          <div class="m" style="--from:3;--to:5"><span>abort() 与回收执行单元并行</span></div>
+          <div class="m l" style="--from:5;--to:3"><span>reaped：执行单元是否确已退出</span></div>
+          <div class="note" style="--from:3;--to:3">回收本任务的 MCP 连接</div>
+          <div class="m" style="--from:3;--to:6"><span>settleTask：补记结果缺失的操作</span></div>
+          <div class="m l unk" style="--from:6;--to:3"><span>效果未知的操作</span></div>
+          <div class="phase"><span>终态事务</span></div>
+          <div class="m ok" style="--from:3;--to:7"><span>endTask：条件更新终态、审批 stale、标效果未知、写事件</span></div>
+          <div class="note unk" style="--from:6;--to:7">reaped 才释放占用；否则保留占用并记 task.tool_process_unreaped</div>
+          <div class="m l dash" style="--from:7;--to:1"><span>提交后广播 task.interrupted / task.canceled</span></div>
+          <div class="m l" style="--from:3;--to:2"><span>kickAll：唤醒有排队任务的会话</span></div>
+        </div>
+      </div>
+      <figcaption>abort() 会等正在执行的工具返回，而工具可能正在等子进程退出，所以两者必须并行，否则互相等待。执行单元是进程组（先 TERM 后 KILL）、容器或 systemd 单元（<code class="src" data-src="packages/agent/src/managed-processes.ts#ManagedUnitKind">managed-processes.ts · ManagedUnitKind</code>）。效果未知以停止瞬间的快照为准，中止期间才落下的结果不改变结论；被标效果未知的若是已消费的服务操作，同一事务让同目标的有效长期授权失效（<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#invalidateStandingForTarget">tool-op-ledger.ts · markEffectUnknown</code>）。stale 覆盖待决与已批准未消费两种审批。执行单元从启动开始就在受管登记表里：ready 之前以 <code>starting</code> 占位登记（<code class="src" data-src="packages/agent/src/tool-router.ts#starting:${task.id}">tool-router.ts · ensureWorker</code>），回收前让出一个宏任务，使已记录意图的派发先完成登记，所以意图落库到 ready 的启动窗口也在停止覆盖内（agent-direction 工单 04，回归见 test/07「工作进程启动窗口的中断」）。</figcaption>
+    </figure>
+
+    <aside class="callout limit">
+      <b>回收失败时</b>
+      <p>无法确认执行单元已经退出时，任务照常进入终态，但目录占用保留，同一目录的新任务不会启动（<code>task.tool_process_unreaped</code>）。拥有者核实容器或子进程确已停止后，用 <code>resume_queue</code> 释放遗留占用。若是 SubAgent 执行任务，结果补记事务核实它仍是当前任务时，管理器才按占用仍在记为 unverified；resume_queue 同时是它的出口：释放占用的事务内调用管理器 executionVerified，无活动任务且当前终态结果已登记时回 idle；结果缺失报 invalid_state，连同遗留占用释放一起回滚。提交后等待冲刷待投递消息（见<a href="orchestrator.html#subagent-state">编排器</a>）。</p>
+    </aside>
+
+    <h3>IM 入口配置变化</h3>
+    <p>QQ 私聊或 Telegram 入口的配置变化（停用、重新绑定、凭据变化）由拥有者 IM 入口表按来源处理（<code class="src" data-src="packages/channels/src/im-entries.ts#async reconcile(source: string)">im-entries.ts · reconcile</code>），暂时离线（门控为 wait）不算变化；入口由启动配置停用与入口停用同义，门控为丢弃。分两层：</p>
+    <ul>
+      <li>直接由该入口消息建立、仍在活动的任务按取消处理：排队的条件更新为 canceled，执行中的走上面的停止路径；原因是门控丢弃码。</li>
+      <li>沿父任务链追溯到该入口的其他任务（如委派出的子任务）不停止：归属该入口、尚未消费的审批（待决与已批准）作废，再只解除这些审批的等待（<code class="src" data-src="packages/channels/src/im-approvals.ts#invalidate">invalidate</code> → <code class="src" data-src="packages/agent/src/approval-gate.ts#supersedeConfirmations">supersedeConfirmations</code>）。工具按已知未执行返回，同会话其他审批照常，已消费的不动。同一事务里，该入口身份已变的长期授权记 entry_changed 失效。</li>
+    </ul>
+  </section>
+
+  <section id="queue">
+    <h2>会话队列与目录占用</h2>
+    <p>会话队列有 <code>active</code> 与 <code>paused</code> 两种状态（<code class="src" data-src="packages/core/src/types.ts#SessionQueueState">types.ts · SessionQueueState</code>）。暂停只影响「是否自动开始下一个排队任务」，不改变已排队任务本身。目录占用以任务的工作区根（<code class="src" data-src="packages/core/src/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code>：SubAgent 修改任务的工作副本或直接写入根，其余任务为会话工作目录）的身份为键，保证同一目录及其祖先/子孙同一时间只有一个任务处于 running 或 awaiting_confirmation。</p>
+
+    <figure class="fig">
+      <div class="scroll">
+        <svg viewBox="0 0 1040 310" role="img" aria-label="目录占用：会话 A 的任务在转入 running 的同一事务里写入占用行；同一工作区根目录下会话 B 的排队任务取占用失败后等待；A 的终态事务按任务 id 释放占用后唤醒所有有排队任务的会话，B 重新尝试。只读 SubAgent 子会话的工作目录是宿主生成的独立目录，占用键不同，与父会话并行。">
+          <g class="n run"><rect x="20" y="24" width="240" height="52" rx="8"/><text x="140" y="42">会话 A · running</text><text class="sub" x="140" y="61">持有占用</text></g>
+          <g class="n wait"><rect x="20" y="134" width="240" height="52" rx="8"/><text x="140" y="152">会话 B · queued</text><text class="sub" x="140" y="171">同一工作区根目录</text></g>
+          <g class="n accent"><rect x="420" y="72" width="250" height="66" rx="8"/><text x="545" y="94">occupancy 行</text><text class="sub" x="545" y="116">相等或祖先/子孙前缀即冲突</text></g>
+          <g class="n"><rect x="820" y="80" width="200" height="50" rx="8"/><text x="920" y="98">工作目录</text><text class="sub" x="920" y="116">realpath · dev/ino</text></g>
+          <path class="e accent" d="M260 50C340 50 350 88 418 88" marker-end="url(#ah-accent)"/>
+          <text class="el" x="338" y="44">与 running 同一事务写入</text>
+          <path class="e wait dash" d="M260 150C330 150 350 124 418 124" marker-end="url(#ah-wait)"/>
+          <text class="el" x="330" y="168">取占用失败，本轮不启动</text>
+          <path class="e ok dash" d="M545 138C545 186 420 196 264 180" marker-end="url(#ah-ok)"/>
+          <text class="el" x="440" y="204">终态事务按任务 id 释放 → kickAll</text>
+          <path class="e" d="M670 105H818" marker-end="url(#ah)"/>
+          <text class="el" x="744" y="97">同一目录身份</text>
+
+          <g class="n run"><rect x="20" y="236" width="240" height="52" rx="8"/><text x="140" y="254">SubAgent 子会话 · 只读</text><text class="sub" x="140" y="273">running · 与 A 同时</text></g>
+          <g class="n accent"><rect x="420" y="236" width="250" height="52" rx="8"/><text x="545" y="254">另一 occupancy 行</text><text class="sub" x="545" y="273">键不同，不冲突</text></g>
+          <g class="n"><rect x="820" y="237" width="200" height="50" rx="8"/><text x="920" y="255">work_dir</text><text class="sub" x="920" y="273">宿主生成的独立目录</text></g>
+          <path class="e accent" d="M260 262H418" marker-end="url(#ah-accent)"/>
+          <text class="el" x="338" y="254">取得占用</text>
+          <path class="e" d="M670 262H818" marker-end="url(#ah)"/>
+          <text class="el" x="744" y="254">另一目录身份</text>
+        </svg>
+      </div>
+      <figcaption>realpath 相同（符号链接别名）或 dev+ino 相同（挂载别名）都算同一目录；issue 16 起冲突判定升级为 <code class="src" data-src="packages/core/src/store.ts#export function occupancyConflict">occupancyConflict</code>：两目录相等，或任一方 realpath 按路径分隔符边界是另一方的前缀（祖先/子孙），都冲突、串行——已有的嵌套工作目录会话（如工作区根与其子目录各一个会话）从此也串行，这是行为变化（已知上限：挂载别名的祖先关系识别不出，<code>ponytail:</code> 注释）。占用键不再是固定的会话工作目录：<code class="src" data-src="packages/core/src/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code> 对有写入目标的任务返回其钉定副本/写入根（核对写入方的目录身份，排队期间被替换即 <code class="st bad">failed</code>），其余任务仍占用会话工作目录；释放统一按任务 id（<code class="src" data-src="packages/core/src/store.ts#releaseOccupancy">store.ts · releaseOccupancy</code>）。经 <code>open_workspace</code> 打开的会话都以工作区根目录为工作目录（<code class="src" data-src="packages/runtime/src/runtime.ts#async openWorkspace">runtime.ts · openWorkspace</code>），所以同一工作区的这些会话依次执行（迁移映射到工作区的旧会话保留原目录）；SubAgent 子会话的工作目录是宿主生成的独立目录，只读工作与父会话并行；issue 16 的修改任务要么在父工作区之外的 worktree 副本执行（继续并行，不会写到同一份内容），要么直接写父工作区内的目录（非 Git 目标）并按前缀规则与父会话串行。</figcaption>
+    </figure>
+
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>暂停原因</th><th>谁暂停</th><th>什么时候</th><th>谁恢复</th></tr></thead>
+        <tbody>
+          <tr><td><code>backend_restart</code></td><td class="nowrap">重启恢复</td><td>重启时会话里还有排队任务，且会话此前是 active。</td><td>编排器恢复角色队列；<code class="src" data-src="packages/runtime/src/subagents.ts#async start">SubAgentManager.start</code> 先冲刷消息，再恢复无遗留占用的 SubAgent 子会话，其保留的宿主固定评审排队任务继续——拥有者 / 主 Agent 委派的排队任务已由恢复事务定 interrupted（见下文「SubAgent 执行任务」），评审事件重提时也按同口径补恢复（<code class="src" data-src="packages/runtime/src/orchestrator.ts#resumeQueue(task.sessionId">dispatchEvent</code>）；其余（普通开发会话等）由拥有者核实后 resume_queue</td></tr>
+          <tr><td><code>occupancy_unverified</code></td><td class="nowrap">重启恢复</td><td>旧后台留下占用行，且会话此前是 active。遗留占用一律视为无法确认旧执行已停止，不论部署方式（后台服务单元的 KillMode=control-group 只覆盖后台进程树，容器另行回收）。</td><td>拥有者</td></tr>
+          <tr><td><code>context_overflow</code></td><td>驱动器</td><td>provider 报告上下文超限，任务已中断。</td><td>拥有者</td></tr>
+          <tr><td>发送前复核的拦截码</td><td>驱动器</td><td>某次模型调用在发送前被拦下，任务已中断。</td><td>拥有者</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>恢复都经 <code class="src" data-src="packages/runtime/src/runtime.ts#async resumeQueue">runtime.ts · resumeQueue</code>：拥有者调用 <code>resume_queue</code>，或后台启动时编排器恢复角色队列、管理器恢复 SubAgent 子会话的 <code>backend_restart</code> 队列（两者均要求无遗留占用）。它只释放本会话所属任务已经结束的遗留占用，本会话有活动任务持有占用时整个请求被拒（<code>occupancy_active</code>）；旧版本留下的排队任务没有记录模型配置时，要求显式给出 model_selection 并写回（<code>tasks.model_selection_recorded</code>）；同一事务内调用管理器 <code class="src" data-src="packages/runtime/src/subagents.ts#executionVerified">executionVerified</code>，无活动任务且当前终态结果已登记时可回 <code class="st idle">idle</code>；当前终态结果缺失报 <code>invalid_state</code>，整笔恢复回滚，已释放的遗留占用也恢复。再置 active、发 <code>session.queue_resumed</code>，提交后按管理器返回的父会话 ID 等待 <code class="src" data-src="packages/runtime/src/subagents.ts#async flushPendingMessages">flushPendingMessages</code>，并唤醒调度循环（见<a href="orchestrator.html#subagent-state">编排器</a>）。暂停时发的是 <code>session.queue_paused</code>。</p>
+    <p>固定角色已退役（agent-direction 工单 20 核心群聊、工单 23 固定 coding）：每次启动在 <code>recover</code> 之后执行 <code class="src" data-src="packages/runtime/src/runtime.ts#private retireLegacyRoles">retireLegacyRoles</code>，按状态幂等：旧群会话的遗留排队任务取消（原因 <code class="src" data-src="packages/core/src/session-identity.ts#export const CORE_GROUP_CHAT_RETIRED">CORE_GROUP_CHAT_RETIRED</code>），coding 角色会话的遗留排队任务取消（原因 <code class="src" data-src="packages/core/src/session-identity.ts#export const CODING_ROLE_RETIRED">CODING_ROLE_RETIRED</code>），在途群回复定 unknown、未终态收件记 skipped。运行中的任务由通用恢复定 interrupted，不重放；旧 coding 子任务的结果与 main 唤醒由编排器启动巡检补记一次（见<a href="orchestrator.html#legacy-coding">编排器 · 旧 coding 子任务</a>）。此后这些归档会话只读：提交入口拒绝（<code>invalid_state</code>），队列循环只做固定取消的兜底，驱动器不运行它们的任务。</p>
+  </section>
+
+  <section id="subagent">
+    <h2>SubAgent 执行任务</h2>
+    <p>SubAgent 的每次执行也是 tasks 里的一行，走同一个状态机、队列、驱动器与停止路径，只在下面几处不同。工作委托与 SubAgent 身份的状态（running / idle / unverified）见<a href="orchestrator.html">编排器</a>。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>方面</th><th>SubAgent 执行任务</th><th>位置</th></tr></thead>
+        <tbody>
+          <tr><td class="nowrap">入队</td><td>委派登记事务直接插入排队任务，提交后 kick 子会话。子会话不接受 submit、continue，也不能改会话默认模式（<code>invalid_state</code>）。</td><td><code class="src" data-src="packages/runtime/src/subagents.ts#async delegate">subagents.ts · delegate</code></td></tr>
+          <tr><td class="nowrap">访问模式</td><td>固定 confirm；<code>switch_task_mode</code> 拒绝（<code>invalid_state</code>）。</td><td><code class="src" data-src="packages/runtime/src/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code></td></tr>
+          <tr><td class="nowrap">截止</td><td>直接父任务的开始时刻（尚未开始取创建时刻）加 <code>SUBAGENT_LIMITS.deadlineMs</code>（60 分钟），包含排队与审批等待。到期由编排器截止巡检取消：排队的直接 canceled，执行中的走停止路径；结局记为超时。</td><td><code class="src" data-src="packages/runtime/src/subagents.ts#SUBAGENT_LIMITS">subagents.ts · SUBAGENT_LIMITS</code> <code class="src" data-src="packages/runtime/src/orchestrator.ts#private async checkDeadlines">orchestrator.ts · checkDeadlines</code></td></tr>
+          <tr><td class="nowrap">取消</td><td>拥有者可以直接 cancel / interrupt 某次执行；整项工作也可取消（<code>ruukoto work cancel</code> / 主 Agent 的 <code>subagent_cancel</code>，见<a href="orchestrator.html#subagent-cancel">编排器 · 整项取消</a>）：登记事务直接取消本工作的排队任务、给活动任务写取消意图，提交后每个活动任务按普通停止路径处理，其他工作不受影响；已取消的工作不能继续委派，迟到结果保存为事实但不再唤醒或注入父会话。父任务结束不会连带取消它。</td><td><code class="src" data-src="packages/runtime/src/runtime.ts#async cancelTask">runtime.ts · cancelTask</code> <code class="src" data-src="packages/runtime/src/subagents.ts#async cancelWork">subagents.ts · cancelWork</code></td></tr>
+          <tr><td class="nowrap">目录占用</td><td>键是任务的工作区根而非固定的会话工作目录（<code class="src" data-src="packages/core/src/worktree.ts#taskWorkspaceFor">taskWorkspaceFor</code>）：只读分析任务占用子会话宿主生成的独立目录，与父会话并行；修改委派（agent-direction issue 16，ADR 0021）的任务占用该工作的写入目标——Git 目标的宿主 worktree 副本（父工作区之外，并行且单一写入者）或非 Git 目标的目录（直接写入，与父会话按前缀规则串行）。首次钉定写入目标后子会话 cwd 对齐到该根（<code class="src" data-src="packages/core/src/store.ts#setSubAgentCwd">store.ts · setSubAgentCwd</code>）。</td><td><code class="src" data-src="packages/core/src/store.ts#tryAcquireOccupancy">store.ts · tryAcquireOccupancy</code></td></tr>
+          <tr><td class="nowrap">终态之后</td><td>编排器在结果事务内调用管理器 resultRecorded：当前任务匹配才按占用置 idle / unverified，旧任务首次补记不倒写新工作与任务。提交后异步冲刷消息；不自动重试，细节见<a href="orchestrator.html#subagent-state">编排器 · 状态与结果</a>。</td><td><code class="src" data-src="packages/runtime/src/subagents.ts#resultRecorded">subagents.ts · resultRecorded</code></td></tr>
+          <tr><td class="nowrap">重启</td><td>执行中的照常转 interrupted（<code>backend_restart</code>），编排器启动巡检补记为结果未知；重启仍排队的拥有者 / 主 Agent 委派任务（没有来源事件）由恢复事务一并转 interrupted（<code>backend_restart</code>，从未启动，不自动继续也不当作新委派，<code class="src" data-src="packages/core/src/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>），巡检同样补记，是否重新委派由拥有者 / 父 Agent 决定；宿主固定评审（带来源事件）的排队任务不中断：子会话以 <code>backend_restart</code> 暂停后由管理器 start 在无遗留占用时恢复并继续执行（见<a href="orchestrator.html#child">编排器 · 重启恢复</a>）。</td><td><code class="src" data-src="packages/runtime/src/runtime.ts#private recover">runtime.ts · recover</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="restart">
+    <h2>后台停止与重启恢复</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>后台停止 <code class="src" data-src="packages/runtime/src/runtime.ts#private async doStop">runtime.ts · doStop</code></h3>
+        <p>由控制面 <code>stop</code> 操作、进程收到 SIGINT / SIGTERM，或启动时 GitHub webhook 起不来触发（<code class="src" data-src="packages/control/src/server.ts#control_plane">server.ts · stop</code>）。</p>
+        <ol class="steps">
+          <li>记 <code>backend.stopping</code>，先停所有入口：GitHub webhook、调度器（等在途发送收尾）、Telegram 轮询、编排器、QQ 适配器。ruukoto-code 没有调度器；QQ 与 Telegram 适配器仍存在，但按产品停用连接与轮询。</li>
+          <li>对 running 与 awaiting_confirmation 的任务走停止路径，原因 <code>backend_stop</code>；驱动器缺失的任务经 Store.endTask 转 interrupted，清除待生效模式、失效未消费审批并保留占用，事件读实际取消意图与效果未知标记。排队任务保持 queued，停止开始后不再转入 running。</li>
+          <li>释放各会话驱动器，等调度循环全部退出。</li>
+          <li>关闭控制面与应用数据库，记 <code>backend.stopped</code>，关核心库、释放实例锁与配置锁、删除 socket。</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>重启恢复 <code class="src" data-src="packages/runtime/src/runtime.ts#private recover">runtime.ts · recover</code></h3>
+        <p>启动时先核对数据目录登记的产品归属，属于另一产品即拒绝启动（<code class="src" data-src="packages/runtime/src/runtime.ts#product_mismatch">product_mismatch</code>）。打开应用库（个人 Agent 还先做调度器的恢复准备）后，在编排器与各入口启动之前，用<strong>一个事务</strong>完成：</p>
+        <ol class="steps">
+          <li>按工具操作账本的分类器补记所有结果缺失的操作（<code class="src" data-src="packages/agent/src/tool-op-ledger.ts#settleAll">settleAll</code>），已消费的服务操作被标效果未知时同目标的长期授权一并失效；running 与 awaiting_confirmation 经 Store.endTask 转 interrupted（<code>backend_restart</code>），清待生效模式并保留占用，未决与已批准未消费的审批一律失效（<code class="src" data-src="packages/core/src/store.ts#stalePendingConfirmations">stalePendingConfirmations</code>：consumed_at 为空即随任务终结，已消费的不动）。</li>
+          <li>仍排队的 SubAgent 执行任务（拥有者 / 主 Agent 委派，没有来源事件）由恢复事务调用 <code class="src" data-src="packages/runtime/src/subagents.ts#recoverQueuedTasks">SubAgentManager.recoverQueuedTasks</code> 转 interrupted（<code>backend_restart</code>，从未启动）：不自动继续也不当作新委派（<code class="src" data-src="packages/core/src/store.ts#listQueuedSubAgentTasks">store.ts · listQueuedSubAgentTasks</code>）；宿主固定评审（带来源事件）的排队任务保持，由管理器 start 在无遗留占用时恢复继续。</li>
+          <li>遗留占用记 <code>occupancy.stale</code>、保留不删，所属会话仍为 active 时以 <code>occupancy_unverified</code> 暂停。</li>
+          <li>有排队任务、仍为 active 的会话以 <code>backend_restart</code> 暂停；上一步已暂停的会话保留原因。</li>
+          <li>会话登记的 JSONL 缺失时改用同 pi session id 的最新文件；改用与找不到都记 <code>session.history_unreadable</code>。</li>
+        </ol>
+        <p>事务末尾记 <code>backend.recovered</code>，列出被中断的任务与被暂停的会话。编排器、QQ、Telegram、调度器与 GitHub webhook 的启动步骤完成之后才记 <code>backend.started</code>（调度器只在个人 Agent 产品创建；QQ 与 Telegram 适配器始终创建，ruukoto-code 按产品停用；webhook 仅在显式配置后监听；<code>backend.started</code> 带产品身份）。随恢复失效的审批，尚未发出的 IM 通知在发送前核对审批已不是 pending，不再发出；入口未变的长期授权不因重启失效。</p>
+      </div>
+    </div>
+    <p>日常 ruukoto-code 的后台可以由 TUI 按需拉起（<code class="src" data-src="packages/control/src/ensure-backend.ts#export async function ensureBackend">ensure-backend.ts · ensureBackend</code>，只属 ruukoto-code：<code class="src" data-src="packages/control/src/ensure-backend.ts#tuiSpawnsBackendOnDemand">tuiSpawnsBackendOnDemand</code>；ruukoto 仍显式启动）。它先探测控制面，认证与握手通过即复用；socket 可连但被拒（令牌或协议版本）也不拉起。拉起的进程就是 <code>server</code>，启动后照常执行上面的恢复；多个终端同时拉起由实例锁仲裁成单个后台，败者以 <code class="src" data-src="packages/core/src/instance-lock.ts#INSTANCE_LOCK_EXIT_CODE">INSTANCE_LOCK_EXIT_CODE</code> 退出。子进程 detached 并 unref：关闭 TUI 不停止后台、不取消任务，后台只按上面的停止路径结束。界面重新打开沿握手快照复现任务（见<a href="control-protocol.html">控制面协议</a>），连接丢失不触发任何重新执行。</p>
+    <p>开发入口 <code>npm run code</code> 的 TUI 只连接启动器管理的后台（<code class="src" data-src="packages/tui/src/tui/index.ts#!reloadStatePathFromEnv()">runTui · 开发前端</code>），退出 TUI 后由启动器停止整组进程。两个开发入口的源码重载与退出规则见<a href="deployment.html#dev-deploy">开发实例</a>。</p>
+    <aside class="callout inv">
+      <b>不重放</b>
+      <p>重启不重放已中断任务的模型调用或工具操作；宿主固定评审尚未启动的排队任务可自动继续（见<a href="#subagent">SubAgent 执行任务</a>）。想继续普通开发会话的中断任务，拥有者用 continue 提交一个带 <code>resumesTaskId</code> 的新任务：采用本次提交时的会话默认模式，显式模式优先。Plan 同样按本次选择决定，不从源任务输入或继续链继承；旧任务的批准不继承，也不补造工具结果（<code class="src" data-src="packages/runtime/src/runtime.ts#async continueTask">runtime.ts · continueTask</code>）。</p>
+    </aside>
+  </section>
+
+  <section id="mode">
+    <h2>会话默认模式与任务模式切换</h2>
+    <p>会话默认模式（<code class="src" data-src="packages/core/src/types.ts#SESSION_DEFAULT_MODES">types.ts · SESSION_DEFAULT_MODES</code>）包含 <code>confirm</code>、<code>full_access</code>、<code>auto-review</code>；普通开发会话另可选择 <code>plan</code>。拥有者经 <code>set_session_mode</code> 带 <code>expected_version</code> 条件保存，发出 <code>session.default_mode_changed</code>；旧版本请求返回 <code>default_mode_conflict</code>，不覆盖现值（<code class="src" data-src="packages/runtime/src/runtime.ts#async setSessionDefaultMode">runtime.ts · setSessionDefaultMode</code>、<code class="src" data-src="packages/core/src/store.ts#setSessionDefaultMode">store.ts · setSessionDefaultMode</code>）。TUI 的 <code>/mode</code> 与 Shift+Tab 沿用此入口；切换普通开发会话时，把源会话选择同步到目标会话并保存。</p>
+    <p>默认值只影响后续新任务，提交时保存任务的 <code>planMode</code> 与 <code>accessMode</code>。Plan 固定为 <code>planMode=true</code>、<code>accessMode=auto-review</code>，持续到拥有者手动更换默认值；计划完成和“开始实现”消息不自动退出。排队、执行或等待审批中的任务保留提交时选择，底栏显示任务模式；与后续任务默认值不同时，另显示会话默认模式。计划说明与工具收窄的边界见<a href="tool-call-path.html#availability">工具调用路径</a>。</p>
+    <p>任务级 <code>switch_mode</code> 只接受原访问模式。Plan 任务拒绝改变权限模式；请求 <code>plan</code> 也会被拒绝，不能在任务内部进入或退出 Plan。拒绝不改写任务、权限版本或审批；需要转换时先中断，再按当前会话选择继续。非 Plan 任务仍携带访问模式与权限版本，只有拥有者能切换（<code class="src" data-src="packages/runtime/src/runtime.ts#async switchTaskMode">runtime.ts · switchTaskMode</code>），在没有工具正在执行的边界生效，递增权限版本并使未消费的审批失效（<code class="src" data-src="packages/core/src/store.ts#applyModeSwitch">store.ts · applyModeSwitch</code>）。访问策略含义见<a href="tool-call-path.html#modes">工具调用路径</a>。</p>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr><th>切换时任务处于</th><th>行为</th><th>事件</th></tr></thead>
+        <tbody>
+          <tr><td>Plan 任务，或目标模式为 <code>plan</code></td><td>Plan 任务拒绝（<code>invalid_state</code>）；目标 <code>plan</code> 无效（<code>invalid_params</code>），均不修改权限版本与审批。</td><td>无</td></tr>
+          <tr><td><code class="st wait">queued</code> 或 <code class="st wait">awaiting_confirmation</code></td><td>立即应用：停止本会话驱动器当前的执行单元并核实已退出（没有驱动器视为已退出），写入新模式与权限版本；等待中的审批全部失效。</td><td><code>task.mode_switched</code></td></tr>
+          <tr><td>同上，但无法核实旧执行单元退出</td><td>任务中断（<code>mode_switch_unverified</code>），不释放占用，请求以同名错误码失败。</td><td><code>task.mode_switch_failed</code></td></tr>
+          <tr><td><code class="st run">running</code></td><td>登记待生效模式；执行中的调用沿用开始时的范围，下一次工具调用前在边界应用（<code class="src" data-src="packages/agent/src/tool-router.ts#prepareToolBoundary">tool-router.ts · prepareToolBoundary</code>）。任务先到终态时待生效模式随之清除。要立刻停下请用中断。</td><td><code>task.mode_switch_requested</code>，应用时 <code>task.mode_switched</code></td></tr>
+          <tr><td>边界应用失败</td><td>任务中断（<code>mode_switch_failed:…</code>），回收失败时保留占用。</td><td><code>task.interrupted</code>；回收失败另发 <code>task.tool_process_unreaped</code></td></tr>
+          <tr><td>终态</td><td>拒绝（<code>invalid_state</code>）。</td><td>无</td></tr>
+          <tr><td>SubAgent 执行任务（任何状态）</td><td>拒绝（<code>invalid_state</code>）：模式由宿主固定为 confirm。</td><td>无</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="doc-foot"><p>本页随代码维护：改动「源码」行列出的文件时同步更新本页；<code>npm test</code> 中的 visual-docs 检查核对源码锚点和枚举覆盖。</p></footer>
+</main>
+</body>
+</html>

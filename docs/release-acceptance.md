@@ -36,7 +36,7 @@ SubAgent 的身份、工作与执行任务分别保存。任务结束且退出�
 
 ## 当前复跑入口
 
-关键验收脚本及 PTY 助手已经进入 `verification/smoke/`，完整 clone 可按[运行说明](../verification/smoke/README.md)复跑。先在根目录完成 `npm run setup` 与`npm run check`；个人原生验收先完成 Linux 常驻前置并运行 `npm run build`，再运行 `npm run test:native`；表内旧 Docker 结果保留为当时版本的证据，不是当前脚本的原生结果。升级使用 `npm run test:upgrade`；真实模型编码验收显式指定配置和模型，避免读取某位开发者的固定档案：
+关键验收脚本及 PTY 助手已经进入 `verification/smoke/`，完整 clone 可按[运行说明](../verification/smoke/README.md)复跑。先在根目录完成 `npm run setup` 与`npm run check`；Docker 验收先运行 `npm run build:worker-image`，再运行`npm run test:docker`。升级使用 `npm run test:upgrade`；真实模型编码验收显式指定配置和模型，避免读取某位开发者的固定档案：
 
 ```bash
 npm run test:release-model -- --models /path/to/models.json --model provider/model
@@ -44,7 +44,7 @@ npm run test:release-model -- --models /path/to/models.json --model provider/mod
 
 真实模型编码与安装升级分开运行，执行其中一个不会自动完成另一个。真实模型入口在启动 TUI 前离线核实所选模型的配置、认证、思考档位与预算；配置须能独立认证，不继承模型 API key 环境变量或读取个人及相邻的 `auth.json`。前提缺失退出 2，不计为验收通过。具体配置契约见上述脚本运行说明。
 
-上节是 2026-10-06 的历史证据，链接指向迁入 Git 的当前脚本或历史源码，历史结果不代表当前检出已经复跑。当前升级脚本默认从 `8bccb8f` 检查已有 `ruukoto-code` 产品身份的升级；旧基点 `1aba2f1` 使用此前的 Coding Agent 名称，不能以当前脚本将跨产品名称迁移判为通过。指定其他基点前先核对它具备当前产品身份、入口和相同控制面协议。
+上节是 2026-10-06 的历史证据，链接指向迁入 Git 的当前脚本或历史源码，历史结果不代表当前检出已经复跑。当前升级脚本默认从 `5e84daa` 检查已有 `ruukoto-code` 产品身份的升级；旧基点 `1aba2f1` 使用此前的 Coding Agent 名称，不能以当前脚本将跨产品名称迁移判为通过。指定其他基点前先核对它具备当前产品身份、入口和相同控制面协议。
 
 Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](../verification/archive/README.md)。旧脚本包含固定系统路径写入，完整准备与清理尚未成为独立安全入口；本轮只归档源码与前提，特权隔离另做一批。当前开发检查的范围和实测基线见 [开发说明](development.md)。
 
@@ -80,7 +80,7 @@ Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](..
 
 ## 安装、升级与切换
 
-开发端在开发机检出代码、安装依赖、构建 worker 与原生监督器，通过`ruukoto-code config` 配置本端模型后打开目录。个人端按[systemd 部署说明](../deploy/systemd/README.md) 配置当前启动账户、原生沙箱、常驻 user manager 和可选服务 helper。不要将两个产品指向同一个数据目录；产品归属不符时会拒绝启动。
+开发端在开发机检出代码、安装依赖、构建 worker 与原生监督器，通过`ruukoto-code config` 配置本端模型后打开目录。个人端按[systemd 部署说明](../deploy/systemd/README.md) 配置当前启动账户、受限容器和可选服务 helper。不要将两个产品指向同一个数据目录；产品归属不符时会拒绝启动。
 
 升级前停止需要升级的产品，保留其档案并替换该端检出。修改 worker 或其使用的核心代码后重建镜像；`ruukoto-code stop` 后重开 TUI 可拉起新代码，个人端按部署说明重启systemd 单元。分别安装在各自机器或检出中的产品不要求同时升级，另一端不提供本地任务执行所需的控制面或存储。协议与 schema 版本以本端代码为准。
 
@@ -92,7 +92,7 @@ Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](..
 
 完全访问在 macOS 与 tx Linux 的两个产品取得真实 Runtime、SDK 与 worker 证据：启动账户 UID/GID、用户环境与虚拟凭据继承、工作区外读写、本机 HTTP 联网、正常与已归属后代停止，以及强杀 worker 后保留未知停止结论。模型为桩、凭据为临时虚拟数据，未修改真实部署。受限原生的外部文件与网络拒绝同时验证。执行范围与原始证据见[完全访问决定](../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)，历史专用账户证据仅证明当时实现。
 
-真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达，以及 tx 生产库的切换仍需独立的真实部署演练。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。部署机制见[部署模块](modules/deploy.md)，复跑步骤见[smoke 运行说明](../verification/smoke/README.md)。完整的历史验证清单见下节。
+真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达，以及 tx 生产库的切换仍需独立的真实部署演练。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。运行图解见 [部署与验证](visual/deployment.html#acceptance)。完整的历史验证清单见下节。
 
 ## 历史验证清单
 

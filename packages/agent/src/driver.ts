@@ -40,8 +40,6 @@ import type {
   Session,
   Task,
   ToolCategory,
-  Artifact,
-  MemorySourceRef,
 } from "@ruukoto/core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import type { Store } from "@ruukoto/core/store.ts";
@@ -66,8 +64,7 @@ import type { HostToolContext } from "./host-tools.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
 import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
-import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile } from "./tool-availability.ts";
-import { WorkflowError } from "@ruukoto/core/workflow.ts";
+import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type TaskToolSet } from "./tool-availability.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -94,7 +91,6 @@ export interface DriverDeps {
   credentials: CredentialStore;
   /** 按访问模式返回工作进程启动器；未配置时抛 ExecutionError（不回退）。 */
   launcherFor: (mode: AccessMode) => WorkerLauncher;
-  verificationLauncher?: () => WorkerLauncher;
   /** 始终排除的保护根目录（后台数据、服务凭据、控制面）。 */
   protectedRoots: string[];
   /** 占用释放后的唤醒回调（Runtime 注入，用于调度等待同目录的会话）。 */
@@ -151,17 +147,6 @@ export interface DriverDeps {
    * 已保存快照正文不重新解析）。
    */
   verifyTaskSources?: (projectId: string, refs: unknown[]) => string | null;
-  /** 宿主派生任务在每次模型请求与实际调用前重核来源。 */
-  verifyTask?: (task: Task) => string | null;
-
-  workflow?: {
-    resolve(task: Task): WorkflowExecutionProfile | null;
-    verify(task: Task): string | null;
-    artifactAccess(task: Task, artifact: Artifact): boolean;
-    historyAccess(task: Task, sessionId: string): boolean;
-    recordMemory?(task: Task, memoryId: string): void;
-  };
-  onManagedUnits?(taskId: string, entries: ManagedEntry[]): void;
 
 }
 
@@ -231,15 +216,13 @@ export class Driver {
   private originalStreamFn: any = null;
   /** 任务开始时钉版的技能库（issue 22；null = 资料受限会话不读取）。 */
   private pinnedSkills: SkillLibrary | null = null;
-  private workflowManagedUnits: ((entries: ManagedEntry[]) => void) | null = null;
   /** 用户消息落盘前附稳定图片引用；不把图片正文交给 SDK 历史写入。 */
   private pendingUserImages: ImageReference[] = [];
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
     this.deps = deps;
-    const registry = createManagedProcessRegistry();
-    this.registry = { ...registry, register: entry => { registry.register(entry); this.reportManagedUnits(); } };
+    this.registry = createManagedProcessRegistry();
     this.approvals = new ApprovalGate({
       store: deps.store,
       ledger: deps.ledger,
@@ -254,14 +237,9 @@ export class Driver {
       artifacts: deps.artifacts,
       credentials: deps.credentials,
       registry: this.registry,
-      verifyTask: task => this.verifyWorkflowTask(task),
-      onManagedIdentity: () => this.reportManagedUnits(),
       launcherFor: deps.launcherFor,
-      verificationLauncher: deps.verificationLauncher,
       protectedRoots: deps.protectedRoots,
       artifactAccess: (task, artifact) => {
-        if (this.profile.workflow) return !artifact.name.startsWith("prompt-snapshot:") &&
-          this.verifyWorkflowTask(task) === null && Boolean(deps.workflow?.artifactAccess(task, artifact));
         // SubAgent 只读本次自产；模型上下文快照不是交付产物，拒绝
         if (this.profile.restricted) {
           return artifact.taskId === task.id && !artifact.name.startsWith("prompt-snapshot:");
@@ -289,23 +267,7 @@ export class Driver {
 
   /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
   private allows(category: ToolCategory): boolean {
-    return this.profile.workflow ? this.profile.workflow.categories.includes(category) : allowsCategory(this.profile.toolClass, category);
-  }
-
-  /** 已登记句柄变成真实执行身份时仍沿原任务记录，不重新登记单元。 */
-  reportManagedUnits(): void {
-    const entries = this.registry.list();
-    if (this.managedTaskId) this.deps.onManagedUnits?.(this.managedTaskId, entries);
-    this.workflowManagedUnits?.(entries);
-  }
-
-  setWorkflowManagedUnits(callback: (entries: ManagedEntry[]) => void): void { this.workflowManagedUnits = callback; }
-
-  verifyWorkflowTask(task: Task): string | null {
-    const problem = this.deps.verifyTask?.(task);
-    if (problem) return problem;
-    if (!this.profile.workflow) return null;
-    return this.deps.workflow ? this.deps.workflow.verify(task) : "工作流步骤的宿主权限核实不可用";
+    return allowsCategory(this.profile.toolClass, category);
   }
 
   /** 不在本任务允许集合内的工具的拒绝原因。 */
@@ -322,12 +284,6 @@ export class Driver {
   private verifyMainBinding(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
     if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
     if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
-    if (this.profile.workflow) {
-      if (this.currentTask?.id !== ctx.taskId || this.profile.workflow.toolClass !== "main") return "步骤未绑定个人助手来源";
-      const task = this.deps.store.getTask(ctx.taskId);
-      if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
-      return this.verifyWorkflowTask(task);
-    }
     const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
     if (identity?.kind !== "main" && identity?.kind !== "scheduled") return "会话未绑定个人助手执行身份";
     if ((identity.kind === "main" ? identity.role.projectId : identity.projectId) !== this.session.projectId) return "个人助手资料项目绑定不匹配";
@@ -343,25 +299,7 @@ export class Driver {
 
   /** 宿主注入的资料访问身份。 */
   private accessor(): Accessor {
-    return { kind: "agent", projectId: this.profile.workflow?.sourceProjectId ?? this.session.projectId,
-      ...(this.profile.workflow ? { grantIds: this.profile.workflow.grantIds } : {}) };
-  }
-
-  private dataSessionReadable(ctx: HostToolContext, sessionId: string, category: "history" | "artifact"): boolean {
-    const session = this.deps.store.getSession(sessionId);
-    if (!session || !this.deps.access.canAccess(this.accessor(), session.projectId, category)) return false;
-    const task = this.deps.store.getTask(ctx.taskId);
-    return !this.profile.workflow || Boolean(task && this.verifyWorkflowTask(task) === null && this.deps.workflow?.historyAccess(task, sessionId));
-  }
-
-  private dataSourceReadable(ctx: HostToolContext, ref: MemorySourceRef): boolean {
-    if (!this.deps.access.sourceRefAccessible(this.accessor(), ref)) return false;
-    if (ref.kind === "history_entry") return this.dataSessionReadable(ctx, ref.sessionId, "history");
-    if (ref.kind === "owner_note") return true;
-    const artifact = this.deps.store.getArtifact(ref.artifactId);
-    const task = this.deps.store.getTask(ctx.taskId);
-    if (!artifact || (this.profile.workflow && artifact.name.startsWith("prompt-snapshot:"))) return false;
-    return !this.profile.workflow || Boolean(task && this.verifyWorkflowTask(task) === null && this.deps.workflow?.artifactAccess(task, artifact));
+    return { kind: "agent", projectId: this.session.projectId };
   }
 
   /**
@@ -417,14 +355,6 @@ export class Driver {
         verifyMain: (ctx) => this.verifyMainBinding(ctx),
         verifyHost: (ctx) => this.verifyDelegationHost(ctx),
       },
-      data: {
-        recordMemory: (ctx, memoryId) => {
-          if (this.profile.workflow && this.currentTask?.id === ctx.taskId) this.deps.workflow?.recordMemory?.(this.currentTask, memoryId);
-        },
-        accessor: () => this.accessor(),
-        sessionReadable: (ctx, sessionId, category) => this.dataSessionReadable(ctx, sessionId, category),
-        sourceReadable: (ctx, ref) => this.dataSourceReadable(ctx, ref),
-      },
       approval: {
         request: (input) => this.approvals.request(input),
         requestStanding: (input) => this.approvals.requestStanding(input),
@@ -449,10 +379,7 @@ export class Driver {
     );
     const subAgentTools = this.profile.subAgentTools;
     const allTools = [
-      ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router })
-        .filter(tool => !this.profile.workflow || this.profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : []),
-      ...(this.profile.workflow && !this.allows("coding")
-        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter(tool => tool.name === "read" || tool.name === "read_artifact") : []),
+      ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
       ...(subAgentTools
         ? this.deps.toolFactory({ registry: this.registry, router: this.router })
             .filter((t) => subAgentAllows(subAgentTools, t.name))
@@ -472,9 +399,7 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      systemPrompt: this.profile.workflow
-        ? SYSTEM_PROMPTS.workflow
-        : this.profile.toolSignature === "scheduled"
+      systemPrompt: this.profile.toolSignature === "scheduled"
         ? `${SYSTEM_PROMPTS.main}\n- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。无需为这份默认回报调用 notification_enqueue；任务明确要求另行发送时才用该工具。`
         : SYSTEM_PROMPTS[this.profile.toolClass],
       hooks: {
@@ -493,13 +418,6 @@ export class Driver {
   /** 工具执行入口按 sdkCallId 绑定宿主上下文（execute 包装时调用）。 */
   private readonly bindHostCall = (sdkCallId: string): HostCall => {
     const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
-    if (ctx && this.profile.workflow) {
-      const task = this.deps.store.getTask(ctx.taskId);
-      if (!task || task.sessionId !== ctx.sessionId || this.verifyWorkflowTask(task) !== null) {
-        this.hostToolCalls.delete(sdkCallId);
-        throw new WorkflowError("source_invalid");
-      }
-    }
     let released = false;
     return {
       context: ctx,
@@ -565,8 +483,6 @@ export class Driver {
 
   /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
-    const workflowProblem = this.verifyWorkflowTask(task);
-    if (workflowProblem) throw new ContextSendBlocked(`workflow_source_invalid:${workflowProblem}`);
     if (hasImageInput(context?.messages ?? []) && !model?.input?.includes("image")) {
       throw new ContextSendBlocked(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
     }
@@ -644,14 +560,11 @@ export class Driver {
     // 任务（提交入口与队列兜底先行拒绝），走到这里即抛。
     const identity = this.deps.store.getSessionIdentity(this.session.id);
     if (!identity) throw new Error(`会话不存在：${this.session.id}`);
-    const workflow = this.deps.workflow?.resolve(task);
-    if (identity.kind === "subagent" && identity.workflow && !workflow) throw new WorkflowError("source_invalid");
     this.pinnedProfile = executionProfile({
       identity,
       writeTarget: Boolean(task.workId && this.deps.store.getWorkDelegation(task.workId)?.writeTarget),
       review: identity.kind === "subagent" && (this.deps.taskMcp?.(task) ?? false),
       planMode: task.planMode,
-      workflow,
     });
     this.currentTask = task;
     this.stopRequested = false;
@@ -676,7 +589,7 @@ export class Driver {
     this.lastBlockedReason = null;
     this.pendingUserImages = [];
     this.taskTools = null;
-    this.pinnedSkills = this.profile.restricted && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
+    this.pinnedSkills = this.profile.restricted ? null : loadSkillLibrary(this.deps.agentDir);
     // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
     // 摘要与消息正文由宿主写定，不伪装拥有者新请求，也不授予委派权限。
     const injection = this.deps.parentInjection?.(this.session.id);
@@ -713,7 +626,6 @@ export class Driver {
 
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
   private async planMcp(task: Task): Promise<McpTaskPlan> {
-    if (this.verifyWorkflowTask(task)) throw new WorkflowError("source_invalid");
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
     // 画像决定是否规划：类别含 mcp，或 SubAgent 宿主评审任务另开只读 MCP（issue 19）
     if (!this.profile.planMcp) return EMPTY_MCP_PLAN;
@@ -831,9 +743,7 @@ export class Driver {
       // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
       // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
       narrow:
-        this.profile.workflow
-          ? (name, effect) => workflowAllows(this.profile.workflow!, name) && (!allowTaskTool || allowTaskTool(task, name, effect))
-          : subAgentTools
+        subAgentTools
           ? (name, effect) => subAgentAllows(subAgentTools, name, effect)
           : allowTaskTool
             ? (name, effect) => allowTaskTool(task, name, effect)
@@ -1120,8 +1030,6 @@ export class Driver {
   private async handleToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
     const current = this.currentTask;
     if (!current) return undefined;
-    const workflowProblem = this.verifyWorkflowTask(current);
-    if (workflowProblem) return { block: true, reason: `工作流步骤授权失效：${workflowProblem}` };
     // 工具可用性（架构工单 03）：不在本任务允许集合内的调用一律阻止（激活侧已过滤，
     // 此处兜底注册泄漏/未知路径；不记录执行意图）
     if (!this.taskTools?.allowed.has(event.toolName)) {

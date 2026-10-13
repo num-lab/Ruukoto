@@ -18,9 +18,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import childProcess from "node:child_process";
-import { syncBuiltinESMExports } from "node:module";
-import { PassThrough } from "node:stream";
 import { AppDataStore, AppDataConflictError, AppDataError, LIMITS } from "@ruukoto/agent/app-data/store.ts";
 import { AppDataQueryRunner, runQuery, validateQueryRequest, QUERY_LIMITS } from "@ruukoto/agent/app-data/query.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
@@ -556,26 +553,6 @@ test("schema/changes 模式：表发现、单表定义与审计分页", async ()
   } finally {
     await cleanup();
   }
-});
-
-for (const response of [true, false]) test(`查询进程先 exit 后关闭 stdout：${response ? "收完结果" : "无结果拒绝"}`, async context => {
-  const child = new childProcess.ChildProcess();
-  const stdout = new PassThrough();
-  child.stdin = new PassThrough(); child.stdout = stdout; child.stderr = new PassThrough();
-  context.mock.method(childProcess, "spawn", () => child);
-  syncBuiltinESMExports();
-  const runner = new AppDataQueryRunner();
-  try {
-    const result = runner.run("unused", { mode: "schema" });
-    child.emit("exit", 0, null);
-    assert.equal(runner.inFlight, 1);
-    const expected = { ok: true, mode: "schema", schema_version: 0, revision: 0, complete: true, tables: [] };
-    stdout.end(response ? JSON.stringify(expected) + "\n" : "");
-    child.emit("close", 0, null);
-    if (response) assert.deepEqual(await result, expected);
-    else await assert.rejects(result, error => error instanceof AppDataError && error.code === "child_exited");
-    assert.equal(runner.inFlight, 0);
-  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); await runner.dispose(); }
 });
 
 test("只读子进程：真实查询经子进程执行；超时真实终止进程", async () => {

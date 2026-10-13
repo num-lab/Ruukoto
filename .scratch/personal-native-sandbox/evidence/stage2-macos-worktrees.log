@@ -1,9 +1,0 @@
-[ruukoto:smoke26] PASS Git 夹具由原生 worker 初始化，Docker 路径不可用
-[ruukoto:smoke26] PASS 控制面提交真实 read/edit/write/bash，修复前检查失败、修复后通过
-[ruukoto:smoke26] PASS 只读 SubAgent 真实读取限定文件，未授予的兄弟文件被拒绝
-[ruukoto:smoke26] PASS 活动父任务在原生边界内创建两个独立 worktree，并行运行
-[ruukoto:smoke26] PASS 两个副本真实修改与 Git 只读操作成功，共享 Git 写入拒绝
-[ruukoto:smoke26] PASS 副本间成果独立，父工作区未提交修复与原字节没有进入副本
-[ruukoto:smoke26] PASS 原生临时 worker 汇总两个副本，父未提交成果与副本保留
-[ruukoto:smoke26] PASS 父任务收尾后所有执行占用释放
-[ruukoto:smoke26] {"platform":"darwin","arch":"arm64","exitCode":0,"cleanupVerified":true,"pass":8,"fail":0,"unavailable":0,"checks":[{"name":"Git 夹具由原生 worker 初始化，Docker 路径不可用","status":"pass"},{"name":"控制面提交真实 read/edit/write/bash，修复前检查失败、修复后通过","status":"pass"},{"name":"只读 SubAgent 真实读取限定文件，未授予的兄弟文件被拒绝","status":"pass"},{"name":"活动父任务在原生边界内创建两个独立 worktree，并行运行","status":"pass"},{"name":"两个副本真实修改与 Git 只读操作成功，共享 Git 写入拒绝","status":"pass"},{"name":"副本间成果独立，父工作区未提交修复与原字节没有进入副本","status":"pass"},{"name":"原生临时 worker 汇总两个副本，父未提交成果与副本保留","status":"pass"},{"name":"父任务收尾后所有执行占用释放","status":"pass"}]}

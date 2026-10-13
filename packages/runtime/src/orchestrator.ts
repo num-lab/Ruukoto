@@ -25,7 +25,6 @@ import {
   type AgentRole,
   type AgentRoleId,
   type InboundEvent,
-  type GrantedPath,
   type ModelSelection,
   type NotifyTarget,
   type PersistentEvent,
@@ -36,7 +35,6 @@ import { QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE } from "@ruukoto/core/notify-target.
 import { canonicalParamsDigest } from "@ruukoto/agent/mcp/tools.ts";
 import type { SubAgentDelegateInput, SubAgentDelegation, SubAgentManager } from "@ruukoto/runtime/subagents.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
-import { getWorkflowDeliveryRun } from "@ruukoto/core/workflow.ts";
 
 /** 编排器需要的 Runtime 窄接口（宿主注入；除此之外的能力编排器不可见）。 */
 export interface OrchestratorBridge {
@@ -45,14 +43,12 @@ export interface OrchestratorBridge {
     requestId: string;
     input: string;
     accessMode?: AccessMode;
-    grantedPaths?: GrantedPath[];
     modelSelection: ModelSelection;
     agentId?: AgentRoleId | null;
     parentTaskId?: string | null;
     sourcePermissionVersion?: number | null;
     sourceEventId?: string | null;
     deadline?: string | null;
-    workflowRunId?: string;
   }): Promise<Task>;
   cancelTask(taskId: string, reason?: string): Promise<Task>;
   findProjectByName(name: string): { id: string } | null;
@@ -200,10 +196,6 @@ export class Orchestrator {
       const identity = this.store.getSessionIdentity(session.id);
       if (identity?.kind === "scheduled" && this.store.scheduledRunCanResume(identity.runId)) {
         await this.resumeRestartPausedQueue(session.id, `调度运行 ${identity.runId}`);
-      }
-      if (identity?.kind === "dev" && this.store.listQueuedTasksFifo(session.id).length > 0 &&
-          this.store.listQueuedTasksFifo(session.id).every(task => getWorkflowDeliveryRun(this.store, task.id))) {
-        await this.resumeRestartPausedQueue(session.id, "工作流最终汇总");
       }
     }
     const ms = this.deps.deadlineCheckMs ?? 1_000;
@@ -469,7 +461,7 @@ export class Orchestrator {
         continue;
       }
       const task = this.store.getTask(body.taskId);
-      if (!task || (!task.agentId && !task.subAgentId && this.store.getSessionIdentity(task.sessionId)?.kind !== "scheduled" && !getWorkflowDeliveryRun(this.store, task.id))) continue;
+      if (!task || (!task.agentId && !task.subAgentId && this.store.getSessionIdentity(task.sessionId)?.kind !== "scheduled")) continue; // 角色、独立调度和 SubAgent 共用结果登记
       const outcome: ChildOutcome =
         body.type === "task.completed"
           ? "completed"
@@ -506,14 +498,12 @@ export class Orchestrator {
   }
 
   private async handleTerminal(task: Task, outcome: ChildOutcome): Promise<void> {
-    if (this.store.db.prepare("SELECT 1 FROM workflow_executions WHERE task_id = ?").get(task.id)) return;
     if (this.store.getTask(task.id)?.resultSummary != null) return;
     if (task.subAgentId) {
       await this.handleSubAgentTerminal(task, outcome);
       return;
     }
     const scheduled = this.store.getSessionIdentity(task.sessionId)?.kind === "scheduled";
-    const workflow = getWorkflowDeliveryRun(this.store, task.id);
     const agentId = task.agentId!;
     const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
     const reply = replyPage?.text.trim() || null;
@@ -526,7 +516,7 @@ export class Orchestrator {
       this.recordInboundTerminal(task, outcome);
       this.deps.parentDelivery.wakeTerminal(task, outcome);
       const refs = { taskId: task.id, sessionId: task.sessionId };
-      if (!scheduled && !workflow) switch (outcome) {
+      if (!scheduled) switch (outcome) {
         case "completed":
           this.store.appendEvent(
             { type: "child_task.completed", taskId: task.id, parentTaskId: task.parentTaskId, agentId, summary, resultRef },

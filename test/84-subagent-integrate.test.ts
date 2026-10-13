@@ -4,7 +4,7 @@ import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
  * 改动汇入父工作区、冲突不覆盖、取消/关闭不改可汇总性。
  *
  * seam：Runtime 公共接口 + mock 模型 + 真实只读/写工具（realTools，local 后端）；
- * worker 命令在 local 后端真实执行 git，OS 边界另由原生 smoke 验证；一致性用
+ * 容器命令在 local 后端真实执行 git（路径与边界语义与冒烟一致）；一致性用
  * store/文件字节/TUI 提示三处断言。
  *
  * 覆盖整单验收：

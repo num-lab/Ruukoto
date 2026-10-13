@@ -1,2 +1,0 @@
-test/123-workflow-model-acceptance.test.ts(44,98): error TS2353: Object literal may only specify known properties, and 'questionVersion' does not exist in type '{ runId: string; stepKey: string; version: number; runVersion: number; requestKey: string; answer: unknown; txExtra?: (() => void) | undefined; }'.
-test/123-workflow-model-acceptance.test.ts(58,32): error TS2339: Property 'open' does not exist on type 'typeof AppDataStore'.

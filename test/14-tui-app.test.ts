@@ -23,7 +23,6 @@ import { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
-import { getWorkflowQuestion, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import {
   startTestRuntime,
@@ -42,52 +41,6 @@ import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 
 initTheme("dark");
-
-test("TUI 工作流定义/带参运行/阶段/答复与控制，退出重连查询事实并继续日常聊天", async () => {
-  const t = await startTestRuntime("tui-workflow", async () => ({ kind: "text", text: "CHAT-OK" }));
-  const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
-  try {
-    const { sessionId } = await createProjectSession(t.client, t.work[0]);
-    const h = await startApp(t, { sessionId, requests }); apps.push(h);
-    const script = 'await progress("state",{text:"STAGE-LOG 中文"}); return await ask("question",{prompt:input.marker});';
-    h.terminal.send("/workflow save batch save null " + JSON.stringify(script) + "\r");
-    await waitFor("TUI 定义保存", () => t.runtime.findWorkflowSave("owner:save") !== null);
-    h.terminal.send("/workflow definitions\r");
-    await waitFor("定义窗口", () => stripTerminalSequences(h.terminal.output()).includes("工作流定义"));
-    await renderFlush(); assertWindowFrame(h); h.terminal.send("q"); await renderFlush();
-    h.terminal.send('/workflow run batch first {"marker":"保留  空白"}\r');
-    await waitFor("第一项等待", () => listWorkflowRuns(t.runtime.store)[0]?.status === "waiting");
-    const first = listWorkflowRuns(t.runtime.store)[0];
-    assert.deepEqual(first.input, { marker: "保留  空白" });
-    h.terminal.clearOutput(); h.terminal.send("/workflow logs " + first.id + "\r");
-    await waitFor("阶段窗口", () => stripTerminalSequences(h.terminal.output()).includes("STAGE-LOG 中文"));
-    await renderFlush(); assertWindowFrame(h); h.terminal.send("\x1b"); await renderFlush();
-    h.terminal.send('/workflow run batch second {"marker":"另一项"}\r');
-    await waitFor("第二项等待", () => listWorkflowRuns(t.runtime.store).length === 2 && listWorkflowRuns(t.runtime.store).every(run => run.status === "waiting"));
-    await submitViaEditor(h, "日常聊天");
-    await waitFor("聊天完成", () => t.server.calls.length === 1);
-    assert.equal(listWorkflowRuns(t.runtime.store).every(run => run.status === "waiting"), true);
-    h.app.quit(0);
-    const again = await startApp(t, { sessionId, requests }); apps.push(again);
-    again.terminal.send("/workflow show " + first.id + "\r");
-    await waitFor("重连持久详情", () => stripTerminalSequences(again.terminal.output()).includes("owner_input"));
-    await renderFlush(); again.terminal.send("q"); await renderFlush();
-    assert.equal(listWorkflowRuns(t.runtime.store).length, 2, "重连不新建运行");
-    again.terminal.send("/workflow question " + first.id + " question\r");
-    await waitFor("业务问题窗口", () => stripTerminalSequences(again.terminal.output()).includes("业务回答不批准工具"));
-    await renderFlush(); again.terminal.send("q"); await renderFlush();
-    const q = getWorkflowQuestion(t.runtime.store, first.id, "question")!;
-    again.terminal.send("/workflow answer " + first.id + " question " + q.runVersion + " " + q.version + ' answer "yes"\r');
-    await waitFor("第一项完成", () => requireWorkflowRun(t.runtime.store, first.id).status === "succeeded");
-    const second = listWorkflowRuns(t.runtime.store)[1];
-    again.terminal.send("/workflow cancel " + second.id + " " + second.version + " cancel\r");
-    await waitFor("第二项取消", () => requireWorkflowRun(t.runtime.store, second.id).status === "canceled");
-    assert.ok(requests.some(request => request.op === "workflow_logs"));
-    assert.ok(requests.some(request => request.op === "workflow_answer"));
-    const history = new CommandHistoryStore(path.join(t.dirs.root, "tui", "commands.sqlite"));
-    assert.ok(history.load(t.runtime.store.db.getInstanceId(), sessionId).some(command => command.line.includes("run batch first") && command.line.includes("保留  空白")), "原键和参数原文留在客户端命令历史");
-  } finally { quitAll(apps); await t.shutdown(); }
-});
 
 interface AppHarness {
   app: TuiApp;

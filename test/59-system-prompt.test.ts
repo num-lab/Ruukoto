@@ -69,7 +69,8 @@ test("系统提示：开发会话、main 各用宿主提示，SYSTEM.md / APPEND
     assert.equal(rt.store.getAgentRole("coding"), null);
     await assert.rejects(() => orch.registerInboundEvent({ source: "test", externalId: "c1", targetRole: "chat" as "main", body: "CHAT-MARK" }), /目标角色无效/);
     assert.equal(rt.store.findInboundEvent("test", "c1"), null);
-    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 4);
+    // dev、main 与 SubAgent 三份提示各不相同
+    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 3);
   } finally {
     await t.shutdown();
   }

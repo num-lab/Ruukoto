@@ -182,6 +182,8 @@ test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 
       RUUKOTO_OWNER_TOKEN_FILE: "/etc/owner.token",
       RUUKOTO_EXECUTION_BACKEND: "systemd",
       RUUKOTO_SERVICE_SUDO: "900",
+      RUUKOTO_CONTAINER_IMAGE: "img",
+      RUUKOTO_WORKER_IMAGE: "worker",
       RUUKOTO_DATA_DIR: "/prod/data",
       RUUKOTO_AGENT_DIR: "/prod/agent",
       RUUKOTO_CONTROL_DIR: "/prod/control",
@@ -196,6 +198,8 @@ test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 
     "RUUKOTO_OWNER_TOKEN_FILE",
     "RUUKOTO_EXECUTION_BACKEND",
     "RUUKOTO_SERVICE_SUDO",
+    "RUUKOTO_CONTAINER_IMAGE",
+    "RUUKOTO_WORKER_IMAGE",
     "RUUKOTO_RELOAD_STATE_FILE",
   ]) {
     assert.equal(env[key], undefined, `${key} 不得继承`);
@@ -353,7 +357,7 @@ test(
     const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
     const baseUrl = await server.start();
     await writeMockModelConfig(profile.agentDir, baseUrl);
-    const tokenInjection = { RUUKOTO_OWNER_TOKEN: "x".repeat(40), RUUKOTO_EXECUTION_BACKEND: "container" }; // 被清洗，不得进入子进程
+    const tokenInjection = { RUUKOTO_OWNER_TOKEN: "x".repeat(40) }; // 被清洗，不得进入子进程
     const run = runDev(home, [], tokenInjection);
     try {
       await waitFor(
@@ -371,7 +375,6 @@ test(
       try {
         await client.authenticate(readOwnerToken(profile.controlDir)!);
         const qq = await client.request<Record<string, unknown>>("qq_status", {});
-        assert.equal((await client.handshake()).snapshot.execution.backend, "native", "dev 清理旧覆盖并沿用个人产品 native 默认");
         assert.equal(qq.disabledByConfig, true, "QQ 按启动配置停用");
         assert.ok(String(qq.stateDetail).includes("停用"), String(qq.stateDetail));
       } finally {

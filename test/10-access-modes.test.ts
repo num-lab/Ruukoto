@@ -8,7 +8,8 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * - switch-mode 在无执行中工具的边界生效（权限版本递增并发出事件），
  *   任务结束后拒绝切换；
  * - 完全访问任务不逐次确认（本地开发后端）且不改动其他任务的模式；
- * - 受限原生入口不可用不妨碍完全访问使用启动账户；模式路由不扩大受限权限；
+ * - 缺少执行入口时完全访问明确失败，不静默降级；部署环境配置了受保护
+ *   提权入口时，容器后端的完全访问经执行账户入口启用；
  * - 控制面拥有者认证：认证前不返回快照、不执行请求；
  * - 模型不能提升模式（不存在这种工具）。
  */
@@ -468,9 +469,9 @@ test("完全访问任务不逐次确认；缺少执行入口时不静默降级",
     await t.shutdown();
   }
 
-  // 受限原生入口不可用不妨碍完全访问使用启动账户。
+  // 受限容器不可用不妨碍完全访问使用启动账户。
   const strict = await startTestRuntime("mode-full-nobackend", () => ({ kind: "text", text: "noop" }), {
-    workDirs: 1, config: { execution: { backend: "native", native: { workerPath: "/missing/ruukoto-worker.mjs" } } },
+    workDirs: 1, config: { execution: { backend: "container", container: { dockerPath: "/missing/docker" } } },
   });
   try {
     const { sessionId } = await createProjectSession(strict.client, strict.work[0]!);
@@ -485,10 +486,10 @@ test("完全访问任务不逐次确认；缺少执行入口时不静默降级",
   }
 });
 
-test("完全访问直接选择当前账户启动器，受限原生入口仍不降级", () => {
-  assert.equal(createLauncherFor({ backend: "local" }, "full_access").kind, "local");
+test("完全访问直接选择当前账户启动器，受限容器仍不降级", () => {
+  assert.equal(createLauncherFor({ backend: "container" }, "full_access").kind, "local");
   assert.equal(createLauncherFor({ backend: "native" }, "full_access").kind, "local");
-  assert.equal(createLauncherFor({ backend: "native" }, "confirm").kind, "native");
+  assert.equal(createLauncherFor({ backend: "container" }, "confirm").kind, "container");
 });
 
 test("控制面拥有者认证：认证前不返回快照、不执行请求", async () => {

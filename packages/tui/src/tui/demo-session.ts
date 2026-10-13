@@ -223,7 +223,7 @@ function historyEntries(): HistoryEntryView[] {
     entry({
       entryId: "entry_0006",
       role: "user",
-      text: "再看一下权限模式是怎么落到原生边界的。",
+      text: "再看一下权限模式是怎么落到容器边界的。",
       timestamp: ts(20),
     }),
     entry({
@@ -299,18 +299,13 @@ function demoEvents(): PersistentEvent[] {
   const first = answer.slice(0, split);
   const second = answer.slice(split);
   const bodies: PersistentEventBody[] = [
-    { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "native", product: "ruukoto" },
+    { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "container", product: "ruukoto" },
     { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: null },
     { type: "project.root_attached", projectId: PROJECT_ID, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
     // agent-direction issue 07：会话工作区组织归属（仅展示归属，资料身份仍是原 projectId）
     { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
-    { type: "workflow.definition", name: "demo", definitionId: "wfdef_demo", digest: "a".repeat(64) },
-    { type: "workflow.changed", runId: "wfrun_demo", version: 1, status: "waiting", reason: null },
-    { type: "workflow.step", runId: "wfrun_demo", key: "pick", status: "waiting", delivery: null },
-    { type: "workflow.execution", runId: "wfrun_demo", taskId: "task_completed000", kind: "agent", status: "finished", stopVerified: true },
-    { type: "workflow.input", eventId: "evt_demo_workflow", source: "telegram", outcome: "answered" },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "session.context_compaction", sessionId: SESSION_ID, requestId: "cmp_demo00000001", status: "succeeded" },
@@ -379,7 +374,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.queued", taskId: "task_interrupt00", sessionId: SESSION_ID, requestId: "req-5", accessMode: "confirm", planMode: false, modelSelection: MODEL },
     { type: "task.interrupted", taskId: "task_interrupt00", sessionId: SESSION_ID, reason: "backend_restart", cancelRequested: false, effectUnknown: true },
     { type: "task.continued", taskId: "task_contd000000", sessionId: SESSION_ID, resumesTaskId: "task_interrupt00" },
-    { type: "task.tool_process_unreaped", taskId: "task_interrupt00", sessionId: SESSION_ID, reason: "原生单元停止未核实" },
+    { type: "task.tool_process_unreaped", taskId: "task_interrupt00", sessionId: SESSION_ID, reason: "容器未在期限内回收" },
     { type: "session.queue_paused", sessionId: SESSION_ID, reason: "backend_restart" },
     { type: "session.queue_resumed", sessionId: SESSION_ID },
     { type: "occupancy.stale", sessionId: SESSION_ID, taskId: "task_interrupt00", cwdReal: SESSION.cwd },
@@ -505,7 +500,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
       task_running000000: { messageId: "msg_live", text: "正在生成合成输出…\n第二行内容用于验证预览区域的高度与换行。", totalBytes: 64, truncated: false, seq: 4, state: "generating" },
     },
     instanceId: "inst_demo",
-    execution: { backend: "native", note: "合成会话：不执行任何任务" },
+    execution: { backend: "container", note: "合成会话：不执行任何任务" },
     defaultModel: { provider: MODEL.provider, id: MODEL.modelId, name: "Demo Model", thinkingLevel: MODEL.thinkingLevel },
     subAgentSessionIds: [],
     workDelegations: [],

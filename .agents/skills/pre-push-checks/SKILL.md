@@ -9,7 +9,7 @@ description: 在 ruukoto 提交或推送前，按改动面选出能证明本次�
 
 全量 `npm run check` 约 200 秒（应用测试 macOS 167 秒、Linux 495 秒），只在三种情况跑：拥有者明确要求、正在诊断 CI 失败、或改动确实横跨全仓以致没有更窄的可信集合。
 
-已通过的检查不因为「接下来要提交」而重跑。证据只对被检内容有效；相关内容改变后复核受影响部分。作者自检与[独立验收](../development-workflow/SKILL.md#4-独立审查与返工)各有责任，前者不能替代后者。
+已通过的检查不因为「接下来要提交」而重跑。
 
 ## 1. 先看改动面
 
@@ -27,11 +27,6 @@ npm run change-scope -- --base <已核实的基点引用>
 | `packages/` 或 `apps/` 某模块的行为 | 该区的定向用例，文件名从 [开发说明的映射表](../../../docs/development.md#日常反馈) 查；跨模块契约变化时加调用方的用例 |
 | `packages/core/src/` 的 schema、存储、会话身份 | `npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts`，另加直接断言该表或该状态机的用例 |
 | `packages/agent/src/` 的工具、审批、权限 | `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts` |
-| `packages/agent/src/script-worker/` 与脚本打包 | `npm run build:script` 后跑 `npx tsx --test test/104-workflow-script.test.ts test/100-worker-stop.test.ts`；依赖或整体构建变化另跑 `npm run build` |
-| 工作流状态、协调器、输出校验与宿主操作 | `npx tsx --test test/105-workflow-runtime.test.ts test/106-workflow-host.test.ts test/107-workflow-runtime-wiring.test.ts test/108-workflow-import.test.ts test/109-workflow-cold-recovery.test.ts test/110-workflow-workcopy.test.ts test/111-workflow-capabilities.test.ts test/112-workflow-real-steps.test.ts test/113-workflow-source-capabilities.test.ts`；触及普通任务、委派或导入再加对应回归 |
-| 工作流定义、模型与 CLI/TUI/IM 入口 | `npx tsx --test test/117-workflow-library.test.ts test/118-workflow-entries.test.ts test/119-workflow-im-controls.test.ts test/120-workflow-cli.test.ts test/29-cli-entry.test.ts test/62-tool-availability.test.ts test/65-slash-commands.test.ts test/66-control-seam.test.ts`；界面另跑 13/14/15/33，触及回答或 IM 再加下行回归 |
-| 工作流业务回答、最终送达与调度归属 | `npx tsx --test test/114-workflow-owner-input.test.ts test/115-workflow-final-delivery.test.ts test/116-workflow-notification-recovery.test.ts`；再加 `test/66-control-seam.test.ts`、`test/77-im-approvals.test.ts`、`test/84-im-final-delivery.test.ts`、`test/88-parent-delivery.test.ts`、`test/89-im-entries.test.ts`、`test/93-im-approval-lifecycle.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/51-generic-scheduler.test.ts` |
-| 工作流双产品组合 | `npx tsx --test test/121-workflow-personal-acceptance.test.ts test/122-workflow-code-acceptance.test.ts`；真实模型另用 `RUN_MODEL_CHECK=1 RUN_WORKFLOW_MODELS_FILE=/path/models.json npx tsx --test test/123-workflow-model-acceptance.test.ts`，缺前提不记通过 |
 | `packages/agent/src/` 的上下文、模型、压缩 | `npx tsx --test test/18-model-selection.test.ts test/60-context-prefix.test.ts test/61-context-compaction.test.ts` |
 | `packages/runtime/src/`、`packages/control/src/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
@@ -42,10 +37,9 @@ npm run change-scope -- --base <已核实的基点引用>
 | `docs/` 的文档 | `npm run check:docs`；内容与代码是否一致门禁查不出，按 [写作 skill](../../../.agents/skills/writing-docs-for-human/SKILL.md) 的触发条件逐篇核对 |
 | `AGENTS.md`、skills、`docs/agents/` | 落点检查：被链接的目标存在，被引用的命令与 `package.json` 一致 |
 | `scripts/` 的门禁或生成器 | 该脚本自身，加一个故意失败的负例证明它会红 |
-| `scripts/test-app.mjs` 的分批与退出 | `npx tsx --test test/124-test-app-runner.test.ts`；macOS 独占 100/101-helper 后才执行其余文件，保持完整分配与失败透传 |
 | `verification/foundation/` | `npm run test:foundation` |
 | `verification/smoke/` | 该 smoke 入口；需要 Docker、凭据或真实平台时先确认前提，缺前提报告「不可用」，不记为通过 |
-| `deploy/` | 相关 README 的步骤能否仍被执行；改 systemd 单元时加 `npm run build`、替换实际账户与 Node 路径后的模板核实，并按实际账户演练原生前置与 scope 停止 |
+| `deploy/` | 相关 README 的步骤能否仍被执行；改 systemd 单元或镜像另加 `npm run build:worker-image`（需 Docker） |
 | `package.json` 的 scripts、依赖、构建入口 | `npm run build`，加 `npm run lint` 与 `npm run typecheck` |
 
 `.scratch/` 的工单与证据不改行为，不需要跑检查；其中的验证记录要区分模拟结果与真实环境结果。

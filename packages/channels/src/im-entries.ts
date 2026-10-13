@@ -182,8 +182,8 @@ export class ImEntries {
    * 决定）：发送目标沿用入站钉版核对，离线等待/限流重试/结果未知不重发全部沿用
    * outbox 语义。在结果唤醒的结果事务内调用。
    */
-  sendWorkReport(report: WorkReport): boolean {
-    return this.enqueueReply(report.event, report.key, report.wakeTaskId, report.text, "work_report:");
+  sendWorkReport(report: WorkReport): void {
+    this.enqueueReply(report.event, report.key, report.wakeTaskId, report.text, "work_report:");
   }
 
   /**
@@ -191,22 +191,19 @@ export class ImEntries {
    * bot/chat 不改发新目标）；旧 Telegram 事件 replyTarget=null 无法证明接收时
    * 版本，明确失效。
    */
-  private enqueueReply(event: InboundEvent, sourceKey: string, taskId: string, text: string, skipPrefix: string): boolean {
+  private enqueueReply(event: InboundEvent, sourceKey: string, taskId: string, text: string, skipPrefix: string): void {
     const entry = this.entries.get(event.source)!;
     const skip = (reason: string) =>
       this.deps.store.appendEvent({ type: entry.replySkippedEvent, eventId: event.id, taskId, reason: `${skipPrefix}${reason}` }, { taskId });
     const current = this.target(event.source);
     const target = event.replyTarget;
     if (!target || !current || !sameTarget(current, target) || !event.externalId.startsWith(entry.externalIdPrefix(target))) {
-      skip(target ? "target_changed" : "target_unavailable");
-      return false;
+      return skip(target ? "target_changed" : "target_unavailable");
     }
     try {
       this.deps.sched.insertOp({ sourceKind: "owner_reply", sourceKey, taskId, hostOpId: null, target, text: entry.capReply(text), sourceRefs: [] });
-      return true;
     } catch (err) {
       skip(`enqueue_failed：${(err as Error).message}`.slice(0, 200 - skipPrefix.length));
-      return false;
     }
   }
 }

@@ -19,7 +19,7 @@ import { randomId } from "@ruukoto/core/types.ts";
 
 export class ArtifactWriteError extends Error {}
 
-/** 只识别 JPEG、PNG、WebP 的实际文件签名；声明的 image/* 不作为内容证据。 */
+/** 只识别本工单允许的实际文件签名；声明的 image/* 不作为内容证据。 */
 export function imageMime(bytes: Buffer): ImageMimeType | null {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";

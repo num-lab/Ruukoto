@@ -74,6 +74,8 @@ const parentGate = holdParentResponse(response);
 let testRuntime: TestRuntime | null = null;
 let bootstrap: ToolWorkerHost | null = null;
 let cleanupSafe = false, bootstrapStopped = true, exitCode = 0;
+const priorDocker = process.env.RUUKOTO_DOCKER_PATH;
+process.env.RUUKOTO_DOCKER_PATH = "/ruukoto-smoke26-no-docker";
 try {
   testRuntime = await startTestRuntime("native26", parentGate.responder, {
     workDirs: 1, config: { product: codingProduct.runtime, ...realTools(), execution: { backend: "native" } },
@@ -89,7 +91,7 @@ try {
     taskId: "smoke26-bootstrap", mode: "confirm", workspace: repo,
     workspaceIdentity: { dev: repoIdentity.dev, ino: repoIdentity.ino }, grantedPaths: [], env: GIT_SAFE_DIRECTORY_ENV,
   });
-  await check("Git 夹具由原生 worker 初始化", async () => {
+  await check("Git 夹具由原生 worker 初始化，Docker 路径不可用", async () => {
     assert.equal(runtime.executionInfo().backend, "native");
     bootstrapStopped = false;
     try {
@@ -206,6 +208,8 @@ try {
     }
     if (!cleanupSafe || !bootstrapStopped) process.stderr.write(`[ruukoto:smoke26] 保留现场：${testRuntime.dirs.root}\n`);
   }
+  if (priorDocker === undefined) delete process.env.RUUKOTO_DOCKER_PATH;
+  else process.env.RUUKOTO_DOCKER_PATH = priorDocker;
 }
 process.stderr.write(`[ruukoto:smoke26] ${JSON.stringify({ platform: process.platform, arch: process.arch, exitCode, cleanupVerified: cleanupSafe && bootstrapStopped,
   pass: checks.filter(item => item.status === "pass").length, fail: checks.filter(item => item.status === "fail").length,

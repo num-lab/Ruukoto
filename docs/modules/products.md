@@ -10,8 +10,8 @@
 
 | 声明 | ruukoto | ruukoto-code |
 | --- | --- | --- |
-| 默认执行后端 | native | native |
-| 正式入口可选执行后端 | native | native |
+| 默认执行后端 | local；服务器部署显式配置 container | native |
+| 正式入口可选执行后端 | local / container | native |
 | 拥有者 IM 与个人调度 | 启用；开发入口可停用真实 IM | 停用 |
 | 服务管理 | Linux 与显式部署配置齐备才装配 | 不装配 |
 | 会话分支 | 不开放创建 | `branchSessions` 开放普通开发会话分支 |
@@ -37,7 +37,7 @@
 **构建。**
 
 - 根构建单次生成 `worker/worker.mjs`，再为两个 app 分别生成含 bin、源码和依赖声明的 npm 包。
-- app 包使用同仓共享依赖与 worker 产物；部署需要完整 workspace 安装与宿主工具链。
+- app 包使用同仓共享依赖与 worker 产物；部署需要完整 workspace 安装，container 后端另需 worker 镜像，native 后端使用宿主工具链。
 
 ## 不变量与失败处理
 
@@ -51,18 +51,14 @@
 
 - 应用实例不会因退出 TUI 而停止；开发启动器则拥有其子进程生命周期。
 - 缺少执行环境明确失败，默认后端不静默降级。
-- 两个产品的正式入口均拒绝 local/container 参数与环境覆盖，并给出迁移指引；库层显式 local 注入供离线测试。普通完全访问使用后台启动账户，继承用户环境，不施加任务沙箱；工作流编码验证在原生独立副本收窄执行。
+- Coding Agent 正式入口拒绝 local/container 参数与环境覆盖，并给出迁移指引；库层显式 local 注入与个人产品选择保留。完全访问使用后台启动账户，继承用户环境，不施加任务沙箱。
 
 **依赖方向。**
 
 - 跨包相对引用、未声明依赖与越层运行时值引用不能通过 lint。
 - core 连反向类型引用也不接受；其他共享包的反向引用只限声明过的类型，运行时协作使用注入回调。
 
-两个产品共用[真实工作流步骤](workflows.md)，沿各自来源能力装配；个人业务数据保持来源主身份，Coding Agent 不取得个人工具。编码验证共用原生沙箱，修改成果共用冻结补丁与独立验证记录；共享模型工具支持自主发起，CLI `workflow` 与 TUI `/workflow` 支持命名定义和带参运行及控制；个人 IM 通过原拥有者入口明确命令启动/控制，最终回报沿各自来源。
-
 ## 设计依据
-
-- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
 
 - [两个 Agent 产品独立运行](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
 - [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)

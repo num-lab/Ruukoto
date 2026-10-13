@@ -2,8 +2,6 @@
 
 Status: implemented
 
-部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)统一正式受限执行的原生接线；自动审查的范围、无工具调用、转人工与批准单次消费仍由本篇持有。
-
 原编号：ADR 0005
 
 ## 问题
@@ -108,7 +106,5 @@ Status: implemented
 - 真实容器边界只在具备 Linux/Docker 的环境可证；离线启动器测试只断言路由与报错，替代不了。
 
 ## 适用范围
-
-当前 `createLauncherFor` 将两个产品的 `auto-review` 与 `confirm` 路由到同一原生 worker，将 `full_access` 路由到当前账户；原生启动器拒绝完全访问。缺原生后端、策略或运行产物时明确失败，不回退。`test/22-auto-review.test.ts` 的当前启动器回归覆盖原生路由、缺 worker 产物及模式拒绝，真实 OS 边界另由探针与 smoke 核实。后端接线归[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)；本篇审查范围、失败转人工、竞争及批准消费规则继续适用，原验证节保留历史记录。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

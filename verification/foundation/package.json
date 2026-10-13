@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:model": "RUN_MODEL_CHECK=1 tsx --test test/07-connectivity.test.ts",
-    "linux:probes": "python3 scripts/native-isolation/linux-native-probes.py --bwrap /usr/bin/bwrap"
+    "linux:probes": "bash scripts/linux-isolation/run-probes.sh"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",

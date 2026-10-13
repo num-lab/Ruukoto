@@ -14,7 +14,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 export interface ModelSelection {
   provider: string;
@@ -405,7 +405,7 @@ export type InboundEventStatus = "registered" | "queued" | "done" | "failed";
  * im_approval = IM 审批控制消息（查询/批准/拒绝命令），直接在同步事务内到终态，
  * 不派发模型任务。类别不能由消息正文或模型参数决定；旧记录默认 task。
  */
-export type InboundEventKind = "task" | "im_approval";
+export type InboundEventKind = "task" | "im_approval" | "im_workflow";
 
 /**
  * 持久入站事件（issue 01）：外部消息/定时器/子任务结果进入编排器的统一
@@ -991,6 +991,7 @@ export type PersistentEventBody =
   | { type: "inbound.skipped"; eventId: string; source: string; reason: string }
   /** IM 审批控制消息处理结果（agent-direction issue 08；控制事件与回执同事务落盘）。 */
   | { type: "im_approval.processed"; eventId: string; source: string; commandKind: string; outcome: string }
+  | { type: "workflow.input"; eventId: string; source: string; outcome: string }
   /** 同幂等键重投的命令与记录不一致：拒绝执行与原回执（不覆盖既有事实）。 */
   | { type: "im_approval.redelivery_rejected"; eventId: string; source: string; externalId: string; reason: string }
   | { type: "chat_result.accepted"; taskId: string; acceptedByTaskId: string; acceptedByOpId: string }

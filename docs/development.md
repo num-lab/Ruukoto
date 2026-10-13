@@ -45,7 +45,8 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
 | `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |
-| 工作流存储、协调器与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/109-workflow-cold-recovery.test.ts`、`test/110-workflow-workcopy.test.ts`、`test/111-workflow-capabilities.test.ts`、`test/112-workflow-real-steps.test.ts`、`test/113-workflow-source-capabilities.test.ts` |
+| 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts` |
+| 工作流回答、最终送达与调度归属 | `test/114-workflow-owner-input.test.ts`、`test/115-workflow-final-delivery.test.ts`、`test/116-workflow-notification-recovery.test.ts`；模型/IM 为本地替身 |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、worktree 与导入 | `test/80-subagent-delegation.test.ts` 至 `test/87-retire-coding-role.test.ts`、`test/91-release-acceptance.test.ts`、`test/95-work-copy.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |

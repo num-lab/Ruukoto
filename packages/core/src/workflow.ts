@@ -49,6 +49,8 @@ export interface WorkflowRun {
   resultRecorded: boolean;
   createdAt: string;
   endedAt: string | null;
+  terminalVersion?: number;
+  delivery?: { version: number; facts: string; text: string; taskId: string | null; status: "pending" | "queued" | "reported" | "undelivered"; reason: string | null };
 }
 export interface WorkflowStep {
   runId: string;
@@ -84,6 +86,8 @@ export interface WorkflowQuestion {
   runId: string;
   stepKey: string;
   version: number;
+  /** 问题建立时固定的运行代次；其他分支进度不使待答命令过期。 */
+  runVersion: number;
   prompt: unknown;
   source: WorkflowSource;
   status: "pending" | "answered" | "canceled";
@@ -131,6 +135,13 @@ export function listWorkflowRuns(store: Store, sessionId?: string): WorkflowRun[
     store.db.prepare("SELECT payload FROM workflow_runs WHERE source_session_id = ? ORDER BY rowid").all(sessionId)) as { payload: string }[];
   return rows.map(row => JSON.parse(row.payload) as WorkflowRun);
 }
+/** 最终汇总的可信归属只由事务内登记的运行绑定确定，不能凭请求键前缀。 */
+export function getWorkflowDeliveryRun(store: Store, taskId: string): WorkflowRun | null {
+  const row = store.db.prepare("SELECT payload FROM workflow_runs WHERE json_extract(payload, '$.delivery.taskId') = ?").get(taskId) as { payload: string } | undefined;
+  return row ? JSON.parse(row.payload) as WorkflowRun : null;
+}
+export function workflowDeliveryKey(run: WorkflowRun): string { return `workflow-final:${run.id}:${run.terminalVersion}`; }
+export function workflowQuestionKey(question: WorkflowQuestion): string { return `${question.runId}#${question.stepKey}#${question.version}`; }
 export function findWorkflowRun(store: Store, sessionId: string, key: string): WorkflowRun | null {
   const row = store.db.prepare("SELECT payload FROM workflow_runs WHERE source_session_id = ? AND request_key = ?").get(sessionId, key) as { payload: string } | undefined;
   return row ? JSON.parse(row.payload) as WorkflowRun : null;
@@ -169,6 +180,7 @@ export function setWorkflowState(store: Store, id: string, status: WorkflowStatu
   if (status === "paused" && run.status === "paused" && ["effect_unknown", "write_result_missing", "replay_diverged", "result_missing", "definition_missing", "source_invalid"].includes(run.reason ?? "")) return run;
   const charged = chargeWorkflow(run, now);
   return updateWorkflowRun(store, { ...charged, status, reason, clockStartedAt: status === "running" ? now : null,
+    ...(workflowTerminal(status) ? { terminalVersion: run.version + 1 } : {}),
     endedAt: workflowTerminal(status) ? new Date(now).toISOString() : null });
 }
 export function getWorkflowStep(store: Store, runId: string, key: string): WorkflowStep | null {

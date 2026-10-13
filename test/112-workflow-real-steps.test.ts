@@ -137,7 +137,7 @@ for (const phase of ["stale", "check_failure", "ordinary_bypass"] as const) test
     }
     if (phase === "stale") fs.writeFileSync(path.join(target.path, "value.txt"), "new bytes\n");
     const question = rt.store.db.prepare("SELECT payload FROM workflow_questions WHERE run_id = ? AND step_key = 'hold'").get(run.id) as { payload: string };
-    rt.workflows!.answer(run.id, "hold", (JSON.parse(question.payload) as { version: number }).version, "继续", run.source);
+    rt.workflows!.answer(run.id, "hold", (JSON.parse(question.payload) as { version: number }).version, "继续", run.source, { requestKey: "answer-hold", runVersion: rt.getWorkflowQuestion(run.id, "hold").runVersion });
     await waitFor("汇总收尾", () => workflowTerminal(requireWorkflowRun(rt.store, run.id).status) || requireWorkflowRun(rt.store, run.id).status === "paused", 60_000);
     if (phase === "stale") {
       assert.equal(requireWorkflowRun(rt.store, run.id).reason, "frozen_changed");

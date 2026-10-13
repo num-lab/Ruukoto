@@ -77,6 +77,8 @@
 
 ## 数据与状态
 
+工作流业务命令由 `packages/channels/src/im-workflows.ts` 的 `ImWorkflows` 持有：只认完整原始 `/workflow-question`、`/workflow-answer`，按原入口身份和代次核实；格式错误直接给用法，引用、转发、图片正文不成为回答。`im_workflow` 控制事件直接到终态，不建模型任务；回答、审计和原入口回执同事务提交。问题初始通知使用独立 `workflow_question` 槽，失败或效果未知仍待答；发送前重核问题及依赖资料，工具审批仍走原命令与消费规则。具体参数见[操作手册](../usage.md#511-工作流问题与回报)。
+
 ### 表与字段
 
 | 表 | 内容 |
@@ -361,6 +363,8 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 - 已接收摘要的外发必须逐次复核宿主来源与撤回状态，不凭快照正文继续发送。
 
 ## 设计依据
+
+- [工作流业务回答与整项最终送达](../../.agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)
 
 - [完全访问的执行账户与授权传播](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：已绑定拥有者私聊的任务模式。
 

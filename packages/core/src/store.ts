@@ -1027,7 +1027,8 @@ export class Store {
   listRoleTasksPendingResult(): Task[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = tasks.session_id))
+        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = tasks.session_id)
+           OR EXISTS (SELECT 1 FROM workflow_runs r WHERE json_extract(r.payload, '$.delivery.taskId') = tasks.id))
            AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted')
            AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)
          ORDER BY created_at, id`,

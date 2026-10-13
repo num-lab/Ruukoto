@@ -117,7 +117,7 @@ import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
 import { Store,StoreConflictError } from "@ruukoto/core/store.ts";
-import { bindWorkflowExecution, chargeWorkflow, getWorkflowExecution, listWorkflowExecutions, listWorkflowRuns, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDigest, workflowJson, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowSource } from "@ruukoto/core/workflow.ts";
+import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, getWorkflowDeliveryRun, getWorkflowExecution, getWorkflowQuestion, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDeliveryKey, workflowDigest, workflowJson, workflowQuestionKey, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { WorkflowCoordinator, type WorkflowAgentExecutor } from "./workflows.ts";
 import { WorkflowSteps } from "./workflow-steps.ts";
 import { branchSession, recoverBranchSessions, type BranchSessionDeps } from "./branch-session.ts";
@@ -166,7 +166,8 @@ import {
   type ToolOpView,
 } from "@ruukoto/core/views.ts";
 import { GIT_SAFE_DIRECTORY_ENV,grantCoversPath,resolveWorktreeCommonGitDir,taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
-import { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
+import { ParentDelivery, workflowWakeInput } from "@ruukoto/runtime/parent-delivery.ts";
+import { ImWorkflows } from "@ruukoto/channels/im-workflows.ts";
 import { SubAgentDelegationError,SubAgentManager,type WorkCancellation } from "@ruukoto/runtime/subagents.ts";
 import { applyWorkspaceMigration,previewWorkspaceMigration,type MigrationApplyInput,type MigrationApplyResult,type MigrationPreview,type MigrationPreviewInput } from "@ruukoto/runtime/workspace-migration.ts";
 import { createHash,randomUUID } from "node:crypto";
@@ -333,6 +334,7 @@ export class Runtime {
    */
   subagents: SubAgentManager | null = null;
   workflows: WorkflowCoordinator | null = null;
+  private readonly imWorkflows: ImWorkflows;
   private workflowSteps!: WorkflowSteps;
   hostExecutions!: HostExecutionManager;
   /** Telegram owner 入口配置（issue 04）。 */
@@ -494,7 +496,11 @@ export class Runtime {
       isReviewEvent: (event) => this.githubEvents.request(event) !== null,
       resultNotice: (task) => this.githubEvents.notice(task),
       sendWorkReport: (report) => this.imEntries.sendWorkReport(report),
+      verifyWorkflowReport: run => this.verifyWorkflowReport(run),
+      sendWorkflowReport: report => this.imEntries.sendWorkReport(report),
     });
+    this.imWorkflows = new ImWorkflows({ store, sched: this.sched, entry: source => this.imEntries.entry(source),
+      answer: input => this.answerWorkflowQuestion(input), kickSender: () => this.scheduler?.kickSender() });
     store.onCommitted = (events) => {
       this.onEventBroadcast?.(events);
       for (const listener of this.eventListeners) {
@@ -833,7 +839,17 @@ export class Runtime {
           return runtime.hostExecutions.stop(taskId, execution && requireWorkflowRun(runtime.store, execution.runId).status === "canceled" ? "canceled" : "interrupted", reason);
         },
       });
-      runtime.addEventListener(events => runtime.workflows?.onEvents(events));
+      runtime.addEventListener(events => {
+        runtime.workflows?.onEvents(events);
+        if (events.some(event => event.body.type.startsWith("workflow."))) queueMicrotask(() => {
+          if (runtime.stopping) return;
+          try { runtime.imWorkflows.sweep(); }
+          catch (error) { process.stderr.write(`[ruukoto:workflow] 问题通知登记失败；等待状态保留：${error instanceof WorkflowError ? error.code : "store_failed"}\n`); }
+          if (runtime.orchestrator) void runtime.parentDelivery.sweepWorkflows().catch(() => {
+            process.stderr.write("[ruukoto:workflow] 最终送达登记失败；原键与运行事实保留供恢复\n");
+          });
+        });
+      });
       runtime.workflows.recover();
     } else {
       runtime.store.withTx(() => {
@@ -904,6 +920,7 @@ export class Runtime {
     runtime.telegram.start();
     // 恢复与角色引导完成后才开放调度事件派发与发送（ruukoto-code 无调度器）
     runtime.scheduler?.start();
+    runtime.imWorkflows.sweep();
     if (fullConfig.githubWebhook) {
       try {
         runtime.githubWebhook = await GitHubWebhook.start({
@@ -935,7 +952,7 @@ export class Runtime {
     const identity = session ? this.store.getSessionIdentity(session.id) : null;
     const event = task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
     if (this.stopping || !task || !session || !identity || !["dev", "main", "scheduled"].includes(identity.kind) || task.planMode ||
-        task.subAgentId || getWorkflowExecution(this.store, task.id) || task.cancelRequested || !["running", "awaiting_confirmation"].includes(task.status) || !task.modelSelection ||
+        task.subAgentId || getWorkflowExecution(this.store, task.id) || getWorkflowDeliveryRun(this.store, task.id) || task.cancelRequested || !["running", "awaiting_confirmation"].includes(task.status) || !task.modelSelection ||
         (identity.kind === "dev" && (task.parentTaskId || task.sourceEventId)) ||
         (identity.kind === "main" && (!event || ![QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(event.source) || this.inboundGate(event) !== "run"))) throw new WorkflowError("source_forbidden");
     const scheduled = this.store.getScheduledRunForTask(task.id);
@@ -967,7 +984,7 @@ export class Runtime {
       execution: this.config.execution, service: this.config.service ?? null, servicePolicy, appInstance: this.appDataStore?.getInstanceId() ?? null });
   }
 
-  private verifyWorkflowSource(source: WorkflowSource): boolean {
+  private verifyWorkflowSource(source: WorkflowSource, finalReport = false): boolean {
     const task = this.store.getTask(source.taskId);
     const session = this.store.getSession(source.sessionId);
     const identity = this.store.getSessionIdentity(source.sessionId);
@@ -980,9 +997,9 @@ export class Runtime {
         const scheduleRun = this.sched.getRun(scheduled.id);
         const target = scheduleRun ? this.sched.getSchedule(scheduleRun.scheduleId)?.target : null;
         if (!isDeepStrictEqual(target, source.replyTarget) || !isDeepStrictEqual(this.imEntries.target(source.replyTarget.channel), source.replyTarget)) return false;
-      } else if (!event || !isDeepStrictEqual(event.replyTarget, source.replyTarget) || this.inboundGate(event) !== "run") return false;
+      } else if (!event || !isDeepStrictEqual(event.replyTarget, source.replyTarget) || typeof this.inboundGate(event) === "object") return false;
     }
-    if (source.scheduledRunId && (!scheduled || scheduled.id !== source.scheduledRunId || scheduled.closedAt || scheduled.scheduleStatus === "canceled")) return false;
+    if (source.scheduledRunId && (!scheduled || scheduled.id !== source.scheduledRunId || (!finalReport && scheduled.closedAt) || scheduled.scheduleStatus === "canceled")) return false;
     if (source.authority) {
       let configuration: string;
       try { configuration = this.workflowConfiguration(source.projectId); }
@@ -996,6 +1013,33 @@ export class Runtime {
       } catch { return false; }
     }
     return !this.sources.verify(source.projectId, source.references as import("@ruukoto/channels/scheduler/store.ts").SourceRef[]);
+  }
+
+  private verifyWorkflowReport(run: WorkflowRun, finalReport = false): boolean {
+    const verifySource = (source: WorkflowSource) => this.verifyWorkflowSource(source, finalReport);
+    return verifySource(run.source) && listWorkflowSteps(this.store, run.id).every(step => this.workflowSteps.verifyResultSources(run, step, verifySource));
+  }
+
+  /** 拥有者查询持久事实；大问题/回答以 UTF-8 字节分页，授权快照不从 wire 回填。 */
+  getWorkflowDetail(runId: string) {
+    const run = requireWorkflowRun(this.store, runId);
+    return { run: { id: run.id, status: run.status, version: run.version, reason: run.reason, attempts: run.attempts, maxAttempts: run.maxAttempts,
+      usedMs: run.usedMs, durationMs: run.durationMs, clockVerified: run.clockVerified, scriptStopVerified: run.scriptStopVerified, terminalVersion: run.terminalVersion,
+      delivery: run.delivery },
+    steps: listWorkflowSteps(this.store, runId).map(step => ({ key: step.key, kind: step.kind, status: step.status, resultRecorded: step.resultRecorded, attempts: step.attempts })),
+    executions: listWorkflowExecutions(this.store, runId) };
+  }
+  getWorkflowQuestion(runId: string, stepKey: string, offset = 0, length = 16 * 1024) {
+    const question = getWorkflowQuestion(this.store, runId, stepKey);
+    if (!question) throw new WorkflowError("question_missing");
+    return { runId, stepKey, status: question.status, version: question.version, runVersion: question.runVersion,
+      ...sliceTextByBytes(JSON.stringify({ prompt: question.prompt, answer: question.answer }), offset, Math.min(Math.max(length, 1), 64 * 1024)) };
+  }
+  answerWorkflowQuestion(input: { runId: string; stepKey: string; version: number; runVersion: number; requestKey: string; answer: unknown; txExtra?: () => void }) {
+    if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
+    const question = getWorkflowQuestion(this.store, input.runId, input.stepKey);
+    if (!question) throw new WorkflowError("question_missing");
+    return this.workflows.answer(input.runId, input.stepKey, input.version, input.answer, question.source, input);
   }
 
   /** 可信宿主的短期操作；先查重，按运行授权持有真实任务、账本与目录占用。 */
@@ -1137,6 +1181,14 @@ export class Runtime {
   /** 首次任务、全部派生执行和结果汇总到终态后才关闭运行。 */
   private scheduledRunOutcome(run: ScheduleRun): { status: "completed" | "failed" | "canceled" | "interrupted"; text: string } | null {
     const schedule = this.sched.getSchedule(run.scheduleId);
+    const workflows = listWorkflowRuns(this.store).filter(workflow => workflow.source.scheduledRunId === run.id);
+    if (workflows.some(workflow => !workflowTerminal(workflow.status))) return null;
+    if (workflows.some(workflow => listWorkflowExecutions(this.store, workflow.id).some(execution => {
+      const task = this.store.getTask(execution.taskId);
+      return !task || !isTerminalTaskStatus(task.status) || execution.stopVerified === false ||
+        (execution.status !== "queued" && execution.stopVerified !== true);
+    }) || (workflow.scriptUnits.length > 0 && workflow.scriptStopVerified !== true))) return null;
+    if (schedule?.status !== "canceled" && workflows.some(workflow => !workflow.delivery || !["reported", "undelivered"].includes(workflow.delivery.status))) return null;
     if (!run.rootTaskId) {
       if (schedule?.status === "canceled") return { status: "canceled", text: "计划已取消，本次运行未开始" };
       const event = run.inboundEventId ? this.store.getInboundEvent(run.inboundEventId) : null;
@@ -1145,23 +1197,33 @@ export class Runtime {
     const tasks = this.store.listScheduledRunTasks(run.id);
     const taskIds = new Set(tasks.map((task) => task.id));
     if (this.store.listAllOccupancy().some((held) => taskIds.has(held.taskId))) return null;
-    if (tasks.some((task) => !isTerminalTaskStatus(task.status) || task.resultSummary === null)) return null;
+    if (tasks.some((task) => !isTerminalTaskStatus(task.status) || (!getWorkflowExecution(this.store, task.id) && task.resultSummary === null))) return null;
     if (schedule?.status === "canceled") return { status: "canceled", text: "计划已取消，运行记录、成果及未核实占用保留" };
     if (this.store.listPendingSubAgentMessages(run.sessionId!).length > 0) return null;
     for (const task of tasks) {
+      if (getWorkflowExecution(this.store, task.id)) continue;
       if (!task.subAgentId || !task.workId || this.store.getWorkDelegation(task.workId)?.canceledAt) continue;
       if (!this.store.findTaskByRequest(run.sessionId!, `wake:${task.id}`)) return null;
     }
-    const final = tasks.filter((task) => task.sessionId === run.sessionId).sort((a, b) => (a.endedAt ?? "").localeCompare(b.endedAt ?? "") || a.id.localeCompare(b.id)).at(-1)!;
-    const problem = tasks.find((task) => task.status === "interrupted") ?? tasks.find((task) => task.status !== "completed");
-    const status = problem?.status === "interrupted" ? "interrupted" : problem ? "failed" : "completed";
+    const final = tasks.filter((task) => task.sessionId === run.sessionId && !getWorkflowExecution(this.store, task.id)).sort((a, b) => (a.endedAt ?? "").localeCompare(b.endedAt ?? "") || a.id.localeCompare(b.id)).at(-1)!;
+    const ordinary = tasks.filter(task => !getWorkflowExecution(this.store, task.id));
+    const problem = ordinary.find((task) => task.status === "interrupted") ?? ordinary.find((task) => task.status !== "completed");
+    const status = problem?.status === "interrupted" ? "interrupted" : problem || workflows.some(workflow => workflow.status !== "succeeded" || workflow.delivery?.status === "undelivered") ? "failed" : "completed";
     const reply = this.readTaskReplyText(final.id)?.trim();
-    return { status, text: [reply, problem ? `${problem.id}：${problem.resultSummary ?? problem.errorMessage ?? "执行未成功"}` : null].filter(Boolean).join("\n") || "（无文本结果）" };
+    return { status, text: [...workflows.map(workflow => `工作流 ${workflow.id}：${workflow.status}${workflow.delivery?.reason ? `；未送达 ${workflow.delivery.reason}` : ""}`),
+      ...workflows.map(workflow => workflow.delivery?.facts ?? `工作流 ${workflow.id}：${workflow.status}`),
+      problem ? `${problem.id}：${problem.resultSummary ?? problem.errorMessage ?? "执行未成功"}` : null, reply].filter(Boolean).join("\n") || "（无文本结果）" };
   }
 
   /** 取消事实已提交；停止整项运行，已有成果与停止未核实状态沿原收尾路径保留。 */
   private async cancelScheduledRun(run: ScheduleRun, initiatingTaskId: string | null): Promise<void> {
     if (!run.rootTaskId) return;
+    for (const snapshot of listWorkflowRuns(this.store).filter(item => item.source.scheduledRunId === run.id)) {
+      const workflow = requireWorkflowRun(this.store, snapshot.id);
+      if (workflowTerminal(workflow.status)) continue;
+      if (this.workflows) await this.workflows.control(workflow.id, `schedule-cancel:${run.id}`, workflow.version, { action: "cancel" }, initiatingTaskId);
+      else this.store.withTx(() => controlWorkflow(this.store, workflow.id, `schedule-cancel:${run.id}`, workflow.version, { action: "cancel" }));
+    }
     const tasks = this.store.listScheduledRunTasks(run.id);
     this.store.withTx(() => {
       for (const task of tasks) {
@@ -1169,9 +1231,10 @@ export class Runtime {
         else if (!isTerminalTaskStatus(task.status)) this.store.setCancelRequested(task.id, true);
       }
     });
-    const works = [...new Set(tasks.flatMap((task) => task.workId ? [task.workId] : []))];
+    const works = [...new Set(tasks.flatMap((task) => task.workId && !getWorkflowExecution(this.store, task.id) ? [task.workId] : []))];
     for (const workId of works) await this.subagents!.cancelWork({ workId, by: "owner", reason: "调度计划已取消", parentSessionId: run.sessionId! });
     for (const task of this.store.listScheduledRunTasks(run.id)) {
+      if (getWorkflowExecution(this.store, task.id)) continue;
       if (isTerminalTaskStatus(task.status)) continue;
       if (task.id === initiatingTaskId) {
         // 本工具返回前 SDK abort 会等当前调用；取消意图已落库，仅发起者异步收尾。
@@ -1198,6 +1261,24 @@ export class Runtime {
       verifySources: (op) => {
         const authorizationProblem = this.sched.verifyToolAuthorization(op);
         if (authorizationProblem) return authorizationProblem;
+        if (op.sourceKind === "schedule_run" && listWorkflowRuns(this.store).some(run => run.source.scheduledRunId === op.sourceKey && !this.verifyWorkflowReport(run, true))) {
+          return "定时工作流回报资料或原入口已失效";
+        }
+        if (op.sourceKind === "workflow_question") {
+          const parts = op.sourceKey.split("#");
+          const question = parts.length === 3 ? getWorkflowQuestion(this.store, parts[0], parts[1]) : null;
+          const run = question ? requireWorkflowRun(this.store, question.runId) : null;
+          const step = question ? getWorkflowStep(this.store, question.runId, question.stepKey) : null;
+          return question && run && question.status === "pending" && workflowQuestionKey(question) === op.sourceKey &&
+            ["running", "waiting"].includes(run.status) && question.source.replyTarget && sameTarget(question.source.replyTarget, op.target) &&
+            step && this.workflowSteps.verifyResultSources(run, step)
+            ? null : "工作流问题已回答、取消或来源失效";
+        }
+        if (op.sourceKind === "owner_reply" && op.taskId) {
+          const workflow = getWorkflowDeliveryRun(this.store, op.taskId);
+          if (workflow && (!this.verifyWorkflowReport(workflow) || workflow.source.scheduledRunId ||
+              !workflow.source.replyTarget || !sameTarget(workflow.source.replyTarget, op.target))) return "工作流最终回报来源已失效";
+        }
         // IM 审批控制消息回执（issue 08）：宿主已在处理时核实身份；发送前核对
         // 原控制事件与钉版目标，不经仅适用于 GitHub 的入站核实
         if (op.sourceKind === "inbound_event") {
@@ -1210,7 +1291,7 @@ export class Runtime {
               ? null : "图片拒绝回执来源已失效";
           }
           const event = this.store.getInboundEvent(op.sourceKey);
-          if (event?.eventKind === "im_approval") {
+          if (event?.eventKind === "im_approval" || event?.eventKind === "im_workflow") {
             return event.actor && event.replyTarget && sameTarget(event.replyTarget, op.target)
               ? null
               : "IM 审批回执来源不可核实";
@@ -1273,6 +1354,9 @@ export class Runtime {
       registration.replyTarget = message.replyTarget;
     }
     if (!media && commandText !== undefined) {
+      const workflowOutcome = this.imWorkflows.handleCommand({ source, externalId: input.externalId, actor: input.actor,
+        replyTarget: input.replyTarget, commandText });
+      if (workflowOutcome) return workflowOutcome;
       const outcome = await this.imApprovals.handleCommand({
         source,
         externalId: input.externalId,
@@ -2530,12 +2614,15 @@ export class Runtime {
     sourcePermissionVersion?: number | null;
     sourceEventId?: string | null;
     deadline?: string | null;
+    /** 仅宿主最终送达使用；与汇总任务在同一事务建立可信绑定。 */
+    workflowRunId?: string;
   }, internal = false): Promise<Task> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
+    if (input.workflowRunId && !internal) throw new RuntimeApiError("invalid_params", "工作流汇总只能由宿主登记");
     const identity = this.store.getSessionIdentity(session.id)!;
     // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
     // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
@@ -2584,6 +2671,7 @@ export class Runtime {
       ...digestBase,
       agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null, sourcePermissionVersion: input.sourcePermissionVersion ?? null,
       sourceEventId: input.sourceEventId ?? null, deadline,
+      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
     };
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
     const submissionDigest = `request-v2:${digest(submission)}`;
@@ -2619,6 +2707,18 @@ export class Runtime {
         if (raced) return { task: raced, duplicate: true };
         this.assertNoSessionCompaction(input.sessionId);
         check();
+        let workflow: WorkflowRun | null = null;
+        if (input.workflowRunId) {
+          workflow = requireWorkflowRun(this.store, input.workflowRunId);
+          if (!workflowTerminal(workflow.status) || !workflow.delivery || workflow.delivery.status !== "pending" ||
+              workflow.delivery.taskId || workflow.delivery.version !== workflow.terminalVersion || !this.verifyWorkflowReport(workflow) ||
+              workflow.source.sessionId !== session.id || workflow.source.projectId !== session.projectId ||
+              input.requestId !== workflowDeliveryKey(workflow) || input.input !== workflowWakeInput(workflow) ||
+              input.parentTaskId !== workflow.source.taskId || input.sourcePermissionVersion !== workflow.source.permissionVersion ||
+              accessMode !== workflow.source.accessMode || input.sourceEventId != null ||
+              !isDeepStrictEqual(input.grantedPaths ?? [], workflow.source.grantedPaths) ||
+              input.agentId !== (identity.kind === "main" ? identity.role.id : null)) throw new WorkflowError("delivery_invalid");
+        }
         if (identity.kind === "scheduled") {
           const source = input.parentTaskId ? this.store.getTask(input.parentTaskId) : null;
           const run = source ? this.store.getScheduledRunForTask(source.id) : null;
@@ -2648,6 +2748,7 @@ export class Runtime {
           deadline,
         });
         if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
+        if (workflow) updateWorkflowRun(this.store, { ...workflow, delivery: { ...workflow.delivery!, taskId: queued.task.id, status: "queued" } });
         return queued;
       }));
     } catch (err) {
@@ -3350,7 +3451,11 @@ export class Runtime {
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
-        allowTaskTool: (task, name) => this.githubEvents.allowTool(task, name),
+        allowTaskTool: (task, name) => !getWorkflowDeliveryRun(this.store, task.id) && this.githubEvents.allowTool(task, name),
+        verifyTask: task => {
+          const run = getWorkflowDeliveryRun(this.store, task.id);
+          return run && !this.verifyWorkflowReport(run) ? "workflow_report_source_invalid" : null;
+        },
         // 宿主评审任务（agent-direction issue 19）按任务另开只读 MCP：GitHub MCP
         // 配在 main 项目（评审 SubAgent 的会话在 main 项目下；凭据范围按项目核对）
         taskMcp: (task) => this.githubEvents.isReviewTask(task),
@@ -3359,7 +3464,7 @@ export class Runtime {
         // 长期授权候选（issue 10）：共享 main 不继承其他入口；无 IM 来源的任务恒无候选
         approvalIm: {
           notifyCreated: (confirmation, task) => this.imApprovals.notifyCreated(confirmation, task),
-          consumeRecheck: (confirmation, task) => this.imApprovals.consumeRecheck(confirmation, task),
+          consumeRecheck: (confirmation, task) => this.workflowSteps.verify(task) ?? this.imApprovals.consumeRecheck(confirmation, task),
           standingCandidate: (task, scope) => this.imApprovals.standingCandidate(task, scope),
         },
         parentInjection: (sessionId) => this.parentDelivery.takeInjection(sessionId),

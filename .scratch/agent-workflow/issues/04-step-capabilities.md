@@ -1,6 +1,6 @@
 # 工作流步骤权限与成果汇总
 
-Status: planning
+Status: ready-for-agent
 
 ## 目标与边界
 
@@ -18,7 +18,11 @@ Status: planning
 
 ## 验收与交接
 
-依赖 [03](03-runtime-and-store.md)。新用例覆盖来源能力、资料撤销、非法宿主身份、运行间产物隔离、验证者与修改者独立、汇总竞争和副作用未知。按实际改动选跑 `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts`、`test/80-subagent-delegation.test.ts`、`test/83-subagent-worktrees.test.ts`、`test/84-subagent-integrate.test.ts`、`test/95-work-copy.test.ts` 和 `test/91-release-acceptance.test.ts`；模型上下文变化加 `test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`。
+[03](03-runtime-and-store.md) 已于 2026-10-13 完成持久执行基础、真实本地宿主 worker 与独立工程审查，前置解除。当前已有宿主注入的 Agent/汇总适配器、步骤身份绑定、文本/有界 JSON 校验及原始输出保存；本单须将它们接到真实 Driver 与逐层权限门，不把基础库通过当作实际工具已获准。接口与事实见[工作流模块](../../../docs/modules/workflows.md)和[实施决定](../../../.agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md)。
+
+真实 Agent 适配器先登记 starting 句柄，再启动实际单元，stop 等待启动完成并保留真实身份；活动期间更新实际身份，取消后的身份更新须沿已登记句柄收尾，不能再登记新单元。03 的 109 只覆盖启动完成后的只读崩溃，04 补启动中取消、迟到身份及停止 false 的真实 Driver 验证，沿原 Task 与同一操作账本保留占用。
+
+新用例覆盖来源能力、资料撤销、非法宿主身份、运行间产物隔离、验证者与修改者独立、汇总竞争和副作用未知。按实际改动选跑 `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts`、`test/80-subagent-delegation.test.ts`、`test/83-subagent-worktrees.test.ts`、`test/84-subagent-integrate.test.ts`、`test/95-work-copy.test.ts` 和 `test/91-release-acceptance.test.ts`；模型上下文变化加 `test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`。
 
 负例必须包括验证通过后改动副本字节、续派产生新成果、验证命令写待审成果、脚本伪造通过记录，以及冻结补丁和工作当前摘要不符；旧验证不得放行新字节。还须验证父任务结束后的工作副本操作及该阶段停止未核实保留。按已确认的 A12，非 Git 批量修改在产生写入前拒绝，非 Git 分析及其他获准业务工具仍可用，两类路径分别覆盖。
 

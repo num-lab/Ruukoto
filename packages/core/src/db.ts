@@ -12,9 +12,54 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 35;
+export const SCHEMA_VERSION = 36;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS workflow_definitions (
+  id TEXT PRIMARY KEY,
+  digest TEXT NOT NULL UNIQUE,
+  payload TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id TEXT PRIMARY KEY,
+  source_session_id TEXT NOT NULL REFERENCES sessions(id),
+  request_key TEXT NOT NULL,
+  params_digest TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('queued','running','waiting','paused','succeeded','partial','failed','canceled')),
+  payload TEXT NOT NULL,
+  UNIQUE(source_session_id, request_key)
+);
+CREATE TABLE IF NOT EXISTS workflow_steps (
+  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+  key TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY(run_id, key),
+  UNIQUE(run_id, ordinal)
+);
+CREATE TABLE IF NOT EXISTS workflow_executions (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+  step_key TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('agent','host')),
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+  number INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE(run_id, step_key, kind, number)
+);
+CREATE TABLE IF NOT EXISTS workflow_questions (
+  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+  step_key TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY(run_id, step_key)
+);
+CREATE TABLE IF NOT EXISTS workflow_controls (
+  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+  request_key TEXT NOT NULL,
+  digest TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY(run_id, request_key)
+);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

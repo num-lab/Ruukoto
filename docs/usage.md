@@ -359,6 +359,8 @@ ruukoto service-grant list|show|revoke
 
 ## 6. 导入旧实例
 
+含工作流运行、步骤、执行绑定、问题或控制记录的源实例明确报 `workflow_import_unavailable`；保留原档案用匹配代码查阅，当前导入不迁移工作流授权与执行。只有定义版本的资料不随普通资料导入。
+
 两个方向都必须离线执行：preview／apply／revert／list 都要求目标后台已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制到临时目录后在副本上核实当前格式，源目录逐文件 sha256 不变。
 
 ### 6.1 开发资料迁入（ruukoto-code）

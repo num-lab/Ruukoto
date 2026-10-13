@@ -47,3 +47,5 @@ Status: implemented
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
 
 通用调度的独立执行、运行归属、审批来源与整项取消采用[本决定](../feature/2026-10-12-generic-scheduled-tasks.md)；本篇其他独立规则继续适用。
+
+工作流绑定步骤与短期宿主操作采用[运行执行基础](2026-10-13-workflow-runtime-and-store.md)，由协调器持有独立授权、指针、结果与恢复；本篇普通路径继续适用。

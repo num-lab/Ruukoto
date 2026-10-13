@@ -38,6 +38,7 @@ export class WorkflowScriptHost {
   private rejectRun: ((error: unknown) => void) | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private activeSince: number | undefined;
+  private onActivity: ((active: boolean) => void) | undefined;
   private usedMs = 0;
   private seq = 0;
   private cpuMs = SCRIPT_LIMITS.cpuMs as number;
@@ -63,7 +64,10 @@ export class WorkflowScriptHost {
 
   private armTimer() {
     clearTimeout(this.timer);
-    if (this.activeSince === undefined) this.activeSince = performance.now();
+    if (this.activeSince === undefined) {
+      this.activeSince = performance.now();
+      this.onActivity?.(true);
+    }
     const remaining = this.cpuMs - this.usedMs - (performance.now() - this.activeSince);
     this.timer = setTimeout(() => this.fail(new ScriptExecutionError("script_cpu_limit")), Math.max(1, remaining));
   }
@@ -77,7 +81,7 @@ export class WorkflowScriptHost {
 
   /** 成功须核实进程正常退出；失败仍保留 output、identity 与 stopFailure，调用方负责名下步骤的停止。 */
   async run(script: string, input: unknown, invoke: (call: ScriptCall, signal: AbortSignal) => Promise<unknown>,
-    options: { signal?: AbortSignal; cpuMs?: number } = {}): Promise<{ value: unknown; reaped: boolean }> {
+    options: { signal?: AbortSignal; cpuMs?: number; onIdentity?: (entry: ManagedEntry) => void; onActivity?: (active: boolean) => void } = {}): Promise<{ value: unknown; reaped: boolean }> {
     if (this.started || this.stopped) throw new ScriptExecutionError("script_stopped");
     if (typeof script !== "string" || Buffer.byteLength(script) > SCRIPT_LIMITS.scriptBytes) throw new ScriptExecutionError("script_source_limit");
     this.cpuMs = options.cpuMs ?? SCRIPT_LIMITS.cpuMs;
@@ -85,6 +89,7 @@ export class WorkflowScriptHost {
     const start: ScriptRequest = { type: "start", seq: 1, script, input, cpuMs: this.cpuMs };
     frame(start);
     this.started = true;
+    this.onActivity = options.onActivity;
     const onAbort = () => this.fail(new ScriptExecutionError("script_canceled"));
     options.signal?.addEventListener("abort", onAbort, { once: true });
     let resolveRun!: (value: unknown) => void;
@@ -99,6 +104,7 @@ export class WorkflowScriptHost {
         try {
           this.launchPromise = this.launch();
           this.unit = await this.launchPromise;
+          options.onIdentity?.(this.identity()!);
         }
         catch (error) {
           if (error instanceof ExecutionError && error.unit) this.unit = error.unit;
@@ -152,6 +158,7 @@ export class WorkflowScriptHost {
                 this.usedMs += performance.now() - this.activeSince;
                 this.activeSince = undefined;
                 clearTimeout(this.timer);
+                this.onActivity?.(false);
               }
             } else if (value.type === "done" && ready && "value" in value && this.calls.size === 0) {
               this.output = value.value;
@@ -174,6 +181,7 @@ export class WorkflowScriptHost {
       clearTimeout(this.timer);
       options.signal?.removeEventListener("abort", onAbort);
       this.rejectRun = undefined;
+      this.onActivity = undefined;
     }
   }
 

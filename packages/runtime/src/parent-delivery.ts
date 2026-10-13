@@ -78,6 +78,7 @@ export class ParentDelivery {
    * 唤醒输入为固定模板 + 截断摘要与结果引用，不复制子任务完整历史。
    */
   async resultRecorded(child: Task, outcome: ChildOutcome, summary: string): Promise<void> {
+    if (this.store.db.prepare("SELECT 1 FROM workflow_executions WHERE task_id = ?").get(child.id)) return;
     const parent = child.parentTaskId ? this.store.getTask(child.parentTaskId) : null;
     if (!parent) return;
     const parentSessionId = child.workId ? this.store.getWorkDelegation(child.workId)?.parentSessionId ?? parent.sessionId : parent.sessionId;

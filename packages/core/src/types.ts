@@ -14,7 +14,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 19;
+export const PROTOCOL_VERSION = 20;
 
 export interface ModelSelection {
   provider: string;
@@ -868,6 +868,9 @@ export interface EditStats {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
+  | { type: "workflow.changed"; runId: string; version: number; status: import("./workflow.ts").WorkflowRun["status"]; reason: string | null }
+  | { type: "workflow.step"; runId: string; key: string; status: import("./workflow.ts").WorkflowStep["status"]; delivery: number | null }
+  | { type: "workflow.execution"; runId: string; taskId: string; kind: "agent" | "host"; status: "queued" | "running" | "finished"; stopVerified: boolean | null }
   /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
   | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model" | "summary_model"; provider?: string }
   | { type: "project.created"; projectId: string; name: string; createRequestId: string | null; rootDir?: DirIdentity | null }
@@ -889,7 +892,7 @@ export type PersistentEventBody =
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection }
+  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null }
   | { type: "task.started"; taskId: string; sessionId: string }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }

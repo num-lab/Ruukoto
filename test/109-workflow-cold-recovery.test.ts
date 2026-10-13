@@ -79,7 +79,7 @@ async function verifyUnitsStopped(units: UnitIdentity[]): Promise<void> {
 }
 
 test("宿主结果已提交但步骤未收尾时真实崩溃，核实后脚本复用同键缓存，不重复写入", async () => {
-  const t = await startTestRuntime("workflow-cold-host", async () => ({ kind: "text", text: "原任务完成" }), { workDirs: 1 });
+  const t = await startTestRuntime("workflow-cold-host", async () => ({ kind: "text", text: "原任务完成" }), { config: { workflowAgent: null }, workDirs: 1 });
   let cold: ColdProcess | undefined;
   let identities: UnitIdentity[] = [];
   let recovered: Runtime | undefined;
@@ -166,7 +166,7 @@ test("宿主结果已提交但步骤未收尾时真实崩溃，核实后脚本�
 });
 
 test("只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次新的执行尝试", async () => {
-  const t = await startTestRuntime("workflow-cold-read", async () => ({ kind: "text", text: "原任务完成" }), { workDirs: 1 });
+  const t = await startTestRuntime("workflow-cold-read", async () => ({ kind: "text", text: "原任务完成" }), { config: { workflowAgent: null }, workDirs: 1 });
   let cold: ColdProcess | undefined;
   let identities: UnitIdentity[] = [];
   let recovered: Runtime | undefined;
@@ -252,7 +252,7 @@ test("只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次�
 });
 
 test("协调器登记宿主排队操作后真实崩溃，释放旧占用并核实后同任务只执行一次", async () => {
-  const t = await startTestRuntime("workflow-cold-queued-host", async () => ({ kind: "text", text: "原任务完成" }), { workDirs: 1 });
+  const t = await startTestRuntime("workflow-cold-queued-host", async () => ({ kind: "text", text: "原任务完成" }), { config: { workflowAgent: null }, workDirs: 1 });
   let cold: ColdProcess | undefined;
   let identities: UnitIdentity[] = [];
   let recovered: Runtime | undefined;

@@ -52,7 +52,7 @@ function hostTask(rt: Runtime, run: WorkflowRun, session: Session, key: string, 
 }
 
 test("原任务结束后宿主任务真实创建和汇总 Git 副本，不创建模型会话或计 Agent 尝试", async () => {
-  const t = await startTestRuntime("workflow-host-git", async () => ({ kind: "text", text: "原任务完成" }), { config: realTools(), workDirs: 1 });
+  const t = await startTestRuntime("workflow-host-git", async () => ({ kind: "text", text: "原任务完成" }), { config: { ...realTools(), workflowAgent: null }, workDirs: 1 });
   try {
     const rt = t.runtime;
     const sourceFile = path.join(t.work[0], "source.txt");
@@ -96,7 +96,7 @@ test("原任务结束后宿主任务真实创建和汇总 Git 副本，不创建
 
 for (const phase of ["ready", "call"] as const) {
   test(`宿主任务 ${phase} 阶段取消且停止未核实，身份和双方占用保留，后续操作不重入`, async () => {
-    const t = await startTestRuntime(`workflow-host-stop-${phase}`, async () => ({ kind: "text", text: "原任务完成" }), { workDirs: 1 });
+    const t = await startTestRuntime(`workflow-host-stop-${phase}`, async () => ({ kind: "text", text: "原任务完成" }), { config: { workflowAgent: null }, workDirs: 1 });
     let stops = 0;
     const controlled = controlledWorkCopy(async () => { stops++; return false; }, "", phase === "call", false);
     try {
@@ -143,7 +143,7 @@ for (const phase of ["ready", "call"] as const) {
 }
 
 test("宿主操作入口在原任务结束后创建和汇总真实副本，同键缓存不再运行 Git", async () => {
-  const t = await startTestRuntime("workflow-host-entry", async () => ({ kind: "text", text: "原任务完成" }), { config: realTools(), workDirs: 1 });
+  const t = await startTestRuntime("workflow-host-entry", async () => ({ kind: "text", text: "原任务完成" }), { config: { ...realTools(), workflowAgent: null }, workDirs: 1 });
   try {
     const rt = t.runtime;
     const sourceFile = path.join(t.work[0], "source.txt");
@@ -216,7 +216,7 @@ function holdSourceDirectory(rt: Runtime, session: Session): Task {
 
 for (const interruption of ["pause", "restart"] as const) {
   test(`宿主操作排队后 ${interruption}，同键恢复原登记且真实写入只有一次`, async () => {
-    const t = await startTestRuntime(`workflow-host-queued-${interruption}`, async () => ({ kind: "text", text: "原任务完成" }), { workDirs: 1 });
+    const t = await startTestRuntime(`workflow-host-queued-${interruption}`, async () => ({ kind: "text", text: "原任务完成" }), { config: { workflowAgent: null }, workDirs: 1 });
     let recovered: Runtime | null = null;
     try {
       let rt = t.runtime;
@@ -282,7 +282,7 @@ for (const interruption of ["pause", "restart"] as const) {
 }
 
 test("实际后台进程登记排队宿主操作后崩溃，接管同键仍只产生一次写入", async () => {
-  const t = await startTestRuntime("workflow-host-process-restart", async () => ({ kind: "text", text: "原任务完成" }), { workDirs: 1 });
+  const t = await startTestRuntime("workflow-host-process-restart", async () => ({ kind: "text", text: "原任务完成" }), { config: { workflowAgent: null }, workDirs: 1 });
   let child: ReturnType<typeof spawn> | undefined;
   let recovered: Runtime | undefined;
   try {
@@ -305,7 +305,7 @@ test("实际后台进程登记排队宿主操作后崩溃，接管同键仍只�
     const program = `
       import { Runtime } from "@ruukoto/runtime/runtime.ts";
       import { product } from ${JSON.stringify(productPath)};
-      const runtime = await Runtime.start({ product: product.runtime, ...${JSON.stringify(config)} });
+      const runtime = await Runtime.start({ product: product.runtime, workflowAgent: null, ...${JSON.stringify(config)} });
       const input = ${JSON.stringify(input)};
       const pending = runtime.workflowHostOperation(input, async () => { throw new Error("queued operation executed unexpectedly"); });
       const task = runtime.store.findTaskByRequest(${JSON.stringify(session.id)}, "workflow-host:" + input.runId + ":" + input.key);

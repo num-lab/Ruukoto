@@ -21,7 +21,7 @@ import { MemoryConflictError, MemoryNotFoundError, MemoryStore, MemoryValidation
 import type { MemorySourceRef } from "@ruukoto/core/types.ts";
 import { sliceTextByBytes } from "@ruukoto/core/history.ts";
 import { hostCallFor } from "./host-tool-families.ts";
-import type { HostCallBinder, HostToolContext, HostToolFamily, HostToolLedger } from "./host-tool-families.ts";
+import type { HostCallBinder, HostToolContext, HostToolFamily, HostToolLedger, HostToolRuntime } from "./host-tool-families.ts";
 export type { HostCallBinder, HostToolContext } from "./host-tool-families.ts";
 export { hostCallFor } from "./host-tool-families.ts";
 
@@ -34,6 +34,7 @@ export interface HostDataToolsDeps {
   taskContext(): HostToolContext | null;
   /** 绑定一次工具调用的独立句柄；execute 在 finally 中释放。 */
   bindCall?: HostCallBinder;
+  data?: HostToolRuntime["data"];
   /** 会话文件解析（sessionId → 文件路径；宿主侧映射，不接受模型路径）。 */
   sessionFileFor(sessionId: string): string | null;
   /** 会话所属项目（宿主侧映射）。 */
@@ -71,7 +72,12 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
     if (!ctx) throw new Error("工具调用缺少宿主任务上下文");
     return ctx;
   };
-  const accessorOf = (projectId: string): Accessor => ({ kind: "agent", projectId });
+  const accessorOf = (ctx: HostToolContext): Accessor => deps.data?.accessor(ctx) ?? { kind: "agent", projectId: ctx.projectId };
+  const sessionReadable = (ctx: HostToolContext, sessionId: string) => deps.data?.sessionReadable(ctx, sessionId, "history") ?? true;
+  const sourceReadable = (ctx: HostToolContext, ref: MemorySourceRef) => deps.access.sourceRefAccessible(accessorOf(ctx), ref) && (deps.data?.sourceReadable(ctx, ref) ?? true);
+  const assertSession = (ctx: HostToolContext, sessionId: string) => {
+    if (!sessionReadable(ctx, sessionId)) throw new AccessDeniedError("该会话不在本步骤的资料范围");
+  };
   /** 包装 execute：按 sdkCallId 绑定宿主上下文，结束后解除（finally 保证）。 */
   const bindExecute = <P extends Record<string, unknown>>(
     fn: (params: P, ctx: HostToolContext) => Promise<{ content: Array<{ type: string; text: string }> }>,
@@ -108,7 +114,7 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
       try {
         const query = String(params.query ?? "");
         if (!query) return failText("query 不能为空");
-        const accessor = accessorOf(ctx.projectId);
+        const accessor = accessorOf(ctx);
 
         // 范围：可读取的项目 → 其下全部会话（或指定会话/任务，须先校验归属与授权）
         let sessionIds: string[];
@@ -118,19 +124,21 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
           if (!task) return failText(`任务不存在：${params.task_id}`);
           const projectId = deps.projectOfSession(task.sessionId);
           if (!projectId) return failText(`任务所属会话不存在：${task.sessionId}`);
+          assertSession(ctx, task.sessionId);
           deps.access.assertAccess(accessor, projectId, "history", "任务历史");
           sessionIds = [task.sessionId];
           taskId = task.id;
         } else if (typeof params.session_id === "string" && params.session_id) {
           const projectId = deps.projectOfSession(params.session_id);
           if (!projectId) return failText(`会话不存在：${params.session_id}`);
+          assertSession(ctx, params.session_id);
           deps.access.assertAccess(accessor, projectId, "history", "会话历史");
           sessionIds = [params.session_id];
         } else {
           const projects = deps.access.accessibleProjects(accessor, "history");
           sessionIds = deps.store
             .listSessions()
-            .filter((s) => projects.includes(s.projectId))
+            .filter((s) => projects.includes(s.projectId) && sessionReadable(ctx, s.id))
             .map((s) => s.id);
         }
 
@@ -209,7 +217,8 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
         const entryId = String(params.entry_id ?? "");
         const projectId = deps.projectOfSession(sessionId);
         if (!projectId) return failText(`会话不存在：${sessionId}`);
-        deps.access.assertAccess(accessorOf(ctx.projectId), projectId, "history", "会话历史");
+        assertSession(ctx, sessionId);
+        deps.access.assertAccess(accessorOf(ctx), projectId, "history", "会话历史");
         const file = deps.sessionFileFor(sessionId);
         if (!file) return failText("会话历史尚未落盘，条目不可读");
         deps.syncSession(sessionId);
@@ -252,9 +261,9 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
     }),
     execute: bindExecute(async (params, ctx) => {
       try {
-        const accessor = accessorOf(ctx.projectId);
         const active = deps.memories.listActiveFor(ctx.projectId)
-          .filter((m) => m.sourceRefs.every((ref) => deps.access.sourceRefAccessible(accessor, ref)));
+          .filter((m) => m.sourceRefs.every((ref) => sourceReadable(ctx, ref)));
+        for (const memory of active) deps.data?.recordMemory?.(ctx, memory.id);
         const lines: string[] = [`生效记忆 ${active.length} 条：`];
         for (const m of active) {
           const preview = m.content.length > 120 ? `${m.content.slice(0, 120)}…` : m.content;
@@ -289,15 +298,15 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
         if (!memory) return failText(`记忆不存在：${memoryId}`);
         // 范围：本项目记忆或个人共享可读；其他项目记忆需授权
         if (memory.projectId !== null && memory.projectId !== ctx.projectId) {
-          deps.access.assertAccess(accessorOf(ctx.projectId), memory.projectId, "memory", "记忆");
+          deps.access.assertAccess(accessorOf(ctx), memory.projectId, "memory", "记忆");
         }
         const versionNo = typeof params.version === "number" ? params.version : memory.currentVersion;
         const version = deps.memories.getVersion(memoryId, versionNo);
         if (!version) return failText(`记忆 ${memoryId} 没有版本 v${versionNo}`);
+        deps.data?.recordMemory?.(ctx, memory.id);
         // 派生记忆读取时重校来源范围（§5）：引用了受限来源的版本在授权撤销后不可读
-        const accessor = accessorOf(ctx.projectId);
         for (const ref of version.sourceRefs) {
-          if (!deps.access.sourceRefAccessible(accessor, ref)) {
+          if (!sourceReadable(ctx, ref)) {
             return failText(`该版本的来源范围已撤销或不可访问（${formatSourceRef(ref)}），读取被拒绝`);
           }
         }
@@ -347,7 +356,10 @@ export function createHostDataTools(deps: HostDataToolsDeps): ToolDefinition[] {
         const content = String(params.content ?? "");
         const refs = parseSourceRefs(params.source_refs);
         // 来源必须存在且当前范围可访问
-        for (const ref of refs) validateSourceRef(deps, accessorOf(ctx.projectId), ref);
+        for (const ref of refs) {
+          if (!sourceReadable(ctx, ref)) throw new AccessDeniedError("记忆来源不在本步骤的资料范围");
+          validateSourceRef(deps, accessorOf(ctx), ref);
+        }
 
         const memoryId = typeof params.memory_id === "string" && params.memory_id ? params.memory_id : null;
         if (memoryId === null) {
@@ -454,7 +466,7 @@ export function createHostDataFamily(config: Omit<HostDataToolsDeps, "taskContex
   return {
     category: "host_data",
     names: HOST_DATA_TOOL_NAMES,
-    build: (runtime) => createHostDataTools({ ...config, ...runtime.call }),
+    build: (runtime) => createHostDataTools({ ...config, ...runtime.call, data: runtime.data }),
     ledger: HOST_DATA_LEDGER,
   };
 }

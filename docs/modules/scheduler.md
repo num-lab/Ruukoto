@@ -82,7 +82,11 @@ stateDiagram-v2
 
 旧任务或计划格式直接拒绝，不转换业务动作、不回填模式。独立实例导入只接受当前通用计划格式，保留创建模式与固定目标；导入中的未结束运行按中断收尾，不重新执行旧运行。
 
+[工作流步骤](workflows.md)可沿个人来源使用调度和通知工具，宿主从运行保存的目标取原渠道及配置代次，来源换代立即阻断后续调用。资料解析同时核实启动授权与当前范围，禁止跨运行步骤产物及 prompt 快照；业务数据实例失效拒绝引用。
+
 ## 设计依据
+
+- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
 
 - [调度计划只触发独立的通用任务](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)：独立上下文、创建授权、整项生命周期与固定最终回报。
 - [完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：真实任务授权与共享工具行为。

@@ -771,3 +771,17 @@ test("脚本入口缺失保存稳定失败码，不发起 Agent", async t => {
   assert.equal(f.run(run.id).attempts, 0);
   assert.equal(listWorkflowExecutions(f.store, run.id).length, 0);
 });
+
+test("依赖结果汇入步骤输入超限时持久暂停，不反复创建空子上下文", async t => {
+  let calls = 0;
+  const f = fixture(t, async () => { calls++; return { output: "x".repeat(300_000) }; });
+  const run = f.start('await agent("a",{request:"a"}); await agent("b",{request:"b"}); await agent("c",{request:"c",dependsOn:["a","b"]}); return null;');
+  await until("输入超限暂停", () => f.run(run.id).status === "paused");
+  assert.equal(f.run(run.id).reason, "value_limit");
+  assert.equal(calls, 2);
+  assert.equal(listWorkflowExecutions(f.store, run.id).length, 2);
+  assert.equal(fs.readdirSync(path.join(f.root, "steps")).length, 2);
+  f.coordinator.kick();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(fs.readdirSync(path.join(f.root, "steps")).length, 2);
+});

@@ -7,6 +7,7 @@
 | `npm run test:native` | 个人产品 04：原生修改、检查、审批与回收；13：协作通信；15：恢复；18：Git 修改委派、后台重启与原 IM 入口最终汇报；28：main 并行 worktree、四工具、汇总及独立定时委派。模型、QQ/Telegram、28 通知使用本地桩 | `npm run build`，Linux 正式 bwrap/profile、user manager、scope/cgroup 委派，见 [原生前置](../../deploy/native/README.md) |
 | `npm run test:upgrade` | 两份临时安装、独立后台、历史/审批/产物/工作副本保全与逐端升级；模型使用本地桩，旧后台按该版本允许的能力执行；升级后两个后台默认 native | npm、tar、可下载或已缓存的锁文件依赖；Git 历史中的 `8bccb8f` 或显式 `SMOKE24_BASE_TAR` |
 | `npm run test:release-model -- --models /absolute/models.json --model provider/model` | 指定真实模型在原生沙箱里修复代码、修前失败/修后通过、PTY TUI 退出后继续与重连；会调用真实模型并可能产生费用 | `npm run build`、原生执行前置、Python 3 的 pty、显式模型配置与凭据 |
+| `RUN_MODEL_CHECK=1 RUN_WORKFLOW_MODELS_FILE=/absolute/models.json npx tsx --test test/123-workflow-model-acceptance.test.ts` | 双产品 DeepSeek 通过工具发起命名工作流、等待期间聊天、业务回答、真实工具与唯一汇总；不发送真实 IM，调用可能产生费用 | 已构建原生 worker，显式文件中有可独立调用的 DeepSeek 配置；失败保留隔离档案 |
 | `npx tsx verification/smoke/smoke-26-native-worker.mts` | 模型打桩；真实四工具、宿主编译、文件与网络拒绝、身份/硬链接检查、启动取消及回收；正式入口无后端覆盖，不依赖 Docker | `npm run build`；macOS 原生监督器或 Linux bwrap/profile、user scope |
 | `npx tsx verification/smoke/smoke-26-native-worktrees.mts` | 模型打桩；真实 Runtime、控制面与原生 worker 修复代码、限定只读委派、并行双 worktree、共享 Git 拒写及汇总，不依赖 Docker | `npm run build`；macOS 原生监督器或 Linux 正式 bwrap/profile 与 user scope，见 [原生前置](../../deploy/native/README.md) |
 

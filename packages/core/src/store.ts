@@ -515,7 +515,7 @@ export class Store {
   }
 
   countLegacyQueuedTasks(sessionId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL").get(sessionId) as { n: number };
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)").get(sessionId) as { n: number };
     return Number(row.n);
   }
 
@@ -561,7 +561,7 @@ export class Store {
 
   /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
   fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
-    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
+    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
     const encoded = JSON.stringify(selection);
     let taskIds: string[] = [];
     let bytes = Buffer.byteLength(encoded) + Buffer.byteLength(sessionId) + 256;
@@ -622,7 +622,7 @@ export class Store {
     planMode?: boolean;
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string | null;
-    modelSelection: ModelSelection;
+    modelSelection: ModelSelection | null;
     submissionDigest: string;
     /** 编排字段（issue 01）：仅编排器提交时携带；控制面提交恒为 null。 */
     agentId?: AgentRoleId | null;
@@ -791,7 +791,7 @@ export class Store {
 
   listQueuedTasksFifo(sessionId: string): Task[] {
     const rows = this.db
-      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' ORDER BY created_at, rowid")
+      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, rowid")
       .all(sessionId) as any[];
     return rows.map((r) => this.rowToTask(r));
   }
@@ -1027,8 +1027,10 @@ export class Store {
   listRoleTasksPendingResult(): Task[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = tasks.session_id))
+        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = tasks.session_id)
+           OR EXISTS (SELECT 1 FROM workflow_runs r WHERE json_extract(r.payload, '$.delivery.taskId') = tasks.id))
            AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted')
+           AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)
          ORDER BY created_at, id`,
       )
       .all() as any[];
@@ -1051,6 +1053,7 @@ export class Store {
          LEFT JOIN work_delegations d ON d.id = t.work_id
          WHERE (t.agent_id IS NOT NULL OR t.sub_agent_id IS NOT NULL) AND t.parent_task_id IS NOT NULL
            AND t.result_summary IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = t.id)
            AND t.status IN ('completed','failed','canceled','interrupted')
            AND (EXISTS (SELECT 1 FROM agent_roles r WHERE r.session_id = COALESCE(d.parent_session_id, p.session_id))
              OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = COALESCE(d.parent_session_id, p.session_id)))
@@ -1073,6 +1076,7 @@ export class Store {
     const rows = this.db
       .prepare(
         `SELECT * FROM tasks WHERE sub_agent_id IS NOT NULL AND status = 'queued' AND source_event_id IS NULL
+         AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)
          ORDER BY created_at, id`,
       )
       .all() as any[];
@@ -1105,10 +1109,16 @@ export class Store {
     if (run && (!run.root_task_id || run.project_id !== session.projectId)) {
       throw new StoreConflictError("定时执行的资料项目或根任务绑定不一致", "scheduled_binding_invalid");
     }
-    return classifySession(session, this.getAgentRoleBySession(sessionId), this.getSubAgentBySession(sessionId), run ? {
+    const workflow = this.db.prepare(`SELECT e.run_id, e.step_key, r.source_session_id
+      FROM workflow_executions e JOIN workflow_runs r ON r.id = e.run_id JOIN tasks t ON t.id = e.task_id
+      WHERE t.session_id = ? AND e.kind = 'agent' ORDER BY e.rowid DESC LIMIT 1`).get(sessionId) as
+      { run_id: string; step_key: string; source_session_id: string } | undefined;
+    const agent = this.getSubAgentBySession(sessionId);
+    if (workflow && (!agent || agent.parentSessionId !== workflow.source_session_id)) throw new StoreConflictError("工作流步骤的来源与 SubAgent 绑定不一致", "workflow_binding_invalid");
+    return classifySession(session, this.getAgentRoleBySession(sessionId), agent, run ? {
       runId: run.id, scheduleId: run.schedule_id, rootTaskId: run.root_task_id!, projectId: run.project_id,
       modelSelection: this.getAgentRole("main")?.modelSelection ?? null,
-    } : null);
+    } : null, workflow ? { runId: workflow.run_id, stepKey: workflow.step_key, sourceSessionId: workflow.source_session_id } : null);
   }
 
   /** 按独立子会话反查 SubAgent 绑定（宿主识别动态身份的唯一依据）。 */
@@ -1284,7 +1294,9 @@ export class Store {
       .prepare(
         `SELECT COUNT(*) AS n FROM tasks t JOIN work_delegations w ON w.id = t.work_id
          WHERE w.parent_session_id = ? AND t.source_event_id IS NULL
-           AND t.status IN ('queued','running','awaiting_confirmation')`,
+           AND (t.status IN ('running','awaiting_confirmation') OR
+             (t.status = 'queued' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = t.id)) OR
+             EXISTS (SELECT 1 FROM occupancy o WHERE o.task_id = t.id))`,
       )
       .get(parentSessionId) as any;
     return Number(row.n);
@@ -1321,6 +1333,7 @@ export class Store {
         `SELECT t.* FROM tasks t JOIN work_delegations w ON w.id = t.work_id
          WHERE w.parent_session_id = ? AND t.sub_agent_id IS NOT NULL AND w.canceled_at IS NULL
            AND t.result_summary IS NOT NULL AND t.result_delivered_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = t.id)
            AND t.status IN ('completed','failed','canceled','interrupted')
          ORDER BY t.created_at, t.id`,
       )

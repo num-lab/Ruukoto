@@ -1,0 +1,26 @@
+[ruukoto:workflow-model] ruukoto magpie/mirasim/deepseek-flash run=wfrun_7c7b03b7c1fd4d5e8866b6ff status=succeeded attempts=1
+{
+  "product": "ruukoto",
+  "runId": "wfrun_7c7b03b7c1fd4d5e8866b6ff",
+  "status": "succeeded",
+  "facts": "工作流 wfrun_7c7b03b7c1fd4d5e8866b6ff｜终态 succeeded\n用量：1/100 次 Agent 尝试；17969/3600000ms。\n覆盖：2 项，完成 2；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n停止：脚本已核实；已启动执行 1/1 项已核实，未启动 0 项。\n步骤 hold：completed\n步骤 record：completed",
+  "report": "工作流 wfrun_7c7b03b7c1fd4d5e8866b6ff｜终态 succeeded\n用量：1/100 次 Agent 尝试；17969/3600000ms。\n覆盖：2 项，完成 2；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n停止：脚本已核实；已启动执行 1/1 项已核实，未启动 0 项。\n步骤 hold：completed\n步骤 record：completed\n工作流 wfrun_7c7b03b7c1fd4d5e8866b6ff（real-check）已到终态 succeeded。\n\n执行情况：2 项步骤全部完成（hold、record），失败、跳过、取消均为 0；用量 1/100 次 Agent 尝试，约 18 秒。停止已核实：脚本已核实，应启动的 1/1 项均已核实启动，无未启动项，无未核实内容。\n\n结果资料（属资料，非本人直接核实）：按需求创建应用数据表 model_workflow，含唯一字段 value（text、非空）并建唯一索引 ux_model_workflow_value，schema v1、rev 1；随后插入一行 {\"value\": \"DEEPSEEK_WORKFLOW_OK\"}，返回 row id 1，rev 2。执行方说明其把“唯一字段 value”理解为该字段值唯一，插入成功、无冲突。\n\n本轮仅作汇总，未执行新的工作。如需我另行核对该表与数据现状，请告知。"
+}
+✔ ruukoto 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (41861.665042ms)
+[ruukoto:workflow-model] ruukoto-code magpie/mirasim/deepseek-flash run=wfrun_b40f65f3b1832d191bf0cda5 status=succeeded attempts=2
+{
+  "product": "ruukoto-code",
+  "runId": "wfrun_b40f65f3b1832d191bf0cda5",
+  "status": "succeeded",
+  "facts": "工作流 wfrun_b40f65f3b1832d191bf0cda5｜终态 succeeded\n用量：2/100 次 Agent 尝试；30593/3600000ms。\n覆盖：4 项，完成 4；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n停止：脚本已核实；已启动执行 6/6 项已核实，未启动 0 项。\n步骤 hold：completed\n步骤 change：completed\n步骤 verify：completed\n步骤 merge：completed",
+  "report": "工作流 wfrun_b40f65f3b1832d191bf0cda5｜终态 succeeded\n用量：2/100 次 Agent 尝试；30593/3600000ms。\n覆盖：4 项，完成 4；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n停止：脚本已核实；已启动执行 6/6 项已核实，未启动 0 项。\n步骤 hold：completed\n步骤 change：completed\n步骤 verify：completed\n步骤 merge：completed\n工作流 `wfrun_b40f65f3b1832d191bf0cda5`（real-check）终态 **succeeded**，全部按持久事实归纳，未执行任何新工具调用。\n\n**步骤结果（4/4 完成）**\n- `hold`：completed，返回值 `yes`。\n- `change`：completed（modify 模式，隔离工作副本）。仅用 write 整文件覆盖 `value.txt`，内容为 `changed\\n`；未提交、未推送。\n- `verify`：completed，`{passed: true}` —— 独立上下文核实通过。\n- `merge`：completed，补丁已应用：父提交 `a7abea7cf9a4dc3ac2d480f9964d3b498a48c96c`，124 字节，1 个文件（`value.txt`），+1/−1 行；merge 后的检查命令无输出、`isError: false`。\n\n**失败/跳过/取消/未完成**：均为 0，无失败、无跳过、无取消、无未完成项。\n\n**停止核实**：脚本已核实；已启动的 6/6 项执行均已核实，未启动 0 项；用量 2/100 次 Agent 尝试，30593/3600000 ms。\n\n**说明**：以上均为运行记录中的持久事实，我本轮没有另行打开工作区或验证 `value.txt` 的当前磁盘内容；该步骤的创建/应用过程未在本报告中做独立复核。"
+}
+✔ ruukoto-code 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (52208.34275ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 95325.563541

@@ -1,0 +1,88 @@
+✔ 只有持久绑定的工作流步骤保留来源技能目录与真实 skill 调用 (239.75875ms)
+✔ 真实个人步骤修改应用 schema 后仍可继续，main 业务来源没有 HTTP 或额外编码工具 (118.444625ms)
+✔ 个人来源的修改步骤只增加已有委派的五个编码工具 (1726.608208ms)
+✔ memory_list 的预览来源落盘，祖先记忆撤销阻止间接缓存进入后续模型 (151.260667ms)
+✔ 运行后新增资料授权不扩大步骤范围，直接产物与通知查询使用同一固定授权 (113.026875ms)
+✔ 同一来源的不同运行隔离真实产物、子历史与引用产物的通知正文 (687.464167ms)
+✔ 真实工作流 MCP：full_access 的调用、批准与来源失效 (106.044125ms)
+✔ 真实工作流 MCP：confirm 的调用、批准与来源失效 (273.16075ms)
+✔ 真实工作流 MCP：configuration 的调用、批准与来源失效 (143.048542ms)
+✔ 真实工作流 MCP：revoke 的调用、批准与来源失效 (146.407416ms)
+✔ 个人六输入命名工作流：实际搜索工具与应用数据、独立检查、单项 JSON 失败、等待聊天及唯一 IM 替身回报 (975.104375ms)
+✔ 建表/插入/更新/删除与跨重启读写 (9.157584ms)
+✔ schema 版本冲突不静默覆盖；表已存在即冲突 (2.567708ms)
+✔ 关系与外键 RESTRICT：删除被引用行失败；删除被引用表被拒绝 (3.201666ms)
+✔ 批量插入原子：一行非法整批回滚，版本与审计不推进 (2.288125ms)
+✔ hostOpId 幂等：同参返回原结果，异参冲突 (2.464875ms)
+✔ 恶意名称与保留名被拒绝 (1.843792ms)
+✔ 超大字段/行/参数与行数上限被拒绝 (2.771875ms)
+✔ 行版本冲突：更新/删除要求预期行版本 (3.397083ms)
+✔ 唯一索引遇重复数据整次回滚；迁移步骤上限 (2.256875ms)
+✔ 审计回执：来源任务/agent/版本/理由齐全 (1.548792ms)
+✔ rows 查询：稀疏命中分页不漏行；显式超限拒绝 (4.267542ms)
+✔ rows 查询：结果字节预算与单条投影上限 (9.196042ms)
+✔ rows 查询：跨页数据变化返回游标冲突 (2.594875ms)
+✔ schema/changes 模式：表发现、单表定义与审计分页 (2.077625ms)
+✖ 查询进程先 exit 后关闭 stdout：收完结果 (0.398583ms)
+✖ 查询进程先 exit 后关闭 stdout：无结果拒绝 (0.055959ms)
+✔ 只读子进程：真实查询经子进程执行；超时真实终止进程 (2145.252708ms)
+✔ 装配与门控：main 获得六个 app_data 工具；普通会话没有（coding/chat 已退役，issue 20/23） (137.154084ms)
+✔ main 经工具建表/插入/查询；跨重启读写；实例绑定稳定 (194.964584ms)
+✔ 破坏性操作进入确认：范围/行 ID/版本固定，批准后执行一次；拒绝不执行 (321.650042ms)
+✔ full_access 破坏性数据免审批，auto-review 仍转拥有者确认 (190.369083ms)
+✔ 确认期间版本变化使批准失效，不执行新出现的行 (147.506166ms)
+✔ 伪造身份：普通开发会话调用 app_data 工具不执行、不读数据（装配层即边界） (60.650833ms)
+✔ 核心表与内部元表无法被应用数据工具访问 (352.238959ms)
+✔ 批准后存储层才拒绝：错误照常经校验失败路径（留 app_data.rejected、冲突附当前版本）（架构工单 04） (234.193375ms)
+✔ main 工具校验失败留 app_data.rejected 事件；恶意表名拒绝 (59.744ms)
+✔ 审计失败回滚业务变更：不留部分写入 (1.564416ms)
+✔ 停止路径：应用数据写操作按回执核实，不误标 effect_unknown (79.782292ms)
+✔ 恢复：回执补记已提交 / 无回执记未提交 / 应用库丢失保留未知效果 (101.207167ms)
+✔ 应用库实例身份不符：能力停止并保留未知效果（不覆盖既有绑定） (25.163667ms)
+✔ 既有 main 角色重启：角色记录里的工具清单副本不影响装配，项目/会话/工作目录/模型绑定不变 (72.526334ms)
+✔ 查询阻塞期间控制面请求仍能应答；超时后任务以错误收尾 (2078.164708ms)
+✔ P1：连续空窗口后游标仍推进——稀疏命中在候选预算边界后可达 (14.906917ms)
+✔ P2：结果预算截断时不越过未返回的匹配行（与候选推进并存） (5.843583ms)
+✔ P2：update/rewrite_rows 合并后整行超 32 KiB 被拒绝并整体回滚 (4.093333ms)
+✔ P2：既有库缺失审计表即损坏——停止能力，不静默重建 (4.397625ms)
+✔ P2：op_id 经工具入口过滤审计；schema 分页输出带继续游标 (229.10525ms)
+✔ P1：终态任务缺结果的应用数据操作在重启时按回执补记 (24.374625ms)
+[ruukoto] 工具结果落盘失败（op_27e992104a7bd74010671087）：injected core write failure
+✔ P1：核心结果写入失败时立即按回执核实（不等到重启） (147.542ms)
+✔ P2：停止在途只读查询不标 effect_unknown (2054.033417ms)
+ℹ tests 51
+ℹ suites 0
+ℹ pass 49
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9658.829375
+
+✖ failing tests:
+
+test at test/28-main-data.test.ts:561:39
+✖ 查询进程先 exit 后关闭 stdout：收完结果 (0.398583ms)
+  TypeError: Cannot redefine property: spawn
+      at defineProperty (<anonymous>)
+      at MockTracker.method (node:internal/test_runner/mock/mock:540:5)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/28-main-data.test.ts:564:16)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)
+
+test at test/28-main-data.test.ts:561:39
+✖ 查询进程先 exit 后关闭 stdout：无结果拒绝 (0.055959ms)
+  TypeError: Cannot redefine property: spawn
+      at defineProperty (<anonymous>)
+      at MockTracker.method (node:internal/test_runner/mock/mock:540:5)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/28-main-data.test.ts:564:16)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)

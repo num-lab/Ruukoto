@@ -62,9 +62,11 @@ test("真实模型连通性（RUN_MODEL_CHECK=1 开启）", { skip: process.env.
       await authenticateClient(client, runtime.controlDir());
       await client.handshake();
       const project = await client.request<any>("create_project", { name: "model-check" });
+      const workspace = path.join(root, "workspace");
+      fsSync.mkdirSync(workspace);
       const session = await client.request<any>("create_session", {
         project_id: project.id,
-        cwd: root,
+        cwd: workspace,
       });
       const task = await client.request<any>("submit", {
         model_selection: session.modelSelection,

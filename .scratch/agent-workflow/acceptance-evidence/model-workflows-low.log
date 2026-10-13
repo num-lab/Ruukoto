@@ -1,0 +1,32 @@
+[ruukoto:workflow-model] ruukoto magpie/mirasim/deepseek-flash run=wfrun_8965d50801e0e8b9de2a8325 status=succeeded attempts=1
+✔ ruukoto 真实模型：自主使用命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (26448.317917ms)
+✖ ruukoto-code 真实模型：自主使用命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (43203.46625ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 70841.642209
+
+✖ failing tests:
+
+test at test/123-workflow-model-acceptance.test.ts:1:696
+✖ ruukoto-code 真实模型：自主使用命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (43203.46625ms)
+  AssertionError [ERR_ASSERTION]: {"reason":"write_result_missing","steps":[{"key":"hold","kind":"ask","status":"completed","resultRecorded":true,"attempts":0,"question":"answered","outputArtifact":null},{"key":"change","kind":"agent","status":"completed","resultRecorded":true,"attempts":1,"question":null,"outputArtifact":null},{"key":"verify","kind":"agent","status":"failed","resultRecorded":true,"attempts":1,"question":null,"outputArtifact":null}]}
+  + actual - expected
+
+  + 'paused'
+  - 'succeeded'
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/123-workflow-model-acceptance.test.ts:47:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'paused',
+    expected: 'succeeded',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

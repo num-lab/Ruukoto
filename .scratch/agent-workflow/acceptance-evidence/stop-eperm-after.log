@@ -1,0 +1,10 @@
+✔ 信号 EPERM 仍核实原进程组：已退出 (1.470292ms)
+✔ 信号 EPERM 仍核实原进程组：持续未知 (0.078458ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1291.501292

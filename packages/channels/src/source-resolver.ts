@@ -4,6 +4,7 @@ import type { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import type { AccessScope } from "@ruukoto/core/access.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { Task } from "@ruukoto/core/types.ts";
+import { getWorkflowExecution, getWorkflowStep, getWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { resolveAcceptedChatResult } from "./chat-results.ts";
 import { QqStore } from "./qq/store.ts";
 import { sha256,type SourceRef } from "./scheduler/store.ts";
@@ -28,22 +29,31 @@ export interface SourceResolverDeps {
 }
 
 /** main 读取资料的范围：本项目、main 委派的子任务，或有效资料授权覆盖的项目。 */
-function mainCanRead(deps: SourceResolverDeps, mainProjectId: string, projectId: string, category: "history" | "artifact"): boolean {
-  return deps.access.canAccess({ kind: "agent", projectId: mainProjectId }, projectId, category);
+function mainCanRead(deps: SourceResolverDeps, mainProjectId: string, projectId: string, category: "history" | "artifact", taskId?: string): boolean {
+  const execution = taskId ? getWorkflowExecution(deps.store, taskId) : null;
+  const run = execution ? getWorkflowRun(deps.store, execution.runId) : null;
+  return deps.access.canAccess({ kind: "agent", projectId: mainProjectId, grantIds: run?.source.authority?.grantIds }, projectId, category);
 }
 
-function taskReadable(deps: SourceResolverDeps, mainProjectId: string, task: Task): boolean {
+function taskReadable(deps: SourceResolverDeps, mainProjectId: string, task: Task, taskId?: string): boolean {
   const project = deps.store.getSession(task.sessionId)?.projectId;
   // 父子关系只开放结果传递，不能把原始群资料变成 main 可读资料。
   if (!project || deps.access.isQqGroupProject(project)) return false;
-  if (mainCanRead(deps, mainProjectId, project, "history")) return true;
+  if (mainCanRead(deps, mainProjectId, project, "history", taskId)) return true;
   const parent = task.parentTaskId ? deps.store.getTask(task.parentTaskId) : null;
   return parent !== null && deps.store.getSession(parent.sessionId)?.projectId === mainProjectId;
 }
 
 export function createSourceResolver(deps: SourceResolverDeps) {
   const qq = new QqStore(deps.store.db);
-  const resolveOne = (mainProjectId: string, raw: Record<string, unknown>): { text: string; ref: SourceRef } => {
+  const workflowReadable = (taskId: string | undefined, sourceTaskId: string): boolean => {
+    const source = getWorkflowExecution(deps.store, sourceTaskId);
+    if (!source || !taskId) return true;
+    const current = getWorkflowExecution(deps.store, taskId);
+    const step = current ? getWorkflowStep(deps.store, current.runId, current.stepKey) : null;
+    return Boolean(current && step && source.runId === current.runId && [step.key, ...step.dependsOn].includes(source.stepKey));
+  };
+  const resolveOne = (mainProjectId: string, raw: Record<string, unknown>, taskId?: string): { text: string; ref: SourceRef } => {
     const kind = raw.kind;
     if (kind === "text") {
       if (typeof raw.text !== "string") throw new Error("text 来源必须提供 text");
@@ -51,7 +61,7 @@ export function createSourceResolver(deps: SourceResolverDeps) {
     }
     if (kind === "task_result") {
       const task = typeof raw.task_id === "string" ? deps.store.getTask(raw.task_id) : null;
-      if (!task || !taskReadable(deps, mainProjectId, task)) throw new Error("任务不存在或不在 main 可读范围");
+      if (!task || !taskReadable(deps, mainProjectId, task, taskId) || !workflowReadable(taskId, task.id)) throw new Error("任务不存在或不在当前步骤可读范围");
       if (task.status !== "completed" || task.resultSummary === null) throw new Error("只能引用已完成且已记录结果的任务（不从会话最新回复推断）");
       return { text: task.resultSummary, ref: { kind, ref: `task:${task.id}`, version: task.endedAt ?? "", sha256: sha256(task.resultSummary) } };
     }
@@ -63,7 +73,7 @@ export function createSourceResolver(deps: SourceResolverDeps) {
     if (kind === "artifact") {
       const artifact = typeof raw.artifact_id === "string" ? deps.store.getArtifact(raw.artifact_id) : null;
       const project = artifact ? deps.store.getSession(artifact.sessionId)?.projectId : null;
-      if (!artifact || !project || !mainCanRead(deps, mainProjectId, project, "artifact")) throw new Error("产物不存在或不在 main 可读范围");
+      if (!artifact || !project || !mainCanRead(deps, mainProjectId, project, "artifact", taskId) || artifact.name.startsWith("prompt-snapshot:") || !workflowReadable(taskId, artifact.taskId)) throw new Error("产物不存在或不在当前步骤可读范围");
       if (artifact.status !== "complete") throw new Error("产物尚未定稿，不能引用");
       const offset = Number(raw.offset ?? 0);
       const length = Number(raw.length ?? NOTIFY_LIMITS.textBytes);
@@ -81,6 +91,7 @@ export function createSourceResolver(deps: SourceResolverDeps) {
       return { text, ref: { kind, ref: `artifact:${artifact.id}@${offset}+${buf.length}`, version: String(artifact.byteCount), sha256: sha256(text) } };
     }
     if (kind === "app_data") {
+      if (deps.store.getAgentRole("main")?.projectId !== mainProjectId) throw new Error("应用数据来源不属于当前个人身份");
       const store = deps.appData();
       if (!store) throw new Error("应用数据能力不可用，不能生成快照");
       const table = typeof raw.table === "string" ? store.getTable(raw.table) : null;
@@ -108,15 +119,15 @@ export function createSourceResolver(deps: SourceResolverDeps) {
 
   return {
     /** 解析为最终正文（多个来源按顺序换行拼接）。 */
-    resolve(mainProjectId: string, content: unknown): { text: string; refs: SourceRef[] } {
+    resolve(mainProjectId: string, content: unknown, taskId?: string): { text: string; refs: SourceRef[] } {
       if (!Array.isArray(content) || content.length === 0 || content.length > NOTIFY_LIMITS.sources) {
         throw new Error(`content 必须是 1–${NOTIFY_LIMITS.sources} 个来源`);
       }
-      const parts = content.map((c) => resolveOne(mainProjectId, (c ?? {}) as Record<string, unknown>));
+      const parts = content.map((c) => resolveOne(mainProjectId, (c ?? {}) as Record<string, unknown>, taskId));
       return { text: parts.map((p) => p.text).join("\n"), refs: parts.map((p) => p.ref) };
     },
     /** 发送前复核可撤销的资料授权（快照正文不变；授权撤销后不得继续外发）。 */
-    verify(mainProjectId: string, refs: SourceRef[]): string | null {
+    verify(mainProjectId: string, refs: SourceRef[], taskId?: string): string | null {
       for (const r of refs) {
         if (r.kind === "chat_result") {
           try {
@@ -127,12 +138,24 @@ export function createSourceResolver(deps: SourceResolverDeps) {
           }
         } else if (r.kind === "task_result") {
           const task = deps.store.getTask(r.ref.slice("task:".length));
-          if (!task || !taskReadable(deps, mainProjectId, task)) return `来源 ${r.ref} 的资料授权已撤销或任务不可读`;
+          if (!task || !taskReadable(deps, mainProjectId, task, taskId) || !workflowReadable(taskId, task.id) || task.status !== "completed" || task.resultSummary === null || (task.endedAt ?? "") !== r.version || sha256(task.resultSummary) !== r.sha256) return `来源 ${r.ref} 的资料授权已撤销或任务结果已变化`;
         } else if (r.kind === "artifact") {
           const id = r.ref.slice("artifact:".length).split("@")[0]!;
           const artifact = deps.store.getArtifact(id);
           const project = artifact ? deps.store.getSession(artifact.sessionId)?.projectId : null;
-          if (!project || !mainCanRead(deps, mainProjectId, project, "artifact")) return `来源 ${r.ref} 的资料授权已撤销或产物不可读`;
+          if (!artifact || !project || !mainCanRead(deps, mainProjectId, project, "artifact", taskId) || artifact.name.startsWith("prompt-snapshot:") || !workflowReadable(taskId, artifact.taskId) || artifact.status !== "complete" || String(artifact.byteCount) !== r.version) return `来源 ${r.ref} 的资料授权已撤销或产物不可读`;
+          const range = /@(\d+)\+(\d+)$/.exec(r.ref);
+          if (!range) return "产物来源片段缺失";
+          try {
+            if (sha256(deps.artifacts.read(id, Number(range[1]), Number(range[2])).toString("utf8")) !== r.sha256) return "产物来源字节已变化";
+          } catch { return "产物来源不可读"; }
+        } else if (r.kind === "app_data") {
+          const store = deps.appData();
+          const match = /^app_data:([^/]+)\/([^#]+)#(\d+)\.(.+)$/.exec(r.ref);
+          if (!store || !match || match[1] !== store.getInstanceId() || deps.store.getAgentRole("main")?.projectId !== mainProjectId) return "应用数据来源身份已变化";
+          const table = store.getTable(match[2]);
+          const row = table ? store.getRow(table, Number(match[3])) : null;
+          if (!row || !table?.fields.some(field => field.name === match[4])) return "应用数据来源不存在";
         }
       }
       return null;

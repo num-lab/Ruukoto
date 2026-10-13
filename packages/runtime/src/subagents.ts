@@ -508,6 +508,9 @@ export class SubAgentManager {
           }
           return { work: racedWork, agent: agentNow, task: racedTask, created: false, newWork: false };
         }
+        if (!input.hostReview && this.store.countActiveSubAgentTasks(parentSession.id) >= SUBAGENT_LIMITS.perParentSession) {
+          throw new SubAgentDelegationError("limit_exceeded", "本会话的 SubAgent 名额已用满，请等待现有执行结束");
+        }
         check(); // 模型门闩重检必须在登记事务内
         // 可用性事务内重核：关闭/忙碌与登记的竞争在这里定胜负（先关闭则报已
         // 关闭；先登记则关闭侧报有活动任务）
@@ -720,6 +723,8 @@ export class SubAgentManager {
     const prepared = this.store.withTx(() => {
       const work = this.store.getWorkDelegation(input.workId);
       if (!work) throw new SubAgentDelegationError("not_found", `工作委托不存在：${input.workId}`);
+      const identity = this.store.getSessionIdentity(this.store.getSubAgent(work.subAgentId)?.sessionId ?? "");
+      if (identity?.kind === "subagent" && identity.workflow) throw new SubAgentDelegationError("invalid_state", "工作流步骤由所属运行控制，请取消运行");
       if (input.by.startsWith("agent:") && work.parentSessionId !== input.parentSessionId) {
         throw new SubAgentDelegationError("forbidden", "该工作委托不属于本会话");
       }
@@ -1047,6 +1052,9 @@ export class SubAgentManager {
     if (!work || work.parentSessionId !== input.parentSessionId) {
       throw new SubAgentDelegationError("not_found", `工作委托不存在或不属于本会话：${input.workId}`);
     }
+    const agent = this.store.getSubAgent(work.subAgentId);
+    const identity = agent ? this.store.getSessionIdentity(agent.sessionId) : null;
+    if (identity?.kind === "subagent" && identity.workflow) throw new SubAgentDelegationError("invalid_state", "工作流成果必须由所属运行经过独立验证后汇总");
     const target = work.writeTarget;
     if (!target) {
       throw new SubAgentDelegationError("invalid_state", `工作 ${work.id} 是只读分析工作：没有写入目标，没有副本可汇总`);
@@ -1156,6 +1164,8 @@ export class SubAgentManager {
   ): { code: string; message: string; reason: string } | null {
     if (agent.parentSessionId !== parentSessionId) return { code: "forbidden", message: "该 SubAgent 不属于本会话", reason: "foreign_parent" };
     if (agent.closedAt) return { code: "closed", message: `SubAgent 已关闭（${agent.closedAt}）：${purpose === "receive" ? "消息未投递" : "请新建 SubAgent"}`, reason: `closed:${agent.closedAt}` };
+    const identity = this.store.getSessionIdentity(agent.sessionId);
+    if (identity?.kind === "subagent" && identity.workflow) return { code: "forbidden", message: "工作流步骤由所属运行管理，不能通过普通委派复用或续派", reason: "workflow_bound" };
     if (this.store.hasInboundSourcedSubAgentTask(agent.id)) return { code: "forbidden", message: "该 SubAgent 的工作源自入站事件（上下文含不可信外部资料）：不能复用或续派", reason: "inbound_review" };
     if (work && agent.activeWorkId !== work.id && purpose === "receive") return { code: "invalid_state", message: "该 SubAgent 当前工作不是本工作：消息未投递", reason: "moved_work" };
     const activeTask = this.store.findActiveSubAgentTask(agent.id);

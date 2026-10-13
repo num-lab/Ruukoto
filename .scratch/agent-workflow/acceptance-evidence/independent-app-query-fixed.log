@@ -1,0 +1,11 @@
+✔ 查询进程先 exit 后关闭 stdout：收完结果 (1.67ms)
+✔ 查询进程先 exit 后关闭 stdout：无结果拒绝 (0.347375ms)
+✔ 只读子进程：真实查询经子进程执行；超时真实终止进程 (2129.113708ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3357.268583

@@ -29,7 +29,7 @@
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建 worker、lint、类型检查、应用与基础验证的全部离线测试
+npm run check       # 构建 worker 与 WASM、静态检查及全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 
@@ -80,7 +80,9 @@ ruukoto qq enable
 
 ### 开发本项目
 
-修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI与显式复跑执行。
+两产品支持[后台工作流](docs/modules/workflows.md)：用 `workflow` 管理定义和带参运行，TUI 用 `/workflow`，个人 IM 用明确控制命令；[操作说明](docs/usage.md#511-工作流问题与回报)与[定向测试](docs/development.md#日常反馈)说明使用、六输入组合及显式真实模型验证。
+
+修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
 
 ```bash
 npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启

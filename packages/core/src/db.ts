@@ -12,60 +12,9 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 39;
+export const SCHEMA_VERSION = 35;
 
 const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS workflow_definitions (
-  id TEXT PRIMARY KEY,
-  digest TEXT NOT NULL UNIQUE,
-  payload TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS workflow_definition_refs (
-  ref_key TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  definition_id TEXT NOT NULL REFERENCES workflow_definitions(id),
-  request_digest TEXT
-);
-CREATE TABLE IF NOT EXISTS workflow_runs (
-  id TEXT PRIMARY KEY,
-  source_session_id TEXT NOT NULL REFERENCES sessions(id),
-  request_key TEXT NOT NULL,
-  params_digest TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('queued','running','waiting','paused','succeeded','partial','failed','canceled')),
-  payload TEXT NOT NULL,
-  UNIQUE(source_session_id, request_key)
-);
-CREATE TABLE IF NOT EXISTS workflow_steps (
-  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
-  key TEXT NOT NULL,
-  ordinal INTEGER NOT NULL,
-  payload TEXT NOT NULL,
-  PRIMARY KEY(run_id, key),
-  UNIQUE(run_id, ordinal)
-);
-CREATE TABLE IF NOT EXISTS workflow_executions (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
-  step_key TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('agent','host')),
-  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
-  number INTEGER NOT NULL,
-  payload TEXT NOT NULL,
-  UNIQUE(run_id, step_key, kind, number)
-);
-CREATE TABLE IF NOT EXISTS workflow_questions (
-  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
-  step_key TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  PRIMARY KEY(run_id, step_key)
-);
-CREATE TABLE IF NOT EXISTS workflow_controls (
-  run_id TEXT NOT NULL REFERENCES workflow_runs(id),
-  request_key TEXT NOT NULL,
-  digest TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  PRIMARY KEY(run_id, request_key)
-);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -458,7 +407,7 @@ CREATE TABLE IF NOT EXISTS inbound_events (
   artifact_refs TEXT NOT NULL DEFAULT '[]',
   reply_target TEXT,
   received_at TEXT NOT NULL,
-  event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval','im_workflow')),
+  event_kind TEXT NOT NULL DEFAULT 'task' CHECK (event_kind IN ('task','im_approval')),
   status TEXT NOT NULL CHECK (status IN ('registered','queued','done','failed')),
   task_id TEXT,
   UNIQUE (source, external_id)
@@ -573,7 +522,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_open ON schedule_runs (sched
 CREATE TABLE IF NOT EXISTS notification_ops (
   not_before TEXT,
   id TEXT PRIMARY KEY,
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','tool','confirmation','owner_reply','inbound_event','workflow_question')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('schedule_run','tool','confirmation','owner_reply','inbound_event')),
   source_key TEXT NOT NULL,
   task_id TEXT,
   host_op_id TEXT,

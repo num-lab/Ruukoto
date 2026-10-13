@@ -4,9 +4,7 @@ Status: implemented
 
 原编号：ADR 0004
 
-部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)接管个人产品的受限后端、目录身份、临时空间与交付入口；本篇保留完整 worker、有界协议、审批和停止原则的理由。下文容器参数与专用执行账户是原决定的历史方案，不表示当前仍有这些启动器。
-
-Coding Agent 的受限后端由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)接管；完全访问由[当前账户决定](../feature/2026-10-12-full-access-current-account.md)持有。本篇原决定、备选理由和真实历史验证保留。
+部分取代：Coding Agent 选择 native 时的受限后端由[原生执行沙箱](2026-10-10-native-execution-sandbox.md)接管；本篇原决定保留，个人 Agent 容器、共享 worker/协议与完全访问仍由本篇解释。
 
 ## 问题
 
@@ -58,7 +56,7 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 - **把整个 pi 会话以 `pi --mode rpc` 放进受限环境** — 基础验证已证明 RPC 模式能跨进程驱动 pi 并从事件流还原回复，当时也把它列为任务进程放进受限环境时的跨进程方式，不必自建工具协议。不选，是因为模型调用要用后台的模型凭据和网络，整个会话进了边界，这些也就进了项目 Shell 够得着的地方，而受限容器默认无网络；改为只把工具执行放进工作进程，SDK、模型调用、审批与持久化留在后台。（见阶段 0 基础验证结论「交互与通信选型」，personal-agent issue 03 实施计划 §1、§3）
 - **按会话复用容器** — 阶段 0 拟议的就是 per-session 容器：同一会话的任务共用环境，省去每个任务启动容器的开销。不选，是因为后续任务会继承临时挂载、环境变量与残留进程，单次批准的额外能力也会沉淀进常驻容器；改为按任务建立、结束回收。（见阶段 0 基础验证结论「选定方案」，personal-agent issue 03 实施计划 §3，原决定第 2 段）
 - **完全访问以拥有者账户运行** — 阶段 0 的拟议部署：拥有者与运行控制面的后台 UID 不同，内核会拒绝它改写授权状态，任务还能直接用拥有者的全部文件与工具链。不选，是因为这个账户同样能读到 CLI 的授权材料，可以冒充拥有者；agent-direction issue 03 的负向实证是本机 0600 的 `owner.token` 对同 uid 进程 `test -r` 返回 0。改用专用执行账户。（见阶段 0 基础验证结论「控制面身份模型」，personal-agent issue 03 实施计划 §1，[agent-direction issue 03](../../../../.scratch/agent-direction/issues/03-execution-boundary-proof.md) 判定结论第 4 条；这一取舍也记在[显式访问模式](../feature/2026-09-19-explicit-access-modes.md)）
-- **执行环境缺失时回退到后台账户执行** — 宿主缺少容器运行时或执行账户配置时，任务照样能跑。不选，是因为后台账户持有数据目录、模型凭据与控制面材料，直接用它跑工具，任务就能读到全部凭据，拥有者却以为任务受限；缺少后端、镜像或身份配置时一律明确失败。（见 personal-agent issue 03 实施计划 §1「真实工具不得在检查失败后回退到后台账户执行」与「交付与验证」，原决定第 3 段）
+- **执行环境缺失时回退到后台账户执行** — 宿主缺少容器运行时或执行账户配置时，任务照样能跑。不选，是因为后台账户持有数据目录、模型凭据与控制面材料，直接用它跑工具，任务就能读到全部凭据，拥有者却以为任务受限；缺少后端、镜像或身份配置时一律明确失败。（见 personal-agent issue 03 实施计划 §1「真实工具不得在检查失败后回退到后台账户执行」与「交付与验证」，原决定第 3 段，[deployment 图解](../../../../docs/visual/deployment.html)「为什么要第三个身份」）
 - **把执行账户加入拥有者的组，让它进入工作区** — 不用逐个工作区配 ACL，一步就能让完全访问读写拥有者的仓库。不选，是因为执行账户不属于拥有者或后台的组是身份设计的前提，入组就可能读到拥有者的认证材料；改为按工作区配 ACL。同一轮也否掉了提交时预检工作区权限，因为后台无法替另一个 uid 判断权限。（见 [personal-agent issue 23](../../../../.scratch/personal-agent/issues/23-container-full-access.md)「已确认范围」）
 - **单次 HTTP 授权时给 Shell 临时联网或注入通用凭据** — 批准后现有脚本和命令行工具（curl 等）无需改写就能直接用。不选，是因为批准一个请求就会给脚本开放整台主机的网络，只限目标域名或端口也保证不了同一服务上没有发生其他写操作；改为由受信执行器发出固定方法、目标、头部和正文的单次请求，暂时表达不了的需求明确返回限制，由拥有者选择合适的工具或显式完全访问。（见 personal-agent issue 03 实施计划 §4）
 - **被边界拦下后在更高权限下自动重试整个脚本** — 模型不用再拆出一个具体的审批操作，任务少一次中断。不选，是因为脚本失败前可能已经改了工作区或产生了其他副作用，整段重放会重复这些效果；被阻止的访问向模型返回明确错误，由模型提出新的、具体的审批操作。（见 personal-agent issue 03 实施计划 §4）
@@ -82,7 +80,5 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 - 完全访问身份：tx 实测见 personal-agent issue 23 的 Comments，任务以 `ruukoto-exec` 运行，读取拥有者令牌返回 `Permission denied`。
 
 ## 适用范围
-
-当前执行接线由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)与[原生执行沙箱](2026-10-10-native-execution-sandbox.md)持有：两个产品正式受限入口默认且只接受 native；Docker worker、镜像配置与 container 类型已退役。完全访问采用[当前账户决定](../feature/2026-10-12-full-access-current-account.md)。本篇原容器参数、VM 例外、容器生命周期与专用账户叙述保留为被部分取代的原决定；完整 worker、协议、批准消费与停止核实原则仍适用。当前接口回归由 `test/10-access-modes.test.ts`、`test/73-desktop-execution.test.ts`、`test/100-worker-stop.test.ts` 与 `test/101-native-linux-scope.test.ts` 覆盖；本篇验证节保存原时点的记录，旧容器命令不作为当前活跃入口。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

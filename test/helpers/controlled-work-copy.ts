@@ -13,7 +13,7 @@ export function controlledWorkCopy(stop: () => Promise<boolean>, output: string,
     if (call?.type === "tool_call") stdout.write(JSON.stringify({ type: "result", opId: call.opId, ok: true, content: [{ type: "text", text: output }] }) + "\n");
   };
   const unit: LaunchedUnit = {
-    entry: { kind: "systemd_unit", id: "controlled-work-copy", label: "模拟工作副本 worker", stop },
+    entry: { kind: "container", id: "controlled-work-copy", label: "模拟工作副本 worker", stop },
     stdin: new Writable({ write(chunk, _encoding, callback) {
       const request = JSON.parse(chunk.toString()) as WorkerRequest;
       requests.push(request);
@@ -25,7 +25,7 @@ export function controlledWorkCopy(stop: () => Promise<boolean>, output: string,
     stderr: new PassThrough(),
     exit: new Promise((resolve) => { finish = resolve; }),
   };
-  const launcher: WorkerLauncher = { kind: "native", async launch(spec) {
+  const launcher: WorkerLauncher = { kind: "container", async launch(spec) {
     specs.push(spec);
     if (ready) setImmediate(() => stdout.write(JSON.stringify({ type: "ready", pid: 123 }) + "\n"));
     return unit;

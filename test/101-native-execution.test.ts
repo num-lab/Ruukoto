@@ -4,21 +4,10 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { ExecutionError, createLauncherFor, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
 import { assertNativeFileLinks, prepareNativeLaunch, type PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
 import { nativeNetworkFilter, linuxNativeArgs } from "@ruukoto/agent/execution/native-linux.ts";
 import { macosNativeProfile } from "@ruukoto/agent/execution/native-macos.ts";
-
-test("macOS 身份有界重查只接受明确退出或完整身份，持续权限失败与损坏字段拒绝", { skip: process.platform !== "darwin" }, () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "native-identity-check-")), binary = path.join(directory, "check");
-  try {
-    execFileSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", fileURLToPath(new URL("./fixtures/native-identity-check.c", import.meta.url)),
-      "-I", fileURLToPath(new URL("../", import.meta.url)), "-o", binary], { encoding: "utf8", timeout: 30_000 });
-    assert.match(execFileSync(binary, [], { encoding: "utf8", timeout: 5_000 }), /七项身份重查与拒绝检查通过/);
-  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
-});
 
 function filterResult(filter: Buffer, arch: number, syscall: number): number {
   let value = 0;
@@ -48,10 +37,11 @@ test("原生网络过滤拒绝路径 socket、socketpair 外发、io_uring 与�
   assert.throws(() => nativeNetworkFilter("unknown"), error => error instanceof ExecutionError && error.code === "execution_unavailable");
 });
 
-test("native 完全访问使用启动账户，库层 local 仍可注入", () => {
+test("native 与容器完全访问共用启动账户，库层 local 仍可注入", () => {
   assert.equal(createLauncherFor({ backend: "native" }, "confirm").kind, "native");
   assert.equal(createLauncherFor({ backend: "native" }, "auto-review").kind, "native");
   assert.equal(createLauncherFor({ backend: "native" }, "full_access").kind, "local");
+  assert.equal(createLauncherFor({ backend: "container" }, "full_access").kind, "local");
   assert.equal(createLauncherFor({ backend: "local" }, "confirm").kind, "local");
 });
 

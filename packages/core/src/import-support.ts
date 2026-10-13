@@ -40,13 +40,6 @@ export interface LegacyImportDeps {
 /** 表级策略条目的形状；两个导入方向各自登记一份（allow-list，未登记即拒绝）。 */
 export type TablePolicy = Record<string, { policy: "import" } | { policy: "exclude"; reason: string }>;
 
-/** 工作流的执行绑定不能随普通资料丢弃，也不能跨实例复制来源授权。 */
-export function rejectWorkflowImport(db: Db): void {
-  for (const table of ["workflow_runs", "workflow_steps", "workflow_executions", "workflow_questions", "workflow_controls"]) {
-    if (db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get()) fail("workflow_import_unavailable", "源实例含工作流执行记录：请保留原档案查阅，当前导入不迁移工作流执行与授权绑定");
-  }
-}
-
 /** 账本条目类别与插入表的对照（v30 全集；各方向只用其中子集）。 */
 export type LedgerKind =
   | "project"

@@ -101,8 +101,6 @@ export class ToolOpLedger {
     private readonly hostLedgers: readonly HostToolLedger[] = [],
   ) {}
 
-  hasNoWriteEffect(op: Pick<ToolOp, "toolName" | "params">): boolean { return hasNoWriteEffect(op, this.hostLedgers); }
-
   recordResult(
     task: TaskRef,
     opId: string,

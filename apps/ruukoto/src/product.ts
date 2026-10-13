@@ -6,7 +6,6 @@ import { createServiceFamily } from "./service-tools.ts";
 const serviceEnabled = (config: RuntimeConfig) => !!config.service && (process.platform === "linux" || config.service.allowNonLinuxPlatform === true);
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md
-// Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
 export const product: CliProduct = {
   runtime: {
     type: "ruukoto",
@@ -35,8 +34,7 @@ export const product: CliProduct = {
       ];
     },
   },
-  defaultExecution: "native",
-  allowedExecution: ["native"],
+  defaultExecution: "local",
   legacyProjectWrites: true,
   importPersonalMemories: false,
   imports: async () => {

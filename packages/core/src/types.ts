@@ -14,7 +14,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 22;
+export const PROTOCOL_VERSION = 19;
 
 export interface ModelSelection {
   provider: string;
@@ -362,7 +362,7 @@ export interface SubAgentReadScope {
  * delegation、chat_results、service 只在 main 的清单中（service 另要求产品与
  * 部署配置具备，见 tool-availability 与 Driver 装配）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -405,7 +405,7 @@ export type InboundEventStatus = "registered" | "queued" | "done" | "failed";
  * im_approval = IM 审批控制消息（查询/批准/拒绝命令），直接在同步事务内到终态，
  * 不派发模型任务。类别不能由消息正文或模型参数决定；旧记录默认 task。
  */
-export type InboundEventKind = "task" | "im_approval" | "im_workflow";
+export type InboundEventKind = "task" | "im_approval";
 
 /**
  * 持久入站事件（issue 01）：外部消息/定时器/子任务结果进入编排器的统一
@@ -868,10 +868,6 @@ export interface EditStats {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
-  | { type: "workflow.definition"; name: string; definitionId: string; digest: string }
-  | { type: "workflow.changed"; runId: string; version: number; status: import("./workflow.ts").WorkflowRun["status"]; reason: string | null }
-  | { type: "workflow.step"; runId: string; key: string; status: import("./workflow.ts").WorkflowStep["status"]; delivery: number | null }
-  | { type: "workflow.execution"; runId: string; taskId: string; kind: "agent" | "host"; status: "queued" | "running" | "finished"; stopVerified: boolean | null }
   /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
   | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model" | "summary_model"; provider?: string }
   | { type: "project.created"; projectId: string; name: string; createRequestId: string | null; rootDir?: DirIdentity | null }
@@ -893,7 +889,7 @@ export type PersistentEventBody =
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null }
+  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection }
   | { type: "task.started"; taskId: string; sessionId: string }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }
@@ -992,7 +988,6 @@ export type PersistentEventBody =
   | { type: "inbound.skipped"; eventId: string; source: string; reason: string }
   /** IM 审批控制消息处理结果（agent-direction issue 08；控制事件与回执同事务落盘）。 */
   | { type: "im_approval.processed"; eventId: string; source: string; commandKind: string; outcome: string }
-  | { type: "workflow.input"; eventId: string; source: string; outcome: string }
   /** 同幂等键重投的命令与记录不一致：拒绝执行与原回执（不覆盖既有事实）。 */
   | { type: "im_approval.redelivery_rejected"; eventId: string; source: string; externalId: string; reason: string }
   | { type: "chat_result.accepted"; taskId: string; acceptedByTaskId: string; acceptedByOpId: string }

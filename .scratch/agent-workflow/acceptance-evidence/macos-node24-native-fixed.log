@@ -1,6 +1,0 @@
-[ruukoto:native-smoke] FAIL Error: 工具调用超时（15000ms）
-    at Timeout._onTimeout (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/agent/src/tool-worker/host.ts:280:20)
-    at listOnTimeout (node:internal/timers:605:17)
-    at process.processTimers (node:internal/timers:541:7)
-[ruukoto:tool-worker native-smoke-31061-1] [ruukoto:native] 执行停止未核实（identity_unavailable）；保留目录占用，等待拥有者核实
-[ruukoto:native-smoke] 退出未核实，保留虚拟现场：/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/native-worker-smoke-54ILyi

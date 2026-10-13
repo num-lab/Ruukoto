@@ -12,7 +12,7 @@ import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-
  *   LaunchSpec 只以读写挂自己的副本、共享 Git 目录作只读 readRoot、
  *   grantedPaths 为空、宿主注入环境只带 safe.directory=*；
  * - 授予路径不能覆盖副本根（读仍允许）；共享 Git 目录在工作区之外拒绝；
- *   仓库钩子/fsmonitor 不落宿主（离线仅核验宿主执行偏好）。
+ *   容器钩子/fsmonitor 不落宿主（离线仅核验宿主执行偏好）。
  * - 非 Git 目录写入与父会话按目录占用串行（父持锁时子任务保持 queued，父
  *   本轮结束经占用释放启动）；占用取/放覆盖相等、祖先/子孙（分隔符边界）、
  *   兄弟 dev/ino 别名与释放唤醒。
@@ -22,7 +22,7 @@ import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-
  *   不触碰副本；继续委派沿用首次钉定目标，复用承接新工作另建副本；
  * - 计划模式/SubAgent 自身不能发起 modify 委派（main 由 issue 17 开放、固定
  *   角色拒绝在 test/84 覆盖）；只读工作不能升级为写入；
- *   modify 摘要不进 11 的重放摘要；原生执行边界由真实 OS 冒烟验证。
+ *   modify 摘要不进 11 的重放摘要；container 注入边界在冒烟由真实容器验证。
  */
 
 import assert from "node:assert/strict";
@@ -198,14 +198,20 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
     assert.deepEqual(
       driverSpec.readRoots[0],
       { path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino },
-      "共享 Git 目录按宿主身份只读纳入",
+      "local 的共享 Git 目录按宿主身份只读纳入",
     );
     assert.deepEqual(driverSpec.env, { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "*" }, "只带 Git safe.directory=* 的宿主注入环境");
     assert.deepEqual(
       driverSpec.workspaceIdentity,
       { dev: wt.dev, ino: wt.ino },
-      "写入目标按宿主身份钉定",
+      "local 的写入目标按宿主身份钉定",
     );
+    const nativeSpec = router.launchSpecFor(task, sessionSub, "native");
+    assert.deepEqual(nativeSpec.workspaceIdentity, { dev: wt.dev, ino: wt.ino });
+    assert.deepEqual(nativeSpec.readRoots, [{ path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino }]);
+    const containerSpec = router.launchSpecFor(task, sessionSub, "container");
+    assert.deepEqual(containerSpec.workspaceIdentity, process.platform === "darwin" ? undefined : { dev: wt.dev, ino: wt.ino });
+    assert.deepEqual(containerSpec.readRoots, [process.platform === "darwin" ? { path: wt.commonGitDir } : { path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino }]);
     release!();
     await waitFor("子完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
   } finally {
@@ -266,11 +272,12 @@ test("授予路径与边界守门：覆盖副本根的读写被拒绝、只读�
       /工作区内/,
     );
 
-    // 此离线用例仅设置仓库钩子与 fsmonitor；宿主不执行仓库 Git、
-    // 原生边界与植入拒绝另由真实 smoke 验证。
+    // 容器钩子与 fsmonitor 不执行：离线只核验宿主执行偏好——宿主不会生成这些
+    // marker 的副作用（容器边界在冒烟验证真实执行失败）；宿主侧不存在越过
+    // host-loop 的 git 子进程调用（占用方向只有「宿主为起容器的 Launch 进程」）。
     fs.writeFileSync(path.join(t.work[0]!, ".git/hooks/post-checkout"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     fs.appendFileSync(path.join(t.work[0]!, ".git/config"), "\n[core]\nfsmonitor = /bin/false\n", "utf8");
-    assert.ok(true, "宿主永不执行 git（副本创建的唯一 git 入口在 worker）");
+    assert.ok(true, "宿主永不执行 git（副本创建的唯一 git 入口在容器）");
   } finally {
     parentGate.release();
     await t.shutdown();
@@ -385,9 +392,9 @@ test("占用取放：相等/祖先（分隔符）/子孙/兄弟/dev-ino 别名�
   }
 });
 
-test("创建失败保留现场：worker 副本创建被拦，错误含路径与分支，副本根现场存在，不登记工作", async () => {
+test("创建失败保留现场：容器副本创建被拦，错误含路径与分支，副本根现场存在，不登记工作", async () => {
   const responder: Responder = async () => ({ kind: "text", text: "父回复" });
-  const workCopyExecutor = async () => ({ isError: true, errorMessage: "副本 worker 创建失败（注入）", content: "" });
+  const workCopyExecutor = async () => ({ isError: true, errorMessage: "副本容器创建失败（注入）", content: "" });
   const t = await startTestRuntime("wk-cfail", responder, { config: { ...realTools(), workCopyExecutor }, workDirs: 1 });
   try {
     const rt = t.runtime;
@@ -407,7 +414,7 @@ test("创建失败保留现场：worker 副本创建被拦，错误含路径与�
     } catch (err) {
       error = err;
     }
-    assert.ok(error, "委派被拒绝（worker 注入失败）");
+    assert.ok(error, "委派被拒绝（容器注入失败）");
     const msg = String((error as { message?: unknown }).message);
     assert.match(msg, /副本创建失败/, "错误含创建失败原因");
     assert.match(msg, /agent-work\/worktrees|ruukoto\/work-/, "错误含副本路径或分支名（现场位置可查）");
@@ -541,7 +548,7 @@ test("worktree 被删除后的继续委派明确拒绝（不自动重建）；�
     });
     const wt = a.work.writeTarget!;
     await waitFor("Agent 空闲", () => rt.store.getSubAgent(a.agent.id)!.state === "idle");
-    // 移除副本本体：离线直接删文件，真实原生 worker 场景另由 smoke 验证。
+    // 移除副本本体（真实操作在冒烟由容器/有界执行；离线直接删文件）
     fs.rmSync(wt.path, { recursive: true, force: true });
     await assert.rejects(
       () =>

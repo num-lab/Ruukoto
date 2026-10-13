@@ -1,3 +1,0 @@
-
-> ruukoto-workspace@0.1.0 build:script
-> node scripts/build-workflow-script.mjs

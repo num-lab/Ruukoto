@@ -4,8 +4,6 @@ Status: implemented
 
 原编号：ADR 0017
 
-部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)接管个人产品的受限后端与常驻部署；两产品的身份、Linux 服务器定位、会话与能力声明仍由本篇持有。
-
 ## 问题
 
 旧 main/coding/chat 同后台架构把本机编码、个人服务器事务和群聊处理绑定在一起。固定 coding 与开发工具的能力重复，核心 chat 又把通用个人助手限定为群聊用途；开发机与个人服务器需要各自运行、停止和升级，并保留旧历史、来源关系与权限边界。
@@ -63,8 +61,6 @@ Coding Agent 正式入口默认且只接受 native，显式 container/local 参�
 共享、更多渠道与外挂协议仍有明确实施缺口。Coding Agent 受限执行依赖 native 平台前置，缺能力明确失败；个人 Agent 保留容器，跨端共享不可用只影响信息新鲜度。[架构总览](../../../../docs/architecture.md)描述当前产品能力与模块划分。
 
 ## 适用范围
-
-两个产品的能力声明均为 `defaultExecution: native`、`allowedExecution: [native]`，正式 CLI/server 拒绝旧 local/container 参数与环境覆盖；dev 清理继承覆盖后沿用 native。个人后台继续独立启动，其原生常驻部署由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)持有。两个产品的身份、档案、独立升级、会话与业务能力保持本篇规则；验证节中的个人容器与 SDK 数值保留原始时点的结果，不作为本次原生迁移证据。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
 

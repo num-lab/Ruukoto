@@ -47,7 +47,6 @@ const LEGACY_COMMANDS = new Set([
   "grant",
   "service-grant",
   "work",
-  "workflow",
   "history-search",
   "memory",
   "selection-records",

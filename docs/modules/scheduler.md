@@ -39,7 +39,7 @@
 
 运行绑定只在未派发阶段为空；派发事务同时保存独立会话、首次任务与事件归属。`(schedule_id, schedule_version, scheduled_for)` 唯一，未关闭运行有按计划的唯一索引。
 
-通知来源 `schedule_run` 表示一次整项运行的最终回报，键为运行 ID；`tool` 表示普通一次通知，键为任务通知槽，`host_op_id` 关联工具账本的真实授权；`confirmation` 供 IM 初始审批通知使用，`workflow_question` 按运行/步骤/问题版本通知业务等待；`owner_reply` 与 `inbound_event` 保留原入口回复、控制回执与 GitHub 汇报。完全访问的通知关联 `tool_ops.authorization.source=full_access`，不创建伪人工批准。受限通知关联已消费的固定范围批准。
+通知来源 `schedule_run` 表示一次整项运行的最终回报，键为运行 ID；`tool` 表示普通一次通知，键为任务通知槽，`host_op_id` 关联工具账本的真实授权；`confirmation` 供 IM 初始审批通知使用；`owner_reply` 与 `inbound_event` 保留原入口回复、审批回执与 GitHub 汇报。完全访问的通知关联 `tool_ops.authorization.source=full_access`，不创建伪人工批准。受限通知关联已消费的固定范围批准。
 
 ```mermaid
 stateDiagram-v2
@@ -68,8 +68,6 @@ stateDiagram-v2
 
 首次任务、派生 SubAgent、工作内消息与最后汇总全部收尾后，同事务保存整项结果、关闭运行、登记唯一最终回报，并完成一次性计划。未绑定目标的结果只留记录；失败也产生固定目标的最终诊断；取消的运行不生成成功汇报。发送循环在认领事务提交后调用渠道一次。
 
-名下工作流仍排队、运行、等待回答或暂停时，调度保持开放；终态后等待实际停止和每项唯一汇总，步骤不产生普通子任务 wake。安全重试恢复成功的历史尝试不再判整项失败，宿主各运行状态与覆盖清单先于模型摘要进入最终回报。工作流不另发 owner_reply；计划取消级联整项运行，自身步骤发起取消先提交意图并异步停止，避免等当前工具返回的死锁。问题通知与最终回报都在发送前重核依赖资料，旧入口不改发。
-
 取消先保存计划状态、使未派发事件失效，再在事务外停止排队、执行、等待审批的任务与派生工作。迟到消息、结果与审批不能恢复已取消运行。执行记录、工作副本与已有成果保留。
 
 ## 不变量与失败处理
@@ -84,13 +82,7 @@ stateDiagram-v2
 
 旧任务或计划格式直接拒绝，不转换业务动作、不回填模式。独立实例导入只接受当前通用计划格式，保留创建模式与固定目标；导入中的未结束运行按中断收尾，不重新执行旧运行。
 
-[工作流步骤](workflows.md)可沿个人来源使用调度和通知工具，宿主从运行保存的目标取原渠道及配置代次，来源换代立即阻断后续调用。资料解析同时核实启动授权与当前范围，禁止跨运行步骤产物及 prompt 快照；业务数据实例失效拒绝引用。
-
 ## 设计依据
-
-- [工作流业务回答与整项最终送达](../../.agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)
-
-- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
 
 - [调度计划只触发独立的通用任务](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)：独立上下文、创建授权、整项生命周期与固定最终回报。
 - [完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：真实任务授权与共享工具行为。

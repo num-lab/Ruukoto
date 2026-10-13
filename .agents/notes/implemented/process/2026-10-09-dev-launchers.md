@@ -2,8 +2,6 @@
 
 Status: implemented
 
-部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)将个人开发入口默认接到 native；开发档案隔离、源码重载、进程归属和退出生命周期仍由本篇持有。
-
 原出处：ADR 0017「补充：两个产品的开发启动入口」
 
 ## 问题
@@ -35,7 +33,5 @@ Status: implemented
 两产品可同时开发，重载和退出有同一个管理者，既有开发历史不会被隐式改变产品身份。代价是两份开发资料分别维护，迁移历史不属于启动器功能；Coding Agent 开发任务要求 container 可用，完全访问仍需另外满足受保护执行配置。开发退出会停后台，使用者不能把日常产品的后台持续运行规则套用到开发入口。
 
 ## 适用范围
-
-当前 dev/code 都沿产品能力声明默认 native；开发启动器清除继承的日常路径、拥有者令牌和 `RUUKOTO_EXECUTION_BACKEND` 覆盖，停用真实 QQ/Telegram，缺原生能力明确失败。完全访问使用启动账户，不要求专用执行入口。默认后端与部署前置归[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)；本篇开发档案隔离、重载、进程归属、退出与模型显式导入规则保持。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。

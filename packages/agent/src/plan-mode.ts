@@ -22,7 +22,7 @@ export const PLAN_NOTICE: ReferenceBlock = {
 
 /**
  * 计划模式的工具白名单（另加类别为只读的 MCP 工具）：今后新增的工具默认不可用。
- * shortcut: bash 仍可能写入工作区，只靠计划说明约束；需要硬保证时改为原生只读策略或去掉 bash。
+ * ponytail: bash 仍可能写入工作区，只靠计划说明约束；需要硬保证时改为容器只读挂载或去掉 bash。
  */
 export const PLAN_TOOL_NAMES: ReadonlySet<string> = new Set([
   "read", "bash", "request_file_access", "http_request", "read_artifact",

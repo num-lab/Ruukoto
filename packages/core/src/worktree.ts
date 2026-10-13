@@ -11,8 +11,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 /**
- * worktree 固定 Git 环境：仅在副本创建、使用与汇总时注入 safe.directory，
- * 避免宿主可访问但属主不同的仓库被 Git 拒绝；不写入宿主配置。
+ * 容器内 git 的 dubious ownership 豁免（agent-direction issue 16）：容器 uid 与
+ * 仓库属主不一致时 git 拒绝在挂载的宿主路径下工作。宿主只在 worktree 副本的创建
+ * 与挂载任务注入这组环境（其余任务容器环境不变）；不落宿主、不被模型读取。
  */
 export const GIT_SAFE_DIRECTORY_ENV: Record<string, string> = {
   GIT_CONFIG_COUNT: "1",

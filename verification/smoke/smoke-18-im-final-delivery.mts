@@ -4,8 +4,8 @@
  * 模拟（打桩，不代表真实 QQ/Telegram 已验收）：MockModelServer（模型）、
  * MockOneBot（NapCat/OneBot 协议）、FakeBotApi（Telegram Bot API）。
  * 真实：apps/ruukoto/bin/ruukoto.mjs 后台进程（正常停止 + SIGKILL 后各一次重启）、控制面
- * socket 与令牌、SQLite 库与 notification_ops 账本、原生受限 worker
- * （子任务 modify worktree 的真实 bash 执行）、QQ/Telegram 配置与凭据写入。
+ * socket 与令牌、SQLite 库与 notification_ops 账本、Docker 受限 worker
+ * （子任务真实容器执行）、QQ/Telegram 配置与凭据写入。
  *
  * 覆盖（与工单验收对应，离线逻辑细节见 test/84）：
  *  1. QQ：受理 → 子任务挂起期间继续对话 → 最终汇报（顺序、引用原消息、键与 taskId）；
@@ -14,19 +14,14 @@
  *  4. 重新绑定推进 configVersion：pending 汇报取消（target_changed），新目标零发送；
  *  5. 唤醒运行中 SIGKILL 再重启：只得到一份「中断」汇报。
  *
- * 结果约定：0 = 全部通过；1 = 有 FAIL；2 = 原生能力不可用。
- * TMPDIR 可换位置。Linux 原生前置见 deploy/native/README.md。
+ * 结果约定：0 = 全部通过；1 = 有 FAIL；2 = docker/镜像不可用。
+ * TMPDIR 可换位置。容器 uid/gid 约定同 smoke-11。
  *
  */
 
 import assert from "node:assert/strict";
 import * as childProcess from "node:child_process";
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import { createLauncherFor } from "@ruukoto/agent/execution/launchers.ts";
-import { ToolWorkerHost } from "@ruukoto/agent/tool-worker/host.ts";
-import { GIT_SAFE_DIRECTORY_ENV } from "@ruukoto/core/worktree.ts";
-import { linuxNativeScopeEmpty } from "@ruukoto/agent/execution/native-linux.ts";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -37,13 +32,12 @@ import { killProcessTree } from "../../test/helpers/backend.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "../../test/helpers/mock-onebot.ts";
 import { FakeBotApi } from "../../test/helpers/fake-bot-api.ts";
 
-import { requireNative, requireNoArgs } from "./gate.ts";
+import { requireDocker, requireNoArgs } from "./gate.ts";
 
 requireNoArgs();
-if (process.platform !== "linux") {
-  process.stderr.write("[ruukoto:smoke18] 前提缺失：个人产品服务验收需要 Linux\n");
-  process.exit(2);
-}
+const IMAGE = process.env.RUUKOTO_WORKER_IMAGE ?? "ruukoto-worker:latest";
+const UID = Number(process.env.RUUKOTO_CONTAINER_UID ?? (process.platform === "darwin" ? 1000 : (process.getuid?.() ?? 1000)));
+const GID = Number(process.env.RUUKOTO_CONTAINER_GID ?? (process.platform === "darwin" ? 1000 : (process.getgid?.() ?? 1000)));
 const startedAt = Date.now();
 const QQ_OWNER = "880001";
 const QQ_OTHER = "880002";
@@ -55,15 +49,15 @@ async function check(name: string, fn: () => Promise<void> | void): Promise<void
   try {
     await fn();
     results.push({ name, ok: true, detail: "" });
-    process.stderr.write("[ruukoto:smoke18] " + `PASS ${name}` + "\n");
+    console.log(`PASS ${name}`);
   } catch (err) {
     results.push({ name, ok: false, detail: String((err as Error).message ?? err) });
-    process.stderr.write("[ruukoto:smoke18] " + `FAIL ${name}: ${(err as Error).message}` + "\n");
+    console.log(`FAIL ${name}: ${(err as Error).message}`);
   }
 }
 
-await requireNative();
-process.stderr.write("[ruukoto:smoke18] " + `环境：${process.platform} ${process.arch}；执行 native` + "\n");
+requireDocker(IMAGE);
+console.log(`环境：${process.platform} ${process.arch}；镜像 ${IMAGE}；容器 uid:gid ${UID}:${GID}`);
 
 const repoRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
 
@@ -78,20 +72,12 @@ function armWakeForever(): void {
   wakeLatch = new Promise<void>(() => {}); // 永不放行：用于在唤醒运行中杀后台
 }
 let workIdForMore = "";
-let interruptedWakeTaskId = "";
 
 const responder: Responder = async (req: RecordedRequest) => {
   const text = lastUserText(req);
   const afterTool = req.messages.at(-1)?.role === "tool";
-  const roundTools = req.messages.slice(req.messages.findLastIndex(message => message.role === "user") + 1).filter(message => message.role === "tool");
   if (text.includes("[SubAgent 委派")) {
     if (subGate) await subGate;
-    if (roundTools.length === 0) return { kind: "tool_calls", calls: [{ id: "native-child", name: "bash", arguments: {
-      command: `set -eu; cat input.txt; node -e 'const fs=require("node:fs");if(process.getuid()!==${process.getuid?.()}||process.env.DBUS_SESSION_BUS_ADDRESS||process.env.RUUKOTO_CONTROL_DIR)process.exit(1);process.stdout.write(fs.readFileSync("/proc/self/cgroup","utf8"))'; rm -f native-release; printf ready > native-ready; while [ ! -e native-release ]; do sleep 0.05; done`,
-    } }] };
-    if (roundTools.length === 1) return { kind: "tool_calls", calls: [{ id: "git-write-denied", name: "bash", arguments: {
-      command: 'set -eu; common=$(git -c core.fsmonitor=false rev-parse --path-format=absolute --git-common-dir); printf denied >> "$common/config"',
-    } }] };
     return { kind: "text", text: "SMOKE18-SUB-DONE 子任务结论" };
   }
   if (text.includes("[编排器]")) {
@@ -106,23 +92,13 @@ const responder: Responder = async (req: RecordedRequest) => {
   if (afterTool) return { kind: "text", text: "SMOKE18-ACCEPTED 已受理" };
   const m = text.match(/SMOKE18-DELEG(\d)/);
   if (m) {
-    return { kind: "tool_calls", calls: [{ id: `d${m[1]}`, name: "subagent_delegate", arguments: { request: "核对本次虚拟资料", key: `m${m[1]}`, mode: "modify", target: "native-fixture" } }] };
+    return { kind: "tool_calls", calls: [{ id: `d${m[1]}`, name: "subagent_delegate", arguments: { request: "调研要点", key: `m${m[1]}`, materials: [{ kind: "text", text: `材料 ${m[1]}` }] } }] };
   }
   return { kind: "text", text: "PONG" };
 };
 
 const { dirs } = await makeTestDirs("smoke18", 0);
 const controlDir = path.join(dirs.root, "control");
-const fixture = path.join(dirs.root, "agent-work", "main", "native-fixture");
-fs.mkdirSync(fixture, { recursive: true });
-fs.writeFileSync(path.join(fixture, "input.txt"), "SMOKE18-VIRTUAL-MATERIAL\n");
-const fixtureIdentity = fs.statSync(fixture);
-const fixtureHost = ToolWorkerHost.create(createLauncherFor({ backend: "native", native: {
-  protectedRoots: [dirs.dataDir, dirs.agentDir, controlDir, repoRoot],
-} }, "confirm"), { taskId: "smoke18-fixture", mode: "confirm", workspace: fixture,
-  workspaceIdentity: { dev: fixtureIdentity.dev, ino: fixtureIdentity.ino }, grantedPaths: [], env: GIT_SAFE_DIRECTORY_ENV });
-let fixtureStopped = true;
-let fixtureGitConfig = "";
 const model = new MockModelServer(responder);
 const modelUrl = await model.start();
 await writeModelsJson(dirs, modelUrl);
@@ -130,50 +106,13 @@ const onebot = await startMockOneBot({});
 const api = new FakeBotApi({ token: TG_TOKEN, ownerId: TG_OWNER });
 const apiBase = await api.start();
 
-// 只有本次子工作目录中的持续运行夹具才能认领 scope；不停止其他实例的单元。
-const scopes: Array<{ id: string; cgroup: string }> = [];
-let observerFailure: Error | null = null;
-const observer = setInterval(() => {
-  try {
-    const directory = path.join(dirs.root, "agent-work", "worktrees");
-    if (!fs.existsSync(directory)) return;
-    for (const name of fs.readdirSync(directory)) {
-      const work = path.join(directory, name);
-      if (!fs.existsSync(path.join(work, "native-ready")) || fs.existsSync(path.join(work, "native-release"))) continue;
-      const listed = execFileSync("/usr/bin/systemctl", ["--user", "list-units", "--all", "--plain", "--no-legend", "ruukoto-native-*.scope"], { encoding: "utf8", timeout: 5000 });
-      let matched = false;
-      for (const line of listed.trim().split("\n")) {
-        const id = line.trim().split(/\s+/)[0];
-        if (!/^ruukoto-native-[a-f0-9-]+\.scope$/.test(id)) continue;
-        const group = execFileSync("/usr/bin/systemctl", ["--user", "show", id, "--value", "--property", "ControlGroup"], { encoding: "utf8", timeout: 5000 }).trim();
-        if (!path.isAbsolute(group) || path.normalize(group) !== group || path.basename(group) !== id) continue;
-        const cgroup = path.join("/sys/fs/cgroup", group);
-        if (!fs.existsSync(path.join(cgroup, "cgroup.procs"))) continue;
-        const members = fs.readFileSync(path.join(cgroup, "cgroup.procs"), "utf8").trim().split("\n");
-        if (!members.some(pid => {
-          try { return fs.realpathSync(`/proc/${pid}/cwd`) === work; }
-          catch (error) { if (error instanceof Error && "code" in error && ["ENOENT", "EACCES"].includes(String(error.code))) return false; throw error; }
-        })) continue;
-        if (!scopes.some(scope => scope.id === id)) scopes.push({ id, cgroup });
-        fs.writeFileSync(path.join(work, "native-release"), "release\n");
-        matched = true;
-        break;
-      }
-      if (!matched && Date.now() - fs.statSync(path.join(work, "native-ready")).mtimeMs > 10_000) throw new Error(`无法核实本次子任务的 user scope：${work}`);
-    }
-  } catch (cause) {
-    observerFailure ??= new Error("本次原生 scope 核实失败", { cause });
-    clearInterval(observer);
-  }
-}, 100);
-
 let child!: childProcess.ChildProcess;
 let stderr = "";
 function spawnBackend(): void {
   child = childProcess.spawn(
     process.execPath,
-    [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir],
-    { cwd: repoRoot, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CONTROL_DIR: controlDir, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS }, stdio: ["ignore", "ignore", "pipe"], detached: true },
+    [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--execution", "container"],
+    { cwd: repoRoot, env: { PATH: process.env.PATH, HOME: process.env.HOME, RUUKOTO_CONTROL_DIR: controlDir, RUUKOTO_WORKER_IMAGE: IMAGE, RUUKOTO_CONTAINER_UID: String(UID), RUUKOTO_CONTAINER_GID: String(GID) }, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
   stderr = "";
   child.stderr!.on("data", (c: Buffer) => (stderr += c.toString("utf8")));
@@ -229,18 +168,8 @@ spawnBackend();
 let client: ControlClient | null = null;
 let baseSends = 0;
 try {
-  fixtureStopped = false;
-  await fixtureHost.start();
-  const initialized = await fixtureHost.call({ opId: "init", sdkCallId: "init", name: "bash", params: {
-    command: "set -eu; git init -q; git config user.email smoke@example.com; git config user.name smoke; git add input.txt; git commit -q -m fixture", timeout: 30,
-  } });
-  assert.equal(initialized.isError, false, "Git 虚拟资料须经原生 worker 初始化");
-  fixtureStopped = await fixtureHost.stop();
-  assert.equal(fixtureStopped, true);
-  fixtureGitConfig = fs.readFileSync(path.join(fixture, ".git", "config"), "utf8");
   client = await connect();
   const c = client;
-  assert.equal((await c.handshake()).snapshot.execution.backend, "native");
   await c.request("add_credential", { name: "qq-smoke", host: onebot.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
   await c.request("qq_configure", { endpoint: onebot.url, self_id: MOCK_QQ_ACCOUNT, credential: "qq-smoke", owner_user_id: QQ_OWNER });
   await c.request("qq_set_enabled", { enabled: true });
@@ -358,10 +287,6 @@ try {
   pushQq(5, "SMOKE18-DELEG5 请调研", QQ_OWNER);
   await waitFor("第五轮受理回复", () => qqTexts(onebot).filter((t) => t.includes("SMOKE18-ACCEPTED")).length === 4, 120_000);
   await waitFor("唤醒模型调用已开始（挂住）", () => model.calls.filter((r) => lastUserText(r).includes("[编排器]")).length > wakeCallsBefore, 180_000);
-  const killingDb = coreDb();
-  try {
-    interruptedWakeTaskId = (killingDb.prepare("SELECT id FROM tasks WHERE status = 'running' AND input LIKE '[编排器]%' ORDER BY started_at DESC LIMIT 1").get() as { id: string }).id;
-  } finally { killingDb.close(); }
   child.kill("SIGKILL");
   await new Promise((r) => setTimeout(r, 800));
   assert.notEqual(child.exitCode ?? child.signalCode, null, "后台已被 SIGKILL 终止");
@@ -383,61 +308,20 @@ try {
     assert.equal(reportRows().filter((r) => r.source_key === row.source_key).length, 1, "同一收尾只有一份");
   });
 
-  const evidenceDb = coreDb();
-  try {
-    const ops = evidenceDb.prepare("SELECT is_error FROM tool_ops WHERE sdk_call_id = 'native-child'").all() as Array<{ is_error: number }>;
-    assert.ok(ops.length >= 6 && ops.every(op => op.is_error === 0), "每轮委派须完成真实受限 bash");
-    const denied = evidenceDb.prepare("SELECT is_error FROM tool_ops WHERE sdk_call_id = 'git-write-denied'").all() as Array<{ is_error: number }>;
-    assert.ok(denied.length >= 6 && denied.every(op => op.is_error === 1), "各轮 worktree 共享 Git 写入须拒绝");
-    assert.equal(fs.readFileSync(path.join(fixture, ".git", "config"), "utf8"), fixtureGitConfig);
-    assert.equal((evidenceDb.prepare("SELECT count(*) AS n FROM occupancy o JOIN tasks t ON t.id = o.task_id WHERE t.sub_agent_id IS NOT NULL").get() as { n: number }).n, 0, "已结束的子任务不遗留占用");
-    const held = evidenceDb.prepare("SELECT o.task_id, t.status, t.interrupt_reason, s.queue_state, s.queue_pause_reason FROM occupancy o JOIN tasks t ON t.id = o.task_id JOIN sessions s ON s.id = t.session_id").all();
-    assert.deepEqual(held.map(row => ({ ...row })), [{ task_id: interruptedWakeTaskId, status: "interrupted", interrupt_reason: "backend_restart", queue_state: "paused", queue_pause_reason: "occupancy_unverified" }], "被强杀的 main 唤醒保留唯一未知占用，不自动恢复队列");
-  } finally { evidenceDb.close(); }
-  assert.equal(observerFailure, null, String(observerFailure));
-  assert.ok(scopes.length >= 6, "每轮真实子任务均观察到独立 native scope");
-  for (const scope of scopes) assert.equal(linuxNativeScopeEmpty(scope.cgroup), true, `本次 scope ${scope.id} 整单元已退出`);
   const codeEnd = await stopBackend(c5);
   client = null;
   assert.equal(codeEnd, 0, "末次后台正常停止");
 } finally {
-  clearInterval(observer);
-  releaseSub();
-  if (!fixtureStopped) fixtureStopped = await fixtureHost.stop();
   if (client) client.close();
   if (child && child.exitCode === null && child.signalCode === null) killProcessTree(child);
   await model.close();
   await onebot.close();
   await api.close();
-  const db = coreDb();
-  let occupied = !fixtureStopped;
-  try { occupied ||= (db.prepare("SELECT count(*) AS n FROM occupancy").get() as { n: number }).n !== 0; }
-  finally { db.close(); }
-  for (const scope of scopes) {
-    if (linuxNativeScopeEmpty(scope.cgroup)) continue;
-    try {
-      execFileSync("/usr/bin/systemctl", ["--user", "kill", "--signal=SIGKILL", scope.id], { stdio: "ignore", timeout: 5000 });
-      execFileSync("/usr/bin/systemctl", ["--user", "stop", scope.id], { stdio: "ignore", timeout: 5000 });
-    } catch (cause) { results.push({ name: "停止本次 scope", ok: false, detail: `${scope.id}：${String(cause)}` }); }
-    occupied ||= !linuxNativeScopeEmpty(scope.cgroup);
-  }
-  const verificationDb = coreDb();
-  let expectedCrashOccupancy = false;
-  try {
-    const rows = verificationDb.prepare("SELECT task_id FROM occupancy").all() as Array<{ task_id: string }>;
-    expectedCrashOccupancy = rows.length === 1 && rows[0].task_id === interruptedWakeTaskId;
-  } finally { verificationDb.close(); }
-  if (occupied && expectedCrashOccupancy && fixtureStopped && !observerFailure && scopes.every(scope => linuxNativeScopeEmpty(scope.cgroup))) {
-    process.stderr.write(`[ruukoto:smoke18] 预期保留 main 崩溃占用 ${interruptedWakeTaskId}；全部子任务 scope 停止已核实；现场 ${dirs.root}\n`);
-  } else if (occupied || observerFailure) {
-    const detail = `停止存在未核实占用；保留现场 ${dirs.root}`;
-    results.push({ name: "清理本次资源", ok: false, detail });
-    process.stderr.write(`[ruukoto:smoke18] FAIL ${detail}\n`);
-  } else await cleanupDirs(dirs);
+  await cleanupDirs(dirs);
 }
 
 const failed = results.filter((r) => !r.ok);
-process.stderr.write("[ruukoto:smoke18] " + "\n模拟：模型服务（MockModelServer）、NapCat OneBot（MockOneBot）、Telegram Bot API（FakeBotApi）——打桩平台，不代表真实 QQ/Telegram 已验收" + "\n");
-process.stderr.write("[ruukoto:smoke18] " + "真实：apps/ruukoto/bin/ruukoto.mjs 后台进程（正常停止 + SIGKILL 各一次重启）、控制面 socket 与令牌、SQLite 库与 notification_ops 账本、原生受限 worker、QQ/Telegram 配置与凭据写入" + "\n");
-process.stderr.write("[ruukoto:smoke18] " + `\n结果：${results.length - failed.length}/${results.length} 通过（环境：${process.platform} ${process.arch}，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s）` + "\n");
+console.log("\n模拟：模型服务（MockModelServer）、NapCat OneBot（MockOneBot）、Telegram Bot API（FakeBotApi）——打桩平台，不代表真实 QQ/Telegram 已验收");
+console.log("真实：apps/ruukoto/bin/ruukoto.mjs 后台进程（正常停止 + SIGKILL 各一次重启）、控制面 socket 与令牌、SQLite 库与 notification_ops 账本、Docker 受限 worker、QQ/Telegram 配置与凭据写入");
+console.log(`\n结果：${results.length - failed.length}/${results.length} 通过（环境：${process.platform} ${process.arch}，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s）`);
 if (failed.length > 0) process.exit(1);

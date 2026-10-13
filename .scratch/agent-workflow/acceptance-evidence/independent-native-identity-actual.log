@@ -1,9 +1,0 @@
-✔ macOS 身份有界重查只接受明确退出或完整身份，持续权限失败与损坏字段拒绝 (1479.844792ms)
-ℹ tests 1
-ℹ suites 0
-ℹ pass 1
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 1553.423292

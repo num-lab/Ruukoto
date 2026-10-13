@@ -1,97 +1,86 @@
-# AGENTS.md
-
-Ruukoto 同仓交付两个产品：`ruukoto` 个人 Agent 与 `ruukoto-code` Coding Agent。改 `packages/` 前先读[架构总览](docs/architecture.md)；开始改动、接手工单或承担审查时，按[开发流程](.agents/skills/development-workflow/SKILL.md)确定角色、有效要求与验收依据，简单修改走轻量路径。
+## AGENTS.md for Ruukoto
 
 ## 开发与验证
 
-首次检出运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`、`npm run check:static`。修改过程中运行 `npm run check:static` 与相关测试，提交前按[改动面选最小检查集](.agents/skills/pre-push-checks/SKILL.md)；完整 `npm run check` 约 200 秒，只在拥有者明确要求、诊断 CI 失败或改动确实横跨全仓时跑。定向测试写明确文件名，例如 `npx tsx --test test/71-product-entry.test.ts`；环境前提、测试导航、模块与用例映射、开发实例、耗时基线和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
+首次检出在仓库根目录运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`。修改过程中运行 `npm run check:static` 和相关测试，例如 `npx tsx --test test/71-product-entry.test.ts`；提交前按改动面选最小检查集，不要默认跑全量，见 [提交前检查](.agents/skills/pre-push-checks/SKILL.md)。环境前提、测试导航、耗时和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
 
-**提交与 CI。** pre-commit 依次执行 `git diff --cached --check`、`scripts/check-staged-eol.mjs` 与 `npm run check:static`；CI 在 macOS / Linux × Node 22.19 / 24.15 上执行 `npm run setup -- --skip-hooks` 与 `npm run check`，不因缺 Python 或 PTY 跳过用例。真实模型与真实 IM 属外部验收，缺前提时报告不可验证，不记为通过。文件末尾留且只留一个换行。
+## 目录导航
 
-## 仓库布局
-
-```
-apps/ruukoto/       个人 Agent 的 bin、能力声明与专属装配；apps/ruukoto-code/ 同构
-packages/core/      数据布局、schema、任务状态机、会话身份；不依赖其他 workspace 包
-packages/agent/     上下文装配、工具与审批、执行边界、SubAgent 与 worktree；src/tool-worker/ 是工作进程
-packages/runtime/   任务生命周期、会话身份、队列与委派编排
-packages/channels/  IM 入口、图片入站、GitHub 事件来源与 scheduler outbox
-packages/control/   控制面 socket、拥有者认证与协议
-packages/tui/       共享 CLI、交互终端、配置中心与开发启动器
-test/               应用测试；verification/foundation/ 基础验证（独立包与锁文件）；verification/smoke/ 外部验收
-deploy/             系统身份、单元、提权入口与服务管理
-worker/             构建产物 worker.mjs，由 npm run build 生成
-docs/               面向人类；docs/modules/ 按模块；docs/agents/ 是 agent 配置
-.agents/notes/      决策记录；.agents/skills/ 操作规范；.scratch/ 入库的工单与证据
-```
-
-模块职责、依赖方向与产品差异见[模块地图](docs/architecture.md#模块地图)与[产品模块](docs/modules/products.md)。
+- `apps/ruukoto/` 与 `apps/ruukoto-code/` 持有各产品的 bin、能力声明与专属装配。
+- `packages/runtime/` 编排任务、会话与 SubAgent，接收 app 注入的产品能力。
+- `packages/core/` 管理存储、身份与权限。
+- `packages/agent/` 管理模型、上下文与工具，`packages/agent/src/tool-worker/` 是执行边界内的工作进程。
+- `packages/control/` 提供控制面。
+- `packages/channels/` 持有 IM、GitHub、调度与旧个人资料导入。
+- `packages/tui/` 提供共享 CLI、任务界面、配置中心与开发启动器。
+- `test/` 是应用测试。
+- `verification/foundation/` 是 SDK 与执行边界验证，`verification/smoke/` 是外部验收脚本。
+- `deploy/` 是部署材料；构建产物 `worker/worker.mjs` 由 `npm run build` 生成。
+- `docs/` 为**面向人类**的文档，入口见 [README](README.md)；`docs/agents/` 是 agent 配置的例外。
+- `.agents/notes/` 是**面向 Agent** 的决策记录，`.agents/skills/` 是操作规范，docs 也链接它。
+- `.scratch/` 是入库的工单与验证证据。
 
 ## 约定
 
-**模块边界。**
+改动前先对照以下约定，细节见所链接的文档。
 
-- 跨包引用使用包名与 exports，并按本包 `dependencies` 声明；反向类型引用列入 `devDependencies`，运行时反向调用改用注入回调。ESLint 拒绝未声明依赖与跨包相对路径。
-- 同一工作区同一时刻只有一个写入者；并行实现用独立工作副本，汇总后按实际结果重定验证范围。
-- 优先复用已维护的依赖，不手写等价实现。
+**模块边界**
 
-**错误处理。**
+- `core` 不得 import 其他 workspace 包；它是全部模块的底座（[架构总览](docs/architecture.md)）。
+- 跨包引用使用包名与 exports，按本包 dependencies 声明；反向类型引用列入 devDependencies，运行时反向调用改用注入回调。依赖方向由 ESLint 执行。
 
-- 跨层错误转成带 `code` 的类型；调用方按 `instanceof` 与 `.code ===` 判别，不解析 `message`。
-- 不写空 `catch`；确需吞掉时写明吞的是哪个错误与原因，`try` 只包一条语句。
-- 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 `packages/tui/src/` 的 `cli.ts`、`tui/index.ts`、`config-tui/index.ts`。
-- 失败要么在加载时自包含地报错，要么在最可解析的点报错；不静默跳过缺失的引用对象。设计失败路径按 [error-handling](.agents/skills/error-handling/SKILL.md)。
+**错误处理**
 
-**类型。**
+- 跨层错误转成带 `code` 的类型；调用方用 `instanceof` 与 `.code ===` 判别，不解析 `message`。
+- 不写空 `catch`。确需吞掉时，写明吞的是哪个错误与原因。
+- 诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀；`console.log` 只出现在 `packages/tui/src/` 的 `cli.ts`、`tui/index.ts`、`config-tui/index.ts` 三个入口。
+- 设计或评审失败路径时按 [error-handling](.agents/skills/error-handling/SKILL.md)。
 
-- 类型逃逸（`any` / `as unknown`）只允许在三类边界出现：SQLite 行映射、JSON／wire 解析、第三方 SDK；内部同进程接口用真实类型，不重复运行时校验。
-- 跨边界的代理或句柄用具名类型，不用裸 `string`。
-- `noUncheckedIndexedAccess` 关闭，越界访问自己判断。
+**类型**
 
-**持久化。**
+- 类型逃逸（`any` / `as unknown`）只允许在三类边界出现：SQLite 行映射、JSON／wire 解析、第三方 SDK。内部同进程接口用真实类型，不重复校验。
+- `noUncheckedIndexedAccess` 关闭；越界访问需要自己判断。
+
+**持久化**
 
 - 状态与其事件在同一事务内写入，提交成功后才应答与广播（[core](docs/modules/core.md)）。
 - 会话 JSONL 是消息历史的唯一权威副本；core 只读不写，不得声称 SQLite 与 JSONL 之间原子。
 - `SCHEMA_VERSION` 单调递增；比当前代码更新的库直接拒绝启动。
-- 已提交的会话与归档笔记不移动、不覆盖、不删除；取代关系用新文件加互链。
 
-**测试。**
+**测试**
 
 - 默认离线：真实模型用例要 `RUN_MODEL_CHECK=1` 才跑，`test:app` 固定关闭。
 - 直读 SQLite、写裸 SQL 断言落盘布局是刻意做法，不得以「测试只应测行为」为由改写。
-- 用例编号可重号也可跳号；按功能词找文件。
-- 每处行为改动配一条会因该回归失败的最窄用例；过期行为连同它的用例一起改。
+- 用例编号可重号也可跳号；按功能词找文件，映射见[开发说明](docs/development.md)。
 
-**语言与形态。**
+**语言与形态**
 
-- ESM-only；相对 import 带 `.ts` 扩展名；文件名 kebab-case。
-- 一段一物理行，靠编辑器软换行；`npm run verify-md-wrap` 拒绝跨行段落。
-- 注释与文档用中文，标识符用英文；术语按 [CONTEXT.md](CONTEXT.md)，缺概念时先确认该用哪个已有术语。
-- 注释只写非显然事实：不变量、竞态顺序、归属、安全边界、意外失败；不复述代码，不保留评审历史。
-- 承载决定的入口留锚点 `Note: 见 .agents/notes/<路径>`，一个注释块引用多篇时每篇各占一行。
-- **模型可见即已记录**：进入模型请求的输入都要能从会话记录重建；新增这类输入要配事件或持久字段。
-- 待办标记按紧急度分三种：`FIXME` 发布阻断、`TODO` 应尽快、`XXX` 以后再说；都写明要做什么。
-
-## 文档与决策落点
-
-常驻文档受 `scripts/doc-budgets.manifest.json` 的字符预算约束。上限是护栏不是缩减目标：超限时先按[决策记录](.agents/notes/README.md)把属于其他层的内容搬走，再压缩；提高上限要在同一改动里说明理由。内容与代码是否一致，门禁查不出，按各 skill 的触发条件逐篇核对。
-
-| 改了什么 | 落到哪、跑什么 |
-| --- | --- |
-| 行为、架构、跨文件契约、流程、测试策略、落盘或协议格式 | 决策笔记（[maintain-notes](.agents/skills/maintain-notes/SKILL.md)），`npm run verify-notes` |
-| 某模块的可观察行为 | `docs/modules/` 对应那篇；新增模块同时改[模块地图](docs/architecture.md#模块地图)，`npm run check:docs` |
-| 注释、JSDoc、docs、notes、skill、提示词、诊断文本 | 按 [prose-standard](.agents/skills/prose-standard/SKILL.md) 判断该写什么、删什么 |
-| 命令、脚本、依赖或入口 | 同一改动里更新 `README.md`、[开发说明](docs/development.md) 与[提交前检查](.agents/skills/pre-push-checks/SKILL.md)中受影响的命令 |
-| 本文件或 `.agents/skills/` | 被链接目标存在，被引用命令与 `package.json` 一致 |
+- ESM-only；相对 import 一律带 `.ts` 扩展名；文件名用 kebab-case。
+- 注释与文档用中文，标识符用英文；术语按 [CONTEXT.md](CONTEXT.md)。
+- 承载决定的代码入口留锚点 `Note: 见 .agents/notes/<路径>`，一个注释块引用多篇时每篇各占一行。
 
 ## Agent skills
 
-- **Issue tracker**：任务以本地 Markdown 存在 `.scratch/<feature>/` 并入库；读、建、更新任务前先读 [issue-tracker](docs/agents/issue-tracker.md)。
-- **Triage labels**：用默认标签；分类或改状态前先读 [triage-labels](docs/agents/triage-labels.md)。
-- **决策记录**：目录结构与一篇笔记的形态见[决策记录](.agents/notes/README.md)；写新笔记前先按模块名与关键词检索既有笔记。
-- **领域入口**：single-context；根 `CONTEXT.md` 是术语表，探索前先读 [domain](docs/agents/domain.md)。
-- **复盘**：机制非显然、系统性、重新发现代价高三条同时成立时按 [postmortem](docs/postmortem/README.md) 写；一次失误不直接扩成常驻规则。
+### Issue tracker
 
-## 编辑这份指示
+任务以本地 Markdown 保存在 `.scratch/<feature>/`。读取、创建或更新任务前，先读 `docs/agents/issue-tracker.md`。
 
-`CLAUDE.md` 是指向本文件的符号链接，改真实文件。每条规则自带结论并链接高层文档，不复制别处正文。清晰度不变时压缩；需要更多空间时按上文提高预算并在同一改动里说明理由。
+### Triage labels
+
+使用默认 triage 标签。分类任务或更新其状态前，先读 `docs/agents/triage-labels.md`。
+
+### 决策记录
+
+决策记在 `.agents/notes/`。做非平凡改动（行为、架构、跨文件契约、流程与工具链、测试策略、落盘/协议/配置格式）、在方案间取舍或取代旧决定时，按 `.agents/skills/maintain-notes/SKILL.md` 操作；它优先于全局的 write-notes-like-deepseek。
+
+### 人类文档
+
+`docs/` 面向人类，只写现在怎么运作。改了某模块的可观察行为，同步 `docs/modules/` 里对应的那篇；新增模块时，更新 `docs/architecture.md` 的模块地图。写法按 `.agents/skills/writing-docs-for-human/SKILL.md`。
+
+### Domain docs
+
+采用 single-context：根目录 `CONTEXT.md` 与 `.agents/notes/`。探索代码库前，先读 `docs/agents/domain.md`。
+
+### 写作与复盘
+
+写注释、JSDoc、`docs/`、notes、skill、提示词或诊断文本前，按 `.agents/skills/prose-standard/SKILL.md`。事故满足「机制非显然、系统性、重新发现代价高」三条时，按 `docs/postmortem/README.md`（agent 读的写法规范）写一篇复盘。

@@ -36,4 +36,5 @@ export default [
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
+  { files: ["docs/visual/*.js"], languageOptions: { globals: globals.browser } },
 ];

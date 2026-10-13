@@ -4,12 +4,13 @@
 
 ## 1. 前提与安装
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 面向 Linux 常驻服务，另需运行账户的 user manager 与 linger 配置。
+开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Coding Agent 使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 的 container 后端另需 Docker。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
 npm run build       # 构建工具 worker、macOS 原生监督器与 app 包
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
+npm run build:worker-image   # 仅个人 Agent container 部署：用 Docker 构建工具镜像
 ```
 
 根 `npm start -- …` 默认使用 ruukoto app，保留 `RUUKOTO_PRODUCT=ruukoto-code` 的入口选择；也可用 `npm start --workspace=ruukoto-code -- …`。各 app 的 bin 固定产品身份；构建出的 app tarball 引用同仓共享包，部署保留完整 workspace。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
@@ -19,16 +20,16 @@ npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则�
 ### 2.1 启动后台
 
 ```bash
-# 生产：原生执行后端，先完成 deploy/systemd 配置
+# 生产：容器执行后端，先完成 deploy/systemd 配置
 # server 为推荐命令，start 是同一实现的兼容别名
 npm start -- server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
-  --execution native --model provider/model
+  --execution container --model provider/model
 
 ruukoto-code server                    # 默认原生受限执行
 npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
 ```
 
-两个产品均默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。库层 local 无隔离，只供完全访问与离线测试，不是正式受限入口。完全访问在两平台直接使用启动后台账户，继承后台实际的 PATH、HOME、代理、SSH agent 与工具凭据；清除内部 Ruukoto 控制变量，不要求执行账户入口。
+Coding Agent 默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。个人 Agent 保留 local/container；local 无隔离，仅供开发与测试，并打印警告。完全访问在两平台直接使用启动后台账户，继承后台实际的 PATH、HOME、代理、SSH agent 与工具凭据；清除内部 Ruukoto 控制变量，不要求执行账户入口。
 
 新档案一次性创建当前 schema；既有档案的版本必须与代码完全一致，旧库与较新库均明确拒绝启动，不自动升级或回填。保留原档案，用匹配版本的代码查阅；需要当前版本时使用独立新档案。跨实例导入也只接受当前格式，不能用它转换旧 schema。
 
@@ -211,7 +212,7 @@ ruukoto work cancel <工作ID> [--reason R]        # 停止中拒绝
 | 完全访问 `full_access` | 由拥有者在可信入口选择；以启动账户无任务沙箱运行，所有已开放工具免操作审批，不额外赋予 OS 权限；模型输入不能提供权限升级来源 |
 | 计划 `plan` | 仅普通开发会话；沿用自动审查的环境与审批，要求只调研不修改，持续到手动切换。保留的 `bash` 仍可能写入，不是全面只读保证 |
 
-受限模式使用原生沙箱，默认无网络，只开放工作区、任务级授予与宿主钉定的只读范围；核实执行单元停止后才释放占用和临时资料。完全访问的文件、HTTP、MCP、应用数据、通知与服务工具均免操作审批，仍核实活动任务、权限版本、目标与修订，并保存真实授权来源；同账户的后台数据、凭据与令牌可被完全访问命令直接访问。
+受限模式的容器：非 root、cap-drop ALL、no-new-privileges、只读根文件系统、默认无网络，只挂载工作区与任务级授予路径，任务结束即回收。完全访问的文件、HTTP、MCP、应用数据、通知与服务工具均免操作审批，仍核实活动任务、权限版本、目标与修订，并保存真实授权来源；同账户的后台数据、凭据与令牌可被完全访问命令直接访问。
 
 ### 4.3 项目设置
 
@@ -329,7 +330,7 @@ ruukoto credentials add --name github-events --host github.com \
 
 ```bash
 ruukoto server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
-  --execution native --github-webhook-config /path/to/github-webhook.json
+  --execution container --github-webhook-config /path/to/github-webhook.json
 ```
 
 `port`、`credential` 和非空 `repositoryIds` 必填；仓库范围使用正整数 ID。`host` 默认 `127.0.0.1`，`notifyChannel` 可选 `telegram` 或 `qq_private`，默认 Telegram。未传文件即不开监听，开发实例不自动继承这项配置。监听路径固定为 `POST /github/webhook`；对外提供 HTTPS 时由部署侧反向代理到该入口。GitHub webhook 使用 JSON 与相同 secret，并订阅 Pull requests 事件。
@@ -357,58 +358,7 @@ ruukoto service-grant list|show|revoke
 
 拥有者可经原 IM 平台的待审批把某次 service restart 审批保存为限定长期授权（`/approve-standing`），之后独立任务命中完全相同范围时自动放行，范围外仍逐次审批。入口停用后仍可管理遗留记录。
 
-### 5.11 工作流问题与回报
-
-已有工作流提出问题后，可在发起时的拥有者私聊入口按通知中的完整 ID 和版本答复：`/workflow-question <运行ID> <步骤键> [字节偏移]` 查看问题、约束和已有回答；`/workflow-answer <运行ID> <步骤键> <问题运行代次> <问题版本> <JSON回答>` 提交，例如回答字符串写为 `"yes"`。问题运行代次在建立时固定，其他分支进度不改变它；暂停、取消、过期版本、错误入口及资料撤销会拒绝回答。业务回答不批准工具，需要工具批准时仍使用原审批入口。
-
-等待期间可以继续日常聊天。完成后 dev 在原会话队列汇总，main 有原 IM 来源时回原入口、CLI/TUI 来源留原会话，定时来源等名下全部运行后只走调度最终回报；平台字符上限内优先保留宿主终态、覆盖、停止核实与失败事实，终态事实取代启动和中途的旧状态。停止已核实不代表写入效果已知。`delivery.status=reported` 表示汇总及适用的通知登记完成，真实发送状态用 `ruukoto notify list|show` 查看；`workflow_question` 是问题通知，最终 main 回报是 `owner_reply`。failed/effect_unknown 不自动重发，入口换代不改目标。暂停、取消与未核实停止事实保留在运行记录，已有外部效果不回滚。
-
-定义文件在实例 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。脚本是 async 函数体，接收 JSON `input`，可调用 `agent`、`ask`、`integrate`、`progress`；先让模型用 `workflow_instructions` 读取编写说明。文件/临时脚本均须通过普通文件、UTF-8、128 KiB 与 QuickJS 语法校验，符号链接和越界名称拒绝，不回退旧版本。每次运行固定版本、参数及来源授权；编辑当前文件只影响新请求。模型可在当前可信任务内自主使用，计划模式、子任务和工作流步骤不能发起嵌套运行。
-
-两产品均可用 CLI 管理定义和运行；下面用 Coding Agent 示范，个人产品将命令名前缀换成 `ruukoto`。启动固定当前会话的模型和模式；需改变授权先用已有模式入口选择，启动参数不能回填授权。
-
-```sh
-ruukoto-code workflow save batch --script-file ./batch.js --request-id save-batch-1
-ruukoto-code workflow definitions
-ruukoto-code workflow definition batch
-ruukoto-code workflow run batch --session sess_x --request-id batch-1 --input-json '{"question":"继续?"}'
-ruukoto-code workflow list --session sess_x
-ruukoto-code workflow show wfrun_x
-ruukoto-code workflow logs wfrun_x
-ruukoto-code workflow step wfrun_x step-key
-ruukoto-code workflow question wfrun_x question-key
-```
-
-`save` 新建时不填 `--expected-digest`；更新须用 `definition` 返回的当前 digest。正文/问题/步骤可用 `--offset`、`--length` 按 UTF-8 字节分页，详情步骤用 `--step-offset`；定义历史用 `--version-offset` 按返回的 `nextVersionOffset` 续读，每页 100 项。列表/详情只含送达摘要，完整最终事实和回报正文用 logs 分页读取；历史脚本用 `workflow version <定义ID>`。运行参数也可 `--input-file` 读取 JSON；临时脚本以 `workflow run --script-file F --session S --request-id K` 启动。定义不可读/语法失败先修文件，`script_validator_unavailable` 先运行 `npm run build:script`；模型或执行入口失败先检查配置。
-
-| CLI 后续操作 | 必填字段 |
-| --- | --- |
-| `workflow answer <运行ID> <步骤键>` | `--run-version` 填问题建立代次，`--question-version` 填问题版本，`--request-id`、`--answer-json` 或 `--answer-file` |
-| `workflow pause/resume/cancel <运行ID>` | `--expected-version` 填 show 当前版本，`--request-id`；resume 的 `--clock-confirmed true`、`--stops-confirmed true` 只在确已核实时提供 |
-| `workflow budget <运行ID>` | `--expected-version`、`--request-id`、`--max-attempts`、`--duration-ms`；调整不自动恢复 |
-| `workflow find` | 原启动的 `--session`、`--request-id` |
-| `workflow saved` | 原保存的 `--request-id` |
-
-所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 的确认字段自动解除。取消保留历史及成果，具体故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema 39/协议 22 按严格版本策略拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
-
-TUI 使用 `/workflow` 及上述子命令的文本窗口：`/workflow run <名称> <请求键> <JSON参数>`，`/workflow save <名称> <请求键> <当前摘要|null> <JSON脚本字符串>`；查询 list/definition/version/show/logs/step/question，原键核实 find/saved；`/workflow definition <名称> [字节偏移] [历史偏移]` 分别续读正文和名称历史。答复格式为 `/workflow answer <运行ID> <步骤键> <问题运行代次> <问题版本> <请求键> <JSON回答>`；pause/resume/cancel 要 `<运行ID> <当前版本> <请求键>`，budget 再加 `<尝试上限> <运行毫秒>`。resume 可追加显式 JSON 核实项。`/workflow help` 列完整用法；窗口可滚动，以 q/Esc 关闭。最近进度事件重连保留，退出重开后通过查询恢复持久事实，聊天和其他运行仍可继续。
-
-个人 IM 只接受绑定拥有者在原入口发送的完整命令，运行用完整 ID 定位；引用、转发、来源不符、旧代次、格式错误或定位歧义不改变运行。命令仍在原始文本进入模型前处理，控制回执与意图同事务提交，平台重投不重复执行。
-
-| IM 命令 | 用途 |
-| --- | --- |
-| `/workflow-definitions [列表偏移]`、`/workflow-definition <名称> [字节偏移]` | 查看命名库和脚本；保存可请模型调用保存工具或用 CLI/TUI |
-| `/workflow-run <名称> <JSON参数>` | 显式启动，不占一个模型发起轮次 |
-| `/workflow-list [列表偏移]`、`/workflow-show <完整运行ID> [字节偏移]` | 查看本入口运行与当前版本/等待原因 |
-| `/workflow-logs <运行ID> [字节偏移]`、`/workflow-step <运行ID> <步骤键> [字节偏移]` | 阶段与步骤结果 |
-| `/workflow-pause/resume/cancel <运行ID> <当前版本>` | 暂停、恢复或取消；resume 可加显式 JSON 核实项 |
-| `/workflow-budget <运行ID> <当前版本> {"maxAttempts":150,"durationMs":7200000}` | 拥有者调整预算；模型不能提高 |
-
-问题答复仍使用本节开头的 `/workflow-question`、`/workflow-answer`，不批准工具。配置变化不改发目标；未送达事实留在运行/outbox，可用 CLI 查看，不能把发送登记当作平台成功。
-
 ## 6. 导入旧实例
-
-含工作流运行、步骤、执行绑定、问题或控制记录的源实例明确报 `workflow_import_unavailable`；保留原档案用匹配代码查阅，当前导入不迁移工作流授权与执行。只有定义版本的资料不随普通资料导入。
 
 两个方向都必须离线执行：preview／apply／revert／list 都要求目标后台已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制到临时目录后在副本上核实当前格式，源目录逐文件 sha256 不变。
 
@@ -503,7 +453,6 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 | `/prompt` | 本会话的模型请求列表与每次调用的 prompt |
 | `/skill <名称> [参数]` | 显式调用技能（不带名称时同 `/skills`） |
 | `/skills` | 技能库与诊断 |
-| `/workflow <子命令>` | 定义、带参运行、步骤/阶段、业务答复与版本化控制；原键核实 |
 | `/qq <子命令>` | QQ 入口：status / enable / disable / groups / inbox / outbox（后三者为旧群归档） |
 | `/quit` | 退出客户端（后台任务继续运行） |
 
@@ -554,7 +503,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 ~/.ruukoto/pending/   0700  待核实的提交记录
 ```
 
-目录可用 `RUUKOTO_{DATA,AGENT,CONTROL,PENDING}_DIR` 覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 这一组，跨产品打开数据目录会被拒绝。执行配置（`RUUKOTO_EXECUTION_BACKEND`）及常驻 user manager 环境见部署文档。拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（显式使用其他令牌文件时）。
+目录可用 `RUUKOTO_{DATA,AGENT,CONTROL,PENDING}_DIR` 覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 这一组，跨产品打开数据目录会被拒绝。执行相关变量（`RUUKOTO_EXECUTION_BACKEND`、`RUUKOTO_CONTAINER_UID/GID`、`RUUKOTO_WORKER_IMAGE`）见部署文档。拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（显式使用其他令牌文件时）。
 
 完整布局、schema 版本与职责边界见[存储与身份](modules/core.md)。
 
@@ -566,7 +515,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | --- | --- |
 | 「后台启动失败」并附 spawn.log 尾部 | 常见原因是未配置可用模型，先跑 `ruukoto-code config`；spawn.log 在 `<controlDir>/spawn.log` |
 | socket 可连但令牌认证不通过 | 后台其实在运行；核对 `RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE` 与控制面目录的 `owner.token` |
-| 等待超时 | 到期限仍未就绪，单独标注且不杀进程；确认 native 平台前置、宿主工具与 worker 构建产物可用 |
+| 等待超时 | 到期限仍未就绪，单独标注且不杀进程；确认 `--execution` 后端与 Docker／镜像可用 |
 | 重复启动被拒绝 | 同一实例锁已在运行（`<dataDir>/runtime.lock`）；`ruukoto-code stop` 或确认已在运行的后台 |
 | `schema_version_unsupported` | 档案版本与代码不一致；保留原档案并用匹配代码查阅，当前代码使用独立新档案，不修改版本号或补字段 |
 | 实例锁无法核实 | 按 `owner.json` 的 `processIdentity` 核实进程启动身份；无法核实时保留锁并要求人工处理 |
@@ -577,9 +526,10 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | 现象 | 处理 |
 | --- | --- |
 | 完全访问工具启动失败 | 检查 worker、Node 与安装依赖；完全访问无需执行账户或沙箱配置，服务 helper 的缺失只影响服务工具 |
-| 受限任务立即失败 | 按[原生部署前置](../deploy/native/README.md)核实 bubblewrap/profile、user manager/bus、cgroup 委派与宿主工具；能力缺失明确拒绝、不静默回退 |
+| 受限任务立即失败 | 检查 Docker 可用性与 `ruukoto-worker` 镜像（`npm run build:worker-image`）；后端缺失时明确拒绝、不静默回退 |
 | 任务已结束但目录仍被占用，或报 `tool_process_unreaped` / `mode_switch_unverified` / `worker_stop_unverified` | 从任务事件与占用查询核对未退出的执行单元；确认旧单元及其后代已退出后，再用上方 `resume-queue` 恢复，它释放该会话遗留任务的父目录与副本占用，并重建已结束的驱动器。worktree 创建与汇总保留副本现场和已收到的结果，不能把已完成工具或效果未知操作自动重放 |
-| 旧 local/container 覆盖被拒 | 移除 `--execution` / `RUUKOTO_EXECUTION_BACKEND` 覆盖或明确改为 native；保留原档案，先完成平台前置 |
+| 容器内写工作区被拒 | 原生 Linux 的 bind mount 不做 uid 映射，容器 uid/gid 须与工作区写权限匹配（部署文档第 5 步）；Docker Desktop 会掩盖这个问题 |
+| 执行相关变量生效但无隔离 | `--execution local`／`RUUKOTO_EXECUTION_BACKEND=local` 没有任何隔离，只用于本机开发与测试 |
 
 ### 10.3 MCP
 
@@ -615,6 +565,6 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 - 同一工作目录同时只允许一个写任务；并行修改靠 SubAgent 的 worktree，非 Git 目录串行。
 - 上下文超出预算或 provider 返回 `context_overflow` 时任务中断、队列暂停，需人工继续。
-- 原生任务使用实际后台账户的目录权限与宿主工具；HOME/TMPDIR 使用宿主临时磁盘，无单任务配额，停止未核实保留现场与占用。
+- 原生 Linux 的 bind mount 不做 uid 映射，容器 uid/gid 须与工作区写权限匹配（部署文档第 5 步）；Docker Desktop 会掩盖这个问题。
 - 服务器服务管理只覆盖白名单服务的检查与重启。
 - 真实 QQ／Telegram 平台与 macOS 完全访问的正向路径缺少实测证据（目前均为模拟平台）；跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂尚未交付。逐项证据见[发布与验收说明](release-acceptance.md)。

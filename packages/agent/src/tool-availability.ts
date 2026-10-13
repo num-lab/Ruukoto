@@ -12,6 +12,7 @@
 
 import type { ToolCategory } from "@ruukoto/core/types.ts";
 import type { SessionIdentity } from "@ruukoto/core/session-identity.ts";
+import { WorkflowError } from "@ruukoto/core/workflow.ts";
 import type { McpToolEffect } from "./mcp/store.ts";
 import { PLAN_TOOL_NAMES } from "./plan-mode.ts";
 import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
@@ -80,6 +81,23 @@ export interface ExecutionProfile {
   plan: boolean;
   /** 工具集签名：并入 SDK 会话签名，变化即重建会话（装配过滤只能收窄、不能补回）。 */
   toolSignature: string;
+  workflow?: WorkflowExecutionProfile;
+}
+
+/** 宿主解析的步骤能力；来源身份不改变步骤的独立上下文。 */
+export interface WorkflowExecutionProfile {
+  toolClass: "dev" | "main";
+  sourceProjectId: string;
+  categories: ToolCategory[];
+  grantIds?: string[];
+  tools?: string[];
+  verifyTarget?: boolean;
+}
+
+export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
+  return !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" &&
+    (profile.verifyTarget === true || !["edit", "write", "bash", "request_file_access"].includes(name)) &&
+    (!profile.tools || profile.tools.includes(name));
 }
 
 export function executionProfile(input: {
@@ -90,9 +108,16 @@ export function executionProfile(input: {
   review: boolean;
   /** 提交时固定到任务的 Plan 选择。 */
   planMode: boolean;
+  workflow?: WorkflowExecutionProfile | null;
 }): ExecutionProfile {
   const { identity } = input;
   if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
+  if (input.workflow) {
+    if (identity.kind !== "subagent" || !identity.workflow) throw new WorkflowError("workflow_binding_invalid");
+    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => category !== "subagent" && category !== "delegation") };
+    return { toolClass: workflow.toolClass, subAgentTools: null, planMcp: workflow.categories.includes("mcp"), restricted: true,
+      plan: false, toolSignature: `workflow:${JSON.stringify(workflow)}`, workflow };
+  }
   const sub = identity.kind === "subagent" ? { write: input.writeTarget, review: input.review } : null;
   const toolClass = identity.kind === "scheduled" ? "main" : identity.kind;
   return {

@@ -142,7 +142,7 @@ test("脚本汇总等目录占用时暂停，恢复重放原宿主操作，实�
   } finally { await t.shutdown(); }
 });
 
-for (const paused of [false, true]) test(`重启移除步骤执行器时，${paused ? "保留已有暂停原因" : "持久排队运行明确暂停"}`, async () => {
+for (const paused of [false, true]) test(`重启使用真实步骤执行器时，${paused ? "保留已有暂停原因" : "恢复持久人工等待"}`, async () => {
   const t = await startTestRuntime("workflow-adapter-missing", async () => ({ kind: "text", text: "ordinary" }), {
     config: { workflowAgent: async () => ({ output: "fake" }) },
   });
@@ -163,9 +163,9 @@ for (const paused of [false, true]) test(`重启移除步骤执行器时，${pau
       finally { db.close(); }
     }
     recovered = await Runtime.start({ ...rt.config, workflowAgent: undefined });
-    assert.equal(requireWorkflowRun(recovered.store, run.id).status, "paused");
-    assert.equal(requireWorkflowRun(recovered.store, run.id).reason, paused ? "owner_pause" : "agent_unavailable");
-    assert.equal(recovered.workflows, null);
+    await waitFor("工作流恢复", () => requireWorkflowRun(recovered!.store, run.id).status === (paused ? "paused" : "waiting"));
+    assert.equal(requireWorkflowRun(recovered.store, run.id).reason, paused ? "owner_pause" : "owner_input");
+    assert.ok(recovered.workflows);
     assert.equal(t.server.calls.length, 0);
   } finally { await recovered?.stop("test_end"); await t.shutdown(); }
 });

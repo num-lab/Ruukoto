@@ -1052,6 +1052,9 @@ export class SubAgentManager {
     if (!work || work.parentSessionId !== input.parentSessionId) {
       throw new SubAgentDelegationError("not_found", `工作委托不存在或不属于本会话：${input.workId}`);
     }
+    const agent = this.store.getSubAgent(work.subAgentId);
+    const identity = agent ? this.store.getSessionIdentity(agent.sessionId) : null;
+    if (identity?.kind === "subagent" && identity.workflow) throw new SubAgentDelegationError("invalid_state", "工作流成果必须由所属运行经过独立验证后汇总");
     const target = work.writeTarget;
     if (!target) {
       throw new SubAgentDelegationError("invalid_state", `工作 ${work.id} 是只读分析工作：没有写入目标，没有副本可汇总`);

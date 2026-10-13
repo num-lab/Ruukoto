@@ -3,7 +3,7 @@
  */
 import { createHash } from "node:crypto";
 import { StoreConflictError, type Store } from "./store.ts";
-import { randomId, type AccessMode, type GrantedPath, type ModelSelection, type NotifyTarget, type SubAgentReadScope, type Task } from "./types.ts";
+import { randomId, type AccessMode, type GrantedPath, type ModelSelection, type NotifyTarget, type SubAgentReadScope, type Task, type ToolCategory } from "./types.ts";
 import type { ProductType } from "./product.ts";
 
 export const WORKFLOW_LIMITS = { attempts: 100, durationMs: 3_600_000, concurrency: 3, retries: 2, valueBytes: 512 * 1024, scriptBytes: 128 * 1024 } as const;
@@ -20,6 +20,8 @@ export interface WorkflowSource {
   references: SubAgentReadScope["sourceRefs"];
   replyTarget: NotifyTarget | null;
   scheduledRunId: string | null;
+  /** 真实装配在启动时固定；旧库层替身可省略，真实 Driver 拒绝缺少快照的绑定。 */
+  authority?: { categories: ToolCategory[]; grantIds: string[]; configuration: string; workspace: { path: string; dev: number; ino: number } };
 }
 export interface WorkflowDefinition { id: string; digest: string; script: string; createdAt: string }
 export interface WorkflowRun {
@@ -63,6 +65,9 @@ export interface WorkflowStep {
   resultRecorded: boolean;
   delivery: number | null;
   attempts: number;
+  frozen?: { workId: string; taskId: string; baseCommit: string; artifactId: string; digest: string; bytes: number };
+  verification?: { stepKey: string; taskId: string; artifactId: string; digest: string; baseCommit: string; passed: boolean };
+  readMemories?: string[];
 }
 export interface WorkflowExecution {
   id: string;

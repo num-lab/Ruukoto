@@ -171,7 +171,7 @@ export class ContextAssembly {
     this.accessor = input.accessor;
     this.restricted = input.restricted;
     this.plan = !input.restricted && input.plan;
-    this.skills = input.restricted ? null : input.skills;
+    this.skills = input.skills;
     this.subagentResults = input.restricted ? undefined : input.subagentResults;
     this.subagentMessages = input.restricted ? undefined : input.subagentMessages;
     this.deps = deps;

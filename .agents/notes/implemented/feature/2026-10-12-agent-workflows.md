@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续改进：[交互与等待规格](../../../../.scratch/agent-workflow/experience-spec.md)已于 2026-10-14 经拥有者确认，实施另由 08–11 工单持有；[等待与报告归属方案](../../proposed/architecture/2026-10-14-agent-wait-and-report-ownership.md)补充可打断等待与父轮继续处理，本篇后台运行、来源授权和唯一回报目标不变。
+
 ## 问题
 
 批量任务需要把多个处理结果逐项交给独立验证，再形成明确覆盖范围的汇总。现有技能提供说明，工作清单提供步骤状态，SubAgent 提供执行能力；这些能力还没有由程序持有步骤关系和中间结果的统一工作流入口。

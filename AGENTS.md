@@ -64,6 +64,7 @@ docs/               面向人类；docs/modules/ 按模块；docs/agents/ 是 ag
 
 **语言与形态。**
 
+- **交互设计**：面向人的操作用选择与逐步引导，内部 ID、版本与请求键由程序管理；适用边界见[渐进交互原则](.agents/notes/implemented/process/2026-10-14-progressive-human-interaction.md)。
 - ESM-only；相对 import 带 `.ts` 扩展名；文件名 kebab-case。
 - 一段一物理行，靠编辑器软换行；`npm run verify-md-wrap` 拒绝跨行段落。
 - 注释与文档用中文，标识符用英文；术语按 [CONTEXT.md](CONTEXT.md)，缺概念时先确认该用哪个已有术语。

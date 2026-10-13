@@ -12,9 +12,12 @@ import type { Session, WorkDelegation, WorkWriteTarget } from "@ruukoto/core/typ
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { grantCoversPath, resolveWorktreeCommonGitDir } from "@ruukoto/core/worktree.ts";
 
+export interface WorkCopyExecution { kind: "task" | "workflow-host"; taskId: string }
+
 export interface WorkCopyExecutor {
   (input: {
     parentTaskId: string;
+    execution?: WorkCopyExecution;
     workId: string;
     operation: "create" | "integrate";
     workspace: string;
@@ -81,6 +84,7 @@ export class WorkCopyManager {
     parentSession: Session,
     workId: string,
     parentTaskId: string,
+    execution?: WorkCopyExecution,
   ): Promise<WorkWriteTarget> {
     if (typeof raw !== "string" || !raw.trim()) {
       throw new WorkCopyError("invalid_params", "mode=modify 需要非空 target");
@@ -153,7 +157,7 @@ export class WorkCopyManager {
       `printf '%s' "$base"`;
     const repoRootReal = fs.realpathSync(repoRoot);
     const extraGrants = worktreeExtraGrants(repoRootReal, commonGitDir, "父仓库本身是 worktree：创建副本需要共享 Git 目录读写（issue 17）");
-    const result = await this.deps.execute({ parentTaskId, workId, operation: "create", workspace: repoRootReal, copyDir: copyDirReal, branch, command, extraGrants });
+    const result = await this.deps.execute({ parentTaskId, execution, workId, operation: "create", workspace: repoRootReal, copyDir: copyDirReal, branch, command, extraGrants });
     if (result.isError) {
       const label = result.errorMessage ?? result.content;
       throw new WorkCopyError("worktree_failed", `副本创建失败（路径 ${copyDir}，分支 ${branch}）：${label}；宿主保留现场供核查，不自动重建`);
@@ -205,6 +209,7 @@ export class WorkCopyManager {
     target: Extract<WorkWriteTarget, { kind: "worktree" }>;
     parentSession: Session;
     parentTaskId: string;
+    execution?: WorkCopyExecution;
   }): Promise<WorkCopyIntegration> {
     const { work, target, parentSession } = input;
     this.assertCopy(work, target, "无法汇总");
@@ -244,7 +249,7 @@ export class WorkCopyManager {
       `echo "RUUKOTO_PATCH_BYTES=$(wc -c < "$temp/patch" | tr -d ' ')"\n` +
       `cat "$temp/numstat"\n`;
     const extraGrants = worktreeExtraGrants(repo, target.commonGitDir, "worktree 副本汇总的共享 Git 目录（issue 17）");
-    const result = await this.deps.execute({ parentTaskId: input.parentTaskId, workId: work.id, operation: "integrate", workspace: repo, copyDir: copyDirReal, branch: target.branch, command, extraGrants });
+    const result = await this.deps.execute({ parentTaskId: input.parentTaskId, execution: input.execution, workId: work.id, operation: "integrate", workspace: repo, copyDir: copyDirReal, branch: target.branch, command, extraGrants });
     if (result.isError) {
       const label = (result.errorMessage ?? result.content).slice(0, 1000);
       throw new WorkCopyError("integrate_failed", `改动汇总失败（工作 ${work.id}，副本 ${target.path}）：${label}；父工作区与副本现场保留供核查`);

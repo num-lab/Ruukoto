@@ -18,11 +18,11 @@
 | 后台（Driver、ToolRouter、委派流程） | `ToolWorkerHost.create(launcher, spec)`、`host.start()` | 先创建并登记宿主记录，再启动并等 `ready`；30 秒未就绪抛 `worker_timeout`，启动失败保留原原因与停止结论 |
 | 后台 | `ToolWorkerHost.call({ opId, sdkCallId, name, params, timeoutMs })` | 发出一次工具调用；`opId` 是宿主分配的操作 ID、协议关联键，`sdkCallId` 只供上游工具内部使用、不作身份；超时抛 `tool_timeout` 并发出 `abort` |
 | 后台 | `ToolWorkerHost.abort(opId)`、`ToolWorkerHost.stop()` | 中止单次调用；停止时发 `shutdown` 并停掉整个执行单元 |
-| Runtime 的 worktree 创建与改动汇总 | `Runtime.executeWorkCopy({ parentTaskId, workspace, copyDir, branch, command, extraGrants })` | 归属正在执行的父任务，用临时工作进程按父任务模式执行宿主固定的 bash；`bash` 超时 120 秒、宿主调用超时 150 秒 |
+| Runtime 的 worktree 创建与改动汇总 | `Runtime.executeWorkCopy({ parentTaskId, workspace, copyDir, branch, command, extraGrants })` | 归属活动 Driver 任务或运行派生的宿主操作任务，用临时工作进程按其固定模式执行宿主 bash；`bash` 超时 120 秒、宿主调用超时 150 秒 |
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
-| 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
+| 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`onIdentity` 在启动完成后交给宿主持久化实际身份；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
 
 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
 
@@ -46,7 +46,7 @@
 
 ## 数据与状态
 
-脚本入口只持有当前执行的内存状态。脚本与 JSON 参数经专用 stdio 协议发送，脚本原语为 `agent(key, params)`、`ask(key, params)`、`integrate(key, params)`、`progress(key, params)`，均返回解释器内 Promise。宿主回调收到递增请求 ID、类别、稳定键和 JSON 参数，并负责业务校验、持久化及名下实际步骤；本入口不把脚本返回视为整项工作的成功。宿主步骤结果应返回具名 JSON；只有 `ScriptCallError` 表示可交脚本处理的拒绝，授权、协议与其他宿主错误终止执行。
+脚本入口只持有当前执行的内存状态。脚本与 JSON 参数经专用 stdio 协议发送，脚本原语为 `agent(key, params)`、`ask(key, params)`、`integrate(key, params)`、`progress(key, params)`，均返回解释器内 Promise。宿主回调收到递增请求 ID、类别、稳定键和 JSON 参数，并负责业务校验、持久化及名下实际步骤；本入口不把脚本返回视为整项工作的成功。`onActivity` 在发送 start/reply 前同步通知活动，只有最新序号的 idle 才通知空闲，供运行协调器核实人工停计。宿主步骤结果应返回具名 JSON；只有 `ScriptCallError` 表示可交脚本处理的拒绝，授权、协议与其他宿主错误终止执行。
 
 启动工作进程的 `LaunchSpec`：
 
@@ -228,6 +228,8 @@ sequenceDiagram
 - 任务停止即中止在途请求，不等超时。
 
 ## 设计依据
+
+- [具名宿主执行](../../.agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md)：短期任务持有 worker、账本与目录占用，停止未核实保留。
 
 - [QuickJS/WASM 脚本隔离](../../.agents/notes/implemented/architecture/2026-10-13-workflow-script-isolation.md)：固定入口、资源保证、回收及四格实验依据。
 

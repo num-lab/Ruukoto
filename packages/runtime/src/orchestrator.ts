@@ -498,6 +498,7 @@ export class Orchestrator {
   }
 
   private async handleTerminal(task: Task, outcome: ChildOutcome): Promise<void> {
+    if (this.store.db.prepare("SELECT 1 FROM workflow_executions WHERE task_id = ?").get(task.id)) return;
     if (this.store.getTask(task.id)?.resultSummary != null) return;
     if (task.subAgentId) {
       await this.handleSubAgentTerminal(task, outcome);

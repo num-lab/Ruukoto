@@ -25,7 +25,7 @@
 
 **本模块提供给模型的宿主工具。** `subagent_delegate`（登记一次委派，分析或修改）、`subagent_result`（读取结果，省略 `work_id` 时列出本会话 SubAgent 总览，`part=messages` 查看工作内消息）、`subagent_cancel`（整项取消）、`subagent_close`（显式关闭）、`subagent_message`（工作内消息）、`subagent_integrate`（改动汇总）。这些工具属 `subagent` 类别，由 [agent-tools](agent-tools.md) 按执行画像装配；每次调用重新核实宿主任务、会话与身份绑定。
 
-**本模块调用的部件。** Store 的 SQL 原语（任务、占用、工作、Agent、消息、导入回执与账本、事件）；Driver 与 agent-context 组装并流式调用模型；SubAgentManager 是在线 SubAgent 状态、当前工作与当前任务指针的唯一写入者；ParentDelivery 决定结果与消息的送达；编排器负责入站派发、结果回传与角色队列恢复；调度器、IM 入口表（工作最终汇报经 `sendWorkReport` 回调交给拥有者 IM 入口）与执行后端的宿主入口。
+**本模块调用的部件。** Store 的 SQL 原语（任务、占用、工作、Agent、消息、导入回执与账本、事件）；Driver 与 agent-context 组装并流式调用模型；SubAgentManager 持有普通 SubAgent 状态与指针，WorkflowCoordinator 持有运行绑定步骤的状态与指针；ParentDelivery 决定结果与消息的送达；编排器负责入站派发、结果回传与角色队列恢复；调度器、IM 入口表（工作最终汇报经 `sendWorkReport` 回调交给拥有者 IM 入口）与执行后端的宿主入口。
 
 **本模块发布与消费的事件。** `task.queued`、`task.started`、`task.completed`、`task.failed`、`task.canceled`、`task.interrupted`、`task.tool_process_unreaped`、`task.mode_switched`、`task.mode_switch_requested`、`task.mode_switch_failed`、`task.awaiting_confirmation`、`task.approval_consumed`、`session.queue_paused`、`occupancy.stale`、`work_delegation.created`、`work_delegation.canceled`、`work_delegation.integrated`、`subagent.closed`、`subagent_message.sent`、`subagent_message.dropped`、`subagent_task.*`、`child_task.*`、`session.history_unreadable`、`*.reply_skipped`。
 
@@ -44,6 +44,8 @@
 **执行画像。** 给定任务，`tool-availability.ts` 的 `executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出：会话类别（决定工具类别表与系统提示键）、SubAgent 工具集（只读 / 写入 / 宿主评审，宿主评审另开只读 MCP 并关 `subagent_message`）、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）。画像在任务开始算一次、钉到任务结束；装配过滤、任务收窄与 SDK 会话签名同用这一份，工具集变化时重建 SDK 会话。工作区不进画像：占用键与 LaunchSpec 都取 `core/worktree.ts` 的 `taskWorkspaceFor`。SubAgent 的工具集固定为：分析 `read` + `read_artifact`；修改 `read` / `edit` / `write` / `bash` / `read_artifact`（无 `request_file_access`、`http_request`、MCP，不能委派下级）；宿主评审 `read` / `read_artifact` ∪ `effect=read` 的 MCP。工具类别清单与调用门本身见 [agent-tools](agent-tools.md)。
 
 ## 数据与状态
+
+[工作流](workflows.md)使用独立运行授权与队列，库层由宿主注入假 Agent；来源任务结束后仍可调度，步骤结果由协调器消费。普通出队与工作流启动共用来源名额，释放占用后唤醒两种队列。运行派生的宿主操作任务经 HostExecutionManager 执行，不建立模型会话；普通工作副本操作保留 Driver 路径。
 
 **任务（`tasks`）。** 状态集合 `queued` / `running` / `awaiting_confirmation` / `completed` / `failed` / `canceled` / `interrupted`；在线终态只有后四种。字段：`access_mode`（`confirm` 默认 / `full_access` / `auto-review`）、`plan_mode`、`permission_version`、`granted_paths`、`pending_access_mode`、`interrupt_reason`、`cancel_requested`、`effect_unknown`、`error_message`、`history_entry_ids`、`resumes_task_id`、`agent_id`、`parent_task_id`、`source_permission_version`、`source_event_id`、`deadline`、`result_summary`、`result_ref`、`created_at` / `started_at` / `ended_at`；唯一键 `(session_id, request_id)`。
 
@@ -287,6 +289,8 @@ sequenceDiagram
 
 ## 不变量与失败处理
 
+工作流步骤的普通任务/工作控制及复用明确拒绝，暂停、恢复和取消由运行控制持有。跨实例导入显式登记工作流表，含执行记录的源报 `workflow_import_unavailable`，不丢掉绑定后继续；操作见[导入说明](../usage.md#6-导入旧实例)。
+
 **幂等与竞争仲裁。**
 
 - 提交幂等键的唯一范围是会话；同键同参重放返回原任务，同键异参报 `request_conflict`。委派、消息、关闭、取消、导入的查重都先于限额、资料解析与执行预检：同键同参的重放即使目标已关闭、已取消或忙碌，仍返回原记录。
@@ -316,6 +320,8 @@ sequenceDiagram
 **恢复需要人工介入。** 后台重启后任务不自动完成：中断的任务由拥有者 `continue`，暂停的队列由 `resume-queue` 恢复，结果不明的操作由拥有者核实；拉起与重连都不构成重新执行授权。宿主固定评审与可信未完成调度运行的已登记未执行任务可以恢复原队列；调度恢复仍核实整项运行没有未知效果或未核实占用。
 
 ## 设计依据
+
+- [运行授权与真实执行](../../.agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md)：共享并发、步骤结果消费与短期宿主任务。
 
 - [通用调度的独立上下文与整项生命周期](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)：运行归属、恢复和最终回报。
 - [完全访问的执行账户与授权传播](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：任务、消息与延迟唤醒的模式来源。

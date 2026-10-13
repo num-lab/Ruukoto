@@ -63,6 +63,23 @@ function seedNotice(rt: Runtime, source: Task, artifact: Artifact, text: string)
     target: { channel: "mock", account: "mock", chatId: "mock", configVersion: 1 }, text, sourceRefs: [ref] }).op.id;
 }
 
+test("只有持久绑定的工作流步骤保留来源技能目录与真实 skill 调用", async () => {
+  const t = await startTestRuntime("workflow-skill-binding", req => {
+    assert.match(inputText(req), /\[技能目录\]/);
+    assert.deepEqual(toolNamesOf(req), ["skill"]);
+    if (afterTool(req)) { assert.match(inputText(req), /WORKFLOW-SKILL-BODY/); return { kind: "text", text: "技能已读取" }; }
+    return { kind: "tool_calls", calls: [{ id: "skill", name: "skill", arguments: { name: "proof" } }] };
+  }, { config: realTools() });
+  try {
+    const folder = path.join(t.dirs.agentDir, "skills", "proof"); fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, "SKILL.md"), "---\nname: proof\ndescription: 工作流技能证据\n---\nWORKFLOW-SKILL-BODY\n");
+    const rt = t.runtime, session = await rt.createSession({ projectName: "skill", cwd: t.work[0] }), source = ownerSource(rt, session);
+    const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "skill", input: null, script: 'return await agent("read",{request:"读取来源技能",tools:["skill"]});' });
+    assert.equal((await finished(rt, run)).status, "succeeded");
+    assert.equal(t.server.calls.length, 2);
+  } finally { await t.shutdown(); }
+});
+
 test("真实个人步骤修改应用 schema 后仍可继续，main 业务来源没有 HTTP 或额外编码工具", async () => {
   const t = await startTestRuntime("workflow-personal-schema", req => afterTool(req) ? { kind: "text", text: "建表完成" } :
     { kind: "tool_calls", calls: [{ id: "define", name: "app_data_define_table", arguments: { table: "workflow_rows",

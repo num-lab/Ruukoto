@@ -1,0 +1,17 @@
+[ruukoto:workflow-model] ruukoto-code magpie/mirasim/deepseek-flash run=wfrun_7658a0a80a227cae98f47728 status=succeeded attempts=2
+{
+  "product": "ruukoto-code",
+  "runId": "wfrun_7658a0a80a227cae98f47728",
+  "status": "succeeded",
+  "facts": "工作流 wfrun_7658a0a80a227cae98f47728｜终态 succeeded\n用量：2/100 次 Agent 尝试；32804/3600000ms。\n覆盖：4 项，完成 4；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 change：completed\n步骤 verify：completed\n步骤 merge：completed",
+  "report": "工作流 wfrun_7658a0a80a227cae98f47728｜终态 succeeded\n用量：2/100 次 Agent 尝试；32804/3600000ms。\n覆盖：4 项，完成 4；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 change：completed\n步骤 verify：completed\n步骤 merge：completed\n工作流 `wfrun_7658a0a80a227cae98f47728`（name/key = real-check）已结束，终态 **succeeded**。\n\n**执行概况**\n- 覆盖 4 项步骤，全部 completed，失败/跳过/取消/未完成均为 0。\n- 用量：2/100 次 Agent 尝试，32804/3600000 ms。\n\n**各步骤持久事实**\n| 步骤 | 状态 | 结果要点 |\n|---|---|---|\n| hold | completed | 返回 `\"yes\"` |\n| change | completed | 在 `agent-work/worktrees/work_9cfed25e3ec9fc45a42bfc97/value.txt` 用 write 整体重写为 `changed\\n`（8 字节，原为 `base\\n`）；`od -c` 校验通过，`git status --porcelain` 显示仅 ` M value.txt`，HEAD 仍为 `671ada5 init`；未提交、未推送 |\n| verify | completed | `{passed: true}` |\n| merge | completed | 冻结补丁已汇入：`value.txt`，1 文件、+1/-1，124 字节；检查命令执行 `isError: false`、无输出，`passed: true` |\n\n**需注意的未核实/未覆盖项**\n- 回报中 `scriptStopVerified` 为 null，即停止态未经独立核实；`clockVerified` 为 true。\n- merge 的 `parentHead` 为 `671ada552609a14e7445b5c2a0f32862f377845d`（与变更步骤所在副本的 HEAD 一致），但返回值未给出汇入后新 HEAD 或提交状态，故合并后的最终提交/推送情况未在该正文中体现，需以运行记录或仓库实际状态为准。\n\n本轮仅归纳以上持久事实，未执行新的工具调用或工作。"
+}
+✔ ruukoto-code 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (52561.656833ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 53790.716625

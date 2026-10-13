@@ -1,0 +1,41 @@
+{
+  "generated_at_utc": "2026-10-13T08:15:22.865448+00:00",
+  "workspace": "/Users/eitrous/orca/workspaces/ruukoto/agent-workflow",
+  "temporary_directory": "/private/tmp/ruukoto-query-order-hdh3u408",
+  "snapshot_head": "84f0d4d78ced04b76f6c8be9ba299c66091e2e74",
+  "node": "v24.15.0",
+  "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "commands": [
+    {
+      "command": "QUERY_IMPLEMENTATION=original node --import tsx --test query-order.test.ts",
+      "exit_code": 1,
+      "tests": 3,
+      "pass": 1,
+      "fail": 2,
+      "skipped": 0
+    },
+    {
+      "command": "QUERY_IMPLEMENTATION=fixed node --import tsx --test query-order.test.ts",
+      "exit_code": 0,
+      "tests": 3,
+      "pass": 3,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npx tsc --noEmit",
+      "exit_code": 0
+    }
+  ],
+  "sha256": {
+    "query-order.test.ts": "436231e46ae6c33dd5147fd032f8f55a2f3d82b57932a4568b49bc70f83f02e3",
+    "app-data/query-original.ts": "9c068092a258b9511f5eb5532706aee7b53442886f2f49ca519eb824554e8aea",
+    "app-data/query.ts": "df463623054d6061977eeec77a3292c5bfa0143bd54df2bc3410b2c9e1451fc4",
+    "app-data/query-child.ts": "e4a79068219fb35370aa68c887c30e49343443b919171845e0cbcae270b52512",
+    "app-data/store.ts": "0ab92498169d53e8eedddb839fe20f2b258dd7af503840e009e500963674a11a",
+    "original.log": "f5803864e3689e41cd8d1477e31c85d2339531fb9c1a7deec0b783e5a80e37bf",
+    "fixed.log": "eea949d1f6c04e08ee3c1960cce8033ed5c34200693f79930fa75074a8fa81d9",
+    "typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

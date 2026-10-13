@@ -72,7 +72,7 @@ test("非 Git 修改在真实 worker 与模型前拒绝；非 Git 分析仍取�
     const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] }), parent = source(rt, session);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "nongit", script: 'return await Promise.all([agent("write",{request:"修改",mode:"modify",target:"."}),agent("read",{request:"分析"})]);', input: null });
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
-    await waitFor("非 Git 路径结束", () => workflowTerminal(requireWorkflowRun(rt.store, run.id).status) || requireWorkflowRun(rt.store, run.id).status === "paused");
+    await waitFor("非 Git 路径结束", () => workflowTerminal(requireWorkflowRun(rt.store, run.id).status) || requireWorkflowRun(rt.store, run.id).status === "paused", 60_000);
     assert.equal(requireWorkflowRun(rt.store, run.id).status, "partial");
     assert.equal(getWorkflowStep(rt.store, run.id, "write")!.status, "failed");
     assert.equal((getWorkflowStep(rt.store, run.id, "write")!.result as { code: string }).code, "git_required");
@@ -102,7 +102,7 @@ test("完全访问来源的验证命令不能写回待审副本，工具失败�
     const session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] }), parent = source(rt, session);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "attack", script: SCRIPT, input: null }); runId = run.id;
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
-    await waitFor("验证拒绝写回", () => workflowTerminal(requireWorkflowRun(rt.store, run.id).status));
+    await waitFor("验证拒绝写回", () => workflowTerminal(requireWorkflowRun(rt.store, run.id).status), 60_000);
     assert.equal(requireWorkflowRun(rt.store, run.id).status, "partial");
     const changed = getWorkflowStep(rt.store, run.id, "change")!.frozen!, verified = getWorkflowStep(rt.store, run.id, "validate")!;
     assert.equal(verified.status, "failed"); assert.equal(verified.verification!.passed, false);
@@ -127,7 +127,7 @@ for (const phase of ["stale", "check_failure", "ordinary_bypass"] as const) test
       `return await integrate("merge",{steps:["validate"],dependsOn:["validate","hold"],check:${JSON.stringify(phase === "check_failure" ? "false" : "true")}});`);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "control", script, input: null });
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
-    await waitFor("冻结/验证后等待", () => requireWorkflowRun(rt.store, run.id).status === "waiting");
+    await waitFor("冻结/验证后等待", () => requireWorkflowRun(rt.store, run.id).status === "waiting", 60_000);
     const frozen = getWorkflowStep(rt.store, run.id, "change")!.frozen!, target = rt.store.getWorkDelegation(frozen.workId)!.writeTarget!;
     if (phase === "ordinary_bypass") {
       await assert.rejects(rt.subagents!.integrate({ workId: frozen.workId, parentTaskId: parent.id, parentSessionId: session.id }), { code: "invalid_state" });

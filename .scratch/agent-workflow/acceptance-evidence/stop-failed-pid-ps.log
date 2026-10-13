@@ -1,0 +1,42 @@
+FAIL ITERATION 19
+TAP version 13
+# [DEBUG-accept-stop] {"identity":{"kind":"process_group","id":"51189","label":"fake-workflow"},"signals":[{"pid":-51189,"signal":"SIGTERM","code":"EPERM","message":"kill EPERM"},{"pid":-51189,"signal":"SIGKILL","code":"EPERM","message":"kill EPERM"}],"ps":"51189 51189 Z      501","stopFailure":{"code":"script_stop_unverified","cause":null}}
+# Subtest: 静态模块故意失败后，进程已回收
+not ok 1 - 静态模块故意失败后，进程已回收
+  ---
+  duration_ms: 39.120458
+  type: 'test'
+  location: '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/acceptance-core-review-28amo3sj/stop-original-ps-probe.mts:77:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    false !== true
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/acceptance-core-review-28amo3sj/stop-original-ps-probe.mts:90:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# [DEBUG-accept-signals] [{"pid":-51191,"signal":0,"code":"EPERM","message":"kill EPERM"}]
+# Subtest: 调用参数故意失败后，进程已回收
+ok 2 - 调用参数故意失败后，进程已回收
+  ---
+  duration_ms: 87.228416
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 222.5725

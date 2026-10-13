@@ -1,0 +1,10 @@
+{
+  "packages/agent/src/managed-processes.ts": true,
+  "packages/agent/src/context-assembly.ts": true,
+  "packages/agent/src/app-data/query.ts": true,
+  "test/28-main-data.test.ts": true,
+  "test/112-workflow-real-steps.test.ts": true,
+  "test/113-workflow-source-capabilities.test.ts": true,
+  "test/121-workflow-personal-acceptance.test.ts": true,
+  "test/122-workflow-code-acceptance.test.ts": true
+}

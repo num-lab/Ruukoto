@@ -1,5 +1,6 @@
 /** 工作流的固定输入、持久状态与事务内仲裁；调用方持有 Store.withTx。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md
+ * Note: 见 .agents/notes/implemented/feature/2026-10-12-agent-workflows.md
  */
 import { createHash } from "node:crypto";
 import { StoreConflictError, type Store } from "./store.ts";

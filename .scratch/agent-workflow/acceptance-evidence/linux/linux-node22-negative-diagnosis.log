@@ -1,0 +1,56 @@
+TAP version 13
+# (node:1629573) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 冻结成果 stale：旧结论不能放行新字节或绕过验证，已套用成果保留
+ok 1 - 冻结成果 stale：旧结论不能放行新字节或绕过验证，已套用成果保留
+  ---
+  duration_ms: 13642.352184
+  type: 'test'
+  ...
+# (node:1629780) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# [app-data-query] (node:1629818) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# [app-data-query] (node:1629825) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# [app-data-query] (node:1629833) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# [app-data-query] (node:1629842) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# [app-data-query] (node:1629855) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# [app-data-query] (node:1629862) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 个人六输入命名工作流：实际搜索工具与应用数据、独立检查、单项 JSON 失败、等待聊天及唯一 IM 替身回报
+not ok 2 - 个人六输入命名工作流：实际搜索工具与应用数据、独立检查、单项 JSON 失败、等待聊天及唯一 IM 替身回报
+  ---
+  duration_ms: 2782.925223
+  type: 'test'
+  location: '/tmp/ruukoto-07-linux.V1tB4o/test/121-workflow-personal-acceptance.test.ts:12:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    [{"id":"op_301a7185fe2bf53c3bfe4206","taskId":"task_4af7415802a4c6914da83eff","toolName":"app_data_query","sdkCallId":"schema","params":{"mode":"schema"},"intentRecordedAt":"2026-10-13T08:02:53.678Z","authorization":null,"resultSummary":"schema v0 / rev 0 · 完整 · 0 张表\n（无更多结果）","isError":false,"effectUnknown":false,"recordedResultAt":"2026-10-13T08:02:53.949Z"},{"id":"op_c7d9e60458c58fdbbb7d3758","taskId":"task_3c09ed09f94a5b6d49dd7d6a","toolName":"app_data_query","sdkCallId":"schema","params":{"mode":"schema"},"intentRecordedAt":"2026-10-13T08:02:53.737Z","authorization":null,"resultSummary":"schema v0 / rev 0 · 完整 · 0 张表\n（无更多结果）","isError":false,"effectUnknown":false,"recordedResultAt":"2026-10-13T08:02:54.144Z"},{"id":"op_2d14871b1c7d7c500a3d3099","taskId":"task_662e394502461a304f3b11cd","toolName":"app_data_query","sdkCallId":"schema","params":{"mode":"schema"},"intentRecordedAt":"2026-10-13T08:02:53.811Z","authorization":null,"resultSummary":"查询子进程在响应前退出（code=0 signal=null）","isError":true,"effectUnknown":false,"recordedResultAt":"2026-10-13T08:02:54.171Z"},{"id":"op_76929f62bac7875d84924a26","taskId":"task_bb34c5d869b4485cba9d598f","toolName":"app_data_query","sdkCallId":"schema","params":{"mode":"schema"},"intentRecordedAt":"2026-10-13T08:02:54.261Z","authorization":null,"resultSummary":"schema v0 / rev 0 · 完整 · 0 张表\n（无更多结果）","isError":false,"effectUnknown":false,"recordedResultAt":"2026-10-13T08:02:54.605Z"},{"id":"op_4438d782e84613add9e678a9","taskId":"task_ff3f1e6bec5e45a8a95348a1","toolName":"app_data_query","sdkCallId":"schema","params":{"mode":"schema"},"intentRecordedAt":"2026-10-13T08:02:54.500Z","authorization":null,"resultSummary":"schema v0 / rev 0 · 完整 · 0 张表\n（无更多结果）","isError":false,"effectUnknown":false,"recordedResultAt":"2026-10-13T08:02:54.758Z"},{"id":"op_0006ea75581fdf5d6bae06c8","taskId":"task_b6b11a1facc705ceb6a54a38","toolName":"app_data_query","sdkCallId":"schema","params":{"mode":"schema"},"intentRecordedAt":"2026-10-13T08:02:54.532Z","authorization":null,"resultSummary":"schema v0 / rev 0 · 完整 · 0 张表\n（无更多结果）","isError":false,"effectUnknown":false,"recordedResultAt":"2026-10-13T08:02:54.798Z"}]
+
+    5 !== 6
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 6
+  actual: 5
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/tmp/ruukoto-07-linux.V1tB4o/test/121-workflow-personal-acceptance.test.ts:114:12)
+    runNextTicks (node:internal/process/task_queues:65:5)
+    process.processTimers (node:internal/timers:520:9)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 22730.835657

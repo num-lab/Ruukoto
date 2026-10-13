@@ -42,7 +42,7 @@ Linux 需要正式 `/usr/bin/bwrap`、cgroup v2、可创建并委派的 user sco
 
 worker 经 `sandbox-exec` 的 deny-default Seatbelt 策略启动。真实工作区与读写授予可写，只读授予与资料根禁止写，网络、外部 Mach/共享内存 IPC 与后台进程信息默认拒绝。只提供运行所需文件读取与祖先元数据；`literal "/"` 的读取用于 dyld 启动，不开放根的 subpath；`literal "/var"` 元数据供开发工具选择器解析别名。直接 `setsid/setpgid` syscall 被拒，但不把它当作阻止所有 posix_spawn 属性脱离的保证。
 
-宿主 C 监督器在沙箱外运行，不引入 root 或专用 UID。它用 libproc flavor 18 一次取得 BSD 与 unique 身份，检查 192 字节 ABI；寿命由 PID、微秒出生时间与 uniqueid 共同判定，exec 后重新取得 pidversion。信号通过 `proc_signal_with_audittoken` 在内核内核实 PID 与 pidversion，避免查询与发信号之间误杀复用 PID。启动前 `--check` 用错误自 pidversion 验证内核拒绝信号；ABI 或原子信号能力不可用时不启动工具单元。结构与 flavor 依据 [Apple proc_info_private.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info_private.h)，具体运行前置由本机预检证明。
+宿主 C 监督器在沙箱外运行，不引入 root 或专用 UID。它用 libproc flavor 18 取得 BSD 与 unique 身份，检查 192 字节 ABI；寿命由 PID、微秒出生时间与 uniqueid 共同判定，exec 后重新取得 pidversion。无结果的查询失败最多对同 PID 重查三次，间隔请求休眠 1ms，不保证精确墙钟；只有完整合法身份或明确 ESRCH 可以结束核实，持续失败、短结构、错 PID 与零 uniqueid 仍为未知。重查不清除既有 uncertain、不改基线、成员、新孤儿或观察间隔判定。信号通过 `proc_signal_with_audittoken` 在内核内核实 PID 与 pidversion，避免查询与发信号之间误杀复用 PID。启动前 `--check` 用错误自 pidversion 验证内核拒绝信号；ABI 或原子信号能力不可用时不启动工具单元。结构与 flavor 依据 [Apple proc_info_private.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info_private.h)，具体运行前置由本机预检证明。
 
 监督器在 fork 前保存同 UID 身份基线，child 在私有 gate 上等待登记；释放前创建独立会话并关闭状态 FD、控制 FD 与 gate，worker 只继承 0/1/2。launcher 同时等监督器 started 和尚未加载工具的 Node 写入本单元唯一启动文件，不用 worker 可继承的宿主状态通道冒充受限启动成功。
 

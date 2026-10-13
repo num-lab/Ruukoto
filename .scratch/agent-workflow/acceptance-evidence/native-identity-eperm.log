@@ -1,0 +1,49 @@
+INSTRUMENTED ROUND 1 node=/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node
+[ruukoto:native-smoke] PASS read/edit/write/bash、宿主 Node/Git/Python 与真实 C 编译检查
+[ruukoto:native-smoke] PASS 未授权文件、符号链接与控制材料拒绝，虚拟内容未变化
+[ruukoto:native-smoke] PASS 有效宿主对照下回环 TCP 与授权目录 Unix socket 均拒绝
+[ruukoto:native-smoke] PASS 独立 HOME/TMPDIR、凭据环境与敏感 FD 不继承
+[ruukoto:native-smoke] PASS 额外只读/读写授予与收窄后的原生重建，单元临时资料互不可见
+[ruukoto:native-smoke] PASS 忽略信号的后台后代停止，实际心跳冻结且重复停止结论保留
+[ruukoto:native-smoke] PASS 真实单元创建后、宿主接手前取消并核实回收
+[ruukoto:native-smoke] PASS 活跃工作区与读写授予目录被替换后停止且不写入新对象
+[ruukoto:native-smoke] PASS 预存只读硬链接在启动前拒绝，活跃单元新增未授权别名时停止且资料未改写
+[ruukoto:native-smoke] PASS Coding Agent 正式产品默认 native，按需后台完成四工具修改与检查
+{
+  "platform": "darwin",
+  "release": "27.0.0",
+  "arch": "arm64",
+  "checks": [
+    "read/edit/write/bash、宿主 Node/Git/Python 与真实 C 编译检查",
+    "未授权文件、符号链接与控制材料拒绝，虚拟内容未变化",
+    "有效宿主对照下回环 TCP 与授权目录 Unix socket 均拒绝",
+    "独立 HOME/TMPDIR、凭据环境与敏感 FD 不继承",
+    "额外只读/读写授予与收窄后的原生重建，单元临时资料互不可见",
+    "忽略信号的后台后代停止，实际心跳冻结且重复停止结论保留",
+    "真实单元创建后、宿主接手前取消并核实回收",
+    "活跃工作区与读写授予目录被替换后停止且不写入新对象",
+    "预存只读硬链接在启动前拒绝，活跃单元新增未授权别名时停止且资料未改写",
+    "Coding Agent 正式产品默认 native，按需后台完成四工具修改与检查"
+  ],
+  "pass": true,
+  "models": "mock",
+  "execution": "native"
+}
+EXIT 0
+INSTRUMENTED ROUND 2 node=/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node
+[ruukoto:native-smoke] PASS read/edit/write/bash、宿主 Node/Git/Python 与真实 C 编译检查
+[ruukoto:native-smoke] PASS 未授权文件、符号链接与控制材料拒绝，虚拟内容未变化
+[ruukoto:native-smoke] PASS 有效宿主对照下回环 TCP 与授权目录 Unix socket 均拒绝
+[ruukoto:native-smoke] PASS 独立 HOME/TMPDIR、凭据环境与敏感 FD 不继承
+[ruukoto:native-smoke] PASS 额外只读/读写授予与收窄后的原生重建，单元临时资料互不可见
+[ruukoto:tool-worker native-smoke-99820-25] IDENTITY_UNAVAILABLE pid=278 count=0 errno=1 caller_uid=501 returned=0 target_uid=0 unique=0 stat=0
+[ruukoto:native-smoke] FAIL AssertionError [ERR_ASSERTION]: 原生整单元退出必须已核实
+
+false !== true
+
+    at stop (/private/tmp/ruukoto-07-native-identity-probe/smoke-26-instrumented.mts:54:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async <anonymous> (/private/tmp/ruukoto-07-native-identity-probe/smoke-26-instrumented.mts:146:3)
+[ruukoto:native-smoke] 退出未核实，保留虚拟现场：/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/native-worker-smoke-8EpGQ2
+[ruukoto:tool-worker native-smoke-99820-25] [ruukoto:native] 执行停止未核实（identity_unavailable）；保留目录占用，等待拥有者核实
+EXIT 1

@@ -1,0 +1,1 @@
+Assertion failed: (identity(123, &value) == results[current]), function main, file identity-fixture-prior.c, line 32.

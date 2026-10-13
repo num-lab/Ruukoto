@@ -22,6 +22,7 @@ import type { MemoryStore, MemoryWithContent } from "@ruukoto/core/memory.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ContextCheckpoint, ContextExperimentRecord, ModelSelection, SelectionUsage, SubAgentMessage, Task } from "@ruukoto/core/types.ts";
 import { randomId } from "@ruukoto/core/types.ts";
+import { getWorkflowExecution } from "@ruukoto/core/workflow.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
 import { verifyDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { ArtifactStore } from "./artifacts.ts";
@@ -137,7 +138,7 @@ export class ContextAssembly {
   private readonly subagentMessages: ContextAssemblyInput["subagentMessages"];
   private readonly accessor: Accessor;
   private readonly restricted: boolean;
-  /** 计划模式与技能库：资料受限会话在构造时归一为 false / null（参考块与版本不再另行判断）。 */
+  /** 普通资料受限会话不读取技能；工作流步骤按持久执行绑定保留已获准的技能。 */
   private readonly plan: boolean;
   private readonly skills: SkillLibrary | null;
   private readonly deps: ContextAssemblyDeps;
@@ -171,7 +172,7 @@ export class ContextAssembly {
     this.accessor = input.accessor;
     this.restricted = input.restricted;
     this.plan = !input.restricted && input.plan;
-    this.skills = input.skills;
+    this.skills = input.restricted && !getWorkflowExecution(deps.store, input.task.id) ? null : input.skills;
     this.subagentResults = input.restricted ? undefined : input.subagentResults;
     this.subagentMessages = input.restricted ? undefined : input.subagentMessages;
     this.deps = deps;

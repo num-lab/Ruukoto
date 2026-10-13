@@ -74,12 +74,16 @@ static bool zombie(const struct process_info *value) { return value->bsd.pbi_sta
 
 /* 0 为已退出，1 为完整身份，-1 为无法核实。 */
 static int identity(pid_t pid, struct process_info *value) {
-  memset(value, 0, sizeof(*value));
-  errno = 0;
-  int count = proc_pidinfo(pid, 18, 0, value, sizeof(*value));
-  if (count == 0 && errno == ESRCH) return 0;
-  if (count != sizeof(*value) || value->bsd.pbi_pid != (uint32_t)pid || value->unique.uniqueid == 0) return -1;
-  return 1;
+  /* 查询失败有界重核；只有完整身份或明确 ESRCH 可以结束核实。 */
+  for (int attempt = 0; attempt < 3; attempt++) {
+    memset(value, 0, sizeof(*value)); errno = 0;
+    int count = proc_pidinfo(pid, 18, 0, value, sizeof(*value));
+    if (count == 0 && errno == ESRCH) return 0;
+    if (count == sizeof(*value)) return value->bsd.pbi_pid == (uint32_t)pid && value->unique.uniqueid != 0 ? 1 : -1;
+    if (count > 0 || attempt == 2) return -1;
+    struct timespec delay = {.tv_nsec = 1000000}; nanosleep(&delay, NULL);
+  }
+  return -1;
 }
 
 /* flavor 18 要求同 UID；PID 1 的身份用可跨 UID 的 flavor 17，不读取环境或参数。 */

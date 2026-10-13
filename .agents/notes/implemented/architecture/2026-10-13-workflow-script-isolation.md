@@ -4,7 +4,7 @@ Status: implemented
 
 ## 问题
 
-[工作流方案](../../proposed/feature/2026-10-12-agent-workflows.md)需要执行模型生成的 JavaScript，不能把 Node、凭据、文件或网络能力交给编排脚本。同步 WASM、异步宿主调用、恶意脚本与整进程回收需要实测，不能依据上游兼容声明放行。
+[工作流方案](../../implemented/feature/2026-10-12-agent-workflows.md)需要执行模型生成的 JavaScript，不能把 Node、凭据、文件或网络能力交给编排脚本。同步 WASM、异步宿主调用、恶意脚本与整进程回收需要实测，不能依据上游兼容声明放行。
 
 ## 决定
 

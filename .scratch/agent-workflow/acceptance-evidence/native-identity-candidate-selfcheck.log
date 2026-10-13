@@ -1,0 +1,7 @@
+mode=0 result=0 calls=1 PASS
+mode=1 result=0 calls=3 PASS
+mode=2 result=-1 calls=3 PASS
+mode=3 result=1 calls=2 PASS
+mode=4 result=-1 calls=1 PASS
+mode=5 result=-1 calls=1 PASS
+mode=6 result=-1 calls=1 PASS

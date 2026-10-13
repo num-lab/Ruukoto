@@ -1,0 +1,26 @@
+[ruukoto:workflow-model] ruukoto magpie/mirasim/deepseek-flash run=wfrun_abbaf0c4c9cc55fc5cfe8dbc status=succeeded attempts=1
+{
+  "product": "ruukoto",
+  "runId": "wfrun_abbaf0c4c9cc55fc5cfe8dbc",
+  "status": "succeeded",
+  "facts": "工作流 wfrun_abbaf0c4c9cc55fc5cfe8dbc｜终态 succeeded\n用量：1/100 次 Agent 尝试；11994/3600000ms。\n覆盖：2 项，完成 2；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 record：completed",
+  "report": "工作流 wfrun_abbaf0c4c9cc55fc5cfe8dbc｜终态 succeeded\n用量：1/100 次 Agent 尝试；11994/3600000ms。\n覆盖：2 项，完成 2；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 record：completed\n结果资料：{\"result\":{\"value\":{\"status\":\"completed\",\"value\":\"完成。\\n\\n- `app_data_define_table`：已创建表 `model_workflow`（1 字段：`value` text，0 索引），schema 从 v0 → v1（rev 1）。\\n- `app_data_insert`：已插入 1 行 `{value: \\\"DEEPSEEK_WORKFLOW_OK\\\"}`，行 id = 1，schema v1，rev 2。\\n\\n两项均已执行成功，无失败或未完成项。\"},\"steps\":[{\"key\":\"hold\",\"status\":\"completed\",\"delivery\":1},{\"key\":\"record\",\"status\":\"completed\",\"delivery\":2}]},\"steps\":[{\"key\":\"hold\",\"result\":{\"status\":\"completed\",\"value\":\"yes\"},\"artifact\":null},{\"key\":\"record\",\"result\":{\"status\":\"completed\",\"value\":\"完成。\\n\\n- `app_data_define_table`：已创建表 `model_workflow`（1 字段：`value` text，0 索引），schema 从 v0 → v1（rev 1）。\\n- `app_data_insert`：已插入 1 行 `{value: \\\"DEEPSEEK_WORKFLOW_OK\\\"}`，行 id = 1，schema v1，rev 2。\\n\\n两项均已执行成功，无失败或未完成项。\"},\"artifact\":null}]}"
+}
+✔ ruukoto 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (30336.314917ms)
+[ruukoto:workflow-model] ruukoto-code magpie/mirasim/deepseek-flash run=wfrun_44121dfb44f9a879f14791bd status=succeeded attempts=2
+{
+  "product": "ruukoto-code",
+  "runId": "wfrun_44121dfb44f9a879f14791bd",
+  "status": "succeeded",
+  "facts": "工作流 wfrun_44121dfb44f9a879f14791bd｜终态 succeeded\n用量：2/100 次 Agent 尝试；32552/3600000ms。\n覆盖：4 项，完成 4；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 change：completed\n步骤 verify：completed\n步骤 merge：completed",
+  "report": "工作流 wfrun_44121dfb44f9a879f14791bd｜终态 succeeded\n用量：2/100 次 Agent 尝试；32552/3600000ms。\n覆盖：4 项，完成 4；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 change：completed\n步骤 verify：completed\n步骤 merge：completed\n结果资料：{\"result\":{\"value\":{\"status\":\"completed\",\"value\":{\"results\":[{\"state\":\"applied\",\"detail\":\"\",\"parentHead\":\"bca19fb7a5c44183950d88693a2e8991137a3cf9\",\"patchBytes\":124,\"filesChanged\":1,\"insertions\":1,\"deletions\":1,\"files\":[\"value.txt\"]}],\"check\":{\"isError\":false,\"content\":\"(no output)\"},\"passed\":true}},\"steps\":[{\"key\":\"hold\",\"status\":\"completed\",\"delivery\":1},{\"key\":\"change\",\"status\":\"completed\",\"delivery\":2},{\"key\":\"verify\",\"status\":\"completed\",\"delivery\":3},{\"key\":\"merge\",\"status\":\"completed\",\"delivery\":4}]},\"steps\":[{\"key\":\"hold\",\"result\":{\"status\":\"completed\",\"value\":\"yes\"},\"artifact\":null},{\"key\":\"change\",\"result\":{\"status\":\"completed\",\"value\":\"修改完成。\\n\\n- 目标文件：`worktrees/work_3a705fffa14a13b334e199c3/value.txt`（独立工作副本）\\n- 操作：仅用 write 整体写入，内容为 `changed\\\\n`（8 字节，末尾单个 LF 换行，已用 xxd 校验）\\n- 原内容 `base\\\\n` → 现内容 `changed\\\\n`\\n- 未执行 commit / push（`git status` 仅显示 ` M value.txt`，工作区改动未提交）\\n\\n无失败或未完成项。\"},\"artifact\":null},{\"key\":\"verify\",\"result\":{\"status\":\"completed\",\"value\":{\"passed\":true}},\"artifact\":null},{\"key\":\"merge\",\"result\":{\"status\":\"completed\",\"value\":{\"results\":[{\"state\":\"applied\",\"detail\":\"\",\"parentHead\":\"bca19fb7a5c44183950d88693a2e8991137a3cf9\",\"patchBytes\":124,\"filesChanged\":1,\"insertions\":1,\"deletions\":1,\"files\":[\"value.txt\"]}],\"check\":{\"isError\":false,\"content\":\"(no output)\"},\"passed\":true}},\"artifact\":null}]}"
+}
+✔ ruukoto-code 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (54845.610041ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 86019.573667

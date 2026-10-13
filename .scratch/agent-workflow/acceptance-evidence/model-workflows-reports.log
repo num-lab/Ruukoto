@@ -1,0 +1,29 @@
+[ruukoto:workflow-model] ruukoto magpie/mirasim/deepseek-flash run=wfrun_8b4371a1a8a007b1a59f14c4 status=succeeded attempts=1
+{
+  "product": "ruukoto",
+  "runId": "wfrun_8b4371a1a8a007b1a59f14c4",
+  "status": "succeeded",
+  "facts": "工作流 wfrun_8b4371a1a8a007b1a59f14c4｜终态 succeeded\n用量：1/100 次 Agent 尝试；11064/3600000ms。\n覆盖：2 项，完成 2；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 record：completed",
+  "report": "工作流 wfrun_8b4371a1a8a007b1a59f14c4｜终态 succeeded\n用量：1/100 次 Agent 尝试；11064/3600000ms。\n覆盖：2 项，完成 2；失败/跳过/取消/未完成 0。完整清单保存在运行记录。\n步骤 hold：completed\n步骤 record：completed\n工作流 wfrun_8b4371a1a8a007b1a59f14c4（real-check）已结束，终态 succeeded。\n\n用量：1/100 次 Agent 尝试，11064/3600000 ms。\n覆盖 2 项，完成 2 项；无失败、无跳过、无取消、无未完成项。\n\n步骤情况：\n- hold：completed，返回 yes。\n- record：completed，报告已完成两项操作：在 main 应用数据空间创建表 model_workflow（字段 value，唯一索引 ux_model_workflow_value，schema v1，rev 1）；插入一条记录 {value: \"DEEPSEEK_WORKFLOW_OK\"}（1 行，id=1，rev 2）。\n\n说明：以上操作结果来自工作流自身回报的持久事实，我这边未做独立复核，故“表已创建、记录已插入”按回报如实转述而非再次核实。本轮仅作归纳，未执行新的工作。"
+}
+✔ ruukoto 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (33930.815458ms)
+[ruukoto:workflow-model] 验收失败，保留隔离档案 /var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-workflow-model-gNg6HJ
+✖ ruukoto-code 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (120114.265625ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 155238.554375
+
+✖ failing tests:
+
+test at test/123-workflow-model-acceptance.test.ts:1:696
+✖ ruukoto-code 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总 (120114.265625ms)
+  Error: 等待超时: 真实模型发起并进入人工等待
+      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/helpers/testkit.ts:233:47)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/123-workflow-model-acceptance.test.ts:39:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)

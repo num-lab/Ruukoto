@@ -126,7 +126,7 @@ sequenceDiagram
 | macOS | `sandbox-exec` 的 deny-default Seatbelt 策略；仅授权根可写、必要运行依赖只读，文件规则使用真实路径，网络与外部 IPC 默认拒绝；`npm run build:native` 用系统 clang 构建宿主监督器 | 启动前保存同 UID 身份基线，任务存活期累计后代；libproc 同次读取出生时间、uniqueid 与 pidversion，信号由 audit token 在内核原子核实身份后发送 |
 | Linux | `/usr/bin/bwrap`、AppArmor userns 配置、cgroup v2 与可委派的 user systemd scope；完整 namespace、只读基础根和受限挂载；seccomp 拒绝 socket/connect/发送与 io_uring，包含 abstract Unix socket | PID namespace 拆除回收后代，user scope 的 `cgroup.kill` 提供第二道回收；成功查询单元退出与 cgroup 无成员才返回 true |
 
-macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Node 在独立临时目录写启动标记，再加载 SDK。观察中断、身份不可用或信号失败保持未核实；停止后留 100ms 收敛窗口，以连续完整采样核实最终残留。当前父 uniqueid 会随收养改变；仅当前父为 PID 1 不足以判外部进程，原父 pidversion 也须匹配启动前 PID 1 身份。PID 1 用可跨 UID 的 libproc flavor 17 核实，失败或 root 初始版本不大于 PID 1 版本时禁用排除。未知新寿命按单调分配的 uniqueid 判出生顺序；看到新寿命或已知成员的无符号 pidversion 低于 root 初始版本，标回卷并保留占用，其他未知同 UID 孤儿也不发送信号且返回 false。pidversion 为可回卷的 32 位序列，轮询也不是不可逃逸的内核成员集合，未核实后代仍可能继续写工作区，因此保留占用并等待拥有者核实。Linux 的安装与核实入口见 [原生部署前置](../../deploy/native/README.md)。
+macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Node 在独立临时目录写启动标记，再加载 SDK。身份查询无结果最多同 PID 重核三次，只有明确退出或完整合法身份可以接受；持续失败与损坏字段保留未知。观察中断、身份不可用或信号失败保持未核实；停止后留 100ms 收敛窗口，以连续完整采样核实最终残留。当前父 uniqueid 会随收养改变；仅当前父为 PID 1 不足以判外部进程，原父 pidversion 也须匹配启动前 PID 1 身份。PID 1 用可跨 UID 的 libproc flavor 17 核实，失败或 root 初始版本不大于 PID 1 版本时禁用排除。未知新寿命按单调分配的 uniqueid 判出生顺序；看到新寿命或已知成员的无符号 pidversion 低于 root 初始版本，标回卷并保留占用，其他未知同 UID 孤儿也不发送信号且返回 false。pidversion 为可回卷的 32 位序列，轮询也不是不可逃逸的内核成员集合，未核实后代仍可能继续写工作区，因此保留占用并等待拥有者核实。Linux 的安装与核实入口见 [原生部署前置](../../deploy/native/README.md)。
 
 ### Linux 常驻前提与临时资料
 
@@ -197,7 +197,7 @@ sequenceDiagram
 
 ### 执行边界
 
-- 受限执行单元按任务建立，不复用给后续任务；任务内按 ID、模式与授予范围复用，变化时先核实旧单元已停止再重建。
+- 受限执行单元按任务建立，不复用给后续任务；任务内按 ID、模式与授予范围复用，变化时先核实旧单元已停止再重建。进程组 TERM/KILL 失败仍在原预算内核实退出，持续权限或查询失败保留占用。
 - 单次批准不改变沙箱权限：批准的结构化操作不变成后续 Shell 可复用的文件或网络授权。
 - 工作区与授予一律使用宿主真实路径；模型看到的 cwd、拥有者给出的绝对路径与 `request_file_access` 的宿主路径保持一致。
 - 原生 worker 不继承宿主凭据、SSH agent、代理或控制面；项目内自带的秘密属于已授权内容，沙箱不会识别或隐藏它们。

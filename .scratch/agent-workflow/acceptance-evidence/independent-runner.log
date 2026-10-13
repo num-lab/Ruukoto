@@ -1,0 +1,18 @@
+command: node node_modules/tsx/dist/cli.mjs --test test/124-test-app-runner.test.ts
+✔ macOS 独占与其余批次完整分配每个文件一次，Linux 保留全并行；固定独占文件缺失拒绝 (0.816625ms)
+✔ 实际 CLI 等独占文件进程退出后执行其余批次，每份测试一次且固定关闭真实模型 (233.961542ms)
+✔ 实际 CLI first-failure 不吞失败或跳批报成功 (144.603791ms)
+✔ 实际 CLI remaining-failure 不吞失败或跳批报成功 (228.163791ms)
+✔ 实际 CLI missing 不吞失败或跳批报成功 (27.122208ms)
+✔ 实际 CLI spawn-error 不吞失败或跳批报成功 (30.010667ms)
+✔ 实际 CLI null-status 不吞失败或跳批报成功 (28.339916ms)
+✔ 实际 CLI signal 不吞失败或跳批报成功 (3171.024083ms)
+✔ 实际 CLI exit-code 不吞失败或跳批报成功 (335.299209ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4337.865167

@@ -26,7 +26,7 @@
 修订后十二份文件清单如下；采用与首轮相同算法，整体摘要为 `5998edcbbca886ef07158cdbe3233dd04ce8d27952bc1efcdc9d4a9c51bc5421`。本文件只记录证据，不参与自身指纹。
 
 ```text
-7518f700598045047546609662403ca074eee0a3d3e889de388c51b0f5f7f65e  .agents/notes/proposed/feature/2026-10-12-agent-workflows.md
+7518f700598045047546609662403ca074eee0a3d3e889de388c51b0f5f7f65e  .agents/notes/implemented/feature/2026-10-12-agent-workflows.md
 98fbcc5e7d3ba3e6a55c08bc9a94390d39349b38750b435f4d18c8cea4cae4c8  .scratch/agent-workflow/claude-code-research.md
 73233be66b6e779d3f4ebc6cc74682fffe01315dffe9bac8d3a0543ec53c8d3a  .scratch/agent-workflow/implementation-plan.md
 c6c708b4dd02661c722ebae0fb27b232a7cb3373f58cce300096bc1be457bdfe  .scratch/agent-workflow/issues/01-workflow-design.md

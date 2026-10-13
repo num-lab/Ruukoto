@@ -26,18 +26,18 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm test` | 应用与基础验证的全部离线测试；真实模型用例按默认开关跳过 |
 | `npm run check:static` | 依次执行 lint、类型检查、笔记门禁与文档门禁（链接、源码引用、篇幅与段落形态） |
 | `npm run check` | 依次执行环境检查、build、`check:static` 与全部离线测试，任一步失败即停止 |
-| `npm run test:app` | 仅应用离线测试 |
+| `npm run test:app` | 仅应用离线测试；macOS 先串行 100/101-native-macos-helper，再并行其余；其他平台全并行 |
 | `npm run test:foundation` | 仅基础验证离线测试 |
 | `npm run change-scope -- --base <ref>` | 报告本次改动相对 merge base 的已提交、暂存、未暂存与未跟踪路径 |
 
-修改过程中运行 `npm run check:static` 与相关测试。**不要默认跑全量 `npm run check`**：按改动面选最小检查集，见 [提交前检查](../.agents/skills/pre-push-checks/SKILL.md)；全量只在拥有者明确要求、诊断 CI 失败或改动确实横跨全仓时跑。定向测试使用明确文件名，例如：
+修改时跑 `npm run check:static` 与相关测试，按[改动面](../.agents/skills/pre-push-checks/SKILL.md)选最小检查集；全量 `npm run check` 仅在拥有者明确要求、诊断 CI 失败或确实跨全仓时跑。定向测试写明确文件名：
 
 ```bash
 npx tsx --test test/71-product-entry.test.ts test/32-dev.test.ts
 npx tsx --test verification/foundation/test/03-tools.test.ts
 ```
 
-测试集中保留目录与编号；按功能词找覆盖分支，跨模块再查调用者。下表列起点，完整列表用 `rg --files test`。
+按功能词找覆盖分支，跨模块再查调用者；下表列起点，完整列表用 `rg --files test`。
 
 | 修改位置 | 常用测试起点 |
 | --- | --- |
@@ -45,9 +45,11 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
 | `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |
+| `scripts/test-app.mjs` 的分批与退出 | `test/124-test-app-runner.test.ts`；共享 UID 孤儿冲突的独占清单由脚本持有 |
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts` |
 | 工作流回答、最终送达与调度归属 | `test/114-workflow-owner-input.test.ts` 至 `test/116-workflow-notification-recovery.test.ts` |
 | 工作流定义与入口 | `test/117-workflow-library.test.ts` 至 `test/120-workflow-cli.test.ts`；模型/IM 为本地替身 |
+| 双产品六输入联合验收 | `test/121-workflow-personal-acceptance.test.ts`、`test/122-workflow-code-acceptance.test.ts`；真实工具、联网/IM 替身 |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、worktree 与导入 | `test/80-subagent-delegation.test.ts` 至 `test/87-retire-coding-role.test.ts`、`test/91-release-acceptance.test.ts`、`test/95-work-copy.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
@@ -76,10 +78,11 @@ GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm r
 | `npm run test:upgrade` | Git、依赖安装网络与基线版本；smoke-24 的 `--upgrade-only` 路径，使用 mock 模型 |
 | `npm run test:model` | `~/.pi/agent/` 的模型配置与凭据；按 provider 尝试短往返，首次成功后停止 |
 | `npm run test:release-model` | 已构建的原生执行入口、Python PTY 与显式模型配置；smoke-24 的真实模型编码、TUI 退出后继续与重连 |
+| [真实工作流模型命令](../verification/smoke/README.md) | DeepSeek 与原生 worker；双产品工具启动、等待聊天、实际工具与唯一汇总，不发送真实 IM |
 
 原生边界按[平台脚本](../verification/foundation/scripts/native-isolation/README.md)单独验收；缺能力或对照时返回不可验证；离线用例不替代真实 OS 证据。
 
-具体脚本、参数、退出码和清理行为见 [smoke 运行说明](../verification/smoke/README.md)。真实模型编码验收使用 `npm run test:release-model -- --models /path/to/models.json --model provider/model`；模型配置可以包含凭据，应使用工作树外的受保护文件。升级默认基点与旧产品名称的边界见[发布验收的复跑说明](release-acceptance.md#当前复跑入口)。真实模型编码入口在启动 TUI 前，按实际子进程的环境检查所选模型的配置、认证、思考档位与预算；此检查不调用模型。配置需能独立提供认证，不继承模型 API key 环境变量，也不读取个人或相邻的 `auth.json`；仅有请求头不能证明认证可用。前提不满足时退出 2。`test:model` 缺少配置时提示跳过，这种结果不计为真实模型验证通过。真实模型编码与安装升级是独立检查，需要分别执行。外部验收与离线检查分别执行：历史 Docker 结果不替代原生 Linux 的权限验证，模拟平台也不代表真实 QQ / Telegram 已验收。旧 systemd / sudo 脚本保存在[特权脚本归档](../verification/archive/README.md)，其系统写入需要隔离改造后再提供运行入口。当前发布证据与仍需人工完成的项目见 [发布验收](release-acceptance.md)。
+脚本参数、模型认证、退出码与清理见 [smoke 说明](../verification/smoke/README.md)，模型凭据放在工作树外的受保护文件。升级基点与旧名称边界见[复跑说明](release-acceptance.md#当前复跑入口)。`test:model` 缺配置跳过，不计通过；模型编码与安装升级分别验收。历史 Docker 不替代 Linux 原生权限证据，模拟 IM 不代表真实平台通过。旧 systemd/sudo 脚本见[特权归档](../verification/archive/README.md)，恢复执行前隔离系统写入。当前证据与人工项目见[发布验收](release-acceptance.md)。
 
 ## 开发实例
 

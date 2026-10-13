@@ -28,7 +28,7 @@ Agent 尝试继续建立既有工作、SubAgent、独立 Session 与 Task；宿�
 
 ## 既有笔记审计
 
-[工作流提案](../../proposed/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有执行基础，其余能力与产品入口继续由提案持有。[脚本隔离](2026-10-13-workflow-script-isolation.md)部分重叠，增加实际身份的宿主回调，不改变进程权限或停止保证。[工作/Agent/任务](2026-10-03-work-delegation-subagent-task.md)与[普通恢复](2026-10-05-subagent-restart-recovery.md)部分重叠，仅新增绑定路径，普通行为保留。[副本](2026-10-04-subagent-worktrees.md)、[停止事实](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md)及[完全访问](../feature/2026-10-12-full-access-current-account.md)部分重叠，复用实际执行与授权规则。[两方向导入](2026-10-04-legacy-instance-import.md)及[个人导入](2026-10-05-personal-instance-import.md)部分重叠，新增不能静默丢绑定的拒绝。其余产品、平台、调度与资料命中保持原归属，无整篇吸收或删除。
+[工作流提案](../../implemented/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有执行基础，其余能力与产品入口继续由提案持有。[脚本隔离](2026-10-13-workflow-script-isolation.md)部分重叠，增加实际身份的宿主回调，不改变进程权限或停止保证。[工作/Agent/任务](2026-10-03-work-delegation-subagent-task.md)与[普通恢复](2026-10-05-subagent-restart-recovery.md)部分重叠，仅新增绑定路径，普通行为保留。[副本](2026-10-04-subagent-worktrees.md)、[停止事实](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md)及[完全访问](../feature/2026-10-12-full-access-current-account.md)部分重叠，复用实际执行与授权规则。[两方向导入](2026-10-04-legacy-instance-import.md)及[个人导入](2026-10-05-personal-instance-import.md)部分重叠，新增不能静默丢绑定的拒绝。其余产品、平台、调度与资料命中保持原归属，无整篇吸收或删除。
 
 ## 备选方案
 

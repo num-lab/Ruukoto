@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * TUI 视图状态与终端安全（issue 04 §3/§5 的显示侧）。
  *
@@ -15,7 +16,7 @@ import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
 import { ViewState, MAX_LOADED_ENTRIES, accessModeLabel, accessModeStyle, formatAccessMode, type SessionView } from "@ruukoto/tui/tui/state.ts";
 import { sanitizeForDisplay } from "@ruukoto/tui/tui/sanitize.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
-import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
 
 const messages = (view: SessionView) => view.flow.items.filter((entry) => entry.kind === "message");
@@ -66,6 +67,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     sessionId: "sess_1",
     requestId: `req-${id}`,
     input: "输入",
+    inputPurpose: "user",
     modelSelection: null,
     submissionDigest: null,
     status: "running",
@@ -120,7 +122,7 @@ test("工作流运行/合法 state 步骤/执行各有事件键，旧事件和�
 
 function histEntry(entryId: string, role: string, text: string, extra: Partial<HistoryEntryView> = {}): HistoryEntryView {
   return {
-    entryId,
+    entryId, taskId: null, inputPurpose: "user",
     parentId: null,
     role,
     timestamp: "2026-09-20T00:00:00Z",
@@ -136,6 +138,57 @@ function histEntry(entryId: string, role: string, text: string, extra: Partial<H
     ...extra,
   };
 }
+
+test("内部回报单条历史先于任务和引用到达时全程隐藏；重连及分页仍保留最终总结与同文用户输入", () => {
+  const state = new ViewState();
+  state.applySnapshot({ snapshot: snapshot(), seq: 0, replay: [] }, false);
+  const view = state.openSession("sess_1");
+  const input = "[工作流最终回报] 同一正文";
+  const internal = task("report", { input, inputPurpose: "internal_report", historyEntryIds: ["report-input", "report-answer"] });
+  const entry = histEntry("report-input", "user", input, { taskId: internal.id, inputPurpose: "internal_report" });
+  const users = () => view.flow.items.filter(item => item.kind === "message" && item.role === "user");
+  state.appendEntryView("sess_1", entry);
+  assert.deepEqual(users(), [], "补读到达时已分类，不等待任务事件");
+  state.applyEvent(ev(3, { type: "task.queued", taskId: internal.id, sessionId: "sess_1", requestId: internal.requestId,
+    accessMode: "confirm", planMode: false, modelSelection: null }), "live");
+  state.applyEvent(ev(4, { type: "task.started", taskId: internal.id, sessionId: "sess_1" }), "live");
+  state.installTaskDetail(internal, [], null, 2);
+  assert.deepEqual(users(), [], "较旧详情仍需在补输入时同步用途，不让新状态事件把输入变成用户要求");
+  state.upsertTask(internal);
+  state.applyEvent(ev(1, { type: "task.output_entry", taskId: internal.id, sessionId: "sess_1", entryId: entry.entryId,
+    role: "user", messageId: null, sessionFile: "diagnostic.jsonl" }), "live");
+  assert.deepEqual(users(), []);
+  const answer = histEntry("report-answer", "assistant", "最终总结", { taskId: internal.id, inputPurpose: "internal_report" });
+  state.appendEntryView("sess_1", answer);
+  assert.ok(view.flow.items.some(item => item.kind === "message" && item.text === "最终总结"));
+  state.applySnapshot({ snapshot: snapshot({ tasks: [internal] }), seq: 2, replay: [] }, false);
+  assert.deepEqual(users(), [], "活动任务快照也不显示内部输入");
+  state.installHistoryPage("sess_1", { fileAvailable: true, hasPartialTail: false, entries: [answer], nextBefore: answer.entryId }, "replace");
+  state.installHistoryPage("sess_1", { fileAvailable: true, hasPartialTail: false, entries: [entry], nextBefore: null }, "prepend");
+  assert.deepEqual(users(), []);
+  state.upsertTask(task("owner", { input, requestId: "workflow-final:fake:1" }));
+  assert.equal(users().length, 1, "同文与请求键前缀不决定分类");
+  state.appendEntryView("sess_1", histEntry("broken", "user", "缺关联原文", { taskId: "missing", taskAssociationError: "task_missing" }));
+  assert.equal(users().length, 2);
+  assert.ok(view.flow.items.some(item => item.kind === "note" && item.text.includes("关联任务不存在")));
+});
+
+test("关联有缺口的历史原文保持独立，后到内部任务引用与终态事件不撤去普通展示", () => {
+  const state = new ViewState();
+  state.applySnapshot({ snapshot: snapshot(), seq: 0, replay: [] }, false);
+  const internal = task("report", { input: "内部输入", inputPurpose: "internal_report" });
+  state.upsertTask(internal);
+  const view = state.openSession("sess_1");
+  const errors = ["task_missing", "task_outside_session", "task_marker_missing"] as const;
+  for (const error of errors) {
+    state.appendEntryView("sess_1", histEntry(error, "user", error, { taskId: error === "task_marker_missing" ? null : internal.id, taskAssociationError: error }));
+    state.applyEvent(ev(1, { type: "task.output_entry", taskId: internal.id, sessionId: "sess_1", entryId: error,
+      role: "user", messageId: null, sessionFile: "diagnostic.jsonl" }), "live");
+  }
+  state.applyEvent(ev(2, { type: "task.completed", taskId: internal.id, sessionId: "sess_1" }), "live");
+  assert.deepEqual(new Set(view.flow.items.filter(entry => entry.kind === "message" && entry.role === "user").map(entry => entry.kind === "message" ? entry.text : "")), new Set(errors));
+  assert.equal(view.flow.items.filter(entry => entry.kind === "note" && entry.key.startsWith("history-association:")).length, 3);
+});
 
 test("命令历史重同步不重复，超过 50 条仍保留，切换数据实例不串记录", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-command-state-"));

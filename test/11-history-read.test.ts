@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import {
   HistoryReadError,
   parseSessionFileStrict,
@@ -35,6 +36,28 @@ function msgEntry(id: string, role: string, text: string, extra: Record<string, 
     message: { role, content: text, timestamp: 1700000000000, ...extra },
   });
 }
+
+test("分页和单条读取保留原任务关联；中断缺结束标记后新任务仍可读取，旧无标记消息保留", () => {
+  const marker = (id: string, customType: string, taskId: unknown) => JSON.stringify({ type: "custom", id, customType, data: { taskId } });
+  const file = tmpFile([msgEntry("legacy", "user", "旧历史"), marker("s1", TASK_START_MARKER, "interrupted"),
+    msgEntry("u1", "user", "未结束"), marker("s2", TASK_START_MARKER, "report"), msgEntry("u2", "user", "内部原文"),
+    msgEntry("a2", "assistant", "最终总结"), marker("e2", TASK_END_MARKER, "report"), msgEntry("after", "user", "标记外")]);
+  try {
+    const newest = readHistoryPage(file, { limit: 2 });
+    assert.deepEqual(newest.entries.map(entry => [entry.entryId, entry.taskId]), [["a2", "report"], ["after", null]]);
+    const older = readHistoryPage(file, { before: newest.nextBefore!, limit: 3 });
+    assert.deepEqual(older.entries.map(entry => [entry.entryId, entry.taskId]), [["legacy", null], ["u1", "interrupted"], ["u2", "report"]]);
+    assert.equal(readHistoryEntryText(file, "u2").taskId, "report");
+    assert.equal(readHistoryEntryText(file, "u2").text, "内部原文");
+    for (const lines of [[marker("bad", TASK_START_MARKER, 1)],
+      [marker("s", TASK_START_MARKER, "one"), marker("e", TASK_END_MARKER, "other")]]) {
+      fs.writeFileSync(file, [...lines, msgEntry("u", "user", "保留")].join("\n") + "\n");
+      for (const read of [() => readHistoryPage(file), () => readHistoryEntryText(file, "u")]) {
+        assert.throws(read, (err: unknown) => err instanceof HistoryReadError && err.code === "history_corrupt");
+      }
+    }
+  } finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
+});
 
 test("最新一页与向前翻页：游标链覆盖全部条目且不重复", () => {
   const ids = Array.from({ length: 12 }, (_, i) => `e${String(i).padStart(2, "0")}`);

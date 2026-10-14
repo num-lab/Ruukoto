@@ -96,6 +96,8 @@
 
 ## 数据与状态
 
+工作流内部回报的 user 输入按后台 `inputPurpose=internal_report` 从 EventFlow 可见投影过滤，实时、重连、分页和单条补读均生效；↑ 历史补种和置顶要求沿同一投影。最终 assistant 总结照常展示，搜索与诊断保留原文；关联缺口显示提示并保留普通正文。
+
 手动压缩的待核实关联保存在客户端待确认目录的 `compactions/`，包括发起会话、请求键、指引、命令历史键和实例身份，终态才清除。命令回显与结果归发起会话，不成为普通任务输入或 JSONL 消息。在线通过会话事件与定时查询核实；切换、重连及退出重进查询原请求，后台明确未接收才按原键重发，实例变化则保留记录供核实。另一客户端查询会话最新结果，不依赖原客户端仍在等待。
 
 终端自身的持久状态只有三处：待发送请求的记录、命令行的私有记录、`--demo` 的待核实记录。会话内容、任务与工作清单都不是终端状态，它们从后台读取。
@@ -239,6 +241,8 @@ sequenceDiagram
 - **待确认请求目录**：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
 
 ## 设计依据
+
+- [内部回报的可信展示分类](../../.agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md)
 
 - [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 

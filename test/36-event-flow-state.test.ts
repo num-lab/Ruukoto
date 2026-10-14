@@ -1,8 +1,9 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
-import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { ToolOpView } from "@ruukoto/core/views.ts";
 import { EventFlow } from "@ruukoto/tui/tui/event-flow.ts";
 import { EventFlowView } from "@ruukoto/tui/tui/event-flow-view.ts";
@@ -13,7 +14,7 @@ const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => (
 const messages = (flow: EventFlow) => flow.items.filter((entry) => entry.kind === "message");
 function task(id = "task", extra: Partial<Task> = {}): Task {
   return {
-    id, sessionId: "session", requestId: `request:${id}`, input: "same input", modelSelection: null,
+    id, sessionId: "session", requestId: `request:${id}`, input: "same input", inputPurpose: "user", modelSelection: null,
     submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1,
     sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
@@ -23,7 +24,7 @@ function task(id = "task", extra: Partial<Task> = {}): Task {
   };
 }
 function history(entryId: string, role: string, text: string, extra: Partial<HistoryEntryView> = {}): HistoryEntryView {
-  return { entryId, parentId: null, role, text, timestamp: at(1), offset: 0, totalBytes: Buffer.byteLength(text), truncated: false,
+  return { entryId, taskId: null, inputPurpose: "user", parentId: null, role, text, timestamp: at(1), offset: 0, totalBytes: Buffer.byteLength(text), truncated: false,
     toolCalls: [], toolCallId: null, toolName: null, isError: null, hasNonTextContent: false, ...extra };
 }
 function fragment(seq: number, text: string, extra: Partial<Extract<PersistentEvent["body"], { type: "task.output_fragment" }>> = {}): PersistentEvent {

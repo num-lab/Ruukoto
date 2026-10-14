@@ -167,6 +167,7 @@ import {
   type BoundedText,
   type ConfirmationRequestView,
   type OutputPreview,
+  type TaskView,
   type ToolOpView,
 } from "@ruukoto/core/views.ts";
 import { GIT_SAFE_DIRECTORY_ENV,grantCoversPath,resolveWorktreeCommonGitDir,taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
@@ -2756,7 +2757,7 @@ export class Runtime {
     deadline?: string | null;
     /** 仅宿主最终送达使用；与汇总任务在同一事务建立可信绑定。 */
     workflowRunId?: string;
-  }, internal = false): Promise<Task> {
+  }, internal = false): Promise<TaskView> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
@@ -2816,7 +2817,7 @@ export class Runtime {
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
     const submissionDigest = `request-v2:${digest(submission)}`;
     const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
-    if (existing) return existing;
+    if (existing) return this.taskView(existing);
     this.assertNoSessionCompaction(input.sessionId);
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
@@ -2898,7 +2899,7 @@ export class Runtime {
       throw err;
     }
     if (!duplicate) this.kick(input.sessionId);
-    return task;
+    return this.taskView(task);
   }
 
   /**
@@ -2920,7 +2921,7 @@ export class Runtime {
    * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
    * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
    */
-  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
+  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<TaskView> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
     if (getWorkflowExecution(this.store, old.id)) throw new RuntimeApiError("invalid_state", "工作流执行由运行恢复，不接受普通任务继续");
@@ -2971,7 +2972,7 @@ export class Runtime {
    * - running（工具执行中）：登记待生效模式，在下一个工具边界应用；
    *   执行中的调用继续使用开始时的范围；需要立即停止请用中断。
    */
-  async switchTaskMode(input: { taskId: string; mode: AccessMode; grantedPaths?: GrantedPath[] }): Promise<Task> {
+  async switchTaskMode(input: { taskId: string; mode: AccessMode; grantedPaths?: GrantedPath[] }): Promise<TaskView> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
@@ -3033,7 +3034,7 @@ export class Runtime {
         if (driver && task.status === "awaiting_confirmation") {
           driver.supersedeWaiters();
         }
-        return this.store.getTask(task.id)!;
+        return this.taskView(this.store.getTask(task.id)!);
       } finally {
         this.modeSwitchStopping.delete(task.id);
       }
@@ -3047,7 +3048,7 @@ export class Runtime {
         );
       }
     });
-    return this.store.getTask(task.id)!;
+    return this.taskView(this.store.getTask(task.id)!);
   }
 
   // ---------- 审批 / 产物 / 凭据 ----------
@@ -3815,7 +3816,7 @@ export class Runtime {
   snapshot(): {
     projects: Project[];
     sessions: Session[];
-    tasks: Task[];
+    tasks: TaskView[];
     confirmations: ConfirmationRequestView[];
     artifacts: Artifact[];
     previews: Record<string, OutputPreview>;
@@ -3848,7 +3849,7 @@ export class Runtime {
     return {
       projects: this.store.listProjects(),
       sessions,
-      tasks,
+      tasks: tasks.map(task => this.taskView(task)),
       confirmations: this.store.listConfirmationsByStatus("pending").map(confirmationToView),
       artifacts: this.listRecentArtifacts(),
       previews,
@@ -3950,7 +3951,7 @@ export class Runtime {
    */
   getTaskDetail(taskId: string): {
     seq: number;
-    task: Task;
+    task: TaskView;
     toolOps: ToolOpView[];
     confirmations: ConfirmationRequestView[];
     artifacts: Artifact[];
@@ -3960,7 +3961,7 @@ export class Runtime {
     if (!task) return null;
     return {
       seq: this.store.getMaxSeq(),
-      task,
+      task: this.taskView(task),
       toolOps: this.store.listToolOpsByTask(task.id).map(toolOpToView),
       confirmations: this.store.listConfirmationsByTask(task.id).map(confirmationToView),
       artifacts: this.store.listArtifactsByTask(task.id),
@@ -3969,33 +3970,63 @@ export class Runtime {
   }
 
   /** 按 会话 + request_id 精确查询（重连幂等核实；含已离开快照的完成任务）。 */
-  findTaskByRequest(input: { sessionId: string; requestId: string }): { task: Task | null } {
+  findTaskByRequest(input: { sessionId: string; requestId: string }): { task: TaskView | null } {
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
-    return { task: this.store.findTaskByRequest(input.sessionId, input.requestId) };
+    const task = this.store.findTaskByRequest(input.sessionId, input.requestId);
+    return { task: task ? this.taskView(task) : null };
   }
 
   /** 会话内任务分页（新 → 旧；已结束任务的历史查询入口）。 */
-  listTasks(input: { sessionId: string; before?: string; limit?: number }): { tasks: Task[]; hasMore: boolean } {
+  listTasks(input: { sessionId: string; before?: string; limit?: number }): { tasks: TaskView[]; hasMore: boolean } {
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+    let page: { tasks: Task[]; hasMore: boolean };
     try {
-      return this.store.listTasksBySessionPaged(input.sessionId, { before: input.before, limit: input.limit });
+      page = this.store.listTasksBySessionPaged(input.sessionId, { before: input.before, limit: input.limit });
     } catch (err) {
       if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
       throw err;
     }
+    return { ...page, tasks: page.tasks.map(task => this.taskView(task)) };
   }
 
   // ---------- 历史读取（与 05 历史工具共用的读取边界） ----------
 
+  // Note: 见 .agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md
+  private taskView(task: Task): TaskView {
+    return { ...task, inputPurpose: getWorkflowDeliveryRun(this.store, task.id) ? "internal_report" : "user" };
+  }
+
+  private historyViews(session: Session, entries: HistoryEntryView[]): HistoryEntryView[] {
+    const unmarked = new Set(entries.filter(entry => entry.role === "user" && !entry.taskId).map(entry => entry.entryId));
+    const missingMarkers = new Set<string>();
+    if (unmarked.size) {
+      const tasks = [...this.store.listTasksBySession(session.id),
+        ...(session.branchSource?.taskIds ?? []).map(id => this.store.getTask(id)).filter(task => task !== null)];
+      for (const task of tasks) {
+        const refs = task.historyEntryIds.filter(id => unmarked.has(id));
+        if (refs.length && this.taskView(task).inputPurpose === "internal_report") for (const id of refs) missingMarkers.add(id);
+      }
+    }
+    return entries.map(entry => {
+      if (!entry.taskId) return missingMarkers.has(entry.entryId) ? { ...entry, taskAssociationError: "task_marker_missing" } : entry;
+      const task = this.store.getTask(entry.taskId);
+      if (!task) return { ...entry, taskAssociationError: "task_missing" };
+      if (task.sessionId !== session.id && !session.branchSource?.taskIds.includes(task.id)) {
+        return { ...entry, taskAssociationError: "task_outside_session" };
+      }
+      return { ...entry, inputPurpose: this.taskView(task).inputPurpose };
+    });
+  }
+
   /** 历史读取的公共边界：会话归属校验 + 错误码传递（损坏 vs 未落盘）。 */
-  private withSessionHistory<T>(sessionId: string, fn: (sessionFile: string | null) => T): T {
+  private withSessionHistory<T>(sessionId: string, fn: (sessionFile: string | null, session: Session) => T): T {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${sessionId}`);
     try {
-      return fn(session.sessionFile);
+      return fn(session.sessionFile, session);
     } catch (err) {
       if (err instanceof HistoryReadError) throw new RuntimeApiError(err.code, err.message);
       throw err;
@@ -4014,13 +4045,16 @@ export class Runtime {
     entryTextCap?: number;
     pageTextBudget?: number;
   }): HistoryPage {
-    return this.withSessionHistory(input.sessionId, (file) => readHistoryPage(file, input));
+    return this.withSessionHistory(input.sessionId, (file, session) => {
+      const page = readHistoryPage(file, input);
+      return { ...page, entries: this.historyViews(session, page.entries) };
+    });
   }
 
   /** 指定历史条目的正文分段（字节偏移，UTF-8 边界对齐）。 */
   readHistoryEntry(input: { sessionId: string; entryId: string; offset?: number; length?: number }): HistoryEntryView {
-    return this.withSessionHistory(input.sessionId, (file) =>
-      readHistoryEntryText(file, input.entryId, input.offset, input.length),
+    return this.withSessionHistory(input.sessionId, (file, session) =>
+      this.historyViews(session, [readHistoryEntryText(file, input.entryId, input.offset, input.length)])[0],
     );
   }
 

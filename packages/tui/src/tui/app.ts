@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * TUI 应用：pi-tui 布局、输入路由、命令与覆盖层。
  *
@@ -38,7 +39,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { basename, join } from "node:path";
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
-import { requestOutcome } from "@ruukoto/control/client.ts";
+import { ControlClientError, requestOutcome } from "@ruukoto/control/client.ts";
 import type { ControlConnection } from "@ruukoto/control/connection.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
@@ -56,7 +57,7 @@ import {
 import { productFromEnv } from "@ruukoto/core/product.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import type { ConfirmationRequestView } from "@ruukoto/core/views.ts";
-import type { SessionDefaultMode, SessionCompactionRequest, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session, Task } from "@ruukoto/core/types.ts";
+import type { SessionDefaultMode, SessionCompactionRequest, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session } from "@ruukoto/core/types.ts";
 import type { ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { SESSION_DEFAULT_MODES } from "@ruukoto/core/types.ts";
 import type { ContextBreakdown } from "@ruukoto/agent/context-selector.ts";
@@ -1589,8 +1590,10 @@ export class TuiApp {
         entry = { ...entry, text, truncated: false };
       }
       if (this.state.appendEntryView(sessionId, entry)) this.refreshTranscript();
-    } catch {
-      // 条目可能尚未对读取可见（尾部写入中）；下一次翻页/重载会补齐
+    } catch (err) {
+      // 条目尚未落盘时由下一次翻页/重载补齐；损坏必须可见。
+      if (err instanceof ControlClientError && err.code === "entry_not_found") return;
+      if (generation === this.generation) this.notify(`历史条目读取失败：${(err as Error).message}`);
     }
   }
 

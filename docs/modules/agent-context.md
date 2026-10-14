@@ -41,6 +41,8 @@
 
 ## 数据与状态
 
+内部工作流回报仍以普通 user 消息保存并进入模型请求；输入用途只影响 TUI 展示，不改变上下文分组、搜索与压缩，最终 assistant 总结仍可见。
+
 **会话历史。** pi JSONL 是消息历史的唯一权威副本，只追加。SQLite 的 `history_index` 是可重建的位置索引：会话、条目 id、角色、时间戳、字节偏移，**不含消息正文**。任务边界由 `ruukoto_task_start` / `ruukoto_task_end` custom 条目标记；任务没有结束标记（崩溃、中断）时其字节范围延伸到文件尾。
 
 **压缩点（`context_checkpoints`）。** 字段：`summarized_count`（S，分支前 S 条消息由摘要替代）、`cleared_count`（C，≥ S，[S, C) 的工具结果换成占位说明）、`summary`、`summary_until`（第 S 条消息的 UTC 时间）、`cleared_refs`（toolCallId → 条目 id）、`summary_model`、`summary_status`（`ok | failed | none`）、失败原因、提示版本 `compaction-v2`、`usage`、估算前后、建立它的任务与调用序号或手动请求来源。部分唯一索引保证每个会话至多一行 `active`；新建时旧行在同一事务里改为 `superseded`。S 与 C 只落在单元边界：完整交互的开头，或当前任务已完成批次的开头。
@@ -171,6 +173,8 @@ sequenceDiagram
 `workflow_instructions` 的编写说明以工具结果进入发起会话历史，实际工具定义仍随每次请求快照保存；没有新增未记录的参考输入。[工作流步骤](workflows.md)有自己的 JSONL 和系统提示，不自动复制主聊天、项目指令或长期记忆。来源允许时技能目录按既有选择记录保存，正文由 `skill` 工具进入历史；这一例外须有持久执行绑定，普通受限会话不注入技能。步骤参数、明确依赖值及来源/副本目录由宿主记录；资料 API 使用启动授权与当前授权的交集，发送前复核依赖闭包，跨运行历史、步骤产物与 prompt 快照拒绝读取。
 
 ## 设计依据
+
+- [内部回报的可信展示分类](../../.agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md)
 
 - [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
 

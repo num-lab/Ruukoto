@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * 合成调试会话（`ruukoto --demo`）：不连后台，用一个假客户端喂出
  * 覆盖全部事件类型与界面状态的静态数据，用来调试 TUI 渲染。
@@ -21,7 +22,6 @@ import type {
   Project,
   SelectionRecord,
   Session,
-  Task,
   ToolOp,
 } from "@ruukoto/core/types.ts";
 import { confirmationToView, toolOpToView } from "@ruukoto/core/views.ts";
@@ -43,6 +43,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
   return {
     sessionId: SESSION_ID,
     requestId: `req-${over.id}`,
+    inputPurpose: "user",
     input: "合成任务",
     modelSelection: MODEL,
     submissionDigest: null,
@@ -153,6 +154,7 @@ const CONFIRMATION: ConfirmationRequest = {
 /** 历史条目：覆盖各角色与边界（截断、工具错误、含非文本内容）。 */
 function historyEntries(): HistoryEntryView[] {
   const entry = (over: Partial<HistoryEntryView> & { entryId: string; role: string; text: string }): HistoryEntryView => ({
+    taskId: null, inputPurpose: "user",
     parentId: null,
     timestamp: ts(30),
     offset: 0,

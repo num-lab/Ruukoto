@@ -81,6 +81,7 @@ docs/               面向人类；docs/modules/ 按模块；docs/agents/ 是 ag
 | 行为、架构、跨文件契约、流程、测试策略、落盘或协议格式 | 决策笔记（[maintain-notes](.agents/skills/maintain-notes/SKILL.md)），`npm run verify-notes` |
 | 某模块的可观察行为 | `docs/modules/` 对应那篇；新增模块同时改[模块地图](docs/architecture.md#模块地图)，`npm run check:docs` |
 | 注释、JSDoc、docs、notes、skill、提示词、诊断文本 | 按 [prose-standard](.agents/skills/prose-standard/SKILL.md) 判断该写什么、删什么 |
+| 模型可见的工具定义、参数 schema、结果与错误文本、系统提示措辞 | [agent-facing-text](.agents/skills/agent-facing-text/SKILL.md)（写什么）+ prose-standard（怎么写） |
 | 命令、脚本、依赖或入口 | 同一改动里更新 `README.md`、[开发说明](docs/development.md) 与[提交前检查](.agents/skills/pre-push-checks/SKILL.md)中受影响的命令 |
 | 本文件或 `.agents/skills/` | 被链接目标存在，被引用命令与 `package.json` 一致 |
 

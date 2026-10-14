@@ -1,0 +1,681 @@
+{
+  "root": "/tmp/ab-fault-6d7b0da5",
+  "started_at": "2026-10-14T11:51:37+0900",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "native_sha256": "cc18fac41d9dc9821918340a136e643286ea05544c4dd35671b796f1a874cdef",
+  "commands": [
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "eof",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "open",
+        "http://127.0.0.1:61166/page/eof"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16590403459262658055},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"targetId\":\"FACF8593661F4525ADE2B8C63044DA83\",\"title\":\"Transport fault eof\",\"url\":\"http://127.0.0.1:61166/page/eof\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.822
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "eof",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "snapshot",
+        "-i"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16590403459262658055},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"origin\":\"http://127.0.0.1:61166/page/eof\",\"refs\":{\"e1\":{\"name\":\"Submit once\",\"role\":\"button\"}},\"removedRefs\":[],\"snapshot\":\"- button \\\"Submit once\\\" [ref=e1]\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.015
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "eof",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "click",
+        "#submit"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 1,
+      "stdout": "{\"success\":false,\"data\":null,\"error\":\"Invalid response: EOF while parsing a value at line 1 column 0 (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+      "stderr": "",
+      "duration_seconds": 0.025
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "eof",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "screenshot",
+        "/tmp/ab-fault-6d7b0da5/eof/after-click.png"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16590403459262658055},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"path\":\"/tmp/ab-fault-6d7b0da5/eof/after-click.png\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.018
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "eof",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "close"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.113
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "open",
+        "http://127.0.0.1:61166/page/timeout"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":373166452078515810},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"targetId\":\"A5277EF85AA8C5296D3114D9E3FF136D\",\"title\":\"Transport fault timeout\",\"url\":\"http://127.0.0.1:61166/page/timeout\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.455
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "snapshot",
+        "-i"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":373166452078515810},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"origin\":\"http://127.0.0.1:61166/page/timeout\",\"refs\":{\"e1\":{\"name\":\"Submit once\",\"role\":\"button\"}},\"removedRefs\":[],\"snapshot\":\"- button \\\"Submit once\\\" [ref=e1]\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.008
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "click",
+        "#submit"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 1,
+      "stdout": "{\"success\":false,\"data\":null,\"error\":\"Failed to read: Resource temporarily unavailable (os error 35) (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+      "stderr": "",
+      "duration_seconds": 30.006
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "screenshot",
+        "/tmp/ab-fault-6d7b0da5/timeout/after-click.png"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":373166452078515810},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"path\":\"/tmp/ab-fault-6d7b0da5/timeout/after-click.png\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.031
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/tmp/ab-fault-6d7b0da5/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "--config",
+        "/tmp/ab-fault-6d7b0da5/config.json",
+        "--json",
+        "close"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.111
+    }
+  ],
+  "cases": [
+    {
+      "case": "eof",
+      "counter_endpoint": "http://127.0.0.1:61166/counter/eof",
+      "files_before_fault": {
+        "eof.config": "785b971085b3e7e9",
+        "eof.sock": "unix socket",
+        "eof.pid": "74403",
+        "eof.version": "0.39.1"
+      },
+      "processes_before_fault": [
+        "74404 74403 Wed Oct 14 11:51:37 2026     /tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --remote-debugging-port=0 --no-first-run --no-default-browser-check --disable-background-networking --disable-backgrounding-occluded-windows --disable-component-update --disable-default-apps --disable-hang-monitor --disable-popup-blocking --disable-prompt-on-repost --disable-sync --disable-features=Translate --enable-features=NetworkService,NetworkServiceInProcess,WebMCPTesting,DevToolsWebMCPSupport --metrics-recording-only --password-store=basic --use-mock-keychain --headless=new --hide-scrollbars --enable-unsafe-swiftshader --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --window-size=1280,720",
+        "74413 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif GPU).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif GPU) --type=gpu-process --gpu-recent-crash-count=0 --headless=new --enable-unsafe-swiftshader --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --start-stack-profiler --gpu-preferences=WAAAAAAAAAAgAAAEAAAAAAAAAAAAAGAAQAAAAAAAAAADAAAAAAAAADgAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAgAAAAAAAAADAAAAAEAAAAAAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708988185955192 --seatbelt-client=29",
+        "74414 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif) --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --start-stack-profiler --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708989122997041 --seatbelt-client=29",
+        "74424 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif) --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=service --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708990060038890 --seatbelt-client=49",
+        "74426 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --top-chrome-webui --gpu-client-id=6 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --remote-debugging-port=0 --lang=en-US --disallow-v8-feature-flag-overrides --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=6 --gpu-channel-request-start-time-ticks=4693208299 --launch-time-ticks=4693208623 --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708991934122588 --seatbelt-client=86",
+        "74428 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=8 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=8 --gpu-channel-request-start-time-ticks=4693253386 --launch-time-ticks=4693253582 --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708993808206286 --seatbelt-client=86",
+        "74429 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=7 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=7 --gpu-channel-request-start-time-ticks=4693256114 --launch-time-ticks=4693256433 --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708992871164437 --seatbelt-client=86",
+        "74431 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=9 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --start-stack-profiler --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=9 --gpu-channel-request-start-time-ticks=4693420922 --launch-time-ticks=4693421218 --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708994745248135 --seatbelt-client=98",
+        "74432 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=10 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --extension-process --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=10 --gpu-channel-request-start-time-ticks=4693474765 --launch-time-ticks=4693474986 --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708995682289984 --seatbelt-client=104",
+        "74433 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=11 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --extension-process --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=11 --gpu-channel-request-start-time-ticks=4693478267 --launch-time-ticks=4693478419 --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708996619331833 --seatbelt-client=104",
+        "74434 74404 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=12 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/eof/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=12 --gpu-channel-request-start-time-ticks=4693523417 --launch-time-ticks=4693523734 --shared-files --field-trial-handle=1718379636,r,504154779118317601,6138389293883743453,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,10750367980004414980,5421894287384329933,4 --trace-process-track-uuid=3190708997556373682 --seatbelt-client=108"
+      ],
+      "daemon_pid": 74403,
+      "daemon_process_before_fault": {
+        "command": [
+          "ps",
+          "-p",
+          "74403",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 0,
+        "stdout": "74403     1 Wed Oct 14 11:51:37 2026     /private/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64\n",
+        "stderr": ""
+      },
+      "cli_response": {
+        "case": "eof",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+          "--session",
+          "eof",
+          "--profile",
+          "/tmp/ab-fault-6d7b0da5/eof/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+          "--config",
+          "/tmp/ab-fault-6d7b0da5/config.json",
+          "--json",
+          "click",
+          "#submit"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/eof/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 1,
+        "stdout": "{\"success\":false,\"data\":null,\"error\":\"Invalid response: EOF while parsing a value at line 1 column 0 (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+        "stderr": "",
+        "duration_seconds": 0.025
+      },
+      "readiness_empty_connections": 1,
+      "forwarded_count": 2,
+      "click_send_count": 1,
+      "forwarded": [
+        {
+          "received_at": 1791946297.998091,
+          "request_line": "{\"action\":\"launch\",\"executablePath\":\"/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing\",\"id\":\"r997901\",\"noXvfb\":false,\"plugins\":[],\"profile\":\"/tmp/ab-fault-6d7b0da5/eof/profile\"}\n",
+          "request": {
+            "action": "launch",
+            "executablePath": "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            "id": "r997901",
+            "noXvfb": false,
+            "plugins": [],
+            "profile": "/tmp/ab-fault-6d7b0da5/eof/profile"
+          }
+        },
+        {
+          "received_at": 1791946297.9984472,
+          "request_line": "{\"action\":\"click\",\"id\":\"r997836\",\"plugins\":[],\"selector\":\"#submit\"}\n",
+          "request": {
+            "action": "click",
+            "id": "r997836",
+            "plugins": [],
+            "selector": "#submit"
+          }
+        }
+      ],
+      "daemon_responses": [
+        {
+          "action": "launch",
+          "response_line": "{\"data\":{\"launched\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16590403459262658055},\"launched\":true,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"relaunchedBrowser\":false,\"reused\":true},\"id\":\"r997901\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "launched": true,
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 16590403459262658055
+                },
+                "launched": true,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              },
+              "relaunchedBrowser": false,
+              "reused": true
+            },
+            "id": "r997901",
+            "success": true
+          }
+        },
+        {
+          "action": "click",
+          "response_line": "{\"data\":{\"clicked\":\"#submit\",\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":16590403459262658055},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"}},\"id\":\"r997836\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "clicked": "#submit",
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 16590403459262658055
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              }
+            },
+            "id": "r997836",
+            "success": true
+          }
+        }
+      ],
+      "proxy_errors": [],
+      "counter_result": {
+        "case": "eof",
+        "count": 1
+      },
+      "passed": true,
+      "close_response": {
+        "case": "eof",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+          "--session",
+          "eof",
+          "--profile",
+          "/tmp/ab-fault-6d7b0da5/eof/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+          "--config",
+          "/tmp/ab-fault-6d7b0da5/config.json",
+          "--json",
+          "close"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/eof/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 0,
+        "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+        "stderr": "",
+        "duration_seconds": 0.113
+      },
+      "processes_after_close": [],
+      "daemon_process_after_close": {
+        "command": [
+          "ps",
+          "-p",
+          "74403",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 1,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "case": "timeout",
+      "counter_endpoint": "http://127.0.0.1:61166/counter/timeout",
+      "files_before_fault": {
+        "timeout.config": "785b971085b3e7e9",
+        "timeout.version": "0.39.1",
+        "timeout.sock": "unix socket",
+        "timeout.pid": "74501"
+      },
+      "processes_before_fault": [
+        "74511 74501 Wed Oct 14 11:51:39 2026     /tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --remote-debugging-port=0 --no-first-run --no-default-browser-check --disable-background-networking --disable-backgrounding-occluded-windows --disable-component-update --disable-default-apps --disable-hang-monitor --disable-popup-blocking --disable-prompt-on-repost --disable-sync --disable-features=Translate --enable-features=NetworkService,NetworkServiceInProcess,WebMCPTesting,DevToolsWebMCPSupport --metrics-recording-only --password-store=basic --use-mock-keychain --headless=new --hide-scrollbars --enable-unsafe-swiftshader --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --window-size=1280,720",
+        "74517 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif GPU).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif GPU) --type=gpu-process --gpu-recent-crash-count=0 --headless=new --enable-unsafe-swiftshader --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --start-stack-profiler --gpu-preferences=WAAAAAAAAAAgAAAEAAAAAAAAAAAAAGAAQAAAAAAAAAADAAAAAAAAADgAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAgAAAAAAAAADAAAAAEAAAAAAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA= --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708988185955192 --seatbelt-client=34",
+        "74518 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif) --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --start-stack-profiler --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708989122997041 --seatbelt-client=27",
+        "74519 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif) --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=service --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708990060038890 --seatbelt-client=63",
+        "74521 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --top-chrome-webui --gpu-client-id=6 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --remote-debugging-port=0 --lang=en-US --disallow-v8-feature-flag-overrides --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=6 --gpu-channel-request-start-time-ticks=4695277376 --launch-time-ticks=4695277579 --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708991934122588 --seatbelt-client=86",
+        "74523 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=8 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=8 --gpu-channel-request-start-time-ticks=4695313448 --launch-time-ticks=4695313677 --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708993808206286 --seatbelt-client=86",
+        "74524 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=7 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=7 --gpu-channel-request-start-time-ticks=4695314434 --launch-time-ticks=4695314657 --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708992871164437 --seatbelt-client=86",
+        "74526 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=9 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=9 --gpu-channel-request-start-time-ticks=4695415571 --launch-time-ticks=4695416143 --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708994745248135 --seatbelt-client=101",
+        "74527 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=10 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --extension-process --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=10 --gpu-channel-request-start-time-ticks=4695469778 --launch-time-ticks=4695470183 --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708995682289984 --seatbelt-client=104",
+        "74529 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=11 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --extension-process --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=11 --gpu-channel-request-start-time-ticks=4695483707 --launch-time-ticks=4695483981 --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708996619331833 --seatbelt-client=107",
+        "74531 74511 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework/Versions/155.0.8059.79/Helpers/Google Chrome for Testing Helper (Aperitif Renderer).app/Contents/MacOS/Google Chrome for Testing Helper (Aperitif Renderer) --type=renderer --gpu-client-id=12 --noerrdialogs --user-data-dir=/tmp/ab-fault-6d7b0da5/timeout/profile --remote-debugging-port=0 --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=12 --gpu-channel-request-start-time-ticks=4695491402 --launch-time-ticks=4695491674 --shared-files --field-trial-handle=1718379636,r,10666739093632821950,762582370277229598,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=1935764596,r,1374974618370556773,649119065421135681,4 --trace-process-track-uuid=3190708997556373682 --seatbelt-client=106"
+      ],
+      "daemon_pid": 74501,
+      "daemon_process_before_fault": {
+        "command": [
+          "ps",
+          "-p",
+          "74501",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 0,
+        "stdout": "74501     1 Wed Oct 14 11:51:39 2026     /private/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64\n",
+        "stderr": ""
+      },
+      "cli_response": {
+        "case": "timeout",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+          "--session",
+          "timeout",
+          "--profile",
+          "/tmp/ab-fault-6d7b0da5/timeout/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+          "--config",
+          "/tmp/ab-fault-6d7b0da5/config.json",
+          "--json",
+          "click",
+          "#submit"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/timeout/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 1,
+        "stdout": "{\"success\":false,\"data\":null,\"error\":\"Failed to read: Resource temporarily unavailable (os error 35) (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+        "stderr": "",
+        "duration_seconds": 30.006
+      },
+      "readiness_empty_connections": 1,
+      "forwarded_count": 2,
+      "click_send_count": 1,
+      "forwarded": [
+        {
+          "received_at": 1791946299.953707,
+          "request_line": "{\"action\":\"launch\",\"executablePath\":\"/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing\",\"id\":\"r953521\",\"noXvfb\":false,\"plugins\":[],\"profile\":\"/tmp/ab-fault-6d7b0da5/timeout/profile\"}\n",
+          "request": {
+            "action": "launch",
+            "executablePath": "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            "id": "r953521",
+            "noXvfb": false,
+            "plugins": [],
+            "profile": "/tmp/ab-fault-6d7b0da5/timeout/profile"
+          }
+        },
+        {
+          "received_at": 1791946299.954061,
+          "request_line": "{\"action\":\"click\",\"id\":\"r953459\",\"plugins\":[],\"selector\":\"#submit\"}\n",
+          "request": {
+            "action": "click",
+            "id": "r953459",
+            "plugins": [],
+            "selector": "#submit"
+          }
+        }
+      ],
+      "daemon_responses": [
+        {
+          "action": "launch",
+          "response_line": "{\"data\":{\"launched\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":373166452078515810},\"launched\":true,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"relaunchedBrowser\":false,\"reused\":true},\"id\":\"r953521\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "launched": true,
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 373166452078515810
+                },
+                "launched": true,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              },
+              "relaunchedBrowser": false,
+              "reused": true
+            },
+            "id": "r953521",
+            "success": true
+          }
+        },
+        {
+          "action": "click",
+          "response_line": "{\"data\":{\"clicked\":\"#submit\",\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":373166452078515810},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"}},\"id\":\"r953459\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "clicked": "#submit",
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 373166452078515810
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              }
+            },
+            "id": "r953459",
+            "success": true
+          }
+        }
+      ],
+      "proxy_errors": [],
+      "counter_result": {
+        "case": "timeout",
+        "count": 1
+      },
+      "passed": true,
+      "close_response": {
+        "case": "timeout",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+          "--session",
+          "timeout",
+          "--profile",
+          "/tmp/ab-fault-6d7b0da5/timeout/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+          "--config",
+          "/tmp/ab-fault-6d7b0da5/config.json",
+          "--json",
+          "close"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/tmp/ab-fault-6d7b0da5/timeout/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 0,
+        "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+        "stderr": "",
+        "duration_seconds": 0.111
+      },
+      "processes_after_close": [],
+      "daemon_process_after_close": {
+        "command": [
+          "ps",
+          "-p",
+          "74501",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 1,
+        "stdout": "",
+        "stderr": ""
+      }
+    }
+  ],
+  "native_version": {
+    "command": [
+      "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+      "--version"
+    ],
+    "returncode": 0,
+    "stdout": "agent-browser 0.39.1\n",
+    "stderr": ""
+  },
+  "chrome_version": {
+    "command": [
+      "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "--version"
+    ],
+    "returncode": 0,
+    "stdout": "Google Chrome for Testing 155.0.8059.79 \n",
+    "stderr": ""
+  },
+  "os_version": {
+    "command": [
+      "sw_vers"
+    ],
+    "returncode": 0,
+    "stdout": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+    "stderr": ""
+  },
+  "python_version": "3.14.5 (main, May 10 2026, 10:21:34) [Clang 21.0.0 (clang-2100.0.123.102)]",
+  "http_address": "http://127.0.0.1:61166",
+  "passed": true,
+  "processes_after_all": [],
+  "tracked_daemons_after_all": [
+    {
+      "command": [
+        "ps",
+        "-p",
+        "74403",
+        "-o",
+        "pid=,ppid=,lstart=,command="
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "ps",
+        "-p",
+        "74501",
+        "-o",
+        "pid=,ppid=,lstart=,command="
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "finished_at": "2026-10-14T11:52:11+0900"
+}

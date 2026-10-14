@@ -52,6 +52,10 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 
 原生选择保留两类防误判依据：Seatbelt 的规则按真实路径生成，/tmp 字串不能代替 /private/tmp；Ubuntu userns 的 profile 按正式 bwrap 路径匹配，临时解包的二进制缺许可不能算平台不支持。原失败记录与更正在[macOS 文件/生命周期报告](../../../../verification/foundation/results/native-macos-report.md)、[launchd 报告](../../../../verification/foundation/results/native-macos-launchd.md)、[Linux 启动报告](../../../../verification/foundation/results/native-linux-report.md)；公开实现比较在[原生 Agent 对照](../../../../.scratch/agent-direction/native-agent-comparison.md)。这些历史证据不覆盖后端接入后的产品验收。
 
+## 关联提案
+
+正常 bash 返回后的后台存活与跨轮执行方向见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案尚未落地，当前执行边界与任务收尾规则保持本篇及后续有效决定的约定。
+
 ## 备选方案
 
 - **宿主先解析路径，只把底层读写和 Shell 换成受限实现** — SDK 导出 `createBashTool` 等工具工厂并接受自定义 `BashOperations` 等执行层，这是上游给的官方缝隙（上游 Gondolin 示例就是这种做法）；这样不用另起工作进程，也不用维护进程间协议。不选，是因为包内 `read` 在调用自定义 `ReadOperations` 之前，仍经 `resolveReadPathAsync()` 调用宿主的 `fs.access`，路径解析会落在边界外；所以把上游工具定义的完整执行整体放进工作进程。（见 [personal-agent issue 03](../../../../.scratch/personal-agent/issues/03-tools-and-access.md) 实施计划 §1，[阶段 0 基础验证结论](../../../../.scratch/personal-agent/foundation-findings.md)「权限边界与 Linux 受限执行」）

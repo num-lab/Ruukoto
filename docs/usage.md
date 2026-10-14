@@ -109,7 +109,10 @@ npm start -- continue <taskId> <newRequestId> "继续输入" [--mode ...]
 npm start -- resume-queue <sessionId> # 拥有者确认后恢复队列（并释放遗留占用）
 npm start -- confirm <confirmationId> approve|reject
 npm start -- read-artifact <taskId> <artifactId> [--offset N] [--length N]
+npm start -- read-artifact <taskId> <artifactId> --output /path/to/file
 ```
+
+`read-artifact` 默认向 stdout 输出一页正文（默认 256 KiB，单页最多 720 KiB）；`--offset` / `--length` 按字节切片。`--output` 自动分页导出完整的 `complete` 产物，核对每页元数据、总字节数及图片的 MIME 与 SHA-256，成功后以 0600 文件原子替换目标；读取、校验或写入失败时保留原目标。`--output` 不能与切片参数同用；`partial` 产物只能切片查看已捕获部分。
 
 `request_id` 由客户端保存、唯一范围为会话：提交落盘但应答丢失时，同键同参数（含模式与授权范围）重试返回原任务，同键异参返回 `request_conflict`。
 
@@ -620,3 +623,21 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 - 原生任务使用实际后台账户的目录权限与宿主工具；HOME/TMPDIR 使用宿主临时磁盘，无单任务配额，停止未核实保留现场与占用。
 - 服务器服务管理只覆盖白名单服务的检查与重启。
 - 真实 QQ／Telegram 平台与 macOS 完全访问的正向路径缺少实测证据（目前均为模拟平台）；跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂尚未交付。逐项证据见[发布与验收说明](release-acceptance.md)。
+
+## 12. 浏览器
+
+两个产品的完全访问拥有者 main / 普通开发会话可直接调用 `browser` 打开网页、操作表单和看截图。其他模式、Plan、SubAgent、定时、工作流和 GitHub 评审不开放。先在运行后台的机器准备 [agent-browser v0.39.1 官方原生资产](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.1)及可运行的 Chromium；无需安装要求 Node ≥24 的 npm wrapper，宿主继续支持 Node 22.19/24。程序按官方 SHA-256 和版本核实；准备缺失只使浏览器不可用，模型任务不自动安装或提权。
+
+```bash
+RUUKOTO_BROWSER_BINARY=/absolute/path/agent-browser-darwin-arm64 \
+RUUKOTO_BROWSER_CHROME="/absolute/path/Chromium" ruukoto server
+# ruukoto-code server 使用同一组浏览器路径变量；各产品数据目录继续隔离
+```
+
+Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁盘空间；常驻服务将两个路径变量交给实际后台进程。默认 macOS 有头、Linux 无头。先让 Agent `start`，再打开登录页并 `pause`；按返回的 `dashboardUrl` 或有头窗口人工输入密码与验证码，密码不要发给 Agent。Linux 将该 URL 的端口经 `ssh -N -L 127.0.0.1:<本地端口>:127.0.0.1:<服务端端口> <主机>` 转发，只在本地打开。dashboard 只承担人工键鼠输入，不配置额外模型聊天。人工完成后发新消息让 Agent `resume`；原任务不能自行解除暂停。
+
+接管已有浏览器先由拥有者启用本机 CDP，向 Agent 提供明确的 `http://127.0.0.1:<端口>` 或浏览器 WebSocket 地址并请求 `attach`。只接受 loopback，发现结果也重新核实地址和端口；同一目标跨产品、跨会话只允许一个自动化连接。`close`、取消或后台停止对附接仅断开自身连接，保留已有窗口和标签。不要把网络上的远程 CDP 地址交给该入口。
+
+同一会话跨轮保留页面。默认空闲 60 分钟后回收，自有 profile、历史与截图保留；重新 `start` 只打开新页面，不恢复旧页面或重放点击/提交。持久 Cookie 与网站资料沿 Chromium profile 保存；没有到期时间的会话 Cookie 及网站自身的登录期限不保证跨关闭延续，必要时重新人工登录。
+
+截图保存为不可变图片产物并交给视觉模型，用 `read-artifact <taskId> <artifactId> --output screenshot.png` 完整导出。纯文本模型在发送图片前明确报 `image_input_unsupported`；`image_too_large` 可改用视口截图；`artifact_write_failed` 检查磁盘与目录权限。动作报告 `outcome_unknown` 时先人工查看实际页面或服务端结果，再用新消息核实连接；不要重发原提交。`browser_stop_unverified` / `browser_identity_unverified` 先核对原进程及绑定，再显式 `close`；停止尚未核实前不会新开实例或释放接管占用。

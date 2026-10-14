@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-14",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "model": {
+    "provider": "magpie",
+    "id": "workbuddy-ai/step-5-preview"
+  },
+  "command": "RUN_MODEL_CHECK=1 RUN_BROWSER_MODELS_FILE=<owner-provided-explicit-file> RUUKOTO_BROWSER_BINARY=<official-v0.39.1> RUUKOTO_BROWSER_CHROME=<Chrome-for-Testing-155> npx tsx --test test/browser-model-acceptance.test.ts",
+  "tests": 2,
+  "passed": 2,
+  "failed": 0,
+  "skipped": 0,
+  "firstRun": {
+    "passed": 0,
+    "failed": 2,
+    "reason": "Both models completed correct unique POST but first used native bare eN; strict all-calls-success assertion caught invalid_params. Canonical eN/@eN compatibility fixed; strict assertion unchanged."
+  },
+  "cases": [
+    {
+      "product": "ruukoto",
+      "root": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-browser-model-QyAKou",
+      "task": {
+        "id": "task_0b38e2feb70ea15a997882ac",
+        "status": "completed",
+        "effect_unknown": 0
+      },
+      "postCount": 1,
+      "visualCodeCorrect": true,
+      "allBrowserOpsSuccess": true,
+      "actions": [
+        "start",
+        "open",
+        "snapshot",
+        "screenshot",
+        "fill",
+        "click",
+        "close"
+      ],
+      "images": [
+        {
+          "id": "art_56582143f9c9a681f139800a",
+          "byte_count": 18023,
+          "status": "complete",
+          "mime_type": "image/png",
+          "content_hash": "4a13294e68e6a47115511aad884fab6cfa81177025554ae8cf0063d372f61975"
+        }
+      ],
+      "historyAndPromptImageHashVerified": true
+    },
+    {
+      "product": "ruukoto-code",
+      "root": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-browser-model-AV6pxM",
+      "task": {
+        "id": "task_76111ac844ffe38ece2f9c99",
+        "status": "completed",
+        "effect_unknown": 0
+      },
+      "postCount": 1,
+      "visualCodeCorrect": true,
+      "allBrowserOpsSuccess": true,
+      "actions": [
+        "start",
+        "open",
+        "snapshot",
+        "screenshot",
+        "fill",
+        "click",
+        "close"
+      ],
+      "images": [
+        {
+          "id": "art_96c88a55a26ae8b5a24a116b",
+          "byte_count": 17127,
+          "status": "complete",
+          "mime_type": "image/png",
+          "content_hash": "7cca3ac17675625c304e0b0f61ef74dfb221c48c4a6edd2fedffc9c29a117b89"
+        }
+      ],
+      "historyAndPromptImageHashVerified": true
+    }
+  ]
+}

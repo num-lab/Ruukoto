@@ -37,7 +37,7 @@ description: 写或审本仓库的 prose 时使用：注释、JSDoc、docs/、.a
 - **测试**：说明这个用例守住什么行为、为什么需要它。不复述断言。
 - **`docs/`**：现在怎么运作。演进史、修订流水与「以前是」留在提交与决策笔记里。写法按 [writing-docs-for-human](../writing-docs-for-human/SKILL.md)。
 - **`.agents/notes/`**：决定、理由、被否方案、后果。写法按 [maintain-notes](../maintain-notes/SKILL.md)。
-- **skill 与提示词**：写正面的目标行为；确需禁止时把禁令作为硬护栏，并同时给出该做什么。
+- **skill 与提示词**：写正面的目标行为；确需禁止时把禁令作为硬护栏，并同时给出该做什么。模型可见的文本（工具定义、参数 schema、结果与错误文本、系统提示措辞）另按 [agent-facing-text](../agent-facing-text/SKILL.md) 判断该覆盖什么。
 - **诊断文本**：读者能据此采取行动的最小事实——受影响的操作与安全的下一步。
 
 ## 词要经得起检查

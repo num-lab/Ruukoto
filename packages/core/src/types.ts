@@ -362,7 +362,7 @@ export interface SubAgentReadScope {
  * delegation、chat_results、service 只在 main 的清单中（service 另要求产品与
  * 部署配置具备，见 tool-availability 与 Driver 装配）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "browser" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -595,6 +595,7 @@ export type ConfirmationStatus = "pending" | "approved" | "rejected" | "stale";
 /** 审批展示的权限范围（结构化、可验证；凭据只出现名称与用途，不含原值）。 */
 export type ApprovalScope =
   | { kind: "tool"; workspaceOnly: boolean }
+  | { kind: "browser_operation"; sessionId: string; generation: string | null; action: string; targetId: string | null }
   | {
       kind: "file_operation";
       path: string;
@@ -916,6 +917,7 @@ export type PersistentEventBody =
   | { type: "task.confirmation_reviewed"; taskId: string; confirmationId: string; decision: "ask_owner"; reason: string }
   | { type: "task.approval_consumed"; taskId: string; confirmationId: string; toolOpId: string; toolName: string; standingPermissionId?: string; standingPermissionVersion?: number }
   | { type: "task.tool_authorized"; taskId: string; toolOpId: string; authorization: ToolAuthorization }
+  | { type: "browser.binding_changed"; sessionId: string; generation: string; state: string; kind: "owned" | "attached"; failureCode: string | null }
   /** 长期操作授权已保存（agent-direction issue 10）：范围不可变，来源审批唯一。 */
   | { type: "standing_permission.created"; permissionId: string; approvalId: string; eventId: string; sessionId: string; channel: string; account: string; chatId: string; actor: string; machineId: string; unit: string; action: string }
   /** 长期操作授权已撤销/失效（版本递增，保留记录；重复撤销不产生本事件）。 */

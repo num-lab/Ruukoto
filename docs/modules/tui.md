@@ -45,6 +45,8 @@
 | `workflow_list` / `workflow_get` / `workflow_step` / `workflow_logs` / `workflow_question` / `workflow_answer` / `workflow_control` / `workflow_receipt` | 运行/步骤/阶段正文、业务答复、暂停/恢复/取消及拥有者预算 |
 | `get_model_config` / `set_summary_model` | 读取模型配置（`get_model_config` 返回 `summaryModel`）、设置摘要模型 |
 
+CLI 完整产物导出复用 `read_artifact`，在同一连接上分页读取已定稿产物。各页元数据相同、页长符合剩余正文、总字节数及图片 MIME/SHA-256 校验通过后，才把目标同目录的 0600 临时文件原子重命名为目标；失败清理临时文件并保留原目标。切片查询仍向 stdout 返回单页，允许查看 `partial`，与完整导出参数互斥。
+
 工作流由 `tui/workflows.ts` 的共享侧栏展示固定名称、含毫秒时间、稳定展示序号、显式说明、中文状态与图标；当前列表包含全部活动和最近十项终态，历史、步骤、日志与问题按页续读。运行详情逐层选择回答、暂停、恢复、取消与预算；已保存定义选择后填写 JSON 参数、可选说明并确认启动。宽度至少 120 列时根布局通过 HStack 为聊天与侧栏分配空间，窄屏显示独立窗口并保留导航，Tab 切焦点，Esc 返回一层、根层关闭。工作清单放在聊天列左上方，审批窗口优先显示，关闭后恢复原焦点；关闭侧栏、断开或退出不改变后台运行。CLI `workflow` 继续输出 JSON 并保留标识符接口；脚本编辑通过文件或 Agent。
 
 控制面事件：`project.root_attached`、`project.settings_changed`、`task.output_fragment`、`task.output_entry`、`task.thinking`、`task.tool_result` 及任务状态迁移事件。终端也调用任务操作（`/interrupt`、`/cancel <taskId>`、`/continue [taskId]`、`/resume-queue`、`/mode`、`/model`、`/skill`）。
@@ -251,6 +253,8 @@ sequenceDiagram
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [内部回报的可信展示分类](../../.agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md)
+
+- [完整产物导出复用控制面分页并在校验后替换目标](../../.agents/notes/implemented/feature/2026-10-14-artifact-file-export.md)
 
 - [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 

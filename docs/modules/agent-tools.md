@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-本模块回答两个问题：**这个会话、这个任务允许哪些工具**，以及**一次工具调用怎么被执行边界接受、怎么取得授权、结果怎么记账**。它持有会话身份到工具类别的静态表与执行画像（`packages/agent/src/tool-availability.ts`），把宿主工具族装配成一次任务的工具集（`packages/agent/src/host-tool-families.ts`），并负责审批闸门（`packages/agent/src/approval-gate.ts`）、自动审查策略（`packages/agent/src/review.ts`）、工具操作账本（`packages/agent/src/tool-op-ledger.ts`）、工具正文产物（`packages/agent/src/artifacts.ts`），以及工作清单、计划模式工具白名单、main 应用数据空间、长期操作授权、Web Search 与 MCP 服务这些具体的工具面。
+本模块回答两个问题：**这个会话、这个任务允许哪些工具**，以及**一次工具调用怎么被执行边界接受、怎么取得授权、结果怎么记账**。它持有会话身份到工具类别的静态表与执行画像（`packages/agent/src/tool-availability.ts`），把宿主工具族装配成一次任务的工具集（`packages/agent/src/host-tool-families.ts`），并负责审批闸门（`packages/agent/src/approval-gate.ts`）、自动审查策略（`packages/agent/src/review.ts`）、工具操作账本（`packages/agent/src/tool-op-ledger.ts`）、工具正文产物（`packages/agent/src/artifacts.ts`），以及工作清单、计划模式工具白名单、main 应用数据空间、长期操作授权、Web Search、浏览器与 MCP 服务这些具体的工具面。
 
 它不负责执行边界本身：原生沙箱或启动账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
 
@@ -32,8 +32,8 @@
 
 | 会话身份 | 工具类别清单 |
 |---|---|
-| 普通开发会话 | 编码工具（含工作清单 `todo_write`）、资料与记忆、Web Search、MCP、技能、SubAgent 委派与工作流 |
-| main 会话 | 资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、技能、服务器服务管理、SubAgent 委派与工作流 |
+| 普通开发会话 | 编码工具（含工作清单 `todo_write`）、资料与记忆、Web Search、MCP、浏览器、技能、SubAgent 委派与工作流 |
+| main 会话 | 资料与记忆、Web Search、应用数据、调度与通知、旧 coding 结果只读、群结果、浏览器、技能、服务器服务管理、SubAgent 委派与工作流 |
 | SubAgent 会话 | 空；工具按执行画像的 SubAgent 工具集单独装配 |
 | 已退役归档会话 | 不归任何类别；QQ 群会话与 chat/coding 旧角色会话是只读归档、不运行任务，算执行画像即拒绝 |
 
@@ -49,6 +49,7 @@ SubAgent 工具集由所属工作是否有写入目标与是否宿主评审决�
 | 资料与记忆 | `history_search`、`history_read`、`memory_list`、`memory_read`、`memory_save`、`memory_revoke` |
 | 后台等待 | `agent_wait` |
 | Web Search | `web_search` |
+| 浏览器 | `browser` |
 | 应用数据 | `app_data_define_table`、`app_data_migrate`、`app_data_query`、`app_data_insert`、`app_data_update`、`app_data_delete` |
 | 服务器服务管理 | `service_inspect`、`service_manage` |
 | MCP | `mcp_<服务名>_<远端工具名>` |
@@ -56,6 +57,10 @@ SubAgent 工具集由所属工作是否有写入目标与是否宿主评审决�
 `executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出，包含会话类别（工具类别表与系统提示键）、SubAgent 工具集、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）与工具集签名。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
 
 `agent_wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。内部对话阶段显式只开放等待和后台状态、历史及结果查询；项目读写、bash、技能文件读取、MCP 与未分类工具都须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
+
+`browser` 只在完全访问的拥有者 main / 普通开发任务的执行阶段开放；内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
+
+浏览器动作顺序执行。元素操作将快照的 eN / @eN 规范为同一引用，仅接受该会话当前代次的 snapshot 引用，并在发送前用新快照核实引用仍在。导航和表单操作按完全访问依据记账，发送后断线、超时或取消不能证明未执行时记 `effect_unknown`；不重发，连接保持不可用，等待拥有者暂停后的新输入核实；先前排队任务不能解除暂停，IM 沿原消息接受顺序判别。只读 snapshot/截图丢响应不增加写入效果。截图校验实际 MIME、8 MiB 上限与 SHA-256 后提升为不可变产物，再返回视觉块；图片与真实模型请求、JSONL、prompt 快照同源。完整导出见[操作手册](../usage.md)。
 
 拥有者入口（模型工具不能调用，完整参数与运行步骤见使用手册）：
 
@@ -239,6 +244,8 @@ sequenceDiagram
 ## 设计依据
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
+
+- [会话浏览器的归属与不重放](../../.agents/notes/implemented/feature/2026-10-14-agent-browser.md)
 
 - [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
 

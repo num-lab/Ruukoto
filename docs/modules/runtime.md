@@ -47,7 +47,11 @@
 
 **执行画像。** 给定任务，`tool-availability.ts` 的 `executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出：会话类别（决定工具类别表与系统提示键）、SubAgent 工具集（只读 / 写入 / 宿主评审，宿主评审另开只读 MCP 并关 `subagent_message`）、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）。画像在任务开始算一次、钉到任务结束；装配过滤、任务收窄与 SDK 会话签名同用这一份，工具集变化时重建 SDK 会话。工作区不进画像：占用键与 LaunchSpec 都取 `core/worktree.ts` 的 `taskWorkspaceFor`。SubAgent 的工具集固定为：分析 `read` + `read_artifact`；修改 `read` / `edit` / `write` / `bash` / `read_artifact`（无 `request_file_access`、`http_request`、MCP，不能委派下级）；宿主评审 `read` / `read_artifact` ∪ `effect=read` 的 MCP。工具类别清单与调用门本身见 [agent-tools](agent-tools.md)。
 
+Runtime 另持有跨任务的 `BrowserManager`，两个产品共享装配；Driver 的每任务 registry 不承担浏览器归属。正常任务结束保留浏览器，活动任务的取消、有效模式切换和后台停止先核实自有 Chrome、CLI daemon 与 dashboard 的停止；附接只停自己的连接进程。改变同会话另一排队任务的模式不关闭当前任务的浏览器。启动先恢复浏览器绑定、核实旧执行停止，再恢复任务，不重放旧动作；未核实状态仅影响浏览器能力。
+
 ## 数据与状态
+
+浏览器绑定保存在核心库 `meta.browser_bindings_v1`，包含会话、代次、自有/附接、目标、进程启动身份、人工暂停、未知效果及失败码。更新与 `browser.binding_changed` 事件同事务；Chromium profile、图片文件与 SQLite 没有跨文件原子保证。关闭保留 profile 与图片，空闲退出以进程存活监督为依据，不发保活命令。安装、登录和恢复步骤见[操作手册](../usage.md#12-浏览器)。
 
 [工作流](workflows.md)使用独立运行授权与队列，默认接真实步骤，测试可注入执行器；来源任务结束后仍可调度，步骤结果由协调器消费。普通出队与工作流启动共用来源名额，释放占用后唤醒两种队列。运行派生的宿主操作任务经 HostExecutionManager 执行，不建立模型会话；普通工作副本操作保留 Driver 路径。
 
@@ -333,6 +337,8 @@ sequenceDiagram
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [内部回报的可信展示分类](../../.agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md)
+
+- [会话浏览器的归属与不重放](../../.agents/notes/implemented/feature/2026-10-14-agent-browser.md)
 
 - [工作流业务回答与整项最终送达](../../.agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)
 

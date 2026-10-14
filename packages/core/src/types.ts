@@ -14,7 +14,7 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 
-export const PROTOCOL_VERSION = 23;
+export const PROTOCOL_VERSION = 24;
 
 export interface ModelSelection {
   provider: string;
@@ -868,6 +868,9 @@ export interface EditStats {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
+  | { type: "agent_wait.changed"; waitId: string; taskId: string; phase: import("./agent-wait.ts").AgentWaitPhase; reason: string | null; wait: import("./agent-wait.ts").AgentWaitView }
+  | { type: "task.resources_changed"; taskId: string; sessionId: string; phase: "execution" | "conversation" }
+  | { type: "agent_report.changed"; key: string; taskId: string | null; status: import("./agent-wait.ts").AgentReport["status"]; reason: string | null; fallbackTaskId: string | null; fallbackState: import("./agent-wait.ts").AgentReport["fallbackState"]; parkedFallbackTaskIds: string[] }
   | { type: "workflow.definition"; name: string; definitionId: string; digest: string }
   | { type: "workflow.changed"; runId: string; version: number; status: import("./workflow.ts").WorkflowRun["status"]; reason: string | null }
   | { type: "workflow.step"; runId: string; key: string; status: import("./workflow.ts").WorkflowStep["status"]; delivery: number | null }

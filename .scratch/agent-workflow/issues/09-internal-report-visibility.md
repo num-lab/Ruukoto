@@ -13,7 +13,7 @@ Status: resolved
 3. 同步 `EventFlow.task/addHistory`、`TuiApp.seedInputHistory` 与 sticky prompt，重连及翻页不再展示内部输入；保留最终 assistant 内容和诊断原文。
 4. 保持现有 sdk.prompt、上下文分组、搜索与压缩，验证真实用户同文输入及伪造 requestId 不被隐藏；绑定缺失保留普通展示并报告实际关联缺口。
 
-影响 Runtime 的任务/历史查询、core 历史关联、control 视图/协议、TUI 投影及 fixtures；检查搜索结果或历史详情重新进入聊天投影的所有调用方。文档落点为 tui、agent-context、core/control 对应实际变动；身份与记录保证见[等待及输入分类笔记](../../../.agents/notes/proposed/architecture/2026-10-14-agent-wait-and-report-ownership.md)。
+影响 Runtime 的任务/历史查询、core 历史关联、control 视图/协议、TUI 投影及 fixtures；检查搜索结果或历史详情重新进入聊天投影的所有调用方。文档落点为 tui、agent-context、core/control 对应实际变动；身份与记录保证见[等待及输入分类笔记](../../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)。
 
 ## 进展与交接
 

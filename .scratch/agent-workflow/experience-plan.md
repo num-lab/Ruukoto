@@ -12,7 +12,7 @@
 | 主任务持有目录到终态，当前 FIFO 等 Driver.run 返回 | `packages/runtime/src/runtime.ts`、`workflow-steps.ts`、`packages/agent/src/subagent-tools.ts` | 等待引入安全让出/恢复，不用阻塞 Promise 掩盖目录互等。 |
 | 最终汇总与新用户输入排在等待父轮后面 | `ParentDelivery.sweepWorkflows`、`Runtime.runQueueLoop` | 新输入打断等待；结果消费与报告认领由持久事实仲裁。 |
 
-理由与备选分别见[渐进交互方案](../../.agents/notes/proposed/feature/2026-10-14-workflow-progressive-controls.md)、[等待与结果交接方案](../../.agents/notes/proposed/architecture/2026-10-14-agent-wait-and-report-ownership.md)。全局交互原则已经作为[开发规范](../../.agents/notes/implemented/process/2026-10-14-progressive-human-interaction.md)生效，产品方案仍为 proposed。
+理由与备选分别见[渐进交互方案](../../.agents/notes/proposed/feature/2026-10-14-workflow-progressive-controls.md)、[等待与结果交接决定](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)。全局交互原则已作为[开发规范](../../.agents/notes/implemented/process/2026-10-14-progressive-human-interaction.md)生效；侧栏方案仍为 proposed，等待的实现与验收状态见 10。
 
 ## 工单顺序
 

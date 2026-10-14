@@ -47,12 +47,15 @@ SubAgent 工具集由所属工作是否有写入目标与是否宿主评审决�
 | 结构化审批 | `request_file_access`、`http_request` |
 | 产物 | `read_artifact` |
 | 资料与记忆 | `history_search`、`history_read`、`memory_list`、`memory_read`、`memory_save`、`memory_revoke` |
+| 后台等待 | `agent_wait` |
 | Web Search | `web_search` |
 | 应用数据 | `app_data_define_table`、`app_data_migrate`、`app_data_query`、`app_data_insert`、`app_data_update`、`app_data_delete` |
 | 服务器服务管理 | `service_inspect`、`service_manage` |
 | MCP | `mcp_<服务名>_<远端工具名>` |
 
-`executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出，包含会话类别（工具类别表与系统提示键）、SubAgent 工具集、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）与工具集签名。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务允许的工具在任务开始时算一次：已装配的工具减去计划模式、GitHub 评审等宿主按任务收窄与项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
+`executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出，包含会话类别（工具类别表与系统提示键）、SubAgent 工具集、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）与工具集签名。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
+
+`agent_wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。内部对话阶段显式只开放等待和后台状态、历史及结果查询；项目读写、bash、技能文件读取、MCP 与未分类工具都须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
 
 拥有者入口（模型工具不能调用，完整参数与运行步骤见使用手册）：
 
@@ -234,6 +237,8 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；独立编码验证只开放五个编码工具，其命令使用原生沙箱。
 
 ## 设计依据
+
+- [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
 

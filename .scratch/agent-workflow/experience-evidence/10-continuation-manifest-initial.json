@@ -1,0 +1,31 @@
+{
+  "base": "40dcee766511bb4a80e52964b1404f5382c6d2e5",
+  "state": "initial-review-blocked",
+  "files": {
+    "AGENTS.md": "5c9c349ca222b575908799ce8dcaa5bf02e8db049525be964e4dee56026968a1",
+    ".agents/skills/development-workflow/SKILL.md": "c70d9137e125591987b67dd6a7c6c65c11ce916e62abc675edc41daf704442cf",
+    ".scratch/agent-workflow/issues/10-agent-wait.md": "bd34b4441d9ae85fd31f4dccdf63ff152a640d1534e388839d9c5b08202d9fac",
+    ".scratch/agent-workflow/experience-spec.md": "55a42a8fbb139e4fb3a2d668b28f2ec7a7db1416b6337ff86160a7520bcf128c",
+    ".scratch/agent-workflow/experience-plan.md": "d8be2decb7999ca53921c7ec83989d64a17ca3d2c275e4e1eb24168cd4ead0ac",
+    ".agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md": "dd6c222ab7e576dc32cda63e04b4dbe7febf2e1d192cece984af8bc31e048c90",
+    "packages/core/src/agent-wait.ts": "48b3b375ce7de998ae6ca13ef8e138a8698a54825db9006fc0820e88ef792269",
+    "packages/runtime/src/agent-wait.ts": "dd041e3fd93488f2e8e14a8404f6a22ae0d9c2ee5e37eef9ce1f349abf177fd2",
+    "packages/runtime/src/runtime.ts": "1455855cee0a11442808f52ea637d658929ad649857ce1b47f741b0f4e332f6e",
+    "packages/runtime/src/parent-delivery.ts": "ae17c8282cb3288b308f0eb102c88a0842882ec460f6b41daf3a14664b290527",
+    "packages/runtime/src/orchestrator.ts": "cf1831bfb002bae2716483a194d8021a178de0fb929ed75e335ee8ff8ae8dbf4",
+    "packages/agent/src/agent-wait-tools.ts": "d0d6abeb535da9c83d904ddb7a35fb54e5217f8f0a94928f25ac2440d42bf7a2",
+    "packages/agent/src/driver.ts": "97f68b345e9181a3572fad60a25e25a3dd4aaa5361c629ae267d7550eb8108d4",
+    "packages/channels/src/scheduler/runtime.ts": "8dc67452c536af7b0297a3cf5a7d9505bf7f653a252f5bd7ffa44353c1669c49",
+    "test/125-agent-wait-attention-report.test.ts": "a7fc2fe83e4a57e50eaec35631c8d58b1cf67b2adc40a5da50168ba882dab2f6",
+    "test/125-agent-wait-core.test.ts": "1f837114801de02cd804bafd9607f5b8ebe057ced514c607b023d5888d6d72af",
+    "test/125-agent-wait-recovery.test.ts": "dd886e26cf6af03e049f903b7ed5ae609a1b9beec4b141eb80549d1e478f3a59",
+    "test/125-agent-wait-report.test.ts": "ce771b22dee8c5ac576e90b2d96d45557a281a21bacb7624b98b97eb846812b6"
+  },
+  "artifacts": {
+    "/tmp/ruukoto-agent-wait-source-review-binding.log": "9ef8205ff877b41a2b51b2f6afc2695c713d503f5babf32c174dc0116e965fa5",
+    "/tmp/ruukoto-agent-wait-source-review-host.log": "886a18f5dd8957a4a8d641d3d7b143ebeb89c189d52bedf377823b71677e2fec",
+    "/tmp/ruukoto-agent-wait-source-review-input-integrity-before.log": "db1afb0960c57b1ebd633ec8a34092c48988917285b2ebe62017149541d33c2d",
+    "/tmp/ruukoto-agent-wait-source-review-input-integrity-expanded-before.log": "182a156a720af8e73912cefb04368d796d7b0c645a5e96cbfa2ab5838c60dca0",
+    "/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts": "35c985ab0fb2785960bb7b933406471c988f7ecfe911579fc85d276d5f1698c8"
+  }
+}

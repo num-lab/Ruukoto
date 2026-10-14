@@ -26,6 +26,7 @@ import { WEB_SEARCH_LEDGER } from "@ruukoto/agent/web-search.ts";
 import { HOST_DATA_LEDGER } from "@ruukoto/agent/host-tools.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { createAgentWaitFamily } from "@ruukoto/agent/agent-wait-tools.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, makeTestDirs, writeModelsJson } from "./helpers/testkit.ts";
 
@@ -97,6 +98,25 @@ test("worktree 启动与 Git 写入分开：ready 前停止或重启不标未知
       assert.equal(k.get(startup).effectUnknown, false);
       assert.match(k.get(startup).resultSummary!, /无写入效果/);
       assert.equal(k.get(git).effectUnknown, true);
+    } finally { k.cleanup(); }
+  }
+});
+
+test("agent_wait 停止与重启：等待不产生写效果，未返回的工具结果补记已知结论", () => {
+  const family = createAgentWaitFamily();
+  for (const occasion of ["stop", "restart"] as const) {
+    const k = kit();
+    try {
+      const ledger = new ToolOpLedger(k.store, {}, [family.ledger!]);
+      const id = k.op("agent_wait", { targets: [{ kind: "task", task_id: "child" }], timeout_ms: 60_000 });
+      assert.equal(ledger.hasNoWriteEffect(k.get(id)), true);
+      assert.deepEqual(ledger.beginStop(k.task.id), []);
+      if (occasion === "restart") ledger.settleAll();
+      else assert.deepEqual(k.store.withTx(() => ledger.settleTask(k.task, [])), []);
+      assert.equal(k.get(id).effectUnknown, false);
+      assert.equal(k.store.getTask(k.task.id)!.effectUnknown, false);
+      assert.match(k.get(id).resultSummary!, /无写入效果/);
+      assert.equal(k.events("task.tool_result", id).length, 1);
     } finally { k.cleanup(); }
   }
 });

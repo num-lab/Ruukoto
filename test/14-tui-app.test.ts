@@ -251,6 +251,51 @@ test("真实工作流回报实时、重连、翻页和单条先到均不泄出�
   } finally { quitAll(apps); await t.shutdown(); }
 });
 
+test("曾被等待覆盖的普通子任务补报：实时与重连均隐藏内部输入，↑ 与置顶保留拥有者消息", async () => {
+  let releaseChild!: () => void;
+  const childReady = new Promise<void>(resolve => { releaseChild = resolve; });
+  let parentPhase = 0;
+  const summary = "后台子任务唯一总结\n" + Array.from({ length: 60 }, (_, index) => `成果 ${index}`).join("\n");
+  const t = await startTestRuntime("tui-subagent-report-visibility", async request => {
+    const input = lastUserText(request);
+    if (input === "后台委派") {
+      if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "hidden-report", request: "VISIBILITY_CHILD", read_paths: ["."] } }] };
+      const child = t.runtime.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!;
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: child.id }] } }] };
+    }
+    if (input.startsWith("[后台工作最终回报]")) return { kind: "text", text: summary };
+    if (input.includes("VISIBILITY_CHILD")) { await childReady; return { kind: "text", text: "后台子任务完成" }; }
+    return { kind: "text", text: "新消息已处理" };
+  });
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const live = await startApp(t, { sessionId }); apps.push(live);
+    await submitViaEditor(live, "后台委派");
+    await waitFor("父轮持久等待", () => live.state.tasksFor(sessionId).some(task => task.wait?.phase === "waiting"));
+    await submitViaEditor(live, "新消息");
+    await waitFor("新消息先结束", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.input === "新消息" && task.status === "completed"));
+    releaseChild();
+    await waitFor("补报最终总结已展示", () => live.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    await renderFlush();
+    assert.ok(!stripTerminalSequences(live.terminal.output()).includes("[后台工作最终回报]"));
+    assertInputRecall(live, ["新消息", "后台委派"]);
+    const fallback = t.runtime.store.listTasksBySession(sessionId).find(task => task.input.startsWith("[后台工作最终回报]"))!;
+    assert.equal(t.runtime.getTaskDetail(fallback.id)!.task.inputPurpose, "internal_report");
+    assert.ok(t.runtime.readHistory({ sessionId }).entries.some(entry => entry.taskId === fallback.id && entry.role === "user" && entry.inputPurpose === "internal_report"));
+    live.app.quit(0);
+    const again = await startApp(t, { sessionId }); apps.push(again);
+    await waitFor("重连显示同一最终总结", () => again.state.openSession(sessionId).historyLoaded &&
+      again.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    assertInputRecall(again, ["新消息", "后台委派"]);
+    again.app["refreshTranscript"]();
+    const rendered = again.app["eventFlowView"], lines = rendered.render(80);
+    for (let top = 1; top < lines.length; top++) assert.ok(!stripTerminalSequences(rendered.stickyPrompt(top, 80).join("\n")).includes("[后台工作最终回报]"));
+    assert.deepEqual(again.state.openSession(sessionId).flow.items.filter(entry => entry.kind === "message" && entry.role === "user")
+      .map(entry => entry.kind === "message" ? entry.text : ""), ["后台委派", "新消息"]);
+  } finally { releaseChild(); quitAll(apps); await t.shutdown(); }
+});
+
 test("输入框上横线右侧显示工作区名，长输入与粘贴保留边框和可见光标", async () => {
   const t = await startTestRuntime("tui-editor-height", async () => ({ kind: "text", text: "收到" }));
   const apps: AppHarness[] = [];

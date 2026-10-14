@@ -361,7 +361,9 @@ ruukoto service-grant list|show|revoke
 
 已有工作流提出问题后，可在发起时的拥有者私聊入口按通知中的完整 ID 和版本答复：`/workflow-question <运行ID> <步骤键> [字节偏移]` 查看问题、约束和已有回答；`/workflow-answer <运行ID> <步骤键> <问题运行代次> <问题版本> <JSON回答>` 提交，例如回答字符串写为 `"yes"`。问题运行代次在建立时固定，其他分支进度不改变它；暂停、取消、过期版本、错误入口及资料撤销会拒绝回答。业务回答不批准工具，需要工具批准时仍使用原审批入口。
 
-等待期间可以继续日常聊天。完成后 dev 在原会话队列汇总，main 有原 IM 来源时回原入口、CLI/TUI 来源留原会话，定时来源等名下全部运行后只走调度最终回报；平台字符上限内优先保留宿主终态、覆盖、停止核实与失败事实，终态事实取代启动和中途的旧状态。停止已核实不代表写入效果已知。`delivery.status=reported` 表示汇总及适用的通知登记完成，真实发送状态用 `ruukoto notify list|show` 查看；`workflow_question` 是问题通知，最终 main 回报是 `owner_reply`。failed/effect_unknown 不自动重发，入口换代不改目标。暂停、取消与未核实停止事实保留在运行记录，已有外部效果不回滚。
+主 Agent 可等待明确的后台任务或工作流，收到任一结果或需介入时继续处理；超时可再次等待，新消息打断本次等待但后台工作继续。
+
+结果由有效父轮继续汇总，父轮中断则沿原键补报；同来源多个目标共用一份总结，dev 留在原会话，main 有原 IM 来源时回原入口、CLI/TUI 来源留原会话，定时来源等名下全部运行后只走调度最终回报；平台字符上限内优先保留宿主终态、覆盖、停止核实与失败事实，终态事实取代启动和中途的旧状态。停止已核实不代表写入效果已知。`delivery.status=reported` 表示汇总及适用的通知登记完成，真实发送状态用 `ruukoto notify list|show` 查看；`workflow_question` 是问题通知，最终 main 回报是 `owner_reply`。failed/effect_unknown 不自动重发，入口换代不改目标。暂停、取消与未核实停止事实保留在运行记录，已有外部效果不回滚。
 
 定义文件在实例 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。脚本是 async 函数体，接收 JSON `input`，可调用 `agent`、`ask`、`integrate`、`progress`；先让模型用 `workflow_instructions` 读取编写说明。文件/临时脚本均须通过普通文件、UTF-8、128 KiB 与 QuickJS 语法校验，符号链接和越界名称拒绝，不回退旧版本。每次运行固定版本、参数及来源授权；编辑当前文件只影响新请求。模型可在当前可信任务内自主使用，计划模式、子任务和工作流步骤不能发起嵌套运行。
 
@@ -389,7 +391,7 @@ ruukoto-code workflow question wfrun_x question-key
 | `workflow find` | 原启动的 `--session`、`--request-id` |
 | `workflow saved` | 原保存的 `--request-id` |
 
-所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 的确认字段自动解除。取消保留历史及成果，具体故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema 39/协议 22 按严格版本策略拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
+所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 的确认字段自动解除。取消保留历史及成果，具体故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema 40/协议 24 按严格版本策略拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
 
 TUI 使用 `/workflow` 及上述子命令的文本窗口：`/workflow run <名称> <请求键> <JSON参数>`，`/workflow save <名称> <请求键> <当前摘要|null> <JSON脚本字符串>`；查询 list/definition/version/show/logs/step/question，原键核实 find/saved；`/workflow definition <名称> [字节偏移] [历史偏移]` 分别续读正文和名称历史。答复格式为 `/workflow answer <运行ID> <步骤键> <问题运行代次> <问题版本> <请求键> <JSON回答>`；pause/resume/cancel 要 `<运行ID> <当前版本> <请求键>`，budget 再加 `<尝试上限> <运行毫秒>`。resume 可追加显式 JSON 核实项。`/workflow help` 列完整用法；窗口可滚动，以 q/Esc 关闭。最近进度事件重连保留，退出重开后通过查询恢复持久事实，聊天和其他运行仍可继续。
 

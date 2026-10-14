@@ -1,0 +1,54 @@
+{
+  "format": 1,
+  "purpose": "文本副本仅清理行末空白与末尾空行；gzip 原件保留检查输出及补丁的原始字节，rawSha256 对应原审查证据。",
+  "files": [
+    {
+      "text": "10-attention-before-fix.log",
+      "archive": "10-attention-before-fix.log.gz",
+      "rawSha256": "f0c0fd593748629311b9730992175651ae13984d41b0d0241c69c3ba4277127a",
+      "textSha256": "7bdd4af141cad5bf9f65d750446e72f7c405dfc7b6ae98c09e35a5a13c12c4f0"
+    },
+    {
+      "text": "10-attention-recursive-before-fix.log",
+      "archive": "10-attention-recursive-before-fix.log.gz",
+      "rawSha256": "aeb0a0a43d7ba2d4cdbb2c4e4000449f1c2c8875e846b5f951c8a069f5c19735",
+      "textSha256": "f59c5e2b46dc1606c6cad272c0f136904e8d91e0b699fc77392b25a4be3fbf4d"
+    },
+    {
+      "text": "10-cold-sender-before-fix.log",
+      "archive": "10-cold-sender-before-fix.log.gz",
+      "rawSha256": "74e8d0df149563e99bcc79bfa6591d07020be2bab3328f0170b380cc176cfdcd",
+      "textSha256": "441478696168931636e53d8f58a1fe9ae249b0e7c3512348327038b6067dfb7f"
+    },
+    {
+      "text": "10-full-check.log",
+      "archive": "10-full-check.log.gz",
+      "rawSha256": "72ba336d3282bcaab9369833869c8d15668cc46fa8cab7222c542a97201a856f",
+      "textSha256": "72a9f17f61fd21849e52956d4ca250aefd229dcfdd076e702520328e650dd532"
+    },
+    {
+      "text": "10-input-integrity-regression.patch",
+      "archive": "10-input-integrity-regression.patch.gz",
+      "rawSha256": "c4cb7e9532eccfd1b4ab529bd47580609c7302b6e3e013d7525d470f26efcba3",
+      "textSha256": "f199ff0a0448ef40b06411ccde8f63a99e7c1735ce1f327110fe31ec44a206f3"
+    },
+    {
+      "text": "10-model-before-group-fix.log",
+      "archive": "10-model-before-group-fix.log.gz",
+      "rawSha256": "906238fa833a7de563a719f98a19cba73bfc657554e4e0b007580cdaa5f994ec",
+      "textSha256": "1e5ccc95355d5301f824b0af8b5c1eab4c26fe80fbf8faa400632aceb43b6da8"
+    },
+    {
+      "text": "10-natural-before-ownership-fix.log",
+      "archive": "10-natural-before-ownership-fix.log.gz",
+      "rawSha256": "c0e836caf519bd193ac97683b23bc0351e92fad2ff883e48a92e06acacf5ef8d",
+      "textSha256": "ffbb24a7a670cc16b966fd9a7b73ac15e86fc899c86d5175bb8899c6dad1bcf4"
+    },
+    {
+      "text": "10-repeated-call-before-fix.log",
+      "archive": "10-repeated-call-before-fix.log.gz",
+      "rawSha256": "9401d50944f6603120cb52196ba7349ff96264eb8b3dfcfc3ab0ce836bf55ada",
+      "textSha256": "4483bae2620ea28cacb2371d29c05c4cc026d14b8702dd30de0f2b4f855e5aee"
+    }
+  ]
+}

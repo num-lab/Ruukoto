@@ -2733,6 +2733,8 @@ export class TuiApp {
         return `HTTP ${c.scope.method} ${c.scope.url}`;
       case "mcp_tool":
         return `MCP ${c.scope.operationCategory === "write" ? "写" : "副作用不明"}工具：${c.scope.serviceName}/${c.scope.remoteName}（配置 v${c.scope.configVersion}）`;
+      case "browser_operation":
+        return `浏览器：${c.scope.action}（会话 ${c.scope.sessionId} · 代次 ${c.scope.generation ?? "未启动"}）`;
       case "app_data_change": {
         const label: Record<string, string> = {
           drop_table: "删除表",

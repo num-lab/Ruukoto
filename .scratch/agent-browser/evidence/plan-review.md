@@ -1,5 +1,7 @@
 # agent-browser 方案审查
 
+提案已随实现迁入 implemented；下列哈希仍对应审查时全文，原 v2 patch 快照保持原样。最终实现审查另行记录，不沿用旧方案结论。
+
 ## 2026-10-14 — 首轮独立审查
 
 角色：独立方案审查者，使用独立执行上下文，只读核对原始需求、Q1–Q12、当前源码与三份规划文件。结论：一项阻断，返方案者修订；双产品直接使用、跨轮归属、图片历史和完整导出均已覆盖。
@@ -8,7 +10,7 @@
 | --- | --- |
 | [工单](../issues/01-integrate-agent-browser.md) | `fad810fadd3dc8c2d3a839d73f5ed1509b728895bd6179f45d6ff8310a028f2a` |
 | [调查](../research.md) | `f986c23ab2f045dace5f6173b26ac213885e7f3d6a62d5cd8d56dc533f299572` |
-| [提案](../../../.agents/notes/proposed/feature/2026-10-14-agent-browser.md) | `39635c19b34457d375bda813187a868d44e7c9a32fb6dfd05c7fb0f25bc9aaf9` |
+| [提案](../../../.agents/notes/implemented/feature/2026-10-14-agent-browser.md) | `39635c19b34457d375bda813187a868d44e7c9a32fb6dfd05c7fb0f25bc9aaf9` |
 
 阻断：v0.39.0 的 `send_command` 在读超时、EOF、reset、broken pipe 等情况下重发完整命令；daemon 未见请求 ID 去重，MCP 复用相同 CLI，未找到关闭选项。它与不重放效果未知操作的要求冲突，不能仅写宿主不重试或增加测试后直接接入。证据来源及下一步见[调查](../research.md)。
 

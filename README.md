@@ -90,7 +90,7 @@ npm run code               # 启动 ruukoto-code 开发后台并打开 TUI
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-独立检查、测试导航、CI、环境配置、开发实例与验收入口见[开发说明](docs/development.md)。
+开发见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
 ## 文档
 

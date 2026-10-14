@@ -1,0 +1,235 @@
+[
+  {
+    "owned_chrome": 1938880,
+    "identity": "ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139037123",
+    "target": "ws://127.0.0.1:38299/devtools/browser/915ca89e-a9e7-4e36-b02e-ff6f49fe9a4d"
+  },
+  {
+    "args": [
+      "snapshot"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 16098184155927617357
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        },
+        "origin": "http://127.0.0.1:35411/",
+        "refs": {
+          "e1": {
+            "name": "Owned probe",
+            "role": "heading"
+          },
+          "e2": {
+            "name": "Login",
+            "role": "button"
+          }
+        },
+        "removedRefs": [],
+        "snapshot": "- heading \"Owned probe\" [level=1, ref=e1]\n- button \"Login\" [ref=e2]"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "args": [
+      "click",
+      "#login"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "clicked": "#login",
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 16098184155927617357
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        }
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "args": [
+      "screenshot",
+      "/dev/shm/ruukoto-agent-browser-0391-linux-hPuoYRCD/owned-zlwibqms/login.png"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 16098184155927617357
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        },
+        "path": "/dev/shm/ruukoto-agent-browser-0391-linux-hPuoYRCD/owned-zlwibqms/login.png"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "args": [
+      "snapshot"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 16098184155927617357
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        },
+        "origin": "http://127.0.0.1:35411/",
+        "refs": {
+          "e1": {
+            "name": "Owned probe",
+            "role": "heading"
+          },
+          "e2": {
+            "name": "Login",
+            "role": "button"
+          }
+        },
+        "removedRefs": [],
+        "snapshot": "- heading \"Owned probe\" [level=1, ref=e1]\n- button \"Login\" [ref=e2]"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "check": "owned_group_stopped",
+    "pgid": 1938880,
+    "passed": true
+  },
+  {
+    "owned_chrome": 1939053,
+    "identity": "ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139037226",
+    "target": "ws://127.0.0.1:44181/devtools/browser/7f875aa5-c201-4cf1-bbaa-9331cc25278f"
+  },
+  {
+    "args": [
+      "cookies"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "cookies": [
+          {
+            "domain": "127.0.0.1",
+            "expires": 1792033470.498738,
+            "httpOnly": false,
+            "name": "own",
+            "path": "/",
+            "secure": false,
+            "session": false,
+            "size": 12,
+            "value": "logged-in"
+          }
+        ],
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 6694627965388011310
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        }
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "check": "cold_recovery_and_pid_mismatch",
+    "original_owned_pid": 1938880,
+    "reopened_owned_pid": 1939053,
+    "unrelated_pid": 1939181,
+    "passed": true
+  },
+  {
+    "args": [
+      "close"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "closed": true,
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": false,
+            "engine": "chrome",
+            "launchHash": null
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": false,
+          "saveStatus": "not_configured"
+        },
+        "restoreStatus": "not_configured",
+        "saveStatus": "not_configured"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "check": "owned_group_stopped",
+    "pgid": 1939053,
+    "passed": true
+  },
+  {
+    "check": "host_owned_close",
+    "passed": true
+  }
+]

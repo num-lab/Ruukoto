@@ -39,11 +39,11 @@ test("会话身份：SubAgent 行优先，main 按绑定，其余为普通开发
 });
 
 test("会话类别 × 工具类别：每个会话类别只开放清单内的类别", () => {
-  const categories: ToolCategory[] = ["coding", "host_data", "web_search", "mcp", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"];
+  const categories: ToolCategory[] = ["coding", "host_data", "web_search", "browser", "mcp", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"];
   const expected: Record<SessionToolClass, ToolCategory[]> = {
-    dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent", "workflow"],
+    dev: ["coding", "host_data", "web_search", "browser", "mcp", "skills", "subagent", "workflow"],
     // service（agent-direction issue 09）：仅 main；装配另要求产品/Linux/显式部署配置
-    main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
+    main: ["host_data", "web_search", "browser", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
     subagent: [],
   };
   for (const [cls, open] of Object.entries(expected) as Array<[SessionToolClass, ToolCategory[]]>) {
@@ -124,4 +124,11 @@ test("执行画像：SubAgent 只读 / 写入 / 评审工具集——装配与�
   assert.deepEqual(allowed(review), ["read", "read_artifact", "mcp_svc_get"], "宿主评审另开只读 MCP、关 subagent_message");
   assert.equal(new Set([read, write, review, p(false, false)].map((x) => x.toolSignature)).size, 3);
   assert.notEqual(executionProfile({ identity: { kind: "dev" }, writeTarget: false, review: false, planMode: false }).toolSignature, read.toolSignature);
+});
+
+test("browser 在宿主资格未核实时默认关闭，Plan 仍拒绝", () => {
+  const base = { registered: ["browser", "read"], plan: false, webSearchEnabled: true, mcpEffect: () => undefined };
+  assert.deepEqual([...taskToolSet(base).allowed], ["read"]);
+  assert.deepEqual([...taskToolSet({ ...base, browserEnabled: true }).allowed], ["browser", "read"]);
+  assert.deepEqual([...taskToolSet({ ...base, browserEnabled: true, plan: true }).allowed], ["read"]);
 });

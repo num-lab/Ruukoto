@@ -60,6 +60,8 @@
 
 `branch_requests` 保存请求键、参数摘要、来源编号、固定目标会话、源文件身份/前缀摘要、目标准备文件摘要和压缩点内容；不保存消息正文。状态为 `prepared`、`published` 或 `failed`，未发布回执不进入会话列表。编号在事务内按直接来源分配，同键异参拒绝；自动编号也计入已导入分支的来源编号。
 
+浏览器扩展不增加表或 schema 版本：`meta.browser_bindings_v1` 保存版本化绑定 JSON，状态与 `browser.binding_changed` 同事务提交；进程系统启动身份由共享 `process-identity.ts` 采集，实例锁与浏览器分别核实自身归属。`getTaskInputSeq` 从 `task.queued` 或 IM 的原始 `inbound.registered` 取接受顺序，人工暂停的后续消息判别不依赖时钟或延迟排队；绑定不保存 Cookie 或密码正文，profile 由 Chromium 管理。
+
 ### 档案根与目录布局
 
 档案根按产品分开：ruukoto 默认 `~/.ruukoto`，`ruukoto-code` 默认 `~/.ruukoto-code`，两者的内容结构一致。两个产品的开发实例另用 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常实例完全隔离，不继承生产凭据与配置；ruukoto 的开发 profile 保留现有开发历史，ruukoto-code 的开发 profile 不自动迁入 dev 历史。以下为单个产品实例的布局（以 ruukoto 默认路径为例）：
@@ -70,6 +72,7 @@
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
+├── browser/                  # 0700；按实例与会话隔离 profile、保留截图
 ├── inbound-media/             # 0700；入站图片暂存（文件 0600），尚未成为任务产物
 ├── migration/<导入ID>/        # 跨实例导入记录（0700）
 │                              #   target-before.db = 导入前目标库备份（整库恢复路径）

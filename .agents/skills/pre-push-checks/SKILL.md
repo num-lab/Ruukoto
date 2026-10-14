@@ -27,6 +27,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `packages/` 或 `apps/` 某模块的行为 | 该区的定向用例，文件名从 [开发说明的映射表](../../../docs/development.md#日常反馈) 查；跨模块契约变化时加调用方的用例 |
 | `packages/core/src/` 的 schema、存储、会话身份 | `npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts`，另加直接断言该表或该状态机的用例 |
 | `packages/agent/src/` 的工具、审批、权限 | `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts` |
+| 浏览器管理器、宿主工具与截图 | `npx tsx --test test/browser-lifecycle.test.ts test/browser-tools.test.ts test/62-tool-availability.test.ts test/111-workflow-capabilities.test.ts`；权限、Runtime、实例锁及 CLI 导出再按对应行选回归；真实环境探针与真实模型分别记证据；显式入口为 `RUN_MODEL_CHECK=1 RUN_BROWSER_MODELS_FILE=/path/models.json npx tsx --test test/browser-model-acceptance.test.ts`，另需浏览器路径 |
 | `packages/agent/src/script-worker/` 与脚本打包 | `npm run build:script` 后跑 `npx tsx --test test/104-workflow-script.test.ts test/100-worker-stop.test.ts`；依赖或整体构建变化另跑 `npm run build` |
 | 工作流状态、协调器、输出校验与宿主操作 | `npx tsx --test test/105-workflow-runtime.test.ts test/106-workflow-host.test.ts test/107-workflow-runtime-wiring.test.ts test/108-workflow-import.test.ts test/109-workflow-cold-recovery.test.ts test/110-workflow-workcopy.test.ts test/111-workflow-capabilities.test.ts test/112-workflow-real-steps.test.ts test/113-workflow-source-capabilities.test.ts`；触及普通任务、委派或导入再加对应回归 |
 | 工作流定义、模型与 CLI/TUI/IM 入口 | `npx tsx --test test/117-workflow-library.test.ts test/118-workflow-entries.test.ts test/119-workflow-im-controls.test.ts test/120-workflow-cli.test.ts test/29-cli-entry.test.ts test/62-tool-availability.test.ts test/65-slash-commands.test.ts test/66-control-seam.test.ts`；界面另跑 13/14/15/33，触及回答或 IM 再加下行回归 |
@@ -34,6 +35,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | 工作流双产品组合 | `npx tsx --test test/121-workflow-personal-acceptance.test.ts test/122-workflow-code-acceptance.test.ts`；真实模型另用 `RUN_MODEL_CHECK=1 RUN_WORKFLOW_MODELS_FILE=/path/models.json npx tsx --test test/123-workflow-model-acceptance.test.ts`，缺前提不记通过 |
 | `packages/agent/src/` 的上下文、模型、压缩 | `npx tsx --test test/18-model-selection.test.ts test/60-context-prefix.test.ts test/61-context-compaction.test.ts` |
 | `packages/runtime/src/`、`packages/control/src/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
+| `packages/tui/src/cli.ts` 的管理命令与产物导出 | `npx tsx --test test/29-cli-entry.test.ts`；触及产品入口再加 `test/71-product-entry.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `npx tsx --test test/26-qq.test.ts test/37-scheduler-outbox.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts` |
 | SubAgent、worktree、旧实例导入 | `test/80`–`test/95` 里对应的那篇，加 `npx tsx --test test/91-release-acceptance.test.ts` |

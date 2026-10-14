@@ -1,0 +1,218 @@
+{
+  "status": "passed",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "binary": "../../../../../../tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+  "binarySha256": "cc18fac41d9dc9821918340a136e643286ea05544c4dd35671b796f1a874cdef",
+  "chrome": "../../../../../../tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+  "noSandbox": false,
+  "root": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe",
+  "jsonPath": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe/results.json",
+  "steps": [
+    {
+      "name": "host_control_credentials_not_in_owned_units",
+      "passed": true,
+      "evidence": {
+        "chrome": true,
+        "daemon": true,
+        "dashboard": true
+      }
+    },
+    {
+      "name": "official_stdin_batch_flags_and_screenshot",
+      "passed": true,
+      "evidence": {
+        "binding": {
+          "sessionId": "owned",
+          "generation": "373ef755-0614-4711-8078-755efe58da71",
+          "kind": "owned",
+          "state": "ready",
+          "profileDir": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe/data/browser/5cd7d54c67f1803800da8150/profile",
+          "socketDir": "/tmp/ruukoto-browser-501-5cd7d54c67f1803800da8150",
+          "cliSession": "rk-5cd7d54c67f1803800da8150",
+          "cdpUrl": "ws://127.0.0.1:64892/devtools/browser/84ec8b48-6eb3-4a97-b206-7c63e725f27c",
+          "targetId": "84ec8b48-6eb3-4a97-b206-7c63e725f27c",
+          "chrome": {
+            "pid": 77191,
+            "pgid": 77191,
+            "processIdentity": "darwin:Wed Oct 14 04:18:09 2026"
+          },
+          "daemon": {
+            "pid": 77618,
+            "pgid": 77618,
+            "processIdentity": "darwin:Wed Oct 14 04:18:09 2026"
+          },
+          "dashboard": {
+            "pid": 77725,
+            "pgid": 77725,
+            "processIdentity": "darwin:Wed Oct 14 04:18:10 2026"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-501/458121a61e1e36485ae79f831cfd8ac45bb7a0ee552cfdb965528b1784837db6",
+          "pauseTaskId": null,
+          "outcomeUnknown": false,
+          "failureCode": null,
+          "dashboardUrl": "http://127.0.0.1:64913/?port=64893",
+          "headed": false
+        },
+        "screenshot": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe/shot.png"
+      }
+    },
+    {
+      "name": "pause_requires_new_task_and_readonly_resume_invalidates_refs",
+      "passed": true
+    },
+    {
+      "name": "shared_uuid_lock_blocks_other_process_and_loopback_alias",
+      "passed": true,
+      "evidence": {
+        "code": 0,
+        "signal": null,
+        "stdout": "browser_target_in_use\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "owned_close_entire_pgid_and_persistent_cookie_reopen",
+      "passed": true,
+      "evidence": {
+        "cookieHeader": "login=present"
+      }
+    },
+    {
+      "name": "cancel_navigation_once_and_stop_lock_waiting_daemon",
+      "passed": true,
+      "evidence": {
+        "hangHits": 1,
+        "interrupted": {
+          "sessionId": "owned",
+          "generation": "f561f50a-81e8-498a-aea1-0034218be452",
+          "kind": "owned",
+          "state": "unavailable",
+          "profileDir": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe/data/browser/5cd7d54c67f1803800da8150/profile",
+          "socketDir": "/tmp/ruukoto-browser-501-5cd7d54c67f1803800da8150",
+          "cliSession": "rk-5cd7d54c67f1803800da8150",
+          "cdpUrl": "ws://127.0.0.1:64925/devtools/browser/6dfb4d7f-71f1-471e-945e-89d8bc307667",
+          "targetId": "6dfb4d7f-71f1-471e-945e-89d8bc307667",
+          "chrome": {
+            "pid": 79748,
+            "pgid": 79748,
+            "processIdentity": "darwin:Wed Oct 14 04:18:11 2026"
+          },
+          "daemon": {
+            "pid": 79943,
+            "pgid": 79943,
+            "processIdentity": "darwin:Wed Oct 14 04:18:11 2026"
+          },
+          "dashboard": {
+            "pid": 80028,
+            "pgid": 80028,
+            "processIdentity": "darwin:Wed Oct 14 04:18:11 2026"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-501/98fae1fdedd09e9d256dadc9a95703fc46513880968967b1704de03502ccd01f",
+          "pauseTaskId": "interrupted",
+          "outcomeUnknown": true,
+          "failureCode": "outcome_unknown",
+          "dashboardUrl": "http://127.0.0.1:64941/?port=64927",
+          "headed": false
+        }
+      }
+    },
+    {
+      "name": "backend_sigkill_cold_recovery_without_page_replay",
+      "passed": true,
+      "evidence": {
+        "spawned": {
+          "code": null,
+          "signal": "SIGKILL",
+          "stdout": "",
+          "stderr": ""
+        },
+        "before": {
+          "sessionId": "cold",
+          "generation": "8df17ebf-9508-4c7b-bcbe-bda503acd162",
+          "kind": "owned",
+          "state": "ready",
+          "profileDir": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe/cold/browser/1f92d50a212c5c1f46b75505/profile",
+          "socketDir": "/tmp/ruukoto-browser-501-1f92d50a212c5c1f46b75505",
+          "cliSession": "rk-1f92d50a212c5c1f46b75505",
+          "cdpUrl": "ws://127.0.0.1:64973/devtools/browser/6964a5c6-3775-4bf0-8759-36d8eefaabca",
+          "targetId": "6964a5c6-3775-4bf0-8759-36d8eefaabca",
+          "chrome": {
+            "pid": 83580,
+            "pgid": 83580,
+            "processIdentity": "darwin:Wed Oct 14 04:18:14 2026"
+          },
+          "daemon": {
+            "pid": 83839,
+            "pgid": 83839,
+            "processIdentity": "darwin:Wed Oct 14 04:18:14 2026"
+          },
+          "dashboard": {
+            "pid": 83917,
+            "pgid": 83917,
+            "processIdentity": "darwin:Wed Oct 14 04:18:15 2026"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-501/d59e0eb248af02bf8cf4369dc468149d015ef914fc77eb65f482d2874e95427a",
+          "pauseTaskId": null,
+          "outcomeUnknown": false,
+          "failureCode": null,
+          "dashboardUrl": "http://127.0.0.1:64984/?port=64974",
+          "headed": false
+        },
+        "state": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe/cold-state.json"
+      }
+    },
+    {
+      "name": "attached_close_disconnects_only_and_preserves_user_chrome",
+      "passed": true,
+      "evidence": {
+        "external": {
+          "pid": 84286,
+          "profileDir": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-manager-accept-ti5Khe/external-profile",
+          "cdpUrl": "ws://127.0.0.1:64986/devtools/browser/470e4fc4-2a52-4b13-9985-7901e5b7e8b7"
+        },
+        "binding": {
+          "sessionId": "attached",
+          "generation": "7bb77ccb-e990-4a05-bf80-7378618bcc14",
+          "kind": "attached",
+          "state": "ready",
+          "profileDir": null,
+          "socketDir": "/tmp/ruukoto-browser-501-6ce404809790a6134d9d18b8",
+          "cliSession": "rk-6ce404809790a6134d9d18b8",
+          "cdpUrl": "ws://127.0.0.1:64986/devtools/browser/470e4fc4-2a52-4b13-9985-7901e5b7e8b7",
+          "targetId": "470e4fc4-2a52-4b13-9985-7901e5b7e8b7",
+          "chrome": null,
+          "daemon": {
+            "pid": 84335,
+            "pgid": 84335,
+            "processIdentity": "darwin:Wed Oct 14 04:18:15 2026"
+          },
+          "dashboard": {
+            "pid": 84408,
+            "pgid": 84408,
+            "processIdentity": "darwin:Wed Oct 14 04:18:15 2026"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-501/49d907ef37b5033787f2da2dedb65b3f2d0f45f52aeb5ab0c81e720fc55b8a5c",
+          "pauseTaskId": null,
+          "outcomeUnknown": false,
+          "failureCode": null,
+          "dashboardUrl": "http://127.0.0.1:65000/?port=64996",
+          "headed": false
+        }
+      }
+    }
+  ]
+}

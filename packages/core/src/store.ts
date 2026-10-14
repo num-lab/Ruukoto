@@ -2723,6 +2723,15 @@ export class Store {
     return Number(row.max);
   }
 
+  /** 拥有者输入的接受顺序；IM 沿原消息登记，异步准备后排队不成为新消息。 */
+  getTaskInputSeq(task: Pick<Task, "id" | "sourceEventId">): number | null {
+    const row = task.sourceEventId
+      ? this.db.prepare("SELECT MIN(seq) AS seq FROM events WHERE json_extract(body, '$.type') = 'inbound.registered' AND json_extract(body, '$.eventId') = ?").get(task.sourceEventId)
+      : this.db.prepare("SELECT MIN(seq) AS seq FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.queued'").get(task.id);
+    const seq = (row as { seq: number | null }).seq;
+    return seq === null ? null : Number(seq);
+  }
+
   getEventsAfter(seq: number, limit = 1000): PersistentEvent[] {
     const rows = this.db
       .prepare("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?")

@@ -1,0 +1,144 @@
+{
+  "activeTaskId": "task_64cb551bd96bcc2e2985b807",
+  "queuedTaskId": "task_6969e1b6ece6a500b8e7cc0a",
+  "queuedAcceptedAt": "2026-10-14T04:26:32.198Z",
+  "pauseAfter": "2026-10-14T04:26:32.224Z",
+  "activeStatus": "completed",
+  "queuedStatus": "completed",
+  "pauseOperation": {
+    "id": "op_f375c91944ff8ef646f05a99",
+    "taskId": "task_64cb551bd96bcc2e2985b807",
+    "toolName": "browser",
+    "sdkCallId": "pause",
+    "params": {
+      "action": "pause"
+    },
+    "intentRecordedAt": "2026-10-14T04:26:32.231Z",
+    "authorization": {
+      "source": "full_access",
+      "taskId": "task_64cb551bd96bcc2e2985b807",
+      "permissionVersion": 1,
+      "scope": {
+        "kind": "browser_operation",
+        "sessionId": "sess_467683b42050995bb08cd079",
+        "generation": "0eda9f9a-35a7-4d5f-8b0d-9a7a945f5da5",
+        "action": "pause",
+        "targetId": "469f9836-5c7e-4fd1-9d5d-1d60fce697f0"
+      }
+    },
+    "resultSummary": "{\"sessionId\":\"sess_467683b42050995bb08cd079\",\"generation\":\"0eda9f9a-35a7-4d5f-8b0d-9a7a945f5da5\",\"kind\":\"attached\",\"state\":\"paused\",\"profileDir\":null,\"socketDir\":\"/tmp/ruukoto-browser-501-76850ed8dfc0b3486ed5cf15\",\"cliSession\":\"rk-76850ed8dfc0b3486ed5cf15\",\"cdpUrl\":\"ws://127.0.0.1:9222/devtools/brow",
+    "isError": false,
+    "effectUnknown": false,
+    "recordedResultAt": "2026-10-14T04:26:32.233Z"
+  },
+  "resumeOperation": {
+    "id": "op_0e23faafe710954534c9e292",
+    "taskId": "task_6969e1b6ece6a500b8e7cc0a",
+    "toolName": "browser",
+    "sdkCallId": "resume",
+    "params": {
+      "action": "resume"
+    },
+    "intentRecordedAt": "2026-10-14T04:26:32.246Z",
+    "authorization": {
+      "source": "full_access",
+      "taskId": "task_6969e1b6ece6a500b8e7cc0a",
+      "permissionVersion": 1,
+      "scope": {
+        "kind": "browser_operation",
+        "sessionId": "sess_467683b42050995bb08cd079",
+        "generation": "0eda9f9a-35a7-4d5f-8b0d-9a7a945f5da5",
+        "action": "resume",
+        "targetId": "469f9836-5c7e-4fd1-9d5d-1d60fce697f0"
+      }
+    },
+    "resultSummary": "人工暂停后需要拥有者的新消息；先前排队的任务不能恢复自动化（browser_paused）",
+    "isError": true,
+    "effectUnknown": false,
+    "recordedResultAt": "2026-10-14T04:26:32.247Z"
+  },
+  "blockedBinding": {
+    "sessionId": "sess_467683b42050995bb08cd079",
+    "generation": "0eda9f9a-35a7-4d5f-8b0d-9a7a945f5da5",
+    "kind": "attached",
+    "state": "paused",
+    "profileDir": null,
+    "socketDir": "/tmp/ruukoto-browser-501-76850ed8dfc0b3486ed5cf15",
+    "cliSession": "rk-76850ed8dfc0b3486ed5cf15",
+    "cdpUrl": "ws://127.0.0.1:9222/devtools/browser/6afd9b72-6dcd-4c91-8c07-0338b7d5eeab",
+    "targetId": "469f9836-5c7e-4fd1-9d5d-1d60fce697f0",
+    "chrome": null,
+    "daemon": {
+      "pid": 22019,
+      "pgid": 22019,
+      "processIdentity": "darwin:Wed Oct 14 04:26:32 2026"
+    },
+    "dashboard": null,
+    "chromePending": false,
+    "daemonPending": false,
+    "dashboardPending": false,
+    "lockDir": null,
+    "pauseTaskId": "task_64cb551bd96bcc2e2985b807",
+    "outcomeUnknown": false,
+    "failureCode": null,
+    "dashboardUrl": null,
+    "headed": false,
+    "pauseAfterSeq": 14
+  },
+  "freshTaskId": "task_e8587ca0e6d28faa4de28fa2",
+  "freshInputSeq": 42,
+  "freshResume": {
+    "id": "op_f4bd815983dd188da3fe9f3f",
+    "taskId": "task_e8587ca0e6d28faa4de28fa2",
+    "toolName": "browser",
+    "sdkCallId": "resume",
+    "params": {
+      "action": "resume"
+    },
+    "intentRecordedAt": "2026-10-14T04:26:32.269Z",
+    "authorization": {
+      "source": "full_access",
+      "taskId": "task_e8587ca0e6d28faa4de28fa2",
+      "permissionVersion": 1,
+      "scope": {
+        "kind": "browser_operation",
+        "sessionId": "sess_467683b42050995bb08cd079",
+        "generation": "0eda9f9a-35a7-4d5f-8b0d-9a7a945f5da5",
+        "action": "resume",
+        "targetId": "469f9836-5c7e-4fd1-9d5d-1d60fce697f0"
+      }
+    },
+    "resultSummary": "{\"sessionId\":\"sess_467683b42050995bb08cd079\",\"generation\":\"26e7d148-cebd-4634-97b2-e8e79601cc52\",\"kind\":\"attached\",\"state\":\"ready\",\"profileDir\":null,\"socketDir\":\"/tmp/ruukoto-browser-501-76850ed8dfc0b3486ed5cf15\",\"cliSession\":\"rk-76850ed8dfc0b3486ed5cf15\",\"cdpUrl\":\"ws://127.0.0.1:9222/devtools/brows",
+    "isError": false,
+    "effectUnknown": false,
+    "recordedResultAt": "2026-10-14T04:26:32.300Z"
+  },
+  "binding": {
+    "sessionId": "sess_467683b42050995bb08cd079",
+    "generation": "26e7d148-cebd-4634-97b2-e8e79601cc52",
+    "kind": "attached",
+    "state": "ready",
+    "profileDir": null,
+    "socketDir": "/tmp/ruukoto-browser-501-76850ed8dfc0b3486ed5cf15",
+    "cliSession": "rk-76850ed8dfc0b3486ed5cf15",
+    "cdpUrl": "ws://127.0.0.1:9222/devtools/browser/6afd9b72-6dcd-4c91-8c07-0338b7d5eeab",
+    "targetId": "469f9836-5c7e-4fd1-9d5d-1d60fce697f0",
+    "chrome": null,
+    "daemon": {
+      "pid": 22019,
+      "pgid": 22019,
+      "processIdentity": "darwin:Wed Oct 14 04:26:32 2026"
+    },
+    "dashboard": null,
+    "chromePending": false,
+    "daemonPending": false,
+    "dashboardPending": false,
+    "lockDir": null,
+    "pauseTaskId": null,
+    "outcomeUnknown": false,
+    "failureCode": null,
+    "dashboardUrl": null,
+    "headed": false,
+    "pauseAfterSeq": null
+  }
+}

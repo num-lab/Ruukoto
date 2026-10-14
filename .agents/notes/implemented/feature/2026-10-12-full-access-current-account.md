@@ -100,6 +100,10 @@ IM 任务已接受但事件或媒体关联未提交时，以原会话与 `evt:<�
 
 其余命中与本次改变的决定无关：[MCP 接入](../../implemented/architecture/2026-09-23-mcp-client.md)的远程传输与本地 stdio 未开放、[MCP 写工具](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md)现有免审批及效果未知处理、[Plan](../../implemented/feature/2026-10-08-plan-session-mode.md)的工具与计划约束、[终端与后台分离](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)的生命周期、[实例导入](../../implemented/architecture/2026-10-04-legacy-instance-import.md)的离线导入、回执与回退规则及[退役 GitHub 模块](../../implemented/simplification/2026-09-23-retire-github-module.md)的历史发布恢复均保留。独立实例导入继续支持当前格式；旧 schema 在预览阶段拒绝，源只读且目标不变，不在快照上回填新授权字段。
 
+## 关联提案
+
+普通命令完成与后台执行停止的时点拆分见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案尚未落地，不改变本篇的执行授权、模式传播和停止承诺。
+
 ## 备选方案
 
 - 保留专用执行账户并简化配置：能继续隔离后台凭据和拥有者令牌，沿用现有 Linux 回收证据；仍要求另一账户、权限配置与启动链，不符合完全访问使用日常账户能力的目标。

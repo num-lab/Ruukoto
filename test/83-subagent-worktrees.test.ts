@@ -317,7 +317,7 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
       assert.equal(rt.store.getTask(a.task.id)!.status, "queued", "父持锁期间子任务仍排队");
     }
     assert.deepEqual<string[]>(marks, [], "子任务没有提前启动");
-    // subagent_result 结果视图提示：父会话本轮结束前子任务不会启动
+    // 查询应提示父持目录，但不能要求父轮先终态才能让出。
     const projectId = rt.store.getSession(session.id)!.projectId;
     const tools = createSubAgentTools({
       coreStore: rt.store,
@@ -337,6 +337,8 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
     const exec = (tool: any, params: any) => tool.execute("sdkx", params, undefined as any, undefined as any, {} as any);
     const shown = (await exec(resultTool, { work_id: a.work.id })).content[0].text as string;
     assert.ok(shown.includes("等待本会话释放目录"), "排队如实说明父持锁");
+    assert.ok(shown.includes(`agent_wait 等待任务 ${a.task.id}`), "提示按本次任务安全让出目录");
+    assert.ok(!shown.includes("请结束本轮"), "等待继续处理不以父轮终态为前提");
 
     // 父任务结束（本轮完成）→ 占用释放唤醒 → 子任务启动并完成
     releaseParent!();

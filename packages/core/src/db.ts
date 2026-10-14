@@ -12,9 +12,20 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 39;
+export const SCHEMA_VERSION = 41;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS agent_waits (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  payload TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_reports (
+  report_key TEXT PRIMARY KEY,
+  parent_session_id TEXT NOT NULL REFERENCES sessions(id),
+  payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS workflow_definitions (
   id TEXT PRIMARY KEY,
   digest TEXT NOT NULL UNIQUE,

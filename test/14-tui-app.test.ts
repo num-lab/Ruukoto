@@ -31,6 +31,7 @@ import {
   createProjectSession,
   taskStatus,
   lastUserText,
+  afterTool,
   realTools,
   type TestRuntime,
 } from "./helpers/testkit.ts";
@@ -43,51 +44,104 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 
 initTheme("dark");
 
-test("TUI 工作流定义/带参运行/阶段/答复与控制，退出重连查询事实并继续日常聊天", async () => {
+test("TUI 工作流全程选择启动、回答、控制；宽屏聊天共存，缩放与返回不取消运行", async () => {
   const t = await startTestRuntime("tui-workflow", async () => ({ kind: "text", text: "CHAT-OK" }));
   const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const script = 'await progress("state",{text:"STAGE-LOG 中文"}); return await ask("question",{prompt:input.marker,options:["继续","停止"]});';
+    await t.runtime.saveWorkflowDefinition({ name: "batch", script, expectedDigest: null, requestKey: "owner:save" });
     const h = await startApp(t, { sessionId, requests }); apps.push(h);
-    const script = 'await progress("state",{text:"STAGE-LOG 中文"}); return await ask("question",{prompt:input.marker});';
-    h.terminal.send("/workflow save batch save null " + JSON.stringify(script) + "\r");
-    await waitFor("TUI 定义保存", () => t.runtime.findWorkflowSave("owner:save") !== null);
-    h.terminal.send("/workflow definitions\r");
-    await waitFor("定义窗口", () => stripTerminalSequences(h.terminal.output()).includes("工作流定义"));
-    await renderFlush(); assertWindowFrame(h); h.terminal.send("q"); await renderFlush();
-    h.terminal.send('/workflow run batch first {"marker":"保留  空白"}\r');
+    h.terminal.resize(140, 30);
+    h.terminal.send("/workflow\r");
+    await chooseWorkflow(h, "启动工作流");
+    await chooseWorkflow(h, "batch");
+    await waitFor("业务参数输入", () => workflowScreen(h).includes("业务参数"));
+    h.terminal.send("\x15"); h.terminal.send('{"marker":"保留  空白"}\r');
+    await waitFor("任务说明输入", () => workflowScreen(h).includes("简短任务说明"));
+    h.terminal.send("批量处理\r");
+    await chooseWorkflow(h, "确认启动");
     await waitFor("第一项等待", () => listWorkflowRuns(t.runtime.store)[0]?.status === "waiting");
     const first = listWorkflowRuns(t.runtime.store)[0];
     assert.deepEqual(first.input, { marker: "保留  空白" });
-    h.terminal.clearOutput(); h.terminal.send("/workflow logs " + first.id + "\r");
-    await waitFor("阶段窗口", () => stripTerminalSequences(h.terminal.output()).includes("STAGE-LOG 中文"));
-    await renderFlush(); assertWindowFrame(h); h.terminal.send("\x1b"); await renderFlush();
-    h.terminal.send('/workflow run batch second {"marker":"另一项"}\r');
-    await waitFor("第二项等待", () => listWorkflowRuns(t.runtime.store).length === 2 && listWorkflowRuns(t.runtime.store).every(run => run.status === "waiting"));
+    assert.equal(first.displayName, "batch");
+    assert.equal(first.description, "批量处理");
+    await renderFlush();
+    assert.match(workflowScreen(h), /batch/);
+    h.terminal.send("\t");
     await submitViaEditor(h, "日常聊天");
     await waitFor("聊天完成", () => t.server.calls.length === 1);
-    assert.equal(listWorkflowRuns(t.runtime.store).every(run => run.status === "waiting"), true);
-    h.app.quit(0);
-    const again = await startApp(t, { sessionId, requests }); apps.push(again);
-    again.terminal.send("/workflow show " + first.id + "\r");
-    await waitFor("重连持久详情", () => stripTerminalSequences(again.terminal.output()).includes("owner_input"));
-    await renderFlush(); again.terminal.send("q"); await renderFlush();
-    assert.equal(listWorkflowRuns(t.runtime.store).length, 2, "重连不新建运行");
-    again.terminal.send("/workflow question " + first.id + " question\r");
-    await waitFor("业务问题窗口", () => stripTerminalSequences(again.terminal.output()).includes("业务回答不批准工具"));
-    await renderFlush(); again.terminal.send("q"); await renderFlush();
-    const q = getWorkflowQuestion(t.runtime.store, first.id, "question")!;
-    again.terminal.send("/workflow answer " + first.id + " question " + q.runVersion + " " + q.version + ' answer "yes"\r');
+    await renderFlush();
+    const wide = stripTerminalSequences((h.app as any).tui.previousScreen.join("\n"));
+    assert.match(wide, /CHAT-OK/); assert.match(wide, /工作流/);
+    assert.equal(requireWorkflowRun(t.runtime.store, first.id).status, "waiting");
+    h.terminal.send("/todo\r"); await renderFlush();
+    const together = stripTerminalSequences((h.app as any).tui.previousScreen.join("\n"));
+    assert.match(together, /工作流/); assert.match(together, /工作清单/);
+    h.terminal.send("\x1b"); h.terminal.send("\t");
+    await chooseWorkflow(h, "batch");
+    await chooseWorkflow(h, "阶段日志");
+    await waitFor("日志正文", () => workflowScreen(h).includes("STAGE-LOG 中文"));
+    h.terminal.send("\x1b");
+    await chooseWorkflow(h, "回答问题");
+    await chooseWorkflow(h, "继续");
+    await chooseWorkflow(h, "确认回答");
     await waitFor("第一项完成", () => requireWorkflowRun(t.runtime.store, first.id).status === "succeeded");
+    await chooseWorkflow(h, "启动工作流"); await chooseWorkflow(h, "batch");
+    await waitFor("第二次业务参数", () => workflowScreen(h).includes("业务参数"));
+    h.terminal.send("\r");
+    await waitFor("第二次说明", () => workflowScreen(h).includes("简短任务说明")); h.terminal.send("\r");
+    await chooseWorkflow(h, "确认启动");
+    await waitFor("第二项等待", () => listWorkflowRuns(t.runtime.store).length === 2 && listWorkflowRuns(t.runtime.store)[1]?.status === "waiting");
     const second = listWorkflowRuns(t.runtime.store)[1];
-    again.terminal.send("/workflow cancel " + second.id + " " + second.version + " cancel\r");
+    await chooseWorkflow(h, "batch");
+    await chooseWorkflow(h, "暂停"); await chooseWorkflow(h, "确认暂停");
+    await waitFor("已暂停", () => requireWorkflowRun(t.runtime.store, second.id).status === "paused");
+    await chooseWorkflow(h, "batch"); await chooseWorkflow(h, "调整预算");
+    await waitFor("预算输入", () => workflowScreen(h).includes("尝试上限"));
+    h.terminal.send("\x15"); h.terminal.send("150\r");
+    await waitFor("时限输入", () => workflowScreen(h).includes("运行时限（分钟）"));
+    h.terminal.send("\x15"); h.terminal.send("120\r");
+    await chooseWorkflow(h, "确认调整预算");
+    await waitFor("预算已保存", () => requireWorkflowRun(t.runtime.store, second.id).maxAttempts === 150);
+    await chooseWorkflow(h, "batch"); await chooseWorkflow(h, "恢复"); await chooseWorkflow(h, "确认恢复");
+    await waitFor("恢复待回答", () => requireWorkflowRun(t.runtime.store, second.id).status === "waiting");
+    await chooseWorkflow(h, "batch");
+    h.terminal.resize(55, 18); await renderFlush();
+    const narrow = stripTerminalSequences((h.app as any).tui.previousScreen.join("\n"));
+    assert.match(narrow, /运行详情/); assert.doesNotMatch(narrow, /CHAT-OK/);
+    assert.ok((h.app as any).tui.previousScreen.every((row: string) => visibleWidth(row) <= 55));
+    h.terminal.resize(140, 30); await renderFlush();
+    assert.match(workflowScreen(h), /运行详情/);
+    await chooseWorkflow(h, "取消运行"); await chooseWorkflow(h, "确认取消");
     await waitFor("第二项取消", () => requireWorkflowRun(t.runtime.store, second.id).status === "canceled");
+    h.terminal.send("\x1b"); await renderFlush();
+    assert.equal((h.app as any).workflowSidebar.opened, false);
     assert.ok(requests.some(request => request.op === "workflow_logs"));
     assert.ok(requests.some(request => request.op === "workflow_answer"));
-    const history = new CommandHistoryStore(path.join(t.dirs.root, "tui", "commands.sqlite"));
-    assert.ok(history.load(t.runtime.store.db.getInstanceId(), sessionId).some(command => command.line.includes("run batch first") && command.line.includes("保留  空白")), "原键和参数原文留在客户端命令历史");
+    assert.equal(requests.filter(request => request.op === "workflow_start").length, 2);
+    h.app.quit(0);
+    const again = await startApp(t, { sessionId }); apps.push(again);
+    again.terminal.send("/workflow\r");
+    await chooseWorkflow(again, "历史");
+    assert.equal(listWorkflowRuns(t.runtime.store).length, 2, "重启客户端不创建运行");
   } finally { quitAll(apps); await t.shutdown(); }
 });
+
+function workflowScreen(h: AppHarness): string {
+  return stripTerminalSequences((h.app as any).workflowSidebar.render(h.terminal.columns >= 120 ? 46 : h.terminal.columns).join("\n"));
+}
+
+/** 只用真实按键移动选择，不调用组件动作或填写协议参数。 */
+async function chooseWorkflow(h: AppHarness, label: string): Promise<void> {
+  await waitFor(`侧栏选项 ${label}`, () => (h.app as any).workflowSidebar.screen?.choices.some((choice: { label: string }) => choice.label.includes(label)));
+  for (let i = 0; i < 150; i++) {
+    const selected = (h.app as any).workflowSidebar.screen.list.getSelectedItem();
+    if (selected?.label.includes(label)) { h.terminal.send("\r"); await renderFlush(); return; }
+    h.terminal.send("\x1b[B");
+  }
+  assert.fail(`键盘未能选择 ${label}`);
+}
 
 interface AppHarness {
   app: TuiApp;
@@ -193,6 +247,107 @@ function assertWindowFrame(h: AppHarness): void {
 }
 
 // ---------- 测试 ----------
+
+test("真实工作流回报实时、重连、翻页和单条先到均不泄出内部输入，↑ 与置顶只取拥有者要求", async () => {
+  const summary = "唯一最终总结\n" + Array.from({ length: 65 }, (_, i) => `成果 ${i}`).join("\n");
+  const t = await startTestRuntime("tui-report-visibility", req => {
+    if (lastUserText(req).startsWith("[工作流最终回报]")) return { kind: "text", text: summary };
+    if (!afterTool(req)) return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start",
+      arguments: { title: "后台处理", key: "visibility", input: null, script: "return 1;" } }] };
+    return { kind: "text", text: "后台已启动" };
+  }, { config: realTools() });
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const live = await startApp(t, { sessionId }); apps.push(live);
+    await submitViaEditor(live, "启动工作");
+    await waitFor("最终回报已展示", () => listWorkflowRuns(t.runtime.store)[0]?.delivery?.status === "reported" &&
+      live.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    await renderFlush();
+    assert.ok(!stripTerminalSequences(live.terminal.output()).includes("[工作流最终回报]"), "实际终端帧从未展示内部输入");
+    assertInputRecall(live, ["启动工作"]);
+    const input = t.runtime.readHistory({ sessionId }).entries.find(entry => entry.role === "user" && entry.inputPurpose === "internal_report")!;
+    const run = listWorkflowRuns(t.runtime.store)[0];
+    assert.ok(input.text.includes("[工作流最终回报]"));
+    live.app.quit(0);
+    const again = await startApp(t, { sessionId }); apps.push(again);
+    await waitFor("重连历史已加载", () => again.state.openSession(sessionId).historyLoaded &&
+      again.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    assertInputRecall(again, ["启动工作"]);
+    const app = again.app as any;
+    const flow = again.state.openSession(sessionId).flow;
+    const users = () => flow.items.filter(entry => entry.kind === "message" && entry.role === "user");
+    const checkSticky = () => {
+      app.refreshTranscript();
+      const lines: string[] = app.eventFlowView.render(80);
+      for (let top = 1; top < lines.length; top++) {
+        assert.ok(!stripTerminalSequences(app.eventFlowView.stickyPrompt(top, 80).join("\n")).includes("[工作流最终回报]"));
+      }
+    };
+    checkSticky();
+    flow.resetRemote(); again.state.tasks.clear();
+    await again.app.loadEntry(sessionId, input.entryId);
+    assert.deepEqual(users(), [], "单条补读不依赖任务元数据");
+    again.state.installTaskDetail(t.runtime.getTaskDetail(run.delivery!.taskId!)!.task, []);
+    assert.deepEqual(users(), [], "任务详情后到也不出现用户行");
+    const request = again.connection.request.bind(again.connection);
+    again.connection.request = <K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number) =>
+      request(op, op === "read_history" ? { ...params, limit: 1 } : params, timeoutMs);
+    await app.loadHistory(sessionId, "replace");
+    while (again.state.openSession(sessionId).historyCursor) await app.loadHistory(sessionId, "prepend");
+    assert.deepEqual(users().map(entry => entry.kind === "message" ? entry.text : ""), ["启动工作"]);
+    assertInputRecall(again, ["启动工作"]);
+    checkSticky();
+    assert.ok(!stripTerminalSequences(again.terminal.output()).includes("[工作流最终回报]"));
+    const hits = await again.connection.request("search_history", { query: "工作流最终回报", session_id: sessionId });
+    assert.ok(hits.hits.some(hit => hit.entryId === input.entryId), "诊断搜索保留内部原文");
+  } finally { quitAll(apps); await t.shutdown(); }
+});
+
+test("曾被等待覆盖的普通子任务补报：实时与重连均隐藏内部输入，↑ 与置顶保留拥有者消息", async () => {
+  let releaseChild!: () => void;
+  const childReady = new Promise<void>(resolve => { releaseChild = resolve; });
+  let parentPhase = 0;
+  const summary = "后台子任务唯一总结\n" + Array.from({ length: 60 }, (_, index) => `成果 ${index}`).join("\n");
+  const t = await startTestRuntime("tui-subagent-report-visibility", async request => {
+    const input = lastUserText(request);
+    if (input === "后台委派") {
+      if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "hidden-report", request: "VISIBILITY_CHILD", read_paths: ["."] } }] };
+      const child = t.runtime.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!;
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: child.id }] } }] };
+    }
+    if (input.startsWith("[后台工作最终回报]")) return { kind: "text", text: summary };
+    if (input.includes("VISIBILITY_CHILD")) { await childReady; return { kind: "text", text: "后台子任务完成" }; }
+    return { kind: "text", text: "新消息已处理" };
+  });
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const live = await startApp(t, { sessionId }); apps.push(live);
+    await submitViaEditor(live, "后台委派");
+    await waitFor("父轮持久等待", () => live.state.tasksFor(sessionId).some(task => task.wait?.phase === "waiting"));
+    await submitViaEditor(live, "新消息");
+    await waitFor("新消息先结束", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.input === "新消息" && task.status === "completed"));
+    releaseChild();
+    await waitFor("补报最终总结已展示", () => live.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    await renderFlush();
+    assert.ok(!stripTerminalSequences(live.terminal.output()).includes("[后台工作最终回报]"));
+    assertInputRecall(live, ["新消息", "后台委派"]);
+    const fallback = t.runtime.store.listTasksBySession(sessionId).find(task => task.input.startsWith("[后台工作最终回报]"))!;
+    assert.equal(t.runtime.getTaskDetail(fallback.id)!.task.inputPurpose, "internal_report");
+    assert.ok(t.runtime.readHistory({ sessionId }).entries.some(entry => entry.taskId === fallback.id && entry.role === "user" && entry.inputPurpose === "internal_report"));
+    live.app.quit(0);
+    const again = await startApp(t, { sessionId }); apps.push(again);
+    await waitFor("重连显示同一最终总结", () => again.state.openSession(sessionId).historyLoaded &&
+      again.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    assertInputRecall(again, ["新消息", "后台委派"]);
+    again.app["refreshTranscript"]();
+    const rendered = again.app["eventFlowView"], lines = rendered.render(80);
+    for (let top = 1; top < lines.length; top++) assert.ok(!stripTerminalSequences(rendered.stickyPrompt(top, 80).join("\n")).includes("[后台工作最终回报]"));
+    assert.deepEqual(again.state.openSession(sessionId).flow.items.filter(entry => entry.kind === "message" && entry.role === "user")
+      .map(entry => entry.kind === "message" ? entry.text : ""), ["后台委派", "新消息"]);
+  } finally { releaseChild(); quitAll(apps); await t.shutdown(); }
+});
 
 test("输入框上横线右侧显示工作区名，长输入与粘贴保留边框和可见光标", async () => {
   const t = await startTestRuntime("tui-editor-height", async () => ({ kind: "text", text: "收到" }));
@@ -551,7 +706,7 @@ test("滚到事件流顶部自动加载更早历史，重复上滚只请求一�
     await renderFlush();
     const app = h.app as any;
     const entry = (entryId: string, timestamp: string, text: string): HistoryPage["entries"][number] => ({
-      entryId, parentId: null, role: "assistant", timestamp, text, offset: 0,
+      entryId, taskId: null, inputPurpose: "user", parentId: null, role: "assistant", timestamp, text, offset: 0,
       totalBytes: Buffer.byteLength(text), truncated: false, toolCalls: [], toolCallId: null,
       toolName: null, isError: null, hasNonTextContent: false,
     });
@@ -1675,4 +1830,75 @@ test("点击工具返回行在事件流展开 Write 原文和 Edit 实际 diff�
     await new Promise((resolve) => setTimeout(resolve, 100));
     await t.shutdown();
   }
+});
+
+test("视口键：搜索获焦时分页与首尾定位仍作用于聊天，保留搜索焦点", async () => {
+  const t = await startTestRuntime("search-viewport", async () => ({ kind: "text", text: Array.from({ length: 120 }, (_, index) => `检索正文 ${index}`).join("\n") }));
+  let h: AppHarness | undefined;
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    h = await startApp(t, { sessionId });
+    await submitViaEditor(h, "搜索分页检查");
+    await waitFor("搜索检查正文完成", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.status === "completed"));
+    await renderFlush();
+    const tui = h.app["tui"];
+    h.terminal.send("\x1b[H"); await renderFlush();
+    assert.equal(tui.viewportTop, 0);
+    h.terminal.send("\x1b[102;6u"); await renderFlush();
+    const search = tui.getFocusedComponent();
+    assert.ok(search);
+    assert.notEqual(search, h.app["editor"], "Ctrl+Shift+F 打开真实搜索覆盖层");
+    assert.match(stripTerminalSequences(h.terminal.output()), /Find in transcript/);
+    h.terminal.send("\x1b[6~"); await renderFlush();
+    assert.ok(tui.viewportTop > 0, "搜索时仍可向下翻阅聊天");
+    assert.equal(tui.getFocusedComponent(), search);
+    h.terminal.send("\x1b[H"); await renderFlush();
+    assert.equal(tui.viewportTop, 0);
+    h.terminal.send("\x1b[F"); await renderFlush();
+    assert.equal(tui.isFollowingOutput, true);
+    assert.equal(tui.getFocusedComponent(), search);
+    h.terminal.send("\x1b"); await renderFlush();
+    assert.equal(tui.getFocusedComponent(), h.app["editor"]);
+  } finally { h?.app.quit(0); await t.shutdown(); }
+});
+
+test("视口键：Kitty PgDn 释放事件不重复滚动聊天，按下事件正常滚动", async () => {
+  const t = await startTestRuntime("release-viewport", async () => ({ kind: "text", text: Array.from({ length: 120 }, (_, index) => `滚动正文 ${index}`).join("\n") }));
+  let h: AppHarness | undefined;
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    h = await startApp(t, { sessionId });
+    await submitViaEditor(h, "按键释放检查");
+    await waitFor("释放检查正文完成", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.status === "completed"));
+    await renderFlush();
+    const tui = h.app["tui"];
+    h.terminal.send("\x1b[H"); await renderFlush();
+    const before = tui.viewportTop;
+    h.terminal.send("\x1b[6;1:3~"); await renderFlush();
+    assert.equal(tui.viewportTop, before, "释放帧不能当作第二次按下");
+    h.terminal.send("\x1b[6~"); await renderFlush();
+    const after = tui.viewportTop;
+    assert.ok(after > before);
+    h.terminal.send("\x1b[6;1:3~"); await renderFlush();
+    assert.equal(tui.viewportTop, after);
+  } finally { h?.app.quit(0); await t.shutdown(); }
+});
+
+test("视口键：侧栏日志只在 PgDn 按下时滚动，释放帧保持当前正文", async () => {
+  const t = await startTestRuntime("sidebar-release-viewport", async () => ({ kind: "text", text: "CHAT" }));
+  let h: AppHarness | undefined;
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const text = Array.from({ length: 100 }, (_, index) => `侧栏日志行 ${index}`).join("\n");
+    await t.runtime.saveWorkflowDefinition({ name: "release", script: `await progress("log",{text:${JSON.stringify(text)}}); return await ask("hold",{prompt:"等待"});`, expectedDigest: null, requestKey: "save-release" });
+    const started = await t.runtime.startWorkflowOwner({ name: "release", sessionId, requestKey: "release", input: null });
+    await waitFor("日志已落盘", () => requireWorkflowRun(t.runtime.store, started.run.id).status === "waiting");
+    h = await startApp(t, { sessionId }); h.terminal.resize(140, 30);
+    h.terminal.send("/workflow\r"); await chooseWorkflow(h, "release"); await chooseWorkflow(h, "阶段日志");
+    const before = workflowScreen(h);
+    h.terminal.send("\x1b[6;1:3~"); await renderFlush(); assert.equal(workflowScreen(h), before);
+    h.terminal.send("\x1b[6~"); await renderFlush();
+    const after = workflowScreen(h); assert.notEqual(after, before);
+    h.terminal.send("\x1b[6;1:3~"); await renderFlush(); assert.equal(workflowScreen(h), after);
+  } finally { h?.app.quit(0); await t.shutdown(); }
 });

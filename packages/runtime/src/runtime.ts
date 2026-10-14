@@ -120,7 +120,7 @@ import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
 import { Store,StoreConflictError } from "@ruukoto/core/store.ts";
-import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, findWorkflowRun, getWorkflowDeliveryRun, getWorkflowExecution, getWorkflowQuestion, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDeliveryKey, workflowDigest, workflowJson, workflowQuestionKey, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowControl, type WorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
+import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, findWorkflowRun, getWorkflowDeliveryRun, getWorkflowExecution, getWorkflowQuestion, getWorkflowReceipt, getWorkflowRunNumber, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDeliveryKey, workflowDigest, workflowJson, workflowQuestionKey, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowControl, type WorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { WorkflowCoordinator, type WorkflowAgentExecutor } from "./workflows.ts";
 import { WorkflowSteps } from "./workflow-steps.ts";
 import { WorkflowLibrary } from "./workflow-library.ts";
@@ -169,10 +169,17 @@ import {
   type BoundedText,
   type ConfirmationRequestView,
   type OutputPreview,
+  type TaskView,
   type ToolOpView,
 } from "@ruukoto/core/views.ts";
 import { GIT_SAFE_DIRECTORY_ENV,grantCoversPath,resolveWorktreeCommonGitDir,taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
-import { ParentDelivery, workflowWakeInput } from "@ruukoto/runtime/parent-delivery.ts";
+import { ParentDelivery, workflowWakeInput, workflowReport } from "@ruukoto/runtime/parent-delivery.ts";
+import { RuntimeAgentWait, agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
+import { AgentWaitError, agentWaitView, agentReportKey, bindAgentReportFallback, consumeAgentReport, getAgentReport, registerAgentReport, isAgentReportFallback, isAgentReportParked,
+  completeAgentReports, finishAgentReportFallback, invalidateAgentReports, parkAgentReportFallback, transferAgentReportFallbacks, latestAgentReferenceSnapshot, listAgentReports, listAgentWaits, recoverAgentWaits, releaseAgentReports, sameAgentReportSource, startAgentReportFallback,
+  type AgentReport, type AgentReportCompletion, type AgentReportTarget, type AgentWaitTarget } from "@ruukoto/core/agent-wait.ts";
+import { createAgentWaitFamily } from "@ruukoto/agent/agent-wait-tools.ts";
+import { TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import { ImWorkflows } from "@ruukoto/channels/im-workflows.ts";
 import { SubAgentDelegationError,SubAgentManager,type WorkCancellation } from "@ruukoto/runtime/subagents.ts";
 import { applyWorkspaceMigration,previewWorkspaceMigration,type MigrationApplyInput,type MigrationApplyResult,type MigrationPreview,type MigrationPreviewInput } from "@ruukoto/runtime/workspace-migration.ts";
@@ -181,7 +188,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { Orchestrator } from "./orchestrator.ts";
+import { Orchestrator, type ChildOutcome } from "./orchestrator.ts";
 import { assertWorktreeGrantAllowed,WorkCopyError,WorkCopyManager,type WorkCopyExecutor } from "./work-copy.ts";
 
 /** 快照中每个会话保留的近期已结束任务数（更早的经 list_tasks 分页查询）。 */
@@ -356,6 +363,8 @@ export class Runtime {
   private readonly githubEvents: GitHubEvents;
   /** 父级送达（架构工单 09）：结果与工作内消息怎样、何时进入主 Agent 的模型调用。 */
   private readonly parentDelivery: ParentDelivery;
+  private readonly agentWait: RuntimeAgentWait;
+  private readonly reportGroups = new Set<string>();
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
   /** IM 审批命令处理（agent-direction issue 08）；绑定拥有者的私聊控制消息入口。 */
@@ -508,7 +517,22 @@ export class Runtime {
       sendWorkReport: (report) => this.imEntries.sendWorkReport(report),
       verifyWorkflowReport: run => this.verifyWorkflowReport(run),
       sendWorkflowReport: report => this.imEntries.sendWorkReport(report),
+      reserveAgentReport: report => this.agentWait.reserve(report),
+      verifyAgentReport: report => this.verifyAgentWaitTarget(report.source, report.target) && (Boolean(report.claimTaskId) || !this.agentReportWorkCanceled(report)),
+      routeAgentReport: report => this.routeAgentReportGroup(report),
+      recordClaimedReport: (task, outcome, reports) => this.recordClaimedAgentReport(task, outcome, reports),
+      reportInput: (task, reports) => this.agentReportInput(task, reports),
     });
+    this.agentWait = new RuntimeAgentWait({ store,
+      source: (target, parent) => this.agentWaitSource(target, parent),
+      verify: (source, target) => this.verifyAgentWaitTarget(source, target),
+      snapshot: task => {
+        const driver = this.drivers.get(task.sessionId);
+        if (!driver || driver.currentTaskId !== task.id) throw new AgentWaitError("task_inactive");
+        return driver.referenceSnapshot();
+      },
+      yieldWorkspace: task => this.drivers.get(task.sessionId)?.yieldWorkspace(task.id) ?? Promise.resolve(false),
+      subscribe: listener => this.addEventListener(listener), unsubscribe: listener => this.removeEventListener(listener), kick: () => this.kickAll() });
     this.imWorkflows = new ImWorkflows({ store, sched: this.sched, entry: source => this.imEntries.entry(source),
       answer: input => this.answerWorkflowQuestion(input),
       start: (input, origin) => this.startWorkflowOwner({ ...input, sessionId: this.store.getAgentRole("main")!.sessionId }, origin),
@@ -593,7 +617,7 @@ export class Runtime {
       if (this.stopping || this.modeSwitchStopping.has(parent.id) || !current ||
           !["running", "awaiting_confirmation"].includes(current.status) || current.cancelRequested ||
           current.permissionVersion !== parent.permissionVersion ||
-          !this.store.listAllOccupancy().some((held) => held.taskId === parent.id)) {
+          this.store.getOccupancyByDir(this.store.getSession(parent.sessionId)!.cwdReal)?.taskId !== parent.id || this.verifyAgentReportSources(parent.id)) {
         throw new WorkCopyError("task_ending", "父任务执行已结束或权限已变化：保留工作副本与已有结果，不再执行 Git");
       }
     };
@@ -907,7 +931,7 @@ export class Runtime {
         // 未完成归属的图片拒绝只使用媒体账本回执，取消排队任务不再另发 owner 回复。
         if (runtime.inboundMedia.hasMedia(event) && event.taskId !== task.id) return;
         if (event.source === GITHUB_SOURCE) runtime.githubEvents.terminal(event, task, outcome);
-        else runtime.imEntries.enqueueOwnerReply(event, task, outcome);
+        else if (!listAgentReports(runtime.store, { taskId: task.id }).some(report => report.claimTaskId === task.id && report.status === "pending") || !runtime.parentDelivery.reportReady(task)) runtime.imEntries.enqueueOwnerReply(event, task, outcome);
       },
       parentDelivery: runtime.parentDelivery,
       inboundGate: (event) => runtime.inboundGate(event),
@@ -1037,22 +1061,309 @@ export class Runtime {
     return verifySource(run.source) && listWorkflowSteps(this.store, run.id).every(step => this.workflowSteps.verifyResultSources(run, step, verifySource));
   }
 
+  private agentWaitSource(target: AgentWaitTarget, parent: Task): WorkflowSource {
+    const identity = this.store.getSessionIdentity(parent.sessionId);
+    if (!identity || !["dev", "main", "scheduled"].includes(identity.kind) || parent.subAgentId ||
+        getWorkflowExecution(this.store, parent.id) || getWorkflowDeliveryRun(this.store, parent.id) || isAgentReportFallback(this.store, parent.id)) throw new AgentWaitError("source_forbidden");
+    let source: WorkflowSource;
+    if (target.kind === "workflow") {
+      source = requireWorkflowRun(this.store, target.runId).source;
+    } else {
+      const child = this.store.getTask(target.taskId), work = child?.workId ? this.store.getWorkDelegation(child.workId) : null;
+      const origin = work ? this.store.getTask(work.originTaskId) : null;
+      const session = origin ? this.store.getSession(origin.sessionId) : null;
+      if (!child?.subAgentId || !work || !origin || !session || work.parentSessionId !== parent.sessionId) throw new AgentWaitError("target_invalid");
+      const prior = listAgentWaits(this.store, { sessionId: parent.sessionId }).find(wait => wait.targets.some(item => item.kind === "task" && item.taskId === child.id));
+      const event = origin.sourceEventId ? this.store.getInboundEvent(origin.sourceEventId) : null;
+      const scheduled = this.store.getScheduledRunForTask(origin.id);
+      source = prior?.source ?? { product: this.productType, projectId: session.projectId, sessionId: session.id, taskId: origin.id,
+        permissionVersion: origin.permissionVersion, accessMode: origin.accessMode, grantedPaths: origin.grantedPaths,
+        capabilities: sessionToolCategories(identity.kind === "dev" ? "dev" : "main"), references: origin.readScope?.sourceRefs ?? [],
+        replyTarget: scheduled ? this.sched.getSchedule(this.sched.getRun(scheduled.id)!.scheduleId)?.target ?? null : event?.replyTarget ?? null,
+        scheduledRunId: scheduled?.id ?? null,
+        authority: { categories: sessionToolCategories(identity.kind === "dev" ? "dev" : "main"),
+          grantIds: this.access.listGrants().filter(grant => grant.toProjectId === session.projectId).map(grant => grant.id),
+          configuration: this.workflowConfiguration(session.projectId), workspace: { path: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno } } };
+    }
+    if (source.sessionId !== parent.sessionId || !this.verifyAgentWaitTarget(source, target)) throw new AgentWaitError("source_invalid");
+    const scheduled = this.store.getScheduledRunForTask(parent.id);
+    const event = parent.sourceEventId ? this.store.getInboundEvent(parent.sourceEventId) : null;
+    if (source.scheduledRunId !== (scheduled?.id ?? null) || (!source.scheduledRunId && !isDeepStrictEqual(source.replyTarget, event?.replyTarget ?? null))) throw new AgentWaitError("reply_target_mismatch");
+    return source;
+  }
+
+  private verifyAgentWaitTarget(source: WorkflowSource, target: AgentWaitTarget | AgentReportTarget, finalReport = false): boolean {
+    if (!this.verifyWorkflowSource(source, finalReport)) return false;
+    if (target.kind === "workflow") {
+      const run = requireWorkflowRun(this.store, target.runId);
+      return run.source.taskId === source.taskId && (!("terminalVersion" in target) || target.terminalVersion === run.terminalVersion) && this.verifyWorkflowReport(run, finalReport);
+    }
+    const child = this.store.getTask(target.taskId), work = child?.workId ? this.store.getWorkDelegation(child.workId) : null;
+    if (!child || !work || work.originTaskId !== source.taskId || work.parentSessionId !== source.sessionId) return false;
+    const report = getAgentReport(this.store, agentReportKey(target));
+    const dependencies = report?.dependencyTaskIds ?? (this.store.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND rowid <= (SELECT rowid FROM tasks WHERE id = ?)").all(child.sessionId, child.id) as { id: string }[]).map(row => row.id);
+    for (const id of dependencies) {
+      const input = this.store.getTask(id);
+      if (!input || this.sources.verify(source.projectId, input.readScope?.sourceRefs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[] ?? [])) return false;
+      for (const op of this.store.listToolOpsByTask(id)) {
+        if (Array.isArray(op.params.source_refs) && this.sources.verify(source.projectId, op.params.source_refs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[])) return false;
+        if (op.toolName === "memory_read" && typeof op.params.memory_id === "string") {
+          const row = this.store.db.prepare("SELECT status FROM memories WHERE id = ?").get(op.params.memory_id) as { status: string } | undefined;
+          if (row?.status !== "active") return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private verifyAgentReportSources(taskId: string, finalReport = false): string | null {
+    for (const wait of listAgentWaits(this.store, { taskId })) {
+      const task = this.store.getTask(taskId);
+      if (!task || task.permissionVersion !== wait.snapshot.permissionVersion || wait.targets.some(target => !this.verifyAgentWaitTarget(wait.source, target, finalReport))) return "agent_wait_source_invalid";
+    }
+    let reports: AgentReport[];
+    try { reports = this.agentReportReferences(taskId); }
+    catch (error) {
+      if (error instanceof HistoryReadError || error instanceof AgentWaitError) return "agent_report_input_invalid";
+      throw error;
+    }
+    for (const report of reports) {
+      if (report.fallbackTaskId === taskId && this.agentReportWorkCanceled(report)) return "agent_report_work_canceled";
+      if (!this.verifyAgentWaitTarget(report.source, report.target, finalReport)) return "agent_report_source_invalid";
+    }
+    return null;
+  }
+
+  private agentReportWorkCanceled(report: AgentReport): boolean {
+    if (report.target.kind !== "task") return false;
+    const child = this.store.getTask(report.target.taskId);
+    return Boolean(child?.workId && this.store.getWorkDelegation(child.workId)?.canceledAt);
+  }
+
+  private conversationAdmitted(task: Task): boolean {
+    if (task.subAgentId || getWorkflowExecution(this.store, task.id)) return false;
+    return Boolean(getWorkflowDeliveryRun(this.store, task.id) || isAgentReportFallback(this.store, task.id) || latestAgentReferenceSnapshot(this.store, task.sessionId));
+  }
+
+  private async acquireAgentResources(task: Task): Promise<boolean> {
+    const current = this.store.getTask(task.id), session = this.store.getSession(task.sessionId);
+    if (!current || !session || current.cancelRequested || !["running", "awaiting_confirmation"].includes(current.status) || this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
+    const workspace = taskWorkspaceFor({ session, work: current.workId ? this.store.getWorkDelegation(current.workId) : null });
+    const acquired = this.store.withTx(() => {
+      const fresh = this.store.getTask(task.id);
+      if (!fresh || fresh.cancelRequested || fresh.permissionVersion !== current.permissionVersion || !["running", "awaiting_confirmation"].includes(fresh.status) || this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
+      const held = this.store.getOccupancyByDir(workspace.path);
+      return held?.taskId === task.id || this.store.tryAcquireOccupancy({ cwdReal: workspace.path, cwdDev: workspace.dev, cwdIno: workspace.ino, sessionId: task.sessionId, taskId: task.id });
+    });
+    if (!acquired) return false;
+    await verifyDirIdentity({ cwd: workspace.path, cwdReal: workspace.path, dev: workspace.dev, ino: workspace.ino });
+    if (this.store.getTask(task.id)?.permissionVersion !== current.permissionVersion || this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
+    return true;
+  }
+
+  private agentTaskEntries(task: Task): ReturnType<typeof parseSessionFile> {
+    const file = this.store.getSession(task.sessionId)?.sessionFile;
+    if (!file) return [];
+    const entries = parseSessionFile(file);
+    const start = entries.findIndex(entry => entry.type === "custom" && entry.customType === TASK_START_MARKER && (entry.data as { taskId?: string } | undefined)?.taskId === task.id);
+    const nextBoundary = entries.findIndex((entry, index) => index > start && entry.type === "custom" && (entry.customType === TASK_START_MARKER || entry.customType === TASK_END_MARKER));
+    return start < 0 ? [] : entries.slice(start + 1, nextBoundary < 0 ? undefined : nextBoundary);
+  }
+
+  /** 报告权释放后仍从保护历史重建实际输入闭包，旧消费归属不会把资料从新主轮解绑。 */
+  private agentReportReferences(taskId: string): AgentReport[] {
+    const reports = new Map(listAgentReports(this.store, { taskId }).map(report => [report.key, report]));
+    const claimed = this.store.db.prepare("SELECT DISTINCT json_extract(body, '$.key') AS report_key FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'agent_report.changed'")
+      .all(taskId) as { report_key: string }[];
+    for (const item of claimed) {
+      const report = getAgentReport(this.store, item.report_key);
+      if (!report) throw new AgentWaitError("report_input_reference_missing");
+      reports.set(report.key, report);
+    }
+    const task = this.store.getTask(taskId), waits = listAgentWaits(this.store, { taskId });
+    if (!task || !waits.length) return [...reports.values()];
+    const inputKeys = new Set<string>(), consumedInputs = new Map<string, Set<string>>();
+    for (const entry of this.agentTaskEntries(task)) {
+      const message = entry.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean; content?: { type: string; text?: string }[] } | undefined;
+      if (entry.type !== "message" || message?.role !== "toolResult" || message.toolName !== "agent_wait" || !waits.some(wait => wait.sdkCallId === message.toolCallId) || message.isError) continue;
+      let result: import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult;
+      try { result = JSON.parse(message.content!.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")) as import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult; }
+      catch { throw new AgentWaitError("report_input_invalid"); }
+      if (!result || typeof result !== "object" || !Array.isArray(result.targets)) throw new AgentWaitError("report_input_invalid");
+      if (result.reportTargets !== undefined && (result.reason !== "result" || !Array.isArray(result.reportTargets) || result.reportTargets.length > 20)) throw new AgentWaitError("report_input_invalid");
+      if (result.reason !== "result") continue;
+      const accepted = new Set<string>();
+      for (const target of [...result.targets, ...(result.reportTargets ?? [])]) {
+        if (!result.reportTargets?.includes(target) && (target?.reportOwnerTaskId !== taskId || typeof target.resultSummary !== "string")) continue;
+        if (!target || (target.kind !== "task" && target.kind !== "workflow") || target.reportOwnerTaskId !== taskId || typeof target.resultSummary !== "string" ||
+          (target.kind === "task" ? typeof target.taskId !== "string" : typeof target.runId !== "string" || typeof target.terminalVersion !== "number")) throw new AgentWaitError("report_input_invalid");
+        const identity = target.kind === "task" ? target : { ...target, terminalVersion: target.terminalVersion! };
+        const report = getAgentReport(this.store, agentReportKey(identity));
+        if (!report || report.parentSessionId !== task.sessionId || !waits.some(wait => wait.sdkCallId === message.toolCallId &&
+          sameAgentReportSource(wait.source, report.source))) throw new AgentWaitError("report_input_reference_missing");
+        reports.set(report.key, report);
+        accepted.add(report.key);
+        if (result.reportTargets?.includes(target)) inputKeys.add(report.key);
+      }
+      consumedInputs.set(entry.id, accepted);
+    }
+    if ([...reports.values()].some(report => report.fallbackTaskId !== taskId && report.consumption?.taskId === taskId &&
+        !consumedInputs.get(report.consumption.entryId)?.has(report.key))) throw new AgentWaitError("report_input_missing");
+    if (isTerminalTaskStatus(task.status) && [...reports.values()].some(report => report.fallbackTaskId !== taskId && report.consumption &&
+        report.consumption.taskId !== taskId && !inputKeys.has(report.key))) throw new AgentWaitError("report_input_missing");
+    return [...reports.values()];
+  }
+
+  private agentReportInput(task: Task, reports: AgentReport[]): AgentReportCompletion["reportInput"] | null {
+    if (!reports.some(report => report.consumption && report.consumption.taskId !== task.id)) return null;
+    const calls = listAgentWaits(this.store, { taskId: task.id }).filter(wait => wait.reason === "result").map(wait => wait.sdkCallId);
+    for (const entry of this.agentTaskEntries(task)) {
+      const message = entry.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean; content?: { type: string; text?: string }[] } | undefined;
+      if (entry.type !== "message" || message?.role !== "toolResult" || message.toolName !== "agent_wait" || !calls.includes(message.toolCallId ?? "") || message.isError) continue;
+      const result = JSON.parse(message.content!.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")) as import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult;
+      const group = result.reportTargets;
+      if (result.reason === "result" && group && group.length <= 20 && group.length === reports.length && reports.every(report => group.some(target =>
+        target.reportOwnerTaskId === task.id && target.resultSummary !== null && target.resultSummary !== undefined && target.kind === report.target.kind &&
+        (target.kind === "task" && report.target.kind === "task" ? target.taskId === report.target.taskId : target.kind === "workflow" && report.target.kind === "workflow" && target.runId === report.target.runId && target.terminalVersion === report.target.terminalVersion)))) return { entryId: entry.id, keys: reports.map(report => report.key) };
+    }
+    return null;
+  }
+
+  private acceptAgentWaitResults(task: Task): void {
+    if (this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
+    const reports = listAgentReports(this.store, { taskId: task.id });
+    if (!reports.some(report => report.status === "pending" && !report.consumption)) return;
+    const taskEntries = this.agentTaskEntries(task);
+    const fallbackReports = reports.filter(report => report.fallbackTaskId === task.id && report.status === "pending" && !report.consumption);
+    if (fallbackReports.length) {
+      const input = taskEntries.find(entry => entry.type === "message" && (entry.message as { role?: string } | undefined)?.role === "user");
+      const group = taskEntries.find(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context" && (entry.data as { taskId?: string } | undefined)?.taskId === task.id);
+      const proof = group ?? input;
+      if (!proof) throw new AgentWaitError("report_input_missing");
+      for (const report of fallbackReports) consumeAgentReport(this.store, report.key, { taskId: task.id, entryId: proof.id });
+    }
+    for (const wait of listAgentWaits(this.store, { taskId: task.id })) {
+      if (wait.reason !== "result") continue;
+      const results = taskEntries.filter(item => {
+        const message = item.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean } | undefined;
+        return item.type === "message" && message?.role === "toolResult" && message.toolName === "agent_wait" && message.toolCallId === wait.sdkCallId && !message.isError;
+      });
+      for (const entry of results) {
+        const message = entry.message as { content: { type: string; text?: string }[] };
+        const result = JSON.parse(message.content.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")) as import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult;
+        if (result.reason !== "result") continue;
+        const delivered = [...result.targets, ...(result.reportTargets ?? [])].filter(target => target.resultSummary !== null && target.resultSummary !== undefined && target.reportOwnerTaskId === task.id);
+        for (const report of listAgentReports(this.store, { taskId: task.id }).filter(report => report.claimTaskId === task.id && !report.consumption)) {
+          const target = report.target;
+          if (delivered.some(item => item.kind === target.kind && (item.kind === "task" && target.kind === "task" ? item.taskId === target.taskId : item.kind === "workflow" && target.kind === "workflow" && item.runId === target.runId && item.terminalVersion === target.terminalVersion))) consumeAgentReport(this.store, report.key, { taskId: task.id, entryId: entry.id });
+        }
+      }
+    }
+  }
+
+  private recordClaimedAgentReport(task: Task, outcome: ChildOutcome, reports: AgentReport[]): AgentReportCompletion {
+    const reply = this.readTaskReply(task.id, 0, 64 * 1024);
+    const problem = this.verifyAgentReportSources(task.id);
+    if (outcome !== "completed" || problem || !reply) return { status: "undelivered", reason: problem ?? "parent_report_missing" };
+    const reportInput = reports.some(report => report.claimTaskId === task.id) ? this.agentReportInput(task, reports) : null;
+    if (reports.some(report => report.claimTaskId === task.id && report.consumption && report.consumption.taskId !== task.id) && !reportInput) return { status: "undelivered", reason: "report_input_missing" };
+    const source = reports[0].source;
+    if (!source.replyTarget || source.scheduledRunId) return { status: "reported", entryId: reply.entryId, ...(reportInput ? { reportInput } : {}) };
+    const origin = this.store.getTask(source.taskId), event = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
+    const originalEvent = origin?.sourceEventId ? this.store.getInboundEvent(origin.sourceEventId) : null;
+    if (!originalEvent || (event ? !event.replyTarget || !sameTarget(event.replyTarget, source.replyTarget) : reports.some(report => report.fallbackTaskId !== task.id))) return { status: "undelivered", reason: "reply_target_mismatch" };
+    const workflow = getWorkflowDeliveryRun(this.store, task.id);
+    const child = task.requestId.startsWith("wake:") ? this.store.getTask(task.requestId.slice("wake:".length)) : null;
+    const key = event?.id ?? `${originalEvent.id}#${workflow ? workflowDeliveryKey(workflow) : child?.workId ? `work:${child.workId}:${child.id}` : `agent-final:${task.requestId}`}`;
+    const facts = reports.map(report => {
+      if (report.target.kind === "workflow") {
+        const run = requireWorkflowRun(this.store, report.target.runId), steps = listWorkflowSteps(this.store, run.id), executions = listWorkflowExecutions(this.store, run.id);
+        const stop = run.scriptStopVerified === false || executions.some(execution => execution.stopVerified === false) ? "停止未核实"
+          : (run.scriptUnits.length === 0 || run.scriptStopVerified === true) && executions.every(execution => execution.status === "queued" || execution.stopVerified === true) ? "停止已核实" : "停止核实待完成";
+        return `工作流 ${run.id}：${run.status}${run.reason ? `（${run.reason}）` : ""}；步骤 ${steps.filter(step => step.status === "completed").length}/${steps.length} 完成；${stop}${executions.some(execution => this.store.getTask(execution.taskId)?.effectUnknown) ? "；操作效果未知" : ""}`;
+      }
+      const child = this.store.getTask(report.target.taskId)!;
+      return `子任务 ${child.id}：${child.status}${this.store.listAllOccupancy().some(held => held.taskId === child.id) ? "；停止未核实" : "；停止已核实"}${child.effectUnknown ? "；操作效果未知" : ""}`;
+    }).join("\n");
+    const sent = this.imEntries.sendWorkReport({ event: originalEvent, wakeTaskId: task.id, key, text: `${facts}\n${reply.text}` });
+    const op = this.sched.findOpBySource("owner_reply", key);
+    return sent && op ? { status: "reported", entryId: reply.entryId, outboxOpId: op.id, ...(reportInput ? { reportInput } : {}) }
+      : { status: "undelivered", reason: "report_enqueue_failed", ...(reportInput ? { reportInput } : {}) };
+  }
+
+  private async routeAgentReportGroup(report: AgentReport): Promise<boolean> {
+    const waits = listAgentWaits(this.store, { sessionId: report.parentSessionId });
+    const first = waits.find(wait => wait.targets.some(target => target.kind === report.target.kind &&
+      (target.kind === "task" && report.target.kind === "task" ? target.taskId === report.target.taskId : target.kind === "workflow" && report.target.kind === "workflow" && target.runId === report.target.runId)));
+    if (!first) return false;
+    const parent = this.store.getTask(first.taskId);
+    if (parent && ["running", "awaiting_confirmation"].includes(parent.status)) return true;
+    const key = `agent-final:${first.taskId}`;
+    if (this.reportGroups.has(key)) return true;
+    const targets = agentWaitGroupTargets(this.store, first.taskId);
+    if (!agentWaitTargetsReady(this.store, targets)) {
+      const queued = listAgentReports(this.store).filter(item => item.status === "pending" && targets.some(target => target.kind === item.target.kind &&
+        (target.kind === "task" && item.target.kind === "task" ? target.taskId === item.target.taskId : target.kind === "workflow" && item.target.kind === "workflow" && target.runId === item.target.runId)) &&
+        item.fallbackTaskId && !item.claimTaskId && ["queued", "parked"].includes(item.fallbackState ?? ""));
+      this.store.withTx(() => { for (const id of new Set(queued.map(item => item.fallbackTaskId!))) parkAgentReportFallback(this.store, id, "group_waiting"); });
+      return true;
+    }
+    this.reportGroups.add(key);
+    try {
+      const reports = this.store.withTx(() => targets.map(target => {
+        const identity = target.kind === "task" ? target : { ...target, terminalVersion: requireWorkflowRun(this.store, target.runId).terminalVersion! };
+        return registerAgentReport(this.store, { target: identity, source: first.source, parentSessionId: first.sessionId });
+      })).filter(item => item.status === "pending");
+      if (!reports.length) return true;
+      const canceled = reports.some(item => this.agentReportWorkCanceled(item));
+      if (canceled || reports.some(item => !this.verifyAgentWaitTarget(item.source, item.target))) {
+        this.store.withTx(() => invalidateAgentReports(this.store, reports.map(item => item.key), canceled ? "work_canceled" : "source_invalid"));
+        return true;
+      }
+      if (reports.some(item => item.claimTaskId)) return true;
+      if (reports.some(item => item.fallbackState === "running" || item.fallbackState === "completed")) return false;
+      const canonical = reports.map(item => item.fallbackTaskId).find(id => id !== null);
+      if (canonical) {
+        this.store.withTx(() => transferAgentReportFallbacks(this.store, reports.map(item => item.key), canonical));
+        this.kick(report.parentSessionId);
+        return true;
+      }
+      const source = first.source, origin = this.store.getTask(source.taskId)!;
+      const identity = this.store.getSessionIdentity(source.sessionId)!;
+      const input = "[后台工作最终回报]\n" + reports.map(item => item.target.kind === "workflow"
+        ? workflowReport(this.store, requireWorkflowRun(this.store, item.target.runId)).text
+        : `子任务 ${item.target.taskId}：${this.store.getTask(item.target.taskId)!.status}\n${this.store.getTask(item.target.taskId)!.resultSummary}`).join("\n\n") +
+        "\n按上述已记录事实和会话结果给出一次最终总结，明确失败、取消、未知效果与停止未核实；本轮只汇总，不执行新的工作。";
+      await this.submitInternal({ sessionId: source.sessionId, requestId: key, input, modelSelection: origin.modelSelection ?? this.defaultSelection,
+        accessMode: source.accessMode, grantedPaths: source.grantedPaths, agentId: identity.kind === "main" ? identity.role.id : null,
+        parentTaskId: source.taskId, sourcePermissionVersion: source.permissionVersion, reportKeys: reports.map(item => item.key) });
+      return true;
+    } finally { this.reportGroups.delete(key); }
+  }
+
   /** 拥有者查询持久事实；大问题/回答以 UTF-8 字节分页，授权快照不从 wire 回填。 */
   getWorkflowDetail(runId: string, stepOffset = 0) {
     const run = chargeWorkflow(requireWorkflowRun(this.store, runId), Date.now());
-    const steps = listWorkflowSteps(this.store, runId);
+    const steps = listWorkflowSteps(this.store, runId), executions = listWorkflowExecutions(this.store, runId);
+    const stopped = run.status === "paused" || workflowTerminal(run.status);
+    const stopUnverified = run.scriptStopVerified === false || (stopped && run.scriptUnits.length > 0 && run.scriptStopVerified !== true) ||
+      executions.some(execution => execution.stopVerified === false || (stopped && (execution.status === "running" || (execution.status === "finished" && execution.stopVerified !== true))));
     return { run: { id: run.id, sessionId: run.source.sessionId, definitionId: run.definitionId, scriptDigest: run.scriptDigest, inputDigest: run.inputDigest,
+      number: getWorkflowRunNumber(this.store, run.id),
+      displayName: run.displayName ?? `未命名工作流 ${run.createdAt}`, description: run.description ?? null, createdAt: run.createdAt,
+      stopUnverified, effectUnknown: run.reason === "effect_unknown" || executions.some(execution => this.store.getTask(execution.taskId)?.effectUnknown),
       status: run.status, version: run.version, reason: run.reason, attempts: run.attempts, maxAttempts: run.maxAttempts,
       usedMs: run.usedMs, durationMs: run.durationMs, clockVerified: run.clockVerified, scriptStopVerified: run.scriptStopVerified, terminalVersion: run.terminalVersion,
       delivery: run.delivery ? { version: run.delivery.version, taskId: run.delivery.taskId, status: run.delivery.status, reason: run.delivery.reason } : undefined },
     steps: steps.slice(stepOffset, stepOffset + 100).map(step => ({ key: step.key, kind: step.kind, status: step.status, resultRecorded: step.resultRecorded, attempts: step.attempts,
       question: getWorkflowQuestion(this.store, runId, step.key)?.status ?? null, outputArtifact: step.outputArtifact })),
     stepOffset, totalSteps: steps.length, nextStepOffset: stepOffset + 100 < steps.length ? stepOffset + 100 : null,
-    executions: listWorkflowExecutions(this.store, runId).slice(-100) };
+    executions: executions.slice(-100) };
   }
 
-  listWorkflows(sessionId?: string, offset = 0, limit = 50) {
-    const runs = listWorkflowRuns(this.store, sessionId).reverse();
+  listWorkflows(sessionId?: string, offset = 0, limit = 50, scope: "current" | "history" = "history") {
+    const history = listWorkflowRuns(this.store, sessionId).reverse();
+    const runs = scope === "current" ? [...history.filter(run => !workflowTerminal(run.status)), ...history.filter(run => workflowTerminal(run.status)).slice(0, 10)] : history;
     return { runs: runs.slice(offset, offset + limit).map(run => this.getWorkflowDetail(run.id).run), total: runs.length,
       offset, nextOffset: offset + limit < runs.length ? offset + limit : null };
   }
@@ -1117,7 +1428,7 @@ export class Runtime {
     if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
     this.workflowSource(task.id);
     const script = await this.workflowScript(input);
-    return this.getWorkflowDetail(this.workflows.start({ ...input, sourceTaskId: task.id, script, requestDigest: digest }).id);
+    return this.getWorkflowDetail(this.workflows.start({ ...input, displayName: input.name ?? input.title, sourceTaskId: task.id, script, requestDigest: digest }).id);
   }
 
   /** 可信拥有者入口：短期发起任务和运行同事务登记，不调用模型或借用活动聊天。 */
@@ -1160,7 +1471,7 @@ export class Runtime {
         modelSelection: selection, accessMode: mode, submissionDigest: digest, agentId: identity.kind === "main" ? "main" : null, sourceEventId });
       if (queued.duplicate) throw new WorkflowError("request_conflict");
       this.store.transitionTask(queued.task.id, ["queued"], "running", { startedAt: new Date().toISOString() });
-      const accepted = this.workflows.register({ ...input, sourceTaskId: queued.task.id, script, requestDigest: digest }, taskId => this.workflowSource(taskId, true));
+      const accepted = this.workflows.register({ ...input, displayName: input.name ?? input.title, sourceTaskId: queued.task.id, script, requestDigest: digest }, taskId => this.workflowSource(taskId, true));
       this.store.setTaskResult(queued.task.id, `已启动工作流 ${accepted.id}`, JSON.stringify({ workflowRunId: accepted.id, hostStart: true }));
       this.store.endTask(queued.task.id, ["running"], "completed");
       origin?.txExtra(accepted);
@@ -1174,10 +1485,18 @@ export class Runtime {
     await this.workflows.control(input.runId, input.requestKey, input.version, input.control, null, input.txExtra);
     return this.getWorkflowDetail(input.runId);
   }
+  findWorkflowReceipt(runId: string, requestId: string, operation: "workflow_answer" | "workflow_control") {
+    requireWorkflowRun(this.store, runId);
+    const receipt = getWorkflowReceipt(this.store, runId, operation === "workflow_control" ? `owner:${requestId}` : requestId);
+    if (receipt && receipt.operation !== operation) throw new WorkflowError("request_conflict");
+    return receipt;
+  }
   getWorkflowQuestion(runId: string, stepKey: string, offset = 0, length = 16 * 1024) {
     const question = getWorkflowQuestion(this.store, runId, stepKey);
     if (!question) throw new WorkflowError("question_missing");
+    const prompt = question.prompt as { options?: string[]; schema?: unknown };
     return { runId, stepKey, status: question.status, version: question.version, runVersion: question.runVersion,
+      ...(prompt.options ? { choices: prompt.options } : {}), ...(prompt.schema !== undefined ? { schema: prompt.schema } : {}),
       ...sliceTextByBytes(JSON.stringify({ prompt: question.prompt, answer: question.answer }), offset, Math.min(Math.max(length, 1), 64 * 1024)) };
   }
   answerWorkflowQuestion(input: { runId: string; stepKey: string; version: number; runVersion: number; requestKey: string; answer: unknown; txExtra?: () => void }) {
@@ -1339,7 +1658,7 @@ export class Runtime {
       const event = run.inboundEventId ? this.store.getInboundEvent(run.inboundEventId) : null;
       return event?.status === "failed" ? { status: "failed", text: "本次定时执行无法启动，请检查模型、执行入口或资料授权" } : null;
     }
-    const tasks = this.store.listScheduledRunTasks(run.id);
+    const tasks = this.store.listScheduledRunTasks(run.id).filter(task => !isAgentReportParked(this.store, task.id));
     const taskIds = new Set(tasks.map((task) => task.id));
     if (this.store.listAllOccupancy().some((held) => taskIds.has(held.taskId))) return null;
     if (tasks.some((task) => !isTerminalTaskStatus(task.status) || (!getWorkflowExecution(this.store, task.id) && task.resultSummary === null))) return null;
@@ -1348,7 +1667,8 @@ export class Runtime {
     for (const task of tasks) {
       if (getWorkflowExecution(this.store, task.id)) continue;
       if (!task.subAgentId || !task.workId || this.store.getWorkDelegation(task.workId)?.canceledAt) continue;
-      if (!this.store.findTaskByRequest(run.sessionId!, `wake:${task.id}`)) return null;
+      const report = getAgentReport(this.store, agentReportKey({ kind: "task", taskId: task.id }));
+      if (!this.store.findTaskByRequest(run.sessionId!, `wake:${task.id}`) && report?.status !== "reported") return null;
     }
     const final = tasks.filter((task) => task.sessionId === run.sessionId && !getWorkflowExecution(this.store, task.id)).sort((a, b) => (a.endedAt ?? "").localeCompare(b.endedAt ?? "") || a.id.localeCompare(b.id)).at(-1)!;
     const ordinary = tasks.filter(task => !getWorkflowExecution(this.store, task.id));
@@ -1409,6 +1729,11 @@ export class Runtime {
         if (op.sourceKind === "schedule_run" && listWorkflowRuns(this.store).some(run => run.source.scheduledRunId === op.sourceKey && !this.verifyWorkflowReport(run, true))) {
           return "定时工作流回报资料或原入口已失效";
         }
+        if (op.sourceKind === "schedule_run" && listAgentReports(this.store).some(report => report.source.scheduledRunId === op.sourceKey &&
+            (!this.verifyAgentWaitTarget(report.source, report.target, true) || !report.source.replyTarget || !sameTarget(report.source.replyTarget, op.target) ||
+              (Boolean(report.fallbackTaskId) && report.proof?.taskId === report.fallbackTaskId && this.agentReportWorkCanceled(report))))) {
+          return "定时等待结果回报的资料或原入口已失效";
+        }
         if (op.sourceKind === "workflow_question") {
           const parts = op.sourceKey.split("#");
           const question = parts.length === 3 ? getWorkflowQuestion(this.store, parts[0], parts[1]) : null;
@@ -1420,6 +1745,10 @@ export class Runtime {
             ? null : "工作流问题已回答、取消或来源失效";
         }
         if (op.sourceKind === "owner_reply" && op.taskId) {
+          if (this.verifyAgentReportSources(op.taskId, true)) return "等待结果回报的资料或原入口已失效";
+          const reports = this.agentReportReferences(op.taskId);
+          if (reports.some(report => report.source.scheduledRunId ||
+              !report.source.replyTarget || !sameTarget(report.source.replyTarget, op.target))) return "等待结果回报的资料或原入口已失效";
           const workflow = getWorkflowDeliveryRun(this.store, op.taskId);
           if (workflow && (!this.verifyWorkflowReport(workflow) || workflow.source.scheduledRunId ||
               !workflow.source.replyTarget || !sameTarget(workflow.source.replyTarget, op.target))) return "工作流最终回报来源已失效";
@@ -1749,6 +2078,7 @@ export class Runtime {
     this.store.withTx(() => {
       const store = this.store;
       recoverCompactionRequests(store);
+      recoverAgentWaits(store);
       const interruptedTaskIds: string[] = [];
       const pausedSessionIds: string[] = [];
 
@@ -1760,12 +2090,35 @@ export class Runtime {
       // Note: 见 .agents/notes/implemented/architecture/2026-09-23-main-app-data-space.md
       this.ledger.settleAll();
       for (const task of store.listTasksByStatus(["running", "awaiting_confirmation"])) {
+        const claims = listAgentReports(store, { taskId: task.id }).filter(report => report.status === "pending" && (report.claimTaskId === task.id || report.fallbackTaskId === task.id));
+        if (claims.length) {
+          const file = store.getSession(task.sessionId)?.sessionFile;
+          const entries = file && fs.existsSync(file) ? parseSessionFile(file) : [];
+          const start = entries.findIndex(entry => entry.type === "custom" && entry.customType === TASK_START_MARKER && (entry.data as { taskId?: string } | undefined)?.taskId === task.id);
+          const end = entries.findIndex((entry, index) => index > start && entry.type === "custom" && entry.customType === TASK_END_MARKER && (entry.data as { taskId?: string; status?: string } | undefined)?.taskId === task.id && (entry.data as { status?: string }).status === "completed");
+          const messages = start < 0 ? [] : entries.slice(start + 1, end < 0 ? undefined : end).filter(entry => entry.type === "message");
+          const final = messages.at(-1)?.message as { role?: string; stopReason?: string; content?: { type: string; text?: string }[] } | undefined;
+          if (final?.role === "assistant" && final.stopReason !== "error" && final.stopReason !== "aborted" && final.content?.some(part => part.type === "text" && part.text)) {
+            store.addHistoryEntryIds(task.id, messages.map(entry => entry.id));
+            if (this.verifyAgentReportSources(task.id)) invalidateAgentReports(store, claims.map(report => report.key), "source_invalid");
+            else this.acceptAgentWaitResults(task);
+            if (end >= 0) {
+              store.endTask(task.id, ["running", "awaiting_confirmation"], "completed", { keepOccupancy: true });
+              continue;
+            }
+            const proof = { status: "undelivered" as const, reason: "parent_report_unverified", entryId: messages.at(-1)!.id };
+            if (claims.some(report => report.fallbackTaskId === task.id)) finishAgentReportFallback(store, task.id, proof);
+            else if (this.parentDelivery.reportReady(task)) completeAgentReports(store, task.id, { ...proof, reportInput: this.agentReportInput(task, claims) ?? undefined });
+            else releaseAgentReports(store, task.id, "wait_group_pending");
+          }
+        }
         const changed = store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
           interruptReason: "backend_restart",
           endedAt: new Date().toISOString(),
           keepOccupancy: true,
         });
         if (changed) interruptedTaskIds.push(task.id);
+        if (changed) releaseAgentReports(store, task.id, "backend_restart");
       }
 
       interruptedTaskIds.push(...this.subagents!.recoverQueuedTasks());
@@ -2761,13 +3114,17 @@ export class Runtime {
     deadline?: string | null;
     /** 仅宿主最终送达使用；与汇总任务在同一事务建立可信绑定。 */
     workflowRunId?: string;
-  }, internal = false): Promise<Task> {
+    reportKey?: string;
+    reportKeys?: string[];
+  }, internal = false): Promise<TaskView> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
     if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
     if (input.workflowRunId && !internal) throw new RuntimeApiError("invalid_params", "工作流汇总只能由宿主登记");
+    if (input.reportKey && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
+    if (input.reportKeys && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
     const identity = this.store.getSessionIdentity(session.id)!;
     // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
     // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
@@ -2817,11 +3174,13 @@ export class Runtime {
       agentId: input.agentId ?? null, parentTaskId: input.parentTaskId ?? null, sourcePermissionVersion: input.sourcePermissionVersion ?? null,
       sourceEventId: input.sourceEventId ?? null, deadline,
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
+      ...(input.reportKey ? { reportKey: input.reportKey } : {}),
+      ...(input.reportKeys ? { reportKeys: input.reportKeys } : {}),
     };
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
     const submissionDigest = `request-v2:${digest(submission)}`;
     const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
-    if (existing) return existing;
+    if (existing) return this.taskView(existing);
     this.assertNoSessionCompaction(input.sessionId);
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
@@ -2852,6 +3211,12 @@ export class Runtime {
         if (raced) return { task: raced, duplicate: true };
         this.assertNoSessionCompaction(input.sessionId);
         check();
+        const reportKeys = input.reportKeys ?? (input.reportKey ? [input.reportKey] : []);
+        for (const key of reportKeys) {
+          const report = getAgentReport(this.store, key);
+          if (!report || report.parentSessionId !== session.id || report.status !== "pending" || report.claimTaskId ||
+              !this.verifyAgentWaitTarget(report.source, report.target)) throw new AgentWaitError("report_owned");
+        }
         let workflow: WorkflowRun | null = null;
         if (input.workflowRunId) {
           workflow = requireWorkflowRun(this.store, input.workflowRunId);
@@ -2894,6 +3259,7 @@ export class Runtime {
         });
         if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
         if (workflow) updateWorkflowRun(this.store, { ...workflow, delivery: { ...workflow.delivery!, taskId: queued.task.id, status: "queued" } });
+        for (const key of reportKeys) bindAgentReportFallback(this.store, key, queued.task.id);
         return queued;
       }));
     } catch (err) {
@@ -2902,8 +3268,17 @@ export class Runtime {
       }
       throw err;
     }
-    if (!duplicate) this.kick(input.sessionId);
-    return task;
+    if (!duplicate) {
+      const trustedOwnerInput = !internal || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
+        sourceEvent && [QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(sourceEvent.source) && this.inboundGate(sourceEvent) === "run");
+      const driver = this.drivers.get(input.sessionId), activeTaskId = driver?.currentTaskId;
+      if (trustedOwnerInput && driver && activeTaskId && this.agentWait.interrupt(activeTaskId, "owner_input")) {
+        const active = this.store.getTask(activeTaskId)!;
+        await driver.requestStop(active, { terminal: "interrupted", reason: "owner_input", cancelIntent: false });
+      }
+      this.kick(input.sessionId);
+    }
+    return this.taskView(task);
   }
 
   /**
@@ -2925,7 +3300,7 @@ export class Runtime {
    * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
    * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
    */
-  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<Task> {
+  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<TaskView> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
     if (getWorkflowExecution(this.store, old.id)) throw new RuntimeApiError("invalid_state", "工作流执行由运行恢复，不接受普通任务继续");
@@ -2976,7 +3351,7 @@ export class Runtime {
    * - running（工具执行中）：登记待生效模式，在下一个工具边界应用；
    *   执行中的调用继续使用开始时的范围；需要立即停止请用中断。
    */
-  async switchTaskMode(input: { taskId: string; mode: AccessMode; grantedPaths?: GrantedPath[] }): Promise<Task> {
+  async switchTaskMode(input: { taskId: string; mode: AccessMode; grantedPaths?: GrantedPath[] }): Promise<TaskView> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
@@ -3040,7 +3415,7 @@ export class Runtime {
         if (driver && task.status === "awaiting_confirmation") {
           driver.supersedeWaiters();
         }
-        return this.store.getTask(task.id)!;
+        return this.taskView(this.store.getTask(task.id)!);
       } finally {
         this.modeSwitchStopping.delete(task.id);
       }
@@ -3054,7 +3429,7 @@ export class Runtime {
         );
       }
     });
-    return this.store.getTask(task.id)!;
+    return this.taskView(this.store.getTask(task.id)!);
   }
 
   // ---------- 审批 / 产物 / 凭据 ----------
@@ -3356,8 +3731,13 @@ export class Runtime {
       if (this.stopping || this.compactions.has(sessionId)) return;
       const session = this.store.getSession(sessionId);
       if (!session || session.queueState !== "active") return;
-      const task = this.store.listQueuedTasksFifo(sessionId)[0];
+      const task = this.store.listQueuedTasksFifo(sessionId).find(candidate => !isAgentReportParked(this.store, candidate.id));
       if (!task) return;
+      const fallback = listAgentReports(this.store, { taskId: task.id }).find(report => report.fallbackTaskId === task.id && report.status === "pending");
+      if (fallback) {
+        await this.routeAgentReportGroup(fallback);
+        if (isAgentReportParked(this.store, task.id)) continue;
+      }
 
       // 私聊与 Telegram 共用 main 队列，仍按这条消息的固定配置重核，不能凭会话身份放行。
       const sourceEvent = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
@@ -3400,8 +3780,9 @@ export class Runtime {
       // 替换或失效的写入目录拒绝执行，不自动重建）
       const workLaunch = task.workId ? this.store.getWorkDelegation(task.workId) : null;
       const workspaceLaunch = taskWorkspaceFor({ session, work: workLaunch });
+      const dialogue = this.conversationAdmitted(task) && Boolean(this.store.findBlockingOccupancy(workspaceLaunch.path, workspaceLaunch.dev, workspaceLaunch.ino));
       try {
-        await verifyDirIdentity({
+        if (!dialogue) await verifyDirIdentity({
           cwd: workspaceLaunch.path,
           cwdReal: workspaceLaunch.path,
           dev: workspaceLaunch.dev,
@@ -3430,7 +3811,7 @@ export class Runtime {
             this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_canceled" });
             return;
           }
-          if (!this.store.tryAcquireOccupancy({
+          if (!dialogue && !this.store.tryAcquireOccupancy({
             cwdReal: workspaceLaunch.path,
             cwdDev: workspaceLaunch.dev,
             cwdIno: workspaceLaunch.ino,
@@ -3442,6 +3823,7 @@ export class Runtime {
           if (!this.store.transitionTask(task.id, ["queued"], "running", { startedAt: new Date().toISOString() })) {
             throw new TaskGoneError();
           }
+          if (isAgentReportFallback(this.store, task.id)) startAgentReportFallback(this.store, task.id);
           this.store.appendEvent(
             { type: "task.started", taskId: task.id, sessionId },
             { taskId: task.id, sessionId },
@@ -3497,6 +3879,7 @@ export class Runtime {
       }),
     });
     this.hostToolFamilies = [
+      createAgentWaitFamily(),
       createBrowserFamily({ store: this.store, artifacts: this.artifacts, manager: this.browserManager,
         screenshotDir: path.join(this.config.dataDir, "browser", "screenshots"), allowed: task => this.browserAllowed(task) }),
       createTodoFamily(),
@@ -3619,11 +4002,30 @@ export class Runtime {
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
-        allowTaskTool: (task, name) => !getWorkflowDeliveryRun(this.store, task.id) && this.githubEvents.allowTool(task, name),
+        allowTaskTool: (task, name) => !getWorkflowDeliveryRun(this.store, task.id) && !isAgentReportFallback(this.store, task.id) && this.githubEvents.allowTool(task, name),
         browser: { allowed: task => this.browserAllowed(task), close: sessionId => this.browserManager.close(sessionId) },
         verifyTask: task => {
           const run = getWorkflowDeliveryRun(this.store, task.id);
-          return run && !this.verifyWorkflowReport(run) ? "workflow_report_source_invalid" : null;
+          return run && !this.verifyWorkflowReport(run) ? "workflow_report_source_invalid" : this.verifyAgentReportSources(task.id);
+        },
+        agentWait: {
+          initialPhase: task => this.store.listAllOccupancy().some(held => held.taskId === task.id) ? "execution" : "conversation",
+          snapshot: task => latestAgentReferenceSnapshot(this.store, task.sessionId),
+          acquireResources: task => this.acquireAgentResources(task),
+          wait: (ctx, sdkCallId, targets, timeoutMs, signal) => this.agentWait.wait(ctx, sdkCallId, targets, timeoutMs, signal),
+        },
+        beforeModelRequest: task => {
+          if (this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
+          const claims = listAgentReports(this.store, { taskId: task.id }).filter(report => report.status === "pending" && report.claimTaskId === task.id);
+          if (claims.some(report => report.consumption && report.consumption.taskId !== task.id) && !this.agentReportInput(task, claims)) throw new AgentWaitError("report_input_missing");
+        },
+        afterModelRequest: task => this.store.withTx(() => this.acceptAgentWaitResults(task)),
+        reportContext: task => {
+          const reports = listAgentReports(this.store, { taskId: task.id }).filter(report => report.fallbackTaskId === task.id);
+          if (reports.length < 2) return null;
+          return { reportKeys: reports.map(report => report.key), text: "[后台工作分组回报]\n" + reports.map(report => report.target.kind === "workflow"
+            ? workflowReport(this.store, requireWorkflowRun(this.store, report.target.runId)).text
+            : `子任务 ${report.target.taskId}：${this.store.getTask(report.target.taskId)!.status}\n${this.store.getTask(report.target.taskId)!.resultSummary}`).join("\n\n") + "\n请一次汇总本组全部事实，明确失败、取消和停止未核实；不再逐项另发总结。" };
         },
         // 宿主评审任务（agent-direction issue 19）按任务另开只读 MCP：GitHub MCP
         // 配在 main 项目（评审 SubAgent 的会话在 main 项目下；凭据范围按项目核对）
@@ -3637,6 +4039,7 @@ export class Runtime {
           standingCandidate: (task, scope) => this.imApprovals.standingCandidate(task, scope),
         },
         parentInjection: (sessionId) => this.parentDelivery.takeInjection(sessionId),
+        parentInjectionAccepted: (taskId, resultTaskIds, entryId) => this.parentDelivery.acceptInjection(taskId, resultTaskIds, entryId),
         verifyTaskSources: (projectId, refs) => this.sources.verify(projectId, refs as any[]),
         workflow: this.workflowSteps,
       });
@@ -3839,7 +4242,7 @@ export class Runtime {
   snapshot(): {
     projects: Project[];
     sessions: Session[];
-    tasks: Task[];
+    tasks: TaskView[];
     confirmations: ConfirmationRequestView[];
     artifacts: Artifact[];
     previews: Record<string, OutputPreview>;
@@ -3872,7 +4275,7 @@ export class Runtime {
     return {
       projects: this.store.listProjects(),
       sessions,
-      tasks,
+      tasks: tasks.map(task => this.taskView(task)),
       confirmations: this.store.listConfirmationsByStatus("pending").map(confirmationToView),
       artifacts: this.listRecentArtifacts(),
       previews,
@@ -3974,7 +4377,7 @@ export class Runtime {
    */
   getTaskDetail(taskId: string): {
     seq: number;
-    task: Task;
+    task: TaskView;
     toolOps: ToolOpView[];
     confirmations: ConfirmationRequestView[];
     artifacts: Artifact[];
@@ -3984,7 +4387,7 @@ export class Runtime {
     if (!task) return null;
     return {
       seq: this.store.getMaxSeq(),
-      task,
+      task: this.taskView(task),
       toolOps: this.store.listToolOpsByTask(task.id).map(toolOpToView),
       confirmations: this.store.listConfirmationsByTask(task.id).map(confirmationToView),
       artifacts: this.store.listArtifactsByTask(task.id),
@@ -3993,33 +4396,67 @@ export class Runtime {
   }
 
   /** 按 会话 + request_id 精确查询（重连幂等核实；含已离开快照的完成任务）。 */
-  findTaskByRequest(input: { sessionId: string; requestId: string }): { task: Task | null } {
+  findTaskByRequest(input: { sessionId: string; requestId: string }): { task: TaskView | null } {
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
-    return { task: this.store.findTaskByRequest(input.sessionId, input.requestId) };
+    const task = this.store.findTaskByRequest(input.sessionId, input.requestId);
+    return { task: task ? this.taskView(task) : null };
   }
 
   /** 会话内任务分页（新 → 旧；已结束任务的历史查询入口）。 */
-  listTasks(input: { sessionId: string; before?: string; limit?: number }): { tasks: Task[]; hasMore: boolean } {
+  listTasks(input: { sessionId: string; before?: string; limit?: number }): { tasks: TaskView[]; hasMore: boolean } {
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+    let page: { tasks: Task[]; hasMore: boolean };
     try {
-      return this.store.listTasksBySessionPaged(input.sessionId, { before: input.before, limit: input.limit });
+      page = this.store.listTasksBySessionPaged(input.sessionId, { before: input.before, limit: input.limit });
     } catch (err) {
       if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
       throw err;
     }
+    return { ...page, tasks: page.tasks.map(task => this.taskView(task)) };
   }
 
   // ---------- 历史读取（与 05 历史工具共用的读取边界） ----------
 
+  // Note: 见 .agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md
+  private taskView(task: Task): TaskView {
+    const wait = listAgentWaits(this.store, { taskId: task.id }).at(-1);
+    return { ...task, inputPurpose: getWorkflowDeliveryRun(this.store, task.id) || isAgentReportFallback(this.store, task.id) ? "internal_report" : "user",
+      ...(isAgentReportFallback(this.store, task.id) ? { reportParked: isAgentReportParked(this.store, task.id) } : {}),
+      ...(wait ? { wait: agentWaitView(this.store, wait) } : {}),
+      ...(["running", "awaiting_confirmation"].includes(task.status) ? { resourcePhase: this.store.listAllOccupancy().some(held => held.taskId === task.id) ? "execution" as const : "conversation" as const } : {}) };
+  }
+
+  private historyViews(session: Session, entries: HistoryEntryView[]): HistoryEntryView[] {
+    const unmarked = new Set(entries.filter(entry => entry.role === "user" && !entry.taskId).map(entry => entry.entryId));
+    const missingMarkers = new Set<string>();
+    if (unmarked.size) {
+      const tasks = [...this.store.listTasksBySession(session.id),
+        ...(session.branchSource?.taskIds ?? []).map(id => this.store.getTask(id)).filter(task => task !== null)];
+      for (const task of tasks) {
+        const refs = task.historyEntryIds.filter(id => unmarked.has(id));
+        if (refs.length && this.taskView(task).inputPurpose === "internal_report") for (const id of refs) missingMarkers.add(id);
+      }
+    }
+    return entries.map(entry => {
+      if (!entry.taskId) return missingMarkers.has(entry.entryId) ? { ...entry, taskAssociationError: "task_marker_missing" } : entry;
+      const task = this.store.getTask(entry.taskId);
+      if (!task) return { ...entry, taskAssociationError: "task_missing" };
+      if (task.sessionId !== session.id && !session.branchSource?.taskIds.includes(task.id)) {
+        return { ...entry, taskAssociationError: "task_outside_session" };
+      }
+      return { ...entry, inputPurpose: this.taskView(task).inputPurpose };
+    });
+  }
+
   /** 历史读取的公共边界：会话归属校验 + 错误码传递（损坏 vs 未落盘）。 */
-  private withSessionHistory<T>(sessionId: string, fn: (sessionFile: string | null) => T): T {
+  private withSessionHistory<T>(sessionId: string, fn: (sessionFile: string | null, session: Session) => T): T {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${sessionId}`);
     try {
-      return fn(session.sessionFile);
+      return fn(session.sessionFile, session);
     } catch (err) {
       if (err instanceof HistoryReadError) throw new RuntimeApiError(err.code, err.message);
       throw err;
@@ -4038,13 +4475,16 @@ export class Runtime {
     entryTextCap?: number;
     pageTextBudget?: number;
   }): HistoryPage {
-    return this.withSessionHistory(input.sessionId, (file) => readHistoryPage(file, input));
+    return this.withSessionHistory(input.sessionId, (file, session) => {
+      const page = readHistoryPage(file, input);
+      return { ...page, entries: this.historyViews(session, page.entries) };
+    });
   }
 
   /** 指定历史条目的正文分段（字节偏移，UTF-8 边界对齐）。 */
   readHistoryEntry(input: { sessionId: string; entryId: string; offset?: number; length?: number }): HistoryEntryView {
-    return this.withSessionHistory(input.sessionId, (file) =>
-      readHistoryEntryText(file, input.entryId, input.offset, input.length),
+    return this.withSessionHistory(input.sessionId, (file, session) =>
+      this.historyViews(session, [readHistoryEntryText(file, input.entryId, input.offset, input.length)])[0],
     );
   }
 

@@ -476,18 +476,20 @@ export class ControlServer {
         workflowParams("request_id");
         return runtime.findWorkflowSave(`owner:${requireString("request_id")}`);
       case "workflow_start":
-        workflowParams("session_id", "request_id", "name", "script", "input", "max_attempts", "duration_ms");
+        workflowParams("session_id", "request_id", "name", "script", "title", "description", "input", "max_attempts", "duration_ms");
         if (!("input" in params)) throw new RuntimeApiError("invalid_params", "启动必须提供 JSON input");
         return runtime.startWorkflowOwner({ sessionId: requireString("session_id"), requestKey: requireString("request_id"),
-          name: params.name === undefined ? undefined : requireString("name"), script: params.script === undefined ? undefined : requireString("script"), input: params.input,
+          name: params.name === undefined ? undefined : requireString("name"), script: params.script === undefined ? undefined : requireString("script"),
+          title: params.title === undefined ? undefined : requireString("title"), description: params.description === undefined ? undefined : requireString("description"), input: params.input,
           maxAttempts: params.max_attempts === undefined ? undefined : workflowInt("max_attempts", 100, 1, 100),
           durationMs: params.duration_ms === undefined ? undefined : workflowInt("duration_ms", 3600000, 1, 3600000) });
       case "workflow_find":
         workflowParams("session_id", "request_id");
         return runtime.findWorkflow(requireString("session_id"), requireString("request_id"));
       case "workflow_list":
-        workflowParams("session_id", "offset", "limit");
-        return runtime.listWorkflows(params.session_id === undefined ? undefined : requireString("session_id"), workflowInt("offset", 0), workflowInt("limit", 50, 1, 100));
+        workflowParams("session_id", "offset", "limit", "scope");
+        if (params.scope !== undefined && params.scope !== "current" && params.scope !== "history") throw new RuntimeApiError("invalid_params", "工作流列表范围无效");
+        return runtime.listWorkflows(params.session_id === undefined ? undefined : requireString("session_id"), workflowInt("offset", 0), workflowInt("limit", 50, 1, 100), params.scope);
       case "workflow_get":
         workflowParams("run_id", "step_offset");
         return runtime.getWorkflowDetail(requireString("run_id"), workflowInt("step_offset", 0));
@@ -501,6 +503,11 @@ export class ControlServer {
         workflowParams("run_id", "request_id", "expected_version", "control");
         return runtime.controlWorkflow({ runId: requireString("run_id"), requestKey: `owner:${requireString("request_id")}`,
           version: workflowInt("expected_version", 0, 1), control: parseWorkflowControl(params.control) });
+      case "workflow_receipt": {
+        workflowParams("run_id", "request_id", "operation");
+        if (params.operation !== "workflow_answer" && params.operation !== "workflow_control") throw new RuntimeApiError("invalid_params", "请选择需要核实的回答或控制请求");
+        return runtime.findWorkflowReceipt(requireString("run_id"), requireString("request_id"), params.operation);
+      }
       case "workflow_question": {
         workflowParams("run_id", "step_key", "offset", "length");
         const offset = params["offset"] ?? 0, length = params["length"] ?? 16 * 1024;

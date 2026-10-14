@@ -11,7 +11,6 @@ import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-
 import { requestOutcome } from "@ruukoto/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import { productFromEnv } from "@ruukoto/core/product.ts";
-import { workflow } from "./workflows.ts";
 
 /** ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）时的提示。 */
 export const LEGACY_PROJECT_WRITE_HINT =
@@ -46,6 +45,7 @@ export interface CommandHost {
   openContext(result: CommandResult): Promise<void>;
   openPrompts(): Promise<void>;
   toggleTodo(): void;
+  openWorkflow(): void;
   /** 以当前会话提交任务输入。 */
   submit(text: string): Promise<void>;
 }
@@ -340,7 +340,7 @@ export const COMMANDS: readonly SlashCommand[] = [
     run: (ctx) => skills(ctx),
   },
   { name: "skills", description: "查看技能库与诊断", run: (ctx) => skills(ctx) },
-  { name: "workflow", description: "工作流定义、运行、阶段日志与控制", argumentHint: "<子命令>", keepsResult: true, run: (ctx, { line }) => workflow(ctx, line) },
+  { name: "workflow", description: "打开工作流侧栏，选择运行、启动与控制", run: (ctx) => ctx.host.openWorkflow() },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情", run: (ctx) => ctx.host.openPrompts() },
   { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>", run: (ctx, { rest }) => qq(ctx, rest) },
 ];

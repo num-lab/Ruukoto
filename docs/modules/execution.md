@@ -96,6 +96,8 @@ stateDiagram-v2
 
 ### 一次工具调用
 
+主 Agent 等待时先结束其他工具调用，核实受管执行停止后才让出目录；停止失败保留占用及未核实事实。内部对话阶段不启动工具 worker 或 MCP，也不现场读取工作目录；恢复业务工具前重新取得占用并复核身份、原权限版本、资料来源和目录 dev/ino，竞争失败继续处理对话与等待。
+
 ```mermaid
 sequenceDiagram
   participant RT as 后台（Driver / ToolRouter）
@@ -232,6 +234,8 @@ sequenceDiagram
 [工作流编码验证](workflows.md)始终用原生沙箱，只写按冻结基线/补丁建立的独立验证副本；来源完全访问也在验证阶段收窄，附加路径转只读，宿主文件写入口关闭。原生环境不可用明确失败，不回退到 local。工作流宿主操作的副本占用保持到全部套用与组合检查收尾，实际身份更新原 starting 句柄，取消后的身份仍保存。
 
 ## 设计依据
+
+- [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [会话浏览器的归属与不重放](../../.agents/notes/implemented/feature/2026-10-14-agent-browser.md)
 

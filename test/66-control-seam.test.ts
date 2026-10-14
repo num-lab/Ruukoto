@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * 控制面接缝（架构工单 07）：TUI 的 op 表与服务端一致；请求失败的分类由产生错误的
  * 地方写定；TUI 按分类处理应答丢失（替身 + 假终端，不起后台）。
@@ -18,7 +19,7 @@ import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
 import { errorReply } from "@ruukoto/control/server.ts";
 import { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { ensureWorkspaceSession } from "@ruukoto/control/workspace.ts";
-import type { ConfirmationRequest, Project, Session, SessionCompactionRequest, Task } from "@ruukoto/core/types.ts";
+import type { ConfirmationRequest, Project, Session, SessionCompactionRequest } from "@ruukoto/core/types.ts";
 import { confirmationToView } from "@ruukoto/core/views.ts";
 import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
@@ -33,7 +34,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 const TUI_OPS: Record<TuiOp, true> = {
   workflow_get: true, workflow_question: true, workflow_answer: true,
   workflow_definitions: true, workflow_definition: true, workflow_save: true, workflow_saved: true, workflow_start: true, workflow_find: true,
-  workflow_list: true, workflow_step: true, workflow_logs: true, workflow_control: true,
+  workflow_list: true, workflow_step: true, workflow_logs: true, workflow_control: true, workflow_receipt: true,
   get_session_todos: true, branch_session: true, find_branch_session: true,
   compact_session: true, get_session_compaction: true, interrupt_session_compaction: true,
   get_task: true, find_task: true, list_tasks: true, read_task_events: true, read_history: true, read_tool_result: true, read_history_entry: true,
@@ -172,7 +173,7 @@ function session(overrides: Partial<Session> = {}): Session {
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
-    id: "task_fake", sessionId: "sess_fake", requestId: "req_fake", input: "输入", modelSelection: { ...MODEL },
+    id: "task_fake", sessionId: "sess_fake", requestId: "req_fake", input: "输入", inputPurpose: "user", modelSelection: { ...MODEL },
     submissionDigest: null, status: "queued", accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
@@ -278,6 +279,18 @@ async function pickFullAccess(h: Awaited<ReturnType<typeof startFakeApp>>): Prom
   await new Promise((r) => setTimeout(r, 40));
   h.terminal.send("\r");
 }
+
+test("历史单条补读只延后尚未落盘条目，损坏标记的错误必须可见", async () => {
+  const h = await startFakeApp({ handlers: { read_history_entry: params => {
+    throw new ControlClientError(params.entry_id === "pending" ? "entry_not_found" : "history_corrupt", "宿主标记无法配对", "rejected");
+  } } });
+  try {
+    await h.app.loadEntry("sess_fake", "pending");
+    assert.equal(h.notes("历史条目读取失败"), 0);
+    await h.app.loadEntry("sess_fake", "corrupt");
+    assert.equal(h.notes("历史条目读取失败：宿主标记无法配对"), 1);
+  } finally { h.quit(); }
+});
 
 function compaction(overrides: Partial<SessionCompactionRequest> = {}): SessionCompactionRequest {
   return {

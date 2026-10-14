@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /** 控制面状态与会话交互状态；事件展示统一交给 EventFlow 投影。 */
 
 import { randomUUID } from "node:crypto";
@@ -11,7 +12,6 @@ import type {
   Session,
   SubAgent,
   SubAgentState,
-  Task,
   TaskStatus,
   WorkDelegation,
 } from "@ruukoto/core/types.ts";
@@ -158,6 +158,16 @@ export class ViewState {
   private applyStateEvent(event: PersistentEvent): void {
     const body = event.body;
     switch (body.type) {
+      case "agent_wait.changed":
+        this.patchTask(body.taskId, { wait: body.wait, resourcePhase: body.phase === "waiting" || body.phase === "conversation" ? "conversation" : this.tasks.get(body.taskId)?.resourcePhase });
+        return;
+      case "task.resources_changed":
+        this.patchTask(body.taskId, { resourcePhase: body.phase });
+        return;
+      case "agent_report.changed":
+        if (body.fallbackTaskId) this.patchTask(body.fallbackTaskId, { reportParked: body.fallbackState === "parked" });
+        for (const taskId of body.parkedFallbackTaskIds) this.patchTask(taskId, { reportParked: true });
+        return;
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
           this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: event.createdAt });
@@ -210,6 +220,7 @@ export class ViewState {
           sessionId: body.sessionId,
           requestId: body.requestId,
           input: "",
+          inputPurpose: this.tasks.get(body.taskId)?.inputPurpose ?? "user",
           modelSelection: body.modelSelection,
           submissionDigest: null,
           status: "queued",
@@ -567,6 +578,7 @@ export class ViewState {
       const current = this.tasks.get(task.id);
       if (current && !current.input && task.input) {
         current.input = task.input;
+        current.inputPurpose = task.inputPurpose;
         this.sessionViews.get(task.sessionId)?.flow.task(current);
       }
     }
@@ -597,7 +609,7 @@ export class ViewState {
     const current = this.tasks.get(task.id);
     // 提交应答可能在任务终态事件之后到达，输入元数据仍可补齐，终态不可回滚。
     if (current && ((current.endedAt && !task.endedAt) || (current.status !== "queued" && task.status === "queued"))) {
-      task = { ...task, ...current, input: task.input || current.input };
+      task = { ...task, ...current, input: task.input || current.input, inputPurpose: task.inputPurpose };
     }
     this.tasks.set(task.id, task);
     this.sessionViews.get(task.sessionId)?.flow.task(task);
@@ -672,7 +684,7 @@ export class ViewState {
   }
 
   queuedTasksFor(sessionId: string): Task[] {
-    return this.tasksFor(sessionId).filter((t) => t.status === "queued");
+    return this.tasksFor(sessionId).filter((t) => t.status === "queued" && !t.reportParked);
   }
 
   /** 本会话发起的工作委托（issue 11；按登记顺序）。 */

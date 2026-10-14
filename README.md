@@ -1,6 +1,6 @@
 # Ruukoto
 
-拥有者自用的 Agent，同一仓库交付两个独立产品（见[两个 Agent 产品独立运行](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
+拥有者自用的 Agent，同仓交付两个独立产品（见[两个 Agent 产品独立运行](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
 
 <!-- Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md -->
 
@@ -12,7 +12,7 @@
 | 后台 | 打开 TUI 时按需拉起，`ruukoto-code stop` 才停止 | systemd 常驻 |
 | 档案根 | `~/.ruukoto-code/` | `~/.ruukoto/`（生产为 `/var/lib/ruukoto/`） |
 
-两端独立安装、运行和升级，任一端停止不影响另一端。设计要点与模块划分见[架构总览](docs/architecture.md)。
+两端独立安装、运行、升级，停止一端不影响另一端；设计与模块见[架构总览](docs/architecture.md)。
 
 ## 当前状态
 
@@ -21,7 +21,7 @@
 - 真实 QQ / Telegram 平台缺少实测证据（消息平台目前使用模拟验证）；
 - 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
 
-逐项证据见 [发布与验收说明](docs/release-acceptance.md)。
+[逐项验收证据](docs/release-acceptance.md)。
 
 ## 快速开始
 
@@ -80,7 +80,7 @@ ruukoto qq enable
 
 ### 开发本项目
 
-两产品支持[后台工作流](docs/modules/workflows.md)：用 `workflow` 管理定义和带参运行，TUI 用 `/workflow`，个人 IM 用明确控制命令；[操作说明](docs/usage.md#511-工作流问题与回报)与[定向测试](docs/development.md#日常反馈)说明使用、六输入组合及显式真实模型验证。
+两产品支持[后台工作流](docs/modules/workflows.md)与可打断等待：`workflow` 管理定义与运行；TUI `/workflow` 侧栏选择启动与控制，Tab 切聊天、Esc 返回；IM 用明确命令。[操作说明](docs/usage.md#511-工作流问题与回报)与[测试导航](docs/development.md#日常反馈)列六输入组合及真实模型验证。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
 

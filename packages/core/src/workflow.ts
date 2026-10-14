@@ -1,6 +1,7 @@
 /** 工作流的固定输入、持久状态与事务内仲裁；调用方持有 Store.withTx。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md
  * Note: 见 .agents/notes/implemented/feature/2026-10-12-agent-workflows.md
+ * Note: 见 .agents/notes/implemented/feature/2026-10-14-workflow-progressive-controls.md
  */
 import { createHash } from "node:crypto";
 import { StoreConflictError, type Store } from "./store.ts";
@@ -28,6 +29,8 @@ export interface WorkflowDefinition { id: string; digest: string; script: string
 export interface WorkflowLaunch {
   name?: string;
   script?: string;
+  title?: string;
+  description?: string;
   input: unknown;
   maxAttempts?: number;
   durationMs?: number;
@@ -40,7 +43,11 @@ export function workflowLaunchDigest(input: WorkflowLaunch): string {
   if ((input.name === undefined) === (input.script === undefined)) throw new WorkflowError("invalid_params");
   if (input.name !== undefined) workflowName(input.name);
   if (input.script !== undefined && typeof input.script !== "string") throw new WorkflowError("invalid_script");
-  return workflowDigest({ name: input.name ?? null, script: input.script ?? null, input: input.input,
+  if (input.name !== undefined ? input.title !== undefined : !input.title) throw new WorkflowError("invalid_title");
+  for (const [value, limit, code] of [[input.title, 64, "invalid_title"], [input.description, 240, "invalid_description"]] as const) {
+    if (value !== undefined && (typeof value !== "string" || !value.trim() || value !== value.trim() || value.length > limit || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value))) throw new WorkflowError(code);
+  }
+  return workflowDigest({ name: input.name ?? null, script: input.script ?? null, title: input.title ?? null, description: input.description ?? null, input: input.input,
     maxAttempts: input.maxAttempts ?? WORKFLOW_LIMITS.attempts, durationMs: input.durationMs ?? WORKFLOW_LIMITS.durationMs });
 }
 export interface WorkflowRun {
@@ -51,6 +58,8 @@ export interface WorkflowRun {
   scriptDigest: string;
   input: unknown;
   inputDigest: string;
+  displayName?: string;
+  description?: string | null;
   source: WorkflowSource;
   modelSelection: ModelSelection;
   status: WorkflowStatus;
@@ -171,6 +180,12 @@ export function listWorkflowRuns(store: Store, sessionId?: string): WorkflowRun[
   const rows = (sessionId === undefined ? store.db.prepare("SELECT payload FROM workflow_runs ORDER BY rowid").all() :
     store.db.prepare("SELECT payload FROM workflow_runs WHERE source_session_id = ? ORDER BY rowid").all(sessionId)) as { payload: string }[];
   return rows.map(row => JSON.parse(row.payload) as WorkflowRun);
+}
+/** 运行行不删除，展示序号在本实例内保持稳定，用于区分同名同毫秒运行。 */
+export function getWorkflowRunNumber(store: Store, id: string): number {
+  const row = store.db.prepare("SELECT rowid AS number FROM workflow_runs WHERE id = ?").get(id) as { number: number } | undefined;
+  if (!row) throw new WorkflowError("run_missing");
+  return row.number;
 }
 /** 最终汇总的可信归属只由事务内登记的运行绑定确定，不能凭请求键前缀。 */
 export function getWorkflowDeliveryRun(store: Store, taskId: string): WorkflowRun | null {
@@ -350,6 +365,18 @@ export function hasWorkflowControl(store: Store, runId: string, key: string): bo
 export function getWorkflowControlDigest(store: Store, runId: string, key: string): string | null {
   const row = store.db.prepare("SELECT digest FROM workflow_controls WHERE run_id = ? AND request_key = ?").get(runId, key) as { digest: string } | undefined;
   return row?.digest ?? null;
+}
+export type WorkflowReceipt =
+  | { operation: "workflow_control"; runId: string; status: WorkflowStatus; version: number }
+  | { operation: "workflow_answer"; runId: string; stepKey: string; status: WorkflowQuestion["status"]; version: number; runVersion: number };
+/** 只读原提交回执，不把当前运行状态当成原请求已接收的证据。 */
+export function getWorkflowReceipt(store: Store, runId: string, key: string): WorkflowReceipt | null {
+  const row = store.db.prepare("SELECT payload FROM workflow_controls WHERE run_id = ? AND request_key = ?").get(runId, key) as { payload: string } | undefined;
+  if (!row) return null;
+  const receipt = JSON.parse(row.payload) as WorkflowRun | WorkflowQuestion;
+  return "stepKey" in receipt
+    ? { operation: "workflow_answer", runId: receipt.runId, stepKey: receipt.stepKey, status: receipt.status, version: receipt.version, runVersion: receipt.runVersion }
+    : { operation: "workflow_control", runId: receipt.id, status: receipt.status, version: receipt.version };
 }
 /** 可信宿主入口提供版本和稳定键；脚本不取得此函数。重放先于版本及状态检查。 */
 export function controlWorkflow(store: Store, id: string, key: string, version: number, control: WorkflowControl, now = Date.now()): WorkflowRun {

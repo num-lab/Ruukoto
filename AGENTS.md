@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Ruukoto 同仓交付两个产品：`ruukoto` 个人 Agent 与 `ruukoto-code` Coding Agent。改 `packages/` 前先读[架构总览](docs/architecture.md)；开始改动、接手工单或承担审查时，按[开发流程](.agents/skills/development-workflow/SKILL.md)确定角色、有效要求与验收依据，简单修改走轻量路径。
+Ruukoto 同仓交付两个产品：`ruukoto` 个人 Agent 与 `ruukoto-code` Coding Agent。改 `packages/` 前先读[架构总览](docs/architecture.md)；改动、接手工单或审查前，按[开发流程](.agents/skills/development-workflow/SKILL.md)确定角色、有效要求与验收依据，简单修改走轻量路径。
 
 ## 开发与验证
 
-首次检出运行 `npm run setup`。独立入口为 `npm run build`、`npm run lint`、`npm run typecheck`、`npm test`、`npm run check:static`。修改过程中运行 `npm run check:static` 与相关测试，提交前按[改动面选最小检查集](.agents/skills/pre-push-checks/SKILL.md)；完整 `npm run check` 约 200 秒，只在拥有者明确要求、诊断 CI 失败或改动确实横跨全仓时跑。定向测试写明确文件名，例如 `npx tsx --test test/71-product-entry.test.ts`；环境前提、测试导航、模块与用例映射、开发实例、耗时基线和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
+首次检出运行 `npm run setup`。各[独立入口](docs/development.md#日常反馈)见开发说明。修改时跑 `npm run check:static` 与相关测试，提交前按[改动面选最小检查集](.agents/skills/pre-push-checks/SKILL.md)；完整 `npm run check` 约 200 秒，只在拥有者明确要求、诊断 CI 失败或改动确实横跨全仓时跑。定向测试写文件名，如 `npx tsx --test test/71-product-entry.test.ts`；环境前提、测试导航、模块与用例映射、开发实例、耗时基线和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
 
 **提交与 CI。** pre-commit 依次执行 `git diff --cached --check`、`scripts/check-staged-eol.mjs` 与 `npm run check:static`；CI 在 macOS / Linux × Node 22.19 / 24.15 上执行 `npm run setup -- --skip-hooks` 与 `npm run check`，不因缺 Python 或 PTY 跳过用例。真实模型与真实 IM 属外部验收，缺前提时报告不可验证，不记为通过。文件末尾留且只留一个换行。
 
@@ -64,6 +64,7 @@ docs/               面向人类；docs/modules/ 按模块；docs/agents/ 是 ag
 
 **语言与形态。**
 
+- **交互设计**：面向人的操作用选择与逐步引导，内部 ID、版本与请求键由程序管理；适用边界见[渐进交互原则](.agents/notes/implemented/process/2026-10-14-progressive-human-interaction.md)。
 - ESM-only；相对 import 带 `.ts` 扩展名；文件名 kebab-case。
 - 一段一物理行，靠编辑器软换行；`npm run verify-md-wrap` 拒绝跨行段落。
 - 注释与文档用中文，标识符用英文；术语按 [CONTEXT.md](CONTEXT.md)，缺概念时先确认该用哪个已有术语。
@@ -74,14 +75,14 @@ docs/               面向人类；docs/modules/ 按模块；docs/agents/ 是 ag
 
 ## 文档与决策落点
 
-常驻文档受 `scripts/doc-budgets.manifest.json` 的字符预算约束。上限是护栏不是缩减目标：超限时先按[决策记录](.agents/notes/README.md)把属于其他层的内容搬走，再压缩；提高上限要在同一改动里说明理由。内容与代码是否一致，门禁查不出，按各 skill 的触发条件逐篇核对。
+常驻文档按 `scripts/doc-budgets.manifest.json` 限字符。上限是护栏而非缩减目标：超限先按[决策记录](.agents/notes/README.md)搬走其他层内容，再压缩；提高上限须在同一改动说明理由。内容与代码的一致性须按各 skill 触发条件逐篇核对，门禁查不出。
 
 | 改了什么 | 落到哪、跑什么 |
 | --- | --- |
 | 行为、架构、跨文件契约、流程、测试策略、落盘或协议格式 | 决策笔记（[maintain-notes](.agents/skills/maintain-notes/SKILL.md)），`npm run verify-notes` |
 | 某模块的可观察行为 | `docs/modules/` 对应那篇；新增模块同时改[模块地图](docs/architecture.md#模块地图)，`npm run check:docs` |
 | 注释、JSDoc、docs、notes、skill、提示词、诊断文本 | 按 [prose-standard](.agents/skills/prose-standard/SKILL.md) 判断该写什么、删什么 |
-| 模型可见的工具定义、参数 schema、结果与错误文本、系统提示措辞 | [agent-facing-text](.agents/skills/agent-facing-text/SKILL.md)（写什么）+ prose-standard（怎么写） |
+| 模型可见工具定义、参数 schema、结果、错误与系统提示 | [agent-facing-text](.agents/skills/agent-facing-text/SKILL.md) 定内容，prose-standard 定措辞 |
 | 命令、脚本、依赖或入口 | 同一改动里更新 `README.md`、[开发说明](docs/development.md) 与[提交前检查](.agents/skills/pre-push-checks/SKILL.md)中受影响的命令 |
 | 本文件或 `.agents/skills/` | 被链接目标存在，被引用命令与 `package.json` 一致 |
 

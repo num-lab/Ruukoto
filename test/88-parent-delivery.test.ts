@@ -201,9 +201,13 @@ test("结果送达矩阵：父会话 × 结局 × 取消 → 结果唤醒、注�
             assert.equal(built.length, 0, `${label}：不建结果唤醒`);
             if (cancel === "after_wake") w.cancel();
           }
-          // 注入清单：只有普通开发会话、且工作未取消；取走即标记，不重复
+          // 候选装配不消费；Driver 核实模型已接受后才移出后续候选。
           const injected = k.delivery.takeInjection(parentKind === "main" ? k.mainSession.id : k.devSession.id).results.map((t) => t.id);
           assert.deepEqual(injected, parentKind === "dev" && cancel === "none" ? [child.id] : [], `${label}：注入清单`);
+          if (injected.length) {
+            assert.equal(k.store.getTask(child.id)!.resultDeliveredAt, null);
+            k.delivery.acceptInjection(w.parent.id, injected, `accepted-${child.id}`);
+          }
           assert.deepEqual(k.delivery.takeInjection(k.devSession.id).results, [], `${label}：注入不重复`);
         }
       }

@@ -21,6 +21,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
  */
 
 import * as fs from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import {
   type AgentSession,
   type AgentSessionEvent,
@@ -45,6 +46,7 @@ import type {
 } from "@ruukoto/core/types.ts";
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
 import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "@ruukoto/core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "@ruukoto/core/views.ts";
 import type { ArtifactStore } from "./artifacts.ts";
@@ -60,13 +62,14 @@ import type { AccessScope } from "@ruukoto/core/access.ts";
 import type { HistoryIndex } from "@ruukoto/core/history-index.ts";
 import type { MemoryStore } from "@ruukoto/core/memory.ts";
 import type { SelectorBudgetConfig } from "./context-selector.ts";
-import { beginContextAssembly, ContextSendBlocked, type ContextAssembly } from "./context-assembly.ts";
+import { beginContextAssembly, ContextSendBlocked, type AgentReportContext, type ContextAssembly } from "./context-assembly.ts";
 import type { JevRequestConfig } from "./jev.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
 import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
-import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile } from "./tool-availability.ts";
+import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type AgentResourcePhase, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile } from "./tool-availability.ts";
+import type { AgentWaitCall } from "./agent-wait-tools.ts";
 import { WorkflowError } from "@ruukoto/core/workflow.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
@@ -144,9 +147,19 @@ export interface DriverDeps {
   };
   /**
    * 父级送达的注入入口（架构工单 09 入口 3）：任务开始时取普通开发会话待注入的
-   * SubAgent 结果与工作内消息，同事务标记已投递；其他身份恒为空。
+   * SubAgent 结果候选与工作内消息；结果在有效模型响应后确认消费，其他身份恒为空。
    */
   parentInjection?: ParentDelivery["takeInjection"];
+  parentInjectionAccepted?: (taskId: string, resultTaskIds: string[], entryId: string) => void;
+  beforeModelRequest?: (task: Task) => void;
+  afterModelRequest?: (task: Task) => void;
+  reportContext?: (task: Task) => AgentReportContext | null;
+  agentWait?: {
+    initialPhase(task: Task): AgentResourcePhase;
+    snapshot(task: Task): AgentWaitSnapshot | null;
+    acquireResources(task: Task): Promise<boolean>;
+    wait: AgentWaitCall;
+  };
   /**
    * main 委派资料的发送前复核（仅 subagent 类会话；撤销阻止后续注入，
    * 已保存快照正文不重新解析）。
@@ -235,6 +248,15 @@ export class Driver {
   private workflowManagedUnits: ((entries: ManagedEntry[]) => void) | null = null;
   /** 用户消息落盘前附稳定图片引用；不把图片正文交给 SDK 历史写入。 */
   private pendingUserImages: ImageReference[] = [];
+  private resourcePhase: AgentResourcePhase = "execution";
+  private activeToolCalls = new Set<string>();
+  private injection: ReturnType<ParentDelivery["takeInjection"]> | null = null;
+  private injectionAccepted = false;
+  private rebuildSdkAfterTurn = false;
+  private restoreMcpSignature = "";
+  private referencesFromSnapshot = false;
+  private modelResponseAccepted = false;
+  private reportContext: AgentReportContext | null = null;
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
@@ -256,6 +278,7 @@ export class Driver {
       credentials: deps.credentials,
       registry: this.registry,
       verifyTask: task => this.verifyWorkflowTask(task),
+      resourceAvailable: () => this.resourcePhase === "execution",
       onManagedIdentity: () => this.reportManagedUnits(),
       launcherFor: deps.launcherFor,
       verificationLauncher: deps.verificationLauncher,
@@ -439,6 +462,11 @@ export class Driver {
         },
       },
       skills: () => this.pinnedSkills,
+      agentWait: this.deps.agentWait ? async (ctx, sdkCallId, targets, timeoutMs, signal) => {
+        const result = await this.deps.agentWait!.wait(ctx, sdkCallId, targets, timeoutMs, signal);
+        if (!this.stopRequested && !signal?.aborted && result.reason !== "interrupted") await this.restoreWorkspace(ctx.taskId);
+        return result;
+      } : undefined,
     };
   }
 
@@ -489,12 +517,17 @@ export class Driver {
       },
     });
     this.wrapStreamFunction(this.sdk);
+    this.sdk.agent.shouldStopAfterTurn = () => this.rebuildSdkAfterTurn;
     return this.sdk;
   }
 
   /** 工具执行入口按 sdkCallId 绑定宿主上下文（execute 包装时调用）。 */
   private readonly bindHostCall = (sdkCallId: string): HostCall => {
     const ctx = this.hostToolCalls.get(sdkCallId) ?? null;
+    if (ctx) {
+      const op = this.deps.store.getToolOp(ctx.hostOpId);
+      if (!op || !this.taskTools?.allowed.has(op.toolName) || this.stopRequested) throw new ExecutionError("resource_unavailable", "执行资源未取得或任务已停止，请等待后继续");
+    }
     if (ctx && this.profile.workflow) {
       const task = this.deps.store.getTask(ctx.taskId);
       if (!task || task.sessionId !== ctx.sessionId || this.verifyWorkflowTask(task) !== null) {
@@ -554,11 +587,13 @@ export class Driver {
       try {
         this.checkBeforeSend(task, model, context, options);
         ({ model, options } = assembly.prepareSend(model, context, options));
+        this.deps.beforeModelRequest?.(task);
       } catch (err) {
         if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
         throw err;
       }
       this.beginModelRequest(task);
+      this.flushEntryRefs(task);
       const stream = await original.call(agent, model, context, options);
       assembly.afterSend(stream);
       return stream;
@@ -568,11 +603,12 @@ export class Driver {
   /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
     const fresh = this.deps.store.getTask(task.id) ?? task;
-    if (this.taskTools && this.taskTools.allowed.has("browser") !== (this.allToolNames.includes("browser") && Boolean(this.deps.browser?.allowed(fresh)))) {
-      this.activateTaskTools(fresh);
+    if (this.taskTools && this.taskTools.allowed.has("browser") !== (this.resourcePhase === "execution" && this.allToolNames.includes("browser") && Boolean(this.deps.browser?.allowed(fresh)))) {
+      this.refreshTaskTools(fresh);
     }
     const workflowProblem = this.verifyWorkflowTask(task);
     if (workflowProblem) throw new ContextSendBlocked(`workflow_source_invalid:${workflowProblem}`);
+    this.verifyReportContext(task);
     if (hasImageInput(context?.messages ?? []) && !model?.input?.includes("image")) {
       throw new ContextSendBlocked(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
     }
@@ -606,31 +642,6 @@ export class Driver {
         throw new ContextSendBlocked(`task_tools_forbidden:任务工具白名单不含 ${forbidden.join(",")}（发送载荷已阻断）`);
       }
     }
-  }
-
-  private activateTaskTools(task: Task): void {
-    const allowTaskTool = this.deps.allowTaskTool;
-    const subAgentTools = this.profile.subAgentTools;
-    this.taskTools = taskToolSet({
-      registered: this.allToolNames,
-      plan: this.profile.plan,
-      browserEnabled: this.deps.browser?.allowed(task) ?? false,
-      webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
-      mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
-      // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
-      // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
-      // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
-      narrow:
-        this.profile.workflow
-          ? (name, effect) => workflowAllows(this.profile.workflow!, name) && (!allowTaskTool || allowTaskTool(task, name, effect))
-          : subAgentTools
-          ? (name, effect) => subAgentAllows(subAgentTools, name, effect)
-          : allowTaskTool
-            ? (name, effect) => allowTaskTool(task, name, effect)
-            : undefined,
-    });
-    this.sdk?.setActiveToolsByName([...this.taskTools.allowed]);
-
   }
 
   /** 最终检查抛出的阻断原因（发送侧记录，任务结束路径据此识别）。 */
@@ -707,10 +718,21 @@ export class Driver {
     this.lastBlockedReason = null;
     this.pendingUserImages = [];
     this.taskTools = null;
-    this.pinnedSkills = this.profile.restricted && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
+    this.resourcePhase = this.deps.agentWait?.initialPhase(task) ?? "execution";
+    this.recordResourcePhase(task);
+    this.referencesFromSnapshot = this.resourcePhase === "conversation";
+    this.activeToolCalls.clear();
+    this.rebuildSdkAfterTurn = false;
+    this.modelResponseAccepted = false;
+    const referenceSnapshot = this.resourcePhase === "conversation" ? this.deps.agentWait?.snapshot(task) ?? null : null;
+    this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.skills ?? null
+      : this.profile.restricted && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
     // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
     // 摘要与消息正文由宿主写定，不伪装拥有者新请求，也不授予委派权限。
     const injection = this.deps.parentInjection?.(this.session.id);
+    this.injection = injection ?? null;
+    this.injectionAccepted = false;
+    this.reportContext = structuredClone(this.deps.reportContext?.(task) ?? null);
     const subagentResults = injection?.results.length
       ? injection.results.map((t) => ({ workId: t.workId!, subAgentId: t.subAgentId!, taskId: t.id, status: t.status, summary: t.resultSummary ?? "" }))
       : undefined;
@@ -722,8 +744,11 @@ export class Driver {
       restricted: this.profile.restricted,
       plan: this.profile.plan,
       skills: this.pinnedSkills,
+      resourcePhase: this.resourcePhase,
+      referenceSnapshot,
       subagentResults,
       subagentMessages,
+      reportContext: this.reportContext,
     }, this.deps);
     this.runPromise = this.runInner(task);
     try {
@@ -739,11 +764,13 @@ export class Driver {
       this.mcpToolNames = new Set();
       this.runPromise = null;
       this.currentTask = null;
+      this.activeToolCalls.clear();
     }
   }
 
   /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
   private async planMcp(task: Task): Promise<McpTaskPlan> {
+    if (this.resourcePhase === "conversation") return EMPTY_MCP_PLAN;
     if (this.verifyWorkflowTask(task)) throw new WorkflowError("source_invalid");
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
     // 画像决定是否规划：类别含 mcp，或 SubAgent 宿主评审任务另开只读 MCP（issue 19）
@@ -780,6 +807,10 @@ export class Driver {
     await Promise.all([...plan.connections.values()].map((c) => c.close()));
   }
 
+  private recordResourcePhase(task: Task): void {
+    this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "task.resources_changed", taskId: task.id, sessionId: task.sessionId, phase: this.resourcePhase }, { taskId: task.id, sessionId: task.sessionId }));
+  }
+
   private async runInner(task: Task): Promise<void> {
     // 取消窗口（agent-direction issue 14）：任务已转 running、currentTask 尚未
     // 登记时到达的取消先持久化了 cancel_requested；这里直接按取消意图定态
@@ -811,13 +842,14 @@ export class Driver {
       // SDK 会话签名 = 画像工具集 + MCP 清单（架构工单 08）：复用的 SubAgent 从只读
       // 转到写入工作时重建，正确性不依赖 Runtime 每任务释放 Driver
       const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}`;
-      if (this.sdk && toolSignature !== this.toolSignature) this.dropSdkForToolChange();
+      if (this.sdk && this.resourcePhase !== "conversation" && toolSignature !== this.toolSignature) this.dropSdkForToolChange();
       this.pendingMcpToolDefs = mcpPlan.toolDefs;
       // 计划先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收连接
       this.currentMcpPlan = mcpPlan;
       sdk = await this.ensureSdk(model, task.modelSelection.thinkingLevel);
       this.pendingMcpToolDefs = [];
-      this.toolSignature = toolSignature;
+      if (this.resourcePhase !== "conversation" || this.toolSignature === null) this.toolSignature = toolSignature;
+      if (this.resourcePhase !== "conversation") this.restoreMcpSignature = mcpPlan.signature;
       this.mcpToolNames = new Set(mcpPlan.toolDefs.map((t) => t.name));
       for (const u of mcpPlan.unavailable) {
         this.deps.store.withTx(() => {
@@ -851,7 +883,7 @@ export class Driver {
     // 宿主按任务收窄）与项目关闭的 Web Search（issue 20：模型不可见、系统提示同步重建；
     // 任务内的禁用由工具按调用新鲜检查立即阻止）。每次从完整注册表重算，宿主对当前
     // 任务的限制不带入下一任务。
-    this.activateTaskTools(task);
+    this.refreshTaskTools(task);
 
     // 会话文件路径尽早落库：崩溃后重启才能打开同一份 JSONL 而不是另起新文件
     const currentFile = sdk.sessionFile;
@@ -863,14 +895,11 @@ export class Driver {
     }
 
     if (this.stopRequested) {
-      // 停止意图先于 prompt 到达：直接进入中断终态（条件更新仲裁竞争）
       await this.killManagedProcesses();
       await this.finalize(task, "interrupted", { interruptReason: "aborted" });
       return;
     }
 
-    // 拥有者显式调用技能（/skill:<名称> [参数]）：按钉版技能库展开后作为用户消息
-    // 进入历史；不交给 pi 的 /skill: 展开。资料受限会话不识别。
     let promptText: string;
     try {
       promptText = this.profile.restricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
@@ -880,27 +909,35 @@ export class Driver {
     }
 
     this.appendMarker(TASK_START_MARKER, { taskId: task.id, requestId: task.requestId });
+    if (this.injection && (this.injection.results.length || this.injection.messages.length)) {
+      this.appendMarker("ruukoto_parent_injection", { taskId: task.id, results: this.injection.results,
+        messages: this.injection.messages });
+    }
+    if (this.reportContext) this.appendMarker("ruukoto_agent_report_context", { taskId: task.id, ...this.reportContext });
     try {
       await sdk.prompt(promptText);
+      while (this.rebuildSdkAfterTurn && !this.stopRequested) {
+        this.rebuildSdkAfterTurn = false;
+        const plan = this.currentMcpPlan ?? EMPTY_MCP_PLAN;
+        this.dropSdkForToolChange();
+        this.pendingMcpToolDefs = plan.toolDefs;
+        sdk = await this.ensureSdk(await this.deps.modelCatalog.resolve(task.modelSelection!), task.modelSelection!.thinkingLevel);
+        this.toolSignature = `${this.profile.toolSignature}|${plan.signature}`;
+        this.refreshTaskTools(this.deps.store.getTask(task.id)!);
+        await sdk.agent.continue();
+      }
     } catch (err) {
       await this.killManagedProcesses();
-      if (!this.stopRequested) {
-        await this.finalize(task, "failed", { errorMessage: (err as Error).message });
-      }
+      if (!this.stopRequested) await this.finalize(task, "failed", { errorMessage: (err as Error).message });
       return;
     }
 
     await this.killManagedProcesses();
-    if (this.stopRequested) {
-      // requestStop 拥有终态；这里只做清理
-      return;
-    }
+    if (this.stopRequested) return;
 
     const lastAssistant = findLastAssistant(sdk.messages as any[]);
     const stopReason: string = lastAssistant?.stopReason ?? "error";
 
-    // 请求前最终检查阻断（预算/配对/选择缺失）：中断并暂停队列，不摘要、
-    // 不缩短输入后重试。依据宿主保存的原因识别，不靠 prompt() reject 文案。
     const blockedReason = this.consumeBlockedReason(lastAssistant);
     if (blockedReason !== null) {
       if (blockedReason.startsWith(`${IMAGE_INPUT_UNSUPPORTED}:`)) {
@@ -929,21 +966,124 @@ export class Driver {
     }
 
     if (stopReason === "error") {
-      const message = lastAssistant?.errorMessage ?? "模型返回错误";
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "failed" });
-      await this.finalize(task, "failed", { errorMessage: message });
+      await this.finalize(task, "failed", { errorMessage: lastAssistant?.errorMessage ?? "模型返回错误" });
       return;
     }
 
-    // 自然完成：先写入任务结束标记（它本身就是"历史已写完"的证据），
-    // 再核对最终历史确实落盘，最后宣布 completed
     this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "completed" });
     const verification = this.verifyAndLinkHistory(task);
-    if (verification.ok) {
-      await this.finalize(task, "completed", {});
-    } else {
-      await this.finalize(task, "interrupted", { interruptReason: verification.reason! });
+    if (verification.ok) await this.finalize(task, "completed", {});
+    else await this.finalize(task, "interrupted", { interruptReason: verification.reason! });
+  }
+
+  private refreshTaskTools(task: Task): void {
+    const allowTaskTool = this.deps.allowTaskTool;
+    const subAgentTools = this.profile.subAgentTools;
+    this.taskTools = taskToolSet({
+      registered: this.allToolNames,
+      resourcePhase: this.resourcePhase,
+      plan: this.profile.plan,
+      browserEnabled: this.deps.browser?.allowed(task) ?? false,
+      webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
+      mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
+      // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
+      // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
+      // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
+      narrow:
+        this.profile.workflow
+          ? (name, effect) => workflowAllows(this.profile.workflow!, name) && (!allowTaskTool || allowTaskTool(task, name, effect))
+          : subAgentTools
+          ? (name, effect) => subAgentAllows(subAgentTools, name, effect)
+          : allowTaskTool
+            ? (name, effect) => allowTaskTool(task, name, effect)
+            : undefined,
+    });
+    this.sdk?.setActiveToolsByName([...this.taskTools.allowed]);
+  }
+
+  referenceSnapshot(): AgentWaitSnapshot {
+    const task = this.currentTask && this.deps.store.getTask(this.currentTask.id);
+    if (!task || !this.assembly) throw new ExecutionError("task_mismatch", "没有可记录的活动任务参考快照");
+    const selection = this.deps.store.listSelectionRecordsByTask(task.id).at(-1);
+    return { taskId: task.id, permissionVersion: task.permissionVersion, selectionRecordId: selection?.id ?? null,
+      promptArtifactId: selection?.promptArtifactId ?? null, instructions: this.assembly.referenceInstructions(), skills: structuredClone(this.pinnedSkills) };
+  }
+
+  /** Runtime 先登记等待；核实成功后才可在事务内释放全部目录占用。 */
+  // Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
+  async yieldWorkspace(taskId: string): Promise<boolean> {
+    const task = this.currentTask;
+    if (!task || task.id !== taskId || this.stopRequested) throw new ExecutionError("task_mismatch", "等待任务已停止或不属于当前 Driver");
+    if (this.activeToolCalls.size > 1) throw new ExecutionError("tool_boundary_busy", "其他工具仍在执行，请等当前工具完成后再等待后台工作");
+    if (!await this.stopManagedProcesses(task.id)) {
+      this.stopRequested = true;
+      await this.finalize(task, "interrupted", { interruptReason: "tool_process_unreaped", keepOccupancy: true });
+      return false;
     }
+    this.restoreMcpSignature = this.currentMcpPlan?.signature ?? "";
+    await this.closeMcpConns();
+    this.resourcePhase = "conversation";
+    this.recordResourcePhase(this.currentTask!);
+    this.assembly?.setResourcePhase(this.resourcePhase);
+    this.refreshTaskTools(this.deps.store.getTask(task.id)!);
+    return true;
+  }
+
+  /** 业务工具恢复只经过宿主资源取得与来源复核；竞争失败时继续内部对话。 */
+  async restoreWorkspace(taskId: string): Promise<boolean> {
+    const task = this.currentTask;
+    if (!task || task.id !== taskId || this.stopRequested) return false;
+    if (this.resourcePhase === "execution") return true;
+    if (!this.deps.agentWait || !await this.deps.agentWait.acquireResources(task)) return false;
+    if (this.stopRequested || this.deps.store.getTask(task.id)?.cancelRequested) return false;
+    this.resourcePhase = "execution";
+    this.recordResourcePhase(this.currentTask!);
+    const plan = await this.planMcp(task);
+    if (this.stopRequested) { await Promise.all([...plan.connections.values()].map(connection => connection.close())); return false; }
+    this.currentMcpPlan = plan;
+    this.mcpToolNames = new Set(plan.toolDefs.map(tool => tool.name));
+    if (plan.signature !== this.restoreMcpSignature || plan.toolDefs.some(tool => !this.allToolNames.includes(tool.name))) {
+      this.rebuildSdkAfterTurn = true;
+    }
+    if (this.referencesFromSnapshot) {
+      this.pinnedSkills = this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
+      this.referencesFromSnapshot = false;
+    }
+    this.assembly?.setResourcePhase(this.resourcePhase, this.pinnedSkills);
+    this.refreshTaskTools(this.deps.store.getTask(task.id)!);
+    return true;
+  }
+
+  private acceptParentInjection(task: Task): void {
+    if (this.injectionAccepted || !this.injection || (!this.injection.results.length && !this.injection.messages.length)) return;
+    const file = this.sdk?.sessionFile;
+    const marker = file ? parseSessionFile(file).findLast(entry => entry.type === "custom" && entry.customType === "ruukoto_parent_injection" && (entry.data as { taskId?: string } | undefined)?.taskId === task.id) : null;
+    if (!marker) throw new ContextSendBlocked("parent_injection_unrecorded:父级资料未登记到会话记录");
+    this.deps.parentInjectionAccepted?.(task.id, this.injection.results.map(result => result.id), marker.id);
+    this.injectionAccepted = true;
+  }
+
+  private verifyReportContext(task: Task): void {
+    if (!this.reportContext) return;
+    const file = this.sdk?.sessionFile;
+    let entries: ParsedSessionEntry[];
+    try { entries = file ? parseSessionFile(file) : []; }
+    catch { throw new ContextSendBlocked("agent_report_context_unrecorded:报告参考输入未落盘或历史不可解析"); }
+    const marker = entries.findLast(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context" &&
+      (entry.data as { taskId?: string } | undefined)?.taskId === task.id);
+    if (!marker || !isDeepStrictEqual(marker.data, { taskId: task.id, ...this.reportContext })) {
+      throw new ContextSendBlocked("agent_report_context_unrecorded:报告参考输入未落盘或与本轮固定内容不同");
+    }
+  }
+
+  private acceptModelResponse(task: Task): void {
+    if (!this.modelResponseAccepted) return;
+    // SDK 的 message_end 通知先于 appendMessage；下一事件才可核实首次会话的标记已落盘。
+    this.flushEntryRefs(task);
+    this.acceptParentInjection(task);
+    this.deps.afterModelRequest?.(task);
+    this.modelResponseAccepted = false;
   }
 
   // ---------- 停止路径（interrupt / cancel / 后台停止共用） ----------
@@ -1117,7 +1257,7 @@ export class Driver {
         throw new ExecutionError("mode_switch_unverified", "无法核实旧执行单元已退出，模式切换失败");
       }
       const switched = await this.router.prepareToolBoundary(task);
-      this.activateTaskTools(switched);
+      this.refreshTaskTools(switched);
       return switched;
     } catch (err) {
       // 切换失败（无法核实旧执行单元退出）：任务无法安全继续
@@ -1222,7 +1362,7 @@ export class Driver {
   /** 运行时入口：等待中的审批因模式切换立即失效（Runtime 调用）。 */
   supersedeWaiters(): void {
     const task = this.currentTask && this.deps.store.getTask(this.currentTask.id);
-    if (task) this.activateTaskTools(task);
+    if (task) this.refreshTaskTools(task);
     this.approvals.supersedeAll();
   }
 
@@ -1252,6 +1392,7 @@ export class Driver {
 
   /** 在最终请求校验之后、调用 provider 之前开始计时，排除排队与上下文组装。 */
   private beginModelRequest(task: Task): void {
+    this.modelResponseAccepted = false;
     this.flushOutput();
     this.endThinking();
     this.currentMsgId = randomId("msg");
@@ -1378,6 +1519,7 @@ export class Driver {
           this.pendingUserImages = [];
         }
         if (event.message.role !== "assistant") return;
+        this.modelResponseAccepted = event.message.stopReason !== "error" && event.message.stopReason !== "aborted";
         const text = extractText(event.message.content);
         const seen = this.currentPreview?.text ?? "";
         if (text.startsWith(seen)) this.appendOutput(text.slice(seen.length));
@@ -1385,7 +1527,13 @@ export class Driver {
         this.endThinking();
         return;
       }
+      case "tool_execution_start": {
+        this.acceptModelResponse(task);
+        this.activeToolCalls.add(event.toolCallId);
+        return;
+      }
       case "tool_execution_end": {
+        this.activeToolCalls.delete(event.toolCallId);
         const summary = summarizeToolResult(event.result);
         const editStats = editStatsFromResult(event.toolName, event.isError, event.result?.details);
         // SDK 调用 id → 宿主操作 id（不同任务复用调用 id 时不串用记录）
@@ -1409,6 +1557,7 @@ export class Driver {
         return;
       }
       case "turn_end": {
+        this.acceptModelResponse(task);
         // 本轮消息已持久化（message_end 持久化先于 turn_end）；下一拍读文件补条目引用
         setImmediate(() => this.flushEntryRefs(task));
         return;

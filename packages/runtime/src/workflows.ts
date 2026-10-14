@@ -70,6 +70,8 @@ export interface WorkflowStart {
   sourceTaskId: string;
   requestKey: string;
   script: string;
+  displayName?: string;
+  description?: string;
   input: unknown;
   maxAttempts?: number;
   durationMs?: number;
@@ -108,7 +110,7 @@ export class WorkflowCoordinator {
     if (!task) throw new WorkflowError("source_missing");
     const maxAttempts = input.maxAttempts ?? WORKFLOW_LIMITS.attempts;
     const durationMs = input.durationMs ?? WORKFLOW_LIMITS.durationMs;
-    const paramsDigest = input.requestDigest ?? workflowDigest({ script: input.script, input: input.input, maxAttempts, durationMs });
+    const paramsDigest = input.requestDigest ?? workflowDigest({ script: input.script, displayName: input.displayName ?? null, description: input.description ?? null, input: input.input, maxAttempts, durationMs });
     const old = findWorkflowRun(this.store, task.sessionId, input.requestKey);
     if (old) {
       if (old.paramsDigest !== paramsDigest) throw new WorkflowError("request_conflict");
@@ -121,10 +123,11 @@ export class WorkflowCoordinator {
     const currentSource = sourceForTask(task.id);
     if (workflowDigest(currentSource) !== workflowDigest(source)) throw new WorkflowError("source_invalid");
     const definition = saveWorkflowDefinition(this.store, input.script);
+    const createdAt = new Date(this.now()).toISOString();
     return createWorkflowRun(this.store, { id: randomId("wfrun"), requestKey: input.requestKey, paramsDigest, definitionId: definition.id,
-        scriptDigest: definition.digest, input: JSON.parse(workflowJson(input.input)), inputDigest: workflowDigest(input.input), source,
+        scriptDigest: definition.digest, input: JSON.parse(workflowJson(input.input)), inputDigest: workflowDigest(input.input), displayName: input.displayName ?? `未命名工作流 ${createdAt}`, description: input.description ?? null, source,
         modelSelection, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts, durationMs, usedMs: 0, clockStartedAt: null, clockVerified: true,
-        scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt: new Date(this.now()).toISOString(), endedAt: null });
+        scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt, endedAt: null });
   }
 
   /** Runtime 已按既有账本收尾任务后调用；恢复从未执行的排队登记。 */

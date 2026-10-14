@@ -63,6 +63,7 @@ export interface ToolRouterDeps {
   credentials: CredentialStore;
   registry: ManagedProcessRegistry;
   verifyTask?: (task: Task) => string | null;
+  resourceAvailable?: () => boolean;
   onManagedIdentity?: () => void;
   /** 返回当前模式对应的工作进程启动器；未配置时抛 ExecutionError（不回退）。 */
   launcherFor: (mode: AccessMode) => WorkerLauncher;
@@ -312,6 +313,7 @@ export class ToolRouter {
   // ---------- 调用入口 ----------
 
   async executeTool(input: RoutedCallInput): Promise<RoutedCallOutput> {
+    if (input.name !== ARTIFACT_TOOL_NAME && this.deps.resourceAvailable?.() === false) return textResult("执行资源未取得，请等待后台工作后继续", true);
     const problem = this.deps.verifyTask?.(input.task);
     if (problem) return textResult(problem, true);
     switch (input.name) {

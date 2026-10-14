@@ -53,6 +53,7 @@ export interface OrchestratorBridge {
     sourceEventId?: string | null;
     deadline?: string | null;
     workflowRunId?: string;
+    reportKey?: string;
   }): Promise<Task>;
   cancelTask(taskId: string, reason?: string): Promise<Task>;
   findProjectByName(name: string): { id: string } | null;
@@ -84,7 +85,7 @@ export interface OrchestratorDeps {
    * 父级送达（架构工单 09）：子任务结果登记后建结果唤醒、结果唤醒终态的最终汇报
    * （结果事务内）与启动补建。
    */
-  parentDelivery: Pick<ParentDelivery, "resultRecorded" | "wakeTerminal" | "sweep">;
+  parentDelivery: Pick<ParentDelivery, "resultRecorded" | "wakeTerminal" | "sweep"> & Partial<Pick<ParentDelivery, "needsResult" | "reserveResult">>;
   /** 入站派发前复核宿主配置与在线状态；等待保留原事件，失效则作废。 */
   inboundGate?(event: InboundEvent): "run" | "wait" | { drop: string };
   /** 宿主为已验证的入站事件安排固定 main 父任务与评审请求文本；模型不参与派发。 */
@@ -202,8 +203,8 @@ export class Orchestrator {
         await this.resumeRestartPausedQueue(session.id, `调度运行 ${identity.runId}`);
       }
       if (identity?.kind === "dev" && this.store.listQueuedTasksFifo(session.id).length > 0 &&
-          this.store.listQueuedTasksFifo(session.id).every(task => getWorkflowDeliveryRun(this.store, task.id))) {
-        await this.resumeRestartPausedQueue(session.id, "工作流最终汇总");
+          this.store.listQueuedTasksFifo(session.id).every(task => getWorkflowDeliveryRun(this.store, task.id) || this.deps.parentDelivery.needsResult?.(task))) {
+        await this.resumeRestartPausedQueue(session.id, "内部最终汇总");
       }
     }
     const ms = this.deps.deadlineCheckMs ?? 1_000;
@@ -469,7 +470,8 @@ export class Orchestrator {
         continue;
       }
       const task = this.store.getTask(body.taskId);
-      if (!task || (!task.agentId && !task.subAgentId && this.store.getSessionIdentity(task.sessionId)?.kind !== "scheduled" && !getWorkflowDeliveryRun(this.store, task.id))) continue;
+      if (!task || (!task.agentId && !task.subAgentId && this.store.getSessionIdentity(task.sessionId)?.kind !== "scheduled" &&
+          !getWorkflowDeliveryRun(this.store, task.id) && !this.deps.parentDelivery.needsResult?.(task))) continue;
       const outcome: ChildOutcome =
         body.type === "task.completed"
           ? "completed"
@@ -487,7 +489,11 @@ export class Orchestrator {
    * 建唤醒）；② 父级送达补建缺失的结果唤醒与消息唤醒。
    */
   private async sweepPendingResults(): Promise<void> {
-    for (const task of this.store.listRoleTasksPendingResult()) {
+    const pending = new Map(this.store.listRoleTasksPendingResult().map(task => [task.id, task]));
+    for (const task of this.store.listTasksByStatus(["completed", "failed", "canceled", "interrupted"])) {
+      if (task.resultSummary === null && this.deps.parentDelivery.needsResult?.(task)) pending.set(task.id, task);
+    }
+    for (const task of pending.values()) {
       await this.handleTerminal(task, childOutcome(task));
     }
     await this.deps.parentDelivery.sweep();
@@ -514,6 +520,7 @@ export class Orchestrator {
     }
     const scheduled = this.store.getSessionIdentity(task.sessionId)?.kind === "scheduled";
     const workflow = getWorkflowDeliveryRun(this.store, task.id);
+    const reportTask = this.deps.parentDelivery.needsResult?.(task) ?? false;
     const agentId = task.agentId!;
     const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
     const reply = replyPage?.text.trim() || null;
@@ -526,7 +533,7 @@ export class Orchestrator {
       this.recordInboundTerminal(task, outcome);
       this.deps.parentDelivery.wakeTerminal(task, outcome);
       const refs = { taskId: task.id, sessionId: task.sessionId };
-      if (!scheduled && !workflow) switch (outcome) {
+      if (!scheduled && !workflow && !reportTask) switch (outcome) {
         case "completed":
           this.store.appendEvent(
             { type: "child_task.completed", taskId: task.id, parentTaskId: task.parentTaskId, agentId, summary, resultRef },
@@ -566,7 +573,10 @@ export class Orchestrator {
       }
       return true;
     });
-    if (recorded) await this.deps.parentDelivery.resultRecorded(task, outcome, summary);
+    if (recorded) {
+      await this.deps.parentDelivery.resultRecorded(task, outcome, summary);
+      if (reportTask) await this.deps.parentDelivery.sweep();
+    }
   }
 
   /**
@@ -606,6 +616,7 @@ export class Orchestrator {
     });
     const recorded = this.store.withTx(() => {
       if (!this.store.setTaskResult(task.id, summary, resultRef)) return false;
+      this.deps.parentDelivery.reserveResult?.(this.store.getTask(task.id)!);
       // 宿主评审任务带来源事件：与角色路径同一处回写入站终态并登记通知（issue 19）
       this.recordInboundTerminal(task, outcome);
       this.deps.subagents?.resultRecorded(task);

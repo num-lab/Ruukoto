@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * 输入提交守护：保证同一输入只对应一个后台任务（issue 04 §3）。
  *
@@ -9,7 +10,6 @@
  */
 
 import { randomId } from "@ruukoto/core/types.ts";
-import type { Task } from "@ruukoto/core/types.ts";
 import { ControlClientError, requestOutcome } from "./client.ts";
 import type { ControlConnection } from "./connection.ts";
 import type { OpParams } from "./ops.ts";
@@ -79,8 +79,7 @@ export class SubmissionGuard {
    * 与原请求不同就当成另一任务。
    */
   async reconcile(record: PendingRequest): Promise<ReconcileOutcome> {
-    if (record.op === "branch_session") return { kind: "kept", requestId: record.requestId, reason: "分支请求由会话分支入口核实" };
-    if (record.op === "compact_session") return { kind: "kept", requestId: record.requestId, reason: "压缩请求由会话压缩入口核实" };
+    if (record.op !== "submit" && record.op !== "continue") return { kind: "kept", requestId: record.requestId, reason: "该请求由所属操作入口核实" };
     if (record.instanceId !== this.connection.instanceId) {
       return { kind: "foreign_instance", requestId: record.requestId };
     }

@@ -35,6 +35,8 @@
 
 ### 适配器
 
+等待父轮认领的同来源完整总结与其普通 owner 回复在结果事务内共用一条 `owner_reply`，保留原事件、目标及代次；结果未齐时的介入问句可正常回复，最终报告仍待整组收尾。新可信拥有者消息成功提交后打断主轮等待，后台工作继续；汇报登记与实际发送分别复核完整报告来源资料及原入口，认领已清除仍保留依赖，失效或缺记录均拒发。
+
 - `TelegramAdapter`（`packages/channels/src/telegram/adapter.ts`）：`start` / `stop` / `onConfigChanged` / `status` / `target` / `available` / `send`，以及 `gatePrivate`、`expectedActor`、`replyCapChars`、`capReply`、`externalIdPrefix`、`usesCredential`、`bumpGeneration`。
 - `QqAdapter`（`packages/channels/src/qq/adapter.ts`）：同一组方法，另有 `configure`（端点、凭据、登录账号、拥有者 QQ 号、`max_reply_chars` 的校验与写入）、`setEnabled`，以及 OneBot 客户端连接管理。
 - 入站登记入口由 Runtime 提供给两个适配器：Telegram 的 `register` 与 QQ 的`registerPrivate`（可带 `commandText`、`media` 标记），统一落到 `inbound_events`。
@@ -363,6 +365,8 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 - 已接收摘要的外发必须逐次复核宿主来源与撤回状态，不凭快照正文继续发送。
 
 ## 设计依据
+
+- [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [工作流业务回答与整项最终送达](../../.agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)
 

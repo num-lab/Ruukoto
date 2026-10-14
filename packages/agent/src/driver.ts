@@ -67,6 +67,9 @@ import type { JevRequestConfig } from "./jev.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
+import { validateSubAgentRole, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "./subagent-roles.ts";
+import { requireSubAgentDefinition, SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
+import { SubAgentRoleError } from "./subagent-roles.ts";
 import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
 import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type AgentResourcePhase, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile } from "./tool-availability.ts";
 import type { AgentWaitCall } from "./agent-wait-tools.ts";
@@ -154,6 +157,7 @@ export interface DriverDeps {
   beforeModelRequest?: (task: Task) => void;
   afterModelRequest?: (task: Task) => void;
   reportContext?: (task: Task) => AgentReportContext | null;
+  subAgentRoles?: () => SubAgentRoleLibrary;
   agentWait?: {
     initialPhase(task: Task): AgentResourcePhase;
     snapshot(task: Task): AgentWaitSnapshot | null;
@@ -257,6 +261,8 @@ export class Driver {
   private referencesFromSnapshot = false;
   private modelResponseAccepted = false;
   private reportContext: AgentReportContext | null = null;
+  private pinnedDefinition: SubAgentDefinitionSnapshot | null = null;
+  private pinnedRoles: SubAgentRoleLibrary | null = null;
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
@@ -327,10 +333,23 @@ export class Driver {
   setWorkflowManagedUnits(callback: (entries: ManagedEntry[]) => void): void { this.workflowManagedUnits = callback; }
 
   verifyWorkflowTask(task: Task): string | null {
+    try { this.verifyRoleDefinition(task); }
+    catch (error) {
+      if (!(error instanceof SubAgentRoleError) && !(error instanceof SubAgentDefinitionError)) throw error;
+      return `${error.code}:${error.message}`;
+    }
     const problem = this.deps.verifyTask?.(task);
     if (problem) return problem;
     if (!this.profile.workflow) return null;
     return this.deps.workflow ? this.deps.workflow.verify(task) : "工作流步骤的宿主权限核实不可用";
+  }
+
+  private verifyRoleDefinition(task: Task): void {
+    if (!task.subAgentId) return;
+    const agent = this.deps.store.getSubAgent(task.subAgentId);
+    if (!agent || agent.sessionId !== this.session.id) throw new SubAgentRoleError("definition_missing", "子代理角色身份缺失；核实记录后再继续。");
+    const definition = validateSubAgentRole(requireSubAgentDefinition(agent));
+    if (!this.pinnedDefinition || definition.digest !== this.pinnedDefinition.digest || (definition.kind === "host_review") !== Boolean(task.sourceEventId)) throw new SubAgentRoleError("definition_corrupt", "子代理角色内容或用途与执行绑定不一致；核实记录后再继续。");
   }
 
   /** 不在本任务允许集合内的工具的拒绝原因。 */
@@ -502,11 +521,11 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      systemPrompt: this.profile.workflow
+      systemPrompt: (this.profile.workflow
         ? SYSTEM_PROMPTS.workflow
         : this.profile.toolSignature === "scheduled"
         ? `${SYSTEM_PROMPTS.main}\n- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。无需为这份默认回报调用 notification_enqueue；任务明确要求另行发送时才用该工具。`
-        : SYSTEM_PROMPTS[this.profile.toolClass],
+        : SYSTEM_PROMPTS[this.profile.toolClass]) + (this.pinnedDefinition ? `\n[${this.pinnedDefinition.kind === "role" ? `子代理角色 ${this.pinnedDefinition.name}` : "宿主固定评审"}]\n${this.pinnedDefinition.body}\n[/子代理定义]` : ""),
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -602,6 +621,7 @@ export class Driver {
 
   /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
+    this.verifyRoleDefinition(task);
     const fresh = this.deps.store.getTask(task.id) ?? task;
     if (this.taskTools && this.taskTools.allowed.has("browser") !== (this.resourcePhase === "execution" && this.allToolNames.includes("browser") && Boolean(this.deps.browser?.allowed(fresh)))) {
       this.refreshTaskTools(fresh);
@@ -686,6 +706,8 @@ export class Driver {
     // 任务（提交入口与队列兜底先行拒绝），走到这里即抛。
     const identity = this.deps.store.getSessionIdentity(this.session.id);
     if (!identity) throw new Error(`会话不存在：${this.session.id}`);
+    this.pinnedDefinition = identity.kind === "subagent" ? validateSubAgentRole(requireSubAgentDefinition(identity.agent)) : null;
+    this.verifyRoleDefinition(task);
     const workflow = this.deps.workflow?.resolve(task);
     if (identity.kind === "subagent" && identity.workflow && !workflow) throw new WorkflowError("source_invalid");
     this.pinnedProfile = executionProfile({
@@ -727,6 +749,9 @@ export class Driver {
     const referenceSnapshot = this.resourcePhase === "conversation" ? this.deps.agentWait?.snapshot(task) ?? null : null;
     this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.skills ?? null
       : this.profile.restricted && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
+    this.pinnedRoles = this.resourcePhase === "conversation" ? referenceSnapshot?.roles ?? null
+      : this.allows("subagent") && this.profile.toolClass !== "subagent" ? this.deps.subAgentRoles?.() ?? null : null;
+    if (this.pinnedRoles) validateSubAgentRoleLibrary(this.pinnedRoles);
     // SubAgent 结果注入（agent-direction issue 11）与工作内消息注入（issue 13）：
     // 摘要与消息正文由宿主写定，不伪装拥有者新请求，也不授予委派权限。
     const injection = this.deps.parentInjection?.(this.session.id);
@@ -744,6 +769,7 @@ export class Driver {
       restricted: this.profile.restricted,
       plan: this.profile.plan,
       skills: this.pinnedSkills,
+      roles: this.pinnedRoles,
       resourcePhase: this.resourcePhase,
       referenceSnapshot,
       subagentResults,
@@ -841,7 +867,7 @@ export class Driver {
       const mcpPlan = await this.planMcp(task);
       // SDK 会话签名 = 画像工具集 + MCP 清单（架构工单 08）：复用的 SubAgent 从只读
       // 转到写入工作时重建，正确性不依赖 Runtime 每任务释放 Driver
-      const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}`;
+      const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}|${this.pinnedDefinition?.digest ?? ""}`;
       if (this.sdk && this.resourcePhase !== "conversation" && toolSignature !== this.toolSignature) this.dropSdkForToolChange();
       this.pendingMcpToolDefs = mcpPlan.toolDefs;
       // 计划先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收连接
@@ -909,6 +935,7 @@ export class Driver {
     }
 
     this.appendMarker(TASK_START_MARKER, { taskId: task.id, requestId: task.requestId });
+    if (this.pinnedRoles) this.appendMarker("ruukoto_subagent_roles", { taskId: task.id, ...this.pinnedRoles });
     if (this.injection && (this.injection.results.length || this.injection.messages.length)) {
       this.appendMarker("ruukoto_parent_injection", { taskId: task.id, results: this.injection.results,
         messages: this.injection.messages });
@@ -922,7 +949,7 @@ export class Driver {
         this.dropSdkForToolChange();
         this.pendingMcpToolDefs = plan.toolDefs;
         sdk = await this.ensureSdk(await this.deps.modelCatalog.resolve(task.modelSelection!), task.modelSelection!.thinkingLevel);
-        this.toolSignature = `${this.profile.toolSignature}|${plan.signature}`;
+        this.toolSignature = `${this.profile.toolSignature}|${plan.signature}|${this.pinnedDefinition?.digest ?? ""}`;
         this.refreshTaskTools(this.deps.store.getTask(task.id)!);
         await sdk.agent.continue();
       }
@@ -1007,7 +1034,7 @@ export class Driver {
     if (!task || !this.assembly) throw new ExecutionError("task_mismatch", "没有可记录的活动任务参考快照");
     const selection = this.deps.store.listSelectionRecordsByTask(task.id).at(-1);
     return { taskId: task.id, permissionVersion: task.permissionVersion, selectionRecordId: selection?.id ?? null,
-      promptArtifactId: selection?.promptArtifactId ?? null, instructions: this.assembly.referenceInstructions(), skills: structuredClone(this.pinnedSkills) };
+      promptArtifactId: selection?.promptArtifactId ?? null, instructions: this.assembly.referenceInstructions(), skills: structuredClone(this.pinnedSkills), roles: structuredClone(this.pinnedRoles) };
   }
 
   /** Runtime 先登记等待；核实成功后才可在事务内释放全部目录占用。 */

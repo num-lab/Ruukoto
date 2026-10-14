@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition, fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -17,7 +18,7 @@ import { bindWorkflowExecution, createWorkflowRun, registerWorkflowStep, saveWor
 import { afterTool, inputText, lastToolText, startAssemblyKit, toolNamesOf } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 
-const agent: SubAgent = { id: "agent", parentSessionId: "source", sessionId: "child", workDir: "/work", activeWorkId: null,
+const agent: SubAgent = { definition: fixtureSubAgentDefinition(), id: "agent", parentSessionId: "source", sessionId: "child", workDir: "/work", activeWorkId: null,
   currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
 const profile = (sourceProjectId = "project"): WorkflowExecutionProfile => ({ toolClass: "main", sourceProjectId,
   categories: sessionToolCategories("main") });
@@ -61,7 +62,7 @@ async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?:
     accessMode: "full_access", modelSelection: parent.modelSelection, workId, subAgentId, parentTaskId: parent.id, sourcePermissionVersion: parent.permissionVersion }).task;
   if (!opts.ordinary) {
     const definition = saveWorkflowDefinition(kit.store, 'return await agent("one",{request:"完成此步骤"});');
-    const run = createWorkflowRun(kit.store, { id: randomId("wfrun"), requestKey: "run", paramsDigest: "run", definitionId: definition.id,
+    const run = createWorkflowRun(kit.store, { roleCatalog: fixtureSubAgentRoleCatalog(), id: randomId("wfrun"), requestKey: "run", paramsDigest: "run", definitionId: definition.id,
       scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null), source: { product: "ruukoto", projectId: source.projectId,
         sessionId: source.id, taskId: parent.id, permissionVersion: parent.permissionVersion, accessMode: "full_access", grantedPaths: [],
         capabilities: profile().categories, references: [], replyTarget: null, scheduledRunId: null }, modelSelection: parent.modelSelection!,

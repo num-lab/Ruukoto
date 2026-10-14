@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -82,7 +83,7 @@ test("普通 SubAgent 在真实 Runtime 出队时与三个工作流步骤抢同�
         piSessionId: randomId("pi"), confirmTools: [], modelSelection: rt.defaultSelection });
       rt.store.setSessionQueueState(child.id, "paused", "test_slots");
       const id = randomId("sagent"), workId = randomId("work");
-      rt.store.insertSubAgent({ id, parentSessionId: session.id, sessionId: child.id, workDir: cwd, state: "running", currentTaskId: null,
+      rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id, parentSessionId: session.id, sessionId: child.id, workDir: cwd, state: "running", currentTaskId: null,
         activeWorkId: workId, closedAt: null, closedBy: null, createdAt: new Date().toISOString() });
       rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: parent.id, subAgentId: id, requestKey: "ordinary",
         paramsDigest: "ordinary", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: new Date().toISOString() });

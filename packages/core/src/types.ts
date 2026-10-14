@@ -13,6 +13,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
+import type { SubAgentDefinitionSnapshot } from "./subagent-definition.ts";
 
 export const PROTOCOL_VERSION = 25;
 
@@ -154,6 +155,9 @@ export type WorkCanceledBy = "owner" | `agent:${string}`;
 /** 动态 SubAgent（sub_agents 表；宿主管理，模型与工作参数不能修改）。 */
 export interface SubAgent {
   id: string;
+  definition: SubAgentDefinitionSnapshot | null;
+  /** 仅损坏记录的查询结果携带；执行拒绝使用空定义。 */
+  definitionError?: string;
   /** 所属父用户会话（工作委托归属；资料身份随该会话原项目）。 */
   parentSessionId: string;
   /** 独立子会话（JSONL 历史所在）。 */

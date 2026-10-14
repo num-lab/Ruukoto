@@ -206,6 +206,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     label: "subagent_delegate",
     description:
       "为一项分析/读取或修改工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录或隔离副本，" +
+      "role 从子代理角色目录选择，首次省略为 general，继续或复用沿固定角色；需要其他角色时新建 SubAgent。" +
       "分析只读（read / read_artifact），修改经宿主后台生成的本地副本隔离（不提交、不推送），访问模式沿用本次发起任务，不能委派下级。" +
       "开发会话用 read_paths 指定资料路径（受限模式要求父工作区内或父任务已授予）；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
       "要修改文件时用 mode=modify + target（父工作区内）：Git 仓库目标建宿主生成的本地 worktree 副本，非 Git 目录直接写入并与父会话串行；" +
@@ -218,6 +219,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     parameters: Type.Object({
       request: Type.String({ description: "委派正文：要 SubAgent 做什么（目标、范围、验收要求）" }),
       key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
+      role: Type.Optional(Type.String({ description: "子代理角色目录中的名称；首次省略为 general，继续或复用省略沿固定角色" })),
       work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行；修改工作继续沿用首次钉定的写入目标）；与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入本工作协作" })),
       sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent（保留上下文）：单独用时承接新工作；与 work_id 同现时加入该既有工作作为协作方" })),
       mode: Type.Optional(Type.Union([Type.Literal("analyze"), Type.Literal("modify")], { description: "委派模式；仅首次委派可指定，modify 需要 target（dev 与 main 均可发起；计划模式与 SubAgent 自身不能发起）" })),
@@ -240,6 +242,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       }
       if (typeof params.key !== "string" || !KEY_RE.test(params.key)) throw new Error("key 必须是 1–64 位字母、数字、_ 或 -");
       if (typeof params.request !== "string" || !params.request.trim()) throw new Error("request 不能为空");
+      if (params.role !== undefined && (typeof params.role !== "string" || !params.role.trim())) throw new Error("role 须为角色目录中的名称");
       if (params.work_id !== undefined && (typeof params.work_id !== "string" || !params.work_id.trim())) {
         throw new Error("work_id 必须是既有工作 id");
       }
@@ -283,6 +286,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
           ? {
               request: params.request,
               key: params.key,
+              role: params.role ?? (params.work_id || params.sub_agent_id ? null : "general"),
               work_id: params.work_id ?? null,
               mode: "modify",
               target: target!.trim(),
@@ -290,6 +294,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
           : {
               request: params.request,
               key: params.key,
+              role: params.role ?? (params.work_id || params.sub_agent_id ? null : "general"),
               work_id: params.work_id ?? null,
               // sub_agent_id 只在提供时纳入摘要：保持复用前（issue 11）的重放摘要不变
               ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
@@ -301,6 +306,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         parentTaskId: task.id,
         key: params.key,
         request: params.request,
+        role: params.role,
         workId: params.work_id ?? null,
         subAgentId: params.sub_agent_id ?? null,
         ...(params.mode !== undefined ? { mode: params.mode as "analyze" | "modify" } : {}),

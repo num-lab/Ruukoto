@@ -40,6 +40,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `packages/tui/src/cli.ts` 的管理命令与产物导出 | `npx tsx --test test/29-cli-entry.test.ts`；触及产品入口再加 `test/71-product-entry.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `npx tsx --test test/26-qq.test.ts test/37-scheduler-outbox.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts` |
+| 子代理角色定义与快照 | `npx tsx --test test/subagent-role-library.test.ts test/subagent-definition-core.test.ts test/subagent-role-runtime.test.ts test/subagent-role-driver.test.ts`；再加 80/83/62、GitHub 45/46、实际导入与 core 生命周期回归 |
 | SubAgent、worktree、旧实例导入 | `test/80`–`test/95` 里对应的那篇，加 `npx tsx --test test/91-release-acceptance.test.ts` |
 | `test/` 的夹具或助手 | 用该助手的用例。**只断言落盘布局的用例（直读 SQLite／裸 SQL）是本仓库的刻意做法**，不要以「只测行为」为由改写 |
 | `.agents/notes/` 的笔记 | `npm run verify-notes`；改了笔记的被引路径再加 `npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts` |

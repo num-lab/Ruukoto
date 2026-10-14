@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -47,7 +48,7 @@ for (const window of ["parent", "parent-repeated", "fallback", "fallback-no-end"
         replyTarget: null, scheduledRunId: null };
       const childSession = store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal,
         cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: "recover-child", confirmTools: [] });
-      store.insertSubAgent({ id: "recover-agent", parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
+      store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "recover-agent", parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
         activeWorkId: "recover-work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: childSession.createdAt });
       store.insertWorkDelegation({ id: "recover-work", parentSessionId: session.id, originTaskId: origin.id, subAgentId: "recover-agent",
         requestKey: "recover-work", paramsDigest: "recover-work", canceledAt: null, canceledBy: null, cancelReason: null,
@@ -149,7 +150,7 @@ for (const mode of ["success", "send-revoked", "request-revoked"] as const) test
       const now = new Date().toISOString(), childSession = rt.store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal,
         cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: `main-child-${key}`, confirmTools: [] });
       const agentId = `main-agent-${key}`, workId = `main-work-${key}`;
-      rt.store.insertSubAgent({ id: agentId, parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
+      rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: agentId, parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
         activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
       rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: origin.id, subAgentId: agentId,
         requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: now });
@@ -234,7 +235,7 @@ test("定时父轮已消费普通子结果：实际发送前撤销子任务记�
         sessionId: session.id, rootTaskId: origin.id, resultStatus: null, resultText: null });
       const childSession = rt.store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal,
         cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: "scheduled-child", confirmTools: [] });
-      rt.store.insertSubAgent({ id: "scheduled-agent", parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
+      rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "scheduled-agent", parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
         activeWorkId: "scheduled-work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
       rt.store.insertWorkDelegation({ id: "scheduled-work", parentSessionId: session.id, originTaskId: origin.id, subAgentId: "scheduled-agent",
         requestKey: "scheduled-work", paramsDigest: "scheduled-work", canceledAt: null, canceledBy: null, cancelReason: null,
@@ -301,7 +302,7 @@ for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-js
       const children = [0, 1].map(i => store.withTx(() => {
         const sub = store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal, cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: `sub-${i}`, confirmTools: [] });
         const agentId = `sub${i}`, workId = `work${i}`;
-        store.insertSubAgent({ id: agentId, parentSessionId: session.id, sessionId: sub.id, workDir: sub.cwdReal, activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
+        store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: agentId, parentSessionId: session.id, sessionId: sub.id, workDir: sub.cwdReal, activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
         store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: p.id, subAgentId: agentId, requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: sub.createdAt });
         const child = store.insertQueuedTask({ sessionId: sub.id, requestId: `child${i}`, input: `child${i}`, accessMode: "full_access", modelSelection: selection, submissionDigest: `child${i}`, parentTaskId: p.id, subAgentId: agentId, workId }).task;
         store.endTask(child.id, ["queued"], "completed"); store.setTaskResult(child.id, `结果${i}`, "{}"); return store.getTask(child.id)!;

@@ -1,3 +1,4 @@
+import { fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -16,7 +17,7 @@ import { realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 function seedRun(rt: Runtime, parent: Task, session: Session): WorkflowRun {
   return rt.store.withTx(() => {
     const definition = saveWorkflowDefinition(rt.store, "return 1;");
-    return createWorkflowRun(rt.store, {
+    return createWorkflowRun(rt.store, { roleCatalog: fixtureSubAgentRoleCatalog(),
       id: randomId("wfrun"), requestKey: "host-run", paramsDigest: "host-run", definitionId: definition.id,
       scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null),
       source: { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: parent.id,

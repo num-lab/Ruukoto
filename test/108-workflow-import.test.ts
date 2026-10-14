@@ -1,3 +1,4 @@
+import { fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -26,7 +27,7 @@ for (const [direction, preview, apply] of [["coding", previewLegacyImport, apply
         const modelSelection = { provider: "fake", modelId: "fake", thinkingLevel: "off" } as const;
         const task = store.insertQueuedTask({ sessionId: session.id, requestId: "source", input: "source", modelSelection, submissionDigest: "source" }).task;
         const definition = saveWorkflowDefinition(store, "return 1;");
-        createWorkflowRun(store, { id: "workflow", requestKey: "workflow", paramsDigest: "workflow", definitionId: definition.id, scriptDigest: definition.digest,
+        createWorkflowRun(store, { roleCatalog: fixtureSubAgentRoleCatalog(), id: "workflow", requestKey: "workflow", paramsDigest: "workflow", definitionId: definition.id, scriptDigest: definition.digest,
           input: null, inputDigest: workflowDigest(null), displayName: "固定运行名称", description: "保留来源实例的说明", modelSelection, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts: 100,
           durationMs: 3_600_000, usedMs: 0, clockStartedAt: null, clockVerified: true, scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false,
           createdAt: new Date().toISOString(), endedAt: null, source: { product: "ruukoto", projectId: project.id, sessionId: session.id, taskId: task.id,

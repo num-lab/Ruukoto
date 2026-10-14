@@ -225,6 +225,21 @@ ruukoto project web-search <项目id> on|off             # 默认启用
 
 项目指令从 `project.rootDir?.cwdReal ?? session.cwdReal` 起经受限读取钉版（realpath 后必须仍在基准目录内），任务内固定、下一任务重新读取。项目指令与 Web Search 共用 `projects.settings_version`：保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件；不符 = `version_conflict`，不改配置、无事件；同值保存幂等。
 
+### 4.4 子代理角色文件
+
+两个产品分别读取本实例 `<agentDir>/agents/*.md`，不自动扫描仓库。文件名是小写 kebab-case 角色名，同名覆盖内置 general/reviewer；新增文件新增角色。用文本编辑器保存 UTF-8 Markdown，普通委派的 `role` 从目录选择：首次省略为 general，继续或复用省略沿固定角色。角色工具与权限字段目前仅保存，执行仍按既有分析/修改规则；来源能力、受限 reviewer 与工作流选择尚待接线。
+
+```markdown
+---
+description: 阅读给定资料并给出有依据的结论。
+---
+根据委派目标阅读资料，报告结论、依据与未验证项。
+```
+
+`description` 必填非空，正文必填；可选 `tools` 为不重复工具名称列表，省略表示继承；`permissions` 可含 `mode`（默认 inherit，另有 confirm、auto-review、full_access）和布尔 `protect_source`（默认 false），保护不能与 full_access 同时要求。未知字段或非法 YAML 明确报错，坏覆盖不会使用内置兜底。文件须为不超过 64 KiB、单一硬链接的普通文件，目录及文件符号链接均拒绝。
+
+主模型的子代理角色目录显示有效名称与诊断；拥有者控制面查询 `list_subagent_roles` 返回目录、字段及错误。修正文件只影响后续新建身份或新启动工作流；原子代理继续、复用、消息与重启沿完整快照，换角色须新建身份。GitHub 宿主固定评审不使用用户角色覆盖。记录损坏时保留历史并报告拥有者，不从当前文件猜测恢复。
+
 ## 5. 启用各入口
 
 ### 5.1 Telegram owner 入口

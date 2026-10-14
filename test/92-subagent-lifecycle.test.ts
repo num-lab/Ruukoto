@@ -1,3 +1,5 @@
+import { BUILTIN_SUBAGENT_ROLES, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 /** 公共 manager 接口 + 真实 Db/Store；模型与执行入口用桩控制事务和等待窗口。 */
 import assert from "node:assert/strict";
@@ -53,7 +55,7 @@ function kit(parentKind: "main" | "dev" = "main") {
   };
   const parent = complete(task(parentSession.id, { accessMode: "full_access" }));
   const sub = session("child");
-  const agent = { id: randomId("sagent"), parentSessionId: parentSession.id, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle" as const, closedAt: null, closedBy: null, createdAt: sub.createdAt };
+  const agent = { definition: fixtureSubAgentDefinition(), id: randomId("sagent"), parentSessionId: parentSession.id, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle" as const, closedAt: null, closedBy: null, createdAt: sub.createdAt };
   store.insertSubAgent(agent);
   const newWork = (writeTarget: WorkDelegation["writeTarget"] = null) => {
     const work: WorkDelegation = { id: randomId("work"), parentSessionId: parentSession.id, originTaskId: parent.id, subAgentId: agent.id, requestKey: randomId("key"), paramsDigest: "work", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget, createdAt: new Date().toISOString() };
@@ -76,7 +78,7 @@ function kit(parentKind: "main" | "dev" = "main") {
     resultNotice: () => null,
     sendWorkReport: () => {},
   });
-  const deps: SubAgentManagerDeps = {
+  const deps: SubAgentManagerDeps = { roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []),
     store, dataDir, workRoot: path.join(root, "sub-agents"),
     workCopies: new WorkCopyManager({ worktreeRoot: path.join(root, "worktrees"), protectedRoots: () => [dataDir] }),
     sources: { resolve: () => ({ text: "材料", refs: [] }), verify: () => null },

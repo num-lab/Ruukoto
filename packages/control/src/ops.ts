@@ -102,6 +102,7 @@ export interface TuiOps {
     result: R<"searchHistory">;
   };
   list_skills: { params: None; result: R<"listSkills"> };
+  list_subagent_roles: { params: None; result: R<"listSubAgentRoles"> };
   list_memories: { params: { project_id?: string; personal?: boolean }; result: { memories: R<"listMemories"> } };
   get_memory: { params: { memory_id: string }; result: R<"getMemoryDetail"> };
   revoke_memory: { params: { memory_id: string; expected_version: number; reason?: string }; result: R<"ownerRevokeMemory"> };

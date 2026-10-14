@@ -1,3 +1,4 @@
+import { BUILTIN_SUBAGENT_ROLES, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
@@ -495,7 +496,7 @@ test("竞争：准备阶段被关闭→事务内已关闭；先提交→关闭 b
 
     // —— 委派已发出、尚在 await 准备阶段时同步关闭：事务内报已关闭，零新任务 ——
     let release!: () => void;
-    const gated = new SubAgentManager({
+    const gated = new SubAgentManager({ roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []),
       store: rt.store,
       workRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "sub-agents"),
       workCopies: new WorkCopyManager({

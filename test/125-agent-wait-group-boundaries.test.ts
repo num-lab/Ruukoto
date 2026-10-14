@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { startTestRuntime } from "./helpers/testkit.ts";
@@ -17,7 +18,7 @@ try {
  const source: WorkflowSource={product:"ruukoto-code" as const,projectId:s.projectId,sessionId:s.id,taskId:origin.id,permissionVersion:origin.permissionVersion,accessMode:origin.accessMode,grantedPaths:[],capabilities:[],references:[],replyTarget:null,scheduledRunId:null};
  const child=(key:string,done:boolean)=>store.withTx(()=>{
   const sub=store.createSession({projectId:s.projectId,cwd:s.cwd,cwdReal:s.cwdReal,cwdDev:s.cwdDev,cwdIno:s.cwdIno,piSessionId:key,confirmTools:[]});
-  store.insertSubAgent({id:"agent-"+key,parentSessionId:s.id,sessionId:sub.id,workDir:s.cwdReal,activeWorkId:"work-"+key,currentTaskId:null,state:"idle",closedAt:null,closedBy:null,createdAt:s.createdAt});
+  store.insertSubAgent({ definition: fixtureSubAgentDefinition(),id:"agent-"+key,parentSessionId:s.id,sessionId:sub.id,workDir:s.cwdReal,activeWorkId:"work-"+key,currentTaskId:null,state:"idle",closedAt:null,closedBy:null,createdAt:s.createdAt});
   store.insertWorkDelegation({id:"work-"+key,parentSessionId:s.id,originTaskId:origin.id,subAgentId:"agent-"+key,requestKey:key,paramsDigest:key,canceledAt:null,canceledBy:null,cancelReason:null,writeTarget:null,createdAt:s.createdAt});
   const task=store.insertQueuedTask({sessionId:sub.id,requestId:key,input:key,modelSelection:rt.defaultSelection,submissionDigest:key,parentTaskId:origin.id,subAgentId:"agent-"+key,workId:"work-"+key}).task;
   store.transitionTask(task.id,["queued"],done?"completed":"running"); if(done)store.setTaskResult(task.id,key,"{}");return store.getTask(task.id)!;

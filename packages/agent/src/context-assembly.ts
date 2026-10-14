@@ -51,6 +51,7 @@ import { loadSummaryModel } from "./model-config.ts";
 import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
 import { PLAN_NOTICE } from "./plan-mode.ts";
 import { skillCatalogBlock, type SkillLibrary } from "./skills.ts";
+import { roleCatalogBlock, type SubAgentRoleLibrary } from "./subagent-roles.ts";
 import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, imageReferenceSnapshot, imageReferenceView, restoreImageInput, type ImageReference } from "./inbound-images.ts";
 import { sourceArtifact } from "@ruukoto/core/branch.ts";
 import { historyTodoParams, parseSessionFile } from "@ruukoto/core/history.ts";
@@ -104,6 +105,7 @@ export interface ContextAssemblyInput {
   plan: boolean;
   /** 任务钉版的技能库（issue 22；driver 钉版，null = 不读取）。 */
   skills: SkillLibrary | null;
+  roles?: SubAgentRoleLibrary | null;
   resourcePhase?: AgentResourcePhase;
   referenceSnapshot?: AgentWaitSnapshot | null;
   reportContext?: AgentReportContext | null;
@@ -149,6 +151,7 @@ export class ContextAssembly {
   /** 普通资料受限会话不读取技能；工作流步骤按持久执行绑定保留已获准的技能。 */
   private readonly plan: boolean;
   private skills: SkillLibrary | null;
+  private readonly roles: SubAgentRoleLibrary | null;
   private resourcePhase: AgentResourcePhase;
   private referencesFromSnapshot: boolean;
   private readonly deps: ContextAssemblyDeps;
@@ -183,6 +186,7 @@ export class ContextAssembly {
     this.restricted = input.restricted;
     this.plan = !input.restricted && input.plan;
     this.skills = input.restricted && !getWorkflowExecution(deps.store, input.task.id) ? null : input.skills;
+    this.roles = input.roles ?? null;
     this.resourcePhase = input.resourcePhase ?? "execution";
     this.referencesFromSnapshot = this.resourcePhase === "conversation";
     this.subagentResults = input.restricted ? undefined : input.subagentResults;
@@ -444,6 +448,7 @@ export class ContextAssembly {
     return [
       ...(instructions ? [this.instructionsBlock(instructions)] : []),
       ...(skills ? [skills] : []),
+      ...(this.roles && (this.resourcePhase === "conversation" || tools.some(tool => tool?.name === "subagent_delegate")) ? [roleCatalogBlock(this.roles)] : []),
       ...(resumedFrom ? [this.resumedBlock(resumedFrom)] : []),
       ...(subagentResults && subagentResults.length > 0
         ? [{

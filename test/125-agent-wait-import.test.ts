@@ -14,6 +14,8 @@ import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { applyLegacyImport, previewLegacyImport, revertLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
 import { applyPersonalImport, previewPersonalImport, revertPersonalImport } from "@ruukoto/channels/personal-import.ts";
 import { AppDataStore } from "@ruukoto/agent/app-data/store.ts";
+import { canonicalJson, sha256 } from "@ruukoto/core/import-files.ts";
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 
 function fixture(personal: boolean) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-wait-import-")), sourceDir = path.join(root, "source", "data");
@@ -28,7 +30,7 @@ function fixture(personal: boolean) {
     if (personal) store.insertAgentRole({ id: "main", projectId: project.id, sessionId: parentSession.id, workDir: root, modelSelection: null, tools: [], createdAt: parentSession.createdAt });
     const task = store.insertQueuedTask({ sessionId: parentSession.id, requestId: "parent", input: "等待两项工作", submissionDigest: "parent", modelSelection: { provider: "fake", modelId: "fake", thinkingLevel: "off" } }).task;
     store.transitionTask(task.id, ["queued"], "running");
-    store.insertSubAgent({ id: "sub", parentSessionId: parentSession.id, sessionId: subSession.id, workDir: root, activeWorkId: "work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: parentSession.createdAt });
+    store.insertSubAgent({ id: "sub", definition: fixtureSubAgentDefinition(), parentSessionId: parentSession.id, sessionId: subSession.id, workDir: root, activeWorkId: "work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: parentSession.createdAt });
     store.insertWorkDelegation({ id: "work", parentSessionId: parentSession.id, originTaskId: task.id, subAgentId: "sub", requestKey: "work", paramsDigest: "work", writeTarget: null, canceledAt: null, canceledBy: null, cancelReason: null, createdAt: parentSession.createdAt });
     return store.getTask(task.id)!;
   });
@@ -42,8 +44,10 @@ function fixture(personal: boolean) {
   const source: WorkflowSource = { product: "ruukoto", projectId: project.id, sessionId: parentSession.id, taskId: parent.id, permissionVersion: 1,
     accessMode: "confirm", grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null };
   const children = [child(), child()], reports: AgentReport[] = [];
+  const catalog = { roles: [fixtureSubAgentDefinition()], diagnostics: [] };
   const snapshot: AgentWaitSnapshot = { taskId: parent.id, permissionVersion: 1, selectionRecordId: null, promptArtifactId: null,
-    instructions: { text: "历史指令正文", version: "fixture", problems: [] }, skills: { skills: [], diagnostics: [], version: "fixture" } };
+    instructions: { text: "历史指令正文", version: "fixture", problems: [] }, skills: { skills: [], diagnostics: [], version: "fixture" },
+    roles: { ...catalog, digest: sha256(canonicalJson(catalog)) } };
   store.withTx(() => {
     registerAgentWait(store, { id: "wait", sdkCallId: "call", deadline: null, taskId: parent.id, sessionId: parentSession.id,
       targets: children.map(child => ({ kind: "task", taskId: child.id })), source, snapshot });
@@ -78,6 +82,26 @@ function fixture(personal: boolean) {
 }
 
 for (const [direction, personal, preview, apply, revert] of [["coding", false, previewLegacyImport, applyLegacyImport, revertLegacyImport], ["personal", true, previewPersonalImport, applyPersonalImport, revertPersonalImport]] as const) {
+  test(`${direction} 子代理或等待目录快照损坏时拒绝导入且不写目标`, () => {
+    for (const corrupted of ["definition", "catalog"] as const) {
+      const f = fixture(personal);
+      try {
+        const db = new Db(f.sourceDir);
+        if (corrupted === "definition") db.prepare("UPDATE sub_agents SET definition = '{}' WHERE id = 'sub'").run();
+        else {
+          const wait = getAgentWait(new Store(db), "wait")!;
+          wait.snapshot.roles!.diagnostics.push({ name: "later", code: "broken", message: "后来改变的错误" });
+          db.prepare("UPDATE agent_waits SET payload = ? WHERE id = 'wait'").run(JSON.stringify(wait));
+        }
+        db.close();
+        const before = sha256File(path.join(f.sourceDir, "ruukoto.db"));
+        assert.throws(() => preview(f.deps, { from: f.sourceDir }), { code: "definition_corrupt" });
+        assert.equal(fs.existsSync(f.deps.targetDataDir), false);
+        assert.equal(sha256File(path.join(f.sourceDir, "ruukoto.db")), before);
+      } finally { f.cleanup(); }
+    }
+  });
+
   test(`${direction} 报告依赖的旧任务读取了未导入记忆时明确拒绝，完整记忆则随资料保留`, () => {
     const f = fixture(personal);
     try {
@@ -168,6 +192,8 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
         assert.equal(wait.phase, "ended");
         assert.equal(wait.reason, "instance_imported");
         assert.equal(wait.snapshot.instructions!.text, "历史指令正文");
+        assert.deepEqual(wait.snapshot.roles!.roles, [fixtureSubAgentDefinition()]);
+        assert.deepEqual(store.getSubAgent("sub")!.definition, fixtureSubAgentDefinition());
         const done = getAgentReport(store, f.reports[0].key)!, pending = getAgentReport(store, f.reports[1].key)!;
         assert.equal(done.status, "reported");
         assert.deepEqual(done.consumption, f.proof.consumption);

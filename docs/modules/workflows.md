@@ -28,6 +28,8 @@ Agent 参数 `mode` 为 `analyze`（默认）、`modify` 或 `verify`；修改�
 
 ## 数据与状态
 
+运行 `roleCatalog` 固定启动时可用的子代理角色完整定义及加载诊断；后续默认 Agent 步骤固定 general，文件编辑或删除不改变已启动运行。目录缺失、摘要失配或步骤身份定义不一致时拒绝恢复，已有成果保留；角色选择及新目标接口接线尚未完成。
+
 当前定义位于 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。`workflow_definitions` 保存完整脚本和内容摘要，`workflow_definition_refs` 保存名称历史及稳定保存键的请求摘要和版本引用；`workflow_runs` 固定来源、脚本版本、参数/摘要、展示名称、显式简短说明、宿主创建时间、模型、预算、累计墙钟、计时与脚本停止核实、结果与版本。状态为 `queued`、`running`、`waiting`、`paused`，终态为 `succeeded`、`partial`、`failed`、`canceled`。
 
 `workflow_steps` 按运行/稳定键唯一，保存类别、登记序号、完整参数与摘要、依赖、状态、输出、交付序号和尝试数；`workflow_executions` 绑定真实 Task、执行类别/编号、单元身份及停止事实。`workflow_questions` 保存问题、来源、问题/建立代次与回答；`workflow_controls` 为控制和回答共用请求键空间，保存输入摘要与原回执。状态、步骤完成、回答及适用的 IM 回执同事务提交，之后才调度和广播。
@@ -67,6 +69,8 @@ Agent 参数 `mode` 为 `analyze`（默认）、`modify` 或 `verify`；修改�
 跨实例导入拒绝含工作流执行记录的源，不能通过丢掉绑定把步骤当普通 SubAgent 继续；原实例保留可查。操作见[导入说明](../usage.md#6-导入旧实例)。
 
 ## 设计依据
+
+- [子代理角色持久快照](../../.agents/notes/implemented/architecture/2026-10-14-subagent-role-snapshots.md)：运行目录与步骤定义保持固定版本。
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 

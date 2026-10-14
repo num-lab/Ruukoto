@@ -1,4 +1,4 @@
-import { verifyImportedBranchSources, verifyImportedAgentWaitReferences, archiveImportedAgentWaits } from "@ruukoto/core/import-support.ts";
+import { verifyImportedBranchSources, verifyImportedAgentWaitReferences, archiveImportedAgentWaits, verifyImportedSubAgentDefinitions } from "@ruukoto/core/import-support.ts";
 /**
  * 旧实例开发资料迁入 Coding Agent（agent-direction issue 21）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
@@ -359,6 +359,7 @@ function buildImportSet(
   const includedWorks = allRows(db, "SELECT * FROM work_delegations").filter((r) => sessionIds.has(String(r.parent_session_id)));
   verifyImportedBranchSources(includedSessions, tasks, artifacts, includedWorks);
   const includedAgents = subAgents.filter(row => sessionIds.has(String(row.session_id)));
+  verifyImportedSubAgentDefinitions(includedAgents);
   const agentWaits = rowsIn(db, "agent_waits", "session_id", sessionIdList), agentReports = rowsIn(db, "agent_reports", "parent_session_id", sessionIdList);
   verifyImportedAgentWaitReferences(agentWaits, agentReports, { projects: includedProjects, sessions: includedSessions, tasks, works: includedWorks, subAgents: includedAgents,
     artifacts, selections: selectionRecords, inboundEvents: [], scheduleRuns: [], notificationOps: [], toolOps, chatResults: [], memories: memoriesImport, appDataInstanceId: null });

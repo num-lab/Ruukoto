@@ -120,6 +120,7 @@ export interface DriverDeps {
   mcp?: { store: McpStore } & McpTimeouts;
   /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
   allowTaskTool?: (task: Task, name: string, mcpEffect?: McpToolEffect) => boolean;
+  browser?: { allowed(task: Task): boolean; close(sessionId: string): Promise<boolean> };
   /**
    * 宿主按任务另开只读 MCP（agent-direction issue 19 的 GitHub 评审 SubAgent）：
    * subagent 类会话只有该依赖为真时才规划 MCP，收窄为「静态只读白名单 ∪
@@ -312,6 +313,7 @@ export class Driver {
 
   /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
   private allows(category: ToolCategory): boolean {
+    if (category === "browser" && (this.profile.workflow || this.profile.toolSignature === "scheduled")) return false;
     return this.profile.workflow ? this.profile.workflow.categories.includes(category) : allowsCategory(this.profile.toolClass, category);
   }
 
@@ -600,6 +602,10 @@ export class Driver {
 
   /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
+    const fresh = this.deps.store.getTask(task.id) ?? task;
+    if (this.taskTools && this.taskTools.allowed.has("browser") !== (this.resourcePhase === "execution" && this.allToolNames.includes("browser") && Boolean(this.deps.browser?.allowed(fresh)))) {
+      this.refreshTaskTools(fresh);
+    }
     const workflowProblem = this.verifyWorkflowTask(task);
     if (workflowProblem) throw new ContextSendBlocked(`workflow_source_invalid:${workflowProblem}`);
     this.verifyReportContext(task);
@@ -978,6 +984,7 @@ export class Driver {
       registered: this.allToolNames,
       resourcePhase: this.resourcePhase,
       plan: this.profile.plan,
+      browserEnabled: this.deps.browser?.allowed(task) ?? false,
       webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
       mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
       // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
@@ -1120,7 +1127,8 @@ export class Driver {
     const abortPromise = this.sdk?.isStreaming ? this.sdk.abort().catch(() => {
       // SDK 中止失败仍由执行单元回收与任务终态保护占用。
     }) : null;
-    const reaped = await this.killManagedProcesses();
+    const [managedReaped, browserReaped] = await Promise.all([this.killManagedProcesses(), this.deps.browser?.close(task.sessionId) ?? true]);
+    const reaped = managedReaped && browserReaped;
     if (abortPromise) await abortPromise;
     // MCP 连接随任务停止回收：在途调用已被 abort 中断，迟到结果由 SDK 丢弃
     await this.closeMcpConns();
@@ -1244,10 +1252,13 @@ export class Driver {
   private async boundaryTask(task: Task): Promise<Task> {
     if (!task.pendingAccessMode || task.pendingAccessMode === task.accessMode) return task;
     try {
-      if (!await this.stopManagedProcesses(task.id)) {
+      const [managedReaped, browserReaped] = await Promise.all([this.stopManagedProcesses(task.id), this.deps.browser?.close(task.sessionId) ?? true]);
+      if (!managedReaped || !browserReaped) {
         throw new ExecutionError("mode_switch_unverified", "无法核实旧执行单元已退出，模式切换失败");
       }
-      return await this.router.prepareToolBoundary(task);
+      const switched = await this.router.prepareToolBoundary(task);
+      this.refreshTaskTools(switched);
+      return switched;
     } catch (err) {
       // 切换失败（无法核实旧执行单元退出）：任务无法安全继续
       this.stopRequested = true;
@@ -1285,6 +1296,10 @@ export class Driver {
     }
     if (this.stopRequested) {
       return { block: true, reason: "任务已停止，确认等待解除" };
+    }
+
+    if (event.toolName === "browser" && !this.deps.browser?.allowed(task)) {
+      return { block: true, reason: "浏览器仅开放完全访问的拥有者会话" };
     }
 
     // 宿主操作 id 与模型调用 id 分开：不同任务复用调用 id 不串用批准
@@ -1346,6 +1361,8 @@ export class Driver {
 
   /** 运行时入口：等待中的审批因模式切换立即失效（Runtime 调用）。 */
   supersedeWaiters(): void {
+    const task = this.currentTask && this.deps.store.getTask(this.currentTask.id);
+    if (task) this.refreshTaskTools(task);
     this.approvals.supersedeAll();
   }
 

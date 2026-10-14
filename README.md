@@ -1,6 +1,6 @@
 # Ruukoto
 
-拥有者自用的 Agent，同一仓库交付两个独立产品（见[两个 Agent 产品独立运行](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
+拥有者自用的 Agent，同仓交付两个独立产品（见[两个 Agent 产品独立运行](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
 
 <!-- Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md -->
 
@@ -12,7 +12,7 @@
 | 后台 | 打开 TUI 时按需拉起，`ruukoto-code stop` 才停止 | systemd 常驻 |
 | 档案根 | `~/.ruukoto-code/` | `~/.ruukoto/`（生产为 `/var/lib/ruukoto/`） |
 
-两端独立安装、运行和升级，任一端停止不影响另一端。设计要点与模块划分见[架构总览](docs/architecture.md)。
+两端独立安装、运行、升级，停止一端不影响另一端；设计与模块见[架构总览](docs/architecture.md)。
 
 ## 当前状态
 
@@ -21,7 +21,7 @@
 - 真实 QQ / Telegram 平台缺少实测证据（消息平台目前使用模拟验证）；
 - 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
 
-逐项证据见 [发布与验收说明](docs/release-acceptance.md)。
+[逐项验收证据](docs/release-acceptance.md)。
 
 ## 快速开始
 
@@ -90,7 +90,7 @@ npm run code               # 启动 ruukoto-code 开发后台并打开 TUI
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-独立检查、测试导航、CI、环境配置、开发实例与验收入口见[开发说明](docs/development.md)。
+开发见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
 ## 文档
 

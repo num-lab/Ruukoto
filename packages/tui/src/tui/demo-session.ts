@@ -308,6 +308,7 @@ function demoEvents(): PersistentEvent[] {
     // agent-direction issue 07：会话工作区组织归属（仅展示归属，资料身份仍是原 projectId）
     { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
+    { type: "browser.binding_changed", sessionId: SESSION_ID, generation: "browser_demo", state: "ready", kind: "owned", failureCode: null },
     { type: "workflow.definition", name: "demo", definitionId: "wfdef_demo", digest: "a".repeat(64) },
     { type: "workflow.changed", runId: "wfrun_demo", version: 1, status: "waiting", reason: null },
     { type: "workflow.step", runId: "wfrun_demo", key: "pick", status: "waiting", delivery: null },

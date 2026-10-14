@@ -33,6 +33,8 @@ test("宿主步骤画像按来源收窄，普通 SubAgent 不得到个人能力�
   assert.ok(!step.workflow!.categories.includes("subagent") && !step.workflow!.categories.includes("delegation"));
   assert.equal(workflowAllows(profile(), "subagent_delegate"), false);
   assert.equal(workflowAllows(profile(), "workflow_start"), false);
+  assert.equal(workflowAllows(profile(), "browser"), false);
+  assert.ok(!step.workflow!.categories.includes("browser"));
   for (const name of ["edit", "write", "bash", "request_file_access"]) assert.equal(workflowAllows(profile(), name), false, name);
   assert.equal(workflowAllows({ ...profile(), verifyTarget: true }, "write"), true);
   assert.equal(workflowAllows({ ...profile(), tools: ["app_data_query"] }, "app_data_insert"), false);

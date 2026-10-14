@@ -1,0 +1,137 @@
+[
+  {
+    "session": "batch",
+    "args": [
+      "open",
+      "http://127.0.0.1:52324"
+    ],
+    "returncode": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 7960546396378085017
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        },
+        "targetId": "D4D71D46B1BA10097532398585420368",
+        "title": "",
+        "url": "http://127.0.0.1:52324/"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "session": "batch",
+    "args": [
+      "get",
+      "value",
+      "#name"
+    ],
+    "returncode": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 7960546396378085017
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        },
+        "value": "--config"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "check": "stdin_batch_keeps_flag_like_input",
+    "argv": [
+      "/tmp/ruukoto-agent-browser-0391/agent-browser-darwin-arm64",
+      "--config",
+      "/tmp/abl-_3mp1za2/config.json",
+      "--session",
+      "batch",
+      "--profile",
+      "/tmp/abl-_3mp1za2/profile-batch",
+      "--executable-path",
+      "/tmp/ruukoto-agent-browser-0391/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "--json",
+      "batch"
+    ],
+    "response": [
+      {
+        "command": [
+          "fill",
+          "#name",
+          "--config"
+        ],
+        "error": null,
+        "result": {
+          "filled": "#name",
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 7960546396378085017
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "success": true
+      }
+    ],
+    "root": "/tmp/abl-_3mp1za2"
+  },
+  {
+    "session": "batch",
+    "args": [
+      "close"
+    ],
+    "returncode": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "closed": true,
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": false,
+            "engine": "chrome",
+            "launchHash": null
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": false,
+          "saveStatus": "not_configured"
+        },
+        "restoreStatus": "not_configured",
+        "saveStatus": "not_configured"
+      },
+      "error": null
+    },
+    "stderr": ""
+  }
+]

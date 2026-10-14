@@ -23,10 +23,10 @@ import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired" | "scheduled">;
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
-  dev: ["coding", "host_data", "web_search", "mcp", "skills", "subagent", "workflow"],
+  dev: ["coding", "host_data", "web_search", "browser", "mcp", "skills", "subagent", "workflow"],
   // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
   // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
-  main: ["host_data", "web_search", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
+  main: ["host_data", "web_search", "browser", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
   // subagent（agent-direction issue 11）：工具按执行画像的 SubAgent 工具集单独装配
   // （不走注册来源类别），子身份不能再委派下级；宿主评审任务（issue 19）的只读
   // MCP 由画像按任务另开，不在本静态清单
@@ -95,7 +95,7 @@ export interface WorkflowExecutionProfile {
 }
 
 export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" &&
+  return !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" &&
     (profile.verifyTarget === true || !["edit", "write", "bash", "request_file_access"].includes(name)) &&
     (!profile.tools || profile.tools.includes(name));
 }
@@ -114,7 +114,7 @@ export function executionProfile(input: {
   if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
   if (input.workflow) {
     if (identity.kind !== "subagent" || !identity.workflow) throw new WorkflowError("workflow_binding_invalid");
-    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow"].includes(category)) };
+    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow", "browser"].includes(category)) };
     return { toolClass: workflow.toolClass, subAgentTools: null, planMcp: workflow.categories.includes("mcp"), restricted: true,
       plan: false, toolSignature: `workflow:${JSON.stringify(workflow)}`, workflow };
   }
@@ -159,6 +159,7 @@ export function taskToolSet(input: {
   /** 计划模式（issue 26）：只留 PLAN_TOOL_NAMES 与只读 MCP，今后新增的工具默认不可用。 */
   plan: boolean;
   webSearchEnabled: boolean;
+  browserEnabled?: boolean;
   mcpEffect: (name: string) => McpToolEffect | undefined;
   /** 宿主按任务收窄（GitHub 评审等；已绑定任务）。 */
   narrow?: (name: string, mcpEffect?: McpToolEffect) => boolean;
@@ -171,6 +172,7 @@ export function taskToolSet(input: {
     const reason =
       input.resourcePhase === "conversation" && !CONVERSATION_TOOL_NAMES.has(name) ? "执行资源未取得：当前仅处理对话与后台记录"
       : input.plan && !PLAN_TOOL_NAMES.has(name) && effect !== "read" ? "计划模式不开放"
+      : name === "browser" && !input.browserEnabled ? "浏览器仅开放完全访问的拥有者会话"
       : input.narrow && !input.narrow(name, effect) ? "本任务由宿主收窄"
       : !input.webSearchEnabled && (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name) ? "项目已关闭 Web Search"
       : null;

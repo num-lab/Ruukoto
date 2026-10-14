@@ -1,0 +1,218 @@
+{
+  "status": "passed",
+  "node": "v24.21.0",
+  "platform": "linux",
+  "arch": "x64",
+  "binary": "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+  "binarySha256": "6906d3a2a67b05809932a93d99e53d1132373f0a52a617b2d6032dbb954df6fc",
+  "chrome": "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+  "noSandbox": true,
+  "root": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24",
+  "jsonPath": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24/results.json",
+  "steps": [
+    {
+      "name": "host_control_credentials_not_in_owned_units",
+      "passed": true,
+      "evidence": {
+        "chrome": true,
+        "daemon": true,
+        "dashboard": true
+      }
+    },
+    {
+      "name": "official_stdin_batch_flags_and_screenshot",
+      "passed": true,
+      "evidence": {
+        "binding": {
+          "sessionId": "owned",
+          "generation": "cb5b3cda-5b8f-402f-aeb4-7a29a2b78252",
+          "kind": "owned",
+          "state": "ready",
+          "profileDir": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24/data/browser/6628b5b22b7019a9676a4e7e/profile",
+          "socketDir": "/tmp/ruukoto-browser-1003-6628b5b22b7019a9676a4e7e",
+          "cliSession": "rk-6628b5b22b7019a9676a4e7e",
+          "cdpUrl": "ws://127.0.0.1:42533/devtools/browser/965be3dd-6648-462e-8831-c79dffe2c3c0",
+          "targetId": "965be3dd-6648-462e-8831-c79dffe2c3c0",
+          "chrome": {
+            "pid": 1961452,
+            "pgid": 1961452,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139450430"
+          },
+          "daemon": {
+            "pid": 1961531,
+            "pgid": 1961531,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139450447"
+          },
+          "dashboard": {
+            "pid": 1961609,
+            "pgid": 1961609,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139450472"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-1003/43b59525650b63b37cc099fe3f7615ea384db3c24c7e3ecee47877b60d013942",
+          "pauseTaskId": null,
+          "outcomeUnknown": false,
+          "failureCode": null,
+          "dashboardUrl": "http://127.0.0.1:46831/?port=46259",
+          "headed": false
+        },
+        "screenshot": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24/shot.png"
+      }
+    },
+    {
+      "name": "pause_requires_new_task_and_readonly_resume_invalidates_refs",
+      "passed": true
+    },
+    {
+      "name": "shared_uuid_lock_blocks_other_process_and_loopback_alias",
+      "passed": true,
+      "evidence": {
+        "code": 0,
+        "signal": null,
+        "stdout": "browser_target_in_use\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "owned_close_entire_pgid_and_persistent_cookie_reopen",
+      "passed": true,
+      "evidence": {
+        "cookieHeader": "login=present"
+      }
+    },
+    {
+      "name": "cancel_navigation_once_and_stop_lock_waiting_daemon",
+      "passed": true,
+      "evidence": {
+        "hangHits": 1,
+        "interrupted": {
+          "sessionId": "owned",
+          "generation": "13b65d4f-021c-4247-9cc2-05ae1b6f101a",
+          "kind": "owned",
+          "state": "unavailable",
+          "profileDir": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24/data/browser/6628b5b22b7019a9676a4e7e/profile",
+          "socketDir": "/tmp/ruukoto-browser-1003-6628b5b22b7019a9676a4e7e",
+          "cliSession": "rk-6628b5b22b7019a9676a4e7e",
+          "cdpUrl": "ws://127.0.0.1:34331/devtools/browser/3eb0bf6d-a841-4871-9f30-e38cbf8e5130",
+          "targetId": "3eb0bf6d-a841-4871-9f30-e38cbf8e5130",
+          "chrome": {
+            "pid": 1961705,
+            "pgid": 1961705,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139450621"
+          },
+          "daemon": {
+            "pid": 1961796,
+            "pgid": 1961796,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139450638"
+          },
+          "dashboard": {
+            "pid": 1961836,
+            "pgid": 1961836,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139450660"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-1003/229ade62a2e3734800f49b1b412297a40d2f3bd034fe55b84b9fd71ce3d79d1e",
+          "pauseTaskId": "interrupted",
+          "outcomeUnknown": true,
+          "failureCode": "outcome_unknown",
+          "dashboardUrl": "http://127.0.0.1:43721/?port=39701",
+          "headed": false
+        }
+      }
+    },
+    {
+      "name": "backend_sigkill_cold_recovery_without_page_replay",
+      "passed": true,
+      "evidence": {
+        "spawned": {
+          "code": null,
+          "signal": "SIGKILL",
+          "stdout": "",
+          "stderr": ""
+        },
+        "before": {
+          "sessionId": "cold",
+          "generation": "5697151d-e652-4a40-88c3-61dc19102fa6",
+          "kind": "owned",
+          "state": "ready",
+          "profileDir": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24/cold/browser/6bff236267130995afaf2d2f/profile",
+          "socketDir": "/tmp/ruukoto-browser-1003-6bff236267130995afaf2d2f",
+          "cliSession": "rk-6bff236267130995afaf2d2f",
+          "cdpUrl": "ws://127.0.0.1:37629/devtools/browser/aaefda36-7a11-4e0c-a4dd-8b872f8c0c6f",
+          "targetId": "aaefda36-7a11-4e0c-a4dd-8b872f8c0c6f",
+          "chrome": {
+            "pid": 1961941,
+            "pgid": 1961941,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139451033"
+          },
+          "daemon": {
+            "pid": 1962028,
+            "pgid": 1962028,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139451052"
+          },
+          "dashboard": {
+            "pid": 1962093,
+            "pgid": 1962093,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139451076"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-1003/ee7394617acf88d896afe95cf290a3cfdd889d53930ea04b0670d1bf2bf26b3c",
+          "pauseTaskId": null,
+          "outcomeUnknown": false,
+          "failureCode": null,
+          "dashboardUrl": "http://127.0.0.1:43131/?port=40959",
+          "headed": false
+        },
+        "state": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24/cold-state.json"
+      }
+    },
+    {
+      "name": "attached_close_disconnects_only_and_preserves_user_chrome",
+      "passed": true,
+      "evidence": {
+        "external": {
+          "pid": 1962112,
+          "profileDir": "/dev/shm/ruukoto-browser-manager-XKGsID/probe-node24/external-profile",
+          "cdpUrl": "ws://127.0.0.1:33637/devtools/browser/87ff14f9-287c-4591-a111-488817406c9f"
+        },
+        "binding": {
+          "sessionId": "attached",
+          "generation": "a5355182-4af4-41c8-998e-7d8b7d11556b",
+          "kind": "attached",
+          "state": "ready",
+          "profileDir": null,
+          "socketDir": "/tmp/ruukoto-browser-1003-0b7a864dfc7b5f2d56818d3c",
+          "cliSession": "rk-0b7a864dfc7b5f2d56818d3c",
+          "cdpUrl": "ws://127.0.0.1:33637/devtools/browser/87ff14f9-287c-4591-a111-488817406c9f",
+          "targetId": "87ff14f9-287c-4591-a111-488817406c9f",
+          "chrome": null,
+          "daemon": {
+            "pid": 1962230,
+            "pgid": 1962230,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139451134"
+          },
+          "dashboard": {
+            "pid": 1962264,
+            "pgid": 1962264,
+            "processIdentity": "linux:ce49a58c-036d-4dfa-a7dc-99f3b9682ca6:1139451152"
+          },
+          "chromePending": false,
+          "daemonPending": false,
+          "dashboardPending": false,
+          "lockDir": "/tmp/ruukoto-browser-locks-1003/6fc80706554ca4444ac0e0a054203c35b63c365957d0d7222505dd6f90368ff2",
+          "pauseTaskId": null,
+          "outcomeUnknown": false,
+          "failureCode": null,
+          "dashboardUrl": "http://127.0.0.1:46067/?port=34965",
+          "headed": false
+        }
+      }
+    }
+  ]
+}

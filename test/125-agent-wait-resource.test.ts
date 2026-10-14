@@ -14,6 +14,7 @@ import { startMockMcp } from "./helpers/mock-mcp.ts";
 test("真实 worker：父轮安全让出同目录，另一任务执行，重取目录后新 worker 继续写入", async () => {
   let childId = "";
   const t = await startTestRuntime("wait-resource-real", async request => {
+    assert.ok(toolNamesOf(request).includes("browser"));
     const tools = request.messages.filter(message => message.role === "tool");
     if (lastUserText(request) === "CHILD") return tools.length ? { kind: "text", text: "child-done" }
       : { kind: "tool_calls", calls: [{ id: "child-write", name: "write", arguments: { path: "child.txt", content: "child\n" } }] };
@@ -68,6 +69,7 @@ test("真实 worker：父轮安全让出同目录，另一任务执行，重取�
 test("冷启对话：不读工作区或技能、不启动 MCP，已记录指令仍进入模型，隐藏业务调用被拒绝", async context => {
   const mcp = await startMockMcp({ tools: [{ name: "read" }] });
   const t = await startTestRuntime("wait-resource-conversation", request => {
+    assert.ok(!toolNamesOf(request).includes("browser"));
     assert.ok(!toolNamesOf(request).includes("write"));
     assert.ok(!toolNamesOf(request).includes("skill"));
     assert.ok(!toolNamesOf(request).some(name => name.startsWith("mcp_")));

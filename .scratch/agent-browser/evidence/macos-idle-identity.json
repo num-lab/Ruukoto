@@ -1,0 +1,182 @@
+[
+  {
+    "environment": {
+      "sha256": "cc18fac41d9dc9821918340a136e643286ea05544c4dd35671b796f1a874cdef",
+      "binary": "agent-browser 0.39.1",
+      "chrome": "Google Chrome for Testing 155.0.8059.79",
+      "node": "v24.15.0",
+      "platform": "Darwin",
+      "noSandbox": false
+    }
+  },
+  {
+    "owned_chrome": 72693,
+    "identity": "Wed Oct 14 04:34:26 2026",
+    "target": "ws://127.0.0.1:55501/devtools/browser/5cd31bc1-0ada-45cd-88b2-250fd5ffc23e"
+  },
+  {
+    "args": [
+      "snapshot"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 7090657601750713290
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        },
+        "origin": "http://127.0.0.1:55497/",
+        "refs": {
+          "e1": {
+            "name": "Owned probe",
+            "role": "heading"
+          },
+          "e2": {
+            "name": "Login",
+            "role": "button"
+          }
+        },
+        "removedRefs": [],
+        "snapshot": "- heading \"Owned probe\" [level=1, ref=e1]\n- button \"Login\" [ref=e2]"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "args": [
+      "click",
+      "#login"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "clicked": "#login",
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 7090657601750713290
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        }
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "check": "idle_saved_daemon_identity_exited",
+    "daemon_pid": 72714,
+    "identity": "Wed Oct 14 04:34:27 2026",
+    "elapsed_after_manual_check": 0.8132362079995801,
+    "passed": true
+  },
+  {
+    "check": "owned_group_stopped",
+    "pgid": 72693,
+    "passed": true
+  },
+  {
+    "check": "explicit_idle_cdp_dashboard_input_reset_and_host_reap",
+    "passed": true
+  },
+  {
+    "owned_chrome": 72843,
+    "identity": "Wed Oct 14 04:34:30 2026",
+    "target": "ws://127.0.0.1:55548/devtools/browser/6c8a8b2a-0302-45e5-908e-9dcdee925161"
+  },
+  {
+    "args": [
+      "cookies"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "cookies": [
+          {
+            "domain": "127.0.0.1",
+            "expires": 1792038867.624054,
+            "httpOnly": false,
+            "name": "own",
+            "path": "/",
+            "secure": false,
+            "session": false,
+            "size": 12,
+            "value": "logged-in"
+          }
+        ],
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 3434803088857270440
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        }
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "args": [
+      "close"
+    ],
+    "exit": 0,
+    "response": {
+      "success": true,
+      "data": {
+        "closed": true,
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": false,
+            "engine": "chrome",
+            "launchHash": null
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": false,
+          "saveStatus": "not_configured"
+        },
+        "restoreStatus": "not_configured",
+        "saveStatus": "not_configured"
+      },
+      "error": null
+    },
+    "stderr": ""
+  },
+  {
+    "check": "owned_group_stopped",
+    "pgid": 72843,
+    "passed": true
+  },
+  {
+    "check": "idle_close_preserves_cookie",
+    "passed": true
+  }
+]

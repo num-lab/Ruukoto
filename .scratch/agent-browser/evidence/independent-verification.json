@@ -1,0 +1,60 @@
+{
+  "reviewer": "/root/linux_probe",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "scope": "frozen main production browser permission, invocation, cancel, switch, lifecycle and core process identity code",
+  "verdict": "no_unresolved_implementation_blockers",
+  "checks": [
+    {
+      "command": "RUN_MODEL_CHECK=0 npx tsx --test test/browser-lifecycle.test.ts test/browser-tools.test.ts test/101-instance-lock.test.ts test/browser-model-acceptance.test.ts",
+      "tests": 43,
+      "passed": 41,
+      "skipped": 2,
+      "failed": 0,
+      "duration_ms": 3749.194834
+    },
+    {
+      "command": "env -u RUN_MODEL_CHECK npx tsx --test test/browser-model-acceptance.test.ts",
+      "tests": 2,
+      "passed": 0,
+      "skipped": 2,
+      "failed": 0
+    },
+    {
+      "command": "npx tsx --test test/browser-lifecycle.test.ts",
+      "reason": "after adding bounded wait to close persistence regression",
+      "tests": 15,
+      "passed": 15,
+      "skipped": 0,
+      "failed": 0,
+      "duration_ms": 4659.225834,
+      "stdout": "final-lifecycle.stdout.txt"
+    },
+    {
+      "command": "npx tsx --test test/browser-tools.test.ts",
+      "reason": "after canonicalizing upstream bare eN refs to @eN",
+      "tests": 22,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "duration_ms": 9294.699208
+    },
+    {
+      "command": "npx tsx --test /tmp/ruukoto-browser-review/bare-ref.test.ts",
+      "reason": "independent interface compatibility and whitelist negative checks",
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "duration_ms": 6893.790375
+    }
+  ],
+  "regressionBaselineComparison": "Reviewed official new regression triggers and assertions against independently reproduced baseline failures; each captures its original bug. No main mutation by reviewer.",
+  "notAccepted": [
+    "real model acceptance",
+    "owner manual product acceptance",
+    "production tx disk, system libraries and sandbox readiness"
+  ],
+  "fingerprints": "reviewed-sha256.txt",
+  "latestAmendment": "Only numeric bare eN reference normalization plus matching description and params regression; no selectors, host flags, or stale generations accepted. Real model evidence remains outside this review."
+}

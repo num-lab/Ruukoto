@@ -1,0 +1,8 @@
+{
+  "elapsed_ms": 3002,
+  "chunks": 30,
+  "error": {
+    "code": "browser_invalid_target",
+    "effectUnknown": false
+  }
+}

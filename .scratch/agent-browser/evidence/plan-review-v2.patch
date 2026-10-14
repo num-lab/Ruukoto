@@ -1,0 +1,252 @@
+--- /dev/null
++++ b/.scratch/agent-browser/issues/01-integrate-agent-browser.md
+@@ -0,0 +1,118 @@
++# 为两个 Agent 产品接入 Vercel agent-browser
++
++Status: needs-info
++
++## 目标与边界
++
++让 `ruukoto` 的 main 和两个产品的普通开发会话直接完成「打开网站 → 操作 → 截图 → 根据截图继续操作」，操作覆盖登录后的导航、搜索、表单填写和提交。本轮交付工单与实施方案。技术取舍见[决策提案](../../../.agents/notes/proposed/feature/2026-10-14-agent-browser.md)，事实见[接入调查](../research.md)。
++
++### 拥有者已确认
++
++| 访谈 | 已确认要求 |
++| --- | --- |
++| Q1–Q3 | 两个产品都要；主 Agent 直接操作；基本流程是打开网站、操作、截图 |
++| Q4–Q5 | 独立浏览器和接管已有浏览器都要；支持登录、填写和提交 |
++| Q6 | 模型能看图，保存可完整取回的文件；不要求 IM 直接发图 |
++| Q7–Q8 | 首版仅完全访问，各自只控制所在机器的浏览器 |
++| Q9–Q11 | 同一会话跨轮保留页面和登录；拥有者先人工登录；空闲回收或后台重启后保留登录资料，不保证恢复原页面，不重放点击或提交 |
++| Q12 | 复用现成人工入口：开发机有头窗口或 Chrome 调试授权；Linux 用官方 dashboard 经 SSH 转发完成登录/验证码 |
++| Q13–Q14 | 只用官方正式 release，不维护补丁、不从未发布提交自行构建；写操作等待包含防重发修复的正式版本 |
++
++来源为 2026-10-14 本次 grill-me 访谈。整体共同理解确认尚待完成，不能把以下技术建议写成拥有者新增要求。
++
++版本前置：官方 [PR #2085](https://github.com/vercel-labs/agent-browser/pull/2085) 已于 2026-10-11 合入，提交 `d9570915f4dd6504dee4070379d2c4f79d81dbb2`；截至调查时最新正式 release v0.39.0 尚不含修复。等待包含该修复或等价语义的正式 release，再核实版本、校验值与故障探针。当前可做准备和阶段 0 的生命周期调查，不能开放会改变页面或业务状态的导航、点击、填表、提交；完整网页操作仍是最终验收目标。独立审查见[证据](../evidence/plan-review.md)。
++
++### 首版契约
++
++1. 仅完全访问的拥有者 main / 普通开发会话可用；请求确认、自动审查、计划模式、普通 SubAgent、独立定时会话、工作流步骤和 GitHub 评审不被顺带开放。装配、发送前检查、调用门与执行前有效模式复核保持一致。
++2. 使用包含防重发修复的固定官方 release 原生程序，保持宿主 Node 22/24 支持；不直接引入声明 Node >=24 的 npm 包。v0.39.0 仅作为受控调查的反例基线，不作为功能交付版本。程序、版本或 Chromium 不满足时报告准备步骤，其他能力仍可使用；模型任务不自动安装或提权。
++3. 独立浏览器的 profile、socket、会话名按产品档案和 Ruukoto 会话隔离，跨任务保持进程。建议空闲 60 分钟回收；显式关闭、后台停止时关闭自有浏览器，保留 profile、历史和截图。
++4. 附接只使用显式 loopback CDP 或拥有者启用并允许的本机 Chrome 调试发现。Cookie 属于被接管浏览器，不宣称独立 profile 隔离；同一浏览器一次只允许一个 Ruukoto 会话自动化，跨产品占用也要核实。退出只断开连接，不关闭拥有者浏览器或标签。
++5. 人工登录期间暂停自动化，拥有者通过新消息继续；密码不进入模型输入。浏览器存活时继续当前页面；已回收时按保留 profile 重新打开，不恢复或重放旧操作。
++6. 截图先保存为不可变图片产物，再返回模型视觉块与产物引用。原图、实际模型输入、JSONL 和 prompt 快照可对应；落盘失败、图像超限或模型不支持视觉时明确失败，不能声称模型已看图。文件导出必须完整。
++7. 点击、导航、提交开始后遇到超时、断线或取消，无法核实结果时记 `effect_unknown`，不自动重发。停止或连接归属未核实时保留不可用状态，不新开实例来掩盖旧操作可能仍在执行。
++
++首版不交付通用 stdio MCP、跨机器控制、云浏览器、自己的登录界面、密码库、IM 图片外发、插件平台或上传下载等额外能力。常规网页交互以验收页面的链接、输入、选择、勾选、滚动、提交与标签切换为准。
++
++## 方案
++
++### 阶段 0：先证实接入路线
++
++在隔离测试目录使用固定官方原生二进制和 Chrome for Testing，分别在 macOS/Linux（需要时 `ssh tx`）做真实浏览器探针，不接入真实账号。记录校验值、Chrome/OS/Node 版本、命令、进程身份与结果。正式修复版发布前可用 v0.39.0 调查基础行为、复现重发反例；这些结果不能替代最终交付版本的探针。
++
++- 证明宿主 Node 22/24 可调用固定程序；连续 open、snapshot、click、screenshot 能跨两轮任务保留页面。
++- 原版内部传输重试与不重放契约存在已知冲突。等待包含 PR #2085 或等价修复的正式 release，注入「已执行请求但 daemon 响应被丢弃」，覆盖 EOF、读超时和 reset；服务端提交计数只能为一次，返回结果未知。未经修复或未通过探针的 CLI 不得进入阶段 1，不能用自编译提交或本地补丁替代。
++- 覆盖 daemon 自动启动、配置指纹变化导致重启、连接失败再启动；核实归属与停止方式。不能靠内部前台入口或复制上游私有指纹算法假定受管成立。
++- 验证自有浏览器 close、取消在途动作、空闲、后台正常停止与强杀后的恢复；PID 复用或身份不符不能误杀别的浏览器。
++- 附接独立测试 Chrome，证明 close/SIGTERM 仅断开；用户进程和标签保留；同一目标跨会话/跨产品的重复接管拒绝，本地地址解析不能导向远程目标。
++- 实测官方 dashboard 的无桌面登录输入、暂停/继续、SSH loopback 转发与实例会话隔离，不公开到外网。
++- 用无敏感信息的测试 Cookie 断言 profile 在 close/后台重启后仍保存登录资料。
++
++产物为 `.scratch/agent-browser/evidence/lifecycle-probe.md` 和可复现探针，当前未创建或执行。若停止核实、附接不关窗、排他控制或人工入口在任一目标平台无法成立，退回方案者修订并独立复审，不能做阶段 1 或降低要求后记为通过。
++
++### 阶段 1：浏览器归属与共享工具
++
++- 在 `packages/agent/src/` 增加浏览器适配模块与宿主工具族，使用固定程序和参数数组调用，不拼 shell；可执行程序、配置来源、namespace、profile、截图目录由宿主决定，模型不能覆盖。
++- Runtime 持有按会话分区的浏览器管理器，任务只认领当前调用。现有 Driver registry 每任务清理，不承载跨轮浏览器。关闭、取消、模式切换、后台停止与冷恢复统一回到管理器。
++- 落盘绑定区分自有/附接、目标标识、代次、进程归属与停止是否核实，状态和事件在 core 同事务保存；profile 由 Chromium 管理，不声称与 SQLite 原子。需要改 schema 时遵守单调版本与新库拒绝启动。
++- 提供一个 `browser` 宿主工具，用类型化动作覆盖 start/attach、open、snapshot、click/fill/select/check/press/scroll/wait、tabs、screenshot、status、close。复用上游元素引用与命令行为，不重做网页自动化引擎或开放任意 CLI 管理参数。
++- 在类别、执行画像和任务收窄中明确身份与有效模式，调用门再次核实。两个产品经共享 runtime 装配；main 不因此获得 bash 或全部 MCP。
++- 复用调用绑定、操作账本、完全访问真实授权、取消及未知效果记录。快照/截图等可证明无外部写入的动作才用无效果分类，click/open 不能按名字当成只读。
++- 跨层失败使用带 code 的 BrowserError；不可用、绑定失效、元素失效、上游 outcome_unknown 和停止未核实分别判别，不解析 message。已发送后丢响应映射到效果未知，不能据失败消息自动重复动作。
++- 输出当前会话的人工进入方式与继续指引；dashboard 只承担人工操作，不接入它的额外模型聊天功能。现有 Chrome 接管说明调试授权前提，不默认占用任意用户窗口。
++
++### 阶段 2：截图与完整导出
++
++复用 `ArtifactStore.importImage/readImage`、宿主 `recordArtifact` 和既有模型发送链路。宿主分配截图文件名，校验实际 MIME、字节数和 SHA-256；实际模型输入进入 JSONL/prompt 快照。沿用图片上限，大图超限明确报告并给出视口截图这一可选下一步，不静默丢图。
++
++给现有 `read-artifact` 增加完整文件导出入口（建议 `--output <file>`），按既有控制 API 分页，校验完整字节数与图片哈希；保留 offset/length 的切片语义。下载中断时不得把半张图片覆盖到目标文件。
++
++### 影响范围与文档落点
++
++| 改动面 | 调用方、文件与要求 |
++| --- | --- |
++| 领域与落盘 | `packages/core/src/types.ts`、必要的绑定存储/schema；复用会话身份，不存 Cookie/密码正文 |
++| 浏览器执行 | 新 agent 浏览器模块；`host-tool-families.ts`、`tool-availability.ts`、`driver.ts`、`tool-op-ledger.ts` |
++| 生命周期 | `packages/runtime/src/runtime.ts` 的共享装配、停止与冷恢复；覆盖取消、模式切换与 shutdown |
++| 图片 | 现成 ArtifactStore 与 SDK/历史链路；优先复用，不另造图片记录格式 |
++| 文件导出 | `packages/tui/src/cli.ts` 的 read-artifact；控制面优先复用分页 API，确有不足才扩协议 |
++| 产品 | 核实两个 `apps/*/src/product.ts` 的共同装配；没有差异时不重复修改 |
++| 人类文档 | `docs/modules/agent-tools.md`、`execution.md`、`runtime.md`；落盘涉及 core、CLI 涉及 tui 时同步对应模块；`docs/usage.md` 写安装、人工登录、接管、导出和排查 |
++| 命令与验收 | README、`docs/development.md`、pre-push-checks 同步受影响命令和测试入口；职责地图变化才改 `docs/architecture.md` |
++
++### 验证方法
++
++新增 `test/browser-tools.test.ts`、`test/browser-lifecycle.test.ts`、`test/browser-screenshots.test.ts`（可按实际职责收敛），每条行为配会因该回归失败的窄用例。CLI 替身检查参数、并发、错误和重复发送；真实浏览器探针验证 CLI/Chromium/进程事实，不能互相代替。
++
++相关回归选 `test/62-tool-availability.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts`、`test/07-read-images.test.ts`、`test/09-artifacts.test.ts`、`test/29-cli-entry.test.ts`、`test/03-lifecycle.test.ts`、`test/04-crash-recovery.test.ts`；实际触及 schema、协议、SubAgent 或工作流过滤时按[最小检查集](../../../.agents/skills/pre-push-checks/SKILL.md)追加。修改中跑 check:static；构建/依赖变化时加 build、lint、typecheck，不默认全量 check。
++
++真实模型验收仅显式 `RUN_MODEL_CHECK=1` 时运行：在受控网页完成表单，并根据截图回答随机展示内容，分别经两个产品主入口。缺模型配置、Linux、Chrome 或必要 IM 前提时报告缺口；不以模拟结果替代。网页本身不需要真实账号。
++
++## 进展与交接
++
++- 当前角色与阶段：方案者；Q1–Q14 已完成。首轮审查发现上游重发冲突，已改为等待正式修复 release，待受影响部分复审与整体共同理解确认。阶段 0 未执行。
++- 下一角色与动作：独立审查者复核版本闸门；方案者记录共同理解确认。后续实施者可先做准备和生命周期调查，正式修复版发布后重新核实源码、固定校验值并跑全部阶段 0 探针，通过后才进入阶段 1。
++- 当前内容：分支 `Eitrous/agent-browser`，起始 HEAD `f89a1a74409e45f1c5f26827b75faa632dde996e`；起始工作区干净。当前仅新增本工单、`../research.md`、`../evidence/plan-review.md` 与链接的 proposed 笔记，均未提交；以文件全文核对，HEAD 不包含它们。
++- 阻塞与恢复条件：等待包含防重发修复的官方正式 release，故保持 needs-info，不可将整个功能标 ready-for-agent。发布后需核实修复确已包含、版本仍满足其他要求并通过阶段 0；daemon 归属、附接排他或 Linux 人工入口失败仍返方案者。
++
++## 验收与证据
++
++| 要求 | 最窄可证行为 | 当前证据 |
++| --- | --- | --- |
++| 双产品直接使用 | main/dev 在完全访问完成流程；受限/Plan、SubAgent、scheduled、workflow 的伪造调用拒绝 | 未执行 |
++| 独立与附接 | 两轮延续页面；两会话 profile 隔离；附接不关窗；同一目标重复接管拒绝 | 源码调查，探针未执行 |
++| 登录与恢复 | 人工登录后操作；关闭后同 profile 保留登录；重启无旧动作重放 | 未执行 |
++| 操作与取消 | 服务端计数证明提交一次；发出后断线/取消不重提；停止未核实保持不可用 | 未执行 |
++| 模型看图 | 实际请求含图、历史可重建；纯文本模型/超限/落盘失败明确报错 | 现有链路源码调查，新工具未执行 |
++| 文件取回 | 超过 720 KiB 的图片完整导出、哈希一致，中途失败保留原目标 | 旧 CLI 单页限制已核实，新入口未执行 |
++| 安装与环境 | macOS/Linux 原生程序和 Chrome；宿主 Node 22/24；缺依赖时可行动错误 | 官方资料调查，真实环境未执行 |
++
++工程验收：待验证。产品验收：待验收，拥有者验证人工登录/继续、接管与截图取回是否顺畅；真实环境缺口不能改为不适用。首轮方案审查有一项阻断，记录及规划检查见[证据](../evidence/plan-review.md)；实现审查未进行。
++
++## Comments
++
++### 2026-10-14 — 需求与访谈
++
++原始需求：「$grill-me 我需要为这个agent添加vercel的agent-browser，由你来建立工单并制定方案」。Q1「两个产品都要」；Q2「打开网站、进行操作、截图」；Q3「两个产品的主 Agent 直接操作」；Q4「两种都必须支持」；Q5「包含登录、填写和提交」；Q6「模型能看图 + 保存截图文件」；Q7「首版只支持完全访问」；Q8「各自控制所在机器的浏览器」；Q9「跨轮保留页面和登录态」；Q10「我先登录，Agent 复用登录态」；Q11「保留登录资料，不保证恢复原页面」；Q12「采用这些现成人工入口」。
++
++首轮独立审查发现传输重发后，Q13「只用官方版本，写操作等待官方修复」。补查发现官方修复已合入但未发版，Q14「等待官方正式 release」。完整功能要求保留，版本依赖明确列为前置。
+--- /dev/null
++++ b/.scratch/agent-browser/research.md
+@@ -0,0 +1,52 @@
++# agent-browser 接入事实调查
++
++调查日期：2026-10-14。仓库基线：`f89a1a74409e45f1c5f26827b75faa632dde996e`。本文件是只读源码与官方资料调查，未安装或启动真实浏览器，不构成运行验收。
++
++## 上游基线
++
++官方 [v0.39.0 发布](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.0)提供 CLI 原生二进制与校验值。[npm 包](https://github.com/vercel-labs/agent-browser/blob/v0.39.0/package.json)声明 Node >=24，与本仓库 Node 22/24 矩阵不完全相同；可优先验证固定版本原生二进制，不以 npm wrapper 看似兼容替代支持证据。[安装文档](https://agent-browser.dev/installation)要求另备 Chromium，Linux 还需要系统库。
++
++[官方 MCP](https://agent-browser.dev/commands#mcp-server)使用 stdio，并在内部调用 CLI；当前没有核实到受支持的 JavaScript 库接口。CLI 的 snapshot 提供可访问性树与元素引用；截图写文件，MCP 可同时返回图片块。CLI 与 MCP 不能消除浏览器生命周期管理的需要。
++
++[会话文档](https://agent-browser.dev/sessions)区分独立 session、持久 profile 与附接已有浏览器；共享 CDP 不提供独立 Cookie 隔离。[安全文档](https://agent-browser.dev/security)中的安全开关默认关闭，域名白名单与 CDP、profile、restore 等组合不兼容。首版仅完全访问，不借这些开关声称已实现现有受限模式。
++
++[main.rs](https://github.com/vercel-labs/agent-browser/blob/v0.39.0/cli/src/main.rs)有 `AGENT_BROWSER_DAEMON=1` 前台入口，但 [connection.rs](https://github.com/vercel-labs/agent-browser/blob/v0.39.0/cli/src/connection.rs)中的普通 CLI 会检查配置指纹，缺失/变化时关闭并以 `setsid` 重启 daemon，连接失败还会自动再启动。直接调用内部前台入口不足以证明宿主能收回全部进程；不复制上游私有指纹算法作为集成契约。
++
++独立审查发现确定的调用语义冲突：`connection.rs` 的 `send_command` 对读超时、EOF、reset、broken pipe 等重新调用 `send_command_once`，最多五次发送完整命令；[daemon.rs](https://github.com/vercel-labs/agent-browser/blob/v0.39.0/cli/src/native/daemon.rs)与 actions 分派未见按请求 ID 去重，官方 MCP 也调用同一 CLI。未找到关闭该重试的公开选项。因此未经修复的 v0.39.0 不能承担「已发出且效果未知时不重发」契约；宿主不重试、增加记录或只换 MCP 都不能解决。下一步必须选有等价修复的上游版本/路径，或维护有来源与校验值的最小补丁，并通过响应丢失后的提交计数探针。
++
++后续核实：官方 [PR #2085](https://github.com/vercel-labs/agent-browser/pull/2085) 于 2026-10-11 合入 [d9570915f4dd6504dee4070379d2c4f79d81dbb2](https://github.com/vercel-labs/agent-browser/commit/d9570915f4dd6504dee4070379d2c4f79d81dbb2)，非只读命令写入任意字节后失败返回 `outcome_unknown`，不再重发；只读命令仍允许重试。2026-10-14 查询官方 latest release 仍指向 v0.39.0，修复未发版。拥有者选择等正式 release；以上补丁/自构建只是曾考虑的路径，不是实施授权。
++
++## 仓库现有能力
++
++| 机制 | 已有实现与接入约束 |
++| --- | --- |
++| 会话工具集 | [tool-availability.ts](../../packages/agent/src/tool-availability.ts)：普通开发会话有 bash/skill/MCP；main 无 bash/MCP；SubAgent 依固定白名单装配，不能因安装技能自动取得浏览器工具 |
++| 宿主工具族 | [host-tool-families.ts](../../packages/agent/src/host-tool-families.ts)：提供调用身份、审批、产物与效果未知记录，可承载共享浏览器工具；无需为 main 开放整套编码工具 |
++| 受限执行 | [execution](../../docs/modules/execution.md)：原生受限环境禁止所需网络和 Unix socket；完全访问沿启动账户权限，仍不自动扩大工具集 |
++| bash 生命周期 | [worker.ts](../../packages/agent/src/tool-worker/worker.ts)：每次 shell 退出后清理原进程组；不能假设 CLI daemon 可自然跨工具调用存活且会随任务停止 |
++| 跨轮持有 | [driver.ts](../../packages/agent/src/driver.ts)虽持有会话 registry，每轮任务仍会清理，不能直接登记跨轮浏览器后宣称生命周期成立 |
++| 图片历史 | 内置 read 支持视觉块并进入 JSONL 与 prompt 快照；main 没有该编码工具，浏览器截图需直接提供图像结果；read_artifact 的 base64 文本不等于模型视觉输入 |
++| 图片产物 | [artifacts.ts](../../packages/agent/src/artifacts.ts)已有 importImage/readImage；拥有者的 read-artifact CLI 可导出二进制，但默认 256 KiB、单页硬上限 720 KiB，目前不自动分页，完整截图文件需覆盖这个缺口 |
++| MCP | 当前只启用远程 Streamable HTTP，图片只保留类型说明；接官方 stdio 并非现成配置，需同时补进程生命周期、入口与图片返回 |
++
++## 关联决定
++
++以下均为部分重叠、继续沿用的独立决定，无需废弃或改写原决定：
++
++- [两个产品](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：产品与档案隔离、共用底座。
++- [MCP 客户端](../../.agents/notes/implemented/architecture/2026-09-23-mcp-client.md)：当前远程传输及 stdio 的启用前提；浏览器专属工具不等于放开通用本地 MCP。
++- [当前账户完全访问](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：免操作审批、真实任务授权、未知效果不重放。
++- [个人原生执行](../../.agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md)：现有受限后端与停止语义。
++- [读取图片](../../.agents/notes/implemented/bug-fix/2026-10-12-read-images.md)：实际图像输入进入历史、纯文本模型拒绝、大小上限明确失败。
++
++调查开始前不存在 proposed/rejected 目录；未发现既有 agent-browser 接入提案。Web Search 工单曾明确不包含浏览器，不阻止另立本工单。
++
++## 尚需真实验证
++
++上游 [browser.rs](https://github.com/vercel-labs/agent-browser/blob/v0.39.0/cli/src/native/browser.rs) 的关闭路径仅对自己启动的浏览器发送 `Browser.close`，外部 CDP 只关 transport；实际断开仍需探针。Chrome 144 提供[人工允许调试连接](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)；Chrome 136 起[传统调试端口不能直接用于默认资料目录](https://developer.chrome.com/blog/remote-debugging-port)，不能照抄只加端口的旧命令。无桌面 Linux 可尝试[官方 dashboard](https://agent-browser.dev/dashboard)提供的画面与键鼠入口，经 SSH loopback 转发给拥有者；尚未实测登录与实例隔离。
++
++1. 固定版本原生程序与 Chromium 在 macOS/Linux、宿主 Node 22/24 环境的准备与启动。
++2. CLI 多次调用是否保留同一页面；取消、显式关闭、后台退出、崩溃后的 daemon 与浏览器归属及回收。
++3. CDP 附接后的断开、错误与超时是否保留拥有者浏览器及既有标签；登录准备与人工接管是否可执行。
++4. 截图的真实图像输入、会话历史重建、完整文件导出及大图边界；模拟模型与真实视觉模型分别记证据。
++5. 在命令已执行后丢弃 daemon 响应，分别注入 EOF、读超时与 reset，核对实际请求/提交次数。原版应暴露重发反例，修复后的路线只能发送一次并报告结果未知；另用无敏感信息的测试 Cookie 核实 profile 在 close/重启后保留。
+--- /dev/null
++++ b/.agents/notes/proposed/feature/2026-10-14-agent-browser.md
+@@ -0,0 +1,73 @@
++# Agent Note: 用共享宿主工具接入有会话归属的 agent-browser
++
++Status: proposed
++
++## 问题
++
++两个产品的主 Agent 需要直接打开网站、操作并看截图，也要复用已有登录态。main 没有 bash/MCP；普通开发会话的 bash 每次结束回收原进程组，Driver 按任务清理 registry。只安装 CLI 和 skill 不能覆盖 main，也不能保证跨轮保留页面、核实取消结果及退出时保留拥有者窗口。
++
++已确认范围与实施步骤见[工单](../../../../.scratch/agent-browser/issues/01-integrate-agent-browser.md)，版本与源码事实见[调查](../../../../.scratch/agent-browser/research.md)。本篇尚未实现，受管路线必须先用真实探针验证。
++
++## 方案
++
++共享 browser 宿主工具族内部调用固定版本 agent-browser CLI；Runtime 持有按 Ruukoto 会话分区的浏览器管理器，任务只认领当前调用。首版仅开放完全访问的拥有者 main / 普通开发会话，类别、任务收窄、发送前检查及调用门共同约束身份和有效模式；main 不因此获得 bash 或通用本地 MCP。
++
++工具使用类型化网页动作、上游 snapshot 元素引用和参数数组；可执行程序、配置来源、namespace、profile、截图目录由宿主控制。只覆盖导航、常见表单交互、标签切换、截图和生命周期，避免把 CLI 管理参数变成模型可覆盖的进程配置。
++
++独立浏览器按产品档案和会话隔离 profile/socket/会话名，跨任务保留进程；建议空闲 60 分钟回收并保留 profile。附接只连接本机显式目标或人工允许的 Chrome 调试入口，Cookie 属于被接管浏览器，不能宣称独立资料隔离；同一浏览器一次只给一个 Ruukoto 会话自动化。退出关闭自有浏览器，对附接仅断开，保留用户窗口和标签。
++
++绑定、代次、进程身份与停止结论需跨后台重启可查，状态和事件沿 core 同事务保存；Chromium profile 文件不参与该原子承诺。重启不重放工具或恢复原页面，后续新任务使用保留的登录资料打开。停止未核实则保持不可用，不能另起实例并声称旧执行结束。
++
++人工登录复用有头窗口、Chrome 调试授权或官方 dashboard；Linux 经 SSH loopback 转发。人工操作期间暂停自动化，新消息再继续，密码不经过模型输入。dashboard 的实例选择、端口与会话隔离须实测，不纳入其额外模型聊天功能。
++
++截图用现有 ArtifactStore 保存不可变原图并登记工具产物引用，视觉块走既有 JSONL/prompt 快照链路，实际模型输入可重建。落盘失败、超限和纯文本模型明确报告。现有 read-artifact CLI 只有单片输出，增加完整文件导出时复用分页协议、校验完整字节数与图片哈希，保留既有切片语义。
++
++完全访问沿用当前账户和免操作审批，仍复核任务、权限版本、目标和绑定代次。点击/提交发出后无法核实效果时记 `effect_unknown`，不重发；导航也可触发网页副作用，不能按名字当作只读。网页内容作为工具资料记录，不成为改变浏览器配置的授权。
++
++### 先行技术前提
++
++原版 v0.39.0 的 `send_command` 在响应丢失等情况下重发完整命令，daemon 未见按 ID 去重，MCP 走相同 CLI，也未找到关闭重试的公开选项。因此该未经修复的路线不能满足不重放效果未知操作的契约；宿主只调用一次或记录未知效果均不足以补救。
++
++官方 [PR #2085](https://github.com/vercel-labs/agent-browser/pull/2085) 已合入，调查时尚未进入正式 release。拥有者在 Q13–Q14 选择等待正式发布，不维护补丁、不自行构建未发布提交。先做准备和生命周期调查；包含修复的正式 release 发布后重新固定版本与校验值，在命令执行后丢弃响应，核实提交一次且返回结果未知，才可进入功能接入。导航、点击、填写与提交同属需等待的状态变化，不能靠改称只读绕过版本前置。
++
++普通 CLI 还可因配置指纹或连接失败重建 daemon 并脱离原进程组，内部前台入口不足以保证宿主受管。阶段 0 必须在两平台核实会话复用、停止身份、崩溃恢复、附接断开、跨产品占用和人工登录；无法成立就退回本提案重新选路，不复制私有指纹算法或牺牲附接不关窗要求。
++
++交付版本使用包含修复的官方 release 原生二进制及校验值，保持 Ruukoto Node 22/24 矩阵；v0.39.0 仅作为调查与重发反例基线。不能把上游 npm 的 Node >=24 声明视为已兼容；依赖由拥有者准备，模型任务不自动安装或提权。
++
++### 与既有决定的关系
++
++| 既有决定 | 归类与处理 |
++| --- | --- |
++| [两个产品](../../implemented/architecture/2026-10-02-two-agent-products.md) | 部分重叠；沿用档案隔离和共享包 |
++| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md) | 部分重叠；保留通用 MCP 远程传输限制，不开放任意本地 stdio 服务 |
++| [当前账户完全访问](../../implemented/feature/2026-10-12-full-access-current-account.md) | 部分重叠；沿用权限与免审批，新浏览器生命周期不能以完全访问为由忽略停止未核实 |
++| [个人原生执行](../../implemented/architecture/2026-10-12-personal-native-sandbox.md) | 部分重叠；受限后端保持原规则，首版 browser 不在受限模式开放 |
++| [读取图片](../../implemented/bug-fix/2026-10-12-read-images.md) | 部分重叠；复用图片与历史契约，截图由宿主直接返回 |
++
++已检索 agent-browser、browser、MCP、工具族、图片、原生沙箱与完全访问，没有可吸收的浏览器提案或需拒绝的过时方案。旧 Web Search 的非目标只说明本能力须另立工单。以上原决定保留，本提案不改写当前行为；实施时在新决定入口加 Note 锚点。
++
++## 备选方案
++
++官方 CLI + skill 最省代码，能直接服务完全访问的普通开发会话；但不能覆盖 main 直接调用、跨轮归属和附接停止，补齐仍需宿主接入，故不足以完成本需求。
++
++官方 stdio MCP 可复用工具定义与截图图片块；但仓库只接远程 HTTP，main 不开放 MCP。扩通用 stdio 还需改存储、配置入口、进程权限与生命周期、图片整形，且官方 MCP 内部仍调用 CLI，不能消除 daemon 问题。当前只需浏览器，选专属宿主工具；出现多个本地 MCP 服务需求时再讨论通用传输。
++
++每任务新建和关闭浏览器最贴近现有 registry，停止与隔离简单；但违背跨轮继续页面要求，仅保存 Cookie 也不能保留当时页面，因此将浏览器生命周期与任务调用分开。
++
++维护一个只修重发的最小上游补丁可以保留完整目标而不等待发布；直接构建官方修复提交甚至不需要自有补丁。但两者都增加构建与版本维护，拥有者在 Q13–Q14 选择官方正式 release，所以当前只推进准备，功能交付等待发版及真实探针，不削减原定操作能力。
++
++## 验收标准
++
++- 两个产品主入口在完全访问完成受控网页流程；受限、Plan、SubAgent、scheduled、workflow 未被顺带开放，模式变化不可旁路。
++- macOS/Linux 真实浏览器两轮延续页面；profile 跨关闭保留登录；两会话独立；冷恢复不重放提交，停止未核实可见。
++- 附接断开不关用户窗口/标签，重复接管拒绝；Linux 官方人工入口完成登录、暂停、继续。
++- 提交后丢响应的服务端计数保持一次，断线/取消记未知效果；未发出记已知未执行。
++- 截图进入实际模型请求并从历史重建；超过 API 单页上限的图片完整导出、哈希一致；纯文本、超限、落盘失败与导出中断不伪装成功。
++
++## 风险
++
++原版 CLI 的重发是已知冲突，正式修复 release 的时间不由本项目控制；daemon 归属、跨产品占用与 dashboard 隔离也未运行验证，是先行阻断。上游升级可能改变行为，需固定版本并重跑探针。现有 Chrome 接管需要用户启用调试，不能承诺任意窗口无准备接管。
++
++会话级浏览器占用内存和磁盘；空闲回收丢失页面现场，保留登录不等于恢复页面。profile 是敏感用户资料，不自动删除或跨产品共享；完全访问的同账户权限仍适用。
++
++真实网站可能要求验证码、硬件认证或拒绝自动化，需人工介入；受控页面通过不能证明所有网站可操作。图像占用上下文，沿现有上限明确处理，不以文本悄悄替代。

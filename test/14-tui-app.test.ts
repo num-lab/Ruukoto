@@ -31,6 +31,7 @@ import {
   createProjectSession,
   taskStatus,
   lastUserText,
+  afterTool,
   realTools,
   type TestRuntime,
 } from "./helpers/testkit.ts";
@@ -193,6 +194,62 @@ function assertWindowFrame(h: AppHarness): void {
 }
 
 // ---------- 测试 ----------
+
+test("真实工作流回报实时、重连、翻页和单条先到均不泄出内部输入，↑ 与置顶只取拥有者要求", async () => {
+  const summary = "唯一最终总结\n" + Array.from({ length: 65 }, (_, i) => `成果 ${i}`).join("\n");
+  const t = await startTestRuntime("tui-report-visibility", req => {
+    if (lastUserText(req).startsWith("[工作流最终回报]")) return { kind: "text", text: summary };
+    if (!afterTool(req)) return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start",
+      arguments: { key: "visibility", input: null, script: "return 1;" } }] };
+    return { kind: "text", text: "后台已启动" };
+  }, { config: realTools() });
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const live = await startApp(t, { sessionId }); apps.push(live);
+    await submitViaEditor(live, "启动工作");
+    await waitFor("最终回报已展示", () => listWorkflowRuns(t.runtime.store)[0]?.delivery?.status === "reported" &&
+      live.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    await renderFlush();
+    assert.ok(!stripTerminalSequences(live.terminal.output()).includes("[工作流最终回报]"), "实际终端帧从未展示内部输入");
+    assertInputRecall(live, ["启动工作"]);
+    const input = t.runtime.readHistory({ sessionId }).entries.find(entry => entry.role === "user" && entry.inputPurpose === "internal_report")!;
+    const run = listWorkflowRuns(t.runtime.store)[0];
+    assert.ok(input.text.includes("[工作流最终回报]"));
+    live.app.quit(0);
+    const again = await startApp(t, { sessionId }); apps.push(again);
+    await waitFor("重连历史已加载", () => again.state.openSession(sessionId).historyLoaded &&
+      again.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
+    assertInputRecall(again, ["启动工作"]);
+    const app = again.app as any;
+    const flow = again.state.openSession(sessionId).flow;
+    const users = () => flow.items.filter(entry => entry.kind === "message" && entry.role === "user");
+    const checkSticky = () => {
+      app.refreshTranscript();
+      const lines: string[] = app.eventFlowView.render(80);
+      for (let top = 1; top < lines.length; top++) {
+        assert.ok(!stripTerminalSequences(app.eventFlowView.stickyPrompt(top, 80).join("\n")).includes("[工作流最终回报]"));
+      }
+    };
+    checkSticky();
+    flow.resetRemote(); again.state.tasks.clear();
+    await again.app.loadEntry(sessionId, input.entryId);
+    assert.deepEqual(users(), [], "单条补读不依赖任务元数据");
+    again.state.installTaskDetail(t.runtime.getTaskDetail(run.delivery!.taskId!)!.task, []);
+    assert.deepEqual(users(), [], "任务详情后到也不出现用户行");
+    const request = again.connection.request.bind(again.connection);
+    again.connection.request = <K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number) =>
+      request(op, op === "read_history" ? { ...params, limit: 1 } : params, timeoutMs);
+    await app.loadHistory(sessionId, "replace");
+    while (again.state.openSession(sessionId).historyCursor) await app.loadHistory(sessionId, "prepend");
+    assert.deepEqual(users().map(entry => entry.kind === "message" ? entry.text : ""), ["启动工作"]);
+    assertInputRecall(again, ["启动工作"]);
+    checkSticky();
+    assert.ok(!stripTerminalSequences(again.terminal.output()).includes("[工作流最终回报]"));
+    const hits = await again.connection.request("search_history", { query: "工作流最终回报", session_id: sessionId });
+    assert.ok(hits.hits.some(hit => hit.entryId === input.entryId), "诊断搜索保留内部原文");
+  } finally { quitAll(apps); await t.shutdown(); }
+});
 
 test("输入框上横线右侧显示工作区名，长输入与粘贴保留边框和可见光标", async () => {
   const t = await startTestRuntime("tui-editor-height", async () => ({ kind: "text", text: "收到" }));
@@ -551,7 +608,7 @@ test("滚到事件流顶部自动加载更早历史，重复上滚只请求一�
     await renderFlush();
     const app = h.app as any;
     const entry = (entryId: string, timestamp: string, text: string): HistoryPage["entries"][number] => ({
-      entryId, parentId: null, role: "assistant", timestamp, text, offset: 0,
+      entryId, taskId: null, inputPurpose: "user", parentId: null, role: "assistant", timestamp, text, offset: 0,
       totalBytes: Buffer.byteLength(text), truncated: false, toolCalls: [], toolCallId: null,
       toolName: null, isError: null, hasNonTextContent: false,
     });

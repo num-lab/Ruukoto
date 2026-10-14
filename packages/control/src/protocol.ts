@@ -68,6 +68,9 @@
  *
  * v22：命名定义/不可变版本、可信显式启动、阶段读取及拥有者运行控制；授权不从 wire 回填。
  * Note: 见 .agents/notes/implemented/feature/2026-10-13-workflow-library-and-controls.md
+ *
+ * v23：任务视图派生输入用途，历史页与单条补读携带原任务关联、用途与关联诊断。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md
  */
 
 import {
@@ -77,10 +80,9 @@ import {
   type Project,
   type Session,
   type SubAgent,
-  type Task,
   type WorkDelegation,
 } from "@ruukoto/core/types.ts";
-import type { ConfirmationRequestView, OutputPreview } from "@ruukoto/core/views.ts";
+import type { ConfirmationRequestView, OutputPreview, TaskView } from "@ruukoto/core/views.ts";
 
 export const MAX_FRAME_BYTES = 1024 * 1024;
 
@@ -90,7 +92,7 @@ export interface ConnectSnapshot {
   projects: Project[];
   sessions: Session[];
   /** 活动任务 + 每会话有界的近期结束任务；更早的经 list_tasks 分页。 */
-  tasks: Task[];
+  tasks: TaskView[];
   /** 未决审批（参数有界预览；完整参数经 get_confirmation_params 分段读取）。 */
   confirmations: ConfirmationRequestView[];
   artifacts: Artifact[];

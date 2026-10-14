@@ -1,6 +1,6 @@
 # 隐藏宿主工作流回报输入
 
-Status: ready-for-agent
+Status: resolved
 
 ## 目标与边界
 
@@ -17,14 +17,33 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-当前为方案者已完成源码诊断与独立方案审查，未实施。基点 `09da9ef5ccef430ac37ba8abfcb814a7c6342aa1`；本轮未提交内容及独立审查由[总计划](../experience-plan.md)、[审查记录](../experience-plan-review.md)持有。下一角色为实现者，优先实施本单，无其他实现前置。
+工程实现及[独立实现复审](../experience-review-09.md)完成，无未解决阻断。实现检出基点 `0307617057ae0586e7717863cfd44389f02394e3`，方案基点及独立方案审查仍由[总计划](../experience-plan.md)、[方案审查记录](../experience-plan-review.md)持有；最终实现对象见[输入哈希](../experience-evidence/09-inputs.sha256)。提交对象包含实现、文档与验收记录。
+
+Runtime 以持久送达绑定派生 TaskView，用原任务标记及分支允许集分类历史首屏、分页和单条补读；EventFlow 统一隐藏内部 user 输入，↑ 历史和置顶只取可见投影。缺任务、跨会话或已知内部条目缺标记时保留独立普通历史行和关联诊断；损坏标记明确报错。协议升到 23，schema 不变；最终 assistant 总结、JSONL、模型请求、搜索及压缩保持原语义。决策与模块说明已同步，独立上下文只读审查，根工作区保持唯一写入者。
+
+拥有者已完成实际对话体验验收，确认工作流回报不会再以用户消息形式展示，本单工程及适用产品验收通过。10 的前置已满足，等待、消费和唯一报告交接仍由 10 持有；本轮不实施 10，也不将 11 的联合真实环境证据记为通过。
 
 ## 验收与证据
 
-工程待验证；产品待验收。最窄回归必须证明实时、重连、分页、分支、↑ 历史和置顶提示均不显示内部输入，同时 JSONL 和模型请求仍有完整内容，最终总结正常显示；真正用户输入相同标题/请求键正常显示。
+工程验收及产品体验验收通过。2026-10-14 拥有者在本次会话确认：“已完成验收，确认工作流回报不会再以用户消息形式展示”。该结论归属本单的输入展示体验，不扩展为 11 的真实模型、真实 IM 或组合场景验收。macOS 离线验证用真实 Runtime、Driver、控制协议与 SQLite，本地模型/IM 服务为替身；已证明实时、重连、分页、分支及二级分支、单条补读先到与较旧详情后到均不泄出内部输入，↑ 与置顶只取拥有者要求，最终总结正常显示，同文用户及伪造请求键可见，完整请求与原 JSONL 可追溯。缺关联原文经后到引用/终态事件仍保留；新回归在隔离撤去修复时失败。
 
-检查 `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/115-workflow-final-delivery.test.ts`、`test/66-control-seam.test.ts`、`test/11-history-read.test.ts`、`test/102-branch-session.test.ts`；运行 `npm run check:static`。增加单条补读先到、任务事件后到仍不闪现或污染 ↑ 历史的用例。这里记录的是计划，尚未运行实现检查。独立审查需确认无文案匹配或前端时序泄漏，拥有者核实实际对话体验。
+```sh
+npx tsx --test test/01-concurrency.test.ts test/11-history-read.test.ts test/13-tui-state.test.ts test/14-tui-app.test.ts test/16-context-memory.test.ts test/34-event-flow-view.test.ts test/36-event-flow-state.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts test/102-branch-session.test.ts test/115-workflow-final-delivery.test.ts test/116-workflow-notification-recovery.test.ts test/118-workflow-entries.test.ts
+npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/36-event-flow-state.test.ts
+npx tsx --test test/66-control-seam.test.ts
+npm run check:static
+npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts
+git diff --check
+```
+
+第一组 204/204 通过，见[相关回归](../experience-evidence/09-tests.log)；返工后的 TUI 三文件 62/62 通过，见[最终 TUI 复核](../experience-evidence/09-tui-final.log)；控制面最终 22/22 通过，见[最终控制复核](../experience-evidence/09-control-final.log)。计数含重叠，不相加。[静态门禁](../experience-evidence/09-static.log)通过；锚点无悬空，差异检查及改动文本唯一末尾换行通过。仅文档和工单证据补齐后另核实 notes/docs 门禁。
+
+实现者未跑全量 `npm run check`、Linux、真实模型或真实绑定 IM；它们不计为实现者检查通过。拥有者已确认本单实际对话体验；真实服务与组合场景继续由 11 验收。协议 23 的后台与客户端须同步更新。
 
 ## Comments
 
 2026-10-14：内部提示目前还污染输入框历史，已并入范围；SDK custom_message 迁移超出修复所需，不作为首选。
+
+2026-10-14：实现者完成工程及文档交付。独立审查发现关联降级原文被后到任务事件删除，已修复并用隔离负例证明回归；工单转 ready-for-human，产品体验保留待验。
+
+2026-10-14：拥有者确认已完成验收，工作流回报不会再以用户消息形式展示。工单转 resolved；10 的前置解除，11 的联合真实环境证据仍独立待验。

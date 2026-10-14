@@ -9,7 +9,12 @@
  * - 运行中输出增量与思考文本在源头（Driver）已按 FRAGMENT_TEXT_CAP 有界化。
  */
 
-import type { ConfirmationRequest, PersistentEvent, ToolOp } from "./types.ts";
+import type { ConfirmationRequest, PersistentEvent, Task, ToolOp } from "./types.ts";
+
+export type InputPurpose = "user" | "internal_report";
+
+/** 用途由宿主持久绑定派生，不写入任务存储或采信客户端字段。 */
+export type TaskView = Task & { inputPurpose: InputPurpose };
 
 /** 事件与查询应答中内联参数的上限（序列化字节）。 */
 export const PARAMS_INLINE_CAP = 8 * 1024;

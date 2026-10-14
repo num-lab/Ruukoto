@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * 输入提交守护：保证同一输入只对应一个后台任务（issue 04 §3）。
  *
@@ -9,7 +10,6 @@
  */
 
 import { randomId } from "@ruukoto/core/types.ts";
-import type { Task } from "@ruukoto/core/types.ts";
 import { ControlClientError, requestOutcome } from "./client.ts";
 import type { ControlConnection } from "./connection.ts";
 import type { OpParams } from "./ops.ts";

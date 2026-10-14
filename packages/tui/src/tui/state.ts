@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /** 控制面状态与会话交互状态；事件展示统一交给 EventFlow 投影。 */
 
 import { randomUUID } from "node:crypto";
@@ -11,7 +12,6 @@ import type {
   Session,
   SubAgent,
   SubAgentState,
-  Task,
   TaskStatus,
   WorkDelegation,
 } from "@ruukoto/core/types.ts";
@@ -210,6 +210,7 @@ export class ViewState {
           sessionId: body.sessionId,
           requestId: body.requestId,
           input: "",
+          inputPurpose: this.tasks.get(body.taskId)?.inputPurpose ?? "user",
           modelSelection: body.modelSelection,
           submissionDigest: null,
           status: "queued",
@@ -567,6 +568,7 @@ export class ViewState {
       const current = this.tasks.get(task.id);
       if (current && !current.input && task.input) {
         current.input = task.input;
+        current.inputPurpose = task.inputPurpose;
         this.sessionViews.get(task.sessionId)?.flow.task(current);
       }
     }
@@ -597,7 +599,7 @@ export class ViewState {
     const current = this.tasks.get(task.id);
     // 提交应答可能在任务终态事件之后到达，输入元数据仍可补齐，终态不可回滚。
     if (current && ((current.endedAt && !task.endedAt) || (current.status !== "queued" && task.status === "queued"))) {
-      task = { ...task, ...current, input: task.input || current.input };
+      task = { ...task, ...current, input: task.input || current.input, inputPurpose: task.inputPurpose };
     }
     this.tasks.set(task.id, task);
     this.sessionViews.get(task.sessionId)?.flow.task(task);

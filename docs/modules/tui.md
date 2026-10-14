@@ -42,12 +42,12 @@
 | `respond_confirmation` | 提交审批决定，可携带 `permission_version` |
 | `read_artifact` | 按字节分页读取产物正文，单次上限 720 KiB（base64 开销后仍在 1 MiB 帧上限内） |
 | `workflow_definitions` / `workflow_definition` / `workflow_save` / `workflow_saved` / `workflow_start` / `workflow_find` | 命名定义、版本及原键核实，带参启动 |
-| `workflow_list` / `workflow_get` / `workflow_step` / `workflow_logs` / `workflow_question` / `workflow_answer` / `workflow_control` | 运行/步骤/阶段正文、业务答复、暂停/恢复/取消及拥有者预算 |
+| `workflow_list` / `workflow_get` / `workflow_step` / `workflow_logs` / `workflow_question` / `workflow_answer` / `workflow_control` / `workflow_receipt` | 运行/步骤/阶段正文、业务答复、暂停/恢复/取消及拥有者预算 |
 | `get_model_config` / `set_summary_model` | 读取模型配置（`get_model_config` 返回 `summaryModel`）、设置摘要模型 |
 
 CLI 完整产物导出复用 `read_artifact`，在同一连接上分页读取已定稿产物。各页元数据相同、页长符合剩余正文、总字节数及图片 MIME/SHA-256 校验通过后，才把目标同目录的 0600 临时文件原子重命名为目标；失败清理临时文件并保留原目标。切片查询仍向 stdout 返回单页，允许查看 `partial`，与完整导出参数互斥。
 
-工作流由 `tui/workflows.ts` 的 `/workflow` 使用已有可滚动文本窗口展示定义、固定版本、步骤结果、等待原因、预算和停止事实；CLI `workflow` 输出 JSON。所有写操作显式携带原键，TUI 原文及原键进入客户端命令历史，应答丢失先 find/saved/show 核实。工作流状态、步骤和执行用不同事件键显示，最近事件注记重连保留，旧补发不回退；持久详情、阶段及问题由查询恢复，关闭窗口或退出不改变运行。
+工作流由 `tui/workflows.ts` 的共享侧栏展示固定名称、含毫秒时间、稳定展示序号、显式说明、中文状态与图标；当前列表包含全部活动和最近十项终态，历史、步骤、日志与问题按页续读。运行详情逐层选择回答、暂停、恢复、取消与预算；已保存定义选择后填写 JSON 参数、可选说明并确认启动。宽度至少 120 列时根布局通过 HStack 为聊天与侧栏分配空间，窄屏显示独立窗口并保留导航，Tab 切焦点，Esc 返回一层、根层关闭。工作清单放在聊天列左上方，审批窗口优先显示，关闭后恢复原焦点；关闭侧栏、断开或退出不改变后台运行。CLI `workflow` 继续输出 JSON 并保留标识符接口；脚本编辑通过文件或 Agent。
 
 控制面事件：`project.root_attached`、`project.settings_changed`、`task.output_fragment`、`task.output_entry`、`task.thinking`、`task.tool_result` 及任务状态迁移事件。终端也调用任务操作（`/interrupt`、`/cancel <taskId>`、`/continue [taskId]`、`/resume-queue`、`/mode`、`/model`、`/skill`）。
 
@@ -97,6 +97,10 @@ CLI 完整产物导出复用 `read_artifact`，在同一连接上分页读取已
 终端调用的本地文件：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）、`~/.ruukoto/tui/commands.sqlite`、`<agentDir>/auth.json`、`<agentDir>/default-model.json`、`<agentDir>/summary-model.json`、`<agentDir>/credentials.json`、`<agentDir>/config.lock/`。
 
 ## 数据与状态
+
+工作流汇总及等待补报的 user 输入按后台 `inputPurpose=internal_report` 从 EventFlow 可见投影过滤，保留的排队报告别名沿同一可信分类，实时、重连、分页和单条补读均生效；↑ 历史补种和置顶要求沿同一投影。最终 assistant 总结照常展示，搜索与诊断保留原文；关联缺口显示提示并保留普通正文。
+
+工作流待核实提交复用客户端待确认目录的 `workflows/`，保存原键、完整参数、原版本及实例身份，落盘失败不发送。应答丢失及客户端重启后先只读核实原提交；明确未接收才可选择原键原参数重试，实例变化、损坏和查询失败保留原记录。核实接收后消费原确认层，版本失效回到最新详情重新选择动作。运行、步骤、执行使用不同事件键，重连注记不回退，事件触发侧栏重新查询并按稳定身份保留选择；原选择移出当前页时查询原运行并标明保留项。八种状态始终有文字，停止待核实、效果未知与最终回报分别展示。
 
 手动压缩的待核实关联保存在客户端待确认目录的 `compactions/`，包括发起会话、请求键、指引、命令历史键和实例身份，终态才清除。命令回显与结果归发起会话，不成为普通任务输入或 JSONL 消息。在线通过会话事件与定时查询核实；切换、重连及退出重进查询原请求，后台明确未接收才按原键重发，实例变化则保留记录供核实。另一客户端查询会话最新结果，不依赖原客户端仍在等待。
 
@@ -199,6 +203,8 @@ sequenceDiagram
 
 **任务状态显示**：执行期间同时显示底部 `● Sweeping · Elapsed Ns`，`Sweeping` 文字有从绿到白再回绿的移动流光；审批等待另加文字标注。总耗时从实际开始执行算起，包含审批等待、不含排队。存在非空工作清单时，在 Elapsed 耗时后追加 `[完成数/总数]`，如 `Elapsed 42s [1/5]`。成功为灰体 `  Done in Ns · At Tue 09:16 PM`，失败为红色 `✗ Failed`，取消或中断为黄色 `Canceled`、`Interrupted` 并附必要原因。完成时间按运行客户端的本地时区显示，旧记录没有可信开始时间时省略耗时。耗时按天、时、分、秒组合显示（如 `1d 2h 3m 4s`），省略值为零的单位，不足一秒显示 `0s`；任务耗时与思考耗时使用相同格式。
 
+等待中的任务显示目标标签及状态；内部对话阶段显示「等待执行资源，可继续对话」，新输入中断旧等待时说明后台工作继续。查询与持久事件重建等待阶段和中断原因；停车的排队报告及别名不进入可执行队列。
+
 **断开与重连**：退出或断开只关闭客户端，后台任务继续执行。重连后从后台重建快照、历史及任务事件，恢复思考、工具、完整正文和完成状态的顺序，按事件和消息身份去重。旧历史只展示已有可靠信息，缺少的思考耗时和 Edit 统计不补造。命令回显从客户端私有记录恢复。重连不自动新建任务、不恢复暂停队列。事件序号缺口或游标过旧时自动重新同步。
 
 **配置中心在线保存**：`ruukoto config` 在线管理 provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与服务凭据。项目详情内完成指令、Web Search、Jev、MCP 与资料授权：指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务，新增固定归属并跳过项目选择（全局 MCP 分区复用同一页面与表单，新增仍按工作区/旧项目选择项目；进入归属不符的服务详情会提示并返回）；资料授权页标注出向/入向，新建方向固定为本项目 → 目标（目标按工作区/旧项目选择），撤销按单条授权 ID，同范围（同来源/目标/类别）还有其他有效授权时确认与结果都明示「不关闭该类访问」，「查看已撤销」为只读记录（含撤销时间）。服务凭据的同名修改或删除（`add_credential` / `remove_credential`）在写入前单调推进引用它的 QQ/Telegram 配置 `config_version`：旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次，写入失败不恢复旧版本。
@@ -241,6 +247,12 @@ sequenceDiagram
 - **待确认请求目录**：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
 
 ## 设计依据
+
+- [工作流侧栏与原请求核实](../../.agents/notes/implemented/feature/2026-10-14-workflow-progressive-controls.md)
+
+- [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
+
+- [内部回报的可信展示分类](../../.agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md)
 
 - [完整产物导出复用控制面分页并在校验后替换目标](../../.agents/notes/implemented/feature/2026-10-14-artifact-file-export.md)
 

@@ -1,0 +1,15 @@
+✔ 冷恢复 parent：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (53.461042ms)
+✔ 冷恢复 fallback：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (39.786166ms)
+✔ 冷恢复 fallback-no-end：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (31.2465ms)
+✔ 可信 Telegram main 父轮消费两份结果：success (258.628875ms)
+✔ 可信 Telegram main 父轮消费两份结果：send-revoked (146.777125ms)
+✔ 可信 Telegram main 父轮消费两份结果：request-revoked (148.298542ms)
+✔ 定时父轮已消费普通子结果：实际发送前撤销子任务记忆，原汇报取消且不外发 (67.763041ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1966.441166

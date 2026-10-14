@@ -80,60 +80,12 @@ test("命令表：名字唯一；补全与帮助只列可见条目；已删除�
   assert.match(f.log.notes[0]!, /未知命令：\/github/);
 });
 
-const WORKFLOW_DETAIL = {
-  run: { id: "run_1", sessionId: "sess_1", definitionId: "def_1", scriptDigest: "digest", inputDigest: "params", status: "waiting", version: 7,
-    reason: "owner_input", attempts: 2, maxAttempts: 100, usedMs: 2000, durationMs: 3600000, clockVerified: true, scriptStopVerified: null },
-  steps: [{ key: "question", kind: "ask", status: "waiting", attempts: 0, question: "pending", outputArtifact: null }],
-  executions: [], stepOffset: 0, totalSteps: 1, nextStepOffset: null,
-};
-
-test("/workflow 原文 JSON、稳定请求键、阶段读取和业务回答映射正确", async () => {
-  const f = fake({ replies: {
-    workflow_start: WORKFLOW_DETAIL, workflow_get: WORKFLOW_DETAIL,
-    workflow_logs: { text: "PHASE 中文", offset: 0, totalBytes: 12 },
-    workflow_question: { runId: "run_1", stepKey: "question", status: "pending", runVersion: 3, version: 2, text: '{"prompt":"选择"}', offset: 0, totalBytes: 19 },
-    workflow_answer: { status: "answered" }, workflow_save: { name: "batch", id: "def_1", digest: "digest" },
-  } });
-  await f.run('/workflow run batch original {"text":"保留  空白","multiline":"a\\nb"}');
-  assert.deepEqual(f.log.requests[0], ["workflow_start", { session_id: "sess_1", name: "batch", request_id: "original", input: { text: "保留  空白", multiline: "a\nb" } }]);
-  assert.match(f.log.results[0][1], /run_1.*original/);
-  await f.run('/workflow answer run_1 question 3 2 answer "保留  回答"');
-  assert.deepEqual(f.log.requests[1], ["workflow_answer", { run_id: "run_1", step_key: "question", run_version: 3, question_version: 2, request_id: "answer", answer: "保留  回答" }]);
-  await f.run('/workflow save batch save null "return \\"a  b\\";\\n"');
-  assert.equal(f.log.requests[2][1]!.script, 'return "a  b";\n');
-  await f.run("/workflow show run_1");
-  assert.match(f.log.texts.at(-1)!, /owner_input.*尝试 2\/100/);
-  await f.run("/workflow logs run_1");
-  assert.match(f.log.texts.at(-1)!, /PHASE 中文/);
-  await f.run("/workflow question run_1 question");
-  assert.match(f.log.texts.at(-1)!, /answer run_1 question 3 2/);
-  assert.match(f.log.texts.at(-1)!, /业务回答不批准工具/);
-});
-
-test("/workflow 版本化控制、错误参数不发送；写应答丢失留原键并不重发", async () => {
-  const f = fake({ replies: { workflow_control: WORKFLOW_DETAIL } });
-  await f.run("/workflow pause run_1 7 pause");
-  assert.deepEqual(f.log.requests[0], ["workflow_control", { run_id: "run_1", expected_version: 7, request_id: "pause", control: { action: "pause" } }]);
-  await f.run('/workflow resume run_1 8 resume {"clockConfirmed":true,"stopsConfirmed":true}');
-  assert.deepEqual(f.log.requests[1][1]!.control, { action: "resume", clockConfirmed: true, stopsConfirmed: true });
-  await f.run("/workflow budget run_1 9 budget 150 7200000");
-  assert.deepEqual(f.log.requests[2][1]!.control, { action: "budget", maxAttempts: 150, durationMs: 7200000 });
-  const count = f.log.requests.length;
-  for (const line of ['/workflow run batch k {invalid}', '/workflow resume run_1 8 k {"authority":{}}', "/workflow cancel run_1 0 k", "/workflow answer run_1 question 1 1 k invalid"]) await f.run(line);
-  assert.equal(f.log.requests.length, count);
-  const lost = fake({ replies: { workflow_start: new ControlClientError("connection_closed", "连接关闭", "disconnected") } });
-  await lost.run('/workflow run batch original {"text":"x"}');
-  assert.equal(lost.log.requests.length, 1);
-  assert.match(lost.log.results[0][1], /结果未知.*workflow find original.*未自动重发/);
-});
-
-test("/workflow 定义历史独立续页，正文分页不混用历史偏移", async () => {
-  const f = fake({ replies: { workflow_definition: { id: "def_1", name: "batch", digest: "digest", text: "return 1;", offset: 0, totalBytes: 9,
-    versions: [{ id: "old_1", digest: "old" }], versionOffset: 100, nextVersionOffset: 200 } } });
-  await f.run("/workflow definition batch 0 100");
-  assert.deepEqual(f.log.requests[0], ["workflow_definition", { name: "batch", offset: 0, version_offset: 100 }]);
-  assert.match(f.log.texts[0], /old_1/);
-  assert.match(f.log.texts[0], /workflow definition batch 0 200/);
+test("/workflow 直接打开逐层侧栏，旧长命令不再发送协议字段", async () => {
+  const f = fake();
+  for (const input of ["/workflow", "/workflow help", "/workflow cancel run_1 7 k"]) await f.run(input);
+  assert.deepEqual(f.log.host.map(([name]) => name), ["openWorkflow", "openWorkflow", "openWorkflow"]);
+  assert.deepEqual(f.log.requests, []);
+  assert.ok(commandHelpLines().some(line => line.includes("/workflow") && !line.includes("<子命令>")));
 });
 
 test("操作手册命令表：第一列列出的 /名字 与可见条目正好一致", () => {

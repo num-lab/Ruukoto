@@ -43,3 +43,13 @@ macOS 全量检查曾由共享 UID 的故意失父夹具碰撞失败：独立并
 拥有者于本次接手中确认 A8 的并发固定三个，仅调整尝试数与时限，规格与总决定已同步；这次澄清解除原「可以调整」的歧义，没有增加模型预算接口。真实模型使用拥有者指定开发档案中的 `magpie/mirasim/deepseek-flash`，配置只复制到隔离测试档案，不进入证据。
 
 拥有者选择先完成可运行验收、真实 IM 待验。本机个人与开发实例均无 QQ/Telegram 绑定；恢复条件是提供实际绑定实例与平台，由原入口完成六输入、等待期间聊天、版本绑定回答和唯一最终发送，核实换代与未知发送。TUI 进度、代码汇总、问题答复及失败报告体验仍需拥有者验收。未提交、推送、合并、部署或发布。
+
+## 产品验收故障排查
+
+2026-10-14，拥有者报告主 Agent 调用 `workflow_start` 与 `workflow_save` 均返回 `script_validator_unavailable`。当前检出直接调用 `validateWorkflowScript("return 1;")` 同样失败，底层为读取 `worker/workflow-script.wasm` 的 ENOENT；现场仅有旧工具 worker 与原生监督器，脚本 worker 和 WASM 均缺失。两工具共用 QuickJS 编译校验，`worker/` 不入库，`setup` 与开发启动入口不自动构建，已有验收构建证据不能证明当前检出已有产物；本次未确定产物最初缺失的过程。
+
+执行 `npm run build:script` 后，两份脚本产物生成，原校验命令及正式 bin 使用的 `tsx/esm/api` 注册方式均成功；`npx tsx --test test/117-workflow-library.test.ts test/118-workflow-entries.test.ts` 11/11、零跳过。独立只读核对确认加载失败不缓存，现有后台下一次调用可重试，无需重启。仅恢复本地构建产物，未改产品代码或重启实际后台；拥有者主 Agent 的再次调用、真实模型/IM 与产品体验仍待原验收入口确认。
+
+## 后续体验改进
+
+2026-10-14，拥有者指出工作流命令冗长、内部最终回报显示为用户消息，以及缺少主 Agent 等待工具。经 Q1–Q9 确认建立[改进规格](../experience-spec.md)、[执行计划](../experience-plan.md)及 08–12 工单；新增体验与等待要求由 [11](11-experience-acceptance.md)验收。本单原工程结论及真实 IM/产品待验缺口仍按原范围有效，不声称新要求已经通过。

@@ -1,3 +1,4 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * 合成调试会话（`ruukoto --demo`）：不连后台，用一个假客户端喂出
  * 覆盖全部事件类型与界面状态的静态数据，用来调试 TUI 渲染。
@@ -21,7 +22,6 @@ import type {
   Project,
   SelectionRecord,
   Session,
-  Task,
   ToolOp,
 } from "@ruukoto/core/types.ts";
 import { confirmationToView, toolOpToView } from "@ruukoto/core/views.ts";
@@ -43,6 +43,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
   return {
     sessionId: SESSION_ID,
     requestId: `req-${over.id}`,
+    inputPurpose: "user",
     input: "合成任务",
     modelSelection: MODEL,
     submissionDigest: null,
@@ -153,6 +154,7 @@ const CONFIRMATION: ConfirmationRequest = {
 /** 历史条目：覆盖各角色与边界（截断、工具错误、含非文本内容）。 */
 function historyEntries(): HistoryEntryView[] {
   const entry = (over: Partial<HistoryEntryView> & { entryId: string; role: string; text: string }): HistoryEntryView => ({
+    taskId: null, inputPurpose: "user",
     parentId: null,
     timestamp: ts(30),
     offset: 0,
@@ -306,11 +308,17 @@ function demoEvents(): PersistentEvent[] {
     // agent-direction issue 07：会话工作区组织归属（仅展示归属，资料身份仍是原 projectId）
     { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
+    { type: "browser.binding_changed", sessionId: SESSION_ID, generation: "browser_demo", state: "ready", kind: "owned", failureCode: null },
     { type: "workflow.definition", name: "demo", definitionId: "wfdef_demo", digest: "a".repeat(64) },
     { type: "workflow.changed", runId: "wfrun_demo", version: 1, status: "waiting", reason: null },
     { type: "workflow.step", runId: "wfrun_demo", key: "pick", status: "waiting", delivery: null },
     { type: "workflow.execution", runId: "wfrun_demo", taskId: "task_completed000", kind: "agent", status: "finished", stopVerified: true },
     { type: "workflow.input", eventId: "evt_demo_workflow", source: "telegram", outcome: "answered" },
+    { type: "agent_wait.changed", waitId: "wait_demo", taskId: "task_running000000", phase: "waiting", reason: null,
+      wait: { id: "wait_demo", phase: "waiting", reason: null, deadline: null, targets: [{ kind: "workflow", id: "wfrun_demo", label: "工作流 · 资料整理", status: "waiting" }] } },
+    { type: "task.resources_changed", taskId: "task_running000000", sessionId: SESSION_ID, phase: "conversation" },
+    { type: "agent_report.changed", key: "task:task_completed000", taskId: "task_queued000000", status: "pending", reason: null,
+      fallbackTaskId: "task_queued000000", fallbackState: "parked", parkedFallbackTaskIds: [] },
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "session.context_compaction", sessionId: SESSION_ID, requestId: "cmp_demo00000001", status: "succeeded" },

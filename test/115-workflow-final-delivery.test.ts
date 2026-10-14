@@ -5,7 +5,9 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import type { Session } from "@ruukoto/core/types.ts";
+import { TASK_END_MARKER, TASK_START_MARKER, type Session } from "@ruukoto/core/types.ts";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
+import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { bindWorkflowExecution, createWorkflowRun, getWorkflowDeliveryRun, getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
@@ -33,7 +35,7 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
   const child = latch(), chat = latch();
   const t = await startTestRuntime("workflow-final-dev", async req => {
     if (lastUserText(req) === "日常聊天") { await chat.promise; return { kind: "text", text: "聊天完成" }; }
-    if (lastUserText(req).startsWith("[工作流最终回报]")) {
+    if (lastUserText(req).startsWith("[工作流最终回报]") && toolNamesOf(req).length === 0) {
       assert.deepEqual(toolNamesOf(req), []);
       assert.match(lastUserText(req), /停止：脚本已核实；已启动执行 1\/1 项已核实，未启动 0 项/);
       assert.match(lastUserText(req), /本轮终态事实取代启动和中途历史中的旧状态/);
@@ -42,7 +44,7 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
     return { kind: "text", text: "普通任务" };
   }, { config: { product: codeProduct.runtime, workflowAgent: async () => { await child.promise; return { output: "步骤资料" }; } } });
   try {
-    const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] }), parent = source(rt, session);
+    const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session, parent = source(rt, session);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "final", input: null, script: 'return await agent("one",{request:"处理"});' });
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
     await rt.resumeQueue(session.id);
@@ -54,6 +56,10 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
     assert.match(finished.delivery!.facts, /停止：脚本已核实；已启动执行 1\/1 项已核实，未启动 0 项/);
     assert.equal(wake.status, "queued"); assert.equal(wake.agentId, null); assert.equal(wake.sourceEventId, null);
     assert.equal(getWorkflowDeliveryRun(rt.store, wake.id)!.id, run.id);
+    assert.equal(rt.getTaskDetail(wake.id)!.task.inputPurpose, "internal_report");
+    assert.equal(rt.findTaskByRequest({ sessionId: session.id, requestId: wake.requestId }).task!.inputPurpose, "internal_report");
+    assert.equal(rt.listTasks({ sessionId: session.id }).tasks.find(task => task.id === wake.id)!.inputPurpose, "internal_report");
+    assert.equal(rt.snapshot().tasks.find(task => task.id === wake.id)!.inputPurpose, "internal_report");
     const key = workflowDeliveryKey(finished);
     rt.store.withTx(() => updateWorkflowRun(rt.store, requireWorkflowRun(rt.store, run.id)));
     assert.equal(workflowDeliveryKey(requireWorkflowRun(rt.store, run.id)), key);
@@ -64,10 +70,50 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
     assert.equal(rt.store.findTaskByRequest(session.id, key)!.id, wake.id);
     assert.equal(t.server.calls.length, 2);
     assert.equal(rt.store.listTasksBySession(session.id).some(task => task.requestId.startsWith("wake:")), false);
-    const fake = await rt.submit({ sessionId: session.id, requestId: "workflow-final:fake:1", input: "普通输入", modelSelection: rt.defaultSelection });
+    const page = rt.readHistory({ sessionId: session.id });
+    const internalInput = page.entries.find(entry => entry.taskId === wake.id && entry.role === "user")!;
+    assert.equal(internalInput.inputPurpose, "internal_report");
+    assert.equal(internalInput.text, wake.input);
+    assert.equal(rt.readHistoryEntry({ sessionId: session.id, entryId: internalInput.entryId }).inputPurpose, "internal_report");
+    assert.equal(lastUserText(t.server.calls[1]), wake.input, "实际模型请求保留完整内部输入");
+    const originalFile = rt.store.getSession(session.id)!.sessionFile!;
+    const originalBytes = fs.readFileSync(originalFile);
+    assert.ok(parseSessionFile(originalFile).some(entry => entry.id === internalInput.entryId), "JSONL 保留原条目");
+    const branch = await rt.branchSession({ sessionId: session.id, requestId: "visibility-branch" });
+    const nested = await rt.branchSession({ sessionId: branch.id, requestId: "visibility-nested" });
+    for (const inherited of [branch, nested]) {
+      assert.ok(inherited.branchSource!.taskIds.includes(wake.id));
+      const history = rt.readHistory({ sessionId: inherited.id });
+      assert.equal(history.entries.find(entry => entry.entryId === internalInput.entryId)!.inputPurpose, "internal_report");
+      assert.equal(rt.readHistoryEntry({ sessionId: inherited.id, entryId: internalInput.entryId }).inputPurpose, "internal_report");
+      const state = new ViewState();
+      state.applySnapshot({ snapshot: rt.snapshot(), seq: 0, replay: [] }, false);
+      state.installHistoryPage(inherited.id, history, "replace");
+      const visible = state.openSession(inherited.id).flow.items;
+      assert.ok(!visible.some(entry => entry.kind === "message" && entry.role === "user" && entry.text === wake.input));
+      assert.ok(visible.some(entry => entry.kind === "message" && entry.text === "最终汇总"));
+    }
+    assert.deepEqual(fs.readFileSync(originalFile), originalBytes, "分类和分支不改写来源 JSONL");
+    const fake = await rt.submit({ sessionId: session.id, requestId: "workflow-final:fake:1", input: wake.input, modelSelection: rt.defaultSelection });
     await waitFor("普通请求完成", () => rt.store.getTask(fake.id)!.status === "completed");
     assert.equal(getWorkflowDeliveryRun(rt.store, fake.id), null);
+    assert.equal(fake.inputPurpose, "user");
+    assert.equal(rt.readHistory({ sessionId: session.id }).entries.find(entry => entry.taskId === fake.id && entry.role === "user")!.inputPurpose, "user");
     assert.ok(toolNamesOf(t.server.calls[2]).includes("mock_delay"));
+    const diagnostic = await rt.createSession({ projectName: "workflow", cwd: t.work[0] });
+    const file = path.join(t.dirs.dataDir, "visibility-diagnostic.jsonl");
+    const marker = (id: string, customType: string, taskId: string) => ({ type: "custom", id, customType, data: { taskId } });
+    const message = (id: string) => ({ type: "message", id, message: { role: "user", content: wake.input } });
+    fs.writeFileSync(file, [marker("foreign-start", TASK_START_MARKER, wake.id), message("foreign"), marker("foreign-end", TASK_END_MARKER, wake.id),
+      marker("missing-start", TASK_START_MARKER, "missing-task"), message("missing"), marker("missing-end", TASK_END_MARKER, "missing-task"),
+      message("unmarked")].map(entry => JSON.stringify(entry)).join("\n") + "\n");
+    rt.store.withTx(() => rt.store.setSessionFile(diagnostic.id, file));
+    const broken = rt.readHistory({ sessionId: diagnostic.id });
+    assert.deepEqual(broken.entries.map(entry => [entry.inputPurpose, entry.taskAssociationError]),
+      [["user", "task_outside_session"], ["user", "task_missing"], ["user", undefined]]);
+    rt.store.withTx(() => rt.store.addHistoryEntryIds(wake.id, ["unmarked"]));
+    rt.store.withTx(() => rt.store.setSessionFile(branch.id, file));
+    assert.equal(rt.readHistoryEntry({ sessionId: branch.id, entryId: "unmarked" }).taskAssociationError, "task_marker_missing");
   } finally { child.release(); chat.release(); await t.shutdown(); }
 });
 

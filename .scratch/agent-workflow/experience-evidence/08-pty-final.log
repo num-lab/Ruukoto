@@ -1,0 +1,12 @@
+✔ FakeTerminal：完整 CSI、SS3 与缩放回调保持终端输入边界 (0.620334ms)
+✔ PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持久结果 (10446.904208ms)
+✔ PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留后台运行 (30251.179792ms)
+✔ PTY：80×24 布局、中文输入、流式输出、Ctrl+C 退出后终端恢复且任务继续 (30809.53675ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 72738.719459

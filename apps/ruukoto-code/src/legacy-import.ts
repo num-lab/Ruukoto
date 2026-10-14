@@ -1,4 +1,4 @@
-import { verifyImportedBranchSources } from "@ruukoto/core/import-support.ts";
+import { verifyImportedBranchSources, verifyImportedAgentWaitReferences, archiveImportedAgentWaits } from "@ruukoto/core/import-support.ts";
 /**
  * 旧实例开发资料迁入 Coding Agent（agent-direction issue 21）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
@@ -46,6 +46,8 @@ export interface LegacyImportPlan {
 }
 
 const TABLE_POLICY: TablePolicy = {
+  agent_waits: { policy: "import" },
+  agent_reports: { policy: "import" },
   workflow_definitions: { policy: "exclude", reason: "工作流定义保留在来源实例，不随普通资料导入" },
   workflow_definition_refs: { policy: "exclude", reason: "命名版本与保存回执保留在来源实例" },
   workflow_runs: { policy: "exclude", reason: "运行授权与执行绑定不能跨实例，非空源库明确拒绝" },
@@ -117,6 +119,8 @@ interface ImportSet {
   workDelegations: Row[];
   /** 工作内消息（issue 13）：随所属工作折叠的行集。 */
   subagentMessages: Row[];
+  agentWaits: Row[];
+  agentReports: Row[];
   tasks: Row[];
   toolOps: Row[];
   confirmations: Row[];
@@ -227,7 +231,7 @@ function buildImportSet(
       let hasUnknown = false;
       for (const op of toolOps) {
         if (String(op.task_id) !== String(t.id)) continue;
-        if (op.result_summary !== null || unconsumedApprovalOpIds.has(String(op.id))) continue;
+        if (op.result_summary !== null || unconsumedApprovalOpIds.has(String(op.id)) || op.tool_name === "agent_wait") continue;
         effectUnknownOpIds.add(String(op.id));
         hasUnknown = true;
       }
@@ -354,10 +358,16 @@ function buildImportSet(
 
   const includedWorks = allRows(db, "SELECT * FROM work_delegations").filter((r) => sessionIds.has(String(r.parent_session_id)));
   verifyImportedBranchSources(includedSessions, tasks, artifacts, includedWorks);
+  const includedAgents = subAgents.filter(row => sessionIds.has(String(row.session_id)));
+  const agentWaits = rowsIn(db, "agent_waits", "session_id", sessionIdList), agentReports = rowsIn(db, "agent_reports", "parent_session_id", sessionIdList);
+  verifyImportedAgentWaitReferences(agentWaits, agentReports, { projects: includedProjects, sessions: includedSessions, tasks, works: includedWorks, subAgents: includedAgents,
+    artifacts, selections: selectionRecords, inboundEvents: [], scheduleRuns: [], notificationOps: [], toolOps, chatResults: [], memories: memoriesImport, appDataInstanceId: null });
   return {
     projects: includedProjects,
     sessions: includedSessions,
-    subAgents: subAgents.filter((r) => sessionIds.has(String(r.session_id))),
+    subAgents: includedAgents,
+    agentWaits,
+    agentReports,
     workDelegations: includedWorks,
     // 工作内消息（issue 13）：随纳入的工作折叠收集
     subagentMessages: allRows(db, "SELECT * FROM subagent_messages").filter((r) => includedWorks.some((w) => String(w.id) === String(r.work_id))),
@@ -429,7 +439,8 @@ interface ImportAnalysis {
     files: string[];
   };
   /** 同 ID 但不属于本源此前导入的冲突（硬拒绝，逐项列出）。 */
-  idConflicts: Array<{ kind: LedgerKind; id: string }>;
+  idConflicts: Array<{ kind: LedgerKind | "agent_wait" | "agent_report"; id: string }>;
+  agentWaitInsert: { waits: Row[]; reports: Row[] };
   fileConflicts: Array<{ itemId: string; dest: string; reason: string }>;
   mcpDisabled: Array<{ project_id: string; name: string; credential: string }>;
   jevDisabled: Array<{ key: string; credential: string }>;
@@ -638,7 +649,32 @@ function analyze(
   }
 
   const skippedAlreadyImported = [...skipped].sort();
+  const priorAgentManifest = new Map<string, { sha: string; sourceSha: string }>();
+  for (const previous of ledger.imports.filter(item => item.source_instance_id === snap.instanceId && item.status === "applied")) {
+    const receipt = tdb?.prepare("SELECT report FROM instance_imports WHERE id = ?").get(previous.id) as { report: string } | undefined;
+    if (!receipt) continue;
+    const body = JSON.parse(receipt.report) as { agent_wait_manifest?: Array<{ table: string; id: string; sha: string; sourceSha: string }> };
+    for (const row of body.agent_wait_manifest ?? []) priorAgentManifest.set(`${row.table}:${row.id}`, row);
+  }
+  const agentWaitInsert: ImportAnalysis["agentWaitInsert"] = { waits: [], reports: [] };
+  for (const [table, rows, column, kind, destination] of [["agent_waits", set.agentWaits, "id", "agent_wait", agentWaitInsert.waits], ["agent_reports", set.agentReports, "report_key", "agent_report", agentWaitInsert.reports]] as const) {
+    for (const row of rows) {
+      const id = String(row[column]), existing = tdb?.prepare(`SELECT * FROM ${table} WHERE ${column} = ?`).get(id) as Row | undefined;
+      if (!existing) { destination.push(row); continue; }
+      const proof = priorAgentManifest.get(`${table}:${id}`);
+      if (proof && proof.sha === sha256(canonicalJson(existing)) && proof.sourceSha === sha256(canonicalJson(row))) continue;
+      idConflicts.push({ kind, id });
+    }
+  }
   const skippedSessions = new Set([...skipped].filter((k) => k.startsWith("session:")).map((k) => k.slice("session:".length)));
+  const available = (table: string, rows: Row[], sessionColumn: string) => [...(tdb ? allRows(tdb, `SELECT * FROM ${table}`) : []), ...rows.filter(row => !skippedSessions.has(String(row[sessionColumn])))];
+  verifyImportedAgentWaitReferences(agentWaitInsert.waits, agentWaitInsert.reports, {
+    projects: set.projects, sessions: set.sessions, tasks: available("tasks", set.tasks, "session_id"), works: [...(tdb ? allRows(tdb, "SELECT * FROM work_delegations") : []), ...set.workDelegations],
+    subAgents: [...(tdb ? allRows(tdb, "SELECT * FROM sub_agents") : []), ...set.subAgents], artifacts: available("artifacts", set.artifacts, "session_id"),
+    selections: available("selection_records", set.selectionRecords, "session_id"), inboundEvents: [], scheduleRuns: [], notificationOps: [],
+    toolOps: [...(tdb ? allRows(tdb, "SELECT * FROM tool_ops") : []), ...set.toolOps], chatResults: [],
+    memories: [...(tdb ? allRows(tdb, "SELECT * FROM memories") : []), ...set.memoriesImport.filter(row => !skipped.has(`memory:${String(row.id)}`))], appDataInstanceId: null,
+  });
   // 新增会话的任务集（事件按新归属判定：属于新会话或其任务）
   const newSessionTasks = new Set(set.tasks.filter((t) => !skippedSessions.has(String(t.session_id))).map((t) => String(t.id)));
   const newEvents = set.events.filter((e) => {
@@ -666,6 +702,8 @@ function analyze(
         .sort((a, b) => a.id.localeCompare(b.id)),
       sessionRows: rowDigests(set.sessions),
       tasks: rowDigests(set.tasks),
+      agentWaits: rowDigests(set.agentWaits),
+      agentReports: rowDigests(set.agentReports, "report_key"),
       toolOps: rowDigests(set.toolOps),
       confirmations: rowDigests(set.confirmations),
       artifacts: rowDigests(set.artifacts),
@@ -709,6 +747,7 @@ function analyze(
       files: set.files.filter((f) => f.action === "copied").map((f) => f.itemId),
     },
     idConflicts,
+    agentWaitInsert,
     fileConflicts,
     mcpDisabled,
     jevDisabled,
@@ -830,7 +869,7 @@ export function previewLegacyImport(deps: LegacyImportDeps, input: { from: strin
       analysis.ids.memories.length +
       analysis.ids.grants.length +
       analysis.ids.mcps.length +
-      analysis.ids.metas.length;
+      analysis.ids.metas.length + analysis.agentWaitInsert.waits.length + analysis.agentWaitInsert.reports.length;
 
     const closingsBySession = new Map<string, TaskClosing[]>();
     for (const c of analysis.set.closings) {
@@ -1135,6 +1174,7 @@ export function applyLegacyImport(
     const worksToInsert = set.workDelegations.filter((r) => analysis.ids.workDelegations.includes(String(r.id)));
     // 工作内消息（issue 13）：随同一批工作折叠（工作的续跑跳过同批豁免）
     const messagesToInsert = set.subagentMessages.filter((r) => worksToInsert.some((w) => String(w.id) === String(r.work_id)));
+    const agentWaitArchive = archiveImportedAgentWaits(analysis.agentWaitInsert.waits, analysis.agentWaitInsert.reports, nowIso);
     const tasksToInsert = newTasks.map((t) => {
       const closing = closingById.get(String(t.id));
       if (!closing) return t;
@@ -1205,6 +1245,8 @@ export function applyLegacyImport(
       sessions: sessionsToInsert.length,
       sub_agents: subAgentsToInsert.length,
       work_delegations: worksToInsert.length,
+      agent_waits: agentWaitArchive.waits.length,
+      agent_reports: agentWaitArchive.reports.length,
       tasks: tasksToInsert.length,
       tool_ops: toolOpsToInsert.length,
       confirmations: confirmationsToInsert.length,
@@ -1227,6 +1269,8 @@ export function applyLegacyImport(
     };
     const report: Record<string, unknown> = {
       version: 1,
+      agent_wait_manifest: ([["agent_waits", agentWaitArchive.waits, analysis.agentWaitInsert.waits, "id"], ["agent_reports", agentWaitArchive.reports, analysis.agentWaitInsert.reports, "report_key"]] as const).flatMap(([table, rows, original, column]) =>
+        rows.map(row => ({ table, id: String(row[column]), sha: sha256(canonicalJson(row)), sourceSha: sha256(canonicalJson(original.find(source => source[column] === row[column]))) }))),
       counts,
       source: {
         dir: snap.dataDir,
@@ -1280,6 +1324,8 @@ export function applyLegacyImport(
       insertRows(tdb, "work_delegations", worksToInsert);
       insertRows(tdb, "subagent_messages", messagesToInsert);
       insertRows(tdb, "tasks", tasksToInsert);
+      insertRows(tdb, "agent_waits", agentWaitArchive.waits);
+      insertRows(tdb, "agent_reports", agentWaitArchive.reports);
       insertRows(tdb, "tool_ops", toolOpsToInsert);
       insertRows(tdb, "confirmations", confirmationsToInsert);
       insertRows(tdb, "artifacts", artifactsToInsert);
@@ -1358,6 +1404,7 @@ export function revertLegacyImport(deps: LegacyImportDeps, importId: string): Le
     if (String(receipt.status) !== "applied") fail("invalid_params", `导入 ${importId} 已处于 ${String(receipt.status)} 状态`);
     const report = JSON.parse(String(receipt.report)) as {
       files?: Array<{ itemId: string; dest: string; sha256: string; action?: string }>;
+      agent_wait_manifest?: Array<{ table: "agent_waits" | "agent_reports"; id: string; sha: string }>;
     };
     const items = allRows(tdb, "SELECT kind, item_id FROM instance_import_items WHERE import_id = ?", [importId]);
     const byKind = (kind: LedgerKind) => items.filter((i) => String(i.kind) === kind).map((i) => String(i.item_id));
@@ -1375,6 +1422,15 @@ export function revertLegacyImport(deps: LegacyImportDeps, importId: string): Le
     // 阻挡项：导入后目标侧的自有活动是事实，不能抹掉（逐项列出）；时间比较用
     // >= 收口同一毫秒内的导入后创建，导入行保留源时刻不受影响
     const blockers: string[] = [];
+    for (const row of report.agent_wait_manifest ?? []) {
+      const column = row.table === "agent_waits" ? "id" : "report_key";
+      const current = tdb.prepare(`SELECT * FROM ${row.table} WHERE ${column} = ?`).get(row.id) as Row | undefined;
+      if (current && sha256(canonicalJson(current)) !== row.sha) blockers.push(`导入等待或报告在导入后被修改：${row.table}:${row.id}`);
+    }
+    for (const [table, column, sessionColumn] of [["agent_waits", "id", "session_id"], ["agent_reports", "report_key", "parent_session_id"]] as const) {
+      const owned = new Set((report.agent_wait_manifest ?? []).filter(row => row.table === table).map(row => row.id));
+      for (const row of rowsIn(tdb, table, sessionColumn, sessionIds)) if (!owned.has(String(row[column]))) blockers.push(`导入的父会话被其他等待或报告引用：${table}:${String(row[column])}`);
+    }
     const newTasks = allRows(
       tdb,
       `SELECT id FROM tasks WHERE session_id IN (${sessionIds.map(() => "?").join(",") || "''"}) AND created_at >= ?`,
@@ -1463,6 +1519,11 @@ export function revertLegacyImport(deps: LegacyImportDeps, importId: string): Le
         del(`DELETE FROM ${t} WHERE session_id IN (${sessionIds.map(() => "?").join(",") || "''"})`, sessionIds, t);
       }
       del(`DELETE FROM tool_ops WHERE task_id IN (${[...sessionTaskIds].map(() => "?").join(",") || "''"})`, [...sessionTaskIds], "tool_ops");
+      for (const table of ["agent_waits", "agent_reports"] as const) {
+        const column = table === "agent_waits" ? "id" : "report_key";
+        const ids = (report.agent_wait_manifest ?? []).filter(row => row.table === table).map(row => row.id);
+        del(`DELETE FROM ${table} WHERE ${column} IN (${ids.map(() => "?").join(",") || "''"})`, ids, table);
+      }
       del(`DELETE FROM tasks WHERE session_id IN (${sessionIds.map(() => "?").join(",") || "''"})`, sessionIds, "tasks");
       // 工作内消息（issue 13）随工作折叠回退：先于所属工作删除
       del(`DELETE FROM subagent_messages WHERE work_id IN (${workIds.map(() => "?").join(",") || "''"})`, workIds, "subagent_messages");

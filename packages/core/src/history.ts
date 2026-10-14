@@ -13,7 +13,7 @@
 
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
-import type { BoundedText } from "./views.ts";
+import type { BoundedText, InputPurpose } from "./views.ts";
 import { TASK_END_MARKER, TASK_START_MARKER, type EditStats, type TaskStatus } from "./types.ts";
 
 /** Buffer 内 index 处的 UTF-8 起始对齐：续字节向后落到字符边界。 */
@@ -237,6 +237,10 @@ export interface HistoryToolCallRef {
 
 export interface HistoryEntryView {
   entryId: string;
+  /** JSONL 宿主标记关联的原任务；分支仍保留来源任务。 */
+  taskId: string | null;
+  inputPurpose: InputPurpose;
+  taskAssociationError?: "task_missing" | "task_outside_session" | "task_marker_missing";
   parentId: string | null;
   role: string;
   timestamp: string;
@@ -286,7 +290,23 @@ export function editStatsFromResult(toolName: unknown, isError: unknown, details
   return typeof patch === "string" ? statsFromPatch(patch) : undefined;
 }
 
-function extractMessageView(entry: ParsedSessionEntry): { text: string; view: Omit<HistoryEntryView, "text" | "offset" | "totalBytes" | "truncated"> } | null {
+function historyTaskIds(entries: ParsedSessionEntry[]): Map<string, string | null> {
+  const tasks = new Map<string, string | null>();
+  let taskId: string | null = null;
+  for (const entry of entries) {
+    if (entry.type === "custom" && (entry.customType === TASK_START_MARKER || entry.customType === TASK_END_MARKER)) {
+      const data = entry.data as { taskId?: unknown } | undefined;
+      if (typeof data?.taskId !== "string" || !data.taskId || (entry.customType === TASK_END_MARKER && data.taskId !== taskId)) {
+        throw new HistoryReadError("history_corrupt", "历史任务标记无法配对，请核实会话记录");
+      }
+      // 中断或崩溃可能没有结束标记；下一次开始仍是新的可信边界。
+      taskId = entry.customType === TASK_START_MARKER ? data.taskId : null;
+    } else if (entry.type === "message") tasks.set(entry.id, taskId);
+  }
+  return tasks;
+}
+
+function extractMessageView(entry: ParsedSessionEntry, taskId: string | null = null): { text: string; view: Omit<HistoryEntryView, "text" | "offset" | "totalBytes" | "truncated"> } | null {
   if (entry.type !== "message") return null;
   const message = entry.message as Record<string, unknown> | undefined;
   if (!message || typeof message.role !== "string") return null;
@@ -320,6 +340,8 @@ function extractMessageView(entry: ParsedSessionEntry): { text: string; view: Om
     text: textParts.join(""),
     view: {
       entryId: entry.id,
+      taskId,
+      inputPurpose: "user",
       parentId: typeof entry.parentId === "string" ? entry.parentId : null,
       role,
       timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",
@@ -386,6 +408,7 @@ export function readHistoryPage(sessionFile: string | null, opts: ReadHistoryPag
     return { fileAvailable: false, hasPartialTail: false, entries: [], nextBefore: null };
   }
   const { entries, hasPartialTail } = parseSessionFileStrict(fs.readFileSync(sessionFile, "utf8"));
+  const taskIds = historyTaskIds(entries);
   const messages = entries.filter((e) => e.type === "message");
   const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);
   const entryTextCap = Math.min(Math.max(256, opts.entryTextCap ?? 16 * 1024), 256 * 1024);
@@ -404,7 +427,7 @@ export function readHistoryPage(sessionFile: string | null, opts: ReadHistoryPag
   const picked: Array<{ entry: ParsedSessionEntry; extracted: NonNullable<ReturnType<typeof extractMessageView>> }> = [];
   let budget = pageTextBudget;
   for (let i = endExclusive - 1; i >= 0 && picked.length < limit; i--) {
-    const extracted = extractMessageView(messages[i]!);
+    const extracted = extractMessageView(messages[i]!, taskIds.get(messages[i]!.id) ?? null);
     if (!extracted) continue;
     const bytes = Math.min(Buffer.byteLength(extracted.text, "utf8"), entryTextCap);
     if (picked.length > 0 && bytes > budget) break;
@@ -436,9 +459,10 @@ export function readHistoryEntryText(
     throw new HistoryReadError("entry_not_found", `会话文件尚未落盘，条目不可读：${entryId}`);
   }
   const { entries } = parseSessionFileStrict(fs.readFileSync(sessionFile, "utf8"));
+  const taskIds = historyTaskIds(entries);
   const entry = entries.find((e) => e.id === entryId && e.type === "message");
   if (!entry) throw new HistoryReadError("entry_not_found", `历史条目不存在：${entryId}`);
-  const extracted = extractMessageView(entry)!;
+  const extracted = extractMessageView(entry, taskIds.get(entry.id) ?? null)!;
   const cap = Math.min(Math.max(256, length), 256 * 1024);
   const slice = sliceTextByBytes(extracted.text, offset, cap);
   return { ...extracted.view, ...slice };

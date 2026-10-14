@@ -154,6 +154,7 @@ const CONTEXT_CATEGORIES = {
   memories: "长期记忆",
   resumedFrom: "继续来源",
   planMode: "计划模式",
+  resourcePhase: "执行资源",
   compactionSummary: "压缩摘要",
   mandatoryTurn: "当前任务",
   currentTaskBatches: "当前任务工具批次",

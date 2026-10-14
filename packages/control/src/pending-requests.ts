@@ -1,5 +1,5 @@
 /**
- * 待确认请求记录（拥有者私有目录）：输入提交的去重锚点。
+ * 待确认请求记录（拥有者私有目录）：提交与控制操作的去重锚点。
  *
  * 纪律（issue 04 §3）：
  * - 发送前先生成 request_id 并把操作类型与完整请求参数原子落盘
@@ -14,11 +14,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { dirEnvFor, productFromEnv, productRootDir } from "@ruukoto/core/product.ts";
+import { parseWorkflowControl, workflowLaunchDigest, type WorkflowLaunch } from "@ruukoto/core/workflow.ts";
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue" | "branch_session" | "compact_session";
-  /** 完整请求参数（session_id/task_id、input、access_mode、granted_paths）。 */
+  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control";
+  /** 完整原请求参数，包含请求键、业务输入及操作使用的原版本。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
   instanceId: string;
@@ -34,6 +35,24 @@ export interface PendingRequestList {
 export function defaultPendingDir(): string {
   const product = productFromEnv();
   return dirEnvFor(product, "PENDING") ?? path.join(productRootDir(product), "pending");
+}
+
+function validWorkflowParams(record: PendingRequest): boolean {
+  const params = record.params;
+  if (!record.op.startsWith("workflow_")) return true;
+  if (params.request_id !== record.requestId) return false;
+  const nonempty = (value: unknown) => typeof value === "string" && value.trim().length > 0;
+  const positive = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+  if (record.op === "workflow_start") {
+    workflowLaunchDigest({ name: params.name, script: params.script, title: params.title, description: params.description, input: params.input,
+      maxAttempts: params.max_attempts, durationMs: params.duration_ms } as WorkflowLaunch);
+    return nonempty(params.session_id) && "input" in params &&
+      ((nonempty(params.name) && params.script === undefined) || (nonempty(params.script) && params.name === undefined)) &&
+      (params.max_attempts === undefined || positive(params.max_attempts)) && (params.duration_ms === undefined || positive(params.duration_ms));
+  }
+  if (!nonempty(params.run_id)) return false;
+  if (record.op === "workflow_answer") return nonempty(params.step_key) && positive(params.question_version) && positive(params.run_version) && "answer" in params;
+  return positive(params.expected_version) && parseWorkflowControl(params.control) !== undefined;
 }
 
 export class PendingRequestStore {
@@ -82,11 +101,12 @@ export class PendingRequestStore {
       try {
         const raw = JSON.parse(fs.readFileSync(path.join(this.dir, file), "utf8")) as PendingRequest;
         if (
-          typeof raw?.requestId !== "string" ||
-          (raw.op !== "submit" && raw.op !== "continue" && raw.op !== "branch_session" && raw.op !== "compact_session") ||
+          typeof raw?.requestId !== "string" || !/^[A-Za-z0-9_-]+$/.test(raw.requestId) || file !== `${raw.requestId}.json` ||
+          !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control"].includes(raw.op) ||
           typeof raw.params !== "object" ||
-          raw.params === null ||
-          typeof raw.instanceId !== "string"
+          raw.params === null || Array.isArray(raw.params) ||
+          typeof raw.instanceId !== "string" || !raw.instanceId ||
+          typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)
         ) {
           corrupt.push(file);
           continue;

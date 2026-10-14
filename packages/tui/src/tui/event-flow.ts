@@ -1,6 +1,8 @@
-import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { OutputPreview, ToolOpView } from "@ruukoto/core/views.ts";
+import { workflowStatus } from "./workflows.ts";
 
 interface FlowPosition {
   key: string;
@@ -97,7 +99,8 @@ export class EventFlow {
       this.entries.set(key, { key, taskId: task.id, kind: "task", task, at: task.endedAt ?? task.startedAt ?? task.createdAt, seq: Number.MAX_SAFE_INTEGER });
     }
     const inputKey = `input:${task.id}`;
-    if (task.input.trim() && !this.entries.has(inputKey)) {
+    if (task.inputPurpose === "internal_report") this.entries.delete(inputKey);
+    else if (task.input.trim() && !this.entries.has(inputKey)) {
       this.entries.set(inputKey, { key: inputKey, taskId: task.id, kind: "message", role: "user", text: task.input, at: task.createdAt, seq: -1,
         entryId: null, totalBytes: Buffer.byteLength(task.input), truncated: false, streaming: false });
     }
@@ -150,10 +153,10 @@ export class EventFlow {
         if (event.seq <= (this.versions.get(key) ?? -1)) return;
         this.versions.set(key, event.seq);
         const text = body.type === "workflow.changed"
-          ? "工作流 " + body.runId + " · " + body.status + " · v" + body.version + (body.reason ? " · " + body.reason : "") + "；/workflow show " + body.runId + " 核实详情"
+          ? "工作流 · " + workflowStatus(body.status) + (body.reason ? " · " + body.reason : "") + "；/workflow 选择运行查看详情"
           : body.type === "workflow.step"
-            ? "工作流 " + body.runId + " / " + body.key + " · " + body.status + "；/workflow logs " + body.runId + " 查看阶段"
-            : "工作流 " + body.runId + " / 执行 " + body.taskId + " · " + body.status + (body.stopVerified === false ? " · 停止未核实，保留占用与成果" : "");
+            ? "工作流步骤 " + body.key + " · " + body.status + "；/workflow 选择运行查看阶段"
+            : "工作流执行 · " + body.status + (body.stopVerified === false ? " · 停止待核实，保留占用与成果" : "") + "；/workflow 选择运行查看详情";
         this.note(key, text, this.entries.get(key)?.at ?? event.createdAt, event.seq);
         return;
       }
@@ -273,8 +276,18 @@ export class EventFlow {
 
   addHistory(history: HistoryEntryView): void {
     this.history.set(history.entryId, history);
-    const ref = this.refs.get(history.entryId);
+    const ref = history.taskAssociationError ? undefined : this.refs.get(history.entryId);
     const fallback = `history:${history.entryId}`;
+    const taskId = history.taskAssociationError ? undefined : history.taskId ?? ref?.taskId;
+    if (history.taskAssociationError) {
+      const reason = { task_missing: "关联任务不存在", task_outside_session: "关联任务不属于本会话或分支来源", task_marker_missing: "内部回报缺少宿主任务标记" }[history.taskAssociationError];
+      this.note(`history-association:${history.entryId}`, `历史条目 ${history.entryId}：${reason}，保留普通展示；请核实会话记录`, history.timestamp);
+    }
+    if (history.role === "user" && history.inputPurpose === "internal_report") {
+      this.entries.delete(fallback);
+      if (taskId) this.entries.delete(`input:${taskId}`);
+      return;
+    }
     if (history.role === "toolResult") {
       // SDK 调用 id 只在单个任务内有意义；引用未到时保留独立历史行，绝不猜任务。
       const tool = ref ? this.tools.find((entry) => entry.toolCallId === history.toolCallId && entry.taskId === ref.taskId) : undefined;
@@ -293,12 +306,12 @@ export class EventFlow {
         editStats: history.editStats, entryId: history.entryId, paramsTruncated: false, artifactIds: [] });
       return;
     }
-    const key = ref?.messageId ? `output:${ref.taskId}:${ref.messageId}` : ref && history.role === "user" ? `input:${ref.taskId}` : fallback;
+    const key = ref?.messageId ? `output:${ref.taskId}:${ref.messageId}` : taskId && history.role === "user" ? `input:${taskId}` : fallback;
     if (ref?.messageId && this.reconcileMessage(key, history)) return;
     const old = this.entries.get(key);
     if (key !== fallback) this.entries.delete(fallback);
     const keepFull = history.truncated && old?.kind === "message" && !old.truncated && Buffer.byteLength(old.text) >= history.totalBytes;
-    this.entries.set(key, { key, kind: "message", role: history.role, taskId: ref?.taskId,
+    this.entries.set(key, { key, kind: "message", role: history.role, taskId,
       at: old?.at || history.timestamp, seq: old?.seq ?? ref?.seq ?? 0,
       text: keepFull && old.kind === "message" ? old.text : history.text,
       entryId: history.entryId, totalBytes: history.totalBytes, truncated: keepFull ? false : history.truncated, streaming: false });

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+已确认的后续变更见[可配置子代理角色](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+
 原编号：ADR 0020
 
 ## 问题

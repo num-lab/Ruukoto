@@ -275,6 +275,43 @@ test("待确认记录：原子保存、读取、清除；损坏文件保留并�
 
 // ---------- 提交守护（真实后台） ----------
 
+test("工作流未决记录保留原参数、版本与实例；损坏参数留盘且不交给输入提交守护", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-workflow-pending-"));
+  const store = new PendingRequestStore(dir);
+  const records: PendingRequest[] = [
+    { requestId: "start", op: "workflow_start", params: { session_id: "s", request_id: "start", name: "batch", input: { secret: "完整原参" }, max_attempts: 5, duration_ms: 5000 }, instanceId: "original", createdAt: "2026-10-14T00:00:01.000Z" },
+    { requestId: "answer", op: "workflow_answer", params: { run_id: "r", request_id: "answer", step_key: "pick", question_version: 2, run_version: 4, answer: "yes" }, instanceId: "original", createdAt: "2026-10-14T00:00:02.000Z" },
+    { requestId: "control", op: "workflow_control", params: { run_id: "r", request_id: "control", expected_version: 6, control: { action: "resume", stopsConfirmed: true } }, instanceId: "original", createdAt: "2026-10-14T00:00:03.000Z" },
+  ];
+  try {
+    for (const record of records) store.save(record);
+    assert.deepEqual(store.list().records, records);
+    const malformed: PendingRequest[] = [
+      { ...records[0], requestId: "wrong_key" },
+      { ...records[0], requestId: "missing_input", params: { session_id: "s", request_id: "missing_input", name: "batch" } },
+      { ...records[1], requestId: "missing_version", params: { run_id: "r", request_id: "missing_version", step_key: "pick", question_version: 1, answer: "yes" } },
+      { ...records[2], requestId: "invalid_control", params: { run_id: "r", request_id: "invalid_control", expected_version: 1, control: { action: "resume", stopsConfirmed: "yes" } } },
+      { ...records[0], requestId: "invalid_time", createdAt: "invalid" },
+    ];
+    for (const record of malformed) store.save(record);
+    const list = store.list();
+    assert.deepEqual(list.records, records);
+    assert.deepEqual(list.corrupt.sort(), malformed.map(record => `${record.requestId}.json`).sort());
+    for (const file of list.corrupt) assert.ok(fs.existsSync(path.join(dir, file)));
+    const ctl = fakeControl();
+    const log: ConnLog = { states: [], snapshots: [], events: [] };
+    const { conn } = makeConn({ clientFactory: ctl.factory }, log);
+    await conn.start();
+    try {
+      const count = ctl.transports[0].requests.length;
+      const guard = new SubmissionGuard(store, conn);
+      assert.ok((await guard.reconcileAll()).every(outcome => outcome.kind === "kept"));
+      assert.equal(ctl.transports[0].requests.length, count, "工作流未决请求不可进入 find_task 或自动提交");
+      assert.deepEqual(store.list().records, records, "其他数据实例不能清除或重发原记录");
+    } finally { conn.close(); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 async function startGuardRuntime() {
   const t = await startTestRuntime(
     "guard",

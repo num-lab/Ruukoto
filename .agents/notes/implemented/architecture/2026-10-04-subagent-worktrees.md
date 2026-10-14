@@ -2,6 +2,8 @@
 
 Status: implemented
 
+已确认的后续变更见[可配置子代理角色](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+
 部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)统一两个产品的执行接线、宿主目录身份与权限预检；写入目标、宿主不执行 Git 和成果保留仍由本篇持有。
 
 原编号：ADR 0021

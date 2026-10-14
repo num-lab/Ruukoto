@@ -1,0 +1,29 @@
+✖ 续接 main 冷恢复：first 来源撤销清除整组认领后，普通 owner_reply 仍取消且不实际发送 (401.314375ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1657.905
+
+✖ failing tests:
+
+test at test/125-agent-wait-attention-report.test.ts:96:1
+✖ 续接 main 冷恢复：first 来源撤销清除整组认领后，普通 owner_reply 仍取消且不实际发送 (401.314375ms)
+  AssertionError [ERR_ASSERTION]: Q 最终正文必须被实际发送器拒绝，outbox=sent
+
+  1 !== 0
+
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-sender-review/test/125-agent-wait-attention-report.test.ts:187:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,96 @@
+✖ main 父轮 batch 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (244.81525ms)
+✖ main 父轮 sequential 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (146.280417ms)
+✖ 后续可信 main 仅等待第二目标：接管整组只回报一次且保留原消费 (145.5445ms)
+✖ 后续可信 main 仅等待第二目标：provider 未接受整组输入则不完成旧消费报告 (143.150666ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 0
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1925.878791
+
+✖ failing tests:
+
+test at test/125-agent-wait-attention-report.test.ts:32:56
+✖ main 父轮 batch 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (244.81525ms)
+  AssertionError [ERR_ASSERTION]: 完成问答轮次不能把部分结果登记为整组最终报告
+  + actual - expected
+
+  + 'reported'
+  - 'pending'
+
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-report-1014-01/test/125-agent-wait-attention-report.test.ts:65:12)
+      at runNextTicks (node:internal/process/task_queues:65:5)
+      at process.processTimers (node:internal/timers:538:9)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'reported',
+    expected: 'pending',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/125-agent-wait-attention-report.test.ts:32:56
+✖ main 父轮 sequential 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (146.280417ms)
+  AssertionError [ERR_ASSERTION]: 完成问答轮次不能把部分结果登记为整组最终报告
+  + actual - expected
+
+  + 'reported'
+  - 'pending'
+
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-report-1014-01/test/125-agent-wait-attention-report.test.ts:65:12)
+      at runNextTicks (node:internal/process/task_queues:65:5)
+      at process.processTimers (node:internal/timers:538:9)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'reported',
+    expected: 'pending',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/125-agent-wait-attention-report.test.ts:91:44
+✖ 后续可信 main 仅等待第二目标：接管整组只回报一次且保留原消费 (145.5445ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'reported'
+  - 'pending'
+
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-report-1014-01/test/125-agent-wait-attention-report.test.ts:135:12)
+      at runNextTicks (node:internal/process/task_queues:65:5)
+      at process.processTimers (node:internal/timers:538:9)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'reported',
+    expected: 'pending',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/125-agent-wait-attention-report.test.ts:91:44
+✖ 后续可信 main 仅等待第二目标：provider 未接受整组输入则不完成旧消费报告 (143.150666ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'reported'
+  - 'pending'
+
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-report-1014-01/test/125-agent-wait-attention-report.test.ts:135:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'reported',
+    expected: 'pending',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

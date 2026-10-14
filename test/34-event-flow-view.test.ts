@@ -1,8 +1,9 @@
+import type { TaskView as Task } from "@ruukoto/core/views.ts";
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import type { Task } from "@ruukoto/core/types.ts";
+
 import type { FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
 import { EventFlowView } from "@ruukoto/tui/tui/event-flow-view.ts";
 
@@ -18,7 +19,7 @@ const tool = (extra: Partial<Extract<FlowEntry, { kind: "tool" }>> = {}): FlowEn
 });
 function task(extra: Partial<Task> = {}): Task {
   return {
-    id: "task-1", sessionId: "session-1", requestId: "request-1", input: "test", modelSelection: null,
+    id: "task-1", sessionId: "session-1", requestId: "request-1", input: "test", inputPurpose: "user", modelSelection: null,
     submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1,
     sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,

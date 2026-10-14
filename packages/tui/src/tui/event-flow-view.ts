@@ -110,7 +110,7 @@ function renderInputs(entry: FlowEntry): unknown[] {
     case "note": return [entry.kind, entry.text];
     case "task": {
       const task = entry.task;
-      return [entry.kind, task.status, task.startedAt, task.endedAt, task.errorMessage, task.interruptReason, task.effectUnknown];
+      return [entry.kind, task.status, task.startedAt, task.endedAt, task.errorMessage, task.interruptReason, task.effectUnknown, task.wait, task.resourcePhase];
     }
   }
 }
@@ -390,7 +390,9 @@ export class EventFlowView implements Component {
           const elapsed = task.startedAt ? ` · Elapsed ${formatDuration(task.startedAt, this.clock())}` : "";
           const todos = latestTodos(this.entries.filter((entry) => entry.kind === "tool"));
           const progress = todos?.length ? ` [${todos.filter((todo) => todo.status === "completed").length}/${todos.length}]` : "";
-          const waiting = task.status === "awaiting_confirmation" ? " · waiting for approval" : "";
+          const waiting = task.status === "awaiting_confirmation" ? " · waiting for approval"
+            : task.wait?.phase === "waiting" ? ` · 等待后台：${task.wait.targets.map(target => `${target.label}（${target.status}）`).join("、")}`
+            : task.resourcePhase === "conversation" ? " · 等待执行资源，可继续对话" : "";
           const word = "Sweeping";
           const head = Math.floor(Math.max(0, this.clock() - Date.parse(task.startedAt ?? task.createdAt)) / animationMs) % (word.length + 30) - 3;
           const shine = [...word].map((letter, index) => {
@@ -404,7 +406,7 @@ export class EventFlowView implements Component {
         const at = task.endedAt ? ` · At ${endTime(task.endedAt)}` : "";
         const style = task.status === "completed" ? dim : task.status === "failed" ? red : yellow;
         const label = task.status === "completed" ? "Done" : task.status === "failed" ? "Failed" : task.status === "canceled" ? "Canceled" : "Interrupted";
-        const reason = task.errorMessage ?? task.interruptReason;
+        const reason = task.wait?.reason === "owner_input" ? "新输入打断等待，后台工作继续" : task.errorMessage ?? task.interruptReason;
         const message = `${label}${duration}${at}${reason ? ` · ${singleLine(reason)}` : ""}${task.effectUnknown ? " · 效果未知" : ""}`;
         return this.marked(style(task.status === "completed" ? " " : task.status === "failed" ? "✗" : "■"), style(message), width);
       }

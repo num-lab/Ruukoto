@@ -1102,8 +1102,9 @@ async function runWorkflowCli(positional: string[], flags: Record<string, string
       const key = requestId(), session = required("session"), input = inputJson("input", {});
       const script = flags["script-file"] ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(fs.readFileSync(flags["script-file"])) : undefined;
       if (id && script !== undefined) throw new Error("名称和 --script-file 二选一");
+      const title = script === undefined ? flags["title"] : required("title");
       check = bin + " workflow find --session " + session + " --request-id " + key; write = true;
-      print(await withClient(c => c.request("workflow_start", { session_id: session, request_id: key, name: id, script, input,
+      print(await withClient(c => c.request("workflow_start", { session_id: session, request_id: key, name: id, script, title, description: flags["description"], input,
         max_attempts: flags["max-attempts"] === undefined ? undefined : Number(flags["max-attempts"]),
         duration_ms: flags["duration-ms"] === undefined ? undefined : Number(flags["duration-ms"]) }))); return 0;
     }
@@ -1131,8 +1132,8 @@ async function runWorkflowCli(positional: string[], flags: Record<string, string
     console.log([
       bin + " workflow definitions | definition <名称> [--version-offset N] | version <版本ID> [--offset N --length N]",
       bin + " workflow save <名称> --script-file F --request-id K [--expected-digest 当前摘要]",
-      bin + " workflow run <名称> --session S --request-id K [--input-json JSON | --input-file F]",
-      bin + " workflow run --script-file F --session S --request-id K [--input-json JSON]",
+      bin + " workflow run <名称> --session S --request-id K [--description 简短说明] [--input-json JSON | --input-file F]",
+      bin + " workflow run --script-file F --title 名称 --session S --request-id K [--description 简短说明] [--input-json JSON]",
       bin + " workflow saved --request-id K | find --session S --request-id K",
       bin + " workflow list [--session S --offset N --limit N] | show <运行ID> [--step-offset N]",
       bin + " workflow logs <运行ID> | step <运行ID> <步骤键> | question <运行ID> <步骤键> [--offset N --length N]",

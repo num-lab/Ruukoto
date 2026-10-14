@@ -47,15 +47,18 @@ SubAgent 工具集由所属工作是否有写入目标与是否宿主评审决�
 | 结构化审批 | `request_file_access`、`http_request` |
 | 产物 | `read_artifact` |
 | 资料与记忆 | `history_search`、`history_read`、`memory_list`、`memory_read`、`memory_save`、`memory_revoke` |
+| 后台等待 | `agent_wait` |
 | Web Search | `web_search` |
 | 浏览器 | `browser` |
 | 应用数据 | `app_data_define_table`、`app_data_migrate`、`app_data_query`、`app_data_insert`、`app_data_update`、`app_data_delete` |
 | 服务器服务管理 | `service_inspect`、`service_manage` |
 | MCP | `mcp_<服务名>_<远端工具名>` |
 
-`executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出，包含会话类别（工具类别表与系统提示键）、SubAgent 工具集、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）与工具集签名。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务允许的工具在任务开始时算一次：已装配的工具减去计划模式、GitHub 评审等宿主按任务收窄与项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
+`executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出，包含会话类别（工具类别表与系统提示键）、SubAgent 工具集、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）与工具集签名。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
 
-`browser` 只在完全访问的拥有者 main / 普通开发任务开放；Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
+`agent_wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。内部对话阶段显式只开放等待和后台状态、历史及结果查询；项目读写、bash、技能文件读取、MCP 与未分类工具都须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
+
+`browser` 只在完全访问的拥有者 main / 普通开发任务的执行阶段开放；内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
 
 浏览器动作顺序执行。元素操作将快照的 eN / @eN 规范为同一引用，仅接受该会话当前代次的 snapshot 引用，并在发送前用新快照核实引用仍在。导航和表单操作按完全访问依据记账，发送后断线、超时或取消不能证明未执行时记 `effect_unknown`；不重发，连接保持不可用，等待拥有者暂停后的新输入核实；先前排队任务不能解除暂停，IM 沿原消息接受顺序判别。只读 snapshot/截图丢响应不增加写入效果。截图校验实际 MIME、8 MiB 上限与 SHA-256 后提升为不可变产物，再返回视觉块；图片与真实模型请求、JSONL、prompt 快照同源。完整导出见[操作手册](../usage.md)。
 
@@ -234,11 +237,13 @@ sequenceDiagram
 
 **GitHub 接入**。GitHub 操作一律经 MCP 服务接入，核心不提供专用 GitHub 模块或 REST 回退路径；PR webhook 评审的任务由宿主按任务收窄为静态只读白名单（`read` / `read_artifact`）∪ 类别为只读的 MCP 工具。端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`，host `api.githubcopilot.com`），必须另建并收紧到 main 项目，不复用其他用途的凭据，凭据范围不自动迁移。允许列表按 `mcp check` 实际发现的工具名精确填写，服务端工具集随版本变化，以发现结果为准；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。真实只读连通验证（SDK 版本、协商协议、工具清单与结果）在配置具备时进行；缺少凭据或网络条件时如实列为未验证，不以模拟测试冒充。故障排查按现象分派：认证失败（401/403）核对 `credentials list` 中 host、用途、scope 与 PAT 权限；服务不可用事件按事件中的 reason 区分连接失败、超时、协议不兼容（SDK 结果校验失败说明服务端违反 MCP 规范）与工具数/分页超限；工具缺失用 `mcp check` 对比远端实际工具与允许列表，远端改名须更新配置并在下一任务生效；限流（429）与超时一次终止并明确报错、不自动重试，重试时机由拥有者决定，任务取消或中断后迟到结果被忽略，终态与操作记录保持一致。
 
-共享 `workflow` 族提供 `workflow_instructions`、`workflow_save`、`workflow_start`、`workflow_query` 和 `workflow_cancel`。编写说明通过工具结果进入历史；保存/发起使用稳定键，查询/取消限来源会话，身份来自独立 HostToolContext。模型只可收窄默认预算，不取得恢复、核实或提高预算的入口；计划模式和步骤不开放这些工具。保存落盘前重核活动身份；账本按完整请求摘要核实发起、保存和取消，文件已落盘但无保存回执仍记无法核实。
+共享 `workflow` 族提供 `workflow_instructions`、`workflow_save`、`workflow_start`、`workflow_query` 和 `workflow_cancel`。编写说明通过工具结果进入历史；临时脚本发起必填简短单行 `title`，命名定义沿所选名称；可给显式 `description`，不把参数自动展开成说明。保存/发起使用稳定键，查询/取消限来源会话，身份来自独立 HostToolContext。模型只可收窄默认预算，不取得恢复、核实或提高预算的入口；计划模式和步骤不开放这些工具。保存落盘前重核活动身份；账本按完整请求摘要核实发起、保存和取消，文件已落盘但无保存回执仍记无法核实。
 
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；独立编码验证只开放五个编码工具，其命令使用原生沙箱。
 
 ## 设计依据
+
+- [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [会话浏览器的归属与不重放](../../.agents/notes/implemented/feature/2026-10-14-agent-browser.md)
 

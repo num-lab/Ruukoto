@@ -1,0 +1,9 @@
+✔ 不同父轮等待同原来源：停车只覆盖本轮固定目标，其他组后备仍可执行 (36.96325ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 796.17075

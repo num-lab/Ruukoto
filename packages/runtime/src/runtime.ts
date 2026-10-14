@@ -118,7 +118,7 @@ import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
 import { Store,StoreConflictError } from "@ruukoto/core/store.ts";
-import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, findWorkflowRun, getWorkflowDeliveryRun, getWorkflowExecution, getWorkflowQuestion, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDeliveryKey, workflowDigest, workflowJson, workflowQuestionKey, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowControl, type WorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
+import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, findWorkflowRun, getWorkflowDeliveryRun, getWorkflowExecution, getWorkflowQuestion, getWorkflowReceipt, getWorkflowRunNumber, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, requireWorkflowRun, setWorkflowState, startWorkflowExecution, updateWorkflowExecution, updateWorkflowRun, workflowDeliveryKey, workflowDigest, workflowJson, workflowQuestionKey, workflowSlotsUsed, workflowTerminal, WorkflowError, type WorkflowControl, type WorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { WorkflowCoordinator, type WorkflowAgentExecutor } from "./workflows.ts";
 import { WorkflowSteps } from "./workflow-steps.ts";
 import { WorkflowLibrary } from "./workflow-library.ts";
@@ -1339,19 +1339,26 @@ export class Runtime {
   /** 拥有者查询持久事实；大问题/回答以 UTF-8 字节分页，授权快照不从 wire 回填。 */
   getWorkflowDetail(runId: string, stepOffset = 0) {
     const run = chargeWorkflow(requireWorkflowRun(this.store, runId), Date.now());
-    const steps = listWorkflowSteps(this.store, runId);
+    const steps = listWorkflowSteps(this.store, runId), executions = listWorkflowExecutions(this.store, runId);
+    const stopped = run.status === "paused" || workflowTerminal(run.status);
+    const stopUnverified = run.scriptStopVerified === false || (stopped && run.scriptUnits.length > 0 && run.scriptStopVerified !== true) ||
+      executions.some(execution => execution.stopVerified === false || (stopped && (execution.status === "running" || (execution.status === "finished" && execution.stopVerified !== true))));
     return { run: { id: run.id, sessionId: run.source.sessionId, definitionId: run.definitionId, scriptDigest: run.scriptDigest, inputDigest: run.inputDigest,
+      number: getWorkflowRunNumber(this.store, run.id),
+      displayName: run.displayName ?? `未命名工作流 ${run.createdAt}`, description: run.description ?? null, createdAt: run.createdAt,
+      stopUnverified, effectUnknown: run.reason === "effect_unknown" || executions.some(execution => this.store.getTask(execution.taskId)?.effectUnknown),
       status: run.status, version: run.version, reason: run.reason, attempts: run.attempts, maxAttempts: run.maxAttempts,
       usedMs: run.usedMs, durationMs: run.durationMs, clockVerified: run.clockVerified, scriptStopVerified: run.scriptStopVerified, terminalVersion: run.terminalVersion,
       delivery: run.delivery ? { version: run.delivery.version, taskId: run.delivery.taskId, status: run.delivery.status, reason: run.delivery.reason } : undefined },
     steps: steps.slice(stepOffset, stepOffset + 100).map(step => ({ key: step.key, kind: step.kind, status: step.status, resultRecorded: step.resultRecorded, attempts: step.attempts,
       question: getWorkflowQuestion(this.store, runId, step.key)?.status ?? null, outputArtifact: step.outputArtifact })),
     stepOffset, totalSteps: steps.length, nextStepOffset: stepOffset + 100 < steps.length ? stepOffset + 100 : null,
-    executions: listWorkflowExecutions(this.store, runId).slice(-100) };
+    executions: executions.slice(-100) };
   }
 
-  listWorkflows(sessionId?: string, offset = 0, limit = 50) {
-    const runs = listWorkflowRuns(this.store, sessionId).reverse();
+  listWorkflows(sessionId?: string, offset = 0, limit = 50, scope: "current" | "history" = "history") {
+    const history = listWorkflowRuns(this.store, sessionId).reverse();
+    const runs = scope === "current" ? [...history.filter(run => !workflowTerminal(run.status)), ...history.filter(run => workflowTerminal(run.status)).slice(0, 10)] : history;
     return { runs: runs.slice(offset, offset + limit).map(run => this.getWorkflowDetail(run.id).run), total: runs.length,
       offset, nextOffset: offset + limit < runs.length ? offset + limit : null };
   }
@@ -1416,7 +1423,7 @@ export class Runtime {
     if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
     this.workflowSource(task.id);
     const script = await this.workflowScript(input);
-    return this.getWorkflowDetail(this.workflows.start({ ...input, sourceTaskId: task.id, script, requestDigest: digest }).id);
+    return this.getWorkflowDetail(this.workflows.start({ ...input, displayName: input.name ?? input.title, sourceTaskId: task.id, script, requestDigest: digest }).id);
   }
 
   /** 可信拥有者入口：短期发起任务和运行同事务登记，不调用模型或借用活动聊天。 */
@@ -1459,7 +1466,7 @@ export class Runtime {
         modelSelection: selection, accessMode: mode, submissionDigest: digest, agentId: identity.kind === "main" ? "main" : null, sourceEventId });
       if (queued.duplicate) throw new WorkflowError("request_conflict");
       this.store.transitionTask(queued.task.id, ["queued"], "running", { startedAt: new Date().toISOString() });
-      const accepted = this.workflows.register({ ...input, sourceTaskId: queued.task.id, script, requestDigest: digest }, taskId => this.workflowSource(taskId, true));
+      const accepted = this.workflows.register({ ...input, displayName: input.name ?? input.title, sourceTaskId: queued.task.id, script, requestDigest: digest }, taskId => this.workflowSource(taskId, true));
       this.store.setTaskResult(queued.task.id, `已启动工作流 ${accepted.id}`, JSON.stringify({ workflowRunId: accepted.id, hostStart: true }));
       this.store.endTask(queued.task.id, ["running"], "completed");
       origin?.txExtra(accepted);
@@ -1473,10 +1480,18 @@ export class Runtime {
     await this.workflows.control(input.runId, input.requestKey, input.version, input.control, null, input.txExtra);
     return this.getWorkflowDetail(input.runId);
   }
+  findWorkflowReceipt(runId: string, requestId: string, operation: "workflow_answer" | "workflow_control") {
+    requireWorkflowRun(this.store, runId);
+    const receipt = getWorkflowReceipt(this.store, runId, operation === "workflow_control" ? `owner:${requestId}` : requestId);
+    if (receipt && receipt.operation !== operation) throw new WorkflowError("request_conflict");
+    return receipt;
+  }
   getWorkflowQuestion(runId: string, stepKey: string, offset = 0, length = 16 * 1024) {
     const question = getWorkflowQuestion(this.store, runId, stepKey);
     if (!question) throw new WorkflowError("question_missing");
+    const prompt = question.prompt as { options?: string[]; schema?: unknown };
     return { runId, stepKey, status: question.status, version: question.version, runVersion: question.runVersion,
+      ...(prompt.options ? { choices: prompt.options } : {}), ...(prompt.schema !== undefined ? { schema: prompt.schema } : {}),
       ...sliceTextByBytes(JSON.stringify({ prompt: question.prompt, answer: question.answer }), offset, Math.min(Math.max(length, 1), 64 * 1024)) };
   }
   answerWorkflowQuestion(input: { runId: string; stepKey: string; version: number; runVersion: number; requestKey: string; answer: unknown; txExtra?: () => void }) {

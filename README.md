@@ -80,7 +80,7 @@ ruukoto qq enable
 
 ### 开发本项目
 
-两产品支持[后台工作流](docs/modules/workflows.md)及可打断等待：`workflow` 管理定义和带参运行，TUI 用 `/workflow`，个人 IM 用明确控制命令；[操作说明](docs/usage.md#511-工作流问题与回报)与[定向测试](docs/development.md#日常反馈)介绍六输入组合及显式真实模型验证。
+两产品支持[后台工作流](docs/modules/workflows.md)与可打断等待：`workflow` 管理定义与运行；TUI `/workflow` 侧栏选择启动与控制，Tab 切聊天、Esc 返回；IM 用明确命令。[操作说明](docs/usage.md#511-工作流问题与回报)与[测试导航](docs/development.md#日常反馈)列六输入组合及真实模型验证。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
 

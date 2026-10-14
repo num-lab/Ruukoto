@@ -60,8 +60,10 @@ test("真实 MCP 步骤审批与业务回答独立；回答有约束、事务回
     assert.equal(confirmation.consumedAt, null);
     assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 0);
     await waitFor("回答后只等待工具审批", () => requireWorkflowRun(rt.store, run.id).status === "waiting" && requireWorkflowRun(rt.store, run.id).reason === "tool_approval");
-    const question = await t.client.request<{ text: string; status: string }>("workflow_question", { run_id: run.id, step_key: "question" });
+    const question = await t.client.request<{ text: string; status: string; choices?: string[]; schema?: unknown }>("workflow_question", { run_id: run.id, step_key: "question" });
     assert.equal(question.status, "answered"); assert.match(question.text, /yes/);
+    assert.deepEqual(question.choices, ["yes", "no"]);
+    assert.deepEqual(question.schema, { type: "string" });
     await t.client.request("respond_confirmation", { confirmation_id: confirmation.id, permission_version: confirmation.permissionVersion, decision: "approve" });
     await waitFor("整项成功", () => requireWorkflowRun(rt.store, run.id).status === "succeeded");
     assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);

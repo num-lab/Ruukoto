@@ -34,6 +34,7 @@ test("Coding CLI 实际进程保存、列出、带参运行、原键核实、查
     const started = await cli(runArgs);
     assert.equal(started.code, 0, started.stderr);
     const first = JSON.parse(started.stdout) as OpResult<"workflow_start">;
+    assert.equal(first.run.displayName, "batch"); assert.equal(first.run.description, null);
     await waitFor("CLI 人工等待", () => requireWorkflowRun(rt.store, first.run.id).status === "waiting");
     assert.match((await cli(["logs", first.run.id])).stdout, /CLI  PHASE/);
     assert.match((await cli(["show", first.run.id])).stdout, /waiting/);
@@ -61,6 +62,12 @@ test("Coding CLI 实际进程保存、列出、带参运行、原键核实、查
     const nextPage = JSON.parse((await cli(["definition", "batch", "--length", "1", "--version-offset", "100"])).stdout) as OpResult<"workflow_definition">;
     assert.equal(nextPage.versions.length, 2); assert.equal(nextPage.nextVersionOffset, null);
     assert.equal(firstPage.text, nextPage.text);
+    const missingTitle = await cli(["run", "--script-file", file, "--session", session.id, "--request-id", "temporary"]);
+    assert.equal(missingTitle.code, 1); assert.match(missingTitle.stderr, /--title/);
+    const temporary = await cli(["run", "--script-file", file, "--title", "临时核对", "--description", "等待确认", "--session", session.id, "--request-id", "temporary", "--input-json", '{"text":"TEMP"}']);
+    assert.equal(temporary.code, 0, temporary.stderr);
+    const temporaryRun = (JSON.parse(temporary.stdout) as OpResult<"workflow_start">).run;
+    assert.equal(temporaryRun.displayName, "临时核对"); assert.equal(temporaryRun.description, "等待确认");
     assert.equal((await cli(["help"])).code, 0);
   } finally { await t.shutdown(); }
 });

@@ -111,11 +111,11 @@ test("工作流运行/合法 state 步骤/执行各有事件键，旧事件和�
   state.applyEvent(ev(12, { type: "workflow.execution", runId: "run", taskId: child.id, kind: "agent", status: "running", stopVerified: false }, "sess_1"), "live");
   assert.equal(notes(view).length, 3);
   assert.ok(!view.flow.items.some(entry => entry.kind === "task" && entry.task.id === child.id));
-  assert.match(notes(view).map(note => note.text).join("\n"), /停止未核实/);
+  assert.match(notes(view).map(note => note.text).join("\n"), /停止待核实/);
   state.applySnapshot({ snapshot: snapshot(), seq: 12, replay: [] }, false);
   state.applyEvent(ev(8, { type: "workflow.changed", runId: "run", status: "running", version: 2, reason: null }, "sess_1"), "replay");
-  assert.match(notes(view).find(note => note.key.endsWith(":state"))!.text, /waiting.*v3/);
-  assert.equal(notes(view).length, 3, "空补发重连保留已见事件，持久详情仍经命令查询");
+  assert.match(notes(view).find(note => note.key.endsWith(":state"))!.text, /待回答\/审批.*owner_input/);
+  assert.equal(notes(view).length, 3, "空补发重连保留已见事件，持久详情仍经侧栏查询");
   state.applySnapshot({ snapshot: snapshot({ instanceId: "other" }), seq: 0, replay: [] }, true);
   assert.equal(state.sessionViews.size, 0, "不同实例不保留旧运行提示");
 });

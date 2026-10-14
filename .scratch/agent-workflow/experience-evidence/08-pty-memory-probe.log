@@ -1,0 +1,4 @@
+group_runtime_error: {"exitCode": null, "expectSeen": 1, "expectTotal": 1, "tail": "原终端输出", "all": "原终端输出", "segments": ["原终端输出"], "cleanupError": "group stop unexpected failure"}
+kill_denied: {"exitCode": null, "expectSeen": 1, "expectTotal": 1, "tail": "原终端输出", "all": "原终端输出", "segments": ["原终端输出"], "cleanupError": "[Errno 1] group stop denied; 子进程仍未退出; [Errno 1] individual stop denied"}
+wait_timeout: {"exitCode": null, "expectSeen": 1, "expectTotal": 1, "tail": "原终端输出", "all": "原终端输出", "segments": ["原终端输出"], "cleanupError": "Command 'test-child' timed out after 6 seconds"}
+normal: {"exitCode": 0, "expectSeen": 1, "expectTotal": 1, "tail": "原终端输出", "all": "原终端输出", "segments": ["原终端输出"], "cleanupError": null}

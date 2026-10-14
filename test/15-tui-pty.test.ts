@@ -2,7 +2,7 @@
  * PTY 端到端：真实终端行为（issue 04 §6.6）。
  *
  * 以独立进程启动真实后台（mock 模型），TUI 经 Python 标准库 pty 在伪终端
- * 中运行：验证 80×24 布局渲染、中文输入提交、流式输出、Ctrl+C 与 /quit
+ * 中运行：验证宽窄布局、工作流逐层选择、中文输入、流式输出、Ctrl+C 与 /quit
  * 退出后终端恢复（进程退出、alt screen 离开）、退出后后台任务继续执行。
  *
  * 需要 python3；无 python3 时跳过（在诚实清单中标注）。
@@ -22,11 +22,22 @@ import {
   startTestRuntime,
 } from "./helpers/testkit.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { getWorkflowQuestion, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
+import { getWorkflowQuestion, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import type { SessionCompactionRequest } from "@ruukoto/core/types.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
+import { FakeTerminal } from "./helpers/fake-terminal.ts";
+
+test("FakeTerminal：完整 CSI、SS3 与缩放回调保持终端输入边界", () => {
+  const terminal = new FakeTerminal(), inputs: string[] = [], sizes: number[][] = [];
+  terminal.start(data => inputs.push(data), () => sizes.push([terminal.columns, terminal.rows]));
+  terminal.send("/workflow\r\x1b[6~\x1b[1;5C\x1b[<0;10;3M\x1bOP\t\x1b");
+  assert.deepEqual(inputs, ["/workflow", "\r", "\x1b[6~", "\x1b[1;5C", "\x1b[<0;10;3M", "\x1bOP", "\t", "\x1b"]);
+  terminal.resize(140, 30);
+  terminal.resize(70, 22);
+  assert.deepEqual(sizes, [[140, 30], [70, 22]]);
+});
 
 function hasPython3(): boolean {
   try {
@@ -39,22 +50,23 @@ function hasPython3(): boolean {
 
 /** 在 PTY 中运行 TUI 的 Python 驱动脚本。 */
 const PTY_DRIVER = `
-import os, pty, select, struct, fcntl, termios, subprocess, sys, time, json
+import os, pty, select, struct, fcntl, termios, subprocess, sys, time, json, signal
 
 argv = json.loads(sys.argv[1])
 cmd = argv["cmd"]              # TUI 命令与参数
 env = dict(os.environ, **argv["env"])
-inputs = argv["inputs"]        # [(delaySec, data), ...]
+inputs = argv["inputs"]        # [(delaySec, data 或尺寸), ...]
 expect = argv["expect"]        # 需要依次看到的子串
 timeout = argv.get("timeout", 60)
 
 master, slave = pty.openpty()
-# 80x24 窄终端
-fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-proc = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True)
+size = argv.get("size", {"columns": 80, "rows": 24})
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", size["rows"], size["columns"], 0, 0))
+proc = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True, start_new_session=True)
 os.close(slave)
 
 collected = b""
+segments = [b""]
 deadline = time.time() + timeout
 expect_idx = 0
 input_idx = 0
@@ -67,7 +79,13 @@ def elapsed():
 while time.time() < deadline:
     # 发送到时输入
     while input_idx < len(inputs) and elapsed() >= inputs[input_idx][0]:
-        os.write(master, inputs[input_idx][1].encode("utf-8"))
+        action = inputs[input_idx][1]
+        segments.append(b"")
+        if isinstance(action, str):
+            os.write(master, action.encode("utf-8"))
+        else:
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", action["rows"], action["columns"], 0, 0))
+            os.killpg(proc.pid, signal.SIGWINCH)
         input_idx += 1
     r, _, _ = select.select([master], [], [], 0.1)
     if master in r:
@@ -78,6 +96,7 @@ while time.time() < deadline:
         if not chunk:
             break
         collected += chunk
+        segments[-1] += chunk
         text = collected.decode("utf-8", errors="replace")
         while expect_idx < len(expect) and expect[expect_idx] in text:
             expect_idx += 1
@@ -85,6 +104,8 @@ while time.time() < deadline:
         break
 
 # 收尾：再等剩余的输入/输出一会
+cleanup_deadline = time.monotonic() + 6
+cleanup_error = None
 for _ in range(30):
     if proc.poll() is not None:
         break
@@ -97,19 +118,36 @@ for _ in range(30):
         if not chunk:
             break
         collected += chunk
+        segments[-1] += chunk
 
-if proc.poll() is None:
-    proc.kill()
 try:
+    if proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (PermissionError, ProcessLookupError) as error:
+            # macOS 在僵尸回收窗口可报 EPERM；仅以随后正常退出为准。
+            try:
+                code = proc.wait(timeout=max(0, cleanup_deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                cleanup_error = str(error) + "; 子进程仍未退出"
+                proc.kill()
+            else:
+                if code != 0:
+                    cleanup_error = str(error) + "; 子进程退出码 " + str(code)
+    os.set_blocking(master, False)
     while True:
-        chunk = os.read(master, 65536)
+        try:
+            chunk = os.read(master, 65536)
+        except OSError:
+            break
         if not chunk:
             break
         collected += chunk
-except OSError:
-    pass
+        segments[-1] += chunk
+    exit_code = proc.wait(timeout=max(0, cleanup_deadline - time.monotonic()))
+except Exception as error:
+    cleanup_error = (cleanup_error + "; " if cleanup_error else "") + str(error)
 os.close(master)
-exit_code = proc.wait()
 
 text = collected.decode("utf-8", errors="replace")
 print(json.dumps({
@@ -118,21 +156,26 @@ print(json.dumps({
     "expectTotal": len(expect),
     "tail": text[-3000:],
     "all": text,
+    "segments": [segment.decode("utf-8", errors="replace") for segment in segments],
+    "cleanupError": cleanup_error,
 }))
 `;
 
 interface PtyResult {
-  exitCode: number;
+  exitCode: number | null;
   expectSeen: number;
   expectTotal: number;
   tail: string;
   all: string;
+  segments: string[];
+  cleanupError: string | null;
 }
 
 async function runTuiInPty(opts: {
   env: Record<string, string>;
   sessionId?: string;
-  inputs: Array<[number, string]>;
+  inputs: Array<[number, string | { columns: number; rows: number }]>;
+  size?: { columns: number; rows: number };
   expect: string[];
   timeout?: number;
   product?: "ruukoto" | "ruukoto-code";
@@ -143,6 +186,7 @@ async function runTuiInPty(opts: {
     cmd: ["npx", "tsx", `apps/${opts.product ?? "ruukoto"}/src/main.ts`, ...args],
     env: opts.env,
     inputs: opts.inputs,
+    size: opts.size,
     expect: opts.expect,
     timeout: opts.timeout ?? 90,
   });
@@ -154,7 +198,9 @@ async function runTuiInPty(opts: {
     child.stderr.on("data", (c: Buffer) => (err += c.toString()));
     child.on("close", () => {
       try {
-        resolve(JSON.parse(out.trim().split("\n").at(-1)!) as PtyResult);
+        const result = JSON.parse(out.trim().split("\n").at(-1)!) as PtyResult;
+        if (result.cleanupError) reject(new Error(`PTY 驱动清理失败：${result.cleanupError}\n原输出：${result.all}`));
+        else resolve(result);
       } catch (e) {
         reject(new Error(`PTY 驱动输出解析失败：${(e as Error).message}\nstderr: ${err}\nstdout: ${out.slice(-2000)}`));
       }
@@ -194,24 +240,37 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持�
   } finally { await t.shutdown(); }
 });
 
-test("PTY：工作流阶段窗口可滚动关闭，等待中聊天与退出不取消运行", { timeout: 60_000 }, async context => {
+test("PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留后台运行", { timeout: 60_000 }, async context => {
   if (!hasPython3()) { context.skip("python3 不可用"); return; }
-  const t = await startTestRuntime("pty-workflow", async () => ({ kind: "text", text: "CHAT-OK" }), { config: { product: codeProduct.runtime, socketPath: undefined } });
+  const t = await startTestRuntime("pty-workflow", async request => ({ kind: "text", text: "CHAT-OK:" + lastUserText(request) }), { config: { product: codeProduct.runtime, socketPath: undefined } });
   try {
     const session = (await t.runtime.openWorkspace({ cwd: t.work[0] })).session;
     const text = Array.from({ length: 40 }, (_, index) => "STAGE-LOG " + index + " 中文阶段").join("\n");
     await t.runtime.saveWorkflowDefinition({ name: "batch", script: 'await progress("state",{text:' + JSON.stringify(text) + '}); return await ask("q",{prompt:"继续?"});', expectedDigest: null, requestKey: "owner:save" });
-    const accepted = await t.runtime.startWorkflowOwner({ sessionId: session.id, name: "batch", requestKey: "run", input: {} });
-    await waitFor("人工等待", () => requireWorkflowRun(t.runtime.store, accepted.run.id).status === "waiting");
-    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id,
+    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id, size: { columns: 140, rows: 30 },
       env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
-      inputs: [[4, "/workflow logs " + accepted.run.id + "\r"], [7, "\x1b[6~"], [8, "q"], [10, "日常聊天\r"], [15, "/quit\r"]],
-      expect: ["STAGE-LOG", "CHAT-OK", "已退出 TUI"], timeout: 25 });
+      inputs: [[4, "/workflow\r"], [6, "\x1b[B\r"], [7, "\r"], [8, "\r"], [9, "终端逐层操作\r"], [10, "\r"],
+        [12, "\r"], [13, "\x1b[B\r"], [14, "\x1b[6~"], [15, { columns: 70, rows: 22 }],
+        [16, "\t"], [17, "窄屏聊天\r"], [20, "\t"], [21, { columns: 140, rows: 30 }],
+        [22, "\t"], [23, "宽屏聊天\r"], [26, "\t"], [27, "\x1b"], [28, "\x1b"], [29, "\x1b"], [30, "/quit\r"]],
+      expect: ["业务参数", "确认启动", "STAGE-LOG", "CHAT-OK:窄屏聊天", "CHAT-OK:宽屏聊天", "已退出 TUI"], timeout: 40 });
     assert.equal(result.exitCode, 0, result.tail); assert.equal(result.expectSeen, result.expectTotal, result.tail);
     assert.ok(result.all.includes("\x1b[?1049l"));
-    assert.equal(requireWorkflowRun(t.runtime.store, accepted.run.id).status, "waiting");
-    assert.equal(getWorkflowQuestion(t.runtime.store, accepted.run.id, "q")!.status, "pending");
-    assert.equal(t.server.calls.length, 1, "只有日常聊天调用模型");
+    assert.match(result.segments[9], /STAGE-LOG 1\d/, "PgDn 续读当前日志正文");
+    assert.match(result.segments[10], /工作流.*阶段日志/, "缩窄后保留日志层");
+    assert.doesNotMatch(result.segments[10], /执行：/, "窄屏窗口隐藏聊天标题");
+    assert.match(result.segments[13], /工作流.*阶段日志/, "窄屏 Tab 返回原日志层");
+    assert.match(result.segments[14], /工作流.*阶段日志/, "恢复宽屏不丢导航");
+    assert.match(result.segments[14], /CHAT-OK:窄屏聊天/, "宽屏同时显示聊天与侧栏");
+    assert.match(result.segments[18], /工作流.*运行详情/, "Esc 从日志返回详情");
+    assert.match(result.segments[19], /工作流.*当前会话/, "Esc 从详情返回根列表");
+    const runs = listWorkflowRuns(t.runtime.store);
+    assert.equal(runs.length, 1, "整个键盘路径只启动一次");
+    assert.equal(runs[0].displayName, "batch"); assert.equal(runs[0].description, "终端逐层操作");
+    assert.deepEqual(runs[0].input, {});
+    assert.equal(requireWorkflowRun(t.runtime.store, runs[0].id).status, "waiting");
+    assert.equal(getWorkflowQuestion(t.runtime.store, runs[0].id, "q")!.status, "pending");
+    assert.equal(t.server.calls.length, 2, "只有宽窄屏的两次聊天调用模型");
   } finally { await t.shutdown(); }
 });
 

@@ -16,7 +16,7 @@ Status: implemented
 
 ## 既有笔记审计
 
-已检索 proposed、implemented 的工作流、交互、等待和占用；rejected 目录不存在。[定义与入口](../../implemented/feature/2026-10-13-workflow-library-and-controls.md)部分重叠，新的[侧栏方案](../../proposed/feature/2026-10-14-workflow-progressive-controls.md)持有产品替代，不在本篇改写旧实现决定。[根指示常驻约定](2026-10-10-agents-md-conventions.md)持有规范入口分层，本篇只增加拥有者明确指定的设计准则。其他命中涉及数据、权限、委派和调度机制，不被本规则取代；无完全吸收或过时提案。
+已检索 proposed、implemented 的工作流、交互、等待和占用；rejected 目录不存在。[定义与入口](../../implemented/feature/2026-10-13-workflow-library-and-controls.md)部分重叠，新的[侧栏方案](../../implemented/feature/2026-10-14-workflow-progressive-controls.md)持有产品替代，不在本篇改写旧实现决定。[根指示常驻约定](2026-10-10-agents-md-conventions.md)持有规范入口分层，本篇只增加拥有者明确指定的设计准则。其他命中涉及数据、权限、委派和调度机制，不被本规则取代；无完全吸收或过时提案。
 
 ## 备选方案
 

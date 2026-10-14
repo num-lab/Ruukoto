@@ -13,7 +13,7 @@ test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处�
   const t = await startTestRuntime("wait-queued-group", async request => {
     const input = lastUserText(request);
     if (input === "父轮") {
-      if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "first", name: "workflow_start", arguments: { key: "first", input: null,
+      if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "first", name: "workflow_start", arguments: { title: "后台处理", key: "first", input: null,
         script: 'return await agent("result",{request:"FIRST_CHILD",tools:[]});' } }] };
       if (phase === 2) {
         firstId = (JSON.parse(lastToolText(request)) as { run: { id: string } }).run.id;
@@ -24,7 +24,7 @@ test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处�
         });
         return { kind: "tool_calls", calls: [{ id: "wait-first", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: firstId }] } }] };
       }
-      if (phase === 3) return { kind: "tool_calls", calls: [{ id: "second", name: "workflow_start", arguments: { key: "second", input: null,
+      if (phase === 3) return { kind: "tool_calls", calls: [{ id: "second", name: "workflow_start", arguments: { title: "后台处理", key: "second", input: null,
         script: 'return await agent("result",{request:"SECOND_CHILD",tools:[]});' } }] };
       secondId = (JSON.parse(lastToolText(request)) as { run: { id: string } }).run.id;
       return { kind: "tool_calls", calls: [{ id: "wait-second", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: secondId }] } }] };

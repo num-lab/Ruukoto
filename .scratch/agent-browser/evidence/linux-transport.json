@@ -1,0 +1,1055 @@
+{
+  "root": "/dev/shm/ab-fault-9abf7466",
+  "started_at": "2026-10-14T11:08:47+0800",
+  "platform": "Linux-6.8.0-117-generic-x86_64-with-glibc2.39",
+  "native_sha256": "6906d3a2a67b05809932a93d99e53d1132373f0a52a617b2d6032dbb954df6fc",
+  "commands": [
+    {
+      "case": "reset",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "reset",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/reset/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "open",
+        "http://127.0.0.1:42119/page/reset"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/reset/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":3114342655786416360},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"targetId\":\"12AEE0E10D7A61F3433000A76F04C775\",\"title\":\"Transport fault reset\",\"url\":\"http://127.0.0.1:42119/page/reset\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.536
+    },
+    {
+      "case": "reset",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "reset",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/reset/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "snapshot",
+        "-i"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/reset/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":3114342655786416360},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"origin\":\"http://127.0.0.1:42119/page/reset\",\"refs\":{\"e1\":{\"name\":\"Submit once\",\"role\":\"button\"}},\"removedRefs\":[],\"snapshot\":\"- button \\\"Submit once\\\" [ref=e1]\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.012
+    },
+    {
+      "case": "reset",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "reset",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/reset/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "click",
+        "#submit"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/reset/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 1,
+      "stdout": "{\"success\":false,\"data\":null,\"error\":\"Failed to read: Connection reset by peer (os error 104) (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+      "stderr": "",
+      "duration_seconds": 0.116
+    },
+    {
+      "case": "reset",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "reset",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/reset/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "screenshot",
+        "/dev/shm/ab-fault-9abf7466/reset/after-click.png"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/reset/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":3114342655786416360},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"path\":\"/dev/shm/ab-fault-9abf7466/reset/after-click.png\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.032
+    },
+    {
+      "case": "reset",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "reset",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/reset/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "close"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/reset/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.104
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "eof",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "open",
+        "http://127.0.0.1:42119/page/eof"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":8884368811529288802},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"targetId\":\"BCDD79C5DE71FB8DD6B0CF0808CF43A1\",\"title\":\"Transport fault eof\",\"url\":\"http://127.0.0.1:42119/page/eof\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.545
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "eof",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "snapshot",
+        "-i"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":8884368811529288802},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"origin\":\"http://127.0.0.1:42119/page/eof\",\"refs\":{\"e1\":{\"name\":\"Submit once\",\"role\":\"button\"}},\"removedRefs\":[],\"snapshot\":\"- button \\\"Submit once\\\" [ref=e1]\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.015
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "eof",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "click",
+        "#submit"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 1,
+      "stdout": "{\"success\":false,\"data\":null,\"error\":\"Invalid response: EOF while parsing a value at line 1 column 0 (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+      "stderr": "",
+      "duration_seconds": 0.088
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "eof",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "screenshot",
+        "/dev/shm/ab-fault-9abf7466/eof/after-click.png"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":8884368811529288802},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"path\":\"/dev/shm/ab-fault-9abf7466/eof/after-click.png\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.033
+    },
+    {
+      "case": "eof",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "eof",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/eof/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "close"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/eof/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.106
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "open",
+        "http://127.0.0.1:42119/page/timeout"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":10271021561280905031},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"targetId\":\"246E8342509B6748DAEADE9307A8CC92\",\"title\":\"Transport fault timeout\",\"url\":\"http://127.0.0.1:42119/page/timeout\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.551
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "snapshot",
+        "-i"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":10271021561280905031},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"origin\":\"http://127.0.0.1:42119/page/timeout\",\"refs\":{\"e1\":{\"name\":\"Submit once\",\"role\":\"button\"}},\"removedRefs\":[],\"snapshot\":\"- button \\\"Submit once\\\" [ref=e1]\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.01
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "click",
+        "#submit"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 1,
+      "stdout": "{\"success\":false,\"data\":null,\"error\":\"Failed to read: Resource temporarily unavailable (os error 11) (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+      "stderr": "",
+      "duration_seconds": 30.071
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "screenshot",
+        "/dev/shm/ab-fault-9abf7466/timeout/after-click.png"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":10271021561280905031},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"path\":\"/dev/shm/ab-fault-9abf7466/timeout/after-click.png\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.048
+    },
+    {
+      "case": "timeout",
+      "command": [
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+        "--session",
+        "timeout",
+        "--profile",
+        "/dev/shm/ab-fault-9abf7466/timeout/profile",
+        "--executable-path",
+        "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+        "--config",
+        "/dev/shm/ab-fault-9abf7466/config.json",
+        "--json",
+        "--args",
+        "--no-sandbox",
+        "close"
+      ],
+      "env": {
+        "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/timeout/run",
+        "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+      },
+      "returncode": 0,
+      "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+      "stderr": "",
+      "duration_seconds": 0.157
+    }
+  ],
+  "cases": [
+    {
+      "case": "reset",
+      "counter_endpoint": "http://127.0.0.1:42119/counter/reset",
+      "files_before_fault": {
+        "reset.config": "785b971085b3e7e9",
+        "reset.sock": "unix socket",
+        "reset.version": "0.39.1",
+        "reset.pid": "1941345"
+      },
+      "processes_before_fault": [
+        "1941351 1941345 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --remote-debugging-port=0 --no-first-run --no-default-browser-check --disable-background-networking --disable-backgrounding-occluded-windows --disable-component-update --disable-default-apps --disable-hang-monitor --disable-popup-blocking --disable-prompt-on-repost --disable-sync --disable-features=Translate --enable-features=NetworkService,NetworkServiceInProcess,WebMCPTesting,DevToolsWebMCPSupport --metrics-recording-only --password-store=basic --use-mock-keychain --headless=new --hide-scrollbars --enable-unsafe-swiftshader --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --window-size=1280,720 --no-sandbox --noerrdialogs --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941358 1941351 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=zygote --no-zygote-sandbox --no-sandbox --headless=new --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941359 1941351 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=zygote --no-sandbox --headless=new --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941381 1941358 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=gpu-process --gpu-recent-crash-count=0 --no-sandbox --headless=new --ozone-platform=headless --use-angle=swiftshader-webgl --enable-unsafe-swiftshader --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --gpu-preferences=YAAAAAAAAAAgAAAEAAAAAAAAAAAAAGAASAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAMAAAAAQAAAAAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAA== --shared-files --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708988185955192",
+        "1941382 1941351 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --use-angle=swiftshader-webgl --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708989122997041",
+        "1941398 1941359 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --no-sandbox --use-angle=swiftshader-webgl --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708990060038890",
+        "1941431 1941359 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --top-chrome-webui --gpu-client-id=5 --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --disallow-v8-feature-flag-overrides --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=5 --gpu-channel-request-start-time-ticks=11390629318196 --launch-time-ticks=11390629318892 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708990997080739",
+        "1941444 1941359 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=7 --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=7 --gpu-channel-request-start-time-ticks=11390629369485 --launch-time-ticks=11390629370189 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708992871164437",
+        "1941445 1941359 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=6 --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=6 --gpu-channel-request-start-time-ticks=11390629372525 --launch-time-ticks=11390629374842 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708991934122588",
+        "1941472 1941359 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=8 --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=8 --gpu-channel-request-start-time-ticks=11390629457581 --launch-time-ticks=11390629459115 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708993808206286",
+        "1941484 1941359 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=9 --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --extension-process --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=9 --gpu-channel-request-start-time-ticks=11390629518715 --launch-time-ticks=11390629519216 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708994745248135",
+        "1941485 1941359 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=10 --crashpad-handler-pid=1941353 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/reset/profile --extension-process --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=10 --gpu-channel-request-start-time-ticks=11390629521100 --launch-time-ticks=11390629524443 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,3111583073691722495,2618420963657358522,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,2037469729077781031,2872749565907063198,4 --trace-process-track-uuid=3190708995682289984"
+      ],
+      "daemon_pid": 1941345,
+      "daemon_process_before_fault": {
+        "command": [
+          "ps",
+          "-p",
+          "1941345",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 0,
+        "stdout": "1941345       1 Wed Oct 14 11:08:47 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64\n",
+        "stderr": ""
+      },
+      "cli_response": {
+        "case": "reset",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+          "--session",
+          "reset",
+          "--profile",
+          "/dev/shm/ab-fault-9abf7466/reset/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+          "--config",
+          "/dev/shm/ab-fault-9abf7466/config.json",
+          "--json",
+          "--args",
+          "--no-sandbox",
+          "click",
+          "#submit"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/reset/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 1,
+        "stdout": "{\"success\":false,\"data\":null,\"error\":\"Failed to read: Connection reset by peer (os error 104) (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+        "stderr": "",
+        "duration_seconds": 0.116
+      },
+      "readiness_empty_connections": 1,
+      "forwarded_count": 2,
+      "click_send_count": 1,
+      "forwarded": [
+        {
+          "received_at": 1791947328.499116,
+          "request_line": "{\"action\":\"launch\",\"args\":[\"--no-sandbox\"],\"executablePath\":\"/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome\",\"id\":\"r497112\",\"noXvfb\":false,\"plugins\":[],\"profile\":\"/dev/shm/ab-fault-9abf7466/reset/profile\"}\n",
+          "request": {
+            "action": "launch",
+            "args": [
+              "--no-sandbox"
+            ],
+            "executablePath": "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+            "id": "r497112",
+            "noXvfb": false,
+            "plugins": [],
+            "profile": "/dev/shm/ab-fault-9abf7466/reset/profile"
+          }
+        },
+        {
+          "received_at": 1791947328.5004275,
+          "request_line": "{\"action\":\"click\",\"id\":\"r496502\",\"plugins\":[],\"selector\":\"#submit\"}\n",
+          "request": {
+            "action": "click",
+            "id": "r496502",
+            "plugins": [],
+            "selector": "#submit"
+          }
+        }
+      ],
+      "daemon_responses": [
+        {
+          "action": "launch",
+          "response_line": "{\"data\":{\"launched\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":3114342655786416360},\"launched\":true,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"relaunchedBrowser\":false,\"reused\":true},\"id\":\"r497112\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "launched": true,
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 3114342655786416360
+                },
+                "launched": true,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              },
+              "relaunchedBrowser": false,
+              "reused": true
+            },
+            "id": "r497112",
+            "success": true
+          }
+        },
+        {
+          "action": "click",
+          "response_line": "{\"data\":{\"clicked\":\"#submit\",\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":3114342655786416360},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"}},\"id\":\"r496502\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "clicked": "#submit",
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 3114342655786416360
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              }
+            },
+            "id": "r496502",
+            "success": true
+          }
+        }
+      ],
+      "proxy_errors": [],
+      "counter_result": {
+        "case": "reset",
+        "count": 1
+      },
+      "passed": true,
+      "close_response": {
+        "case": "reset",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+          "--session",
+          "reset",
+          "--profile",
+          "/dev/shm/ab-fault-9abf7466/reset/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+          "--config",
+          "/dev/shm/ab-fault-9abf7466/config.json",
+          "--json",
+          "--args",
+          "--no-sandbox",
+          "close"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/reset/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 0,
+        "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+        "stderr": "",
+        "duration_seconds": 0.104
+      },
+      "processes_after_close": [],
+      "daemon_process_after_close": {
+        "command": [
+          "ps",
+          "-p",
+          "1941345",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 1,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "case": "eof",
+      "counter_endpoint": "http://127.0.0.1:42119/counter/eof",
+      "files_before_fault": {
+        "eof.config": "785b971085b3e7e9",
+        "eof.sock": "unix socket",
+        "eof.version": "0.39.1",
+        "eof.pid": "1941543"
+      },
+      "processes_before_fault": [
+        "1941549 1941543 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --remote-debugging-port=0 --no-first-run --no-default-browser-check --disable-background-networking --disable-backgrounding-occluded-windows --disable-component-update --disable-default-apps --disable-hang-monitor --disable-popup-blocking --disable-prompt-on-repost --disable-sync --disable-features=Translate --enable-features=NetworkService,NetworkServiceInProcess,WebMCPTesting,DevToolsWebMCPSupport --metrics-recording-only --password-store=basic --use-mock-keychain --headless=new --hide-scrollbars --enable-unsafe-swiftshader --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --window-size=1280,720 --no-sandbox --noerrdialogs --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941556 1941549 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=zygote --no-zygote-sandbox --no-sandbox --headless=new --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941557 1941549 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=zygote --no-sandbox --headless=new --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941579 1941556 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=gpu-process --gpu-recent-crash-count=0 --no-sandbox --headless=new --ozone-platform=headless --use-angle=swiftshader-webgl --enable-unsafe-swiftshader --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --gpu-preferences=YAAAAAAAAAAgAAAEAAAAAAAAAAAAAGAASAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAMAAAAAQAAAAAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAA== --shared-files --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708988185955192",
+        "1941580 1941549 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --use-angle=swiftshader-webgl --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708989122997041",
+        "1941597 1941557 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --no-sandbox --use-angle=swiftshader-webgl --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708990060038890",
+        "1941634 1941557 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --top-chrome-webui --gpu-client-id=5 --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --disallow-v8-feature-flag-overrides --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=5 --gpu-channel-request-start-time-ticks=11390631563616 --launch-time-ticks=11390631566327 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708990997080739",
+        "1941655 1941557 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=7 --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=7 --gpu-channel-request-start-time-ticks=11390631616961 --launch-time-ticks=11390631617651 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708992871164437",
+        "1941656 1941557 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=6 --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=6 --gpu-channel-request-start-time-ticks=11390631619536 --launch-time-ticks=11390631620414 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708991934122588",
+        "1941684 1941557 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=8 --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=8 --gpu-channel-request-start-time-ticks=11390631704452 --launch-time-ticks=11390631705696 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708993808206286",
+        "1941696 1941557 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=9 --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --extension-process --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=9 --gpu-channel-request-start-time-ticks=11390631767359 --launch-time-ticks=11390631768551 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708994745248135",
+        "1941699 1941557 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=10 --crashpad-handler-pid=1941551 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/eof/profile --extension-process --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=10 --gpu-channel-request-start-time-ticks=11390631773869 --launch-time-ticks=11390631777908 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,12397323911361302593,18047761733710842315,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,13947334641357338885,2702819554643807402,4 --trace-process-track-uuid=3190708995682289984"
+      ],
+      "daemon_pid": 1941543,
+      "daemon_process_before_fault": {
+        "command": [
+          "ps",
+          "-p",
+          "1941543",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 0,
+        "stdout": "1941543       1 Wed Oct 14 11:08:49 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64\n",
+        "stderr": ""
+      },
+      "cli_response": {
+        "case": "eof",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+          "--session",
+          "eof",
+          "--profile",
+          "/dev/shm/ab-fault-9abf7466/eof/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+          "--config",
+          "/dev/shm/ab-fault-9abf7466/config.json",
+          "--json",
+          "--args",
+          "--no-sandbox",
+          "click",
+          "#submit"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/eof/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 1,
+        "stdout": "{\"success\":false,\"data\":null,\"error\":\"Invalid response: EOF while parsing a value at line 1 column 0 (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+        "stderr": "",
+        "duration_seconds": 0.088
+      },
+      "readiness_empty_connections": 1,
+      "forwarded_count": 2,
+      "click_send_count": 1,
+      "forwarded": [
+        {
+          "received_at": 1791947330.7505715,
+          "request_line": "{\"action\":\"launch\",\"args\":[\"--no-sandbox\"],\"executablePath\":\"/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome\",\"id\":\"r750112\",\"noXvfb\":false,\"plugins\":[],\"profile\":\"/dev/shm/ab-fault-9abf7466/eof/profile\"}\n",
+          "request": {
+            "action": "launch",
+            "args": [
+              "--no-sandbox"
+            ],
+            "executablePath": "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+            "id": "r750112",
+            "noXvfb": false,
+            "plugins": [],
+            "profile": "/dev/shm/ab-fault-9abf7466/eof/profile"
+          }
+        },
+        {
+          "received_at": 1791947330.7515433,
+          "request_line": "{\"action\":\"click\",\"id\":\"r749983\",\"plugins\":[],\"selector\":\"#submit\"}\n",
+          "request": {
+            "action": "click",
+            "id": "r749983",
+            "plugins": [],
+            "selector": "#submit"
+          }
+        }
+      ],
+      "daemon_responses": [
+        {
+          "action": "launch",
+          "response_line": "{\"data\":{\"launched\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":8884368811529288802},\"launched\":true,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"relaunchedBrowser\":false,\"reused\":true},\"id\":\"r750112\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "launched": true,
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 8884368811529288802
+                },
+                "launched": true,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              },
+              "relaunchedBrowser": false,
+              "reused": true
+            },
+            "id": "r750112",
+            "success": true
+          }
+        },
+        {
+          "action": "click",
+          "response_line": "{\"data\":{\"clicked\":\"#submit\",\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":8884368811529288802},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"}},\"id\":\"r749983\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "clicked": "#submit",
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 8884368811529288802
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              }
+            },
+            "id": "r749983",
+            "success": true
+          }
+        }
+      ],
+      "proxy_errors": [],
+      "counter_result": {
+        "case": "eof",
+        "count": 1
+      },
+      "passed": true,
+      "close_response": {
+        "case": "eof",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+          "--session",
+          "eof",
+          "--profile",
+          "/dev/shm/ab-fault-9abf7466/eof/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+          "--config",
+          "/dev/shm/ab-fault-9abf7466/config.json",
+          "--json",
+          "--args",
+          "--no-sandbox",
+          "close"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/eof/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 0,
+        "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+        "stderr": "",
+        "duration_seconds": 0.106
+      },
+      "processes_after_close": [],
+      "daemon_process_after_close": {
+        "command": [
+          "ps",
+          "-p",
+          "1941543",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 1,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "case": "timeout",
+      "counter_endpoint": "http://127.0.0.1:42119/counter/timeout",
+      "files_before_fault": {
+        "timeout.config": "785b971085b3e7e9",
+        "timeout.sock": "unix socket",
+        "timeout.version": "0.39.1",
+        "timeout.pid": "1941762"
+      },
+      "processes_before_fault": [
+        "1941768 1941762 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --remote-debugging-port=0 --no-first-run --no-default-browser-check --disable-background-networking --disable-backgrounding-occluded-windows --disable-component-update --disable-default-apps --disable-hang-monitor --disable-popup-blocking --disable-prompt-on-repost --disable-sync --disable-features=Translate --enable-features=NetworkService,NetworkServiceInProcess,WebMCPTesting,DevToolsWebMCPSupport --metrics-recording-only --password-store=basic --use-mock-keychain --headless=new --hide-scrollbars --enable-unsafe-swiftshader --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --window-size=1280,720 --no-sandbox --noerrdialogs --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941775 1941768 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=zygote --no-zygote-sandbox --no-sandbox --headless=new --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941776 1941768 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=zygote --no-sandbox --headless=new --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --no-first-run --ozone-platform=headless --ozone-override-screen-size=800,600 --use-angle=swiftshader-webgl",
+        "1941798 1941775 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=gpu-process --gpu-recent-crash-count=0 --no-sandbox --headless=new --ozone-platform=headless --use-angle=swiftshader-webgl --enable-unsafe-swiftshader --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --gpu-preferences=YAAAAAAAAAAgAAAEAAAAAAAAAAAAAGAASAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAMAAAAAQAAAAAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAA== --shared-files --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708988185955192",
+        "1941799 1941768 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --use-angle=swiftshader-webgl --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708989122997041",
+        "1941815 1941776 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=utility --no-sandbox --use-angle=swiftshader-webgl --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708990060038890",
+        "1941846 1941776 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --top-chrome-webui --gpu-client-id=5 --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --disallow-v8-feature-flag-overrides --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=5 --gpu-channel-request-start-time-ticks=11390633810601 --launch-time-ticks=11390633812165 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708990997080739",
+        "1941858 1941776 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=7 --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=7 --gpu-channel-request-start-time-ticks=11390633861178 --launch-time-ticks=11390633862153 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708992871164437",
+        "1941860 1941776 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=6 --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=6 --gpu-channel-request-start-time-ticks=11390633863441 --launch-time-ticks=11390633867310 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708991934122588",
+        "1941885 1941776 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=8 --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=8 --gpu-channel-request-start-time-ticks=11390633943687 --launch-time-ticks=11390633944432 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708993808206286",
+        "1941898 1941776 Wed Oct 14 11:08:52 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=9 --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --extension-process --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=9 --gpu-channel-request-start-time-ticks=11390634002748 --launch-time-ticks=11390634003191 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708994745248135",
+        "1941899 1941776 Wed Oct 14 11:08:52 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome --type=renderer --gpu-client-id=10 --crashpad-handler-pid=1941770 --enable-crash-reporter=, --noerrdialogs --user-data-dir=/dev/shm/ab-fault-9abf7466/timeout/profile --extension-process --change-stack-guard-on-fork=enable --no-sandbox --remote-debugging-port=0 --ozone-platform=headless --disable-gpu-compositing --lang=en-US --num-raster-threads=2 --enable-main-frame-before-activation --renderer-client-id=10 --gpu-channel-request-start-time-ticks=11390634005532 --launch-time-ticks=11390634011612 --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,7129275412993053600,5859333749337751988,262144 --enable-features=DevToolsWebMCPSupport,NetworkService,NetworkServiceInProcess,WebMCPTesting --disable-features=PaintHolding,Translate --variations-seed-version --pseudonymization-salt-handle=7,i,11465197790113770571,628344609890894395,4 --trace-process-track-uuid=3190708995682289984"
+      ],
+      "daemon_pid": 1941762,
+      "daemon_process_before_fault": {
+        "command": [
+          "ps",
+          "-p",
+          "1941762",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 0,
+        "stdout": "1941762       1 Wed Oct 14 11:08:51 2026 /tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64\n",
+        "stderr": ""
+      },
+      "cli_response": {
+        "case": "timeout",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+          "--session",
+          "timeout",
+          "--profile",
+          "/dev/shm/ab-fault-9abf7466/timeout/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+          "--config",
+          "/dev/shm/ab-fault-9abf7466/config.json",
+          "--json",
+          "--args",
+          "--no-sandbox",
+          "click",
+          "#submit"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/timeout/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 1,
+        "stdout": "{\"success\":false,\"data\":null,\"error\":\"Failed to read: Resource temporarily unavailable (os error 11) (the command reached the daemon but no response came back; it may or may not have run, so it was not retried)\",\"code\":\"outcome_unknown\"}\n",
+        "stderr": "",
+        "duration_seconds": 30.071
+      },
+      "readiness_empty_connections": 1,
+      "forwarded_count": 2,
+      "click_send_count": 1,
+      "forwarded": [
+        {
+          "received_at": 1791947333.0154734,
+          "request_line": "{\"action\":\"launch\",\"args\":[\"--no-sandbox\"],\"executablePath\":\"/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome\",\"id\":\"r12493\",\"noXvfb\":false,\"plugins\":[],\"profile\":\"/dev/shm/ab-fault-9abf7466/timeout/profile\"}\n",
+          "request": {
+            "action": "launch",
+            "args": [
+              "--no-sandbox"
+            ],
+            "executablePath": "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+            "id": "r12493",
+            "noXvfb": false,
+            "plugins": [],
+            "profile": "/dev/shm/ab-fault-9abf7466/timeout/profile"
+          }
+        },
+        {
+          "received_at": 1791947333.0164225,
+          "request_line": "{\"action\":\"click\",\"id\":\"r12377\",\"plugins\":[],\"selector\":\"#submit\"}\n",
+          "request": {
+            "action": "click",
+            "id": "r12377",
+            "plugins": [],
+            "selector": "#submit"
+          }
+        }
+      ],
+      "daemon_responses": [
+        {
+          "action": "launch",
+          "response_line": "{\"data\":{\"launched\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":10271021561280905031},\"launched\":true,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"},\"relaunchedBrowser\":false,\"reused\":true},\"id\":\"r12493\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "launched": true,
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 10271021561280905031
+                },
+                "launched": true,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              },
+              "relaunchedBrowser": false,
+              "reused": true
+            },
+            "id": "r12493",
+            "success": true
+          }
+        },
+        {
+          "action": "click",
+          "response_line": "{\"data\":{\"clicked\":\"#submit\",\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":10271021561280905031},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":true,\"saveStatus\":\"not_attempted\"}},\"id\":\"r12377\",\"success\":true}\n",
+          "response": {
+            "data": {
+              "clicked": "#submit",
+              "lifecycle": {
+                "effectiveLaunch": {
+                  "browserLaunched": true,
+                  "engine": "chrome",
+                  "launchHash": 10271021561280905031
+                },
+                "launched": false,
+                "relaunchedBrowser": false,
+                "restartedBackground": false,
+                "restoreStatus": "not_configured",
+                "reused": true,
+                "saveStatus": "not_attempted"
+              }
+            },
+            "id": "r12377",
+            "success": true
+          }
+        }
+      ],
+      "proxy_errors": [],
+      "counter_result": {
+        "case": "timeout",
+        "count": 1
+      },
+      "passed": true,
+      "close_response": {
+        "case": "timeout",
+        "command": [
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+          "--session",
+          "timeout",
+          "--profile",
+          "/dev/shm/ab-fault-9abf7466/timeout/profile",
+          "--executable-path",
+          "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+          "--config",
+          "/dev/shm/ab-fault-9abf7466/config.json",
+          "--json",
+          "--args",
+          "--no-sandbox",
+          "close"
+        ],
+        "env": {
+          "AGENT_BROWSER_SOCKET_DIR": "/dev/shm/ab-fault-9abf7466/timeout/run",
+          "AGENT_BROWSER_IDLE_TIMEOUT_MS": "0"
+        },
+        "returncode": 0,
+        "stdout": "{\"success\":true,\"data\":{\"closed\":true,\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":false,\"engine\":\"chrome\",\"launchHash\":null},\"launched\":false,\"relaunchedBrowser\":false,\"restartedBackground\":false,\"restoreStatus\":\"not_configured\",\"reused\":false,\"saveStatus\":\"not_configured\"},\"restoreStatus\":\"not_configured\",\"saveStatus\":\"not_configured\"},\"error\":null}\n",
+        "stderr": "",
+        "duration_seconds": 0.157
+      },
+      "processes_after_close": [],
+      "daemon_process_after_close": {
+        "command": [
+          "ps",
+          "-p",
+          "1941762",
+          "-o",
+          "pid=,ppid=,lstart=,command="
+        ],
+        "returncode": 1,
+        "stdout": "",
+        "stderr": ""
+      }
+    }
+  ],
+  "native_version": {
+    "command": [
+      "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+      "--version"
+    ],
+    "returncode": 0,
+    "stdout": "agent-browser 0.39.1\n",
+    "stderr": ""
+  },
+  "chrome_version": {
+    "command": [
+      "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome",
+      "--version"
+    ],
+    "returncode": 0,
+    "stdout": "Google Chrome for Testing 155.0.8059.79 \n",
+    "stderr": ""
+  },
+  "os_version": {
+    "command": [
+      "uname",
+      "-a"
+    ],
+    "returncode": 0,
+    "stdout": "Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\n",
+    "stderr": ""
+  },
+  "python_version": "3.12.3 (main, Mar 23 2026, 19:04:32) [GCC 13.3.0]",
+  "http_address": "http://127.0.0.1:42119",
+  "passed": true,
+  "processes_after_all": [],
+  "tracked_daemons_after_all": [
+    {
+      "command": [
+        "ps",
+        "-p",
+        "1941345",
+        "-o",
+        "pid=,ppid=,lstart=,command="
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "ps",
+        "-p",
+        "1941543",
+        "-o",
+        "pid=,ppid=,lstart=,command="
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "ps",
+        "-p",
+        "1941762",
+        "-o",
+        "pid=,ppid=,lstart=,command="
+      ],
+      "returncode": 1,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "finished_at": "2026-10-14T11:09:24+0800"
+}

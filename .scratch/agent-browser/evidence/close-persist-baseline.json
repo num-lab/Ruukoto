@@ -1,0 +1,34 @@
+{
+  "rejected": {
+    "code": "browser_state_unavailable",
+    "effectUnknown": false
+  },
+  "daemonAlive": true,
+  "binding": {
+    "sessionId": "review",
+    "generation": "6c7212f2-1b24-4974-8923-d18d86189da5",
+    "kind": "attached",
+    "state": "unavailable",
+    "profileDir": null,
+    "socketDir": "/tmp/ruukoto-browser-501-f2fceb237086e375663de121",
+    "cliSession": "rk-f2fceb237086e375663de121",
+    "cdpUrl": "ws://127.0.0.1:9222/devtools/browser/440dafcf-deff-410d-a58b-ae927b5e4436",
+    "targetId": "e0e83ed5-3cd4-402f-804c-f993d989bd2c",
+    "chrome": null,
+    "daemon": {
+      "pid": 95818,
+      "pgid": 95818,
+      "processIdentity": "darwin:Wed Oct 14 04:21:04 2026"
+    },
+    "dashboard": null,
+    "chromePending": false,
+    "daemonPending": false,
+    "dashboardPending": false,
+    "lockDir": null,
+    "pauseTaskId": null,
+    "outcomeUnknown": false,
+    "failureCode": "browser_closing",
+    "dashboardUrl": null,
+    "headed": false
+  }
+}

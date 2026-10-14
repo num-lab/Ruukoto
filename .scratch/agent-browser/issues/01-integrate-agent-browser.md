@@ -1,10 +1,12 @@
 # 为两个 Agent 产品接入 Vercel agent-browser
 
-Status: needs-info
+Status: ready-for-human
+
+人工验收：挂起。按拥有者要求，等待 [bash 后台生命周期问题](../../../.agents/notes/proposed/feature/2026-10-14-bash-background-lifecycle.md)解决并通过对应回归与真实执行验收后，再恢复本工单的人工体验验收；挂起不等同于验收通过。
 
 ## 目标与边界
 
-让 `ruukoto` 的 main 和两个产品的普通开发会话直接完成「打开网站 → 操作 → 截图 → 根据截图继续操作」，操作覆盖登录后的导航、搜索、表单填写和提交。本轮交付工单与实施方案。技术取舍见[决策提案](../../../.agents/notes/proposed/feature/2026-10-14-agent-browser.md)，事实见[接入调查](../research.md)。
+让 `ruukoto` 的 main 和两个产品的普通开发会话直接完成「打开网站 → 操作 → 截图 → 根据截图继续操作」，操作覆盖登录后的导航、搜索、表单填写和提交。本轮交付浏览器功能、截图完整导出及验收证据。技术取舍见[决策记录](../../../.agents/notes/implemented/feature/2026-10-14-agent-browser.md)，事实见[接入调查](../research.md)。
 
 ### 拥有者已确认
 
@@ -21,7 +23,7 @@ Status: needs-info
 
 来源为 2026-10-14 本次 grill-me 访谈。拥有者在 Q15 回答「确认，按此工单交接」，整体共同理解已确认；实施者按以下范围推进，技术细节可在不改变目标、契约和验收的前提下调整。
 
-版本前置：官方 [PR #2085](https://github.com/vercel-labs/agent-browser/pull/2085) 已于 2026-10-11 合入，提交 `d9570915f4dd6504dee4070379d2c4f79d81dbb2`；截至调查时最新正式 release v0.39.0 尚不含修复。等待包含该修复或等价语义的正式 release，再核实版本、校验值与故障探针。当前可做准备和阶段 0 的生命周期调查，不能开放会改变页面或业务状态的导航、点击、填表、提交；完整网页操作仍是最终验收目标。独立审查见[证据](../evidence/plan-review.md)。
+版本前置：官方 [v0.39.1](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.1) 已于 2026-10-13T19:52:20Z 正式发布，包含 [PR #2085](https://github.com/vercel-labs/agent-browser/pull/2085) 的防重发修复；tag 为 `1165952d74ceed98fdc2dd97190ad41f44dd0e24`。2026-10-14 拥有者要求接手实施，版本等待已解除；阶段 0 的校验、故障与生命周期探针仍是进入阶段 1 的前置。完整网页操作仍是最终验收目标。原方案独立审查见[证据](../evidence/plan-review.md)。
 
 ### 首版契约
 
@@ -49,7 +51,7 @@ Status: needs-info
 - 实测官方 dashboard 的无桌面登录输入、暂停/继续、SSH loopback 转发与实例会话隔离，不公开到外网。
 - 用无敏感信息的测试 Cookie 断言 profile 在 close/后台重启后仍保存登录资料。
 
-产物为 `.scratch/agent-browser/evidence/lifecycle-probe.md` 和可复现探针，当前未创建或执行。若停止核实、附接不关窗、排他控制或人工入口在任一目标平台无法成立，退回方案者修订并独立复审，不能做阶段 1 或降低要求后记为通过。
+产物为[生命周期证据](../evidence/lifecycle-probe.md)与 `probes/` 可复现入口；macOS/Linux 固定原生程序的生命周期、故障注入和人工入口已实测，实际管理器与组合的证明见[实现检查](../evidence/implementation-checks.md)。若停止核实、附接不关窗、排他控制或人工入口在任一目标平台无法成立，退回方案者修订并独立复审，不能做阶段 1 或降低要求后记为通过。
 
 ### 阶段 1：浏览器归属与共享工具
 
@@ -91,26 +93,40 @@ Status: needs-info
 
 ## 进展与交接
 
-- 当前角色与阶段：方案者；Q1–Q15 已完成，方案经独立复审并由拥有者确认交接。阶段 0 未执行，功能仍等待外部版本前提。
-- 下一角色与动作：实施者接手后可先做准备和生命周期调查，正式修复版发布后重新核实源码、固定校验值并跑全部阶段 0 探针，通过后才进入阶段 1；不重复询问已确认范围。
-- 当前内容：分支 `Eitrous/agent-browser`，起始 HEAD `f89a1a74409e45f1c5f26827b75faa632dde996e`；起始工作区干净。当前仅新增本工单、`../research.md`、`../evidence/` 中的审查记录及快照、链接的 proposed 笔记，均未提交；以全文和审查快照核对，HEAD 不包含它们。
-- 阻塞与恢复条件：等待包含防重发修复的官方正式 release，故保持 needs-info，不可将整个功能标 ready-for-agent。发布后需核实修复确已包含、版本仍满足其他要求并通过阶段 0；daemon 归属、附接排他或 Linux 人工入口失败仍返方案者。
+- 当前角色与阶段：工程交付收尾；阶段 0–2 已实现，独立实现审查无未解决阻断。真实视觉模型双产品验收已通过；人工产品体验挂起，等待 bash 生命周期问题解决。
+- 下一角色与动作：先解决 bash 生命周期问题并完成其工程验收，再恢复拥有者的人工登录/继续、接管与截图取回验收。Linux 生产前提另由环境拥有者补齐；本轮没有授权实施 bash 提案。
+- 当前内容：分支 `Eitrous/agent-browser`，起点 `9e050ec`；两产品共用固定 native 管理器/宿主工具，CLI 完整分页导出落地，原提案迁入 implemented。拥有者授权本轮提交代码、docs、决策与证据并合入本地 `develop`，不包含推送或部署；合入不改变人工验收挂起状态。
+- 未验收项：人工体验、真实账号、Linux Node 22 和 OS 重启没有通过证据。tx 生产机器需持久磁盘、系统库和可用 sandbox，隔离校准的 noSandbox 不作为产品默认值。
 
 ## 验收与证据
 
 | 要求 | 最窄可证行为 | 当前证据 |
 | --- | --- | --- |
-| 双产品直接使用 | main/dev 在完全访问完成流程；受限/Plan、SubAgent、scheduled、workflow 的伪造调用拒绝 | 未执行 |
-| 独立与附接 | 两轮延续页面；两会话 profile 隔离；附接不关窗；同一目标重复接管拒绝 | 源码调查，探针未执行 |
-| 登录与恢复 | 人工登录后操作；关闭后同 profile 保留登录；重启无旧动作重放 | 未执行 |
-| 操作与取消 | 服务端计数证明提交一次；发出后断线/取消不重提；停止未核实保持不可用 | 未执行 |
-| 模型看图 | 实际请求含图、历史可重建；纯文本模型/超限/落盘失败明确报错 | 现有链路源码调查，新工具未执行 |
-| 文件取回 | 超过 720 KiB 的图片完整导出、哈希一致，中途失败保留原目标 | 旧 CLI 单页限制已核实，新入口未执行 |
-| 安装与环境 | macOS/Linux 原生程序和 Chrome；宿主 Node 22/24；缺依赖时可行动错误 | 官方资料调查，真实环境未执行 |
+| 双产品直接使用 | ruukoto main / code dev 真实浏览器流程；main/dev 截图输入；受限/Plan、SubAgent、scheduled、workflow、GitHub来源收窄 | [真实 Browser+Runtime+SDK 组合](../evidence/runtime-sdk-macos-node24.json)，模型为脚本 mock；正式 browser-tools、62、111 回归 |
+| 独立与附接 | 两轮延续页面、profile 隔离、附接不关用户窗、同 UUID 跨产品/别名重复接管拒绝 | [阶段 0](../evidence/lifecycle-probe.md)与 [Node 22/24/Linux 实际管理器](../evidence/implementation-checks.md) |
+| 登录与恢复 | dashboard 键鼠/SSH、本机持久 Cookie 请求头、关闭后保留、SIGKILL 冷恢复不重放 | 同上真实程序；标准 session Cookie 不保证跨关闭，无真实账号验收 |
+| 操作与取消 | EOF/30秒超时/Linux reset与在途取消，实际 POST=1；状态保存失败不掩盖未知效果；停止未核保持不可用 | 平台 JSON 与 browser-lifecycle 正式负例；[独立实现审查](../evidence/implementation-review.md) |
+| 人工继续 | 暂停前已接受/排队的输入不能 resume；IM 沿原 registered 顺序；暂停后新消息换代清引用 | browser-tools 真实 Runtime/SDK 接受屏障；独立队列反例与修后复核 |
+| 模型看图 | 图片原图、provider请求、JSONL、prompt同源；纯文本/超限/落盘失败明确报错 | 真实程序+mock模型组合和正式回归；[真实视觉模型双产品 2/2 通过](../evidence/real-model-acceptance.json) |
+| 文件取回 | 大于720KiB PNG完整导出，SHA/0600；失败保留原目标 | 29-cli-entry 两产品正式bin，Node22/24及[独立导出审查](../evidence/export-independent-review.json) |
+| 安装与环境 | 官方SHA/版本固定，宿主22/24；缺准备只影响browser；Linux实现校准 | [release](../evidence/release-v0.39.1.json)、管理器三平台证据；生产依赖/sandbox仍待准备 |
 
-工程验收：待验证。产品验收：待验收，拥有者验证人工登录/继续、接管与截图取回是否顺畅；真实环境缺口不能改为不适用。首轮方案审查指出的版本冲突已改成显式外部前提，独立复审结论为「方案可交付，功能仍待外部前提」，记录及规划检查见[证据](../evidence/plan-review.md)；实现审查未进行。
+工程检查与独立审查已通过；必要真实模型双产品已通过，产品人工验收挂起、环境前提仍待，不标 resolved。[实现检查](../evidence/implementation-checks.md)列出实际命令、初次缺构建失败及后续定向通过；不把模拟视觉链路记为真实模型通过。原方案审查只覆盖当时快照，最终实现以[独立审查](../evidence/implementation-review.md)及源码指纹为准。
+
+拥有者补充的真实会话在本地网页测试中先后触发 file 协议拒绝和临时 HTTP 服务随 bash 返回被回收，导航失败再触发保护暂停；后续 HTTP 导航与两次截图已成功。真实 worker 和隔离 native/Manager 对照均复现原因，见[会话失败诊断](../evidence/owner-session-diagnosis.md)。诊断还发现模型工具说明未明确 URL 前提与 bash 后台进程生命周期，本次只记录问题，未变更提示或失败分类。
 
 ## Comments
+
+### 2026-10-14 — 实现与独立返工
+
+真实探针推动宿主持有 Chrome、单动作 stdin batch、opaque sidecar 指纹和 UUID 排他路线；不改拥有者目标或附接保留窗口契约。共享 Runtime、browser 动作、不可变图片和文件导出已落地。独立审查复现并推动修复排队模式误关闭、审批升权白名单、状态保存掩盖未知效果、慢流 discovery 取消、保存失败跳过回收及暂停前排队消息提前恢复；每处已有会回归失败的正式窄用例，最终审查无未解决实现阻断。
+
+拥有者提供显式 models.json 用于真实视觉验收，双产品 2/2 通过，随机图码正确且各 POST=1，原图/JSONL/prompt 一致。首轮严格验收发现裸 eN 形态不兼容，修正规范化后保持原验收标准重跑通过；独立补审确认不扩大 selector 或旧引用。配置正文与凭据没有入库。本轮不提交、推送或部署。
+
+
+### 2026-10-14 — 实施者接手
+
+拥有者：「agent-browser已发布v0.39.1，现在由你来接手工单」。官方 release API、发布说明及 tag 源码确认正式版本包含 #2085；macOS arm64 资产哈希 `cc18fac41d9dc9821918340a136e643286ea05544c4dd35671b796f1a874cdef` 与官方 asset.digest 一致。按既有重流程先执行阶段 0，macOS 与 `ssh tx` Linux 环境均可访问；不把版本发布或源码核查记作生命周期验收通过。
 
 ### 2026-10-14 — 需求与访谈
 
@@ -119,3 +135,7 @@ Status: needs-info
 首轮独立审查发现传输重发后，Q13「只用官方版本，写操作等待官方修复」。补查发现官方修复已合入但未发版，Q14「等待官方正式 release」。完整功能要求保留，版本依赖明确列为前置。
 
 独立复审完成后，Q15「确认，按此工单交接」。整体范围、默认 60 分钟空闲回收、首版不扩到 SubAgent/定时/工作流/IM 图片外发及官方正式版本前置均已确认。
+
+### 2026-10-14 — 人工验收挂起与提交授权
+
+拥有者要求：「将本工单的人工验收挂起，等待bash生命周期问题解决后再开启。然后提交改动并并入develop分支」。人工验收的恢复以相关生命周期修正及工程验收完成为条件，原浏览器验收清单保留；本轮授权提交与合入本地 develop，不把合并视为产品验收通过，也不实施尚为 proposed 的 bash 生命周期提案。

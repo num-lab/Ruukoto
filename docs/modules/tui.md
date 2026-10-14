@@ -45,6 +45,8 @@
 | `workflow_list` / `workflow_get` / `workflow_step` / `workflow_logs` / `workflow_question` / `workflow_answer` / `workflow_control` | 运行/步骤/阶段正文、业务答复、暂停/恢复/取消及拥有者预算 |
 | `get_model_config` / `set_summary_model` | 读取模型配置（`get_model_config` 返回 `summaryModel`）、设置摘要模型 |
 
+CLI 完整产物导出复用 `read_artifact`，在同一连接上分页读取已定稿产物。各页元数据相同、页长符合剩余正文、总字节数及图片 MIME/SHA-256 校验通过后，才把目标同目录的 0600 临时文件原子重命名为目标；失败清理临时文件并保留原目标。切片查询仍向 stdout 返回单页，允许查看 `partial`，与完整导出参数互斥。
+
 工作流由 `tui/workflows.ts` 的 `/workflow` 使用已有可滚动文本窗口展示定义、固定版本、步骤结果、等待原因、预算和停止事实；CLI `workflow` 输出 JSON。所有写操作显式携带原键，TUI 原文及原键进入客户端命令历史，应答丢失先 find/saved/show 核实。工作流状态、步骤和执行用不同事件键显示，最近事件注记重连保留，旧补发不回退；持久详情、阶段及问题由查询恢复，关闭窗口或退出不改变运行。
 
 控制面事件：`project.root_attached`、`project.settings_changed`、`task.output_fragment`、`task.output_entry`、`task.thinking`、`task.tool_result` 及任务状态迁移事件。终端也调用任务操作（`/interrupt`、`/cancel <taskId>`、`/continue [taskId]`、`/resume-queue`、`/mode`、`/model`、`/skill`）。
@@ -239,6 +241,8 @@ sequenceDiagram
 - **待确认请求目录**：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
 
 ## 设计依据
+
+- [完整产物导出复用控制面分页并在校验后替换目标](../../.agents/notes/implemented/feature/2026-10-14-artifact-file-export.md)
 
 - [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
 

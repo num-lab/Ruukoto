@@ -1,0 +1,40 @@
+✔ 浏览器 wire 按结构化 code 判定，读取应答丢失不声称外部写入，标签关闭不重建 (0.689292ms)
+✔ 单动作使用 stdin batch 保留 flag 形文本，EOF 与坏应答从不重发 (111.814084ms)
+✔ 取消在途命令只停止本次 CLI 子进程，写入结果未知且不重发 (53.221208ms)
+✔ CDP discovery 固定 literal loopback 和同一浏览器 UUID，拒绝重定向及远程目标 (16.168583ms)
+✔ 冷恢复停止已知附接 daemon，释放锁但不触碰用户 Chrome CDP (69.138125ms)
+[ruukoto:browser] 浏览器相关进程未核实停止，保留绑定与附接占用
+[ruukoto:browser] 浏览器相关进程未核实停止，保留绑定与附接占用
+✔ 进程启动身份不匹配不发信号、不放锁、不允许新开；结果未知只登记人工等待 (210.830541ms)
+[ruukoto:browser] 附接锁归属无法核实，保留占用
+[ruukoto:browser] 附接锁归属无法核实，保留占用
+[ruukoto:browser] 控制目录出现未登记进程，保留原绑定与占用
+[ruukoto:browser] 控制目录出现未登记进程，保留原绑定与占用
+[ruukoto:browser] daemon 启动窗口未记录身份，不能声称已停止
+[ruukoto:browser] daemon 启动窗口未记录身份，不能声称已停止
+✔ 他人的 UUID 锁和未登记 PID sidecar 不被覆盖、停止或清除 (164.884875ms)
+✔ 首次发送窗口缺身份时保留 unavailable 与锁；缺版本或 fingerprint 变化先拒绝 CLI (210.091334ms)
+✔ 宿主未准备固定官方程序时不创建 profile 或新实例 (1.184167ms)
+[ruukoto:browser] 关闭意图无法保存；继续回收已登记进程，停止结论保持待核实
+[ruukoto:browser] 浏览器停止状态无法保存；保留绑定与占用待核实
+[ruukoto:browser] 浏览器状态无法持久化，已停止继续自动化，请核实原执行
+✔ 浏览器关闭持久化失败仍停止已登记的本次 daemon，保留未核实结论 (145.872167ms)
+[ruukoto:browser] 关闭意图无法保存；继续回收已登记进程，停止结论保持待核实
+[ruukoto:browser] daemon 身份无法保存；继续停止已核实的本次进程
+[ruukoto:browser] 浏览器停止状态无法保存；保留绑定与占用待核实
+[ruukoto:browser] 浏览器状态无法持久化，已停止继续自动化，请核实原执行
+✔ 浏览器关闭持久化失败仍停止启动窗口中的本次 daemon，保留未核实结论 (148.91775ms)
+[ruukoto:browser] 浏览器失败状态无法保存；保留本次结果未知并停止自动化
+✔ 浏览器成功写入后持久化失败保留本次未知效果 (185.47575ms)
+[ruukoto:browser] 浏览器失败状态无法保存；保留本次结果未知并停止自动化
+✔ 浏览器已丢响应持久化失败保留本次未知效果 (154.949333ms)
+✔ CDP discovery 持续慢流仍响应取消 (4.195083ms)
+✔ CDP discovery 持续慢流仍响应总期限 (3002.0265ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4659.225834

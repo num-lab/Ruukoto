@@ -1,6 +1,12 @@
 # agent-browser 接入事实调查
 
-调查日期：2026-10-14。仓库基线：`f89a1a74409e45f1c5f26827b75faa632dde996e`。本文件是只读源码与官方资料调查，未安装或启动真实浏览器，不构成运行验收。
+调查日期：2026-10-14。仓库基线：`f89a1a74409e45f1c5f26827b75faa632dde996e`。以下「上游基线」保留接手前的 v0.39.0 调查事实；当前正式版本及真实探针见下节，不以早期调查替代运行验收。
+
+## 接手后核实
+
+官方 [v0.39.1](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.1) 已发布，tag `1165952d74ceed98fdc2dd97190ad41f44dd0e24` 包含 #2085 防重发修复，资产版本与 SHA-256 见[记录](evidence/release-v0.39.1.json)。macOS/Linux 未修改原生程序的丢响应、取消、profile、附接和人工入口已实测，结果、反例与环境缺口见[生命周期证据](evidence/lifecycle-probe.md)。
+
+当前接入路线由 Runtime 直接登记自有 Chrome 启动身份、官方 CLI 连接其 CDP；不依赖 CLI 内部 detached Chrome 可被 daemon 回收。命令用官方单动作 stdin batch 保留文字输入；不复制上游 launch hash 算法。依赖与 Chromium 由拥有者准备，Linux 探针的临时依赖和关闭 sandbox 不作为产品默认值。
 
 ## 上游基线
 

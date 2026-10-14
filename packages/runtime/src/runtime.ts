@@ -20,6 +20,8 @@ import { DEFAULT_BUDGET_CONFIG, selectionBreakdown,SelectionRecordCorrupt,type C
 import { generateManualCompaction, inspectManualCompaction, ManualCompactionError } from "@ruukoto/agent/manual-compaction.ts";
 import { createDelegationFamily,delegationOpCheck } from "@ruukoto/agent/delegation-tools.ts";
 import { Driver } from "@ruukoto/agent/driver.ts";
+import { BrowserManager, BROWSER_META_KEY, type BrowserManagerOptions } from "@ruukoto/agent/browser-manager.ts";
+import { browserTaskAllowed, createBrowserFamily } from "@ruukoto/agent/browser-tools.ts";
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
 import {
@@ -224,6 +226,7 @@ export interface RuntimeConfig {
   workflowAgent?: WorkflowAgentExecutor | null;
   workflowIntegrate?: import("./workflows.ts").WorkflowDeps["integrate"];
   product: RuntimeProduct;
+  browser?: Pick<BrowserManagerOptions, "binaryPath" | "chromePath" | "headed" | "noSandbox">;
   dataDir: string;
   /** pi 凭据与模型配置目录（显式指定，不读 ~/.pi/agent）。 */
   agentDir: string;
@@ -308,6 +311,7 @@ export class Runtime {
   private readonly db: Db;
   readonly store: Store;
   readonly artifacts: ArtifactStore;
+  private browserManager!: BrowserManager;
   readonly inboundMedia: InboundMediaStore;
   readonly credentials: CredentialStore;
   /** 统一数据访问范围（issue 05 §1）：身份由宿主注入，跨项目仅经拥有者授权。 */
@@ -835,6 +839,7 @@ export class Runtime {
       verifySource: source => runtime.verifyWorkflowSource(source),
       verifySources: (projectId, refs, taskId) => runtime.sources.verify(projectId, refs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[], taskId),
     });
+    await runtime.browserManager.recover();
     runtime.recover();
     if (fullConfig.workflowAgent !== null) {
       runtime.workflows = new WorkflowCoordinator({ store: runtime.store,
@@ -3005,9 +3010,11 @@ export class Runtime {
       const driver = this.drivers.get(task.sessionId);
       this.modeSwitchStopping.add(task.id);
       try {
-        const reaped = driver ? await driver.stopManagedProcesses(task.id) : true;
+        const [managedReaped, browserReaped] = await Promise.all([driver ? driver.stopManagedProcesses(task.id) : true,
+          driver?.currentTaskId && driver.currentTaskId !== task.id ? true : this.browserManager.close(task.sessionId)]);
+        const reaped = managedReaped && browserReaped;
         if (!reaped) {
-          await driver!.requestStop(task, {
+          await driver?.requestStop(task, {
             terminal: "interrupted", reason: "mode_switch_unverified", cancelIntent: false,
             modeSwitchFailure: { to: input.mode, reason: "无法核实旧执行单元已退出" },
           });
@@ -3474,8 +3481,24 @@ export class Runtime {
   }
 
   /** 同一份清单用于会话装配与后台恢复；能力停用仍保留历史操作的核实规则。 */
+  private browserAllowed(task: Task): boolean {
+    if (!browserTaskAllowed(this.store, task) || getWorkflowDeliveryRun(this.store, task.id)) return false;
+    if (!task.sourceEventId) return true;
+    const event = this.store.getInboundEvent(task.sourceEventId);
+    return Boolean(event && this.imEntries.entry(event.source) && this.imEntries.gate(event) === "run");
+  }
+
   private initHostToolFamilies(): void {
+    this.browserManager = new BrowserManager({ dataDir: this.config.dataDir, store: this.store, ...this.config.browser,
+      persist: (stateJson, binding) => this.store.withTx(() => {
+        this.store.setMetaValue(BROWSER_META_KEY, stateJson);
+        this.store.appendEvent({ type: "browser.binding_changed", sessionId: binding.sessionId, generation: binding.generation,
+          kind: binding.kind, state: binding.state, failureCode: binding.failureCode }, { sessionId: binding.sessionId });
+      }),
+    });
     this.hostToolFamilies = [
+      createBrowserFamily({ store: this.store, artifacts: this.artifacts, manager: this.browserManager,
+        screenshotDir: path.join(this.config.dataDir, "browser", "screenshots"), allowed: task => this.browserAllowed(task) }),
       createTodoFamily(),
       createHostDataFamily({
         store: this.store,
@@ -3597,6 +3620,7 @@ export class Runtime {
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
         allowTaskTool: (task, name) => !getWorkflowDeliveryRun(this.store, task.id) && this.githubEvents.allowTool(task, name),
+        browser: { allowed: task => this.browserAllowed(task), close: sessionId => this.browserManager.close(sessionId) },
         verifyTask: task => {
           const run = getWorkflowDeliveryRun(this.store, task.id);
           return run && !this.verifyWorkflowReport(run) ? "workflow_report_source_invalid" : null;
@@ -4711,6 +4735,7 @@ export class Runtime {
       await driver.dispose();
     }
     this.drivers.clear();
+    await this.browserManager.shutdown();
 
     // 等待调度循环收尾（停止意图已在上面使 runQueueLoop 退出），
     // 之后才能关闭数据库，避免循环尾部访问已关闭的连接

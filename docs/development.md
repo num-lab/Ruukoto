@@ -30,20 +30,21 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm run test:foundation` | 仅基础验证离线测试 |
 | `npm run change-scope -- --base <ref>` | 报告本次改动相对 merge base 的已提交、暂存、未暂存与未跟踪路径 |
 
-修改时跑 `npm run check:static` 与相关测试，按[改动面](../.agents/skills/pre-push-checks/SKILL.md)选最小检查集；全量 `npm run check` 仅在拥有者明确要求、诊断 CI 失败或确实跨全仓时跑。定向测试写明确文件名：
+修改时跑 `npm run check:static` 与定向测试，按[改动面](../.agents/skills/pre-push-checks/SKILL.md)选检查；全量 `check` 仅用于明确要求、CI 故障或跨全仓改动。定向测试写文件名：
 
 ```bash
 npx tsx --test test/71-product-entry.test.ts test/32-dev.test.ts
 npx tsx --test verification/foundation/test/03-tools.test.ts
 ```
 
-按功能词找覆盖分支，跨模块再查调用者；下表列起点，完整列表用 `rg --files test`。
+按功能找分支，跨模块查调用者；下表列起点，完整列表用 `rg --files test`。
 
 | 修改位置 | 常用测试起点 |
 | --- | --- |
-| `packages/tui/src/cli-entry.ts`、`packages/core/src/product.ts`、`packages/tui/src/dev.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
+| `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
+| 浏览器 | `test/browser-tools.test.ts`、`test/browser-lifecycle.test.ts`；[验收入口](../.scratch/agent-browser/evidence/implementation-checks.md) |
 | `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |
 | `scripts/test-app.mjs` 的分批与退出 | `test/124-test-app-runner.test.ts`；共享 UID 孤儿冲突的独占清单由脚本持有 |
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts` |
@@ -55,9 +56,9 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 
-失败保留用例名、断言和环境，区分回归与前提；独立复现后修复，默认检查和 CI 不自动重试。[发布验收](release-acceptance.md)的历史结果不证明当前代码通过。
+失败保留用例、断言与环境，区分回归与前提，独立复现后修复；默认检查和 CI 不重试。[发布验收](release-acceptance.md)的历史结果不证明当前代码通过。
 
-代码里的待办标记按紧急度分三种，便于检索时排序：`FIXME` 是发布阻断项，`TODO` 是应尽快处理项，`XXX` 是将来再说的项。三者都写明要做什么，不只留一个标记。
+`FIXME` / `TODO` / `XXX` 的规则见[仓库约定](../AGENTS.md#约定)。
 
 ## 提交与 CI
 
@@ -109,7 +110,7 @@ npm run code -- --import-models ~/.ruukoto-code/agent  # 只复制模型配置
 
 ## 耗时基线与后续批次
 
-本节记录 2026-10-09 那一批的实测，用于选择日常反馈方式；当前 workspace 布局的实测见[同仓 workspaces 分包](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)。改造前基线对应 `36c55dbe06d8e55e3ec52687c39dfab0d5762181`。本机使用 macOS、Node 24.15.0；Linux 使用 `ssh tx` 上不含本地 scratch 的独立检出。下列为墙钟耗时，历史命令的覆盖范围按该版本记录，不能当作当前 `check` 的通过结果。
+2026-10-09 历史批次基于 `36c55dbe06d8e55e3ec52687c39dfab0d5762181`，macOS 使用 Node 24.15.0，Linux 为 `ssh tx` 不含本地 scratch 的独立检出。当前 workspace 实测见[分包记录](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)。耗时只用于选择反馈方式，不证明当前检查通过。
 
 | 环境与 Node | 基线命令 | 结果 | 耗时 |
 | --- | --- | --- | --- |

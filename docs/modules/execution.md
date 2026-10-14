@@ -10,6 +10,8 @@
 
 受限 JavaScript 的固定编排入口使用独立 Node 进程内的 QuickJS/WASM，只提供四类宿主回调。该库层入口不导入 runtime，不持久化运行；`script-worker/validate.ts` 使用同一 async 函数包装和 QuickJS compileOnly 做有界语法校验，不执行步骤。产品启动归 Runtime 与共享宿主工具；脚本的隔离与来源步骤采用何种工具访问模式分别确定。
 
+浏览器是共享宿主工具，首版只在完全访问使用后台账户，不进入编码 worker 或受限沙箱。`packages/agent/src/browser-manager.ts` 直接启动并登记自有 Chrome 的 PID、进程组与系统启动身份，固定官方 CLI 只连接该 CDP；附接的 Chrome 不归宿主回收。关闭自有 Chrome 使用 CDP 退出并核实整个进程组与 profile 关联进程已退出；PID 身份不符或启动窗口不明时保留不可用。动作传输用官方 stdin batch 的单个参数数组，避免网页输入被解释为全局管理参数；配置/version sidecar 不符时拒绝 CLI 自动换代。详情见[宿主工具](agent-tools.md)与[运行时](runtime.md)。
+
 ## 对外接口
 
 | 调用方 | 入口 | 说明 |
@@ -230,6 +232,8 @@ sequenceDiagram
 [工作流编码验证](workflows.md)始终用原生沙箱，只写按冻结基线/补丁建立的独立验证副本；来源完全访问也在验证阶段收窄，附加路径转只读，宿主文件写入口关闭。原生环境不可用明确失败，不回退到 local。工作流宿主操作的副本占用保持到全部套用与组合检查收尾，实际身份更新原 starting 句柄，取消后的身份仍保存。
 
 ## 设计依据
+
+- [会话浏览器的归属与不重放](../../.agents/notes/implemented/feature/2026-10-14-agent-browser.md)
 
 - [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
 

@@ -20,7 +20,7 @@
  *   ruukoto interrupt <task> | cancel <task> | resume-queue <session>
  *   ruukoto confirm <confirmation-id> approve|reject
  *   ruukoto service-grant list [--cursor C] [--limit N] | show <id> | revoke <id> --expected-version N
- *   ruukoto read-artifact <task> <artifact> [--offset N] [--length N]
+ *   ruukoto read-artifact <task> <artifact> [--offset N] [--length N] | --output <file>
  *   ruukoto credentials list
  *   ruukoto credentials add --name N --host H --header H --purpose P --secret-env VAR
  *   ruukoto credentials remove <name>
@@ -40,13 +40,16 @@
  */
 
 import { ControlClient,requestOutcome } from "@ruukoto/control/client.ts";
+import type { OpResult } from "@ruukoto/control/ops.ts";
 import { controlDirFor,defaultAgentDir,defaultDataDir,resolveClientConfig,resolveOwnerToken } from "@ruukoto/control/connect.ts";
+import { imageMime } from "@ruukoto/agent/artifacts.ts";
 import { acquireInstanceLock,INSTANCE_LOCK_EXIT_CODE,InstanceLockError } from "@ruukoto/core/instance-lock.ts";
 import { dirEnvFor,productFromEnv } from "@ruukoto/core/product.ts";
-import { isSessionDefaultMode,SESSION_DEFAULT_MODES,type GrantedPath,type ModelSelection,type Session,type SessionDefaultMode,type Task } from "@ruukoto/core/types.ts";
+import { isSessionDefaultMode,randomId,SESSION_DEFAULT_MODES,type Artifact,type GrantedPath,type ModelSelection,type Session,type SessionDefaultMode,type Task } from "@ruukoto/core/types.ts";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { resolveEntry } from "./cli-entry.ts";
 import { parseWorkflowControl, type WorkflowControl } from "@ruukoto/core/workflow.ts";
 import { LEGACY_PROJECT_WRITE_HINT } from "./tui/commands.ts";
@@ -137,6 +140,51 @@ async function withClient<T>(fn: (client: ControlClient) => Promise<T>): Promise
 
 function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+// Note: 见 .agents/notes/implemented/feature/2026-10-14-artifact-file-export.md
+async function exportArtifact(client: ControlClient, taskId: string, artifactId: string, output: string): Promise<Artifact> {
+  const pageSize = 720 * 1024;
+  const params = { task_id: taskId, artifact_id: artifactId, length: pageSize };
+  let page = await client.request<OpResult<"read_artifact">>("read_artifact", { ...params, offset: 0 });
+  const artifact = page.artifact;
+  if (artifact.id !== artifactId || artifact.taskId !== taskId || !Number.isSafeInteger(artifact.byteCount) || artifact.byteCount < 0) {
+    throw new Error("产物元数据不合法，请核实产物归属与字节数");
+  }
+  if (artifact.status !== "complete") throw new Error("产物尚未完整定稿，不能完整导出；可用 --offset / --length 查看已捕获部分");
+  if (artifact.mimeType && !/^[a-f0-9]{64}$/.test(artifact.contentHash ?? "")) throw new Error("图片产物缺少有效 SHA-256，不能完整导出");
+  const destination = path.resolve(output);
+  const temporary = path.join(path.dirname(destination), `.ruukoto-artifact-${randomId("tmp")}`);
+  const hash = artifact.contentHash ? createHash("sha256") : null;
+  let fd: number | undefined = fs.openSync(temporary, "wx", 0o600);
+  let renamed = false;
+  try {
+    let offset = 0;
+    for (;;) {
+      if (!isDeepStrictEqual(page.artifact, artifact)) throw new Error("下载期间产物元数据变化，请重新核实产物");
+      const bytes = Buffer.from(page.data, "base64");
+      if (page.encoding !== "base64" || bytes.toString("base64") !== page.data || bytes.length !== Math.min(pageSize, artifact.byteCount - offset)) {
+        throw new Error("产物分页不完整或编码不合法，请核实产物正文");
+      }
+      if (offset === 0 && artifact.mimeType && imageMime(bytes) !== artifact.mimeType) throw new Error("图片产物 MIME 与正文不符，请核实原图");
+      fs.writeFileSync(fd, bytes);
+      hash?.update(bytes);
+      offset += bytes.length;
+      if (offset === artifact.byteCount) break;
+      page = await client.request<OpResult<"read_artifact">>("read_artifact", { ...params, offset });
+    }
+    if (fs.fstatSync(fd).size !== artifact.byteCount || (hash && hash.digest("hex") !== artifact.contentHash)) {
+      throw new Error("产物总字节数或 SHA-256 不一致，请核实产物正文");
+    }
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(temporary, destination);
+    renamed = true;
+    return artifact;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    if (!renamed) fs.rmSync(temporary, { force: true });
+  }
 }
 
 /** 读 JSON 文件（迁移计划等）；不存在或非法时报错退出。 */
@@ -279,6 +327,7 @@ async function runServer(rest: string[], product: CliProduct): Promise<number> {
     execution: { backend: execFlag },
     toolFactory,
     service: serviceHelper ? { helperPath: serviceHelper, policyPath: servicePolicy! } : undefined,
+    browser: { binaryPath: process.env.RUUKOTO_BROWSER_BINARY, chromePath: process.env.RUUKOTO_BROWSER_CHROME },
     // dev 开发实例（issue 21 §1）：RUUKOTO_DISABLE_QQ=1 停用真实 QQ 通道
     qqDisabled: process.env.RUUKOTO_DISABLE_QQ === "1",
     // 同上（issue 04）：RUUKOTO_DISABLE_TELEGRAM=1 停用真实 Telegram 通道
@@ -511,8 +560,24 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       );
       return 0;
     case "read-artifact": {
+      const output = flags["output"];
+      if (output !== undefined) {
+        if (!output || flags["offset"] !== undefined || flags["length"] !== undefined) {
+          process.stderr.write("[ruukoto:cli] --output 需要文件路径，且不能与 --offset / --length 同用\n");
+          return 1;
+        }
+        let artifact: Artifact;
+        try {
+          artifact = await withClient((c) => exportArtifact(c, positional[0] ?? "", positional[1] ?? "", output));
+        } catch (error) {
+          process.stderr.write(`[ruukoto:cli] 产物导出失败，目标文件未替换：${error instanceof Error ? error.message : String(error)}\n`);
+          return 1;
+        }
+        process.stderr.write(`[ruukoto:cli] 已完整导出产物 ${artifact.id}（${artifact.byteCount} 字节）\n`);
+        return 0;
+      }
       const result = await withClient((c) =>
-        c.request<{ artifact: { id: string; name: string; byteCount: number; status: string }; data: string }>(
+        c.request<OpResult<"read_artifact">>(
           "read_artifact",
           {
             task_id: positional[0] ?? "",

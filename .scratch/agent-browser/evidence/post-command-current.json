@@ -1,0 +1,107 @@
+[
+  {
+    "mode": "changed_daemon",
+    "post_count": 1,
+    "returned": {
+      "code": "outcome_unknown",
+      "effectUnknown": true
+    },
+    "binding": {
+      "sessionId": "review",
+      "generation": "4b17af16-a242-4148-bcfc-36772d3829df",
+      "kind": "attached",
+      "state": "unavailable",
+      "profileDir": null,
+      "socketDir": "/tmp/ruukoto-browser-501-3132df72c22f4a885eb56201",
+      "cliSession": "rk-3132df72c22f4a885eb56201",
+      "cdpUrl": "ws://127.0.0.1:9222/devtools/browser/5d69f7a9-69d6-4145-a653-8c141c4349b1",
+      "targetId": "942fe3a3-84fd-46ca-bdb7-42e57a7d8bec",
+      "chrome": null,
+      "daemon": {
+        "pid": 18440,
+        "pgid": 18440,
+        "processIdentity": "darwin:Wed Oct 14 04:25:52 2026"
+      },
+      "dashboard": null,
+      "chromePending": false,
+      "daemonPending": false,
+      "dashboardPending": false,
+      "lockDir": null,
+      "pauseTaskId": null,
+      "outcomeUnknown": true,
+      "failureCode": "outcome_unknown",
+      "dashboardUrl": null,
+      "headed": false
+    }
+  },
+  {
+    "mode": "persist_after_success",
+    "post_count": 1,
+    "returned": {
+      "code": "outcome_unknown",
+      "effectUnknown": true
+    },
+    "binding": {
+      "sessionId": "review",
+      "generation": "29f875f5-333c-4ac1-a934-9643e0daec92",
+      "kind": "attached",
+      "state": "unavailable",
+      "profileDir": null,
+      "socketDir": "/tmp/ruukoto-browser-501-bfada8bbe535be2d4ff9ecc1",
+      "cliSession": "rk-bfada8bbe535be2d4ff9ecc1",
+      "cdpUrl": "ws://127.0.0.1:9222/devtools/browser/3034b6d5-50dd-4909-8aa0-aa6768dce1d5",
+      "targetId": "d8fdfaca-8f54-4565-95be-1d2e1f5dd3e7",
+      "chrome": null,
+      "daemon": {
+        "pid": 18706,
+        "pgid": 18706,
+        "processIdentity": "darwin:Wed Oct 14 04:25:52 2026"
+      },
+      "dashboard": null,
+      "chromePending": false,
+      "daemonPending": false,
+      "dashboardPending": false,
+      "lockDir": null,
+      "pauseTaskId": null,
+      "outcomeUnknown": true,
+      "failureCode": "outcome_unknown",
+      "dashboardUrl": null,
+      "headed": false
+    }
+  },
+  {
+    "mode": "persist_masks_unknown",
+    "post_count": 1,
+    "returned": {
+      "code": "outcome_unknown",
+      "effectUnknown": true
+    },
+    "binding": {
+      "sessionId": "review",
+      "generation": "51e8a7eb-9996-4466-a19c-41a691a956ec",
+      "kind": "attached",
+      "state": "unavailable",
+      "profileDir": null,
+      "socketDir": "/tmp/ruukoto-browser-501-21eac9af37e975c25c3913e2",
+      "cliSession": "rk-21eac9af37e975c25c3913e2",
+      "cdpUrl": "ws://127.0.0.1:9222/devtools/browser/2e9972b5-f009-4077-b139-3a4d1d66ab4e",
+      "targetId": "9d133c05-f5bc-4abb-95ed-cff62f35401d",
+      "chrome": null,
+      "daemon": {
+        "pid": 19008,
+        "pgid": 19008,
+        "processIdentity": "darwin:Wed Oct 14 04:25:52 2026"
+      },
+      "dashboard": null,
+      "chromePending": false,
+      "daemonPending": false,
+      "dashboardPending": false,
+      "lockDir": null,
+      "pauseTaskId": null,
+      "outcomeUnknown": true,
+      "failureCode": "outcome_unknown",
+      "dashboardUrl": null,
+      "headed": false
+    }
+  }
+]

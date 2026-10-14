@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition, fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -36,7 +37,7 @@ function kit() {
     replyTarget: null, scheduledRunId: null };
   const child = (status: TaskStatus = "completed") => {
     const subSession = session(), subAgentId = `agent-${++counter}`, workId = `work-${counter}`;
-    store.insertSubAgent({ id: subAgentId, parentSessionId: parentSession.id, sessionId: subSession.id, workDir: root,
+    store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: subAgentId, parentSessionId: parentSession.id, sessionId: subSession.id, workDir: root,
       activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: subSession.createdAt });
     store.insertWorkDelegation({ id: workId, parentSessionId: parentSession.id, originTaskId: parent.id, subAgentId, requestKey: `work-key-${counter}`,
       paramsDigest: "work", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: subSession.createdAt });
@@ -186,7 +187,7 @@ test("已有工作流专属汇总接管子任务和其他排队汇总，只登�
   const k = kit();
   try {
     const definition = saveWorkflowDefinition(k.store, "return null;"), childReport = k.report(k.child());
-    const runs = ["first", "second"].map(id => k.store.withTx(() => createWorkflowRun(k.store, { id, requestKey: id, paramsDigest: id,
+    const runs = ["first", "second"].map(id => k.store.withTx(() => createWorkflowRun(k.store, { roleCatalog: fixtureSubAgentRoleCatalog(), id, requestKey: id, paramsDigest: id,
       definitionId: definition.id, scriptDigest: definition.digest, input: null, inputDigest: id, source: k.source, modelSelection: SELECTION,
       status: "succeeded", version: 2, terminalVersion: 2, reason: null, attempts: 0, maxAttempts: 1, durationMs: 60_000,
       usedMs: 1, clockStartedAt: null, clockVerified: true, scriptUnits: [], scriptStopVerified: true, result: id, resultRecorded: true,

@@ -242,8 +242,15 @@ sequenceDiagram
 - 身份在完成、TUI 退出与等待后仍保留，空闲零模型/worker 进程；任务收尾后释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
 - `coding_result` 按同一归属窄口兼容读取本会话委派的 SubAgent 执行结果；GitHub webhook 评审经宿主固定 SubAgent。
 
+### 子代理角色定义
+
+`subagent-role-library.ts` 从实例 `<agentDir>/agents/*.md` 读取内置 general/reviewer 的覆盖与新增角色，拒绝符号链接、多硬链接、非普通文件和读取中变化。坏同名覆盖保留角色名、错误码与修正说明，不能回落内置；坏目录使整份目录不可用，主会话仍能查询诊断。普通委派增加 `role`：首次省略为 general，继续或复用沿固定定义，显式异角色报冲突并要求新建身份。同键重放核实原快照，不读取当前文件；消息任务沿接收身份固定正文、继承发送任务已记录的模型。首次任务继承实际来源模型和思考强度。
+
+工作流启动保存完整角色目录及诊断，默认步骤从该目录固定 general，恢复拒绝缺失或损坏记录。角色工具要求与权限策略保存在快照中；执行工具及目标当前仍由分析/修改和工作流步骤规则决定，角色的来源能力、权限收窄与目标保护接线尚未完成。
+
 ### 宿主固定评审
 
+- **固定定义**：可信入口保存 `kind: host_review` 的完整宿主定义，不选择用户 general/reviewer；用户覆盖和新增角色不能改变该用途、只读工具与禁消息限制。
 - **入口**：PR 入站事件派发时，编排器先建（或复用）固定的 main 父任务（无工具，只确认接收），再**直接调用** `SubAgentManager.delegate`（`hostReview: {sourceEventId}` 入参只由编排器传入，工具层不会产生该字段）。每个修订登记一项新工作、创建一个新 SubAgent，不跨修订复用（新修订用全新上下文，避免旧 diff/旧报告混入新 head 的核对）；幂等键 `ghreview-<事件 id>`，参数摘要只含 `{kind, eventId}`。管理器准备失败（缺执行入口、模型门闩未就绪）时事件保持 `registered`，下次派发重试，不降级回旧 coding 路径。
 - **名额与输入**：宿主评审任务带来源事件（`source_event_id`），不计入 main 的 3 个活动委派名额（计数 SQL 排除来源事件任务）；任务输入首行固定为 `[SubAgent 委派 · GitHub PR 评审]`，正文沿用 `GitHubEvents.request`。带来源事件的任务出队时走既有入站门（修订已过期即取消）、终态在同一结果事务内回写入站终态并登记通知。重提命中首次登记（管理器不 kick）或崩溃窗口把排队子会话按 `backend_restart` 暂停时，派发按角色会话同口径补 kick / 恢复子会话队列（占用未核实的 `occupancy_unverified` 暂停不在此解除）。
 - **只读 MCP 按任务开放，只给评审任务**：subagent 类会话仅在任务被 `taskMcp` 依赖识别为评审（`subAgentId` 非空且来源事件为 GitHub）时才规划 MCP；收窄为「静态只读白名单（`read`/`read_artifact`）∪ `effect=read` 的 MCP」，装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、下级委派在发送前与调用门两处被拒。owner 委派的 SubAgent、main 自身与开发会话 SubAgent 均拿不到 MCP。会话项目为 main 角色项目，MCP 凭据按项目核对。
@@ -333,6 +340,8 @@ sequenceDiagram
 [工作流步骤](workflows.md)默认由真实 Driver 执行，发起任务结束后沿运行授权继续。修改与验证使用独立副本，冻结补丁与独立验证记录共同决定汇入资格；普通继续、复用和 `subagent_integrate` 不能接管这些步骤。准备、冻结、汇总及组合检查使用运行派生的宿主任务，整段持有目录占用，任何所属任务停止未核实或效果未知均阻止重试。
 
 ## 设计依据
+
+- [子代理角色持久快照](../../.agents/notes/implemented/architecture/2026-10-14-subagent-role-snapshots.md)：普通角色与宿主固定用途分开，复用沿原版本。
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 

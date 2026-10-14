@@ -3,6 +3,7 @@
  */
 import { isDeepStrictEqual } from "node:util";
 import type { Store } from "./store.ts";
+import type { SubAgentRoleCatalogSnapshot } from "./subagent-definition.ts";
 import { isTerminalTaskStatus } from "./types.ts";
 import { getWorkflowRunNumber, listWorkflowExecutions, requireWorkflowRun, workflowTerminal, type WorkflowSource } from "./workflow.ts";
 
@@ -25,6 +26,7 @@ export interface AgentReferenceSnapshot {
   promptArtifactId: string | null;
   instructions: { text: string; version: string; problems: string[] } | null;
   skills: { skills: { name: string; description: string; disableModelInvocation: boolean; dir: string; body: string; version: string }[]; diagnostics: string[]; version: string } | null;
+  roles?: SubAgentRoleCatalogSnapshot | null;
 }
 export type AgentWaitSnapshot = AgentReferenceSnapshot;
 

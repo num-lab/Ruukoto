@@ -1,3 +1,4 @@
+import { fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -139,7 +140,7 @@ test("终态停止事实区分已核实、未知和未启动；登记脚本仍�
     ];
     for (const [index, value] of cases.entries()) {
       const id = `report-${index}`;
-      const run = createWorkflowRun(store, { id, requestKey: id, paramsDigest: id, definitionId: definition.id, scriptDigest: definition.digest,
+      const run = createWorkflowRun(store, { roleCatalog: fixtureSubAgentRoleCatalog(), id, requestKey: id, paramsDigest: id, definitionId: definition.id, scriptDigest: definition.digest,
         input: null, inputDigest: id, source: { product: "ruukoto-code", projectId: project.id, sessionId: session.id, taskId: parent.id,
           permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null },
         modelSelection: selection, status: "running", version: 1, reason: "test", attempts: 1, maxAttempts: 100,

@@ -13,6 +13,8 @@ import type { Driver } from "@ruukoto/agent/driver.ts";
 import type { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import type { ManagedEntry } from "@ruukoto/agent/managed-processes.ts";
 import { isRecord } from "@ruukoto/agent/script-worker/protocol.ts";
+import { SubAgentRoleError, validateSubAgentRole, validateSubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { requireSubAgentDefinition, SubAgentDefinitionError } from "@ruukoto/core/subagent-definition.ts";
 import type { WorkflowAgentContext } from "./workflows.ts";
 import type { WorkCopyExecution, WorkCopyManager, FrozenWorkCopyPatch } from "./work-copy.ts";
 
@@ -52,6 +54,10 @@ export class WorkflowSteps {
         work.parentSessionId !== run.source.sessionId || work.subAgentId !== task.subAgentId || identity.agent.id !== task.subAgentId ||
         this.store.getSession(task.sessionId)?.projectId !== run.source.projectId || task.parentTaskId !== run.source.taskId ||
         task.sourcePermissionVersion !== run.source.permissionVersion || task.accessMode !== run.source.accessMode) throw new WorkflowError("binding_invalid");
+    if (!run.roleCatalog) throw new WorkflowError("role_catalog_missing");
+    const catalog = validateSubAgentRoleLibrary(run.roleCatalog);
+    const definition = validateSubAgentRole(requireSubAgentDefinition(identity.agent));
+    if (!catalog.roles.some(role => role.kind === definition.kind && role.name === definition.name && role.digest === definition.digest)) throw new WorkflowError("binding_invalid");
     return { run, step, work };
   }
   resolve(task: Task) {
@@ -75,7 +81,7 @@ export class WorkflowSteps {
   verify(task: Task): string | null {
     let bound: ReturnType<WorkflowSteps["binding"]>;
     try { bound = this.binding(task); }
-    catch (error) { return error instanceof WorkflowError ? error.code : "binding_invalid"; }
+    catch (error) { return error instanceof WorkflowError || error instanceof SubAgentRoleError || error instanceof SubAgentDefinitionError ? error.code : "binding_invalid"; }
     if (!bound) return null;
     const { run, step, work } = bound;
     const current = this.store.getTask(task.id);

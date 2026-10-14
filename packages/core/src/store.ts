@@ -10,6 +10,7 @@
 
 import type { Db } from "./db.ts";
 import { classifySession, type SessionIdentity } from "./session-identity.ts";
+import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionFromJson } from "./subagent-definition.ts";
 import {
   ACTIVE_TASK_STATUSES,
   isTerminalTaskStatus,
@@ -1086,12 +1087,13 @@ export class Store {
   // ---------- SubAgent 与工作委托（agent-direction issue 11；宿主管理） ----------
 
   insertSubAgent(agent: SubAgent): void {
+    const definition = requireSubAgentDefinition(agent);
     this.db
       .prepare(
-        `INSERT INTO sub_agents (id, parent_session_id, session_id, work_dir, active_work_id, current_task_id, state, closed_at, closed_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sub_agents (id, definition, parent_session_id, session_id, work_dir, active_work_id, current_task_id, state, closed_at, closed_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(agent.id, agent.parentSessionId, agent.sessionId, agent.workDir, agent.activeWorkId, agent.currentTaskId, agent.state, agent.closedAt, agent.closedBy, agent.createdAt);
+      .run(agent.id, JSON.stringify(definition), agent.parentSessionId, agent.sessionId, agent.workDir, agent.activeWorkId, agent.currentTaskId, agent.state, agent.closedAt, agent.closedBy, agent.createdAt);
   }
 
   getSubAgent(id: string): SubAgent | null {
@@ -1193,8 +1195,17 @@ export class Store {
   }
 
   private rowToSubAgent(row: any): SubAgent {
+    let definition: SubAgent["definition"] = null;
+    let definitionError: string | undefined;
+    try { definition = subAgentDefinitionFromJson(row.definition); }
+    catch (error) {
+      if (!(error instanceof SubAgentDefinitionError)) throw error;
+      definitionError = error.code;
+    }
     return {
       id: row.id,
+      definition,
+      ...(definitionError ? { definitionError } : {}),
       parentSessionId: row.parent_session_id,
       sessionId: row.session_id,
       workDir: row.work_dir,

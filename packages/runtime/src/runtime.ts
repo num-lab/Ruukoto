@@ -182,6 +182,7 @@ import { createAgentWaitFamily } from "@ruukoto/agent/agent-wait-tools.ts";
 import { TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import { ImWorkflows } from "@ruukoto/channels/im-workflows.ts";
 import { SubAgentDelegationError,SubAgentManager,type WorkCancellation } from "@ruukoto/runtime/subagents.ts";
+import { loadSubAgentRoleLibrary } from "./subagent-role-library.ts";
 import { applyWorkspaceMigration,previewWorkspaceMigration,type MigrationApplyInput,type MigrationApplyResult,type MigrationPreview,type MigrationPreviewInput } from "@ruukoto/runtime/workspace-migration.ts";
 import { createHash,randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -841,6 +842,7 @@ export class Runtime {
     });
     runtime.subagents = new SubAgentManager({
       store: runtime.store,
+      roles: () => loadSubAgentRoleLibrary(fullConfig.agentDir),
       workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "sub-agents"),
       workCopies,
       sources: runtime.sources,
@@ -867,6 +869,7 @@ export class Runtime {
     runtime.recover();
     if (fullConfig.workflowAgent !== null) {
       runtime.workflows = new WorkflowCoordinator({ store: runtime.store,
+        roles: () => loadSubAgentRoleLibrary(fullConfig.agentDir),
         ledger: runtime.ledger,
         workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "workflow-agents"),
         source: taskId => runtime.workflowSource(taskId), selection: taskId => runtime.store.getTask(taskId)!.modelSelection!,
@@ -3979,6 +3982,7 @@ export class Runtime {
         ledger: this.ledger,
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,
+        subAgentRoles: () => loadSubAgentRoleLibrary(this.config.agentDir),
         modelRuntime: this.modelRuntime,
         modelCatalog: this.modelCatalog,
         model: this.model,
@@ -4953,6 +4957,11 @@ export class Runtime {
       })),
       diagnostics: lib.diagnostics,
     };
+  }
+
+  listSubAgentRoles() {
+    const library = loadSubAgentRoleLibrary(this.config.agentDir);
+    return { dir: path.join(this.config.agentDir, "agents"), roles: library.roles.map(({ name, description, tools, permissions, digest }) => ({ name, description, tools, permissions, digest })), diagnostics: library.diagnostics };
   }
 
   /**

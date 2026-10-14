@@ -11,6 +11,7 @@ import { probeLockHolder } from "./instance-lock.ts";
 import { PRODUCT_META_KEY } from "./product.ts";
 import type { SessionBranchSource } from "./types.ts";
 import type { AgentReport, AgentWait } from "./agent-wait.ts";
+import { SubAgentDefinitionError, subAgentDefinitionFromJson, validateSubAgentRoleCatalog } from "./subagent-definition.ts";
 
 export class LegacyImportError extends Error {
   readonly code: string;
@@ -66,6 +67,17 @@ export type LedgerKind =
   | "credential";
 
 export type Row = Record<string, unknown>;
+
+/** 内联定义随身份归档；导入不得把坏快照变成可运行的默认角色。 */
+export function verifyImportedSubAgentDefinitions(agents: Row[]): void {
+  for (const agent of agents) {
+    try { subAgentDefinitionFromJson(agent.definition); }
+    catch (error) {
+      if (!(error instanceof SubAgentDefinitionError)) throw error;
+      fail(error.code, "源实例的子代理定义快照缺失或损坏：导入已拒绝，请保留源档案核实");
+    }
+  }
+}
 
 export interface AgentWaitImportScope {
   projects: Row[];
@@ -147,6 +159,13 @@ export function verifyImportedAgentWaitReferences(waits: Row[], reports: Row[], 
     if (!wait || wait.id !== row.id || wait.taskId !== row.task_id || wait.sessionId !== row.session_id || requireTask(wait.taskId).session_id !== wait.sessionId ||
         !Array.isArray(wait.targets) || !wait.targets.length || !wait.snapshot || wait.snapshot.taskId !== wait.taskId) fail("source_corrupt", "等待记录的任务与父会话绑定损坏");
     if (wait.snapshot.instructions && typeof wait.snapshot.instructions.version !== "string") fail("source_corrupt", "等待参考快照的项目指令版本损坏");
+    if (wait.snapshot.roles !== undefined && wait.snapshot.roles !== null) {
+      try { validateSubAgentRoleCatalog(wait.snapshot.roles); }
+      catch (error) {
+        if (!(error instanceof SubAgentDefinitionError)) throw error;
+        fail(error.code, "等待参考快照的角色目录损坏：导入已拒绝，请保留源档案核实");
+      }
+    }
     verifySource(wait.source, wait.sessionId, wait.sourceEventId);
     for (const target of wait.targets) verifyTarget(target, wait.source, wait.sessionId);
     if (wait.snapshot.selectionRecordId && !scope.selections.some(row => row.id === wait.snapshot.selectionRecordId && row.task_id === wait.taskId && row.session_id === wait.sessionId)) fail("agent_wait_import_reference_missing", "等待参考快照的选择记录未随原任务导入");

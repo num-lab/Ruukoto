@@ -42,7 +42,7 @@
 | 工作流定义/启动 | `workflow_definitions`、`workflow_definition`、`workflow_save`、`workflow_saved`、`workflow_start`、`workflow_find` | 命名文件/版本及原键查询，期望摘要保存，宿主固定授权启动 |
 | 工作流运行 | `workflow_list`、`workflow_get`、`workflow_step`、`workflow_logs`、`workflow_control`、`workflow_question`、`workflow_answer` | 有界事实与正文读取，版本化拥有者控制和业务回答；不消费工具批准 |
 | 历史与产物 | `read_history`、`read_history_entry`、`read_tool_result`、`search_history`、`read_artifact` | `read_history` 是唯一权威历史的投影，分页与分段读；`read_artifact` 按任务与产物 ID 读正文 |
-| 上下文与技能 | `list_selection_records`、`get_selection_record`、`get_context_breakdown`、`list_prompt_requests`、`read_prompt_snapshot`、`list_skills` | 选择记录与 prompt 快照分段读；`list_skills` 返回技能库目录与诊断 |
+| 上下文与技能 | `list_selection_records`、`get_selection_record`、`get_context_breakdown`、`list_prompt_requests`、`read_prompt_snapshot`、`list_skills`、`list_subagent_roles` | 选择记录与 prompt 快照分段读；技能与子代理角色查询返回实例目录、有效条目及加载诊断 |
 | 项目配置、资料授权与记忆 | `set_project_instructions`、`set_project_web_search`、`get_project_jev`、`set_project_jev`、`create_data_grant`、`revoke_data_grant`、`list_data_grants`、`list_memories`、`get_memory`、`save_memory`、`revoke_memory`、`restore_memory` | 写操作按 `expected_version` 条件更新；资料授权只能由拥有者此处创建与撤销 |
 | 凭据 | `list_credentials`、`add_credential`、`remove_credential` | `list_credentials` 只有引用、不回显值；秘密值随请求传输，不进命令行、模型上下文、事件或日志 |
 | MCP | `mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check` | 配置按项目、按 `expected_version` 条件更新；`mcp_check` 试连并列出可用工具 |

@@ -2,6 +2,8 @@
 
 Status: proposed
 
+定义、选择与完整持久内容的落地见[角色快照](../../implemented/architecture/2026-10-14-subagent-role-snapshots.md)；本提案继续持有来源能力、目标隔离和工作流接口的待实施范围。
+
 ## 问题
 
 工作流等待与侧栏验收中，拥有者要求子代理用 shell 调查目录，任务虽然是完全访问，模型收到的工具仍没有 bash。普通委派和工作流都默认 analyze，却各自具有不同的工具集合；同一模式还绑定目录准备与成果处理，角色职责、工具能力、访问模式和工作流身份混在一起。事实见[调查证据](../../../../.scratch/subagent-roles/evidence/source.md)。

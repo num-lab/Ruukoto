@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * TUI 应用集成（无终端：假 Terminal + 真实后台与控制协议）。
  *
@@ -1518,7 +1519,7 @@ test("非普通开发身份的 /mode 与 Shift+Tab 仅提供三个访问模式�
     const create = async () => t.client.request<Session>("create_session", { project_id: projectId, cwd: t.work[0]! });
     const main = t.runtime.store.getSession(t.runtime.store.getAgentRole("main")!.sessionId)!;
     const sub = await create();
-    t.runtime.store.insertSubAgent({ id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
+    t.runtime.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
     const archive = await create();
     t.runtime.store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(archive.id);
     const h = await startApp(t, { sessionId });

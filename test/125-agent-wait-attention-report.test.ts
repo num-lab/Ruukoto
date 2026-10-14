@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -18,7 +19,7 @@ function attentionChildren(rt: Runtime, parent: Task): string[] {
     const now = new Date().toISOString(), childSession = rt.store.createSession({ projectId: session.projectId, cwd: session.cwdReal,
       cwdReal: session.cwdReal, cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: `attention-${key}`, confirmTools: [] });
     const workId = `attention-work-${key}`, agentId = `attention-agent-${key}`;
-    rt.store.insertSubAgent({ id: agentId, parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
+    rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: agentId, parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
       activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
     rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: parent.id, subAgentId: agentId,
       requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: now });

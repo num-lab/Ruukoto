@@ -1,5 +1,6 @@
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import { createHmac, randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { test } from "node:test";
@@ -168,6 +169,9 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
   let reviewWaiting = false;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const h = await harness("github-flow", async () => { reviewWaiting = true; await gate; });
+  const roleDir = path.join(h.runtime.config.agentDir, "agents");
+  fs.mkdirSync(roleDir);
+  for (const role of ["general", "reviewer"]) fs.writeFileSync(path.join(roleDir, `${role}.md`), "---\ndescription: 用户角色覆盖\ntools: [bash]\n---\nUSER_ROLE_MUST_NOT_REPLACE_REVIEW");
   const delivery = randomUUID();
   try {
     const first = await h.post(delivery);
@@ -204,6 +208,8 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
     assert.match(child.input, new RegExp(`目标 base ${BASE}`));
     const parentCall = h.server.calls.find((call) => lastUserText(call) === parent.input)!;
     const childCalls = h.server.calls.filter((call) => lastUserText(call).startsWith(REVIEW_HEADER));
+    assert.equal(h.runtime.store.getSubAgent(child.subAgentId!)!.definition!.kind, "host_review");
+    assert.ok(childCalls.every(call => !call.system?.includes("USER_ROLE_MUST_NOT_REPLACE_REVIEW")));
     const wakeCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[编排器] 子任务"));
     assert.deepEqual(toolNames(parentCall), [], "MCP 配在 main 项目，main 自身的确认接收任务也不出现工具");
     assert.deepEqual(toolNames(childCalls[0]!), ["mcp_github_get_diff", "mcp_github_get_pr", "read", "read_artifact"].sort(),

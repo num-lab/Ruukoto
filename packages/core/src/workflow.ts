@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { StoreConflictError, type Store } from "./store.ts";
 import { randomId, type AccessMode, type GrantedPath, type ModelSelection, type NotifyTarget, type SubAgentReadScope, type Task, type ToolCategory } from "./types.ts";
 import type { ProductType } from "./product.ts";
+import type { SubAgentRoleCatalogSnapshot } from "./subagent-definition.ts";
 
 export const WORKFLOW_LIMITS = { attempts: 100, durationMs: 3_600_000, concurrency: 3, retries: 2, valueBytes: 512 * 1024, scriptBytes: 128 * 1024 } as const;
 export type WorkflowStatus = "queued" | "running" | "waiting" | "paused" | "succeeded" | "partial" | "failed" | "canceled";
@@ -62,6 +63,7 @@ export interface WorkflowRun {
   description?: string | null;
   source: WorkflowSource;
   modelSelection: ModelSelection;
+  roleCatalog?: SubAgentRoleCatalogSnapshot;
   status: WorkflowStatus;
   version: number;
   reason: string | null;

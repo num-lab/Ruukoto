@@ -1,4 +1,4 @@
-import { verifyImportedBranchSources } from "@ruukoto/core/import-support.ts";
+import { verifyImportedBranchSources, verifyImportedSubAgentDefinitions } from "@ruukoto/core/import-support.ts";
 import { verifyImportedAgentWaitReferences, archiveImportedAgentWaits } from "@ruukoto/core/import-support.ts";
 /**
  * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22）：
@@ -595,6 +595,7 @@ function buildImportSet(snap: PersonalSnapshot, deps: LegacyImportDeps): Persona
 
   const worksIncluded = allRows(db, "SELECT * FROM work_delegations").filter((r) => sessionIds.has(String(r.parent_session_id)));
   verifyImportedBranchSources(includedSessions, tasks, artifacts, worksIncluded);
+  verifyImportedSubAgentDefinitions(subAgents.filter((row) => sessionIds.has(String(row.session_id))));
   return {
     roles,
     projects: includedProjects,

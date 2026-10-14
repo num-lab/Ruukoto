@@ -9,6 +9,9 @@ import { WorkflowScriptHost } from "@ruukoto/agent/script-worker/host.ts";
 import { isRecord, ScriptExecutionError, type ScriptCall } from "@ruukoto/agent/script-worker/protocol.ts";
 import { compileWorkflowOutput } from "@ruukoto/agent/workflow-output.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { SubAgentRoleError, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
+import { selectSubAgentRole } from "./subagent-role-library.ts";
 import { WorkCopyError } from "./work-copy.ts";
 import { createManagedProcessRegistry, type ManagedEntry, type ManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
 import type { Store } from "@ruukoto/core/store.ts";
@@ -36,6 +39,7 @@ export interface WorkflowAgentContext {
 export type WorkflowAgentExecutor = (context: WorkflowAgentContext) => Promise<{ output: string; isError?: boolean }>;
 export interface WorkflowDeps {
   store: Store;
+  roles(): SubAgentRoleLibrary;
   ledger?: ToolOpLedger;
   workRoot: string;
   source(taskId: string): WorkflowSource;
@@ -114,6 +118,7 @@ export class WorkflowCoordinator {
     const old = findWorkflowRun(this.store, task.sessionId, input.requestKey);
     if (old) {
       if (old.paramsDigest !== paramsDigest) throw new WorkflowError("request_conflict");
+      this.roleCatalog(old);
       return old;
     }
     if (this.stopped || !input.requestKey || !Number.isInteger(maxAttempts) || maxAttempts <= 0 || maxAttempts > WORKFLOW_LIMITS.attempts ||
@@ -123,10 +128,11 @@ export class WorkflowCoordinator {
     const currentSource = sourceForTask(task.id);
     if (workflowDigest(currentSource) !== workflowDigest(source)) throw new WorkflowError("source_invalid");
     const definition = saveWorkflowDefinition(this.store, input.script);
+    const roleCatalog = structuredClone(validateSubAgentRoleLibrary(this.deps.roles()));
     const createdAt = new Date(this.now()).toISOString();
     return createWorkflowRun(this.store, { id: randomId("wfrun"), requestKey: input.requestKey, paramsDigest, definitionId: definition.id,
         scriptDigest: definition.digest, input: JSON.parse(workflowJson(input.input)), inputDigest: workflowDigest(input.input), displayName: input.displayName ?? `未命名工作流 ${createdAt}`, description: input.description ?? null, source,
-        modelSelection, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts, durationMs, usedMs: 0, clockStartedAt: null, clockVerified: true,
+        modelSelection, roleCatalog, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts, durationMs, usedMs: 0, clockStartedAt: null, clockVerified: true,
         scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt, endedAt: null });
   }
 
@@ -135,6 +141,14 @@ export class WorkflowCoordinator {
     this.store.withTx(() => {
       recoverWorkflowRuns(this.store, this.now());
       for (const run of listWorkflowRuns(this.store)) {
+        if (!workflowTerminal(run.status)) {
+          try { this.roleCatalog(run); }
+          catch (error) {
+            if (!(error instanceof WorkflowError)) throw error;
+            setWorkflowState(this.store, run.id, "paused", error.code, this.now());
+            continue;
+          }
+        }
         for (const step of listWorkflowSteps(this.store, run.id)) {
           if (!this.verifyOutputArtifact(step) && !workflowTerminal(run.status)) setWorkflowState(this.store, run.id, "paused", "result_missing", this.now());
         }
@@ -182,6 +196,12 @@ export class WorkflowCoordinator {
     for (const snapshot of listWorkflowRuns(this.store)) {
       if (workflowTerminal(snapshot.status)) continue;
       if (snapshot.status === "paused") { void this.stopRun(snapshot.id, snapshot.reason ?? "paused"); continue; }
+      try { this.roleCatalog(snapshot); }
+      catch (error) {
+        if (!(error instanceof WorkflowError)) throw error;
+        this.pause(snapshot.id, error.code);
+        continue;
+      }
       if (!this.deps.verifySource(snapshot.source)) { this.pause(snapshot.id, "source_invalid"); continue; }
       if (chargeWorkflow(snapshot, this.now()).usedMs >= snapshot.durationMs) { this.pause(snapshot.id, "duration_limit"); continue; }
       if (!this.scripts.has(snapshot.id)) this.launch(snapshot.id);
@@ -225,6 +245,12 @@ export class WorkflowCoordinator {
   }
 
   private prepareAgent(run: WorkflowRun, step: WorkflowStep): WorkflowExecution {
+    let definition: SubAgentDefinitionSnapshot;
+    try { definition = selectSubAgentRole(this.roleCatalog(run), "general"); }
+    catch (cause) {
+      if (!(cause instanceof SubAgentRoleError)) throw cause;
+      throw new WorkflowError(cause.code, { cause });
+    }
     const input = workflowJson({ params: step.params, sourceWorkspace: run.source.authority?.workspace.path ?? null,
       sourceReferences: run.source.references, dependsOn: step.dependsOn.map(key => getWorkflowStep(this.store, run.id, key)?.result) });
     const id = randomId("sagent");
@@ -237,7 +263,7 @@ export class WorkflowCoordinator {
       const session = this.store.createSession({ projectId: run.source.projectId, cwd: real, cwdReal: real, cwdDev: stat.dev, cwdIno: stat.ino,
         piSessionId: randomUUID(), confirmTools: [], modelSelection: run.modelSelection });
       this.store.insertSubAgent({ id, parentSessionId: run.source.sessionId, sessionId: session.id, workDir: real,
-        activeWorkId: workId, currentTaskId: null, state: "running", closedAt: null, closedBy: null, createdAt: new Date(this.now()).toISOString() });
+        activeWorkId: workId, currentTaskId: null, state: "running", closedAt: null, closedBy: null, createdAt: new Date(this.now()).toISOString(), definition });
       this.store.insertWorkDelegation({ id: workId, parentSessionId: run.source.sessionId, originTaskId: run.source.taskId, subAgentId: id,
         requestKey: `workflow:${run.id}:${step.key}:${step.attempts + 1}`, paramsDigest: step.digest, canceledAt: null, canceledBy: null, cancelReason: null,
         writeTarget: null, createdAt: new Date(this.now()).toISOString() });
@@ -253,6 +279,15 @@ export class WorkflowCoordinator {
       this.store.appendEvent({ type: "work_delegation.created", workId, parentSessionId: run.source.sessionId, subAgentId: id, agentSessionId: session.id, taskId: task.id }, { taskId: task.id, sessionId: run.source.sessionId });
       return execution;
     });
+  }
+
+  private roleCatalog(run: WorkflowRun): SubAgentRoleLibrary {
+    if (!run.roleCatalog) throw new WorkflowError("role_catalog_missing");
+    try { return validateSubAgentRoleLibrary(run.roleCatalog); }
+    catch (cause) {
+      if (!(cause instanceof SubAgentRoleError) && !(cause instanceof SubAgentDefinitionError)) throw cause;
+      throw new WorkflowError(cause.code, { cause });
+    }
   }
 
   private launch(id: string): void {

@@ -1,8 +1,8 @@
 # 可配置子代理角色执行计划
 
-要求由[规格 R1–R14](spec.md)持有，取舍由[决策笔记](../../.agents/notes/proposed/architecture/2026-10-14-configurable-subagent-roles.md)持有。规划基点与 HEAD 为 `ec45979fc94f9828cd902620752c059867b4de15`，分支 `Eitrous/agent-workflow`，开始时工作区干净。本计划与关联工单为未提交规划内容，审查对象由[输入清单](evidence/plan-inputs.sha256)固定；[方案审查](plan-review.md)持有结论。当前未改变产品行为。
+要求由[规格 R1–R14](spec.md)持有，取舍由[决策笔记](../../.agents/notes/proposed/architecture/2026-10-14-configurable-subagent-roles.md)持有。规划时基点与 HEAD 为 `ec45979fc94f9828cd902620752c059867b4de15`，分支 `Eitrous/agent-workflow`，开始时工作区干净。原方案对象由[输入清单](evidence/plan-inputs.sha256)固定；[方案审查](plan-review.md)持有结论。当前 01 的定义与快照层已实施，证据见[工程记录](evidence/01-implementation.md)，其余工单尚未实施。
 
-独立方案审查已通过，无未解决阻断。下一角色为实施者，从 01 开始；02–05 的方案同样过审，但保留各自实现前置。03 的真实机制实验须在生产接线前完成，方案通过不能代替该证据。
+独立方案审查已通过，无未解决阻断。01 完成工程审查后，下一实施入口为 02，使用已交付的快照接口；02–05 的方案同样过审，但保留各自实现前置。03 的真实机制实验须在生产接线前完成，方案通过不能代替该证据。
 
 ## 交付顺序
 

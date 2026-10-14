@@ -94,7 +94,7 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 
 ## 文档
 
-- [docs/usage.md](docs/usage.md)：操作手册——运行、配置、启用各入口、导入旧实例与故障排查
+- [docs/usage.md](docs/usage.md)：操作手册——运行、配置（含子代理角色文件）、启用各入口、导入旧实例与故障排查
 - [docs/architecture.md](docs/architecture.md)：模块地图与四条主流程
 - [docs/modules/](docs/modules/)：各模块的设计文档
 - [docs/development.md](docs/development.md)：可复现环境、开发检查、开发实例与测试导航

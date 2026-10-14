@@ -1,3 +1,5 @@
+import { BUILTIN_SUBAGENT_ROLES, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -77,7 +79,7 @@ function fixture(t: TestContext, agent: WorkflowAgentExecutor = async () => ({ o
   const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: task.id,
     permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: ["read"], references: [], replyTarget: null, scheduledRunId: null };
   let now = 1_000;
-  const deps: WorkflowDeps = { store, workRoot: path.join(root, "steps"), source: () => source, selection: () => selection,
+  const deps: WorkflowDeps = { roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []), store, workRoot: path.join(root, "steps"), source: () => source, selection: () => selection,
     verifySource: () => true, agent, now: () => now };
   let coordinator = new WorkflowCoordinator(deps);
   store.onCommitted = events => coordinator.onEvents(events);
@@ -101,7 +103,7 @@ function ordinaryTask(f: ReturnType<typeof fixture>, status: "queued" | "running
     const session = f.store.createSession({ projectId: f.session.projectId, cwd, cwdReal: cwd, cwdDev: stat.dev, cwdIno: stat.ino,
       piSessionId: randomId("pi"), confirmTools: [] });
     const id = randomId("sagent"), workId = randomId("work");
-    f.store.insertSubAgent({ id, parentSessionId: f.session.id, sessionId: session.id, workDir: cwd, activeWorkId: workId,
+    f.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id, parentSessionId: f.session.id, sessionId: session.id, workDir: cwd, activeWorkId: workId,
       currentTaskId: null, state: "running", closedAt: null, closedBy: null, createdAt: new Date().toISOString() });
     f.store.insertWorkDelegation({ id: workId, parentSessionId: f.session.id, originTaskId: f.task.id, subAgentId: id,
       requestKey: randomId("workrequest"), paramsDigest: "ordinary", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: new Date().toISOString() });

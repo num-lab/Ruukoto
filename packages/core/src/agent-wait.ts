@@ -4,7 +4,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { Store } from "./store.ts";
 import { isTerminalTaskStatus } from "./types.ts";
-import { listWorkflowExecutions, requireWorkflowRun, workflowTerminal, type WorkflowSource } from "./workflow.ts";
+import { getWorkflowRunNumber, listWorkflowExecutions, requireWorkflowRun, workflowTerminal, type WorkflowSource } from "./workflow.ts";
 
 export type AgentWaitTarget = { kind: "task"; taskId: string } | { kind: "workflow"; runId: string };
 export type AgentReportTarget = { kind: "task"; taskId: string } | { kind: "workflow"; runId: string; terminalVersion: number };
@@ -107,9 +107,12 @@ function waitEvent(store: Store, wait: AgentWait): void {
 export function agentWaitView(store: Store, wait: AgentWait): AgentWaitView {
   return { id: wait.id, phase: wait.phase, reason: wait.reason, deadline: wait.deadline,
     targets: wait.targets.map(target => {
-      const item = target.kind === "task" ? store.getTask(target.taskId) : requireWorkflowRun(store, target.runId);
-      return { kind: target.kind, id: target.kind === "task" ? target.taskId : target.runId,
-        label: `${target.kind === "task" ? "SubAgent 任务" : "工作流"} · ${item?.createdAt ?? "目标缺失"}`, status: item?.status ?? "missing" };
+      if (target.kind === "workflow") {
+        const run = requireWorkflowRun(store, target.runId);
+        return { kind: target.kind, id: target.runId, label: `工作流 · ${run.displayName ?? "未命名工作流"} · 第 ${getWorkflowRunNumber(store, run.id)} 项 · ${run.createdAt}`, status: run.status };
+      }
+      const task = store.getTask(target.taskId);
+      return { kind: target.kind, id: target.taskId, label: `SubAgent 任务 · ${task?.createdAt ?? "目标缺失"}`, status: task?.status ?? "missing" };
     }) };
 }
 function reportEvent(store: Store, report: AgentReport): void {

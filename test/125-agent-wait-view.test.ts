@@ -78,7 +78,7 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
   const t = await startTestRuntime("wait-view", async request => {
     const input = lastUserText(request);
     if (input === "等待后台") {
-      if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: {
+      if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: { title: "后台处理",
         key: "view", input: null, script: 'return await agent("child",{request:"WAIT_CHILD"});',
       } }] };
       runId = (JSON.parse(lastToolText(request)) as { run: { id: string } }).run.id;
@@ -97,11 +97,12 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     const parent = await t.runtime.submit({ sessionId: session.id, requestId: "parent", input: "等待后台", modelSelection: t.runtime.defaultSelection });
     await waitFor("等待视图已实时推送", () => state.tasks.get(parent.id)?.wait?.phase === "waiting");
     const detail = await t.client.request<OpResult<"get_task">>("get_task", { task_id: parent.id });
-    assert.equal(PROTOCOL_VERSION, 24);
+    assert.equal(PROTOCOL_VERSION, 25);
     assert.equal(detail.task.resourcePhase, "conversation");
     assert.equal(detail.task.wait!.targets[0].id, runId);
     assert.equal(detail.task.wait!.targets[0].kind, "workflow");
-    assert.match(detail.task.wait!.targets[0].label, /工作流/);
+    const workflow = t.runtime.getWorkflowDetail(runId).run;
+    assert.equal(detail.task.wait!.targets[0].label, `工作流 · 后台处理 · 第 ${workflow.number} 项 · ${workflow.createdAt}`);
     assert.ok(detail.task.wait!.deadline);
     assert.deepEqual(state.tasks.get(parent.id)?.wait, detail.task.wait);
     rendered.setEntries(view.flow.items);
@@ -138,7 +139,7 @@ test("真实工具资格：SubAgent、工作流步骤与无工具后备汇总均
     const input = lastUserText(request);
     if (input === "工具资格") {
       if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { request: "SUBAGENT_MARK", key: "sub", read_paths: ["."] } }] };
-      if (parentPhase === 2) return { kind: "tool_calls", calls: [{ id: "workflow", name: "workflow_start", arguments: {
+      if (parentPhase === 2) return { kind: "tool_calls", calls: [{ id: "workflow", name: "workflow_start", arguments: { title: "后台处理",
         key: "workflow", input: null, script: 'return await agent("step",{request:"WORKFLOW_MARK"});',
       } }] };
       return { kind: "text", text: "父轮结束" };

@@ -232,7 +232,7 @@ sequenceDiagram
 
 **GitHub 接入**。GitHub 操作一律经 MCP 服务接入，核心不提供专用 GitHub 模块或 REST 回退路径；PR webhook 评审的任务由宿主按任务收窄为静态只读白名单（`read` / `read_artifact`）∪ 类别为只读的 MCP 工具。端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`，host `api.githubcopilot.com`），必须另建并收紧到 main 项目，不复用其他用途的凭据，凭据范围不自动迁移。允许列表按 `mcp check` 实际发现的工具名精确填写，服务端工具集随版本变化，以发现结果为准；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。真实只读连通验证（SDK 版本、协商协议、工具清单与结果）在配置具备时进行；缺少凭据或网络条件时如实列为未验证，不以模拟测试冒充。故障排查按现象分派：认证失败（401/403）核对 `credentials list` 中 host、用途、scope 与 PAT 权限；服务不可用事件按事件中的 reason 区分连接失败、超时、协议不兼容（SDK 结果校验失败说明服务端违反 MCP 规范）与工具数/分页超限；工具缺失用 `mcp check` 对比远端实际工具与允许列表，远端改名须更新配置并在下一任务生效；限流（429）与超时一次终止并明确报错、不自动重试，重试时机由拥有者决定，任务取消或中断后迟到结果被忽略，终态与操作记录保持一致。
 
-共享 `workflow` 族提供 `workflow_instructions`、`workflow_save`、`workflow_start`、`workflow_query` 和 `workflow_cancel`。编写说明通过工具结果进入历史；保存/发起使用稳定键，查询/取消限来源会话，身份来自独立 HostToolContext。模型只可收窄默认预算，不取得恢复、核实或提高预算的入口；计划模式和步骤不开放这些工具。保存落盘前重核活动身份；账本按完整请求摘要核实发起、保存和取消，文件已落盘但无保存回执仍记无法核实。
+共享 `workflow` 族提供 `workflow_instructions`、`workflow_save`、`workflow_start`、`workflow_query` 和 `workflow_cancel`。编写说明通过工具结果进入历史；临时脚本发起必填简短单行 `title`，命名定义沿所选名称；可给显式 `description`，不把参数自动展开成说明。保存/发起使用稳定键，查询/取消限来源会话，身份来自独立 HostToolContext。模型只可收窄默认预算，不取得恢复、核实或提高预算的入口；计划模式和步骤不开放这些工具。保存落盘前重核活动身份；账本按完整请求摘要核实发起、保存和取消，文件已落盘但无保存回执仍记无法核实。
 
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；独立编码验证只开放五个编码工具，其命令使用原生沙箱。
 

@@ -381,7 +381,7 @@ ruukoto-code workflow step wfrun_x step-key
 ruukoto-code workflow question wfrun_x question-key
 ```
 
-`save` 新建时不填 `--expected-digest`；更新须用 `definition` 返回的当前 digest。正文/问题/步骤可用 `--offset`、`--length` 按 UTF-8 字节分页，详情步骤用 `--step-offset`；定义历史用 `--version-offset` 按返回的 `nextVersionOffset` 续读，每页 100 项。列表/详情只含送达摘要，完整最终事实和回报正文用 logs 分页读取；历史脚本用 `workflow version <定义ID>`。运行参数也可 `--input-file` 读取 JSON；临时脚本以 `workflow run --script-file F --session S --request-id K` 启动。定义不可读/语法失败先修文件，`script_validator_unavailable` 先运行 `npm run build:script`；模型或执行入口失败先检查配置。
+`save` 新建时不填 `--expected-digest`；更新须用 `definition` 返回的当前 digest。正文/问题/步骤可用 `--offset`、`--length` 按 UTF-8 字节分页，详情步骤用 `--step-offset`；定义历史用 `--version-offset` 按返回的 `nextVersionOffset` 续读，每页 100 项。列表/详情只含送达摘要，完整最终事实和回报正文用 logs 分页读取；历史脚本用 `workflow version <定义ID>`。运行参数也可 `--input-file` 读取 JSON；临时脚本以 `workflow run --script-file F --title 名称 --session S --request-id K` 启动，可用 `--description` 填简短说明；命名定义的名称固定，不接受 `--title` 覆盖。定义不可读/语法失败先修文件，`script_validator_unavailable` 先运行 `npm run build:script`；模型或执行入口失败先检查配置。
 
 | CLI 后续操作 | 必填字段 |
 | --- | --- |
@@ -391,9 +391,9 @@ ruukoto-code workflow question wfrun_x question-key
 | `workflow find` | 原启动的 `--session`、`--request-id` |
 | `workflow saved` | 原保存的 `--request-id` |
 
-所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 的确认字段自动解除。取消保留历史及成果，具体故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema 40/协议 24 按严格版本策略拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
+所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 的确认字段自动解除。取消保留历史及成果，具体故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema 41/协议 25 按严格版本策略拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
 
-TUI 使用 `/workflow` 及上述子命令的文本窗口：`/workflow run <名称> <请求键> <JSON参数>`，`/workflow save <名称> <请求键> <当前摘要|null> <JSON脚本字符串>`；查询 list/definition/version/show/logs/step/question，原键核实 find/saved；`/workflow definition <名称> [字节偏移] [历史偏移]` 分别续读正文和名称历史。答复格式为 `/workflow answer <运行ID> <步骤键> <问题运行代次> <问题版本> <请求键> <JSON回答>`；pause/resume/cancel 要 `<运行ID> <当前版本> <请求键>`，budget 再加 `<尝试上限> <运行毫秒>`。resume 可追加显式 JSON 核实项。`/workflow help` 列完整用法；窗口可滚动，以 q/Esc 关闭。最近进度事件重连保留，退出重开后通过查询恢复持久事实，聊天和其他运行仍可继续。
+TUI 用 `/workflow` 打开侧栏：默认列出当前会话全部活动运行和最近十项结果，历史和长列表可续读。选运行后进入详情，查看步骤、日志、业务问题及独立的停止核实、效果未知和最终回报状态，再选择回答、暂停、恢复、取消或预算；名称、含毫秒时间、展示序号和显式说明帮助辨认同名运行。选“启动工作流”后选择已保存定义、填写 JSON 业务参数与可选简短说明，再确认启动；编辑脚本通过文件或 Agent。Enter 确认、↑↓ 选择、PageUp/PageDown 阅读正文，Esc 逐层返回并在根层关闭，浏览层也可用 q 返回。宽度至少 120 列时侧栏与聊天共存，Tab 切换焦点；窄屏以独立窗口显示同一所在层，Tab 可回聊天，缩放保留选择。关闭侧栏或客户端不取消运行。稳定键、原版本和参数由程序在发送前落盘，应答丢失、重连和客户端重启先只读核实原提交；明确未接收后可选择原键原参数重试，实例变化或记录损坏时保留待核实，不向新库重发。过期操作退回最新详情，重新选择并确认。
 
 个人 IM 只接受绑定拥有者在原入口发送的完整命令，运行用完整 ID 定位；引用、转发、来源不符、旧代次、格式错误或定位歧义不改变运行。命令仍在原始文本进入模型前处理，控制回执与意图同事务提交，平台重投不重复执行。
 
@@ -505,7 +505,7 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/mai
 | `/prompt` | 本会话的模型请求列表与每次调用的 prompt |
 | `/skill <名称> [参数]` | 显式调用技能（不带名称时同 `/skills`） |
 | `/skills` | 技能库与诊断 |
-| `/workflow <子命令>` | 定义、带参运行、步骤/阶段、业务答复与版本化控制；原键核实 |
+| `/workflow` | 工作流侧栏：选择运行、历史、定义启动与逐层操作；Tab 切换聊天 |
 | `/qq <子命令>` | QQ 入口：status / enable / disable / groups / inbox / outbox（后三者为旧群归档） |
 | `/quit` | 退出客户端（后台任务继续运行） |
 

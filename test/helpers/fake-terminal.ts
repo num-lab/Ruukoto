@@ -28,6 +28,11 @@ export class FakeTerminal implements Terminal {
   clearScreen(): void {}
   setTitle(): void {}
   setProgress(): void {}
+  resize(columns: number, rows: number): void {
+    this.columns = columns;
+    this.rows = rows;
+    this.onResize?.();
+  }
   /** 与 ProcessTerminal 一致：括号粘贴整段作为一次输入送达。 */
   paste(text: string): void {
     this.onInput?.(`\x1b[200~${text}\x1b[201~`);
@@ -48,9 +53,9 @@ export class FakeTerminal implements Terminal {
       const ch = data[i]!;
       if (ch === "\x1b") {
         flush();
-        // ESC 序列（如 \x1b[B）作为整体
+        // CSI 参数、修饰键和 SS3 功能键作为整体，避免分页键被当作文本。
         const rest = data.slice(i);
-        const m = /^\x1b\[[A-Za-z]~?/.exec(rest) ?? /^\x1b./.exec(rest);
+        const m = /^\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/.exec(rest) ?? /^\x1bO./.exec(rest) ?? /^\x1b./.exec(rest);
         const seq = m ? m[0] : "\x1b";
         this.onInput?.(seq);
         i += seq.length - 1;

@@ -34,7 +34,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 const TUI_OPS: Record<TuiOp, true> = {
   workflow_get: true, workflow_question: true, workflow_answer: true,
   workflow_definitions: true, workflow_definition: true, workflow_save: true, workflow_saved: true, workflow_start: true, workflow_find: true,
-  workflow_list: true, workflow_step: true, workflow_logs: true, workflow_control: true,
+  workflow_list: true, workflow_step: true, workflow_logs: true, workflow_control: true, workflow_receipt: true,
   get_session_todos: true, branch_session: true, find_branch_session: true,
   compact_session: true, get_session_compaction: true, interrupt_session_compaction: true,
   get_task: true, find_task: true, list_tasks: true, read_task_events: true, read_history: true, read_tool_result: true, read_history_entry: true,

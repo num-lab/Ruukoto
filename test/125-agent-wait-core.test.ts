@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { agentReportKey, agentWaitCovers, bindAgentReportFallback, claimAgentReports, completeAgentReports, consumeAgentReport, endAgentWait,
+import { agentWaitView, agentReportKey, agentWaitCovers, bindAgentReportFallback, claimAgentReports, completeAgentReports, consumeAgentReport, endAgentWait,
   finishAgentReportFallback, getAgentReport, getAgentWait, invalidateAgentReports, isAgentReportFallback, isAgentReportParked, latestAgentReferenceSnapshot, listAgentReports,
   recoverAgentWaits, registerAgentReport, registerAgentWait, releaseAgentReports, setAgentWaitPhase, startAgentReportFallback, transferAgentReportFallbacks,
   type AgentReferenceSnapshot } from "@ruukoto/core/agent-wait.ts";
@@ -47,6 +47,26 @@ function fixture() {
   const report = (childId: string) => store.withTx(() => registerAgentReport(store, { target: { kind: "task", taskId: childId }, source, parentSessionId: parentSession.id }));
   return { root, db, store, source, snapshot, parent, parentSession, task, child, wait, report, cleanup: () => { db.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
+
+test("等待视图使用工作流固定名称，旧无名运行按宿主创建时刻回退", () => {
+  const f = fixture();
+  try {
+    const wait = f.store.withTx(() => {
+      const definition = saveWorkflowDefinition(f.store, "return 1;");
+      const run = { requestKey: "display", paramsDigest: "display", definitionId: definition.id, scriptDigest: definition.digest,
+        input: null, inputDigest: workflowDigest(null), source: f.source, modelSelection: f.parent.modelSelection!, status: "running" as const, version: 1,
+        reason: null, attempts: 0, maxAttempts: 100, durationMs: 1000, usedMs: 0, clockStartedAt: null, clockVerified: true,
+        scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt: f.parent.createdAt, endedAt: null };
+      createWorkflowRun(f.store, { ...run, id: "named", displayName: "固定名称" });
+      createWorkflowRun(f.store, { ...run, id: "legacy", requestKey: "legacy" });
+      return registerAgentWait(f.store, { id: "display-wait", sdkCallId: "display-call", taskId: f.parent.id, sessionId: f.parentSession.id, source: f.source, snapshot: f.snapshot,
+        deadline: null, targets: [{ kind: "workflow", runId: "named" }, { kind: "workflow", runId: "legacy" }] });
+    });
+    const labels = agentWaitView(f.store, wait).targets.map(target => target.label);
+    assert.match(labels[0], /^工作流 · 固定名称 · 第 \d+ 项 · /);
+    assert.ok(labels[1].startsWith("工作流 · 未命名工作流 · 第 ") && labels[1].endsWith(f.parent.createdAt));
+  } finally { f.cleanup(); }
+});
 
 test("等待结果引用有界：任务与工作流各给100条产物并保留总数，原产物不删除", () => {
   const f = fixture();

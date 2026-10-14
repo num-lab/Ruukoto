@@ -37,7 +37,7 @@ npx tsx --test test/71-product-entry.test.ts test/32-dev.test.ts
 npx tsx --test verification/foundation/test/03-tools.test.ts
 ```
 
-按功能词找分支，跨模块查调用者；下表列起点，完整列表用 `rg --files test`。
+按功能词及调用者选测试；下表列起点，全表用 `rg --files test`。
 
 | 修改位置 | 常用测试起点 |
 | --- | --- |
@@ -48,7 +48,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `scripts/test-app.mjs` 的分批与退出 | `test/124-test-app-runner.test.ts`；共享 UID 孤儿冲突的独占清单由脚本持有 |
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts` |
 | 回答、送达、调度与等待 | `test/114-workflow-owner-input.test.ts` 至 `test/116-workflow-notification-recovery.test.ts`；`test/125-agent-wait*.test.ts` |
-| 工作流定义与入口 | `test/117-workflow-library.test.ts` 至 `test/120-workflow-cli.test.ts`；模型/IM 为本地替身 |
+| 工作流定义与入口 | `test/117-workflow-library.test.ts` 至 `test/120-workflow-cli.test.ts`；126 侧栏与恢复，模型/IM 替身 |
 | 双产品六输入联合验收 | `test/121-workflow-personal-acceptance.test.ts`、`test/122-workflow-code-acceptance.test.ts`；真实工具、联网/IM 替身 |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、worktree 与导入 | `test/80-subagent-delegation.test.ts` 至 `test/87-retire-coding-role.test.ts`、`test/91-release-acceptance.test.ts`、`test/95-work-copy.test.ts` |

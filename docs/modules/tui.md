@@ -42,10 +42,10 @@
 | `respond_confirmation` | 提交审批决定，可携带 `permission_version` |
 | `read_artifact` | 按字节分页读取产物正文，单次上限 720 KiB（base64 开销后仍在 1 MiB 帧上限内） |
 | `workflow_definitions` / `workflow_definition` / `workflow_save` / `workflow_saved` / `workflow_start` / `workflow_find` | 命名定义、版本及原键核实，带参启动 |
-| `workflow_list` / `workflow_get` / `workflow_step` / `workflow_logs` / `workflow_question` / `workflow_answer` / `workflow_control` | 运行/步骤/阶段正文、业务答复、暂停/恢复/取消及拥有者预算 |
+| `workflow_list` / `workflow_get` / `workflow_step` / `workflow_logs` / `workflow_question` / `workflow_answer` / `workflow_control` / `workflow_receipt` | 运行/步骤/阶段正文、业务答复、暂停/恢复/取消及拥有者预算 |
 | `get_model_config` / `set_summary_model` | 读取模型配置（`get_model_config` 返回 `summaryModel`）、设置摘要模型 |
 
-工作流由 `tui/workflows.ts` 的 `/workflow` 使用已有可滚动文本窗口展示定义、固定版本、步骤结果、等待原因、预算和停止事实；CLI `workflow` 输出 JSON。所有写操作显式携带原键，TUI 原文及原键进入客户端命令历史，应答丢失先 find/saved/show 核实。工作流状态、步骤和执行用不同事件键显示，最近事件注记重连保留，旧补发不回退；持久详情、阶段及问题由查询恢复，关闭窗口或退出不改变运行。
+工作流由 `tui/workflows.ts` 的共享侧栏展示固定名称、含毫秒时间、稳定展示序号、显式说明、中文状态与图标；当前列表包含全部活动和最近十项终态，历史、步骤、日志与问题按页续读。运行详情逐层选择回答、暂停、恢复、取消与预算；已保存定义选择后填写 JSON 参数、可选说明并确认启动。宽度至少 120 列时根布局通过 HStack 为聊天与侧栏分配空间，窄屏显示独立窗口并保留导航，Tab 切焦点，Esc 返回一层、根层关闭。工作清单放在聊天列左上方，审批窗口优先显示，关闭后恢复原焦点；关闭侧栏、断开或退出不改变后台运行。CLI `workflow` 继续输出 JSON 并保留标识符接口；脚本编辑通过文件或 Agent。
 
 控制面事件：`project.root_attached`、`project.settings_changed`、`task.output_fragment`、`task.output_entry`、`task.thinking`、`task.tool_result` 及任务状态迁移事件。终端也调用任务操作（`/interrupt`、`/cancel <taskId>`、`/continue [taskId]`、`/resume-queue`、`/mode`、`/model`、`/skill`）。
 
@@ -97,6 +97,8 @@
 ## 数据与状态
 
 工作流汇总及等待补报的 user 输入按后台 `inputPurpose=internal_report` 从 EventFlow 可见投影过滤，保留的排队报告别名沿同一可信分类，实时、重连、分页和单条补读均生效；↑ 历史补种和置顶要求沿同一投影。最终 assistant 总结照常展示，搜索与诊断保留原文；关联缺口显示提示并保留普通正文。
+
+工作流待核实提交复用客户端待确认目录的 `workflows/`，保存原键、完整参数、原版本及实例身份，落盘失败不发送。应答丢失及客户端重启后先只读核实原提交；明确未接收才可选择原键原参数重试，实例变化、损坏和查询失败保留原记录。核实接收后消费原确认层，版本失效回到最新详情重新选择动作。运行、步骤、执行使用不同事件键，重连注记不回退，事件触发侧栏重新查询并按稳定身份保留选择；原选择移出当前页时查询原运行并标明保留项。八种状态始终有文字，停止待核实、效果未知与最终回报分别展示。
 
 手动压缩的待核实关联保存在客户端待确认目录的 `compactions/`，包括发起会话、请求键、指引、命令历史键和实例身份，终态才清除。命令回显与结果归发起会话，不成为普通任务输入或 JSONL 消息。在线通过会话事件与定时查询核实；切换、重连及退出重进查询原请求，后台明确未接收才按原键重发，实例变化则保留记录供核实。另一客户端查询会话最新结果，不依赖原客户端仍在等待。
 
@@ -243,6 +245,8 @@ sequenceDiagram
 - **待确认请求目录**：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
 
 ## 设计依据
+
+- [工作流侧栏与原请求核实](../../.agents/notes/implemented/feature/2026-10-14-workflow-progressive-controls.md)
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 

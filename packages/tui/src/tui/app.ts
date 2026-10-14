@@ -2,7 +2,7 @@ import type { TaskView as Task } from "@ruukoto/core/views.ts";
 /**
  * TUI 应用：pi-tui 布局、输入路由、命令与覆盖层。
  *
- * 布局（单个全屏页面，窄终端保持纵向结构）：
+ * 布局（全屏页面；工作流宽屏侧栏，窄屏独立窗口）：
  *   顶部 header：项目 / 会话 / 工作目录 / 连接状态 / 任务权限模式 / 执行后端；
  *   中间 ScrollView：历史消息与工具记录（折叠）+ 当前活动（预览/工具/提示）；
  *   底部：多行 Editor、模式与模型信息；工作清单经 /todo 悬浮层查看。
@@ -14,6 +14,7 @@ import type { TaskView as Task } from "@ruukoto/core/views.ts";
 
 import {
   Editor,
+  HStack,
   KeybindingsManager,
   ProcessTerminal,
   ScrollView,
@@ -24,6 +25,7 @@ import {
   TuiAltScreen,
   VStack,
   matchesKey,
+  isKeyRelease,
   truncateToWidth,
   visibleWidth,
   type Component,
@@ -76,6 +78,7 @@ import {
 
 import { EventFlowView } from "./event-flow-view.ts";
 import { activityAgo, TwoLineSelectList } from "./session-list.ts";
+import { WorkflowSidebar } from "./workflows.ts";
 import { formatPromptSnapshot } from "./prompt-format.ts";
 import { formatContextTokens } from "./context-format.ts";
 import type { FlowEntry } from "./event-flow.ts";
@@ -816,6 +819,7 @@ export class TuiApp {
   private readonly eventFlowView = new EventFlowView();
   private readonly expandedTools = new Map<string, object>();
   private readonly todoPanel = new TodoPanel();
+  private readonly workflowSidebar: WorkflowSidebar;
   private todoOverlay: OverlayHandle | null = null;
   private readonly sessionTodos = new Map<string, Todo[] | null>();
   private pendingBranch: { sessionId: string; name?: string; requestId: string; instanceId: string; autoSwitch: boolean; result: CommandResult } | null = null;
@@ -875,7 +879,11 @@ export class TuiApp {
       this.workspacePhase = "pending";
     }
 
-    setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS));
+    const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
+    const match = keybindings.matches.bind(keybindings);
+    // 只在侧栏获焦时让出视口键；聊天、搜索和覆盖层仍沿终端库的原路由。
+    keybindings.matches = (data, key) => !(this.workflowSidebar?.focused && ["tui.altScreen.pageUp", "tui.altScreen.pageDown", "tui.altScreen.top", "tui.altScreen.bottom"].includes(key)) && match(data, key);
+    setKeybindings(keybindings);
     this.tui = new TuiAltScreen(this.terminal, true);
 
     this.header = new Text("", 1, 0);
@@ -912,12 +920,30 @@ export class TuiApp {
       });
     };
 
+    this.workflowSidebar = new WorkflowSidebar({
+      request: (op, params) => this.connection.request(op, params),
+      pending: new PendingRequestStore(join(opts.pendingStore.dir, "workflows")),
+      sessionId: () => this.state.currentSessionId,
+      instanceId: () => this.state.instanceId,
+      online: () => this.connection.state === "online",
+      rows: () => this.terminal.rows || 24,
+      render: () => this.tui.requestRender(),
+      close: () => { this.tui.setFocus(this.editor); this.tui.requestRender(); },
+      approvals: () => this.openApprovals(),
+      wait: () => this.state.currentSessionId ? this.state.activeTaskFor(this.state.currentSessionId)?.wait : undefined,
+    });
+
     const mainVisible = () => this.windows.length === 0;
-    const root = new VStack([
+    const chat = new VStack([
       { component: this.header, grow: 0, shrink: 1, visible: mainVisible },
       { component: this.scroll, grow: 1, shrink: 1, minSize: 1, visible: mainVisible },
       { component: this.editor, grow: 0, shrink: 0, minSize: 3, visible: mainVisible },
       { component: this.footer, grow: 0, shrink: 0, visible: mainVisible },
+    ]);
+    const root = new HStack([
+      { component: chat, grow: 1, shrink: 1, minSize: 1, visible: viewport => mainVisible() && (viewport.width >= 120 || !this.workflowSidebar.opened || !this.workflowSidebar.focused) },
+      { component: this.workflowSidebar, basis: 46, grow: 0, shrink: 0, visible: viewport => mainVisible() && this.workflowSidebar.opened && viewport.width >= 120 },
+      { component: this.workflowSidebar, grow: 1, minSize: 1, visible: viewport => mainVisible() && this.workflowSidebar.opened && this.workflowSidebar.focused && viewport.width < 120 },
     ]);
     this.tui.addChild(root);
     this.tui.setLayoutRoot(root);
@@ -925,6 +951,16 @@ export class TuiApp {
 
     // Ctrl+C：有草稿先清草稿，空草稿退出客户端（不停止后台任务）
     this.tui.addInputListener((data) => {
+      if (this.workflowSidebar.focused && this.windows.length === 0 && (["pageUp", "pageDown", "home", "end"] as const).some(key => matchesKey(data, key))) {
+        if (!isKeyRelease(data)) this.workflowSidebar.handleInput(data);
+        this.tui.requestRender();
+        return { consume: true };
+      }
+      if (data === "\t" && this.workflowSidebar.opened && this.windows.length === 0 && this.editor.overlayLines.length === 0) {
+        this.tui.setFocus(this.workflowSidebar.focused ? this.editor : this.workflowSidebar);
+        this.tui.requestRender();
+        return { consume: true };
+      }
       if (matchesKey(data, "escape") && this.todoOverlay && this.editor.overlayLines.length === 0 && this.tui.getFocusedComponent() === this.editor) {
         this.todoOverlay.hide();
         this.todoOverlay = null;
@@ -1025,6 +1061,7 @@ export class TuiApp {
   onConnectionState(state: "connecting" | "online" | "reconnecting" | "failed" | "closed", detail?: string): void {
     this.state.connection = { state, detail: detail ?? null, lastSyncAt: this.connection.lastSyncAt };
     if (state === "online") {
+      void this.workflowSidebar.reconnect();
       void this.reconcilePendingInputs();
       for (const pending of this.pendingCompactions.values()) void this.reconcileCompaction(pending.sessionId, true);
       if (this.state.currentSessionId) void this.reconcileCompaction(this.state.currentSessionId);
@@ -1041,6 +1078,7 @@ export class TuiApp {
     this.flowCursors.clear();
     this.flowRequests.clear();
     this.state.applySnapshot(result, ctx.instanceChanged);
+    this.workflowSidebar.refresh();
     if (ctx.instanceChanged) this.sessionTodos.clear();
     if (!this.pendingBranch && this.generation === 1) {
       const saved = this.branchPendingStore.list();
@@ -1326,6 +1364,7 @@ export class TuiApp {
   onEvent(event: PersistentEvent, kind: "live" | "replay"): void {
     this.state.applyEvent(event, kind);
     const body = event.body;
+    if (body.type === "workflow.changed" || body.type === "workflow.step" || body.type === "workflow.execution" || body.type === "agent_wait.changed") this.workflowSidebar.refresh();
     if (body.type === "session.usage_updated" && body.sessionId === this.state.currentSessionId) {
       void this.refreshSessionUsage(body.sessionId);
     }
@@ -1440,6 +1479,7 @@ export class TuiApp {
       prev.scrollTop = this.scroll.isFollowingEnd ? null : this.scroll.scrollTop;
     }
     this.state.currentSessionId = sessionId;
+    this.workflowSidebar.sessionChanged();
     if (settings && source?.id !== sessionId) {
       this.carriedSettings = settings;
       const sync = this.sessionSettingsSync.catch(() => {}).then(async () => {
@@ -1806,6 +1846,7 @@ export class TuiApp {
     openContext: (result) => this.cmdContext(result),
     openPrompts: () => this.cmdPrompt(),
     toggleTodo: () => this.toggleTodo(),
+    openWorkflow: () => { this.workflowSidebar.open(); this.tui.setFocus(this.workflowSidebar); this.tui.requestRender(); },
     submit: (text) => this.submitText(text),
   };
 
@@ -2218,8 +2259,8 @@ export class TuiApp {
       },
     };
     this.todoOverlay = this.tui.showOverlay(popup, {
-      anchor: "top-right", width: "35%", minWidth: 24, maxHeight: "60%", margin: 1,
-      nonCapturing: true, visible: () => this.windows.length === 0,
+      anchor: "top-left", width: "35%", minWidth: 24, maxHeight: "60%", margin: 1,
+      nonCapturing: true, visible: () => this.windows.length === 0 && (this.terminal.columns >= 120 || !this.workflowSidebar.focused),
     });
   }
 

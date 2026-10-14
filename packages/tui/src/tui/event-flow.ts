@@ -2,6 +2,7 @@ import type { TaskView as Task } from "@ruukoto/core/views.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { OutputPreview, ToolOpView } from "@ruukoto/core/views.ts";
+import { workflowStatus } from "./workflows.ts";
 
 interface FlowPosition {
   key: string;
@@ -152,10 +153,10 @@ export class EventFlow {
         if (event.seq <= (this.versions.get(key) ?? -1)) return;
         this.versions.set(key, event.seq);
         const text = body.type === "workflow.changed"
-          ? "工作流 " + body.runId + " · " + body.status + " · v" + body.version + (body.reason ? " · " + body.reason : "") + "；/workflow show " + body.runId + " 核实详情"
+          ? "工作流 · " + workflowStatus(body.status) + (body.reason ? " · " + body.reason : "") + "；/workflow 选择运行查看详情"
           : body.type === "workflow.step"
-            ? "工作流 " + body.runId + " / " + body.key + " · " + body.status + "；/workflow logs " + body.runId + " 查看阶段"
-            : "工作流 " + body.runId + " / 执行 " + body.taskId + " · " + body.status + (body.stopVerified === false ? " · 停止未核实，保留占用与成果" : "");
+            ? "工作流步骤 " + body.key + " · " + body.status + "；/workflow 选择运行查看阶段"
+            : "工作流执行 · " + body.status + (body.stopVerified === false ? " · 停止待核实，保留占用与成果" : "") + "；/workflow 选择运行查看详情";
         this.note(key, text, this.entries.get(key)?.at ?? event.createdAt, event.seq);
         return;
       }

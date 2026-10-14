@@ -20,7 +20,7 @@ for (const product of [undefined, codeProduct.runtime]) test(`agent_wait ${produ
       assert.ok(toolNamesOf(req).includes("agent_wait"));
       switch (parentPhase++) {
         case 0: return { kind: "tool_calls", calls: [{ id: "before", name: "read", arguments: { path: "value.txt" } }] };
-        case 1: return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: { script: SCRIPT, input: null, key: "modify" } }] };
+        case 1: return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: { title: "后台处理", script: SCRIPT, input: null, key: "modify" } }] };
         case 2:
           runId = (JSON.parse(lastToolText(req)) as { run: { id: string } }).run.id;
           return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: runId }] } }] };
@@ -74,7 +74,7 @@ test("agent_wait：超时或人工问题只结束一次等待，后台工作仍�
   let phase = 0, runId = "";
   const t = await startTestRuntime("agent-wait-timeout", req => {
     if (lastUserText(req).startsWith("[工作流最终回报]")) return { kind: "text", text: "后备汇总" };
-    if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: { script: 'await ask("hold",{prompt:"继续吗"}); return "完成";', input: null, key: "hold" } }] };
+    if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: { title: "后台处理", script: 'await ask("hold",{prompt:"继续吗"}); return "完成";', input: null, key: "hold" } }] };
     if (phase === 2) {
       runId = (JSON.parse(lastToolText(req)) as { run: { id: string } }).run.id;
       return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: runId }], timeout_ms: 1 } }] };

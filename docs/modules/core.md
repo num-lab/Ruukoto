@@ -52,9 +52,9 @@
 
 历史页与单条读取在同一次 JSONL 解析内按宿主任务标记关联原 `taskId`；分支保留原任务。缺结束标记允许下一开始标记接替，无效 taskId 或结束不匹配报 `history_corrupt`。用途与关联诊断由 Runtime 查询可信绑定派生，core 不新增用途存储列。
 
-工作流的不可变定义、名称历史/保存回执、运行、步骤、执行绑定、问题与控制回执由 `packages/core/src/workflow.ts` 持有，使用同一核心库和事件事务。有界控制正文完整保存，步骤绑定既有 Task/Work/SubAgent，身份解析为 SubAgent 增加来源运行绑定；具体状态、预算、重放和停止核实见[工作流](workflows.md)。
+工作流的不可变定义、名称历史/保存回执、运行、步骤、执行绑定、问题与控制回执由 `packages/core/src/workflow.ts` 持有，使用同一核心库和事件事务。运行 payload 固定展示名称、显式简短说明和宿主创建时刻，启动摘要覆盖标题与说明；已有无标题记录在查询时按创建时刻回退，不改写持久事实。有界控制正文完整保存，步骤绑定既有 Task/Work/SubAgent，身份解析为 SubAgent 增加来源运行绑定；具体状态、预算、重放和停止核实见[工作流](workflows.md)。
 
-`agent_waits` 保存父任务、SDK 调用、固定目标、截止时间、来源、参考快照、阶段与中断原因；`agent_reports` 分别保存消费证明、报告认领、资料依赖和最终回复/outbox 证明，状态及事件同事务提交。结果先进入 JSONL，再在模型实际接受后记消费；报告权整组转交保留旧消费、原后备任务与键，使用其他轮消费的报告还须当前完整输入凭据。持久认领事件保留任务的历史来源绑定，释放认领不解除资料依赖。重启只在本任务标记范围核实消费及最终回复，不宣称 JSONL 与 SQLite 原子。`AgentWaitView` 提供目标标签/状态、截止时间、阶段和中断原因；`task.resources_changed` 提交执行/对话阶段，供查询与事件重建。两方向实例导入保留这些事实，结束旧等待并将 pending 报告记为 `undelivered`，不启动后备。
+`agent_waits` 保存父任务、SDK 调用、固定目标、截止时间、来源、参考快照、阶段与中断原因；`agent_reports` 分别保存消费证明、报告认领、资料依赖和最终回复/outbox 证明，状态及事件同事务提交。结果先进入 JSONL，再在模型实际接受后记消费；报告权整组转交保留旧消费、原后备任务与键，使用其他轮消费的报告还须当前完整输入凭据。持久认领事件保留任务的历史来源绑定，释放认领不解除资料依赖。重启只在本任务标记范围核实消费及最终回复，不宣称 JSONL 与 SQLite 原子。`AgentWaitView` 提供目标标签/状态、截止时间、阶段和中断原因，工作流标签使用固定名称或无标题时间回退；`task.resources_changed` 提交执行/对话阶段，供查询与事件重建。两方向实例导入保留这些事实，结束旧等待并将 pending 报告记为 `undelivered`，不启动后备。
 
 `Task.parentTaskId` 与 `sourcePermissionVersion` 保存宿主确定的触发任务及其权限版本，派生任务的 `accessMode` 在登记时固定。协作消息另存登记时模式和来源版本，延迟投递沿用这些字段。`tool_ops.authorization` 保存完全访问或单次批准的真实执行依据，授权和 `task.tool_authorized` 在执行事务内单次登记；完全访问不产生审批行。
 
@@ -70,7 +70,7 @@
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v40）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v41）
 ├── ruukoto.db-wal / -shm
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）

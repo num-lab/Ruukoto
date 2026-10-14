@@ -28,13 +28,14 @@ export interface TuiOps {
   workflow_definition: { params: { name?: string; definition_id?: string; version_offset?: number } & Slice; result: R<"getWorkflowDefinition"> };
   workflow_save: { params: { name: string; script: string; expected_digest: string | null; request_id: string }; result: R<"saveWorkflowDefinition"> };
   workflow_saved: { params: { request_id: string }; result: R<"findWorkflowSave"> };
-  workflow_start: { params: { session_id: string; request_id: string; name?: string; script?: string; input: unknown; max_attempts?: number; duration_ms?: number }; result: R<"startWorkflowOwner"> };
+  workflow_start: { params: { session_id: string; request_id: string; name?: string; script?: string; title?: string; description?: string; input: unknown; max_attempts?: number; duration_ms?: number }; result: R<"startWorkflowOwner"> };
   workflow_find: { params: { session_id: string; request_id: string }; result: R<"findWorkflow"> };
-  workflow_list: { params: { session_id?: string; offset?: number; limit?: number }; result: R<"listWorkflows"> };
+  workflow_list: { params: { session_id?: string; offset?: number; limit?: number; scope?: "current" | "history" }; result: R<"listWorkflows"> };
   workflow_get: { params: { run_id: string; step_offset?: number }; result: R<"getWorkflowDetail"> };
   workflow_step: { params: { run_id: string; step_key: string } & Slice; result: R<"getWorkflowStep"> };
   workflow_logs: { params: { run_id: string } & Slice; result: R<"getWorkflowLogs"> };
   workflow_control: { params: { run_id: string; expected_version: number; request_id: string; control: WorkflowControl }; result: R<"controlWorkflow"> };
+  workflow_receipt: { params: { run_id: string; request_id: string; operation: "workflow_answer" | "workflow_control" }; result: R<"findWorkflowReceipt"> };
   workflow_question: { params: { run_id: string; step_key: string } & Slice; result: R<"getWorkflowQuestion"> };
   workflow_answer: { params: { run_id: string; step_key: string; question_version: number; run_version: number; request_id: string; answer: unknown };
     result: { runId: string; stepKey: string; status: string; version: number; runVersion: number } };

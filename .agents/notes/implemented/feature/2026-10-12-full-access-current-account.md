@@ -2,6 +2,8 @@
 
 Status: implemented
 
+已确认的后续变更见[可配置子代理角色](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+
 本篇持有两个产品的完全访问语义、真实授权来源及其传播。落地与验证证据见[实施工单](../../../../.scratch/full-access/issues/01-full-access-current-account.md)。
 
 调度业务由[通用定时任务决定](2026-10-12-generic-scheduled-tasks.md)统一为独立任务执行，删除新闻与定时固定通知路径。本篇定义创建时模式及共享免审批行为，不再为退役动作适配审批或兼容记录。

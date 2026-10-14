@@ -2,6 +2,8 @@
 
 Status: implemented
 
+已确认的后续变更见[可配置子代理角色](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+
 ## 问题
 
 [运行基础](2026-10-13-workflow-runtime-and-store.md)保存步骤与宿主执行，却不能证明真实 Driver 得到来源能力，也不能把普通工作副本的实时差异当作已验证成果。[确认规格](../../../../.scratch/agent-workflow/spec.md)要求来源交集、普通委派独立、修改与验证分离，以及验证结论对应实际汇入的字节。

@@ -10,6 +10,7 @@ import { Db, SCHEMA_VERSION } from "./db.ts";
 import { probeLockHolder } from "./instance-lock.ts";
 import { PRODUCT_META_KEY } from "./product.ts";
 import type { SessionBranchSource } from "./types.ts";
+import type { AgentReport, AgentWait } from "./agent-wait.ts";
 
 export class LegacyImportError extends Error {
   readonly code: string;
@@ -65,6 +66,126 @@ export type LedgerKind =
   | "credential";
 
 export type Row = Record<string, unknown>;
+
+export interface AgentWaitImportScope {
+  projects: Row[];
+  sessions: Row[];
+  tasks: Row[];
+  works: Row[];
+  subAgents: Row[];
+  artifacts: Row[];
+  selections: Row[];
+  inboundEvents: Row[];
+  scheduleRuns: Row[];
+  notificationOps: Row[];
+  toolOps: Row[];
+  chatResults: Row[];
+  memories: Row[];
+  appDataInstanceId: string | null;
+}
+
+function parseAgentWaitImport<T>(row: Row): T {
+  try { return JSON.parse(String(row.payload)) as T; }
+  catch { fail("source_corrupt", "等待或报告记录不是合法 JSON，请保留源实例核实"); }
+}
+
+/** UUID 原样保留；选入等待与报告的全部身份必须仍在导入集合内。 */
+export function verifyImportedAgentWaitReferences(waits: Row[], reports: Row[], scope: AgentWaitImportScope): void {
+  const has = (rows: Row[], id: string | null) => typeof id === "string" && rows.some(row => row.id === id);
+  const requireTask = (id: string | null) => {
+    if (!has(scope.tasks, id)) fail("agent_wait_import_reference_missing", "等待或报告引用的任务未随父会话导入，请核实完整来源");
+    return scope.tasks.find(row => row.id === id)!;
+  };
+  const verifyRefs = (refs: unknown[], projectId: string) => {
+    if (!Array.isArray(refs)) fail("source_corrupt", "等待或报告的来源引用不是数组");
+    for (const raw of refs) {
+      const ref = raw as { kind?: string; ref?: string };
+      if (!ref || typeof ref.ref !== "string" || !["text", "task_result", "artifact", "app_data", "chat_result"].includes(ref.kind ?? "")) fail("source_corrupt", "等待或报告的来源引用格式损坏");
+      if (ref.kind === "task_result") requireTask(ref.ref.slice("task:".length));
+      if (ref.kind === "artifact" && !has(scope.artifacts, ref.ref.slice("artifact:".length).split("@")[0])) fail("agent_wait_import_reference_missing", "等待或报告引用的产物未随父会话导入");
+      if (ref.kind === "app_data") {
+        const match = /^app_data:([^/]+)\/([^#]+)#(\d+)\.(.+)$/.exec(ref.ref);
+        if (!match) fail("source_corrupt", "等待或报告的应用数据来源格式损坏");
+        if (match[1] !== scope.appDataInstanceId) fail("agent_wait_import_reference_missing", "等待或报告引用的应用数据实例快照未随父会话导入");
+      }
+      if (ref.kind === "chat_result" && !scope.chatResults.some(row => row.main_project_id === projectId && row.task_id === ref.ref!.slice("chat_result:".length))) fail("agent_wait_import_reference_missing", "等待或报告引用的群结果接收记录未随父会话导入");
+    }
+  };
+  const verifyTaskRefs = (task: Row, projectId: string) => {
+    if (task.read_scope) {
+      let readScope: { sourceRefs: unknown[] };
+      try { readScope = JSON.parse(String(task.read_scope)) as { sourceRefs: unknown[] }; }
+      catch { fail("source_corrupt", "等待目标的限定资料记录损坏"); }
+      verifyRefs(readScope.sourceRefs, projectId);
+    }
+    for (const op of scope.toolOps.filter(row => row.task_id === task.id)) {
+      let params: { source_refs?: unknown[]; memory_id?: unknown };
+      try { params = JSON.parse(String(op.params)) as { source_refs?: unknown[]; memory_id?: unknown }; }
+      catch { fail("source_corrupt", "等待目标的工具参数记录损坏"); }
+      if (params.source_refs !== undefined) verifyRefs(params.source_refs, projectId);
+      if (op.tool_name === "memory_read" && typeof params.memory_id === "string" && !has(scope.memories, params.memory_id)) fail("agent_wait_import_reference_missing", "等待或报告引用的记忆未随父会话导入，请核实记忆选择与来源范围");
+    }
+  };
+  const verifySource = (source: AgentWait["source"], parentSessionId: string, eventId: string | null) => {
+    if (!source || !has(scope.projects, source.projectId) || !has(scope.sessions, source.sessionId) || source.sessionId !== parentSessionId ||
+        scope.sessions.find(row => row.id === source.sessionId)?.project_id !== source.projectId || requireTask(source.taskId).session_id !== source.sessionId ||
+        (eventId !== null && !has(scope.inboundEvents, eventId)) || requireTask(source.taskId).source_event_id !== eventId ||
+        (source.scheduledRunId !== null && !has(scope.scheduleRuns, source.scheduledRunId))) {
+      fail("agent_wait_import_reference_missing", "等待或报告的原来源、入口或调度身份未随父会话导入");
+    }
+    verifyRefs(source.references, source.projectId);
+  };
+  const verifyTarget = (target: AgentWait["targets"][number], source: AgentWait["source"], parentSessionId: string) => {
+    if (!target || target.kind !== "task") fail("agent_wait_import_reference_missing", "工作流执行绑定不随普通等待资料导入，请保留源档案查阅");
+    const task = requireTask(target.taskId), work = scope.works.find(row => row.id === task.work_id);
+    const agent = scope.subAgents.find(row => row.id === task.sub_agent_id);
+    if (!agent || agent.session_id !== task.session_id || agent.parent_session_id !== parentSessionId || !has(scope.sessions, String(task.session_id)) || !work || work.sub_agent_id !== agent.id || work.parent_session_id !== parentSessionId || work.origin_task_id !== source.taskId) fail("agent_wait_import_reference_missing", "等待目标的工作、SubAgent 或父会话身份未完整导入");
+    verifyTaskRefs(task, source.projectId);
+  };
+  for (const row of waits) {
+    const wait = parseAgentWaitImport<AgentWait>(row);
+    if (!wait || wait.id !== row.id || wait.taskId !== row.task_id || wait.sessionId !== row.session_id || requireTask(wait.taskId).session_id !== wait.sessionId ||
+        !Array.isArray(wait.targets) || !wait.targets.length || !wait.snapshot || wait.snapshot.taskId !== wait.taskId) fail("source_corrupt", "等待记录的任务与父会话绑定损坏");
+    if (wait.snapshot.instructions && typeof wait.snapshot.instructions.version !== "string") fail("source_corrupt", "等待参考快照的项目指令版本损坏");
+    verifySource(wait.source, wait.sessionId, wait.sourceEventId);
+    for (const target of wait.targets) verifyTarget(target, wait.source, wait.sessionId);
+    if (wait.snapshot.selectionRecordId && !scope.selections.some(row => row.id === wait.snapshot.selectionRecordId && row.task_id === wait.taskId && row.session_id === wait.sessionId)) fail("agent_wait_import_reference_missing", "等待参考快照的选择记录未随原任务导入");
+    if (wait.snapshot.promptArtifactId && !scope.artifacts.some(row => row.id === wait.snapshot.promptArtifactId && row.task_id === wait.taskId && row.session_id === wait.sessionId)) fail("agent_wait_import_reference_missing", "等待参考快照的请求产物未随原任务导入");
+    const instructions = wait.snapshot.instructions?.version.split(";artifact:")[1];
+    if (instructions && !has(scope.artifacts, instructions)) fail("agent_wait_import_reference_missing", "等待参考快照的项目指令产物未随父会话导入");
+  }
+  for (const row of reports) {
+    const report = parseAgentWaitImport<AgentReport>(row);
+    if (!report || report.key !== row.report_key || report.parentSessionId !== row.parent_session_id || !Array.isArray(report.dependencyTaskIds) || !Array.isArray(report.parkedFallbackTaskIds)) fail("source_corrupt", "报告记录的键、父会话或依赖身份损坏");
+    verifySource(report.source, report.parentSessionId, report.sourceEventId);
+    verifyTarget(report.target, report.source, report.parentSessionId);
+    const target = requireTask(report.target.kind === "task" ? report.target.taskId : null);
+    for (const id of report.dependencyTaskIds) {
+      const dependency = requireTask(id);
+      if (dependency.session_id !== target.session_id) fail("agent_wait_import_reference_missing", "报告依赖任务不属于原 SubAgent 会话");
+      verifyTaskRefs(dependency, report.source.projectId);
+    }
+    for (const id of [report.claimTaskId, report.fallbackTaskId, ...report.parkedFallbackTaskIds, report.consumption?.taskId ?? null, report.proof?.taskId ?? null]) {
+      if (id !== null && requireTask(id).session_id !== report.parentSessionId) fail("agent_wait_import_reference_missing", "报告的消费、认领或后备任务不在原父会话内");
+    }
+    if (report.proof?.outboxOpId && !scope.notificationOps.some(row => row.id === report.proof!.outboxOpId && row.task_id === report.proof!.taskId)) fail("agent_wait_import_reference_missing", "报告的已登记发送证明未随原任务导入，不能丢弃后重发");
+  }
+}
+
+/** 导入只保留事实和展示身份；不恢复等待、旧报告认领或模型汇总。 */
+export function archiveImportedAgentWaits(waits: Row[], reports: Row[], now: string): { waits: Row[]; reports: Row[] } {
+  return {
+    waits: waits.map(row => {
+      const wait = parseAgentWaitImport<AgentWait>(row);
+      return { ...row, payload: JSON.stringify({ ...wait, phase: "ended", reason: "instance_imported", endedAt: wait.endedAt ?? now }) };
+    }),
+    reports: reports.map(row => {
+      const report = parseAgentWaitImport<AgentReport>(row);
+      return { ...row, payload: JSON.stringify({ ...report, status: report.status === "pending" ? "undelivered" : report.status,
+        reason: report.status === "pending" ? "instance_imported" : report.reason, claimTaskId: null, fallbackState: report.fallbackTaskId ? "parked" : report.fallbackState }) };
+    }),
+  };
+}
 
 /** 名称与来源随会话行保留；限定来源缺对象时拒绝导入，不能删字段后扩大范围。 */
 export function verifyImportedBranchSources(sessions: Row[], tasks: Row[], artifacts: Row[], works: Row[]): void {

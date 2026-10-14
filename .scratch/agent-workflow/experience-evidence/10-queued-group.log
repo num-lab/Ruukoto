@@ -1,0 +1,9 @@
+✔ 已排队单目标补报仍受父轮等待闭包约束：拥有者先处理，全部结果终态后原任务唯一汇总 (393.288083ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1883.324542

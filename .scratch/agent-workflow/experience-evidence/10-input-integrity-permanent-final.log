@@ -1,0 +1,30 @@
+✔ 冷恢复 parent：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (54.243334ms)
+✔ 冷恢复 parent-repeated：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (44.38425ms)
+✔ 冷恢复 fallback：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (32.235875ms)
+✔ 冷恢复 fallback-no-end：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (30.106959ms)
+✔ 可信 Telegram main 父轮消费两份结果：success (255.996459ms)
+✔ 可信 Telegram main 父轮消费两份结果：send-revoked (145.061917ms)
+✔ 可信 Telegram main 父轮消费两份结果：request-revoked (145.186709ms)
+✔ 定时父轮已消费普通子结果：实际发送前撤销子任务记忆，原汇报取消且不外发 (67.401333ms)
+✔ 续接整组冷恢复 completed：保留消费归属与实际输入证明，0 模型 (34.191167ms)
+✔ 续接整组冷恢复 no-end：保留消费归属与实际输入证明，0 模型 (29.361875ms)
+✔ 续接整组冷恢复 missing-reference：保留消费归属与实际输入证明，0 模型 (31.6135ms)
+✔ 续接整组冷恢复 invalid-json：保留消费归属与实际输入证明，0 模型 (30.51075ms)
+✔ 续接整组冷恢复 null-root：保留消费归属与实际输入证明，0 模型 (30.479167ms)
+✔ 续接整组冷恢复 null-target：保留消费归属与实际输入证明，0 模型 (30.251875ms)
+✔ 续接整组冷恢复 missing-start：保留消费归属与实际输入证明，0 模型 (30.862333ms)
+✔ 续接整组冷恢复 missing-tool-entry：保留消费归属与实际输入证明，0 模型 (30.511417ms)
+✔ 续接整组冷恢复 missing-group：保留消费归属与实际输入证明，0 模型 (30.413167ms)
+✔ 续接整组冷恢复 empty-group：保留消费归属与实际输入证明，0 模型 (35.360875ms)
+✔ 续接整组冷恢复 subset-group：保留消费归属与实际输入证明，0 模型 (30.687166ms)
+✔ 续接整组冷恢复 falsy-group：保留消费归属与实际输入证明，0 模型 (31.120208ms)
+✔ 续接整组冷恢复 own-missing-tool-entry：保留消费归属与实际输入证明，0 模型 (31.575166ms)
+✔ 续接整组冷恢复 own-subset-group：保留消费归属与实际输入证明，0 模型 (30.620583ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2506.607917

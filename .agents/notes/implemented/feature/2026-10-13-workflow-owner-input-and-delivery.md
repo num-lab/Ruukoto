@@ -26,7 +26,7 @@ schema 为 38，协议为 21。沿既有严格版本策略拒绝旧库，不迁�
 
 ## 既有笔记审计
 
-2026-10-14 拥有者确认[等待与报告归属方案](../../proposed/architecture/2026-10-14-agent-wait-and-report-ownership.md)：拟让活动等待父轮认领结果并继续工作，以原独立汇总作为后备，同时隐藏内部提示的用户展示；唯一报告、原来源与未知发送不重试仍有效。[内部回报展示](2026-10-14-internal-report-visibility.md)已落地可信隐藏；等待与报告交接尚未实施，本篇当前送达事实保留。
+2026-10-14 拥有者确认[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)：拟让活动等待父轮认领结果并继续工作，以原独立汇总作为后备，同时隐藏内部提示的用户展示；唯一报告、原来源与未知发送不重试仍有效。[内部回报展示](2026-10-14-internal-report-visibility.md)已落地可信隐藏；等待与报告交接尚未实施，本篇当前送达事实保留。
 
 [工作流提案](../../implemented/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有人工等待与最终回报，定义库和联合验收仍由提案持有。[执行基础](../architecture/2026-10-13-workflow-runtime-and-store.md)与[真实步骤](../architecture/2026-10-13-workflow-step-capabilities.md)部分重叠，只同步版本、入口现状与本篇链接。[普通 IM 回报](2026-10-02-im-approval-and-final-report.md)、[通用调度](2026-10-12-generic-scheduled-tasks.md)与[公共 outbox](../architecture/2026-09-24-scheduler-outbox.md)部分扩展，保留普通行为和未知发送规则。没有整篇吸收、删除或决定翻转。
 

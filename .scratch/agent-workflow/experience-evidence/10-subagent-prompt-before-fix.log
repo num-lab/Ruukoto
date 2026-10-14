@@ -1,0 +1,25 @@
+✖ 非 Git 目录写入：父持锁时子任务 queued，父本轮结束经占用释放启动；subagent_result 如实说明 (593.06575ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1371.657458
+
+✖ failing tests:
+
+test at test/83-subagent-worktrees.test.ts:280:1
+✖ 非 Git 目录写入：父持锁时子任务 queued，父本轮结束经占用释放启动；subagent_result 如实说明 (593.06575ms)
+  AssertionError [ERR_ASSERTION]: 提示按本次任务安全让出目录
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/83-subagent-worktrees.test.ts:340:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

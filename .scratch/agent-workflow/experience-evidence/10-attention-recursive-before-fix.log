@@ -1,0 +1,102 @@
+✖ main 父轮 batch 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (312.940625ms)
+✖ main 父轮 sequential 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (191.177833ms)
+✔ 后续可信 main 仅等待第二目标：接管整组只回报一次且保留原消费 (226.768958ms)
+✖ 后续可信 main 仅等待第二目标：provider 未接受整组输入则不完成旧消费报告 (231.865917ms)
+✔ 等待结果引用有界：任务与工作流各给100条产物并保留总数，原产物不删除 (20.756083ms)
+✔ 提交后事件等待：订阅前已完成直接返回，重复超时不取消后台，事件抵达后再次认领 (13.181959ms)
+✔ 新输入与完成同边界：中断先提交均撤销旧等待且后台不取消 (7.94075ms)
+✔ 新输入与完成同边界：完成先提交均撤销旧等待且后台不取消 (6.364459ms)
+✔ 等待目标与参考正文落盘，阶段与事件提交后一起可见，回滚不广播 (8.833208ms)
+✔ 等待拒绝跨来源、缺目标、自己、空批次与重复目标，同轮后续等待保持来源 (7.591792ms)
+✔ 父轮认领给已排队报告停车，消费只登记一次，失败后原任务原键继续 (7.946458ms)
+✔ 同父轮多个结果一份报告证明，未消费认领释放；已开始报告不能被转交 (8.658ms)
+✔ 重启结束等待且保留正文、消费和报告认领，宿主核实历史后才释放 (7.074208ms)
+✔ 既有普通结果唤醒按真实来源采用，已运行或终态均拒绝第二报告认领 (8.4145ms)
+✔ 来源失效使未消费和已消费报告停止送达，保留原证明并停车而不重新生成 (8.234958ms)
+✔ 结果依赖冻结同SubAgent截至本次任务的历史，后续复用不扩大已登记报告 (7.178666ms)
+✔ 多个排队后备合到一个原任务，旧键与输入保留，开始后整批拒绝转交 (10.673125ms)
+✔ 共享后备来源失效：一个依赖失效整组停止送达，别名与原始消费不丢失 (7.511625ms)
+✔ 共享排队后备只允许整组认领，部分消费不停车未消费结果且原键仍可启动 (7.776917ms)
+✔ 工作流结果按运行终态代次登记，不把父轮写进delivery.taskId (6.56ms)
+✔ 不同父轮等待同原来源：停车只覆盖本轮固定目标，其他组后备仍可执行 (50.973375ms)
+✔ 已排队单目标补报仍受父轮等待闭包约束：拥有者先处理，全部结果终态后原任务唯一汇总 (363.589667ms)
+✔ 冷恢复 parent：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (70.900709ms)
+✔ 冷恢复 parent-repeated：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (39.249ms)
+✔ 冷恢复 fallback：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (34.846792ms)
+✔ 冷恢复 fallback-no-end：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (36.725417ms)
+✔ 可信 Telegram main 父轮消费两份结果：success (234.81825ms)
+✔ 可信 Telegram main 父轮消费两份结果：send-revoked (149.275375ms)
+✔ 可信 Telegram main 父轮消费两份结果：request-revoked (144.493042ms)
+✔ 定时父轮已消费普通子结果：实际发送前撤销子任务记忆，原汇报取消且不外发 (66.068875ms)
+✔ 普通工作取消：可信分组后备准入拒绝，未开始汇总的取消终态仍能登记未送达 (47.519833ms)
+✔ 排队补报转交父轮只停车；父轮失败沿同一任务和原键恢复，运行中补报不能二次认领 (15.28725ms)
+✔ 同来源多个结果父轮只报告一次，消费后的普通注入和独立补报都不再重复 (12.774583ms)
+✔ dev 普通子结果装配不算消费；模型接受钩子后才从下轮候选移除 (6.256042ms)
+✔ 同来源补报批次共享一个可信任务及最终报告；伪造同名任务不取得补报身份 (7.912167ms)
+✔ 已有工作流专属汇总接管子任务和其他排队汇总，只登记一份报告且保留各原任务与输入 (8.300291ms)
+✔ 父轮消费后终态前撤销来源，拒绝登记最终外发并持久记录未送达 (6.366833ms)
+✔ 等待被新轮中断且新轮先结束，晚到普通子结果按持久资格自动补报；未等待委派仍只注入 (13.627667ms)
+✔ 编排器启动巡检以等待认领覆盖普通 dev 父轮，补记终态结果和报告而不重生总结 (8.023916ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 36
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2227.202334
+
+✖ failing tests:
+
+test at test/125-agent-wait-attention-report.test.ts:32:56
+✖ main 父轮 batch 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (312.940625ms)
+  AssertionError [ERR_ASSERTION]: 等待/介入回复只追加一轮整组汇总
+
+  6 !== 3
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/125-agent-wait-attention-report.test.ts:87:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 6,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/125-agent-wait-attention-report.test.ts:32:56
+✖ main 父轮 sequential 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (191.177833ms)
+  AssertionError [ERR_ASSERTION]: 等待/介入回复只追加一轮整组汇总
+
+  6 !== 4
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/125-agent-wait-attention-report.test.ts:87:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 6,
+    expected: 4,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/125-agent-wait-attention-report.test.ts:91:44
+✖ 后续可信 main 仅等待第二目标：provider 未接受整组输入则不完成旧消费报告 (231.865917ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'evt_468be873dde23caa70c5d18f'
+  - null
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/test/125-agent-wait-attention-report.test.ts:140:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'evt_468be873dde23caa70c5d18f',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

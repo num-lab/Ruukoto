@@ -18,7 +18,7 @@
 
 ## 对外接口
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `23`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `24`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -72,7 +72,9 @@
 
 ## 数据与状态
 
-任务视图携带宿主派生的 `inputPurpose`（`user` / `internal_report`）；历史首屏、分页和单条补读另带原 `taskId` 与可选 `taskAssociationError`，客户端在展示及补种输入历史前使用分类。分类不能由请求正文或请求键指定。
+任务视图携带宿主派生的 `inputPurpose`（`user` / `internal_report`），覆盖工作流专属汇总、等待补报及保留的排队别名；历史首屏、分页和单条补读另带原 `taskId` 与可选 `taskAssociationError`，客户端在展示及补种输入历史前使用分类。分类不能由请求正文或请求键指定。
+
+`TaskView.wait` 携带 `AgentWaitView` 的目标标签/状态、截止时间、阶段和中断原因，`resourcePhase` 区分执行与内部对话，`reportParked` 标明被转交的排队后备。`agent_wait.changed`、`agent_report.changed` 与 `task.resources_changed` 在提交后广播，客户端按快照与持久事件恢复。
 
 手动压缩快速返回持久请求的接收状态，摘要等待不占用普通请求的 60 秒时限。`session.context_compaction` 事件携带会话、请求键和状态，客户端再查询统计及安全失败说明；事件与请求终态、成功的新点在同一事务提交。请求同键同参返回原结果，同键异参拒绝；客户端不提供历史、文件路径或覆盖边界。分支复制的手动来源标识不授予查询或取消原请求的会话资格。
 
@@ -174,7 +176,7 @@ sequenceDiagram
 
 `respond_confirmation` 接受 `approve` / `reject`，可带 `permission_version` 绑定审批时的权限版本。权限版本不匹配回 `permission_version_mismatch`，该批准不可用。批准只适用于该次操作及明确列出的范围，在执行前单次消费。
 
-`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 仅接受会话、名称或临时脚本、参数、稳定键及更小预算，不接受授权字段；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 23，旧客户端明确拒绝。
+`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 仅接受会话、名称或临时脚本、参数、稳定键及更小预算，不接受授权字段；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 24，旧客户端明确拒绝。
 
 ### 断开、重连与数据实例变化
 
@@ -225,6 +227,8 @@ sequenceDiagram
 **已知上限。** 两端的帧大小口径不同：服务端按字符串长度（UTF-16 码元数）比较请求行，客户端只核对收到的帧（按 UTF-8 字节数），发送前不核对请求大小。超过服务端上限的请求会让连接被直接销毁，客户端把在途请求当成应答丢失；如果那是提交，待确认记录每次上线都会被核实，`find_task` 查不到就按原参数重发，连接又被销毁，按退避初值 500 ms 重连，如此循环。这是按代码推演的结论，未实际运行验证。
 
 ## 设计依据
+
+- [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [内部回报的可信展示分类](../../.agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md)
 

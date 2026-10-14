@@ -1,0 +1,41 @@
+✔ 真实模型门控代理支持 Responses 输入与扁平工具名，仅暂扣子任务的完整响应 (58.795291ms)
+[ruukoto:agent-wait-model-proxy] {"stage":"read_request","error":{"name":"SyntaxError","code":null}}
+[ruukoto:agent-wait-model] {"product":"ruukoto","provider":"deepseek","model":"deepseek-flash","sessionKind":"main","parentTaskId":"task_22038144bbe1866b44456d60","waits":[{"id":"op_0999a83e635a5e0d69bde38e","phase":"ended","reason":"result","targets":[{"kind":"workflow","runId":"wfrun_19ac561a4ddd59c24fc592ee"}]},{"id":"op_98428fa8a3df2cd53fe209b3","phase":"ended","reason":"attention","targets":[{"kind":"workflow","runId":"wfrun_0a957e9e91e417252f90d0e4"}]},{"id":"op_d841c0343746867a75357db9","phase":"ended","reason":"owner_input","targets":[{"kind":"workflow","runId":"wfrun_0a957e9e91e417252f90d0e4"}]}],"toolOps":[{"tool":"workflow_instructions","isError":false,"effectUnknown":false},{"tool":"workflow_start","isError":false,"effectUnknown":false},{"tool":"agent_wait","isError":false,"effectUnknown":false},{"tool":"workflow_query","isError":false,"effectUnknown":false},{"tool":"workflow_start","isError":false,"effectUnknown":false},{"tool":"agent_wait","isError":false,"effectUnknown":false},{"tool":"agent_wait","isError":false,"effectUnknown":false}],"childTasks":[{"taskId":"task_8275e2e2d30a63404100d8b9","status":"finished","stopVerified":true}],"ownerReply":"OWNER_INPUT_OK","reports":[{"key":"workflow:wfrun_19ac561a4ddd59c24fc592ee:8","consumption":{"taskId":"task_22038144bbe1866b44456d60","entryId":"a550d04f","consumedAt":"2026-10-14T04:57:35.845Z"},"status":"reported","proof":{"taskId":"task_2da874655febbfc1d6896787","entryId":"63450620","outboxOpId":null}},{"key":"workflow:wfrun_0a957e9e91e417252f90d0e4:10","consumption":{"taskId":"task_2da874655febbfc1d6896787","entryId":"2f46e4e2","consumedAt":"2026-10-14T04:57:45.261Z"},"status":"reported","proof":{"taskId":"task_2da874655febbfc1d6896787","entryId":"63450620","outboxOpId":null}}],"summary":"验收完成，两轮等待工作流均已成功结束。\n\n第一项 wait-first（wfrun_19ac561a4ddd59c24fc592ee）\n终态 succeeded，脚本停止已核实，已启动执行 1/1 项核实。\n步骤 result 状态 completed，结果值 WAIT_RESULT_FIRST。\n用量 1/100 次 Agent 尝试，耗时 2016/3600000 ms。\n经 workflow_query(part=run) 核实：status succeeded，1 项步骤完成，无失败、跳过、取消或未完成。\n\n第二项 wait-second（wfrun_0a957e9e91e417252f90d0e4）\n终态 succeeded，脚本停止已核实，已启动执行 1/1 项核实，共 2 项步骤全部完成。\n步骤 hold 值 yes，步骤 result 值 WAIT_CHILD_SECOND。\n用量 1/100 次 Agent 尝试，耗时 3515/3600000 ms。\n等待过程中曾返回一次 attention（宿主人工提问），按指示立即对同一运行再次 agent_wait（timeout 300000），随后收到新输入打断，工作流继续运行；最终按记录事实终态为 succeeded。\n\n汇总：无失败、无取消、无未知效果（effectUnknown 均为 false）、无停止未核实。两项工作流的步骤均 completed，结果值分别为 WAIT_RESULT_FIRST 与 WAIT_CHILD_SECOND，本次仅汇总已记录事实，未执行新的工作。"}
+✔ ruukoto 真实模型：主动等待后查询结果，第二次等待被拥有者输入打断且后台唯一补报 (16921.675583ms)
+[ruukoto:agent-wait-model-proxy] {"stage":"read_request","error":{"name":"SyntaxError","code":null}}
+[ruukoto:agent-wait-model] 验收失败，保留隔离档案 /var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-agent-wait-model-BayW0C
+✖ ruukoto-code 真实模型：主动等待后查询结果，第二次等待被拥有者输入打断且后台唯一补报 (16878.469583ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 35113.969167
+
+✖ failing tests:
+
+test at test/125-agent-wait-model.test.ts:81:71
+✖ ruukoto-code 真实模型：主动等待后查询结果，第二次等待被拥有者输入打断且后台唯一补报 (16878.469583ms)
+  AssertionError [ERR_ASSERTION]: 中断父轮的两项结果共用唯一最终总结
+  + actual - expected
+
+    {
+  +   entryId: null,
+  -   entryId: '47ade1fd',
+      outboxOpId: null,
+  +   taskId: 'task_0ff3237384ee2c361eb70aaf'
+  -   taskId: 'task_30a35576769e898da278df81'
+    }
+
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-resource-20261014-01/test/125-agent-wait-model.test.ts:135:58)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: { taskId: 'task_0ff3237384ee2c361eb70aaf', entryId: null, outboxOpId: null },
+    expected: { taskId: 'task_30a35576769e898da278df81', entryId: '47ade1fd', outboxOpId: null },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

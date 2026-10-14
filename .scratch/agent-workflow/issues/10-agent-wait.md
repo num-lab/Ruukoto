@@ -1,6 +1,6 @@
 # 主 Agent 等待与唯一结果交接
 
-Status: ready-for-agent
+Status: resolved
 
 ## 目标与边界
 
@@ -17,24 +17,32 @@ Status: ready-for-agent
 
 来源细则：多目标整批限同原始发起任务/事件与回复目标代次，定时来源同 schedule_run；同父轮后续等待不混入第二报告来源。认领/消费的来源与资料依赖闭包持久绑定父轮，每次后续模型请求、最终登记及实际发送重核，失效拒用/拒发。普通 owner_reply 与工作报告在结果事务内共用一份报告/outbox，不能在 `recordInboundTerminal` 与 `wakeTerminal` 各登记一份。
 
-调用面包含 `packages/agent/src/{driver,subagent-tools,workflow-tools}.ts`、工具注册/可用性/账本/提示，`packages/runtime/src/{runtime,parent-delivery,orchestrator,workflow-steps}.ts`、core store/workflow/history/恢复、control、TUI、channels 的可信入站/owner 回复与 scheduler 收尾。保持 workspace 依赖和 exports；变更身份或消费列必须逐个检查普通委派、工作流、IM、调度及导入调用方。理由见[等待与报告归属笔记](../../../.agents/notes/proposed/architecture/2026-10-14-agent-wait-and-report-ownership.md)。
+调用面包含 `packages/agent/src/{driver,subagent-tools,workflow-tools}.ts`、工具注册/可用性/账本/提示，`packages/runtime/src/{runtime,parent-delivery,orchestrator,workflow-steps}.ts`、core store/workflow/history/恢复、control、TUI、channels 的可信入站/owner 回复与 scheduler 收尾。保持 workspace 依赖和 exports；变更身份或消费列必须逐个检查普通委派、工作流、IM、调度及导入调用方。理由见[等待与报告归属笔记](../../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)。
 
 ## 进展与交接
 
-当前为方案者，独立方案审查通过，源码调查已确认阻塞 Promise 会造成目录与最终汇总互等；机制验证尚未执行。前置 [09](09-internal-report-visibility.md)；由实现者在前置完成后先做步骤 1。基点和本轮文件范围由[总计划](../experience-plan.md)、[审查记录](../experience-plan-review.md)持有。已有产品决定充分，技术验证失败只需先修订方案；改变目标才找拥有者。
+实现基点及工程验收时 HEAD 为 `40dcee7`，接手时工作区干净；[09](09-internal-report-visibility.md)已 resolved，前置满足。共享工具、持久等待/消费/报告仲裁、内部对话与资源恢复、自动补报、两方向实例导入、控制面及 TUI 投影已实现，验收时为未提交工作区。根工作区由唯一写入者汇总，并行实现和探针使用独立工作副本。原实现、排队分组和恢复已经独立审查；自然模型暴露的部分结果介入回复、续接整组报告和冷恢复来源遗漏已返工，[最后追加审查](../experience-evidence/10-continuation-review.md)亲跑 55/55、无未解决源码阻断。[验证交接](../experience-evidence/10-verification.md)持有各阶段范围、原日志和未验项，旧审查不代替追加范围。
+
+macOS/Linux 双产品真实修改→冻结→独立验证→汇入→父轮继续检查通过；非 Git 原生命令持目录时新消息中断父等待、后台继续且晚到结果自动补报通过。真实 ApprovalGate 持目录的测试适配器证明 attention 与新输入可处理且不使子审批失效，普通子工具生产权限没有扩大。两方向导入保留 UUID、原任务/键、消费证明及 JSONL，归档后不调用模型或外发，回退和缺失引用负例通过。SDK call ID 跨父轮或同轮复用均按实际工具结果匹配消费，修前 pending 而非 reported 的失败已留证。
+
+自然需求复验暴露过部分结果被阶段问句提前完成报告，以及续接轮与后备重复总结，原失败证据保留。现固定组未齐不完成报告，续接轮以完整 `reportTargets` 接手全组并保留旧消费，报告任务不唤醒自己的结果；认领清除后仍用持久事件及实际 JSONL 绑定全部来源，缺失或损坏输入拒用、拒发。最后全量 `npm run check`、静态检查、永久恢复/坏输入 22/22、最新 Linux 原生 14/14 及受控真实模型文件 3/3 均通过；两产品自然 API 等待/唯一汇总也通过，自然文件另含一条离线代理回归。Coding 最终正文仍附过程说明，不记严格单段体验通过。全量早于新增 12 条坏输入用例，后者以单独 22/22 和最终静态检查补验；此前原生负载、Linux ENOSPC/隔离依赖和重复汇总失败均保留，不只保存成功结果。
 
 ## 验收与证据
 
-工程待验证，产品待验收。每一项新增用例应在缺少对应机制时失败：真实修改工作流完成准备→修改→冻结→验证→汇总；非 Git 子任务在父等待期间执行；非 Git 子任务持同目录等待审批时新输入/attention 可处理但工作目录工具拒绝；三个名额仍不超额；新输入与结果同时到达；订阅前已完成；人工问题出现时其他分支仍运行；超时后再次等待；权限变化/目录替换；SDK 中止；停止未核实；父轮完成前后重启；Coding 新输入轮先结束、普通子任务后结束仍自动补报；一结果只被消费一次、一轮只发一次总结；已有汇总排队/开始/完成的三种竞争。
+工程实现和独立审查在[验证交接](../experience-evidence/10-verification.md)所列范围通过；2026-10-14 拥有者确认人工验收已完成、wait 工具正常作用，本单标为 resolved。验收中发现子 Agent 无法调用 shell，拥有者明确该问题不在本单范围，作为独立后续问题记录，本单不诊断或修复。人工验收的具体入口和逐路径结果未提供，不据此补记真实 IM 或平台矩阵通过。
 
-审查补充负例：对话阶段不读取被子任务修改的项目指令/技能、不启动 MCP；恢复后第二次模型请求前或实际发送前撤销资料仍被拒绝；跨来源批次及同轮追加不同来源拒绝；main 普通回复与多个同来源报告只登记一个实际外发操作。
+新增用例覆盖真实修改工作流准备→修改→冻结→验证→汇总；非 Git 子任务持同目录执行和等待审批时新输入/attention 可处理但业务工具拒绝；新输入/完成两种提交顺序；订阅前已完成；人工问题与后台并行；重复超时；权限及目录身份重核；SDK 中止与停止未核实；父轮与后备多个冷恢复窗口；新输入轮先结束、普通子任务晚到补报；一次消费、一份实际 outbox；既有汇总排队、开始、完成及整组停车竞争。既有名额、并发和工作流回归包含在全量检查内。
+
+独立审查补充负例已通过：对话阶段不读取被子任务修改的项目指令/技能、不启动 MCP；模型下一请求前或实际发送前撤销子资料仍被拒绝；跨来源批次及同轮追加不同来源拒绝；main 普通回复与多个同来源报告只登记一个实际外发操作；定时发送重核普通子资料；取消工作拒绝自动补报；同原来源的不同父轮组互不停车；无认领停车后备取消可收尾为未送达。
 
 新增普通子任务补报依据持久补报资格接入 09 的宿主输入用途分类；验证它不进入聊天、置顶及 ↑ 历史，最终 assistant 总结仍显示。
 
-新增明确文件 `test/125-agent-wait.test.ts`，并按落点扩展 `test/112-workflow-real-steps.test.ts`、`test/115-workflow-final-delivery.test.ts`、`test/116-workflow-notification-recovery.test.ts`、`test/83-subagent-worktrees.test.ts`、`test/88-parent-delivery.test.ts`、`test/86-subagent-recovery.test.ts`。工具检查覆盖 `test/62-tool-availability.test.ts` 和 `test/64-tool-op-ledger.test.ts`；生命周期及协议覆盖 `test/01-concurrency.test.ts`、`test/04-crash-recovery.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts`；IM/调度与导入再按实际改动选对应测试，运行 `npm run check:static`。
+新增 `test/125-agent-wait*.test.ts` 分别覆盖 store、报告、导入、恢复、真实 Driver/worker、control/TUI、排队组和真实模型。相邻修改覆盖 `14-tui-app`、`21-context-breakdown`、`62-tool-availability`、`64-tool-op-ledger`、`88-parent-delivery` 及 demo；既有 112/115/116/83/86/01/04/66/94 等回归由全量执行，122 仅补失败诊断，不放宽断言。模型默认离线门控，真实 IM 没有外发。
 
-原生执行单元停止与重建须在 macOS/Linux 实测；两个产品用真实模型验证主动选择等待、收到结果继续处理、用户新输入可打断。替身通过不能记为真实模型或 IM 通过。文档同步 runtime/workflows/agent-tools/execution/core/control/agent-context、受影响 channels/scheduler 及 usage/development/pre-push-checks。
+下一实现者可接 [08](08-workflow-sidebar.md)的侧栏，等待状态接口见 [control](../../../docs/modules/control.md)；[11 联合验收](11-experience-acceptance.md)继续负责侧栏组合操作及真实 IM 原绑定送达等跨工单验证，本单人工验收已完成。自然 API 已验证新输入中断旧父轮后接手整组；父轮主动完成介入问句后的续接分支目前仅由真实 Driver/本地发送器回归覆盖，不能扩称自然 API 已走该分支。真实 IM 须有明确授权和入口，不能用本地 FakeBotAPI 代替。Linux 全仓及 CI Node 22.19/24.15 矩阵未运行。schema 40/协议 24 拒绝旧档案和旧客户端，体验使用独立新档案及配套客户端，保留旧数据以匹配代码查阅。docs/modules 相关篇、usage/development/README/pre-push-checks 与实施决定已同步；验收交接时尚未提交、推送或部署。
 
 ## Comments
 
 2026-10-14：不等待 `delivery.reported`，因为现有最终汇总排在父轮之后；模型提示“不要重复汇报”不能替代持久认领与恢复仲裁。
+
+2026-10-14：拥有者确认：“人工验收已完成，wait工具能够正常作用，但是遇到子agent无法调用shell的问题，不在本单范围内”。据此关闭本单；子 Agent shell 问题留作独立后续问题。

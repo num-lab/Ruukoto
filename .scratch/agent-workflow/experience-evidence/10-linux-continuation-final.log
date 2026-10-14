@@ -1,0 +1,93 @@
+v24.21.0
+Linux x86_64
+
+> ruukoto-workspace@0.1.0 build
+> npm run build:native && npm run build:worker && npm run build:script && npm run build --workspaces --if-present
+
+
+> ruukoto-workspace@0.1.0 build:native
+> node scripts/build-native.mjs
+
+
+> ruukoto-workspace@0.1.0 build:worker
+> esbuild packages/agent/src/tool-worker/worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outfile=worker/worker.mjs
+
+
+  worker/worker.mjs  15.6kb
+
+⚡ Done in 8ms
+
+> ruukoto-workspace@0.1.0 build:script
+> node scripts/build-workflow-script.mjs
+
+
+> ruukoto@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 742B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.3kB src/scheduler-tools.ts
+npm notice 27.4kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 17.0 kB
+npm notice unpacked size: 53.1 kB
+ruukoto-0.1.0.tgz
+
+> ruukoto-code@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice shasum: 336b7527aad3598c0948c821595e367e890d073f
+npm notice integrity: sha512-pnnK5t1597KqC[...]re2mp7RB73vzg==
+npm notice total files: 7
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 79.9kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.0 kB
+npm notice unpacked size: 82.2 kB
+npm notice shasum: a935692e5e40d8346ece841c820e51194e60b506
+ruukoto-code-0.1.0.tgz
+npm notice integrity: sha512-GxB4OHrpRLVUr[...]Fkkpj1+ENQXQQ==
+npm notice total files: 6
+npm notice
+✔ 真实 worker：父轮安全让出同目录，另一任务执行，重取目录后新 worker 继续写入 (5447.742647ms)
+✔ 冷启对话：不读工作区或技能、不启动 MCP，已记录指令仍进入模型，隐藏业务调用被拒绝 (119.64382ms)
+✔ 停止未核实：等待拒绝释放目录，下一模型请求不继续 (107.427683ms)
+✔ 冷启对话恢复：取得目录后才规划 MCP，旧 prompt 退出后重建 SDK 并继续同一任务 (236.514134ms)
+✔ 父级注入 成功响应后消费一次 (104.499589ms)
+✔ 父级注入 请求失败不消费 (102.53748ms)
+✔ 汇总参考输入 ruukoto-code：JSONL 可重建分组，原输入与请求摘要不改写 (144.459418ms)
+✔ 汇总参考输入 ruukoto：JSONL 可重建分组，原输入与请求摘要不改写 (143.416579ms)
+✔ 汇总参考输入：JSONL marker 写入失败时不发模型请求 (153.901693ms)
+✔ agent_wait ruukoto：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (19483.282596ms)
+✔ agent_wait ruukoto-code：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (18937.234644ms)
+✔ agent_wait：超时或人工问题只结束一次等待，后台工作仍继续 (299.905278ms)
+✔ 非 Git 子任务持真实目录：新拥有者输入打断父等待，内部对话拒绝业务工具，晚到结果自动补报 (2108.40368ms)
+✔ 非 Git 持目录等待真实审批：attention 与新输入可对话，审批不因父轮退出失效 (2057.932348ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 55138.954792

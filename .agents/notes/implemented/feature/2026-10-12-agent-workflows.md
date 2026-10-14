@@ -2,7 +2,7 @@
 
 Status: implemented
 
-后续改进：[交互与等待规格](../../../../.scratch/agent-workflow/experience-spec.md)已于 2026-10-14 经拥有者确认，实施另由 08–11 工单持有；[等待与报告归属方案](../../proposed/architecture/2026-10-14-agent-wait-and-report-ownership.md)补充可打断等待与父轮继续处理，本篇后台运行、来源授权和唯一回报目标不变。
+后续改进：[交互与等待规格](../../../../.scratch/agent-workflow/experience-spec.md)已于 2026-10-14 经拥有者确认，实施另由 08–11 工单持有；[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)补充可打断等待与父轮继续处理，本篇后台运行、来源授权和唯一回报目标不变。
 
 ## 问题
 

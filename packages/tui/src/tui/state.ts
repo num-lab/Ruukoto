@@ -158,6 +158,16 @@ export class ViewState {
   private applyStateEvent(event: PersistentEvent): void {
     const body = event.body;
     switch (body.type) {
+      case "agent_wait.changed":
+        this.patchTask(body.taskId, { wait: body.wait, resourcePhase: body.phase === "waiting" || body.phase === "conversation" ? "conversation" : this.tasks.get(body.taskId)?.resourcePhase });
+        return;
+      case "task.resources_changed":
+        this.patchTask(body.taskId, { resourcePhase: body.phase });
+        return;
+      case "agent_report.changed":
+        if (body.fallbackTaskId) this.patchTask(body.fallbackTaskId, { reportParked: body.fallbackState === "parked" });
+        for (const taskId of body.parkedFallbackTaskIds) this.patchTask(taskId, { reportParked: true });
+        return;
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
           this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: event.createdAt });
@@ -674,7 +684,7 @@ export class ViewState {
   }
 
   queuedTasksFor(sessionId: string): Task[] {
-    return this.tasksFor(sessionId).filter((t) => t.status === "queued");
+    return this.tasksFor(sessionId).filter((t) => t.status === "queued" && !t.reportParked);
   }
 
   /** 本会话发起的工作委托（issue 11；按登记顺序）。 */

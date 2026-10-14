@@ -10,7 +10,7 @@ import { hostCallFor, type HostToolContext, type HostToolFamily, type HostToolLe
 
 export const WORKFLOW_TOOL_NAMES = ["workflow_instructions", "workflow_save", "workflow_start", "workflow_query", "workflow_cancel"] as const;
 export const WORKFLOW_INSTRUCTIONS = [
-  "工作流是固定脚本和 JSON input 的后台运行，当前聊天可以继续；workflow_start 返回运行 ID，不必轮询等待。",
+  "工作流是固定脚本和 JSON input 的后台运行，当前聊天可以继续；workflow_start 返回运行 ID，用 agent_wait 等待明确运行，不轮询列表。收到结果后继续检查与后续步骤，未完成时继续等待或说明需要的人工介入。",
   "编写 async function(input) 的函数体，允许 return、串行、Promise.all、分支和有停止条件的循环。只能通过 await agent(key,params)、ask、integrate、progress 调宿主；没有 Node、文件、网络、import、时钟、随机数或定时器。",
   "每次调用用唯一且稳定的 key（1–128 位字母数字及 ._:-），循环键由固定输入和索引构造。完整声明 dependsOn: [已登记键]；失败依赖会跳过后续调用，无关分支继续。已有完成结果恢复时复用，切勿靠执行顺序或外部输入隐含依赖。",
   "agent(key,{request,dependsOn?,tools?,mode?,target?,verify?,output?}) 默认 mode=analyze。结果 {status:'completed',value} 或失败/跳过事实，检查 status 后才使用 value。tools 只能收窄来源工具。output 默认文本；JSON 用 {format:'json',schema:{type,...}}，只支持基础有界 JSON Schema。",

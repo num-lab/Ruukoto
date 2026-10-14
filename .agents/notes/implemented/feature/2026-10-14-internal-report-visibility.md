@@ -18,7 +18,7 @@ EventFlow 在建立 user 展示条目前统一过滤 `internal_report`，输入�
 
 ## 既有笔记审计
 
-[等待与报告归属方案](../../proposed/architecture/2026-10-14-agent-wait-and-report-ownership.md)部分落地，本篇只持有输入展示，等待、认领与唯一报告交接仍待实施。[工作流业务回答与最终送达](2026-10-13-workflow-owner-input-and-delivery.md)仍持有独立汇总身份及来源复核，本篇复用它的可信绑定。[完整历史](../architecture/2026-09-19-preserve-session-history.md)与[独立历史分支](2026-10-11-branch-session-snapshot.md)继续有效，本篇复用原标记及已核实来源；无笔记被完全吸收或删除。
+[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)部分落地，本篇只持有输入展示，等待、认领与唯一报告交接仍待实施。[工作流业务回答与最终送达](2026-10-13-workflow-owner-input-and-delivery.md)仍持有独立汇总身份及来源复核，本篇复用它的可信绑定。[完整历史](../architecture/2026-09-19-preserve-session-history.md)与[独立历史分支](2026-10-11-branch-session-snapshot.md)继续有效，本篇复用原标记及已核实来源；无笔记被完全吸收或删除。
 
 ## 备选方案
 

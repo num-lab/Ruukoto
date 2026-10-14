@@ -1,0 +1,170 @@
+✔ 损坏或缺失续接输入 missing-reference 仍须明确拒绝 (53.752ms)
+✔ 损坏或缺失续接输入 invalid-json 仍须明确拒绝 (40.247667ms)
+✖ 损坏或缺失续接输入 null-root 仍须明确拒绝 (30.747667ms)
+✖ 损坏或缺失续接输入 null-target 仍须明确拒绝 (29.062542ms)
+✖ 损坏或缺失续接输入 missing-start 仍须明确拒绝 (29.159333ms)
+✖ 损坏或缺失续接输入 missing-tool-entry 仍须明确拒绝 (29.366667ms)
+✖ 损坏或缺失续接输入 missing-group 仍须明确拒绝 (28.4735ms)
+✖ 损坏或缺失续接输入 empty-group 仍须明确拒绝 (28.307791ms)
+✖ 损坏或缺失续接输入 subset-group 仍须明确拒绝 (28.872083ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 2
+ℹ fail 7
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1499.279167
+
+✖ failing tests:
+
+test at ../../../../../../private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:25:186
+✖ 损坏或缺失续接输入 null-root 仍须明确拒绝 (30.747667ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: null-root 必须返回明确拒绝而不是未经分类的异常
+  Actual message: "Cannot read properties of null (reading 'reportTargets')"
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: TypeError: Cannot read properties of null (reading 'reportTargets')
+        at Runtime.agentReportReferences (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/runtime/src/runtime.ts:1179:19)
+        at Runtime.verifyAgentReportSources (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/runtime/src/runtime.ts:1120:26)
+        at <anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:104:60)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:25:186
+✖ 损坏或缺失续接输入 null-target 仍须明确拒绝 (29.062542ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: null-target 必须返回明确拒绝而不是未经分类的异常
+  Actual message: "Cannot read properties of null (reading 'reportOwnerTaskId')"
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: TypeError: Cannot read properties of null (reading 'reportOwnerTaskId')
+        at Runtime.agentReportReferences (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/runtime/src/runtime.ts:1182:20)
+        at Runtime.verifyAgentReportSources (/Users/eitrous/orca/workspaces/ruukoto/agent-workflow/packages/runtime/src/runtime.ts:1120:26)
+        at <anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:104:60)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:25:186
+✖ 损坏或缺失续接输入 missing-start 仍须明确拒绝 (29.159333ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: missing-start 必须返回明确拒绝而不是未经分类的异常
+  Actual message: "missing-start 不可当空来源允许普通owner_reply"
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: AssertionError [ERR_ASSERTION]: missing-start 不可当空来源允许普通owner_reply
+        at <anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:104:14)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:25:186
+✖ 损坏或缺失续接输入 missing-tool-entry 仍须明确拒绝 (29.366667ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: missing-tool-entry 必须返回明确拒绝而不是未经分类的异常
+  Actual message: "missing-tool-entry 不可当空来源允许普通owner_reply"
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: AssertionError [ERR_ASSERTION]: missing-tool-entry 不可当空来源允许普通owner_reply
+        at <anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:104:14)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:25:186
+✖ 损坏或缺失续接输入 missing-group 仍须明确拒绝 (28.4735ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: missing-group 必须返回明确拒绝而不是未经分类的异常
+  Actual message: "missing-group 不可当空来源允许普通owner_reply"
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: AssertionError [ERR_ASSERTION]: missing-group 不可当空来源允许普通owner_reply
+        at <anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:104:14)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:25:186
+✖ 损坏或缺失续接输入 empty-group 仍须明确拒绝 (28.307791ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: empty-group 必须返回明确拒绝而不是未经分类的异常
+  Actual message: "empty-group 不可当空来源允许普通owner_reply"
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: AssertionError [ERR_ASSERTION]: empty-group 不可当空来源允许普通owner_reply
+        at <anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:104:14)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:25:186
+✖ 损坏或缺失续接输入 subset-group 仍须明确拒绝 (28.872083ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: subset-group 必须返回明确拒绝而不是未经分类的异常
+  Actual message: "subset-group 不可当空来源允许普通owner_reply"
+      at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: AssertionError [ERR_ASSERTION]: subset-group 不可当空来源允许普通owner_reply
+        at <anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:104:14)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-agent-wait-e8-review/125-agent-wait-input-integrity-review.test.mts:103:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }

@@ -1,6 +1,6 @@
 # 开发与验证
 
-在完整仓库根目录运行：npm workspaces 包含 `packages/*` 与 `apps/*`，共用根锁文件；`verification/foundation/` 保持独立包和锁文件。应用复用基础验证，基础验证也引用根目录的测试助手；用例与助手在根 `test/`。
+在仓库根目录运行：npm workspaces 包含 `packages/*` 与 `apps/*`，共用根锁文件；`verification/foundation/` 保持独立包和锁文件。应用复用基础验证，基础验证也引用根目录的测试助手；用例与助手在根 `test/`。
 
 ```bash
 npm run setup
@@ -13,11 +13,11 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 
 ## 跨模型协作
 
-给新会话一个工单路径和角色，例如「以审查者身份接手这张工单」。[开发流程](../.agents/skills/development-workflow/SKILL.md)定义交接和验收；角色与模型可分别选择，工程验收与产品验收分别记录。
+交接时给出工单路径与角色，如「以审查者身份接手此单」。[开发流程](../.agents/skills/development-workflow/SKILL.md)定义交接和验收；角色和模型独立选择；工程、产品验收分开记录。
 
 ## 日常反馈
 
-| 根目录命令 | 检查范围与产物 |
+| 命令 | 检查范围与产物 |
 | --- | --- |
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
@@ -37,7 +37,7 @@ npx tsx --test test/71-product-entry.test.ts test/32-dev.test.ts
 npx tsx --test verification/foundation/test/03-tools.test.ts
 ```
 
-按功能词找覆盖分支，跨模块再查调用者；下表列起点，完整列表用 `rg --files test`。
+按功能词找分支，跨模块查调用者；下表列起点，完整列表用 `rg --files test`。
 
 | 修改位置 | 常用测试起点 |
 | --- | --- |
@@ -47,7 +47,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |
 | `scripts/test-app.mjs` 的分批与退出 | `test/124-test-app-runner.test.ts`；共享 UID 孤儿冲突的独占清单由脚本持有 |
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts` |
-| 工作流回答、最终送达与调度归属 | `test/114-workflow-owner-input.test.ts` 至 `test/116-workflow-notification-recovery.test.ts` |
+| 回答、送达、调度与等待 | `test/114-workflow-owner-input.test.ts` 至 `test/116-workflow-notification-recovery.test.ts`；`test/125-agent-wait*.test.ts` |
 | 工作流定义与入口 | `test/117-workflow-library.test.ts` 至 `test/120-workflow-cli.test.ts`；模型/IM 为本地替身 |
 | 双产品六输入联合验收 | `test/121-workflow-personal-acceptance.test.ts`、`test/122-workflow-code-acceptance.test.ts`；真实工具、联网/IM 替身 |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
@@ -55,7 +55,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 
-失败保留用例名、断言和环境，区分回归与前提；独立复现后修复，默认检查和 CI 不自动重试。[发布验收](release-acceptance.md)的历史结果不证明当前代码通过。
+失败记录用例名、断言与环境；区分回归与前提，独立复现再修复。默认检查和 CI 不重试。[历史验收](release-acceptance.md)不证明当前代码通过。
 
 代码里的待办标记按紧急度分三种，便于检索时排序：`FIXME` 是发布阻断项，`TODO` 是应尽快处理项，`XXX` 是将来再说的项。三者都写明要做什么，不只留一个标记。
 

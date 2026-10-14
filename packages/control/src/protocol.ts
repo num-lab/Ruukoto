@@ -71,6 +71,9 @@
  *
  * v23：任务视图派生输入用途，历史页与单条补读携带原任务关联、用途与关联诊断。
  * Note: 见 .agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md
+ *
+ * v24：等待对象、到期时间、阶段与中断原因；可信普通子任务补报沿用内部输入用途。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
  */
 
 import {

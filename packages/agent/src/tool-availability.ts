@@ -145,6 +145,13 @@ export interface TaskToolSet {
   reasonFor(name: string): string;
 }
 
+export type AgentResourcePhase = "execution" | "conversation";
+
+/** 对话阶段只访问后台记录；未分类工具不能借只读名称取得工作目录。 */
+export const CONVERSATION_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "agent_wait", "subagent_result", "workflow_query", "workflow_instructions", "history_search", "history_read", "read_artifact",
+]);
+
 /** 本任务允许的工具（任务开始时算一次）：已装配的工具减去任务收窄与关闭的 Web Search。 */
 export function taskToolSet(input: {
   /** 装配结果（含本任务 MCP 工具）。 */
@@ -155,13 +162,15 @@ export function taskToolSet(input: {
   mcpEffect: (name: string) => McpToolEffect | undefined;
   /** 宿主按任务收窄（GitHub 评审等；已绑定任务）。 */
   narrow?: (name: string, mcpEffect?: McpToolEffect) => boolean;
+  resourcePhase?: AgentResourcePhase;
 }): TaskToolSet {
   const rejected = new Map<string, string>();
   const allowed = new Set<string>();
   for (const name of input.registered) {
     const effect = input.mcpEffect(name);
     const reason =
-      input.plan && !PLAN_TOOL_NAMES.has(name) && effect !== "read" ? "计划模式不开放"
+      input.resourcePhase === "conversation" && !CONVERSATION_TOOL_NAMES.has(name) ? "执行资源未取得：当前仅处理对话与后台记录"
+      : input.plan && !PLAN_TOOL_NAMES.has(name) && effect !== "read" ? "计划模式不开放"
       : input.narrow && !input.narrow(name, effect) ? "本任务由宿主收窄"
       : !input.webSearchEnabled && (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name) ? "项目已关闭 Web Search"
       : null;

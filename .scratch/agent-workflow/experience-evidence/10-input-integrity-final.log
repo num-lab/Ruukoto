@@ -1,0 +1,17 @@
+✔ 损坏或缺失续接输入 missing-reference 仍须明确拒绝 (62.103125ms)
+✔ 损坏或缺失续接输入 invalid-json 仍须明确拒绝 (39.761375ms)
+✔ 损坏或缺失续接输入 null-root 仍须明确拒绝 (30.286375ms)
+✔ 损坏或缺失续接输入 null-target 仍须明确拒绝 (28.857417ms)
+✔ 损坏或缺失续接输入 missing-start 仍须明确拒绝 (29.035166ms)
+✔ 损坏或缺失续接输入 missing-tool-entry 仍须明确拒绝 (28.871209ms)
+✔ 损坏或缺失续接输入 missing-group 仍须明确拒绝 (28.075709ms)
+✔ 损坏或缺失续接输入 empty-group 仍须明确拒绝 (28.432958ms)
+✔ 损坏或缺失续接输入 subset-group 仍须明确拒绝 (28.4825ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1596.582167

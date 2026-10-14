@@ -23,6 +23,8 @@ import type { Store } from "@ruukoto/core/store.ts";
 import type { ContextCheckpoint, ContextExperimentRecord, ModelSelection, SelectionUsage, SubAgentMessage, Task } from "@ruukoto/core/types.ts";
 import { randomId } from "@ruukoto/core/types.ts";
 import { getWorkflowExecution } from "@ruukoto/core/workflow.ts";
+import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
+import type { AgentResourcePhase } from "./tool-availability.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
 import { verifyDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { ArtifactStore } from "./artifacts.ts";
@@ -102,6 +104,9 @@ export interface ContextAssemblyInput {
   plan: boolean;
   /** 任务钉版的技能库（issue 22；driver 钉版，null = 不读取）。 */
   skills: SkillLibrary | null;
+  resourcePhase?: AgentResourcePhase;
+  referenceSnapshot?: AgentWaitSnapshot | null;
+  reportContext?: AgentReportContext | null;
   /**
    * dev 父会话待注入的 SubAgent 结果（agent-direction issue 11；driver 在
    * 任务开始时收集并标记送达；非拥有者对话轮次/受限会话为空）。
@@ -115,6 +120,8 @@ export interface ContextAssemblyInput {
    */
   subagentMessages?: SubAgentMessage[];
 }
+
+export interface AgentReportContext { text: string; reportKeys: string[] }
 
 /** 本次调用时 SDK 会话的状态（driver 每次交入；本模块不持有 SDK 会话）。 */
 export interface SdkState {
@@ -136,11 +143,14 @@ export class ContextAssembly {
   private readonly subagentResults: ContextAssemblyInput["subagentResults"];
   /** dev 父会话待注入的工作内协作消息（issue 13；受限会话恒为空）。 */
   private readonly subagentMessages: ContextAssemblyInput["subagentMessages"];
+  private readonly reportContext: AgentReportContext | null;
   private readonly accessor: Accessor;
   private readonly restricted: boolean;
   /** 普通资料受限会话不读取技能；工作流步骤按持久执行绑定保留已获准的技能。 */
   private readonly plan: boolean;
-  private readonly skills: SkillLibrary | null;
+  private skills: SkillLibrary | null;
+  private resourcePhase: AgentResourcePhase;
+  private referencesFromSnapshot: boolean;
   private readonly deps: ContextAssemblyDeps;
   /** 停止任务与任务结束时中止：Jev 与摘要请求随之中止，等待之后的结果作废。 */
   private readonly controller = new AbortController();
@@ -149,7 +159,7 @@ export class ContextAssembly {
    * 来源任务要求；memoryIds = 当时生效记忆的 id 与顺序（issue 29；读取失败为 Error）。
    * 任务内不变；下一任务开始时重新读取（= 拥有者刷新入口）。
    */
-  private readonly pinnedContext: {
+  private pinnedContext: {
     instructions: { text: string; version: string; problems: string[] } | null;
     resumedFrom: { taskId: string; input: string } | null;
     memoryIds: string[] | Error;
@@ -173,16 +183,30 @@ export class ContextAssembly {
     this.restricted = input.restricted;
     this.plan = !input.restricted && input.plan;
     this.skills = input.restricted && !getWorkflowExecution(deps.store, input.task.id) ? null : input.skills;
+    this.resourcePhase = input.resourcePhase ?? "execution";
+    this.referencesFromSnapshot = this.resourcePhase === "conversation";
     this.subagentResults = input.restricted ? undefined : input.subagentResults;
     this.subagentMessages = input.restricted ? undefined : input.subagentMessages;
+    this.reportContext = input.reportContext ?? null;
     this.deps = deps;
     try {
       this.pinnedJev = this.restricted ? null : getProjectJevConfig(deps.store, this.session.projectId);
     } catch {
       this.pinnedJev = null; // 无法核实实验授权时只运行基础规则。
     }
-    this.pinnedContext = this.loadPinnedContext();
+    this.pinnedContext = this.loadPinnedContext(input.referenceSnapshot);
   }
+
+  setResourcePhase(phase: AgentResourcePhase, skills?: SkillLibrary | null): void {
+    this.resourcePhase = phase;
+    if (phase === "execution" && this.referencesFromSnapshot) {
+      this.pinnedContext = { ...this.pinnedContext, instructions: this.loadProjectInstructions() };
+      this.skills = skills ?? null;
+      this.referencesFromSnapshot = false;
+    }
+  }
+
+  referenceInstructions(): AgentWaitSnapshot["instructions"] { return structuredClone(this.pinnedContext.instructions); }
 
   /** 中止 Jev 与摘要请求（幂等）；进行中的 assemble 在等待结束后返回 undefined。 */
   abort(): void {
@@ -414,7 +438,7 @@ export class ContextAssembly {
    */
   private references(tools: any[]): ReferenceBlock[] {
     const { instructions, resumedFrom } = this.pinnedContext;
-    const skills = this.skills && tools.some((t) => t?.name === "skill") ? skillCatalogBlock(this.skills) : null;
+    const skills = this.skills && (this.resourcePhase === "conversation" || tools.some((t) => t?.name === "skill")) ? skillCatalogBlock(this.skills) : null;
     const subagentResults = this.subagentResults;
     const subagentMessages = this.subagentMessages;
     return [
@@ -435,6 +459,7 @@ export class ContextAssembly {
                 .join("\n"),
           }]
         : []),
+      ...(this.reportContext ? [{ category: "subagentResults" as const, placement: "task" as const, text: this.reportContext.text }] : []),
       // 工作内协作消息（issue 13）：与结果注入同一性质——带来源的资料，不是
       // 拥有者新指令；回复用 subagent_message（to_sub_agent_id 用对方）
       ...(subagentMessages && subagentMessages.length > 0
@@ -452,6 +477,8 @@ export class ContextAssembly {
           }]
         : []),
       ...(this.plan ? [PLAN_NOTICE] : []),
+      ...(this.resourcePhase === "conversation" ? [{ category: "resourcePhase" as const, placement: "task" as const,
+        text: "[执行资源] 当前处于内部对话阶段：工作目录仍由后台任务持有，项目指令与技能目录只使用已记录快照；可以解释结果、查询后台记录或用 agent_wait 继续等待。工作目录读写、命令、技能读取、MCP 与其他业务工具须重新取得执行资源后才开放。后台工作继续；未完成时继续等待或明确说明需要拥有者介入。[/执行资源]" }] : []),
     ];
   }
 
@@ -559,7 +586,7 @@ export class ContextAssembly {
    *   不能只发一句"继续"就丢失原要求（§4）；
    * - 长期记忆（issue 29）：当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序）。
    */
-  private loadPinnedContext(): typeof this.pinnedContext {
+  private loadPinnedContext(snapshot?: AgentWaitSnapshot | null): typeof this.pinnedContext {
     // 资料受限会话（SubAgent）：不读取/注入项目指令与记忆
     if (this.restricted) return { instructions: null, resumedFrom: null, memoryIds: [] };
     const task = this.task;
@@ -576,7 +603,10 @@ export class ContextAssembly {
         const old = this.deps.store.getTask(task.resumesTaskId);
         if (old) resumedFrom = { taskId: old.id, input: old.input };
       }
-      return { instructions: this.loadProjectInstructions(), resumedFrom, memoryIds };
+      const instructions = this.resourcePhase === "conversation"
+        ? snapshot ? snapshot.instructions : { text: "", version: "", problems: ["执行资源未取得且参考快照缺失；未读取当前项目指令与技能，请取得执行资源后继续业务操作。"] }
+        : this.loadProjectInstructions();
+      return { instructions, resumedFrom, memoryIds };
     } catch (err) {
       // 钉版读取失败不阻断任务：以明确说明注入，不静默省略
       return {

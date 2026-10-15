@@ -51,10 +51,10 @@ h2 span { color: var(--text-muted); }
 .connection { display: flex; align-items: center; gap: 7px; padding: 18px 12px; color: var(--text-secondary); font-size: 11px; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
 .status-dot.online { background: #47a576; }
-.canvas { flex: 1; min-width: 0; background: var(--bg-canvas); overflow: auto; }
+.canvas { flex: 1; min-width: 0; background: var(--bg-canvas); overflow: hidden; display: flex; flex-direction: column; }
 .window-heading { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 24px; font-weight: 500; -webkit-app-region: drag; }
 .window-heading span { color: var(--text-muted); font-size: 11px; font-weight: 400; }
-.empty-state { max-width: 730px; margin: 13vh auto 40px; padding: 0 40px; }
+.empty-state { flex: 1; min-height: 0; overflow-y: auto; max-width: 730px; margin: 13vh auto 40px; padding: 0 40px; }
 .app-mark { color: var(--text-muted); font-size: 40px; font-weight: 300; margin-bottom: 16px; }
 h1 { font-size: 25px; line-height: 1.4; font-weight: 500; letter-spacing: -0.7px; margin: 0 0 12px; overflow-wrap: anywhere; }
 p { line-height: 1.8; overflow-wrap: anywhere; }
@@ -63,3 +63,43 @@ p { line-height: 1.8; overflow-wrap: anywhere; }
 .recovery { padding-left: 20px; font-size: 12px; line-height: 1.8; color: var(--text-secondary); }
 .recovery li { padding-bottom: 10px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .reconnect { background: var(--text-primary); color: var(--bg-canvas); border-radius: 6px; padding: 8px 16px; margin-top: 12px; }
+.session-list { margin: 0 0 12px 24px; border-left: 1px solid var(--bg-surface-active); padding-left: 8px; }
+.session, .new-session { display: flex; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 5px; background: transparent; text-align: left; overflow-wrap: anywhere; }
+.session { color: var(--text-secondary); }
+.session.selected, .session:hover { background: var(--bg-surface-active); color: var(--text-primary); }
+.new-session { color: var(--text-secondary); font-size: 11px; }
+.add-workspace { background: var(--bg-surface); border-radius: 6px; padding: 9px 12px; text-align: left; margin: 10px 0 0; }
+.window-heading { flex-shrink: 0; }
+.session-tabs { display: flex; flex-shrink: 0; overflow-x: auto; border-block: 1px solid var(--bg-surface); padding: 0 18px; }
+.session-tab { display: flex; flex-shrink: 0; max-width: 220px; }
+.session-tab button { background: transparent; padding: 10px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-tab button:last-child { flex-shrink: 0; }
+.session-tab [aria-current] { color: var(--text-primary); border-bottom: 2px solid #6689bb; }
+.operation-message { margin: 0; padding: 10px 24px; color: var(--text-secondary); background: var(--bg-surface); }
+.conversation { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 32px 56px; }
+.conversation-content { max-width: 780px; margin: auto; }
+.message { padding: 20px 0; }
+.message-user { border-bottom: 1px solid var(--bg-surface); }
+.message-role { color: var(--text-secondary); font-size: 11px; font-weight: 600; margin-bottom: 10px; }
+.message-role span { font-weight: 400; }
+.markdown { line-height: 1.8; overflow-wrap: anywhere; user-select: text; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown h1 { font-size: 22px; }
+.markdown h2 { display: block; font-size: 18px; color: var(--text-primary); padding: 0; }
+.markdown pre, .tool-row pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-surface); border-radius: 5px; padding: 12px; font-size: 12px; }
+.markdown code { font-family: ui-monospace, SFMono-Regular, monospace; }
+.markdown a { color: #6689bb; }
+.markdown table { border-collapse: collapse; display: block; overflow-x: auto; }
+.markdown th, .markdown td { padding: 6px 12px; border: 1px solid var(--bg-surface-active); }
+.markdown blockquote { margin-left: 0; border-left: 2px solid var(--text-muted); padding-left: 16px; color: var(--text-secondary); }
+.thinking, .tool-group { margin: 12px 0; color: var(--text-secondary); }
+summary { cursor: pointer; padding: 8px 0; user-select: none; }
+.thinking .markdown, .tool-row { padding: 8px 0 8px 18px; border-left: 1px solid var(--bg-surface-active); }
+.tool-row strong { font-weight: 500; color: var(--text-primary); }
+.tool-status { font-size: 11px; margin-left: 12px; }
+.tool-status.error, .tool-status.effect_unknown { color: #bc7156; }
+.tool-row pre { margin-block: 8px; max-height: 240px; overflow-y: auto; }
+.task-status, .flow-note { color: var(--text-secondary); font-size: 12px; }
+.load-older { background: var(--bg-surface); color: var(--text-secondary); padding: 7px 12px; border-radius: 5px; margin: 8px 0; }
+.conversation-empty { margin-top: 15vh; text-align: center; }

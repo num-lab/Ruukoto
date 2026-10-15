@@ -4,10 +4,11 @@ import { ensureBackend, type EnsureBackendOptions, type EnsureBackendResult } fr
 import { resolveOwnerToken } from "@ruukoto/control/connect.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import type { DesktopFailure, DesktopUpdate } from "../shared/bridge.ts";
+import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import { DesktopError, type CodeTargetConfig } from "./environment.ts";
 import { versionRecovery } from "./recovery.ts";
 
-type Connection = Pick<ControlConnection, "start" | "close">;
+type Connection = Pick<ControlConnection, "start" | "close" | "request">;
 export interface ControllerDeps {
   ensure(options: EnsureBackendOptions): Promise<EnsureBackendResult>;
   connection(config: ConnectionConfig, callbacks: ConnectionCallbacks): Connection;
@@ -83,4 +84,12 @@ export class CodeController {
 
   }
   close(): void { this.stopped = true; ++this.generation; this.connection?.close(); }
+  async request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
+    if (!this.connection || this.stopped) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
+    try { return await this.connection.request(op, params); }
+    catch (error) {
+      const failure = serializeFailure(error, this.token);
+      throw new ControlClientError(failure.code, failure.message, failure.outcome, failure.versions);
+    }
+  }
 }

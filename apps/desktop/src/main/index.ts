@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodeController, serializeFailure } from "./controller.ts";
+import { ControlClientError } from "@ruukoto/control/client.ts";
 import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "./environment.ts";
 import { handleRequest, ipcResult } from "./ipc.ts";
 import { cspFor, externalUrl, isRendererReload } from "./security.ts";
@@ -73,7 +74,10 @@ ipcMain.on("desktop:subscribe", (event, target) => {
 });
 ipcMain.handle("desktop:request", async (event, target, op, params) => {
   const checked = await ipcResult(() => assertTrusted(event));
-  return checked.ok ? handleRequest(target, op, params, reconnect) : checked;
+  return checked.ok ? handleRequest(target, op, params, reconnect, (op, params) => {
+    if (!controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
+    return controller.request(op, params);
+  }) : checked;
 });
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {
   assertTrusted(event);

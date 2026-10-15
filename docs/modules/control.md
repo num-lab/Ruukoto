@@ -178,6 +178,8 @@ sequenceDiagram
 
 核实只问一个问题：后台有没有收到这个 `request_id`。连接仍在时当场核实这一条，断线时每次回到 `online` 核实全部记录：查到就关联原任务并清除记录；明确未接收（`find_task` 返回空）才以原键原参数重发；查询失败、实例不符或缺模型时保留记录，不产生副作用，下次上线再核。记录里没有模型选择时不能原样重发，转为让拥有者确认后把原文恢复进原会话草稿。
 
+`PendingRequestStore.read(requestId)` 严格区分有效记录、损坏记录和不存在；只有文件读取的 `ENOENT` 返回 `absent`，权限与 IO 错误向调用方传出。`remove(requestId)` 返回 `removed` 或仅在 `ENOENT` 时返回 `absent`，其余删除失败同样传出。桌面输入恢复用它们确认交付后的清理；既有 `clear` 与 `list` 保留宽容策略，空列表不能证明某条记录已删除。
+
 ### 审批应答
 
 `respond_confirmation` 接受 `approve` / `reject`，可带 `permission_version` 绑定审批时的权限版本。权限版本不匹配回 `permission_version_mismatch`，该批准不可用。批准只适用于该次操作及明确列出的范围，在执行前单次消费。

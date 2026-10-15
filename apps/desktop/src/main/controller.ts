@@ -7,8 +7,11 @@ import type { DesktopFailure, DesktopUpdate } from "../shared/bridge.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import { DesktopError, type CodeTargetConfig } from "./environment.ts";
 import { versionRecovery } from "./recovery.ts";
+import { DesktopSubmissions } from "./submissions.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import type { DesktopOp } from "./ipc.ts";
 
-type Connection = Pick<ControlConnection, "start" | "close" | "request">;
+type Connection = Pick<ControlConnection, "start" | "close" | "request"> & { instanceId?: string | null };
 export interface ControllerDeps {
   ensure(options: EnsureBackendOptions): Promise<EnsureBackendResult>;
   connection(config: ConnectionConfig, callbacks: ConnectionCallbacks): Connection;
@@ -28,11 +31,12 @@ export class CodeController {
   private generation = 0;
   private stopped = false;
   private token: string | undefined;
+  submissions: DesktopSubmissions | null = null;
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "connecting" };
   constructor(readonly config: CodeTargetConfig, private readonly publish: (update: DesktopUpdate) => void, private readonly deps: ControllerDeps = {
     ensure: ensureBackend,
     connection: (config, callbacks) => new ControlConnection(config, callbacks),
-  }) {}
+  }, private readonly pendingStore?: PendingRequestStore) {}
 
   private state(update: Extract<DesktopUpdate, { type: "state" }>): void {
     this.status = update;
@@ -73,9 +77,14 @@ export class CodeController {
         if (state === "failed" && error) this.failed(serializeFailure(error, this.token));
         else this.state({ type: "state", state, detail: detail?.replaceAll(this.token!, "[令牌已隐藏]") });
       },
-      onSnapshot: (result, context) => { if (!this.stopped && generation === this.generation) this.publish({ type: "snapshot", result, instanceChanged: context.instanceChanged }); },
+      onSnapshot: (result, context) => {
+        if (this.stopped || generation !== this.generation) return;
+        this.publish({ type: "snapshot", result, instanceChanged: context.instanceChanged });
+        void this.submissions?.reconcile();
+      },
       onEvent: (event, kind) => { if (!this.stopped && generation === this.generation) this.publish({ type: "event", event, kind }); },
     });
+    if (this.pendingStore && !this.submissions) this.submissions = new DesktopSubmissions(this.pendingStore, () => this.connection, this.publish, (op, params) => this.request(op, params));
     try { await this.connection.start(); }
     catch (error) {
       // 传输失败由 ControlConnection 退避重连；明确拒绝已由 onState 报告并停止重试。
@@ -83,7 +92,14 @@ export class CodeController {
     }
 
   }
-  close(): void { this.stopped = true; ++this.generation; this.connection?.close(); }
+  close(): void { this.stopped = true; ++this.generation; this.submissions?.close(); this.connection?.close(); }
+  async dispatch(op: DesktopOp, params: OpParams<DesktopOp>): Promise<unknown> {
+    if (op === "submit" || op === "continue") {
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再发送。");
+      return this.submissions.submit(op, params);
+    }
+    return this.request(op, params);
+  }
   async request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
     if (!this.connection || this.stopped) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
     try { return await this.connection.request(op, params); }

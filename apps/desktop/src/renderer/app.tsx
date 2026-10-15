@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CodeState } from "./code-state.ts";
 import { Conversation } from "./conversation.tsx";
+import { Composer, PendingInputs } from "./composer.tsx";
 
 const labels = { connecting: "正在连接", online: "已连接", reconnecting: "正在重新连接", failed: "连接失败", closed: "已断开" };
 export function App() {
@@ -44,7 +45,9 @@ export function App() {
       {model.tabs.length > 0 && <nav className="session-tabs" aria-label="已打开的会话">{model.tabs.map(id => <div className="session-tab" key={id}><button aria-current={current?.id === id ? "page" : undefined} onClick={() => model.openSession(id)}>{model.sessionName(id)}</button><button aria-label={`关闭${model.sessionName(id)}`} onClick={() => model.closeSession(id)}>×</button></div>)}</nav>}
       {model.message && <p className="operation-message" role="status">{model.message}</p>}
       {model.readError && <p className="operation-message" role="alert">{model.readError}</p>}
-      {current && status.state !== "failed" ? <Conversation key={`${view.instanceId}:${current.id}`} model={model} sessionId={current.id} /> : <div className="empty-state">
+      {model.writes.message && <p className="operation-message" role="status">{model.writes.message}</p>}
+      <PendingInputs model={model} />
+      {current && status.state !== "failed" ? <><Conversation key={`${view.instanceId}:${current.id}`} model={model} sessionId={current.id} /><Composer key={`${view.instanceId}:${current.id}`} model={model} session={current} /></> : <div className="empty-state">
         <div className="app-mark" aria-hidden="true">R</div>
         <h1>{status.state === "failed" ? "暂时无法连接" : workspace?.name ?? "你的工作区"}</h1>
         {status.state === "online" ? <p className="muted">{workspace?.rootDir?.cwdReal ?? "从左侧选择工作区。"}</p> : <p className="muted">{status.error?.message ?? status.detail ?? "正在连接本机 Coding Agent…"}</p>}

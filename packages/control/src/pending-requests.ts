@@ -32,6 +32,8 @@ export interface PendingRequestList {
   corrupt: string[];
 }
 
+export type PendingRequestRead = { kind: "record"; record: PendingRequest } | { kind: "absent" | "corrupt" };
+
 export function defaultPendingDir(): string {
   const product = productFromEnv();
   return dirEnvFor(product, "PENDING") ?? path.join(productRootDir(product), "pending");
@@ -87,6 +89,37 @@ export class PendingRequestStore {
     }
   }
 
+  /** 严格读取：仅 ENOENT 算不存在；损坏记录单列，其余 IO 错误向调用方传出。 */
+  read(requestId: string): PendingRequestRead {
+    let text: string;
+    try { text = fs.readFileSync(this.fileFor(requestId), "utf8"); }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return { kind: "absent" };
+      throw error;
+    }
+    let raw: PendingRequest;
+    try { raw = JSON.parse(text) as PendingRequest; }
+    catch { return { kind: "corrupt" }; }
+    try {
+      if (typeof raw?.requestId !== "string" || raw.requestId !== requestId ||
+        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control"].includes(raw.op) ||
+        typeof raw.params !== "object" || raw.params === null || Array.isArray(raw.params) ||
+        typeof raw.instanceId !== "string" || !raw.instanceId ||
+        typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)) return { kind: "corrupt" };
+    } catch { return { kind: "corrupt" }; }
+    return { kind: "record", record: raw };
+  }
+
+  /** 严格删除：仅 ENOENT 算不存在，其余 IO 错误向调用方传出。 */
+  remove(requestId: string): "removed" | "absent" {
+    try { fs.unlinkSync(this.fileFor(requestId)); }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return "absent";
+      throw error;
+    }
+    return "removed";
+  }
+
   /** 全部待确认记录；损坏文件保留并单独列出（不静默丢弃）。 */
   list(): PendingRequestList {
     const records: PendingRequest[] = [];
@@ -99,19 +132,9 @@ export class PendingRequestStore {
     }
     for (const file of files) {
       try {
-        const raw = JSON.parse(fs.readFileSync(path.join(this.dir, file), "utf8")) as PendingRequest;
-        if (
-          typeof raw?.requestId !== "string" || !/^[A-Za-z0-9_-]+$/.test(raw.requestId) || file !== `${raw.requestId}.json` ||
-          !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control"].includes(raw.op) ||
-          typeof raw.params !== "object" ||
-          raw.params === null || Array.isArray(raw.params) ||
-          typeof raw.instanceId !== "string" || !raw.instanceId ||
-          typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)
-        ) {
-          corrupt.push(file);
-          continue;
-        }
-        records.push(raw);
+        const result = this.read(file.slice(0, -5));
+        if (result.kind === "record") records.push(result.record);
+        else corrupt.push(file);
       } catch {
         corrupt.push(file);
       }

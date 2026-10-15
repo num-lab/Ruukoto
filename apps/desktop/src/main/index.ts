@@ -1,12 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { CodeController, serializeFailure } from "./controller.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "./environment.ts";
 import { handleRequest, ipcResult } from "./ipc.ts";
 import { cspFor, externalUrl, isRendererReload } from "./security.ts";
 import type { DesktopUpdate } from "../shared/bridge.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 
 declare const __RUUKOTO_REPOSITORY__: string;
 let window: BrowserWindow | null = null;
@@ -22,7 +24,8 @@ function publish(update: DesktopUpdate): void {
 async function initializeController(): Promise<void> {
   environment ??= await selectEnvironment(process.env);
   adoptEnvironment(environment.env);
-  controller = new CodeController(codeTargetConfig(__RUUKOTO_REPOSITORY__, environment), publish);
+  const config = codeTargetConfig(__RUUKOTO_REPOSITORY__, environment);
+  controller = new CodeController(config, publish, undefined, new PendingRequestStore(path.join(app.getPath("userData"), "pending", "code", createHash("sha256").update(config.controlDir).digest("hex"))));
 }
 function reconnect(): Promise<void> {
   if (initialization) return initialization;
@@ -76,7 +79,10 @@ ipcMain.handle("desktop:request", async (event, target, op, params) => {
   const checked = await ipcResult(() => assertTrusted(event));
   return checked.ok ? handleRequest(target, op, params, reconnect, (op, params) => {
     if (!controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
-    return controller.request(op, params);
+    return controller.dispatch(op, params);
+  }, (op, params) => {
+    if (!controller?.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
+    return controller.submissions.local(op, params);
   }) : checked;
 });
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {

@@ -2,19 +2,21 @@
 
 ## 职责与边界
 
-`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页和对话流；提交、控制、审批和 Personal 目标尚未开放。后台事实只经控制面取得，不读取数据库、JSONL、工作区文件或 git。
+`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型与会话默认模式选择、任务控制和暂停队列恢复；审批和 Personal 目标尚未开放。后台事实只经控制面取得，不读取数据库、JSONL、工作区文件或 git。
 
 ## 对外接口
 
-主进程持有令牌、`ControlConnection` 和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()` 与 `reveal(path)`。主进程校验 IPC 来源和操作名单：本地 `reconnect`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`；字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+主进程持有令牌、`ControlConnection` 和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()` 与 `reveal(path)`。主进程校验 IPC 来源和操作名单：本地 `reconnect`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React 与 Tailwind，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
 ## 数据与状态
 
-连接目标由产品身份、socket 和令牌来源组成，Code 固定为 `ruukoto-code`。连接状态沿用 control 的 connecting、online、reconnecting、failed 与 closed；版本被明确拒绝后停在 failed，仅由拥有者重新连接。令牌只在主进程内存；本模块不保存业务资料或令牌。日常后台仍使用自己的档案与日志。
+连接目标由产品身份、socket 和令牌来源组成，Code 固定为 `ruukoto-code`。连接状态沿用 control 的 connecting、online、reconnecting、failed 与 closed；版本被明确拒绝后停在 failed，仅由拥有者重新连接。令牌只在主进程内存；本模块保存待核实提交，不保存令牌或后台历史副本。日常后台仍使用自己的档案与日志。
 
-会话标签页和待完成创建记录仅保存在渲染进程内存。创建记录持有原请求键、参数、连接目标和数据实例，结果核实前阻止另起创建；安装新快照不会丢弃它。同实例快照保留标签页，换实例清空旧标签与会话视图。
+会话标签页和待完成创建记录仅保存在渲染进程内存。创建记录持有原请求键、参数、连接目标和数据实例，结果核实前阻止另起创建；安装新快照不会丢弃它。同实例快照保留标签页，换实例清空旧标签与会话视图。普通草稿仅在渲染进程内存中按实例和会话保存，退出或重载后丢失；尚未交付的待恢复原文继续保存在主进程记录里。
+
+提交与继续的完整参数、原请求键和数据实例标识先保存在应用数据目录的 `pending/code/<控制目录摘要>`，再发送；目录按目标及控制目录隔离。待核实列表按请求键更新，损坏记录显示数量与位置。同会话有待核实输入时禁用发送，同原任务的待核实继续不会另建请求键。
 
 ## 主要流程
 
@@ -26,6 +28,8 @@
 
 对话恢复先读历史页，再按历史窗口查询任务、安装带 seq 的任务详情和从零起分页补读任务事件；长正文按连续 UTF-8 字节偏移补全。每次新快照都更换异步代次并清空流游标，旧代次结果丢弃；向前翻页保留已加载条目。正文用 react-markdown 与 remark-gfm 渲染并关闭原始 HTML；正文与思考中的图片仅显示说明，防止 file 页面通过相对路径加载本机图片。思考按共享投影计时，连续工具活动按折叠组显示。关闭标签只改变界面，不删除会话。
 
+输入框发送时携带会话模型，继续输入保留原任务来源；暂停期间新任务显示为排队。模型目录按 `nextOffset` 分页并保留思考档位与可用性，认证不可用的选项禁用。模型与默认模式设置均带版本；默认模式只影响后续任务。中断与取消作用于所选任务，继续只从当前会话的中断任务发起，原操作效果未知时先提示核实。恢复队列前检查缺模型的旧任务，先选模型，再确认补齐数量与模型；取消确认保持暂停，没有缺模型任务时只传会话。
+
 ## 不变量与失败处理
 
 窗口启用 sandbox、contextIsolation，关闭 nodeIntegration。sandbox preload 构建为单个 CommonJS 文件；主进程与 preload 除 Electron、Node 内置模块外的依赖全部打包。生产 HTML 的 head 首个元素是严格 CSP meta；开发页面只使用带本次 nonce 的响应头策略，放行 dev server 的 HTTP 与 WebSocket 源，不开放 unsafe-inline。开发页面仅允许对配置的完整文档 URL 自身重载；其他导航被拦截，只有 HTTP(S) 链接交给系统浏览器。
@@ -33,6 +37,12 @@
 版本不一致显示双方版本与更新方向：客户端较旧时重建应用；受管后台较旧时重启开发启动器；日常后台较旧时按当前 control.sock 的 lsof 指引核对唯一 PID、用户和完整后台命令，由拥有者手动结束后重新连接。未查到监听进程时先核对命令是否成功，多匹配或无法核实时停止操作。桌面客户端不发送进程信号。仓库移动或 node 不可用会提示修复环境或重建。
 
 创建明确拒绝时清除待完成记录并提示失败；在线应答丢失先按 `createRequestId` 核实，找不到才按原键原参数重发一次。断线或未发送等新快照安装后再核实。一次重发仍无法确认时保留记录，提示在左栏工作区树查看；迟到的创建事件也可确认结果。实例不符时保留“原操作结果仍未知”，要求连回原实例，不向当前实例重发，也不采纳旧实例的迟到成功。读取失败显示原因，正文分页不连续时不安装伪完整内容。
+
+提交丢答时保留原记录：在线超时当场核实，每次快照安装后串行核实全部记录，覆盖重启、重连和同连接重同步；运行中的触发合并为补跑。找到原任务就关联，明确未接收才原键原参数重发，实例不符保留并提示连回原实例。未发送或明确拒绝时把原文恢复到所属会话，保留已有草稿。
+
+缺模型且确认未接收的记录提供“恢复输入”和“暂不处理”。恢复先只读原记录、按请求键合入草稿，再确认严格清除；同一渲染进程重复确认不重复拼接，继续来源保留。读取／删除的权限与 IO 失败可见且保持发送禁用；清理应答丢失可以重试。只有当前目标、当前实例、最近核实为缺模型的现存记录可恢复；清理已不存在记录幂等成功。
+
+设置冲突或在线丢答读回 `get_session`；任务控制在线丢答读回 `get_task`，队列恢复丢答读回实际队列。断线等待同实例新快照，查询失败保留结果未知；这些操作都不自动重放。设置应答不覆盖较新的队列事件。
 
 ## 设计依据
 

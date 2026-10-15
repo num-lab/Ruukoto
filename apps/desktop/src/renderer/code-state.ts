@@ -5,6 +5,7 @@ import { ViewState, isActiveStatus } from "@ruukoto/view/state.ts";
 import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { DesktopOp } from "../main/ipc.ts";
 import type { DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import { CodeWrites } from "./code-writes.ts";
 
 export class DesktopRequestError extends Error {
   readonly code: string;
@@ -32,7 +33,10 @@ export class CodeState {
   private generation = 0;
   private readonly flowCursors = new Map<string, number>();
   private readonly requests = new Map<string, Promise<void>>();
-  constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {}
+  readonly writes: CodeWrites;
+  constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
+    this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
+  }
 
   private async request<K extends DesktopOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
     const result = await this.bridge.request(this.target, op, params);
@@ -57,13 +61,14 @@ export class CodeState {
       void this.loadSummaries();
       for (const id of this.tabs) void this.loadHistory(id);
       void this.reconcileCreation();
-    } else {
+    } else if (update.type === "event") {
       this.view.applyEvent(update.event, update.kind);
       const body = update.event.body;
       if (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued") void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
       if (body.type === "task.output_entry" && this.tabs.includes(body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
     }
+    this.writes.update(update);
     this.changed();
   }
   sessionsFor(workspaceId: string): Session[] {

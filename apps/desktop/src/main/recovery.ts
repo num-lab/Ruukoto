@@ -1,8 +1,11 @@
 import * as path from "node:path";
 import type { DesktopTarget } from "../shared/bridge.ts";
 
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
 export function socketLookupCommand(socketPath: string): string {
-  return `lsof -nP -a -U -- '${socketPath.replaceAll("'", "'\\''")}'`;
+  return `lsof -nP -a -U -- ${shellQuote(socketPath)}`;
 }
 export function versionRecovery(target: DesktopTarget, versions: { client: number; server: number }, managed: boolean, controlDir: string): string[] {
   if (versions.client < versions.server) return ["客户端版本较旧；请在当前仓库运行 npm run desktop:build 重建应用后重新打开。"];

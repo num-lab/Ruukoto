@@ -6,7 +6,7 @@ Status: proposed
 
 两个产品的交互入口只有 TUI、CLI 与 IM。拥有者需要一个 macOS 桌面界面，在同一窗口里操作本机的 ruukoto-code 与服务器上的 ruukoto，界面参考 [ui-demo](../../../../.scratch/desktop-gui/ui-demo.html)。
 
-现有代码带来三条约束：控制面只在本机 Unix socket 上监听，文档写明远程使用沿用登录服务器后启动 TUI、不新增远程协议；控制面协议要求客户端与服务端版本完全相等，`PROTOCOL_VERSION` 在 2026-09-20 到 2026-10-14 间从 1 升到 25；TUI 的事件投影（`state.ts`、`event-flow.ts`）经 `workflows.ts` 间接依赖 pi-tui，并直接使用 Node API，不能原样运行在浏览器环境里。
+约束来自三处：控制面只在本机 Unix socket 上监听，文档写明远程使用沿用登录服务器后启动 TUI、不新增远程协议；控制面协议要求客户端与服务端版本完全相等，`PROTOCOL_VERSION` 在 2026-09-20 到 2026-10-14 间从 1 升到 25；抽取前的 TUI 事件投影（`state.ts`、`event-flow.ts`）经 `workflows.ts` 间接依赖 pi-tui，并直接使用 Node API，不能原样运行在浏览器环境里。
 
 ## 方案
 
@@ -24,7 +24,7 @@ Status: proposed
 
 桌面端放在 `apps/desktop/`，依赖全部列为 devDependencies。运行时依赖都会打进产物，所以服务器的 `npm ci --omit=dev` 不受影响；ESLint 的依赖边界检查为此只对这个包放开一条：值引用可以来自 devDependencies。CI 设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，只跑不依赖 Electron 的检查。构建用 electron-vite，打包用 electron-builder 的目录产物并 ad-hoc 签名；首版只在 macOS 验收，只供拥有者自用。
 
-需求、范围与验收归[规格](../../../../.scratch/desktop-gui/spec.md)，实施步骤归 `.scratch/desktop-gui/issues/`。拥有者已逐轮确认四轮共 22 题并确认整体方案；proposed 表示尚未交付实现。
+需求、范围与验收归[规格](../../../../.scratch/desktop-gui/spec.md)，实施步骤归 `.scratch/desktop-gui/issues/`。拥有者已逐轮确认四轮共 22 题并确认整体方案；共享投影已抽取，落地归[同仓分包决定](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md)，整体桌面客户端仍待交付，因此保持 proposed。
 
 ## 既有笔记审计
 

@@ -10,7 +10,8 @@ const layers = {
   channels: ["core", "agent"],
   runtime: ["core", "agent", "channels"],
   control: ["core"],
-  tui: ["core", "agent", "runtime", "control"],
+  view: ["core", "control"],
+  tui: ["core", "agent", "runtime", "control", "view"],
 };
 
 function owner(file) {

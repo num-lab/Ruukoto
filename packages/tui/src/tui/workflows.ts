@@ -1,3 +1,4 @@
+import { workflowStatus } from "@ruukoto/view/workflow-status.ts";
 /** 工作流侧栏只保存导航与未决提交；运行事实始终重新查询后台。
  * Note: 见 .agents/notes/implemented/feature/2026-10-14-workflow-progressive-controls.md
  */
@@ -50,9 +51,6 @@ const clean = (text: string) => sanitizeForDisplay(text);
 const line = (text: string) => clean(text).replace(/\s+/g, " ");
 const terminal = (status: string) => ["succeeded", "partial", "failed", "canceled"].includes(status);
 
-export function workflowStatus(status: string): string {
-  return ({ queued: "○ 排队", running: "▶ 运行中", waiting: "? 待回答/审批", paused: "Ⅱ 已暂停", succeeded: "✓ 成功", partial: "! 部分失败", failed: "× 失败", canceled: "■ 已取消" } as Record<string, string>)[status] ?? status;
-}
 function time(at: string): string { return at.replace("T", " ").replace(/Z$/, " UTC"); }
 function runName(run: Run): string { return run.displayName || `未命名工作流 · ${time(run.createdAt)}`; }
 function runText(detail: Detail): string {

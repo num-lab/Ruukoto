@@ -39,6 +39,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `packages/runtime/src/`、`packages/control/src/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
 | `packages/tui/src/cli.ts` 的管理命令与产物导出 | `npx tsx --test test/29-cli-entry.test.ts`；触及产品入口再加 `test/71-product-entry.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
+| `packages/view/src/` | `npx tsx --test test/36-event-flow-state.test.ts test/37-view-browser.test.ts`；TUI 抽取回归加 13/14/34/19，命令恢复加 `test/37-command-history.test.ts`，重载分类加 `test/32-dev.test.ts` |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `npx tsx --test test/26-qq.test.ts test/37-scheduler-outbox.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts` |
 | SubAgent、worktree、旧实例导入 | `test/80`–`test/95` 里对应的那篇，加 `npx tsx --test test/91-release-acceptance.test.ts` |
 | `test/` 的夹具或助手 | 用该助手的用例。**只断言落盘布局的用例（直读 SQLite／裸 SQL）是本仓库的刻意做法**，不要以「只测行为」为由改写 |

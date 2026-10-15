@@ -16,7 +16,8 @@
     "@ruukoto/control": "*",
     "@ruukoto/core": "*",
     "@ruukoto/runtime": "*",
-    "beautiful-mermaid": "1.1.3"
+    "beautiful-mermaid": "1.1.3",
+    "@ruukoto/view": "*"
   },
   "engines": {
     "node": ">=22.19"

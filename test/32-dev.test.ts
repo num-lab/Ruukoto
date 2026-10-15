@@ -216,6 +216,7 @@ test("监听分类：tui / config-tui / backend / both / self", () => {
   assert.equal(classifyWatchPath("apps/ruukoto-code/src/dev.ts"), "self");
   assert.equal(classifyWatchPath("packages/tui/src/tui/app.ts"), "tui");
   assert.equal(classifyWatchPath("packages/tui/src/tui/state.ts"), "tui");
+  assert.equal(classifyWatchPath("packages/view/src/event-flow.ts"), "tui");
   assert.equal(classifyWatchPath("packages/tui/src/config-tui/index.ts"), "config-tui");
   assert.equal(classifyWatchPath("packages/tui/src/config-tui/panels/models.ts"), "config-tui");
   assert.equal(classifyWatchPath("apps/ruukoto/src/main.ts"), "backend");
@@ -238,6 +239,7 @@ test("重启计划：后台变更只重启后台；配置中心不重连，随�
   assert.deepEqual(planWatchRestart(["backend"], "config"), { backend: true, frontend: true });
   assert.deepEqual(planWatchRestart(["backend"], null), { backend: true, frontend: false });
   assert.deepEqual(planWatchRestart(["tui"], "config"), { backend: false, frontend: false });
+  assert.deepEqual(planWatchRestart(["tui"], "tui"), { backend: false, frontend: true });
   assert.deepEqual(planWatchRestart(["config-tui"], "config"), { backend: false, frontend: true });
   assert.deepEqual(planWatchRestart(["both"], "tui"), { backend: true, frontend: true });
 });

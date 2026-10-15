@@ -29,6 +29,13 @@ export default [
     },
   },
   {
+    files: ["packages/view/src/**"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: ["node:*"] }],
+      "no-restricted-globals": ["error", "Buffer", "process", "global", "require", "__dirname", "__filename", "setImmediate"],
+    },
+  },
+  {
     files: ["**/*.ts", "**/*.mts"],
     rules: {
       // 现有 SDK/协议边界广泛使用 any；首轮保留类型与 API 兼容，不做全库类型重写。

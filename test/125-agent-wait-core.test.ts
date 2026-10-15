@@ -10,7 +10,7 @@ import { agentWaitView, agentReportKey, agentWaitCovers, bindAgentReportFallback
   finishAgentReportFallback, getAgentReport, getAgentWait, invalidateAgentReports, isAgentReportFallback, isAgentReportParked, latestAgentReferenceSnapshot, listAgentReports,
   recoverAgentWaits, registerAgentReport, registerAgentWait, releaseAgentReports, setAgentWaitPhase, startAgentReportFallback, transferAgentReportFallbacks,
   type AgentReferenceSnapshot } from "@ruukoto/core/agent-wait.ts";
-import { createWorkflowRun, registerWorkflowStep, updateWorkflowStep, saveWorkflowDefinition, workflowDigest, type WorkflowSource } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, createWorkflowRun, registerWorkflowStep, updateWorkflowStep, saveWorkflowDefinition, workflowDigest, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import type { PersistentEvent, TaskStatus } from "@ruukoto/core/types.ts";
 import { RuntimeAgentWait } from "@ruukoto/runtime/agent-wait.ts";
 
@@ -54,7 +54,7 @@ test("等待视图使用工作流固定名称，旧无名运行按宿主创建�
   try {
     const wait = f.store.withTx(() => {
       const definition = saveWorkflowDefinition(f.store, "return 1;");
-      const run = { requestKey: "display", paramsDigest: "display", definitionId: definition.id, scriptDigest: definition.digest,
+      const run = { interfaceVersion: WORKFLOW_INTERFACE_VERSION, requestKey: "display", paramsDigest: "display", definitionId: definition.id, scriptDigest: definition.digest,
         input: null, inputDigest: workflowDigest(null), source: f.source, modelSelection: f.parent.modelSelection!, status: "running" as const, version: 1,
         reason: null, attempts: 0, maxAttempts: 100, durationMs: 1000, usedMs: 0, clockStartedAt: null, clockVerified: true,
         scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt: f.parent.createdAt, endedAt: null };
@@ -77,7 +77,7 @@ test("等待结果引用有界：任务与工作流各给100条产物并保留�
       yieldWorkspace: async () => true, kick: () => {}, subscribe: () => {}, unsubscribe: () => {} });
     f.store.withTx(() => {
       const definition = saveWorkflowDefinition(f.store, "return 1;");
-      createWorkflowRun(f.store, { roleCatalog: fixtureSubAgentRoleCatalog(), id: "many", requestKey: "many", paramsDigest: "many", definitionId: definition.id, scriptDigest: definition.digest,
+      createWorkflowRun(f.store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(), id: "many", requestKey: "many", paramsDigest: "many", definitionId: definition.id, scriptDigest: definition.digest,
         input: null, inputDigest: workflowDigest(null), source: f.source, modelSelection: f.parent.modelSelection!, status: "running", version: 1,
         reason: null, attempts: 0, maxAttempts: 100, durationMs: 1000, usedMs: 0, clockStartedAt: null, clockVerified: true,
         scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt: f.parent.createdAt, endedAt: null });
@@ -390,7 +390,7 @@ test("工作流结果按运行终态代次登记，不把父轮写进delivery.ta
   try {
     f.store.withTx(() => {
       const definition = saveWorkflowDefinition(f.store, "return 1;");
-      createWorkflowRun(f.store, { roleCatalog: fixtureSubAgentRoleCatalog(), id: "run", requestKey: "run", paramsDigest: "run", definitionId: definition.id, scriptDigest: definition.digest,
+      createWorkflowRun(f.store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(), id: "run", requestKey: "run", paramsDigest: "run", definitionId: definition.id, scriptDigest: definition.digest,
         input: null, inputDigest: workflowDigest(null), source: f.source, modelSelection: f.parent.modelSelection!, status: "succeeded", version: 7,
         terminalVersion: 7, reason: null, attempts: 0, maxAttempts: 100, durationMs: 1000, usedMs: 0, clockStartedAt: null, clockVerified: true,
         scriptUnits: [], scriptStopVerified: null, result: 1, resultRecorded: true, createdAt: f.parent.createdAt, endedAt: f.parent.createdAt });

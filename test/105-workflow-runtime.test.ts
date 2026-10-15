@@ -114,6 +114,22 @@ function ordinaryTask(f: ReturnType<typeof fixture>, status: "queued" | "running
   });
 }
 
+test("后台停止等待尚未完成的工具预检，迟到结果不创建 Task 或访问已关闭的库", async t => {
+  const f = fixture(t), gate = deferred<void>();
+  let entered = false;
+  f.deps.preflight = async () => { entered = true; await gate.promise; throw new Error("停止后的发现失败"); };
+  f.start('return await agent("pending",{request:"预检中停止"});');
+  await until("预检已进入", () => entered);
+  let stopped = false;
+  const stopping = f.coordinator.stop("test_stop").then(() => { stopped = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(stopped, false, "停止须等待发现连接收尾");
+  gate.resolve();
+  await stopping;
+  assert.equal(f.store.listSubAgents().length, 0);
+  await new Promise(resolve => setImmediate(resolve));
+});
+
 test("运行固定定义、输入、模型与来源；发起任务结束后仍执行，创建键先去重", async t => {
   const seen: unknown[] = [];
   const f = fixture(t, async context => { seen.push(context.step.params, context.run.modelSelection, context.task.parentTaskId); return { output: "fixed" }; });
@@ -818,4 +834,22 @@ test("自动审批审查与并行未决工具仍计费，只有纯人工审批�
   f.coordinator.kick(); await until("同任务另有工具执行时恢复计费", () => f.run(run.id).status === "running");
   f.setNow(6_000); assert.equal(chargeWorkflow(f.run(run.id), 6_000).usedMs, used + 1_000);
   await f.coordinator.control(run.id, "cancel", f.run(run.id).version, { action: "cancel" });
+});
+
+for (const [params, code] of [
+  [{ request: "旧分析", mode: "analyze" }, "interface_upgrade_required"],
+  [{ request: "旧修改", mode: "modify", target: "." }, "interface_upgrade_required"],
+  [{ request: "旧验证", mode: "verify", verify: "source", dependsOn: ["source"] }, "interface_upgrade_required"],
+  [{ request: "冲突目标", verify: "source", target: ".", dependsOn: ["source"] }, "invalid_step"],
+  [{ request: "缺少依赖", verify: "source" }, "invalid_step"],
+  [{ request: "未知角色", role: "absent" }, "role_unknown"],
+] as const) test(`工作流调用 ${params.request} 在 Agent 启动前拒绝，先前步骤保留`, async t => {
+  const f = fixture(t, async () => assert.fail("被拒参数不能启动 Agent"));
+  const run = f.start(`await progress("source",{text:"已登记"});return await agent("rejected",${JSON.stringify(params)});`);
+  await until("参数拒绝后暂停", () => f.run(run.id).status === "paused");
+  assert.equal(f.run(run.id).reason, code);
+  assert.equal(f.run(run.id).attempts, 0);
+  assert.equal(getWorkflowStep(f.store, run.id, "source")!.status, "completed");
+  assert.equal(listWorkflowExecutions(f.store, run.id).length, 0);
+  assert.equal(f.store.listSubAgents().length, 0);
 });

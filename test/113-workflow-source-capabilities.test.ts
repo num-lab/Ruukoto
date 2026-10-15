@@ -63,7 +63,7 @@ function seedNotice(rt: Runtime, source: Task, artifact: Artifact, text: string)
     target: { channel: "mock", account: "mock", chatId: "mock", configVersion: 1 }, text, sourceRefs: [ref] }).op.id;
 }
 
-test("只有持久绑定的工作流步骤保留来源技能目录与真实 skill 调用", async () => {
+test("工作流步骤从持久来源装配技能目录与真实 skill 调用", async () => {
   const t = await startTestRuntime("workflow-skill-binding", req => {
     assert.match(inputText(req), /\[技能目录\]/);
     assert.deepEqual(toolNamesOf(req), ["skill"]);
@@ -80,7 +80,7 @@ test("只有持久绑定的工作流步骤保留来源技能目录与真实 skil
   } finally { await t.shutdown(); }
 });
 
-test("真实个人步骤修改应用 schema 后仍可继续，main 业务来源没有 HTTP 或额外编码工具", async () => {
+test("真实个人步骤修改应用 schema 后仍可继续，main 来源具有受控编码委派工具", async () => {
   const t = await startTestRuntime("workflow-personal-schema", req => afterTool(req) ? { kind: "text", text: "建表完成" } :
     { kind: "tool_calls", calls: [{ id: "define", name: "app_data_define_table", arguments: { table: "workflow_rows",
       fields: [{ name: "value", type: "text" }], expected_schema_version: 0, reason: "拥有者授权步骤建表" } }] }, { config: realTools() });
@@ -90,8 +90,8 @@ test("真实个人步骤修改应用 schema 后仍可继续，main 业务来源�
     assert.equal((await finished(rt, run)).status, "succeeded");
     assert.equal(t.server.calls.length, 2);
     const names = toolNamesOf(t.server.calls[0]);
-    for (const name of ["app_data_define_table", "app_data_query", "schedule_query", "read", "read_artifact"]) assert.ok(names.includes(name), name);
-    for (const name of ["http_request", "request_file_access", "todo_write", "edit", "write", "bash"]) assert.ok(!names.includes(name), name);
+    for (const name of ["app_data_define_table", "app_data_query", "schedule_query", "read", "edit", "write", "bash", "read_artifact"]) assert.ok(names.includes(name), name);
+    for (const name of ["http_request", "request_file_access", "todo_write", "subagent_delegate", "workflow_start", "browser"]) assert.ok(!names.includes(name), name);
     const taskId = listWorkflowExecutions(rt.store, run.id).find(execution => execution.kind === "agent")!.taskId;
     const ops = rt.store.listToolOpsByTask(taskId);
     assert.equal(ops.length, 1);
@@ -111,7 +111,7 @@ test("个人来源的修改步骤只增加已有委派的五个编码工具", as
   try {
     const rt = t.runtime, source = personalSource(rt), session = rt.store.getSession(source.sessionId)!;
     fs.writeFileSync(path.join(session.cwdReal, "value.txt"), "base\n"); initGitRepo(session.cwdReal);
-    const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "modify", script: 'return await agent("modify",{request:"修改",mode:"modify",target:"."});', input: null });
+    const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "modify", script: 'return await agent("modify",{request:"修改",target:"."});', input: null });
     assert.equal((await finished(rt, run)).status, "succeeded");
     assert.ok(getWorkflowStep(rt.store, run.id, "modify")!.frozen);
     assert.equal(fs.readFileSync(path.join(session.cwdReal, "value.txt"), "utf8"), "base\n");
@@ -176,17 +176,22 @@ test("运行后新增资料授权不扩大步骤范围，直接产物与通知�
 
 test("同一来源的不同运行隔离真实产物、子历史与引用产物的通知正文", async () => {
   let old = true, sourceFile = "", artifactId = "", previousSession = "", noticeId = "";
+  let active: Runtime | null = null;
   const t = await startTestRuntime("workflow-cross-run", req => {
     if (afterTool(req)) return { kind: "text", text: "步骤完成" };
-    if (old) return { kind: "tool_calls", calls: [{ id: "read", name: "read", arguments: { path: sourceFile } }] };
+    if (old) {
+      const child = active!.store.listSubAgents().find(agent => agent.state === "running")!;
+      sourceFile = path.join(active!.store.getSession(child.sessionId)!.cwdReal, "source.txt");
+      fs.writeFileSync(sourceFile, "PRIOR_RUN_RESULT_BODY");
+      return { kind: "tool_calls", calls: [{ id: "read", name: "read", arguments: { path: sourceFile } }] };
+    }
     return { kind: "tool_calls", calls: [{ id: "artifact", name: "read_artifact", arguments: { artifact_id: artifactId } },
       { id: "history", name: "history_read", arguments: { session_id: previousSession, entry_id: "private" } },
       { id: "notice", name: "notification_query", arguments: { op_id: noticeId } }] };
   }, { config: realTools() });
   try {
     const rt = t.runtime, source = personalSource(rt), text = "PRIOR_RUN_RESULT_BODY";
-    sourceFile = path.join(rt.store.getSession(source.sessionId)!.cwdReal, "source.txt");
-    fs.writeFileSync(sourceFile, text);
+    active = rt;
     const first = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "first",
       script: 'return await agent("read",{request:"读取来源文件",tools:["read"]});', input: null });
     assert.equal((await finished(rt, first)).status, "succeeded");

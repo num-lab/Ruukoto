@@ -71,9 +71,11 @@ import { validateSubAgentRole, validateSubAgentRoleLibrary, type SubAgentRoleLib
 import { requireSubAgentDefinition, SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
 import { SubAgentRoleError } from "./subagent-roles.ts";
 import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
-import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type AgentResourcePhase, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile } from "./tool-availability.ts";
+import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type AgentResourcePhase, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile, sourceAllows } from "./tool-availability.ts";
 import type { AgentWaitCall } from "./agent-wait-tools.ts";
-import { WorkflowError } from "@ruukoto/core/workflow.ts";
+import { WorkflowError, type WorkflowSource } from "@ruukoto/core/workflow.ts";
+import { requireSubAgentExecution, snapshotSubAgentExecution, SubAgentExecutionError, type SubAgentExecutionSnapshot } from "@ruukoto/core/subagent-execution.ts";
+import { subAgentAccessPolicy, subAgentSourceProfile } from "./subagent-capabilities.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -263,6 +265,7 @@ export class Driver {
   private reportContext: AgentReportContext | null = null;
   private pinnedDefinition: SubAgentDefinitionSnapshot | null = null;
   private pinnedRoles: SubAgentRoleLibrary | null = null;
+  private pinnedExecution: SubAgentExecutionSnapshot | null = null;
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
@@ -292,6 +295,11 @@ export class Driver {
       artifactAccess: (task, artifact) => {
         if (this.profile.workflow) return !artifact.name.startsWith("prompt-snapshot:") &&
           this.verifyWorkflowTask(task) === null && Boolean(deps.workflow?.artifactAccess(task, artifact));
+        if (this.profile.source) {
+          const artifactSession = deps.store.getSession(artifact.sessionId);
+          return !artifact.name.startsWith("prompt-snapshot:") && this.verifyWorkflowTask(task) === null && Boolean(artifactSession &&
+            deps.access.canAccess(this.accessor(), artifactSession.projectId, "artifact"));
+        }
         // SubAgent 只读本次自产；模型上下文快照不是交付产物，拒绝
         if (this.profile.restricted) {
           return artifact.taskId === task.id && !artifact.name.startsWith("prompt-snapshot:");
@@ -320,7 +328,8 @@ export class Driver {
   /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
   private allows(category: ToolCategory): boolean {
     if (category === "browser" && (this.profile.workflow || this.profile.toolSignature === "scheduled")) return false;
-    return this.profile.workflow ? this.profile.workflow.categories.includes(category) : allowsCategory(this.profile.toolClass, category);
+    return this.profile.source ? this.profile.source.categories.includes(category)
+      : this.profile.workflow ? this.profile.workflow.categories.includes(category) : allowsCategory(this.profile.toolClass, category);
   }
 
   /** 已登记句柄变成真实执行身份时仍沿原任务记录，不重新登记单元。 */
@@ -335,7 +344,7 @@ export class Driver {
   verifyWorkflowTask(task: Task): string | null {
     try { this.verifyRoleDefinition(task); }
     catch (error) {
-      if (!(error instanceof SubAgentRoleError) && !(error instanceof SubAgentDefinitionError)) throw error;
+      if (!(error instanceof SubAgentRoleError) && !(error instanceof SubAgentDefinitionError) && !(error instanceof SubAgentExecutionError)) throw error;
       return `${error.code}:${error.message}`;
     }
     const problem = this.deps.verifyTask?.(task);
@@ -350,6 +359,17 @@ export class Driver {
     if (!agent || agent.sessionId !== this.session.id) throw new SubAgentRoleError("definition_missing", "子代理角色身份缺失；核实记录后再继续。");
     const definition = validateSubAgentRole(requireSubAgentDefinition(agent));
     if (!this.pinnedDefinition || definition.digest !== this.pinnedDefinition.digest || (definition.kind === "host_review") !== Boolean(task.sourceEventId)) throw new SubAgentRoleError("definition_corrupt", "子代理角色内容或用途与执行绑定不一致；核实记录后再继续。");
+    if (definition.kind === "host_review") return;
+    const execution = requireSubAgentExecution(task.readScope?.execution);
+    const current = this.deps.store.getTask(task.id);
+    const saved = requireSubAgentExecution(current?.readScope?.execution);
+    if (this.pinnedExecution && this.pinnedExecution.digest !== execution.digest || saved.digest !== execution.digest ||
+        execution.roleDigest !== definition.digest || execution.accessMode !== task.accessMode || current?.accessMode !== execution.accessMode ||
+        execution.source.projectId !== this.session.projectId || definition.tools?.some(name => !execution.tools.includes(name))) throw new SubAgentExecutionError("execution_binding_invalid");
+    const policy = subAgentAccessPolicy(execution.source.accessMode, definition);
+    if ((execution.accessMode === "full_access" && policy.accessMode !== "full_access") ||
+        (execution.accessMode === "auto-review" && policy.accessMode === "confirm") ||
+        (policy.protectSource && !execution.protectSource) || (execution.protectSource && execution.accessMode === "full_access")) throw new SubAgentExecutionError("execution_binding_invalid");
   }
 
   /** 不在本任务允许集合内的工具的拒绝原因。 */
@@ -366,8 +386,8 @@ export class Driver {
   private verifyMainBinding(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
     if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
     if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
-    if (this.profile.workflow) {
-      if (this.currentTask?.id !== ctx.taskId || this.profile.workflow.toolClass !== "main") return "步骤未绑定个人助手来源";
+    if (this.profile.source || this.profile.workflow) {
+      if (this.currentTask?.id !== ctx.taskId || (this.profile.source ?? this.profile.workflow)!.toolClass !== "main") return "步骤未绑定个人助手来源";
       const task = this.deps.store.getTask(ctx.taskId);
       if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
       return this.verifyWorkflowTask(task);
@@ -387,14 +407,16 @@ export class Driver {
 
   /** 宿主注入的资料访问身份。 */
   private accessor(): Accessor {
-    return { kind: "agent", projectId: this.profile.workflow?.sourceProjectId ?? this.session.projectId,
-      ...(this.profile.workflow ? { grantIds: this.profile.workflow.grantIds } : {}) };
+    const source = this.profile.source ?? this.profile.workflow;
+    return { kind: "agent", projectId: source?.sourceProjectId ?? this.session.projectId,
+      ...(source ? { grantIds: source.grantIds } : {}) };
   }
 
   private dataSessionReadable(ctx: HostToolContext, sessionId: string, category: "history" | "artifact"): boolean {
     const session = this.deps.store.getSession(sessionId);
     if (!session || !this.deps.access.canAccess(this.accessor(), session.projectId, category)) return false;
     const task = this.deps.store.getTask(ctx.taskId);
+    if (this.profile.source && (!task || this.verifyWorkflowTask(task))) return false;
     return !this.profile.workflow || Boolean(task && this.verifyWorkflowTask(task) === null && this.deps.workflow?.historyAccess(task, sessionId));
   }
 
@@ -404,7 +426,8 @@ export class Driver {
     if (ref.kind === "owner_note") return true;
     const artifact = this.deps.store.getArtifact(ref.artifactId);
     const task = this.deps.store.getTask(ctx.taskId);
-    if (!artifact || (this.profile.workflow && artifact.name.startsWith("prompt-snapshot:"))) return false;
+    if (!artifact || ((this.profile.source || this.profile.workflow) && artifact.name.startsWith("prompt-snapshot:"))) return false;
+    if (this.profile.source && (!task || this.verifyWorkflowTask(task))) return false;
     return !this.profile.workflow || Boolean(task && this.verifyWorkflowTask(task) === null && this.deps.workflow?.artifactAccess(task, artifact));
   }
 
@@ -431,6 +454,11 @@ export class Driver {
 
   /** 会话记录更新后同步（如 sessionFile 落盘回填）。 */
   syncSessionRecord(latest: Session): void {
+    if (this.session.cwdReal !== latest.cwdReal || this.session.cwdDev !== latest.cwdDev || this.session.cwdIno !== latest.cwdIno) this.dropSdkForToolChange();
+    this.session.cwd = latest.cwd;
+    this.session.cwdReal = latest.cwdReal;
+    this.session.cwdDev = latest.cwdDev;
+    this.session.cwdIno = latest.cwdIno;
     this.session.sessionFile = latest.sessionFile;
     this.session.queueState = latest.queueState;
     this.session.confirmTools = latest.confirmTools;
@@ -452,10 +480,10 @@ export class Driver {
     if (this.sdk) this.sdkConfigStale = true;
   }
 
-  private hostToolRuntime(): HostToolRuntime {
+  private hostToolRuntime(toolClass: HostToolRuntime["toolClass"] = this.profile.toolClass): HostToolRuntime {
     return {
       registry: this.registry,
-      toolClass: this.profile.toolClass,
+      toolClass,
       call: { taskContext: () => null, bindCall: this.bindHostCall },
       identity: {
         verifyMain: (ctx) => this.verifyMainBinding(ctx),
@@ -464,6 +492,14 @@ export class Driver {
       data: {
         recordMemory: (ctx, memoryId) => {
           if (this.profile.workflow && this.currentTask?.id === ctx.taskId) this.deps.workflow?.recordMemory?.(this.currentTask, memoryId);
+          if (this.profile.source && !this.profile.workflow && this.currentTask?.id === ctx.taskId) this.deps.store.withTx(() => {
+            const task = this.deps.store.getTask(ctx.taskId);
+            if (!task?.readScope) throw new SubAgentExecutionError("execution_missing");
+            const ids = task.readScope.readMemories ?? [];
+            if (ids.includes(memoryId)) return;
+            this.deps.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?").run(JSON.stringify({ ...task.readScope, readMemories: [...ids, memoryId] }), task.id);
+            this.deps.store.appendEvent({ type: "task.memory_accessed", taskId: task.id, sessionId: task.sessionId, memoryId }, { taskId: task.id, sessionId: task.sessionId });
+          });
         },
         accessor: () => this.accessor(),
         sessionReadable: (ctx, sessionId, category) => this.dataSessionReadable(ctx, sessionId, category),
@@ -489,15 +525,55 @@ export class Driver {
     };
   }
 
+  private sourceTools(profile: WorkflowExecutionProfile, mcp: ToolDefinition[]): { tools: ToolDefinition[]; names: ReadonlySet<string> } {
+    const host = buildHostToolSet(this.deps.hostToolFamilies.filter(family => profile.categories.includes(family.category) ||
+      (family.category === "subagent" && profile.collaboration)), this.hostToolRuntime("subagent"));
+    const coding = profile.categories.includes("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router })
+      .filter(tool => profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : [];
+    return { names: host.names, tools: [...coding, ...host.tools, ...mcp].filter(tool => sourceAllows(profile, tool.name)) };
+  }
+
+  /** 只发现能力，不执行工具或改动父 Driver；入队方保存结果后仍须在执行前复核。 */
+  async preflightSubAgent(source: WorkflowSource, definition: SubAgentDefinitionSnapshot, options: { tools?: string[]; verify?: boolean; workflow?: boolean } = {}): Promise<SubAgentExecutionSnapshot> {
+    validateSubAgentRole(definition);
+    const policy = subAgentAccessPolicy(source.accessMode, definition, options.verify);
+    const profile = subAgentSourceProfile(source, options);
+    const launcher = policy.protectSource ? this.deps.verificationLauncher?.() : this.deps.launcherFor(policy.accessMode);
+    if (!launcher || (policy.protectSource && launcher.kind !== "native")) throw new SubAgentExecutionError("source_protection_unavailable", "来源保护的原生执行环境不可用；停止派发并报告拥有者。");
+    const plan = this.deps.mcp && profile.categories.includes("mcp") ? await planMcpTaskTools({
+      mcpStore: this.deps.mcp.store, credentials: this.deps.credentials, projectId: source.projectId,
+      dispatch: (sdkCallId, params, signal) => this.router.executeRouted(sdkCallId, params, signal),
+      connectTimeoutMs: this.deps.mcp.connectTimeoutMs, listTimeoutMs: this.deps.mcp.listTimeoutMs, callTimeoutMs: this.deps.mcp.callTimeoutMs,
+    }) : EMPTY_MCP_PLAN;
+    try {
+      if (plan.unavailable.length) throw new SubAgentExecutionError("mcp_unavailable", `来源 MCP 服务 ${plan.unavailable.map(item => item.service.name).join("、")} 工具发现失败；核实服务配置后重新派发。`);
+      const candidates = this.sourceTools({ ...profile, tools: undefined }, plan.toolDefs).tools;
+      const sourceTask = this.deps.store.getTask(source.taskId);
+      const available = taskToolSet({ registered: candidates.map(tool => tool.name), plan: false,
+        webSearchEnabled: this.deps.store.getProject(source.projectId)?.webSearch !== "disabled",
+        mcpEffect: name => plan.tools.get(name)?.effect,
+        narrow: (name, effect) => sourceAllows({ ...profile, tools: undefined }, name) && Boolean(sourceTask && (!this.deps.allowTaskTool || this.deps.allowTaskTool(sourceTask, name, effect))) });
+      const required = [...new Set([...(definition.tools ?? []), ...(options.tools ?? [])])];
+      const missing = required.filter(name => !available.allowed.has(name) || (definition.tools?.includes(name) && options.tools && !options.tools.includes(name)) ||
+        (options.tools?.includes(name) && definition.tools && !definition.tools.includes(name)));
+      if (missing.length) throw new SubAgentExecutionError("tools_unavailable", `角色所需工具不可用：${missing.map(name => `${name}（${definition.tools?.includes(name) && options.tools && !options.tools.includes(name) ? "步骤工具清单未包含" : options.tools?.includes(name) && definition.tools && !definition.tools.includes(name) ? "角色工具清单未包含" : plan.rejected?.get(name) ?? available.reasonFor(name)}）`).join("、")}；调整角色或来源配置后重新派发。`);
+      const selected = options.tools ?? definition.tools ?? [...available.allowed];
+      const tools = selected.filter(name => !definition.tools || definition.tools.includes(name));
+      return snapshotSubAgentExecution({ source, roleDigest: definition.digest, ...policy, tools, mcpSignature: plan.signature });
+    } finally {
+      await Promise.all([...plan.connections.values()].map(connection => connection.close()));
+    }
+  }
+
   private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
     if (this.sdk) return this.sdk;
-    const hostToolSet = buildHostToolSet(
+    const hostToolSet = this.profile.source ? this.sourceTools(this.profile.source, this.pendingMcpToolDefs) : buildHostToolSet(
       this.deps.hostToolFamilies.filter((family) =>
         this.allows(family.category) || (family.category === "subagent" && this.profile.toolClass === "subagent")),
       this.hostToolRuntime(),
     );
     const subAgentTools = this.profile.subAgentTools;
-    const allTools = [
+    const allTools = this.profile.source ? hostToolSet.tools : [
       ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router })
         .filter(tool => !this.profile.workflow || this.profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : []),
       ...(this.profile.workflow && !this.allows("coding")
@@ -547,7 +623,7 @@ export class Driver {
       const op = this.deps.store.getToolOp(ctx.hostOpId);
       if (!op || !this.taskTools?.allowed.has(op.toolName) || this.stopRequested) throw new ExecutionError("resource_unavailable", "执行资源未取得或任务已停止，请等待后继续");
     }
-    if (ctx && this.profile.workflow) {
+    if (ctx && (this.profile.source || this.profile.workflow)) {
       const task = this.deps.store.getTask(ctx.taskId);
       if (!task || task.sessionId !== ctx.sessionId || this.verifyWorkflowTask(task) !== null) {
         this.hostToolCalls.delete(sdkCallId);
@@ -707,6 +783,7 @@ export class Driver {
     const identity = this.deps.store.getSessionIdentity(this.session.id);
     if (!identity) throw new Error(`会话不存在：${this.session.id}`);
     this.pinnedDefinition = identity.kind === "subagent" ? validateSubAgentRole(requireSubAgentDefinition(identity.agent)) : null;
+    this.pinnedExecution = this.pinnedDefinition?.kind === "role" ? requireSubAgentExecution(task.readScope?.execution) : null;
     this.verifyRoleDefinition(task);
     const workflow = this.deps.workflow?.resolve(task);
     if (identity.kind === "subagent" && identity.workflow && !workflow) throw new WorkflowError("source_invalid");
@@ -716,7 +793,11 @@ export class Driver {
       review: identity.kind === "subagent" && (this.deps.taskMcp?.(task) ?? false),
       planMode: task.planMode,
       workflow,
+      source: this.pinnedExecution ? subAgentSourceProfile(this.pinnedExecution.source, { tools: this.pinnedExecution.tools, workflow: Boolean(workflow), verify: workflow?.hostVerify }) : null,
     });
+    const resourcePhase = this.deps.agentWait?.initialPhase(task) ?? "execution";
+    const referenceSnapshot = resourcePhase === "conversation" ? this.deps.agentWait?.snapshot(task) ?? null : null;
+    if (this.pinnedExecution && resourcePhase === "conversation" && !referenceSnapshot) throw new SubAgentExecutionError("reference_snapshot_missing", "内部对话所需的参考快照缺失；停止本次执行并报告拥有者。");
     this.currentTask = task;
     this.stopRequested = false;
     this.stopPromise = null;
@@ -740,15 +821,14 @@ export class Driver {
     this.lastBlockedReason = null;
     this.pendingUserImages = [];
     this.taskTools = null;
-    this.resourcePhase = this.deps.agentWait?.initialPhase(task) ?? "execution";
+    this.resourcePhase = resourcePhase;
     this.recordResourcePhase(task);
     this.referencesFromSnapshot = this.resourcePhase === "conversation";
     this.activeToolCalls.clear();
     this.rebuildSdkAfterTurn = false;
     this.modelResponseAccepted = false;
-    const referenceSnapshot = this.resourcePhase === "conversation" ? this.deps.agentWait?.snapshot(task) ?? null : null;
     this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.skills ?? null
-      : this.profile.restricted && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
+      : this.profile.restricted && !this.profile.source && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
     this.pinnedRoles = this.resourcePhase === "conversation" ? referenceSnapshot?.roles ?? null
       : this.allows("subagent") && this.profile.toolClass !== "subagent" ? this.deps.subAgentRoles?.() ?? null : null;
     if (this.pinnedRoles) validateSubAgentRoleLibrary(this.pinnedRoles);
@@ -772,6 +852,7 @@ export class Driver {
       roles: this.pinnedRoles,
       resourcePhase: this.resourcePhase,
       referenceSnapshot,
+      referenceSource: this.pinnedExecution?.source,
       subagentResults,
       subagentMessages,
       reportContext: this.reportContext,
@@ -801,7 +882,7 @@ export class Driver {
     if (!this.deps.mcp) return EMPTY_MCP_PLAN;
     // 画像决定是否规划：类别含 mcp，或 SubAgent 宿主评审任务另开只读 MCP（issue 19）
     if (!this.profile.planMcp) return EMPTY_MCP_PLAN;
-    return planMcpTaskTools({
+    const plan = await planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
       projectId: this.session.projectId,
@@ -810,6 +891,11 @@ export class Driver {
       listTimeoutMs: this.deps.mcp.listTimeoutMs,
       callTimeoutMs: this.deps.mcp.callTimeoutMs,
     });
+    if (this.pinnedExecution && (plan.signature !== this.pinnedExecution.mcpSignature || plan.unavailable.length)) {
+      await Promise.all([...plan.connections.values()].map(connection => connection.close()));
+      throw new SubAgentExecutionError("mcp_configuration_changed", "来源 MCP 工具已变化或无法发现；停止本次执行并报告拥有者。");
+    }
+    return plan;
   }
 
   /**
@@ -936,6 +1022,7 @@ export class Driver {
 
     this.appendMarker(TASK_START_MARKER, { taskId: task.id, requestId: task.requestId });
     if (this.pinnedRoles) this.appendMarker("ruukoto_subagent_roles", { taskId: task.id, ...this.pinnedRoles });
+    if (this.pinnedExecution) this.appendMarker("ruukoto_subagent_execution", { taskId: task.id, ...this.pinnedExecution });
     if (this.injection && (this.injection.results.length || this.injection.messages.length)) {
       this.appendMarker("ruukoto_parent_injection", { taskId: task.id, results: this.injection.results,
         messages: this.injection.messages });
@@ -1018,7 +1105,9 @@ export class Driver {
       // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
       // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
       narrow:
-        this.profile.workflow
+        this.profile.source
+          ? (name, effect) => sourceAllows(this.profile.source!, name) && (!allowTaskTool || allowTaskTool(task, name, effect))
+          : this.profile.workflow
           ? (name, effect) => workflowAllows(this.profile.workflow!, name) && (!allowTaskTool || allowTaskTool(task, name, effect))
           : subAgentTools
           ? (name, effect) => subAgentAllows(subAgentTools, name, effect)
@@ -1026,6 +1115,10 @@ export class Driver {
             ? (name, effect) => allowTaskTool(task, name, effect)
             : undefined,
     });
+    if (this.pinnedExecution && this.resourcePhase === "execution") {
+      const missing = this.pinnedExecution.tools.filter(name => !this.taskTools!.allowed.has(name));
+      if (missing.length) throw new SubAgentExecutionError("tools_unavailable", `已固定工具不可用：${missing.join("、")}；停止本次执行并报告拥有者。`);
+    }
     this.sdk?.setActiveToolsByName([...this.taskTools.allowed]);
   }
 

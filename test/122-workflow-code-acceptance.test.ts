@@ -9,8 +9,8 @@ import { initGitRepo } from "./helpers/git-fixture.ts";
 import { afterTool, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 const SCRIPT = `
-const changes = await Promise.all(input.map(id => agent("change_"+id, {request:"CHANGE_ITEM_"+id, mode:"modify", target:".", ...(id===6 ? {output:{format:"json",schema:{type:"number"}}} : {})})));
-const validations = await Promise.all(input.map(id => agent("verify_"+id, {request:"VERIFY_ITEM_"+id, mode:"verify", verify:"change_"+id, dependsOn:["change_"+id]})));
+const changes = await Promise.all(input.map(id => agent("change_"+id, {request:"CHANGE_ITEM_"+id,  target:".", ...(id===6 ? {output:{format:"json",schema:{type:"number"}}} : {})})));
+const validations = await Promise.all(input.map(id => agent("verify_"+id, {request:"VERIFY_ITEM_"+id,  verify:"change_"+id, dependsOn:["change_"+id]})));
 const included = input.filter((id,i) => changes[i].status==="completed" && validations[i].status==="completed" && validations[i].value.passed);
 const merge = await integrate("merge", {steps:included.map(id=>"verify_"+id), dependsOn:included.map(id=>"verify_"+id), check:"node check.mjs"});
 return {coverage:input.map((id,i)=>({id,change:changes[i].status,validation:validations[i].status,included:included.includes(id)})),merge};

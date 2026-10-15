@@ -104,7 +104,7 @@ if (action === "prerequisite") {
     if (text.includes("SERVICE-HEARTBEAT")) return { kind: "tool_calls", calls: [{ id: "heartbeat", name: "bash", arguments: { command: heartbeatCommand(heartbeat), timeout: 600 } }] };
     if (text.startsWith("[SubAgent 委派")) return { kind: "tool_calls", calls: [{ id: "timer-write", name: "write", arguments: { path: "service-timer.txt", content: `native ${bootId}\n` } }] };
     if (text.includes("SERVICE-TIMER")) return { kind: "tool_calls", calls: [{ id: "timer-delegate", name: "subagent_delegate", arguments: {
-      key: "native-timer", request: "SERVICE-TIMER-WORKER", mode: "modify", target: ".",
+      key: "native-timer", request: "SERVICE-TIMER-WORKER", target: ".",
     } }] };
     return { kind: "text", text: "SERVICE-DONE" };
   });

@@ -1,0 +1,4 @@
+# 原始日志和补丁保留行尾空格，便于逐字节核实。
+# Note: 见 .agents/notes/implemented/testing/2026-10-15-raw-evidence-whitespace.md
+*.log whitespace=-blank-at-eol
+*.patch whitespace=-blank-at-eol

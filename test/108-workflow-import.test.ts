@@ -4,10 +4,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "@ruukoto/core/db.ts";
+import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { sha256File } from "@ruukoto/core/import-support.ts";
-import { createWorkflowRun, saveWorkflowDefinition, workflowDigest } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, createWorkflowRun, saveWorkflowDefinition, workflowDigest } from "@ruukoto/core/workflow.ts";
 import { applyLegacyImport, previewLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
 import { applyPersonalImport, previewPersonalImport } from "@ruukoto/channels/personal-import.ts";
 
@@ -27,7 +27,7 @@ for (const [direction, preview, apply] of [["coding", previewLegacyImport, apply
         const modelSelection = { provider: "fake", modelId: "fake", thinkingLevel: "off" } as const;
         const task = store.insertQueuedTask({ sessionId: session.id, requestId: "source", input: "source", modelSelection, submissionDigest: "source" }).task;
         const definition = saveWorkflowDefinition(store, "return 1;");
-        createWorkflowRun(store, { roleCatalog: fixtureSubAgentRoleCatalog(), id: "workflow", requestKey: "workflow", paramsDigest: "workflow", definitionId: definition.id, scriptDigest: definition.digest,
+        createWorkflowRun(store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(), id: "workflow", requestKey: "workflow", paramsDigest: "workflow", definitionId: definition.id, scriptDigest: definition.digest,
           input: null, inputDigest: workflowDigest(null), displayName: "固定运行名称", description: "保留来源实例的说明", modelSelection, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts: 100,
           durationMs: 3_600_000, usedMs: 0, clockStartedAt: null, clockVerified: true, scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false,
           createdAt: new Date().toISOString(), endedAt: null, source: { product: "ruukoto", projectId: project.id, sessionId: session.id, taskId: task.id,
@@ -52,6 +52,23 @@ for (const [direction, preview, apply] of [["coding", previewLegacyImport, apply
         assert.equal((verified.prepare("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n, 0);
         assert.equal((verified.prepare("SELECT COUNT(*) AS n FROM instance_imports").get() as { n: number }).n, 0);
       } finally { verified.close(); }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+for (const [direction, preview] of [["coding", previewLegacyImport], ["personal", previewPersonalImport]] as const) {
+  test(`${direction} 导入拒绝旧 schema，不回填工作流接口版本`, () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "workflow-import-version-"));
+    const data = path.join(root, "data");
+    fs.mkdirSync(data);
+    const db = new Db(data);
+    db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(String(SCHEMA_VERSION - 1));
+    db.close();
+    try {
+      const digest = sha256File(path.join(data, "ruukoto.db")), target = path.join(root, "target");
+      assert.throws(() => preview({ targetDataDir: target, targetAgentDir: path.join(root, "target-agent") }, { from: data }), { code: "source_schema" });
+      assert.equal(sha256File(path.join(data, "ruukoto.db")), digest);
+      assert.equal(fs.existsSync(target), false);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 }

@@ -23,6 +23,7 @@
 import { QQ_PRIVATE_SOURCE } from "@ruukoto/channels/qq/adapter.ts";
 import { TELEGRAM_SOURCE } from "@ruukoto/channels/telegram/adapter.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
 import type { InboundEvent,ModelSelection,SubAgentMessage,Task,WorkDelegation } from "@ruukoto/core/types.ts";
 import { createHash } from "node:crypto";
 import { sliceTextByBytes } from "@ruukoto/core/history.ts";
@@ -32,6 +33,7 @@ import { agentReportKey, agentWaitCovers, bindAgentReportFallback, completeAgent
   invalidateAgentReports, isAgentReportFallback, listAgentReports, listAgentWaits, registerAgentReport, releaseAgentReports, type AgentReport, type AgentReportCompletion } from "@ruukoto/core/agent-wait.ts";
 import { childOutcome,OUTCOME_TEXT,REVIEW_DEADLINE_MS,type ChildOutcome,type OrchestratorBridge } from "./orchestrator.ts";
 import { agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
+import { WorkCopyError } from "./work-copy.ts";
 
 /** 最终汇报沿原来源登记到宿主发送账本。 */
 export interface WorkReport {
@@ -62,6 +64,7 @@ export interface ParentDeliveryDeps {
   recordClaimedReport?(task: Task, outcome: ChildOutcome, reports: AgentReport[]): AgentReportCompletion;
   reportInput?(task: Task, reports: AgentReport[]): AgentReportCompletion["reportInput"] | null;
   verifyAgentReport?(report: AgentReport): boolean;
+  verifyWork(work: WorkDelegation): void;
   /** 报告登记事务内核实活动等待，预留父轮归属后才决定是否提交后备汇总。 */
   reserveAgentReport?(report: AgentReport): void;
   /** 同来源等待批次由宿主汇总；true 表示已接管或仍等待该批其余目标，不另建单目标报告。 */
@@ -120,9 +123,44 @@ export class ParentDelivery {
     process.stderr.write(`[ruukoto:parent-delivery] ${message}\n`);
   }
 
-  /** 取消规则（issue 14）：所属工作已取消即不送达父模型。无工作（旧 coding 子任务）不受此限。 */
-  private workCanceled(workId: string | null): boolean {
-    return workId !== null && this.store.getWorkDelegation(workId)?.canceledAt != null;
+  /** 基线不可核实时保留执行史、结果与副本，既有补报明确不可送达。 */
+  private rejectSnapshot(workId: string, error: unknown, inTransaction = false): void {
+    if (!(error instanceof WorkspaceSnapshotError || error instanceof WorkCopyError) ||
+        !["target_corrupt", "snapshot_missing", "snapshot_corrupt", "snapshot_invalid", "snapshot_changed", "worktree_gone"].includes(error.code)) throw error;
+    const taskIds = new Set(this.store.listTasksByWork(workId).map(task => task.id));
+    const reports = listAgentReports(this.store).filter(report => report.target.kind === "task" && taskIds.has(report.target.taskId) && report.status === "pending");
+    if (reports.length) {
+      const invalidate = () => invalidateAgentReports(this.store, reports.map(report => report.key), error.code);
+      if (inTransaction) invalidate(); else this.store.withTx(invalidate);
+    }
+    this.log(`工作 ${workId} 的结果不可送达：${error.code}；保留记录与副本，请核实基线后新建工作`);
+  }
+
+  /** 取消或基线不可核实的工作均不送达父模型。无工作（旧 coding 子任务）不受此限。 */
+  private workUnavailable(workId: string | null, inTransaction = false): string | null {
+    if (workId === null) return null;
+    let work: WorkDelegation | null;
+    try {
+      work = this.store.getWorkDelegation(workId);
+      if (work && !work.canceledAt) this.deps.verifyWork(work);
+    }
+    catch (error) {
+      if (!(error instanceof WorkspaceSnapshotError || error instanceof WorkCopyError)) throw error;
+      this.rejectSnapshot(workId, error, inTransaction);
+      return error.code;
+    }
+    return work?.canceledAt ? "work_canceled" : work ? null : "work_missing";
+  }
+
+  private reportValid(report: AgentReport): boolean {
+    if (!this.deps.verifyAgentReport) return true;
+    try { return this.deps.verifyAgentReport(report); }
+    catch (error) {
+      const child = report.target.kind === "task" ? this.store.getTask(report.target.taskId) : null;
+      if (!child?.workId) throw error;
+      this.rejectSnapshot(child.workId, error, true);
+      return false;
+    }
   }
 
   // ---------- 入口 1：子任务结果已登记 ----------
@@ -131,7 +169,12 @@ export class ParentDelivery {
   reserveResult(child: Task): AgentReport | null {
     const target = { kind: "task" as const, taskId: child.id };
     const existing = getAgentReport(this.store, agentReportKey(target));
-    const work = child.workId ? this.store.getWorkDelegation(child.workId) : null;
+    let work: WorkDelegation | null;
+    try {
+      work = child.workId ? this.store.getWorkDelegation(child.workId) : null;
+      if (work && !work.canceledAt) this.deps.verifyWork(work);
+    }
+    catch (error) { this.rejectSnapshot(child.workId!, error, true); return getAgentReport(this.store, agentReportKey(target)); }
     if (!work || work.canceledAt) return existing;
     const wait = listAgentWaits(this.store, { sessionId: work.parentSessionId })
       .find(wait => wait.targets.some(candidate => candidate.kind === "task" && candidate.taskId === child.id));
@@ -153,18 +196,22 @@ export class ParentDelivery {
     if (this.store.db.prepare("SELECT 1 FROM workflow_executions WHERE task_id = ?").get(child.id)) return;
     const parent = child.parentTaskId ? this.store.getTask(child.parentTaskId) : null;
     if (!parent) return;
-    const parentSessionId = child.workId ? this.store.getWorkDelegation(child.workId)?.parentSessionId ?? parent.sessionId : parent.sessionId;
+    let work: WorkDelegation | null;
+    try { work = child.workId ? this.store.getWorkDelegation(child.workId) : null; }
+    catch (error) { this.rejectSnapshot(child.workId!, error); return; }
+    const parentSessionId = work?.parentSessionId ?? parent.sessionId;
     const identity = this.store.getSessionIdentity(parentSessionId);
     const report = this.store.withTx(() => this.reserveResult(child));
     if (report && (report.status !== "pending" || report.claimTaskId || report.fallbackTaskId)) return;
-    if ((identity?.kind !== "main" && identity?.kind !== "scheduled" && !report) || this.workCanceled(child.workId)) return;
+    if ((identity?.kind !== "main" && identity?.kind !== "scheduled" && !report) || this.workUnavailable(child.workId)) return;
     if (!identity || !["dev", "main", "scheduled"].includes(identity.kind)) return;
     const run = this.store.getScheduledRunForTask(child.id);
     if (run && (run.closedAt || run.scheduleStatus === "canceled")) return;
     if (report && !report.fallbackTaskId && await this.deps.routeAgentReport?.(report)) return;
     const source = child.sourceEventId ? this.store.getInboundEvent(child.sourceEventId) : null;
     const reviewSource = source && this.deps.isReviewEvent(source) ? source : null;
-    const notices = [this.deps.resultNotice(child), this.workReportNotice(child)].filter((n): n is string => n !== null);
+    if (this.workUnavailable(child.workId)) return;
+    const notices = [this.deps.resultNotice(child), this.workReportNotice(work)].filter((n): n is string => n !== null);
     const input = child.subAgentId
       ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
         `子任务：${child.id}（SubAgent ${child.subAgentId} · 工作 ${child.workId}）\n` +
@@ -239,8 +286,14 @@ export class ParentDelivery {
     if (this.store.getSessionIdentity(sessionId)?.kind !== "dev") return { results: [], messages: [] };
     return this.store.withTx(() => {
       const results = this.store.listUndeliveredSubAgentResults(sessionId)
-        .filter(task => !getAgentReport(this.store, agentReportKey({ kind: "task", taskId: task.id })));
-      const messages = this.store.listUndeliveredParentSubAgentMessages(sessionId);
+        .filter(task => !this.workUnavailable(task.workId, true) && !getAgentReport(this.store, agentReportKey({ kind: "task", taskId: task.id })));
+      const messages = this.store.listUndeliveredParentSubAgentMessages(sessionId).filter(msg => {
+        const reason = this.workUnavailable(msg.workId, true);
+        if (reason && this.store.markSubAgentMessageUndelivered(msg.id, reason)) this.store.appendEvent(
+          { type: "subagent_message.dropped", messageId: msg.id, workId: msg.workId, parentSessionId: msg.parentSessionId, toSubAgentId: msg.toSubAgentId, reason },
+          { sessionId: msg.parentSessionId });
+        return reason === null;
+      });
       const at = new Date().toISOString();
       for (const m of messages) this.store.markSubAgentMessageDelivered(m.id, null, at);
       return { results, messages };
@@ -292,7 +345,7 @@ export class ParentDelivery {
    */
   wakeAdmitted(task: Task): boolean {
     const reports = listAgentReports(this.store, { taskId: task.id }).filter(report => report.fallbackTaskId === task.id);
-    if (reports.some(report => report.target.kind === "task" && this.workCanceled(this.store.getTask(report.target.taskId)?.workId ?? null))) return false;
+    if (reports.some(report => report.target.kind === "task" && this.workUnavailable(this.store.getTask(report.target.taskId)?.workId ?? null))) return false;
     const workflow = getWorkflowDeliveryRun(this.store, task.id);
     if (workflow) return workflowTerminal(workflow.status) && workflow.delivery?.version === workflow.terminalVersion &&
       task.parentTaskId === workflow.source.taskId && task.sessionId === workflow.source.sessionId &&
@@ -300,7 +353,7 @@ export class ParentDelivery {
     const scheduled = this.store.getScheduledRunForTask(task.id);
     if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) return false;
     const kind = this.store.getSessionIdentity(task.sessionId)?.kind;
-    return (kind !== "main" && kind !== "scheduled") || !this.workCanceled(this.wakeWorkId(task));
+    return (kind !== "main" && kind !== "scheduled") || !this.workUnavailable(this.wakeWorkId(task));
   }
 
   // ---------- 入口 5：后台启动 ----------
@@ -405,9 +458,8 @@ export class ParentDelivery {
    * 结果唤醒的宿主说明：IM 发起的工作告知 main 收尾规则——本工作没有其他进行中
    * 任务时本轮最终回答会作为最终汇报发回原入口一次。
    */
-  private workReportNotice(child: Task): string | null {
-    const work = child.subAgentId && child.workId ? this.store.getWorkDelegation(child.workId) : null;
-    if (!work || this.workCanceled(work.id) || !this.workOriginEvent(work)) return null;
+  private workReportNotice(work: WorkDelegation | null): string | null {
+    if (!work || !this.workOriginEvent(work)) return null;
     return `[最终汇报] 本工作（${work.id}）没有其他进行中任务时，本轮最终回答会作为工作最终汇报向原 IM 入口发送一次；请汇总全部子任务结果。`;
   }
 
@@ -425,7 +477,7 @@ export class ParentDelivery {
         .filter(item => item.fallbackTaskId === report.fallbackTaskId && item.status === "pending")
         .every(item => consumed.some(candidate => candidate.key === item.key)));
       if (outcome === "completed" && this.deps.readReply(wake.id)?.trim() && consumed.length && completeGroups && this.reportReady(wake)) {
-        const valid = consumed.every(report => !this.deps.verifyAgentReport || this.deps.verifyAgentReport(report));
+        const valid = consumed.every(report => this.reportValid(report));
         const result = valid ? this.deps.recordClaimedReport?.(wake, outcome, consumed) ?? { status: "reported" as const }
           : { status: "undelivered" as const, reason: "source_invalid" };
         if (valid) completeAgentReports(this.store, wake.id, result);
@@ -436,14 +488,14 @@ export class ParentDelivery {
     const fallback = getAgentTaskReport(this.store, wake.id);
     if (fallback && fallback.fallbackTaskId !== wake.id) return;
     if (fallback && (fallback.status !== "pending" || fallback.claimTaskId)) return;
-    if (fallback && this.deps.verifyAgentReport && !this.deps.verifyAgentReport(fallback)) {
+    if (fallback && !this.reportValid(fallback)) {
       this.finishFallback(wake.id, { status: "undelivered", reason: "source_invalid" });
       return;
     }
     const workflow = getWorkflowDeliveryRun(this.store, wake.id);
     const fallbackReports = fallback ? listAgentReports(this.store).filter(report => report.fallbackTaskId === wake.id) : [];
     if (fallback) {
-      const valid = fallbackReports.every(report => !this.deps.verifyAgentReport || this.deps.verifyAgentReport(report));
+      const valid = fallbackReports.every(report => this.reportValid(report));
       const result = valid ? this.deps.recordClaimedReport?.(wake, outcome, fallbackReports) ?? {
         status: outcome === "completed" && this.deps.readReply(wake.id)?.trim() ? "reported" as const : "undelivered" as const,
         reason: outcome === "completed" ? undefined : `fallback_${outcome}`,
@@ -467,8 +519,10 @@ export class ParentDelivery {
     }
     if (!wake.requestId.startsWith("wake:")) return;
     const child = this.store.getTask(wake.requestId.slice("wake:".length));
-    const work = child?.workId ? this.store.getWorkDelegation(child.workId) : null;
-    if (!child || !work || this.workCanceled(work.id)) {
+    let work: WorkDelegation | null;
+    try { work = child?.workId ? this.store.getWorkDelegation(child.workId) : null; }
+    catch (error) { this.rejectSnapshot(child!.workId!, error, true); return; }
+    if (!child || !work || this.workUnavailable(work.id, true)) {
       return;
     }
     const event = this.workOriginEvent(work);

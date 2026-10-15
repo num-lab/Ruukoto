@@ -2,9 +2,13 @@
 
 Status: implemented
 
+工作流 role/target/verify 接线与显式接口升级见[共享角色与接口版本](2026-10-15-workflow-role-interface.md)；本篇角色加载和固定内容决定保留。
+
+来源能力、权限和项目上下文的共用规则由[持久来源能力](2026-10-15-subagent-source-capabilities.md)持有；本篇其他独立决定继续适用。
+
 ## 问题
 
-可配置角色需要在文件编辑、删除、消息触发及后台重启后继续使用原定义。仅保存名称或路径会让身份内容漂移；坏同名覆盖若回落内置，又会掩盖用户的实际配置。完整角色方案由[角色与目标分离](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)持有，本篇只记录定义、选择和快照层；来源能力、目标保护及工作流新接口仍由该提案推进。
+可配置角色需要在文件编辑、删除、消息触发及后台重启后继续使用原定义。仅保存名称或路径会让身份内容漂移；坏同名覆盖若回落内置，又会掩盖用户的实际配置。完整角色方案由[角色与目标分离](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)持有，本篇只记录定义、选择和快照层；来源能力、目标保护及工作流新接口分别由关联笔记持有。
 
 ## 决定
 
@@ -18,7 +22,7 @@ core 将完整原文、规范字段、正文、用途和内容摘要内联保存
 
 ## 既有笔记审计
 
-[完整角色提案](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)部分落地，本篇互链并保留尚未交付范围；[工作/身份/任务](2026-10-03-work-delegation-subagent-task.md)与[重启恢复](2026-10-05-subagent-restart-recovery.md)部分重叠，身份、两级幂等、停止核实和不重放决定继续适用。角色不改变旧 main/coding/chat 角色行或会话身份。归档记录不修改。
+[完整角色决定](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)已由 01–04 分层落地，本篇只持有定义和固定身份；[工作/身份/任务](2026-10-03-work-delegation-subagent-task.md)与[重启恢复](2026-10-05-subagent-restart-recovery.md)部分重叠，身份、两级幂等、停止核实和不重放决定继续适用。角色不改变旧 main/coding/chat 角色行或会话身份。归档记录不修改。
 
 ## 备选方案
 

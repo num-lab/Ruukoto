@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { test, type TestContext } from "node:test";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { createLocalLauncher } from "@ruukoto/agent/execution/launchers.ts";
+import { createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
 import { BUILTIN_SUBAGENT_ROLES, HOST_REVIEW_DEFINITION, parseSubAgentRole, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { createSourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
@@ -14,9 +15,10 @@ import { Store } from "@ruukoto/core/store.ts";
 import { randomId, type Task } from "@ruukoto/core/types.ts";
 import { requireWorkflowRun, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { loadSubAgentRoleLibrary } from "@ruukoto/runtime/subagent-role-library.ts";
-import { SubAgentManager } from "@ruukoto/runtime/subagents.ts";
+import { SubAgentManager, type SubAgentDelegateInput } from "@ruukoto/runtime/subagents.ts";
 import { WorkCopyManager } from "@ruukoto/runtime/work-copy.ts";
 import { WorkflowCoordinator } from "@ruukoto/runtime/workflows.ts";
+import { afterTool, lastToolText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 const selection = { provider: "fake", modelId: "source-model", thinkingLevel: "high" } as const;
 
@@ -55,6 +57,54 @@ function fixture(t: TestContext) {
     delegate(key: string, extra: { role?: string; workId?: string; subAgentId?: string } = {}) { return manager.delegate({ parentTaskId: parent.id, key, request: "检查资料", paramsDigest: key, ...extra }); },
   };
 }
+
+test("普通委派明确拒绝旧 mode，旧键重放不登记任务或改写历史", async t => {
+  const f = fixture(t);
+  const counts = () => ["tasks", "work_delegations", "sub_agents", "sessions", "events"].map(table => f.store.db.prepare(`SELECT count(*) AS n FROM ${table}`).get());
+  const initial = counts();
+  for (const mode of ["analyze", "modify", "verify", undefined]) {
+    const input = { parentTaskId: f.parent.id, key: "legacy", request: "旧调用", paramsDigest: "legacy", mode };
+    await assert.rejects(f.manager.delegate(input), { code: "interface_upgrade_required", message: /role.*target.*verify/ });
+    assert.deepEqual(counts(), initial);
+    assert.equal(fs.existsSync(path.join(f.root, "children")), false);
+  }
+  const first = await f.delegate("historical");
+  f.finish(first.task);
+  const original = f.store.getTask(first.task.id);
+  const before = counts();
+  await assert.rejects(f.manager.delegate({ parentTaskId: f.parent.id, key: "historical", request: "检查资料", paramsDigest: "historical", ...{ mode: "analyze" } }), { code: "interface_upgrade_required" });
+  const replay = await f.delegate("historical");
+  assert.equal(replay.created, false);
+  assert.equal(replay.task.id, first.task.id);
+  await assert.rejects(f.manager.delegate({ parentTaskId: f.parent.id, key: "historical", request: "检查资料", paramsDigest: "new-interface" }), { code: "request_conflict" });
+  assert.deepEqual(counts(), before);
+  assert.deepEqual(f.store.getTask(first.task.id), original);
+});
+
+test("普通工具 schema 移除 mode，旧字段在执行前拒绝，目标参与幂等摘要", async t => {
+  const f = fixture(t);
+  const inputs: SubAgentDelegateInput[] = [];
+  const tool = createSubAgentTools({
+    coreStore: f.store,
+    sources: createSourceResolver({ store: f.store, access: new AccessScope(f.store.db), artifacts: new ArtifactStore(path.join(f.root, "data"), f.store), appData: () => null }),
+    delegate: async input => { inputs.push(input); throw new Error("已捕获参数"); },
+    close: () => assert.fail("本用例不关闭"), cancelWork: async () => assert.fail("本用例不取消"), message: async () => assert.fail("本用例不发消息"), integrate: async () => assert.fail("本用例不汇入"), readReply: () => null,
+    artifacts: new ArtifactStore(path.join(f.root, "data"), f.store),
+    taskContext: () => ({ taskId: f.parent.id, sessionId: f.session.id, projectId: f.session.projectId, hostOpId: "delegate-upgrade" }), verifyHost: () => null,
+  }).find(tool => tool.name === "subagent_delegate")!;
+  assert.equal(JSON.stringify(tool.parameters).includes('"mode":'), false);
+  const sdkContext = {} as Parameters<typeof tool.execute>[4];
+  for (const mode of ["analyze", "modify", undefined]) {
+    await assert.rejects(tool.execute("legacy", { key: "same", request: "核对", mode }, undefined, undefined, sdkContext), { code: "interface_upgrade_required", message: /role.*target.*verify/ });
+  }
+  assert.equal(inputs.length, 0);
+  assert.equal(f.store.listSubAgents().length, 0);
+  for (const target of [".", "other"]) {
+    await assert.rejects(tool.execute("target", { key: "same", request: "核对", role: "reviewer", target }, undefined, undefined, sdkContext), /已捕获参数/);
+  }
+  assert.notEqual(inputs[0].paramsDigest, inputs[1].paramsDigest);
+  assert.ok(inputs.every(input => !("mode" in input)));
+});
 
 test("角色创建固定正文，编辑删除后继续、复用、消息与冷恢复沿原快照；模型继承来源", async t => {
   const f = fixture(t);
@@ -172,4 +222,22 @@ test("工作流固定无效 general 诊断，后来修好配置仍不能登记�
   }
   assert.equal(requireWorkflowRun(f.store, run.id).reason, "role_invalid_frontmatter");
   assert.equal(f.store.listSubAgents().length, 0);
+});
+
+test("真实 SDK 的旧 mode 工具调用明确返回升级说明，不静默丢字段后创建通用子任务", async () => {
+  let refusal = "";
+  const t = await startTestRuntime("subagent-old-mode-wire", request => {
+    if (afterTool(request)) { refusal = lastToolText(request); return { kind: "text", text: "已收到升级说明" }; }
+    return { kind: "tool_calls", calls: [{ id: "old", name: "subagent_delegate", arguments: { request: "旧分析", key: "old", mode: "analyze" } }] };
+  });
+  try {
+    const session = await t.runtime.createSession({ projectName: "old-mode-wire", cwd: t.work[0] });
+    const task = await t.runtime.submit({ sessionId: session.id, requestId: "owner", input: "检查旧接口", modelSelection: t.runtime.defaultSelection });
+    await waitFor("旧调用返回模型", () => t.runtime.store.getTask(task.id)!.status === "completed");
+    assert.match(refusal, /mode.*已移除/);
+    assert.match(refusal, /role.*target.*verify/);
+    assert.equal(t.runtime.store.listSubAgents().length, 0);
+    assert.equal(t.runtime.store.listWorkDelegationsBySession(session.id).length, 0);
+    assert.equal(t.runtime.store.listToolOpsByTask(task.id)[0].isError, true);
+  } finally { await t.shutdown(); }
 });

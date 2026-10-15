@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 42;
+export const SCHEMA_VERSION = 45;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS agent_waits (

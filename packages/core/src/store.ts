@@ -516,7 +516,7 @@ export class Store {
   }
 
   countLegacyQueuedTasks(sessionId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)").get(sessionId) as { n: number };
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)").get(sessionId) as { n: number };
     return Number(row.n);
   }
 
@@ -562,7 +562,7 @@ export class Store {
 
   /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
   fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
-    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
+    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
     const encoded = JSON.stringify(selection);
     let taskIds: string[] = [];
     let bytes = Buffer.byteLength(encoded) + Buffer.byteLength(sessionId) + 256;
@@ -792,7 +792,7 @@ export class Store {
 
   listQueuedTasksFifo(sessionId: string): Task[] {
     const rows = this.db
-      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, rowid")
+      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, rowid")
       .all(sessionId) as any[];
     return rows.map((r) => this.rowToTask(r));
   }

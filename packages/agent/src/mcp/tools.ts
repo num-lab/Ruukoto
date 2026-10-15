@@ -60,11 +60,13 @@ export interface McpTaskPlan {
   connections: Map<string, McpConnection>;
   /** 显式启用但初始化失败的服务（本任务缺少其工具能力）。 */
   unavailable: Array<{ service: McpServiceConfig; reason: string }>;
+  /** 允许列表工具未装配的原因；显式角色要求在启动前据此报告。 */
+  rejected?: Map<string, string>;
   /** 工具清单签名：服务配置版本 + 暴露名/描述/schema 摘要；变化时重建 SDK 会话。 */
   signature: string;
 }
 
-export const EMPTY_MCP_PLAN: McpTaskPlan = { toolDefs: [], tools: new Map(), connections: new Map(), unavailable: [], signature: "" };
+export const EMPTY_MCP_PLAN: McpTaskPlan = { toolDefs: [], tools: new Map(), connections: new Map(), unavailable: [], rejected: new Map(), signature: "" };
 
 export interface McpPlanDeps extends McpTimeouts {
   mcpStore: McpStore;
@@ -129,10 +131,13 @@ export function validateRemoteTool(
  * 单个服务失败不阻断任务：列为不可用（事件由调用方发），其余服务照常。
  */
 export async function planMcpTaskTools(deps: McpPlanDeps): Promise<McpTaskPlan> {
-  const services = deps.mcpStore
-    .listServices(deps.projectId)
-    .filter((s) => s.enabled && s.toolAllowlist.length > 0);
-  if (services.length === 0) return EMPTY_MCP_PLAN;
+  const configured = deps.mcpStore.listServices(deps.projectId);
+  const rejected = new Map<string, string>();
+  for (const service of configured.filter(service => !service.enabled)) {
+    for (const entry of service.toolAllowlist) rejected.set(exposedNameFor(service.name, normalizeAllowlistEntry(entry).name), `MCP 服务 ${service.name} 已停用`);
+  }
+  const services = configured.filter(service => service.enabled && service.toolAllowlist.length > 0);
+  if (services.length === 0) return { ...EMPTY_MCP_PLAN, rejected };
 
   const connections = new Map<string, McpConnection>();
   const unavailable: Array<{ service: McpServiceConfig; reason: string }> = [];
@@ -166,24 +171,24 @@ export async function planMcpTaskTools(deps: McpPlanDeps): Promise<McpTaskPlan> 
   const usedNames = new Set<string>();
   for (const entry of settled) {
     if ("error" in entry) {
-      unavailable.push({ service: entry.service, reason: `${entry.error.message}（${(entry.error as { code?: string }).code ?? "unknown"}）` });
+      const reason = `${entry.error.message}（${(entry.error as { code?: string }).code ?? "unknown"}）`;
+      unavailable.push({ service: entry.service, reason });
+      for (const allowEntry of entry.service.toolAllowlist) rejected.set(exposedNameFor(entry.service.name, normalizeAllowlistEntry(allowEntry).name), `MCP 服务 ${entry.service.name} 发现失败：${reason}`);
       continue;
     }
     const { service, conn, tools } = entry;
     connections.set(service.id, conn);
     const byName = new Map(tools.map((t) => [t.name, t]));
     let exposed = 0;
-    // 允许列表内但不可注册的工具（远端缺失/超限/schema 不支持/命名冲突）静默跳过：
-    // 模型本就不见其存在；拥有者经 mcp check 诊断（逐工具标注原因）
     for (const allowEntry of service.toolAllowlist) {
       const { name: remoteName, effect } = normalizeAllowlistEntry(allowEntry);
-      const remote = byName.get(remoteName);
-      if (!remote) continue;
-      if (++exposed > MAX_ALLOWLISTED_TOOLS) break;
-      const validated = validateRemoteTool(remote);
-      if ("disabledReason" in validated) continue;
       const exposedName = exposedNameFor(service.name, remoteName);
-      if (usedNames.has(exposedName)) continue;
+      const remote = byName.get(remoteName);
+      if (!remote) { rejected.set(exposedName, `MCP 服务 ${service.name} 未发现远端工具 ${remoteName}`); continue; }
+      if (++exposed > MAX_ALLOWLISTED_TOOLS) { rejected.set(exposedName, `MCP 服务 ${service.name} 工具超过 ${MAX_ALLOWLISTED_TOOLS} 个上限`); continue; }
+      const validated = validateRemoteTool(remote);
+      if ("disabledReason" in validated) { rejected.set(exposedName, `MCP 服务 ${service.name} 工具 ${remoteName}：${validated.disabledReason}`); continue; }
+      if (usedNames.has(exposedName)) { rejected.set(exposedName, `MCP 服务 ${service.name} 工具 ${remoteName} 的暴露名冲突`); continue; }
       usedNames.add(exposedName);
       const rawDesc = typeof remote.description === "string" ? remote.description : "";
       const description =
@@ -217,7 +222,7 @@ export async function planMcpTaskTools(deps: McpPlanDeps): Promise<McpTaskPlan> 
     .digest("hex");
 
   const toolDefs = planned.map((p) => buildMcpToolDef(p, deps));
-  return { toolDefs, tools: new Map(planned.map((p) => [p.exposedName, p])), connections, unavailable, signature };
+  return { toolDefs, tools: new Map(planned.map((p) => [p.exposedName, p])), connections, unavailable, rejected, signature };
 }
 
 /** 工具定义：描述标注本地副作用类别；execute 一律转发路由器统一处理。 */

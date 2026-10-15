@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { randomId, type Session, type Task, type WorkDelegation } from "@ruukoto/core/types.ts";
-import { bindWorkflowExecution, controlWorkflow, createWorkflowRun, getWorkflowExecution, getWorkflowRun, listWorkflowExecutions, registerWorkflowStep, saveWorkflowDefinition, startWorkflowExecution, workflowDigest, type WorkflowRun } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, bindWorkflowExecution, controlWorkflow, createWorkflowRun, getWorkflowExecution, getWorkflowRun, listWorkflowExecutions, registerWorkflowStep, saveWorkflowDefinition, startWorkflowExecution, workflowDigest, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { WorkCopyManager } from "@ruukoto/runtime/work-copy.ts";
 import { controlledWorkCopy } from "./helpers/controlled-work-copy.ts";
@@ -17,7 +17,7 @@ import { realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 function seedRun(rt: Runtime, parent: Task, session: Session): WorkflowRun {
   return rt.store.withTx(() => {
     const definition = saveWorkflowDefinition(rt.store, "return 1;");
-    return createWorkflowRun(rt.store, { roleCatalog: fixtureSubAgentRoleCatalog(),
+    return createWorkflowRun(rt.store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(),
       id: randomId("wfrun"), requestKey: "host-run", paramsDigest: "host-run", definitionId: definition.id,
       scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null),
       source: { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: parent.id,
@@ -194,7 +194,7 @@ test("宿主操作入口在原任务结束后创建和汇总真实副本，同�
       assert.equal(task.modelSelection, null);
       assert.deepEqual(task.historyEntryIds, []);
       assert.equal(execution.stopVerified, true);
-      assert.equal(rt.store.listToolOpsByTask(task.id).length, 2);
+      assert.equal(rt.store.listToolOpsByTask(task.id).length, execution.stepKey === "create" ? 4 : 2);
     }
     assert.equal(rt.store.listSessions().length, sessions);
     assert.equal(t.server.calls.length, modelCalls);

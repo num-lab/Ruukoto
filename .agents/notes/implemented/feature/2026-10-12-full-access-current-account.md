@@ -2,7 +2,7 @@
 
 Status: implemented
 
-已确认的后续变更见[可配置子代理角色](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+已确认的后续变更见[可配置子代理角色](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
 
 本篇持有两个产品的完全访问语义、真实授权来源及其传播。落地与验证证据见[实施工单](../../../../.scratch/full-access/issues/01-full-access-current-account.md)。
 

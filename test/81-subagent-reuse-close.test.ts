@@ -331,9 +331,9 @@ test("来源并集：A 的资料撤销后复用委派被拒；登记后才撤销
     assert.equal(reuse.created, true, "撤销前登记成功（事务内并集核实通过）");
     access.revokeGrant(grant.id);
     await rt.resumeQueue(first.agent.sessionId);
-    await waitFor("B 被阻断", () => rt.store.getTask(reuse.task.id)!.status === "interrupted");
+    await waitFor("B 被阻断", () => ["failed", "interrupted"].includes(rt.store.getTask(reuse.task.id)!.status));
     const blocked = rt.store.getTask(reuse.task.id)!;
-    assert.match(blocked.interruptReason ?? "", /task_sources_revoked/, "旧工作来源撤销后不再向模型发送");
+    assert.match(blocked.interruptReason ?? blocked.errorMessage ?? "", /task_sources_revoked|source_invalid/, "旧工作来源撤销后不再向模型发送");
     await waitFor("B 结果未知登记", () => rt.store.getTask(reuse.task.id)!.resultSummary !== null);
     await waitIdle(rt, first.agent.id);
     assert.equal(rt.store.getSubAgent(first.agent.id)!.closedAt, null, "中断不自动关闭");

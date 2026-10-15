@@ -74,6 +74,8 @@ stateDiagram-v2
 
 取消先保存计划状态、使未派发事件失效，再在事务外停止排队、执行、等待审批的任务与派生工作。迟到消息、结果与审批不能恢复已取消运行。执行记录、工作副本与已有成果保留。
 
+名下子工作基线缺失或损坏时，终态与停止核实仍按真实 Task/占用判断；全部可收尾后将整项记为失败并保留父最终回复。取消坏工作仍继续停止已登记 Task，保留损坏记录与副本，不因解析失败跳过安全停止。独立工作副本宿主 Task 不作为模型任务或额外子结果参与最终汇总。
+
 ## 不变量与失败处理
 
 访问模式固定于创建时。更改主会话默认模式或重启不重算已有计划权限；模型输入不提供升级来源，单次批准与限定长期授权不随计划继承。完全访问使用共享工具免审批；受限模式在独立运行中按原策略等待决定。审批绑定计划创建时的原 IM 入口与目标代次，无 IM 时经 TUI/控制面处理。
@@ -86,9 +88,11 @@ stateDiagram-v2
 
 旧任务或计划格式直接拒绝，不转换业务动作、不回填模式。独立实例导入只接受当前通用计划格式，保留创建模式与固定目标；导入中的未结束运行按中断收尾，不重新执行旧运行。
 
-[工作流步骤](workflows.md)可沿个人来源使用调度和通知工具，宿主从运行保存的目标取原渠道及配置代次，来源换代立即阻断后续调用。资料解析同时核实启动授权与当前范围，禁止跨运行步骤产物及 prompt 快照；业务数据实例失效拒绝引用。
+普通子代理与[工作流步骤](workflows.md)可沿个人来源使用调度和通知工具，宿主从持久来源取原渠道及配置代次，来源换代立即阻断后续调用。资料解析同时核实启动授权与当前范围，禁止跨运行步骤产物及 prompt 快照；业务数据实例失效拒绝引用。
 
 ## 设计依据
+
+- [当前工作区快照与失败隔离](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
@@ -99,3 +103,5 @@ stateDiagram-v2
 - [调度计划只触发独立的通用任务](../../.agents/notes/implemented/feature/2026-10-12-generic-scheduled-tasks.md)：独立上下文、创建授权、整项生命周期与固定最终回报。
 - [完全访问使用启动账户且不请求审批](../../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)：真实任务授权与共享工具行为。
 - [调度器与通知 outbox](../../.agents/notes/implemented/architecture/2026-09-24-scheduler-outbox.md)：时间、唯一发送键与效果未知。
+
+- [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。

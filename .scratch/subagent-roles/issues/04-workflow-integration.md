@@ -1,6 +1,6 @@
 # 工作流共享角色、冻结验证与旧接口升级
 
-Status: planning
+Status: ready-for-human
 
 ## 目标与边界
 
@@ -16,16 +16,20 @@ Status: planning
 
 ## 进展与交接
 
-独立方案审查已通过，无未解决阻断；实现前置 01–03 尚未完成，当前不标可实施。规划基点和当前 HEAD 为 `ec45979fc94f9828cd902620752c059867b4de15`，分支 `Eitrous/agent-workflow`；本单为未提交规划文件，内容由[审查输入清单](../evidence/plan-inputs.sha256)固定，方案结论见[独立审查](../plan-review.md)。下一角色核实 01–03 接口与基线后转 ready-for-agent 并接线；发现冻结记录不能证明实际汇入字节时退回 03/本单，不降低 R10/R12。保留工作流归属拒绝普通入口接管的现有保护。
+01–04 工程实现与独立审查已完成，无未解决阻断。当前 HEAD 为 `d12eb6329da9fd9128989ef0725ce1243627068d`，分支 `Eitrous/subagent-roles`；02、03 未提交内容保留，04 范围相对接手副本单独固定。实际行为、原始失败、最终通过与输入量化见[工程记录](../evidence/04-implementation.md)，非作者审查覆盖见[实现审查](../04-implementation-review.md)。本单已接线 role/target/verify、固定角色目录、真实冻结验证及显式接口版本；普通入口不能接管工作流成果。下一入口为 [05 联合验收](05-acceptance.md)，不继承旧验收为新接口、真实模型或最终 Linux 组合通过。
 
 ## 验收与证据
 
-工程待验证，产品待验收。相同 reviewer 普通审查与工作流验证都能运行；verify 使用 general 或自定义角色仍受宿主隔离；伪造通过文本、缺工具、工具失败、未知效果、冻结后修改、换目标及原工作区并发变化均不能获得汇入资格。冷恢复不读取角色最新版，不因旧接口重放副作用。
+工程验收通过，产品与必要外部验收仍待 05。双产品普通/工作流 reviewer 实际运行 bash 并保护当前来源；general 与自定义 full_access verify 均受宿主收窄。零工具通过文本、失败/未知效果、冻结后修改、换目标与并发来源变化拒绝汇入；四种已完成验证记录损坏冷恢复不换定义、不重跑 Task 或副作用。旧命名定义可查，需显式保存新版；旧 mode 在真实 SDK 与调用边界明确拒绝。
 
-运行 npm run check:static，定向选择 test/105-workflow-runtime.test.ts、test/108-workflow-import.test.ts、test/109-workflow-cold-recovery.test.ts、test/110-workflow-workcopy.test.ts、test/112-workflow-real-steps.test.ts、test/117-workflow-library.test.ts、test/118-workflow-entries.test.ts；触及工具提示与来源再加 111/113/62 对应文件。agent_wait 与侧栏按实际接口变化补 125/126 用例，不机械重跑不受影响体验。
+最终 build、check:static 通过；六文件真实 Runtime/Driver/native 串行 43/43，105 参数 44/44，可信注入恢复/回报 18/18，真实 SDK 旧接口 1/1；其余相关来源、版本、控制、等待/侧栏覆盖见工程记录，重叠批次不相加。首轮交叉集 201/208，5 项注入回归已修复；2 项 HTTP 审批原断言单独 2/2，但首轮原因未知，保留原日志。独立审查无未解决阻断，不把整个交叉集称为全绿。
 
-实现须独立审查，05 负责真实模型、双产品及组合验收；旧 07/08/10 的通过不能复用为新角色执行通过。
+schema 45、协议 26 严格拒绝旧库/客户端，不补授权或改写历史。未跑完整 check、最终新接口 Linux、真实模型或真实 IM/MCP/个人业务平台；这些由 05 按实际范围恢复验收。总角色笔记已转 implemented，表示施工落地，不表示联合验收完成。
 
 ## Comments
 
 2026-10-14：verify 是冻结成果验证语义，移出角色模式后仍须由宿主提供证据，不能退化成 reviewer 的 prompt。
+
+2026-10-15：01–03 工程前置与独立审查成立，转 ready-for-agent；本单尚无实现，不继承 03 的局部通过作为新接口通过。
+
+2026-10-15：role/target/verify、接口版本和旧 mode 拒绝已实现并通过独立审查，转 ready-for-human；05 前置成立，转 ready-for-agent。首次失败与未验范围见工程记录，本次未提交或部署。

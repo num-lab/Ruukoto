@@ -69,7 +69,7 @@ function kit(parentKind: "main" | "dev" = "main") {
   const kicks: string[] = [];
   const resumed: string[] = [];
   const resolved: ModelSelection[] = [];
-  const parentDelivery = new ParentDelivery({
+  const parentDelivery = new ParentDelivery({ verifyWork: () => {},
     store,
     submit: async (input) => store.withTx(() => store.insertQueuedTask({ ...input, submissionDigest: input.requestId }).task),
     defaultModelSelection: () => DEFAULT,
@@ -347,14 +347,13 @@ test("计划模式由父任务固定模式判定，继续链不决定资格：�
     const continued = k.complete(k.task(k.parentSession.id, { input: "再继续", resumesTaskId: resumed.id, planMode: true }));
     const writeWork = k.newWork({ kind: "direct", path: k.sub.cwdReal, dev: k.sub.cwdDev, ino: k.sub.cwdIno });
     for (const parent of [plan, continued]) {
-      for (const extra of [{ mode: "modify" as const, target: "." }, { workId: writeWork.id }]) {
+      for (const extra of [{ target: "." }, { workId: writeWork.id }]) {
         const before = k.counts();
         await assert.rejects(() => delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: parent.id, key: randomId("plan"), request: "修改", paramsDigest: "plan", ...extra }), /计划模式/);
         assert.deepEqual(k.counts(), before, "计划模式拒绝发生在建立目录、工作和任务之前");
       }
     }
     assert.deepEqual(k.resolved, [], "拒绝不启动模型或执行准备");
-    await assert.rejects(() => delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: continued.id, key: "explicit-analyze", request: "继续只读", workId: k.work.id, mode: "analyze", paramsDigest: "explicit" }), { code: "invalid_params" });
     const delegated = await delegateFromActiveTask({ store: k.store, subagents: k.manager }, { parentTaskId: continued.id, key: "read-plan", request: "只读调研", readPaths: ["."], paramsDigest: "read-plan" });
     assert.equal(delegated.created, true);
     assert.equal(delegated.work.writeTarget, null);

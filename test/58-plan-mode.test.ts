@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * issue 31：持续的 Plan 选择、固定 Auto review、工具白名单、适用会话与继续时选择。
  * TUI 的 /mode、未知 /plan 与状态栏见 test/14-tui-app.test.ts。
@@ -191,7 +192,7 @@ test("集成：Plan 只允许普通开发会话，main 与 IM 的 /plan 是普�
     const coding = seedCodingRole(rt.store, t.dirs.root);
     const mainId = rt.store.getAgentRole("main")!.sessionId;
     const child = await rt.createSession({ projectName: "child", cwd: t.work[1]! });
-    rt.store.insertSubAgent({ id: "plan-child", parentSessionId: sessionId, sessionId: child.id, workDir: child.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: child.createdAt });
+    rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "plan-child", parentSessionId: sessionId, sessionId: child.id, workDir: child.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: child.createdAt });
     for (const id of [mainId, rt.store.getAgentRole("chat")!.sessionId, coding.sessionId, group.session.id, child.id]) {
       const before = rt.store.listTasksBySession(id).length;
       const session = rt.store.getSession(id)!;

@@ -1,0 +1,22 @@
+{
+  "command": [
+    "npx",
+    "tsx",
+    "--test",
+    "test/14-tui-app.test.ts"
+  ],
+  "exit_code": 0,
+  "platform": "macOS arm64",
+  "source_manifest": "05-final-source-inputs-v6.json",
+  "test_file_sha256": "dd57159823efc0b6febc197f2214097f65468e0c77d495225d16694898b4814b",
+  "node_test_duration_ms": 67378.211625,
+  "counts": {
+    "tests": 35,
+    "pass": 35,
+    "fail": 0,
+    "skipped": 0,
+    "cancelled": 0
+  },
+  "log_sha256": "97512b294f67071e1887c65031fba54a6dcebf4b9783e2d760d2a105cce93d2a",
+  "recorded_at": "2026-10-15T05:00:41.081268+00:00"
+}

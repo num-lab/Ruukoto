@@ -1,0 +1,12 @@
+diff --git a/test/14-tui-app.test.ts b/test/14-tui-app.test.ts
+--- a/test/14-tui-app.test.ts
++++ b/test/14-tui-app.test.ts
+@@ -612,7 +612,7 @@
+     await waitFor("冷重连完整历史恢复", () => second.state.sessionViews.get(sessionId)!.flow.items.some((entry) => entry.kind === "message" && entry.role === "assistant" && !entry.streaming && !entry.truncated && entry.text === output));
+     const answers = second.state.sessionViews.get(sessionId)!.flow.items.filter((entry) => entry.kind === "message" && entry.role === "assistant");
+     assert.equal(answers.length, 1, "历史与事件补读合并为唯一正文");
+-    assert.ok(requests.some((request) => request.op === "read_history_entry" && Number(request.params?.offset ?? 0) > 0 && request.params?.length === 48 * 1024), "实际请求后续 48KiB 历史页（偏移按 UTF-8 边界对齐）");
++    await waitFor("实际请求后续 48KiB 历史页（偏移按 UTF-8 边界对齐）", () => requests.some((request) => request.op === "read_history_entry" && Number(request.params?.offset ?? 0) > 0 && request.params?.length === 48 * 1024));
+     await waitFor("终端显示正文尾部", () => stripTerminalSequences(second.terminal.output()).includes("长文尾部标记"));
+     const app = second.app as any;
+     app.scroll.scrollTo(20, { disableFollow: true });

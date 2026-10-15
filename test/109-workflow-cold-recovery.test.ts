@@ -1,3 +1,4 @@
+import { fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
@@ -7,7 +8,7 @@ import { test } from "node:test";
 import { killProcessGroup, type ManagedEntry } from "@ruukoto/agent/managed-processes.ts";
 import { ToolWorkerHost } from "@ruukoto/agent/tool-worker/host.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
-import { createWorkflowRun, getWorkflowRun, getWorkflowStep, listWorkflowExecutions, saveWorkflowDefinition, workflowDigest, type WorkflowRun } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, createWorkflowRun, getWorkflowRun, getWorkflowStep, listWorkflowExecutions, saveWorkflowDefinition, workflowDigest, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { shellQuotePathForTest } from "./helpers/git-fixture.ts";
@@ -20,7 +21,7 @@ interface ColdProcess { child: ChildProcess; snapshot: Promise<ColdSnapshot>; ex
 function seedRun(rt: Runtime, parent: Task, session: Session, script: string): WorkflowRun {
   return rt.store.withTx(() => {
     const definition = saveWorkflowDefinition(rt.store, script);
-    return createWorkflowRun(rt.store, {
+    return createWorkflowRun(rt.store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(),
       id: randomId("wfrun"), requestKey: "cold-run", paramsDigest: workflowDigest({ script }), definitionId: definition.id,
       scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null),
       source: { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: parent.id,

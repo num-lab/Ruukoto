@@ -70,7 +70,7 @@ test("差异请求仅在可读后发出，使用子会话来源并拒绝旧快�
   assert.equal(inspector.result, null);
 });
 
-const agent: SubAgent = { id: "agent", parentSessionId: "parent", sessionId: "child", workDir: "/work", activeWorkId: "work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
+const agent: SubAgent = { id: "agent", parentSessionId: "parent", sessionId: "child", workDir: "/work", definition: null, activeWorkId: "work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
 const work: WorkDelegation = { id: "work", parentSessionId: "parent", originTaskId: "origin", subAgentId: "agent", requestKey: "key", paramsDigest: "digest", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: "" };
 test("工作读取保留全部协作者，新事件触发的新查询不被旧应答覆盖", async () => {
   const view = new ViewState();
@@ -139,4 +139,5 @@ test("工作查询失败时，缓存仍保留已收到的新委托、取消与 S
   assert.equal(inspector.workDelegations().find(item => item.id === "work")?.cancelReason, "不再需要");
   assert.ok(inspector.workDelegations().some(item => item.id === "new-work"));
   assert.ok(inspector.agents().some(item => item.id === "new-agent"));
+  assert.equal(inspector.agents().find(item => item.id === "new-agent")?.definition, null);
 });

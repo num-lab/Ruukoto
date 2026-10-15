@@ -4,7 +4,7 @@ import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-
  * Note: 见 .agents/notes/implemented/feature/2026-10-05-subagent-messaging.md
  * Note: 见 .agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
  *
- * seam：Runtime 公共接口 + mock 模型 + 真实只读工具（realTools，local 后端）；
+ * seam：Runtime 公共接口 + mock 模型 + 真实工具（realTools，local 后端）；
  * 消息登记的确定性路径直接用管理器（来源活动状态由 fixture 显式播种；
  * 工具层调用总在任务内，模型驱动用例单独覆盖）。
  *
@@ -27,6 +27,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
+import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import { type Responder } from "./helpers/mock-provider.ts";
 import { afterTool, lastToolText, inputText, toolNamesOf, cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 import { createSubAgentMessageTool, createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
@@ -141,10 +142,11 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     assert.match(bDelivery[0]!.input, new RegExp(`来自：SubAgent ${aId}（工作 ${wId}，执行任务 ${cont.task.id}）`));
     assert.match(bDelivery[0]!.input, /CAP-MSG1/);
     assert.match(bDelivery[0]!.input, /工具分工与资料 API 范围沿用本工作/);
-    // 工具白名单不扩大：B 的投递任务的模型调用仍只有只读工具与消息工具
+    // 消息投递沿 B 首次执行钉定的 general 工具集合
     await waitFor("B 的投递任务已调用模型", () => t.server.calls.some((c) => inputText(c).includes("[工作内消息") && inputText(c).includes("A问B")));
     const bCall = t.server.calls.find((c) => inputText(c).includes("[工作内消息") && inputText(c).includes("A问B"))!;
-    assert.deepEqual(toolNamesOf(bCall).sort(), ["read", "read_artifact", "subagent_message"].sort());
+    assert.deepEqual(toolNamesOf(bCall).sort(), [...requireSubAgentExecution(b.task.readScope?.execution).tools].sort());
+    assert.ok(toolNamesOf(bCall).includes("bash"), "默认 general 的消息任务保留来源允许的 shell");
 
     // B→A：投递任务内经工具回复；A 忙完当前任务后由冲刷投递
     await waitFor("B 的投递任务完成", () => rt.store.getTask(bDelivery[0]!.id)!.resultSummary !== null);
@@ -385,7 +387,7 @@ test("复用后资格转移：旧协作方消息被拒，迟到旧消息不进�
     await waitFor("B 完成", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
     await waitIdle(rt, b.agent.id);
     const W = a.work.id;
-    await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], materials: null, paramsDigest: "dj1" });
+    const join = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], materials: null, paramsDigest: "dj1" });
     await waitFor("加入完成", () => rt.store.listTasksByWork(W).some((x: any) => x.subAgentId === b.agent.id && x.resultSummary !== null));
     await waitIdle(rt, b.agent.id);
 
@@ -419,6 +421,9 @@ test("复用后资格转移：旧协作方消息被拒，迟到旧消息不进�
         accessMode: "confirm",
         modelSelection: rt.defaultSelection,
         submissionDigest: "fixture-busy",
+        parentTaskId: join.task.parentTaskId,
+        sourcePermissionVersion: join.task.sourcePermissionVersion,
+        readScope: join.task.readScope,
         workId: W,
         subAgentId: b.agent.id,
       }),
@@ -463,7 +468,7 @@ test("关闭后的投递有明确结果：冲刷记 closed；消息错误不把�
     const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["."], materials: null, paramsDigest: "db1" });
     await waitFor("B 完成", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
     await waitIdle(rt, b.agent.id);
-    await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], materials: null, paramsDigest: "dj1" });
+    const join = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], materials: null, paramsDigest: "dj1" });
     await waitFor("加入完成", () => rt.store.listTasksByWork(W).some((x: any) => x.subAgentId === b.agent.id && x.resultSummary !== null));
     await waitIdle(rt, b.agent.id);
     rt.store.setSessionQueueState(rt.store.getSubAgent(b.agent.id)!.sessionId, "paused", "test_fixture");
@@ -475,6 +480,9 @@ test("关闭后的投递有明确结果：冲刷记 closed；消息错误不把�
         accessMode: "confirm",
         modelSelection: rt.defaultSelection,
         submissionDigest: "fixture-busy2",
+        parentTaskId: join.task.parentTaskId,
+        sourcePermissionVersion: join.task.sourcePermissionVersion,
+        readScope: join.task.readScope,
         workId: W,
         subAgentId: b.agent.id,
       }),
@@ -530,6 +538,9 @@ test("幂等与账本：同键同参返回原记录（含工具层重放），�
         accessMode: "confirm",
         modelSelection: rt.defaultSelection,
         submissionDigest: "fixture-busy3",
+        parentTaskId: a.task.parentTaskId,
+        sourcePermissionVersion: a.task.sourcePermissionVersion,
+        readScope: a.task.readScope,
         workId: W,
         subAgentId: a.agent.id,
       }),
@@ -552,6 +563,8 @@ test("幂等与账本：同键同参返回原记录（含工具层重放），�
     const deliveredTaskId = rt.store.getSubAgentMessage(sent.message.id)!.deliveredTaskId!;
     await rt.resumeQueue(agentSession);
     await waitFor("投递完成", () => rt.store.getTask(deliveredTaskId)!.resultSummary !== null);
+    assert.equal(rt.store.getTask(deliveredTaskId)!.status, "completed");
+    assert.equal(t.server.calls.filter(call => lastUserText(call).includes("排队CAP-Q")).length, 1, "同一逻辑消息实际请求模型一次");
     await waitIdle(rt, a.agent.id);
 
     // 工具层重放（真实装配）：同一任务上下文同键同参直接返回原记录

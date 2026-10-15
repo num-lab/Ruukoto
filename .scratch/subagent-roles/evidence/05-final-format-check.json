@@ -1,0 +1,9 @@
+{
+  "captured_at": "2026-10-15T05:21:47.734874+00:00",
+  "method": "使用独立临时Git index覆盖当前改动与新文件；未修改用户index、未提交。",
+  "paths_checked": 215,
+  "diff_check_exit_code": 0,
+  "diff_check_output": "",
+  "staged_eol_exit_code": 0,
+  "staged_eol_output": "check-staged-eol：215 个暂存文件的行尾换行均正确。\n"
+}

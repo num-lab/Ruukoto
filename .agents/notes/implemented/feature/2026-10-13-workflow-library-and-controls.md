@@ -2,6 +2,8 @@
 
 Status: implemented
 
+命名文件与运行的接口版本由[共享角色与接口版本](../architecture/2026-10-15-workflow-role-interface.md)部分补充；本篇原键、路径保护和文件/SQLite 非原子决定保留。
+
 ## 问题
 
 [运行协调器](../../implemented/architecture/2026-10-13-workflow-runtime-and-store.md)和[可信业务回答](../../implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)已有持久归属，但命名脚本、空闲会话显式启动和完整控制入口尚未接线。[06](../../../../.scratch/agent-workflow/issues/06-library-and-ui.md)需要把文件管理、模型自主启动和拥有者控制接到同一执行规则，不能借 UI 或模型参数制造授权。

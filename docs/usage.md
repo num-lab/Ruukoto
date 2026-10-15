@@ -225,6 +225,23 @@ ruukoto project web-search <项目id> on|off             # 默认启用
 
 项目指令从 `project.rootDir?.cwdReal ?? session.cwdReal` 起经受限读取钉版（realpath 后必须仍在基准目录内），任务内固定、下一任务重新读取。项目指令与 Web Search 共用 `projects.settings_version`：保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件；不符 = `version_conflict`，不改配置、无事件；同值保存幂等。
 
+### 4.4 子代理角色文件
+
+两个产品分别读取本实例 `<agentDir>/agents/*.md`，不自动扫描仓库。文件名是小写 kebab-case 角色名，同名覆盖内置 general/reviewer；新增文件新增角色。普通委派和工作流的 `role` 从同一目录选择：首次省略为 general，继续或复用沿固定角色；实际工具与权限按来源、角色及宿主约束求交。
+
+```markdown
+---
+description: 阅读给定资料并给出有依据的结论。
+---
+根据委派目标阅读资料，报告结论、依据与未验证项。
+```
+
+`description` 必填非空，正文必填；可选 `tools` 为不重复工具名称列表，省略表示继承；`permissions` 可含 `mode`（默认 inherit，另有 confirm、auto-review、full_access）和布尔 `protect_source`（默认 false），保护不能与 full_access 同时要求。未知字段或非法 YAML 明确报错，坏覆盖不会使用内置兜底。文件须为不超过 64 KiB、单一硬链接的普通文件，目录及文件符号链接均拒绝。
+
+主模型的子代理角色目录显示有效名称与诊断；拥有者控制面查询 `list_subagent_roles` 返回目录、字段及错误。修正文件只影响后续新建身份或新启动工作流；原子代理继续、复用、消息与重启沿完整快照，换角色须新建身份。GitHub 宿主固定评审不使用用户角色覆盖。记录损坏时保留历史并报告拥有者，不从当前文件猜测恢复。
+
+代码修改与代码审查委派都显式给 `target`；无目标使用独立目录与获准资料。Git 副本包含当前未提交内容，忽略文件和依赖不复制；子代理报告缺依赖后在获准位置准备。内置 reviewer 用受限模式保护原目录，允许在副本写检查产物。普通汇总只应用子增量；来源同文件后来变化会冲突并保留成果。大小写不敏感文件系统的仅大小写重命名可能被 Git 套用预检拒绝，成果仍保留。非 Git 普通执行用原目录串行，需要保护来源则拒绝。普通委派与工作流均拒绝旧 `mode`；用 `role` 选角色、`target` 指定代码目标。工作流冻结验证使用 `verify`，与 `target` 互斥，角色不改变宿主验证限制。
+
 ## 5. 启用各入口
 
 ### 5.1 Telegram owner 入口
@@ -368,7 +385,7 @@ ruukoto service-grant list|show|revoke
 
 结果由有效父轮继续汇总，父轮中断则沿原键补报；同来源多个目标共用一份总结，dev 留在原会话，main 有原 IM 来源时回原入口、CLI/TUI 来源留原会话，定时来源等名下全部运行后只走调度最终回报；平台字符上限内优先保留宿主终态、覆盖、停止核实与失败事实，终态事实取代启动和中途的旧状态。停止已核实不代表写入效果已知。`delivery.status=reported` 表示汇总及适用的通知登记完成，真实发送状态用 `ruukoto notify list|show` 查看；`workflow_question` 是问题通知，最终 main 回报是 `owner_reply`。failed/effect_unknown 不自动重发，入口换代不改目标。暂停、取消与未核实停止事实保留在运行记录，已有外部效果不回滚。
 
-定义文件在实例 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。脚本是 async 函数体，接收 JSON `input`，可调用 `agent`、`ask`、`integrate`、`progress`；先让模型用 `workflow_instructions` 读取编写说明。文件/临时脚本均须通过普通文件、UTF-8、128 KiB 与 QuickJS 语法校验，符号链接和越界名称拒绝，不回退旧版本。每次运行固定版本、参数及来源授权；编辑当前文件只影响新请求。模型可在当前可信任务内自主使用，计划模式、子任务和工作流步骤不能发起嵌套运行。
+定义文件在实例 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。保存入口自动写入接口版本首行，后面是 async 函数体，接收 JSON `input`，可调用 `agent`、`ask`、`integrate`、`progress`；先让模型用 `workflow_instructions` 读取编写说明。文件/临时脚本均须通过普通文件、UTF-8、128 KiB 与 QuickJS 语法校验，符号链接和越界名称拒绝，不回退旧版本。每次运行固定版本、参数及来源授权；编辑当前文件只影响新请求。模型可在当前可信任务内自主使用，计划模式、子任务和工作流步骤不能发起嵌套运行。
 
 两产品均可用 CLI 管理定义和运行；下面用 Coding Agent 示范，个人产品将命令名前缀换成 `ruukoto`。启动固定当前会话的模型和模式；需改变授权先用已有模式入口选择，启动参数不能回填授权。
 
@@ -384,7 +401,7 @@ ruukoto-code workflow step wfrun_x step-key
 ruukoto-code workflow question wfrun_x question-key
 ```
 
-`save` 新建时不填 `--expected-digest`；更新须用 `definition` 返回的当前 digest。正文/问题/步骤可用 `--offset`、`--length` 按 UTF-8 字节分页，详情步骤用 `--step-offset`；定义历史用 `--version-offset` 按返回的 `nextVersionOffset` 续读，每页 100 项。列表/详情只含送达摘要，完整最终事实和回报正文用 logs 分页读取；历史脚本用 `workflow version <定义ID>`。运行参数也可 `--input-file` 读取 JSON；临时脚本以 `workflow run --script-file F --title 名称 --session S --request-id K` 启动，可用 `--description` 填简短说明；命名定义的名称固定，不接受 `--title` 覆盖。定义不可读/语法失败先修文件，`script_validator_unavailable` 先运行 `npm run build:script`；模型或执行入口失败先检查配置。
+`save` 新建时不填 `--expected-digest`；更新须用 `definition` 返回的当前 digest。正文/问题/步骤可用 `--offset`、`--length` 按 UTF-8 字节分页，详情步骤用 `--step-offset`；定义历史用 `--version-offset` 按返回的 `nextVersionOffset` 续读，每页 100 项。列表/详情只含送达摘要，完整最终事实和回报正文用 logs 分页读取；历史脚本用 `workflow version <定义ID>`。运行参数也可 `--input-file` 读取 JSON；临时脚本以 `workflow run --script-file F --title 名称 --session S --request-id K` 启动，可用 `--description` 填简短说明；命名定义的名称固定，不接受 `--title` 覆盖。无版本标记的旧定义可查，须按 `role` / `target` / `verify` 更新正文，再用 `save` 与当前摘要显式保存新版；旧运行保留查询与取消，不恢复或自动重跑。临时脚本的旧 `mode` 调用会被拒绝，先前步骤的副作用仍保留。定义不可读/语法失败先修文件，`script_validator_unavailable` 先运行 `npm run build:script`；模型或执行入口失败先检查配置。
 
 | CLI 后续操作 | 必填字段 |
 | --- | --- |
@@ -394,7 +411,7 @@ ruukoto-code workflow question wfrun_x question-key
 | `workflow find` | 原启动的 `--session`、`--request-id` |
 | `workflow saved` | 原保存的 `--request-id` |
 
-所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 的确认字段自动解除。取消保留历史及成果，具体故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema 41/协议 25 按严格版本策略拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
+所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 确认自动解除。取消保留历史及成果，故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema 45/协议 26 严格拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
 
 TUI 用 `/workflow` 打开侧栏：默认列出当前会话全部活动运行和最近十项结果，历史和长列表可续读。选运行后进入详情，查看步骤、日志、业务问题及独立的停止核实、效果未知和最终回报状态，再选择回答、暂停、恢复、取消或预算；名称、含毫秒时间、展示序号和显式说明帮助辨认同名运行。选“启动工作流”后选择已保存定义、填写 JSON 业务参数与可选简短说明，再确认启动；编辑脚本通过文件或 Agent。Enter 确认、↑↓ 选择、PageUp/PageDown 阅读正文，Esc 逐层返回并在根层关闭，浏览层也可用 q 返回。宽度至少 120 列时侧栏与聊天共存，Tab 切换焦点；窄屏以独立窗口显示同一所在层，Tab 可回聊天，缩放保留选择。关闭侧栏或客户端不取消运行。稳定键、原版本和参数由程序在发送前落盘，应答丢失、重连和客户端重启先只读核实原提交；明确未接收后可选择原键原参数重试，实例变化或记录损坏时保留待核实，不向新库重发。过期操作退回最新详情，重新选择并确认。
 
@@ -594,6 +611,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 | 服务不可用事件 | 按事件中的 reason 区分连接失败、超时、协议不兼容（SDK 结果校验失败说明服务端违反 MCP 规范）与工具数／分页超限 |
 | 工具缺失 | `mcp check` 对比远端实际工具与允许列表；远端改名须更新配置（下一任务生效） |
 | 限流（429）与超时 | 一次终止并明确报错，不自动重试；由拥有者决定重试时机 |
+| `snapshot_missing` / `snapshot_corrupt` / `snapshot_changed` | 保留原目录、副本、私有基线和历史，核实来源身份及文件是否仍完整；该工作不能继续/交付，不回退 HEAD 或自动重跑，向拥有者报告后重新准备新工作 |
 | `version_conflict` | 带有 `--expected-version` 的调用发现版本不符；重新读取当前版本后再保存 |
 
 ### 10.4 消息入口

@@ -1,0 +1,12 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "node": "v24.15.0",
+  "npm": "11.12.1",
+  "git": "git version 2.54.0",
+  "cwd": "/Users/eitrous/orca/workspaces/ruukoto/subagent-roles",
+  "head": "d12eb6329da9fd9128989ef0725ce1243627068d",
+  "branch": "Eitrous/subagent-roles",
+  "model": "offline mock",
+  "execution": "real Runtime/Driver/worker; macOS native when required"
+}

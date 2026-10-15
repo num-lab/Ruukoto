@@ -1,0 +1,26 @@
+[
+  {
+    "archive": "05-14-visibility-independent-diagnostic.tar.gz",
+    "sha256": "9b5f5cfc81f140afecb997442ec6a12cf5b7ec28b320d9aeceb89a420de3874b",
+    "regular_files": 10,
+    "checks": [
+      {
+        "manifest": "MANIFEST.json",
+        "hashed_members": 9,
+        "mismatches": []
+      }
+    ]
+  },
+  {
+    "archive": "05-14-visibility-race-evidence.tar.gz",
+    "sha256": "cb1f9eccae7a37ae5245946e89cecea3bcef1fe20b8a259cfaff443c341c843b",
+    "regular_files": 30,
+    "checks": [
+      {
+        "manifest": "14-visibility-race-evidence/file-manifest.json",
+        "hashed_members": 29,
+        "mismatches": []
+      }
+    ]
+  }
+]

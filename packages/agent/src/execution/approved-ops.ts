@@ -46,6 +46,7 @@ export interface FileOpRequest {
   originalSha256: string | null;
   /** 始终排除的保护根目录（后台数据、服务凭据、控制面）。 */
   protectedRoots: string[];
+  writeProtectedRoots?: string[];
 }
 
 export interface FileOpOutcome {
@@ -62,25 +63,41 @@ function lstatNoFollow(p: string): fs.Stats {
 }
 
 /** 挂载别名与硬链接可有不同文本路径，保护范围仍按同一文件系统对象判定。 */
-function identityCovers(parent: string, target: string): boolean {
+function identityCovers(parent: string, target: string, descendants = false): boolean {
   if (!fs.existsSync(parent)) return false;
   const pinned = fs.statSync(parent, { bigint: true });
+  const targetIdentities = new Set<string>();
   let current = path.resolve(target);
   for (;;) {
     if (fs.existsSync(current)) {
       const stat = fs.statSync(current, { bigint: true });
       if (stat.dev === pinned.dev && stat.ino === pinned.ino) return true;
+      if (descendants) targetIdentities.add(`${stat.dev}:${stat.ino}`);
     }
     const ancestor = path.dirname(current);
-    if (ancestor === current) return false;
+    if (ancestor === current) break;
     current = ancestor;
   }
+  if (!descendants || !pinned.isDirectory()) return false;
+  // 子对象的 bind 别名不含保护根的祖先身份；不跟随符号链接，遍历失败向调用方传播。
+  const pending = [fs.realpathSync(parent)], visited = new Set<string>();
+  while (pending.length) {
+    const entry = pending.pop()!;
+    const stat = fs.lstatSync(entry, { bigint: true });
+    if (stat.isSymbolicLink()) continue;
+    const key = `${stat.dev}:${stat.ino}`;
+    if (targetIdentities.has(key)) return true;
+    if (!stat.isDirectory() || visited.has(key)) continue;
+    visited.add(key);
+    pending.push(...fs.readdirSync(entry).map(name => path.join(entry, name)));
+  }
+  return false;
 }
 
 export function isProtectedPath(resolved: string, protectedRoots: string[]): boolean {
   for (const root of protectedRoots) {
     const realRoot = path.resolve(root);
-    if (resolved === realRoot || resolved.startsWith(realRoot + path.sep) || identityCovers(realRoot, resolved)) {
+    if (resolved === realRoot || resolved.startsWith(realRoot + path.sep) || identityCovers(realRoot, resolved, true)) {
       return true;
     }
   }
@@ -144,6 +161,7 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
   try {
     const resolved = restrictedResolve(req.path, { allowMissingLast: true });
     assertNotProtected(resolved, req.protectedRoots);
+    if (req.access === "read_write") assertNotProtected(resolved, req.writeProtectedRoots ?? []);
     let st: fs.Stats | null = null;
     try {
       st = lstatNoFollow(resolved);
@@ -151,6 +169,7 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
       // 可能是新建文件
     }
     if (st?.isDirectory()) throw new ApprovedOpError("目标是目录，不支持目录级文件操作");
+    if (req.access === "read_write" && req.writeProtectedRoots?.length && st && st.nlink > 1) throw new ApprovedOpError("来源保护任务不能写入多硬链接文件，请在独立工作目录新建检查产物");
 
     if (req.access === "read") {
       if (!st) throw new ApprovedOpError("目标文件不存在（读取）");
@@ -179,6 +198,7 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
       const fd = fs.openSync(resolved, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
       try {
         const opened = fs.fstatSync(fd);
+        if (req.writeProtectedRoots?.length && opened.nlink > 1) throw new ApprovedOpError("来源保护任务不能写入多硬链接文件，请在独立工作目录新建检查产物");
         if (opened.dev !== req.targetDev || opened.ino !== req.targetIno) {
           throw new ApprovedOpError("目标文件在等待期间已被替换，批准失效，请重新申请");
         }

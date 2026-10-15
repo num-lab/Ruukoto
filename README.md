@@ -21,6 +21,8 @@
 - 真实 QQ / Telegram 平台缺少实测证据（消息平台目前使用模拟验证）；
 - 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
 
+[角色与汇总用法](docs/usage.md#44-子代理角色文件)。
+
 [逐项验收证据](docs/release-acceptance.md)。
 
 ## 快速开始
@@ -80,7 +82,7 @@ ruukoto qq enable
 
 ### 开发本项目
 
-两产品支持[后台工作流](docs/modules/workflows.md)与可打断等待：`workflow` 管理定义与运行；TUI `/workflow` 侧栏选择启动与控制，Tab 切聊天、Esc 返回；IM 用明确命令。[操作说明](docs/usage.md#511-工作流问题与回报)与[测试导航](docs/development.md#日常反馈)列六输入组合及真实模型验证。
+支持[后台工作流](docs/modules/workflows.md)与可打断等待：`workflow` 管理定义与运行，旧定义保存升级；TUI `/workflow` 侧栏启动与控制，Tab 切聊天、Esc 返回；IM 用明确命令。[操作说明](docs/usage.md#511-工作流问题与回报)与[测试导航](docs/development.md#日常反馈)列六输入组合及真实模型验证。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
 
@@ -96,7 +98,7 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 
 ## 文档
 
-- [docs/usage.md](docs/usage.md)：操作手册——运行、配置、启用各入口、导入旧实例与故障排查
+- [docs/usage.md](docs/usage.md)：操作手册——运行、配置（含子代理角色文件）、启用各入口、导入旧实例与故障排查
 - [docs/architecture.md](docs/architecture.md)：模块地图与四条主流程
 - [docs/modules/](docs/modules/)：各模块的设计文档
 - [docs/development.md](docs/development.md)：可复现环境、开发检查、开发实例与测试导航

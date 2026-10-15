@@ -395,6 +395,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "data_grant.created", grantId: "grant_demo000000", fromProjectId: "proj_other", toProjectId: PROJECT_ID, category: "history" },
     { type: "data_grant.revoked", grantId: "grant_demo000000", fromProjectId: "proj_other", toProjectId: PROJECT_ID, category: "history" },
     { type: "memory.saved", memoryId: "mem_demo00000000", projectId: PROJECT_ID, version: 1, author: "agent", taskId: "task_completed000" },
+    { type: "task.memory_accessed", taskId: "task_completed000", sessionId: SESSION_ID, memoryId: "mem_demo00000000" },
     { type: "memory.revoked", memoryId: "mem_demo00000000", projectId: PROJECT_ID, version: 2, author: "owner", taskId: null },
     { type: "memory.restored", memoryId: "mem_demo00000000", projectId: PROJECT_ID, fromVersion: 1, newVersion: 3, author: "owner", taskId: null },
     // issue 21 §4：模型配置在线应用（目录/凭据/后台默认模型）

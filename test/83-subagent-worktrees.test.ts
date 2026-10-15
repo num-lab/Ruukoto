@@ -20,9 +20,9 @@ import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-
  *   不登记工作）；单次任务取消后已写文件仍在；worktree 被删除后的继续委派
  *   明确拒绝；退出未核实的占用按 worktree 键保留，Agent 记 unverified；取消
  *   不触碰副本；继续委派沿用首次钉定目标，复用承接新工作另建副本；
- * - 计划模式/SubAgent 自身不能发起 modify 委派（main 由 issue 17 开放、固定
+ * - 计划模式/SubAgent 自身不能发起目标委派 委派（main 由 issue 17 开放、固定
  *   角色拒绝在 test/84 覆盖）；只读工作不能升级为写入；
- *   modify 摘要不进 11 的重放摘要；原生执行边界由真实 OS 冒烟验证。
+ *   无目标工作的原键重放返回旧记录；原生执行边界由真实 OS 冒烟验证。
  */
 
 import assert from "node:assert/strict";
@@ -59,7 +59,7 @@ test("并行 worktree：两项修改工作同时 running，各自改动隔离，
   let firstEditB = true;
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]")) {
       if (text.includes("PATCH-A")) {
         // 两次模型调用：第一拍挂起（父持锁期间并行 running），第二拍发 edit 后完工
         if (firstEditA) {
@@ -92,18 +92,18 @@ test("并行 worktree：两项修改工作同时 running，各自改动隔离，
     fs.writeFileSync(path.join(t.work[0]!, "src/a.ts"), "export const v = 1\n", "utf8");
     fs.writeFileSync(path.join(t.work[0]!, "src/b.ts"), "export const v = 2\n", "utf8");
     initGitRepo(t.work[0]!);
-    // 父工作区的未提交修改与新增不能进副本；主会话字节照原
+    // 捕获当前未提交内容，后续子任务只在自己的副本修改。
     fs.writeFileSync(path.join(t.work[0]!, "src/a.ts"), "export const v = 1 // dirty\n", "utf8");
     const session = await rt.createSession({ projectName: "wtpar", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", accessMode: "full_access", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
 
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "wt-a", request: "PATCH-A 改 a.ts", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "wt-a", request: "PATCH-A 改 a.ts", target: ".",
       materials: null, readPaths: null, paramsDigest: "da-wta",
     });
     const b = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "wt-b", request: "PATCH-B 改 b.ts", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "wt-b", request: "PATCH-B 改 b.ts", target: ".",
       materials: null, readPaths: null, paramsDigest: "da-wtb",
     });
     const wtA = a.work.writeTarget!;
@@ -131,11 +131,12 @@ test("并行 worktree：两项修改工作同时 running，各自改动隔离，
     await waitFor("B 完工", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
 
     // 改动落在各自副本，主工作区字节不变（含未提交的 dirty 与后续新增）
-    assert.equal(fs.readFileSync(path.join(wtA.path, "src/a.ts"), "utf8"), "export const v = 101\n");
+    assert.equal(fs.readFileSync(path.join(wtA.path, "src/a.ts"), "utf8"), "export const v = 101 // dirty\n");
     assert.equal(fs.readFileSync(path.join(wtB.path, "src/b.ts"), "utf8"), "export const v = 202\n");
+    assert.equal(fs.readFileSync(path.join(wtB.path, "src/a.ts"), "utf8"), "export const v = 1 // dirty\n", "未改该文件的子任务看到当前脏内容");
     assert.equal(fs.readFileSync(path.join(t.work[0]!, "src/a.ts"), "utf8"), "export const v = 1 // dirty\n", "主工作区副本不能被「已存在的污染」改变");
     fs.writeFileSync(path.join(t.work[0]!, "untracked.md"), "uncommitted-ocius\n", "utf8");
-    assert.equal(fs.readFileSync(path.join(t.work[0]!, "untracked.md"), "utf8"), "uncommitted-ocius\n", "未提交新增未进入副本");
+    assert.equal(fs.readFileSync(path.join(t.work[0]!, "untracked.md"), "utf8"), "uncommitted-ocius\n", "后续新增不改变已捕获副本");
 
     // 查看：快照中的写入目标与 TUI 汇总
     const shown = (await t.client.request<any>("work_get", { work_id: a.work.id })) as any;
@@ -158,7 +159,7 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
   let release: (() => void) | null = null;
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]")) {
       await new Promise<void>((res) => (release = res));
       return { kind: "text", text: "完工" };
     }
@@ -176,7 +177,7 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "spec-a", request: "PATCH-LAT", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "spec-a", request: "PATCH-LAT", target: ".",
       materials: null, readPaths: null, paramsDigest: "dspeca",
     });
     await waitFor("子任务 running", () => rt.store.getTask(a.task.id)!.status === "running");
@@ -193,13 +194,14 @@ test("子任务的 LaunchSpec 钉定：workspace=本副本、共享 Git 目录�
     assert.ok(driverSpec, "Driver 活跃时可读出 LaunchSpec");
     assert.equal(driverSpec.workspace, wt.path, "workspace 是本副本");
     assert.deepEqual(driverSpec.grantedPaths, [], "不继承任何 grantedPaths");
-    assert.equal(driverSpec.readRoots.length, 1, "worktree 副本只多一枚 readRoot");
+    assert.equal(driverSpec.readRoots.length, 2, "共享 Git 与私有基线都只读");
     const commonStat = fs.statSync(wt.commonGitDir);
     assert.deepEqual(
       driverSpec.readRoots[0],
       { path: wt.commonGitDir, dev: commonStat.dev, ino: commonStat.ino },
       "共享 Git 目录按宿主身份只读纳入",
     );
+    assert.deepEqual(driverSpec.readRoots[1], wt.snapshot.repository);
     assert.deepEqual(driverSpec.env, { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "*" }, "只带 Git safe.directory=* 的宿主注入环境");
     assert.deepEqual(
       driverSpec.workspaceIdentity,
@@ -227,7 +229,7 @@ test("授予路径与边界守门：覆盖副本根的读写被拒绝、只读�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "gu-a", request: "x", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "gu-a", request: "x", target: ".",
       materials: null, readPaths: null, paramsDigest: "dgu-a",
     });
     await waitFor("副本已建", () => fs.existsSync(a.work.writeTarget!.path));
@@ -260,7 +262,7 @@ test("授予路径与边界守门：覆盖副本根的读写被拒绝、只读�
     await assert.rejects(
       () =>
         delegateFromActiveTask(rt, {
-          parentTaskId: parent.id, key: "gu-out", request: "x", mode: "modify", target: "outside-link",
+          parentTaskId: parent.id, key: "gu-out", request: "x", target: "outside-link",
           materials: null, readPaths: null, paramsDigest: "dgu-out",
         }),
       /工作区内/,
@@ -283,7 +285,7 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
   const marks: string[] = [];
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("WRITE-DIRECT")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("WRITE-DIRECT")) {
       marks.push("child-started");
       await new Promise<void>((res) => (release = res));
       return { kind: "text", text: "child-done" };
@@ -304,7 +306,7 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
     await waitFor("父在 running", () => releaseParent !== null);
     // 父持锁时发起非 Git 修改（target 是父工作区内的非 Git 子树）
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "d1", request: "WRITE-DIRECT", mode: "modify", target: "docs",
+      parentTaskId: parent.id, key: "d1", request: "WRITE-DIRECT", target: "docs",
       materials: null, readPaths: null, paramsDigest: "dd1",
     });
     const wtRaw = a.work.writeTarget!;
@@ -403,7 +405,7 @@ test("创建失败保留现场：worker 副本创建被拦，错误含路径与�
     let error: unknown = null;
     try {
       await delegateFromActiveTask(rt, {
-        parentTaskId: parent.id, key: "cf1", request: "x", mode: "modify", target: ".",
+        parentTaskId: parent.id, key: "cf1", request: "x", target: ".",
         materials: null, readPaths: null, paramsDigest: "dcf1",
       });
     } catch (err) {
@@ -411,7 +413,7 @@ test("创建失败保留现场：worker 副本创建被拦，错误含路径与�
     }
     assert.ok(error, "委派被拒绝（worker 注入失败）");
     const msg = String((error as { message?: unknown }).message);
-    assert.match(msg, /副本创建失败/, "错误含创建失败原因");
+    assert.match(msg, /捕获失败|副本创建失败/, "错误含准备失败原因");
     assert.match(msg, /agent-work\/worktrees|ruukoto\/work-/, "错误含副本路径或分支名（现场位置可查）");
     const worktreeRoot = path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "worktrees");
     assert.ok(fs.existsSync(worktreeRoot), "副本根现场存在（宿主不删现场）");
@@ -429,7 +431,7 @@ test("单个执行任务取消后已写文件仍在 worktree；写入目标不�
   const afterEdit = new Promise<void>((resolve) => { releaseAfterEdit = resolve; });
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("PATCH-CANCEL")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-CANCEL")) {
       if (!firstPhase) {
         await afterEdit;
         return { kind: "text", text: "done" };
@@ -451,7 +453,7 @@ test("单个执行任务取消后已写文件仍在 worktree；写入目标不�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "wc1", request: "PATCH-CANCEL", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "wc1", request: "PATCH-CANCEL", target: ".",
       materials: null, readPaths: null, paramsDigest: "dwc1",
     });
     const wt = a.work.writeTarget!;
@@ -494,7 +496,7 @@ test("退出未核实：占用按 worktree 键保留、Agent 记 unverified；�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "wu1", request: "x", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "wu1", request: "x", target: ".",
       materials: null, readPaths: null, paramsDigest: "dwu1",
     });
     const wt = a.work.writeTarget!;
@@ -538,7 +540,7 @@ test("worktree 被删除后的继续委派明确拒绝（不自动重建）；�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "xg1", request: "x", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "xg1", request: "x", target: ".",
       materials: null, readPaths: null, paramsDigest: "dxg1",
     });
     const wt = a.work.writeTarget!;
@@ -570,7 +572,7 @@ test("worktree 被删除后的继续委派明确拒绝（不自动重建）；�
 test("继续委派沿用首次钉定目标；复用承接新工作另建副本（旧改动不进新工作）", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]")) return { kind: "text", text: "done-by-continued" };
+    if (text.includes("[SubAgent 委派 · 工作区目标]")) return { kind: "text", text: "done-by-continued" };
     return { kind: "text", text: "父回复" };
   };
   const parentGate = holdParentResponse(responder);
@@ -584,7 +586,7 @@ test("继续委派沿用首次钉定目标；复用承接新工作另建副本�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
     const a = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "c1", request: "PATCH-首次", mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "c1", request: "PATCH-首次", target: ".",
       materials: null, readPaths: null, paramsDigest: "dc1",
     });
     await waitFor("首次完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
@@ -602,7 +604,7 @@ test("继续委派沿用首次钉定目标；复用承接新工作另建副本�
     await waitFor("继续完成", () => rt.store.getTask(cont.task.id)!.resultSummary !== null);
     await waitFor("Agent 空闲", () => rt.store.getSubAgent(a.agent.id)!.state === "idle");
     const contCall = t.server.calls.find((c) => {
-      return inputText(c).includes("[SubAgent 委派 · 工作区修改]") && inputText(c).includes("继续一次");
+      return inputText(c).includes("[SubAgent 委派 · 工作区目标]") && inputText(c).includes("继续一次");
     });
     assert.ok(contCall, "找到继续委派的模型调用");
     if (contCall) {
@@ -611,7 +613,7 @@ test("继续委派沿用首次钉定目标；复用承接新工作另建副本�
 
     // 复用同一 Agent 承接第二项（修改）工作：另建副本（新 workId），旧改动不进新副本
     const okOther = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "c3", request: "PATCH-ice 承接新工作", subAgentId: a.agent.id, mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "c3", request: "PATCH-ice 承接新工作", subAgentId: a.agent.id, target: ".",
       materials: null, readPaths: null, paramsDigest: "dc3",
     });
     const reuseTarget = rt.store.getWorkDelegation(okOther.work.id)!.writeTarget!;
@@ -625,7 +627,7 @@ test("继续委派沿用首次钉定目标；复用承接新工作另建副本�
   }
 });
 
-test("复用同一 SubAgent 从只读工作转到修改工作：新任务拿到写入工具（SDK 签名含画像工具集，不靠每任务释放 Driver）", async () => {
+test("复用同一 general 到修改目标：两任务保持同源工具，执行目录随目标固定", async () => {
   const responder: Responder = async () => ({ kind: "text", text: "done" });
   const parentGate = holdParentResponse(responder);
   const t = await startTestRuntime("wk-ro2rw", parentGate.responder, { config: realTools(), workDirs: 1 });
@@ -641,21 +643,23 @@ test("复用同一 SubAgent 从只读工作转到修改工作：新任务拿到�
     await waitFor("只读完成", () => rt.store.getTask(ro.task.id)!.resultSummary !== null);
     await waitFor("Agent 空闲", () => rt.store.getSubAgent(ro.agent.id)!.state === "idle");
     const rw = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id, key: "r2", request: "RW-再修改", subAgentId: ro.agent.id, mode: "modify", target: ".",
+      parentTaskId: parent.id, key: "r2", request: "RW-再修改", subAgentId: ro.agent.id, target: ".",
       materials: null, readPaths: null, paramsDigest: "dr2",
     });
     assert.equal(rw.agent.id, ro.agent.id, "同一 SubAgent 承接");
     await waitFor("修改完成", () => rt.store.getTask(rw.task.id)!.resultSummary !== null);
     const callOf = (mark: string) => t.server.calls.find((c) => lastUserText(c).includes(mark))!;
-    assert.deepEqual(toolNamesOf(callOf("RO-先只读")).sort(), ["read", "read_artifact", "subagent_message"].sort());
-    assert.deepEqual(toolNamesOf(callOf("RW-再修改")).sort(), ["bash", "edit", "read", "read_artifact", "subagent_message", "write"].sort(), "复用到修改工作拿到写入工具");
+    const ordinary = toolNamesOf(callOf("RO-先只读")).sort();
+    assert.ok(ordinary.includes("bash"));
+    assert.deepEqual(toolNamesOf(callOf("RW-再修改")).sort(), ordinary);
+    assert.equal(rt.store.getSession(rw.task.sessionId)!.cwdReal, rw.work.writeTarget!.path);
   } finally {
     parentGate.release();
     await t.shutdown();
   }
 });
 
-test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工作不能升级为写入；modify 摘要不进只读重放摘要（main 开门与固定角色拒绝见 test/84）", async () => {
+test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工作不能升级为写入；无目标工作的原键重放返回旧记录（main 开门与固定角色拒绝见 test/84）", async () => {
   const responder: Responder = async () => ({ kind: "text", text: "父回复" });
   const parentGate = holdParentResponse(responder);
   const t = await startTestRuntime("wk-gates", parentGate.responder, { config: realTools(), workDirs: 1 });
@@ -673,7 +677,7 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
     // 计划模式：modify 被拒
     await assert.rejects(
       () =>
-        delegateFromActiveTask(rt, { parentTaskId: dev.id, key: "gp", request: "x", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "dgp" }),
+        delegateFromActiveTask(rt, { parentTaskId: dev.id, key: "gp", request: "x", target: ".", materials: null, readPaths: null, paramsDigest: "dgp" }),
       /计划模式/,
     );
 
@@ -681,13 +685,13 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
     await waitFor("普通父任务在运行", () => rt.store.getTask(normal.id)!.status === "running");
     // SubAgent 自身（非用户会话）：委派入口已友好拒绝
     const mainSub = await delegateFromActiveTask(rt, {
-      parentTaskId: normal.id, key: "gs", request: "x", mode: "modify", target: ".",
+      parentTaskId: normal.id, key: "gs", request: "x", target: ".",
       materials: null, readPaths: null, paramsDigest: "dgs",
     });
     // SubAgent 会话的会话由宿主识别；子会话不能充当父（parentTaskId 子任务直接拒绝）
     await assert.rejects(
       () =>
-        delegateFromActiveTask(rt, { parentTaskId: mainSub.task.id, key: "gs2", request: "x", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "dgs2" }),
+        delegateFromActiveTask(rt, { parentTaskId: mainSub.task.id, key: "gs2", request: "x", target: ".", materials: null, readPaths: null, paramsDigest: "dgs2" }),
       /只有用户会话|不能委派下级|SubAgent 不能委派下级/,
     );
 
@@ -699,17 +703,17 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
     await assert.rejects(
       () =>
         delegateFromActiveTask(rt, {
-          parentTaskId: normal.id, key: "ro2", request: "升级cannot", workId: readOnly.work.id, mode: "modify",
+          parentTaskId: normal.id, key: "ro2", request: "升级cannot", workId: readOnly.work.id, target: ".",
           materials: null, readPaths: null, paramsDigest: "dro2",
         }),
-      /只读|不能升级为写入/,
+      /继续委派沿原目标|不能重新指定 target/,
     );
 
-    // 只读重放摘要保持原参不变（modify 字段不入只读路径）
+    // 无目标工作的重放摘要保持原参不变
     const replay = await delegateFromActiveTask(rt, {
       parentTaskId: normal.id, key: "ro1", request: "只读分析片段", readPaths: ["."], materials: null, paramsDigest: "dro1",
     });
-    assert.equal(replay.created, false, "11 的重放摘要保持逐字节（modify 字段不入只读路径）");
+    assert.equal(replay.created, false, "无目标工作的重放返回原记录");
   } finally {
     parentGate.release();
     await t.shutdown();
@@ -718,7 +722,7 @@ test("边界：计划模式/SubAgent 自身不能发起修改委派；只读工�
 
 
 
-test("子任务调用门与装配：伪造写调用被发送两处拒绝（只读工作守卫不回退）", async () => {
+test("子任务调用门与装配：显式只读角色的伪造写调用被拒绝", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
     if (text.includes("[SubAgent 委派")) {
@@ -730,14 +734,15 @@ test("子任务调用门与装配：伪造写调用被发送两处拒绝（只�
   const t = await startTestRuntime("wk-gate2", responder, { config: realTools() });
   try {
     const rt = t.runtime;
+    const roles = path.join(t.dirs.agentDir, "agents"); fs.mkdirSync(roles, { recursive: true });
+    fs.writeFileSync(path.join(roles, "reader.md"), "---\ndescription: 只读读取\ntools: [read, read_artifact, subagent_message]\n---\n读取指定资料。\n");
     const session = await rt.createSession({ projectName: "wfx", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "委派", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const deleg = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "fw1", request: "伪造写", readPaths: ["."], materials: null, paramsDigest: "dfw1" });
+    const deleg = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "fw1", role: "reader", request: "伪造写", readPaths: ["."], materials: null, paramsDigest: "dfw1" });
     await waitFor("子任务完成", () => rt.store.getTask(deleg.task.id)!.status === "completed");
-    // 只读工作的装配仍收窄到 read/read_artifact（与迁前一致）
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"))!;
-    assert.deepEqual(toolNamesOf(subCall).sort(), ["read", "read_artifact", "subagent_message"].sort(), "只读工作装配保持只在迁前清单与工作内消息（issue 13）");
+    assert.deepEqual(toolNamesOf(subCall).sort(), ["read", "read_artifact", "subagent_message"].sort());
     const toolResults = t.server.calls.filter((c) => afterTool(c) && inputText(c).includes("[SubAgent 委派")).map(lastToolText).join("\n");
     assert.match(toolResults, /not found|白名单不含 edit|本任务工具白名单不含 edit/, "伪造写调用在发送/调用两处被拒");
   } finally {
@@ -764,22 +769,23 @@ for (const outcome of [false, "throws"] as const) {
       const parent = await rt.submit({ sessionId: session.id, requestId: "p", input: "开始", modelSelection: rt.defaultSelection });
       await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
       rt.launcherFor = () => controlled.launcher;
-      const operation = delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
+      const operation = delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
       const rejected = assert.rejects(operation, { code: "worker_stop_unverified" });
       await waitFor("Git 调用已发送", () => controlled.requests.some((request) => request.type === "tool_call"));
-      const op = rt.store.listToolOpsByTask(parent.id).find((entry) => entry.toolName === "worktree_create")!;
+      const host = rt.store.listTasksBySession(session.id).find(task => task.readScope?.workCopyHost?.parentTaskId === parent.id)!;
+      const op = rt.store.listToolOpsByTask(host.id).find((entry) => ["worktree_capture", "worktree_create"].includes(entry.toolName))!;
       const copyDir = String(op.params.copyDir);
       fs.writeFileSync(path.join(copyDir, "result.txt"), "已创建的现场\n");
       controlled.reply();
       await rejected;
       await waitFor("父中断", () => rt.store.getTask(parent.id)!.status === "interrupted");
       assert.equal(rt.store.getOccupancyByDir(session.cwdReal)?.taskId, parent.id);
-      assert.equal(rt.store.getOccupancyByDir(copyDir)?.taskId, parent.id);
+      assert.equal(rt.store.getOccupancyByDir(copyDir)?.taskId, host.id);
       assert.equal(rt.store.getToolOp(op.id)!.resultSummary, hash);
       assert.equal(rt.store.getToolOp(op.id)!.effectUnknown, false);
       assert.equal(fs.readFileSync(path.join(copyDir, "result.txt"), "utf8"), "已创建的现场\n");
       assert.equal(rt.store.listWorkDelegationsBySession(session.id).length, 0);
-      assert.ok(controlled.specs[0].taskId.startsWith(`${parent.id}-wt_`));
+      assert.ok(controlled.specs[0].taskId.startsWith(`${host.id}-wt_`));
       const other = await rt.createSession({ projectName: "wt-result-other", cwd: t.work[0] });
       const queued = await rt.submit({ sessionId: other.id, requestId: "blocked", input: "后续任务", modelSelection: rt.defaultSelection });
       const copySession = await rt.createSession({ projectName: "wt-copy-blocked", cwd: copyDir });
@@ -787,7 +793,7 @@ for (const outcome of [false, "throws"] as const) {
       await new Promise((resolve) => setTimeout(resolve, 80));
       assert.equal(rt.store.getTask(queued.id)!.status, "queued");
       assert.equal(rt.store.getTask(copyTask.id)!.status, "queued");
-      await assert.rejects(delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "replacement", request: "替代", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "replacement" }), { code: "task_ending" });
+      await assert.rejects(delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "replacement", request: "替代", target: ".", materials: null, readPaths: null, paramsDigest: "replacement" }), { code: "task_ending" });
       assert.equal(controlled.specs.length, 1);
       assert.equal(stops, 1);
       await rt.resumeQueue(session.id);
@@ -816,7 +822,7 @@ for (const phase of ["ready", "call", "mode", "mode_call"] as const) {
       const parent = await rt.submit({ sessionId: session.id, requestId: "p", input: "开始", modelSelection: rt.defaultSelection });
       await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
       rt.launcherFor = () => controlled.launcher;
-      const operation = delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
+      const operation = delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
       const rejected = assert.rejects(operation, { code: "worker_stop_unverified" });
       await waitFor("临时单元已产生", () => (phase === "call" || phase === "mode_call") ? controlled.requests.some((request) => request.type === "tool_call") : controlled.specs.length === 1);
       if (phase.startsWith("mode")) {
@@ -833,9 +839,10 @@ for (const phase of ["ready", "call", "mode", "mode_call"] as const) {
         assert.equal(events.filter((event) => event.body.type === "task.mode_switch_failed" && event.taskId === parent.id).length, 1);
         assert.equal(events.filter((event) => event.body.type === "task.mode_switched" && event.taskId === parent.id).length, 0);
       }
-      const op = rt.store.listToolOpsByTask(parent.id).find((entry) => entry.toolName === ((phase === "call" || phase === "mode_call") ? "worktree_create" : "worktree_start"))!;
+      const host = rt.store.listTasksBySession(session.id).find(task => task.readScope?.workCopyHost?.parentTaskId === parent.id)!;
+      const op = rt.store.listToolOpsByTask(host.id).find((entry) => (phase === "call" || phase === "mode_call") ? ["worktree_capture", "worktree_create"].includes(entry.toolName) : entry.toolName === "worktree_start")!;
       assert.equal(op.effectUnknown, (phase === "call" || phase === "mode_call"));
-      if (phase === "ready" || phase === "mode") assert.match(op.resultSummary!, /已知未执行/);
+      if (phase === "ready" || phase === "mode") assert.match(op.resultSummary!, /已知未执行|无写入效果/);
       assert.ok(fs.existsSync(String(op.params.copyDir)));
       assert.equal(rt.store.listWorkDelegationsBySession(session.id).length, 0);
     } finally {
@@ -854,7 +861,7 @@ for (const operation of ["create", "integrate"] as const) {
       let parentSessionId = "";
       const responder: Responder = async (req) => {
         if (lastUserText(req).includes("[SubAgent 委派")) return { kind: "text", text: "子任务完成" };
-        if (!afterTool(req)) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "create", request: "修改", mode: "modify", target: "." } }] };
+        if (!afterTool(req)) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "create", request: "修改", target: "." } }] };
         const work = runtime!.store.listWorkDelegationsBySession(parentSessionId)[0]!;
         await waitFor("子任务完成", () => runtime!.store.listTasksByWork(work.id).every((task) => task.resultSummary !== null));
         fs.writeFileSync(path.join(work.writeTarget!.path, "source.txt"), "副本成果\n");
@@ -877,7 +884,8 @@ for (const operation of ["create", "integrate"] as const) {
         const store = new Store(db);
         assert.equal(store.getTask(parent.id)!.status, "interrupted");
         assert.equal(store.getOccupancyByDir(session.cwdReal)?.taskId, parent.id);
-        const op = store.listToolOpsByTask(parent.id).filter((entry) => entry.toolName === (phase === "call" ? `worktree_${operation}` : "worktree_start")).at(-1)!;
+        const hosts = store.listTasksBySession(session.id).filter(task => task.readScope?.workCopyHost?.parentTaskId === parent.id);
+        const op = hosts.flatMap(task => store.listToolOpsByTask(task.id)).filter((entry) => phase === "call" ? entry.toolName === `worktree_${operation}` || (operation === "create" && entry.toolName === "worktree_capture") : entry.toolName === "worktree_start").at(-1)!;
         assert.equal(op.effectUnknown, phase === "call");
         assert.ok(fs.existsSync(String(op.params.copyDir)));
         assert.equal(fs.readFileSync(path.join(t.work[0], "source.txt"), "utf8"), "source\n");
@@ -908,7 +916,7 @@ test("临时单元停止成功期间取消父任务，迟到模式切换不能�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
     rt.launcherFor = () => controlled.launcher;
-    const operation = delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
+    const operation = delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
     const rejected = assert.rejects(operation, { code: "task_ending" });
     await waitFor("临时单元已产生", () => controlled.specs.length === 1);
     rt.store.withTx(() => rt.store.transitionTask(parent.id, ["running"], "awaiting_confirmation"));

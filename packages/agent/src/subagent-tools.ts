@@ -1,5 +1,5 @@
 /**
- * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭；
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md
  * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭；
  * issue 13 工作内协作消息与协作加入；issue 14 整项取消；issue 17 改动汇总与
  * main 修改委派）：subagent_delegate / subagent_result / subagent_close /
@@ -45,6 +45,7 @@ import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import { QQ_PRIVATE_SOURCE,TELEGRAM_SOURCE } from "@ruukoto/core/notify-target.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
+import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { sourceArtifact, sourceResultTasks } from "@ruukoto/core/branch.ts";
 import type { SubAgent,Task } from "@ruukoto/core/types.ts";
 import type { SubAgentDelegateInput,SubAgentDelegation,SubAgentMessageInput,SubAgentMessageResult,WorkCancellation,WorkIntegration } from "@ruukoto/runtime/subagents.ts";
@@ -206,22 +207,23 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
     label: "subagent_delegate",
     description:
       "为一项分析/读取或修改工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录或隔离副本，" +
-      "分析只读（read / read_artifact），修改经宿主后台生成的本地副本隔离（不提交、不推送），访问模式沿用本次发起任务，不能委派下级。" +
+      "role 从子代理角色目录选择，首次省略为 general，继续或复用沿固定角色；需要其他角色时新建 SubAgent。" +
+      "角色省略 tools 时继承来源可委派工具（含 shell），显式工具缺少任一项即拒绝启动；权限继承来源或收紧，不能委派下级。无目标时在独立目录执行，可省略资料。" +
       "开发会话用 read_paths 指定资料路径（受限模式要求父工作区内或父任务已授予）；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
-      "要修改文件时用 mode=modify + target（父工作区内）：Git 仓库目标建宿主生成的本地 worktree 副本，非 Git 目录直接写入并与父会话串行；" +
+      "代码修改和代码审查都明确给 target（父工作区内）：Git 目标从当前内容建立独立副本，包含暂存、未暂存和非忽略新文件；非 Git 目录原地串行，要求来源保护的角色须用 Git 目标；" +
       "副本改动由你用 subagent_integrate 按工作 id 汇回当前工作区（冲突时不覆盖、双方保留）。" +
       "首次省略两参数建立工作；补充原工作用 work_id（修改继续沿用首次钉定的写入目标）；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
       "读范围与资料按本次重新确定，要求该 SubAgent 空闲且未关闭）；work_id 与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入既有工作协作" +
-      "（只读工作；协作者之间与主 Agent 可用 subagent_message 通信）。" +
+      "（无目标工作；协作者之间与主 Agent 可用 subagent_message 通信）。" +
       "返回 workId、subAgentId、taskId 与截止时间；同 key 同参返回原记录，异参冲突。子任务入队后立即返回，" +
       "用 agent_wait 按返回的 taskId 等待本次任务；收到结果后用 subagent_result 读取并继续处理，最后汇报。",
     parameters: Type.Object({
       request: Type.String({ description: "委派正文：要 SubAgent 做什么（目标、范围、验收要求）" }),
       key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
-      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作增加新的分析执行；修改工作继续沿用首次钉定的写入目标）；与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入本工作协作" })),
+      role: Type.Optional(Type.String({ description: "子代理角色目录中的名称；首次省略为 general，继续或复用省略沿固定角色" })),
+      work_id: Type.Optional(Type.String({ description: "既有工作 id（沿原工作追加任务，保留首次钉定的目标）；与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入本工作协作" })),
       sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent（保留上下文）：单独用时承接新工作；与 work_id 同现时加入该既有工作作为协作方" })),
-      mode: Type.Optional(Type.Union([Type.Literal("analyze"), Type.Literal("modify")], { description: "委派模式；仅首次委派可指定，modify 需要 target（dev 与 main 均可发起；计划模式与 SubAgent 自身不能发起）" })),
-      target: Type.Optional(Type.String({ description: "modify 的写入目标（父工作区内；Git 仓库建隔离 worktree 副本，非 Git 目录直接写入与父会话串行）" })),
+      target: Type.Optional(Type.String({ description: "代码修改或审查的目标（父工作区内，可用于任何角色）；Git 建当前内容副本，非 Git 原地串行，要求来源保护时须用 Git。继续原工作沿已登记目标，不重新指定" })),
       read_paths: Type.Optional(
         Type.Array(Type.String(), { description: "仅限开发会话：父工作区内或父任务已授予的待读路径（最多 16 个，只读）" }),
       ),
@@ -234,21 +236,19 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       ),
     }),
     execute: bindExecute(async (ctx, params: any) => {
+      if ("mode" in params) throw new RuntimeApiError("interface_upgrade_required", "mode 委派接口已移除：用 role 选择职责、target 指定代码目标；冻结验证用工作流 agent 的 verify。请更新调用后以原 key 核实，勿换键重放旧工作");
       const task = store.getTask(ctx.taskId);
       if (!task || !ownerOriginated(task)) {
         throw new Error("只有拥有者任务、独立调度运行或宿主保存来源授权的工作唤醒可以委派 SubAgent");
       }
       if (typeof params.key !== "string" || !KEY_RE.test(params.key)) throw new Error("key 必须是 1–64 位字母、数字、_ 或 -");
       if (typeof params.request !== "string" || !params.request.trim()) throw new Error("request 不能为空");
+      if (params.role !== undefined && (typeof params.role !== "string" || !params.role.trim())) throw new Error("role 须为角色目录中的名称");
       if (params.work_id !== undefined && (typeof params.work_id !== "string" || !params.work_id.trim())) {
         throw new Error("work_id 必须是既有工作 id");
       }
       if (params.sub_agent_id !== undefined && (typeof params.sub_agent_id !== "string" || !params.sub_agent_id.trim())) {
         throw new Error("sub_agent_id 必须是既有 SubAgent id");
-      }
-      const mode = params.mode ?? "analyze";
-      if (params.mode !== undefined && params.mode !== "analyze" && params.mode !== "modify") {
-        throw new Error("mode 只能是 analyze 或 modify");
       }
       const target = params.target === undefined ? null : params.target;
       if (target !== null && typeof target !== "string") throw new Error("target 必须是路径字符串");
@@ -256,11 +256,8 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       const isMain = kind === "main" || kind === "scheduled";
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
       const materials = params.materials === undefined ? null : params.materials;
-      if (mode === "modify") {
-        if (target === null || !target.trim()) throw new Error("mode=modify 需要 target");
-        if (readPaths !== null || materials !== null) {
-          throw new Error("mode=modify 时不指定 read_paths 或 materials（写入目标包含自己的资料路径）");
-        }
+      if (target !== null && (readPaths !== null || materials !== null)) {
+        throw new Error("指定 target 时不指定 read_paths 或 materials（目标包含自己的资料路径）");
       }
       if (readPaths !== null) {
         if (isMain) throw new Error("main 会话不能指定 read_paths（请用 materials 引用资料）");
@@ -275,35 +272,23 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
           throw new Error("已接收群摘要仅供 main 与通知使用，不能作为委派资料");
         }
       }
-      if (mode === "analyze" && readPaths === null && materials === null) {
-        throw new Error("必须指定分析对象：开发会话用 read_paths，main 会话用 materials");
-      }
-      const paramsDigest = canonicalParamsDigest(
-        mode === "modify"
-          ? {
-              request: params.request,
-              key: params.key,
-              work_id: params.work_id ?? null,
-              mode: "modify",
-              target: target!.trim(),
-            }
-          : {
-              request: params.request,
-              key: params.key,
-              work_id: params.work_id ?? null,
-              // sub_agent_id 只在提供时纳入摘要：保持复用前（issue 11）的重放摘要不变
-              ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
-              read_paths: readPaths ? [...readPaths].sort() : null,
-              materials: materials ?? null,
-            },
-      );
+      const paramsDigest = canonicalParamsDigest({
+        request: params.request,
+        key: params.key,
+        role: params.role ?? (params.work_id || params.sub_agent_id ? null : "general"),
+        work_id: params.work_id ?? null,
+        ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
+        ...(target !== null ? { target } : {}),
+        read_paths: readPaths ? [...readPaths].sort() : null,
+        materials: materials ?? null,
+      });
       const delegation = await deps.delegate({
         parentTaskId: task.id,
         key: params.key,
         request: params.request,
+        role: params.role,
         workId: params.work_id ?? null,
         subAgentId: params.sub_agent_id ?? null,
-        ...(params.mode !== undefined ? { mode: params.mode as "analyze" | "modify" } : {}),
         target,
         materials,
         readPaths,
@@ -314,7 +299,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         delegation.created && params.work_id !== undefined && params.sub_agent_id !== undefined && delegation.agent.id !== delegation.work.subAgentId;
       const targetNote =
         delegation.created && wt?.kind === "worktree"
-          ? `副本基于提交 ${wt.baseCommit.slice(0, 12)}（分支 ${wt.branch}）：父工作区未提交的改动不在副本内；子任务不能提交，改动留在工作树由你汇总。`
+          ? `独立副本 ${wt.path} 包含委派时当前内容；忽略文件与依赖未复制，检查缺依赖时在获准副本内准备。子任务的新增改动由你汇总，父工作区原改动保留。`
           : delegation.created && wt?.kind === "direct"
             ? `直接写入 ${wt.path}（与父会话按目录占用串行）。`
             : "";
@@ -542,7 +527,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       "能干净套用才写入你的待提交改动区（不代提交、不强制覆盖）；同文件已有本地改动或此前已部分汇总时拒绝并点名冲突文件，" +
       "双方成果都保留供处理；完整差异已在工作区时按幂等返回不重复写入；取消过的工作与已关闭的 SubAgent 也可以汇总（成果可找回）。" +
       "非 Git 直接写入的工作没有副本，调用只会如实告知。" +
-      "只读分析工作没有写入目标、不能汇总。汇总后用你自己的检查（类型、测试等）验证改动，验证不过的待处理内容如实告诉拥有者。",
+      "无 target 的工作没有回写目标、不能汇总。汇总后用你自己的检查（类型、测试等）验证改动，验证不过的待处理内容如实告诉拥有者。",
     parameters: Type.Object({
       work_id: Type.String({ description: "要汇总的工作 id（subagent_delegate 返回；subagent_result 总览可查看）" }),
     }),

@@ -73,8 +73,8 @@ export interface ExecutionProfile {
   /** 规划 MCP：类别含 mcp，或 SubAgent 宿主评审任务。 */
   planMcp: boolean;
   /**
-   * 资料受限（SubAgent）：上下文组装 restricted、技能不钉、/skill 不展开、产物只读
-   * 本任务自产且排除 prompt 快照、发送前复核资料来源。
+   * 资料受限（SubAgent）：不自动注入记忆、父聊天或展开 /skill；项目指令、技能及
+   * 资料沿持久来源装配，排除 prompt 快照并在发送前复核资料来源。
    */
   restricted: boolean;
   /** 以计划模式运行（只普通开发会话）。 */
@@ -82,6 +82,7 @@ export interface ExecutionProfile {
   /** 工具集签名：并入 SDK 会话签名，变化即重建会话（装配过滤只能收窄、不能补回）。 */
   toolSignature: string;
   workflow?: WorkflowExecutionProfile;
+  source?: WorkflowExecutionProfile;
 }
 
 /** 宿主解析的步骤能力；来源身份不改变步骤的独立上下文。 */
@@ -92,6 +93,15 @@ export interface WorkflowExecutionProfile {
   grantIds?: string[];
   tools?: string[];
   verifyTarget?: boolean;
+  collaboration?: boolean;
+  hostVerify?: boolean;
+}
+
+export function sourceAllows(profile: WorkflowExecutionProfile, name: string): boolean {
+  return !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" &&
+    (!profile.hostVerify || SUBAGENT_WRITE_TOOL_NAMES.has(name)) &&
+    !name.startsWith("workflow_") && (!name.startsWith("subagent_") || (name === "subagent_message" && profile.collaboration === true)) &&
+    (!profile.tools || profile.tools.includes(name));
 }
 
 export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
@@ -109,9 +119,16 @@ export function executionProfile(input: {
   /** 提交时固定到任务的 Plan 选择。 */
   planMode: boolean;
   workflow?: WorkflowExecutionProfile | null;
+  source?: WorkflowExecutionProfile | null;
 }): ExecutionProfile {
   const { identity } = input;
   if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
+  if (input.source) {
+    if (identity.kind !== "subagent") throw new WorkflowError("workflow_binding_invalid");
+    const source = input.source;
+    return { toolClass: "subagent", subAgentTools: null, planMcp: source.categories.includes("mcp"), restricted: true, plan: false,
+      toolSignature: `source:${JSON.stringify(source)}`, source, ...(input.workflow ? { workflow: input.workflow } : {}) };
+  }
   if (input.workflow) {
     if (identity.kind !== "subagent" || !identity.workflow) throw new WorkflowError("workflow_binding_invalid");
     const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow", "browser"].includes(category)) };

@@ -1,0 +1,11 @@
+{
+  "oldSha256": "b25678b16eec2780ba28359bd6b01be9a01b7afa4f417442c1849f3a7ef5d31d",
+  "newSha256": "99b21d653e9d1d6dda57ef0325343f4ada3f437a28e9619a7bb81540caaaabae",
+  "validationBodyStatementOrderEqual": true,
+  "typedCatchClausesEqual": true,
+  "originalSourceCallAndMovedStatementsEqual": true,
+  "otherRuntimeMembersAstEqual": 249,
+  "newPrivateHelperCount": 1,
+  "multiStatementTryIntersectingChangedProduction": [],
+  "scope": "TypeScript AST审查不证明所有运行时行为；已另跑真实Runtime边界/恢复和原缺execution反例"
+}

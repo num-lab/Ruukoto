@@ -2,7 +2,13 @@
 
 Status: implemented
 
-已确认的后续变更见[可配置子代理角色](../../proposed/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+工作流角色选择、verify 宿主语义及旧接口升级由[共享角色与接口版本](2026-10-15-workflow-role-interface.md)部分取代；本篇原冻结、停止和汇入决定保留。
+
+部分取代：[当前工作区快照与子增量](2026-10-15-current-workspace-snapshots.md)持有实际内容基线、捕获零写入与宿主准备、完整文件冲突及坏基线隔离；本篇其他独立决定继续适用。
+
+已确认的后续变更见[可配置子代理角色](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+
+来源能力、权限和项目上下文的共用规则由[持久来源能力](2026-10-15-subagent-source-capabilities.md)持有；本篇其他独立决定继续适用。
 
 ## 问题
 

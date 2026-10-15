@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
@@ -33,7 +34,7 @@ test("控制面补报停车：原任务与别名都保留可信身份，实时�
       const sub = store.createSession({ projectId: session.projectId, cwd: session.cwd, cwdReal: session.cwdReal, cwdDev: session.cwdDev,
         cwdIno: session.cwdIno, piSessionId: `parked-${index}`, confirmTools: [] });
       const subAgentId = `sub-${index}`, workId = `work-${index}`;
-      store.insertSubAgent({ id: subAgentId, parentSessionId: session.id, sessionId: sub.id, workDir: session.cwd, activeWorkId: workId,
+      store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: subAgentId, parentSessionId: session.id, sessionId: sub.id, workDir: session.cwd, activeWorkId: workId,
         currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
       store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: parent.id, subAgentId, requestKey: `work-${index}`,
         paramsDigest: "d", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: sub.createdAt });
@@ -97,7 +98,7 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     const parent = await t.runtime.submit({ sessionId: session.id, requestId: "parent", input: "等待后台", modelSelection: t.runtime.defaultSelection });
     await waitFor("等待视图已实时推送", () => state.tasks.get(parent.id)?.wait?.phase === "waiting");
     const detail = await t.client.request<OpResult<"get_task">>("get_task", { task_id: parent.id });
-    assert.equal(PROTOCOL_VERSION, 25);
+    assert.equal(PROTOCOL_VERSION, 26);
     assert.equal(detail.task.resourcePhase, "conversation");
     assert.equal(detail.task.wait!.targets[0].id, runId);
     assert.equal(detail.task.wait!.targets[0].kind, "workflow");

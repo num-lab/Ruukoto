@@ -9,6 +9,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { requireWorkspaceSnapshot } from "./workspace-snapshot.ts";
+import type { WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
 /**
  * worktree 固定 Git 环境：仅在副本创建、使用与汇总时注入 safe.directory，
@@ -62,10 +64,11 @@ export function grantCoversPath(grantedReal: string, targetReal: string): boolea
  */
 export function taskWorkspaceFor(input: {
   session: { cwdReal: string; cwdDev: number; cwdIno: number };
-  work?: { writeTarget?: { kind: string; path: string; dev: number; ino: number; commonGitDir?: string } | null } | null;
+  work?: { writeTarget?: { kind: string; path: string; dev: number; ino: number; commonGitDir?: string; snapshot?: WorkspaceSnapshot } | null } | null;
 }): { path: string; dev: number; ino: number; isWriteTarget: boolean; commonGitDir?: string } {
   const target = input.work?.writeTarget ?? null;
   if (target !== null && target !== undefined) {
+    if (target.kind === "worktree") requireWorkspaceSnapshot(target.snapshot);
     return {
       path: target.path,
       dev: target.dev,

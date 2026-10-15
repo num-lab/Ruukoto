@@ -11,7 +11,7 @@ import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { afterTool, lastToolText, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
-const SCRIPT = 'await agent("change",{request:"修改",mode:"modify",target:"."}); await agent("validate",{request:"独立验证",mode:"verify",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
+const SCRIPT = 'await agent("change",{request:"修改",target:"."}); await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
 
 for (const product of [undefined, codeProduct.runtime]) test(`agent_wait ${product?.type ?? "ruukoto"}：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告`, async () => {
   let parentPhase = 0, runId = "";
@@ -34,7 +34,7 @@ for (const product of [undefined, codeProduct.runtime]) test(`agent_wait ${produ
       }
     }
     assert.ok(!lastUserText(req).startsWith("[工作流最终回报]"), "等待父轮已经拥有报告，不再启动独立汇总");
-    const verify = lastUserText(req).includes('"mode":"verify"');
+    const verify = lastUserText(req).includes('"verify":"change"');
     if (verify && afterTool(req)) {
       const execution = listWorkflowExecutions(t.runtime.store, runId).find(item => item.stepKey === "validate")!;
       const ops = t.runtime.store.listToolOpsByTask(execution.taskId);
@@ -97,7 +97,7 @@ test("非 Git 子任务持真实目录：新拥有者输入打断父等待，内
   const t = await startTestRuntime("agent-wait-direct", req => {
     const input = lastUserText(req);
     if (input === "后台修改") {
-      if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "direct", request: "真实非 Git 修改", mode: "modify", target: "." } }] };
+      if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "direct", request: "真实非 Git 修改", target: "." } }] };
       if (phase === 2) {
         childId = rt.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!.id;
         return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
@@ -156,7 +156,7 @@ test("非 Git 持目录等待真实审批：attention 与新输入可对话，�
   const t = await startTestRuntime("agent-wait-approval", req => {
     const input = lastUserText(req);
     if (input === "委派待审批修改") {
-      if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "approval", request: "修改后等待审批", mode: "modify", target: "." } }] };
+      if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "approval", request: "修改后等待审批", target: "." } }] };
       if (parentPhase === 2) {
         childId = rt.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId)!.id;
         return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };

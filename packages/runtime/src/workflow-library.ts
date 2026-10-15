@@ -1,13 +1,24 @@
 /** 当前命名文件与不可变内容版本分开；读写失败不回退到其他版本。
  * Note: 见 .agents/notes/implemented/feature/2026-10-13-workflow-library-and-controls.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Store } from "@ruukoto/core/store.ts";
 import { getWorkflowDefinition, getWorkflowDefinitionRef, listWorkflowDefinitionVersions, rememberWorkflowDefinition, saveWorkflowDefinition,
-  workflowDigest, workflowName, WorkflowError, WORKFLOW_LIMITS, type WorkflowDefinition } from "@ruukoto/core/workflow.ts";
+  workflowDigest, workflowDefinitionDigest, workflowName, WorkflowError, WORKFLOW_LIMITS, WORKFLOW_INTERFACE_VERSION, type WorkflowDefinition } from "@ruukoto/core/workflow.ts";
 import { validateWorkflowScript } from "@ruukoto/agent/script-worker/validate.ts";
+
+const INTERFACE_PREFIX = "// ruukoto-workflow-interface: ";
+const INTERFACE_HEADER = `${INTERFACE_PREFIX}${WORKFLOW_INTERFACE_VERSION}\n`;
+
+function fileDefinition(content: string): { script: string; interfaceVersion: number } {
+  if (!content.startsWith(INTERFACE_PREFIX)) return { script: content, interfaceVersion: 1 };
+  const end = content.indexOf("\n"), header = content.slice(0, end);
+  if (end < 0 || (header !== `${INTERFACE_PREFIX}1` && header !== `${INTERFACE_PREFIX}${WORKFLOW_INTERFACE_VERSION}`)) throw new WorkflowError("interface_upgrade_required");
+  return { script: content.slice(end + 1), interfaceVersion: header === `${INTERFACE_PREFIX}1` ? 1 : WORKFLOW_INTERFACE_VERSION };
+}
 
 function io<T>(operation: () => T): T {
   try { return operation(); }
@@ -34,12 +45,12 @@ export class WorkflowLibrary {
     const stat = io(() => fs.lstatSync(file, { throwIfNoEntry: false }));
     if (!stat) return null;
     if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new WorkflowError("definition_path_unsafe");
-    if (stat.size === 0 || stat.size > WORKFLOW_LIMITS.scriptBytes) throw new WorkflowError("invalid_script");
+    if (stat.size === 0 || stat.size > WORKFLOW_LIMITS.scriptBytes + Buffer.byteLength(INTERFACE_HEADER)) throw new WorkflowError("invalid_script");
     const fd = io(() => fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK));
     try {
       const opened = io(() => fs.fstatSync(fd));
       if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino || opened.size !== stat.size) throw new WorkflowError("definition_changed");
-      const bytes = Buffer.alloc(WORKFLOW_LIMITS.scriptBytes + 1);
+      const bytes = Buffer.alloc(WORKFLOW_LIMITS.scriptBytes + Buffer.byteLength(INTERFACE_HEADER) + 1);
       let length = 0;
       while (length < bytes.length) {
         const count = io(() => fs.readSync(fd, bytes, length, bytes.length - length, null));
@@ -56,12 +67,13 @@ export class WorkflowLibrary {
   }
 
   async load(name: string): Promise<WorkflowDefinition> {
-    const script = this.read(name);
-    if (script === null) throw new WorkflowError("definition_missing");
+    const content = this.read(name);
+    if (content === null) throw new WorkflowError("definition_missing");
+    const { script, interfaceVersion } = fileDefinition(content);
     await validateWorkflowScript(script);
-    if (this.read(name) !== script) throw new WorkflowError("definition_changed");
+    if (this.read(name) !== content) throw new WorkflowError("definition_changed");
     return this.store.withTx(() => {
-      const definition = saveWorkflowDefinition(this.store, script);
+      const definition = saveWorkflowDefinition(this.store, script, interfaceVersion);
       if (!getWorkflowDefinitionRef(this.store, `version:${name}:${definition.digest}`)) rememberWorkflowDefinition(this.store, name, definition);
       return definition;
     });
@@ -70,10 +82,10 @@ export class WorkflowLibrary {
   async list(offset = 0, limit = 50) {
     const root = this.root();
     const names = root ? io(() => fs.readdirSync(root)).filter(name => name.endsWith(".js")).sort() : [];
-    const definitions: { name: string; id?: string; digest?: string; error?: string }[] = [];
+    const definitions: { name: string; id?: string; digest?: string; interfaceVersion?: number; error?: string }[] = [];
     for (const file of names.slice(offset, offset + limit)) {
       const name = file.slice(0, -3);
-      try { const definition = await this.load(name); definitions.push({ name, id: definition.id, digest: definition.digest }); }
+      try { const definition = await this.load(name); definitions.push({ name, id: definition.id, digest: definition.digest, interfaceVersion: definition.interfaceVersion ?? 1 }); }
       catch (error) {
         if (!(error instanceof WorkflowError)) throw error;
         definitions.push({ name, error: error.code });
@@ -84,7 +96,7 @@ export class WorkflowLibrary {
   versions(name: string, offset = 0, limit = 100) { return listWorkflowDefinitionVersions(this.store, workflowName(name), offset, limit); }
   version(id: string): WorkflowDefinition {
     const definition = getWorkflowDefinition(this.store, id);
-    if (!definition || workflowDigest(definition.script) !== definition.digest) throw new WorkflowError("definition_missing");
+    if (!definition || workflowDefinitionDigest(definition.script, definition.interfaceVersion ?? 1) !== definition.digest) throw new WorkflowError("definition_missing");
     return definition;
   }
   saved(key: string) {
@@ -105,18 +117,20 @@ export class WorkflowLibrary {
     if (old) return old;
     await validateWorkflowScript(input.script);
     const current = this.read(input.name);
-    if (current !== null) await validateWorkflowScript(current);
+    const currentDefinition = current === null ? null : fileDefinition(current);
+    if (currentDefinition !== null) await validateWorkflowScript(currentDefinition.script);
     const raced = replay();
     if (raced) return raced;
     if (this.read(input.name) !== current) throw new WorkflowError("definition_changed");
-    const currentDigest = current === null ? null : workflowDigest(current);
-    if (currentDigest !== input.expectedDigest && current !== input.script) throw new WorkflowError("definition_version_conflict");
+    const currentDigest = currentDefinition === null ? null : workflowDefinitionDigest(currentDefinition.script, currentDefinition.interfaceVersion);
+    if (currentDigest !== input.expectedDigest && !(currentDefinition?.interfaceVersion === WORKFLOW_INTERFACE_VERSION && currentDefinition.script === input.script)) throw new WorkflowError("definition_version_conflict");
     verify?.();
-    if (current !== null) this.store.withTx(() => rememberWorkflowDefinition(this.store, input.name, saveWorkflowDefinition(this.store, current)));
+    if (currentDefinition !== null) this.store.withTx(() => rememberWorkflowDefinition(this.store, input.name, saveWorkflowDefinition(this.store, currentDefinition.script, currentDefinition.interfaceVersion)));
+    const content = INTERFACE_HEADER + input.script;
     const root = this.root(true)!;
     const temporary = path.join(root, `.${randomUUID()}.tmp`);
     const file = path.join(root, `${input.name}.js`);
-    io(() => fs.writeFileSync(temporary, input.script, { flag: "wx", mode: 0o600 }));
+    io(() => fs.writeFileSync(temporary, content, { flag: "wx", mode: 0o600 }));
     try {
       const fd = io(() => fs.openSync(temporary, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW));
       try { io(() => fs.fsyncSync(fd)); }
@@ -126,7 +140,7 @@ export class WorkflowLibrary {
       const directory = io(() => fs.openSync(root, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW));
       try { io(() => fs.fsyncSync(directory)); }
       finally { io(() => fs.closeSync(directory)); }
-      if (this.read(input.name) !== input.script) throw new WorkflowError("definition_changed");
+      if (this.read(input.name) !== content) throw new WorkflowError("definition_changed");
       return this.store.withTx(() => {
         const definition = saveWorkflowDefinition(this.store, input.script);
         rememberWorkflowDefinition(this.store, input.name, definition, { key: input.requestKey, digest });

@@ -1,20 +1,28 @@
-/** 工作流真实步骤的来源权限、冻结成果与独立验证；普通委派保持自己的画像。
+/** 工作流真实步骤的来源权限、冻结成果与独立验证；普通委派保持自己的生命周期。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md
  */
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { AccessScope } from "@ruukoto/core/access.ts";
-import type { Session, Task, WorkDelegation, WorkWriteTarget, ToolCategory, SubAgentReadScope } from "@ruukoto/core/types.ts";
+import type { Session, Task, WorkDelegation, WorkWriteTarget, SubAgentReadScope } from "@ruukoto/core/types.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
-import { getWorkflowExecution, getWorkflowStep, getWorkflowRun, listWorkflowExecutions, requireWorkflowRun, updateWorkflowStep, WorkflowError,
+import { getWorkflowExecution, getWorkflowStep, getWorkflowRun, listWorkflowExecutions, requireWorkflowRun, requireWorkflowRunDefinition, updateWorkflowStep, workflowDigest, WorkflowError,
   type WorkflowRun, type WorkflowSource, type WorkflowStep } from "@ruukoto/core/workflow.ts";
 import type { Driver } from "@ruukoto/agent/driver.ts";
 import type { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import type { ManagedEntry } from "@ruukoto/agent/managed-processes.ts";
 import { isRecord } from "@ruukoto/agent/script-worker/protocol.ts";
+import { SubAgentRoleError, validateSubAgentRole, validateSubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { requireSubAgentDefinition, SubAgentDefinitionError } from "@ruukoto/core/subagent-definition.ts";
+import { requireSubAgentExecution, SubAgentExecutionError } from "@ruukoto/core/subagent-execution.ts";
+import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
+import { subAgentAccessPolicy, subAgentSourceProfile } from "@ruukoto/agent/subagent-capabilities.ts";
+import { SUBAGENT_WRITE_TOOL_NAMES } from "@ruukoto/agent/tool-availability.ts";
+import { selectSubAgentRole } from "./subagent-role-library.ts";
 import type { WorkflowAgentContext } from "./workflows.ts";
-import type { WorkCopyExecution, WorkCopyManager, FrozenWorkCopyPatch } from "./work-copy.ts";
+import { WorkCopyError, type WorkCopyExecution, type WorkCopyManager, type FrozenWorkCopyPatch } from "./work-copy.ts";
 
 export interface WorkflowHostOperationInput {
   runId: string; stepKey: string; key: string; params: unknown;
@@ -27,6 +35,8 @@ interface WorkflowStepsDeps {
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
   verifySource(source: WorkflowSource): boolean;
   verifySources(projectId: string, refs: SubAgentReadScope["sourceRefs"], taskId?: string): string | null;
+  /** 沿实际执行器装配核实；宿主注入的执行器不产生 Driver 记录。 */
+  verifyExecution?: (task: Task) => void;
 }
 
 export class WorkflowSteps {
@@ -51,31 +61,41 @@ export class WorkflowSteps {
         identity.workflow.stepKey !== step.key || identity.workflow.sourceSessionId !== run.source.sessionId ||
         work.parentSessionId !== run.source.sessionId || work.subAgentId !== task.subAgentId || identity.agent.id !== task.subAgentId ||
         this.store.getSession(task.sessionId)?.projectId !== run.source.projectId || task.parentTaskId !== run.source.taskId ||
-        task.sourcePermissionVersion !== run.source.permissionVersion || task.accessMode !== run.source.accessMode) throw new WorkflowError("binding_invalid");
+        task.sourcePermissionVersion !== run.source.permissionVersion) throw new WorkflowError("binding_invalid");
+    requireWorkflowRunDefinition(this.store, run);
+    if (!run.roleCatalog) throw new WorkflowError("role_catalog_missing");
+    const catalog = validateSubAgentRoleLibrary(run.roleCatalog);
+    const definition = validateSubAgentRole(requireSubAgentDefinition(identity.agent));
+    const params = step.params as { role?: string; verify?: string; mode?: unknown };
+    if ("mode" in params) throw new WorkflowError("interface_upgrade_required");
+    const policy = subAgentAccessPolicy(run.source.accessMode, definition, params.verify !== undefined);
+    const saved = requireSubAgentExecution(task.readScope?.execution);
+    if (task.accessMode !== policy.accessMode || saved.accessMode !== policy.accessMode || saved.protectSource !== policy.protectSource ||
+        saved.roleDigest !== definition.digest || workflowDigest(saved.source) !== workflowDigest(run.source) ||
+        selectSubAgentRole(catalog, params.role ?? "general").digest !== definition.digest) throw new WorkflowError("binding_invalid");
     return { run, step, work };
+  }
+  assertExecution(task: Task): void {
+    const bound = this.binding(task);
+    if (!bound) throw new WorkflowError("binding_invalid");
+    if (bound.work.writeTarget) this.deps.copies.assertCopy(bound.work, this.target(bound.work), "停止步骤并保留成果");
+    else {
+      const params = bound.step.params as { target?: string; verify?: string };
+      if (task.status === "completed" && (params.target !== undefined || params.verify !== undefined)) throw new WorkflowError("workspace_snapshot_missing");
+    }
   }
   resolve(task: Task) {
     const bound = this.binding(task);
     if (!bound) return null;
-    const { run, step, work } = bound;
+    const { run, step } = bound;
     if (!run.source.authority) throw new WorkflowError("authority_missing");
-    const source = this.store.getSessionIdentity(run.source.sessionId);
-    if (!source || !["dev", "main", "scheduled"].includes(source.kind)) throw new WorkflowError("source_invalid");
-    const categories = run.source.authority.categories.filter(category => !["subagent", "delegation", "workflow"].includes(category));
-    // main 的编码能力来自已保存的受控修改委派，分析步骤只取得文件读取工具。
-    if (work.writeTarget && !categories.includes("coding") && run.source.authority.categories.includes("subagent")) categories.push("coding");
     const params = step.params as Record<string, unknown>;
-    const requested = params.tools as string[] | undefined;
-    if (params.mode === "verify") return { toolClass: source.kind === "dev" ? "dev" as const : "main" as const,
-      sourceProjectId: run.source.projectId, categories: ["coding"] as ToolCategory[], grantIds: run.source.authority.grantIds,
-      tools: ["read", "edit", "write", "bash", "read_artifact"].filter(name => !requested || requested.includes(name)), verifyTarget: true };
-    return { toolClass: source.kind === "dev" ? "dev" as const : "main" as const, sourceProjectId: run.source.projectId,
-      categories: categories as ToolCategory[], tools: requested, verifyTarget: Boolean(work.writeTarget), grantIds: run.source.authority.grantIds };
+    return subAgentSourceProfile(run.source, { tools: params.tools as string[] | undefined, verify: params.verify !== undefined, workflow: true });
   }
   verify(task: Task): string | null {
     let bound: ReturnType<WorkflowSteps["binding"]>;
     try { bound = this.binding(task); }
-    catch (error) { return error instanceof WorkflowError ? error.code : "binding_invalid"; }
+    catch (error) { return error instanceof WorkflowError || error instanceof SubAgentRoleError || error instanceof SubAgentDefinitionError || error instanceof SubAgentExecutionError || error instanceof WorkspaceSnapshotError ? error.code : "binding_invalid"; }
     if (!bound) return null;
     const { run, step, work } = bound;
     const current = this.store.getTask(task.id);
@@ -107,6 +127,14 @@ export class WorkflowSteps {
     for (const execution of listWorkflowExecutions(this.store, run.id).filter(item => keys.has(item.stepKey))) {
       const task = this.store.getTask(execution.taskId);
       if (!task || this.deps.verifySources(run.source.projectId, task.readScope?.sourceRefs ?? [], task.id)) return false;
+      if (execution.kind === "agent") {
+        try { this.deps.verifyExecution?.(task); }
+        catch (error) {
+          if (!(error instanceof WorkflowError) && !(error instanceof SubAgentRoleError) && !(error instanceof SubAgentDefinitionError) &&
+              !(error instanceof SubAgentExecutionError) && !(error instanceof WorkspaceSnapshotError) && !(error instanceof WorkCopyError)) throw error;
+          return false;
+        }
+      }
       for (const op of this.store.listToolOpsByTask(task.id)) {
         if (Array.isArray(op.params.source_refs) && this.deps.verifySources(run.source.projectId, op.params.source_refs as SubAgentReadScope["sourceRefs"], task.id)) return false;
       }
@@ -148,7 +176,7 @@ export class WorkflowSteps {
     if (!artifact || artifact.status !== "complete" || artifact.byteCount !== record.bytes || this.deps.artifacts.byteLength(artifact.id) !== record.bytes) throw new WorkflowError("frozen_missing");
     const patch = this.deps.artifacts.read(artifact.id, 0, record.bytes);
     if (createHash("sha256").update(patch).digest("hex") !== record.digest) throw new WorkflowError("frozen_changed");
-    return { workId: record.workId, baseCommit: record.baseCommit, digest: record.digest, bytes: record.bytes, patch };
+    return { workId: record.workId, baseCommit: record.baseCommit, snapshotDigest: record.snapshotDigest, digest: record.digest, bytes: record.bytes, patch };
   }
   async agent(context: WorkflowAgentContext): Promise<{ output: string; isError?: boolean }> {
     const { run, step, task, signal } = context;
@@ -169,13 +197,14 @@ export class WorkflowSteps {
     const work = this.store.getWorkDelegation(task.workId!)!;
     const parentSession = this.store.getSession(run.source.sessionId)!;
     let verification: WorkflowStep | null = null;
-    if (params.mode === "modify" || params.mode === "verify") {
-      if (params.mode === "verify") {
+    this.assertExecution(task);
+    if (params.target !== undefined || params.verify !== undefined) {
+      if (params.verify !== undefined) {
         verification = getWorkflowStep(this.store, run.id, String(params.verify));
         if (!verification || verification.status !== "completed" || !verification.frozen || !step.dependsOn.includes(verification.key)) throw new WorkflowError("verification_invalid");
       }
-      const writeTarget = await this.deps.hostOperation({ runId: run.id, stepKey: step.key, key: `prepare:${task.id}`, params: { mode: params.mode, target: params.target ?? null, verify: params.verify ?? null } }, async execution => {
-        if (params.mode === "modify") return this.deps.copies.prepareWriteTarget(String(params.target), parentSession, work.id, run.source.taskId, execution, { gitOnly: true });
+      const writeTarget = await this.deps.hostOperation({ runId: run.id, stepKey: step.key, key: `prepare:${task.id}`, params: { target: params.target ?? null, verify: params.verify ?? null } }, async execution => {
+        if (params.verify === undefined) return this.deps.copies.prepareWriteTarget(String(params.target), parentSession, work.id, run.source.taskId, execution, { gitOnly: true });
         const frozen = this.frozen(verification!);
         const original = this.store.getWorkDelegation(frozen.workId)!;
         return this.deps.copies.prepareVerificationTarget({ work: original, target: this.target(original), frozen, parentSession,
@@ -188,7 +217,7 @@ export class WorkflowSteps {
         const input = JSON.stringify({ params, workspace: writeTarget.path, sourceReferences: run.source.references,
           dependsOn: step.dependsOn.map(key => ({ key, result: getWorkflowStep(this.store, run.id, key)!.result })),
           verification: verification?.frozen ?? null,
-          instructions: params.mode === "verify" ? "在当前独立验证副本核实冻结成果。检查写入只留在本副本。最终返回 JSON 对象 {\"passed\":true|false}，说明在 reason 字段。" : "只修改当前独立工作副本，不提交或推送；结果由宿主冻结并交给独立验证者。" });
+          instructions: params.verify !== undefined ? "在当前独立验证副本用编码工具核实冻结成果。检查写入只留在本副本；至少执行一次编码验证工具，任一工具失败或效果未知均不算通过。最终返回 JSON 对象 {\"passed\":true|false}，说明在 reason 字段。" : "当前独立副本包含目标在捕获时的内容；忽略文件与依赖未复制，缺依赖时在副本内准备。只在副本工作，不提交或推送；新增改动由宿主冻结并交给独立验证者。" });
         this.store.db.prepare("UPDATE tasks SET input = ? WHERE id = ?").run(input, task.id);
       });
     }
@@ -216,7 +245,7 @@ export class WorkflowSteps {
       if (offset >= page.totalBytes) break;
       if (!page.text) throw new WorkflowError("result_missing");
     }
-    if (params.mode === "modify") {
+    if (params.target !== undefined) {
       const frozen = await this.deps.hostOperation({ runId: run.id, stepKey: step.key, key: `freeze:${task.id}`, params: { taskId: task.id, workId: work.id } }, async (execution, hostTask) => {
         const currentWork = this.store.getWorkDelegation(work.id)!;
         const target = this.target(currentWork);
@@ -227,7 +256,7 @@ export class WorkflowSteps {
           this.deps.artifacts.complete(artifact.id);
           return artifact;
         });
-        return { workId: work.id, taskId: task.id, baseCommit: frozen.baseCommit, artifactId: artifact.id, digest: frozen.digest, bytes: frozen.bytes };
+        return { workId: work.id, taskId: task.id, baseCommit: frozen.baseCommit, snapshotDigest: frozen.snapshotDigest, artifactId: artifact.id, digest: frozen.digest, bytes: frozen.bytes };
       });
       this.store.withTx(() => updateWorkflowStep(this.store, { ...getWorkflowStep(this.store, run.id, step.key)!, frozen }));
     }
@@ -236,12 +265,17 @@ export class WorkflowSteps {
       try { value = JSON.parse(output); }
       catch { return { output }; }
       if (!isRecord(value) || typeof value.passed !== "boolean") return { output };
-      const passed = value.passed && this.store.listToolOpsByTask(task.id).every(op => op.resultSummary !== null && op.isError === false && !op.effectUnknown);
+      const passed = value.passed && this.verificationToolsPassed(current);
       const frozen = verification.frozen!;
       this.store.withTx(() => updateWorkflowStep(this.store, { ...getWorkflowStep(this.store, run.id, step.key)!, verification: { stepKey: verification!.key,
-        taskId: task.id, artifactId: frozen.artifactId, digest: frozen.digest, baseCommit: frozen.baseCommit, passed } }));
+        taskId: task.id, artifactId: frozen.artifactId, digest: frozen.digest, baseCommit: frozen.baseCommit, snapshotDigest: frozen.snapshotDigest, passed } }));
     }
     return { output };
+  }
+  private verificationToolsPassed(task: Task): boolean {
+    const operations = this.store.listToolOpsByTask(task.id);
+    return !task.effectUnknown && operations.some(op => SUBAGENT_WRITE_TOOL_NAMES.has(op.toolName)) &&
+      operations.every(op => op.resultSummary !== null && op.isError === false && !op.effectUnknown);
   }
   async integrate({ run, step }: { run: WorkflowRun; step: WorkflowStep; signal: AbortSignal }): Promise<unknown> {
     const params = step.params as Record<string, unknown>;
@@ -253,11 +287,19 @@ export class WorkflowSteps {
       const changed = evidence ? getWorkflowStep(this.store, run.id, evidence.stepKey) : null;
       const frozen = changed?.frozen;
       const execution = evidence ? getWorkflowExecution(this.store, evidence.taskId) : null;
+      const task = evidence ? this.store.getTask(evidence.taskId) : null;
       if (!verification || verification.status !== "completed" || !evidence?.passed || !frozen || !execution || execution.runId !== run.id || execution.stepKey !== verification.key ||
-          execution.stopVerified !== true || execution.status !== "finished" || this.store.getTask(evidence.taskId)?.status !== "completed" ||
-          evidence.taskId === frozen.taskId || evidence.artifactId !== frozen.artifactId || evidence.digest !== frozen.digest || evidence.baseCommit !== frozen.baseCommit) throw new WorkflowError("verification_required");
+          execution.stopVerified !== true || execution.status !== "finished" || !task || task.status !== "completed" || !this.verificationToolsPassed(task) ||
+          (verification.params as { verify?: string }).verify !== changed!.key || !verification.dependsOn.includes(changed!.key) ||
+          evidence.taskId === frozen.taskId || evidence.artifactId !== frozen.artifactId || evidence.digest !== frozen.digest || evidence.baseCommit !== frozen.baseCommit || evidence.snapshotDigest !== frozen.snapshotDigest) throw new WorkflowError("verification_required");
+      this.assertExecution(task);
       const work = this.store.getWorkDelegation(frozen.workId);
-      if (!work || work.parentSessionId !== run.source.sessionId) throw new WorkflowError("binding_invalid");
+      const changedTask = this.store.getTask(frozen.taskId);
+      const changedExecution = getWorkflowExecution(this.store, frozen.taskId);
+      if (!work || work.parentSessionId !== run.source.sessionId || !changedTask || changedTask.workId !== work.id ||
+          changedExecution?.runId !== run.id || changedExecution.stepKey !== changed!.key || changedExecution.stopVerified !== true || changedExecution.status !== "finished" ||
+          task.workId === work.id || this.target(this.store.getWorkDelegation(task.workId!)!).snapshot.digest !== frozen.snapshotDigest) throw new WorkflowError("binding_invalid");
+      this.assertExecution(changedTask);
       return { work, target: this.target(work), frozen: this.frozen(changed!) };
     });
     const directories = checked.flatMap(({ target }) => [{ path: target.path, dev: target.dev, ino: target.ino }, this.directory(target.repoRoot)]);

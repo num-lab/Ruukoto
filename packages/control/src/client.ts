@@ -39,13 +39,20 @@ const UNKNOWN_REPLY_CODES = new Set([
   "mode_switch_unverified", // 任务已被中断，切换结果未核实
 ]);
 
+export interface ProtocolVersions {
+  client: number;
+  server: number;
+}
+
 export class ControlClientError extends Error {
   readonly code: string;
   readonly outcome: RequestOutcome;
-  constructor(code: string, message: string, outcome: RequestOutcome) {
+  readonly versions?: ProtocolVersions;
+  constructor(code: string, message: string, outcome: RequestOutcome, versions?: ProtocolVersions) {
     super(message);
     this.code = code;
     this.outcome = outcome;
+    this.versions = versions;
   }
 }
 
@@ -168,7 +175,9 @@ export class ControlClient implements ControlTransport {
     if (response.ok) waiter.resolve(response.result);
     else {
       const code = response.error?.code ?? "error";
-      waiter.reject(new ControlClientError(code, response.error?.message ?? "未知错误", UNKNOWN_REPLY_CODES.has(code) ? "unknown" : "rejected"));
+      const versions = code === "protocol_version" && Number.isSafeInteger(response.v)
+        ? { client: CONTROL_PROTOCOL_VERSION, server: response.v } : undefined;
+      waiter.reject(new ControlClientError(code, response.error?.message ?? "未知错误", UNKNOWN_REPLY_CODES.has(code) ? "unknown" : "rejected", versions));
     }
   }
 

@@ -1,0 +1,9 @@
+{
+  "header": "write写入内容",
+  "target": "new.txt",
+  "text": "write\n写入内容\n\nnew.txt\n\n新文件正文\n中文👩‍💻\n",
+  "patch": [],
+  "write": "新文件正文\n中文👩‍💻\n",
+  "truncated": null,
+  "state": null
+}

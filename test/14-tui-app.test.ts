@@ -194,7 +194,7 @@ async function startApp(t: TestRuntime, opts: { sessionId?: string; requests?: A
   });
   appRef = app;
   await app.start();
-  await waitFor("TUI 上线", () => connection.state === "online");
+  await waitFor("TUI 上线或退出", () => connection.state === "online" || exitCode !== null);
   return {
     app,
     connection,

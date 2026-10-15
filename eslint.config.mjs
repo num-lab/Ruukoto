@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 import workspaces from "./scripts/workspace-boundaries.mjs";
 
 export default [
-  { ignores: ["**/node_modules/**", ".agents/**", ".scratch/**", "worker/**", "dist/**", "verification/archive/**"] },
+  { ignores: ["**/node_modules/**", ".agents/**", ".scratch/**", "worker/**", "dist/**", "apps/desktop/out/**", "verification/archive/**"] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -29,7 +29,22 @@ export default [
     },
   },
   {
-    files: ["**/*.ts", "**/*.mts"],
+    files: ["apps/desktop/src/renderer/**"],
+    languageOptions: { globals: globals.browser },
+    rules: {
+      "no-restricted-imports": ["error", { patterns: ["node:*", "electron"] }],
+      "no-restricted-globals": ["error", "Buffer", "process", "global", "require", "__dirname", "__filename"],
+    },
+  },
+  {
+    files: ["packages/view/src/**"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: ["node:*"] }],
+      "no-restricted-globals": ["error", "Buffer", "process", "global", "require", "__dirname", "__filename", "setImmediate"],
+    },
+  },
+  {
+    files: ["**/*.ts", "**/*.mts", "**/*.tsx"],
     rules: {
       // 现有 SDK/协议边界广泛使用 any；首轮保留类型与 API 兼容，不做全库类型重写。
       "@typescript-eslint/no-explicit-any": "off",

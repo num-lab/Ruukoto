@@ -585,3 +585,77 @@ test("后台重启：重连后看到中断任务与真实状态，不自动恢�
     await t.shutdown();
   }
 });
+
+for (const stage of ["token", "factory", "authenticate", "handshake"] as const) {
+  test(`关闭连接后丢弃迟到的 ${stage}，不安装快照或补发`, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let entered = false, factories = 0;
+    const block = async () => { entered = true; await gate; };
+    const transport = new FakeTransport({
+      authenticate: async () => { if (stage === "authenticate") await block(); },
+      handshake: async (_since, client) => {
+        client.emit(event(2));
+        if (stage === "handshake") await block();
+        return { seq: 1, replay: [event(1)], snapshot: fakeSnapshot() };
+      },
+    });
+    const log: ConnLog = { states: [], snapshots: [], events: [] };
+    const { conn } = makeConn({ token: async () => { if (stage === "token") await block(); return "secret"; }, clientFactory: async () => { factories++; if (stage === "factory") await block(); return transport; } }, log);
+    const start = conn.start();
+    await waitFor("异步阶段开始", () => entered);
+    conn.close(); release(); await start;
+    assert.equal(conn.state, "closed");
+    assert.deepEqual(log.snapshots, []);
+    assert.deepEqual(log.events, []);
+    assert.ok(!log.states.some(([state]) => state === "online"));
+    if (stage === "token") assert.equal(factories, 0);
+    else assert.equal(transport.isClosed, true);
+  });
+}
+
+test("令牌提供函数的明确拒绝停止重试，网络失败重新取令牌", async () => {
+  for (const outcome of ["rejected", "not_sent"] as const) {
+    let reads = 0;
+    const log: ConnLog = { states: [], snapshots: [], events: [] };
+    const { conn } = makeConn({ token: async () => { if (++reads === 1) throw new ControlClientError("ssh_problem", "SSH 失败", outcome); return "new-token"; }, clientFactory: async () => new FakeTransport({}) }, log);
+    try {
+      await assert.rejects(conn.start(), { code: "ssh_problem" });
+      if (outcome === "rejected") { await new Promise(resolve => setTimeout(resolve, 100)); assert.equal(conn.state, "failed"); assert.equal(reads, 1); }
+      else { await waitFor("重读令牌上线", () => conn.state === "online"); assert.equal(reads, 2); }
+    } finally { conn.close(); }
+  }
+});
+
+for (const expectedProduct of ["ruukoto", "ruukoto-code"] as const) {
+  test(`目标 ${expectedProduct} 在安装快照前拒绝另一产品`, async () => {
+    const log: ConnLog = { states: [], snapshots: [], events: [] };
+    let attempts = 0;
+    const { conn } = makeConn({ expectedProduct, clientFactory: async () => { attempts++; return new FakeTransport({ handshake: () => ({ seq: 1, replay: [event(1)], snapshot: fakeSnapshot({ product: expectedProduct === "ruukoto" ? "ruukoto-code" : "ruukoto" }) }) }); } }, log);
+    try {
+      await assert.rejects(conn.start(), { code: "product_mismatch" });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(conn.state, "failed"); assert.equal(attempts, 1);
+      assert.deepEqual(log.snapshots, []); assert.deepEqual(log.events, []);
+    } finally { conn.close(); }
+  });
+}
+
+
+for (const stage of ["authenticate", "handshake"] as const) {
+  test(`${stage} 期间连续断线仍递增退避，不被迟到检查重置`, async () => {
+    const attempts: number[] = [];
+    const log: ConnLog = { states: [], snapshots: [], events: [] };
+    const disconnect = async (client: FakeTransport): Promise<never> => { client.drop(); throw new ControlClientError("closed", "断线", "disconnected"); };
+    const { conn } = makeConn({ reconnectInitialMs: 20, reconnectMaxMs: 80, clientFactory: async () => {
+      attempts.push(performance.now());
+      return new FakeTransport({ ...(stage === "authenticate" ? { authenticate: disconnect } : { handshake: (_since, client) => disconnect(client) }) });
+    } }, log);
+    try {
+      await conn.start();
+      await waitFor("连续五次连接", () => attempts.length >= 5);
+      for (let i = 1; i < 5; i++) assert.ok(attempts[i] - attempts[i - 1] >= Math.min(20 * 2 ** (i - 1), 80) - 2);
+      assert.equal(conn.state, "reconnecting");
+    } finally { conn.close(); }
+  });
+}

@@ -51,7 +51,7 @@ ruukoto-code stop                 # 停止后台
 
 工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。目录身份与保护根校验沿用日常工作区入口，代码仓库本身不能用作工作区。相对路径按客户端调用时工作目录解析（`npm run code` 按 npm 脚本的当前目录，通常为本仓库）；路径含空格时加引号；`./config` 与 `-- <路径>` 处理与命令同名的目录。
 
-非 TTY 环境不启动交互页面，改用 `status`／`events`／`submit` 等 CLI 命令；远程使用沿用登录服务器后启动 TUI 的方式，不新增远程协议。
+非 TTY 环境不启动交互页面，改用 `status`／`events`／`submit` 等 CLI 命令；远程使用可登录服务器后启动 TUI，或由桌面客户端经 SSH 转发控制面 socket；不新增远程协议。
 
 ### 2.3 按需拉起后台
 
@@ -659,3 +659,11 @@ Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁�
 同一会话跨轮保留页面。默认空闲 60 分钟后回收，自有 profile、历史与截图保留；重新 `start` 只打开新页面，不恢复旧页面或重放点击/提交。持久 Cookie 与网站资料沿 Chromium profile 保存；没有到期时间的会话 Cookie 及网站自身的登录期限不保证跨关闭延续，必要时重新人工登录。
 
 截图保存为不可变图片产物并交给视觉模型，用 `read-artifact <taskId> <artifactId> --output screenshot.png` 完整导出。纯文本模型在发送图片前明确报 `image_input_unsupported`；`image_too_large` 可改用视口截图；`artifact_write_failed` 检查磁盘与目录权限。动作报告 `outcome_unknown` 时先人工查看实际页面或服务端结果，再用新消息核实连接；不要重发原提交。`browser_stop_unverified` / `browser_identity_unverified` 先核对原进程及绑定，再显式 `close`；停止尚未核实前不会新开实例或释放接管占用。
+
+## 桌面客户端
+
+在 macOS 运行 `npm run desktop:build` 后打开 `dist/mac-arm64/Ruukoto.app`。Code 可打开会话、提交输入、选择模型与会话默认模式、中断／取消／继续任务、恢复暂停队列；日常应用采用登录 shell 的环境和日常 Code 档案，按需启动后台，退出应用后后台继续运行。开发入口与档案隔离见[开发说明](development.md#桌面客户端)。
+
+版本不一致时，界面显示客户端与后台版本并停止自动重试。客户端较旧需重建应用；受管开发后台较旧需重启开发启动器；日常后台较旧按界面的当前控制 socket 查询步骤核对唯一 PID、所属用户与完整命令，人工结束后点“重新连接”。多 PID 或无法核对时先检查控制目录配置与 spawn.log，不发送信号；未查到监听进程先确认查询命令执行成功。桌面应用不会替你停止后台进程。仓库移动或 node 不可用时按界面提示修复环境或重建。
+
+Personal 的 SSH 连接层只支持[同账户部署](../deploy/systemd/README.md)：SSH 登录账户就是后台账户，且可访问控制目录、socket 与原 `owner.token`；只支持密钥或 ssh-agent 认证。建议在 `~/.ssh/config` 为桌面端单独配置不带 `LocalForward` 的主机别名，避免继承转发发生绑定冲突。令牌每次建连读取，本地不保存；账户或权限不符时按错误指引修正部署，不放宽令牌权限。Personal 配置与会话界面尚未开放。

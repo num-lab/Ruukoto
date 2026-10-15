@@ -74,6 +74,9 @@
  *
  * v24：等待对象、到期时间、阶段与中断原因；可信普通子任务补报沿用内部输入用途。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
+ *
+ * v26：握手快照携带产品身份，桌面客户端在安装快照前核对连接目标。
+ * Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
  */
 
 import {
@@ -85,6 +88,7 @@ import {
   type SubAgent,
   type WorkDelegation,
 } from "@ruukoto/core/types.ts";
+import type { ProductType } from "@ruukoto/core/product.ts";
 import type { ConfirmationRequestView, OutputPreview, TaskView } from "@ruukoto/core/views.ts";
 
 export const MAX_FRAME_BYTES = 1024 * 1024;
@@ -92,6 +96,7 @@ export const MAX_FRAME_BYTES = 1024 * 1024;
 export const CONTROL_PROTOCOL_VERSION = PROTOCOL_VERSION;
 
 export interface ConnectSnapshot {
+  product: ProductType;
   projects: Project[];
   sessions: Session[];
   /** 活动任务 + 每会话有界的近期结束任务；更早的经 list_tasks 分页。 */

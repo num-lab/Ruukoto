@@ -34,7 +34,7 @@ export type ReconcileOutcome =
 export class SubmissionGuard {
   constructor(
     private readonly store: PendingRequestStore,
-    private readonly connection: ControlConnection,
+    private readonly connection: Pick<ControlConnection, "request" | "instanceId">,
   ) {}
 
   /**

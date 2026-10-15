@@ -1,0 +1,32 @@
+{
+  "result": {
+    "type": "object",
+    "value": {
+      "buttons": [
+        {
+          "text": "×",
+          "aria": "关闭从真实 TuiApp 提交：桌面流式验收",
+          "flexShrink": "0",
+          "clientWidth": 28,
+          "scrollWidth": 28,
+          "rect": {
+            "width": 28.1171875,
+            "height": 41.5
+          }
+        },
+        {
+          "text": "×",
+          "aria": "关闭新会话",
+          "flexShrink": "0",
+          "clientWidth": 28,
+          "scrollWidth": 28,
+          "rect": {
+            "width": 28.1171875,
+            "height": 41.5
+          }
+        }
+      ],
+      "heading": "gui-workspaceCoding Agent"
+    }
+  }
+}

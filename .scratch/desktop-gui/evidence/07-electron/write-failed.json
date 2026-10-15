@@ -1,0 +1,9 @@
+{
+  "header": "write失败",
+  "target": "blocked",
+  "text": "write\n失败\n\nblocked\n\n工具执行失败：EISDIR: illegal operation on a directory, open '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-d07-real-gui-GxdqOP/work-0/blocked'",
+  "patch": [],
+  "write": null,
+  "truncated": null,
+  "state": "工具执行失败：EISDIR: illegal operation on a directory, open '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-d07-real-gui-GxdqOP/work-0/blocked'"
+}

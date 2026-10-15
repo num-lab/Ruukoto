@@ -1,5 +1,6 @@
 /**
  * 客户端连接配置：CLI 与 TUI 共用的 socket 路径与拥有者令牌解析。
+ * Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
  *
  * 令牌来源优先级（不进入命令行参数、日志与待确认记录）：
  * 1. RUUKOTO_OWNER_TOKEN 环境变量；
@@ -10,7 +11,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { dirEnvFor, productFromEnv, productRootDir } from "@ruukoto/core/product.ts";
+import { dirEnvFor, productFromEnv, productRootDir, type ProductType } from "@ruukoto/core/product.ts";
 import { readOwnerToken } from "./owner-token.ts";
 
 export interface ClientConnectConfig {
@@ -19,19 +20,17 @@ export interface ClientConnectConfig {
   token: string;
 }
 
-export function defaultDataDir(): string {
-  const product = productFromEnv();
+export function defaultDataDir(product: ProductType = productFromEnv()): string {
   return dirEnvFor(product, "DATA") ?? path.join(productRootDir(product), "data");
 }
 
-export function defaultAgentDir(): string {
-  const product = productFromEnv();
+export function defaultAgentDir(product: ProductType = productFromEnv()): string {
   return dirEnvFor(product, "AGENT") ?? path.join(productRootDir(product), "agent");
 }
 
 /** 控制面目录：与运行时默认一致（数据目录的兄弟目录 control/）；按产品读对应的环境变量。 */
-export function controlDirFor(dataDir: string): string {
-  return dirEnvFor(productFromEnv(), "CONTROL") ?? path.join(path.dirname(path.resolve(dataDir)), "control");
+export function controlDirFor(dataDir: string, product: ProductType = productFromEnv()): string {
+  return dirEnvFor(product, "CONTROL") ?? path.join(path.dirname(path.resolve(dataDir)), "control");
 }
 
 export function socketPathFor(controlDir: string): string {

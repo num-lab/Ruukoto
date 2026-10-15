@@ -1,6 +1,6 @@
 # Ruukoto
 
-拥有者自用的 Agent，同仓交付两个独立产品（见[两个 Agent 产品独立运行](.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)）：
+拥有者自用的 Agent，同仓交付两个产品：
 
 <!-- Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md -->
 
@@ -12,7 +12,7 @@
 | 后台 | 打开 TUI 时按需拉起，`ruukoto-code stop` 才停止 | systemd 常驻 |
 | 档案根 | `~/.ruukoto-code/` | `~/.ruukoto/`（生产为 `/var/lib/ruukoto/`） |
 
-两端独立安装、运行、升级，停止一端不影响另一端；设计与模块见[架构总览](docs/architecture.md)。
+两端独立运行，停止一端不影响另一端；设计见[架构总览](docs/architecture.md)。
 
 ## 当前状态
 
@@ -89,10 +89,12 @@ ruukoto qq enable
 ```bash
 npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启
 npm run code               # 启动 ruukoto-code 开发后台并打开 TUI
+npm run code -- --desktop   # 以桌面前端连接开发后台（macOS）
+npm run desktop:build      # 构建并 ad-hoc 签名 dist/mac-arm64/Ruukoto.app
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-开发见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+开发与桌面回归见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
 ## 文档
 

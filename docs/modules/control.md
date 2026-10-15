@@ -18,13 +18,19 @@
 
 ## 对外接口
 
+`session-attribution.ts` 提供浏览器可用的 `sessionDisplayAttribution`，仅按项目与会话元数据计算展示归属；`workspace.ts` 同时再导出，文件系统操作仍在原模块。
+
+**客户端路径。** `connect.ts` 的 `defaultDataDir(product?)`、`defaultAgentDir(product?)` 与 `controlDirFor(dataDir, product?)` 接受显式 `ProductType`，同一进程可分别解析两个产品的档案；省略时按 `RUUKOTO_PRODUCT` 解析。各自只读本产品的目录覆盖变量，`socketPathFor(controlDir)` 拼接 socket 路径。`resolveClientConfig` 仍按当前产品补默认值，跨产品调用时须显式传全 `dataDir` 与 `controlDir`。
+
+**后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
+
 **监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `26`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
 客户端按固定优先级取令牌：`RUUKOTO_OWNER_TOKEN` 环境变量 → `RUUKOTO_OWNER_TOKEN_FILE` 指定的文件 → 控制目录的 `owner.token`。两个环境变量两个产品同名（令牌是控制面身份，不是路径归属）。令牌不进命令行、工具环境、日志或待确认记录；比较用 `timingSafeEqual` 常数时间比较，长度不同也照样比较一次再否决。三个来源都取不到时客户端抛出带修复指引的错误，请求根本不发。
 
-**探测。** 判定「后台是否在运行」的标准是 socket 可连、令牌认证通过、一次不带游标的 `connect` 成功，三者都成立才复用而不启动第二个实例；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。按需拉起、退避重连与失败分类属 TUI 入口，见[交互终端与配置中心](tui.md)。
+**探测。** 判定「后台是否在运行」的标准是 socket 可连、令牌认证通过、一次不带游标的 `connect` 成功，三者都成立才复用而不启动第二个实例；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。TUI 的按需拉起门控与退避重连见[交互终端与配置中心](tui.md)。
 
 **op 目录。** `auth` 在派发之前单独处理；其余 op 由 `dispatch` 的 `switch (request.op)` 派发。未知 op 回 `unknown_op`。
 
@@ -106,7 +112,7 @@ stateDiagram-v2
     closed --> [*]
 ```
 
-退避重连的初始间隔 500 ms、上限 8000 ms；只有后台明确拒绝（令牌无效、协议不兼容）进 `failed` 并停止重试。重连只恢复观察：不发送 `resume_queue`、批准或继续请求。
+退避重连的初始间隔 500 ms、上限 8000 ms；令牌提供函数或后台明确拒绝（`ControlClientError.outcome === "rejected"`）、产品不符时进 `failed` 并停止重试；`onState` 的第三个参数携带原始 `ControlClientError`。重连只恢复观察：不发送 `resume_queue`、批准或继续请求。
 
 **待确认请求记录。** 每个产品存档根下的 `pending/`（默认 `~/.ruukoto/pending` 或 `~/.ruukoto-code/pending`，`RUUKOTO_PENDING_DIR` / `RUUKOTO_CODE_PENDING_DIR` 可覆盖）：目录 0700、记录 0600，写临时文件再 `rename`。一条记录含 `requestId`、op（输入提交、会话分支、压缩或工作流启动/回答/控制）、完整请求参数、提交时握手返回的 `instanceId`、创建时间。解析不了的文件留在磁盘上单独列出，不静默丢弃；令牌等凭据永不写入这里。记录用于核实原请求及关联其结果，不是会话历史的副本。
 
@@ -172,6 +178,8 @@ sequenceDiagram
 
 核实只问一个问题：后台有没有收到这个 `request_id`。连接仍在时当场核实这一条，断线时每次回到 `online` 核实全部记录：查到就关联原任务并清除记录；明确未接收（`find_task` 返回空）才以原键原参数重发；查询失败、实例不符或缺模型时保留记录，不产生副作用，下次上线再核。记录里没有模型选择时不能原样重发，转为让拥有者确认后把原文恢复进原会话草稿。
 
+`PendingRequestStore.read(requestId)` 严格区分有效记录、损坏记录和不存在；只有文件读取的 `ENOENT` 返回 `absent`，权限与 IO 错误向调用方传出。`remove(requestId)` 返回 `removed` 或仅在 `ENOENT` 时返回 `absent`，其余删除失败同样传出。桌面输入恢复用它们确认交付后的清理；既有 `clear` 与 `list` 保留宽容策略，空列表不能证明某条记录已删除。
+
 ### 审批应答
 
 `respond_confirmation` 接受 `approve` / `reject`，可带 `permission_version` 绑定审批时的权限版本。权限版本不匹配回 `permission_version_mismatch`，该批准不可用。批准只适用于该次操作及明确列出的范围，在执行前单次消费。
@@ -184,15 +192,19 @@ sequenceDiagram
 
 客户端断开只移除订阅，不取消任务、不触发恢复，也不发送 `resume_queue`、批准或继续。重连带 `since = appliedSeq` 重新握手（游标为 0 时不带），先安装快照、再应用补发事件（只补齐显示记录，不回滚状态）、再按序应用缓冲的实时事件；`instanceId` 变化时同样通知调用方。
 
+`ConnectionConfig.token` 可为固定字符串或异步提供函数，每次建连重新取值，取消提供函数的外部资源由调用方负责。取令牌、创建 transport、认证和握手返回后均核对连接代次；主动关闭或换代后丢弃迟到结果并关闭迟到 transport，不安装快照或补发。握手快照的 `product` 取自 `Runtime.productType`；设置 `expectedProduct` 的调用方在安装快照前核对，不符返回 `product_mismatch` 并停止重试。
+
 ### 停止
 
 `stop` 请求后台停止，立即回 `accepted`；后台先拒绝新任务并暂停调度，再中断活动任务、回收工具进程、落盘后关闭，排队输入保留。进程信号与控制面 `stop` 走同一条关闭路径。
 
 ## 不变量与失败处理
 
+**启动失败先探测。** `spawn` 的 `error` 按系统 `code` 分类：`ENOENT` 提示找不到 node，`EACCES` 提示 node 不可执行，其余附原码；错误包含可执行文件路径和修复指引，不等待退出宽限窗口。报告错误前仍先探测，其他调用方的后台已就绪则按复用返回 `spawned: false`。实例锁竞争败者仍等待胜者，普通子进程提前退出仍附本次日志尾部；失败路径不杀后台。
+
 **认证先于一切。** 认证成功前不返回快照、不执行请求；不论连接处于什么阶段都能先认证。令牌不进命令行、工具环境、日志或待确认记录；完全访问与后台使用同一账户，可以经文件系统读取该账户有权限的令牌文件。
 
-**版本不匹配明确拒绝。** 版本检查在认证之前，服务端回 `protocol_version` 并在消息里写明双方版本，客户端提示升级而不是静默重试。线上协议直接替换，不适配旧格式。
+**版本不匹配明确拒绝。** 版本检查在认证之前，服务端回 `protocol_version` 并在消息里写明双方版本：请求版本较旧时提示升级客户端，较新时提示结束旧后台进程后重开入口。`ControlClientError.versions` 从应答帧已有的 `v` 提供 `{ client, server }`，`ensureBackend` 的失败结果保留 `code` 与 `versions`；调用方按结构化字段判断更新方向，不解析消息。客户端停在 `failed`，不自动重试。线上协议直接替换，不适配旧格式。
 
 **错误码口径。** 只有小写蛇形的业务码原样进协议；系统错误码（`ENOENT`、`ERR_SQLITE_*` 等）与没带码的异常统一收口为 `internal_error`，原码留在消息里。非法 JSON 帧回 `bad_frame`（`id` 为空），缺 `id` 或 `op` 回 `bad_request`，未知 op 回 `unknown_op`。
 
@@ -230,6 +242,7 @@ sequenceDiagram
 
 ## 设计依据
 
+- [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)：显式产品路径与外部 Node 启动参数。
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)

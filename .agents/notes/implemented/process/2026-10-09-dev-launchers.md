@@ -12,13 +12,13 @@ Status: implemented
 
 ## 决定
 
-`npm run dev` 启动 ruukoto 开发后台，`npm run dev -- --config` 打开其配置入口；`npm run code` 启动 ruukoto-code 开发后台并默认打开 TUI，`npm run code -- --config` 打开其配置中心。开发启动器不再接受 `--tui`。
+`npm run dev` 启动 ruukoto 开发后台，`npm run dev -- --config` 打开其配置入口；`npm run code` 启动 ruukoto-code 开发后台并默认打开 TUI，`npm run code -- --config` 打开其配置中心。`npm run code -- --desktop` 使用 Electron 桌面前端，仅 Code 支持，与 --config 和位置工作区参数互斥。开发启动器不再接受 `--tui`。
 
 两入口通过各 app 的 `src/dev.ts` 复用 `packages/tui/src/dev.ts` 的源码监听、重载和进程管理；监听范围为 `packages/*/src` 与 `apps/*/src`，子进程使用所属 app 的 bin，档案分别保存为 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常[产品档案](../architecture/2026-10-02-two-agent-products.md)分开。保留已有 ruukoto 开发历史，不自动迁移；模型配置仅经已有 `--import-models` 显式复制。各档案拥有自己的数据、配置、凭据、锁与控制面，可以同时运行。ruukoto 开发实例保留普通开发会话的理由见[保留开发会话](../feature/2026-10-05-ruukoto-keeps-dev-sessions.md)。
 
 开发入口固定产品身份，清除继承的日常路径、拥有者令牌及受保护执行账户配置，并停用真实 QQ/Telegram。执行后端沿用 CLI 产品默认值：ruukoto 使用 local，ruukoto-code 使用 container；container 不可用时任务明确失败，不回退 local。完全访问所需的执行账户配置不在此次扩展范围，local 本身没有操作系统级隔离。
 
-开发启动器管理后台：退出 TUI/配置中心、Ctrl+C 或关闭终端会停止本次开发进程。开发前端不自行拉起后台，防止源码重载失败派生未由启动器管理的进程；日常 ruukoto-code 的 TUI 退出后后台继续运行规则仍成立，见[后台与终端分离](../architecture/2026-09-19-detach-terminal-from-task-runtime.md)。
+开发启动器管理后台：退出 TUI/配置中心、Ctrl+C 或关闭终端会停止本次开发进程。桌面前端使用启动器环境中的 RUUKOTO_DESKTOP_MANAGED=1 与每次前端启动的新 nonce，不执行登录 shell；桌面源码交 electron-vite 重建或 HMR，view/control/core 打入产物的源码也由它监听，启动器只重启后台。Electron 和 electron-vite 归独立进程组，退出统一清理。开发前端不自行拉起后台，防止源码重载失败派生未由启动器管理的进程；日常 ruukoto-code 的 TUI 退出后后台继续运行规则仍成立，见[后台与终端分离](../architecture/2026-09-19-detach-terminal-from-task-runtime.md)。
 
 ## 验证
 

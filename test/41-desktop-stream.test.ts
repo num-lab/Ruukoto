@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
-import type { PersistentEvent, Session } from "@ruukoto/core/types.ts";
+import type { PersistentEvent, Session, SubAgent } from "@ruukoto/core/types.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
 import type { OpParams } from "@ruukoto/control/ops.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
@@ -142,4 +142,40 @@ test("桌面通知导航按实例定位后消费，同实例快照不抢回已�
   assert.equal(model.view.currentSessionId, "second"); assert.ok(!model.tabs.includes("session"));
   model.update({ type: "navigate", instanceId: "old", navigation: { sessionId: "session", taskId: "task" } });
   assert.equal(model.view.currentSessionId, "second"); assert.match(model.message!, /原目标已经变化/);
+});
+
+test("右栏子会话复用历史恢复，通知定位、实时补读与重连不丢思考和工具", async () => {
+  const child: Session = { ...session, id: "child" };
+  const agent: SubAgent = { id: "agent", parentSessionId: session.id, sessionId: child.id, workDir: "/child", activeWorkId: null, currentTaskId: "task", state: "running", closedAt: null, closedBy: null, createdAt: at(0) };
+  const childTask = { ...task(), sessionId: child.id, status: "running" as const };
+  const events: PersistentEvent[] = [
+    { ...event(2, { type: "task.thinking", sessionId: child.id, taskId: "task", thinkingId: "thought", messageId: "message", startedAt: at(1), endedAt: at(2), text: "子会话思考" }), sessionId: child.id },
+    { ...event(3, { type: "task.tool_intent", taskId: "task", toolOpId: "operation", sdkCallId: "call", toolName: "write", params: { path: "file.ts" } }), sessionId: child.id },
+    { ...event(4, { type: "task.tool_result", taskId: "task", toolOpId: "operation", summary: "写入完成", isError: false, artifactIds: [] }), sessionId: child.id },
+  ];
+  const { model, transport } = harness({
+    work_list: () => ({ works: [] }),
+    read_history: params => ({ fileAvailable: true, hasPartialTail: false, entries: params.session_id === child.id ? [history("answer", "子会话正文")] : [], nextBefore: null }),
+    list_tasks: params => ({ tasks: params.session_id === child.id ? [childTask] : [], hasMore: false }),
+    get_task: () => ({ task: childTask, toolOps: [], confirmations: [], artifacts: [], outputPreview: null, seq: 100 }),
+    read_task_events: () => ({ events, nextAfter: null }),
+    read_history_entry: params => history(params.entry_id, "实时长正文"),
+  });
+  const snapshot = () => model.update({ type: "snapshot", result: { snapshot: fakeSnapshot({ sessions: [session, child], subAgents: [agent], subAgentSessionIds: [child.id] }), replay: [], seq: 100 }, instanceChanged: false });
+  snapshot();
+  model.update({ type: "navigate", instanceId: "inst-1", navigation: { sessionId: child.id, taskId: "task" } });
+  await model.loadHistory(child.id);
+  assert.deepEqual(model.tabs, [session.id]);
+  assert.equal(model.inspector.childSessionId, child.id);
+  const items = () => model.view.openSession(child.id).flow.items;
+  assert.equal(items().filter(item => item.kind === "thinking").length, 1);
+  assert.equal(items().filter(item => item.kind === "tool").length, 1);
+  model.update({ type: "event", event: { ...event(101, { type: "task.output_entry", sessionId: child.id, taskId: "task", entryId: "live", sessionFile: "/child", role: "assistant", messageId: null }), sessionId: child.id }, kind: "live" });
+  await model.loadEntry(child.id, "live");
+  assert.ok(items().some(item => item.kind === "message" && item.text === "实时长正文"));
+  snapshot();
+  await model.loadHistory(child.id);
+  assert.equal(items().filter(item => item.kind === "thinking").length, 1);
+  assert.equal(items().filter(item => item.kind === "tool").length, 1);
+  assert.ok(transport.requests.filter(request => request.op === "read_history" && (request.params as OpParams<"read_history">).session_id === child.id).length >= 2);
 });

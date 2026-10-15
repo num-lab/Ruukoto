@@ -2,11 +2,11 @@
 
 ## 职责与边界
 
-`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型与会话默认模式选择、任务控制和暂停队列恢复；两个目标共用审批卡片、系统通知与 Dock 角标；Personal 完整会话界面尚未开放，主进程支持与 Code 并存的 Personal SSH 连接。后台事实只经控制面取得，不读取数据库、JSONL、工作区文件或 git。
+`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型与会话默认模式选择、任务控制、暂停队列恢复，以及右栏的工作委托、SubAgent 历史与单次工具差异；两个目标共用审批卡片、系统通知与 Dock 角标；Personal 完整会话界面尚未开放，主进程支持与 Code 并存的 Personal SSH 连接。后台事实只经控制面取得，不读取数据库、JSONL、工作区文件或 git。
 
 ## 对外接口
 
-主进程持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()` 与 `reveal(path)`。主进程校验 IPC 来源和操作名单：本地 `reconnect`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放订阅、重新连接、审批读取与应答、`get_task` 核实，以及本地 `desktop_personal_config_read`／`desktop_personal_config_save`；其他业务操作随界面开放。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+主进程持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()` 与 `reveal(path)`。主进程校验 IPC 来源和操作名单：本地 `reconnect`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放订阅、重新连接、审批读取与应答、`get_task` 核实，以及本地 `desktop_personal_config_read`／`desktop_personal_config_save`；其他业务操作随界面开放。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React 与 Tailwind，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
@@ -34,11 +34,13 @@ Personal 只支持 SSH 登录账户与后台账户相同的部署。每次控制
 
 对话恢复先读历史页，再按历史窗口查询任务、安装带 seq 的任务详情和从零起分页补读任务事件；长正文按连续 UTF-8 字节偏移补全。每次新快照都更换异步代次并清空流游标，旧代次结果丢弃；向前翻页保留已加载条目。正文用 react-markdown 与 remark-gfm 渲染并关闭原始 HTML；正文与思考中的图片仅显示说明，防止 file 页面通过相对路径加载本机图片。思考按共享投影计时，连续工具活动按折叠组显示。关闭标签只改变界面，不删除会话。
 
+右栏按父会话显示工作委托和全部 SubAgent，工作详情经 `work_get` 读取任务。选择子会话后复用同一对话组件与恢复流程，实时补读和新快照恢复同样覆盖子会话。委派、任务与关闭事件触发工作查询，旧查询不能盖过新查询。点击 edit／write 工具切到差异页，以该工具所属会话读取结果；成功 edit 按行显示 unified patch 的增删与上下文，成功 write 显示写入内容，空文件单独标明。超过 64 KiB 的结果标记截断，不提供 Accept／Reject 或语法高亮。
+
 输入框发送时携带会话模型，继续输入保留原任务来源；暂停期间新任务显示为排队。模型目录按 `nextOffset` 分页并保留思考档位与可用性，认证不可用的选项禁用。模型与默认模式设置均带版本；默认模式只影响后续任务。中断与取消作用于所选任务，继续只从当前会话的中断任务发起，原操作效果未知时先提示核实。恢复队列前检查缺模型的旧任务，先选模型，再确认补齐数量与模型；取消确认保持暂停，没有缺模型任务时只传会话。
 
 审批卡片以 view 的当前待审批集合为准，任务终态、权限版本变化、人工或自动审查解决后立即失效。卡片展示操作范围、目标、审查状态与转人工原因；完整参数按返回的 UTF-8 字节偏移续读，不完整或失败可见，读完之后才开放批准与拒绝。操作绑定原目标、实例、审批和展示的权限版本。
 
-主进程为两个目标分别维护 view。后台新待审批及完成、失败、中断任务发系统通知，前台只更新已见基线；取消不通知。Dock 角标始终为两个目标当前待审批数之和。通知点击聚焦窗口，经目标订阅定位会话；SubAgent 通知定位父会话并保留子会话与任务选择，SubAgent 右栏尚未开放。
+主进程为两个目标分别维护 view。后台新待审批及完成、失败、中断任务发系统通知，前台只更新已见基线；取消不通知。Dock 角标始终为两个目标当前待审批数之和。通知点击聚焦窗口，经目标订阅定位会话；SubAgent 通知定位父会话并保留子会话与任务选择，Code 同时打开右栏子会话历史。
 
 首次观察实例的快照及其截止 seq 以内的补发只建基线，握手缓冲的更新实时事件照常通知。同实例重连按审批和终态任务 ID 去重补通知；没有补发时，用 `get_task` 查询此前观察中、现已离开快照的任务。失败保留待查，下次快照再查。应用不持久化通知基线，也不扫描全部历史：离线期间新建又结束、既无补发又超出快照范围的任务不补通知。
 
@@ -53,6 +55,8 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 关闭、改配置与终止失败都会取消计时器和控制面连接，对本目标读取与转发进程发 SIGTERM，2 秒后仍未退出则发 SIGKILL；等待退出后再移除本地 socket，旧代次结果不能改变状态。应用退出等待回收；用户已有的 SSH master 不受影响。
 
 创建明确拒绝时清除待完成记录并提示失败；在线应答丢失先按 `createRequestId` 核实，找不到才按原键原参数重发一次。断线或未发送等新快照安装后再核实。一次重发仍无法确认时保留记录，提示在左栏工作区树查看；迟到的创建事件也可确认结果。实例不符时保留“原操作结果仍未知”，要求连回原实例，不向当前实例重发，也不采纳旧实例的迟到成功。读取失败显示原因，正文分页不连续时不安装伪完整内容。
+
+差异先按工具状态判定：运行中不读取，成功但没有历史条目 ID 时等待落盘；失败与效果未知保留状态，有 ID 才读错误正文，否则显示摘要或明确状态。只有 `done` 且结果明确 `isError: false` 才显示 patch／写入内容，字段缺失显示“差异不可用”，不拿调用参数补位。工作详情与工具结果随每次快照换代，跨实例清空右栏选择；读取失败提供刷新或重试。
 
 提交丢答时保留原记录：在线超时当场核实，每次快照安装后串行核实全部记录，覆盖重启、重连和同连接重同步；运行中的触发合并为补跑。找到原任务就关联，明确未接收才原键原参数重发，实例不符保留并提示连回原实例。未发送或明确拒绝时把原文恢复到所属会话，保留已有草稿。
 

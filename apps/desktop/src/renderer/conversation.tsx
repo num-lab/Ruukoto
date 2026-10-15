@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import { formatTaskStatus } from "@ruukoto/view/state.ts";
 import type { CodeState } from "./code-state.ts";
+import { isDiffTool } from "./diff.ts";
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 // file 页面中的相对图片也能指向工作区；图片仅显示说明，避免绕过控制面读取本机文件。
@@ -53,7 +54,7 @@ export function Conversation({ model, sessionId }: { model: CodeState; sessionId
       const entry = group[0];
       if (entry.kind === "message") return <Message key={entry.key} entry={entry} />;
       if (entry.kind === "thinking") return <Thinking key={entry.key} entry={entry} />;
-      if (entry.kind === "tool") return <details className="tool-group" key={entry.key}><summary>工具活动 · {group.length} 项{group.some(item => item.kind === "tool" && item.status === "running") ? " · 执行中" : ""}</summary>{group.map(item => item.kind === "tool" && <div className="tool-row" key={item.key}><div><strong>{item.name}</strong><span className={`tool-status ${item.status}`}>{{ running: "执行中", done: "已完成", error: "失败", effect_unknown: "效果未知" }[item.status]}</span></div><pre>{item.target}</pre>{item.summary && <pre>{item.summary}</pre>}</div>)}</details>;
+      if (entry.kind === "tool") return <details className="tool-group" key={entry.key}><summary>工具活动 · {group.length} 项{group.some(item => item.kind === "tool" && item.status === "running") ? " · 执行中" : ""}</summary>{group.map(item => item.kind === "tool" && <div className="tool-row" key={item.key}><div>{isDiffTool(item) ? <button className="diff-link" onClick={() => model.inspector.openDiff(sessionId, item)}>{item.name} · 查看差异</button> : <strong>{item.name}</strong>}<span className={`tool-status ${item.status}`}>{{ running: "执行中", done: "已完成", error: "失败", effect_unknown: "效果未知" }[item.status]}</span></div><pre>{item.target}</pre>{item.summary && <pre>{item.summary}</pre>}</div>)}</details>;
       if (entry.kind === "task") return <p className="task-status" key={entry.key}>{formatTaskStatus(entry.task.status)}{entry.task.errorMessage && ` · ${entry.task.errorMessage}`}</p>;
       if (entry.kind === "note") return <p className="flow-note" key={entry.key}>{entry.text}</p>;
       return null;

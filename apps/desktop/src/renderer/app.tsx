@@ -4,6 +4,7 @@ import { Conversation } from "./conversation.tsx";
 import { ApprovalCards } from "./approval-cards.tsx";
 import type { DesktopTarget } from "../shared/bridge.ts";
 import { Composer, PendingInputs } from "./composer.tsx";
+import { InspectorPanel } from "./inspector-panel.tsx";
 
 const labels = { connecting: "正在连接", online: "已连接", reconnecting: "正在重新连接", failed: "连接失败", closed: "已断开" };
 export function App() {
@@ -64,5 +65,6 @@ export function App() {
         {(status.state === "failed" || status.state === "reconnecting" || status.state === "closed") && <button className="reconnect" onClick={() => void reconnect()}>重新连接</button>}
       </div>}
     </main>
+    {target === "code" && current && <InspectorPanel model={model} />}
   </div>;
 }

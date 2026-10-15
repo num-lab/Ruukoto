@@ -24,6 +24,8 @@ type Submit = {
 };
 
 export interface TuiOps {
+  work_list: { params: { session_id?: string }; result: R<"workList"> };
+  work_get: { params: { work_id: string }; result: R<"workGet"> };
   workflow_definitions: { params: { offset?: number; limit?: number }; result: Awaited<ReturnType<Runtime["workflowLibrary"]["list"]>> };
   workflow_definition: { params: { name?: string; definition_id?: string; version_offset?: number } & Slice; result: R<"getWorkflowDefinition"> };
   workflow_save: { params: { name: string; script: string; expected_digest: string | null; request_id: string }; result: R<"saveWorkflowDefinition"> };

@@ -254,6 +254,7 @@ export class ControlServer {
           // 补发事件同样经有界视图转换（线上载荷不携带完整大参数）
           replay: replay.map(capEventForWire),
           snapshot: {
+            product: runtime.productType,
             projects: snapshot.projects,
             sessions: snapshot.sessions,
             tasks: snapshot.tasks,

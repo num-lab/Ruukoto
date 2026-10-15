@@ -89,7 +89,7 @@ test("受管桌面只用开发档案，不执行登录 shell 或 ensureBackend",
 test("主进程请求名单拒绝越界操作，IPC 错误保留分类与版本且隐藏令牌", async () => {
   let calls = 0;
   const reconnect = async () => { calls++; };
-  for (const [target, op, params] of [["code", "stop", {}], ["code", "auth", { token }], ["personal", "reconnect", {}], ["code", "reconnect", { token }], ["code", "reconnect", []]]) {
+  for (const [target, op, params] of [["code", "stop", {}], ["code", "auth", { token }], ["unknown", "reconnect", {}], ["code", "reconnect", { token }], ["code", "reconnect", []]]) {
     const result = await handleRequest(target, op, params, reconnect, unavailable);
     assert.equal(result.ok, false);
     assert.ok(!JSON.stringify(result).includes(token));

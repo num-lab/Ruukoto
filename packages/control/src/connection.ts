@@ -17,6 +17,7 @@ import { ControlClient, ControlClientError, type ClientCloseInfo, type ControlTr
 import type { OpParams, OpResult, TuiOp } from "./ops.ts";
 import type { ConnectResult } from "./protocol.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
+import type { ProductType } from "@ruukoto/core/product.ts";
 
 export type ConnectionState = "connecting" | "online" | "reconnecting" | "failed" | "closed";
 
@@ -34,7 +35,9 @@ export interface ConnectionCallbacks {
 
 export interface ConnectionConfig {
   socketPath: string;
-  token: string;
+  /** 每次建连重新获取；提供函数的取消与资源回收由调用方持有。 */
+  token: string | (() => Promise<string>);
+  expectedProduct?: ProductType;
   /** 退避重连：初始间隔与上限（默认 500ms → 8000ms）。 */
   reconnectInitialMs?: number;
   reconnectMaxMs?: number;
@@ -50,7 +53,9 @@ export class ControlConnection {
   private appliedSeq = 0;
   private buffer: PersistentEvent[] | null = null;
   private closedByUser = false;
+  private generation = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectDelay: number;
   private syncing: Promise<void> | null = null;
 
   state: ConnectionState = "connecting";
@@ -60,6 +65,7 @@ export class ControlConnection {
   constructor(config: ConnectionConfig, callbacks: ConnectionCallbacks) {
     this.config = config;
     this.callbacks = callbacks;
+    this.reconnectDelay = config.reconnectInitialMs ?? 500;
   }
 
   /** 当前已应用的事件序号（游标）。 */
@@ -75,6 +81,7 @@ export class ControlConnection {
 
   /** 首次连接并同步；失败抛错。明确拒绝进入 failed 不再重试，其余（后台未起、超时、断线）退避重连。 */
   async start(): Promise<void> {
+    if (this.closedByUser) return;
     this.setState("connecting");
     try {
       await this.connectAndSync(undefined);
@@ -84,28 +91,43 @@ export class ControlConnection {
     }
   }
 
+  private current(generation: number): boolean {
+    return !this.closedByUser && this.state !== "failed" && generation === this.generation;
+  }
+
+  // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
   private async connectAndSync(since: number | undefined): Promise<void> {
+    const generation = ++this.generation;
     const factory = this.config.clientFactory ?? ((p: string, t: number): Promise<ControlTransport> => ControlClient.connect(p, t));
-    const client = await factory(this.config.socketPath, this.config.connectTimeoutMs ?? 5000);
-    this.client = client;
-    client.onClose((info) => this.handleClose(info));
-    client.onEvent((event) => this.routeEvent(event));
+    let client: ControlTransport | null = null;
     try {
-      await client.authenticate(this.config.token);
-      await this.sync(client, since);
+      const token = typeof this.config.token === "string" ? this.config.token : await this.config.token();
+      if (!this.current(generation)) return;
+      client = await factory(this.config.socketPath, this.config.connectTimeoutMs ?? 5000);
+      if (!this.current(generation)) { client.close(); return; }
+      this.client = client;
+      client.onClose((info) => { if (this.current(generation)) this.handleClose(info); });
+      client.onEvent((event) => { if (this.current(generation)) this.routeEvent(event); });
+      await client.authenticate(token);
+      if (!this.current(generation)) { client.close(); return; }
+      await this.sync(client, since, generation);
+      if (!this.current(generation)) { client.close(); return; }
     } catch (err) {
-      // 明确拒绝（令牌无效、协议不兼容等）：停止自动重试（先置 failed，close 不再触发重连）；
-      // 其余（认证或同步超时、断线）经 close 走断线重连
+      if (!this.current(generation)) { client?.close(); return; }
+      // 明确拒绝先置 failed；其余失败交外层重试，关闭 transport 不重复安排计时器。
       if (err instanceof ControlClientError && err.outcome === "rejected") this.setState("failed", err.message, err);
-      client.close();
+      ++this.generation;
+      this.client = null;
+      client?.close();
       throw err;
     }
     this.lastSyncAt = new Date();
+    this.reconnectDelay = this.config.reconnectInitialMs ?? 500;
     this.setState("online");
   }
 
   /** 安装快照 → 应用补发（fill-only）→ 应用缓冲的实时事件。 */
-  private async sync(client: ControlTransport, since: number | undefined): Promise<void> {
+  private async sync(client: ControlTransport, since: number | undefined, generation: number): Promise<void> {
     const buffer: PersistentEvent[] = [];
     this.buffer = buffer;
     let result: ConnectResult;
@@ -113,7 +135,7 @@ export class ControlConnection {
       result = await client.handshake(since);
     } catch (err) {
       if (
-        since !== undefined &&
+        this.current(generation) && since !== undefined &&
         err instanceof ControlClientError &&
         (err.code === "invalid_cursor" || err.code === "cursor_too_old")
       ) {
@@ -124,16 +146,23 @@ export class ControlConnection {
       }
     } finally {
       // 握手结束后到达的事件直接走实时通道
-      this.buffer = null;
+      if (this.buffer === buffer) this.buffer = null;
+    }
+    if (!this.current(generation)) return;
+    if (this.config.expectedProduct && result.snapshot.product !== this.config.expectedProduct) {
+      throw new ControlClientError("product_mismatch", `连接目标产品不符：需要 ${this.config.expectedProduct}；请核对控制目录与连接配置后重新连接。`, "rejected");
     }
     const instanceChanged = this.instanceId !== null && result.snapshot.instanceId !== this.instanceId;
     this.instanceId = result.snapshot.instanceId;
     this.callbacks.onSnapshot(result, { resync: since !== undefined || this.appliedSeq > 0, instanceChanged });
+    if (!this.current(generation)) return;
     this.appliedSeq = result.seq;
     for (const event of result.replay) {
+      if (!this.current(generation)) return;
       this.callbacks.onEvent(event, "replay");
     }
     for (const event of buffer) {
+      if (!this.current(generation)) return;
       this.applyLive(event);
     }
   }
@@ -161,13 +190,17 @@ export class ControlConnection {
   private async resync(reason: string): Promise<void> {
     if (this.closedByUser || !this.client || this.client.isClosed) return;
     if (this.syncing) return this.syncing;
+    const client = this.client;
+    const generation = this.generation;
     this.syncing = (async () => {
       try {
-        await this.sync(this.client!, undefined);
-        this.lastSyncAt = new Date();
-      } catch {
+        await this.sync(client, undefined, generation);
+        if (this.current(generation)) this.lastSyncAt = new Date();
+      } catch (error) {
+        if (!this.current(generation)) return;
+        if (error instanceof ControlClientError && error.outcome === "rejected") this.setState("failed", error.message, error);
         // 同步失败：连接已不可用，走断线重连路径
-        this.client?.close();
+        client.close();
       }
     })();
     try {
@@ -180,29 +213,32 @@ export class ControlConnection {
   private handleClose(info: ClientCloseInfo): void {
     if (this.closedByUser) return;
     if (this.state === "failed") return;
+    ++this.generation;
+    this.client = null;
+    this.buffer = null;
     this.setState("reconnecting", info.message);
-    this.scheduleReconnect(this.config.reconnectInitialMs ?? 500);
+    this.scheduleReconnect();
   }
 
-  private scheduleReconnect(delayMs: number): void {
+  private scheduleReconnect(): void {
     if (this.closedByUser) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    const delayMs = this.reconnectDelay;
+    this.reconnectDelay = Math.min(delayMs * 2, this.config.reconnectMaxMs ?? 8000);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.tryReconnect(delayMs);
+      void this.tryReconnect();
     }, delayMs);
   }
 
-  private async tryReconnect(delayMs: number): Promise<void> {
+  private async tryReconnect(): Promise<void> {
     if (this.closedByUser) return;
     try {
       // 重连只恢复观察：认证 + 快照/补发，不发送任何任务操作
       await this.connectAndSync(this.appliedSeq > 0 ? this.appliedSeq : undefined);
     } catch (err) {
-      if (this.state === "failed") return; // 认证/协议失败：不再重试
-      const next = Math.min(delayMs * 2, this.config.reconnectMaxMs ?? 8000);
-      this.setState("reconnecting", (err as Error).message);
-      this.scheduleReconnect(next);
+      if (this.closedByUser || this.state === "failed") return; // 认证/协议失败：不再重试
+      this.handleClose({ code: err instanceof ControlClientError ? err.code : "connect_failed", message: (err as Error).message });
     }
   }
 
@@ -220,6 +256,7 @@ export class ControlConnection {
   /** 主动关闭：停止重连，关闭 socket。 */
   close(): void {
     this.closedByUser = true;
+    ++this.generation;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.client?.close();

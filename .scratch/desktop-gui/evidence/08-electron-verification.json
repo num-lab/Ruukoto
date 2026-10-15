@@ -1,0 +1,13 @@
+{
+  "passed": [
+    "real Electron: both target snapshots through sandbox preload",
+    "config validation and token-free IPC",
+    "forward killed: fresh authenticated snapshot",
+    "config replacement began a blocking reader",
+    "repeated quit waited for SIGKILL; no child or socket remains",
+    "entire app profile contains no token bytes"
+  ],
+  "profile": "temporary",
+  "remote": "local socket fixture",
+  "tokenOnDiskInApp": false
+}

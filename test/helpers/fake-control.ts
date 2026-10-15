@@ -23,6 +23,7 @@ export interface FakeScript {
 
 export function fakeSnapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
+    product: "ruukoto-code",
     projects: [],
     sessions: [],
     tasks: [],

@@ -87,7 +87,7 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
       assert.equal(history.entries.find(entry => entry.entryId === internalInput.entryId)!.inputPurpose, "internal_report");
       assert.equal(rt.readHistoryEntry({ sessionId: inherited.id, entryId: internalInput.entryId }).inputPurpose, "internal_report");
       const state = new ViewState();
-      state.applySnapshot({ snapshot: rt.snapshot(), seq: 0, replay: [] }, false);
+      state.applySnapshot({ snapshot: { ...rt.snapshot(), product: rt.productType }, seq: 0, replay: [] }, false);
       state.installHistoryPage(inherited.id, history, "replace");
       const visible = state.openSession(inherited.id).flow.items;
       assert.ok(!visible.some(entry => entry.kind === "message" && entry.role === "user" && entry.text === wake.input));

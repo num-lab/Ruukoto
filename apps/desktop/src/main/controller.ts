@@ -71,7 +71,7 @@ export class CodeController {
     }
     this.token = this.config.managed ? readOwnerToken(this.config.controlDir) ?? undefined : resolveOwnerToken(this.config.controlDir);
     if (!this.token) throw new DesktopError("owner_token_missing", "开发档案的 owner.token 不可读；请重启开发启动器。");
-    this.connection = this.deps.connection({ socketPath: this.config.socketPath, token: this.token }, {
+    this.connection = this.deps.connection({ socketPath: this.config.socketPath, token: this.token, expectedProduct: "ruukoto-code" }, {
       onState: (state, detail, error) => {
         if (this.stopped || generation !== this.generation) return;
         if (state === "failed" && error) this.failed(serializeFailure(error, this.token));

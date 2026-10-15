@@ -11,6 +11,7 @@ export function runProjection() {
   const snapshot: ConnectResult = {
     seq: 10, replay: [],
     snapshot: {
+      product: "ruukoto-code",
       instanceId: "instance", execution: { backend: "native", note: "" },
       defaultModel: { provider: "mock", id: "mock", name: "Mock", thinkingLevel: "off" },
       projects: [{ id: "project", name: "工作区", rootDir: null, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at }],

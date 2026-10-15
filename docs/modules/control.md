@@ -24,7 +24,7 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `25`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `26`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -112,7 +112,7 @@ stateDiagram-v2
     closed --> [*]
 ```
 
-退避重连的初始间隔 500 ms、上限 8000 ms；只有后台明确拒绝（令牌无效、协议不兼容）进 `failed` 并停止重试；`onState` 的第三个参数携带原始 `ControlClientError`。重连只恢复观察：不发送 `resume_queue`、批准或继续请求。
+退避重连的初始间隔 500 ms、上限 8000 ms；令牌提供函数或后台明确拒绝（`ControlClientError.outcome === "rejected"`）、产品不符时进 `failed` 并停止重试；`onState` 的第三个参数携带原始 `ControlClientError`。重连只恢复观察：不发送 `resume_queue`、批准或继续请求。
 
 **待确认请求记录。** 每个产品存档根下的 `pending/`（默认 `~/.ruukoto/pending` 或 `~/.ruukoto-code/pending`，`RUUKOTO_PENDING_DIR` / `RUUKOTO_CODE_PENDING_DIR` 可覆盖）：目录 0700、记录 0600，写临时文件再 `rename`。一条记录含 `requestId`、op（输入提交、会话分支、压缩或工作流启动/回答/控制）、完整请求参数、提交时握手返回的 `instanceId`、创建时间。解析不了的文件留在磁盘上单独列出，不静默丢弃；令牌等凭据永不写入这里。记录用于核实原请求及关联其结果，不是会话历史的副本。
 
@@ -184,13 +184,15 @@ sequenceDiagram
 
 `respond_confirmation` 接受 `approve` / `reject`，可带 `permission_version` 绑定审批时的权限版本。权限版本不匹配回 `permission_version_mismatch`，该批准不可用。批准只适用于该次操作及明确列出的范围，在执行前单次消费。
 
-`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 接受会话、名称或临时脚本、参数、稳定键及更小预算；临时脚本必填 `title`，可显式提供 `description`，不接受授权字段。运行视图返回固定 `displayName`、`description`、`createdAt` 与只读展示序号 `number`，`effectUnknown` 来自持久效果未知原因或所属执行任务，`stopUnverified` 从全部执行及脚本状态汇总，独立于效果未知字段；`workflow_list.scope=current` 先取所有活动及最近十项终态再分页，缺省或 `history` 返回全部历史；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 25，旧客户端明确拒绝。
+`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 接受会话、名称或临时脚本、参数、稳定键及更小预算；临时脚本必填 `title`，可显式提供 `description`，不接受授权字段。运行视图返回固定 `displayName`、`description`、`createdAt` 与只读展示序号 `number`，`effectUnknown` 来自持久效果未知原因或所属执行任务，`stopUnverified` 从全部执行及脚本状态汇总，独立于效果未知字段；`workflow_list.scope=current` 先取所有活动及最近十项终态再分页，缺省或 `history` 返回全部历史；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 26，旧客户端明确拒绝。
 
 `workflow_receipt` 按 `run_id`、原 `request_id` 和 `operation`（`workflow_answer` / `workflow_control`）只读查询原提交回执，返回原接受状态与版本；不存在时返回 `null`，不推进运行、不重复回答，也不回传答案或授权内容。工作流未决记录保存完整参数及原版本，重连或客户端重启先核实 `instanceId`，启动经 `workflow_find`、回答和控制经此回执查询；查询失败或实例变化保留原记录，只有明确未接收才允许原键原参数重试。
 
 ### 断开、重连与数据实例变化
 
 客户端断开只移除订阅，不取消任务、不触发恢复，也不发送 `resume_queue`、批准或继续。重连带 `since = appliedSeq` 重新握手（游标为 0 时不带），先安装快照、再应用补发事件（只补齐显示记录，不回滚状态）、再按序应用缓冲的实时事件；`instanceId` 变化时同样通知调用方。
+
+`ConnectionConfig.token` 可为固定字符串或异步提供函数，每次建连重新取值，取消提供函数的外部资源由调用方负责。取令牌、创建 transport、认证和握手返回后均核对连接代次；主动关闭或换代后丢弃迟到结果并关闭迟到 transport，不安装快照或补发。握手快照的 `product` 取自 `Runtime.productType`；设置 `expectedProduct` 的调用方在安装快照前核对，不符返回 `product_mismatch` 并停止重试。
 
 ### 停止
 

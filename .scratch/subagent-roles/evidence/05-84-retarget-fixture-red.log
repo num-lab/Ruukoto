@@ -1,0 +1,21 @@
+[ruukoto:parent-delivery] 子任务 task_e19f663f1f80714794e599ca 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_e19f663f1f80714794e599ca 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✖ 目标变化不改发：登记时目标已失效记 work_report skip；发送前重新配置则取消且新目标零发送 (30333.092916ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 31625.38775
+
+✖ failing tests:
+
+test at test/84-im-final-delivery.test.ts:465:1
+✖ 目标变化不改发：登记时目标已失效记 work_report skip；发送前重新配置则取消且新目标零发送 (30333.092916ms)
+  Error: 等待超时: 唤醒完成
+      at waitFor (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-05-model-730405j5/source/test/helpers/testkit.ts:233:47)
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-05-model-730405j5/source/test/84-im-final-delivery.test.ts:483:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

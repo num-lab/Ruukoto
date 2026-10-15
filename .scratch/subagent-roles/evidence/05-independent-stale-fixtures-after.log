@@ -1,0 +1,10 @@
+✔ 合成会话覆盖全部事件类型且 seq 连续 (482.781041ms)
+✔ breakdown 纯函数：分类占比工作示例 (2.674583ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5684.955792

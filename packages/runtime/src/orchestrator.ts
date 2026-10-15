@@ -30,6 +30,7 @@ import {
   type NotifyTarget,
   type PersistentEvent,
   type Task,
+  type WorkDelegation,
 } from "@ruukoto/core/types.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
 import { QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE } from "@ruukoto/core/notify-target.ts";
@@ -37,6 +38,8 @@ import { canonicalParamsDigest } from "@ruukoto/agent/mcp/tools.ts";
 import type { SubAgentDelegateInput, SubAgentDelegation, SubAgentManager } from "@ruukoto/runtime/subagents.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { getWorkflowDeliveryRun } from "@ruukoto/core/workflow.ts";
+import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
+import { WorkCopyError } from "./work-copy.ts";
 
 /** 编排器需要的 Runtime 窄接口（宿主注入；除此之外的能力编排器不可见）。 */
 export interface OrchestratorBridge {
@@ -100,6 +103,7 @@ export interface OrchestratorDeps {
   subagents?: {
     delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation>;
     resultRecorded: SubAgentManager["resultRecorded"];
+    verifyWorkspace?: SubAgentManager["verifyWorkspace"];
     start: SubAgentManager["start"];
     flushPending: SubAgentManager["flushPendingMessages"];
   };
@@ -586,32 +590,46 @@ export class Orchestrator {
    * 不自动重试；后台异常沿用 interrupted/占用保留路径。
    */
   private async handleSubAgentTerminal(task: Task, outcome: ChildOutcome): Promise<void> {
-    const work = task.workId ? this.store.getWorkDelegation(task.workId) : null;
+    let work: WorkDelegation | null = null;
+    let snapshotError: WorkspaceSnapshotError | WorkCopyError | null = null;
+    try {
+      work = task.workId ? this.store.getWorkDelegation(task.workId) : null;
+      if (work) this.deps.subagents?.verifyWorkspace?.(work);
+    }
+    catch (error) {
+      if (!(error instanceof WorkspaceSnapshotError || error instanceof WorkCopyError) ||
+          !["target_corrupt", "snapshot_missing", "snapshot_corrupt", "snapshot_invalid", "snapshot_changed", "worktree_gone"].includes(error.code)) throw error;
+      snapshotError = error;
+      outcome = "failed";
+    }
     const agent = this.store.getSubAgent(task.subAgentId!);
-    if (!work || !agent) {
+    if ((!work && !snapshotError) || !agent) {
       this.log(`SubAgent 任务 ${task.id} 缺少工作/身份记录，跳过结果登记`);
       return;
     }
+    const workId = work?.id ?? task.workId!;
+    const parentSessionId = work?.parentSessionId ?? agent.parentSessionId;
     const replyPage = outcome === "completed" ? this.deps.bridge.readTaskReply(task.id, 0, 4096) : null;
     const reply = replyPage?.text.trim() || null;
-    const summary = this.resultSummary(task, outcome, reply);
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md
+    const summary = snapshotError ? `子任务结果不可核实：${snapshotError.code}；工作记录与副本已保留，请向拥有者报告并停止该项工作，未自动重放` : this.resultSummary(task, outcome, reply);
     // 宿主评审（issue 19）：定稿产物与 review 引用先落盘（补记重入时复用已定稿
     // 产物）；artifactIds 在其后计算，结果清单才包含刚定稿的评审产物
-    const resultData = this.deps.resultData?.(task, outcome) ?? {};
+    const resultData = snapshotError ? {} : this.deps.resultData?.(task, outcome) ?? {};
     // 结果引用：工作/身份/本次执行/原直接父任务/所属父会话分别核实
     const resultRef = JSON.stringify({
       sessionId: task.sessionId,
       taskId: task.id,
-      workId: work.id,
+      workId,
       subAgentId: agent.id,
-      parentSessionId: work.parentSessionId,
+      parentSessionId,
       parentTaskId: task.parentTaskId,
       outcome,
       artifactIds: this.store
         .listArtifactsByTask(task.id)
         .filter((a) => !a.name.startsWith("prompt-snapshot:"))
         .map((a) => a.id),
-      failure: outcome === "completed" ? null : (task.errorMessage ?? task.interruptReason ?? OUTCOME_TEXT[outcome]),
+      failure: snapshotError?.code ?? (outcome === "completed" ? null : (task.errorMessage ?? task.interruptReason ?? OUTCOME_TEXT[outcome])),
       ...resultData,
     });
     const recorded = this.store.withTx(() => {
@@ -620,16 +638,16 @@ export class Orchestrator {
       // 宿主评审任务带来源事件：与角色路径同一处回写入站终态并登记通知（issue 19）
       this.recordInboundTerminal(task, outcome);
       this.deps.subagents?.resultRecorded(task);
-      const refs = { taskId: task.id, sessionId: work.parentSessionId };
+      const refs = { taskId: task.id, sessionId: parentSessionId };
       switch (outcome) {
         case "completed":
           this.store.appendEvent(
             {
               type: "subagent_task.completed",
-              workId: work.id,
+              workId,
               subAgentId: agent.id,
               taskId: task.id,
-              parentSessionId: work.parentSessionId,
+              parentSessionId,
               parentTaskId: task.parentTaskId!,
               summary,
               resultRef,
@@ -641,12 +659,12 @@ export class Orchestrator {
           this.store.appendEvent(
             {
               type: "subagent_task.failed",
-              workId: work.id,
+              workId,
               subAgentId: agent.id,
               taskId: task.id,
-              parentSessionId: work.parentSessionId,
+              parentSessionId,
               parentTaskId: task.parentTaskId!,
-              errorMessage: task.errorMessage ?? "已取消或失败",
+              errorMessage: snapshotError?.code ?? task.errorMessage ?? "已取消或失败",
             },
             refs,
           );
@@ -655,10 +673,10 @@ export class Orchestrator {
           this.store.appendEvent(
             {
               type: "subagent_task.timeout",
-              workId: work.id,
+              workId,
               subAgentId: agent.id,
               taskId: task.id,
-              parentSessionId: work.parentSessionId,
+              parentSessionId,
               parentTaskId: task.parentTaskId!,
               deadline: task.deadline ?? "",
             },
@@ -669,10 +687,10 @@ export class Orchestrator {
           this.store.appendEvent(
             {
               type: "subagent_task.result_unknown",
-              workId: work.id,
+              workId,
               subAgentId: agent.id,
               taskId: task.id,
-              parentSessionId: work.parentSessionId,
+              parentSessionId,
               parentTaskId: task.parentTaskId!,
               reason: task.interruptReason ?? "interrupted",
             },
@@ -684,7 +702,7 @@ export class Orchestrator {
     });
     if (!recorded) return;
     // 终态登记后冲刷待投递消息；异步准备后在事务内重核当前工作与活动执行。
-    await this.deps.subagents?.flushPending(work.parentSessionId);
+    await this.deps.subagents?.flushPending(parentSessionId);
     await this.deps.parentDelivery.resultRecorded(task, outcome, summary);
   }
 

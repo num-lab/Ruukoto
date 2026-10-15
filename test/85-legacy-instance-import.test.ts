@@ -1,4 +1,5 @@
 import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * 旧开发资料迁入 Coding Agent（agent-direction issue 21）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
@@ -218,7 +219,7 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   const subSession = store.withTx(() =>
     store.createSession({ projectId: a.projectId, cwd: work0.cwd, cwdReal: work0.cwdReal, cwdDev: work0.dev, cwdIno: work0.ino, piSessionId: randomId("pi"), confirmTools: [] }),
   );
-  const sub = { id: randomId("sub"), parentSessionId: a.sessionId, sessionId: subSession.id, workDir: work0.cwdReal, activeWorkId: null, currentTaskId: null, state: "idle" as const, closedAt: null, closedBy: null, createdAt: NOW };
+  const sub = { id: randomId("sub"), definition: fixtureSubAgentDefinition(), parentSessionId: a.sessionId, sessionId: subSession.id, workDir: work0.cwdReal, activeWorkId: null, currentTaskId: null, state: "idle" as const, closedAt: null, closedBy: null, createdAt: NOW };
   const wk = { id: randomId("work"), parentSessionId: a.sessionId, originTaskId: tDone.id, subAgentId: sub.id, requestKey: "k-sub", paramsDigest: "d-sub", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: NOW };
   store.withTx(() => {
     store.insertSubAgent(sub);
@@ -572,6 +573,7 @@ test("应用后目标启动：历史与产物字节一致、组织映射保留�
       // 组织映射保留；SubAgent 以关闭状态登记
       assert.equal(store.getSession(src.ids.sb2)!.workspaceProjectId, src.ids.wsProj);
       const sub = store.getSubAgent(src.ids.subAgent)!;
+      assert.deepEqual(sub.definition, fixtureSubAgentDefinition(), "角色正文与摘要随关闭归档完整导入");
       assert.ok(sub.closedAt !== null && sub.closedBy === "owner", "SubAgent 以关闭状态登记");
       assert.equal(store.getSession(src.ids.subSession)?.id, src.ids.subSession);
 

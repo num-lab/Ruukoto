@@ -146,7 +146,7 @@ test("桌面通知导航按实例定位后消费，同实例快照不抢回已�
 
 test("右栏子会话复用历史恢复，通知定位、实时补读与重连不丢思考和工具", async () => {
   const child: Session = { ...session, id: "child" };
-  const agent: SubAgent = { id: "agent", parentSessionId: session.id, sessionId: child.id, workDir: "/child", activeWorkId: null, currentTaskId: "task", state: "running", closedAt: null, closedBy: null, createdAt: at(0) };
+  const agent: SubAgent = { id: "agent", parentSessionId: session.id, sessionId: child.id, workDir: "/child", definition: null, activeWorkId: null, currentTaskId: "task", state: "running", closedAt: null, closedBy: null, createdAt: at(0) };
   const childTask = { ...task(), sessionId: child.id, status: "running" as const };
   const events: PersistentEvent[] = [
     { ...event(2, { type: "task.thinking", sessionId: child.id, taskId: "task", thinkingId: "thought", messageId: "message", startedAt: at(1), endedAt: at(2), text: "子会话思考" }), sessionId: child.id },

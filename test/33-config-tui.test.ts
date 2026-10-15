@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * 配置中心 TUI 集成（issue 21 §3）：假 Terminal + 真实后台/控制协议。
  *
@@ -126,7 +127,7 @@ test("配置中心按后台身份仅向普通开发会话提供 Plan，main、Su
     const create = async () => t.client.request<Session>("create_session", { project_id: projectId, cwd: t.work[0]! });
     const main = store.getSession(store.getAgentRole("main")!.sessionId)!;
     const sub = await create();
-    store.insertSubAgent({ id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
+    store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
     const archive = await create();
     store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(archive.id);
     const snapshot = (await t.client.handshake()).snapshot;

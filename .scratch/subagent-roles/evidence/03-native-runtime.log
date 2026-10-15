@@ -1,0 +1,31 @@
+✔ ruukoto 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (2281.841875ms)
+✔ ruukoto-code 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (2515.331458ms)
+✖ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (2080.579ms)
+✔ 非 Git 受保护目标在准备副本或登记委派前拒绝，源目录保留 (68.458917ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 3
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8288.611791
+
+✖ failing tests:
+
+test at test/subagent-workspace-snapshot.test.ts:84:1
+✖ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (2080.579ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 3
+  
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/test/subagent-workspace-snapshot.test.ts:118:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

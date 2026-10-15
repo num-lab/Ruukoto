@@ -1,5 +1,6 @@
 /** 工作流的固定输入、持久状态与事务内仲裁；调用方持有 Store.withTx。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md
  * Note: 见 .agents/notes/implemented/feature/2026-10-12-agent-workflows.md
  * Note: 见 .agents/notes/implemented/feature/2026-10-14-workflow-progressive-controls.md
  */
@@ -7,7 +8,9 @@ import { createHash } from "node:crypto";
 import { StoreConflictError, type Store } from "./store.ts";
 import { randomId, type AccessMode, type GrantedPath, type ModelSelection, type NotifyTarget, type SubAgentReadScope, type Task, type ToolCategory } from "./types.ts";
 import type { ProductType } from "./product.ts";
+import type { SubAgentRoleCatalogSnapshot } from "./subagent-definition.ts";
 
+export const WORKFLOW_INTERFACE_VERSION = 2;
 export const WORKFLOW_LIMITS = { attempts: 100, durationMs: 3_600_000, concurrency: 3, retries: 2, valueBytes: 512 * 1024, scriptBytes: 128 * 1024 } as const;
 export type WorkflowStatus = "queued" | "running" | "waiting" | "paused" | "succeeded" | "partial" | "failed" | "canceled";
 export interface WorkflowSource {
@@ -23,9 +26,9 @@ export interface WorkflowSource {
   replyTarget: NotifyTarget | null;
   scheduledRunId: string | null;
   /** 真实装配在启动时固定；旧库层替身可省略，真实 Driver 拒绝缺少快照的绑定。 */
-  authority?: { categories: ToolCategory[]; grantIds: string[]; configuration: string; workspace: { path: string; dev: number; ino: number } };
+  authority?: { toolClass?: "dev" | "main"; categories: ToolCategory[]; grantIds: string[]; configuration: string; workspace: { path: string; dev: number; ino: number } };
 }
-export interface WorkflowDefinition { id: string; digest: string; script: string; createdAt: string }
+export interface WorkflowDefinition { id: string; digest: string; script: string; interfaceVersion?: number; createdAt: string }
 export interface WorkflowLaunch {
   name?: string;
   script?: string;
@@ -52,6 +55,7 @@ export function workflowLaunchDigest(input: WorkflowLaunch): string {
 }
 export interface WorkflowRun {
   id: string;
+  interfaceVersion?: number;
   requestKey: string;
   paramsDigest: string;
   definitionId: string;
@@ -62,6 +66,7 @@ export interface WorkflowRun {
   description?: string | null;
   source: WorkflowSource;
   modelSelection: ModelSelection;
+  roleCatalog?: SubAgentRoleCatalogSnapshot;
   status: WorkflowStatus;
   version: number;
   reason: string | null;
@@ -95,8 +100,8 @@ export interface WorkflowStep {
   resultRecorded: boolean;
   delivery: number | null;
   attempts: number;
-  frozen?: { workId: string; taskId: string; baseCommit: string; artifactId: string; digest: string; bytes: number };
-  verification?: { stepKey: string; taskId: string; artifactId: string; digest: string; baseCommit: string; passed: boolean };
+  frozen?: { workId: string; taskId: string; baseCommit: string; snapshotDigest: string; artifactId: string; digest: string; bytes: number };
+  verification?: { stepKey: string; taskId: string; artifactId: string; digest: string; baseCommit: string; snapshotDigest: string; passed: boolean };
   readMemories?: string[];
 }
 export interface WorkflowExecution {
@@ -122,7 +127,9 @@ export interface WorkflowQuestion {
   answer: unknown;
 }
 export class WorkflowError extends Error {
-  constructor(readonly code: string, options?: ErrorOptions) { super(`工作流 ${code}：保留运行记录，请核实后继续`, options); }
+  constructor(readonly code: string, options?: ErrorOptions) {
+    super(code === "interface_upgrade_required" ? "工作流接口已更新：请改用 role、target 与 verify，保存为新版本后新建运行；旧记录保留，不自动重放" : `工作流 ${code}：保留运行记录，请核实后继续`, options);
+  }
 }
 
 /** JSON/wire 输入限制；摘要使用完整编码，原型字段与键顺序不会被丢弃。 */
@@ -136,16 +143,26 @@ export function workflowJson(value: unknown): string {
 export function workflowDigest(value: unknown): string { return createHash("sha256").update(workflowJson(value)).digest("hex"); }
 export function workflowTerminal(status: WorkflowStatus): boolean { return ["succeeded", "partial", "failed", "canceled"].includes(status); }
 
+export function requireWorkflowInterface(value: { interfaceVersion?: number }): void {
+  if (value.interfaceVersion !== WORKFLOW_INTERFACE_VERSION) throw new WorkflowError("interface_upgrade_required");
+}
+/** 旧正文摘要保留；新接口即使脚本相同也形成独立不可变版本。 */
+export function workflowDefinitionDigest(script: string, interfaceVersion = WORKFLOW_INTERFACE_VERSION): string {
+  if (interfaceVersion === 1) return workflowDigest(script);
+  requireWorkflowInterface({ interfaceVersion });
+  return workflowDigest({ interfaceVersion, script });
+}
+
 export function getWorkflowDefinition(store: Store, id: string): WorkflowDefinition | null {
   const row = store.db.prepare("SELECT payload FROM workflow_definitions WHERE id = ?").get(id) as { payload: string } | undefined;
   return row ? JSON.parse(row.payload) as WorkflowDefinition : null;
 }
-export function saveWorkflowDefinition(store: Store, script: string): WorkflowDefinition {
+export function saveWorkflowDefinition(store: Store, script: string, interfaceVersion = WORKFLOW_INTERFACE_VERSION): WorkflowDefinition {
   if (typeof script !== "string" || !script.trim() || Buffer.byteLength(script) > WORKFLOW_LIMITS.scriptBytes) throw new WorkflowError("invalid_script");
-  const digest = workflowDigest(script);
+  const digest = workflowDefinitionDigest(script, interfaceVersion);
   const row = store.db.prepare("SELECT payload FROM workflow_definitions WHERE digest = ?").get(digest) as { payload: string } | undefined;
   if (row) return JSON.parse(row.payload) as WorkflowDefinition;
-  const definition = { id: randomId("wfdef"), digest, script, createdAt: new Date().toISOString() };
+  const definition = { id: randomId("wfdef"), digest, script, interfaceVersion, createdAt: new Date().toISOString() };
   store.db.prepare("INSERT INTO workflow_definitions (id, digest, payload) VALUES (?, ?, ?)").run(definition.id, digest, JSON.stringify(definition));
   return definition;
 }
@@ -198,14 +215,21 @@ export function findWorkflowRun(store: Store, sessionId: string, key: string): W
   const row = store.db.prepare("SELECT payload FROM workflow_runs WHERE source_session_id = ? AND request_key = ?").get(sessionId, key) as { payload: string } | undefined;
   return row ? JSON.parse(row.payload) as WorkflowRun : null;
 }
+export function requireWorkflowRunDefinition(store: Store, run: WorkflowRun): WorkflowDefinition {
+  requireWorkflowInterface(run);
+  const definition = getWorkflowDefinition(store, run.definitionId);
+  if (!definition) throw new WorkflowError("definition_missing");
+  requireWorkflowInterface(definition);
+  if (definition.digest !== run.scriptDigest || workflowDefinitionDigest(definition.script, definition.interfaceVersion) !== definition.digest) throw new WorkflowError("definition_missing");
+  return definition;
+}
 export function createWorkflowRun(store: Store, run: WorkflowRun): WorkflowRun {
   const existing = findWorkflowRun(store, run.source.sessionId, run.requestKey);
   if (existing) {
     if (existing.paramsDigest !== run.paramsDigest) throw new StoreConflictError("工作流请求键已用于不同输入", "request_conflict");
     return existing;
   }
-  const definition = getWorkflowDefinition(store, run.definitionId);
-  if (!definition || definition.digest !== run.scriptDigest) throw new WorkflowError("definition_missing");
+  requireWorkflowRunDefinition(store, run);
   store.db.prepare("INSERT INTO workflow_runs (id, source_session_id, request_key, params_digest, status, payload) VALUES (?, ?, ?, ?, ?, ?)")
     .run(run.id, run.source.sessionId, run.requestKey, run.paramsDigest, run.status, JSON.stringify(run));
   changed(store, run);
@@ -229,7 +253,7 @@ export function chargeWorkflow(run: WorkflowRun, now: number): WorkflowRun {
 export function setWorkflowState(store: Store, id: string, status: WorkflowStatus, reason: string | null, now = Date.now()): WorkflowRun {
   const run = requireWorkflowRun(store, id);
   if (workflowTerminal(run.status)) return run;
-  if (status === "paused" && run.status === "paused" && ["effect_unknown", "write_result_missing", "replay_diverged", "result_missing", "definition_missing", "source_invalid"].includes(run.reason ?? "")) return run;
+  if (status === "paused" && run.status === "paused" && ["effect_unknown", "write_result_missing", "replay_diverged", "result_missing", "definition_missing", "source_invalid", "interface_upgrade_required"].includes(run.reason ?? "")) return run;
   const charged = chargeWorkflow(run, now);
   return updateWorkflowRun(store, { ...charged, status, reason, clockStartedAt: status === "running" ? now : null,
     ...(workflowTerminal(status) ? { terminalVersion: run.version + 1 } : {}),
@@ -393,6 +417,7 @@ export function controlWorkflow(store: Store, id: string, key: string, version: 
     if (!Number.isSafeInteger(control.maxAttempts) || control.maxAttempts <= 0 || !Number.isSafeInteger(control.durationMs) || control.durationMs <= 0) throw new WorkflowError("invalid_budget");
     run = updateWorkflowRun(store, { ...chargeWorkflow(run, now), maxAttempts: control.maxAttempts, durationMs: control.durationMs });
   } else if (control.action === "resume") {
+    requireWorkflowRunDefinition(store, run);
     if (control.clockConfirmed && !run.clockVerified) run = updateWorkflowRun(store, { ...run, clockVerified: true });
     if (control.stopsConfirmed && !listWorkflowExecutions(store, id).some(execution => {
       const task = store.getTask(execution.taskId);
@@ -403,7 +428,7 @@ export function controlWorkflow(store: Store, id: string, key: string, version: 
       }
       run = updateWorkflowRun(store, { ...run, scriptStopVerified: true });
     }
-    if (run.status !== "paused" || ["effect_unknown", "write_result_missing", "replay_diverged", "result_missing", "definition_missing", "source_invalid"].includes(run.reason ?? "") ||
+    if (run.status !== "paused" || ["effect_unknown", "write_result_missing", "replay_diverged", "result_missing", "definition_missing", "source_invalid", "interface_upgrade_required"].includes(run.reason ?? "") ||
         !run.clockVerified || (run.scriptUnits.length > 0 && run.scriptStopVerified !== true) ||
         listWorkflowExecutions(store, id).some(execution => execution.status === "running" || execution.stopVerified === false || store.listAllOccupancy().some(held => held.taskId === execution.taskId))) throw new WorkflowError("verification_required");
     run = setWorkflowState(store, id, "running", null, now);

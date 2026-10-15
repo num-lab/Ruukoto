@@ -1,0 +1,75 @@
+✔ 原任务结束后宿主任务真实创建和汇总 Git 副本，不创建模型会话或计 Agent 尝试 (6087.710333ms)
+✔ 宿主任务 ready 阶段取消且停止未核实，身份和双方占用保留，后续操作不重入 (1543.0705ms)
+✔ 宿主任务 call 阶段取消且停止未核实，身份和双方占用保留，后续操作不重入 (1430.031833ms)
+✔ 宿主操作入口在原任务结束后创建和汇总真实副本，同键缓存不再运行 Git (5816.417375ms)
+✔ 宿主操作排队后 pause，同键恢复原登记且真实写入只有一次 (2243.935709ms)
+✔ 宿主操作排队后 restart，同键恢复原登记且真实写入只有一次 (2239.371542ms)
+✔ 实际后台进程登记排队宿主操作后崩溃，接管同键仍只产生一次写入 (3606.223125ms)
+✔ 工作流非 Git 修改在创建副本或写入前拒绝，普通委派仍可直接写入 (1.648834ms)
+✔ 冻结补丁保留完整非 UTF-8 与二进制字节，验证副本按固定旧基线重建且写入独立 (944.178167ms)
+✔ 验证后改写副本字节使旧冻结成果失效，目标零套用 (981.978ms)
+✔ 验证后新增副本字节使旧冻结成果失效，目标零套用 (1019.26375ms)
+✔ 验证后删除副本字节使旧冻结成果失效，目标零套用 (1101.421125ms)
+✔ 冻结补丁与工作、基线或摘要不符在执行前拒绝，摘要自洽的伪造字节仍不能套用 (1051.468667ms)
+✔ 空冻结成果可建立独立验证副本，汇总没有写入 (1077.417542ms)
+✔ 冻结汇总幂等，冲突零套用且保留双方成果 (1806.39475ms)
+✔ 真实 ruukoto Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (28555.288167ms)
+✔ 真实 ruukoto-code Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (21296.557667ms)
+✔ 非 Git 修改在真实 worker 与模型前拒绝；无目标通用步骤仍可执行来源工具 (1941.617125ms)
+✔ 完全访问来源的验证命令不能写回待审副本，工具失败不能伪称通过 (16248.902791ms)
+✔ 冻结成果 stale：旧结论不能放行新字节或绕过验证，已套用成果保留 (19029.55625ms)
+✔ 冻结成果 check_failure：旧结论不能放行新字节或绕过验证，已套用成果保留 (19263.180709ms)
+✔ 冻结成果 ordinary_bypass：旧结论不能放行新字节或绕过验证，已套用成果保留 (4065.322333ms)
+✔ 冻结成果 snapshot_missing：旧结论不能放行新字节或绕过验证，已套用成果保留 (13867.990958ms)
+✔ 冻结成果 snapshot_mismatch：旧结论不能放行新字节或绕过验证，已套用成果保留 (12955.15ms)
+✔ 脚本伪造通过值不能生成验证记录或汇入任何字节 (633.766917ms)
+[ruukoto:parent-delivery] 工作流 wfrun_b5b5d4f30956b793cd9d711f 汇总尚未入队；保留原送达键供恢复：后台正在停止，拒绝新任务
+✔ 真实 Driver analyze 启动中取消，迟到实际身份和停止 false 沿原 Task 保留 (689.8255ms)
+✔ 真实 Driver modify 启动中取消，迟到实际身份和停止 false 沿原 Task 保留 (1271.896042ms)
+✖ ruukoto 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (24684.842166ms)
+✔ ruukoto-code 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (16301.211625ms)
+✔ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (15488.90775ms)
+✔ 非 Git 受保护目标在准备副本或登记委派前拒绝，源目录保留 (1156.642ms)
+✔ 已暂存的大小写改名只捕获实际名字，正常子增量可汇入并识别已应用 (1247.920083ms)
+✔ 子副本大小写改名保留真实路径；Git 拒绝套用时报告原因并零源写 (1148.303167ms)
+✔ 已暂存的 file-to-directory 按当前形态捕获，空冻结与子增量不读取过期 HEAD 路径 (1580.975458ms)
+✔ 已暂存的 directory-to-file 按当前形态捕获，空冻结与子增量不读取过期 HEAD 路径 (1707.046834ms)
+✔ 子副本 file-to-directory 冻结不追随过期路径，汇入后重复请求保持已应用 (1930.773959ms)
+✔ 子副本 directory-to-file 冻结不追随过期路径，汇入后重复请求保持已应用 (1727.629709ms)
+✔ 子副本 directory-to-link 冻结不追随过期路径，汇入后重复请求保持已应用 (1665.164083ms)
+✔ 实际嵌套 Git 与索引 gitlink 仍拒绝捕获 (619.620917ms)
+✔ core.symlinks=false 仍按原始类型验证和汇入新增/改指向的链接 (1773.468417ms)
+✔ 当前内容捕获零写入，登记仅新增专属 Git 元数据，普通汇入只应用子增量 (2502.785959ms)
+✔ 后续同文件不同 hunk 修改即使补丁可套用也拒绝，保留双方字节 (1133.712541ms)
+✔ 外部捕获竞态、非 UTF-8 名字、路径祖先链接在源写入前拒绝 (805.1265ms)
+✔ 基线缺失、身份或摘要损坏拒绝执行、恢复和导入，不回退 HEAD (610.032291ms)
+✔ 私有基线 alternates 不取得源对象写入资格，缺对象在模型预检前拒绝 (592.601459ms)
+✔ 私有基线 symlink 不取得源对象写入资格，缺对象在模型预检前拒绝 (587.163541ms)
+✔ 私有基线 hardlink 不取得源对象写入资格，缺对象在模型预检前拒绝 (597.993666ms)
+Preparing worktree (detached HEAD 7801bdc)
+✔ 私有基线 commondir 不取得源对象写入资格，缺对象在模型预检前拒绝 (633.856708ms)
+✔ 来源 worktree 的 Git 指向切换即使 HEAD/index 相同也使旧基线失效 (836.07925ms)
+✔ split-index 私有读取保留三类忽略规则，来源共享索引零写入且保存字节参与摘要 (630.299917ms)
+✔ 仅原索引引用的 staged blob 缺失或删除阶段清单不能通过恢复预检 (552.601792ms)
+✔ 缺少 promisor blob 时拒绝捕获，不向来源下载对象 (471.945667ms)
+✔ 宿主空模板和固定 SHA-1 私有格式不继承用户模板的对象旁路 (458.96575ms)
+ℹ tests 53
+ℹ suites 0
+ℹ pass 52
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 141146.652125
+
+✖ failing tests:
+
+test at test/subagent-workspace-snapshot.test.ts:14:57
+✖ ruukoto 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (24684.842166ms)
+  Error: 等待超时: reviewer 终态
+      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/test/helpers/testkit.ts:233:47)
+      at runNextTicks (node:internal/process/task_queues:65:5)
+      at process.processTimers (node:internal/timers:538:9)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/test/subagent-workspace-snapshot.test.ts:61:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

@@ -1,0 +1,9 @@
+{
+  "archive": "05-final-independent-review-v6.tar.gz",
+  "sha256": "02dfa6e2d5ab7271a1a356568f2b87d6f88a0d4405f02c542d7d45fa8da181ab",
+  "regular_files": 13,
+  "hashed_members": 12,
+  "manifest_mismatches": [],
+  "main_input_count": 65,
+  "main_input_mismatches": []
+}

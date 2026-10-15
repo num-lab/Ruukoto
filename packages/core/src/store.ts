@@ -10,6 +10,7 @@
 
 import type { Db } from "./db.ts";
 import { classifySession, type SessionIdentity } from "./session-identity.ts";
+import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionFromJson } from "./subagent-definition.ts";
 import {
   ACTIVE_TASK_STATUSES,
   isTerminalTaskStatus,
@@ -515,7 +516,7 @@ export class Store {
   }
 
   countLegacyQueuedTasks(sessionId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)").get(sessionId) as { n: number };
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)").get(sessionId) as { n: number };
     return Number(row.n);
   }
 
@@ -561,7 +562,7 @@ export class Store {
 
   /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
   fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
-    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
+    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
     const encoded = JSON.stringify(selection);
     let taskIds: string[] = [];
     let bytes = Buffer.byteLength(encoded) + Buffer.byteLength(sessionId) + 256;
@@ -791,7 +792,7 @@ export class Store {
 
   listQueuedTasksFifo(sessionId: string): Task[] {
     const rows = this.db
-      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, rowid")
+      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, rowid")
       .all(sessionId) as any[];
     return rows.map((r) => this.rowToTask(r));
   }
@@ -1086,12 +1087,13 @@ export class Store {
   // ---------- SubAgent 与工作委托（agent-direction issue 11；宿主管理） ----------
 
   insertSubAgent(agent: SubAgent): void {
+    const definition = requireSubAgentDefinition(agent);
     this.db
       .prepare(
-        `INSERT INTO sub_agents (id, parent_session_id, session_id, work_dir, active_work_id, current_task_id, state, closed_at, closed_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sub_agents (id, definition, parent_session_id, session_id, work_dir, active_work_id, current_task_id, state, closed_at, closed_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(agent.id, agent.parentSessionId, agent.sessionId, agent.workDir, agent.activeWorkId, agent.currentTaskId, agent.state, agent.closedAt, agent.closedBy, agent.createdAt);
+      .run(agent.id, JSON.stringify(definition), agent.parentSessionId, agent.sessionId, agent.workDir, agent.activeWorkId, agent.currentTaskId, agent.state, agent.closedAt, agent.closedBy, agent.createdAt);
   }
 
   getSubAgent(id: string): SubAgent | null {
@@ -1193,8 +1195,17 @@ export class Store {
   }
 
   private rowToSubAgent(row: any): SubAgent {
+    let definition: SubAgent["definition"] = null;
+    let definitionError: string | undefined;
+    try { definition = subAgentDefinitionFromJson(row.definition); }
+    catch (error) {
+      if (!(error instanceof SubAgentDefinitionError)) throw error;
+      definitionError = error.code;
+    }
     return {
       id: row.id,
+      definition,
+      ...(definitionError ? { definitionError } : {}),
       parentSessionId: row.parent_session_id,
       sessionId: row.session_id,
       workDir: row.work_dir,

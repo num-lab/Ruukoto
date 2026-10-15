@@ -1,0 +1,10 @@
+{
+  "rawFiles": 14,
+  "rawWhitespaceErrors": 425,
+  "beforeExit": 2,
+  "afterExit": 0,
+  "sourceWhitespaceRejected": true,
+  "rawSpaceBeforeTabRejected": true,
+  "rawBlankAtEofRejected": true,
+  "rawBytesUnchanged": true
+}

@@ -1,0 +1,670 @@
+{
+  "version": 1,
+  "head": "d12eb6329da9fd9128989ef0725ce1243627068d",
+  "branch": "Eitrous/subagent-roles",
+  "baseline": "接手 03 前 HEAD 加 02 未提交文件副本的 SHA-256",
+  "baselineManifestSha256": "2de10491eccefafbf1119454c5e03797a0f1061c9b641daf37be55c6bd51cec7",
+  "baselineArchive": "03-baseline-originals.tar.gz",
+  "excluded": [
+    ".scratch/subagent-roles/evidence/03-change-scope.json"
+  ],
+  "paths": {
+    "changed": [
+      ".agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md",
+      ".agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md",
+      ".agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md",
+      ".agents/notes/implemented/feature/2026-10-05-integrate-worktree-results.md",
+      ".agents/notes/proposed/architecture/2026-10-14-configurable-subagent-roles.md",
+      ".scratch/subagent-roles/implementation-plan.md",
+      ".scratch/subagent-roles/issues/03-workspace-snapshots.md",
+      ".scratch/subagent-roles/issues/04-workflow-integration.md",
+      ".scratch/subagent-roles/issues/05-acceptance.md",
+      "README.md",
+      "apps/ruukoto-code/src/legacy-import.ts",
+      "docs/architecture.md",
+      "docs/development.md",
+      "docs/modules/agent-tools.md",
+      "docs/modules/core.md",
+      "docs/modules/execution.md",
+      "docs/modules/runtime.md",
+      "docs/modules/scheduler.md",
+      "docs/modules/workflows.md",
+      "docs/usage.md",
+      "packages/agent/src/execution/approved-ops.ts",
+      "packages/agent/src/execution/native.ts",
+      "packages/agent/src/subagent-tools.ts",
+      "packages/agent/src/tool-router.ts",
+      "packages/channels/src/personal-import.ts",
+      "packages/core/src/db.ts",
+      "packages/core/src/import-support.ts",
+      "packages/core/src/store.ts",
+      "packages/core/src/types.ts",
+      "packages/core/src/workflow.ts",
+      "packages/core/src/worktree.ts",
+      "packages/runtime/src/host-execution.ts",
+      "packages/runtime/src/orchestrator.ts",
+      "packages/runtime/src/parent-delivery.ts",
+      "packages/runtime/src/runtime.ts",
+      "packages/runtime/src/subagents.ts",
+      "packages/runtime/src/work-copy.ts",
+      "packages/runtime/src/workflow-steps.ts",
+      "test/106-workflow-host.test.ts",
+      "test/112-workflow-real-steps.test.ts",
+      "test/115-workflow-final-delivery.test.ts",
+      "test/125-agent-wait-report.test.ts",
+      "test/83-subagent-worktrees.test.ts",
+      "test/84-subagent-integrate.test.ts",
+      "test/88-parent-delivery.test.ts",
+      "test/92-subagent-lifecycle.test.ts",
+      "test/95-work-copy.test.ts",
+      "test/subagent-execution-core.test.ts"
+    ],
+    "added": [
+      ".agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md",
+      ".scratch/subagent-roles/03-implementation-review.md",
+      ".scratch/subagent-roles/evidence/03-acceptance-core-tests.log",
+      ".scratch/subagent-roles/evidence/03-anchors-handoff-final.log",
+      ".scratch/subagent-roles/evidence/03-anchors.log",
+      ".scratch/subagent-roles/evidence/03-archives-verified.json",
+      ".scratch/subagent-roles/evidence/03-baseline-originals.tar.gz",
+      ".scratch/subagent-roles/evidence/03-baseline-patch-check.log",
+      ".scratch/subagent-roles/evidence/03-build-final.log",
+      ".scratch/subagent-roles/evidence/03-build.log",
+      ".scratch/subagent-roles/evidence/03-cold-private-debug.log",
+      ".scratch/subagent-roles/evidence/03-contract-audit.tar.gz",
+      ".scratch/subagent-roles/evidence/03-contract-review.md",
+      ".scratch/subagent-roles/evidence/03-core-tool-tests.log",
+      ".scratch/subagent-roles/evidence/03-core-workcopy-host-tests.log",
+      ".scratch/subagent-roles/evidence/03-delegation-import-tests.log",
+      ".scratch/subagent-roles/evidence/03-docs-complete.log",
+      ".scratch/subagent-roles/evidence/03-docs-final.log",
+      ".scratch/subagent-roles/evidence/03-docs-handoff-final.log",
+      ".scratch/subagent-roles/evidence/03-docs-initial.log",
+      ".scratch/subagent-roles/evidence/03-docs-recheck.log",
+      ".scratch/subagent-roles/evidence/03-docs-semantic-final.log",
+      ".scratch/subagent-roles/evidence/03-file-bind-evidence.tar.gz",
+      ".scratch/subagent-roles/evidence/03-file-protection-debug.log",
+      ".scratch/subagent-roles/evidence/03-host-recovery-wait-tests.log",
+      ".scratch/subagent-roles/evidence/03-implementation-inputs.sha256",
+      ".scratch/subagent-roles/evidence/03-implementation.md",
+      ".scratch/subagent-roles/evidence/03-integrate-final-tests.log",
+      ".scratch/subagent-roles/evidence/03-integration-fixture-recheck.log",
+      ".scratch/subagent-roles/evidence/03-lint-final.log",
+      ".scratch/subagent-roles/evidence/03-lint-initial.log",
+      ".scratch/subagent-roles/evidence/03-linux-final.md",
+      ".scratch/subagent-roles/evidence/03-linux-final.tar.gz",
+      ".scratch/subagent-roles/evidence/03-macos-reviewer-isolated.log",
+      ".scratch/subagent-roles/evidence/03-mechanism-native-manifest.json",
+      ".scratch/subagent-roles/evidence/03-mechanism-native.tar.gz",
+      ".scratch/subagent-roles/evidence/03-metrics-baseline-final.log",
+      ".scratch/subagent-roles/evidence/03-metrics-baseline-native.log",
+      ".scratch/subagent-roles/evidence/03-metrics-baseline-path.txt",
+      ".scratch/subagent-roles/evidence/03-metrics-baseline.log",
+      ".scratch/subagent-roles/evidence/03-metrics-current-final.log",
+      ".scratch/subagent-roles/evidence/03-metrics-current-native.log",
+      ".scratch/subagent-roles/evidence/03-metrics-current-text-final.log",
+      ".scratch/subagent-roles/evidence/03-metrics-current.log",
+      ".scratch/subagent-roles/evidence/03-metrics-probe.mts",
+      ".scratch/subagent-roles/evidence/03-native-runtime-initial.log",
+      ".scratch/subagent-roles/evidence/03-native-runtime.log",
+      ".scratch/subagent-roles/evidence/03-notes-handoff-final.log",
+      ".scratch/subagent-roles/evidence/03-private-delivery-complete.log",
+      ".scratch/subagent-roles/evidence/03-private-delivery-tests.log",
+      ".scratch/subagent-roles/evidence/03-private-new-cases.log",
+      ".scratch/subagent-roles/evidence/03-production-docs.patch",
+      ".scratch/subagent-roles/evidence/03-production-inputs.sha256",
+      ".scratch/subagent-roles/evidence/03-root-types-complete.log",
+      ".scratch/subagent-roles/evidence/03-root-types-final.log",
+      ".scratch/subagent-roles/evidence/03-root-types-followup.log",
+      ".scratch/subagent-roles/evidence/03-root-types-private-final.log",
+      ".scratch/subagent-roles/evidence/03-snapshot-closure-recovery-tests.log",
+      ".scratch/subagent-roles/evidence/03-snapshot-final-tests.log",
+      ".scratch/subagent-roles/evidence/03-snapshot-native-tests.log",
+      ".scratch/subagent-roles/evidence/03-snapshot-object-tests.log",
+      ".scratch/subagent-roles/evidence/03-snapshot-review-inputs.json",
+      ".scratch/subagent-roles/evidence/03-snapshot-review.md",
+      ".scratch/subagent-roles/evidence/03-snapshot-review.tar.gz",
+      ".scratch/subagent-roles/evidence/03-snapshot-tests-initial.log",
+      ".scratch/subagent-roles/evidence/03-snapshot-tests.log",
+      ".scratch/subagent-roles/evidence/03-static-before-index-followup.log",
+      ".scratch/subagent-roles/evidence/03-static-final.log",
+      ".scratch/subagent-roles/evidence/03-static-initial.log",
+      ".scratch/subagent-roles/evidence/03-symlink-config-tests.log",
+      ".scratch/subagent-roles/evidence/03-workflow-tests.log",
+      ".scratch/subagent-roles/evidence/03-worktree-integrate-import-tests.log",
+      ".scratch/subagent-roles/evidence/03-worktree-workflow-tests.log",
+      "packages/core/src/work-copy-host.ts",
+      "packages/core/src/workspace-snapshot.ts",
+      "packages/runtime/src/workspace-snapshot-script.ts",
+      "test/subagent-workspace-snapshot.test.ts",
+      "test/work-copy-host-core.test.ts",
+      "test/work-copy-host-runtime.test.ts",
+      "test/workspace-snapshot-runtime-boundaries.test.ts",
+      "test/workspace-snapshot-terminal-boundaries.test.ts",
+      "test/workspace-snapshots.test.ts"
+    ],
+    "removed": []
+  },
+  "objects": {
+    ".agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md": {
+      "before": "31d8aa298188734404b6773d6ffd3bba5327ab76a9c9c46281e1ad7137105da2",
+      "after": "931808b3a8368245d07a73e3866c8202b95fc1cc78191fd51fb78ecfb4e1808d"
+    },
+    ".agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md": {
+      "before": "4f23607504c941f49ee2c4aba1bbaf3099f2ec62b0e520f532278f7a07ab8580",
+      "after": "3b310f15cc93a04da38f14e84a5d453b3336a8d67f4cd5a6cf033bd547e68c51"
+    },
+    ".agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md": {
+      "before": "e4b7efd5a88824ac89eb074d0f99273445bde55d95125ef6bfc9a186bf89d132",
+      "after": "f2909a52e110dc7222a6f32a47116abc6c9cf9684564feaac5644d326807dddd"
+    },
+    ".agents/notes/implemented/feature/2026-10-05-integrate-worktree-results.md": {
+      "before": "57be95b8b5af8609d0ca8692478f8c7b4da6d14dc3e1cf27293903930c08d478",
+      "after": "a080b25b80fb1b6d24c6357af51fc6484c076c4684dfeb9d4071a64de6df283b"
+    },
+    ".agents/notes/proposed/architecture/2026-10-14-configurable-subagent-roles.md": {
+      "before": "b471b4487f50ae822a57a81d0512924a4d0134b04ae0a03f7eaa241fdb590cc2",
+      "after": "7e60ad93fc3452c47deed280c83e4596b5b9b4500c590cb3f65571ff9099a1ea"
+    },
+    ".scratch/subagent-roles/implementation-plan.md": {
+      "before": "77a2aa6122c67b9af565224e4aebbed708d82d51cd56b5929043345871f9bd81",
+      "after": "7530831cf67a43587cc581a4d00d25ff033eddeb571bbfc70b9a215b8108beaf"
+    },
+    ".scratch/subagent-roles/issues/03-workspace-snapshots.md": {
+      "before": "d8a27be223b2e74605600dce5d4239b0759025255dc0bbf9121b5a75fe398ce6",
+      "after": "0dc94b499fa9c0325f021a32247309bbd48a4895a2843f8d720011d637d2d466"
+    },
+    ".scratch/subagent-roles/issues/04-workflow-integration.md": {
+      "before": "27fb77f2a8fa35f9f1263e62b9e8ef82508e31cf363ecfa3b17e41954d0e71c2",
+      "after": "8f7c49c3ab6f8aa0a39a36169d0c96b7332c1910f37e7aef136cb9446177ead9"
+    },
+    ".scratch/subagent-roles/issues/05-acceptance.md": {
+      "before": "c31c97389a5de31f09c451b89c4e9c8ea2db944ab28a9505eea91070c7a6f8ae",
+      "after": "0af677c6759e84900b619d6de1c65e785ce16bb897b1b2f4a012b7697e5bac4a"
+    },
+    "README.md": {
+      "before": "df8aaf6ff2e495ab9e2bbe0d889f590c9ef810f8b2bb5022d5b9a6dad2252c92",
+      "after": "99eaae61e899e6aee10ba43db5dc4f51ebedadd1c2673f2c51b9e4ad9f12d384"
+    },
+    "apps/ruukoto-code/src/legacy-import.ts": {
+      "before": "d0d23cea20820a121992731921f5a5d5b331551bc456a0231bed1ab96fc8e8ee",
+      "after": "58f52d1fb49d11d12fbd74d04e577a47484876cfcbe9751424d8c0f823413a48"
+    },
+    "docs/architecture.md": {
+      "before": "276bb7e2cebe877bbf66dad407c503598ecea5f7477385d966d4b62f3fb3ed81",
+      "after": "8744d18316ceb57ee7296a5cf8073863f188094111eb7547bdfb1f656914cece"
+    },
+    "docs/development.md": {
+      "before": "842016c60cd9e33648871fa67193c93aeb09081e6330207b7d3329906bcc7d05",
+      "after": "caf0faf65ec2ca4b7f2cb08d5c62db9a071884ae09f2678811e058f828051298"
+    },
+    "docs/modules/agent-tools.md": {
+      "before": "af72495a9257a1ed81e26804fb0dc4dff32662be105376beacc9a238f5943a5f",
+      "after": "495c1c61c7a4d10291390dfa2daa2ac462d3da284ccc4971ce3dfa72d71acbf3"
+    },
+    "docs/modules/core.md": {
+      "before": "cee01514b317ad612f7af6c6725026012f307b94519f63491fb69e4e5d537be9",
+      "after": "0c1c93e9c3345e36c81308407eeae107cfe77bcbac05d163f5492c38afd1bb38"
+    },
+    "docs/modules/execution.md": {
+      "before": "2cce3a624fd176a6193de84916c7f9e95618f770bc4079c60eb3fc1dd8bed784",
+      "after": "08779f38633341a34f3d6b3812a842fc33805293137d0771cf5cadb99c1aa9f7"
+    },
+    "docs/modules/runtime.md": {
+      "before": "17bd7ebee76776bbb1591d4963a6b626bc40d89ecb00e5c7b026ba8df91e5939",
+      "after": "03dadfcc0f9d48b332a2cf8b4256c3997a8b727648c69acaad8f92dbef56e402"
+    },
+    "docs/modules/scheduler.md": {
+      "before": "d2ae72f156703b58aa9f4577beb67e0f1fe2ea9abdf59cd2720b36b3c449fe14",
+      "after": "602a581bb11626f689e09bcc3cf719d052d908ae18fa84ff31f73ad36f319a4e"
+    },
+    "docs/modules/workflows.md": {
+      "before": "3f07afa5b388d9d26a80b9af2626ee8b404770a64dee4b691fe8d7d84dffbad2",
+      "after": "d4aa75c6926b701cd09f9f9727197924f54594132b3a677d3695e8895dc34d74"
+    },
+    "docs/usage.md": {
+      "before": "f068c9c0720c69b0a6ae621ee10b93f0fe9618363402b583f8ebb06e36b3b588",
+      "after": "fff048b81500720be3c6d996c5456f42ff1356272b8224700aaba09ef447463f"
+    },
+    "packages/agent/src/execution/approved-ops.ts": {
+      "before": "856b410aa5916443de52f2fe4e6d05d6f5cef830a724f28b90ef7fca1004ab80",
+      "after": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b"
+    },
+    "packages/agent/src/execution/native.ts": {
+      "before": "b28fd11a01742e1cdbe099bc6ae021b801f5941c960aa400ca4b1db441f2c36b",
+      "after": "29a8b936c918a512c1c080e343172b54ec33616fb258cb9fef3e1fe18fe1a990"
+    },
+    "packages/agent/src/subagent-tools.ts": {
+      "before": "33d96449b2a091110e2c5cf46cffefd3eff5b41f116e317c28e71cb5b4fda919",
+      "after": "0c94c351236f9bf869d5371f9966f98b79104d66705feb38e7510188acdac656"
+    },
+    "packages/agent/src/tool-router.ts": {
+      "before": "9085e3c1dda61aa0d1f2260831da69e380daf0badbb1cd0e30da974a63286a74",
+      "after": "216788abc76241ed8ca19ff70fa745f2946dc4ba6feb9b1d3584dd3a7ce528ad"
+    },
+    "packages/channels/src/personal-import.ts": {
+      "before": "fd64fd0423e2ca53219decb65703f1f8681545ae34c6bb99940466cee6f38168",
+      "after": "29ea402b2bebffda5b12c52bc648b493ce82b0813c8f2541a0a6088e91aaa323"
+    },
+    "packages/core/src/db.ts": {
+      "before": "7b8dc40d939942ec0263fdf8f797ffda1cd666f6839c2edc32abbd3e5bb6b4be",
+      "after": "16787f769338d35a181bcd279d85bba1a00e79349c9188dfd239e748acf85f88"
+    },
+    "packages/core/src/import-support.ts": {
+      "before": "165b9688f4d822f513c8dbd08a4ba0fe70b39c9c2ea9a3eeb8c4cad8f10a721d",
+      "after": "16dd7ef9141f19cf7fa8718acaa4ac09bc410b84c77ebc592d47d28aef76138a"
+    },
+    "packages/core/src/store.ts": {
+      "before": "1d8376984c974ef782da4342da6cb466d0918ece0325282e6dcdaad04ccf0035",
+      "after": "b522411ae0bf1442f69a10e7c532fb842e052beddb26c0f783b8e1e9dc72b64f"
+    },
+    "packages/core/src/types.ts": {
+      "before": "d5f8cb52311b9b9aceac2a7ad80201facd649536be033073f29c1982c3d44f8b",
+      "after": "3c731b9bc99dd2022e3d30e3965b8cdb510788a04aab7e73447a5c210effc039"
+    },
+    "packages/core/src/workflow.ts": {
+      "before": "355be897b6fe84d48b5606e7409aef032211d6ba89a3c626e8b6302d8139a6a2",
+      "after": "5349479bf3374291eaf65c7281e72bd83d1479d9c0e30a2120f3f47de7a82341"
+    },
+    "packages/core/src/worktree.ts": {
+      "before": "fcbf35f33bbfc4b212a4d5818799282e21a1e12e023da3786d427f16984253bf",
+      "after": "d93037ace36aaa15f7a894f8d6cd9757f8cd699b1922d55b0392f31ab5e0aeb0"
+    },
+    "packages/runtime/src/host-execution.ts": {
+      "before": "376a3b3e14a59fde840799ef5a8dd20650ced20c28e272a2d99771113bd009b2",
+      "after": "3f24fa5b5f9abd7188807f6cc4cacf51af282ae5f5867457385e387f03016b02"
+    },
+    "packages/runtime/src/orchestrator.ts": {
+      "before": "cf1831bfb002bae2716483a194d8021a178de0fb929ed75e335ee8ff8ae8dbf4",
+      "after": "e8d48218a5e24a443d8895958ebf5da9c061e14d826ca784f4a078078e5e193f"
+    },
+    "packages/runtime/src/parent-delivery.ts": {
+      "before": "ae17c8282cb3288b308f0eb102c88a0842882ec460f6b41daf3a14664b290527",
+      "after": "73badf35ca8ac3fb603ab59d9cf7df54e079eb4767bee0005a254445049c707b"
+    },
+    "packages/runtime/src/runtime.ts": {
+      "before": "9fb4cc58f72d31b04205a1e23ab36482972f036971a8a824a3a62fb01b4955b3",
+      "after": "fecec3a41135fd98c45eaac8c4a674bf64dceb58fbd3ed175bdca255ef8bf32b"
+    },
+    "packages/runtime/src/subagents.ts": {
+      "before": "ae6ffdf8bcdaf4af3c242f98f4b3c4d6c4c658072c77c1983175dc2c9185e0a7",
+      "after": "a0d9e998419c931b2d745fe27a8dbe8a74d268db3ba05946cb9f5f3f387470e9"
+    },
+    "packages/runtime/src/work-copy.ts": {
+      "before": "48ffb607833881f82ef60d3bc68d48faf2d9859ef2dd7023899b4134853f8465",
+      "after": "1cbea7a68aacb53ae32bc3692f55301293f02a2be9031b2b63751fe8f1805780"
+    },
+    "packages/runtime/src/workflow-steps.ts": {
+      "before": "e5de00e517d101ce698c348faf2b602bd37f9dc6c5c65ebf11ef9f105c9985bb",
+      "after": "096e7051639a214b9417209a52212b10ccac32c18a1256432894538bb3798e37"
+    },
+    "test/106-workflow-host.test.ts": {
+      "before": "9e44a5459ecd9d37bb39731444a45e09ce44aa2143caabed941f32c4a3d2837c",
+      "after": "cf16ef70b4ac0a8f4c8d87a03a6f53d4205085df7cbdc6c9f11b16b942752f73"
+    },
+    "test/112-workflow-real-steps.test.ts": {
+      "before": "c0a1b7a8e617b948a05eaa5812898ef1fc9bb88a6376fcd380c23a8ad90baa9a",
+      "after": "08f4105b84dc3f5e227d90f604ed859734dcb46c3b5f7c2fb42aa33941e2be71"
+    },
+    "test/115-workflow-final-delivery.test.ts": {
+      "before": "431267b783fba745cd9ddd038b05feb4b1abf46a2706f1a867eb689bbd1eaeea",
+      "after": "ef87e8a19cc1b450c75f5e4e8e7256abf13f1ccd37c32159faba4bf6453b0188"
+    },
+    "test/125-agent-wait-report.test.ts": {
+      "before": "9a2393eec1c16d154f03c55c81bc78c95ed619ba4f22a97050c93933b6929ff3",
+      "after": "203024600568bb8acf22c5c164d80d7a561493c9c7e56c4e30df9c3a750997de"
+    },
+    "test/83-subagent-worktrees.test.ts": {
+      "before": "1fa89af19207baf7af89a17881e4d49f1ec26f122ebaccefa0a6bc4bde70463d",
+      "after": "4966e5dfe4ac791514c29a6824ead25d9c3dcdb48d166b4b5226cf9d76afc92c"
+    },
+    "test/84-subagent-integrate.test.ts": {
+      "before": "3dc6888674705ff4d95971f33bd6bf18b3412683d62b86ef605570ade6dad965",
+      "after": "f2c837b5da9ba95348702a890e50a7409af0e14e1abbb78e7b20f3f195dc686f"
+    },
+    "test/88-parent-delivery.test.ts": {
+      "before": "0b401ecbf32f956dbfc92199256946a58ea77d35ff02b02684e65d2f89ceedd3",
+      "after": "98f046ce40d72161b4373d038d5bba90fd67b45b98614f1b77bdf8afdc6ca20b"
+    },
+    "test/92-subagent-lifecycle.test.ts": {
+      "before": "623601d422164d66b39e3ce1373d55bff24b17146eeacf8d8eadcfd47d22ae9e",
+      "after": "0b0835b818061f6b7a8c14674056c5b26e9945fde6cba77ad370e6c01d1903b4"
+    },
+    "test/95-work-copy.test.ts": {
+      "before": "a6f7e6034a8e34de82a1551ec10cefa291d89ce4ebe9cdfe5ee23597b3739963",
+      "after": "29d571dd82115affd29494bea2a86111c352eba116201dc343e41e49ec4e67b9"
+    },
+    "test/subagent-execution-core.test.ts": {
+      "before": "434b4b7fb017f98dd86d1ac0090cb8567c85ec79b149371946d96f738339e887",
+      "after": "cb4af4779e8745ef324eb09498330273575528682188a2700c4eda3c08a059d7"
+    },
+    ".agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md": {
+      "before": null,
+      "after": "2d7cc8320361f1a00572e56819a8efc9488f45b1e3ddec3681bd47d3617fd295"
+    },
+    ".scratch/subagent-roles/03-implementation-review.md": {
+      "before": null,
+      "after": "ec78c69514ed46580f6bdc83f0813dc9bba62ef0737bd4225d4eaab1280fcb3a"
+    },
+    ".scratch/subagent-roles/evidence/03-acceptance-core-tests.log": {
+      "before": null,
+      "after": "7451053d14542ec893d3c6adb849ec65f33cb22fb7cae2409c45ae81ed1cab52"
+    },
+    ".scratch/subagent-roles/evidence/03-anchors-handoff-final.log": {
+      "before": null,
+      "after": "3f4a133d5e0b2abbce1ba1d7bad6045462fc44a6f303c83ea575bd013d4730b1"
+    },
+    ".scratch/subagent-roles/evidence/03-anchors.log": {
+      "before": null,
+      "after": "e77e98b91ad83413ed1a351a6eec2ae0cfa30c9693c842e18cd3b047cb0dc55f"
+    },
+    ".scratch/subagent-roles/evidence/03-archives-verified.json": {
+      "before": null,
+      "after": "2663a5f88933d396c528d8801ac44cdfd41f80867727dd93826150f31afe2f0c"
+    },
+    ".scratch/subagent-roles/evidence/03-baseline-originals.tar.gz": {
+      "before": null,
+      "after": "f453e398acd4a932f22142572c76d1d496f99238c59b60e2dcbaeeb668ca00e9"
+    },
+    ".scratch/subagent-roles/evidence/03-baseline-patch-check.log": {
+      "before": null,
+      "after": "138707a9fc6bda341c72c38c2db4366e99354f57c4e6e39194c077d766d09997"
+    },
+    ".scratch/subagent-roles/evidence/03-build-final.log": {
+      "before": null,
+      "after": "60b1fc50863ab452843b317765add40f2e5cfc6910fe3fba7e8485c4e659dd27"
+    },
+    ".scratch/subagent-roles/evidence/03-build.log": {
+      "before": null,
+      "after": "6869d0847c55038ec12994be7f65dbc40edc425246bb2f4747aa9f990b90fdac"
+    },
+    ".scratch/subagent-roles/evidence/03-cold-private-debug.log": {
+      "before": null,
+      "after": "6b4f0c04ae6aac9cb2705c441105be1be0faca626d18656f1fbcf615a65a1777"
+    },
+    ".scratch/subagent-roles/evidence/03-contract-audit.tar.gz": {
+      "before": null,
+      "after": "4d45274ea0bb5bddc7041eeb6c5f13f1bb8128027f5ec84bd7bf064e27ce9b49"
+    },
+    ".scratch/subagent-roles/evidence/03-contract-review.md": {
+      "before": null,
+      "after": "bbac3a4a163482d45d169af2c08f4b597eaf19673c5f3b146f06a80cbf8321aa"
+    },
+    ".scratch/subagent-roles/evidence/03-core-tool-tests.log": {
+      "before": null,
+      "after": "a77a94c82d555e14812370192e915c84d876ef172d4178ebf61addb799d16186"
+    },
+    ".scratch/subagent-roles/evidence/03-core-workcopy-host-tests.log": {
+      "before": null,
+      "after": "45afd851d8734918bd1409b71750df750a6676803a749e3d89087866829c9269"
+    },
+    ".scratch/subagent-roles/evidence/03-delegation-import-tests.log": {
+      "before": null,
+      "after": "cf77e39f7b5e03a1bfce499464dd7342a7f9cb42980313b46ac608ed1f3f3e3e"
+    },
+    ".scratch/subagent-roles/evidence/03-docs-complete.log": {
+      "before": null,
+      "after": "3a95150948f95096c1adf0b58fd21fd74c40a65a495b1505dfe598110dd47c94"
+    },
+    ".scratch/subagent-roles/evidence/03-docs-final.log": {
+      "before": null,
+      "after": "f35bc67280930cde8d6fbbcc17b8687587de019240c38b2cf6286c30593cc681"
+    },
+    ".scratch/subagent-roles/evidence/03-docs-handoff-final.log": {
+      "before": null,
+      "after": "3a95150948f95096c1adf0b58fd21fd74c40a65a495b1505dfe598110dd47c94"
+    },
+    ".scratch/subagent-roles/evidence/03-docs-initial.log": {
+      "before": null,
+      "after": "3a95150948f95096c1adf0b58fd21fd74c40a65a495b1505dfe598110dd47c94"
+    },
+    ".scratch/subagent-roles/evidence/03-docs-recheck.log": {
+      "before": null,
+      "after": "541149bed72e5276f9a745eaba5ee5063c44a8ec1d936cf8fa93271c85014648"
+    },
+    ".scratch/subagent-roles/evidence/03-docs-semantic-final.log": {
+      "before": null,
+      "after": "3a95150948f95096c1adf0b58fd21fd74c40a65a495b1505dfe598110dd47c94"
+    },
+    ".scratch/subagent-roles/evidence/03-file-bind-evidence.tar.gz": {
+      "before": null,
+      "after": "93fa519ff7eef4fee7c9f62b945aa90a198f1aac98c522a290b4087aa7bce2aa"
+    },
+    ".scratch/subagent-roles/evidence/03-file-protection-debug.log": {
+      "before": null,
+      "after": "f6befb19075f110154b1cc84ae00d079de860c19888aa8293ba752d7ceb241a2"
+    },
+    ".scratch/subagent-roles/evidence/03-host-recovery-wait-tests.log": {
+      "before": null,
+      "after": "dfbc51301f1e023b5e4c30dd4395d9a9591066f83991b5ed13c6d9a4e139ad3a"
+    },
+    ".scratch/subagent-roles/evidence/03-implementation-inputs.sha256": {
+      "before": null,
+      "after": "5b09ef80283485bbd9b8c5509a72ee4ee6782743dc8ea967f988fc34674066a4"
+    },
+    ".scratch/subagent-roles/evidence/03-implementation.md": {
+      "before": null,
+      "after": "cb29f80b75d04795ff5c2dc4b9703f97d9ce444519c493fee438b54426c05b60"
+    },
+    ".scratch/subagent-roles/evidence/03-integrate-final-tests.log": {
+      "before": null,
+      "after": "13b7bda06b4a4612394b808cfbe2eea51953ebdd8f623fef3104a4f61c82f7f4"
+    },
+    ".scratch/subagent-roles/evidence/03-integration-fixture-recheck.log": {
+      "before": null,
+      "after": "957d01c54944b8d152bd32440c738d80c21f2836a7500c9452e8c86925f6d9c9"
+    },
+    ".scratch/subagent-roles/evidence/03-lint-final.log": {
+      "before": null,
+      "after": "b1be6cb5c7b11c2d23dc23e7e173a60ab4e400e3532213cae0e364eb8f567ce4"
+    },
+    ".scratch/subagent-roles/evidence/03-lint-initial.log": {
+      "before": null,
+      "after": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".scratch/subagent-roles/evidence/03-linux-final.md": {
+      "before": null,
+      "after": "bcb5384b7acab6ff4be06df905f738f81f470197e3b49179d6c90b40f882d4ff"
+    },
+    ".scratch/subagent-roles/evidence/03-linux-final.tar.gz": {
+      "before": null,
+      "after": "75fae880fc7a59eb3d6b63a8ee0b5718ecf2ba09d6b10c9ac032443c7adc684a"
+    },
+    ".scratch/subagent-roles/evidence/03-macos-reviewer-isolated.log": {
+      "before": null,
+      "after": "19a0ac17302d92b2f6a762f03e17bd60a10cf5a88542a6ac69466f4cd68036c2"
+    },
+    ".scratch/subagent-roles/evidence/03-mechanism-native-manifest.json": {
+      "before": null,
+      "after": "bdfbb015581f7a4d5308a9ae72ed5894f69e2a84ffd9d091eb32bc6214467cdd"
+    },
+    ".scratch/subagent-roles/evidence/03-mechanism-native.tar.gz": {
+      "before": null,
+      "after": "1192feac7b77169b7ff01c75977707e2edae0bc030ca2586d4b70f3110979fe3"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-baseline-final.log": {
+      "before": null,
+      "after": "f75ecc49fe59a56371689f3a44467030f939f36b11906f2b5a1dde3dd0b84d15"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-baseline-native.log": {
+      "before": null,
+      "after": "aa490652fb315359d167d5104d7cffe63e74ceb99ef7980938689ef984f4c027"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-baseline-path.txt": {
+      "before": null,
+      "after": "a3e0db6bfd3e7b504ac1ea63f26a6861135ca00813ae1f1b34ddf11e8a9d378d"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-baseline.log": {
+      "before": null,
+      "after": "95ea691c4f1989a3fa8a7f7e54eea7392f89229ea9aaa9729deddfd4548b0634"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-current-final.log": {
+      "before": null,
+      "after": "935e08a6329866b9ded9829fa911079bea587aa1596acf992b119d643706a966"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-current-native.log": {
+      "before": null,
+      "after": "b1edfbaf0a2afe915ff711c7bdd2db0a0b3eef163b4f6e7647f748243d56e6b3"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-current-text-final.log": {
+      "before": null,
+      "after": "aaabe0373ebe2a0e3453f526e3475259d61b6c31cc17b671d3dfb4fa564d7ec1"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-current.log": {
+      "before": null,
+      "after": "95ea691c4f1989a3fa8a7f7e54eea7392f89229ea9aaa9729deddfd4548b0634"
+    },
+    ".scratch/subagent-roles/evidence/03-metrics-probe.mts": {
+      "before": null,
+      "after": "3c2c35b0cc5de55434496cdc33cc51fb6bc7bf1937eb68df8c2e6651c8dae364"
+    },
+    ".scratch/subagent-roles/evidence/03-native-runtime-initial.log": {
+      "before": null,
+      "after": "338d9b873cb41928cebd950f4f1588f73976291a09ab306beaaf309e1217458f"
+    },
+    ".scratch/subagent-roles/evidence/03-native-runtime.log": {
+      "before": null,
+      "after": "788cc2004c0a51e38f08a596493abbd2aefd462de1cc659aa680c649722e66b6"
+    },
+    ".scratch/subagent-roles/evidence/03-notes-handoff-final.log": {
+      "before": null,
+      "after": "680142f074f75acd61a837b16b1c33d6e8c4adacdc1a3570ce67ab6421e19883"
+    },
+    ".scratch/subagent-roles/evidence/03-private-delivery-complete.log": {
+      "before": null,
+      "after": "5c4353807ab0888cb7b6c72e395ac3c401ff4ae6c2107ecc48d73d2caa8f9ae4"
+    },
+    ".scratch/subagent-roles/evidence/03-private-delivery-tests.log": {
+      "before": null,
+      "after": "069be24e671aa28d419cf4f29149a471eccb706f1d435b2b784f2345d03860da"
+    },
+    ".scratch/subagent-roles/evidence/03-private-new-cases.log": {
+      "before": null,
+      "after": "b38ec413114ad2c97744a203f8fc2b4b09da9367ef68095204322227b99354d5"
+    },
+    ".scratch/subagent-roles/evidence/03-production-docs.patch": {
+      "before": null,
+      "after": "428939dd83bf31454e81493686fb0f739b0a1a73e2f24f889432447b536a0a99"
+    },
+    ".scratch/subagent-roles/evidence/03-production-inputs.sha256": {
+      "before": null,
+      "after": "4d4080f7821db32e9f2217a0394603932167599bef2afe53e1c404a195e56ed7"
+    },
+    ".scratch/subagent-roles/evidence/03-root-types-complete.log": {
+      "before": null,
+      "after": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".scratch/subagent-roles/evidence/03-root-types-final.log": {
+      "before": null,
+      "after": "78014cf8928f8b42063875b82081753c80ade25856c0c68aa92595b2e602fec4"
+    },
+    ".scratch/subagent-roles/evidence/03-root-types-followup.log": {
+      "before": null,
+      "after": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    ".scratch/subagent-roles/evidence/03-root-types-private-final.log": {
+      "before": null,
+      "after": "78014cf8928f8b42063875b82081753c80ade25856c0c68aa92595b2e602fec4"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-closure-recovery-tests.log": {
+      "before": null,
+      "after": "ba343be8534e215622cbfa56e9bf031634103cbe5e0fcf2009e733394bebc5e9"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-final-tests.log": {
+      "before": null,
+      "after": "e3481a25b0075931f49bfa02fb4c63fe6a20684057033e4f693eb830e19e01bf"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-native-tests.log": {
+      "before": null,
+      "after": "66a3d6a1a2fc9d21e5a21e4ea0af9ad0e4804141bc9a87ffa6cfa65a0ba4f6a4"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-object-tests.log": {
+      "before": null,
+      "after": "c41215850e1f94c55f3b9005f8c6fea088038bd73c19193609ae04bbad17bbed"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-review-inputs.json": {
+      "before": null,
+      "after": "1a9e7a734794a02724218d957a77f288f2ad96065a1cee006ddc75fdfd7559d1"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-review.md": {
+      "before": null,
+      "after": "0bea55ad7a422fa285fb650e8355cda120da607dc725ca4c1d9e85c63816f6e8"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-review.tar.gz": {
+      "before": null,
+      "after": "6e4507b4715425ac132a30dffdaed02385b4bf9fef16c03ea1157d62eec64825"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-tests-initial.log": {
+      "before": null,
+      "after": "48c7afa91188b9843d2681869e88700938c6b176392c3fabd34c84a8fff95b62"
+    },
+    ".scratch/subagent-roles/evidence/03-snapshot-tests.log": {
+      "before": null,
+      "after": "b8ad926e5bba3e3d63ef6d0c4070bf1032b9949b6b0d9e38254506418a9b879a"
+    },
+    ".scratch/subagent-roles/evidence/03-static-before-index-followup.log": {
+      "before": null,
+      "after": "8432a500f98d76e69eb2fc1e7feaea674f55e892338134858c4b300e05e16e98"
+    },
+    ".scratch/subagent-roles/evidence/03-static-final.log": {
+      "before": null,
+      "after": "8432a500f98d76e69eb2fc1e7feaea674f55e892338134858c4b300e05e16e98"
+    },
+    ".scratch/subagent-roles/evidence/03-static-initial.log": {
+      "before": null,
+      "after": "ef1d3cba4e90857b915991f536a981459b34c9f130a11fcc188a9e0d5ec59c03"
+    },
+    ".scratch/subagent-roles/evidence/03-symlink-config-tests.log": {
+      "before": null,
+      "after": "ab633249cbf8836b82664a8a5fd46fdbdaf5f0216e361beb608eefb643dbff86"
+    },
+    ".scratch/subagent-roles/evidence/03-workflow-tests.log": {
+      "before": null,
+      "after": "f65c42284d774ab638f8292247c8bb44b39737b4be5166bcb0230a1233ecf587"
+    },
+    ".scratch/subagent-roles/evidence/03-worktree-integrate-import-tests.log": {
+      "before": null,
+      "after": "0d53ba588e6a6458f4e4325e36879bbea7f1a7cd86494ce8eae533c9df5f131d"
+    },
+    ".scratch/subagent-roles/evidence/03-worktree-workflow-tests.log": {
+      "before": null,
+      "after": "d75ab26ed8cb06cfbf611be453f93302c83e9b5739ccaa46fefa230b728ab781"
+    },
+    "packages/core/src/work-copy-host.ts": {
+      "before": null,
+      "after": "f7e0804599ad6e75a6ae19917b5f127cd79c52c838feb6a7faff50fec497b842"
+    },
+    "packages/core/src/workspace-snapshot.ts": {
+      "before": null,
+      "after": "90f309d196ef71161790eb96ec49b61c0711f9d6fea1514b5b3ae1dfff3e6d0e"
+    },
+    "packages/runtime/src/workspace-snapshot-script.ts": {
+      "before": null,
+      "after": "fc2c1c8e01ee35cb01a47d2725665b953d856505d9c81e62461122e5a7fb9fb7"
+    },
+    "test/subagent-workspace-snapshot.test.ts": {
+      "before": null,
+      "after": "70b4631b8e81a735cb51757b90109c8bd62e0ebd3007441cb3c82f3616d167c3"
+    },
+    "test/work-copy-host-core.test.ts": {
+      "before": null,
+      "after": "e662e4e6053fa076d0cd28f829eb65e7ffc5cc988e1f92450191ccbbb8e7d81a"
+    },
+    "test/work-copy-host-runtime.test.ts": {
+      "before": null,
+      "after": "f58370801172e0cd8bdae69c0ce241e96182cf4fd4b624761b0fea168ae6ddac"
+    },
+    "test/workspace-snapshot-runtime-boundaries.test.ts": {
+      "before": null,
+      "after": "a923a0481d5217630f3cdd6fecaacea4e1311f5d1a3d16912939e3b64833b8ee"
+    },
+    "test/workspace-snapshot-terminal-boundaries.test.ts": {
+      "before": null,
+      "after": "baf5b71327872d97995283b7e937e2199faf3c6a7bf551a42be9dc43a52efa6f"
+    },
+    "test/workspace-snapshots.test.ts": {
+      "before": null,
+      "after": "ad93705e16b4a6f9cff75031dd7e779ce592818733409c2b7e2ae4a2a1671100"
+    }
+  }
+}

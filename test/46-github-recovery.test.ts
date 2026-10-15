@@ -42,6 +42,9 @@ test("review 恢复：父任务/子任务提交窗口、模型变化、产物与
       scheduler: { tickMs: 0, channel: { target: () => target, available: () => false, send: async () => { throw new Error("不应发送"); } } },
     };
     let rt = await Runtime.start(config);
+    const roleDir = path.join(dirs.agentDir, "agents");
+    fs.mkdirSync(roleDir);
+    for (const role of ["general", "reviewer"]) fs.writeFileSync(path.join(roleDir, `${role}.md`), "---\ndescription: 用户角色覆盖\ntools: [bash]\n---\nUSER_ROLE_MUST_NOT_REPLACE_REVIEW");
     try {
       const main = rt.store.getAgentRole("main")!;
       rt.store.setSessionQueueState(main.sessionId, "paused", "backend_restart");
@@ -75,6 +78,10 @@ test("review 恢复：父任务/子任务提交窗口、模型变化、产物与
       assert.equal(rt.store.listSubAgents().length, 1, "恢复重提命中首次登记，不再造 SubAgent");
       const work = rt.store.listWorkDelegations()[0]!;
       const child = rt.store.listTasksByWork(work.id)[0]!;
+      const fixed = rt.store.getSubAgent(child.subAgentId!)!.definition!;
+      assert.equal(fixed.kind, "host_review");
+      assert.deepEqual(fixed.tools, ["read", "read_artifact"]);
+      assert.ok(server.calls.filter(call => lastUserText(call).startsWith(REVIEW_HEADER)).every(call => !call.system?.includes("USER_ROLE_MUST_NOT_REPLACE_REVIEW")));
       const wake = rt.store.findTaskByRequest(main.sessionId, `wake:${child.id}`)!;
       assert.equal(child.parentTaskId, parent.id);
       assert.equal(child.sourceEventId, event.id);

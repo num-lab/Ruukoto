@@ -1,0 +1,33 @@
+{
+  "scope": "第26个修复文件的独立补充核查；原60项/25文件审查清单不改写",
+  "inputs": [
+    {
+      "path": "test/10-access-modes.test.ts",
+      "sha256": "9d84a05a8ba2f58e402949e214495074e2bfc26f08911fd515d2cd13fc1b2e73"
+    },
+    {
+      "path": "packages/agent/src/execution/approved-ops.ts",
+      "sha256": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b"
+    },
+    {
+      "path": ".scratch/subagent-roles/evidence/05-protected-root-fixture.patch",
+      "sha256": "2d690ec1c648670f821e0227bdb839348a73b4c21135cb9fdcc58975a49c345c"
+    },
+    {
+      "path": ".scratch/subagent-roles/evidence/05-linux-protected-path-probe.log",
+      "sha256": "99731fb260672c5a2538264b69f448ff941c1e96a09a71a24887877b15e70e49"
+    },
+    {
+      "path": "/tmp/05-independent-protected-root-fixture.log",
+      "sha256": "5319e108e27d3bc211beefbabd01961e3997366b995720132ddc4642129a6024"
+    }
+  ],
+  "result": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skipped": 0,
+    "exit": 0,
+    "durationMs": 1343.216667
+  }
+}

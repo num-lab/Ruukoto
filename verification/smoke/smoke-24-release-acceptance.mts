@@ -84,7 +84,7 @@ const model = new MockModelServer(req => {
   const input = lastUserText(req);
   if (typeof input === "string" && last?.role !== "tool") {
     if (input.includes("UPGRADE-COPY-WRITE")) return { kind: "tool_calls", calls: [{ id: "preserve-write", name: "write", arguments: { path: "preserved-copy.txt", content: "copy-before-upgrade\n" } }] };
-    if (input.includes("preserve-copy")) return { kind: "tool_calls", calls: [{ id: "preserve-delegate", name: "subagent_delegate", arguments: { key: "preserved-copy", request: "UPGRADE-COPY-WRITE", mode: "modify", target: "." } }] };
+    if (input.includes("preserve-copy")) return { kind: "tool_calls", calls: [{ id: "preserve-delegate", name: "subagent_delegate", arguments: { key: "preserved-copy", request: "UPGRADE-COPY-WRITE", target: "." } }] };
     if (input.includes("preserve-approval")) return { kind: "tool_calls", calls: [{ id: "preserve-read", name: "request_file_access", arguments: { path: path.join(root, "upgrade-approved.txt"), operation: "read", reason: "升级前批准的资料" } }] };
   }
   if (typeof input === "string" && input.includes("after-upgrade") && last?.role !== "tool") {

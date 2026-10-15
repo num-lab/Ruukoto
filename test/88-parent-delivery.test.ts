@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * 父级送达（架构工单 09）：模块在临时 Store 上直接构造，不起 Runtime 与模型服务；
  * 建结果唤醒用记录桩。集成证据（队列循环、driver、编排器确实调用
@@ -67,7 +68,7 @@ function kit() {
     const sub = session();
     const agentId = `sa${++n}`;
     const workId = `work${++n}`;
-    store.insertSubAgent({ id: agentId, parentSessionId, sessionId: sub.id, workDir: root, activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
+    store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: agentId, parentSessionId, sessionId: sub.id, workDir: root, activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
     store.insertWorkDelegation({ id: workId, parentSessionId, originTaskId: parent.id, subAgentId: agentId, requestKey: `k${n}`, paramsDigest: "d", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: sub.createdAt });
     const exec = (status: TaskStatus = "completed", opts: { errorMessage?: string; sourceEventId?: string | null } = {}) =>
       task(sub.id, { status, workId, subAgentId: agentId, parentTaskId: parent.id, ...opts });
@@ -100,7 +101,7 @@ function kit() {
   const submits: Array<Parameters<ParentDeliveryDeps["submit"]>[0]> = [];
   const reports: WorkReport[] = [];
   const replies = new Map<string, string>();
-  const delivery = new ParentDelivery({
+  const delivery = new ParentDelivery({ verifyWork: () => {}, verifyTask: () => null,
     store,
     submit: async (input) => {
       submits.push(input);

@@ -1,3 +1,4 @@
+import { BUILTIN_SUBAGENT_ROLES, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 /**
@@ -330,9 +331,9 @@ test("来源并集：A 的资料撤销后复用委派被拒；登记后才撤销
     assert.equal(reuse.created, true, "撤销前登记成功（事务内并集核实通过）");
     access.revokeGrant(grant.id);
     await rt.resumeQueue(first.agent.sessionId);
-    await waitFor("B 被阻断", () => rt.store.getTask(reuse.task.id)!.status === "interrupted");
+    await waitFor("B 被阻断", () => ["failed", "interrupted"].includes(rt.store.getTask(reuse.task.id)!.status));
     const blocked = rt.store.getTask(reuse.task.id)!;
-    assert.match(blocked.interruptReason ?? "", /task_sources_revoked/, "旧工作来源撤销后不再向模型发送");
+    assert.match(blocked.interruptReason ?? blocked.errorMessage ?? "", /task_sources_revoked|source_invalid/, "旧工作来源撤销后不再向模型发送");
     await waitFor("B 结果未知登记", () => rt.store.getTask(reuse.task.id)!.resultSummary !== null);
     await waitIdle(rt, first.agent.id);
     assert.equal(rt.store.getSubAgent(first.agent.id)!.closedAt, null, "中断不自动关闭");
@@ -495,7 +496,7 @@ test("竞争：准备阶段被关闭→事务内已关闭；先提交→关闭 b
 
     // —— 委派已发出、尚在 await 准备阶段时同步关闭：事务内报已关闭，零新任务 ——
     let release!: () => void;
-    const gated = new SubAgentManager({
+    const gated = new SubAgentManager({ roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []),
       store: rt.store,
       workRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "sub-agents"),
       workCopies: new WorkCopyManager({

@@ -1,0 +1,11 @@
+/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/packages/runtime/src/subagents.ts:444
+    if (policy.protectSource && launcher.kind !== "native") throw new SubAgentDelegationError("source_protection_unavailable", "角色要求原生沙箱保护来源；请恢复受限执行环境后重新委派");
+                                                                  ^
+
+SubAgentDelegationError: 角色要求原生沙箱保护来源；请恢复受限执行环境后重新委派
+    at SubAgentManager.delegate (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/packages/runtime/src/subagents.ts:444:67)
+    at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/.scratch/subagent-roles/evidence/03-metrics-probe.mts:19:19) {
+  code: 'source_protection_unavailable'
+}
+
+Node.js v24.15.0

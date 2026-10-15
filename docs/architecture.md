@@ -139,10 +139,10 @@ sequenceDiagram
   participant SA as SubAgent 子会话
   participant PD as 父级送达（runtime）
 
-  PA->>SM: subagent_delegate（request, key, mode, target）
+  PA->>SM: subagent_delegate（request, key, role, target）
   SM->>SM: 准备（模型门闩、执行入口、工作目录、资料快照）
   SM->>St: 事务登记工作、Agent、Session 与排队任务
-  SM->>SA: 提交后 kick 子会话（只读分析或 worktree 修改）
+  SM->>SA: 提交后 kick 子会话（独立目录或目标副本）
   SA-->>St: 终态结果（setTaskResult 一次写入）
   SM->>St: resultRecorded：按占用记 idle / unverified
   SM->>PD: 结果已登记 / 消息已登记
@@ -154,8 +154,8 @@ sequenceDiagram
 
 - 只有拥有者直接提交或经拥有者 IM 入口核实身份的任务可以委派；定时唤醒、子任务回报与其他来源拒绝。
 - 一层委派：SubAgent 不能再派生下一层，也不能与拥有者直接交互。
-- 委派能力固定为只读分析（`read`、`read_artifact`）或修改（`read`／`edit`／`write`／`bash`／`read_artifact`），模式沿本次发起任务的有效授权，单次批准与长期授权不继承。
-- 修改委派在 Git 目标上为每项工作创建独立 worktree 副本，子任务不提交不推送，由主 Agent 用 `subagent_integrate` 汇总到父工作区待提交区；非 Git 目标直接写入并与父会话按目录占用串行。
+- 普通委派与工作流共用角色与来源能力：省略 role 为 general，工具继承或显式要求，权限只能收紧；target 独立指定代码目标，verify 由工作流宿主持有冻结验证资格。单次批准与长期授权不继承。
+- 目标委派在 Git 上先捕获当前稳定内容，再登记独立 worktree；保护来源的角色只写副本检查产物，原目录和共享 Git 只读。主 Agent 用 `subagent_integrate` 只汇入捕获后的子增量，冲突保留双方；非 Git 普通目标直接写入并按目录占用串行。
 - 送达与登记分开：结果与消息的登记只是投递登记，进入父模型调用才算送达；已取消的工作不建唤醒、不注入，队列循环在唤醒启动前再检查一次。
 - 任务终态、TUI 退出与空闲都不关闭 SubAgent；关闭是独立列，关闭后拒绝新委派但保留历史与产物。
 - 后台重启时排队的委派任务定 `interrupted` 不自动继续；宿主固定评审的排队任务由编排器启动恢复自动继续；占用未核实的旧执行保留占用并由拥有者用 `resume-queue` 释放。

@@ -421,7 +421,7 @@ export class ViewState {
             id: body.subAgentId,
             parentSessionId: body.parentSessionId,
             sessionId: body.agentSessionId,
-            workDir: "",
+            workDir: "", definition: null,
             activeWorkId: body.workId,
             currentTaskId: body.taskId,
             state: "running",

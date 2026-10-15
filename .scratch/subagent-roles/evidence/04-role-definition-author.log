@@ -1,0 +1,9 @@
+✔ 已完成验证在 ask 后冷恢复遇到 definition_missing 时暂停，旧 Task、尝试和字节不变 (11128.930583ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12495.648042

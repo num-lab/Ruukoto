@@ -1,0 +1,13 @@
+{
+  "scannedRegularFilesBeforeManifest": 747,
+  "configuredCredentialValueScanPerformed": true,
+  "matchedFiles": 0,
+  "credentialConfigFilesIncluded": 0,
+  "excludedRuntimeItems": [],
+  "excludedTrees": [
+    "private",
+    "source",
+    "node_modules"
+  ],
+  "note": "归档另含显式挑选的源码输入与探针版本；原实例常规文件和字节保留，不写入凭据值、凭据摘要或请求认证头。"
+}

@@ -1,0 +1,2 @@
+test/workspace-snapshot-runtime-boundaries.test.ts(349,26): error TS2341: Property 'parentDelivery' is private and only accessible within class 'Runtime'.
+test/workspace-snapshot-runtime-boundaries.test.ts(392,21): error TS2341: Property 'parentDelivery' is private and only accessible within class 'Runtime'.

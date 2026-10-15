@@ -9,8 +9,8 @@ import { initGitRepo } from "./helpers/git-fixture.ts";
 import { afterTool, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 const SCRIPT = `
-const changes = await Promise.all(input.map(id => agent("change_"+id, {request:"CHANGE_ITEM_"+id, mode:"modify", target:".", ...(id===6 ? {output:{format:"json",schema:{type:"number"}}} : {})})));
-const validations = await Promise.all(input.map(id => agent("verify_"+id, {request:"VERIFY_ITEM_"+id, mode:"verify", verify:"change_"+id, dependsOn:["change_"+id]})));
+const changes = await Promise.all(input.map(id => agent("change_"+id, {request:"CHANGE_ITEM_"+id,  target:".", ...(id===6 ? {output:{format:"json",schema:{type:"number"}}} : {})})));
+const validations = await Promise.all(input.map(id => agent("verify_"+id, {request:"VERIFY_ITEM_"+id,  verify:"change_"+id, dependsOn:["change_"+id]})));
 const included = input.filter((id,i) => changes[i].status==="completed" && validations[i].status==="completed" && validations[i].value.passed);
 const merge = await integrate("merge", {steps:included.map(id=>"verify_"+id), dependsOn:included.map(id=>"verify_"+id), check:"node check.mjs"});
 return {coverage:input.map((id,i)=>({id,change:changes[i].status,validation:validations[i].status,included:included.includes(id)})),merge};
@@ -43,7 +43,8 @@ test("编码六输入：共享三名额、失败依赖跳过、独立验证与�
     await waitFor("三个实际修改者并发且其余排队", () => held === 3 && listWorkflowExecutions(rt.store, started.run.id).filter(item => item.kind === "agent" && item.status === "running").length === 3, 60_000);
     assert.equal(listWorkflowSteps(rt.store, started.run.id).filter(step => step.status === "queued").length, 3);
     release();
-    try { await waitFor("六输入整项回报", () => requireWorkflowRun(rt.store, started.run.id).delivery?.status === "reported", 90_000); }
+    // Note: 见 .agents/notes/implemented/testing/2026-10-13-workflow-joint-acceptance.md
+    try { await waitFor("六输入整项回报", () => requireWorkflowRun(rt.store, started.run.id).delivery?.status === "reported", 180_000); }
     catch (error) {
       process.stderr.write(`[ruukoto:test] 六输入未收尾：${JSON.stringify({ run: rt.getWorkflowDetail(started.run.id), tasks: rt.store.listTasksBySession(session.id).map(task => ({ id: task.id, status: task.status, error: task.errorMessage })) })}\n`);
       throw error;

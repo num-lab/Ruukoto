@@ -1,0 +1,28 @@
+✖ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (2470.721292ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4019.0295
+
+✖ failing tests:
+
+test at test/subagent-workspace-snapshot.test.ts:84:1
+✖ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (2470.721292ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 3
+  
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/test/subagent-workspace-snapshot.test.ts:120:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

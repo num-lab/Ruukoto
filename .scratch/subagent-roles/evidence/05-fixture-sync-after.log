@@ -1,0 +1,20 @@
+✔ 合成会话覆盖全部事件类型且 seq 连续 (528.749125ms)
+✔ 合成会话不产生真实副作用：未列出的 op（写操作）明确拒绝 (2.460541ms)
+✔ 合成会话支持新 TUI 的任务与事件分页恢复，并提供完整正文、思考阶段和真实 Edit 统计 (6.45025ms)
+✔ 合成会话里提交：明确拒绝、恢复草稿，不留待核实记录 (277.418791ms)
+✔ breakdown 纯函数：分类占比工作示例 (2.278042ms)
+✔ breakdown 纯函数：未分类项与缺快照降级 (0.376125ms)
+✔ breakdown 纯函数：损坏记录明确报错 (0.40225ms)
+✔ get_context_breakdown：快照来自请求当时配置，合计等于总窗口 (948.788834ms)
+✔ get_context_breakdown：快照跟随请求当时配置（较小上下文窗口） (261.849416ms)
+✔ get_context_breakdown：归属校验与旧记录降级 (287.140292ms)
+✔ get_context_breakdown：未认证连接被拒绝 (95.441084ms)
+✔ get_session_usage：累计实际用量包含缓存，隔离会话，不计缺失 usage (332.277083ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7579.353375

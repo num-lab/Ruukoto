@@ -1,0 +1,77 @@
+{
+  "scope": "第28个unique修复文件，固定异步条件相同，仅同步等待；额外来源读代码摘要",
+  "files": [
+    {
+      "path": "test/14-tui-app.test.ts",
+      "sha256": "bb1debf2e94aa6e9f2207353282e132d042137d75d28e1ba3c38804e77bc105f"
+    },
+    {
+      "path": "packages/tui/src/tui/app.ts",
+      "sha256": "e6c9d8968af6e676ac9d19cca1ebf75b7f57830bb1430b201e1970c38b9d775d"
+    },
+    {
+      "path": "packages/tui/src/tui/event-flow.ts",
+      "sha256": "97ebe0a816bc2d5feedb49758be4f3329593b14fc89e44616e2d6a3aae921eb4"
+    },
+    {
+      "path": "packages/core/src/history.ts",
+      "sha256": "bcfd82aab77e40c6c3ec8c6227e543a8da00060bbae95f7ca8e61670aa4a277b"
+    },
+    {
+      "path": "packages/control/src/server.ts",
+      "sha256": "0eb55c014ee14e471b682374bba1f656923517e2b8dc69deb216292a31fa63c9"
+    },
+    {
+      "path": "test/helpers/testkit.ts",
+      "sha256": "f52d2e3cf1fd6069fb2428d6cce324877c0da07d39cf0cea28d67c5494d3b13d"
+    },
+    {
+      "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-05-model-730405j5/14-history-fixture.patch",
+      "sha256": "0b86744c32c0df96ced188c8c7da20368e09ca2ece9f2b19c6281f623f46bdc2"
+    },
+    {
+      "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-05-model-730405j5/14-history-gated-original.ts",
+      "sha256": "ddb467529ff82f81ac057a541714125c9e4f5e4fa05ede32cd9dba8561f64384"
+    },
+    {
+      "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-05-model-730405j5/14-history-gated-updated.ts",
+      "sha256": "3068deada46c40d1b7e6e72b027743111f9924cdfaf5f8ab489f0edfc35ca644"
+    },
+    {
+      "path": "/tmp/05-independent-history-pagination-fixture.log",
+      "sha256": "462adad7f62101a9d1f1082d80ba597b7cf76a782d25878b1087fd99235d19bf"
+    },
+    {
+      "path": "/tmp/05-independent-history-gated-original.log",
+      "sha256": "f53051c09b75eeddca0a9e2a386eb6c01f22d2257f7925205d84598853970a9b"
+    },
+    {
+      "path": "/tmp/05-independent-history-gated-updated.log",
+      "sha256": "1c8d6061e6f69a623a4564deb65b1ab275a0efd02d449bb78da9635015a97bd4"
+    }
+  ],
+  "gatedBefore": {
+    "tests": 1,
+    "pass": 0,
+    "fail": 1,
+    "skip": 0,
+    "exit": 1,
+    "durationMs": 2876.766333
+  },
+  "gatedAfter": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skip": 0,
+    "exit": 0,
+    "durationMs": 3108.543208
+  },
+  "finalWithoutGate": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skip": 0,
+    "exit": 0,
+    "durationMs": 3609.317541
+  }
+}

@@ -133,6 +133,7 @@ test("桌面二次未知保留原操作，迟到创建事件能确认原会话",
         calls.push(params as OpParams<DesktopOp>);
         return { ok: false, error: { code: "lost", outcome: "unknown", message: "应答丢失" } };
       }
+      if (op === "work_list") return { ok: true, value: { works: [] } };
       return { ok: true, value: [] };
     } }, () => {});
     await install(model, t);

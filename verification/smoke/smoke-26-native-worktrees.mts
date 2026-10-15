@@ -130,7 +130,7 @@ try {
   await check("活动父任务在原生边界内创建两个独立 worktree，并行运行", async () => {
     for (const name of ["A", "B"]) {
       const delegated = await runtime.subagents!.delegate({ parentTaskId: parent.id, key: name, request: "FLOW-copy-" + name,
-        mode: "modify", target: ".", readPaths: null, materials: null, paramsDigest: name });
+        target: ".", readPaths: null, materials: null, paramsDigest: name });
       const target = delegated.work.writeTarget!;
       assert.ok(target.kind === "worktree");
       copies.push({ target, workId: delegated.work.id, taskId: delegated.task.id, name });

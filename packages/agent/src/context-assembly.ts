@@ -22,7 +22,7 @@ import type { MemoryStore, MemoryWithContent } from "@ruukoto/core/memory.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ContextCheckpoint, ContextExperimentRecord, ModelSelection, SelectionUsage, SubAgentMessage, Task } from "@ruukoto/core/types.ts";
 import { randomId } from "@ruukoto/core/types.ts";
-import { getWorkflowExecution } from "@ruukoto/core/workflow.ts";
+import { getWorkflowExecution, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
 import type { AgentResourcePhase } from "./tool-availability.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
@@ -51,6 +51,7 @@ import { loadSummaryModel } from "./model-config.ts";
 import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
 import { PLAN_NOTICE } from "./plan-mode.ts";
 import { skillCatalogBlock, type SkillLibrary } from "./skills.ts";
+import { roleCatalogBlock, type SubAgentRoleLibrary } from "./subagent-roles.ts";
 import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, imageReferenceSnapshot, imageReferenceView, restoreImageInput, type ImageReference } from "./inbound-images.ts";
 import { sourceArtifact } from "@ruukoto/core/branch.ts";
 import { historyTodoParams, parseSessionFile } from "@ruukoto/core/history.ts";
@@ -98,14 +99,16 @@ export interface ContextAssemblyInput {
   session: { id: string; projectId: string; cwdReal: string };
   /** 资料访问身份：记忆来源授权按它判定。 */
   accessor: Accessor;
-  /** 资料受限会话（agent-direction issue 11 SubAgent）：不注入参考块（含记忆），不跑 Jev 与压缩。 */
+  /** 资料受限会话不自动注入记忆，不跑 Jev 与压缩；项目指令与技能另按来源装配。 */
   restricted: boolean;
   /** 以计划模式运行（issue 26；driver 钉版）。 */
   plan: boolean;
   /** 任务钉版的技能库（issue 22；driver 钉版，null = 不读取）。 */
   skills: SkillLibrary | null;
+  roles?: SubAgentRoleLibrary | null;
   resourcePhase?: AgentResourcePhase;
   referenceSnapshot?: AgentWaitSnapshot | null;
+  referenceSource?: WorkflowSource;
   reportContext?: AgentReportContext | null;
   /**
    * dev 父会话待注入的 SubAgent 结果（agent-direction issue 11；driver 在
@@ -146,9 +149,11 @@ export class ContextAssembly {
   private readonly reportContext: AgentReportContext | null;
   private readonly accessor: Accessor;
   private readonly restricted: boolean;
-  /** 普通资料受限会话不读取技能；工作流步骤按持久执行绑定保留已获准的技能。 */
+  /** 资料受限任务的技能来自持久来源，宿主固定评审保持关闭。 */
   private readonly plan: boolean;
   private skills: SkillLibrary | null;
+  private readonly roles: SubAgentRoleLibrary | null;
+  private readonly referenceSource: WorkflowSource | undefined;
   private resourcePhase: AgentResourcePhase;
   private referencesFromSnapshot: boolean;
   private readonly deps: ContextAssemblyDeps;
@@ -182,7 +187,9 @@ export class ContextAssembly {
     this.accessor = input.accessor;
     this.restricted = input.restricted;
     this.plan = !input.restricted && input.plan;
-    this.skills = input.restricted && !getWorkflowExecution(deps.store, input.task.id) ? null : input.skills;
+    this.skills = input.restricted && !input.referenceSource && !getWorkflowExecution(deps.store, input.task.id) ? null : input.skills;
+    this.referenceSource = input.referenceSource;
+    this.roles = input.roles ?? null;
     this.resourcePhase = input.resourcePhase ?? "execution";
     this.referencesFromSnapshot = this.resourcePhase === "conversation";
     this.subagentResults = input.restricted ? undefined : input.subagentResults;
@@ -444,6 +451,7 @@ export class ContextAssembly {
     return [
       ...(instructions ? [this.instructionsBlock(instructions)] : []),
       ...(skills ? [skills] : []),
+      ...(this.roles && (this.resourcePhase === "conversation" || tools.some(tool => tool?.name === "subagent_delegate")) ? [roleCatalogBlock(this.roles)] : []),
       ...(resumedFrom ? [this.resumedBlock(resumedFrom)] : []),
       ...(subagentResults && subagentResults.length > 0
         ? [{
@@ -587,8 +595,8 @@ export class ContextAssembly {
    * - 长期记忆（issue 29）：当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序）。
    */
   private loadPinnedContext(snapshot?: AgentWaitSnapshot | null): typeof this.pinnedContext {
-    // 资料受限会话（SubAgent）：不读取/注入项目指令与记忆
-    if (this.restricted) return { instructions: null, resumedFrom: null, memoryIds: [] };
+    if (this.restricted) return { instructions: this.referenceSource ? this.resourcePhase === "conversation" ? snapshot?.instructions ?? null : this.loadProjectInstructions() : null,
+      resumedFrom: null, memoryIds: [] };
     const task = this.task;
     let resumedFrom: { taskId: string; input: string } | null = null;
     // 与其余钉版分开读取：记忆读取失败不能连带丢掉继续来源
@@ -619,13 +627,17 @@ export class ContextAssembly {
 
   private loadProjectInstructions(): { text: string; version: string; problems: string[] } | null {
     const task = this.task;
-    const project = this.deps.store.getProject(this.session.projectId);
+    const project = this.deps.store.getProject(this.referenceSource?.projectId ?? this.session.projectId);
     const files = project?.instructionFiles ?? [];
     if (files.length === 0) return null;
     // 指令基准目录（agent-direction issue 06）：工作区按已确认的根目录身份解析，
     // 读取前核实根目录仍是登记身份；失效/被替换时拒绝读取替代目录，不退回会话
     // 子目录。无根目录归属的旧项目继续按会话目录解释相对路径。
-    let baseDir = this.session.cwdReal;
+    let baseDir = this.referenceSource?.authority?.workspace.path ?? this.session.cwdReal;
+    if (this.referenceSource?.authority) {
+      const workspace = this.referenceSource.authority.workspace;
+      verifyDirIdentitySync({ cwd: workspace.path, cwdReal: workspace.path, dev: workspace.dev, ino: workspace.ino });
+    }
     if (project?.rootDir) {
       try {
         verifyDirIdentitySync(project.rootDir);

@@ -16,7 +16,7 @@
 |---|---|---|
 | runtime | `initHostToolFamilies` | 初始化应用库、资料解析器与个人产品的调度器之后建立一份全局静态族清单与工具操作账本，随后 `recover` 核实遗留操作；`SubAgentManager` 在恢复前创建，恢复事务调用其 `recoverQueuedTasks`，编排器在恢复后创建 |
 | runtime | 族清单 | Runtime 捕获资料、凭据、应用库、调度器等各族依赖，把同一份清单交给 Driver |
-| Driver | 执行画像 | 按 `executionProfile` 筛选并构建工具，校验声明的名称与构建结果一致、族间名称不重复；用构建出的宿主名称集合分派调用 |
+| Driver | 执行画像 | 按 `executionProfile` 与持久来源快照筛选并构建工具，校验声明的名称与构建结果一致、族间名称不重复；用构建出的宿主名称集合分派调用 |
 | 模型 | 工具调用 | 每次执行按 SDK 调用 id 取得独立 `HostCall`；身份与宿主操作编号来自宿主记录，不从模型参数取得，结束时在 `finally` 释放绑定 |
 | 工具族 | 能力闭包 | 族在构建工具时获得 Driver 提供的身份复核、审批、产物登记等能力 |
 | control | 审批参数与操作参数 | `get_confirmation_params` / `get_tool_op_params` 按 ID 分段读取大参数；`respond_confirmation` 可携带 `permission_version` 绑定审批时的权限版本 |
@@ -37,7 +37,7 @@
 | SubAgent 会话 | 空；工具按执行画像的 SubAgent 工具集单独装配 |
 | 已退役归档会话 | 不归任何类别；QQ 群会话与 chat/coding 旧角色会话是只读归档、不运行任务，算执行画像即拒绝 |
 
-SubAgent 工具集由所属工作是否有写入目标与是否宿主评审决定：只读分析为 `read` / `read_artifact`；有写入目标时为 `read` / `edit` / `write` / `bash` / `read_artifact`；宿主评审任务在此之外另开类别为只读的 MCP 工具，并关闭 `subagent_message`。
+普通与工作流子任务按持久来源与角色要求预检实际工具：省略清单继承可委派集合，显式工具缺少任一项或 MCP 发现失败即拒绝启动。基础 shell 不依赖写入目标；个人来源包含适用业务与 MCP，业务资格由宿主复核，账本与审批归真实子 Task。普通协作消息沿工作归属，工作流仍由运行管理；浏览器、下级委派与新工作流启动不开放。GitHub 宿主固定评审只允许 read/read_artifact 和只读 MCP，禁消息。
 
 宿主工具族按类别装配出的工具名（读者的检索入口）：
 
@@ -54,7 +54,7 @@ SubAgent 工具集由所属工作是否有写入目标与是否宿主评审决�
 | 服务器服务管理 | `service_inspect`、`service_manage` |
 | MCP | `mcp_<服务名>_<远端工具名>` |
 
-`executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出，包含会话类别（工具类别表与系统提示键）、SubAgent 工具集、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）与工具集签名。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
+`executionProfile` 沿会话身份与持久来源快照确定实际工具、MCP、资料范围、系统提示与 SDK 签名；宿主固定评审另沿固定只读规则。普通与工作流角色权限在登记时只继承或收紧，单次批准与长期授权不继承。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
 
 `agent_wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。内部对话阶段显式只开放等待和后台状态、历史及结果查询；项目读写、bash、技能文件读取、MCP 与未分类工具都须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
 
@@ -74,6 +74,8 @@ SubAgent 工具集由所属工作是否有写入目标与是否宿主评审决�
 | MCP 变更 | `ruukoto mcp disable <service-id>`／`enable`／`remove <service-id> [--expected-version N]` |
 | 长期授权管理 | `ruukoto service-grant list/show/revoke` 与已认证控制面 `service_grant_*`（入口停用后仍可管理遗留记录）；创建首版只经原 IM 平台的待审批，不提供配置页面或自由范围创建 |
 | 长期授权创建与撤销 | 经原 IM 平台的待审批创建，拥有者用 `/approve-standing` 保存当前批准；撤销命令与回执归 [channels](channels.md) |
+
+普通与工作流共用 `role` 目录，省略为 general；旧派发 `mode` 明确拒绝。普通代码修改/审查委派显式给 `target`，与 `read_paths` / `materials` 互斥；目标独立于角色。目标路径按原值参与幂等核实，首尾空格不同的目录不能共用同一请求键。Git 副本从当前稳定内容开始，受保护执行不能通过文件工具、路径授予或批准后的宿主操作写回来源，普通汇总只应用子增量。无目标用独立目录，非 Git 保护要求在准备前拒绝；基线损坏保留成果并报告拥有者。
 
 ## 数据与状态
 
@@ -239,9 +241,13 @@ sequenceDiagram
 
 共享 `workflow` 族提供 `workflow_instructions`、`workflow_save`、`workflow_start`、`workflow_query` 和 `workflow_cancel`。编写说明通过工具结果进入历史；临时脚本发起必填简短单行 `title`，命名定义沿所选名称；可给显式 `description`，不把参数自动展开成说明。保存/发起使用稳定键，查询/取消限来源会话，身份来自独立 HostToolContext。模型只可收窄默认预算，不取得恢复、核实或提高预算的入口；计划模式和步骤不开放这些工具。保存落盘前重核活动身份；账本按完整请求摘要核实发起、保存和取消，文件已落盘但无保存回执仍记无法核实。
 
-宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；独立编码验证只开放五个编码工具，其命令使用原生沙箱。
+宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
+
+- [当前工作区快照与子增量](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
@@ -265,3 +271,5 @@ sequenceDiagram
 - [限定的长期服务授权替代重复人工决定](../../.agents/notes/implemented/feature/2026-10-03-standing-permissions.md)：解释长期操作授权的范围、版本与失效条件为何这样限定。
 - [Plan 作为持续会话选择并固定采用自动审查](../../.agents/notes/implemented/feature/2026-10-08-plan-session-mode.md)：解释计划模式为什么固定 Auto review、工具白名单为何默认拒绝新增工具。
 - [退役专用 GitHub 模块，GitHub 作为普通 MCP 工具](../../.agents/notes/implemented/simplification/2026-09-23-retire-github-module.md)：解释 GitHub 为什么只经通用 MCP 服务接入，以及为什么不保留专用 REST 路径。
+
+- [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。

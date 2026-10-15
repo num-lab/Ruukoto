@@ -1,3 +1,4 @@
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * 架构工单 03：工具可用性（纯函数，不起 Runtime）。
  *
@@ -14,7 +15,7 @@ import { classifySession, CODING_ROLE_RETIRED, CORE_GROUP_CHAT_RETIRED, type Ses
 import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, type ExecutionProfile, type SessionToolClass } from "@ruukoto/agent/tool-availability.ts";
 
 const role = (id: AgentRoleId): AgentRole => ({ id, projectId: "p", sessionId: "s", workDir: "/w", modelSelection: null, tools: [], createdAt: "" });
-const agent: SubAgent = { id: "a", parentSessionId: "ps", sessionId: "s", workDir: "/w", activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
+const agent: SubAgent = { definition: fixtureSubAgentDefinition(), id: "a", parentSessionId: "ps", sessionId: "s", workDir: "/w", activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
 
 test("独立定时身份使用个人业务能力与独立签名，不复制 main 角色、不取得编码或 Plan", () => {
   const binding = { runId: "run", scheduleId: "schedule", rootTaskId: "task", projectId: "p", modelSelection: null };

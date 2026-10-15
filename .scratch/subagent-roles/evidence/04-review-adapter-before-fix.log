@@ -1,0 +1,28 @@
+✖ 只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次新的执行尝试 (17604.396166ms)
+✖ dev 最终汇总排在当前聊天之后，冻结终态代次、零工具且只唤醒一次；普通请求键不能伪造绑定 (16010.249541ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 18919.481833
+
+✖ failing tests:
+
+test at test/109-workflow-cold-recovery.test.ts:29:2777
+✖ 只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次新的执行尝试 (17604.396166ms)
+  Error: 等待超时: 只读步骤恢复完成
+      at waitFor (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-workflow-audit-2yv4gizx/test/helpers/testkit.ts:233:47)
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-workflow-audit-2yv4gizx/test/109-workflow-cold-recovery.test.ts:237:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)
+
+test at test/115-workflow-final-delivery.test.ts:1:1959
+✖ dev 最终汇总排在当前聊天之后，冻结终态代次、零工具且只唤醒一次；普通请求键不能伪造绑定 (16010.249541ms)
+  Error: 等待超时: 最终汇总已排队
+      at waitFor (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-workflow-audit-2yv4gizx/test/helpers/testkit.ts:233:47)
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-workflow-audit-2yv4gizx/test/115-workflow-final-delivery.test.ts:55:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

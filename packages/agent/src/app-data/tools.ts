@@ -162,7 +162,7 @@ export function createAppDataTools(deps: AppDataToolsDeps): ToolDefinition[] {
   const opCtx = (ctx: AppToolContext): OpContext => ({
     taskId: ctx.taskId,
     sessionId: ctx.sessionId,
-    agentId: deps.coreStore.getSessionIdentity(ctx.sessionId)!.kind === "scheduled" ? "scheduled" : "main",
+    agentId: deps.coreStore.getTask(ctx.taskId)!.subAgentId ?? (deps.coreStore.getSessionIdentity(ctx.sessionId)!.kind === "scheduled" ? "scheduled" : "main"),
   });
 
   const taskOf = (ctx: AppToolContext): Task => {

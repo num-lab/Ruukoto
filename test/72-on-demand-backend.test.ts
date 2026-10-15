@@ -29,7 +29,9 @@ import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureBackend, tuiSpawnsBackendOnDemand } from "@ruukoto/control/ensure-backend.ts";
-import { ControlClient } from "@ruukoto/control/client.ts";
+import { ControlClient, ControlClientError } from "@ruukoto/control/client.ts";
+import { ControlConnection } from "@ruukoto/control/connection.ts";
+import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
 import { INSTANCE_LOCK_EXIT_CODE } from "@ruukoto/core/instance-lock.ts";
 import { authenticateClient, cleanupDirs, makeTestDirs, routeResponder, waitFor, writeModelsJson, createProjectSession, taskStatus } from "./helpers/testkit.ts";
 import { killProcessTree } from "./helpers/backend.ts";
@@ -576,62 +578,74 @@ test("历史日志里的锁错误不误判本次启动失败：保留失败原�
   }
 });
 
-test("协议版本不兼容的探测保留原始原因：显示版本与升级指引，不核对令牌、不拉起（评审 R8）", async () => {
-  const { dirs } = await makeTestDirs("od-proto", 0);
-  const controlDir = devOpts(dirs).controlDir;
-  fs.mkdirSync(controlDir, { recursive: true });
-  // 有效令牌副本就位：问题不在令牌
-  fs.writeFileSync(nodePath.join(controlDir, "owner.token"), `${"a".repeat(64)}\n`, { mode: 0o600 });
-  const socketPath = nodePath.join(controlDir, "control.sock");
-  // 模拟旧版本服务端：任意请求按真实 ControlServer 形状回 protocol_version
-  const stub = net.createServer((conn) => {
-    conn.setEncoding("utf8");
-    let buf = "";
-    conn.on("data", (chunk: string) => {
-      buf += chunk;
-      for (;;) {
-        const idx = buf.indexOf("\n");
-        if (idx === -1) break;
-        const line = buf.slice(0, idx);
-        buf = buf.slice(idx + 1);
-        if (!line.trim()) continue;
-        const req = JSON.parse(line) as { id?: string };
-        conn.write(
-          JSON.stringify({
-            v: 8,
-            id: req.id ?? "",
-            ok: false,
-            error: { code: "protocol_version", message: "协议版本不兼容：服务端 v8，请求 v9；请升级客户端" },
-          }) + "\n",
-        );
-      }
+for (const serverVersion of [CONTROL_PROTOCOL_VERSION - 1, CONTROL_PROTOCOL_VERSION + 1]) {
+  test(`协议版本不兼容的探测保留原始原因：服务端 v${serverVersion}，连接与拉起都透传版本且不重试`, async () => {
+    const { dirs } = await makeTestDirs("od-proto", 0);
+    const controlDir = devOpts(dirs).controlDir;
+    fs.mkdirSync(controlDir, { recursive: true });
+    fs.writeFileSync(nodePath.join(controlDir, "owner.token"), `${"a".repeat(64)}\n`, { mode: 0o600 });
+    const socketPath = nodePath.join(controlDir, "control.sock");
+    const versions = { client: CONTROL_PROTOCOL_VERSION, server: serverVersion };
+    let connections = 0;
+    const stub = net.createServer((socket) => {
+      connections++;
+      socket.setEncoding("utf8");
+      let buffer = "";
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        for (;;) {
+          const index = buffer.indexOf("\n");
+          if (index === -1) break;
+          const request = JSON.parse(buffer.slice(0, index)) as { id: string };
+          buffer = buffer.slice(index + 1);
+          socket.write(`${JSON.stringify({ v: serverVersion, id: request.id, ok: false,
+            error: { code: "protocol_version", message: "服务端的原始版本拒绝消息" } })}\n`);
+        }
+      });
     });
+    await new Promise<void>((resolve) => stub.listen(socketPath, resolve));
+    let reported: ControlClientError | undefined;
+    const connection = new ControlConnection({ socketPath, token: "a".repeat(64), reconnectInitialMs: 10 }, {
+      onState: (state, detail, error) => {
+        if (state !== "failed") return;
+        reported = error;
+        assert.equal(detail, "服务端的原始版本拒绝消息");
+      },
+      onSnapshot: () => assert.fail("版本不兼容不得安装快照"),
+      onEvent: () => assert.fail("版本不兼容不得接收事件"),
+    });
+    try {
+      await assert.rejects(() => connection.start(), (error: unknown) => {
+        assert.ok(error instanceof ControlClientError);
+        assert.equal(error.code, "protocol_version");
+        assert.deepEqual(error.versions, versions);
+        assert.equal(reported, error, "failed 回调透传原错误对象");
+        return true;
+      });
+      assert.equal(connection.state, "failed");
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      assert.equal(connections, 1, "版本不兼容不得自动重试");
+      const result = await ensureBackend({
+        ...devOpts(dirs),
+        deadlineMs: 3000,
+        exitGraceMs: 500,
+      });
+      assert.equal(result.ok, false);
+      if (result.ok) return;
+      assert.equal(result.code, "protocol_version");
+      assert.deepEqual(result.versions, versions);
+      assert.match(result.error, /服务端的原始版本拒绝消息/);
+      assert.doesNotMatch(result.error, /RUUKOTO_OWNER_TOKEN/, "不得提示核对有效令牌");
+      assert.match(result.error, /不重复拉起/);
+      assert.equal(connections, 2, "ensureBackend 只探测一次");
+      assert.ok(!fs.existsSync(nodePath.join(controlDir, "spawn.log")), "不得拉起第二个后台");
+    } finally {
+      connection.close();
+      await new Promise<void>((resolve) => stub.close(() => resolve()));
+      await cleanupDirs(dirs);
+    }
   });
-  await new Promise<void>((resolve) => stub.listen(socketPath, resolve));
-  try {
-    const r = await ensureBackend({
-      dataDir: dirs.dataDir,
-      agentDir: dirs.agentDir,
-      controlDir,
-      spawnArgv: devSpawnArgv(dirs), // 正确分类时不会走到拉起；误入会立即失败（无 models.json）
-      env: cleanEnv(controlDir),
-      deadlineMs: 3000,
-      exitGraceMs: 500,
-    });
-    assert.equal(r.ok, false);
-    if (r.ok) return;
-    assert.match(r.error, /协议版本不兼容/, "展示原始拒绝原因而非统一的令牌提示");
-    assert.match(r.error, /v8/, "显示服务端版本");
-    assert.match(r.error, /升级/, "给出升级指引");
-    assert.doesNotMatch(r.error, /RUUKOTO_OWNER_TOKEN/, "不得提示核对有效令牌");
-    assert.match(r.error, /不重复拉起/);
-    assert.ok(!fs.existsSync(nodePath.join(controlDir, "spawn.log")), "不得拉起第二个后台");
-  } finally {
-    await new Promise<void>((resolve) => stub.close(() => resolve()));
-    await stopBestEffort(controlDir, dirs.dataDir);
-    await cleanupDirs(dirs);
-  }
-});
+}
 
 test("多字节历史日志不干扰锁竞争判定：本次锁竞争按退出码归属，等满时限（评审 R7 复审）", async () => {
   const { dirs } = await makeTestDirs("od-multi", 0);

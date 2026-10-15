@@ -122,7 +122,7 @@ export class ControlServer {
         ok: false,
         error: {
           code: "protocol_version",
-          message: `协议版本不兼容：服务端 v${CONTROL_PROTOCOL_VERSION}，请求 v${String((request as any)?.v)}；请升级客户端`,
+          message: `协议版本不兼容：服务端 v${CONTROL_PROTOCOL_VERSION}，请求 v${String((request as any)?.v)}；${request.v > CONTROL_PROTOCOL_VERSION ? "后台版本较旧，请结束旧后台进程后重开入口" : "请升级客户端"}`,
         },
       });
       return;

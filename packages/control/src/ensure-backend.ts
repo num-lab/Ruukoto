@@ -23,7 +23,7 @@ import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ControlClient, ControlClientError } from "./client.ts";
+import { ControlClient, ControlClientError, type ProtocolVersions } from "./client.ts";
 import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor, tryResolveOwnerToken } from "./connect.ts";
 import { INSTANCE_LOCK_EXIT_CODE } from "@ruukoto/core/instance-lock.ts";
 import { type ProductType } from "@ruukoto/core/product.ts";
@@ -93,7 +93,7 @@ export interface EnsureBackendOptions {
   exitGraceMs?: number;
 }
 
-export type EnsureBackendResult = { ok: true; spawned: boolean } | { ok: false; error: string };
+export type EnsureBackendResult = { ok: true; spawned: boolean } | { ok: false; error: string; code?: string; versions?: ProtocolVersions };
 
 /**
  * 读日志尾部；from（字节偏移）之后的内容才算（spawn.log 共享追加，from 用于限定
@@ -139,7 +139,9 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     if (firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError && firstProbe.error.code === "protocol_version") {
       return {
         ok: false,
-        error: `后台在运行但协议版本不兼容：${firstProbe.error.message}（升级后重开入口复用同一后台，无需改动令牌；不重复拉起）`,
+        error: `后台在运行但协议版本不兼容：${firstProbe.error.message}（无需改动令牌；不重复拉起）`,
+        code: firstProbe.error.code,
+        versions: firstProbe.error.versions,
       };
     }
     return {
@@ -147,6 +149,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
       error:
         "后台在运行（socket 可连）但认证或握手失败：核对 RUUKOTO_OWNER_TOKEN / " +
         `RUUKOTO_OWNER_TOKEN_FILE 与 ${opts.controlDir}/owner.token 是否一致；确认后重开入口`,
+      code: firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError ? firstProbe.error.code : undefined,
     };
   }
 

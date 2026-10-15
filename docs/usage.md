@@ -641,3 +641,9 @@ Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁�
 同一会话跨轮保留页面。默认空闲 60 分钟后回收，自有 profile、历史与截图保留；重新 `start` 只打开新页面，不恢复旧页面或重放点击/提交。持久 Cookie 与网站资料沿 Chromium profile 保存；没有到期时间的会话 Cookie 及网站自身的登录期限不保证跨关闭延续，必要时重新人工登录。
 
 截图保存为不可变图片产物并交给视觉模型，用 `read-artifact <taskId> <artifactId> --output screenshot.png` 完整导出。纯文本模型在发送图片前明确报 `image_input_unsupported`；`image_too_large` 可改用视口截图；`artifact_write_failed` 检查磁盘与目录权限。动作报告 `outcome_unknown` 时先人工查看实际页面或服务端结果，再用新消息核实连接；不要重发原提交。`browser_stop_unverified` / `browser_identity_unverified` 先核对原进程及绑定，再显式 `close`；停止尚未核实前不会新开实例或释放接管占用。
+
+## 桌面客户端
+
+在 macOS 运行 `npm run desktop:build` 后打开 `dist/mac-arm64/Ruukoto.app`。当前界面显示 Code 的连接状态与工作区列表；日常应用采用登录 shell 的环境和日常 Code 档案，按需启动后台，退出应用后后台继续运行。开发入口与档案隔离见[开发说明](development.md#桌面客户端)。
+
+版本不一致时，界面显示客户端与后台版本并停止自动重试。客户端较旧需重建应用；受管开发后台较旧需重启开发启动器；日常后台较旧按界面的当前控制 socket 查询步骤核对唯一 PID、所属用户与完整命令，人工结束后点“重新连接”。多 PID 或无法核对时先检查控制目录配置与 spawn.log，不发送信号；未查到监听进程先确认查询命令执行成功。桌面应用不会替你停止进程。仓库移动或 node 不可用时按界面提示修复环境或重建。

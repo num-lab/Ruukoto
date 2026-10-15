@@ -13,6 +13,7 @@
  *   停止外来进程；
  * - 监听各 workspace 包 src/ 下的 .ts，重载分类见 classifyWatchPath；
  *   ~300ms 防抖合并突发，开发启动器自身变化提示手动重启。
+ * - --desktop 由 electron-vite 接手桌面源码与客户端依赖的重建、Electron 重启和 HMR；
  * - 生命周期：前端退出或 dev 收到 SIGINT/SIGTERM/SIGHUP（关终端 = SIGHUP）→
  *   停后台（SIGTERM，10s 升级 SIGKILL）、关监听、退出并提示日志位置；后台
  *   日志只写 logs/backend.log（有前端时绝不上屏），此时 dev 诊断只进
@@ -81,7 +82,7 @@ const SCRUB_EXACT = new Set([
   "RUUKOTO_PENDING_DIR",
   RELOAD_STATE_ENV,
 ]);
-const SCRUB_PREFIXES = ["RUUKOTO_SERVICE_", "RUUKOTO_CODE_"];
+const SCRUB_PREFIXES = ["RUUKOTO_SERVICE_", "RUUKOTO_CODE_", "RUUKOTO_DESKTOP_"];
 
 /** 子进程环境：洗掉生产令牌/服务配置，注入档案目录与 QQ 停用标记。 */
 export function buildChildEnv(base: NodeJS.ProcessEnv, profile: DevProfile): NodeJS.ProcessEnv {
@@ -108,6 +109,7 @@ export type WatchAction = "tui" | "config-tui" | "backend" | "both" | "self";
 
 export function classifyWatchPath(repoRelPath: string): WatchAction | null {
   const p = repoRelPath.split(path.sep).join("/");
+  if (p.startsWith("apps/desktop/")) return null;
   if (p === "packages/tui/src/dev.ts" || /^apps\/[^/]+\/src\/dev\.ts$/.test(p)) return "self";
   if (!p.endsWith(".ts")) return null;
   if (p.startsWith("packages/tui/src/config-tui/")) return "config-tui";
@@ -125,15 +127,17 @@ export function classifyWatchPath(repoRelPath: string): WatchAction | null {
   return null;
 }
 
+type FrontendKind = "tui" | "config" | "desktop";
+
 /**
  * 一批监听动作 → 重启谁。任务界面经 ControlConnection 自动重连，后台重启不必
  * 重启它；配置中心用一次性连接、不重连（且直接引用 agent 的配置模块），
- * 后台重启时一并重载（重载状态恢复所在分区）。
+ * 后台重启时一并重载（重载状态恢复所在分区）。桌面前端由 electron-vite 重载。
  */
-export function planWatchRestart(actions: WatchAction[], frontend: "tui" | "config" | null): { backend: boolean; frontend: boolean } {
+export function planWatchRestart(actions: WatchAction[], frontend: FrontendKind | null): { backend: boolean; frontend: boolean } {
   const backend = actions.includes("backend") || actions.includes("both");
   const restartFrontend =
-    frontend !== null &&
+    frontend !== null && frontend !== "desktop" &&
     (actions.includes("both") ||
       (actions.includes("tui") && frontend === "tui") ||
       (actions.includes("config-tui") && frontend === "config") ||
@@ -144,26 +148,32 @@ export function planWatchRestart(actions: WatchAction[], frontend: "tui" | "conf
 export interface DevArgs {
   tui: boolean;
   config: boolean;
+  desktop: boolean;
   importModels?: string;
   workspacePath?: string;
 }
 
-/** 严格解析；Coding Agent 默认打开 TUI，可指定一个工作区路径，--config 改为配置中心。 */
+/** 严格解析；Coding Agent 默认打开 TUI，也可选择配置中心或桌面客户端。 */
 export function parseDevArgs(argv: string[], product: ProductType = "ruukoto"): DevArgs {
   const { values, positionals } = parseArgs({
     args: argv,
     options: {
       config: { type: "boolean" },
+      desktop: { type: "boolean" },
       "import-models": { type: "string" },
     },
     allowPositionals: product === "ruukoto-code",
     strict: true,
   });
+  if (values.desktop && product !== "ruukoto-code") throw new Error("--desktop 只适用于 ruukoto-code");
+  if (values.desktop && values.config) throw new Error("--desktop 不能与 --config 同用");
   if (positionals.length > 1) throw new Error("工作区入口只接受一个路径");
   if (values.config && positionals.length > 0) throw new Error("--config 不能与工作区路径同用");
+  if (values.desktop && positionals.length > 0) throw new Error("--desktop 不能与工作区路径同用");
   return {
-    tui: product === "ruukoto-code" && !values.config,
+    tui: product === "ruukoto-code" && !values.config && !values.desktop,
     config: values.config ?? false,
+    desktop: values.desktop ?? false,
     importModels: values["import-models"],
     workspacePath: positionals[0],
   };
@@ -194,9 +204,10 @@ const WATCH_DEBOUNCE_MS = 300;
 
 class DevSession {
   private readonly childEnv: NodeJS.ProcessEnv;
-  private frontendKind: "tui" | "config" | null = null;
+  private frontendKind: FrontendKind | null = null;
   private backend: childProcess.ChildProcess | null = null;
   private frontend: childProcess.ChildProcess | null = null;
+  private frontendGroupPid: number | null = null;
   /** 有意停止标记：重启/收尾期间子进程退出不触发级联处理。 */
   private backendStopping = false;
   private frontendStopping = false;
@@ -298,8 +309,8 @@ class DevSession {
 
     if (this.stopping) return await this.exitPromise; // 就绪等待期间被打断
     // 前端（独占终端；dev 诊断此后转入 dev.log）
-    if (this.args.tui || this.args.config) {
-      this.spawnFrontend(this.args.config ? "config" : "tui");
+    if (this.args.tui || this.args.config || this.args.desktop) {
+      this.spawnFrontend(this.args.desktop ? "desktop" : this.args.config ? "config" : "tui");
     }
 
     this.startWatchers();
@@ -412,19 +423,26 @@ class DevSession {
 
   // ---------- 前端子进程 ----------
 
-  private spawnFrontend(kind: "tui" | "config"): void {
+  private spawnFrontend(kind: FrontendKind): void {
     const cliArgs = kind === "config" ? ["config"] : [];
     // 路径只用于首次工作区入口；重载走无参 TUI 恢复原会话，避免再次创建。
     if (kind === "tui" && this.frontendKind === null && this.args.workspacePath !== undefined) {
       cliArgs.push("--", path.resolve(this.args.workspacePath));
     }
     this.frontendKind = kind;
-    const child = childProcess.spawn(process.execPath, this.nodeCliArgs(cliArgs), {
-      cwd: this.repoRootDir,
-      env: this.spawnChildEnv(),
+    // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+    const desktop = kind === "desktop";
+    const child = childProcess.spawn(desktop ? "electron-vite" : process.execPath, desktop ? ["dev", "--watch"] : this.nodeCliArgs(cliArgs), {
+      cwd: desktop ? path.join(this.repoRootDir, "apps", "desktop") : this.repoRootDir,
+      env: this.spawnChildEnv(desktop ? {
+        RUUKOTO_DESKTOP_MANAGED: "1",
+        RUUKOTO_DESKTOP_DEV_NONCE: crypto.randomBytes(24).toString("base64url"),
+      } : {}),
+      detached: desktop,
       stdio: "inherit", // 只有前端碰 stdin/raw mode/屏幕
     });
     this.frontend = child;
+    this.frontendGroupPid = desktop ? child.pid ?? null : null;
     child.on("error", () => this.onFrontendExit());
     child.on("exit", (code, signal) => this.onFrontendExit(code, signal));
   }
@@ -447,8 +465,9 @@ class DevSession {
     const kind = this.frontendKind;
     this.log("重启前端（源码变更；会话/草稿/继续意图经重载状态恢复）…");
     this.frontendStopping = true;
-    await this.killChild(this.frontend);
+    await this.killChild(this.frontend, this.frontendGroupPid);
     this.frontend = null;
+    this.frontendGroupPid = null;
     this.frontendStopping = false;
     if (this.stopping) return;
     this.spawnFrontend(kind);
@@ -532,6 +551,7 @@ class DevSession {
     process.on("SIGHUP", onSignal); // 关闭终端也走完整清理
     // 兜底：dev 以任何方式退出都不留下持锁后台
     process.on("exit", () => {
+      if (this.frontendGroupPid !== null) this.signalProcessGroup(this.frontendGroupPid, "SIGKILL");
       for (const child of [this.frontend, this.backend]) {
         try {
           if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
@@ -542,7 +562,29 @@ class DevSession {
     });
   }
 
-  private async killChild(child: childProcess.ChildProcess | null): Promise<void> {
+  private signalProcessGroup(pid: number, signal: NodeJS.Signals | 0): boolean {
+    try {
+      return process.kill(-pid, signal);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+      throw error;
+    }
+  }
+
+  private async killChild(child: childProcess.ChildProcess | null, groupPid: number | null = null): Promise<void> {
+    // electron-vite 可能先退出，仍要清理它启动的 Electron 进程组。
+    if (groupPid !== null) {
+      if (!this.signalProcessGroup(groupPid, "SIGTERM")) return;
+      const deadline = Date.now() + BACKEND_KILL_GRACE_MS;
+      while (this.signalProcessGroup(groupPid, 0)) {
+        if (Date.now() > deadline) {
+          this.signalProcessGroup(groupPid, "SIGKILL");
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return;
+    }
     if (!child || child.exitCode !== null || child.signalCode !== null) return;
     try {
       child.kill("SIGTERM");
@@ -573,8 +615,9 @@ class DevSession {
   private async killAllChildren(): Promise<void> {
     this.frontendStopping = true;
     this.backendStopping = true;
-    await this.killChild(this.frontend);
+    await this.killChild(this.frontend, this.frontendGroupPid);
     this.frontend = null;
+    this.frontendGroupPid = null;
     await this.killChild(this.backend);
     this.backend = null;
   }
@@ -599,7 +642,7 @@ export async function runDev(product: ProductType): Promise<number> {
     args = parseDevArgs(process.argv.slice(2), product);
   } catch (err) {
     // 参数错误：在建目录、起进程之前失败退出
-    const usage = product === "ruukoto" ? "dev -- [--config]" : "code -- [<路径> | --config]";
+    const usage = product === "ruukoto" ? "dev -- [--config]" : "code -- [<路径> | --config | --desktop]";
     console.error(`参数错误：${(err as Error).message}\n用法：npm run ${usage} [--import-models <目录>]`);
     return 1;
   }

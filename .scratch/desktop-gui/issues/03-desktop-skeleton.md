@@ -1,6 +1,6 @@
 # apps/desktop 骨架：主进程、preload、安全基线、开发与打包入口
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## 目标与边界
 
@@ -24,7 +24,7 @@ Status: ready-for-agent
        1. 运行 `lsof -nP -a -U -- <control.sock 路径>`，列出正在监听这个 socket 的进程。路径按 shell 单引号规则转义后嵌进命令。在 macOS 上，这条命令只列出监听方（同一个 PID 可能占多行），已连接的客户端不会出现。
        2. 核对：输出里应当恰好只有一个 PID。再用 `ps -o user=,command= -p <PID>` 确认它属于你自己的用户，完整命令是 ruukoto-code 的 `server` 进程。
        3. 对确认过的这一个 PID 执行 `kill -TERM <PID>`，效果与 `stop` 相同，活动任务会记为中断。然后点“重新连接”。
-       4. 例外情况：没有任何 PID，说明后台已经退出，直接点“重新连接”；出现多个不同 PID、命令不是后台，或者无法核对时，停在这一步，不发信号，按指引核对控制目录配置和 `<控制目录>/spawn.log`。
+       4. 例外情况：未查到监听进程时，先核对查询命令是否执行成功，再尝试“重新连接”；出现多个不同 PID、命令不是后台，或者无法核对时，停在这一步，不发信号，按指引核对控制目录配置和 `<控制目录>/spawn.log`。
 
        这些步骤只供拥有者阅读执行：桌面端不会把查询结果接到 kill 上，也不代为执行任何一步。受管开发前端不给这些步骤，只提示重启开发启动器。
      - 客户端较新、Personal 目标：提示在服务器部署同一 commit 并重启服务后重新连接。
@@ -36,7 +36,7 @@ Status: ready-for-agent
    - **开发页面**：渲染进程从 `ELECTRON_RENDERER_URL`（vite dev server，http）加载，策略由主进程经 `session.webRequest.onHeadersReceived` 以响应头下发。开发启动器每次启动生成一个随机 nonce，通过 `RUUKOTO_DESKTOP_DEV_NONCE` 同时交给 vite 配置的 `html.cspNonce`（只在 `serve` 时设置）和主进程。开发策略只额外放行 dev server 这个源、它的 ws，以及带该 nonce 的脚本与样式；不放行 `'unsafe-inline'`，没有 nonce 的内联脚本仍会被拒绝。
    - 生产策略是一个常量，由插件和产物检查共用；纯函数 `cspFor(devServerUrl, nonce)` 只生成开发响应头。
    - 其余设置：`will-navigate` 与 `setWindowOpenHandler` 拦截导航，只把 http 与 https 交给系统浏览器。窗口用 `hiddenInset` 与 `vibrancy: 'sidebar'`，明暗跟随系统；React 19 与 Tailwind v4，沿用 demo 的 CSS 变量。
-7. **开发入口。** `packages/tui/src/dev.ts` 增加 `--desktop` 前端，只对 ruukoto-code 可用，与 `--config` 互斥。`npm run code -- --desktop` 用 `buildChildEnv` 的环境加 `RUUKOTO_DESKTOP_MANAGED=1` 启动 `electron-vite dev --watch`：主进程与 preload 的变更由 electron-vite 重建并重启 Electron，渲染进程走 HMR。监听分类同步调整：
+7. **开发入口。** `packages/tui/src/dev.ts` 增加 `--desktop` 前端，只对 ruukoto-code 可用，与 `--config` 互斥。`npm run code -- --desktop` 用 `buildChildEnv` 的环境加 `RUUKOTO_DESKTOP_MANAGED=1` 启动 `electron-vite dev --watch`：主进程的变更由 electron-vite 重建并重启 Electron，preload 的变更重建后重载渲染进程，渲染进程走 HMR。监听分类同步调整：
    - `classifyWatchPath` 对 `apps/desktop/` 下的路径返回 `null`。这条要放在 `apps/*/src` 判为 `backend` 那一分支之前，交给 electron-vite 处理。
    - `planWatchRestart` 增加 `desktop` 前端：任何变更都不由启动器重启它。后台重启后，桌面端靠 `ControlConnection` 重连；view、control、core 的变更由 electron-vite 的监听接手，实施时核实 workspace 包的源码确实在它的监听范围内。
    - 退出时清理整组进程：Electron、electron-vite、后台都要退出。
@@ -46,14 +46,14 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前：第五轮独立方案审查通过，第四轮人工恢复 P2 已关闭，无未解决的方案阻断。自动停止仍由 [10](10-stop-stale-backend.md) 单独评估，实现未开始；本结论不代表工程或产品验收通过。
-- 下一步：02 实现完成后，由实施者按本单方案、验收与第五轮实施交接完成实现，再交独立实现审查和真实 Electron 外部验收。
-- 基点：`develop` @ `4611eff`。依赖 02。
-- 阻塞：02 方案已通过、实现未完成。
+- 当前：本机工程验证与独立实现审查通过，无剩余实现阻断。真实 Electron 的隔离、CSP、连接、HMR、workspace 监听与进程清理均通过；CI 矩阵、真实旧后台人工恢复演练与拥有者主观体验待验收。实施及证据见[验收记录](../evidence/03-implementation.md)。自动停止仍由 [10](10-stop-stale-backend.md) 单独评估。
+- 下一步：拥有者确认明暗外观体验，按人工清单对真实旧后台完成恢复演练；推送后由 CI 验证四组矩阵，再据实际结果完成验收。04 的实现可基于当前接口接续，不把上述外部缺口记为通过。
+- 基点：实施基于 `develop` @ `8faca2a`，已含 01 与 02。
+- 阻塞：无实现阻断；外部恢复演练、CI 与产品体验尚未验收。
 
 ## 验收与证据
 
-工程待验证。
+本机工程验证及独立实现审查通过；外部恢复演练、CI 与主观体验待验收。具体命令、环境、模拟／真实边界与缺口见[实施记录](../evidence/03-implementation.md)。
 
 - **主进程单测**（`test/38-desktop-main.test.ts`）：
   - op 放行名单直接调用主进程处理函数，名单外的 op 被拒绝；
@@ -72,7 +72,7 @@ Status: ready-for-agent
   - `ControlConnection` 进入 `failed` 时带出这个错误，而且不再重试；
   - `ensureBackend` 失败结果中的 `versions` 正确；
   - 用真实 `ControlServer` 分别接收 `v-1` 与 `v+1` 的原始请求时，消息给出的更新方向正确。
-- **人工恢复指引可用**（只在 macOS 上运行：`test/39-desktop-recovery-guide.test.ts`，加入 `scripts/test-app.mjs` 的 `MACOS_EXCLUSIVE`）：用替身进程搭三种场景，通过 shell 执行指引生成的 `lsof` 命令，断言输出里只有监听当前 `control.sock` 的那个 PID：
+- **人工恢复指引可用**（只在 macOS 上运行：`test/39-desktop-recovery-guide.test.ts`；按第五轮交接保留普通分批，用例显式限定平台，不占全局夹具）：用替身进程搭三种场景，通过 shell 执行指引生成的 `lsof` 命令，断言输出里只有监听当前 `control.sock` 的那个 PID：
   - 后台不带 `--data-dir`、按默认目录启动；
   - 另有一个实例，数据目录与当前的同前缀（`data` 与 `data-other`），并有自己的 socket；
   - 第三轮的 A/B 路径错配：当前控制目录是 A，数据目录指向 B 的持锁者。
@@ -227,3 +227,13 @@ Status: ready-for-agent
 - 无 PID 的提示写成“未查到监听进程”，不要把空输出或 lsof 执行失败断言为后台已退出；先核对命令错误，再允许重新连接。现有 ensureBackend 仍负责安全探测与实例锁收敛，此分支不发停止信号。多行同一 PID 只算一个候选。
 
 未覆盖：沿用前三轮有效的依赖、CSP、版本与环境证据，未重复应用测试或构建；未运行真实 Electron、打包签名、React／Tailwind HMR、Linux／CI 矩阵、生产安装或全量检查。三个探针子进程均已在清理时停止并等待退出，临时目录已删除，未触碰日常后台。本轮只更新 03 的状态与审查交接，保留其他工作区修订及 10；本单 23 个相对链接、单一状态、段落及末尾换行检查通过，`git diff --check` 通过。
+
+### 2026-10-15 实施与独立验收交接
+
+实施基于 `8faca2a`，范围与第五轮方案一致。桌面骨架、结构化版本链、受管开发入口、依赖边界、CSP 交付、构建／签名、测试与文档均已落地。开发方法按 electron-vite 的实际机制澄清：main 重建后重启 Electron，preload 重建后完整重载渲染进程。真实验收发现导航拦截误挡 preload 重载，已只放行完整配置开发文档 URL 的自身重载；其他路径、查询、来源与协议仍拦截，空串配置直接拒绝。修复经独立安全分支／变异检查与真实 Electron 回归，无未解决实现阻断。
+
+相关全文件回归分别为 control 12/66/72 共 65/65、launcher 32/71 共 46/46、桌面38/39与边界99共17/17；最终桌面12项、定向lint/typecheck与构建再次通过。完整check:static、根build、桌面build、签名、生产安装不带Electron、CI跳过二进制下载的隔离setup均通过。真实.app与PTY TUI共用临时后台；开发隔离、nonce CSP、明暗、HMR、preload与view/control/core源码监听、后台失败不脱管、整组退出已验证。过程未连接或停止日常实例，所有后台与socket均属本轮临时档案。
+
+证据边界：版本GUI以v±1 socket替身制造不兼容，恢复通过结束自己的旧替身再点击重新连接验证；lsof定位由macOS真实进程测试覆盖，尚未对真实旧commit后台完成整套人工恢复。CI四job与Linux／Node22矩阵未运行，主观体验归拥有者。按开发流程保留ready-for-human；未提交、推送或发布。
+
+2026-10-15：拥有者授权本地提交本单实现与证据；ready-for-human 的外部验收缺口保留，不推送或发布。

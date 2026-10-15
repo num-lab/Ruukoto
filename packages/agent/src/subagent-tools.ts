@@ -278,7 +278,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         role: params.role ?? (params.work_id || params.sub_agent_id ? null : "general"),
         work_id: params.work_id ?? null,
         ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
-        ...(target !== null ? { target: target.trim() } : {}),
+        ...(target !== null ? { target } : {}),
         read_paths: readPaths ? [...readPaths].sort() : null,
         materials: materials ?? null,
       });

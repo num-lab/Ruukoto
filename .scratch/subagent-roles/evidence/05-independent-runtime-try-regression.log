@@ -1,0 +1,55 @@
+✔ 冷恢复 parent：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (100.098292ms)
+✔ 冷恢复 parent-repeated：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (70.717709ms)
+✔ 冷恢复 fallback：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (69.469ms)
+✔ 冷恢复 fallback-no-end：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (54.595709ms)
+✔ 可信 Telegram main 父轮消费两份结果：success (271.5425ms)
+✔ 可信 Telegram main 父轮消费两份结果：send-revoked (203.478458ms)
+[ruukoto:parent-delivery] 子任务 task_e1f63349fa2aafa2161c768e 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_e1f63349fa2aafa2161c768e 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_fdff037e4a286639364a8397 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_fdff037e4a286639364a8397 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+✔ 可信 Telegram main 父轮消费两份结果：request-revoked (158.137875ms)
+✔ 定时父轮已消费普通子结果：实际发送前撤销子任务记忆，原汇报取消且不外发 (76.848459ms)
+✔ 续接整组冷恢复 completed：保留消费归属与实际输入证明，0 模型 (46.887584ms)
+✔ 续接整组冷恢复 no-end：保留消费归属与实际输入证明，0 模型 (43.095917ms)
+✔ 续接整组冷恢复 missing-reference：保留消费归属与实际输入证明，0 模型 (50.115791ms)
+✔ 续接整组冷恢复 invalid-json：保留消费归属与实际输入证明，0 模型 (46.831125ms)
+✔ 续接整组冷恢复 null-root：保留消费归属与实际输入证明，0 模型 (54.244708ms)
+✔ 续接整组冷恢复 null-target：保留消费归属与实际输入证明，0 模型 (50.088209ms)
+✔ 续接整组冷恢复 missing-start：保留消费归属与实际输入证明，0 模型 (48.277458ms)
+✔ 续接整组冷恢复 missing-tool-entry：保留消费归属与实际输入证明，0 模型 (56.240917ms)
+✔ 续接整组冷恢复 missing-group：保留消费归属与实际输入证明，0 模型 (69.650875ms)
+✔ 续接整组冷恢复 empty-group：保留消费归属与实际输入证明，0 模型 (70.623375ms)
+✔ 续接整组冷恢复 subset-group：保留消费归属与实际输入证明，0 模型 (51.634292ms)
+✔ 续接整组冷恢复 falsy-group：保留消费归属与实际输入证明，0 模型 (55.661791ms)
+✔ 续接整组冷恢复 own-missing-tool-entry：保留消费归属与实际输入证明，0 模型 (56.643708ms)
+✔ 续接整组冷恢复 own-subset-group：保留消费归属与实际输入证明，0 模型 (55.430541ms)
+[ruukoto:parent-delivery] 子任务 task_fa02107a0fe0c995ae408edc 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_fa02107a0fe0c995ae408edc 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：execution (227.387125ms)
+[ruukoto:parent-delivery] 子任务 task_1d6e8a95595dc839bcae5ace 的来源不可核实（definition_corrupt）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_1d6e8a95595dc839bcae5ace 的来源不可核实（definition_corrupt）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：definition (128.059583ms)
+[ruukoto:parent-delivery] 子任务 task_d5874f66db00169ca232f82e 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_d5874f66db00169ca232f82e 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：binding (126.398583ms)
+[ruukoto:parent-delivery] 子任务 task_3d23307fcb73776801902159 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_3d23307fcb73776801902159 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：source (117.811208ms)
+[ruukoto:parent-delivery] 子任务 task_6eb5abe21f2c741241c9efe3 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_6eb5abe21f2c741241c9efe3 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ main 已排队结果唤醒在坏来源后被截住，保留原任务与唯一唤醒键 (70.994333ms)
+[ruukoto:parent-delivery] 子任务 task_5ed176c59b6f06f40c337b15 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ 报告沿冻结的截止任务依赖复核，后续身份复用的坏执行不扩大旧结果依赖 (160.452416ms)
+[ruukoto:parent-delivery] 子任务 task_7bfbbff2bd72e40efb9c5ec2 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ 结果装配后来源损坏，真实模型响应不消费原结果且不重放 (122.574709ms)
+[ruukoto:parent-delivery] 子任务 task_27585b730985d4c51501e39d 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ main 结果唤醒响应期间来源损坏，不完成消费且保留子结果 (114.842833ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3017.5945

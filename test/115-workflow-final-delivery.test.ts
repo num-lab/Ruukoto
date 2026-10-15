@@ -128,7 +128,7 @@ test("终态停止事实区分已核实、未知和未启动；登记脚本仍�
     store.transitionTask(parent.id, ["queued"], "completed");
     const definition = saveWorkflowDefinition(store, "return 1;");
     const inputs: string[] = [];
-    const delivery = new ParentDelivery({ verifyWork: () => {}, store, defaultModelSelection: () => selection, readReply: () => null, isReviewEvent: () => false,
+    const delivery = new ParentDelivery({ verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => selection, readReply: () => null, isReviewEvent: () => false,
       resultNotice: () => null, sendWorkReport: () => {}, verifyWorkflowReport: () => true,
       submit: async input => { inputs.push(input.input); return parent; } });
     const cases = [

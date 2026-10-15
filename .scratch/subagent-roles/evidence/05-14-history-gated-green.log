@@ -1,0 +1,10 @@
+[ruukoto:history-race-probe] {"fullBodyRecovered":true,"uniqueAnswers":1,"firstPageRequested":true,"laterPageRequestedBeforeRelease":false}
+✔ 长正文生成中退出后冷重连：超过历史单页的正文完整恢复且只显示一次 (2021.461167ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2982.323625

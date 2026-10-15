@@ -1,0 +1,34 @@
+{
+  "file": "test/84-im-final-delivery.test.ts",
+  "baseSha256": "3191c29a8925970f647a30bfd2a7e11edb099679f78435f5bf00dd6bfa45c33c",
+  "finalSha256": "8e370c8a71ca76238b91b8431cfe70eea878f73408bdef6373fb58cc40b09a76",
+  "patchSha256": "c78057e4ae405f361b81edda58614433e973ee8cbe2f5646f08c62e84171d245",
+  "BAndFollowingFileBytesUnchanged": true,
+  "production160Unchanged": true,
+  "logs": {
+    "84-retarget-fixture-red.log": "c61daff7a480a42673a926229616e0960b71e705f1c5f23826d95ba06f7da37d",
+    "84-retarget-fixture-green.log": "54f465e7d5b8aa7bfddf6335798624a738b197fae5ded87076fc8bcd27baab88",
+    "84-retarget-fixture-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "84-retarget-fixture-live-diagnosis.json": "1e7dc8be059a03f71864ad50aef1ac254c18013acfe8e207aee916e49b468f7c",
+    "84-retarget-fixture-static.log": "e1303c9d8ef3ceda87e413a80d1de859784f4ef967fd3d0ce188324512deee38"
+  },
+  "red": {
+    "tests": 1,
+    "pass": 0,
+    "fail": 1,
+    "skip": 0,
+    "seconds": 30.33,
+    "reason": "旧断言等待wake completed超时；真实wake canceled/subagent_source_invalid/0selection"
+  },
+  "green": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skip": 0,
+    "seconds": 0.58,
+    "coverage": "A精确来源拒绝/原子结果保留/工作未取消/零新增模型/零report/skip/外发；B原pending retarget取消与新目标零发送原样"
+  },
+  "lintExit": 0,
+  "scope": "test-only同步合法来源失效后的新门；无生产改动，无真实模型或外部平台调用",
+  "checkStaticExit": 0
+}

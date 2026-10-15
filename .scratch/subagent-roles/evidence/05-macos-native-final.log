@@ -1,0 +1,47 @@
+command: npx tsx --test --test-concurrency=1 test/112-workflow-real-steps.test.ts test/125-agent-wait.test.ts test/subagent-workspace-snapshot.test.ts test/workflow-role-integration.test.ts
+verifier: /root
+started_at: 2026-10-15T03:23:42.028877+00:00
+source: 5f9da45 + target/fixture patches + source-consumption initial 24dc9c1c; no source mutation during this command
+
+✔ 真实 ruukoto Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (16236.105334ms)
+✔ 真实 ruukoto-code Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (15929.460375ms)
+✔ 非 Git 修改在真实 worker 与模型前拒绝；无目标通用步骤仍可执行来源工具 (1518.346042ms)
+✔ 完全访问来源的验证命令不能写回待审副本，工具失败不能伪称通过 (14275.65925ms)
+✔ 冻结成果 stale：旧结论不能放行新字节或绕过验证，已套用成果保留 (15487.516667ms)
+✔ 冻结成果 check_failure：旧结论不能放行新字节或绕过验证，已套用成果保留 (17313.5435ms)
+✔ 冻结成果 ordinary_bypass：旧结论不能放行新字节或绕过验证，已套用成果保留 (4160.16025ms)
+✔ 冻结成果 snapshot_missing：旧结论不能放行新字节或绕过验证，已套用成果保留 (15926.985ms)
+✔ 冻结成果 snapshot_mismatch：旧结论不能放行新字节或绕过验证，已套用成果保留 (16399.819667ms)
+✔ 冻结成果 ledger_unknown：旧结论不能放行新字节或绕过验证，已套用成果保留 (16533.605875ms)
+✔ 脚本伪造通过值不能生成验证记录或汇入任何字节 (796.012042ms)
+[ruukoto:parent-delivery] 工作流 wfrun_8283cba0cb0ba163ca670cf7 汇总尚未入队；保留原送达键供恢复：后台正在停止，拒绝新任务
+✔ 真实 Driver 独立目录 启动中取消，迟到实际身份和停止 false 沿原 Task 保留 (886.745833ms)
+✔ 真实 Driver 目标副本 启动中取消，迟到实际身份和停止 false 沿原 Task 保留 (1645.441583ms)
+✔ agent_wait ruukoto：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (20326.29425ms)
+✔ agent_wait ruukoto-code：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (20659.668375ms)
+✔ agent_wait：超时或人工问题只结束一次等待，后台工作仍继续 (848.056125ms)
+✔ 非 Git 子任务持真实目录：新拥有者输入打断父等待，内部对话拒绝业务工具，晚到结果自动补报 (2269.907375ms)
+✔ 非 Git 持目录等待真实审批：attention 与新输入可对话，审批不因父轮退出失效 (2886.202042ms)
+✔ ruukoto 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (13486.187625ms)
+✔ ruukoto-code 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (13209.319458ms)
+✔ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (14327.920709ms)
+✔ 非 Git 受保护目标在准备副本或登记委派前拒绝，源目录保留 (1074.25975ms)
+✔ ruukoto 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (26107.460583ms)
+✔ ruukoto-code 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (26982.346583ms)
+✔ general 与 full_access 角色的 verify 均固定受限编码能力，零工具的通过文本不能汇入 (34671.025167ms)
+✔ 已完成验证在 ask 后冷恢复遇到 definition_missing 时暂停，旧 Task、尝试和字节不变 (16576.246708ms)
+✔ 已完成验证在 ask 后冷恢复遇到 execution_missing 时暂停，旧 Task、尝试和字节不变 (17345.99775ms)
+✔ 已完成验证在 ask 后冷恢复遇到 snapshot_missing 时暂停，旧 Task、尝试和字节不变 (16336.116083ms)
+✔ 已完成验证在 ask 后冷恢复遇到 interface_upgrade_required 时暂停，旧 Task、尝试和字节不变 (17905.285833ms)
+✔ 临时脚本先真实写入再调用旧 mode 时明确拒绝，恢复请求不能重放已完成写入 (5155.912333ms)
+✔ 角色与步骤 tools 不匹配在子任务和模型启动前拒绝 (1408.9155ms)
+ℹ tests 31
+ℹ suites 0
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 392926.5935
+
+{"command": ["npx", "tsx", "--test", "--test-concurrency=1", "test/112-workflow-real-steps.test.ts", "test/125-agent-wait.test.ts", "test/subagent-workspace-snapshot.test.ts", "test/workflow-role-integration.test.ts"], "exit_code": 0, "elapsed_seconds": 393.121, "finished_at": "2026-10-15T03:30:15.150292+00:00"}

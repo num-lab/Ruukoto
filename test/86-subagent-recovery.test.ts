@@ -1,6 +1,8 @@
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import { HOST_REVIEW_DEFINITION } from "@ruukoto/agent/subagent-roles.ts";
+import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import type { GitHubPullRequestEvent } from "@ruukoto/channels/github/webhook.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-05-subagent-restart-recovery.md
@@ -34,7 +36,7 @@ import { inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor,
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { randomId, type AccessMode, type SubAgentMessage } from "@ruukoto/core/types.ts";
+import { randomId, type AccessMode, type NotifyTarget, type SubAgentMessage } from "@ruukoto/core/types.ts";
 import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 
 /** 事件表里的某类事件。 */
@@ -110,7 +112,8 @@ function seedQueued(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], p
       sessionId: d.agent.sessionId,
       requestId: subAgentTaskRequestId(d.work.id, key),
       input,
-      accessMode: "confirm",
+      accessMode: rt.store.getTask(d.task.id)!.accessMode,
+      sourcePermissionVersion: rt.store.getTask(d.task.id)!.sourcePermissionVersion,
       modelSelection: rt.defaultSelection,
       submissionDigest: `fixture-${key}`,
       parentTaskId,
@@ -292,13 +295,34 @@ test("宿主固定评审排队任务：不中断，启动恢复自动解除子�
   const kit = await startKit("recover-review");
   let rt = kit.rt;
   try {
-    const { parent, d } = await baseWork(kit, rt, "q3");
-    rt.store.db.prepare("UPDATE sub_agents SET definition = ? WHERE id = ?").run(JSON.stringify(HOST_REVIEW_DEFINITION), d.agent.id);
+    await rt.stop("fixture_configure_review");
+    new CredentialStore(kit.dirs.agentDir).upsert({ name: "hook", host: "github.com", header: "x-hub-signature-256", purpose: "github_webhook", secret: "fixture-secret" });
+    const target: NotifyTarget = { channel: "telegram", account: "fixture-bot", chatId: "owner", configVersion: 1 };
+    kit.config.githubWebhook = { port: 0, credential: "hook", repositoryIds: [42] };
+    kit.config.scheduler = { tickMs: 0, channel: { target: () => target, available: () => false, send: async () => { throw new Error("恢复夹具不发送外部消息"); } } };
+    rt = await Runtime.start(kit.config);
+    const payload: GitHubPullRequestEvent = { deliveryId: "recover-review", action: "opened", repository: { id: 42, owner: "owner", name: "repo", fullName: "owner/repo" }, number: 7,
+      url: "https://github.com/owner/repo/pull/7", headSha: "a".repeat(40), baseSha: "b".repeat(40), headRef: "feature", baseRef: "main", sender: "contributor",
+      title: "REVIEW-MARK", body: "恢复固定评审", bodyTruncated: false, draft: false, state: "open", updatedAt: "2026-09-24T01:00:00Z" };
+    const event = rt.store.withTx(() => rt.store.registerInboundEvent({ source: "github", externalId: payload.deliveryId, actor: payload.sender, targetRole: "main", body: JSON.stringify(payload), replyTarget: target })).event;
+    const kick = rt["kick"].bind(rt), delegate = rt.subagents!.delegate.bind(rt.subagents);
+    rt["kick"] = sessionId => {
+      if (rt.store.getSessionIdentity(sessionId)?.kind === "subagent") rt.store.setSessionQueueState(sessionId, "paused", "backend_restart");
+      else kick(sessionId);
+    };
+    rt.subagents!.delegate = async input => {
+      if (input.hostReview) await waitFor("可信固定评审接收父轮完成", () => rt.store.getTask(input.parentTaskId)?.status === "completed");
+      return delegate(input);
+    };
+    try { await rt.orchestrator!.dispatchRegisteredEvents(); }
+    finally { rt["kick"] = kick; rt.subagents!.delegate = delegate; }
+    const work = rt.store.listWorkDelegations()[0]!, agent = rt.store.getSubAgent(work.subAgentId)!;
+    const d = { agent }, seeded = rt.store.listTasksByWork(work.id)[0]!;
+    assert.equal(rt.store.getTask(work.originTaskId)!.status, "completed");
+    assert.equal(agent.definition!.digest, HOST_REVIEW_DEFINITION.digest);
+    assert.equal(seeded.sourceEventId, event.id); assert.equal(seeded.readScope?.execution, undefined);
+    assert.equal(seeded.status, "queued");
     const callsBefore = kit.server.calls.length;
-    // 播种带来源事件的排队评审任务；先把子会话置为 backend_restart 暂停
-    // （崩溃前的持久形态：排队任务使恢复事务暂停子会话，暂停理由即该形态）
-    rt.store.setSessionQueueState(d.agent.sessionId, "paused", "backend_restart");
-    const seeded = seedQueued(rt, d, parent.id, "b-review", "评审任务REVIEW-MARK", "evt_seed_review");
     await rt.stop("test_restart");
 
     rt = await Runtime.start(kit.config);

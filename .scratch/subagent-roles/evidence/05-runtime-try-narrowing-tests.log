@@ -1,0 +1,97 @@
+{"command": ["npx", "tsx", "--test", "test/subagent-result-source-boundaries.test.ts", "test/125-agent-wait-report.test.ts", "test/125-agent-wait-attention-report.test.ts", "test/125-agent-wait-group-boundaries.test.ts", "test/125-agent-wait-recovery.test.ts", "test/45-github-events.test.ts", "test/46-github-recovery.test.ts"]}
+✔ main 父轮 batch 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (1962.721584ms)
+✔ main 父轮 sequential 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发 (1428.080791ms)
+[ruukoto:parent-delivery] 子任务 task_de31811f4555d8af9e95e246 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+✔ 续接 main 冷恢复：first 来源撤销清除整组认领后，普通 owner_reply 仍取消且不实际发送 (1497.044916ms)
+✔ 后续可信 main 仅等待第二目标：接管整组只回报一次且保留原消费 (1378.962542ms)
+✔ 后续可信 main 仅等待第二目标：provider 未接受整组输入则不完成旧消费报告 (1498.608375ms)
+✔ 不同父轮等待同原来源：停车只覆盖本轮固定目标，其他组后备仍可执行 (2820.660459ms)
+✔ 冷恢复 parent：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (2790.692542ms)
+✔ 冷恢复 parent-repeated：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (2035.194416ms)
+✔ 冷恢复 fallback：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (2105.958209ms)
+✔ 冷恢复 fallback-no-end：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成 (1638.648333ms)
+✔ 可信 Telegram main 父轮消费两份结果：success (1016.086791ms)
+✔ 可信 Telegram main 父轮消费两份结果：send-revoked (896.056875ms)
+[ruukoto:parent-delivery] 子任务 task_5260bb67490d1abb505b075d 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_5260bb67490d1abb505b075d 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_8c5428abbc02b14748434d51 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_8c5428abbc02b14748434d51 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+✔ 可信 Telegram main 父轮消费两份结果：request-revoked (942.18975ms)
+✔ 定时父轮已消费普通子结果：实际发送前撤销子任务记忆，原汇报取消且不外发 (1482.473125ms)
+✔ 续接整组冷恢复 completed：保留消费归属与实际输入证明，0 模型 (1468.092959ms)
+✔ 续接整组冷恢复 no-end：保留消费归属与实际输入证明，0 模型 (1456.441875ms)
+✔ 续接整组冷恢复 missing-reference：保留消费归属与实际输入证明，0 模型 (1507.622166ms)
+✔ 续接整组冷恢复 invalid-json：保留消费归属与实际输入证明，0 模型 (1210.515625ms)
+✔ 续接整组冷恢复 null-root：保留消费归属与实际输入证明，0 模型 (891.385625ms)
+✔ 续接整组冷恢复 null-target：保留消费归属与实际输入证明，0 模型 (805.478416ms)
+✔ 续接整组冷恢复 missing-start：保留消费归属与实际输入证明，0 模型 (825.289834ms)
+✔ 续接整组冷恢复 missing-tool-entry：保留消费归属与实际输入证明，0 模型 (880.534834ms)
+✔ 续接整组冷恢复 missing-group：保留消费归属与实际输入证明，0 模型 (871.177083ms)
+✔ 续接整组冷恢复 empty-group：保留消费归属与实际输入证明，0 模型 (820.401417ms)
+✔ 续接整组冷恢复 subset-group：保留消费归属与实际输入证明，0 模型 (858.579333ms)
+✔ 续接整组冷恢复 falsy-group：保留消费归属与实际输入证明，0 模型 (836.945292ms)
+✔ 续接整组冷恢复 own-missing-tool-entry：保留消费归属与实际输入证明，0 模型 (814.167542ms)
+✔ 续接整组冷恢复 own-subset-group：保留消费归属与实际输入证明，0 模型 (797.797625ms)
+✔ 普通工作取消：可信分组后备准入拒绝，未开始汇总的取消终态仍能登记未送达 (11.040125ms)
+✔ 排队补报转交父轮只停车；父轮失败沿同一任务和原键恢复，运行中补报不能二次认领 (28.850917ms)
+✔ 同来源多个结果父轮只报告一次，消费后的普通注入和独立补报都不再重复 (11.7875ms)
+✔ dev 普通子结果装配不算消费；模型接受钩子后才从下轮候选移除 (8.887625ms)
+✔ 同来源补报批次共享一个可信任务及最终报告；伪造同名任务不取得补报身份 (12.699208ms)
+✔ 已有工作流专属汇总接管子任务和其他排队汇总，只登记一份报告且保留各原任务与输入 (14.67375ms)
+✔ 父轮消费后终态前撤销来源，拒绝登记最终外发并持久记录未送达 (10.078625ms)
+✔ 等待被新轮中断且新轮先结束，晚到普通子结果按持久资格自动补报；未等待委派仍只注入 (16.074125ms)
+✔ 编排器启动巡检以等待认领覆盖普通 dev 父轮，补记终态结果和报告而不重生总结 (9.981125ms)
+✔ GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent、完整产物、main 摘要与 owner outbox (3112.428833ms)
+✔ GitHub 修订：每个修订一个新 SubAgent，旧 coding 与新 SubAgent 结果都标过期并取消待发通知 (4660.681334ms)
+[ruukoto:parent-delivery] 子任务 task_93325fc3f8ec9e547dd3a300 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_93325fc3f8ec9e547dd3a300 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_93325fc3f8ec9e547dd3a300 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ GitHub 修订：出队时已过期的新建评审出局即取消，不调用模型、不发通知 (2266.036833ms)
+✔ GitHub 通知：换 owner 目标和停用 webhook 都取消旧 pending，不改发 (2416.908583ms)
+✔ GitHub 修订：同时间戳不同 SHA 保守失效，关闭事件不创建新 review (1690.562584ms)
+✔ GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重启都不重新发送或创建任务 (1654.856416ms)
+✔ MCP 配在 main 项目：普通子代理沿可信来源取得 MCP，main 自身工具保持原类别 (1579.618541ms)
+[ruukoto:orchestrator] 事件 evt_e6bfc3dcfae5f6602b6dbe9f 建任务失败：提交窗口断开
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+▶ review 恢复：父任务/子任务提交窗口、模型变化、产物与摘要通知补记保持幂等（通用 SubAgent）
+  ✔ parent_only (3032.834292ms)
+[ruukoto:orchestrator] 事件 evt_ca723e7473494182cd8c0f2a 建任务失败：提交窗口断开
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+  ✔ child_committed (2246.837542ms)
+✔ review 恢复：父任务/子任务提交窗口、模型变化、产物与摘要通知补记保持幂等（通用 SubAgent） (5280.503459ms)
+✔ webhook 可信配置与凭据范围：秘密不与 HTTP/MCP 凭据共用，轮换不能绕过用途 (16.523875ms)
+[ruukoto:parent-delivery] 子任务 task_f25b7d98fcfadc51b5cb690b 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_f25b7d98fcfadc51b5cb690b 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_f25b7d98fcfadc51b5cb690b 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 报告归档：历史在第二页读取失败不得标为完整产物，需拥有者核实（SubAgent 评审同走路径） (2220.266ms)
+[ruukoto:parent-delivery] 子任务 task_723132ce8a2aa7bb9a13b354 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_723132ce8a2aa7bb9a13b354 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：execution (3926.736208ms)
+[ruukoto:parent-delivery] 子任务 task_3b7615bdfcc566c9bf83abc8 的来源不可核实（definition_corrupt）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_3b7615bdfcc566c9bf83abc8 的来源不可核实（definition_corrupt）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：definition (3202.510041ms)
+[ruukoto:parent-delivery] 子任务 task_572d2ffd1c7143797772534f 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_572d2ffd1c7143797772534f 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：binding (2376.270667ms)
+[ruukoto:parent-delivery] 子任务 task_40ef46834d314ace9c5e3ab9 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_40ef46834d314ace9c5e3ab9 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 真实普通父模型不注入或消费缺损的子任务结果和消息：source (2127.325625ms)
+[ruukoto:parent-delivery] 子任务 task_0be00e4bc00d0d60c8145cde 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_0be00e4bc00d0d60c8145cde 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ main 已排队结果唤醒在坏来源后被截住，保留原任务与唯一唤醒键 (1455.724667ms)
+[ruukoto:parent-delivery] 子任务 task_3d8fc8ee798ffc1b263b4818 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ 报告沿冻结的截止任务依赖复核，后续身份复用的坏执行不扩大旧结果依赖 (2261.750875ms)
+[ruukoto:parent-delivery] 子任务 task_2f95f09e0a4ea0d642d130a6 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ 结果装配后来源损坏，真实模型响应不消费原结果且不重放 (2209.166792ms)
+[ruukoto:parent-delivery] 子任务 task_56683c3ff8d8b531cb103c54 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+✔ main 结果唤醒响应期间来源损坏，不完成消费且保留子结果 (1268.689166ms)
+ℹ tests 57
+ℹ suites 0
+ℹ pass 57
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 29074.920667
+
+{"command": ["npx", "tsx", "--test", "test/subagent-result-source-boundaries.test.ts", "test/125-agent-wait-report.test.ts", "test/125-agent-wait-attention-report.test.ts", "test/125-agent-wait-group-boundaries.test.ts", "test/125-agent-wait-recovery.test.ts", "test/45-github-events.test.ts", "test/46-github-recovery.test.ts"], "exit_code": 0, "elapsed_seconds": 29.38, "finished_at": "2026-10-15T04:38:57.098107+00:00"}

@@ -1,4 +1,4 @@
-import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
+import { fixtureSubAgentDefinition, fixtureSubAgentScope } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -23,7 +23,7 @@ function attentionChildren(rt: Runtime, parent: Task): string[] {
       activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
     rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: parent.id, subAgentId: agentId,
       requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: now });
-    const child = rt.store.insertQueuedTask({ sessionId: childSession.id, requestId: key, input: key, accessMode: "full_access",
+    const child = rt.store.insertQueuedTask({ readScope: fixtureSubAgentScope(rt["workflowSource"](parent.id, false, true)), sessionId: childSession.id, requestId: key, input: key, accessMode: parent.accessMode,
       modelSelection: rt.defaultSelection, submissionDigest: key, parentTaskId: parent.id, workId, subAgentId: agentId }).task;
     if (key === "first") {
       rt.store.endTask(child.id, ["queued"], "completed"); rt.store.setTaskResult(child.id, "FIRST-COMPLETED", "{}");

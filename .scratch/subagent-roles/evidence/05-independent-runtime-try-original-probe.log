@@ -1,0 +1,16 @@
+[ruukoto:parent-delivery] 子任务 task_1f210a46f883ac24f2b69189 的来源不可核实（execution_missing）；结果与记录保留，请核实后继续
+{"parentInputBeforeWait":"[子代理角色目录]\n首次委派用 role 选择职责，省略为 general；继续或复用沿已固定角色，需要其他角色时新建子代理。能力以宿主实际工具和授权为准。\n- general：完成委派任务，按来源许可使用工具并报告结果。\n- reviewer：审查给定代码并运行必要检查，报告发现与验证依据。\n[/子代理角色目录]\nWAIT_MISSING_EXECUTION"}
+{"toolResult":"等待 source_invalid：保留结果与原报告键，请核实后继续"}
+fixed: missing execution refused, no parent injection, child result preserved
+{
+  "childExecution": null,
+  "parentStatus": "completed",
+  "error": null,
+  "waitOps": [
+    {
+      "name": "agent_wait",
+      "isError": true,
+      "result": "等待 source_invalid：保留结果与原报告键，请核实后继续"
+    }
+  ]
+}

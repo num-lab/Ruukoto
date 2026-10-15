@@ -1,0 +1,132 @@
+{
+  "status": "removed",
+  "authorization": "coordinator confirmed final archive copied and independently verified before cleanup",
+  "absolute_root": "/dev/shm/rk05-linux.ZHrgZC",
+  "root_uid": 1003,
+  "current_uid": 1003,
+  "preflight": {
+    "captured_utc": "2026-10-15T05:19:41.833586+00:00",
+    "absolute_root": "/dev/shm/rk05-linux.ZHrgZC",
+    "root_exists": true,
+    "root_is_symlink": false,
+    "root_uid": 1003,
+    "current_uid": 1003,
+    "known_task_pids": [
+      {
+        "label": "full-memory-monitor.pid",
+        "pid": 2318729,
+        "exists": false
+      },
+      {
+        "label": "full-v4-memory-monitor.pid",
+        "pid": 2363281,
+        "exists": false
+      },
+      {
+        "label": "v4_runner",
+        "pid": 2363280,
+        "exists": false
+      },
+      {
+        "label": "v4_monitor",
+        "pid": 2363281,
+        "exists": false
+      }
+    ],
+    "own_root_cwd_processes": [],
+    "same_uid_cwd_unreadable_count": 3,
+    "scope_query": {
+      "command": [
+        "systemctl",
+        "--user",
+        "list-units",
+        "--type=scope",
+        "--all",
+        "--output=json",
+        "--no-pager"
+      ],
+      "exit_code": 0,
+      "native_units": [],
+      "active_native_units": [],
+      "other_unit_count": 1,
+      "other_unit_names_omitted": true
+    },
+    "ready_to_remove": true
+  },
+  "immediate_recheck": {
+    "utc": "2026-10-15T05:23:25.676270+00:00",
+    "known_task_pids_absent": true,
+    "own_root_cwd_processes": [],
+    "classified_unreadable_cwd_processes": [
+      {
+        "pid": 1484323,
+        "uid": 1003,
+        "comm": "systemd",
+        "state": "S",
+        "ppid": 1,
+        "started_utc": "2026-09-19T02:29:55.360000+00:00",
+        "classification": "pre-existing user systemd/PAM, started before this task"
+      },
+      {
+        "pid": 1484326,
+        "uid": 1003,
+        "comm": "(sd-pam)",
+        "state": "S",
+        "ppid": 1484323,
+        "started_utc": "2026-09-19T02:29:55.380000+00:00",
+        "classification": "pre-existing user systemd/PAM, started before this task"
+      },
+      {
+        "pid": 2403100,
+        "uid": 1003,
+        "comm": "sshd",
+        "state": "S",
+        "ppid": 2403025,
+        "started_utc": "2026-10-15T05:23:24.270000+00:00",
+        "classification": "current SSH cleanup control ancestor"
+      }
+    ],
+    "unknown_processes": [],
+    "current_control_user_ancestors": [
+      {
+        "pid": 2403104,
+        "uid": 1003,
+        "comm": "python3",
+        "state": "R",
+        "ppid": 2403103,
+        "started_utc": "2026-10-15T05:23:24.760000+00:00"
+      },
+      {
+        "pid": 2403103,
+        "uid": 1003,
+        "comm": "bash",
+        "state": "S",
+        "ppid": 2403100,
+        "started_utc": "2026-10-15T05:23:24.760000+00:00"
+      },
+      {
+        "pid": 2403100,
+        "uid": 1003,
+        "comm": "sshd",
+        "state": "S",
+        "ppid": 2403025,
+        "started_utc": "2026-10-15T05:23:24.270000+00:00"
+      }
+    ],
+    "prior_transient_pid_2402394_exists": false,
+    "native_scope_units": [],
+    "other_scope_unit_count": 1,
+    "other_units_untouched": true
+  },
+  "initial_conservative_guard_prevented_removal_until_metadata_classified": true,
+  "tmpfs_free_bytes_before": 490975232,
+  "removed_paths": [
+    "/dev/shm/rk05-linux.ZHrgZC"
+  ],
+  "scope_or_process_stop_actions": [],
+  "completed_utc": "2026-10-15T05:23:26.505371+00:00",
+  "root_exists_after": false,
+  "root_is_symlink_after": false,
+  "tmpfs_free_bytes_after": 1888399360,
+  "other_directories_or_system_settings_modified": false
+}

@@ -1,0 +1,22 @@
+second request rejected: request_conflict
+{
+  "attempts": [
+    {
+      "target": "foo",
+      "paramsDigest": "f49607c4205efcecd24b45e11f0e84fed5804296c671a1c6eb7fdd3f0e03d352"
+    },
+    {
+      "target": " foo ",
+      "paramsDigest": "73479bd8ab162da2193164bb0a2caf0fd429d6b1968bf21c685c0ee6399b4408"
+    }
+  ],
+  "expectedPaths": [
+    "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/target-digest-Djlv8Z/source/foo",
+    "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/target-digest-Djlv8Z/source/ foo "
+  ],
+  "storedTargets": [
+    "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/target-digest-Djlv8Z/source/foo"
+  ],
+  "workCount": 1,
+  "taskCount": 1
+}

@@ -69,7 +69,7 @@ function kit(parentKind: "main" | "dev" = "main") {
   const kicks: string[] = [];
   const resumed: string[] = [];
   const resolved: ModelSelection[] = [];
-  const parentDelivery = new ParentDelivery({ verifyWork: () => {},
+  const parentDelivery = new ParentDelivery({ verifyWork: () => {}, verifyTask: () => null,
     store,
     submit: async (input) => store.withTx(() => store.insertQueuedTask({ ...input, submissionDigest: input.requestId }).task),
     defaultModelSelection: () => DEFAULT,

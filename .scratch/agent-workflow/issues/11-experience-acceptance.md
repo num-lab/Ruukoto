@@ -18,7 +18,7 @@ Status: ready-for-agent
 
 08–10 已实现，08、10 已由拥有者完成人工验收；本单仍待联合工程与产品验收。原方案基点与审查见[总计划](../experience-plan.md)及[审查记录](../experience-plan-review.md)。下一角色按实际源码重新选检查、收集原始日志并独立审查，最后交拥有者体验验收。
 
-验收发现的 shell 问题归[子代理角色方案](../../subagent-roles/spec.md)，其[05 联合验收](../../subagent-roles/issues/05-acceptance.md)负责新角色、权限与执行目标。该方案尚未实现，不阻断按现有代码验收本单；若接手时已包含新角色改动，须记录实际版本并交叉核实等待/侧栏组合，不能把原角色的旧执行证据当成新规则通过。
+验收发现的 shell 问题归[子代理角色方案](../../subagent-roles/spec.md)，其[05 联合验收](../../subagent-roles/issues/05-acceptance.md)负责新角色、权限与执行目标。新角色已随 `5f9da45` 落地，05 的来源消费返工及 macOS/Linux 等待组合由[本轮记录](../../subagent-roles/evidence/05-acceptance.md)持有；本单仍需验收自己的侧栏、隐藏提示、等待及人工体验范围，不能把原角色的旧执行证据或 05 定向通过当成本单整体通过。
 
 ## 验收与证据
 

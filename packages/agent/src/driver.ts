@@ -155,7 +155,8 @@ export interface DriverDeps {
    * SubAgent 结果候选与工作内消息；结果在有效模型响应后确认消费，其他身份恒为空。
    */
   parentInjection?: ParentDelivery["takeInjection"];
-  parentInjectionAccepted?: (taskId: string, resultTaskIds: string[], entryId: string) => void;
+  parentInjectionRecheck?: (sessionId: string, resultTaskIds: string[], messageIds: string[]) => string | null;
+  parentInjectionAccepted?: (taskId: string, resultTaskIds: string[], entryId: string, messageIds: string[]) => void;
   beforeModelRequest?: (task: Task) => void;
   afterModelRequest?: (task: Task) => void;
   reportContext?: (task: Task) => AgentReportContext | null;
@@ -349,6 +350,10 @@ export class Driver {
     }
     const problem = this.deps.verifyTask?.(task);
     if (problem) return problem;
+    if (this.injection) {
+      const injectionProblem = this.deps.parentInjectionRecheck?.(this.session.id, this.injection.results.map(result => result.id), this.injection.messages.map(message => message.id));
+      if (injectionProblem) return injectionProblem;
+    }
     if (!this.profile.workflow) return null;
     return this.deps.workflow ? this.deps.workflow.verify(task) : "工作流步骤的宿主权限核实不可用";
   }
@@ -1180,7 +1185,7 @@ export class Driver {
     const file = this.sdk?.sessionFile;
     const marker = file ? parseSessionFile(file).findLast(entry => entry.type === "custom" && entry.customType === "ruukoto_parent_injection" && (entry.data as { taskId?: string } | undefined)?.taskId === task.id) : null;
     if (!marker) throw new ContextSendBlocked("parent_injection_unrecorded:父级资料未登记到会话记录");
-    this.deps.parentInjectionAccepted?.(task.id, this.injection.results.map(result => result.id), marker.id);
+    this.deps.parentInjectionAccepted?.(task.id, this.injection.results.map(result => result.id), marker.id, this.injection.messages.map(message => message.id));
     this.injectionAccepted = true;
   }
 

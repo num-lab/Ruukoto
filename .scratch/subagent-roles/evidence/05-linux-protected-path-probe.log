@@ -1,0 +1,8 @@
+{"command": ["ssh", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "tx", "python3 -"], "remoteProbe": "import subprocess\nscript=\"import {assertGrantNotProtected} from './packages/agent/src/execution/approved-ops.ts'; for (const target of ['/', '/var', '/srv/work']) {try {assertGrantNotProtected(target,['/var/lib/ruukoto']); process.stdout.write(JSON.stringify({target,passed:true})+'\\\\n');} catch (e) {process.stdout.write(JSON.stringify({target,errorName:e.name,errorCode:e.code,errorMessage:e.message})+'\\\\n');}}\"\nr=subprocess.run([\"node\",\"--import\",\"tsx\",\"--input-type=module\",\"-e\",script],cwd=\"/dev/shm/rk05-linux.ZHrgZC/repo\",capture_output=True,text=True)\nprint(r.stdout)\nprint(\"probe_exit\",r.returncode)\nif r.stderr: print(r.stderr[:2000])\n"}
+{"target":"/","errorName":"Error","errorCode":"EACCES","errorMessage":"EACCES: permission denied, scandir '/var/lib/ruukoto/service-ops'"}
+{"target":"/var","errorName":"Error","errorCode":"EACCES","errorMessage":"EACCES: permission denied, scandir '/var/lib/ruukoto/service-ops'"}
+{"target":"/srv/work","errorName":"Error","errorCode":"EACCES","errorMessage":"EACCES: permission denied, scandir '/var/lib/ruukoto/service-ops'"}
+
+probe_exit 0
+
+{"transportExit": 0}

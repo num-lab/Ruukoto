@@ -14,7 +14,7 @@ import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { createHostDataTools } from "@ruukoto/agent/host-tools.ts";
 import { createSchedulerTools } from "../apps/ruukoto/src/scheduler-tools.ts";
 import { createSourceResolver } from "@ruukoto/channels/source-resolver.ts";
-import { SchedulerStore } from "@ruukoto/channels/scheduler/store.ts";
+import { SchedulerStore, sha256 } from "@ruukoto/channels/scheduler/store.ts";
 import type { Scheduler } from "@ruukoto/channels/scheduler/runtime.ts";
 import { cleanupDirs, makeTestDirs } from "./helpers/testkit.ts";
 
@@ -134,7 +134,7 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
     assert.equal(sources.resolve(sessions.main.projectId, [{ kind: "task_result", task_id: codingTask.id }]).text, texts.coding, "正常 coding 子任务结果仍可读");
     const oldSnapshot = sources.resolve(sessions.dev.projectId, [{ kind: "artifact", artifact_id: groupArtifact.id }]);
     assert.match(sources.verify(sessions.main.projectId, oldSnapshot.refs)!, /授权已撤销|不可读/);
-    assert.match(sources.verify(sessions.main.projectId, [{ kind: "task_result", ref: `task:${groupTask.id}`, version: "", sha256: "" }])!, /授权已撤销|不可读/);
+    assert.match(sources.verify(sessions.main.projectId, [{ kind: "task_result", ref: `task:${groupTask.id}`, version: groupTask.endedAt!, sha256: sha256(texts.group) }])!, /授权已撤销|不可读/);
 
     // 模拟升级前已经登记的群资料快照；详情查询必须在回显正文前复核来源。
     const sched = new SchedulerStore(store);

@@ -618,9 +618,18 @@ test("保护根双向排除：授予保护根的祖先或服务代码目录被�
 });
 
 test("assertGrantNotProtected：根目录视为所有保护根的祖先", () => {
-  assert.throws(() => assertGrantNotProtected("/", ["/var/lib/ruukoto"]), /父级/);
-  assert.throws(() => assertGrantNotProtected("/var", ["/var/lib/ruukoto"]), /父级/);
-  assert.doesNotThrow(() => assertGrantNotProtected("/srv/work", ["/var/lib/ruukoto"]));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-grant-parent-")));
+  const protectedRoot = path.join(root, "protected");
+  const work = path.join(root, "work");
+  try {
+    fs.mkdirSync(protectedRoot);
+    fs.mkdirSync(work);
+    assert.throws(() => assertGrantNotProtected(path.parse(root).root, [protectedRoot]), /父级/);
+    assert.throws(() => assertGrantNotProtected(root, [protectedRoot]), /父级/);
+    assert.doesNotThrow(() => assertGrantNotProtected(work, [protectedRoot]));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Git worktree：授予共享 Git 元数据时用途标注其影响；不授予则不自动包含", async () => {

@@ -7,6 +7,7 @@ import type { DesktopOp } from "../main/ipc.ts";
 import type { DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
 import { CodeWrites } from "./code-writes.ts";
+import { DesktopInspector } from "./inspector.ts";
 
 export class DesktopRequestError extends Error {
   readonly code: string;
@@ -36,11 +37,14 @@ export class CodeState {
   private readonly requests = new Map<string, Promise<void>>();
   readonly writes: CodeWrites;
   readonly approvals: DesktopApprovals;
+  readonly inspector: DesktopInspector;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
+  refresh(): void { this.changed(); }
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
+    this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed);
   }
 
   private async request<K extends DesktopOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
@@ -61,11 +65,13 @@ export class CodeState {
       this.readError = null;
       const instanceChanged = update.instanceChanged || (this.view.instanceId !== null && this.view.instanceId !== update.result.snapshot.instanceId);
       this.view.applySnapshot(update.result, instanceChanged);
+      if (this.target === "code") this.inspector.update({ ...update, instanceChanged });
       if (instanceChanged) { this.tabs = []; this.notificationSelection = null; }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
       if (this.target === "code") {
         void this.loadSummaries();
         for (const id of this.tabs) void this.loadHistory(id);
+        if (this.inspector.childSessionId) void this.loadHistory(this.inspector.childSessionId);
       }
       if (this.navigation) this.navigate(this.navigation);
       void this.reconcileCreation();
@@ -74,7 +80,8 @@ export class CodeState {
       const body = update.event.body;
       if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
-      if (this.target === "code" && body.type === "task.output_entry" && this.tabs.includes(body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
+      if (this.target === "code" && body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
+      if (this.target === "code") this.inspector.update(update);
     }
     if (update.type === "navigate") this.navigate(update);
     this.approvals.update(update);
@@ -88,6 +95,7 @@ export class CodeState {
     const child = this.view.subAgents.find(agent => agent.sessionId === update.navigation.sessionId);
     this.notificationSelection = update.navigation;
     this.openSession(child?.parentSessionId ?? update.navigation.sessionId);
+    if (child && this.target === "code") this.inspector.selectChild(child.sessionId);
     this.navigation = null;
   }
   sessionsFor(workspaceId: string): Session[] {
@@ -103,6 +111,7 @@ export class CodeState {
   openSession(id: string): void {
     if (!this.tabs.includes(id)) this.tabs.push(id);
     this.view.currentSessionId = id;
+    if (this.target === "code") this.inspector.openParent(id);
     const view = this.view.openSession(id);
     if (this.target === "code" && !view.historyLoaded) void this.loadHistory(id);
     this.changed();
@@ -111,6 +120,7 @@ export class CodeState {
     const index = this.tabs.indexOf(id);
     this.tabs = this.tabs.filter(tab => tab !== id);
     if (this.view.currentSessionId === id) this.view.currentSessionId = this.tabs[Math.max(0, index - 1)] ?? null;
+    if (this.target === "code" && this.view.currentSessionId) this.inspector.openParent(this.view.currentSessionId);
     this.changed();
   }
   private report(text: string): void { this.message = text; this.changed(); }
@@ -121,7 +131,7 @@ export class CodeState {
     const generation = this.generation;
     const request = action(generation).catch(error => {
       if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
-    }).finally(() => { this.requests.delete(key); this.changed(); });
+    }).finally(() => { this.requests.delete(key); if (this.target === "code") void this.inspector.loadDiff(); this.changed(); });
     this.requests.set(key, request);
     return request;
   }

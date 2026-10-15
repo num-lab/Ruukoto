@@ -107,6 +107,7 @@ test("主进程请求名单拒绝越界操作，IPC 错误保留分类与版本�
     assert.equal((await handleRequest("code", op, null, reconnect, unavailable)).ok, false);
   }
   assert.deepEqual(forwarded, [...DESKTOP_OPS]);
+  for (const op of ["work_list", "work_get", "read_tool_result"] as const) assert.ok(forwarded.includes(op));
   const error = new ControlClientError("protocol_version", `拒绝 ${token}`, "rejected", { client: 25, server: 26 });
   assert.deepEqual(serializeFailure(error, token), { code: "protocol_version", outcome: "rejected", message: "拒绝 [令牌已隐藏]", versions: { client: 25, server: 26 } });
   const lost = await ipcResult(() => { throw new ControlClientError("request_timeout", "应答丢失", "unknown"); });

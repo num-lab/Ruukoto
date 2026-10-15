@@ -137,3 +137,36 @@ summary { cursor: pointer; padding: 8px 0; user-select: none; }
 .approval-card footer { margin-top: 12px; }
 
 .approval-refresh { margin-left: 12px; background: var(--bg-surface); padding: 4px 8px; border-radius: 5px; }
+
+.inspector { width: clamp(300px, 30vw, 460px); flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--bg-surface-active); background: var(--bg-canvas); }
+.inspector-tabs { display: flex; padding-top: 16px; flex-shrink: 0; border-bottom: 1px solid var(--bg-surface); }
+.inspector-tabs button { flex: 1; padding: 16px 8px; background: transparent; color: var(--text-secondary); }
+.inspector-tabs [aria-current] { color: var(--text-primary); border-bottom: 2px solid #6689bb; }
+.delegations { padding: 16px; max-height: 42%; flex-shrink: 0; overflow-y: auto; }
+.delegations header, .diff-content header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.delegations header:not(:first-child) { margin-top: 16px; }
+.delegations button, .diff-content button { background: var(--bg-surface); border-radius: 5px; padding: 6px 10px; }
+.delegations .agent-choice, .delegations .work-choice { display: flex; justify-content: space-between; gap: 8px; width: 100%; text-align: left; margin-block: 5px; }
+.delegations [aria-pressed="true"] { outline: 1px solid #6689bb; }
+.agent-choice span, .work-detail small { color: var(--text-secondary); }
+.work-detail { max-height: 150px; overflow-y: auto; font-size: 12px; }
+.work-detail small { display: block; }
+.inspector .conversation { padding: 8px 16px 24px; }
+.inspector .message { padding-block: 12px; }
+.inspector-hint { padding: 0 16px; }
+.diff-link { padding: 0; color: #6689bb; background: transparent; }
+.diff-content { flex: 1; min-height: 0; overflow: auto; padding: 16px; user-select: text; }
+.diff-target { color: var(--text-secondary); white-space: pre-wrap; }
+.diff-truncated { color: #bc7156; }
+.patch, .write-content { margin: 12px 0; font: 12px/1.8 ui-monospace, SFMono-Regular, monospace; white-space: pre; }
+.patch span { display: block; min-width: max-content; min-height: 1.8em; }
+.patch-added { background: rgba(46, 150, 94, 0.13); }
+.patch-removed { background: rgba(201, 75, 75, 0.13); }
+.patch-hunk, .patch-header, .patch-notice { color: var(--text-secondary); }
+@media (max-width: 1000px) {
+  .sidebar { width: 190px; }
+  .conversation { padding-inline: 18px; }
+  .composer { padding-inline: 16px; }
+  .composer-toolbar { gap: 6px; }
+  .composer select { max-width: 140px; }
+}

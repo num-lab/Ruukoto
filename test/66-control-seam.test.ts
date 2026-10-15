@@ -32,6 +32,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 
 /** 与 TuiOps 的键一一对应（多写、少写都过不了类型检查）。 */
 const TUI_OPS: Record<TuiOp, true> = {
+  work_list: true, work_get: true,
   workflow_get: true, workflow_question: true, workflow_answer: true,
   workflow_definitions: true, workflow_definition: true, workflow_save: true, workflow_saved: true, workflow_start: true, workflow_find: true,
   workflow_list: true, workflow_step: true, workflow_logs: true, workflow_control: true, workflow_receipt: true,

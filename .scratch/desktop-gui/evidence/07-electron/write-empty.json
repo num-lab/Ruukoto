@@ -1,0 +1,9 @@
+{
+  "header": "write写入内容",
+  "target": "empty.txt",
+  "text": "write\n写入内容\n\nempty.txt\n\n空文件（0 行）",
+  "patch": [],
+  "write": null,
+  "truncated": null,
+  "state": null
+}

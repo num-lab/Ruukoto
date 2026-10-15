@@ -5,9 +5,9 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { ToolOpView } from "@ruukoto/core/views.ts";
-import { EventFlow } from "@ruukoto/tui/tui/event-flow.ts";
+import { EventFlow } from "@ruukoto/view/event-flow.ts";
 import { EventFlowView } from "@ruukoto/tui/tui/event-flow-view.ts";
-import { MAX_LOADED_ENTRIES, ViewState } from "@ruukoto/tui/tui/state.ts";
+import { MAX_LOADED_ENTRIES, ViewState } from "@ruukoto/view/state.ts";
 
 const at = (seconds: number) => new Date(Date.UTC(2026, 8, 22, 13, 16, seconds)).toISOString();
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });

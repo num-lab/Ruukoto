@@ -113,7 +113,7 @@ export function classifyWatchPath(repoRelPath: string): WatchAction | null {
   if (p.startsWith("packages/tui/src/config-tui/")) return "config-tui";
   // reload-state.ts 被任务界面、配置界面与 dev 共享，按共享模块处理
   if (p === "packages/tui/src/tui/reload-state.ts") return "both";
-  if (p.startsWith("packages/tui/src/tui/")) return "tui";
+  if (p.startsWith("packages/tui/src/tui/") || p.startsWith("packages/view/src/")) return "tui";
   if (
     p === "packages/tui/src/cli.ts" ||
     /^packages\/(runtime|agent|channels)\/src\//.test(p) ||

@@ -1,6 +1,6 @@
 # 抽出共用事件投影包 packages/view
 
-Status: ready-for-agent
+Status: resolved
 
 ## 目标与边界
 
@@ -30,14 +30,14 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前：第三轮独立方案审查通过，首轮与第二轮阻断均已在方案层关闭；拥有者确认的范围不变，实现未开始。
-- 下一步：实施者按本单方案抽取 view、同步 TUI 与开发重载、落实浏览器检查及回归用例，完成列明的文档与验证后交独立实现审查。
-- 基点：`develop` @ `4611eff`。可与 02 并行。
+- 当前：`@ruukoto/view` 已抽取并接入 TUI；工程验收和独立实现审查通过，无未解决阻断。拥有者确认的范围与控制面协议均未改变。
+- 下一步：本单无待办；后续桌面工单复用新包及其安装约定，合并由拥有者安排。
+- 基点：方案基点为 `develop` @ `4611eff`，实施检出为 `fb7c1d8`；工作区干净。可与 02 并行。
 - 阻塞：无。
 
 ## 验收与证据
 
-工程待验证。
+工程验收通过。环境：macOS arm64、Node v24.15.0。`npm run setup -- --skip-hooks`、`npm run build`、`npm run check:static` 与 `git diff --check` 通过；新包已纳入根锁文件、workspace 独立类型检查与测试发现。下列要求由实现回归及独立审查覆盖，详细命令和结果见文末实施验收记录。
 
 - TUI 回归：`test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/34-event-flow-view.test.ts`、`test/36-event-flow-state.test.ts`、`test/19-tui-demo.test.ts` 全部通过，断言不放宽。
 - view 单测：覆盖 seq 去重、补发、正文按偏移拼接与工具意图／结果配对；`utf8ByteLength` 与 `Buffer.byteLength` 在 ASCII、中文、emoji 与孤立代理项上结果相等。
@@ -50,6 +50,8 @@ Status: ready-for-agent
 - 跑 `npm run check:static`。
 
 产品验收不适用：TUI 可见行为不变。
+
+未验证真实 Electron／浏览器、Linux／Node 22 与全量 `npm run check`。本单浏览器证据来自 browser 目标打包、产物全局检查与无 Node 全局的 VM；后续桌面 GUI 验收仍由对应工单完成。
 
 ## Comments
 
@@ -109,3 +111,27 @@ Status: ready-for-agent
 此前关闭项保持有效：五处计数的替换范围与开发重载回归未被撤回；01、04、07 现已一致要求每次安装新快照时更换代次，包含同连接 seq 缺口重同步，04 的验收也覆盖旧请求迟到。规格 R4 与提案笔记同步描述打包加产物全局检查，没有新增待拥有者决定的取舍。
 
 本轮验证：macOS、Node v24.15.0；上述产物检查正反例与 ESM／VM 探针通过，`npm run check:static`、`git diff --check` 通过；本单 16 个相对链接、单一状态、段落与末尾换行另行检查通过。源码未变，沿用前两轮未受影响的回归证据；未重复应用测试、未运行真实 Electron／浏览器、Linux／Node 22 或全量检查。本轮只更新本单状态与审查交接记录，保留方案者的其他修订。
+
+### 2026-10-15 实施接手
+
+实施基点为 `fb7c1d8`，范围与第三轮方案审查一致。原 `state.ts` 与 `event-flow.ts` 保留 TUI 薄入口，以维持既有调用方；共享 `ViewState` 只安装与查询内存状态，TUI 子类持有命令生成、SQLite 恢复/保存与失败记录优先规则。EventFlow 的纯内存命令条目及三个操作仍参与统一排序与 `resetRemote` 保留，不引入命令存储接口；命令执行、输入历史、工作流侧栏与 ANSI 样式继续留在 TUI。此抽取细节未改变目标、协议或验收标准。
+
+动手前以 browser/IIFE 打包旧 EventFlow，仅隔离未参与用例的 workflowStatus import；在不提供 Buffer 的 VM 应用带 offset 的「中文🙂」片段，已复现 `ReferenceError: Buffer is not defined`。新测试同时覆盖全部 view 模块的 browser/ESM 打包、仅浏览器全局的产物检查和 VM 执行，以及间接 Buffer、core/views 的未执行分支与源码 lint 负例。
+
+常驻文档新增内容均为对应层必须承载的模块地图、仓库布局、测试导航与重载归属，没有可移至笔记的理由或历史。README 不增加单个测试细节，继续通过现有开发说明入口导航；其余以最小档位调整预算：AGENTS 4300 → 4350，架构 6600 → 6800，开发说明 9500 → 9700，保留新增模块及其验证入口的完整事实。
+
+### 2026-10-15 实施验收与独立实现审查
+
+实现以 `fb7c1d8` 为基点，所有改动仍在工作区，未提交。新增 view、core/task-status 与 control/session-attribution，旧入口保留再导出；TUI 通过共享投影恢复原行为，命令持久化与失败提示仍由 TUI 子类负责。浏览器检查自动发现全部 view 源模块，负例入口本身不使用 Node 全局；现有投影用例改为直接测试 view，原断言未放宽。
+
+作者执行：
+
+- `npm run setup -- --skip-hooks` 与 `npm run build` 通过；根锁文件只新增 view workspace 及 TUI 对它的依赖，没有改第三方依赖版本。
+- `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/34-event-flow-view.test.ts test/36-event-flow-state.test.ts test/19-tui-demo.test.ts test/32-dev.test.ts test/37-command-history.test.ts test/37-view-browser.test.ts test/76-legacy-workspace-data.test.ts test/99-workspace-boundaries.test.ts`：147/147 通过，无跳过。包含 UTF-8 的 8 组字节对照、乱序与重复片段、补发与迟到详情、工具意图/结果配对、命令恢复/保存失败、展示归属、开发重载与 workspace 边界。
+- `npx tsx --test --test-name-pattern='另一已在线客户端核实终态' test/66-control-seam.test.ts`：1/1 通过，验证另一在线客户端补读原命令并持久保存结果。
+- `test/37-view-browser.test.ts`：view 全入口 browser/ESM 打包与产物 `no-undef` 通过；无 Buffer/process 的 VM 安装快照、按 UTF-8 offset 拼接「中文🙂」并应用审批、历史条目，结果与 Node 一致；间接 Buffer 与 core/views 负例均在产物检查阶段被拒绝，直接 node:* 与 Buffer 被源码 lint 拒绝。
+- 完整 `npm run check:static` 通过。首次执行只因常驻文档新增内容超预算失败，按前述理由调整后完整重跑通过；不是跳过门禁。`git diff --check`、笔记锚点检查通过（无悬空锚点）；另检查 36 个改动文件末尾恰一换行、工单唯一状态与 16 个相对链接，均通过。
+
+独立实现审查：审查者在独立执行上下文直接读取方案、相关规则、实际 diff、新文件及调用方，结论通过，无未解决阻断。亲自执行 `13-tui-state`、`36-event-flow-state`、`37-view-browser` 共 35/35 通过，`git diff --check` 通过；另从基点原 EventFlow 仅隔离 workflowStatus 导入，在无 Buffer VM 独立复现原 ReferenceError。核实五处 UTF-8 计数、浏览器完整可达依赖检查、core/control 旧导出、TUI 命令恢复与 unsavedCommands 过滤、开发重载及文档均符合方案。唯一可选建议是明确任务事件首次从 after_seq=0 读、各任务独立游标且新快照清空；已补入 view 文档，审查者复核与 app.ts 一致，原证据继续有效。
+
+工程验收通过；产品验收不适用，理由为本单保持 TUI 可见行为。真实 Electron／浏览器、Linux／Node 22 及全量检查未运行，浏览器执行结论限于打包、静态产物和 VM；不将它们记作真实 GUI 验收。后续责任人为对应桌面工单实施者，本单没有剩余实施或审查阻断。

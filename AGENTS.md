@@ -17,6 +17,7 @@ packages/agent/     上下文装配、工具与审批、执行边界、SubAgent 
 packages/runtime/   任务生命周期、会话身份、队列与委派编排
 packages/channels/  IM 入口、图片入站、GitHub 事件来源与 scheduler outbox
 packages/control/   控制面 socket、拥有者认证与协议
+packages/view/      浏览器可用的共享快照、事件与历史投影
 packages/tui/       共享 CLI、交互终端、配置中心与开发启动器
 test/               应用测试；verification/foundation/ 基础验证（独立包与锁文件）；verification/smoke/ 外部验收
 deploy/             系统身份、单元、提权入口与服务管理

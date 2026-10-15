@@ -1,0 +1,35 @@
+{"command": ["npx", "tsx", "--test", "--test-concurrency=1", "test/15-tui-pty.test.ts", "test/23-web-search.test.ts", "test/113-workflow-source-capabilities.test.ts", "test/121-workflow-personal-acceptance.test.ts"]}
+✔ 工作流步骤从持久来源装配技能目录与真实 skill 调用 (941.369625ms)
+✔ 真实个人步骤修改应用 schema 后仍可继续，main 来源具有受控编码委派工具 (452.340334ms)
+✔ 个人来源的修改步骤只增加已有委派的五个编码工具 (3418.563584ms)
+✔ memory_list 的预览来源落盘，祖先记忆撤销阻止间接缓存进入后续模型 (866.850708ms)
+✔ 运行后新增资料授权不扩大步骤范围，直接产物与通知查询使用同一固定授权 (787.441292ms)
+✔ 同一来源的不同运行隔离真实产物、子历史与引用产物的通知正文 (1093.431167ms)
+✔ 真实工作流 MCP：full_access 的调用、批准与来源失效 (815.665917ms)
+✔ 真实工作流 MCP：confirm 的调用、批准与来源失效 (962.336208ms)
+✔ 真实工作流 MCP：configuration 的调用、批准与来源失效 (815.074458ms)
+✔ 真实工作流 MCP：revoke 的调用、批准与来源失效 (814.925792ms)
+✔ 个人六输入命名工作流：实际搜索工具与应用数据、独立检查、单项 JSON 失败、等待聊天及唯一 IM 替身回报 (1532.834542ms)
+✔ FakeTerminal：完整 CSI、SS3 与缩放回调保持终端输入边界 (0.669042ms)
+✔ PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持久结果 (11026.4295ms)
+✔ PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留后台运行 (30973.394583ms)
+✔ PTY：80×24 布局、中文输入、流式输出、Ctrl+C 退出后终端恢复且任务继续 (31922.961792ms)
+✔ 宿主结构化搜索：复用范围校验、结果限额与错误码，响应回显的凭据不进入快照或错误 (17.020459ms)
+✔ 默认启用：完成一次搜索，保留标题/摘要/URL/发布时间/查询时间；凭据注入且不外泄 (839.854625ms)
+✔ 参数校验：超限/未知字段/非法域名/非法深度拒绝且不发请求；合法域名规范化透传 (1035.693875ms)
+✔ 每任务最多 5 次搜索：第 6 次拒绝且不发送请求；调用次数可核对 (744.317792ms)
+✔ 项目禁用：任务开始不注册工具；任务内禁用立即阻止后续调用；启用从下一任务生效 (779.150084ms)
+✔ 服务故障：认证失败/限流/服务错误/畸形响应/超大响应均有明确状态且不自动重试 (941.54225ms)
+✔ 超时与取消：单次请求超时明确报错；任务取消中止在途请求且不重复发送 (1491.991208ms)
+✔ 外部内容按不可信资料处理：注入文本只作有界数据、非法 URL 丢弃、超长字段截断标注 (720.705125ms)
+✔ 未配置凭据、凭据 host 或用途不匹配时拒绝调用，不发送请求 (819.843958ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 97650.779333
+
+{"command": ["npx", "tsx", "--test", "--test-concurrency=1", "test/15-tui-pty.test.ts", "test/23-web-search.test.ts", "test/113-workflow-source-capabilities.test.ts", "test/121-workflow-personal-acceptance.test.ts"], "exit_code": 0, "elapsed_seconds": 97.945, "finished_at": "2026-10-15T03:50:46.892090+00:00"}

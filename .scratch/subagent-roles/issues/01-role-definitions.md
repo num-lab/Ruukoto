@@ -1,6 +1,6 @@
 # 子代理角色定义、选择与持久快照
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## 目标与边界
 
@@ -18,18 +18,28 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-独立方案审查已通过，无未解决阻断；实现尚未开始。规划基点和当前 HEAD 为 `ec45979fc94f9828cd902620752c059867b4de15`，分支 `Eitrous/agent-workflow`；本单为未提交规划文件，内容由[审查输入清单](../evidence/plan-inputs.sha256)固定，方案结论见[独立审查](../plan-review.md)。下一角色为实施者，直接按本单提供 02–04 所需的快照/身份接口。不得仅登记角色名却从当前文件恢复正文。
+工程实现、文档、定向验证及[独立实现审查](../01-implementation-review.md)已通过，无未解决阻断；产品编辑文件与错误体验交 05，故保留 ready-for-human。规划基点为 `ec45979fc94f9828cd902620752c059867b4de15`，实施检出为 `4611eff3035179041063942f3c8f5e206b8de9bb`；基点后的浏览器接线不改变角色方案，拥有者专属限制继续保留。规划来源由[原审查清单](../evidence/plan-inputs.sha256)固定，方案结论见[方案审查](../plan-review.md)；实施对象由[内容清单](../evidence/01-implementation-inputs.sha256)固定，实际验证与未覆盖项见[工程证据](../evidence/01-implementation.md)。拥有者已授权提交本单改动，未推送。
+
+下一实施入口为 02，前置快照契约已可用：core 的 SubAgentDefinitionSnapshot / SubAgentRoleCatalogSnapshot 与 sub_agents.definition，agent 的 parseSubAgentRole / validateSubAgentRole，runtime 的 loadSubAgentRoleLibrary / selectSubAgentRole、普通 role 参数和 WorkflowRun.roleCatalog。定义内容包含用途、原文、规范字段与摘要；继续、复用、消息和恢复使用已保存正文，坏记录可查但不执行。模型/思考强度继承实际来源；工具要求与权限策略已保存，来源能力、权限收窄、受限 reviewer、目标快照与新工作流接口仍由 02–04 完成。
 
 ## 验收与证据
 
-工程待验证，产品待验收。新增最窄角色加载/持久回归，覆盖新增与覆盖、非法 frontmatter/未知字段、符号链接/多硬链接、读取中变化、无效同名覆盖、未知角色、角色复用冲突、任务登记幂等、文件编辑/删除后继续及冷恢复、记录损坏和导入。
+工程已验收，产品待 05。新增 15 项最窄角色加载/持久/实际 Driver 回归，覆盖新增与覆盖、非法 frontmatter/未知字段及显式 null、符号链接/多硬链接、读取中变化、无效同名覆盖、未知角色、角色复用冲突、任务登记幂等、文件编辑/删除后继续及冷恢复、记录损坏和导入；首次响应后损坏还证明后续模型/工具被拒且父会话仍可用。
 
-运行 npm run check:static；定向导航为 test/80-subagent-delegation.test.ts、test/83-subagent-worktrees.test.ts、test/62-tool-availability.test.ts，以及实际触及的持久与导入用例。新字段触及 core 时按 pre-push-checks 补生命周期回归。只声明本单配置与快照已验证，不提前声明默认 bash 或工作流接线通过。
+npm run check:static、build 和本单定向回归通过，含 80/83/62、core 生命周期、两方向导入、工作流、控制面与等待/上下文。具体批次及初次失败/修复过程见工程证据；两个显式真实模型等待用例未启用，不记通过。只声明本单配置与快照已验证，不提前声明默认 bash 或新工作流接口通过。
 
-宿主固定评审另验 test/45-github-events.test.ts、test/46-github-recovery.test.ts：覆盖用户 general/reviewer 后仍使用宿主定义，已完成来源任务仍可按原资格登记，重启保持固定限制且不变成普通可复用身份。
+宿主固定评审的 45/46 已增加并通过用户 general/reviewer 覆盖回归：实际模型提示和工具仍为宿主定义，已完成来源任务可按原资格登记，重启保持固定限制且不变成普通可复用身份。
 
-实现须独立审查；最终产品验收交 05 验证用户能编辑/新增文件并看到明确错误。
+独立实现审查通过，null 权限漏检已按审查负例修复；最终产品验收交 05 验证用户能编辑/新增文件并看到明确错误。未运行全量、真实模型、Linux 隔离或外部业务/IM，schema 42 按现有政策拒绝旧档案，不回填角色或授权。
 
 ## Comments
 
+2026-10-15：05 全量发现上下文分类旧断言遗漏 subagentRoles，已补第 16 类的标签与零用量断言；两条相关旧夹具完成独立红绿复验，原日志与最终对象归 05，不由此声明联合验收通过。
+
 2026-10-14：拥有者完成 grilling 并确认整体方案，本单由规划阶段建立。
+
+2026-10-14：实施者接手，核实当前检出与规划基点差异；存储与运行时并行实施使用独立工作副本，汇总后的改动重新选定检查范围。
+
+2026-10-14：定义、选择与快照层工程交付，独立上下文 /root/implementation_review 审查通过；02 可使用持久契约继续实施，产品与真实联合验收保留至 05。
+
+2026-10-14：拥有者授权提交本单改动；提交沿用已审内容与验证证据，产品状态不随提交改变。

@@ -1,0 +1,11 @@
+command: npx tsx --test --test-name-pattern 'assertGrantNotProtected：根目录' test/10-access-modes.test.ts
+✔ assertGrantNotProtected：根目录视为所有保护根的祖先 (1.532167ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1538.321
+process_exit: 0

@@ -1,0 +1,50 @@
+✖ ruukoto 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (2063.296542ms)
+✖ ruukoto-code 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (1209.146125ms)
+✔ general 与 full_access 角色的 verify 均固定受限编码能力，零工具的通过文本不能汇入 (34557.683ms)
+[ruukoto:tool-worker task_e4d36378cfd9d66a50f8067c] [ruukoto:native] 执行停止未核实（identity_unavailable）；保留目录占用，等待拥有者核实
+✖ 已完成验证在 ask 后冷恢复遇到 definition_missing 时暂停，旧 Task、尝试和字节不变 (60684.420583ms)
+✔ 已完成验证在 ask 后冷恢复遇到 execution_missing 时暂停，旧 Task、尝试和字节不变 (24108.978208ms)
+✔ 已完成验证在 ask 后冷恢复遇到 snapshot_missing 时暂停，旧 Task、尝试和字节不变 (17731.190167ms)
+✔ 已完成验证在 ask 后冷恢复遇到 interface_upgrade_required 时暂停，旧 Task、尝试和字节不变 (14801.04725ms)
+✔ 临时脚本先真实写入再调用旧 mode 时明确拒绝，恢复请求不能重放已完成写入 (5486.059ms)
+✔ 角色与步骤 tools 不匹配在子任务和模型启动前拒绝 (788.937917ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 6
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 164091.343
+
+✖ failing tests:
+
+test at test/workflow-role-integration.test.ts:57:55
+✖ ruukoto 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (2063.296542ms)
+  Error: 来源目录未由父任务按真实身份占用，保留现场，不再执行 Git
+      at SubAgentManager.delegate (/private/tmp/ruukoto-04-delegate-tSWK3v/source/packages/runtime/src/subagents.ts:448:51)
+      at async withActiveSource (/private/tmp/ruukoto-04-delegate-tSWK3v/source/test/helpers/active-subagent-source.ts:10:12)
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-04-delegate-tSWK3v/source/test/workflow-role-integration.test.ts:85:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    code: 'task_ending'
+  }
+
+test at test/workflow-role-integration.test.ts:57:55
+✖ ruukoto-code 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (1209.146125ms)
+  Error: 来源目录未由父任务按真实身份占用，保留现场，不再执行 Git
+      at SubAgentManager.delegate (/private/tmp/ruukoto-04-delegate-tSWK3v/source/packages/runtime/src/subagents.ts:448:51)
+      at async withActiveSource (/private/tmp/ruukoto-04-delegate-tSWK3v/source/test/helpers/active-subagent-source.ts:10:12)
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-04-delegate-tSWK3v/source/test/workflow-role-integration.test.ts:85:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    code: 'task_ending'
+  }
+
+test at test/workflow-role-integration.test.ts:153:126
+✖ 已完成验证在 ask 后冷恢复遇到 definition_missing 时暂停，旧 Task、尝试和字节不变 (60684.420583ms)
+  Error: 等待超时: 修改和验证已完成并等待拥有者
+      at waitFor (/private/tmp/ruukoto-04-delegate-tSWK3v/source/test/helpers/testkit.ts:233:47)
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-04-delegate-tSWK3v/source/test/workflow-role-integration.test.ts:158:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)

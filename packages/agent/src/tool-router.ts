@@ -26,6 +26,7 @@ import type { ArtifactStore } from "./artifacts.ts";
 import { sourceArtifact } from "@ruukoto/core/branch.ts";
 import { getWorkflowExecution, getWorkflowStep } from "@ruukoto/core/workflow.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
+import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedEntry, ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
 import { ExecutionError, type WorkerLauncher } from "./execution/launchers.ts";
@@ -157,13 +158,26 @@ export class ToolRouter {
   // ---------- 工作进程生命周期 ----------
 
   private workerKeyFor(task: Task): string {
-    return `${task.id}:${task.accessMode}:${JSON.stringify(task.grantedPaths)}`;
+    return `${task.id}:${task.accessMode}:${JSON.stringify(task.grantedPaths)}:${task.readScope?.execution?.digest ?? ""}`;
+  }
+
+  private sourceProtection(task: Task): string[] {
+    if (!task.readScope?.execution) return [];
+    const execution = requireSubAgentExecution(task.readScope.execution);
+    return execution.protectSource ? [execution.source.authority!.workspace.path, ...execution.source.grantedPaths.map(grant => grant.path), ...(task.readScope.paths ?? []).map(root => root.path)] : [];
+  }
+
+  private writeProtection(task: Task): string[] {
+    const roots = this.sourceProtection(task);
+    const target = task.workId ? this.deps.store.getWorkDelegation(task.workId)?.writeTarget : null;
+    if (task.accessMode !== "full_access" && target?.kind === "worktree") roots.push(target.commonGitDir, target.snapshot.repository.path);
+    return roots;
   }
 
   private verification(task: Task): boolean {
     const execution = getWorkflowExecution(this.deps.store, task.id);
     const step = execution ? getWorkflowStep(this.deps.store, execution.runId, execution.stepKey) : null;
-    return step?.kind === "agent" && (step.params as Record<string, unknown>).mode === "verify";
+    return step?.kind === "agent" && (step.params as Record<string, unknown>).verify !== undefined;
   }
 
   /**
@@ -175,6 +189,10 @@ export class ToolRouter {
     const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
     const ws = taskWorkspaceFor({ session, work });
     const scope = task.readScope;
+    const protectedSource = this.sourceProtection(task);
+    if (protectedSource.length && (task.accessMode === "full_access" || work?.writeTarget?.kind === "direct" || isProtectedPath(ws.path, protectedSource) || protectedSource.some(root => isProtectedPath(root, [ws.path])))) {
+      throw new ExecutionError("source_protection_conflict", "角色要求保护来源，不能完全访问或在来源目录内执行；请使用独立目标副本");
+    }
     const base = {
       taskId: task.id,
       mode: task.accessMode,
@@ -189,14 +207,18 @@ export class ToolRouter {
       readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
       env?: Record<string, string>;
     };
-    if (this.verification(task)) {
-      base.mode = "confirm";
+    if (this.verification(task) || protectedSource.length) {
+      if (this.verification(task)) base.mode = "confirm";
       base.grantedPaths = task.grantedPaths.map(grant => ({ ...grant, access: "read" }));
     }
     // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
     // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
     base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
     const readRoots: Array<{ path: string; dev?: number; ino?: number }> = [];
+    for (const root of protectedSource) {
+      const st = fs.statSync(root);
+      readRoots.push({ path: root, dev: st.dev, ino: st.ino });
+    }
     if (scope?.paths?.length) readRoots.push(...scope.paths.map(({ path, dev, ino }) => ({ path, dev, ino })));
     if (ws.commonGitDir) {
       // worktree 副本：共享 Git 目录作为只读 readRoot（子任务可 status/diff/log），
@@ -205,8 +227,9 @@ export class ToolRouter {
       readRoots.push({ path: ws.commonGitDir, dev: st.dev, ino: st.ino });
       base.env = GIT_SAFE_DIRECTORY_ENV;
     }
+    if (work?.writeTarget?.kind === "worktree") readRoots.push(work.writeTarget.snapshot.repository);
     // 材料分析没有额外路径时仍钉定只读工具的 cwd；完全访问的修改任务保留原范围。
-    if (readRoots.length > 0 || (scope && !work?.writeTarget)) base.readRoots = readRoots;
+    if (readRoots.length > 0 || (scope && !work?.writeTarget)) base.readRoots = [...new Map(readRoots.map(root => [root.path, root])).values()];
     return base;
   }
 
@@ -268,8 +291,9 @@ export class ToolRouter {
         throw new ExecutionError("mode_switch_unverified", `无法核实旧执行单元（${identity?.id ?? "?"}）已退出，拒绝建立新的执行环境`);
       }
     }
+    const protectedSource = this.sourceProtection(task);
     const launcher = this.verification(task) ? this.deps.verificationLauncher?.() : this.deps.launcherFor(task.accessMode);
-    if (!launcher || (this.verification(task) && launcher.kind !== "native")) throw new ExecutionError("verification_unavailable", "验证命令需要原生沙箱，只写独立验证副本；请恢复执行环境后验证");
+    if (!launcher || ((this.verification(task) || protectedSource.length) && launcher.kind !== "native")) throw new ExecutionError("source_protection_unavailable", "来源保护需要原生沙箱；请恢复受限执行环境后继续");
     const session = this.deps.store.getSession(task.sessionId);
     if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
     // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
@@ -491,6 +515,7 @@ export class ToolRouter {
       if (task.accessMode !== "full_access" && isProtectedPath(resolved, this.deps.protectedRoots)) {
         return { error: "目标位于控制面/服务数据目录内，始终排除，不可申请" };
       }
+      if (operation === "read_write" && isProtectedPath(resolved, this.writeProtection(task))) return { error: "目标属于受保护来源或基线，不能批准写入；请在独立工作目录保存检查产物" };
       let st: fs.Stats | null = null;
       try {
         st = fs.lstatSync(resolved);
@@ -535,6 +560,7 @@ export class ToolRouter {
         targetIno,
         originalSha256,
         protectedRoots: task.accessMode === "full_access" ? [] : this.deps.protectedRoots,
+        writeProtectedRoots: this.writeProtection(task),
       },
     };
   }

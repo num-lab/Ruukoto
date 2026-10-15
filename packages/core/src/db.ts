@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 41;
+export const SCHEMA_VERSION = 45;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS agent_waits (
@@ -663,6 +663,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_standing_permissions_active ON standing_pe
  */
 CREATE TABLE IF NOT EXISTS sub_agents (
   id TEXT PRIMARY KEY,
+  definition TEXT NOT NULL,
   parent_session_id TEXT NOT NULL REFERENCES sessions(id),
   session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
   work_dir TEXT NOT NULL,

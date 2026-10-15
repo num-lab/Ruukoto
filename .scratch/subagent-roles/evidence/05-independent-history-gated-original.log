@@ -1,0 +1,26 @@
+[ruukoto:history-race-probe] {"fullBodyRecovered":true,"uniqueAnswers":1,"firstPageRequested":true,"laterPageRequestedBeforeRelease":false}
+✖ 长正文生成中退出后冷重连：超过历史单页的正文完整恢复且只显示一次 (1791.987833ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2876.766333
+
+✖ failing tests:
+
+test at test/05-independent-history-gated-original.test.ts:597:1
+✖ 长正文生成中退出后冷重连：超过历史单页的正文完整恢复且只显示一次 (1791.987833ms)
+  AssertionError [ERR_ASSERTION]: 实际请求后续 48KiB 历史页（偏移按 UTF-8 边界对齐）
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk05-target-independent-sjdtgrlt/test/05-independent-history-gated-original.test.ts:624:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

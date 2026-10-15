@@ -106,7 +106,7 @@ const responder: Responder = async (req: RecordedRequest) => {
   if (afterTool) return { kind: "text", text: "SMOKE18-ACCEPTED 已受理" };
   const m = text.match(/SMOKE18-DELEG(\d)/);
   if (m) {
-    return { kind: "tool_calls", calls: [{ id: `d${m[1]}`, name: "subagent_delegate", arguments: { request: "核对本次虚拟资料", key: `m${m[1]}`, mode: "modify", target: "native-fixture" } }] };
+    return { kind: "tool_calls", calls: [{ id: `d${m[1]}`, name: "subagent_delegate", arguments: { request: "核对本次虚拟资料", key: `m${m[1]}`, target: "native-fixture" } }] };
   }
   return { kind: "text", text: "PONG" };
 };

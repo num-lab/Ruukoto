@@ -151,6 +151,7 @@ const CONTEXT_CATEGORIES = {
   toolSchemas: "工具定义",
   projectInstructions: "项目指令",
   skills: "技能",
+  subagentRoles: "子代理角色",
   memories: "长期记忆",
   resumedFrom: "继续来源",
   planMode: "计划模式",

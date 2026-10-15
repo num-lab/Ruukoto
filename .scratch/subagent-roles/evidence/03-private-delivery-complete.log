@@ -1,0 +1,127 @@
+✔ dev 最终汇总排在当前聊天之后，冻结终态代次、零工具且只唤醒一次；普通请求键不能伪造绑定 (2399.815ms)
+✔ 终态停止事实区分已核实、未知和未启动；登记脚本仍未收尾时不汇总 (15.8765ms)
+✔ dev 冷恢复 queued：复用原汇总任务和键，结果事务补记一次 (794.983417ms)
+✔ dev 冷恢复 result-missing：复用原汇总任务和键，结果事务补记一次 (928.259583ms)
+✔ telegram 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报 (699.120333ms)
+✔ qq_private 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报 (700.287ms)
+✔ 定时工作流 success：根任务结束不提前关闭，最终仅调度路径 (539.341666ms)
+✔ 定时工作流 retry：根任务结束不提前关闭，最终仅调度路径 (519.218959ms)
+✔ 定时工作流 cancel：根任务结束不提前关闭，最终仅调度路径 (502.468667ms)
+✔ 真实工作流步骤取消自身计划：工具返回后核实停止，不等待自己的 SDK abort (512.050666ms)
+✔ 普通工作取消：可信分组后备准入拒绝，未开始汇总的取消终态仍能登记未送达 (12.7775ms)
+✔ 排队补报转交父轮只停车；父轮失败沿同一任务和原键恢复，运行中补报不能二次认领 (14.179583ms)
+✔ 同来源多个结果父轮只报告一次，消费后的普通注入和独立补报都不再重复 (15.303375ms)
+✔ dev 普通子结果装配不算消费；模型接受钩子后才从下轮候选移除 (14.560417ms)
+✔ 同来源补报批次共享一个可信任务及最终报告；伪造同名任务不取得补报身份 (24.14025ms)
+✔ 已有工作流专属汇总接管子任务和其他排队汇总，只登记一份报告且保留各原任务与输入 (16.106416ms)
+✔ 父轮消费后终态前撤销来源，拒绝登记最终外发并持久记录未送达 (14.974292ms)
+✔ 等待被新轮中断且新轮先结束，晚到普通子结果按持久资格自动补报；未等待委派仍只注入 (20.836875ms)
+✔ 编排器启动巡检以等待认领覆盖普通 dev 父轮，补记终态结果和报告而不重生总结 (11.77075ms)
+✔ 放行判定：wake: 与 smsg: 同一规则——所属工作已取消即不放行，其他任务照常 (20.019291ms)
+✔ 消息状态文本：发给主 Agent 的消息承载唤醒被截住时补标未送达；发给 SubAgent 的不补标 (14.573166ms)
+✔ 结果送达矩阵：父会话 × 结局 × 取消 → 结果唤醒、注入清单与放行判定 (86.123042ms)
+✔ 消息送达方向：main 在消息事务内建消息唤醒并写投递登记；普通开发会话待注入 (16.118291ms)
+✔ 启动巡检：只补缺失的结果唤醒；消息由 SubAgentManager 冲刷 (16.741375ms)
+✔ 最终汇报：来源（IM / TUI / GitHub 评审）× 取消 → 是否到期、发送键与正文；唤醒说明随来源 (21.1495ms)
+✔ 最终汇报到期：仍有活动执行任务或其他执行任务的结果唤醒未出结果时不到期，后终态的唤醒汇报一次 (13.345375ms)
+✔ 迟到结果唤醒与消息唤醒沿触发任务快照，不读取主会话后来默认值 (10.956209ms)
+[ruukoto:subagents] 消息 smsg_b8901e4a5c0408346fa71264 仍待投递：配置正在应用
+[ruukoto:subagents] 消息 smsg_b8901e4a5c0408346fa71264 仍待投递：配置正在应用
+[ruukoto:subagents] 消息 smsg_3e001c8b22f1ab831bc48adb 仍待投递：配置正在应用
+[ruukoto:subagents] 消息 smsg_3e001c8b22f1ab831bc48adb 仍待投递：配置正在应用
+✔ 新消息 sub：model 拒绝时消息、任务、事件与身份零新增 (22.426167ms)
+✔ 新消息 sub：execution 拒绝时消息、任务、事件与身份零新增 (16.918542ms)
+✔ 新消息 sub：transaction_check 拒绝时消息、任务、事件与身份零新增 (17.054333ms)
+✔ 新消息 sub：已核实模型与发起任务授权落到实际承载任务 (17.453708ms)
+✔ 幂等 sub：配置忙和执行入口失效仍返回原行，不再预检 (11.8285ms)
+✔ 待投递 sub：配置预检和事务内门闩失败保留原行，恢复后只补投一次 (17.177125ms)
+✔ 新消息 parent：model 拒绝时消息、任务、事件与身份零新增 (9.254ms)
+✔ 新消息 parent：execution 拒绝时消息、任务、事件与身份零新增 (9.647708ms)
+✔ 新消息 parent：transaction_check 拒绝时消息、任务、事件与身份零新增 (12.153333ms)
+✔ 新消息 parent：已核实模型与发起任务授权落到实际承载任务 (11.119833ms)
+✔ 幂等 parent：配置忙和执行入口失效仍返回原行，不再预检 (8.117583ms)
+✔ 待投递 parent：配置预检和事务内门闩失败保留原行，恢复后只补投一次 (8.564417ms)
+✔ 消息等待模型预检时发生 closed：提交前重核，零新增 (9.896958ms)
+✔ 冲刷等待模型预检时发生 closed：保留明确未投递结果，旧消息不入新执行 (7.544375ms)
+✔ 消息等待模型预检时发生 canceled：提交前重核，零新增 (7.33475ms)
+✔ 冲刷等待模型预检时发生 canceled：保留明确未投递结果，旧消息不入新执行 (9.650125ms)
+✔ 消息等待模型预检时发生 moved_work：提交前重核，零新增 (7.204708ms)
+✔ 冲刷等待模型预检时发生 moved_work：保留明确未投递结果，旧消息不入新执行 (7.077375ms)
+✔ 旧结果补记：同工作的新任务的运行指针不被覆盖 (6.77025ms)
+✔ 旧结果补记：新工作的运行指针不被覆盖 (6.758292ms)
+✔ 结果登记→unverified→核实占用释放→idle：pending 消息只在实际恢复后补投一次 (9.904583ms)
+✔ 恢复拒绝结果缺失：invalid_state 回滚占用释放，不虚称空闲 (6.766542ms)
+✔ 计划模式由父任务固定模式判定，继续链不决定资格：修改和沿用既有写目标均拒绝，只读可委派 (12.828792ms)
+✔ 启动由 manager 补 main 消息唤醒一次；取消记未投递，dev 保留待注入 (27.1955ms)
+✔ 启动仅恢复无占用的 backend_restart 子会话，保留 occupancy_unverified 与其他暂停 (29.588459ms)
+✔ 重启分类：仅无入站来源的 queued SubAgent 执行被中断，评审与普通父任务保持排队 (7.944375ms)
+✔ delegate 异步准备后来源 ended：拒绝登记且没有半条任务、消息或事件 (8.201917ms)
+✔ delegate 异步准备后来源 version：拒绝登记且没有半条任务、消息或事件 (11.848167ms)
+✔ message 异步准备后来源 ended：拒绝登记且没有半条任务、消息或事件 (7.346959ms)
+✔ message 异步准备后来源 version：拒绝登记且没有半条任务、消息或事件 (7.322667ms)
+✔ 继续旧工作与复用身份取本次发起任务授权，既有任务与批准保持原记录 (12.1355ms)
+[ruukoto:parent-delivery] 工作 work_c41fd0d9606cd75737f30c71 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_c41fd0d9606cd75737f30c71 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 坏快照只失败受影响排队任务，不产生模型请求或未处理拒绝，主服务仍可执行 (4033.736833ms)
+[ruukoto:parent-delivery] 工作 work_44f60a80746c38be68577af9 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_44f60a80746c38be68577af9 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 运行中的快照失去私有基线，下一次模型请求拒绝并保留源与副本 (3594.3615ms)
+✔ 冷恢复坏快照的待投消息明确未投递，历史与副本保留，后台仍可启动 (3002.489042ms)
+✔ 冷恢复已有父总结遇到坏快照 record，原回报记来源失效且启动不重建汇报 (3237.637417ms)
+✔ 冷恢复已有父总结遇到坏快照 baseline，原回报记来源失效且启动不重建汇报 (3331.456125ms)
+✔ 汇报同组另一工作区已坏，既有回报记来源失效且不补造坏目标的回报 (5419.136208ms)
+[ruukoto:scheduler] 工作 work_216dba86c314954eb4165962 的取消记录不可核实（snapshot_missing）；保留原记录与副本，继续停止本次运行已登记的任务
+[ruukoto:parent-delivery] 工作 work_216dba86c314954eb4165962 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_216dba86c314954eb4165962 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 取消定时运行遇到坏快照，仍停止已登记父子任务而不伪造工作记录 (2962.482083ms)
+[ruukoto:parent-delivery] 工作 work_9a90321cc4ce59ac705f3977 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_9a90321cc4ce59ac705f3977 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 定时子工作区 record 失效，未核实占用仍阻止收尾，核实后记失败并保留父回复 (2952.940542ms)
+[ruukoto:parent-delivery] 工作 work_c8ccf10fcb0df3145f87969d 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_c8ccf10fcb0df3145f87969d 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_c8ccf10fcb0df3145f87969d 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 定时子工作区 baseline 失效，未核实占用仍阻止收尾，核实后记失败并保留父回复 (2784.01175ms)
+[ruukoto:parent-delivery] 工作 work_402a7fbfedbc9c8867ee6229 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_402a7fbfedbc9c8867ee6229 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_402a7fbfedbc9c8867ee6229 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 无等待报告的普通父注入拒绝失去私有基线的结果和消息，原完成记录保留 (2643.406792ms)
+[ruukoto:parent-delivery] 工作 work_6674226ac42c6c33260e65ad 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_6674226ac42c6c33260e65ad 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_6674226ac42c6c33260e65ad 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_6674226ac42c6c33260e65ad 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ main 无等待报告时不为失去私有基线的新结果创建或准入唤醒 (2446.376875ms)
+[ruukoto:parent-delivery] 工作 work_1b33c7f9c24b4bce1b6819fe 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_1b33c7f9c24b4bce1b6819fe 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 冷补记真实 private 基线缺失的结果记失败，保持 completed 执行史且不重跑 (6700.167625ms)
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 冷启动补记 snapshot_missing 的结果失败，保留 interrupted 执行史与副本，其他结果继续送达 (20.124292ms)
+✔ 冷启动补记 snapshot_corrupt 的结果失败，保留 completed 执行史与副本，其他结果继续送达 (18.646791ms)
+✔ 冷启动补记 target_corrupt 的结果失败，保留 failed 执行史与副本，其他结果继续送达 (18.093667ms)
+✔ 已登记结果的坏基线只使既有补报不可送达，扫尾与普通注入继续处理其他工作 (20.446292ms)
+✔ 最终汇报的来源回调读到坏基线时明确不可送达，不外发、不覆写真实子结果 (22.059917ms)
+✔ 快照失败处理不吞未知异常：unexpected_store_failure (20.261458ms)
+✔ 快照失败处理不吞未知异常：工作区基线记录缺失或损坏；保留副本并报告拥有者，不从 HEAD 重建 (17.735542ms)
+ℹ tests 77
+ℹ suites 0
+ℹ pass 77
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 44711.537958

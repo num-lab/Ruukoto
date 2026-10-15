@@ -1,0 +1,11 @@
+[ruukoto:parent-delivery] 子任务 task_d60d059f6968d94cfec42477 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_d60d059f6968d94cfec42477 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 目标变化不改发：唤醒前来源失效则取消；发送前重新配置则取消且新目标零发送 (582.098292ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1870.914292

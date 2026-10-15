@@ -82,7 +82,7 @@ stateDiagram-v2
 
 | 目标 | 字段 |
 |---|---|
-| Git 目标（`kind: "worktree"`） | `repoRoot`、`commonGitDir`、`gitdir`、`path`、`dev`、`ino`、`branch`、`baseCommit` |
+| Git 目标（`kind: "worktree"`） | `repoRoot`、`commonGitDir`、`gitdir`、`path`、`dev`、`ino`、`branch`、`baseCommit`（HEAD 溯源）、`snapshot`（原始树、索引摘要和目录身份） |
 | 非 Git 目标（`kind: "direct"`） | `path`、`dev`、`ino` |
 | 只读分析工作 | `write_target` 为空，不能升级为写入；继续委派（`work_id`）沿用原目标，复用（`sub_agent_id`）承接新工作时另建副本 |
 
@@ -119,11 +119,11 @@ sequenceDiagram
 
 ### 原生受限执行
 
-两个产品的正式入口默认 `native`，`--execution` 与 `RUUKOTO_EXECUTION_BACKEND` 只接受 native；显式 container/local 被拒并提示迁移，库层仍可注入 local。原生 worker 使用实际宿主 UID/GID、补充组与 ACL，通过宿主 Node 和构建出的 `worker/worker.mjs` 运行；只读提供 SDK 依赖、选定工具安装版本与实际动态库，不开放整个 HOME、工具资料父目录、源码根、后台数据或控制面。原生工作区必须有钉定 dev/ino，授予与只读根使用真实路径，重叠只读祖先与读写子授权被拒。保护范围和已批准操作共用物理 dev/ino 祖先判定，不因 `/System/Volumes/Data` 等别名放开同一保护目录。
+两个产品的正式入口默认 `native`，`--execution` 与 `RUUKOTO_EXECUTION_BACKEND` 只接受 native；显式 container/local 被拒并提示迁移，库层仍可注入 local。原生 worker 使用实际宿主 UID/GID、补充组与 ACL，通过宿主 Node 和构建出的 `worker/worker.mjs` 运行；只读提供 SDK 依赖、选定工具安装版本与实际动态库，不开放整个 HOME、工具资料父目录、源码根、后台数据或控制面。原生工作区必须有钉定 dev/ino，授予与只读根使用真实路径，重叠只读祖先与读写子授权被拒。宿主保护与已批准操作同时核实目标/祖先 inode 和保护树内子对象，不因 `/System/Volumes/Data` 等别名放开同一保护目录。
 
 原生启动和 worker init 复核工作区与带身份的只读根；宿主在 launch 前另为全部 grantedPaths 保存 dev/ino，每次 `ToolWorkerHost.call` 合并这三类身份重新核实。调用前发现工作区、只读根或任一读写/只读授予被替换或无法读取，先请求停止旧单元，再拒绝发送命令，未核实停止仍保留占用。白名单环境使用每单元 HOME/TMPDIR，不继承凭据、代理、SSH agent、控制面或 systemd bus 变量；只额外接受宿主固定 Git 配置。汇总补丁写在独立临时目录内，资料仅在已核实停止后删除。
 
-启动与每调用前还遍历显式授权文件树，按目录 dev/ino 去重，文件条目按父目录 dev/ino 加真实 basename 只计一次；显式文件名须精确匹配 readdir，Data 路径、APFS 大小写或 Unicode 别名不能充当另一个授权条目。nlink 大于 1 的文件全部目录条目须在同等级授权内；范围外名字、同一对象的只读/读写冲突或复核变化明确拒绝，同权限范围内的硬链接可用。遍历不跟随符号链接、不扫描保护目录或真实凭据树，成本随授权树条目数增加。Seatbelt 和只读 bind 的路径规则不能单独保证预存硬链接别名只读，因此该入口检查同时用于两平台。
+启动与每调用前还遍历显式授权文件树，按目录 dev/ino 去重，文件条目按父目录 dev/ino 加真实 basename 只计一次；显式文件名须精确匹配 readdir，Data 路径、APFS 大小写或 Unicode 别名不能充当另一个授权条目。所有普通文件的 dev/ino 同样核实权限等级，nlink=1 的 file bind 也不能横跨只读/读写范围；nlink 大于 1 的文件还须全部目录条目在同等级授权内；范围外名字、同一对象的只读/读写冲突或复核变化明确拒绝，同权限范围内的硬链接可用。遍历不跟随符号链接、不扫描保护目录或真实凭据树，成本随授权树条目数增加。Seatbelt 和只读 bind 的路径规则不能单独保证预存硬链接别名只读，因此该入口检查同时用于两平台。
 
 | 平台 | 边界与前置 | 停止核实 |
 |---|---|---|
@@ -140,35 +140,38 @@ macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Nod
 
 完全访问任务不进受限沙箱，由后台直接以当前账户启动。用户环境与宿主固定 Git 环境合并后剔除内部 Ruukoto 变量，不增加代理、SSH agent 或执行入口配置。ready 前中断同样由 `starting` 占位覆盖。
 
-### worktree 副本的受限创建
+### 工作区捕获与 worktree 登记
 
 ```mermaid
 sequenceDiagram
   participant WM as WorkCopyManager
   participant FS as 宿主文件系统
   participant RT as Runtime.executeWorkCopy
-  participant W as 临时请求确认工作进程
-  WM->>FS: 预建空副本目录 0700，取 realpath
-  WM->>RT: parentTaskId、workspace=仓库根、copyDir、branch、宿主固定 bash
-  RT->>RT: 启动前登记到父任务受管生命周期
-  RT->>W: host.start(父任务模式的启动器)
-  W->>W: git -c core.fsmonitor=false rev-parse --verify HEAD
-  W->>W: git -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree add -q -b <branch>
-  W-->>RT: 40 位十六进制基线提交
-  RT->>W: stop（核实整个执行单元）
-  W-->>RT: 已核实退出
-  RT-->>WM: 工作进程输出
-  WM->>FS: 复核副本目录身份，钉定 write_target
+  participant H as 独立宿主 Task
+  participant W as 临时工作进程
+  WM->>FS: 预建空副本和私有基线目录 0700，取 realpath
+  WM->>RT: capture，钉定来源身份与固定原始捕获脚本
+  RT->>H: 登记独立任务、账本与副本占用
+  H->>W: 父有效模式；来源只读，私有对象读写
+  W->>W: 私有索引/对象建原始树，两次读取及前后指纹一致
+  W-->>H: 当前树、HEAD 溯源、索引摘要及目录身份
+  H->>W: stop，核实退出后释放副本占用
+  WM->>RT: create，引用已捕获快照
+  RT->>H: 另登记宿主任务与账本
+  H->>W: 共享 Git 登记权限，私有基线只读
+  W->>W: worktree add --no-checkout 后物化原始树
+  H->>W: stop，核实退出后释放副本占用
+  WM->>FS: 复核副本身份与快照，钉定 write_target
 ```
 
-创建命令由宿主写定，逐项：
+宿主固定操作分别核实：
 
-1. 仓库根从修改目标向上做纯文件系统查找（不运行 git、不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。
-2. 宿主在 worker 启动前预建空副本目录（0700），目录非空即视为失败残留，不自动认领或覆盖。
-3. 创建命令、挂载与 `write_target.path` 一律用 `copyDirReal = fs.realpathSync(copyDir)`，以抹平 macOS TMPDIR 的 `/var → /private/var` 符号链接。
-4. 工作进程按父任务模式执行宿主固定的 bash：`git -c core.fsmonitor=false rev-parse --verify HEAD` 取基线，`git -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree add -q -b <branch> <copyDirReal> "$base"` 建副本；基线按 40 位十六进制从输出提取，提不到即 `worktree_failed`。父任务已有父工作区占用，临时执行另取副本占用；并发 Git 元数据操作由 git 自身的锁处理。
-5. 受限工作进程的挂载：workspace 为仓库根，副本目录读写挂载；父仓库本身是 worktree 时，共享 Git 目录另作一次读写授予，否则 `extraGrants` 为空。
-6. 副本目录身份（dev/ino）与 `path` 写进 `write_target`；子任务的 `LaunchSpec` 把工作区指向副本、共享 Git 目录作 `readRoots` 只读挂载。
+1. 仓库根从目标向上纯文件系统查找，不越出父工作区；共享 Git 目录须在父工作区内。来源占用在捕获前已取得，普通宿主任务绑定真实父任务及来源身份；工作流采用其执行归属。
+2. worker 启动前预建空副本和私有目录，非空副本视为失败残留，不自动认领或覆盖。命令、挂载与记录用 realpath，消除 `/var → /private/var` 别名。
+3. 捕获固定当前路径与原始字节，保存原索引及实际 split-index 依赖，全部枚举在私有索引中执行。私有 Git 采用空模板和 SHA-1；读取来源对象不继承 promisor/remote 配置，缺对象不自动下载。来源前后指纹或双树失配即明确拒绝。
+4. 捕获零写入来源；后续登记只新增专属分支和 worktree 元数据，用 `--no-checkout` 后原始物化，不执行 clean/smudge。HEAD 只作溯源和对象可用性预检，实际基线由 snapshot 的树与摘要固定。
+5. 受限捕获在空副本内执行，来源与共享 Git 只读、私有基线读写；登记只提供共享 Git 管理写资格和私有树读取。各宿主 Task 独立账本，副本占用直到停止核实；未核实保留父目录/副本占用和现场，不重放。
+6. `write_target` 保存副本、来源、共享 Git 与私有对象身份；子任务工作区指向副本。保护来源的实际 native 执行把原目录、共享 Git、私有基线及附加来源只读，检查产物可写；完全访问仍是账户信任。
 
 ### 受管执行单元的停止与回收
 
@@ -212,17 +215,17 @@ sequenceDiagram
 
 ### Git 与副本
 
-- 创建与汇总的临时工作进程启动前登记到实际父任务，并由父任务临时占用副本目录，参与取消、后台停止和模式变化。核实停止成功后只释放该副本占用，允许子任务执行；停止未核实时抛 `worker_stop_unverified`，保留父目录与副本占用、成果和已知 Git 结果，阻止其他会话或子任务并发写入，不能自动重放 Git。副本创建尚未登记工作行时，仍可按父任务的执行记录定位现场。
+- 普通捕获和副本登记的临时工作进程分别登记到不调用模型的独立宿主 Task，父任务持有来源占用，宿主 Task 持有副本占用。核实停止后才释放副本；停止未核实保留父目录/副本占用、成果和已知结果，不自动重放。工作流固定操作沿其宿主执行归属。
 - 宿主不直接执行 git。仓库 hooks 与 config 可被任务写入，后台直接运行 git 会让植入的 fsmonitor 或 filter 越过执行边界。
 - 创建命令显式关掉这些执行入口：hooks 用 `core.hooksPath=/dev/null` 跳过，`core.fsmonitor` 显式关闭。
-- 基线为委派时仓库 HEAD 指向的提交，父工作区未提交的改动不进副本；子任务不 `git add`、不 `git commit`、不推送，改动留在工作树由主 Agent 汇总。任务首行写明工作目录、分支、基线与「不要 git add/commit，改动留在工作树由主 Agent 汇总」。
+- 基线是委派时稳定的实际工作区内容，含暂存/未暂存、删除、非忽略新文件与二进制，HEAD 和原索引另保存供核实。固定脚本在私有对象库与临时索引按原始字节建树，不运行仓库过滤器，不写来源 Git。登记用 `worktree add --no-checkout` 后物化原始树，只新增专属管理元数据。冻结与汇总只计算捕获树之后的子增量。
 - 共享 Git 目录对子任务只读：可 `status` / `diff` / `log`，不能 `add` / `commit`、不能写 refs、hooks 或 config。共享目录可写时子任务能改 hooks 或 `core.fsmonitor`，之后会在拥有者自己的 git 中执行。完全访问不施加这项 OS 只读隔离，宿主仍传递共享 Git 范围与目录身份。
 - 工作副本相关 worker 合并宿主固定的 `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0=safe.directory=*`；其余任务不传这组环境。
-- 修改子任务沿本次发起任务模式，完全访问共用当前账户、受限模式使用产品后端；工具仅有 `read` / `edit` / `write` / `bash` / `read_artifact`，不能通过工具参数增加授权或委派下级；受限模式默认无网络。复用从只读切换到修改时重建 SDK 会话。
+- 子任务沿来源、角色和宿主约束确定有效工具与访问模式；完全访问共用启动账户，受限执行用产品 native 后端。保护来源的任务把原工作区、共享 Git、私有基线和附加来源挂为只读，副本内可写检查产物；绝对路径、别名、符号链接、文件工具及批准后的宿主写入同样不得旁路。受限模式默认无网络。
 - `init` 下发并核实 `readRoots` 与工作区 dev/ino；macOS 与 Linux 均保留真实数值身份。
 - 写预检以实际宿主账户的 `accessSync` 核实，包括补充组与 ACL。
 - 副本防旁路：覆盖 `agent-work/worktrees` 或其下位置的读写授予被拒（`validateGrantedPaths`；只读授予仍允许）。副本只能经委派范围访问。
-- worktree 被删除、目录被替换或 `.git` 指向变化后继续委派明确失败（`worktree_gone`），不自动重建、不凭旧记录套用。
+- worktree 被删除、目录被替换、Git 指向变化或私有基线缺失/损坏时，明确拒绝受影响操作；不重建、不猜测 HEAD，不自动重放。原文件、已提交记录、结果和副本保留。
 - 创建失败保留现场，错误信息含副本路径与分支；任务取消或退出不删除副本、分支与写入根的改动。
 
 ### 已批准操作的消费与失败定性
@@ -233,7 +236,13 @@ sequenceDiagram
 
 [工作流编码验证](workflows.md)始终用原生沙箱，只写按冻结基线/补丁建立的独立验证副本；来源完全访问也在验证阶段收窄，附加路径转只读，宿主文件写入口关闭。原生环境不可用明确失败，不回退到 local。工作流宿主操作的副本占用保持到全部套用与组合检查收尾，实际身份更新原 starting 句柄，取消后的身份仍保存。
 
+普通与工作流子任务的来源保护来自执行快照：拒绝完全访问、非 Git 原地目标和来源重叠工作目录，命令要求原生沙箱，附加授权收为只读。结构化文件工具沿同一工作区；批准后的宿主文件写入再次拒绝来源路径与多硬链接，独立目录中的检查产物仍可写。目标快照的字节基线按工作副本约定处理。
+
+全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
+
 ## 设计依据
+
+- [当前工作区快照与子增量](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
@@ -258,3 +267,5 @@ sequenceDiagram
 - [SubAgent 修改委派每项工作使用独立 worktree](../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)：解释副本位置与分支、宿主永不执行 git、预建空副本目录、共享 Git 目录只读、`safe.directory` 注入与目录身份只按路径钉定的理由。
 - [访问模式由技术边界实施，完全访问须拥有者显式选择](../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md)：解释权限为什么是技术约束、缺少隔离机制时明确失败而不降级，以及控制面身份校验。
 - [退役专用 GitHub 模块，GitHub 作为普通 MCP 工具](../../.agents/notes/implemented/simplification/2026-09-23-retire-github-module.md)：解释为什么没有 GitHub 专用的执行路径——它与其他 MCP 服务共用本篇的边界、审批与结果保存流程。
+
+- [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。

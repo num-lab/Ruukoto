@@ -62,7 +62,7 @@ const responder: Responder = async req => {
     if (done < 2) {
       const name = done === 0 ? "A" : "B";
       return { kind: "tool_calls", calls: [{ id: "delegate-" + name, name: "subagent_delegate", arguments: {
-        key: name, request: "COPY-" + name, mode: "modify", target: "repo",
+        key: name, request: "COPY-" + name, target: "repo",
       } }] };
     }
     await mainGate;

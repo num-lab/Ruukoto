@@ -287,7 +287,7 @@ test("目标固定发起入口：QQ 工作在 Telegram 轮次续派，两份汇�
   }
 });
 
-test("非 IM 来源零记录：TUI 直提与 dev 会话发起的工作不产生汇报", async () => {
+test("非 IM 来源零记录：TUI 与 dev 可委派，未授权外部来源拒绝", async () => {
   const h = await harness("fin-nonim", async (req) => {
     const text = lastUserText(req);
     if (text.includes("[SubAgent 委派")) return { kind: "text", text: "SUB-RESULT" };
@@ -318,17 +318,18 @@ test("非 IM 来源零记录：TUI 直提与 dev 会话发起的工作不产生�
       return execs.every((t) => t.status === "completed") && wake?.status === "completed";
     }, 30_000);
 
-    // 其他外部来源：宿主直接登记工作；不是拥有者 IM，单项工作收尾不外发。
+    const tuiChild = rt.store.listTasksByWork(rt.store.listWorkDelegationsBySession(mainSession(rt))[0]!.id)[0]!;
+    const wakeInput = rt.store.findTaskByRequest(mainSession(rt), `wake:${tuiChild.id}`)!.input;
+    assert.ok(!wakeInput.includes("[最终汇报]"), "非 IM 工作的唤醒输入不附汇报说明");
+
+    // 其他外部来源不能把非拥有者事件当作委派授权。
     const { event: schedEvent } = await rt.orchestrator!.registerInboundEvent({ source: "internal", externalId: "fin-external-1", targetRole: "main", body: "定时触发" });
     await waitFor("外部任务完成", () => rt.store.getInboundEvent(schedEvent.id)?.status === "done", 30_000);
     const schedTask = rt.store.getTask(rt.store.getInboundEvent(schedEvent.id)!.taskId!)!;
-    const schedDeleg = await delegateFromActiveTask(rt, { parentTaskId: schedTask.id, key: "s1", request: "定时调研", readPaths: null, materials: [{ kind: "text", text: "材料 S" }], paramsDigest: "s1" });
-    await waitFor("外部来源工作的唤醒完成", () => {
-      const wake = rt.store.findTaskByRequest(mainSession(rt), `wake:${schedDeleg.task.id}`);
-      return rt.store.getTask(schedDeleg.task.id)!.status === "completed" && wake?.status === "completed";
-    }, 30_000);
-    const wakeInput = rt.store.findTaskByRequest(mainSession(rt), `wake:${schedDeleg.task.id}`)!.input;
-    assert.ok(!wakeInput.includes("[最终汇报]"), "非 IM 工作的唤醒输入不附汇报说明");
+    const workCount = rt.store.listWorkDelegations().length, agentCount = rt.store.listSubAgents().length;
+    await assert.rejects(delegateFromActiveTask(rt, { parentTaskId: schedTask.id, key: "s1", request: "定时调研", readPaths: null, materials: [{ kind: "text", text: "材料 S" }], paramsDigest: "s1" }), { code: "source_forbidden" });
+    assert.equal(rt.store.listWorkDelegations().length, workCount, "拒绝前不登记新工作");
+    assert.equal(rt.store.listSubAgents().length, agentCount, "拒绝前不创建子代理");
 
     assert.equal(reportOps(rt).length, 0, "TUI/dev/其他外部来源不产生单项工作汇报记录");
     assert.equal(allOps(rt).length, 0, "也没有任何 owner_reply 发送");
@@ -461,8 +462,8 @@ test("离线等待与恢复：pending 写等待原因，恢复后受理与汇报
   }
 });
 
-test("目标变化不改发：登记时目标已失效记 work_report skip；发送前重新配置则取消且新目标零发送", async () => {
-  // 登记时目标已失效：唤醒终态时 QQ 已停用
+test("目标变化不改发：唤醒前来源失效则取消；发送前重新配置则取消且新目标零发送", async () => {
+  // 唤醒前来源失效：QQ 停用后不向模型发送子结果。
   const gateA = deferred();
   const hA = await harness("fin-skip", delegateResponder({ holdSub: gateA.promise }));
   const rtA = await Runtime.start(hA.config);
@@ -476,15 +477,24 @@ test("目标变化不改发：登记时目标已失效记 work_report skip；发
     const work = soleWork(rtA);
     const child = rtA.store.listTasksByWork(work.id)[0]!;
     await waitFor("唤醒任务已排队", () => rtA.store.getTask(child.id)!.status === "completed" && rtA.store.findTaskByRequest(main, `wake:${child.id}`) !== null, 30_000);
+    const childResult = rtA.store.getTask(child.id)!.resultSummary;
+    const callsBeforeDisabled = hA.model.calls.length;
     await rtA.qqSetEnabled(false);
     await rtA.resumeQueue(main);
     const wake = rtA.store.findTaskByRequest(main, `wake:${child.id}`)!;
-    await waitFor("唤醒完成", () => rtA.store.getTask(wake.id)!.status === "completed", 30_000);
+    await waitFor("来源失效的唤醒已取消", () => rtA.store.getTask(wake.id)!.status === "canceled", 30_000);
     await rtA.scheduler!.tick();
+    assert.equal(rtA.store.getTask(wake.id)!.errorMessage, "subagent_source_invalid");
+    assert.equal(rtA.store.getWorkDelegation(work.id)!.canceledAt, null, "来源失效不伪造工作取消");
+    assert.equal(rtA.store.getTask(child.id)!.status, "completed");
+    assert.equal(rtA.store.getTask(child.id)!.resultSummary, childResult, "原子任务结果保留");
+    assert.equal(rtA.store.findTaskByRequest(main, `wake:${child.id}`)!.id, wake.id, "保留原唤醒键");
+    assert.equal(hA.model.calls.length, callsBeforeDisabled, "停用来源后不发新模型请求");
+    assert.equal(hA.model.calls.filter(request => lastUserText(request).includes("[编排器]")).length, 0, "坏来源不进入汇总模型请求");
+    assert.equal(rtA.store.listSelectionRecordsByTask(wake.id).length, 0);
     assert.equal(reportOps(rtA).length, 0, "目标失效不登记发送");
     const skips = (rtA.store.db.prepare("SELECT body FROM events").all() as Array<{ body: string }>).map((r) => JSON.parse(r.body)).filter((b) => b.type === "qq_private.reply_skipped");
-    assert.equal(skips.length, 1);
-    assert.match(skips[0]!.reason, /^work_report:target_/, "登记时目标失效按 work_report 前缀记 skip");
+    assert.equal(skips.length, 0, "来源失效在汇报登记前拒绝，不走目标 skip");
     assert.deepEqual(sendTexts(hA.onebot), ["ACCEPTED 已受理"], "没有向失效目标发送");
   } finally {
     await rtA.stop("test_end");

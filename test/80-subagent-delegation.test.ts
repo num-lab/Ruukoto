@@ -161,13 +161,13 @@ test("幂等与区分：同键同参跨轮次返回原记录，异参冲突，�
   }
 });
 
-test("边界：读范围拒绝、伪造写调用被两处拒绝、下级委派拒绝、控制面不能把子会话当用户会话", async () => {
+test("边界：读范围拒绝、伪造下级委派被两处拒绝、控制面不能把子会话当用户会话", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
     if (text.includes("[SubAgent 委派")) {
       if (afterTool(req)) return { kind: "text", text: "SUB-DONE" };
       if (text.includes("伪造读")) return { kind: "tool_calls", calls: [{ id: "b1", name: "read", arguments: { path: "/etc/passwd" } }] };
-      return { kind: "tool_calls", calls: [{ id: "f1", name: "edit", arguments: { path: "x", oldText: "a", newText: "b" } }] };
+      return { kind: "tool_calls", calls: [{ id: "f1", name: "subagent_delegate", arguments: { request: "伪造下级", key: "nested" } }] };
     }
     return { kind: "text", text: "父回复" };
   };
@@ -193,15 +193,15 @@ test("边界：读范围拒绝、伪造写调用被两处拒绝、下级委派�
       /超出父工作区/,
     );
 
-    // 伪造写调用：发送白名单里没有 edit（装配即收窄），调用门兜底也拦
+    // general 继承来源基础工具，仍不能创建下一层 SubAgent。
     const deleg = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "bad4", request: "伪造写", readPaths: ["."], materials: null, paramsDigest: "b4" });
     await waitFor("子任务完成", () => rt.store.getTask(deleg.task.id)!.status === "completed");
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"))!;
     const subTools = toolNamesOf(subCall);
-    assert.deepEqual(subTools.sort(), ["read", "read_artifact", "subagent_message"].sort(), "SubAgent 只装配只读工具与工作内消息（issue 13）");
-    assert.ok(!subTools.some((n) => ["bash", "edit", "write", "web_search", "subagent_delegate", "skill"].includes(n)));
+    for (const name of ["read", "read_artifact", "bash", "subagent_message", "skill"]) assert.ok(subTools.includes(name), name);
+    assert.ok(!subTools.some(name => ["subagent_delegate", "workflow_start", "browser"].includes(name)));
     const toolResults = t.server.calls.filter((c) => afterTool(c) && inputText(c).includes("[SubAgent 委派"));
-    assert.ok(toolResults.some((c) => /not found|白名单不含 edit/.test(lastToolText(c))), "伪造写调用在发送/调用两处被拒，未执行");
+    assert.ok(toolResults.some((c) => /not found|白名单不含 subagent_delegate/.test(lastToolText(c))), "伪造下级委派在发送/调用两处被拒，未执行");
 
     // 伪造 read 参数指向范围外绝对路径：worker init 钉定的读范围在调用处拒绝
     const deleg5 = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "bad5", request: "伪造读", readPaths: ["."], materials: null, paramsDigest: "b5" });
@@ -252,7 +252,7 @@ test("main 会话：materials 快照委派、wake 回报与 coding_result 兼容
     const agent = rt.store.getSubAgent(work.subAgentId)!;
     assert.equal(fs.readFileSync(path.join(agent.workDir, `materials-${work.id}-m1.txt`), "utf8"), "材料正文 A");
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"));
-    assert.ok(subCall && toolNamesOf(subCall).length === 3 && toolNamesOf(subCall).includes("subagent_message"), "只读工具清单与工作内消息（issue 13）");
+    assert.ok(subCall && ["read", "bash", "app_data_query", "subagent_message"].every(name => toolNamesOf(subCall).includes(name)), "普通个人委派继承来源业务、编码与工作内消息");
 
     // main 的稳定 wake 回报（附工作与动态身份，固定 confirm，不复制 IM 来源）
     await waitFor("wake 任务已建", () => rt.store.findTaskByRequest(main.sessionId, `wake:${task.id}`) !== null);
@@ -275,7 +275,7 @@ test("main 会话：materials 快照委派、wake 回报与 coding_result 兼容
   }
 });
 
-test("subagent_result 跨会话拒绝；子上下文不含父历史/项目指令/个人记忆/技能目录", async () => {
+test("subagent_result 跨会话拒绝；材料不能扩大子任务权限或复制父聊天", async () => {
   const t = await startTestRuntime("sagent-scope", async (req) => {
     const text = lastUserText(req);
     if (text.includes("[SubAgent 委派")) return { kind: "text", text: "SUB-DONE" };
@@ -291,9 +291,11 @@ test("subagent_result 跨会话拒绝；子上下文不含父历史/项目指令
     const work = rt.store.listWorkDelegationsBySession(main.sessionId)[0]!;
     await waitFor("子任务完成", () => rt.store.listTasksByWork(work.id).every((x) => x.resultSummary !== null));
 
-    // 恶意资料中的指令不打开写能力：子上下文仍然没有写工具
+    // 恶意资料不提供来源之外的身份与授权。
     const subCall = t.server.calls.find((c) => inputText(c).includes("[SubAgent 委派"))!;
-    assert.deepEqual(toolNamesOf(subCall).sort(), ["read", "read_artifact", "subagent_message"].sort());
+    assert.ok(toolNamesOf(subCall).includes("bash"));
+    assert.ok(!toolNamesOf(subCall).includes("subagent_delegate"));
+    assert.equal(rt.store.listTasksByWork(work.id)[0].accessMode, parent.accessMode);
     const childCtx = inputText(subCall);
     assert.ok(!childCtx.includes("[项目指令]") && !childCtx.includes("[长期记忆]") && !childCtx.includes("[技能目录]"), "子上下文不注入父项目指令/记忆/技能目录");
   } finally {
@@ -446,11 +448,13 @@ test("宿主评审（issue 19）：不占 main 委派名额，评审 SubAgent �
     assert.equal(review.task.sourceEventId, event.id);
     // 评审活动期间，main 的拥有者委派名额不受影响
     assert.equal(rt.store.countActiveSubAgentTasks(main.sessionId), 0, "宿主评审任务不计入委派名额");
+    const ownerParent = await rt.submit({ sessionId: main.sessionId, requestId: "ordinary-owner", input: "拥有者委派", modelSelection: rt.defaultSelection });
+    await waitFor("普通来源完成", () => rt.store.getTask(ownerParent.id)!.status === "completed");
     for (let i = 0; i < 3; i++) {
-      await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: `n${i}`, request: "分析", readPaths: ["."], materials: null, paramsDigest: `n${i}` });
+      await delegateFromActiveTask(rt, { parentTaskId: ownerParent.id, key: `n${i}`, request: "分析", readPaths: ["."], materials: null, paramsDigest: `n${i}` });
     }
     await assert.rejects(
-      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "n3", request: "分析", readPaths: ["."], materials: null, paramsDigest: "n3" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: ownerParent.id, key: "n3", request: "分析", readPaths: ["."], materials: null, paramsDigest: "n3" }),
       /已达上限/,
     );
     release();

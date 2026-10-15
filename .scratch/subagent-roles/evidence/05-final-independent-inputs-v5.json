@@ -1,0 +1,429 @@
+{
+  "baseHead": "5f9da455072d68180ef19fc92ad02070cea583c1",
+  "reviewer": "/root/requirements_audit",
+  "independentRoot": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk05-target-independent-sjdtgrlt",
+  "reviewedRepairCount": 30,
+  "mainRepairMatches": 30,
+  "files": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md",
+      "bytes": 6780,
+      "sha256": "e6e3b5f4fbef6c2c2c7a9832f03896db727e8616a6ac09d1f5f0c6dd2be6ade0",
+      "reviewedRepair": true
+    },
+    {
+      "path": ".agents/notes/implemented/testing/2026-10-13-workflow-joint-acceptance.md",
+      "bytes": 5512,
+      "sha256": "192089f005b53332108841941a78ee7715a087b46bad170ee27cabe2309ba9a3",
+      "reviewedRepair": true
+    },
+    {
+      "path": ".agents/skills/development-workflow/SKILL.md",
+      "bytes": 6693,
+      "sha256": "c70d9137e125591987b67dd6a7c6c65c11ce916e62abc675edc41daf704442cf",
+      "reviewedRepair": false
+    },
+    {
+      "path": ".scratch/subagent-roles/spec.md",
+      "bytes": 9634,
+      "sha256": "d78c97ff3854cdd4d3e876a52632ccec29ae5d6277c9b065e39c1fce5e76d176",
+      "reviewedRepair": false
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 8473,
+      "sha256": "2a5f9aae7061e0c9df222bcb58455c4184b55c9fccc67cf29cb6e5d384617a5f",
+      "reviewedRepair": false
+    },
+    {
+      "path": "CONTEXT.md",
+      "bytes": 26389,
+      "sha256": "570c92401a6993ef414a3283ba938df7e392c6d8061838478af7ac082d92d260",
+      "reviewedRepair": false
+    },
+    {
+      "path": "docs/agents/domain.md",
+      "bytes": 1046,
+      "sha256": "fa2a12bb766ef4ed523a5291020d51d4977268596bc0d4a944e2f2dc65cf18bb",
+      "reviewedRepair": false
+    },
+    {
+      "path": "docs/agents/issue-tracker.md",
+      "bytes": 1695,
+      "sha256": "afce284aa9c1faf4271377fa39e35327fdd1e1aa504e5726e13d5873d539ff2d",
+      "reviewedRepair": false
+    },
+    {
+      "path": "docs/architecture.md",
+      "bytes": 12850,
+      "sha256": "0ed2506ff44a7d7586f2d8d6b25a03ac0d2cac11aefdec7f2ddde732b86a850c",
+      "reviewedRepair": false
+    },
+    {
+      "path": "docs/modules/agent-context.md",
+      "bytes": 37380,
+      "sha256": "d33b9103c864509d396859db474d3531dd9e57c31d1819d90927578087cb817e",
+      "reviewedRepair": false
+    },
+    {
+      "path": "docs/modules/agent-tools.md",
+      "bytes": 48030,
+      "sha256": "1dccc43fd8d07d62b75c27b5fd5bf42d9c86ef63308c3898d827b1a591c15226",
+      "reviewedRepair": true
+    },
+    {
+      "path": "docs/modules/execution.md",
+      "bytes": 34769,
+      "sha256": "08779f38633341a34f3d6b3812a842fc33805293137d0771cf5cadb99c1aa9f7",
+      "reviewedRepair": false
+    },
+    {
+      "path": "docs/modules/runtime.md",
+      "bytes": 77722,
+      "sha256": "cf60fff20926fadbaa0341b1ba4c074458d06461e91459e4a9d6856f4d8cd8ff",
+      "reviewedRepair": true
+    },
+    {
+      "path": "docs/modules/workflows.md",
+      "bytes": 15566,
+      "sha256": "8b5bdc97858e938c913de253afd61be5a7ec2d603147a8e29740951602e45861",
+      "reviewedRepair": false
+    },
+    {
+      "path": "docs/usage.md",
+      "bytes": 62097,
+      "sha256": "a5a0f9db425d25c12963ed23f0c125f16280352750edcc3c48e7d2ee48a0daf5",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/agent/src/context-selector.ts",
+      "bytes": 43206,
+      "sha256": "d5b94b0a944e1c8d965732ee712a32746560e61fe16d58e47e0cf0dc8e7b83e4",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/agent/src/driver.ts",
+      "bytes": 97427,
+      "sha256": "b4eff6eea89a61896674cfe26a13414d94231b65c103aa933ae5cb14a7842674",
+      "reviewedRepair": true
+    },
+    {
+      "path": "packages/agent/src/subagent-capabilities.ts",
+      "bytes": 2433,
+      "sha256": "22fc98bb20b5477288a6d3c043bc4eabea31fe288159d4cc53e22c134611ba10",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/agent/src/subagent-roles.ts",
+      "bytes": 7911,
+      "sha256": "9c345145bcfbcf2c89187185416e919a87dc8f5eacf366f2abe20d424f30eda2",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/agent/src/subagent-tools.ts",
+      "bytes": 37758,
+      "sha256": "8be87e3ad696172b1a9d43c0b00ecaf83064ab21a0d27c723516abde2b4fe96c",
+      "reviewedRepair": true
+    },
+    {
+      "path": "packages/agent/src/tool-availability.ts",
+      "bytes": 10708,
+      "sha256": "60ae1a6c4183915ae5e7299a1d414696418ef3a3155a6884204a28a8f9993de3",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/agent/src/tool-router.ts",
+      "bytes": 42161,
+      "sha256": "883c7f9e812ad3b34b027867e10fccc9e2909ea7308d4fc7a8caab46218d64ff",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/agent/src/workflow-output.ts",
+      "bytes": 3107,
+      "sha256": "a03b880bbf19a330bc41d20b3d190707668112d299a2eada5ac6c254eae27566",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/core/src/subagent-definition.ts",
+      "bytes": 5401,
+      "sha256": "89ada12518a495c11c2c10c0f0fadd6c0ed7e319b6e4202e4c16c04fc501092e",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/core/src/subagent-execution.ts",
+      "bytes": 4062,
+      "sha256": "ed0a58b9018b2abc6e010a646d14a503f1e8d4cf2480dcb0d0b812199db1ac0e",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/runtime/src/parent-delivery.ts",
+      "bytes": 38602,
+      "sha256": "4d1236f674b7997360824da2243a7807be236b6f9d29a8e0d5eaeed3718a9995",
+      "reviewedRepair": true
+    },
+    {
+      "path": "packages/runtime/src/runtime.ts",
+      "bytes": 315895,
+      "sha256": "99b21d653e9d1d6dda57ef0325343f4ada3f437a28e9619a7bb81540caaaabae",
+      "reviewedRepair": true
+    },
+    {
+      "path": "packages/runtime/src/subagent-role-library.ts",
+      "bytes": 5725,
+      "sha256": "83c0cf4ec9e22a33102e1319757316dd463c8e87314e6edc7a5123d9dec8e9c8",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/runtime/src/subagents.ts",
+      "bytes": 81563,
+      "sha256": "f0dbe115d68191560080f6e57db82a29efb85e48ab4dc0d42e3ce5eb63474fc4",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/runtime/src/work-copy.ts",
+      "bytes": 32436,
+      "sha256": "1cbea7a68aacb53ae32bc3692f55301293f02a2be9031b2b63751fe8f1805780",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/runtime/src/workflow-library.ts",
+      "bytes": 9439,
+      "sha256": "22fd4311678f4f38e76de251804427cf5b119247c72d66bacb5f6e29b730c12d",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/runtime/src/workflow-steps.ts",
+      "bytes": 23156,
+      "sha256": "a13fde289224ab0687c3078e4b90c5488faf3d441178ba7dc7365d65be2fb0aa",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/runtime/src/workflows.ts",
+      "bytes": 53244,
+      "sha256": "376c958e3cc445e5cbc0877d191f4e05751593e6f4dc29c84ba151ade8cb2d4d",
+      "reviewedRepair": false
+    },
+    {
+      "path": "packages/tui/src/tui/demo-session.ts",
+      "bytes": 42841,
+      "sha256": "8376b14940126c07b94e526b9b5562803f5296d000bae5130daa3514ea00516b",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/10-access-modes.test.ts",
+      "bytes": 34563,
+      "sha256": "9d84a05a8ba2f58e402949e214495074e2bfc26f08911fd515d2cd13fc1b2e73",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/115-workflow-final-delivery.test.ts",
+      "bytes": 28999,
+      "sha256": "c1f71b97a9ddbb4805811f97aa30530f6354a3443598e206627090debdd4fead",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/122-workflow-code-acceptance.test.ts",
+      "bytes": 7357,
+      "sha256": "c37206ab1f4f05a9c15038f45d6bff1b27f8123a7dfd87a461e4b246fded343e",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/123-workflow-model-acceptance.test.ts",
+      "bytes": 8897,
+      "sha256": "8a4de0c5f6fbb8fb228aeab49cb8f448917f8d71269bdef8f5e6f599e54eb363",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/125-agent-wait-attention-report.test.ts",
+      "bytes": 23791,
+      "sha256": "220fa2eb7a90bc8d4abd7bdb4969a21acb35636d1b385f57eb586f486450d723",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/125-agent-wait-group-boundaries.test.ts",
+      "bytes": 5692,
+      "sha256": "33b3322882974c40b7dd17c16d85b761963084ab09a6d84b6875e5094a1ff899",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/125-agent-wait-recovery.test.ts",
+      "bytes": 34567,
+      "sha256": "fd826665f6815e8e461e427d3ab46506b128cc5e0d377ff91e9299fbd709b60c",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/125-agent-wait-report.test.ts",
+      "bytes": 19557,
+      "sha256": "78c4ff472f8632c2d7203cb53c830ac65b3c0361ce4be6ae6f8f247581e64a8f",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/125-agent-wait-resource.test.ts",
+      "bytes": 18251,
+      "sha256": "4153139463ad21457133fa8d06b850f6af8dd228c0ad5cb9310b4a4da4173bef",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/126-workflow-sidebar.test.ts",
+      "bytes": 26458,
+      "sha256": "917e6d2d751b940aa463ad577e3f7bbfee544b38d6efd8500dba92143fa9a4cf",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/14-tui-app.test.ts",
+      "bytes": 108848,
+      "sha256": "bb1debf2e94aa6e9f2207353282e132d042137d75d28e1ba3c38804e77bc105f",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/19-tui-demo.test.ts",
+      "bytes": 9672,
+      "sha256": "0ef1718194cb47f478db1a7675b86f3b78d5d3218d6c0d00e9ff1c956e340530",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/21-context-breakdown.test.ts",
+      "bytes": 15092,
+      "sha256": "c7a6f3b43e4b19775070e71fa8f7c925378ec6ff1691aac846d884a4ebf17120",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/41-qq-private-scope.test.ts",
+      "bytes": 12614,
+      "sha256": "2a6e62c034078d97cc20db8a83caab438ba1135edbf6009d1be91c35438dfcbd",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/45-github-events.test.ts",
+      "bytes": 28566,
+      "sha256": "b5f3c65b30277445104ddea4fab259c1a7499c75c945362bc05e1ffa764b40e0",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/46-github-recovery.test.ts",
+      "bytes": 12480,
+      "sha256": "59a4cb6ba12afe83ae4df1db64c83bc77fd71546ea2ba92b35548c31712bcf94",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/84-im-final-delivery.test.ts",
+      "bytes": 36259,
+      "sha256": "8e370c8a71ca76238b91b8431cfe70eea878f73408bdef6373fb58cc40b09a76",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/86-subagent-messaging.test.ts",
+      "bytes": 45704,
+      "sha256": "573ef3097bd1d5bb43b9212235d3bae1cede3fcee919ba4c23dac5f35f5ef70e",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/86-subagent-recovery.test.ts",
+      "bytes": 21831,
+      "sha256": "7b5d64a91fbb9994b0d0b93342ef2e8ace1a114c27265d4ba777c440953d03c3",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/88-parent-delivery.test.ts",
+      "bytes": 21895,
+      "sha256": "deca54d965ceab7f5b74a035225acb5557010198f497c6d514ac3f5d47fbd655",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/92-subagent-lifecycle.test.ts",
+      "bytes": 28412,
+      "sha256": "0c7497d64f3691f1b7d0caa27dd79f653534e58eb446e396c4961b30d227bd07",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/helpers/subagent-definition.ts",
+      "bytes": 1905,
+      "sha256": "120cee0820694d9786e854fb7540cd77fd9b725be5f801ae0073d5afc328f63e",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/subagent-capabilities.test.ts",
+      "bytes": 3136,
+      "sha256": "81cf42a7604335424fa826838b449a795de018a9487be9017803c6246a51ed4f",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/subagent-definition-core.test.ts",
+      "bytes": 4844,
+      "sha256": "afa823c6f1781c8dd6357ca0b482aa30cbf29f0efcb0a8d98c53354048fd8337",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/subagent-result-source-boundaries.test.ts",
+      "bytes": 12605,
+      "sha256": "110c062721bc378b66350e86703d391568fba7573143a7837eb2e239e4a70656",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/subagent-role-driver.test.ts",
+      "bytes": 8049,
+      "sha256": "9c9ad1ea4231a1f1443daa863b5041eebf5d412ab11cec327db8be3717d34a5f",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/subagent-role-library.test.ts",
+      "bytes": 7417,
+      "sha256": "9d615b68c05d6477746a889559994abae36b444c67b3d53b0d008c3ad9e119a3",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/subagent-role-runtime.test.ts",
+      "bytes": 17894,
+      "sha256": "e59b437f107cf6db45ae2062e5b2b91a046983ea4fc2f057c2c6cefbcb7047db",
+      "reviewedRepair": true
+    },
+    {
+      "path": "test/subagent-source-capabilities.test.ts",
+      "bytes": 30175,
+      "sha256": "0aad11b372281f36e58d72a69c2cf09a862b0d9775ba9ac86ec7aec8ea5f8d88",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/workflow-interface-version.test.ts",
+      "bytes": 5929,
+      "sha256": "5e75d4926221e0ffbbcd5c0db8e5fbc0fea8dc99e581c7bfd80536d01c439d5d",
+      "reviewedRepair": false
+    },
+    {
+      "path": "test/workspace-snapshot-terminal-boundaries.test.ts",
+      "bytes": 12980,
+      "sha256": "5ea875cf5984476bf6176d305127d38cca40139033649f51b61b77fdac0553e5",
+      "reviewedRepair": true
+    }
+  ],
+  "version": 5,
+  "supersedesOnly": "v4全部65项中仅runtime行由新机械重排取代，另64项保持；原v1-v4清单报告归档不覆盖",
+  "fileCount": 65,
+  "mainFileMatches": 65,
+  "previousManifestSha256": "d4fb9f661efa48e82776e84641030e0daa3faa7ea845581f15af0f18f49e8648",
+  "changesToExistingFiles": [
+    {
+      "path": "packages/runtime/src/runtime.ts",
+      "old": "b25678b16eec2780ba28359bd6b01be9a01b7afa4f417442c1849f3a7ef5d31d",
+      "new": "99b21d653e9d1d6dda57ef0325343f4ada3f437a28e9619a7bb81540caaaabae"
+    }
+  ],
+  "ownerFrozenManifestSha256": "c49e47027a5439b37b20b78083828659a12d94ab5d64b9d5c321f0b38bc11785",
+  "ownerFrozenEntries": 620,
+  "ownerFrozenMainMatches": 620,
+  "ownerFrozenChangedFromV1": [
+    ".agents/notes/implemented/testing/2026-10-13-workflow-joint-acceptance.md",
+    "packages/runtime/src/runtime.ts",
+    "test/10-access-modes.test.ts",
+    "test/122-workflow-code-acceptance.test.ts",
+    "test/125-agent-wait-resource.test.ts",
+    "test/14-tui-app.test.ts",
+    "test/84-im-final-delivery.test.ts"
+  ],
+  "productionChangedFromV1": true,
+  "ownerFrozenChangedFromV4": [
+    "packages/runtime/src/runtime.ts"
+  ],
+  "modelArchivedProductionCurrentByteMatches": 159,
+  "modelArchivedProductionMechanicallyReviewedDifference": "packages/runtime/src/runtime.ts"
+}

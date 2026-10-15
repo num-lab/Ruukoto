@@ -1,3 +1,5 @@
+import { BUILTIN_SUBAGENT_ROLES, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -77,7 +79,7 @@ function fixture(t: TestContext, agent: WorkflowAgentExecutor = async () => ({ o
   const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: task.id,
     permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: ["read"], references: [], replyTarget: null, scheduledRunId: null };
   let now = 1_000;
-  const deps: WorkflowDeps = { store, workRoot: path.join(root, "steps"), source: () => source, selection: () => selection,
+  const deps: WorkflowDeps = { roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []), store, workRoot: path.join(root, "steps"), source: () => source, selection: () => selection,
     verifySource: () => true, agent, now: () => now };
   let coordinator = new WorkflowCoordinator(deps);
   store.onCommitted = events => coordinator.onEvents(events);
@@ -101,7 +103,7 @@ function ordinaryTask(f: ReturnType<typeof fixture>, status: "queued" | "running
     const session = f.store.createSession({ projectId: f.session.projectId, cwd, cwdReal: cwd, cwdDev: stat.dev, cwdIno: stat.ino,
       piSessionId: randomId("pi"), confirmTools: [] });
     const id = randomId("sagent"), workId = randomId("work");
-    f.store.insertSubAgent({ id, parentSessionId: f.session.id, sessionId: session.id, workDir: cwd, activeWorkId: workId,
+    f.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id, parentSessionId: f.session.id, sessionId: session.id, workDir: cwd, activeWorkId: workId,
       currentTaskId: null, state: "running", closedAt: null, closedBy: null, createdAt: new Date().toISOString() });
     f.store.insertWorkDelegation({ id: workId, parentSessionId: f.session.id, originTaskId: f.task.id, subAgentId: id,
       requestKey: randomId("workrequest"), paramsDigest: "ordinary", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: new Date().toISOString() });
@@ -111,6 +113,22 @@ function ordinaryTask(f: ReturnType<typeof fixture>, status: "queued" | "running
     return task;
   });
 }
+
+test("后台停止等待尚未完成的工具预检，迟到结果不创建 Task 或访问已关闭的库", async t => {
+  const f = fixture(t), gate = deferred<void>();
+  let entered = false;
+  f.deps.preflight = async () => { entered = true; await gate.promise; throw new Error("停止后的发现失败"); };
+  f.start('return await agent("pending",{request:"预检中停止"});');
+  await until("预检已进入", () => entered);
+  let stopped = false;
+  const stopping = f.coordinator.stop("test_stop").then(() => { stopped = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(stopped, false, "停止须等待发现连接收尾");
+  gate.resolve();
+  await stopping;
+  assert.equal(f.store.listSubAgents().length, 0);
+  await new Promise(resolve => setImmediate(resolve));
+});
 
 test("运行固定定义、输入、模型与来源；发起任务结束后仍执行，创建键先去重", async t => {
   const seen: unknown[] = [];
@@ -816,4 +834,22 @@ test("自动审批审查与并行未决工具仍计费，只有纯人工审批�
   f.coordinator.kick(); await until("同任务另有工具执行时恢复计费", () => f.run(run.id).status === "running");
   f.setNow(6_000); assert.equal(chargeWorkflow(f.run(run.id), 6_000).usedMs, used + 1_000);
   await f.coordinator.control(run.id, "cancel", f.run(run.id).version, { action: "cancel" });
+});
+
+for (const [params, code] of [
+  [{ request: "旧分析", mode: "analyze" }, "interface_upgrade_required"],
+  [{ request: "旧修改", mode: "modify", target: "." }, "interface_upgrade_required"],
+  [{ request: "旧验证", mode: "verify", verify: "source", dependsOn: ["source"] }, "interface_upgrade_required"],
+  [{ request: "冲突目标", verify: "source", target: ".", dependsOn: ["source"] }, "invalid_step"],
+  [{ request: "缺少依赖", verify: "source" }, "invalid_step"],
+  [{ request: "未知角色", role: "absent" }, "role_unknown"],
+] as const) test(`工作流调用 ${params.request} 在 Agent 启动前拒绝，先前步骤保留`, async t => {
+  const f = fixture(t, async () => assert.fail("被拒参数不能启动 Agent"));
+  const run = f.start(`await progress("source",{text:"已登记"});return await agent("rejected",${JSON.stringify(params)});`);
+  await until("参数拒绝后暂停", () => f.run(run.id).status === "paused");
+  assert.equal(f.run(run.id).reason, code);
+  assert.equal(f.run(run.id).attempts, 0);
+  assert.equal(getWorkflowStep(f.store, run.id, "source")!.status, "completed");
+  assert.equal(listWorkflowExecutions(f.store, run.id).length, 0);
+  assert.equal(f.store.listSubAgents().length, 0);
 });

@@ -1,4 +1,5 @@
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * 旧实例个人资料迁入全新 ruukoto 实例（agent-direction issue 22）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
@@ -225,7 +226,7 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   const subSession = store.withTx(() =>
     store.createSession({ projectId: mainProj, cwd: work0.cwd, cwdReal: work0.cwdReal, cwdDev: work0.dev, cwdIno: work0.ino, piSessionId: randomId("pi"), confirmTools: [] }),
   );
-  const sub = { id: randomId("sub"), parentSessionId: sessMain, sessionId: subSession.id, workDir: work0.cwdReal, activeWorkId: null, currentTaskId: null, state: "idle" as const, closedAt: null, closedBy: null, createdAt: NOW };
+  const sub = { id: randomId("sub"), definition: fixtureSubAgentDefinition(), parentSessionId: sessMain, sessionId: subSession.id, workDir: work0.cwdReal, activeWorkId: null, currentTaskId: null, state: "idle" as const, closedAt: null, closedBy: null, createdAt: NOW };
   const wk = { id: randomId("work"), parentSessionId: sessMain, originTaskId: tDone.id, subAgentId: sub.id, requestKey: "k-sub", paramsDigest: "d-sub", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: NOW };
   store.withTx(() => {
     store.insertSubAgent(sub);
@@ -760,6 +761,7 @@ test("应用后目标启动：main 与应用数据可用，档案可查，交接
       // SubAgent 以关闭状态登记、工作委托保留
       const subRow = store.db.prepare("SELECT closed_at, closed_by, state FROM sub_agents WHERE id = ?").get(src.ids.subAgent) as { closed_at: string | null; state: string };
       assert.ok(subRow.closed_at !== null, "SubAgent 按关闭状态登记");
+      assert.deepEqual(store.getSubAgent(src.ids.subAgent)!.definition, fixtureSubAgentDefinition(), "角色正文与摘要随关闭归档完整导入");
       assert.equal(subRow.state, "idle");
       assert.ok(store.db.prepare("SELECT 1 FROM work_delegations WHERE id = ?").get(src.ids.workId), "工作委托在库");
 

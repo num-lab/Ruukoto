@@ -1,0 +1,343 @@
+{
+  "capturedAtUtc": "2026-10-15T04:28:00.169486+00:00",
+  "scope": "本机产品默认档案与两产品dev根的全部现有直接子档案；未扫描其他自定义路径、远端机器或其他客户端配置",
+  "knownPathConventions": [
+    "~/.ruukoto/data/ruukoto.db",
+    "~/.ruukoto-code/data/ruukoto.db",
+    "~/.ruukoto-dev/*/data/ruukoto.db",
+    "~/.ruukoto-code-dev/*/data/ruukoto.db"
+  ],
+  "directoryEnvironmentVariablesSet": [],
+  "profiles": [
+    {
+      "profile": "personal-default",
+      "databaseExists": true,
+      "credentialFileExists": false,
+      "runtimeLockExists": false,
+      "controlSocketExists": false,
+      "snapshotComponents": [
+        "database",
+        "-wal"
+      ],
+      "schemaVersion": "29",
+      "mcp": {
+        "tableExists": true,
+        "services": [],
+        "serviceCount": 0,
+        "enabledServices": 0,
+        "enabledDeclaredReadTools": 0
+      },
+      "im": {
+        "qq": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        },
+        "telegram": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        }
+      }
+    },
+    {
+      "profile": "coding-default",
+      "databaseExists": true,
+      "credentialFileExists": false,
+      "runtimeLockExists": false,
+      "controlSocketExists": false,
+      "snapshotComponents": [
+        "database"
+      ],
+      "schemaVersion": "41",
+      "mcp": {
+        "tableExists": true,
+        "services": [],
+        "serviceCount": 0,
+        "enabledServices": 0,
+        "enabledDeclaredReadTools": 0
+      },
+      "im": {
+        "qq": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        },
+        "telegram": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        }
+      }
+    },
+    {
+      "profile": "personal-dev-2",
+      "databaseExists": true,
+      "credentialFileExists": true,
+      "runtimeLockExists": false,
+      "controlSocketExists": false,
+      "snapshotComponents": [
+        "database",
+        "-wal"
+      ],
+      "schemaVersion": "32",
+      "mcp": {
+        "tableExists": true,
+        "services": [],
+        "serviceCount": 0,
+        "enabledServices": 0,
+        "enabledDeclaredReadTools": 0
+      },
+      "im": {
+        "qq": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        },
+        "telegram": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        }
+      }
+    },
+    {
+      "profile": "coding-dev-2",
+      "databaseExists": true,
+      "credentialFileExists": false,
+      "runtimeLockExists": true,
+      "controlSocketExists": true,
+      "snapshotComponents": [
+        "database",
+        "-wal"
+      ],
+      "schemaVersion": "39",
+      "mcp": {
+        "tableExists": true,
+        "services": [],
+        "serviceCount": 0,
+        "enabledServices": 0,
+        "enabledDeclaredReadTools": 0
+      },
+      "im": {
+        "qq": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        },
+        "telegram": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        }
+      }
+    },
+    {
+      "profile": "coding-dev-3",
+      "databaseExists": true,
+      "credentialFileExists": false,
+      "runtimeLockExists": true,
+      "controlSocketExists": true,
+      "snapshotComponents": [
+        "database",
+        "-wal"
+      ],
+      "schemaVersion": "41",
+      "mcp": {
+        "tableExists": true,
+        "services": [],
+        "serviceCount": 0,
+        "enabledServices": 0,
+        "enabledDeclaredReadTools": 0
+      },
+      "im": {
+        "qq": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        },
+        "telegram": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        }
+      }
+    },
+    {
+      "profile": "coding-dev-4",
+      "databaseExists": true,
+      "credentialFileExists": false,
+      "runtimeLockExists": false,
+      "controlSocketExists": false,
+      "snapshotComponents": [
+        "database",
+        "-wal"
+      ],
+      "schemaVersion": "39",
+      "mcp": {
+        "tableExists": true,
+        "services": [],
+        "serviceCount": 0,
+        "enabledServices": 0,
+        "enabledDeclaredReadTools": 0
+      },
+      "im": {
+        "qq": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        },
+        "telegram": {
+          "tableExists": true,
+          "configuredRows": 0,
+          "enabledRows": 0,
+          "endpointFieldPresent": false,
+          "ownerBindingFieldPresent": false,
+          "credentialReferenceFieldPresent": false,
+          "credentialsUsed": false,
+          "networkChecked": false
+        }
+      }
+    }
+  ],
+  "networkRequests": 0,
+  "modelRequests": 0,
+  "dailyInstancesStarted": 0,
+  "dailyConfigurationWrites": 0,
+  "credentialFilesRead": 0,
+  "privateDatabaseSnapshotsRemoved": true,
+  "originalModelArchiveChanged": false,
+  "snapshotRecheckedAtUtc": "2026-10-15T04:29:04.742653+00:00",
+  "snapshotStabilityChecks": [
+    {
+      "profile": "personal-default",
+      "databaseAndWalBytesStableDuringSnapshot": true,
+      "configRowCounts": {
+        "mcp_services": 0,
+        "qq_config": 0,
+        "telegram_config": 0
+      }
+    },
+    {
+      "profile": "coding-default",
+      "databaseAndWalBytesStableDuringSnapshot": true,
+      "configRowCounts": {
+        "mcp_services": 0,
+        "qq_config": 0,
+        "telegram_config": 0
+      }
+    },
+    {
+      "profile": "personal-dev-2",
+      "databaseAndWalBytesStableDuringSnapshot": true,
+      "configRowCounts": {
+        "mcp_services": 0,
+        "qq_config": 0,
+        "telegram_config": 0
+      }
+    },
+    {
+      "profile": "coding-dev-2",
+      "databaseAndWalBytesStableDuringSnapshot": true,
+      "configRowCounts": {
+        "mcp_services": 0,
+        "qq_config": 0,
+        "telegram_config": 0
+      }
+    },
+    {
+      "profile": "coding-dev-3",
+      "databaseAndWalBytesStableDuringSnapshot": true,
+      "configRowCounts": {
+        "mcp_services": 0,
+        "qq_config": 0,
+        "telegram_config": 0
+      }
+    },
+    {
+      "profile": "coding-dev-4",
+      "databaseAndWalBytesStableDuringSnapshot": true,
+      "configRowCounts": {
+        "mcp_services": 0,
+        "qq_config": 0,
+        "telegram_config": 0
+      }
+    }
+  ],
+  "currentCheckoutDevProfiles": {
+    "personalExists": false,
+    "codingExists": false
+  },
+  "aggregate": {
+    "databaseProfilesChecked": 6,
+    "mcpServices": 0,
+    "enabledMcpServices": 0,
+    "declaredReadMcpTools": 0,
+    "qqConfiguredRows": 0,
+    "telegramConfiguredRows": 0,
+    "credentialFilesExistButUnread": 1,
+    "runtimeLockAndSocketExistenceOnly": 2
+  },
+  "limits": [
+    "仅本机默认与dev约定路径；未穷举其他自定义路径、服务管理器环境或远端部署",
+    "未读取任何credentials.json或使用平台凭据",
+    "未连接MCP发现工具；无已登记服务可提安全现成只读probe",
+    "旧DB schema分别29/32/39/41，当前源码schema45；未启动或迁移旧档案"
+  ],
+  "originalModelReportAndArchiveHashesUnchanged": true
+}

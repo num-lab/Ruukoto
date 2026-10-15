@@ -1,3 +1,4 @@
+import { BUILTIN_SUBAGENT_ROLES, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 /**
  * 整项工作取消（agent-direction issue 14）。
@@ -272,7 +273,7 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
 
     // —— 委派已发出、尚在准备阶段的 await 中时取消：事务内报「工作已取消」，零新任务 ——
     let release!: () => void;
-    const gated = new SubAgentManager({
+    const gated = new SubAgentManager({ roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []),
       store: rt.store,
       workRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "sub-agents"),
       workCopies: new WorkCopyManager({

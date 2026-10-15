@@ -1,0 +1,16 @@
+command: npx tsx --test test/122-workflow-code-acceptance.test.ts
+verifier: /root
+started_at: 2026-10-15T03:32:58.387459+00:00
+source: 5f9da45 + target/fixture patches + source-consumption initial 24dc9c1c
+
+✔ 编码六输入：共享三名额、失败依赖跳过、独立验证与实际五份冻结成果汇总，唯一部分失败回报 (94730.8915ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 96037.43475
+
+{"command": ["npx", "tsx", "--test", "test/122-workflow-code-acceptance.test.ts"], "exit_code": 0, "elapsed_seconds": 96.341, "finished_at": "2026-10-15T03:34:34.728328+00:00"}

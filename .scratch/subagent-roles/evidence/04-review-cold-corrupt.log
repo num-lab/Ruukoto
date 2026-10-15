@@ -1,0 +1,3 @@
+{"phase":"definition_missing","status":"paused","reason":"definition_missing","callsDuringRecovery":0,"sourceContent":"base\n"}
+{"phase":"execution_missing","status":"paused","reason":"execution_missing","callsDuringRecovery":0,"sourceContent":"base\n"}
+{"phase":"snapshot_missing","status":"paused","reason":"snapshot_corrupt","callsDuringRecovery":0,"sourceContent":"base\n"}

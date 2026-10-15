@@ -1,5 +1,6 @@
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import { createHmac, randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { test } from "node:test";
@@ -168,6 +169,9 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
   let reviewWaiting = false;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const h = await harness("github-flow", async () => { reviewWaiting = true; await gate; });
+  const roleDir = path.join(h.runtime.config.agentDir, "agents");
+  fs.mkdirSync(roleDir);
+  for (const role of ["general", "reviewer"]) fs.writeFileSync(path.join(roleDir, `${role}.md`), "---\ndescription: 用户角色覆盖\ntools: [bash]\n---\nUSER_ROLE_MUST_NOT_REPLACE_REVIEW");
   const delivery = randomUUID();
   try {
     const first = await h.post(delivery);
@@ -204,6 +208,8 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
     assert.match(child.input, new RegExp(`目标 base ${BASE}`));
     const parentCall = h.server.calls.find((call) => lastUserText(call) === parent.input)!;
     const childCalls = h.server.calls.filter((call) => lastUserText(call).startsWith(REVIEW_HEADER));
+    assert.equal(h.runtime.store.getSubAgent(child.subAgentId!)!.definition!.kind, "host_review");
+    assert.ok(childCalls.every(call => !call.system?.includes("USER_ROLE_MUST_NOT_REPLACE_REVIEW")));
     const wakeCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[编排器] 子任务"));
     assert.deepEqual(toolNames(parentCall), [], "MCP 配在 main 项目，main 自身的确认接收任务也不出现工具");
     assert.deepEqual(toolNames(childCalls[0]!), ["mcp_github_get_diff", "mcp_github_get_pr", "read", "read_artifact"].sort(),
@@ -421,7 +427,7 @@ test("GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重�
   } finally { await h.close(); }
 });
 
-test("MCP 配在 main 项目：拥有者委派的 SubAgent 与 main 自身任务不出现 MCP 工具", async () => {
+test("MCP 配在 main 项目：普通子代理沿可信来源取得 MCP，main 自身工具保持原类别", async () => {
   const h = await harness("github-mcp-scope");
   try {
     const rt = h.runtime;
@@ -431,9 +437,10 @@ test("MCP 配在 main 项目：拥有者委派的 SubAgent 与 main 自身任务
       const works = rt.store.listWorkDelegationsBySession(main.sessionId);
       return works.length === 1 && rt.store.listTasksByWork(works[0]!.id).every((t) => t.resultSummary !== null);
     });
-    const subCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[SubAgent 委派 · 只读分析]"));
+    const subCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[SubAgent 委派 · 独立执行]"));
     assert.ok(subCalls.length > 0);
-    assert.deepEqual(toolNames(subCalls[0]!), ["read", "read_artifact", "subagent_message"].sort(), "拥有者委派的 SubAgent 拿不到本项目的 MCP");
+    assert.ok(toolNames(subCalls[0]!).some(name => name.startsWith("mcp_")), "普通子代理沿来源取得配置的 MCP");
+    assert.ok(toolNames(subCalls[0]!).includes("bash"));
     const parentCalls = h.server.calls.filter((call) => lastUserText(call) === "分析这些材料");
     assert.ok(parentCalls.length > 0 && toolNames(parentCalls[0]!).length > 0, "main 自身按类别装配工具");
     assert.ok(!toolNames(parentCalls[0]!).some((name) => name.startsWith("mcp_")), "main 自身任务不出现 MCP 工具");

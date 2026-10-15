@@ -179,7 +179,8 @@ test("冷启对话恢复：取得目录后才规划 MCP，旧 prompt 退出后�
 });
 
 for (const failed of [false, true]) test(`父级注入 ${failed ? "请求失败不消费" : "成功响应后消费一次"}`, async () => {
-  const t = await startTestRuntime("wait-injection-accept", () => {
+  const t = await startTestRuntime("wait-injection-accept", request => {
+    assert.match(JSON.stringify(request.messages), /RECORDED_CHILD_RESULT/);
     if (failed) throw new Error("provider_failed");
     return { kind: "text", text: "已采用子结果" };
   }, { config: { product: codeProduct.runtime }, workDirs: 1 });
@@ -191,16 +192,27 @@ for (const failed of [false, true]) test(`父级注入 ${failed ? "请求失败�
       rt.store.transitionTask(child.id, ["queued"], "completed");
     });
     const driver = await rt["getDriver"](session);
-    let accepted = 0;
+    let accepted = 0, rechecked = 0;
     driver["deps"].parentInjection = () => ({ results: [rt.store.getTask(child.id)!], messages: [] });
-    driver["deps"].parentInjectionAccepted = (_taskId, ids, entryId) => {
+    // 此处隔离 Driver 的消费时机，来源资格由真实 Runtime 边界用例验证。
+    driver["deps"].parentInjectionRecheck = (sessionId, resultTaskIds, messageIds) => {
+      assert.equal(sessionId, session.id);
+      assert.deepEqual(resultTaskIds, [child.id]);
+      assert.deepEqual(messageIds, []);
+      rechecked++;
+      return null;
+    };
+    driver["deps"].parentInjectionAccepted = (_taskId, ids, entryId, messageIds) => {
       assert.equal(t.server.calls.length, 1);
       assert.deepEqual(ids, [child.id]);
+      assert.deepEqual(messageIds, []);
       assert.ok(entryId);
       accepted++;
     };
     const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "使用结果", modelSelection: rt.defaultSelection });
     await waitFor("父级注入请求收尾", () => ["completed", "failed"].includes(rt.store.getTask(parent.id)!.status), 30_000);
+    assert.equal(t.server.calls.length, 1);
+    assert.ok(rechecked > 0);
     assert.equal(accepted, failed ? 0 : 1);
     assert.equal(rt.store.getTask(parent.id)?.status, failed ? "failed" : "completed");
   } finally { await t.shutdown(); }

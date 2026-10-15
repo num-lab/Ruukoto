@@ -50,9 +50,13 @@
 
 ## 数据与状态
 
+`sub_agents.definition` 保存完整定义快照：用途（用户角色或宿主固定评审）、名称、原文、规范字段、正文及内容摘要。Store 写入拒绝缺失或坏摘要；查询坏行保留身份并返回 `definition: null` 与 `definitionError`，执行必须经 `requireSubAgentDefinition` 拒绝继续。两方向导入保留并校验快照，不从实例角色文件补回。工作流运行固定角色目录及诊断；等待参考快照保留父模型已使用的目录。
+
+`tasks.read_scope.execution` 保存可信来源、角色摘要、有效模式、来源保护、实际工具、MCP 签名与内容摘要；paths、sourceRefs 和 readMemories 必须完整，缺失或损坏只允许查询，不能执行。普通子代理的记忆预览与正文读取 ID 同事务写入 readMemories 和 task.memory_accessed，后续发送/调用复核历史来源及记忆撤销，字段丢失不能解释成从未读取。两方向导入校验来源任务/会话及角色绑定，保留内联记录，不授予目标实例来源权限。
+
 历史页与单条读取在同一次 JSONL 解析内按宿主任务标记关联原 `taskId`；分支保留原任务。缺结束标记允许下一开始标记接替，无效 taskId 或结束不匹配报 `history_corrupt`。用途与关联诊断由 Runtime 查询可信绑定派生，core 不新增用途存储列。
 
-工作流的不可变定义、名称历史/保存回执、运行、步骤、执行绑定、问题与控制回执由 `packages/core/src/workflow.ts` 持有，使用同一核心库和事件事务。运行 payload 固定展示名称、显式简短说明和宿主创建时刻，启动摘要覆盖标题与说明；已有无标题记录在查询时按创建时刻回退，不改写持久事实。有界控制正文完整保存，步骤绑定既有 Task/Work/SubAgent，身份解析为 SubAgent 增加来源运行绑定；具体状态、预算、重放和停止核实见[工作流](workflows.md)。
+工作流的不可变定义、名称历史/保存回执、运行、步骤、执行绑定、问题与控制回执由 `packages/core/src/workflow.ts` 持有，使用同一核心库和事件事务。定义与运行保存 `interfaceVersion`，新接口摘要包含版本；旧定义正文不改写，旧运行不能恢复为新接口。运行 payload 固定展示名称、显式简短说明和宿主创建时刻，启动摘要覆盖标题与说明；已有无标题记录在查询时按创建时刻回退，不改写持久事实。有界控制正文完整保存，步骤绑定既有 Task/Work/SubAgent，身份解析为 SubAgent 增加来源运行绑定；具体状态、预算、重放和停止核实见[工作流](workflows.md)。
 
 `agent_waits` 保存父任务、SDK 调用、固定目标、截止时间、来源、参考快照、阶段与中断原因；`agent_reports` 分别保存消费证明、报告认领、资料依赖和最终回复/outbox 证明，状态及事件同事务提交。结果先进入 JSONL，再在模型实际接受后记消费；报告权整组转交保留旧消费、原后备任务与键，使用其他轮消费的报告还须当前完整输入凭据。持久认领事件保留任务的历史来源绑定，释放认领不解除资料依赖。重启只在本任务标记范围核实消费及最终回复，不宣称 JSONL 与 SQLite 原子。`AgentWaitView` 提供目标标签/状态、截止时间、阶段和中断原因，工作流标签使用固定名称或无标题时间回退；`task.resources_changed` 提交执行/对话阶段，供查询与事件重建。两方向实例导入保留这些事实，结束旧等待并将 pending 报告记为 `undelivered`，不启动后备。
 
@@ -72,8 +76,8 @@
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v41）
-├── ruukoto.db-wal / -shm
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v45）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v45）
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
 ├── browser/                  # 0700；按实例与会话隔离 profile、保留截图
@@ -96,6 +100,7 @@
 ├── default-model.json         # 后台默认模型（0600；--model 启动参数优先）
 ├── credentials.json           # 服务凭据绑定（0600；审批注入用，值不展示）
 ├── skills/                    # 全局技能库（拥有者维护）
+├── agents/                    # 子代理角色 Markdown（覆盖内置或新增）
 └── config.lock/               # 配置独占锁（后台运行期间持有，语义同实例锁）
 
 ~/.ruukoto-code/                  # ruukoto-code 产品档案根（0700）：data/ agent/ control/ pending/
@@ -120,7 +125,7 @@
 
 ### schema 版本与创建
 
-`SCHEMA_VERSION` 是 `40`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `44`，写在 `meta` 表的 `schema_version` 键。
 
 - 文件版本高于或低于程序版本：以 `schema_version_unsupported` 明确拒绝，不转换旧格式、不回填权限字段。保留原档案，由匹配代码查阅；当前代码使用独立新档案。
 - 文件版本等于程序版本：沿用当前表定义，不自动补列或重建表。
@@ -150,10 +155,12 @@
 | `instance_imports` | `request_key` 唯一、来源实例与产品、来源 schema 版本、来源目录、计划摘要、目标备份路径与 sha256、事件区间、报告、`status`（`applied` / `reverted`）、回退时间 |
 | `instance_import_items` | 主键 `(kind, item_id)`、`import_id`；`kind` 取值 `project` / `session` / `sub_agent` / `work_delegation` / `memory` / `grant` / `mcp` / `meta` / `file` / `agent_role` / `schedule` / `platform_config` / `standing_permission` / `credential` |
 | `agent_roles` | `id`（`main` / `coding` / `chat`）、`project_id`、`session_id` 唯一、`work_dir`、`model_selection`、`tools` |
-| `sub_agents` | `parent_session_id`、`session_id` 唯一、`work_dir`、`active_work_id`、`current_task_id`、`state`（`running` / `idle` / `unverified`）、`closed_at` / `closed_by` |
-| `work_delegations` | `parent_session_id`、`origin_task_id`、`sub_agent_id`、`request_key` + `params_digest`（唯一键 `(parent_session_id, request_key)`）、取消三列 `canceled_at` / `canceled_by` / `cancel_reason`、`write_target` |
+| `sub_agents` | `parent_session_id`、`session_id` 唯一、`work_dir`、`definition`、`active_work_id`、`current_task_id`、`state`（`running` / `idle` / `unverified`）、`closed_at` / `closed_by` |
+| `work_delegations` | `parent_session_id`、`origin_task_id`、`sub_agent_id`、`request_key` + `params_digest`（唯一键 `(parent_session_id, request_key)`）、取消三列、`write_target`；Git 目标包含版本化工作区基线、来源/共享 Git/私有对象库身份、HEAD、索引摘要、原始树和内容摘要 |
 
 产物表的演进要点：`artifacts` 新增可空的 `mime_type` 与 `content_hash`，旧产物保持空值；`inbound_media_messages` 与 `inbound_media` 分别保存图片消息信封、拒绝状态及按原顺序的图片下载和最终归属记录。暂存与拒绝账本不跨实例导入，已提升图片沿任务产物复制并保留 MIME 与哈希。`tasks` 的 `plan_mode` 默认 0；会话默认模式的 `CHECK` 接受 `plan`。原访问模式、会话设置、任务与索引保留；旧输入不回填计划状态，旧 `/plan` 文本与继续链均不决定执行模式。
+
+普通工作副本准备的独立宿主 Task 在 `read_scope.workCopyHost` 保存父任务、工作、操作、来源身份、执行单元和停止核实；队列与模型补选排除该任务。基线引用与 SQLite 状态不能宣称跨文件原子；导入核实持久快照并保留原对象路径，不迁移或补造缺失基线。
 
 ### 任务状态机
 
@@ -349,6 +356,12 @@ sequenceDiagram
 
 ## 设计依据
 
+- [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
+
+- [当前工作区快照与子增量](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
+
+- [子代理角色持久快照](../../.agents/notes/implemented/architecture/2026-10-14-subagent-role-snapshots.md)：完整内容随身份保存，损坏可查且拒绝执行。
+
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 
 - [内部回报的可信展示分类](../../.agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md)
@@ -371,3 +384,5 @@ sequenceDiagram
 - [旧工作区迁移只改变组织归属，保留资料与配置身份](../../.agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md)：解释 `sessions.workspace_project_id` 为什么只是展示归属而资料身份仍是 `project_id`，以及保留原 ID 与字节可核对的理由。
 - [目标侧离线导入旧实例开发资料](../../.agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md)：解释目标库 `VACUUM INTO` 备份到 `migration/<导入ID>/target-before.db` 的用途、回执与条目账本的形状，以及整库恢复为什么留作手工路径。
 - [向全新个人实例导入资料并交接平台与调度归属](../../.agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md)：解释应用数据文件的文件级迁移、绑定 meta 随迁与凭据合并的边界，以及导入写入的产品归属为什么不随回退移除。
+
+- [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。

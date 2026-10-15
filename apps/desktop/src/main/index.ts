@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, Notification, dialog, ipcMain, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -10,6 +10,7 @@ import { cspFor, externalUrl, isRendererReload } from "./security.ts";
 import { PersonalController } from "./personal-controller.ts";
 import { loadPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 
 declare const __RUUKOTO_REPOSITORY__: string;
@@ -24,7 +25,34 @@ let quitting = false;
 let quitReady = false;
 const subscribed = new Set<DesktopTarget>();
 const lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "尚未配置 Personal 连接" } };
+const navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
+const notifications = new Set<Notification>();
+function showNotice(notice: DesktopNotice): void {
+  if (!Notification.isSupported()) return;
+  const notification = new Notification({ title: notice.title, body: notice.body });
+  notifications.add(notification);
+  notification.on("close", () => notifications.delete(notification));
+  notification.on("failed", () => { notifications.delete(notification); process.stderr.write("[ruukoto:desktop] 系统通知未送达；请检查系统通知设置。\n"); });
+  notification.on("click", () => {
+    notifications.delete(notification);
+    window?.show();
+    window?.focus();
+    const update: Extract<DesktopUpdate, { type: "navigate" }> = { type: "navigate", instanceId: notice.instanceId, navigation: { sessionId: notice.sessionId, taskId: notice.taskId } };
+    if (subscribed.has(notice.target)) publishTarget(notice.target, update);
+    else navigation.set(notice.target, update);
+  });
+  notification.show();
+}
+const notificationState = new DesktopNotifications(() => !!window?.isFocused(), showNotice, count => {
+  try { app.dock?.setBadge(count ? String(count) : ""); }
+  catch { process.stderr.write("[ruukoto:desktop] Dock 角标更新失败；请在应用中查看待审批。\n"); }
+}, async (target, taskId) => {
+  const source = target === "code" ? controller : personal;
+  if (!source) throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent");
+  return source.request("get_task", { task_id: taskId });
+});
 function publishTarget(target: DesktopTarget, update: DesktopUpdate): void {
+  notificationState.update(target, update);
   if (update.type === "state") lastState[target] = update;
   if (subscribed.has(target) && window && !window.isDestroyed()) window.webContents.send("desktop:update", target, update);
 }
@@ -106,12 +134,18 @@ ipcMain.on("desktop:subscribe", (event, target: unknown) => {
   if (!trusted(event) || (target !== "code" && target !== "personal")) return;
   subscribed.add(target);
   publishTarget(target, lastState[target]);
+  const intent = navigation.get(target);
+  if (intent) { navigation.delete(target); publishTarget(target, intent); }
   if (target === "code" && (!controller || controller.status.state === "online")) void reconnect();
   if (target === "personal" && (!personal || personal.status.state === "online")) void reconnectPersonal();
 });
 ipcMain.handle("desktop:request", async (event, target, op, params) => {
   const checked = await ipcResult(() => assertTrusted(event));
   return checked.ok ? handleRequest(target, op, params, target === "personal" ? reconnectPersonal : reconnect, (op, params) => {
+    if (target === "personal") {
+      if (!personal) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
+      return personal.request(op, params);
+    }
     if (!controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
     return controller.dispatch(op, params);
   }, (op, params) => {

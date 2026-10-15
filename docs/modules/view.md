@@ -16,7 +16,7 @@
 | `EventFlow` | 按稳定身份投影正文、思考、工具、任务与本地提示条目，合并历史与任务事件 |
 | `utf8ByteLength` / 标签函数 | 计算 UTF-8 字节数，提供模式、任务、工作流与 SubAgent 状态文字 |
 
-输入类型来自 core 与 control，仅浏览器可用的模块参与值引用。`ACTIVE_TASK_STATUSES` 由 core 的 `task-status.ts` 提供，展示归属由 control 的 `session-attribution.ts` 提供；原模块仍再导出它们。
+输入类型来自 core 与 control，仅浏览器可用的模块参与值引用。`ACTIVE_TASK_STATUSES` 与 `TERMINAL_TASK_STATUSES` 由 core 的 `task-status.ts` 提供，展示归属由 control 的 `session-attribution.ts` 提供；原模块仍再导出它们。
 
 ## 数据与状态
 
@@ -39,7 +39,7 @@ TUI 的恢复调用在 `app.ts`，共享投影只安装输入，不主动请求�
 
 UTF-8 字节计数使用 `TextEncoder`，中文、emoji 与孤立代理项的计数与 Node 一致。源码 lint 拒绝 Node 内置模块及 Node 全局；浏览器打包后的全部可达代码仅按浏览器全局做 `no-undef` 检查，再在不提供 Node 全局的 VM 中执行投影。传递依赖中未执行分支的 Node 全局也会被拒绝。
 
-历史关联缺失时保留普通正文并显示原因，不猜测任务或跨任务配对工具结果。数据实例变化时旧会话视图失效，同实例快照保留草稿与本地提示。任务结束收尾尚未结束的思考段。
+历史关联缺失时保留普通正文并显示原因，不猜测任务或跨任务配对工具结果。数据实例变化时旧会话视图失效，同实例快照保留草稿与本地提示。任务结束收尾尚未结束的思考段。待审批只包含状态为 pending、所属任务非终态且权限版本一致的请求。`task.mode_switch_failed` 只随后台中断产生，实时投影将非终态任务设为 interrupted、记录结束时间并保留失败原因；已有终态不回滚，不能将停止未核实解释为安全停止。
 
 ## 设计依据
 

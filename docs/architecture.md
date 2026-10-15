@@ -15,7 +15,7 @@ Ruukoto 后台任务运行时以单仓库交付 `ruukoto` 个人 Agent 和 `ruuk
 | [execution](modules/execution.md) | 执行工具与受限脚本，核实进程停止 | 依赖 core；工具由 agent-tools 调用，脚本经注入回调请求宿主 |
 | [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui、desktop 与 view 消费 |
 | [view](modules/view.md) | 将快照、事件、历史与任务详情投影为客户端状态 | 依赖 core 与 control 的浏览器可用模块；被 tui 与 desktop 消费 |
-| [desktop](modules/desktop.md)（`apps/desktop`） | macOS 桌面连接、系统动作与工作区展示 | 主进程依赖 control/core，渲染进程依赖 view；后台独立运行 |
+| [desktop](modules/desktop.md)（`apps/desktop`） | macOS 桌面连接、系统动作与工作区展示 | 主进程依赖 control/core/view，渲染进程依赖 view；后台独立运行 |
 | [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
 | [scheduler](modules/scheduler.md) | 持久调度计划与通知 outbox 的发送账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |

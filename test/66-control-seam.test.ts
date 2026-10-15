@@ -15,7 +15,7 @@ import { ControlClient, ControlClientError, requestOutcome } from "@ruukoto/cont
 import { ControlConnection } from "@ruukoto/control/connection.ts";
 import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
-import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
+import { CONTROL_PROTOCOL_VERSION, MAX_FRAME_BYTES, type ControlResponse } from "@ruukoto/control/protocol.ts";
 import { errorReply } from "@ruukoto/control/server.ts";
 import { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { ensureWorkspaceSession } from "@ruukoto/control/workspace.ts";
@@ -55,6 +55,43 @@ test("op 表：表里每个 op 服务端都认得（空参数只会被参数校�
     }
   } finally {
     await t.shutdown();
+  }
+});
+
+test("真实控制面在认证前按协议版本方向提示更新客户端或重开旧后台", async () => {
+  const runtime = await startTestRuntime("ctl-version", routeResponder([]));
+  try {
+    for (const version of [CONTROL_PROTOCOL_VERSION - 1, CONTROL_PROTOCOL_VERSION + 1]) {
+      const socket = net.connect(runtime.runtime.socketPath());
+      socket.setEncoding("utf8");
+      try {
+        const response = await new Promise<ControlResponse>((resolve, reject) => {
+          let buffer = "";
+          socket.once("error", reject);
+          socket.on("data", (chunk: string) => {
+            buffer += chunk;
+            const index = buffer.indexOf("\n");
+            if (index !== -1) resolve(JSON.parse(buffer.slice(0, index)) as ControlResponse);
+          });
+          socket.once("connect", () => socket.write(`${JSON.stringify({ v: version, id: "mismatch", op: "connect" })}\n`));
+        });
+        assert.equal(response.v, CONTROL_PROTOCOL_VERSION);
+        assert.equal(response.ok, false);
+        assert.equal(response.error?.code, "protocol_version", "未认证也先拒绝版本不匹配");
+        assert.match(response.error!.message, new RegExp(`服务端 v${CONTROL_PROTOCOL_VERSION}，请求 v${version}`));
+        if (version < CONTROL_PROTOCOL_VERSION) {
+          assert.match(response.error!.message, /升级客户端/);
+          assert.doesNotMatch(response.error!.message, /结束旧后台/);
+        } else {
+          assert.match(response.error!.message, /后台版本较旧.*结束旧后台进程后重开/);
+          assert.doesNotMatch(response.error!.message, /升级客户端/);
+        }
+      } finally {
+        socket.destroy();
+      }
+    }
+  } finally {
+    await runtime.shutdown();
   }
 });
 

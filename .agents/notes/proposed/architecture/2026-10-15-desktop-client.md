@@ -30,6 +30,14 @@ Code 目标只拉起与桌面端同一份仓库代码的 ruukoto-code：.app 在
 
 需求、范围与验收归[规格](../../../../.scratch/desktop-gui/spec.md)，实施步骤归 `.scratch/desktop-gui/issues/`。拥有者已逐轮确认四轮共 22 题并确认整体方案；共享投影已抽取，落地归[同仓分包决定](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md)，整体桌面客户端仍待交付，因此保持 proposed。
 
+## 当前落地边界
+
+Code 桌面骨架已采用本提案的进程、安全、配置来源与构建方案：主进程持有连接与令牌，渲染进程复用 view 显示工作区，preload 单文件 CommonJS；开发与打包的 CSP 分开交付。结构化版本信息沿既有 v 字段传递，不升协议；只有 Personal 产品身份入快照时才需要之后的协议修改。当前请求名单仅含本地 reconnect，交互功能与 Personal 尚未交付，因此整体保持 proposed。
+
+开发时导航拦截允许配置的完整渲染文档 URL 自身重载：electron-vite 的 preload watch 用完整页面重载应用新桥接，若一律拦截，会把开发页面送到没有 preload 的系统浏览器。同源其他路径仍拦截并外开，不为 HMR 放开任意页面导航。
+
+打包与开发入口的包边界、依赖和进程管理事实分别同步[同仓分包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md)与[开发启动器](../../implemented/process/2026-10-09-dev-launchers.md)。macOS 恢复指引按实际 control.sock 生成 lsof 命令，路径按 shell 单引号转义；未查到监听进程时先核对命令是否成功，多匹配或无法核对时停止人工步骤。桌面端不发送进程信号，版本拒绝后仅显式 reconnect 会再试；日常模式重走 ensureBackend，受管模式只连接。
+
 ## 既有笔记审计
 
 按远程、ssh、GUI、桌面、客户端、投影、workspaces 与协议版本检索 active notes。proposed 与 rejected 中没有同题记录；不修改归档。

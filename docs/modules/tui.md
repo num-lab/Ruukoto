@@ -27,6 +27,8 @@
 
 后台入口按 app 的 `CliProduct.defaultExecution` 与 `allowedExecution` 校验执行后端：两个产品均默认且仅允许 native。任务 TUI 在连接已有后台前也校验环境覆盖。开发启动器与按需后台复用所属 app 的 bin，使用同一声明；库层 local 注入不经 CLI 限制。
 
+开发启动器的 `--desktop` 只适用于 ruukoto-code，与配置中心和工作区路径参数互斥。它把清洗后的开发档案环境、受管标记与本次随机 CSP nonce 交给 electron-vite；桌面客户端只连接受管后台。桌面源码与 workspace 客户端依赖的重建、Electron 重启和渲染热更新由 electron-vite 接手，开发启动器只按源码分类重启后台；退出时清理 electron-vite、Electron 的整组进程和后台。
+
 交互终端是控制面的客户端。它调用的操作：
 
 | 操作 | 用途 |
@@ -249,6 +251,8 @@ sequenceDiagram
 - **待确认请求目录**：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
 
 ## 设计依据
+
+- [独立开发入口与受管前端](../../.agents/notes/implemented/process/2026-10-09-dev-launchers.md)
 
 - [工作流侧栏与原请求核实](../../.agents/notes/implemented/feature/2026-10-14-workflow-progressive-controls.md)
 

@@ -12,6 +12,7 @@ Ruukoto 同仓交付两个产品：`ruukoto` 个人 Agent 与 `ruukoto-code` Cod
 
 ```
 apps/ruukoto/       个人 Agent 的 bin、能力声明与专属装配；apps/ruukoto-code/ 同构
+apps/desktop/       桌面客户端
 packages/core/      数据布局、schema、任务状态机、会话身份；不依赖其他 workspace 包
 packages/agent/     上下文装配、工具与审批、执行边界、SubAgent 与 worktree；src/tool-worker/ 是工作进程
 packages/runtime/   任务生命周期、会话身份、队列与委派编排

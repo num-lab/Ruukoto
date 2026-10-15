@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-根包作为安装、开发、构建与检查的聚合入口。npm workspaces 收入 `packages/*` 与 `apps/*`，九个包使用同一根锁文件与版本。每包有自己的 package.json、exports、依赖与 typecheck；包内相对引用带 `.ts`，跨包通过包名解析 `.ts` 源码。tsx、tsc 的 bundler resolution 与 esbuild 均直接使用 exports，不另建 paths 别名或编译后的源码副本。
+根包作为安装、开发、构建与检查的聚合入口。npm workspaces 收入 `packages/*` 与 `apps/*`，十个包使用同一根锁文件与版本。每包有自己的 package.json、exports、依赖与 typecheck；包内相对引用带 `.ts`，跨包通过包名解析 `.ts` 源码。tsx、tsc 的 bundler resolution 与 esbuild 均直接使用 exports，不另建 paths 别名或编译后的源码副本。
 
 | 包 | 归属 |
 | --- | --- |
@@ -21,6 +21,7 @@ Status: implemented
 | `@ruukoto/control` | 控制面协议、认证、客户端与服务器 |
 | `@ruukoto/view` | 浏览器可用的快照、事件、历史与任务详情投影，客户端共用选择器与状态文字 |
 | `@ruukoto/tui` | 共享 CLI、任务界面、配置中心、开发启动器与程序化聚合入口 |
+| `@ruukoto/desktop` | macOS 桌面主进程、sandbox preload、React 渲染进程与应用打包 |
 | `ruukoto` app | 个人产品 bin、主入口、开发入口、能力声明、调度与服务工具装配 |
 | `ruukoto-code` app | Coding 产品 bin、主入口、开发入口、能力声明与旧开发资料导入策略 |
 
@@ -30,7 +31,7 @@ Status: implemented
 
 ## 依赖与兼容
 
-运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
+运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。desktop 的依赖全部放在 devDependencies，主进程与 preload 只外置 Electron 和 Node 内置模块，其余源码打进产物；生产安装不需要桌面依赖。ESLint 仅对此包允许 devDependencies 的值引用，未声明、跨包相对路径与动态 import 的检查仍成立。其他包的反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
 
 view 沿用[桌面客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的共用投影决定，先承载 `ViewState` 与 `EventFlow`。纯状态常量与展示归属从依赖 Node 的模块拆出，原入口再导出以保持调用方兼容；UTF-8 字节用 `TextEncoder` 计数。view 源码禁止 Node 引用，全部导出以浏览器目标打包后仅按浏览器全局检查，覆盖传递依赖中的未执行分支，再用无 Node 全局的 VM 核实实际投影。
 
@@ -46,7 +47,9 @@ view 沿用[桌面客户端提案](../../proposed/architecture/2026-10-15-deskto
 
 根 build:worker 是 worker 的唯一构建入口，产物仍为 `worker/worker.mjs`；两个 app 的 build 各自产出包含 bin、源码和共享依赖声明的 npm tarball。根 build 先构建 worker，再聚合 app 构建。tarball 不是独立单文件发行版，部署仍使用完整 workspace 安装与同一 worker 镜像；没有引入外部包发布流程。
 
-worker 镜像在构建阶段复制 workspace 源码与清单，按根锁文件安装，单次构建 worker 后移除开发依赖；运行阶段只复制生产依赖与 worker 产物。systemd 使用个人 app 的 bin。根 typecheck 检查测试和脚本，再逐包与 foundation 执行独立检查；check 继续聚合构建、静态门禁与离线测试。
+worker 镜像在构建阶段复制 workspace 源码与清单，按根锁文件安装，单次构建 worker 后移除开发依赖；运行阶段只复制生产依赖与 worker 产物。systemd 使用个人 app 的 bin。desktop 不定义 build 脚本，根 build 不触发 Electron；显式 desktop:build 依次构建、检查产物与 electron-builder --mac --arm64 --dir 打包，根 dist 接收 ad-hoc 签名应用。桌面 lint/typecheck 与纯逻辑测试进入现有检查，CI 禁止下载 Electron 二进制。
+
+根 typecheck 检查测试和脚本，再逐包与 foundation 执行独立检查；check 继续聚合构建、静态门禁与离线测试。
 
 ## 备选方案
 
@@ -59,7 +62,7 @@ worker 镜像在构建阶段复制 workspace 源码与清单，按根锁文件�
 
 ## 后果
 
-产品入口与能力有明确归属，新增越界引用能在 lint 阶段失败；多数源码是路径与 import 的机械迁移，共享运行时与执行边界仍只有一份。代价是维护九份依赖清单与逐包类型检查，反向类型仍需共享源码在同仓可用。独立发布版本与外部注册表发货不属于本次分包，若出现该需求需另定共享包发布与版本协调流程。
+产品入口与能力有明确归属，新增越界引用能在 lint 阶段失败；多数源码是路径与 import 的机械迁移，共享运行时与执行边界仍只有一份。代价是维护十份依赖清单与逐包类型检查，反向类型仍需共享源码在同仓可用。独立发布版本与外部注册表发货不属于本次分包，若出现该需求需另定共享包发布与版本协调流程。
 
 2026-10-11 在 macOS arm64、Node 24.15.0 实测：`npm run setup -- --skip-hooks` 干净安装通过；`npm run check` 的构建、八包独立类型检查、静态与文档门禁通过，应用测试 1025 通过、1 跳过，foundation 9 通过、1 跳过。跳过项均为默认关闭的真实模型检查；test/99 验证 bin 链接、各 app 启动脚本以及 import 正负例，test/64 逐产品验证停用个人能力后的旧账本恢复。
 

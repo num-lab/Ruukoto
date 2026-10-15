@@ -8,6 +8,7 @@ node_modules/
 # 构建产物和本机凭据
 /worker/
 /dist/
+/apps/desktop/out/
 .env
 .env.*
 !.env.example

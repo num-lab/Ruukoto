@@ -13,7 +13,7 @@
  * - 数据实例标识变化（新数据库）明确通知：调用方据此处理待确认请求。
  */
 
-import { ControlClient, ControlClientError, requestOutcome, type ClientCloseInfo, type ControlTransport } from "./client.ts";
+import { ControlClient, ControlClientError, type ClientCloseInfo, type ControlTransport } from "./client.ts";
 import type { OpParams, OpResult, TuiOp } from "./ops.ts";
 import type { ConnectResult } from "./protocol.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
@@ -22,7 +22,7 @@ export type ConnectionState = "connecting" | "online" | "reconnecting" | "failed
 
 export interface ConnectionCallbacks {
   /** 状态迁移（reconnecting 的 detail 为原因；failed 的 detail 为修复指引）。 */
-  onState(state: ConnectionState, detail?: string): void;
+  onState(state: ConnectionState, detail?: string, error?: ControlClientError): void;
   /** 安装快照（首次与每次重同步）；instanceChanged=true 表示数据实例已更换。 */
   onSnapshot(result: ConnectResult, ctx: { resync: boolean; instanceChanged: boolean }): void;
   /**
@@ -67,10 +67,10 @@ export class ControlConnection {
     return this.appliedSeq;
   }
 
-  private setState(state: ConnectionState, detail?: string): void {
+  private setState(state: ConnectionState, detail?: string, error?: ControlClientError): void {
     if (this.state === state && detail === undefined) return;
     this.state = state;
-    this.callbacks.onState(state, detail);
+    this.callbacks.onState(state, detail, error);
   }
 
   /** 首次连接并同步；失败抛错。明确拒绝进入 failed 不再重试，其余（后台未起、超时、断线）退避重连。 */
@@ -96,7 +96,7 @@ export class ControlConnection {
     } catch (err) {
       // 明确拒绝（令牌无效、协议不兼容等）：停止自动重试（先置 failed，close 不再触发重连）；
       // 其余（认证或同步超时、断线）经 close 走断线重连
-      if (requestOutcome(err) === "rejected") this.setState("failed", (err as Error).message);
+      if (err instanceof ControlClientError && err.outcome === "rejected") this.setState("failed", err.message, err);
       client.close();
       throw err;
     }

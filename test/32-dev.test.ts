@@ -188,6 +188,8 @@ test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 
       RUUKOTO_PENDING_DIR: "/prod/pending",
       RUUKOTO_DISABLE_QQ: "0",
       RUUKOTO_RELOAD_STATE_FILE: "/prod/reload.json",
+      RUUKOTO_DESKTOP_MANAGED: "1",
+      RUUKOTO_DESKTOP_DEV_NONCE: "inherited-nonce",
     },
     profile,
   );
@@ -197,6 +199,8 @@ test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 
     "RUUKOTO_EXECUTION_BACKEND",
     "RUUKOTO_SERVICE_SUDO",
     "RUUKOTO_RELOAD_STATE_FILE",
+    "RUUKOTO_DESKTOP_MANAGED",
+    "RUUKOTO_DESKTOP_DEV_NONCE",
   ]) {
     assert.equal(env[key], undefined, `${key} 不得继承`);
   }
@@ -214,6 +218,10 @@ test("监听分类：tui / config-tui / backend / both / self", () => {
   assert.equal(classifyWatchPath("packages/tui/src/dev.ts"), "self");
   assert.equal(classifyWatchPath("apps/ruukoto/src/dev.ts"), "self");
   assert.equal(classifyWatchPath("apps/ruukoto-code/src/dev.ts"), "self");
+  assert.equal(classifyWatchPath("apps/desktop/src/main/index.ts"), null);
+  assert.equal(classifyWatchPath("apps/desktop/src/preload/index.ts"), null);
+  assert.equal(classifyWatchPath("apps/desktop/src/renderer/App.tsx"), null);
+  assert.equal(classifyWatchPath("apps/desktop/src/dev.ts"), null);
   assert.equal(classifyWatchPath("packages/tui/src/tui/app.ts"), "tui");
   assert.equal(classifyWatchPath("packages/tui/src/tui/state.ts"), "tui");
   assert.equal(classifyWatchPath("packages/view/src/event-flow.ts"), "tui");
@@ -242,13 +250,18 @@ test("重启计划：后台变更只重启后台；配置中心不重连，随�
   assert.deepEqual(planWatchRestart(["tui"], "tui"), { backend: false, frontend: true });
   assert.deepEqual(planWatchRestart(["config-tui"], "config"), { backend: false, frontend: true });
   assert.deepEqual(planWatchRestart(["both"], "tui"), { backend: true, frontend: true });
+  for (const actions of [["backend"], ["both"]] as const) {
+    assert.deepEqual(planWatchRestart([...actions], "desktop"), { backend: true, frontend: false });
+  }
+  assert.deepEqual(planWatchRestart(["tui"], "desktop"), { backend: false, frontend: false });
+  assert.deepEqual(planWatchRestart(["config-tui"], "desktop"), { backend: false, frontend: false });
 });
 
 test("参数解析：dev 仅后台、code 默认 TUI；--config 取代 TUI，严格拒绝旧 --tui", () => {
-  assert.deepEqual(parseDevArgs([]), { tui: false, config: false, importModels: undefined, workspacePath: undefined });
-  assert.deepEqual(parseDevArgs([], "ruukoto-code"), { tui: true, config: false, importModels: undefined, workspacePath: undefined });
-  assert.deepEqual(parseDevArgs(["--config"]), { tui: false, config: true, importModels: undefined, workspacePath: undefined });
-  assert.deepEqual(parseDevArgs(["--config"], "ruukoto-code"), { tui: false, config: true, importModels: undefined, workspacePath: undefined });
+  assert.deepEqual(parseDevArgs([]), { tui: false, config: false, desktop: false, importModels: undefined, workspacePath: undefined });
+  assert.deepEqual(parseDevArgs([], "ruukoto-code"), { tui: true, config: false, desktop: false, importModels: undefined, workspacePath: undefined });
+  assert.deepEqual(parseDevArgs(["--config"]), { tui: false, config: true, desktop: false, importModels: undefined, workspacePath: undefined });
+  assert.deepEqual(parseDevArgs(["--config"], "ruukoto-code"), { tui: false, config: true, desktop: false, importModels: undefined, workspacePath: undefined });
   for (const product of ["ruukoto", "ruukoto-code"] as const) {
     assert.equal(parseDevArgs(["--import-models", "/tmp/x"], product).importModels, "/tmp/x");
     assert.throws(() => parseDevArgs(["--tui"], product));
@@ -262,11 +275,20 @@ test("code 路径参数：单目录可与模型导入同用，拒绝多个目录
     assert.equal(parseDevArgs([dir], "ruukoto-code").workspacePath, dir);
   }
   assert.deepEqual(parseDevArgs(["../my project", "--import-models", "/tmp/models"], "ruukoto-code"), {
-    tui: true, config: false, importModels: "/tmp/models", workspacePath: "../my project",
+    tui: true, config: false, desktop: false, importModels: "/tmp/models", workspacePath: "../my project",
   });
   assert.throws(() => parseDevArgs(["/tmp/a", "/tmp/b"], "ruukoto-code"), /只接受一个路径/);
   assert.throws(() => parseDevArgs(["--config", "/tmp/a"], "ruukoto-code"), /不能与工作区路径同用/);
   assert.equal(parseDevArgs(["--", "--config"], "ruukoto-code").workspacePath, "--config");
+});
+
+test("桌面参数：仅 code 可用，取代 TUI，拒绝配置中心与工作区路径", () => {
+  assert.deepEqual(parseDevArgs(["--desktop", "--import-models", "/tmp/models"], "ruukoto-code"), {
+    tui: false, config: false, desktop: true, importModels: "/tmp/models", workspacePath: undefined,
+  });
+  assert.throws(() => parseDevArgs(["--desktop"]), /只适用于 ruukoto-code/);
+  assert.throws(() => parseDevArgs(["--desktop", "--config"], "ruukoto-code"), /不能与 --config 同用/);
+  assert.throws(() => parseDevArgs(["--desktop", "/tmp/work"], "ruukoto-code"), /不能与工作区路径同用/);
 });
 
 test("importModelConfigs：只复制 models.json/auth.json（0600），忽略 credentials.json", () => {
@@ -287,6 +309,102 @@ test("importModelConfigs：只复制 models.json/auth.json（0600），忽略 cr
 });
 
 // ---------- 集成（真实仓库 + HOME=临时目录） ----------
+
+test("桌面开发入口：清洗档案环境、每次生成 nonce；退出前端或启动器都清理整组进程", { timeout: 180_000 }, async () => {
+  const home = tmpHome();
+  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  const baseUrl = await server.start();
+  const binDir = path.join(home, "bin");
+  const fixtureLog = path.join(home, "desktop.jsonl");
+  fs.mkdirSync(binDir);
+  fs.writeFileSync(path.join(binDir, "electron-vite"), `#!/usr/bin/env node
+const fs = require("node:fs");
+const { spawn } = require("node:child_process");
+const log = (record) => fs.appendFileSync(process.env.DESKTOP_FIXTURE_LOG, JSON.stringify(record) + "\\n");
+const electron = spawn(process.execPath, ["-e", \`
+const fs = require("node:fs");
+const log = (kind) => fs.appendFileSync(process.env.DESKTOP_FIXTURE_LOG, JSON.stringify({ kind, pid: process.pid }) + "\\\\n");
+process.on("SIGTERM", () => { log("electron-stopped"); process.exit(0); });
+log("electron");
+setInterval(() => {}, 1000);
+\`], { stdio: "ignore" });
+let stopping = false;
+electron.on("exit", () => { if (stopping) process.exit(0); });
+process.on("SIGTERM", () => {
+  stopping = true;
+  if (electron.exitCode !== null || electron.signalCode !== null) process.exit(0);
+});
+process.on("SIGUSR2", () => { electron.unref(); process.exit(0); });
+log({ kind: "vite", pid: process.pid, argv: process.argv.slice(2), cwd: process.cwd(),
+  product: process.env.RUUKOTO_PRODUCT, dataDir: process.env.RUUKOTO_CODE_DATA_DIR,
+  controlDir: process.env.RUUKOTO_CODE_CONTROL_DIR, ownerToken: process.env.RUUKOTO_OWNER_TOKEN,
+  managed: process.env.RUUKOTO_DESKTOP_MANAGED, nonce: process.env.RUUKOTO_DESKTOP_DEV_NONCE });
+setInterval(() => {}, 1000);
+`, { mode: 0o755 });
+  type FixtureRecord = { kind: string; pid: number; argv?: string[]; cwd?: string; product?: string; dataDir?: string; controlDir?: string; ownerToken?: string; managed?: string; nonce?: string };
+  const records = (): FixtureRecord[] => fs.existsSync(fixtureLog)
+    ? fs.readFileSync(fixtureLog, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line) as FixtureRecord)
+    : [];
+  const nonces: string[] = [];
+  try {
+    await writeMockModelConfig(profile.agentDir, baseUrl);
+    for (const exit of ["launcher", "frontend"] as const) {
+      fs.rmSync(fixtureLog, { force: true });
+      const run = runDev(home, ["--desktop"], {
+        PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+        DESKTOP_FIXTURE_LOG: fixtureLog,
+        RUUKOTO_CODE_DATA_DIR: "/daily/data",
+        RUUKOTO_CODE_CONTROL_DIR: "/daily/control",
+        RUUKOTO_OWNER_TOKEN: "daily-token",
+        RUUKOTO_DESKTOP_DEV_NONCE: "inherited-nonce",
+      }, "ruukoto-code");
+      let vitePid: number | undefined;
+      try {
+        await waitFor("桌面替身与 Electron 子进程已启动", () => {
+          if (run.child.exitCode !== null) throw new Error(run.stderr());
+          return records().some(row => row.kind === "vite") && records().some(row => row.kind === "electron");
+        }, 120_000);
+        const vite = records().find(row => row.kind === "vite")!;
+        vitePid = vite.pid;
+        assert.deepEqual(vite.argv, ["dev", "--watch"]);
+        assert.equal(vite.cwd, fs.realpathSync(path.join(repoRoot, "apps", "desktop")));
+        assert.equal(vite.product, "ruukoto-code");
+        assert.equal(vite.dataDir, profile.dataDir);
+        assert.equal(vite.controlDir, profile.controlDir);
+        assert.equal(vite.ownerToken, undefined);
+        assert.equal(vite.managed, "1");
+        assert.ok(vite.nonce && vite.nonce !== "inherited-nonce");
+        assert.equal(Buffer.from(vite.nonce, "base64url").length, 24);
+        assert.match(vite.nonce, /^[A-Za-z0-9_-]{32}$/);
+        nonces.push(vite.nonce);
+        if (exit === "launcher") run.child.kill("SIGINT");
+        else process.kill(vite.pid, "SIGUSR2");
+        assert.equal(await run.waitExit(), 0, run.stderr());
+        assert.ok(records().some(row => row.kind === "electron-stopped"), "退出时通知 Electron 子进程，不能只停 electron-vite");
+        assert.throws(() => process.kill(vite.pid, 0), /ESRCH/, "electron-vite 已退出");
+        assertCodeBackendStopped(profile);
+      } finally {
+        if (vitePid !== undefined) {
+          try {
+            process.kill(-vitePid, "SIGKILL");
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH") process.stderr.write(`[ruukoto:test] 桌面替身进程组清理失败：${String(error)}\n`);
+          }
+        }
+        if (run.child.exitCode === null && run.child.signalCode === null) {
+          run.child.kill("SIGTERM");
+          await run.waitExit();
+        }
+        await killDev(run);
+      }
+    }
+    assert.equal(new Set(nonces).size, 2, "每次启动前端使用新的 nonce");
+  } finally {
+    await server.close();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
 
 for (const product of ["ruukoto", "ruukoto-code"] as const) {
   for (const flag of ["--tui", "--nope"]) {

@@ -112,7 +112,7 @@ stateDiagram-v2
     closed --> [*]
 ```
 
-退避重连的初始间隔 500 ms、上限 8000 ms；只有后台明确拒绝（令牌无效、协议不兼容）进 `failed` 并停止重试。重连只恢复观察：不发送 `resume_queue`、批准或继续请求。
+退避重连的初始间隔 500 ms、上限 8000 ms；只有后台明确拒绝（令牌无效、协议不兼容）进 `failed` 并停止重试；`onState` 的第三个参数携带原始 `ControlClientError`。重连只恢复观察：不发送 `resume_queue`、批准或继续请求。
 
 **待确认请求记录。** 每个产品存档根下的 `pending/`（默认 `~/.ruukoto/pending` 或 `~/.ruukoto-code/pending`，`RUUKOTO_PENDING_DIR` / `RUUKOTO_CODE_PENDING_DIR` 可覆盖）：目录 0700、记录 0600，写临时文件再 `rename`。一条记录含 `requestId`、op（输入提交、会话分支、压缩或工作流启动/回答/控制）、完整请求参数、提交时握手返回的 `instanceId`、创建时间。解析不了的文件留在磁盘上单独列出，不静默丢弃；令牌等凭据永不写入这里。记录用于核实原请求及关联其结果，不是会话历史的副本。
 
@@ -200,7 +200,7 @@ sequenceDiagram
 
 **认证先于一切。** 认证成功前不返回快照、不执行请求；不论连接处于什么阶段都能先认证。令牌不进命令行、工具环境、日志或待确认记录；完全访问与后台使用同一账户，可以经文件系统读取该账户有权限的令牌文件。
 
-**版本不匹配明确拒绝。** 版本检查在认证之前，服务端回 `protocol_version` 并在消息里写明双方版本，客户端提示升级而不是静默重试。线上协议直接替换，不适配旧格式。
+**版本不匹配明确拒绝。** 版本检查在认证之前，服务端回 `protocol_version` 并在消息里写明双方版本：请求版本较旧时提示升级客户端，较新时提示结束旧后台进程后重开入口。`ControlClientError.versions` 从应答帧已有的 `v` 提供 `{ client, server }`，`ensureBackend` 的失败结果保留 `code` 与 `versions`；调用方按结构化字段判断更新方向，不解析消息。客户端停在 `failed`，不自动重试。线上协议直接替换，不适配旧格式。
 
 **错误码口径。** 只有小写蛇形的业务码原样进协议；系统错误码（`ENOENT`、`ERR_SQLITE_*` 等）与没带码的异常统一收口为 `internal_error`，原码留在消息里。非法 JSON 帧回 `bad_frame`（`id` 为空），缺 `id` 或 `op` 回 `bad_request`，未知 op 回 `unknown_op`。
 

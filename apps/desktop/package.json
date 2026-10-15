@@ -1,0 +1,47 @@
+{
+  "name": "@ruukoto/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ruukoto 桌面客户端",
+  "main": "out/main/index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "desktop:build": "electron-vite build && node scripts/check-build.mjs && electron-builder --mac --arm64 --dir"
+  },
+  "devDependencies": {
+    "@ruukoto/control": "*",
+    "@ruukoto/core": "*",
+    "@ruukoto/view": "*",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "electron-vite": "6.0.0",
+    "parse5": "8.0.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "8.3.4"
+  },
+  "build": {
+    "appId": "dev.ruukoto.desktop",
+    "productName": "Ruukoto",
+    "directories": {
+      "output": "../../dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "npmRebuild": false,
+    "mac": {
+      "identity": "-",
+      "category": "public.app-category.developer-tools"
+    }
+  }
+}

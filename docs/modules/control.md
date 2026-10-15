@@ -20,13 +20,17 @@
 
 `session-attribution.ts` 提供浏览器可用的 `sessionDisplayAttribution`，仅按项目与会话元数据计算展示归属；`workspace.ts` 同时再导出，文件系统操作仍在原模块。
 
+**客户端路径。** `connect.ts` 的 `defaultDataDir(product?)`、`defaultAgentDir(product?)` 与 `controlDirFor(dataDir, product?)` 接受显式 `ProductType`，同一进程可分别解析两个产品的档案；省略时按 `RUUKOTO_PRODUCT` 解析。各自只读本产品的目录覆盖变量，`socketPathFor(controlDir)` 拼接 socket 路径。`resolveClientConfig` 仍按当前产品补默认值，跨产品调用时须显式传全 `dataDir` 与 `controlDir`。
+
+**后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
+
 **监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `25`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
 客户端按固定优先级取令牌：`RUUKOTO_OWNER_TOKEN` 环境变量 → `RUUKOTO_OWNER_TOKEN_FILE` 指定的文件 → 控制目录的 `owner.token`。两个环境变量两个产品同名（令牌是控制面身份，不是路径归属）。令牌不进命令行、工具环境、日志或待确认记录；比较用 `timingSafeEqual` 常数时间比较，长度不同也照样比较一次再否决。三个来源都取不到时客户端抛出带修复指引的错误，请求根本不发。
 
-**探测。** 判定「后台是否在运行」的标准是 socket 可连、令牌认证通过、一次不带游标的 `connect` 成功，三者都成立才复用而不启动第二个实例；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。按需拉起、退避重连与失败分类属 TUI 入口，见[交互终端与配置中心](tui.md)。
+**探测。** 判定「后台是否在运行」的标准是 socket 可连、令牌认证通过、一次不带游标的 `connect` 成功，三者都成立才复用而不启动第二个实例；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。TUI 的按需拉起门控与退避重连见[交互终端与配置中心](tui.md)。
 
 **op 目录。** `auth` 在派发之前单独处理；其余 op 由 `dispatch` 的 `switch (request.op)` 派发。未知 op 回 `unknown_op`。
 
@@ -192,6 +196,8 @@ sequenceDiagram
 
 ## 不变量与失败处理
 
+**启动失败先探测。** `spawn` 的 `error` 按系统 `code` 分类：`ENOENT` 提示找不到 node，`EACCES` 提示 node 不可执行，其余附原码；错误包含可执行文件路径和修复指引，不等待退出宽限窗口。报告错误前仍先探测，其他调用方的后台已就绪则按复用返回 `spawned: false`。实例锁竞争败者仍等待胜者，普通子进程提前退出仍附本次日志尾部；失败路径不杀后台。
+
 **认证先于一切。** 认证成功前不返回快照、不执行请求；不论连接处于什么阶段都能先认证。令牌不进命令行、工具环境、日志或待确认记录；完全访问与后台使用同一账户，可以经文件系统读取该账户有权限的令牌文件。
 
 **版本不匹配明确拒绝。** 版本检查在认证之前，服务端回 `protocol_version` 并在消息里写明双方版本，客户端提示升级而不是静默重试。线上协议直接替换，不适配旧格式。
@@ -231,6 +237,8 @@ sequenceDiagram
 **已知上限。** 两端的帧大小口径不同：服务端按字符串长度（UTF-16 码元数）比较请求行，客户端只核对收到的帧（按 UTF-8 字节数），发送前不核对请求大小。超过服务端上限的请求会让连接被直接销毁，客户端把在途请求当成应答丢失；如果那是提交，待确认记录每次上线都会被核实，`find_task` 查不到就按原参数重发，连接又被销毁，按退避初值 500 ms 重连，如此循环。这是按代码推演的结论，未实际运行验证。
 
 ## 设计依据
+
+- [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)：显式产品路径与外部 Node 启动参数。
 
 - [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
 

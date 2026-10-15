@@ -1,0 +1,14 @@
+[
+  {
+    "archive": "05-final-independent-review-v2.tar.gz",
+    "manifestMembers": 19,
+    "mismatches": [],
+    "sha256": "0980cfbd8d806430d4476d27fbb9b0fa8dcce4614861603016386573f7efeb68"
+  },
+  {
+    "archive": "05-final-independent-review-v3.tar.gz",
+    "manifestMembers": 10,
+    "mismatches": [],
+    "sha256": "3bbe1cc8664841fb566455b15fde9c5d3db6baf63a63661869d5e87994c565e9"
+  }
+]

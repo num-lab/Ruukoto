@@ -68,7 +68,7 @@ function kit() {
     return { task: store.getTask(execution.id)!, parent, subAgentId, workId, target, report, corrupt };
   };
   const submissions: Parameters<ParentDeliveryDeps["submit"]>[0][] = [];
-  const deliveryDeps: ParentDeliveryDeps = { verifyWork: () => {}, store, defaultModelSelection: () => SELECTION, readReply: () => "汇报正文", isReviewEvent: () => false,
+  const deliveryDeps: ParentDeliveryDeps = { verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => SELECTION, readReply: () => "汇报正文", isReviewEvent: () => false,
     resultNotice: () => null, sendWorkReport: () => { throw new Error("未取得外发资格"); },
     submit: async input => { submissions.push(input); return store.insertQueuedTask({ ...input, submissionDigest: input.requestId }).task; } };
   const delivery = new ParentDelivery(deliveryDeps);

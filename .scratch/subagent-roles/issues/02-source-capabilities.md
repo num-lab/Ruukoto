@@ -18,11 +18,13 @@ Status: ready-for-human
 
 ## 进展与交接
 
-独立方案审查已通过，无未解决阻断。2026-10-15 接手时核实 HEAD 为 `d12eb63`，01 的定义与快照工程已验收，本单前置成立；用户本轮直接指定本单，按已确认范围实施。原规划基点与方案结论见[独立审查](../plan-review.md)。root 汇总 runtime/core/执行边界，Driver/上下文与 MCP/资料测试在独立工作副本完成后汇总，主工作区保持一个写入者。实现、文档和工程验收已完成，无未解决审查阻断，见[工程证据](../evidence/02-implementation.md)、[实现审查](../02-implementation-review.md)与[最终内容清单](../evidence/02-implementation-inputs.sha256)。02 已保存每次执行的可信来源、实际工具和收紧策略，下一实施入口为 03 的当前目标快照与副本基线，04 接新派发接口；未提交或推送。
+本单原实施与独立审查见[工程证据](../evidence/02-implementation.md)、[实现审查](../02-implementation-review.md)与[当时内容清单](../evidence/02-implementation-inputs.sha256)；`d12eb63` 是原实施基点。05 接手时 01–04 已提交到 `5f9da45`，随后回开本单修复结果消费的来源缺口。当前返工、调用方及文档已汇总主区，[本轮独立审查](../evidence/05-final-independent-review.md)无未解决实现阻断，精确输入由其新清单固定。下一责任归 05 联合验收；未提交、推送或部署本轮返工。
 
 ## 验收与证据
 
-工程验收通过，独立实现审查无未解决阻断；产品与必要真实环境验收待 05，因此保留 ready-for-human。两产品、普通/工作流同源工具对照和默认真实 bash、显式缺工具/MCP 启动前拒绝、权限只收紧、来源/资料/记忆撤销、旧 MCP 缓存复用拒绝、上下文重建、审批账本及固定评审回归已有证据。平台替身不记外部业务成功，旧冻结验证的 macOS native 负例不替代 03/05 的脏目标与双平台隔离验收。schema 43 拒绝旧库，不补造缺失快照。
+05 在 `5f9da45` 发现的 R14 来源消费阻断已修复：等待、普通结果/消息装配、发送、消费和唤醒共用截至目标任务的实际依赖核实，缺记录不猜造来源，后来复用不扩大旧报告依赖；定时收尾保留具体失败，GitHub 固定宿主评审保持原可信入口。原通过结论在该范围由本轮新证据取代，其余历史证据保留。非作者六文件 35/35 及原真实缺 execution 反例已转为拒绝且不注入、不重放；最终 Linux 消费组合 121/121，macOS 真实 native 31/31，恢复及旧夹具的组合假绿也已修复并复验，详见 [05 记录](../evidence/05-acceptance.md)。本单工程返工闭环，产品及联合完整检查继续归 05，保留 ready-for-human。
+
+两产品、普通/工作流同源工具对照和默认真实 bash、显式缺工具/MCP 启动前拒绝、权限只收紧、来源/资料/记忆撤销、旧 MCP 缓存复用拒绝、上下文重建、审批账本及固定评审回归已有证据。平台替身不记外部业务成功，旧冻结验证的 macOS native 负例不替代 03/05 的脏目标与双平台隔离验收。schema 43 是原实施时版本，现行版本归 04；缺失快照不得补造。
 
 运行 npm run check:static，相关回归至少选 test/62-tool-availability.test.ts、test/80-subagent-delegation.test.ts、test/111-workflow-capabilities.test.ts、test/113-workflow-source-capabilities.test.ts；审批/工具修改按 pre-push-checks 补 07/08/10/63/64 的明确文件，业务与上下文按实际调用方补定向用例。个人业务替身与真实 MCP/IM 必须区分，不能以共享配置解析通过宣称身份传播通过。
 
@@ -31,6 +33,10 @@ Status: ready-for-human
 宿主固定评审必须覆盖 test/45-github-events.test.ts、test/46-github-recovery.test.ts 和 62 的只读 MCP/禁消息断言；用户角色覆盖不能增加其 bash 或改变来源资格，旧 fixed-review 生命周期保持。
 
 ## Comments
+
+2026-10-15：来源消费返工及非作者最窄复验通过，原结果、Task、尝试和字节保留；修正依赖旧记录的测试夹具，恢复 ready-for-human。05 继续最终联合检查、真实模型及拥有者体验，不继承本单为整体通过。
+
+2026-10-15：05 独立真实 Runtime/Driver 反例确认缺 execution 的完成结果仍会注入父模型并经 agent_wait 返回；回开本单返工，规格和验收标准不变，恢复后复验受影响的来源消费、等待/回报、GitHub 和调度路径。
 
 2026-10-14：工具来源共用是 Q1 的必要接线，不以保留普通子代理旧白名单缩减目标。
 

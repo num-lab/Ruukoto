@@ -53,7 +53,7 @@ function kit() {
   const report = (target: Task) => store.withTx(() => registerAgentReport(store, { target: { kind: "task", taskId: target.id }, source,
     parentSessionId: parentSession.id }));
   const submissions: Parameters<ParentDeliveryDeps["submit"]>[0][] = [], replies = new Map<string, string>(), reports: AgentReport[][] = [];
-  const deps: ParentDeliveryDeps = { verifyWork: () => {}, store, defaultModelSelection: () => SELECTION, readReply: id => replies.get(id) ?? null,
+  const deps: ParentDeliveryDeps = { verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => SELECTION, readReply: id => replies.get(id) ?? null,
     isReviewEvent: () => false, resultNotice: () => null, sendWorkReport: () => { throw new Error("dev 不外发"); },
     submit: async input => {
       submissions.push(input);

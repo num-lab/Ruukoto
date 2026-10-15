@@ -62,6 +62,9 @@ import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
 import { createSkillFamily,loadSkillLibrary,skillsDirFor } from "@ruukoto/agent/skills.ts";
 import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
 import { createSubAgentFamily } from "@ruukoto/agent/subagent-tools.ts";
+import { subAgentAccessPolicy } from "@ruukoto/agent/subagent-capabilities.ts";
+import { HOST_REVIEW_DEFINITION, SubAgentRoleError, validateSubAgentRole } from "@ruukoto/agent/subagent-roles.ts";
+import { requireSubAgentDefinition, SubAgentDefinitionError } from "@ruukoto/core/subagent-definition.ts";
 import { createWorkflowFamily } from "@ruukoto/agent/workflow-tools.ts";
 import { createTodoFamily, parseTodos } from "@ruukoto/agent/todo.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
@@ -524,6 +527,7 @@ export class Runtime {
       sendWorkflowReport: report => this.imEntries.sendWorkReport(report),
       reserveAgentReport: report => this.agentWait.reserve(report),
       verifyWork: work => this.subagents!.verifyWorkspace(work),
+      verifyTask: task => this.verifySubAgentSource(task),
       verifyAgentReport: report => this.verifyAgentWaitTarget(report.source, report.target) && (Boolean(report.claimTaskId) || !this.agentReportWorkCanceled(report)),
       routeAgentReport: report => this.routeAgentReportGroup(report),
       recordClaimedReport: (task, outcome, reports) => this.recordClaimedAgentReport(task, outcome, reports),
@@ -1126,36 +1130,69 @@ export class Runtime {
     return verifySource(run.source) && listWorkflowSteps(this.store, run.id).every(step => this.workflowSteps.verifyResultSources(run, step, verifySource));
   }
 
-  private verifySubAgentSource(task: Task): string | null {
-    if (!task.subAgentId || task.sourceEventId) return null;
-    try {
-      const execution = requireSubAgentExecutionScope(task.readScope).execution;
-      const work = task.workId ? this.store.getWorkDelegation(task.workId) : null;
-      const agent = this.store.getSubAgent(task.subAgentId);
-      if (!work || !agent || task.sessionId !== agent.sessionId || work.parentSessionId !== execution.source.sessionId ||
-          execution.source.projectId !== this.store.getSession(task.sessionId)?.projectId || execution.roleDigest !== agent.definition?.digest ||
-          execution.accessMode !== task.accessMode || !this.verifyWorkflowSource(execution.source)) return "subagent_source_invalid";
-      this.subagents!.verifyWorkspace(work);
-      for (const previous of this.store.listTasksBySession(task.sessionId)) {
-        const scope = requireSubAgentExecutionScope(previous.readScope);
-        const saved = scope.execution;
-        if (!this.verifyWorkflowSource(saved.source)) return "subagent_source_invalid";
-        const memories = this.store.db.prepare("SELECT json_extract(body, '$.memoryId') AS id FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.memory_accessed'").all(previous.id) as { id: string }[];
-        if (memories.some(memory => !scope.readMemories.includes(memory.id))) return "execution_corrupt";
-        if (saved.source.authority!.grantIds.some(id => !this.access.getGrant(id) || this.access.getGrant(id)!.revokedAt) ||
-            this.sources.verify(saved.source.projectId, previous.readScope?.sourceRefs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[] ?? [], previous.id)) return "subagent_materials_revoked";
-        if (previous.readScope?.readMemories?.some(id => this.memories.getMemory(id)?.status !== "active")) return "subagent_memory_revoked";
-        for (const op of this.store.listToolOpsByTask(previous.id)) {
-          if (Array.isArray(op.params.source_refs) && this.sources.verify(saved.source.projectId, op.params.source_refs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[], previous.id)) return "subagent_materials_revoked";
-          if (op.toolName === "memory_read" && typeof op.params.memory_id === "string" && this.memories.getMemory(op.params.memory_id)?.status !== "active") return "subagent_memory_revoked";
-        }
-      }
-      return null;
-    } catch (error) {
-      if (!(error instanceof SubAgentExecutionError) && !(error instanceof WorkCopyError) &&
+  /** 结果只依赖截至目标执行的历史；身份后来复用不扩大旧报告的冻结依赖。
+   * Note: 见 .agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md
+   */
+  private verifySubAgentSource(task: Task, finalReport = false): string | null {
+    try { return this.subAgentSourceProblem(task, finalReport); }
+    catch (error) {
+      if (!(error instanceof SubAgentExecutionError) && !(error instanceof SubAgentDefinitionError) && !(error instanceof SubAgentRoleError) && !(error instanceof WorkCopyError) &&
           (!(error instanceof WorkspaceSnapshotError) || !["target_corrupt", "snapshot_missing", "snapshot_corrupt"].includes(error.code))) throw error;
       return error.code;
     }
+  }
+
+  private subAgentSourceProblem(task: Task, finalReport: boolean): string | null {
+    if (!task.subAgentId) return null;
+    const agent = this.store.getSubAgent(task.subAgentId), session = this.store.getSession(task.sessionId);
+    if (!agent || !session || agent.sessionId !== task.sessionId || this.store.getSessionIdentity(task.sessionId)?.kind !== "subagent") return "subagent_source_invalid";
+    const definition = validateSubAgentRole(requireSubAgentDefinition(agent));
+    const history = (this.store.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND rowid <= (SELECT rowid FROM tasks WHERE id = ?) ORDER BY rowid").all(task.sessionId, task.id) as { id: string }[]).map(row => row.id);
+    const dependencies = getAgentReport(this.store, agentReportKey({ kind: "task", taskId: task.id }))?.dependencyTaskIds ?? history;
+    if (!history.includes(task.id) || !isDeepStrictEqual(dependencies, history)) return "execution_corrupt";
+    for (const id of dependencies) {
+      const previous = this.store.getTask(id), work = previous?.workId ? this.store.getWorkDelegation(previous.workId) : null;
+      if (!previous || previous.subAgentId !== agent.id || previous.sessionId !== session.id || !work || work.parentSessionId !== agent.parentSessionId) return "subagent_source_invalid";
+      this.subagents!.verifyWorkspace(work);
+      if (definition.kind === "host_review") {
+        const event = previous.sourceEventId ? this.store.getInboundEvent(previous.sourceEventId) : null;
+        const origin = this.store.getTask(work.originTaskId);
+        if (definition.digest !== HOST_REVIEW_DEFINITION.digest || !event || event.source !== GITHUB_SOURCE || !this.githubEvents.request(event) ||
+            this.inboundGate(event) !== "run" || origin?.sourceEventId !== event.id || origin.sessionId !== work.parentSessionId ||
+            previous.parentTaskId !== origin.id || previous.accessMode !== "confirm" || origin.accessMode !== "confirm" ||
+            previous.sourcePermissionVersion !== origin.permissionVersion) return "subagent_source_invalid";
+        continue;
+      }
+      const scope = requireSubAgentExecutionScope(previous.readScope), saved = scope.execution;
+      if (previous.sourceEventId || saved.roleDigest !== definition.digest || saved.accessMode !== previous.accessMode ||
+          saved.source.sessionId !== work.parentSessionId || saved.source.projectId !== session.projectId ||
+          definition.tools?.some(name => !saved.tools.includes(name)) || !this.verifyWorkflowSource(saved.source, finalReport)) return "subagent_source_invalid";
+      const policy = subAgentAccessPolicy(saved.source.accessMode, definition);
+      if ((saved.accessMode === "full_access" && policy.accessMode !== "full_access") || (saved.accessMode === "auto-review" && policy.accessMode === "confirm") ||
+          (policy.protectSource && !saved.protectSource) || (saved.protectSource && saved.accessMode === "full_access")) return "execution_binding_invalid";
+      if (!previous.requestId.startsWith("smsg:") && previous.parentTaskId !== saved.source.taskId) return "execution_binding_invalid";
+      if (previous.requestId.startsWith("smsg:")) {
+        const message = this.store.getSubAgentMessage(previous.requestId.slice("smsg:".length));
+        if (!message || message.workId !== work.id || message.toSubAgentId !== agent.id || previous.parentTaskId !== message.fromTaskId) return "execution_binding_invalid";
+      }
+      const memories = this.store.db.prepare("SELECT json_extract(body, '$.memoryId') AS id FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.memory_accessed'").all(previous.id) as { id: string }[];
+      if (memories.some(memory => !scope.readMemories.includes(memory.id))) return "execution_corrupt";
+      if (this.sources.verify(saved.source.projectId, scope.sourceRefs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[], previous.id)) return "subagent_materials_revoked";
+      if (scope.readMemories.some(memoryId => this.memories.getMemory(memoryId)?.status !== "active")) return "subagent_memory_revoked";
+      for (const op of this.store.listToolOpsByTask(previous.id)) {
+        if (Array.isArray(op.params.source_refs) && this.sources.verify(saved.source.projectId, op.params.source_refs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[], previous.id)) return "subagent_materials_revoked";
+        if (op.toolName === "memory_read" && typeof op.params.memory_id === "string" && this.memories.getMemory(op.params.memory_id)?.status !== "active") return "subagent_memory_revoked";
+      }
+    }
+    return null;
+  }
+
+  private subAgentOriginalSource(work: WorkDelegation): WorkflowSource {
+    const row = this.store.db.prepare("SELECT id FROM tasks WHERE work_id = ? ORDER BY rowid LIMIT 1").get(work.id) as { id: string } | undefined;
+    const first = row ? this.store.getTask(row.id) : null;
+    const source = requireSubAgentExecutionScope(first?.readScope).execution.source;
+    if (!first || first.subAgentId !== work.subAgentId || first.parentTaskId !== work.originTaskId || source.taskId !== work.originTaskId || source.sessionId !== work.parentSessionId) throw new SubAgentExecutionError("execution_binding_invalid");
+    return source;
   }
 
   private agentWaitSource(target: AgentWaitTarget, parent: Task): WorkflowSource {
@@ -1171,17 +1208,14 @@ export class Runtime {
       const session = origin ? this.store.getSession(origin.sessionId) : null;
       if (!child?.subAgentId || !work || !origin || !session || work.parentSessionId !== parent.sessionId) throw new AgentWaitError("target_invalid");
       const prior = listAgentWaits(this.store, { sessionId: parent.sessionId }).find(wait => wait.targets.some(item => item.kind === "task" && item.taskId === child.id));
-      const first = this.store.listTasksByWork(work.id).find(task => task.readScope?.execution?.source.taskId === work.originTaskId);
-      const event = origin.sourceEventId ? this.store.getInboundEvent(origin.sourceEventId) : null;
-      const scheduled = this.store.getScheduledRunForTask(origin.id);
-      source = prior?.source ?? (first?.readScope?.execution ? requireSubAgentExecution(first.readScope.execution).source : { product: this.productType, projectId: session.projectId, sessionId: session.id, taskId: origin.id,
-        permissionVersion: origin.permissionVersion, accessMode: origin.accessMode, grantedPaths: origin.grantedPaths,
-        capabilities: sessionToolCategories(identity.kind === "dev" ? "dev" : "main"), references: origin.readScope?.sourceRefs ?? [],
-        replyTarget: scheduled ? this.sched.getSchedule(this.sched.getRun(scheduled.id)!.scheduleId)?.target ?? null : event?.replyTarget ?? null,
-        scheduledRunId: scheduled?.id ?? null,
-        authority: { toolClass: identity.kind === "dev" ? "dev" : "main", categories: this.delegationCategories(identity.kind === "dev" ? "dev" : "main"),
-          grantIds: this.access.listGrants().filter(grant => grant.toProjectId === session.projectId).map(grant => grant.id),
-          configuration: this.workflowConfiguration(session.projectId), workspace: { path: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno } } });
+      let original: WorkflowSource;
+      try { original = this.subAgentOriginalSource(work); }
+      catch (error) {
+        if (!(error instanceof SubAgentExecutionError)) throw error;
+        throw new AgentWaitError("source_invalid");
+      }
+      if (prior && !isDeepStrictEqual(prior.source, original)) throw new AgentWaitError("source_invalid");
+      source = prior?.source ?? original;
     }
     if (source.sessionId !== parent.sessionId || !this.verifyAgentWaitTarget(source, target)) throw new AgentWaitError("source_invalid");
     const scheduled = this.store.getScheduledRunForTask(parent.id);
@@ -1204,29 +1238,35 @@ export class Runtime {
       return false;
     }
     if (!child || !work || work.originTaskId !== source.taskId || work.parentSessionId !== source.sessionId) return false;
-    try { this.subagents!.verifyWorkspace(work); }
-    catch (error) {
-      if (!(error instanceof WorkCopyError) || !["snapshot_missing", "snapshot_corrupt", "snapshot_changed", "snapshot_invalid", "worktree_gone"].includes(error.code)) throw error;
+    try {
+      return isDeepStrictEqual(source, this.subAgentOriginalSource(work)) && this.verifySubAgentSource(child, finalReport) === null;
+    } catch (error) {
+      if (!(error instanceof SubAgentExecutionError)) throw error;
       return false;
     }
-    const report = getAgentReport(this.store, agentReportKey(target));
-    const dependencies = report?.dependencyTaskIds ?? (this.store.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND rowid <= (SELECT rowid FROM tasks WHERE id = ?)").all(child.sessionId, child.id) as { id: string }[]).map(row => row.id);
-    for (const id of dependencies) {
-      const input = this.store.getTask(id);
-      if (!input || this.sources.verify(source.projectId, input.readScope?.sourceRefs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[] ?? [], input.id)) return false;
-      if (input.readScope?.readMemories?.some(memoryId => this.memories.getMemory(memoryId)?.status !== "active")) return false;
-      for (const op of this.store.listToolOpsByTask(id)) {
-        if (Array.isArray(op.params.source_refs) && this.sources.verify(source.projectId, op.params.source_refs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[], input.id)) return false;
-        if (op.toolName === "memory_read" && typeof op.params.memory_id === "string") {
-          const row = this.store.db.prepare("SELECT status FROM memories WHERE id = ?").get(op.params.memory_id) as { status: string } | undefined;
-          if (row?.status !== "active") return false;
-        }
-      }
-    }
-    return true;
   }
 
   private verifyAgentReportSources(taskId: string, finalReport = false): string | null {
+    const current = this.store.getTask(taskId);
+    if (current && ["main", "scheduled"].includes(this.store.getSessionIdentity(current.sessionId)?.kind ?? "")) {
+      let child: Task | null = null;
+      if (current.requestId.startsWith("wake:")) {
+        child = this.store.getTask(current.requestId.slice("wake:".length));
+        if (!child || current.parentTaskId !== child.id || (child.subAgentId
+          ? !child.workId || this.store.getWorkDelegation(child.workId)?.parentSessionId !== current.sessionId
+          : !child.parentTaskId || this.store.getTask(child.parentTaskId)?.sessionId !== current.sessionId)) return "subagent_source_invalid";
+      } else if (current.requestId.startsWith("smsg:")) {
+        const message = this.store.getSubAgentMessage(current.requestId.slice("smsg:".length));
+        child = message ? this.store.getTask(message.fromTaskId) : null;
+        if (!message || message.parentSessionId !== current.sessionId || message.toSubAgentId || !child || current.parentTaskId !== child.id ||
+            child.workId !== message.workId || child.subAgentId !== message.fromSubAgentId) return "subagent_source_invalid";
+      }
+      if (child) {
+        const problem = this.verifySubAgentSource(child, finalReport);
+        if (problem) return problem;
+      }
+    }
+
     for (const wait of listAgentWaits(this.store, { taskId })) {
       const task = this.store.getTask(taskId);
       if (!task || task.permissionVersion !== wait.snapshot.permissionVersion || wait.targets.some(target => !this.verifyAgentWaitTarget(wait.source, target, finalReport))) return "agent_wait_source_invalid";
@@ -1806,6 +1846,8 @@ export class Runtime {
           continue;
         }
       }
+      const sourceProblem = this.verifySubAgentSource(task, true);
+      if (sourceProblem) { invalidWorkspaces.push({ taskId: task.id, code: sourceProblem }); continue; }
       const report = getAgentReport(this.store, agentReportKey({ kind: "task", taskId: task.id }));
       if (!this.store.findTaskByRequest(run.sessionId!, `wake:${task.id}`) && report?.status !== "reported") return null;
     }
@@ -1816,7 +1858,7 @@ export class Runtime {
     const reply = this.readTaskReplyText(final.id)?.trim();
     return { status, text: [...workflows.map(workflow => `工作流 ${workflow.id}：${workflow.status}${workflow.delivery?.reason ? `；未送达 ${workflow.delivery.reason}` : ""}`),
       ...workflows.map(workflow => workflow.delivery?.facts ?? `工作流 ${workflow.id}：${workflow.status}`),
-      ...invalidWorkspaces.map(item => `${item.taskId}：工作区基线不可核实（${item.code}）；原记录与副本保留`),
+      ...invalidWorkspaces.map(item => `${item.taskId}：来源或工作区基线不可核实（${item.code}）；原记录与副本保留`),
       problem ? `${problem.id}：${problem.resultSummary ?? problem.errorMessage ?? "执行未成功"}` : null, reply].filter(Boolean).join("\n") || "（无文本结果）" };
   }
 
@@ -3906,8 +3948,9 @@ export class Runtime {
 
       // 父级送达的放行判定（工单 09 入口 4）：已取消工作的结果唤醒与消息唤醒在此
       // 截住。取消所在轮次的模型调用如已开始则不级联。
-      if (!this.parentDelivery.wakeAdmitted(task)) {
-        await this.cancelTask(task.id, { reason: "work_canceled" });
+      const wakeProblem = this.parentDelivery.wakeUnavailable(task);
+      if (wakeProblem) {
+        await this.cancelTask(task.id, { reason: wakeProblem });
         continue;
       }
 
@@ -4197,7 +4240,8 @@ export class Runtime {
           standingCandidate: (task, scope) => this.imApprovals.standingCandidate(task, scope),
         },
         parentInjection: (sessionId) => this.parentDelivery.takeInjection(sessionId),
-        parentInjectionAccepted: (taskId, resultTaskIds, entryId) => this.parentDelivery.acceptInjection(taskId, resultTaskIds, entryId),
+        parentInjectionRecheck: (sessionId, resultIds, messageIds) => this.parentDelivery.verifyInjection(sessionId, resultIds, messageIds),
+        parentInjectionAccepted: (taskId, resultTaskIds, entryId, messageIds) => this.parentDelivery.acceptInjection(taskId, resultTaskIds, entryId, messageIds),
         verifyTaskSources: (projectId, refs) => this.sources.verify(projectId, refs as any[]),
         workflow: this.workflowSteps,
       });

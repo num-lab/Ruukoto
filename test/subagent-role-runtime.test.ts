@@ -99,10 +99,12 @@ test("普通工具 schema 移除 mode，旧字段在执行前拒绝，目标参�
   }
   assert.equal(inputs.length, 0);
   assert.equal(f.store.listSubAgents().length, 0);
-  for (const target of [".", "other"]) {
+  for (const target of [".", "other", " other "]) {
     await assert.rejects(tool.execute("target", { key: "same", request: "核对", role: "reviewer", target }, undefined, undefined, sdkContext), /已捕获参数/);
   }
   assert.notEqual(inputs[0].paramsDigest, inputs[1].paramsDigest);
+  assert.deepEqual(inputs.map(input => input.target), [".", "other", " other "]);
+  assert.notEqual(inputs[1].paramsDigest, inputs[2].paramsDigest);
   assert.ok(inputs.every(input => !("mode" in input)));
 });
 

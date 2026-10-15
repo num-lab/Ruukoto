@@ -1,0 +1,25 @@
+# 05 最终独立审查 v5 补充
+
+最终实现与标准审查通过：30个unique修复文件、65项独立输入均已固定，主区65/65摘要匹配，30/30修复文件与独立私有workspace包解析副本同字节；主区全部620项冻结源码v5逐项一致。v4独立清单仅runtime一行被新摘要取代，另64项保持，原v1–v4对象、报告和归档不覆盖。
+
+## 标准遗漏及最小修复
+
+此前独立标准审查漏了两处try范围，root在收尾提出后，本上下文重新读取AGENTS.md:41及error-handling：规则明确“try只包一条语句”，没有“同一来源核实逻辑”例外。agentWaitSource新try含3语句；verifySubAgentSource原本已有大try但本轮大幅扩展，不能以既有反例或冻结摘要免除标准。按本次diff相交的TypeScript AST核查，三生产文件中恰有这两处。
+
+修补仅runtime：verifySubAgentSource的try只return具名subAgentSourceProblem；原早退和全部校验主体按原序移入helper，原typed catch保持。agentWaitSource只将original读取留try，prior比对和source赋值移后；原SubAgentExecutionError→source_invalid转换保持，其他错误仍原对象上抛。没有IIFE或拼接表达式规避规则，没有修改权限、来源、报告、停止或工作区逻辑。
+
+独立AST实核：原早退+try校验主体与新helper逐句、顺序一致；两typed catch AST相同；original来源调用和移后两句相同；Runtime其他249个成员AST相同，只新增一个private helper；三生产diff相交多语句try为0。AST核查只证明机械结构对应，运行事实另由下列真实Runtime测试持有。
+
+## 本上下文亲自验证
+
+在独立副本应用固定patch后运行 `npx tsx --test test/subagent-result-source-boundaries.test.ts test/125-agent-wait-recovery.test.ts`，新增8个真实来源边界加22个等待冷恢复例，共30/30、0失败/跳过/取消、exit0、3017.5945ms。再运行原缺execution真实Runtime反例的修后期望，仍无坏摘要注入、等待source_invalid/isError、原子结果保留且没有重放，exit0。未重新执行付费模型或native整组；这两批使用mock模型/local。AST脚本、JSON、原stdout及探针代码均归档。
+
+root另以主区v5运行静态exit0/37.353秒及七文件57/57、0跳过的来源/等待/分组/恢复/GitHub组合，由其原日志持有，不冒称为本上下文亲跑；Linux v5后续窄证据由相应执行者单列。前序目标碰撞、缺来源自动消费反例、R1–R14、各夹具、14门控竞态和122有限预算的独立结论仍沿未变范围适用。
+
+## 精确对象与不可推广范围
+
+补丁SHA256=378bc60d55a58ede30fd18e31b38215c3209a26b1a26b5e31d6e0b55ebc5b156；原runtime=b25678b16eec2780ba28359bd6b01be9a01b7afa4f417442c1849f3a7ef5d31d，新runtime=99b21d653e9d1d6dda57ef0325343f4ada3f437a28e9619a7bb81540caaaabae。冻结v5清单SHA256=c49e47027a5439b37b20b78083828659a12d94ab5d64b9d5c321f0b38bc11785。
+
+第二轮正式Linux完整check沿v4冻结输入运行，不能改称v5逐字同对象的完整通过；v5只相对v4有上述runtime机械移动，由等价结构审查和最窄回归补证。真实模型原档案160项生产在其执行/回读冻结时全匹配；当前159项逐字相同，runtime一项后续机械差异明确保留，不能重写原模型档案或继续称当前160/160同字节。模型完整prompt/账本核实不受改写，未为此重发付费模型请求。
+
+原macOS完整49项失败、Linux首轮5项失败及所有后续分组均保留各自对象和退出事实；不得相加为一次完整检查通过。第二轮正式runner结果、最终汇总及工单状态在其完成后另核；外部MCP/IM配置未检查、平台未验及拥有者主观体验仍不自授通过。

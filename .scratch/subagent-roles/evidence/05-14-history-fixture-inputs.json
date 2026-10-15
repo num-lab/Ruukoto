@@ -1,0 +1,48 @@
+{
+  "file": "test/14-tui-app.test.ts",
+  "baseSha256": "e15d83c62a3680a95af98239a7efdb36a0608de65b57e07b12b927910f03b593",
+  "finalSha256": "bb1debf2e94aa6e9f2207353282e132d042137d75d28e1ba3c38804e77bc105f",
+  "patchSha256": "0b86744c32c0df96ced188c8c7da20368e09ca2ece9f2b19c6281f623f46bdc2",
+  "production160Unchanged": true,
+  "diagnosticInputs": {
+    "14-history-base.ts": "e15d83c62a3680a95af98239a7efdb36a0608de65b57e07b12b927910f03b593",
+    "14-history-gated-original.ts": "ddb467529ff82f81ac057a541714125c9e4f5e4fa05ede32cd9dba8561f64384",
+    "14-history-gated-updated.ts": "3068deada46c40d1b7e6e72b027743111f9924cdfaf5f8ab489f0edfc35ca644"
+  },
+  "logs": {
+    "14-history-original-macos-green.log": "87e4dd3d099611ab0f66d81826441ba15f24b69d01136c66d3c33404c12686e5",
+    "14-history-gated-red.log": "eba455ca902162f20ff75dd0f5e1ab9f2d1d7b601e7abecdcdd1a5ec4631057f",
+    "14-history-gated-green.log": "2440a1e2b6621d90a741fa5ab498cac65dd466a34d43c24569d26fb9b0223acb",
+    "14-history-final-green.log": "974c42c72e0d6018c90de884e52e7a3c9d06b8ce0b522926e3a53f0908afaa98",
+    "14-history-fixture-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "14-history-fixture-static.log": "e1303c9d8ef3ceda87e413a80d1de859784f4ef967fd3d0ce188324512deee38"
+  },
+  "originalMac": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skip": 0
+  },
+  "gatedOriginal": {
+    "tests": 1,
+    "pass": 0,
+    "fail": 1,
+    "skip": 0,
+    "reason": "first history entry response withheld until full unique body predicate passed; immediate later-page request assertion fails"
+  },
+  "gatedUpdated": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skip": 0
+  },
+  "finalWithoutGate": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0,
+    "skip": 0
+  },
+  "lintExit": 0,
+  "scope": "test-only one-line assert→waitFor same exact condition; default15s unchanged, no fixed sleep; all full/unique/UTF8/scroll assertions unchanged; no real model/platform calls",
+  "checkStaticExit": 0
+}

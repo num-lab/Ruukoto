@@ -1,0 +1,15 @@
+{
+  "command": [
+    "npx",
+    "tsx",
+    "--test",
+    "--test-concurrency=1",
+    "test/15-tui-pty.test.ts",
+    "test/23-web-search.test.ts",
+    "test/113-workflow-source-capabilities.test.ts",
+    "test/121-workflow-personal-acceptance.test.ts"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 97.945,
+  "finished_at": "2026-10-15T03:50:46.892090+00:00"
+}

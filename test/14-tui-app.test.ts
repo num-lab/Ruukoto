@@ -286,16 +286,28 @@ test("真实工作流回报实时、重连、翻页和单条先到均不泄出�
       }
     };
     checkSticky();
-    flow.resetRemote(); again.state.tasks.clear();
-    await again.app.loadEntry(sessionId, input.entryId);
-    assert.deepEqual(users(), [], "单条补读不依赖任务元数据");
-    again.state.installTaskDetail(t.runtime.getTaskDetail(run.delivery!.taskId!)!.task, []);
-    assert.deepEqual(users(), [], "任务详情后到也不出现用户行");
+    // 单条先到必须没有冷重连的在途历史恢复，以免混入其他拥有者消息。
+    const isolatedState = new ViewState();
+    isolatedState.currentSessionId = sessionId;
+    const isolated = new TuiApp({ connection: again.connection, guard: new SubmissionGuard(again.pendingStore, again.connection),
+      pendingStore: again.pendingStore, state: isolatedState, terminal: new FakeTerminal(), onExit: () => assert.fail("未启动的单条投影不应退出") });
+    const isolatedUsers = () => isolatedState.openSession(sessionId).flow.items.filter(entry => entry.kind === "message" && entry.role === "user");
+    assert.equal(isolatedState.tasks.size, 0, "单条读取前没有任务元数据");
+    await isolated.loadEntry(sessionId, input.entryId);
+    assert.equal(isolatedState.tasks.size, 0, "单条读取不补任务元数据");
+    assert.ok(isolatedState.openSession(sessionId).flow.historyEntries.some(entry => entry.entryId === input.entryId && entry.inputPurpose === "internal_report"), "单条补读保留实际内部记录");
+    assert.deepEqual(isolatedUsers(), [], "单条补读不依赖任务元数据");
+    assert.ok(!stripTerminalSequences(isolated["eventFlowView"].render(80).join("\n")).includes("[工作流最终回报]"));
+    isolatedState.installTaskDetail(t.runtime.getTaskDetail(run.delivery!.taskId!)!.task, []);
+    assert.deepEqual(isolatedUsers(), [], "任务详情后到也不出现用户行");
+    isolated["refreshTranscript"]();
+    assert.ok(!stripTerminalSequences(isolated["eventFlowView"].render(80).join("\n")).includes("[工作流最终回报]"));
     const request = again.connection.request.bind(again.connection);
     again.connection.request = <K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number) =>
       request(op, op === "read_history" ? { ...params, limit: 1 } : params, timeoutMs);
     await app.loadHistory(sessionId, "replace");
     while (again.state.openSession(sessionId).historyCursor) await app.loadHistory(sessionId, "prepend");
+    assert.ok(flow.historyEntries.some(entry => entry.role === "user" && entry.inputPurpose === "user" && entry.text === "启动工作"), "翻页恢复实际拥有者历史条目");
     assert.deepEqual(users().map(entry => entry.kind === "message" ? entry.text : ""), ["启动工作"]);
     assertInputRecall(again, ["启动工作"]);
     checkSticky();
@@ -612,7 +624,7 @@ test("长正文生成中退出后冷重连：超过历史单页的正文完整�
     await waitFor("冷重连完整历史恢复", () => second.state.sessionViews.get(sessionId)!.flow.items.some((entry) => entry.kind === "message" && entry.role === "assistant" && !entry.streaming && !entry.truncated && entry.text === output));
     const answers = second.state.sessionViews.get(sessionId)!.flow.items.filter((entry) => entry.kind === "message" && entry.role === "assistant");
     assert.equal(answers.length, 1, "历史与事件补读合并为唯一正文");
-    assert.ok(requests.some((request) => request.op === "read_history_entry" && Number(request.params?.offset ?? 0) > 0 && request.params?.length === 48 * 1024), "实际请求后续 48KiB 历史页（偏移按 UTF-8 边界对齐）");
+    await waitFor("实际请求后续 48KiB 历史页（偏移按 UTF-8 边界对齐）", () => requests.some((request) => request.op === "read_history_entry" && Number(request.params?.offset ?? 0) > 0 && request.params?.length === 48 * 1024));
     await waitFor("终端显示正文尾部", () => stripTerminalSequences(second.terminal.output()).includes("长文尾部标记"));
     const app = second.app as any;
     app.scroll.scrollTo(20, { disableFollow: true });

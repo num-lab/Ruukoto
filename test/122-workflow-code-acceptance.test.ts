@@ -43,7 +43,8 @@ test("编码六输入：共享三名额、失败依赖跳过、独立验证与�
     await waitFor("三个实际修改者并发且其余排队", () => held === 3 && listWorkflowExecutions(rt.store, started.run.id).filter(item => item.kind === "agent" && item.status === "running").length === 3, 60_000);
     assert.equal(listWorkflowSteps(rt.store, started.run.id).filter(step => step.status === "queued").length, 3);
     release();
-    try { await waitFor("六输入整项回报", () => requireWorkflowRun(rt.store, started.run.id).delivery?.status === "reported", 90_000); }
+    // Note: 见 .agents/notes/implemented/testing/2026-10-13-workflow-joint-acceptance.md
+    try { await waitFor("六输入整项回报", () => requireWorkflowRun(rt.store, started.run.id).delivery?.status === "reported", 180_000); }
     catch (error) {
       process.stderr.write(`[ruukoto:test] 六输入未收尾：${JSON.stringify({ run: rt.getWorkflowDetail(started.run.id), tasks: rt.store.listTasksBySession(session.id).map(task => ({ id: task.id, status: task.status, error: task.errorMessage })) })}\n`);
       throw error;

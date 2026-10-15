@@ -1,4 +1,4 @@
-import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
+import { fixtureSubAgentDefinition, fixtureSubAgentAuthority, fixtureSubAgentScope } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -36,7 +36,7 @@ for (const window of ["parent", "parent-repeated", "fallback", "fallback-no-end"
   let restarted: Runtime | null = null;
   try {
     const session = await t.runtime.createSession({ projectName: "recover", cwd: t.work[0] }), selection = t.runtime.defaultSelection;
-    const config = t.runtime.config;
+    const config = t.runtime.config, authority = fixtureSubAgentAuthority(t.runtime, session);
     t.client.close();
     await t.runtime.stop("fixture_offline");
     const db = new Db(t.dirs.dataDir), store = new Store(db);
@@ -45,7 +45,7 @@ for (const window of ["parent", "parent-repeated", "fallback", "fallback-no-end"
       const origin = store.withTx(() => running(store, session.id, selection, "原父轮"));
       const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: origin.id,
         permissionVersion: origin.permissionVersion, accessMode: origin.accessMode, grantedPaths: [], capabilities: [], references: [],
-        replyTarget: null, scheduledRunId: null };
+        replyTarget: null, scheduledRunId: null, authority };
       const childSession = store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal,
         cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: "recover-child", confirmTools: [] });
       store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "recover-agent", parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
@@ -53,7 +53,7 @@ for (const window of ["parent", "parent-repeated", "fallback", "fallback-no-end"
       store.insertWorkDelegation({ id: "recover-work", parentSessionId: session.id, originTaskId: origin.id, subAgentId: "recover-agent",
         requestKey: "recover-work", paramsDigest: "recover-work", canceledAt: null, canceledBy: null, cancelReason: null,
         writeTarget: null, createdAt: childSession.createdAt });
-      const child = store.insertQueuedTask({ sessionId: childSession.id, requestId: "child", input: "子任务", accessMode: "full_access",
+      const child = store.insertQueuedTask({ readScope: fixtureSubAgentScope(source), sessionId: childSession.id, requestId: "child", input: "子任务", accessMode: "full_access",
         modelSelection: selection, submissionDigest: "child", parentTaskId: origin.id, workId: "recover-work", subAgentId: "recover-agent" }).task;
       store.endTask(child.id, ["queued"], "completed");
       store.setTaskResult(child.id, "已完成的真实持久结果", "{}");
@@ -154,7 +154,7 @@ for (const mode of ["success", "send-revoked", "request-revoked"] as const) test
         activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
       rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: origin.id, subAgentId: agentId,
         requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: now });
-      const child = rt.store.insertQueuedTask({ sessionId: childSession.id, requestId: key, input: "读取资料", accessMode: "full_access",
+      const child = rt.store.insertQueuedTask({ readScope: fixtureSubAgentScope(rt["workflowSource"](origin.id, false, true)), sessionId: childSession.id, requestId: key, input: "读取资料", accessMode: origin.accessMode,
         modelSelection: rt.defaultSelection, submissionDigest: key, parentTaskId: origin.id, workId, subAgentId: agentId }).task;
       rt.store.recordToolIntent({ id: `main-memory-${key}`, taskId: child.id, sessionId: childSession.id, toolName: "memory_read", params: { memory_id: memory.id } });
       rt.store.recordToolResult(`main-memory-${key}`, "PRIVATE-MAIN-CHILD-MEMORY", false);
@@ -240,14 +240,14 @@ test("定时父轮已消费普通子结果：实际发送前撤销子任务记�
       rt.store.insertWorkDelegation({ id: "scheduled-work", parentSessionId: session.id, originTaskId: origin.id, subAgentId: "scheduled-agent",
         requestKey: "scheduled-work", paramsDigest: "scheduled-work", canceledAt: null, canceledBy: null, cancelReason: null,
         writeTarget: null, createdAt: now });
-      const child = rt.store.insertQueuedTask({ sessionId: childSession.id, requestId: "memory-child", input: "读取记忆", accessMode: "full_access",
+      const source: WorkflowSource = { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: origin.id,
+        permissionVersion: origin.permissionVersion, accessMode: origin.accessMode, grantedPaths: [], capabilities: [], references: [],
+        replyTarget: target, scheduledRunId: runId, authority: fixtureSubAgentAuthority(rt, session) };
+      const child = rt.store.insertQueuedTask({ readScope: fixtureSubAgentScope(source), sessionId: childSession.id, requestId: "memory-child", input: "读取记忆", accessMode: "full_access",
         modelSelection: rt.defaultSelection, submissionDigest: "memory-child", parentTaskId: origin.id, workId: "scheduled-work", subAgentId: "scheduled-agent" }).task;
       rt.store.recordToolIntent({ id: "scheduled-memory-read", taskId: child.id, sessionId: childSession.id, toolName: "memory_read", params: { memory_id: memory.id } });
       rt.store.recordToolResult("scheduled-memory-read", "PRIVATE-CHILD-MEMORY", false);
       rt.store.endTask(child.id, ["queued"], "completed"); rt.store.setTaskResult(child.id, "PRIVATE-CHILD-MEMORY", "{}");
-      const source: WorkflowSource = { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: origin.id,
-        permissionVersion: origin.permissionVersion, accessMode: origin.accessMode, grantedPaths: [], capabilities: [], references: [],
-        replyTarget: target, scheduledRunId: runId };
       const waitTarget = { kind: "task" as const, taskId: child.id };
       registerAgentWait(rt.store, { id: "scheduled-wait", sdkCallId: "scheduled-wait", deadline: null, taskId: origin.id, sessionId: session.id,
         targets: [waitTarget], source, snapshot: { taskId: origin.id, permissionVersion: origin.permissionVersion,
@@ -290,7 +290,7 @@ for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-js
   let restarted: Runtime | null = null;
   try {
     const session = await t.runtime.createSession({ projectName: "e8", cwd: t.work[0] });
-    const config = t.runtime.config, selection = t.runtime.defaultSelection;
+    const config = t.runtime.config, selection = t.runtime.defaultSelection, authority = fixtureSubAgentAuthority(t.runtime, session);
     t.client.close(); await t.runtime.stop("fixture_offline");
     const db = new Db(t.dirs.dataDir), store = new Store(db);
     let parentId = "", qId = "", canonicalId = "", inputId = "", finalId = "";
@@ -298,13 +298,13 @@ for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-js
     try {
       const p = store.withTx(() => running(store, session.id, selection, "P介入")); parentId = p.id;
       const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: p.id, permissionVersion: p.permissionVersion,
-        accessMode: p.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null };
+        accessMode: p.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null, authority };
       const children = [0, 1].map(i => store.withTx(() => {
         const sub = store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal, cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: `sub-${i}`, confirmTools: [] });
         const agentId = `sub${i}`, workId = `work${i}`;
         store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: agentId, parentSessionId: session.id, sessionId: sub.id, workDir: sub.cwdReal, activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
         store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: p.id, subAgentId: agentId, requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: sub.createdAt });
-        const child = store.insertQueuedTask({ sessionId: sub.id, requestId: `child${i}`, input: `child${i}`, accessMode: "full_access", modelSelection: selection, submissionDigest: `child${i}`, parentTaskId: p.id, subAgentId: agentId, workId }).task;
+        const child = store.insertQueuedTask({ readScope: fixtureSubAgentScope(source), sessionId: sub.id, requestId: `child${i}`, input: `child${i}`, accessMode: "full_access", modelSelection: selection, submissionDigest: `child${i}`, parentTaskId: p.id, subAgentId: agentId, workId }).task;
         store.endTask(child.id, ["queued"], "completed"); store.setTaskResult(child.id, `结果${i}`, "{}"); return store.getTask(child.id)!;
       }));
       const targets = children.map(child => ({ kind: "task" as const, taskId: child.id }));

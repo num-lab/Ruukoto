@@ -1,0 +1,19 @@
+{
+  "name": "@ruukoto/view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ruukoto/control": "*",
+    "@ruukoto/core": "*"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

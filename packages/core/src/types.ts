@@ -77,10 +77,8 @@ export type TaskStatus =
   | "canceled"
   | "interrupted";
 
-export const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ["queued", "running", "awaiting_confirmation"];
-
-/** 任务的执行结束状态（终态，不允许再转换）。 */
-export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = ["completed", "failed", "canceled", "interrupted"];
+import { TERMINAL_TASK_STATUSES } from "./task-status.ts";
+export { ACTIVE_TASK_STATUSES, TERMINAL_TASK_STATUSES } from "./task-status.ts";
 
 export function isTerminalTaskStatus(status: TaskStatus): boolean {
   return TERMINAL_TASK_STATUSES.includes(status);

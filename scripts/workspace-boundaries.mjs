@@ -10,7 +10,8 @@ const layers = {
   channels: ["core", "agent"],
   runtime: ["core", "agent", "channels"],
   control: ["core"],
-  tui: ["core", "agent", "runtime", "control"],
+  view: ["core", "control"],
+  tui: ["core", "agent", "runtime", "control", "view"],
 };
 
 function owner(file) {
@@ -51,7 +52,7 @@ export default {
           }
           const dep = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
           if (dep === manifest.name) return;
-          if (!manifest.dependencies?.[dep] && !(typeOnly && manifest.devDependencies?.[dep])) {
+          if (!manifest.dependencies?.[dep] && !((typeOnly || (kind === "apps" && name === "desktop")) && manifest.devDependencies?.[dep])) {
             context.report({ node, messageId: "undeclared", data: { dep, kind: typeOnly ? "类型" : "运行时" } });
           }
           if (dep.startsWith("@ruukoto/")) {

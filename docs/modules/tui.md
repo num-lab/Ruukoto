@@ -21,11 +21,13 @@
 - 任务的排队、执行、状态迁移与收尾归 [runtime](runtime.md)。退出或断开只关闭客户端，后台任务继续执行；终端不发送 `stop`、不取消任务。
 - 项目与工作区的归属判定、根目录列、旧数据组织迁移的预览与计划校验归 [runtime](runtime.md)，迁移命令只在[操作手册](../usage.md)出现。本篇只写工作区入口在终端侧的行为与列表、标题、详情怎样展示归属。
 - 审批闸门、权限版本与工作清单工具的写入语义归 [agent-tools](agent-tools.md)；本篇只写审批等待与工作清单在界面上的呈现。
-- 非 TTY 环境不启动交互页面，改用 `status`/`events`/`submit` 等 CLI 命令；远程使用沿用登录服务器后启动 TUI 的方式，不新增远程协议。
+- 非 TTY 环境不启动交互页面，改用 `status`/`events`/`submit` 等 CLI 命令；远程使用可登录服务器后启动 TUI，或由桌面客户端经 SSH 转发控制面 socket；不新增远程协议。
 
 ## 对外接口
 
 后台入口按 app 的 `CliProduct.defaultExecution` 与 `allowedExecution` 校验执行后端：两个产品均默认且仅允许 native。任务 TUI 在连接已有后台前也校验环境覆盖。开发启动器与按需后台复用所属 app 的 bin，使用同一声明；库层 local 注入不经 CLI 限制。
+
+开发启动器的 `--desktop` 只适用于 ruukoto-code，与配置中心和工作区路径参数互斥。它把清洗后的开发档案环境、受管标记与本次随机 CSP nonce 交给 electron-vite；桌面客户端只连接受管后台。桌面源码与 workspace 客户端依赖的重建、Electron 重启和渲染热更新由 electron-vite 接手，开发启动器只按源码分类重启后台；退出时清理 electron-vite、Electron 的整组进程和后台。
 
 交互终端是控制面的客户端。它调用的操作：
 
@@ -97,6 +99,8 @@ CLI 完整产物导出复用 `read_artifact`，在同一连接上分页读取已
 终端调用的本地文件：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）、`~/.ruukoto/tui/commands.sqlite`、`<agentDir>/auth.json`、`<agentDir>/default-model.json`、`<agentDir>/summary-model.json`、`<agentDir>/credentials.json`、`<agentDir>/config.lock/`。
 
 ## 数据与状态
+
+快照、事件、历史与任务详情的安装和选择器由 [view](view.md) 提供；TUI 的 `ViewState` 在共享投影上保留命令历史的恢复、保存与失败提示。终端渲染、命令派发、输入历史与工作流侧栏仍在本包。
 
 工作流汇总及等待补报的 user 输入按后台 `inputPurpose=internal_report` 从 EventFlow 可见投影过滤，保留的排队报告别名沿同一可信分类，实时、重连、分页和单条补读均生效；↑ 历史补种和置顶要求沿同一投影。最终 assistant 总结照常展示，搜索与诊断保留原文；关联缺口显示提示并保留普通正文。
 
@@ -247,6 +251,8 @@ sequenceDiagram
 - **待确认请求目录**：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
 
 ## 设计依据
+
+- [独立开发入口与受管前端](../../.agents/notes/implemented/process/2026-10-09-dev-launchers.md)
 
 - [工作流侧栏与原请求核实](../../.agents/notes/implemented/feature/2026-10-14-workflow-progressive-controls.md)
 

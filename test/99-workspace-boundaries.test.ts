@@ -58,3 +58,19 @@ test("包边界：声明过的底层依赖、反向类型与包内引用可用",
     ["apps/ruukoto-code/src/probe.ts", 'await import("@ruukoto/tui/cli.ts");'],
   ]) assert.deepEqual(await violations(file, source), [], source);
 });
+
+test("包边界：桌面包可用 devDependency 的值引用，其他约束照常生效", async () => {
+  for (const source of [
+    'import { app } from "electron";',
+    'export { ControlConnection } from "@ruukoto/control/connection.ts";',
+    'await import("@ruukoto/core/paths.ts");',
+  ]) assert.deepEqual(await violations("apps/desktop/src/probe.ts", source), [], source);
+  for (const [file, source] of [
+    ["apps/desktop/src/probe.ts", 'import { missing } from "undeclared-desktop-dependency";'],
+    ["apps/desktop/src/probe.ts", 'import { Store } from "../../../packages/core/src/store.ts";'],
+    ["apps/desktop/src/probe.ts", 'const moduleName = "electron"; await import(moduleName);'],
+    ["packages/control/src/probe.ts", 'import { Runtime } from "@ruukoto/runtime/runtime.ts";'],
+  ]) assert.ok((await violations(file, source)).length > 0, source);
+  const control = await violations("packages/control/src/probe.ts", 'import { Runtime } from "@ruukoto/runtime/runtime.ts";');
+  assert.ok(control.some(message => message.messageId === "undeclared"), "桌面例外不能放开其他包的 devDependency 值引用");
+});

@@ -1,0 +1,7 @@
+{
+  "scope": "完整07外部清单；最终out",
+  "passed": true,
+  "electronAlive": false,
+  "visualReview": "已查看最终截图；页签、工具结果、子会话与最小窗口可读且布局可用。",
+  "limits": "本地替身模型；真实Runtime/ControlServer/工具worker，测试local执行环境；未测真实模型与原生沙箱。"
+}

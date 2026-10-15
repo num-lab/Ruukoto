@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-根包作为安装、开发、构建与检查的聚合入口。npm workspaces 收入 `packages/*` 与 `apps/*`，八个包使用同一根锁文件与版本。每包有自己的 package.json、exports、依赖与 typecheck；包内相对引用带 `.ts`，跨包通过包名解析 `.ts` 源码。tsx、tsc 的 bundler resolution 与 esbuild 均直接使用 exports，不另建 paths 别名或编译后的源码副本。
+根包作为安装、开发、构建与检查的聚合入口。npm workspaces 收入 `packages/*` 与 `apps/*`，十个包使用同一根锁文件与版本。每包有自己的 package.json、exports、依赖与 typecheck；包内相对引用带 `.ts`，跨包通过包名解析 `.ts` 源码。tsx、tsc 的 bundler resolution 与 esbuild 均直接使用 exports，不另建 paths 别名或编译后的源码副本。
 
 | 包 | 归属 |
 | --- | --- |
@@ -19,17 +19,23 @@ Status: implemented
 | `@ruukoto/channels` | QQ、Telegram、GitHub、调度；IM 审批、入口表、入站媒体、个人导入、GitHub 退役；资料来源核实、旧群结果查询与个人工具的旧账本规则 |
 | `@ruukoto/runtime` | 任务生命周期、编排器、SubAgent、父级送达、工作副本与工作区组织迁移 |
 | `@ruukoto/control` | 控制面协议、认证、客户端与服务器 |
+| `@ruukoto/view` | 浏览器可用的快照、事件、历史与任务详情投影，客户端共用选择器与状态文字 |
 | `@ruukoto/tui` | 共享 CLI、任务界面、配置中心、开发启动器与程序化聚合入口 |
+| `@ruukoto/desktop` | macOS 桌面主进程、sandbox preload、React 渲染进程与应用打包 |
 | `ruukoto` app | 个人产品 bin、主入口、开发入口、能力声明、调度与服务工具装配 |
 | `ruukoto-code` app | Coding 产品 bin、主入口、开发入口、能力声明与旧开发资料导入策略 |
 
 产品能力在各 app 的 `product.ts` 持有：RuntimeProduct 提供身份、IM、调度、服务可用性与工具族工厂；CliProduct 提供默认执行后端、旧项目写资格与导入方向。Runtime.start 必须接收显式产品声明，共享运行时不按 ProductType 分支装配。身份继续用于 `product.type` 登记和跨产品目录拒绝，不由模型或任务参数决定。
 
-两个 bin 各自固定身份。根 `npm start` 通过 `scripts/start.ts` 保留已有环境身份选择，默认 ruukoto；各 app 的 start 固定自己的 bin。root 的 dev/code 直接运行对应 app 的开发入口，公共启动器监听八个包的源码，子进程仍使用所属产品的 bin。
+两个 bin 各自固定身份。根 `npm start` 通过 `scripts/start.ts` 保留已有环境身份选择，默认 ruukoto；各 app 的 start 固定自己的 bin。root 的 dev/code 直接运行对应 app 的开发入口，公共启动器监听各 workspace 包的源码，view 变化只重载任务界面，子进程仍使用所属产品的 bin。
 
 ## 依赖与兼容
 
-运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`tui → control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
+运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。desktop 的依赖全部放在 devDependencies，主进程与 preload 只外置 Electron 和 Node 内置模块，其余源码打进产物；生产安装不需要桌面依赖。ESLint 仅对此包允许 devDependencies 的值引用，未声明、跨包相对路径与动态 import 的检查仍成立。其他包的反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
+
+view 沿用[桌面客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的共用投影决定，先承载 `ViewState` 与 `EventFlow`。纯状态常量与展示归属从依赖 Node 的模块拆出，原入口再导出以保持调用方兼容；UTF-8 字节用 `TextEncoder` 计数。view 源码禁止 Node 引用，全部导出以浏览器目标打包后仅按浏览器全局检查，覆盖传递依赖中的未执行分支，再用无 Node 全局的 VM 核实实际投影。
+
+命令执行与 SQLite 持久化留在 TUI 的 `ViewState` 子类，加载/保存失败继续显示提示，保存失败的本地结果不会被旧存储覆盖。EventFlow 保留纯内存命令条目及其统一排序，使重同步保留本地提示与命令；不为这次抽取新增命令存储接口。每次安装快照都由调用方更换异步请求代次，过时代次结果不得安装；全局 seq 缺口检测仍归 `ControlConnection`。
 
 原提案把开发启动器、工作区组织迁移与群结果工具归为产品专属。当前代码中的两个产品都使用前两项，群结果工具也承担旧归档查询，因此它们保留共享。这样无需让个人 app 引用 Coding app，也不删除现有普通开发会话的能力。个人导入原先从 Coding 导入文件复用的通用辅助下沉 core，各方向保留自己的表策略、权限收尾与交接判断。
 
@@ -41,7 +47,9 @@ Status: implemented
 
 根 build:worker 是 worker 的唯一构建入口，产物仍为 `worker/worker.mjs`；两个 app 的 build 各自产出包含 bin、源码和共享依赖声明的 npm tarball。根 build 先构建 worker，再聚合 app 构建。tarball 不是独立单文件发行版，部署仍使用完整 workspace 安装与同一 worker 镜像；没有引入外部包发布流程。
 
-worker 镜像在构建阶段复制 workspace 源码与清单，按根锁文件安装，单次构建 worker 后移除开发依赖；运行阶段只复制生产依赖与 worker 产物。systemd 使用个人 app 的 bin。根 typecheck 检查测试和脚本，再逐包与 foundation 执行独立检查；check 继续聚合构建、静态门禁与离线测试。
+worker 镜像在构建阶段复制 workspace 源码与清单，按根锁文件安装，单次构建 worker 后移除开发依赖；运行阶段只复制生产依赖与 worker 产物。systemd 使用个人 app 的 bin。desktop 不定义 build 脚本，根 build 不触发 Electron；显式 desktop:build 依次构建、检查产物与 electron-builder --mac --arm64 --dir 打包，根 dist 接收 ad-hoc 签名应用。桌面 lint/typecheck 与纯逻辑测试进入现有检查，CI 禁止下载 Electron 二进制。
+
+根 typecheck 检查测试和脚本，再逐包与 foundation 执行独立检查；check 继续聚合构建、静态门禁与离线测试。
 
 ## 备选方案
 
@@ -50,10 +58,11 @@ worker 镜像在构建阶段复制 workspace 源码与清单，按根锁文件�
 - 保留相对路径跨包可减少迁移文本，但绕过 exports 与依赖声明，包图无法说明代码引用；跨包统一使用包名。
 - 为测试另建共享包能形成测试依赖图，但集中测试已经表达跨模块契约，也不参与产品发货；保留根测试和助手。
 - 将 foundation 并入 workspaces 能统一安装，但它承担独立 SDK 与 Linux 探针验证，现有双锁 setup 已有稳定入口；保留独立安装，避免同时改变依赖验证归属。
+- 让 view 注入命令存储可直接搬迁整个状态类，但桌面不需要 SQLite 命令历史；TUI 子类只负责本地恢复和保存，避免浏览器投影背上终端持久化接口。
 
 ## 后果
 
-产品入口与能力有明确归属，新增越界引用能在 lint 阶段失败；多数源码是路径与 import 的机械迁移，共享运行时与执行边界仍只有一份。代价是维护八份依赖清单与逐包类型检查，反向类型仍需共享源码在同仓可用。独立发布版本与外部注册表发货不属于本次分包，若出现该需求需另定共享包发布与版本协调流程。
+产品入口与能力有明确归属，新增越界引用能在 lint 阶段失败；多数源码是路径与 import 的机械迁移，共享运行时与执行边界仍只有一份。代价是维护十份依赖清单与逐包类型检查，反向类型仍需共享源码在同仓可用。独立发布版本与外部注册表发货不属于本次分包，若出现该需求需另定共享包发布与版本协调流程。
 
 2026-10-11 在 macOS arm64、Node 24.15.0 实测：`npm run setup -- --skip-hooks` 干净安装通过；`npm run check` 的构建、八包独立类型检查、静态与文档门禁通过，应用测试 1025 通过、1 跳过，foundation 9 通过、1 跳过。跳过项均为默认关闭的真实模型检查；test/99 验证 bin 链接、各 app 启动脚本以及 import 正负例，test/64 逐产品验证停用个人能力后的旧账本恢复。
 

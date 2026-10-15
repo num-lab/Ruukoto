@@ -1,0 +1,82 @@
+{
+  "scope": "最终打包 Electron；安全与树/标签为真实控制面资料；外观用 CDP prefers-color-scheme 媒体模拟，760×500 用 CDP viewport 模拟；失败布局经 renderer 状态注入，创建 unknown 经 IPC 边界替身，读取失败来自真实 ControlServer",
+  "security": {
+    "imgCount": 0,
+    "thinking": [
+      "检查工作区与会话，再执行两个模拟工具。",
+      "检查 Markdown 安全输出与实时正文。",
+      "检查 Markdown 安全输出与实时正文。",
+      "实时验收结果\n这段正文来自另一控制面客户端。中文与 emoji 👩‍💻 连续流入。\n\n工作区树\n会话标签\n思考与工具折叠组\n\n检查结果实时流完成\n\n\n危险链接\n验收正文结束。\n[图片：本机 file]\n[图片：根路径图片]\n[图片：相对路径图片]\n[图片：http 图片]"
+    ],
+    "body": [
+      "从真实 TuiApp 提交：桌面流式验收",
+      "",
+      "实时验收结果\n这段正文来自另一控制面客户端。中文与 emoji 👩‍💻 连续流入。\n\n工作区树\n会话标签\n思考与工具折叠组\n\n检查结果实时流完成\n\n\n危险链接\n验收正文结束。",
+      "GUI 外部验收：检查流式正文、思考与工具组。",
+      "实时验收结果\n这段正文来自另一控制面客户端。中文与 emoji 👩‍💻 连续流入。\n\n工作区树\n会话标签\n思考与工具折叠组\n\n检查结果实时流完成\n\n\n危险链接\n验收正文结束。\n[图片：本机 file]\n[图片：根路径图片]\n[图片：相对路径图片]",
+      "GUI 外部验收：检查流式正文、思考与工具组。",
+      "实时验收结果\n这段正文来自另一控制面客户端。中文与 emoji 👩‍💻 连续流入。\n\n工作区树\n会话标签\n思考与工具折叠组\n\n检查结果实时流完成\n\n\n危险链接\n验收正文结束。\n[图片：本机 file]\n[图片：根路径图片]\n[图片：相对路径图片]\n[图片：http 图片]"
+    ],
+    "unsafeElements": 0,
+    "scriptExecuted": false,
+    "onerrorExecuted": false,
+    "linkExecuted": false,
+    "links": [
+      "",
+      "",
+      "",
+      ""
+    ]
+  },
+  "tabs": {
+    "a": {
+      "heading": "gui-workspaceCoding Agent",
+      "selected": [
+        "▱gui-workspace/private/tmp/rk-gui04-D6Fu85/gui-workspace"
+      ],
+      "tabs": 2,
+      "sessions": 5
+    },
+    "b": {
+      "heading": "gui-workspace-bCoding Agent",
+      "selected": [
+        "▱gui-workspace-b/private/tmp/rk-gui04-D6Fu85/gui-workspace-b"
+      ],
+      "tabs": 2,
+      "sessions": 5
+    }
+  },
+  "errors": {
+    "pending": true,
+    "message": "创建结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。",
+    "readError": "读取会话失败：会话不存在：gui-probe-missing-session",
+    "rendered": [
+      {
+        "role": "status",
+        "text": "创建结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"
+      },
+      {
+        "role": "alert",
+        "text": "读取会话失败：会话不存在：gui-probe-missing-session"
+      }
+    ]
+  },
+  "smallRecovery": {
+    "scroll": {
+      "width": 760,
+      "height": 500,
+      "clientHeight": 296,
+      "scrollHeight": 503,
+      "overflow": "auto"
+    },
+    "bottom": {
+      "scrollTop": 207.5,
+      "button": {
+        "top": 424.5234375,
+        "bottom": 460.0234375
+      },
+      "height": 500
+    }
+  },
+  "passed": true
+}

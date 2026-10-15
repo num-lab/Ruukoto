@@ -1,0 +1,38 @@
+{
+  "header": "edit编辑差异",
+  "target": "small.txt",
+  "text": "edit\n编辑差异\n\nsmall.txt\n\n--- small.txt\n\n+++ small.txt\n\n@@ -1,3 +1,3 @@\n\n alpha\n\n-before\n\n+after\n\n omega\n",
+  "patch": [
+    {
+      "kind": "patch-header",
+      "text": "--- small.txt\n"
+    },
+    {
+      "kind": "patch-header",
+      "text": "+++ small.txt\n"
+    },
+    {
+      "kind": "patch-hunk",
+      "text": "@@ -1,3 +1,3 @@\n"
+    },
+    {
+      "kind": "patch-context",
+      "text": " alpha\n"
+    },
+    {
+      "kind": "patch-removed",
+      "text": "-before\n"
+    },
+    {
+      "kind": "patch-added",
+      "text": "+after\n"
+    },
+    {
+      "kind": "patch-context",
+      "text": " omega\n"
+    }
+  ],
+  "write": null,
+  "truncated": null,
+  "state": null
+}

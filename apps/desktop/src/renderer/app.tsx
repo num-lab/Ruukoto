@@ -1,0 +1,70 @@
+import { useEffect, useState } from "react";
+import { CodeState } from "./code-state.ts";
+import { Conversation } from "./conversation.tsx";
+import { ApprovalCards } from "./approval-cards.tsx";
+import type { DesktopTarget } from "../shared/bridge.ts";
+import { Composer, PendingInputs } from "./composer.tsx";
+import { InspectorPanel } from "./inspector-panel.tsx";
+
+const labels = { connecting: "正在连接", online: "已连接", reconnecting: "正在重新连接", failed: "连接失败", closed: "已断开" };
+export function App() {
+  const [, redraw] = useState(0);
+  const [target, setTarget] = useState<DesktopTarget>("code");
+  const [models] = useState(() => ({ code: new CodeState(window.ruukoto, () => redraw(value => value + 1)), personal: new CodeState(window.ruukoto, () => redraw(value => value + 1), "personal") }));
+  const model = models[target];
+  const [selected, setSelected] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  useEffect(() => {
+    const unsubscribes = (["code", "personal"] as const).map(target => window.ruukoto.subscribe(target, update => { models[target].update(update); if (update.type === "navigate") setTarget(target); }));
+    return () => unsubscribes.forEach(unsubscribe => unsubscribe());
+  }, [models]);
+  const { view, status } = model;
+  const workspaces = (target === "code" ? view.projects : []).filter(project => project.rootDir !== null);
+  const workspace = workspaces.find(project => project.id === selected);
+  const current = view.sessions.find(session => session.id === view.currentSessionId);
+  const activeWorkspace = current ? workspaces.find(project => model.sessionsFor(project.id).some(session => session.id === current.id)) : workspace;
+  const reconnect = async () => {
+    const result = await window.ruukoto.request(target, "reconnect", {});
+    if (!result.ok) model.update({ type: "state", state: "failed", error: result.error });
+  };
+  const addWorkspace = async () => {
+    if (model.pendingCreation) { await model.create("open_workspace", { cwd: "" }); return; }
+    setPicking(true);
+    const result = await window.ruukoto.pickFolder();
+    setPicking(false);
+    if (!result.ok) { model.message = `选择工作区失败：${result.error.message}`; redraw(value => value + 1); return; }
+    if (result.value) await model.create("open_workspace", { cwd: result.value });
+  };
+  return <div className="desktop-shell">
+    <aside className="sidebar">
+      <div className="traffic-space" />
+      <div className="brand">Ruukoto <span>桌面客户端</span></div>
+      <nav className="target-switch" aria-label="连接目标"><button aria-current={target === "code" ? "page" : undefined} onClick={() => setTarget("code")}>Code</button><button aria-current={target === "personal" ? "page" : undefined} onClick={() => setTarget("personal")}>Personal</button></nav>
+      <h2>工作区 <span>{workspaces.length}</span></h2>
+      <div className="workspace-list">
+        {workspaces.map(project => <section key={project.id}><button className={activeWorkspace?.id === project.id ? "workspace selected" : "workspace"} onClick={() => setSelected(project.id)}><span className="folder" aria-hidden="true">▱</span><span>{project.name}<small>{project.rootDir?.cwdReal}</small></span></button><div className="session-list" aria-label={`${project.name}的会话`}>{model.sessionsFor(project.id).map(session => <button key={session.id} className={current?.id === session.id ? "session selected" : "session"} onClick={() => { setSelected(project.id); model.openSession(session.id); }}><span aria-hidden="true">◦</span>{model.sessionName(session.id)}</button>)}<button className="new-session" disabled={status.state !== "online" || !!model.pendingCreation} onClick={() => void model.create("create_session", { project_id: project.id, cwd: project.rootDir!.cwdReal })}>＋ 新建会话</button></div></section>)}
+        {status.state === "online" && workspaces.length === 0 && <p className="muted px-3">暂无工作区</p>}
+      </div>
+      <button className="add-workspace" disabled={target !== "code" || picking || status.state !== "online" || !!model.pendingCreation} onClick={() => void addWorkspace()}>＋ 添加工作区</button>
+      <div className="connection" role="status"><i className={status.state === "online" ? "status-dot online" : "status-dot"} />{labels[status.state]}</div>
+    </aside>
+    <main className="canvas">
+      <header className="window-heading">{activeWorkspace?.name ?? (target === "code" ? "Code" : "Personal")}<span>{target === "code" ? "Coding Agent" : "个人 Agent"}</span></header>
+      {model.tabs.length > 0 && <nav className="session-tabs" aria-label="已打开的会话">{model.tabs.map(id => <div className="session-tab" key={id}><button aria-current={current?.id === id ? "page" : undefined} onClick={() => model.openSession(id)}>{model.sessionName(id)}</button><button aria-label={`关闭${model.sessionName(id)}`} onClick={() => model.closeSession(id)}>×</button></div>)}</nav>}
+      {model.message && <p className="operation-message" role="status">{model.message}</p>}
+      {model.readError && <p className="operation-message" role="alert">{model.readError}</p>}
+      {model.writes.message && <p className="operation-message" role="status">{model.writes.message}</p>}
+      <ApprovalCards model={model} />
+      {target === "code" && <PendingInputs model={model} />}
+      {target === "code" && current && status.state !== "failed" ? <><Conversation key={`${view.instanceId}:${current.id}`} model={model} sessionId={current.id} /><Composer key={`${view.instanceId}:${current.id}`} model={model} session={current} /></> : <div className="empty-state">
+        <div className="app-mark" aria-hidden="true">R</div>
+        <h1>{status.state === "failed" ? "暂时无法连接" : workspace?.name ?? "你的工作区"}</h1>
+        {status.state === "online" ? <p className="muted">{workspace?.rootDir?.cwdReal ?? (target === "code" ? "从左侧选择工作区。" : current ? `已定位会话：${model.sessionName(current.id)}。Personal 会话界面待开放；可在上方处理审批。` : "Personal 连接在线；可在上方处理审批。")}</p> : <p className="muted">{status.error?.message ?? status.detail ?? (target === "code" ? "正在连接本机 Coding Agent…" : "正在连接 Personal…")}</p>}
+        {status.error?.versions && <p className="version-info">客户端 v{status.error.versions.client} · 后台 v{status.error.versions.server}</p>}
+        {status.recovery && <ol className="recovery">{status.recovery.map(step => <li key={step}>{step}</li>)}</ol>}
+        {(status.state === "failed" || status.state === "reconnecting" || status.state === "closed") && <button className="reconnect" onClick={() => void reconnect()}>重新连接</button>}
+      </div>}
+    </main>
+    {target === "code" && current && <InspectorPanel model={model} />}
+  </div>;
+}

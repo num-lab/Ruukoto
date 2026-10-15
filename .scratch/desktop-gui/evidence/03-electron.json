@@ -1,0 +1,147 @@
+{
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v24.15.0",
+    "electron": "44.7.2"
+  },
+  "boundaries": [
+    "未执行CI四job或Linux外部验收",
+    "真实模型与真实IM未涉及",
+    "版本不兼容GUI使用临时Unix socket替身；人工结束指关闭本探针自建旧替身socket，未对真实旧版本后台发信号",
+    "固定CDP端口在electron-vite快速重启时遇到释放竞态，control/core各补touch一次重获CDP；GUI重启本身已生效"
+  ],
+  "checks": {
+    "production": {
+      "passed": [
+        "preload four-entry surface and isolated renderer",
+        "daily .app spawns and connects temporary Code backend",
+        "second control client shares live backend",
+        "live workspace list",
+        "request bridge reconnect roundtrip",
+        "request bridge rejects op outside main allowlist",
+        "reveal bridge reaches main validation",
+        "production nonce-free inline script refused",
+        "subscription bridge delivers states and snapshot without token",
+        "concurrent real TUI observed same temporary workspace",
+        "production screenshot saved",
+        "closing .app preserves daily backend"
+      ],
+      "errors": []
+    },
+    "fullDevelopment": {
+      "passed": [
+        "managed launcher connects isolated dev profile without login shell",
+        "managed workspace snapshot and events",
+        "development nonce markup and loaded styles",
+        "development nonce-free inline script refused",
+        "development current nonce script executes",
+        "appearance light",
+        "appearance dark",
+        "renderer HMR changes content under nonce CSP",
+        "renderer HMR restores source content",
+        "main source change closes old Electron",
+        "main rebuild restarts Electron and reconnects managed backend",
+        "workspace view dependency in Vite HMR watch graph",
+        "managed frontend automatically reconnects after backend source restart",
+        "controlled malformed temporary model makes backend reload fail",
+        "frontend rebuild while backend reload failed creates no detached backend",
+        "managed backend recovery reconnects frontend",
+        "closing desktop stops launcher",
+        "managed backend stopped and socket removed",
+        "no owned backend Electron or Vite descendants remain"
+      ],
+      "errors": []
+    },
+    "olderBackendGui": {
+      "passed": [
+        "preload four-entry surface and isolated renderer",
+        "version mismatch GUI direction and structured versions",
+        "failed version GUI does not retry automatically",
+        "explicit reconnect after closing own old stub spawns genuine backend and recovers",
+        "closing .app preserves recovered daily backend"
+      ],
+      "errors": []
+    },
+    "newerBackendGui": {
+      "passed": [
+        "preload four-entry surface and isolated renderer",
+        "version mismatch GUI direction and structured versions",
+        "failed version GUI does not retry automatically"
+      ],
+      "errors": []
+    },
+    "postFixDevelopment": {
+      "passed": [
+        "managed launcher connects isolated dev profile without login shell",
+        "managed workspace snapshot and events",
+        "development nonce markup and loaded styles",
+        "development nonce-free inline script refused",
+        "development current nonce script executes",
+        "appearance light",
+        "appearance dark",
+        "closing desktop stops launcher",
+        "managed backend stopped and socket removed",
+        "no owned backend Electron or Vite descendants remain"
+      ],
+      "errors": []
+    }
+  },
+  "workspaceWatch": [
+    {
+      "mode": "preload",
+      "passed": true,
+      "evidence": {
+        "keys": [
+          "subscribe",
+          "request",
+          "pickFolder",
+          "reveal"
+        ],
+        "require": "undefined",
+        "process": "undefined",
+        "status": "已连接"
+      },
+      "time": "2026-10-15T03:20:33.928Z"
+    },
+    {
+      "mode": "control",
+      "passed": true,
+      "evidence": {
+        "keys": [
+          "subscribe",
+          "request",
+          "pickFolder",
+          "reveal"
+        ],
+        "require": "undefined",
+        "process": "undefined",
+        "status": "已连接"
+      },
+      "time": "2026-10-15T03:21:14.268Z"
+    },
+    {
+      "mode": "core",
+      "passed": true,
+      "evidence": {
+        "keys": [
+          "subscribe",
+          "request",
+          "pickFolder",
+          "reveal"
+        ],
+        "require": "undefined",
+        "process": "undefined",
+        "status": "已连接"
+      },
+      "time": "2026-10-15T03:21:48.678Z"
+    }
+  ],
+  "extraVerified": [
+    "最终.app codesign --verify --deep --strict exit 0",
+    "真实pickFolder原生Chooser通过CUA Cancel返回{ok:true,value:null}（工具会话14140）",
+    "最终.app与真实PTY TUI同时显示临时工作区work-0 · 1个会话，TUI Ctrl+C退出后后台继续",
+    "preload/control/core三个touch源文件SHA-256与接手前相同",
+    "本轮watch收尾9个拥有进程逐PID消失，residual-pids.json=[]"
+  ]
+}

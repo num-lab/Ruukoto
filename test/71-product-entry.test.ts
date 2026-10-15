@@ -66,7 +66,7 @@ test("dirEnvFor：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读 RUUKOTO_CODE_*
 
 // ---- 默认目录解析按产品隔离 ----
 
-import { controlDirFor, defaultAgentDir, defaultDataDir } from "@ruukoto/control/connect.ts";
+import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor } from "@ruukoto/control/connect.ts";
 import { defaultPendingDir } from "@ruukoto/control/pending-requests.ts";
 import * as nodePath from "node:path";
 
@@ -140,6 +140,48 @@ test("ruukoto-code：独立档案根与 RUUKOTO_CODE_*_DIR 覆盖，不读对方
       assert.equal(defaultPendingDir(), "/dev/pending");
     },
   );
+});
+
+test("显式产品：全局产品固定时可交替解析两个产品的目录与 socket", () => {
+  withCleanEnv({ RUUKOTO_PRODUCT: "ruukoto-code" }, () => {
+    for (const product of ["ruukoto", "ruukoto-code", "ruukoto"] as const) {
+      const root = productRootDir(product);
+      const dataDir = defaultDataDir(product);
+      const controlDir = controlDirFor(dataDir, product);
+      assert.equal(dataDir, nodePath.join(root, "data"));
+      assert.equal(defaultAgentDir(product), nodePath.join(root, "agent"));
+      assert.equal(controlDir, nodePath.join(root, "control"));
+      assert.equal(socketPathFor(controlDir), nodePath.join(root, "control", "control.sock"));
+      assert.equal(controlDirFor(nodePath.join(root, "custom", "data"), product), nodePath.join(root, "custom", "control"));
+    }
+    assert.equal(process.env.RUUKOTO_PRODUCT, "ruukoto-code");
+    assert.equal(defaultDataDir(), defaultDataDir("ruukoto-code"));
+    assert.equal(defaultAgentDir(), defaultAgentDir("ruukoto-code"));
+    assert.equal(controlDirFor(defaultDataDir()), controlDirFor(defaultDataDir(), "ruukoto-code"));
+  });
+});
+
+test("显式产品：双方 DATA、AGENT、CONTROL 环境覆盖并存时互不串用", () => {
+  withCleanEnv({
+    RUUKOTO_PRODUCT: "ruukoto",
+    RUUKOTO_DATA_DIR: "/personal/data",
+    RUUKOTO_AGENT_DIR: "/personal/agent",
+    RUUKOTO_CONTROL_DIR: "/personal/control",
+    RUUKOTO_CODE_DATA_DIR: "/code/data",
+    RUUKOTO_CODE_AGENT_DIR: "/code/agent",
+    RUUKOTO_CODE_CONTROL_DIR: "/code/control",
+  }, () => {
+    for (const product of ["ruukoto-code", "ruukoto", "ruukoto-code"] as const) {
+      const root = product === "ruukoto" ? "/personal" : "/code";
+      assert.equal(defaultDataDir(product), `${root}/data`);
+      assert.equal(defaultAgentDir(product), `${root}/agent`);
+      assert.equal(controlDirFor("/explicit/data", product), `${root}/control`);
+      assert.equal(socketPathFor(controlDirFor(defaultDataDir(product), product)), `${root}/control/control.sock`);
+    }
+    assert.equal(defaultDataDir(), "/personal/data");
+    assert.equal(defaultAgentDir(), "/personal/agent");
+    assert.equal(controlDirFor(defaultDataDir()), "/personal/control");
+  });
 });
 
 // ---- 开发实例不继承日常产品身份与目录 ----

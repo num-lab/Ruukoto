@@ -36,6 +36,7 @@
 | control | `packages/core/src/history.ts` 的 `readHistoryPage` / `readHistoryEntryText` / `readToolResult` | pi JSONL 的分页与分段只读读取；`history_index` 由 `packages/core/src/history-index.ts` 维护与检索 |
 | control、Runtime、execution | `packages/core/src/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份：`realpath` 规范化加 `dev`／`ino` |
 | Runtime、control | `PRODUCT_META_KEY` 与 `packages/core/src/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
+| view、后台任务管理 | `ACTIVE_TASK_STATUSES` / `TERMINAL_TASK_STATUSES`（`packages/core/src/task-status.ts`） | 浏览器可用的活动与终态任务状态常量，`types.ts` 同时再导出 |
 
 路径与配置键：
 

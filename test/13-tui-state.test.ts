@@ -516,3 +516,24 @@ test("github.* 历史事件：退役后按归档记录展示，不再提示旧�
   assert.ok(all.includes("历史记录"), "github 事件按归档记录展示");
   assert.ok(!all.includes("/github"), "不再提示已退役的 /github 命令");
 });
+
+test("TUI 共用审批选择器排除终态与旧权限版本，模式失败投影中断并结束计时", () => {
+  const state = new ViewState();
+  state.applySnapshot({ seq: 0, replay: [], snapshot: snapshot({ tasks: [task("task")] }) }, false);
+  state.applyEvent(ev(1, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "approval", toolOpId: "op", toolName: "read", params: {}, scope: { kind: "tool", workspaceOnly: false }, permissionVersion: 1 }), "live");
+  assert.equal(state.pendingApprovals().length, 1);
+  state.applyEvent(ev(2, { type: "task.mode_switched", taskId: "task", sessionId: "sess_1", from: "confirm", to: "full_access", permissionVersion: 2 }), "live");
+  assert.equal(state.pendingApprovals().length, 0);
+  state.applyEvent(ev(3, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "next", toolOpId: "op2", toolName: "read", params: {}, scope: { kind: "tool", workspaceOnly: false }, permissionVersion: 2 }), "live");
+  assert.equal(state.pendingApprovals().length, 1);
+  const failure = ev(4, { type: "task.mode_switch_failed", taskId: "task", sessionId: "sess_1", to: "confirm", reason: "worker_stop_unverified" });
+  state.applyEvent(failure, "live");
+  assert.equal(state.getTask("task")?.status, "interrupted"); assert.equal(state.getTask("task")?.endedAt, failure.createdAt);
+  assert.equal(state.pendingApprovals().length, 0);
+  assert.ok(notes(state.openSession("sess_1")).some(item => item.text.includes("worker_stop_unverified")));
+  for (const status of ["completed", "failed", "canceled", "interrupted"] as const) {
+    state.upsertTask(task("task", { status, endedAt: failure.createdAt }));
+    state.applyEvent(failure, "live"); state.applyEvent(failure, "replay");
+    assert.equal(state.getTask("task")?.status, status); assert.equal(state.pendingApprovals().length, 0);
+  }
+});

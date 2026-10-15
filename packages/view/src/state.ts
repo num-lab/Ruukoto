@@ -15,7 +15,7 @@ import type {
   TaskStatus,
   WorkDelegation,
 } from "@ruukoto/core/types.ts";
-import { ACTIVE_TASK_STATUSES } from "@ruukoto/core/task-status.ts";
+import { ACTIVE_TASK_STATUSES, TERMINAL_TASK_STATUSES } from "@ruukoto/core/task-status.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "@ruukoto/core/views.ts";
 import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
@@ -297,7 +297,11 @@ export class ViewState {
         this.noteForTask(body.taskId, `访问模式已生效：${body.to}（权限版本 ${body.permissionVersion}）`, event.createdAt);
         return;
       case "task.mode_switch_failed":
-        this.patchTask(body.taskId, { pendingAccessMode: null });
+        // 该事件只随 endTask 中断产生；已有终态不被迟到事件回滚。
+        // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+        if (!TERMINAL_TASK_STATUSES.includes(this.tasks.get(body.taskId)?.status ?? "interrupted")) {
+          this.patchTask(body.taskId, { status: "interrupted", pendingAccessMode: null, endedAt: event.createdAt, interruptReason: "mode_switch_unverified" });
+        }
         this.noteForTask(body.taskId, `模式切换失败：${body.reason}`, event.createdAt);
         return;
       case "task.awaiting_confirmation": {
@@ -670,7 +674,10 @@ export class ViewState {
   }
 
   pendingApprovals(): ConfirmationRequestView[] {
-    return this.confirmations.filter((c) => c.status === "pending");
+    return this.confirmations.filter((c) => {
+      const task = this.tasks.get(c.taskId);
+      return c.status === "pending" && !!task && !TERMINAL_TASK_STATUSES.includes(task.status) && c.permissionVersion === task.permissionVersion;
+    });
   }
 
   projectName(projectId: string): string {

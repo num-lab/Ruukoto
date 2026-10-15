@@ -5,6 +5,7 @@ import { ViewState, isActiveStatus } from "@ruukoto/view/state.ts";
 import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { DesktopOp } from "../main/ipc.ts";
 import type { DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import { DesktopApprovals } from "./approvals.ts";
 import { CodeWrites } from "./code-writes.ts";
 
 export class DesktopRequestError extends Error {
@@ -34,7 +35,11 @@ export class CodeState {
   private readonly flowCursors = new Map<string, number>();
   private readonly requests = new Map<string, Promise<void>>();
   readonly writes: CodeWrites;
+  readonly approvals: DesktopApprovals;
+  navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
+  notificationSelection: { sessionId: string; taskId: string } | null = null;
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
+    this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
   }
 
@@ -56,20 +61,34 @@ export class CodeState {
       this.readError = null;
       const instanceChanged = update.instanceChanged || (this.view.instanceId !== null && this.view.instanceId !== update.result.snapshot.instanceId);
       this.view.applySnapshot(update.result, instanceChanged);
-      if (instanceChanged) this.tabs = [];
+      if (instanceChanged) { this.tabs = []; this.notificationSelection = null; }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
-      void this.loadSummaries();
-      for (const id of this.tabs) void this.loadHistory(id);
+      if (this.target === "code") {
+        void this.loadSummaries();
+        for (const id of this.tabs) void this.loadHistory(id);
+      }
+      if (this.navigation) this.navigate(this.navigation);
       void this.reconcileCreation();
     } else if (update.type === "event") {
       this.view.applyEvent(update.event, update.kind);
       const body = update.event.body;
-      if (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued") void this.loadSummaries();
+      if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
-      if (body.type === "task.output_entry" && this.tabs.includes(body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
+      if (this.target === "code" && body.type === "task.output_entry" && this.tabs.includes(body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
     }
+    if (update.type === "navigate") this.navigate(update);
+    this.approvals.update(update);
     this.writes.update(update);
     this.changed();
+  }
+  private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {
+    this.navigation = update;
+    if (!this.view.instanceId) return;
+    if (update.instanceId !== this.view.instanceId) { this.navigation = null; this.message = "通知所属的原目标已经变化，请查看原实例。"; return; }
+    const child = this.view.subAgents.find(agent => agent.sessionId === update.navigation.sessionId);
+    this.notificationSelection = update.navigation;
+    this.openSession(child?.parentSessionId ?? update.navigation.sessionId);
+    this.navigation = null;
   }
   sessionsFor(workspaceId: string): Session[] {
     return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev");
@@ -85,7 +104,7 @@ export class CodeState {
     if (!this.tabs.includes(id)) this.tabs.push(id);
     this.view.currentSessionId = id;
     const view = this.view.openSession(id);
-    if (!view.historyLoaded) void this.loadHistory(id);
+    if (this.target === "code" && !view.historyLoaded) void this.loadHistory(id);
     this.changed();
   }
   closeSession(id: string): void {

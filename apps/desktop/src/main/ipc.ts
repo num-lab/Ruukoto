@@ -4,7 +4,7 @@ import { DesktopError } from "./environment.ts";
 import { serializeFailure } from "./controller.ts";
 import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
 
-export const DESKTOP_OPS = ["list_session_summaries", "open_workspace", "create_session", "read_history", "read_history_entry", "list_tasks", "get_task", "read_task_events", "list_models", "set_session_model", "set_session_mode", "get_session", "interrupt", "cancel", "resume_queue", "submit", "continue"] as const satisfies readonly TuiOp[];
+export const DESKTOP_OPS = ["list_session_summaries", "open_workspace", "create_session", "read_history", "read_history_entry", "list_tasks", "get_task", "read_task_events", "list_models", "set_session_model", "set_session_mode", "get_session", "interrupt", "cancel", "resume_queue", "get_confirmation_params", "respond_confirmation", "submit", "continue"] as const satisfies readonly TuiOp[];
 export type DesktopOp = typeof DESKTOP_OPS[number];
 export type PersonalConfigOp = "desktop_personal_config_read" | "desktop_personal_config_save";
 
@@ -21,7 +21,7 @@ export async function handleRequest(target: unknown, op: unknown, params: unknow
       if (!personalConfig) throw new DesktopError("target_unavailable", "Personal 配置入口不可用。");
       return personalConfig(op, params as Record<string, unknown>);
     }
-    if (target === "personal" && op !== "reconnect") throw new DesktopError("op_not_allowed", "Personal 界面尚未开放此操作。");
+    if (target === "personal" && op !== "reconnect" && op !== "get_task" && op !== "get_confirmation_params" && op !== "respond_confirmation") throw new DesktopError("op_not_allowed", "Personal 界面尚未开放此操作。");
     if (typeof op !== "string" || (op !== "reconnect" && op !== "desktop_pending_read" && op !== "desktop_pending_clear" && !DESKTOP_OPS.some(value => value === op))) throw new DesktopError("op_not_allowed", "此操作未向桌面客户端开放。");
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new DesktopError("invalid_params", "操作参数必须是对象。");
     if (op === "reconnect") {

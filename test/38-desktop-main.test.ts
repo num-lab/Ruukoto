@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "../apps/desktop/src/main/environment.ts";
 import { CodeController, serializeFailure } from "../apps/desktop/src/main/controller.ts";
-import { DESKTOP_OPS, handleRequest, ipcResult } from "../apps/desktop/src/main/ipc.ts";
+import { DESKTOP_OPS, handleRequest, ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
 import { cspFor, externalUrl, isRendererReload } from "../apps/desktop/src/main/security.ts";
 import { socketLookupCommand, versionRecovery } from "../apps/desktop/src/main/recovery.ts";
 import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
@@ -607,4 +607,279 @@ test("桌面明确拒绝后宽容清理失败，之后核实拒绝不会再次�
     assert.equal(h.writes.draft("session").text, "原输入");
     assert.equal(h.store.list().records.length, 0);
   } finally { fs.chmodSync(h.store.dir, 0o700); h.close(); }
+});
+
+import type { ConfirmationRequestView } from "@ruukoto/core/views.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
+import { DesktopNotifications, type DesktopNotice } from "../apps/desktop/src/main/notifications.ts";
+import { DesktopApprovals } from "../apps/desktop/src/renderer/approvals.ts";
+import { FakeTransport } from "./helpers/fake-control.ts";
+
+function approval(overrides: Partial<ConfirmationRequestView> = {}): ConfirmationRequestView {
+  return { id: "approval", taskId: "task", sessionId: "session", toolOpId: "op", toolName: "http_request", params: { url: "https://example.com" }, paramsBytes: 29, paramsTruncated: false, scope: { kind: "tool", workspaceOnly: false }, cwdDev: 1, cwdIno: 1, permissionVersion: 1, status: "pending", createdAt: "2026-10-15T00:00:00Z", respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null, reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null, standingPermissionId: null, standingPermissionVersion: null, ...overrides };
+}
+function noticeEvent(seq: number, body: PersistentEvent["body"], taskId = "task"): PersistentEvent { return { seq, body, taskId, sessionId: "session", createdAt: new Date().toISOString() }; }
+const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+function noticeHarness(query: (target: "code" | "personal", taskId: string) => Promise<import("@ruukoto/control/ops.ts").OpResult<"get_task">> = async () => { throw new Error("查询不可用"); }) {
+  const notices: DesktopNotice[] = [];
+  let count = 0, focused = false;
+  const model = new DesktopNotifications(() => focused, notice => notices.push(notice), value => { count = value; }, query);
+  const snapshot = (target: "code" | "personal", tasks: TaskView[], confirmations: ConfirmationRequestView[] = [], instanceId = "inst-1", seq = 100) => model.update(target, { type: "snapshot", result: { seq, replay: [], snapshot: fakeSnapshot({ instanceId, sessions: [desktopSession()], tasks: structuredClone(tasks), confirmations: structuredClone(confirmations) }) }, instanceChanged: false });
+  const event = (target: "code" | "personal", event: PersistentEvent, kind: "live" | "replay" = "live") => model.update(target, { type: "event", event, kind });
+  return { model, notices, snapshot, event, get count() { return count; }, focus(value: boolean) { focused = value; } };
+}
+const taskDetail = (task = desktopTask(), confirmations: ConfirmationRequestView[] = [], seq = 100) => ({ task, confirmations, seq, toolOps: [], outputPreview: null, artifacts: [] });
+
+test("桌面通知首照与整个历史补发静默，握手缓冲 live 通知一次，双目标按实例隔离", () => {
+  const h = noticeHarness();
+  const history = Array.from({ length: 21 }, (_, index) => desktopTask({ id: `old-${index}`, status: "completed" }));
+  for (const target of ["code", "personal"] as const) {
+    h.snapshot(target, history.slice(0, 20));
+    for (let i = 0; i < 21; i++) h.event(target, noticeEvent(i + 1, { type: "task.completed", taskId: `old-${i}`, sessionId: "session" }, `old-${i}`), "replay");
+    assert.equal(h.notices.length, target === "code" ? 0 : 1);
+    const end = noticeEvent(101, { type: "task.interrupted", taskId: "new", sessionId: "session", reason: "owner_interrupt", cancelRequested: false, effectUnknown: false }, "new");
+    h.event(target, end); h.event(target, end);
+  }
+  assert.deepEqual(h.notices.map(notice => [notice.target, notice.sessionId, notice.taskId]), [["code", "session", "new"], ["personal", "session", "new"]]);
+  h.snapshot("code", history, [], "new-instance");
+  h.event("code", noticeEvent(90, { type: "task.completed", taskId: "hidden-old", sessionId: "session" }, "hidden-old"), "replay");
+  assert.equal(h.notices.length, 2);
+});
+
+test("桌面审批按当前集合补通知，快照与补发去重，已处理不通知，角标按两目标汇总", () => {
+  const h = noticeHarness();
+  for (const target of ["code", "personal"] as const) h.snapshot(target, [desktopTask({ status: "awaiting_confirmation" })], [approval()]);
+  assert.equal(h.count, 2); assert.equal(h.notices.length, 0);
+  for (const target of ["code", "personal"] as const) {
+    const next = approval({ id: "new" });
+    h.snapshot(target, [desktopTask({ status: "awaiting_confirmation" })], [next]);
+    h.event(target, noticeEvent(90, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "new", toolOpId: "op", toolName: "http_request", params: {}, scope: next.scope, permissionVersion: 1 }), "replay");
+  }
+  assert.equal(h.notices.length, 2); assert.equal(h.count, 2);
+  h.snapshot("code", [desktopTask({ status: "running" })]);
+  h.event("code", noticeEvent(95, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "already-handled", toolOpId: "op", toolName: "http_request", params: {}, scope: approval().scope }), "replay");
+  assert.equal(h.notices.length, 2); assert.equal(h.count, 1);
+  h.event("personal", noticeEvent(101, { type: "task.mode_switched", taskId: "task", sessionId: "session", from: "confirm", to: "full_access", permissionVersion: 2 }));
+  assert.equal(h.count, 0);
+});
+
+test("桌面离线结束补通知，前台更新基线不补发，取消不通知且不再查询", async () => {
+  let queries = 0;
+  const h = noticeHarness(async () => { queries++; return taskDetail(); });
+  h.snapshot("code", [desktopTask()]);
+  h.snapshot("code", [desktopTask({ status: "completed" })]);
+  h.event("code", noticeEvent(90, { type: "task.completed", taskId: "task", sessionId: "session" }), "replay");
+  assert.equal(h.notices.length, 1);
+  h.focus(true);
+  h.snapshot("personal", [desktopTask()]);
+  h.event("personal", noticeEvent(101, { type: "task.mode_switch_failed", taskId: "task", sessionId: "session", to: "full_access", reason: "worker_stop_unverified" }));
+  h.focus(false);
+  h.snapshot("personal", [desktopTask({ status: "interrupted" })]);
+  assert.equal(h.notices.length, 1);
+  h.snapshot("code", [desktopTask({ id: "cancel" })]);
+  h.event("code", noticeEvent(102, { type: "task.canceled", taskId: "cancel", sessionId: "session" }, "cancel"));
+  h.snapshot("code", []); await tick();
+  assert.equal(queries, 0); assert.equal(h.notices.length, 1);
+});
+
+test("桌面缺补发时查询观察中的任务，失败下次重查，旧代次查询不通知", async () => {
+  let reads = 0, fail = true;
+  let release!: (value: ReturnType<typeof taskDetail>) => void;
+  const h = noticeHarness(async () => { reads++; if (fail) throw new Error("离线"); return new Promise(resolve => { release = resolve; }); });
+  h.snapshot("code", [desktopTask()]);
+  h.snapshot("code", []); await tick();
+  assert.equal(reads, 1); assert.equal(h.notices.length, 0);
+  fail = false;
+  h.snapshot("code", []); await tick();
+  release(taskDetail(desktopTask({ status: "failed" }))); await tick();
+  assert.equal(reads, 2); assert.equal(h.notices.length, 1);
+  h.snapshot("personal", [desktopTask()]); h.snapshot("personal", []); await tick();
+  const oldRelease = release;
+  h.snapshot("personal", [], [], "replacement");
+  oldRelease(taskDetail(desktopTask({ status: "completed" }))); await tick();
+  assert.equal(h.notices.length, 1);
+});
+
+function approvalHarness(handlers: import("./helpers/fake-control.ts").FakeHandlers = {}, target: "code" | "personal" = "code") {
+  const view = new ViewState();
+  const c = approval();
+  const transport = new FakeTransport({ handlers: { get_confirmation_params: () => ({ confirmation: c, params: { text: "{}", offset: 0, totalBytes: 2, truncated: false } }), ...handlers } });
+  const model = new DesktopApprovals({ request: (actual, op, params) => { assert.equal(actual, target); return ipcResult(() => transport.request(op as DesktopOp, params as import("@ruukoto/control/ops.ts").OpParams<DesktopOp>)); } }, view, () => {}, target);
+  const snapshot = (confirmations = [approval()], instanceId = "inst-1") => {
+    const update: Extract<DesktopUpdate, { type: "snapshot" }> = { type: "snapshot", result: { seq: 100, replay: [], snapshot: fakeSnapshot({ instanceId, tasks: [desktopTask({ status: "awaiting_confirmation", permissionVersion: confirmations[0]?.permissionVersion ?? 1 })], confirmations }) }, instanceChanged: view.instanceId !== instanceId };
+    view.applySnapshot(update.result, update.instanceChanged); model.update(update);
+  };
+  snapshot();
+  return { model, view, transport, snapshot, c };
+}
+
+for (const decision of ["approve", "reject"] as const) for (const outcome of ["unknown", "disconnected", "not_sent", "rejected", "query_failed"] as const) {
+  test(`桌面${decision} ${outcome} 分类、核实且不自动重发`, async () => {
+    const h = approvalHarness({ respond_confirmation: () => { throw new ControlClientError("response_lost", "测试拒绝", outcome === "query_failed" ? "unknown" : outcome); }, get_task: () => { if (outcome === "query_failed") throw new Error("查询失败"); return taskDetail(desktopTask(), [approval({ status: decision === "approve" ? "approved" : "rejected" })]); } });
+    await h.model.load(h.c.id); await h.model.respond(h.c, decision);
+    assert.equal(h.transport.requests.filter(request => request.op === "respond_confirmation").length, 1);
+    assert.deepEqual(h.transport.requests.find(request => request.op === "respond_confirmation")?.params, { confirmation_id: "approval", permission_version: 1, decision });
+    assert.match(h.model.message!, outcome === "unknown" ? /已核实/ : outcome === "not_sent" ? /没有发出/ : outcome === "rejected" ? /被拒绝/ : /结果未知/);
+    assert.equal(h.view.pendingApprovals().length, outcome === "unknown" ? 0 : 1);
+    if (outcome === "disconnected") {
+      assert.equal(h.transport.requests.filter(request => request.op === "get_task").length, 0);
+      h.snapshot([]); assert.match(h.model.message!, /新快照已核实/);
+    }
+    if (outcome === "query_failed") { h.snapshot([], "different"); assert.match(h.model.message!, /目标已经变化/); }
+  });
+}
+
+test("桌面权限冲突刷新展示版本等待重新决定，TUI 抢先处理移除卡片", async () => {
+  let version = 1, stale = false;
+  const h = approvalHarness({ respond_confirmation: () => { version = 2; throw new ControlClientError(stale ? "stale_confirmation" : "permission_version_mismatch", "版本", "rejected"); }, get_task: () => taskDetail(desktopTask({ status: "awaiting_confirmation", permissionVersion: version }), [approval({ permissionVersion: version })]), get_confirmation_params: () => ({ confirmation: approval({ permissionVersion: version }), params: { text: "{}", offset: 0, totalBytes: 2, truncated: false } }) });
+  await h.model.load("approval"); await h.model.respond(h.c, "approve");
+  assert.equal(h.view.pendingApprovals()[0].permissionVersion, 2);
+  assert.equal(h.model.details.get("approval")?.complete, true);
+  assert.equal(h.transport.requests.filter(request => request.op === "respond_confirmation").length, 1);
+  stale = true; await h.model.respond(h.view.pendingApprovals()[0], "reject");
+  assert.equal(h.view.pendingApprovals().length, 0); assert.match(h.model.message!, /已经失效/);
+});
+
+test("桌面审批参数用 UTF-8 返回偏移续读，截断与读取失败可见", async () => {
+  const parts = ["中文👩‍💻", "第二页"];
+  const size = Buffer.byteLength(parts.join(""));
+  let fail = false;
+  const h = approvalHarness({ get_confirmation_params: params => { const index = params.offset ? 1 : 0; if (fail && index) throw new Error("断线"); assert.equal(params.offset, index ? Buffer.byteLength(parts[0]) : 0); return { confirmation: approval(), params: { text: parts[index], offset: params.offset!, totalBytes: size, truncated: !index } }; } });
+  await h.model.load("approval");
+  assert.equal(h.model.details.get("approval")?.text, parts.join("")); assert.equal(h.model.details.get("approval")?.complete, true);
+  fail = true; await h.model.load("approval");
+  assert.equal(h.model.details.get("approval")?.complete, false); assert.match(h.model.details.get("approval")!.error!, /读取失败/);
+});
+
+for (const operation of ["get_task", "get_confirmation_params"] as const) test(`桌面审批快照换代丢弃迟到 ${operation}，相同 ID 不复活`, async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let started = false;
+  const h = approvalHarness({ respond_confirmation: () => { throw new ControlClientError("timeout", "未知", "unknown"); }, get_task: async () => { started = true; await gate; return taskDetail(desktopTask({ status: "awaiting_confirmation" }), [approval()]); }, get_confirmation_params: async () => { if (operation === "get_confirmation_params") { started = true; await gate; } return { confirmation: approval(), params: { text: "{}", offset: 0, totalBytes: 2, truncated: false } }; } }, "personal");
+  const pending = operation === "get_task" ? h.model.load("approval").then(() => h.model.respond(h.c, "approve")) : h.model.load("approval");
+  await waitFor("旧查询已发出", () => started);
+  h.snapshot([], "other"); release(); await pending;
+  assert.equal(h.view.pendingApprovals().length, 0); assert.equal(h.model.details.size, 0);
+  assert.equal(h.transport.requests.filter(request => request.op === "respond_confirmation").length, operation === "get_task" ? 1 : 0);
+});
+
+test("桌面审批在线核实仍 pending 可人工再决定，新版本必须重新读取参数", async () => {
+  let version = 1;
+  const h = approvalHarness({ respond_confirmation: () => { throw new ControlClientError("timeout", "未知", "unknown"); }, get_task: () => taskDetail(desktopTask({ status: "awaiting_confirmation", permissionVersion: version }), [approval({ permissionVersion: version })]) });
+  await h.model.load("approval"); await h.model.respond(h.c, "approve");
+  assert.match(h.model.message!, /结果未知，审批仍待处理/); assert.equal(h.model.decisions.size, 0);
+  version = 2; await h.model.respond(h.c, "reject");
+  assert.equal(h.view.pendingApprovals()[0].permissionVersion, 2); assert.equal(h.model.details.size, 0);
+  await h.model.respond(h.view.pendingApprovals()[0], "approve");
+  assert.equal(h.transport.requests.filter(request => request.op === "respond_confirmation").length, 2, "未读新详情不能沿旧参数批准");
+});
+
+test("桌面审批核实失败后在线主动刷新解锁，不重发决定", async () => {
+  const h = approvalHarness({ respond_confirmation: () => { throw new ControlClientError("timeout", "未知", "unknown"); }, get_task: () => { throw new Error("读取失败"); } });
+  await h.model.load("approval"); await h.model.respond(h.c, "approve");
+  assert.equal(h.model.decisions.size, 1);
+  const transport = h.transport;
+  const refreshed = new DesktopApprovals({ request: async (_target, op) => { assert.equal(op, "reconnect"); h.snapshot(); return { ok: true, value: undefined }; } }, h.view, () => {}, "code");
+  await refreshed.refresh();
+  assert.equal(h.model.decisions.size, 0); assert.match(h.model.message!, /结果未知，审批仍待处理/);
+  assert.equal(transport.requests.filter(request => request.op === "respond_confirmation").length, 1);
+});
+
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+
+for (const ending of ["interrupt", "mode_failure"] as const) test(`桌面真实控制面 ${ending} 无解决事件仍移除审批、归零角标并通知`, async () => {
+  let stopCalls = 0;
+  const t = await startTestRuntime("desktop-approval-end", async () => ({ kind: "tool_calls", calls: [{ id: "gate", name: "mock_gate", arguments: { note: "等待审批" } }] }), { config: { toolFactory: ctx => {
+    if (ending === "mode_failure") ctx.registry.register({ kind: "starting", id: "controlled-worker", label: "可控停止", stop: async () => { stopCalls++; return false; } });
+    return createMockTools(ctx);
+  } } });
+  const view = new ViewState();
+  const notices: DesktopNotice[] = []; let badge = 0;
+  const notifications = new DesktopNotifications(() => false, notice => notices.push(notice), count => { badge = count; }, async (_target, id) => t.runtime.getTaskDetail(id)!);
+  const events: PersistentEvent[] = [];
+  const connection = new ControlConnection({ socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! }, {
+    onState() {}, onSnapshot(result, context) { view.applySnapshot(result, context.instanceChanged); notifications.update("code", { type: "snapshot", result, instanceChanged: context.instanceChanged }); },
+    onEvent(event, kind) { events.push(event); view.applyEvent(event, kind); notifications.update("code", { type: "event", event, kind }); },
+  });
+  try {
+    await connection.start();
+    const session = await t.runtime.createSession({ projectName: "审批", cwd: t.work[0], confirmTools: ["mock_gate"] });
+    const task = await t.client.request<TaskView>("submit", { session_id: session.id, request_id: "approval", input: "审批测试", model_selection: selection });
+    await waitFor("共享投影显示待审批", () => view.pendingApprovals().length === 1);
+    assert.equal(badge, 1);
+    if (ending === "interrupt") await t.client.request("interrupt", { task_id: task.id });
+    else await assert.rejects(t.client.request("switch_mode", { task_id: task.id, mode: "full_access" }), { code: "mode_switch_unverified" });
+    await waitFor("共享投影移除审批", () => view.getTask(task.id)?.status === "interrupted");
+    assert.equal(view.pendingApprovals().length, 0); assert.equal(badge, 0);
+    assert.equal(t.runtime.store.listConfirmationsByTask(task.id)[0].status, "stale");
+    assert.equal(events.filter(event => event.body.type === "task.confirmation_resolved").length, 0);
+    assert.equal(notices.filter(notice => notice.title.includes("中断")).length, 1);
+    if (ending === "mode_failure") {
+      assert.equal(stopCalls, 1); assert.equal(events.filter(event => event.body.type === "task.interrupted").length, 0);
+      assert.equal(events.filter(event => event.body.type === "task.mode_switch_failed").length, 1);
+      const failure = events.find(event => event.body.type === "task.mode_switch_failed")!;
+      assert.ok(failure.body.type === "task.mode_switch_failed" && notices.at(-1)!.body.includes(failure.body.reason));
+      assert.ok(view.getTask(task.id)?.endedAt);
+    }
+  } finally { connection.close(); await t.shutdown(); }
+});
+
+
+test("Personal IPC 仅新增审批与核实操作，仍拒绝其他业务写入", async () => {
+  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation"] as const) {
+    const result = await handleRequest("personal", op, { confirmation_id: "approval" }, async () => {}, async name => name);
+    assert.deepEqual(result, { ok: true, value: op });
+  }
+  for (const op of ["submit", "create_session", "set_session_mode"]) {
+    const result = await handleRequest("personal", op, {}, async () => {}, unavailable);
+    assert.equal(!result.ok && result.error.code, "op_not_allowed");
+  }
+});
+
+test("系统通知同步异常不打断审批投影与角标，也不在下个事件重复通知", () => {
+  let calls = 0, badge = 0;
+  const model = new DesktopNotifications(() => false, () => { calls++; throw new Error("OS 拒绝"); }, count => { badge = count; }, async () => taskDetail());
+  const snapshot: Extract<DesktopUpdate, { type: "snapshot" }> = { type: "snapshot", instanceChanged: false, result: { seq: 0, replay: [], snapshot: fakeSnapshot({ tasks: [desktopTask({ status: "running" })] }) } };
+  model.update("code", snapshot);
+  const event = noticeEvent(1, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "approval", toolOpId: "op", toolName: "mock_gate", params: {}, scope: { kind: "tool", workspaceOnly: true }, permissionVersion: 1 });
+  model.update("code", { type: "event", kind: "live", event });
+  assert.equal(badge, 1); assert.equal(calls, 1);
+  model.update("code", { type: "event", kind: "live", event });
+  assert.equal(calls, 1);
+});
+
+test("真实快照仅含20个终态，新实例有效旧游标补发21个历史时静默，online前缓冲live通知", async () => {
+  const t = await startTestRuntime("desktop-history", async () => ({ kind: "text", text: "ok" }));
+  let connection: ControlConnection | undefined;
+  try {
+    const session = await t.runtime.createSession({ projectName: "历史", cwd: t.work[0] });
+    t.runtime.store.withTx(() => {
+      for (let i = 0; i < 21; i++) {
+        const task = t.runtime.store.insertQueuedTask({ sessionId: session.id, requestId: `history-${i}`, input: "历史", modelSelection: t.runtime.defaultSelection, submissionDigest: `history-${i}` }).task;
+        t.runtime.store.transitionTask(task.id, ["queued"], "running");
+        t.runtime.store.endTask(task.id, ["running"], "completed");
+      }
+    });
+    const history = await t.client.handshake(1);
+    assert.equal(history.snapshot.tasks.length, 20);
+    assert.equal(history.replay.filter(event => event.body.type === "task.completed").length, 21);
+    const h = noticeHarness(); let handshakes = 0, beforeOnline = false;
+    const fake = fakeControl({ handshake: (since, transport) => {
+      if (++handshakes === 1) return { seq: 1, replay: [], snapshot: fakeSnapshot({ instanceId: "original" }) };
+      assert.equal(since, 1, "旧实例游标在新实例仍可用");
+      transport.emit({ ...noticeEvent(history.seq + 1, { type: "task.completed", taskId: "new-live", sessionId: session.id }, "new-live"), sessionId: session.id });
+      return history;
+    } });
+    connection = new ControlConnection({ socketPath: "/fake", token, clientFactory: fake.factory, reconnectInitialMs: 1 }, {
+      onState() {}, onSnapshot: (result, ctx) => h.model.update("code", { type: "snapshot", result, instanceChanged: ctx.instanceChanged }), onEvent(event, kind) {
+        if (kind === "live") beforeOnline = connection!.state !== "online";
+        h.model.update("code", { type: "event", event, kind });
+      },
+    });
+    await connection.start(); fake.transports[0].drop();
+    await waitFor("新实例同步完成", () => handshakes === 2 && connection!.state === "online");
+    assert.equal(beforeOnline, true);
+    assert.deepEqual(h.notices.map(notice => notice.taskId), ["new-live"]);
+  } finally { connection?.close(); await t.shutdown(); }
 });

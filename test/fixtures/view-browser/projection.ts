@@ -39,7 +39,7 @@ export function runProjection() {
   for (const item of [second, first, first, second]) state.applyEvent(item, "replay");
   const streamed = state.openSession("session").flow.items.find((entry) => entry.kind === "message" && entry.role === "assistant");
   state.applyEvent(event(13, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "approval",
-    toolOpId: "operation", toolName: "bash", params: { command: "中文🙂" }, scope: { kind: "tool", workspaceOnly: true } }), "live");
+    permissionVersion: 1, toolOpId: "operation", toolName: "bash", params: { command: "中文🙂" }, scope: { kind: "tool", workspaceOnly: true } }), "live");
   state.applyEvent(event(14, { type: "task.output_entry", taskId: "task", sessionId: "session", entryId: "answer",
     sessionFile: "/history.jsonl", role: "assistant", messageId: "message" }), "replay");
   state.installHistoryPage("session", { fileAvailable: true, hasPartialTail: false, nextBefore: null, entries: [{

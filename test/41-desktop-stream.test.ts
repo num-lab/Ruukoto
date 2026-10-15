@@ -129,3 +129,17 @@ test("桌面人工重连创建了新连接时，仍以实例身份清空旧标�
   assert.equal(model.tabs.length, 0);
   assert.equal(model.view.sessionViews.size, 0);
 });
+
+test("桌面通知导航按实例定位后消费，同实例快照不抢回已切换的会话", () => {
+  const model = new CodeState({ request: async () => ({ ok: true, value: undefined }) }, () => {}, "personal");
+  const result = { seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [session, { ...session, id: "second" }] }) };
+  model.update({ type: "snapshot", result, instanceChanged: false });
+  model.update({ type: "navigate", instanceId: "inst-1", navigation: { sessionId: "session", taskId: "task" } });
+  assert.equal(model.view.currentSessionId, "session");
+  assert.deepEqual(model.notificationSelection, { sessionId: "session", taskId: "task" });
+  model.openSession("second"); model.closeSession("session");
+  model.update({ type: "snapshot", result, instanceChanged: false });
+  assert.equal(model.view.currentSessionId, "second"); assert.ok(!model.tabs.includes("session"));
+  model.update({ type: "navigate", instanceId: "old", navigation: { sessionId: "session", taskId: "task" } });
+  assert.equal(model.view.currentSessionId, "second"); assert.match(model.message!, /原目标已经变化/);
+});

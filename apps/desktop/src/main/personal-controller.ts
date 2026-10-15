@@ -113,7 +113,7 @@ export class PersonalController {
     return this.token;
   }
   async request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
-    if (!this.connection || this.status.state !== "online") throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
+    if (!this.connection || (this.status.state !== "online" && op !== "get_task")) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
     const token = this.token;
     try { return await this.connection.request(op, params); }
     catch (error) {

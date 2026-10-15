@@ -2,11 +2,11 @@
 
 ## 职责与边界
 
-`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型与会话默认模式选择、任务控制和暂停队列恢复；审批和 Personal 界面尚未开放；主进程支持与 Code 并存的 Personal SSH 连接。后台事实只经控制面取得，不读取数据库、JSONL、工作区文件或 git。
+`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型与会话默认模式选择、任务控制和暂停队列恢复；两个目标共用审批卡片、系统通知与 Dock 角标；Personal 完整会话界面尚未开放，主进程支持与 Code 并存的 Personal SSH 连接。后台事实只经控制面取得，不读取数据库、JSONL、工作区文件或 git。
 
 ## 对外接口
 
-主进程持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()` 与 `reveal(path)`。主进程校验 IPC 来源和操作名单：本地 `reconnect`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 目前只开放订阅、重新连接和本地 `desktop_personal_config_read`／`desktop_personal_config_save`；业务操作随界面开放。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+主进程持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()` 与 `reveal(path)`。主进程校验 IPC 来源和操作名单：本地 `reconnect`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放订阅、重新连接、审批读取与应答、`get_task` 核实，以及本地 `desktop_personal_config_read`／`desktop_personal_config_save`；其他业务操作随界面开放。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React 与 Tailwind，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
@@ -36,6 +36,12 @@ Personal 只支持 SSH 登录账户与后台账户相同的部署。每次控制
 
 输入框发送时携带会话模型，继续输入保留原任务来源；暂停期间新任务显示为排队。模型目录按 `nextOffset` 分页并保留思考档位与可用性，认证不可用的选项禁用。模型与默认模式设置均带版本；默认模式只影响后续任务。中断与取消作用于所选任务，继续只从当前会话的中断任务发起，原操作效果未知时先提示核实。恢复队列前检查缺模型的旧任务，先选模型，再确认补齐数量与模型；取消确认保持暂停，没有缺模型任务时只传会话。
 
+审批卡片以 view 的当前待审批集合为准，任务终态、权限版本变化、人工或自动审查解决后立即失效。卡片展示操作范围、目标、审查状态与转人工原因；完整参数按返回的 UTF-8 字节偏移续读，不完整或失败可见，读完之后才开放批准与拒绝。操作绑定原目标、实例、审批和展示的权限版本。
+
+主进程为两个目标分别维护 view。后台新待审批及完成、失败、中断任务发系统通知，前台只更新已见基线；取消不通知。Dock 角标始终为两个目标当前待审批数之和。通知点击聚焦窗口，经目标订阅定位会话；SubAgent 通知定位父会话并保留子会话与任务选择，SubAgent 右栏尚未开放。
+
+首次观察实例的快照及其截止 seq 以内的补发只建基线，握手缓冲的更新实时事件照常通知。同实例重连按审批和终态任务 ID 去重补通知；没有补发时，用 `get_task` 查询此前观察中、现已离开快照的任务。失败保留待查，下次快照再查。应用不持久化通知基线，也不扫描全部历史：离线期间新建又结束、既无补发又超出快照范围的任务不补通知。
+
 ## 不变量与失败处理
 
 窗口启用 sandbox、contextIsolation，关闭 nodeIntegration。sandbox preload 构建为单个 CommonJS 文件；主进程与 preload 除 Electron、Node 内置模块外的依赖全部打包。生产 HTML 的 head 首个元素是严格 CSP meta；开发页面只使用带本次 nonce 的响应头策略，放行 dev server 的 HTTP 与 WebSocket 源，不开放 unsafe-inline。开发页面仅允许对配置的完整文档 URL 自身重载；其他导航被拦截，只有 HTTP(S) 链接交给系统浏览器。
@@ -53,6 +59,8 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 缺模型且确认未接收的记录提供“恢复输入”和“暂不处理”。恢复先只读原记录、按请求键合入草稿，再确认严格清除；同一渲染进程重复确认不重复拼接，继续来源保留。读取／删除的权限与 IO 失败可见且保持发送禁用；清理应答丢失可以重试。只有当前目标、当前实例、最近核实为缺模型的现存记录可恢复；清理已不存在记录幂等成功。
 
 设置冲突或在线丢答读回 `get_session`；任务控制在线丢答读回 `get_task`，队列恢复丢答读回实际队列。断线等待同实例新快照，查询失败保留结果未知；这些操作都不自动重放。设置应答不覆盖较新的队列事件。
+
+审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留“结果未知”并提供“刷新审批状态”。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
 
 ## 设计依据
 

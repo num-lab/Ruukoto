@@ -17,7 +17,9 @@ export interface DesktopFailure {
   versions?: { client: number; server: number };
 }
 export type DesktopResult<T> = { ok: true; value: T } | { ok: false; error: DesktopFailure };
+export interface DesktopNavigation { sessionId: string; taskId: string }
 export type DesktopUpdate =
+  | { type: "navigate"; instanceId: string; navigation: DesktopNavigation }
   | { type: "state"; state: ConnectionState; detail?: string; error?: DesktopFailure; recovery?: string[] }
   | { type: "snapshot"; result: ConnectResult; instanceChanged: boolean }
   | { type: "event"; event: PersistentEvent; kind: "live" | "replay" }

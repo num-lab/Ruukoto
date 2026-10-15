@@ -7,12 +7,13 @@ import { execFileSync } from "node:child_process";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "../apps/desktop/src/main/environment.ts";
 import { CodeController, serializeFailure } from "../apps/desktop/src/main/controller.ts";
-import { handleRequest, ipcResult } from "../apps/desktop/src/main/ipc.ts";
+import { DESKTOP_OPS, handleRequest, ipcResult } from "../apps/desktop/src/main/ipc.ts";
 import { cspFor, externalUrl, isRendererReload } from "../apps/desktop/src/main/security.ts";
 import { socketLookupCommand, versionRecovery } from "../apps/desktop/src/main/recovery.ts";
 import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
+const unavailable = async (): Promise<never> => { throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent"); };
 const token = "desktop-owner-secret-".repeat(3);
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-desktop-"));
@@ -42,7 +43,7 @@ test("桌面日常路径、令牌与后台参数均采用登录 shell 环境", a
     const controller = new CodeController(config, update => updates.push(update), { ensure: async options => { ensures++; assert.equal(options, config); return { ok: true, spawned: false }; }, connection: (connection, callbacks) => {
       assert.equal(connection.token, token);
       assert.equal(connection.socketPath, path.join(config.controlDir, "control.sock"));
-      return { start: async () => { starts++; const error = new ControlClientError("protocol_version", "旧后台", "rejected", { client: 26, server: 25 }); callbacks.onState("failed", error.message, error); throw error; }, close() {} };
+      return { start: async () => { starts++; const error = new ControlClientError("protocol_version", "旧后台", "rejected", { client: 26, server: 25 }); callbacks.onState("failed", error.message, error); throw error; }, close() {}, request: unavailable };
     } });
     await controller.reconnect();
     assert.equal(starts, 1);
@@ -53,7 +54,7 @@ test("桌面日常路径、令牌与后台参数均采用登录 shell 环境", a
     assert.equal(status.state, "failed");
     assert.deepEqual(status.error?.versions, { client: 26, server: 25 });
     assert.ok(!JSON.stringify(updates).includes(token));
-    await handleRequest("code", "reconnect", {}, () => controller.reconnect());
+    await handleRequest("code", "reconnect", {}, () => controller.reconnect(), unavailable);
     assert.equal(ensures, 2);
     assert.equal(starts, 2);
     controller.close();
@@ -73,11 +74,11 @@ test("受管桌面只用开发档案，不执行登录 shell 或 ensureBackend",
     assert.equal(config.dataDir, f.env.RUUKOTO_CODE_DATA_DIR);
     const controller = new CodeController(config, () => {}, { ensure: async () => { ensures++; return { ok: true, spawned: false }; }, connection: (connection, callbacks) => {
       assert.equal(connection.token, token);
-      return { start: async () => { starts++; callbacks.onState("failed", "不兼容", new ControlClientError("protocol_version", "不兼容", "rejected", { client: 26, server: 25 })); }, close() {} };
+      return { start: async () => { starts++; callbacks.onState("failed", "不兼容", new ControlClientError("protocol_version", "不兼容", "rejected", { client: 26, server: 25 })); }, close() {}, request: unavailable };
     } });
     await controller.reconnect();
     assert.deepEqual(controller.status.recovery, ["开发后台版本较旧；请重启开发启动器。"]);
-    await handleRequest("code", "reconnect", {}, () => controller.reconnect());
+    await handleRequest("code", "reconnect", {}, () => controller.reconnect(), unavailable);
     assert.equal(starts, 2);
     assert.equal(shells, 0);
     assert.equal(ensures, 0);
@@ -89,13 +90,23 @@ test("主进程请求名单拒绝越界操作，IPC 错误保留分类与版本�
   let calls = 0;
   const reconnect = async () => { calls++; };
   for (const [target, op, params] of [["code", "stop", {}], ["code", "auth", { token }], ["personal", "reconnect", {}], ["code", "reconnect", { token }], ["code", "reconnect", []]]) {
-    const result = await handleRequest(target, op, params, reconnect);
+    const result = await handleRequest(target, op, params, reconnect, unavailable);
     assert.equal(result.ok, false);
     assert.ok(!JSON.stringify(result).includes(token));
   }
   assert.equal(calls, 0);
-  assert.deepEqual(await handleRequest("code", "reconnect", {}, reconnect), { ok: true, value: undefined });
+  assert.deepEqual(await handleRequest("code", "reconnect", {}, reconnect, unavailable), { ok: true, value: undefined });
   assert.equal(calls, 1);
+  const forwarded: string[] = [];
+  for (const op of DESKTOP_OPS) {
+    assert.deepEqual(await handleRequest("code", op, { session_id: "session" }, reconnect, async (name, params) => {
+      forwarded.push(name);
+      assert.deepEqual(params, { session_id: "session" });
+      return { source: name };
+    }), { ok: true, value: { source: op } });
+    assert.equal((await handleRequest("code", op, null, reconnect, unavailable)).ok, false);
+  }
+  assert.deepEqual(forwarded, [...DESKTOP_OPS]);
   const error = new ControlClientError("protocol_version", `拒绝 ${token}`, "rejected", { client: 25, server: 26 });
   assert.deepEqual(serializeFailure(error, token), { code: "protocol_version", outcome: "rejected", message: "拒绝 [令牌已隐藏]", versions: { client: 25, server: 26 } });
   const lost = await ipcResult(() => { throw new ControlClientError("request_timeout", "应答丢失", "unknown"); });
@@ -149,7 +160,7 @@ printf '\\000RUUKOTO_DESKTOP\\000%s\\000END\\000' '{"env":{},"node":"/old/node",
     adoptEnvironment(f.env);
     let release!: (result: { ok: true; spawned: boolean }) => void;
     let starts = 0;
-    const controller = new CodeController(codeTargetConfig(root, { env: f.env, node: process.execPath }), () => {}, { ensure: () => new Promise(resolve => { release = resolve; }), connection: () => { starts++; return { start: async () => {}, close() {} }; } });
+    const controller = new CodeController(codeTargetConfig(root, { env: f.env, node: process.execPath }), () => {}, { ensure: () => new Promise(resolve => { release = resolve; }), connection: () => { starts++; return { start: async () => {}, close() {}, request: unavailable }; } });
     const pending = controller.reconnect();
     controller.close();
     release({ ok: true, spawned: false });

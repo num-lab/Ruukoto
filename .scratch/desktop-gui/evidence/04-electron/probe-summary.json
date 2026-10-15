@@ -1,0 +1,39 @@
+{
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "macOS": "27.0.1 (26A434)",
+    "node": "v24.15.0",
+    "electron": "44.7.2",
+    "asarSHA256": "c8495b4ead243ee7d980401cdc1396d370bf19db2ddd64d43c0da2c799f4e8c4"
+  },
+  "accepted": [
+    "原生文件夹选择成功；既有 A 工作区独立再添加后多出一个会话，新 B 工作区出现在树中",
+    "真实 UI 新建会话、标签切换/关闭/重开；A/B 标题与侧栏高亮同步",
+    "真实 TuiApp + FakeTerminal 同连，用键盘输入提交；Electron 实时显示思考、执行中的 2 项工具组、流式正文及完成",
+    "后台实际停止并在同数据目录重启；Electron 自动重连后消息/思考/工具行与重启前完全一致",
+    "script/img onerror/javascript 不执行；发现根/相对本机图片加载后修复，最终正文与思考中 file/根/相对/http 图片均只显示文字，无 img 元素",
+    "最终构建长标签关闭符号未截断；创建未知提示与真实读取错误并列保留",
+    "760×500 viewport 下恢复步骤可滚动，重新连接按钮在可见范围"
+  ],
+  "limits": [
+    "真实模型由本地 OpenAI 兼容 SSE 替身代替",
+    "TUI 为真实 TuiApp 配 FakeTerminal，非物理终端",
+    "明暗使用 CDP prefers-color-scheme 媒体模拟；未更改系统外观",
+    "760×500 使用 CDP viewport 模拟；失败状态经 renderer 注入，创建 unknown 经 IPC 边界替身；读取失败来自真实 ControlServer",
+    "应答丢失/跨实例幂等完整回归由根代理工程测试验收，此探针未复跑网络故障矩阵"
+  ],
+  "results": {
+    "final": true,
+    "restart": true,
+    "streamFrames": 76,
+    "streamStages": [
+      "tool-running",
+      "thinking",
+      "streaming",
+      "complete"
+    ]
+  },
+  "processes": "本探针 Runtime、模型服务、控制 HTTP、Electron、TuiApp 与所有 monitor 已结束；证据保留在临时目录",
+  "tokenLeak": false
+}

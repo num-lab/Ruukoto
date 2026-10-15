@@ -1,6 +1,6 @@
 # 控制面路径按显式产品解析，后台可由外部 node 拉起
 
-Status: ready-for-agent
+Status: resolved
 
 ## 目标与边界
 
@@ -15,21 +15,34 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前：第二轮独立方案审查通过，首轮 P1 已在方案层解除，无新增阻断；03 交接事项已补齐。实现未开始，拥有者确认的目标与边界不变。
-- 下一步：实施者按本单方案实现、补齐验收与文档，再交独立实现审查；并发复用用例的断言要求见第二轮审查记录。
-- 基点：`develop` @ `4611eff`。可与 01 并行。
+- 当前：实现、文档、定向验收与独立实现审查通过，工程验收完成；无剩余阻断，产品验收不适用。
+- 下一步：本单无待办；03 可使用显式产品路径与 `spawnExecPath`，继续承担登录 shell 环境和真实 Electron 启动链路验收。
+- 基点：方案基于 `develop` @ `4611eff`，本轮实施基于 `b4ac27d`（已包含 01 的共享投影抽取）。
 - 阻塞：无。
 
 ## 验收与证据
 
-工程待验证。
+工程验收通过：作者定向回归、静态检查与独立实现审查均通过；执行材料见下节及 Comments。
 
 - 显式产品：在 `test/71-product-entry.test.ts` 中，全局产品固定时交替解析两个产品，数据、agent、控制目录与 socket 各自正确；两个产品的环境覆盖变量同时存在时互不串用；不传参数时行为不变。
 - 外部可执行文件：在 `test/72-on-demand-backend.test.ts` 中，`spawnExecPath` 指向一个与宿主路径不同的临时包装脚本，脚本先写一个标记文件，再 `exec` 真实的 node。断言标记文件存在，且经固定 bin 拉起的后台完成了真实的控制面握手。只传 `process.execPath` 的用例无法证明新参数生效，不作为这一项的证据。
 - 失败分类：`spawnExecPath` 指向不存在的路径时，返回的错误包含该路径与"找不到 node"的修复指引；指向没有执行权限的文件时，返回"不可执行"；两者都不再报"服务进程已退出且控制面未就绪"。另加一条：spawn 失败而另一个后台已经就绪时，按复用返回成功。
 - 回归：门控、并发收敛、日志尾部的既有用例通过；`test/06-connectivity.test.ts` 与 `test/29-cli-entry.test.ts` 不回归。
 
-产品验收不适用。
+产品验收不适用：本单只扩展控制面库接口，保留 CLI／TUI 调用约定，不交付桌面界面或主观体验。
+
+## 实施与验证
+
+2026-10-15，macOS Apple Silicon、Node v24.15.0，实施基点 `b4ac27d`。
+
+- `connect.ts` 的三个目录函数接受可选 `ProductType`，默认仍调用 `productFromEnv()`；调用方、exports、`resolveClientConfig` 与 `defaultPendingDir` 无需改动。
+- `ensureBackend` 使用独立的 `spawnExecPath`，按系统 `code` 报告 spawn 失败；循环先探测，spawn 失败后连到另一后台返回 `{ ok: true, spawned: false }`。detached、unref、实例锁仲裁与普通退出日志分支沿用。
+- `docs/modules/control.md` 已同步接口与失败行为；决定就地补入桌面客户端提案，整体提案仍为 proposed，不将其他桌面工单标为完成。CLI／TUI 入口、命令与操作步骤未变，不需修改 README、usage、development 或检查命令。
+- `npx tsx --test --test-name-pattern='显式产品|外部 node' test/71-product-entry.test.ts test/72-on-demand-backend.test.ts`：7/7 通过。带空格的包装脚本写标记后执行真实 Node，经固定 bin 完成认证握手；ENOENT／EACCES 来自真实 OS spawn；其他码与错误消息矛盾的用例使用模拟 EIO。并发复用将启动前两次连接及首次轮询探测设为不可达，经过一次 poll，确保真实 ENOENT 事件已送达后下一轮才能连接真实后台，断言完整复用结果与确实执行过 spawn；此处经独立审查补强，最终复核见 Comments。
+- `RUN_MODEL_CHECK=0 npx tsx --test test/71-product-entry.test.ts test/72-on-demand-backend.test.ts test/06-connectivity.test.ts test/29-cli-entry.test.ts`：54 通过、0 失败、1 跳过，约 27 秒；06 的真实模型连通性按默认离线约定跳过，不能视为真实模型通过。既有门控、并发收敛、锁败者等待、日志尾部、产品与 CLI 用例均通过。后台、socket 与 SQLite 真实，模型打桩。
+- `npm run check:static`、`git diff --check` 通过；并发用例按审查补强后再次执行静态检查，通过。`npm run change-scope -- --base b4ac27d` 核实改动只覆盖本单 7 个文件，无依赖、配置或导出变更。
+
+未运行全量 `npm run check`、Linux／Node 22、真实 Electron 或真实模型；前者不在本单最小检查集，Electron 整体链路归 03，平台矩阵与真实模型不作为本单已通过的证据。
 
 ## Comments
 
@@ -78,3 +91,13 @@ Status: ready-for-agent
 `npx tsx --test --test-name-pattern='并发拉起中败于实例锁的一侧' test/72-on-demand-backend.test.ts` 为 1/1 通过。相关实现与首轮相同，未重复首轮 7 项测试；未运行真实 Electron、Linux／Node 22、06／29 全文件回归或全量检查。本轮只更新本单状态与复审记录，保留其他工作区修订。
 
 本轮记录检查：`npm run check:static` 与 `git diff --check` 通过；本单 6 个相对链接、单一状态字段、段落换行与文件末尾换行另行检查通过。
+
+### 2026-10-15 独立实现审查与工程验收
+
+对象：`b4ac27d` 上本单 7 个未提交改动文件，对照现行工单、规格 R7、相关决定、调用方与实际代码；审查者使用独立执行上下文，只读主工作区。结论：实现验收通过，无剩余阻断或非阻断意见；本单标为 resolved，不代表桌面端其他工单或整体 R7 已交付，不授予提交、合并或发布权限。
+
+审查核实三个路径函数的显式产品与缺省调用、外部 Node 与固定 bin 参数分离、按系统 code 分类、探测优先、复用归属、实例锁与日志分支，以及文档事实一致。审查者亲自执行新增 7 项，全部通过；在独立临时副本恢复旧路径实现，2 项失败；恢复旧后台实现，3 项失败；将 spawn 失败后的复用结果改为 `spawned: true`，并发用例失败。临时副本均已清理。
+
+审查中发现原并发用例不能检出将错误处理移到循环探测前的回归：首次循环探测已经开始后才等错误，顺序错误也能通过。实施者按审查建议补强为启动前两次及首次循环探测不可达，经过一次 poll 确保错误已经到达，下一轮探测才连接真实后台，并要求至少四次连接。审查者在临时副本确认修订后的当前实现通过、错误优先变异失败；最终主工作区执行 `npx tsx --test --test-name-pattern='实际 spawn 失败后仍先探测' test/72-on-demand-backend.test.ts` 为 1/1 通过，验收缺口已解除。生产实现未因审查修改，四文件回归其余证据仍有效。
+
+作者在最终测试修订后重跑 `npm run check:static` 通过，审查者另执行 `git diff --check` 通过。产品验收不适用的理由沿用正文；未重跑全量、Linux／Node 22、真实 Electron 或真实模型，限制已如实保留。工单当前状态、6 个相对链接与改动文件末尾换行另行核实。

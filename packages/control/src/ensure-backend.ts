@@ -1,6 +1,7 @@
 /**
  * TUI 启动时按需拉起本机后台（agent-direction issue 02）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+ * Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
  *
  * - 只属 ruukoto-code：Coding Agent 打开 TUI 即进入任务界面，后台按需拉起；
  *   ruukoto（个人 Agent）沿用显式 server/systemd 启动，TUI 不越权拉起；
@@ -80,9 +81,11 @@ export interface EnsureBackendOptions {
   dataDir: string;
   agentDir: string;
   controlDir: string;
-  /** 完整服务进程参数（默认：当前入口脚本，TS 入口换固定 bin 服务入口 + server --data-dir … --agent-dir …）。测试注入。 */
+  /** 服务可执行文件（默认 process.execPath）；外部 Node 与 spawnArgv 中的 bin 分别传入。 */
+  spawnExecPath?: string;
+  /** 服务参数，不含可执行文件（默认：当前入口脚本，TS 入口换固定 bin 服务入口 + server --data-dir … --agent-dir …）。 */
   spawnArgv?: string[];
-  /** 子进程环境（默认继承当前进程）。测试注入干净环境。 */
+  /** 子进程环境（默认继承当前进程）；不影响调用方的路径与令牌解析。 */
   env?: NodeJS.ProcessEnv;
   deadlineMs?: number;
   pollMs?: number;
@@ -149,6 +152,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
 
   const argv = opts.spawnArgv ?? defaultServerArgv(opts);
   if (!argv) return { ok: false, error: "无法确定本产品的服务启动入口（process.argv[1] 缺失），请改用 ruukoto-code server 显式启动" };
+  const spawnExecPath = opts.spawnExecPath ?? process.execPath;
 
   fs.mkdirSync(opts.controlDir, { recursive: true, mode: 0o770 });
   const logPath = path.join(opts.controlDir, "spawn.log");
@@ -158,7 +162,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
   const logFd = fs.openSync(logPath, "a");
   let child: childProcess.ChildProcess;
   try {
-    child = childProcess.spawn(process.execPath, argv, {
+    child = childProcess.spawn(spawnExecPath, argv, {
       env: opts.env ?? process.env,
       stdio: ["ignore", logFd, logFd],
       detached: true,
@@ -167,7 +171,8 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     fs.closeSync(logFd);
   }
   child.unref(); // 后台必须比 TUI 活得久
-  child.on("error", () => {}); // spawn 级错误由轮询的提前退出分支归类
+  let spawnErrorCode: string | null = null;
+  child.on("error", (err: NodeJS.ErrnoException) => { spawnErrorCode = err.code ?? "UNKNOWN"; });
 
   const deadline = Date.now() + (opts.deadlineMs ?? 60_000);
   const pollMs = opts.pollMs ?? 200;
@@ -176,8 +181,14 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
   let lostLockRace = false;
   for (;;) {
     if (await probeControlPlane(socketPath, tryResolveOwnerToken(opts.controlDir), 1000)) {
-      // 锁竞败者连到的是别的终端拉起的胜者：是复用，不是本进程拉起
-      return { ok: true, spawned: !lostLockRace };
+      // 锁竞争败者或 spawn 失败时，连到的是其他调用方拉起的后台。
+      return { ok: true, spawned: !lostLockRace && spawnErrorCode === null };
+    }
+    if (spawnErrorCode !== null) {
+      const hint = spawnErrorCode === "ENOENT" ? "找不到 node，请确认路径存在，修正 node 路径后重试"
+        : spawnErrorCode === "EACCES" ? "node 不可执行，请检查执行权限或选择可执行的 node 后重试"
+        : `无法执行 node（${spawnErrorCode}），请检查 node 路径与执行环境后重试`;
+      return { ok: false, error: `后台启动失败：${spawnExecPath}：${hint}` };
     }
     if (exitedAt === null && (child.exitCode !== null || child.signalCode !== null)) {
       exitedAt = Date.now();

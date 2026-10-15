@@ -21,7 +21,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as childProcess from "node:child_process";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as nodePath from "node:path";
@@ -120,6 +121,114 @@ test("按需拉起：后台不存在时拉起单个实例并可认证握手", as
     await stopAndWait(controlDir);
   } finally {
     await stopBestEffort(controlDir, dirs.dataDir);
+    await server.close();
+    await cleanupDirs(dirs);
+  }
+});
+
+test("外部 node：使用指定包装脚本执行固定 bin，并完成真实控制面握手", async () => {
+  const { dirs } = await makeTestDirs("od-ext", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  await writeModelsJson(dirs, await server.start());
+  const opts = devOpts(dirs);
+  const spawnExecPath = nodePath.join(dirs.root, "external node");
+  const marker = nodePath.join(dirs.root, "node-used");
+  fs.writeFileSync(spawnExecPath, '#!/bin/sh\n: > "$TEST_NODE_MARKER"\nexec "$TEST_NODE_EXEC_PATH" "$@"\n', { mode: 0o700 });
+  try {
+    const result = await ensureBackend({
+      ...opts, spawnExecPath,
+      env: { ...opts.env, TEST_NODE_MARKER: marker, TEST_NODE_EXEC_PATH: process.execPath },
+    });
+    assert.deepEqual(result, { ok: true, spawned: true });
+    assert.ok(fs.existsSync(marker), "必须实际执行指定的外部可执行文件");
+    const client = await connectAuthed(opts.controlDir);
+    try {
+      assert.ok((await client.handshake()).snapshot.instanceId);
+    } finally {
+      client.close();
+    }
+    await stopAndWait(opts.controlDir);
+  } finally {
+    await stopBestEffort(opts.controlDir, dirs.dataDir);
+    await server.close();
+    await cleanupDirs(dirs);
+  }
+});
+
+for (const code of ["ENOENT", "EACCES"] as const) test(`外部 node：${code} 返回路径与修复指引，不等待退出宽限窗口`, async () => {
+  const { dirs } = await makeTestDirs(`od-${code}`, 0);
+  const opts = devOpts(dirs);
+  const spawnExecPath = nodePath.join(dirs.root, "unavailable node");
+  if (code === "EACCES") fs.writeFileSync(spawnExecPath, "#!/bin/sh\n", { mode: 0o600 });
+  try {
+    const startedAt = Date.now();
+    const result = await ensureBackend({ ...opts, spawnExecPath, deadlineMs: 5000, exitGraceMs: 60_000, pollMs: 10 });
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.ok(result.error.includes(spawnExecPath));
+    assert.match(result.error, code === "ENOENT" ? /找不到 node.*路径.*重试/ : /node 不可执行.*执行权限.*重试/);
+    assert.doesNotMatch(result.error, /服务进程已退出且控制面未就绪|等待后台就绪超时/);
+    assert.ok(Date.now() - startedAt < 3000, "spawn 失败不应等待退出宽限窗口或总截止");
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("外部 node：其他 spawn 错误按 code 上报，不解析消息", async context => {
+  const { dirs } = await makeTestDirs("od-spawn-code", 0);
+  context.mock.method(childProcess, "spawn", () => {
+    const child = new childProcess.ChildProcess();
+    setImmediate(() => child.emit("error", Object.assign(new Error("ENOENT"), { code: "EIO" })));
+    return child;
+  });
+  syncBuiltinESMExports();
+  try {
+    const result = await ensureBackend({ ...devOpts(dirs), spawnExecPath: "/external/node", pollMs: 10 });
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.match(result.error, /\/external\/node.*EIO.*重试/);
+    assert.doesNotMatch(result.error, /找不到 node|不可执行/);
+  } finally {
+    context.mock.restoreAll();
+    syncBuiltinESMExports();
+    await cleanupDirs(dirs);
+  }
+});
+
+test("外部 node：实际 spawn 失败后仍先探测，复用已就绪的并发后台", async context => {
+  const { dirs } = await makeTestDirs("od-spawn-peer", 0);
+  const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+  await writeModelsJson(dirs, await server.start());
+  const opts = devOpts(dirs);
+  const spawnExecPath = nodePath.join(dirs.root, "missing node");
+  try {
+    assert.deepEqual(await ensureBackend(opts), { ok: true, spawned: true });
+    // 启动前两次及首次轮询探测设为不可达；经过一次 poll，确保下轮探测前已收到 spawn 错误。
+    const originalSpawn = childProcess.spawn;
+    const originalConnect = ControlClient.connect;
+    let onSpawnError!: (err: NodeJS.ErrnoException) => void;
+    const spawnError = new Promise<NodeJS.ErrnoException>(resolve => { onSpawnError = resolve; });
+    const spawn = context.mock.method(childProcess, "spawn", (execPath: string, argv: readonly string[], options: childProcess.SpawnOptions) => {
+      assert.equal(execPath, spawnExecPath);
+      const child = originalSpawn(execPath, argv, options);
+      child.once("error", onSpawnError);
+      return child;
+    });
+    syncBuiltinESMExports();
+    let probes = 0;
+    context.mock.method(ControlClient, "connect", async (...args: Parameters<typeof ControlClient.connect>) => {
+      if (++probes <= 3) throw new Error("模拟并发后台尚未就绪");
+      assert.equal((await spawnError).code, "ENOENT");
+      return originalConnect(...args);
+    });
+    const result = await ensureBackend({ ...opts, spawnExecPath, deadlineMs: 5000, pollMs: 10 });
+    assert.deepEqual(result, { ok: true, spawned: false });
+    assert.equal(spawn.mock.callCount(), 1, "必须经过实际 spawn 失败，不能在首次探测就复用");
+    assert.ok(probes >= 4);
+  } finally {
+    context.mock.restoreAll();
+    syncBuiltinESMExports();
+    await stopBestEffort(opts.controlDir, dirs.dataDir);
     await server.close();
     await cleanupDirs(dirs);
   }

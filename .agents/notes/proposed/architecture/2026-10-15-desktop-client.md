@@ -18,7 +18,11 @@ Status: proposed
 
 快照与事件到界面状态的投影抽到新包 `packages/view`，TUI 与桌面端共用。该包必须能在浏览器运行：不引 `node:*`、不用 Node 全局，对其他 workspace 包的值引用只能来自本身不依赖 Node 的模块：以浏览器为目标打包，再只按浏览器全局对产物做 `no-undef` 检查，以此判定，依赖模块里的 `Buffer` 这类自由变量也能查出来。抽取按桌面端需要逐步进行，每抽一块，TUI 就改为引用新位置，并以 TUI 既有测试回归。
 
-协议版本保持严格相等。版本不一致时，桌面端显示双方版本和需要更新的一侧，不加兼容区间。服务端版本取自错误应答帧里已有的 `v`，经 `ControlClientError` 以结构化字段传出，不解析消息文本。仓库已升级而旧后台仍在运行时，新客户端无法经控制面停止它，因为服务端在认证前就拒绝版本不等的请求。桌面端只给出人工恢复步骤，自己不向进程发信号。要自动停止旧后台，必须证明被停止的进程就是拒绝连接的那个实例，这部分另立工单处理。Code 目标只拉起与桌面端同一份仓库代码的 ruukoto-code：.app 在构建时记录仓库路径，后台未运行时，用登录 shell 解析出的 node 执行该路径下的 bin（`ensureBackend` 新增参数 `spawnExecPath`），路径与令牌也按登录 shell 环境解析；后台脱离运行，退出桌面端不停止后台。`packages/control/src/connect.ts` 的路径解析改为显式接受产品，主进程才能同时连接两个产品。
+协议版本保持严格相等。版本不一致时，桌面端显示双方版本和需要更新的一侧，不加兼容区间。服务端版本取自错误应答帧里已有的 `v`，经 `ControlClientError` 以结构化字段传出，不解析消息文本。仓库已升级而旧后台仍在运行时，新客户端无法经控制面停止它，因为服务端在认证前就拒绝版本不等的请求。桌面端只给出人工恢复步骤，自己不向进程发信号。要自动停止旧后台，必须证明被停止的进程就是拒绝连接的那个实例，这部分另立工单处理。
+
+Code 目标只拉起与桌面端同一份仓库代码的 ruukoto-code：.app 在构建时记录仓库路径，后台未运行时，用登录 shell 解析出的 node 执行该路径下的 bin。控制面的 `ensureBackend` 以 `spawnExecPath` 指定可执行文件（默认 `process.execPath`），`spawnArgv` 只放 bin 及服务参数；把 node 塞进 `spawnArgv` 会让宿主把二进制当脚本，不能选择外部 Node。`spawn` 失败按系统 `code` 分类并给出路径与修复指引：`ENOENT` 为找不到 node，`EACCES` 为 node 不可执行，其余附原码；先探测再报告，其他后台已经就绪则按复用返回，不等待退出宽限窗口，也不杀后台。路径与令牌须按登录 shell 环境解析，`ensureBackend.env` 只影响子进程；后台脱离运行，退出桌面端不停止后台。
+
+`packages/control/src/connect.ts` 的 `defaultDataDir`、`defaultAgentDir`、`controlDirFor` 接受可选的显式产品参数，省略时仍调用 `productFromEnv()`，保留 CLI／TUI 约定；显式参数让主进程可交替解析两个产品且不改全局身份。`resolveClientConfig` 不扩参数，跨产品调用时传全 `dataDir` 与 `controlDir`；`PendingRequestStore` 沿用显式目录入参。
 
 个人 Agent 目标经 SSH 转发控制面 socket：`ssh -N -L <本地 socket>:<远端 control.sock> <host>`，使用拥有者的 `~/.ssh/config` 与密钥或 ssh-agent，不支持交互式密码。每次控制面建连前，都经 ssh 预检远端 socket 并读取令牌，令牌只保存在主进程内存；为此，`ControlConnection` 的令牌改为可按次获取。只支持同账户部署，即 SSH 登录账户就是后台账户，与当前部署步骤一致；令牌读的是原文件，所以轮换后下一次建连就能读到新令牌。两条 ssh 命令都显式关闭连接复用与认证后转入后台，确保桌面端持有的子进程就是实际的监听者。ssh 转发由主进程的监督者负责重启，控制面由 `ControlConnection` 负责重连，连接是否在线以认证完成并装好快照为准。握手快照新增产品身份，协议升到 v26，桌面端拒绝连到产品不符的后台。后台仍只监听本机 Unix socket，认证仍是 SSH 身份加拥有者令牌，与登录服务器启动 TUI 的权限相同。实施时把远程使用的说明改为：登录服务器后启动 TUI，或由桌面客户端经 SSH 转发控制面 socket；不新增远程协议。
 

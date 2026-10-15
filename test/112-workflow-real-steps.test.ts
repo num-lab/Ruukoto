@@ -19,11 +19,11 @@ function source(rt: Runtime, session: Session, requestId = "owner") {
     return rt.store.getTask(task.id)!;
   });
 }
-const SCRIPT = 'await agent("change",{request:"修改",mode:"modify",target:"."}); await agent("validate",{request:"独立验证",mode:"verify",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
+const SCRIPT = 'await agent("change",{request:"修改",target:"."}); await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
 
 for (const product of [undefined, codeProduct.runtime]) test(`真实 ${product?.type ?? "ruukoto"} Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本`, async () => {
   const t = await startTestRuntime("workflow-real", req => {
-    const verify = lastUserText(req).includes('"mode":"verify"');
+    const verify = lastUserText(req).includes('"verify":"change"');
     if (afterTool(req)) return { kind: "text", text: verify ? '{"passed":true,"reason":"真实文件正确"}' : "修改完成" };
     assert.ok(toolNamesOf(req).includes("write"));
     assert.ok(!toolNamesOf(req).some(name => name.startsWith("subagent_")));
@@ -57,12 +57,12 @@ for (const product of [undefined, codeProduct.runtime]) test(`真实 ${product?.
   } finally { await t.shutdown(); }
 });
 
-test("非 Git 修改在真实 worker 与模型前拒绝；非 Git 分析仍取得来源业务工具", async () => {
+test("非 Git 修改在真实 worker 与模型前拒绝；无目标通用步骤仍可执行来源工具", async () => {
   let document = "";
   const t = await startTestRuntime("workflow-nongit-real", req => {
     assert.ok(toolNamesOf(req).includes("web_search"));
-    assert.ok(!toolNamesOf(req).includes("write"));
-    if (!afterTool(req)) return { kind: "tool_calls", calls: [{ id: "read", name: "read", arguments: { path: document } }] };
+    assert.ok(toolNamesOf(req).includes("write"));
+    if (!afterTool(req)) return { kind: "tool_calls", calls: [{ id: "read", name: "bash", arguments: { command: "printf OWNER_SOURCE_DOCUMENT" } }] };
     assert.match(lastToolText(req), /OWNER_SOURCE_DOCUMENT/);
     return { kind: "text", text: "分析完成" };
   }, { config: realTools(), workDirs: 1 });
@@ -70,7 +70,7 @@ test("非 Git 修改在真实 worker 与模型前拒绝；非 Git 分析仍取�
     fs.writeFileSync(path.join(t.work[0], "input.txt"), "OWNER_SOURCE_DOCUMENT\n");
     document = fs.realpathSync(path.join(t.work[0], "input.txt"));
     const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] }), parent = source(rt, session);
-    const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "nongit", script: 'return await Promise.all([agent("write",{request:"修改",mode:"modify",target:"."}),agent("read",{request:"分析"})]);', input: null });
+    const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "nongit", script: 'return await Promise.all([agent("write",{request:"修改",target:"."}),agent("read",{request:"分析"})]);', input: null });
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
     await waitFor("非 Git 路径结束", () => workflowTerminal(requireWorkflowRun(rt.store, run.id).status) || requireWorkflowRun(rt.store, run.id).status === "paused", 60_000);
     assert.equal(requireWorkflowRun(rt.store, run.id).status, "partial");
@@ -86,7 +86,7 @@ test("非 Git 修改在真实 worker 与模型前拒绝；非 Git 分析仍取�
 test("完全访问来源的验证命令不能写回待审副本，工具失败不能伪称通过", async () => {
   let rt!: Runtime, runId = "";
   const t = await startTestRuntime("workflow-verifier-deny", req => {
-    const verify = lastUserText(req).includes('"mode":"verify"');
+    const verify = lastUserText(req).includes('"verify":"change"');
     if (afterTool(req)) return { kind: "text", text: verify ? '{"passed":true}' : "修改完成" };
     if (verify) {
       const changed = getWorkflowStep(rt.store, runId, "change")!.frozen!;
@@ -113,16 +113,16 @@ test("完全访问来源的验证命令不能写回待审副本，工具失败�
   } finally { await t.shutdown(); }
 });
 
-for (const phase of ["stale", "check_failure", "ordinary_bypass"] as const) test(`冻结成果 ${phase}：旧结论不能放行新字节或绕过验证，已套用成果保留`, async () => {
+for (const phase of ["stale", "check_failure", "ordinary_bypass", "snapshot_missing", "snapshot_mismatch", "ledger_unknown"] as const) test(`冻结成果 ${phase}：旧结论不能放行新字节或绕过验证，已套用成果保留`, async () => {
   const t = await startTestRuntime("workflow-freeze-control", req => afterTool(req)
-    ? { kind: "text", text: lastUserText(req).includes('"mode":"verify"') ? '{"passed":true}' : "修改完成" }
-    : { kind: "tool_calls", calls: [{ id: "tool", name: lastUserText(req).includes('"mode":"verify"') ? "read" : "write", arguments:
-      lastUserText(req).includes('"mode":"verify"') ? { path: "value.txt" } : { path: "value.txt", content: "changed\n" } }] }, { config: realTools(), workDirs: 1 });
+    ? { kind: "text", text: lastUserText(req).includes('"verify":"change"') ? '{"passed":true}' : "修改完成" }
+    : { kind: "tool_calls", calls: [{ id: "tool", name: lastUserText(req).includes('"verify":"change"') ? "read" : "write", arguments:
+      lastUserText(req).includes('"verify":"change"') ? { path: "value.txt" } : { path: "value.txt", content: "changed\n" } }] }, { config: realTools(), workDirs: 1 });
   try {
     const rt = t.runtime; fs.writeFileSync(path.join(t.work[0], "value.txt"), "base\n"); initGitRepo(t.work[0]);
     const session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] }), parent = source(rt, session);
-    const script = 'await agent("change",{request:"修改",mode:"modify",target:"."});' +
-      (phase === "ordinary_bypass" ? '' : 'await agent("validate",{request:"独立验证",mode:"verify",verify:"change",dependsOn:["change"]});') +
+    const script = 'await agent("change",{request:"修改",target:"."});' +
+      (phase === "ordinary_bypass" ? '' : 'await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]});') +
       'await ask("hold",{prompt:"等待"});' + (phase === "ordinary_bypass" ? 'return 1;' :
       `return await integrate("merge",{steps:["validate"],dependsOn:["validate","hold"],check:${JSON.stringify(phase === "check_failure" ? "false" : "true")}});`);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "control", script, input: null });
@@ -136,10 +136,23 @@ for (const phase of ["stale", "check_failure", "ordinary_bypass"] as const) test
       return;
     }
     if (phase === "stale") fs.writeFileSync(path.join(target.path, "value.txt"), "new bytes\n");
+    if (phase === "snapshot_missing" || phase === "snapshot_mismatch") {
+      const verified = getWorkflowStep(rt.store, run.id, "validate")!;
+      const altered = { ...verified.verification, snapshotDigest: phase === "snapshot_missing" ? undefined : "0".repeat(64) };
+      rt.store.db.prepare("UPDATE workflow_steps SET payload = ? WHERE run_id = ? AND key = 'validate'").run(JSON.stringify({ ...verified, verification: altered }), run.id);
+    }
+    if (phase === "ledger_unknown") {
+      const verified = getWorkflowStep(rt.store, run.id, "validate")!;
+      assert.equal(verified.verification!.passed, true);
+      rt.store.db.prepare("UPDATE tool_ops SET effect_unknown = 1 WHERE task_id = ?").run(verified.verification!.taskId);
+    }
     const question = rt.store.db.prepare("SELECT payload FROM workflow_questions WHERE run_id = ? AND step_key = 'hold'").get(run.id) as { payload: string };
     rt.workflows!.answer(run.id, "hold", (JSON.parse(question.payload) as { version: number }).version, "继续", run.source, { requestKey: "answer-hold", runVersion: rt.getWorkflowQuestion(run.id, "hold").runVersion });
     await waitFor("汇总收尾", () => workflowTerminal(requireWorkflowRun(rt.store, run.id).status) || requireWorkflowRun(rt.store, run.id).status === "paused", 60_000);
-    if (phase === "stale") {
+    if (phase === "snapshot_missing" || phase === "snapshot_mismatch" || phase === "ledger_unknown") {
+      assert.equal(requireWorkflowRun(rt.store, run.id).reason, "verification_required");
+      assert.equal(fs.readFileSync(path.join(t.work[0], "value.txt"), "utf8"), "base\n");
+    } else if (phase === "stale") {
       assert.equal(requireWorkflowRun(rt.store, run.id).reason, "frozen_changed");
       assert.equal(fs.readFileSync(path.join(t.work[0], "value.txt"), "utf8"), "base\n");
     } else {
@@ -164,15 +177,15 @@ test("脚本伪造通过值不能生成验证记录或汇入任何字节", async
   } finally { await t.shutdown(); }
 });
 
-for (const mode of ["analyze", "modify"] as const) test(`真实 Driver ${mode} 启动中取消，迟到实际身份和停止 false 沿原 Task 保留`, async () => {
+for (const targeted of [false, true]) test(`真实 Driver ${targeted ? "目标副本" : "独立目录"} 启动中取消，迟到实际身份和停止 false 沿原 Task 保留`, async () => {
   const t = await startTestRuntime("workflow-driver-start-stop", () => ({ kind: "tool_calls", calls: [{ id: "read", name: "read", arguments: { path: "missing" } }] }), { config: realTools(), workDirs: 1 });
   const controlled = controlledWorkCopy(async () => false, "", false, false);
   try {
     const rt = t.runtime;
-    if (mode === "modify") { fs.writeFileSync(path.join(t.work[0], "value.txt"), "base\n"); initGitRepo(t.work[0]); }
+    if (targeted) { fs.writeFileSync(path.join(t.work[0], "value.txt"), "base\n"); initGitRepo(t.work[0]); }
     rt.launcherFor = () => controlled.launcher;
     const session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] }), parent = source(rt, session);
-    const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "cancel", script: `return await agent("step",{request:"读取",mode:${JSON.stringify(mode)}${mode === "modify" ? ',target:"."' : ''}});`, input: null });
+    const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "cancel", script: `return await agent("step",{request:"读取"${targeted ? ',target:"."' : ''}});`, input: null });
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
     await waitFor("worker 启动占位", () => controlled.specs.length === 1);
     await rt.workflows!.control(run.id, "cancel", requireWorkflowRun(rt.store, run.id).version, { action: "cancel" });

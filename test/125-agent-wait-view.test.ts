@@ -98,7 +98,7 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     const parent = await t.runtime.submit({ sessionId: session.id, requestId: "parent", input: "等待后台", modelSelection: t.runtime.defaultSelection });
     await waitFor("等待视图已实时推送", () => state.tasks.get(parent.id)?.wait?.phase === "waiting");
     const detail = await t.client.request<OpResult<"get_task">>("get_task", { task_id: parent.id });
-    assert.equal(PROTOCOL_VERSION, 25);
+    assert.equal(PROTOCOL_VERSION, 26);
     assert.equal(detail.task.resourcePhase, "conversation");
     assert.equal(detail.task.wait!.targets[0].id, runId);
     assert.equal(detail.task.wait!.targets[0].kind, "workflow");

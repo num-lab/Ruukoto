@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { WORKFLOW_LIMITS, getWorkflowDefinition } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, WORKFLOW_LIMITS, getWorkflowDefinition, rememberWorkflowDefinition, saveWorkflowDefinition, workflowDefinitionDigest, workflowDigest } from "@ruukoto/core/workflow.ts";
 import { WorkflowLibrary } from "@ruukoto/runtime/workflow-library.ts";
 import { validateWorkflowScript } from "@ruukoto/agent/script-worker/validate.ts";
 
@@ -98,5 +98,44 @@ test("QuickJS 校验只编译真实包装，死循环和宿主调用不执行；
     await assert.rejects(k.library.save({ name: "canceled", script: "return 1;", expectedDigest: null, requestKey: "canceled" }, () => { throw new Error("来源取消"); }), /来源取消/);
     assert.equal(k.library.saved("canceled"), null);
     assert.equal(fs.existsSync(path.join(k.agent, "workflows", "canceled.js")), false);
+  } finally { k.close(); }
+});
+
+test("无版本命名文件只读归档；显式保存产生新版，同脚本不复用旧定义", async () => {
+  const k = kit();
+  try {
+    const script = 'const mode = "modify"; return mode;\n';
+    const root = path.join(k.agent, "workflows"), file = path.join(root, "legacy.js");
+    fs.mkdirSync(root);
+    fs.writeFileSync(file, script);
+    const legacy = await k.library.load("legacy");
+    assert.equal(legacy.interfaceVersion, 1);
+    assert.equal(legacy.digest, workflowDigest(script));
+    assert.equal(k.library.version(legacy.id).script, script);
+    assert.equal(fs.readFileSync(file, "utf8"), script);
+    assert.equal((await k.library.list()).definitions[0].interfaceVersion, 1);
+    const { interfaceVersion: _legacyVersion, ...historical } = legacy;
+    const original = JSON.stringify(historical);
+    k.store.db.prepare("UPDATE workflow_definitions SET payload = ? WHERE id = ?").run(original, legacy.id);
+    assert.equal(k.library.version(legacy.id).interfaceVersion, undefined);
+    const oldSave = { name: "legacy", script, expectedDigest: null, requestKey: "old-save" };
+    k.store.withTx(() => rememberWorkflowDefinition(k.store, oldSave.name, legacy, { key: oldSave.requestKey, digest: workflowDigest({ name: oldSave.name, script, expectedDigest: null }) }));
+    assert.equal((await k.library.save(oldSave)).id, legacy.id);
+    assert.equal(fs.readFileSync(file, "utf8"), script);
+    await assert.rejects(k.library.save({ name: "legacy", script, expectedDigest: null, requestKey: "upgrade-conflict" }), { code: "definition_version_conflict" });
+    const current = await k.library.save({ name: "legacy", script, expectedDigest: legacy.digest, requestKey: "upgrade" });
+    assert.equal(current.interfaceVersion, WORKFLOW_INTERFACE_VERSION);
+    assert.equal(current.digest, workflowDefinitionDigest(script));
+    assert.notEqual(current.id, legacy.id);
+    assert.equal((await k.library.load("legacy")).id, current.id);
+    assert.equal((await k.library.save(oldSave)).id, legacy.id);
+    assert.equal(fs.readFileSync(file, "utf8"), `// ruukoto-workflow-interface: ${WORKFLOW_INTERFACE_VERSION}\n${script}`);
+    assert.equal((k.store.db.prepare("SELECT payload FROM workflow_definitions WHERE id = ?").get(legacy.id) as { payload: string }).payload, original);
+    assert.equal(k.library.versions("legacy").length, 2);
+    assert.equal(saveWorkflowDefinition(k.store, script).id, current.id);
+    for (const header of ["99\n", "two\n", "2"]) {
+      fs.writeFileSync(file, "// ruukoto-workflow-interface: " + header);
+      await assert.rejects(k.library.load("legacy"), { code: "interface_upgrade_required" });
+    }
   } finally { k.close(); }
 });

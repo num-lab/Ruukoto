@@ -9,7 +9,7 @@ import { Store } from "@ruukoto/core/store.ts";
 import { TASK_END_MARKER, TASK_START_MARKER, type Session } from "@ruukoto/core/types.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
-import { bindWorkflowExecution, createWorkflowRun, getWorkflowDeliveryRun, getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, bindWorkflowExecution, createWorkflowRun, getWorkflowDeliveryRun, getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
@@ -128,7 +128,7 @@ test("终态停止事实区分已核实、未知和未启动；登记脚本仍�
     store.transitionTask(parent.id, ["queued"], "completed");
     const definition = saveWorkflowDefinition(store, "return 1;");
     const inputs: string[] = [];
-    const delivery = new ParentDelivery({ store, defaultModelSelection: () => selection, readReply: () => null, isReviewEvent: () => false,
+    const delivery = new ParentDelivery({ verifyWork: () => {}, store, defaultModelSelection: () => selection, readReply: () => null, isReviewEvent: () => false,
       resultNotice: () => null, sendWorkReport: () => {}, verifyWorkflowReport: () => true,
       submit: async input => { inputs.push(input.input); return parent; } });
     const cases = [
@@ -140,7 +140,7 @@ test("终态停止事实区分已核实、未知和未启动；登记脚本仍�
     ];
     for (const [index, value] of cases.entries()) {
       const id = `report-${index}`;
-      const run = createWorkflowRun(store, { roleCatalog: fixtureSubAgentRoleCatalog(), id, requestKey: id, paramsDigest: id, definitionId: definition.id, scriptDigest: definition.digest,
+      const run = createWorkflowRun(store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(), id, requestKey: id, paramsDigest: id, definitionId: definition.id, scriptDigest: definition.digest,
         input: null, inputDigest: id, source: { product: "ruukoto-code", projectId: project.id, sessionId: session.id, taskId: parent.id,
           permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null },
         modelSelection: selection, status: "running", version: 1, reason: "test", attempts: 1, maxAttempts: 100,

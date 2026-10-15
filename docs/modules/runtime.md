@@ -43,9 +43,9 @@
 | SubAgent 会话 | `sub_agent` 行存在（SubAgent 行优先；会话类别也是 dev） | 提交、改默认模式与切换模式一律拒绝 | 只承接委派、消息投递与评审；不能委派下级 |
 | 已退役归档会话 | QQ 群会话、chat/coding 角色会话（附退役原因） | 提交按原因拒绝；队列兜底按原因取消 | 只读归档，不运行任务；`resume-queue` 按身份取 Agent 行 |
 
-委派登记的父会话必须是普通开发会话或 main 会话，两种 `mode` 同一口径。
+委派登记核实普通开发、main 或独立调度来源，角色和目标不能提供来源身份。
 
-**执行画像。** 给定任务，`tool-availability.ts` 的 `executionProfile` 由会话身份、任务所属工作是否有写入目标与是否宿主评审算出：会话类别（决定工具类别表与系统提示键）、SubAgent 工具集（只读 / 写入 / 宿主评审，宿主评审另开只读 MCP 并关 `subagent_message`）、是否规划 MCP、资料受限（SubAgent）、计划资格（只普通开发会话）。画像在任务开始算一次、钉到任务结束；装配过滤、任务收窄与 SDK 会话签名同用这一份，工具集变化时重建 SDK 会话。工作区不进画像：占用键与 LaunchSpec 都取 `core/worktree.ts` 的 `taskWorkspaceFor`。SubAgent 的工具集固定为：分析 `read` + `read_artifact`；修改 `read` / `edit` / `write` / `bash` / `read_artifact`（无 `request_file_access`、`http_request`、MCP，不能委派下级）；宿主评审 `read` / `read_artifact` ∪ `effect=read` 的 MCP。工具类别清单与调用门本身见 [agent-tools](agent-tools.md)。
+**执行画像。** `tool-availability.ts` 的 `executionProfile` 按会话身份、持久来源、角色与宿主限制确定工具类别、MCP、资料范围、计划资格及 SDK 签名。普通与工作流共用来源计算；显式角色工具必须全部可用，步骤 `tools` 只能进一步收窄。宿主固定评审另限 `read` / `read_artifact` 与只读 MCP，禁消息。画像在任务开始固定，激活、发送前检查与调用门共用；工作区与占用由 `core/worktree.ts` 的 `taskWorkspaceFor` 解析。
 
 Runtime 另持有跨任务的 `BrowserManager`，两个产品共享装配；Driver 的每任务 registry 不承担浏览器归属。正常任务结束保留浏览器，活动任务的取消、有效模式切换和后台停止先核实自有 Chrome、CLI daemon 与 dashboard 的停止；附接只停自己的连接进程。改变同会话另一排队任务的模式不关闭当前任务的浏览器。启动先恢复浏览器绑定、核实旧执行停止，再恢复任务，不重放旧动作；未核实状态仅影响浏览器能力。
 
@@ -70,7 +70,7 @@ Runtime 另持有跨任务的 `BrowserManager`，两个产品共享装配；Driv
 
 **工作内消息（`subagent_messages`）。** 工作、父会话、发送方（`from_sub_agent_id` 为空 = 主 Agent）、发起任务、登记时的 `access_mode` 与 `source_permission_version`、接收方、`request_key` 与 `params_digest`、正文 `body`、投递结果 `delivered_task_id` / `delivered_at` / `undelivered_reason`；幂等键为（工作, 发送方, 键）。
 
-**写入目标（`work_delegations.write_target`）。** 直接写入记 `{kind:"direct", path, dev, ino}`；worktree 记 `{kind:"worktree", repoRoot, commonGitDir, gitdir, path, dev, ino, branch, baseCommit}`；为空表示只读分析工作，不能升级为写入。
+**写入目标（`work_delegations.write_target`）。** 直接写入记 `{kind:"direct", path, dev, ino}`；worktree 记 `{kind:"worktree", repoRoot, commonGitDir, gitdir, path, dev, ino, branch, baseCommit}`；为空表示无目标的独立执行工作；增加修改目标需新建工作。
 
 **结果引用（`result_ref`）。** 明确 `workId` / `subAgentId` / `taskId` / 原直接父任务 / 所属父会话 / `outcome` / `artifactIds`。
 
@@ -153,14 +153,14 @@ stateDiagram-v2
 
 ### 委派登记与执行范围
 
-主 Agent（拥有者的普通开发会话或 main）经 `subagent_delegate` 登记工作委托、创建动态 SubAgent 与独立子会话并派出一次执行任务（只读分析，或修改）。
+主 Agent（拥有者的普通开发会话或 main）经 `subagent_delegate` 登记工作委托、创建动态 SubAgent 与独立子会话并派出一次通用执行任务或带目标的修改任务。
 
 - **触发来源**：拥有者直接提交、已核实身份的 QQ／Telegram 私聊任务及宿主保存来源授权的工作唤醒可以委派；GitHub 等外部评审仍拒绝模型委派。
-- **输入与固定参数**：模型只提供 `request / key / work_id? | sub_agent_id?`（两者互斥）/ `mode?` / `target?` / `read_paths?`（dev）| `materials?`（main）。分析委派能力固定为只读（`read` 与 `read_artifact`），访问模式取本次发起任务的有效模式；新任务保存来源任务与权限版本，不继承单次批准与长期授权；不提供模型自选角色、执行账户、访问模式、父会话、任意 cwd 或自由工具列表。截止时间固定为父任务开始时刻 + 60 分钟；同一父用户会话最多 3 个活动（queued/running/awaiting_confirmation）执行任务。
-- **幂等**：首次委派与复用委派以（父会话, `key`）唯一查工作（`sub_agent_id` 只在提供时纳入参数摘要，保持旧重放摘要不变）；工作内以 `sdelegate:<workId>:<key>` 查任务。参数摘要不包含本次调用的直接父任务 id 与模型选择——跨对话轮次重放核实同一逻辑委派，返回首次记录；同键异参明确冲突；查重先于限额与资料解析，同键同参的重放即使目标已关闭或忙碌也返回原记录。修改委派把 `mode` / `target` 纳入摘要。
+- **输入与固定参数**：模型提供 request/key、可选 role、work_id/sub_agent_id、target 及开发会话 read_paths 或个人会话 materials；工作与身份同时给出可协作加入。未给目标时在独立目录使用来源允许的 shell 与业务工具，资料可以省略；权限取来源与角色收紧结果；新任务保存来源任务与权限版本，不继承单次批准与长期授权；角色从目录选择，不提供模型自选执行账户、访问模式、父会话、任意 cwd 或自由工具列表。截止时间固定为父任务开始时刻 + 60 分钟；同一父用户会话最多 3 个活动（queued/running/awaiting_confirmation）执行任务。
+- **幂等**：首次委派与复用委派以（父会话, `key`）唯一查工作（`sub_agent_id` 只在提供时纳入参数摘要，保持旧重放摘要不变）；工作内以 `sdelegate:<workId>:<key>` 查任务。参数摘要不包含本次调用的直接父任务 id 与模型选择——跨对话轮次重放核实同一逻辑委派，返回首次记录；同键异参明确冲突；查重先于限额与资料解析，同键同参的重放即使目标已关闭或忙碌也返回原记录。有目标时将 `target` 纳入摘要；旧 `mode` 字段在查重前明确拒绝，不新建执行。
 - **登记事务**：先异步准备（模型门闩预检、发起任务模式的执行入口预检、宿主生成的独立工作目录 `<dataDir>/../agent-work/sub-agents/<agentId>`、路径核实与资料快照），再在一个同步事务内重核来源任务活动状态、模式和权限版本后登记工作/Agent/Session/排队任务与 `work_delegation.created` 事件，提交后才 kick 子会话；工具在子任务入队后立即返回，不等待子模型结束。准备或落库失败只清理本次产物：新建目录整删，沿用目录时只删本次写入的快照文件。
 - **资料与读范围**：main 的 `materials`（1–8 个来源，复用来源解析器）解析为文本快照写入子工作目录 `materials-<workId>-<key>.txt`（按工作 + 执行键命名，复用承接新工作不覆写旧工作的快照），来源引用随任务保存，登记事务与每次向模型发送上下文前按该 Agent 全部历史任务来源引用与本次的并集重新 verify（任一撤销即拒绝登记或阻断发送 `task_sources_revoked`，快照正文不重新解析）；dev 在受限模式下的 `read_paths` 限父工作区内或父任务已授予范围（交集后的只读钉定，保存 realpath 与目录身份，经 LaunchSpec/init 传入 worker），模型参数不能替换；绝对系统路径、保护根、符号链接越界与目录身份变化明确拒绝。
-- **上下文**：SubAgent 的模型上下文只含固定任务说明、选定快照与自己的 JSONL——不注入父项目指令、个人共享记忆、技能目录、父完整历史或继续来源；产物只读本次自产（不含 `prompt-snapshot:*`）。
+- **上下文**：普通与工作流沿持久来源装配适用项目指令、技能目录及获准资料，角色正文和实际工具记录可重建；不复制父完整聊天或无条件注入个人记忆。产物按来源授权读取，`prompt-snapshot:*` 不作为交付资料。
 
 ```mermaid
 sequenceDiagram
@@ -184,7 +184,7 @@ sequenceDiagram
 
 ### 继续、复用与关闭
 
-- **继续**（`work_id`）：沿原工作增加新的分析执行；**复用**（`sub_agent_id`）：同一父会话内把相关的另一项工作交给同一个空闲 SubAgent，登记一条新 `work_delegations` 行指向既有 Agent（同一子会话，保留上下文），任务输入带宿主说明「此前的范围不延续」。两者各自登记独立任务记录（id/工作/readScope/结果互不改写），每次执行重新固定读范围、资料、发起任务的访问模式与截止时间，前次批准不延续。
+- **继续**（`work_id`）：沿原工作追加任务；**复用**（`sub_agent_id`）：同一父会话内把相关的另一项工作交给同一个空闲 SubAgent，登记一条新 `work_delegations` 行指向既有 Agent（同一子会话，保留上下文），任务输入带宿主说明「此前的范围不延续」。两者各自登记独立任务记录（id/工作/readScope/结果互不改写），每次执行重新固定读范围、资料、发起任务的访问模式与截止时间，前次批准不延续。
 - **可用性**：继续与复用要求目标 Agent 同一父会话、未关闭、`idle` 且无活动任务（忙碌明确拒绝，不排队），工作目录 realpath 与 dev/ino 和子会话记录一致（目录被删除/替换时报「请新建 SubAgent」）；准备前与登记事务内各核一次。复用另复核该 Agent 历史任务来源引用与本次的并集，任一撤销即拒绝。继续、复用、协作加入、消息登记与冲刷共用管理器的私有资格判断：关闭、跨父会话、宿主固定评审、工作取消或已转做其他工作均明确拒绝或记未投递；委派遇忙碌拒绝，消息遇忙碌或名额满保留待投递。
 - **关闭**：`sub_agents.closed_at` / `closed_by` 独立两列（`owner` 或 `agent:<任务ID>`），未关闭的行两列为空，`state` 语义不变。主 Agent 用 `subagent_close` 关闭本会话名下的 Agent；拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）关闭；已关闭幂等返回；有活动任务拒绝并给出任务 id（先取消任务再关闭）。关闭不删除工作目录、会话、JSONL、产物与工作记录；关闭后新委派报「已关闭」，同键同参重放仍返回原记录；发 `subagent.closed` 事件（refs 指向父会话）。关闭保持同步：关闭事务内用同一 `pendingMessageContext` 资格判定清理发给该 Agent 的待投递消息，不异步冲刷其他 Agent；关闭前无活动任务，因此不需要释放名额。
 - **竞争**：关闭与新委派在同一个同步事务内定胜负——先关闭则委派报「已关闭」且零新任务，先登记则关闭报「有活动任务」；不存在「已关闭且有活动任务」的中间态。
@@ -194,7 +194,7 @@ sequenceDiagram
 
 同项工作的参与者——主 Agent 与当前承接本工作的各 SubAgent——经 `subagent_message` 交换有来源的消息。
 
-- **协作加入**：`work_id` 与 `sub_agent_id` 同现的委派把一个既有空闲 SubAgent 拉入既有工作登记一次执行任务（任务关联列指向协作方；工作行保持首次承接者，参与者集合经 `tasks.sub_agent_id` 判定）。只读工作才接受协作方——修改工作同一份文件单一写入者；宿主固定评审工作（入站来源）不接受加入；继续/复用/加入的可用性、竞争仲裁与来源并集复核同一口径。协作加入的幂等键按目标 Agent 的会话核实（不同协作方的同键互相独立）。
+- **协作加入**：`work_id` 与 `sub_agent_id` 同现的委派把一个既有空闲 SubAgent 拉入既有工作登记一次执行任务（任务关联列指向协作方；工作行保持首次承接者，参与者集合经 `tasks.sub_agent_id` 判定）。无目标工作才接受协作方——有目标工作保持单一写入者；宿主固定评审工作（入站来源）不接受加入；继续/复用/加入的可用性、竞争仲裁与来源并集复核同一口径。协作加入的幂等键按目标 Agent 的会话核实（不同协作方的同键互相独立）。
 - **发送方身份**：完全由发起任务核实，模型参数不提供身份——工作父会话的任务 = 主 Agent（此时必须指定 `to_sub_agent_id`），本工作的 SubAgent 任务 = 该 SubAgent（必须从本工作的任务中发送；省略 `to_sub_agent_id` 即发给主 Agent）；其他会话、其他工作的任务一律拒绝。宿主评审 SubAgent 不参与工作内通信。
 - **接收方资格**：当前承接本工作（`active_work_id` 正是本工作）且未关闭——复用转做其他工作后旧协作者与迟到的旧消息都失去资格，不把关闭当作重新创建 Agent 的理由；已取消的工作不能投递。按（工作, 发送方, 键）查重先于执行预检：同键同参的重放即使此后已取消/关闭也返回原记录，异参冲突。`message` 异步准备后在登记事务内再次查重并核实当前资格。
 - **消息执行预检**：发给子会话或 main 唤醒的消息，在事务外核实模型配置与受限执行入口；事务内执行核实返回的 `check`，并重读当前模型选择与资格。模型选择变动或 `model_config_busy` 等预检失败，整次新消息零新增消息、任务和事件；忙碌或名额满也不能绕过预检。纯 dev 父会话注入不新建执行，无需这道执行预检。`ParentDelivery.messageRecorded(msg, work, selection)` 只用管理器已经核实的模型选择插入 main 消息唤醒。
@@ -214,22 +214,22 @@ sequenceDiagram
 
 ### 修改委派与写入目标
 
-- **模式与入口**：`subagent_delegate` 增加 `mode`（`analyze` 默认 / `modify`）与 `target`（modify 必填，父工作区内的目录）。普通开发会话与 main 都能发起；计划模式、SubAgent 自身一律拒绝（已退役的 coding/chat 角色会话本就不接受任务）。管理器从父 Task 的固定 `planMode` 判定计划模式，不接收 `planMode` 入参；计划模式既拒绝显式 `modify`，也拒绝沿已有 `writeTarget` 的工作继续。模型工具清单仍由 `PLAN_TOOL_NAMES` 收窄，未开放 `subagent_delegate`。modify 不带 `read_paths` / `materials`。修改任务、工作副本创建与汇总均采用实际发起任务的有效模式；完全访问使用启动账户权限，受限模式采用产品配置的隔离。
-- **写入目标钉定**：`work_delegations.write_target` 在首次修改委派时确定、继续委派沿用；只读工作不能升级为写入，继续委派（`work_id`）不接受 `mode`；复用（`sub_agent_id`）承接新工作时另建副本。
-- **Git 目标：每项工作一个宿主生成的 worktree**。位置 `<dataDir>/../agent-work/worktrees/<workId>`（保护根与父工作区之外），分支 `ruukoto/work-<workId>`，基线为委派时仓库 HEAD 指向的提交——父工作区未提交的改动不进副本。仓库根从目标向上纯文件系统查找（不运行 git，不越出父工作区）；共享 Git 目录必须位于父工作区内，否则拒绝。宿主经 `executeWorkCopy` 按发起任务模式在 worker 内创建副本、永不执行 git；挂载、命令、目录身份下发与 worker init 见 [execution](execution.md)。宿主在 worker 启动前预建空副本目录（0700）；非空目录 = 失败残留，不自动认领或覆盖。
-- **临时执行归属**：worktree 创建与改动汇总传递实际发起的父任务 ID，父任务必须正在执行并持有占用；执行单元启动前登记到该任务，并临时取得副本目录占用，参与取消、后台停止与模式变化。核实成功只释放该副本；停止未核实以 `worker_stop_unverified` 上报，保留父目录与副本占用、成果及已收到的 Git 结果，阻止子任务或其他会话在副本开跑，不继续委派或重放 Git；即使尚未登记工作行，也保留副本创建现场。受限原生 worker 显式收到后台数据、服务凭据、控制面和服务代码的保护根；工作区、SubAgent 读取范围与共享 Git 目录按宿主 dev/ino 下发复核，两平台均下发真实目录身份。
-- **不提交规则**：任务首行写明工作目录、分支、基线与「不要 git add/commit，改动留在工作树由主 Agent 汇总」；副本、分支与写入根的改动一律保留——创建失败保留现场（错误信息含路径与分支），任务取消/退出不删除，不提供任何删除副本的入口。
-- **非 Git 目标：直接写入父工作区内目录并串行**（写预检按实际执行身份核实写位，执行身份判定见 [execution](execution.md)）。子任务的执行目录与占用键都是写入根；队列启动前复核目录身份，被替换或消失即失败、不自动重建。首次钉定写入目标后，该 SubAgent 的子会话 cwd 对齐到写入根。
+- **目标与入口**：普通 `subagent_delegate` 的 `target` 独立于角色；代码修改和代码审查都显式给目标，无目标使用独立目录与获准资料。`target` 与 `read_paths` / `materials` 互斥；计划模式与 SubAgent 自身拒绝目标委派。旧 `mode` 字段明确拒绝，调用改用 `role` 与 `target`。实际工具和访问模式由来源能力、固定角色与宿主约束求交；完全访问沿账户权限，保护来源要求受限执行。
+- **写入目标钉定**：`work_delegations.write_target` 在首次修改委派时确定、继续委派沿用；无目标工作不能增加目标，继续委派（`work_id`）不接受新 `target`；复用（`sub_agent_id`）承接新工作时另建副本。
+- **Git 目标：每项工作一个宿主生成的 worktree**。捕获当前稳定内容，包括 staged/unstaged 的实际工作树、删除、非忽略新文件及二进制；保存 HEAD、索引摘要、目录身份和独立私有对象库。捕获不写来源文件、index、对象、refs、hooks/config；后续登记只创建专属分支与 worktree 管理元数据，再按原始字节物化，忽略文件和依赖目录不复制。位置 `<dataDir>/../agent-work/worktrees/<workId>`，分支 `ruukoto/work-<workId>`。Git 仅在 worker 运行；源在捕获期间变化即拒绝，非空副本目录不自动认领。
+- **临时执行归属**：普通捕获与副本登记各用独立宿主 Task，绑定实际发起父任务、工作及来源身份，不调用模型，不占 SubAgent 名额。父任务须持有来源占用，宿主 Task 临时持有副本占用；父取消先停止宿主单元。停止未核实保留父目录与副本占用、成果和已收到的结果，阻止后续副本执行，不重放准备操作。工作流宿主操作沿原执行归属。受限原生 worker 核实 workspace/readRoots 的真实 dev/ino，并保护后台数据、凭据、控制面和服务代码。
+- **不提交规则**：任务输入持久保存工作目录、分支、当前内容基线、只计算子增量及「不要 git add/commit，由主 Agent 汇总」。受保护角色只写副本检查产物，来源、共享 Git 和私有基线只读；缺依赖须报告并在获准位置准备。副本、分支与失败现场保留，取消/退出不删除。
+- **非 Git 目标：普通执行直接写入父工作区内目录并串行**。需要保护来源的目标和工作流修改在准备副作用前以 `git_required` 拒绝。direct 子任务的执行目录与占用键都是写入根；队列复核目录身份，被替换或消失即失败，不自动重建。
 - **目录占用升级为祖先/子孙判定**：冲突 = dev/ino 相等（符号链接、挂载别名同命中）、realpath 相等，或按分隔符边界互为前缀；释放统一按 `taskId`，占用键是任务写入目标而非会话 cwd。非 Git 子任务与父会话的目录访问串行；父轮用 `agent_wait` 在停止核实后让出占用，收到结果后须重新取得目录才可访问。未让出的父轮仍会挡住排队子任务，`subagent_result` 如实提示目录等待。嵌套 cwd 会话同样互相阻塞（`/ws` 与 `/ws/sub` 之间串行）。已知上限：挂载别名的祖先关系识别不出。
-- **副本防旁路**：覆盖 `agent-work/worktrees` 或其下位置的读写授予被拒（`validateGrantedPaths`；只读授予仍允许）；worktree 被删除或 `.git` 指向变化后继续委派明确失败（`worktree_gone`），不自动重建。
-- **展示**：`work list/show` 与快照自然带上 `writeTarget`；TUI 工作摘要标「worktree 分支 X」或「直接写入」。只加可选字段，协议版本不变。
+- **副本防旁路**：覆盖宿主 worktree 根的读写授予被拒。继续、模型请求、冻结、汇入、结果送达与冷恢复核实目录/.git 指向、基线摘要和私有对象完整性；缺失/损坏以具体 code 拒绝受影响工作，保留历史、副本和已有结果，不回退 HEAD 或独立目录，不阻断其他工作。既有待送报告记为 undelivered，未知异常继续传播。
+- **展示**：`work list/show` 与快照自然带上 `writeTarget`；TUI 工作摘要标「worktree 分支 X」或「直接写入」。客户端须使用当前控制协议，旧版本在请求派发前拒绝。
 
 ### 改动汇总
 
-- **入口与范围**：主 Agent 工具 `subagent_integrate(work_id)`（dev 与 main 均装配，回报唤醒轮次也允许；SubAgent、群与固定角色会话经宿主身份重核拒绝）把本会话登记的 worktree 副本相对基线的完整差异套用到父工作区的待提交区——不代提交、`git apply --check` 预检通过才写入（预检失败零写入）。非 Git 直接写入工作没有副本（改动本就就地落盘），调用只如实告知；只读分析工作明确拒绝。拥有者没有专用控制面操作：待处理内容经工具回报与持久事件可知。
+- **入口与范围**：主 Agent 工具 `subagent_integrate(work_id)`（dev 与 main 均装配，回报唤醒轮次也允许；SubAgent、群与固定角色会话经宿主身份重核拒绝）把本会话登记的 worktree 副本相对基线的完整差异套用到父工作区的待提交区——不代提交、`git apply --check` 预检通过才写入（预检失败零写入）。非 Git 直接写入工作没有副本（改动本就就地落盘），调用只如实告知；无目标工作明确拒绝。拥有者没有专用控制面操作：待处理内容经工具回报与持久事件可知。
 - **套用前核实**：工作有活动任务拒绝（busy，副本可能仍在被改写）；副本目录 realpath/dev/ino 与 `.git` 指向的 gitdir 逐项复核（被替换/消失明确失败，不自动重建、不凭钉定记录套用）；仓库根仍在父会话工作区内且 `.git` 可读。汇总只按工作 id 取首次钉定的写入目标——Agent 复用承接新工作（另建副本）后，汇总旧工作仍只落旧工作自己的副本。
-- **执行与边界**：复用修改委派的受限 worker 入口（宿主永不执行 git）：副本内 `git add -N --all` 把未跟踪文件纳入索引 → 对基线取完整二进制 diff 与 numstat → 父仓库 apply 预检/套用；fsmonitor 显式关、hooks 走 /dev/null；共享 Git 目录超出父仓库目录树时（父仓库本身是 worktree）按钉定记录补一枚读写挂载。patch、numstat 与错误资料写到执行单元专用 `TMPDIR` 下的随机 0700 目录；各次汇总互不覆盖，停止未核实时保留临时现场。命令、挂载与目录身份的细节见 [execution](execution.md)。
-- **冲突与幂等**：四套结论——`applied`（套用成功并登记事件）/ `already`（完整差异已在工作区，`apply --check --reverse` 命中：幂等返回，不重复写入、不重复登记）/ `conflict`（两向预检都失败：零写入，父工作区原改动与副本成果都保留，错误点名冲突文件与待处理说明）/ `empty`（空差异，不登记）。已知上限：汇总后对同一副本又继续委派产生新改动时，再次汇总会命中冲突（已套用的 hunks 挡路），按冲突如实报告——不引入增量汇总状态；busy 检查与实际套用之间登记的新执行可能让副本继续变化，副本原样保留、事件钉定基线与文件清单使现场可核对。
+- **执行与边界**：在 worker 内以临时索引和独立对象库保存副本当前原始字节，计算相对捕获树的二进制 diff 与 numstat；不对来源或副本执行 `add -N`，不改变来源 index/objects。汇入前按完整受影响文件的字节、类型及执行位核实来源仍等于基线，随后 `apply --check` 与套用。hooks/fsmonitor、外部 diff/textconv 和内容过滤器关闭。私有对象库不得有 alternates、对象符号链接或多硬链接。临时 patch/numstat/错误资料各次独立，停止未核实保留现场。
+- **冲突与幂等**：`applied` 套用成功并登记事件；`already` 全部受影响文件已等于子成果，不重复写入；`conflict` 文件已变化或混合状态，零写入并保留双方；`empty` 没有子增量。即使不同 hunk 的补丁可套用，同一受影响文件的后来改动也拒绝；无关文件不阻塞。完整差异没有累计汇总状态，汇总后续派的新成果可能冲突，须重新核实。
 - **记录与关联**：套用成功在一个事务内追加 `work_delegation.integrated` 事件（工作/SubAgent/发起汇总的主任务/分支/基线/父 HEAD/文件清单 ≤64 条与 numstat 统计/patch 字节数）；TUI 经该事件在会话展示汇总规模与来源。工具操作账本按事件存在与否核实；套用落字节与登记是两个步骤，登记缺失时如实报无法核实而不是「未生效」。
 - **取消/关闭与汇总**：整项取消与显式关闭本就保留副本与成果，汇总不按取消/关闭状态拦截——取消后、关闭后的成果仍可按工作找回汇总。
 
@@ -246,14 +246,14 @@ sequenceDiagram
 
 `subagent-role-library.ts` 从实例 `<agentDir>/agents/*.md` 读取内置 general/reviewer 的覆盖与新增角色，拒绝符号链接、多硬链接、非普通文件和读取中变化。坏同名覆盖保留角色名、错误码与修正说明，不能回落内置；坏目录使整份目录不可用，主会话仍能查询诊断。普通委派增加 `role`：首次省略为 general，继续或复用沿固定定义，显式异角色报冲突并要求新建身份。同键重放核实原快照，不读取当前文件；消息任务沿接收身份固定正文、继承发送任务已记录的模型。首次任务继承实际来源模型和思考强度。
 
-工作流启动保存完整角色目录及诊断，默认步骤从该目录固定 general，恢复拒绝缺失或损坏记录。角色工具要求与权限策略保存在快照中；执行工具及目标当前仍由分析/修改和工作流步骤规则决定，角色的来源能力、权限收窄与目标保护接线尚未完成。
+工作流启动保存完整角色目录及诊断，每步按 `role` 从该目录选择，省略为 general；恢复和结果消费拒绝缺失或损坏记录。每次真实任务先预检角色工具要求和权限收紧，保存来源与实际工具快照。显式工具缺失或 MCP 发现失败不建可执行任务；配置、入口、资料与目录身份在发送、调用及批准消费前复核。无目标可在独立目录执行 shell；目标沿 `target` 捕获当前内容，`verify` 由宿主准备受限独立验证；旧 `mode` 调用明确拒绝。
 
 ### 宿主固定评审
 
 - **固定定义**：可信入口保存 `kind: host_review` 的完整宿主定义，不选择用户 general/reviewer；用户覆盖和新增角色不能改变该用途、只读工具与禁消息限制。
 - **入口**：PR 入站事件派发时，编排器先建（或复用）固定的 main 父任务（无工具，只确认接收），再**直接调用** `SubAgentManager.delegate`（`hostReview: {sourceEventId}` 入参只由编排器传入，工具层不会产生该字段）。每个修订登记一项新工作、创建一个新 SubAgent，不跨修订复用（新修订用全新上下文，避免旧 diff/旧报告混入新 head 的核对）；幂等键 `ghreview-<事件 id>`，参数摘要只含 `{kind, eventId}`。管理器准备失败（缺执行入口、模型门闩未就绪）时事件保持 `registered`，下次派发重试，不降级回旧 coding 路径。
 - **名额与输入**：宿主评审任务带来源事件（`source_event_id`），不计入 main 的 3 个活动委派名额（计数 SQL 排除来源事件任务）；任务输入首行固定为 `[SubAgent 委派 · GitHub PR 评审]`，正文沿用 `GitHubEvents.request`。带来源事件的任务出队时走既有入站门（修订已过期即取消）、终态在同一结果事务内回写入站终态并登记通知。重提命中首次登记（管理器不 kick）或崩溃窗口把排队子会话按 `backend_restart` 暂停时，派发按角色会话同口径补 kick / 恢复子会话队列（占用未核实的 `occupancy_unverified` 暂停不在此解除）。
-- **只读 MCP 按任务开放，只给评审任务**：subagent 类会话仅在任务被 `taskMcp` 依赖识别为评审（`subAgentId` 非空且来源事件为 GitHub）时才规划 MCP；收窄为「静态只读白名单（`read`/`read_artifact`）∪ `effect=read` 的 MCP」，装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、下级委派在发送前与调用门两处被拒。owner 委派的 SubAgent、main 自身与开发会话 SubAgent 均拿不到 MCP。会话项目为 main 角色项目，MCP 凭据按项目核对。
+- **只读 MCP 按任务开放，只给评审任务**：subagent 类会话仅在任务被 `taskMcp` 依赖识别为评审（`subAgentId` 非空且来源事件为 GitHub）时才规划 MCP；收窄为「静态只读白名单（`read`/`read_artifact`）∪ `effect=read` 的 MCP」，装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、下级委派在发送前与调用门两处被拒。普通与工作流子代理另沿持久来源取得 MCP；main 自身工具不因此改变。会话项目为 main 角色项目，MCP 凭据按项目核对。
 - **子身份边界**：评审 SubAgent 空闲后保留（不自动关闭），但宿主不会复用它，主 Agent 也不能用 `sub_agent_id` 把它挪去做其他工作或沿其工作续派——继续/复用的可用性检查对「有来源事件的任务」的 SubAgent 一律拒绝（上下文含不可信 PR 资料）；主 Agent 或拥有者可以显式关闭。
 - **结果与唤醒**：终态沿用 `setTaskResult`；`resultData` 识别 SubAgent 评审任务，评审正文完整保存为 `review-draft:<事件 id>` 产物并写入 `result_ref.review`（分页损坏保留 `partial` 与 `captureError`）。main 结果唤醒开放 `subagent_result` 与只读的 `coding_result`；唤醒输入沿用 `GitHubEvents.notice` 修订说明，`subagent_result` 前置同样的修订说明。评审并行运行、不设并发名额；被新修订取代仍在运行的评审会跑完，结果标为过期、不发通知。评审工作不适用最终汇报（IM 入口汇报只认 telegram/qq_private 来源），继续走固定通知。
 - 控制面只读查询 `work_list` / `work_get`（agent 对象含 `closedAt`/`closedBy`，work 对象含取消三列）；写操作为 `subagent_close` 与整项取消 `work_cancel`。快照携带工作委托、SubAgent 与其内部会话 ID（普通工作区列表排除）。普通控制面 submit/continue/switch-mode/会话默认模式不能作用于子会话。
@@ -314,7 +314,7 @@ sequenceDiagram
 - 提交幂等键的唯一范围是会话；同键同参重放返回原任务，同键异参报 `request_conflict`。委派、消息、关闭、取消、导入的查重都先于限额、资料解析与执行预检：同键同参的重放即使目标已关闭、已取消或忙碌，仍返回原记录。
 - 工作、Agent 与执行任务三条记录分别核实；一次任务终态不等于工作关闭或 Agent 关闭。
 - 关闭与新委派、取消与委派登记都在同一个同步事务内定胜负：先关闭则委派零新任务，先登记则关闭报「有活动任务」；先登记的任务必然在取消清单内。不存在「已关闭且有活动任务」的中间态。
-- 参数摘要不包含直接父任务 id、模型选择与提示文案；修改委派把 `mode` / `target` 纳入摘要。
+- 参数摘要不包含直接父任务 id、模型选择与提示文案；有目标时将 `target` 纳入摘要；旧 `mode` 字段在查重前明确拒绝，不新建执行。
 
 **单写入者与占用。**
 
@@ -340,6 +340,10 @@ sequenceDiagram
 [工作流步骤](workflows.md)默认由真实 Driver 执行，发起任务结束后沿运行授权继续。修改与验证使用独立副本，冻结补丁与独立验证记录共同决定汇入资格；普通继续、复用和 `subagent_integrate` 不能接管这些步骤。准备、冻结、汇总及组合检查使用运行派生的宿主任务，整段持有目录占用，任何所属任务停止未核实或效果未知均阻止重试。
 
 ## 设计依据
+
+- [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
+
+- [当前工作区快照与子增量](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
 
 - [子代理角色持久快照](../../.agents/notes/implemented/architecture/2026-10-14-subagent-role-snapshots.md)：普通角色与宿主固定用途分开，复用沿原版本。
 
@@ -379,3 +383,5 @@ sequenceDiagram
 - [旧工作区迁移只改变组织归属，保留资料与配置身份](../../.agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md)：保留原 ID 与来源身份、组织归属只作展示的原则，跨实例导入沿用。
 - [目标侧离线导入旧实例开发资料](../../.agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md)：开发方向的源只读快照、allow-list、行 ID 保留、回执幂等、回退阻挡与整库恢复手工路径。
 - [向全新个人实例导入资料并交接平台与调度归属](../../.agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md)：个人方向的镜像范围、全新目标约束、易变资料 manifest、凭据动作与执行归属交接。
+
+- [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。

@@ -1,0 +1,19 @@
+[ruukoto:parent-delivery] 工作 work_02ea02d2eb216c4e47f4cc9b 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_02ea02d2eb216c4e47f4cc9b 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 无等待报告的普通父注入拒绝失去私有基线的结果和消息，原完成记录保留 (2994.931833ms)
+[ruukoto:parent-delivery] 工作 work_f02bf233c59189add3cc127f 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_f02bf233c59189add3cc127f 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_f02bf233c59189add3cc127f 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_f02bf233c59189add3cc127f 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ main 无等待报告时不为失去私有基线的新结果创建或准入唤醒 (2524.345666ms)
+[ruukoto:parent-delivery] 工作 work_1bce39242ddbce5050b7f5e4 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_1bce39242ddbce5050b7f5e4 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 冷补记真实 private 基线缺失的结果记失败，保持 completed 执行史且不重跑 (6671.628375ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12970.662375

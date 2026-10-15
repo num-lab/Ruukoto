@@ -12,6 +12,23 @@ import { PRODUCT_META_KEY } from "./product.ts";
 import type { SessionBranchSource } from "./types.ts";
 import type { AgentReport, AgentWait } from "./agent-wait.ts";
 import { SubAgentDefinitionError, subAgentDefinitionFromJson, validateSubAgentRoleCatalog } from "./subagent-definition.ts";
+import { requireSubAgentExecutionScope, SubAgentExecutionError, type SubAgentExecutionSnapshot } from "./subagent-execution.ts";
+import { WorkCopyHostError, workCopyHostFor, type WorkCopyHostSnapshot } from "./work-copy-host.ts";
+import type { SubAgentReadScope } from "./types.ts";
+import { parseWorkWriteTarget } from "./types.ts";
+import { WorkspaceSnapshotError } from "./workspace-snapshot.ts";
+
+/** 工作副本原址保留；导入只核实已保存的基线，不补造私有对象或 HEAD 基线。 */
+export function verifyImportedWorkCopySnapshots(works: Row[]): void {
+  for (const work of works) {
+    if (work.write_target === null || work.write_target === undefined) continue;
+    try { parseWorkWriteTarget(String(work.write_target)); }
+    catch (error) {
+      if (error instanceof WorkspaceSnapshotError) fail(error.code, "工作副本基线记录缺失或损坏，请保留源档案并使用匹配版本核实，不自动重建");
+      throw error;
+    }
+  }
+}
 
 export class LegacyImportError extends Error {
   readonly code: string;
@@ -75,6 +92,59 @@ export function verifyImportedSubAgentDefinitions(agents: Row[]): void {
     catch (error) {
       if (!(error instanceof SubAgentDefinitionError)) throw error;
       fail(error.code, "源实例的子代理定义快照缺失或损坏：导入已拒绝，请保留源档案核实");
+    }
+  }
+}
+
+/** 保存来源快照，但不能将缺少原来源的归档导成可运行身份。 */
+export function verifyImportedSubAgentExecutions(tasks: Row[], sessions: Row[], agents: Row[], memories: Row[] = []): void {
+  for (const task of tasks) {
+    if (!task.read_scope) continue;
+    let raw: unknown;
+    try { raw = JSON.parse(String(task.read_scope)); }
+    catch { fail("execution_corrupt", "源实例的子代理能力记录损坏，导入已拒绝"); }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) fail("execution_corrupt", "源实例的子代理能力记录须为对象，导入已拒绝");
+    const scope = raw as { execution?: unknown; readMemories?: unknown };
+    if (scope.execution === undefined) continue;
+    if (scope.readMemories !== undefined && (!Array.isArray(scope.readMemories) || scope.readMemories.some(id => typeof id !== "string" || !memories.some(memory => memory.id === id)))) fail("execution_source_missing", "导入集合缺少子代理已读记忆记录，请保留原实例核实");
+    let execution: SubAgentExecutionSnapshot;
+    try { execution = requireSubAgentExecutionScope(scope).execution; }
+    catch (error) {
+      if (!(error instanceof SubAgentExecutionError)) throw error;
+      fail(error.code, "源实例的子代理来源快照损坏，导入已拒绝");
+    }
+    const source = tasks.find(row => row.id === execution.source.taskId);
+    const sourceSession = sessions.find(row => row.id === execution.source.sessionId);
+    const agent = agents.find(row => row.id === task.sub_agent_id);
+    if (!source || source.session_id !== execution.source.sessionId || !sourceSession || sourceSession.project_id !== execution.source.projectId ||
+        !agent || agent.session_id !== task.session_id || agent.parent_session_id !== execution.source.sessionId ||
+        subAgentDefinitionFromJson(agent.definition).digest !== execution.roleDigest) fail("execution_source_missing", "导入集合缺少子代理快照的完整来源，请保留原实例核实");
+  }
+}
+
+/** 宿主账本随来源任务归档；副本准备失败允许尚无工作行。 */
+export function verifyImportedWorkCopyHosts(tasks: Row[], sessions: Row[]): void {
+  for (const task of tasks) {
+    let scope: SubAgentReadScope | null = null;
+    if (task.read_scope) {
+      try { scope = JSON.parse(String(task.read_scope)) as SubAgentReadScope; }
+      catch { fail("work_copy_host_corrupt", "源实例的宿主资料记录不是合法 JSON，导入已拒绝"); }
+    }
+    let host: WorkCopyHostSnapshot | null;
+    try { host = workCopyHostFor({ requestId: String(task.request_id ?? ""), readScope: scope }); }
+    catch (error) {
+      if (!(error instanceof WorkCopyHostError)) throw error;
+      fail(error.code, "源实例的工作副本宿主记录缺失或损坏，导入已拒绝");
+    }
+    if (!host) continue;
+    const source = tasks.find(row => row.id === host.parentTaskId);
+    const version = Number(task.source_permission_version);
+    const sourceVersion = Number(source?.permission_version);
+    if (!source || source.id === task.id || source.session_id !== task.session_id || task.parent_task_id !== host.parentTaskId ||
+        !sessions.some(row => row.id === task.session_id) || task.sub_agent_id != null || task.work_id != null || task.agent_id != null ||
+        (task.model_selection != null && task.model_selection !== "null") ||
+        !Number.isSafeInteger(version) || version < 1 || !Number.isSafeInteger(sourceVersion) || version > sourceVersion) {
+      fail("work_copy_host_source_missing", "导入集合缺少工作副本宿主操作的完整来源，请保留原实例核实");
     }
   }
 }

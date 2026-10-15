@@ -1,6 +1,6 @@
 # 可配置子代理角色规格
 
-本规格依据 2026-10-14 拥有者在 grill-me 会话中对 Q1–Q14 的逐轮确认及最终整体确认。实施入口为[执行计划](implementation-plan.md)，理由与取代关系归[决策笔记](../../.agents/notes/proposed/architecture/2026-10-14-configurable-subagent-roles.md)；定义与快照层的进展见[01](issues/01-role-definitions.md)。问题由工作流 [08](../agent-workflow/issues/08-workflow-sidebar.md)、[10](../agent-workflow/issues/10-agent-wait.md)人工验收发现，不重开这两单；原始现象与规划时源码见[事实依据](evidence/source.md)。
+本规格依据 2026-10-14 拥有者在 grill-me 会话中对 Q1–Q14 的逐轮确认及最终整体确认。实施入口为[执行计划](implementation-plan.md)，理由与取代关系归[决策笔记](../../.agents/notes/implemented/architecture/2026-10-14-configurable-subagent-roles.md)；定义与快照层的进展见[01](issues/01-role-definitions.md)。问题由工作流 [08](../agent-workflow/issues/08-workflow-sidebar.md)、[10](../agent-workflow/issues/10-agent-wait.md)人工验收发现，不重开这两单；原始现象与规划时源码见[事实依据](evidence/source.md)。
 
 ## 目标与术语
 

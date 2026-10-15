@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[当前工作区快照与子增量](../architecture/2026-10-15-current-workspace-snapshots.md)持有实际内容基线、捕获零写入与宿主准备、完整文件冲突及坏基线隔离；本篇其他独立决定继续适用。
+
 部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)将个人产品受限汇总接到原生 worker；完整差异、幂等、冲突与成果保留语义仍由本篇持有。
 
 原出处：ADR 0021「补充：改动汇总与 main 修改委派」

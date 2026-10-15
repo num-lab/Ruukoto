@@ -1,5 +1,6 @@
 /** 持久工作流协调器：脚本只登记步骤，实际执行、计费、重放和停止归宿主。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -11,16 +12,19 @@ import { compileWorkflowOutput } from "@ruukoto/agent/workflow-output.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { SubAgentRoleError, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
+import { SubAgentExecutionError, type SubAgentExecutionSnapshot } from "@ruukoto/core/subagent-execution.ts";
+import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
+import { subAgentAccessPolicy } from "@ruukoto/agent/subagent-capabilities.ts";
 import { selectSubAgentRole } from "./subagent-role-library.ts";
 import { WorkCopyError } from "./work-copy.ts";
 import { createManagedProcessRegistry, type ManagedEntry, type ManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import { randomId, isTerminalTaskStatus, type ModelSelection, type PersistentEvent, type Task } from "@ruukoto/core/types.ts";
 import {
-  WORKFLOW_LIMITS, WorkflowError, bindWorkflowExecution, chargeWorkflow, controlWorkflow, createWorkflowRun,
-  deliverWorkflowStep, findWorkflowRun, finishWorkflowStep, getWorkflowDefinition, getWorkflowExecution, getWorkflowQuestion,
+  WORKFLOW_LIMITS, WORKFLOW_INTERFACE_VERSION, WorkflowError, bindWorkflowExecution, chargeWorkflow, controlWorkflow, createWorkflowRun,
+  deliverWorkflowStep, findWorkflowRun, finishWorkflowStep, getWorkflowExecution, getWorkflowQuestion,
   getWorkflowStep, hasWorkflowControl, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, recoverWorkflowRuns, registerWorkflowStep,
-  requireWorkflowRun, saveWorkflowDefinition, saveWorkflowQuestion, setWorkflowState, startWorkflowExecution,
+  requireWorkflowRun, requireWorkflowRunDefinition, saveWorkflowDefinition, saveWorkflowQuestion, setWorkflowState, startWorkflowExecution,
   updateWorkflowExecution, updateWorkflowRun, updateWorkflowStep, workflowDigest, workflowJson, workflowTerminal,
   type WorkflowControl, type WorkflowExecution, type WorkflowQuestion, type WorkflowRun, type WorkflowSource, type WorkflowStep,
 } from "@ruukoto/core/workflow.ts";
@@ -45,8 +49,10 @@ export interface WorkflowDeps {
   source(taskId: string): WorkflowSource;
   selection(taskId: string): ModelSelection;
   verifySource(source: WorkflowSource): boolean;
+  preflight?(source: WorkflowSource, definition: SubAgentDefinitionSnapshot, options: { tools?: string[]; verify?: boolean; workflow: boolean }): Promise<SubAgentExecutionSnapshot>;
   agent?: WorkflowAgentExecutor;
   verifyResultSources?: (run: WorkflowRun, step: WorkflowStep) => boolean;
+  verifyExecution?: (task: Task) => void;
   integrate?: (context: { run: WorkflowRun; step: WorkflowStep; signal: AbortSignal }) => Promise<unknown>;
   stopHost?: (taskId: string, reason: string) => Promise<unknown>;
   script?: (label: string) => WorkflowScriptHost;
@@ -86,6 +92,7 @@ export interface WorkflowStart {
 export class WorkflowCoordinator {
   private readonly scripts = new Map<string, ScriptRun>();
   private readonly jobs = new Map<string, AgentJob>();
+  private readonly preparing = new Set<string>();
   private readonly flushPending = new Set<string>();
   private readonly hostSteps = new Set<Promise<void>>();
   private readonly ledger: ToolOpLedger;
@@ -130,7 +137,7 @@ export class WorkflowCoordinator {
     const definition = saveWorkflowDefinition(this.store, input.script);
     const roleCatalog = structuredClone(validateSubAgentRoleLibrary(this.deps.roles()));
     const createdAt = new Date(this.now()).toISOString();
-    return createWorkflowRun(this.store, { id: randomId("wfrun"), requestKey: input.requestKey, paramsDigest, definitionId: definition.id,
+    return createWorkflowRun(this.store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, id: randomId("wfrun"), requestKey: input.requestKey, paramsDigest, definitionId: definition.id,
         scriptDigest: definition.digest, input: JSON.parse(workflowJson(input.input)), inputDigest: workflowDigest(input.input), displayName: input.displayName ?? `未命名工作流 ${createdAt}`, description: input.description ?? null, source,
         modelSelection, roleCatalog, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts, durationMs, usedMs: 0, clockStartedAt: null, clockVerified: true,
         scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt, endedAt: null });
@@ -156,6 +163,13 @@ export class WorkflowCoordinator {
           const step = getWorkflowStep(this.store, run.id, execution.stepKey);
           const task = this.store.getTask(execution.taskId);
           if (!step || !task) { if (!workflowTerminal(run.status)) setWorkflowState(this.store, run.id, "paused", "result_missing", this.now()); continue; }
+          if (execution.kind === "agent" && !workflowTerminal(run.status)) {
+            try { this.deps.verifyExecution?.(task); }
+            catch (error) {
+              setWorkflowState(this.store, run.id, "paused", error instanceof WorkflowError || error instanceof SubAgentRoleError || error instanceof SubAgentDefinitionError || error instanceof SubAgentExecutionError || error instanceof WorkCopyError || error instanceof WorkspaceSnapshotError ? error.code : "binding_invalid", this.now());
+              continue;
+            }
+          }
           if (execution.kind === "agent" && isTerminalTaskStatus(task.status) && task.resultSummary === null) this.store.setTaskResult(task.id, step.rawOutput ?? `执行已${task.status}，最终输出缺失；保留操作账本供核实`,
             JSON.stringify({ workflowRunId: run.id, stepKey: step.key, taskId: task.id, resultMissing: !step.resultRecorded }));
           if (execution.status === "queued" && task.status === "queued") {
@@ -219,9 +233,18 @@ export class WorkflowCoordinator {
         if (step.kind !== "agent") { this.dispatchHostStep(run, step); continue; }
         if (!this.deps.agent) { this.pause(run.id, "agent_unavailable"); break; }
         const old = listWorkflowExecutions(this.store, run.id).filter(item => item.kind === "agent" && item.stepKey === step.key).at(-1);
+        if (old?.status !== "queued" && this.deps.preflight) {
+          this.preflightAgent(run, step);
+          continue;
+        }
         let execution: WorkflowExecution;
-        try { execution = old?.status === "queued" ? old : this.prepareAgent(run, step); }
-        catch (error) { this.pause(run.id, error instanceof WorkflowError ? error.code : "step_preparation_failed"); break; }
+        try {
+          execution = old?.status === "queued" ? old : this.prepareAgent(run, step);
+          this.deps.verifyExecution?.(this.store.getTask(execution.taskId)!);
+        } catch (error) {
+          this.pause(run.id, error instanceof WorkflowError || error instanceof SubAgentRoleError || error instanceof SubAgentDefinitionError || error instanceof SubAgentExecutionError || error instanceof WorkCopyError || error instanceof WorkspaceSnapshotError ? error.code : "step_preparation_failed");
+          break;
+        }
         if (this.jobs.has(execution.taskId)) continue;
         const task = this.store.getTask(execution.taskId)!;
         const session = this.store.getSession(task.sessionId)!;
@@ -244,13 +267,37 @@ export class WorkflowCoordinator {
     }
   }
 
-  private prepareAgent(run: WorkflowRun, step: WorkflowStep): WorkflowExecution {
+  private preflightAgent(run: WorkflowRun, step: WorkflowStep): void {
+    const key = `${run.id}:${step.key}`;
+    if (this.preparing.has(key)) return;
+    this.preparing.add(key);
+    const preparation = (async () => {
+      const params = step.params as { tools?: string[]; role?: string; verify?: string };
+      const definition = selectSubAgentRole(this.roleCatalog(run), params.role ?? "general");
+      const execution = await this.deps.preflight!(run.source, definition, { tools: params.tools, verify: params.verify !== undefined, workflow: true });
+      if (this.stopped) return;
+      const current = requireWorkflowRun(this.store, run.id);
+      if (!["running", "waiting"].includes(current.status)) return;
+      if (!this.deps.verifySource(run.source)) throw new WorkflowError("source_invalid");
+      this.prepareAgent(current, step, execution);
+    })().catch(error => {
+      if (this.stopped) return;
+      if (!workflowTerminal(requireWorkflowRun(this.store, run.id).status)) this.pause(run.id,
+        error instanceof SubAgentExecutionError ? `${error.code}：${error.message}` : error instanceof WorkflowError || error instanceof SubAgentRoleError ? error.code : "step_preparation_failed");
+    }).finally(() => { this.preparing.delete(key); this.kick(); });
+    this.hostSteps.add(preparation);
+    void preparation.then(() => this.hostSteps.delete(preparation), () => this.hostSteps.delete(preparation));
+  }
+
+  private prepareAgent(run: WorkflowRun, step: WorkflowStep, snapshot?: SubAgentExecutionSnapshot): WorkflowExecution {
     let definition: SubAgentDefinitionSnapshot;
-    try { definition = selectSubAgentRole(this.roleCatalog(run), "general"); }
+    const params = step.params as { role?: string; verify?: string };
+    try { definition = selectSubAgentRole(this.roleCatalog(run), params.role ?? "general"); }
     catch (cause) {
       if (!(cause instanceof SubAgentRoleError)) throw cause;
       throw new WorkflowError(cause.code, { cause });
     }
+    const policy = subAgentAccessPolicy(run.source.accessMode, definition, params.verify !== undefined);
     const input = workflowJson({ params: step.params, sourceWorkspace: run.source.authority?.workspace.path ?? null,
       sourceReferences: run.source.references, dependsOn: step.dependsOn.map(key => getWorkflowStep(this.store, run.id, key)?.result) });
     const id = randomId("sagent");
@@ -269,9 +316,9 @@ export class WorkflowCoordinator {
         writeTarget: null, createdAt: new Date(this.now()).toISOString() });
       const task = this.store.insertQueuedTask({ sessionId: session.id, requestId: `workflow:${run.id}:${step.key}:${step.attempts + 1}`,
         input,
-        accessMode: run.source.accessMode, grantedPaths: run.source.grantedPaths, modelSelection: run.modelSelection, submissionDigest: step.digest,
+        accessMode: policy.accessMode, grantedPaths: [], modelSelection: run.modelSelection, submissionDigest: step.digest,
         parentTaskId: run.source.taskId, sourcePermissionVersion: run.source.permissionVersion, workId, subAgentId: id,
-        readScope: { paths: run.source.authority ? [{ ...run.source.authority.workspace, purpose: "工作流来源工作区只读资料" }] : [], sourceRefs: run.source.references } }).task;
+        readScope: { paths: [], sourceRefs: run.source.references, readMemories: [], ...(snapshot ? { execution: snapshot } : {}) } }).task;
       this.store.setSubAgentState(id, "running", { activeWorkId: workId, currentTaskId: task.id });
       const execution: WorkflowExecution = { id: randomId("wfexec"), runId: run.id, stepKey: step.key, kind: "agent", taskId: task.id,
         number: step.attempts + 1, status: "queued", units: [], stopVerified: null };
@@ -282,6 +329,7 @@ export class WorkflowCoordinator {
   }
 
   private roleCatalog(run: WorkflowRun): SubAgentRoleLibrary {
+    requireWorkflowRunDefinition(this.store, run);
     if (!run.roleCatalog) throw new WorkflowError("role_catalog_missing");
     try { return validateSubAgentRoleLibrary(run.roleCatalog); }
     catch (cause) {
@@ -292,8 +340,8 @@ export class WorkflowCoordinator {
 
   private launch(id: string): void {
     const snapshot = requireWorkflowRun(this.store, id);
-    const definition = getWorkflowDefinition(this.store, snapshot.definitionId);
-    if (!definition || definition.digest !== snapshot.scriptDigest || workflowDigest(definition.script) !== snapshot.scriptDigest || workflowDigest(snapshot.input) !== snapshot.inputDigest) {
+    const definition = requireWorkflowRunDefinition(this.store, snapshot);
+    if (workflowDigest(snapshot.input) !== snapshot.inputDigest) {
       this.pause(id, "definition_missing"); return;
     }
     const host = this.deps.script?.(`workflow:${id}`) ?? new WorkflowScriptHost(`workflow:${id}`);
@@ -351,6 +399,7 @@ export class WorkflowCoordinator {
   private admitted(run: WorkflowRun): boolean { return ["running", "waiting"].includes(run.status); }
   private async invoke(id: string, call: ScriptCall): Promise<unknown> {
     if (!isRecord(call.params)) throw new WorkflowError("invalid_step");
+    if (call.method === "agent" && "mode" in call.params) throw new WorkflowError("interface_upgrade_required");
     const dependsOn = call.params.dependsOn ?? [];
     if (!Array.isArray(dependsOn) || dependsOn.some(key => typeof key !== "string") || new Set(dependsOn).size !== dependsOn.length) throw new WorkflowError("invalid_step");
     if (call.method === "agent" && (typeof call.params.request !== "string" || !call.params.request.trim())) throw new WorkflowError("invalid_step");
@@ -363,13 +412,13 @@ export class WorkflowCoordinator {
     }
     if (call.method === "agent") {
       const params = call.params;
-      const { mode = "analyze", tools, target, verify } = call.params;
-      if (!["analyze", "modify", "verify"].includes(String(mode)) ||
+      const { role, tools, target, verify } = call.params;
+      if ((role !== undefined && (typeof role !== "string" || !role.trim())) ||
           (tools !== undefined && (!Array.isArray(tools) || tools.some(name => typeof name !== "string") || new Set(tools).size !== tools.length)) ||
-          (mode === "modify" && (typeof target !== "string" || !target.trim())) ||
-          (mode === "verify" && (typeof verify !== "string" || !dependsOn.includes(verify))) ||
+          (target !== undefined && (typeof target !== "string" || !target.trim())) ||
+          (verify !== undefined && (typeof verify !== "string" || !verify || !dependsOn.includes(verify) || target !== undefined)) ||
           ["taskId", "sessionId", "projectId", "source", "authority", "credentials", "accessMode"].some(key => key in params)) throw new WorkflowError("invalid_step");
-      if (mode === "verify") {
+      if (verify !== undefined) {
         params.output ??= { format: "json", schema: { type: "object", properties: { passed: { type: "boolean" }, reason: { type: "string" } }, required: ["passed"], additionalProperties: false } };
         if (!isRecord(params.output) || params.output.format !== "json") throw new WorkflowError("invalid_output_schema");
       }
@@ -518,10 +567,10 @@ export class WorkflowCoordinator {
           const check = this.outputCheck(params.output);
           const value: unknown = check ? JSON.parse(output.output) : output.output;
           if (check && !check(value)) throw new WorkflowError("output_invalid");
-          if (params.mode === "verify" && (!isRecord(value) || typeof value.passed !== "boolean")) throw new WorkflowError("output_invalid");
+          if (params.verify !== undefined && (!isRecord(value) || typeof value.passed !== "boolean")) throw new WorkflowError("output_invalid");
           workflowJson(value);
           const evidence = getWorkflowStep(this.store, run.id, step.key)?.verification;
-          const failed = params.mode === "verify" && (!evidence?.passed || (isRecord(value) && value.passed === false));
+          const failed = params.verify !== undefined && (!evidence?.passed || (isRecord(value) && value.passed === false));
           finishWorkflowStep(this.store, run.id, step.key, failed ? "failed" : "completed", { status: failed ? "failed" : "completed", value }, output.output);
           this.store.setTaskResult(task.id, output.output, JSON.stringify({ workflowRunId: run.id, stepKey: step.key, taskId: task.id }));
         } catch (error) {
@@ -648,6 +697,11 @@ export class WorkflowCoordinator {
     const { result, duplicate } = this.store.withTx(() => {
       const duplicate = hasWorkflowControl(this.store, id, key);
       if (!duplicate && control.action === "resume" && listWorkflowExecutions(this.store, id).some(execution => this.jobs.has(execution.taskId))) throw new WorkflowError("verification_required");
+      if (!duplicate && control.action === "resume") for (const execution of listWorkflowExecutions(this.store, id).filter(item => item.kind === "agent")) {
+        const task = this.store.getTask(execution.taskId);
+        if (!task) throw new WorkflowError("binding_invalid");
+        this.deps.verifyExecution?.(task);
+      }
       const result = controlWorkflow(this.store, id, key, version, control, this.now());
       if (!duplicate && control.action === "resume") {
         for (const step of listWorkflowSteps(this.store, id)) {

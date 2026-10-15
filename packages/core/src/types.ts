@@ -14,8 +14,11 @@ export type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 import type { DirIdentity } from "./dir-identity.ts";
 import type { SubAgentDefinitionSnapshot } from "./subagent-definition.ts";
+import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
+import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
+import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 export interface ModelSelection {
   provider: string;
@@ -197,20 +200,25 @@ export type WorkWriteTarget =
       ino: number;
       branch: string;
       baseCommit: string;
+      snapshot: WorkspaceSnapshot;
     }
   | { kind: "direct"; path: string; dev: number; ino: number };
 
-/** 读取 work_delegations.write_target（损坏按 null 处理，不阻断历史读取）。 */
+/** 读取已登记目标；缺失或损坏的基线明确拒绝，不转换为无目标工作。 */
 export function parseWorkWriteTarget(json: string | null): WorkWriteTarget | null {
-  if (!json) return null;
-  try {
-    const v = JSON.parse(json) as WorkWriteTarget;
-    if (v?.kind === "worktree") return v;
-    if (v?.kind === "direct") return v;
-    return null;
-  } catch {
-    return null;
+  if (json === null) return null;
+  let v: WorkWriteTarget;
+  try { v = JSON.parse(json) as WorkWriteTarget; }
+  catch { throw new WorkspaceSnapshotError("target_corrupt"); }
+  if (!v || typeof v !== "object" || typeof v.path !== "string" || !v.path.startsWith("/") || !Number.isSafeInteger(v.dev) || !Number.isSafeInteger(v.ino)) throw new WorkspaceSnapshotError("target_corrupt");
+  if (v.kind === "direct") return v;
+  if (v.kind === "worktree") {
+    const snapshot = requireWorkspaceSnapshot(v.snapshot);
+    if (v.repoRoot !== snapshot.source.path || v.commonGitDir !== snapshot.commonGit.path || v.baseCommit !== snapshot.head ||
+        typeof v.gitdir !== "string" || !v.gitdir.startsWith("/") || typeof v.branch !== "string" || !v.branch) throw new WorkspaceSnapshotError("target_corrupt");
+    return v;
   }
+  throw new WorkspaceSnapshotError("target_corrupt");
 }
 
 /** 写入 work_delegations.write_target（null = 清除；首版只写不清）。 */
@@ -357,6 +365,9 @@ export interface InstanceImportItem {
 export interface SubAgentReadScope {
   paths: Array<{ path: string; dev: number; ino: number; purpose: string }>;
   sourceRefs: unknown[];
+  execution?: SubAgentExecutionSnapshot;
+  workCopyHost?: WorkCopyHostSnapshot;
+  readMemories?: string[];
 }
 
 /**
@@ -873,6 +884,7 @@ export interface EditStats {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
+  | { type: "task.memory_accessed"; taskId: string; sessionId: string; memoryId: string }
   | { type: "agent_wait.changed"; waitId: string; taskId: string; phase: import("./agent-wait.ts").AgentWaitPhase; reason: string | null; wait: import("./agent-wait.ts").AgentWaitView }
   | { type: "task.resources_changed"; taskId: string; sessionId: string; phase: "execution" | "conversation" }
   | { type: "agent_report.changed"; key: string; taskId: string | null; status: import("./agent-wait.ts").AgentReport["status"]; reason: string | null; fallbackTaskId: string | null; fallbackState: import("./agent-wait.ts").AgentReport["fallbackState"]; parkedFallbackTaskIds: string[] }

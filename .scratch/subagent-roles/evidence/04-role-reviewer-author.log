@@ -1,0 +1,10 @@
+✔ ruukoto 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (24324.734042ms)
+✔ ruukoto-code 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (20962.782ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 47133.577459

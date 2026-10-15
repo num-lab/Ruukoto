@@ -1,7 +1,10 @@
-/** 工作流宿主操作的执行登记与收尾，不创建模型会话。 */
+/** 宿主操作的执行登记与收尾，不创建模型会话。 */
 // Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md
 import type { Store } from "@ruukoto/core/store.ts";
 import { getWorkflowExecution, getWorkflowRun, updateWorkflowExecution } from "@ruukoto/core/workflow.ts";
+import { workCopyHostFor } from "@ruukoto/core/work-copy-host.ts";
+import { grantCoversPath } from "@ruukoto/core/worktree.ts";
+import { verifyDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
 import type { ManagedEntry } from "@ruukoto/agent/managed-processes.ts";
 import type { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
@@ -33,6 +36,23 @@ export class HostExecutionManager {
   assertActive(taskId: string): void {
     const state = this.executions.get(taskId);
     const task = this.deps.store.getTask(taskId);
+    if (task) {
+      const copy = workCopyHostFor(task);
+      if (copy) {
+        const parent = this.deps.store.getTask(copy.parentTaskId);
+        if (!state || state.ending || task.status !== "running" || task.cancelRequested ||
+            task.permissionVersion !== state.permissionVersion || task.parentTaskId !== copy.parentTaskId ||
+            !parent || parent.sessionId !== task.sessionId || !["running", "awaiting_confirmation"].includes(parent.status) || parent.cancelRequested ||
+            task.sourcePermissionVersion !== parent.permissionVersion || task.accessMode !== parent.accessMode ||
+            !this.deps.store.listAllOccupancy().some(held => held.taskId === parent.id && grantCoversPath(held.cwdReal, copy.source.path)) ||
+            !this.deps.store.listAllOccupancy().some(held => held.taskId === taskId)) {
+          throw new ExecutionError("task_ending", "工作副本宿主任务或来源已停止，保留现场，不再执行操作");
+        }
+        try { verifyDirIdentitySync({ cwd: copy.source.path, cwdReal: copy.source.path, dev: copy.source.dev, ino: copy.source.ino }); }
+        catch (error) { throw new ExecutionError("source_invalid", "工作副本来源目录身份已变化，保留现场，请核实原目标", undefined, undefined, { cause: error }); }
+        return;
+      }
+    }
     const execution = getWorkflowExecution(this.deps.store, taskId);
     const run = execution ? getWorkflowRun(this.deps.store, execution.runId) : null;
     if (!state || state.ending || !task || task.status !== "running" || task.cancelRequested ||
@@ -59,15 +79,23 @@ export class HostExecutionManager {
   }
 
   private persistUnits(taskId: string, state: HostExecution): void {
-    this.deps.store.withTx(() => updateWorkflowExecution(this.deps.store, taskId, {
-      units: state.entries.map(({ kind, id, label }) => ({ kind, id, label })),
-    }));
+    const units = state.entries.map(({ kind, id, label }) => ({ kind, id, label }));
+    this.deps.store.withTx(() => {
+      const task = this.deps.store.getTask(taskId)!;
+      const copy = workCopyHostFor(task);
+      if (copy) this.deps.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?")
+        .run(JSON.stringify({ ...task.readScope, workCopyHost: { ...copy, units } }), taskId);
+      else updateWorkflowExecution(this.deps.store, taskId, { units });
+    });
   }
 
   /** 停止前快照操作；停止未核实保留全部目录占用和执行身份。 */
   stop(taskId: string, terminal: "completed" | "failed" | "canceled" | "interrupted", reason: string): Promise<boolean> {
     const state = this.executions.get(taskId);
-    if (!state) return Promise.resolve(getWorkflowExecution(this.deps.store, taskId)?.stopVerified === true);
+    if (!state) {
+      const task = this.deps.store.getTask(taskId);
+      return Promise.resolve((task ? workCopyHostFor(task)?.stopVerified : null) === true || getWorkflowExecution(this.deps.store, taskId)?.stopVerified === true);
+    }
     if (state.stop) return state.stop;
     state.ending = true;
     this.deps.store.withTx(() => {
@@ -91,6 +119,9 @@ export class HostExecutionManager {
     const reaped = results.every(result => result);
     this.deps.store.withTx(() => {
       const task = this.deps.store.getTask(taskId)!;
+      const copy = workCopyHostFor(task);
+      if (copy && task.resultSummary === null) this.deps.store.setTaskResult(taskId,
+        JSON.stringify({ isError: terminal !== "completed", content: "", errorMessage: reason }), JSON.stringify({ parentTaskId: copy.parentTaskId, workId: copy.workId, operation: copy.operation }));
       this.deps.store.endTask(taskId, ["running", "awaiting_confirmation"], terminal, {
         interruptReason: terminal === "interrupted" || terminal === "canceled" ? reason : undefined,
         errorMessage: terminal === "failed" ? reason : undefined,
@@ -100,7 +131,9 @@ export class HostExecutionManager {
           for (const opId of this.deps.ledger.settleTask(task, snapshot)) this.deps.ledger.markEffectUnknown(task, opId);
         },
       });
-      updateWorkflowExecution(this.deps.store, taskId, { status: "finished", stopVerified: reaped });
+      if (copy) this.deps.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?")
+        .run(JSON.stringify({ ...task.readScope, workCopyHost: { ...copy, stopVerified: reaped } }), taskId);
+      else updateWorkflowExecution(this.deps.store, taskId, { status: "finished", stopVerified: reaped });
     });
     if (reaped) this.deps.onReleased?.();
     return reaped;

@@ -101,7 +101,7 @@ function kit() {
   const submits: Array<Parameters<ParentDeliveryDeps["submit"]>[0]> = [];
   const reports: WorkReport[] = [];
   const replies = new Map<string, string>();
-  const delivery = new ParentDelivery({
+  const delivery = new ParentDelivery({ verifyWork: () => {},
     store,
     submit: async (input) => {
       submits.push(input);

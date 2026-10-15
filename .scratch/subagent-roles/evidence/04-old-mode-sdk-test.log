@@ -1,0 +1,9 @@
+✔ 真实 SDK 的旧 mode 工具调用明确返回升级说明，不静默丢字段后创建通用子任务 (1021.217083ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2211.988958

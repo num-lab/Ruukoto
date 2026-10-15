@@ -1,0 +1,15 @@
+{
+  "status": "partial",
+  "reason": null,
+  "verification": {
+    "stepKey": "change",
+    "taskId": "task_fdc07bd34142245a4066cfb2",
+    "artifactId": "art_8dd3c2c4fddbf1f77f5b750e",
+    "digest": "8769fc506268ae39fd8055e45fcc7434a77f2a7d1dda63c8cff5144619a5db0b",
+    "baseCommit": "a20e884617226a4c140151abcd4f2fd496ebd4b8",
+    "snapshotDigest": "31c8ffa85fc82cb7773b6c3fee82cd120d134b7db263b454553b5a2df2c443bc",
+    "passed": false
+  },
+  "tools": [],
+  "sourceContent": "base\n"
+}

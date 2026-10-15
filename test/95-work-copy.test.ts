@@ -33,12 +33,18 @@ for arg in "$@"; do
 done
 exec "$REAL_GIT" "$@"
 `, { mode: 0o755 });
+  const temporaryDirectories = new Set<string>();
   const execute = promisify(execFile);
   const manager = new WorkCopyManager({
     worktreeRoot: path.join(root, "copies"),
     protectedRoots: () => [],
     execute: async (input) => {
       const name = path.basename(input.workspace);
+      if (input.operation === "integrate") {
+        const patchDirectory = input.extraGrants!.find(grant => grant.path.includes(".workflow-patch-"))!.path;
+        assert.equal(fs.statSync(patchDirectory).mode & 0o777, 0o700);
+        temporaryDirectories.add(patchDirectory);
+      }
       const { stdout } = await execute("bash", ["-c", input.command], {
         cwd: input.workspace,
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: temp, REAL_GIT: realGit,
@@ -68,10 +74,8 @@ exec "$REAL_GIT" "$@"
     for (const name of ["left", "right"]) {
       assert.equal(fs.readFileSync(path.join(root, name, "value.txt"), "utf8"), name + "\n");
     }
-    const directories = fs.readdirSync(temp);
-    assert.equal(directories.length, 2);
-    assert.notEqual(directories[0], directories[1]);
-    for (const directory of directories) assert.equal(fs.statSync(path.join(temp, directory)).mode & 0o777, 0o700);
+    assert.equal(temporaryDirectories.size, 2);
+    for (const directory of temporaryDirectories) assert.equal(fs.existsSync(directory), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -81,21 +85,21 @@ function fixture() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-work-copy-")));
   const worktreeRoot = path.join(path.dirname(root), `${path.basename(root)}-worktrees`);
   const gitDir = path.join(root, ".git");
-  fs.mkdirSync(gitDir);
+  fs.writeFileSync(path.join(root, "value.txt"), "base\n");
+  initGitRepo(root);
   const stat = fs.statSync(root);
   const session = { id: "parent", cwdReal: root, cwdDev: stat.dev, cwdIno: stat.ino } as Session;
-  let output = "";
+  let output: string | null = null;
+  const execute = promisify(execFile);
   const calls: { parentTaskId: string; command: string }[] = [];
   const manager = new WorkCopyManager({
     worktreeRoot,
     protectedRoots: () => [`${root}-protected`],
     execute: async (input) => {
       calls.push({ parentTaskId: input.parentTaskId, command: input.command });
-      const workId = path.basename(input.copyDir);
-      const gitdir = path.join(gitDir, "worktrees", workId);
-      fs.mkdirSync(gitdir, { recursive: true });
-      fs.writeFileSync(path.join(input.copyDir, ".git"), `gitdir: ${gitdir}\n`);
-      return { isError: false, content: output };
+      if (input.operation === "integrate" && output !== null) return { isError: false, content: output };
+      const { stdout } = await execute("/bin/sh", ["-c", input.command], { cwd: input.workspace, maxBuffer: 4 * 1024 * 1024 });
+      return { isError: false, content: stdout };
     },
   });
   return { root, worktreeRoot, gitDir, session, manager, calls, setOutput: (value: string) => { output = value; }, cleanup: () => { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(worktreeRoot, { recursive: true, force: true }); } };
@@ -122,12 +126,11 @@ test("工作副本保护读写授权的路径边界", () => {
 test("工作副本创建失败保留现场、成功钉定基线与副本身份", async () => {
   const f = fixture();
   try {
-    f.setOutput(HASH);
     const target = await f.manager.prepareWriteTarget(".", f.session, "w1", "parent-task");
     assert.equal(target.kind, "worktree");
-    assert.equal(target.baseCommit, HASH);
+    assert.equal(target.baseCommit, execFileSync("git", ["-C", f.root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim());
     assert.equal(fs.existsSync(target.path), true);
-    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls.length, 2);
     assert.equal(f.calls[0].parentTaskId, "parent-task");
 
     const failed = new WorkCopyManager({
@@ -136,8 +139,8 @@ test("工作副本创建失败保留现场、成功钉定基线与副本身份",
       execute: async () => ({ isError: true, errorMessage: "worker failed", content: "" }),
     });
     await assert.rejects(() => failed.prepareWriteTarget(".", f.session, "failed", "parent-task"), (err: WorkCopyError) => {
-      assert.equal(err.code, "worktree_failed");
-      assert.match(err.message, /路径 .*failed/);
+      assert.equal(err.code, "snapshot_failed");
+      assert.match(err.message, /副本 .*failed/);
       return true;
     });
     assert.equal(fs.existsSync(path.join(path.dirname(f.root), `${path.basename(f.root)}-failed-worktrees`, "failed")), true);
@@ -150,7 +153,6 @@ test("工作副本创建失败保留现场、成功钉定基线与副本身份",
 test("副本身份被替换时拒绝继续使用", async () => {
   const f = fixture();
   try {
-    f.setOutput(HASH);
     const target = await f.manager.prepareWriteTarget(".", f.session, "w1", "parent-task") as Extract<WorkWriteTarget, { kind: "worktree" }>;
     fs.rmSync(target.path, { recursive: true, force: true });
     fs.mkdirSync(target.path);
@@ -179,7 +181,7 @@ test("汇总解析 applied、already、empty、conflict 与损坏输出", async 
         parentTaskId: "integrating-parent-task",
       });
       assert.equal(result.state, state);
-      assert.equal(f.calls[1].parentTaskId, "integrating-parent-task");
+      assert.equal(f.calls[2].parentTaskId, "integrating-parent-task");
       if (state === "applied") assert.deepEqual([result.filesChanged, result.insertions, result.deletions], [1, 2, 1]);
     } finally {
       f.cleanup();

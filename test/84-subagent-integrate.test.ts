@@ -14,7 +14,7 @@ import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
  * - 取消工作/关闭 SubAgent 后仍可汇总（副本与成果保留）；幂等重汇总不重复登记；
  * - 汇总前核实副本与原工作区状态：副本被替换/删除明确拒绝；忙碌拒绝；
  *   Agent 复用承接新工作后，按工作 id 汇总的仍只是该工作的产出；
- * - main 的修改委派转通用链路（mode=modify + subagent_integrate）跑通；
+ * - main 的修改委派转通用链路（target + subagent_integrate）跑通；
  *   旧 coding 角色会话的任务不能作为委派父任务；
  * - 边界：直接写入目标无副本（如实告知）、无差异为 empty、只读工作拒绝。
  */
@@ -54,7 +54,7 @@ function integratedEvents(rt: any, workId: string): Array<Record<string, any>> {
 test("多副本汇总：两项修改工作的副本改动经 integrate 汇入父工作区，不动 HEAD、保留父未提交改动、事件关联原工作", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]")) {
       if (afterTool(req)) return { kind: "text", text: "child done" };
       if (text.includes("PATCH-A"))
         return { kind: "tool_calls", calls: [{ id: "ea", name: "edit", arguments: { path: "src/a.ts", edits: [{ oldText: "export const v = 1", newText: "export const v = 101" }] } }] };
@@ -80,8 +80,8 @@ test("多副本汇总：两项修改工作的副本改动经 integrate 汇入父
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
 
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ia", request: "PATCH-A 改 a", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d1-ia" });
-    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ib", request: "PATCH-B 改 b 加新文件", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d1-ib" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ia", request: "PATCH-A 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d1-ia" });
+    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ib", request: "PATCH-B 改 b 加新文件", target: ".", materials: null, readPaths: null, paramsDigest: "d1-ib" });
     await waitFor("A 完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     await waitFor("B 完工", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
     const wtA = a.work.writeTarget!;
@@ -127,7 +127,7 @@ test("多副本汇总：两项修改工作的副本改动经 integrate 汇入父
 test("冲突：父工作区同文件已有本地改动 → 拒绝强制覆盖、双方成果保留、零写入、报冲突文件", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("PATCH-CONF")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-CONF")) {
       if (afterTool(req)) return { kind: "text", text: "child done" };
       return { kind: "tool_calls", calls: [{ id: "ec", name: "edit", arguments: { path: "src/a.ts", edits: [{ oldText: "export const v = 1", newText: "export const v = 111" }] } }] };
     }
@@ -143,7 +143,7 @@ test("冲突：父工作区同文件已有本地改动 → 拒绝强制覆盖、
     const session = await rt.createSession({ projectName: "igc", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ic", request: "PATCH-CONF 改 a", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d2-ic" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ic", request: "PATCH-CONF 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d2-ic" });
     await waitFor("子完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     const wt = a.work.writeTarget!;
     // 父在同一路径留下本地改动（与副本改动同上下文）
@@ -171,7 +171,7 @@ test("冲突：父工作区同文件已有本地改动 → 拒绝强制覆盖、
 test("幂等与空差异：套用后重复汇总为 already 不重复登记；无差异为 empty", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("PATCH-IDEM")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-IDEM")) {
       if (afterTool(req)) return { kind: "text", text: "child done" };
       return { kind: "tool_calls", calls: [{ id: "ei", name: "edit", arguments: { path: "src/a.ts", edits: [{ oldText: "export const v = 1", newText: "export const v = 121" }] } }] };
     }
@@ -187,7 +187,7 @@ test("幂等与空差异：套用后重复汇总为 already 不重复登记；�
     const session = await rt.createSession({ projectName: "igi", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ii", request: "PATCH-IDEM 改 a", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d3-ii" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ii", request: "PATCH-IDEM 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d3-ii" });
     await waitFor("子完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
 
     const once = await rt.subagents!.integrate({ workId: a.work.id, parentTaskId: parent.id, parentSessionId: session.id });
@@ -202,7 +202,7 @@ test("幂等与空差异：套用后重复汇总为 already 不重复登记；�
       () => rt.subagents!.integrate({ workId: ro.work.id, parentTaskId: parent.id, parentSessionId: session.id }),
       (e: any) => e.code === "invalid_state" || /只读/.test(String(e.message)),
     );
-    const empty = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ie", request: "NOOP 不改", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d3-ie" });
+    const empty = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ie", request: "NOOP 不改", target: ".", materials: null, readPaths: null, paramsDigest: "d3-ie" });
     await waitFor("空工作完工", () => rt.store.getTask(empty.task.id)!.resultSummary !== null);
     const re = await rt.subagents!.integrate({ workId: empty.work.id, parentTaskId: parent.id, parentSessionId: session.id });
     assert.equal(re.state, "empty");
@@ -216,7 +216,7 @@ test("幂等与空差异：套用后重复汇总为 already 不重复登记；�
 test("直接写入目标：integrate 如实告知无副本需要汇总，无事件零写入", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("PATCH-DIR")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-DIR")) {
       if (afterTool(req)) return { kind: "text", text: "child done" };
       return { kind: "tool_calls", calls: [{ id: "ed", name: "write", arguments: { path: "notes.md", content: "direct\n" } }] };
     }
@@ -229,7 +229,7 @@ test("直接写入目标：integrate 如实告知无副本需要汇总，无事�
     const session = await rt.createSession({ projectName: "igd", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "id", request: "PATCH-DIR 写 docs", mode: "modify", target: "docs", materials: null, readPaths: null, paramsDigest: "d4-id" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "id", request: "PATCH-DIR 写 docs", target: "docs", materials: null, readPaths: null, paramsDigest: "d4-id" });
     assert.equal(a.work.writeTarget?.kind, "direct", "非 Git 目标是直接写入");
     await waitFor("子完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     const r = await rt.subagents!.integrate({ workId: a.work.id, parentTaskId: parent.id, parentSessionId: session.id });
@@ -244,7 +244,7 @@ test("直接写入目标：integrate 如实告知无副本需要汇总，无事�
 test("取消工作与关闭 SubAgent 不拦汇总：取消（owner）+ 关闭（owner）后 integrate 成功、TUI 提示与账本核实到位", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("PATCH-SALV")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-SALV")) {
       if (afterTool(req)) return { kind: "text", text: "child done" };
       return { kind: "tool_calls", calls: [{ id: "es", name: "edit", arguments: { path: "src/a.ts", edits: [{ oldText: "export const v = 1", newText: "export const v = 131" }] } }] };
     }
@@ -260,7 +260,7 @@ test("取消工作与关闭 SubAgent 不拦汇总：取消（owner）+ 关闭（
     const session = await rt.createSession({ projectName: "igs", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "is", request: "PATCH-SALV 改 a", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d5-is" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "is", request: "PATCH-SALV 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d5-is" });
     await waitFor("子完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     // 取消整项工作 + 关闭 SubAgent：成果仍应找回（未汇总的修改不被取消/关闭删除）
     await rt.subagents!.cancelWork({ workId: a.work.id, by: "owner" });
@@ -296,7 +296,7 @@ test("复用隔离与状态核实：按工作 id 汇总的只是该工作产出�
   let release: (() => void) | null = null;
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]")) {
       if (text.includes("PATCH-BUSY")) {
         await new Promise<void>((res) => (release = res));
         return { kind: "text", text: "busy done" };
@@ -319,11 +319,11 @@ test("复用隔离与状态核实：按工作 id 汇总的只是该工作产出�
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
 
-    const oldWork = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "io", request: "PATCH-OLD 改 a", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d6-io" });
+    const oldWork = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "io", request: "PATCH-OLD 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d6-io" });
     await waitFor("旧工作完工", () => rt.store.getTask(oldWork.task.id)!.resultSummary !== null);
     await waitFor("Agent 空闲", () => rt.store.getSubAgent(oldWork.agent.id)!.state === "idle");
     // 复用同一 Agent 承接新工作（另建副本），新工作改另一个文件
-    const newWork = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "in", request: "PATCH-NEW 加文件", subAgentId: oldWork.agent.id, mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d6-in" });
+    const newWork = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "in", request: "PATCH-NEW 加文件", subAgentId: oldWork.agent.id, target: ".", materials: null, readPaths: null, paramsDigest: "d6-in" });
     await waitFor("新工作完工", () => rt.store.getTask(newWork.task.id)!.resultSummary !== null);
     assert.notEqual(newWork.work.writeTarget!.path, oldWork.work.writeTarget!.path);
 
@@ -342,7 +342,7 @@ test("复用隔离与状态核实：按工作 id 汇总的只是该工作产出�
     );
 
     // 忙碌拒绝：新工作的另一次执行在跑（持有副本）
-    const busyWork = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ibz", request: "PATCH-BUSY 挂起", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d6-ibz" });
+    const busyWork = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ibz", request: "PATCH-BUSY 挂起", target: ".", materials: null, readPaths: null, paramsDigest: "d6-ibz" });
     await waitFor("忙碌模型请求已挂起", () => release !== null);
     await assert.rejects(
       () => rt.subagents!.integrate({ workId: busyWork.work.id, parentTaskId: parent.id, parentSessionId: session.id }),
@@ -356,10 +356,10 @@ test("复用隔离与状态核实：按工作 id 汇总的只是该工作产出�
   }
 });
 
-test("main 经通用修改委派跑通（mode=modify + integrate）；旧 coding 角色会话的任务不能发起 modify", async () => {
+test("main 经通用修改委派跑通（target + integrate）；旧 coding 角色会话的任务不能发起目标委派", async () => {
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区修改]") && text.includes("PATCH-MAIN")) {
+    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-MAIN")) {
       if (afterTool(req)) return { kind: "text", text: "child done" };
       return { kind: "tool_calls", calls: [{ id: "em", name: "edit", arguments: { path: "src/a.ts", edits: [{ oldText: "export const v = 1", newText: "export const v = 151" }] } }] };
     }
@@ -377,7 +377,7 @@ test("main 经通用修改委派跑通（mode=modify + integrate）；旧 coding
     initGitRepo(mainCwd);
     const mparent = await rt.submit({ sessionId: main.sessionId, requestId: "pm", input: "开始（main）", modelSelection: rt.defaultSelection });
     await waitFor("main 父在运行", () => rt.store.getTask(mparent.id)!.status === "running");
-    const m = await delegateFromActiveTask(rt, { parentTaskId: mparent.id, key: "im", request: "PATCH-MAIN 改 a", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d7-im" });
+    const m = await delegateFromActiveTask(rt, { parentTaskId: mparent.id, key: "im", request: "PATCH-MAIN 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d7-im" });
     assert.equal(m.work.writeTarget?.kind, "worktree", "main 的 Git 目标也走 worktree 副本");
     await waitFor("main 子完工", () => rt.store.getTask(m.task.id)!.resultSummary !== null);
     const rm = await rt.subagents!.integrate({ workId: m.work.id, parentTaskId: mparent.id, parentSessionId: main.sessionId });
@@ -389,7 +389,7 @@ test("main 经通用修改委派跑通（mode=modify + integrate）；旧 coding
     const cparent = seedCodingChild(rt.store, coding.sessionId, { key: "pc", mark: "旧任务" });
     completeCodingChild(rt.store, cparent.id, "旧结论", "{}");
     await assert.rejects(
-      () => delegateFromActiveTask(rt, { parentTaskId: cparent.id, key: "icd", request: "x", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "d7-icd" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: cparent.id, key: "icd", request: "x", target: ".", materials: null, readPaths: null, paramsDigest: "d7-icd" }),
       (error: unknown) => error instanceof SubAgentDelegationError && error.code === "forbidden",
     );
     assert.equal(rt.store.listWorkDelegationsBySession(coding.sessionId).length, 0);
@@ -421,7 +421,7 @@ for (const phase of ["result_false", "result_throws", "ready", "call", "mode", "
       const session = await rt.createSession({ projectName: "integrate-stop", cwd: t.work[0] });
       const parent = await rt.submit({ sessionId: session.id, requestId: "p", input: "开始", modelSelection: rt.defaultSelection });
       await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
-      const delegation = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", mode: "modify", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
+      const delegation = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "create", request: "修改", target: ".", materials: null, readPaths: null, paramsDigest: "create" });
       await waitFor("子任务结果已登记", () => rt.store.getTask(delegation.task.id)!.resultSummary !== null);
       const copy = delegation.work.writeTarget!;
       fs.writeFileSync(path.join(copy.path, "source.txt"), "成果\n");
@@ -441,11 +441,13 @@ for (const phase of ["result_false", "result_throws", "ready", "call", "mode", "
       await rejected;
       await waitFor("父任务终态", () => ["interrupted", "canceled"].includes(rt.store.getTask(parent.id)!.status));
       assert.equal(rt.store.getOccupancyByDir(session.cwdReal)?.taskId, parent.id);
-      assert.equal(rt.store.getOccupancyByDir(copy.path)?.taskId, parent.id);
+      const host = rt.store.listTasksBySession(session.id).find(task => task.readScope?.workCopyHost?.parentTaskId === parent.id && task.readScope.workCopyHost.operation === "integrate")!;
+      assert.ok(host);
+      assert.equal(rt.store.getOccupancyByDir(copy.path)?.taskId, host.id);
       assert.equal(fs.readFileSync(path.join(copy.path, "source.txt"), "utf8"), "成果\n");
       assert.equal(fs.readFileSync(source, "utf8"), hasResult ? "成果\n" : "source\n");
       assert.equal(integratedEvents(rt, delegation.work.id).length, 0);
-      const op = rt.store.listToolOpsByTask(parent.id).find((entry) => entry.toolName === (hasResult || (phase === "call" || phase === "mode_call") ? "worktree_integrate" : "worktree_start"))!;
+      const op = rt.store.listToolOpsByTask(host.id).find((entry) => entry.toolName === (hasResult || (phase === "call" || phase === "mode_call") ? "worktree_integrate" : "worktree_start"))!;
       if (hasResult) {
         assert.equal(op.resultSummary, output.trim());
         assert.equal(op.effectUnknown, false);

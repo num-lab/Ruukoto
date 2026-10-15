@@ -1,5 +1,6 @@
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { HOST_REVIEW_DEFINITION } from "@ruukoto/agent/subagent-roles.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-05-subagent-restart-recovery.md
@@ -116,6 +117,7 @@ function seedQueued(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], p
       workId: d.work.id,
       subAgentId: d.agent.id,
       sourceEventId,
+      readScope: rt.store.getTask(d.task.id)!.readScope,
     }).task,
   );
 }
@@ -291,6 +293,7 @@ test("宿主固定评审排队任务：不中断，启动恢复自动解除子�
   let rt = kit.rt;
   try {
     const { parent, d } = await baseWork(kit, rt, "q3");
+    rt.store.db.prepare("UPDATE sub_agents SET definition = ? WHERE id = ?").run(JSON.stringify(HOST_REVIEW_DEFINITION), d.agent.id);
     const callsBefore = kit.server.calls.length;
     // 播种带来源事件的排队评审任务；先把子会话置为 backend_restart 暂停
     // （崩溃前的持久形态：排队任务使恢复事务暂停子会话，暂停理由即该形态）

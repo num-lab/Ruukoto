@@ -1,0 +1,75 @@
+✔ 工作流非 Git 修改在创建副本或写入前拒绝，普通委派仍可直接写入 (1.230667ms)
+✔ 冻结补丁保留完整非 UTF-8 与二进制字节，验证副本按固定旧基线重建且写入独立 (846.850708ms)
+✔ 验证后改写副本字节使旧冻结成果失效，目标零套用 (600.694875ms)
+✔ 验证后新增副本字节使旧冻结成果失效，目标零套用 (647.464083ms)
+✔ 验证后删除副本字节使旧冻结成果失效，目标零套用 (601.398917ms)
+✔ 冻结补丁与工作、基线或摘要不符在执行前拒绝，摘要自洽的伪造字节仍不能套用 (533.706833ms)
+✔ 空冻结成果可建立独立验证副本，汇总没有写入 (595.3625ms)
+✔ 冻结汇总幂等，冲突零套用且保留双方成果 (975.99825ms)
+[ruukoto:parent-delivery] 工作 work_af1f0927f6dd08f072296931 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_af1f0927f6dd08f072296931 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 坏快照只失败受影响排队任务，不产生模型请求或未处理拒绝，主服务仍可执行 (1466.394875ms)
+[ruukoto:parent-delivery] 工作 work_11e5e56a7dc0f38d191cc758 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_11e5e56a7dc0f38d191cc758 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 运行中的快照失去私有基线，下一次模型请求拒绝并保留源与副本 (1438.101667ms)
+✔ 冷恢复坏快照的待投消息明确未投递，历史与副本保留，后台仍可启动 (1387.093042ms)
+✔ 冷恢复已有父总结遇到坏快照 record，原回报记来源失效且启动不重建汇报 (1395.494875ms)
+✔ 冷恢复已有父总结遇到坏快照 baseline，原回报记来源失效且启动不重建汇报 (1389.611709ms)
+✔ 汇报同组另一工作区已坏，既有回报记来源失效且不补造坏目标的回报 (2575.571542ms)
+[ruukoto:scheduler] 工作 work_acbc01b6462aef459826a3a1 的取消记录不可核实（snapshot_missing）；保留原记录与副本，继续停止本次运行已登记的任务
+[ruukoto:parent-delivery] 工作 work_acbc01b6462aef459826a3a1 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_acbc01b6462aef459826a3a1 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 取消定时运行遇到坏快照，仍停止已登记父子任务而不伪造工作记录 (1317.430291ms)
+[ruukoto:parent-delivery] 工作 work_fda0ff7d1acee86cf6c67d12 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_fda0ff7d1acee86cf6c67d12 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 定时子工作区 record 失效，未核实占用仍阻止收尾，核实后记失败并保留父回复 (1325.867417ms)
+[ruukoto:parent-delivery] 工作 work_0e4fb54283e75bad753192ef 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_0e4fb54283e75bad753192ef 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work_0e4fb54283e75bad753192ef 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+✔ 定时子工作区 baseline 失效，未核实占用仍阻止收尾，核实后记失败并保留父回复 (1362.204209ms)
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：target_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_corrupt；保留记录与副本，请核实基线后新建工作
+[ruukoto:parent-delivery] 工作 work-7 的结果不可送达：snapshot_missing；保留记录与副本，请核实基线后新建工作
+✔ 冷启动补记 snapshot_missing 的结果失败，保留 interrupted 执行史与副本，其他结果继续送达 (14.9465ms)
+✔ 冷启动补记 snapshot_corrupt 的结果失败，保留 completed 执行史与副本，其他结果继续送达 (11.496583ms)
+✔ 冷启动补记 target_corrupt 的结果失败，保留 failed 执行史与副本，其他结果继续送达 (11.255125ms)
+✔ 已登记结果的坏基线只使既有补报不可送达，扫尾与普通注入继续处理其他工作 (11.503542ms)
+✔ 最终汇报的来源回调读到坏基线时明确不可送达，不外发、不覆写真实子结果 (8.3895ms)
+✔ 快照失败处理不吞未知异常：unexpected_store_failure (9.553959ms)
+✔ 快照失败处理不吞未知异常：工作区基线记录缺失或损坏；保留副本并报告拥有者，不从 HEAD 重建 (8.66425ms)
+✔ 当前内容捕获零写入，登记仅新增专属 Git 元数据，普通汇入只应用子增量 (1510.505208ms)
+✔ 后续同文件不同 hunk 修改即使补丁可套用也拒绝，保留双方字节 (695.194333ms)
+✔ 外部捕获竞态、非 UTF-8 名字、路径祖先链接在源写入前拒绝 (468.270375ms)
+✔ 基线缺失、身份或摘要损坏拒绝执行、恢复和导入，不回退 HEAD (353.976333ms)
+✔ 私有基线 alternates 不取得源对象写入资格，缺对象在模型预检前拒绝 (329.213625ms)
+✔ 私有基线 symlink 不取得源对象写入资格，缺对象在模型预检前拒绝 (348.758417ms)
+✔ 私有基线 hardlink 不取得源对象写入资格，缺对象在模型预检前拒绝 (336.121625ms)
+Preparing worktree (detached HEAD 5b6a6e8)
+✔ 私有基线 commondir 不取得源对象写入资格，缺对象在模型预检前拒绝 (339.828208ms)
+✔ 来源 worktree 的 Git 指向切换即使 HEAD/index 相同也使旧基线失效 (488.381584ms)
+✔ split-index 私有读取保留三类忽略规则，来源共享索引零写入且保存字节参与摘要 (358.180583ms)
+✔ 仅原索引引用的 staged blob 缺失或删除阶段清单不能通过恢复预检 (356.0075ms)
+✔ 缺少 promisor blob 时拒绝捕获，不向来源下载对象 (267.874791ms)
+✔ 宿主空模板和固定 SHA-1 私有格式不继承用户模板的对象旁路 (246.297166ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 14730.999917

@@ -64,7 +64,7 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     const currentParent = await rt.submit({ sessionId: session.id, requestId: "live-parent", input: "HOLD-PARENT 创建工作", modelSelection: rt.defaultSelection });
     await waitFor("父任务持有目录", () => releaseParent !== undefined);
     const manager = rt.subagents!;
-    const patch = await delegateFromActiveTask({ store: rt.store, subagents: manager }, { parentTaskId: currentParent.id, key: "patch", request: "PATCH-RELEASE", mode: "modify", target: ".", paramsDigest: "patch" });
+    const patch = await delegateFromActiveTask({ store: rt.store, subagents: manager }, { parentTaskId: currentParent.id, key: "patch", request: "PATCH-RELEASE", target: ".", paramsDigest: "patch" });
     await waitFor("副本修改完成", () => rt!.store.getSubAgent(patch.agent.id)!.state === "idle");
     const copy = patch.work.writeTarget!;
     assert.equal(copy.kind, "worktree");

@@ -1,0 +1,57 @@
+✔ 当前内容捕获零写入，登记仅新增专属 Git 元数据，普通汇入只应用子增量 (1342.463959ms)
+✔ 后续同文件不同 hunk 修改即使补丁可套用也拒绝，保留双方字节 (581.324583ms)
+✖ 外部捕获竞态、非 UTF-8 名字、路径祖先链接在源写入前拒绝 (212.692375ms)
+✖ 基线缺失、身份或摘要损坏拒绝执行、恢复和导入，不回退 HEAD (285.01375ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 2
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2562.652708
+
+✖ failing tests:
+
+test at test/workspace-snapshots.test.ts:144:1
+✖ 外部捕获竞态、非 UTF-8 名字、路径祖先链接在源写入前拒绝 (212.692375ms)
+  Error: EILSEQ: illegal byte sequence, open '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-current-snapshot-Znf8Q6/repo/�'
+      at Module.writeFileSync (node:fs:2414:20)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/test/workspace-snapshots.test.ts:156:8)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    errno: -92,
+    code: 'EILSEQ',
+    syscall: 'open',
+    path: '/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-current-snapshot-Znf8Q6/repo/�'
+  }
+
+test at test/workspace-snapshots.test.ts:173:1
+✖ 基线缺失、身份或摘要损坏拒绝执行、恢复和导入，不回退 HEAD (285.01375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    Comparison {
+  +   code: 'snapshot_corrupt'
+  -   code: 'snapshot_changed'
+    }
+  
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/test/workspace-snapshots.test.ts:184:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Error: 工作区基线记录缺失或损坏；保留副本并报告拥有者，不从 HEAD 重建
+        at WorkCopyManager.assertSnapshot (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/packages/runtime/src/work-copy.ts:344:58)
+        at WorkCopyManager.assertCopy (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/packages/runtime/src/work-copy.ts:374:10)
+        at WorkCopyManager.freeze (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/packages/runtime/src/work-copy.ts:225:10)
+        at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/subagent-roles/test/workspace-snapshots.test.ts:184:36)
+        at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7),
+    expected: { code: 'snapshot_changed' },
+    operator: 'rejects',
+    diff: 'simple'
+  }

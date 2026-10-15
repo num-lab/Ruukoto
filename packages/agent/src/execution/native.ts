@@ -35,11 +35,12 @@ export const NATIVE_MACOS_HELPER_PATH = fileURLToPath(new URL("../../../../worke
 
 const covers = (root: string, target: string): boolean => root === target || target.startsWith(root + path.sep);
 
-/** 路径沙箱不能区分预存硬链接；只接受全部目录条目已授权且权限相同的文件。 */
+/** 路径沙箱不能区分文件别名；同一对象权限须相同，硬链接还须全部条目已授权。 */
 export function assertNativeFileLinks(mounts: PreparedNativeLaunch["mounts"]): void {
   const visited = new Set<string>();
   const directories = new Map<string, "read" | "read_write">();
   const fileEntries = new Map<string, "read" | "read_write">();
+  const files = new Map<string, "read" | "read_write">();
   const links = new Map<string, Array<{ path: string; access: "read" | "read_write" }>>();
   const pending: Array<{ path: string; entryKey?: string }> = mounts.map(mount => ({ path: mount.path }));
   const reject = (): never => {
@@ -75,8 +76,12 @@ export function assertNativeFileLinks(mounts: PreparedNativeLaunch["mounts"]): v
         continue;
       }
       fileEntries.set(physicalEntry, access);
+      // file bind 的 nlink 仍可为 1，不能据此跳过同一对象的权限核实。
+      const key = `${stat.dev}:${stat.ino}`;
+      const fileAccess = files.get(key);
+      if (fileAccess !== undefined && fileAccess !== access) reject();
+      files.set(key, access);
       if (stat.nlink > 1n) {
-        const key = `${stat.dev}:${stat.ino}`;
         const entries = links.get(key) ?? [];
         entries.push({ path: current, access });
         links.set(key, entries);

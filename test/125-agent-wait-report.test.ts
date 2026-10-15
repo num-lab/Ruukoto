@@ -8,7 +8,7 @@ import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { agentReportKey, bindAgentReportFallback, claimAgentReports, consumeAgentReport, endAgentWait, getAgentReport,
   isAgentReportParked, registerAgentReport, registerAgentWait, startAgentReportFallback, transferAgentReportFallbacks, type AgentReport } from "@ruukoto/core/agent-wait.ts";
-import { createWorkflowRun, getWorkflowDeliveryRun, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey, type WorkflowSource } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, createWorkflowRun, getWorkflowDeliveryRun, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { type Task, type TaskStatus } from "@ruukoto/core/types.ts";
 import { getAgentTaskReport, ParentDelivery, type ParentDeliveryDeps } from "@ruukoto/runtime/parent-delivery.ts";
 import { Orchestrator } from "@ruukoto/runtime/orchestrator.ts";
@@ -53,7 +53,7 @@ function kit() {
   const report = (target: Task) => store.withTx(() => registerAgentReport(store, { target: { kind: "task", taskId: target.id }, source,
     parentSessionId: parentSession.id }));
   const submissions: Parameters<ParentDeliveryDeps["submit"]>[0][] = [], replies = new Map<string, string>(), reports: AgentReport[][] = [];
-  const deps: ParentDeliveryDeps = { store, defaultModelSelection: () => SELECTION, readReply: id => replies.get(id) ?? null,
+  const deps: ParentDeliveryDeps = { verifyWork: () => {}, store, defaultModelSelection: () => SELECTION, readReply: id => replies.get(id) ?? null,
     isReviewEvent: () => false, resultNotice: () => null, sendWorkReport: () => { throw new Error("dev 不外发"); },
     submit: async input => {
       submissions.push(input);
@@ -187,7 +187,7 @@ test("已有工作流专属汇总接管子任务和其他排队汇总，只登�
   const k = kit();
   try {
     const definition = saveWorkflowDefinition(k.store, "return null;"), childReport = k.report(k.child());
-    const runs = ["first", "second"].map(id => k.store.withTx(() => createWorkflowRun(k.store, { roleCatalog: fixtureSubAgentRoleCatalog(), id, requestKey: id, paramsDigest: id,
+    const runs = ["first", "second"].map(id => k.store.withTx(() => createWorkflowRun(k.store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(), id, requestKey: id, paramsDigest: id,
       definitionId: definition.id, scriptDigest: definition.digest, input: null, inputDigest: id, source: k.source, modelSelection: SELECTION,
       status: "succeeded", version: 2, terminalVersion: 2, reason: null, attempts: 0, maxAttempts: 1, durationMs: 60_000,
       usedMs: 1, clockStartedAt: null, clockVerified: true, scriptUnits: [], scriptStopVerified: true, result: id, resultRecorded: true,

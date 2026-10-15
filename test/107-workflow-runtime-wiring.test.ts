@@ -78,17 +78,20 @@ test("普通 SubAgent 在真实 Runtime 出队时与三个工作流步骤抢同�
     fs.mkdirSync(directory);
     const cwd = fs.realpathSync(directory);
     const stat = fs.statSync(cwd);
+    const definition = fixtureSubAgentDefinition();
+    const execution = await (await rt["getDriver"](session)).preflightSubAgent(run.source, definition);
     const ordinary = rt.store.withTx(() => {
       const child = rt.store.createSession({ projectId: session.projectId, cwd, cwdReal: cwd, cwdDev: stat.dev, cwdIno: stat.ino,
         piSessionId: randomId("pi"), confirmTools: [], modelSelection: rt.defaultSelection });
       rt.store.setSessionQueueState(child.id, "paused", "test_slots");
       const id = randomId("sagent"), workId = randomId("work");
-      rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id, parentSessionId: session.id, sessionId: child.id, workDir: cwd, state: "running", currentTaskId: null,
+      rt.store.insertSubAgent({ definition, id, parentSessionId: session.id, sessionId: child.id, workDir: cwd, state: "running", currentTaskId: null,
         activeWorkId: workId, closedAt: null, closedBy: null, createdAt: new Date().toISOString() });
       rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: parent.id, subAgentId: id, requestKey: "ordinary",
         paramsDigest: "ordinary", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: new Date().toISOString() });
       return rt.store.insertQueuedTask({ sessionId: child.id, requestId: "ordinary", input: "普通委派", modelSelection: rt.defaultSelection,
-        submissionDigest: "ordinary", workId, subAgentId: id, parentTaskId: parent.id }).task;
+        submissionDigest: "ordinary", workId, subAgentId: id, parentTaskId: parent.id,
+        sourcePermissionVersion: parent.permissionVersion, readScope: { paths: [], sourceRefs: [], readMemories: [], execution } }).task;
     });
     let peak = workflowSlotsUsed(rt.store, session.id);
     rt.addEventListener(() => { peak = Math.max(peak, workflowSlotsUsed(rt.store, session.id)); });

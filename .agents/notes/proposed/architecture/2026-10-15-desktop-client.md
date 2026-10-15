@@ -14,15 +14,15 @@ Status: proposed
 
 外壳用 Electron。主进程运行 Node，直接复用 `@ruukoto/control` 的 `ControlConnection`、`SubmissionGuard` 与协议类型，与后台出自同一份 TS 源码；协议升版只需重建桌面端，不维护第二套客户端。渲染进程用 React 19 与 Tailwind v4。
 
-进程边界按安全要求划分。令牌、连接、ssh 子进程与后台拉起只在主进程；preload 只暴露订阅、带 op 放行名单的请求、文件夹选择与在 Finder 中显示；渲染进程开 sandbox 与 contextIsolation、关闭 nodeIntegration，CSP 只允许本地资源，Markdown 不渲染原始 HTML。模型与工具输出可能含网页或仓库里攻击者控制的内容；渲染进程一旦被注入脚本，最大的危害是代替拥有者调用 `respond_confirmation`，放行名单与 CSP 用来缩小这个面。
+进程边界按安全要求划分。令牌、连接、ssh 子进程与后台拉起只在主进程；preload 只暴露订阅、带 op 放行名单的请求、文件夹选择与在 Finder 中显示；渲染进程开 sandbox 与 contextIsolation、关闭 nodeIntegration，CSP 只允许本地资源：打包页面经 `file://` 加载，拿不到 HTTP 响应头，所以策略以构建时插入的 HTML meta 交付；开发页面以响应头加 nonce 交付。Markdown 不渲染原始 HTML。模型与工具输出可能含网页或仓库里攻击者控制的内容；渲染进程一旦被注入脚本，最大的危害是代替拥有者调用 `respond_confirmation`，放行名单与 CSP 用来缩小这个面。
 
-快照与事件到界面状态的投影抽到新包 `packages/view`，TUI 与桌面端共用。该包必须能在浏览器运行：不引 `node:*`，对其他 workspace 包的值引用只能来自本身不依赖 Node 的模块。抽取按桌面端需要逐步进行，每抽一块，TUI 就改为引用新位置，并以 TUI 既有测试回归。
+快照与事件到界面状态的投影抽到新包 `packages/view`，TUI 与桌面端共用。该包必须能在浏览器运行：不引 `node:*`、不用 Node 全局，对其他 workspace 包的值引用只能来自本身不依赖 Node 的模块：以浏览器为目标打包，再只按浏览器全局对产物做 `no-undef` 检查，以此判定，依赖模块里的 `Buffer` 这类自由变量也能查出来。抽取按桌面端需要逐步进行，每抽一块，TUI 就改为引用新位置，并以 TUI 既有测试回归。
 
-协议版本保持严格相等。版本不一致时桌面端显示双方版本与需要更新的一侧，不加兼容区间。Code 目标只拉起与桌面端同一份仓库代码的 ruukoto-code：.app 在构建时记录仓库路径，后台未运行时用登录 shell 解析出的 node 执行该路径下的 bin；后台脱离运行，退出桌面端不停止后台。`packages/control/src/connect.ts` 的路径解析改为显式接受产品，主进程才能同时连接两个产品。
+协议版本保持严格相等。版本不一致时，桌面端显示双方版本和需要更新的一侧，不加兼容区间。服务端版本取自错误应答帧里已有的 `v`，经 `ControlClientError` 以结构化字段传出，不解析消息文本。仓库已升级而旧后台仍在运行时，新客户端无法经控制面停止它，因为服务端在认证前就拒绝版本不等的请求。桌面端只给出人工恢复步骤，自己不向进程发信号。要自动停止旧后台，必须证明被停止的进程就是拒绝连接的那个实例，这部分另立工单处理。Code 目标只拉起与桌面端同一份仓库代码的 ruukoto-code：.app 在构建时记录仓库路径，后台未运行时，用登录 shell 解析出的 node 执行该路径下的 bin（`ensureBackend` 新增参数 `spawnExecPath`），路径与令牌也按登录 shell 环境解析；后台脱离运行，退出桌面端不停止后台。`packages/control/src/connect.ts` 的路径解析改为显式接受产品，主进程才能同时连接两个产品。
 
-个人 Agent 目标经 SSH 转发控制面 socket：`ssh -N -L <本地 socket>:<远端 control.sock> <host>`，使用拥有者的 `~/.ssh/config` 与密钥或 ssh-agent，不支持交互式密码。令牌每次建连时经 ssh 读取远端 `owner.token`，只保存在主进程内存。后台仍只监听本机 Unix socket，认证仍是 SSH 身份加拥有者令牌，与登录服务器启动 TUI 的权限相同。实施时把远程使用的说明改为：登录服务器后启动 TUI，或由桌面客户端经 SSH 转发控制面 socket；不新增远程协议。
+个人 Agent 目标经 SSH 转发控制面 socket：`ssh -N -L <本地 socket>:<远端 control.sock> <host>`，使用拥有者的 `~/.ssh/config` 与密钥或 ssh-agent，不支持交互式密码。每次控制面建连前，都经 ssh 预检远端 socket 并读取令牌，令牌只保存在主进程内存；为此，`ControlConnection` 的令牌改为可按次获取。只支持同账户部署，即 SSH 登录账户就是后台账户，与当前部署步骤一致；令牌读的是原文件，所以轮换后下一次建连就能读到新令牌。两条 ssh 命令都显式关闭连接复用与认证后转入后台，确保桌面端持有的子进程就是实际的监听者。ssh 转发由主进程的监督者负责重启，控制面由 `ControlConnection` 负责重连，连接是否在线以认证完成并装好快照为准。握手快照新增产品身份，协议升到 v26，桌面端拒绝连到产品不符的后台。后台仍只监听本机 Unix socket，认证仍是 SSH 身份加拥有者令牌，与登录服务器启动 TUI 的权限相同。实施时把远程使用的说明改为：登录服务器后启动 TUI，或由桌面客户端经 SSH 转发控制面 socket；不新增远程协议。
 
-桌面端放在 `apps/desktop/`，依赖全部列为 devDependencies：运行时依赖都打进产物，服务器的 `npm ci --omit=dev` 不受影响。CI 设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，只跑不依赖 Electron 的检查。构建用 electron-vite，打包用 electron-builder 的目录产物并 ad-hoc 签名；首版只在 macOS 验收，只供拥有者自用。
+桌面端放在 `apps/desktop/`，依赖全部列为 devDependencies。运行时依赖都会打进产物，所以服务器的 `npm ci --omit=dev` 不受影响；ESLint 的依赖边界检查为此只对这个包放开一条：值引用可以来自 devDependencies。CI 设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，只跑不依赖 Electron 的检查。构建用 electron-vite，打包用 electron-builder 的目录产物并 ad-hoc 签名；首版只在 macOS 验收，只供拥有者自用。
 
 需求、范围与验收归[规格](../../../../.scratch/desktop-gui/spec.md)，实施步骤归 `.scratch/desktop-gui/issues/`。拥有者已逐轮确认四轮共 22 题并确认整体方案；proposed 表示尚未交付实现。
 
@@ -35,6 +35,7 @@ Status: proposed
 | [后台任务与终端](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md) | 沿用：后台与客户端分离、本机 socket 加令牌、按 seq 恢复、客户端断开不取消任务、探测与复用。桌面端是又一个客户端；SSH 转发后，后台看到的仍是本机 socket 连接。不改其决定。 |
 | [两个 Agent 产品](../../implemented/architecture/2026-10-02-two-agent-products.md) | 沿用：两个产品各自的档案、socket 与实例锁。桌面端按显式产品分别解析路径，不新增跨产品通道。 |
 | [同仓 workspaces 分包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md) | 部分扩展：新增 `packages/view` 与 `apps/desktop`，依赖方向增加 `tui → view`。实施时就地同步该笔记的包表与依赖方向。 |
+| [开发启动器](../../implemented/process/2026-10-09-dev-launchers.md) | 沿用：开发前端只连接启动器管理的后台。受管的桌面开发前端不执行登录 shell，也不自行拉起后台；日常 .app 才按需拉起。 |
 | [浏览器自动化](../../implemented/feature/2026-10-14-agent-browser.md) | 引用：dashboard 已用 `ssh -L` 转发并只在本地打开，是本方案转发方式的先例。桌面端浏览器页推迟，不改其决定。 |
 
 ## 备选方案
